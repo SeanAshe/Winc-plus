@@ -65,6 +65,9 @@ pub fn icon_groups(groups: &[(u16, &[u8])]) -> Option<Vec<u8>> {
 }
 
 /// 把已经编码好的 PNG（`(边长, 文件内容)`）包成 ICO。边长 256 在目录里写成 0。
+///
+/// 构建脚本用来生成文件图标。`xtask` 的测试只检查已经提交的 ICO，不走这条路径。
+#[cfg_attr(test, allow(dead_code))]
 pub fn pngs_to_ico(images: &[(u32, Vec<u8>)]) -> Vec<u8> {
     let mut ico = vec![0, 0, 1, 0];
     ico.extend((images.len() as u16).to_le_bytes());

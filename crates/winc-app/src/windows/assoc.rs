@@ -239,8 +239,8 @@ fn effective_progid(ext: &str) -> Option<String> {
     if let Some(id) = user_choice(ext) {
         return Some(id);
     }
-    if let Some(id) = read_value(&format!(r"Software\Classes\{ext}"), None)
-        .filter(|id| !id.is_empty())
+    if let Some(id) =
+        read_value(&format!(r"Software\Classes\{ext}"), None).filter(|id| !id.is_empty())
     {
         return Some(id);
     }
