@@ -25,6 +25,8 @@ mod macos;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod portal;
 mod system;
+#[cfg(any(windows, test))]
+mod shell_icons;
 mod theme;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod trash;
@@ -63,6 +65,16 @@ fn main() {
             println!("{}", cli::usage());
             return;
         }
+        // 安装、卸载时只登记或去掉文件类型，不打开窗口。
+        Ok(args) if args.register_file_types || args.unregister_file_types => {
+            #[cfg(windows)]
+            if args.unregister_file_types {
+                windows::unregister_file_types();
+            } else {
+                windows::register_file_types();
+            }
+            return;
+        }
         Ok(args) => args,
         Err(message) => {
             eprintln!("{message}");
@@ -72,6 +84,11 @@ fn main() {
 
     let bench = Bench::from_env();
     bench.on_start();
+    // 测量时不写注册表、不让资源管理器重画图标。
+    #[cfg(windows)]
+    if !bench.silent() {
+        windows::register_file_icons();
+    }
 
     // 配置必须在加载字体之前读出，第一帧即使用用户指定的字体和字号。读入配置时的问题按系统语言
     // 描述（语言已在处理参数之前设定），界面语言随后按配置设定。

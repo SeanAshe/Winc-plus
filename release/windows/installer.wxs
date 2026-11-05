@@ -42,5 +42,17 @@
       <ComponentRef Id="Application"/><ComponentRef Id="TerminalHelper"/><ComponentRef Id="InstallationKind"/>
       <ComponentRef Id="License"/><ComponentRef Id="Notice"/><ComponentRef Id="StartMenu"/>
     </Feature>
+    <!-- Register text file types after the executable is on disk; remove them before it is deleted. -->
+    <!-- Deferred and impersonated so per-machine setup still writes the installing user's HKCU. -->
+    <CustomAction Id="RegisterFileTypes" Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[INSTALLFOLDER]winc.exe&quot; --register-file-types"
+                  Execute="deferred" Impersonate="yes" Return="ignore"/>
+    <CustomAction Id="UnregisterFileTypes" Directory="INSTALLFOLDER"
+                  ExeCommand="&quot;[INSTALLFOLDER]winc.exe&quot; --unregister-file-types"
+                  Execute="deferred" Impersonate="yes" Return="ignore"/>
+    <InstallExecuteSequence>
+      <Custom Action="RegisterFileTypes" After="InstallFiles">NOT REMOVE</Custom>
+      <Custom Action="UnregisterFileTypes" Before="RemoveFiles">REMOVE~="ALL"</Custom>
+    </InstallExecuteSequence>
   </Product>
 </Wix>

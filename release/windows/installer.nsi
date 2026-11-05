@@ -51,10 +51,19 @@ Section "winc" SEC_MAIN
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\winc" "NoModify" 1
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\winc" "NoRepair" 1
   CreateShortcut "$SMPROGRAMS\winc.lnk" "$INSTDIR\winc.exe" "" "$INSTDIR\winc.ico"
+  ; ProgIDs, file icons and Open With entries. Failure here must not roll back the copy.
+  ClearErrors
+  ExecWait '"$INSTDIR\winc.exe" --register-file-types'
+  ClearErrors
 SectionEnd
 
 Section "Uninstall"
   SetShellVarContext current
+  IfFileExists "$INSTDIR\winc.exe" 0 uninstall_files
+    ClearErrors
+    ExecWait '"$INSTDIR\winc.exe" --unregister-file-types'
+    ClearErrors
+uninstall_files:
   Delete "$SMPROGRAMS\winc.lnk"
   Delete "$INSTDIR\winc.exe"
   Delete "$INSTDIR\winc-pty.exe"

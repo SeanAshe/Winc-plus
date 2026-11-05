@@ -33,6 +33,12 @@ fn files_lines_and_options() {
     assert!(parsed.new_instance && !parsed.one_off());
     assert_eq!(parsed.targets, [at(".", None, None)]);
     assert!(args(&["--new-instance"]).unwrap().new_instance);
+    assert!(args(&["--register-file-types"]).unwrap().register_file_types);
+    assert!(
+        args(&["--unregister-file-types"])
+            .unwrap()
+            .unregister_file_types
+    );
     // `--` 之后的参数都按文件处理，包括 `-x`。
     assert_eq!(args(&["--", "-x"]).unwrap().targets, [at("-x", None, None)]);
     // 行号为 0、行号不是数字、冒号前的路径为空时，不拆分。

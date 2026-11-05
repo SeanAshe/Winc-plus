@@ -35,6 +35,10 @@ pub struct Args {
     /// `-n`、`--new-instance`：不交给正在运行的 winc，由当前进程新建实例；也不接收之后启动的
     /// winc 交来的目录和文件。
     pub new_instance: bool,
+    /// `--register-file-types`：安装程序用来登记文件类型，登记后退出，不打开窗口。
+    pub register_file_types: bool,
+    /// `--unregister-file-types`：卸载程序用来去掉这些文件类型，完成后退出。
+    pub unregister_file_types: bool,
 }
 
 impl Args {
@@ -70,6 +74,14 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Args, String> {
                 }
                 Some("-n" | "--new-instance") => {
                     parsed.new_instance = true;
+                    continue;
+                }
+                Some("--register-file-types") => {
+                    parsed.register_file_types = true;
+                    continue;
+                }
+                Some("--unregister-file-types") => {
+                    parsed.unregister_file_types = true;
                     continue;
                 }
                 Some("-") => {

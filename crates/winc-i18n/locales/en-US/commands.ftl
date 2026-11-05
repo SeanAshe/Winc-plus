@@ -183,8 +183,11 @@ cmd-cli-usage =
       winc -                Read standard input (e.g. cargo build 2>&1 | winc -)
       -w, --wait            Exit after all of the files’ tabs are closed (e.g. git config core.editor "winc -w")
       -n, --new-instance    Start a separate process instead of handing off to the running winc
+      --register-file-types Register file types and their icons, then exit (used by the installer)
+      --unregister-file-types Remove those file types, then exit (used by the uninstaller)
       -h, --help            Show this help
 cmd-cli-unknown-option = Unrecognized option “{ $flag }”
+cmd-file-type-name = { $name } file
 cmd-cli-wait-needs-file = --wait requires a file
 cmd-cli-wait-needs-openable-file = --wait requires at least one file that can be opened
 cmd-cli-wait-folder = “{ $path }” is a folder; --wait can only open files

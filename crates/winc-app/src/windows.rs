@@ -1,4 +1,6 @@
-//! Windows 上交由系统的两项操作。
+//! Windows 上交由系统的操作：回收站、接上控制台，以及文件类型图标。
+
+mod assoc;
 
 use std::io;
 use std::os::windows::ffi::OsStrExt;
@@ -8,6 +10,8 @@ use windows_sys::Win32::UI::Shell::{
     FO_DELETE, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT, FOF_WANTNUKEWARNING,
     SHFILEOPSTRUCTW, SHFileOperationW,
 };
+
+pub use assoc::{register_file_icons, register_file_types, unregister_file_types};
 
 /// 把文件或目录 `path` 移到回收站。
 ///

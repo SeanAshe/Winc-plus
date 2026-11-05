@@ -90,6 +90,39 @@ fn the_icon_becomes_resources_the_linker_accepts() {
 }
 
 #[test]
+fn each_icon_group_gets_its_own_image_ids() {
+    let ico = committed_ico();
+    let res = build_icon::icon_groups(&[(1, &ico), (2, &ico)]).unwrap();
+    let mut groups = Vec::new();
+    let mut images = Vec::new();
+    let mut at = 0;
+    while at < res.len() {
+        let long = |at: usize| u32::from_le_bytes(res[at..at + 4].try_into().unwrap());
+        let word = |at: usize| u16::from_le_bytes(res[at..at + 2].try_into().unwrap());
+        let (size, header) = (long(at) as usize, long(at + 4) as usize);
+        let (kind, name) = (word(at + 10), word(at + 14));
+        if kind == 3 {
+            images.push(name);
+        } else if kind == 14 {
+            groups.push(name);
+        }
+        at = (at + header + size).next_multiple_of(4);
+    }
+    assert_eq!(groups, [1, 2]);
+    assert_eq!(images, (1..=8).collect::<Vec<_>>());
+}
+
+#[test]
+fn a_file_icon_is_a_page_with_a_colored_band() {
+    let pixels = build_icon::draw_file_icon(48, "MD", 0x44709E);
+    assert_eq!(&pixels[..4], &[0, 0, 0, 0]);
+    assert!(pixels.chunks(4).any(|px| px == [0x44, 0x70, 0x9E, 255]));
+    let plain = build_icon::draw_file_icon(48, "", 0);
+    assert!(plain.chunks(4).any(|px| px[3] == 255));
+    assert!(!plain.chunks(4).any(|px| px == [0x44, 0x70, 0x9E, 255]));
+}
+
+#[test]
 fn a_file_that_is_not_an_icon_is_rejected() {
     assert_eq!(build_icon::icon_resources(b"not an icon", 1), None);
     // 目录项指向文件之外。

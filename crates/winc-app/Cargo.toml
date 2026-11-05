@@ -52,8 +52,12 @@ windows-sys = { version = "0.59", features = [
     "Win32_System_Console",
     "Win32_System_IO",
     "Win32_System_Pipes",
+    "Win32_System_Registry",
     "Win32_UI_Shell",
 ] }
+
+[build-dependencies]
+png = { workspace = true }
 
 # 其他平台上读剪贴板中的图片：arboard 把图片解码成 RGBA 像素，再由 winc-editor 编码为 PNG。
 # macOS 上直接取系统剪贴板中的 PNG（TIFF 由系统转换），不开该项，不带进图片编解码库。
