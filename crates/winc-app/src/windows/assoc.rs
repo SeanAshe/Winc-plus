@@ -299,6 +299,7 @@ struct Key(HKEY);
 impl Drop for Key {
     fn drop(&mut self) {
         if !self.0.is_null() {
+            // SAFETY: 句柄由 `open` 或 `create` 取得，离开作用域时关掉，且只关这一次。
             let _ = unsafe { RegCloseKey(self.0) };
         }
     }
