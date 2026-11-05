@@ -1,4 +1,4 @@
-//! 文件类型登记。安装时为文本扩展名建好 ProgID、文件图标和打开命令（参照 Notepads 的文件类型清单）；
+//! 文件类型登记。安装时为文本扩展名建好 `ProgID`、文件图标和打开命令（参照 Notepads 的文件类型清单）；
 //! 平时启动只刷新已经由 winc 打开的那些类型。别的程序占着的默认关联不改。
 
 #![allow(unsafe_code)]
@@ -43,9 +43,9 @@ pub fn register_file_icons() {
     }
 }
 
-/// 安装程序登记全部文本文件类型：每种扩展名一条 ProgID、文件图标，并出现在「打开方式」里。
+/// 安装程序登记全部文本文件类型：每种扩展名一条 `ProgID`、文件图标，并出现在「打开方式」里。
 ///
-/// 还没有默认程序，或者默认程序已经是 winc 时，把默认程序设成这条 ProgID，资源管理器才会显示文件图标。
+/// 还没有默认程序，或者默认程序已经是 winc 时，把默认程序设成这条 `ProgID`，资源管理器才会显示文件图标。
 /// 别的程序占着的（例如用户选过的 VS Code）只加入可选列表。
 pub fn register_file_types() {
     let Ok(exe) = std::env::current_exe() else {
@@ -127,7 +127,7 @@ pub fn unregister_file_types() {
     }
 }
 
-/// 为扩展名 `ext`（不带点）写 ProgID、图标和「打开方式」。
+/// 为扩展名 `ext`（不带点）写 `ProgID`、图标和「打开方式」。
 fn register_type(exe: &Path, ext: &str, label: &str, launch: &str) -> bool {
     let progid = format!("Winc.{ext}");
     let class = format!(r"Software\Classes\{progid}");
@@ -183,7 +183,7 @@ fn register_extension(exe: &Path, ext: &str) -> bool {
     let icon = icon_of(exe, id_for_extension(ext));
     let launch = launch_command(exe);
     // `Applications\winc.exe` 是所有扩展名共用的一条，放不进各自的文件图标。
-    // 没有用户选择（UserChoice）时改成这条扩展名自己的 ProgID。
+    // 没有用户选择（UserChoice）时改成这条扩展名自己的 `ProgID`。
     if progid.eq_ignore_ascii_case(r"Applications\winc.exe") {
         if user_choice(ext).is_some() {
             return false;
@@ -234,15 +234,15 @@ fn extensions() -> Vec<String> {
     names
 }
 
-/// 决定这个扩展名用哪条 ProgID：用户选择优先，其次是类登记，最后是 Windows 11 的 Latest。
+/// 决定这个扩展名用哪条 `ProgID`：用户选择优先，其次是类登记，最后是 Windows 11 的 Latest。
 fn effective_progid(ext: &str) -> Option<String> {
     if let Some(id) = user_choice(ext) {
         return Some(id);
     }
-    if let Some(id) = read_value(&format!(r"Software\Classes\{ext}"), None) {
-        if !id.is_empty() {
-            return Some(id);
-        }
+    if let Some(id) = read_value(&format!(r"Software\Classes\{ext}"), None)
+        .filter(|id| !id.is_empty())
+    {
+        return Some(id);
     }
     let path = format!(
         "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\{ext}\\UserChoiceLatest"
@@ -250,7 +250,7 @@ fn effective_progid(ext: &str) -> Option<String> {
     read_value(&format!("{path}\\ProgId"), Some("ProgId")).filter(|id| !id.is_empty())
 }
 
-/// `UserChoice` 里的 ProgID。有这一项时它压过类登记，不能改默认程序，只能改图标。
+/// `UserChoice` 里的 `ProgID`。有这一项时它压过类登记，不能改默认程序，只能改图标。
 fn user_choice(ext: &str) -> Option<String> {
     read_value(
         &format!(r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\{ext}\UserChoice"),
@@ -259,7 +259,7 @@ fn user_choice(ext: &str) -> Option<String> {
     .filter(|id| !id.is_empty())
 }
 
-/// ProgID 的打开命令。
+/// `ProgID` 的打开命令。
 fn open_command(progid: &str) -> Option<String> {
     read_value(
         &format!(r"Software\Classes\{progid}\shell\open\command"),

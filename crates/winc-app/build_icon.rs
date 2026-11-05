@@ -16,6 +16,8 @@ const ICO_ENTRY: usize = 16;
 /// 把 ICO 文件的内容 `ico` 转换成 `.res` 文件的内容；图标组的编号是 `group`。
 ///
 /// 各尺寸的编号从 1 起。文件头不合法或目录项超出文件范围时返回 `None`。
+/// 构建脚本用 [`icon_groups`]；这个单组入口留给 `xtask` 的测试。
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn icon_resources(ico: &[u8], group: u16) -> Option<Vec<u8>> {
     icon_groups(&[(group, ico)])
 }
@@ -85,7 +87,7 @@ pub fn pngs_to_ico(images: &[(u32, Vec<u8>)]) -> Vec<u8> {
 /// 画一张 Notepads 那种文件图标：浅色折角纸，下面一条写着 `label` 的色带。
 ///
 /// `label` 为空时不画色带，只在纸上画三行，当作没有专门图标的类型。`color` 是色带的
-/// `0xRRGGBB`。返回 `size`×`size` 的 RGBA，直线向下，每像素 4 字节。
+/// `0xRR_GG_BB`。返回 `size`×`size` 的 RGBA，直线向下，每像素 4 字节。
 pub fn draw_file_icon(size: u32, label: &str, color: u32) -> Vec<u8> {
     let size = size.max(1);
     let mut pixels = vec![0u8; size as usize * size as usize * 4];
@@ -106,7 +108,7 @@ pub fn draw_file_icon(size: u32, label: &str, color: u32) -> Vec<u8> {
             let (ax, ay) = (page.0 + page.2 - fold, page.1);
             let (bx, by) = (page.0 + page.2, page.1);
             let (cx, cy) = (page.0 + page.2, page.1 + fold);
-            if page_cover > 0.0 && in_triangle(px, py, ax, ay, bx, by, cx, cy) {
+            if page_cover > 0.0 && in_triangle((px, py), (ax, ay), (bx, by), (cx, cy)) {
                 blend(&mut pixels[at..at + 4], [186, 192, 200, 255], 1.0);
             }
             if label.is_empty() {
@@ -168,8 +170,12 @@ fn round_rect(px: f32, py: f32, x: f32, y: f32, w: f32, h: f32, radius: f32) -> 
     (0.5 - (outside + inside - radius)).clamp(0.0, 1.0)
 }
 
-/// `(px, py)` 是否在三角形 `(ax, ay)-(bx, by)-(cx, cy)` 内（含边界）。
-fn in_triangle(px: f32, py: f32, ax: f32, ay: f32, bx: f32, by: f32, cx: f32, cy: f32) -> bool {
+/// 点 `p` 是否在三角形 `a`-`b`-`c` 内（含边界）。
+fn in_triangle(p: (f32, f32), a: (f32, f32), b: (f32, f32), c: (f32, f32)) -> bool {
+    let (px, py) = p;
+    let (ax, ay) = a;
+    let (bx, by) = b;
+    let (cx, cy) = c;
     let side = |x1: f32, y1: f32, x2: f32, y2: f32| (px - x2) * (y1 - y2) - (x1 - x2) * (py - y2);
     let (ab, bc, ca) = (
         side(ax, ay, bx, by),
@@ -211,9 +217,9 @@ fn blit_label(pixels: &mut [u8], size: u32, label: &str, banner: (f32, f32, f32,
     for (index, ch) in chars.iter().enumerate() {
         let glyph = glyph(*ch);
         let gx = origin_x + index as f32 * 6.0 * scale;
-        for row in 0..7 {
+        for (row, bits) in glyph.iter().enumerate() {
             for col in 0..5 {
-                if glyph[row] & (1u8 << (4 - col)) == 0 {
+                if *bits & (1u8 << (4 - col)) == 0 {
                     continue;
                 }
                 fill_rect(

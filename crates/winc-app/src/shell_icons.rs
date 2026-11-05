@@ -9,7 +9,7 @@
 /// 应用图标的资源编号。窗口、任务栏和「打开方式」都用它。
 pub const APP_ICON_ID: u16 = 1;
 
-/// 一种文件图标：色带上的字、色带颜色（`0xRRGGBB`）、共用这张图标的扩展名（不带点、小写）。
+/// 一种文件图标：色带上的字、色带颜色（`0xRR_GG_BB`）、共用这张图标的扩展名（不带点、小写）。
 pub struct FileIcon {
     /// 色带上的字。空字符串表示一张只有横线的通用纸。
     pub label: &'static str,
@@ -23,137 +23,137 @@ pub struct FileIcon {
 pub const FILE_ICONS: &[FileIcon] = &[
     FileIcon {
         label: "MD",
-        color: 0x4470_9E,
+        color: 0x44_70_9E,
         extensions: &["md", "markdown", "mdx", "mkd", "mdown"],
     },
     FileIcon {
         label: "TXT",
-        color: 0x5F65_70,
+        color: 0x5F_65_70,
         extensions: &["txt", "text", "log", "rst", "adoc"],
     },
     FileIcon {
         label: "JSON",
-        color: 0x9370_0F,
+        color: 0x93_70_0F,
         extensions: &["json", "jsonc", "json5", "jsonl"],
     },
     FileIcon {
         label: "YML",
-        color: 0xB23A_3A,
+        color: 0xB2_3A_3A,
         extensions: &["yml", "yaml"],
     },
     FileIcon {
         label: "TOML",
-        color: 0x9A5A_25,
+        color: 0x9A_5A_25,
         extensions: &["toml"],
     },
     FileIcon {
         label: "XML",
-        color: 0xB04F_24,
+        color: 0xB0_4F_24,
         extensions: &["xml", "svg", "xsl"],
     },
     FileIcon {
         label: "HTML",
-        color: 0xB04F_24,
+        color: 0xB0_4F_24,
         extensions: &["html", "htm", "xhtml"],
     },
     FileIcon {
         label: "CSS",
-        color: 0x2F68_A8,
+        color: 0x2F_68_A8,
         extensions: &["css", "scss", "less", "sass"],
     },
     FileIcon {
         label: "JS",
-        color: 0x9A7A_0E,
+        color: 0x9A_7A_0E,
         extensions: &["js", "mjs", "cjs", "jsx"],
     },
     FileIcon {
         label: "TS",
-        color: 0x2D62_B0,
+        color: 0x2D_62_B0,
         extensions: &["ts", "tsx", "mts", "cts"],
     },
     FileIcon {
         label: "PY",
-        color: 0x2F6F_B0,
+        color: 0x2F_6F_B0,
         extensions: &["py", "pyi", "pyw"],
     },
     FileIcon {
         label: "RS",
-        color: 0xB455_1E,
+        color: 0xB4_55_1E,
         extensions: &["rs"],
     },
     FileIcon {
         label: "GO",
-        color: 0x1C7F_99,
+        color: 0x1C_7F_99,
         extensions: &["go"],
     },
     FileIcon {
         label: "C",
-        color: 0x4A65_A0,
+        color: 0x4A_65_A0,
         extensions: &["c", "h"],
     },
     FileIcon {
         label: "C++",
-        color: 0x4A65_A0,
+        color: 0x4A_65_A0,
         extensions: &["cpp", "cc", "cxx", "hpp", "hh", "hxx"],
     },
     FileIcon {
         label: "C#",
-        color: 0x5A47_B0,
+        color: 0x5A_47_B0,
         extensions: &["cs"],
     },
     FileIcon {
         label: "JAVA",
-        color: 0xA952_1D,
+        color: 0xA9_52_1D,
         extensions: &["java"],
     },
     FileIcon {
         label: "KT",
-        color: 0x7246_B5,
+        color: 0x72_46_B5,
         extensions: &["kt", "kts"],
     },
     FileIcon {
         label: "RB",
-        color: 0xB23A_3A,
+        color: 0xB2_3A_3A,
         extensions: &["rb"],
     },
     FileIcon {
         label: "PHP",
-        color: 0x4D5A_A0,
+        color: 0x4D_5A_A0,
         extensions: &["php"],
     },
     FileIcon {
         label: "LUA",
-        color: 0x2A4F_B0,
+        color: 0x2A_4F_B0,
         extensions: &["lua"],
     },
     FileIcon {
         label: "SH",
-        color: 0x3D7F_35,
+        color: 0x3D_7F_35,
         extensions: &["sh", "bash", "zsh", "ps1", "bat", "cmd"],
     },
     FileIcon {
         label: "SQL",
-        color: 0x9370_0F,
+        color: 0x93_70_0F,
         extensions: &["sql"],
     },
     FileIcon {
         label: "CSV",
-        color: 0x2E85_40,
+        color: 0x2E_85_40,
         extensions: &["csv", "tsv"],
     },
     FileIcon {
         label: "CFG",
-        color: 0x5F65_70,
+        color: 0x5F_65_70,
         extensions: &["ini", "cfg", "conf", "config"],
     },
     FileIcon {
         label: "GIT",
-        color: 0xC444_2E,
+        color: 0xC4_44_2E,
         extensions: &["gitignore", "gitattributes", "gitmodules"],
     },
     FileIcon {
         label: "ENV",
-        color: 0x9370_0F,
+        color: 0x93_70_0F,
         extensions: &["env"],
     },
     FileIcon {
@@ -179,7 +179,7 @@ pub fn id_for_extension(ext: &str) -> u16 {
 
 /// 安装时是否把扩展名的默认程序设成 `ours`。
 ///
-/// 还没有默认程序，或者已经是 winc（包括这条 ProgID 本身）时可以登记。别的程序占着时不抢。
+/// 还没有默认程序，或者已经是 winc（包括这条 `ProgID` 本身）时可以登记。别的程序占着时不抢。
 pub fn claims_extension(current: Option<&str>, command: Option<&str>, ours: &str) -> bool {
     match current.map(str::trim).filter(|id| !id.is_empty()) {
         None => true,
