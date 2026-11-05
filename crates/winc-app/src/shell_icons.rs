@@ -198,9 +198,8 @@ pub fn command_targets_winc(command: &str) -> bool {
     let Some(path) = command_path(command) else {
         return false;
     };
-    std::path::Path::new(path)
-        .file_name()
-        .is_some_and(|name| name.eq_ignore_ascii_case("winc.exe"))
+    // 注册表里是 Windows 路径。测试也在 macOS、Linux 上跑，不能用本机的路径分隔符。
+    path.rsplit(['\\', '/']).next().is_some_and(|name| name.eq_ignore_ascii_case("winc.exe"))
 }
 
 /// 取出打开命令里的可执行文件路径：有引号时取第一对引号里的，否则取第一个词。
