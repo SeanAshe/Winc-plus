@@ -756,6 +756,14 @@ impl App {
             | MenuCommand::GitPull
             | MenuCommand::GitContinue
             | MenuCommand::GitAbort => self.git_label(command),
+            // 编辑器字体的「默认」是 Maple Mono NF CN；界面字体仍是系统默认。
+            MenuCommand::FontDefault => {
+                let title = match self.context_menu.as_ref().map(|menu| &menu.target) {
+                    Some(MenuTarget::Font(Setting::EditorFont)) => winc_render::DEFAULT_EDITOR_FONT,
+                    _ => t!("settings-font-default"),
+                };
+                MenuLabel::plain(title)
+            }
             _ => MenuLabel::plain(command.label()),
         }
     }

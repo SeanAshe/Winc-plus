@@ -411,12 +411,7 @@ impl MenuCommand {
             MenuCommand::Locale(i) => winc_i18n::LocaleChoice::ALL
                 .get(i)
                 .map_or("", |&choice| crate::layout::locale_label(choice)),
-            MenuCommand::FontDefault => match self.context_menu.as_ref().map(|menu| &menu.target) {
-                Some(MenuTarget::Font(crate::layout::Setting::EditorFont)) => {
-                    winc_render::DEFAULT_EDITOR_FONT
-                }
-                _ => t!("settings-font-default"),
-            },
+            MenuCommand::FontDefault => t!("settings-font-default"),
             MenuCommand::Font(i) => winc_render::installed_fonts()
                 .get(i)
                 .map_or("", |family| family.name.as_str()),
