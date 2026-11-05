@@ -247,16 +247,13 @@ fn effective_progid(ext: &str) -> Option<String> {
     let path = format!(
         "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\{ext}\\UserChoiceLatest"
     );
-    read_value(&format!("{path}\\ProgId"), Some("ProgId"))
-    .filter(|id| !id.is_empty())
+    read_value(&format!("{path}\\ProgId"), Some("ProgId")).filter(|id| !id.is_empty())
 }
 
 /// `UserChoice` 里的 ProgID。有这一项时它压过类登记，不能改默认程序，只能改图标。
 fn user_choice(ext: &str) -> Option<String> {
     read_value(
-        &format!(
-            r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\{ext}\UserChoice"
-        ),
+        &format!(r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\{ext}\UserChoice"),
         Some("ProgId"),
     )
     .filter(|id| !id.is_empty())
@@ -454,5 +451,8 @@ fn notify_shell() {
 }
 
 fn wide(text: &str) -> Vec<u16> {
-    std::ffi::OsStr::new(text).encode_wide().chain([0]).collect()
+    std::ffi::OsStr::new(text)
+        .encode_wide()
+        .chain([0])
+        .collect()
 }

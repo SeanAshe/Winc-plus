@@ -24,9 +24,9 @@ mod layout;
 mod macos;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod portal;
-mod system;
 #[cfg(any(windows, test))]
 mod shell_icons;
+mod system;
 mod theme;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod trash;

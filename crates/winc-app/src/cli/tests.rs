@@ -33,7 +33,11 @@ fn files_lines_and_options() {
     assert!(parsed.new_instance && !parsed.one_off());
     assert_eq!(parsed.targets, [at(".", None, None)]);
     assert!(args(&["--new-instance"]).unwrap().new_instance);
-    assert!(args(&["--register-file-types"]).unwrap().register_file_types);
+    assert!(
+        args(&["--register-file-types"])
+            .unwrap()
+            .register_file_types
+    );
     assert!(
         args(&["--unregister-file-types"])
             .unwrap()
