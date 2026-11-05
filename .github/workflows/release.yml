@@ -110,7 +110,7 @@ jobs:
           path: release-assets
           merge-multiple: true
       # One writer creates the draft and SHA256SUMS only after all four targets pass
-      # verification. Publishing the draft, and deploying it to winc.si, remain human steps.
+      # verification. Publishing the draft remains a human step; the app reads updates from this repository's Releases.
       - name: Upload release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

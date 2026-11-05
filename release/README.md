@@ -88,20 +88,16 @@ Each release also has four signed appcasts for the in-app updater: `appcast-maco
 AppImage, and the NSIS and MSI installers, each with its EdDSA signature; the deb and the portable
 zip are downloads only. `SHA256SUMS` covers every file.
 
-### Update channel (winc.si)
+### Update channel
 
-The workflows only produce these files; winc.si deploys them and serves the update channel. The
-contract between the two:
-
-| Version | Channel URL built into the app |
-| --- | --- |
-| Release, such as `1.2.0` | `https://winc.si/releases` |
-| Prerelease, such as `1.2.0-beta.1` | `https://winc.si/releases/beta` |
+The in-app updater reads this repository's GitHub Releases. The channel URL built into the app is
+`https://github.com/SeanAshe/Winc-plus/releases/latest/download` for both releases and prereleases
+(`releases/latest` is the newest non-prerelease).
 
 The app reads `<channel URL>/appcast-<platform>.xml`, and each appcast's download URLs are
-`<channel URL>/<file name>`. To ship a version, deploy its appcasts and the files they list to that
-URL. Appcasts are signed, so winc.si must serve them unchanged. The channel URL is defined once,
-in `channelBase` in `release/common/config.mjs`.
+`<channel URL>/<file name>`. Publishing a GitHub Release that contains the appcasts and the
+packages they list ships the update. Appcasts are signed, so those assets must be uploaded
+unchanged. The channel URL is defined once, in `channelBase` in `release/common/config.mjs`.
 
 Windows NSIS installations are per-user; MSI installations are per-machine and use the fixed
 UpgradeCode `00FDC6A5-D527-59AE-B4A5-E051B25222F3`. Do not change it between releases. Each installer

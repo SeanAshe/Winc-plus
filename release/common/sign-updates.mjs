@@ -8,7 +8,7 @@ import { signingKey, signBytes, signFeed, verifyFeed, verificationKey, publicKey
 
 const escape = (value) => String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 
-// Download URLs point at the update channel on winc.si, which serves each version's files.
+// Download URLs point at this repository's GitHub Releases (latest/download).
 function signUpdates({ platform, version, bundle, key }) {
   const specs = releaseAssets(platform, version);
   const packages = specs.filter((spec) => spec.update);

@@ -78,7 +78,7 @@ function releaseNotes(version) {
 | Windows · x86_64 · MSI | \`${stem}-windows-x64.msi\` |
 | Windows · x86_64 · Portable | \`${stem}-windows-x64-portable.zip\` |
 
-Checksums are in \`SHA256SUMS\`. The signed \`appcast-*.xml\` files are the in-app update feeds deployed to winc.si.
+Checksums are in \`SHA256SUMS\`. The signed \`appcast-*.xml\` files are the in-app update feeds served from this repository's GitHub Releases.
 `;
 }
 
