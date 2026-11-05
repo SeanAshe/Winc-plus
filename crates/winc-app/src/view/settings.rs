@@ -524,7 +524,10 @@ fn draw_field(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect
         Setting::FormatCommand(_) | Setting::FixCommand(_) => {
             (None, t!("settings-command-placeholder"))
         }
-        _ => (app.config.editor_font.clone(), t!("settings-font-default")),
+        _ => (
+            app.config.editor_font.clone(),
+            winc_render::DEFAULT_EDITOR_FONT,
+        ),
     };
     // 字体输入框的文字不进入右端的下拉按钮。
     let area = if font {

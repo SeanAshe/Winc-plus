@@ -716,6 +716,12 @@ impl Candidates {
         if let Some(font) = std::env::var_os("WINC_FONT") {
             mono.insert(0, FontFile::first(font));
         }
+        // 没有指定编辑器字体时，优先用 Maple Mono NF CN；没安装则继续用后面的平台默认字体。
+        if mono.is_empty()
+            && let Some(file) = FontSpec::Name(crate::DEFAULT_EDITOR_FONT.to_owned()).resolve()
+        {
+            mono.push(file);
+        }
         let mut ui_paths = resolve_first(ui);
 
         let user_fonts = |name: &str| -> Vec<FontFile> {

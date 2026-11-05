@@ -777,7 +777,7 @@ fn a_font_can_be_chosen_from_the_menu() {
     app.context_menu = None;
     paint(&mut app);
 
-    // 编辑器字体直接列出等宽字体，其余字体在子菜单里；界面字体全部直接列出。
+    // 编辑器字体和界面字体都直接列出本机字族；编辑器把等宽字体排在前面。
     let fonts = winc_render::installed_fonts();
     let listed = |setting| {
         crate::app::input::context_menu::font_menu(setting)
@@ -791,10 +791,7 @@ fn a_font_can_be_chosen_from_the_menu() {
             .count()
     };
     assert_eq!(listed(Setting::UiFont), fonts.len());
-    assert_eq!(
-        listed(Setting::EditorFont),
-        fonts.iter().filter(|family| family.monospace).count()
-    );
+    assert_eq!(listed(Setting::EditorFont), fonts.len());
 
     #[cfg(target_os = "macos")]
     {

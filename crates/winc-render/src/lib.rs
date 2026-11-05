@@ -23,7 +23,7 @@ pub use draw::canvas::{Covered, Stroke};
 pub use draw::frame::Frame;
 pub use text::font::{FontKind, set_cjk_language};
 pub use text::font_list::{FontFamily, installed_fonts};
-pub use text::font_path::{FontError, FontSpec};
+pub use text::font_path::{DEFAULT_EDITOR_FONT, FontError, FontSpec};
 pub use text::outline::{OutlineFonts, OutlineGlyph, OutlineMetrics};
 
 use cache::{FastMap, Generations, StrokeCache};

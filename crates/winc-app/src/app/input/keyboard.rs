@@ -671,6 +671,9 @@ impl App {
             }
             Key::Named(NamedKey::Backspace) => self.edit_field(|f| f.delete(unit, false)),
             Key::Named(NamedKey::Delete) => self.edit_field(|f| f.delete(unit, true)),
+            // 空格在 Windows 上常常只有 `NamedKey::Space`、没有 `text`，字体名（Maple Mono NF CN）
+            // 需要它。
+            Key::Named(NamedKey::Space) if !cmd => self.edit_field(|f| f.insert(" ")),
             _ => {
                 if !cmd
                     && let Some(text) = &event.text

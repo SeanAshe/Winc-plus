@@ -480,30 +480,28 @@ pub fn locale_menu() -> Vec<MenuEntry> {
         .collect()
 }
 
-/// 返回字体菜单的菜单项：第一项是系统默认，然后是已安装的字族，当前的选择打勾。
+/// 返回字体菜单的菜单项：第一项是默认，然后是本机已安装的字族，当前的选择打勾。
 ///
-/// 编辑器字体直接列出等宽字体，其余字体收进子菜单；界面字体全部直接列出。
+/// 编辑器字体把等宽字体排在前面，其余字体紧随其后，都在同一级菜单里，不用再进子菜单。
+/// 界面字体按名字排列。
 pub fn font_menu(setting: Setting) -> Vec<MenuEntry> {
-    use MenuEntry::{Item, Separator, Submenu};
+    use MenuEntry::{Item, Separator};
 
     let item = |(i, _)| Item(MenuCommand::Font(i), true);
     let fonts = winc_render::installed_fonts().iter().enumerate();
-    let (first, rest): (Vec<_>, Vec<_>) = if setting == Setting::EditorFont {
+    let (mono, rest): (Vec<_>, Vec<_>) = if setting == Setting::EditorFont {
         fonts.partition(|(_, family)| family.monospace)
     } else {
         (fonts.collect(), Vec::new())
     };
     let mut menu = vec![Item(MenuCommand::FontDefault, true)];
-    if !first.is_empty() {
+    if !mono.is_empty() {
         menu.push(Separator);
-        menu.extend(first.into_iter().map(item));
+        menu.extend(mono.into_iter().map(item));
     }
     if !rest.is_empty() {
         menu.push(Separator);
-        menu.push(Submenu(
-            t!("settings-font-others").to_owned(),
-            rest.into_iter().map(item).collect(),
-        ));
+        menu.extend(rest.into_iter().map(item));
     }
     menu
 }

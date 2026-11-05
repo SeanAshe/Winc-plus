@@ -7,6 +7,9 @@ use std::path::PathBuf;
 
 use super::font_list::find_family;
 
+/// 未单独设置编辑器字体时优先使用的字族。系统里没有它时再改用平台自带的等宽字体。
+pub const DEFAULT_EDITOR_FONT: &str = "Maple Mono NF CN";
+
 /// 一次字体请求：按名字查系统，或直接使用给定的路径。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FontSpec {
