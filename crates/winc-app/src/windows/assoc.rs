@@ -35,7 +35,11 @@ pub fn register_file_icons() {
         r"Software\Classes\Applications\winc.exe\shell\open\command",
         &launch,
     );
+    changed |= release_skipped(&exe);
     for ext in extensions() {
+        if skipped_extension(&ext) {
+            continue;
+        }
         changed |= register_extension(&exe, &ext);
     }
     changed |= register_directory_menu(&exe);
@@ -88,9 +92,13 @@ pub fn register_file_types() {
     );
     for icon in FILE_ICONS {
         for ext in icon.extensions {
+            if skipped_extension(ext) {
+                continue;
+            }
             changed |= register_type(&exe, ext, icon.label, &launch);
         }
     }
+    changed |= release_skipped(&exe);
     changed |= register_directory_menu(&exe);
     if changed {
         notify_shell();
@@ -102,7 +110,7 @@ pub fn unregister_file_types() {
     let Ok(exe) = std::env::current_exe() else {
         return;
     };
-    let mut changed = false;
+    let mut changed = release_skipped(&exe);
     for icon in FILE_ICONS {
         for ext in icon.extensions {
             let progid = format!("Winc.{ext}");
@@ -128,6 +136,63 @@ pub fn unregister_file_types() {
     if changed {
         notify_shell();
     }
+}
+
+/// 不登记、也不接管打开方式的扩展名。`.bat` 交给系统的 `batfile`。
+const SKIPPED_EXTENSIONS: &[&str] = &["bat"];
+
+fn skipped_extension(ext: &str) -> bool {
+    let ext = ext.trim_start_matches('.');
+    SKIPPED_EXTENSIONS
+        .iter()
+        .any(|name| name.eq_ignore_ascii_case(ext))
+}
+
+/// 去掉本程序以前为 [`SKIPPED_EXTENSIONS`] 写下的关联，让系统原来的打开方式重新生效。
+fn release_skipped(exe: &Path) -> bool {
+    let mut changed = false;
+    for ext in SKIPPED_EXTENSIONS {
+        changed |= release_extension(exe, ext);
+    }
+    changed
+}
+
+/// 删掉扩展名 `ext`（不带点）上指向本程序的 `ProgID`。命令指向别的 winc.exe 时留着。
+fn release_extension(exe: &Path, ext: &str) -> bool {
+    let progid = format!("Winc.{ext}");
+    let dotted = format!(".{ext}");
+    let class = format!(r"Software\Classes\{dotted}");
+    let command = open_command(&progid);
+    let ours = command
+        .as_deref()
+        .is_some_and(|command| command_uses_this_exe(command, exe));
+    let claims_default = read_value(&class, None).as_deref() == Some(progid.as_str());
+    if !ours && !claims_default {
+        return false;
+    }
+    let mut changed = false;
+    if claims_default {
+        changed |= delete_value(&class, None);
+    }
+    changed |= delete_value(&format!(r"{class}\OpenWithProgids"), Some(&progid));
+    changed |= delete_value(
+        &format!(
+            r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\{dotted}\OpenWithProgids"
+        ),
+        Some(&progid),
+    );
+    changed |= delete_value(
+        r"Software\DEEIX\winc\Capabilities\FileAssociations",
+        Some(&dotted),
+    );
+    changed |= delete_value(
+        r"Software\Classes\Applications\winc.exe\SupportedTypes",
+        Some(&dotted),
+    );
+    if ours {
+        changed |= delete_tree(&format!(r"Software\Classes\{progid}"));
+    }
+    changed
 }
 
 /// 为扩展名 `ext`（不带点）写 `ProgID`、图标和「打开方式」。
