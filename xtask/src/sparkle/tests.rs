@@ -36,6 +36,23 @@ fn channels_and_key_come_from_the_file_unless_the_environment_sets_them() {
     assert_eq!(config.public_key, "abc+/=");
 }
 
+#[cfg(unix)]
+#[test]
+fn framework_is_intact_only_when_its_layout_symlinks_remain() {
+    let root = std::env::temp_dir().join(format!("winc-sparkle-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let framework = root.join("Sparkle.framework");
+    std::fs::create_dir_all(framework.join("Versions/B")).unwrap();
+    std::os::unix::fs::symlink("B", framework.join("Versions/Current")).unwrap();
+    std::os::unix::fs::symlink("Versions/Current/Sparkle", framework.join("Sparkle")).unwrap();
+    assert!(framework_intact(&root));
+
+    std::fs::remove_file(framework.join("Sparkle")).unwrap();
+    std::fs::write(framework.join("Sparkle"), "not a symlink").unwrap();
+    assert!(!framework_intact(&root));
+    std::fs::remove_dir_all(&root).unwrap();
+}
+
 #[test]
 fn info_plist_gets_update_keys_only_when_configured() {
     let empty = UpdateConfig::parse("WINC_UPDATE_CHANNELS=\"\"\n", |_| None);

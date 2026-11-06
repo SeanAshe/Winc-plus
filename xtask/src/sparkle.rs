@@ -26,7 +26,9 @@ const SHA256: &str = "1a856d2a9edb8e628de88121d7be04cf0e2167f8641650b78fca00b142
 pub fn unpacked() -> Result<PathBuf, String> {
     let dir = root().join("target/sparkle").join(VERSION);
     let unpacked = dir.join("x");
-    if unpacked.join("Sparkle.framework").is_dir() {
+    // 发布缓存还原 `target/` 时不保留框架里的符号链接。这样的目录仍然存在，
+    // 但 `codesign` 会报 bundle format unrecognized。符号链接还在才复用。
+    if framework_intact(&unpacked) {
         return Ok(unpacked);
     }
     let io = |e: std::io::Error| e.to_string();
@@ -63,6 +65,12 @@ pub fn unpacked() -> Result<PathBuf, String> {
         .arg("-C")
         .arg(&unpacked))?;
     Ok(unpacked)
+}
+
+/// `Sparkle.framework` 的标准布局是否还在：`Versions/Current` 和顶层 `Sparkle` 都是符号链接。
+fn framework_intact(unpacked: &Path) -> bool {
+    let framework = unpacked.join("Sparkle.framework");
+    framework.join("Versions/Current").is_symlink() && framework.join("Sparkle").is_symlink()
 }
 
 /// 把 `Sparkle.framework` 原样复制进应用包的 `Contents/Frameworks/`。
