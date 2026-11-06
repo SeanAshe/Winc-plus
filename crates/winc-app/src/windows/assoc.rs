@@ -186,9 +186,9 @@ fn register_extension(exe: &Path, ext: &str) -> bool {
     let icon = icon_of(exe, id_for_extension(ext));
     let launch = launch_command(exe);
     // `Applications\winc.exe` 是所有扩展名共用的一条，放不进各自的文件图标。
-    // 没有用户选择（UserChoice）时改成这条扩展名自己的 `ProgID`。
+    // 用户还没选定它时，改成这条扩展名自己的 `ProgID`。
     if progid.eq_ignore_ascii_case(r"Applications\winc.exe") {
-        if user_choice(ext).is_some() {
+        if user_choice(ext).is_some() || user_choice_latest(ext).is_some() {
             return false;
         }
         let own = format!("Winc.{}", ext.trim_start_matches('.'));
@@ -269,20 +269,27 @@ fn extensions() -> Vec<String> {
     names
 }
 
-/// 决定这个扩展名用哪条 `ProgID`：用户选择优先，其次是类登记，最后是 Windows 11 的 Latest。
+/// 决定这个扩展名用哪条 `ProgID`，顺序和资源管理器一致。
+///
+/// Windows 11 先看 `UserChoiceLatest`（在「打开方式」里选定之后，常见的是 `md_auto_file`），
+/// 没有再看旧的 `UserChoice`，最后才是 `Software\Classes` 里的类登记。类登记写成 `Winc.md`
+/// 时，外壳仍可能在用 `md_auto_file`；那条没有自己的图标，列表里就是应用程序图标。
 fn effective_progid(ext: &str) -> Option<String> {
+    if let Some(id) = user_choice_latest(ext) {
+        return Some(id);
+    }
     if let Some(id) = user_choice(ext) {
         return Some(id);
     }
-    if let Some(id) =
-        read_value(&format!(r"Software\Classes\{ext}"), None).filter(|id| !id.is_empty())
-    {
-        return Some(id);
-    }
+    read_value(&format!(r"Software\Classes\{ext}"), None).filter(|id| !id.is_empty())
+}
+
+/// Windows 11 `UserChoiceLatest` 里的 `ProgID`。有这一项时它压过类登记。
+fn user_choice_latest(ext: &str) -> Option<String> {
     let path = format!(
-        "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\{ext}\\UserChoiceLatest"
+        r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\{ext}\UserChoiceLatest\ProgId"
     );
-    read_value(&format!("{path}\\ProgId"), Some("ProgId")).filter(|id| !id.is_empty())
+    read_value(&path, Some("ProgId")).filter(|id| !id.is_empty())
 }
 
 /// `UserChoice` 里的 `ProgID`。有这一项时它压过类登记，不能改默认程序，只能改图标。
