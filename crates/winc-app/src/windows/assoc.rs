@@ -138,8 +138,8 @@ pub fn unregister_file_types() {
     }
 }
 
-/// 不登记、也不接管打开方式的扩展名。`.bat` 交给系统的 `batfile`。
-const SKIPPED_EXTENSIONS: &[&str] = &["bat"];
+/// 不登记、也不接管打开方式的扩展名。`.bat`、`.cmd` 交给系统的 `batfile`/`cmdfile`，`.ps1` 交给 PowerShell。
+const SKIPPED_EXTENSIONS: &[&str] = &["bat", "cmd", "ps1"];
 
 fn skipped_extension(ext: &str) -> bool {
     let ext = ext.trim_start_matches('.');
