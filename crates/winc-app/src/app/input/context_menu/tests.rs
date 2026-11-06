@@ -85,9 +85,7 @@ fn menus_depend_on_what_was_clicked() {
                 MenuEntry::Item(c, enabled) | MenuEntry::Alternate(c, enabled) => {
                     Some((c, enabled))
                 }
-                MenuEntry::Separator | MenuEntry::Submenu(..) | MenuEntry::CheckedSubmenu(..) => {
-                    None
-                }
+                MenuEntry::Separator | MenuEntry::Submenu(..) => None,
             })
             .collect()
     };

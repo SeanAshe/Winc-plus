@@ -4,6 +4,7 @@ use super::shape::Ligature;
 use super::*;
 use swash::FontRef;
 use swash::shape::ShapeContext;
+use swash::zeno::{Fill, Join, Mask, Origin, Placement, Stroke, Style};
 
 /// 字形缓存的键：同一字体槽位、字形、字号和亚像素档位对应同一张位图。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -259,6 +260,13 @@ fn rasterize(
         .hint(false)
         .normalized_coords(&face.coords)
         .build();
+    if key.bold
+        && !scaler.has_color_outlines()
+        && !scaler.has_color_bitmaps()
+        && let Some(glyph) = rasterize_bold(&mut scaler, key, size_px, dx)
+    {
+        return Some(glyph);
+    }
     let image = Render::new(&[
         Source::ColorOutline(0),
         Source::ColorBitmap(StrikeWith::BestFit),
@@ -289,6 +297,68 @@ fn rasterize(
         color: image.content == Content::Color,
         data: image.data.into_boxed_slice(),
     })
+}
+
+/// 把字形和宽 `size_px * BOLD_RATIO` 的描边合起来，得到模拟的粗体：两侧各加宽比例的一半。
+///
+/// 不沿轮廓方向偏移：组合字形的轮廓方向判断不可靠，判断反了时笔画会变细。描边只会向外扩展。
+fn rasterize_bold(
+    scaler: &mut swash::scale::Scaler,
+    key: GlyphKey,
+    size_px: f32,
+    dx: f32,
+) -> Option<Glyph> {
+    let mut outline = scaler.scale_outline(key.glyph)?;
+    if key.oblique {
+        outline.transform(&Transform::skew(
+            Angle::from_degrees(OBLIQUE_DEGREES),
+            Angle::from_degrees(0.0),
+        ));
+    }
+    let offset = Vector::new(dx, 0.0);
+    let render = |style: Style<'_>| {
+        Mask::new(outline.path())
+            .format(Format::Alpha)
+            .origin(Origin::BottomLeft)
+            .style(style)
+            .offset(offset)
+            .render_offset(offset)
+            // 先让它量好尺寸：否则返回的 `top` 没有算上高度。
+            .inspect(|_, _, _| {})
+            .render()
+    };
+    let mut stroke = Stroke::new(size_px * BOLD_RATIO);
+    stroke.join(Join::Miter);
+    let (mut data, placement) = render(Style::Stroke(stroke));
+    let (fill, inner) = render(Style::Fill(Fill::NonZero));
+    merge_coverage(&mut data, placement, &fill, inner);
+    Some(Glyph {
+        width: placement.width as u16,
+        height: placement.height as u16,
+        left: placement.left as i16,
+        top: placement.top as i16,
+        color: false,
+        data: data.into_boxed_slice(),
+    })
+}
+
+/// 把覆盖率位图 `src` 叠到 `dst` 上，每个像素取较大的值；超出 `dst` 的部分不要。
+fn merge_coverage(dst: &mut [u8], at: Placement, src: &[u8], from: Placement) {
+    let width = at.width as usize;
+    for (row, line) in src.chunks_exact((from.width as usize).max(1)).enumerate() {
+        let y = i64::from(at.top) - i64::from(from.top) + row as i64;
+        if y < 0 || y >= i64::from(at.height) {
+            continue;
+        }
+        for (column, &coverage) in line.iter().enumerate() {
+            let x = i64::from(from.left) - i64::from(at.left) + column as i64;
+            if x < 0 || x >= i64::from(at.width) {
+                continue;
+            }
+            let pixel = &mut dst[y as usize * width + x as usize];
+            *pixel = (*pixel).max(coverage);
+        }
+    }
 }
 
 #[cfg(test)]

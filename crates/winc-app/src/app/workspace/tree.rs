@@ -129,6 +129,19 @@ impl App {
         motion.clock.between(motion.from, target)
     }
 
+    /// 用状态文件里记下的侧栏宽度（启动、新开窗口时）。
+    pub(crate) fn restore_panel_width(&mut self) {
+        if let Some(width) = self.state.panel_width {
+            self.panel_width = width.max(crate::theme::MIN_PANEL_WIDTH);
+        }
+    }
+
+    /// 把侧栏宽度记进状态文件：以后打开的窗口、下次启动都用这个宽度。
+    pub(in crate::app) fn remember_panel_width(&mut self) {
+        let width = self.panel_width.round();
+        self.update_state(|state| state.panel_width = Some(width));
+    }
+
     /// 侧栏是否处于显示状态（动画的目标状态）。
     pub(crate) fn sidebar_open(&self) -> bool {
         self.panel_visible

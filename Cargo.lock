@@ -3057,7 +3057,7 @@ dependencies = [
 
 [[package]]
 name = "winc-app"
-version = "0.1.495"
+version = "0.1.503"
 dependencies = [
  "arboard",
  "block2 0.6.2",
@@ -3085,7 +3085,7 @@ dependencies = [
 
 [[package]]
 name = "winc-config"
-version = "0.1.495"
+version = "0.1.503"
 dependencies = [
  "libc",
  "winc-i18n",
@@ -3094,7 +3094,7 @@ dependencies = [
 
 [[package]]
 name = "winc-core"
-version = "0.1.495"
+version = "0.1.503"
 dependencies = [
  "ropey",
  "unicode-segmentation",
@@ -3103,7 +3103,7 @@ dependencies = [
 
 [[package]]
 name = "winc-editor"
-version = "0.1.495"
+version = "0.1.503"
 dependencies = [
  "chardetng",
  "encoding_rs",
@@ -3124,7 +3124,7 @@ dependencies = [
 
 [[package]]
 name = "winc-i18n"
-version = "0.1.495"
+version = "0.1.503"
 dependencies = [
  "fluent-bundle",
  "fluent-syntax",
@@ -3134,7 +3134,7 @@ dependencies = [
 
 [[package]]
 name = "winc-preview"
-version = "0.1.495"
+version = "0.1.503"
 dependencies = [
  "gif",
  "image-webp",
@@ -3152,7 +3152,7 @@ dependencies = [
 
 [[package]]
 name = "winc-pty"
-version = "0.1.495"
+version = "0.1.503"
 dependencies = [
  "libc",
  "unicode-width",
@@ -3162,7 +3162,7 @@ dependencies = [
 
 [[package]]
 name = "winc-render"
-version = "0.1.495"
+version = "0.1.503"
 dependencies = [
  "memmap2",
  "objc2 0.6.5",
@@ -3178,7 +3178,7 @@ dependencies = [
 
 [[package]]
 name = "winc-syntax"
-version = "0.1.495"
+version = "0.1.503"
 dependencies = [
  "ropey",
  "winc-core",
@@ -3481,7 +3481,7 @@ checksum = "b9cc00251562a284751c9973bace760d86c0276c471b4be569fe6b068ee97a56"
 
 [[package]]
 name = "xtask"
-version = "0.1.495"
+version = "0.1.503"
 dependencies = [
  "png",
  "winc-config",

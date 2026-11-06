@@ -290,6 +290,8 @@ pub(crate) fn picker_span(app: &App) -> f32 {
 pub(crate) fn picker_parts(app: &App, card: Rect) -> PickerParts {
     if app.picker_places.is_some() {
         PickerParts::places(card)
+    } else if app.picker_is_git() {
+        PickerParts::menu(card, crate::app::git::branch::picker::GIT_PICKER_FOOT)
     } else {
         PickerParts::new(card)
     }
@@ -303,6 +305,10 @@ pub(crate) fn picker_parts(app: &App, card: Rect) -> PickerParts {
 ///
 /// 文件索引尚未建好时，列表区显示「正在索引文件…」。
 pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
+    if app.picker_is_git() {
+        super::git::picker::draw(app, frame);
+        return;
+    }
     let rect = app.layout.picker;
     if rect.w <= 0.0 || rect.h <= 0.0 {
         return;

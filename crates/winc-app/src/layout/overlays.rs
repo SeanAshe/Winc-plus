@@ -92,6 +92,11 @@ impl SearchButton {
     }
 }
 
+/// 分支、位置选择器顶部一行的高度（逻辑像素）：`BUTTON_SMALL` 高的搜索框，上面留 6、下面留 4。
+pub const MENU_PICKER_BAR: f32 = 34.0;
+/// 分支、位置选择器列表下方的留白（逻辑像素）：和搜索框下面留的一样。
+pub const MENU_PICKER_PAD: f32 = 4.0;
+
 /// 快速打开面板（⌘P）的几何：上方是输入框所在的一行，下方是结果列表。
 ///
 /// 绘制、点击和滚动都用这份几何，保证绘制位置与点击位置一致。列表上下各留 [`PICKER_PAD`] 的留白，
@@ -116,6 +121,19 @@ impl PickerParts {
     /// 高 [`PLACES_FOOTER`] 的底栏。
     pub fn places(card: Rect) -> PickerParts {
         Self::with_footer(card, PLACES_FOOTER)
+    }
+
+    /// 根据分支、位置选择器的矩形 `card` 计算各部件的位置：顶部是内嵌搜索框的一行，列表紧接在下面，
+    /// 再往下是高 `footer` 的底栏。
+    pub fn menu(card: Rect, footer: f32) -> PickerParts {
+        let bar = MENU_PICKER_BAR.min(card.h);
+        let footer = footer.min((card.h - bar).max(0.0));
+        let list = (card.h - bar - MENU_PICKER_PAD - footer).max(0.0);
+        PickerParts {
+            bar: Rect::new(card.x, card.y, card.w, bar),
+            list: Rect::new(card.x, card.y + bar, card.w, list),
+            footer: Rect::new(card.x, card.bottom() - footer, card.w, footer),
+        }
     }
 
     fn with_footer(card: Rect, footer: f32) -> PickerParts {

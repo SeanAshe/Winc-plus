@@ -10,6 +10,7 @@ pub(crate) mod branch;
 pub(super) mod changes;
 pub(super) mod commit;
 pub(crate) mod form;
+pub(crate) mod location_picker;
 pub(crate) mod log;
 pub(crate) mod merge;
 pub(crate) mod worktree;
@@ -92,8 +93,14 @@ struct Outcome {
 struct Refs {
     /// 本地和远程分支，本地的在前。
     branches: Vec<Branch>,
+    /// 仓库配置的远程名。
+    remotes: Vec<String>,
+    /// 仓库的公共 Git 目录；取不到时为 `None`。
+    common_dir: Option<PathBuf>,
     /// 储藏，最新的在前。
     stashes: Vec<Stash>,
+    /// 最近切换到过的分支名，最近的在前。
+    recent_branches: Vec<String>,
     /// 取不到（git 太旧、超时）时为 `None`，保留此前的列表：否则被占用的分支、窗口标题、新建
     /// 工作树存放在哪儿都会跟着出错。
     worktrees: Option<Vec<Worktree>>,
@@ -146,29 +153,43 @@ struct DiffTab {
     oid: Option<String>,
 }
 
-/// 项目菜单最多读取分支和改动数的仓库数（个，经验值）：每个要运行一次 `git status`。
+/// 最多读取分支和改动数的位置数（个）：每个要运行一次 `git status`，放着很多仓库的目录不至于
+/// 在后台占用太多进程。
 const SUMMARY_REPOSITORIES: usize = 32;
+
+/// 后台深层查找的结果：（查找的目录，找到的仓库）。
+type ScannedRepositories = (PathBuf, Vec<PathBuf>);
 
 /// Git 模块的状态。
 pub(crate) struct GitState {
     /// 当前仓库的根目录；模块关着、目录里没有仓库时为 `None`。
     pub root: Option<PathBuf>,
-    /// 打开的目录里可用的仓库，见 [`App::git_discover`]；项目菜单在有多个时列出。
+    /// 打开的目录里可用的仓库，见 [`App::git_discover`]；位置选择器在有多个时列出。
     pub repositories: Vec<PathBuf>,
     /// 上次跟随的标签（[`App::git_follow_active`]）：切换标签时才查找文件所在的仓库。
     followed: Option<DocumentId>,
-    /// 各仓库最近一次读到的状态：项目菜单据此显示分支和改动数，切换过去时先显示它，不必等待。
+    /// 各仓库最近一次读到的状态：位置选择器据此显示分支和改动数，切换过去时先显示它，不必等待。
     summaries: Arc<Mutex<HashMap<PathBuf, Status>>>,
+    /// 各仓库最近一次读到的工作树：位置选择器据此把它们列在仓库下面。
+    summary_worktrees: Arc<Mutex<HashMap<PathBuf, Vec<Worktree>>>>,
     /// 正在运行的读取；重新读取时取消。
     summaries_running: Option<Cancel>,
+    /// 后台深层查找（[`App::git_scan_repositories`]）的结果。
+    scanned: Arc<Mutex<Option<ScannedRepositories>>>,
+    /// 正在运行的深层查找；重新查找时取消。
+    scan_running: Option<Cancel>,
     /// 找到的 git，第一次用到时在后台找，所有后台任务共用（[`SharedGit`]）。
     pub(super) tool: SharedGit,
     /// 最近一次成功的 `git status`。
     pub status: Option<Status>,
     /// 本地和远程分支（本地的在前），和状态一起刷新。
     pub branches: Vec<Branch>,
+    /// 仓库配置的远程名，和状态一起刷新。
+    pub remotes: Vec<String>,
     /// 储藏，最新的在前，和状态一起刷新。
     pub stashes: Vec<Stash>,
+    /// 最近切换到过的分支名，最近的在前，和状态一起刷新。
+    pub recent_branches: Vec<String>,
     /// 仓库的工作树，主工作树在最前面，和状态一起刷新；只有一个工作树时为空。
     pub worktrees: Vec<Worktree>,
     /// 最近一次刷新失败的原因（找不到 git、git 报错）；成功以后清掉。
@@ -209,11 +230,16 @@ impl Default for GitState {
             repositories: Vec::new(),
             followed: None,
             summaries: Arc::default(),
+            summary_worktrees: Arc::default(),
             summaries_running: None,
+            scanned: Arc::default(),
+            scan_running: None,
             tool: SharedGit::default(),
             status: None,
             branches: Vec::new(),
+            remotes: Vec::new(),
             stashes: Vec::new(),
+            recent_branches: Vec::new(),
             worktrees: Vec::new(),
             problem: None,
             generation: 0,
@@ -251,6 +277,21 @@ impl GitState {
             .any(|p| self.ignored_paths.contains(p))
     }
 
+    /// 换到仓库 `next` 之前清空状态。
+    ///
+    /// `next` 是同一个仓库的另一个工作树时，工作树列表和远程是共用的，留下来：徽章、位置行和同步
+    /// 控件在后台读完之前就是对的，不会闪一下。
+    pub(in crate::app) fn clear_for(&mut self, next: Option<&Path>) {
+        let same_repository = next.is_some_and(|next| self.shares_repository(next));
+        let worktrees = std::mem::take(&mut self.worktrees);
+        let remotes = std::mem::take(&mut self.remotes);
+        self.clear();
+        if same_repository {
+            self.worktrees = worktrees;
+            self.remotes = remotes;
+        }
+    }
+
     /// 停掉正在运行的刷新，清空状态。
     ///
     /// 找不到 git 的结论也清掉，下次重新找。
@@ -264,6 +305,7 @@ impl GitState {
         self.tool.forget();
         self.status = None;
         self.branches.clear();
+        self.remotes.clear();
         self.stashes.clear();
         self.worktrees.clear();
         self.problem = None;
@@ -365,18 +407,90 @@ impl App {
 
     /// 打开的目录变了、或者模块开关变了：重新确定仓库，并刷新一次。
     ///
-    /// 目录本身不是仓库、第一层子目录里有仓库时用第一个，其余的在项目菜单里切换。
+    /// 目录本身不是仓库、第一层子目录里有仓库时用第一个，其余的在位置选择器里切换；更深的仓库由
+    /// 后台查找（[`App::git_scan_repositories`]）加入。
     pub(super) fn git_folder_changed(&mut self) {
         self.git.repositories.clear();
         self.git.followed = None;
-        self.git
-            .summaries
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clear();
+        // 换到同一个仓库的另一个工作树时，读过的状态还有用：切过去马上能显示，不用等后台读完。
+        let same_repository = (self.editor.root()).is_some_and(|r| self.git.shares_repository(r));
+        if !same_repository {
+            self.git
+                .summaries
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clear();
+            self.git
+                .summary_worktrees
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .clear();
+        }
         self.git_discover();
         let root = self.git.repositories.first().cloned();
         self.git_set_root(root);
+        self.git_scan_repositories();
+    }
+
+    /// 在后台按配置的层数查找打开的目录下的仓库，找到的加入列表（[`App::git_take_scan`]）。
+    pub(in crate::app) fn git_scan_repositories(&mut self) {
+        if let Some(cancel) = self.git.scan_running.take() {
+            cancel.cancel();
+        }
+        let Some(dir) = self
+            .editor
+            .root()
+            .filter(|_| self.git_enabled())
+            .map(Path::to_path_buf)
+        else {
+            return;
+        };
+        let depth = self
+            .config
+            .repository_scan_depth
+            .unwrap_or(winc_config::Config::REPOSITORY_SCAN_DEPTH);
+        let cancel = Cancel::default();
+        self.git.scan_running = Some(cancel.clone());
+        let slot = Arc::clone(&self.git.scanned);
+        self.spawn_blocking_then(UserEvent::GitStatus, move || {
+            let found = git::scan_repositories(&dir, depth, &cancel);
+            if !cancel.is_cancelled() {
+                *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some((dir, found));
+            }
+        });
+    }
+
+    /// 收下后台查找的结果：新的仓库加在列表末尾（菜单、选择器按下标引用仓库，已有的下标不能变）；
+    /// 还没有当前仓库时用找到的第一个。
+    pub(in crate::app) fn git_take_scan(&mut self) {
+        let scanned = self
+            .git
+            .scanned
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take();
+        let Some((dir, found)) = scanned else {
+            return;
+        };
+        if self.editor.root() != Some(dir.as_path()) || !self.git_enabled() {
+            return;
+        }
+        let known = self.git.repositories.len();
+        for repo in found {
+            if !self.git.repositories.contains(&repo) {
+                self.git.repositories.push(repo);
+            }
+        }
+        if self.git.repositories.len() == known {
+            return;
+        }
+        self.git_read_summaries();
+        if self.git.root.is_none() {
+            let root = self.git.repositories.first().cloned();
+            self.git_set_root(root);
+        }
+        self.location_picker_refreshed();
+        self.request_redraw();
     }
 
     /// 重新查找打开的目录里的仓库；已经加入的（打开过其中文件的）只要还在就保留。
@@ -397,65 +511,53 @@ impl App {
         self.git_read_summaries();
     }
 
-    /// 在后台读取各仓库的分支和改动数，项目菜单下次打开时显示；只有一个仓库时不读。
+    /// 在后台读取各仓库的工作树，以及每个工作树的分支和改动数，位置选择器和位置行据此显示；只有
+    /// 一个位置时不读。
     ///
-    /// 系统菜单弹出后内容不能再变，因此提前读好。最多读 [`SUMMARY_REPOSITORIES`] 个。
-    fn git_read_summaries(&mut self) {
+    /// 最多读 [`SUMMARY_REPOSITORIES`] 个位置。
+    pub(in crate::app) fn git_read_summaries(&mut self) {
         if let Some(cancel) = self.git.summaries_running.take() {
             cancel.cancel();
         }
-        if self.git.repositories.len() < 2 {
+        if !self.git_has_locations() {
             return;
         }
         let cancel = Cancel::default();
         self.git.summaries_running = Some(cancel.clone());
         let repositories = self.git.repositories.clone();
         let summaries = Arc::clone(&self.git.summaries);
+        let worktrees = Arc::clone(&self.git.summary_worktrees);
         self.spawn_git(UserEvent::GitStatus, move |tool| {
             let Ok(git) = tool else {
                 return;
             };
-            for root in repositories.into_iter().take(SUMMARY_REPOSITORIES) {
-                if cancel.is_cancelled() {
-                    return;
-                }
-                if let Ok(status) = git.status(&root, &cancel) {
-                    summaries
-                        .lock()
-                        .unwrap_or_else(PoisonError::into_inner)
-                        .insert(root, status);
+            let mut left = SUMMARY_REPOSITORIES;
+            for root in repositories {
+                let trees = git.worktrees(&root, &cancel).unwrap_or_default();
+                let paths: Vec<PathBuf> = if trees.is_empty() {
+                    vec![root.clone()]
+                } else {
+                    let usable = trees.iter().filter(|w| w.head.is_some() && !w.prunable);
+                    usable.map(|w| w.path.clone()).collect()
+                };
+                worktrees
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .insert(root, trees);
+                for path in paths {
+                    if cancel.is_cancelled() || left == 0 {
+                        return;
+                    }
+                    left -= 1;
+                    if let Ok(status) = git.status(&path, &cancel) {
+                        summaries
+                            .lock()
+                            .unwrap_or_else(PoisonError::into_inner)
+                            .insert(path, status);
+                    }
                 }
             }
         });
-    }
-
-    /// 返回第 `index` 个仓库在项目菜单里的小字：分支和改动数；还没读到时为 `None`。当前仓库用
-    /// 最新的状态。
-    pub(in crate::app) fn git_repository_detail(&self, index: usize) -> Option<String> {
-        let repo = self.git.repositories.get(index)?;
-        let (head, changes) = match &self.git.status {
-            Some(status) if self.git.root.as_ref() == Some(repo) => {
-                (status.head.clone(), status.entries.len())
-            }
-            _ => {
-                let summaries = self
-                    .git
-                    .summaries
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner);
-                let status = summaries.get(repo)?;
-                (status.head.clone(), status.entries.len())
-            }
-        };
-        let head = match head? {
-            git::Head::Branch(name) => name,
-            git::Head::Detached(oid) => t!("git-worktree-detached", oid = oid.as_str()),
-        };
-        Some(if changes == 0 {
-            head
-        } else {
-            t!("git-repository-detail", head = head, count = changes)
-        })
     }
 
     /// 返回第 `index` 个仓库在菜单里显示的名字：相对打开的目录的路径，目录本身用目录名。
@@ -476,7 +578,7 @@ impl App {
         }
     }
 
-    /// 切换到项目菜单里的第 `index` 个仓库。
+    /// 切换到第 `index` 个仓库。
     pub(in crate::app) fn git_switch_repository(&mut self, index: usize) {
         if let Some(root) = self.git.repositories.get(index).cloned() {
             self.git_set_root(Some(root));
@@ -526,6 +628,10 @@ impl App {
         if root == self.git.root {
             return;
         }
+        // 写了一半的提交信息按位置留着，切回来时还在。
+        if let Some(old) = self.git.root.clone() {
+            self.commit.keep_draft(old);
+        }
         // 留下要离开的仓库的状态，切回来时马上能显示。
         if let (Some(old), Some(status)) = (self.git.root.clone(), self.git.status.take()) {
             self.git
@@ -536,19 +642,22 @@ impl App {
         }
         // 只是换一个仓库时 git 还是那个 git，不必重新查找，也不必重新检查已经检查过的仓库配置。
         let tool = root.as_ref().and(self.git.tool.get());
-        self.git.clear();
+        self.git.clear_for(root.as_deref());
         if let Some(tool) = tool {
             self.git.tool.keep(tool);
         }
         self.changes.forget();
         self.blame.clear();
         // 旧仓库还在做的分支操作、提交是那边的：这里不再显示「正在拉取…」、不拦着新仓库的操作，
-        // 写了一半的提交信息、「修改上一次提交」也不带过来。做完时只说一声（见 `poll_branch_ops`、
-        // `poll_commit`）。
+        // 「修改上一次提交」也不带过来。做完时只说一声（见 `poll_branch_ops`、`poll_commit`）。
         self.branch.running = None;
+        self.branch.finished = None;
         self.reset_commit_view();
         self.git.ignored = root.as_deref().map(Ignored::new);
         self.git.root = root;
+        if let Some(root) = self.git.root.clone() {
+            self.commit.restore_draft(&root);
+        }
         // 先显示上次读到的状态，后台读完以后再更新，提交视图不会闪成「正在读取」。
         let known = self.git.root.as_ref().and_then(|root| {
             self.git
@@ -640,7 +749,10 @@ impl App {
             let refs = match (&tool, &status) {
                 (Ok(git), Ok(_)) if refs => Some(Refs {
                     branches: git.branches(&root, &cancel).unwrap_or_default(),
+                    remotes: git.remotes(&root, &cancel).unwrap_or_default(),
+                    common_dir: git.common_dir(&root, &cancel).ok(),
                     stashes: git.stashes(&root, &cancel).unwrap_or_default(),
+                    recent_branches: git.recent_branches(&root, &cancel).unwrap_or_default(),
                     worktrees: git.worktrees(&root, &cancel).ok(),
                 }),
                 _ => None,
@@ -665,6 +777,7 @@ impl App {
 
     /// 收下后台刷新的结果；成功时顺带更新打开着的 Git 差异。
     pub(super) fn poll_git(&mut self) {
+        self.git_take_scan();
         let mut changed = false;
         let mut refreshed = false;
         while let Ok(outcome) = self.git.receiver.try_recv() {
@@ -694,13 +807,27 @@ impl App {
                     }
                     self.git.status = Some(status);
                     if let Some(refs) = outcome.refs {
-                        self.git.branches = refs.branches;
+                        let before = std::mem::replace(&mut self.git.branches, refs.branches);
                         self.git.stashes = refs.stashes;
+                        self.git.recent_branches = refs.recent_branches;
+                        self.git.remotes = refs.remotes;
+                        if let Some(watcher) = &mut self.watcher {
+                            watcher.watch_git_dir(refs.common_dir.as_deref());
+                        }
+                        self.branch_picker_refreshed(&before);
+                        let mut listed = false;
                         if let Some(worktrees) = refs.worktrees
                             && self.git.worktrees != worktrees
                         {
                             self.git.worktrees = worktrees;
+                            self.location_picker_refreshed();
                             self.update_window_title();
+                            listed = true;
+                        }
+                        // 其他位置也可能变了：`.git` 变了或用户点了刷新才走到这里。看不见它们时
+                        // 不读，切到提交视图、打开选择器时会读。
+                        if listed || self.commit_shown() || self.picker_lists_locations() {
+                            self.git_read_summaries();
                         }
                     }
                     self.git.problem = None;

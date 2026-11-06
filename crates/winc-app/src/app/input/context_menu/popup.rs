@@ -267,11 +267,11 @@ impl App {
                 }
                 // 按住 `⌥` 才出现的备选项不显示，只占一个编号。
                 MenuEntry::Alternate(..) => *numbered += 1,
-                MenuEntry::Submenu(title, items) | MenuEntry::CheckedSubmenu(title, items) => {
+                MenuEntry::Submenu(title, items) => {
                     let children = self.popup_rows(items, context, numbered);
                     rows.push(PopupRow::Submenu {
                         label: MenuLabel::plain(title),
-                        checked: matches!(entry, MenuEntry::CheckedSubmenu(..)),
+                        checked: false,
                         rows: children,
                     });
                 }

@@ -80,8 +80,6 @@ const TAB_LIST_ICON: f32 = 16.0;
 pub(crate) enum MenuIcon {
     /// 最近打开的目录：与文件树中的目录相同的图标和颜色。
     Folder,
-    /// 工作树：分支图标。
-    Worktree,
     /// 标签列表的第几项：标签上的图标（文件类型图标，日志标签为 Git 图标）。
     Tab(usize),
     /// 目录菜单中的文件：文件类型的记号和它在深色、浅色配色下的颜色（同文件树）。
@@ -93,7 +91,7 @@ impl MenuIcon {
     pub(crate) fn size(self) -> (f32, f32) {
         match self {
             MenuIcon::Tab(_) | MenuIcon::File(..) => (TAB_LIST_ICON, TAB_LIST_ICON),
-            MenuIcon::Folder | MenuIcon::Worktree => MENU_ICON,
+            MenuIcon::Folder => MENU_ICON,
         }
     }
 }
@@ -323,23 +321,7 @@ impl App {
             MenuTarget::Project => {
                 let root = self.editor.root();
                 let current = root.and_then(|r| self.state.recent.iter().position(|p| p == r));
-                // 有多个仓库时列在最上面，点了切换。
-                let repositories = self.git.repositories.len();
                 let mut menu: Vec<MenuEntry> = Vec::new();
-                if repositories >= 2 {
-                    menu.push(MenuEntry::Item(MenuCommand::RepositoryHeading, false));
-                    menu.extend(
-                        (0..repositories)
-                            .map(|i| MenuEntry::Item(MenuCommand::SwitchRepository(i), true)),
-                    );
-                    menu.push(MenuEntry::Separator);
-                }
-                menu.extend(crate::app::git::worktree::worktree_entries(
-                    &self.git.worktrees,
-                    self.git.current_worktree(),
-                    self.git.status.is_some(),
-                    self.branch.running.is_some(),
-                ));
                 menu.extend(project_menu(
                     self.state.recent.len(),
                     current,
@@ -527,11 +509,30 @@ impl App {
             }
             MenuTarget::CommitMore => self.commit_more_menu(),
             MenuTarget::CommitButton => self.commit_button_menu(),
+            MenuTarget::LastCommit => self.last_commit_menu(),
             MenuTarget::TreeTools => self.tree_tools_menu(),
             MenuTarget::TabList => (0..self.editor.documents.len())
                 .map(|i| MenuEntry::Item(MenuCommand::ShowTab(i), true))
                 .collect(),
             MenuTarget::LogBranch => log_branch_menu(&self.git.branches),
+            MenuTarget::StatusBranches => {
+                let idle = self.branch.running.is_none();
+                let differs = matches!(
+                    self.git_sync_state(),
+                    SyncState::Push(_) | SyncState::Pull(_) | SyncState::Both { .. }
+                );
+                let on_branch = (self.git.status.as_ref())
+                    .is_some_and(|s| matches!(s.head, Some(winc_editor::git::Head::Branch(_))));
+                let usable = [
+                    idle && differs,
+                    idle && !self.git.remotes.is_empty(),
+                    idle && self.has_upstream(),
+                    // 不在分支上时没有东西可以推送。
+                    idle && on_branch && !self.git.remotes.is_empty(),
+                ];
+                status_branch_menu(&self.git.branches, &self.git.stale_branches(), usable)
+            }
+            MenuTarget::StatusPlaces(_) => self.location_menu(),
             MenuTarget::FormBase => form_base_menu(&self.git.branches),
             MenuTarget::LogFile(_, path) => {
                 log_file_menu(path.exists(), self.relative_path(path).is_some())
@@ -558,12 +559,36 @@ impl App {
             }
             // 目录菜单不经过这里（`App::open_crumb_menu`）。
             MenuTarget::Folder => return,
-            MenuTarget::Branch => crate::app::git::branch::branch_menu(
+            MenuTarget::Location(_, worktree) => {
+                let missing = worktree
+                    .and_then(|i| self.git.worktrees.get(i))
+                    .is_some_and(|w| w.prunable);
+                let removable = worktree.is_some_and(|i| {
+                    i > 0
+                        && self.git.current_worktree() != Some(i)
+                        && self.git.worktrees.get(i).is_some_and(|w| !w.locked)
+                        && self.branch.running.is_none()
+                });
+                let idle = self.branch.running.is_none();
+                let mut menu = vec![
+                    MenuEntry::Item(MenuCommand::LocationNewWindow, true),
+                    MenuEntry::Item(MenuCommand::LocationReveal, true),
+                ];
+                if worktree.is_some_and(|i| i > 0) {
+                    menu.push(MenuEntry::Separator);
+                    menu.push(MenuEntry::Item(MenuCommand::LocationRemove, removable));
+                }
+                // 目录已不在：打不开，也没有东西可以移除，只能清理。
+                if missing {
+                    menu = vec![MenuEntry::Item(MenuCommand::LocationPrune, idle)];
+                }
+                menu
+            }
+            MenuTarget::BranchOps(index) => crate::app::git::branch::branch_ops(
+                *index,
                 &self.git.branches,
-                &self.git.stashes,
                 &self.git.held_branches(),
                 &self.git.stale_branches(),
-                self.git.status.as_ref().and_then(|s| s.operation),
                 self.branch.running.is_some(),
             ),
         };
@@ -600,8 +625,12 @@ impl App {
 
         // 菜单项是否打勾、显示什么取决于目标，因此先记录目标，再准备菜单项。
         let (branches, stashes) = match target {
-            MenuTarget::Branch => (self.git.branches.clone(), self.git.stashes.clone()),
-            MenuTarget::LogBranch | MenuTarget::FormBase => (self.git.branches.clone(), Vec::new()),
+            MenuTarget::BranchOps(_) | MenuTarget::CommitMore => {
+                (self.git.branches.clone(), self.git.stashes.clone())
+            }
+            MenuTarget::LogBranch | MenuTarget::FormBase | MenuTarget::StatusBranches => {
+                (self.git.branches.clone(), Vec::new())
+            }
             _ => Default::default(),
         };
         self.context_menu = Some(ContextMenu {
@@ -685,19 +714,17 @@ impl App {
                         children: Vec::new(),
                     })
                 }
-                MenuEntry::Submenu(title, items) | MenuEntry::CheckedSubmenu(title, items) => {
-                    Some(Prepared {
-                        label: MenuLabel::plain(title),
-                        key: Default::default(),
-                        icon: None,
-                        icon_size: MENU_ICON,
-                        enabled: true,
-                        checked: matches!(entry, MenuEntry::CheckedSubmenu(..)),
-                        alternate: false,
-                        tag: 0,
-                        children: self.prepare_menu(items, context, numbered),
-                    })
-                }
+                MenuEntry::Submenu(title, items) => Some(Prepared {
+                    label: MenuLabel::plain(title),
+                    key: Default::default(),
+                    icon: None,
+                    icon_size: MENU_ICON,
+                    enabled: true,
+                    checked: false,
+                    alternate: false,
+                    tag: 0,
+                    children: self.prepare_menu(items, context, numbered),
+                }),
                 MenuEntry::Separator => None,
             })
             .collect()
@@ -715,15 +742,6 @@ impl App {
                     ..label
                 }
             }
-            MenuCommand::OpenWorktree(_)
-            | MenuCommand::OpenWorktreeHere(_)
-            | MenuCommand::RemoveWorktree(_) => self.worktree_label(command),
-            MenuCommand::SwitchRepository(i) => MenuLabel {
-                title: self.git_repository_name(i),
-                subtitle: self.git_repository_detail(i),
-                tooltip: (self.git.repositories.get(i))
-                    .map(|repo| winc_editor::display_path(repo, None)),
-            },
             MenuCommand::ToolAuto | MenuCommand::ToolPreset(_) => self.tool_label(command),
             MenuCommand::LogCheckout | MenuCommand::LogCherryPick | MenuCommand::LogNewWorktree => {
                 self.log_commit_label(command)
@@ -740,6 +758,19 @@ impl App {
                     ..MenuLabel::plain(command.label())
                 }
             }
+            MenuCommand::StatusBranch(i) => {
+                let branch = self.git.branches.get(i);
+                let local = branch.filter(|b| !b.remote).map(|b| b.name.as_str());
+                let holder = local
+                    .and_then(|name| self.git.worktree_holding(name))
+                    .and_then(|i| self.git.worktrees.get(i))
+                    .map(crate::app::git::worktree::worktree_name);
+                MenuLabel {
+                    subtitle: holder,
+                    ..MenuLabel::plain(branch.map_or("", |b| b.name.as_str()))
+                }
+            }
+            MenuCommand::StatusPlace(i) => self.location_menu_label(i),
             MenuCommand::LogBranch(i @ 1..) => {
                 MenuLabel::plain(self.git.branches.get(i - 1).map_or("", |b| b.name.as_str()))
             }
@@ -755,6 +786,7 @@ impl App {
             }
             MenuCommand::GitBranch(..)
             | MenuCommand::GitFetch
+            | MenuCommand::StatusSync
             | MenuCommand::GitPush
             | MenuCommand::GitPull
             | MenuCommand::GitContinue
@@ -809,7 +841,7 @@ impl App {
         }
     }
 
-    /// 分支菜单里的文字：分支操作写明是哪两个分支，推送、拉取下方写明和哪个上游、差几个提交。
+    /// 分支操作菜单和「⋯」里的文字：推送、拉取下方写明和哪个上游、差几个提交。
     fn git_label(&self, command: MenuCommand) -> MenuLabel {
         use crate::app::git::branch::BranchOp;
         let current = self.git.branches.iter().find(|b| b.current);
@@ -821,27 +853,19 @@ impl App {
             .as_ref()
             .map_or((0, 0), |s| (s.ahead, s.behind));
         let title = match command {
-            MenuCommand::GitBranch(op, i) => {
-                let name = self.git.branches.get(i).map_or("", |b| b.name.as_str());
-                match op {
-                    // 已经在别的工作树里签出（远程分支看同名的本地分支）：签出就是切过去。
-                    BranchOp::Checkout => match self.git.branches.get(i).and_then(|b| {
-                        let name = crate::app::git::branch::local_name(b);
-                        self.git.worktree_holding(name)
-                    }) {
-                        Some(w) => {
-                            let worktree = &self.git.worktrees[w];
-                            let name = crate::app::git::worktree::worktree_name(worktree);
-                            t!("menu-git-switch-to-worktree", name = name)
-                        }
-                        None => t!("menu-git-checkout").to_owned(),
-                    },
-                    BranchOp::NewWorktree => t!("menu-git-checkout-in-new-worktree").to_owned(),
-                    BranchOp::NewFrom => t!("menu-git-new-branch-from", branch = name),
-                    BranchOp::Compare => t!("menu-git-compare-with", branch = here),
-                    BranchOp::Merge => t!("menu-git-merge-into", branch = name, target = here),
-                    BranchOp::Rebase => t!("menu-git-rebase-onto", current = here, branch = name),
-                    BranchOp::Delete => t!("menu-git-delete").to_owned(),
+            // 已经在别的工作树里签出（远程分支看同名的本地分支）：签出就是切过去。
+            MenuCommand::GitBranch(BranchOp::Checkout, i) => {
+                let holding = self.git.branches.get(i).and_then(|b| {
+                    let name = crate::app::git::branch::local_name(b);
+                    self.git.worktree_holding(name)
+                });
+                match holding {
+                    Some(w) => {
+                        let worktree = &self.git.worktrees[w];
+                        let name = crate::app::git::worktree::worktree_name(worktree);
+                        t!("menu-git-switch-to-worktree", name = name)
+                    }
+                    None => command.label().to_owned(),
                 }
             }
             MenuCommand::GitContinue | MenuCommand::GitAbort => {
@@ -870,12 +894,8 @@ impl App {
             {
                 Some(t!("menu-git-checkout-stale-worktree").to_owned())
             }
-            // 建在哪儿写在下面，点之前就知道。
-            (MenuCommand::GitBranch(BranchOp::NewWorktree, i), _) => {
-                let branch = self.git.branches.get(i);
-                branch.map(|b| self.worktree_dir_hint(crate::app::git::branch::local_name(b)))
-            }
             (MenuCommand::GitFetch, _) => Some(t!("menu-git-fetch-desc").to_owned()),
+            (MenuCommand::StatusSync, _) => Some(t!("menu-git-sync-desc").to_owned()),
             (MenuCommand::GitContinue, _) => Some(t!("menu-git-continue-desc").to_owned()),
             (MenuCommand::GitAbort, _) => Some(t!("menu-git-abort-desc").to_owned()),
             (MenuCommand::GitPush, Some(up)) if ahead > 0 => {
@@ -969,12 +989,6 @@ impl App {
         if let MenuCommand::ShowTab(i) = command {
             return self.editor.active == Some(i);
         }
-        if let MenuCommand::OpenWorktree(i) = command {
-            return self.git.current_worktree() == Some(i);
-        }
-        if let MenuCommand::SwitchRepository(i) = command {
-            return self.git.repositories.get(i) == self.git.root.as_ref();
-        }
         if command == MenuCommand::ToggleBlame {
             return self.editor.active().is_some_and(|d| self.blame.is_on(d.id));
         }
@@ -992,6 +1006,12 @@ impl App {
             .map(|v| &v.query);
         if let MenuCommand::FormBase(i) = command {
             return self.form_base_chosen(i);
+        }
+        if let MenuCommand::StatusBranch(i) = command {
+            return self.git.branches.get(i).is_some_and(|b| b.current);
+        }
+        if let MenuCommand::StatusPlace(i) = command {
+            return self.location_places().get(i).is_some_and(|p| p.current);
         }
         match (command, query) {
             (MenuCommand::LogBranch(i), Some(q)) => {
@@ -1105,9 +1125,6 @@ impl App {
             MenuCommand::OpenRecent(_) | MenuCommand::OpenRecentInNewWindow(_) => {
                 Some(MenuIcon::Folder)
             }
-            MenuCommand::OpenWorktree(_)
-            | MenuCommand::OpenWorktreeHere(_)
-            | MenuCommand::SwitchRepository(_) => Some(MenuIcon::Worktree),
             MenuCommand::ShowTab(i) => self.editor.documents.get(i).map(|_| MenuIcon::Tab(i)),
             _ => None,
         }
@@ -1127,14 +1144,6 @@ impl App {
         let (w, h) = icon.size();
         match icon {
             MenuIcon::Folder => icons::folder(frame, (x, y), false, self.palette.folder, clip),
-            MenuIcon::Worktree => {
-                icons::branch_small(
-                    frame,
-                    (x + w / 2.0, y + h / 2.0),
-                    self.palette.text_muted,
-                    clip,
-                );
-            }
             MenuIcon::File(glyph, [dark, light]) => {
                 let color = winc_render::Color::hex(if self.palette.dark { dark } else { light });
                 // 文件图标 12 × 15。
@@ -1214,14 +1223,9 @@ impl App {
     /// 处理对项目名的点击：在项目名下方弹出最近项目菜单。
     pub(in crate::app) fn open_project_menu(&mut self) {
         self.git_discover();
+        self.git_scan_repositories();
         let hit = self.project_hit;
         self.open_button_menu(MenuButton::Project, MenuTarget::Project, menu_below(hit));
-    }
-
-    /// 处理对侧栏标题行里分支名的点击：在它下方弹出分支菜单（和状态栏的分支名同一个菜单）。
-    pub(in crate::app) fn open_sidebar_branch_menu(&mut self) {
-        let hit = self.branch_hit;
-        self.open_button_menu(MenuButton::Branch, MenuTarget::Branch, menu_below(hit));
     }
 
     /// 从按钮 `button` 上弹出 `target` 的菜单（在 `at` 处，见 [`App::open_context_menu`]）：系统

@@ -90,6 +90,43 @@ fn faux_bold_is_heavier_and_wider() {
     }
 }
 
+/// 模拟的粗体不会把任何字母变细：组合字形（`i`、`j`）的轮廓方向不可靠，不能按它偏移。
+///
+/// 没有装 `JetBrains Mono` 的机器只检查默认字体。
+#[test]
+fn faux_bold_thickens_every_letter() {
+    let check = |spec: Option<&FontSpec>| {
+        for c in ('a'..='z').chain('A'..='Z').chain('0'..='9') {
+            let ink = |bold: bool| {
+                let mut renderer =
+                    Renderer::offscreen(60.0, 50.0, 2.0, Color::hex(0x000000), None, spec).unwrap();
+                renderer.draw(|frame| {
+                    let all = frame.bounds();
+                    let faux = Faux {
+                        bold,
+                        italic: false,
+                    };
+                    let text = c.to_string();
+                    let white = Color::hex(0xffffff);
+                    frame.text_faux(FontKind::Ui, faux, 30.0, 5.0, 35.0, &text, white, all);
+                });
+                let image = renderer.image().unwrap();
+                image.pixels.iter().map(|p| p & 0xff).sum::<u32>()
+            };
+            let (regular, bold) = (ink(false), ink(true));
+            assert!(
+                bold as f32 > regular as f32 * 1.1,
+                "{spec:?} {c}：{regular} → {bold}"
+            );
+        }
+    };
+    check(None);
+    let jetbrains = FontSpec::Name("JetBrains Mono".into());
+    if jetbrains.resolve().is_some() {
+        check(Some(&jetbrains));
+    }
+}
+
 #[test]
 #[cfg(target_os = "macos")]
 fn fonts_without_italics_are_slanted_to_the_right() {

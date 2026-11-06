@@ -121,7 +121,7 @@ impl App {
             base,
             folder: None,
             copy: true,
-            new_window: true,
+            new_window: false,
             checkout: true,
             hover: None,
             focus: DialogPart::Branch,

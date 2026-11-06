@@ -1,39 +1,136 @@
 //! 提交和回滚：先保存要提交的文件、请用户确认回滚，在后台运行 git 并收下结果。
 
+use winc_editor::git::Synced;
 use winc_i18n::t;
 
 use super::*;
+use crate::app::git::branch::Then;
+
+/// 分支行右端同步控件的状态。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SyncState {
+    /// 仓库没有配置远程。
+    NoRemote,
+    /// 这时不同步：不在分支上、有进行中的操作，或者在修改上一次提交。
+    Hidden,
+    /// 和上游一致。
+    InSync,
+    /// 分支还没有上游：发布到远程。
+    Publish,
+    /// 领先上游这么多个提交：推送。
+    Push(u32),
+    /// 落后上游这么多个提交：拉取。
+    Pull(u32),
+    /// 两边都有新提交：同步。
+    Both {
+        /// 领先的提交数。
+        ahead: u32,
+        /// 落后的提交数。
+        behind: u32,
+    },
+}
 
 /// 提交成功后按钮显示「✓ 已提交」的时长（经验值）。
 ///
 /// 短于状态栏提示的显示时长，足以让用户确认提交已完成。
-const COMMITTED_SHOWN: Duration = Duration::from_millis(1600);
+pub(in crate::app) const COMMITTED_SHOWN: Duration = Duration::from_millis(1600);
 
 impl App {
-    /// 返回「提交」按钮用于同步时与上游相差的（领先，落后）提交数；不用于同步时为 `None`。
-    ///
-    /// 没有改动、当前分支有上游、与上游有差异，且不在修改上一次提交或合并、变基等操作中时，
-    /// 按钮用于同步。
-    pub(crate) fn commit_sync(&self) -> Option<(u32, u32)> {
-        let status = self.git.status.as_ref()?;
-        let idle = !self.commit.busy && !self.commit.amend && status.operation.is_none();
-        let differs = status.ahead > 0 || status.behind > 0;
-        (idle && status.entries.is_empty() && differs && self.has_upstream())
-            .then_some((status.ahead, status.behind))
+    /// 分支和上游的关系决定的同步控件状态。
+    pub(crate) fn git_sync_state(&self) -> SyncState {
+        let Some(status) = self.git.status.as_ref() else {
+            return SyncState::Hidden;
+        };
+        if self.git.remotes.is_empty() {
+            return SyncState::NoRemote;
+        }
+        let on_branch = matches!(status.head, Some(Head::Branch(_)));
+        if !on_branch || status.operation.is_some() || self.commit.amend {
+            return SyncState::Hidden;
+        }
+        // 分支列表还没读到时不知道有没有上游。
+        if self.git.branches.is_empty() {
+            return SyncState::Hidden;
+        }
+        if !self.has_upstream() {
+            return SyncState::Publish;
+        }
+        match (status.ahead, status.behind) {
+            (0, 0) => SyncState::InSync,
+            (ahead, 0) => SyncState::Push(ahead),
+            (0, behind) => SyncState::Pull(behind),
+            (ahead, behind) => SyncState::Both { ahead, behind },
+        }
     }
 
-    /// 是否正在后台与上游同步（[`App::git_sync`]）。
-    pub(crate) fn commit_syncing(&self) -> bool {
-        self.branch.running.as_deref() == Some(t!("git-op-sync").as_ref() as &str)
-    }
-
-    /// 与上游同步（[`winc_editor::git::Git::sync`]）：落后时拉取，领先时推送；本地改写了已推送的
-    /// 提交时以本地版本推送。
+    /// 点击同步控件：有差异时同步，没有上游时发布，其余时候获取远程更新。只有强制推送要确认。
     pub(in crate::app) fn git_sync(&mut self) {
-        if self.commit_sync().is_none() {
+        match self.git_sync_state() {
+            SyncState::Publish => self.run_branch_command(MenuCommand::GitPush),
+            SyncState::Push(_) | SyncState::Pull(_) | SyncState::Both { .. } => {
+                self.run_git_sync(false);
+            }
+            SyncState::NoRemote | SyncState::Hidden | SyncState::InSync => {
+                self.run_branch_command(MenuCommand::GitFetch);
+            }
+        }
+    }
+
+    /// 在后台同步（[`winc_editor::git::Git::sync`]）；需要强制推送而 `force` 为假时转为询问。
+    pub(in crate::app) fn run_git_sync(&mut self, force: bool) {
+        self.git_operate_then(t!("git-op-sync").into(), move |git, root| {
+            git.sync(root, force).map(|synced| match synced {
+                Synced::Done(summary) => (summary, Then::Nothing),
+                Synced::NeedsForce(count) => (String::new(), Then::ConfirmForcePush(count)),
+            })
+        });
+    }
+
+    /// 同步需要强制推送：用提示框询问，确认后才替换上游的 `count` 个提交。
+    pub(in crate::app) fn confirm_force_push(&mut self, count: usize) {
+        let branch = (self.git.branches.iter())
+            .find(|b| b.current)
+            .map_or("HEAD", |b| b.name.as_str());
+        let message = t!("git-force-push-confirm", branch = branch);
+        let detail = t!("git-force-push-confirm-detail", count = count);
+        let button = t!("git-force-push-confirm-button");
+        self.show_confirm(&message, &detail, button, |ok| {
+            ok.then_some(UserEvent::GitForcePush)
+        });
+    }
+
+    /// 提交并推送：可以提交时用提示框询问，写明提交多少文件、推到哪个分支；不能提交时由提交的入口
+    /// 说明原因。
+    pub(in crate::app) fn confirm_commit_and_push(&mut self) {
+        let ready = !self.commit.busy
+            && (self.git.status.as_ref())
+                .is_some_and(|status| self.commit.blocker(status).is_none());
+        if !ready {
+            self.git_commit_and_push();
             return;
         }
-        self.git_operate(t!("git-op-sync").into(), |git, root| git.sync(root));
+        let branch = self
+            .git
+            .branches
+            .iter()
+            .find(|b| b.current)
+            .map(|b| b.name.clone());
+        let detail = match (self.commit_scope(), branch) {
+            (Some(count), Some(branch)) => t!(
+                "git-commit-push-confirm-scope",
+                count = count,
+                branch = branch.as_str()
+            ),
+            _ => t!("git-commit-push-confirm-detail").to_owned(),
+        };
+        let buttons = vec![
+            AlertButton::new(t!("git-commit-push-confirm-button")),
+            AlertButton::cancel(t!("common-cancel")),
+        ];
+        let message = t!("git-commit-push-confirm");
+        self.show_alert(message, &detail, buttons, None, |choice, _| {
+            (choice == 0).then_some(UserEvent::GitCommitAndPush)
+        });
     }
 
     /// 提交勾上的文件。
@@ -393,6 +490,7 @@ impl App {
         self.commit.results = old.results;
         self.commit.flat = old.flat;
         self.commit.collapsed = old.collapsed;
+        self.commit.drafts = old.drafts;
     }
 
     /// 在后台对打开的仓库做一件提交视图的事（提交、回滚），做完以 [`UserEvent::GitCommit`] 收

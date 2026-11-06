@@ -443,6 +443,10 @@ impl App {
             self.clamp_tree_scroll();
             self.reveal_active();
         }
+        // 其他位置的状态只在提交视图里看得见，看不见的时候没有读。
+        if view == SidebarView::Commit {
+            self.git_read_summaries();
+        }
 
         self.request_redraw();
     }

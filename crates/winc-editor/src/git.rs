@@ -12,6 +12,8 @@ mod commit;
 mod ignored;
 mod parse;
 mod sync;
+
+pub use sync::Synced;
 mod trust;
 mod worktree;
 
@@ -86,12 +88,20 @@ pub struct Branch {
     pub remote: bool,
     /// 是否是当前分支。
     pub current: bool,
-    /// 跟踪的上游分支（`origin/main`）；没有时为 `None`。
+    /// 跟踪的上游分支（`origin/main`）；没有，或者上游引用已不存在时为 `None`。
     pub upstream: Option<String>,
+    /// 配了上游，但上游引用已不存在（远程分支被删除后获取时清掉了）。
+    ///
+    /// 这样的分支推送过，不能和从未推送过的分支一样看待。
+    pub gone: bool,
     /// 该分支指向的完整提交号。
     ///
     /// 提交、推送、获取使分支移动时随之变化，据此判断开着的日志是否需要重新读取。
     pub oid: String,
+    /// 分支指向的提交的提交时间（Unix 秒）。
+    pub time: i64,
+    /// 提交时间在本机时区的写法「2026-10-26 14:32」。
+    pub local: String,
 }
 /// 日志里的一个提交。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -487,6 +497,15 @@ impl std::fmt::Display for Unavailable {
     }
 }
 
+/// [`Git::delete_branch`] 的结果。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BranchDeleted {
+    /// 已删除，内容是 `git` 的结论。
+    Done(String),
+    /// 分支未完全合并，需要强制删除，尚未删除。
+    NeedsForce,
+}
+
 /// 系统里可用的 `git`。
 #[derive(Debug, Clone)]
 pub struct Git {
@@ -591,12 +610,62 @@ impl Git {
         let mut command = self.command(root);
         command.args([
             "for-each-ref",
-            "--format=%(refname)%00%(HEAD)%00%(upstream:short)%00%(objectname)",
+            "--format=%(refname)%00%(HEAD)%00%(upstream:short)%00%(objectname)\
+             %00%(committerdate:unix)%00%(committerdate:format-local:%Y-%m-%d %H:%M)",
             "refs/heads",
             "refs/remotes",
         ]);
         let stdout = self.run(&mut command, STATUS_TIMEOUT, cancel)?;
         Ok(parse_branches(&String::from_utf8_lossy(&stdout)))
+    }
+
+    /// 返回仓库配置的远程名。
+    ///
+    /// # Errors
+    ///
+    /// `git` 运行失败或超时时返回原因。
+    pub fn remotes(&self, root: &Path, cancel: &Cancel) -> Result<Vec<String>, String> {
+        let mut command = self.command(root);
+        command.arg("remote");
+        let stdout = self.run(&mut command, STATUS_TIMEOUT, cancel)?;
+        Ok(String::from_utf8_lossy(&stdout)
+            .lines()
+            .map(str::trim)
+            .filter(|remote| !remote.is_empty())
+            .map(str::to_owned)
+            .collect())
+    }
+
+    /// 返回 `root` 所在仓库的公共 Git 目录：提交、分支都记在这里，附属工作树也用它。
+    ///
+    /// # Errors
+    ///
+    /// `git` 运行失败或超时时返回原因。
+    pub fn common_dir(&self, root: &Path, cancel: &Cancel) -> Result<PathBuf, String> {
+        let mut command = self.command(root);
+        command.args(["rev-parse", "--git-common-dir"]);
+        let stdout = self.run(&mut command, STATUS_TIMEOUT, cancel)?;
+        // 在主工作树里是相对路径，相对于运行的目录。
+        Ok(root.join(String::from_utf8_lossy(&stdout).trim()))
+    }
+
+    /// 返回最近切换到过的分支名，最近的在前，不重复（来自 `HEAD` 的引用日志）。
+    ///
+    /// # Errors
+    ///
+    /// `git` 运行失败或超时时返回原因。
+    pub fn recent_branches(&self, root: &Path, cancel: &Cancel) -> Result<Vec<String>, String> {
+        let mut command = self.command(root);
+        command.args([
+            "log",
+            "--walk-reflogs",
+            "--format=%gs",
+            "--grep-reflog=checkout: moving from",
+            "--max-count=200",
+            "HEAD",
+        ]);
+        let stdout = self.run(&mut command, STATUS_TIMEOUT, cancel)?;
+        Ok(parse_recent_branches(&String::from_utf8_lossy(&stdout)))
     }
 
     /// 在仓库 `root` 里运行会改动仓库的 `git` 操作 `args`（如 `["pull"]`），返回 `git` 的结论。
@@ -630,6 +699,33 @@ impl Git {
         }
     }
 
+    /// 删除本地分支 `name`。
+    ///
+    /// `force` 时用 `--force` 连同未合并的提交一起删除；否则分支未完全合并时返回
+    /// [`BranchDeleted::NeedsForce`]，不改动仓库。
+    ///
+    /// # Errors
+    ///
+    /// 分支不存在、被某个工作树签出等其他失败时返回 `git` 给出的原因。
+    pub fn delete_branch(
+        &self,
+        root: &Path,
+        name: &str,
+        force: bool,
+    ) -> Result<BranchDeleted, String> {
+        let mut args = vec!["branch", "--delete"];
+        if force {
+            args.push("--force");
+        }
+        args.extend(["--end-of-options", name]);
+        match self.operate(root, &args) {
+            Ok(summary) => Ok(BranchDeleted::Done(summary)),
+            // 报错固定为英文（`LC_ALL=C`），分支名不含空格，不会和这句话混淆。
+            Err(e) if !force && e.contains("is not fully merged") => Ok(BranchDeleted::NeedsForce),
+            Err(e) => Err(e),
+        }
+    }
+
     /// 推送当前分支。
     ///
     /// 没有上游时推到第一个远程上同名的分支，并设为上游（`push -u`）。
@@ -642,23 +738,40 @@ impl Git {
         if has_upstream {
             return self.operate(root, &["push"]);
         }
-        let mut command = self.command(root);
-        command.arg("remote");
-        let remotes = self.run(&mut command, STATUS_TIMEOUT, &Cancel::default())?;
-        let remotes = String::from_utf8_lossy(&remotes);
+        let remotes = self.remotes(root, &Cancel::default())?;
         // 远程名来自仓库的配置，`git` 允许以 `-` 开头的远程名（`--receive-pack=…` 会运行命令）：
         // 跳过这样的远程，推送时另外加 `--end-of-options`。
-        let Some(remote) = remotes
-            .lines()
-            .map(str::trim)
-            .find(|r| !r.is_empty() && !r.starts_with('-'))
-        else {
+        let usable: Vec<&String> = remotes.iter().filter(|r| !r.starts_with('-')).collect();
+        let preferred = self.preferred_remote(root);
+        let chosen = preferred
+            .iter()
+            .find_map(|name| usable.iter().find(|remote| ***remote == *name).copied());
+        let Some(remote) = chosen.or(usable.first().copied()) else {
             return Err(winc_i18n::t!("git-push-no-remote").to_owned());
         };
         self.operate(
             root,
             &["push", "--set-upstream", "--end-of-options", remote, "HEAD"],
         )
+    }
+
+    /// 当前分支配置的推送目标，优先的在前，顺序和 `git push` 选择远程时相同；上游已不存在的分支
+    /// 仍然留着 `branch.<名字>.remote`。
+    fn preferred_remote(&self, root: &Path) -> Vec<String> {
+        let cancel = Cancel::default();
+        let mut command = self.command(root);
+        command.args(["symbolic-ref", "--quiet", "--short", "HEAD"]);
+        let branch = self.run(&mut command, STATUS_TIMEOUT, &cancel);
+        let branch = branch.map(|out| String::from_utf8_lossy(&out).trim().to_owned());
+        let branch = branch.unwrap_or_default();
+        [
+            format!("branch.{branch}.pushRemote"),
+            "remote.pushDefault".to_owned(),
+            format!("branch.{branch}.remote"),
+        ]
+        .iter()
+        .filter_map(|key| self.config(root, key, &cancel))
+        .collect()
     }
 
     /// 返回 `path` 在 `HEAD` 里的内容，见 [`Git::content_at`]。
@@ -1077,6 +1190,11 @@ fn relative_all<'a>(
     })
 }
 
+/// [`scan_repositories`] 最多查看的目录项数（个）：在后台运行，比 [`SCAN_ENTRIES`] 宽松，又不至于
+/// 在放着海量文件的目录里长时间读磁盘。
+const SCAN_DEEP_ENTRIES: usize = 65_536;
+/// [`scan_repositories`] 不进入的目录：依赖和构建产物，里面不会有用户自己的仓库，文件却很多。
+const SCAN_SKIPPED: [&str; 4] = ["node_modules", "target", "vendor", "__pycache__"];
 /// [`find_repositories`] 最多查看的目录项数（个，经验值）：放着大量文件的目录不拖慢打开。
 const SCAN_ENTRIES: usize = 4096;
 
@@ -1107,6 +1225,46 @@ pub fn find_repositories(dir: &Path) -> Vec<PathBuf> {
             .map(|name| name.to_string_lossy().to_lowercase())
     });
     find_root(dir).into_iter().chain(children).collect()
+}
+
+/// 在 `dir` 下面最多 `depth` 层里查找仓库，按路径排序，不含 `dir` 本身。
+///
+/// 按层往下找，较浅的目录优先用完额度（`SCAN_DEEP_ENTRIES`）。找到的仓库不再往里找；跳过隐藏
+/// 目录、依赖和构建产物目录（`SCAN_SKIPPED`），不跟随符号链接。取消时返回已找到的部分。
+pub fn scan_repositories(dir: &Path, depth: usize, cancel: &Cancel) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut level = vec![dir.to_path_buf()];
+    let mut budget = SCAN_DEEP_ENTRIES;
+    for _ in 0..depth {
+        let mut next = Vec::new();
+        for parent in &level {
+            if cancel.is_cancelled() || budget == 0 {
+                found.sort();
+                return found;
+            }
+            let Ok(entries) = std::fs::read_dir(parent) else {
+                continue;
+            };
+            for entry in entries.flatten().take(budget) {
+                budget -= 1;
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                let skipped = name.starts_with('.') || SCAN_SKIPPED.contains(&name.as_ref());
+                if skipped || !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                    continue;
+                }
+                let path = entry.path();
+                if path.join(".git").exists() {
+                    found.push(path);
+                } else {
+                    next.push(path);
+                }
+            }
+        }
+        level = next;
+    }
+    found.sort();
+    found
 }
 
 /// macOS 上命令行开发者工具是否已安装（`xcode-select -p` 成功）。

@@ -29,9 +29,34 @@ impl CommitState {
         None
     }
 
+    /// 把正在写的提交信息记到位置 `root` 名下；什么都没写时清掉记录。
+    pub(in crate::app) fn keep_draft(&mut self, root: PathBuf) {
+        let text = if self.amend {
+            self.draft.clone().unwrap_or_default()
+        } else {
+            self.message.text().to_owned()
+        };
+        if text.trim().is_empty() {
+            self.drafts.remove(&root);
+        } else {
+            self.drafts.insert(root, text);
+        }
+    }
+
+    /// 填回位置 `root` 名下记着的提交信息。
+    pub(in crate::app) fn restore_draft(&mut self, root: &Path) {
+        if let Some(text) = self.drafts.remove(root) {
+            self.message.set_text(&text);
+        }
+    }
+
     /// 文件 `entry` 是否勾上。
     pub fn checked(&self, entry: &Entry) -> bool {
-        !self.excluded.contains(&entry.path)
+        if entry.untracked() {
+            self.included.contains(&entry.path)
+        } else {
+            !self.excluded.contains(&entry.path)
+        }
     }
 
     /// 文件的勾选框：`Some(true)` 整个提交，`Some(false)` 只提交一部分改动，`None` 不提交。
@@ -315,7 +340,9 @@ impl CommitState {
         self.skipped.remove(&path);
         if on {
             self.excluded.remove(&path);
+            self.included.insert(path);
         } else {
+            self.included.remove(&path);
             self.excluded.insert(path);
         }
     }

@@ -530,6 +530,8 @@ impl App {
         self.name_hint = None;
         self.places_wheel = 0.0;
         self.places_in = self.clock(POPUP_IN);
+        self.picker_branch_rows = None;
+        self.picker_location_rows = None;
         self.picker_places = Some(Places {
             kind,
             name,

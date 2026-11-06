@@ -147,6 +147,30 @@ pub fn folder(frame: &mut Frame<'_>, (x, y): (f32, f32), open: bool, color: Colo
     frame.stroke(shapes.as_slice(), STROKE, color, clip);
 }
 
+/// 绘制小号目录图标，12×10，以 `(cx, cy)` 为中心：形状和合上的 [`folder`] 相同，线条和小号分支
+/// 图标一样细，用于侧栏小号文字旁。
+pub fn folder_small(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    const WIDTH: f32 = 1.25;
+    let h = WIDTH / 2.0;
+    let (l, t, r, b) = (cx - 6.0 + h, cy - 5.0 + h, cx + 6.0 - h, cy + 5.0 - h);
+    let c = 1.5;
+    let tab_end = l + 4.0;
+    let lid = t + 1.5;
+    let shapes = [
+        Stroke::Line(l, b - c, l, t + c),
+        Stroke::Arc(l + c, t + c, c, -PI, -FRAC_PI_2),
+        Stroke::Line(l + c, t, tab_end, t),
+        Stroke::Line(tab_end, t, tab_end + 1.25, lid),
+        Stroke::Line(tab_end + 1.25, lid, r - c, lid),
+        Stroke::Arc(r - c, lid + c, c, -FRAC_PI_2, 0.0),
+        Stroke::Line(r, lid + c, r, b - c),
+        Stroke::Arc(r - c, b - c, c, 0.0, FRAC_PI_2),
+        Stroke::Line(r - c, b, l + c, b),
+        Stroke::Arc(l + c, b - c, c, FRAC_PI_2, PI),
+    ];
+    frame.stroke(&shapes, WIDTH, color, clip);
+}
+
 /// 绘制「新建文件」图标，占 12×15 的位置（左上角 `(x, y)`）：和文件树工具栏的 [`add_file`] 是
 /// 同一个图标，居中放在这块位置。
 ///

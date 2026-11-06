@@ -232,5 +232,17 @@ fn copies_ignored_files_and_checks_before_removing() {
         .position(|w| w.branch() == Some("feat"))
         .unwrap();
     assert!(!git.check_worktree(&main, &list[i], &cancel).unwrap().merged);
+
+    // 上游引用已不存在（远程分支被删除后获取时清掉了）：和 `git branch -d` 一样改看 `HEAD`，
+    // 检查不会失败。
+    sh(&["update-ref", "-d", "refs/remotes/origin/feat"]);
+    let list = git.worktrees(&main, &cancel).unwrap();
+    let i = list
+        .iter()
+        .position(|w| w.branch() == Some("feat"))
+        .unwrap();
+    assert!(git.check_worktree(&main, &list[i], &cancel).unwrap().merged);
+    commit(&linked);
+    assert!(!git.check_worktree(&main, &list[i], &cancel).unwrap().merged);
     let _ = std::fs::remove_dir_all(&dir);
 }

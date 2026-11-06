@@ -80,7 +80,7 @@ fn draw_group(
     let entries = entries
         .into_iter()
         .map(|(key, text, item)| {
-            let extra = if item == Some(StatusItem::Branch) {
+            let extra = if matches!(item, Some(StatusItem::Branch | StatusItem::Worktree)) {
                 BRANCH_ICON + BRANCH_ARROW
             } else {
                 0.0
@@ -142,7 +142,7 @@ fn draw_group(
 
 /// 在 `x` 处绘制 `key` 一项的内容，不透明度为 `alpha`，超出 `clip` 的部分不绘制。
 ///
-/// 分支名的左侧是分支图标，右侧是下拉箭头。新版本提示使用强调色。
+/// 工作树和分支的左侧是图标，右侧是下拉箭头。新版本提示使用强调色。
 #[allow(clippy::too_many_arguments)]
 fn draw_content(
     frame: &mut Frame<'_>,
@@ -164,12 +164,16 @@ fn draw_content(
     } else {
         p.text_muted
     };
-    let branch = key == StatusKey::Branch;
-    let icon = if branch { BRANCH_ICON } else { 0.0 };
-    if branch {
+    let picker = matches!(key, StatusKey::Branch | StatusKey::Worktree);
+    let icon = if picker { BRANCH_ICON } else { 0.0 };
+    if picker {
         let cy = icon_center_y(app, bar, app.fonts.ui_small);
         let text_w = frame.measure(FontKind::Ui, app.fonts.ui_small, text);
-        icons::branch_small(frame, (x + 4.0, cy), fade(p.text_muted), clip);
+        if key == StatusKey::Branch {
+            icons::branch_small(frame, (x + 4.0, cy), fade(p.text_muted), clip);
+        } else {
+            icons::folder_small(frame, (x + 4.0, cy), fade(p.text_muted), clip);
+        }
         let arrow = (x + icon + text_w + 7.0, cy);
         icons::chevron(frame, arrow, 5.5, Direction::Down, fade(p.text_dim), clip);
     }
@@ -396,8 +400,8 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
         }
     }
 
-    // Git 模块开着、目录在仓库里时，右侧一组的最左边是分支名，有上游时跟着领先落后的提交数，
-    // 有分支操作在跑时跟着在做什么。点了弹分支菜单。
+    // Git 模块开着、目录在仓库里时，右侧一组的最左边是工作树（有多个位置时）和分支名，分支名有
+    // 上游时跟着领先落后的提交数，有分支操作在跑时跟着在做什么。点了弹出系统菜单。
     // 开关模块、换仓库时淡入淡出（`App::track_modules`），消失途中用最后绘制的分支名；左边的
     // 路径能占的宽度跟着慢慢变。
     let live = app
@@ -431,13 +435,19 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
         && share > 0.0
     {
         let start = right;
-        let items = vec![(StatusKey::Branch, label, Some(StatusItem::Branch))];
+        let mut items = Vec::new();
+        if app.git.status.is_some() && app.git_has_locations() {
+            let (name, worktree) = app.git_location_label();
+            let name = worktree.map_or(name.clone(), |worktree| format!("{name} › {worktree}"));
+            items.push((StatusKey::Worktree, name, Some(StatusItem::Worktree)));
+        }
+        items.push((StatusKey::Branch, label, Some(StatusItem::Branch)));
         draw_group(
             frame,
             app,
             &mut motion,
             animate,
-            &[StatusKey::Branch],
+            &[StatusKey::Worktree, StatusKey::Branch],
             items,
             opacity,
             bar,

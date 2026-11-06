@@ -34,6 +34,8 @@ impl App {
         }
         self.finish_name_input();
         self.picker_places = None;
+        self.picker_branch_rows = None;
+        self.picker_location_rows = None;
         self.picker_open = true;
         self.picker_doc = self.editor.active().map(|d| d.id);
         self.picker_input.set_text("@");
@@ -47,7 +49,10 @@ impl App {
 
     /// 是否正在列出符号，即输入框以 `@` 开头且不在「位置」列表中。
     pub(crate) fn picker_lists_symbols(&self) -> bool {
-        self.picker_places.is_none() && self.picker_input.text().starts_with('@')
+        self.picker_places.is_none()
+            && !self.picker_lists_branches()
+            && !self.picker_lists_locations()
+            && self.picker_input.text().starts_with('@')
     }
 
     /// 按当前查询刷新符号列表。

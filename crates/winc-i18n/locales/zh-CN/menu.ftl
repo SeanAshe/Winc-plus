@@ -45,13 +45,6 @@ menu-form-base-current-commit = 当前提交
 
 menu-git-current-branch = 当前分支
 menu-git-switch-to-worktree = 切换到工作树「{ $name }」
-menu-git-checkout = 签出
-menu-git-checkout-in-new-worktree = 在新工作树中签出
-menu-git-new-branch-from = 从「{ $branch }」新建分支…
-menu-git-compare-with = 与「{ $branch }」比较
-menu-git-merge-into = 将「{ $branch }」合并到「{ $target }」
-menu-git-rebase-onto = 将「{ $current }」变基到「{ $branch }」
-menu-git-delete = 删除
 menu-git-checkout-stale-worktree = 所在工作树的目录已不存在，请先清理失效的工作树
 menu-git-finish-operation = 完成{ $operation }…
 menu-git-continue-operation = 继续{ $operation }
@@ -64,7 +57,7 @@ menu-git-push-set-upstream = 推送「{ $branch }」并设为上游
 menu-git-pull-behind = { $count } 个提交 ← { $upstream }
 menu-git-pull-from = 从 { $upstream }
 menu-git-pull-no-upstream = 当前分支没有上游
-menu-git-fetch-desc = 同步远程更新
+menu-git-fetch-desc = 下载远程更新，不改动本地分支
 
 ## 右键菜单项
 
@@ -103,10 +96,10 @@ menu-table-align-right = 右对齐
 
 ## Git 菜单项
 
-menu-worktrees-heading = 工作树
-menu-repositories-heading = 仓库
 menu-new-worktree = 新建工作树…
-menu-prune-worktrees = 清理失效的工作树
+menu-git-new-branch = 新建分支…
+menu-git-sync = 同步
+menu-git-sync-desc = 拉取并推送提交
 menu-git-fetch = 获取
 menu-git-pull = 拉取
 menu-git-push = 推送
@@ -139,5 +132,6 @@ menu-commit-refresh = 刷新
 menu-commit-expand-all = 全部展开
 menu-commit-collapse-all = 全部折叠
 menu-commit-roll-back = 回滚勾选的文件…
+menu-commit-undo = 撤销提交
 menu-commit-and-push = 提交并推送
 menu-commit-amend = 修改上一次提交

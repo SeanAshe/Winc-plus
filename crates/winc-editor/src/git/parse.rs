@@ -2,6 +2,8 @@
 //!
 //! 各命令的输出格式见各函数的文档；本模块不启动进程，输入由 [`Git`] 的方法取回。
 
+use std::collections::HashSet;
+
 use super::*;
 
 /// 从 `git` 的输出里挑出失败的原因，用作给用户的说明。
@@ -62,9 +64,31 @@ pub(super) fn summary(output: &[u8]) -> String {
         .to_owned()
 }
 
-/// 解析 `git for-each-ref` 的输出（每行的引用名、`*` 或空格、上游之间用 NUL 隔开）。
+/// 解析引用日志里的 `checkout: moving from A to B`：`B` 比 `A` 新，较新的行在前，返回不重复的
+/// 分支名，最近的在前。
+pub(super) fn parse_recent_branches(output: &str) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for line in output.lines() {
+        let Some(moved) = line.strip_prefix("checkout: moving from ") else {
+            continue;
+        };
+        let Some((from, to)) = moved.rsplit_once(" to ") else {
+            continue;
+        };
+        for name in [to, from] {
+            if !names.iter().any(|known| known == name) {
+                names.push(name.to_owned());
+            }
+        }
+    }
+    names
+}
+
+/// 解析 `git for-each-ref` 的输出（每行的引用名、`*` 或空格、上游、提交号、提交时间、本机时区的
+/// 提交时间之间用 NUL 隔开）。
 ///
-/// 本地的分支在前，远程的在后，各自按名字排列；远程的 `HEAD` 指针不列。
+/// 本地的分支在前，远程的在后，各自按名字排列；远程的 `HEAD` 指针不列。上游引用已不存在的（远程
+/// 分支被删除后获取时清掉了）算作没有上游：`--prune` 之后没有什么可以和它同步。
 pub(super) fn parse_branches(output: &str) -> Vec<Branch> {
     let mut local = Vec::new();
     let mut remote = Vec::new();
@@ -75,13 +99,21 @@ pub(super) fn parse_branches(output: &str) -> Vec<Branch> {
         };
         let upstream = fields.next().filter(|u| !u.is_empty()).map(str::to_owned);
         let oid = fields.next().unwrap_or_default().to_owned();
+        let time = fields
+            .next()
+            .and_then(|t| t.parse().ok())
+            .unwrap_or_default();
+        let date = fields.next().unwrap_or_default().to_owned();
         if let Some(name) = name.strip_prefix("refs/heads/") {
             local.push(Branch {
                 name: name.to_owned(),
                 remote: false,
                 current: head == "*",
                 upstream,
+                gone: false,
                 oid,
+                time,
+                local: date,
             });
         } else if let Some(name) = name.strip_prefix("refs/remotes/") {
             if name.ends_with("/HEAD") {
@@ -92,13 +124,31 @@ pub(super) fn parse_branches(output: &str) -> Vec<Branch> {
                 remote: true,
                 current: false,
                 upstream: None,
+                gone: false,
                 oid,
+                time,
+                local: date,
             });
         }
     }
     local.sort_by(|a, b| a.name.cmp(&b.name));
     remote.sort_by(|a, b| a.name.cmp(&b.name));
     local.extend(remote);
+    let known: HashSet<String> = local.iter().map(|b| b.name.clone()).collect();
+    for branch in &mut local {
+        // 和本地分支重名时 `git` 给上游加上 `remotes/`、`heads/`。
+        let gone = branch.upstream.as_deref().is_some_and(|upstream| {
+            let name = upstream
+                .strip_prefix("remotes/")
+                .or_else(|| upstream.strip_prefix("heads/"))
+                .unwrap_or(upstream);
+            !known.contains(name)
+        });
+        if gone {
+            branch.upstream = None;
+            branch.gone = true;
+        }
+    }
     local
 }
 

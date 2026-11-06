@@ -15,6 +15,7 @@ use winc_i18n::t;
 use winc_render::Image;
 
 use super::*;
+use crate::app::git::location_picker::Place;
 use crate::icons;
 use crate::keymap::{self, Action, Context, Stroke};
 use crate::layout::{goto_bar, hit};
@@ -52,12 +53,12 @@ const MENU_GAP: f32 = 4.0;
 pub enum MenuButton {
     /// 侧栏顶部的项目名。
     Project,
-    /// 侧栏顶部项目名后面的当前分支。
-    Branch,
     /// 提交视图标题行的「⋯」。
     CommitMore,
     /// 提交视图「提交 ⌄」拆分按钮的箭头。
     CommitButton,
+    /// 提交视图底部「上一次提交」那一栏的「⋯」。
+    LastCommit,
     /// 文件树工具栏收起按钮以后的「⋯」。
     TreeMore,
     /// 标签栏无法容纳全部标签时显示在最右端的「⌄」。
@@ -106,22 +107,16 @@ pub enum MenuCommand {
     OpenRecentInNewWindow(usize),
     OpenFolder,
     CloseFolder,
-    /// 项目菜单里工作树一组的小标题（不能点）。
-    WorktreeHeading,
-    /// 项目菜单里仓库一组的标题。
-    RepositoryHeading,
-    /// 切换到第几个仓库。
-    SwitchRepository(usize),
-    /// 项目菜单：在新窗口打开第几个工作树（`GitState::worktrees` 的下标）；已经开着就切过去。
-    OpenWorktree(usize),
-    /// 项目菜单（按住 `⌥`）：在当前窗口打开第几个工作树。
-    OpenWorktreeHere(usize),
-    /// 项目菜单：新建工作树（输入新分支的名字）。
+    /// 提交视图「⋯」：新建工作树（输入新分支的名字）。
     NewWorktree,
-    /// 项目菜单「移除工作树」子菜单：移除第几个工作树（检查、确认以后）。
-    RemoveWorktree(usize),
-    /// 项目菜单：清理目录已经不在的工作树（`git worktree prune`）。
-    PruneWorktrees,
+    /// 位置选择器的操作菜单：在新窗口打开这个位置。
+    LocationNewWindow,
+    /// 位置选择器的操作菜单：在系统的文件管理器里显示。
+    LocationReveal,
+    /// 位置选择器的操作菜单：移除这个工作树。
+    LocationRemove,
+    /// 位置选择器的操作菜单：清理目录已不存在的工作树。
+    LocationPrune,
     Cut,
     Copy,
     Paste,
@@ -195,7 +190,7 @@ pub enum MenuCommand {
     GitContinue,
     /// 菜单项「Git：中止停下来的合并、变基……」。
     GitAbort,
-    /// 分支菜单里的小标题（不能点）：`false` 本地分支，`true` 远程分支。
+    /// 菜单里分支一组的小标题（不能点）：`false` 本地分支，`true` 远程分支。
     GitHeading(bool),
     /// 对分支列表里第几个分支做的事。
     GitBranch(crate::app::git::branch::BranchOp, usize),
@@ -213,6 +208,14 @@ pub enum MenuCommand {
     FileHistory,
     /// 日志的分支筛选：0 是全部分支，`i + 1` 是分支列表里第 `i` 个分支。
     LogBranch(usize),
+    /// 状态栏的分支菜单：切换到弹出菜单时分支列表里的第几个分支。
+    StatusBranch(usize),
+    /// 状态栏的分支菜单：和上游同步。
+    StatusSync,
+    /// 状态栏的分支菜单：新建分支。
+    StatusNewBranch,
+    /// 状态栏的位置菜单：切换到第几个位置。
+    StatusPlace(usize),
     /// 新建工作树的起点：0 是当前分支，`i + 1` 是分支列表里第 `i` 个分支。
     FormBase(usize),
     /// 日志的作者筛选：0 是全部作者，`i + 1` 是作者菜单里第 `i` 个作者。
@@ -243,9 +246,9 @@ pub enum MenuCommand {
     LogCopyMessage,
     /// 编辑区：开关逐行追溯（开着时打勾）。
     ToggleBlame,
-    /// 分支菜单：储藏改动（输入说明）。
+    /// 提交视图「⋯」：储藏改动（输入说明）。
     GitStash,
-    /// 分支菜单：对第几条储藏做的事。
+    /// 提交视图「⋯」：对第几条储藏做的事。
     GitStashOp(crate::app::git::branch::StashOp, usize),
     /// 提交视图的「⋯」：重新读取仓库状态。
     CommitRefresh,
@@ -255,6 +258,10 @@ pub enum MenuCommand {
     CommitCollapseAll,
     /// 提交视图的「⋯」：回滚勾上的文件（先确认）。
     CommitRollback,
+    /// 撤销上一次提交（先确认）。
+    CommitUndo,
+    /// 复制上一次提交的提交号。
+    CommitCopyOid,
     /// 「提交 ⌄」：提交以后继续推送。
     CommitPush,
     /// 「提交 ⌄」：开关「修改上一次提交」（开着时打勾）。
@@ -309,7 +316,7 @@ impl MenuCommand {
         match self {
             MenuCommand::NewFile => t!("menu-new-file"),
             MenuCommand::NewFolder => t!("menu-new-folder"),
-            MenuCommand::Reveal => crate::system::reveal_label(),
+            MenuCommand::Reveal | MenuCommand::LocationReveal => crate::system::reveal_label(),
             MenuCommand::OpenInTerminal => t!("menu-open-in-terminal"),
             MenuCommand::FindInFolder => t!("cmd-find-in-folder"),
             MenuCommand::CopyPath => t!("cmd-copy-path"),
@@ -330,15 +337,15 @@ impl MenuCommand {
             MenuCommand::RevealInTree => t!("menu-reveal-in-tree"),
             MenuCommand::OpenRecent(_)
             | MenuCommand::ShowTab(_)
-            | MenuCommand::OpenRecentInNewWindow(_)
-            | MenuCommand::OpenWorktree(_)
-            | MenuCommand::OpenWorktreeHere(_)
-            | MenuCommand::RemoveWorktree(_)
-            | MenuCommand::SwitchRepository(_) => "",
-            MenuCommand::WorktreeHeading => t!("menu-worktrees-heading"),
-            MenuCommand::RepositoryHeading => t!("menu-repositories-heading"),
+            | MenuCommand::OpenRecentInNewWindow(_) => "",
             MenuCommand::NewWorktree => t!("menu-new-worktree"),
-            MenuCommand::PruneWorktrees => t!("menu-prune-worktrees"),
+            MenuCommand::LocationNewWindow => t!("git-location-new-window"),
+            MenuCommand::LocationRemove => t!("git-location-remove"),
+            MenuCommand::StatusNewBranch => t!("menu-git-new-branch"),
+            MenuCommand::StatusSync => t!("menu-git-sync"),
+            // 文字来自当时的分支和位置（`App::menu_label`）。
+            MenuCommand::StatusBranch(_) | MenuCommand::StatusPlace(_) => "",
+            MenuCommand::LocationPrune => t!("git-location-prune"),
             MenuCommand::GitFetch => t!("menu-git-fetch"),
             MenuCommand::GitPull => t!("menu-git-pull"),
             MenuCommand::GitPush => t!("menu-git-push"),
@@ -367,6 +374,8 @@ impl MenuCommand {
             MenuCommand::CommitExpandAll => t!("menu-commit-expand-all"),
             MenuCommand::CommitCollapseAll => t!("menu-commit-collapse-all"),
             MenuCommand::CommitRollback => t!("menu-commit-roll-back"),
+            MenuCommand::CommitUndo => t!("menu-commit-undo"),
+            MenuCommand::CommitCopyOid => t!("menu-log-copy-oid"),
             MenuCommand::CommitPush => t!("menu-commit-and-push"),
             MenuCommand::CommitAmend => t!("menu-commit-amend"),
             MenuCommand::TreeRefresh => t!("workspace-tree-tool-refresh"),
@@ -556,12 +565,16 @@ pub enum MenuTarget {
     Encoding(DocumentId),
     /// 状态栏中一个文档的语言。
     Language(DocumentId),
-    /// 状态栏、侧栏标题行中的分支名。
-    Branch,
+    /// 分支选择器里第几个分支（[`crate::app::git::GitState::branches`] 的下标）的操作。
+    BranchOps(usize),
+    /// 位置选择器里一个位置的操作：目录，以及它在当前仓库的工作树列表里的下标。
+    Location(PathBuf, Option<usize>),
     /// 提交视图标题行的「⋯」。
     CommitMore,
     /// 提交视图「提交 ⌄」拆分按钮的箭头。
     CommitButton,
+    /// 提交视图底部「上一次提交」那一栏的「⋯」。
+    LastCommit,
     /// 文件树工具栏的「⋯」：收起的各个工具。
     TreeTools,
     /// 标签栏最右端「⌄」弹出的标签列表。
@@ -572,6 +585,10 @@ pub enum MenuTarget {
     LogBranch,
     /// 新建工作树对话框的「基于」。
     FormBase,
+    /// 状态栏的分支菜单。
+    StatusBranches,
+    /// 状态栏的位置菜单：弹出时的各个位置，菜单项按下标对应。
+    StatusPlaces(Vec<Place>),
     /// 日志标题栏的「作者」下拉。
     LogAuthor,
     /// 日志里的一个提交（完整的提交号）。
@@ -600,9 +617,6 @@ pub enum MenuEntry {
     Separator,
     /// 子菜单，参数为标题和子项。
     Submenu(String, Vec<MenuEntry>),
-    /// 打勾的子菜单（分支菜单里的当前分支）：勾画在系统菜单的勾选列里，和别的项的文字
-    /// 对齐，不写进标题。
-    CheckedSubmenu(String, Vec<MenuEntry>),
 }
 
 impl MenuEntry {
@@ -622,7 +636,7 @@ impl MenuEntry {
                             return Some(*command);
                         }
                     }
-                    MenuEntry::Submenu(_, items) | MenuEntry::CheckedSubmenu(_, items) => {
+                    MenuEntry::Submenu(_, items) => {
                         if let Some(command) = walk(items, seen, tag) {
                             return Some(command);
                         }
@@ -641,9 +655,7 @@ impl MenuEntry {
             MenuEntry::Item(c, enabled) | MenuEntry::Alternate(c, enabled) => {
                 *c == command && *enabled
             }
-            MenuEntry::Submenu(_, items) | MenuEntry::CheckedSubmenu(_, items) => {
-                MenuEntry::offers(items, command)
-            }
+            MenuEntry::Submenu(_, items) => MenuEntry::offers(items, command),
             MenuEntry::Separator => false,
         })
     }

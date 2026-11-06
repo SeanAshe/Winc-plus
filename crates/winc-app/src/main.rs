@@ -215,6 +215,7 @@ fn main() {
     app.commit.set_flat(!state.commit_tree);
     app.editor.diff_unified = app.config.diff_inline == Some(true);
     app.state = state;
+    app.restore_panel_width();
     app.apply_preview_state();
     // 临时打开（`--wait`、`-`）时不记录现场、不加入最近列表、不备份，下次启动的状态不受影响。
     if args.one_off() {

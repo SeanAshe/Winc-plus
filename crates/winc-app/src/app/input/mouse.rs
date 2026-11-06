@@ -74,6 +74,9 @@ impl App {
         if matches!(self.drag, Drag::TerminalDivider { .. }) {
             self.terminal_dragging(false);
         }
+        if matches!(self.drag, Drag::Splitter { .. }) {
+            self.remember_panel_width();
+        }
         self.drag = Drag::None;
         // 拖动分隔条期间不重新断行（`sync_wrap`）；松开后重画，重画前的布局按最终宽度断行。
         if was_divider {

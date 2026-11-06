@@ -8,3 +8,4 @@ pub(super) mod changes;
 pub(super) mod commit;
 pub(super) mod log;
 pub(super) mod merge;
+pub(super) mod picker;

@@ -32,10 +32,16 @@ git-conflict-accept-both = Accept Both
 
 git-branch-checkout = Check Out
 git-branch-checkout-new-worktree = Check Out in New Worktree
-git-branch-new-from = New Branch…
+git-branch-new-from = New Branch from This Branch…
 git-branch-merge-into-current = Merge into Current Branch
-git-branch-rebase-current-onto = Rebase Current Branch onto This
-git-branch-delete = Delete
+git-branch-rebase-current-onto = Rebase Current Branch onto This Branch
+git-branch-delete = Delete Branch…
+git-branch-delete-confirm = Delete branch “{ $name }”?
+git-branch-delete-confirm-detail = Only the local branch is deleted. Remote branches aren't affected.
+git-branch-delete-confirm-button = Delete
+git-branch-force-delete-confirm = Branch “{ $name }” isn't fully merged. Delete it anyway?
+git-branch-force-delete-confirm-detail = Commits that exist only on this branch may be lost.
+git-branch-force-delete-confirm-button = Delete Anyway
 git-branch-compare-with-current = Compare with Current Branch
 git-stash-menu = Stashes ({ $count })
 git-stash-apply = Apply
@@ -77,19 +83,8 @@ git-op-failed = Error { $what }: { $error }
 git-op-failed-in = Error { $what } in “{ $name }”: { $error }
 
 ## Worktrees
-
-git-worktree-remove-menu = Remove Worktree
-git-repository-detail = { $head } · { $count ->
-    [one] { $count } change
-   *[other] { $count } changes
-}
 git-worktree-detached = { $oid } (detached HEAD)
 git-worktree-missing = Folder no longer exists
-git-worktree-open-here = Open in this window
-git-worktree-locked-unremovable = Locked; unlock it from the command line to remove it
-git-worktree-locked = { $head } · Locked
-git-worktree-open-in-current = Open “{ $name }” in Current Window
-git-worktree-only-one = This repository has only one worktree
 git-worktree-copied-ignored = { $count ->
     [one] Copied { $count } ignored file
    *[other] Copied { $count } ignored files
@@ -204,7 +199,22 @@ git-commit-done = Committed { $oid }: { $subject }
 git-commit-failed = Couldn't commit: { $error }
 git-commit-done-in = Committed { $oid } in “{ $name }”
 git-commit-failed-in = Couldn't commit in “{ $name }”: { $error }
-git-undo-commit = Undo
+git-undo-commit-confirm = Undo the last commit?
+git-undo-commit-confirm-detail = The changes in “{ $subject }” return to the staging area, and its message returns to the input box.
+git-undo-commit-confirm-button = Undo Commit
+git-force-push-confirm = Force push “{ $branch }”?
+git-force-push-confirm-detail = { $count ->
+    [one] Pushed commits were rewritten locally. 1 upstream commit will be replaced by the local version. The push is rejected if upstream has received new commits in the meantime.
+   *[other] Pushed commits were rewritten locally. { $count } upstream commits will be replaced by the local version. The push is rejected if upstream has received new commits in the meantime.
+}
+git-force-push-confirm-button = Force Push
+git-commit-push-confirm = Commit and push?
+git-commit-push-confirm-scope = { $count ->
+    [one] 1 file will be committed to { $branch } and pushed to upstream.
+   *[other] { $count } files will be committed to { $branch } and pushed to upstream.
+}
+git-commit-push-confirm-detail = The commit will be pushed to upstream.
+git-commit-push-confirm-button = Commit and Push
 git-undo-commit-done = Undid commit { $oid }; its changes are staged
 git-undo-commit-done-in = Undid commit { $oid } in “{ $name }”
 git-undo-commit-failed = Couldn't undo the commit: { $error }
@@ -270,11 +280,71 @@ git-operation-banner-conflicts = { $count ->
 git-operation-abort = Abort
 git-commit-message-placeholder = Commit message ({ $key } to commit)
 git-commit-message-amend-placeholder = Amended commit message
+git-branch-picker-placeholder = Search or create a branch
+git-branch-picker-name = New branch name
+git-branch-picker-from = Create from { $branch }
+git-branch-picker-from-carry = { $count ->
+    [one] Create from { $branch }. Uncommitted changes in 1 file stay in the working tree.
+   *[other] Create from { $branch }. Uncommitted changes in { $count } files stay in the working tree.
+}
+git-branch-picker-new = New Branch
+git-branch-picker-new-worktree = New Worktree
+git-branch-picker-create-row = Create branch “{ $name }”
+git-branch-picker-current = Current
+git-picker-back = Back
+git-location-picker-placeholder = Search repositories and worktrees
+git-location-picker-empty = No matching repositories or worktrees
+git-location-main-worktree = Main worktree
+git-location-only-one = This folder has only one repository and worktree
+git-location-new-window = Open in New Window
+git-location-remove = Remove Worktree…
+git-location-prune = Clean Up Stale Worktrees
+git-location-new-worktree-in = New Worktree in “{ $repository }”
+git-location-count = { $count ->
+    [one] 1 worktree
+   *[other] { $count } worktrees
+}
+git-tip-other-worktrees = { $count ->
+    [one] 1 other worktree has uncommitted changes
+   *[other] { $count } other worktrees have uncommitted changes
+}
+git-tip-other-locations = { $count ->
+    [one] 1 other repository or worktree has uncommitted changes
+   *[other] { $count } other repositories or worktrees have uncommitted changes
+}
+git-tip-fetch = Fetch from remotes
+git-tip-in-sync = Fetch from remotes (in sync with { $upstream })
+git-tip-push = { $count ->
+    [one] Push 1 commit
+   *[other] Push { $count } commits
+} to { $upstream }
+git-tip-pull = { $count ->
+    [one] Pull 1 commit
+   *[other] Pull { $count } commits
+} from { $upstream }
+git-tip-both = Sync with { $upstream }: pull { $behind }, push { $ahead }
+git-tip-publish = Publish Branch: push to a remote and set the upstream
+git-switch-dirty = Check out “{ $branch }” with uncommitted changes?
+git-switch-dirty-detail = { $count ->
+    [one] 1 file in “{ $current }” has uncommitted changes. Migrated changes stay in the working tree; stashed changes can be restored at any time.
+   *[other] { $count } files in “{ $current }” have uncommitted changes. Migrated changes stay in the working tree; stashed changes can be restored at any time.
+}
+git-switch-carry = Migrate Changes
+git-switch-stash = Stash and Check Out
+git-switch-failed-restored = { $error } (your uncommitted changes were restored)
+git-switch-failed-stashed = { $error } (your uncommitted changes are still in the stash and can be restored from the stash list)
+git-switch-stash-message = Changes on { $branch } before switching branches
+git-commit-button-nothing = No Changes to Commit
+git-branch-picker-empty = No matching branches
+git-branch-picker-recent = Recent
+git-branch-picker-other = Other Local Branches
 git-commit-button = Commit
+git-commit-button-files = { $count ->
+    [one] Commit 1 File
+   *[other] Commit { $count } Files
+}
 git-commit-button-amend = Amend Commit
 git-commit-button-committing = Committing…
-git-commit-button-sync = Sync Changes { $counts }
-git-commit-button-syncing = Syncing…
 git-commit-button-committed = Committed { $oid }
 git-commit-button-continue-rebase = Continue Rebase
 git-commit-button-finish-merge = Finish Merge
@@ -471,6 +541,7 @@ git-change-popup-more-lines = { $count ->
 
 git-commit-group-changes = Changes
 git-commit-group-conflicts = Conflicts
+git-commit-group-untracked = Untracked Files
 git-commit-open-deleted = The file was deleted and can't be opened
 git-commit-blocker-conflicts = { $count ->
     [one] { $count } file still has unresolved conflicts

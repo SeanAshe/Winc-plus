@@ -118,6 +118,9 @@ pub struct Config {
     pub terminal_right: Option<bool>,
     /// 是否启用 Git 模块（文件状态、分支、变更视图），默认为否。
     pub git_enabled: Option<bool>,
+    /// 在打开的目录下查找仓库的层数，默认见 [`Config::REPOSITORY_SCAN_DEPTH`]，可用范围见
+    /// [`Config::REPOSITORY_SCAN_DEPTH_RANGE`]。
+    pub repository_scan_depth: Option<usize>,
     /// 新建的工作树放在哪个目录下（按仓库分开，`<目录>/<仓库名>/<分支名>`）；可以用 `~/`，相对
     /// 路径相对于主工作树。
     ///
@@ -214,6 +217,13 @@ impl Config {
     ///
     /// 超出范围的值在读入时忽略并报告；上下限为经验值。
     pub const TAB_WIDTH_RANGE: std::ops::RangeInclusive<f32> = 1.0..=16.0;
+    /// 查找仓库的默认层数：覆盖「目录 / 分组 / 项目」这样的常见结构；扫描在后台进行，有目录项总数
+    /// 的上限，较深的层数不会拖慢界面。
+    pub const REPOSITORY_SCAN_DEPTH: usize = 3;
+    /// 查找仓库层数的合法范围。
+    ///
+    /// 超出范围的值在读入时忽略并报告。
+    pub const REPOSITORY_SCAN_DEPTH_RANGE: std::ops::RangeInclusive<f32> = 1.0..=8.0;
     /// 终端回滚缓冲行数的合法范围。
     ///
     /// 超出范围的值在读入时忽略并报告；上限 1000000 行为经验值，避免回滚缓冲占用过多内存。

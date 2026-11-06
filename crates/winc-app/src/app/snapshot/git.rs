@@ -101,13 +101,25 @@ fn long_repo(dir: &Path) -> bool {
     true
 }
 
-/// 弹出分支菜单并选中 `command`；测试中没有系统菜单，选中即执行。
+/// 弹出 `command` 所在的菜单（分支的操作菜单，或提交视图的「⋯」）并选中它；测试中没有系统菜单，
+/// 选中即执行。
 fn choose_in_branch_menu(app: &mut App, command: crate::app::MenuCommand) {
-    app.open_context_menu(
-        crate::app::input::context_menu::MenuTarget::Branch,
-        (0.0, 0.0),
-    );
+    use crate::app::MenuCommand::GitBranch;
+    use crate::app::input::context_menu::MenuTarget;
+    let target = match command {
+        GitBranch(_, index) => MenuTarget::BranchOps(index),
+        _ => MenuTarget::CommitMore,
+    };
+    app.open_context_menu(target, (0.0, 0.0));
     app.run_menu_command(command);
+}
+
+/// 按窗口内提示框的第 `button` 个按钮：第一个是默认按钮，最后一个是「取消」。
+fn press_alert(app: &mut App, button: usize) {
+    paint(app);
+    let rect = app.alert.as_ref().unwrap().parts.buttons[button];
+    app.on_mouse_move(rect.x + 4.0, rect.y + 4.0);
+    app.alert_mouse_down();
 }
 
 /// 在测试仓库 `dir` 中运行 `git` 命令，失败时 panic。

@@ -167,6 +167,8 @@ pub enum Action {
     ToggleDiffLayout,
     GitShowChanges,
     GitShowLog,
+    /// 打开提交视图并展开位置选择器。
+    GitSwitchRepository,
     GitSwitchWorktree,
     GitNewWorktree,
     GitFileHistory,
@@ -358,6 +360,7 @@ impl Action {
             ToggleDiffLayout => t!("cmd-toggle-diff-layout"),
             GitShowChanges => t!("cmd-git-show-changes"),
             GitShowLog => t!("cmd-git-show-log"),
+            GitSwitchRepository => t!("cmd-git-switch-repository"),
             GitSwitchWorktree => t!("cmd-git-switch-worktree"),
             GitNewWorktree => t!("cmd-git-new-worktree"),
             GitFileHistory => t!("cmd-git-file-history"),
@@ -533,6 +536,7 @@ impl Action {
             ToggleDiffLayout => "Toggle Inline Diff",
             GitShowChanges => "Git: Open Changes",
             GitShowLog => "Git: Show Log",
+            GitSwitchRepository => "Git: Switch Repository",
             GitSwitchWorktree => "Git: Switch Worktree…",
             GitNewWorktree => "Git: New Worktree…",
             GitFileHistory => "Git: Show File History",
@@ -647,12 +651,12 @@ impl Action {
             | ThemeLight | ThemeDark | ToggleStickyScroll | ToggleWordWrap | ToggleMinimap
             | ToggleLineNumbers | ToggleStatusBar | ToggleWhitespace | TogglePreview
             | NextDifference | PreviousDifference | NextDiffFile | PreviousDiffFile
-            | ToggleDiffLayout | GitShowChanges | GitShowLog | GitSwitchWorktree
-            | GitNewWorktree | GitFileHistory | GitBlame | ShowCommit | GitRevertChange
-            | ToggleTerminal | ClearTerminal | NewTerminal | CloseTerminal | NextTerminal
-            | PreviousTerminal | FindInTerminal | MaximizeTerminal | RenameTerminal
-            | PreviousCommand | NextCommand | FoldOutput | UnfoldOutput | NextError
-            | PreviousError | SendToTerminal => Group::View,
+            | ToggleDiffLayout | GitShowChanges | GitShowLog | GitSwitchRepository
+            | GitSwitchWorktree | GitNewWorktree | GitFileHistory | GitBlame | ShowCommit
+            | GitRevertChange | ToggleTerminal | ClearTerminal | NewTerminal | CloseTerminal
+            | NextTerminal | PreviousTerminal | FindInTerminal | MaximizeTerminal
+            | RenameTerminal | PreviousCommand | NextCommand | FoldOutput | UnfoldOutput
+            | NextError | PreviousError | SendToTerminal => Group::View,
         }
     }
 
@@ -718,6 +722,7 @@ impl Action {
         match self {
             Action::GitShowChanges
             | Action::GitShowLog
+            | Action::GitSwitchRepository
             | Action::GitSwitchWorktree
             | Action::GitNewWorktree
             | Action::GitFileHistory
@@ -931,6 +936,7 @@ pub const ACTIONS: &[Action] = {
         ShowCommit,
         GitShowChanges,
         GitShowLog,
+        GitSwitchRepository,
         GitSwitchWorktree,
         GitNewWorktree,
         GitFileHistory,

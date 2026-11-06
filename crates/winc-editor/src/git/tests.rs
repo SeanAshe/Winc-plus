@@ -255,6 +255,25 @@ fn branches_list_local_first_and_skip_remote_head() {
 }
 
 #[test]
+fn an_upstream_that_no_longer_exists_counts_as_none() {
+    let output = "refs/heads/gone\0 \0origin/gone\0a\nrefs/heads/kept\0 \0origin/kept\0b\n\
+                  refs/heads/local\0 \0kept\0c\nrefs/heads/origin/kept\0 \0remotes/origin/kept\0d\n\
+                  refs/remotes/origin/kept\0 \0\0b\n";
+    let branches = parse_branches(output);
+    let upstream = |name: &str| {
+        let branch = branches.iter().find(|b| b.name == name).unwrap();
+        branch.upstream.as_deref()
+    };
+    assert_eq!(upstream("gone"), None);
+    assert!(branches.iter().any(|b| b.name == "gone" && b.gone));
+    assert!(branches.iter().all(|b| b.name == "gone" || !b.gone));
+    assert_eq!(upstream("kept"), Some("origin/kept"));
+    // 上游可以是本地分支；和本地分支同名时 `git` 写成带 `remotes/` 的形式。
+    assert_eq!(upstream("local"), Some("kept"));
+    assert_eq!(upstream("origin/kept"), Some("remotes/origin/kept"));
+}
+
+#[test]
 fn failures_pick_the_line_that_explains() {
     let push = b"To github.com:a/b.git\n ! [rejected]        main -> main (fetch first)\n\
                      error: failed to push some refs to 'github.com:a/b.git'\nhint: Updates were rejected\n";
@@ -1130,5 +1149,52 @@ fn undoing_a_commit_keeps_its_changes_staged() {
     git.undo_commit(&root, &first.oid).unwrap();
     assert_eq!(git.last_commit(&root), None);
     assert_eq!(sh(&["diff", "--cached", "--name-only"]), "a.rs\n");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn recent_branches_keep_the_latest_switch_of_each_branch() {
+    let output = "checkout: moving from main to feature/login\n\
+                  checkout: moving from dev to main\n\
+                  checkout: moving from main to dev\n\
+                  checkout: moving from dev to feature/login\n";
+    assert_eq!(
+        parse_recent_branches(output),
+        ["feature/login", "main", "dev"]
+    );
+}
+
+#[test]
+fn scanning_finds_nested_repositories_within_the_depth() {
+    let dir = crate::test_util::scratch("git-scan");
+    let mark = |path: &str| std::fs::create_dir_all(dir.join(path).join(".git")).unwrap();
+    mark("a");
+    mark("group/b");
+    mark("group/deep/c");
+    // 找到的仓库不再往里找；依赖目录、隐藏目录都跳过。
+    mark("a/inner");
+    mark("node_modules/pkg");
+    mark(".cache/d");
+
+    let names = |depth| -> Vec<PathBuf> {
+        scan_repositories(&dir, depth, &Cancel::default())
+            .into_iter()
+            .map(|path| path.strip_prefix(&dir).unwrap().to_path_buf())
+            .collect()
+    };
+    assert_eq!(names(1), [PathBuf::from("a")]);
+    assert_eq!(names(2), [PathBuf::from("a"), PathBuf::from("group/b")]);
+    assert_eq!(
+        names(3),
+        [
+            PathBuf::from("a"),
+            PathBuf::from("group/b"),
+            PathBuf::from("group/deep/c"),
+        ]
+    );
+
+    let cancelled = Cancel::default();
+    cancelled.cancel();
+    assert!(scan_repositories(&dir, 3, &cancelled).is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }

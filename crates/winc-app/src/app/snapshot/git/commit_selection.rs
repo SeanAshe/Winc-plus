@@ -14,7 +14,8 @@ fn command_and_shift_clicks_select_several_changes_for_one_check_and_rollback() 
     if !make_repo(&dir) {
         return;
     }
-    // 再修改两个已跟踪的文件：共三个改动，一个未跟踪（`src/new.rs`）。
+    git_in(&dir, &["add", "src/new.rs"]);
+    // 再修改两个已跟踪的文件：共三个改动，一个已暂存的新文件（`src/new.rs`）。
     std::fs::write(dir.join("Cargo.toml"), "[package]\nname = \"x\"\n").unwrap();
     std::fs::write(dir.join("src/config.rs"), "\n").unwrap();
     let mut app = app_with(&dir, false);
@@ -207,6 +208,7 @@ fn arrow_keys_fold_the_selected_changes_folders_and_backspace_reverts_it() {
     if !make_repo(&dir) {
         return;
     }
+    git_in(&dir, &["add", "src/new.rs"]);
     let mut app = app_with(&dir, false);
     // 默认显示为列表；本测试检查按目录排列的树形视图。
     app.commit.set_flat(false);
@@ -219,7 +221,7 @@ fn arrow_keys_fold_the_selected_changes_folders_and_backspace_reverts_it() {
     paint(&mut app);
     let root = app.git.root.clone().unwrap();
     let (main, new) = (root.join("src/main.rs"), root.join("src/new.rs"));
-    // 「更改」组里的 `src` 目录下是改过的 `src/main.rs` 和未跟踪的新文件 `src/new.rs`。
+    // 「更改」组里的 `src` 目录下是改过的 `src/main.rs` 和已暂存的新文件 `src/new.rs`。
     let shown = |app: &App| app.commit_files();
     assert_eq!(shown(&app), [main.clone(), new.clone()]);
 

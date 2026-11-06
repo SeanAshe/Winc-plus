@@ -30,5 +30,6 @@ config-not-number = { $name } 应为数字，已忽略
 config-out-of-range = { $setting } 超出{ $label }范围（{ $range }），已忽略
 config-label-font-size = 字号
 config-label-tab-width = 制表符长度
+config-label-repository-scan-depth = 仓库扫描深度
 config-label-lines = 行数
 config-label-contrast = 对比度

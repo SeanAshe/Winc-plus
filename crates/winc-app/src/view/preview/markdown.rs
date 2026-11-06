@@ -11,8 +11,8 @@ use std::sync::Arc;
 use winc_i18n::t;
 use winc_render::{Color, Frame, Rect, Stroke};
 
-use crate::app::App;
 use crate::app::preview::markdown::ImageSlot;
+use crate::app::{App, ScrollArea};
 use crate::icons;
 use crate::theme::Palette;
 
@@ -459,14 +459,18 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
         app.request_markdown_pixels(&path, size);
     }
 
-    // 内容比区域高时，右边画一道细的滚动条（只是指示位置）。
-    if max > 0.0 {
-        let total = app.markdown.height;
-        let thumb = (area.h * area.h / total).max(24.0);
-        let y = area.y + (area.h - thumb) * scroll / max;
-        let bar = Rect::new(area.right() - 7.0, y + 2.0, 4.0, thumb - 4.0);
-        frame.rect_clipped(bar, p.scrollbar, 2.0, area);
-    }
+    // 和编辑区的滚动条一样：平时隐藏，滚动、悬停时显示，可以拖动。
+    let owner = app.editor.active().map_or(0, |doc| doc.id.0);
+    let content = app.markdown.height;
+    crate::view::draw_scrollbar(
+        app,
+        frame,
+        ScrollArea::Markdown,
+        owner,
+        area,
+        scroll,
+        content,
+    );
 }
 
 /// 重排之前各顶层块的排版和绘制位置，重排后据此计算过渡动画（见 `BlockMotion`）。
