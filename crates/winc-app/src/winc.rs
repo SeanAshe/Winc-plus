@@ -671,12 +671,7 @@ impl Winc {
     ///
     /// `sidebar` 为假时侧栏保持收起（单独打开文件，目录只是文件所在的位置）。目录已经开在某个
     /// 窗口里时切到那个窗口；关着的窗口（macOS 上关掉了最后一个窗口）先拿来用。
-    fn new_window(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        folder: Option<PathBuf>,
-        sidebar: bool,
-    ) {
+    fn new_window(&mut self, event_loop: &ActiveEventLoop, folder: Option<PathBuf>, sidebar: bool) {
         let folder = folder.map(|f| winc_config::files::canonicalize(&f).unwrap_or(f));
         if let Some(key) = folder
             .as_ref()

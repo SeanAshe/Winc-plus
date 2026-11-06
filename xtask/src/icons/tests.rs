@@ -115,9 +115,7 @@ fn each_icon_group_gets_its_own_image_ids() {
 #[test]
 fn each_file_icon_size_keeps_its_own_image() {
     let dir = root().join("crates/winc-app/assets/file-icons");
-    let load = |size: u32| {
-        std::fs::read(dir.join(format!("md.targetsize-{size}.png"))).unwrap()
-    };
+    let load = |size: u32| std::fs::read(dir.join(format!("md.targetsize-{size}.png"))).unwrap();
     let packed: Vec<(u32, Vec<u8>)> = [16, 32, 48, 512]
         .into_iter()
         .map(|size| (size, build_icon::icon_payload(&load(size), size)))
