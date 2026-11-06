@@ -1,9 +1,8 @@
 # Releasing winc
 
 Every merge into `main` is a release. It creates the annotated tag `v<version>`, explicitly
-dispatches the Release workflow on that tag, builds the Windows x64 target, and assembles one
-**draft** GitHub Release. A maintainer reviews and publishes the draft. No platform job uploads
-directly to a Release.
+dispatches the Release workflow on that tag, builds the Windows x64 target, and publishes one
+GitHub Release. No platform job uploads directly to a Release, and nobody publishes it by hand.
 
 Raise the version on `dev` before opening the pull request into `main`: its "Release version" check
 fails while the version is already tagged, and a push to `main` with such a version fails instead
@@ -14,7 +13,7 @@ of releasing it again. To retry a failed build, rerun the Release workflow on th
 | Path | Contents |
 | --- | --- |
 | `.github/workflows/release-tag.yml` | Tags each merge into `main` and starts the Release workflow |
-| `.github/workflows/release.yml` | Entry point: prepare, the Windows build, and the draft |
+| `.github/workflows/release.yml` | Entry point: prepare, the Windows build, and publication |
 | `.github/workflows/release-{prepare,windows}.yml` | Reusable jobs called by `release.yml` |
 | `.github/actions/build-setup/` | Shared toolchain and cache setup; pins the release Rust version |
 | `release/windows/` | `package.ps1` (NSIS, MSI, portable zip), `sign.ps1`, `verify.ps1`, installer templates |
@@ -99,6 +98,6 @@ Before uploading, the Windows job verifies its packages: it checks signatures an
 NSIS/MSI installation and the update launcher using paths containing spaces.
 
 The publication job requires the verified Windows artifacts. It refuses missing,
-duplicate or unexpected assets, multiple drafts for the tag, and replacing an already published
-Release. Retrying a draft replaces the same expected asset names. Publishing remains a manual
-action after reviewing the draft, release notes and checksums.
+duplicate or unexpected assets, multiple releases for the tag, and replacing an already published
+Release. A failed upload stays unpublished and a retry replaces the same expected asset names,
+then publishes the release. A finished release is live; rerunning the workflow will not replace it.

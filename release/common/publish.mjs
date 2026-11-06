@@ -1,4 +1,4 @@
-// Assemble the verified Windows target, write SHA256SUMS, then upload once into one draft release.
+// Assemble the verified Windows target, write SHA256SUMS, upload once, then publish the release.
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { appendFileSync, createReadStream, readdirSync, writeFileSync } from "node:fs";
@@ -58,9 +58,10 @@ async function assembleRelease(options) {
   return [...files, CHECKSUMS_FILE];
 }
 
-function existingDraft(releases, tag) {
+function existingRelease(releases, tag) {
   const matches = releases.filter((release) => release.tag_name === tag);
-  if (matches.length > 1) throw new Error(`${tag} has multiple releases; remove the duplicate drafts before retrying`);
+  if (matches.length > 1) throw new Error(`${tag} has multiple releases; remove the duplicates before retrying`);
+  // A failed upload stays unpublished so it can be replaced. A finished release is already live.
   if (matches[0] && !matches[0].draft) throw new Error(`${tag} is already published; refusing to replace its assets`);
   return matches[0];
 }
@@ -102,23 +103,25 @@ async function main() {
   const commit = JSON.parse(gh(["api", `repos/${repository}/commits/${encodeURIComponent(`refs/tags/${tag}`)}`]));
   if (commit.sha !== sha) throw new Error(`${tag} moved since the build started (${sha} -> ${commit.sha})`);
   const pages = JSON.parse(gh(["api", `repos/${repository}/releases?per_page=100`, "--paginate", "--slurp"]));
-  let release = existingDraft(pages.flat(), tag);
+  let release = existingRelease(pages.flat(), tag);
   const unexpected = (release?.assets ?? []).filter(({ name }) => !files.includes(name));
   if (unexpected.length) {
-    throw new Error(`draft contains assets outside this build; remove or reconcile them before retrying: ${unexpected.map(({ name }) => name).join(", ")}`);
+    throw new Error(`release contains assets outside this build; remove or reconcile them before retrying: ${unexpected.map(({ name }) => name).join(", ")}`);
   }
   if (!release) {
     // The tag already exists and was verified above. An explicit target_commitish
     // can require workflow-write permission, which GITHUB_TOKEN cannot grant.
+    // Stay unpublished until the upload finishes, so a partial run is not served as latest.
     release = JSON.parse(gh(["api", "--method", "POST", `repos/${repository}/releases`, "--input", "-"], JSON.stringify({
       tag_name: tag, name: tag, draft: true,
       prerelease: version.includes("-"), body: releaseNotes(version),
     })));
   }
   gh(["release", "upload", tag, ...files.map((name) => join(directory, name)), "--repo", repository, "--clobber"]);
-  console.log(`Draft release ready: ${release.html_url}`);
+  release = JSON.parse(gh(["api", "--method", "PATCH", `repos/${repository}/releases/${release.id}`, "--input", "-"], JSON.stringify({ draft: false })));
+  console.log(`Release published: ${release.html_url}`);
   if (process.env.GITHUB_STEP_SUMMARY) {
-    appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Draft release: ${release.html_url}\n\nBuilt from ${sha}; uploaded ${files.length} files.\n`);
+    appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Release published: ${release.html_url}\n\nBuilt from ${sha}; uploaded ${files.length} files.\n`);
   }
 }
 
