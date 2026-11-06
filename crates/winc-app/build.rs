@@ -16,6 +16,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build_icon.rs");
     println!("cargo:rerun-if-changed=assets/winc.ico");
     println!("cargo:rerun-if-changed=src/shell_icons.rs");
+    println!("cargo:rerun-if-changed=assets/file-icons");
 
     let msvc = var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "windows")
         && var("CARGO_CFG_TARGET_ENV").is_ok_and(|env| env == "msvc");
@@ -26,7 +27,7 @@ fn main() {
     let mut owned = vec![(shell_icons::APP_ICON_ID, app)];
     for (index, icon) in shell_icons::FILE_ICONS.iter().enumerate() {
         let id = shell_icons::APP_ICON_ID + 1 + index as u16;
-        owned.push((id, file_ico(icon.label, icon.color)));
+        owned.push((id, file_ico(icon.asset)));
     }
     let groups: Vec<(u16, &[u8])> = owned
         .iter()
@@ -38,20 +39,16 @@ fn main() {
     println!("cargo:rustc-link-arg-bin=winc={}", out.display());
 }
 
-/// 把一种文件图标画成含 16、32、48、256 四档的 ICO。
-fn file_ico(label: &str, color: u32) -> Vec<u8> {
+/// 把 Notepads 的四档原图包成 ICO：16、32、48 用位图，512 用 PNG。
+///
+/// 资源管理器按视图挑选尺寸。四档都是同一张 PNG 时，它只认最大的那张再缩小，
+/// 列表里的「MD」就会糊成一块。
+fn file_ico(asset: &str) -> Vec<u8> {
     let mut images = Vec::new();
-    for size in [16u32, 32, 48, 256] {
-        let rgba = build_icon::draw_file_icon(size, label, color);
-        let mut bytes = Vec::new();
-        let mut encoder = png::Encoder::new(&mut bytes, size, size);
-        encoder.set_color(png::ColorType::Rgba);
-        encoder.set_depth(png::BitDepth::Eight);
-        encoder
-            .write_header()
-            .and_then(|mut writer| writer.write_image_data(&rgba))
-            .expect("编码文件图标");
-        images.push((size, bytes));
+    for size in [16u32, 32, 48, 512] {
+        let path = format!("assets/file-icons/{asset}.targetsize-{size}.png");
+        let png = std::fs::read(&path).unwrap_or_else(|error| panic!("{path}: {error}"));
+        images.push((size, build_icon::icon_payload(&png, size)));
     }
     build_icon::pngs_to_ico(&images)
 }

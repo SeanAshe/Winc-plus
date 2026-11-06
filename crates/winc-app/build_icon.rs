@@ -87,6 +87,71 @@ pub fn pngs_to_ico(images: &[(u32, Vec<u8>)]) -> Vec<u8> {
     ico
 }
 
+/// 把 Notepads 的一张 PNG 放进 ICO。
+///
+/// 小于 256 的档写成 32 位位图：资源管理器按目录里的边长挑选，PNG 只认 256 那一档，
+/// 小图标会被放大后的大图代替。512 原样保留（目录里边长写成 0）。
+pub fn icon_payload(png_bytes: &[u8], size: u32) -> Vec<u8> {
+    let rgba = decode_rgba(png_bytes);
+    assert_eq!(
+        rgba.len(),
+        size as usize * size as usize * 4,
+        "文件图标应为 {size}×{size}"
+    );
+    if size >= 256 {
+        png_bytes.to_vec()
+    } else {
+        bitmap_dib(&rgba, size)
+    }
+}
+
+/// 解码 PNG 为直线向下的 RGBA。调色板和透明索引会展开。
+fn decode_rgba(bytes: &[u8]) -> Vec<u8> {
+    let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+    decoder.set_transformations(png::Transformations::normalize_to_color8());
+    let mut reader = decoder.read_info().expect("解码文件图标");
+    let mut buf = vec![0; reader.output_buffer_size().expect("文件图标的缓冲区")];
+    reader.next_frame(&mut buf).expect("读取文件图标");
+    let (color, _) = reader.output_color_type();
+    match color {
+        png::ColorType::Rgba => buf,
+        png::ColorType::Rgb => {
+            let mut rgba = Vec::with_capacity(buf.len() / 3 * 4);
+            for px in buf.chunks_exact(3) {
+                rgba.extend([px[0], px[1], px[2], 255]);
+            }
+            rgba
+        }
+        _ => panic!("文件图标的颜色格式不支持"),
+    }
+}
+
+/// 32 位自下而上的设备无关位图，带一张全透明的掩码。颜色预乘透明度。
+fn bitmap_dib(rgba: &[u8], size: u32) -> Vec<u8> {
+    let xor = size as usize * size as usize * 4;
+    let mask_stride = ((size as usize + 31) / 32) * 4;
+    let mask = mask_stride * size as usize;
+    let mut dib = Vec::with_capacity(40 + xor + mask);
+    dib.extend(40u32.to_le_bytes());
+    dib.extend((size as i32).to_le_bytes());
+    dib.extend(((size * 2) as i32).to_le_bytes());
+    dib.extend(1u16.to_le_bytes());
+    dib.extend(32u16.to_le_bytes());
+    dib.extend(0u32.to_le_bytes());
+    dib.extend(((xor + mask) as u32).to_le_bytes());
+    dib.extend([0; 16]);
+    for y in (0..size).rev() {
+        for x in 0..size {
+            let i = (y as usize * size as usize + x as usize) * 4;
+            let (r, g, b, a) = (rgba[i], rgba[i + 1], rgba[i + 2], rgba[i + 3]);
+            let scale = |channel: u8| ((u16::from(channel) * u16::from(a) + 127) / 255) as u8;
+            dib.extend([scale(b), scale(g), scale(r), a]);
+        }
+    }
+    dib.resize(dib.len() + mask, 0);
+    dib
+}
+
 /// 画一张 Notepads 那种文件图标：浅色折角纸，下面一条写着 `label` 的色带。
 ///
 /// `label` 为空时不画色带，只在纸上画三行，当作没有专门图标的类型。`color` 是色带的

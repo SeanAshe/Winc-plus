@@ -113,6 +113,25 @@ fn each_icon_group_gets_its_own_image_ids() {
 }
 
 #[test]
+fn each_file_icon_size_keeps_its_own_image() {
+    let dir = root().join("crates/winc-app/assets/file-icons");
+    let load = |size: u32| {
+        std::fs::read(dir.join(format!("md.targetsize-{size}.png"))).unwrap()
+    };
+    let packed: Vec<(u32, Vec<u8>)> = [16, 32, 48, 512]
+        .into_iter()
+        .map(|size| (size, build_icon::icon_payload(&load(size), size)))
+        .collect();
+    assert!(packed[0].1.starts_with(&40u32.to_le_bytes()));
+    assert!(packed[1].1.starts_with(&40u32.to_le_bytes()));
+    assert_ne!(packed[0].1, packed[1].1);
+    assert!(packed[3].1.starts_with(b"\x89PNG"));
+    let ico = build_icon::pngs_to_ico(&packed);
+    assert_eq!(u16::from_le_bytes([ico[4], ico[5]]), 4);
+    assert_eq!([ico[6], ico[22], ico[38], ico[54]], [16, 32, 48, 0]);
+}
+
+#[test]
 fn a_file_icon_is_a_page_with_a_colored_band() {
     let pixels = build_icon::draw_file_icon(48, "MD", 0x44709E);
     assert_eq!(&pixels[..4], &[0, 0, 0, 0]);

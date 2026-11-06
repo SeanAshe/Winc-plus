@@ -1,20 +1,22 @@
-//! Windows 资源管理器里的文件图标：一种扩展名一条色带，样式参照 Notepads 的文件图标。
+//! Windows 资源管理器里的文件图标。
 //!
-//! 应用图标单独占资源编号 1。这里的每一项紧随其后，编号连续，外壳用 `exe,-编号` 引用。
+//! 图像直接用 [Notepads](https://github.com/0x7c13/Notepads) 的 `Assets/FileIcons`：
+//! 16、32、48、512 各一张，不把同一张图缩小到每个尺寸。应用图标单独占资源编号 1。
+//! 这里的每一项紧随其后，编号连续，外壳用 `exe,-编号` 引用。
 //!
-//! 构建脚本和程序各编译一次：构建脚本只拿清单去画图标，查扩展名和打开命令的函数在那边用不到。
+//! 构建脚本和程序各编译一次：构建脚本只拿清单去找图标文件，查扩展名和打开命令的函数在那边用不到。
 
 #![allow(dead_code)]
 
 /// 应用图标的资源编号。窗口、任务栏和「打开方式」都用它。
 pub const APP_ICON_ID: u16 = 1;
 
-/// 一种文件图标：色带上的字、色带颜色（`0xRR_GG_BB`）、共用这张图标的扩展名（不带点、小写）。
+/// 一种文件图标：属性窗口里的类型名、Notepads 图标名、共用这张图标的扩展名（不带点、小写）。
 pub struct FileIcon {
-    /// 色带上的字。空字符串表示一张只有横线的通用纸。
+    /// 属性窗口里的类型名。空字符串时用扩展名本身。
     pub label: &'static str,
-    /// 色带颜色。
-    pub color: u32,
+    /// `assets/file-icons` 里的图标名，对应 Notepads 的 `FileIcons/<asset>.targetsize-*.png`。
+    pub asset: &'static str,
     /// 使用这张图标的扩展名。
     pub extensions: &'static [&'static str],
 }
@@ -23,143 +25,136 @@ pub struct FileIcon {
 pub const FILE_ICONS: &[FileIcon] = &[
     FileIcon {
         label: "MD",
-        color: 0x44_70_9E,
+        asset: "md",
         extensions: &["md", "markdown", "mdx", "mkd", "mdown"],
     },
     FileIcon {
         label: "TXT",
-        color: 0x5F_65_70,
-        extensions: &["txt", "text", "log", "rst", "adoc"],
+        asset: "txt",
+        extensions: &["txt", "text", "rst", "adoc"],
+    },
+    FileIcon {
+        label: "LOG",
+        asset: "log",
+        extensions: &["log"],
     },
     FileIcon {
         label: "JSON",
-        color: 0x93_70_0F,
+        asset: "json",
         extensions: &["json", "jsonc", "json5", "jsonl"],
     },
     FileIcon {
         label: "YML",
-        color: 0xB2_3A_3A,
+        asset: "yml",
         extensions: &["yml", "yaml"],
     },
     FileIcon {
-        label: "TOML",
-        color: 0x9A_5A_25,
-        extensions: &["toml"],
-    },
-    FileIcon {
         label: "XML",
-        color: 0xB0_4F_24,
+        asset: "xml",
         extensions: &["xml", "svg", "xsl"],
     },
     FileIcon {
         label: "HTML",
-        color: 0xB0_4F_24,
+        asset: "html",
         extensions: &["html", "htm", "xhtml"],
     },
     FileIcon {
         label: "CSS",
-        color: 0x2F_68_A8,
+        asset: "css",
         extensions: &["css", "scss", "less", "sass"],
     },
     FileIcon {
         label: "JS",
-        color: 0x9A_7A_0E,
+        asset: "js",
         extensions: &["js", "mjs", "cjs", "jsx"],
     },
     FileIcon {
-        label: "TS",
-        color: 0x2D_62_B0,
-        extensions: &["ts", "tsx", "mts", "cts"],
-    },
-    FileIcon {
         label: "PY",
-        color: 0x2F_6F_B0,
+        asset: "py",
         extensions: &["py", "pyi", "pyw"],
     },
     FileIcon {
-        label: "RS",
-        color: 0xB4_55_1E,
-        extensions: &["rs"],
-    },
-    FileIcon {
-        label: "GO",
-        color: 0x1C_7F_99,
-        extensions: &["go"],
-    },
-    FileIcon {
         label: "C",
-        color: 0x4A_65_A0,
-        extensions: &["c", "h"],
+        asset: "c",
+        extensions: &["c"],
+    },
+    FileIcon {
+        label: "H",
+        asset: "h",
+        extensions: &["h", "hh", "hpp", "hxx"],
     },
     FileIcon {
         label: "C++",
-        color: 0x4A_65_A0,
-        extensions: &["cpp", "cc", "cxx", "hpp", "hh", "hxx"],
+        asset: "cpp",
+        extensions: &["cpp", "cc", "cxx"],
     },
     FileIcon {
         label: "C#",
-        color: 0x5A_47_B0,
+        asset: "cs",
         extensions: &["cs"],
     },
     FileIcon {
         label: "JAVA",
-        color: 0xA9_52_1D,
+        asset: "java",
         extensions: &["java"],
     },
     FileIcon {
-        label: "KT",
-        color: 0x72_46_B5,
-        extensions: &["kt", "kts"],
-    },
-    FileIcon {
         label: "RB",
-        color: 0xB2_3A_3A,
+        asset: "rb",
         extensions: &["rb"],
     },
     FileIcon {
         label: "PHP",
-        color: 0x4D_5A_A0,
+        asset: "php",
         extensions: &["php"],
     },
     FileIcon {
-        label: "LUA",
-        color: 0x2A_4F_B0,
-        extensions: &["lua"],
+        label: "SH",
+        asset: "sh",
+        extensions: &["sh", "zsh", "ps1", "bat", "cmd"],
     },
     FileIcon {
-        label: "SH",
-        color: 0x3D_7F_35,
-        extensions: &["sh", "bash", "zsh", "ps1", "bat", "cmd"],
+        label: "BASH",
+        asset: "bash",
+        extensions: &["bash"],
     },
     FileIcon {
         label: "SQL",
-        color: 0x93_70_0F,
+        asset: "sql",
         extensions: &["sql"],
     },
     FileIcon {
-        label: "CSV",
-        color: 0x2E_85_40,
-        extensions: &["csv", "tsv"],
+        label: "INI",
+        asset: "ini",
+        extensions: &["ini"],
     },
     FileIcon {
         label: "CFG",
-        color: 0x5F_65_70,
-        extensions: &["ini", "cfg", "conf", "config"],
+        asset: "cfg",
+        extensions: &["cfg", "conf", "config"],
     },
-    FileIcon {
-        label: "GIT",
-        color: 0xC4_44_2E,
-        extensions: &["gitignore", "gitattributes", "gitmodules"],
-    },
-    FileIcon {
-        label: "ENV",
-        color: 0x93_70_0F,
-        extensions: &["env"],
-    },
+    // Notepads 没有单独图标的类型用它的通用纸。必须放在最后：认不出的扩展名也用这一张。
     FileIcon {
         label: "",
-        color: 0,
-        extensions: &[],
+        asset: "file",
+        extensions: &[
+            "toml",
+            "ts",
+            "tsx",
+            "mts",
+            "cts",
+            "rs",
+            "go",
+            "kt",
+            "kts",
+            "lua",
+            "csv",
+            "tsv",
+            "gitignore",
+            "gitattributes",
+            "gitmodules",
+            "env",
+        ],
     },
 ];
 
