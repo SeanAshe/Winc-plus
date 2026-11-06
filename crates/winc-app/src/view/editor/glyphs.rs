@@ -32,6 +32,7 @@ fn token_font(kind: TokenKind) -> FontKind {
 /// 返回绘制结束时的格数。
 ///
 /// `splits` 是要断开连字的列（已排序）：光标或选区边界落在两个字符之间时，这两个字符不再连成一个字。
+#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_glyph_run(
     app: &App,
     frame: &mut Frame<'_>,
@@ -224,8 +225,8 @@ fn paint_chars(
     }
     let win = win.saturating_sub(LIGATURE_CONTEXT).max(range.start);
     cells = start_cells;
-    for index in range.start..win {
-        cells += text::char_cells(chars[index], cells, tab_width);
+    for ch in chars.iter().take(win).skip(range.start) {
+        cells += text::char_cells(*ch, cells, tab_width);
     }
     col = win;
 

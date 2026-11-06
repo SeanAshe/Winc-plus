@@ -181,15 +181,11 @@ impl App {
 
     /// 在工作区换成新打开的目录之后，完成界面切换。
     ///
-    /// 清除与上一个目录相关的状态，展开侧栏，把窗口标题改为目录名，并记入最近列表。不恢复标签。
+    /// 清除与上一个目录相关的状态，按 `sidebar` 展开或收起侧栏，把窗口标题改为目录名，并记入最近列表。
+    /// 不恢复标签。
     ///
     /// 侧栏停在原来的视图上（在「搜索」里换目录还在「搜索」，查的内容不变、在新目录里重新搜），
     /// 不跳回文件树；新目录不是 Git 仓库时「提交」视图没有了，由 `git_folder_changed` 回到文件树。
-    pub(super) fn folder_opened(&mut self) {
-        self.finish_folder_open(true);
-    }
-
-    /// 同 [`Self::folder_opened`]，`sidebar` 为假时侧栏保持收起。
     fn finish_folder_open(&mut self, sidebar: bool) {
         self.reset_folder_views();
         self.watch_folder();

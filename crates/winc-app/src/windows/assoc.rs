@@ -221,7 +221,7 @@ fn register_directory_menu(exe: &Path) -> bool {
     let icon = exe_text(exe);
     let mut changed = false;
     for key in DIRECTORY_MENUS {
-        changed |= ensure(key, &label);
+        changed |= ensure(key, label);
         changed |= ensure_named(key, "Icon", &icon);
         changed |= ensure(&format!(r"{key}\command"), &command);
     }
