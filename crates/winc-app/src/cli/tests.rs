@@ -64,6 +64,22 @@ fn existing_files_with_colons_open_as_they_are() {
 }
 
 #[test]
+fn a_file_hides_the_sidebar_and_a_folder_shows_it() {
+    assert_eq!(args(&[]).unwrap().launch_sidebar(), None);
+    assert_eq!(
+        args(&["no-such-file-winc.rs"]).unwrap().launch_sidebar(),
+        Some(false)
+    );
+    assert_eq!(args(&["."]).unwrap().launch_sidebar(), Some(true));
+    assert_eq!(
+        args(&["no-such-file-winc.rs", "."])
+            .unwrap()
+            .launch_sidebar(),
+        Some(true)
+    );
+}
+
+#[test]
 fn bad_options_explain_themselves() {
     assert!(
         args(&["--frobnicate"])

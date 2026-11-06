@@ -38,6 +38,7 @@ pub fn register_file_icons() {
     for ext in extensions() {
         changed |= register_extension(&exe, &ext);
     }
+    changed |= register_directory_menu(&exe);
     if changed {
         notify_shell();
     }
@@ -90,6 +91,7 @@ pub fn register_file_types() {
             changed |= register_type(&exe, ext, icon.label, &launch);
         }
     }
+    changed |= register_directory_menu(&exe);
     if changed {
         notify_shell();
     }
@@ -122,6 +124,7 @@ pub fn unregister_file_types() {
     if command.is_some_and(|command| command_uses_this_exe(&command, &exe)) {
         changed |= delete_tree(r"Software\Classes\Applications\winc.exe");
     }
+    changed |= unregister_directory_menu(&exe);
     if changed {
         notify_shell();
     }
@@ -202,6 +205,38 @@ fn register_extension(exe: &Path, ext: &str) -> bool {
         &launch,
     );
     changed |= ensure(&format!(r"Software\Classes\{progid}\DefaultIcon"), &icon);
+    changed
+}
+
+/// 资源管理器里文件夹右键菜单的两项：点在文件夹上，以及点在文件夹空白处。
+const DIRECTORY_MENUS: [&str; 2] = [
+    r"Software\Classes\Directory\shell\Winc",
+    r"Software\Classes\Directory\Background\shell\Winc",
+];
+
+/// 登记「通过 Winc 打开」。已经是这个命令时不动。
+fn register_directory_menu(exe: &Path) -> bool {
+    let label = winc_i18n::t!("menu-open-with-winc");
+    let command = format!("\"{}\" \"%V\"", exe_text(exe));
+    let icon = exe_text(exe);
+    let mut changed = false;
+    for key in DIRECTORY_MENUS {
+        changed |= ensure(key, label);
+        changed |= ensure_named(key, "Icon", &icon);
+        changed |= ensure(&format!(r"{key}\command"), &command);
+    }
+    changed
+}
+
+/// 去掉本程序写上的「通过 Winc 打开」。命令指向别的 winc.exe 时留着。
+fn unregister_directory_menu(exe: &Path) -> bool {
+    let mut changed = false;
+    for key in DIRECTORY_MENUS {
+        let command = read_value(&format!(r"{key}\command"), None);
+        if command.is_some_and(|command| command_uses_this_exe(&command, exe)) {
+            changed |= delete_tree(key);
+        }
+    }
     changed
 }
 

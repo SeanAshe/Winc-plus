@@ -237,6 +237,7 @@ pub(in crate::view) fn draw_change_popup(app: &mut App, frame: &mut Frame<'_>) {
                 baseline,
                 tab,
                 clip,
+                &[],
             );
         }
         if more > 0 {

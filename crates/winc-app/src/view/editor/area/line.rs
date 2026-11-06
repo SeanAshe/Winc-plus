@@ -22,6 +22,7 @@ impl Screen<'_> {
             cells: column_cells,
             fields: column_fields,
             tokens,
+            splits,
             number,
             guide_indent,
             folded_hits,
@@ -81,8 +82,9 @@ impl Screen<'_> {
         self.draw_marks(frame, &row);
 
         *state = winc_syntax::highlight_line(self.language, row.chars, *state, tokens);
+        self.ligature_splits(&row, splits);
         self.draw_whitespace(frame, &row);
-        let cells = self.draw_content(frame, &row, tokens);
+        let cells = self.draw_content(frame, &row, tokens, splits);
         self.draw_tail(frame, &row, cells, folded_hits);
         self.draw_carets(frame, &row, ime_cursor);
     }
@@ -203,8 +205,38 @@ impl Screen<'_> {
         }
     }
 
+    /// 这一行里要断开连字的列：光标和选区的两端。
+    ///
+    /// 光标停在 `=` 和 `>` 之间时，`=>` 不再画成一个箭头，方便看清改的是哪一个字符。
+    fn ligature_splits(&self, row: &Row<'_>, splits: &mut Vec<usize>) {
+        splits.clear();
+        let start = row.line_start;
+        let end = start + row.chars.len();
+        let mut add = |pos: usize| {
+            if pos > start && pos < end {
+                splits.push(pos - start);
+            }
+        };
+        add(self.selection.from());
+        add(self.selection.to());
+        for selection in self.extra {
+            add(selection.from());
+            add(selection.to());
+        }
+        splits.sort_unstable();
+        splits.dedup();
+    }
+
     /// 绘制文字，`tokens` 是这一行的高亮结果；返回最后一段绘制到的单元格数。
-    fn draw_content(&self, frame: &mut Frame<'_>, row: &Row<'_>, tokens: &[Token]) -> usize {
+    ///
+    /// `splits` 是要断开连字的列，见 [`Self::ligature_splits`]。
+    fn draw_content(
+        &self,
+        frame: &mut Frame<'_>,
+        row: &Row<'_>,
+        tokens: &[Token],
+        splits: &[usize],
+    ) -> usize {
         let (app, origin_x, tab_width, text_rect) =
             (self.app, self.origin_x, self.tab_width, self.text_rect);
         let (chars, breaks) = (row.chars, &row.breaks);
@@ -231,6 +263,7 @@ impl Screen<'_> {
                     base,
                     tab_width,
                     text_rect,
+                    splits,
                 );
             }
             // 折叠标记 `⋯` 和截断说明绘制在最后一段之后。
@@ -254,6 +287,7 @@ impl Screen<'_> {
                     row.baseline,
                     tab_width,
                     text_rect,
+                    splits,
                 ),
             }
         }

@@ -40,7 +40,8 @@ impl Winc {
         &mut self,
         targets: &[Target],
     ) -> Result<WindowKey, Option<PathBuf>> {
-        self.window_for(targets)
+        let sidebar = targets.iter().any(|target| target.path.is_dir());
+        self.window_for(targets, sidebar)
     }
 
     /// 测试用：记下其他窗口开着的目录。

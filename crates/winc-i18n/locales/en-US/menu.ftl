@@ -77,6 +77,7 @@ menu-git-fetch-desc = Sync remote updates
 menu-new-file = New File…
 menu-new-folder = New Folder…
 menu-open-in-terminal = Open in Terminal
+menu-open-with-winc = Open with Winc
 menu-close-tabs-right = Close Tabs to the Right
 menu-close-tabs-left = Close Tabs to the Left
 menu-close-saved-tabs = Close Saved Tabs

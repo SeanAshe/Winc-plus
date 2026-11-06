@@ -548,7 +548,7 @@ impl Winc {
             }
             for request in requests {
                 match request {
-                    Request::NewWindow(folder) => self.new_window(event_loop, folder),
+                    Request::NewWindow(folder) => self.new_window(event_loop, folder, true),
                     Request::Focus(key) => {
                         if let Some(app) = self.by_key(key) {
                             app.raise();
@@ -597,10 +597,12 @@ impl Winc {
 
     /// 把 `targets` 开在合适的窗口里（窗口见 [`Self::window_for`]），并把它切到前台。
     fn open_targets(&mut self, event_loop: &ActiveEventLoop, targets: &[Target]) {
-        let key = match self.window_for(targets) {
+        // 只打开文件时新窗口收起侧栏；打开目录时展开。已经开着该目录的窗口保持原样。
+        let sidebar = targets.iter().any(|target| target.path.is_dir());
+        let key = match self.window_for(targets, sidebar) {
             Ok(key) => key,
             Err(folder) => {
-                self.new_window(event_loop, folder);
+                self.new_window(event_loop, folder, sidebar);
                 let Some(key) = self.active_key() else {
                     return;
                 };
@@ -619,7 +621,11 @@ impl Winc {
     /// 都没有时，有停在开始页上的空窗口（没开目录、没有标签）就用它，在里面打开目录（只有文件
     /// 时是第一个文件所在的目录，和从命令行打开文件一样）；否则返回 `Err(目录)`，由调用方新建
     /// 窗口打开它。
-    fn window_for(&mut self, targets: &[Target]) -> Result<WindowKey, Option<PathBuf>> {
+    fn window_for(
+        &mut self,
+        targets: &[Target],
+        sidebar: bool,
+    ) -> Result<WindowKey, Option<PathBuf>> {
         let folder = targets
             .iter()
             .find(|t| t.path.is_dir())
@@ -641,7 +647,11 @@ impl Winc {
             return Err(folder);
         };
         if let (Some(folder), Some(app)) = (&folder, self.by_key(key)) {
-            app.open_folder_now(folder);
+            if sidebar {
+                app.open_folder_now(folder);
+            } else {
+                app.open_folder_for_files(folder);
+            }
         }
         Ok(key)
     }
@@ -659,8 +669,9 @@ impl Winc {
 
     /// 新建一个窗口；带 `folder` 时在里面打开它。
     ///
-    /// 目录已经开在某个窗口里时切到那个窗口；关着的窗口（macOS 上关掉了最后一个窗口）先拿来用。
-    fn new_window(&mut self, event_loop: &ActiveEventLoop, folder: Option<PathBuf>) {
+    /// `sidebar` 为假时侧栏保持收起（单独打开文件，目录只是文件所在的位置）。目录已经开在某个
+    /// 窗口里时切到那个窗口；关着的窗口（macOS 上关掉了最后一个窗口）先拿来用。
+    fn new_window(&mut self, event_loop: &ActiveEventLoop, folder: Option<PathBuf>, sidebar: bool) {
         let folder = folder.map(|f| winc_config::files::canonicalize(&f).unwrap_or(f));
         if let Some(key) = folder
             .as_ref()
@@ -686,7 +697,11 @@ impl Winc {
         if let Some(key) = hidden {
             if let Some(app) = self.by_key(key) {
                 if let Some(folder) = &folder {
-                    app.open_folder_now(folder);
+                    if sidebar {
+                        app.open_folder_now(folder);
+                    } else {
+                        app.open_folder_for_files(folder);
+                    }
                 }
                 app.raise();
             }
@@ -723,7 +738,11 @@ impl Winc {
             return;
         };
         if let Some(folder) = &folder {
-            app.open_folder_now(folder);
+            if sidebar {
+                app.open_folder_now(folder);
+            } else {
+                app.open_folder_for_files(folder);
+            }
         }
         app.resumed(event_loop);
         self.refresh_shared();
