@@ -14,9 +14,7 @@ pub fn compare_versions(a: &str, b: &str) -> Ordering {
             .map_or((value, None), |(c, p)| (c, Some(p)));
         // `0.1.502_116` 与 `0.1.502.116` 是同一个版本：上游三段加上这个 fork 的数字。
         let core = match core.rsplit_once('_') {
-            Some((head, tail))
-                if !tail.is_empty() && tail.bytes().all(|c| c.is_ascii_digit()) =>
-            {
+            Some((head, tail)) if !tail.is_empty() && tail.bytes().all(|c| c.is_ascii_digit()) => {
                 format!("{head}.{tail}")
             }
             _ => core.to_owned(),

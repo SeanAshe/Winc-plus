@@ -56,7 +56,7 @@ pub fn app(target: Option<&str>, prebuilt: bool) -> Result<(PathBuf, String), St
     let version = format!(
         "{}.{}",
         env!("CARGO_PKG_VERSION"),
-        include_str!("../release/fork-version").trim()
+        include_str!("../../release/fork-version").trim()
     );
     let app = bundle.join("winc.app");
     let _ = std::fs::remove_dir_all(&bundle);

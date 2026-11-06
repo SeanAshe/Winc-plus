@@ -415,7 +415,7 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
     }
 }
 
-/// 「关于」页的版本号：上游版本、这个 fork 的数字和处理器架构，例如「0.1.502_115 (x86_64)」。
+/// 「关于」页的版本号：上游版本、这个 fork 的数字和处理器架构，例如 `0.1.502_115`（`x86_64`）。
 fn version_label() -> String {
     let arch = match std::env::consts::ARCH {
         "aarch64" => "arm64",
