@@ -42,7 +42,7 @@ pub(crate) use link::TermLink;
 pub(crate) use pointer::BlockHit;
 #[cfg(all(test, unix))]
 pub(crate) use tab::{Point, Selection, Unit};
-pub(crate) use tab::{SETTLE, TermTab, ViewRow};
+pub(crate) use tab::{SETTLE, TabEnd, TermTab, ViewRow};
 
 /// 面板在下面时的默认高度（逻辑像素，含标签栏）。
 pub(crate) const DEFAULT_HEIGHT: f32 = 240.0;

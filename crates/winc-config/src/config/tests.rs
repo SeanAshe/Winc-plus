@@ -80,6 +80,12 @@ fn bad_values_are_reported_and_ignored() {
     assert_eq!(config.theme, None);
     assert_eq!(config.confirm_drag_and_drop, None);
     assert_eq!(problems.len(), 6, "{problems:?}");
+    let (whitespace, why) = Config::parse(r#"{"editor": {"renderWhitespace": "boundary"}}"#);
+    assert_eq!(whitespace.render_whitespace, None);
+    assert!(
+        why[0].contains("none、selection、trailing 或 all"),
+        "{why:?}"
+    );
     let (fraction, why) = Config::parse(r#"{"editor": {"tabWidth": 2.5}}"#);
     assert_eq!(fraction.tab_width, None);
     assert!(why[0].contains("应为整数"), "{why:?}");
@@ -201,6 +207,11 @@ fn round_trips_through_json() {
         sticky_scroll: Some(false),
         word_wrap: Some(true),
         minimap: Some(true),
+        render_whitespace: Some(RenderWhitespace::Trailing),
+        diff_inline: Some(true),
+        line_numbers: Some(false),
+        status_bar: Some(false),
+        restore_window: Some(false),
         theme: Some(ThemeChoice::Dark),
         light_theme: Some("paper".to_string()),
         dark_theme: Some("ember".to_string()),

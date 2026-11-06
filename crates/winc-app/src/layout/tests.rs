@@ -177,8 +177,8 @@ fn folding_tools_slide_into_more() {
 fn the_sidebar_toggle_stays_next_to_the_traffic_lights() {
     // 侧栏展开、收起、动画途中，开关都在同一个位置：图标可见的左边缘与红绿灯右端相隔
     // `LIGHTS_GAP`；macOS 26 的红绿灯右端是 80。
-    let layouts =
-        [1.0, 0.5, 0.1, 0.0].map(|shown| Layout::compute(1000.0, 600.0, 260.0, shown, 0, 0, 40.0));
+    let layouts = [1.0, 0.5, 0.1, 0.0]
+        .map(|shown| Layout::compute(1000.0, 600.0, 260.0, shown, 0, 0, 40.0, STATUS_HEIGHT));
     for l in &layouts {
         assert_eq!(l.sidebar_button, layouts[0].sidebar_button);
     }
@@ -205,7 +205,16 @@ fn the_sidebar_toggle_stays_next_to_the_traffic_lights() {
         open.sidebar_button.y + open.sidebar_button.h / 2.0
     );
     // 侧栏最窄时也放得下：不压到开关上，不伸出侧栏。
-    let narrow = Layout::compute(1000.0, 600.0, MIN_PANEL_WIDTH, 1.0, 0, 0, 40.0);
+    let narrow = Layout::compute(
+        1000.0,
+        600.0,
+        MIN_PANEL_WIDTH,
+        1.0,
+        0,
+        0,
+        40.0,
+        STATUS_HEIGHT,
+    );
     let all = [SidebarView::Files, SidebarView::Search, SidebarView::Commit].map(|v| (v, 1.0));
     let tabs = view_tabs(narrow.sidebar_button, narrow.sidebar, &all);
     assert!(tabs[0].0.x - 2.0 >= narrow.sidebar_button.right() + SEGMENT_GAP);
@@ -227,7 +236,7 @@ fn the_sidebar_toggle_stays_next_to_the_traffic_lights() {
 
 #[test]
 fn hidden_sidebar_moves_button_next_to_traffic_lights() {
-    let layout = Layout::compute(1000.0, 600.0, 260.0, 0.0, 0, 0, 40.0);
+    let layout = Layout::compute(1000.0, 600.0, 260.0, 0.0, 0, 0, 40.0, STATUS_HEIGHT);
     assert!(layout.sidebar.right() <= 0.0);
     assert_eq!(layout.editor.x, ISLAND_MARGIN);
     assert_eq!(
@@ -246,10 +255,10 @@ fn hidden_sidebar_moves_button_next_to_traffic_lights() {
 
 #[test]
 fn sidebar_slides_during_animation() {
-    let open = Layout::compute(1000.0, 600.0, 260.0, 1.0, 0, 0, 40.0);
-    let half = Layout::compute(1000.0, 600.0, 260.0, 0.5, 0, 0, 40.0);
-    let tiny = Layout::compute(1000.0, 600.0, 260.0, 0.1, 0, 0, 40.0);
-    let closed = Layout::compute(1000.0, 600.0, 260.0, 0.0, 0, 0, 40.0);
+    let open = Layout::compute(1000.0, 600.0, 260.0, 1.0, 0, 0, 40.0, STATUS_HEIGHT);
+    let half = Layout::compute(1000.0, 600.0, 260.0, 0.5, 0, 0, 40.0, STATUS_HEIGHT);
+    let tiny = Layout::compute(1000.0, 600.0, 260.0, 0.1, 0, 0, 40.0, STATUS_HEIGHT);
+    let closed = Layout::compute(1000.0, 600.0, 260.0, 0.0, 0, 0, 40.0, STATUS_HEIGHT);
 
     // 侧栏卡片保持原宽滑出，与编辑区卡片之间始终隔 `ISLAND_GAP`。
     let card_w = 260.0 - ISLAND_MARGIN - ISLAND_GAP / 2.0;
@@ -278,7 +287,7 @@ fn dragging_the_splitter_keeps_the_sidebar_in_place() {
     let mut last = 0.0;
     for i in 0..=40 {
         let width = 260.0 + i as f32 * 0.125;
-        let l = Layout::compute(1000.0, 600.0, width, 1.0, 0, 0, 40.0);
+        let l = Layout::compute(1000.0, 600.0, width, 1.0, 0, 0, 40.0, STATUS_HEIGHT);
         for rect in [l.sidebar, l.sidebar_header, l.tree] {
             assert_eq!(rect.x, ISLAND_MARGIN, "{width}");
         }
@@ -316,7 +325,7 @@ fn tree_rows_during_folder_animation() {
 
 #[test]
 fn search_floats_inside_editor() {
-    let layout = Layout::compute(1000.0, 600.0, 260.0, 1.0, 1, 0, 40.0);
+    let layout = Layout::compute(1000.0, 600.0, 260.0, 1.0, 1, 0, 40.0, STATUS_HEIGHT);
     assert!(layout.search.x > layout.editor.x && layout.search.right() < layout.editor.right());
     assert_eq!(layout.text.y, layout.editor.y);
     assert!(layout.sidebar_button.right() <= layout.sidebar.right());
@@ -345,7 +354,7 @@ fn search_floats_inside_editor() {
     assert_eq!(parts.button_at(parts.field.x + 20.0, cy), None);
 
     // 展开替换后第二行在第一行下面，按钮和第一行右端对齐。
-    let layout = Layout::compute(1000.0, 600.0, 260.0, 1.0, 2, 0, 40.0);
+    let layout = Layout::compute(1000.0, 600.0, 260.0, 1.0, 2, 0, 40.0, STATUS_HEIGHT);
     let parts = SearchParts::new(layout.search);
     assert_eq!(layout.search.h, 2.0 * BAR_HEIGHT);
     assert_eq!(parts.replace_field.y, layout.search.y + BAR_HEIGHT);

@@ -40,6 +40,8 @@ pub(super) mod kind {
     pub const FAILED: u8 = 70;
     /// 命令块变化。
     pub const BLOCKS: u8 = 71;
+    /// 伪终端断开。
+    pub const DISCONNECTED: u8 = 72;
 }
 
 impl Message for ToHelper {
@@ -277,6 +279,10 @@ impl Message for FromHelper {
                 w.u16(*tab);
                 w.i32(*code);
             }
+            FromHelper::Disconnected { tab } => {
+                w.u8(kind::DISCONNECTED);
+                w.u16(*tab);
+            }
             FromHelper::Failed { tab, message } => {
                 w.u8(kind::FAILED);
                 w.u16(*tab);
@@ -353,6 +359,7 @@ impl Message for FromHelper {
                 tab: r.u16()?,
                 code: r.i32()?,
             },
+            kind::DISCONNECTED => FromHelper::Disconnected { tab: r.u16()? },
             kind::FAILED => FromHelper::Failed {
                 tab: r.u16()?,
                 message: r.string()?,

@@ -1,5 +1,6 @@
 //! 文本区的一行：行号栏里的部分（见 `gutter`）、缩进参考线、各类标注、文字、折叠标记和光标。
 
+use winc_config::RenderWhitespace;
 use winc_i18n::t;
 
 use super::*;
@@ -80,6 +81,7 @@ impl Screen<'_> {
         self.draw_marks(frame, &row);
 
         *state = winc_syntax::highlight_line(self.language, row.chars, *state, tokens);
+        self.draw_whitespace(frame, &row);
         let cells = self.draw_content(frame, &row, tokens);
         self.draw_tail(frame, &row, cells, folded_hits);
         self.draw_carets(frame, &row, ime_cursor);
@@ -254,6 +256,49 @@ impl Screen<'_> {
                     text_rect,
                 ),
             }
+        }
+    }
+
+    /// 按设置（`renderWhitespace`）绘制这一行的空格和制表符。
+    ///
+    /// 按列对齐的表格里空白的位置不代表文件内容，不绘制。
+    fn draw_whitespace(&self, frame: &mut Frame<'_>, row: &Row<'_>) {
+        let mode = self.app.config.render_whitespace.unwrap_or_default();
+        if mode == RenderWhitespace::None || row.aligned.is_some() {
+            return;
+        }
+        let line_end = row.line_start + row.chars.len();
+        // 多光标时选区可能很多，先留下和这一行相交的。
+        let selected: Vec<(usize, usize)> = std::iter::once(&self.selection)
+            .chain(self.extra)
+            .filter(|s| !s.is_empty() && s.from() < line_end && s.to() > row.line_start)
+            .map(|s| (s.from(), s.to()))
+            .collect();
+        if mode == RenderWhitespace::Selection && selected.is_empty() {
+            return;
+        }
+        let trailing = trailing_whitespace(row.chars);
+        for (col, &c) in row.chars.iter().enumerate() {
+            if !matches!(c, ' ' | '\t') {
+                continue;
+            }
+            let pos = row.line_start + col;
+            let in_selection = || selected.iter().any(|&(from, to)| (from..to).contains(&pos));
+            if !whitespace_shown(mode, col, trailing, in_selection) {
+                continue;
+            }
+            let (part, x) = self.place(row, pos);
+            if x > self.text_rect.right() && row.breaks.rows() == 1 {
+                break;
+            }
+            let (next_part, next) = self.place(row, pos + 1);
+            let width = if next_part == part {
+                next - x
+            } else {
+                self.cell
+            };
+            let y = row.y + part as f32 * self.lh;
+            draw_whitespace_mark(self.app, frame, c, (x, y), width, self.text_rect);
         }
     }
 

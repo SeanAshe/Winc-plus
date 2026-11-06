@@ -31,6 +31,108 @@ VIAddVersionKey /LANG=1033 "LegalCopyright" "DEEIX"
 !insertmacro MUI_LANGUAGE "English"
 !insertmacro MUI_LANGUAGE "SimpChinese"
 
+; Adds winc to "Open with" for these types without taking over their default program; Windows
+; only lets the user change that. Keep this list the same as FileTypes in installer.wxs.
+; Registry keys ignore case; upper case gives the "JSON File" name the shell shows for a type.
+!macro ForEachFileType Action
+  !insertmacro ${Action} ASTRO
+  !insertmacro ${Action} BASH
+  !insertmacro ${Action} BAT
+  !insertmacro ${Action} C
+  !insertmacro ${Action} CC
+  !insertmacro ${Action} CFG
+  !insertmacro ${Action} CJS
+  !insertmacro ${Action} CLJ
+  !insertmacro ${Action} CMD
+  !insertmacro ${Action} CONF
+  !insertmacro ${Action} CPP
+  !insertmacro ${Action} CS
+  !insertmacro ${Action} CSS
+  !insertmacro ${Action} CSV
+  !insertmacro ${Action} CXX
+  !insertmacro ${Action} DART
+  !insertmacro ${Action} ENV
+  !insertmacro ${Action} ERL
+  !insertmacro ${Action} EX
+  !insertmacro ${Action} EXS
+  !insertmacro ${Action} FISH
+  !insertmacro ${Action} FS
+  !insertmacro ${Action} GO
+  !insertmacro ${Action} GQL
+  !insertmacro ${Action} GRADLE
+  !insertmacro ${Action} GRAPHQL
+  !insertmacro ${Action} H
+  !insertmacro ${Action} HH
+  !insertmacro ${Action} HPP
+  !insertmacro ${Action} HS
+  !insertmacro ${Action} HTM
+  !insertmacro ${Action} HTML
+  !insertmacro ${Action} INI
+  !insertmacro ${Action} JAVA
+  !insertmacro ${Action} JS
+  !insertmacro ${Action} JSON
+  !insertmacro ${Action} JSON5
+  !insertmacro ${Action} JSONC
+  !insertmacro ${Action} JSX
+  !insertmacro ${Action} KT
+  !insertmacro ${Action} KTS
+  !insertmacro ${Action} LESS
+  !insertmacro ${Action} LOG
+  !insertmacro ${Action} LUA
+  !insertmacro ${Action} M
+  !insertmacro ${Action} MD
+  !insertmacro ${Action} MJS
+  !insertmacro ${Action} MM
+  !insertmacro ${Action} PHP
+  !insertmacro ${Action} PL
+  !insertmacro ${Action} PROTO
+  !insertmacro ${Action} PS1
+  !insertmacro ${Action} PSM1
+  !insertmacro ${Action} PY
+  !insertmacro ${Action} PYI
+  !insertmacro ${Action} R
+  !insertmacro ${Action} RB
+  !insertmacro ${Action} RS
+  !insertmacro ${Action} SASS
+  !insertmacro ${Action} SCALA
+  !insertmacro ${Action} SCSS
+  !insertmacro ${Action} SH
+  !insertmacro ${Action} SQL
+  !insertmacro ${Action} SVELTE
+  !insertmacro ${Action} SWIFT
+  !insertmacro ${Action} TF
+  !insertmacro ${Action} TOML
+  !insertmacro ${Action} TS
+  !insertmacro ${Action} TSV
+  !insertmacro ${Action} TSX
+  !insertmacro ${Action} TXT
+  !insertmacro ${Action} VUE
+  !insertmacro ${Action} XML
+  !insertmacro ${Action} YAML
+  !insertmacro ${Action} YML
+  !insertmacro ${Action} ZIG
+  !insertmacro ${Action} ZSH
+!macroend
+
+!macro RegisterFileType Type
+  WriteRegStr HKCU "Software\Classes\.${Type}\OpenWithProgids" "winc.${Type}" ""
+  WriteRegStr HKCU "Software\Classes\winc.${Type}" "" "${Type} File"
+  WriteRegStr HKCU "Software\Classes\winc.${Type}\DefaultIcon" "" "$INSTDIR\winc.exe,0"
+  WriteRegStr HKCU "Software\Classes\winc.${Type}\shell\open\command" "" '"$INSTDIR\winc.exe" "%1"'
+!macroend
+
+!macro UnregisterFileType Type
+  DeleteRegValue HKCU "Software\Classes\.${Type}\OpenWithProgids" "winc.${Type}"
+  DeleteRegKey HKCU "Software\Classes\winc.${Type}"
+  DeleteRegKey /ifempty HKCU "Software\Classes\.${Type}\OpenWithProgids"
+  DeleteRegKey /ifempty HKCU "Software\Classes\.${Type}"
+!macroend
+
+; SHCNE_ASSOCCHANGED: the shell refreshes its icons and "Open with" lists.
+!macro NotifyAssociationsChanged
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
+!macroend
+
 Section "winc" SEC_MAIN
   SetShellVarContext current
   SetOutPath "$INSTDIR"
@@ -75,4 +177,7 @@ uninstall_files:
   RMDir "$INSTDIR"
   DeleteRegKey HKCU "Software\DEEIX\winc"
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\winc"
+  !insertmacro ForEachFileType UnregisterFileType
+  DeleteRegKey HKCU "Software\Classes\Applications\winc.exe"
+  !insertmacro NotifyAssociationsChanged
 SectionEnd

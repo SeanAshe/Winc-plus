@@ -40,8 +40,31 @@ pub(super) fn draw(app: &mut App, frame: &mut Frame<'_>) {
     let p = app.palette;
     let covered = frame.covered(layout.card, RADIUS_CARD);
     frame.rect_except(app.layout.window, p.scrim, 0.0, covered);
+    // 开始滚动时保存已绘制的窗口和遮罩，滚动期间不再重绘（`draw_scrolling`）。
+    if app.settings.scrolled_at.is_some() && app.settings.scroll_base.is_none() {
+        app.settings.scroll_base = Some(frame.snapshot(frame.bounds()));
+    }
     super::draw_card_frame(frame, p, layout.card, RADIUS_CARD);
     draw_dialog(app, frame, &layout);
+}
+
+/// 绘制设置页滚动期间的一帧：恢复保存的窗口画面（含遮罩），只重绘卡片，返回 `true`。
+///
+/// 没有快照，或窗口尺寸、缩放比例已变化时返回 `false`，由调用方完整绘制并重新保存快照。
+pub(crate) fn draw_scrolling(app: &mut App, frame: &mut Frame<'_>) -> bool {
+    if !app.settings_reuses_base(frame.bounds(), frame.scale()) {
+        return false;
+    }
+    let Some(base) = app.settings.scroll_base.take() else {
+        return false;
+    };
+    // `tint` 全透明时 `restore_tinted` 原样恢复快照。
+    frame.restore_tinted(&base, app.palette.scrim.alpha(0.0));
+    app.settings.scroll_base = Some(base);
+    let layout = app.settings_layout();
+    super::draw_card_frame(frame, app.palette, layout.card, RADIUS_CARD);
+    draw_dialog(app, frame, &layout);
+    true
 }
 
 /// 设置浮层出现、消失的动画途中：有开头存下的快照时，直接拿来绘制这一帧，返回 `true`；没有
@@ -333,6 +356,9 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
             let (text, dim) = if row.setting == Setting::Language {
                 let choice = app.config.language.unwrap_or_default();
                 (crate::layout::locale_label(choice).to_owned(), false)
+            } else if row.setting == Setting::RenderWhitespace {
+                let choice = app.config.render_whitespace.unwrap_or_default();
+                (crate::layout::whitespace_label(choice).to_owned(), false)
             } else {
                 match app.skipped_on_save() {
                     Some(names) => (names, false),

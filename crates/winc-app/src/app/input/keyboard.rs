@@ -181,6 +181,16 @@ impl App {
             return true;
         }
 
+        // 在提交列表里点文件后焦点留在列表上，差异显示在编辑区：在差异里导航的快捷键也要生效，焦点
+        // 不移动，上下键仍然在列表里选文件。
+        if self.focus == Focus::CommitList
+            && self.diff_active()
+            && let Lookup::Run(actions) = keymap::lookup(table, stroke, None, Context::Editor)
+            && let Some(&action) = actions.iter().find(|a| a.navigates_diff())
+        {
+            return self.run_action(action);
+        }
+
         match keymap::lookup(table, stroke, None, context) {
             Lookup::Run(actions) => actions
                 .into_iter()

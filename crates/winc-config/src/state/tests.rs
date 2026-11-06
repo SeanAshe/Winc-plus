@@ -67,6 +67,13 @@ fn sample() -> State {
         others: vec![PathBuf::from("/b")],
         commit_tree: true,
         preview_mode: Some("split".into()),
+        window: Some(WindowFrame {
+            position: Some((-1280.0, 40.0)),
+            width: 900.5,
+            height: 600.0,
+            scale: 2.0,
+            maximized: true,
+        }),
         badges: Vec::new(),
         tool_choices: vec![(PathBuf::from("/a/项目"), true)],
         trusted_repos: vec![(PathBuf::from("/a/项目"), u64::MAX - 1)],
@@ -271,4 +278,18 @@ fn state_path_is_separate_from_config() {
     let path = state_path().unwrap();
     assert!(path.ends_with("winc/state.json"), "{}", path.display());
     assert_ne!(Some(path), crate::config_path());
+}
+
+#[test]
+fn window_frames_need_a_usable_size_and_may_have_no_position() {
+    let read = |text: &str| State::parse(text).window;
+    let frame = read(r#"{"window":{"width":800,"height":600,"scale":1}}"#).unwrap();
+    assert_eq!(frame.position, None);
+    assert!(!frame.maximized);
+    assert_eq!(
+        read(r#"{"window":{"width":0,"height":600,"scale":1}}"#),
+        None
+    );
+    assert_eq!(read(r#"{"window":{"width":800,"height":600}}"#), None);
+    assert_eq!(read(r#"{"window":"nothing"}"#), None);
 }

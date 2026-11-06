@@ -329,6 +329,7 @@ impl App {
     /// 关闭而删除），关闭所有标签和目录，隐藏窗口。以后从最近列表打开该目录时，标签和未保存的
     /// 内容都恢复。
     fn close_window_now(&mut self) {
+        self.remember_window();
         self.quit_backups();
         self.remember_session();
         self.leave_backups_on_disk();

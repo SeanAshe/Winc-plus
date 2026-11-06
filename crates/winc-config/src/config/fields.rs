@@ -130,6 +130,34 @@ const EDITOR: &[Field] = &[
     bool_field!("stickyScroll", sticky_scroll),
     bool_field!("wordWrap", word_wrap),
     bool_field!("minimap", minimap),
+    Field {
+        key: "renderWhitespace",
+        read: |config, value, name, problems| {
+            config.render_whitespace = match value.as_str() {
+                Some("none") => Some(RenderWhitespace::None),
+                Some("selection") => Some(RenderWhitespace::Selection),
+                Some("trailing") => Some(RenderWhitespace::Trailing),
+                Some("all") => Some(RenderWhitespace::All),
+                _ => {
+                    problems.push(t!("config-render-whitespace-invalid", name = name));
+                    None
+                }
+            }
+        },
+        write: |config| {
+            let value = match config.render_whitespace? {
+                RenderWhitespace::None => "none",
+                RenderWhitespace::Selection => "selection",
+                RenderWhitespace::Trailing => "trailing",
+                RenderWhitespace::All => "all",
+            };
+            Some(Json::String(value.to_owned()))
+        },
+    },
+    bool_field!("diffInline", diff_inline),
+    bool_field!("lineNumbers", line_numbers),
+    bool_field!("statusBar", status_bar),
+    bool_field!("restoreWindow", restore_window),
 ];
 
 /// `ui` 一节。

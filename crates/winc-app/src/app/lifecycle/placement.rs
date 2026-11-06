@@ -1,0 +1,148 @@
+//! 窗口的大小和位置：关闭时记下，建窗口时按当前的显示器校验以后沿用。
+
+use winc_config::WindowFrame;
+use winit::dpi::{LogicalPosition, PhysicalPosition, Position};
+use winit::event_loop::ActiveEventLoop;
+
+use crate::app::App;
+
+/// 窗口内容区的默认宽度（逻辑像素）。
+pub(super) const DEFAULT_WIDTH: f64 = 1280.0;
+/// 窗口内容区的默认高度（逻辑像素）。
+pub(super) const DEFAULT_HEIGHT: f64 = 820.0;
+/// 窗口内容区的最小宽度（逻辑像素）。
+pub(super) const MIN_WIDTH: f64 = 640.0;
+/// 窗口内容区的最小高度（逻辑像素）。
+pub(super) const MIN_HEIGHT: f64 = 420.0;
+/// 窗口至少要有这么多留在显示器内（逻辑像素），用户才能把它拖回来。
+///
+/// 取 128，与主流编辑器恢复窗口时的边距一致。
+const VISIBLE_MARGIN: f64 = 128.0;
+
+/// 一台显示器。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Screen {
+    /// 左上角的横坐标（物理像素）。
+    pub x: f64,
+    /// 左上角的纵坐标（物理像素）。
+    pub y: f64,
+    /// 宽度（物理像素）。
+    pub width: f64,
+    /// 高度（物理像素）。
+    pub height: f64,
+    /// 缩放比例。
+    pub scale: f64,
+}
+
+/// 校验之后的窗口大小和位置。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Placement {
+    /// 内容区的宽度（逻辑像素）。
+    pub width: f64,
+    /// 内容区的高度（逻辑像素）。
+    pub height: f64,
+    /// 外框左上角的（横，纵）坐标（物理像素）；不恢复位置时为 `None`，由系统决定。
+    pub position: Option<(f64, f64)>,
+}
+
+/// 按当前的显示器校验 `frame`。
+///
+/// 显示器拔掉、分辨率变小以后，窗口的顶边或者足够宽的一段不在任何显示器上时不恢复位置；大小
+/// 不超过窗口所在的显示器（不恢复位置时是第一台），也不小于窗口的最小尺寸。
+pub(super) fn place(frame: &WindowFrame, screens: &[Screen]) -> Placement {
+    let margin = VISIBLE_MARGIN * frame.scale;
+    let right = |x: f64| x + frame.width * frame.scale;
+    let reachable = |screen: &&Screen, (x, y): (f64, f64)| {
+        let overlap = right(x).min(screen.x + screen.width) - x.max(screen.x);
+        overlap >= margin && y >= screen.y && y <= screen.y + screen.height - margin
+    };
+    let found = frame
+        .position
+        .and_then(|at| Some((screens.iter().find(|s| reachable(s, at))?, at)));
+    let (mut width, mut height) = (frame.width, frame.height);
+    if let Some(screen) = found.map(|(screen, _)| screen).or(screens.first()) {
+        width = width.min(screen.width / screen.scale);
+        height = height.min(screen.height / screen.scale);
+    }
+    Placement {
+        width: width.max(MIN_WIDTH),
+        height: height.max(MIN_HEIGHT),
+        position: found.map(|(_, at)| at),
+    }
+}
+
+/// 物理像素的坐标换成建窗口用的位置。
+///
+/// macOS 的坐标按各显示器自己的缩放比例换算，建窗口时不知道窗口会落在哪一台，用记录时的比例
+/// 换回逻辑坐标；其他系统的物理坐标在所有显示器之间是连续的，直接使用。
+pub(super) fn window_position((x, y): (f64, f64), scale: f64) -> Position {
+    if cfg!(target_os = "macos") {
+        LogicalPosition::new(x / scale, y / scale).into()
+    } else {
+        PhysicalPosition::new(x, y).into()
+    }
+}
+
+/// 当前连接的显示器。
+pub(super) fn screens(event_loop: &ActiveEventLoop) -> Vec<Screen> {
+    event_loop
+        .available_monitors()
+        .map(|monitor| {
+            let (at, size) = (monitor.position(), monitor.size());
+            Screen {
+                x: f64::from(at.x),
+                y: f64::from(at.y),
+                width: f64::from(size.width),
+                height: f64::from(size.height),
+                scale: monitor.scale_factor(),
+            }
+        })
+        .collect()
+}
+
+impl App {
+    /// 窗口大小或位置变了：没有最大化、全屏、最小化时记下来，还原后回到这个大小。
+    pub(super) fn note_window_frame(&mut self) {
+        let Some(window) = &self.window else {
+            return;
+        };
+        if self.window_hidden
+            || window.is_minimized() == Some(true)
+            || window.is_maximized()
+            || window.fullscreen().is_some()
+        {
+            return;
+        }
+        let scale = window.scale_factor();
+        let size = window.inner_size().to_logical::<f64>(scale);
+        if size.width <= 0.0 || size.height <= 0.0 {
+            return;
+        }
+        let at = window.outer_position().ok();
+        self.window_frame = Some(WindowFrame {
+            position: at.map(|at| (f64::from(at.x), f64::from(at.y))),
+            width: size.width,
+            height: size.height,
+            scale,
+            maximized: false,
+        });
+    }
+
+    /// 窗口要关了：记下它的大小和位置；有多个窗口时最后关闭的算数。
+    pub(super) fn remember_window(&mut self) {
+        if self.config.restore_window == Some(false) || self.window_hidden {
+            return;
+        }
+        let (Some(window), Some(frame)) = (&self.window, self.window_frame) else {
+            return;
+        };
+        let frame = WindowFrame {
+            maximized: window.is_maximized(),
+            ..frame
+        };
+        self.update_state(|state| state.window = Some(frame));
+    }
+}
+
+#[cfg(test)]
+mod tests;

@@ -7,8 +7,8 @@ mod common;
 
 use std::time::{Duration, Instant};
 
-use common::{Client, WAIT};
-use winc_pty::protocol::ToHelper;
+use common::{Client, SIZE, WAIT};
+use winc_pty::protocol::{FromHelper, ToHelper};
 
 /// 是否运行在 Wine 中。
 ///
@@ -68,6 +68,75 @@ fn input_reaches_the_shell() {
     assert_eq!(c.until_exit(), 5);
 }
 
+/// 结束辅助进程 `helper` 自己建的伪终端进程，返回结束了几个。
+///
+/// 按父进程号和 `--headless` 筛选，不影响其他伪终端，也不影响辅助进程自己的控制台。
+fn kill_pseudo_console(helper: u32) -> usize {
+    let filter = format!("ParentProcessId={helper} AND CommandLine LIKE '%--headless%'");
+    let script = format!(
+        "$found = @(Get-CimInstance Win32_Process -Filter \"{filter}\"); \
+         $found | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}; \
+         $found.Count"
+    );
+    let output = std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &script])
+        .output()
+        .expect("启动 PowerShell");
+    let count = String::from_utf8_lossy(&output.stdout);
+    count.trim().parse().expect("PowerShell 输出个数")
+}
+
+/// 等到辅助进程退出，返回退出状态。
+fn until_helper_exits(c: &mut Client) -> std::process::ExitStatus {
+    let deadline = Instant::now() + WAIT + Duration::from_secs(2);
+    loop {
+        if let Some(status) = c.child.try_wait().unwrap() {
+            return status;
+        }
+        assert!(Instant::now() < deadline, "辅助进程没有退出");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// 伪终端的进程不在了而 shell 还在运行：报告断开，不当作退出；关闭标签时结束剩下的进程。
+#[test]
+fn losing_the_pseudo_console_is_reported_while_the_shell_runs() {
+    if skip_under_wine() {
+        return;
+    }
+    let mut c = Client::start();
+    // `ping` 不读写控制台，伪终端不在了也继续运行；它要用到完整的环境才能初始化网络。
+    c.send(ToHelper::Spawn {
+        tab: 1,
+        program: Some(cmd().into()),
+        args: ["/c", "echo ready& ping -n 60 127.0.0.1 >NUL"]
+            .map(|arg| arg.as_bytes().to_vec())
+            .to_vec(),
+        login: false,
+        cwd: b"/".to_vec(),
+        env: std::env::vars()
+            .map(|(k, v)| (k.into_bytes(), v.into_bytes()))
+            .collect(),
+        scrollback: 100,
+        size: SIZE,
+        integration: None,
+    });
+    c.until_text("ready");
+
+    assert_eq!(kill_pseudo_console(c.child.id()), 1);
+    let ended = c.until(|_, m| {
+        matches!(
+            m,
+            FromHelper::Disconnected { .. } | FromHelper::Exited { .. }
+        )
+    });
+    assert_eq!(ended, FromHelper::Disconnected { tab: 1 });
+
+    // 伪终端的进程已经不在，关闭它不能卡住：作业结束，辅助进程随后退出。
+    c.send(ToHelper::Close { tab: 1 });
+    assert!(until_helper_exits(&mut c).success());
+}
+
 /// 关闭标签：伪终端随之关闭，其中的程序以及它启动的程序一同结束，辅助进程随后退出。
 #[test]
 fn closing_a_tab_ends_everything_in_it() {
@@ -84,13 +153,5 @@ fn closing_a_tab_ends_everything_in_it() {
     });
     c.until_text("ready");
     c.send(ToHelper::Close { tab: 1 });
-    let deadline = Instant::now() + WAIT + Duration::from_secs(2);
-    let status = loop {
-        if let Some(status) = c.child.try_wait().unwrap() {
-            break status;
-        }
-        assert!(Instant::now() < deadline, "辅助进程没有退出");
-        std::thread::sleep(Duration::from_millis(10));
-    };
-    assert!(status.success());
+    assert!(until_helper_exits(&mut c).success());
 }

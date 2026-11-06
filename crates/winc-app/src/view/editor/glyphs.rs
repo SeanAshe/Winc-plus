@@ -1,5 +1,7 @@
 //! 字形：按语法着色绘制一行文字，自动换行的分段，显示列。
 
+use winc_config::RenderWhitespace;
+
 use super::*;
 
 /// 删掉的地方：在 `(x, y)` 这道行间的分界上绘制一个朝右的小三角，`lit` 时大一号。
@@ -99,6 +101,72 @@ pub(super) fn wrapped_spans(
             part,
             cell_at(from.max(range.start)),
             cell_at(to.min(range.end).max(range.start)),
+        );
+    }
+}
+
+/// 第 `col` 个字符（空格或制表符）在 `mode` 下是否显示；`trailing` 是行尾空白开始的列，
+/// `selected` 表示这一列在选区里。
+pub(in crate::view) fn whitespace_shown(
+    mode: RenderWhitespace,
+    col: usize,
+    trailing: usize,
+    selected: impl FnOnce() -> bool,
+) -> bool {
+    match mode {
+        RenderWhitespace::None => false,
+        RenderWhitespace::Selection => selected(),
+        RenderWhitespace::Trailing => col >= trailing,
+        RenderWhitespace::All => true,
+    }
+}
+
+/// 返回 `chars` 行尾空白开始的列；行尾没有空白时是行长。
+pub(in crate::view) fn trailing_whitespace(chars: &[char]) -> usize {
+    chars.len()
+        - chars
+            .iter()
+            .rev()
+            .take_while(|c| matches!(c, ' ' | '\t'))
+            .count()
+}
+
+/// 绘制一个空白符：空格是格子中央的小圆点，制表符是占满它的宽度的箭头。
+///
+/// `x`、`y` 是这个字符的左上角，`width` 是它的宽度（逻辑像素）。颜色取自缩进参考线，比文字淡得多。
+pub(in crate::view) fn draw_whitespace_mark(
+    app: &App,
+    frame: &mut Frame<'_>,
+    c: char,
+    (x, y): (f32, f32),
+    width: f32,
+    clip: Rect,
+) {
+    /// 空格圆点的直径（逻辑像素）。
+    const DOT: f32 = 2.0;
+    /// 制表符箭头两端的留白（逻辑像素）。
+    const TAB_PAD: f32 = 2.0;
+    let color = app.palette.indent_guide_active;
+    let mid = y + app.fonts.line_height / 2.0;
+    if c == ' ' {
+        let dot = Rect::new(x + width / 2.0 - DOT / 2.0, mid - DOT / 2.0, DOT, DOT);
+        frame.rect_clipped(dot, color, DOT / 2.0, clip);
+    } else {
+        let shaft = Rect::new(
+            x + TAB_PAD,
+            mid - 0.5,
+            (width - 2.0 * TAB_PAD).max(1.0),
+            1.0,
+        );
+        frame.rect_clipped(shaft, color, 0.0, clip);
+        let head = (shaft.right() - app.cell / 4.0, mid);
+        crate::icons::chevron(
+            frame,
+            head,
+            app.cell / 2.0,
+            crate::icons::Direction::Right,
+            color,
+            clip,
         );
     }
 }
@@ -211,3 +279,6 @@ pub(super) fn draw_columns(
     }
     positions.last().copied().unwrap_or(0)
 }
+
+#[cfg(test)]
+mod tests;

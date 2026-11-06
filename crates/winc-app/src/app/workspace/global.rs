@@ -204,6 +204,7 @@ impl GlobalSearch {
             include_ignored: self.include_ignored,
             include: self.include.text().to_owned(),
             exclude: self.exclude.text().to_owned(),
+            required: String::new(),
         }
     }
 

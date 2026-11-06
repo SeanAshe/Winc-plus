@@ -144,6 +144,9 @@ pub enum MenuCommand {
     /// 设置中「语言」菜单的一项，参数为 [`LocaleChoice::ALL`](winc_i18n::LocaleChoice::ALL)
     /// 中的序号（从 0 起）。
     Locale(usize),
+    /// 设置中「空白符」菜单的一项，参数为
+    /// [`RenderWhitespace::ALL`](winc_config::RenderWhitespace::ALL) 中的序号（从 0 起）。
+    Whitespace(usize),
     /// 设置中字体菜单的「系统默认」。
     FontDefault,
     /// 设置中字体菜单的一项，参数为 [`winc_render::installed_fonts`] 中的序号（从 0 起）。
@@ -408,6 +411,9 @@ impl MenuCommand {
             MenuCommand::Language(i) | MenuCommand::SkipOnSave(i) => {
                 winc_syntax::languages().get(i).map_or("", |l| l.name)
             }
+            MenuCommand::Whitespace(i) => winc_config::RenderWhitespace::ALL
+                .get(i)
+                .map_or("", |&choice| crate::layout::whitespace_label(choice)),
             MenuCommand::Locale(i) => winc_i18n::LocaleChoice::ALL
                 .get(i)
                 .map_or("", |&choice| crate::layout::locale_label(choice)),
@@ -536,6 +542,8 @@ pub enum MenuTarget {
     SkipOnSave,
     /// 设置的外观页中的「语言」。
     Locale,
+    /// 设置的编辑器页中的「空白符」。
+    Whitespace,
     /// 设置中字体一行的下拉按钮。
     Font(Setting),
     /// 设置的格式化页中一种语言的格式化（修复）工具。

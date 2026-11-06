@@ -16,10 +16,16 @@ pub struct BraceKey {
 }
 
 impl App {
-    /// 返回行号栏的宽度（逻辑像素）：随行数的位数变化，至少按 2 位计算。
+    /// 返回行号栏的宽度（逻辑像素）：随行数的位数变化，至少按 2 位计算；不显示行号时只留两侧
+    /// 给折叠箭头、书签和改动标记的空白。
     pub(in crate::app) fn gutter_width(&self) -> f32 {
         let digits = self.line_count().max(1).ilog10() as usize + 1;
-        digits.max(2) as f32 * self.cell + 2.0 * GUTTER_PADDING + self.blame_width()
+        let numbers = if self.config.line_numbers == Some(false) {
+            0.0
+        } else {
+            digits.max(2) as f32 * self.cell
+        };
+        numbers + 2.0 * GUTTER_PADDING + self.blame_width()
     }
 
     /// 返回自动换行时一个显示行可容纳的单元格数，至少 10 格（经验值，窗口极窄时仍能显示几个字）。

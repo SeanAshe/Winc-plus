@@ -6,13 +6,13 @@
 //! 按词法分析剔除注释、字符串、无关语言和其他同名定义中的命中（见 `winc_editor::usages`）。
 
 use std::collections::HashMap;
-use std::sync::{Arc, mpsc};
+use std::sync::{Arc, Mutex, PoisonError, mpsc};
 
 use ropey::Rope;
 use winc_core::movement;
 use winc_editor::definition::{self, Finder, Kind};
 use winc_editor::usages::{self, Filter};
-use winc_editor::{FileResult, ProjectSearch, Query};
+use winc_editor::{FileResult, MAX_SEARCH_THREADS, ProjectSearch, Query};
 use winc_i18n::t;
 use winc_syntax::Language;
 
@@ -237,12 +237,7 @@ impl App {
         let Some(root) = self.editor.root().map(Path::to_path_buf) else {
             return self.no_definition(&name, !here.is_empty());
         };
-        let query = Query {
-            text: definition::pattern(&name, ignore_case),
-            case_sensitive: !ignore_case,
-            regex: true,
-            ..Query::default()
-        };
+        let query = definition::query(&name, ignore_case);
         let search = DefinitionSearch {
             engine: ProjectSearch::default(),
             name,
@@ -620,41 +615,70 @@ impl App {
     }
 }
 
-/// 在后台线程中逐个文件剔除不算数的命中（见 [`Filter::usages`]、[`Filter::definitions`]），返回
-/// 剩下的结果；`usages` 为真时找的是用法，否则是定义。
+/// 逐个文件剔除不算数的命中（见 [`Filter::usages`]、[`Filter::definitions`]），返回剩下的结果；
+/// `usages` 为真时找的是用法，否则是定义。
 ///
-/// 有未保存修改的文件按 `dirty` 中的内容判断，其余从磁盘读。读不到或不是 UTF-8 的文件保留全部
-/// 命中：行列可能与搜索时的解码对不上，宁可多列也不误删。
+/// 每个文件都要读入并做词法分析，常见的名字可能命中数千个文件，因此多个线程并行处理；线程数上限
+/// 与项目搜索相同。结果的顺序不变。
 fn filter_results(
     filter: &Filter,
     usages: bool,
     mut results: Vec<FileResult>,
     dirty: &HashMap<PathBuf, Rope>,
 ) -> Vec<FileResult> {
-    for file in &mut results {
-        let text = match dirty.get(&file.path) {
-            Some(rope) => rope.clone(),
-            None => match std::fs::read(&file.path).map(String::from_utf8) {
-                Ok(Ok(text)) => Rope::from_str(&text),
-                _ => continue,
-            },
-        };
-        let language = usages::language_of(&file.path, &text);
-        let positions: Vec<(usize, usize)> = file
-            .matches
-            .iter()
-            .map(|m| (m.line, m.cols.start))
-            .collect();
-        let keep = if usages {
-            filter.usages(language, &text, &positions)
-        } else {
-            filter.definitions(language, &text, &positions)
-        };
-        let mut keep = keep.into_iter();
-        file.matches.retain(|_| keep.next().unwrap_or(true));
-    }
+    let threads = std::thread::available_parallelism()
+        .map_or(2, |n| n.get())
+        .min(MAX_SEARCH_THREADS);
+    let files = Mutex::new(results.iter_mut());
+    std::thread::scope(|scope| {
+        for _ in 0..threads {
+            scope.spawn(|| {
+                // 先取出下一个文件、放开锁，再处理：写在 `while let` 的条件里时，锁要到循环体
+                // 结束才放开，各线程只能轮流工作。
+                loop {
+                    let next = files.lock().unwrap_or_else(PoisonError::into_inner).next();
+                    let Some(file) = next else {
+                        break;
+                    };
+                    filter_file(filter, usages, file, dirty);
+                }
+            });
+        }
+    });
     results.retain(|file| !file.matches.is_empty());
     results
+}
+
+/// 剔除一个文件中不算数的命中。
+///
+/// 有未保存修改的文件按 `dirty` 中的内容判断，其余从磁盘读。读不到或不是 UTF-8 的文件保留全部
+/// 命中：行列可能与搜索时的解码对不上，宁可多列也不误删。
+fn filter_file(
+    filter: &Filter,
+    usages: bool,
+    file: &mut FileResult,
+    dirty: &HashMap<PathBuf, Rope>,
+) {
+    let text = match dirty.get(&file.path) {
+        Some(rope) => rope.clone(),
+        None => match std::fs::read(&file.path).map(String::from_utf8) {
+            Ok(Ok(text)) => Rope::from_str(&text),
+            _ => return,
+        },
+    };
+    let language = usages::language_of(&file.path, &text);
+    let positions: Vec<(usize, usize)> = file
+        .matches
+        .iter()
+        .map(|m| (m.line, m.cols.start))
+        .collect();
+    let keep = if usages {
+        filter.usages(language, &text, &positions)
+    } else {
+        filter.definitions(language, &text, &positions)
+    };
+    let mut keep = keep.into_iter();
+    file.matches.retain(|_| keep.next().unwrap_or(true));
 }
 
 /// 把同一文件同一行的几处用法合并成一项，名字的范围合在一起；`items` 已按文件和行号排序。

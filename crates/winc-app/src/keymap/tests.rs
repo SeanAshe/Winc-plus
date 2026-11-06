@@ -80,6 +80,11 @@ fn default_key_labels_per_system() {
     // 多光标的默认键位。
     assert_eq!(label(Os::Mac, Action::AddCursorBelow), ["⌥⌘↓"]);
     assert_eq!(label(Os::Windows, Action::AddCursorAbove), ["Ctrl+Alt+↑"]);
+    assert_eq!(label(Os::Mac, Action::NextDifference)[0], "F7");
+    assert_eq!(label(Os::Mac, Action::PreviousDifference)[0], "⇧F7");
+    assert_eq!(label(Os::Mac, Action::CloseTerminal), ["⌘W"]);
+    assert_eq!(label(Os::Windows, Action::CloseTerminal), ["Ctrl+Shift+W"]);
+    assert_eq!(label(Os::Linux, Action::CloseTerminal), ["Ctrl+Shift+W"]);
     assert_eq!(label(Os::Linux, Action::AddCursorAbove), ["Shift+Alt+↑"]);
     assert_eq!(label(Os::Mac, Action::AddNextOccurrence), ["⌘D"]);
     assert_eq!(label(Os::Mac, Action::SkipToNextOccurrence), ["⌘K ⌘D"]);
@@ -455,4 +460,56 @@ fn a_key_taken_by_the_input_method_still_matches_with_ctrl() {
         stroke(PhysicalKey::Code(Code::F1), ModifiersState::CONTROL),
         None
     );
+}
+
+#[test]
+fn diff_navigation_keys_reach_their_commands_from_key_events() {
+    use winit::keyboard::{
+        Key, KeyCode as Code, KeyLocation, ModifiersState, NamedKey, PhysicalKey,
+    };
+
+    let shift = ModifiersState::SHIFT;
+    let alt = ModifiersState::ALT;
+    let cases = [
+        (
+            NamedKey::F7,
+            Code::F7,
+            ModifiersState::empty(),
+            Action::NextDifference,
+        ),
+        (NamedKey::F7, Code::F7, shift, Action::PreviousDifference),
+        (NamedKey::F5, Code::F5, alt, Action::NextDifference),
+        (
+            NamedKey::F5,
+            Code::F5,
+            alt | shift,
+            Action::PreviousDifference,
+        ),
+        (
+            NamedKey::F8,
+            Code::F8,
+            ModifiersState::empty(),
+            Action::NextDiffFile,
+        ),
+        (NamedKey::F8, Code::F8, shift, Action::PreviousDiffFile),
+    ];
+    for os in ALL_OS {
+        let table = bindings(os);
+        for (named, code, mods, action) in cases {
+            let stroke = Stroke::from_event(
+                &Key::Named(named),
+                "",
+                PhysicalKey::Code(code),
+                KeyLocation::Standard,
+                mods,
+            )
+            .unwrap();
+            let found = lookup(&table, stroke, None, Context::Editor);
+            assert!(
+                matches!(&found, Lookup::Run(actions) if actions.contains(&action)),
+                "{os:?} {named:?} {mods:?}"
+            );
+            assert!(action.navigates_diff());
+        }
+    }
 }

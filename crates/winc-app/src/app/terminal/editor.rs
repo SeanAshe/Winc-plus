@@ -97,15 +97,18 @@ impl App {
 
         let focus = self.focus;
         let t = &self.terminal;
-        // shell 退出了、辅助进程中止了：重新开始，代码等辅助进程启动后再送，不会丢失。
-        let dead = t.crashed || t.tab().is_some_and(|tab| tab.exited.is_some());
+        // shell 退出了、伪终端断开了、辅助进程中止了：重新开始，代码等辅助进程启动后再送。
+        let dead = t.crashed || t.tab().is_some_and(|tab| tab.ended.is_some());
         if t.tabs.is_empty() {
             self.terminal.pending_input = Some(bytes);
             self.new_terminal_tab();
         } else {
             self.set_terminal_open(true);
             self.relayout();
-            if dead {
+            if self.terminal_restart_needs_confirm() {
+                // 不替用户结束还可能在运行的程序：说明原因，由用户自己重新启动。
+                self.flash(winc_i18n::t!("terminal-disconnected"));
+            } else if dead {
                 self.terminal.pending_input = Some(bytes);
                 self.restart_terminal_tab();
             } else {

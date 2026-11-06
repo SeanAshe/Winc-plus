@@ -191,6 +191,7 @@ fn from_helper() -> Vec<FromHelper> {
             name: "cargo".into(),
         },
         FromHelper::Exited { tab: 1, code: 130 },
+        FromHelper::Disconnected { tab: 1 },
         FromHelper::Failed {
             tab: 1,
             message: "未找到程序".into(),

@@ -135,6 +135,15 @@ impl Layout {
     }
 }
 
+/// 终端不能再用的原因。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TabEnd {
+    /// shell 退出了：退出码。
+    Exited(i32),
+    /// 伪终端断开了，其中的进程可能还在运行。
+    Disconnected,
+}
+
 /// 一个终端标签。
 pub(crate) struct TermTab {
     /// 标签编号，辅助进程用它区分各标签；面板内唯一。
@@ -153,8 +162,8 @@ pub(crate) struct TermTab {
     pub title: String,
     /// 前台进程的名字。
     pub process: String,
-    /// shell 退出了：退出码。
-    pub exited: Option<i32>,
+    /// 这个终端不能再用了：为什么；还能用时为 `None`。
+    pub ended: Option<TabEnd>,
     /// 最近一次告诉辅助进程的尺寸。
     pub size: Size,
     /// 收到了一帧还没给额度。
@@ -232,7 +241,7 @@ impl TermTab {
             name: String::new(),
             title: String::new(),
             process: String::new(),
-            exited: None,
+            ended: None,
             size,
             credit_due: false,
             history: (0, 0),
@@ -362,7 +371,8 @@ impl TermTab {
         const SHELLS: &[&str] = &[
             "zsh", "bash", "fish", "sh", "dash", "ksh", "tcsh", "csh", "nu",
         ];
-        if self.exited.is_some() {
+        // 伪终端断开时程序可能还在运行，关掉标签会结束它们，仍然要确认。
+        if matches!(self.ended, Some(TabEnd::Exited(_))) {
             return None;
         }
         if let Some(block) = self.blocks.last().filter(|b| b.running()) {

@@ -28,6 +28,8 @@ mod bench;
 mod dev;
 mod dmg;
 mod feed;
+#[cfg(test)]
+mod file_types;
 mod icons;
 mod samples;
 mod sparkle;

@@ -11,6 +11,7 @@ use ropey::Rope;
 use winc_syntax::Language;
 
 use super::usages::token_kinds;
+use crate::workspace::project_search::Query;
 
 /// 定义的类别。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -64,7 +65,8 @@ struct Form {
 /// 因为其他函数中同名的局部变量会产生大量无关结果。
 fn forms(name: &str, local: bool) -> Vec<(String, Form)> {
     let escaped = regex::escape(name);
-    // 名字之后不能紧跟名字字符；以标点结尾的名字（`valid?`）之后不能紧跟单词字符。
+    // 名字之后不能紧跟名字字符；以标点结尾的名字（`valid?`）之后不能紧跟单词字符。写成 `[^\w]`
+    // 而不是等价的大写形式：后者也能匹配换行符，搜索时会被当作跨行查找。
     let after = if name
         .chars()
         .last()
@@ -72,7 +74,7 @@ fn forms(name: &str, local: bool) -> Vec<(String, Form)> {
     {
         r"(?:[^\w$'?!-]|$)"
     } else {
-        r"(?:\W|$)"
+        r"(?:[^\w]|$)"
     };
     // 名字之前的限定部分：`function M.helper`、`def self.run`、`defmodule App.Repo`。
     let qualifier = r"(?:[\w$]+(?:\.|::|:))*";
@@ -193,12 +195,19 @@ fn forms(name: &str, local: bool) -> Vec<(String, Form)> {
     all
 }
 
-/// 返回查找 `name` 的定义所用的正则表达式，每次匹配一行。
+/// 返回在项目中查找 `name` 的定义所用的搜索条件，每次匹配一行。
 ///
 /// `ignore_case` 为真时不区分大小写（SQL、PHP 这类语言中的名字）。各语言的定义写法合并为一个
-/// 正则，不按语言过滤，由调用方优先列出相关语言中的结果（见 [`rank`]）。
-pub fn pattern(name: &str, ignore_case: bool) -> String {
-    combine(&forms(name, false), ignore_case)
+/// 正则，不按语言过滤，由调用方优先列出相关语言中的结果（见 [`rank`]）。每种写法都含名字本身，
+/// 搜索因此只需逐行匹配含名字的行。
+pub fn query(name: &str, ignore_case: bool) -> Query {
+    Query {
+        text: combine(&forms(name, false), ignore_case),
+        case_sensitive: !ignore_case,
+        regex: true,
+        required: name.to_owned(),
+        ..Query::default()
+    }
 }
 
 /// 把各写法的正则合并为一个，把第 `i` 条中的捕获组命名为 `k<i>`。

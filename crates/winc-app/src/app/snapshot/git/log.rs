@@ -141,10 +141,12 @@ fn stepping_past_the_last_change_opens_the_commits_next_file() {
     app.press_log(LogTarget::File(0));
     let title = |app: &App| app.editor.active().unwrap().title.clone().unwrap();
     assert!(title(&app).starts_with("a.txt · "));
-    // 每个文件只有一处改动：按 `F7` 跳到该处，再按一次切换到下一个文件，仍在同一标签中；
-    // 在第一个文件中向前跳转时没有上一个文件。
+    // 每个文件只有一处改动：按 `F7` 跳到该处，再按提示「再按一次」，第三次切换到下一个文件，仍在
+    // 同一标签中；在第一个文件中向前跳转时没有上一个文件。
     let tabs = app.editor.documents.len();
     app.run_action(Action::NextDifference);
+    app.run_action(Action::NextDifference);
+    assert!(title(&app).starts_with("a.txt · "));
     app.run_action(Action::NextDifference);
     assert!(title(&app).starts_with("b.txt · "));
     assert_eq!(app.editor.documents.len(), tabs);

@@ -186,3 +186,20 @@ fn definitions_in_comments_and_strings_do_not_count() {
         1
     );
 }
+
+/// 以标点结尾的名字也逐行查找：跨行查找要把整个文件读入内存，也不搜索大文件。
+#[test]
+fn names_ending_in_punctuation_are_searched_by_line() {
+    use crate::editing::search::{Matcher, Options};
+
+    let query = query("valid?", false);
+    let options = Options {
+        case_sensitive: true,
+        whole_word: false,
+        regex: true,
+    };
+    assert!(!Matcher::new(&query.text, options).unwrap().is_multiline());
+    assert_eq!(finds("valid?", "def valid?"), Some(4));
+    assert_eq!(finds("valid?", "def valid? x"), Some(4));
+    assert_eq!(finds("valid?", "def valid?x"), None);
+}

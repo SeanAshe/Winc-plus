@@ -75,7 +75,7 @@ impl App {
                     _ => {}
                 }
             }
-            // 和快捷键走同一条路：光标在右侧时由右侧的文档执行，左侧有选区时复制左侧。
+            // 和快捷键走同一条路：光标在右侧时由右侧的文档执行，只读的一侧有选区时复制这一侧。
             MenuTarget::Diff(id, _) => {
                 if self.editor.active().map(|d| d.id) == Some(id)
                     && let Some(action) = command.action()
@@ -115,6 +115,13 @@ impl App {
                     && let Some(&choice) = winc_i18n::LocaleChoice::ALL.get(i)
                 {
                     self.set_locale_choice(choice);
+                }
+            }
+            MenuTarget::Whitespace => {
+                if let MenuCommand::Whitespace(i) = command
+                    && let Some(&choice) = winc_config::RenderWhitespace::ALL.get(i)
+                {
+                    self.set_render_whitespace(choice);
                 }
             }
             MenuTarget::Font(setting) => match command {

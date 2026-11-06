@@ -19,7 +19,7 @@ pub const MAGIC: [u8; 8] = *b"winc-pty";
 /// 协议版本号。
 ///
 /// 消息的格式每变化一次加一。
-pub const VERSION: u32 = 3;
+pub const VERSION: u32 = 4;
 /// 一条消息的长度上限（字节，64 MiB）。
 ///
 /// 超过上限的消息视为对方出错并断开连接，避免一个错误的长度使对端分配数 GB 内存。
@@ -582,6 +582,14 @@ pub enum FromHelper {
         tab: u16,
         /// 退出码；被信号终止时为 128 加信号编号。
         code: i32,
+    },
+    /// 伪终端断开了，shell 还在运行：输入到不了程序，也不会再有新的输出。
+    ///
+    /// 终端的内容仍然保留，可以继续获取回滚。其中的进程不会自动结束，直到主程序发送
+    /// [`ToHelper::Close`]；shell 在此之前退出时随后还会发 [`FromHelper::Exited`]。
+    Disconnected {
+        /// 标签号。
+        tab: u16,
     },
     /// 新建失败（无法打开伪终端、程序不存在等）。
     Failed {

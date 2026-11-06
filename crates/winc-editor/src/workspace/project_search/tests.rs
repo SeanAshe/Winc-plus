@@ -873,3 +873,53 @@ fn regex_backtracking_limits_are_reported_across_files() {
     assert!(!found.gave_up());
     let _ = fs::remove_dir_all(&dir);
 }
+
+/// 必含的文字只决定跳过哪些内容，结果与不给这项信息时相同；测试中每块 7 字节，换行符和名字都会
+/// 落在块的边界上。
+#[test]
+fn required_text_does_not_change_the_results() {
+    let dir = scratch("required-text");
+    write(
+        &dir,
+        "a.rs",
+        b"// load\nfn other() {}\nfn load() {}\nlet x = load();\n  const load = 1;\n",
+    );
+    write(
+        &dir,
+        "b.c",
+        b"load\r\nint load(int a) {\r\n}\r#define load 1\r",
+    );
+    write(&dir, "c.rb", b"valid?\ndef valid?\ndef valid?x\nend");
+    write(
+        &dir,
+        "d.sql",
+        b"select load;\nCREATE TABLE LOAD (id int);\nfn Load\n",
+    );
+    write(
+        &dir,
+        "e.txt",
+        "\u{4e2d}\u{6587} load\nfn load\u{4e2d}\nfn load \u{6587}\n".as_bytes(),
+    );
+    write(&dir, "f.txt", b"nothing here\n");
+    let found = |query: &Query| -> Vec<(String, Vec<LineMatch>)> {
+        search(&dir, query)
+            .results
+            .iter()
+            .map(|f| (f.relative.clone(), f.matches.clone()))
+            .collect()
+    };
+
+    for (name, ignore_case, hits) in [("load", false, 5), ("LOAD", true, 7), ("valid?", false, 1)] {
+        let fast = crate::definition::query(name, ignore_case);
+        assert_eq!(fast.required, name);
+        let plain = Query {
+            required: String::new(),
+            ..fast.clone()
+        };
+        let results = found(&fast);
+        assert_eq!(results, found(&plain), "{name}");
+        let total: usize = results.iter().map(|(_, m)| m.len()).sum();
+        assert_eq!(total, hits, "{name}: {results:?}");
+    }
+    let _ = fs::remove_dir_all(&dir);
+}

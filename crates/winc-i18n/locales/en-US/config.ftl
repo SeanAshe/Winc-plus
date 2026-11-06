@@ -11,6 +11,7 @@ config-project-unsupported-key = Project settings support only format; ignored {
 ## Problems with setting values.
 
 config-theme-invalid = { $name } must be auto, dark, or light; ignored
+config-render-whitespace-invalid = { $name } must be none, selection, trailing, or all; ignored
 config-language-invalid = { $name } must be auto, zh-CN, or en-US; ignored
 config-not-integer = { $name } should be an integer (currently { $value }); ignored
 config-not-string = { $name } should be a string; ignored

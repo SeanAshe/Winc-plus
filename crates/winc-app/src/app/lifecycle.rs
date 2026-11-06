@@ -11,6 +11,7 @@ pub(super) mod closing;
 pub(super) mod events;
 pub(super) mod notice;
 pub(super) mod one_off;
+pub(super) mod placement;
 pub(super) mod startup;
 pub(super) mod title_bar;
 pub(super) mod window;

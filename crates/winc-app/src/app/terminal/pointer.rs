@@ -165,7 +165,7 @@ impl App {
             && self
                 .terminal
                 .tab()
-                .is_some_and(|t| t.exited.is_none() && input::wants_mouse(t.modes))
+                .is_some_and(|t| t.ended.is_none() && input::wants_mouse(t.modes))
     }
 
     /// 把一次鼠标事件上报给程序。

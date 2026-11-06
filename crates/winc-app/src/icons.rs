@@ -65,6 +65,8 @@ pub enum Direction {
     Down,
     /// 朝右。
     Right,
+    /// 朝左。
+    Left,
 }
 
 /// 按给定朝向绘制 `V` 形折线箭头。
@@ -82,6 +84,7 @@ pub fn chevron(
         Direction::Up => -FRAC_PI_2,
         Direction::Down => FRAC_PI_2,
         Direction::Right => 0.0,
+        Direction::Left => PI,
     };
     chevron_turned(frame, center, size, angle, color, clip);
 }
@@ -641,6 +644,22 @@ pub fn split(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Re
     let shapes: Strokes<9> = joined(&[
         &rounded_outline(x, y, w, h, 3.0),
         &[Stroke::Line(mid, y, mid, y + h)],
+    ]);
+    frame.stroke(shapes.as_slice(), STROKE, color, clip);
+}
+
+/// 绘制「单栏」图标：与 [`split`] 尺寸相同的圆角框，中间一道横线分成上下两半（上面是改之前，
+/// 下面是改之后）。
+pub fn single_column(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let (x, y) = (
+        (cx - SIDEBAR_WIDTH / 2.0).round() + 0.75,
+        (cy - 7.0).round() + 1.0,
+    );
+    let (w, h) = (SIDEBAR_WIDTH - 1.5, 12.0);
+    let mid = (y + h / 2.0).round() - 0.25;
+    let shapes: Strokes<9> = joined(&[
+        &rounded_outline(x, y, w, h, 3.0),
+        &[Stroke::Line(x, mid, x + w, mid)],
     ]);
     frame.stroke(shapes.as_slice(), STROKE, color, clip);
 }

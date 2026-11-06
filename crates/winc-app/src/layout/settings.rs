@@ -59,6 +59,7 @@ impl SettingsPage {
                         Setting::UiFont,
                         Setting::UiSize,
                     ]),
+                    plain(vec![Setting::StatusBar, Setting::RestoreWindow]),
                     Section {
                         title: Some(t!("settings-light-theme")),
                         items: vec![Setting::LightTheme],
@@ -75,18 +76,28 @@ impl SettingsPage {
                 sections
             }
             SettingsPage::Editor => vec![
-                plain(vec![Setting::EditorFont, Setting::EditorSize]),
-                plain(vec![Setting::TabWidth]),
+                plain(vec![
+                    Setting::EditorFont,
+                    Setting::EditorSize,
+                    Setting::TabWidth,
+                ]),
+                plain(vec![
+                    Setting::LineNumbers,
+                    Setting::WordWrap,
+                    Setting::Minimap,
+                    Setting::StickyScroll,
+                    Setting::RenderWhitespace,
+                ]),
                 plain(vec![
                     Setting::AutoSave,
                     Setting::HotExit,
                     Setting::RestoreFolder,
-                    Setting::CompactFolders,
-                    Setting::StickyScroll,
-                    Setting::WordWrap,
-                    Setting::Minimap,
                 ]),
-                plain(vec![Setting::RemoteImages]),
+                plain(vec![
+                    Setting::CompactFolders,
+                    Setting::DiffInline,
+                    Setting::RemoteImages,
+                ]),
             ],
             SettingsPage::Modules => vec![plain(vec![Setting::GitModule, Setting::TerminalModule])],
             SettingsPage::Format => {
@@ -183,6 +194,16 @@ pub enum Setting {
     WordWrap,
     /// 编辑区右侧的缩略图。
     Minimap,
+    /// 显示行号。
+    LineNumbers,
+    /// 差异单栏显示。
+    DiffInline,
+    /// 何时显示空格和制表符。
+    RenderWhitespace,
+    /// 显示状态栏。
+    StatusBar,
+    /// 记住窗口大小和位置。
+    RestoreWindow,
     /// 文件树把连续的单子目录合并显示为一行。
     CompactFolders,
     /// Markdown 预览联网加载网址的图片。
@@ -251,7 +272,9 @@ impl Setting {
             | Setting::DarkTheme
             | Setting::UiFont
             | Setting::UiSize
-            | Setting::SystemTitleBar => SettingsPage::Appearance,
+            | Setting::SystemTitleBar
+            | Setting::StatusBar
+            | Setting::RestoreWindow => SettingsPage::Appearance,
             Setting::EditorFont
             | Setting::EditorSize
             | Setting::TabWidth
@@ -262,6 +285,9 @@ impl Setting {
             | Setting::StickyScroll
             | Setting::WordWrap
             | Setting::Minimap
+            | Setting::LineNumbers
+            | Setting::DiffInline
+            | Setting::RenderWhitespace
             | Setting::RemoteImages => SettingsPage::Editor,
             Setting::Version | Setting::Updates | Setting::CheckUpdates => SettingsPage::About,
             Setting::FormatOnSave
@@ -295,6 +321,11 @@ impl Setting {
             Setting::StickyScroll => t!("settings-sticky-scroll"),
             Setting::WordWrap => t!("settings-word-wrap"),
             Setting::Minimap => t!("settings-minimap"),
+            Setting::LineNumbers => t!("settings-line-numbers"),
+            Setting::DiffInline => t!("settings-diff-inline"),
+            Setting::RenderWhitespace => t!("settings-render-whitespace"),
+            Setting::StatusBar => t!("settings-status-bar"),
+            Setting::RestoreWindow => t!("settings-restore-window"),
             Setting::CompactFolders => t!("settings-compact-folders"),
             Setting::RemoteImages => t!("settings-remote-images"),
             Setting::CheckUpdates => t!("settings-check-updates"),
@@ -319,7 +350,6 @@ impl Setting {
     pub fn description(self) -> Option<&'static str> {
         match self {
             Setting::SystemTitleBar => Some(t!("settings-system-title-bar-desc")),
-            Setting::TabWidth => Some(t!("settings-tab-width-desc")),
             Setting::AutoSave => Some(t!("settings-auto-save-desc")),
             Setting::HotExit => Some(t!("settings-hot-exit-desc")),
             Setting::RestoreFolder => Some(t!("settings-restore-folder-desc")),
@@ -327,6 +357,11 @@ impl Setting {
             Setting::WordWrap => Some(t!("settings-word-wrap-desc")),
             Setting::CompactFolders => Some(t!("settings-compact-folders-desc")),
             Setting::Minimap => Some(t!("settings-minimap-desc")),
+            Setting::LineNumbers => Some(t!("settings-line-numbers-desc")),
+            Setting::DiffInline => Some(t!("settings-diff-inline-desc")),
+            Setting::RenderWhitespace => Some(t!("settings-render-whitespace-desc")),
+            Setting::StatusBar => Some(t!("settings-status-bar-desc")),
+            Setting::RestoreWindow => Some(t!("settings-restore-window-desc")),
             Setting::RemoteImages => Some(t!("settings-remote-images-desc")),
             Setting::CheckUpdates => Some(t!("settings-check-updates-desc")),
             // 绘制时换成当前的更新状态（`UpdateState`）。
@@ -355,6 +390,10 @@ impl Setting {
             | Setting::StickyScroll
             | Setting::WordWrap
             | Setting::Minimap
+            | Setting::LineNumbers
+            | Setting::DiffInline
+            | Setting::StatusBar
+            | Setting::RestoreWindow
             | Setting::RemoteImages
             | Setting::CheckUpdates
             | Setting::FormatOnSave
@@ -362,7 +401,9 @@ impl Setting {
             | Setting::GitModule
             | Setting::TerminalModule => SettingControl::Switch,
             Setting::FormatCommand(_) | Setting::FixCommand(_) => SettingControl::Command,
-            Setting::SkipOnSave | Setting::Language => SettingControl::Choice,
+            Setting::SkipOnSave | Setting::Language | Setting::RenderWhitespace => {
+                SettingControl::Choice
+            }
             Setting::AddLanguage | Setting::AddFixLanguage => SettingControl::Action,
             Setting::KeySearch => SettingControl::Search,
             Setting::Version => SettingControl::Value,
@@ -400,6 +441,17 @@ pub enum SettingControl {
 
 /// 返回「语言」中选项 `choice` 的名称。
 ///
+/// 返回「空白符」设置中选项 `choice` 的名字。
+pub fn whitespace_label(choice: winc_config::RenderWhitespace) -> &'static str {
+    use winc_config::RenderWhitespace::{All, None, Selection, Trailing};
+    match choice {
+        None => t!("settings-render-whitespace-none"),
+        Selection => t!("settings-render-whitespace-selection"),
+        Trailing => t!("settings-render-whitespace-trailing"),
+        All => t!("settings-render-whitespace-all"),
+    }
+}
+
 /// 「跟随系统」使用当前界面语言，各语言的名称以该语言自身书写，不随界面语言变化。
 pub fn locale_label(choice: winc_i18n::LocaleChoice) -> &'static str {
     match choice {

@@ -586,7 +586,7 @@ fn terminal_runs_a_command_in_the_login_shell() {
     app.activate_terminal_tab(0);
     app.terminal_input(b"exit\r".to_vec());
     wait(&mut app, &|app| {
-        app.terminal.tab().is_some_and(|t| t.exited.is_some())
+        app.terminal.tab().is_some_and(|t| t.ended.is_some())
     });
 
     std::fs::remove_dir_all(&dir).unwrap();

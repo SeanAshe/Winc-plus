@@ -94,6 +94,8 @@ impl Layout {
     /// - `search_rows`：查找条的行数，0 为关闭，1 为只有查找，2 为查找加替换。
     /// - `picker_rows`：快速打开面板的结果行数，0 为关闭。
     /// - `gutter_width`：行号栏的宽度。
+    /// - `status_height`：窗口底部留给状态栏的高度。
+    #[allow(clippy::too_many_arguments)]
     pub fn compute(
         width: f32,
         height: f32,
@@ -102,9 +104,10 @@ impl Layout {
         search_rows: usize,
         picker_rows: usize,
         gutter_width: f32,
+        status_height: f32,
     ) -> Layout {
         let window = Rect::new(0.0, 0.0, width, height);
-        let status = Rect::new(0.0, height - STATUS_HEIGHT, width, STATUS_HEIGHT);
+        let status = Rect::new(0.0, height - status_height, width, status_height);
         let body_h = status.y.max(0.0);
 
         // 取整：拖动分隔条时宽度来自鼠标位置，可能是小数。`visible_w` 已取整；若 `full_w` 不取整，

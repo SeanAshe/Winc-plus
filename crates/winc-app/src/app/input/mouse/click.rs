@@ -266,7 +266,7 @@ impl App {
                     HeaderHit::Tab(i) => self.press_terminal_tab(i, x),
                     HeaderHit::Close(i) => self.close_terminal_tab(i),
                     HeaderHit::New => self.new_terminal_tab(),
-                    HeaderHit::Restart => self.restart_terminal_tab(),
+                    HeaderHit::Restart => self.request_terminal_restart(),
                     HeaderHit::Position => self.toggle_terminal_position(),
                     HeaderHit::Hide => self.click_terminal_button(),
                 }

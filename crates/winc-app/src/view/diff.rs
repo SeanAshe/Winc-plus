@@ -8,13 +8,17 @@
 use std::fmt::Write as _;
 use std::ops::Range;
 
+use winc_config::RenderWhitespace;
 use winc_core::text::{self, MAX_LINE_CHARS};
 use winc_core::wrap::{self, Breaks};
 use winc_core::{Lines, Selection};
 use winc_editor::diff_view::{DiffSide, DiffView, LEFT, RIGHT, SideRow};
 use winc_i18n::t;
 
-use super::editor::{HIGHLIGHT_BUDGET, caret_bar, draw_caret, draw_glyphs};
+use super::editor::{
+    HIGHLIGHT_BUDGET, caret_bar, draw_caret, draw_glyphs, draw_whitespace_mark,
+    trailing_whitespace, whitespace_shown,
+};
 use super::*;
 use crate::app::{
     DIFF_GUTTER_PAD, DIFF_TEXT_PAD, DiffParts, DiffTarget, Focus, HunkKind, diff_parts,
@@ -89,6 +93,33 @@ fn draw_fade(
     draw_ribbon(frame, parts.ribbon, spans[0], spans[1], shade, parts.body);
 }
 
+/// 标出跳到的那一段改动：一侧的边上一条强调色的竖线，这一侧没有行时是插入位置上的横线；刚跳到时
+/// 整段再叠一层渐隐的强调色。
+///
+/// `(y0, y1)` 是这一段在这一侧的上下边，`clip` 是差异的文字区域。
+fn draw_hunk_focus(app: &App, frame: &mut Frame<'_>, pane: Rect, (y0, y1): (f32, f32), clip: Rect) {
+    /// 当前标记的粗细（逻辑像素）：比 1 像素的改动边线粗，能和普通改动区分开。
+    const MARK: f32 = 3.0;
+    /// 高亮开始时强调色的不透明度：能看出落点，又不遮挡文字。
+    const PULSE_ALPHA: f32 = 0.28;
+    let accent = app.palette.accent;
+    if y1 > y0 {
+        if let Some(pulse) = app.diff_pulse {
+            let band = Rect::new(pane.x, y0, pane.w, y1 - y0);
+            frame.rect_clipped(
+                band,
+                accent.alpha(PULSE_ALPHA * pulse.fade_out()),
+                0.0,
+                clip,
+            );
+        }
+        frame.rect_clipped(Rect::new(pane.x, y0, MARK, y1 - y0), accent, 0.0, clip);
+    } else {
+        let line = Rect::new(pane.x, y0 - MARK / 2.0, pane.w, MARK);
+        frame.rect_clipped(line, accent, 0.0, clip);
+    }
+}
+
 /// 两侧的滚动位置（显示行）。
 #[derive(Clone, Copy)]
 struct Scroll {
@@ -125,7 +156,7 @@ pub(super) fn draw_diff(app: &mut App, frame: &mut Frame<'_>, index: usize) {
     let edit = edit_state(app, &view, new_lines(&view, rows));
     let mut hits = Vec::new();
 
-    draw_body(app, frame, &mut view, &parts, scroll, &edit, &mut hits);
+    draw_body(app, frame, &mut view, &parts, scroll, pos, &edit, &mut hits);
     draw_header(app, frame, &view, &parts, pos, &mut hits);
     draw_overview(app, frame, &view, &parts, index);
 
@@ -153,7 +184,12 @@ fn draw_header(
     // 右端：折叠开关、下一处、上一处（从右往左排）。折叠开关按状态换图标，不绘制按下状态。
     let y = header.y + (header.h - BUTTON) / 2.0;
     let mut right = header.right() - 10.0;
-    for target in [DiffTarget::Collapse, DiffTarget::Next, DiffTarget::Previous] {
+    let files = [DiffTarget::NextFile, DiffTarget::PreviousFile];
+    let files = files.iter().copied().filter(|_| app.diff_steps_files());
+    let targets = [DiffTarget::Layout, DiffTarget::Collapse]
+        .into_iter()
+        .chain(files);
+    for target in targets.chain([DiffTarget::Next, DiffTarget::Previous]) {
         let rect = Rect::new(right - BUTTON, y, BUTTON, BUTTON);
         right = rect.x - 2.0;
         draw_button(
@@ -170,6 +206,17 @@ fn draw_header(
                 icons::chevron(frame, c, 8.0, Direction::Up, p.text_muted, rect)
             }
             DiffTarget::Next => icons::chevron(frame, c, 8.0, Direction::Down, p.text_muted, rect),
+            DiffTarget::PreviousFile => {
+                icons::chevron(frame, c, 8.0, Direction::Left, p.text_muted, rect)
+            }
+            DiffTarget::NextFile => {
+                icons::chevron(frame, c, 8.0, Direction::Right, p.text_muted, rect)
+            }
+            // 图标画的是点下去以后的样子。
+            DiffTarget::Layout if view.is_unified() => {
+                icons::split(frame, c, p.text_muted, rect);
+            }
+            DiffTarget::Layout => icons::single_column(frame, c, p.text_muted, rect),
             _ if view.collapses() => icons::expand_all(frame, c, p.text_muted, rect),
             _ => icons::collapse_all(frame, c, p.text_muted, rect),
         }
@@ -200,7 +247,9 @@ fn draw_header(
     }
     let stats_left = right - 8.0;
 
-    // 两侧的标题各自从文字区的左边开始；右侧的不盖住统计。不能改的一侧前面一把锁。
+    // 两侧的标题各自从文字区的左边开始；右侧的不盖住统计。不能改的一侧前面一把锁。单栏只有一个
+    // 文字区，两个标题前后排开，中间一个箭头。
+    let mut after = None;
     for (side, pane) in parts.panes.iter().enumerate() {
         let title = if side == LEFT { &view.old } else { &view.new };
         let end = pane.text.right().min(stats_left);
@@ -210,7 +259,10 @@ fn draw_header(
             (end - pane.text.x).max(0.0),
             header.h,
         );
-        let mut x = pane.text.x + DIFF_TEXT_PAD;
+        let mut x = match after {
+            Some(end) => ui_text(frame, app, end + 8.0, header, "→", p.text_dim, clip) + 8.0,
+            None => pane.text.x + DIFF_TEXT_PAD,
+        };
         if title.path.is_none() {
             icons::lock(
                 frame,
@@ -225,13 +277,17 @@ fn draw_header(
             Some((main, rest)) => (main, Some(rest)),
             None => (title.title.as_str(), None),
         };
-        let end = ui_text(frame, app, x, header, main, p.text, clip);
+        let mut end = ui_text(frame, app, x, header, main, p.text, clip);
         if let Some(rest) = rest {
             let rest = format!(" · {rest}");
-            ui_text(frame, app, end, header, &rest, p.text_dim, clip);
+            end = ui_text(frame, app, end, header, &rest, p.text_dim, clip);
         }
+        after = view.is_unified().then_some(end);
     }
 }
+
+/// 一个选区的起点和终点（行，列），起点在前。
+type Span = ((usize, usize), (usize, usize));
 
 /// 右侧的光标和选区，按右侧的行号和列（字符）算。
 #[derive(Default)]
@@ -242,27 +298,30 @@ struct EditState {
     caret: (usize, usize),
     /// 其余光标所在的（行，列）（多光标），只有落在看得见的几行里的，按位置排好。
     carets: Vec<(usize, usize)>,
-    /// 各个选区的起点和终点（行，列），起点在前，按位置排好；只有和看得见的几行相交的，
-    /// 没有选中内容的选区不在里面。
-    selections: Vec<((usize, usize), (usize, usize))>,
-    /// 左侧的选区（起点、终点，行、列），只标左侧文档里的选区；没有选中内容时为 `None`。
-    left: Option<((usize, usize), (usize, usize))>,
+    /// 各个选区，按位置排好；只有和看得见的几行相交的，没有选中内容的选区不在里面。
+    selections: Vec<Span>,
+    /// 只读一侧的选区：（哪一侧，选区）；没有选中内容时为 `None`。
+    read: Option<(usize, Span)>,
+    /// 只读一侧的光标：（哪一侧，（行，列））。
+    read_caret: Option<(usize, (usize, usize))>,
     /// 查找条开着、查的是右侧的文档时为它的标识：右侧要标出匹配。
     searched: Option<winc_editor::DocumentId>,
 }
 
 /// 读出右侧对应文档的光标和选区；多光标只取右侧文档第 `lines` 行（左闭右开）里看得见的。
 fn edit_state(app: &App, view: &DiffView, lines: Range<usize>) -> EditState {
-    // 左侧的选区按左侧文本换成（行，列）。
-    let left = view.left_selection.and_then(|(a, b)| {
-        let text = &view.old.text;
-        let at = |pos: usize| {
-            let pos = pos.min(text.len_chars());
-            let line = text.char_to_line(pos);
-            (line, pos - text.line_to_char(line))
-        };
-        (a != b).then(|| (at(a.min(b)), at(a.max(b))))
+    // 只读一侧的选区和光标按这一侧的文本换成（行，列）。
+    let at = |side: usize, pos: usize| {
+        let text = &view.side(side).text;
+        let pos = pos.min(text.len_chars());
+        let line = text.char_to_line(pos);
+        (line, pos - text.line_to_char(line))
+    };
+    let read = view.read_selection.and_then(|selection| {
+        let (side, (a, b)) = (selection.side, selection.range);
+        (a != b).then(|| (side, (at(side, a.min(b)), at(side, a.max(b)))))
     });
+    let read_caret = view.read_caret().map(|(side, pos)| (side, at(side, pos)));
     let Some(source) = view.new.path.as_deref().and_then(|path| {
         app.editor
             .documents
@@ -270,7 +329,8 @@ fn edit_state(app: &App, view: &DiffView, lines: Range<usize>) -> EditState {
             .find(|d| d.path.as_deref() == Some(path))
     }) else {
         return EditState {
-            left,
+            read,
+            read_caret,
             ..EditState::default()
         };
     };
@@ -302,7 +362,8 @@ fn edit_state(app: &App, view: &DiffView, lines: Range<usize>) -> EditState {
             .map(|s| text.pos_to_line_col(s.head))
             .collect(),
         selections,
-        left,
+        read,
+        read_caret,
         searched: (app.layout.search.h > 0.0 && app.search.document() == Some(source.id))
             .then_some(source.id),
     }
@@ -328,13 +389,64 @@ fn visible_rows(scroll: f32, height: f32, line_height: f32) -> Range<usize> {
     first..first + (height / line_height).ceil() as usize + 1
 }
 
+/// 要绘制的一个显示行。
+struct DrawnRow {
+    /// 哪一侧。
+    side: usize,
+    /// 这一侧的第几个显示行。
+    row: usize,
+    /// 顶边。
+    y: f32,
+    /// 单栏时没改的行还要显示左侧的行号：左侧的行号（从 0 起）。
+    old_line: Option<usize>,
+}
+
+/// 排出这一帧要绘制的显示行：并排时两侧各自滚到自己的位置，单栏时一列。
+fn drawn_rows(
+    view: &DiffView,
+    body: Rect,
+    scroll: Scroll,
+    pos: f32,
+    line_height: f32,
+) -> Vec<DrawnRow> {
+    if !view.is_unified() {
+        let side_rows = [LEFT, RIGHT].into_iter().flat_map(|side| {
+            let rows = visible_rows(scroll.rows[side], body.h, line_height);
+            (rows.start..rows.end.min(view.rows[side].len())).map(move |row| DrawnRow {
+                side,
+                row,
+                y: body.y + (row as f32 - scroll.rows[side]) * line_height,
+                old_line: None,
+            })
+        });
+        return side_rows.collect();
+    }
+    visible_rows(pos, body.h, line_height)
+        .filter_map(|index| {
+            let (side, row) = view.unified_row(index)?;
+            let unchanged = matches!(view.rows[side][row], SideRow::Line { hunk: None, .. });
+            let old_line = unchanged
+                .then(|| view.line_at(LEFT, view.row_at(LEFT, index as f32) as usize))
+                .flatten();
+            Some(DrawnRow {
+                side,
+                row,
+                y: body.y + (index as f32 - pos) * line_height,
+                old_line,
+            })
+        })
+        .collect()
+}
+
 /// 绘制两侧的代码与行号、改动的底色和带子、查找结果与选区、光标，以及勾选框和「»」按钮。
+#[allow(clippy::too_many_arguments)]
 fn draw_body(
     app: &mut App,
     frame: &mut Frame<'_>,
     view: &mut DiffView,
     parts: &DiffParts,
     scroll: Scroll,
+    pos: f32,
     edit: &EditState,
     hits: &mut Vec<(Rect, DiffTarget)>,
 ) {
@@ -345,8 +457,22 @@ fn draw_body(
     let tab_width = app.editor.tab_width;
     // 光标只在编辑区有焦点时绘制，和编辑器一样。
     let carets_shown = edit.editing && app.focus == Focus::Editor;
+    let read_caret = edit.read_caret.filter(|_| app.focus == Focus::Editor);
+    let unified = view.is_unified();
+    // 单栏时的换算表从差异里取出来：绘制途中要修改差异两侧的着色状态。
+    let map = view.unified_map();
     // 第 `side` 侧显示行 `row` 的顶边。
-    let row_y = |side: usize, row: usize| body.y + (row as f32 - scroll.rows[side]) * lh;
+    let row_y = |side: usize, row: usize| {
+        if unified {
+            body.y + (map.pos_of(side, row as f32) - pos) * lh
+        } else {
+            body.y + (row as f32 - scroll.rows[side]) * lh
+        }
+    };
+    // 这一段改动在单栏里的第一行的顶边，并排时为 `None`。
+    let hunk_y =
+        |view: &DiffView, h: usize| unified.then(|| body.y + (view.hunk_pos(h) - pos) * lh);
+    let drawn = drawn_rows(view, body, scroll, pos, lh);
     let mut chars: Vec<char> = Vec::with_capacity(256);
     let mut tokens = Vec::with_capacity(32);
     let mut number = String::new();
@@ -362,217 +488,315 @@ fn draw_body(
         (LEFT, parts.panes[LEFT].text.right()),
         (RIGHT, parts.panes[RIGHT].text.x - 1.0),
     ] {
+        if unified && side == LEFT {
+            continue;
+        }
         let end = row_y(side, view.rows[side].len()).clamp(body.y, body.bottom());
         frame.rect(Rect::new(x, body.y, 1.0, end - body.y), rule);
     }
 
-    for side in [LEFT, RIGHT] {
+    // 同一行的各段共用字符、分段和着色，换到另一行时才重新取。
+    let mut loaded = None;
+    let mut breaks = Breaks::default();
+    let mut prefix = std::cell::OnceCell::new();
+    for &DrawnRow {
+        side,
+        row,
+        y,
+        old_line,
+    } in &drawn
+    {
         let pane = parts.panes[side];
-        let rows = visible_rows(scroll.rows[side], body.h, lh);
-        // 同一行的各段共用字符、分段和着色，换到另一行时才重新取。
-        let mut loaded = None;
-        let mut breaks = Breaks::default();
-        let mut prefix = std::cell::OnceCell::new();
-        for row in rows.start..rows.end.min(view.rows[side].len()) {
-            let y = row_y(side, row);
-            let band = Rect::new(pane.rect.x, y, pane.rect.w, lh);
-            let baseline = baseline_in(band, ascent, descent);
-            let (line, hunk, part) = match view.rows[side][row] {
-                SideRow::Fold { gap, ref lines } => {
-                    // 折起来的一段：一条淡底（不绘制上下两道细线：这些线在中间一栏会断开），行号
-                    // 那一栏一对朝外的小箭头表示能展开；悬停时底色加深。
-                    let hovered = app.hover == Hover::Diff(DiffTarget::Fold(gap));
-                    let fill = if hovered {
-                        p.hover
-                    } else {
-                        p.hover.alpha(p.hover.a * 0.6)
-                    };
-                    frame.rect_clipped(band, fill, 0.0, body);
-                    let icon = (
-                        pane.gutter.right() - DIFF_GUTTER_PAD - app.cell / 2.0,
-                        y + lh / 2.0,
-                    );
-                    let color = if hovered { p.text_muted } else { p.text_dim };
-                    icons::up_down(frame, icon, color, pane.gutter);
-                    let label = t!("editor-diff-unchanged-lines", count = lines.len());
-                    let x = pane.text.x + DIFF_TEXT_PAD;
-                    ui_text_small(frame, app, x, band, &label, color, pane.text);
-                    hits.push((band.intersect(body), DiffTarget::Fold(gap)));
-                    continue;
-                }
-                SideRow::Line { line, hunk, part } => (line, hunk, part),
-            };
-
-            if let Some(h) = hunk {
-                let shade = hunk_shade(p, &view.hunks[h]);
-                frame.rect_clipped(band, shade.line, 0.0, body);
+        let band = Rect::new(pane.rect.x, y, pane.rect.w, lh);
+        let baseline = baseline_in(band, ascent, descent);
+        let (line, hunk, part) = match view.rows[side][row] {
+            SideRow::Fold { gap, ref lines } => {
+                // 折起来的一段：一条淡底（不绘制上下两道细线：这些线在中间一栏会断开），行号
+                // 那一栏一对朝外的小箭头表示能展开；悬停时底色加深。
+                let hovered = app.hover == Hover::Diff(DiffTarget::Fold(gap));
+                let fill = if hovered {
+                    p.hover
+                } else {
+                    p.hover.alpha(p.hover.a * 0.6)
+                };
+                frame.rect_clipped(band, fill, 0.0, body);
+                let icon = (
+                    pane.gutter.right() - DIFF_GUTTER_PAD - app.cell / 2.0,
+                    y + lh / 2.0,
+                );
+                let color = if hovered { p.text_muted } else { p.text_dim };
+                icons::up_down(frame, icon, color, pane.gutter);
+                let label = t!("editor-diff-unchanged-lines", count = lines.len());
+                let x = pane.text.x + DIFF_TEXT_PAD;
+                ui_text_small(frame, app, x, band, &label, color, pane.text);
+                hits.push((band.intersect(body), DiffTarget::Fold(gap)));
+                continue;
             }
+            SideRow::Line { line, hunk, part } => (line, hunk, part),
+        };
 
-            // 行号靠中间的带子一边右对齐；后续各段不绘制行号。
-            if part == 0 {
-                number.clear();
-                let _ = write!(number, "{}", line + 1);
-                let number_x = pane.gutter.right()
-                    - DIFF_GUTTER_PAD
-                    - number.chars().count() as f32 * app.cell;
+        // 单栏时左右两侧的行上下排开，要靠颜色区分：删掉的和新增的各用各的颜色。
+        let row_shade = |view: &DiffView, h: usize| {
+            if unified {
+                kind_shade(
+                    p,
+                    if side == LEFT {
+                        HunkKind::Deleted
+                    } else {
+                        HunkKind::Added
+                    },
+                )
+            } else {
+                hunk_shade(p, &view.hunks[h])
+            }
+        };
+        let shade = hunk.map(|h| row_shade(view, h));
+        if let Some(shade) = shade {
+            frame.rect_clipped(band, shade.line, 0.0, body);
+            if unified && part == 0 {
+                let sign = if side == LEFT { "−" } else { "+" };
                 frame.text(
                     FontKind::Mono,
                     app.fonts.code,
-                    number_x,
+                    parts.checks.right(),
                     baseline,
-                    &number,
+                    sign,
                     p.gutter_text,
-                    pane.gutter,
+                    band,
                 );
             }
+        }
+        if let Some(line) = old_line.filter(|_| part == 0) {
+            number.clear();
+            let _ = write!(number, "{}", line + 1);
+            let gutter = parts.panes[LEFT].gutter;
+            let number_x =
+                gutter.right() - DIFF_GUTTER_PAD - number.chars().count() as f32 * app.cell;
+            frame.text(
+                FontKind::Mono,
+                app.fonts.code,
+                number_x,
+                baseline,
+                &number,
+                p.gutter_text,
+                gutter,
+            );
+        }
 
-            let text_side = if side == LEFT {
-                &mut view.old
+        // 行号靠中间的带子一边右对齐；后续各段不绘制行号。
+        if part == 0 {
+            number.clear();
+            let _ = write!(number, "{}", line + 1);
+            let number_x =
+                pane.gutter.right() - DIFF_GUTTER_PAD - number.chars().count() as f32 * app.cell;
+            frame.text(
+                FontKind::Mono,
+                app.fonts.code,
+                number_x,
+                baseline,
+                &number,
+                p.gutter_text,
+                pane.gutter,
+            );
+        }
+
+        let text_side = if side == LEFT {
+            &mut view.old
+        } else {
+            &mut view.new
+        };
+        if loaded != Some((side, line)) {
+            loaded = Some((side, line));
+            line_chars(text_side, line, &mut chars);
+            breaks = match view_wrap {
+                Some((width, tab)) => wrap::breaks(&chars, width, tab),
+                None => Breaks::default(),
+            };
+            prefix = std::cell::OnceCell::new();
+            let state = text_side
+                .highlighter
+                .state_at(&text_side.text, line, HIGHLIGHT_BUDGET);
+            app.highlight_pending |= state.is_none();
+            let language = text_side.highlighter.language();
+            tokens.clear();
+            let _ = winc_syntax::highlight_line(
+                language,
+                &chars,
+                state.unwrap_or_default(),
+                &mut tokens,
+            );
+        }
+        // 这一行各字符之前的格数用到时算一次：改了的字、查找结果、选区、光标都按列查表。
+        // 这一段之外的列夹到这一段的两端，绘制出来宽度为 0。
+        let range = breaks.range(part.min(breaks.rows() - 1), chars.len());
+        let last = range.end == chars.len();
+        let cells = |col: usize| {
+            prefix.get_or_init(|| text::prefix_cells(&chars, tab_width))[col.min(chars.len())]
+        };
+        let lead = breaks.indent_of(part) as f32 - cells(range.start) as f32;
+        let at = |col: usize| cells(col.clamp(range.start, range.end)) as f32 + lead;
+        let origin_x = pane.text.x + DIFF_TEXT_PAD - scroll.x;
+
+        // 改了的字：行首的缩进和只有空白的地方不标。
+        if let (Some(h), Some(shade)) = (hunk, shade)
+            && let Some(marks) = view.inline[h].as_ref()
+        {
+            let hunk = &view.hunks[h];
+            let (lines, start) = if side == LEFT {
+                (&marks.old, hunk.old.start)
             } else {
-                &mut view.new
+                (&marks.new, hunk.new.start)
             };
-            if loaded != Some(line) {
-                loaded = Some(line);
-                line_chars(text_side, line, &mut chars);
-                breaks = match view_wrap {
-                    Some((width, tab)) => wrap::breaks(&chars, width, tab),
-                    None => Breaks::default(),
-                };
-                prefix = std::cell::OnceCell::new();
-                let state = text_side
-                    .highlighter
-                    .state_at(&text_side.text, line, HIGHLIGHT_BUDGET);
-                app.highlight_pending |= state.is_none();
-                let language = text_side.highlighter.language();
-                tokens.clear();
-                let _ = winc_syntax::highlight_line(
-                    language,
-                    &chars,
-                    state.unwrap_or_default(),
-                    &mut tokens,
-                );
-            }
-            // 这一行各字符之前的格数用到时算一次：改了的字、查找结果、选区、光标都按列查表。
-            // 这一段之外的列夹到这一段的两端，绘制出来宽度为 0。
-            let range = breaks.range(part.min(breaks.rows() - 1), chars.len());
-            let last = range.end == chars.len();
-            let cells = |col: usize| {
-                prefix.get_or_init(|| text::prefix_cells(&chars, tab_width))[col.min(chars.len())]
-            };
-            let lead = breaks.indent_of(part) as f32 - cells(range.start) as f32;
-            let at = |col: usize| cells(col.clamp(range.start, range.end)) as f32 + lead;
-            let origin_x = pane.text.x + DIFF_TEXT_PAD - scroll.x;
-
-            // 改了的字：行首的缩进和只有空白的地方不标。
-            if let Some(h) = hunk
-                && let Some(marks) = view.inline[h].as_ref()
-            {
-                let hunk = &view.hunks[h];
-                let (lines, start) = if side == LEFT {
-                    (&marks.old, hunk.old.start)
-                } else {
-                    (&marks.new, hunk.new.start)
-                };
-                let word = hunk_shade(p, hunk).word;
-                for mark in lines.get(line - start).into_iter().flatten() {
-                    let end = mark.end.min(chars.len());
-                    let from = (mark.start..end)
-                        .find(|&c| !chars[c].is_whitespace())
-                        .unwrap_or(end);
-                    let to = (from..end)
-                        .rev()
-                        .find(|&c| !chars[c].is_whitespace())
-                        .map_or(from, |c| c + 1);
-                    if from >= to || to <= range.start || from >= range.end {
-                        continue;
-                    }
-                    let x0 = origin_x + at(from) * app.cell;
-                    let x1 = origin_x + at(to) * app.cell;
-                    let rect = Rect::new(x0, y + 2.0, (x1 - x0).max(2.0), lh - 4.0);
-                    frame.rect_clipped(rect, word, 3.0, pane.text);
+            let word = shade.word;
+            for mark in lines.get(line - start).into_iter().flatten() {
+                let end = mark.end.min(chars.len());
+                let from = (mark.start..end)
+                    .find(|&c| !chars[c].is_whitespace())
+                    .unwrap_or(end);
+                let to = (from..end)
+                    .rev()
+                    .find(|&c| !chars[c].is_whitespace())
+                    .map_or(from, |c| c + 1);
+                if from >= to || to <= range.start || from >= range.end {
+                    continue;
                 }
-            }
-
-            // 右侧：查找条开着时标出右侧文档里的匹配。
-            if side == RIGHT && edit.searched.is_some() {
-                let start = text_side.text.line_to_char(line);
-                let end = start + chars.len();
-                let current = app.search.current_match();
-                for &(from, to) in app.search.matches_in(start, end.max(start + 1)) {
-                    let (a, b) = (from.max(start) - start, to.min(end).max(from) - start);
-                    if b <= range.start || a >= range.end {
-                        continue;
-                    }
-                    let x0 = origin_x + at(a) * app.cell;
-                    let x1 = origin_x + at(b) * app.cell;
-                    let color = if current == Some((from, to)) {
-                        p.search_current
-                    } else {
-                        p.search_match
-                    };
-                    let rect = Rect::new(x0, y + 1.0, (x1 - x0).max(2.0), lh - 2.0);
-                    frame.rect_clipped(rect, color, 3.0, pane.text);
-                }
-            }
-
-            // 选区垫在字下面：右侧是文档的各个选区（光标在右侧时），左侧是左侧自己的选区。
-            // 选区按位置排好、互不重叠，二分找到第一个够得着这一行的。
-            let selections = match side {
-                RIGHT if edit.editing => &edit.selections[..],
-                LEFT => edit.left.as_slice(),
-                _ => &[],
-            };
-            let skip = selections.partition_point(|s| s.1.0 < line);
-            for &((l0, c0), (l1, c1)) in selections[skip..].iter().take_while(|s| s.0.0 <= line) {
-                let from = if line == l0 { c0 } else { 0 };
-                let to = if line == l1 { c1 } else { chars.len() + 1 };
                 let x0 = origin_x + at(from) * app.cell;
-                let x1 = origin_x
-                    + at(to) * app.cell
-                    + if to > chars.len() && last {
-                        app.cell * 0.5
-                    } else {
-                        0.0
-                    };
-                if x1 > x0 {
-                    let rect = Rect::new(x0, y, x1 - x0, lh);
-                    frame.rect_clipped(rect, p.selection, 0.0, pane.text);
+                let x1 = origin_x + at(to) * app.cell;
+                let rect = Rect::new(x0, y + 2.0, (x1 - x0).max(2.0), lh - 4.0);
+                frame.rect_clipped(rect, word, 3.0, pane.text);
+            }
+        }
+
+        // 右侧：查找条开着时标出右侧文档里的匹配。
+        if side == RIGHT && edit.searched.is_some() {
+            let start = text_side.text.line_to_char(line);
+            let end = start + chars.len();
+            let current = app.search.current_match();
+            for &(from, to) in app.search.matches_in(start, end.max(start + 1)) {
+                let (a, b) = (from.max(start) - start, to.min(end).max(from) - start);
+                if b <= range.start || a >= range.end {
+                    continue;
+                }
+                let x0 = origin_x + at(a) * app.cell;
+                let x1 = origin_x + at(b) * app.cell;
+                let color = if current == Some((from, to)) {
+                    p.search_current
+                } else {
+                    p.search_match
+                };
+                let rect = Rect::new(x0, y + 1.0, (x1 - x0).max(2.0), lh - 2.0);
+                frame.rect_clipped(rect, color, 3.0, pane.text);
+            }
+        }
+
+        // 选区垫在字下面：光标在右侧时是右侧文档的各个选区，只读的一侧是它自己的选区。
+        // 选区按位置排好、互不重叠，二分找到第一个够得着这一行的。
+        let read = edit.read.as_ref().filter(|read| read.0 == side);
+        let selections = match (side, read) {
+            (RIGHT, _) if edit.editing => &edit.selections[..],
+            (_, Some(read)) => std::slice::from_ref(&read.1),
+            _ => &[],
+        };
+        let skip = selections.partition_point(|s| s.1.0 < line);
+        for &((l0, c0), (l1, c1)) in selections[skip..].iter().take_while(|s| s.0.0 <= line) {
+            let from = if line == l0 { c0 } else { 0 };
+            let to = if line == l1 { c1 } else { chars.len() + 1 };
+            let x0 = origin_x + at(from) * app.cell;
+            let x1 = origin_x
+                + at(to) * app.cell
+                + if to > chars.len() && last {
+                    app.cell * 0.5
+                } else {
+                    0.0
+                };
+            if x1 > x0 {
+                let rect = Rect::new(x0, y, x1 - x0, lh);
+                frame.rect_clipped(rect, p.selection, 0.0, pane.text);
+            }
+        }
+
+        // 整行从行首绘制（Tab 的宽度与它在行内的位置有关），只露出这一段的范围。
+        let clip = if breaks.starts.is_empty() {
+            pane.text
+        } else {
+            let from = origin_x + at(range.start) * app.cell;
+            let to = origin_x + at(range.end) * app.cell;
+            Rect::new(from, pane.text.y, (to - from).max(0.0), pane.text.h).intersect(pane.text)
+        };
+
+        // 空白符垫在字下面，和编辑区用同一个设置。
+        let whitespace = app.config.render_whitespace.unwrap_or_default();
+        if whitespace != RenderWhitespace::None {
+            let trailing = trailing_whitespace(&chars);
+            for col in range.clone() {
+                let Some(&c) = chars.get(col).filter(|c| matches!(c, ' ' | '\t')) else {
+                    continue;
+                };
+                let in_selection = || {
+                    let mut near = selections[skip..].iter().take_while(|s| s.0.0 <= line);
+                    near.any(|&(start, end)| start <= (line, col) && (line, col) < end)
+                };
+                if whitespace_shown(whitespace, col, trailing, in_selection) {
+                    let x = origin_x + at(col) * app.cell;
+                    if x > clip.right() {
+                        break;
+                    }
+                    let width = (at(col + 1) - at(col)) * app.cell;
+                    draw_whitespace_mark(app, frame, c, (x, y), width, clip);
                 }
             }
+        }
 
-            // 整行从行首绘制（Tab 的宽度与它在行内的位置有关），只露出这一段的范围。
-            let clip = if breaks.starts.is_empty() {
-                pane.text
-            } else {
-                let from = origin_x + at(range.start) * app.cell;
-                let to = origin_x + at(range.end) * app.cell;
-                Rect::new(from, pane.text.y, (to - from).max(0.0), pane.text.h).intersect(pane.text)
-            };
-            draw_glyphs(
+        draw_glyphs(
+            app,
+            frame,
+            &chars,
+            &tokens,
+            origin_x + lead * app.cell,
+            baseline,
+            tab_width,
+            clip,
+        );
+
+        // 其余光标与主光标一起闪烁；输入法组字只显示在主光标处，候选窗也跟着它。
+        if side == RIGHT && carets_shown {
+            let skip = edit.carets.partition_point(|c| c.0 < line);
+            for &(_, col) in edit.carets[skip..].iter().take_while(|c| c.0 == line) {
+                if breaks.row_of(col) == part {
+                    let x = origin_x + at(col) * app.cell;
+                    caret_bar(app, frame, x, y, pane.text);
+                }
+            }
+            if edit.caret.0 == line && breaks.row_of(edit.caret.1) == part {
+                let x = origin_x + at(edit.caret.1) * app.cell;
+                app.ime_cursor = Some(draw_caret(app, frame, x, y, baseline, pane.text));
+            }
+        }
+        // 只读的一侧不能输入，不需要输入法的候选窗跟着。
+        if let Some((caret_side, (caret_line, col))) = read_caret
+            && caret_side == side
+            && caret_line == line
+            && breaks.row_of(col) == part
+        {
+            let x = origin_x + at(col) * app.cell;
+            caret_bar(app, frame, x, y, pane.text);
+        }
+    }
+
+    // 只读一侧的光标在文件末尾换行符之后的空行上：绘制在最后一行下面。
+    if let Some((side, (line, _))) = read_caret
+        && view.row_of(side, line) == view.rows[side].len()
+    {
+        let y = row_y(side, view.rows[side].len());
+        if y >= body.y && y < body.bottom() {
+            let pane = parts.panes[side];
+            caret_bar(
                 app,
                 frame,
-                &chars,
-                &tokens,
-                origin_x + lead * app.cell,
-                baseline,
-                tab_width,
-                clip,
+                pane.text.x + DIFF_TEXT_PAD - scroll.x,
+                y,
+                pane.text,
             );
-
-            // 其余光标与主光标一起闪烁；输入法组字只显示在主光标处，候选窗也跟着它。
-            if side == RIGHT && carets_shown {
-                let skip = edit.carets.partition_point(|c| c.0 < line);
-                for &(_, col) in edit.carets[skip..].iter().take_while(|c| c.0 == line) {
-                    if breaks.row_of(col) == part {
-                        let x = origin_x + at(col) * app.cell;
-                        caret_bar(app, frame, x, y, pane.text);
-                    }
-                }
-                if edit.caret.0 == line && breaks.row_of(edit.caret.1) == part {
-                    let x = origin_x + at(edit.caret.1) * app.cell;
-                    app.ime_cursor = Some(draw_caret(app, frame, x, y, baseline, pane.text));
-                }
-            }
         }
     }
 
@@ -598,7 +822,7 @@ fn draw_body(
     let sides = [&view.old, &view.new];
     for side in [LEFT, RIGHT]
         .into_iter()
-        .filter(|&s| empty_side[s] && !sides[s].missing)
+        .filter(|&s| !unified && empty_side[s] && !sides[s].missing)
     {
         let note = t!("editor-diff-empty-file");
         let text = parts.panes[side].text;
@@ -623,12 +847,22 @@ fn draw_body(
             continue;
         }
         let shade = hunk_shade(p, hunk);
-        draw_ribbon(frame, ribbon, (l0, l1), (r0, r1), shade, body);
+        if !unified {
+            draw_ribbon(frame, ribbon, (l0, l1), (r0, r1), shade, body);
+        }
         for (side, (y0, y1)) in [(LEFT, (l0, l1)), (RIGHT, (r0, r1))] {
-            if y0 == y1 {
+            if y0 == y1 && !unified {
                 let pane = parts.panes[side];
                 let line = Rect::new(pane.rect.x, y0 - 0.5, pane.rect.w, 1.0);
                 frame.rect_clipped(line, shade.edge, 0.0, body);
+            }
+        }
+        if view.focus.is_some_and(|(focus, _)| focus == h) {
+            for (side, span) in [(LEFT, (l0, l1)), (RIGHT, (r0, r1))] {
+                // 单栏时没有行的一侧不必画插入线，另一侧的行就在那里。
+                if !unified || span.1 > span.0 {
+                    draw_hunk_focus(app, frame, parts.panes[side].rect, span, body);
+                }
             }
         }
     }
@@ -638,7 +872,9 @@ fn draw_body(
     if let Some(entry) = app.diff_entry(view) {
         let checks = parts.checks;
         for (h, rows) in view.hunk_rows[RIGHT].iter().enumerate() {
-            let mid = if rows.is_empty() {
+            let mid = if let Some(y) = hunk_y(view, h) {
+                y + lh / 2.0
+            } else if rows.is_empty() {
                 row_y(RIGHT, rows.start)
             } else {
                 row_y(RIGHT, rows.start) + lh / 2.0
@@ -676,7 +912,9 @@ fn draw_body(
     if view.new.path.is_some() && !empty_side[LEFT] {
         let arrows = parts.arrows;
         for (h, rows) in view.hunk_rows[LEFT].iter().enumerate() {
-            let mid = if rows.is_empty() {
+            let mid = if let Some(y) = hunk_y(view, h) {
+                y + lh / 2.0
+            } else if rows.is_empty() {
                 row_y(LEFT, rows.start)
             } else {
                 row_y(LEFT, rows.start) + lh / 2.0

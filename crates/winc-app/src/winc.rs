@@ -711,6 +711,7 @@ impl Winc {
             .map(State::load_from)
             .unwrap_or_default();
         app.commit.set_flat(!app.state.commit_tree);
+        app.editor.diff_unified = app.config.diff_inline == Some(true);
         app.apply_preview_state();
         app.state_path = template.state_path;
         app.backup.root = template.backup_root;

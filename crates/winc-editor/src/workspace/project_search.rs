@@ -53,7 +53,7 @@ const WAKE_INTERVAL: Duration = Duration::from_millis(50);
 /// 并行读文件的线程数上限（个，含遍历目录的线程）。
 ///
 /// 每个线程同一时刻最多处理一个文件。
-const MAX_THREADS: usize = 4;
+pub const MAX_THREADS: usize = 4;
 /// 读文件时每块的大小（字节，256 KiB；测试中为 7 字节）。
 ///
 /// 文件按块读取、按块搜索，内存中只有当前块加上尚未读完的那一行，与文件大小无关。测试中取很小的值，
@@ -81,6 +81,9 @@ pub struct Query {
     pub include_ignored: bool,
     /// 不搜索匹配的文件：逗号分隔的 glob。
     pub exclude: String,
+    /// 每处匹配都含有的一段文字，大小写规则与 `case_sensitive` 相同，用于跳过不含它的内容；
+    /// 为空时没有这项信息。
+    pub required: String,
 }
 
 impl Query {
@@ -213,7 +216,7 @@ impl ProjectSearch {
             return;
         }
 
-        let matcher = match Matcher::new(&query.text, query.options()) {
+        let matcher = match Matcher::requiring(&query.text, query.options(), &query.required) {
             Ok(matcher) => matcher,
             Err(error) => {
                 let error = error.to_string();

@@ -312,6 +312,7 @@ impl App {
             }
             MenuTarget::SkipOnSave => skip_menu(&self.settings.languages.format),
             MenuTarget::Locale => locale_menu(),
+            MenuTarget::Whitespace => whitespace_menu(),
             &MenuTarget::Font(setting) => font_menu(setting),
             &MenuTarget::Tool(task, id) => {
                 let row = self.settings.tool_row(tool_setting(task, id));
@@ -441,7 +442,7 @@ impl App {
                 let Some(tab) = self.terminal.tab() else {
                     return;
                 };
-                let running = tab.exited.is_none() && !self.terminal.crashed;
+                let running = tab.ended.is_none() && !self.terminal.crashed;
                 let block = block.and_then(|id| {
                     let b = tab.blocks.iter().find(|b| b.id == id)?;
                     Some((!b.text.is_empty(), self.terminal_can_rerun(id)))
@@ -583,11 +584,13 @@ impl App {
             MenuTarget::CommitButton
                 | MenuTarget::TabList
                 | MenuTarget::Locale
+                | MenuTarget::Whitespace
                 | MenuTarget::Font(_)
         );
         // 设置中语言、字体的菜单不窄于弹出它的控件。
         let control = match target {
             MenuTarget::Locale => Some(Setting::Language),
+            MenuTarget::Whitespace => Some(Setting::RenderWhitespace),
             MenuTarget::Font(setting) => Some(setting),
             _ => None,
         };
@@ -1060,6 +1063,10 @@ impl App {
             MenuCommand::Locale(i) => {
                 winc_i18n::LocaleChoice::ALL.get(i)
                     == Some(&self.config.language.unwrap_or_default())
+            }
+            MenuCommand::Whitespace(i) => {
+                winc_config::RenderWhitespace::ALL.get(i)
+                    == Some(&self.config.render_whitespace.unwrap_or_default())
             }
             MenuCommand::FontDefault | MenuCommand::Font(_) => {
                 let Some(ContextMenu {

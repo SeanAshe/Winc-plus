@@ -357,7 +357,7 @@ impl App {
         let Some(tab) = self.terminal.tab() else {
             return false;
         };
-        tab.exited.is_none()
+        tab.ended.is_none()
             && !self.terminal.crashed
             && !tab.modes.has(Modes::ALT_SCREEN)
             && !tab.blocks.iter().any(Block::running)

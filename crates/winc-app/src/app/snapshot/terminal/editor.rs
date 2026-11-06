@@ -1,11 +1,11 @@
 //! 终端与编辑器配合的测试：按住 ⌘ 的链接、在终端中打开、拖入路径、把选中的代码发送到终端，
-//! 以及 shell 退出与辅助进程退出之后的重启、关闭仍在运行的标签前的确认。
+//! 以及 shell 退出、伪终端断开与辅助进程退出之后的重启、关闭仍在运行的标签前的确认。
 
 use super::*;
 use super::{cell_center, click, show_terminal};
 use crate::app::input::context_menu::MenuCommand;
-use crate::app::terminal::{HeaderHit, TermLink};
-use winc_pty::protocol::Block;
+use crate::app::terminal::{HeaderHit, TabEnd, TermLink};
+use winc_pty::protocol::{Block, FromHelper, ToHelper};
 
 fn cwd(dir: &std::path::Path) -> String {
     format!("\x1b]7;file://host{}\x07", dir.display())
@@ -155,7 +155,7 @@ fn exited_shells_and_a_crashed_helper_restart() {
     // shell 退出了：↩ 只重开这一个。
     app.terminal = Default::default();
     show_terminal(&mut app, "$ exit");
-    app.terminal.tabs[0].exited = Some(1);
+    app.terminal.tabs[0].ended = Some(TabEnd::Exited(1));
     app.terminal.tabs[0].cwd = b"/tmp".to_vec();
     app.terminal.tabs[0].name = "server".into();
     paint(&mut app);
@@ -163,6 +163,70 @@ fn exited_shells_and_a_crashed_helper_restart() {
     assert_eq!(app.terminal.want, [b"/tmp".to_vec()]);
     // 起的名字跟着等着重开的标签走。
     assert_eq!(app.terminal_session().unwrap().names, ["server"]);
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_lost_pseudo_console_stops_input_and_offers_a_restart() {
+    let dir = sample_folder("terminal-disconnected");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    show_terminal(&mut app, "$ last screen");
+    let log = app.attach_recording_helper(&dir);
+    let id = app.terminal.tabs[0].id;
+    app.terminal.tabs[0].process = "codex".into();
+
+    // 程序还在运行，但已经够不着：输入不再发出去，关标签时仍然要确认。
+    app.terminal_message(FromHelper::Disconnected { tab: id });
+    let tab = app.terminal.tab().unwrap();
+    assert_eq!(tab.ended, Some(TabEnd::Disconnected));
+    assert_eq!(tab.busy(), Some("codex"));
+    assert_eq!(tab.unseen, None);
+    app.terminal_input(b"a".to_vec());
+    let sent = app.sent_to_helper(&log);
+    assert!(!sent.iter().any(|m| matches!(m, ToHelper::Input { .. })));
+
+    paint(&mut app);
+    let restart = |app: &App| (app.terminal.hits.iter()).any(|(_, hit)| *hit == HeaderHit::Restart);
+    assert!(restart(&app));
+
+    // shell 随后退出了：说明换成退出码，仍然可以重新启动。
+    app.terminal_message(FromHelper::Exited { tab: id, code: 1 });
+    let tab = app.terminal.tab().unwrap();
+    assert_eq!(tab.ended, Some(TabEnd::Exited(1)));
+    assert_eq!(tab.busy(), None);
+    paint(&mut app);
+    assert!(restart(&app));
+
+    // 重新启动时关掉旧的终端，其中还在运行的进程一并结束。
+    app.terminal_message(FromHelper::Disconnected { tab: id });
+    app.request_terminal_restart();
+    let sent = app.sent_to_helper(&log);
+    assert!(
+        sent.iter()
+            .any(|m| matches!(m, ToHelper::Close { tab } if *tab == id))
+    );
+    assert_eq!(app.terminal.tab().unwrap().ended, None);
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_lost_pseudo_console_out_of_view_leaves_a_red_dot() {
+    let dir = sample_folder("terminal-disconnected-unseen");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    show_terminal(&mut app, "$ ");
+    add_tab(&mut app, "zsh", "$ ");
+    let (first, second) = (app.terminal.tabs[0].id, app.terminal.tabs[1].id);
+
+    // 在看第二个标签时第一个断开了。
+    app.terminal_message(FromHelper::Disconnected { tab: first });
+    assert_eq!(app.terminal.tabs[0].unseen, Some(true));
+
+    // 面板收着时正在看的标签断开了。
+    app.terminal.open = false;
+    app.terminal_message(FromHelper::Disconnected { tab: second });
+    assert_eq!(app.terminal.tabs[1].unseen, Some(true));
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -184,11 +248,11 @@ fn busy_tabs_name_what_is_running() {
         ..Block::default()
     }];
     assert_eq!(tab.busy(), Some("cargo build"));
-    tab.exited = Some(0);
+    tab.ended = Some(TabEnd::Exited(0));
     assert_eq!(tab.busy(), None);
 
     // 测试里没有窗口弹确认框，直接关。
-    app.terminal.tabs[0].exited = None;
+    app.terminal.tabs[0].ended = None;
     app.close_terminal_tab(0);
     assert!(app.terminal.tabs.is_empty());
 
@@ -1040,13 +1104,13 @@ fn code_sent_to_an_exited_shell_starts_it_again() {
     let mut app = app_with(&dir.join("short.rs"), false);
     show_terminal(&mut app, "$ exit");
     let log = app.attach_recording_helper(&dir);
-    app.terminal.tabs[0].exited = Some(0);
+    app.terminal.tabs[0].ended = Some(TabEnd::Exited(0));
     app.focus = Focus::Editor;
 
     // ⌃⇧↩：标签重开，光标那一行等新的 shell 启动后送出，不会丢弃。
     app.send_to_terminal();
     let tab = app.terminal.tab().unwrap();
-    assert!(tab.exited.is_none());
+    assert!(tab.ended.is_none());
     assert_ne!(tab.id, 1);
     assert_eq!(app.input_sent_to(&log, tab.id), b"fn main() {\r");
     assert_eq!(app.focus, Focus::Editor);

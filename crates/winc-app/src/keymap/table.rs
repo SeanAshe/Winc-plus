@@ -381,11 +381,13 @@ pub fn bindings(os: Os) -> Vec<Binding> {
     t.one(ReplaceInFiles, Global, c(cmd | shift, 'h'));
     t.one(NextResult, Global, key(none, F(4)));
     t.one(PreviousResult, Global, key(shift, F(4)));
-    t.one(NextDifference, Editor, key(alt, F(5)));
-    t.one(PreviousDifference, Editor, key(alt | shift, F(5)));
-    // `F7` / `⇧F7` 是同一命令的另一组绑定；登记在 `⌥F5` 之后，因此提示中仍显示 `⌥F5`。
+    // 同一命令有两组绑定，提示中显示先登记的 `F7` / `⇧F7`。
     t.one(NextDifference, Editor, key(none, F(7)));
     t.one(PreviousDifference, Editor, key(shift, F(7)));
+    t.one(NextDifference, Editor, key(alt, F(5)));
+    t.one(PreviousDifference, Editor, key(alt | shift, F(5)));
+    t.one(NextDiffFile, Editor, key(none, F(8)));
+    t.one(PreviousDiffFile, Editor, key(shift, F(8)));
     t.chord(GitRevertChange, Editor, chord_k, c(cmd, 'r'));
 
     t.one(ToggleSidebar, Global, c(cmd, 'b'));

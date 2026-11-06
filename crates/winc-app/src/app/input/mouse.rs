@@ -19,8 +19,8 @@ use winc_core::{Lines, Selection, movement};
 use winc_render::Renderer;
 
 use crate::app::{
-    App, Click, DOUBLE_CLICK, Drag, Focus, Hover, MenuCommand, PICKER_ROW, TreeDrag, WindowControl,
-    resize_cursor, tree_max_scroll,
+    App, Click, Clock, DOUBLE_CLICK, Drag, Focus, Hover, MenuCommand, PICKER_ROW, TreeDrag,
+    WindowControl, resize_cursor, tree_max_scroll,
 };
 use crate::layout::{
     RowAction, Scrollbar, SearchParts, SettingControl, SettingsPart, SidebarView, goto_bar, hit,
@@ -28,6 +28,19 @@ use crate::layout::{
 };
 use crate::theme::*;
 use crate::view;
+
+/// 鼠标滚轮单次滚动的过渡状态：一格的距离分多帧完成。
+///
+/// 每帧调用与直接滚动相同的分发逻辑，因此对各滚动区域都生效，各区域的滚动上限不变。
+#[derive(Debug, Clone)]
+pub struct WheelGlide {
+    /// 本次过渡的总距离（横，纵），单位为逻辑像素。
+    pub total: (f32, f32),
+    /// 已完成的比例，取值 0 到 1。
+    pub done: f32,
+    /// 本次过渡的时钟。
+    pub clock: Clock,
+}
 
 impl App {
     /// 处理鼠标按键 `button` 松开：结束拖动，并在需要时关闭标签。
@@ -73,6 +86,8 @@ impl App {
     }
 
     /// 处理滚轮事件 `delta`：滚动鼠标所在区域对应的内容。
+    ///
+    /// 鼠标滚轮的整格滚动分多帧完成（[`WheelGlide`]）；触控板的滚动量立即生效。
     pub(in crate::app) fn on_wheel(&mut self, delta: MouseScrollDelta) {
         self.dismiss_hint();
         // 滚轮和触控板的滚动由用户直接控制：平滑滚动立即停在目标位置，从该位置继续滚动。
@@ -85,12 +100,78 @@ impl App {
             }
             MouseScrollDelta::PixelDelta(p) => (p.x as f32 / scale, p.y as f32 / scale),
         };
+        let line = matches!(delta, MouseScrollDelta::LineDelta(..));
+        let glide = self
+            .wheel_glides(delta)
+            .then(|| self.clock(crate::app::animation::SCROLL_GLIDE))
+            .flatten();
+        match glide {
+            Some(clock) => self.start_wheel_glide((dx, dy), clock),
+            None => self.wheel_by(dx, dy, line),
+        }
+        self.pace_wheel_frame();
+    }
+
+    /// 是否对滚动量 `delta` 使用过渡：仅限鼠标滚轮的整格滚动。
+    ///
+    /// 不足一格的滚动来自高精度设备，例如 Windows 的高精度触控板，事件已足够密集。鼠标位于终端时
+    /// 不使用过渡：终端把每格滚动转换为发给程序的按键，不可拆分。
+    pub(in crate::app) fn wheel_glides(&self, delta: MouseScrollDelta) -> bool {
+        let MouseScrollDelta::LineDelta(x, y) = delta else {
+            return false;
+        };
+        let (mouse_x, mouse_y) = self.mouse;
+        (x.abs() >= 1.0 || y.abs() >= 1.0) && !self.layout.terminal.contains(mouse_x, mouse_y)
+    }
+
+    /// 追加滚动距离 `delta`（逻辑像素）：未完成的距离计入新的总距离，按 `clock` 重新计时。
+    pub(in crate::app) fn start_wheel_glide(&mut self, delta: (f32, f32), clock: Clock) {
+        let rest = self.wheel_glide.take().map_or((0.0, 0.0), |g| {
+            let left = 1.0 - g.done;
+            (g.total.0 * left, g.total.1 * left)
+        });
+        self.wheel_glide = Some(WheelGlide {
+            total: (rest.0 + delta.0, rest.1 + delta.1),
+            done: 0.0,
+            clock,
+        });
+        self.request_redraw();
+    }
+
+    /// 应用本帧对应的滚动距离，绘制前调用；时钟结束时清除过渡状态。
+    pub(in crate::app) fn advance_wheel_glide(&mut self) {
+        let Some(glide) = &mut self.wheel_glide else {
+            return;
+        };
+        let progress = glide.clock.progress();
+        let step = progress - glide.done;
+        glide.done = progress;
+        let (dx, dy) = (glide.total.0 * step, glide.total.1 * step);
+        if glide.clock.done() {
+            self.wheel_glide = None;
+        }
+        self.wheel_by(dx, dy, true);
+    }
+
+    /// 把滚轮事件引起的绘制推迟到下一次屏幕刷新，每次刷新最多绘制一帧。
+    ///
+    /// winit 在 macOS 上收到重画请求后立即绘制，不等待屏幕刷新。滚轮事件与刷新不同步时，部分刷新
+    /// 周期绘制两帧，部分周期没有新帧，滚动出现抖动。没有显示链接（macOS 14 以下）或窗口不可见时
+    /// 不推迟。
+    fn pace_wheel_frame(&mut self) {
+        #[cfg(target_os = "macos")]
+        if self.display_link.is_some() && !self.unseen() {
+            self.dirty = false;
+            self.retry_frame(Instant::now());
+        }
+    }
+
+    /// 滚动鼠标所在区域的内容；`dx`、`dy` 的单位是逻辑像素，`line` 表示滚动量来自鼠标滚轮。
+    fn wheel_by(&mut self, dx: f32, dy: f32, line: bool) {
         // 按住 `Shift` 时竖直滚动改为横向滚动，只用于鼠标滚轮。触控板本身能横向滚动，手指离开后
         // 还会持续发出惯性滚动事件；这时按 `⇧Tab` 等组合键，惯性滚动会被当成横向滚动，
         // 编辑区突然右移几列。
-        let shift_wheel = self.modifiers.shift_key()
-            && dx == 0.0
-            && matches!(delta, MouseScrollDelta::LineDelta(..));
+        let shift_wheel = self.modifiers.shift_key() && dx == 0.0 && line;
 
         let (x, y) = self.mouse;
         let l = self.layout;

@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Adds winc to "Open with" for these types without taking over their default program; Windows
+     only lets the user change that. Keep this list the same as ForEachFileType in installer.nsi.
+     Registry keys ignore case; upper case gives the "JSON File" name the shell shows for a type. -->
+<?define FileTypes = ASTRO;BASH;BAT;C;CC;CFG;CJS;CLJ;CMD;CONF;CPP;CS;CSS;CSV;CXX;DART;ENV;ERL;EX;EXS;FISH;FS;GO;GQL;GRADLE;GRAPHQL;H;HH;HPP;HS;HTM;HTML;INI;JAVA;JS;JSON;JSON5;JSONC;JSX;KT;KTS;LESS;LOG;LUA;M;MD;MJS;MM;PHP;PL;PROTO;PS1;PSM1;PY;PYI;R;RB;RS;SASS;SCALA;SCSS;SH;SQL;SVELTE;SWIFT;TF;TOML;TS;TSV;TSX;TXT;VUE;XML;YAML;YML;ZIG;ZSH?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <!-- UUIDv5(DNS, com.deeix.winc); keep this product family stable across releases. -->
   <Product Id="*" Name="winc" Language="1033" Version="$(var.Version)" Manufacturer="DEEIX"
@@ -24,6 +28,19 @@
           <Component Id="InstallationKind" Guid="*" Win64="yes">
             <File Source="$(var.Source)\msi\winc-installation" KeyPath="yes"/>
           </Component>
+          <Component Id="FileAssociations" Guid="*" Win64="yes">
+            <RegistryValue Root="HKLM" Key="Software\Classes\Applications\winc.exe" Name="FriendlyAppName" Value="winc" Type="string" KeyPath="yes"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\Applications\winc.exe\DefaultIcon" Value="[#WincExe],0" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\Applications\winc.exe\shell\open\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
+            <!-- The shell reads only the value names. An empty value means Null to Windows Installer,
+                 so these hold a placeholder. -->
+            <?foreach Type in $(var.FileTypes)?>
+            <RegistryValue Root="HKLM" Key="Software\Classes\.$(var.Type)\OpenWithProgids" Name="winc.$(var.Type)" Value="winc" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)" Value="$(var.Type) File" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\DefaultIcon" Value="[#WincExe],0" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\shell\open\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
+            <?endforeach?>
+          </Component>
           <Component Id="License" Guid="*" Win64="yes"><File Source="$(var.Source)\LICENSE" KeyPath="yes"/></Component>
           <Component Id="Notice" Guid="*" Win64="yes"><File Source="$(var.Source)\NOTICE" KeyPath="yes"/></Component>
         </Directory>
@@ -40,6 +57,7 @@
     </Directory>
     <Feature Id="Main" Title="winc" Level="1">
       <ComponentRef Id="Application"/><ComponentRef Id="TerminalHelper"/><ComponentRef Id="InstallationKind"/>
+      <ComponentRef Id="FileAssociations"/>
       <ComponentRef Id="License"/><ComponentRef Id="Notice"/><ComponentRef Id="StartMenu"/>
     </Feature>
     <!-- Register text file types after the executable is on disk; remove them before it is deleted. -->

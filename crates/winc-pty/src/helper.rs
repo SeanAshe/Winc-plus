@@ -192,9 +192,13 @@ impl Helper {
         if pty::stdin_pending() && !self.read_messages()? {
             return Ok(false);
         }
-        for tab in self.tabs.values_mut() {
+        let mut ended = Vec::new();
+        for (&id, tab) in &mut self.tabs {
             if !tab.eof {
                 read_output(tab, &mut self.buf);
+                if tab.eof {
+                    ended.push(id);
+                }
             }
             if !tab.input.is_empty() {
                 write_input(tab);
@@ -202,6 +206,7 @@ impl Helper {
         }
         // 退出不另外通知：每一轮都看一遍（终端只有几个，查询不阻塞）。
         self.reap();
+        self.report_disconnected(ended);
         self.settle_closing();
         self.kill_overdue();
         self.send_frames();
@@ -339,7 +344,7 @@ impl Helper {
                     return;
                 };
                 let keep = admit(&mut tab.pasting, tab.input.len(), bytes.len(), rest);
-                if keep && tab.pty.is_some() {
+                if keep && tab.pty.is_some() && !tab.eof {
                     tab.input.extend_from_slice(&bytes);
                     // 先直接写一次：多数时候写得进去，不必等下一轮 poll，按键早一轮到 shell。
                     write_input(tab);
@@ -533,6 +538,19 @@ impl Helper {
         }
         for (tab, code) in exited {
             self.send(&FromHelper::Exited { tab, code });
+        }
+    }
+
+    /// 报告这一轮读到结尾、[`Helper::reap`] 之后 shell 仍未退出的终端：伪终端的进程不在了。
+    ///
+    /// shell 随后退出时还会发 [`FromHelper::Exited`]，主程序以后者为准。程序可能还在做事，这里
+    /// 不结束它们，由用户决定何时关闭或重新启动。
+    #[cfg(windows)]
+    fn report_disconnected(&mut self, ended: Vec<u16>) {
+        for tab in ended {
+            if self.tabs.get(&tab).is_some_and(|t| t.pty.is_some()) {
+                self.send(&FromHelper::Disconnected { tab });
+            }
         }
     }
 

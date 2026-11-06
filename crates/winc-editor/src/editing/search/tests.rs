@@ -406,3 +406,29 @@ fn regex_backtracking_limits_are_reported() {
     assert!(!search.gave_up());
     assert_eq!(search.matches(), &[(43, 46)]);
 }
+
+/// 给出必含的文字时，整块查找只找这段文字，不运行查询本身的正则；不区分大小写时同样如此。
+#[test]
+fn block_search_looks_for_the_required_text() {
+    let options = Options {
+        case_sensitive: true,
+        whole_word: false,
+        regex: true,
+    };
+    let text = "fn other\nlet name\nfn name\n";
+    let query = r"fn\s+name\b";
+
+    let full = Matcher::new(query, options).unwrap();
+    assert_eq!(full.block_find(text, 0), text.find("fn name"));
+
+    let literal = Matcher::requiring(query, options, "name").unwrap();
+    assert_eq!(literal.block_find(text, 0), text.find("name"));
+    assert_eq!(literal.block_find("fn other\n", 0), None);
+
+    let options = Options {
+        case_sensitive: false,
+        ..options
+    };
+    let literal = Matcher::requiring(query, options, "name").unwrap();
+    assert_eq!(literal.block_find("let NAME\n", 0), Some(4));
+}

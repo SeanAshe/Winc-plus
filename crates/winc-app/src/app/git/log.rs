@@ -796,46 +796,48 @@ impl App {
         });
     }
 
-    /// 在从日志打开的差异标签中越过最后（`forward`）或第一处改动时，打开同一提交中的下一个
-    /// （或上一个）文件，返回是否已打开。
-    ///
-    /// 用户可连续按 `F7` 依次查看同一提交中的所有文件。
-    pub(in crate::app) fn step_log_file(&mut self, forward: bool) -> bool {
+    /// 标签 `id` 是否是从日志打开的差异。
+    pub(in crate::app) fn steps_log_files(&self, id: DocumentId) -> bool {
+        self.log.preview == Some(id) && self.log.preview_source.is_some()
+    }
+
+    /// 从日志打开的差异标签里，同一提交中的下一个（`forward`）或上一个文件：（日志标签，从 0 起的
+    /// 序号，文件名，文件总数）；当前标签不是这种差异，或者没有更多文件时为 `None`。
+    pub(in crate::app) fn next_log_file(
+        &self,
+        forward: bool,
+    ) -> Option<(DocumentId, usize, String, usize)> {
         let active = self.editor.active().map(|d| d.id);
-        let Some((log, i)) = self
+        let (log, i) = self
             .log
             .preview_source
-            .filter(|_| active == self.log.preview)
-        else {
-            return false;
+            .filter(|_| active == self.log.preview)?;
+        let view = self.editor.document(log)?.log.as_deref()?;
+        let files = match &view.compare {
+            Some(compare) => compare.files.as_ref()?,
+            None => view.details.as_ref()?.files.as_ref()?,
         };
-        let files = self.editor.document(log).and_then(|d| {
-            let view = d.log.as_deref()?;
-            match &view.compare {
-                Some(compare) => compare.files.as_ref(),
-                None => view.details.as_ref()?.files.as_ref(),
-            }
-        });
-        let next = if forward {
-            i + 1
-        } else {
-            match i.checked_sub(1) {
-                Some(n) => n,
-                None => return false,
-            }
-        };
-        let Some((name, total)) = files.and_then(|f| {
-            let name = winc_editor::display_name(&f.get(next)?.path).into_owned();
-            Some((name, f.len()))
-        }) else {
+        let next = if forward { i + 1 } else { i.checked_sub(1)? };
+        let name = winc_editor::display_name(&files.get(next)?.path).into_owned();
+        Some((log, next, name, files.len()))
+    }
+
+    /// 在从日志打开的差异标签中打开同一提交中的下一个（`forward`）或上一个文件，返回是否已打开。
+    pub(in crate::app) fn step_log_file(&mut self, forward: bool) -> bool {
+        let Some((log, next, name, total)) = self.next_log_file(forward) else {
             return false;
         };
         self.open_log_file_of(log, next);
-        let (i, n, name) = (next + 1, total, name.as_str());
+        let (index, name) = (next + 1, name.as_str());
         self.flash(if forward {
-            t!("git-log-next-file", name = name, index = i, total = n)
+            t!("git-next-file", name = name, index = index, total = total)
         } else {
-            t!("git-log-previous-file", name = name, index = i, total = n)
+            t!(
+                "git-previous-file",
+                name = name,
+                index = index,
+                total = total
+            )
         });
         true
     }
@@ -930,8 +932,12 @@ impl App {
                         self.log.preview = Some(self.editor.documents[index].id);
                         self.relayout();
                         self.clamp_scroll();
+                        self.land_diff_file();
                     }
-                    Err(e) => self.flash(e),
+                    Err(e) => {
+                        self.diff_land = None;
+                        self.flash(e);
+                    }
                 },
             }
         }

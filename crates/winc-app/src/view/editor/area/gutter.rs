@@ -9,6 +9,9 @@ impl Screen<'_> {
     ///
     /// `number` 是复用的缓冲区。
     pub(super) fn draw_number(&self, frame: &mut Frame<'_>, row: &Row<'_>, number: &mut String) {
+        if self.app.config.line_numbers == Some(false) {
+            return;
+        }
         let (p, gutter, line) = (self.app.palette, self.gutter, row.line);
         number.clear();
         let _ = write!(number, "{}", line + 1);

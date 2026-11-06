@@ -181,6 +181,12 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
     let p = app.palette;
     let bar = app.layout.status;
     frame.rect(bar, p.frame_bg);
+    // 隐藏时只剩窗口底边的边距，没有可以点击的项。
+    if !app.status_bar_shown() {
+        app.status_hits.clear();
+        app.crumb_hits.clear();
+        return;
+    }
     // 绘制各组时同时读取 `app`，因此过渡状态先移出，绘制结束后恢复。
     let animate = app.animate_status();
     let mut motion = std::mem::take(&mut app.status_motion);

@@ -20,8 +20,10 @@ use crate::app::Focus;
 use crate::app::MARK_W;
 use crate::app::terminal::strip::{STRIP_X, TAB_GAP, TAB_MAX, TAB_MIN, fit_tabs};
 use crate::app::terminal::{
-    BAND_X, BlockHit, HeaderHit, TermTab, ViewRow, format_duration, grid_rect, header_height,
+    BAND_X, BlockHit, HeaderHit, TabEnd, TermTab, ViewRow, format_duration, grid_rect,
+    header_height,
 };
+use crate::keymap::{self, Action};
 use crate::theme::readable;
 
 /// 标签栏上一个标签的高度（逻辑像素），与编辑区的标签相同。
@@ -173,7 +175,7 @@ pub(super) fn draw_terminal(app: &mut App, frame: &mut Frame<'_>) {
     if focused {
         app.ime_cursor = Some(Rect::new(x, y, cell, lh));
     }
-    if tab.exited.is_some() || app.terminal.crashed {
+    if tab.ended.is_some() || app.terminal.crashed {
         return;
     }
     if focused && !app.preedit.is_empty() {
@@ -562,7 +564,7 @@ fn draw_terminal_tab(
     let active = i == app.terminal.active;
     let hovered = matches!(app.hover, Hover::TerminalHeader(HeaderHit::Tab(j) | HeaderHit::Close(j)) if j == i);
     // 字色和编辑区的标签一样：正在看的用正文色，不管焦点在不在面板上。
-    let color = match (active, tab.exited.is_some()) {
+    let color = match (active, tab.ended.is_some()) {
         (_, true) => p.text_dim,
         (true, _) => p.text,
         _ => p.text_muted,
@@ -610,31 +612,40 @@ fn restart_label() -> &'static str {
     t!("terminal-restart")
 }
 
-/// 标签栏右端「重新启动」那一组的说明和颜色、怎么关掉；没退出时为 `None`。
-fn restart_texts(app: &App) -> Option<(String, Color, &'static str)> {
+/// 标签栏右端「重新启动」那一组的说明和颜色、怎么关掉；终端还能用时为 `None`。
+fn restart_texts(app: &App) -> Option<(String, Color, String)> {
     let p = app.palette;
     if app.terminal.crashed {
-        Some((t!("terminal-helper-exited").to_string(), p.error, ""))
+        Some((
+            t!("terminal-helper-exited").to_string(),
+            p.error,
+            String::new(),
+        ))
     } else {
-        let code = app.terminal.tab()?.exited?;
-        let note = t!("terminal-process-exited", code = code);
-        Some((note, p.text_dim, t!("terminal-close-hint")))
+        let (note, color) = match app.terminal.tab()?.ended? {
+            TabEnd::Exited(code) => (t!("terminal-process-exited", code = code), p.text_dim),
+            TabEnd::Disconnected => (t!("terminal-disconnected").to_string(), p.error),
+        };
+        // 快捷键可以改，也可以解除绑定：解除以后不写这一段。
+        let close = keymap::shortcut(Action::CloseTerminal)
+            .map_or(String::new(), |key| t!("terminal-close-hint", key = key));
+        Some((note, color, close))
     }
 }
 
-/// 「重新启动」那一组从说明的左边到标签栏右边一共多宽，标签按它让出地方；没退出时为 0。
+/// 「重新启动」那一组从说明的左边到标签栏右边一共多宽，标签按它让出地方；终端还能用时为 0。
 fn restart_width(app: &App, frame: &mut Frame<'_>) -> f32 {
     let Some((note, _, close)) = restart_texts(app) else {
         return 0.0;
     };
     let measure = |frame: &mut Frame<'_>, s: &str| frame.measure(FontKind::Ui, app.fonts.ui, s);
-    let texts = measure(frame, close) + measure(frame, restart_label()) + measure(frame, &note);
+    let texts = measure(frame, &close) + measure(frame, restart_label()) + measure(frame, &note);
     // 右边留白 12，「关闭」和按钮间隔 8，按钮左右各 8，按钮和说明间隔 10。
     texts + 12.0 + 8.0 + 16.0 + 10.0
 }
 
-/// shell 退出了、或者辅助进程退出了时，标签栏右端（位置按钮左边）：说明、「重新启动」按钮
-/// （↩ 也行）、怎么关掉。
+/// shell 退出了、伪终端断开了、或者辅助进程退出了时，标签栏右端（位置按钮左边）：说明、
+/// 「重新启动」按钮（↩ 也行）、怎么关掉。
 fn draw_restart(app: &mut App, frame: &mut Frame<'_>, header: Rect) {
     let p = app.palette;
     let Some((note, color, close)) = restart_texts(app) else {
@@ -645,10 +656,10 @@ fn draw_restart(app: &mut App, frame: &mut Frame<'_>, header: Rect) {
     let (note_w, label_w, close_w) = (
         measure(frame, &note),
         measure(frame, label) + 16.0,
-        measure(frame, close),
+        measure(frame, &close),
     );
     let mut x = header.right() - 12.0 - close_w;
-    ui_text(frame, app, x, header, close, p.text_dim, header);
+    ui_text(frame, app, x, header, &close, p.text_dim, header);
     x -= label_w + 8.0;
     let button = Rect::new(x, header.y + (header.h - TAB_H) / 2.0, label_w, TAB_H);
     let fill = if app.hover == Hover::TerminalHeader(HeaderHit::Restart) {

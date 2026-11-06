@@ -40,8 +40,8 @@ pub use navigation::{bookmarks, definition, keypath, symbols, usages};
 pub use tools::{format, shell};
 pub use workspace::picker::{FileIndex, IndexedFile, MAX_RESULTS as PICKER_MAX_RESULTS};
 pub use workspace::project_search::{
-    FileResult, LineMatch, MAX_RESULTS, ProjectSearch, Query, ReplacePreview, replace_in_document,
-    replace_in_file,
+    FileResult, LineMatch, MAX_RESULTS, MAX_THREADS as MAX_SEARCH_THREADS, ProjectSearch, Query,
+    ReplacePreview, replace_in_document, replace_in_file,
 };
 pub use workspace::tree::{
     DirEntry, DirListing, DirScan, EXPAND_DIRS, Entry, EntryKind, Workspace, copy_entry, list_dir,
@@ -65,6 +65,8 @@ pub struct Editor {
     /// 经验值，只作用于未设置制表符宽度的文档；文档可经状态栏或 `.editorconfig` 覆盖，见
     /// [`Self::active_tab_width`]。
     pub tab_width: usize,
+    /// 新打开的差异是否单栏显示。
+    pub diff_unified: bool,
     /// 未打开文件的书签，键为文件的规范路径。
     ///
     /// 打开文件时移入对应文档，关闭标签时从文档取回。打不开的文件（占位标签）没有文本，书签
@@ -82,6 +84,7 @@ impl Default for Editor {
             active: None,
             workspace: None,
             tab_width: 4,
+            diff_unified: false,
             bookmarks: BookmarkMap::new(),
             preview_default: PreviewMode::Source,
             next_id: 0,
@@ -250,8 +253,9 @@ impl Editor {
         &mut self,
         slot: Option<DocumentId>,
         title: &str,
-        view: diff_view::DiffView,
+        mut view: diff_view::DiffView,
     ) -> usize {
+        view.set_unified(self.diff_unified);
         let index = slot.and_then(|id| {
             self.documents
                 .iter()
@@ -297,7 +301,8 @@ impl Editor {
     /// 在只读标签中显示并排差异，标签标题为 `title`，并切换到该标签。
     ///
     /// 已存在标题相同、没有对应文件的标签时，换成新的差异而不新开标签。返回标签序号（从 0 起）。
-    pub fn show_diff(&mut self, title: &str, view: diff_view::DiffView) -> usize {
+    pub fn show_diff(&mut self, title: &str, mut view: diff_view::DiffView) -> usize {
+        view.set_unified(self.diff_unified);
         self.show_readonly(title, |id| Document::diff(id, title, view))
     }
 

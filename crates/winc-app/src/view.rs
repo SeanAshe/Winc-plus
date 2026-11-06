@@ -56,7 +56,7 @@ use workspace::top_bar::{draw_top_bar, draw_window_controls};
 /// 提示条等浮层；设置浮层打开时覆盖整个窗口并直接返回，其余情况最后绘制悬停提示。
 pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     // 设置浮层出现、消失的动画期间，下方的窗口和卡片内容不变，用动画开始时保存的快照绘制。
-    if settings::draw_cached(app, frame) {
+    if settings::draw_cached(app, frame) || settings::draw_scrolling(app, frame) {
         return;
     }
     let layout = app.layout;

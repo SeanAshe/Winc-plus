@@ -72,8 +72,8 @@ impl App {
                 self.drag_diff_select(x, y, unit, origin, add);
             }
             Drag::DiffColumns { anchor } => self.drag_diff_columns(x, y, anchor),
-            Drag::DiffSelectLeft { unit, origin } => {
-                self.drag_diff_select_left(x, y, unit, origin);
+            Drag::DiffSelectRead { side, unit, origin } => {
+                self.drag_diff_select_read(x, y, side, unit, origin);
             }
             Drag::Splitter {
                 start_x,

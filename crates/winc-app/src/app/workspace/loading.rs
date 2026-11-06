@@ -143,13 +143,23 @@ impl App {
     }
 
     /// 打开文件 `path`，读好以后执行 `then`（见 [`App::when_loaded`]）。
+    ///
+    /// 换了标签时，`then` 中的跳转直接到位，不做平滑滚动：平滑滚动用于在同一文档内保持位置感，
+    /// 刚换来的文档没有可保持的位置，动画只会推迟目标行出现。
     pub(in crate::app) fn open_path_then(
         &mut self,
         path: &Path,
         then: impl FnOnce(&mut App) + 'static,
     ) {
+        let from = self.editor.active().map(|d| d.id);
         self.open_path(path);
-        self.when_loaded(then);
+        let switched = self.editor.active().map(|d| d.id) != from;
+        self.when_loaded(move |app| {
+            then(app);
+            if switched {
+                app.scroll_glide = None;
+            }
+        });
     }
 
     /// 当前标签正在读取、且尚未到 [`HOLD`] 时，返回可以跳过绘制的截止时刻。

@@ -46,7 +46,7 @@ pub(crate) struct Matcher {
     ///
     /// `^`、`$` 按行首、行尾匹配，换行识别 `\n`、`\r\n`、`\r`。查询含 `\A`、`\z`（无法放宽），
     /// 或使用 `Kind::Literal`、跨行查找时为 `None`。查询用到环视、反向引用时，这里是
-    /// `relaxed` 放宽后的版本。
+    /// `relaxed` 放宽后的版本；调用方给出必含的文字时（见 [`Self::requiring`]），这里只找这段文字。
     pub(super) block: Option<Regex>,
     /// 是否有匹配因回溯超出 `fancy-regex` 的上限而放弃：放弃的那一处之后，同一行（跨行查找时为
     /// 整篇文本）不再查找，结果不完整。
@@ -195,6 +195,18 @@ impl Matcher {
     ///
     /// 正则语法错误或写法不被支持时返回错误说明。
     pub(crate) fn new(query: &str, options: Options) -> Result<Self, String> {
+        Self::requiring(query, options, "")
+    }
+
+    /// 编译查询，`required` 是每处匹配都含有的一段文字，大小写规则与查询相同；为空时没有这项信息。
+    ///
+    /// 由多种写法合并成的长正则没有可供预筛选的公共前缀，在整块文本上只能逐字节运行状态机。有
+    /// 必含的文字时，只有含这段文字的行才逐行匹配，其余内容按纯文字跳过。
+    ///
+    /// # Errors
+    ///
+    /// 正则语法错误或写法不被支持时返回错误说明。
+    pub(crate) fn requiring(query: &str, options: Options, required: &str) -> Result<Self, String> {
         let multiline = is_multiline(query, options.regex);
         let mut block = None;
         let kind = if options.case_sensitive && !options.regex && !multiline {
@@ -210,6 +222,7 @@ impl Matcher {
             // 跨行查找时 `^`、`$` 仍按行首、行尾匹配（`multi_line` 标志）。
             let regex = Pattern::new(pattern, !options.case_sensitive, multiline)?;
             let plain = match regex {
+                _ if !required.is_empty() => Some(Cow::Owned(regex::escape(required))),
                 Pattern::Plain(_) if !pattern.contains("\\A") && !pattern.contains("\\z") => {
                     Some(Cow::Borrowed(pattern))
                 }
@@ -244,9 +257,10 @@ impl Matcher {
 
     /// 在由多行连接成的 `text` 中，返回从字节偏移 `from` 起第一个候选匹配的字节偏移。
     ///
-    /// 单行内的匹配在整块文本中的同一位置也是候选（`^`、`$` 按行匹配，`.` 不跨换行；用到环视、
-    /// 反向引用时使用放宽后的正则），因此第一个候选之前的行一定没有匹配；候选所在的行
-    /// 则不一定有匹配。没有候选，或 [`Self::has_block`] 为 `false` 时返回 `None`。
+    /// 单行内的匹配在整块文本的同一行上也有候选（`^`、`$` 按行匹配，`.` 不跨换行；用到环视、
+    /// 反向引用时使用放宽后的正则，有必含的文字时找这段文字），因此第一个候选之前的行一定没有
+    /// 匹配；候选所在的行则不一定有匹配。没有候选，或 [`Self::has_block`] 为 `false` 时返回
+    /// `None`。
     pub(crate) fn block_find(&self, text: &str, from: usize) -> Option<usize> {
         match (&self.kind, &self.block) {
             (Kind::Literal(finder), _) => finder.find(&text.as_bytes()[from..]).map(|at| from + at),

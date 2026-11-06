@@ -14,8 +14,12 @@ terminal-helper-start-failed = 无法启动终端组件：{ $error }
 terminal-helper-exited = 终端组件已退出
 terminal-helper-version-mismatch = 终端组件的版本与 winc 不一致，请重新安装 winc
 terminal-process-exited = 进程已退出（代码 { $code }）
+terminal-disconnected = 终端连接已断开
 terminal-restart = ↩ 重新启动
-terminal-close-hint = ⌘W 关闭
+terminal-close-hint = { $key } 关闭
+terminal-restart-confirm = 要重新启动这个终端吗？
+terminal-restart-confirm-detail = 这个终端的连接已断开，重新启动会结束里面仍在运行的程序。
+terminal-restart-confirm-action = 重新启动
 
 ## 命令和输出
 

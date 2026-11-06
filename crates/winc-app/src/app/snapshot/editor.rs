@@ -1,4 +1,4 @@
-//! 编辑区的测试：编辑、多光标、折叠、格式化、导航、粘贴、滚动与滚动条。
+//! 编辑区的测试：编辑、多光标、折叠、格式化、导航、粘贴、滚动与滚动条、空白符。
 
 use super::*;
 
@@ -12,3 +12,4 @@ pub(super) mod navigation;
 pub(super) mod paste;
 pub(super) mod scrollbar;
 pub(super) mod scrolling;
+pub(super) mod whitespace;

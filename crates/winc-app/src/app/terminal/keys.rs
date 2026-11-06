@@ -11,7 +11,7 @@ impl App {
         let (Some(client), Some(tab)) = (&t.client, t.tabs.get_mut(t.active)) else {
             return;
         };
-        if tab.exited.is_some() || bytes.is_empty() {
+        if tab.ended.is_some() || bytes.is_empty() {
             return;
         }
         tab.scroll = 0;
@@ -175,10 +175,10 @@ impl App {
         let Some(tab) = self.terminal.tab() else {
             return;
         };
-        // shell 退出（或者辅助进程退出）以后按 ↩ 重新开始。
-        if tab.exited.is_some() || self.terminal.crashed {
+        // shell 退出、伪终端断开（或者辅助进程退出）以后按 ↩ 重新开始。
+        if tab.ended.is_some() || self.terminal.crashed {
             if event.logical_key == Key::Named(NamedKey::Enter) {
-                self.restart_terminal_tab();
+                self.request_terminal_restart();
             }
             return;
         }

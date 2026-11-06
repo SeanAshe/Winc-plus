@@ -6,5 +6,5 @@ Icon=winc
 Type=Application
 Terminal=false
 Categories=Development;TextEditor;
-MimeType=text/plain;inode/directory;
+MimeType=text/plain;inode/directory;application/json;application/javascript;application/x-shellscript;application/x-yaml;application/toml;application/xml;text/xml;text/html;text/css;text/csv;text/markdown;text/javascript;text/x-csrc;text/x-chdr;text/x-c++src;text/x-c++hdr;text/rust;text/x-python;text/x-go;text/x-java;
 StartupNotify=true

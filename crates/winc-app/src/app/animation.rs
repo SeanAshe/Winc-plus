@@ -18,6 +18,10 @@ pub(super) const TREE_ANIMATION: Duration = Duration::from_millis(160);
 ///
 /// 时长足以让用户看清滚动方向，连续翻页时也不会明显滞后于按键。
 pub(super) const SCROLL_GLIDE: Duration = Duration::from_millis(125);
+/// 差异跳到一处改动时那一段高亮的时长（毫秒）。
+///
+/// 长于 [`SCROLL_GLIDE`]，滚动结束后高亮还持续约 475 ms，跳转距离很近时同样能看清落点。
+pub(super) const DIFF_PULSE: Duration = Duration::from_millis(600);
 /// 代码折叠、展开的动画时长，取 [`TREE_ANIMATION`]，使两种展开收起的节奏统一。
 pub(super) const FOLD_ANIMATION: Duration = TREE_ANIMATION;
 /// `⌘P` 面板高度变化的动画时长，取 [`TREE_ANIMATION`]。
@@ -296,6 +300,9 @@ impl App {
         }
         settle(&mut self.notice_out, |g| g.clock);
         settle(&mut self.diff_fade, |f| f.clock);
+        if self.diff_pulse.is_some_and(|c| c.done()) {
+            self.diff_pulse = None;
+        }
         settle(&mut self.view_slide, |s| s.1);
         settle(&mut self.settings.motion, |m| m.1);
         self.picker_card.settle();
@@ -362,12 +369,14 @@ impl App {
             || self.global.rows_moving()
             || self.fold_motion.is_some()
             || self.scroll_glide.is_some()
+            || self.wheel_glide.is_some()
             || self.picker_motion.is_some()
             || self.places_in.is_some()
             || self.places_out.is_some()
             || self.notice_in.is_some()
             || self.notice_out.is_some()
             || self.diff_fade.is_some()
+            || self.diff_pulse.is_some()
             || self.view_slide.is_some()
             || self.settings.motion.is_some()
             || self.picker_card.motion.is_some()

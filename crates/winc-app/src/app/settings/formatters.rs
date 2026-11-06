@@ -274,6 +274,11 @@ impl App {
                 let (_, y) = menu_below(row.control);
                 return self.open_context_menu(MenuTarget::Locale, (row.control.right(), y));
             }
+            Setting::RenderWhitespace => {
+                self.settings.selected = setting;
+                let (_, y) = menu_below(row.control);
+                return self.open_context_menu(MenuTarget::Whitespace, (row.control.right(), y));
+            }
             Setting::UiFont | Setting::EditorFont => {
                 self.settings.selected = setting;
                 let (_, y) = menu_below(row.control);

@@ -53,18 +53,21 @@ pub(super) fn draw_sticky(app: &mut App, frame: &mut Frame<'_>, index: usize) {
             }
             let baseline = baseline_in(band, ascent, descent);
 
-            let number = (row.line + 1).to_string();
-            let number_x = layout.gutter.right() - GUTTER_PADDING - number.len() as f32 * app.cell;
-            let gutter = Rect::new(layout.gutter.x, area.y, layout.gutter.w, area.h);
-            frame.text(
-                FontKind::Mono,
-                app.fonts.code,
-                number_x,
-                baseline,
-                &number,
-                p.gutter_text,
-                gutter,
-            );
+            if app.config.line_numbers != Some(false) {
+                let number = (row.line + 1).to_string();
+                let number_x =
+                    layout.gutter.right() - GUTTER_PADDING - number.len() as f32 * app.cell;
+                let gutter = Rect::new(layout.gutter.x, area.y, layout.gutter.w, area.h);
+                frame.text(
+                    FontKind::Mono,
+                    app.fonts.code,
+                    number_x,
+                    baseline,
+                    &number,
+                    p.gutter_text,
+                    gutter,
+                );
+            }
 
             chars.clear();
             chars.extend(

@@ -55,7 +55,7 @@ impl App {
     }
 
     /// 只选中 `path`（清掉多选），在预览标签里打开它的差异；列表滚到让它露出来。
-    pub(super) fn select_commit_file(&mut self, path: PathBuf) {
+    pub(in crate::app::git) fn select_commit_file(&mut self, path: PathBuf) {
         self.commit.marked.clear();
         self.commit.anchor = Some(path.clone());
         self.commit.selected = Some(path.clone());
