@@ -189,6 +189,13 @@ impl Clock {
         1.0 - stage(self.linear(), 0.0, 1.0)
     }
 
+    /// 返回先淡入、停留、再淡出途中的不透明度，淡入和淡出各用 `edge`。
+    pub fn pulse(&self, edge: Duration) -> f32 {
+        let edge = (edge.as_secs_f32() / self.duration.as_secs_f32()).min(0.5);
+        let t = self.linear();
+        stage(t, 0.0, edge) * (1.0 - stage(t, 1.0 - edge, 1.0))
+    }
+
     /// 创建与 `self` 同时开始、时长为 `duration` 的时钟。
     pub fn lasting(self, duration: Duration) -> Clock {
         Clock { duration, ..self }
@@ -291,8 +298,12 @@ impl App {
         settle(&mut self.fold_motion, |m| m.clock);
         settle(&mut self.scroll_glide, |g| g.clock);
         settle(&mut self.picker_motion, |m| m.clock);
+        settle(&mut self.picker_fold, |f| f.clock);
         if self.places_in.is_some_and(|c| c.done()) {
             self.places_in = None;
+        }
+        if self.branch.finished.is_some_and(|c| c.done()) {
+            self.branch.finished = None;
         }
         settle(&mut self.places_out, |g| g.clock);
         if self.notice_in.is_some_and(|c| c.done()) {
@@ -371,6 +382,7 @@ impl App {
             || self.scroll_glide.is_some()
             || self.wheel_glide.is_some()
             || self.picker_motion.is_some()
+            || self.picker_fold.is_some()
             || self.places_in.is_some()
             || self.places_out.is_some()
             || self.notice_in.is_some()
@@ -398,7 +410,8 @@ impl App {
             || self.scrollbars_animating()
             || self.markdown.motion.is_some()
             || self.status_motion.moving()
-            || self.commit_syncing()
+            || ((self.branch.running.is_some() || self.branch.finished.is_some())
+                && self.commit_shown())
     }
 }
 

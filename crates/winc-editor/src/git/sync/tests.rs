@@ -52,7 +52,12 @@ fn an_amended_pushed_commit_is_pushed_over_its_old_version() {
         "1"
     );
 
-    git.sync(&work).unwrap();
+    // 未确认时不推送：上游保持原样，并返回将被替换的提交数。
+    let before = sh(&remote, &["rev-parse", "main"]);
+    assert_eq!(git.sync(&work, false).unwrap(), Synced::NeedsForce(1));
+    assert_eq!(sh(&remote, &["rev-parse", "main"]), before);
+
+    git.sync(&work, true).unwrap();
     let head = sh(&work, &["rev-parse", "HEAD"]);
     assert_eq!(sh(&remote, &["rev-parse", "main"]), head);
     assert_eq!(sh(&work, &["rev-list", "--count", "HEAD"]), "1");
@@ -75,7 +80,7 @@ fn commits_pushed_by_others_are_pulled_before_pushing() {
     sh(&work, &["add", "."]);
     sh(&work, &["commit", "-q", "-m", "ours"]);
 
-    git.sync(&work).unwrap();
+    git.sync(&work, false).unwrap();
     // 两边的提交都在远程上，没有提交被覆盖。
     let subjects = sh(&remote, &["log", "--format=%s", "main"]);
     assert!(

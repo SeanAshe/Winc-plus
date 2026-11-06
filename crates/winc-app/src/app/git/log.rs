@@ -199,6 +199,8 @@ pub enum LogConfirmed {
     ResetHard(String),
     /// 删除一条储藏；执行时按提交号查找（[`winc_editor::git::Git::stash`]）。
     DropStash(winc_editor::git::Stash),
+    /// 删除一个本地分支；第二项为真时连同未合并的提交一起删除（[`App::run_delete_branch`]）。
+    DeleteBranch(String, bool),
 }
 
 /// 一个提交上的本地分支：签出时优先签出它，不进入分离的 `HEAD`。

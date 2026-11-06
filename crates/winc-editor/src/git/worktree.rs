@@ -225,18 +225,22 @@ impl Git {
     }
 
     /// 返回本地分支 `branch` 能否用 `git branch -d` 删除：有上游时看是否已合并到上游，没有
-    /// 上游时看是否已合并到仓库 `root` 的 `HEAD`。
+    /// 上游或上游引用已不存在时看是否已合并到仓库 `root` 的 `HEAD`。
     fn deletable(&self, root: &Path, branch: &str, cancel: &Cancel) -> Result<bool, String> {
         // 模式 `refs/heads/feat` 也匹配 `refs/heads/feat/x`，因此按完整的引用名比较。
         let full = format!("refs/heads/{branch}");
         let mut command = self.command(root);
-        command.args(["for-each-ref", "--format=%(refname)%00%(upstream)"]);
+        command.args([
+            "for-each-ref",
+            "--format=%(refname)%00%(upstream)%00%(upstream:track)",
+        ]);
         command.arg(&full);
         let stdout = self.run(&mut command, STATUS_TIMEOUT, cancel)?;
         let text = String::from_utf8_lossy(&stdout);
         let upstream = text.lines().find_map(|line| {
-            let (name, upstream) = line.split_once('\0')?;
-            (name == full && !upstream.is_empty()).then(|| upstream.to_owned())
+            let mut fields = line.split('\0');
+            let (name, upstream, track) = (fields.next()?, fields.next()?, fields.next()?);
+            (name == full && !upstream.is_empty() && track != "[gone]").then(|| upstream.to_owned())
         });
         let target = upstream.unwrap_or_else(|| "HEAD".to_owned());
         let mut command = self.command(root);

@@ -18,9 +18,6 @@ impl App {
         if self.project_hit.contains(x, y) {
             return Some(Hover::ProjectName);
         }
-        if self.branch_hit.contains(x, y) {
-            return Some(Hover::BranchName);
-        }
 
         // 提交视图：输入框之外按绘制时记下的位置找。
         if self.commit_shown() && y >= self.panel_rect().y {
@@ -164,6 +161,12 @@ impl App {
             return true;
         }
 
+        if let Some(&(_, part)) = self.picker_part_hits.iter().find(|(r, _)| r.contains(x, y)) {
+            self.focus = Focus::Picker;
+            self.press_picker_part(part);
+            return true;
+        }
+
         let parts = view::picker_parts(self, rect);
 
         if parts.bar.contains(x, y) {
@@ -180,8 +183,11 @@ impl App {
         if let Some(index) = parts.row_at(y, self.picker_scroll)
             && index < self.picker_hits.len()
         {
-            self.picker_selected = index;
-            self.picker_accept();
+            // 分组标题点了没有反应。
+            if self.picker_row_selectable(index) {
+                self.picker_selected = index;
+                self.picker_accept();
+            }
         }
 
         true
@@ -207,10 +213,6 @@ impl App {
         }
         if self.project_hit.contains(x, y) {
             self.open_project_menu();
-            return true;
-        }
-        if self.branch_hit.contains(x, y) {
-            self.open_sidebar_branch_menu();
             return true;
         }
 

@@ -37,10 +37,11 @@ pub use editor::format::{FormatState, ToolAnswer};
 pub use editor::hint::NameHint;
 pub(crate) use editor::scrollbar::{ScrollArea, Scrollbars, ThumbLook};
 pub use editor::sticky::{StickyCache, StickyRow};
+pub(crate) use git::branch::picker::{BranchCreate, GitAnchor, PickerPart};
 pub(crate) use git::changes::{ChangeTarget, MARK_W, mark_x, ruler_rows};
 pub(crate) use git::commit::{
     COMMIT_ROW, CommitOverflow, CommitParts, CommitRow, CommitRows, CommitTarget, MESSAGE_LINE,
-    MESSAGE_PAD,
+    MESSAGE_PAD, SyncState,
 };
 pub(crate) use input::context_menu::{
     CHECK_COLUMN, ICON_COLUMN, MenuIcon, POPUP_PAD, POPUP_TEXT_X, PopupLevel, PopupMenu, PopupRow,
@@ -207,6 +208,14 @@ pub enum UserEvent {
     GitRollback(Vec<PathBuf>),
     /// 确认框上确认了中止进行中的合并、变基等操作。
     GitAbort,
+    /// 提示框上选了切换到这个分支；`true` 是先储藏未提交的更改，否则把它们带过去。
+    GitSwitchBranch(winc_editor::git::Branch, bool),
+    /// 确认框上确认了强制推送当前分支。
+    GitForcePush,
+    /// 提示框上确认了提交勾上的文件并推送。
+    GitCommitAndPush,
+    /// 提示框上确认了撤销上一次提交。
+    GitUndoCommit,
     /// 后台取到了某个文件在 `HEAD` 里的内容（行号栏改动标记的基准）。
     GitBase,
     /// 后台的分支操作（获取、拉取、推送、签出……）做完了。
@@ -349,9 +358,9 @@ pub enum Hover {
     Merge(git::merge::MergeTarget),
     /// 快速打开面板或位置浮窗中的一行，参数是第几条结果（从 0 起）。
     PickerRow(usize),
+    /// 选择面板里的一个按钮。
+    PickerPart(PickerPart),
     ProjectName,
-    /// 侧栏标题行的当前分支。
-    BranchName,
     SidebarButton,
     NewTab,
     /// 标签栏无法容纳全部标签时显示在最右端的「⌄」，用于列出全部标签。
@@ -461,6 +470,8 @@ impl Hover {
                 | Hover::Blame(_)
                 | Hover::Commit(
                     CommitTarget::Log
+                        | CommitTarget::Sync
+                        | CommitTarget::Location
                         | CommitTarget::Layout
                         | CommitTarget::More
                         | CommitTarget::Commit
@@ -727,8 +738,6 @@ pub struct App {
     pub folded_hits: Vec<(Rect, usize)>,
     /// 侧栏标题行项目名的可点击区域，绘制时填入。
     pub project_hit: Rect,
-    /// 侧栏标题行里当前分支按钮的位置，绘制时填入；不显示分支时为空。
-    pub branch_hit: Rect,
     /// 文件树工具栏各按钮的位置，绘制时填入，点击时使用。
     pub tree_tools: Vec<(Rect, TreeTool)>,
     /// 工具栏收起后「⋯」按钮的位置；所有按钮都放得下时为 `None`。
@@ -751,6 +760,8 @@ pub struct App {
     /// ⌘P 面板上次排版时的高度，以及当时的窗口大小。
     picker_height: Option<(f32, (f32, f32))>,
     picker_motion: Option<PickerMotion>,
+    /// 分支、位置选择器里正在展开或收起的目录、组的动画。
+    pub(crate) picker_fold: Option<git::branch::picker::PickerFold>,
     /// 位置浮窗（定义、用法、书签）在名字上方时，浮窗底边的纵坐标：高度变化时底边不动，
     /// 顶边移动。
     ///
@@ -908,6 +919,20 @@ pub struct App {
     pub(crate) navigation: editor::navigation::Navigation,
     /// 转到定义找到多个位置时，卡片中列出的位置。
     pub picker_places: Option<editor::definition::Places>,
+    /// 面板列出分支（分支选择器）时的各行。
+    pub picker_branch_rows: Option<Vec<git::branch::picker::BranchRow>>,
+    /// 面板列出位置（位置选择器）时的各行。
+    pub picker_location_rows: Option<Vec<git::location_picker::LocationRow>>,
+    /// 分支选择器、位置选择器从哪儿展开。
+    pub picker_anchor: GitAnchor,
+    /// 正在分支选择器里新建分支。
+    pub picker_create: Option<BranchCreate>,
+    /// 选择面板这一帧画出来的按钮：点击、悬停都按它们认。
+    pub picker_part_hits: Vec<(Rect, PickerPart)>,
+    /// 位置选择器里改变过默认展开状态的仓库（主工作树的目录）。
+    pub location_toggled: std::collections::HashSet<PathBuf>,
+    /// 分支选择器里改变过默认展开状态的目录：（是否远程，目录路径）。
+    pub branch_folders: std::collections::HashSet<(bool, String)>,
     /// 正在后台项目中进行的定义查找。
     definitions: Option<editor::definition::DefinitionSearch>,
 

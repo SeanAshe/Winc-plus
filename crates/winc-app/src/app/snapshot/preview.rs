@@ -398,6 +398,66 @@ fn the_caret_paragraph_keeps_its_look() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 预览的滚动条能拖：只看预览和分栏时都能，不会选中文字；分栏时左边跟着滚。
+#[test]
+fn the_preview_scrollbar_can_be_dragged() {
+    use crate::layout::{Scrollbar, scrollbar_thumb};
+
+    for (mode, name) in [
+        (PreviewMode::Preview, "md-drag-full"),
+        (PreviewMode::Split, "md-drag-split"),
+    ] {
+        let (mut app, dir) = readme(name, false, mode);
+        let area = app.markdown.area;
+        let height = app.markdown.height;
+        assert!(height > area.h, "{height} {}", area.h);
+        let thumb = scrollbar_thumb(area, 0.0, height).unwrap();
+        let (x, y) = (thumb.x + thumb.w / 2.0, thumb.y + thumb.h / 2.0);
+
+        app.on_mouse_move(x, y);
+        assert_eq!(app.hover, Hover::Scrollbar(Scrollbar::Markdown));
+        app.on_mouse_down(MouseButton::Left);
+        assert!(matches!(app.drag, crate::app::Drag::Scrollbar { .. }));
+
+        // 拖到底：滚到最后，滑块跟到底。
+        app.on_mouse_move(x, area.bottom() + 100.0);
+        let end = height - area.h;
+        assert!((app.markdown.scroll() - end).abs() < 1.0, "{name}");
+        paint(&mut app);
+        assert!(app.markdown.selection.is_none());
+        if mode == PreviewMode::Split {
+            assert!(app.editor.active().unwrap().scroll_line > 0.0);
+        }
+
+        // 拖回顶上。
+        app.on_mouse_move(x, area.y - 100.0);
+        assert!(app.markdown.scroll() < 1.0, "{name}");
+        app.on_mouse_up(MouseButton::Left);
+        assert!(matches!(app.drag, crate::app::Drag::None));
+
+        // 点轨道：滑块跳过去。
+        app.on_mouse_move(x, area.bottom() - 2.0);
+        app.on_mouse_down(MouseButton::Left);
+        app.on_mouse_up(MouseButton::Left);
+        assert!(app.markdown.scroll() > 0.0, "{name}");
+
+        // 滚动条左边还是选字。
+        app.on_mouse_move(area.x + 50.0, area.y + 50.0);
+        app.on_mouse_down(MouseButton::Left);
+        assert!(matches!(app.drag, crate::app::Drag::MarkdownText));
+        app.on_mouse_up(MouseButton::Left);
+
+        // 回到代码模式：同一个位置是编辑区的滚动条。
+        app.set_preview_mode(PreviewMode::Source);
+        settle(&mut app);
+        let track = app.scroll_track();
+        app.on_mouse_move(track.right() - 2.0, track.y + 4.0);
+        assert_ne!(app.hover, Hover::Scrollbar(Scrollbar::Markdown));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 #[test]
 fn clicking_where_markers_appear_does_not_select() {
     let (mut app, dir) = live_doc(

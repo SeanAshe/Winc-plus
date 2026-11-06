@@ -599,6 +599,10 @@ impl App {
 
         match &event.logical_key {
             Key::Named(NamedKey::Escape) => {
+                if self.picker_create.is_some() {
+                    self.cancel_branch_create();
+                    return;
+                }
                 self.close_picker();
                 return;
             }
@@ -612,6 +616,17 @@ impl App {
             }
             Key::Named(NamedKey::ArrowUp) => {
                 self.picker_move(false);
+                return;
+            }
+            // 分支、位置选择器没有输入查询时，左右键展开、收起目录，右键打开操作菜单。
+            Key::Named(NamedKey::ArrowRight)
+                if self.branch_picker_side(true) || self.location_picker_side(true) =>
+            {
+                return;
+            }
+            Key::Named(NamedKey::ArrowLeft)
+                if self.branch_picker_side(false) || self.location_picker_side(false) =>
+            {
                 return;
             }
             // macOS 上 `⌃N` / `⌃P` 也可以上下选择（Cocoa 文本系统的标准按键绑定）。

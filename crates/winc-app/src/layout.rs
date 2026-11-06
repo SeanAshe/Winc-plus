@@ -444,6 +444,8 @@ pub enum Scrollbar {
     Commit,
     /// 终端面板的竖直滚动条（回滚缓冲）。
     Terminal,
+    /// Markdown 预览的竖直滚动条。
+    Markdown,
 }
 
 /// 返回缩略图最上面显示的行：`total` 行放不下 `shown` 行时，随滚动位置 `scroll`（最大为 `max`）

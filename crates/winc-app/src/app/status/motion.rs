@@ -24,6 +24,8 @@ const STILL: f32 = 0.5;
 /// 状态栏右侧的一项，按从左到右的顺序声明；各组的项按该顺序排列。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum StatusKey {
+    /// 当前的仓库或工作树（有多个位置时）。
+    Worktree,
     /// Git 分支名，以及领先、落后的提交数。
     Branch,
     /// SVG 中未能绘制的特性。

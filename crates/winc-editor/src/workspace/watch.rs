@@ -48,6 +48,8 @@ struct Pending {
     paths: HashSet<PathBuf>,
     rescan: bool,
     git: bool,
+    /// 在打开的目录之外另外监视的公共 Git 目录。
+    git_dir: Option<PathBuf>,
     /// 收集到第一条变化后是否已唤醒过界面线程；在 [`Watcher::take`] 取走之前不再重复唤醒。
     woken: bool,
 }
@@ -59,7 +61,7 @@ pub struct Watcher {
     root: PathBuf,
     pending: Arc<Mutex<Pending>>,
     /// 底层的系统监视器，释放时停止监视。
-    _inner: RecommendedWatcher,
+    inner: RecommendedWatcher,
 }
 
 impl Watcher {
@@ -87,6 +89,10 @@ impl Watcher {
                         for path in event.paths {
                             if git_state(&path) {
                                 pending.git = true;
+                            } else if (pending.git_dir.as_ref())
+                                .is_some_and(|dir| path.starts_with(dir))
+                            {
+                                // 公共 Git 目录里的其他文件不是打开的目录里的东西。
                             } else if !pending.rescan && !hidden(&base, &path) {
                                 pending.paths.insert(path);
                             }
@@ -105,12 +111,35 @@ impl Watcher {
                 }
             })?;
         inner.watch(root, RecursiveMode::Recursive)?;
-
         Ok(Watcher {
             root: root.to_path_buf(),
             pending,
-            _inner: inner,
+            inner,
         })
+    }
+
+    /// 让监视跟上当前仓库的公共 Git 目录 `dir`：不在打开的目录里时（附属工作树、打开的是仓库的
+    /// 子目录）另外监视它，提交、分支这些状态都记在那里。监视不了时打开的目录照常监视。
+    pub fn watch_git_dir(&mut self, dir: Option<&Path>) {
+        let dir = dir.filter(|dir| !dir.starts_with(&self.root));
+        // 系统监视器改动时要等监视线程回复，而监视线程送通知时要拿这把锁：改动之前先放开，否则两边
+        // 互相等待。
+        let old = {
+            let mut pending = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
+            if pending.git_dir.as_deref() == dir {
+                return;
+            }
+            std::mem::replace(&mut pending.git_dir, dir.map(Path::to_path_buf))
+        };
+        if let Some(old) = old {
+            let _ = self.inner.unwatch(&old);
+        }
+        if let Some(dir) = dir
+            && self.inner.watch(dir, RecursiveMode::Recursive).is_err()
+        {
+            let mut pending = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
+            pending.git_dir = None;
+        }
     }
 
     /// 返回被监视的根目录。
@@ -131,7 +160,8 @@ impl Watcher {
 }
 
 /// `path` 是不是某个 `.git` 目录（打开的目录里可能有多个仓库）里记录仓库状态的文件：`HEAD`、
-/// `index`、`packed-refs`、`refs/` 下的文件。
+/// `index`、`packed-refs`、`refs/` 下的文件，以及 `worktrees/<名字>/` 下各工作树自己的 `HEAD`、
+/// `index`。
 ///
 /// `index.lock` 这类临时文件不算，操作完成时正式的文件会再变一次。
 fn git_state(path: &Path) -> bool {
@@ -144,6 +174,10 @@ fn git_state(path: &Path) -> bool {
     let mut parts = relative.components().map(|c| c.as_os_str());
     match parts.next().and_then(|c| c.to_str()) {
         Some("HEAD" | "index" | "packed-refs") => parts.next().is_none(),
+        Some("worktrees") => {
+            let file = parts.nth(1).and_then(|c| c.to_str());
+            matches!(file, Some("HEAD" | "index")) && parts.next().is_none()
+        }
         Some("refs") => !relative.to_string_lossy().ends_with(".lock"),
         _ => false,
     }

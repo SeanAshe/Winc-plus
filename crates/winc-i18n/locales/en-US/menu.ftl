@@ -45,13 +45,6 @@ menu-form-base-current-commit = Current Commit
 
 menu-git-current-branch = Current Branch
 menu-git-switch-to-worktree = Switch to Worktree “{ $name }”
-menu-git-checkout = Check Out
-menu-git-checkout-in-new-worktree = Check Out in New Worktree
-menu-git-new-branch-from = New Branch from “{ $branch }”…
-menu-git-compare-with = Compare with “{ $branch }”
-menu-git-merge-into = Merge “{ $branch }” into “{ $target }”
-menu-git-rebase-onto = Rebase “{ $current }” onto “{ $branch }”
-menu-git-delete = Delete
 menu-git-checkout-stale-worktree = The worktree’s folder no longer exists. Prune stale worktrees first
 menu-git-finish-operation = Finish { $operation }…
 menu-git-continue-operation = Continue { $operation }
@@ -70,7 +63,7 @@ menu-git-pull-behind = { $count ->
     }
 menu-git-pull-from = From { $upstream }
 menu-git-pull-no-upstream = The current branch has no upstream
-menu-git-fetch-desc = Sync remote updates
+menu-git-fetch-desc = Download remote updates without changing local branches
 
 ## Context menu items
 
@@ -109,10 +102,10 @@ menu-table-align-right = Align Right
 
 ## Git menu items
 
-menu-worktrees-heading = Worktrees
-menu-repositories-heading = Repositories
 menu-new-worktree = New Worktree…
-menu-prune-worktrees = Prune Stale Worktrees
+menu-git-new-branch = New Branch…
+menu-git-sync = Sync
+menu-git-sync-desc = Pull and push commits
 menu-git-fetch = Fetch
 menu-git-pull = Pull
 menu-git-push = Push
@@ -145,5 +138,6 @@ menu-commit-refresh = Refresh
 menu-commit-expand-all = Expand All
 menu-commit-collapse-all = Collapse All
 menu-commit-roll-back = Roll Back Checked Files…
+menu-commit-undo = Undo Commit
 menu-commit-and-push = Commit and Push
 menu-commit-amend = Amend Last Commit

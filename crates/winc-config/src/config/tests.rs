@@ -232,6 +232,7 @@ fn round_trips_through_json() {
         terminal_bold_is_bright: Some(true),
         terminal_right: Some(true),
         git_enabled: Some(true),
+        repository_scan_depth: Some(4),
         git_worktree_root: Some("~/worktrees".to_string()),
         git_worktree_copy: vec![".env*".to_string(), "config/local.toml".to_string()],
         format_on_save: Some(false),

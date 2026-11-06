@@ -18,6 +18,14 @@ impl App {
             return;
         }
 
+        // 选择器里的菜单选了一项：操作开始，选择器不再需要；取消时选择器留着。
+        if matches!(
+            menu.target,
+            MenuTarget::BranchOps(_) | MenuTarget::Location(..)
+        ) {
+            self.close_picker();
+        }
+
         match menu.target {
             MenuTarget::Tree(path) => self.run_tree_command(command, path),
             MenuTarget::Tab(id) => self.run_tab_command(command, id),
@@ -33,6 +41,29 @@ impl App {
                     self.choose_form_base(base.map(|b| b.name.clone()));
                 }
             }
+            MenuTarget::StatusBranches => match command {
+                MenuCommand::StatusBranch(i) => {
+                    if let Some(chosen) = menu.branches.get(i) {
+                        self.pick_branch_named(chosen);
+                    }
+                }
+                MenuCommand::StatusSync => self.git_sync(),
+                MenuCommand::GitFetch | MenuCommand::GitPull | MenuCommand::GitPush => {
+                    self.run_branch_command(command);
+                }
+                MenuCommand::StatusNewBranch => self.open_branch_dialog(None, None),
+                MenuCommand::NewWorktree => self.open_worktree_dialog(),
+                _ => {}
+            },
+            MenuTarget::StatusPlaces(places) => match command {
+                MenuCommand::StatusPlace(i) => {
+                    if let Some(place) = places.get(i) {
+                        self.go_to_place(place);
+                    }
+                }
+                MenuCommand::NewWorktree => self.open_worktree_dialog(),
+                _ => {}
+            },
             MenuTarget::LogBranch => {
                 if let MenuCommand::LogBranch(i) = command {
                     let branch = i.checked_sub(1).and_then(|i| menu.branches.get(i));
@@ -86,12 +117,6 @@ impl App {
             MenuTarget::Project => match command {
                 MenuCommand::OpenRecent(i) => self.run_start_action(StartAction::Recent(i)),
                 MenuCommand::OpenRecentInNewWindow(i) => self.open_recent_in_new_window(i),
-                MenuCommand::SwitchRepository(i) => self.git_switch_repository(i),
-                MenuCommand::OpenWorktree(i) => self.open_worktree(i, true),
-                MenuCommand::OpenWorktreeHere(i) => self.open_worktree(i, false),
-                MenuCommand::NewWorktree => self.open_worktree_dialog(),
-                MenuCommand::RemoveWorktree(i) => self.remove_worktree(i),
-                MenuCommand::PruneWorktrees => self.prune_worktrees(),
                 MenuCommand::OpenFolder => self.pick(Pick::OpenFolder),
                 MenuCommand::CloseFolder => self.close_folder(),
                 _ => {}
@@ -140,21 +165,37 @@ impl App {
             | MenuTarget::LineEnding(id)
             | MenuTarget::Encoding(id)
             | MenuTarget::Language(id) => self.run_status_command(command, id),
-            MenuTarget::Branch => match command {
-                MenuCommand::GitBranch(op, i) => {
-                    if let Some(branch) = menu.branches.get(i).cloned() {
-                        self.run_branch_op(op, branch);
+            MenuTarget::BranchOps(_) => {
+                if let MenuCommand::GitBranch(op, i) = command
+                    && let Some(branch) = menu.branches.get(i).cloned()
+                {
+                    self.run_branch_op(op, branch);
+                }
+            }
+            MenuTarget::Location(path, worktree) => match command {
+                MenuCommand::LocationNewWindow => self.open_in_new_window(&path),
+                MenuCommand::LocationReveal => self.reveal_in_file_manager(&path),
+                MenuCommand::LocationPrune => {
+                    self.close_picker();
+                    self.prune_worktrees();
+                }
+                MenuCommand::LocationRemove => {
+                    if let Some(i) = worktree {
+                        self.remove_worktree(i);
                     }
                 }
+                _ => {}
+            },
+            MenuTarget::CommitMore => match command {
                 MenuCommand::GitStashOp(op, i) => {
                     if let Some(stash) = menu.stashes.get(i).cloned() {
                         self.run_stash_op(op, stash);
                     }
                 }
-                _ => self.run_branch_command(command),
+                _ => self.run_commit_more_command(command),
             },
-            MenuTarget::CommitMore => self.run_commit_more_command(command),
             MenuTarget::CommitButton => self.run_commit_button_command(command),
+            MenuTarget::LastCommit => self.run_last_commit_command(command),
             MenuTarget::TabList => {
                 if let MenuCommand::ShowTab(i) = command {
                     self.activate_tab(i);

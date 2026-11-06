@@ -1,22 +1,32 @@
 //! 与当前分支的上游同步：拉取上游新增的提交，推送本地新增的提交。
 //!
 //! 两边都有对方没有的提交时，上游多出的提交若都是本分支以前的版本（修改上一次提交、变基等
-//! 改写了已推送的提交），以本地为准推送；上游有本地从未有过的提交时，先拉取再推送。
+//! 改写了已推送的提交），确认后以本地为准推送；上游有本地从未有过的提交时，先拉取再推送。
 
 use super::*;
 
+/// [`Git::sync`] 的结果。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Synced {
+    /// 同步完成，内容是最后一步 `git` 的结论。
+    Done(String),
+    /// 需要强制推送才能同步，尚未推送；内容是上游将被替换的提交数。
+    NeedsForce(usize),
+}
+
 impl Git {
-    /// 与当前分支的上游同步，返回最后一步 `git` 的结论。
+    /// 与当前分支的上游同步。
     ///
     /// 先获取上游的最新状态。只落后时拉取，只领先时推送。两边都有新提交时，上游多出的提交
-    /// 若都可由本分支引用日志中的某条记录到达，用 `--force-with-lease` 推送本地版本；否则先
-    /// 拉取再推送，未配置 `pull.rebase` 时按合并拉取。
+    /// 若都可由本分支引用日志中的某条记录到达，`force` 时用 `--force-with-lease` 推送本地版本，
+    /// 否则返回 [`Synced::NeedsForce`]，不改动本地和上游。上游有本地从未有过的提交时先拉取再
+    /// 推送，未配置 `pull.rebase` 时按合并拉取。
     ///
     /// # Errors
     ///
     /// 没有上游、拉取出现冲突、推送被拒绝（包括上游在本地最后一次获取之后又有了新提交）时返回
     /// `git` 给出的原因。
-    pub fn sync(&self, root: &Path) -> Result<String, String> {
+    pub fn sync(&self, root: &Path, force: bool) -> Result<Synced, String> {
         self.require_trust(root)?;
         let cancel = Cancel::default();
         // 先获取：上游在上次获取之后的新提交也计入，判断分叉时依据的是上游当前的状态。
@@ -24,24 +34,39 @@ impl Git {
         let behind = self.count(root, "HEAD..@{upstream}", &cancel)?;
         let ahead = self.count(root, "@{upstream}..HEAD", &cancel)?;
         if ahead > 0 && behind > 0 && self.rewritten(root, &cancel)? {
-            return self.operate(root, &["push", "--force-with-lease"]);
+            if !force {
+                return Ok(Synced::NeedsForce(behind));
+            }
+            return self
+                .operate(root, &["push", "--force-with-lease"])
+                .map(Synced::Done);
         }
         let mut summary = String::new();
         if behind > 0 {
-            // 未配置时 `git` 拒绝拉取分叉的分支，因此显式按合并方式拉取。
-            let configured = self.config(root, "pull.rebase", &cancel).is_some();
-            let pull: &[&str] = if configured {
-                &["pull"]
-            } else {
-                &["pull", "--no-rebase"]
-            };
-            summary = self.operate(root, pull)?;
+            summary = self.pull(root)?;
         }
         // 拉取时合并产生的提交同样需要推送。
         if self.count(root, "@{upstream}..HEAD", &cancel)? > 0 {
             summary = self.operate(root, &["push"])?;
         }
-        Ok(summary)
+        Ok(Synced::Done(summary))
+    }
+
+    /// 从上游拉取，返回 `git` 的结论。
+    ///
+    /// 未配置 `pull.rebase` 时 `git` 拒绝拉取分叉的分支，因此显式按合并方式拉取。
+    ///
+    /// # Errors
+    ///
+    /// 没有上游、出现冲突时返回 `git` 给出的原因。
+    pub fn pull(&self, root: &Path) -> Result<String, String> {
+        let configured = (self.config(root, "pull.rebase", &Cancel::default())).is_some();
+        let pull: &[&str] = if configured {
+            &["pull"]
+        } else {
+            &["pull", "--no-rebase"]
+        };
+        self.operate(root, pull)
     }
 
     /// 返回 `range` 中的提交数（`git rev-list --count`）。
@@ -53,7 +78,7 @@ impl Git {
     }
 
     /// 返回配置项 `key` 的值；未配置时为 `None`。
-    fn config(&self, root: &Path, key: &str, cancel: &Cancel) -> Option<String> {
+    pub(super) fn config(&self, root: &Path, key: &str, cancel: &Cancel) -> Option<String> {
         let mut command = self.command(root);
         command.args(["config", "--get", key]);
         let stdout = self.run(&mut command, STATUS_TIMEOUT, cancel).ok()?;

@@ -7,7 +7,7 @@ use std::borrow::Cow;
 use std::f32::consts::FRAC_PI_2;
 use std::path::{Path, PathBuf};
 
-use winc_editor::git::{Change, Head};
+use winc_editor::git::Change;
 use winc_editor::{Entry, EntryKind};
 use winc_i18n::t;
 
@@ -44,7 +44,9 @@ pub(in crate::view) fn draw_sidebar(app: &mut App, frame: &mut Frame<'_>) {
     }
 
     if app.sidebar_view == SidebarView::Commit {
-        let right = app.commit_parts().tools[0].0.x - 4.0;
+        let tools = app.commit_parts().tools[0].0.x - 4.0;
+        // 上下文栏自己会在右边留出 4 的间距。
+        let right = git::commit::location_span(app, frame).map_or(tools, |(left, _)| left);
         let bar = ContextBar::new(app, frame);
         draw_context_bar(app, frame, &bar, right);
         if let Some(caret) = git::commit::draw_commit(app, frame) {
@@ -87,78 +89,44 @@ fn draw_project_header(app: &mut App, frame: &mut Frame<'_>) {
     draw_tree_tools(app, frame);
 }
 
-/// 项目名和分支之间的空隙（逻辑像素）。
-const CONTEXT_GAP: f32 = 2.0;
 /// 文件树中目录有 Git 改动时，右端圆点的直径（逻辑像素）。
 const GIT_DOT: f32 = 6.0;
 /// 文件树中放不下的名称在侧栏边缘淡出的宽度（逻辑像素），
 /// 与结果行上按钮左侧的渐隐同宽。
 const NAME_FADE: f32 = 20.0;
-/// 分支按钮里图标占的宽度（逻辑像素）：左边距加分支图标。
-const BRANCH_HEAD: f32 = 20.0;
-/// 分支按钮里文字右边到按钮右边的宽度（逻辑像素）：空隙加下拉箭头。
-const BRANCH_TAIL: f32 = 18.0;
 /// 项目按钮里徽章占的宽度（逻辑像素）：左边 6、徽章 20、右边 8。
-const BADGE_ROOM: f32 = 34.0;
+pub(in crate::view) const BADGE_ROOM: f32 = 34.0;
+/// 徽章中心相对项目按钮左边的距离（逻辑像素）。
+pub(in crate::view) const BADGE_CENTER: f32 = 16.0;
 
-/// 侧栏第二行左边的上下文栏：现在在哪个项目、哪个分支上。
+/// 侧栏第二行左边的上下文栏：现在在哪个项目。
 ///
 /// 项目按钮三个视图（文件、搜索、提交）都一样，切换视图时不动：首字母徽章、项目名和下拉箭头，
-/// 点了弹项目菜单（最近的目录、打开目录、关闭目录）。提交视图里、放得下时后面紧跟着当前分支
-/// 按钮，分支图标、分支名（游离时是提交号）和下拉箭头，点了弹分支菜单，和状态栏的分支名是同一个
-/// 菜单；文件、搜索视图里和放不下时不绘制（状态栏里一直有）。
-pub(super) struct ContextBar {
+/// 点了弹项目菜单（最近的目录、打开目录、关闭目录）。
+pub(in crate::view) struct ContextBar {
     /// 项目名；没有打开目录时是「未打开目录」。
     project: String,
     /// 打开了目录（可以绘制徽章，名称用正文色）。
     opened: bool,
-    /// 当前分支；不在 Git 仓库里时为 `None`。
-    branch: Option<String>,
     /// 项目按钮的左边。
     left: f32,
-    /// 项目名、分支名完整显示时的文字宽度。
+    /// 项目名完整显示时的文字宽度。
     project_w: f32,
-    branch_w: f32,
 }
 
 impl ContextBar {
-    /// 读出当前的项目名和分支，并量出两者完整显示时的文字宽度。
-    pub(super) fn new(app: &App, frame: &mut Frame<'_>) -> Self {
+    /// 读出当前的项目名，并量出完整显示时的文字宽度。
+    pub(in crate::view) fn new(app: &App, frame: &mut Frame<'_>) -> Self {
         let opened = app.editor.workspace.is_some();
-        let project = app.editor.workspace.as_ref().map_or_else(
-            || t!("workspace-sidebar-no-folder").to_owned(),
-            |w| w.name.clone(),
-        );
-        // 提交视图里有多个仓库时写当前仓库：提交前须能确认提交到哪个仓库。
-        let repository = (app.sidebar_view == SidebarView::Commit
-            && app.git.repositories.len() >= 2)
-            .then(|| {
-                let root = app.git.root.as_ref()?;
-                let index = app.git.repositories.iter().position(|repo| repo == root)?;
-                Some(app.git_repository_name(index))
-            })
-            .flatten();
-        let project = repository.unwrap_or(project);
-        // 分支只在提交视图中绘制：提交前须能直接确认提交的目标分支。文件、搜索视图中分支与当前操作
-        // 无关，且状态栏右端始终显示当前分支（同一个菜单），因此不重复绘制。
-        let branch = (opened && app.sidebar_view == SidebarView::Commit)
-            .then(|| app.git.status.as_ref()?.head.as_ref())
-            .flatten()
-            .map(|head| match head {
-                Head::Branch(name) => name.clone(),
-                Head::Detached(oid) => format!("({oid})"),
-            });
+        let project = app
+            .project_name()
+            .unwrap_or_else(|| t!("workspace-sidebar-no-folder").to_owned());
         let project_w = frame.measure(FontKind::Ui, app.fonts.ui, &project);
-        let branch_w = branch
-            .as_deref()
-            .map_or(0.0, |b| frame.measure(FontKind::Ui, app.fonts.ui_small, b));
         ContextBar {
             project,
             opened,
-            branch,
             left: app.layout.sidebar_header.x + 8.0,
             project_w,
-            branch_w,
         }
     }
 
@@ -168,40 +136,27 @@ impl ContextBar {
         if self.opened { BADGE_ROOM } else { 6.0 }
     }
 
+    /// 项目按钮的左边。
+    pub(in crate::view) fn left(&self) -> f32 {
+        self.left
+    }
+
     /// 项目按钮完整显示时的宽度。
-    fn project_full(&self) -> f32 {
+    pub(in crate::view) fn project_full(&self) -> f32 {
         self.name_offset() + self.project_w + 18.0
-    }
-
-    /// 分支按钮完整显示时的宽度；没有分支时为 0。
-    fn branch_full(&self) -> f32 {
-        match self.branch {
-            Some(_) => BRANCH_HEAD + self.branch_w + BRANCH_TAIL,
-            None => 0.0,
-        }
-    }
-
-    /// 上下文栏有 `room` 宽时项目按钮、分支按钮各占多宽（分支为 0 表示不显示）。
-    ///
-    /// 项目名优先：两者都完整放得下时才绘制分支，否则不绘制分支（状态栏右端始终写着当前分支，
-    /// 点击打开同一个菜单），项目名也不必为它截短。
-    fn split(&self, room: f32) -> (f32, f32) {
-        let (project, branch) = (self.project_full(), self.branch_full());
-        if self.branch.is_some() && project + CONTEXT_GAP + branch <= room {
-            (project, branch)
-        } else {
-            (project.min(room), 0.0)
-        }
     }
 }
 
-/// 在第二行左边绘制上下文栏（[`ContextBar`]），右边不超过 `right`；记下项目按钮、分支按钮的
-/// 位置（`project_hit`、`branch_hit`）。
+/// 在第二行左边绘制上下文栏（[`ContextBar`]），右边不超过 `right`；记下项目按钮的位置
+/// （`project_hit`）。
 pub(super) fn draw_context_bar(app: &mut App, frame: &mut Frame<'_>, bar: &ContextBar, right: f32) {
     let p = app.palette;
     let header = app.layout.sidebar_header;
     let clip = header.intersect(app.layout.sidebar);
-    let (project_w, branch_w) = bar.split((right - 4.0 - bar.left).max(0.0));
+    let room = (right - 4.0 - bar.left).max(0.0);
+    // 留 0.5 的余量：刚好放得下时，浮点运算的误差不应该让名字被截短。
+    let fits = bar.project_full() <= room + 0.5;
+    let project_w = if fits { bar.project_full() } else { room };
     let name_x = bar.left + bar.name_offset();
 
     // 项目：徽章一直在；名称太长时从末尾截短，其后是下拉箭头。
@@ -211,7 +166,11 @@ pub(super) fn draw_context_bar(app: &mut App, frame: &mut Frame<'_>, bar: &Conte
         20.0,
         20.0,
     );
-    let name_max = (bar.left + project_w - 18.0 - name_x).max(0.0);
+    let name_max = if fits {
+        f32::INFINITY
+    } else {
+        (bar.left + project_w - 18.0 - name_x).max(0.0)
+    };
     let name = truncate_end(frame, &bar.project, app.fonts.ui, name_max);
     let name_end = name_x + frame.measure(FontKind::Ui, app.fonts.ui, &name);
     let hit = Rect::new(
@@ -230,62 +189,22 @@ pub(super) fn draw_context_bar(app: &mut App, frame: &mut Frame<'_>, bar: &Conte
     let arrow = (x + 9.0, icon_center_y(app, header, app.fonts.ui));
     icons::chevron(frame, arrow, 6.5, Direction::Down, p.text_muted, clip);
     app.project_hit = hit.intersect(clip);
-
-    // 分支：比项目名小一号、淡一档，看得出是项目下面的一层。
-    let Some(branch) = bar.branch.as_deref().filter(|_| branch_w > 0.0) else {
-        return;
-    };
-    // 只在完整放得下时才绘制（`ContextBar::split`），名字不截短。
-    let pill = Rect::new(hit.right() + CONTEXT_GAP, hit.y, branch_w, hit.h);
-    let hovered = app.hover == Hover::BranchName;
-    let open = app.menu_button == Some(MenuButton::Branch);
-    draw_button(frame, p, pill, clip, hovered, open);
-    let cy = icon_center_y(app, header, app.fonts.ui_small);
-    let color = if hovered || open {
-        p.text
-    } else {
-        p.text_muted
-    };
-    icons::branch_small(frame, (pill.x + 11.0, cy), color, clip);
-    let end = label(
-        frame,
-        app,
-        app.fonts.ui_small,
-        (pill.x + BRANCH_HEAD, header),
-        branch,
-        color,
-        clip,
-    );
-    icons::chevron(
-        frame,
-        (end + 9.0, cy),
-        5.5,
-        Direction::Down,
-        p.text_dim,
-        clip,
-    );
-    app.branch_hit = pill.intersect(clip);
 }
 
 /// 绘制项目名前面的徽章：圆角方块内是项目名的前两个字母或数字（大写），没有时用「W」。
 ///
-/// 打开的是附属工作树时，徽章用主工作树的名字和颜色（看得出是哪个仓库；名字写的是工作树自己
-/// 的目录，分得出是哪一个），右下角加一个工作树记号。
+/// 打开的是附属工作树时，徽章用主工作树的颜色（同一个仓库的工作树颜色相同），右下角加一个工作树
+/// 记号。
 fn draw_badge(app: &App, frame: &mut Frame<'_>, rect: Rect, project: &str, header: Rect) {
     let main = app.git.main_worktree();
-    let (project, color) = match main {
-        Some(main) => (
-            crate::app::git::worktree::worktree_name(main),
-            app.state.badge_color(&main.path),
-        ),
-        None => (
-            project.to_owned(),
-            app.editor
-                .root()
-                .map_or(0, |root| app.state.badge_color(root)),
-        ),
+    let color = match main {
+        Some(main) => app.state.badge_color(&main.path),
+        None => app
+            .editor
+            .root()
+            .map_or(0, |root| app.state.badge_color(root)),
     };
-    let badge = app.palette.project_badge(&project, color);
+    let badge = app.palette.project_badge(project, color);
     frame.rect_clipped(rect, badge.background, 6.0, header);
 
     let w = frame.measure(FontKind::Ui, app.fonts.initials, &badge.initials);
@@ -317,7 +236,7 @@ fn draw_badge(app: &App, frame: &mut Frame<'_>, rect: Rect, project: &str, heade
 fn draw_tree_tools(app: &App, frame: &mut Frame<'_>) {
     let p = app.palette;
     let header = app.layout.sidebar_header;
-    let left = app.project_hit.right().max(app.branch_hit.right()) + BUTTON_GAP;
+    let left = app.project_hit.right() + BUTTON_GAP;
     let clip = Rect::new(left, header.y, (header.right() - left).max(0.0), header.h);
     let (shown, more_shown) = app.tool_fold.eased();
     let (tools, more) = folding_tools(header, &shown, more_shown);

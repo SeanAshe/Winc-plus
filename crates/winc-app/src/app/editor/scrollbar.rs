@@ -39,11 +39,13 @@ pub(crate) enum ScrollArea {
     Settings,
     /// 终端面板的回滚缓冲。
     Terminal,
+    /// Markdown 预览。
+    Markdown,
 }
 
 impl ScrollArea {
     /// 全部区域，遍历时用。
-    const ALL: [ScrollArea; 8] = [
+    const ALL: [ScrollArea; 9] = [
         ScrollArea::Editor,
         ScrollArea::EditorHorizontal,
         ScrollArea::Tree,
@@ -52,6 +54,7 @@ impl ScrollArea {
         ScrollArea::Commit,
         ScrollArea::Settings,
         ScrollArea::Terminal,
+        ScrollArea::Markdown,
     ];
 
     /// 该区域可以拖动的滚动条；不能拖动时为 `None`。
@@ -65,6 +68,7 @@ impl ScrollArea {
             ScrollArea::Commit => Some(Scrollbar::Commit),
             ScrollArea::Settings => None,
             ScrollArea::Terminal => Some(Scrollbar::Terminal),
+            ScrollArea::Markdown => Some(Scrollbar::Markdown),
         }
     }
 

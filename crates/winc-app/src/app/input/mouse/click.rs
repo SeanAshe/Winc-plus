@@ -5,6 +5,10 @@ use super::*;
 impl App {
     /// 处理鼠标按键 `button` 在当前鼠标位置按下。
     pub(in crate::app) fn on_mouse_down(&mut self, button: MouseButton) {
+        // 选择面板的动画期间高度还在变，而点击按最终的布局：先取消动画，使显示直接到位。
+        if self.picker_fold.take().is_some() {
+            self.relayout();
+        }
         let (x, y) = self.mouse;
         let l = self.layout;
         // 折叠动画期间绘制的是展开状态，而点击按的是折叠后的布局：先取消动画，使显示直接到位。
@@ -119,9 +123,13 @@ impl App {
             return;
         }
 
-        // 点在预览以外：预览的选区和焦点不要了（`click_markdown` 再拿回来）。
+        // 点在预览以外：预览的选区和焦点不要了（`click_markdown` 再拿回来）。拖预览的滚动条不算。
         let target = self.target_at(x, y);
-        if !matches!(target, Target::MarkdownText) && self.markdown.focused {
+        let keeps_preview = matches!(
+            target,
+            Target::MarkdownText | Target::Scrollbar(Scrollbar::Markdown, _)
+        );
+        if !keeps_preview && self.markdown.focused {
             self.markdown.focused = false;
             self.markdown.selection = None;
         }
@@ -154,19 +162,21 @@ impl App {
             // 双击分隔条恢复默认宽度。
             Target::Splitter if self.click_count(x, y) == 2 => {
                 self.panel_width = DEFAULT_PANEL_WIDTH;
+                self.remember_panel_width();
                 self.relayout();
                 self.request_redraw();
             }
+            // 从看到的宽度开始拖：记下的宽度可能比这个窗口放得下的大，否则开头一段拖了没有反应。
             Target::Splitter => {
+                let most = (self.layout.window.w - 320.0).max(crate::theme::MIN_PANEL_WIDTH);
                 self.drag = Drag::Splitter {
                     start_x: x,
-                    start_width: self.panel_width,
+                    start_width: self.panel_width.min(most),
                 };
             }
             Target::TreeTool(tool) => self.run_tree_tool(tool),
             Target::TreeMore => self.open_tree_tools_menu(),
             Target::ProjectName => self.open_project_menu(),
-            Target::BranchName => self.open_sidebar_branch_menu(),
             Target::SidebarButton => self.toggle_sidebar(),
             Target::NewTab => self.new_file(),
             Target::TabList => self.open_tab_list_menu(),

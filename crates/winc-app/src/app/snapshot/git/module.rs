@@ -3,6 +3,36 @@
 use super::*;
 
 /// 目录本身不是仓库、下面有几个仓库时：都能找到，可以切换，打开文件时跟过去。
+/// 有多个仓库时「新建工作树」写明建在当前仓库，切换仓库后跟着变；只有一个仓库时不写。
+#[test]
+fn the_new_worktree_button_names_the_repository_among_several() {
+    let dir = search_folder("git-new-worktree-label");
+    let (a, b) = (dir.join("a"), dir.join("b"));
+    for repo in [&a, &b] {
+        std::fs::create_dir_all(repo.join("src")).unwrap();
+        std::fs::write(repo.join("src/main.rs"), "fn main() {}\n").unwrap();
+        if !make_repo(repo) {
+            return;
+        }
+    }
+    let mut app = app_with(&dir, false);
+    app.config.repository_scan_depth = Some(1);
+    app.settings_toggle(Setting::GitModule);
+    if git_unusable(&app) {
+        return;
+    }
+    assert_eq!(app.location_new_worktree_label(), "在「a」中新建工作树");
+    app.git_switch_repository(1);
+    assert_eq!(app.location_new_worktree_label(), "在「b」中新建工作树");
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let Some((app, root)) = git_app("git-new-worktree-one", false) else {
+        return;
+    };
+    assert_eq!(app.location_new_worktree_label(), "新建工作树");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[test]
 fn a_folder_of_repositories_can_switch_between_them() {
     let dir = search_folder("git-repositories");
@@ -15,6 +45,7 @@ fn a_folder_of_repositories_can_switch_between_them() {
         }
     }
     let mut app = app_with(&dir, false);
+    app.config.repository_scan_depth = Some(1);
     app.settings_toggle(Setting::GitModule);
     if git_unusable(&app) {
         return;
@@ -22,7 +53,7 @@ fn a_folder_of_repositories_can_switch_between_them() {
     let dir = app.editor.root().unwrap().to_path_buf();
     let (a, b, deep) = (dir.join("a"), dir.join("b"), dir.join("group/deep"));
 
-    // 只看第一层子目录，按名字排序，默认用第一个。
+    // 查找层数为 1 时只看第一层子目录，按名字排序，默认用第一个。
     assert_eq!(app.git.repositories, [a.clone(), b.clone()]);
     assert_eq!(app.git.root.as_ref(), Some(&a));
     assert!(app.git.status.is_some());
@@ -77,25 +108,19 @@ fn a_folder_of_repositories_can_switch_between_them() {
     app.sidebar_view = SidebarView::Files;
     app.git_switch_repository(2);
 
-    // 菜单里每个仓库都写分支和改动数：另一个仓库改一个文件，后台读到以后显示。
+    // 每个位置都能看到分支和改动数：另一个仓库改一个文件，后台读到以后显示。
     std::fs::write(b.join("src/main.rs"), "fn changed() {}\n").unwrap();
     app.git_discover();
-    let index = app.git.repositories.iter().position(|r| *r == b).unwrap();
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-    let mut detail = None;
-    while std::time::Instant::now() < deadline {
-        detail = app.git_repository_detail(index);
-        if detail.as_deref().is_some_and(|d| d != "main") {
-            break;
-        }
+    while std::time::Instant::now() < deadline && app.place_state(&b).changes == 0 {
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
-    let detail = detail.unwrap();
-    assert!(detail.starts_with("main ·"), "{detail}");
-    // 当前仓库用最新的状态，分支写在最前面。
-    let current = (app.git.repositories.iter()).position(|r| Some(r) == app.git.root.as_ref());
-    let current = app.git_repository_detail(current.unwrap()).unwrap();
-    assert!(current.starts_with("main"), "{current}");
+    let state = app.place_state(&b);
+    assert_eq!(state.head.as_deref(), Some("main"));
+    assert!(state.changes > 0);
+    // 当前仓库用最新的状态。
+    let root = app.git.root.clone().unwrap();
+    assert_eq!(app.place_state(&root).head.as_deref(), Some("main"));
 
     // 提交信息写了字时不跟随，文字不会丢。
     let root_before = app.git.root.clone();
@@ -307,8 +332,8 @@ fn shoot_context_bar() {
         let mut app = app_with(&dir, dark);
         app.settings_toggle(Setting::GitModule);
         paint(&mut app);
-        let branch = app.branch_hit;
-        app.on_mouse_move(branch.x + 4.0, branch.y + 4.0);
+        let project = app.project_hit;
+        app.on_mouse_move(project.x + 4.0, project.y + 4.0);
         shoot(&mut app, name);
         // 悬停提示：「名字 … 快捷键」两栏，快捷键是右边的淡色字。
         let commit = app.sidebar_tabs()[2].0;
@@ -468,16 +493,14 @@ fn measure_git_costs() {
 }
 
 #[test]
-fn project_and_branch_lead_the_second_row_in_every_view() {
+fn the_project_leads_the_second_row_and_git_context_sits_below_it() {
     let Some((mut app, root)) = git_app("git-context-bar", false) else {
         return;
     };
-    // 顶栏是侧栏开关和视图切换图标，第二行左边是项目名。分支只在提交视图里画在项目名之后，
-    // 状态栏已经始终显示当前分支；工具栏位于分支之后。
+    // 顶栏是侧栏开关和视图切换图标，第二行左边是项目名，三个视图里位置不变。
     app.panel_width = 400.0;
     paint(&mut app);
     let project = app.project_hit;
-    assert_eq!(app.branch_hit.w, 0.0);
     assert!(project.y >= app.layout.sidebar_header.y);
     let tabs = app.sidebar_tabs();
     assert!(tabs[0].0.x > app.layout.sidebar_button.right());
@@ -485,53 +508,60 @@ fn project_and_branch_lead_the_second_row_in_every_view() {
     app.run_action(Action::FindInFiles);
     paint(&mut app);
     assert_eq!(app.project_hit, project);
-    assert_eq!(app.branch_hit.w, 0.0);
 
     app.run_action(Action::ShowCommit);
+    app.panel_width = 400.0;
     paint(&mut app);
     assert_eq!(app.project_hit, project);
-    let branch = app.branch_hit;
-    assert!(branch.w > 0.0);
-    assert!(branch.x >= project.right());
-    app.on_mouse_move(branch.x + branch.w / 2.0, branch.y + branch.h / 2.0);
-    assert_eq!(app.hover, Hover::BranchName);
     app.on_mouse_move(project.x + 4.0, project.y + 4.0);
     assert_eq!(app.hover, Hover::ProjectName);
-    let tools = app.commit_parts().tools;
+    let parts = app.commit_parts();
     assert_eq!(
-        tools.map(|(_, t)| t),
+        parts.tools.map(|(_, t)| t),
         [CommitTarget::Log, CommitTarget::Layout, CommitTarget::More]
     );
-    assert!(tools[0].0.x >= branch.right());
+    assert!(parts.tools[0].0.x >= project.right());
 
-    // 侧栏缩到最窄：项目名始终可点；分支放不下时完全不画（状态栏中始终显示），绘制时保持
-    // 完整，不碰到右端的按钮。
-    let full_project = app.project_hit.w;
-    app.panel_width = crate::theme::MIN_PANEL_WIDTH;
-    paint(&mut app);
-    assert!(app.project_hit.w >= crate::layout::TREE_NAME_MIN);
-    let narrow = app.branch_hit;
-    if narrow.w > 0.0 {
-        assert_eq!(narrow.w, branch.w);
-        assert!(narrow.x >= app.project_hit.right());
-        assert!(narrow.right() <= app.commit_parts().tools[0].0.x);
-    }
+    // 一个仓库、一个工作树：只有分支行，它在提交信息上方。
+    assert!(parts.location.is_none());
+    assert!(parts.branch.y >= parts.header.bottom());
+    assert!(parts.branch.bottom() <= parts.message.y);
+    let hit = |app: &App, target| {
+        app.commit_hits
+            .iter()
+            .find(|(_, t)| *t == target)
+            .map(|h| h.0)
+    };
+    let branch = hit(&app, CommitTarget::Branch).unwrap();
+    app.on_mouse_move(branch.x + 4.0, branch.y + 4.0);
+    assert_eq!(app.hover, Hover::Commit(CommitTarget::Branch));
 
-    // 分支名很长、放不下：不画分支，项目名完整。
-    app.panel_width = 300.0;
+    // 分支名很长时在行内截短，右端的按钮还在，不碰到它们。
     git_in(
         &root,
         &[
             "switch",
             "-q",
             "-c",
-            "feature/a-very-long-branch-name-for-the-sidebar",
+            "feature/a-very-long-branch-name-for-the-sidebar-that-does-not-fit",
+        ],
+    );
+    git_in(
+        &root,
+        &[
+            "remote",
+            "add",
+            "origin",
+            "https://example.invalid/repo.git",
         ],
     );
     app.git_refresh();
+    app.panel_width = crate::theme::MIN_PANEL_WIDTH;
     paint(&mut app);
-    assert_eq!(app.branch_hit.w, 0.0);
-    assert_eq!(app.project_hit.w, full_project);
+    let branch = hit(&app, CommitTarget::Branch).unwrap();
+    let sync = hit(&app, CommitTarget::Sync).unwrap();
+    assert!(branch.right() <= sync.x);
+    assert!(sync.right() <= app.layout.sidebar.right());
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -695,4 +725,192 @@ fn shoot_module_fade() {
         shoot(&mut app, &format!("module-fade-out-{theme}"));
         let _ = std::fs::remove_dir_all(&root);
     }
+}
+
+/// 建一个放着多个仓库的目录：`a`、`group/b`、`group/deep/c`，打开它并等后台查找完成。
+fn nested_repositories(name: &str) -> Option<(App, PathBuf)> {
+    let dir = search_folder(name);
+    for repo in ["a", "group/b", "group/deep/c"] {
+        let repo = dir.join(repo);
+        std::fs::create_dir_all(repo.join("src")).unwrap();
+        std::fs::write(repo.join("src/main.rs"), "fn main() {}\n").unwrap();
+        if !make_repo(&repo) {
+            return None;
+        }
+    }
+    let mut app = app_with(&dir, false);
+    app.settings_toggle(Setting::GitModule);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while app.git.repositories.len() < 3 && std::time::Instant::now() < deadline {
+        app.poll_git();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    Some((app, dir))
+}
+
+#[test]
+fn nested_repositories_are_found_in_the_background_without_moving_earlier_ones() {
+    let Some((mut app, dir)) = nested_repositories("git-nested") else {
+        return;
+    };
+    let names: Vec<String> = (0..app.git.repositories.len())
+        .map(|i| app.git_repository_name(i))
+        .collect();
+    assert_eq!(names, ["a", "group/b", "group/deep/c"]);
+    assert_eq!(app.git.root.as_ref(), app.git.repositories.first());
+
+    // 配置的层数生效：只找一层时找不到更深的。
+    app.config.repository_scan_depth = Some(1);
+    app.git_folder_changed();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    app.poll_git();
+    assert_eq!(app.git.repositories.len(), 1);
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_location_picker_searches_and_switches() {
+    use crate::app::git::location_picker::LocationRow;
+
+    let Some((mut app, dir)) = nested_repositories("git-location-picker") else {
+        return;
+    };
+    // 项目名只管项目：提交视图里也打开项目菜单。
+    app.run_action(Action::ShowCommit);
+    paint(&mut app);
+    app.open_project_menu();
+    assert!(!app.picker_lists_locations());
+    assert!(app.context_menu.is_some());
+    app.context_menu = None;
+
+    // 位置行展开位置选择器，选中的是当前位置，面板就在这一行下方。
+    let row = app.commit_parts().location.unwrap();
+    app.open_location_picker();
+    assert!(app.picker_lists_locations());
+    let place = |row: &LocationRow| match row {
+        LocationRow::Place(place) => place.clone(),
+        other => panic!("{other:?}"),
+    };
+    let rows = |app: &App| app.picker_location_rows.clone().unwrap();
+    assert_eq!(rows(&app).len(), 3);
+    assert!(place(&rows(&app)[app.picker_selected]).current);
+    paint(&mut app);
+    assert_eq!(app.layout.picker.x, row.x);
+    assert!(app.layout.picker.y >= row.bottom());
+
+    // 搜索只留下匹配的位置；回车切换并关闭。
+    app.picker_input.set_text("deep");
+    app.picker_refresh();
+    assert_eq!(rows(&app).len(), 1);
+    app.picker_accept();
+    assert!(!app.picker_open);
+    assert_eq!(app.git.root.as_ref(), app.git.repositories.get(2));
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_repository_with_worktrees_is_a_group_and_expanding_it_does_not_switch() {
+    use crate::app::git::location_picker::LocationRow;
+
+    let Some((mut app, dir)) = nested_repositories("git-location-group") else {
+        return;
+    };
+    let a = app.git.repositories[0].clone();
+    let linked = dir.with_extension("linked");
+    let _ = std::fs::remove_dir_all(&linked);
+    git_in(
+        &a,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "side",
+            linked.to_str().unwrap(),
+        ],
+    );
+    app.git_refresh();
+    app.run_action(Action::ShowCommit);
+    app.open_location_picker();
+    let rows = |app: &App| app.picker_location_rows.clone().unwrap();
+    // 当前仓库默认展开，工作树排在它下面。
+    let labels = |app: &App| -> Vec<String> {
+        rows(app)
+            .iter()
+            .map(|row| match row {
+                LocationRow::Repository { label, .. } => label.clone(),
+                LocationRow::Place(place) => place.label.clone(),
+            })
+            .collect()
+    };
+    assert_eq!(
+        labels(&app)[..3],
+        [
+            "a".to_owned(),
+            "主工作树".to_owned(),
+            "git-location-group.linked".to_owned()
+        ]
+    );
+
+    // 点仓库只是展开收起，当前仓库不变。
+    let root = app.git.root.clone();
+    app.picker_selected = 0;
+    app.picker_accept();
+    assert!(app.picker_lists_locations());
+    assert_eq!(app.git.root, root);
+    assert!(!labels(&app).contains(&"主工作树".to_owned()));
+    // 再打开时当前仓库重新展开。
+    app.close_picker();
+    app.open_location_picker();
+    assert!(labels(&app).contains(&"主工作树".to_owned()));
+
+    std::fs::remove_dir_all(&dir).unwrap();
+    let _ = std::fs::remove_dir_all(&linked);
+}
+
+#[test]
+fn drafts_stay_with_their_location() {
+    let Some((mut app, dir)) = nested_repositories("git-location-drafts") else {
+        return;
+    };
+    app.run_action(Action::ShowCommit);
+    app.commit.message.set_text("a 的草稿");
+    app.git_switch_repository(1);
+    assert_eq!(app.commit.message.text(), "");
+    app.commit.message.set_text("b 的草稿");
+    app.git_switch_repository(0);
+    assert_eq!(app.commit.message.text(), "a 的草稿");
+    app.git_switch_repository(1);
+    assert_eq!(app.commit.message.text(), "b 的草稿");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 截图：位置选择器。
+#[test]
+#[ignore]
+fn shoot_location_picker() {
+    let Some((mut app, dir)) = nested_repositories("git-location-shot") else {
+        return;
+    };
+    std::fs::write(dir.join("group/b/src/main.rs"), "fn changed() {}\n").unwrap();
+    let hotfix = dir.join("hotfix");
+    let hotfix = hotfix.to_str().unwrap();
+    git_in(
+        &dir.join("a"),
+        &["worktree", "add", "-q", "-b", "hotfix", hotfix],
+    );
+    app.run_action(Action::ShowCommit);
+    paint(&mut app);
+    app.git_discover();
+    let b = dir.join("group/b");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while std::time::Instant::now() < deadline && app.place_state(&b).changes == 0 {
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    shoot(&mut app, "git-context");
+    app.open_location_picker();
+    shoot(&mut app, "location-picker");
+    std::fs::remove_dir_all(&dir).unwrap();
 }

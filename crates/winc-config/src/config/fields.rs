@@ -277,6 +277,28 @@ const TERMINAL: &[Field] = &[
 /// `git` 一节。
 const GIT: &[Field] = &[
     bool_field!("enabled", git_enabled),
+    Field {
+        key: "repositoryScanDepth",
+        read: |config, value, name, problems| {
+            let label = t!("config-label-repository-scan-depth");
+            let range = Config::REPOSITORY_SCAN_DEPTH_RANGE;
+            config.repository_scan_depth = read_number(value, name, range, label, problems)
+                .filter(|v| {
+                    let whole = v.fract() == 0.0;
+                    if !whole {
+                        let value = v.to_string();
+                        problems.push(t!("config-not-integer", name = name, value = value));
+                    }
+                    whole
+                })
+                .map(|v| v as usize)
+        },
+        write: |config| {
+            config
+                .repository_scan_depth
+                .map(|depth| Json::Number(depth as f64))
+        },
+    },
     string_field!("worktreeRoot", git_worktree_root),
     Field {
         key: "worktreeCopy",

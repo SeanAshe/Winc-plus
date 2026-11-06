@@ -22,6 +22,11 @@ const WIDTH: (f32, f32) = (160.0, 420.0);
 const MARGIN: f32 = 8.0;
 /// 行底色左右缩进的距离（逻辑像素）。
 const ROW_INSET: f32 = 4.0;
+/// 选中底色上的文字颜色和次要文字颜色。
+pub(super) fn band_ink(p: &Palette) -> (Color, Color) {
+    let ink = p.text_on_accent;
+    (ink, ink.alpha(ink.a * 0.8))
+}
 
 /// 绘制窗口内的菜单（打开着时），并把各级菜单的位置记回菜单。
 pub(super) fn draw(app: &mut App, frame: &mut Frame<'_>) {
@@ -224,10 +229,7 @@ fn draw_level(app: &App, frame: &mut Frame<'_>, level: &PopupLevel) {
             frame.rect_clipped(band, p.accent_fill, RADIUS_ROW, clip);
         }
         let (ink, dim) = if hovered {
-            (
-                p.text_on_accent,
-                p.text_on_accent.alpha(p.text_on_accent.a * 0.8),
-            )
+            band_ink(p)
         } else if enabled {
             (p.text, p.text_dim)
         } else {

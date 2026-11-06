@@ -328,31 +328,54 @@ pub fn add_folder(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, cli
 
 /// 绘制「刷新」图标，约 13×13：从 3 点钟方向起顺时针绘制 7/8 圆周，在右上方收尾，末端为直角
 /// 箭头。
-pub fn refresh(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
-    let r = RING;
-    // 屏幕坐标的 `y` 轴向下，角度增大即顺时针方向：圆弧从 3 点钟转到 1 点半。
-    let (ex, ey) = (cx + r * FRAC_1_SQRT_2, cy - r * FRAC_1_SQRT_2);
-    // 箭头尖位于 3 点钟方向稍上方，圆弧末端沿切线方向斜向连接箭头尖，两臂分别朝上和朝左。
-    let (tx, ty) = (cx + r, cy - r * 0.45);
+pub fn refresh(frame: &mut Frame<'_>, center: (f32, f32), color: Color, clip: Rect) {
+    refresh_turned(frame, center, 0.0, color, clip);
+}
+
+/// 绘制「发布」图标，约 10×11，和「刷新」图标等高：向上的箭头，下面是托盘。
+pub fn upload(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let (top, bottom) = (cy - RING, cy + RING);
     let arm = 3.0;
     let shapes = [
-        Stroke::Arc(cx, cy, r, 0.0, 1.75 * PI),
-        Stroke::Line(ex, ey, tx, ty),
-        Stroke::Line(tx, ty, tx, ty - arm),
-        Stroke::Line(tx, ty, tx - arm, ty),
+        Stroke::Line(cx, top, cx, cy + 2.5),
+        Stroke::Line(cx, top, cx - arm, top + arm),
+        Stroke::Line(cx, top, cx + arm, top + arm),
+        Stroke::Line(cx - 5.0, bottom, cx + 5.0, bottom),
     ];
     frame.stroke(&shapes, RING_STROKE, color, clip);
 }
 
-/// 绘制加载中的旋转图标，约 12×12：四分之三圆周的圆弧，起点的弧度按 `turn`（圈数，可为任意
-/// 实数）顺时针旋转。
-///
-/// 半径比 `refresh` 小 0.5 逻辑像素，高度与界面文字的汉字相等，以便与同一行文字对齐。
-pub fn spinner(frame: &mut Frame<'_>, (cx, cy): (f32, f32), turn: f32, color: Color, clip: Rect) {
+/// 绘制按 `turn`（圈数，可为任意实数）顺时针旋转后的「刷新」图标，表示操作正在进行。
+pub fn refresh_turned(
+    frame: &mut Frame<'_>,
+    (cx, cy): (f32, f32),
+    turn: f32,
+    color: Color,
+    clip: Rect,
+) {
+    let r = RING;
     // 起点映射到 -π 至 π 之间：渲染圆弧时按起止角的 `atan2` 结果加或减一圈来确定角度范围，
     // 起点落在该区间才能保证终点不超过 3π；终点超过 3π 时圆弧末段不绘制。
-    let start = turn.rem_euclid(1.0) * 2.0 * PI - PI;
-    let shapes = [Stroke::Arc(cx, cy, RING - 0.5, start, start + 1.5 * PI)];
+    let mut angle = turn.rem_euclid(1.0) * 2.0 * PI;
+    if angle >= PI {
+        angle -= 2.0 * PI;
+    }
+    let (sin, cos) = angle.sin_cos();
+    let at = |x: f32, y: f32| (cx + x * cos - y * sin, cy + x * sin + y * cos);
+    // 屏幕坐标的 `y` 轴向下，角度增大即顺时针方向：圆弧从 3 点钟转到 1 点半。
+    let (ex, ey) = at(r * FRAC_1_SQRT_2, -r * FRAC_1_SQRT_2);
+    // 箭头尖位于 3 点钟方向稍上方，圆弧末端沿切线方向斜向连接箭头尖，两臂分别朝上和朝左。
+    let (tip_x, tip_y) = (r, -r * 0.45);
+    let arm = 3.0;
+    let (tx, ty) = at(tip_x, tip_y);
+    let (ux, uy) = at(tip_x, tip_y - arm);
+    let (lx, ly) = at(tip_x - arm, tip_y);
+    let shapes = [
+        Stroke::Arc(cx, cy, r, angle, angle + 1.75 * PI),
+        Stroke::Line(ex, ey, tx, ty),
+        Stroke::Line(tx, ty, ux, uy),
+        Stroke::Line(tx, ty, lx, ly),
+    ];
     frame.stroke(&shapes, RING_STROKE, color, clip);
 }
 

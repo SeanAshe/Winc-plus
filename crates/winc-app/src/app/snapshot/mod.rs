@@ -179,8 +179,7 @@ fn menu_commands(app: &App) -> Vec<(MenuCommand, bool)> {
                 | crate::app::input::context_menu::MenuEntry::Alternate(c, enabled) => {
                     out.push((*c, *enabled))
                 }
-                crate::app::input::context_menu::MenuEntry::Submenu(_, items)
-                | crate::app::input::context_menu::MenuEntry::CheckedSubmenu(_, items) => {
+                crate::app::input::context_menu::MenuEntry::Submenu(_, items) => {
                     flatten(items, out)
                 }
                 crate::app::input::context_menu::MenuEntry::Separator => {}

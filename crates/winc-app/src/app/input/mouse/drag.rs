@@ -51,6 +51,15 @@ impl App {
         self.drag_terminal_tab(x);
 
         self.set_hover(self.hover_at(x, y));
+        // 分支、位置选择器里选中项跟着鼠标走：只有一个高亮，行尾的「⋯」也在鼠标所在行。
+        if let crate::app::Hover::PickerRow(row) = self.hover
+            && self.picker_is_git()
+            && row != self.picker_selected
+            && self.picker_row_selectable(row)
+        {
+            self.picker_selected = row;
+            self.request_redraw();
+        }
         let code = self.markdown.codes.iter().position(|r| r.contains(x, y));
         if code != self.markdown.code_hover {
             self.markdown.code_hover = code;
@@ -203,6 +212,18 @@ impl App {
                 bar: Scrollbar::Terminal,
                 grab,
             } => self.drag_terminal_scrollbar(y, grab),
+            Drag::Scrollbar {
+                bar: Scrollbar::Markdown,
+                grab,
+            } => {
+                let area = self.markdown.area;
+                let content = self.markdown.height;
+                if let Some(thumb) = scrollbar_thumb(area, 0.0, content) {
+                    let max = content - area.h;
+                    let to = scroll_for_thumb(area.y, area.h, thumb.h, y, grab, max);
+                    self.scroll_markdown_to(to);
+                }
+            }
             Drag::Scrollbar {
                 bar: Scrollbar::Editor,
                 grab,

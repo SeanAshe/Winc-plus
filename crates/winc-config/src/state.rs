@@ -40,6 +40,8 @@ pub struct State {
     ///
     /// `false`（默认）时平铺，每个文件一行。所有窗口和仓库共用，下次启动沿用。
     pub commit_tree: bool,
+    /// 侧栏宽度（逻辑像素）；`None` 表示没有调整过。所有视图、窗口和仓库共用，下次启动沿用。
+    pub panel_width: Option<f32>,
     /// 能预览的文件（SVG、Markdown、表格）打开时的显示方式：`"split"`（分栏）或 `"preview"`
     /// （只看预览）；`None` 表示源代码。记录用户最近一次在标签栏右端选择的方式，下次启动
     /// 沿用。
@@ -322,6 +324,10 @@ impl State {
             .get("commitTree")
             .and_then(Json::as_bool)
             .unwrap_or(false);
+        state.panel_width = root
+            .get("panelWidth")
+            .and_then(Json::as_number)
+            .map(|width| width as f32);
         state.window = root
             .get("window")
             .and_then(Json::as_object)
@@ -390,6 +396,9 @@ impl State {
 
         if self.commit_tree {
             fields.push(("commitTree", Json::Bool(true)));
+        }
+        if let Some(width) = self.panel_width {
+            fields.push(("panelWidth", Json::Number(f64::from(width))));
         }
         if let Some(mode) = &self.preview_mode {
             fields.push(("previewMode", Json::String(mode.clone())));

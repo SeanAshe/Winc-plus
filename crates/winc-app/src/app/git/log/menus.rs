@@ -143,8 +143,10 @@ impl App {
                     t!("git-log-reset-hard-confirm-button"),
                 )
             }
-            // 删除储藏的确认在分支菜单中进行，不经过这里。
-            LogConfirmed::DropStash(_) => return self.run_log_confirmed(op),
+            // 删除储藏、分支的确认在分支菜单中进行，不经过这里。
+            LogConfirmed::DropStash(_) | LogConfirmed::DeleteBranch(..) => {
+                return self.run_log_confirmed(op);
+            }
         };
         if self.window.is_some() {
             self.show_confirm(&message, &detail, action, move |ok| {
@@ -183,6 +185,7 @@ impl App {
                     move |git, root| git.stash(root, "drop", &stash.oid),
                 );
             }
+            LogConfirmed::DeleteBranch(name, force) => self.run_delete_branch(name, force),
         }
     }
 }

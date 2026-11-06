@@ -1,7 +1,7 @@
-//! 状态栏右侧可点击的项：缩进、行尾、编码、语言、分支、终端开关和设置。
+//! 状态栏右侧可点击的项：缩进、行尾、编码、语言、工作树、分支、终端开关和设置。
 //!
-//! 点击缩进、行尾、编码、语言时，在该项处弹出系统菜单；菜单命令由 [`App::run_status_command`]
-//! 执行。
+//! 点击缩进、行尾、编码、语言、工作树、分支时，在该项处弹出系统菜单；文档的几项由
+//! [`App::run_status_command`] 执行。
 
 use winc_core::{Indent, LineEnding};
 use winc_editor::encoding::CHOICES;
@@ -24,7 +24,9 @@ pub enum StatusItem {
     Encoding,
     /// 文档的语言：手动改用别的语言（没保存过的文件选了语言才能格式化），或按文件名重新识别。
     Language,
-    /// Git 的当前分支：点了弹分支菜单。
+    /// 当前的仓库或工作树（有多个位置时才有）：点了弹出系统菜单切换。
+    Worktree,
+    /// Git 的当前分支：点了弹出系统菜单切换。
     Branch,
     /// 终端面板的开关（终端模块开着时在设置按钮左边）。
     Terminal,
@@ -64,8 +66,9 @@ impl App {
             return;
         };
         let target = match (item, self.editor.active().map(|d| d.id)) {
-            // 分支菜单不依赖当前文档。
-            (StatusItem::Branch, _) => MenuTarget::Branch,
+            // 这两个菜单不依赖当前文档。
+            (StatusItem::Branch, _) => MenuTarget::StatusBranches,
+            (StatusItem::Worktree, _) => MenuTarget::StatusPlaces(self.location_places()),
             (_, None) => return,
             (StatusItem::Indent, Some(id)) => MenuTarget::Indent(id),
             (StatusItem::LineEnding, Some(id)) => MenuTarget::LineEnding(id),

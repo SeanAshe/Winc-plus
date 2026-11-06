@@ -1,4 +1,4 @@
-//! 工作树（`git worktree`）在界面这边：项目菜单里的工作树一组，在新窗口或当前窗口打开，分支被
+//! 工作树（`git worktree`）在界面这边：位置选择器里的工作树，在新窗口或当前窗口打开，分支被
 //! 其他工作树签出时切过去，新建、移除、清理失效的，以及附属工作树的窗口标识。
 //!
 //! 工作树是同一个仓库的另一个目录，一个目录一个窗口（见 `instance.rs`），所以「在新窗口打开」就是
@@ -7,12 +7,11 @@
 
 use std::path::{Path, PathBuf};
 
-use winc_editor::git::{Branch, Head, Worktree, WorktreeCheck};
+use winc_editor::git::{Branch, Worktree, WorktreeCheck};
 use winc_i18n::t;
 
 use super::GitState;
 use super::branch::{Then, local_name};
-use crate::app::input::context_menu::{MenuCommand, MenuEntry, MenuLabel};
 use crate::app::{AlertButton, App, UserEvent};
 
 /// 新建工作树对话框里输入的名字指的是什么。
@@ -46,6 +45,11 @@ impl GitState {
         self.worktrees.iter().position(|w| w.path == root)
     }
 
+    /// `path` 是不是当前仓库的一个工作树。
+    pub(in crate::app) fn shares_repository(&self, path: &Path) -> bool {
+        self.worktrees.iter().any(|w| w.path == path)
+    }
+
     /// 打开的是附属工作树时的主工作树（列表的第一项）；打开的是主工作树、只有一个工作树时为
     /// `None`。
     pub fn main_worktree(&self) -> Option<&Worktree> {
@@ -68,7 +72,7 @@ impl GitState {
             .find(|&i| self.worktrees[i].branch() == Some(branch))
     }
 
-    /// 被别的工作树签出的本地分支名（分支菜单里它们的「签出」是切过去，不能删除）。
+    /// 被别的工作树签出的本地分支名（选择分支时是切过去，不能删除）。
     pub fn held_branches(&self) -> Vec<&str> {
         let holders = self.holders(false);
         holders.filter_map(|i| self.worktrees[i].branch()).collect()
@@ -93,109 +97,16 @@ pub(crate) fn worktree_name(worktree: &Worktree) -> String {
     winc_editor::git::repo_name(&worktree.path)
 }
 
-/// 项目菜单最上面的工作树一组，后面跟一条分隔线；`repo` 为否（不在仓库里、模块关着）时为空。
-///
-/// 有不止一个工作树时先列出来：每个一项，点了在新窗口打开（已经开着就切过去），按住 ⌥ 变成
-/// 「在当前窗口打开」；当前这个打勾，目录已不在的灰掉，裸仓库的主工作树不列。然后是「新建工作树…」
-/// 和「移除工作树」子菜单，有目录已不在的时还有「清理失效的工作树」；`busy` 时会改仓库的都灰掉。
-pub(crate) fn worktree_entries(
-    worktrees: &[Worktree],
-    current: Option<usize>,
-    repo: bool,
-    busy: bool,
-) -> Vec<MenuEntry> {
-    use MenuCommand::*;
-    if !repo {
-        return Vec::new();
-    }
-    let mut menu = Vec::new();
-    if worktrees.len() >= 2 {
-        menu.push(MenuEntry::Item(WorktreeHeading, false));
-        for (i, worktree) in worktrees.iter().enumerate() {
-            if worktree.head.is_none() {
-                continue;
-            }
-            let usable = !worktree.prunable;
-            menu.push(MenuEntry::Item(OpenWorktree(i), usable));
-            if usable && current != Some(i) {
-                menu.push(MenuEntry::Alternate(OpenWorktreeHere(i), true));
-            }
-        }
-    }
-    menu.push(MenuEntry::Item(NewWorktree, !busy));
-    let removable: Vec<MenuEntry> = (worktrees.iter().enumerate().skip(1))
-        .filter(|(_, w)| !w.prunable)
-        .map(|(i, w)| MenuEntry::Item(RemoveWorktree(i), !busy && current != Some(i) && !w.locked))
-        .collect();
-    if !removable.is_empty() {
-        menu.push(MenuEntry::Submenu(
-            t!("git-worktree-remove-menu").to_owned(),
-            removable,
-        ));
-    }
-    if worktrees.iter().any(|w| w.prunable) {
-        menu.push(MenuEntry::Item(PruneWorktrees, !busy));
-    }
-    menu.push(MenuEntry::Separator);
-    menu
-}
-
 impl App {
-    /// 项目菜单里工作树一项的文字：标题是名字（按住 ⌥ 的那一项写「在当前窗口打开「名字」」），
-    /// 下面一行小字是签出的分支（游离时是提交号），目录不在、锁定时写明；悬停提示是完整路径。
-    pub(in crate::app) fn worktree_label(&self, command: MenuCommand) -> MenuLabel {
-        let (MenuCommand::OpenWorktree(i)
-        | MenuCommand::OpenWorktreeHere(i)
-        | MenuCommand::RemoveWorktree(i)) = command
-        else {
-            return MenuLabel::plain("");
-        };
-        let Some(worktree) = self.git.worktrees.get(i) else {
-            return MenuLabel::plain("");
-        };
-        let name = worktree_name(worktree);
-        let head = match &worktree.head {
-            Some(Head::Branch(branch)) => branch.clone(),
-            Some(Head::Detached(oid)) => t!("git-worktree-detached", oid = oid.as_str()),
-            None => String::new(),
-        };
-        // 移除子菜单里不能移除的写明原因。
-        let removing = matches!(command, MenuCommand::RemoveWorktree(_));
-        let subtitle = if worktree.prunable {
-            t!("git-worktree-missing").to_owned()
-        } else if removing && self.git.current_worktree() == Some(i) {
-            t!("git-worktree-open-here").to_owned()
-        } else if removing && worktree.locked {
-            t!("git-worktree-locked-unremovable").to_owned()
-        } else if worktree.locked {
-            t!("git-worktree-locked", head = head)
-        } else {
-            head
-        };
-        let title = match command {
-            MenuCommand::OpenWorktreeHere(_) => t!("git-worktree-open-in-current", name = name),
-            _ => name,
-        };
-        MenuLabel {
-            title,
-            subtitle: Some(subtitle),
-            tooltip: Some(winc_editor::display_path(&worktree.path, None)),
-        }
-    }
-
-    /// 命令「Git：切换工作树…」：弹项目菜单（工作树一组在最上面）；只有一个工作树时说明。
-    ///
-    /// 侧栏收着时先展开：菜单从项目名下面弹出，要先画出项目名才知道位置。
-    pub(in crate::app) fn switch_worktree(&mut self) {
-        if self.git.worktrees.len() < 2 {
-            self.flash(t!("git-worktree-only-one"));
-            return;
-        }
-        if !self.panel_visible {
-            self.set_sidebar(true);
-            self.paint_now();
-        }
-        self.open_project_menu();
+    /// 上下文栏上的项目名：打开的目录就是附属工作树时写它所属的仓库，同一个仓库的工作树之间切换时
+    /// 不变；工作树的名字写在位置按钮上。打开的目录里有多个仓库时项目就是这个目录。没有打开目录时
+    /// 为 `None`。
+    pub(crate) fn project_name(&self) -> Option<String> {
+        let folder = self.editor.workspace.as_ref()?;
+        let main = (self.editor.root() == self.git.root.as_deref())
+            .then(|| self.git.main_worktree())
+            .flatten();
+        Some(main.map_or_else(|| folder.name.clone(), worktree_name))
     }
 
     /// 打开第 `i` 个工作树：`new_window` 时在新窗口（已经开着就切到那个窗口），否则在当前窗口
@@ -215,7 +126,7 @@ impl App {
     }
 
     /// 在新窗口里打开目录 `path`：已经在某个 winc 窗口里开着就切过去。
-    pub(super) fn open_in_new_window(&mut self, path: &Path) {
+    pub(in crate::app) fn open_in_new_window(&mut self, path: &Path) {
         self.new_window(Some(path.to_path_buf()));
     }
 
@@ -240,7 +151,7 @@ impl App {
         Some(winc_editor::git::worktree_dir(main, folder, branch))
     }
 
-    /// 分支菜单、日志菜单里写的新工作树的位置：默认位置写相对于仓库所在目录的
+    /// 分支操作菜单、日志菜单里写的新工作树的位置：默认位置写相对于仓库所在目录的
     /// （`winc.worktrees/feat-x`），配置了 `git.worktreeRoot` 时写完整的（主目录写成 `~`）。
     ///
     /// 还没输入名字时最后一级写「…」。
@@ -287,7 +198,7 @@ impl App {
         }
     }
 
-    /// 分支菜单的「在新工作树中签出」：放在默认位置，按配置复制被忽略的文件，在新窗口打开。
+    /// 分支操作菜单的「在新工作树中签出」：放在默认位置，按配置复制被忽略的文件，在新窗口打开。
     pub(super) fn new_worktree_for(&mut self, branch: &Branch) {
         let Some(dir) = self.new_worktree_dir(local_name(branch)) else {
             return;
@@ -405,7 +316,10 @@ impl App {
     /// 换目录会重新读）。
     pub(super) fn worktree_done(&mut self, then: Then) {
         match then {
-            Then::Nothing | Then::ConfirmRemove(_) => return,
+            Then::Nothing
+            | Then::ConfirmRemove(_)
+            | Then::ConfirmForcePush(_)
+            | Then::ConfirmForceDelete(_) => return,
             Then::Refresh => {}
             Then::Open(path, true) => self.open_in_new_window(&path),
             Then::Open(path, false) => return self.switch_folder(&path),
@@ -413,7 +327,7 @@ impl App {
         self.git_refresh();
     }
 
-    /// 项目菜单的「清理失效的工作树」：目录已经不在的，去掉 git 里的记录。
+    /// 位置选择器的「清理」：目录已经不在的，去掉 git 里的记录。
     pub(in crate::app) fn prune_worktrees(&mut self) {
         self.git_operate_then(t!("git-op-prune-worktrees").into(), |git, root| {
             git.operate(root, &["worktree", "prune"])
@@ -421,7 +335,7 @@ impl App {
         });
     }
 
-    /// 项目菜单「移除工作树」里的第 `i` 个：在另一个窗口里开着时请用户先关闭，否则在后台检查
+    /// 位置选择器「移除工作树」的第 `i` 个工作树：在另一个窗口里开着时请用户先关闭，否则在后台检查
     /// 有没有没提交的改动、分支合并了没有，再确认（[`App::confirm_remove_worktree`]）。
     pub(in crate::app) fn remove_worktree(&mut self, i: usize) {
         let Some(worktree) = self.git.worktrees.get(i).cloned() else {

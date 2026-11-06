@@ -165,7 +165,6 @@ workspace-tip-continue-rebase = 继续变基
 workspace-tip-finish-operation = 完成{ $operation }
 workspace-tip-amend = 修改上一次提交
 workspace-tip-commit-to = 提交到 { $branch }
-workspace-tip-sync = 与 { $upstream } 同步
 workspace-tip-commit = 提交
 workspace-tip-open-file = 打开文件
 workspace-tip-revert-change = 回滚更改

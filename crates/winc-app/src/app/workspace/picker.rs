@@ -124,6 +124,8 @@ impl App {
 
         self.finish_name_input();
         self.picker_places = None;
+        self.picker_branch_rows = None;
+        self.picker_location_rows = None;
         self.picker_open = true;
         self.picker_doc = self.editor.active().map(|d| d.id);
         self.picker_input.set_text("");
@@ -143,6 +145,11 @@ impl App {
         self.drop_symbols();
         self.picker.forget_query();
         self.picker_open = false;
+        self.picker_branch_rows = None;
+        self.picker_location_rows = None;
+        self.picker_create = None;
+        self.picker_part_hits.clear();
+        self.picker_fold = None;
         self.places_in = None;
         if let Some(places) = self.picker_places.take()
             && let Some(clock) = self.clock(POPUP_OUT)
@@ -181,8 +188,9 @@ impl App {
         }
 
         let target = self.layout.picker.h;
-        // 位置浮窗挂在名字旁边，筛选时高度直接到位：卡片边沿滑动会使列表看起来在滚动。
-        if self.picker_places.is_some() {
+        // 位置浮窗和分支、位置选择器都挂在触发它们的地方，筛选时高度直接到位：卡片边沿滑动会使
+        // 列表看起来在滚动。
+        if self.picker_places.is_some() || self.picker_is_git() {
             self.picker_motion = None;
             self.picker_height = Some((target, size));
             return;
@@ -244,6 +252,11 @@ impl App {
         self.layout.picker = Rect::new(x, y.round(), w, h);
     }
 
+    /// 面板是否是分支选择器或位置选择器。
+    pub(crate) fn picker_is_git(&self) -> bool {
+        self.picker_lists_branches() || self.picker_lists_locations()
+    }
+
     /// 位置浮窗是否在名字上方。
     pub(crate) fn places_above(&self) -> bool {
         self.places_bottom.is_some()
@@ -280,6 +293,19 @@ impl App {
         if self.picker_places.is_some() {
             self.picker_goto = None;
             self.places_refresh();
+            return;
+        }
+        self.picker_fold = None;
+        if self.picker_lists_branches() {
+            self.picker_goto = None;
+            self.drop_symbols();
+            self.branch_picker_refresh();
+            return;
+        }
+        if self.picker_lists_locations() {
+            self.picker_goto = None;
+            self.drop_symbols();
+            self.location_picker_refresh();
             return;
         }
         if self.picker_lists_symbols() {
@@ -384,7 +410,10 @@ impl App {
             return;
         }
 
-        let files = !self.picker_lists_commands() && !self.picker_lists_symbols();
+        let files = !self.picker_lists_commands()
+            && !self.picker_lists_symbols()
+            && !self.picker_lists_branches()
+            && !self.picker_lists_locations();
         if self.picker_open && files && self.picker_places.is_none() {
             let scroll = self.picker_scroll;
             self.picker_refresh();
@@ -421,7 +450,9 @@ impl App {
         }
 
         let last = self.picker_hits.len() - 1;
-        self.picker_selected = if down {
+        self.picker_selected = if self.picker_lists_branches() {
+            self.branch_picker_step(down)
+        } else if down {
             (self.picker_selected + 1).min(last)
         } else {
             self.picker_selected.saturating_sub(1)
@@ -435,7 +466,7 @@ impl App {
     }
 
     /// 滚动结果列表，使选中项进入可见范围。
-    fn picker_reveal(&mut self) {
+    pub(in crate::app) fn picker_reveal(&mut self) {
         let height = view::picker_span(self);
         if height <= 0.0 {
             return;
@@ -452,6 +483,14 @@ impl App {
     pub(in crate::app) fn picker_accept(&mut self) {
         if self.picker_places.is_some() {
             self.places_accept();
+            return;
+        }
+        if self.picker_lists_branches() {
+            self.branch_picker_accept();
+            return;
+        }
+        if self.picker_lists_locations() {
+            self.location_picker_accept();
             return;
         }
         if self.picker_lists_commands() {

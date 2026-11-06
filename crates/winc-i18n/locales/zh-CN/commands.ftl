@@ -145,6 +145,7 @@ cmd-previous-diff-file = 上一个文件
 cmd-toggle-diff-layout = 切换差异单栏视图
 cmd-git-show-changes = Git：显示差异
 cmd-git-show-log = Git：显示日志
+cmd-git-switch-repository = Git：切换仓库
 cmd-git-switch-worktree = Git：切换工作树…
 cmd-git-new-worktree = Git：新建工作树…
 cmd-git-file-history = Git：显示当前文件的历史
