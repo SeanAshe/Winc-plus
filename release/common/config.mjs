@@ -29,7 +29,7 @@ function releaseConfig({ version, thumbprint, key }) {
   const fork = Number(forkVersion());
   if (fork > 65535) throw new Error(`${fork} exceeds the MSI build limit (65535)`);
   // Windows Installer ignores a fourth field and already shipped 0.1.<patch>.
-  // 0.2.<fork> is newer than those and increases on every commit.
+  // 0.2.<fork> is newer than those. <fork> is the commits ahead of upstream.
   return {
     version, channel: channelOf(version), productName: "winc", identifier: "com.deeix.winc",
     msiVersion: `0.2.${fork}`, certificateThumbprint: thumbprint?.toUpperCase() ?? "",
