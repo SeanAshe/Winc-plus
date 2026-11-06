@@ -11,6 +11,9 @@ pub(crate) fn display_version() -> String {
 }
 
 /// 写进 appcast、并用来和当前安装比较的版本，例如 `0.1.502.115`。
+///
+/// macOS 由 Sparkle 比较版本，这个四段数字只给其他平台的应用内更新。
+#[cfg(not(target_os = "macos"))]
 pub(crate) fn update_version() -> &'static str {
     concat!(env!("CARGO_PKG_VERSION"), ".", env!("WINC_FORK_VERSION"))
 }
