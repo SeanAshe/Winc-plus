@@ -214,6 +214,14 @@ pub fn backspace(
     delete_range(text, selection, from, pos)
 }
 
+/// 返回删除光标前后各一个字符的事务，用于删除空的括号或引号对；光标位于文档开头时返回 `None`。
+///
+/// 撤销后光标恢复到两个字符之间。
+pub fn delete_pair(text: &impl Lines, selection: Selection) -> Option<Transaction> {
+    let from = selection.head.checked_sub(1)?;
+    delete_range(text, selection, from, selection.head + 1)
+}
+
 /// 返回删除到行首（`⌘⌫`，macOS）的事务。
 ///
 /// 有选区时删除选区；光标已在行首时等同于退格，即删除前一个字素，与上一行相接。

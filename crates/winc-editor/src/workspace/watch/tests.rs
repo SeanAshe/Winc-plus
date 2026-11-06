@@ -228,3 +228,121 @@ fn hidden_folders_are_dropped() {
     assert!(!hidden(root, Path::new("/p/.github/ci.yml")));
     assert!(!hidden(root, Path::new("/p/src/main.rs")));
 }
+
+/// 运行一段代替监视程序的脚本，把它监视的目录作为打开的目录。
+#[cfg(unix)]
+fn in_distro(dir: &Path, script: &str) -> (Watcher, mpsc::Receiver<()>) {
+    let mut command = std::process::Command::new("sh");
+    command.args(["-c", script]);
+    let (sender, woken) = mpsc::channel();
+    let to_local = |path: &str| PathBuf::from(path);
+    let wake = move || {
+        let _ = sender.send(());
+    };
+    (
+        Watcher::in_distro(dir, command, to_local, wake).unwrap(),
+        woken,
+    )
+}
+
+/// 等待 `ready` 成立，最长 10 秒，返回最后的结果。
+#[cfg(unix)]
+fn eventually(ready: impl Fn() -> bool) -> bool {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !ready() && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    ready()
+}
+
+#[cfg(unix)]
+#[test]
+fn distribution_watchers_become_reliable_only_after_starting_and_rescan_once() {
+    let dir = scratch("watch-distro");
+    let file = dir.join("a b.txt");
+    let git = dir.join(".git/HEAD");
+    // 等标准输入收到一行再报告路径，先核对开始监视时的状态。
+    let script = format!(
+        r#"read -r _go; printf 'S\0'; read -r _go; printf 'P{}\0P{}\0'; cat >/dev/null"#,
+        file.display(),
+        git.display()
+    );
+    let (mut watcher, woken) = in_distro(&dir, &script);
+    assert!(!watcher.reliable());
+
+    let Inner::Distro(helper) = &mut watcher.inner else {
+        panic!("应当是发行版内的监视程序");
+    };
+    helper.send_line();
+    woken.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert!(eventually(|| watcher.reliable()));
+    assert!(watcher.take().rescan);
+
+    let Inner::Distro(helper) = &mut watcher.inner else {
+        panic!("应当是发行版内的监视程序");
+    };
+    helper.send_line();
+    let mut seen = Changes::default();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while (!seen.git || seen.paths.is_empty()) && Instant::now() < deadline {
+        let more = watcher.take();
+        seen.git |= more.git;
+        seen.rescan |= more.rescan;
+        seen.paths.extend(more.paths);
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(seen.paths, [file]);
+    assert!(seen.git);
+    assert!(!seen.rescan);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_helper_that_exits_after_watching_can_be_restarted() {
+    let dir = scratch("watch-distro-exit");
+    let (watcher, woken) = in_distro(&dir, r"printf 'S\0'; exit 1");
+    woken.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert!(eventually(|| watcher.exited()));
+    assert!(!watcher.reliable());
+    assert!(watcher.take().rescan);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_helper_that_never_starts_is_not_retried() {
+    let dir = scratch("watch-distro-failed");
+    let (watcher, woken) = in_distro(&dir, "exit 127");
+    assert!(woken.recv_timeout(Duration::from_millis(300)).is_err());
+    assert!(!watcher.exited());
+    assert!(!watcher.reliable());
+    assert!(!watcher.take().rescan);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn the_watch_limit_is_reported_once_and_not_retried() {
+    let dir = scratch("watch-distro-limit");
+    let (watcher, woken) = in_distro(&dir, r"printf 'E\0'; exit 1");
+    woken.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert!(watcher.take_limit());
+    assert!(!watcher.take_limit());
+    assert!(!watcher.exited());
+    assert!(!watcher.reliable());
+    let _ = fs::remove_dir_all(&dir);
+}
+
+#[cfg(unix)]
+#[test]
+fn dropping_the_watcher_lets_the_helper_exit_on_its_own() {
+    let dir = scratch("watch-distro-drop");
+    let marker = dir.join("exited");
+    let script = format!("cat >/dev/null; touch '{}'", marker.display());
+    let (watcher, _woken) = in_distro(&dir, &script);
+    drop(watcher);
+    // 被强制结束时不会运行到 `touch`。
+    assert!(eventually(|| marker.exists()));
+    let _ = fs::remove_dir_all(&dir);
+}

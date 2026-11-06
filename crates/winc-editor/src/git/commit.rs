@@ -124,15 +124,18 @@ impl Git {
         amend: bool,
     ) -> Result<String, String> {
         let cancel = Cancel::default();
-        let index = std::env::temp_dir().join(format!(
+        let index = crate::wsl::temp_dir(root).join(format!(
             "winc-index-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_nanos())
         ));
+        // 发行版内的 `git` 只接受发行版内的路径。
+        let index_arg = crate::wsl::locate_here(&index)
+            .map_or_else(|| index.clone().into_os_string(), |place| place.path.into());
         let with_index = |command: &mut Command| {
-            command.env("GIT_INDEX_FILE", &index);
+            command.env("GIT_INDEX_FILE", &index_arg);
         };
         let result = (|| {
             // 从 `HEAD` 开始；还没有提交过时是空的暂存区。其他失败（超时、对象损坏、写不了临时
@@ -177,12 +180,13 @@ impl Git {
                     Ok(output) => return Err(failure(&output.stderr)),
                     Err(e) => return Err(describe(&e)),
                 };
+                let mode = self.file_mode(&part.path, &cancel)?;
                 let mut command = self.command(root);
                 with_index(&mut command);
                 command
                     .args(["update-index", "--add", "--cacheinfo"])
                     .arg(joined_arg(&[
-                        OsStr::new(&format!("{},{oid},", file_mode(&part.path))),
+                        OsStr::new(&format!("{mode},{oid},")),
                         &relative,
                     ]));
                 self.run(&mut command, STATUS_TIMEOUT, &cancel)?;

@@ -11,7 +11,8 @@ use super::*;
 /// 优先取 `error:`、`fatal:`、`! [rejected]`、`CONFLICT` 开头的行，没有这样的行时取第一行
 /// 非空的内容。
 pub(super) fn failure(output: &[u8]) -> String {
-    let text = String::from_utf8_lossy(output);
+    // 不支持 `WSL_UTF8` 的 `wsl.exe` 以 UTF-16 输出，去掉 NUL 后 ASCII 范围的内容仍然可读。
+    let text = String::from_utf8_lossy(output).replace('\0', "");
     let lines: Vec<&str> = text
         .lines()
         .map(str::trim)

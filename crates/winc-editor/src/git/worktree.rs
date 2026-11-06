@@ -111,6 +111,7 @@ impl Git {
         // `git` 给出的路径没有解析符号链接（`/tmp` 和 `/private/tmp`），打开目录时记下的是
         // 解析过的路径。
         for worktree in &mut worktrees {
+            worktree.path = crate::wsl::resolve(root, &worktree.path.to_string_lossy());
             if let Ok(real) = winc_config::files::canonicalize(&worktree.path) {
                 worktree.path = real;
             }

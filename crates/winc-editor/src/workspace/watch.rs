@@ -4,6 +4,10 @@
 //! 文件树、⌘P 的文件表和已打开的文档据此按路径各自更新，不必重新遍历整个目录。收集在 `notify`
 //! 自己的线程上进行，第一条变化到达时唤醒界面线程一次，界面线程稍后用 [`Watcher::take`] 一次取走
 //! 全部变化，因此密集改动只处理一次。
+//!
+//! Windows 上 WSL 发行版中的目录由发行版内的程序监视（`distro`）：经文件共享的通知不一定送达。
+
+mod distro;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -48,10 +52,47 @@ struct Pending {
     paths: HashSet<PathBuf>,
     rescan: bool,
     git: bool,
+    /// 是否超出了系统允许的监视数量且尚未告知用户。
+    limit: bool,
     /// 在打开的目录之外另外监视的公共 Git 目录。
     git_dir: Option<PathBuf>,
     /// 收集到第一条变化后是否已唤醒过界面线程；在 [`Watcher::take`] 取走之前不再重复唤醒。
     woken: bool,
+}
+
+impl Pending {
+    /// 记录发生变化的路径 `paths`（`base` 是打开的目录）。
+    fn add_paths(&mut self, base: &Path, paths: impl IntoIterator<Item = PathBuf>) {
+        // 已经要重新扫描时不再记录路径（反正用不上），只看 `.git` 是否变化。
+        for path in paths {
+            if git_state(&path) {
+                self.git = true;
+            } else if (self.git_dir.as_ref()).is_some_and(|dir| path.starts_with(dir)) {
+                // 公共 Git 目录里的其他文件不是打开的目录里的东西。
+            } else if !self.rescan && !hidden(base, &path) {
+                self.paths.insert(path);
+            }
+        }
+        if self.paths.len() > MAX_PATHS {
+            self.paths.clear();
+            self.rescan = true;
+        }
+    }
+
+    /// 是否该唤醒界面线程：有内容且这一批还没有唤醒过；返回 `true` 时记为已唤醒。
+    fn wake_due(&mut self) -> bool {
+        let due = !self.woken && (self.rescan || self.git || self.limit || !self.paths.is_empty());
+        self.woken |= due;
+        due
+    }
+}
+
+/// 实际执行监视的部分，释放时停止监视。
+enum Inner {
+    /// 本机的系统监视器。
+    System(RecommendedWatcher),
+    /// WSL 发行版内的监视程序。
+    Distro(distro::Helper),
 }
 
 /// 目录监视器：后台线程累积变化，界面线程一次取走。
@@ -60,19 +101,30 @@ struct Pending {
 pub struct Watcher {
     root: PathBuf,
     pending: Arc<Mutex<Pending>>,
-    /// 底层的系统监视器，释放时停止监视。
-    inner: RecommendedWatcher,
+    inner: Inner,
 }
 
 impl Watcher {
     /// 开始递归监视 `root` 及其所有子目录。
     ///
-    /// 有变化时在 `notify` 的线程上调用 `wake`，同一批变化只调用一次。
+    /// 有变化时在后台线程上调用 `wake`，同一批变化只调用一次。`root` 位于 WSL 发行版中时优先使用
+    /// 发行版内的监视程序；程序不存在或无法启动时使用系统监视器，[`Watcher::reliable`] 为假。
     ///
     /// # Errors
     ///
     /// 系统无法创建监视器或无法监视该目录时返回 `notify::Error`。
-    pub fn start(root: &Path, wake: impl Fn() + Send + 'static) -> notify::Result<Watcher> {
+    pub fn start(root: &Path, wake: impl Fn() + Send + Sync + 'static) -> notify::Result<Watcher> {
+        let wake = Arc::new(wake);
+        if let Some(place) = crate::wsl::locate_here(root)
+            && let Some(helper) = crate::wsl::watch_helper()
+        {
+            let command = crate::wsl::watch_command(&place, &helper);
+            let notify = Arc::clone(&wake);
+            let to_local = move |path: &str| place.windows_path(path);
+            if let Ok(watcher) = Watcher::in_distro(root, command, to_local, move || notify()) {
+                return Ok(watcher);
+            }
+        }
         let pending = Arc::new(Mutex::new(Pending::default()));
         let shared = Arc::clone(&pending);
         let base = root.to_path_buf();
@@ -84,28 +136,10 @@ impl Watcher {
                     Ok(event) if event.need_rescan() => pending.rescan = true,
                     // 打开、读取文件不算变化。
                     Ok(event) if matches!(event.kind, EventKind::Access(_)) => return,
-                    Ok(event) => {
-                        // 已经要重新扫描时不再记录路径（反正用不上），只看 `.git` 是否变化。
-                        for path in event.paths {
-                            if git_state(&path) {
-                                pending.git = true;
-                            } else if (pending.git_dir.as_ref())
-                                .is_some_and(|dir| path.starts_with(dir))
-                            {
-                                // 公共 Git 目录里的其他文件不是打开的目录里的东西。
-                            } else if !pending.rescan && !hidden(&base, &path) {
-                                pending.paths.insert(path);
-                            }
-                        }
-                        if pending.paths.len() > MAX_PATHS {
-                            pending.paths.clear();
-                            pending.rescan = true;
-                        }
-                    }
+                    Ok(event) => pending.add_paths(&base, event.paths),
                     Err(_) => pending.rescan = true,
                 }
-                if !pending.woken && (pending.rescan || pending.git || !pending.paths.is_empty()) {
-                    pending.woken = true;
+                if pending.wake_due() {
                     drop(pending);
                     wake();
                 }
@@ -114,8 +148,52 @@ impl Watcher {
         Ok(Watcher {
             root: root.to_path_buf(),
             pending,
-            inner,
+            inner: Inner::System(inner),
         })
+    }
+
+    /// 由 `command` 启动的监视程序监视 `root`；报告的路径经 `to_local` 转换为本机路径。
+    fn in_distro(
+        root: &Path,
+        command: std::process::Command,
+        to_local: impl Fn(&str) -> PathBuf + Send + 'static,
+        wake: impl Fn() + Send + 'static,
+    ) -> std::io::Result<Watcher> {
+        let pending = Arc::new(Mutex::new(Pending::default()));
+        let shared = Arc::clone(&pending);
+        let base = root.to_path_buf();
+        let record = move |report| {
+            if distro::apply(&shared, &base, report) {
+                wake();
+            }
+        };
+        Ok(Watcher {
+            root: root.to_path_buf(),
+            pending,
+            inner: Inner::Distro(distro::Helper::spawn(command, to_local, record)?),
+        })
+    }
+
+    /// 变化通知是否可靠：为假时调用方应在窗口获得焦点时自行重新检查。
+    ///
+    /// 经文件共享监视 WSL 发行版中的目录时通知不一定送达；发行版内的监视程序开始监视之前和退出之后
+    /// 都没有通知。
+    pub fn reliable(&self) -> bool {
+        match &self.inner {
+            Inner::System(_) => crate::wsl::locate_here(&self.root).is_none(),
+            Inner::Distro(helper) => helper.live(),
+        }
+    }
+
+    /// 发行版内的监视程序是否监视过后退出了（如发行版被关闭）：发行版恢复后可以重新启动监视。
+    pub fn exited(&self) -> bool {
+        matches!(&self.inner, Inner::Distro(helper) if helper.exited())
+    }
+
+    /// 是否刚超出系统允许的监视数量；同一次只返回一次 `true`。
+    pub fn take_limit(&self) -> bool {
+        let mut pending = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
+        std::mem::take(&mut pending.limit)
     }
 
     /// 让监视跟上当前仓库的公共 Git 目录 `dir`：不在打开的目录里时（附属工作树、打开的是仓库的
@@ -131,14 +209,27 @@ impl Watcher {
             }
             std::mem::replace(&mut pending.git_dir, dir.map(Path::to_path_buf))
         };
-        if let Some(old) = old {
-            let _ = self.inner.unwatch(&old);
-        }
-        if let Some(dir) = dir
-            && self.inner.watch(dir, RecursiveMode::Recursive).is_err()
-        {
-            let mut pending = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
-            pending.git_dir = None;
+        match &mut self.inner {
+            Inner::System(inner) => {
+                if let Some(old) = old {
+                    let _ = inner.unwatch(&old);
+                }
+                if let Some(dir) = dir
+                    && inner.watch(dir, RecursiveMode::Recursive).is_err()
+                {
+                    let mut pending = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
+                    pending.git_dir = None;
+                }
+            }
+            Inner::Distro(helper) => {
+                let linux = |dir: &Path| crate::wsl::locate_here(dir).map(|place| place.path);
+                if let Some(old) = old.as_deref().and_then(linux) {
+                    helper.unwatch(&old);
+                }
+                if let Some(dir) = dir.and_then(linux) {
+                    helper.watch(&dir);
+                }
+            }
         }
     }
 

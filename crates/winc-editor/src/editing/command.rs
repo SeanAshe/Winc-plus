@@ -399,7 +399,13 @@ impl Document {
                 &normalize_newlines(s, line_ending),
             )),
             Command::Newline => Some(edit::newline(text, sel, &options)),
-            &Command::Backspace { word } => edit::backspace(text, sel, word, &options),
+            &Command::Backspace { word } => {
+                if !word && inside_empty_pair(text, sel, language) {
+                    edit::delete_pair(text, sel)
+                } else {
+                    edit::backspace(text, sel, word, &options)
+                }
+            }
             &Command::Delete { word } => edit::delete_forward(text, sel, word),
             Command::DeleteToLineStart => edit::delete_to_line_start(text, sel),
             Command::Indent => Some(edit::indent(text, sel, &options)),
@@ -469,19 +475,13 @@ fn insert(text: &impl Lines, sel: Selection, s: &str, language: &Language) -> Tr
         '`' if !language.backtick_string => None,
         // 紧跟在单词之后的引号多用作撇号（如 don't），不补全；紧跟在同种引号之后时通常是在
         // 输入连续引号（```、"""），同样不补全。
-        '"' | '\'' | '`' => {
-            let after = prev.is_some_and(|p| p.is_alphanumeric() || p == '_' || p == c);
-            (wrapping || !after).then_some(c)
-        }
+        '"' | '\'' | '`' => (wrapping || !follows_word_or_quote(prev, c)).then_some(c),
         _ if wrapping && language.surround.contains(&c) => Some(c),
         _ => None,
     };
 
-    let before_gap =
-        next.is_none_or(|n| n.is_whitespace() || matches!(n, ')' | ']' | '}' | ',' | ';' | ':'));
-
     match close {
-        Some(close) if wrapping || before_gap => {
+        Some(close) if wrapping || before_gap(next) => {
             let inner = text.substring(sel.from(), sel.to());
             let mut transaction =
                 edit::replace_selection(text, sel, &format!("{c}{inner}{close}"), EditKind::Other);
@@ -491,6 +491,46 @@ fn insert(text: &impl Lines, sel: Selection, s: &str, language: &Language) -> Tr
         }
         _ => edit::replace_selection(text, sel, s, kind),
     }
+}
+
+/// 位于字符 `prev` 之后的引号 `quote` 是否不作为字符串的起始引号。
+///
+/// 紧跟单词的引号是撇号（如 don't），紧跟同种引号的是代码块围栏或三引号字符串的一部分。
+fn follows_word_or_quote(prev: Option<char>, quote: char) -> bool {
+    prev.is_some_and(|p| p.is_alphanumeric() || p == '_' || p == quote)
+}
+
+/// 光标后的字符 `next` 是否允许自动补全右侧字符：只有文档末尾、空白、右括号和分隔符允许。
+fn before_gap(next: Option<char>) -> bool {
+    next.is_none_or(|n| n.is_whitespace() || matches!(n, ')' | ']' | '}' | ',' | ';' | ':'))
+}
+
+/// 光标是否位于空的括号或引号对之间，此时退格同时删除左右两个字符。
+///
+/// 引号沿用自动补全的判断规则：`"a"|"b"` 中光标两侧的引号分属两个字符串，不构成引号对。
+fn inside_empty_pair(text: &impl Lines, sel: Selection, language: &Language) -> bool {
+    if !sel.is_empty() {
+        return false;
+    }
+    let Some(open_at) = sel.head.checked_sub(1) else {
+        return false;
+    };
+    let (Some(open), Some(close)) = (text.char_at(open_at), text.char_at(sel.head)) else {
+        return false;
+    };
+    match (open, close) {
+        ('(', ')') | ('[', ']') | ('{', '}') => true,
+        ('"', '"') => quotes_pair(text, sel.head, open),
+        ('\'', '\'') => language.single_quote_string && quotes_pair(text, sel.head, open),
+        ('`', '`') => language.backtick_string && quotes_pair(text, sel.head, open),
+        _ => false,
+    }
+}
+
+/// 位置 `pos` 两侧的引号 `quote` 是否满足自动补全的条件。
+fn quotes_pair(text: &impl Lines, pos: usize, quote: char) -> bool {
+    let before = pos.checked_sub(2).and_then(|at| text.char_at(at));
+    !follows_word_or_quote(before, quote) && before_gap(text.char_at(pos + 1))
 }
 
 #[cfg(test)]

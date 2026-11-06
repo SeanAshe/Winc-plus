@@ -498,12 +498,17 @@ pub fn diff_menu(right: bool, on_hunk: bool) -> Vec<MenuEntry> {
 }
 
 /// 返回项目名菜单的菜单项：最近的目录（不含当前目录；按住 `⌥` 时是「在新窗口中打开」），之后是
-/// 「打开目录…」「关闭目录」。
+/// 「打开目录…」「关闭目录」；有 WSL 发行版时另有「打开 WSL 目录」子菜单，按发行版列出。
 ///
 /// `recent` 为最近列表的长度，`current` 为当前目录在最近列表中的位置，`opened` 表示是否已经
 /// 打开目录（没有打开时「关闭目录」不可用）。
-pub fn project_menu(recent: usize, current: Option<usize>, opened: bool) -> Vec<MenuEntry> {
-    use MenuEntry::{Alternate, Item, Separator};
+pub fn project_menu(
+    recent: usize,
+    current: Option<usize>,
+    opened: bool,
+    distros: usize,
+) -> Vec<MenuEntry> {
+    use MenuEntry::{Alternate, Item, Separator, Submenu};
 
     let mut menu: Vec<MenuEntry> = (0..recent)
         .filter(|&i| Some(i) != current)
@@ -518,6 +523,13 @@ pub fn project_menu(recent: usize, current: Option<usize>, opened: bool) -> Vec<
         menu.push(Separator);
     }
     menu.push(Item(MenuCommand::OpenFolder, true));
+    if distros > 0 {
+        let items = (0..distros).map(|i| Item(MenuCommand::OpenWslFolder(i), true));
+        menu.push(Submenu(
+            t!("cmd-open-wsl-folder").to_owned(),
+            items.collect(),
+        ));
+    }
     menu.push(Item(MenuCommand::CloseFolder, opened));
     menu
 }

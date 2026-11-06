@@ -78,3 +78,50 @@ impl App {
             .collect()
     }
 }
+
+/// 以字符串表示的 [`launch`] 结果：（程序，参数，目录）。
+fn launched(
+    shell: Option<&str>,
+    cwd: &str,
+    windows: bool,
+) -> (Option<String>, Vec<String>, String) {
+    let text = |bytes: &[u8]| String::from_utf8_lossy(bytes).into_owned();
+    let launch = launch(shell, cwd.as_bytes().to_vec(), windows);
+    (
+        launch.program.as_deref().map(text),
+        launch.args.iter().map(|arg| text(arg)).collect(),
+        text(&launch.cwd),
+    )
+}
+
+#[test]
+fn a_folder_in_wsl_opens_its_distribution() {
+    let (program, args, cwd) = launched(None, r"\\wsl.localhost\Ubuntu\home\me", true);
+    assert_eq!(program.as_deref(), Some("wsl.exe"));
+    assert_eq!(args, ["-d", "Ubuntu", "--cd", "/home/me"]);
+    // 并非所有 shell 都接受 UNC 路径作为工作目录，因此目录由 `wsl.exe` 的参数指定。
+    assert_eq!(cwd, "");
+}
+
+#[test]
+fn other_folders_use_the_default_shell() {
+    let (program, args, cwd) = launched(None, r"C:\work", true);
+    assert_eq!((program, args.len()), (None, 0));
+    assert_eq!(cwd, r"C:\work");
+    // 其他平台不识别 WSL 路径。
+    let (program, _, _) = launched(None, r"\\wsl.localhost\Ubuntu\home", false);
+    assert_eq!(program, None);
+}
+
+#[test]
+fn the_shell_setting_takes_priority() {
+    let (program, args, cwd) = launched(Some("wsl.exe -d Debian"), r"C:\work", true);
+    assert_eq!(program.as_deref(), Some("wsl.exe"));
+    assert_eq!(args, ["-d", "Debian"]);
+    assert_eq!(cwd, r"C:\work");
+    let (program, _, _) = launched(Some("/bin/zsh"), r"\\wsl.localhost\Ubuntu", true);
+    assert_eq!(program.as_deref(), Some("/bin/zsh"));
+    // 仅含空白的值视为未设置。
+    let (program, _, _) = launched(Some("   "), "/work", false);
+    assert_eq!(program, None);
+}

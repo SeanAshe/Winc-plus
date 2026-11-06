@@ -86,6 +86,101 @@ pub fn open_url(url: &str) -> io::Result<()> {
     open_with_default_app(Path::new(url))
 }
 
+/// 已注册的 WSL 发行版名称，按注册表中的顺序排列；未安装 WSL 时为空。
+///
+/// 读取注册表不启动 `wsl.exe`，也不会启动发行版。进程内只读取一次，因此可以在菜单中调用。
+pub fn wsl_distributions() -> &'static [String] {
+    static DISTROS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    DISTROS.get_or_init(read_wsl_distributions)
+}
+
+/// 读取当前用户注册的 WSL 发行版，略过 Docker Desktop 的内部发行版：其中没有用户的项目。
+#[cfg(windows)]
+#[allow(unsafe_code)] // 读取注册表只能调用系统接口
+fn read_wsl_distributions() -> Vec<String> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::ERROR_SUCCESS;
+    use windows_sys::Win32::System::Registry::{
+        HKEY, HKEY_CURRENT_USER, KEY_READ, RRF_RT_REG_SZ, RegCloseKey, RegEnumKeyExW, RegGetValueW,
+        RegOpenKeyExW,
+    };
+
+    /// 注册表项名称的缓冲区长度（UTF-16 码元，含结尾的 NUL），由注册表的限制决定：名称最长 255 个
+    /// 字符。
+    const KEY_NAME: usize = 256;
+    /// 发行版名称的缓冲区长度（UTF-16 码元，含结尾的 NUL），与 `KEY_NAME` 相同；更长的值读取失败后
+    /// 略过。
+    const VALUE_NAME: usize = 256;
+
+    let wide = |text: &str| -> Vec<u16> {
+        std::ffi::OsStr::new(text)
+            .encode_wide()
+            .chain([0])
+            .collect()
+    };
+    let lxss = wide(r"Software\Microsoft\Windows\CurrentVersion\Lxss");
+    let value = wide("DistributionName");
+    let mut key: HKEY = std::ptr::null_mut();
+    // SAFETY: 路径是以 NUL 结尾的 UTF-16，`key` 是有效的输出位置。
+    if unsafe { RegOpenKeyExW(HKEY_CURRENT_USER, lxss.as_ptr(), 0, KEY_READ, &mut key) }
+        != ERROR_SUCCESS
+    {
+        return Vec::new();
+    }
+    let mut distros = Vec::new();
+    for index in 0.. {
+        let mut name = [0u16; KEY_NAME];
+        let mut name_len = KEY_NAME as u32;
+        // SAFETY: `key` 已打开；`name` 和 `name_len` 描述同一个缓冲区；其余可选参数为空。
+        let status = unsafe {
+            RegEnumKeyExW(
+                key,
+                index,
+                name.as_mut_ptr(),
+                &mut name_len,
+                std::ptr::null(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+            )
+        };
+        if status != ERROR_SUCCESS {
+            break;
+        }
+        let mut text = [0u16; VALUE_NAME];
+        let mut bytes = (VALUE_NAME * 2) as u32;
+        // SAFETY: `name` 由上面的调用写成以 NUL 结尾；`text` 和 `bytes` 描述同一个缓冲区。
+        let status = unsafe {
+            RegGetValueW(
+                key,
+                name.as_ptr(),
+                value.as_ptr(),
+                RRF_RT_REG_SZ,
+                std::ptr::null_mut(),
+                text.as_mut_ptr().cast(),
+                &mut bytes,
+            )
+        };
+        if status == ERROR_SUCCESS {
+            // `bytes` 含结尾的 NUL。
+            let len = (bytes as usize / 2).saturating_sub(1);
+            let distro = String::from_utf16_lossy(&text[..len]);
+            if !distro.starts_with("docker-desktop") {
+                distros.push(distro);
+            }
+        }
+    }
+    // SAFETY: `key` 已打开，之后不再使用。
+    unsafe { RegCloseKey(key) };
+    distros
+}
+
+/// 其他平台没有 WSL。
+#[cfg(not(windows))]
+fn read_wsl_distributions() -> Vec<String> {
+    Vec::new()
+}
+
 /// 把文件或目录移到废纸篓（回收站）。
 ///
 /// macOS 和 Windows 上交给系统；其他 Unix 平台按 freedesktop.org 的 Trash 规范写入回收站，与

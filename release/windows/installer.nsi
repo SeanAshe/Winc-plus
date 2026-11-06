@@ -133,15 +133,43 @@ VIAddVersionKey /LANG=1033 "LegalCopyright" "DEEIX"
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
 !macroend
 
+; Adds the command-line launchers to the user's Path or removes them. A failure leaves winc usable.
+!macro UpdateUserPath ACTION
+  InitPluginsDir
+  File "/oname=$PLUGINSDIR\path.ps1" "${SOURCE}\path.ps1"
+  nsExec::Exec 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$PLUGINSDIR\path.ps1" -Action ${ACTION} -Directory "$INSTDIR\bin"'
+  Pop $0
+!macroend
+
 Section "winc" SEC_MAIN
   SetShellVarContext current
   SetOutPath "$INSTDIR"
   File "${SOURCE}\winc.exe"
   File "${SOURCE}\winc-pty.exe"
+  ; winc-watch runs inside a WSL distribution and exits shortly after winc does, so the file can
+  ; still be open here. Waits up to 5 s; a helper that stays open keeps the old copy, which only
+  ; affects file watching until the next update.
+  SetOverwrite try
+  StrCpy $1 0
+  watcher_install:
+    ClearErrors
+    File "${SOURCE}\winc-watch"
+    IfErrors 0 watcher_installed
+    IntOp $1 $1 + 1
+    IntCmp $1 20 watcher_installed
+    Sleep 250
+    Goto watcher_install
+  watcher_installed:
+  SetOverwrite on
   File "${SOURCE}\winc.ico"
   File "${SOURCE}\LICENSE"
   File "${SOURCE}\NOTICE"
   File "${SOURCE}\nsis\winc-installation"
+  SetOutPath "$INSTDIR\bin"
+  File "${SOURCE}\bin\winc"
+  File "${SOURCE}\bin\winc.cmd"
+  SetOutPath "$INSTDIR"
+  !insertmacro UpdateUserPath "Add"
   WriteUninstaller "$INSTDIR\uninstall.exe"
   WriteRegStr HKCU "Software\DEEIX\winc" "InstallDir" "$INSTDIR"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\winc" "DisplayName" "winc"
@@ -169,11 +197,25 @@ uninstall_files:
   Delete "$SMPROGRAMS\winc.lnk"
   Delete "$INSTDIR\winc.exe"
   Delete "$INSTDIR\winc-pty.exe"
+  ; See the note in the install section: winc-watch can still be running for a moment.
+  StrCpy $1 0
+  watcher_delete:
+    Delete "$INSTDIR\winc-watch"
+    IfFileExists "$INSTDIR\winc-watch" 0 watcher_deleted
+    IntOp $1 $1 + 1
+    IntCmp $1 20 watcher_deleted
+    Sleep 250
+    Goto watcher_delete
+  watcher_deleted:
   Delete "$INSTDIR\winc.ico"
   Delete "$INSTDIR\winc-installation"
   Delete "$INSTDIR\LICENSE"
   Delete "$INSTDIR\NOTICE"
   Delete "$INSTDIR\uninstall.exe"
+  !insertmacro UpdateUserPath "Remove"
+  Delete "$INSTDIR\bin\winc"
+  Delete "$INSTDIR\bin\winc.cmd"
+  RMDir "$INSTDIR\bin"
   RMDir "$INSTDIR"
   DeleteRegKey HKCU "Software\DEEIX\winc"
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\winc"

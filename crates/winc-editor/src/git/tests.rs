@@ -274,6 +274,15 @@ fn an_upstream_that_no_longer_exists_counts_as_none() {
 }
 
 #[test]
+fn failures_read_utf16_messages_from_wsl() {
+    let message: Vec<u8> = "There is no distribution\r\n"
+        .encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    assert_eq!(failure(&message), "There is no distribution");
+}
+
+#[test]
 fn failures_pick_the_line_that_explains() {
     let push = b"To github.com:a/b.git\n ! [rejected]        main -> main (fetch first)\n\
                      error: failed to push some refs to 'github.com:a/b.git'\nhint: Updates were rejected\n";
@@ -572,6 +581,83 @@ fn runs_the_real_git() {
 /// 与真正的失败可以区分开。
 ///
 /// 找不到 `git` 时跳过。
+#[test]
+fn the_exit_code_of_test_decides_the_file_mode() {
+    assert_eq!(mode_from_test(Some(0)), Some("100755"));
+    assert_eq!(mode_from_test(Some(1)), Some("100644"));
+    // 发行版不存在、`wsl.exe` 启动失败、进程被信号终止时查询失败，不按不可执行处理。
+    assert_eq!(mode_from_test(Some(2)), None);
+    assert_eq!(mode_from_test(Some(-1)), None);
+    assert_eq!(mode_from_test(None), None);
+}
+
+#[cfg(unix)]
+#[test]
+fn partial_commits_keep_other_staged_files_and_the_execute_bit() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut vars: Vec<_> = std::env::vars_os().collect();
+    for (k, v) in [
+        ("GIT_AUTHOR_NAME", "t"),
+        ("GIT_AUTHOR_EMAIL", "t@t"),
+        ("GIT_COMMITTER_NAME", "t"),
+        ("GIT_COMMITTER_EMAIL", "t@t"),
+        ("GIT_CONFIG_COUNT", "1"),
+        ("GIT_CONFIG_KEY_0", "commit.gpgsign"),
+        ("GIT_CONFIG_VALUE_0", "false"),
+    ] {
+        vars.push((k.into(), v.into()));
+    }
+    let shell = Shell::with_vars(vars);
+    let Ok(git) = Git::find(&shell) else {
+        return;
+    };
+    let dir = crate::test_util::scratch("git-partial-index");
+    let root = winc_config::files::canonicalize(&dir).unwrap();
+    let sh = |args: &[&str]| {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}");
+        String::from_utf8_lossy(&out.stdout).trim().to_owned()
+    };
+    sh(&["init", "-q", "-b", "main"]);
+    sh(&["config", "user.name", "t"]);
+    sh(&["config", "user.email", "t@t"]);
+    sh(&["config", "commit.gpgsign", "false"]);
+    let script = root.join("run.sh");
+    std::fs::write(&script, "1\n2\n").unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    sh(&["add", "run.sh"]);
+    sh(&["commit", "-q", "-m", "first"]);
+
+    // `staged.txt` 已暂存；只提交 `run.sh` 的一部分。
+    std::fs::write(root.join("staged.txt"), "s\n").unwrap();
+    sh(&["add", "staged.txt"]);
+    std::fs::write(&script, "1\n2\n3\n4\n").unwrap();
+    let part = Partial {
+        path: script.clone(),
+        content: b"1\n2\n3\n".to_vec(),
+    };
+    git.commit(
+        &root,
+        "part",
+        std::slice::from_ref(&script),
+        &[],
+        std::slice::from_ref(&part),
+        false,
+    )
+    .unwrap();
+
+    assert_eq!(sh(&["diff", "--cached", "--name-only"]), "staged.txt");
+    assert!(sh(&["ls-tree", "HEAD", "run.sh"]).starts_with("100755 "));
+    assert_eq!(sh(&["show", "HEAD:run.sh"]), "1\n2\n3");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn partial_commits_failed_commits_and_missing_contents() {
     let mut vars: Vec<_> = std::env::vars_os().collect();

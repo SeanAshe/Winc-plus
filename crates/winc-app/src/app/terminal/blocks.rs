@@ -446,10 +446,15 @@ impl App {
             t.errors = None;
             return;
         };
+        // 打开的目录位于 WSL 发行版中时，命令报告的绝对路径属于同一发行版。
+        let local = |path| match &root {
+            Some(root) => winc_editor::wsl::from_terminal(root, path),
+            None => path,
+        };
         let cwd = if block.cwd.is_empty() {
-            root
+            root.clone()
         } else {
-            Some(path_from_bytes(&block.cwd))
+            Some(local(path_from_bytes(&block.cwd)))
         };
         let (output, end) = (
             block.output.unwrap_or_default(),
@@ -471,7 +476,7 @@ impl App {
             }
             for found in locations(line, false) {
                 let Some(line_no) = found.line else { continue };
-                let path = PathBuf::from(&found.path);
+                let path = local(PathBuf::from(&found.path));
                 let path = match (&cwd, path.is_absolute()) {
                     (Some(cwd), false) => cwd.join(path),
                     _ => path,

@@ -110,6 +110,25 @@ impl App {
         self.index_folder();
     }
 
+    /// 发行版内的监视程序监视过后退出了、发行版已恢复时重新启动监视；开始监视后程序要求重新扫描。
+    pub(in crate::app) fn restart_exited_watcher(&mut self) {
+        let root = (self.watcher.as_ref())
+            .filter(|watcher| watcher.exited())
+            .map(|watcher| watcher.root().to_path_buf());
+        let (Some(root), Some(proxy)) = (root, self.proxy.clone()) else {
+            return;
+        };
+        if !winc_editor::wsl::reachable(&root) {
+            return;
+        }
+        let wake = move || {
+            let _ = proxy.send_event(UserEvent::FilesChanged);
+        };
+        if let Ok(watcher) = Watcher::start(&root, wake) {
+            self.watcher = Some(watcher);
+        }
+    }
+
     /// 记录系统发来的目录变化通知，并在 [`SETTLE`] 之后统一处理。
     ///
     /// 已有等待中的批次时不重新计时。
@@ -126,6 +145,11 @@ impl App {
             return Some(due);
         }
         self.changes_due = None;
+        if self.watcher.as_ref().is_some_and(Watcher::take_limit) {
+            let name = self.editor.root().map(winc_editor::display_name);
+            let name = name.as_deref().unwrap_or_default();
+            self.notify(winc_i18n::t!("workspace-watch-limit", name = name));
+        }
         if let Some(changes) = self.watcher.as_ref().map(Watcher::take) {
             self.apply_changes(changes);
         }

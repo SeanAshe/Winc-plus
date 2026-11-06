@@ -604,3 +604,13 @@ fn eslint_fixes_come_from_its_json_results() {
     );
     assert!(matches!(fix("let a;\n"), Err(FormatError::Tool { .. })));
 }
+
+#[test]
+fn distribution_files_get_linux_install_commands() {
+    assert!(install::fits_this_system("apt", true));
+    assert!(install::fits_this_system("brew", true));
+    assert!(!install::fits_this_system("winget", true));
+    assert!(!install::fits_this_system("scoop", true));
+    assert!(!install::fits_this_system("xcode-select", true));
+    assert!(install::fits_this_system("npm", true));
+}

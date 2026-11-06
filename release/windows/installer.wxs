@@ -25,6 +25,9 @@
           <Component Id="TerminalHelper" Guid="*" Win64="yes">
             <File Source="$(var.Source)\winc-pty.exe" KeyPath="yes"/>
           </Component>
+          <Component Id="WslWatcher" Guid="*" Win64="yes">
+            <File Id="WincWatch" Source="$(var.Source)\winc-watch" KeyPath="yes"/>
+          </Component>
           <Component Id="InstallationKind" Guid="*" Win64="yes">
             <File Source="$(var.Source)\msi\winc-installation" KeyPath="yes"/>
           </Component>
@@ -41,6 +44,15 @@
             <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\shell\open\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
             <?endforeach?>
           </Component>
+          <Directory Id="BINFOLDER" Name="bin">
+            <Component Id="CommandLine" Guid="*" Win64="yes">
+              <File Id="WincLauncher" Source="$(var.Source)\bin\winc" KeyPath="yes"/>
+              <Environment Id="WincPath" Name="PATH" Value="[BINFOLDER]" Action="set" Part="last" System="yes" Permanent="no"/>
+            </Component>
+            <Component Id="CommandLineCmd" Guid="*" Win64="yes">
+              <File Id="WincLauncherCmd" Source="$(var.Source)\bin\winc.cmd" KeyPath="yes"/>
+            </Component>
+          </Directory>
           <Component Id="License" Guid="*" Win64="yes"><File Source="$(var.Source)\LICENSE" KeyPath="yes"/></Component>
           <Component Id="Notice" Guid="*" Win64="yes"><File Source="$(var.Source)\NOTICE" KeyPath="yes"/></Component>
         </Directory>
@@ -58,6 +70,7 @@
     <Feature Id="Main" Title="winc" Level="1">
       <ComponentRef Id="Application"/><ComponentRef Id="TerminalHelper"/><ComponentRef Id="InstallationKind"/>
       <ComponentRef Id="FileAssociations"/>
+      <ComponentRef Id="CommandLine"/><ComponentRef Id="CommandLineCmd"/><ComponentRef Id="WslWatcher"/>
       <ComponentRef Id="License"/><ComponentRef Id="Notice"/><ComponentRef Id="StartMenu"/>
     </Feature>
     <!-- Register text file types after the executable is on disk; remove them before it is deleted. -->

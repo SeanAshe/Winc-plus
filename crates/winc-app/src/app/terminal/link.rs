@@ -68,6 +68,14 @@ fn percent_decode(text: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
+/// 把终端里的路径换成本机路径：打开的目录位于 WSL 发行版中时，绝对路径属于同一发行版。
+fn in_project(root: Option<&Path>, path: PathBuf) -> PathBuf {
+    match root {
+        Some(root) => winc_editor::wsl::from_terminal(root, path),
+        None => path,
+    }
+}
+
 /// 第 `line` 行第 `col` 格上的链接。
 fn link_at(
     tab: &TermTab,
@@ -104,7 +112,7 @@ fn link_at(
     if let Some((start, end, url)) = urls(text).into_iter().find(|u| (u.0..u.1).contains(&col)) {
         let target = match file_url(&url) {
             Some(path) => Target::File {
-                path,
+                path: in_project(root, path),
                 line: None,
                 col: None,
             },
@@ -115,7 +123,7 @@ fn link_at(
     let found = locations(text, true)
         .into_iter()
         .find(|l| (l.start..l.end).contains(&col))?;
-    let path = PathBuf::from(&found.path);
+    let path = in_project(root, PathBuf::from(&found.path));
     let path = if path.is_absolute() {
         path
     } else {
@@ -124,7 +132,7 @@ fn link_at(
             .map(|b| &b.cwd)
             .filter(|c| !c.is_empty())
             .or(Some(&tab.cwd).filter(|c| !c.is_empty()))
-            .map(|c| path_from_bytes(c))
+            .map(|c| in_project(root, path_from_bytes(c)))
             .or_else(|| root.map(Path::to_path_buf))?;
         cwd.join(path)
     };

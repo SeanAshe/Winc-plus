@@ -1,0 +1,19 @@
+[package]
+name = "winc-watch"
+description = "运行在 WSL 发行版内的文件监视程序：把目录中的变化经标准输出报告给 Windows 上的 winc。"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+notify.workspace = true
+
+[dev-dependencies]
+winc-config.workspace = true
+
+[lints]
+workspace = true

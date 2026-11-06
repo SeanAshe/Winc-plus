@@ -90,3 +90,24 @@ fn bad_options_explain_themselves() {
     assert!(args(&["-h", "--frobnicate"]).unwrap().help);
     assert!(usage().starts_with("用法"));
 }
+
+#[test]
+fn wsl_resolves_absolute_paths_inside_the_distribution() {
+    let parsed =
+        parse(["--wsl", "Ubuntu", "/home/me/a.rs:3:2", "b.rs"].map(OsString::from)).unwrap();
+    let place = winc_editor::wsl::locate(&parsed.targets[0].path).unwrap();
+    assert_eq!(
+        (place.distro.as_str(), place.path.as_str()),
+        ("Ubuntu", "/home/me/a.rs")
+    );
+    assert_eq!(
+        (parsed.targets[0].line, parsed.targets[0].col),
+        (Some(2), Some(1))
+    );
+    assert_eq!(parsed.targets[1].path, PathBuf::from("b.rs"));
+}
+
+#[test]
+fn wsl_needs_a_distribution_name() {
+    assert!(parse([OsString::from("--wsl")]).is_err());
+}

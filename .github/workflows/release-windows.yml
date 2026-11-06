@@ -61,6 +61,14 @@ jobs:
         run: |
           cargo build --release --locked --target "$TARGET" -p winc-app -p winc-pty
           cargo xtask icons "target/$TARGET/release/bundle/icons"
+      # The file watcher runs inside WSL distributions. It is static and has no C code, so the
+      # linker bundled with Rust is enough to build it on Windows.
+      - name: Compile WSL file watcher
+        env:
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: rust-lld
+        run: |
+          rustup target add x86_64-unknown-linux-musl
+          cargo build --release --locked --target x86_64-unknown-linux-musl -p winc-watch
       - name: Install native packaging tools
         shell: pwsh
         run: |

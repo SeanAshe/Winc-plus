@@ -1,5 +1,5 @@
-//! [`Document::execute`] 的测试：缩进跟随文件、括号补全、粘贴调整缩进、撤销、选区扩大与缩小、
-//! 上下移动保持显示列、只读文档。
+//! [`Document::execute`] 的测试：缩进跟随文件、括号补全和成对删除、粘贴调整缩进、撤销、选区扩大与
+//! 缩小、上下移动保持显示列、只读文档。
 
 use super::*;
 use crate::DocumentId;
@@ -58,6 +58,58 @@ fn auto_pairs_and_skips() {
     type_str(&mut d, "(x)");
     assert_eq!(text(&d), "(x)");
     assert_eq!(d.selection, Selection::point(3));
+}
+
+fn backspace(file: &str, content: &str, pos: usize) -> (String, usize) {
+    let mut d = doc(file, content, pos);
+    d.execute(Command::Backspace { word: false }, 10, 4);
+    (text(&d), d.selection.head)
+}
+
+#[test]
+fn backspace_removes_empty_pairs_together() {
+    assert_eq!(backspace("a.py", "()", 1), (String::new(), 0));
+    assert_eq!(backspace("a.py", "f([])", 3), ("f()".to_owned(), 2));
+    assert_eq!(backspace("a.py", "{}", 1), (String::new(), 0));
+    assert_eq!(backspace("a.py", "\"\"", 1), (String::new(), 0));
+    assert_eq!(backspace("a.py", "x = ''", 5), ("x = ".to_owned(), 4));
+    assert_eq!(backspace("a.py", "[\"\", 4]", 2), ("[, 4]".to_owned(), 1));
+    assert_eq!(backspace("a.js", "``", 1), (String::new(), 0));
+}
+
+#[test]
+fn backspace_keeps_what_is_not_an_empty_pair() {
+    // 括号内有内容，或光标不在左右括号之间。
+    assert_eq!(backspace("a.py", "(a)", 1), ("a)".to_owned(), 0));
+    assert_eq!(backspace("a.py", "()", 2), ("(".to_owned(), 1));
+    // 左右括号不匹配。
+    assert_eq!(backspace("a.py", "(]", 1), ("]".to_owned(), 0));
+    // 光标两侧的引号分属两个字符串。
+    assert_eq!(
+        backspace("a.py", "\"a\"\"b\"", 3),
+        ("\"a\"b\"".to_owned(), 2)
+    );
+    // 该引号不是当前语言的字符串定界符。
+    assert_eq!(backspace("a.rs", "\'\'", 1), ("\'".to_owned(), 0));
+    // 三引号字符串的引号逐个删除。
+    assert_eq!(backspace("a.py", "\"\"\"\"", 2), ("\"\"\"".to_owned(), 1));
+}
+
+#[test]
+fn backspacing_a_word_does_not_remove_the_pair() {
+    let mut d = doc("a.py", "()", 1);
+    d.execute(Command::Backspace { word: true }, 10, 4);
+    assert_eq!(text(&d), ")");
+}
+
+#[test]
+fn undo_restores_the_pair_and_the_caret_between_it() {
+    let mut d = doc("a.py", "()", 1);
+    d.execute(Command::Backspace { word: false }, 10, 4);
+    assert_eq!(text(&d), "");
+    d.execute(Command::Undo, 10, 4);
+    assert_eq!(text(&d), "()");
+    assert_eq!(d.selection, Selection::point(1));
 }
 
 #[test]

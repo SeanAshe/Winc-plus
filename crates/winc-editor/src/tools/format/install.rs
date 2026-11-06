@@ -197,8 +197,12 @@ const INSTALLS: &[Install] = &[
 ///
 /// `apt` 只在 Linux 上，`brew` 只在 macOS 和 Linux 上，`winget`、`scoop` 只在 Windows 上，
 /// `xcode-select` 只在 macOS 上，其他一律按可能存在处理。列出「其他方式」时，用本函数过滤掉
-/// 其他操作系统的安装方式。
-fn fits_this_system(via: &str) -> bool {
+/// 其他操作系统的安装方式。`in_distro` 为真时文件位于 WSL 发行版中，工具也要装在发行版里，按
+/// Linux 判断。
+pub(super) fn fits_this_system(via: &str, in_distro: bool) -> bool {
+    if in_distro {
+        return !matches!(via, "winget" | "scoop" | "xcode-select");
+    }
     match via {
         "apt" => cfg!(target_os = "linux"),
         "winget" | "scoop" => cfg!(windows),
@@ -217,8 +221,8 @@ pub fn knows(program: &str) -> bool {
 ///
 /// `programs` 只有一个工具时说明它的安装方法；有多个时表示安装其中任一个即可。`dir` 是文件
 /// 所在的目录：能在项目中安装的方式（`package.json`、uv、Poetry）排在最前。`has` 判断一个
-/// 程序（包管理器）是否已安装，已安装的包管理器对应的命令列在「本机可用」之下。`programs`
-/// 中没有任何已知工具时返回 `None`。
+/// 程序（包管理器）是否已安装，已安装的包管理器对应的命令列在「本机可用」之下；`dir` 位于 WSL
+/// 发行版中时不使用 `has`（它查询的是 Windows）。`programs` 中没有任何已知工具时返回 `None`。
 pub fn guide(programs: &[&str], dir: &Path, has: impl Fn(&str) -> bool) -> Option<String> {
     let installs: Vec<&Install> = programs
         .iter()
@@ -241,6 +245,7 @@ pub fn guide(programs: &[&str], dir: &Path, has: impl Fn(&str) -> bool) -> Optio
     text.push_str(t!("format-install-intro"));
     text.push('\n');
 
+    let in_distro = crate::wsl::locate_here(dir).is_some();
     let several = installs.len() > 1;
     let indent = if several { "    " } else { "" };
     for install in installs {
@@ -259,14 +264,17 @@ pub fn guide(programs: &[&str], dir: &Path, has: impl Fn(&str) -> bool) -> Optio
         };
 
         if let Some(project) = install.package.and_then(|p| project_install(p, dir)) {
-            let cd = format!("cd {}", shell_quote(&project.dir.display().to_string()));
+            // 命令在发行版的终端里运行，要写发行版内的路径。
+            let target = crate::wsl::locate_here(&project.dir)
+                .map_or_else(|| project.dir.display().to_string(), |place| place.path);
+            let cd = format!("cd {}", shell_quote(&target));
             section(project.title, &[cd, project.command]);
         }
         let (here, elsewhere): (Vec<&Way>, Vec<&Way>) = install
             .ways
             .iter()
-            .filter(|w| fits_this_system(w.via))
-            .partition(|w| has(w.via));
+            .filter(|w| fits_this_system(w.via, in_distro))
+            .partition(|w| !in_distro && has(w.via));
         let commands = |ways: Vec<&Way>| ways.iter().map(|w| w.command.to_owned()).collect();
         let (here, elsewhere): (Vec<String>, Vec<String>) = (commands(here), commands(elsewhere));
         if here.is_empty() {
