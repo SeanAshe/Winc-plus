@@ -197,7 +197,7 @@ fn release_appcast_matches_packages() {
     let packages = [(None, "appimage", "linux-x64.AppImage")];
     for (installer, directory, suffix) in packages {
         let item = newest_for_installer(xml, std::env::consts::ARCH, installer).unwrap();
-        assert_eq!(item.version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(item.version, crate::release_version::update_version());
         let name = format!("Winc-{}-{suffix}", env!("CARGO_PKG_VERSION"));
         let payload = std::fs::read(bundle.join(directory).join(name)).unwrap();
         verify(&item, &payload, &key)

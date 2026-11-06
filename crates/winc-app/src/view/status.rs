@@ -267,7 +267,10 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
         let label = match &*app.shared.update_state.borrow() {
             UpdateState::Downloading(_) => t!("workspace-status-update-downloading").to_owned(),
             UpdateState::Ready(_) => t!("workspace-status-update-ready").to_owned(),
-            _ => t!("workspace-status-update", version = version),
+            _ => {
+                let version = crate::release_version::present_version(&version);
+                t!("workspace-status-update", version = version)
+            }
         };
         items.push((StatusKey::Update, label, Some(StatusItem::Update)));
     }

@@ -415,13 +415,13 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
     }
 }
 
-/// 「关于」页的版本号：版本和处理器架构，例如「0.1.368 (arm64)」。
+/// 「关于」页的版本号：上游版本、这个 fork 的数字和处理器架构，例如「0.1.502_115 (x86_64)」。
 fn version_label() -> String {
     let arch = match std::env::consts::ARCH {
         "aarch64" => "arm64",
         other => other,
     };
-    format!("{} ({arch})", env!("CARGO_PKG_VERSION"))
+    format!("{} ({arch})", crate::release_version::display_version())
 }
 
 /// 「关于」页「更新」一行下方的状态文字和颜色。
@@ -433,19 +433,28 @@ fn update_status(app: &App) -> (String, Color) {
         UpdateState::Idle => (t!("settings-updates-idle").to_owned(), p.text_muted),
         UpdateState::Checking => (t!("settings-updates-checking").to_owned(), p.text_muted),
         UpdateState::Latest => (t!("settings-updates-latest").to_owned(), p.text_muted),
-        UpdateState::Found(version) => (
-            t!("settings-updates-found", version = version.as_str()),
-            p.accent,
-        ),
+        UpdateState::Found(version) => {
+            let version = crate::release_version::present_version(version);
+            (
+                t!("settings-updates-found", version = version.as_str()),
+                p.accent,
+            )
+        }
         UpdateState::Failed => (t!("settings-updates-failed").to_owned(), p.text_muted),
-        UpdateState::Downloading(version) => (
-            t!("settings-updates-downloading", version = version.as_str()),
-            p.text_muted,
-        ),
-        UpdateState::Ready(version) => (
-            t!("settings-updates-ready", version = version.as_str()),
-            p.accent,
-        ),
+        UpdateState::Downloading(version) => {
+            let version = crate::release_version::present_version(version);
+            (
+                t!("settings-updates-downloading", version = version.as_str()),
+                p.text_muted,
+            )
+        }
+        UpdateState::Ready(version) => {
+            let version = crate::release_version::present_version(version);
+            (
+                t!("settings-updates-ready", version = version.as_str()),
+                p.accent,
+            )
+        }
         UpdateState::InstallFailed(error) => (
             t!("settings-updates-install-failed", error = error.as_str()),
             p.error,

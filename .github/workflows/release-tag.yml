@@ -1,11 +1,11 @@
 name: Release Tag
 
-# Every merge into main is a release: tag the [workspace.package] version of Cargo.toml as
-# `v<version>` and start the Release workflow, which opens a draft release. Publishing the draft is
-# still a human step. A push whose version is already tagged fails, because the version was not
-# raised; the "Release version" check on pull requests into main stops that before the merge.
-# A manual run with the version already tagged does nothing, so a failed release can be retried by
-# running the Release workflow on the existing tag.
+# Every merge into main is a release. The tag is `<upstream>_<fork>`: the Cargo.toml version plus
+# the integer in release/fork-version. Commits bump that file; this workflow only reads it.
+# Cargo.toml stays on the upstream version. The workflow then starts the Release workflow, which
+# opens a draft release. Publishing the draft is still a human step. A push of a commit that is
+# already tagged fails. A manual run with that tag already present does nothing, so a failed
+# release can be retried by running the Release workflow on the existing tag.
 #
 # The tag is pushed with GITHUB_TOKEN, and events raised that way do not start
 # other workflows, so they are started explicitly via workflow_dispatch (the
@@ -40,12 +40,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          version="$(node release/common/version.mjs)"
-          tag="v${version}"
+          tag="$(node release/common/version.mjs --tag)"
           if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
             if [[ "$GITHUB_EVENT_NAME" == push ]]; then
-              echo "::error::${tag} is already released." \
-                "Raise the version in Cargo.toml for a new release."
+              echo "::error::${tag} is already released."
               exit 1
             fi
             echo "${tag} already exists; nothing to do"

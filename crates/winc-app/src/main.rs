@@ -17,6 +17,7 @@ mod field;
 mod icons;
 mod instance;
 mod keymap;
+mod release_version;
 #[cfg(target_os = "macos")]
 mod large_alloc;
 mod layout;

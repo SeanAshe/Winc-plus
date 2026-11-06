@@ -2,7 +2,7 @@
 import { appendFileSync, writeFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { publicKey, signingKey } from "./update-signing.mjs";
-import { workspaceVersion } from "./version.mjs";
+import { forkVersion, workspaceVersion } from "./version.mjs";
 
 export const version = () => workspaceVersion();
 
@@ -26,9 +26,13 @@ export const channelBase = (_version) => "https://github.com/SeanAshe/Winc-plus/
 
 function releaseConfig({ version, thumbprint, key }) {
   if (thumbprint && !/^[0-9A-Fa-f]{40}$/.test(thumbprint)) throw new Error("--thumbprint must be a 40-digit SHA-1 certificate thumbprint");
+  const fork = Number(forkVersion());
+  if (fork > 65535) throw new Error(`${fork} exceeds the MSI build limit (65535)`);
+  // Windows Installer ignores a fourth field and already shipped 0.1.<patch>.
+  // 0.2.<fork> is newer than those and increases on every commit.
   return {
     version, channel: channelOf(version), productName: "winc", identifier: "com.deeix.winc",
-    msiVersion: msiVersion(version), certificateThumbprint: thumbprint?.toUpperCase() ?? "",
+    msiVersion: `0.2.${fork}`, certificateThumbprint: thumbprint?.toUpperCase() ?? "",
     updateChannels: `${channelOf(version)}=${channelBase(version)}`, updatePublicKey: publicKey(key),
   };
 }

@@ -53,7 +53,11 @@ pub fn app(target: Option<&str>, prebuilt: bool) -> Result<(PathBuf, String), St
         |t| root().join("target").join(t).join("release"),
     );
     let bundle = built.join("bundle");
-    let version = env!("CARGO_PKG_VERSION");
+    let version = format!(
+        "{}.{}",
+        env!("CARGO_PKG_VERSION"),
+        include_str!("../release/fork-version").trim()
+    );
     let app = bundle.join("winc.app");
     let _ = std::fs::remove_dir_all(&bundle);
     let contents = app.join("Contents");
@@ -68,7 +72,7 @@ pub fn app(target: Option<&str>, prebuilt: bool) -> Result<(PathBuf, String), St
     let updates = sparkle::UpdateConfig::load();
     std::fs::write(
         contents.join("Info.plist"),
-        info_plist(version, &updates, arch),
+        info_plist(&version, &updates, arch),
     )
     .map_err(io)?;
     std::fs::write(contents.join("PkgInfo"), "APPL????").map_err(io)?;

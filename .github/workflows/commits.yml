@@ -2,7 +2,7 @@
 # - "Commit messages": the title and the subject of every commit use `type: subject` in printable
 #   ASCII. The rules are in "Commit Messages" in CONTRIBUTING.md.
 # - "Source branch": a pull request into `main` comes from `dev` of this repository.
-# - "Release version": a pull request into `main` carries a version that is not released yet.
+# - "Release version": a pull request into `main` is not already tagged as `<upstream>_<fork>`.
 
 name: Commits
 
@@ -96,10 +96,9 @@ jobs:
 
       - name: Version is not released yet
         run: |
-          version="$(node release/common/version.mjs)"
-          if git ls-remote --exit-code --tags origin "refs/tags/v${version}" >/dev/null; then
-            echo "::error::v${version} is already released. Raise the version in Cargo.toml" \
-              "on dev (and run cargo update --workspace) before merging into main."
+          tag="$(node release/common/version.mjs --tag)"
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null; then
+            echo "::error::${tag} is already released."
             exit 1
           fi
-          echo "Merging releases v${version}." | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "Merging releases ${tag}." | tee -a "$GITHUB_STEP_SUMMARY"

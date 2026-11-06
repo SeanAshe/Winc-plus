@@ -66,7 +66,9 @@ impl Colors {
             fg = back;
         }
         // 浅色终端上，按深色界面画的近黑底（输入框、差异高亮）提成同色相的浅底。
-        if !self.p.dark && let Some(color) = bg.as_mut() {
+        if !self.p.dark
+            && let Some(color) = bg.as_mut()
+        {
             *color = lighten_dark_fill(*color);
         }
         let under = bg.unwrap_or_else(|| self.default_bg());
@@ -94,7 +96,7 @@ fn lighten_dark_fill(color: Color) -> Color {
     if crate::theme::luminance(color) >= 0.15 {
         return color;
     }
-    blend(Color::hex(0xFFFFFF), color, 0.82)
+    blend(Color::hex(0xFFFFFF), color, 0.90)
 }
 
 /// `fg` 和 `bg` 按 `t`（`fg` 的比例）调和。
