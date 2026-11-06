@@ -119,7 +119,6 @@ impl GlyphCache {
                 pen += glyph.advance;
             }
         });
-        drop(shaper);
         self.shaped = shaped;
     }
 }

@@ -85,7 +85,15 @@ pub(super) fn draw_sticky(app: &mut App, frame: &mut Frame<'_>, index: usize) {
             }
             let clip = Rect::new(text_rect.x, area.y, text_rect.w, area.h);
             draw_glyphs(
-                app, frame, &chars, &tokens, origin_x, baseline, tab_width, clip, &[],
+                app,
+                frame,
+                &chars,
+                &tokens,
+                origin_x,
+                baseline,
+                tab_width,
+                clip,
+                &[],
             );
         }
     });

@@ -2,8 +2,8 @@
 
 use super::shape::Ligature;
 use super::*;
-use swash::shape::ShapeContext;
 use swash::FontRef;
+use swash::shape::ShapeContext;
 
 /// 字形缓存的键：同一字体槽位、字形、字号和亚像素档位对应同一张位图。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
