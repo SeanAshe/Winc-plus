@@ -1,7 +1,8 @@
 name: Release Tag
 
 # Every merge into main is a release. The tag is `<upstream>_<fork>`: the Cargo.toml version plus
-# the integer in release/fork-version. Commits bump that file; this workflow only reads it.
+# the integer in release/fork-version. That integer is how many commits this checkout is ahead of
+# DEEIX-AI/Winc dev. The commit hook writes it; this workflow only reads it.
 # Cargo.toml stays on the upstream version. The workflow then starts the Release workflow, which
 # opens a draft release. Publishing the draft is still a human step. A push of a commit that is
 # already tagged fails. A manual run with that tag already present does nothing, so a failed
