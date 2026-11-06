@@ -34,10 +34,10 @@ jobs:
           node --input-type=module <<'JS'
           import { appendFileSync } from 'node:fs';
           import { currentReleaseSource } from './release/common/source.mjs';
-          import { workspaceVersion } from './release/common/version.mjs';
+          import { isReleaseTag, workspaceVersion } from './release/common/version.mjs';
           const { sha, releaseTag: tag } = currentReleaseSource();
           const version = workspaceVersion();
-          if (tag && tag !== `v${version}`) throw new Error(`Tag ${tag} does not match the Cargo.toml version ${version}`);
+          if (tag && !isReleaseTag(tag, version)) throw new Error(`Tag ${tag} does not match ${version}_<commit count>`);
           const channel = version.includes('-') ? 'beta' : 'stable';
           appendFileSync(process.env.GITHUB_OUTPUT, `sha=${sha}\nrelease-tag=${tag}\n`);
           appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Source: ${sha}\n\nVersion: ${version} (${channel})\n`);

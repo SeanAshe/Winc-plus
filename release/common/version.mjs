@@ -1,5 +1,6 @@
-// The release version is `version` in the [workspace.package] section of Cargo.toml. Run directly,
-// this script prints it.
+// Upstream version stays in Cargo.toml. This fork's version is the integer in
+// release/fork-version. The release tag is `<upstream>_<fork>`.
+// Run directly to print the upstream version, or pass --tag to print the release tag.
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -17,6 +18,28 @@ export function workspaceVersion(directory = root) {
   return version;
 }
 
+// The fork version is stored, not counted. Commits bump release/fork-version.
+export function forkVersion(directory = root) {
+  const file = join(directory, "release/fork-version");
+  const count = readFileSync(file, "utf8").trim();
+  if (!/^[1-9]\d*$/.test(count)) throw new Error(`release/fork-version must be a positive integer: ${count}`);
+  return count;
+}
+
+export function releaseTag(directory = root) {
+  return `${workspaceVersion(directory)}_${forkVersion(directory)}`;
+}
+
+export function isReleaseTag(tag, version) {
+  const escaped = version.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`^${escaped}_[1-9]\\d*$`).test(tag);
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  try { console.log(workspaceVersion()); } catch (error) { console.error(error.message); process.exitCode = 1; }
+  try {
+    console.log(process.argv.includes("--tag") ? releaseTag() : workspaceVersion());
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 1;
+  }
 }

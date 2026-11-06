@@ -80,7 +80,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>) {
     let version = Rect::new(title.x, title.bottom(), w, 20.0);
     let text = t!(
         "workspace-start-version",
-        version = env!("CARGO_PKG_VERSION")
+        version = crate::release_version::display_version()
     );
     ui_text_small(frame, app, version.x, version, &text, p.text_dim, editor);
     y += title_h + GAP;

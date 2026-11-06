@@ -150,7 +150,7 @@ pub fn check() {
         // 外层 `None` 表示各通道都没有回应；内层 `None` 表示没有更新的版本。
         let newer = race(&updater.feeds, &updater.key).map(|xml| {
             newest(&xml, std::env::consts::ARCH)
-                .filter(|item| newer(&item.version, env!("CARGO_PKG_VERSION")))
+                .filter(|item| newer(&item.version, crate::release_version::update_version()))
         });
         work(|w| {
             w.busy = false;

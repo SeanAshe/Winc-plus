@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { releaseAssets, releasePlatforms, requireFile } from "./collect-assets.mjs";
-import { workspaceVersion } from "./version.mjs";
+import { isReleaseTag, workspaceVersion } from "./version.mjs";
 
 // SHA256SUMS uses the GNU coreutils format (`sha256sum -c SHA256SUMS`; on Windows compare with
 // `Get-FileHash <file> -Algorithm SHA256`).
@@ -41,7 +41,7 @@ function formatChecksums(entries) {
 
 // Every platform's files must be present, and nothing else.
 function releaseFiles({ version, tag, directory }) {
-  if (tag !== `v${version}`) throw new Error(`Tag ${tag} does not match the Cargo.toml version ${version}`);
+  if (!isReleaseTag(tag, version)) throw new Error(`Tag ${tag} does not match ${version}_<commit count>`);
   const files = releasePlatforms.flatMap((platform) => releaseAssets(platform, version).map((spec) => spec.name));
   for (const name of files) requireFile(join(directory, name));
   const allowed = new Set([...files, CHECKSUMS_FILE]);

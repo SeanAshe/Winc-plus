@@ -12,6 +12,17 @@ use std::env::var;
 use std::path::Path;
 
 fn main() {
+    let fork_path = Path::new(&var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"))
+        .join("../../release/fork-version");
+    println!("cargo:rerun-if-changed={}", fork_path.display());
+    let fork = std::fs::read_to_string(&fork_path)
+        .unwrap_or_else(|error| panic!("{}: {error}", fork_path.display()));
+    let fork = fork.trim();
+    if !fork.bytes().all(|b| b.is_ascii_digit()) || fork.is_empty() || fork == "0" {
+        panic!("release/fork-version must be a positive integer, got {fork:?}");
+    }
+    println!("cargo:rustc-env=WINC_FORK_VERSION={fork}");
+
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=build_icon.rs");
     println!("cargo:rerun-if-changed=assets/winc.ico");

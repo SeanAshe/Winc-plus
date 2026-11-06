@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { releaseAssets, requireFile } from "./collect-assets.mjs";
 import { channelBase, version as currentVersion } from "./config.mjs";
+import { forkVersion } from "./version.mjs";
 import { signingKey, signBytes, signFeed, verifyFeed, verificationKey, publicKey } from "./update-signing.mjs";
 
 const escape = (value) => String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
@@ -21,7 +22,9 @@ function signUpdates({ platform, version, bundle, key }) {
     const arch = platform === "macos-arm64" ? "arm64" : "x86_64";
     const installer = os === "windows" ? ` installer="${spec.directory}"` : "";
     const url = `${channelBase(version)}/${encodeURIComponent(spec.name)}`;
-    items.push(`    <item>\n      <title>${escape(version)}</title>\n      <sparkle:version>${escape(version)}</sparkle:version>\n      <sparkle:shortVersionString>${escape(version)}</sparkle:shortVersionString>\n${os === "macos" ? "      <sparkle:minimumSystemVersion>11.0</sparkle:minimumSystemVersion>\n" : ""}      <enclosure url="${escape(url)}" length="${statSync(file).size}" type="application/octet-stream" sparkle:os="${os}" arch="${arch}"${installer} sparkle:edSignature="${signature}"/>\n    </item>\n`);
+    // 四段数字：旧客户端把 `0.1.502_116` 读成 `0.1.0`，用点号才能看出比 `0.1.495` 新。
+    const listed = `${version}.${forkVersion()}`;
+    items.push(`    <item>\n      <title>${escape(listed)}</title>\n      <sparkle:version>${escape(listed)}</sparkle:version>\n      <sparkle:shortVersionString>${escape(listed)}</sparkle:shortVersionString>\n${os === "macos" ? "      <sparkle:minimumSystemVersion>11.0</sparkle:minimumSystemVersion>\n" : ""}      <enclosure url="${escape(url)}" length="${statSync(file).size}" type="application/octet-stream" sparkle:os="${os}" arch="${arch}"${installer} sparkle:edSignature="${signature}"/>\n    </item>\n`);
   }
   const xml = `<?xml version="1.0" encoding="utf-8"?>\n<rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">\n  <channel>\n    <title>winc</title>\n${items.join("")}  </channel>\n</rss>\n`;
   const feed = signFeed(xml, key);
