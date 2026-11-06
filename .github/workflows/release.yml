@@ -58,7 +58,7 @@ jobs:
     secrets: inherit
 
   publish:
-    name: Assemble draft release
+    name: Publish release
     needs: [prepare, windows-x64]
     if: needs.prepare.outputs.release-tag != ''
     runs-on: ubuntu-24.04
@@ -83,8 +83,8 @@ jobs:
           pattern: release-assets-*
           path: release-assets
           merge-multiple: true
-      # One writer creates the draft and SHA256SUMS only after the Windows target passes
-      # verification. Publishing the draft remains a human step; the app reads updates from this repository's Releases.
+      # One writer uploads SHA256SUMS only after the Windows target passes verification,
+      # then publishes the release. The app reads updates from this repository's Releases.
       - name: Upload release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
