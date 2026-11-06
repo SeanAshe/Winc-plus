@@ -17,7 +17,6 @@ mod field;
 mod icons;
 mod instance;
 mod keymap;
-mod release_version;
 #[cfg(target_os = "macos")]
 mod large_alloc;
 mod layout;
@@ -25,6 +24,7 @@ mod layout;
 mod macos;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod portal;
+mod release_version;
 #[cfg(any(windows, test))]
 mod shell_icons;
 mod system;

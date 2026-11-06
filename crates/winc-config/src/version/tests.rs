@@ -29,8 +29,20 @@ fn prereleases_and_legacy_versions_have_stable_order() {
     );
     assert_eq!(compare_versions("1.0", "1.0.0"), Ordering::Equal);
     assert_eq!(compare_versions("0.1.368.1", "0.1.368"), Ordering::Greater);
-    assert_eq!(compare_versions("0.1.502_116", "0.1.502.116"), Ordering::Equal);
-    assert_eq!(compare_versions("0.1.502_116", "0.1.502_115"), Ordering::Greater);
-    assert_eq!(compare_versions("0.1.503_1", "0.1.502_999"), Ordering::Greater);
-    assert_eq!(compare_versions("0.1.502_116", "0.1.495"), Ordering::Greater);
+    assert_eq!(
+        compare_versions("0.1.502_116", "0.1.502.116"),
+        Ordering::Equal
+    );
+    assert_eq!(
+        compare_versions("0.1.502_116", "0.1.502_115"),
+        Ordering::Greater
+    );
+    assert_eq!(
+        compare_versions("0.1.503_1", "0.1.502_999"),
+        Ordering::Greater
+    );
+    assert_eq!(
+        compare_versions("0.1.502_116", "0.1.495"),
+        Ordering::Greater
+    );
 }
