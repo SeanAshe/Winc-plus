@@ -27,6 +27,53 @@ fn bold_is_bright_only_when_asked() {
 }
 
 #[test]
+fn a_light_theme_lifts_near_black_backgrounds() {
+    let p = &crate::theme::LIGHT;
+    let colors = Colors {
+        p,
+        reverse: false,
+        min: 0.0,
+        bright: false,
+    };
+    let input = Style {
+        fg: TermColor::Rgb(0xff, 0xff, 0xff),
+        bg: TermColor::Rgb(0x24, 0x24, 0x28),
+        ..Style::default()
+    };
+    let bg = colors.style(&input).1.unwrap();
+    assert!(crate::theme::luminance(bg) > 0.7, "{bg:?}");
+    let diff = Style {
+        bg: TermColor::Rgb(0x2b, 0x3f, 0x2b),
+        ..Style::default()
+    };
+    let bg = colors.style(&diff).1.unwrap();
+    assert!(bg.g >= bg.r && bg.g >= bg.b, "{bg:?}");
+    assert!(crate::theme::luminance(bg) > 0.7, "{bg:?}");
+    // 本来就亮的底色不动。
+    let pale = Style {
+        bg: TermColor::Rgb(0xe6, 0xf4, 0xea),
+        ..Style::default()
+    };
+    assert_eq!(colors.style(&pale).1, Some(Color::hex(0xe6f4ea)));
+}
+
+#[test]
+fn a_dark_theme_keeps_near_black_backgrounds() {
+    let p = &crate::theme::DARK;
+    let colors = Colors {
+        p,
+        reverse: false,
+        min: 0.0,
+        bright: false,
+    };
+    let input = Style {
+        bg: TermColor::Rgb(0x24, 0x24, 0x28),
+        ..Style::default()
+    };
+    assert_eq!(colors.style(&input).1, Some(Color::hex(0x242428)));
+}
+
+#[test]
 fn segments_follow_runs_by_cell_not_by_char() {
     let red = Style {
         fg: TermColor::Indexed(1),

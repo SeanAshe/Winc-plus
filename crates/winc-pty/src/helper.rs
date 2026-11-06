@@ -435,6 +435,9 @@ impl Helper {
             return;
         }
         let mut env = environment(env);
+        if let Some(theme) = self.theme {
+            set_colorfgbg(&mut env, theme.bg);
+        }
         let program = program
             .filter(|p| !p.is_empty())
             .or_else(|| {
@@ -785,7 +788,7 @@ fn write_input(tab: &mut Tab) {
 /// 返回终端里的环境变量：主程序给的用户环境去掉 winc 自己用的变量，再设上终端相关的变量。
 ///
 /// 设上 `TERM`、`COLORTERM`、`TERM_PROGRAM`、`TERM_PROGRAM_VERSION`；没有任何 `LANG`、
-/// `LC_ALL`、`LC_CTYPE` 时补 `LC_CTYPE=UTF-8`。
+/// `LC_ALL`、`LC_CTYPE` 时补 `LC_CTYPE=UTF-8`。`COLORFGBG` 由 [`set_colorfgbg`] 按当前底色另写。
 fn environment(env: Vec<(Vec<u8>, Vec<u8>)>) -> Vec<(Vec<u8>, Vec<u8>)> {
     const REPLACED: &[&[u8]] = &[
         b"TERM",
@@ -819,6 +822,17 @@ fn environment(env: Vec<(Vec<u8>, Vec<u8>)>) -> Vec<(Vec<u8>, Vec<u8>)> {
         ),
     ]);
     env
+}
+
+/// 按终端底色写 `COLORFGBG`：浅色底 `0;15`，深色底 `15;0`。
+///
+/// agent 一类程序靠它决定用浅色还是深色界面。沿用外面终端留下的深色值时，浅色窗口里的输入框和
+/// 高亮会被画成黑的。
+fn set_colorfgbg(env: &mut Vec<(Vec<u8>, Vec<u8>)>, bg: [u8; 3]) {
+    env.retain(|(key, _)| key != b"COLORFGBG");
+    let y = u32::from(bg[0]) * 54 + u32::from(bg[1]) * 183 + u32::from(bg[2]) * 18;
+    let value: &[u8] = if y > 32_512 { b"0;15" } else { b"15;0" };
+    env.push((b"COLORFGBG".to_vec(), value.to_vec()));
 }
 
 fn lookup<'a>(env: &'a [(Vec<u8>, Vec<u8>)], key: &[u8]) -> Option<&'a [u8]> {
