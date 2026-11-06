@@ -207,6 +207,10 @@ fn main() {
     let mut winc = Winc::new(Some(event_loop.create_proxy()), template);
     let (key, proxy) = winc.reserve();
     let mut app = App::new(editor, proxy, bench, config);
+    // 只打开文件时收起侧栏；打开目录时展开。没有目标时沿用上面的判断（恢复目录则展开）。
+    if let Some(show) = args.launch_sidebar() {
+        app.set_initial_sidebar(show);
+    }
     app.config_path = config_path;
     app.commit.set_flat(!state.commit_tree);
     app.editor.diff_unified = app.config.diff_inline == Some(true);

@@ -117,10 +117,22 @@ impl App {
         }
     }
 
-    /// 立即打开目录 `path` 并恢复该目录上次的标签。
+    /// 立即打开目录 `path` 并恢复该目录上次的标签，侧栏展开。
     ///
     /// 不处理当前已打开的目录和标签，调用方须先完成这些处理。
     pub(crate) fn open_folder_now(&mut self, path: &Path) {
+        self.open_folder_restoring(path, true);
+    }
+
+    /// 打开文件所在的目录并恢复它上次的标签，侧栏保持收起。
+    ///
+    /// 单独打开文件时编辑区占满窗口；需要文件树时再打开侧栏。
+    pub(crate) fn open_folder_for_files(&mut self, path: &Path) {
+        self.open_folder_restoring(path, false);
+    }
+
+    /// 立即打开目录 `path` 并恢复该目录上次的标签。`sidebar` 为真时展开侧栏。
+    fn open_folder_restoring(&mut self, path: &Path, sidebar: bool) {
         if let Err(e) = self.editor.open_folder(path) {
             let name = winc_editor::display_name(path);
             self.notify(winc_i18n::t!(
@@ -132,11 +144,15 @@ impl App {
         }
 
         self.apply_compact_folders();
-        self.folder_opened();
-        self.focus = match self.sidebar_view {
-            SidebarView::Files => Focus::Tree,
-            SidebarView::Search => Focus::GlobalQuery,
-            SidebarView::Commit => Focus::CommitMessage,
+        self.finish_folder_open(sidebar);
+        self.focus = if sidebar {
+            match self.sidebar_view {
+                SidebarView::Files => Focus::Tree,
+                SidebarView::Search => Focus::GlobalQuery,
+                SidebarView::Commit => Focus::CommitMessage,
+            }
+        } else {
+            Focus::Editor
         };
 
         let Some(root) = self.editor.root().map(Path::to_path_buf) else {
@@ -170,9 +186,14 @@ impl App {
     /// 侧栏停在原来的视图上（在「搜索」里换目录还在「搜索」，查的内容不变、在新目录里重新搜），
     /// 不跳回文件树；新目录不是 Git 仓库时「提交」视图没有了，由 `git_folder_changed` 回到文件树。
     pub(super) fn folder_opened(&mut self) {
+        self.finish_folder_open(true);
+    }
+
+    /// 同 [`Self::folder_opened`]，`sidebar` 为假时侧栏保持收起。
+    fn finish_folder_open(&mut self, sidebar: bool) {
         self.reset_folder_views();
         self.watch_folder();
-        self.set_sidebar(true);
+        self.set_sidebar(sidebar);
         if self.sidebar_view == SidebarView::Search && !self.global.query.text().is_empty() {
             self.run_global_search();
         }

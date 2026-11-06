@@ -43,6 +43,7 @@ impl App {
             x_height: 6.5,
             cap_height: 9.0,
         };
+        // 有目录时先展开；只打开文件时由启动流程再收起（见 `Args::launch_sidebar`）。
         let panel_visible = editor.workspace.is_some();
         // 主题以配置为准；配置中没有时参考环境变量 `WINC_THEME`（见 `forced_theme`）。
         let theme_choice = config.theme.unwrap_or(ThemeChoice::Auto);

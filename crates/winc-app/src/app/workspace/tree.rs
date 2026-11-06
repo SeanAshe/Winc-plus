@@ -134,6 +134,12 @@ impl App {
         self.panel_visible
     }
 
+    /// 启动时直接定下侧栏，不播放展开或收起动画。
+    pub(crate) fn set_initial_sidebar(&mut self, visible: bool) {
+        self.panel_visible = visible;
+        self.sidebar_motion = None;
+    }
+
     /// 带动画地显示或隐藏侧栏。
     ///
     /// 动画中途反向时从当前位置继续。

@@ -48,6 +48,18 @@ impl Args {
     pub fn one_off(&self) -> bool {
         self.wait || self.stdin
     }
+
+    /// 这次启动要不要展开侧栏。
+    ///
+    /// 没有目标时返回 `None`：恢复上次的目录时展开，开始页收起。只打开文件时收起，
+    /// 打开了目录时展开。
+    pub fn launch_sidebar(&self) -> Option<bool> {
+        if self.targets.is_empty() {
+            None
+        } else {
+            Some(self.targets.iter().any(|target| target.path.is_dir()))
+        }
+    }
 }
 
 /// 解析命令行参数（不含程序名）。
