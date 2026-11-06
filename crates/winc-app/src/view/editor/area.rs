@@ -295,6 +295,8 @@ struct Scratch {
     cells: Vec<usize>,
     fields: Vec<usize>,
     tokens: Vec<Token>,
+    /// 这一行里要断开连字的列（光标和选区边界），已排序、去重。
+    splits: Vec<usize>,
     number: String,
     /// 上一个非空行的缩进（单元格）；空行沿用它绘制缩进参考线。
     guide_indent: usize,
@@ -311,6 +313,7 @@ impl Scratch {
             cells: Vec::new(),
             fields: Vec::new(),
             tokens: Vec::with_capacity(32),
+            splits: Vec::new(),
             number: String::new(),
             guide_indent: 0,
             folded_hits: Vec::new(),

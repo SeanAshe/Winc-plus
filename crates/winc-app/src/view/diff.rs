@@ -756,6 +756,7 @@ fn draw_body(
             baseline,
             tab_width,
             clip,
+            &[],
         );
 
         // 其余光标与主光标一起闪烁；输入法组字只显示在主光标处，候选窗也跟着它。

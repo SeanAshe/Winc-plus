@@ -433,11 +433,92 @@ impl Frame<'_> {
         color: Color,
         clip: Rect,
     ) {
-        let color = self.faded(color);
-        if color.a <= 0.0 || c.is_whitespace() || c.is_control() {
+        if c.is_whitespace() || c.is_control() {
             return;
         }
+        self.paint_glyph(kind, faux, size, x, baseline, slot, glyph, color, clip);
+    }
 
+    /// 字符 `c` 是否由等宽字体 `kind` 自己绘制（不是后备字体）。
+    ///
+    /// 连字只能发生在同一主字体里。
+    pub fn in_mono_font(&mut self, kind: FontKind, c: char) -> bool {
+        self.glyphs.in_shape_slot(kind, c)
+    }
+
+    /// 把 `chars` 按等宽字体 `kind` 整形（连字、上下文替换），结果留到下一次调用之前。
+    ///
+    /// 返回字形个数。为 0 时这段文字应逐字绘制。
+    pub fn shape_ligatures(&mut self, kind: FontKind, size: f32, chars: &[char]) -> usize {
+        self.glyphs.shape_run(kind, size, chars);
+        self.glyphs.shaped.len()
+    }
+
+    /// 返回第 `index` 个连字字形覆盖的字符范围（这段文字内的下标，含起点、不含终点）。
+    pub fn ligature_span(&self, index: usize) -> (usize, usize) {
+        let glyph = &self.glyphs.shaped[index];
+        (glyph.start, glyph.end)
+    }
+
+    /// 绘制 [`Self::shape_ligatures`] 的第 `index` 个字形。
+    ///
+    /// `x` 是这一簇第一个字符的左边缘，`span` 是整簇所占的宽度（逻辑像素）。单个字形在
+    /// `span` 里居中；一簇多个字形时从左边缘按整形结果排开。
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_ligature(
+        &mut self,
+        index: usize,
+        kind: FontKind,
+        size: f32,
+        x: f32,
+        baseline: f32,
+        span: f32,
+        color: Color,
+        clip: Rect,
+    ) {
+        let glyph = self.glyphs.shaped[index];
+        let advance = self.glyphs.glyph_advance(glyph.slot, glyph.id, size);
+        // 前进宽度和所占格子差不多时居中（普通字符、以及正好占满这几格的连字）。
+        // 字形明显更窄时靠左，避免一个单格字形浮在两格正中。
+        let gap = span - advance;
+        let dx = if glyph.placed {
+            glyph.pen + glyph.x
+        } else if gap.abs() <= span * 0.15 {
+            (gap / 2.0).max(0.0)
+        } else {
+            0.0
+        };
+        self.paint_glyph(
+            kind,
+            Faux::default(),
+            size,
+            x + dx,
+            baseline - glyph.y,
+            glyph.slot,
+            glyph.id,
+            color,
+            clip,
+        );
+    }
+
+    /// 在笔位置 `(x, baseline)` 绘制已知槽位和字形 id 的一个字形。
+    #[allow(clippy::too_many_arguments)]
+    fn paint_glyph(
+        &mut self,
+        kind: FontKind,
+        faux: Faux,
+        size: f32,
+        x: f32,
+        baseline: f32,
+        slot: u8,
+        glyph: u16,
+        color: Color,
+        clip: Rect,
+    ) {
+        let color = self.faded(color);
+        if color.a <= 0.0 {
+            return;
+        }
         let s = self.scale;
         // 先取整到 ¼ 像素，再拆成整像素和档位（0 至 3）；取整后小数部分达到 1 时，
         // 进位到下一个像素的第 0 档。

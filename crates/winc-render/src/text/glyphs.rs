@@ -1,6 +1,8 @@
 //! 字形缓存：按字体、字号和字符缓存光栅化后的字形，以及模拟的粗体和斜体。
 
+use super::shape::Ligature;
 use super::*;
+use swash::shape::ShapeContext;
 use swash::FontRef;
 
 /// 字形缓存的键：同一字体槽位、字形、字号和亚像素档位对应同一张位图。
@@ -47,6 +49,10 @@ pub(crate) struct GlyphCache {
     glyphs: Generations<GlyphKey, Glyph>,
     /// （槽位，字形，字号×4）→ 前进宽度，逻辑像素。
     pub(crate) advances: FastMap<(u8, u16, u32), f32>,
+    /// 整形上下文，行与行之间复用，避免每次重新分配。
+    pub(crate) shaper: ShapeContext,
+    /// 最近一次 [`Self::shape_run`] 的结果。下一次整形会清空。
+    pub(crate) shaped: Vec<Ligature>,
 }
 
 /// 字符解析出的字体槽位、字形 id 和前进宽度，见 [`GlyphCache::lookup`]。
@@ -68,6 +74,8 @@ impl GlyphCache {
             scaler: ScaleContext::new(),
             glyphs: Generations::per_frame(GLYPH_CACHE_BYTES),
             advances: FastMap::default(),
+            shaper: ShapeContext::new(),
+            shaped: Vec::new(),
         }
     }
 
@@ -152,6 +160,24 @@ impl GlyphCache {
     /// 返回字符 `c` 在字体 `kind`、字号 `size`（逻辑像素）下的前进宽度（逻辑像素），结果带缓存。
     pub(crate) fn advance(&mut self, kind: FontKind, size: f32, c: char) -> f32 {
         self.lookup(kind, size, c).advance
+    }
+
+    /// 返回字形 `glyph`（槽位 `slot`）在字号 `size`（逻辑像素）下的前进宽度，结果带缓存。
+    ///
+    /// 连字用整形给出的字形 id，不再经过字符映射。
+    pub(crate) fn glyph_advance(&mut self, slot: u8, glyph: u16, size: f32) -> f32 {
+        let key = (slot, glyph, (size * 4.0) as u32);
+        if self.advances.len() >= ADVANCE_CACHE_ENTRIES && !self.advances.contains_key(&key) {
+            self.advances = FastMap::default();
+        }
+        *self.advances.entry(key).or_insert_with(|| {
+            self.fonts.face(slot).map_or(0.0, |face| {
+                face.font()
+                    .glyph_metrics(&face.coords)
+                    .scale(size)
+                    .advance_width(glyph)
+            })
+        })
     }
 
     /// 返回缓存中的字形，没有时先光栅化；没有可见像素的字形（如空白）返回 `None`。

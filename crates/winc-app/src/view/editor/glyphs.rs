@@ -30,6 +30,8 @@ fn token_font(kind: TokenKind) -> FontKind {
 
 /// 绘制自动换行时一行中的一段（`range` 范围内的字符），从第 `start` 格开始（后续各段先留出缩进），
 /// 返回绘制结束时的格数。
+///
+/// `splits` 是要断开连字的列（已排序）：光标或选区边界落在两个字符之间时，这两个字符不再连成一个字。
 pub(super) fn draw_glyph_run(
     app: &App,
     frame: &mut Frame<'_>,
@@ -38,39 +40,11 @@ pub(super) fn draw_glyph_run(
     baseline: f32,
     tab_width: usize,
     clip: Rect,
+    splits: &[usize],
 ) -> usize {
-    let p = app.palette;
-    let cell = app.cell;
-    let mut cells = start;
-    let mut token = tokens.partition_point(|t| t.end <= range.start);
-    for col in range {
-        let c = chars[col];
-        let width = text::char_cells(c, cells, tab_width);
-        let x = origin_x + cells as f32 * cell;
-        cells += width;
-        if c == ' ' || c == '\t' || x > clip.right() {
-            continue;
-        }
-        while tokens.get(token).is_some_and(|t| t.end <= col) {
-            token += 1;
-        }
-        let kind = tokens
-            .get(token)
-            .filter(|t| t.start <= col)
-            .map_or(TokenKind::Text, |t| t.kind);
-        frame.cell_char(
-            token_font(kind),
-            app.fonts.code,
-            x,
-            baseline,
-            cell,
-            width.max(1),
-            c,
-            p.token(kind),
-            clip,
-        );
-    }
-    cells
+    paint_chars(
+        app, frame, chars, range, tokens, origin_x, start, baseline, tab_width, clip, splits,
+    )
 }
 
 /// 计算自动换行时一行中列 `from..to` 的文本落在哪几段，对每段调用 `f(段号, 起点格, 终点格)`。
@@ -172,6 +146,8 @@ pub(in crate::view) fn draw_whitespace_mark(
 }
 
 /// 绘制一行的字符，按 `tokens` 着色，返回这一行占用的格数。
+///
+/// `splits` 是要断开连字的列（已排序），见 [`draw_glyph_run`]。
 #[allow(clippy::too_many_arguments)]
 pub(in crate::view) fn draw_glyphs(
     app: &App,
@@ -182,46 +158,227 @@ pub(in crate::view) fn draw_glyphs(
     baseline: f32,
     tab_width: usize,
     clip: Rect,
+    splits: &[usize],
 ) -> usize {
-    let p = app.palette;
-    let cell = app.cell;
-    let mut cells = 0;
-    let mut token = 0;
+    paint_chars(
+        app,
+        frame,
+        chars,
+        0..chars.len(),
+        tokens,
+        origin_x,
+        0,
+        baseline,
+        tab_width,
+        clip,
+        splits,
+    )
+}
 
-    for (col, &c) in chars.iter().enumerate() {
-        let width = text::char_cells(c, cells, tab_width);
-        let x = origin_x + cells as f32 * cell;
-        cells += width;
+/// 连字向屏幕外多看的字符数：`=>` 的前一半刚被滚出时，后一半仍要用到它。
+const LIGATURE_CONTEXT: usize = 16;
 
-        if x > clip.right() {
+/// 返回列 `col` 的语法类别；没有 token 盖住时是普通文本。
+fn kind_at(tokens: &[winc_syntax::Token], col: usize) -> TokenKind {
+    let index = tokens.partition_point(|token| token.end <= col);
+    tokens
+        .get(index)
+        .filter(|token| token.start <= col)
+        .map_or(TokenKind::Text, |token| token.kind)
+}
+
+/// 绘制 `chars[range]`，同一字体、同一种颜色的一段一起整形，从而出现连字。
+///
+/// 空格和制表符、光标或选区切开的位置、以及落到后备字体上的字，都会把这一段断开。
+/// 很长的行只整形视口附近的一段。返回值停在右边缘，折叠标记才不会被一行很长的文字推到屏幕外。
+#[allow(clippy::too_many_arguments)]
+fn paint_chars(
+    app: &App,
+    frame: &mut Frame<'_>,
+    chars: &[char],
+    range: Range<usize>,
+    tokens: &[winc_syntax::Token],
+    origin_x: f32,
+    start_cells: usize,
+    baseline: f32,
+    tab_width: usize,
+    clip: Rect,
+    splits: &[usize],
+) -> usize {
+    let (cell, size) = (app.cell, app.fonts.code);
+    let limit = range.end.min(chars.len());
+    let mut col = range.start.min(limit);
+    let mut cells = start_cells;
+
+    let left = clip.x - cell * LIGATURE_CONTEXT as f32;
+    let mut win = col;
+    let mut win_cells = cells;
+    while win < limit {
+        let width = text::char_cells(chars[win], win_cells, tab_width);
+        let edge = origin_x + (win_cells + width) as f32 * cell;
+        if edge >= left {
             break;
         }
+        win_cells += width;
+        win += 1;
+    }
+    let win = win.saturating_sub(LIGATURE_CONTEXT).max(range.start);
+    cells = start_cells;
+    for index in range.start..win {
+        cells += text::char_cells(chars[index], cells, tab_width);
+    }
+    col = win;
 
-        if c == ' ' || c == '\t' || x + width as f32 * cell < clip.x {
+    let right = clip.right() + cell * LIGATURE_CONTEXT as f32;
+    let mut columns = Vec::new();
+    // 第一个起点已经超出右边缘的字符：把它的宽度算进去后就用这个值当返回值。
+    let mut reported = None;
+    while col < limit {
+        let x = origin_x + cells as f32 * cell;
+        if x >= right {
+            break;
+        }
+        let c = chars[col];
+        let width = text::char_cells(c, cells, tab_width);
+        if reported.is_none() && x > clip.right() {
+            reported = Some(cells + width);
+        }
+        if c == ' ' || c == '\t' || c.is_control() {
+            cells += width;
+            col += 1;
+            continue;
+        }
+        let kind = kind_at(tokens, col);
+        let font = token_font(kind);
+        if !frame.in_mono_font(font, c) {
+            if x < clip.right() && x + width as f32 * cell > clip.x {
+                frame.cell_char(
+                    font,
+                    size,
+                    x,
+                    baseline,
+                    cell,
+                    width.max(1),
+                    c,
+                    app.palette.token(kind),
+                    clip,
+                );
+            }
+            cells += width;
+            col += 1;
             continue;
         }
 
-        while tokens.get(token).is_some_and(|t| t.end <= col) {
-            token += 1;
+        let run_col = col;
+        let run_cells = cells;
+        columns.clear();
+        columns.push(0u32);
+        let mut acc = 0u32;
+        loop {
+            let x = origin_x + cells as f32 * cell;
+            let width = text::char_cells(chars[col], cells, tab_width);
+            if reported.is_none() && x > clip.right() {
+                reported = Some(cells + width);
+            }
+            acc += width as u32;
+            columns.push(acc);
+            cells += width;
+            col += 1;
+            if col >= limit || origin_x + cells as f32 * cell >= right {
+                break;
+            }
+            if splits.binary_search(&col).is_ok() {
+                break;
+            }
+            let next = chars[col];
+            if next == ' ' || next == '\t' || next.is_control() {
+                break;
+            }
+            if kind_at(tokens, col) != kind || !frame.in_mono_font(font, next) {
+                break;
+            }
         }
-
-        let kind = tokens
-            .get(token)
-            .filter(|t| t.start <= col)
-            .map_or(TokenKind::Text, |t| t.kind);
-        frame.cell_char(
-            token_font(kind),
-            app.fonts.code,
-            x,
+        paint_run(
+            app,
+            frame,
+            &chars[run_col..col],
+            &columns,
+            font,
+            kind,
+            origin_x,
+            run_cells,
             baseline,
-            cell,
-            width.max(1),
-            c,
-            p.token(kind),
             clip,
         );
     }
+    if let Some(cells) = reported {
+        return cells;
+    }
+    while col < limit {
+        cells += text::char_cells(chars[col], cells, tab_width);
+        col += 1;
+    }
     cells
+}
+
+/// 绘制已经切好的一段 `run`：能连字就画连字，整形没有覆盖到的字符仍逐字画。
+#[allow(clippy::too_many_arguments)]
+fn paint_run(
+    app: &App,
+    frame: &mut Frame<'_>,
+    run: &[char],
+    columns: &[u32],
+    font: FontKind,
+    kind: TokenKind,
+    origin_x: f32,
+    run_cells: usize,
+    baseline: f32,
+    clip: Rect,
+) {
+    let (cell, size) = (app.cell, app.fonts.code);
+    let color = app.palette.token(kind);
+    let count = frame.shape_ligatures(font, size, run);
+    let mut index = 0;
+    let mut glyph = 0;
+    while index < run.len() {
+        let start_cell = columns[index];
+        let x = origin_x + (run_cells + start_cell as usize) as f32 * cell;
+        if glyph < count && frame.ligature_span(glyph).0 == index {
+            let (_, mut end) = frame.ligature_span(glyph);
+            end = end.clamp(index + 1, run.len());
+            let span = (columns[end] - start_cell) as f32 * cell;
+            if x < clip.right() && x + span > clip.x {
+                while glyph < count && frame.ligature_span(glyph).0 == index {
+                    frame.draw_ligature(glyph, font, size, x, baseline, span, color, clip);
+                    glyph += 1;
+                }
+            } else {
+                while glyph < count && frame.ligature_span(glyph).0 == index {
+                    glyph += 1;
+                }
+            }
+            index = end;
+            continue;
+        }
+        while glyph < count && frame.ligature_span(glyph).0 <= index {
+            glyph += 1;
+        }
+        let width = (columns[index + 1] - start_cell).max(1);
+        if x < clip.right() && x + width as f32 * cell > clip.x {
+            frame.cell_char(
+                font,
+                size,
+                x,
+                baseline,
+                cell,
+                width as usize,
+                run[index],
+                color,
+                clip,
+            );
+        }
+        index += 1;
+    }
 }
 
 /// 绘制 CSV、TSV 的一行：每个字符绘制在对齐之后的单元格内，每一列使用一种颜色（循环使用
