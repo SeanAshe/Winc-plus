@@ -111,8 +111,8 @@ pub const FILE_ICONS: &[FileIcon] = &[
     FileIcon {
         label: "SH",
         asset: "sh",
-        // `.bat` 不在这里：它由系统的 `batfile` 直接执行，登记成打开方式以后双击就进编辑器。
-        extensions: &["sh", "zsh", "ps1", "cmd"],
+        // `.bat`、`.cmd`、`.ps1` 不在这里：系统用它们自己的方式打开，登记成打开方式以后双击就进编辑器。
+        extensions: &["sh", "zsh"],
     },
     FileIcon {
         label: "BASH",
