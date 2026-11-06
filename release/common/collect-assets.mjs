@@ -7,12 +7,6 @@ import { msiVersion, version as currentVersion } from "./config.mjs";
 // Each platform's files: [bundle directory, file suffix, role]. "update" payloads are listed in the
 // platform's signed appcast; "feed" is the appcast itself, under its fixed name.
 const specifications = {
-  "macos-arm64": [["dmg", ".dmg", "update"], ["updates", "appcast-macos-arm64.xml", "feed"]],
-  "macos-x64": [["dmg", ".dmg", "update"], ["updates", "appcast-macos-x86_64.xml", "feed"]],
-  "linux-x64": [
-    ["appimage", ".AppImage", "update"], ["deb", ".deb", "download"],
-    ["updates", "appcast-linux.xml", "feed"],
-  ],
   "windows-x64": [
     ["nsis", "-setup.exe", "update"], ["msi", ".msi", "update"], ["portable", "-portable.zip", "download"],
     ["updates", "appcast-windows.xml", "feed"],

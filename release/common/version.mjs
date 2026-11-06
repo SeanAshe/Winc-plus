@@ -1,5 +1,6 @@
 // Upstream version stays in Cargo.toml. This fork's version is the integer in
-// release/fork-version. The release tag is `<upstream>_<fork>`.
+// release/fork-version: commits ahead of DEEIX-AI/Winc dev, written by
+// release/bump-fork-version.sh. The release tag is `<upstream>_<fork>`.
 // Run directly to print the upstream version, or pass --tag to print the release tag.
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -18,7 +19,7 @@ export function workspaceVersion(directory = root) {
   return version;
 }
 
-// The fork version is stored, not counted. Commits bump release/fork-version.
+// Commits ahead of DEEIX-AI/Winc dev. The commit hook writes this file.
 export function forkVersion(directory = root) {
   const file = join(directory, "release/fork-version");
   const count = readFileSync(file, "utf8").trim();

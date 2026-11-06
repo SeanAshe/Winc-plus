@@ -1,6 +1,6 @@
 # Build checks: rustfmt, and clippy (warnings fail), the tests, and the documentation build
-# (warnings fail) on macOS, Linux, and Windows, for pull requests into `dev` and for every push to
-# `dev`. Pull requests that change only documentation or repository templates skip the builds.
+# (warnings fail) on Windows, for pull requests into `dev` and for every push to `dev`. Pull
+# requests that change only documentation or repository templates skip the builds.
 #
 # Pull requests into `main` come only from `dev`, so they are not built again: a required check is
 # matched on the pull request's head commit, and the push to `dev` already checked that commit.
@@ -63,7 +63,7 @@ jobs:
             ':!.github/workflows/cla.yml' ':!.github/workflows/commits.yml')"
           echo "code=$([[ -n "${code}" ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
-  # Formatting is the same on every platform, so it is checked once, on Linux.
+  # Formatting does not depend on the build target, so it is checked once.
   format:
     name: Format
     needs: changes
@@ -89,10 +89,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: macOS
-            os: macos-26
-          - name: Linux
-            os: ubuntu-24.04
           - name: Windows
             os: windows-2022
     steps:
@@ -110,14 +106,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/dev' }}
-
-      # The terminal tests start the installed shells (zsh and fish are skipped when missing); the
-      # font tests need a monospace font and a CJK font.
-      - name: Install Linux packages
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends zsh fish fonts-dejavu-core fonts-noto-cjk
 
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings

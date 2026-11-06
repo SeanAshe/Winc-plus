@@ -33,8 +33,8 @@ cargo xtask test                    # test the crates changed since HEAD
 
 ## Before Opening a Pull Request
 
-CI checks formatting and runs clippy, the tests, and the documentation build on macOS, Linux, and
-Windows for every pull request that changes code. Run the same checks locally first; all of them
+CI checks formatting and runs clippy, the tests, and the documentation build on Windows for every
+pull request that changes code. Run the same checks locally first; all of them
 must pass without warnings:
 
 ```bash
