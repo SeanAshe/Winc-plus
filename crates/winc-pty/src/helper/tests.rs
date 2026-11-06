@@ -66,6 +66,16 @@ fn encoded_len_matches_the_wire() {
 }
 
 #[test]
+fn colorfgbg_follows_the_terminal_background() {
+    let mut env = vec![(b"COLORFGBG".to_vec(), b"15;0".to_vec())];
+    set_colorfgbg(&mut env, [0xfb, 0xfb, 0xfc]);
+    assert_eq!(lookup(&env, b"COLORFGBG"), Some(&b"0;15"[..]));
+    set_colorfgbg(&mut env, [0x1b, 0x1e, 0x24]);
+    assert_eq!(lookup(&env, b"COLORFGBG"), Some(&b"15;0"[..]));
+    assert_eq!(env.iter().filter(|(key, _)| key == b"COLORFGBG").count(), 1);
+}
+
+#[test]
 fn a_paste_is_kept_or_dropped_whole() {
     const MB: usize = 1 << 20;
     // 前面已积压 15 MiB：3 MiB 的粘贴整次丢弃，后面两段也不收，下一次单独按键仍然收下。

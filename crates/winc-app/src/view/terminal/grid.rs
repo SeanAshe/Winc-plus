@@ -65,6 +65,10 @@ impl Colors {
             bg = Some(fg);
             fg = back;
         }
+        // 浅色终端上，按深色界面画的近黑底（输入框、差异高亮）提成同色相的浅底。
+        if !self.p.dark && let Some(color) = bg.as_mut() {
+            *color = lighten_dark_fill(*color);
+        }
         let under = bg.unwrap_or_else(|| self.default_bg());
         if attrs.has(Attrs::DIM) {
             fg = blend(fg, under, 0.5);
@@ -81,6 +85,16 @@ impl Colors {
 
 fn rgb(r: u8, g: u8, b: u8) -> Color {
     Color::hex(u32::from(r) << 16 | u32::from(g) << 8 | u32::from(b))
+}
+
+/// 浅色底上的近黑填充提亮，色相留着：黑变成浅灰，深色绿变成浅绿。
+///
+/// 已经够亮的颜色不动，深色终端不走这里。
+fn lighten_dark_fill(color: Color) -> Color {
+    if crate::theme::luminance(color) >= 0.15 {
+        return color;
+    }
+    blend(Color::hex(0xFFFFFF), color, 0.82)
 }
 
 /// `fg` 和 `bg` 按 `t`（`fg` 的比例）调和。
