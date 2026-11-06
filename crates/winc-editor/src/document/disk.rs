@@ -283,9 +283,10 @@ impl Document {
         let Some(path) = &self.path else {
             return false;
         };
-        fs::metadata(path).map_or(true, |metadata| {
-            !metadata.permissions().readonly() && !self.disk_differs(&metadata)
-        })
+        fs::metadata(path).map_or_else(
+            |_| crate::wsl::reachable(path),
+            |metadata| !metadata.permissions().readonly() && !self.disk_differs(&metadata),
+        )
     }
 
     /// 文件在最近一次读写时还在，现在磁盘上没有了（被其他程序删除、移动、重命名，或切换分支）。
@@ -299,6 +300,7 @@ impl Document {
         };
         self.disk_mtime.is_some()
             && fs::metadata(path).is_err_and(|e| e.kind() == io::ErrorKind::NotFound)
+            && crate::wsl::reachable(path)
     }
 
     /// 磁盘文件是否与最近一次读写时不同：修改时间或大小变了。
@@ -945,6 +947,11 @@ pub(super) fn write_atomic(
             t!("editor-file-read-only"),
         ));
     }
+    // 通过 Windows 改名替换发行版中的文件会丢失 Linux 权限和属主。
+    let in_distro = existing.is_some() && crate::wsl::locate_here(path).is_some();
+    if in_memory && in_distro {
+        return write_in_place(path, bom, write);
+    }
     if existing.as_ref().is_some_and(rename_changes_identity) {
         if in_memory {
             return write_in_place(path, bom, write);
@@ -992,6 +999,10 @@ pub(super) fn write_atomic(
             copy_extended_attributes(path, &file);
         }
 
+        // 大文件的片段引用原文件，无法原地写入，由发行版复制权限。
+        if in_distro {
+            crate::wsl::keep_identity(path, &tmp)?;
+        }
         winc_config::files::replace_file(&tmp, path)?;
         sync_dir(dir);
         Ok(())

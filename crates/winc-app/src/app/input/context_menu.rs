@@ -106,6 +106,8 @@ pub enum MenuCommand {
     /// 项目名菜单（按住 `⌥`）：在新窗口中打开最近列表中的目录。
     OpenRecentInNewWindow(usize),
     OpenFolder,
+    /// 项目菜单：打开 WSL 发行版中的目录。
+    OpenWslFolder(usize),
     CloseFolder,
     /// 提交视图「⋯」：新建工作树（输入新分支的名字）。
     NewWorktree,
@@ -431,6 +433,9 @@ impl MenuCommand {
                 .get(i)
                 .map_or("", |family| family.name.as_str()),
             MenuCommand::OpenFolder => t!("cmd-open-folder"),
+            MenuCommand::OpenWslFolder(i) => crate::system::wsl_distributions()
+                .get(i)
+                .map_or("", String::as_str),
             MenuCommand::CloseFolder => t!("cmd-close-folder"),
             MenuCommand::Cut => t!("cmd-cut"),
             MenuCommand::Copy => t!("cmd-copy"),

@@ -593,7 +593,10 @@ impl App {
     pub(in crate::app) fn session_tab(&self, doc: &winc_editor::Document) -> Option<Tab> {
         let backed_up = self.backup.written.contains_key(&doc.id);
         match &doc.path {
-            Some(path) if backed_up || path.is_file() => Some(Tab::File(path.clone())),
+            // 发行版暂时无法访问时无法判断文件是否存在，保留标签。
+            Some(path) if backed_up || path.is_file() || !winc_editor::wsl::reachable(path) => {
+                Some(Tab::File(path.clone()))
+            }
             Some(_) => None,
             None if backed_up => self.backup.names.get(&doc.id).cloned().map(Tab::Untitled),
             None => None,

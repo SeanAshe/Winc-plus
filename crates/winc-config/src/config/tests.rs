@@ -225,6 +225,7 @@ fn round_trips_through_json() {
         terminal_scrollback: Some(5000),
         option_as_meta: Some(OptionAsMeta::Both),
         terminal_minimum_contrast: Some(4.5),
+        terminal_shell: Some("wsl.exe -d Ubuntu".to_owned()),
         terminal_shell_integration: Some(false),
         terminal_confirm_close: Some(false),
         terminal_prompt: Some(false),

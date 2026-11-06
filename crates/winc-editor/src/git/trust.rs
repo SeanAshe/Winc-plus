@@ -207,12 +207,13 @@ impl Git {
     ///
     /// `git config` 运行失败时返回原因。
     pub fn inspect(&self, root: &Path) -> Result<Arc<Risks>, String> {
-        let mut command = self.shell.command(&self.program);
-        command
-            .arg("-C")
-            .arg(root)
-            .args(["-c", "core.fsmonitor=false"])
-            .args(["config", "--list", "--show-scope", "-z"]);
+        let mut command = self.at(root);
+        command.args(["-c", "core.fsmonitor=false"]).args([
+            "config",
+            "--list",
+            "--show-scope",
+            "-z",
+        ]);
         let stdout = self.run(&mut command, SHOW_TIMEOUT, &Cancel::default())?;
         let hooks = git_common_dir(root).map(|d| d.join("hooks"));
         let risks = Arc::new(parse_risks(&stdout, root, hooks.as_deref()));

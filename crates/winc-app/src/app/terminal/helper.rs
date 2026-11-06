@@ -227,6 +227,7 @@ impl App {
             self.blur_terminal_tab();
         }
         let cwd = self.terminal_cwd();
+        let shell = self.config.terminal_shell.clone();
         let scrollback = self.config.terminal_scrollback.unwrap_or(SCROLLBACK);
         let integration = integration_dir(&self.config);
         let prompt = self.config.terminal_prompt != Some(false);
@@ -265,12 +266,14 @@ impl App {
             for (i, want) in std::mem::take(&mut t.want).into_iter().enumerate() {
                 t.next_id = t.next_id.wrapping_add(1);
                 let id = t.next_id;
+                let dir = if want.is_empty() { cwd.clone() } else { want };
+                let launch = launch(shell.as_deref(), dir, cfg!(windows));
                 client.send(&ToHelper::Spawn {
                     tab: id,
-                    program: None,
-                    args: Vec::new(),
-                    login: true,
-                    cwd: if want.is_empty() { cwd.clone() } else { want },
+                    program: launch.program,
+                    args: launch.args,
+                    login: launch.login,
+                    cwd: launch.cwd,
                     env: environment(prompt),
                     scrollback,
                     size,
@@ -536,6 +539,51 @@ fn integration_dir(config: &winc_config::Config) -> Option<Vec<u8>> {
 /// 不必先向登录 shell 查询一次。
 ///
 /// `terminal.prompt` 关了时加上 `WINC_PROMPT=0`，集成脚本就不替换默认的提示符。
+/// 新终端的启动方式：程序、参数和工作目录。
+#[derive(Debug, PartialEq, Eq)]
+struct Launch {
+    /// 要运行的程序；`None` 表示用户的默认 shell。
+    program: Option<Vec<u8>>,
+    args: Vec<Vec<u8>>,
+    login: bool,
+    cwd: Vec<u8>,
+}
+
+/// 返回在目录 `cwd` 新建终端时的启动方式。
+///
+/// 设置了 `shell` 时运行该命令。在 Windows（`windows`）上且 `cwd` 位于 WSL 发行版中时，进入对应的
+/// 发行版和目录：目录由 `wsl.exe` 的参数指定，进程本身从家目录启动。其余情况运行默认 shell。
+fn launch(shell: Option<&str>, cwd: Vec<u8>, windows: bool) -> Launch {
+    let mut words = shell.into_iter().flat_map(str::split_whitespace);
+    if let Some(program) = words.next() {
+        return Launch {
+            program: Some(program.as_bytes().to_vec()),
+            args: words.map(|word| word.as_bytes().to_vec()).collect(),
+            login: !windows,
+            cwd,
+        };
+    }
+    let dir = String::from_utf8_lossy(&cwd);
+    let place = windows
+        .then(|| winc_editor::wsl::locate(std::path::Path::new(dir.as_ref())))
+        .flatten();
+    let Some(place) = place else {
+        return Launch {
+            program: None,
+            args: Vec::new(),
+            login: true,
+            cwd,
+        };
+    };
+    let args = ["-d", place.distro.as_str(), "--cd", place.path.as_str()];
+    Launch {
+        program: Some(b"wsl.exe".to_vec()),
+        args: args.iter().map(|arg| arg.as_bytes().to_vec()).collect(),
+        login: false,
+        cwd: Vec::new(),
+    }
+}
+
 fn environment(prompt: bool) -> Vec<(Vec<u8>, Vec<u8>)> {
     let mut env: Vec<_> = std::env::vars_os()
         .filter(|(k, _)| k != "WINC_PROMPT")

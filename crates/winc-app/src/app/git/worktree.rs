@@ -98,6 +98,12 @@ pub(crate) fn worktree_name(worktree: &Worktree) -> String {
 }
 
 impl App {
+    /// 返回传给当前仓库 `git` 的目录参数：仓库位于 WSL 发行版中时使用发行版内的路径。
+    pub(in crate::app) fn git_path_arg(&self, path: &Path) -> String {
+        let root = self.git.root.as_deref().unwrap_or(path);
+        winc_editor::wsl::git_arg(root, path)
+    }
+
     /// 上下文栏上的项目名：打开的目录就是附属工作树时写它所属的仓库，同一个仓库的工作树之间切换时
     /// 不变；工作树的名字写在位置按钮上。打开的目录里有多个仓库时项目就是这个目录。没有打开目录时
     /// 为 `None`。
@@ -220,7 +226,7 @@ impl App {
         let exists =
             !branch.remote || (self.git.branches.iter()).any(|b| !b.remote && b.name == local);
         let remote = branch.name.clone();
-        let target = dir.to_string_lossy().into_owned();
+        let target = self.git_path_arg(&dir);
         self.add_worktree(
             t!("git-op-checkout-new-worktree", name = local.as_str()),
             dir,
@@ -259,7 +265,7 @@ impl App {
         let Some(dir) = self.new_worktree_dir(&short) else {
             return;
         };
-        let target = dir.to_string_lossy().into_owned();
+        let target = self.git_path_arg(&dir);
         let globs = self.config.git_worktree_copy.clone();
         self.add_worktree(
             t!("git-op-checkout-commit-new-worktree", commit = &short),
@@ -476,7 +482,7 @@ impl App {
             self.notify(t!("git-worktree-trash-failed", name = &name, error = error));
             return;
         }
-        let target = path.to_string_lossy().into_owned();
+        let target = self.git_path_arg(path);
         let what = t!("git-op-remove-worktree", name = name.as_str());
         self.git_operate_then(what, move |git, root| {
             git.operate(

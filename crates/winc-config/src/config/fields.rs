@@ -215,6 +215,7 @@ const TERMINAL: &[Field] = &[
         write: |config| config.external_terminal.clone().map(Json::String),
     },
     bool_field!("enabled", terminal_enabled),
+    string_field!("shell", terminal_shell),
     bool_field!("shellIntegration", terminal_shell_integration),
     bool_field!("confirmClose", terminal_confirm_close),
     bool_field!("prompt", terminal_prompt),

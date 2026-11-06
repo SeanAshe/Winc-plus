@@ -417,8 +417,12 @@ impl<'a> ProjectFiles<'a> {
                     .then(|| "pyproject.toml".to_owned())
             }
             Sign::Venv(program) => {
-                let bin = if cfg!(windows) { "Scripts" } else { "bin" };
-                let names = file_names(program, std::env::var_os("PATHEXT").as_deref());
+                let bin = if windows_programs(dir) {
+                    "Scripts"
+                } else {
+                    "bin"
+                };
+                let names = program_names(program, dir);
                 [".venv", "venv"]
                     .into_iter()
                     .find(|venv| {
@@ -431,24 +435,40 @@ impl<'a> ProjectFiles<'a> {
     }
 }
 
+/// 目录 `dir` 中的程序是否按 Windows 的规则组织：WSL 发行版中的目录按 Linux 的规则。
+fn windows_programs(dir: &Path) -> bool {
+    cfg!(windows) && crate::wsl::locate_here(dir).is_none()
+}
+
+/// 目录 `dir` 中程序 `name` 可能使用的文件名。
+fn program_names(name: &str, dir: &Path) -> Vec<String> {
+    if windows_programs(dir) {
+        file_names(name, std::env::var_os("PATHEXT").as_deref())
+    } else {
+        vec![name.to_owned()]
+    }
+}
+
 /// 项目内存放可执行程序的目录（相对于每一级目录）。
 ///
 /// Windows 上 Python 虚拟环境的程序位于 `Scripts` 中。
-const PROJECT_BINS: &[&str] = if cfg!(windows) {
-    &["node_modules/.bin", ".venv/Scripts", "venv/Scripts"]
-} else {
-    &["node_modules/.bin", ".venv/bin", "venv/bin"]
-};
+fn project_bins(windows: bool) -> &'static [&'static str] {
+    if windows {
+        &["node_modules/.bin", ".venv/Scripts", "venv/Scripts"]
+    } else {
+        &["node_modules/.bin", ".venv/bin", "venv/bin"]
+    }
+}
 
 /// 查找项目自带的程序：从 `dir` 向上，逐级查看 `node_modules/.bin`、`.venv/bin`、`venv/bin`，
 /// 一直找到文件系统根，因此 monorepo 中安装在上层的程序也能找到。
 ///
 /// 返回程序的路径，以及它所在的那一级项目目录。
 pub(super) fn find_in_project(name: &str, dir: &Path) -> Option<(PathBuf, PathBuf)> {
-    let names = file_names(name, std::env::var_os("PATHEXT").as_deref());
+    let names = program_names(name, dir);
+    let bins = project_bins(windows_programs(dir));
     dir.ancestors().find_map(|level| {
-        PROJECT_BINS
-            .iter()
+        bins.iter()
             .flat_map(|bin| names.iter().map(move |name| level.join(bin).join(name)))
             .find(|path| is_executable(path))
             .map(|path| (path, level.to_path_buf()))

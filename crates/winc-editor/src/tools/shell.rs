@@ -4,7 +4,7 @@
 //! 从图形界面启动的应用只继承系统提供的最小环境，`PATH` 里缺少用户自己装的工具，因此第一次
 //! 用到时向用户的登录 shell 查询一次环境（见 `environment::resolve`），之后各处共用。
 
-mod environment;
+pub(crate) mod environment;
 pub(crate) mod process;
 
 pub use process::Cancel;

@@ -70,6 +70,13 @@ fn newline_and_tab_keep_each_cursors_indentation() {
 }
 
 #[test]
+fn backspace_removes_the_empty_pair_at_every_caret() {
+    let mut d = doc("() []", &[1, 4]);
+    run(&mut d, Command::Backspace { word: false });
+    assert_eq!(text(&d), " ");
+}
+
+#[test]
 fn auto_pairs_wrap_every_selection() {
     let mut d = doc("a b", &[0]);
     d.set_selections(vec![Selection::new(0, 1), Selection::new(2, 3)], 1);

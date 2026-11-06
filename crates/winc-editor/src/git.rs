@@ -427,7 +427,7 @@ fn git_dir(root: &Path) -> Option<PathBuf> {
     }
     let text = std::fs::read_to_string(&dot).ok()?;
     let target = text.trim().strip_prefix("gitdir:")?.trim();
-    Some(root.join(target))
+    Some(crate::wsl::resolve(root, target))
 }
 
 /// 仓库共用的 `git` 目录：工作树（`git worktree`）的 `.git` 文件指向它自己的目录，hooks、
@@ -526,7 +526,11 @@ impl Git {
     ///
     /// 找不到，或者 macOS 上找到的是没装开发者工具时的占位程序，返回 [`Unavailable`]。
     pub fn find(shell: &Shell) -> Result<Git, Unavailable> {
-        let program = shell.find("git").ok_or(Unavailable::NotInstalled)?;
+        // 仅在 WSL 中安装了 `git` 时仍然可用：发行版中的仓库使用发行版内的 `git`（`Git::at`）。
+        let program = shell
+            .find("git")
+            .or_else(|| crate::wsl::available().then(|| PathBuf::from("git.exe")))
+            .ok_or(Unavailable::NotInstalled)?;
         if cfg!(target_os = "macos")
             && program == Path::new("/usr/bin/git")
             && !developer_tools_installed()
@@ -646,7 +650,10 @@ impl Git {
         command.args(["rev-parse", "--git-common-dir"]);
         let stdout = self.run(&mut command, STATUS_TIMEOUT, cancel)?;
         // 在主工作树里是相对路径，相对于运行的目录。
-        Ok(root.join(String::from_utf8_lossy(&stdout).trim()))
+        Ok(crate::wsl::resolve(
+            root,
+            String::from_utf8_lossy(&stdout).trim(),
+        ))
     }
 
     /// 返回最近切换到过的分支名，最近的在前，不重复（来自 `HEAD` 的引用日志）。
@@ -1035,10 +1042,8 @@ impl Git {
     }
 
     fn command(&self, root: &Path) -> Command {
-        let mut command = self.shell.command(&self.program);
+        let mut command = self.at(root);
         command
-            .arg("-C")
-            .arg(root)
             // 不获取可选的锁（例如刷新索引）：后台运行的 `git` 不能和用户在同一仓库里运行的
             // `git` 抢同一把锁。
             .env("GIT_OPTIONAL_LOCKS", "0")
@@ -1061,6 +1066,49 @@ impl Git {
             }
         }
         command
+    }
+
+    /// 返回在仓库 `root` 中运行 `git` 的命令，调用方继续追加 `git` 的参数。
+    ///
+    /// 发行版中的仓库使用发行版内的 `git`：跨文件系统读取仓库的速度较低，文件属主不同时 `git` 还会
+    /// 按 `safe.directory` 拒绝访问。
+    pub(super) fn at(&self, root: &Path) -> Command {
+        let Some(place) = crate::wsl::locate_here(root) else {
+            let mut command = self.shell.command(&self.program);
+            command.arg("-C").arg(root);
+            return command;
+        };
+        let mut command = self.shell.command(Path::new("wsl.exe"));
+        crate::wsl::enter(&mut command, &place.distro);
+        command
+            .args(["--exec", "git", "-C", &place.path])
+            .env("WSLENV", crate::wsl::GIT_ENV);
+        command
+    }
+
+    /// 返回文件在 `git` 中的模式：可执行文件为 `100755`，其余为 `100644`。
+    ///
+    /// Windows 无法读取发行版中文件的可执行位，因此在发行版内查询。查询失败时返回错误：按不可执行
+    /// 处理会使提交移除文件的可执行位。
+    fn file_mode(&self, path: &Path, cancel: &Cancel) -> Result<&'static str, String> {
+        if let Some(place) = crate::wsl::locate_here(path) {
+            let mut command = self.shell.command(Path::new("wsl.exe"));
+            crate::wsl::enter(&mut command, &place.distro);
+            command
+                .args(["--exec", "test", "-x", &place.path])
+                .stderr(Stdio::piped());
+            let output = process::run(&mut command, Vec::new(), SHOW_TIMEOUT, cancel)
+                .map_err(|e| describe(&e))?;
+            return mode_from_test(output.status.code()).ok_or_else(|| failure(&output.stderr));
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if std::fs::metadata(path).is_ok_and(|m| m.permissions().mode() & 0o111 != 0) {
+                return Ok("100755");
+            }
+        }
+        Ok("100644")
     }
 
     fn run(
@@ -1161,17 +1209,13 @@ fn joined_arg(parts: &[&OsStr]) -> OsString {
     })
 }
 
-/// 返回文件在 `git` 里的模式：能执行的是 `100755`，否则 `100644`。
-fn file_mode(path: &Path) -> &'static str {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if std::fs::metadata(path).is_ok_and(|m| m.permissions().mode() & 0o111 != 0) {
-            return "100755";
-        }
+/// 把 `test -x` 的退出码转换为文件在 `git` 中的模式；其他退出码表示查询失败，返回 `None`。
+fn mode_from_test(code: Option<i32>) -> Option<&'static str> {
+    match code {
+        Some(0) => Some("100755"),
+        Some(1) => Some("100644"),
+        _ => None,
     }
-    let _ = path;
-    "100644"
 }
 
 /// 把绝对路径换成相对于 `root` 的路径，交给 `git` 的路径参数（`--` 之后）。

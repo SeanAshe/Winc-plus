@@ -326,6 +326,7 @@ impl App {
                     self.state.recent.len(),
                     current,
                     root.is_some(),
+                    crate::system::wsl_distributions().len(),
                 ));
                 menu
             }

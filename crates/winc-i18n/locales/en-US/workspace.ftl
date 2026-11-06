@@ -310,6 +310,7 @@ workspace-reveal-failed = { $action } failed: { $error }
 workspace-terminal-app-fallback = Terminal
 workspace-open-app-failed = Couldn’t open “{ $app }”: { $error }
 workspace-deleted-on-disk-key = “{ $name }” was deleted from disk and wasn’t auto-saved; press { $key } to recreate it
+workspace-watch-limit = “{ $name }” has too many folders to watch live and updates when you return to the window; raise fs.inotify.max_user_watches in the distribution
 workspace-deleted-on-disk = “{ $name }” was deleted from disk and wasn’t auto-saved; save it to recreate it
 workspace-save-as-dirty-elsewhere = Couldn’t save as “{ $name }”: that file has unsaved changes in another tab
 workspace-save-conflict = Couldn’t save “{ $name }”: the file was changed by another app; choose which version to keep first

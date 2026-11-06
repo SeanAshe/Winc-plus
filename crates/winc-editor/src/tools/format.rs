@@ -602,12 +602,19 @@ impl Formatter {
     /// # Panics
     /// `Plan::settle` 在回调始终返回 `Some` 时必定返回 `Some`，因此这里的 `expect` 不会触发。
     pub fn resolve(&self, plan: &Plan) -> Result<Plan, FormatError> {
-        let found = |name: &str| Some(self.locate(&Program::Search(name.to_owned())).is_some());
+        let found = |name: &str| {
+            let program = Program::Search(name.to_owned());
+            Some(self.locate_for(&plan.file, &program).is_some())
+        };
         plan.settle(found).expect("每个程序都问到了")
     }
 
     /// 与 [`Formatter::resolve`] 相同，但不等待：还不知道装了哪个时返回 `None`（设置页使用）。
     pub fn peek(&self, plan: &Plan) -> Option<Result<Plan, FormatError>> {
+        // 查询发行版要启动进程，这里不等待。
+        if crate::wsl::locate_here(&plan.file).is_some() {
+            return plan.settle(|_| None);
+        }
         plan.settle(|name| self.has(name))
     }
 
@@ -620,6 +627,24 @@ impl Formatter {
                 is_executable(path).then(|| path.clone())
             }
             Program::Search(name) => self.in_path(name).or_else(|| self.xcrun(name)),
+        }
+    }
+
+    /// 返回格式化 `file` 时要运行的程序：`file` 位于 WSL 发行版中时在发行版内查找，返回发行版内的
+    /// 路径；其余情况同 [`Formatter::locate`]。
+    fn locate_for(&self, file: &Path, program: &Program) -> Option<PathBuf> {
+        let Some(place) = crate::wsl::locate_here(file) else {
+            return self.locate(program);
+        };
+        match program {
+            Program::Project { path, .. } | Program::Path(path) => is_executable(path)
+                .then(|| crate::wsl::locate_here(path))
+                .flatten()
+                .map(|program| PathBuf::from(program.path)),
+            Program::Search(name) => {
+                let path = crate::wsl::login_path(&place.distro);
+                crate::wsl::find_program(&place.distro, path.as_deref(), name)
+            }
         }
     }
 
@@ -661,7 +686,7 @@ impl Formatter {
             Some(range) => plan.range_args()?.iter().map(|a| range.expand(a)).collect(),
             None => Vec::new(),
         };
-        let program = self.locate(&plan.program).ok_or_else(|| {
+        let program = self.locate_for(&plan.file, &plan.program).ok_or_else(|| {
             let message = match &plan.auto {
                 Some((preset, Some(reason))) => {
                     let (preset, reason, tool) = (*preset, reason.as_str(), tool.as_str());
@@ -680,6 +705,11 @@ impl Formatter {
             }
         })?;
 
+        // 发行版内的工具只接受发行版内的路径。
+        let place = crate::wsl::locate_here(&plan.file);
+        let file = place
+            .as_ref()
+            .map_or_else(|| plan.file.clone(), |place| PathBuf::from(&place.path));
         let dir = plan.file.parent().unwrap_or(Path::new("/"));
         let edition = plan
             .args
@@ -690,7 +720,7 @@ impl Formatter {
         let args: Vec<_> = plan.args[1..]
             .iter()
             .chain(&range_args)
-            .map(|arg| command::expand(arg, &plan.file, edition.as_deref()))
+            .map(|arg| command::expand(arg, &file, edition.as_deref()))
             .collect();
         // 工作目录取文件所在的目录（工具从这里向上查找配置）；该目录已被删除时取向上第一个
         // 仍存在的目录。
@@ -699,11 +729,23 @@ impl Formatter {
             .find(|d| d.is_dir())
             .unwrap_or(Path::new("/"));
 
-        let mut command = self.0.shell.command(&program);
+        let mut command = match place.zip(crate::wsl::locate_here(cwd)) {
+            Some((place, cwd)) => {
+                let mut command = self.0.shell.command(Path::new("wsl.exe"));
+                let path = crate::wsl::login_path(&place.distro);
+                crate::wsl::enter_login(&mut command, &place.distro, &cwd.path, path.as_deref());
+                command.env("WSLENV", crate::wsl::FORMAT_ENV).arg(&program);
+                command
+            }
+            None => {
+                let mut command = self.0.shell.command(&program);
+                command.current_dir(cwd);
+                command
+            }
+        };
         command
             .args(&args)
-            .current_dir(cwd)
-            .env("WINC_FILE", &plan.file)
+            .env("WINC_FILE", &file)
             .stderr(Stdio::piped());
 
         // 工具收到的内容统一为 LF，使只用 CR 换行的旧文件不会被当作一整行；输出再转换回文件

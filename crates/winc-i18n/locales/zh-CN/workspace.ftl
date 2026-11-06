@@ -241,6 +241,7 @@ workspace-reveal-failed = 无法{ $action }：{ $error }
 workspace-terminal-app-fallback = 终端
 workspace-open-app-failed = 无法打开「{ $app }」：{ $error }
 workspace-deleted-on-disk-key = 「{ $name }」已从磁盘上删除，未自动保存；按 { $key } 重新创建
+workspace-watch-limit = 「{ $name }」中的目录过多，无法实时监视，切换回窗口时更新；可提高发行版的 fs.inotify.max_user_watches
 workspace-deleted-on-disk = 「{ $name }」已从磁盘上删除，未自动保存；重新创建
 workspace-save-as-dirty-elsewhere = 无法另存为「{ $name }」：该文件在另一个标签页中有未保存的修改
 workspace-save-conflict = 无法保存「{ $name }」：文件已被其他程序修改，请先选择要保留的版本

@@ -52,7 +52,7 @@ pub(super) fn resolve() -> Vars {
 ///
 /// shell 无法运行、超时，或输出中没有可用的环境（见 `parse`）时，返回错误说明。
 fn login_shell(shell: &OsStr, timeout: Duration) -> Result<Vars, String> {
-    let script = format!("printf '{MARKER}'; command env -0; printf '{MARKER}'");
+    let script = print_script();
     let mut command = Command::new(shell);
     command
         .args(["-i", "-l", "-c", &script])
@@ -64,6 +64,18 @@ fn login_shell(shell: &OsStr, timeout: Duration) -> Result<Vars, String> {
     let output = process::run(&mut command, Vec::new(), timeout, &Default::default())
         .map_err(|e| e.to_string())?;
     parse(&output.stdout).ok_or_else(|| "shell 未输出环境变量".to_owned())
+}
+
+/// 返回让 shell 打印环境的脚本，输出由 [`path_in`] 或 [`parse`] 解析。
+pub(crate) fn print_script() -> String {
+    format!("printf '{MARKER}'; command env -0; printf '{MARKER}'")
+}
+
+/// 返回 [`print_script`] 的输出 `output` 中 `PATH` 的值；没有可用的环境时返回 `None`。
+pub(crate) fn path_in(output: &[u8]) -> Option<String> {
+    let vars = parse(output)?;
+    let (_, path) = vars.into_iter().find(|(name, _)| name == "PATH")?;
+    path.into_string().ok()
 }
 
 /// 返回 `env -0` 输出中两个标记之间的环境变量；缺少标记，或环境中没有 `PATH` 时返回 `None`。

@@ -102,6 +102,9 @@ pub struct Config {
     ///
     /// 可用范围见 [`Config::CONTRAST_RANGE`]，默认 3。
     pub terminal_minimum_contrast: Option<f32>,
+    /// 终端运行的程序和参数，以空白分隔（如 `wsl.exe -d Ubuntu`）。未设置时运行系统默认的 shell；
+    /// 打开的目录位于 WSL 发行版中时进入对应的发行版。
+    pub terminal_shell: Option<String>,
     /// 终端是否自动注入 shell 集成（zsh、bash、fish 的命令块），默认为是。
     pub terminal_shell_integration: Option<bool>,
     /// 关闭还有程序在运行的终端标签前是否先确认，默认为是。

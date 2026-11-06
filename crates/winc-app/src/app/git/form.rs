@@ -413,7 +413,7 @@ impl App {
                 let Some(dir) = dir(self, &name) else {
                     return;
                 };
-                let target = dir.to_string_lossy().into_owned();
+                let target = self.git_path_arg(&dir);
                 self.add_worktree(
                     t!("git-op-new-worktree", name = name.as_str()),
                     dir,

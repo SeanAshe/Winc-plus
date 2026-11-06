@@ -19,11 +19,18 @@ foreach ($name in @('winc.exe', 'winc-pty.exe')) {
     Copy-Item "$release/$name" "$stage/$name" -Force
 }
 Copy-Item "$root/LICENSE", "$root/NOTICE", "$bundle/icons/winc.ico" $stage -Force
+# WSL runs bin/winc with sh, which rejects CRLF line endings however the source was checked out.
+New-Item -ItemType Directory -Force "$stage/bin" | Out-Null
+$launcher = [IO.File]::ReadAllText("$PSScriptRoot/winc").Replace("`r`n", "`n")
+[IO.File]::WriteAllText("$stage/bin/winc", $launcher, (New-Object Text.UTF8Encoding $false))
+Copy-Item "$PSScriptRoot/winc.cmd" "$stage/bin/winc.cmd" -Force
+Copy-Item "$PSScriptRoot/path.ps1" $stage -Force
+Copy-Item "$root/target/x86_64-unknown-linux-musl/release/winc-watch" $stage -Force
 if ($Phase -eq 'portable') {
     $portable = "$bundle/portable"
     New-Item -ItemType Directory -Force $portable | Out-Null
     # Enumerate the files: installer markers never enter a portable archive.
-    Compress-Archive -Path "$stage/winc.exe", "$stage/winc-pty.exe", "$stage/LICENSE", "$stage/NOTICE", "$stage/winc.ico" -DestinationPath "$portable/$stem-portable.zip" -Force
+    Compress-Archive -Path "$stage/winc.exe", "$stage/winc-pty.exe", "$stage/winc-watch", "$stage/bin", "$stage/LICENSE", "$stage/NOTICE", "$stage/winc.ico" -DestinationPath "$portable/$stem-portable.zip" -Force
     return
 }
 

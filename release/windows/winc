@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+# Starts winc from a shell. WSL finds this script through the Windows Path; winc receives the
+# distribution so that absolute paths given here resolve inside it.
+dir="$(dirname "$(dirname "$(realpath "$0")")")"
+if [ -n "$WSL_DISTRO_NAME" ]; then
+    exec "$dir/winc.exe" --wsl "$WSL_DISTRO_NAME" "$@"
+fi
+exec "$dir/winc.exe" "$@"

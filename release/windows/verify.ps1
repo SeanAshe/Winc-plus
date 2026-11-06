@@ -7,6 +7,11 @@ $bundle = "$root/target/$Target/release/bundle"
 $work = Join-Path $env:RUNNER_TEMP 'winc-installer-verification'
 New-Item -ItemType Directory -Force $work | Out-Null
 $update = "$root/crates/winc-app/src/updates/installer/update.ps1"
+# The NSIS installer changes the user's Path and the MSI changes the machine's.
+function Get-CommandPath([string]$Kind) {
+    $scope = if ($Kind -eq 'nsis') { 'User' } else { 'Machine' }
+    @([Environment]::GetEnvironmentVariable('Path', $scope) -split ';' | ForEach-Object { $_.TrimEnd('\') })
+}
 # The executable carries the application icon and one icon per file type. Explorer and the
 # file-properties header use a file-type icon; Open with uses the application icon.
 $shell = Add-Type -Name Shell -Namespace WincVerify -PassThru -MemberDefinition '[DllImport("shell32.dll", CharSet = CharSet.Unicode)] public static extern uint ExtractIconEx(string file, int index, IntPtr large, IntPtr small, uint count);'
@@ -24,9 +29,11 @@ foreach ($kind in @('nsis', 'msi')) {
             $process = Start-Process msiexec.exe -ArgumentList "/i `"$setup`" /qn /norestart INSTALLFOLDER=`"$directory`"" -Wait -PassThru
         }
         if ($process.ExitCode -notin @(0, 1641, 3010)) { throw "$kind installation failed: $($process.ExitCode)" }
-        foreach ($file in @('winc.exe', 'winc-pty.exe', 'winc-installation')) {
+        foreach ($file in @('winc.exe', 'winc-pty.exe', 'winc-installation', 'winc-watch', 'bin/winc', 'bin/winc.cmd')) {
             if (-not (Test-Path "$directory/$file")) { throw "${kind}: missing $file" }
         }
+        if ((Get-Content "$directory/bin/winc" -Raw) -match "`r") { throw "${kind}: bin/winc has CRLF line endings" }
+        if ((Get-CommandPath $kind) -notcontains "$directory\bin") { throw "${kind}: bin is not on the Path" }
         if ((Get-Content "$directory/winc-installation" -Raw).Trim() -ne $kind) { throw 'incorrect installation marker' }
         $command = (Get-ItemProperty -LiteralPath "$classes\winc.JSON\shell\open\command").'(default)'
         if ($command -ne "`"$directory\winc.exe`" `"%1`"") { throw "${kind}: wrong open command: $command" }
@@ -47,7 +54,8 @@ foreach ($kind in @('nsis', 'msi')) {
             $uninstall = Start-Process msiexec.exe -ArgumentList "/x `"$setup`" /qn /norestart" -Wait -PassThru
         }
     }
+    if ((Get-CommandPath $kind) -contains "$directory\bin") { throw "${kind}: uninstall left bin on the Path" }
     if (Test-Path -LiteralPath "$classes\winc.JSON") { throw "${kind}: uninstall left the file type behind" }
 }
 Expand-Archive "$bundle/portable/Winc-$version-windows-x64-portable.zip" "$work/portable" -Force
-if ((Test-Path "$work/portable/winc-installation") -or -not (Test-Path "$work/portable/winc-pty.exe")) { throw 'invalid portable layout' }
+if ((Test-Path "$work/portable/winc-installation") -or -not (Test-Path "$work/portable/winc-pty.exe") -or -not (Test-Path "$work/portable/bin/winc") -or -not (Test-Path "$work/portable/winc-watch")) { throw 'invalid portable layout' }

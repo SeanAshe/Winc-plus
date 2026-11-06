@@ -73,7 +73,9 @@ impl Args {
 pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Args, String> {
     let mut parsed = Args::default();
     let mut options = true;
-    for arg in args {
+    let mut distro = None;
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
         if options {
             match arg.to_str() {
                 Some("--") => {
@@ -96,6 +98,15 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Args, String> {
                     parsed.unregister_file_types = true;
                     continue;
                 }
+                // WSL 中的启动脚本传入发行版名称，不列入用法说明。
+                Some("--wsl") => {
+                    let Some(name) = args.next() else {
+                        let message = t!("cmd-cli-wsl-needs-name");
+                        return Err(format!("{message}\n\n{}", usage()));
+                    };
+                    distro = Some(name.to_string_lossy().into_owned());
+                    continue;
+                }
                 Some("-") => {
                     parsed.stdin = true;
                     continue;
@@ -112,6 +123,12 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Args, String> {
             }
         }
         parsed.targets.push(target(arg));
+    }
+    if let Some(distro) = &distro {
+        for target in &mut parsed.targets {
+            let path = std::mem::take(&mut target.path);
+            target.path = winc_editor::wsl::from_distro(distro, path);
+        }
     }
     if parsed.wait && parsed.targets.is_empty() && !parsed.stdin {
         return Err(format!("{}\n\n{}", t!("cmd-cli-wait-needs-file"), usage()));
