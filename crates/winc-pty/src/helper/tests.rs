@@ -1,4 +1,4 @@
-//! 辅助进程的单元测试：覆盖历史回答分条、粘贴的收发判断和行的编码长度。
+//! 辅助进程的单元测试：覆盖历史回答分条、粘贴的收发判断、行的编码长度和待写入的字节。
 
 use super::*;
 use winc_pty::protocol::{Color, Run, Style};
@@ -112,4 +112,42 @@ fn inherited_descriptors_are_closed_on_exec() {
     assert_ne!(flags(fd) & libc::FD_CLOEXEC, 0);
     // SAFETY: `fd` 是上面 `dup` 出来的，只关这一次。
     unsafe { libc::close(fd) };
+}
+
+#[test]
+fn pending_input_keeps_the_unwritten_bytes_in_order() {
+    let mut input = PendingInput::default();
+    input.extend(b"abcdef");
+    input.advance(2);
+    assert_eq!(input.bytes(), b"cdef");
+    input.extend(b"gh");
+    assert_eq!(input.bytes(), b"cdefgh");
+    // 已写入的部分超过一半：移动剩余的字节，内容不变。
+    input.advance(3);
+    assert_eq!(input.start, 0);
+    assert_eq!(input.bytes(), b"fgh");
+    assert_eq!(input.len(), 3);
+    input.advance(3);
+    assert!(input.is_empty());
+}
+
+#[test]
+fn pending_input_moves_little_while_writing_in_small_pieces() {
+    let mut input = PendingInput::default();
+    input.extend(&vec![b'x'; 1 << 16]);
+    // 前半段写入期间不移动。
+    for _ in 0..(1 << 15) - 1 {
+        input.advance(1);
+    }
+    assert_eq!(input.start, (1 << 15) - 1);
+    input.advance(1);
+    assert_eq!(input.start, 0);
+}
+
+#[test]
+fn pending_input_releases_the_memory_of_a_large_paste() {
+    let mut input = PendingInput::default();
+    input.extend(&vec![b'x'; 1 << 20]);
+    input.advance(1 << 20);
+    assert!(input.buf.capacity() <= winc_pty::protocol::IDLE_BUFFER);
 }

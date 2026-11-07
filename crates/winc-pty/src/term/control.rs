@@ -147,6 +147,8 @@ impl Emulator {
         if cols == self.cols && rows == self.rows {
             return;
         }
+        // 尺寸变化后屏幕和回滚缓冲之间可能移动过行，上一次移入的内容不能再用于比较。
+        self.last_kept = None;
         let old_cols = self.cols;
         if cols != old_cols {
             self.clear_prompt(cols);
@@ -241,10 +243,12 @@ impl Emulator {
         self.primary = Screen::new(cols, rows);
         self.alternate = Screen::new(cols, rows);
         self.alt = false;
+        self.last_kept = None;
+        self.scheme_reports = false;
         self.soft_reset();
         self.modes = Modes(Modes::ALT_SCROLL);
         self.shape = CursorShape::Block;
-        self.blink = false;
+        self.blink = true;
         self.sync = false;
         self.reset_tabs();
         self.damage.all();

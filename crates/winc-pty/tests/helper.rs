@@ -107,6 +107,38 @@ fn queries_are_answered_through_the_pty() {
     c.until_exit_showing(|t| t.ends_with("[1;3R"));
 }
 
+/// 启动前写进终端的内容排在程序输出之前，不会传给程序。
+#[test]
+fn the_banner_comes_before_the_output() {
+    let mut c = Client::start();
+    c.send(ToHelper::Spawn {
+        tab: 1,
+        program: Some(b"/bin/sh".to_vec()),
+        args: vec![b"-c".to_vec(), b"echo output".to_vec()],
+        login: false,
+        cwd: b"/".to_vec(),
+        env: vec![(b"PATH".to_vec(), b"/usr/bin:/bin".to_vec())],
+        scrollback: 100,
+        size: SIZE,
+        integration: None,
+        banner: b"> command\r\n".to_vec(),
+    });
+    c.until_exit_showing(|t| t.contains("output"));
+    assert!(c.text().starts_with("> command\noutput"), "{}", c.text());
+}
+
+/// 停止结束忽略挂断的程序，到期强制结束；终端的内容保留，退出照常报告。
+#[test]
+fn stop_ends_the_program_and_keeps_the_terminal() {
+    let mut c = Client::start();
+    let script = "trap '' HUP; echo started; while :; do sleep 1; done";
+    c.spawn(1, "/bin/sh", &["-c", script]);
+    c.until_text("started");
+    c.send(ToHelper::Stop { tab: 1 });
+    assert_eq!(c.until_exit(), 128 + 9);
+    assert!(c.text().contains("started"));
+}
+
 #[test]
 fn a_missing_program_fails_to_start() {
     let mut c = Client::start();
@@ -137,6 +169,25 @@ fn the_tab_learns_a_command_ended_even_without_more_output() {
     };
     c.until(|_, m| name(m).as_deref() == Some("perl"));
     c.until(|_, m| name(m).is_some_and(|n| n != "perl"));
+}
+
+/// 回车的回显发帧时命令还没启动，之后没有新的输出：发帧之后再查一次，才能发现它。
+#[test]
+fn a_silent_command_is_still_found_as_the_foreground_process() {
+    let mut c = Client::start();
+    c.spawn(1, "/bin/sh", &["-i"]);
+    let send = |c: &mut Client, bytes: &[u8]| {
+        c.send(ToHelper::Input {
+            tab: 1,
+            bytes: bytes.to_vec(),
+            rest: 0,
+        });
+    };
+    send(&mut c, b"sleep 0.1; cat");
+    // 等过查询间隔（300 ms）：回车的回显发帧时立即查询，这时 shell 还没有启动命令。
+    thread::sleep(Duration::from_millis(500));
+    send(&mut c, b"\n");
+    c.until(|_, m| matches!(m, FromHelper::Process { name, .. } if name == "cat"));
 }
 
 #[test]
@@ -183,6 +234,43 @@ fn closing_a_tab_also_ends_a_foreground_job_that_ignores_hangup() {
     };
     assert!(status.success());
     assert!(!alive(pid), "忽略 SIGHUP 的前台作业还活着");
+}
+
+/// 主程序关闭标签后马上退出（关闭最后一个标签、切换目录）：忽略 SIGHUP 的前台作业仍要结束。
+#[test]
+fn closing_the_last_tab_and_going_away_still_ends_the_job() {
+    let mut c = Client::start();
+    let job = r#"$SIG{HUP} = "IGNORE"; $| = 1; print "$$\n"; sleep 100"#;
+    c.spawn(1, "/bin/sh", &["-c", &format!("set -m; perl -e '{job}'")]);
+    let last = |c: &Client| c.text().trim().lines().last().map(str::to_owned);
+    c.until(|c, _| last(c).is_some_and(|l| l.parse::<i32>().is_ok()));
+    let pid: i32 = last(&c).unwrap().parse().unwrap();
+
+    c.send(ToHelper::Close { tab: 1 });
+    drop(c.stdin.take());
+    let deadline = Instant::now() + WAIT + Duration::from_secs(2);
+    while alive(pid) {
+        assert!(Instant::now() < deadline, "忽略 SIGHUP 的前台作业还活着");
+        thread::sleep(Duration::from_millis(10));
+    }
+}
+
+/// 主程序直接退出时，打开着的标签里忽略 SIGHUP 的前台作业同样要结束。
+#[test]
+fn going_away_with_a_tab_open_also_ends_a_job_that_ignores_hangup() {
+    let mut c = Client::start();
+    let job = r#"$SIG{HUP} = "IGNORE"; $| = 1; print "$$\n"; sleep 100"#;
+    c.spawn(1, "/bin/sh", &["-c", &format!("set -m; perl -e '{job}'")]);
+    let last = |c: &Client| c.text().trim().lines().last().map(str::to_owned);
+    c.until(|c, _| last(c).is_some_and(|l| l.parse::<i32>().is_ok()));
+    let pid: i32 = last(&c).unwrap().parse().unwrap();
+
+    drop(c.stdin.take());
+    let deadline = Instant::now() + WAIT + Duration::from_secs(2);
+    while alive(pid) {
+        assert!(Instant::now() < deadline, "忽略 SIGHUP 的前台作业还活着");
+        thread::sleep(Duration::from_millis(10));
+    }
 }
 
 #[test]

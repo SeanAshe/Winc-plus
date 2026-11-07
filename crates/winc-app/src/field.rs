@@ -160,6 +160,10 @@ pub struct FieldView {
     /// 两者都没变时纵向滚动量保持不变，用户可以用滚轮把光标滚出可见区域；任何一个变了，
     /// 滚动量回到光标所在的行。
     pub follow: Option<(usize, usize)>,
+    /// 单行输入框被滚轮滚动时的（光标位置，文字的长度）。
+    ///
+    /// 两者都没变时横向滚动量不跟随光标，光标可以滚出可见区域；任何一个变了，回到跟随光标。
+    pub wheeled: Option<(usize, usize)>,
 }
 
 impl FieldView {
@@ -234,6 +238,14 @@ fn class_of(grapheme: &str) -> Class {
 }
 
 impl TextField {
+    /// 滚轮横向滚动单行输入框 `delta`（逻辑像素，正数露出后面的文字）。
+    ///
+    /// 下一帧绘制时限制在文字范围内。
+    pub fn wheel_scroll(&mut self, delta: f32) {
+        self.view.scroll += delta;
+        self.view.wheeled = Some((self.caret(), self.text().len()));
+    }
+
     /// 创建只接受 `accept` 返回 `true` 的字符的输入框；控制字符和换行符始终不接受。
     pub fn with_filter(accept: fn(char) -> bool) -> Self {
         Self {

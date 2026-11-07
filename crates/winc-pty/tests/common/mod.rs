@@ -122,6 +122,7 @@ impl Client {
             scrollback: 100,
             size: SIZE,
             integration: None,
+            banner: Vec::new(),
         });
     }
 
@@ -152,6 +153,7 @@ impl Client {
                 height: 1600,
             },
             integration: Some(integration.as_os_str().as_bytes().to_vec()),
+            banner: Vec::new(),
         });
     }
 

@@ -19,8 +19,6 @@ pub(crate) const TAB_MAX: f32 = 220.0;
 pub(crate) const TAB_SQUEEZED: f32 = 72.0;
 /// 标签之间的间距（逻辑像素）。
 pub(crate) const TAB_GAP: f32 = 4.0;
-/// 第一个标签离面板左边的距离（逻辑像素）。
-pub(crate) const STRIP_X: f32 = 6.0;
 /// 按下以后横向移动超过多远才算拖动（逻辑像素，经验值），不足时仍按单击处理。
 const THRESHOLD: f32 = 4.0;
 
@@ -76,6 +74,10 @@ pub(crate) struct Strip {
     slides: Vec<(u16, f32, Clock)>,
     /// 按住的标签；没按住时为 `None`。
     drag: Option<Drag>,
+    /// 上一帧是否有停止按钮；尚未绘制时为 `None`。
+    stop_shown: Option<bool>,
+    /// 停止按钮正在出现或消失的时钟。
+    stop_motion: Option<Clock>,
     /// 测试里没有窗口、没有时钟：设置后动画都停在这一时刻。
     #[cfg(test)]
     pub frozen: Option<std::time::Duration>,
@@ -108,9 +110,22 @@ impl Strip {
             .map_or(0.0, |s| s.2.between(s.1, 0.0))
     }
 
+    /// 停止按钮的显示比例（0 到 1）：`running` 表示配置是否在运行，决定动画结束时按钮是否保留。
+    pub fn stop_share(&self, running: bool) -> f32 {
+        match (&self.stop_motion, running) {
+            (Some(clock), true) => clock.progress(),
+            (Some(clock), false) => clock.fade_out(),
+            (None, true) => 1.0,
+            (None, false) => 0.0,
+        }
+    }
+
     /// 是否有出现、消失或滑动的动画还没结束。
     pub fn animating(&self) -> bool {
-        !self.opening.is_empty() || !self.closing.is_empty() || !self.slides.is_empty()
+        !self.opening.is_empty()
+            || !self.closing.is_empty()
+            || !self.slides.is_empty()
+            || self.stop_motion.is_some()
     }
 
     /// 去掉结束了的动画。
@@ -118,6 +133,7 @@ impl Strip {
         self.opening.retain(|(_, c)| !c.done());
         self.closing.retain(|g| !g.clock.done());
         self.slides.retain(|s| !s.2.done());
+        self.stop_motion = self.stop_motion.take().filter(|clock| !clock.done());
     }
 }
 
@@ -128,6 +144,20 @@ impl App {
             return Some(Clock::frozen(at, TAB_SLIDE));
         }
         self.clock(TAB_SLIDE)
+    }
+
+    /// 绘制标签栏前调用：配置开始或结束运行时启动停止按钮的淡入、淡出，首次绘制时直接到位。
+    pub(crate) fn note_stop_button(&mut self) {
+        let running = self.run_config_running();
+        if self
+            .terminal
+            .strip
+            .stop_shown
+            .is_some_and(|shown| shown != running)
+        {
+            self.terminal.strip.stop_motion = self.strip_clock();
+        }
+        self.terminal.strip.stop_shown = Some(running);
     }
 
     /// 画标签栏前调用：比上一帧正好多出一个标签时，它从零宽长出来、淡入。
@@ -368,21 +398,62 @@ pub(crate) fn fit_tabs(widths: &mut [f32], room: f32) {
     if widths.iter().sum::<f32>() <= room {
         return;
     }
-    // 找一个上限：比它窄的标签不动，其余的都变成它，加起来正好放得下。先按平分算，再把比它
-    // 窄的标签省下的地方分给其余标签，直到不再变（每轮至少多一个标签不动，最多循环标签数轮）。
-    let mut cap = room / widths.len() as f32;
-    loop {
-        let narrow = widths.iter().filter(|&&w| w < cap);
-        let (sum, count) = narrow.fold((0.0, 0), |(s, n), w| (s + w, n + 1));
-        let next = (room - sum) / (widths.len() - count).max(1) as f32;
-        if next <= cap || count == widths.len() {
-            break;
-        }
-        cap = next;
-    }
+    let cap = shared_limit(widths, room);
     for w in widths {
         *w = w.min(cap).max(TAB_SQUEEZED).floor();
     }
+}
+
+/// 找一个上限：比它小的项不动，其余的项都取它，加起来正好等于 `room`。
+///
+/// 先按平分算，再把较小的项省下的部分分给其余项，直到不再变化（每轮至少多一项不动，最多循环
+/// 项数轮）。
+fn shared_limit(values: &[f32], room: f32) -> f32 {
+    let mut cap = room / values.len().max(1) as f32;
+    loop {
+        let narrow = values.iter().filter(|&&w| w < cap);
+        let (sum, count) = narrow.fold((0.0, 0), |(s, n), w| (s + w, n + 1));
+        let next = (room - sum) / (values.len() - count).max(1) as f32;
+        if next <= cap || count == values.len() {
+            return cap;
+        }
+        cap = next;
+    }
+}
+
+/// 按名字需要的宽度 `names`（含内边距）排出放进 `room` 的各标签宽度。
+///
+/// 放得下时每个标签宽 [`TAB_MIN`]～[`TAB_MAX`]。放不下时先收掉名字之外的留白：留白最多的先收，
+/// 名字仍然完整；留白收完还放不下时，再按 [`fit_tabs`] 截短最长的名字。
+pub(crate) fn fit_named_tabs(names: &[f32], room: f32) -> Vec<f32> {
+    let names: Vec<f32> = (names.iter())
+        .map(|&w| w.clamp(TAB_SQUEEZED, TAB_MAX))
+        .collect();
+    let wanted: Vec<f32> = names.iter().map(|&w| w.max(TAB_MIN)).collect();
+    let gaps = TAB_GAP * names.len().saturating_sub(1) as f32;
+    let spare = room - gaps - names.iter().sum::<f32>();
+    if spare <= 0.0 {
+        let mut widths = names;
+        fit_tabs(&mut widths, room);
+        return widths;
+    }
+    let blanks: Vec<f32> = wanted.iter().zip(&names).map(|(w, n)| w - n).collect();
+    let limit = shared_limit(&blanks, spare);
+    (names.iter().zip(&blanks))
+        .map(|(name, blank)| (name + blank.min(limit)).floor())
+        .collect()
+}
+
+/// 标签宽度 `widths` 是否已窄于名字宽度 `names` 对应的期望宽度，即标签栏空间不足。
+///
+/// [`fit_named_tabs`] 向下取整造成的不足 1 个逻辑像素的差值不算收窄。
+pub(crate) fn tabs_narrowed(names: &[f32], widths: &[f32]) -> bool {
+    let wanted = names
+        .iter()
+        .map(|&w| w.clamp(TAB_SQUEEZED, TAB_MAX).max(TAB_MIN));
+    wanted
+        .zip(widths)
+        .any(|(wanted, width)| *width <= wanted - 1.0)
 }
 
 #[cfg(test)]

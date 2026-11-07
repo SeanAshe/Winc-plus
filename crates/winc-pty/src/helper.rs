@@ -6,7 +6,6 @@
 //! 发帧按额度：伪终端的输出随到随解析，只有主程序给了额度、屏幕又变了的终端才发一帧，中间状态
 //! 直接跳过。
 
-#[cfg(unix)]
 mod integration;
 #[cfg(unix)]
 mod pty;
@@ -55,6 +54,10 @@ const HANGUP_GRACE: Duration = Duration::from_millis(500);
 ///
 /// 作业不是辅助进程的子进程，退出时没有 SIGCHLD，只能按 50 ms 的间隔查看。
 const JOB_POLL: Duration = Duration::from_millis(50);
+/// 主程序退出后等待终端全部退出的最长时间（毫秒）。
+///
+/// 由 [`HANGUP_GRACE`] 决定：挂断后到期发 SIGKILL，再留同样长的时间让进程组退出。
+const FINISH_WAIT: Duration = Duration::from_millis(2 * HANGUP_GRACE.as_millis() as u64);
 /// 前台进程名的最短查询间隔：发帧后最多按该间隔查询一次。
 ///
 /// 300 ms 是经验值：足以让标签名跟上命令切换，两次查询之间不再读进程信息，刷屏时不会每帧
@@ -67,7 +70,7 @@ struct Tab {
     /// shell 退出并回收以后为 `None`。
     pty: Option<Pty>,
     /// 还没写进伪终端的字节，上限见 [`MAX_PENDING_INPUT`]。
-    input: Vec<u8>,
+    input: PendingInput,
     /// 主程序给的额度：可以再发一帧。
     credit: bool,
     /// 分几次发来的输入还没收完时，是否收下余下的部分；没有进行中的输入时为 `None`。
@@ -78,12 +81,16 @@ struct Tab {
     eof: bool,
     /// 开始等待同步输出结束的时刻；不在同步中时为 `None`。
     sync_since: Option<Instant>,
-    /// 上次查到的前台进程号，用于发现前台程序的变化。
-    process: Option<pty::Pid>,
+    /// 上次查到的前台进程（进程号、名字），用于发现前台程序的变化；名字用于发现同一进程的 `exec`。
+    process: Option<(pty::Pid, String)>,
     /// 上次查询前台进程的时刻。
     process_checked: Option<Instant>,
     /// 发过帧、还没再看前台进程；离上次查询不到 [`PROCESS_INTERVAL`] 时等到时间再查。
     process_due: bool,
+    /// 这次查询之后是否还要再查一次：发帧时命令可能还没启动，没有输出的命令不会再发帧。
+    process_recheck: bool,
+    /// 收到 [`ToHelper::Stop`] 以后：挂断时的前台作业，以及到期仍未退出时强制结束的时刻。
+    stopping: Option<(Option<pty::Pid>, Instant)>,
 }
 
 /// 已经关掉、等进程组退出的终端。
@@ -157,16 +164,45 @@ pub fn run() -> io::Result<()> {
             Err(error) => break Err(error),
         }
     };
-    // 主程序不在了：挂断所有终端，不留孤儿进程。
-    for tab in helper.tabs.values() {
-        if let Some(pty) = &tab.pty {
-            pty.hang_up();
-        }
-    }
+    helper.finish();
     result
 }
 
 impl Helper {
+    /// 挂断终端和它的前台作业，到期仍未退出时由 [`Helper::kill_overdue`] 结束。
+    fn close(&mut self, pty: pty::Pty) {
+        let job = pty.foreground_group();
+        pty.hang_up();
+        if let Some(job) = job {
+            pty::hang_up_job(job);
+        }
+        self.closing.push(Closing {
+            pty,
+            job,
+            reaped: false,
+            kill_at: Some(Instant::now() + HANGUP_GRACE),
+        });
+    }
+
+    /// 主程序已退出或连接已断开：挂断所有终端，并等待它们退出，不留下孤儿进程。
+    ///
+    /// 最多等待 [`FINISH_WAIT`]：进程组在 SIGKILL 之后仍未退出时（如处于不可中断的睡眠）不再等待。
+    fn finish(&mut self) {
+        let tabs = std::mem::take(&mut self.tabs);
+        for pty in tabs.into_values().filter_map(|tab| tab.pty) {
+            self.close(pty);
+        }
+        let deadline = Instant::now() + FINISH_WAIT;
+        loop {
+            self.settle_closing();
+            self.kill_overdue();
+            if self.closing.is_empty() || Instant::now() >= deadline {
+                return;
+            }
+            std::thread::sleep(JOB_POLL);
+        }
+    }
+
     fn send(&mut self, message: &FromHelper) {
         message.encode(&mut self.out);
     }
@@ -282,13 +318,20 @@ impl Helper {
             .filter(|t| t.credit)
             .filter_map(|t| t.sync_since.map(|s| s + SYNC_TIMEOUT));
         let kills = self.closing.iter().filter_map(|c| c.kill_at);
+        let stops = (self.tabs.values()).filter_map(|t| t.stopping.map(|(_, at)| at));
         let jobs = (self.closing.iter())
             .filter(|c| c.reaped && c.job.is_some())
             .map(|_| now + JOB_POLL);
         let processes = (self.tabs.values())
             .filter(|t| t.process_due)
             .map(|t| t.process_checked.map_or(now, |at| at + PROCESS_INTERVAL));
-        match sync.chain(kills).chain(jobs).chain(processes).min() {
+        match sync
+            .chain(kills)
+            .chain(stops)
+            .chain(jobs)
+            .chain(processes)
+            .min()
+        {
             Some(at) => at.saturating_duration_since(now).as_millis().min(1000) as i32 + 1,
             None => -1,
         }
@@ -328,6 +371,7 @@ impl Helper {
                 scrollback,
                 size,
                 integration,
+                banner,
             } => self.spawn(
                 tab,
                 program,
@@ -338,6 +382,7 @@ impl Helper {
                 scrollback,
                 size,
                 integration,
+                &banner,
             ),
             ToHelper::Input { tab, bytes, rest } => {
                 let Some(tab) = self.tabs.get_mut(&tab) else {
@@ -345,7 +390,7 @@ impl Helper {
                 };
                 let keep = admit(&mut tab.pasting, tab.input.len(), bytes.len(), rest);
                 if keep && tab.pty.is_some() && !tab.eof {
-                    tab.input.extend_from_slice(&bytes);
+                    tab.input.extend(&bytes);
                     // 先直接写一次：多数时候写得进去，不必等下一轮 poll，按键早一轮到 shell。
                     write_input(tab);
                 }
@@ -391,17 +436,20 @@ impl Helper {
                 if let Some(tab) = self.tabs.remove(&tab)
                     && let Some(pty) = tab.pty
                 {
+                    self.close(pty);
+                }
+            }
+            ToHelper::Stop { tab } => {
+                if let Some(tab) = self.tabs.get_mut(&tab)
+                    && let Some(pty) = &tab.pty
+                    && tab.stopping.is_none()
+                {
                     let job = pty.foreground_group();
                     pty.hang_up();
                     if let Some(job) = job {
                         pty::hang_up_job(job);
                     }
-                    self.closing.push(Closing {
-                        pty,
-                        job,
-                        reaped: false,
-                        kill_at: Some(Instant::now() + HANGUP_GRACE),
-                    });
+                    tab.stopping = Some((job, Instant::now() + HANGUP_GRACE));
                 }
             }
             ToHelper::Theme(theme) => {
@@ -420,12 +468,13 @@ impl Helper {
         id: u16,
         program: Option<Vec<u8>>,
         mut args: Vec<Vec<u8>>,
-        mut login: bool,
+        #[cfg_attr(windows, allow(unused_mut))] mut login: bool,
         cwd: &[u8],
         env: Vec<(Vec<u8>, Vec<u8>)>,
         scrollback: u32,
         size: Size,
         integration: Option<Vec<u8>>,
+        banner: &[u8],
     ) {
         if self.tabs.contains_key(&id) {
             self.send(&FromHelper::Failed {
@@ -454,15 +503,22 @@ impl Helper {
             });
             return;
         };
-        // shell 集成脚本只支持 Unix 上的 shell：其他平台不注入，只是没有命令块。
+        // 集成脚本只适用于 Unix shell。Windows 上仅注入 WSL 发行版内的 shell，其他 shell 不提供命令块。
         #[cfg(unix)]
         let nonce = integration
             .and_then(|dir| integration::inject(&dir, &path, &mut args, &mut login, &mut env));
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        let nonce =
+            integration.and_then(|dir| integration::inject_wsl(&dir, &path, &mut args, &mut env));
+        #[cfg(not(any(unix, windows)))]
         let nonce: Option<_> = {
             let _ = (integration, &mut login, &mut args, &mut env);
             None
         };
+        #[cfg(windows)]
+        if integration::is_wsl(&path) {
+            integration::forward_to_wsl(&mut env);
+        }
         let name = program.rsplit(|&b| b == b'/').next().unwrap_or(&program);
         let argv0 = if login {
             [b"-", name].concat()
@@ -493,6 +549,7 @@ impl Helper {
                 );
                 term.resize(size);
                 term.set_theme(self.theme);
+                term.feed(banner);
                 if let Some(nonce) = nonce {
                     term.set_nonce(nonce);
                 }
@@ -501,7 +558,7 @@ impl Helper {
                     Tab {
                         term,
                         pty: Some(pty),
-                        input: Vec::new(),
+                        input: PendingInput::default(),
                         credit: true,
                         pasting: None,
                         eof: false,
@@ -509,6 +566,8 @@ impl Helper {
                         process: None,
                         process_checked: None,
                         process_due: false,
+                        process_recheck: false,
+                        stopping: None,
                     },
                 );
                 self.spawned = true;
@@ -582,6 +641,19 @@ impl Helper {
                 closing.kill_at = None;
             }
         }
+        for tab in self.tabs.values_mut() {
+            if let Some((job, at)) = tab.stopping
+                && now >= at
+            {
+                if let Some(pty) = &tab.pty {
+                    pty.kill(false);
+                }
+                if let Some(job) = job {
+                    pty::kill_job(job);
+                }
+                tab.stopping = None;
+            }
+        }
     }
 
     /// 把事件、命令块、回答和帧发给主程序；帧受额度和同步输出限制。
@@ -609,7 +681,7 @@ impl Helper {
                 && tab.pty.is_some()
                 && tab.input.len() + responses.len() <= MAX_PENDING_INPUT
             {
-                tab.input.extend_from_slice(&responses);
+                tab.input.extend(&responses);
                 write_input(tab);
             }
             check_process(id, tab, now, &mut messages);
@@ -633,6 +705,7 @@ impl Helper {
                 tab.credit = false;
                 messages.push(FromHelper::Frame { tab: id, frame });
                 tab.process_due = true;
+                tab.process_recheck = true;
                 check_process(id, tab, now, &mut messages);
             }
         }
@@ -654,13 +727,14 @@ fn check_process(id: u16, tab: &mut Tab, now: Instant, messages: &mut Vec<FromHe
     {
         return;
     }
-    tab.process_due = false;
+    tab.process_due = std::mem::take(&mut tab.process_recheck);
     tab.process_checked = Some(now);
     if let Some(pty) = &tab.pty
-        && let Some((pid, name)) = pty.foreground()
-        && tab.process != Some(pid)
+        && let Some(found) = pty.foreground()
+        && tab.process.as_ref() != Some(&found)
     {
-        tab.process = Some(pid);
+        let name = found.1.clone();
+        tab.process = Some(found);
         messages.push(FromHelper::Process { tab: id, name });
     }
 }
@@ -773,16 +847,60 @@ fn read_output(tab: &mut Tab, buf: &mut [u8]) {
 /// 把待写的输入尽量写进伪终端，写不进去的部分留在缓冲里。
 fn write_input(tab: &mut Tab) {
     let Some(pty) = &tab.pty else { return };
-    let mut written = 0;
-    while written < tab.input.len() {
-        match pty.write(&tab.input[written..]) {
+    while !tab.input.is_empty() {
+        match pty.write(tab.input.bytes()) {
             Ok(0) => break,
-            Ok(n) => written += n,
+            Ok(n) => tab.input.advance(n),
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
             Err(_) => break,
         }
     }
-    tab.input.drain(..written);
+}
+
+/// 等待写入伪终端的字节。
+///
+/// 程序读取得慢时每次只能写入一部分：已写入的部分只记偏移，积累到一半以上才移动剩余的字节，因此总的
+/// 移动量与字节数成正比。写完后释放多余的容量，一次大段粘贴不会一直占用内存。
+#[derive(Default)]
+struct PendingInput {
+    buf: Vec<u8>,
+    /// 已写入的字节数。
+    start: usize,
+}
+
+impl PendingInput {
+    fn len(&self) -> usize {
+        self.buf.len() - self.start
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    fn bytes(&self) -> &[u8] {
+        &self.buf[self.start..]
+    }
+
+    fn extend(&mut self, bytes: &[u8]) {
+        self.buf.extend_from_slice(bytes);
+    }
+
+    /// 记下又写入了 `n` 个字节。
+    fn advance(&mut self, n: usize) {
+        self.start += n;
+        if self.is_empty() {
+            self.clear();
+        } else if self.start * 2 >= self.buf.len() {
+            self.buf.drain(..self.start);
+            self.start = 0;
+        }
+    }
+
+    fn clear(&mut self) {
+        self.buf.clear();
+        self.buf.shrink_to(winc_pty::protocol::IDLE_BUFFER);
+        self.start = 0;
+    }
 }
 
 /// 返回终端里的环境变量：主程序给的用户环境去掉 winc 自己用的变量，再设上终端相关的变量。

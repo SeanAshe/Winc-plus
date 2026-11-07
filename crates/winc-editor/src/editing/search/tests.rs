@@ -432,3 +432,17 @@ fn block_search_looks_for_the_required_text() {
     let literal = Matcher::requiring(query, options, "name").unwrap();
     assert_eq!(literal.block_find("let NAME\n", 0), Some(4));
 }
+
+#[test]
+fn text_search_uses_the_same_options_without_a_document() {
+    let find = |query, case, word, regex| {
+        TextSearch::new(query, case, word, regex)
+            .unwrap()
+            .find_all("Foo foo foobar")
+    };
+    assert_eq!(find("foo", false, false, false).len(), 3);
+    assert_eq!(find("foo", true, false, false), [(4, 7), (8, 11)]);
+    assert_eq!(find("foo", false, true, false).len(), 2);
+    assert_eq!(find("fo+b", false, false, true), [(8, 12)]);
+    assert!(TextSearch::new("(", false, false, true).is_err());
+}

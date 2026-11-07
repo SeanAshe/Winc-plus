@@ -25,6 +25,12 @@
           <Component Id="TerminalHelper" Guid="*" Win64="yes">
             <File Source="$(var.Source)\winc-pty.exe" KeyPath="yes"/>
           </Component>
+          <Component Id="ConptyLibrary" Guid="*" Win64="yes">
+            <File Source="$(var.Source)\conpty.dll" KeyPath="yes"/>
+          </Component>
+          <Component Id="ConsoleHost" Guid="*" Win64="yes">
+            <File Source="$(var.Source)\OpenConsole.exe" KeyPath="yes"/>
+          </Component>
           <Component Id="WslWatcher" Guid="*" Win64="yes">
             <File Id="WincWatch" Source="$(var.Source)\winc-watch" KeyPath="yes"/>
           </Component>
@@ -69,6 +75,7 @@
     </Directory>
     <Feature Id="Main" Title="winc" Level="1">
       <ComponentRef Id="Application"/><ComponentRef Id="TerminalHelper"/><ComponentRef Id="InstallationKind"/>
+      <ComponentRef Id="ConptyLibrary"/><ComponentRef Id="ConsoleHost"/>
       <ComponentRef Id="FileAssociations"/>
       <ComponentRef Id="CommandLine"/><ComponentRef Id="CommandLineCmd"/><ComponentRef Id="WslWatcher"/>
       <ComponentRef Id="License"/><ComponentRef Id="Notice"/><ComponentRef Id="StartMenu"/>

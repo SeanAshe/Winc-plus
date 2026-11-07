@@ -189,8 +189,14 @@ impl Terminal {
     }
 
     /// 设置回答颜色查询用的主题；为 `None` 时不回答颜色查询。
+    ///
+    /// 程序用模式 2031 要求过通知、明暗发生变化时，回答新的明暗。
     pub fn set_theme(&mut self, theme: Option<Theme>) {
+        let before = self.emu.theme.as_ref().map(Theme::is_dark);
         self.emu.theme = theme;
+        if self.emu.scheme_reports && self.emu.theme.as_ref().map(Theme::is_dark) != before {
+            self.emu.report_color_scheme();
+        }
     }
 
     /// 设置 shell 集成脚本报告命令行时附带的随机数。
@@ -436,6 +442,12 @@ struct Emulator {
     alt: bool,
     /// 滚出屏幕顶部的行。
     history: History,
+    /// 回滚缓冲刚被程序清空（ED 3），之后还没有写入内容。
+    ///
+    /// 此时再擦除整屏是一次完整的清屏（`clear` 命令），屏幕内容不再移入回滚缓冲。
+    history_erased: bool,
+    /// 上一次清屏时移入回滚缓冲的行；之后有其他行滚入回滚缓冲时清除。
+    last_kept: Option<Vec<Row>>,
     /// 当前画笔，写入字符时使用。
     pen: Style,
     /// 滚动区域的首末行 `top..bottom`。
@@ -463,6 +475,10 @@ struct Emulator {
     shift_out: bool,
     /// 最后写入的字符，供 `CSI b`（REP）重复。
     last_char: Option<char>,
+    /// 前面写入的字符组成的 emoji 字素簇；移动光标等控制序列之后重新开始。
+    cluster: width::Cluster,
+    /// 程序是否要求在明暗主题变化时收到通知（模式 2031）。
+    scheme_reports: bool,
     /// 记下的超链接地址。
     links: Links,
     /// 同步输出（模式 2026）是否打开。
@@ -496,6 +512,8 @@ impl Emulator {
             alternate: Screen::new(cols, rows),
             alt: false,
             history: History::new(scrollback),
+            history_erased: false,
+            last_kept: None,
             pen: Style::default(),
             top: 0,
             bottom: rows,
@@ -505,11 +523,13 @@ impl Emulator {
             modes: Modes(Modes::ALT_SCROLL),
             cursor_visible: true,
             shape: CursorShape::Block,
-            blink: false,
+            blink: true,
             tabs: Vec::new(),
             charsets: [false; 2],
             shift_out: false,
             last_char: None,
+            cluster: width::Cluster::None,
+            scheme_reports: false,
             links: Links::default(),
             sync: false,
             theme: None,
@@ -590,7 +610,16 @@ impl Emulator {
             }
             _ => 0,
         };
-        let row = self.cursor().row;
+        let cursor = self.cursor();
+        let row = cursor.row;
+        // 提示符总是逻辑行的开头。上一行可能因 zsh 的 `PROMPT_SP` 写满而折行，不断开时重排会把它和
+        // 提示符合成一行。
+        if flag == Marks::PROMPT
+            && cursor.col == 0
+            && let Some(above) = row.checked_sub(1)
+        {
+            self.primary.rows[above].wrapped = false;
+        }
         let marks = &mut self.primary.rows[row].marks;
         marks.flags |= flag;
         if flag == Marks::DONE {

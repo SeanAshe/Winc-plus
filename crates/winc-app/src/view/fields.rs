@@ -176,6 +176,7 @@ pub(super) fn draw_area_field(
         line_height: AREA_LINE,
         measured: None,
         follow: Some(follow),
+        wheeled: None,
     };
     let view = &field.view;
     let band = |row: u32| Rect::new(area.x, top + row as f32 * AREA_LINE, area.w, AREA_LINE);
@@ -309,15 +310,21 @@ pub(super) fn draw_bar_field(
     let preedit_w = frame.measure(FontKind::Ui, app.fonts.ui, preedit);
     let room = area.w - 4.0;
     let mut scroll = field.view.scroll;
+    // 滚轮滚动之后，光标和文字都未变化时不跟随光标。
+    let here = (field.caret(), field.text().len());
+    let wheeled = field
+        .view
+        .wheeled
+        .filter(|&at| at == here && preedit.is_empty());
 
-    if caret_x + preedit_w - scroll > room {
-        scroll = caret_x + preedit_w - room;
+    if wheeled.is_none() {
+        if caret_x + preedit_w - scroll > room {
+            scroll = caret_x + preedit_w - room;
+        }
+        scroll = scroll.min(caret_x);
     }
 
-    scroll = scroll
-        .min(caret_x)
-        .min((width + preedit_w - room).max(0.0))
-        .max(0.0);
+    scroll = scroll.min((width + preedit_w - room).max(0.0)).max(0.0);
     let origin = area.x - scroll;
     field.view = FieldView {
         area,
@@ -325,6 +332,7 @@ pub(super) fn draw_bar_field(
         scroll,
         stops,
         measured: field.view.measured.take(),
+        wheeled,
         ..FieldView::default()
     };
 

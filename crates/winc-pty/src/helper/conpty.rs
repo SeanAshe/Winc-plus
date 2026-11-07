@@ -8,6 +8,9 @@
 // ConPTY、进程和作业对象只有 Win32 的接口。
 #![allow(unsafe_code)]
 
+#[path = "conpty/api.rs"]
+mod api;
+
 use std::ffi::c_void;
 use std::fs::File;
 use std::io::{self, Read, Write};
@@ -17,9 +20,7 @@ use std::sync::{Arc, Condvar, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
 use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0};
-use windows_sys::Win32::System::Console::{
-    COORD, ClosePseudoConsole, CreatePseudoConsole, HPCON, ResizePseudoConsole,
-};
+use windows_sys::Win32::System::Console::{COORD, HPCON};
 use windows_sys::Win32::System::JobObjects::{
     AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
@@ -77,6 +78,8 @@ struct Pending {
 
 /// 一个伪终端和在其中运行的进程。
 pub struct Pty {
+    /// 创建伪终端的接口。
+    api: &'static api::Api,
     /// 伪终端；关掉以后为 `None`。
     console: Mutex<Option<HPCON>>,
     /// 写给伪终端的输入（管道的写入端）。
@@ -98,24 +101,19 @@ impl Pty {
     pub fn spawn(command: &Command<'_>) -> io::Result<Pty> {
         let (input_read, input) = pipe()?;
         let (output, output_write) = pipe()?;
-        let mut console: HPCON = 0;
-        // SAFETY: `input_read`、`output_write` 是刚建好的管道句柄，在下面的 `drop` 之前一直有效；
-        // `console` 指向本地变量，调用成功时会写入新伪终端的句柄。伪终端复制了这两个句柄，
-        // 所以返回后关掉本进程的两端。
-        let result = unsafe {
-            CreatePseudoConsole(
+        // SAFETY: `input_read`、`output_write` 是刚建好的管道句柄，在下面的 `drop` 之前一直有效。
+        // 伪终端复制了这两个句柄，所以返回后关掉本进程的两端。
+        let created = unsafe {
+            api::create(
                 coord(command.size),
                 input_read.as_raw_handle() as HANDLE,
                 output_write.as_raw_handle() as HANDLE,
-                0,
-                &mut console,
             )
         };
         drop((input_read, output_write));
-        if result < 0 {
-            return Err(io::Error::from_raw_os_error(result));
-        }
+        let (api, console) = created.map_err(io::Error::from_raw_os_error)?;
         let pty = start(command, console).map(|(process, job)| Pty {
+            api,
             console: Mutex::new(Some(console)),
             input: File::from(input),
             output: Arc::new(Mutex::new(Pending::default())),
@@ -125,9 +123,9 @@ impl Pty {
         let pty = match pty {
             Ok(pty) => pty,
             Err(error) => {
-                // SAFETY: `console` 是上面 `CreatePseudoConsole` 刚建好、还没有交给任何线程或
-                // 本结构体的伪终端，这里只关闭一次。
-                unsafe { ClosePseudoConsole(console) };
+                // SAFETY: `console` 是上面的 `api` 刚建好、还没有交给任何线程或本结构体的伪终端，
+                // 这里只关闭一次。
+                unsafe { (api.close)(console) };
                 return Err(error);
             }
         };
@@ -157,9 +155,9 @@ impl Pty {
     /// 改伪终端的尺寸。
     pub fn resize(&self, size: Size) {
         if let Some(console) = *self.console.lock().unwrap_or_else(PoisonError::into_inner) {
-            // SAFETY: 互斥锁保证同一时刻只有一个线程读这个值；值来自 `CreatePseudoConsole`，
-            // 而关闭它的 `hang_up` 会先把值从 `Option` 中取走，所以这里拿到的句柄仍然有效。
-            unsafe { ResizePseudoConsole(console, coord(size)) };
+            // SAFETY: 互斥锁保证同一时刻只有一个线程读这个值；值来自 `self.api`，而关闭它的
+            // `hang_up` 会先把值从 `Option` 中取走，所以这里拿到的句柄仍然有效。
+            unsafe { (self.api.resize)(console, coord(size)) };
         }
     }
 
@@ -173,7 +171,7 @@ impl Pty {
         if let Some(console) = console {
             // SAFETY: 伪终端是本结构体建的，值已经从 `Mutex` 中取走，只关闭一次；读线程一直在
             // 读输出，关闭时不会因为没有程序读输出管道而阻塞。
-            unsafe { ClosePseudoConsole(console) };
+            unsafe { (self.api.close)(console) };
         }
     }
 

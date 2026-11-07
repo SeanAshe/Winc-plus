@@ -267,6 +267,8 @@ impl App {
         ];
         let prompt = self.goto_input.as_ref().map(|f| (Focus::Prompt, true, f));
         let rename = (self.terminal.rename.as_ref()).map(|(_, f)| (Focus::TerminalRename, true, f));
+        let terminal_find =
+            (self.terminal.find.as_ref()).map(|f| (Focus::TerminalFind, true, &f.field));
         let shown = self.panel_shown();
         let g = &self.global;
         let panel = [
@@ -285,6 +287,7 @@ impl App {
             .into_iter()
             .chain(prompt)
             .chain(rename)
+            .chain(terminal_find)
             .chain(panel)
             .find(|(_, shown, f)| *shown && f.view.area.contains(x, y))
             .map(|(focus, ..)| focus)

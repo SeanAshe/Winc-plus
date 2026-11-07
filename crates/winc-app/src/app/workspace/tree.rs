@@ -170,6 +170,20 @@ impl App {
         self.request_redraw();
     }
 
+    /// 窗口建好时按现场恢复侧栏的开关：启动时恢复的目录在窗口创建之前打开。
+    ///
+    /// 侧栏直接到位，没有收起动画。
+    pub(in crate::app) fn restore_sidebar_for_window(&mut self) {
+        let session = self
+            .editor
+            .root()
+            .and_then(|root| self.state.session_for(root));
+        if session.is_some_and(|session| session.sidebar_hidden) {
+            self.panel_visible = false;
+            self.sidebar_motion = None;
+        }
+    }
+
     /// 焦点是否在侧栏里（文件树、搜索面板或提交视图）。
     pub(in crate::app) fn focus_in_sidebar(&self) -> bool {
         matches!(

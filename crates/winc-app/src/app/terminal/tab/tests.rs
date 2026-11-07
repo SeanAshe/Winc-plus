@@ -189,11 +189,9 @@ fn find_reports_cell_ranges() {
         text: "中文 Error error".into(),
         ..Line::default()
     };
-    assert_eq!(
-        find_in_line(&line.text, "error", false),
-        [(5, 10), (11, 16)]
-    );
-    assert_eq!(find_in_line(&line.text, "Error", true), [(5, 10)]);
+    // 字节偏移换算成格：宽字符占两格。
+    assert_eq!(col_at(&line.text, "中文".len()), 4);
+    assert_eq!(col_at(&line.text, 0), 0);
     assert_eq!(cells_text(&line, 0, 4), "中文");
     // 从「中」的后半格选起：「中」也复制上。
     assert_eq!(cells_text(&line, 1, 3), "中文");
@@ -233,6 +231,102 @@ fn folding_the_output_at_the_top_brings_its_command_into_view() {
     assert_eq!(tab.top(), 110);
     assert_eq!(tab.sticky(), None);
     assert!(matches!(tab.view()[1], ViewRow::Fold(0, _)));
+}
+
+/// 两条运行过的命令：提示符占两行，第二条的输出之后是尚未运行的提示符。
+fn two_commands() -> TermTab {
+    let history: Vec<String> = (0..40).map(|i| format!("h{i}")).collect();
+    let history: Vec<&str> = history.iter().map(String::as_str).collect();
+    let mut tab = tab_with(&["a", "b", "c", "d", "e"], &history);
+    let block = |id, prompt, end: u64| Block {
+        id,
+        prompt,
+        command: prompt + 1,
+        output: Some(prompt + 2),
+        end: Some(end),
+        exit: Some(0),
+        ..Block::default()
+    };
+    tab.blocks = vec![
+        block(1, 105, 120),
+        block(2, 120, 144),
+        Block {
+            id: 3,
+            prompt: 144,
+            command: 144,
+            ..Block::default()
+        },
+    ];
+    tab
+}
+
+#[test]
+fn the_next_prompt_pushes_the_sticky_row_away_and_its_command_replaces_it() {
+    let mut tab = two_commands();
+    // 下一条命令的提示符上来之前吸顶行不动。
+    tab.scroll_to(118, 0);
+    assert_eq!((tab.sticky(), tab.sticky_push()), (Some(0), 0.0));
+
+    // 提示符进入吸顶行的下沿：吸顶行随之往上走。
+    let (position, _) = tab.scroll_position();
+    tab.set_scroll_position(position - 1.25);
+    assert_eq!(tab.viewport(), (19, 0.25));
+    assert_eq!((tab.sticky(), tab.sticky_push()), (Some(0), 0.25));
+
+    // 提示符和命令行到达上沿时都不吸顶，可以看见；命令行一越过上沿就吸顶。
+    tab.scroll_to(120, 0);
+    assert_eq!(tab.sticky(), None);
+    tab.scroll_to(121, 0);
+    assert_eq!(tab.sticky(), None);
+    let (position, _) = tab.scroll_position();
+    tab.set_scroll_position(position - 0.25);
+    assert_eq!(tab.viewport(), (21, 0.25));
+    assert_eq!((tab.sticky(), tab.sticky_push()), (Some(1), 0.0));
+}
+
+#[test]
+fn scrolling_by_a_fraction_moves_the_viewport_continuously() {
+    let mut tab = two_commands();
+    tab.set_scroll_position(3.25);
+    assert_eq!((tab.scroll, tab.scroll_frac), (3, 0.25));
+    assert_eq!(tab.viewport(), (36, 0.75));
+
+    // 零头与不足一行的滚动量相加：往上露出两行。
+    tab.slack = 0.5;
+    assert_eq!(tab.viewport(), (36, 0.25));
+    tab.scroll_frac = 0.75;
+    assert_eq!(tab.viewport(), (35, 0.75));
+
+    // 翻到顶：第 0 个显示行贴着标签栏，与贴上沿排列的位置重合。
+    let (_, limit) = tab.scroll_position();
+    assert_eq!(limit, tab.max_scroll() as f64 - 0.5);
+    tab.set_scroll_position(limit - 0.25);
+    assert_eq!(tab.viewport(), (0, 0.25));
+    tab.set_scroll_position(limit + 10.0);
+    assert_eq!((tab.scroll, tab.scroll_frac), (tab.max_scroll(), 0.0));
+    assert_eq!(tab.viewport(), (0, 0.0));
+
+    // 回到最新的输出：只剩零头。
+    tab.set_scroll_position(-5.0);
+    assert_eq!((tab.scroll, tab.scroll_frac), (0, 0.0));
+    assert_eq!(tab.viewport(), (39, 0.5));
+}
+
+#[test]
+fn the_command_row_and_a_waiting_prompt_at_the_top_stay_visible() {
+    let mut tab = two_commands();
+    tab.scroll_to(106, 0);
+    assert_eq!(tab.top(), 106);
+    assert_eq!(tab.sticky(), None);
+    tab.scroll_to(105, 0);
+    assert_eq!(tab.sticky(), None);
+
+    // 清屏后提示符位于第一行：不能被之前的命令盖住。
+    tab.scroll = 0;
+    tab.blocks[2].prompt = 140;
+    tab.blocks[2].command = 140;
+    assert_eq!(tab.top(), 140);
+    assert_eq!(tab.sticky(), None);
 }
 
 #[test]

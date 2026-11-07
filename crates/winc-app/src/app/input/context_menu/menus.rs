@@ -472,6 +472,7 @@ pub fn terminal_menu(selected: bool, running: bool, block: Option<(bool, bool)>)
         Item(TerminalClear, running),
         Separator,
         Item(TerminalMaximize, true),
+        Item(TerminalDock, true),
         Separator,
         Item(NewTerminal, true),
         Item(CloseTerminal, true),

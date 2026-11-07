@@ -608,8 +608,11 @@ impl App {
             self.relayout();
         }
         // 关闭终端模块时辅助进程和里面的 shell 一起结束；开着时等用户按 ⌃` 再启动。
-        if setting == Setting::TerminalModule && !on {
-            self.stop_terminal();
+        if setting == Setting::TerminalModule {
+            if !on {
+                self.stop_terminal();
+            }
+            self.reload_run_configs();
         }
         self.save_config();
         self.request_redraw();
@@ -1037,6 +1040,7 @@ impl App {
         if stop_terminal {
             self.stop_terminal();
         }
+        self.reload_run_configs();
         if title_bar {
             self.sync_title_bar();
         }

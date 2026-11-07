@@ -232,3 +232,12 @@ fn winc_themes_are_comfortable_and_readable() {
         }
     }
 }
+
+/// 朝原来的方向调到极端也不够、只能翻到另一头时用纯色，不停在刚好达标的灰色上。
+#[test]
+fn flipped_colors_go_all_the_way() {
+    // 深色主题的 ANSI 白写在 ANSI 蓝上：纯白也只有约 2.5:1。
+    let (white, blue) = (Color::hex(0xC9CED6), Color::hex(0x6FA6EE));
+    assert!(contrast(Color::hex(0xFFFFFF), blue) < 3.0);
+    assert_eq!(readable(white, blue, 3.0), Color::hex(0x000000));
+}

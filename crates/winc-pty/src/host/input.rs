@@ -373,6 +373,29 @@ pub fn paste(text: &str, modes: Modes, out: &mut Vec<u8>) {
     }
 }
 
+/// 返回把光标从第 `from` 格移到第 `to` 格要按的方向键和次数；一行文字是 `text`。
+///
+/// 按字符计数：宽字符占两格但只计一次，组合字符不计。`to` 超过文字末尾时按末尾计算。
+pub fn cursor_steps(text: &str, from: usize, to: usize) -> (Key<'static>, usize) {
+    let (mut col, mut left, mut right) = (0, 0, 0);
+    for (_, width) in crate::width::cells(text) {
+        if width == 0 {
+            continue;
+        }
+        if col >= to && col < from {
+            left += 1;
+        } else if col >= from && col < to {
+            right += 1;
+        }
+        col += width;
+    }
+    if left > 0 {
+        (Key::Left, left)
+    } else {
+        (Key::Right, right)
+    }
+}
+
 /// 编码焦点进出终端：程序开启焦点上报（1004）时发 `ESC [ I` 或 `ESC [ O`。
 pub fn focus(focused: bool, modes: Modes, out: &mut Vec<u8>) {
     if modes.has(Modes::FOCUS) {

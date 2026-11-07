@@ -274,7 +274,7 @@ fn sidebar_slides_during_animation() {
     assert_eq!(tiny.sidebar_button.x, closed.sidebar_button.x);
     for l in [open, half, tiny, closed] {
         assert!(l.tabs.x >= l.sidebar_button.right() + TAB_GAP);
-        assert!(l.tabs.x >= l.editor.x + 8.0);
+        assert!(l.tabs.x >= l.editor.x + TAB_INSET);
     }
     assert!(open.tabs.x > half.tabs.x && half.tabs.x > closed.tabs.x);
 }

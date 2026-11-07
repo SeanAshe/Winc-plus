@@ -40,7 +40,10 @@ impl App {
         if matches!(button, MouseButton::Middle | MouseButton::Right)
             && !self.settings.open
             && self.form_dialog.is_none()
-            && crate::app::terminal::grid_rect(l.terminal, self.fonts.line_height).contains(x, y)
+            && self.terminal_view().contains(x, y)
+            && !self
+                .terminal_find_bar()
+                .is_some_and(|bar| bar.contains(x, y))
             && self
                 .terminal
                 .tab()
@@ -249,8 +252,7 @@ impl App {
             }
             Target::Editor => self.click_editor(x, y),
             Target::Terminal => {
-                let grid = crate::app::terminal::grid_rect(l.terminal, self.fonts.line_height);
-                if grid.contains(x, y) {
+                if self.terminal_view().contains(x, y) {
                     self.terminal_mouse_down(x, y, MouseButton::Left);
                 } else {
                     self.focus = Focus::Terminal;
@@ -264,6 +266,18 @@ impl App {
                 self.click_field(x, y);
                 self.request_redraw();
             }
+            Target::TerminalHeader(_) if self.field_at(x, y) == Some(Focus::TerminalFind) => {
+                self.focus = Focus::TerminalFind;
+                self.click_field(x, y);
+                self.request_redraw();
+            }
+            Target::TerminalHeader(crate::app::terminal::HeaderHit::Find(part)) => {
+                self.press_terminal_find(part);
+            }
+            // 运行配置的按钮不移动焦点，不打断正在进行的编辑。
+            Target::TerminalHeader(crate::app::terminal::HeaderHit::Run(button)) => {
+                self.press_run_button(button);
+            }
             Target::TerminalHeader(hit) => {
                 use crate::app::terminal::HeaderHit;
                 self.focus = Focus::Terminal;
@@ -276,9 +290,11 @@ impl App {
                     HeaderHit::Tab(i) => self.press_terminal_tab(i, x),
                     HeaderHit::Close(i) => self.close_terminal_tab(i),
                     HeaderHit::New => self.new_terminal_tab(),
+                    HeaderHit::ShellMenu => self.open_terminal_shell_menu(),
                     HeaderHit::Restart => self.request_terminal_restart(),
                     HeaderHit::Position => self.toggle_terminal_position(),
                     HeaderHit::Hide => self.click_terminal_button(),
+                    HeaderHit::Run(_) | HeaderHit::Find(_) => {}
                 }
             }
             // 双击分隔线恢复为左右各占一半，单击按住开始拖动。

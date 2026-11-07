@@ -360,6 +360,14 @@ impl App {
 
     /// 是否需要逐帧自动滚动：正在拖选或列选择，鼠标位于编辑区边缘之外，且该方向仍可滚动。
     pub(in crate::app) fn drag_autoscrolling(&self) -> bool {
+        if self.drag == Drag::TerminalSelect {
+            let view = self.terminal_view();
+            let y = self.mouse.1;
+            let Some((position, limit)) = self.terminal.tab().map(|t| t.scroll_position()) else {
+                return false;
+            };
+            return (y < view.y && position < limit) || (y >= view.bottom() && position > 0.0);
+        }
         let selecting = matches!(
             self.drag,
             Drag::Select { .. }
@@ -414,4 +422,17 @@ impl App {
 /// 能逐行看清内容，拖远后可以快速到达文档两端。
 fn drag_scroll_speed(lines: f32) -> f32 {
     (6.0 + 6.0 * lines).min(120.0)
+}
+
+impl App {
+    /// 返回拖选超出边缘 `lines` 行时这一帧滚动的行数；距上次滚动的间隔最多按 100 ms 计算。
+    pub(in crate::app) fn drag_scroll_lines(&mut self, lines: f32) -> f32 {
+        let now = Instant::now();
+        let elapsed = self
+            .drag_scrolled_at
+            .map_or(self.frame_interval, |at| now - at)
+            .min(std::time::Duration::from_millis(100));
+        self.drag_scrolled_at = Some(now);
+        drag_scroll_speed(lines) * elapsed.as_secs_f32()
+    }
 }

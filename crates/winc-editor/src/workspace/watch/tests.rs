@@ -117,9 +117,15 @@ fn changing_the_git_directory_while_events_arrive_does_not_deadlock() {
     let (done, finished) = mpsc::channel();
     let git_dir = git.clone();
     std::thread::spawn(move || {
+        // 重启系统监视的耗时因系统而异（实测单轮从不足 1 毫秒到约 0.4 秒），轮数和时间都设上限：
+        // 死锁发生在某一轮之内，表现为这个线程不再结束，与总轮数无关。
+        let until = Instant::now() + Duration::from_secs(5);
         for _ in 0..200 {
             watcher.watch_git_dir(Some(&git_dir));
             watcher.watch_git_dir(None);
+            if Instant::now() >= until {
+                break;
+            }
         }
         let _ = done.send(());
     });

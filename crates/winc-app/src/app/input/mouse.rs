@@ -195,6 +195,21 @@ impl App {
             return;
         }
 
+        // 查找条覆盖在内容上：滚轮不滚动下方的终端，输入框内的文字过长时横向滚动。
+        if !self.picker_open
+            && self
+                .terminal_find_bar()
+                .is_some_and(|bar| bar.contains(x, y))
+        {
+            let on_field = self.field_at(x, y) == Some(Focus::TerminalFind);
+            if let Some(find) = self.terminal.find.as_mut().filter(|_| on_field) {
+                let delta = if dx == 0.0 { dy } else { dx };
+                find.field.wheel_scroll(-delta);
+                self.request_redraw();
+            }
+            return;
+        }
+
         if self.picker_open && l.picker.contains(x, y) {
             // 滚轮只滚动列表，选中项不变。
             let rows = self.picker_hits.len();

@@ -8,6 +8,15 @@ config-project-read-failed = Couldn’t read ({ $error }); ignored
 config-project-invalid-json = Not a valid JSON object; ignored
 config-project-unsupported-key = Project settings support only format; ignored { $key }
 
+## 运行配置（.winc/run.json）。
+
+config-run-read-failed = Couldn’t read ({ $error }); ignored
+config-run-invalid-json = Invalid file format: expected a JSON object with a configurations array; ignored
+config-run-unsupported-key = Unsupported field { $key }; ignored
+config-run-invalid-entry = Entry { $index } is invalid and was ignored: name and command must be non-empty strings, args an array of strings, and env an object of strings
+config-run-duplicate-name = Duplicate configuration name “{ $name }”; later entries were ignored
+config-run-template-note = Each entry requires name and command; args, cwd, and env are optional.
+
 ## Problems with setting values.
 
 config-theme-invalid = { $name } must be auto, dark, or light; ignored

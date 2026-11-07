@@ -101,7 +101,15 @@ impl Blocks {
             info.started = Some(Instant::now());
         }
         self.at_prompt = false;
+        // 该参数只对发送它的提示符有效：命令运行期间可能进入其他 shell（如 ssh），它们不会重画。
+        self.redraws_prompt = false;
         self.dirty = true;
+    }
+
+    /// 当前命令块的命令是否还在运行。
+    pub fn running(&self) -> bool {
+        let info = self.current.and_then(|id| self.infos.get(&id));
+        info.is_some_and(|info| info.started.is_some())
     }
 
     /// 记录命令结束（`D`），并算出运行时长。

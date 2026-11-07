@@ -141,26 +141,46 @@ VIAddVersionKey /LANG=1033 "LegalCopyright" "DEEIX"
   Pop $0
 !macroend
 
+; These files belong to processes that exit shortly after winc does, so they can still be open:
+; winc-watch inside a WSL distribution, OpenConsole.exe and conpty.dll with a closing terminal.
+; Waits up to 5 s; a file that stays open keeps the old copy until the next update.
+!macro InstallRetrying NAME
+  !define /redef RETRY ${__COUNTER__}
+  SetOverwrite try
+  StrCpy $1 0
+  retry_install_${RETRY}:
+    ClearErrors
+    File "${SOURCE}\${NAME}"
+    IfErrors 0 retry_installed_${RETRY}
+    IntOp $1 $1 + 1
+    IntCmp $1 20 retry_installed_${RETRY}
+    Sleep 250
+    Goto retry_install_${RETRY}
+  retry_installed_${RETRY}:
+  SetOverwrite on
+!macroend
+
+!macro DeleteRetrying NAME
+  !define /redef RETRY ${__COUNTER__}
+  StrCpy $1 0
+  retry_delete_${RETRY}:
+    Delete "$INSTDIR\${NAME}"
+    IfFileExists "$INSTDIR\${NAME}" 0 retry_deleted_${RETRY}
+    IntOp $1 $1 + 1
+    IntCmp $1 20 retry_deleted_${RETRY}
+    Sleep 250
+    Goto retry_delete_${RETRY}
+  retry_deleted_${RETRY}:
+!macroend
+
 Section "winc" SEC_MAIN
   SetShellVarContext current
   SetOutPath "$INSTDIR"
   File "${SOURCE}\winc.exe"
   File "${SOURCE}\winc-pty.exe"
-  ; winc-watch runs inside a WSL distribution and exits shortly after winc does, so the file can
-  ; still be open here. Waits up to 5 s; a helper that stays open keeps the old copy, which only
-  ; affects file watching until the next update.
-  SetOverwrite try
-  StrCpy $1 0
-  watcher_install:
-    ClearErrors
-    File "${SOURCE}\winc-watch"
-    IfErrors 0 watcher_installed
-    IntOp $1 $1 + 1
-    IntCmp $1 20 watcher_installed
-    Sleep 250
-    Goto watcher_install
-  watcher_installed:
-  SetOverwrite on
+  !insertmacro InstallRetrying "OpenConsole.exe"
+  !insertmacro InstallRetrying "conpty.dll"
+  !insertmacro InstallRetrying "winc-watch"
   File "${SOURCE}\winc.ico"
   File "${SOURCE}\LICENSE"
   File "${SOURCE}\NOTICE"
@@ -197,16 +217,9 @@ uninstall_files:
   Delete "$SMPROGRAMS\winc.lnk"
   Delete "$INSTDIR\winc.exe"
   Delete "$INSTDIR\winc-pty.exe"
-  ; See the note in the install section: winc-watch can still be running for a moment.
-  StrCpy $1 0
-  watcher_delete:
-    Delete "$INSTDIR\winc-watch"
-    IfFileExists "$INSTDIR\winc-watch" 0 watcher_deleted
-    IntOp $1 $1 + 1
-    IntCmp $1 20 watcher_deleted
-    Sleep 250
-    Goto watcher_delete
-  watcher_deleted:
+  !insertmacro DeleteRetrying "OpenConsole.exe"
+  !insertmacro DeleteRetrying "conpty.dll"
+  !insertmacro DeleteRetrying "winc-watch"
   Delete "$INSTDIR\winc.ico"
   Delete "$INSTDIR\winc-installation"
   Delete "$INSTDIR\LICENSE"

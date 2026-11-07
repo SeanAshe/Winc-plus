@@ -132,3 +132,22 @@ fn fit_never_splits_a_grapheme() {
         }
     });
 }
+
+/// 标签栏变窄时运行配置先省略名字，再窄时不显示；过长的名字截短。
+#[test]
+fn run_buttons_give_way_to_the_tabs() {
+    use super::terminal::run_menu_width;
+    let name = run_menu_width(50.0, 1000.0).unwrap();
+    assert!(name > crate::theme::BUTTON);
+    assert_eq!(
+        run_menu_width(9999.0, 1000.0),
+        run_menu_width(200.0, 1000.0)
+    );
+    assert_eq!(run_menu_width(50.0, 350.0), Some(crate::theme::BUTTON));
+    assert_eq!(run_menu_width(50.0, 300.0), None);
+    // 绘制时减去边距后仍然不窄于名字，不会把放得下的名字截短。
+    for name in [24.0, 24.1, 24.3, 24.7, 31.333_334, 57.2, 99.99] {
+        let room = run_menu_width(name, 1000.0).unwrap() - super::terminal::RUN_NAME_CHROME;
+        assert!(room >= name, "{name}");
+    }
+}

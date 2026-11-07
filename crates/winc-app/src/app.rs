@@ -159,6 +159,8 @@ pub enum UserEvent {
     Formatted,
     /// 提示框中回答了是否允许运行项目自带的格式化工具。
     ToolChoice(ToolAnswer),
+    /// 确认框上同意了运行这个配置。
+    RunApproved(Box<winc_config::RunConfig>),
     /// 提示框中回答了是否信任 Git 仓库（第一个参数）指纹为第二个参数的配置。
     GitTrust(PathBuf, u64, bool),
     /// 已取得用户 shell 的环境，格式化工具在其 `PATH` 中查找。
@@ -228,6 +230,8 @@ pub enum UserEvent {
     TerminalClose(u16),
     /// 确认框上确认了重新启动这个终端标签（伪终端断开了，里面的程序可能还在运行）。
     TerminalRestart(u16),
+    /// 本机的 shell 检测完了。
+    TerminalShells(Vec<terminal::shells::ShellChoice>),
     /// 退出或关闭窗口前的确认结果（终端中有程序在运行）：用户确认时为真，取消时为假。
     TerminalQuit(bool),
     /// 确认框上确认了把文字粘贴到指定的终端标签（多行、程序没有开启括号粘贴）。
@@ -437,7 +441,13 @@ impl Hover {
         matches!(
             self,
             Hover::TreeTool(_)
-                | Hover::TerminalHeader(terminal::HeaderHit::Position | terminal::HeaderHit::Hide)
+                | Hover::TerminalHeader(
+                    terminal::HeaderHit::Position
+                        | terminal::HeaderHit::ShellMenu
+                        | terminal::HeaderHit::Find(_)
+                        | terminal::HeaderHit::Hide
+                        | terminal::HeaderHit::Run(_),
+                )
                 | Hover::Status(StatusItem::Terminal | StatusItem::Settings)
                 | Hover::TreeMore
                 | Hover::SidebarButton
@@ -626,6 +636,8 @@ pub struct App {
     pub editor: Editor,
     /// 终端面板（终端模块）。
     pub(crate) terminal: terminal::TerminalPanel,
+    /// 当前目录的运行配置。
+    pub(crate) run: terminal::run::RunConfigs,
     /// 当前生效的配置。
     pub config: Config,
     /// 配置文件当前的内容，即上次读入或写出时的配置。

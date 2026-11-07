@@ -3,11 +3,13 @@
 
 mod blocks;
 mod editor;
+mod run;
 
 use super::editor::navigation::press;
 use super::*;
 use crate::app::terminal::{self, TermTab};
 use crate::keymap::KeyCode::Char;
+use winc_pty::protocol::{Event, FromHelper};
 
 /// 本地仿真按开启 shell 集成处理时，集成脚本在 OSC 133 标记中带回的随机数。
 ///
@@ -54,7 +56,7 @@ pub(super) fn serve(app: &mut App, term: &winc_pty::Terminal) {
 
 /// 网格上第 `row` 行第 `col` 格的中心。
 pub(super) fn cell_center(app: &App, row: usize, col: usize) -> (f32, f32) {
-    let grid = terminal::grid_rect(app.layout.terminal, app.fonts.line_height);
+    let grid = app.terminal_grid();
     (
         grid.x + (col as f32 + 0.5) * app.cell,
         grid.y + (row as f32 + 0.5) * app.fonts.line_height,
@@ -62,6 +64,63 @@ pub(super) fn cell_center(app: &App, row: usize, col: usize) -> (f32, f32) {
 }
 
 pub(super) use super::click;
+
+#[test]
+fn only_messages_for_what_is_shown_need_a_repaint() {
+    let dir = sample_folder("terminal-shown");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    show_terminal(&mut app, "");
+    add_tab(&mut app, "bash", "");
+    let tabs: Vec<u16> = app.terminal.tabs.iter().map(|tab| tab.id).collect();
+    let (hidden, active) = (tabs[0], tabs[1]);
+    let blocks = |tab| FromHelper::Blocks {
+        tab,
+        blocks: Vec::new(),
+        early: false,
+    };
+    let t = &app.terminal;
+    assert!(t.message_is_shown(&blocks(active)));
+    assert!(!t.message_is_shown(&blocks(hidden)));
+    let bell = FromHelper::Event {
+        tab: active,
+        event: Event::Bell,
+    };
+    assert!(!t.message_is_shown(&bell));
+
+    // 面板收起后，正在看的标签也不显示。
+    app.terminal.open = false;
+    assert!(!app.terminal.message_is_shown(&blocks(active)));
+}
+
+#[test]
+fn the_visible_state_follows_what_the_tab_strip_and_status_bar_show() {
+    let dir = sample_folder("terminal-visible");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    show_terminal(&mut app, "");
+    add_tab(&mut app, "bash", "");
+    let hidden = app.terminal.tabs[0].id;
+    let title = |title: &str| FromHelper::Event {
+        tab: hidden,
+        event: Event::Title(title.to_owned()),
+    };
+
+    app.terminal_message(title("build"));
+    let before = app.terminal.visible_state();
+    // 标题没有变化：不需要重绘。
+    app.terminal_message(title("build"));
+    assert_eq!(app.terminal.visible_state(), before);
+    // 后台标签的名字显示在标签栏上。
+    app.terminal_message(title("test"));
+    assert_ne!(app.terminal.visible_state(), before);
+
+    // 面板收起后，标签名不可见，未读标记仍然显示在状态栏上。
+    app.terminal.open = false;
+    let closed = app.terminal.visible_state();
+    app.terminal_message(title("spinner"));
+    assert_eq!(app.terminal.visible_state(), closed);
+    app.terminal.tabs[0].unseen = Some(false);
+    assert_ne!(app.terminal.visible_state(), closed);
+}
 
 #[test]
 fn the_panel_takes_its_room_from_the_editor_card() {
@@ -477,6 +536,130 @@ fn find_scans_in_slices_from_the_bottom() {
 }
 
 #[test]
+fn the_panel_keeps_the_dragged_height_without_a_gap_under_the_tabs() {
+    let dir = sample_folder("terminal-no-gap");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    show_terminal(&mut app, "$ ");
+    let line = app.fonts.line_height;
+    let height = app.layout.terminal.h + (line / 2.0).round();
+    app.terminal.height = height;
+    app.relayout();
+    assert_eq!(app.layout.terminal.h, height);
+
+    // 上面没有内容：内容贴着标签栏，零头留在下面。
+    let top = app.terminal_view().y;
+    assert_eq!(app.terminal_grid().y, top);
+
+    // 上面有内容：网格贴着面板下边，零头处显示上一行的下半截。
+    let output: String = (0..60).map(|i| format!("line {i}\r\n")).collect();
+    let term = add_tab(&mut app, "zsh", &output);
+    serve(&mut app, &term);
+    let grid = app.terminal_grid();
+    assert!(grid.y > top);
+    assert!(grid.y - top < line);
+    let tab = app.terminal.tab().unwrap();
+    let above = tab.row_at(tab.view_top() - 1).unwrap();
+    let terminal::ViewRow::Line(number) = above else {
+        panic!("上一行应当是普通的行");
+    };
+    assert!(tab.line(number).is_some(), "上一行要先取回来");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_wheel_moves_rows_by_pixels_and_clicks_follow_them() {
+    let dir = sample_folder("terminal-pixel-scroll");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    show_terminal(&mut app, "");
+    app.terminal.height = terminal::DEFAULT_HEIGHT + 7.0;
+    app.relayout();
+    let output: String = (0..80).map(|i| format!("line {i}\r\n")).collect();
+    let term = add_tab(&mut app, "zsh", &output);
+    app.relayout();
+    serve(&mut app, &term);
+    let lh = app.fonts.line_height;
+
+    // 每次滚动 3 逻辑像素：同一行每次都移动 3 逻辑像素。
+    let y_of = |app: &App, row: u64| {
+        let (first, origin) = app.terminal_origin();
+        origin + (row as f32 - first as f32) * lh
+    };
+    let row = app.terminal.tab().unwrap().view_top();
+    let mut last = y_of(&app, row);
+    for _ in 0..40 {
+        app.terminal_wheel(3.0);
+        serve(&mut app, &term);
+        let y = y_of(&app, row);
+        assert!((y - last - 3.0).abs() < 1.01, "移动了 {}", y - last);
+        last = y;
+    }
+
+    // 点在视口最上面只露出一部分的行上：选中的就是这一行。
+    let tab = app.terminal.tab().unwrap();
+    let (first, origin) = app.terminal_origin();
+    let top = app.terminal_view().y;
+    assert!(origin < top);
+    let line = tab.row_at(first).unwrap().line(tab);
+    let x = app.terminal_view().x + app.cell * 0.5;
+    app.on_mouse_move(x, top + 0.5);
+    app.on_mouse_down(MouseButton::Left);
+    let tab = app.terminal.tab().unwrap();
+    assert_eq!(tab.selection.map(|s| s.anchor.line), Some(line));
+    app.on_mouse_up(MouseButton::Left);
+
+    // 翻到顶后不再动，第一行贴着标签栏；键入回到最新的输出，不留不足一行的滚动量。
+    app.terminal_wheel(1.0e7);
+    assert_eq!(app.terminal.tab().unwrap().viewport(), (0, 0.0));
+    assert_eq!(app.terminal_origin().1, top);
+    app.terminal_wheel(-lh * 0.5);
+    let tab = app.terminal.tab().unwrap();
+    assert!(tab.scroll_frac > 0.0 && tab.view_top() > 0);
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_tab_bar_keeps_even_gaps_around_tabs_and_buttons() {
+    let dir = sample_folder("terminal-tab-bar-gaps");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    show_terminal(&mut app, "");
+    for _ in 0..20 {
+        add_tab(&mut app, "zsh", "");
+    }
+    app.terminal.active = 0;
+    paint(&mut app);
+    let card = app.layout.terminal;
+    let hit = |app: &App, wanted: terminal::HeaderHit| {
+        (app.terminal.hits.iter())
+            .find(|(_, hit)| *hit == wanted)
+            .map(|(rect, _)| *rect)
+            .unwrap()
+    };
+
+    // 标签放不下：第一个标签上、下、左的留白相同。
+    let tab = hit(&app, terminal::HeaderHit::Tab(0));
+    assert_eq!(tab.x - card.x, tab.y - card.y);
+    assert_eq!(tab.x - card.x, app.terminal_view().y - tab.bottom());
+    assert_eq!(tab.x - card.x, 5.0);
+
+    // 「+」、运行、切换位置、收起四个按钮间距相同，尺寸和间距与编辑区标签栏一致。
+    let new = hit(&app, terminal::HeaderHit::New);
+    let run = hit(
+        &app,
+        terminal::HeaderHit::Run(terminal::run::RunButton::Start),
+    );
+    let position = hit(&app, terminal::HeaderHit::Position);
+    let hide = hit(&app, terminal::HeaderHit::Hide);
+    assert_eq!(run.x - new.right(), crate::theme::TAB_GAP);
+    assert_eq!(position.x - run.right(), crate::theme::TAB_GAP);
+    assert_eq!(hide.x - position.right(), crate::theme::TAB_GAP);
+    assert_eq!(new.w, crate::theme::BUTTON);
+    assert_eq!(card.right() - hide.right(), 8.0);
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 #[ignore = "截图，手动运行"]
 fn snapshot_terminal() {
     let dir = sample_folder("terminal-shot");
@@ -698,10 +881,30 @@ fn shortcuts_in_the_terminal_fields_stay_with_the_terminal() {
     app.open_terminal_find();
     app.edit_field(|f| f.insert("hi"));
 
-    // 编辑用的快捷键留给输入框。
-    assert!(!press(&mut app, &["cmd"], Char('a')));
-    assert!(!press(&mut app, &["cmd"], Char('c')));
-    // ⌘F 仍然是终端的查找：选中查找框中的文字，不会转到编辑区的查找条。
+    // 编辑用的快捷键作用于输入框：全选、复制以后清空，再粘贴回来。
+    assert!(press(&mut app, &["term"], Char('a')));
+    assert!(press(&mut app, &["term"], Char('c')));
+    assert_eq!(app.copied.as_deref(), Some("hi"));
+    app.edit_field(|f| {
+        f.set_text("");
+        true
+    });
+    app.run_action(crate::keymap::Action::Paste);
+    assert_eq!(app.terminal.find.as_ref().unwrap().field.text(), "hi");
+    app.edit_field(|f| {
+        f.select_all();
+        false
+    });
+    // ⌘F 关闭查找条，焦点回到终端，不会转到编辑区的查找条。
+    assert!(press(&mut app, &["term"], Char('f')));
+    assert!(app.terminal.find.is_none());
+    assert_eq!(app.focus, Focus::Terminal);
+    // 再按一次打开。
+    assert!(press(&mut app, &["term"], Char('f')));
+    assert_eq!(app.focus, Focus::TerminalFind);
+    // 查找条开着、焦点在终端时，⌘F 回到查找框并全选，不关闭。
+    app.edit_field(|f| f.insert("hi"));
+    app.focus = Focus::Terminal;
     assert!(press(&mut app, &["term"], Char('f')));
     assert_eq!(app.focus, Focus::TerminalFind);
     let find = app.terminal.find.as_ref().unwrap();
@@ -714,7 +917,7 @@ fn shortcuts_in_the_terminal_fields_stay_with_the_terminal() {
     // 标签上改名字时也一样。
     show_terminal(&mut app, "$ ");
     app.open_terminal_rename(0);
-    assert!(!press(&mut app, &["cmd"], Char('a')));
+    assert!(press(&mut app, &["term"], Char('a')));
     assert!(press(&mut app, &["term"], Char('w')));
     assert!(app.terminal.tabs.is_empty());
     assert_eq!(app.editor.documents.len(), 1);
@@ -768,6 +971,696 @@ fn only_the_tab_in_view_reflows_when_the_width_changes() {
     assert_eq!(resized(&app), [(second, cols), (first, cols)]);
 
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn reverse_video_keeps_default_text_visible() {
+    let image = |bytes: &str| {
+        let mut app = blank_app(true);
+        show_terminal(&mut app, bytes);
+        paint(&mut app);
+        let renderer = app.renderer.as_ref().unwrap();
+        renderer.image().unwrap().pixels.clone()
+    };
+    let reversed = "\x1b[?25l\x1b[?5h";
+    assert_ne!(image(&format!("{reversed}text")), image(reversed));
+}
+
+/// 方块元素铺满格子：上下两行之间不露出底色。
+#[test]
+fn block_elements_leave_no_gap_between_rows() {
+    let mut app = blank_app(true);
+    show_terminal(&mut app, "\x1b[?25l█\r\n█");
+    let mut scale = 1.0;
+    let renderer = app.renderer.as_mut().unwrap();
+    renderer.draw(|frame| scale = frame.scale());
+    paint(&mut app);
+    let (x, y) = cell_center(&app, 0, 0);
+    let lh = app.fonts.line_height;
+    let image = app.renderer.as_ref().unwrap().image().unwrap();
+    let pixel = |y: f32| {
+        let (x, y) = ((x * scale) as usize, (y * scale) as usize);
+        image.pixels[y * image.width as usize + x]
+    };
+    let mut at = y;
+    while at < y + lh {
+        assert_eq!(pixel(at), pixel(y), "第一行中线往下 {} 处", at - y);
+        at += 1.0 / scale;
+    }
+}
+
+/// 查找条关掉前都能点回去，按钮可用，点击不落到下面的终端。
+#[test]
+fn the_find_bar_takes_clicks_and_closes() {
+    use crate::app::terminal::{FindPart, HeaderHit};
+    let mut app = blank_app(true);
+    let output: String = (1..=5).map(|i| format!("Warning {i}\r\n")).collect();
+    show_terminal(&mut app, &output);
+    assert!(press(&mut app, &["term"], Char('f')));
+    app.edit_field(|field| {
+        field.set_text("warning");
+        true
+    });
+    paint(&mut app);
+
+    // 和第一行垂直居中，高度与标签相同。
+    let bar = app.terminal_find_bar().unwrap();
+    let row = app.terminal_view().y + app.fonts.line_height / 2.0;
+    assert_eq!(bar.y + bar.h / 2.0, row);
+    assert_eq!(bar.h, crate::theme::TAB_HEIGHT);
+
+    // 点到终端：焦点离开，查找条不关闭。
+    let (x, y) = cell_center(&app, 4, 0);
+    click(&mut app, (x, y));
+    assert_eq!(app.focus, Focus::Terminal);
+    assert!(app.terminal.find.is_some());
+    paint(&mut app);
+
+    // 点输入框：焦点回来，查找词还在。
+    let area = app.terminal.find.as_ref().unwrap().field.view.area;
+    click(&mut app, (area.x + 4.0, area.y + area.h / 2.0));
+    assert_eq!(app.focus, Focus::TerminalFind);
+    assert_eq!(app.terminal.find.as_ref().unwrap().field.text(), "warning");
+    paint(&mut app);
+
+    let center_of = |app: &App, part| {
+        let hits = &app.terminal.hits;
+        let rect = (hits.iter().find(|(_, hit)| *hit == HeaderHit::Find(part)))
+            .unwrap()
+            .0;
+        (rect.x + rect.w / 2.0, rect.y + rect.h / 2.0)
+    };
+    // 上一处、下一处：焦点留在输入框。
+    let current = |app: &App| app.terminal.find.as_ref().unwrap().current;
+    let newest = current(&app).unwrap();
+    let (x, y) = center_of(&app, FindPart::Previous);
+    click(&mut app, (x, y));
+    assert_eq!(current(&app), Some(newest - 1));
+    assert_eq!(app.focus, Focus::TerminalFind);
+    let (x, y) = center_of(&app, FindPart::Next);
+    click(&mut app, (x, y));
+    assert_eq!(current(&app), Some(newest));
+
+    // 点在按钮之外的空白：不在下面的终端里开始选字。
+    let bar = app.terminal_find_bar().unwrap();
+    let area = app.terminal.find.as_ref().unwrap().field.view.area;
+    app.focus = Focus::Terminal;
+    let selection = app.terminal.tab().unwrap().selection;
+    click(&mut app, (area.right() + 2.0, bar.y + 2.0));
+    assert_eq!(app.focus, Focus::TerminalFind);
+    assert_eq!(app.terminal.tab().unwrap().selection, selection);
+
+    let (x, y) = center_of(&app, FindPart::Close);
+    click(&mut app, (x, y));
+    assert!(app.terminal.find.is_none());
+    assert_eq!(app.focus, Focus::Terminal);
+}
+
+/// 查找条四边都有细边框，外面没有阴影。
+#[test]
+fn the_find_bar_has_a_full_border_and_no_shadow() {
+    let mut app = blank_app(true);
+    show_terminal(&mut app, "");
+    assert!(press(&mut app, &["term"], Char('f')));
+    let mut scale = 1.0;
+    let renderer = app.renderer.as_mut().unwrap();
+    renderer.draw(|frame| scale = frame.scale());
+    paint(&mut app);
+    let bar = app.terminal_find_bar().unwrap();
+    let image = app.renderer.as_ref().unwrap().image().unwrap();
+    let pixel = |x: f32, y: f32| {
+        let (x, y) = ((x * scale) as usize, (y * scale) as usize);
+        image.pixels[y * image.width as usize + x]
+    };
+    let x = bar.x + bar.w / 2.0;
+    let y = bar.y + bar.h / 2.0;
+    let background = pixel(x, bar.bottom() + 40.0);
+    // 每条边外侧 1 个逻辑像素以内是边框，紧贴着的外面就是面板的底色。
+    let half = 0.5;
+    for (edge, outside) in [
+        (pixel(x, bar.y - half), pixel(x, bar.y - 1.0 - half)),
+        (
+            pixel(x, bar.bottom() + half),
+            pixel(x, bar.bottom() + 1.0 + half),
+        ),
+        (pixel(bar.x - half, y), pixel(bar.x - 1.0 - half, y)),
+        (
+            pixel(bar.right() + half, y),
+            pixel(bar.right() + 1.0 + half, y),
+        ),
+    ] {
+        assert_ne!(edge, background);
+        assert_eq!(outside, background);
+    }
+}
+
+/// 查找词比输入框长时，滚轮能左右滚动文字，终端不跟着滚；输入以后回到光标处。
+#[test]
+fn the_wheel_scrolls_a_long_find_query_sideways() {
+    use winit::event::MouseScrollDelta::LineDelta;
+    let mut app = blank_app(true);
+    let output: String = (1..=60).map(|i| format!("line {i}\r\n")).collect();
+    let term = show_terminal(&mut app, &output);
+    serve(&mut app, &term);
+    assert!(press(&mut app, &["term"], Char('f')));
+    app.edit_field(|field| {
+        field.set_text(&"long query ".repeat(20));
+        true
+    });
+    paint(&mut app);
+    fn find(app: &App) -> &crate::field::TextField {
+        &app.terminal.find.as_ref().unwrap().field
+    }
+    let end = find(&app).view.scroll;
+    assert!(end > 0.0, "光标在末尾时文字已经滚动");
+    let caret = find(&app).caret();
+    let area = find(&app).view.area;
+    app.on_mouse_move(area.x + 8.0, area.y + area.h / 2.0);
+    let lines = app.terminal.tab().unwrap().scroll;
+
+    // 往回滚：光标不动，可以滚出可见范围，终端不动。
+    app.on_wheel(LineDelta(0.0, 1.0));
+    paint(&mut app);
+    let back = find(&app).view.scroll;
+    assert!(back < end, "{back} < {end}");
+    assert_eq!(find(&app).caret(), caret);
+    assert_eq!(app.terminal.tab().unwrap().scroll, lines);
+    // 下一帧保持在滚到的位置。
+    paint(&mut app);
+    assert_eq!(find(&app).view.scroll, back);
+
+    // 滚到头为止：触控板的横向滑动也一样。
+    app.on_wheel(LineDelta(1000.0, 0.0));
+    paint(&mut app);
+    assert_eq!(find(&app).view.scroll, 0.0);
+    app.on_wheel(LineDelta(-1000.0, 0.0));
+    paint(&mut app);
+    assert_eq!(find(&app).view.scroll, end);
+
+    // 滚开以后输入：回到光标处。
+    app.on_wheel(LineDelta(0.0, 1000.0));
+    paint(&mut app);
+    assert_eq!(find(&app).view.scroll, 0.0);
+    app.edit_field(|field| {
+        // `set_text` 之后文字处于全选状态，先取消选区，否则输入会替换全部文字。
+        field.set_caret(field.text().len(), false);
+        field.insert("x")
+    });
+    paint(&mut app);
+    assert!(find(&app).view.scroll > end);
+}
+
+/// 能选的 shell 不止一个时才有下拉箭头；选中的 shell 用来启动，重新启动和现场都带着它。
+#[test]
+fn the_shell_menu_starts_the_chosen_shell_and_remembers_it() {
+    use crate::app::input::context_menu::{MenuCommand, MenuEntry};
+    use crate::app::terminal::shells::ShellChoice;
+    use winc_pty::protocol::ToHelper;
+    let dir = sample_folder("terminal-shells");
+    let mut app = app_with(&dir.join("short.rs"), true);
+    show_terminal(&mut app, "$ ");
+    let log = app.attach_recording_helper(&dir);
+    let has_menu = |app: &App| {
+        let hits = &app.terminal.hits;
+        hits.iter()
+            .any(|(_, h)| *h == terminal::HeaderHit::ShellMenu)
+    };
+    let choice = |name: &str| ShellChoice {
+        name: name.to_owned(),
+        command: format!("/bin/{name}"),
+    };
+
+    // 只有一个可选时不显示。
+    app.terminal.shells = vec![choice("zsh")];
+    paint(&mut app);
+    assert!(!has_menu(&app));
+
+    app.terminal.shells = vec![choice("zsh"), choice("bash")];
+    paint(&mut app);
+    assert!(has_menu(&app));
+
+    // 菜单列出两个，第二个的副标题是启动命令。
+    let menu = (app.terminal.hits.iter())
+        .find(|(_, h)| *h == terminal::HeaderHit::ShellMenu)
+        .unwrap()
+        .0;
+    // 尺寸和间距与标签栏上其他按钮相同。
+    let new = (app.terminal.hits.iter())
+        .find(|(_, h)| *h == terminal::HeaderHit::New)
+        .unwrap()
+        .0;
+    assert_eq!(menu.w, crate::theme::BUTTON);
+    assert_eq!(menu.x - new.right(), crate::theme::TAB_GAP);
+    click(&mut app, (menu.x + menu.w / 2.0, menu.y + menu.h / 2.0));
+    assert_eq!(
+        app.menu_button,
+        Some(crate::app::MenuButton::TerminalShells)
+    );
+    assert_eq!(
+        app.context_menu.as_ref().expect("弹出了菜单").entries,
+        [
+            MenuEntry::Item(MenuCommand::NewTerminalShell(0), true),
+            MenuEntry::Item(MenuCommand::NewTerminalShell(1), true),
+        ]
+    );
+    let label = app.menu_label(MenuCommand::NewTerminalShell(1));
+    assert_eq!(label.title, "bash");
+    assert_eq!(label.subtitle.as_deref(), Some("/bin/bash"));
+
+    // 选中第二个：用它启动。
+    app.new_terminal_with_shell(1);
+    app.relayout();
+    let started = |app: &App, log: &std::path::Path, shell: &[u8]| {
+        let sent = app.sent_to_helper(log);
+        let spawns = sent
+            .iter()
+            .filter(|m| matches!(m, ToHelper::Spawn { program: Some(p), .. } if p == shell));
+        spawns.count()
+    };
+    assert_eq!(started(&app, &log, b"/bin/bash"), 1);
+    assert_eq!(
+        app.terminal.tab().unwrap().shell.as_deref(),
+        Some("/bin/bash")
+    );
+
+    // 现场记下：默认 shell 的是空的。
+    let session = app.terminal_session().unwrap();
+    assert_eq!(session.shells, ["", "/bin/bash"]);
+
+    // 退出后重新启动：还是这个 shell。
+    let id = app.terminal.tab().unwrap().id;
+    app.terminal_message(FromHelper::Exited { tab: id, code: 0 });
+    app.restart_terminal_tab();
+    app.relayout();
+    assert_eq!(started(&app, &log, b"/bin/bash"), 2);
+    assert_eq!(
+        app.terminal.tab().unwrap().shell.as_deref(),
+        Some("/bin/bash")
+    );
+
+    // ⌘T 仍然是默认 shell。
+    app.new_terminal_tab();
+    app.relayout();
+    assert_eq!(app.terminal.tab().unwrap().shell, None);
+
+    // 恢复现场：卸载了的 shell 改用默认的，不报启动失败。
+    let mut restored = blank_app(true);
+    restored.config.terminal_enabled = Some(true);
+    restored.restore_terminal(&winc_config::TerminalSession {
+        tabs: vec!["/tmp".into(), "/tmp".into()],
+        shells: vec!["/bin/winc-no-such-shell".into(), "/bin/sh".into()],
+        ..winc_config::TerminalSession::default()
+    });
+    let shells = &restored.terminal.want_shells;
+    assert_eq!(shells[0], None);
+    assert_eq!(shells[1].as_deref(), Some("/bin/sh"));
+
+    // `terminal.shell` 是默认的，排在最前面，同名的不重复。
+    app.config.terminal_shell = Some("/usr/local/bin/bash --norc".into());
+    let list = app.terminal_shell_list();
+    let names: Vec<&str> = list.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, ["bash", "zsh"]);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 标签开始收窄之后再新建标签：「+」固定在最右端，不随新标签的动画移动，直到标签最窄。
+#[test]
+fn the_new_button_stays_put_once_the_tabs_narrow() {
+    use crate::app::terminal::strip::{TAB_MIN, TAB_SQUEEZED};
+    let mut app = blank_app(true);
+    show_terminal(&mut app, "$ ");
+    // 动画冻结在起点：新标签宽度为零，其他标签已经收窄。
+    app.terminal.strip.frozen = Some(std::time::Duration::ZERO);
+    let new = |app: &App| {
+        let hits = &app.terminal.hits;
+        let hit = hits.iter().find(|(_, h)| *h == terminal::HeaderHit::New);
+        hit.unwrap().0.x
+    };
+    let mut pinned = None;
+    let mut narrowed = 0;
+    for _ in 0..30 {
+        let _ = add_tab(&mut app, "cargo", "");
+        paint(&mut app);
+        let widths = &app.terminal.strip.widths;
+        if widths.iter().any(|&w| w < TAB_MIN) {
+            narrowed += 1;
+            let at = *pinned.get_or_insert(new(&app));
+            assert_eq!(new(&app), at, "{} 个标签", widths.len());
+        }
+    }
+    assert!(narrowed > 5, "覆盖了变窄的整个过程：{narrowed}");
+    let widths = &app.terminal.strip.widths;
+    assert!(widths.iter().all(|&w| w == TAB_SQUEEZED));
+}
+
+/// 查找的选项和编辑区相同：默认不区分大小写，可以区分、全字、用正则；正则有误时没有结果。
+#[test]
+fn find_options_change_what_matches() {
+    use crate::app::terminal::{FindPart, HeaderHit};
+    let mut app = blank_app(true);
+    let term = show_terminal(&mut app, "Error errors error\r\nerr0r\r\n");
+    assert!(press(&mut app, &["term"], Char('f')));
+    let tab = app.terminal.tab().unwrap();
+    let (start, end, id) = (tab.history.0, tab.history.1, tab.id);
+    let (start, lines) = term.history(start, end);
+    app.terminal_find_loaded(id, start, lines, true);
+    app.edit_field(|field| {
+        field.set_text("error");
+        true
+    });
+    let count = |app: &App| app.terminal.find.as_ref().unwrap().matches.len();
+    assert_eq!(count(&app), 3, "默认不区分大小写，大写开头的词也算");
+
+    let press_part = |app: &mut App, part| {
+        paint(app);
+        let hits = &app.terminal.hits;
+        let rect = hits
+            .iter()
+            .find(|(_, h)| *h == HeaderHit::Find(part))
+            .unwrap()
+            .0;
+        click(app, (rect.x + rect.w / 2.0, rect.y + rect.h / 2.0));
+    };
+    press_part(&mut app, FindPart::Case);
+    assert_eq!(count(&app), 2);
+    press_part(&mut app, FindPart::Word);
+    assert_eq!(count(&app), 1);
+    press_part(&mut app, FindPart::Word);
+    press_part(&mut app, FindPart::Case);
+    assert_eq!(count(&app), 3);
+    assert_eq!(app.focus, Focus::TerminalFind);
+
+    press_part(&mut app, FindPart::Regex);
+    app.edit_field(|field| {
+        field.set_text("err.r$");
+        true
+    });
+    assert_eq!(count(&app), 2);
+    app.edit_field(|field| {
+        field.set_text("(");
+        true
+    });
+    assert_eq!(count(&app), 0);
+    assert!(app.terminal.find.as_ref().unwrap().invalid);
+    paint(&mut app);
+}
+
+/// 窄面板上放不下选项时不显示，也点不到。
+#[test]
+fn find_options_hide_on_a_narrow_panel() {
+    use crate::app::terminal::{FindPart, HeaderHit};
+    let mut app = blank_app(true);
+    app.config.terminal_right = Some(true);
+    show_terminal(&mut app, "$ ");
+    app.terminal.width = 280.0;
+    assert!(press(&mut app, &["term"], Char('f')));
+    paint(&mut app);
+    let hits = &app.terminal.hits;
+    assert!(
+        hits.iter()
+            .all(|(_, h)| *h != HeaderHit::Find(FindPart::Case))
+    );
+    assert!(
+        hits.iter()
+            .any(|(_, h)| *h == HeaderHit::Find(FindPart::Close))
+    );
+}
+
+/// 软换行的内容拼接后查找，匹配可以跨两行；查找条打开期间的新输出也会被查找，当前匹配保持不变。
+#[test]
+fn find_covers_wrapped_lines_and_new_output() {
+    let mut app = blank_app(true);
+    show_terminal(&mut app, "");
+    let cols = usize::from(app.terminal_size().cols);
+    // 「needle」跨在第一行行尾和第二行行首。
+    let wrapped = format!("{}needle\r\n", "x".repeat(cols - 3));
+    let mut term = add_tab(&mut app, "zsh", &wrapped);
+    assert!(press(&mut app, &["term"], Char('f')));
+    app.terminal.find.as_mut().unwrap().loaded = true;
+    app.edit_field(|field| {
+        field.set_text("needle");
+        true
+    });
+    let find = app.terminal.find.as_ref().unwrap();
+    assert_eq!(find.matches.len(), 1);
+    let (from, to) = find.matches[0];
+    assert_eq!((to.line - from.line, from.col, to.col), (1, cols - 3, 3));
+    paint(&mut app);
+
+    // 新输出：重新查找后结果增加，当前匹配保持原位置。
+    term.feed(b"needle again\r\n");
+    let id = app.terminal.tab().unwrap().id;
+    app.terminal_message(FromHelper::Frame {
+        tab: id,
+        frame: term.take_frame().unwrap(),
+    });
+    app.terminal_find_tick();
+    let find = app.terminal.find.as_ref().unwrap();
+    assert_eq!(find.matches.len(), 2);
+    assert_eq!(find.matches[find.current.unwrap()], (from, to));
+
+    // 间隔内再次输出：暂不查找，但继续请求绘制下一帧，以便间隔结束后查找。
+    term.feed(b"needle more\r\n");
+    app.terminal_message(FromHelper::Frame {
+        tab: id,
+        frame: term.take_frame().unwrap(),
+    });
+    assert!(app.terminal_find_tick());
+    assert_eq!(app.terminal.find.as_ref().unwrap().matches.len(), 2);
+}
+
+/// 当前匹配绘制在选区之上，可以与其他匹配区分。
+#[test]
+fn the_current_match_shows_above_the_selection() {
+    let mut app = blank_app(true);
+    show_terminal(&mut app, "needle\r\n");
+    assert!(press(&mut app, &["term"], Char('f')));
+    let pixel = |app: &mut App| {
+        let mut scale = 1.0;
+        let renderer = app.renderer.as_mut().unwrap();
+        renderer.draw(|frame| scale = frame.scale());
+        paint(app);
+        // 第一格左下角：字形碰不到的地方，只有底色。
+        let grid = app.terminal_grid();
+        let (x, y) = (grid.x + 0.5, grid.y + app.fonts.line_height - 1.0);
+        let image = app.renderer.as_ref().unwrap().image().unwrap();
+        image.pixels[(y * scale) as usize * image.width as usize + (x * scale) as usize]
+    };
+    app.edit_field(|field| {
+        field.set_text("needle");
+        true
+    });
+    let current = pixel(&mut app);
+    // 去掉匹配，只留选区：颜色不一样。
+    let find = app.terminal.find.as_mut().unwrap();
+    find.matches.clear();
+    find.current = None;
+    assert_ne!(current, pixel(&mut app));
+    assert!(app.terminal.tab().unwrap().selection.is_some());
+}
+
+/// 查找条开着时滚动条轨道上标出匹配。
+#[test]
+fn find_results_are_marked_on_the_scrollbar_track() {
+    let image = |query: &str| {
+        let mut app = blank_app(true);
+        show_terminal(&mut app, "needle\r\nother\r\n");
+        assert!(press(&mut app, &["term"], Char('f')));
+        app.edit_field(|field| {
+            field.set_text(query);
+            true
+        });
+        paint(&mut app);
+        let renderer = app.renderer.as_ref().unwrap();
+        let image = renderer.image().unwrap();
+        let (w, h) = (image.width as usize, image.height as usize);
+        // 只看窗口右边一条（滚动条轨道），下半部分（内容区）。
+        let right = |row: usize| image.pixels[row * w + w - 20..row * w + w].to_vec();
+        (h / 2..h).flat_map(right).collect::<Vec<u32>>()
+    };
+    assert_ne!(image("needle"), image("no-such-text"));
+}
+
+/// 输入文字时清除选区，⌘C 不会复制旧内容。
+#[test]
+fn typing_clears_the_selection() {
+    use crate::app::terminal::{Point, Selection, Unit};
+    let mut app = blank_app(true);
+    show_terminal(&mut app, "hello\r\n");
+    let line = app.terminal.tab().unwrap().top();
+    app.terminal.tab_mut().unwrap().selection = Some(Selection {
+        anchor: Point { line, col: 0 },
+        head: Point { line, col: 3 },
+        unit: Unit::Char,
+    });
+    app.terminal_commit("中");
+    assert!(app.terminal.tab().unwrap().selection.is_none());
+}
+
+/// ⇧ 单击保留选区起点并移动终点。
+#[test]
+fn shift_click_extends_the_selection() {
+    let mut app = blank_app(true);
+    show_terminal(&mut app, "one two three\r\nfour five\r\n");
+    paint(&mut app);
+    app.on_mouse_move(cell_center(&app, 0, 2).0, cell_center(&app, 0, 2).1);
+    app.on_mouse_down(winit::event::MouseButton::Left);
+    let (x, y) = cell_center(&app, 0, 6);
+    app.on_mouse_move(x, y);
+    app.on_mouse_up(winit::event::MouseButton::Left);
+    let anchor = app.terminal.tab().unwrap().selection.unwrap().anchor;
+
+    app.modifiers = winit::keyboard::ModifiersState::SHIFT;
+    let (x, y) = cell_center(&app, 1, 3);
+    app.on_mouse_move(x, y);
+    app.on_mouse_down(winit::event::MouseButton::Left);
+    app.on_mouse_up(winit::event::MouseButton::Left);
+    let selection = app.terminal.tab().unwrap().selection.unwrap();
+    assert_eq!(selection.anchor, anchor);
+    assert_eq!(selection.head.line, anchor.line + 1);
+}
+
+/// 拖选超出内容区时持续滚动，鼠标静止时同样滚动，到达顶部后停止。
+#[test]
+fn dragging_past_the_edge_keeps_scrolling() {
+    let mut app = blank_app(true);
+    let output: String = (1..=80).map(|i| format!("line {i}\r\n")).collect();
+    let term = show_terminal(&mut app, &output);
+    serve(&mut app, &term);
+    paint(&mut app);
+    let (x, y) = cell_center(&app, 3, 1);
+    app.on_mouse_move(x, y);
+    app.on_mouse_down(winit::event::MouseButton::Left);
+    assert!(!app.drag_autoscrolling());
+
+    let top = app.terminal_view().y - 40.0;
+    app.on_mouse_move(x, top);
+    assert!(app.drag_autoscrolling());
+    let (before, limit) = app.terminal.tab().unwrap().scroll_position();
+    // 鼠标静止时下一帧继续滚动。
+    app.continue_drag_scroll();
+    let (after, _) = app.terminal.tab().unwrap().scroll_position();
+    assert!(after > before, "{after} > {before}");
+
+    // 到达顶部后不再请求绘制下一帧。
+    app.terminal.tab_mut().unwrap().set_scroll_position(limit);
+    assert!(!app.drag_autoscrolling());
+    app.on_mouse_up(winit::event::MouseButton::Left);
+}
+
+/// ⌥ 单击只在 shell 等输入、点在光标那一行时生效，发相应次数的方向键。
+#[test]
+fn option_click_moves_the_shell_cursor_at_the_prompt() {
+    use winc_pty::protocol::ToHelper;
+    let dir = sample_folder("terminal-option-click");
+    let mut app = blank_app(true);
+    let prompt = format!("\x1b]133;A;{NONCE}\x07$ \x1b]133;B;{NONCE}\x07echo hi");
+    show_terminal(&mut app, &prompt);
+    let log = app.attach_recording_helper(&dir);
+    paint(&mut app);
+    app.terminal.tab_mut().unwrap().blocks = vec![winc_pty::protocol::Block {
+        id: 1,
+        ..Default::default()
+    }];
+    app.modifiers = winit::keyboard::ModifiersState::ALT;
+    let inputs = |app: &App| -> Vec<Vec<u8>> {
+        let sent = app.sent_to_helper(&log);
+        let bytes = sent.into_iter().filter_map(|m| match m {
+            ToHelper::Input { bytes, .. } => Some(bytes),
+            _ => None,
+        });
+        bytes.collect()
+    };
+
+    // 光标在第 9 格（行尾），点第 2 格：左移 7 次。
+    let (x, y) = cell_center(&app, 0, 2);
+    app.on_mouse_move(x - app.cell / 2.0 + 0.5, y);
+    app.on_mouse_down(winit::event::MouseButton::Left);
+    app.on_mouse_up(winit::event::MouseButton::Left);
+    assert_eq!(inputs(&app).concat(), b"\x1b[D".repeat(7));
+    assert!(app.terminal.tab().unwrap().selection.is_none());
+
+    // 命令在运行时不发。
+    let tab = app.terminal.tab_mut().unwrap();
+    tab.blocks[0].output = Some(1);
+    let sent = inputs(&app).len();
+    app.on_mouse_down(winit::event::MouseButton::Left);
+    app.on_mouse_up(winit::event::MouseButton::Left);
+    assert_eq!(inputs(&app).len(), sent);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 当前的匹配落在查找条下面时翻开，不被盖住。
+#[test]
+fn the_find_bar_does_not_cover_the_current_match() {
+    let mut app = blank_app(true);
+    show_terminal(&mut app, "");
+    let cols = usize::from(app.terminal_size().cols);
+    let mut output: String = (0..30).map(|i| format!("before {i}\r\n")).collect();
+    output.push_str(&" ".repeat(cols - 8));
+    output.push_str("needle\r\n");
+    output.extend((0..30).map(|i| format!("after {i}\r\n")));
+    let term = add_tab(&mut app, "zsh", &output);
+    assert!(press(&mut app, &["term"], Char('f')));
+    let tab = app.terminal.tab().unwrap();
+    let (start, end) = tab.history;
+    let id = tab.id;
+    let (start, lines) = term.history(start, end);
+    app.terminal_find_loaded(id, start, lines, true);
+    app.edit_field(|field| {
+        field.set_text("needle");
+        true
+    });
+    paint(&mut app);
+    let line = app.terminal.find.as_ref().unwrap().matches[0].0.line;
+
+    // 这一行正好在第一行，再跳一次也是它。
+    app.terminal.tab_mut().unwrap().scroll_to(line, 0);
+    serve(&mut app, &term);
+    app.terminal_find_step(true);
+    let bar = app.terminal_find_bar().unwrap();
+    let (first, origin) = app.terminal_origin();
+    let display = app.terminal.tab().unwrap().display_of(line);
+    let y = origin + (display - first) as f32 * app.fonts.line_height;
+    assert!(y >= bar.bottom(), "{y} 被盖住，查找条下沿 {}", bar.bottom());
+}
+
+/// 查找条不占标签栏：打开并有了计数之后，标签和「+」都不动。
+#[test]
+fn the_find_bar_leaves_the_tab_bar_alone() {
+    let mut app = blank_app(true);
+    let output: String = (1..=40).map(|i| format!("Warning {i}\r\n")).collect();
+    show_terminal(&mut app, &output);
+    // 标签多到放不下：「+」紧贴右边的按钮。
+    for _ in 0..20 {
+        let _ = add_tab(&mut app, "cargo", "");
+    }
+    app.terminal.active = 0;
+    let mut scale = 1.0;
+    let renderer = app.renderer.as_mut().unwrap();
+    renderer.draw(|frame| scale = frame.scale());
+    // 标签栏从左边到「+」右边的像素。
+    let tabs = |app: &mut App| {
+        paint(app);
+        let new = (app.terminal.hits.iter())
+            .find(|(_, hit)| *hit == terminal::HeaderHit::New)
+            .unwrap()
+            .0;
+        let image = app.renderer.as_ref().unwrap().image().unwrap();
+        let row = |y: f32| {
+            let start = (y * scale) as usize * image.width as usize;
+            let end = start + (new.right() * scale) as usize;
+            image.pixels[start..end].to_vec()
+        };
+        [new.y + 2.0, new.y + new.h / 2.0, new.bottom() - 2.0].map(row)
+    };
+    let before = tabs(&mut app);
+    assert!(press(&mut app, &["term"], Char('f')));
+    app.edit_field(|field| {
+        field.set_text("warning");
+        true
+    });
+    assert_eq!(tabs(&mut app), before);
 }
 
 #[test]

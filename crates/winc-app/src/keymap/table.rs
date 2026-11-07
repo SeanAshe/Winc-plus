@@ -401,6 +401,8 @@ pub fn bindings(os: Os) -> Vec<Binding> {
     // ⌘J 也开关底部面板。是全局的：macOS 上带 ⌘，在终端里也生效；其他系统上是
     // Ctrl+J，焦点在终端时交给 shell（Ctrl+J 是换行）。
     t.one(ToggleTerminal, Global, c(cmd, 'j'));
+    t.one(RunConfiguration, Global, key(none, F(5)));
+    t.one(StopConfiguration, Global, key(shift, F(5)));
     t.one(ClearTerminal, Terminal, c(term, 'k'));
     t.one(ZoomIn, Global, c(cmd, '='));
     t.one(ZoomIn, Global, c(cmd | shift, '='));

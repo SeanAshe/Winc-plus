@@ -49,6 +49,7 @@ fn to_helper() -> Vec<ToHelper> {
             scrollback: 10_000,
             size,
             integration: Some(b"/Users/a/Library/Application Support/winc/shell".to_vec()),
+            banner: Vec::new(),
         },
         ToHelper::Spawn {
             tab: 8,
@@ -60,6 +61,7 @@ fn to_helper() -> Vec<ToHelper> {
             scrollback: 0,
             size,
             integration: None,
+            banner: b"\x1b[2m> run\x1b[0m\r\n".to_vec(),
         },
         ToHelper::Input {
             tab: 1,
@@ -76,6 +78,7 @@ fn to_helper() -> Vec<ToHelper> {
         },
         ToHelper::Clear { tab: 3 },
         ToHelper::Close { tab: 4 },
+        ToHelper::Stop { tab: 4 },
         ToHelper::Theme(Theme {
             fg: [1, 2, 3],
             bg: [4, 5, 6],

@@ -36,6 +36,41 @@ const CLOCK_INTERVAL: usize = 256;
 /// 只按行数计时，大文件中每行几 MB 时 256 行就是数百 MB，一次调用会阻塞界面数秒。经验值。
 const CLOCK_BYTES: usize = 256 << 10;
 
+/// 不依赖文档的查找：在给定的文字里按和 [`Search`] 相同的条件找，语义完全相同。
+#[derive(Debug)]
+pub struct TextSearch(Matcher);
+
+impl TextSearch {
+    /// 编译查询，各条件含义同 [`Search`] 的同名字段。
+    ///
+    /// # Errors
+    ///
+    /// 正则表达式有误时返回错误说明。
+    pub fn new(
+        query: &str,
+        case_sensitive: bool,
+        whole_word: bool,
+        regex: bool,
+    ) -> Result<Self, String> {
+        let options = Options {
+            case_sensitive,
+            whole_word,
+            regex,
+        };
+        Matcher::new(query, options).map(TextSearch)
+    }
+
+    /// 返回 `text` 里所有不重叠匹配的字节范围，从前到后。
+    pub fn find_all(&self, text: &str) -> Vec<(usize, usize)> {
+        let mut found = Vec::new();
+        let _ = self.0.find_all(text, |start, end| {
+            found.push((start, end));
+            std::ops::ControlFlow::Continue(())
+        });
+        found
+    }
+}
+
 /// 一个文档上的查找状态，包括条件、匹配结果和替换串。
 #[derive(Debug, Clone, Default)]
 pub struct Search {

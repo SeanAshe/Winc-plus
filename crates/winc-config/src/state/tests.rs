@@ -49,11 +49,14 @@ fn sample() -> State {
                 terminal: Some(TerminalSession {
                     tabs: vec![PathBuf::from("/a/项目"), PathBuf::from("/a/项目/src")],
                     names: vec![String::new(), "服务".into()],
+                    shells: vec![String::new(), "/bin/bash".into()],
                     active: 1,
                     open: true,
                     height: 320.0,
                     width: 0.0,
                 }),
+                run: Some("后端".into()),
+                sidebar_hidden: true,
             },
             Session {
                 folder: PathBuf::from("/b"),
@@ -61,6 +64,8 @@ fn sample() -> State {
                 active: None,
                 bookmarks: Vec::new(),
                 terminal: None,
+                run: None,
+                sidebar_hidden: false,
             },
         ],
         last: Some(PathBuf::from("/a/项目")),
@@ -216,6 +221,8 @@ fn sessions_are_kept_per_folder() {
         active: None,
         bookmarks: Vec::new(),
         terminal: None,
+        run: None,
+        sidebar_hidden: false,
     });
     assert_eq!(state.sessions.len(), 2);
     assert_eq!(state.sessions[0].folder, PathBuf::from("/b"));
