@@ -86,7 +86,7 @@ fn windows_shells(has: impl Fn(&str) -> bool, distros: &[String]) -> Vec<ShellCh
 
 /// 解析 `wsl.exe -l -q` 的输出（UTF-16 小端）。
 ///
-/// 不列出 Docker Desktop 内部使用的发行版，以及名字含空白、无法写入启动命令的发行版。
+/// 不列出 `docker-desktop` 开头的内部发行版，以及名字含空白、无法写入启动命令的发行版。
 #[cfg(any(windows, test))]
 fn parse_wsl_list(output: &[u8]) -> Vec<String> {
     let (units, _) = output.as_chunks::<2>();

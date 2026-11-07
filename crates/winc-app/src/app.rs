@@ -230,6 +230,9 @@ pub enum UserEvent {
     TerminalClose(u16),
     /// 确认框上确认了重新启动这个终端标签（伪终端断开了，里面的程序可能还在运行）。
     TerminalRestart(u16),
+    /// 需要授权的 `winc` 命令安装或卸载结束了。
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    ShellCommandDone(crate::shell_command::Done),
     /// 本机的 shell 检测完了。
     TerminalShells(Vec<terminal::shells::ShellChoice>),
     /// 退出或关闭窗口前的确认结果（终端中有程序在运行）：用户确认时为真，取消时为假。

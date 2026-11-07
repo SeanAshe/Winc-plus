@@ -164,6 +164,14 @@ cmd-next-terminal = Terminal: Next Tab
 cmd-previous-terminal = Terminal: Previous Tab
 cmd-find-in-terminal = Terminal: Find
 cmd-toggle-terminal-position = Terminal: Toggle Panel Position
+cmd-install-shell-command = Shell Command: Install winc Command
+cmd-uninstall-shell-command = Shell Command: Uninstall winc Command
+shell-command-installed = Installed the winc command: { $path }
+shell-command-installed-hint = Installed the winc command: { $path }. If your terminal cannot find it, add { $dir } to PATH.
+shell-command-uninstalled = Uninstalled the winc command
+shell-command-not-installed = The winc command is not installed
+shell-command-occupied = { $path } belongs to another program and was not changed
+shell-command-failed = Could not change { $path }: { $error }
 cmd-maximize-terminal = Terminal: Maximize Panel
 cmd-rename-terminal = Terminal: Rename
 cmd-previous-command = Terminal: Previous Command
@@ -198,6 +206,7 @@ cmd-cli-usage =
       --register-file-types Register file types and their icons, then exit (used by the installer)
       --unregister-file-types Remove those file types, then exit (used by the uninstaller)
       -h, --help            Show this help
+      -v, --version         Show the version
 cmd-cli-unknown-option = Unrecognized option “{ $flag }”
 cmd-file-type-name = { $name } file
 cmd-cli-wait-needs-file = --wait requires a file

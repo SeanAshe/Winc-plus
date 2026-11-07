@@ -496,6 +496,144 @@ fn the_picker_lines_up_with_the_context_rows() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// 迁移更改：文件在两个分支上内容不同时 git 拒绝切换，储藏、切换后把更改应用到新分支。
+#[test]
+fn carrying_changes_works_when_git_refuses_the_switch() {
+    let Some((mut app, root)) = picker_repo("git-carry", false) else {
+        return;
+    };
+    let file = root.join("a.txt");
+    // 目标分支改了文件的开头，当前分支未提交的更改在结尾，两者不冲突。
+    let lines: String = (1..=9).map(|i| format!("{i}\n")).collect();
+    std::fs::write(&file, &lines).unwrap();
+    git_in(&root, &["add", "-A"]);
+    git_in(&root, &["commit", "-q", "-m", "base"]);
+    git_in(&root, &["switch", "-q", "-c", "other"]);
+    std::fs::write(&file, lines.replacen("1\n", "one\n", 1)).unwrap();
+    git_in(&root, &["commit", "-q", "-am", "other"]);
+    git_in(&root, &["switch", "-q", "main"]);
+    std::fs::write(&file, format!("{lines}tail\n")).unwrap();
+    app.git_refresh();
+    let other = (app.git.branches.iter())
+        .find(|b| b.name == "other")
+        .unwrap()
+        .clone();
+
+    app.switch_branch(other.clone(), false);
+    app.git_refresh();
+    let current = app.git.branches.iter().find(|b| b.current).unwrap();
+    assert_eq!(current.name, "other");
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        text.starts_with("one\n") && text.ends_with("tail\n"),
+        "{text}"
+    );
+    assert!(app.git.stashes.is_empty(), "应用后不留储藏");
+
+    // 更改与目标分支冲突：已切换，冲突标在工作区，储藏保留，有提示。
+    git_in(&root, &["checkout", "-q", "--", "a.txt"]);
+    git_in(&root, &["switch", "-q", "main"]);
+    std::fs::write(&file, lines.replacen("1\n", "mine\n", 1)).unwrap();
+    app.git_refresh();
+    app.notice = None;
+    app.switch_branch(other, false);
+    app.git_refresh();
+    let current = app.git.branches.iter().find(|b| b.current).unwrap();
+    assert_eq!(current.name, "other");
+    assert!(std::fs::read_to_string(&file).unwrap().contains("<<<<<<<"));
+    assert_eq!(app.git.stashes.len(), 1);
+    assert!(app.notice.as_deref().is_some_and(|n| n.contains("other")));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// 只有未跟踪的文件阻止切换：选分支时不询问，切换后文件内容在储藏里，并提示无法应用。
+#[test]
+fn an_untracked_file_in_the_way_is_stashed_and_reported() {
+    let Some((mut app, root)) = picker_repo("git-carry-untracked", false) else {
+        return;
+    };
+    let file = root.join("new.txt");
+    git_in(&root, &["switch", "-q", "-c", "other"]);
+    std::fs::write(&file, "theirs\n").unwrap();
+    git_in(&root, &["add", "-A"]);
+    git_in(&root, &["commit", "-q", "-m", "other"]);
+    git_in(&root, &["switch", "-q", "main"]);
+    std::fs::write(&file, "mine\n").unwrap();
+    app.git_refresh();
+    let other = (app.git.branches.iter())
+        .find(|b| b.name == "other")
+        .unwrap()
+        .clone();
+
+    app.pick_branch_named(&other);
+    app.git_refresh();
+    let current = app.git.branches.iter().find(|b| b.current).unwrap();
+    assert_eq!(current.name, "other");
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), "theirs\n");
+    assert_eq!(app.git.stashes.len(), 1, "无法恢复的内容保留在储藏里");
+    // 工作区没有冲突标记，提示不能说有。
+    let conflict = winc_i18n::t!("git-switch-carry-conflict", branch = "other");
+    assert_ne!(app.notice.as_deref(), Some(conflict.as_str()));
+    assert!(app.notice.is_some());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// 储藏本身失败时（合并未完成）报告的是切换失败的原因。
+#[test]
+fn a_failed_stash_reports_why_the_switch_failed() {
+    let Some((mut app, root)) = picker_repo("git-carry-merging", false) else {
+        return;
+    };
+    let file = root.join("a.txt");
+    std::fs::write(&file, "base\n").unwrap();
+    git_in(&root, &["add", "-A"]);
+    git_in(&root, &["commit", "-q", "-m", "base"]);
+    git_in(&root, &["switch", "-q", "-c", "other"]);
+    std::fs::write(&file, "theirs\n").unwrap();
+    git_in(&root, &["commit", "-q", "-am", "theirs"]);
+    git_in(&root, &["switch", "-q", "main"]);
+    std::fs::write(&file, "mine\n").unwrap();
+    git_in(&root, &["commit", "-q", "-am", "mine"]);
+    // 合并产生冲突，停在未完成的状态。
+    let _ = std::process::Command::new("git")
+        .args(["merge", "-q", "other"])
+        .current_dir(&root)
+        .output();
+    app.git_refresh();
+    let other = (app.git.branches.iter())
+        .find(|b| b.name == "other")
+        .unwrap()
+        .clone();
+    app.notice = None;
+    app.carry_then_checkout(other);
+    let notice = app.notice.as_deref().unwrap();
+    assert!(!notice.to_lowercase().contains("stash"), "{notice}");
+    assert!(app.git.stashes.is_empty());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// 迁移更改时没有东西可储藏（例如分支不存在且工作区干净）：只报告原来的错误，不动已有的储藏。
+#[test]
+fn a_refused_switch_with_nothing_to_stash_keeps_old_stashes() {
+    let Some((mut app, root)) = picker_repo("git-carry-clean", false) else {
+        return;
+    };
+    let file = root.join("a.txt");
+    std::fs::write(&file, "kept\n").unwrap();
+    git_in(&root, &["stash", "push", "-q", "--include-untracked"]);
+    app.git_refresh();
+    let mut missing = (app.git.branches.iter())
+        .find(|b| b.name == "fix/one")
+        .unwrap()
+        .clone();
+    missing.name = "no-such-branch".to_owned();
+    app.carry_then_checkout(missing);
+    app.git_refresh();
+    assert_eq!(app.git.stashes.len(), 1);
+    assert!(app.notice.is_some());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// 储藏并签出失败时把更改恢复回来，错误里写明。
 #[test]
 fn a_failed_switch_restores_the_stashed_changes() {

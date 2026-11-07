@@ -325,7 +325,8 @@ impl App {
             Then::Nothing
             | Then::ConfirmRemove(_)
             | Then::ConfirmForcePush(_)
-            | Then::ConfirmForceDelete(_) => return,
+            | Then::ConfirmForceDelete(_)
+            | Then::Warn(_) => return,
             Then::Refresh => {}
             Then::Open(path, true) => self.open_in_new_window(&path),
             Then::Open(path, false) => return self.switch_folder(&path),

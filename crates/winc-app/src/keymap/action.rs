@@ -190,6 +190,8 @@ pub enum Action {
     FindInTerminal,
     MaximizeTerminal,
     ToggleTerminalPosition,
+    InstallShellCommand,
+    UninstallShellCommand,
     RenameTerminal,
     PreviousCommand,
     NextCommand,
@@ -386,6 +388,8 @@ impl Action {
             FindInTerminal => t!("cmd-find-in-terminal"),
             MaximizeTerminal => t!("cmd-maximize-terminal"),
             ToggleTerminalPosition => t!("cmd-toggle-terminal-position"),
+            InstallShellCommand => t!("cmd-install-shell-command"),
+            UninstallShellCommand => t!("cmd-uninstall-shell-command"),
             RenameTerminal => t!("cmd-rename-terminal"),
             PreviousCommand => t!("cmd-previous-command"),
             NextCommand => t!("cmd-next-command"),
@@ -566,6 +570,8 @@ impl Action {
             FindInTerminal => "Terminal: Find",
             MaximizeTerminal => "Terminal: Maximize Panel",
             ToggleTerminalPosition => "Terminal: Toggle Panel Position",
+            InstallShellCommand => "Shell Command: Install winc Command",
+            UninstallShellCommand => "Shell Command: Uninstall winc Command",
             RenameTerminal => "Terminal: Rename",
             PreviousCommand => "Terminal: Previous Command",
             NextCommand => "Terminal: Next Command",
@@ -582,8 +588,19 @@ impl Action {
     pub fn group(self) -> Group {
         use Action::*;
         match self {
-            ShowCommands | QuickOpen | GoToSymbol | GoToLine | GoToDefinition | FindReferences
-            | GoBack | GoForward | Settings | KeyboardShortcuts | RecordKeys => Group::General,
+            ShowCommands
+            | QuickOpen
+            | GoToSymbol
+            | GoToLine
+            | GoToDefinition
+            | FindReferences
+            | GoBack
+            | GoForward
+            | Settings
+            | KeyboardShortcuts
+            | RecordKeys
+            | InstallShellCommand
+            | UninstallShellCommand => Group::General,
             NewFile | OpenFile | OpenFolder | Save | SaveAs | CloseTab | CloseOtherTabs
             | CloseAllTabs | ReopenClosed | NextTab | PreviousTab | CloseFolder | CloseWindow
             | CopyPath | CopyRelativePath | RevealInFinder | CopyActivePath | CopyKeyPath
@@ -1010,6 +1027,8 @@ pub const ACTIONS: &[Action] = {
         FindInTerminal,
         MaximizeTerminal,
         ToggleTerminalPosition,
+        InstallShellCommand,
+        UninstallShellCommand,
         RenameTerminal,
         CloseTerminal,
         NextTerminal,

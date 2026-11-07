@@ -25,6 +25,7 @@ mod macos;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod portal;
 mod release_version;
+mod shell_command;
 #[cfg(any(windows, test))]
 mod shell_icons;
 mod system;
@@ -56,6 +57,7 @@ use bench::Bench;
 use winc::{Envelope, Winc};
 
 fn main() {
+    shell_command::enter_real_path();
     crash::install();
     #[cfg(windows)]
     windows::attach_console();
@@ -64,6 +66,10 @@ fn main() {
     let args = match cli::parse(std::env::args_os().skip(1)) {
         Ok(args) if args.help => {
             println!("{}", cli::usage());
+            return;
+        }
+        Ok(args) if args.version => {
+            println!("winc {}", env!("CARGO_PKG_VERSION"));
             return;
         }
         // 安装、卸载时只登记或去掉文件类型，不打开窗口。
@@ -124,8 +130,18 @@ fn main() {
     // 已经有 winc 在运行：交给它打开并切到前台，本进程不再启动。
     // 临时打开（`--wait`、`-`）要等标签关闭或读标准输入，总是自己打开；测量时、指定了
     // `--new-instance` 时也不交出去。
+    // 读不了的目标现在就报告：之后可能交给其他进程，错误不再回到这个终端。
+    let mut args = args;
+    let failed = shell_command::report_unreadable(&mut args);
+    if failed && args.targets.is_empty() {
+        std::process::exit(1);
+    }
     if !args.one_off() && !args.new_instance && !bench.silent() && hand_over(&args) {
-        return;
+        std::process::exit(i32::from(failed));
+    }
+    // 从终端启动时窗口进程转到后台，命令立即返回。
+    if !bench.silent() && shell_command::detach(&args) {
+        std::process::exit(i32::from(failed));
     }
 
     for problem in open_targets(&mut editor, &args) {

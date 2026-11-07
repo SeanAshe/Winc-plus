@@ -382,6 +382,8 @@ impl App {
             FindInTerminal => return false,
             MaximizeTerminal => self.toggle_terminal_maximized(),
             ToggleTerminalPosition => self.toggle_terminal_position(),
+            InstallShellCommand => self.install_shell_command(),
+            UninstallShellCommand => self.uninstall_shell_command(),
             RenameTerminal => self.open_terminal_rename(self.terminal.active),
             PreviousCommand => self.jump_terminal_command(false),
             NextCommand => self.jump_terminal_command(true),
@@ -401,6 +403,12 @@ impl App {
             Action::RunConfiguration if self.editor.root().is_none() => return false,
             Action::StopConfiguration if !self.run_config_running() => return false,
             Action::EditRunConfigurations if self.editor.root().is_none() => return false,
+            // Windows 安装包、deb 包已经把 `winc` 放进 `PATH`，没有要安装的。
+            Action::InstallShellCommand | Action::UninstallShellCommand
+                if crate::shell_command::placement().is_none() =>
+            {
+                return false;
+            }
             _ => {}
         }
         match action.module() {

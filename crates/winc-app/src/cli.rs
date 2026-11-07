@@ -32,6 +32,8 @@ pub struct Args {
     pub stdin: bool,
     /// 是否只显示用法（`-h`、`--help`）。
     pub help: bool,
+    /// 是否只显示版本号（`-v`、`--version`）。
+    pub version: bool,
     /// `-n`、`--new-instance`：不交给正在运行的 winc，由当前进程新建实例；也不接收之后启动的
     /// winc 交来的目录和文件。
     pub new_instance: bool,
@@ -64,7 +66,7 @@ impl Args {
 
 /// 解析命令行参数（不含程序名）。
 ///
-/// `-h`、`--help` 立即返回，不检查其后的参数。
+/// `-h`、`--help`、`-v`、`--version` 立即返回，不检查其后的参数。
 ///
 /// # Errors
 ///
@@ -113,6 +115,10 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Result<Args, String> {
                 }
                 Some("-h" | "--help") => {
                     parsed.help = true;
+                    return Ok(parsed);
+                }
+                Some("-v" | "--version") => {
+                    parsed.version = true;
                     return Ok(parsed);
                 }
                 Some(flag) if flag.starts_with('-') => {

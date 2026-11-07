@@ -63,6 +63,18 @@ winc is developed and tested mainly on macOS. Download it from
 [winc.si](https://winc.si/#download); all versions are on
 [GitHub Releases](https://github.com/DEEIX-AI/Winc/releases).
 
+## Command Line
+
+```bash
+winc .                  # open the current folder
+winc file.rs:12:5       # open a file at a line and column
+winc --wait file        # wait until the tab closes, for example as the Git editor
+```
+
+The Windows installers and the Linux deb package add `winc` to `PATH`. On macOS and with the Linux AppImage, run **Shell Command: Install winc Command** from the command palette.
+
+On macOS the app is started by the system, so it does not inherit the environment variables of your shell. Use `winc --new-instance` to keep them.
+
 ## Building from Source
 
 winc builds with Rust 1.99.1; `rust-toolchain.toml` selects the toolchain automatically.
