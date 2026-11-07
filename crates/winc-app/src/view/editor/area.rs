@@ -94,7 +94,12 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
 
     {
         let app = &*app;
-        let hunks = app.changes.hunks(id);
+        // 三栏合并里改动由连接带表示，不再标出与 `HEAD` 的差别。
+        let hunks = if app.merge_panes_placed() {
+            &[][..]
+        } else {
+            app.changes.hunks(id)
+        };
         let doc = &app.editor.documents[index];
         let text = doc.text();
         let tab_width = doc.tab_width(app.editor.tab_width);
@@ -180,6 +185,7 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
         };
 
         screen.draw_conflict_tints(frame, &conflicts);
+        screen.draw_merge_tints(frame);
         screen.draw_open_hunk(frame);
         screen.draw_current_lines(frame);
         screen.draw_selections(frame);
@@ -374,6 +380,55 @@ impl Screen<'_> {
     fn in_curtain(&self, line: usize) -> bool {
         self.motion
             .is_some_and(|m| m.rows.contains(&self.doc.row_of(line)))
+    }
+
+    /// 三栏合并的结果一栏：连接带连到的各段铺底色，从行号栏一直铺到右边，与连接带连成一片。
+    ///
+    /// 展开着的冲突由 [`Screen::draw_conflict_tints`] 按当前、对方分别上色。
+    fn draw_merge_tints(&self, frame: &mut Frame<'_>) {
+        let Some((_, aligned)) = self
+            .app
+            .merge
+            .panes
+            .as_ref()
+            .and_then(|p| p.aligned.as_ref())
+        else {
+            return;
+        };
+        if !self.app.merge_panes_placed() {
+            return;
+        }
+        let p = self.app.palette;
+        let editor = self.app.layout.editor;
+        let clip = Rect::new(editor.x, self.text_rect.y, editor.w, self.text_rect.h);
+        // 冲突在两侧都有一段，底色是半透明的，只取第一侧绘制，否则叠加后颜色加深。
+        let segments = (aligned.iter().enumerate()).flat_map(|(side, align)| {
+            (align.segments().iter()).filter(move |segment| side == 0 || segment.conflict.is_none())
+        });
+        for segment in segments {
+            let shade = match segment.conflict {
+                Some(_) if !self.doc.folds().is_collapsed(segment.file.start) => continue,
+                Some(_) => git::merge::conflict_shade(p),
+                None => git::merge::merged_shade(p, segment),
+            };
+            let (color, edge) = (shade.line, shade.edge);
+            if segment.file.is_empty() {
+                let line = segment.file.start;
+                if self.visible.contains(&line) && self.shown(line) {
+                    let mark = Rect::new(editor.x, self.row_y(line) - 1.0, editor.w, 2.0);
+                    frame.rect_clipped(mark, edge, 0.0, clip);
+                }
+                continue;
+            }
+            let start = segment.file.start.max(self.visible.start);
+            for line in start..segment.file.end.min(self.visible.end) {
+                if self.shown(line) {
+                    let h = self.doc.rows_of(line) as f32 * self.lh;
+                    let band = Rect::new(editor.x, self.row_y(line), editor.w, h);
+                    frame.rect_clipped(band, color, 0.0, clip);
+                }
+            }
+        }
     }
 
     /// 合并冲突：当前、对方、共同祖先各铺一种底色；标记行等文字绘制完以后绘制成标题。

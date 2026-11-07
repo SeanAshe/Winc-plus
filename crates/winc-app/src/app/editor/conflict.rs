@@ -148,10 +148,17 @@ impl App {
         match doc.finish_take_disk_version(read) {
             Ok(None) => {}
             Ok(Some(undoable)) => {
-                self.flash(if undoable {
-                    t!("git-disk-conflict-took-disk", name = name.as_str())
-                } else {
-                    t!("git-disk-conflict-reloaded", name = name.as_str())
+                let undo = crate::keymap::shortcut(crate::keymap::Action::Undo);
+                self.flash(match undo {
+                    Some(key) if undoable => {
+                        t!(
+                            "git-disk-conflict-took-disk-key",
+                            name = name.as_str(),
+                            key = key
+                        )
+                    }
+                    None if undoable => t!("git-disk-conflict-took-disk", name = name.as_str()),
+                    _ => t!("git-disk-conflict-reloaded", name = name.as_str()),
                 });
                 self.relayout();
                 self.ensure_caret_visible();

@@ -105,6 +105,8 @@ pub const MENU_PICKER_PAD: f32 = 4.0;
 pub struct PickerParts {
     /// 输入框所在的一行；位置浮窗中是标题行。
     pub bar: Rect,
+    /// 分支选择器输入框下面拉取、推送、获取的一行；其他面板没有，高度为 0。
+    pub actions: Rect,
     /// 结果列表区域，不含上下留白。
     pub list: Rect,
     /// 位置浮窗底部显示完整路径的一栏；快速打开面板没有，高度为 0。
@@ -123,15 +125,18 @@ impl PickerParts {
         Self::with_footer(card, PLACES_FOOTER)
     }
 
-    /// 根据分支、位置选择器的矩形 `card` 计算各部件的位置：顶部是内嵌搜索框的一行，列表紧接在下面，
-    /// 再往下是高 `footer` 的底栏。
-    pub fn menu(card: Rect, footer: f32) -> PickerParts {
+    /// 根据分支、位置选择器的矩形 `card` 计算各部件的位置：顶部是内嵌搜索框的一行，下面是高
+    /// `actions` 的一行操作（没有时为 0），列表紧接在下面，再往下是高 `footer` 的底栏。
+    pub fn menu(card: Rect, actions: f32, footer: f32) -> PickerParts {
         let bar = MENU_PICKER_BAR.min(card.h);
-        let footer = footer.min((card.h - bar).max(0.0));
-        let list = (card.h - bar - MENU_PICKER_PAD - footer).max(0.0);
+        let actions = actions.min((card.h - bar).max(0.0));
+        let top = bar + actions;
+        let footer = footer.min((card.h - top).max(0.0));
+        let list = (card.h - top - MENU_PICKER_PAD - footer).max(0.0);
         PickerParts {
             bar: Rect::new(card.x, card.y, card.w, bar),
-            list: Rect::new(card.x, card.y + bar, card.w, list),
+            actions: Rect::new(card.x, card.y + bar, card.w, actions),
+            list: Rect::new(card.x, card.y + top, card.w, list),
             footer: Rect::new(card.x, card.bottom() - footer, card.w, footer),
         }
     }
@@ -140,6 +145,7 @@ impl PickerParts {
         let footer = footer.min((card.h - BAR_HEIGHT).max(0.0));
         PickerParts {
             bar: Rect::new(card.x, card.y, card.w, BAR_HEIGHT.min(card.h)),
+            actions: Rect::new(card.x, card.y + BAR_HEIGHT.min(card.h), card.w, 0.0),
             list: Rect::new(
                 card.x,
                 card.y + BAR_HEIGHT + PICKER_PAD,

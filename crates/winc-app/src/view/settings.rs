@@ -323,7 +323,7 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
                 }
                 setting => {
                     let text = setting.description().unwrap_or_default();
-                    let text = ellipsize(frame, text, app.fonts.ui_small, room);
+                    let text = ellipsize(frame, &text, app.fonts.ui_small, room);
                     ui_text_small(frame, app, x, bottom, &text, p.text_muted, clip);
                 }
             }
@@ -373,8 +373,12 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
             None
         }
         SettingControl::Action | SettingControl::Search => None,
+        // 版本号：点击复制，悬停时铺悬停底色。
         SettingControl::Value => {
-            let text = version_label();
+            if app.settings.hover == Some(SettingsPart::Copy(row.setting)) {
+                frame.rect_clipped(row.control, p.hover, RADIUS_ROW, clip);
+            }
+            let text = crate::layout::version_label();
             let w = frame.measure(FontKind::Ui, app.fonts.ui, &text);
             let area = row.control.inset(10.0, 0.0);
             ui_text(
@@ -413,15 +417,6 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
             None
         }
     }
-}
-
-/// 「关于」页的版本号：上游版本、这个 fork 的数字和处理器架构，例如 `0.1.502_115`（`x86_64`）。
-fn version_label() -> String {
-    let arch = match std::env::consts::ARCH {
-        "aarch64" => "arm64",
-        other => other,
-    };
-    format!("{} ({arch})", crate::release_version::display_version())
 }
 
 /// 「关于」页「更新」一行下方的状态文字和颜色。

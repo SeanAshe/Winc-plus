@@ -43,7 +43,12 @@ git-branch-force-delete-confirm = Branch “{ $name }” isn't fully merged. Del
 git-branch-force-delete-confirm-detail = Commits that exist only on this branch may be lost.
 git-branch-force-delete-confirm-button = Delete Anyway
 git-branch-compare-with-current = Compare with Current Branch
-git-stash-menu = Stashes ({ $count })
+git-stash-group = Stashes
+git-stash-more = { $count ->
+    [one] 1 more stash…
+   *[other] { $count } more stashes…
+}
+git-stash-no-files = This stash has no changes to show
 git-stash-apply = Apply
 git-stash-pop = Pop
 git-stash-drop = Drop…
@@ -75,7 +80,78 @@ git-op-rebase-onto = rebasing onto “{ $name }”
 git-op-delete-branch = deleting branch “{ $name }”
 git-op-new-branch = creating branch “{ $name }”
 git-op-new-tag = creating tag “{ $name }”
-git-op-busy = The previous Git operation hasn't finished yet
+git-op-unstage = unstaging
+git-op-pull-rebase = pulling with rebase
+git-op-rename-branch = renaming branch “{ $name }”
+git-op-init = initializing the repository
+git-op-clone = cloning “{ $name }”
+git-op-remote-add = adding remote “{ $name }”
+git-op-remote-edit = updating remote “{ $name }”
+git-op-remote-remove = removing remote “{ $name }”
+git-op-tag-push = pushing tag “{ $name }”
+git-op-tag-delete = deleting tag “{ $name }”
+git-op-tag-delete-remote = deleting tag “{ $name }” from the remote
+git-no-remote = No remote is configured
+git-branch-rename = Rename Branch…
+git-tag-push = Push to Remote
+git-tag-delete = Delete Tag…
+git-tag-delete-remote = Delete from Remote…
+git-tag-delete-confirm = Delete tag “{ $name }”?
+git-tag-delete-confirm-detail = Only the local tag is deleted. The remote tag isn't affected.
+git-tag-delete-remote-confirm = Delete tag “{ $name }” from the remote?
+git-tag-delete-remote-confirm-detail = Collaborators can no longer fetch this tag from the remote. The local tag isn't affected.
+git-tag-delete-confirm-button = Delete
+git-remotes-menu = Remotes
+git-remote-add = Add Remote…
+git-remote-edit = Change URL…
+git-remote-remove = Remove…
+git-remote-add-title = Add Remote
+git-remote-edit-title = Edit Remote
+git-remote-name = Name
+git-remote-url = URL
+git-remote-url-placeholder = https://example.com/repo.git
+git-remote-add-button = Add
+git-remote-save-button = Save
+git-remote-name-exists = A remote with this name already exists
+git-remote-url-invalid = Invalid URL
+git-remote-remove-confirm = Remove remote “{ $name }”?
+git-remote-remove-confirm-detail = This remote's configuration and remote-tracking branches are deleted. Content on the server isn't affected.
+git-remote-remove-confirm-button = Remove
+git-clone-title = Clone Repository
+git-clone-url = URL
+git-clone-url-placeholder = https://example.com/repo.git or git@example.com:repo.git
+git-clone-button = Clone
+git-clone-running = Cloning…
+git-clone-invalid-url = Invalid URL
+git-clone-no-parent = The selected location doesn’t exist
+git-clone-occupied = The target folder already exists and isn't empty
+git-op-canceled = Canceled { $what }
+git-question-sign-in = Sign In to { $host }
+git-question-unlock-key = Unlock SSH Key
+git-question-host-key = Verify SSH Host
+git-question-host-key-message = Unknown host. Verify the fingerprint before connecting.
+git-question-input = Git Input Required
+git-question-confirm = Git Confirmation Required
+git-question-server = Server
+git-question-account = Account
+git-question-username = Username
+git-question-password = Password
+git-question-password-placeholder = Password or access token
+git-question-key = Key
+git-question-passphrase = Passphrase
+git-question-host = Host
+git-question-key-type = Key Type
+git-question-fingerprint = Fingerprint
+git-question-response = Response
+git-question-sign-in-button = Sign In
+git-question-unlock-button = Unlock
+git-question-connect-button = Connect
+git-question-ok-button = OK
+git-output-title = Git Output
+git-output-empty = No Git operations have run since winc was opened
+git-output-exit-code = Exit code: { $code }
+git-output-no-exit-code = No exit code
+git-op-busy = Wait for the current Git operation to finish
 git-op-done = Finished { $what }
 git-op-done-summary = Finished { $what }: { $summary }
 git-op-done-in = Finished { $what } in “{ $name }”
@@ -145,7 +221,7 @@ git-log-hint-exit-compare = Exit Compare
 git-log-hint-click = Click
 git-log-hint-view-commit = View Single Commit
 git-log-hint-double-click = Double-Click
-git-log-hint-cmd-click = ⌘-Click
+git-log-hint-cmd-click = { $key }-Click
 git-log-hint-compare = Compare
 git-log-hint-go-back = Back
 
@@ -194,18 +270,18 @@ git-commit-unresolved-conflicts = { $count ->
     [one] { $count } file still has unresolved conflicts. Resolve them before committing
    *[other] { $count } files still have unresolved conflicts. Resolve them before committing
 }
-git-commit-nothing-checked = No files selected to commit
+git-commit-nothing-checked = Select the files to commit first
 git-commit-done = Committed { $oid }: { $subject }
 git-commit-failed = Couldn't commit: { $error }
 git-commit-done-in = Committed { $oid } in “{ $name }”
 git-commit-failed-in = Couldn't commit in “{ $name }”: { $error }
 git-undo-commit-confirm = Undo the last commit?
-git-undo-commit-confirm-detail = The changes in “{ $subject }” return to the staging area, and its message returns to the input box.
+git-undo-commit-confirm-detail = The commit “{ $subject }” will be undone. Its changes stay staged and its message goes back into the box, so you can edit it and commit again.
 git-undo-commit-confirm-button = Undo Commit
 git-force-push-confirm = Force push “{ $branch }”?
 git-force-push-confirm-detail = { $count ->
-    [one] Pushed commits were rewritten locally. 1 upstream commit will be replaced by the local version. The push is rejected if upstream has received new commits in the meantime.
-   *[other] Pushed commits were rewritten locally. { $count } upstream commits will be replaced by the local version. The push is rejected if upstream has received new commits in the meantime.
+    [one] Commits that were already pushed have been rewritten locally. Pushing replaces 1 upstream commit with the local version. If upstream has received new commits in the meantime, the push is rejected, so nobody else’s work is overwritten.
+   *[other] Commits that were already pushed have been rewritten locally. Pushing replaces { $count } upstream commits with the local version. If upstream has received new commits in the meantime, the push is rejected, so nobody else’s work is overwritten.
 }
 git-force-push-confirm-button = Force Push
 git-commit-push-confirm = Commit and push?
@@ -213,19 +289,19 @@ git-commit-push-confirm-scope = { $count ->
     [one] 1 file will be committed to { $branch } and pushed to upstream.
    *[other] { $count } files will be committed to { $branch } and pushed to upstream.
 }
-git-commit-push-confirm-detail = The commit will be pushed to upstream.
+git-commit-push-confirm-detail = The commit will be pushed to the upstream branch.
 git-commit-push-confirm-button = Commit and Push
 git-undo-commit-done = Undid commit { $oid }; its changes are staged
 git-undo-commit-done-in = Undid commit { $oid } in “{ $name }”
 git-undo-commit-failed = Couldn't undo the commit: { $error }
 git-commit-partial-not-utf8 = “{ $name }” isn't UTF-8 text, so its changes can't be partially committed
 git-abort-confirm = Abort { $operation }?
-git-abort-confirm-detail = The working tree will be restored to its state before the operation began, and resolved conflicts will be discarded.
+git-abort-confirm-detail = The working tree goes back to how it was before the operation began, and conflicts you’ve already resolved are discarded.
 git-abort-confirm-button = Abort { $operation }
-git-rollback-nothing-checked = No files selected to roll back
+git-rollback-nothing-checked = Select the files to roll back first
 git-rollback-confirm-one = Roll back changes to “{ $name }”?
 git-rollback-confirm-many = Roll back changes to { $count } files?
-git-rollback-confirm-detail = Tracked files will be restored to their contents in HEAD; untracked files will be moved to the { common-trash }, where you can restore them.
+git-rollback-confirm-detail = Tracked files will be restored to how they were in the last commit; untracked files will be moved to the { common-trash }, where you can get them back.
 git-rollback-confirm-button = Roll Back
 git-rollback-file-failed = Couldn't roll back “{ $name }”: { $error }
 git-rollback-done = { $count ->
@@ -247,10 +323,10 @@ git-not-a-repository = The current folder isn't a Git repository
 git-no-file-in-tab = The current tab has no file
 git-diff-title = { $name } · Diff
 git-diff-submodule = “{ $name }” is a submodule; no diff is shown
-git-diff-head-unreadable = Couldn't read the HEAD version of “{ $name }”: { $error }
+git-diff-head-unreadable = Couldn’t read the last committed version of “{ $name }”: { $error }
 git-diff-too-large = “{ $name }” is too large; no diff is shown
 git-diff-binary = “{ $name }” is a binary file; no diff is shown
-git-diff-identical = “{ $name }” is the same as HEAD; no changes
+git-diff-identical = “{ $name }” is the same as in the last commit; no changes
 git-diff-side-worktree-deleted = Working Tree · Deleted
 git-diff-side-head-missing = HEAD · File Doesn't Exist
 
@@ -267,10 +343,21 @@ git-trust-allow = Trust
 
 ## Commit view
 
-git-commit-view-problem = { $problem }. Refresh from “⋯” in the top-right corner to try again
+git-commit-view-problem = { $problem }. Click Refresh in the top-right corner to try again
 git-commit-view-loading = Reading repository status…
-git-commit-view-empty = No Changes
-git-commit-view-empty-detail = The working tree matches HEAD
+git-commit-view-empty = Nothing to Commit
+git-commit-empty-in-sync = Up to date with the upstream branch
+git-commit-empty-ahead = { $count ->
+    [one] 1 commit ahead of the upstream branch
+   *[other] { $count } commits ahead of the upstream branch
+}
+git-commit-empty-behind = { $count ->
+    [one] 1 commit behind the upstream branch
+   *[other] { $count } commits behind the upstream branch
+}
+git-commit-empty-diverged = { $ahead } ahead and { $behind } behind the upstream branch
+git-commit-empty-unpublished = This branch hasn’t been published yet
+git-commit-empty-local = All changes are committed
 git-operation-banner = { $operation } in progress
 git-operation-banner-resolved = { $operation } in progress · Conflicts resolved
 git-operation-banner-conflicts = { $count ->
@@ -281,17 +368,10 @@ git-operation-abort = Abort
 git-commit-message-placeholder = Commit message ({ $key } to commit)
 git-commit-message-amend-placeholder = Amended commit message
 git-branch-picker-placeholder = Search or create a branch
-git-branch-picker-name = New branch name
-git-branch-picker-from = Create from { $branch }
-git-branch-picker-from-carry = { $count ->
-    [one] Create from { $branch }. Uncommitted changes in 1 file stay in the working tree.
-   *[other] Create from { $branch }. Uncommitted changes in { $count } files stay in the working tree.
-}
 git-branch-picker-new = New Branch
 git-branch-picker-new-worktree = New Worktree
 git-branch-picker-create-row = Create branch “{ $name }”
 git-branch-picker-current = Current
-git-picker-back = Back
 git-location-picker-placeholder = Search repositories and worktrees
 git-location-picker-empty = No matching repositories or worktrees
 git-location-main-worktree = Main worktree
@@ -326,8 +406,8 @@ git-tip-both = Sync with { $upstream }: pull { $behind }, push { $ahead }
 git-tip-publish = Publish Branch: push to a remote and set the upstream
 git-switch-dirty = Check out “{ $branch }” with uncommitted changes?
 git-switch-dirty-detail = { $count ->
-    [one] 1 file in “{ $current }” has uncommitted changes. Migrated changes stay in the working tree; stashed changes can be restored at any time.
-   *[other] { $count } files in “{ $current }” have uncommitted changes. Migrated changes stay in the working tree; stashed changes can be restored at any time.
+    [one] 1 file on “{ $current }” has uncommitted changes. Migrate Changes brings them along; Stash and Check Out puts them in a stash first, and you can restore them at any time.
+   *[other] { $count } files on “{ $current }” have uncommitted changes. Migrate Changes brings them along; Stash and Check Out puts them in a stash first, and you can restore them at any time.
 }
 git-switch-carry = Migrate Changes
 git-switch-stash = Stash and Check Out
@@ -345,6 +425,12 @@ git-commit-button-files = { $count ->
     [one] Commit 1 File
    *[other] Commit { $count } Files
 }
+git-commit-amend = Amend Last Commit
+git-commit-undo = Undo
+git-commit-next-push = Push
+git-commit-next-pull = Pull
+git-commit-next-both = Sync
+git-commit-next-publish = Publish Branch
 git-commit-button-amend = Amend Commit
 git-commit-button-committing = Committing…
 git-commit-button-committed = Committed { $oid }
@@ -363,6 +449,7 @@ git-log-filter-author = Author
 git-log-filter-file = File { $path }
 git-log-clear-filter = Clear Filter
 git-log-refreshing = Refreshing…
+git-log-refreshed = Log refreshed
 git-log-loading = Loading…
 git-log-commit-count = { $count ->
     [one] { $count }{ $more } commit
@@ -390,7 +477,8 @@ git-disk-conflict-side-disk = Version on Disk
 git-disk-conflict-side-unsaved = Unsaved Changes
 git-disk-conflict-identical = “{ $name }” matches the version on disk; the conflict is resolved
 git-disk-conflict-compare-title = Compare: { $name }
-git-disk-conflict-took-disk = “{ $name }” now uses the version on disk. Press ⌘Z to restore your unsaved changes
+git-disk-conflict-took-disk-key = “{ $name }” now uses the version on disk. Press { $key } to restore your unsaved changes
+git-disk-conflict-took-disk = “{ $name }” now uses the version on disk. Undo to restore your unsaved changes
 git-disk-conflict-reloaded = Reloaded “{ $name }”; unsaved changes were discarded
 git-disk-conflict-overwrite = Overwrite
 git-disk-conflict-modified = “{ $name }” was modified by another app
@@ -515,6 +603,7 @@ git-change-none-at-caret = No change on the current line
 
 git-diff-side-worktree = Working Tree
 git-diff-side-worktree-unsaved = Working Tree · Unsaved
+git-diff-staged-only = Staged part only
 git-diff-identical-sides = Both sides are identical
 git-diff-none-at-caret = No change at the cursor
 git-diff-revert-failed = Couldn't revert the change: { $error }
@@ -533,7 +622,7 @@ git-change-popup-modified = { $count ->
     [one] Modified { $count } line
    *[other] Modified { $count } lines
 }
-git-change-popup-not-in-head = Not in HEAD
+git-change-popup-not-in-head = New file, not in the last commit
 git-change-popup-more-lines = { $count ->
     [one] { $count } more line not shown
    *[other] { $count } more lines not shown
@@ -561,3 +650,28 @@ git-blame-not-in-repository = The current file isn't in a Git repository, so it 
 git-blame-failed = Couldn't blame: { $error }
 git-blame-uncommitted = Uncommitted changes
 git-blame-line-uncommitted = This line hasn't been committed
+git-rebase-not-on-branch = This commit isn't on the current branch
+git-rebase-has-merges = The range contains merge commits, so it can't be rebased interactively
+git-op-rebase = rebasing interactively
+git-op-rebase-load = reading commits
+git-rebase-title = Interactive Rebase
+git-rebase-pick = Pick
+git-rebase-reword = Reword
+git-rebase-edit = Edit
+git-rebase-squash = Squash
+git-rebase-fixup = Fixup
+git-rebase-drop = Drop
+git-rebase-button = Rebase
+git-rebase-first-squash = The first kept commit can't be squashed or fixed up
+git-rebase-all-dropped = Keep at least one commit
+git-rebase-empty-message = A reworded commit needs a message
+git-rebase-stopped = Rebase paused: click Continue Rebase when you’re ready
+git-rebase-pushed-warning = { $count } of these commits are already on a remote; you'll need to force push afterward
+git-rebase-message-placeholder = Set a commit to Reword to edit its message here
+git-merge-three-pane = Three-Way
+git-merge-panes-not-utf8 = Can't show a three-way merge for “{ $name }”: the file isn't UTF-8
+git-merge-close-three-pane = Exit Three-Way
+git-merge-side-result = Result
+git-rebase-hint = ↑↓ select · { $alt }↑↓ move · P R E S F D set action
+git-merge-conflict-title = Conflict { $index } of { $count }
+git-merge-edit-conflict = Edit Manually

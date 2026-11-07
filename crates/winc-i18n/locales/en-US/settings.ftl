@@ -69,6 +69,7 @@ settings-remote-images-desc = Load remote images such as badges and screenshots;
 settings-check-updates-desc = Check on launch and once a day, and show new versions in the status bar
 settings-system-title-bar-desc = Use the title bar and window frame drawn by the desktop
 settings-version = Version
+settings-version-copied = Copied version { $version }
 settings-updates = Software Update
 settings-check-now = Check Now
 settings-updates-off = In-app updates aren’t available in this build
@@ -87,7 +88,8 @@ settings-format-on-save-desc = Format files with the tools below before saving
 settings-fix-on-save-desc = Fix problems that lint tools can fix automatically before saving
 settings-skip-on-save-desc = Don’t fix or format files in these languages on save; running manually still works
 settings-git-module-desc = Show file status and the current branch in Git repositories
-settings-terminal-module-desc = Terminal panel below the editor (⌃`); starts a helper process when opened
+settings-terminal-module-desc-key = Terminal panel below the editor ({ $key }); starts a helper process when opened
+settings-terminal-module-desc = Terminal panel below the editor; starts a helper process when opened
 
 ## Setting values and hints.
 
@@ -98,7 +100,7 @@ settings-skip-on-save-none = None
 settings-list-separator = { ", " }
 settings-font-default = System Default
 settings-command-placeholder = Enter a command; { "{file}" } stands for the file path
-settings-command-edit-hint = Press ↩ to save, Esc to cancel
+settings-command-edit-hint = Press { common-key-enter } to save, Esc to cancel
 settings-font-not-installed = Font “{ $name }” is not installed
 settings-font-file-not-found = Font file “{ $name }” not found
 settings-font-unsupported = The glyph format of font “{ $name }” is not supported

@@ -541,7 +541,10 @@ impl App {
                     self.focus = Focus::Editor;
                 }
             }
-            Key::Named(NamedKey::Tab) => self.focus = Focus::CommitMessage,
+            // 没有提交卡片（没有更改）时提交信息不在屏幕上，焦点留在列表里。
+            Key::Named(NamedKey::Tab) if self.commit_compose_shown() => {
+                self.focus = Focus::CommitMessage;
+            }
             Key::Named(NamedKey::Escape) if self.commit_multi_selected() => {
                 if let Some(path) = self.commit.selected.clone() {
                     self.select_commit_file(path);

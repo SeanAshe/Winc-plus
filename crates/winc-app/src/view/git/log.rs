@@ -626,7 +626,7 @@ fn link(p: &Palette, hovered: bool) -> Color {
 }
 
 /// 用等宽字体写一段文字（提交号），在 `row` 里垂直居中，返回末尾的 x（逻辑像素）。
-fn mono(
+pub(in crate::view) fn mono(
     app: &App,
     frame: &mut Frame<'_>,
     (x, row): (f32, Rect),

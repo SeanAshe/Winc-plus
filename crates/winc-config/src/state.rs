@@ -48,6 +48,9 @@ pub struct State {
     pub preview_mode: Option<String>,
     /// 上次关闭的窗口的大小和位置；没有记录时为 `None`。
     pub window: Option<WindowFrame>,
+    /// 从磁盘映像等位置运行时不询问是否移到「应用程序」文件夹：用户曾选择不移动并勾选「不再
+    /// 询问」。仅在 macOS 上使用。
+    pub stay_outside_applications: bool,
     /// 最近列表里每个目录的徽章颜色（值在 `0..BADGE_COLORS` 之内），互不相同。
     ///
     /// 目录第一次进入最近列表时，选一个其他目录未使用的颜色，之后保持不变，使项目名旁和最近
@@ -338,6 +341,10 @@ impl State {
             .get("commitTree")
             .and_then(Json::as_bool)
             .unwrap_or(false);
+        state.stay_outside_applications = root
+            .get("stayOutsideApplications")
+            .and_then(Json::as_bool)
+            .unwrap_or(false);
         state.panel_width = root
             .get("panelWidth")
             .and_then(Json::as_number)
@@ -390,7 +397,7 @@ impl State {
     /// 序列化为 `state.json` 的内容，末尾带一个换行符。
     ///
     /// `last`、`previewMode` 没有值，`otherWindows`、`toolChoices`、`trustedRepos` 为空，
-    /// `commitTree` 为假时省略对应的键。
+    /// `commitTree`、`stayOutsideApplications` 为假时省略对应的键。
     pub fn to_json(&self) -> String {
         let path = |p: &PathBuf| Json::String(p.to_string_lossy().into_owned());
         let mut fields = vec![(
@@ -410,6 +417,9 @@ impl State {
 
         if self.commit_tree {
             fields.push(("commitTree", Json::Bool(true)));
+        }
+        if self.stay_outside_applications {
+            fields.push(("stayOutsideApplications", Json::Bool(true)));
         }
         if let Some(width) = self.panel_width {
             fields.push(("panelWidth", Json::Number(f64::from(width))));

@@ -50,6 +50,8 @@ pub struct TextField {
     accept: fn(char) -> bool,
     /// 是否允许多行（文字中可以包含 `\n`）。
     multiline: bool,
+    /// 是否遮盖文字：绘制为圆点，不允许复制和剪切。
+    masked: bool,
     /// 撤销栈，最近的一步在末尾。
     undo: Vec<Snapshot>,
     /// 重做栈，最近撤销的一步在末尾。
@@ -259,7 +261,21 @@ impl TextField {
             history: History::default(),
             view: FieldView::default(),
             multiline: false,
+            masked: false,
         }
+    }
+
+    /// 创建遮盖文字的输入框，用于密码和口令。
+    pub fn masked() -> Self {
+        Self {
+            masked: true,
+            ..Self::default()
+        }
+    }
+
+    /// 是否遮盖文字。
+    pub fn is_masked(&self) -> bool {
+        self.masked
     }
 
     /// 创建多行输入框：文字中可以换行，粘贴的多行文字按原样保留（换行符统一为 `\n`）。

@@ -10,9 +10,15 @@ pub mod merge;
 
 mod commit;
 mod ignored;
+mod output;
 mod parse;
+mod rebase;
+mod remote;
 mod sync;
 
+pub use output::output_text;
+pub use rebase::{RebaseAction, RebaseCommit, RebasePlan, RebaseStep, rebase_todo};
+pub use remote::{Remote, TagTarget, repository_dir_name};
 pub use sync::Synced;
 mod trust;
 mod worktree;
@@ -161,8 +167,25 @@ pub struct Stash {
     pub name: String,
     /// 储藏对应的提交号（完整的对象号），不随其他储藏的增删改变。
     pub oid: String,
+    /// 储藏提交的各个父提交：第一个是储藏时的 `HEAD`，第二个是暂存区，连同未跟踪的文件一起储藏时
+    /// 第三个是那些文件。
+    pub parents: Vec<String>,
+    /// 储藏的时间（Unix 秒）。
+    pub time: i64,
+    /// 储藏时的本地时间，「2026-11-07 14:32」。
+    pub local: String,
     /// `git` 记下的说明：「On main: 说明」或「WIP on main: 提交号 说明」。
     pub message: String,
+}
+
+impl Stash {
+    /// 储藏时所在的分支：说明开头「On 分支:」「WIP on 分支:」里的分支；分离 `HEAD` 时 `git` 写
+    /// 「(no branch)」，原样返回。说明不是这两种写法时为 `None`。
+    pub fn branch(&self) -> Option<&str> {
+        let rest =
+            (self.message.strip_prefix("WIP on ")).or_else(|| self.message.strip_prefix("On "))?;
+        rest.split_once(": ").map(|(branch, _)| branch)
+    }
 }
 
 /// 逐行追溯（`git blame`）的结果：每一行最后一次由哪次提交改动。
@@ -515,6 +538,20 @@ pub struct Git {
     shell: Shell,
     /// 各仓库的配置检查结果和信任状态，[`Git`] 的各个副本共用。
     trust: Arc<Mutex<Trust>>,
+    /// 处理输入请求的 askpass 程序，见 [`Git::with_askpass`]。
+    askpass: Option<Askpass>,
+}
+
+/// 传递 [`Askpass::endpoint`] 的环境变量名。
+pub const ASKPASS_ENDPOINT: &str = "WINC_GIT_ASKPASS";
+
+/// `git`、`ssh` 需要用户输入时运行的 askpass 程序。
+#[derive(Debug, Clone)]
+pub struct Askpass {
+    /// 程序路径：程序以提示文字为参数启动，把答复写到标准输出。
+    pub program: PathBuf,
+    /// 程序连接的本地端点，由环境变量 [`ASKPASS_ENDPOINT`] 传递。
+    pub endpoint: OsString,
 }
 
 impl Git {
@@ -541,6 +578,7 @@ impl Git {
             program,
             shell: shell.clone(),
             trust: Arc::default(),
+            askpass: None,
         })
     }
 
@@ -684,26 +722,77 @@ impl Git {
     ///
     /// 失败时返回 `git` 给出的原因：优先取 `error::`、`fatal::`、`! [rejected]` 这样的行。
     pub fn operate(&self, root: &Path, args: &[&str]) -> Result<String, String> {
-        self.require_trust(root)?;
+        if let Err(refused) = self.require_trust(root) {
+            output::record(root, args, None, refused.as_bytes());
+            return Err(refused);
+        }
+        self.run_operation(root, args, OPERATION_TIMEOUT)
+    }
+
+    /// 在目录 `root` 里运行 `git args`，记录输出，返回 `git` 的结论；调用方负责信任检查。
+    fn run_operation(
+        &self,
+        root: &Path,
+        args: &[&str],
+        timeout: Duration,
+    ) -> Result<String, String> {
+        self.run_prepared(root, args, timeout, |_| {})
+    }
+
+    /// 和 [`Git::run_operation`] 相同，运行前由 `prepare` 调整命令，例如设置环境变量。
+    fn run_prepared(
+        &self,
+        root: &Path,
+        args: &[&str],
+        timeout: Duration,
+        prepare: impl FnOnce(&mut Command),
+    ) -> Result<String, String> {
         let mut command = self.command(root);
+        self.ask_through(root, &mut command);
+        prepare(&mut command);
         command.args(args).stderr(Stdio::piped());
-        match process::run(
-            &mut command,
-            Vec::new(),
-            OPERATION_TIMEOUT,
-            &Cancel::default(),
-        ) {
+        match process::run(&mut command, Vec::new(), timeout, &Cancel::default()) {
             Ok(output) => {
                 let mut text = output.stderr;
                 text.extend_from_slice(&output.stdout);
+                output::record(root, args, output.status.code(), &text);
                 if output.status.success() {
                     Ok(summary(&text))
                 } else {
                     Err(failure(&text))
                 }
             }
-            Err(e) => Err(describe(&e)),
+            Err(e) => {
+                let reason = describe(&e);
+                output::record(root, args, None, reason.as_bytes());
+                Err(reason)
+            }
         }
+    }
+
+    /// 返回使用 `askpass` 处理输入请求的副本；`None` 表示需要输入时直接失败。
+    #[must_use]
+    pub fn with_askpass(mut self, askpass: Option<Askpass>) -> Self {
+        self.askpass = askpass;
+        self
+    }
+
+    /// 为 `command` 设置 [`Git::with_askpass`] 指定的 askpass 程序。
+    ///
+    /// WSL 发行版内的 `git` 无法运行 Windows 程序，不作设置。`git` 优先使用凭据助手，没有结果时才
+    /// 运行该程序。`SSH_ASKPASS_REQUIRE` 使 `ssh` 不依赖 `DISPLAY` 和控制终端。
+    fn ask_through(&self, root: &Path, command: &mut Command) {
+        let Some(askpass) = &self.askpass else {
+            return;
+        };
+        if crate::wsl::locate_here(root).is_some() {
+            return;
+        }
+        command
+            .env("GIT_ASKPASS", &askpass.program)
+            .env("SSH_ASKPASS", &askpass.program)
+            .env("SSH_ASKPASS_REQUIRE", "force")
+            .env(ASKPASS_ENDPOINT, &askpass.endpoint);
     }
 
     /// 删除本地分支 `name`。
@@ -886,15 +975,32 @@ impl Git {
     /// `git` 运行失败时返回原因。
     pub fn stashes(&self, root: &Path, cancel: &Cancel) -> Result<Vec<Stash>, String> {
         let mut command = self.command(root);
-        command.args(["stash", "list", "--format=%gd%x1f%H%x1f%gs"]);
+        // 时间用 `%ci`（提交者的本地时间）的前 16 个字符：`--date` 会把 `%gd` 换成按日期的写法
+        // （`stash@{2026-…}`），不能用来格式化 `%cd`。
+        command.args([
+            "stash",
+            "list",
+            "--format=%gd%x1f%H%x1f%P%x1f%ct%x1f%ci%x1f%gs",
+        ]);
         let stdout = self.run(&mut command, STATUS_TIMEOUT, cancel)?;
         Ok(String::from_utf8_lossy(&stdout)
             .lines()
             .filter_map(|line| {
-                let mut fields = line.splitn(3, '\u{1f}');
+                let mut fields = line.splitn(6, '\u{1f}');
+                let (name, oid) = (fields.next()?, fields.next()?);
+                let parents = fields
+                    .next()?
+                    .split_whitespace()
+                    .map(str::to_owned)
+                    .collect();
+                let time = fields.next()?.parse().unwrap_or(0);
+                let local = fields.next()?.chars().take(16).collect();
                 Some(Stash {
-                    name: fields.next()?.to_owned(),
-                    oid: fields.next()?.to_owned(),
+                    name: name.to_owned(),
+                    oid: oid.to_owned(),
+                    parents,
+                    time,
+                    local,
                     message: fields.next()?.to_owned(),
                 })
             })
@@ -1047,7 +1153,7 @@ impl Git {
             // 不获取可选的锁（例如刷新索引）：后台运行的 `git` 不能和用户在同一仓库里运行的
             // `git` 抢同一把锁。
             .env("GIT_OPTIONAL_LOCKS", "0")
-            // 需要输入密码时直接失败，不阻塞等待输入。
+            // 禁用终端提示：没有 askpass 程序（见 `Git::ask_through`）时直接失败，不阻塞进程。
             .env("GIT_TERMINAL_PROMPT", "0")
             // 不打开编辑器：`rebase --continue` 等操作会打开它修改提交信息，这里沿用原来的信息。
             .env("GIT_EDITOR", ":")

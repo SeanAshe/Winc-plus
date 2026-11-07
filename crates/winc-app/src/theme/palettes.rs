@@ -4,7 +4,7 @@ use winc_i18n::t;
 
 use super::*;
 
-const fn hex(rgb: u32) -> Color {
+pub(super) const fn hex(rgb: u32) -> Color {
     Color::hex(rgb)
 }
 

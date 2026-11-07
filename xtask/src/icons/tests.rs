@@ -149,3 +149,21 @@ fn a_file_that_is_not_an_icon_is_rejected() {
     ico.extend(22u32.to_le_bytes());
     assert_eq!(build_icon::icon_resources(&ico, 1), None);
 }
+
+/// macOS 图标的底板位于模板规定的位置：在 1024 × 1024 的画布上距各边约 100 像素；`ICON_TILE`
+/// 与 SVG 中底板的宽度相同。
+#[test]
+fn the_macos_icon_follows_the_app_icon_template() {
+    let text = std::fs::read_to_string(root().join("crates/winc-app/assets/icon.svg")).unwrap();
+    assert!(text.contains(&format!("width=\"{}\"", crate::dmg::ICON_TILE)));
+    let picture = winc_preview::svg::load(&text, None, None).unwrap();
+    let pixels = crate::dmg::macos_icon(&picture, 1024);
+    assert_eq!((pixels.width, pixels.height), (1024, 1024));
+    let opaque = |x: usize, y: usize| pixels.rgba[(y * 1024 + x) * 4 + 3] > 128;
+    let left = (0..1024).find(|&x| opaque(x, 512)).unwrap();
+    let right = (0..1024).rev().find(|&x| opaque(x, 512)).unwrap();
+    let top = (0..1024).find(|&y| opaque(512, y)).unwrap();
+    for edge in [left, 1023 - right, top] {
+        assert!((98..=102).contains(&edge), "{left} {right} {top}");
+    }
+}

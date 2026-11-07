@@ -193,6 +193,16 @@ impl Document {
         true
     }
 
+    /// 把第 `start + 1..=end` 行折叠到第 `start` 行下面；已有同样的块时不做改动。
+    pub fn fold_lines(&mut self, start: usize, end: usize) {
+        if self.folds.iter().any(|f| f.start == start && f.end == end) {
+            return;
+        }
+        self.folds.remove(|f| f.start == start);
+        self.folds.insert([Fold::new(&self.text, start, end)]);
+        self.keep_selection_visible();
+    }
+
     /// 展开以第 `line` 行为开头的块（点击折叠行后面的 `⋯` 时调用），返回是否有块被展开。
     pub fn unfold_at(&mut self, line: usize) -> bool {
         self.folds.remove(|f| f.start == line)

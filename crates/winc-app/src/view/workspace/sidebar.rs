@@ -93,7 +93,7 @@ fn draw_project_header(app: &mut App, frame: &mut Frame<'_>) {
 const GIT_DOT: f32 = 6.0;
 /// 文件树中放不下的名称在侧栏边缘淡出的宽度（逻辑像素），
 /// 与结果行上按钮左侧的渐隐同宽。
-const NAME_FADE: f32 = 20.0;
+pub(in crate::view) const NAME_FADE: f32 = 20.0;
 /// 项目按钮里徽章占的宽度（逻辑像素）：左边 6、徽章 20、右边 8。
 pub(in crate::view) const BADGE_ROOM: f32 = 34.0;
 /// 徽章中心相对项目按钮左边的距离（逻辑像素）。
@@ -793,7 +793,7 @@ fn draw_name_input(
 }
 
 /// 名字收回时，末尾的淡出从过渡的这个进度开始出现（经验值）：名字已基本缩回侧栏。
-const FADE_FROM: f32 = 0.7;
+pub(in crate::view) const FADE_FROM: f32 = 0.7;
 /// 合并显示的目录中没有突出的各级的不透明度（经验值）：比突出的那一级淡，仍能看清。
 const CHAIN_DIM: f32 = 0.6;
 /// 合并显示的目录之间分隔符的不透明度（经验值）：比目录名淡，一眼能分出各级。
@@ -1016,7 +1016,12 @@ fn draw_overflow_band(
 }
 
 /// 返回名字收回途中这一行的底色：选中的行不变，其余是悬停的底色随进度 `progress` 淡出。
-fn retracting_color(p: &Palette, selected: bool, focused: bool, progress: f32) -> Option<Color> {
+pub(in crate::view) fn retracting_color(
+    p: &Palette,
+    selected: bool,
+    focused: bool,
+    progress: f32,
+) -> Option<Color> {
     row_color(p, selected, focused, false).or_else(|| {
         row_color(p, selected, focused, true).map(|color| color.alpha(color.a * (1.0 - progress)))
     })

@@ -5,7 +5,7 @@ use crate::app::GitAnchor;
 
 #[test]
 fn branch_menu_creates_switches_pushes_and_deletes() {
-    use crate::app::git::branch::{BranchOp, branch_menu, branch_ops};
+    use crate::app::git::branch::{BranchOp, branch_ops};
     use crate::app::input::context_menu::{MenuCommand, MenuEntry};
 
     let Some((mut app, root)) = git_app("git-branches", false) else {
@@ -28,7 +28,7 @@ fn branch_menu_creates_switches_pushes_and_deletes() {
     };
 
     // 新建分支：对话框里输入名称，回车创建并签出。空格这类字符无法输入。
-    app.run_branch_command(MenuCommand::GitNewBranch);
+    app.open_branch_dialog(None, None);
     assert_eq!(app.focus, Focus::Dialog);
     paint(&mut app);
     app.edit_field(|f| f.insert("feature x"));
@@ -41,7 +41,7 @@ fn branch_menu_creates_switches_pushes_and_deletes() {
     assert_eq!(head(&app), "featurex");
 
     // 分支重名时不能创建：原因显示在输入框里，对话框保留；取消「创建后签出」时只创建、不切换。
-    app.run_branch_command(MenuCommand::GitNewBranch);
+    app.open_branch_dialog(None, None);
     app.edit_field(|f| f.insert("main"));
     let plan = app.form_plan(app.form_dialog.as_ref().unwrap());
     assert!(!plan.enabled);
@@ -57,10 +57,9 @@ fn branch_menu_creates_switches_pushes_and_deletes() {
     assert_eq!(head(&app), "featurex");
     assert!(app.git.branches.iter().any(|b| b.name == "side"));
 
-    // 菜单里：当前分支只能「从这里新建」，别的分支能检出、新建、比较、合并、变基、删除。
-    // 没有上游：拉取灰显。
-    let menu = branch_menu(&app.git.branches, &app.git.stashes, None, false);
-    assert!(menu.contains(&MenuEntry::Item(MenuCommand::GitPull, false)));
+    // 菜单里：当前分支只能重命名，别的分支能检出、新建、比较、合并、变基、删除。
+    // 没有上游：分支选择器里的拉取灰显。
+    assert!(!app.picker_action_enabled(crate::app::PickerPart::Pull));
     let ops = |app: &App, name: &str| {
         branch_ops(index_of(app, name), &app.git.branches, &[], &[], false)
             .iter()
@@ -68,7 +67,7 @@ fn branch_menu_creates_switches_pushes_and_deletes() {
             .count()
     };
     assert_eq!(ops(&app, "featurex"), 1);
-    assert_eq!(ops(&app, "main"), 7);
+    assert_eq!(ops(&app, "main"), 8);
 
     // 检出 main，再删除 featurex。
     let main = index_of(&app, "main");
@@ -360,24 +359,16 @@ fn the_search_box_can_create_a_branch() {
     assert!(!app.picker_open);
     assert_eq!(head_name(&app).as_deref(), Some("brand-new"));
 
-    // 底栏的「新建分支」：输入框改写名字，重名时说明原因，不关面板。
+    // 底栏的「新建分支」：关闭选择器，打开新建分支的对话框（基于当前分支）。
     app.open_branch_picker(GitAnchor::Branch);
     paint(&mut app);
     app.press_picker_part(PickerPart::NewBranch);
-    assert!(app.picker_create.is_some());
-    app.picker_input.set_text("main");
-    app.picker_refresh();
-    app.picker_accept();
-    assert!(app.picker_open);
-    assert!(app.picker_create.as_ref().unwrap().problem.is_some());
-    // 返回列表；再写一个能用的名字。
-    app.press_picker_part(PickerPart::Back);
-    assert!(app.picker_create.is_none());
-    app.press_picker_part(PickerPart::NewBranch);
-    app.picker_input.set_text("second");
-    app.picker_refresh();
-    app.picker_accept();
-    assert_eq!(head_name(&app).as_deref(), Some("second"));
+    assert!(!app.picker_open);
+    let kind = app.form_dialog.as_ref().map(|dialog| dialog.kind.clone());
+    assert_eq!(
+        kind,
+        Some(crate::app::git::form::FormKind::Branch { at: None })
+    );
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -565,7 +556,8 @@ fn an_untracked_file_in_the_way_is_stashed_and_reported() {
         .unwrap()
         .clone();
 
-    app.pick_branch_named(&other);
+    let other = (app.git.branches.iter()).position(|b| b.name == other.name);
+    app.pick_branch(other.unwrap());
     app.git_refresh();
     let current = app.git.branches.iter().find(|b| b.current).unwrap();
     assert_eq!(current.name, "other");
@@ -658,11 +650,11 @@ fn a_failed_switch_restores_the_stashed_changes() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// 菜单里的拉取能处理分叉的分支，和同步一样；不在分支上时不能推送。
+/// 拉取能处理分叉的分支，和同步一样；不在分支上时分支选择器里的推送灰显。
 #[test]
 fn the_status_menu_pulls_diverged_branches_and_needs_a_branch_to_push() {
-    use crate::app::StatusItem;
     use crate::app::input::context_menu::MenuCommand;
+    use crate::app::{PickerPart, StatusItem};
 
     let Some((mut app, root)) = picker_repo("git-pull-diverged", false) else {
         return;
@@ -693,35 +685,111 @@ fn the_status_menu_pulls_diverged_branches_and_needs_a_branch_to_push() {
     app.open_path(&root.join("src/main.rs"));
     paint(&mut app);
     app.open_status_menu(StatusItem::Branch);
-    assert!(menu_commands(&app).contains(&(MenuCommand::GitPush, false)));
-    app.dismiss_popup();
+    assert!(app.picker_open);
+    assert!(!app.picker_action_enabled(PickerPart::Push));
+    assert!(app.picker_action_enabled(PickerPart::Fetch));
+    app.close_picker();
 
     let _ = std::fs::remove_dir_all(&root);
     let _ = std::fs::remove_dir_all(&remote);
 }
 
-/// 新建分支的说明折行时面板跟着变高，说明文字不被裁掉；只有一行时和列表的一行一样高。
+/// 侧栏收着时也能从状态栏打开分支选择器：面板在状态栏上方、窗口之内，搜索框下面是拉取、推送、
+/// 获取一行，列表从它下面开始；按住 ⌥ 时拉取换成拉取并变基。
 #[test]
-fn the_picker_grows_with_the_note_when_creating_a_branch() {
-    let Some((mut app, root)) = picker_repo("git-picker-note", false) else {
+fn the_status_bar_opens_the_branch_picker_with_the_sync_actions() {
+    use crate::app::input::context_menu::MenuCommand;
+    use crate::app::{PickerPart, StatusItem};
+
+    let Some((mut app, root)) = picker_repo("git-picker-status", false) else {
         return;
     };
-    app.open_branch_picker(GitAnchor::Branch);
-    app.start_branch_create(None);
+    app.set_sidebar(false);
+    app.open_path(&root.join("src/main.rs"));
     paint(&mut app);
-    let list = |app: &App| crate::view::picker_parts(app, app.layout.picker).list.h;
-    assert_eq!(list(&app), crate::app::PICKER_ROW);
-    let short = app.layout.picker.h;
+    app.open_status_menu(StatusItem::Branch);
+    paint(&mut app);
+    assert!(app.picker_open && app.picker_has_actions());
+    let (item, _) = *(app.status_hits.iter())
+        .find(|(_, i)| *i == StatusItem::Branch)
+        .unwrap();
+    let card = app.layout.picker;
+    assert!(card.bottom() <= item.y && card.y >= 0.0);
+    assert!(card.x >= 0.0 && card.right() <= app.layout.window.right());
+    let parts = crate::view::picker_parts(&app, card);
+    assert!(parts.actions.h > 0.0);
+    assert!(parts.actions.y >= parts.bar.bottom() && parts.list.y >= parts.actions.bottom());
 
-    let from = "feature/a-branch-name-long-enough-to-wrap-the-note-under-the-search-box";
-    app.start_branch_create(Some(from.to_owned()));
-    // 第一次绘制量出行数；离屏绘制时重新布局不生效，第二次绘制才按行数排。
+    assert_eq!(
+        app.picker_action_command(PickerPart::Pull),
+        MenuCommand::GitPull
+    );
+    app.modifiers = winit::keyboard::ModifiersState::ALT;
+    assert_eq!(
+        app.picker_action_command(PickerPart::Pull),
+        MenuCommand::GitPullRebase
+    );
+    app.modifiers = winit::keyboard::ModifiersState::empty();
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// 命令面板里的「Git：切换分支…」：提交视图开着时从分支行展开，看着文件视图时从状态栏展开；
+/// 不在仓库里时同步一类的命令只说明一声。
+#[test]
+fn the_switch_branch_command_opens_the_picker_where_it_can_be_seen() {
+    use crate::app::GitAnchor;
+
+    let Some((mut app, root)) = picker_repo("git-picker-command", false) else {
+        return;
+    };
+    app.run_action(Action::GitSwitchBranch);
+    assert!(app.picker_open && app.picker_lists_branches());
+    assert_eq!(app.picker_anchor, GitAnchor::Branch);
+    app.close_picker();
+    app.run_action(Action::ShowFiles);
+    app.open_path(&root.join("src/main.rs"));
     paint(&mut app);
+    app.run_action(Action::GitSwitchBranch);
+    assert_eq!(app.picker_anchor, GitAnchor::Status);
+    app.close_picker();
+    for action in [
+        Action::GitFetch,
+        Action::GitPull,
+        Action::GitPush,
+        Action::GitStash,
+    ] {
+        assert_eq!(
+            action.module(),
+            Some(crate::keymap::Module::Git),
+            "{action:?}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// 截图：从状态栏打开的分支选择器（侧栏收着），搜索框下面是拉取、推送、获取
+/// （`branch-picker-status`）。
+#[test]
+#[ignore = "截图，手动运行"]
+fn shoot_status_branch_picker() {
+    use crate::app::StatusItem;
+
+    let Some((mut app, root)) = picker_repo("git-picker-status-shot", false) else {
+        return;
+    };
+    git_in(
+        &root,
+        &["remote", "add", "origin", "https://example.invalid/r.git"],
+    );
+    git_in(&root, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    git_in(&root, &["branch", "-q", "--set-upstream-to=origin/main"]);
+    git_in(&root, &["commit", "-q", "--allow-empty", "-m", "ahead"]);
+    app.git_refresh();
+    app.set_sidebar(false);
+    app.open_path(&root.join("src/main.rs"));
     paint(&mut app);
-    let lines = app.picker_create.as_ref().map_or(0, |create| create.lines);
-    assert!(lines >= 2, "{lines}");
-    assert!(app.layout.picker.h > short);
-    assert!(list(&app) >= lines as f32 * crate::app::git::branch::picker::CREATE_NOTE_LINE);
+    app.open_status_menu(StatusItem::Branch);
+    shoot(&mut app, "branch-picker-status");
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -879,9 +947,9 @@ fn shoot_branch_picker() {
         shoot(&mut app, &format!("branch-picker-dirty-{theme}"));
         app.alert = None;
         app.open_branch_picker(GitAnchor::Branch);
-        app.start_branch_create(None);
-        shoot(&mut app, &format!("branch-picker-create-{theme}"));
-        app.close_picker();
+        app.press_picker_part(PickerPart::NewBranch);
+        shoot(&mut app, &format!("branch-dialog-{theme}"));
+        app.close_form_dialog();
         for branch in ["dev", "feature/login"] {
             git_in(
                 &root,
@@ -907,4 +975,48 @@ fn shoot_branch_picker() {
         app.close_picker();
         let _ = std::fs::remove_dir_all(&root);
     }
+}
+
+/// 分支选择器中鼠标所在的行与键盘选中的行相互独立：鼠标移动不改变选中项（打开时是当前分支），
+/// 鼠标所在的行显示自己的「⋯」；鼠标移出后选中项保持不变。
+#[test]
+fn hovering_a_picker_row_leaves_the_selection_alone() {
+    let Some((mut app, root)) = picker_repo("git-picker-hover", false) else {
+        return;
+    };
+    git_in(&root, &["branch", "topic"]);
+    app.git_refresh();
+    app.open_branch_picker(GitAnchor::Branch);
+    paint(&mut app);
+    let current = app.picker_selected;
+    let rows = app.picker_branch_rows.clone().unwrap();
+    let other = (0..rows.len())
+        .find(|&r| {
+            r != current
+                && matches!(
+                    rows[r],
+                    crate::app::git::branch::picker::BranchRow::Branch { .. }
+                )
+        })
+        .unwrap();
+    let more = |app: &App, row| {
+        (app.picker_part_hits.iter()).any(|(_, p)| *p == crate::app::PickerPart::More(row))
+    };
+    assert!(more(&app, current));
+    assert!(!more(&app, other));
+
+    let parts = crate::view::picker_parts(&app, app.layout.picker);
+    let row = parts.row(other, app.picker_scroll);
+    app.on_mouse_move(row.x + 40.0, row.y + row.h / 2.0);
+    assert_eq!(app.hover, Hover::PickerRow(other));
+    paint(&mut app);
+    assert_eq!(app.picker_selected, current);
+    assert!(more(&app, other) && more(&app, current));
+
+    let card = app.layout.picker;
+    app.on_mouse_move(card.right() + 40.0, card.y + 10.0);
+    paint(&mut app);
+    assert_eq!(app.picker_selected, current);
+    assert!(!more(&app, other));
+    let _ = std::fs::remove_dir_all(&root);
 }

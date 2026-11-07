@@ -599,36 +599,6 @@ pub fn history(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: 
     frame.stroke(&shapes, RING_STROKE, color, clip);
 }
 
-/// 绘制「以列表显示」图标，约 12×9：三道左端对齐的横线，各带一个圆点，表示平铺排列的一列。
-///
-/// 视觉重量与标题行的 `history`、`collapse_all` 等按钮一致。
-pub fn list(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
-    let rows = [-4.0, 0.0, 4.0];
-    let lines = rows.map(|dy| Stroke::Line(cx - 2.0, cy + dy, cx + 6.0, cy + dy));
-    // 零长度的线段描边后呈圆点，直径等于笔宽。
-    let dots = rows.map(|dy| Stroke::Line(cx - 5.5, cy + dy, cx - 5.5, cy + dy));
-    frame.stroke(&lines, RING_STROKE, color, clip);
-    frame.stroke(&dots, 2.0, color, clip);
-}
-
-/// 绘制「以树形显示」图标，约 12×9：最上方一道横线表示目录，下方两道缩进的短横线表示其中的
-/// 文件，左侧一道竖线自上而下连接，并在两道短横线处折向右。
-///
-/// 视觉重量与标题行的 `history`、`collapse_all` 等按钮一致。
-pub fn tree(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
-    let (left, right, spine) = (cx - 6.0, cx + 6.0, cx - 4.0);
-    let (top, mid, bottom) = (cy - 4.0, cy, cy + 4.0);
-    let shapes = [
-        Stroke::Line(left, top, right, top),
-        Stroke::Line(spine, top, spine, bottom),
-        Stroke::Line(spine, mid, cx - 1.5, mid),
-        Stroke::Line(spine, bottom, cx - 1.5, bottom),
-        Stroke::Line(cx + 0.5, mid, right, mid),
-        Stroke::Line(cx + 0.5, bottom, right, bottom),
-    ];
-    frame.stroke(&shapes, RING_STROKE, color, clip);
-}
-
 /// 绘制「并排比较」图标，约 12×11：一个圆角框，中央一道竖线分成左右两栏，两栏内各一道短横。
 pub fn compare(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
     let (l, r, t, b) = (cx - 6.0, cx + 6.0, cy - 5.5, cy + 5.5);

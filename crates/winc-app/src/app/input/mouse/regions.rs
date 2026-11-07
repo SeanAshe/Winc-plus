@@ -128,6 +128,7 @@ impl App {
                 self.focus = Focus::KeySearch;
                 self.click_field(x, y);
             }
+            Some(SettingsPart::Copy(setting)) => self.settings_copy_value(setting),
             Some(SettingsPart::Install(id)) => {
                 self.settings_choose_tool(id, MenuCommand::ToolInstall);
             }
@@ -278,7 +279,7 @@ impl App {
             (Focus::GlobalExclude, shown && g.details_open, &g.exclude),
             (
                 Focus::CommitMessage,
-                self.commit_shown(),
+                self.commit_shown() && self.commit_compose_shown(),
                 &self.commit.message,
             ),
         ];

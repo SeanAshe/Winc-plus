@@ -2,8 +2,9 @@
 //!
 //! 已在运行的 winc 持有 [`AppLock`]（每个用户只有一个），等待连接的位置由 `app_socket_path`
 //! 或 `app_pipe_name` 决定，后者只在 Windows 上使用。Unix 套接字放在只有当前用户能创建的目录中，
-//! 命名管道拒绝来自其他主机的连接。消息格式为一行版本号，之后每三个（路径、行、列）一组：
-//! 路径、行号、列号各占一个以 NUL 结尾的字段。
+//! 命名管道拒绝来自其他主机的连接。消息格式为一行版本号，第 2 版在其后另有一行激活令牌（见
+//! [`launch_token`]），之后每三个（路径、行、列）一组：路径、行号、列号各占一个以 NUL 结尾的
+//! 字段。没有激活令牌时发送第 1 版消息。
 //!
 //! 持有 [`AppLock`] 的进程正在退出时回 `busy`，连接失败时新进程自己打开目标。
 
@@ -11,8 +12,42 @@ use std::path::{Path, PathBuf};
 
 use crate::cli::Target;
 
-/// 消息的第一行：协议名和版本。
+/// 消息的第一行：协议名和版本。第 1 版不带激活令牌。
 const HELLO: &str = "winc-open 1\n";
+/// 带激活令牌的消息（第 2 版）的第一行，下一行是令牌。
+const HELLO_TOKEN: &str = "winc-open 2\n";
+
+/// 新启动的 winc 交来的内容。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Launch {
+    /// 要打开的目录和文件；为空时把当前窗口切到前台。
+    pub targets: Vec<Target>,
+    /// 新进程收到的激活令牌（见 [`launch_token`]）；没有时为 `None`。
+    pub token: Option<String>,
+}
+
+/// 启动本进程的程序给出的激活令牌：`XDG_ACTIVATION_TOKEN`（Wayland），其次
+/// `DESKTOP_STARTUP_ID`（X11）；没有或不合法时返回 `None`。
+///
+/// 随目标交给正在运行的 winc，供其切换或新建窗口时使用。
+#[cfg(all(unix, not(target_os = "macos")))]
+pub fn launch_token() -> Option<String> {
+    ["XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID"]
+        .into_iter()
+        .filter_map(|name| std::env::var(name).ok())
+        .find(|token| valid_token(token))
+}
+
+/// 启动本进程的程序给出的激活令牌；本平台没有，始终返回 `None`。
+#[cfg(not(all(unix, not(target_os = "macos"))))]
+pub fn launch_token() -> Option<String> {
+    None
+}
+
+/// 激活令牌能否写入消息：非空，且不含换行符和 NUL。
+fn valid_token(token: &str) -> bool {
+    !token.is_empty() && !token.contains(['\n', '\0'])
+}
 
 /// 返回整个应用的套接字路径（正在运行的 winc 监听的位置）；无法构造合法路径时返回 `None`。
 #[cfg(unix)]
@@ -23,7 +58,7 @@ pub fn app_socket_path() -> Option<PathBuf> {
 /// 返回当前用户私有目录中名为 `winc-{name}.{extension}` 的文件路径。
 ///
 /// 路径长度超出系统对套接字路径的限制时返回 `None`。
-fn private_file(name: &str, extension: &str) -> Option<PathBuf> {
+pub(crate) fn private_file(name: &str, extension: &str) -> Option<PathBuf> {
     // 限制取下限：macOS 的套接字路径最多 104 字节（含结尾的 NUL），Linux 为 108 字节，
     // 这里按 104 字节减去结尾 NUL 占用的 1 字节，路径本身不得超过 103 字节。
     const LIMIT: usize = 103;
@@ -80,12 +115,15 @@ fn create_private_dir(dir: &Path) {
 fn private_dir(dir: &Path) -> bool {
     dir.is_dir()
 }
-/// 把目标编码成消息字节。
+/// 把目标 `targets` 和激活令牌 `token` 编码成消息字节。
 ///
-/// 消息以 [`HELLO`] 开头，之后每项依次为路径、行号、列号三个以 NUL 结尾的字段，行号与列号
-/// 从 0 起，没有指定时字段为空。
-fn encode(targets: &[Target]) -> Vec<u8> {
-    let mut out = HELLO.as_bytes().to_vec();
+/// 有合法的令牌时以 [`HELLO_TOKEN`] 和令牌一行开头，否则以 [`HELLO`] 开头；之后每项依次为
+/// 路径、行号、列号三个以 NUL 结尾的字段，行号与列号从 0 起，没有指定时字段为空。
+fn encode(targets: &[Target], token: Option<&str>) -> Vec<u8> {
+    let mut out = match token.filter(|token| valid_token(token)) {
+        Some(token) => format!("{HELLO_TOKEN}{token}\n").into_bytes(),
+        None => HELLO.as_bytes().to_vec(),
+    };
     for target in targets {
         out.extend_from_slice(target.path.as_os_str().as_encoded_bytes());
         out.push(0);
@@ -99,9 +137,25 @@ fn encode(targets: &[Target]) -> Vec<u8> {
     out
 }
 
-/// 解码 [`encode`] 的结果；格式不对时返回 `None`。
-fn decode(bytes: &[u8]) -> Option<Vec<Target>> {
-    let body = bytes.strip_prefix(HELLO.as_bytes())?;
+/// 解码 [`encode`] 的结果（第 1 版或第 2 版消息）；格式不对时返回 `None`。
+fn decode(bytes: &[u8]) -> Option<Launch> {
+    let (token, body) = match bytes.strip_prefix(HELLO_TOKEN.as_bytes()) {
+        Some(rest) => {
+            let end = rest.iter().position(|&b| b == b'\n')?;
+            let token = std::str::from_utf8(&rest[..end]).ok()?;
+            (Some(token.to_owned()), &rest[end + 1..])
+        }
+        None => (None, bytes.strip_prefix(HELLO.as_bytes())?),
+    };
+    let token = token.filter(|token| valid_token(token));
+    Some(Launch {
+        targets: decode_targets(body)?,
+        token,
+    })
+}
+
+/// 解码消息头之后的目标；格式不对时返回 `None`。
+fn decode_targets(body: &[u8]) -> Option<Vec<Target>> {
     if body.is_empty() {
         return Some(Vec::new());
     }
@@ -128,6 +182,25 @@ fn decode(bytes: &[u8]) -> Option<Vec<Target>> {
         .collect()
 }
 
+/// 经 `send` 把目标 `targets` 和激活令牌 `token` 交出，返回对方是否已收下。
+///
+/// `send` 发出一条消息并返回对方答复的一行，对方未答复即断开时为空字符串。带令牌的消息未得到
+/// 答复时，对方是不支持第 2 版的较早版本，改发第 1 版消息；答复 `busy` 时不重发。
+fn deliver(
+    targets: &[Target],
+    token: Option<&str>,
+    send: impl Fn(&[u8]) -> std::io::Result<String>,
+) -> bool {
+    let reply = |token| send(&encode(targets, token));
+    match reply(token) {
+        Ok(line) if line.is_empty() && token.is_some_and(valid_token) => {
+            reply(None).is_ok_and(|line| line == "ok\n")
+        }
+        Ok(line) => line == "ok\n",
+        Err(_) => false,
+    }
+}
+
 /// 把 [`encode`] 写出的路径字节还原成路径。
 #[cfg(unix)]
 fn path_from_bytes(bytes: &[u8]) -> Option<PathBuf> {
@@ -152,7 +225,7 @@ mod imp {
     use std::sync::mpsc::{Sender, channel};
     use std::time::Duration;
 
-    use super::{app_socket_path, decode, encode};
+    use super::{Launch, app_socket_path, decode, deliver};
     use crate::cli::Target;
 
     /// 收到交来的目标之后等待界面线程答复的时长（毫秒）。
@@ -169,29 +242,28 @@ mod imp {
     /// 取值由系统对命令行参数总长的限制决定：macOS 为 1 MiB，Linux 默认为 2 MiB；参数中的相对
     /// 路径改写为绝对路径后长度会增加，因此留出余量。
     pub(super) const MESSAGE_LIMIT: u64 = 16 << 20;
-    /// 把 `targets` 交给正在运行的 winc，返回对方是否已收下。
+    /// 把 `targets` 和激活令牌 `token` 交给正在运行的 winc，返回对方是否已收下。
     ///
     /// 目标投递到 [`app_socket_path`] 对应的套接字，由对方决定切换到已打开该目录的窗口还是
     /// 新建窗口；`targets` 为空时对方把当前窗口切换到前台。
-    pub fn forward_to_app(targets: &[Target]) -> bool {
-        app_socket_path().is_some_and(|path| forward_to(&path, targets))
+    pub fn forward_to_app(targets: &[Target], token: Option<&str>) -> bool {
+        app_socket_path().is_some_and(|path| forward_to(&path, targets, token))
     }
 
-    /// 把 `targets` 交给 `path` 上的 winc，返回对方是否已收下。
+    /// 把 `targets` 和激活令牌 `token` 交给 `path` 上的 winc，返回对方是否已收下。
     ///
     /// 连接失败、写入失败或对方没有回复 `ok` 时按未收下处理。
-    pub(super) fn forward_to(path: &Path, targets: &[Target]) -> bool {
-        let send = || -> std::io::Result<bool> {
+    pub(super) fn forward_to(path: &Path, targets: &[Target], token: Option<&str>) -> bool {
+        deliver(targets, token, |message| {
             let mut stream = UnixStream::connect(path)?;
             stream.set_read_timeout(Some(REPLY_TIMEOUT))?;
             stream.set_write_timeout(Some(REPLY_TIMEOUT))?;
-            stream.write_all(&encode(targets))?;
+            stream.write_all(message)?;
             stream.shutdown(std::net::Shutdown::Write)?;
             let mut reply = String::new();
             BufReader::new(stream).read_line(&mut reply)?;
-            Ok(reply == "ok\n")
-        };
-        send().unwrap_or(false)
+            Ok(reply)
+        })
     }
 
     /// 在整个应用的套接字上等待其他 winc 交来的目标，丢弃时停止监听并删除套接字文件。
@@ -203,15 +275,13 @@ mod imp {
     impl Listener {
         /// 开始在整个应用的套接字上等待其他 winc 交来的目标，无法创建套接字时返回 `None`。
         ///
-        /// 每收到一次，就在后台线程中以目标和答复通道调用 `open`：界面线程收下时向通道发送
-        /// `true`，发送成功才打开目标，发送失败说明新进程已不再等待并自行打开；不收时发送
+        /// 每收到一次，就在后台线程中以交来的内容和答复通道调用 `open`：界面线程收下时向通道
+        /// 发送 `true`，发送成功才打开目标，发送失败说明新进程已不再等待并自行打开；不收时发送
         /// `false` 或关闭通道。
         ///
         /// 调用方必须已持有 [`AppLock`](super::AppLock)：此时同名的套接字文件只可能由异常退出的
         /// 进程留下，先移除再创建。无法创建时返回 `None`，其他 winc 仍然自行打开目标。
-        pub fn bind_app(
-            open: impl Fn(Vec<Target>, Sender<bool>) + Send + 'static,
-        ) -> Option<Listener> {
+        pub fn bind_app(open: impl Fn(Launch, Sender<bool>) + Send + 'static) -> Option<Listener> {
             Self::bind_at(app_socket_path()?, open)
         }
 
@@ -220,7 +290,7 @@ mod imp {
         /// 无法创建套接字时返回 `None`。
         pub(super) fn bind_at(
             path: PathBuf,
-            open: impl Fn(Vec<Target>, Sender<bool>) + Send + 'static,
+            open: impl Fn(Launch, Sender<bool>) + Send + 'static,
         ) -> Option<Listener> {
             let _ = std::fs::remove_file(&path);
             let listener = UnixListener::bind(&path).ok()?;
@@ -247,11 +317,11 @@ mod imp {
                             continue;
                         }
                         // 内容不是 winc 发出的或格式不正确时不答复。
-                        let Some(targets) = decode(&bytes) else {
+                        let Some(launch) = decode(&bytes) else {
                             continue;
                         };
                         let (answer, answered) = channel();
-                        open(targets, answer);
+                        open(launch, answer);
                         let reply: &[u8] = match answered.recv_timeout(ANSWER_TIMEOUT) {
                             Ok(true) => b"ok\n",
                             _ => b"busy\n",
@@ -308,7 +378,7 @@ mod imp {
         PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
     };
 
-    use super::{app_pipe_name, decode, encode};
+    use super::{Launch, app_pipe_name, decode, deliver};
     use crate::cli::Target;
 
     /// 收到交来的目标之后等待界面线程答复的时长（毫秒）。
@@ -321,33 +391,31 @@ mod imp {
     /// 取值由系统对命令行参数总长的限制决定：macOS 为 1 MiB，Linux 默认为 2 MiB；参数中的
     /// 相对路径改写为绝对路径后长度会增加，因此留出余量。
     pub(super) const MESSAGE_LIMIT: u64 = 16 << 20;
-    /// 把 `targets` 交给正在运行的 winc，返回对方是否已收下。
+    /// 把 `targets` 和激活令牌 `token` 交给正在运行的 winc，返回对方是否已收下。
     ///
     /// 目标投递到 [`app_pipe_name`] 对应的命名管道。
-    pub fn forward_to_app(targets: &[Target]) -> bool {
-        forward_to(&app_pipe_name(), targets)
+    pub fn forward_to_app(targets: &[Target], token: Option<&str>) -> bool {
+        forward_to(&app_pipe_name(), targets, token)
     }
 
-    /// 把 `targets` 交给 `pipe` 上的 winc，返回对方是否已收下。
+    /// 把 `targets` 和激活令牌 `token` 交给 `pipe` 上的 winc，返回对方是否已收下。
     ///
     /// 连接失败、写入失败或对方没有回复 `ok` 时按未收下处理。
-    pub(super) fn forward_to(pipe: &Path, targets: &[Target]) -> bool {
-        let send = || -> std::io::Result<bool> {
+    pub(super) fn forward_to(pipe: &Path, targets: &[Target], token: Option<&str>) -> bool {
+        deliver(targets, token, |message| {
             let mut stream = File::options().read(true).write(true).open(pipe)?;
-            let message = encode(targets);
             stream.write_all(&(message.len() as u64).to_le_bytes())?;
-            stream.write_all(&message)?;
+            stream.write_all(message)?;
             let mut reply = String::new();
             BufReader::new(stream).read_line(&mut reply)?;
-            Ok(reply == "ok\n")
-        };
-        send().unwrap_or(false)
+            Ok(reply)
+        })
     }
 
     /// 创建一个等待连接的管道实例；`first` 为真时要求它是该名字的第一个实例。
     ///
     /// 其他进程先创建了同名的管道时返回 `None`，目标不会被交给该管道。
-    fn create(name: &[u16], first: bool) -> Option<File> {
+    pub(crate) fn create(name: &[u16], first: bool) -> Option<File> {
         let flags = PIPE_ACCESS_DUPLEX
             | if first {
                 FILE_FLAG_FIRST_PIPE_INSTANCE
@@ -378,7 +446,7 @@ mod imp {
     }
 
     /// 是否已有客户端连上管道 `pipe`；调用之前已连上的也算已连接。
-    fn connect(pipe: &File) -> bool {
+    pub(crate) fn connect(pipe: &File) -> bool {
         use std::os::windows::io::AsRawHandle;
         // SAFETY: 句柄有效且归 `pipe` 所有；不使用重叠 I/O，调用阻塞到有客户端连上为止。
         let ok = unsafe { ConnectNamedPipe(pipe.as_raw_handle(), std::ptr::null_mut()) };
@@ -395,12 +463,10 @@ mod imp {
     impl Listener {
         /// 开始在整个应用的命名管道上等待其他 winc 交来的目标，无法创建管道时返回 `None`。
         ///
-        /// 每收到一次，就在后台线程中以目标和答复通道调用 `open`：界面线程收下时向通道发送
-        /// `true`，不收时发送 `false` 或直接丢弃通道。无法创建管道时返回 `None`，其他 winc
+        /// 每收到一次，就在后台线程中以交来的内容和答复通道调用 `open`：界面线程收下时向通道
+        /// 发送 `true`，不收时发送 `false` 或直接丢弃通道。无法创建管道时返回 `None`，其他 winc
         /// 仍然自行打开目标。
-        pub fn bind_app(
-            open: impl Fn(Vec<Target>, Sender<bool>) + Send + 'static,
-        ) -> Option<Listener> {
+        pub fn bind_app(open: impl Fn(Launch, Sender<bool>) + Send + 'static) -> Option<Listener> {
             Self::bind_at(app_pipe_name(), open)
         }
 
@@ -409,7 +475,7 @@ mod imp {
         /// 无法创建管道时返回 `None`。
         pub(super) fn bind_at(
             pipe: PathBuf,
-            open: impl Fn(Vec<Target>, Sender<bool>) + Send + 'static,
+            open: impl Fn(Launch, Sender<bool>) + Send + 'static,
         ) -> Option<Listener> {
             let name: Vec<u16> = pipe.as_os_str().encode_wide().chain([0]).collect();
             let mut next = create(&name, true)?;
@@ -431,11 +497,11 @@ mod imp {
                         if !connected {
                             continue;
                         }
-                        let Some(targets) = read_message(&mut stream) else {
+                        let Some(launch) = read_message(&mut stream) else {
                             continue;
                         };
                         let (answer, answered) = channel();
-                        open(targets, answer);
+                        open(launch, answer);
                         let reply: &[u8] = match answered.recv_timeout(ANSWER_TIMEOUT) {
                             Ok(true) => b"ok\n",
                             _ => b"busy\n",
@@ -452,7 +518,7 @@ mod imp {
     /// 读取一条带长度前缀的消息并解码，读取失败或格式错误时返回 `None`。
     ///
     /// 长度超过 [`MESSAGE_LIMIT`] 或数据不足时同样返回 `None`。
-    pub(super) fn read_message(stream: &mut impl Read) -> Option<Vec<Target>> {
+    pub(super) fn read_message(stream: &mut impl Read) -> Option<Launch> {
         let mut length = [0; 8];
         stream.read_exact(&mut length).ok()?;
         let length = u64::from_le_bytes(length);
@@ -476,12 +542,13 @@ mod imp {
 
 #[cfg(not(any(unix, windows)))]
 mod imp {
+    use super::Launch;
     use crate::cli::Target;
 
-    /// 把 `targets` 交给正在运行的 winc，返回是否已收下。
+    /// 把 `targets` 和激活令牌交给正在运行的 winc，返回是否已收下。
     ///
     /// 不支持的平台上始终返回 `false`，由新进程自行打开目标。
-    pub fn forward_to_app(_targets: &[Target]) -> bool {
+    pub fn forward_to_app(_targets: &[Target], _token: Option<&str>) -> bool {
         false
     }
 
@@ -491,7 +558,7 @@ mod imp {
     impl Listener {
         /// 开始等待目标，不支持的平台上始终返回 `None`。
         pub fn bind_app(
-            _open: impl Fn(Vec<Target>, std::sync::mpsc::Sender<bool>) + Send + 'static,
+            _open: impl Fn(Launch, std::sync::mpsc::Sender<bool>) + Send + 'static,
         ) -> Option<Listener> {
             None
         }
@@ -499,6 +566,8 @@ mod imp {
 }
 
 pub use imp::{Listener, forward_to_app};
+#[cfg(windows)]
+pub(crate) use imp::{connect as connect_pipe, create as create_pipe};
 
 /// 「整个应用」这一角色的持有凭据。
 ///

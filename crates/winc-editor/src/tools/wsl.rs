@@ -15,8 +15,8 @@ use crate::shell::process::{self, Cancel};
 const HOSTS: [&str; 2] = ["wsl.localhost", "wsl$"];
 
 /// 通过 `WSLENV` 传给发行版内 `git` 的环境变量：`wsl.exe` 默认不向发行版传递环境变量。
-pub(crate) const GIT_ENV: &str =
-    "GIT_OPTIONAL_LOCKS:GIT_TERMINAL_PROMPT:GIT_EDITOR:GIT_INDEX_FILE:NO_COLOR:LC_ALL:LANGUAGE";
+pub(crate) const GIT_ENV: &str = "GIT_OPTIONAL_LOCKS:GIT_TERMINAL_PROMPT:GIT_EDITOR:GIT_SEQUENCE_EDITOR:GIT_INDEX_FILE:NO_COLOR:LC_ALL:\
+LANGUAGE";
 
 /// 通过 `WSLENV` 传给发行版内格式化工具的环境变量。
 pub(crate) const FORMAT_ENV: &str = "WINC_FILE:NO_COLOR";

@@ -447,3 +447,41 @@ fn the_details_footer_does_not_fade_with_the_commit() {
     assert!(pixels(&app, footer) == still_footer, "提示不跟着淡入");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// 回归：日志的「刷新」要一并刷新未提交的更改和分支，并且每次都能看出点过了。
+#[test]
+fn refreshing_the_log_updates_the_repository_state_and_reports_it() {
+    use crate::app::git::log::LogTarget;
+
+    let Some((mut app, root)) = git_app("git-log-refresh-state", false) else {
+        return;
+    };
+    history_repo(&root, 3);
+    app.git_refresh();
+    show_all_log(&mut app);
+    paint(&mut app);
+    let git = |args: &[&str]| {
+        let run = Command::new("git").arg("-C").arg(&root).args(args).output();
+        assert!(run.unwrap().status.success());
+    };
+    git(&["branch", "made-elsewhere"]);
+    std::fs::write(root.join("made-elsewhere.txt"), "x").unwrap();
+    let uncommitted = |app: &App| {
+        let view = app.editor.active().unwrap().log.as_deref().unwrap();
+        app.log_uncommitted(view)
+    };
+    let has_branch = |app: &App| (app.git.branches.iter()).any(|b| b.name == "made-elsewhere");
+    assert_eq!(uncommitted(&app), 0);
+    assert!(!has_branch(&app));
+
+    app.status_message = None;
+    app.press_log(LogTarget::Refresh);
+    paint(&mut app);
+    assert!(uncommitted(&app) > 0);
+    assert!(has_branch(&app));
+    assert_eq!(
+        app.status_message.as_deref(),
+        Some(winc_i18n::t!("git-log-refreshed"))
+    );
+    assert_eq!(app.log.refreshing, None);
+}

@@ -315,7 +315,7 @@ impl App {
         self.focus = match (self.panel_visible, self.sidebar_view) {
             (true, SidebarView::Files) => Focus::Tree,
             (true, SidebarView::Search) => Focus::GlobalQuery,
-            (true, SidebarView::Commit) => Focus::CommitMessage,
+            (true, SidebarView::Commit) => self.commit_view_focus(),
             (false, _) if self.focus == Focus::Terminal => Focus::Terminal,
             (false, _) => Focus::Editor,
         };

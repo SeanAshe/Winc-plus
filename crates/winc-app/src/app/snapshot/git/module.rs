@@ -518,14 +518,14 @@ fn the_project_leads_the_second_row_and_git_context_sits_below_it() {
     let parts = app.commit_parts();
     assert_eq!(
         parts.tools.map(|(_, t)| t),
-        [CommitTarget::Log, CommitTarget::Layout, CommitTarget::More]
+        [CommitTarget::Log, CommitTarget::Refresh, CommitTarget::More]
     );
     assert!(parts.tools[0].0.x >= project.right());
 
-    // 一个仓库、一个工作树：只有分支行，它在提交信息上方。
+    // 一个仓库、一个工作树：只有分支行，它在改动列表上方。
     assert!(parts.location.is_none());
     assert!(parts.branch.y >= parts.header.bottom());
-    assert!(parts.branch.bottom() <= parts.message.y);
+    assert!(parts.branch.bottom() <= parts.list.y);
     let hit = |app: &App, target| {
         app.commit_hits
             .iter()

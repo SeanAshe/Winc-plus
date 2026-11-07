@@ -9,6 +9,8 @@ pub(super) mod appearance;
 pub(super) mod backup;
 pub(super) mod closing;
 pub(super) mod events;
+#[cfg(target_os = "macos")]
+mod install;
 pub(super) mod notice;
 pub(super) mod one_off;
 pub(super) mod placement;

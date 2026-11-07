@@ -778,10 +778,19 @@ fn the_about_page_shows_the_version_and_the_update_state() {
         assert!(layout.row(setting).is_some(), "{setting:?}");
     }
     assert_eq!(Setting::CheckUpdates.page(), SettingsPage::About);
-    // 版本号只读，点不到。
+    // 点击版本号复制到剪贴板。
     let version = layout.row(Setting::Version).unwrap().control;
     let center = (version.x + version.w / 2.0, version.y + version.h / 2.0);
-    assert_eq!(layout.part_at(center.0, center.1), None);
+    assert_eq!(
+        layout.part_at(center.0, center.1),
+        Some(SettingsPart::Copy(Setting::Version))
+    );
+    click_part(&mut app, SettingsPart::Copy(Setting::Version));
+    assert_eq!(
+        app.copied.as_deref(),
+        Some(&*crate::layout::version_label())
+    );
+    assert_eq!(app.settings.selected, Setting::Version);
 
     // 当前版本不检查更新时按钮点了没有反应；能检查时点了交给 Sparkle（测试里不启用）。
     assert!(!app.can_check_updates());

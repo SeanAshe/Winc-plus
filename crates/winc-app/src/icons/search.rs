@@ -46,6 +46,46 @@ pub fn line_checkbox(
     }
 }
 
+/// 绘制只包含部分内容的勾选框：样式与 [`line_checkbox`] 勾上时相同，框内是一条横线。
+///
+/// `hover` 是悬停时的底色。
+pub fn line_checkbox_mixed(
+    frame: &mut Frame<'_>,
+    center: (f32, f32),
+    size: f32,
+    hover: Option<Color>,
+    accent: Color,
+    clip: Rect,
+) {
+    line_button_hover(frame, center, hover, clip);
+    let rect = checkbox_rect(center, size);
+    frame.stroke(&checkbox_outline(rect), 1.2, accent, clip);
+    let (inset, y) = (size * 0.25, rect.y + rect.h / 2.0);
+    let mark = [Stroke::Line(rect.x + inset, y, rect.right() - inset, y)];
+    frame.stroke(&mark, MARK_STROKE, accent, clip);
+}
+
+/// 绘制三栏合并右栏的「«」按钮：把右栏这一段采用到中间，样式与 [`line_replace`] 相同，方向相反。
+///
+/// `hover` 是悬停时的底色。
+pub fn line_replace_back(
+    frame: &mut Frame<'_>,
+    (cx, cy): (f32, f32),
+    hover: Option<Color>,
+    color: Color,
+    clip: Rect,
+) {
+    line_button_hover(frame, (cx, cy), hover, clip);
+    let (w, h) = (2.2, 4.0);
+    for x in [cx - 2.4, cx + 2.4] {
+        let chevron = [
+            Stroke::Line(x + w, cy - h, x - w, cy),
+            Stroke::Line(x - w, cy, x + w, cy + h),
+        ];
+        frame.stroke(&chevron, MARK_STROKE, color, clip);
+    }
+}
+
 /// 绘制差异视图里的「»」按钮（用左侧替换这一段）：两道朝右的箭头，强调色，笔宽和勾选框的勾
 /// 一样，大小和勾选框的框相当。
 ///

@@ -234,6 +234,11 @@ pub(super) fn draw_goto(app: &mut App, frame: &mut Frame<'_>) {
                 t!("workspace-stash-placeholder"),
                 t!("workspace-stash-hint").to_owned(),
             ),
+            crate::app::PromptKind::RenameBranch { old } => (
+                t!("workspace-rename-branch-title"),
+                t!("workspace-rename-branch-placeholder"),
+                t!("workspace-rename-branch-hint", name = old.as_str()),
+            ),
             crate::app::PromptKind::NewTag { at } => (
                 t!("workspace-tag-title"),
                 t!("workspace-tag-placeholder"),
@@ -291,7 +296,13 @@ pub(crate) fn picker_parts(app: &App, card: Rect) -> PickerParts {
     if app.picker_places.is_some() {
         PickerParts::places(card)
     } else if app.picker_is_git() {
-        PickerParts::menu(card, crate::app::git::branch::picker::GIT_PICKER_FOOT)
+        use crate::app::git::branch::picker::{GIT_PICKER_ACTIONS, GIT_PICKER_FOOT};
+        let actions = if app.picker_has_actions() {
+            GIT_PICKER_ACTIONS
+        } else {
+            0.0
+        };
+        PickerParts::menu(card, actions, GIT_PICKER_FOOT)
     } else {
         PickerParts::new(card)
     }

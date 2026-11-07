@@ -1,11 +1,14 @@
 //! 文件树各行名字的过渡：合并显示的目录展开、折叠时，以及放不下的名字随鼠标展开、收回时。
 //!
 //! 宽度缓动到新值；相同的前缀保持不动，其余部分旧的先淡出，新的随后淡入，节奏与状态栏相同。
+//! 提交视图的改动列表用同一套（键是文件和目录，见 `CommitName`），两处的名字展开、收回一致。
 
+use std::borrow::Borrow;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::hash::Hash;
+use std::path::PathBuf;
 
 use crate::app::animation::{Clock, reveal, stage};
 use crate::app::status::motion::STATUS_SLIDE;
@@ -18,12 +21,11 @@ const FADE_OUT: f32 = 0.3;
 /// 视为宽度不变的最大差值（逻辑像素）。
 const STILL: f32 = 0.5;
 
-/// 文件树各行名字的过渡状态。
+/// 文件树各行名字的过渡状态，按 `K` 区分各行。
 ///
 /// 绘制时才知道每行的内容和宽度，因此可在只读 `App` 的绘制路径中更新。
-#[derive(Default)]
-pub struct TreeLabels {
-    rows: RefCell<HashMap<PathBuf, Label>>,
+pub struct TreeLabels<K = PathBuf> {
+    rows: RefCell<HashMap<K, Label>>,
     /// 本帧是否播放过渡；没有窗口、系统开启「减弱动态效果」时为假。
     animate: bool,
     /// 绘制的帧号，用来清除不再显示的行。
@@ -117,7 +119,19 @@ impl Label {
     }
 }
 
-impl TreeLabels {
+impl<K> Default for TreeLabels<K> {
+    fn default() -> Self {
+        Self {
+            rows: RefCell::default(),
+            animate: false,
+            frame: 0,
+            #[cfg(test)]
+            animate_without_window: false,
+        }
+    }
+}
+
+impl<K: Hash + Eq + Clone> TreeLabels<K> {
     /// 开始绘制一帧；`animate` 为假时各行直接显示为终态。
     pub fn begin_frame(&mut self, animate: bool) {
         self.frame += 1;
@@ -134,20 +148,24 @@ impl TreeLabels {
     ///
     /// 第一次出现的行直接显示；`cause` 变了时从当前宽度开始过渡，否则直接采用新值，进行中的
     /// 过渡继续朝新值进行。
-    pub fn sync(
+    pub fn sync<Q>(
         &self,
-        key: &Path,
+        key: &Q,
         cause: LabelCause,
         parts: &[Cow<'_, str>],
         width: f32,
-    ) -> LabelView {
+    ) -> LabelView
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ToOwned<Owned = K> + ?Sized,
+    {
         let same = |row: &Label| {
             row.parts.len() == parts.len() && row.parts.iter().zip(parts).all(|(a, b)| a == b)
         };
         let mut rows = self.rows.borrow_mut();
         if !rows.contains_key(key) {
             rows.insert(
-                key.to_path_buf(),
+                key.to_owned(),
                 Label {
                     parts: parts.iter().map(|p| p.clone().into_owned()).collect(),
                     width,
@@ -180,12 +198,16 @@ impl TreeLabels {
     }
 
     /// 返回 `key` 这一行本帧的绘制参数；没有记录时返回 `None`。
-    pub fn peek(&self, key: &Path) -> Option<LabelView> {
+    pub fn peek<Q>(&self, key: &Q) -> Option<LabelView>
+    where
+        K: Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
         self.rows.borrow().get(key).map(Label::view)
     }
 
     /// 返回正在过渡的各行及其绘制参数。
-    pub fn moving_rows(&self) -> Vec<(PathBuf, LabelView)> {
+    pub fn moving_rows(&self) -> Vec<(K, LabelView)> {
         self.rows
             .borrow()
             .iter()
@@ -231,6 +253,15 @@ impl App {
     pub(crate) fn animate_tree_labels(&mut self) -> bool {
         #[cfg(test)]
         if self.tree_labels.animate_without_window {
+            return true;
+        }
+        self.clock(STATUS_SLIDE).is_some()
+    }
+
+    /// 改动列表的名字本帧是否播放过渡，条件同 [`App::animate_tree_labels`]。
+    pub(crate) fn animate_commit_names(&mut self) -> bool {
+        #[cfg(test)]
+        if self.commit.names.animate_without_window {
             return true;
         }
         self.clock(STATUS_SLIDE).is_some()

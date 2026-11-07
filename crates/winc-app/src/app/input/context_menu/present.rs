@@ -148,6 +148,8 @@ impl App {
             MenuTarget::Tree(row.map(|i| segment.unwrap_or_else(|| ws.rows()[i].path.clone())))
         } else if let Some((path, m)) = self.search_context_target(x, y) {
             MenuTarget::SearchResult(path, m)
+        } else if let Some(i) = self.stash_context_target(x, y) {
+            MenuTarget::StashRow(i)
         } else if let Some(path) = self.commit_context_target(x, y) {
             MenuTarget::CommitFile(path)
         } else if let Some((i, path)) = self.log_file_context_target(x, y) {
@@ -184,6 +186,19 @@ impl App {
         self.global.select_row(index);
         self.focus = Focus::Results;
         self.global.selected.clone()
+    }
+
+    /// 右键点在提交视图里的一条储藏上：返回它是第几条储藏。
+    fn stash_context_target(&self, x: f32, y: f32) -> Option<usize> {
+        if !self.commit_shown() || self.commit.hits_generation != self.git.generation {
+            return None;
+        }
+        match hit(&self.commit_hits, x, y)? {
+            CommitTarget::Stash(i) | CommitTarget::StashApply(i) | CommitTarget::StashMenu(i) => {
+                Some(i)
+            }
+            _ => None,
+        }
     }
 
     /// 右键点在提交视图改动列表里的一个文件上：选中它（不打开预览），返回它的路径。
@@ -503,12 +518,23 @@ impl App {
                 commit_selection_menu(any_exists)
             }
             MenuTarget::CommitFile(path) => {
-                commit_file_menu(path.exists(), self.relative_path(path).is_some())
+                let staged = (self.git.status.as_ref()).is_some_and(|status| {
+                    (status.entries.iter())
+                        .any(|e| e.path == *path && e.staged.is_some() && !e.conflicted())
+                });
+                commit_file_menu(path.exists(), self.relative_path(path).is_some(), staged)
             }
             MenuTarget::SearchResult(_, m) => {
                 search_result_menu(m.is_none(), self.global.replace_open)
             }
             MenuTarget::CommitMore => self.commit_more_menu(),
+            MenuTarget::StashRow(i) => {
+                crate::app::git::branch::stash_ops(*i, self.branch.running.is_some())
+            }
+            MenuTarget::StashList => {
+                let busy = self.branch.running.is_some();
+                crate::app::git::branch::stash_menu(&self.git.stashes, busy)
+            }
             MenuTarget::CommitButton => self.commit_button_menu(),
             MenuTarget::LastCommit => self.last_commit_menu(),
             MenuTarget::TreeTools => self.tree_tools_menu(),
@@ -526,36 +552,26 @@ impl App {
                 .map(|i| MenuEntry::Item(MenuCommand::NewTerminalShell(i), true))
                 .collect(),
             MenuTarget::LogBranch => log_branch_menu(&self.git.branches),
-            MenuTarget::StatusBranches => {
-                let idle = self.branch.running.is_none();
-                let differs = matches!(
-                    self.git_sync_state(),
-                    SyncState::Push(_) | SyncState::Pull(_) | SyncState::Both { .. }
-                );
-                let on_branch = (self.git.status.as_ref())
-                    .is_some_and(|s| matches!(s.head, Some(winc_editor::git::Head::Branch(_))));
-                let usable = [
-                    idle && differs,
-                    idle && !self.git.remotes.is_empty(),
-                    idle && self.has_upstream(),
-                    // 不在分支上时没有东西可以推送。
-                    idle && on_branch && !self.git.remotes.is_empty(),
-                ];
-                status_branch_menu(&self.git.branches, &self.git.stale_branches(), usable)
-            }
             MenuTarget::StatusPlaces(_) => self.location_menu(),
+            MenuTarget::RebaseAction(_) => (crate::app::git::rebase::REBASE_ACTIONS.iter())
+                .map(|&action| MenuEntry::Item(MenuCommand::RebaseAction(action), true))
+                .collect(),
             MenuTarget::FormBase => form_base_menu(&self.git.branches),
             MenuTarget::LogFile(_, path) => {
                 log_file_menu(path.exists(), self.relative_path(path).is_some())
             }
-            MenuTarget::LogCommit(_) => {
+            MenuTarget::LogCommit(oid) => {
+                let commit = self.log_commit(oid);
+                let tags: Vec<&str> = (commit.iter().flat_map(|c| &c.refs))
+                    .filter_map(crate::app::git::log::menus::tag_name)
+                    .collect();
                 let busy = self.branch.running.is_some()
                     || self
                         .git
                         .status
                         .as_ref()
                         .is_some_and(|s| s.operation.is_some());
-                log_commit_menu(!busy, &self.current_branch_label())
+                log_commit_menu(!busy, &self.current_branch_label(), &tags)
             }
             MenuTarget::LogAuthor => {
                 let mut menu = vec![
@@ -639,9 +655,10 @@ impl App {
             MenuTarget::BranchOps(_) | MenuTarget::CommitMore => {
                 (self.git.branches.clone(), self.git.stashes.clone())
             }
-            MenuTarget::LogBranch | MenuTarget::FormBase | MenuTarget::StatusBranches => {
-                (self.git.branches.clone(), Vec::new())
+            MenuTarget::StashRow(_) | MenuTarget::StashList => {
+                (Vec::new(), self.git.stashes.clone())
             }
+            MenuTarget::LogBranch | MenuTarget::FormBase => (self.git.branches.clone(), Vec::new()),
             _ => Default::default(),
         };
         self.context_menu = Some(ContextMenu {
@@ -742,7 +759,7 @@ impl App {
     }
 
     /// 返回命令 `command` 的菜单项文字。
-    pub(in crate::app) fn menu_label(&self, command: MenuCommand) -> MenuLabel {
+    pub(crate) fn menu_label(&self, command: MenuCommand) -> MenuLabel {
         match command {
             MenuCommand::OpenRecent(i) => self.recent_label(i),
             MenuCommand::ShowTab(i) => self.tab_list_label(i),
@@ -808,18 +825,6 @@ impl App {
                     ..MenuLabel::plain(command.label())
                 }
             }
-            MenuCommand::StatusBranch(i) => {
-                let branch = self.git.branches.get(i);
-                let local = branch.filter(|b| !b.remote).map(|b| b.name.as_str());
-                let holder = local
-                    .and_then(|name| self.git.worktree_holding(name))
-                    .and_then(|i| self.git.worktrees.get(i))
-                    .map(crate::app::git::worktree::worktree_name);
-                MenuLabel {
-                    subtitle: holder,
-                    ..MenuLabel::plain(branch.map_or("", |b| b.name.as_str()))
-                }
-            }
             MenuCommand::StatusPlace(i) => self.location_menu_label(i),
             MenuCommand::LogBranch(i @ 1..) => {
                 MenuLabel::plain(self.git.branches.get(i - 1).map_or("", |b| b.name.as_str()))
@@ -836,9 +841,9 @@ impl App {
             }
             MenuCommand::GitBranch(..)
             | MenuCommand::GitFetch
-            | MenuCommand::StatusSync
             | MenuCommand::GitPush
             | MenuCommand::GitPull
+            | MenuCommand::GitPullRebase
             | MenuCommand::GitContinue
             | MenuCommand::GitAbort => self.git_label(command),
             // 编辑器字体的「默认」是 Maple Mono NF CN；界面字体仍是系统默认。
@@ -945,7 +950,6 @@ impl App {
                 Some(t!("menu-git-checkout-stale-worktree").to_owned())
             }
             (MenuCommand::GitFetch, _) => Some(t!("menu-git-fetch-desc").to_owned()),
-            (MenuCommand::StatusSync, _) => Some(t!("menu-git-sync-desc").to_owned()),
             (MenuCommand::GitContinue, _) => Some(t!("menu-git-continue-desc").to_owned()),
             (MenuCommand::GitAbort, _) => Some(t!("menu-git-abort-desc").to_owned()),
             (MenuCommand::GitPush, Some(up)) if ahead > 0 => {
@@ -957,7 +961,9 @@ impl App {
                 Some(t!("menu-git-pull-behind", count = behind, upstream = up))
             }
             (MenuCommand::GitPull, Some(up)) => Some(t!("menu-git-pull-from", upstream = up)),
-            (MenuCommand::GitPull, None) => Some(t!("menu-git-pull-no-upstream").to_owned()),
+            (MenuCommand::GitPull | MenuCommand::GitPullRebase, None) => {
+                Some(t!("menu-git-pull-no-upstream").to_owned())
+            }
             _ => None,
         };
         MenuLabel {
@@ -1049,6 +1055,9 @@ impl App {
         if command == MenuCommand::CommitAmend {
             return self.commit.amend;
         }
+        if command == MenuCommand::CommitTree {
+            return !self.commit.flat();
+        }
         if command == MenuCommand::TerminalMaximize {
             return self.terminal.maximized;
         }
@@ -1060,9 +1069,6 @@ impl App {
             .map(|v| &v.query);
         if let MenuCommand::FormBase(i) = command {
             return self.form_base_chosen(i);
-        }
-        if let MenuCommand::StatusBranch(i) = command {
-            return self.git.branches.get(i).is_some_and(|b| b.current);
         }
         if let MenuCommand::StatusPlace(i) = command {
             return self.location_places().get(i).is_some_and(|p| p.current);

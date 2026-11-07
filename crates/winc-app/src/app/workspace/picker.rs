@@ -147,7 +147,6 @@ impl App {
         self.picker_open = false;
         self.picker_branch_rows = None;
         self.picker_location_rows = None;
-        self.picker_create = None;
         self.picker_part_hits.clear();
         self.picker_fold = None;
         self.places_in = None;

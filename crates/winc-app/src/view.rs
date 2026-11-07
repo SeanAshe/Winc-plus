@@ -88,8 +88,10 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
 
     draw_top_bar(app, frame);
     draw_sidebar_button(app, frame);
+    app.sync_merge_panes();
     draw_editor(app, frame);
     editor::draw_split(app, frame);
+    git::merge::draw_side_panes(app, frame);
     terminal::draw_terminal(app, frame);
     draw_window_controls(app, frame);
     draw_status(app, frame);
@@ -97,6 +99,7 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     draw_file_drop(app, frame);
     draw_tree_overflow_closing(app, frame);
     draw_tree_overflow(app, frame);
+    git::commit::draw_commit_overflow_closing(app, frame);
     git::commit::draw_commit_overflow(app, frame);
     git::changes::draw_change_popup(app, frame);
 
@@ -579,14 +582,14 @@ fn sidebar_span(app: &App) -> Rect {
 /// 至少留 16 逻辑像素。
 ///
 /// 居中参照 `span` 而非各自的列表：各视图的列表起始高度不同，按列表居中会使切换视图时说明
-/// 文字上下跳动。
+/// 文字上下跳动。返回最后一行的下沿，说明下面还要放按钮时从这里往下排。
 fn draw_empty_state(
     app: &App,
     frame: &mut Frame<'_>,
     (area, span): (Rect, Rect),
     title: &str,
     detail: Option<&str>,
-) {
+) -> f32 {
     // 每行高 22 逻辑像素：正文一行 20，两行之间留 2。
     const ROW: f32 = 22.0;
     let p = app.palette;
@@ -614,6 +617,7 @@ fn draw_empty_state(
         let x = area.x + ((area.w - w) / 2.0).max(16.0);
         label(frame, app, *size, (x, row), text, *color, area);
     }
+    top + block
 }
 
 /// 在 `rect` 内垂直居中绘制一段字号为 `size`、没有小写字母的界面文本，返回文本末尾的 x 坐标。

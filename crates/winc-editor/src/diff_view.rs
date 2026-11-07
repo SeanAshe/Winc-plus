@@ -97,6 +97,32 @@ pub enum SideRow {
     },
 }
 
+/// 改动 `marks`（按位置排列）是否覆盖了行 `chars` 里全部非空白字符。
+///
+/// 整行都是改动时逐词标记不再有区分度，只铺行底色即可。没有非空白字符时返回 `false`。
+pub fn marks_cover_line(chars: &[char], marks: &[Range<usize>]) -> bool {
+    let first = chars.iter().position(|c| !c.is_whitespace());
+    let last = chars.iter().rposition(|c| !c.is_whitespace());
+    let (Some(first), Some(last)) = (first, last) else {
+        return false;
+    };
+    // 标记按位置排列，一遍走完：一行最长一万个字符，每次绘制都要判断。
+    let mut marks = marks.iter();
+    let mut mark = marks.next();
+    for (i, c) in chars.iter().enumerate().take(last + 1).skip(first) {
+        if c.is_whitespace() {
+            continue;
+        }
+        while mark.is_some_and(|m| m.end <= i) {
+            mark = marks.next();
+        }
+        if !mark.is_some_and(|m| m.contains(&i)) {
+            return false;
+        }
+    }
+    true
+}
+
 /// 一段改动里两侧逐行的逐词标记：`old[i]` 是这段改动左侧第 `i` 行里改了的字符区间。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct InlineMarks {
@@ -124,7 +150,7 @@ pub struct Compared {
 impl Compared {
     /// 比较 `old` 和 `new`。
     ///
-    /// 按块提交用的 key 直接从比较时切好的行算（与 `diff::pick_hunks` 的切法相同），不再把每段
+    /// 按块提交用的 key 直接从比较时切好的行算（与 `diff::pick_changes` 的切法相同），不再把每段
     /// 改动的每一行另外复制成 `String`。
     pub fn new(old: &Rope, new: &Rope) -> Compared {
         let (a, b) = (old.to_string(), new.to_string());
@@ -201,6 +227,8 @@ pub struct DiffView {
     pub rows: [Vec<SideRow>; 2],
     /// 每段改动在两侧占的显示行，下标同 `hunks`；这一侧没有行时是插入位置上的空区间。
     pub hunk_rows: [Vec<Range<usize>>; 2],
+    /// 折起来的各段在两侧的显示行：（左侧，右侧），按位置排列。
+    pub fold_rows: Vec<(usize, usize)>,
     /// 滚动位置的分段点：每段改动的开头和结尾各一个，（滚动位置，[左侧显示行，右侧显示行]），
     /// 见 [`DiffView::row_at`]。
     knots: Vec<(f32, [f32; 2])>,
@@ -246,6 +274,11 @@ pub struct DiffView {
     ///
     /// 按块提交时用它找到提交视图里的文件。
     pub repo_path: Option<PathBuf>,
+    /// 只暂存了一部分的文件：各段改动里已经暂存的部分（[`diff::staged_picks`]），按 `keys`
+    /// 对上各段；其余文件和读不出暂存区时为 `None`。
+    ///
+    /// 这种文件整个勾着时提交的是暂存区里的版本，差异里各段的勾选按它显示。
+    pub staged: Option<Vec<(u64, diff::Pick)>>,
 }
 
 impl DiffView {
@@ -265,6 +298,7 @@ impl DiffView {
             inline,
             rows: [Vec::new(), Vec::new()],
             hunk_rows: [Vec::new(), Vec::new()],
+            fold_rows: Vec::new(),
             knots: Vec::new(),
             collapse: true,
             unified: false,
@@ -278,6 +312,7 @@ impl DiffView {
             read_selection: None,
             keys,
             repo_path: None,
+            staged: None,
         };
         view.layout();
         view
@@ -912,6 +947,17 @@ impl DiffView {
             }
             (a, b) = (h.old.end, h.new.end);
         }
+        let folds = |rows: &[SideRow]| -> Vec<usize> {
+            (rows.iter().enumerate())
+                .filter(|(_, row)| matches!(row, SideRow::Fold { .. }))
+                .map(|(i, _)| i)
+                .collect()
+        };
+        // 折起来的一段总是两侧成对加入，按顺序一一对应。
+        self.fold_rows = folds(&rows[LEFT])
+            .into_iter()
+            .zip(folds(&rows[RIGHT]))
+            .collect();
         self.rows = rows;
         // 滚动位置：没改的两侧一行对一行，每段改动占长的那一侧的行数。
         let mut knots = Vec::with_capacity(2 * self.hunks.len());

@@ -134,22 +134,6 @@ fn local_branches_are_listed_by_their_last_commit() {
             "z",
         ]
     );
-
-    // 状态栏的菜单是同样的顺序。
-    use crate::app::input::context_menu::{MenuCommand, MenuEntry, status_branch_menu};
-    let menu = status_branch_menu(&branches, &[], [true; 4]);
-    let order: Vec<String> = (menu.iter())
-        .take_while(|entry| !matches!(entry, MenuEntry::Separator))
-        .map(|entry| match entry {
-            MenuEntry::Item(MenuCommand::StatusBranch(i), _) => branches[*i].name.clone(),
-            MenuEntry::Submenu(title, _) => format!("{title}/"),
-            _ => String::new(),
-        })
-        .collect();
-    assert_eq!(
-        order[..6],
-        ["current", "feature/", "new", "tie-a", "tie-b", "old"]
-    );
 }
 
 #[test]

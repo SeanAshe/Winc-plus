@@ -38,8 +38,13 @@ block2 = { version = "0.6", default-features = false, features = ["std"] }
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes", "objc2"] }
 
 # 其他 Unix 平台：选择文件的面板通过 XDG 桌面门户（D-Bus），见 portal.rs。
+# Wayland 上凭激活令牌把已有窗口切到前台（xdg-activation，见 wayland.rs），接入 winit 的
+# Wayland 连接；这三个库和所需特性都已由 winit 引入，不增加依赖。
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 zbus = { version = "5.19", default-features = false, features = ["async-io", "blocking-api"] }
+wayland-backend = { version = "0.3", features = ["client_system"] }
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging"] }
 
 # Windows：打开、另存为用系统的文件对话框（`IFileOpenDialog`、`IFileSaveDialog`，COM 接口）。
 # 回收站（`SHFileOperationW`）等系统接口；版本与 `rfd` 保持一致，避免重复链接同一个库。

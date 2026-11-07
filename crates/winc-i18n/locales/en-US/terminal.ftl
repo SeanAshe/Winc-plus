@@ -29,7 +29,7 @@ terminal-command-finished = { $name } finished ({ $duration })
 terminal-command-copied = Command copied
 terminal-no-failed-commands = No failed commands
 terminal-no-error-location = No file locations found in the last failed command’s output
-terminal-error-position = Error { $index }/{ $total }: ↩ Open
+terminal-error-position = Error { $index }/{ $total }: { common-key-enter } Open
 terminal-folded-lines-unit = { $count ->
         [one] line
        *[other] lines

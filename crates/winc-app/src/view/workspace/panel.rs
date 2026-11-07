@@ -867,7 +867,23 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
             let rect = app.status_hits.iter().find(|(_, i)| *i == item)?.0;
             Some((rect, with_key(t!("cmd-settings"), Some(Action::Settings))))
         }
-        // 提交按钮：无法提交时显示原因，可以提交时显示提交目标和快捷键。
+        // 分支选择器的拉取、推送、获取：写明会做什么（和谁差几个提交、推到哪儿）；不能用时写原因。
+        Hover::PickerPart(
+            part @ (crate::app::PickerPart::Pull
+            | crate::app::PickerPart::Push
+            | crate::app::PickerPart::Fetch),
+        ) => {
+            let rect = app.picker_part_hits.iter().find(|(_, p)| *p == part)?.0;
+            let command = app.picker_action_command(part);
+            let label = app.menu_label(command);
+            let tip = if app.git.remotes.is_empty() {
+                t!("git-push-no-remote").to_owned()
+            } else {
+                label.subtitle.unwrap_or(label.title)
+            };
+            Some((rect, tip))
+        }
+        // 提交按钮：无法提交时显示原因，可以提交时显示提交目标和快捷键；按住 ⌥ 时是提交并推送。
         Hover::Commit(CommitTarget::Commit) => {
             use winc_editor::git::{Head, Operation};
             let parts = app.commit_parts();
@@ -882,23 +898,32 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
                 (Some(Operation::Rebase), _) => t!("workspace-tip-continue-rebase").to_owned(),
                 (Some(op), _) => t!("workspace-tip-finish-operation", operation = op.label()),
                 (None, _) if app.commit.amend => t!("workspace-tip-amend").to_owned(),
+                (None, Some(Head::Branch(b))) if app.commit_pushes() => {
+                    t!("workspace-tip-commit-push-to", branch = b.as_str())
+                }
                 (None, Some(Head::Branch(b))) => t!("workspace-tip-commit-to", branch = b.as_str()),
                 (None, _) => t!("workspace-tip-commit").to_owned(),
             };
-            let key = if cfg!(target_os = "macos") {
-                "⌘↩"
-            } else {
-                "Ctrl+Enter"
+            let key = match (cfg!(target_os = "macos"), app.commit_pushes()) {
+                (true, true) => "⌥⌘↩",
+                (true, false) => "⌘↩",
+                (false, true) => "Ctrl+Alt+Enter",
+                (false, false) => "Ctrl+Enter",
             };
             Some((
                 parts.commit,
                 format!("{name}{}{key}", crate::layout::TIP_KEY),
             ))
         }
-        Hover::Commit(target @ (CommitTarget::OpenFile(_) | CommitTarget::RevertFile(_))) => {
+        Hover::Commit(
+            target @ (CommitTarget::OpenFile(_)
+            | CommitTarget::RevertFile(_)
+            | CommitTarget::GroupRevert(_)),
+        ) => {
             let rect = app.commit_hits.iter().find(|(_, t)| *t == target)?.0;
             let label = match target {
                 CommitTarget::OpenFile(_) => t!("workspace-tip-open-file"),
+                CommitTarget::GroupRevert(_) => t!("menu-commit-roll-back"),
                 _ => t!("workspace-tip-revert-change"),
             };
             Some((rect, label.to_owned()))
@@ -906,8 +931,7 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
         // 只暂存了一部分的文件：勾选框是「−」，说明只提交已暂存的内容。其他文件的勾选框没有提示。
         Hover::Commit(target @ CommitTarget::Check(i)) => {
             let entry = app.git.status.as_ref()?.entries.get(i)?;
-            let staged_only = entry.partly_staged() && !app.commit.skips_hunks(entry);
-            if !staged_only || !app.commit.checked(entry) {
+            if !app.commit.staged_only(entry) {
                 return None;
             }
             let rect = app.commit_hits.iter().find(|(_, t)| *t == target)?.0;
@@ -971,14 +995,8 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
                     with_key(t!("workspace-tip-git-log"), Some(Action::GitShowLog)),
                 ));
             }
-            if target == CommitTarget::Layout {
-                // 说的是点下去会变成什么。
-                let tip = if app.commit.flat() {
-                    t!("workspace-tip-show-as-tree")
-                } else {
-                    t!("workspace-tip-show-as-list")
-                };
-                return Some((rect, tip.to_owned()));
+            if target == CommitTarget::Refresh {
+                return Some((rect, t!("workspace-tip-git-refresh").to_owned()));
             }
             Some((rect, t!("workspace-tip-more-actions").to_owned()))
         }
@@ -1058,6 +1076,7 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
                     Some(Action::GitRevertChange),
                 ),
                 DiffTarget::Include(_) => t!("workspace-tip-include-change").to_owned(),
+                DiffTarget::IncludeLine(..) => t!("workspace-tip-include-line").to_owned(),
                 _ if app.editor.active()?.diff.as_deref()?.collapses() => {
                     t!("workspace-tip-expand-unchanged").to_owned()
                 }

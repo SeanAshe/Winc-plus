@@ -462,6 +462,10 @@ impl App {
 
     /// 鼠标在 `(x, y)` 时，下面的改动标记：第几处改动、指着的是哪一行。
     fn change_mark_hit(&self, x: f32, y: f32) -> Option<(usize, usize)> {
+        // 三栏合并不绘制这些标记。
+        if self.merge_panes_placed() {
+            return None;
+        }
         let l = self.layout;
         let left = mark_x(l.gutter) - 2.0;
         if !(left..left + MARK_HIT_W).contains(&x) || y < l.text.y || y > l.text.bottom() {
@@ -490,6 +494,10 @@ impl App {
     /// 认的范围比色条宽一些、上下各多 2 像素，便于点中；不伸到右边滑块那一列。
     /// 挨得近时取离得最近的。
     pub(crate) fn ruler_change_at(&self, x: f32, y: f32) -> Option<(usize, Rect)> {
+        // 三栏合并不绘制这些标记。
+        if self.merge_panes_placed() {
+            return None;
+        }
         let doc = self.editor.active().filter(|d| d.shows_text())?;
         let hunks = self.changes.hunks(doc.id);
         let track = self.layout.editor;

@@ -5,6 +5,7 @@ use winc_i18n::t;
 
 use super::*;
 use crate::app::git::branch::Then;
+use crate::app::lifecycle::notice::NoticeAction;
 
 /// 分支行右端同步控件的状态。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -207,7 +208,7 @@ impl App {
         let staged: Vec<PathBuf> = self
             .commit
             .checked_entries(status)
-            .filter(|e| e.partly_staged() && !self.commit.skips_hunks(e))
+            .filter(|e| self.commit.staged_only(e))
             .filter(|_| status.operation.is_none())
             .map(|e| e.path.clone())
             .collect();
@@ -290,13 +291,14 @@ impl App {
     }
 
     /// 回滚前先确认（系统确认框）；确认后回滚勾上的文件。
-    pub(super) fn ask_rollback(&mut self) {
+    pub(super) fn ask_rollback(&mut self, group: CommitGroup) {
         let Some(status) = self.git.status.as_ref() else {
             return;
         };
         let paths: Vec<PathBuf> = self
             .commit
             .checked_entries(status)
+            .filter(|e| group.holds(e))
             .map(|e| e.path.clone())
             .collect();
         if paths.is_empty() {
@@ -376,6 +378,8 @@ impl App {
     pub(in crate::app) fn poll_commit(&mut self) {
         while let Ok(outcome) = self.commit.results.1.try_recv() {
             match outcome {
+                Outcome::StashFiles(oid, name, files) => self.stash_files_arrived(oid, name, files),
+                Outcome::StashDiff(title, view) => self.stash_diff_arrived(title, view),
                 Outcome::LastMessage(message) => {
                     // 等结果的时候用户已经关闭了「修改上一次提交」，就不填。
                     if self.commit.amend {
@@ -390,9 +394,10 @@ impl App {
                         let name = winc_editor::display_name(&root);
                         match result {
                             Ok(oid) => self.flash(t!("git-commit-done-in", name = name, oid = oid)),
-                            Err(e) => {
-                                self.notify(t!("git-commit-failed-in", name = name, error = e))
-                            }
+                            Err(e) => self.notify_with(
+                                t!("git-commit-failed-in", name = name, error = e),
+                                NoticeAction::GitOutput,
+                            ),
                         }
                         continue;
                     }
@@ -421,7 +426,10 @@ impl App {
                         }
                         Err(e) => {
                             self.commit.push_after = false;
-                            self.notify(t!("git-commit-failed", error = e));
+                            self.notify_with(
+                                t!("git-commit-failed", error = e),
+                                NoticeAction::GitOutput,
+                            );
                         }
                     }
                     self.git_refresh();
@@ -525,8 +533,19 @@ fn partial_content(
     let (Ok(head), Ok(disk)) = (String::from_utf8(head), String::from_utf8(disk)) else {
         return Err(t!("git-commit-partial-not-utf8", name = name));
     };
-    let content = winc_core::diff::pick_hunks(&head, &disk, |key, old| {
-        !skipped.iter().any(|s| s.matches(key, &old))
+    // 各段改动和勾掉的记录一一对应（见 `state::assign`），内容相同的几处各按各的勾选提交。
+    use winc_core::diff::{Pick, hunk_key, line_hunks, lines, pick_changes};
+    let (a, b) = (lines(&head), lines(&disk));
+    let all: Vec<(u64, std::ops::Range<usize>)> = (line_hunks(&head, &disk).into_iter())
+        .map(|h| {
+            let key = hunk_key(a[h.old.clone()].iter().copied(), b[h.new].iter().copied());
+            (key, h.old)
+        })
+        .collect();
+    let picks = super::state::picks(skipped, &all);
+    let content = pick_changes(&head, &disk, |key, old| {
+        (all.iter().position(|(k, o)| *k == key && *o == old))
+            .map_or(Pick::Apply, |h| picks[h].clone())
     });
     Ok(Partial {
         path: path.to_path_buf(),

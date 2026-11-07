@@ -10,6 +10,10 @@ common-reveal-in-folder = { $platform ->
     [windows] 在文件资源管理器中显示
    *[other] 在目录中显示
 }
+common-key-enter = { $platform ->
+    [macos] ↩
+   *[other] Enter
+}
 common-close = 关闭
 common-close-dialog-first = 窗口上已有对话框，请先关闭它
 
@@ -52,3 +56,17 @@ common-dialog-copy-ignored = 复制被忽略的文件
 common-dialog-open-in-new-window = 在新窗口中打开
 common-dialog-checkout-after-create = 创建后签出
 common-dialog-creating = 正在创建…
+
+## 移到「应用程序」文件夹
+
+app-move-title = 要将 winc 移到「应用程序」文件夹吗？
+app-move-detail = winc 当前在「{ $folder }」中直接运行，无法自动更新。移到「应用程序」文件夹后，原件会移到废纸篓，系统中只保留这一份 winc。
+app-move-detail-image = winc 当前从磁盘映像运行，无法自动更新。移到「应用程序」文件夹后，磁盘映像会被推出，系统中只保留这一份 winc。
+app-move-button = 移到「应用程序」文件夹
+app-move-stay = 不移动
+app-move-failed = 无法移到「应用程序」文件夹：{ $error }
+app-move-target-running = 「应用程序」文件夹中的 winc 正在运行，请先退出它
+app-move-trash-failed = 无法将「{ $path }」移到废纸篓
+app-move-copy-failed = 复制失败（{ $status }）
+app-move-relaunch-failed = 无法重新启动 winc：{ $error }
+app-move-unknown-location = 无法确定 winc 的位置

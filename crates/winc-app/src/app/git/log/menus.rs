@@ -1,8 +1,17 @@
 //! 提交的菜单，以及执行前要确认的操作。
 
+use winc_editor::git::TagTarget;
 use winc_i18n::t;
 
 use super::*;
+
+/// 返回引用 `reference` 的标签名；不是标签时返回 `None`。
+pub(in crate::app) fn tag_name(reference: &Ref) -> Option<&str> {
+    match reference {
+        Ref::Tag(name) => Some(name),
+        _ => None,
+    }
+}
 
 impl App {
     /// 右键点在日志的一个提交上：选中它，返回它的提交号。
@@ -22,7 +31,7 @@ impl App {
     }
 
     /// 当前日志标签里提交号是 `oid` 的提交。
-    pub(super) fn log_commit(&self, oid: &str) -> Option<Commit> {
+    pub(in crate::app) fn log_commit(&self, oid: &str) -> Option<Commit> {
         let view = self.editor.active()?.log.as_deref()?;
         view.commits.iter().find(|c| c.oid == oid).cloned()
     }
@@ -65,6 +74,13 @@ impl App {
             MenuCommand::LogNewBranch => self.open_branch_dialog(None, Some(oid)),
             MenuCommand::LogNewWorktree => self.new_worktree_at(oid, local_branch(&commit)),
             MenuCommand::LogNewTag => self.open_tag_prompt(oid),
+            MenuCommand::LogInteractiveRebase => self.start_interactive_rebase(oid),
+            MenuCommand::LogTag(op, i) => {
+                let tag = commit.refs.iter().filter_map(tag_name).nth(i);
+                if let Some(name) = tag {
+                    self.run_tag_op(op, name.to_owned());
+                }
+            }
             MenuCommand::LogCherryPick => self.git_operate(
                 t!("git-op-cherry-pick", commit = tag.as_str()),
                 move |git, root| {
@@ -127,7 +143,7 @@ impl App {
     }
 
     /// 先请用户确认（[`App::show_confirm`]），确认后执行 `op`；没有窗口时（测试中）直接执行。
-    fn confirm_log(&mut self, op: LogConfirmed) {
+    pub(in crate::app) fn confirm_log(&mut self, op: LogConfirmed) {
         let branch = self.current_branch_label();
         let (message, detail, action) = match &op {
             LogConfirmed::Detach(oid) => (
@@ -143,6 +159,26 @@ impl App {
                     t!("git-log-reset-hard-confirm-button"),
                 )
             }
+            LogConfirmed::DeleteTag(name, target) => {
+                let name = name.as_str();
+                match target {
+                    TagTarget::Local => (
+                        t!("git-tag-delete-confirm", name = name),
+                        t!("git-tag-delete-confirm-detail").to_owned(),
+                        t!("git-tag-delete-confirm-button"),
+                    ),
+                    TagTarget::Remote => (
+                        t!("git-tag-delete-remote-confirm", name = name),
+                        t!("git-tag-delete-remote-confirm-detail").to_owned(),
+                        t!("git-tag-delete-confirm-button"),
+                    ),
+                }
+            }
+            LogConfirmed::RemoveRemote(name) => (
+                t!("git-remote-remove-confirm", name = name.as_str()),
+                t!("git-remote-remove-confirm-detail").to_owned(),
+                t!("git-remote-remove-confirm-button"),
+            ),
             // 删除储藏、分支的确认在分支菜单中进行，不经过这里。
             LogConfirmed::DropStash(_) | LogConfirmed::DeleteBranch(..) => {
                 return self.run_log_confirmed(op);
@@ -186,6 +222,8 @@ impl App {
                 );
             }
             LogConfirmed::DeleteBranch(name, force) => self.run_delete_branch(name, force),
+            LogConfirmed::DeleteTag(name, target) => self.delete_tag(name, target),
+            LogConfirmed::RemoveRemote(name) => self.remove_remote(name),
         }
     }
 }

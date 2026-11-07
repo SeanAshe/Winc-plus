@@ -69,6 +69,7 @@ settings-remote-images-desc = 加载文档中的徽章和截图等网络图片�
 settings-check-updates-desc = 启动时及之后每天检查一次，发现新版本时在状态栏中提示
 settings-system-title-bar-desc = 由桌面环境绘制标题栏和窗口边框
 settings-version = 版本
+settings-version-copied = 已复制版本号 { $version }
 settings-updates = 软件更新
 settings-check-now = 检查更新
 settings-updates-off = 此版本不支持应用内更新
@@ -87,7 +88,8 @@ settings-format-on-save-desc = 保存文件前使用下方的工具进行格式�
 settings-fix-on-save-desc = 保存文件前自动修复 lint 工具可修复的问题
 settings-skip-on-save-desc = 保存以下语言的文件时不执行修复和格式化，手动执行不受影响
 settings-git-module-desc = 在 Git 仓库中显示文件状态和当前分支
-settings-terminal-module-desc = 编辑区下方的终端面板（⌃`），打开时启动一个辅助进程
+settings-terminal-module-desc-key = 编辑区下方的终端面板（{ $key }），打开时启动一个辅助进程
+settings-terminal-module-desc = 编辑区下方的终端面板，打开时启动一个辅助进程
 
 ## 设置项的值和提示。
 
@@ -98,7 +100,7 @@ settings-skip-on-save-none = 无
 settings-list-separator = 、
 settings-font-default = 系统默认
 settings-command-placeholder = 输入命令，{ "{file}" } 表示文件路径
-settings-command-edit-hint = 按 ↩ 保存，按 Esc 取消
+settings-command-edit-hint = 按 { common-key-enter } 保存，按 Esc 取消
 settings-font-not-installed = 未安装字体「{ $name }」
 settings-font-file-not-found = 未找到字体文件「{ $name }」
 settings-font-unsupported = 不支持字体「{ $name }」的字形格式

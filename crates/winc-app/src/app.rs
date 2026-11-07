@@ -25,9 +25,7 @@ use animation::{
     EXIT_FADE, FOLD_ANIMATION, PICKER_ANIMATION, POPUP_IN, POPUP_OUT, SIDEBAR_ANIMATION, TAB_SLIDE,
     TREE_ANIMATION,
 };
-pub(crate) use diff::{
-    DIFF_GUTTER_PAD, DIFF_TEXT_PAD, DiffParts, DiffTarget, HunkKind, diff_parts,
-};
+pub(crate) use diff::{DIFF_TEXT_PAD, DiffParts, DiffTarget, HunkKind, diff_parts};
 pub use editor::conflict::{ConflictAction, OverwriteChoice};
 pub use editor::editing::BraceKey;
 pub use editor::editing::ScrollGlide;
@@ -37,11 +35,11 @@ pub use editor::format::{FormatState, ToolAnswer};
 pub use editor::hint::NameHint;
 pub(crate) use editor::scrollbar::{ScrollArea, Scrollbars, ThumbLook};
 pub use editor::sticky::{StickyCache, StickyRow};
-pub(crate) use git::branch::picker::{BranchCreate, GitAnchor, PickerPart};
+pub(crate) use git::branch::picker::{GitAnchor, PickerPart};
 pub(crate) use git::changes::{ChangeTarget, MARK_W, mark_x, ruler_rows};
 pub(crate) use git::commit::{
-    COMMIT_ROW, CommitOverflow, CommitParts, CommitRow, CommitRows, CommitTarget, MESSAGE_LINE,
-    MESSAGE_PAD, SyncState,
+    COMMIT_ROW, CommitGroup, CommitLabels, CommitName, CommitOverflow, CommitParts, CommitRow,
+    CommitRows, CommitTarget, MESSAGE_LINE, MESSAGE_PAD, STASH_GAP, SyncState,
 };
 pub(crate) use input::context_menu::{
     CHECK_COLUMN, ICON_COLUMN, MenuIcon, POPUP_PAD, POPUP_TEXT_X, PopupLevel, PopupMenu, PopupRow,
@@ -127,6 +125,17 @@ pub enum UserEvent {
     /// 菜单栏的「设置…」（或 ⌘,）被触发；设置已打开时关闭设置。
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     OpenSettings,
+    /// macOS 上全屏过渡中红绿灯的位置变了（见 `crate::macos::TrafficLights`）：重新计算布局并
+    /// 重画。
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    TrafficLightsMoved,
+    /// 询问是否将应用移到「应用程序」文件夹（见 `crate::macos::install`）；在窗口显示后处理，
+    /// 提示框依附于窗口。
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    OfferMoveToApplications,
+    /// 「移到「应用程序」文件夹」提示框中的选择：是否移动，以及是否勾选「不再询问」。
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    MoveToApplications(bool, bool),
     /// 选择面板打不开：哪一次选择，以及原因（没有门户时为 `None`）；只有经桌面门户选择的平台
     /// 有这种情况。
     #[cfg(all(unix, not(target_os = "macos")))]
@@ -171,11 +180,11 @@ pub enum UserEvent {
     FilesChanged,
     /// 后台读到一段标准输入（`winc -`）。
     StdinRead,
-    /// 新启动的 `winc` 把要打开的目录和文件交给了整个应用（见 [`crate::instance`]）；由应用层
-    /// 决定切到哪个窗口或新建窗口，收不收经通道答复。
+    /// 新启动的 `winc` 把要打开的目录和文件，以及它的激活令牌交给了整个应用（见
+    /// [`crate::instance`]）；由应用层决定切到哪个窗口或新建窗口，收不收经通道答复。
     ///
     /// 不会交到窗口里。
-    Launched(Vec<crate::cli::Target>, std::sync::mpsc::Sender<bool>),
+    Launched(crate::instance::Launch, std::sync::mpsc::Sender<bool>),
     /// 系统交来要打开的文件和目录（拖到程序坞的图标上、文件管理器里的「打开方式」）；与
     /// [`UserEvent::Launched`] 一样由应用层决定开在哪个窗口里。
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -222,6 +231,10 @@ pub enum UserEvent {
     GitBase,
     /// 后台的分支操作（获取、拉取、推送、签出……）做完了。
     GitOperated,
+    /// 后台的 Git 操作发来了输入请求。
+    GitQuestion,
+    /// 后台读取好了三栏合并的两侧。
+    GitMergeSides,
     /// 后台取到了日志的一批提交、一个提交的详情或一个文件的差异。
     GitLog,
     /// 终端的辅助进程发来了消息。
@@ -270,6 +283,8 @@ pub enum PromptKind {
     Stash,
     /// 新标签的名字；`at` 是打在哪个提交上（完整的提交号）。
     NewTag { at: String },
+    /// 分支的新名字；`old` 是现在的名字。
+    RenameBranch { old: String },
 }
 
 /// 键盘焦点所在的区域。
@@ -481,16 +496,18 @@ impl Hover {
                         | git::log::LogTarget::Line(..)
                 )
                 | Hover::Blame(_)
+                | Hover::PickerPart(PickerPart::Pull | PickerPart::Push | PickerPart::Fetch)
                 | Hover::Commit(
                     CommitTarget::Log
                         | CommitTarget::Sync
                         | CommitTarget::Location
-                        | CommitTarget::Layout
+                        | CommitTarget::Refresh
                         | CommitTarget::More
                         | CommitTarget::Commit
                         | CommitTarget::CommitMenu
                         | CommitTarget::OpenFile(_)
                         | CommitTarget::RevertFile(_)
+                        | CommitTarget::GroupRevert(_)
                         | CommitTarget::Check(_)
                 )
                 | Hover::Diff(
@@ -502,6 +519,7 @@ impl Hover {
                         | DiffTarget::Collapse
                         | DiffTarget::Revert(_)
                         | DiffTarget::Include(_)
+                        | DiffTarget::IncludeLine(..)
                 )
                 | Hover::Merge(git::merge::MergeTarget::Previous | git::merge::MergeTarget::Next)
         )
@@ -940,8 +958,6 @@ pub struct App {
     pub picker_location_rows: Option<Vec<git::location_picker::LocationRow>>,
     /// 分支选择器、位置选择器从哪儿展开。
     pub picker_anchor: GitAnchor,
-    /// 正在分支选择器里新建分支。
-    pub picker_create: Option<BranchCreate>,
     /// 选择面板这一帧画出来的按钮：点击、悬停都按它们认。
     pub picker_part_hits: Vec<(Rect, PickerPart)>,
     /// 位置选择器里改变过默认展开状态的仓库（主工作树的目录）。
@@ -1047,6 +1063,9 @@ pub struct App {
     /// 后台线程和系统回调通过该代理把事件送回事件循环（带着本窗口的编号，见 [`crate::winc`]）；
     /// 测试中没有事件循环，为 `None`。
     proxy: Option<crate::winc::WindowProxy>,
+    /// 窗口的红绿灯（见 [`crate::macos::TrafficLights`]），窗口创建后才有，随窗口一同释放。
+    #[cfg(target_os = "macos")]
+    traffic_lights: Option<crate::macos::TrafficLights>,
     /// 本窗口在进程里的编号；测试中单独建的 `App` 没有。
     pub(crate) key: Option<crate::winc::WindowKey>,
     /// 各窗口共用的状态：别的窗口开着什么、剪切的文件，以及请应用层做的事。
@@ -1059,6 +1078,9 @@ pub struct App {
     pub(crate) window_frame: Option<winc_config::WindowFrame>,
     /// 新窗口和打开它的窗口共用的字体和字形缓存（建渲染器时用一次）。
     pub(crate) glyphs_from: Option<winc_render::SharedGlyphs>,
+    /// 待使用的激活令牌（见 [`App::set_activation`]）。
+    #[cfg(all(unix, not(target_os = "macos")))]
+    activation: Option<winit::window::ActivationToken>,
     /// 窗口完全看不见（被挡住、最小化、在别的桌面上）：不画，屏幕上那块画面标成可清除。
     occluded: bool,
     /// 动画下一帧的绘制时刻（没有显示链接时按计时器安排）。
@@ -1124,6 +1146,7 @@ impl App {
             UserEvent::GitCommit => self.poll_commit(),
             UserEvent::GitBase => self.poll_bases(),
             UserEvent::GitOperated => self.poll_branch_ops(),
+            UserEvent::GitMergeSides => self.poll_merge_sides(),
             UserEvent::GitLog => self.poll_log(),
             UserEvent::GitBlame => self.poll_blame(),
             UserEvent::Reread => self.poll_rereads(),

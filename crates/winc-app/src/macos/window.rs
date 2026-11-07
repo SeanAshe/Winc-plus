@@ -4,7 +4,7 @@
 //! - 读取「减弱动态效果」和首选语言；查询鼠标此刻在窗口中的位置（拖文件进来时用）。
 //! - 测量时窗口静默（透明、点击穿透、不抢占焦点）。
 
-use super::files::rust_string;
+use super::files::{ns_string, rust_string};
 use super::*;
 use objc2::Encode;
 use objc2::runtime::Bool;
@@ -79,53 +79,244 @@ pub fn show_without_focus(window: &Window) {
     }
 }
 
-/// 把红绿灯放进高 `bar_height` 的顶栏并垂直居中，第一个按钮距窗口左边缘 `left`（逻辑像素）；
-/// 全屏时不调整。
+/// `NSWindowStyleMaskFullScreen`：窗口处于全屏（或正在进入全屏）时 `styleMask` 含这一位。
+const STYLE_FULL_SCREEN: usize = 1 << 14;
+
+/// 窗口的红绿灯：窗口模式下放进顶栏并垂直居中，全屏时交还给 `AppKit`。
 ///
-/// 返回最后一个按钮的右边缘距窗口左边缘的距离（逻辑像素）。按钮的间距由系统决定（macOS 26
-/// 为 23，更早的版本为 20），布局据此在红绿灯右侧留出空间。全屏或取不到按钮时返回 `None`。
-pub fn place_traffic_lights(window: &Window, bar_height: f64, left: f64) -> Option<f64> {
-    if window.fullscreen().is_some() {
-        return None;
+/// 全屏时 `AppKit` 在屏幕顶部显示的标题栏中绘制红绿灯，并按其默认位置排列。因此进入全屏的过渡
+/// 开始时，按钮恢复到 `AppKit` 原来的位置。退出全屏的过渡期间，`AppKit` 重新排布标题栏，按钮回到
+/// 默认位置，此时摆放的位置不会保留：过渡开始时隐藏标题栏容器，过渡结束后按窗口模式摆放并重新
+/// 显示，过渡期间按钮的位置不会变化。
+///
+/// 上述处理在通知发出时同步完成：监听不指定队列，通知中心在发出通知的线程（主线程）上直接调用
+/// 回调。若经事件循环处理，过渡的前几帧仍使用原来的位置。释放时注销监听。
+pub struct TrafficLights {
+    shared: std::rc::Rc<Lights>,
+    tokens: Vec<Retained<AnyObject>>,
+}
+
+/// [`TrafficLights`] 与通知回调共用的状态。
+struct Lights {
+    /// 窗口的 `NSWindow`，由本结构持有一份引用。
+    window: Retained<AnyObject>,
+    /// 顶栏的高度（逻辑像素），红绿灯在其中垂直居中。
+    bar_height: f64,
+    /// 第一个按钮距窗口左边缘的距离（逻辑像素）。
+    left: f64,
+    /// 第一次摆放之前 `AppKit` 给出的位置：标题栏容器的矩形和三个按钮的原点；全屏时恢复。
+    native: std::cell::Cell<Option<(CGRect, [CGPoint; 3])>>,
+    /// 窗口是否处于全屏或正在进入全屏；在全屏过渡开始时更新，早于 winit 报告的状态。
+    fullscreen: std::cell::Cell<bool>,
+    /// 按钮位置改变后调用，由应用重新计算布局并重画。
+    moved: Box<dyn Fn()>,
+}
+
+impl TrafficLights {
+    /// 管理 `window` 的红绿灯：按钮放进高 `bar_height` 的顶栏并垂直居中，第一个按钮距窗口左
+    /// 边缘 `left`（逻辑像素）；全屏过渡中按钮的位置改变后调用 `moved`。取不到 `NSWindow` 时
+    /// 返回 `None`。
+    pub fn new(
+        window: &Window,
+        bar_height: f64,
+        left: f64,
+        moved: impl Fn() + 'static,
+    ) -> Option<TrafficLights> {
+        let ns_window = ns_window(window)?;
+        // SAFETY: `ns_window` 是主线程上仍然存活的 NSWindow；`retain` 增加一次引用计数，由
+        // `Retained` 在释放时归还。`styleMask` 是 NSWindow 的公开属性。
+        let (window, style) = unsafe {
+            let retained = Retained::retain(std::ptr::from_ref(ns_window).cast_mut())?;
+            let style: usize = msg_send![ns_window, styleMask];
+            (retained, style)
+        };
+        let shared = std::rc::Rc::new(Lights {
+            window,
+            bar_height,
+            left,
+            native: std::cell::Cell::new(None),
+            fullscreen: std::cell::Cell::new(style & STYLE_FULL_SCREEN != 0),
+            moved: Box::new(moved),
+        });
+        let mut tokens = Vec::new();
+        for (name, step) in [
+            ("NSWindowWillEnterFullScreenNotification", Step::WillEnter),
+            ("NSWindowWillExitFullScreenNotification", Step::WillExit),
+            ("NSWindowDidExitFullScreenNotification", Step::DidExit),
+        ] {
+            let name = ns_string(name)?;
+            let lights = std::rc::Rc::clone(&shared);
+            let block = RcBlock::new(move |_note: *mut AnyObject| lights.transition(step));
+            // SAFETY: `shared.window` 是仍然存活的 NSWindow，`name` 是有效的 NSString。监听只接收
+            // 该窗口的通知；`queue` 为空，`block` 在发出通知的线程（主线程）上同步执行，由通知
+            // 中心复制并持有。返回的监听对象由本结构持有，释放时注销。
+            let token: Option<Retained<AnyObject>> = unsafe {
+                let center: *mut AnyObject = msg_send![class!(NSNotificationCenter), defaultCenter];
+                let queue: *mut AnyObject = std::ptr::null_mut();
+                msg_send![
+                    center,
+                    addObserverForName: &*name,
+                    object: &*shared.window,
+                    queue: queue,
+                    usingBlock: &*block
+                ]
+            };
+            tokens.extend(token);
+        }
+        Some(TrafficLights { shared, tokens })
     }
 
-    let ns_window = ns_window(window)?;
+    /// 按当前状态摆放红绿灯，返回最后一个按钮右边缘距窗口左边缘的距离（逻辑像素），布局据此在
+    /// 红绿灯右侧留出空间；见 [`Lights::place`]。
+    pub fn place(&self) -> Option<f64> {
+        self.shared.place()
+    }
+}
 
-    // SAFETY: `ns_window` 是仍然存活的 winit 窗口背后的 NSWindow；winit 只在主线程上派发事件，
-    // 本函数也在主线程调用。用到的都是 NSWindow / NSView 的公开方法，返回值先判空再使用。
-    unsafe {
-        let buttons = BUTTONS.map(|kind| {
-            let button: *mut AnyObject = msg_send![ns_window, standardWindowButton: kind];
-            button.as_ref()
-        });
-        let [Some(close), Some(minimize), Some(_)] = buttons else {
-            return None;
-        };
-        let container = titlebar_container(close)?;
-
-        // NSView 默认以左下角为原点：容器的底边放在窗口顶部向下 `bar_height` 处，使其占满顶栏。
-        // `AppKit` 可能忽略设置的高度，但按钮相对容器底边摆放，结果相同。
-        let window_frame: CGRect = msg_send![ns_window, frame];
-        let mut frame: CGRect = msg_send![container, frame];
-        frame.size.height = bar_height;
-        frame.origin.y = window_frame.size.height - bar_height;
-        let () = msg_send![container, setFrame: frame];
-
-        let close_frame: CGRect = msg_send![close, frame];
-        let minimize_frame: CGRect = msg_send![minimize, frame];
-        let spacing = minimize_frame.origin.x - close_frame.origin.x;
-
-        let mut end = left;
-        for (i, button) in buttons.into_iter().flatten().enumerate() {
-            let size: CGRect = msg_send![button, frame];
-            let origin = CGPoint::new(
-                left + i as f64 * spacing,
-                ((bar_height - size.size.height) / 2.0).round(),
-            );
-            let () = msg_send![button, setFrameOrigin: origin];
-            end = origin.x + size.size.width;
+impl Drop for TrafficLights {
+    fn drop(&mut self) {
+        // SAFETY: `defaultCenter` 始终返回有效的通知中心；每个 `token` 都是
+        // `addObserverForName:object:queue:usingBlock:` 返回并由本结构持有的监听对象，注销已失效
+        // 的监听同样安全。本结构随窗口在主线程上释放。
+        unsafe {
+            let center: *mut AnyObject = msg_send![class!(NSNotificationCenter), defaultCenter];
+            for token in &self.tokens {
+                let () = msg_send![center, removeObserver: &**token];
+            }
         }
-        Some(end)
+    }
+}
+
+/// 全屏过渡中需要处理的时刻。
+#[derive(Clone, Copy)]
+enum Step {
+    /// 开始进入全屏。
+    WillEnter,
+    /// 开始退出全屏。
+    WillExit,
+    /// 已退出全屏。
+    DidExit,
+}
+
+impl Lights {
+    /// 处理全屏过渡中的一个时刻（见 [`TrafficLights`]），之后通知应用重新布局。
+    fn transition(&self, step: Step) {
+        let end = match step {
+            Step::WillEnter => {
+                self.fullscreen.set(true);
+                self.set_hidden(false);
+                self.restore();
+                Some(0.0)
+            }
+            Step::WillExit => {
+                self.fullscreen.set(false);
+                self.set_hidden(true);
+                self.place()
+            }
+            Step::DidExit => {
+                self.fullscreen.set(false);
+                let end = self.place();
+                self.set_hidden(false);
+                end
+            }
+        };
+        if let Some(end) = end {
+            crate::layout::set_traffic_lights_end(end as f32);
+        }
+        (self.moved)();
+    }
+
+    /// 窗口模式下把红绿灯移入顶栏并垂直居中，返回最后一个按钮右边缘距窗口左边缘的距离（逻辑
+    /// 像素）；按钮间距由系统决定（macOS 26 为 23，更早的版本为 20）。
+    ///
+    /// 全屏时不移动按钮，返回 0：系统不在窗口内绘制红绿灯，布局按无红绿灯处理，顶栏左侧不保留
+    /// 其位置。取不到按钮时返回 `None`，调用方保留现有布局。
+    fn place(&self) -> Option<f64> {
+        if self.fullscreen.get() {
+            return Some(0.0);
+        }
+        let ns_window = &*self.window;
+        // SAFETY: `ns_window` 是本结构持有的 NSWindow，只在主线程上使用。用到的都是 NSWindow /
+        // NSView 的公开方法，返回值先判空再使用。
+        unsafe {
+            let buttons = BUTTONS.map(|kind| {
+                let button: *mut AnyObject = msg_send![ns_window, standardWindowButton: kind];
+                button.as_ref()
+            });
+            let [Some(close), Some(minimize), Some(zoom)] = buttons else {
+                return None;
+            };
+            let container = titlebar_container(close)?;
+            if self.native.get().is_none() {
+                let origin = |button: &AnyObject| {
+                    let frame: CGRect = msg_send![button, frame];
+                    frame.origin
+                };
+                let frame: CGRect = msg_send![container, frame];
+                let origins = [origin(close), origin(minimize), origin(zoom)];
+                self.native.set(Some((frame, origins)));
+            }
+
+            // NSView 默认以左下角为原点：容器的底边放在窗口顶部向下 `bar_height` 处，使其占满
+            // 顶栏。`AppKit` 可能忽略设置的高度，但按钮相对容器底边摆放，结果相同。
+            let window_frame: CGRect = msg_send![ns_window, frame];
+            let mut frame: CGRect = msg_send![container, frame];
+            frame.size.height = self.bar_height;
+            frame.origin.y = window_frame.size.height - self.bar_height;
+            let () = msg_send![container, setFrame: frame];
+
+            let close_frame: CGRect = msg_send![close, frame];
+            let minimize_frame: CGRect = msg_send![minimize, frame];
+            let spacing = minimize_frame.origin.x - close_frame.origin.x;
+
+            let mut end = self.left;
+            for (i, button) in [close, minimize, zoom].into_iter().enumerate() {
+                let size: CGRect = msg_send![button, frame];
+                let origin = CGPoint::new(
+                    self.left + i as f64 * spacing,
+                    ((self.bar_height - size.size.height) / 2.0).round(),
+                );
+                let () = msg_send![button, setFrameOrigin: origin];
+                end = origin.x + size.size.width;
+            }
+            Some(end)
+        }
+    }
+
+    /// 隐藏或显示标题栏容器（连同其中的红绿灯）；取不到容器时不做处理。
+    fn set_hidden(&self, hidden: bool) {
+        let ns_window = &*self.window;
+        // SAFETY: 同 [`Lights::place`]；`setHidden:` 是 NSView 的公开方法。
+        unsafe {
+            let close: *mut AnyObject = msg_send![ns_window, standardWindowButton: BUTTONS[0]];
+            if let Some(container) = close.as_ref().and_then(|close| titlebar_container(close)) {
+                let () = msg_send![container, setHidden: Bool::new(hidden)];
+            }
+        }
+    }
+
+    /// 将标题栏容器和三个按钮恢复到首次摆放之前 `AppKit` 给出的位置；尚未摆放时不做处理。
+    fn restore(&self) {
+        let Some((frame, origins)) = self.native.get() else {
+            return;
+        };
+        let ns_window = &*self.window;
+        // SAFETY: 同 [`Lights::place`]。
+        unsafe {
+            let buttons = BUTTONS.map(|kind| {
+                let button: *mut AnyObject = msg_send![ns_window, standardWindowButton: kind];
+                button.as_ref()
+            });
+            let [Some(close), Some(_), Some(_)] = buttons else {
+                return;
+            };
+            if let Some(container) = titlebar_container(close) {
+                let () = msg_send![container, setFrame: frame];
+            }
+            for (button, origin) in buttons.into_iter().flatten().zip(origins) {
+                let () = msg_send![button, setFrameOrigin: origin];
+            }
+        }
     }
 }
 
@@ -170,12 +361,33 @@ fn add_cannot_move_window(class: &AnyClass) -> bool {
 
 /// 处理双击顶栏：按系统的「连按窗口标题栏」偏好（`AppleActionOnDoubleClick`）缩放或最小化窗口，
 /// 偏好为「无操作」时不处理。
+///
+/// 缩放、最小化在当前事件处理完毕后开始（`performSelector:withObject:afterDelay:`，延迟为 0）。
+/// 双击由应用的鼠标处理识别；若在 winit 的事件回调中同步调用 `zoom:`，`AppKit` 在这次调用内执行
+/// 完整个缩放动画，winit 将其间所有窗口大小变化推迟到回调返回后派发，动画期间界面不重画，结束时
+/// 直接显示新的大小。由运行循环开始动画时，每一帧的大小变化都同步派发，界面随窗口逐帧重新布局
+/// （见 `WindowEvent::Resized` 的处理）。
 pub fn title_bar_double_click(window: &Window) {
-    match action_on_double_click().as_deref() {
-        Some("Minimize") => window.set_minimized(true),
-        Some("None") => {}
-        // 「缩放」「填充」和没有设置过都按缩放处理。
-        _ => window.set_maximized(!window.is_maximized()),
+    let action = match action_on_double_click().as_deref() {
+        Some("Minimize") => sel!(miniaturize:),
+        Some("None") => return,
+        // 「缩放」「填充」和没有设置过都按缩放处理；`zoom:` 在缩放和还原之间切换。
+        _ => sel!(zoom:),
+    };
+    let Some(ns_window) = ns_window(window) else {
+        return;
+    };
+    // SAFETY: `ns_window` 是主线程上仍然存活的 NSWindow；`zoom:`、`miniaturize:` 是它的公开动作
+    // 方法，参数 `sender` 可以为空。`performSelector:withObject:afterDelay:` 在当前线程的运行循环
+    // 上安排调用，并在调用前持有 `ns_window`。
+    unsafe {
+        let sender: *mut AnyObject = std::ptr::null_mut();
+        let () = msg_send![
+            ns_window,
+            performSelector: action,
+            withObject: sender,
+            afterDelay: 0.0f64
+        ];
     }
 }
 
