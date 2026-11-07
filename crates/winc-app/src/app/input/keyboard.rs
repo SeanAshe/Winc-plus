@@ -117,6 +117,8 @@ impl App {
             Focus::CommitList => self.on_key_commit_list(event),
             Focus::LogFilter => self.on_key_log_filter(event, &base, cmd),
             Focus::Terminal => self.on_key_terminal(event),
+            // 这两个输入框使用终端的键位表，Windows、Linux 的 Ctrl+V 不在表中，在此处理。
+            Focus::TerminalFind | Focus::TerminalRename if cmd && base == "v" => self.paste(),
             Focus::TerminalFind => self.on_key_terminal_find(event, &base, cmd),
             Focus::TerminalRename => self.on_key_terminal_rename(event, &base, cmd),
         }

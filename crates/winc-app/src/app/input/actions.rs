@@ -6,6 +6,7 @@ use winc_core::transform::Case;
 use winc_editor::{Command, EntryKind, FoldCommand};
 
 use super::*;
+use crate::field::TextField;
 use crate::keymap::{Action, Context};
 use crate::layout::{PanelButton, SearchButton, SettingsPage, SidebarView};
 
@@ -31,11 +32,22 @@ impl App {
             }
         };
         let panel = self.key_context() == Context::Panel;
-        // 焦点在终端的输入框里：编辑用的快捷键交给输入框。
+        // 焦点在终端的输入框里：编辑用的快捷键作用于输入框。
         if matches!(self.focus, Focus::TerminalFind | Focus::TerminalRename)
             && matches!(action, Copy | Cut | Paste | SelectAll | Undo | Redo)
         {
-            return false;
+            match action {
+                Copy => self.copy_field(false),
+                Cut => self.copy_field(true),
+                Paste => self.paste(),
+                SelectAll => self.edit_field(|field| {
+                    field.select_all();
+                    false
+                }),
+                Undo => self.edit_field(TextField::undo),
+                _ => self.edit_field(TextField::redo),
+            }
+            return true;
         }
         // 焦点在终端里：复制、全选作用于终端的选区（粘贴见 `paste`）。
         if self.focus == Focus::Terminal {
@@ -356,14 +368,20 @@ impl App {
             GitRevertChange => self.revert_change_at_caret(),
             ShowCommit => self.show_commit(),
             ToggleTerminal => self.toggle_terminal(),
+            RunConfiguration => self.run_current_config(),
+            StopConfiguration => self.stop_current_config(),
+            EditRunConfigurations => self.edit_run_configs(),
             ClearTerminal => self.clear_terminal(),
             NewTerminal => self.new_terminal_tab(),
             CloseTerminal => self.close_terminal_tab(self.terminal.active),
             NextTerminal => self.cycle_terminal_tab(true),
             PreviousTerminal => self.cycle_terminal_tab(false),
+            // 焦点在查找框里时关闭；否则打开，或者回到开着的查找框。
+            FindInTerminal if self.focus == Focus::TerminalFind => self.close_terminal_find(),
             FindInTerminal if self.terminal.tab().is_some() => self.open_terminal_find(),
             FindInTerminal => return false,
             MaximizeTerminal => self.toggle_terminal_maximized(),
+            ToggleTerminalPosition => self.toggle_terminal_position(),
             RenameTerminal => self.open_terminal_rename(self.terminal.active),
             PreviousCommand => self.jump_terminal_command(false),
             NextCommand => self.jump_terminal_command(true),
@@ -379,6 +397,12 @@ impl App {
 
     /// 命令当前是否可用：属于某个模块的命令只在模块开着时可用。
     pub(super) fn action_available(&self, action: Action) -> bool {
+        match action {
+            Action::RunConfiguration if self.editor.root().is_none() => return false,
+            Action::StopConfiguration if !self.run_config_running() => return false,
+            Action::EditRunConfigurations if self.editor.root().is_none() => return false,
+            _ => {}
+        }
         match action.module() {
             Some(crate::keymap::Module::Git) => self.git_enabled(),
             Some(crate::keymap::Module::Terminal) => self.terminal_enabled(),

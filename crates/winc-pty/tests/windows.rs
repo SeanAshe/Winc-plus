@@ -5,6 +5,7 @@
 
 mod common;
 
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use common::{Client, SIZE, WAIT};
@@ -32,9 +33,69 @@ fn skip_under_wine() -> bool {
     wine
 }
 
+/// 在标签 1 里用测试进程的完整环境启动 `program`。
+///
+/// [`Client::spawn`] 只给最小的环境：`PATH` 查不到系统程序，`ping`、PowerShell 也无法初始化。
+fn spawn_with_full_env(c: &mut Client, program: &str, args: &[&str]) {
+    c.send(ToHelper::Spawn {
+        tab: 1,
+        program: Some(program.into()),
+        args: args.iter().map(|arg| arg.as_bytes().to_vec()).collect(),
+        login: false,
+        cwd: b"/".to_vec(),
+        env: std::env::vars()
+            .map(|(k, v)| (k.into_bytes(), v.into_bytes()))
+            .collect(),
+        scrollback: 100,
+        size: SIZE,
+        integration: None,
+        banner: Vec::new(),
+    });
+}
+
 /// 系统 `cmd.exe` 的路径。
 fn cmd() -> String {
     std::env::var("COMSPEC").unwrap_or_else(|_| r"C:\Windows\System32\cmd.exe".into())
+}
+
+/// `winc-pty` 旁边有发布的 `conpty.dll` 和 `OpenConsole.exe` 时，控制台运行在这个程序中。
+///
+/// 这两个文件不随 `cargo` 构建，由 CI 用 `release/windows/conpty.ps1` 放好后单独运行本测试。
+#[test]
+fn the_bundled_console_host_runs_when_it_is_present() {
+    let dir = Path::new(env!("CARGO_BIN_EXE_winc-pty")).parent().unwrap();
+    let host = dir.join("OpenConsole.exe");
+    if skip_under_wine() {
+        return;
+    }
+    if !host.is_file() || !dir.join("conpty.dll").is_file() {
+        eprintln!("跳过：winc-pty 旁边没有 conpty.dll 和 OpenConsole.exe");
+        return;
+    }
+    let script = format!(
+        "if (Get-Process OpenConsole | Where-Object Path -eq '{}') {{ 'found' }} else {{ exit 4 }}",
+        host.display()
+    );
+    let mut c = Client::start();
+    spawn_with_full_env(
+        &mut c,
+        "powershell.exe",
+        &["-NoProfile", "-Command", &script],
+    );
+    assert_eq!(c.until_exit_showing(|t| t.contains("found")), 0);
+}
+
+/// 停止结束程序，退出照常报告。
+#[test]
+fn stop_ends_the_program() {
+    if skip_under_wine() {
+        return;
+    }
+    let mut c = Client::start();
+    c.spawn(1, &cmd(), &["/q", "/k", "echo started"]);
+    c.until_text("started");
+    c.send(ToHelper::Stop { tab: 1 });
+    c.until_exit();
 }
 
 #[test]
@@ -106,21 +167,8 @@ fn losing_the_pseudo_console_is_reported_while_the_shell_runs() {
     }
     let mut c = Client::start();
     // `ping` 不读写控制台，伪终端不在了也继续运行；它要用到完整的环境才能初始化网络。
-    c.send(ToHelper::Spawn {
-        tab: 1,
-        program: Some(cmd().into()),
-        args: ["/c", "echo ready& ping -n 60 127.0.0.1 >NUL"]
-            .map(|arg| arg.as_bytes().to_vec())
-            .to_vec(),
-        login: false,
-        cwd: b"/".to_vec(),
-        env: std::env::vars()
-            .map(|(k, v)| (k.into_bytes(), v.into_bytes()))
-            .collect(),
-        scrollback: 100,
-        size: SIZE,
-        integration: None,
-    });
+    let args = ["/c", "echo ready& ping -n 60 127.0.0.1 >NUL"];
+    spawn_with_full_env(&mut c, &cmd(), &args);
     c.until_text("ready");
 
     assert_eq!(kill_pseudo_console(c.child.id()), 1);

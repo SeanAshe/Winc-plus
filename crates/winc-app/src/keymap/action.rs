@@ -176,6 +176,12 @@ pub enum Action {
     ShowCommit,
     GitRevertChange,
     ToggleTerminal,
+    /// 运行当前选中的配置；运行中时重新运行。
+    RunConfiguration,
+    /// 停止当前选中的配置。
+    StopConfiguration,
+    /// 打开运行配置文件。
+    EditRunConfigurations,
     ClearTerminal,
     NewTerminal,
     CloseTerminal,
@@ -183,6 +189,7 @@ pub enum Action {
     PreviousTerminal,
     FindInTerminal,
     MaximizeTerminal,
+    ToggleTerminalPosition,
     RenameTerminal,
     PreviousCommand,
     NextCommand,
@@ -368,6 +375,9 @@ impl Action {
             ShowCommit => t!("cmd-show-commit"),
             GitRevertChange => t!("cmd-git-revert-change"),
             ToggleTerminal => t!("cmd-toggle-terminal"),
+            RunConfiguration => t!("cmd-run-configuration"),
+            StopConfiguration => t!("cmd-stop-configuration"),
+            EditRunConfigurations => t!("cmd-edit-run-configurations"),
             ClearTerminal => t!("cmd-clear-terminal"),
             NewTerminal => t!("cmd-new-terminal"),
             CloseTerminal => t!("cmd-close-terminal"),
@@ -375,6 +385,7 @@ impl Action {
             PreviousTerminal => t!("cmd-previous-terminal"),
             FindInTerminal => t!("cmd-find-in-terminal"),
             MaximizeTerminal => t!("cmd-maximize-terminal"),
+            ToggleTerminalPosition => t!("cmd-toggle-terminal-position"),
             RenameTerminal => t!("cmd-rename-terminal"),
             PreviousCommand => t!("cmd-previous-command"),
             NextCommand => t!("cmd-next-command"),
@@ -544,6 +555,9 @@ impl Action {
             ShowCommit => "Git: Commit",
             GitRevertChange => "Git: Revert Change",
             ToggleTerminal => "Toggle Terminal",
+            RunConfiguration => "Run Configuration",
+            StopConfiguration => "Stop Configuration",
+            EditRunConfigurations => "Edit Run Configurations",
             ClearTerminal => "Terminal: Clear",
             NewTerminal => "New Terminal",
             CloseTerminal => "Terminal: Close Tab",
@@ -551,6 +565,7 @@ impl Action {
             PreviousTerminal => "Terminal: Previous Tab",
             FindInTerminal => "Terminal: Find",
             MaximizeTerminal => "Terminal: Maximize Panel",
+            ToggleTerminalPosition => "Terminal: Toggle Panel Position",
             RenameTerminal => "Terminal: Rename",
             PreviousCommand => "Terminal: Previous Command",
             NextCommand => "Terminal: Next Command",
@@ -647,16 +662,56 @@ impl Action {
                 Group::Find
             }
             RenameFile | DeleteFile | OpenSelected | PreviewSelected | FindInFolder => Group::Tree,
-            ToggleSidebar | FocusSidebar | ShowFiles | ZoomIn | ZoomOut | ResetZoom | ThemeAuto
-            | ThemeLight | ThemeDark | ToggleStickyScroll | ToggleWordWrap | ToggleMinimap
-            | ToggleLineNumbers | ToggleStatusBar | ToggleWhitespace | TogglePreview
-            | NextDifference | PreviousDifference | NextDiffFile | PreviousDiffFile
-            | ToggleDiffLayout | GitShowChanges | GitShowLog | GitSwitchRepository
-            | GitSwitchWorktree | GitNewWorktree | GitFileHistory | GitBlame | ShowCommit
-            | GitRevertChange | ToggleTerminal | ClearTerminal | NewTerminal | CloseTerminal
-            | NextTerminal | PreviousTerminal | FindInTerminal | MaximizeTerminal
-            | RenameTerminal | PreviousCommand | NextCommand | FoldOutput | UnfoldOutput
-            | NextError | PreviousError | SendToTerminal => Group::View,
+            ToggleSidebar
+            | FocusSidebar
+            | ShowFiles
+            | ZoomIn
+            | ZoomOut
+            | ResetZoom
+            | ThemeAuto
+            | ThemeLight
+            | ThemeDark
+            | ToggleStickyScroll
+            | ToggleWordWrap
+            | ToggleMinimap
+            | ToggleLineNumbers
+            | ToggleStatusBar
+            | ToggleWhitespace
+            | TogglePreview
+            | NextDifference
+            | PreviousDifference
+            | NextDiffFile
+            | PreviousDiffFile
+            | ToggleDiffLayout
+            | GitShowChanges
+            | GitShowLog
+            | GitSwitchRepository
+            | GitSwitchWorktree
+            | GitNewWorktree
+            | GitFileHistory
+            | GitBlame
+            | ShowCommit
+            | GitRevertChange
+            | ToggleTerminal
+            | RunConfiguration
+            | StopConfiguration
+            | EditRunConfigurations
+            | ClearTerminal
+            | NewTerminal
+            | CloseTerminal
+            | NextTerminal
+            | PreviousTerminal
+            | FindInTerminal
+            | MaximizeTerminal
+            | ToggleTerminalPosition
+            | RenameTerminal
+            | PreviousCommand
+            | NextCommand
+            | FoldOutput
+            | UnfoldOutput
+            | NextError
+            | PreviousError
+            | SendToTerminal => Group::View,
         }
     }
 
@@ -730,6 +785,9 @@ impl Action {
             | Action::ShowCommit
             | Action::GitRevertChange => Some(Module::Git),
             Action::ToggleTerminal
+            | Action::RunConfiguration
+            | Action::StopConfiguration
+            | Action::EditRunConfigurations
             | Action::ClearTerminal
             | Action::NewTerminal
             | Action::CloseTerminal
@@ -737,6 +795,7 @@ impl Action {
             | Action::PreviousTerminal
             | Action::FindInTerminal
             | Action::MaximizeTerminal
+            | Action::ToggleTerminalPosition
             | Action::RenameTerminal
             | Action::PreviousCommand
             | Action::NextCommand
@@ -943,10 +1002,14 @@ pub const ACTIONS: &[Action] = {
         GitBlame,
         GitRevertChange,
         ToggleTerminal,
+        RunConfiguration,
+        StopConfiguration,
+        EditRunConfigurations,
         NewTerminal,
         ClearTerminal,
         FindInTerminal,
         MaximizeTerminal,
+        ToggleTerminalPosition,
         RenameTerminal,
         CloseTerminal,
         NextTerminal,

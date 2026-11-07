@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::time::Instant;
 
 use winc_pty::protocol::{Attrs, Block, Cursor, Frame, Line, Modes, Size};
-use winc_pty::width::char_width;
+use winc_pty::width::cells;
 
 /// 看回滚时在可见范围上下各多缓存几屏的历史行（屏，经验值）：向上滚动时先有一段已缓存的
 /// 行，不必每行都等辅助进程回答。
@@ -136,7 +136,7 @@ impl Layout {
 }
 
 /// 终端不能再用的原因。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum TabEnd {
     /// shell 退出了：退出码。
     Exited(i32),
@@ -164,6 +164,14 @@ pub(crate) struct TermTab {
     pub process: String,
     /// 这个终端不能再用了：为什么；还能用时为 `None`。
     pub ended: Option<TabEnd>,
+    /// 从菜单选的 shell 的启动命令；`None` 是默认 shell。
+    pub shell: Option<String>,
+    /// 标签运行的配置；普通的 shell 标签为 `None`。
+    pub run: Option<winc_config::RunConfig>,
+    /// 程序退出后重新运行配置。
+    pub rerun: bool,
+    /// 程序是用户停止的，不是自己退出的。
+    pub stopped: bool,
     /// 最近一次告诉辅助进程的尺寸。
     pub size: Size,
     /// 收到了一帧还没给额度。
@@ -172,8 +180,12 @@ pub(crate) struct TermTab {
     pub history: (u64, u64),
     /// 往上翻了几行；0 表示看着最新的输出。
     pub scroll: usize,
-    /// 滚轮、触控板攒下的不到一行的滚动量（行）。
+    /// 在 `scroll` 之外继续往上翻的不足一行的部分（行，`0.0..1.0`），滚轮和触控板按像素滚动时使用。
+    pub scroll_frac: f32,
+    /// 全屏程序要了鼠标、备用屏改发方向键时，攒下的不到一行的滚动量（行）。
     pub scroll_rest: f32,
+    /// 面板放不下一整行的零头（行，`0.0..1.0`），见 [`TermTab::viewport`]。
+    pub slack: f32,
     /// 缓存的历史行，按行号。
     cache: BTreeMap<u64, Line>,
     /// 已经向辅助进程要了、还没回来的范围，避免每帧重复要。
@@ -242,11 +254,17 @@ impl TermTab {
             title: String::new(),
             process: String::new(),
             ended: None,
+            shell: None,
+            run: None,
+            rerun: false,
+            stopped: false,
             size,
             credit_due: false,
             history: (0, 0),
             scroll: 0,
+            scroll_frac: 0.0,
             scroll_rest: 0.0,
+            slack: 0.0,
             cache: BTreeMap::new(),
             requested: None,
             selection: None,
@@ -278,12 +296,14 @@ impl TermTab {
             self.requested = None;
             self.selection = None;
             self.scroll = 0;
+            self.scroll_frac = 0.0;
         } else if frame.modes.has(Modes::ALT_SCREEN) != self.modes.has(Modes::ALT_SCREEN) {
             // 换了一屏：往上翻的位置、选区都是另一屏的，回到底部。
             self.selection = None;
             self.scroll = 0;
+            self.scroll_frac = 0.0;
             self.scroll_rest = 0.0;
-        } else if self.scroll > 0 {
+        } else if self.scroll > 0 || self.scroll_frac > 0.0 {
             let grown = frame.history.1.saturating_sub(self.history.1);
             self.scroll += grown as usize;
         }
@@ -375,6 +395,9 @@ impl TermTab {
         if matches!(self.ended, Some(TabEnd::Exited(_))) {
             return None;
         }
+        if let Some(run) = &self.run {
+            return Some(&run.name);
+        }
         if let Some(block) = self.blocks.last().filter(|b| b.running()) {
             let text = block.text.trim();
             return Some(if text.is_empty() { &self.process } else { text });
@@ -433,7 +456,61 @@ impl TermTab {
 
     /// 把往上翻的显示行数限制在有效范围内。
     pub fn clamp_scroll(&mut self) {
-        self.scroll = self.scroll.min(self.max_scroll());
+        let max = self.max_scroll();
+        self.scroll = self.scroll.min(max);
+        if self.scroll == max {
+            self.scroll_frac = 0.0;
+        }
+    }
+
+    /// 连续的滚动位置：（距最新输出的行数，最大值）。
+    ///
+    /// 最大值扣除零头：第 0 个显示行上沿到达标签栏下沿时不能再往上翻，此时与贴着标签栏排列的位置
+    /// 重合，翻到顶和离开顶部时内容不跳。
+    pub fn scroll_position(&self) -> (f64, f64) {
+        let max = self.max_scroll();
+        let limit = (max as f64 - f64::from(self.slack)).max(0.0);
+        let position = if self.scroll >= max {
+            limit
+        } else {
+            self.scroll as f64 + f64::from(self.scroll_frac)
+        };
+        (position, limit)
+    }
+
+    /// 翻到距最新输出 `position` 行的位置（超出范围时夹到两端）。
+    pub fn set_scroll_position(&mut self, position: f64) {
+        let max = self.max_scroll();
+        let (_, limit) = self.scroll_position();
+        let position = position.clamp(0.0, limit);
+        if position >= limit {
+            self.scroll = max;
+            self.scroll_frac = 0.0;
+        } else {
+            self.scroll = position.floor() as usize;
+            self.scroll_frac = (position - position.floor()) as f32;
+        }
+    }
+
+    /// 视口最上面露出的显示行和它被裁掉的比例（行，`0.0..1.0`）。
+    ///
+    /// 网格上面还有内容时，零头和 `scroll_frac` 都使内容相对标签栏下沿往下移动；所有绘制和命中都
+    /// 由此换算，滚动和拖动分隔条时每一行的位置都连续。第 0 个显示行在最上面时贴着标签栏；备用屏
+    /// 同样贴着标签栏，零头留在下面。
+    pub fn viewport(&self) -> (u64, f32) {
+        let top = self.view_top();
+        if top == 0 || self.modes.has(Modes::ALT_SCREEN) {
+            return (top, 0.0);
+        }
+        let shift = self.scroll_frac + self.slack;
+        if shift <= 0.0 {
+            return (top, 0.0);
+        }
+        let above = shift.ceil();
+        match top.checked_sub(above as u64) {
+            Some(first) => (first, above - shift),
+            None => (0, 0.0),
+        }
     }
 
     /// 存下辅助进程送来的历史行。
@@ -455,8 +532,9 @@ impl TermTab {
         let layout = self.layout();
         let top = layout.top(self);
         let margin = rows * screens;
-        let from = top.saturating_sub(margin);
-        let to = (top + rows + margin).min(layout.len);
+        // 按像素滚动时网格上面最多露出两行（零头和不足一行的滚动量），下面多露出一行。
+        let from = top.saturating_sub(margin.max(2));
+        let to = (top + rows + margin.max(1)).min(layout.len);
         let mut ranges: Vec<(u64, u64)> = Vec::new();
         let mut add = |line: u64| {
             if line < self.history.0 || line >= self.history.1 {
@@ -489,7 +567,7 @@ impl TermTab {
     pub fn missing(&self) -> Option<(u64, u64)> {
         // 看着最新的输出时只要网格上的（折起了一段时网格上会有回滚缓冲里的行），不先往上取；
         // 拖着分隔条时先取一屏。
-        let screens = if self.scroll > 0 {
+        let screens = if self.scroll > 0 || self.scroll_frac > 0.0 {
             CACHE_SCREENS as u64
         } else {
             u64::from(self.ahead)
@@ -609,16 +687,22 @@ impl TermTab {
     }
 
     /// 网格上的各行，从上到下；下面没有内容的行不在里面。
+    #[cfg(test)]
     pub fn view(&self) -> Vec<ViewRow> {
+        self.rows_from(self.view_top(), self.grid_rows() as u64)
+    }
+
+    /// 从第 `first` 个显示行起的 `count` 行；下面没有内容的行不在里面。
+    pub fn rows_from(&self, first: u64, count: u64) -> Vec<ViewRow> {
         let layout = self.layout();
-        let top = layout.top(self);
-        (top..top + self.grid_rows() as u64)
+        (first..first + count)
             .map_while(|d| layout.row_at(d))
             .collect()
     }
 
     /// 翻到让第 `line` 行出现在网格的第 `at` 行（`at` 超出网格时夹到最后一行）。
     pub fn scroll_to(&mut self, line: u64, at: u64) {
+        self.scroll_frac = 0.0;
         let rows = self.grid_rows() as u64;
         let target = self
             .display_of(line)
@@ -719,19 +803,41 @@ impl TermTab {
         self.history.1 + text.max(cursor) as u64
     }
 
-    /// 要吸顶的块：网格第一行在一条命令的输出里，命令行已经翻出了网格。
+    /// 要吸顶的块：上沿已经越过视口上沿的最后一条运行过的命令。
+    ///
+    /// 下一条命令的提示符到达视口上沿后不再吸顶，此时提示符和命令行照常可见；命令行越过上沿后
+    /// 吸顶换成它，位置连续。空回车不算下一条命令。
     pub fn sticky(&self) -> Option<usize> {
+        self.sticky_at().map(|(block, _)| block)
+    }
+
+    /// 吸顶行被下一条命令的提示符顶上去的比例（行，`0.0..1.0`）。
+    pub fn sticky_push(&self) -> f32 {
+        self.sticky_at().map_or(0.0, |(_, push)| push)
+    }
+
+    fn sticky_at(&self) -> Option<(usize, f32)> {
         if self.modes.has(Modes::ALT_SCREEN) {
             return None;
         }
-        let row = self.row_at(self.view_top())?;
-        let i = match row {
-            ViewRow::Fold(block, _) => block,
-            ViewRow::Line(line) => self.block_at(line)?,
-        };
-        let block = &self.blocks[i];
-        let line = row.line(self);
-        (block.output.is_some_and(|o| line >= o) && block.command < line).then_some(i)
+        let (first, cut) = self.viewport();
+        let layout = self.layout();
+        let limit = first + u64::from(cut > 0.0);
+        let count = self
+            .blocks
+            .partition_point(|b| layout.display_of(b.command) < limit);
+        let i = self.blocks[..count]
+            .iter()
+            .rposition(|b| b.output.is_some())?;
+        let next = self.blocks[i + 1..]
+            .iter()
+            .find(|b| b.output.is_some() || b.end.is_none())
+            .map(|b| layout.display_of(b.prompt));
+        match next {
+            Some(prompt) if prompt <= first => None,
+            Some(prompt) if prompt == first + 1 => Some((i, cut)),
+            _ => Some((i, 0.0)),
+        }
     }
 
     /// 新的命令块。
@@ -740,10 +846,12 @@ impl TermTab {
     /// 记着折叠。
     pub fn set_blocks(&mut self, blocks: Vec<Block>) {
         let anchor = (self.scroll > 0).then(|| self.top());
+        let frac = self.scroll_frac;
         self.folded.retain(|id| blocks.iter().any(|b| b.id == *id));
         self.blocks = blocks;
         if let Some(anchor) = anchor {
             self.scroll_to(anchor, 0);
+            self.scroll_frac = frac;
         }
         self.clamp_scroll();
     }
@@ -955,8 +1063,7 @@ fn is_word(c: char) -> bool {
 fn cell_chars(text: &str) -> Vec<(usize, usize, char)> {
     let mut out = Vec::with_capacity(text.len());
     let mut col = 0;
-    for c in text.chars() {
-        let w = char_width(c);
+    for (c, w) in cells(text) {
         if w == 0 {
             continue;
         }
@@ -971,8 +1078,7 @@ pub(crate) fn cells_text(line: &Line, start: usize, end: usize) -> String {
     let mut out = String::new();
     let mut col = 0;
     let mut inside = false;
-    for c in line.text.chars() {
-        let w = char_width(c);
+    for (c, w) in cells(&line.text) {
         if w == 0 {
             if inside {
                 out.push(c);
@@ -989,37 +1095,29 @@ pub(crate) fn cells_text(line: &Line, start: usize, end: usize) -> String {
     out
 }
 
-/// 在一行文字里找 `needle`（已按是否区分大小写处理好）出现的格子范围。
-pub(crate) fn find_in_line(line: &str, needle: &str, case_sensitive: bool) -> Vec<(usize, usize)> {
-    if needle.is_empty() {
-        return Vec::new();
-    }
-    let hay: Vec<(usize, usize, char)> = cell_chars(line);
-    let text: String = hay.iter().map(|&(_, _, c)| c).collect();
-    let (text, needle) = if case_sensitive {
-        (text, needle.to_string())
+/// 返回一行参与查找的文字：软换行时去掉行末的占位空格（宽字符无法放入最后一格时产生）。
+pub(crate) fn logical_text(line: &Line) -> &str {
+    let filler =
+        line.wrapped && (line.runs.last()).is_some_and(|run| run.style.attrs.has(Attrs::FILLER));
+    if filler {
+        line.text.strip_suffix(' ').unwrap_or(&line.text)
     } else {
-        (text.to_lowercase(), needle.to_lowercase())
-    };
-    // 小写化可能改变字数（极少见的字母），这时按原样不区分大小写也找不准，宁可不报。
-    if text.chars().count() != hay.len() {
-        return Vec::new();
+        &line.text
     }
-    let chars: Vec<char> = text.chars().collect();
-    let pattern: Vec<char> = needle.chars().collect();
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i + pattern.len() <= chars.len() {
-        if chars[i..i + pattern.len()] == pattern[..] {
-            let (start, ..) = hay[i];
-            let (col, w, _) = hay[i + pattern.len() - 1];
-            out.push((start, col + w));
-            i += pattern.len();
-        } else {
-            i += 1;
+}
+
+/// 返回字节偏移 `byte` 在文字 `text` 中对应的格。
+pub(crate) fn col_at(text: &str, byte: usize) -> usize {
+    let mut seen = 0;
+    let mut col = 0;
+    for (c, width) in cells(text) {
+        if seen >= byte {
+            break;
         }
+        seen += c.len_utf8();
+        col += width;
     }
-    out
+    col
 }
 
 #[cfg(test)]

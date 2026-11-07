@@ -21,6 +21,8 @@ pub(super) mod kind {
     pub const CLOSE: u8 = 7;
     /// 主题变化。
     pub const THEME: u8 = 8;
+    /// 结束程序，保留终端。
+    pub const STOP: u8 = 9;
 
     /// 握手，辅助进程启动后的第一条消息。
     pub const HELLO: u8 = 64;
@@ -59,6 +61,7 @@ impl Message for ToHelper {
                 scrollback,
                 size,
                 integration,
+                banner,
             } => {
                 w.u8(kind::SPAWN);
                 w.u16(*tab);
@@ -79,6 +82,7 @@ impl Message for ToHelper {
                 w.size(*size);
                 w.bool(integration.is_some());
                 w.bytes(integration.as_deref().unwrap_or_default());
+                w.bytes(banner);
             }
             ToHelper::Input { tab, bytes, rest } => {
                 w.u8(kind::INPUT);
@@ -113,6 +117,10 @@ impl Message for ToHelper {
             }
             ToHelper::Close { tab } => {
                 w.u8(kind::CLOSE);
+                w.u16(*tab);
+            }
+            ToHelper::Stop { tab } => {
+                w.u8(kind::STOP);
                 w.u16(*tab);
             }
             ToHelper::Theme(theme) => {
@@ -158,6 +166,7 @@ impl Message for ToHelper {
                         let dir = r.bytes()?.to_vec();
                         has.then_some(dir)
                     },
+                    banner: r.bytes()?.to_vec(),
                 }
             }
             kind::INPUT => ToHelper::Input {
@@ -178,6 +187,7 @@ impl Message for ToHelper {
             },
             kind::CLEAR => ToHelper::Clear { tab: r.u16()? },
             kind::CLOSE => ToHelper::Close { tab: r.u16()? },
+            kind::STOP => ToHelper::Stop { tab: r.u16()? },
             kind::THEME => {
                 let fg = r.rgb()?;
                 let bg = r.rgb()?;

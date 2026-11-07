@@ -639,8 +639,8 @@ fn the_status_bar_button_slides_the_panel_out_and_back() {
     // 切换位置：前半段在下方收起，后半段从右侧展开。
     app.terminal.frozen = Some(Duration::from_millis(90));
     paint(&mut app);
-    let button = header_hit(&app, HeaderHit::Position);
-    click(&mut app, (button.x + 4.0, button.y + 4.0));
+    assert!(app.run_action(crate::keymap::Action::ToggleTerminalPosition));
+    app.relayout();
     assert_eq!(app.config.terminal_right, Some(true));
     let l = app.layout;
     assert_eq!(l.terminal.w, open.terminal.w);
@@ -693,6 +693,7 @@ fn the_terminal_menu_maximizes_and_the_options_apply() {
             (MenuCommand::TerminalFind, true),
             (MenuCommand::TerminalClear, true),
             (MenuCommand::TerminalMaximize, true),
+            (MenuCommand::TerminalDock, true),
             (MenuCommand::NewTerminal, true),
             (MenuCommand::CloseTerminal, true),
         ]
@@ -701,6 +702,22 @@ fn the_terminal_menu_maximizes_and_the_options_apply() {
     assert!(right_click(&mut app).contains(&(MenuCommand::Copy, true)));
     app.run_menu_command(MenuCommand::Copy);
     assert!(app.copied.as_deref().is_some_and(|t| t.contains("echo hi")));
+
+    // 菜单里切换停靠位置，文字说的是切换后的位置。
+    assert_eq!(
+        app.menu_label(MenuCommand::TerminalDock).title,
+        winc_i18n::t!("terminal-dock-right")
+    );
+    right_click(&mut app);
+    app.run_menu_command(MenuCommand::TerminalDock);
+    assert_eq!(app.config.terminal_right, Some(true));
+    assert_eq!(
+        app.menu_label(MenuCommand::TerminalDock).title,
+        winc_i18n::t!("terminal-dock-bottom")
+    );
+    app.toggle_terminal_position();
+    app.terminal.motion = None;
+    app.relayout();
 
     // 最大化：编辑区只留最小的高度；再来一次还原。
     right_click(&mut app);
@@ -965,35 +982,42 @@ fn crowded_terminal_tabs_shrink_and_keep_the_active_one_in_view() {
     let mut app = app_with(&dir.join("short.rs"), false);
     app.config.terminal_right = Some(true);
     show_terminal(&mut app, "$ ");
-    for name in ["cargo watch", "npm run dev", "htop", "ssh server", "python"] {
+    for name in [
+        "cargo watch",
+        "npm run dev",
+        "htop",
+        "ssh server",
+        "python",
+        "make",
+        "node",
+        "git log",
+    ] {
         add_tab(&mut app, name, "$ ");
     }
-    app.open_terminal_find();
     paint(&mut app);
 
-    // 都窄到最窄还放不下：正在看的（最后一个）和「+」都在查找框左边，看得见、点得到。
+    // 都窄到最窄还放不下：正在看的（最后一个）和「+」都在右边的按钮左边，看得见、点得到。
     assert!(app.terminal.strip.widths.iter().all(|&w| w == TAB_SQUEEZED));
-    let card = app.layout.terminal;
-    let find_left = card.right() - 6.0 - crate::theme::TAB_HEIGHT - 4.0 - 4.0 - 220.0;
-    let active = header_hit(&app, HeaderHit::Tab(5));
+    let active = header_hit(&app, HeaderHit::Tab(8));
     let plus = header_hit(&app, HeaderHit::New);
     assert_eq!(active.w, TAB_SQUEEZED);
-    assert!(active.right() < plus.x && plus.right() <= find_left);
+    let position = header_hit(&app, HeaderHit::Position);
+    assert!(active.right() < plus.x && plus.right() <= position.x);
     // 移出可视区的第一个标签被裁掉，点击不到。
     assert_eq!(header_hit(&app, HeaderHit::Tab(0)).w, 0.0);
 
     // 滚轮停在标签栏上：横向滚动标签，终端内容不动，也不切换标签；竖直和水平滚轮都可以。
-    let header = header_hit(&app, HeaderHit::Tab(5));
+    let header = header_hit(&app, HeaderHit::Tab(8));
     app.on_mouse_move(header.x + 8.0, header.y + 8.0);
     let lines = app.terminal.tab().unwrap().scroll;
     app.on_wheel(MouseScrollDelta::LineDelta(0.0, 40.0));
     paint(&mut app);
     assert_eq!(header_hit(&app, HeaderHit::Tab(0)).w, TAB_SQUEEZED);
-    assert_eq!(app.terminal.active, 5);
+    assert_eq!(app.terminal.active, 8);
     assert_eq!(app.terminal.tab().unwrap().scroll, lines);
     app.on_wheel(MouseScrollDelta::LineDelta(-40.0, 0.0));
     paint(&mut app);
-    assert_eq!(header_hit(&app, HeaderHit::Tab(5)).w, TAB_SQUEEZED);
+    assert_eq!(header_hit(&app, HeaderHit::Tab(8)).w, TAB_SQUEEZED);
 
     // 切换到第一个标签：标签栏滚回最左边。
     app.activate_terminal_tab(0);
@@ -1014,7 +1038,6 @@ fn snapshot_terminal_many_tabs() {
     for name in ["cargo watch", "npm run dev", "htop", "ssh server", "python"] {
         add_tab(&mut app, name, "$ ");
     }
-    app.open_terminal_find();
     paint(&mut app);
     shoot(&mut app, "terminal-many-tabs");
     std::fs::remove_dir_all(&dir).unwrap();
@@ -1115,5 +1138,67 @@ fn code_sent_to_an_exited_shell_starts_it_again() {
     assert_eq!(app.input_sent_to(&log, tab.id), b"fn main() {\r");
     assert_eq!(app.focus, Focus::Editor);
 
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 启动时恢复的目录在窗口创建之前打开，窗口建好以后按现场恢复终端：开着的面板、标签和目录。
+#[test]
+fn the_first_window_restores_the_terminal_panel() {
+    let dir = sample_folder("terminal-first-window");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    show_terminal(&mut app, "$ ");
+    app.terminal.tabs[0].cwd = b"/tmp/a".to_vec();
+    app.terminal.height = 300.0;
+    app.remember_session();
+    let state = app.state.clone();
+    let root = app.editor.root().unwrap().to_path_buf();
+
+    // 上次开着：恢复后开着，没有打开动画，高度不变，标签在原来的目录里。
+    let open = |open: bool| {
+        let mut session = state.session_for(&root).unwrap().clone();
+        session.terminal.as_mut().unwrap().open = open;
+        let mut state = state.clone();
+        state.set_session(session);
+        let mut app = app_with(&dir.join("short.rs"), false);
+        app.state = state;
+        app.config.terminal_enabled = Some(true);
+        app.attach_idle_helper();
+        app.restore_terminal_for_window();
+        app
+    };
+    let mut app = open(true);
+    assert!(app.terminal.open);
+    assert!(app.terminal.motion.is_none());
+    assert_eq!(app.terminal.height, 300.0);
+    assert_eq!(app.terminal.want, [b"/tmp/a".to_vec()]);
+    app.relayout();
+    assert_eq!(app.terminal.tabs.len(), 1);
+
+    // 上次收着：恢复后收着，打开面板时才建标签。
+    let mut app = open(false);
+    assert!(!app.terminal.open);
+    app.relayout();
+    assert!(app.terminal.tabs.is_empty());
+    app.toggle_terminal();
+    app.relayout();
+    assert_eq!(app.terminal.tabs.len(), 1);
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 停靠位置写进配置文件，下次启动读回来。
+#[test]
+fn the_panel_position_survives_a_restart() {
+    let dir = sample_folder("terminal-position");
+    let path = dir.join("config.json");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    app.config_path = Some(path.clone());
+    show_terminal(&mut app, "$ ");
+    app.toggle_terminal_position();
+    let (config, _) = winc_config::Config::load_from(&path);
+    assert_eq!(config.terminal_right, Some(true));
+    app.toggle_terminal_position();
+    let (config, _) = winc_config::Config::load_from(&path);
+    assert_eq!(config.terminal_right, Some(false));
     std::fs::remove_dir_all(&dir).unwrap();
 }

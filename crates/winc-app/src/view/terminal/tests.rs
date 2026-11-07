@@ -1,4 +1,4 @@
-//! 终端绘制的测试：粗体亮色的开关、样式段按格切分、折叠行数的分组。
+//! 终端绘制的测试：粗体亮色的开关、样式段按格切分、折叠行数的分组、方块元素的形状、组字文字的位置。
 
 use super::*;
 
@@ -101,7 +101,14 @@ fn segments_follow_runs_by_cell_not_by_char() {
     );
     assert_eq!((parts[1].start, parts[1].end, parts[1].text), (3, 5, "bc"));
     assert_eq!(width_at(&line, 0), 2);
-    assert_eq!(char_at(&line, 3), Some('b'));
+    let cluster = cluster_at(&line, 3).unwrap();
+    assert_eq!(cluster.base, 'b');
+    assert_eq!(cluster.style.fg, TermColor::Indexed(1));
+    // 组合字符跟着基本字符；宽字符的后半格和行尾没有字。
+    let cluster = cluster_at(&line, 2).unwrap();
+    assert_eq!((cluster.base, &cluster.marks[..]), ('a', &['\u{301}'][..]));
+    assert!(cluster_at(&line, 1).is_none());
+    assert!(cluster_at(&line, 9).is_none());
 }
 
 #[test]
@@ -109,4 +116,39 @@ fn hidden_line_counts_are_grouped() {
     assert_eq!(group_digits(7), "7");
     assert_eq!(group_digits(1284), "1 284");
     assert_eq!(group_digits(1_000_000), "1 000 000");
+}
+
+#[test]
+fn block_elements_split_into_fractions_of_the_cell() {
+    let parts = |c| {
+        let mut found = Vec::new();
+        let known = block_parts(c, |rect, opacity| found.push((rect, opacity)));
+        known.then_some(found)
+    };
+    assert_eq!(parts('█').unwrap(), [([0.0, 0.0, 1.0, 1.0], 1.0)]);
+    assert_eq!(parts('▀').unwrap(), [([0.0, 0.0, 1.0, 0.5], 1.0)]);
+    assert_eq!(parts('▁').unwrap(), [([0.0, 0.875, 1.0, 1.0], 1.0)]);
+    assert_eq!(parts('▏').unwrap(), [([0.0, 0.0, 0.125, 1.0], 1.0)]);
+    assert_eq!(parts('▐').unwrap(), [([0.5, 0.0, 1.0, 1.0], 1.0)]);
+    assert_eq!(parts('░').unwrap(), [([0.0, 0.0, 1.0, 1.0], 0.25)]);
+    assert_eq!(parts('▓').unwrap(), [([0.0, 0.0, 1.0, 1.0], 0.75)]);
+    assert_eq!(parts('▙').unwrap().len(), 3);
+    assert_eq!(parts('a'), None);
+    assert_eq!(parts('─'), None);
+    // 整个区段都有形状。
+    for c in '\u{2580}'..='\u{259F}' {
+        assert!(parts(c).is_some_and(|found| !found.is_empty()), "{c}");
+    }
+}
+
+#[test]
+fn the_preedit_moves_left_only_when_it_would_overflow() {
+    // 每格 10，右边界 100。
+    assert_eq!(preedit_x(40.0, "", 10.0, 100.0), 40.0);
+    assert_eq!(preedit_x(40.0, "abc", 10.0, 100.0), 40.0);
+    assert_eq!(preedit_x(80.0, "abc", 10.0, 100.0), 70.0);
+    // 宽字占两格。
+    assert_eq!(preedit_x(80.0, "中文", 10.0, 100.0), 60.0);
+    // 比可用宽度还长时保留结尾。
+    assert_eq!(preedit_x(0.0, &"a".repeat(30), 10.0, 100.0), -200.0);
 }

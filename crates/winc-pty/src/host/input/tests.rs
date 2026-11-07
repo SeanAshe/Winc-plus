@@ -219,3 +219,15 @@ fn nested_paste_markers_are_stripped_in_one_pass() {
     paste("~", Modes(Modes::BRACKETED_PASTE), &mut out);
     assert_eq!(out, b"\x1b[200~~\x1b[201~");
 }
+
+#[test]
+fn cursor_steps_count_characters_not_cells() {
+    assert!(matches!(cursor_steps("hello", 5, 2), (Key::Left, 3)));
+    assert!(matches!(cursor_steps("hello", 1, 4), (Key::Right, 3)));
+    // 宽字符占两格，只按一次；组合字符不单独算。
+    assert!(matches!(cursor_steps("中文ab", 6, 0), (Key::Left, 4)));
+    assert!(matches!(cursor_steps("e\u{301}x", 2, 0), (Key::Left, 2)));
+    // 点到文字后面：算到末尾。
+    assert!(matches!(cursor_steps("ab", 1, 50), (Key::Right, 1)));
+    assert!(matches!(cursor_steps("ab", 1, 1), (_, 0)));
+}

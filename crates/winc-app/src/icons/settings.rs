@@ -174,3 +174,26 @@ pub(super) fn gear_shape((cx, cy): (f32, f32), (root, tip, hub): (f32, f32, f32)
         None => Stroke::Circle(cx, cy, hub),
     })
 }
+
+/// 运行（三角形），约 10×12。
+pub fn play(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let (left, right, half) = (cx - 4.0, cx + 5.0, 5.5);
+    let lines = [
+        Stroke::Line(left, cy - half, right, cy),
+        Stroke::Line(right, cy, left, cy + half),
+        Stroke::Line(left, cy + half, left, cy - half),
+    ];
+    frame.stroke(&lines, RING_STROKE, color, clip);
+}
+
+/// 停止（方形），10×10。
+pub fn stop(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let r = 5.0;
+    let lines = [
+        Stroke::Line(cx - r, cy - r, cx + r, cy - r),
+        Stroke::Line(cx + r, cy - r, cx + r, cy + r),
+        Stroke::Line(cx + r, cy + r, cx - r, cy + r),
+        Stroke::Line(cx - r, cy + r, cx - r, cy - r),
+    ];
+    frame.stroke(&lines, RING_STROKE, color, clip);
+}

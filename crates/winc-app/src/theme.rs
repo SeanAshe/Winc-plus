@@ -236,6 +236,10 @@ pub(crate) fn readable(fg: Color, bg: Color, min: f32) -> Color {
     } else {
         far
     };
+    // 反向调整时直接取纯黑或纯白：原有颜色已无法保留，取刚好达标的中间值时文字呈灰色。
+    if toward == far {
+        return far;
+    }
     // 翻到另一头时要先越过底色，对比度先变小再变大：只算越过以后的。
     let past = |c: Color| (luminance(c) > luminance(bg)) == (toward == WHITE);
     // 二分找最小的调和比例：越过底色以后，对比度随比例单调变大。
@@ -636,6 +640,8 @@ pub const TREE_INDENT: f32 = 16.0;
 pub const TAB_HEIGHT: f32 = 26.0;
 /// 标签之间的间距。
 pub const TAB_GAP: f32 = 4.0;
+/// 第一个文件标签离标签栏左边的距离（逻辑像素），与标签上下的留白相同。
+pub const TAB_INSET: f32 = (TOP_BAR - TAB_HEIGHT) / 2.0;
 /// 标签的最大宽度。
 ///
 /// 标签宽度贴合文件名，文件名更长时截短；所有标签放不下时横向滚动。

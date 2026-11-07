@@ -69,6 +69,9 @@ jobs:
         run: |
           rustup target add x86_64-unknown-linux-musl
           cargo build --release --locked --target x86_64-unknown-linux-musl -p winc-watch
+      - name: Fetch console host
+        shell: pwsh
+        run: ./release/windows/conpty.ps1 -Destination "target/$env:TARGET/release"
       - name: Install native packaging tools
         shell: pwsh
         run: |
@@ -100,6 +103,8 @@ jobs:
           $files = @(
             "$root/winc.exe"
             "$root/winc-pty.exe"
+            "$root/conpty.dll"
+            "$root/OpenConsole.exe"
           )
           $files += Get-ChildItem "$root/bundle/nsis/*-setup.exe", "$root/bundle/msi/*.msi" |
             ForEach-Object FullName

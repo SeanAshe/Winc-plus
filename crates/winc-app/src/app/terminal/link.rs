@@ -7,10 +7,10 @@
 
 use std::path::{Path, PathBuf};
 
+use super::App;
 use super::blocks::path_from_bytes;
 use super::locate::{locations, urls};
 use super::tab::TermTab;
-use super::{App, grid_rect};
 use crate::system;
 
 /// 链接指向哪里。
@@ -156,14 +156,10 @@ impl App {
             self.modifiers.control_key()
         };
         let (x, y) = self.mouse;
-        let grid = grid_rect(self.layout.terminal, self.fonts.line_height);
+        let view = self.terminal_view();
         let root = self.editor.root().map(Path::to_path_buf);
         // 吸顶的命令行、折起的那一行底下的字看不见，不认链接。
-        let shown = || {
-            let row = ((y - grid.y) / self.fonts.line_height).floor().max(0.0) as usize;
-            self.terminal_shows_line(row)
-        };
-        let link = if held && grid.contains(x, y) && shown() {
+        let link = if held && view.contains(x, y) && self.terminal_shows_line(y) {
             self.terminal_point(x, y, false).and_then(|point| {
                 let tab = self.terminal.tab()?;
                 let (start, end, target) = link_at(tab, point.line, point.col, root.as_deref())?;

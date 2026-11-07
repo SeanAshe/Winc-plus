@@ -515,6 +515,16 @@ impl App {
             MenuTarget::TabList => (0..self.editor.documents.len())
                 .map(|i| MenuEntry::Item(MenuCommand::ShowTab(i), true))
                 .collect(),
+            MenuTarget::RunConfigs => (0..self.run.list.len())
+                .map(|i| MenuEntry::Item(MenuCommand::RunSelect(i), true))
+                .chain([
+                    MenuEntry::Separator,
+                    MenuEntry::Item(MenuCommand::RunEdit, true),
+                ])
+                .collect(),
+            MenuTarget::TerminalShells => (0..self.terminal_shell_list().len())
+                .map(|i| MenuEntry::Item(MenuCommand::NewTerminalShell(i), true))
+                .collect(),
             MenuTarget::LogBranch => log_branch_menu(&self.git.branches),
             MenuTarget::StatusBranches => {
                 let idle = self.branch.running.is_none();
@@ -736,6 +746,45 @@ impl App {
         match command {
             MenuCommand::OpenRecent(i) => self.recent_label(i),
             MenuCommand::ShowTab(i) => self.tab_list_label(i),
+            MenuCommand::RunSelect(i) => {
+                let config = self.run.list.get(i);
+                // 名字就是命令时不重复显示。
+                let subtitle = config.and_then(|c| {
+                    if self.config_running(c) {
+                        Some(t!(
+                            "terminal-run-menu-running",
+                            command = c.command.as_str()
+                        ))
+                    } else {
+                        (c.command != c.name).then(|| c.command.clone())
+                    }
+                });
+                MenuLabel {
+                    title: config.map(|c| c.name.clone()).unwrap_or_default(),
+                    subtitle,
+                    tooltip: None,
+                }
+            }
+            MenuCommand::TerminalDock => {
+                let title = if self.terminal_right() {
+                    t!("terminal-dock-bottom")
+                } else {
+                    t!("terminal-dock-right")
+                };
+                MenuLabel {
+                    title: title.to_owned(),
+                    subtitle: None,
+                    tooltip: None,
+                }
+            }
+            MenuCommand::NewTerminalShell(i) => {
+                let shell = self.terminal_shell_list().into_iter().nth(i);
+                MenuLabel {
+                    title: shell.as_ref().map(|s| s.name.clone()).unwrap_or_default(),
+                    subtitle: shell.map(|s| s.command),
+                    tooltip: None,
+                }
+            }
             MenuCommand::OpenRecentInNewWindow(i) => {
                 let label = self.recent_label(i);
                 MenuLabel {
@@ -989,6 +1038,10 @@ impl App {
     pub(in crate::app) fn menu_checked(&self, command: MenuCommand) -> bool {
         if let MenuCommand::ShowTab(i) = command {
             return self.editor.active == Some(i);
+        }
+        if let MenuCommand::RunSelect(i) = command {
+            let current = self.run.current();
+            return current.is_some_and(|c| self.run.list.get(i) == Some(c));
         }
         if command == MenuCommand::ToggleBlame {
             return self.editor.active().is_some_and(|d| self.blame.is_on(d.id));

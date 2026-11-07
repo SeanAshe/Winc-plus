@@ -1,6 +1,7 @@
 //! 网格的绘制：终端颜色换算、按样式分段绘制一行、光标、输入法组字。
 
 use super::*;
+use winc_pty::width::{char_width, is_emoji_tail};
 use winc_render::Stroke;
 
 /// 把终端的颜色换成界面颜色。
@@ -24,7 +25,7 @@ impl Colors {
         }
     }
 
-    fn default_bg(&self) -> Color {
+    pub(super) fn default_bg(&self) -> Color {
         if self.reverse {
             self.p.syntax_text
         } else {
@@ -136,18 +137,17 @@ pub(super) fn segments(line: &Line) -> Vec<Segment<'_>> {
 
     let mut out = Vec::with_capacity(runs.len());
     let (mut col, mut byte) = (0, 0);
-    let mut chars = line.text.char_indices().peekable();
+    let mut chars = cells(&line.text).peekable();
     for (i, run) in runs.iter().enumerate() {
         let until = runs.get(i + 1).map_or(usize::MAX, |r| usize::from(r.start));
         let (start, from) = (col, byte);
-        while let Some(&(at, c)) = chars.peek() {
-            let w = char_width(c);
+        while let Some(&(c, w)) = chars.peek() {
             // 组合字符跟着前一个字，留在这一段里。
             if w > 0 && col >= until {
                 break;
             }
             col += w;
-            byte = at + c.len_utf8();
+            byte += c.len_utf8();
             chars.next();
         }
         out.push(Segment {
@@ -214,35 +214,24 @@ pub(super) fn draw_line(
         // 前一个占格子的字：所在列和占几格，组合字符画在它上面。
         let mut base: Option<(usize, usize)> = None;
         if !attrs.has(Attrs::HIDDEN) {
-            for c in part.text.chars() {
-                let w = char_width(c);
+            for (c, w) in cells(part.text) {
                 if w == 0 {
-                    // 组合字符（重音符号、变体选择符）不占格子。字形不占宽度时（多数字体），原点
-                    // 放在所附的字结束处、不做居中，与编辑区的画法相同：字形自带向左的偏移，落在
-                    // 前一个字上。有的等宽字体给组合字符一整格的宽度、字形画在这一格里：那就和
-                    // 前一个字画在同一格里。
-                    let mut buf = [0; 4];
-                    let advance = frame.measure(kind, size, c.encode_utf8(&mut buf));
-                    match base {
-                        Some((at, cells)) if advance > 0.0 => {
-                            frame.cell_char(
-                                kind,
-                                size,
-                                x_of(at),
-                                baseline,
-                                cell,
-                                cells,
-                                c,
-                                fg,
-                                clip,
-                            );
-                        }
-                        _ => frame.cell_char(kind, size, x_of(col), baseline, cell, 0, c, fg, clip),
+                    if !is_emoji_tail(c) {
+                        let at = base.map(|(at, cells)| (x_of(at), cells));
+                        draw_mark(
+                            frame,
+                            (kind, size, cell),
+                            (at, x_of(col), baseline),
+                            c,
+                            fg,
+                            clip,
+                        );
                     }
                     continue;
                 }
                 base = Some((col, w));
-                if c != ' ' {
+                let at = Rect::new(x_of(col), row.y, w as f32 * cell, row.h);
+                if c != ' ' && !draw_block_element(frame, c, at, fg, clip) {
                     frame.cell_char(kind, size, x_of(col), baseline, cell, w, c, fg, clip);
                     // 粗体：往右错开一个物理像素再绘制一次，笔画加粗、字宽不变（等宽的格子不乱）。
                     if bold {
@@ -275,6 +264,91 @@ pub(super) fn draw_line(
             frame.rect_clipped(span(y, 1.0), fg, 0.0, clip);
         }
     }
+}
+
+/// 绘制组合字符（重音符号），它不占格子。
+///
+/// 字形不占宽度时（多数字体），原点放在所附的字结束处（`end`）、不做居中，与编辑区的画法相同：字形
+/// 自带向左的偏移，落在前一个字上。有的等宽字体给组合字符一整格的宽度、字形画在这一格里：那就和
+/// 前一个字（`base`：左边和占几格）画在同一格里。
+fn draw_mark(
+    frame: &mut Frame<'_>,
+    (kind, size, cell): (FontKind, f32, f32),
+    (base, end, baseline): (Option<(f32, usize)>, f32, f32),
+    c: char,
+    color: Color,
+    clip: Rect,
+) {
+    let mut buf = [0; 4];
+    let advance = frame.measure(kind, size, c.encode_utf8(&mut buf));
+    match base {
+        Some((x, cells)) if advance > 0.0 => {
+            frame.cell_char(kind, size, x, baseline, cell, cells, c, color, clip);
+        }
+        _ => frame.cell_char(kind, size, end, baseline, cell, 0, c, color, clip),
+    }
+}
+
+/// 把方块元素（U+2580–259F）拆成矩形，依次交给 `part`；其他字符返回假。
+///
+/// 每个矩形是占格子的比例（左，上，右，下）和不透明度。浅、中、深阴影的不透明度取 Unicode 字符表
+/// 标注的 25%、50%、75%。
+pub(super) fn block_parts(c: char, mut part: impl FnMut([f32; 4], f32)) -> bool {
+    const UPPER_LEFT: [f32; 4] = [0.0, 0.0, 0.5, 0.5];
+    const UPPER_RIGHT: [f32; 4] = [0.5, 0.0, 1.0, 0.5];
+    const LOWER_LEFT: [f32; 4] = [0.0, 0.5, 0.5, 1.0];
+    const LOWER_RIGHT: [f32; 4] = [0.5, 0.5, 1.0, 1.0];
+    const FULL: [f32; 4] = [0.0, 0.0, 1.0, 1.0];
+    let eighths = |n: u32| n as f32 / 8.0;
+    let code = u32::from(c);
+    let quadrants: &[[f32; 4]] = match c {
+        '\u{2580}' => &[[0.0, 0.0, 1.0, 0.5]],
+        '\u{2581}'..='\u{2588}' => {
+            part([0.0, 1.0 - eighths(code - 0x2580), 1.0, 1.0], 1.0);
+            return true;
+        }
+        '\u{2589}'..='\u{258F}' => {
+            part([0.0, 0.0, eighths(0x2590 - code), 1.0], 1.0);
+            return true;
+        }
+        '\u{2590}' => &[[0.5, 0.0, 1.0, 1.0]],
+        '\u{2591}'..='\u{2593}' => {
+            part(FULL, (code - 0x2590) as f32 * 0.25);
+            return true;
+        }
+        '\u{2594}' => &[[0.0, 0.0, 1.0, 0.125]],
+        '\u{2595}' => &[[0.875, 0.0, 1.0, 1.0]],
+        '\u{2596}' => &[LOWER_LEFT],
+        '\u{2597}' => &[LOWER_RIGHT],
+        '\u{2598}' => &[UPPER_LEFT],
+        '\u{2599}' => &[UPPER_LEFT, LOWER_LEFT, LOWER_RIGHT],
+        '\u{259A}' => &[UPPER_LEFT, LOWER_RIGHT],
+        '\u{259B}' => &[UPPER_LEFT, UPPER_RIGHT, LOWER_LEFT],
+        '\u{259C}' => &[UPPER_LEFT, UPPER_RIGHT, LOWER_RIGHT],
+        '\u{259D}' => &[UPPER_RIGHT],
+        '\u{259E}' => &[UPPER_RIGHT, LOWER_LEFT],
+        '\u{259F}' => &[UPPER_RIGHT, LOWER_LEFT, LOWER_RIGHT],
+        _ => return false,
+    };
+    for &quadrant in quadrants {
+        part(quadrant, 1.0);
+    }
+    true
+}
+
+/// 在格子 `at` 内绘制方块元素 `c`，相邻格子之间没有缝隙；其他字符不绘制并返回假。
+///
+/// 字体的字形通常低于行高，直接绘制时上下两行之间会露出底色。
+fn draw_block_element(frame: &mut Frame<'_>, c: char, at: Rect, color: Color, clip: Rect) -> bool {
+    block_parts(c, |[left, top, right, bottom], opacity| {
+        let rect = Rect::new(
+            at.x + left * at.w,
+            at.y + top * at.h,
+            (right - left) * at.w,
+            (bottom - top) * at.h,
+        );
+        frame.rect_clipped(rect, color.alpha(opacity), 0.0, clip);
+    })
 }
 
 /// 在 `x0..x1`（逻辑像素）、上沿为 `y` 处绘制样式为 `underline` 的下划线，线宽 1 逻辑像素。
@@ -329,8 +403,7 @@ fn draw_underline(
 /// 第 `col` 格上的字占几格（光标盖住宽字符时绘制成两格宽）。
 pub(super) fn width_at(line: &Line, col: usize) -> usize {
     let mut at = 0;
-    for c in line.text.chars() {
-        let w = char_width(c);
+    for (_, w) in cells(&line.text) {
         if w == 0 {
             continue;
         }
@@ -346,9 +419,12 @@ pub(super) fn width_at(line: &Line, col: usize) -> usize {
 }
 
 /// 光标：焦点在终端时按程序要的形状绘制实心的（方块里的字反色重绘），不在时绘制空心方块。
+///
+/// 整屏反色时光标用默认字色，光标色和反色后的底色可能相近。
 pub(super) fn draw_cursor(
     app: &App,
     frame: &mut Frame<'_>,
+    colors: &Colors,
     tab: &TermTab,
     at: Rect,
     focused: bool,
@@ -356,73 +432,145 @@ pub(super) fn draw_cursor(
 ) {
     use winc_pty::protocol::CursorShape;
 
-    let p = app.palette;
+    let (caret, ink) = if colors.reverse {
+        (colors.default_fg(), colors.default_bg())
+    } else {
+        (app.palette.caret, app.palette.editor_bg)
+    };
     if !focused {
-        let mut edge = |r: Rect| frame.rect_clipped(r, p.caret, 0.0, clip);
+        let mut edge = |r: Rect| frame.rect_clipped(r, caret, 0.0, clip);
         edge(Rect::new(at.x, at.y, at.w, 1.0));
         edge(Rect::new(at.x, at.bottom() - 1.0, at.w, 1.0));
         edge(Rect::new(at.x, at.y, 1.0, at.h));
         edge(Rect::new(at.right() - 1.0, at.y, 1.0, at.h));
         return;
     }
-    if !app.caret_visible {
+    // 程序要求不闪烁时（DECSCUSR 2、4、6）一直显示。
+    if !app.caret_visible && tab.cursor.blink {
         return;
     }
     match tab.cursor.shape {
-        CursorShape::Bar => {
-            frame.rect_clipped(Rect::new(at.x, at.y, 2.0, at.h), p.caret, 0.0, clip)
-        }
+        CursorShape::Bar => frame.rect_clipped(Rect::new(at.x, at.y, 2.0, at.h), caret, 0.0, clip),
         CursorShape::Underline => frame.rect_clipped(
             Rect::new(at.x, at.bottom() - 2.0, at.w, 2.0),
-            p.caret,
+            caret,
             0.0,
             clip,
         ),
         CursorShape::Block => {
-            frame.rect_clipped(at, p.caret, 0.0, clip);
-            // 方块里的字用底色重绘，盖住了也看得见。
-            let row = usize::from(tab.cursor.row);
-            let col = usize::from(tab.cursor.col);
-            if let Some(c) = tab.rows.get(row).and_then(|line| char_at(line, col))
-                && c != ' '
+            frame.rect_clipped(at, caret, 0.0, clip);
+            // 方块内的字用底色重绘，样式和组合字符与网格相同，被光标覆盖后仍然可见。
+            let row = tab.rows.get(usize::from(tab.cursor.row));
+            if let Some(cluster) =
+                row.and_then(|line| cluster_at(line, usize::from(tab.cursor.col)))
             {
-                let baseline = baseline_in(at, app.mono_metrics.ascent, app.mono_metrics.descent);
-                frame.cell_char(
-                    FontKind::Mono,
-                    app.fonts.code,
-                    at.x,
-                    baseline,
-                    app.cell,
-                    char_width(c).max(1),
-                    c,
-                    p.editor_bg,
-                    clip,
-                );
+                draw_cluster(app, frame, &cluster, at, ink, clip);
             }
         }
     }
 }
 
-/// 返回第 `col` 格上的字符；落在宽字符的后半格或空白处时返回 `None`。
-pub(super) fn char_at(line: &Line, col: usize) -> Option<char> {
-    let mut at = 0;
-    for c in line.text.chars() {
-        let w = char_width(c);
-        if w == 0 {
-            continue;
-        }
-        if at == col {
-            return Some(c);
-        }
-        at += w;
-        if at > col {
-            return None;
-        }
-    }
-    None
+/// 一格上的字：基本字符、所附的组合字符和样式。
+pub(super) struct Cluster {
+    /// 占格子的字符。
+    pub(super) base: char,
+    /// 所附的组合字符。
+    pub(super) marks: Vec<char>,
+    /// 这一格的样式。
+    pub(super) style: Style,
 }
 
-/// 输入法组字中的文字：绘制在终端光标处，带强调色的下划线，盖住下面的格子。
+/// 返回第 `col` 格上的字；落在宽字符的后半格或空白处时返回 `None`。
+pub(super) fn cluster_at(line: &Line, col: usize) -> Option<Cluster> {
+    let parts = segments(line);
+    let part = parts.iter().find(|p| p.start <= col && col < p.end)?;
+    let mut at = part.start;
+    let mut found: Option<Cluster> = None;
+    for (c, w) in cells(part.text) {
+        match (&mut found, w) {
+            (Some(cluster), 0) if !is_emoji_tail(c) => cluster.marks.push(c),
+            (Some(_), 0) | (None, 0) => {}
+            (Some(_), _) => break,
+            (None, _) if at == col => {
+                found = Some(Cluster {
+                    base: c,
+                    marks: Vec::new(),
+                    style: part.style,
+                });
+            }
+            (None, _) => at += w,
+        }
+    }
+    found.filter(|cluster| cluster.base != ' ')
+}
+
+/// 在格子 `at` 里按样式绘制 `cluster`，颜色统一用 `color`（块光标里的字）。
+fn draw_cluster(
+    app: &App,
+    frame: &mut Frame<'_>,
+    cluster: &Cluster,
+    at: Rect,
+    color: Color,
+    clip: Rect,
+) {
+    let attrs = cluster.style.attrs;
+    if attrs.has(Attrs::HIDDEN) || draw_block_element(frame, cluster.base, at, color, clip) {
+        return;
+    }
+    let (cell, size) = (app.cell, app.fonts.code);
+    let kind = if attrs.has(Attrs::ITALIC) {
+        FontKind::MonoItalic
+    } else {
+        FontKind::Mono
+    };
+    let cells = ((at.w / cell).round() as usize).max(1);
+    let baseline = baseline_in(at, app.mono_metrics.ascent, app.mono_metrics.descent);
+    frame.cell_char(
+        kind,
+        size,
+        at.x,
+        baseline,
+        cell,
+        cells,
+        cluster.base,
+        color,
+        clip,
+    );
+    if attrs.has(Attrs::BOLD) {
+        let x = at.x + 1.0 / frame.scale().max(1.0);
+        frame.cell_char(
+            kind,
+            size,
+            x,
+            baseline,
+            cell,
+            cells,
+            cluster.base,
+            color,
+            clip,
+        );
+    }
+    for &mark in &cluster.marks {
+        draw_mark(
+            frame,
+            (kind, size, cell),
+            (Some((at.x, cells)), at.right(), baseline),
+            mark,
+            color,
+            clip,
+        );
+    }
+}
+
+/// 返回组字文字的左边：从光标处 `x` 写到 `right` 外时整段左移。
+///
+/// 超过可用宽度时左端移出可见范围，保留正在输入的结尾。
+pub(super) fn preedit_x(x: f32, text: &str, cell: f32, right: f32) -> f32 {
+    let width = text.chars().map(|c| char_width(c).max(1)).sum::<usize>() as f32 * cell;
+    x.min(right - width)
+}
+
+/// 输入法组字中的文字：绘制在 [`preedit_x`] 处，带强调色的下划线，盖住下面的格子。
 pub(super) fn draw_preedit(
     app: &App,
     frame: &mut Frame<'_>,

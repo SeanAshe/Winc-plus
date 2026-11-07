@@ -13,6 +13,8 @@ mod keys;
 pub(crate) mod link;
 mod locate;
 mod pointer;
+pub(crate) mod run;
+pub(crate) mod shells;
 pub(crate) mod strip;
 mod tab;
 
@@ -37,7 +39,7 @@ use super::{App, CloseRequest, Focus, UserEvent};
 use crate::theme::{Palette, TOP_BAR, TOP_BAR_END};
 
 pub(crate) use blocks::{ErrorNav, format_duration};
-pub(crate) use find::TermFind;
+pub(crate) use find::{FIND_OPTIONS_MIN, FindPart, TermFind};
 pub(crate) use link::TermLink;
 pub(crate) use pointer::BlockHit;
 #[cfg(all(test, unix))]
@@ -45,7 +47,7 @@ pub(crate) use tab::{Point, Selection, Unit};
 pub(crate) use tab::{SETTLE, TabEnd, TermTab, ViewRow};
 
 /// 面板在下面时的默认高度（逻辑像素，含标签栏）。
-pub(crate) const DEFAULT_HEIGHT: f32 = 240.0;
+pub(crate) const DEFAULT_HEIGHT: f32 = 242.0;
 /// 面板在下面时的最矮高度（逻辑像素，含标签栏）：标签栏加几行。
 pub(crate) const MIN_HEIGHT: f32 = 96.0;
 /// 在下面拖高面板时给编辑区至少留的高度（逻辑像素）。
@@ -56,9 +58,8 @@ pub(crate) const DEFAULT_WIDTH: f32 = 480.0;
 pub(crate) const MIN_WIDTH: f32 = 280.0;
 /// 面板在右边时至少给编辑区留的宽度（逻辑像素，经验值）。
 pub(crate) const EDITOR_MIN_WIDTH: f32 = 360.0;
-/// 面板在下面时标签栏的高度（逻辑像素）：`TAB_HEIGHT` 上下各留 4；面板在右边时用 `TOP_BAR`，
-/// 见 [`header_height`]。
-pub(crate) const HEADER: f32 = crate::theme::TAB_HEIGHT + 8.0;
+/// 面板在下面时标签栏的高度（逻辑像素）：`TAB_HEIGHT` 上下各留 5。
+const HEADER: f32 = crate::theme::TAB_HEIGHT + 10.0;
 /// 网格右边和下方的留白（逻辑像素）。
 pub(crate) const PAD: f32 = 8.0;
 /// 网格左边的留白（逻辑像素），命令块的色带画在这里。
@@ -106,10 +107,16 @@ pub(crate) enum HeaderHit {
     New,
     /// 「重新启动」：shell 退出了、或者辅助进程退出了时。
     Restart,
-    /// 把面板挪到编辑区右边，或者挪回下面。
-    Position,
     /// 收起面板（和状态栏上的终端按钮一样）。
     Hide,
+    /// 「+」右边选 shell 的按钮。
+    ShellMenu,
+    /// 把面板挪到编辑区右边，或者挪回下面。
+    Position,
+    /// 运行配置的按钮。
+    Run(run::RunButton),
+    /// 查找条的一部分。
+    Find(FindPart),
 }
 
 /// 面板出现、收起、换位置的动画（见 [`App::terminal_shown`]）。
@@ -156,8 +163,16 @@ pub(crate) struct TerminalPanel {
     /// `want` 里各标签的名字（恢复现场、重新启动时带上用户起的名字），和 `want` 一一对应；
     /// 数量不足的部分视为没有名字。
     want_names: Vec<String>,
+    /// `want` 里各标签的 shell，和 `want` 一一对应；`None` 或数量不足的部分用默认 shell。
+    pub want_shells: Vec<Option<String>>,
+    /// 本机可选的 shell（[`shells`]），检测完成前为空。
+    pub shells: Vec<shells::ShellChoice>,
+    /// 是否已经开始检测本机的 shell。
+    shells_detected: bool,
     /// `want` 里的标签都建好以后看第几个（恢复上次的现场时）；`None` 是最后建的那个。
     want_active: Option<usize>,
+    /// 等着启动的运行配置。
+    run_queue: Vec<run::RunStart>,
     /// 新建的标签起来以后先写给它的输入（⌃⇧↩ 发代码时还没有终端）。
     pub pending_input: Option<Vec<u8>>,
     /// 辅助进程意外退出了：标签和最后一屏还留着，等用户重新启动。
@@ -203,6 +218,41 @@ impl TerminalPanel {
         self.tabs.get_mut(self.active)
     }
 
+    /// 返回面板之外也可见的状态和标签栏内容的摘要，用于判断一批消息是否改变了界面。
+    ///
+    /// 标签名和结束状态只显示在面板里，面板收起时不计入；未读标记同时显示在状态栏。
+    pub(in crate::app) fn visible_state(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        (self.open, self.active, self.crashed, &self.error).hash(&mut hasher);
+        for tab in &self.tabs {
+            tab.unseen.hash(&mut hasher);
+            if self.open {
+                (tab.id, tab.label(), tab.ended).hash(&mut hasher);
+            }
+        }
+        hasher.finish()
+    }
+
+    /// 消息是否作用于正在显示的内容。标题、进程、未读标记等的变化由 [`Self::visible_state`] 判断。
+    pub(in crate::app) fn message_is_shown(&self, message: &FromHelper) -> bool {
+        let shows = |id: u16| self.open && self.tab().is_some_and(|tab| tab.id == id);
+        match message {
+            FromHelper::Hello { .. } | FromHelper::History { .. } | FromHelper::Failed { .. } => {
+                true
+            }
+            FromHelper::Frame { tab, .. } | FromHelper::Blocks { tab, .. } => shows(*tab),
+            FromHelper::Event {
+                tab,
+                event: Event::Link(..),
+            } => shows(*tab),
+            FromHelper::Event { .. }
+            | FromHelper::Process { .. }
+            | FromHelper::Exited { .. }
+            | FromHelper::Disconnected { .. } => false,
+        }
+    }
+
     fn index_of(&self, id: u16) -> Option<usize> {
         self.tabs.iter().position(|t| t.id == id)
     }
@@ -242,7 +292,7 @@ impl TerminalPanel {
 }
 
 /// 面板标签栏的高度（逻辑像素）：`card` 从顶栏那一行开始时（面板在右边）用 `TOP_BAR`，
-/// 让终端标签和文件标签排在同一行；面板在下面时用 `HEADER`。
+/// 使终端标签和文件标签排在同一行；面板在下面时用 `HEADER`。
 pub(crate) fn header_height(card: Rect) -> f32 {
     if card.y < TOP_BAR_END {
         TOP_BAR
@@ -251,11 +301,21 @@ pub(crate) fn header_height(card: Rect) -> f32 {
     }
 }
 
+/// 第一个标签离面板左边的距离（逻辑像素），与标签上下的留白相同。
+pub(crate) fn tab_inset(card: Rect) -> f32 {
+    (header_height(card) - crate::theme::TAB_HEIGHT) / 2.0
+}
+
+/// 面板放不下一整行的零头（行，`0.0..1.0`）。
+pub(crate) fn grid_slack(card: Rect, line_height: f32) -> f32 {
+    (grid_rect(card, line_height).y - card.y - header_height(card)) / line_height
+}
+
 /// 面板里放网格的区域：标签栏以下，左边留出画命令块色带的 [`GUTTER`]，右边和底下留 [`PAD`]，
 /// 高度正好是整数行。
 pub(crate) fn grid_rect(card: Rect, line_height: f32) -> Rect {
-    // 放不下一整行的零头留在上面：网格贴着面板下边。面板在下面时上边随拖动移动，如果贴着
-    // 上边，每动一点整屏都跟着上下动，多出一行时又跳回去。
+    // 放不下一整行的零头留在上面，网格贴着面板下边：拖动分隔条时动的是面板上边，内容不跟着移动。
+    // 零头处显示网格上面一行的下半截，见 `TermTab::viewport`。
     let header = header_height(card);
     let h = (card.h - header - PAD).max(0.0);
     let rows = (h / line_height).floor();
@@ -341,18 +401,23 @@ impl App {
     pub(super) fn terminal_session(&self) -> Option<TerminalSession> {
         let t = &self.terminal;
         // 还没建出来的（面板收着时恢复的）也算。
-        let tabs: Vec<PathBuf> = t
-            .tabs
-            .iter()
+        // 运行配置的标签不恢复。
+        let shells = || t.tabs.iter().filter(|tab| tab.run.is_none());
+        let tabs: Vec<PathBuf> = shells()
             .map(|tab| bytes_path(&tab.cwd))
             .chain(t.want.iter().map(|cwd| bytes_path(cwd)))
             .collect();
         let pending = (0..t.want.len()).map(|i| t.want_names.get(i).cloned().unwrap_or_default());
-        let names = t.tabs.iter().map(|tab| tab.name.clone()).chain(pending);
+        let names = shells().map(|tab| tab.name.clone()).chain(pending);
+        let pending = (0..t.want.len()).map(|i| t.want_shells.get(i).cloned().flatten());
+        let commands = shells().map(|tab| tab.shell.clone()).chain(pending);
+        let before = t.tabs.iter().take(t.active).filter(|tab| tab.run.is_some());
+        let active = t.active - before.count();
         (!tabs.is_empty()).then(|| TerminalSession {
-            active: t.want_active.unwrap_or(t.active),
+            active: t.want_active.unwrap_or(active),
             tabs,
             names: names.collect(),
+            shells: commands.map(Option::unwrap_or_default).collect(),
             open: t.open,
             height: t.height,
             width: t.width,
@@ -371,6 +436,12 @@ impl App {
         let tabs = session.tabs.iter();
         t.want = tabs.map(|p| os_bytes(p.as_os_str())).collect();
         t.want_names.clone_from(&session.names);
+        let saved = session.shells.iter();
+        t.want_shells = saved
+            .map(|command| {
+                Some(command.clone()).filter(|c| !c.is_empty() && shells::still_usable(c))
+            })
+            .collect();
         t.want_active = Some(session.active);
         if session.height > 0.0 {
             t.height = session.height;
@@ -381,6 +452,23 @@ impl App {
         if session.open {
             self.set_terminal_open(true);
             self.start_terminal();
+        }
+    }
+
+    /// 窗口建好时按现场恢复终端：启动时恢复的目录在窗口创建之前打开，当时还不能启动辅助进程。
+    ///
+    /// 面板直接到位，没有打开动画；测量启动时间时不恢复。
+    pub(in crate::app) fn restore_terminal_for_window(&mut self) {
+        if self.bench.silent() {
+            return;
+        }
+        let session = self
+            .editor
+            .root()
+            .and_then(|root| self.state.session_for(root));
+        if let Some(terminal) = session.and_then(|session| session.terminal.clone()) {
+            self.restore_terminal(&terminal);
+            self.terminal.motion = None;
         }
     }
 
@@ -399,6 +487,7 @@ impl App {
         t.tabs.clear();
         t.want.clear();
         t.want_names.clear();
+        t.want_shells.clear();
         t.want_active = None;
         t.active = 0;
         t.client = None;
@@ -617,6 +706,11 @@ impl App {
 
     /// 在 `cwd` 新建一个终端标签（空的是打开的目录）。
     pub(super) fn new_terminal_tab_in(&mut self, cwd: Vec<u8>) {
+        self.new_terminal_tab_with(cwd, None);
+    }
+
+    /// 在 `cwd` 用 `shell` 新建一个终端标签（`None` 是默认 shell）。
+    pub(super) fn new_terminal_tab_with(&mut self, cwd: Vec<u8>, shell: Option<String>) {
         if !self.terminal.open {
             // 打开面板时没有标签、也没有恢复的标签要建，会先放一个默认的：换成这个默认标签。
             // 恢复的那些标签（面板收着时退出的）留着，这个默认标签加在后面。
@@ -625,9 +719,13 @@ impl App {
             if empty {
                 self.terminal.want.clear();
                 self.terminal.want_names.clear();
+                self.terminal.want_shells.clear();
             }
         }
-        self.terminal.want.push(cwd);
+        let t = &mut self.terminal;
+        t.want_shells.resize(t.want.len(), None);
+        t.want_shells.push(shell);
+        t.want.push(cwd);
         // 新建的这一个就是要看的，不再切回恢复时记着的那一个。
         self.terminal.want_active = None;
         self.focus = Focus::Terminal;
@@ -683,7 +781,7 @@ impl App {
         // 最后一个关掉了（也没有等着建的）：辅助进程自己会退出，连接马上放掉（关掉它的
         // stdin）。之后新建的标签由下一个辅助进程建，不发给正在退出的这一个（发了也收不到，
         // 还会被当成辅助进程中止）。
-        let last = t.tabs.is_empty() && t.want.is_empty();
+        let last = t.tabs.is_empty() && t.want.is_empty() && t.run_queue.is_empty();
         if last {
             t.client = None;
             t.ready = false;
@@ -704,7 +802,7 @@ impl App {
 
     /// 清理已删除标签的相关状态：还没回来的取行请求（辅助进程不会再答）、查找、F8、链接、
     /// 改名字的输入框；焦点在它的输入框里时回到终端。
-    fn forget_terminal_tab(&mut self, id: u16) {
+    pub(in crate::app::terminal) fn forget_terminal_tab(&mut self, id: u16) {
         let t = &mut self.terminal;
         t.requests.retain(|&(_, tab, _)| tab != id);
         if t.find.as_ref().is_some_and(|f| f.tab == id) {

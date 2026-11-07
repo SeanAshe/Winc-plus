@@ -275,9 +275,11 @@ fn colour_queries_use_the_theme() {
         ..Theme::default()
     }));
     feed(&mut t, "\x1b]11;?\x1b\\\x1b]4;1;?\x07");
+    // 回答的结束符和查询相同；Windows 上一律用 ST，见 `osc_dispatch`。
+    let bell = if cfg!(windows) { "\x1b\\" } else { "\x07" };
     assert_eq!(
         String::from_utf8(t.take_responses()).unwrap(),
-        "\x1b]11;rgb:1818/1a1a/1e1e\x1b\\\x1b]4;1;rgb:ffff/0000/0000\x07"
+        format!("\x1b]11;rgb:1818/1a1a/1e1e\x1b\\\x1b]4;1;rgb:ffff/0000/0000{bell}")
     );
 }
 
@@ -1069,4 +1071,441 @@ fn base64_encode(bytes: &[u8]) -> String {
         }
     }
     out
+}
+
+/// 只统计内容，去掉回滚缓冲里的空行。
+fn history_lines(t: &Terminal) -> Vec<String> {
+    let mut lines = history_text(t);
+    lines.retain(|line| !line.is_empty());
+    lines
+}
+
+#[test]
+fn refreshing_the_screen_with_newlines_keeps_earlier_output() {
+    // Vite 的做法：先用换行把屏幕内容推进回滚缓冲，再回到左上角擦除到末尾。
+    let mut t = term(80, 10);
+    for i in 0..30 {
+        feed(&mut t, &format!("build {i}\r\n"));
+    }
+    for i in 0..3 {
+        feed(&mut t, &"\n".repeat(9));
+        feed(&mut t, "\x1b[1;1H\x1b[0J");
+        feed(&mut t, &format!("hmr update (x{i})\r\n"));
+    }
+    let history = history_lines(&t);
+    assert_eq!(history[0], "build 0");
+    assert!(history.iter().any(|line| line == "build 29"));
+}
+
+#[test]
+fn erasing_the_screen_moves_its_content_into_the_scrollback() {
+    let mut t = term(20, 4);
+    feed(&mut t, "one\r\ntwo\r\n");
+    feed(&mut t, "\x1b[2J\x1b[H");
+    assert_eq!(history_text(&t), ["one", "two"]);
+    assert_eq!(t.cursor(), (0, 0));
+    assert!(t.screen_text().trim().is_empty());
+
+    // 行号连续：之后的输出接在后面。
+    feed(&mut t, "three\r\n\x1b[2J");
+    assert_eq!(history_text(&t), ["one", "two", "three"]);
+}
+
+#[test]
+fn erasing_an_empty_screen_adds_nothing() {
+    let mut t = term(20, 4);
+    feed(&mut t, "\x1b[2J\x1b[2J");
+    assert!(history_text(&t).is_empty());
+    // 重复清屏不产生重复的空行。
+    feed(&mut t, "x\x1b[2J\x1b[2J");
+    assert_eq!(history_text(&t), ["x"]);
+}
+
+#[test]
+fn the_clear_command_leaves_nothing_behind_in_either_order() {
+    for sequence in ["\x1b[H\x1b[2J\x1b[3J", "\x1b[3J\x1b[H\x1b[2J"] {
+        let mut t = term(20, 4);
+        feed(&mut t, "one\r\ntwo\r\n");
+        feed(&mut t, sequence);
+        assert!(history_text(&t).is_empty(), "{sequence:?}");
+        assert!(t.screen_text().trim().is_empty());
+    }
+}
+
+#[test]
+fn output_after_clearing_the_scrollback_is_kept_by_the_next_erase() {
+    let mut t = term(20, 4);
+    feed(&mut t, "\x1b[3Jnew\x1b[2J");
+    assert_eq!(history_text(&t), ["new"]);
+}
+
+#[test]
+fn erasing_keeps_the_scroll_region_and_ignores_it_for_the_scrollback() {
+    let mut t = term(20, 6);
+    feed(&mut t, "top\r\n\x1b[3;5r\x1b[2;1Hmiddle\x1b[2J");
+    assert_eq!(history_text(&t), ["top", "middle"]);
+    // 区域没有变化：第 3 到 5 行内的滚动不进回滚缓冲。
+    feed(&mut t, "\x1b[5;1Hx\r\n");
+    assert_eq!(history_text(&t), ["top", "middle"]);
+}
+
+#[test]
+fn the_alternate_screen_is_not_kept_when_erased() {
+    let mut t = term(20, 4);
+    feed(&mut t, "\x1b[?1049hfull screen\x1b[2J");
+    assert!(history_text(&t).is_empty());
+}
+
+#[test]
+fn clearing_from_the_top_left_corner_keeps_the_screen() {
+    // `console.clear()` 的序列。
+    let mut t = term(20, 4);
+    feed(&mut t, "one\r\ntwo\r\n\x1b[1;1H\x1b[0J");
+    assert_eq!(history_text(&t), ["one", "two"]);
+    assert!(t.screen_text().trim().is_empty());
+}
+
+#[test]
+fn clearing_from_elsewhere_keeps_nothing() {
+    let mut t = term(20, 4);
+    feed(&mut t, "one\r\ntwo\x1b[2;1H\x1b[0J");
+    assert!(history_text(&t).is_empty());
+    assert!(t.screen_text().contains("one"));
+    assert!(!t.screen_text().contains("two"));
+
+    let mut t = term(20, 4);
+    feed(&mut t, "\x1b[?1049hfull\x1b[H\x1b[J");
+    assert!(history_text(&t).is_empty());
+
+    // 先清回滚缓冲，再从左上角清屏。
+    let mut t = term(20, 4);
+    feed(&mut t, "one\r\n\x1b[3J\x1b[H\x1b[J");
+    assert!(history_text(&t).is_empty());
+    assert!(t.screen_text().trim().is_empty());
+}
+
+#[test]
+fn redrawing_the_same_screen_is_kept_once() {
+    let mut t = term(20, 4);
+    for _ in 0..5 {
+        feed(&mut t, "\x1b[H\x1b[Jsame\r\nframe\r\n");
+    }
+    feed(&mut t, "\x1b[H\x1b[J");
+    assert_eq!(history_text(&t), ["same", "frame"]);
+}
+
+#[test]
+fn different_screens_are_all_kept() {
+    let mut t = term(20, 4);
+    for frame in ["a", "b", "a"] {
+        feed(&mut t, &format!("{frame}\x1b[2J\x1b[H"));
+    }
+    assert_eq!(history_text(&t), ["a", "b", "a"]);
+}
+
+#[test]
+fn the_same_screen_is_kept_again_after_other_output_scrolled() {
+    let mut t = term(20, 2);
+    feed(&mut t, "same\x1b[2J\x1b[H");
+    // 其他输出滚入回滚缓冲后，相同的画面不再是连续重复。
+    feed(&mut t, "x\r\ny\r\nz\x1b[2J\x1b[H");
+    feed(&mut t, "same\x1b[2J\x1b[H");
+    let history = history_text(&t);
+    assert_eq!(
+        history.iter().filter(|line| *line == "same").count(),
+        2,
+        "{history:?}"
+    );
+}
+
+#[test]
+fn clearing_the_scrollback_forgets_the_last_kept_screen() {
+    let mut t = term(20, 4);
+    feed(&mut t, "same\x1b[2J\x1b[H\x1b[3J");
+    feed(&mut t, "same\x1b[2J\x1b[H");
+    assert_eq!(history_text(&t), ["same"]);
+}
+
+/// 一个停在第一行提示符上的终端。
+fn at_prompt_on_first_row() -> Terminal {
+    let mut t = term(40, 6);
+    feed(&mut t, "\x1b]133;A;redraw=1\x07P> \x1b]133;B\x07");
+    t
+}
+
+#[test]
+fn repainting_the_prompt_keeps_nothing() {
+    // zsh 收到 SIGWINCH 或 `zle reset-prompt` 时的重画序列。
+    let mut t = at_prompt_on_first_row();
+    feed(&mut t, "\r\r\x1b[0m\x1b[27m\x1b[24m\x1b[JP> ");
+    feed(&mut t, "\r\r\x1b[0m\x1b[27m\x1b[24m\x1b[JQ> ");
+    assert!(history_text(&t).is_empty());
+    assert!(t.screen_text().contains("Q>"));
+}
+
+#[test]
+fn clearing_at_the_prompt_keeps_earlier_output_but_not_the_prompt() {
+    // `⌃L`：之前的输出进回滚缓冲，提示符由 shell 重画。
+    let mut t = term(40, 6);
+    feed(&mut t, "output\r\n\x1b]133;A;redraw=1\x07P> \x1b]133;B\x07");
+    feed(&mut t, "\x1b[H\x1b[2JP> ");
+    assert_eq!(history_text(&t), ["output"]);
+    assert!(t.screen_text().starts_with("P>"));
+}
+
+#[test]
+fn the_prompt_mark_survives_clearing_the_screen() {
+    let mut t = at_prompt_on_first_row();
+    let before = t.take_blocks().unwrap();
+    feed(&mut t, "\x1b[H\x1b[2JP> ");
+    let after = t.take_blocks().unwrap_or_else(|| before.clone());
+    assert_eq!(after.len(), 1);
+    assert_eq!(after[0].id, before[0].id);
+    // 标记仍在屏幕上：改宽度时仍然先擦掉提示符。
+    t.resize(size(20, 6));
+    assert!(history_text(&t).is_empty());
+}
+
+#[test]
+fn a_running_command_clearing_the_screen_is_still_kept() {
+    let mut t = term(40, 6);
+    feed(&mut t, "\x1b]133;A;redraw=1\x07P> \x1b]133;B\x07");
+    feed(&mut t, "\x1b]133;C\x07\r\nlog line\x1b[2J\x1b[H");
+    assert_eq!(history_text(&t), ["P>", "log line"]);
+}
+
+#[test]
+fn resizing_forgets_the_last_kept_screen() {
+    let mut t = term(20, 4);
+    feed(&mut t, "same\x1b[2J\x1b[H");
+    t.resize(size(20, 5));
+    feed(&mut t, "same\x1b[2J\x1b[H");
+    // 尺寸变化后不再和上一次比较，第二次同样保留。
+    let history = history_text(&t);
+    let same = history.iter().filter(|line| *line == "same").count();
+    assert_eq!(same, 2, "{history:?}");
+}
+
+#[test]
+fn clearing_keeps_every_line_of_the_prompt() {
+    let mut t = term(40, 6);
+    feed(
+        &mut t,
+        "output\r\n\x1b]133;A\x07line one\r\nP> \x1b]133;B\x07",
+    );
+    t.clear();
+    assert!(history_text(&t).is_empty());
+    let screen = t.screen_text();
+    assert!(!screen.contains("output"), "{screen}");
+    assert!(screen.starts_with("line one"), "{screen}");
+    assert!(screen.contains("P>"), "{screen}");
+    assert_eq!(t.cursor().0, 1);
+    // 标记留在提示符第一行。
+    let blocks = t.take_blocks().unwrap();
+    assert_eq!(blocks.len(), 1);
+}
+
+#[test]
+fn clearing_without_a_prompt_keeps_the_cursor_row() {
+    let mut t = term(40, 6);
+    feed(&mut t, "one\r\ntwo");
+    t.clear();
+    assert_eq!(t.screen_text().trim(), "two");
+    assert_eq!(t.cursor(), (0, 3));
+}
+
+#[test]
+fn clearing_on_the_alternate_screen_leaves_the_program_alone() {
+    let mut t = term(40, 6);
+    feed(&mut t, "history\r\n\x1b[?1049hfirst\r\nsecond");
+    let before = t.screen_text();
+    let cursor = t.cursor();
+    t.clear();
+    assert_eq!(t.screen_text(), before);
+    assert_eq!(t.cursor(), cursor);
+    assert!(history_text(&t).is_empty());
+}
+
+#[test]
+fn a_prompt_that_repaints_stops_counting_once_a_command_runs() {
+    // 本地 zsh 的提示符会自行重画；`ssh` 运行期间远程 shell 的 `A` 不会。
+    let mut t = term(20, 4);
+    feed(
+        &mut t,
+        "\x1b]133;A;redraw=1\x07$ \x1b]133;B\x07\x1b]133;C\x07\r\n",
+    );
+    feed(&mut t, "\x1b]133;A\x07remote$ ");
+    t.resize(size(10, 4));
+    assert!(t.screen_text().contains("remote$"), "{}", t.screen_text());
+}
+
+#[test]
+fn output_cannot_claim_that_a_prompt_repaints() {
+    // 命令输出里的 `redraw=1`（`cat` 录下的日志）不生效，改宽度时不擦除屏幕。
+    let mut t = term(20, 4);
+    feed(&mut t, "\x1b]133;A\x07$ \x1b]133;B\x07\x1b]133;C\x07\r\n");
+    feed(&mut t, "\x1b]133;A;redraw=1\x07log line");
+    t.resize(size(10, 4));
+    assert!(t.screen_text().contains("log line"), "{}", t.screen_text());
+}
+
+#[test]
+fn the_local_prompt_repaints_again_after_a_command_finishes() {
+    let mut t = term(20, 4);
+    feed(
+        &mut t,
+        "\x1b]133;A;redraw=1\x07$ \x1b]133;B\x07\x1b]133;C\x07\r\n",
+    );
+    feed(&mut t, "\x1b]133;D;0\x07\x1b]133;A;redraw=1\x07P> ");
+    t.resize(size(10, 4));
+    // 提示符被擦除，等待 shell 收到 SIGWINCH 后重画。
+    assert!(!t.screen_text().contains("P>"), "{}", t.screen_text());
+}
+
+#[test]
+fn output_without_a_final_newline_stays_separate_from_the_next_prompt() {
+    // zsh 对 `printf foo` 的真实输出：`PROMPT_SP` 的填充折行后回到行首，再发 `D` 和 `A`。
+    let mut t = term(20, 10);
+    feed(&mut t, "\x1b]133;A;redraw=1\x07P> \x1b]133;B\x07");
+    feed(&mut t, "\r\n\x1b]133;C\x07foo%");
+    feed(&mut t, &" ".repeat(19));
+    feed(
+        &mut t,
+        "\r \r\x1b]133;D;0\x07\x1b]133;A;redraw=1\x07\r\x1b[JP> cmd\x1b]133;B\x07",
+    );
+    // 又运行了一条命令：`foo` 下面的提示符已不是当前提示符，改宽度时不会被擦除。
+    feed(
+        &mut t,
+        "\r\n\x1b]133;C\x07bar\r\n\x1b]133;D;0\x07\x1b]133;A;redraw=1\x07P> ",
+    );
+    t.resize(size(60, 10));
+    let screen = t.screen_text();
+    let lines: Vec<&str> = screen.lines().map(str::trim_end).collect();
+    assert!(
+        lines.iter().any(|line| line.starts_with("foo%")),
+        "{lines:?}"
+    );
+    assert!(
+        !lines
+            .iter()
+            .any(|line| line.contains("foo%") && line.contains("P>")),
+        "{lines:?}"
+    );
+    assert!(lines.contains(&"P> cmd"), "{lines:?}");
+}
+
+#[test]
+fn the_cursor_blinks_until_a_program_asks_for_a_steady_one() {
+    let blink = |t: &mut Terminal| t.take_frame().map(|frame| frame.cursor.blink);
+    let mut t = term(20, 4);
+    assert_eq!(blink(&mut t), Some(true));
+    feed(&mut t, "\x1b[2 q");
+    assert_eq!(blink(&mut t), Some(false));
+    feed(&mut t, "\x1b[1 q");
+    assert_eq!(blink(&mut t), Some(true));
+    feed(&mut t, "\x1b[?12l");
+    assert_eq!(blink(&mut t), Some(false));
+    // 完全重置后恢复默认。
+    feed(&mut t, "\x1bc");
+    assert_eq!(blink(&mut t), Some(true));
+}
+
+#[test]
+fn emoji_clusters_move_the_cursor_two_cells() {
+    for text in [
+        "⚠\u{fe0f}",
+        "👍\u{1f3fd}",
+        "🧑\u{200d}💻",
+        "👨\u{200d}👩\u{200d}👧",
+    ] {
+        let mut t = term(20, 2);
+        feed(&mut t, text);
+        assert_eq!(t.cursor(), (0, 2), "{text}");
+        feed(&mut t, "x");
+        assert_eq!(t.cursor(), (0, 3), "{text}");
+        // 文字完整保留，供复制。
+        assert_eq!(t.screen_text().trim(), format!("{text}x"), "{text}");
+    }
+}
+
+#[test]
+fn a_full_width_line_with_emoji_does_not_wrap() {
+    // 工具按字素簇算出刚好写满一行时，不能多出一行。
+    let mut t = term(10, 3);
+    feed(&mut t, "12345678⚠\u{fe0f}");
+    assert_eq!(t.cursor().0, 0);
+    feed(&mut t, "\r\nnext");
+    assert_eq!(t.cursor().0, 1);
+}
+
+#[test]
+fn widening_at_the_last_column_wraps_like_a_wide_character() {
+    let mut t = term(4, 3);
+    feed(&mut t, "abc⚠\u{fe0f}");
+    assert_eq!(t.cursor(), (1, 2));
+    let screen = t.screen_text();
+    let lines: Vec<&str> = screen.lines().collect();
+    assert_eq!(lines[0].trim_end(), "abc");
+    assert_eq!(lines[1].trim_end(), "⚠\u{fe0f}");
+}
+
+#[test]
+fn a_control_sequence_ends_the_cluster() {
+    // 光标移动之后的 VS16 不属于移动之前的字。
+    let mut t = term(20, 2);
+    feed(&mut t, "⚠\x1b[1;5H\u{fe0f}");
+    assert_eq!(t.cursor(), (0, 4));
+}
+
+#[test]
+fn reflow_keeps_the_width_of_emoji_clusters() {
+    let mut t = term(4, 3);
+    feed(&mut t, "⚠\u{fe0f}🧑\u{200d}💻ab");
+    t.resize(size(20, 3));
+    assert_eq!(t.screen_text().trim(), "⚠\u{fe0f}🧑\u{200d}💻ab");
+    assert_eq!(t.cursor(), (0, 6));
+}
+
+#[test]
+fn the_grapheme_mode_reports_as_always_on() {
+    let mut t = term(20, 2);
+    feed(&mut t, "\x1b[?2027$p");
+    assert_eq!(t.take_responses(), b"\x1b[?2027;3$y");
+}
+
+fn theme(bg: [u8; 3]) -> Theme {
+    Theme {
+        fg: [0; 3],
+        bg,
+        cursor: [0; 3],
+        palette: [[0; 3]; 16],
+    }
+}
+
+#[test]
+fn the_color_scheme_is_answered_and_followed_when_requested() {
+    let mut t = term(20, 2);
+    // 没有主题时不回答。
+    feed(&mut t, "\x1b[?996n");
+    assert!(t.take_responses().is_empty());
+
+    t.set_theme(Some(theme([20, 20, 20])));
+    feed(&mut t, "\x1b[?996n");
+    assert_eq!(t.take_responses(), b"\x1b[?997;1n");
+
+    // 没有要求通知时，主题变化不发送。
+    t.set_theme(Some(theme([250, 250, 250])));
+    assert!(t.take_responses().is_empty());
+    feed(&mut t, "\x1b[?2031h\x1b[?2031$p");
+    assert_eq!(t.take_responses(), b"\x1b[?2031;1$y");
+
+    // 明暗变化时通知一次，同样明暗的主题不重复通知。
+    t.set_theme(Some(theme([10, 10, 10])));
+    assert_eq!(t.take_responses(), b"\x1b[?997;1n");
+    t.set_theme(Some(theme([30, 30, 30])));
+    assert!(t.take_responses().is_empty());
+
+    feed(&mut t, "\x1b[?2031l");
+    t.set_theme(Some(theme([250, 250, 250])));
+    assert!(t.take_responses().is_empty());
 }

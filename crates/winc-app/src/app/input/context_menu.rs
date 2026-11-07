@@ -63,6 +63,10 @@ pub enum MenuButton {
     TreeMore,
     /// 标签栏无法容纳全部标签时显示在最右端的「⌄」。
     TabList,
+    /// 终端面板标签栏上的运行配置名。
+    RunConfigs,
+    /// 终端面板标签栏上「+」右边选 shell 的按钮。
+    TerminalShells,
     /// 状态栏路径中的第几段（从 0 起）。
     Crumb(usize),
     /// 状态栏右侧的缩进、行尾等项。
@@ -101,6 +105,12 @@ pub enum MenuCommand {
     RevealInTree,
     /// 标签列表：切换到指定标签，参数为 `documents` 的下标。
     ShowTab(usize),
+    /// 选中第几个运行配置。
+    RunSelect(usize),
+    /// 用第几个 shell 新建终端。
+    NewTerminalShell(usize),
+    /// 打开运行配置文件。
+    RunEdit,
     /// 项目名菜单：最近列表中的目录，参数为列表下标（从 0 起）。
     OpenRecent(usize),
     /// 项目名菜单（按住 `⌥`）：在新窗口中打开最近列表中的目录。
@@ -283,6 +293,8 @@ pub enum MenuCommand {
     TerminalClear,
     /// 终端：最大化面板（最大化时打勾）。
     TerminalMaximize,
+    /// 把终端面板停靠到另一边。
+    TerminalDock,
     NewTerminal,
     /// 终端标签：改名字。
     RenameTerminal,
@@ -337,8 +349,12 @@ impl MenuCommand {
             MenuCommand::CloseSaved => t!("menu-close-saved-tabs"),
             MenuCommand::CloseAll => t!("cmd-close-all-tabs"),
             MenuCommand::RevealInTree => t!("menu-reveal-in-tree"),
+            MenuCommand::RunEdit => t!("cmd-edit-run-configurations"),
             MenuCommand::OpenRecent(_)
             | MenuCommand::ShowTab(_)
+            | MenuCommand::RunSelect(_)
+            | MenuCommand::NewTerminalShell(_)
+            | MenuCommand::TerminalDock
             | MenuCommand::OpenRecentInNewWindow(_) => "",
             MenuCommand::NewWorktree => t!("menu-new-worktree"),
             MenuCommand::LocationNewWindow => t!("git-location-new-window"),
@@ -495,6 +511,7 @@ impl MenuCommand {
             MenuCommand::TerminalFind => Action::FindInTerminal,
             MenuCommand::TerminalClear => Action::ClearTerminal,
             MenuCommand::TerminalMaximize => Action::MaximizeTerminal,
+            MenuCommand::TerminalDock => Action::ToggleTerminalPosition,
             MenuCommand::NewTerminal => Action::NewTerminal,
             MenuCommand::RenameTerminal => Action::RenameTerminal,
             MenuCommand::CloseTerminal => Action::CloseTerminal,
@@ -584,6 +601,10 @@ pub enum MenuTarget {
     TreeTools,
     /// 标签栏最右端「⌄」弹出的标签列表。
     TabList,
+    /// 终端面板标签栏上的运行配置列表。
+    RunConfigs,
+    /// 终端面板标签栏上可选的 shell。
+    TerminalShells,
     /// 提交视图改动列表里的一个文件。
     CommitFile(PathBuf),
     /// 日志标题栏的「分支」下拉。

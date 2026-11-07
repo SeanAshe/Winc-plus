@@ -1,7 +1,7 @@
 //! 屏幕上的一行：按格存放的单元格，以及与协议里的 [`Line`] 之间的转换。
 
 use crate::protocol::{Attrs, Color, Line, Marks, Run, Style};
-use crate::term::width::char_width;
+use crate::term::width::cells;
 
 /// 宽字符前半个字的属性位（只在网格里用，不出现在协议的样式里）。
 pub(super) const WIDE: u16 = 1 << 8;
@@ -209,6 +209,24 @@ impl Row {
         self.cells[at] = Cell::blank(self.cells[at].bg);
     }
 
+    /// 把第 `col` 格的字加宽到两格：后一格变成它的后半格。
+    pub fn widen(&mut self, col: usize) {
+        self.cut(col + 2);
+        let cell = self.cells[col];
+        self.cells[col].attrs.0 |= WIDE;
+        self.cells[col + 1] = Cell {
+            ch: ' ',
+            attrs: Attrs(cell.attrs.0 | SPACER),
+            extra: 0,
+            ..cell
+        };
+    }
+
+    /// 这一行是否没有任何内容。
+    pub fn is_blank(&self) -> bool {
+        self.cells.iter().all(Cell::is_empty)
+    }
+
     /// 擦掉 `start..end` 这些格，填成背景色为 `bg` 的空格。
     pub fn erase(&mut self, start: usize, end: usize, bg: Color) {
         let end = end.min(self.cells.len());
@@ -336,8 +354,7 @@ impl Row {
 
         let mut run = 0;
         let mut col = 0;
-        for c in line.text.chars() {
-            let width = char_width(c);
+        for (c, width) in cells(&line.text) {
             if width == 0 {
                 if col > 0 {
                     row.push_combining(col - 1, c);
@@ -360,5 +377,5 @@ impl Row {
 
 /// 一行文字占几格。
 pub(super) fn line_cells(line: &Line) -> usize {
-    line.text.chars().map(char_width).sum()
+    cells(&line.text).map(|(_, width)| width).sum()
 }

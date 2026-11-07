@@ -113,6 +113,18 @@ jobs:
       - name: Test
         run: cargo test --workspace --locked --no-fail-fast
 
+      # The step above runs on the system's ConPTY; this one repeats the end-to-end tests on the
+      # version the installers ship. The files are removed so the build cache never holds them.
+      - name: Test the bundled console host
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./release/windows/conpty.ps1 -Destination target/debug
+          cargo test -p winc-pty --test windows --locked --no-fail-fast
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Remove-Item target/debug/conpty.dll, target/debug/OpenConsole.exe
+
       - name: Docs
         run: cargo doc --workspace --no-deps --locked
         env:

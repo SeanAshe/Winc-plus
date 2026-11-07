@@ -8,12 +8,17 @@ mod config;
 pub mod files;
 mod font;
 mod json;
+mod run;
 mod state;
 mod version;
 
 pub use config::{Backup, Config, OptionAsMeta, RenderWhitespace, Saved, ThemeChoice, config_path};
 pub use font::{FontRequest, resolve_font};
 pub use json::Json;
+pub use run::{
+    RunConfig, affects_detected_configs, create_run_configs, detected_run_configs,
+    load_run_configs, run_configs_path,
+};
 pub use state::{
     BADGE_COLORS, MAX_RECENT, Session, State, Tab, TerminalSession, WindowFrame, state_path,
 };

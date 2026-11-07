@@ -153,7 +153,7 @@ impl Layout {
             BUTTON,
             BUTTON,
         );
-        let tabs_x = (main_x + 8.0).max(sidebar_button.right() + TAB_GAP);
+        let tabs_x = (main_x + TAB_INSET).max(sidebar_button.right() + TAB_GAP);
         // 标签栏一直延伸到顶栏右端：查找由快捷键打开，设置的入口在菜单栏和命令面板里。
         let tabs = Rect::new(
             tabs_x,

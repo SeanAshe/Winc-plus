@@ -876,3 +876,50 @@ fn files_given_with_a_line_open_there() {
     assert!(editor.workspace.is_some());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 侧栏的开关按目录记住：重新打开、启动时恢复，没有记录过的目录仍然显示文件树。
+#[test]
+fn the_sidebar_state_is_remembered_per_folder() {
+    let first = sample_folder("sidebar-first");
+    let second = sample_folder("sidebar-second");
+    let mut app = app_with(&first.join("short.rs"), false);
+    assert!(app.panel_visible);
+    app.toggle_sidebar();
+    assert!(!app.panel_visible);
+    app.remember_session();
+    let state = app.state.clone();
+
+    // 从开始页打开这个目录：侧栏收起，焦点不留在看不见的文件树上。
+    let mut app = blank_app(false);
+    app.state = state.clone();
+    app.open_folder_now(&first);
+    assert!(!app.panel_visible);
+    assert!(!app.focus_in_sidebar());
+
+    // 启动时目录在窗口创建之前打开：窗口建好时恢复，没有动画。
+    let mut app = app_with(&first.join("short.rs"), false);
+    app.state = state.clone();
+    app.restore_sidebar_for_window();
+    assert!(!app.panel_visible);
+    assert!(app.sidebar_motion.is_none());
+
+    // 没有记录过的目录显示文件树，上一个目录收起不影响它。
+    let mut app = blank_app(false);
+    app.state = state.clone();
+    app.open_folder_now(&second);
+    assert!(app.panel_visible);
+
+    // 重新展开后记下的也是展开；关闭目录时侧栏收起是回到开始页，不算用户收起。
+    let mut app = blank_app(false);
+    app.state = state;
+    app.open_folder_now(&first);
+    app.toggle_sidebar();
+    let root = app.editor.root().unwrap().to_path_buf();
+    app.close_folder();
+    assert!(!app.panel_visible);
+    let session = app.state.session_for(&root).unwrap();
+    assert!(!session.sidebar_hidden);
+
+    std::fs::remove_dir_all(&first).unwrap();
+    std::fs::remove_dir_all(&second).unwrap();
+}

@@ -6,7 +6,7 @@
 //! 存在由调用方按命令运行时的目录查，链接还认不带行号的路径。
 
 use winc_pty::protocol::Line;
-use winc_pty::width::char_width;
+use winc_pty::width::cells as char_cells;
 
 /// 一行里认出来的一处位置。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,8 +33,7 @@ fn cells(line: &Line) -> (Vec<char>, Vec<usize>, usize) {
     let mut text = Vec::with_capacity(line.text.len());
     let mut cols = Vec::with_capacity(line.text.len());
     let mut col = 0;
-    for c in line.text.chars() {
-        let w = char_width(c);
+    for (c, w) in char_cells(&line.text) {
         if w == 0 {
             continue;
         }

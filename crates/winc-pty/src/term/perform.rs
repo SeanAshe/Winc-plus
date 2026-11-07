@@ -80,10 +80,12 @@ impl Args {
 
 impl Perform for Emulator {
     fn print(&mut self, c: char) {
+        self.history_erased = false;
         self.write_char(c);
     }
 
     fn execute(&mut self, byte: u8) {
+        self.cluster = super::width::Cluster::None;
         match byte {
             0x07 => self.events.push(Event::Bell),
             0x08 => {
@@ -109,6 +111,7 @@ impl Perform for Emulator {
     }
 
     fn csi_dispatch(&mut self, params: &Params, intermediates: &[u8], ignore: bool, action: char) {
+        self.cluster = super::width::Cluster::None;
         if ignore {
             return;
         }
@@ -189,6 +192,8 @@ impl Perform for Emulator {
             }
             ([], 'm') => self.sgr(params),
             // 设备状态报告（DSR）：5 表示就绪，6 请求光标位置。
+            // 明暗主题查询：997 回答，1 为深色，2 为浅色。
+            ([b'?'], 'n') if args.get(0, 0) == 996 => self.report_color_scheme(),
             ([], 'n') => match args.get(0, 0) {
                 5 => self.respond("\x1b[0n"),
                 6 => {
@@ -282,6 +287,7 @@ impl Perform for Emulator {
     }
 
     fn esc_dispatch(&mut self, intermediates: &[u8], _ignore: bool, byte: u8) {
+        self.cluster = super::width::Cluster::None;
         match (intermediates, byte) {
             ([], b'7') => self.save_cursor(),
             ([], b'8') => self.restore_cursor(),
@@ -325,7 +331,13 @@ impl Perform for Emulator {
         let Some(&command) = params.first() else {
             return;
         };
-        let end = if bell_terminated { "\x07" } else { "\x1b\\" };
+        // 回答的结束符通常和查询相同。Windows 上回答经 ConPTY 到达程序时可能被分块；程序把分块后的
+        // 尾部当作键盘输入时，BEL 等于按下 Ctrl+G，因此一律用 ST。
+        let end = if bell_terminated && !cfg!(windows) {
+            "\x07"
+        } else {
+            "\x1b\\"
+        };
 
         match command {
             b"0" | b"2" => {
@@ -525,6 +537,7 @@ impl Emulator {
             1007 => self.modes.set(Modes::ALT_SCROLL, on),
             2004 => self.modes.set(Modes::BRACKETED_PASTE, on),
             2026 => self.sync = on,
+            2031 => self.scheme_reports = on,
             _ => {}
         }
     }
@@ -549,7 +562,18 @@ impl Emulator {
             1007 => on_off(modes.has(Modes::ALT_SCROLL)),
             2004 => on_off(modes.has(Modes::BRACKETED_PASTE)),
             2026 => on_off(self.sync),
+            // 字素簇宽度一直开启，不可关闭（3 表示永久开启）。
+            2027 => 3,
+            2031 => on_off(self.scheme_reports),
             _ => 0,
+        }
+    }
+
+    /// 回答当前主题的明暗（`CSI ? 997 ; 1 n` 为深色，`2` 为浅色）；没有主题时不回答。
+    pub(super) fn report_color_scheme(&mut self) {
+        if let Some(dark) = self.theme.as_ref().map(|theme| theme.is_dark()) {
+            let scheme = if dark { 1 } else { 2 };
+            self.respond(&format!("\x1b[?997;{scheme}n"));
         }
     }
 
@@ -724,8 +748,9 @@ impl Emulator {
             _ => return,
         };
         // `A` 之后可以带 `redraw=1` 或 `redraw=0`，表示 shell 改宽度时是否自行重画整个提示符。
-        // 没有携带参数时不改动（提示符主题也可能发送 `A`）。
-        if flag == Marks::PROMPT {
+        // 没有携带参数时不改动（提示符主题也可能发送 `A`）。命令运行期间收到的 `A` 来自命令的输出
+        // （远程 shell、日志文件），不代表本地 shell 会重画。
+        if flag == Marks::PROMPT && !self.blocks.running() {
             for param in params.get(2..).unwrap_or_default() {
                 match *param {
                     b"redraw=1" => self.blocks.redraws_prompt = true,

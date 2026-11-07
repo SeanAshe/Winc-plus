@@ -212,7 +212,7 @@ fn a_running_command_band_stops_at_the_output() {
     let t = tab(&app);
     assert_eq!(t.block_at(0), None);
     assert_eq!(t.block_at(2), None);
-    let grid = crate::app::terminal::grid_rect(app.layout.terminal, app.fonts.line_height);
+    let grid = app.terminal_grid();
     assert_eq!(app.terminal_block_hit(grid.x - 4.0, grid.y + 2.0), None);
 
     std::fs::remove_dir_all(&dir).unwrap();
@@ -624,8 +624,8 @@ fn rows_hidden_under_the_sticky_command_or_a_fold_are_not_shown() {
     app.terminal.tab_mut().unwrap().scroll_to(output + 4, 0);
     serve(&mut app, &term);
     assert_eq!(tab(&app).sticky(), Some(1));
-    assert!(!app.terminal_shows_line(0));
-    assert!(app.terminal_shows_line(1));
+    assert!(!app.terminal_shows_line(cell_center(&app, 0, 0).1));
+    assert!(app.terminal_shows_line(cell_center(&app, 1, 0).1));
 
     // ⌘ 悬停在吸顶的命令行上：底下那一行的网址看不见，不认。
     app.modifiers = command_modifiers();
@@ -657,7 +657,8 @@ fn rows_hidden_under_the_sticky_command_or_a_fold_are_not_shown() {
         .view()
         .iter()
         .position(|r| matches!(r, ViewRow::Fold(1, _)));
-    assert!(!app.terminal_shows_line(row.expect("折起的那一行在网格上")));
+    let row = row.expect("折起的那一行在网格上");
+    assert!(!app.terminal_shows_line(cell_center(&app, row, 0).1));
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -699,5 +700,39 @@ fn a_full_screen_program_starts_at_the_bottom_and_ends_f8_elsewhere() {
     app.activate_terminal_tab(1);
     assert!(app.terminal.errors.is_none());
 
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_single_line_of_output_is_not_folded() {
+    let dir = sample_folder("terminal-fold-one");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    let screen = command("ls", &["only line"], 0);
+    let mut term = show_terminal(&mut app, &screen);
+    sync_blocks(&mut app, &mut term);
+
+    app.click_terminal_band(0);
+    app.fold_terminal_output(true);
+    assert!(tab(&app).folded.is_empty());
+
+    // 按住 ⇧ 选中输出不受影响。
+    app.modifiers = winit::keyboard::ModifiersState::SHIFT;
+    app.click_terminal_band(0);
+    assert!(tab(&app).selection.is_some());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn an_already_folded_block_can_still_be_unfolded() {
+    let dir = sample_folder("terminal-unfold-one");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    let screen = command("ls", &["only line"], 0);
+    let mut term = show_terminal(&mut app, &screen);
+    sync_blocks(&mut app, &mut term);
+    let id = tab(&app).blocks[0].id;
+    app.terminal.tab_mut().unwrap().set_folded(id, true);
+
+    app.click_terminal_band(0);
+    assert!(tab(&app).folded.is_empty());
     std::fs::remove_dir_all(&dir).unwrap();
 }

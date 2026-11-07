@@ -30,7 +30,16 @@ impl App {
         let body = format!("#!/bin/sh\nexec cat > '{}'\n", log.display());
         std::fs::write(&script, body).unwrap();
         std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-        self.terminal.client = Client::start(&script, || {}).ok();
+        // 别的测试线程 fork 时会短暂继承这个脚本的写入端，此时执行得到 `ExecutableFileBusy`。
+        let mut client = Client::start(&script, || {});
+        for _ in 0..100 {
+            if !matches!(&client, Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy) {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            client = Client::start(&script, || {});
+        }
+        self.terminal.client = Some(client.expect("启动记录消息的脚本"));
         self.terminal.ready = true;
         let t = &mut self.terminal;
         t.next_id = t.tabs.iter().map(|tab| tab.id).fold(t.next_id, u16::max);
@@ -111,6 +120,34 @@ fn other_folders_use_the_default_shell() {
     // 其他平台不识别 WSL 路径。
     let (program, _, _) = launched(None, r"\\wsl.localhost\Ubuntu\home", false);
     assert_eq!(program, None);
+}
+
+#[test]
+fn a_directory_reported_by_a_wsl_shell_is_not_a_windows_working_directory() {
+    let (program, _, cwd) = launched(None, "/home/me", true);
+    assert_eq!((program, cwd.as_str()), (None, ""));
+    let (_, _, cwd) = launched(Some("wsl.exe -d Debian"), "/home/me", true);
+    assert_eq!(cwd, "");
+    // 其他平台上是普通目录。
+    let (_, _, cwd) = launched(None, "/home/me", false);
+    assert_eq!(cwd, "/home/me");
+}
+
+#[test]
+fn working_directories_stay_as_reported_outside_a_distribution() {
+    let path = b"/home/me".to_vec();
+    assert_eq!(local_cwd(None, path.clone()), path);
+    assert_eq!(local_cwd(Some(Path::new("/work")), path.clone()), path);
+}
+
+#[cfg(windows)]
+#[test]
+fn working_directories_in_a_distribution_become_windows_paths() {
+    let root = Path::new(r"\\wsl.localhost\Ubuntu\work");
+    assert_eq!(
+        local_cwd(Some(root), b"/home/me".to_vec()),
+        br"\\wsl.localhost\Ubuntu\home\me".to_vec()
+    );
 }
 
 #[test]

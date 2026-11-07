@@ -598,6 +598,7 @@ impl App {
                     self.flash(t!("workspace-saved", name = name));
                 }
                 self.blame_saved(id);
+                self.run_file_saved(id);
                 if saved_as {
                     if let Some((other, _)) = other {
                         self.remove_tabs(&[other]);

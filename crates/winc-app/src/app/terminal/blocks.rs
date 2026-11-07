@@ -97,6 +97,11 @@ pub(crate) fn format_duration(ms: u32) -> String {
     }
 }
 
+/// 块的输出是否值得折叠：只有一行时折起后的提示和原内容一样高，反而遮住内容。
+fn has_foldable_output(block: &Block) -> bool {
+    matches!((block.output, block.end), (Some(output), Some(end)) if end > output + 1)
+}
+
 impl App {
     /// 辅助进程发来了新的块：刚结束的命令按需要提醒。
     pub(in crate::app) fn terminal_blocks(&mut self, id: u16, blocks: Vec<Block>, early: bool) {
@@ -245,6 +250,7 @@ impl App {
             None => {
                 tab.jump = None;
                 tab.scroll = 0;
+                tab.scroll_frac = 0.0;
             }
         }
         self.fetch_terminal_history();
@@ -259,7 +265,8 @@ impl App {
         let Some(tab) = self.terminal.tab_mut() else {
             return;
         };
-        let foldable = |b: &Block| b.output.is_some() && b.end.is_some_and(|e| Some(e) > b.output);
+        let folded = tab.folded.clone();
+        let foldable = |b: &Block| has_foldable_output(b) || folded.contains(&b.id);
         let target = if let Some(id) = tab.jump {
             Some(id)
         } else if tab.scroll > 0 {
@@ -294,10 +301,13 @@ impl App {
         }
         if shift {
             tab.select_output(block);
-        } else if b.end.is_some_and(|end| b.output < Some(end)) {
+        } else {
             let id = b.id;
             let folded = tab.folded.contains(&id);
-            tab.set_folded(id, !folded);
+            // 已折起的块总是可以展开：重排后输出可能变成一行。
+            if folded || has_foldable_output(b) {
+                tab.set_folded(id, !folded);
+            }
         }
         self.fetch_terminal_history();
         self.request_redraw();

@@ -15,6 +15,7 @@ impl App {
             return;
         }
         tab.scroll = 0;
+        tab.scroll_frac = 0.0;
         tab.jump = None;
         let mut rest = bytes.len() as u64;
         for chunk in bytes.chunks(INPUT_CHUNK) {
@@ -101,20 +102,29 @@ impl App {
 
     /// 输入法提交的文字。
     pub(in crate::app) fn terminal_commit(&mut self, text: &str) {
+        self.clear_terminal_selection();
         self.terminal_input(text.as_bytes().to_vec());
+    }
+
+    /// 清除当前标签的选区。
+    fn clear_terminal_selection(&mut self) {
+        if let Some(tab) = self.terminal.tab_mut() {
+            tab.selection = None;
+        }
     }
 
     /// 滚动条的（轨道，往下滚过的高度，内容高度），绘制、点击和拖动共用。
     ///
-    /// 轨道是网格加右边的留白；内容按显示行算，最新的一屏在最下面。
+    /// 轨道是内容区域加右边的留白；内容按显示行算，最新的一屏在最下面。
     pub(crate) fn terminal_scrollbar(&self) -> Option<(Rect, f32, f32)> {
         let tab = self.terminal.tab()?;
         let lh = self.fonts.line_height;
         let card = self.layout.terminal;
-        let grid = grid_rect(card, lh);
-        let track = Rect::new(grid.x, grid.y, card.right() - grid.x, grid.h);
-        let max = tab.max_scroll() as f32 * lh;
-        Some((track, max - tab.scroll as f32 * lh, max + track.h))
+        let view = self.terminal_view();
+        let track = Rect::new(view.x, view.y, card.right() - view.x, view.h);
+        let (position, limit) = tab.scroll_position();
+        let max = limit as f32 * lh;
+        Some((track, max - position as f32 * lh, max + track.h))
     }
 
     /// 拖着滚动条的滑块：滑块上边跟着鼠标（`grab` 是按下点到滑块上边的距离）。
@@ -129,8 +139,7 @@ impl App {
         let top = crate::layout::scroll_for_thumb(track.y, track.h, thumb.h, y, grab, max);
         let lh = self.fonts.line_height;
         if let Some(tab) = self.terminal.tab_mut() {
-            tab.scroll = ((max - top) / lh).round() as usize;
-            tab.clamp_scroll();
+            tab.set_scroll_position(f64::from((max - top) / lh));
         }
         self.fetch_terminal_history();
         self.request_redraw();
@@ -149,6 +158,7 @@ impl App {
             return;
         };
         tab.scroll = tab.scroll.saturating_add_signed(lines);
+        tab.scroll_frac = 0.0;
         tab.clamp_scroll();
         self.fetch_terminal_history();
         self.request_redraw();
@@ -193,6 +203,17 @@ impl App {
         }
         let (modes, keyboard) = (tab.modes, tab.keyboard);
         if let Some(bytes) = self.encode_terminal_key(event, modes, keyboard) {
+            // 输入文字时清除选区，否则 ⌘C 会复制旧内容；方向键和快捷键保留选区。
+            let mods = self.terminal_mods();
+            let typed = event.text.as_deref().is_some_and(|text| {
+                !text.chars().any(char::is_control)
+                    && !mods.ctrl
+                    && !mods.alt
+                    && !self.modifiers.super_key()
+            });
+            if typed {
+                self.clear_terminal_selection();
+            }
             self.terminal_input(bytes);
         }
     }
