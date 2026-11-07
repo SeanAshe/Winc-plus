@@ -521,7 +521,12 @@ fn draw_tab(
     } else {
         p.text_muted
     };
-    let cx = ui_text(frame, app, cx, tab, &label.name, color, view);
+    // 预览标签（见 `App::preview_index`）的名称倾斜，与普通标签区分。
+    let cx = if app.preview_index() == Some(index) {
+        ui_text_italic(frame, app, cx, tab, &label.name, color, view)
+    } else {
+        ui_text(frame, app, cx, tab, &label.name, color, view)
+    };
 
     if let Some(folder) = &label.folder {
         ui_text_small(frame, app, cx + 6.0, tab, folder, p.text_dim, view);

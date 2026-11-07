@@ -86,6 +86,36 @@ pub fn bench(runs: usize) -> Result<bool, String> {
         );
     }
 
+    // 快速转动鼠标滚轮：帧间隔、画面落后于滚轮的格数、最后一格之后画面停止的耗时。只列出，
+    // 不对照预算。
+    let wheel = wheel_once(&exe, &large)?;
+    for (name, key, unit) in [
+        (
+            "滚轮帧间隔 p50（large.rs，仅供参考）",
+            "interval_p50_ms",
+            "ms",
+        ),
+        (
+            "滚轮帧间隔 p95（large.rs，仅供参考）",
+            "interval_p95_ms",
+            "ms",
+        ),
+        (
+            "滚轮落后 p95（large.rs，仅供参考）",
+            "lag_p95_notches",
+            "格",
+        ),
+        (
+            "滚轮落后最大（large.rs，仅供参考）",
+            "lag_max_notches",
+            "格",
+        ),
+        ("滚轮停下后到位（large.rs，仅供参考）", "settle_ms", "ms"),
+    ] {
+        let value = field(&wheel, key).unwrap_or(f64::NAN);
+        println!("{name:<34} {value:>8.2}{unit}");
+    }
+
     // 分帧完成的任务：大文件查找（每帧一个时间片）、跳到末尾后推算高亮。只列出，不对照预算。
     for (name, mode, file) in [
         (
@@ -193,6 +223,23 @@ fn scroll_once(exe: &Path, file: &Path) -> Result<(f64, f64), String> {
     let p50 = field(&stdout, "p50_ms").ok_or("winc 没有输出滚动耗时")?;
     let p95 = field(&stdout, "p95_ms").ok_or("winc 没有输出滚动耗时")?;
     Ok((p50, p95))
+}
+
+/// 以滚轮测量模式打开 `file`，返回 winc 的输出（含 `WINC wheel_frames=…` 一行）。
+///
+/// # Errors
+///
+/// 进程启动失败，或输出里缺少滚轮测量的结果时返回错误描述。
+fn wheel_once(exe: &Path, file: &Path) -> Result<String, String> {
+    let output = Command::new(exe)
+        .arg(file)
+        .env("WINC_BENCH", "wheel")
+        .stderr(Stdio::null())
+        .output()
+        .map_err(|e| e.to_string())?;
+    let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+    field(&stdout, "wheel_frames").ok_or("winc 没有输出滚轮测量结果")?;
+    Ok(stdout)
 }
 
 /// 以测量模式 `mode`（`find:…`、`highlight`）打开 `file`，返回（做完用的毫秒数，帧数）。

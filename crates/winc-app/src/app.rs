@@ -855,6 +855,10 @@ pub struct App {
     pub(crate) scroll_glide: Option<ScrollGlide>,
     /// 鼠标滚轮滚动的过渡状态；没有进行中的过渡时为 `None`。
     pub(crate) wheel_glide: Option<input::mouse::WheelGlide>,
+    /// 上一次鼠标滚轮整格滚动的时刻，用于按两格的间隔确定过渡时长。
+    wheel_at: Option<Instant>,
+    /// 预览标签的文档；是否仍是预览标签见 [`App::preview_index`]。
+    preview_tab: Option<winc_editor::DocumentId>,
     /// 文件树中正在改名字的项和输入框；没有时为 `None`。
     pub name_input: Option<NameInput>,
     /// 在文件树中按住的项；拖动该项可移动到其他目录。
@@ -1085,12 +1089,17 @@ pub struct App {
     occluded: bool,
     /// 动画下一帧的绘制时刻（没有显示链接时按计时器安排）。
     next_frame: Option<Instant>,
-    /// 显示器每刷新一次触发一次回调；有动画时据此绘制下一帧（macOS 14 起）。
+    /// 显示器每刷新一次触发一次回调；有动画时据此绘制下一帧（macOS 14 起、Windows）。
     #[cfg(target_os = "macos")]
     display_link: Option<crate::macos::DisplayLink>,
+    /// 显示器每刷新一次触发一次回调；有动画时据此绘制下一帧（macOS 14 起、Windows）。
+    #[cfg(windows)]
+    display_link: Option<crate::windows::DisplayLink>,
     /// 相邻两帧的间隔；动画开始时按窗口所在显示器的刷新率计算。
     frame_interval: Duration,
     bench: Bench,
+    /// 帧日志（`WINC_FRAME_LOG`）。
+    frame_log: crate::frame_log::FrameLog,
     /// 已呈现的帧数，供测量钩子使用。
     presented: usize,
     dirty: bool,

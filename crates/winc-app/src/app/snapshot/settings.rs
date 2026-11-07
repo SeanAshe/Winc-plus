@@ -611,6 +611,48 @@ fn scrolled_rows_stay_under_the_header() {
 }
 
 #[test]
+fn the_settings_scrollbar_can_be_dragged() {
+    use crate::layout::{Scrollbar, settings_thumb};
+
+    // 回归：设置页的滚动条悬停时会显示，按下却拖不动。快捷键页和其他页各试一次。
+    let mut app = blank_app(false);
+    app.open_settings();
+    click_part(&mut app, SettingsPart::Page(SettingsPage::Keys));
+    paint(&mut app);
+    // 外观页的两组主题各有两排，窗口变矮后一定放不下。
+    for page in [SettingsPage::Keys, SettingsPage::Appearance] {
+        if page != SettingsPage::Keys {
+            app.settings_show_page(page);
+            app.layout.window.h = 280.0;
+            paint(&mut app);
+        }
+        let (area, max) = app.settings_scroll_area();
+        assert!(max > 0.0, "{page:?}");
+        let selected = app.settings.selected;
+        let x = area.right() - 3.0;
+
+        // 悬停认滚动条；按住滑块拖到底再拖回顶，下方的设置项不被选中。
+        let thumb = settings_thumb(area, app.settings.scroll, max).unwrap();
+        app.on_mouse_move(x, thumb.y + 2.0);
+        assert_eq!(app.hover, Hover::Scrollbar(Scrollbar::Settings), "{page:?}");
+        app.on_mouse_down(MouseButton::Left);
+        app.on_mouse_move(x, area.bottom() + 40.0);
+        assert_eq!(app.settings.scroll, max, "{page:?}");
+        app.on_mouse_move(x, area.y - 40.0);
+        assert_eq!(app.settings.scroll, 0.0, "{page:?}");
+        app.on_mouse_up(MouseButton::Left);
+        assert_eq!(app.settings.selected, selected, "{page:?}");
+
+        // 按在轨道上滑块以外的地方：滑块跳到鼠标处。
+        app.on_mouse_move(x, area.bottom() - 6.0);
+        app.on_mouse_down(MouseButton::Left);
+        app.on_mouse_up(MouseButton::Left);
+        assert!(app.settings.scroll > max / 2.0, "{page:?}");
+        app.settings.scroll = 0.0;
+    }
+}
+
+#[test]
 fn the_keys_page_lists_searches_and_records() {
     use crate::keymap::{Action, KeyCode, Mods, Stroke};
 

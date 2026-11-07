@@ -227,6 +227,16 @@ impl ApplicationHandler<UserEvent> for App {
             self.display_link =
                 crate::macos::DisplayLink::new(&window, move || redraw.request_redraw());
         }
+        #[cfg(windows)]
+        {
+            let redraw = window.clone();
+            self.display_link = crate::windows::DisplayLink::new(
+                super::window::frame_interval(&window),
+                move || {
+                    redraw.request_redraw();
+                },
+            );
+        }
 
         window.request_redraw();
     }
@@ -623,7 +633,8 @@ impl App {
 
         earliest(&mut wake, self.blame_tick(now));
 
-        // 停止绘制后把空闲的呈现缓冲（每块与窗口一样大）标成可清除，不必等到下一次绘制。
+        // 停止绘制后处理空闲的呈现缓冲（每块与窗口一样大）：标成可清除或释放，不必等到下一次
+        // 绘制。
         if let Some(renderer) = &mut self.renderer
             && let Some(at) = renderer.purgeable_at()
         {
@@ -637,6 +648,8 @@ impl App {
         earliest(&mut wake, self.scrollbar_tick(now));
 
         earliest(&mut wake, self.settings_scroll_tick(now));
+
+        earliest(&mut wake, self.bench_wheel_tick(now));
 
         earliest(&mut wake, self.format_progress_tick(now));
 

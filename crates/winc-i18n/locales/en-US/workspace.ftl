@@ -255,7 +255,10 @@ workspace-tip-expand-unchanged = Expand all unchanged regions
 workspace-tip-collapse-unchanged = Collapse unchanged regions
 workspace-tip-close-tab = Close
 workspace-tip-all-tabs = Show all tabs
-workspace-tip-commit-changes = Commit · Changes: { $count }
+workspace-tip-commit-changes = { $count ->
+    [one] Commit · 1 change
+   *[other] Commit · { $count } changes
+}
 workspace-tip-log-go-to = Go to { $commit } { $subject }
 workspace-tip-log-target-not-loaded = The target commit hasn’t loaded yet
 

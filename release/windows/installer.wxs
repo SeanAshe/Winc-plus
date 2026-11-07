@@ -2,7 +2,7 @@
 <!-- Adds winc to "Open with" for these types without taking over their default program; Windows
      only lets the user change that. Keep this list the same as ForEachFileType in installer.nsi.
      Registry keys ignore case; upper case gives the "JSON File" name the shell shows for a type. -->
-<?define FileTypes = ASTRO;BASH;BAT;C;CC;CFG;CJS;CLJ;CMD;CONF;CPP;CS;CSS;CSV;CXX;DART;ENV;ERL;EX;EXS;FISH;FS;GO;GQL;GRADLE;GRAPHQL;H;HH;HPP;HS;HTM;HTML;INI;JAVA;JS;JSON;JSON5;JSONC;JSX;KT;KTS;LESS;LOG;LUA;M;MD;MJS;MM;PHP;PL;PROTO;PS1;PSM1;PY;PYI;R;RB;RS;SASS;SCALA;SCSS;SH;SQL;SVELTE;SWIFT;TF;TOML;TS;TSV;TSX;TXT;VUE;XML;YAML;YML;ZIG;ZSH?>
+<?define FileTypes = ASTRO;BASH;C;CC;CFG;CJS;CLJ;CONF;CPP;CS;CSS;CSV;CXX;DART;ENV;ERL;EX;EXS;FISH;FS;GO;GQL;GRADLE;GRAPHQL;H;HH;HPP;HS;HTM;HTML;INI;JAVA;JS;JSON;JSON5;JSONC;JSX;KT;KTS;LESS;LOG;LUA;M;MD;MJS;MM;PHP;PL;PROTO;PS1;PSM1;PY;PYI;R;RB;RS;SASS;SCALA;SCSS;SH;SQL;SVELTE;SWIFT;TF;TOML;TS;TSV;TSX;TXT;VUE;XML;YAML;YML;ZIG;ZSH?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <!-- UUIDv5(DNS, com.deeix.winc); keep this product family stable across releases. -->
   <Product Id="*" Name="winc" Language="1033" Version="$(var.Version)" Manufacturer="DEEIX"

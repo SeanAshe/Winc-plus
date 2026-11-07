@@ -31,19 +31,19 @@ VIAddVersionKey /LANG=1033 "LegalCopyright" "DEEIX"
 !insertmacro MUI_LANGUAGE "English"
 !insertmacro MUI_LANGUAGE "SimpChinese"
 
-; Adds winc to "Open with" for these types without taking over their default program; Windows
-; only lets the user change that. Keep this list the same as FileTypes in installer.wxs.
+; Adds winc to "Open with" for these types. winc never becomes the default program, but once it
+; is listed Windows may ask which program to use the next time such a file is opened. That is why
+; types Windows runs on double-click (BAT, CMD and the like) are not listed: the question replaces
+; running the script. Keep this list the same as FileTypes in installer.wxs.
 ; Registry keys ignore case; upper case gives the "JSON File" name the shell shows for a type.
 !macro ForEachFileType Action
   !insertmacro ${Action} ASTRO
   !insertmacro ${Action} BASH
-  !insertmacro ${Action} BAT
   !insertmacro ${Action} C
   !insertmacro ${Action} CC
   !insertmacro ${Action} CFG
   !insertmacro ${Action} CJS
   !insertmacro ${Action} CLJ
-  !insertmacro ${Action} CMD
   !insertmacro ${Action} CONF
   !insertmacro ${Action} CPP
   !insertmacro ${Action} CS
@@ -112,6 +112,13 @@ VIAddVersionKey /LANG=1033 "LegalCopyright" "DEEIX"
   !insertmacro ${Action} YML
   !insertmacro ${Action} ZIG
   !insertmacro ${Action} ZSH
+!macroend
+
+; Types earlier versions registered: unregistered on install and uninstall, so upgrading also repairs
+; them. Installing over an older version leaves its registry entries for types no longer listed.
+!macro ForEachRetiredFileType Action
+  !insertmacro ${Action} BAT
+  !insertmacro ${Action} CMD
 !macroend
 
 !macro RegisterFileType Type
@@ -233,6 +240,7 @@ uninstall_files:
   DeleteRegKey HKCU "Software\DEEIX\winc"
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\winc"
   !insertmacro ForEachFileType UnregisterFileType
+  !insertmacro ForEachRetiredFileType UnregisterFileType
   DeleteRegKey HKCU "Software\Classes\Applications\winc.exe"
   !insertmacro NotifyAssociationsChanged
 SectionEnd

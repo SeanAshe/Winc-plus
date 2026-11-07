@@ -1454,3 +1454,113 @@ fn a_retracting_name_is_not_drawn_once_the_tree_is_hidden() {
     let below = pixel(app.layout.tree.right() + 40.0, top + 4.0 + TREE_ROW * 3.0);
     assert_eq!(band, below);
 }
+
+/// 在文件树中单击（`clicks` 为 2 时双击）名为 `name` 的文件，之后画一帧。
+fn click_tree_file(app: &mut App, root: &Path, name: &str, clicks: usize) {
+    let ws = app.editor.workspace.as_ref().unwrap();
+    let row = ws
+        .rows()
+        .iter()
+        .position(|e| e.path == root.join(name))
+        .unwrap();
+    let (x, y) = (
+        app.layout.tree.x + 60.0,
+        app.tree_row_top(row) + TREE_ROW / 2.0,
+    );
+    // 与上一次单击无关：快速连续的测试步骤不被当成双击。
+    app.last_click = None;
+    for _ in 0..clicks {
+        app.on_mouse_move(x, y);
+        app.on_mouse_down(MouseButton::Left);
+        app.on_mouse_up(MouseButton::Left);
+    }
+    paint(app);
+}
+
+#[test]
+fn single_clicks_preview_files_in_one_tab() {
+    let dir = sample_folder("preview-click");
+    for name in ["a.txt", "b.txt", "c.txt"] {
+        std::fs::write(dir.join(name), format!("{name}\n")).unwrap();
+    }
+    let mut app = app_with(&dir, false);
+    app.config.preview_on_click = Some(true);
+    paint(&mut app);
+    // 文件树中是规范化后的路径（macOS 上临时目录经过符号链接）。
+    let dir = winc_config::files::canonicalize(&dir).unwrap();
+    let tabs = app.editor.documents.len();
+    let active_name = |app: &App| {
+        let doc = app.editor.active().unwrap();
+        doc.path.as_ref().unwrap().file_name().unwrap().to_owned()
+    };
+
+    // 单击：在预览标签中打开，焦点留在文件树；单击下一个文件时就地替换，标签数不变。
+    click_tree_file(&mut app, &dir, "a.txt", 1);
+    assert_eq!(app.editor.documents.len(), tabs + 1);
+    let preview = app.editor.active;
+    assert_eq!(app.preview_index(), preview);
+    assert_eq!(app.focus, Focus::Tree);
+    click_tree_file(&mut app, &dir, "b.txt", 1);
+    assert_eq!(app.editor.documents.len(), tabs + 1);
+    assert_eq!(app.editor.active, preview);
+    assert_eq!(active_name(&app), "b.txt");
+    assert_eq!(app.preview_index(), preview);
+
+    // 双击使其成为普通标签；之后单击的文件另开预览标签。
+    click_tree_file(&mut app, &dir, "b.txt", 2);
+    assert_eq!(app.preview_index(), None);
+    click_tree_file(&mut app, &dir, "c.txt", 1);
+    assert_eq!(app.editor.documents.len(), tabs + 2);
+    assert_eq!(app.preview_index(), app.editor.active);
+
+    // 编辑过的预览标签成为普通标签：下一次单击另开标签。
+    app.focus = Focus::Editor;
+    app.run(Command::Insert("x".into()));
+    assert_eq!(app.preview_index(), None);
+    click_tree_file(&mut app, &dir, "a.txt", 1);
+    assert_eq!(app.editor.documents.len(), tabs + 3);
+
+    // 以其他方式打开预览标签中的文件、双击其标签，都使其成为普通标签。
+    app.open_path(&dir.join("a.txt"));
+    assert_eq!(app.preview_index(), None);
+    let a = app.editor.active().unwrap().id;
+    app.remove_tabs(&[a]);
+    click_tree_file(&mut app, &dir, "a.txt", 1);
+    let index = app.preview_index().unwrap();
+    let hit = app.tabs.hits.iter().find(|h| h.index == index).unwrap().tab;
+    let (x, y) = (hit.x + hit.w / 2.0, hit.y + hit.h / 2.0);
+    app.last_click = None;
+    for _ in 0..2 {
+        app.on_mouse_move(x, y);
+        app.on_mouse_down(MouseButton::Left);
+        app.on_mouse_up(MouseButton::Left);
+    }
+    assert_eq!(app.preview_index(), None);
+
+    // 关闭设置后，单击在普通标签中打开。
+    app.config.preview_on_click = Some(false);
+    let before = app.editor.documents.len();
+    click_tree_file(&mut app, &dir, "c.txt", 1);
+    click_tree_file(&mut app, &dir, "b.txt", 1);
+    assert_eq!(app.editor.documents.len(), before);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 截图：预览标签（名称倾斜）和设置中的开关。
+#[test]
+#[ignore]
+fn shoot_preview_tab() {
+    let dir = sample_folder("preview-shot");
+    let mut app = app_with(&dir, false);
+    app.config.preview_on_click = Some(true);
+    paint(&mut app);
+    let dir = winc_config::files::canonicalize(&dir).unwrap();
+    click_tree_file(&mut app, &dir, "Cargo.toml", 2);
+    click_tree_file(&mut app, &dir, "short.rs", 1);
+    shoot(&mut app, "preview-tab-light");
+    app.open_settings();
+    app.settings_show_page(crate::layout::SettingsPage::Editor);
+    app.settings.scroll = app.settings_layout().max_scroll();
+    shoot(&mut app, "preview-tab-settings-light");
+    let _ = std::fs::remove_dir_all(&dir);
+}

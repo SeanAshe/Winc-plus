@@ -192,6 +192,7 @@ const UI: &[Field] = &[
 const TREE: &[Field] = &[
     bool_field!("confirmDragAndDrop", confirm_drag_and_drop),
     bool_field!("compactFolders", compact_folders),
+    bool_field!("previewOnClick", preview_on_click),
 ];
 
 /// `markdown` 一节。

@@ -1,4 +1,5 @@
-//! `files` 的测试：原子写入、符号链接与权限、并发写入、临时文件名，以及 Windows 路径前缀。
+//! `files` 的测试：原子写入、符号链接与权限、并发写入、临时文件名、Windows 路径前缀，以及便携版的
+//! 数据目录和首次运行时的导入。
 
 use super::*;
 
@@ -137,5 +138,52 @@ fn files_held_open_are_replaced_by_moving_them_aside() {
         "旧文件回到原处"
     );
     assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_data_folder_beside_the_program_makes_it_portable() {
+    let dir = scratch("portable");
+    let exe = dir.join("winc.exe");
+    assert_eq!(portable_dir_beside(&exe), None);
+    // 同名的文件不算：只认目录。
+    std::fs::write(dir.join("data"), "").unwrap();
+    assert_eq!(portable_dir_beside(&exe), None);
+    std::fs::remove_file(dir.join("data")).unwrap();
+    std::fs::create_dir(dir.join("data")).unwrap();
+    assert_eq!(portable_dir_beside(&exe), Some(dir.join("data")));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_first_portable_run_imports_existing_files_once() {
+    let dir = scratch("import");
+    let (user, state, data) = (dir.join("user"), dir.join("state"), dir.join("data"));
+    for d in [&user, &state, &data] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    std::fs::write(user.join("config.json"), "{\"a\":1}").unwrap();
+    let sources = || {
+        [
+            (Some(user.clone()), "config.json"),
+            (Some(state.clone()), "state.json"),
+        ]
+    };
+    // 数据目录中两个文件都没有：复制存在的那个，不存在的跳过。
+    assert!(import_missing(&data, sources()));
+    assert_eq!(
+        std::fs::read_to_string(data.join("config.json")).unwrap(),
+        "{\"a\":1}"
+    );
+    assert!(!data.join("state.json").exists());
+    // 数据目录中已有其中一个：不再导入，已有的内容不被覆盖。
+    std::fs::write(state.join("state.json"), "{}").unwrap();
+    std::fs::write(user.join("config.json"), "{\"a\":2}").unwrap();
+    assert!(!import_missing(&data, sources()));
+    assert!(!data.join("state.json").exists());
+    assert_eq!(
+        std::fs::read_to_string(data.join("config.json")).unwrap(),
+        "{\"a\":1}"
+    );
     std::fs::remove_dir_all(&dir).unwrap();
 }

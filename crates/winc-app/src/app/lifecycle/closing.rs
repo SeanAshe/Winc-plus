@@ -364,6 +364,19 @@ impl App {
         }
     }
 
+    /// 直接关闭标签 `id`，不询问、不播放关闭动画、不记入最近关闭的标签；用于替换预览标签。
+    pub(in crate::app) fn discard_tab(&mut self, id: DocumentId) {
+        let Some(index) = self.editor.index_of(id) else {
+            return;
+        };
+        self.cancel_format(id);
+        if let Some(doc) = self.editor.close(index) {
+            self.forget_git_document(doc.id, doc.path.as_deref());
+        }
+        self.search.current = None;
+        self.check_waiting();
+    }
+
     /// 直接关闭第 `index` 个标签，不询问，也不重新排版（由 [`App::remove_tabs`] 统一排版）。
     fn remove_tab(&mut self, index: usize) {
         if let Some(doc) = self.editor.documents.get(index) {

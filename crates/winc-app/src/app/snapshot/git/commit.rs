@@ -241,7 +241,7 @@ fn right_clicking_a_changed_file_offers_diff_open_and_rollback() {
         ]
     );
 
-    // 「回滚…」只作用于该文件（没有窗口时不弹确认框）。
+    // 「回滚」只作用于该文件（没有窗口时不弹确认框）。
     let before = std::fs::read_to_string(&main).unwrap();
     app.run_menu_command(MenuCommand::GitRollbackFile);
     for _ in 0..200 {
@@ -846,7 +846,7 @@ fn the_commit_button_menu_pushes_after_committing_or_amends() {
     app.commit.amend = false;
     app.git.status.as_mut().unwrap().entries = entries;
 
-    // 「修改上一次提交」启用时打勾，按钮写「修改提交」。
+    // 「修改上次提交」启用时打勾，按钮写「修改提交」。
     assert!(!app.menu_checked(MenuCommand::CommitAmend));
     app.run_commit_button_command(MenuCommand::CommitAmend);
     assert!(app.commit.amend);
@@ -1676,7 +1676,7 @@ fn partly_staged_files_commit_only_their_staged_part() {
     let tip = crate::view::tests::tooltip(&app).map(|(_, text)| text);
     assert_eq!(
         tip.as_deref(),
-        Some("仅提交已暂存的部分，其余更改保留在工作区中")
+        Some("仅提交已暂存的部分，其余更改保留在工作区")
     );
 
     app.commit.message.set_text("只提交暂存的");

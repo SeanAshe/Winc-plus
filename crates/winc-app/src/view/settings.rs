@@ -15,7 +15,7 @@ use crate::app::Focus;
 use crate::icons::Direction;
 use crate::layout::{
     Setting, SettingControl, SettingRow, SettingsLayout, SettingsPage, SettingsPart, StepperParts,
-    THEME_CHOICES, theme_segment, theme_thumb, theme_tile,
+    THEME_CHOICES, settings_thumb, theme_segment, theme_thumb, theme_tile,
 };
 use crate::theme::themes;
 use winc_config::ThemeChoice;
@@ -226,9 +226,7 @@ fn draw_body(app: &mut App, frame: &mut Frame<'_>, layout: &SettingsLayout) -> O
 
     // 窗口太矮、内容放不下时，右侧有一条细滚动条，滚动时或鼠标移到右边缘时显示。
     let page = app.settings.selected.page() as u64;
-    let track = Rect::new(body.right() - 7.0, body.y + 4.0, 4.0, body.h - 8.0);
-    let thumb = scrollbar_thumb(track, app.settings.scroll, layout.content_h)
-        .filter(|_| layout.max_scroll() > 0.0);
+    let thumb = settings_thumb(body, app.settings.scroll, layout.max_scroll());
     let look = app.scrollbar_look(
         ScrollArea::Settings,
         page,
@@ -237,7 +235,7 @@ fn draw_body(app: &mut App, frame: &mut Frame<'_>, layout: &SettingsLayout) -> O
     );
     if let Some(thumb) = thumb {
         let color = look.color(p.scrollbar, p.scrollbar_active);
-        frame.rounded(Rect::new(track.x, thumb.y, 4.0, thumb.h), color, 2.0);
+        frame.rounded(thumb, color, 2.0);
     }
 
     caret

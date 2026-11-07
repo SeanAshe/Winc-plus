@@ -45,6 +45,8 @@ pub struct TreeDrag {
     pub active: bool,
     /// 按在固定于顶部的目录上时，该目录的层级（从 0 起）。
     pub(in crate::app) sticky: Option<usize>,
+    /// 按下的是双击：松开时在普通标签中打开文件。
+    pub(in crate::app) keep: bool,
     /// 此刻松开会放入的目录。
     ///
     /// 放置没有效果时为 `None`：目标在某个被拖项自身或其子目录内、被拖项都已在目标目录中，
@@ -76,6 +78,7 @@ impl TreeDrag {
             origin,
             active: false,
             sticky: None,
+            keep: false,
             target: None,
             resting: None,
         }
@@ -152,7 +155,7 @@ impl App {
             {
                 self.settle_sticky(index, level);
             }
-            self.open_tree_entry(&drag.from);
+            self.open_tree_entry(&drag.from, drag.keep);
             return;
         }
 
@@ -186,7 +189,10 @@ impl App {
 
     /// 处理对 `path` 的单击：文件在编辑区打开，焦点保留在文件树，便于用方向键继续浏览；
     /// 目录展开或收起。
-    fn open_tree_entry(&mut self, path: &Path) {
+    ///
+    /// 启用预览标签时文件在预览标签中打开（见 [`App::preview_path`]），`keep`（双击）时在普通
+    /// 标签中打开。
+    fn open_tree_entry(&mut self, path: &Path, keep: bool) {
         let Some(ws) = &self.editor.workspace else {
             return;
         };
@@ -202,7 +208,11 @@ impl App {
                 self.set_dir_expanded(index, None);
             }
         } else {
-            self.open_path(path);
+            if keep || !self.preview_on_click() {
+                self.open_path(path);
+            } else {
+                self.preview_path(path);
+            }
             self.focus = Focus::Tree;
         }
     }

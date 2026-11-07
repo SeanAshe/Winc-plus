@@ -395,14 +395,21 @@ impl App {
 
     /// 按滚轮增量 `dy`（逻辑像素）滚动当前页，滚动位置限制在有效范围内。
     pub(super) fn settings_scroll_by(&mut self, dy: f32) {
-        let max = if self.settings.selected.page() == SettingsPage::Keys {
-            self.keys_layout().max_scroll()
-        } else {
-            self.settings_layout().max_scroll()
-        };
+        let (_, max) = self.settings_scroll_area();
         self.settings.scroll = (self.settings.scroll - dy).clamp(0.0, max);
         self.settings.scrolled_at = Some(Instant::now());
         self.request_redraw();
+    }
+
+    /// 当前设置页的滚动区域和最大滚动量：快捷键页为命令列表，其他页为正文。
+    pub(in crate::app) fn settings_scroll_area(&self) -> (Rect, f32) {
+        if self.settings.selected.page() == SettingsPage::Keys {
+            let keys = self.keys_layout();
+            (keys.list, keys.max_scroll())
+        } else {
+            let layout = self.settings_layout();
+            (layout.body, layout.max_scroll())
+        }
     }
 
     /// 当前帧是否可以使用保存的快照：设置页正在滚动，且快照与窗口的尺寸、缩放比例相同。
@@ -539,6 +546,7 @@ impl App {
             Setting::StatusBar => self.config.status_bar != Some(false),
             Setting::RestoreWindow => self.config.restore_window != Some(false),
             Setting::CompactFolders => self.config.compact_folders != Some(false),
+            Setting::PreviewOnClick => self.config.preview_on_click == Some(true),
             Setting::RemoteImages => self.config.markdown_remote_images != Some(false),
             Setting::CheckUpdates => self.config.update_auto_check != Some(false),
             Setting::SystemTitleBar => self.config.ui_native_title_bar == Some(true),
@@ -574,6 +582,7 @@ impl App {
             Setting::StatusBar => self.config.status_bar = Some(on),
             Setting::RestoreWindow => self.config.restore_window = Some(on),
             Setting::CompactFolders => self.config.compact_folders = Some(on),
+            Setting::PreviewOnClick => self.config.preview_on_click = Some(on),
             Setting::RemoteImages => self.config.markdown_remote_images = Some(on),
             Setting::CheckUpdates => self.config.update_auto_check = Some(on),
             Setting::SystemTitleBar => self.config.ui_native_title_bar = Some(on),
@@ -597,6 +606,10 @@ impl App {
         }
         if setting == Setting::DiffInline {
             self.apply_diff_layout();
+        }
+        // 关闭预览标签时，现有的预览标签成为普通标签。
+        if setting == Setting::PreviewOnClick && !on {
+            self.preview_tab = None;
         }
         // 关掉以后不再沿用：之后再打开时从下一次关闭窗口开始记录。
         if setting == Setting::RestoreWindow && !on {

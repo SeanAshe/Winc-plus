@@ -2,11 +2,73 @@
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
-/// 返回 winc 的配置目录。
+/// 便携数据目录的名称，位于 `winc.exe` 所在的目录中（见 [`portable_dir`]）。
+const PORTABLE_DIR: &str = "data";
+
+/// 返回便携版的数据目录：Windows 上 `winc.exe` 所在的目录中有 `data` 目录时为该目录，否则为
+/// `None`。结果在首次调用时确定。
 ///
-/// 各平台的路径规则与 [`config_path`](crate::config_path) 相同；无法确定用户目录时返回 `None`。
+/// 存在时配置、状态、未保存内容的备份、崩溃日志和单实例锁都放在其中，不写入用户目录。只在
+/// Windows 上生效：便携版以 zip 分发，解压后的目录即程序所在的目录。
+pub fn portable_dir() -> Option<PathBuf> {
+    static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
+    DIR.get_or_init(|| {
+        if !cfg!(windows) {
+            return None;
+        }
+        portable_dir_beside(&std::env::current_exe().ok()?)
+    })
+    .clone()
+}
+
+/// 返回可执行文件 `exe` 旁边的便携数据目录；不存在或不是目录时返回 `None`。
+pub(crate) fn portable_dir_beside(exe: &Path) -> Option<PathBuf> {
+    let dir = exe.parent()?.join(PORTABLE_DIR);
+    dir.is_dir().then_some(dir)
+}
+
+/// 便携版首次运行时导入用户目录中已有的配置和状态，返回是否导入了文件。
+///
+/// 便携数据目录中既没有 `config.json` 也没有 `state.json` 时，从用户目录复制这两个文件（存在哪个
+/// 复制哪个）：由安装版或不使用数据目录的便携版换用时，设置和最近打开的目录不会丢失。只读取
+/// 用户目录，不修改其中的文件。不是便携版时不做处理。
+pub fn import_into_portable() -> bool {
+    let Some(dir) = portable_dir() else {
+        return false;
+    };
+    let state = crate::state::user_state_dir();
+    import_missing(
+        &dir,
+        [(user_config_dir(), "config.json"), (state, "state.json")],
+    )
+}
+
+/// 目录 `into` 中没有 `sources` 列出的任何文件时，把各来源目录中存在的同名文件复制进来，返回
+/// 是否复制了文件；`into` 中已有其中任意一个时不做处理。
+pub(crate) fn import_missing(into: &Path, sources: [(Option<PathBuf>, &str); 2]) -> bool {
+    if sources.iter().any(|(_, name)| into.join(name).exists()) {
+        return false;
+    }
+    let mut copied = false;
+    for (dir, name) in sources {
+        let Some(from) = dir.map(|dir| dir.join(name)).filter(|from| from.is_file()) else {
+            continue;
+        };
+        copied |= std::fs::copy(&from, into.join(name)).is_ok();
+    }
+    copied
+}
+
+/// 返回 winc 的配置目录：便携版为便携数据目录（见 [`portable_dir`]），否则为用户目录中的配置
+/// 目录，规则与 [`config_path`](crate::config_path) 相同；无法确定用户目录时返回 `None`。
 pub(crate) fn config_dir() -> Option<PathBuf> {
+    portable_dir().or_else(user_config_dir)
+}
+
+/// 返回用户目录中 winc 的配置目录，不考虑便携版；无法确定用户目录时返回 `None`。
+pub(crate) fn user_config_dir() -> Option<PathBuf> {
     let home = || std::env::var_os("HOME").map(PathBuf::from);
 
     if cfg!(target_os = "macos") {
