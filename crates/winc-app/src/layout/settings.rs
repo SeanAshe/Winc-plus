@@ -97,6 +97,7 @@ impl SettingsPage {
                 ]),
                 plain(vec![
                     Setting::CompactFolders,
+                    Setting::PreviewOnClick,
                     Setting::DiffInline,
                     Setting::RemoteImages,
                 ]),
@@ -208,6 +209,8 @@ pub enum Setting {
     RestoreWindow,
     /// 文件树把连续的单子目录合并显示为一行。
     CompactFolders,
+    /// 预览标签：在文件树中单击文件时在预览标签中打开。
+    PreviewOnClick,
     /// Markdown 预览联网加载网址的图片。
     RemoteImages,
     /// 定时检查更新。
@@ -284,6 +287,7 @@ impl Setting {
             | Setting::HotExit
             | Setting::RestoreFolder
             | Setting::CompactFolders
+            | Setting::PreviewOnClick
             | Setting::StickyScroll
             | Setting::WordWrap
             | Setting::Minimap
@@ -329,6 +333,7 @@ impl Setting {
             Setting::StatusBar => t!("settings-status-bar"),
             Setting::RestoreWindow => t!("settings-restore-window"),
             Setting::CompactFolders => t!("settings-compact-folders"),
+            Setting::PreviewOnClick => t!("settings-preview-on-click"),
             Setting::RemoteImages => t!("settings-remote-images"),
             Setting::CheckUpdates => t!("settings-check-updates"),
             Setting::Version => t!("settings-version"),
@@ -366,6 +371,7 @@ impl Setting {
             Setting::StickyScroll => Some(t!("settings-sticky-scroll-desc")),
             Setting::WordWrap => Some(t!("settings-word-wrap-desc")),
             Setting::CompactFolders => Some(t!("settings-compact-folders-desc")),
+            Setting::PreviewOnClick => Some(t!("settings-preview-on-click-desc")),
             Setting::Minimap => Some(t!("settings-minimap-desc")),
             Setting::LineNumbers => Some(t!("settings-line-numbers-desc")),
             Setting::DiffInline => Some(t!("settings-diff-inline-desc")),
@@ -397,6 +403,7 @@ impl Setting {
             | Setting::HotExit
             | Setting::RestoreFolder
             | Setting::CompactFolders
+            | Setting::PreviewOnClick
             | Setting::StickyScroll
             | Setting::WordWrap
             | Setting::Minimap
@@ -479,6 +486,24 @@ pub const THEME_CHOICES: [(ThemeChoice, Label); 3] = [
     (ThemeChoice::Light, || t!("settings-theme-light")),
     (ThemeChoice::Dark, || t!("settings-theme-dark")),
 ];
+
+/// 设置页滚动条的轨道：贴着滚动区域 `area`（正文或快捷键列表）的右边，宽 4，上下各让出 4。
+pub fn settings_track(area: Rect) -> Rect {
+    Rect::new(area.right() - 7.0, area.y + 4.0, 4.0, area.h - 8.0)
+}
+
+/// 设置页滚动条的滑块：`area` 为滚动区域，`scroll`、`max` 为滚动量和最大滚动量；内容放得下时
+/// 返回 `None`。
+///
+/// 绘制、点击和拖动都用这份几何。滑块的长度和位置按轨道折算，滚到底时滑块到达轨道末端。
+pub fn settings_thumb(area: Rect, scroll: f32, max: f32) -> Option<Rect> {
+    if max <= 0.0 {
+        return None;
+    }
+    let track = settings_track(area);
+    let thumb = scrollbar_thumb(track, scroll, max + track.h)?;
+    Some(Rect::new(track.x, thumb.y, track.w, thumb.h))
+}
 
 /// 「关于」页的版本号：上游版本、这个 fork 的数字和处理器架构，例如 `0.1.502_115`（`x86_64`）。
 pub fn version_label() -> String {

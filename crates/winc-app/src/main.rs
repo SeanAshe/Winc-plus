@@ -15,6 +15,7 @@ mod bench;
 mod cli;
 mod crash;
 mod field;
+mod frame_log;
 mod icons;
 mod instance;
 mod keymap;
@@ -102,6 +103,11 @@ fn main() {
     #[cfg(windows)]
     if !bench.silent() {
         windows::register_file_icons();
+    }
+
+    // 便携版首次运行时导入用户目录中的配置和状态，须在读取配置之前；测量时不读写状态，不导入。
+    if !bench.silent() {
+        winc_config::files::import_into_portable();
     }
 
     // 配置必须在加载字体之前读出，第一帧即使用用户指定的字体和字号。读入配置时的问题按系统语言

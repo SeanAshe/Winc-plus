@@ -446,6 +446,8 @@ pub enum Scrollbar {
     Terminal,
     /// Markdown 预览的竖直滚动条。
     Markdown,
+    /// 设置页（含快捷键列表）的竖直滚动条。
+    Settings,
 }
 
 /// 返回缩略图最上面显示的行：`total` 行放不下 `shown` 行时，随滚动位置 `scroll`（最大为 `max`）

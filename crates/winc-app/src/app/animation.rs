@@ -348,7 +348,7 @@ impl App {
     /// 在本帧开始时刻 `started` 之后经过一个 `frame_interval` 唤醒。
     pub(super) fn schedule_frame(&mut self, started: Instant) {
         let animating = self.animating();
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", windows))]
         if let Some(link) = &mut self.display_link {
             link.set_running(animating);
             self.next_frame = None;
@@ -363,7 +363,7 @@ impl App {
     /// 存在显示链接时由它在下一次刷新时请求重画；显示链接没有回调时（窗口被遮住）由计时器在
     /// 两个 `frame_interval` 后兜底，画成以后 [`Self::schedule_frame`] 会取消它。
     pub(super) fn retry_frame(&mut self, started: Instant) {
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", windows))]
         if let Some(link) = &mut self.display_link {
             link.set_running(true);
             self.next_frame = Some(started + self.frame_interval * 2);

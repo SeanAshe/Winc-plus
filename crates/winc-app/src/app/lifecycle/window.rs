@@ -498,6 +498,12 @@ impl App {
         };
         let started = Instant::now();
         self.cover_frame(&mut renderer);
+        // Wayland 上随本帧向合成器请求帧回调：之后的重画在合成器发出帧回调后进行，动画跟随
+        // 合成器的刷新，而不是计时器。本帧在 `renderer.draw` 中绘制并提交，因此在调用它之前请求。
+        #[cfg(all(unix, not(target_os = "macos")))]
+        if let Some(window) = &self.window {
+            window.pre_present_notify();
+        }
         let glide = self.begin_glide_frame();
         let drawn = renderer.draw(|frame| view::draw(self, frame));
         self.end_glide_frame(glide);
@@ -506,6 +512,13 @@ impl App {
         if !drawn {
             self.retry_frame(started);
             return;
+        }
+        if self.frame_log.enabled()
+            && let Some(window) = &self.window
+        {
+            let size = window.inner_size();
+            let refresh = frame_interval(window);
+            (self.frame_log).record(elapsed, refresh, (size.width, size.height));
         }
         self.refresh_hover();
 
@@ -565,6 +578,26 @@ impl App {
         if self.bench.on_progress(done) {
             self.quit_requested = true;
         }
+        let scroll = self.editor.active().map_or(0.0, |doc| doc.scroll_line);
+        if self.bench.on_wheel_frame(scroll) {
+            self.quit_requested = true;
+        }
+    }
+
+    /// 滚轮测量：到达送出时刻时，在编辑区上送出一格向下的鼠标滚轮滚动；返回之后需要唤醒的时刻。
+    ///
+    /// 文件尚未读完时不送出：总行数未定，滚动会停在已读到的末尾。
+    pub(in crate::app) fn bench_wheel_tick(&mut self, now: Instant) -> Option<Instant> {
+        let (send, next) = self.bench.wheel_due(now);
+        let loading = self.editor.active().is_some_and(|doc| doc.is_pending());
+        if send && !loading {
+            let text = self.layout.text;
+            self.mouse = (text.x + text.w / 2.0, text.y + text.h / 2.0);
+            let lines = self.wheel_step().1 / self.fonts.line_height;
+            self.bench.wheel_sent(lines);
+            self.on_wheel(winit::event::MouseScrollDelta::LineDelta(0.0, -1.0));
+        }
+        next
     }
 }
 

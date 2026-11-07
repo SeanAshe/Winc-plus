@@ -1,6 +1,10 @@
-//! Windows 上交由系统的操作：回收站、接上控制台，以及文件类型图标。
+//! Windows 上交由系统的操作，读取的系统设置，按屏幕刷新绘制动画的显示链接，以及文件类型图标。
 
 mod assoc;
+mod display_link;
+
+pub use assoc::{register_file_icons, register_file_types, unregister_file_types};
+pub use display_link::DisplayLink;
 
 use std::io;
 use std::os::windows::ffi::OsStrExt;
@@ -10,8 +14,29 @@ use windows_sys::Win32::UI::Shell::{
     FO_DELETE, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT, FOF_WANTNUKEWARNING,
     SHFILEOPSTRUCTW, SHFileOperationW,
 };
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    SPI_GETWHEELSCROLLCHARS, SPI_GETWHEELSCROLLLINES, SystemParametersInfoW,
+};
 
-pub use assoc::{register_file_icons, register_file_types, unregister_file_types};
+/// 系统设置中鼠标滚轮一格滚动的行数（竖直）和字符数（横向）。
+///
+/// 行数设置为一次滚动一屏时为 `None`；读取失败时取系统默认值 3。
+#[allow(unsafe_code)] // SystemParametersInfoW
+pub fn wheel_scroll_amounts() -> (Option<u32>, u32) {
+    /// `WHEEL_PAGESCROLL`（`<winuser.h>`）：一次滚动一屏。
+    const PAGE: u32 = u32::MAX;
+    let read = |action| {
+        let mut value: u32 = 3;
+        // SAFETY: 这两项设置向 `pvparam` 指向的位置写入一个 `u32`，`value` 在调用期间有效。
+        let ok = unsafe { SystemParametersInfoW(action, 0, (&raw mut value).cast(), 0) };
+        if ok != 0 { value } else { 3 }
+    };
+    let lines = read(SPI_GETWHEELSCROLLLINES);
+    (
+        (lines != PAGE).then_some(lines),
+        read(SPI_GETWHEELSCROLLCHARS),
+    )
+}
 
 /// 把文件或目录 `path` 移到回收站。
 ///

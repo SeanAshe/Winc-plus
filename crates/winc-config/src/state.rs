@@ -688,11 +688,19 @@ fn preferred_color(folder: &Path) -> usize {
 /// - macOS：`~/Library/Application Support/winc/state.json`
 /// - Linux：`$XDG_STATE_HOME/winc/state.json`，未设置时为 `~/.local/state/winc/state.json`
 /// - Windows：`%LOCALAPPDATA%\winc\state.json`（不随账户漫游：内容都是本机路径）
+///
+/// 便携版放在便携数据目录中（见 [`crate::files::portable_dir`]）。
 pub fn state_path() -> Option<PathBuf> {
+    let dir = crate::files::portable_dir().or_else(user_state_dir)?;
+    Some(dir.join("state.json"))
+}
+
+/// 返回用户目录中存放状态文件的目录，不考虑便携版；无法确定用户目录时返回 `None`。
+pub(crate) fn user_state_dir() -> Option<PathBuf> {
     let home = || std::env::var_os("HOME").map(PathBuf::from);
 
-    let dir = if cfg!(target_os = "macos") {
-        crate::files::config_dir()
+    if cfg!(target_os = "macos") {
+        crate::files::user_config_dir()
     } else if cfg!(target_os = "windows") {
         std::env::var_os("LOCALAPPDATA")
             .map(PathBuf::from)
@@ -703,9 +711,7 @@ pub fn state_path() -> Option<PathBuf> {
             .map(PathBuf::from)
             .or_else(|| home().map(|home| home.join(".local").join("state")))
             .map(|dir| dir.join("winc"))
-    }?;
-
-    Some(dir.join("state.json"))
+    }
 }
 
 /// 从 `state.json` 的 `window` 一节读出窗口的大小和位置；缺项或者数值不合理时为 `None`。

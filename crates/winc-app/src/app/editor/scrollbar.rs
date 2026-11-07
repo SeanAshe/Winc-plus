@@ -66,7 +66,7 @@ impl ScrollArea {
             ScrollArea::TreeHorizontal => Some(Scrollbar::TreeHorizontal),
             ScrollArea::Panel => Some(Scrollbar::Panel),
             ScrollArea::Commit => Some(Scrollbar::Commit),
-            ScrollArea::Settings => None,
+            ScrollArea::Settings => Some(Scrollbar::Settings),
             ScrollArea::Terminal => Some(Scrollbar::Terminal),
             ScrollArea::Markdown => Some(Scrollbar::Markdown),
         }

@@ -59,6 +59,9 @@ Measured on macOS; results vary with hardware and system load.
 | Linux | x86_64, X11 or Wayland | AppImage, deb |
 | Windows | Windows 10 1809 or later, x86_64 | NSIS, MSI, portable ZIP |
 
+The portable ZIP keeps settings and state in the `data` folder beside `winc.exe`; delete that
+folder to keep them in the user profile instead.
+
 winc is developed and tested mainly on macOS. Download it from
 [winc.si](https://winc.si/#download); all versions are on
 [GitHub Releases](https://github.com/DEEIX-AI/Winc/releases).

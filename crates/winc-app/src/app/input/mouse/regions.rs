@@ -60,6 +60,35 @@ impl App {
         Some(Hover::None)
     }
 
+    /// 返回在设置页滚动条上 (`x`, `y`) 处按下时抓住滑块的位置（相对滑块上沿）；点在轨道上滑块
+    /// 以外时为滑块长度的一半，使滑块跳到鼠标处。不在滚动条上或内容放得下时返回 `None`。
+    ///
+    /// 可点击的范围与唤出滚动条的范围相同：滚动区域右边 [`SCROLLBAR_HIT`] 以内。
+    pub(super) fn settings_scrollbar_at(&self, x: f32, y: f32) -> Option<f32> {
+        let (area, max) = self.settings_scroll_area();
+        let thumb = settings_thumb(area, self.settings.scroll, max)?;
+        if !area.contains(x, y) || x < area.right() - SCROLLBAR_HIT {
+            return None;
+        }
+        Some(if (thumb.y..thumb.bottom()).contains(&y) {
+            y - thumb.y
+        } else {
+            thumb.h / 2.0
+        })
+    }
+
+    /// 拖动设置页滚动条的滑块到纵坐标 `y`；`grab` 为按下点相对滑块上沿的距离。
+    pub(super) fn drag_settings_scrollbar(&mut self, y: f32, grab: f32) {
+        let (area, max) = self.settings_scroll_area();
+        let Some(thumb) = settings_thumb(area, 0.0, max) else {
+            return;
+        };
+        let track = settings_track(area);
+        self.settings.scroll = scroll_for_thumb(track.y, track.h, thumb.h, y, grab, max);
+        self.settings.scrolled_at = Some(Instant::now());
+        self.request_redraw();
+    }
+
     /// 处理设置浮层打开时的点击。
     ///
     /// 点在卡片外面（遮罩上）时关闭设置，不会同时点到下方的内容。正在编辑时，点到输入框
@@ -80,6 +109,14 @@ impl App {
 
         // 鼠标点击之后不再显示键盘选中的底色。
         self.settings.keyboard = false;
+
+        // 右边缘的滚动条：没有点到控件时按下即抓住滑块。
+        if part.is_none()
+            && let Some(grab) = self.settings_scrollbar_at(x, y)
+        {
+            self.grab_scrollbar(Scrollbar::Settings, grab);
+            return;
+        }
 
         match part {
             Some(SettingsPart::Close) => self.close_settings(),
@@ -346,6 +383,7 @@ impl App {
         let Some(index) = self.tree_row_at(y) else {
             return;
         };
+        let count = self.click_count(x, y);
         let sticky = self.tree_sticky_at(y).map(|s| s.level);
         let segment = self.tree_segment_at(index, x);
         let Some(ws) = &mut self.editor.workspace else {
@@ -364,6 +402,7 @@ impl App {
         }
         let mut drag = TreeDrag::new(ws, index, (x, y));
         drag.sticky = sticky;
+        drag.keep = count == 2;
         self.tree_drag = Some(drag);
     }
 

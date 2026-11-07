@@ -10,7 +10,7 @@ git-run-failed = Git failed
 git-run-spawn-failed = Couldn't run Git ({ $error })
 git-commit-partial-during-operation = { $operation } in progress; can't commit only some changes
 git-trust-config-unreadable = Couldn't read the repository's configuration
-git-trust-required = This repository is set up to run programs automatically during Git operations ({ $commands }). Trust the repository to perform this action
+git-trust-required = This repository runs programs automatically during Git operations ({ $commands }). Trust the repository first
 git-list-separator = { ", " }
 git-worktree-copy-invalid-glob = Invalid pattern “{ $glob }” in git.worktreeCopy: { $error }
 git-worktree-copy-failed = Couldn't copy “{ $path }”: { $error }
@@ -35,7 +35,7 @@ git-branch-checkout-new-worktree = Check Out in New Worktree
 git-branch-new-from = New Branch from This Branch…
 git-branch-merge-into-current = Merge into Current Branch
 git-branch-rebase-current-onto = Rebase Current Branch onto This Branch
-git-branch-delete = Delete Branch…
+git-branch-delete = Delete Branch
 git-branch-delete-confirm = Delete branch “{ $name }”?
 git-branch-delete-confirm-detail = Only the local branch is deleted. Remote branches aren't affected.
 git-branch-delete-confirm-button = Delete
@@ -51,7 +51,7 @@ git-stash-more = { $count ->
 git-stash-no-files = This stash has no changes to show
 git-stash-apply = Apply
 git-stash-pop = Pop
-git-stash-drop = Drop…
+git-stash-drop = Drop
 git-stash-drop-confirm = Drop stash “{ $name }”?
 git-stash-gone = This stash no longer exists
 git-stash-drop-confirm-detail = The changes in this stash can't be recovered after it's dropped.
@@ -94,8 +94,8 @@ git-op-tag-delete-remote = deleting tag “{ $name }” from the remote
 git-no-remote = No remote is configured
 git-branch-rename = Rename Branch…
 git-tag-push = Push to Remote
-git-tag-delete = Delete Tag…
-git-tag-delete-remote = Delete from Remote…
+git-tag-delete = Delete Tag
+git-tag-delete-remote = Delete from Remote
 git-tag-delete-confirm = Delete tag “{ $name }”?
 git-tag-delete-confirm-detail = Only the local tag is deleted. The remote tag isn't affected.
 git-tag-delete-remote-confirm = Delete tag “{ $name }” from the remote?
@@ -104,7 +104,7 @@ git-tag-delete-confirm-button = Delete
 git-remotes-menu = Remotes
 git-remote-add = Add Remote…
 git-remote-edit = Change URL…
-git-remote-remove = Remove…
+git-remote-remove = Remove
 git-remote-add-title = Add Remote
 git-remote-edit-title = Edit Remote
 git-remote-name = Name
@@ -129,7 +129,7 @@ git-op-canceled = Canceled { $what }
 git-question-sign-in = Sign In to { $host }
 git-question-unlock-key = Unlock SSH Key
 git-question-host-key = Verify SSH Host
-git-question-host-key-message = Unknown host. Verify the fingerprint before connecting.
+git-question-host-key-message = This is the first connection to this host. Verify the fingerprint before connecting.
 git-question-input = Git Input Required
 git-question-confirm = Git Confirmation Required
 git-question-server = Server
@@ -148,7 +148,7 @@ git-question-unlock-button = Unlock
 git-question-connect-button = Connect
 git-question-ok-button = OK
 git-output-title = Git Output
-git-output-empty = No Git operations have run since winc was opened
+git-output-empty = No Git operations have run yet
 git-output-exit-code = Exit code: { $code }
 git-output-no-exit-code = No exit code
 git-op-busy = Wait for the current Git operation to finish
@@ -168,7 +168,7 @@ git-worktree-copied-ignored = { $count ->
 git-worktree-open-elsewhere = Worktree “{ $name }” is open in another window
 git-worktree-open-elsewhere-detail = Close that window first, then remove this worktree.
 git-worktree-switch-to-window = Switch to Window
-git-worktree-close-window-first = Close the window showing worktree “{ $name }” first, then remove this worktree
+git-worktree-close-window-first = Close the window showing worktree “{ $name }” first, then remove the worktree
 git-worktree-remove-confirm = Remove worktree “{ $name }”?
 git-worktree-remove-confirm-detail = The worktree folder will be moved to the { common-trash }, where you can restore it.
 git-worktree-remove-unreachable = { $count ->
@@ -267,8 +267,8 @@ git-time-date-year = { $month ->
 
 git-commit-message-required = Enter a commit message first
 git-commit-unresolved-conflicts = { $count ->
-    [one] { $count } file still has unresolved conflicts. Resolve them before committing
-   *[other] { $count } files still have unresolved conflicts. Resolve them before committing
+    [one] { $count } file still has unresolved conflicts. Resolve them first
+   *[other] { $count } files still have unresolved conflicts. Resolve them first
 }
 git-commit-nothing-checked = Select the files to commit first
 git-commit-done = Committed { $oid }: { $subject }
@@ -276,18 +276,18 @@ git-commit-failed = Couldn't commit: { $error }
 git-commit-done-in = Committed { $oid } in “{ $name }”
 git-commit-failed-in = Couldn't commit in “{ $name }”: { $error }
 git-undo-commit-confirm = Undo the last commit?
-git-undo-commit-confirm-detail = The commit “{ $subject }” will be undone. Its changes stay staged and its message goes back into the box, so you can edit it and commit again.
+git-undo-commit-confirm-detail = The changes in “{ $subject }” stay staged, and its message returns to the commit box.
 git-undo-commit-confirm-button = Undo Commit
 git-force-push-confirm = Force push “{ $branch }”?
 git-force-push-confirm-detail = { $count ->
-    [one] Commits that were already pushed have been rewritten locally. Pushing replaces 1 upstream commit with the local version. If upstream has received new commits in the meantime, the push is rejected, so nobody else’s work is overwritten.
-   *[other] Commits that were already pushed have been rewritten locally. Pushing replaces { $count } upstream commits with the local version. If upstream has received new commits in the meantime, the push is rejected, so nobody else’s work is overwritten.
+    [one] 1 upstream commit will be replaced with your rewritten local version. If others have pushed new commits since, the push is rejected.
+   *[other] { $count } upstream commits will be replaced with your rewritten local versions. If others have pushed new commits since, the push is rejected.
 }
 git-force-push-confirm-button = Force Push
 git-commit-push-confirm = Commit and push?
 git-commit-push-confirm-scope = { $count ->
-    [one] 1 file will be committed to { $branch } and pushed to upstream.
-   *[other] { $count } files will be committed to { $branch } and pushed to upstream.
+    [one] 1 file will be committed to “{ $branch }” and pushed to upstream.
+   *[other] { $count } files will be committed to “{ $branch }” and pushed to upstream.
 }
 git-commit-push-confirm-detail = The commit will be pushed to the upstream branch.
 git-commit-push-confirm-button = Commit and Push
@@ -296,12 +296,12 @@ git-undo-commit-done-in = Undid commit { $oid } in “{ $name }”
 git-undo-commit-failed = Couldn't undo the commit: { $error }
 git-commit-partial-not-utf8 = “{ $name }” isn't UTF-8 text, so its changes can't be partially committed
 git-abort-confirm = Abort { $operation }?
-git-abort-confirm-detail = The working tree goes back to how it was before the operation began, and conflicts you’ve already resolved are discarded.
+git-abort-confirm-detail = The working tree returns to its state before the operation began, and resolved conflicts are discarded.
 git-abort-confirm-button = Abort { $operation }
 git-rollback-nothing-checked = Select the files to roll back first
 git-rollback-confirm-one = Roll back changes to “{ $name }”?
 git-rollback-confirm-many = Roll back changes to { $count } files?
-git-rollback-confirm-detail = Tracked files will be restored to how they were in the last commit; untracked files will be moved to the { common-trash }, where you can get them back.
+git-rollback-confirm-detail = Tracked files are restored to the last commit, and untracked files are moved to the { common-trash }.
 git-rollback-confirm-button = Roll Back
 git-rollback-file-failed = Couldn't roll back “{ $name }”: { $error }
 git-rollback-done = { $count ->
@@ -333,7 +333,7 @@ git-diff-side-head-missing = HEAD · File Doesn't Exist
 ## Trusting repository configuration
 
 git-trust-confirm = Do you trust the repository “{ $name }”?
-git-trust-confirm-detail = This repository is set up to run the programs below automatically during Git operations such as committing and pushing. Choose “Trust” only if you know the repository comes from a reliable source. If you don't trust it, winc still shows the status of your changes, but actions that would run these programs, such as committing and switching branches, are unavailable.
+git-trust-confirm-detail = This repository runs the programs below automatically during Git operations such as committing and pushing. Trust only repositories from sources you know. If you don't trust it, change status is still shown, but actions that run these programs, such as committing and switching branches, are unavailable.
 git-trust-more = { $count ->
     [one] …{ $count } item in total
    *[other] …{ $count } items in total
@@ -343,7 +343,7 @@ git-trust-allow = Trust
 
 ## Commit view
 
-git-commit-view-problem = { $problem }. Click Refresh in the top-right corner to try again
+git-commit-view-problem = { $problem }. Click Refresh to try again
 git-commit-view-loading = Reading repository status…
 git-commit-view-empty = Nothing to Commit
 git-commit-empty-in-sync = Up to date with the upstream branch
@@ -378,7 +378,7 @@ git-location-main-worktree = Main worktree
 git-location-only-one = This folder has only one repository and worktree
 git-location-new-window = Open in New Window
 git-location-remove = Remove Worktree…
-git-location-prune = Clean Up Stale Worktrees
+git-location-prune = Prune Stale Worktrees
 git-location-new-worktree-in = New Worktree in “{ $repository }”
 git-location-count = { $count ->
     [one] 1 worktree
@@ -406,16 +406,16 @@ git-tip-both = Sync with { $upstream }: pull { $behind }, push { $ahead }
 git-tip-publish = Publish Branch: push to a remote and set the upstream
 git-switch-dirty = Check out “{ $branch }” with uncommitted changes?
 git-switch-dirty-detail = { $count ->
-    [one] 1 file on “{ $current }” has uncommitted changes. Migrate Changes brings them along; Stash and Check Out puts them in a stash first, and you can restore them at any time.
-   *[other] { $count } files on “{ $current }” have uncommitted changes. Migrate Changes brings them along; Stash and Check Out puts them in a stash first, and you can restore them at any time.
+    [one] 1 file on “{ $current }” has uncommitted changes.
+   *[other] { $count } files on “{ $current }” have uncommitted changes.
 }
 git-switch-carry = Migrate Changes
 git-switch-stash = Stash and Check Out
-git-switch-carry-conflict = Checked out “{ $branch }”, but some changes conflict with it: conflicts are marked in the working tree and the original changes remain in the stash list
-git-switch-carry-unapplied = Checked out “{ $branch }”, but the changes could not be applied and remain in the stash list: { $error }
+git-switch-carry-conflict = Checked out “{ $branch }”; some changes conflict and are marked in the working tree. The original changes remain in the stash
+git-switch-carry-unapplied = Checked out “{ $branch }”, but the changes couldn't be applied and remain in the stash: { $error }
 git-switch-failed-restored = { $error } (your uncommitted changes were restored)
-git-switch-failed-stashed = { $error } (your uncommitted changes are still in the stash and can be restored from the stash list)
-git-switch-stash-message = Changes on { $branch } before switching branches
+git-switch-failed-stashed = { $error } (your uncommitted changes are stashed and can be restored from the stash list)
+git-switch-stash-message = Changes on “{ $branch }” before switching branches
 git-commit-button-nothing = No Changes to Commit
 git-branch-picker-empty = No matching branches
 git-branch-picker-recent = Recent
@@ -592,7 +592,7 @@ git-change-deleted-after = { $count ->
     [one] Deleted { $count } line · After line { $line }
    *[other] Deleted { $count } lines · After line { $line }
 }
-git-change-reverted = Reverted change
+git-change-reverted = Rolled back the change
 git-change-no-next = No next change
 git-no-next-file = No next file
 git-no-previous-file = No previous file
@@ -606,7 +606,7 @@ git-diff-side-worktree-unsaved = Working Tree · Unsaved
 git-diff-staged-only = Staged part only
 git-diff-identical-sides = Both sides are identical
 git-diff-none-at-caret = No change at the cursor
-git-diff-revert-failed = Couldn't revert the change: { $error }
+git-diff-revert-failed = Couldn't roll back the change: { $error }
 
 ## Change popup
 
@@ -646,8 +646,8 @@ git-log-file-binary = Binary
 
 ## Blame
 
-git-blame-not-in-repository = The current file isn't in a Git repository, so it can't be blamed
-git-blame-failed = Couldn't blame: { $error }
+git-blame-not-in-repository = The current file isn't in a Git repository, so blame isn't available
+git-blame-failed = Couldn't load blame: { $error }
 git-blame-uncommitted = Uncommitted changes
 git-blame-line-uncommitted = This line hasn't been committed
 git-rebase-not-on-branch = This commit isn't on the current branch
@@ -665,8 +665,11 @@ git-rebase-button = Rebase
 git-rebase-first-squash = The first kept commit can't be squashed or fixed up
 git-rebase-all-dropped = Keep at least one commit
 git-rebase-empty-message = A reworded commit needs a message
-git-rebase-stopped = Rebase paused: click Continue Rebase when you’re ready
-git-rebase-pushed-warning = { $count } of these commits are already on a remote; you'll need to force push afterward
+git-rebase-stopped = Rebase paused. Click Continue Rebase when you're done
+git-rebase-pushed-warning = { $count ->
+    [one] 1 of these commits is already pushed; you'll need to force push afterward
+   *[other] { $count } of these commits are already pushed; you'll need to force push afterward
+}
 git-rebase-message-placeholder = Set a commit to Reword to edit its message here
 git-merge-three-pane = Three-Way
 git-merge-panes-not-utf8 = Can't show a three-way merge for “{ $name }”: the file isn't UTF-8

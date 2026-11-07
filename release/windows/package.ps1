@@ -29,8 +29,12 @@ Copy-Item "$root/target/x86_64-unknown-linux-musl/release/winc-watch" $stage -Fo
 if ($Phase -eq 'portable') {
     $portable = "$bundle/portable"
     New-Item -ItemType Directory -Force $portable | Out-Null
+    # A data folder beside winc.exe keeps settings and state out of the user profile; the readme
+    # inside also keeps Compress-Archive from dropping the folder as empty.
+    New-Item -ItemType Directory -Force "$stage/data" | Out-Null
+    Copy-Item "$PSScriptRoot/portable-data-readme.txt" "$stage/data/README.txt" -Force
     # Enumerate the files: installer markers never enter a portable archive.
-    Compress-Archive -Path "$stage/winc.exe", "$stage/winc-pty.exe", "$stage/conpty.dll", "$stage/OpenConsole.exe", "$stage/winc-watch", "$stage/bin", "$stage/LICENSE", "$stage/NOTICE", "$stage/winc.ico" -DestinationPath "$portable/$stem-portable.zip" -Force
+    Compress-Archive -Path "$stage/winc.exe", "$stage/winc-pty.exe", "$stage/conpty.dll", "$stage/OpenConsole.exe", "$stage/winc-watch", "$stage/bin", "$stage/data", "$stage/LICENSE", "$stage/NOTICE", "$stage/winc.ico" -DestinationPath "$portable/$stem-portable.zip" -Force
     return
 }
 

@@ -1,8 +1,9 @@
 //! 测量钩子：设置环境变量 `WINC_BENCH` 后启用，供 `cargo xtask bench` 使用。
 //!
 //! 环境变量的值决定测量模式：`startup` 在首帧呈现后退出，`scroll` 连续滚动并统计帧耗时，
-//! `search:<内容>`、`picker` 做完后保持运行，`find:<内容>`、`highlight` 输出耗时、帧数和 CPU
-//! 时间后退出，其他值只输出时间戳并保持运行。保持运行的模式由外部进程采样内存；未设置时不测量。
+//! `wheel` 按固定间隔送出鼠标滚轮滚动并统计帧间隔和画面的跟随情况，`search:<内容>`、`picker`
+//! 做完后保持运行，`find:<内容>`、`highlight` 输出耗时、帧数和 CPU 时间后退出，其他值只输出
+//! 时间戳并保持运行。保持运行的模式由外部进程采样内存；未设置时不测量。
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -11,6 +12,21 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 /// 无外部出处与硬性约束，取自调参：按 60 Hz 刷新率计，该帧数对应约 5 秒的滚动时长，
 /// 使 p50、p95 与最大耗时的统计覆盖数百帧。采集满该帧数后输出统计结果并退出。
 const SCROLL_FRAMES: usize = 300;
+
+/// 滚轮测量送出的格数（格）。
+///
+/// 取自调参：按 [`WHEEL_INTERVAL`] 送出约需 1.5 秒，使帧间隔和画面落后的统计覆盖上百帧。
+const WHEEL_NOTCHES: usize = 60;
+
+/// 滚轮测量中相邻两格的间隔。
+///
+/// 短于滚轮过渡的最短时长（50 ms）：各格的过渡必然重叠，测得的是快速转动滚轮时的跟随情况。
+const WHEEL_INTERVAL: Duration = Duration::from_millis(25);
+
+/// 滚轮测量在最后一格之后等待画面停下的最长时长；超过后照常输出，不计停下的耗时。
+///
+/// 远长于滚轮过渡的最长时长（125 ms），只在画面始终不停时起作用。
+const WHEEL_SETTLE_LIMIT: Duration = Duration::from_secs(2);
 
 /// 测量模式，由环境变量 `WINC_BENCH` 决定。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,6 +39,8 @@ enum Mode {
     Startup,
     /// 连续滚动并统计每帧耗时，采集 [`SCROLL_FRAMES`] 帧后退出。
     Scroll,
+    /// 按 [`WHEEL_INTERVAL`] 送出 [`WHEEL_NOTCHES`] 格鼠标滚轮滚动，画面停下后输出统计并退出。
+    Wheel,
     /// 首帧呈现后在打开的目录里搜索给定的内容，之后保持运行。
     Search(String),
     /// 首帧呈现后打开快速打开面板，之后保持运行。
@@ -58,6 +76,24 @@ pub struct Bench {
     frame_times: Vec<Duration>,
     /// 查找、高亮测量开始的时刻、进程已用的 CPU 时间和之后画了几帧。
     progress: Option<(Instant, Duration, usize)>,
+    /// 滚轮测量的进度；只在 [`Mode::Wheel`] 下、首帧呈现之后存在。
+    wheel: Option<WheelRun>,
+}
+
+/// 滚轮测量的进度。
+struct WheelRun {
+    /// 下一格的送出时刻。
+    next: Instant,
+    /// 已送出的格数。
+    sent: usize,
+    /// 已送出的各格合计应滚动的行数。
+    target: f32,
+    /// 一格滚动的行数，用于把落后的行数换算为格数。
+    notch: f32,
+    /// 最后一格的送出时刻。
+    last: Option<Instant>,
+    /// 送出第一格以后各次呈现的时刻，以及当时画面落后的行数。
+    frames: Vec<(Instant, f32)>,
 }
 
 impl Bench {
@@ -69,6 +105,7 @@ impl Bench {
             mode: Mode::Off,
             frame_times: Vec::new(),
             progress: None,
+            wheel: None,
         }
     }
 
@@ -78,6 +115,7 @@ impl Bench {
             Err(_) => Mode::Off,
             Ok("startup") => Mode::Startup,
             Ok("scroll") => Mode::Scroll,
+            Ok("wheel") => Mode::Wheel,
             Ok("picker") => Mode::QuickOpen,
             Ok("highlight") => Mode::Highlight,
             Ok(value) => match (value.strip_prefix("search:"), value.strip_prefix("find:")) {
@@ -91,6 +129,7 @@ impl Bench {
             mode,
             frame_times: Vec::new(),
             progress: None,
+            wheel: None,
         }
     }
 
@@ -139,6 +178,16 @@ impl Bench {
                     self.progress = Some((Instant::now(), cpu_time(), 0));
                     return Next::Highlight;
                 }
+                Mode::Wheel => {
+                    self.wheel = Some(WheelRun {
+                        next: Instant::now(),
+                        sent: 0,
+                        target: 0.0,
+                        notch: 0.0,
+                        last: None,
+                        frames: Vec::new(),
+                    });
+                }
                 Mode::Off | Mode::Idle | Mode::Scroll => {}
             }
         }
@@ -172,6 +221,77 @@ impl Bench {
 }
 
 impl Bench {
+    /// 返回滚轮测量中是否已到送出下一格的时刻，以及之后需要唤醒的时刻；不在滚轮测量中或已
+    /// 全部送出时返回 `(false, None)`。
+    pub fn wheel_due(&self, now: Instant) -> (bool, Option<Instant>) {
+        match &self.wheel {
+            Some(run) if run.sent < WHEEL_NOTCHES => {
+                let send = now >= run.next;
+                let next = if send { now + WHEEL_INTERVAL } else { run.next };
+                (send, Some(next))
+            }
+            _ => (false, None),
+        }
+    }
+
+    /// 记录已送出一格滚轮滚动，该格应滚动 `lines` 行。
+    pub fn wheel_sent(&mut self, lines: f32) {
+        if let Some(run) = &mut self.wheel {
+            let now = Instant::now();
+            run.next = run.next.max(now) + WHEEL_INTERVAL;
+            run.sent += 1;
+            run.target += lines;
+            run.notch = lines;
+            run.last = Some(now);
+        }
+    }
+
+    /// 滚轮测量中记录一次呈现，`scroll` 是画面滚动到的行；返回测量是否已完成。
+    ///
+    /// 送完全部格数且画面停在目标位置时，或最后一格之后超过 [`WHEEL_SETTLE_LIMIT`] 时，输出
+    /// 帧间隔的 p50、p95，画面落后格数的 p95 和最大值，以及最后一格之后画面停下的耗时。
+    pub fn on_wheel_frame(&mut self, scroll: f32) -> bool {
+        let Some(run) = &mut self.wheel else {
+            return false;
+        };
+        if run.sent == 0 {
+            return false;
+        }
+        let now = Instant::now();
+        let behind = (run.target - scroll).max(0.0);
+        run.frames.push((now, behind));
+        let Some(last) = run.last.filter(|_| run.sent == WHEEL_NOTCHES) else {
+            return false;
+        };
+        let settled = behind < 0.01;
+        if !settled && now < last + WHEEL_SETTLE_LIMIT {
+            return false;
+        }
+
+        let ms = |d: Duration| d.as_secs_f64() * 1000.0;
+        let mut intervals: Vec<f64> = (run.frames.windows(2))
+            .map(|w| ms(w[1].0 - w[0].0))
+            .collect();
+        intervals.sort_by(f64::total_cmp);
+        let notch = f64::from(run.notch.max(f32::EPSILON));
+        let mut lags: Vec<f64> = (run.frames.iter())
+            .map(|f| f64::from(f.1) / notch)
+            .collect();
+        lags.sort_by(f64::total_cmp);
+        let pick = |v: &[f64], q: f64| v.get(((v.len() - 1) as f64 * q) as usize).copied();
+        println!(
+            "WINC wheel_frames={} interval_p50_ms={:.2} interval_p95_ms={:.2} \
+             lag_p95_notches={:.2} lag_max_notches={:.2} settle_ms={:.1}",
+            run.frames.len(),
+            pick(&intervals, 0.5).unwrap_or(0.0),
+            pick(&intervals, 0.95).unwrap_or(0.0),
+            pick(&lags, 0.95).unwrap_or(0.0),
+            pick(&lags, 1.0).unwrap_or(0.0),
+            if settled { ms(now - last) } else { f64::NAN },
+        );
+        true
+    }
+
     /// 记录一帧进度，返回测量是否已完成。
     ///
     /// 查找、高亮测量中每画完一帧调用；`done` 表示目标动作是否完成。完成时输出从开始到现在的

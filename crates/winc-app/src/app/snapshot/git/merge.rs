@@ -153,7 +153,7 @@ fn files_with_conflict_markers_are_not_committed() {
     );
     // 仍有冲突标记时按钮不可用，按下也不会提交。
     let blocker = app.commit.blocker(&status);
-    assert_eq!(blocker.as_deref(), Some("1 个文件还有未解决的冲突"));
+    assert_eq!(blocker.as_deref(), Some("1 个文件仍有未解决的冲突"));
     app.git_commit();
     app.git_refresh();
     assert_eq!(

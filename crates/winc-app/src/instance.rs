@@ -346,12 +346,29 @@ mod imp {
 }
 
 /// 返回整个应用的命名管道名，格式为 `\\.\pipe\winc-<用户名>-app`。
+///
+/// 便携版的管道名中另有便携数据目录的散列（见 [`path_tag`]）：便携版与安装版、不同位置的便携版
+/// 各自是独立的应用，不互相转交目标。
 #[cfg(windows)]
 pub fn app_pipe_name() -> PathBuf {
     let user = std::env::var("USERNAME").unwrap_or_default();
     // 测试使用另一套名字，避免把目标交给本机正在运行的 winc 并使其切换到前台。
     let prefix = if cfg!(test) { "winc-test" } else { "winc" };
-    PathBuf::from(format!(r"\\.\pipe\{prefix}-{user}-app"))
+    let tag = (winc_config::files::portable_dir())
+        .map(|dir| format!("-{:016x}", path_tag(&dir)))
+        .unwrap_or_default();
+    PathBuf::from(format!(r"\\.\pipe\{prefix}-{user}{tag}-app"))
+}
+
+/// 返回目录 `dir` 的散列（64 位 FNV-1a），不区分大小写：Windows 上路径不区分大小写。
+///
+/// 用于命名管道名；同一目录在各次运行中得到相同的值。
+#[cfg(any(windows, test))]
+fn path_tag(dir: &Path) -> u64 {
+    let text = dir.to_string_lossy().to_lowercase();
+    text.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
 }
 
 #[cfg(windows)]

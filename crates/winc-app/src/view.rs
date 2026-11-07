@@ -10,7 +10,7 @@ use std::borrow::Cow;
 use unicode_segmentation::UnicodeSegmentation;
 use winc_editor::EntryKind;
 use winc_i18n::t;
-use winc_render::{Color, FontKind, Frame, Rect};
+use winc_render::{Color, Faux, FontKind, Frame, Rect};
 
 use crate::app::animation::{Card, dialog_curve, reveal};
 use crate::app::{App, DropZone, Hover, MenuButton, ScrollArea, ThumbLook};
@@ -650,6 +650,25 @@ fn ui_text(
     clip: Rect,
 ) -> f32 {
     label(frame, app, app.fonts.ui, (x, row), text, color, clip)
+}
+
+/// 与 [`ui_text`] 相同，文字倾斜；用于预览标签的名称。
+fn ui_text_italic(
+    frame: &mut Frame<'_>,
+    app: &App,
+    x: f32,
+    row: Rect,
+    text: &str,
+    color: Color,
+    clip: Rect,
+) -> f32 {
+    let size = app.fonts.ui;
+    let baseline = ui_baseline(app, row, size);
+    let italic = Faux {
+        italic: true,
+        ..Faux::default()
+    };
+    frame.text_faux(FontKind::Ui, italic, size, x, baseline, text, color, clip)
 }
 
 /// 在 `row` 内按小字号垂直居中绘制一段界面文本，返回文本末尾的 x 坐标。

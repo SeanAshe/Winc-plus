@@ -144,6 +144,8 @@ impl App {
             fold_motion: None,
             scroll_glide: None,
             wheel_glide: None,
+            wheel_at: None,
+            preview_tab: None,
             tree_drag: None,
             file_hover: None,
             name_input: None,
@@ -252,10 +254,11 @@ impl App {
             activation: None,
             occluded: false,
             next_frame: None,
-            #[cfg(target_os = "macos")]
+            #[cfg(any(target_os = "macos", windows))]
             display_link: None,
             frame_interval: Duration::from_micros(16_667),
             bench,
+            frame_log: crate::frame_log::FrameLog::from_env(),
             presented: 0,
             dirty: true,
         }

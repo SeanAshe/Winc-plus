@@ -438,7 +438,8 @@ impl Renderer {
         presenter.resize(size.width, size.height, scale);
     }
 
-    /// 返回应当把空闲的呈现缓冲标成可清除的时刻；都已标好或离屏渲染时为 `None`。
+    /// 返回应当处理空闲的呈现缓冲的时刻：macOS 上标成可清除，其他平台上释放（Wayland 除外）；
+    /// 都已处理好或离屏渲染时为 `None`。
     ///
     /// 停止绘制后可能不再画新的一帧，因此调用方按该时刻安排唤醒，到时调用
     /// [`Self::make_idle_purgeable`]。
@@ -449,8 +450,8 @@ impl Renderer {
         }
     }
 
-    /// 把屏幕上显示着的那块以外的呈现缓冲标成可清除（不计入进程内存，系统可以收回）；
-    /// 刚画过、尚未到时间时什么也不做。
+    /// 处理空闲的呈现缓冲：macOS 上将当前显示的一块以外的缓冲标为可清除（不计入进程内存，系统
+    /// 可以收回），其他平台上释放窗口缓冲，下一帧重建；距上次绘制未到规定时长时不做处理。
     pub fn make_idle_purgeable(&mut self) {
         if let Target::Window(_, presenter) = &mut self.target {
             presenter.make_idle_purgeable();

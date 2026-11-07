@@ -58,6 +58,8 @@ winc 以 Rust 与自研渲染引擎构建：0.1 秒启动，十万行代码仅�
 | Linux | x86_64，X11 或 Wayland | AppImage、deb |
 | Windows | Windows 10 1809 及以上，x86_64 | NSIS、MSI、便携 ZIP |
 
+便携 ZIP 将设置和状态保存在 `winc.exe` 旁边的 `data` 目录中；删除该目录后改为保存在用户目录中。
+
 主要在 macOS 上开发和测试。可从 [winc.si](https://winc.si/#download) 下载，所有版本见
 [GitHub Releases](https://github.com/DEEIX-AI/Winc/releases)。
 

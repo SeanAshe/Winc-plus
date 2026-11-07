@@ -23,11 +23,28 @@ impl App {
             return;
         }
         if self.settings.open {
-            let part = self.settings_part_at(x, y);
+            // 拖动滚动条时下方的设置项不高亮；滑块在拖动和悬停时加深颜色。
+            let dragging = match self.drag {
+                Drag::Scrollbar {
+                    bar: Scrollbar::Settings,
+                    grab,
+                } => {
+                    self.drag_settings_scrollbar(y, grab);
+                    true
+                }
+                _ => false,
+            };
+            let part = (!dragging).then(|| self.settings_part_at(x, y)).flatten();
             if part != self.settings.hover {
                 self.settings.hover = part;
                 self.request_redraw();
             }
+            let on_bar = dragging || part.is_none() && self.settings_scrollbar_at(x, y).is_some();
+            self.set_hover(if on_bar {
+                Hover::Scrollbar(Scrollbar::Settings)
+            } else {
+                Hover::None
+            });
 
             self.update_cursor_icon();
 
@@ -244,6 +261,11 @@ impl App {
                 }
                 self.request_redraw();
             }
+            // 设置浮层打开时在上面处理，不会走到这里。
+            Drag::Scrollbar {
+                bar: Scrollbar::Settings,
+                ..
+            } => {}
             Drag::Minimap { from, scroll } => self.drag_minimap(y, from, scroll),
             Drag::LogText => self.drag_log_text(x, y),
             Drag::MarkdownText => self.drag_markdown(x, y),

@@ -9,7 +9,7 @@ use winc_render::{FontKind, Frame, Rect};
 use super::*;
 use crate::app::Focus;
 use crate::keymap::Action;
-use crate::layout::{KeysLayout, SettingsPart};
+use crate::layout::{KeysLayout, SettingsPart, settings_thumb};
 
 /// 绘制「快捷键」页，返回搜索框内光标的矩形（供输入法候选框定位）。
 pub(super) fn draw(app: &mut App, frame: &mut Frame<'_>) -> Option<Rect> {
@@ -122,12 +122,9 @@ fn draw_list(app: &App, frame: &mut Frame<'_>, keys: &KeysLayout, look: ThumbLoo
         );
     }
 
-    if keys.max_scroll() > 0.0 {
-        let track = Rect::new(list.right() - 7.0, list.y + 4.0, 4.0, list.h - 8.0);
-        if let Some(thumb) = scrollbar_thumb(track, app.settings.scroll, keys.content_h) {
-            let color = look.color(p.scrollbar, p.scrollbar_active);
-            frame.rounded(Rect::new(track.x, thumb.y, 4.0, thumb.h), color, 2.0);
-        }
+    if let Some(thumb) = settings_thumb(list, app.settings.scroll, keys.max_scroll()) {
+        let color = look.color(p.scrollbar, p.scrollbar_active);
+        frame.rounded(thumb, color, 2.0);
     }
 }
 

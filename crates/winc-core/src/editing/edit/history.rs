@@ -48,6 +48,12 @@ impl History {
         self.undo.last().map_or(self.base_version, |t| t.version)
     }
 
+    /// 是否有过修改：存在可撤销或可重做的事务。撤销至原始内容后仍为真，清空（[`History::clear`]）
+    /// 后为假。
+    pub fn has_changes(&self) -> bool {
+        !self.undo.is_empty() || !self.redo.is_empty()
+    }
+
     /// 是否有未保存的修改，即当前版本号与保存时的版本号不一致。
     pub fn is_dirty(&self) -> bool {
         self.version() != self.saved_version

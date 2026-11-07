@@ -88,6 +88,8 @@ pub struct Config {
     pub confirm_drag_and_drop: Option<bool>,
     /// 文件树是否把连续的单子目录合并显示为一行；未设置时合并。
     pub compact_folders: Option<bool>,
+    /// 在文件树中单击文件时是否在预览标签中打开；未设置时为否。
+    pub preview_on_click: Option<bool>,
     /// 「在外部终端中打开」使用的终端程序；未设置时使用系统默认的终端程序。
     pub external_terminal: Option<String>,
     /// 是否启用终端模块（编辑区下方的终端面板），默认为否。
@@ -471,7 +473,8 @@ pub struct Backup {
 ///
 /// - macOS：`~/Library/Application Support/winc/config.json`
 /// - Linux：`$XDG_CONFIG_HOME/winc/config.json`，未设置时为 `~/.config/winc/config.json`
-/// - Windows：`%APPDATA%\winc\config.json`，未设置时使用 `HOME` 环境变量指向的目录
+/// - Windows：`%APPDATA%\winc\config.json`，未设置时使用 `HOME` 环境变量指向的目录；便携版放在
+///   便携数据目录中（见 [`crate::files::portable_dir`]）
 ///
 /// 不读取系统级配置（如 `/etc/winc/config.json`）：只支持用户级配置。
 pub fn config_path() -> Option<PathBuf> {

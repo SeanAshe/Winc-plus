@@ -206,3 +206,10 @@ fn oversized_pipe_messages_are_dropped() {
     assert_eq!(read(framed(imp::MESSAGE_LIMIT + 1)), None);
     assert_eq!(read(framed(message.len() as u64 + 1)), None, "读不全");
 }
+
+#[test]
+fn portable_pipe_tags_ignore_case_and_differ_by_folder() {
+    let tag = |path: &str| path_tag(Path::new(path));
+    assert_eq!(tag(r"D:\Tools\winc\data"), tag(r"d:\tools\WINC\data"));
+    assert_ne!(tag(r"D:\Tools\winc\data"), tag(r"E:\winc\data"));
+}
