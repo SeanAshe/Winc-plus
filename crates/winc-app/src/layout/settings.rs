@@ -2,6 +2,8 @@
 
 use super::*;
 
+use std::borrow::Cow;
+
 use winc_i18n::t;
 
 /// 设置的一个分类，对应左侧分类栏中的一项和右侧的一页。
@@ -346,9 +348,17 @@ impl Setting {
 
     /// 返回名称下方的说明文字；没有说明时返回 `None`。
     ///
-    /// 格式化命令的说明随状态变化，不在此处给出。
-    pub fn description(self) -> Option<&'static str> {
-        match self {
+    /// 格式化命令的说明随状态变化，不在此处给出。终端模块的说明含开关终端的快捷键，按当前系统和
+    /// 键位表给出。
+    pub fn description(self) -> Option<Cow<'static, str>> {
+        if self == Setting::TerminalModule {
+            let text = match crate::keymap::shortcut(crate::keymap::Action::ToggleTerminal) {
+                Some(key) => Cow::Owned(t!("settings-terminal-module-desc-key", key = key)),
+                None => Cow::Borrowed(t!("settings-terminal-module-desc")),
+            };
+            return Some(text);
+        }
+        let text = match self {
             Setting::SystemTitleBar => Some(t!("settings-system-title-bar-desc")),
             Setting::AutoSave => Some(t!("settings-auto-save-desc")),
             Setting::HotExit => Some(t!("settings-hot-exit-desc")),
@@ -370,9 +380,9 @@ impl Setting {
             Setting::FixOnSave => Some(t!("settings-fix-on-save-desc")),
             Setting::SkipOnSave => Some(t!("settings-skip-on-save-desc")),
             Setting::GitModule => Some(t!("settings-git-module-desc")),
-            Setting::TerminalModule => Some(t!("settings-terminal-module-desc")),
             _ => None,
-        }
+        };
+        text.map(Cow::Borrowed)
     }
 
     /// 返回设置项右侧的控件种类。
@@ -470,6 +480,15 @@ pub const THEME_CHOICES: [(ThemeChoice, Label); 3] = [
     (ThemeChoice::Dark, || t!("settings-theme-dark")),
 ];
 
+/// 「关于」页的版本号：上游版本、这个 fork 的数字和处理器架构，例如 `0.1.502_115`（`x86_64`）。
+pub fn version_label() -> String {
+    let arch = match std::env::consts::ARCH {
+        "aarch64" => "arm64",
+        other => other,
+    };
+    format!("{} ({arch})", crate::release_version::display_version())
+}
+
 /// 设置浮层中可以单独悬停和点击的部件。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsPart {
@@ -487,6 +506,8 @@ pub enum SettingsPart {
     Action(Setting),
     /// 某种语言名称下方的「安装方法…」，参数是所在的设置行。
     Install(Setting),
+    /// 点击后复制到剪贴板的值（版本号）。
+    Copy(Setting),
     /// 「快捷键」页的搜索框。
     KeySearch,
     /// 搜索框右端的「录制按键」。
@@ -727,7 +748,8 @@ impl SettingsLayout {
                     .find(|&i| theme_tile(row.control, i).contains(x, y))
                     .map(|i| SettingsPart::NamedTheme(dark, i))
             }
-            SettingControl::Search | SettingControl::Value => None,
+            SettingControl::Value => Some(SettingsPart::Copy(row.setting)),
+            SettingControl::Search => None,
         }
     }
 }

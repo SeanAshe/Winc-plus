@@ -29,7 +29,13 @@ pub(super) fn draw_editor_scrollbar(app: &mut App, frame: &mut Frame<'_>, index:
 
     // Git 改动：一段占几行，标记就绘制多高。
     // 鼠标指着的那一处向左加宽 1 逻辑像素。
-    for (i, h) in app.changes.hunks(doc.id).iter().enumerate() {
+    // 三栏合并里改动由连接带表示，不再标出与 `HEAD` 的差别。
+    let hunks = if app.merge_panes_placed() {
+        Default::default()
+    } else {
+        app.changes.hunks(doc.id)
+    };
+    for (i, h) in hunks.iter().enumerate() {
         let color = crate::view::diff::hunk_shade(p, h).mark;
         let lane = if app.hover == Hover::RulerChange(i) {
             (GIT_LANE.0 + 1.0, GIT_LANE.1 + 1.0)

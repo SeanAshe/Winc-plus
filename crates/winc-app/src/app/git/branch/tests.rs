@@ -10,7 +10,7 @@ impl App {
         // 换目录之前起的操作：编号比后来起的都小。
         let _ = self.branch.results.0.send(Done {
             id: 0,
-            root: root.into(),
+            root: Some(root.into()),
             what,
             result: Ok((String::new(), Then::Nothing)),
         });
@@ -31,15 +31,27 @@ fn branch(name: &str, remote: bool, current: bool, upstream: Option<&str>) -> Br
     }
 }
 
+/// 拉取、推送、获取在分支选择器里，「⋯」里不再重复；最上面是储藏。
 #[test]
-fn the_actions_menu_offers_pull_only_with_an_upstream() {
-    let with = [branch("main", false, true, Some("origin/main"))];
-    let menu = branch_menu(&with, &[], None, false);
-    assert!(menu.contains(&MenuEntry::Item(MenuCommand::GitPull, true)));
-    assert!(menu.contains(&MenuEntry::Item(MenuCommand::NewWorktree, true)));
-    let without = [branch("main", false, true, None)];
-    let menu = branch_menu(&without, &[], None, false);
-    assert!(menu.contains(&MenuEntry::Item(MenuCommand::GitPull, false)));
+fn the_actions_menu_leaves_syncing_to_the_branch_picker() {
+    let menu = branch_menu(&[], None, false);
+    assert_eq!(
+        menu.first(),
+        Some(&MenuEntry::Item(MenuCommand::GitStash, true))
+    );
+    for command in [
+        MenuCommand::GitFetch,
+        MenuCommand::GitPull,
+        MenuCommand::GitPullRebase,
+        MenuCommand::GitPush,
+    ] {
+        assert!(
+            !menu
+                .iter()
+                .any(|e| matches!(e, MenuEntry::Item(c, _) if *c == command)),
+            "{command:?}"
+        );
+    }
 }
 
 #[test]
@@ -95,14 +107,12 @@ fn branch_ops_are_grouped_with_separators() {
             item(Merge, 1),
             item(Rebase, 1),
             MenuEntry::Separator,
+            item(Rename, 1),
             item(Delete, 1),
         ]
     );
-    // 空的组不留分隔线：当前分支只有一项，远程分支最后没有删除。
-    assert_eq!(
-        branch_ops(0, &branches, &[], &[], false),
-        [item(NewFrom, 0)]
-    );
+    // 空的组不留分隔线：当前分支只能重命名，远程分支最后没有删除。
+    assert_eq!(branch_ops(0, &branches, &[], &[], false), [item(Rename, 0)]);
     let remote = branch_ops(2, &branches, &[], &[], false);
     assert_eq!(remote.last(), Some(&item(Rebase, 2)));
 }

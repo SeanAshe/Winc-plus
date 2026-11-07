@@ -488,3 +488,30 @@ fn a_unified_view_stays_unified_after_comparing_again() {
     assert!(b.is_unified());
     assert_eq!(b.scroll_rows(), 3);
 }
+
+#[test]
+fn marks_covering_every_visible_character_cover_the_line() {
+    let chars: Vec<char> = "  let a = 1;  ".chars().collect();
+    // 缩进和行尾空白不必标记，中间的空格可以分属多段标记。
+    assert!(marks_cover_line(&chars, std::slice::from_ref(&(2..12))));
+    assert!(marks_cover_line(&chars, &[2..5, 6..7, 8..9, 10..12]));
+    assert!(!marks_cover_line(&chars, std::slice::from_ref(&(10..11))));
+    assert!(!marks_cover_line(&chars, &[]));
+    assert!(!marks_cover_line(
+        &[' ', ' '],
+        std::slice::from_ref(&(0..2))
+    ));
+}
+
+#[test]
+fn fold_rows_pair_the_same_gap_on_both_sides() {
+    let old: String = (0..40).map(|i| format!("line {i}\n")).collect();
+    let new = old.replace("line 20\n", "line 20\nextra\nmore\n");
+    let view = view(&old, &new);
+    assert_eq!(view.fold_rows.len(), 2);
+    let (left, right) = view.fold_rows[1];
+    assert!(matches!(view.rows[LEFT][left], SideRow::Fold { .. }));
+    assert!(matches!(view.rows[RIGHT][right], SideRow::Fold { .. }));
+    // 第二段折叠行在新增的两行之后：右侧比左侧靠后两行。
+    assert_eq!(right, left + 2);
+}

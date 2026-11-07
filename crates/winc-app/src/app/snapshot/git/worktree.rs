@@ -157,9 +157,7 @@ fn worktrees_are_created_removed_and_pruned() {
     std::fs::write(root.join(".env"), "KEY=1").unwrap();
     app.config.git_worktree_copy = vec![".env".to_owned()];
 
-    // 只有一个工作树：提交视图的「⋯」里也能新建，分支菜单中显示创建位置。
-    app.open_context_menu(MenuTarget::CommitMore, (0.0, 0.0));
-    assert!(menu_commands(&app).contains(&(MenuCommand::NewWorktree, true)));
+    // 只有一个工作树：分支菜单中显示创建位置。
     assert_eq!(
         app.worktree_dir_hint("feat/x"),
         format!("{}/feat-x", winc_editor::display_name(&trees))
@@ -454,11 +452,12 @@ fn a_single_repository_lists_its_worktrees_flat() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// 状态栏的工作树和分支都弹系统菜单：菜单里切换，当前的打勾；只有一个位置时没有工作树这一项。
+/// 状态栏的分支名弹出的是提交视图里同一个分支选择器，从状态栏往上展开：在里面切换、拉取、推送；
+/// 工作树弹系统菜单，只有一个位置时没有这一项。
 #[test]
 fn the_status_bar_switches_worktrees_and_branches_from_menus() {
-    use crate::app::StatusItem;
     use crate::app::input::context_menu::MenuCommand;
+    use crate::app::{GitAnchor, PickerPart, StatusItem};
 
     let Some((mut app, root)) = git_app("git-status-menus", false) else {
         return;
@@ -475,38 +474,44 @@ fn the_status_bar_switches_worktrees_and_branches_from_menus() {
     assert!(hit(&app, StatusItem::Branch));
     assert!(!hit(&app, StatusItem::Worktree));
 
+    // 文件视图里也能从状态栏打开：面板的底边在分支名上面，右边和它对齐。
     app.open_status_menu(StatusItem::Branch);
-    assert!(app.popup().is_some());
-    assert!(!app.picker_open);
-    let commands = menu_commands(&app);
-    let index = |name: &str| {
-        app.git
-            .branches
-            .iter()
-            .position(|b| b.name == name)
-            .unwrap()
-    };
-    let topic = MenuCommand::StatusBranch(index("feature/a"));
-    assert!(commands.contains(&(topic, true)));
-    // 没有远程、没有上游：同步、获取、拉取、推送都灰显，但都在。
-    for command in [
-        MenuCommand::StatusSync,
-        MenuCommand::GitFetch,
-        MenuCommand::GitPull,
-        MenuCommand::GitPush,
-    ] {
-        assert!(commands.contains(&(command, false)), "{command:?}");
+    assert!(app.popup().is_none());
+    assert!(app.picker_open && app.picker_lists_branches());
+    assert_eq!(app.picker_anchor, GitAnchor::Status);
+    paint(&mut app);
+    let (item, _) = *(app.status_hits.iter())
+        .find(|(_, i)| *i == StatusItem::Branch)
+        .unwrap();
+    let card = app.layout.picker;
+    assert!(card.bottom() <= item.y);
+    assert!((card.right() - item.right()).abs() < 0.5 || card.right() <= item.right());
+    // 没有远程：拉取、推送、获取都在，都灰显。
+    for part in [PickerPart::Pull, PickerPart::Push, PickerPart::Fetch] {
+        assert!(!app.picker_action_enabled(part), "{part:?}");
+        assert!(
+            (app.picker_part_hits.iter()).any(|(_, p)| *p == part),
+            "{part:?}"
+        );
     }
-    assert!(commands.contains(&(MenuCommand::StatusNewBranch, true)));
-    assert!(commands.contains(&(MenuCommand::NewWorktree, true)));
-    assert!(app.menu_checked(MenuCommand::StatusBranch(index("main"))));
-    app.run_menu_command(topic);
+    let index = |app: &App, name: &str| {
+        let rows = app.picker_branch_rows.as_deref().unwrap();
+        rows.iter().position(|row| {
+            matches!(row, crate::app::git::branch::picker::BranchRow::Branch { index, .. }
+                if app.git.branches[*index].name == name)
+        })
+    };
+    // 「feature」目录收着：搜一下，选中切过去。
+    app.picker_input.set_text("feature/a");
+    app.picker_refresh();
+    app.picker_selected = index(&app, "feature/a").unwrap();
+    app.branch_picker_accept();
     assert_eq!(
         app.git.status.as_ref().unwrap().head,
         Some(Head::Branch("feature/a".to_owned()))
     );
 
-    // 领先上游：四项都能用；同步真的推上去。
+    // 领先上游：三项都能用，悬停提示写明作用；推送真的推上去。
     let remote = root.with_extension("status-remote.git");
     let _ = std::fs::remove_dir_all(&remote);
     git_in(&root, &["init", "-q", "--bare", remote.to_str().unwrap()]);
@@ -519,20 +524,19 @@ fn the_status_bar_switches_worktrees_and_branches_from_menus() {
     app.git_refresh();
     paint(&mut app);
     app.open_status_menu(StatusItem::Branch);
-    let commands = menu_commands(&app);
-    for command in [
-        MenuCommand::StatusSync,
-        MenuCommand::GitFetch,
-        MenuCommand::GitPull,
-        MenuCommand::GitPush,
-    ] {
-        assert!(commands.contains(&(command, true)), "{command:?}");
+    paint(&mut app);
+    for part in [PickerPart::Pull, PickerPart::Push, PickerPart::Fetch] {
+        assert!(app.picker_action_enabled(part), "{part:?}");
     }
     assert_eq!(
         app.menu_label(MenuCommand::GitFetch).subtitle.as_deref(),
         Some("下载远程更新，不改动本地分支")
     );
-    app.run_menu_command(MenuCommand::StatusSync);
+    // 当前分支那一行写的是上游。
+    let current = (app.git.branches.iter()).find(|b| b.current).unwrap();
+    assert_eq!(current.upstream.as_deref(), Some("origin/feature/a"));
+    app.press_picker_part(PickerPart::Push);
+    assert!(!app.picker_open);
     assert_eq!(app.git_sync_state(), crate::app::SyncState::InSync);
     let _ = std::fs::remove_dir_all(&remote);
 

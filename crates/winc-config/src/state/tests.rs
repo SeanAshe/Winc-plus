@@ -71,6 +71,7 @@ fn sample() -> State {
         last: Some(PathBuf::from("/a/项目")),
         others: vec![PathBuf::from("/b")],
         commit_tree: true,
+        stay_outside_applications: true,
         panel_width: Some(360.0),
         preview_mode: Some("split".into()),
         window: Some(WindowFrame {

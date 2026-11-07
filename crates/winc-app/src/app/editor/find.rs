@@ -465,6 +465,13 @@ impl App {
         self.open_prompt(PromptKind::NewTag { at }, ref_name_field());
     }
 
+    /// 弹出输入条，输入本地分支 `old` 的新名字；输入框里是现在的名字并已全选。
+    pub(in crate::app) fn open_rename_prompt(&mut self, old: String) {
+        let mut field = ref_name_field();
+        field.set_text(&old);
+        self.open_prompt(PromptKind::RenameBranch { old }, field);
+    }
+
     /// 打开 `kind` 的输入条，输入框为 `field`，焦点移到输入条上；文件树中正在输入的名字先结束。
     fn open_prompt(&mut self, kind: PromptKind, field: TextField) {
         self.finish_name_input();
@@ -501,6 +508,7 @@ impl App {
             PromptKind::GoTo => self.goto_line(&input),
             PromptKind::Stash => self.git_stash(&input),
             PromptKind::NewTag { at } => self.git_new_tag(&input, at),
+            PromptKind::RenameBranch { old } => self.git_rename_branch(old, &input),
         }
         self.relayout();
         self.request_redraw();

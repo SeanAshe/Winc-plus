@@ -291,8 +291,13 @@ impl App {
         settle(&mut self.sidebar_motion, |m| m.clock);
         settle(&mut self.tree_motion, |m| m.clock);
         self.tree_labels.settle();
+        self.commit.names.settle();
+        settle(&mut self.commit.shift, |s| s.clock);
         settle(&mut self.commit.motion, |m| m.clock);
         settle(&mut self.commit.message_motion, |m| m.1);
+        settle(&mut self.commit.stash_motion, |m| m.1);
+        settle(&mut self.commit.card.motion, |m| m.1);
+        settle(&mut self.commit.undo.motion, |m| m.1);
         settle(&mut self.global.field_motion, |m| m.2);
         settle(&mut self.global.motion, |m| m.clock);
         settle(&mut self.fold_motion, |m| m.clock);
@@ -372,8 +377,13 @@ impl App {
         self.sidebar_motion.is_some()
             || self.tree_motion.is_some()
             || self.tree_labels.moving()
+            || self.commit.names.moving()
+            || self.commit.shift.is_some()
             || self.commit.motion.is_some()
             || self.commit.message_motion.is_some()
+            || self.commit.stash_motion.is_some()
+            || self.commit.card.motion.is_some()
+            || self.commit.undo.motion.is_some()
             || self.global.field_motion.is_some()
             || self.global.motion.is_some()
             || self.drag_autoscrolling()
@@ -410,7 +420,9 @@ impl App {
             || self.scrollbars_animating()
             || self.markdown.motion.is_some()
             || self.status_motion.moving()
-            || ((self.branch.running.is_some() || self.branch.finished.is_some())
+            || ((self.branch.running.is_some()
+                || self.branch.finished.is_some()
+                || self.commit_refreshing())
                 && self.commit_shown())
     }
 }

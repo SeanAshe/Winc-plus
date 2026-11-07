@@ -494,8 +494,16 @@ impl App {
         )
     }
 
+    /// 将值 `setting`（版本号）复制到剪贴板，并在状态栏提示。
+    pub(in crate::app) fn settings_copy_value(&mut self, setting: Setting) {
+        self.settings.selected = setting;
+        let version = crate::layout::version_label();
+        self.set_clipboard(version.clone(), false);
+        self.flash(t!("settings-version-copied", version = version));
+    }
+
     /// 处理 `↩` 或空格：输入框进入编辑，开关切换，格式化命令、「添加语言…」「排除的语言」弹出菜单，
-    /// 数值项和主题项向前一步（等同 `→`），搜索项把焦点移到搜索框。
+    /// 数值项和主题项向前一步（等同 `→`），版本号复制到剪贴板，搜索项把焦点移到搜索框。
     pub(super) fn settings_activate(&mut self) {
         self.settings.keyboard = true;
         let setting = self.settings.selected;
@@ -507,7 +515,7 @@ impl App {
             | SettingControl::Action
             | SettingControl::Choice
             | SettingControl::Button => self.settings_open_menu(setting),
-            SettingControl::Value => {}
+            SettingControl::Value => self.settings_copy_value(setting),
             SettingControl::Stepper | SettingControl::Themes | SettingControl::ThemeList => {
                 self.settings_step(true)
             }

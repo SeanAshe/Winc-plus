@@ -8,7 +8,7 @@ mod compare;
 mod details;
 mod filter;
 mod keys;
-mod menus;
+pub(crate) mod menus;
 mod time;
 
 pub(crate) use time::*;
@@ -198,9 +198,15 @@ pub enum LogConfirmed {
     /// 把当前分支硬重置到这个提交。
     ResetHard(String),
     /// 删除一条储藏；执行时按提交号查找（[`winc_editor::git::Git::stash`]）。
-    DropStash(winc_editor::git::Stash),
+    ///
+    /// 装在 `Box` 里：储藏带着父提交、时间和说明，直接放在这里会让送回事件循环的每个事件都变大。
+    DropStash(Box<winc_editor::git::Stash>),
     /// 删除一个本地分支；第二项为真时连同未合并的提交一起删除（[`App::run_delete_branch`]）。
     DeleteBranch(String, bool),
+    /// 删除一个标签。
+    DeleteTag(String, winc_editor::git::TagTarget),
+    /// 移除一个远程仓库。
+    RemoveRemote(String),
 }
 
 /// 一个提交上的本地分支：签出时优先签出它，不进入分离的 `HEAD`。
@@ -289,6 +295,8 @@ pub(crate) struct LogState {
     ///
     /// 先留一段安静的时间，刚发出的请求不先写提示再换成结果。
     pub list_waiting: Option<Instant>,
+    /// 点了「刷新」的日志标签：第一批提交取回时提示已刷新。没有新提交时列表不变，否则看不出点过。
+    pub refreshing: Option<DocumentId>,
     /// 跳转之前选中的提交（顺着提交图的线、点父提交跳过去以后，「后退」回到它们），新的在后面。
     pub back: Vec<String>,
     /// 后退之后可以再前进到的提交，新的在后面；发生新的跳转时清空。
@@ -355,6 +363,7 @@ impl Default for LogState {
             details_w: None,
             waiting: None,
             list_waiting: None,
+            refreshing: None,
             back: Vec::new(),
             forward: Vec::new(),
             runs: Vec::new(),
@@ -715,8 +724,11 @@ impl App {
             }
             LogTarget::Refresh => {
                 if let Some(id) = self.editor.active().map(|d| d.id) {
+                    self.log.refreshing = Some(id);
                     self.reload_log(id);
                 }
+                // 列表上方的未提交更改和分支筛选来自仓库状态，一起刷新。
+                self.git_refresh();
             }
             LogTarget::Search => {
                 self.focus = Focus::LogFilter;
@@ -987,11 +999,18 @@ impl App {
             })
             .or((!view.commits.is_empty()).then_some(0));
         // 详情留着：还是同一个提交时（刷新、`HEAD` 动了）不用再取，详情一栏不闪。
+        let failed = view.error.is_some();
         let active = self.editor.active().is_some_and(|d| d.id == doc);
         if let Some(row) = row
             && active
         {
             self.select_log_row(row);
+        }
+        if self.log.refreshing == Some(doc) {
+            self.log.refreshing = None;
+            if !failed {
+                self.flash(t!("git-log-refreshed"));
+            }
         }
     }
 
@@ -1039,7 +1058,7 @@ impl App {
 
 /// 在后台准备一个文件在两个版本之间的差异：左边是 `old` 里的版本（改名的取旧路径；`None` 是根
 /// 提交之前，什么都没有），右边是 `new` 里的。
-fn commit_diff(
+pub(in crate::app) fn commit_diff(
     git: &Git,
     root: &Path,
     old_rev: Option<&str>,

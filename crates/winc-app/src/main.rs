@@ -10,6 +10,7 @@
 #![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod app;
+mod askpass;
 mod bench;
 mod cli;
 mod crash;
@@ -35,6 +36,8 @@ mod trash;
 #[cfg(not(target_os = "macos"))]
 mod updates;
 mod view;
+#[cfg(all(unix, not(target_os = "macos")))]
+mod wayland;
 mod winc;
 #[cfg(windows)]
 mod windows;
@@ -57,6 +60,10 @@ use bench::Bench;
 use winc::{Envelope, Winc};
 
 fn main() {
+    // 作为 `git`、`ssh` 的 askpass 程序启动时不创建窗口。
+    if let Some(code) = askpass::helper() {
+        std::process::exit(code);
+    }
     shell_command::enter_real_path();
     crash::install();
     #[cfg(windows)]
@@ -322,7 +329,7 @@ fn hand_over(args: &cli::Args) -> bool {
             ..t.clone()
         })
         .collect();
-    instance::forward_to_app(&targets)
+    instance::forward_to_app(&targets, instance::launch_token().as_deref())
 }
 
 /// 设置界面语言，并让汉字按界面语言的字形显示，返回字形所用的语言是否发生变化。

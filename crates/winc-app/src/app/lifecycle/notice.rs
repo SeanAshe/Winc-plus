@@ -15,6 +15,8 @@ pub enum NoticeAction {
     Install { tools: Vec<String>, dir: PathBuf },
     /// 「去设置」：打开设置的格式化一页，在那里指定工具命令。
     FormatSettings,
+    /// 「查看输出」：在只读标签中打开 Git 操作的输出。
+    GitOutput,
 }
 
 /// 到期后正在淡出的提示条。
@@ -31,7 +33,9 @@ impl NoticeAction {
     /// 按钮上显示的文字。
     pub fn label(&self) -> &'static str {
         match self {
-            NoticeAction::ShowOutput(_) => t!("workspace-notice-show-output"),
+            NoticeAction::ShowOutput(_) | NoticeAction::GitOutput => {
+                t!("workspace-notice-show-output")
+            }
             NoticeAction::Install { .. } => t!("workspace-notice-install"),
             NoticeAction::FormatSettings => t!("workspace-notice-open-settings"),
         }
@@ -136,6 +140,7 @@ impl App {
                 self.open_settings();
                 self.settings_show_page(SettingsPage::Format);
             }
+            NoticeAction::GitOutput => self.show_git_output(),
         }
         self.request_redraw();
     }

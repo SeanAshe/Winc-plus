@@ -48,9 +48,16 @@ pub fn indent_label(indent: Indent, tab_width: usize) -> String {
 
 impl App {
     /// 响应状态栏上 `item` 的点击：在该项处弹出菜单；终端开关直接开关面板，设置按钮直接打开设置。
+    ///
+    /// 分支名弹出的是提交视图里同一个分支选择器（往上展开），不另做一套菜单：切换、新建、同步都
+    /// 在一处。
     pub(in crate::app) fn open_status_menu(&mut self, item: StatusItem) {
         if item == StatusItem::Terminal {
             return self.click_terminal_button();
+        }
+        // 面板开着时点在面板外先关掉它（`click_picker`），再点一下才展开：点分支名就是开和关。
+        if item == StatusItem::Branch {
+            return self.open_branch_picker(crate::app::GitAnchor::Status);
         }
         if item == StatusItem::Settings {
             return self.open_settings();
@@ -66,15 +73,20 @@ impl App {
             return;
         };
         let target = match (item, self.editor.active().map(|d| d.id)) {
-            // 这两个菜单不依赖当前文档。
-            (StatusItem::Branch, _) => MenuTarget::StatusBranches,
+            // 这个菜单不依赖当前文档。
             (StatusItem::Worktree, _) => MenuTarget::StatusPlaces(self.location_places()),
             (_, None) => return,
             (StatusItem::Indent, Some(id)) => MenuTarget::Indent(id),
             (StatusItem::LineEnding, Some(id)) => MenuTarget::LineEnding(id),
             (StatusItem::Encoding, Some(id)) => MenuTarget::Encoding(id),
             (StatusItem::Language, Some(id)) => MenuTarget::Language(id),
-            (StatusItem::Terminal | StatusItem::Settings | StatusItem::Update, _) => return,
+            (
+                StatusItem::Branch
+                | StatusItem::Terminal
+                | StatusItem::Settings
+                | StatusItem::Update,
+                _,
+            ) => return,
         };
         self.open_button_menu(
             MenuButton::Status(item),

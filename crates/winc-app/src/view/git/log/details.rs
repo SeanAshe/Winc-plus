@@ -12,6 +12,13 @@ use winc_i18n::t;
 use super::*;
 use crate::app::git::log::Wrapped;
 
+/// 提示中「单击比较」所按修饰键的写法（见 `App::command_held`）。
+const COMMAND: &str = if cfg!(target_os = "macos") {
+    "⌘"
+} else {
+    "Ctrl"
+};
+
 /// 说明 `message` 按宽度 `width`（逻辑像素）折好的行；与上次的结果相同时直接复用缓存。
 fn wrapped(app: &App, frame: &mut Frame<'_>, message: &str, width: f32) -> Rc<Wrapped> {
     let (ui, small) = (app.fonts.ui, app.fonts.ui_small);
@@ -302,7 +309,7 @@ fn draw_compare(
     let items: [(String, &str); 3] = if app.log.file.is_some() {
         [
             ("↑↓".into(), t!("git-log-hint-select-file")),
-            ("↩".into(), t!("git-log-hint-open-diff")),
+            (t!("common-key-enter").into(), t!("git-log-hint-open-diff")),
             ("←".into(), t!("git-log-hint-return")),
         ]
     } else {
@@ -378,7 +385,7 @@ pub(super) fn draw_details_footer(
     let mut items: Vec<(String, &str)> = if app.log.file.is_some() {
         vec![
             ("↑↓".into(), t!("git-log-hint-select-file")),
-            ("↩".into(), t!("git-log-hint-open-diff")),
+            (t!("common-key-enter").into(), t!("git-log-hint-open-diff")),
             ("←".into(), t!("git-log-hint-return")),
         ]
     } else {
@@ -389,7 +396,7 @@ pub(super) fn draw_details_footer(
                 t!("git-log-hint-open-diff"),
             ),
             (
-                t!("git-log-hint-cmd-click").into(),
+                t!("git-log-hint-cmd-click", key = COMMAND),
                 t!("git-log-hint-compare"),
             ),
         ]

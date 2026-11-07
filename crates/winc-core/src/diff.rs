@@ -3,9 +3,9 @@
 //! [`line_changes`] 把整段文本的替换（例如格式化的输出）转成按行划分、从后往前排列的
 //! [`Change`] 列表，由 [`crate::editing::edit::Transaction`] 依次应用；[`map_positions`] 把修改前的
 //! 位置映射到修改后。[`line_hunks`]、[`inline_changes`] 供并排的差异视图使用，[`hunk_key`]、
-//! [`pick_hunks`] 供按块提交使用。
+//! [`pick_changes`] 供按块提交使用。
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::hash::Hash;
 use std::ops::Range;
 
@@ -408,11 +408,31 @@ pub fn hunk_key<'a>(
     hasher.finish()
 }
 
-/// 返回从 `old` 出发、只应用 `new` 相对它的各段改动中 `keep` 保留的那些之后得到的文本。
+/// 一段改动中不应用的行：行号相对这段改动的开头（从 0 起）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct LineSet {
+    /// 保留的旧行，即不删除的行。
+    pub old: BTreeSet<usize>,
+    /// 不加入的新行。
+    pub new: BTreeSet<usize>,
+}
+
+/// [`pick_changes`] 对一段改动的处理方式。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Pick {
+    /// 应用整段改动。
+    Apply,
+    /// 不应用这段改动。
+    Skip,
+    /// 除 [`LineSet`] 中的行以外都应用。
+    Lines(LineSet),
+}
+
+/// 返回从 `old` 出发、按 `pick` 应用 `new` 相对它的各段改动之后得到的文本。
 ///
-/// `keep` 的参数是这段改动的 [`hunk_key`] 和它在 `old` 里的行区间。全部保留时结果是 `new`，
-/// 全部丢弃时结果是 `old`。
-pub fn pick_hunks(old: &str, new: &str, keep: impl Fn(u64, Range<usize>) -> bool) -> String {
+/// `pick` 的参数是这段改动的 [`hunk_key`] 和它在 `old` 里的行区间。全部应用时结果是 `new`，全部
+/// 不应用时结果是 `old`。按行应用时，保留的旧行排在加入的新行之前。
+pub fn pick_changes(old: &str, new: &str, pick: impl Fn(u64, Range<usize>) -> Pick) -> String {
     let (a, b) = (lines(old), lines(new));
     let mut out = String::with_capacity(new.len().max(old.len()));
     let mut at = 0;
@@ -421,13 +441,24 @@ pub fn pick_hunks(old: &str, new: &str, keep: impl Fn(u64, Range<usize>) -> bool
             out.push_str(line);
         }
         let key = hunk_key(a[o.clone()].iter().copied(), b[n.clone()].iter().copied());
-        let lines = if keep(key, o.clone()) {
-            &b[n]
-        } else {
-            &a[o.clone()]
-        };
-        for line in lines {
-            out.push_str(line);
+        match pick(key, o.clone()) {
+            Pick::Apply => b[n].iter().for_each(|line| out.push_str(line)),
+            Pick::Skip => a[o.clone()].iter().for_each(|line| out.push_str(line)),
+            Pick::Lines(skipped) => {
+                let kept = (a[o.clone()].iter().enumerate())
+                    .filter(|(i, _)| skipped.old.contains(i))
+                    .map(|(_, line)| *line);
+                let added = (b[n].iter().enumerate())
+                    .filter(|(i, _)| !skipped.new.contains(i))
+                    .map(|(_, line)| *line);
+                for line in kept.chain(added) {
+                    // 文件末尾没有换行符的旧行后面接上新行时，两行不能连在一起。
+                    if !out.is_empty() && !out.ends_with(['\n', '\r']) {
+                        out.push_str(if line.ends_with("\r\n") { "\r\n" } else { "\n" });
+                    }
+                    out.push_str(line);
+                }
+            }
         }
         at = o.end;
     }
@@ -435,6 +466,41 @@ pub fn pick_hunks(old: &str, new: &str, keep: impl Fn(u64, Range<usize>) -> bool
         out.push_str(line);
     }
     out
+}
+
+/// 返回从 `old` 到 `new` 的各段改动里已经在 `staged` 里的部分：每段改动的 [`hunk_key`] 和按
+/// [`pick_changes`] 的写法表示的处理方式。
+///
+/// 用于只暂存了一部分的文件：`old` 是上一次提交里的版本，`new` 是工作区，`staged` 是暂存区。
+/// 旧行在 `staged` 中仍然存在时视为未删除，新行在 `staged` 中存在时视为已加入。按这些处理方式
+/// 应用到 `old` 上，结果通常等于 `staged`；暂存之后又修改过同一处时无法精确还原，结果是与
+/// `staged` 最接近的组合。
+pub fn staged_picks(old: &str, new: &str, staged: &str) -> Vec<(u64, Pick)> {
+    let (a, b, s) = (lines(old), lines(new), lines(staged));
+    let removed: BTreeSet<usize> = hunks(&a, &s).into_iter().flat_map(|(o, _)| o).collect();
+    let unstaged: BTreeSet<usize> = hunks(&b, &s).into_iter().flat_map(|(n, _)| n).collect();
+    hunks(&a, &b)
+        .into_iter()
+        .map(|(o, n)| {
+            let key = hunk_key(a[o.clone()].iter().copied(), b[n.clone()].iter().copied());
+            let set = LineSet {
+                old: (o.clone().filter(|i| !removed.contains(i)))
+                    .map(|i| i - o.start)
+                    .collect(),
+                new: (n.clone().filter(|j| unstaged.contains(j)))
+                    .map(|j| j - n.start)
+                    .collect(),
+            };
+            let pick = if set.old.is_empty() && set.new.is_empty() {
+                Pick::Apply
+            } else if set.old.len() == o.len() && set.new.len() == n.len() {
+                Pick::Skip
+            } else {
+                Pick::Lines(set)
+            };
+            (key, pick)
+        })
+        .collect()
 }
 
 /// 按行切分文本，每行保留自己的换行符（`\n`、`\r\n` 或单独的 `\r`）。

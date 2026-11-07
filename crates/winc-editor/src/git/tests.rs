@@ -1,5 +1,5 @@
 //! `git` 模块的测试：解析各条命令的输出、在真实仓库里提交与回滚、只提交一部分、信任检查，
-//! 以及分批读取日志。
+//! 分批读取日志，以及操作的 askpass 程序和输出记录。
 //!
 //! 依赖本机 `git` 的测试在找不到 `git` 时跳过。
 
@@ -1283,4 +1283,124 @@ fn scanning_finds_nested_repositories_within_the_depth() {
     cancelled.cancel();
     assert!(scan_repositories(&dir, 3, &cancelled).is_empty());
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 启动要求 HTTP 基本认证的本地服务：总是返回 401，并把收到的 `Authorization` 写入通道。
+#[cfg(unix)]
+fn auth_server() -> (u16, std::sync::mpsc::Receiver<String>) {
+    use std::io::{Read as _, Write as _};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let (sender, received) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { break };
+            let mut request = Vec::new();
+            let mut byte = [0];
+            while !request.ends_with(b"\r\n\r\n") && stream.read_exact(&mut byte).is_ok() {
+                request.push(byte[0]);
+            }
+            let request = String::from_utf8_lossy(&request).into_owned();
+            let auth = request.lines().find(|l| l.starts_with("Authorization:"));
+            if let Some(auth) = auth {
+                let _ = sender.send(auth.to_owned());
+            }
+            let _ = stream.write_all(
+                b"HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"t\"\r\n\
+                  Content-Length: 0\r\nConnection: close\r\n\r\n",
+            );
+        }
+    });
+    (port, received)
+}
+
+/// `operate` 的命令参数：禁用凭据助手和代理，测试不读写本机钥匙串。
+#[cfg(unix)]
+const ISOLATED_REMOTE: [&str; 4] = ["-c", "credential.helper=", "-c", "http.proxy="];
+
+#[cfg(unix)]
+#[test]
+fn operations_ask_through_the_askpass_program_and_keep_their_output() {
+    use std::os::unix::fs::PermissionsExt;
+    let shell = Shell::with_vars(std::env::vars_os().collect());
+    let Ok(git) = Git::find(&shell) else {
+        return;
+    };
+    let dir = crate::test_util::scratch("askpass");
+    let root = winc_config::files::canonicalize(&dir).unwrap();
+    let asked = root.join("asked");
+    let program = root.join("askpass.sh");
+    std::fs::write(
+        &program,
+        format!(
+            "#!/bin/sh\necho \"$WINC_GIT_ASKPASS|$1\" >> '{}'\n\
+             case \"$1\" in Username*) echo me;; *) echo s3cret;; esac\n",
+            asked.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(
+        Command::new("git")
+            .args(["init", "-q"])
+            .arg(&root)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let (port, received) = auth_server();
+    let url = format!("http://127.0.0.1:{port}/repo.git");
+    let mut args = ISOLATED_REMOTE.to_vec();
+    args.extend(["ls-remote", url.as_str()]);
+
+    // 没有 askpass 程序时直接失败，不向服务发送凭据。
+    assert!(git.operate(&root, &args).is_err());
+    assert!(received.try_recv().is_err());
+    assert!(!asked.exists());
+
+    let git = git.with_askpass(Some(Askpass {
+        program,
+        endpoint: "the-endpoint".into(),
+    }));
+    assert!(git.operate(&root, &args).is_err());
+    let auth = received
+        .recv_timeout(std::time::Duration::from_secs(10))
+        .unwrap();
+    // `me:s3cret` 的 Base64。
+    assert!(auth.contains("Basic bWU6czNjcmV0"), "{auth}");
+    let asked = std::fs::read_to_string(asked).unwrap();
+    assert!(asked.starts_with("the-endpoint|Username for"), "{asked}");
+    assert!(asked.contains("the-endpoint|Password for"), "{asked}");
+
+    let output = output_text();
+    assert!(output.contains(&format!(
+        "$ git -c credential.helper= -c http.proxy= ls-remote {url}"
+    )));
+    let status = winc_i18n::t!("git-output-exit-code", code = "128");
+    assert!(output.contains(&status), "{output}");
+    assert!(!output.contains("s3cret"), "{output}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 储藏的说明开头写着储藏时的分支：「On 分支:」是带说明的，「WIP on 分支:」是没写说明的。
+#[test]
+fn a_stash_knows_the_branch_it_was_made_on() {
+    let stash = |message: &str| Stash {
+        name: "stash@{0}".into(),
+        oid: String::new(),
+        parents: Vec::new(),
+        time: 0,
+        local: String::new(),
+        message: message.into(),
+    };
+    assert_eq!(stash("On main: 试一下").branch(), Some("main"));
+    assert_eq!(
+        stash("WIP on feature/a: 1a2b3c4 改登录").branch(),
+        Some("feature/a")
+    );
+    assert_eq!(
+        stash("WIP on (no branch): 1a2b3c4 x").branch(),
+        Some("(no branch)")
+    );
+    assert_eq!(stash("autostash").branch(), None);
 }

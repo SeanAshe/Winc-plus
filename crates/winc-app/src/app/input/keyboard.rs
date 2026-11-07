@@ -513,14 +513,29 @@ impl App {
 
     /// 处理对话框自身响应的按键（见 [`App::on_key_dialog`]）；按键须交给名称输入框时返回 `false`。
     pub(in crate::app) fn dialog_key(&mut self, key: &Key, base: &str, cmd: bool) -> bool {
-        let on_name = self
-            .form_dialog
-            .as_ref()
-            .is_none_or(|d| d.focus == crate::layout::DialogPart::Branch);
+        let on_name = self.form_dialog.as_ref().is_none_or(|d| {
+            matches!(
+                d.focus,
+                crate::layout::DialogPart::Branch | crate::layout::DialogPart::Second
+            )
+        });
+        // 交互式变基的信息框是多行的：回车换行，⌘回车开始变基。
+        let multiline = on_name
+            && (self.form_dialog.as_ref())
+                .is_some_and(|d| matches!(d.kind, crate::app::git::form::FormKind::Rebase(_)));
+        if !cmd
+            && !matches!(key, Key::Named(NamedKey::Escape | NamedKey::Tab))
+            && self.rebase_list_key(key, base)
+        {
+            return true;
+        }
         match key {
             Key::Named(NamedKey::Escape) => self.close_form_dialog(),
             Key::Named(NamedKey::Tab) => self.form_focus_move(self.modifiers.shift_key()),
             _ if cmd && base == "w" => self.close_form_dialog(),
+            Key::Named(NamedKey::Enter) if multiline && !cmd => {
+                self.edit_field(|field| field.insert("\n"));
+            }
             Key::Named(NamedKey::Enter) if on_name => self.submit_form_dialog(),
             Key::Named(NamedKey::Enter | NamedKey::Space) if !on_name => self.form_activate(),
             _ if !on_name => {}
@@ -601,10 +616,6 @@ impl App {
 
         match &event.logical_key {
             Key::Named(NamedKey::Escape) => {
-                if self.picker_create.is_some() {
-                    self.cancel_branch_create();
-                    return;
-                }
                 self.close_picker();
                 return;
             }

@@ -35,26 +35,13 @@ impl App {
             MenuTarget::SearchResult(path, m) => self.run_search_result_command(command, path, m),
             // 分支、储藏的下标按弹出菜单时的列表解释：菜单打开期间状态刷新后，
             // 最新列表中相同下标的项可能是另一个分支。
+            MenuTarget::RebaseAction(row) => self.run_rebase_action_command(row, command),
             MenuTarget::FormBase => {
                 if let MenuCommand::FormBase(i) = command {
                     let base = i.checked_sub(1).and_then(|i| menu.branches.get(i));
                     self.choose_form_base(base.map(|b| b.name.clone()));
                 }
             }
-            MenuTarget::StatusBranches => match command {
-                MenuCommand::StatusBranch(i) => {
-                    if let Some(chosen) = menu.branches.get(i) {
-                        self.pick_branch_named(chosen);
-                    }
-                }
-                MenuCommand::StatusSync => self.git_sync(),
-                MenuCommand::GitFetch | MenuCommand::GitPull | MenuCommand::GitPush => {
-                    self.run_branch_command(command);
-                }
-                MenuCommand::StatusNewBranch => self.open_branch_dialog(None, None),
-                MenuCommand::NewWorktree => self.open_worktree_dialog(),
-                _ => {}
-            },
             MenuTarget::StatusPlaces(places) => match command {
                 MenuCommand::StatusPlace(i) => {
                     if let Some(place) = places.get(i) {
@@ -191,14 +178,15 @@ impl App {
                 }
                 _ => {}
             },
-            MenuTarget::CommitMore => match command {
-                MenuCommand::GitStashOp(op, i) => {
-                    if let Some(stash) = menu.stashes.get(i).cloned() {
-                        self.run_stash_op(op, stash);
-                    }
+            MenuTarget::CommitMore => self.run_commit_more_command(command),
+            // 按弹出菜单时记下的那份储藏找：菜单开着的时候储藏的编号可能已经变了。
+            MenuTarget::StashRow(_) | MenuTarget::StashList => {
+                if let MenuCommand::GitStashOp(op, i) = command
+                    && let Some(stash) = menu.stashes.get(i).cloned()
+                {
+                    self.run_stash_op(op, stash);
                 }
-                _ => self.run_commit_more_command(command),
-            },
+            }
             MenuTarget::CommitButton => self.run_commit_button_command(command),
             MenuTarget::LastCommit => self.run_last_commit_command(command),
             MenuTarget::TabList => {

@@ -13,6 +13,9 @@ pub(crate) mod form;
 pub(crate) mod location_picker;
 pub(crate) mod log;
 pub(crate) mod merge;
+pub(crate) mod question;
+pub(crate) mod rebase;
+mod repository;
 pub(crate) mod worktree;
 
 use std::collections::{HashMap, HashSet};
@@ -95,6 +98,8 @@ struct Refs {
     branches: Vec<Branch>,
     /// 仓库配置的远程名。
     remotes: Vec<String>,
+    /// 仓库配置的远程仓库和地址。
+    remote_list: Vec<winc_editor::git::Remote>,
     /// 仓库的公共 Git 目录；取不到时为 `None`。
     common_dir: Option<PathBuf>,
     /// 储藏，最新的在前。
@@ -186,6 +191,8 @@ pub(crate) struct GitState {
     pub branches: Vec<Branch>,
     /// 仓库配置的远程名，和状态一起刷新。
     pub remotes: Vec<String>,
+    /// 仓库配置的远程仓库和地址，和状态一起刷新。
+    pub remote_list: Vec<winc_editor::git::Remote>,
     /// 储藏，最新的在前，和状态一起刷新。
     pub stashes: Vec<Stash>,
     /// 最近切换到过的分支名，最近的在前，和状态一起刷新。
@@ -238,6 +245,7 @@ impl Default for GitState {
             status: None,
             branches: Vec::new(),
             remotes: Vec::new(),
+            remote_list: Vec::new(),
             stashes: Vec::new(),
             recent_branches: Vec::new(),
             worktrees: Vec::new(),
@@ -306,6 +314,7 @@ impl GitState {
         self.status = None;
         self.branches.clear();
         self.remotes.clear();
+        self.remote_list.clear();
         self.stashes.clear();
         self.worktrees.clear();
         self.problem = None;
@@ -317,10 +326,13 @@ impl GitState {
 }
 
 /// 在后台准备一个文件的差异：取 `HEAD` 里的版本，和编辑器里的快照（没打开时读磁盘）比较。
+///
+/// `staged` 为真（只暂存了一部分的文件）时另外读取暂存区里的版本，算出各段改动中已暂存的部分
+/// （`DiffView::staged`）；读取失败时差异仍然正常显示，只是没有这部分信息。
 fn prepare(
     git: &Git,
     root: &Path,
-    path: &Path,
+    (path, staged): (&Path, bool),
     snapshot: Option<Snapshot>,
     oid: Option<&str>,
 ) -> Result<DiffView, String> {
@@ -391,6 +403,12 @@ fn prepare(
     );
     view.source = revision;
     view.repo_path = Some(path.to_path_buf());
+    if let (true, Some(old), Some(new), Some(encoding)) = (staged, &old, &new, encoding)
+        && let Ok(Some(bytes)) = git.content_at(root, "", path, &Cancel::default())
+    {
+        let index = decode_known(&bytes, encoding);
+        view.staged = Some(winc_core::diff::staged_picks(old, new, &index));
+    }
     Ok(view)
 }
 
@@ -750,6 +768,7 @@ impl App {
                 (Ok(git), Ok(_)) if refs => Some(Refs {
                     branches: git.branches(&root, &cancel).unwrap_or_default(),
                     remotes: git.remotes(&root, &cancel).unwrap_or_default(),
+                    remote_list: git.remote_list(&root, &cancel).unwrap_or_default(),
                     common_dir: git.common_dir(&root, &cancel).ok(),
                     stashes: git.stashes(&root, &cancel).unwrap_or_default(),
                     recent_branches: git.recent_branches(&root, &cancel).unwrap_or_default(),
@@ -805,12 +824,15 @@ impl App {
                         let count = winc_editor::git::STATUS_LIMIT;
                         self.notify(t!("git-status-truncated", count = count));
                     }
-                    self.git.status = Some(status);
+                    let rows = self.commit_shown().then(|| self.commit_rows());
+                    let old = self.git.status.replace(status);
+                    self.begin_commit_shift(old, rows);
                     if let Some(refs) = outcome.refs {
                         let before = std::mem::replace(&mut self.git.branches, refs.branches);
                         self.git.stashes = refs.stashes;
                         self.git.recent_branches = refs.recent_branches;
                         self.git.remotes = refs.remotes;
+                        self.git.remote_list = refs.remote_list;
                         if let Some(watcher) = &mut self.watcher {
                             watcher.watch_git_dir(refs.common_dir.as_deref());
                         }
@@ -855,6 +877,8 @@ impl App {
                 self.refresh_git_diffs();
                 self.prefill_merge_message();
             }
+            // 改动都提交完了，提交卡片随之收起。
+            self.settle_commit_focus();
             self.request_redraw();
         }
     }
@@ -1023,8 +1047,17 @@ impl App {
         true
     }
 
+    /// 文件 `path` 是否只暂存了一部分（见 `Entry::partly_staged`）。
+    fn git_partly_staged(&self, path: &Path) -> bool {
+        (self.git.status.as_ref())
+            .and_then(|s| s.entries.iter().find(|e| e.path == path))
+            .is_some_and(|e| e.partly_staged())
+    }
+
     /// 状态刷新以后，重新比较打开着的 Git 差异标签里过时了的，原地换内容：`HEAD` 动了（提交、
-    /// 切换分支）的左边要重新取；右边是磁盘上的内容（文件没在编辑器里打开）的，文件可能变了。
+    /// 切换分支）的左边要重新取；右边是磁盘上的内容（文件没在编辑器里打开）的，文件可能变了；
+    /// 只暂存了一部分的文件，暂存区可能已经改变（例如在终端中执行了 `git add -p`），需要重新
+    /// 计算各段的勾选。
     ///
     /// 其余的右边跟着编辑器里的文档（[`App::sync_diff_source`]），不必再运行一次 git。
     fn refresh_git_diffs(&mut self) {
@@ -1049,7 +1082,11 @@ impl App {
             .git
             .diff_tabs
             .iter()
-            .filter(|(id, tab)| tab.oid.as_deref() != oid || !follows_editor(**id))
+            .filter(|(id, tab)| {
+                tab.oid.as_deref() != oid
+                    || !follows_editor(**id)
+                    || self.git_partly_staged(&tab.path)
+            })
             .map(|(id, tab)| (*id, tab.path.clone()))
             .collect();
         for (id, path) in stale {
@@ -1119,10 +1156,11 @@ impl App {
         });
 
         let oid = self.git.status.as_ref().and_then(|s| s.oid.clone());
+        let staged = self.git_partly_staged(&path);
         let sender = self.git.prepared.0.clone();
         self.spawn_git(UserEvent::GitContent, move |tool| {
             let view = match &tool {
-                Ok(git) => prepare(git, &root, &path, snapshot, oid.as_deref()),
+                Ok(git) => prepare(git, &root, (&path, staged), snapshot, oid.as_deref()),
                 Err(e) => Err(unusable(e)),
             };
             let _ = sender.send(Prepared {

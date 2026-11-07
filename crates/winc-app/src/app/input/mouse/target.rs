@@ -136,8 +136,11 @@ impl App {
         if self.tree_more.is_some_and(|more| more.contains(x, y)) {
             return Target::TreeMore;
         }
-        // 搜索结果、改动列表的滚动条压在行的右端，先于行认。
+        // 搜索结果、改动列表的滚动条位于行的右端，先于行判断。显示全名的那一改动行覆盖在滚动条
+        // 之上：鼠标移到这一行的右端时全名保持显示，按下作用于这一行。
+        let over_commit_row = self.over_commit_overflow_row(y);
         if let Some((bar @ (Scrollbar::Panel | Scrollbar::Commit), grab)) = self.scrollbar_at(x, y)
+            && !(over_commit_row && bar == Scrollbar::Commit)
         {
             return Target::Scrollbar(bar, grab);
         }
@@ -153,9 +156,10 @@ impl App {
         if l.search.contains(x, y) {
             return Target::Search;
         }
-        // 名称放不下的一行盖在分隔条上：这一行优先，其余各行照常可以拖动分隔条。
+        // 名称放不下的一行（文件树、改动列表）覆盖在分隔条上：这一行优先，其余各行仍然可以拖动
+        // 分隔条。
         let over_row = self.over_tree_overflow_row(y);
-        if self.panel_visible && !over_row && l.splitter.contains(x, y) {
+        if self.panel_visible && !over_row && !over_commit_row && l.splitter.contains(x, y) {
             return Target::Splitter;
         }
         if let Some(tool) = hit(&self.tree_tools, x, y) {
@@ -197,10 +201,9 @@ impl App {
             return Target::RulerChange(hunk);
         }
         // 名称放不下的一行同样盖在文件树的滚动条上，不会一进滚动条就收起。
-        if let Some((bar, grab)) = self
-            .scrollbar_at(x, y)
-            .filter(|(bar, _)| !(over_row && *bar == Scrollbar::Tree))
-        {
+        if let Some((bar, grab)) = self.scrollbar_at(x, y).filter(|(bar, _)| {
+            !(over_row && *bar == Scrollbar::Tree || over_commit_row && *bar == Scrollbar::Commit)
+        }) {
             return Target::Scrollbar(bar, grab);
         }
         if l.minimap.contains(x, y) {

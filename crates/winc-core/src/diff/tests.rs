@@ -222,7 +222,7 @@ fn inline_changes_mark_whole_words() {
 }
 
 #[test]
-fn pick_hunks_applies_only_the_chosen_changes() {
+fn pick_changes_applies_only_the_chosen_changes() {
     let old = "a\nb\nc\nd\ne\n";
     let new = "a\nB\nc\nd\nx\ne\n";
     let (a, b) = (lines(old), lines(new));
@@ -234,15 +234,108 @@ fn pick_hunks_applies_only_the_chosen_changes() {
         )
     };
     let first = key(&hunks[0]);
-    assert_eq!(pick_hunks(old, new, |k, _| k == first), "a\nB\nc\nd\ne\n");
+    let only = |keep: bool| if keep { Pick::Apply } else { Pick::Skip };
     assert_eq!(
-        pick_hunks(old, new, |k, _| k != first),
+        pick_changes(old, new, |k, _| only(k == first)),
+        "a\nB\nc\nd\ne\n"
+    );
+    assert_eq!(
+        pick_changes(old, new, |k, _| only(k != first)),
         "a\nb\nc\nd\nx\ne\n"
     );
-    assert_eq!(pick_hunks(old, new, |_, _| true), new);
-    assert_eq!(pick_hunks(old, new, |_, _| false), old);
+    assert_eq!(pick_changes(old, new, |_, _| Pick::Apply), new);
+    assert_eq!(pick_changes(old, new, |_, _| Pick::Skip), old);
     // 按旧文本的行区间认：第二段在旧文本里是插在第 4 行的位置。
-    assert_eq!(pick_hunks(old, new, |_, o| o != (4..4)), "a\nB\nc\nd\ne\n");
+    assert_eq!(
+        pick_changes(old, new, |_, o| only(o != (4..4))),
+        "a\nB\nc\nd\ne\n"
+    );
     // 插入与删除互换后是不同的改动，键也不同。
     assert_ne!(hunk_key(["a\n"], []), hunk_key([], ["a\n"]));
+}
+
+/// 返回只跳过 `old`、`new` 所列行的 [`Pick`]。
+fn skipping(old: &[usize], new: &[usize]) -> Pick {
+    Pick::Lines(LineSet {
+        old: old.iter().copied().collect(),
+        new: new.iter().copied().collect(),
+    })
+}
+
+#[test]
+fn pick_changes_applies_single_lines_of_a_change() {
+    let old = "a\nb\nc\nz\n";
+    let new = "a\nB\nC\nD\nz\n";
+    let apply = |old_lines: &[usize], new_lines: &[usize]| {
+        pick_changes(old, new, |_, _| skipping(old_lines, new_lines))
+    };
+    // 不跳过任何行等于应用整段；跳过全部行等于不应用。
+    assert_eq!(apply(&[], &[]), new);
+    assert_eq!(apply(&[0, 1], &[0, 1, 2]), old);
+    // 只加入部分新行，旧行全部删除。
+    assert_eq!(apply(&[], &[1]), "a\nB\nD\nz\n");
+    // 保留的旧行排在加入的新行之前。
+    assert_eq!(apply(&[1], &[1, 2]), "a\nc\nB\nz\n");
+}
+
+#[test]
+fn pick_changes_keeps_kept_lines_apart_at_the_end_of_the_file() {
+    // 旧文本末尾没有换行符，保留它之后再接新行时需要补上。
+    assert_eq!(
+        pick_changes("a\nb", "a\nc\n", |_, _| skipping(&[0], &[])),
+        "a\nb\nc\n"
+    );
+    assert_eq!(
+        pick_changes("a\r\nb", "a\r\nc\r\n", |_, _| skipping(&[0], &[])),
+        "a\r\nb\r\nc\r\n"
+    );
+    // 新文本末尾没有换行符，未加入最后一行时前面的行保持原样。
+    assert_eq!(
+        pick_changes("a\n", "a\nb\nc", |_, _| skipping(&[], &[1])),
+        "a\nb\n"
+    );
+}
+
+#[test]
+fn staged_picks_tell_which_parts_of_each_change_are_staged() {
+    let old = "a\nb\nc\nd\n";
+    let new = "a\nB\nc\nD1\nD2\ne\n";
+    let picks = |staged: &str| -> Vec<Pick> {
+        staged_picks(old, new, staged)
+            .into_iter()
+            .map(|(_, p)| p)
+            .collect()
+    };
+    let rebuild = |staged: &str| {
+        let picks = staged_picks(old, new, staged);
+        pick_changes(old, new, |key, _| {
+            (picks.iter())
+                .find(|(k, _)| *k == key)
+                .map_or(Pick::Apply, |(_, p)| p.clone())
+        })
+    };
+    // 只暂存了第一处：第一处整体应用，第二处整体不应用，应用结果等于暂存区。
+    let first = "a\nB\nc\nd\n";
+    assert_eq!(picks(first), [Pick::Apply, Pick::Skip]);
+    assert_eq!(rebuild(first), first);
+    // 第二处只暂存了一行新行：按行记录未加入的新行和保留的旧行。
+    let one_line = "a\nb\nc\nD1\n";
+    let expected = LineSet {
+        old: BTreeSet::new(),
+        new: [1, 2].into_iter().collect(),
+    };
+    assert_eq!(picks(one_line), [Pick::Skip, Pick::Lines(expected)]);
+    assert_eq!(rebuild(one_line), one_line);
+    // 全部已暂存：每处都应用；各处的键与差异视图中的键相同。
+    assert_eq!(picks(new), [Pick::Apply, Pick::Apply]);
+    let keys: Vec<u64> = staged_picks(old, new, new)
+        .iter()
+        .map(|(k, _)| *k)
+        .collect();
+    let (a, b) = (lines(old), lines(new));
+    let expected: Vec<u64> = hunks(&a, &b)
+        .into_iter()
+        .map(|(o, n)| hunk_key(a[o].iter().copied(), b[n].iter().copied()))
+        .collect();
+    assert_eq!(keys, expected);
 }

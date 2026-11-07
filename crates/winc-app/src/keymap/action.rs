@@ -167,10 +167,32 @@ pub enum Action {
     ToggleDiffLayout,
     GitShowChanges,
     GitShowLog,
+    /// 在只读标签中打开 Git 操作的输出。
+    GitShowOutput,
+    /// 克隆仓库。
+    GitClone,
+    /// 在当前目录中初始化仓库。
+    GitInit,
     /// 打开提交视图并展开位置选择器。
     GitSwitchRepository,
     GitSwitchWorktree,
     GitNewWorktree,
+    /// 展开分支选择器（提交视图里从分支行，否则从状态栏）。
+    GitSwitchBranch,
+    /// 打开新建分支的对话框（从当前分支）。
+    GitNewBranch,
+    /// 获取远程仓库的更新。
+    GitFetch,
+    /// 拉取当前分支的上游。
+    GitPull,
+    /// 拉取当前分支的上游并变基。
+    GitPullRebase,
+    /// 推送当前分支（没有上游时推上去并设为上游）。
+    GitPush,
+    /// 和上游同步：先拉取再推送。
+    GitSync,
+    /// 储藏工作区里的更改（输入说明）。
+    GitStash,
     GitFileHistory,
     GitBlame,
     ShowCommit,
@@ -369,9 +391,20 @@ impl Action {
             ToggleDiffLayout => t!("cmd-toggle-diff-layout"),
             GitShowChanges => t!("cmd-git-show-changes"),
             GitShowLog => t!("cmd-git-show-log"),
+            GitShowOutput => t!("cmd-git-show-output"),
+            GitClone => t!("cmd-git-clone"),
+            GitInit => t!("cmd-git-init"),
             GitSwitchRepository => t!("cmd-git-switch-repository"),
             GitSwitchWorktree => t!("cmd-git-switch-worktree"),
             GitNewWorktree => t!("cmd-git-new-worktree"),
+            GitSwitchBranch => t!("cmd-git-switch-branch"),
+            GitNewBranch => t!("cmd-git-new-branch"),
+            GitFetch => t!("cmd-git-fetch"),
+            GitPull => t!("cmd-git-pull"),
+            GitPullRebase => t!("cmd-git-pull-rebase"),
+            GitPush => t!("cmd-git-push"),
+            GitSync => t!("cmd-git-sync"),
+            GitStash => t!("cmd-git-stash"),
             GitFileHistory => t!("cmd-git-file-history"),
             GitBlame => t!("cmd-git-blame"),
             ShowCommit => t!("cmd-show-commit"),
@@ -551,9 +584,20 @@ impl Action {
             ToggleDiffLayout => "Toggle Inline Diff",
             GitShowChanges => "Git: Open Changes",
             GitShowLog => "Git: Show Log",
+            GitShowOutput => "Git: Show Output",
+            GitClone => "Git: Clone Repository…",
+            GitInit => "Git: Initialize Repository",
             GitSwitchRepository => "Git: Switch Repository",
             GitSwitchWorktree => "Git: Switch Worktree…",
             GitNewWorktree => "Git: New Worktree…",
+            GitSwitchBranch => "Git: Switch Branch…",
+            GitNewBranch => "Git: New Branch…",
+            GitFetch => "Git: Fetch",
+            GitPull => "Git: Pull",
+            GitPullRebase => "Git: Pull with Rebase",
+            GitPush => "Git: Push",
+            GitSync => "Git: Sync",
+            GitStash => "Git: Stash Changes…",
             GitFileHistory => "Git: Show File History",
             GitBlame => "Git: Toggle Blame",
             ShowCommit => "Git: Commit",
@@ -702,9 +746,20 @@ impl Action {
             | ToggleDiffLayout
             | GitShowChanges
             | GitShowLog
+            | GitShowOutput
+            | GitClone
+            | GitInit
             | GitSwitchRepository
             | GitSwitchWorktree
             | GitNewWorktree
+            | GitSwitchBranch
+            | GitNewBranch
+            | GitFetch
+            | GitPull
+            | GitPullRebase
+            | GitPush
+            | GitSync
+            | GitStash
             | GitFileHistory
             | GitBlame
             | ShowCommit
@@ -794,9 +849,20 @@ impl Action {
         match self {
             Action::GitShowChanges
             | Action::GitShowLog
+            | Action::GitShowOutput
+            | Action::GitClone
+            | Action::GitInit
             | Action::GitSwitchRepository
             | Action::GitSwitchWorktree
             | Action::GitNewWorktree
+            | Action::GitSwitchBranch
+            | Action::GitNewBranch
+            | Action::GitFetch
+            | Action::GitPull
+            | Action::GitPullRebase
+            | Action::GitPush
+            | Action::GitSync
+            | Action::GitStash
             | Action::GitFileHistory
             | Action::GitBlame
             | Action::ShowCommit
@@ -1012,9 +1078,20 @@ pub const ACTIONS: &[Action] = {
         ShowCommit,
         GitShowChanges,
         GitShowLog,
+        GitShowOutput,
+        GitClone,
+        GitInit,
         GitSwitchRepository,
         GitSwitchWorktree,
         GitNewWorktree,
+        GitSwitchBranch,
+        GitNewBranch,
+        GitFetch,
+        GitPull,
+        GitPullRebase,
+        GitPush,
+        GitSync,
+        GitStash,
         GitFileHistory,
         GitBlame,
         GitRevertChange,

@@ -357,9 +357,33 @@ impl App {
             }
             GitShowChanges => self.git_show_changes(),
             GitShowLog => self.git_show_log(),
+            GitShowOutput => self.show_git_output(),
+            GitClone => self.open_clone_dialog(),
+            GitInit => self.git_init(),
             GitSwitchRepository => self.switch_location(),
             GitSwitchWorktree => self.switch_location(),
             GitNewWorktree => self.open_worktree_dialog(),
+            // 这几个命令要在仓库里：不在时说明，不弹空的选择器、不跑注定失败的 `git`。
+            GitSwitchBranch | GitNewBranch | GitStash | GitSync | GitFetch | GitPull
+            | GitPullRebase | GitPush
+                if self.git.root.is_none() =>
+            {
+                self.flash(winc_i18n::t!("git-not-a-repository"));
+            }
+            GitSwitchBranch => self.switch_branch_from_command(),
+            GitNewBranch => self.open_branch_dialog(None, None),
+            GitStash => self.open_stash_prompt(),
+            GitSync => self.git_sync(),
+            GitFetch | GitPull | GitPullRebase | GitPush => {
+                use crate::app::input::context_menu::MenuCommand;
+                let command = match action {
+                    GitFetch => MenuCommand::GitFetch,
+                    GitPull => MenuCommand::GitPull,
+                    GitPullRebase => MenuCommand::GitPullRebase,
+                    _ => MenuCommand::GitPush,
+                };
+                self.run_branch_command(command);
+            }
             GitFileHistory => self.git_current_file_history(),
             GitBlame => self.toggle_blame(),
             GitRevertChange if self.editor.active().is_some_and(|d| d.diff.is_some()) => {
@@ -398,9 +422,13 @@ impl App {
     }
 
     /// 命令当前是否可用：属于某个模块的命令只在模块开着时可用。
-    pub(super) fn action_available(&self, action: Action) -> bool {
+    pub(in crate::app) fn action_available(&self, action: Action) -> bool {
         match action {
             Action::RunConfiguration if self.editor.root().is_none() => return false,
+            // 只有打开的目录还不是仓库时才能初始化。
+            Action::GitInit if self.editor.root().is_none() || self.git.root.is_some() => {
+                return false;
+            }
             Action::StopConfiguration if !self.run_config_running() => return false,
             Action::EditRunConfigurations if self.editor.root().is_none() => return false,
             // Windows 安装包、deb 包已经把 `winc` 放进 `PATH`，没有要安装的。
@@ -453,7 +481,7 @@ impl App {
         self.focus = match self.sidebar_view {
             SidebarView::Files => Focus::Tree,
             SidebarView::Search => Focus::GlobalQuery,
-            SidebarView::Commit => Focus::CommitMessage,
+            SidebarView::Commit => self.commit_view_focus(),
         };
     }
 }

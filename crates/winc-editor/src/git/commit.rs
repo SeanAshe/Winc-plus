@@ -77,7 +77,7 @@ impl Git {
             }
             let mut command = self.command(root);
             command.args(["commit", "--file=-", "--cleanup=whitespace"]);
-            self.run_commit(&mut command, message)?;
+            self.run_commit(root, &mut command, message)?;
             return self.short_head(root);
         }
         if !partial.is_empty() {
@@ -99,7 +99,7 @@ impl Git {
             .arg("--only")
             .arg("--")
             .args(relative_all(root, paths));
-        if let Err(e) = self.run_commit(&mut command, message) {
+        if let Err(e) = self.run_commit(root, &mut command, message) {
             // 提交被拒绝（hooks、身份没配置……）时把刚加入暂存区的未跟踪文件移出，暂存区回到提交
             // 之前的状态。`rm --cached` 在还没有提交过的仓库里也能用；回退失败仍报提交本身的原因。
             if !add.is_empty() {
@@ -198,7 +198,7 @@ impl Git {
             if amend {
                 command.arg("--amend");
             }
-            self.run_commit(&mut command, message)?;
+            self.run_commit(root, &mut command, message)?;
 
             // 实际的暂存区里，`paths` 换成刚提交的内容。
             if !paths.is_empty() {
@@ -214,8 +214,28 @@ impl Git {
         result
     }
 
+    /// 把 `paths` 移出暂存区，工作区的文件保持不变；新加入的文件恢复为未跟踪。
+    ///
+    /// # Errors
+    ///
+    /// 仓库未获信任或 `git` 运行失败时返回原因。
+    pub fn unstage(&self, root: &Path, paths: &[PathBuf]) -> Result<(), String> {
+        self.require_trust(root)?;
+        let mut command = self.command(root);
+        command
+            .args(["reset", "--quiet", "--"])
+            .args(relative_all(root, paths));
+        let result = self.run(&mut command, STATUS_TIMEOUT, &Cancel::default());
+        let (code, text) = match &result {
+            Ok(_) => (Some(0), ""),
+            Err(reason) => (None, reason.as_str()),
+        };
+        output::record(root, &["reset", "--quiet", "--"], code, text.as_bytes());
+        result.map(|_| ())
+    }
+
     /// 运行 `git commit`，提交信息由标准输入传入。
-    fn run_commit(&self, command: &mut Command, message: &str) -> Result<(), String> {
+    fn run_commit(&self, root: &Path, command: &mut Command, message: &str) -> Result<(), String> {
         command.stderr(Stdio::piped());
         match process::run(
             command,
@@ -223,14 +243,22 @@ impl Git {
             COMMIT_TIMEOUT,
             &Cancel::default(),
         ) {
-            Ok(output) if output.status.success() => Ok(()),
             Ok(output) => {
                 // hooks 的输出可能在标准输出里。
                 let mut text = output.stderr;
                 text.extend_from_slice(&output.stdout);
-                Err(failure(&text))
+                output::record(root, &["commit"], output.status.code(), &text);
+                if output.status.success() {
+                    Ok(())
+                } else {
+                    Err(failure(&text))
+                }
             }
-            Err(e) => Err(describe(&e)),
+            Err(e) => {
+                let reason = describe(&e);
+                output::record(root, &["commit"], None, reason.as_bytes());
+                Err(reason)
+            }
         }
     }
 

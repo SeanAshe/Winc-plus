@@ -170,18 +170,30 @@ pub fn tab_menu(
 /// `enabled` 为 `false`（另一个 Git 操作还在运行，或者正停在合并、变基中间）时，会修改
 /// 仓库的几项灰显。`branch` 是当前分支名（分离的 `HEAD` 时为「HEAD」），写进重置子菜单
 /// 的标题。
-pub fn log_commit_menu(enabled: bool, branch: &str) -> Vec<MenuEntry> {
+pub fn log_commit_menu(enabled: bool, branch: &str, tags: &[&str]) -> Vec<MenuEntry> {
+    use crate::app::git::branch::TagOp;
     use MenuCommand::*;
     use MenuEntry::{Item, Separator, Submenu};
 
-    vec![
+    let mut menu = vec![
         Item(LogCheckout, enabled),
         Item(LogNewWorktree, enabled),
         Item(LogNewBranch, enabled),
         Item(LogNewTag, enabled),
+    ];
+    // 提交上的标签：每个一个子菜单（推送、删除、从远程删除）。
+    for (i, name) in tags.iter().enumerate() {
+        let ops = TagOp::ALL
+            .into_iter()
+            .map(|op| Item(LogTag(op, i), enabled))
+            .collect();
+        menu.push(Submenu(t!("menu-log-tag", name = *name), ops));
+    }
+    menu.extend([
         Separator,
         Item(LogCherryPick, enabled),
         Item(LogRevert, enabled),
+        Item(LogInteractiveRebase, enabled),
         Submenu(
             t!("menu-log-reset-branch", branch = branch),
             vec![
@@ -195,7 +207,8 @@ pub fn log_commit_menu(enabled: bool, branch: &str) -> Vec<MenuEntry> {
         Item(LogCopyOid, true),
         Item(LogCopyShortOid, true),
         Item(LogCopyMessage, true),
-    ]
+    ]);
+    menu
 }
 
 /// 日志详情里一个改动文件的右键菜单：显示这次的差异、打开工作区里的文件、显示文件历史，
@@ -240,90 +253,6 @@ pub fn log_branch_menu(branches: &[winc_editor::git::Branch]) -> Vec<MenuEntry> 
     menu
 }
 
-/// 状态栏分支菜单的菜单项：本地分支，同一前缀的两个以上收进子菜单；本地没有的远程分支在子菜单
-/// 里；然后是同步、获取、拉取、推送，新建。`stale` 是签出它的工作树目录已不在、不能签出的分支，
-/// `[sync, fetch, pull, push]` 是这四项能不能用。
-pub fn status_branch_menu(
-    branches: &[winc_editor::git::Branch],
-    stale: &[&str],
-    [sync, fetch, pull, push]: [bool; 4],
-) -> Vec<MenuEntry> {
-    use MenuCommand::*;
-    use MenuEntry::{Item, Separator, Submenu};
-
-    let named = |remote: bool| -> Vec<(usize, &str)> {
-        (branches.iter().enumerate())
-            .filter(|(_, b)| b.remote == remote)
-            .filter(|(_, b)| {
-                !remote || !crate::app::git::branch::picker::has_local_branch(branches, b)
-            })
-            .map(|(i, b)| (i, b.name.as_str()))
-            .collect()
-    };
-    let mut menu = branch_tree(&named(false), branches, stale);
-    let remote = named(true);
-    if !remote.is_empty() {
-        menu.push(Submenu(
-            t!("menu-git-remote-branches").to_owned(),
-            branch_tree(&remote, branches, stale),
-        ));
-    }
-    menu.extend([
-        Separator,
-        Item(StatusSync, sync),
-        Item(GitFetch, fetch),
-        Item(GitPull, pull),
-        Item(GitPush, push),
-        Separator,
-        Item(StatusNewBranch, true),
-        Item(NewWorktree, true),
-    ]);
-    menu
-}
-
-/// 把 `(下标, 名字)` 排成菜单：本地分支当前的在最前，其余最近提交的在前（和分支选择器一样），远程
-/// 分支按名字；第一段相同的两个以上收进以它为标题的子菜单，放在其中最靠前的一个的位置，层层如此。
-fn branch_tree(
-    names: &[(usize, &str)],
-    branches: &[winc_editor::git::Branch],
-    stale: &[&str],
-) -> Vec<MenuEntry> {
-    fn build(names: &[(usize, &str, &str)], stale: &[&str]) -> Vec<MenuEntry> {
-        let head = |rest: &'_ str| rest.split_once('/').map(|(head, _)| head.to_owned());
-        let mut seen: Vec<String> = Vec::new();
-        let mut menu = Vec::new();
-        for &(index, full, rest) in names {
-            let folder = head(rest);
-            let group: Vec<(usize, &str, &str)> = folder.as_ref().map_or_else(Vec::new, |folder| {
-                (names.iter())
-                    .filter(|n| head(n.2).as_ref() == Some(folder))
-                    .map(|&(i, f, r)| (i, f, r.split_once('/').map_or(r, |(_, tail)| tail)))
-                    .collect()
-            });
-            if group.len() < 2 {
-                let usable = !stale.contains(&full);
-                menu.push(MenuEntry::Item(MenuCommand::StatusBranch(index), usable));
-                continue;
-            }
-            let folder = folder.unwrap_or_default();
-            if !seen.contains(&folder) {
-                seen.push(folder.clone());
-                menu.push(MenuEntry::Submenu(folder, build(&group, stale)));
-            }
-        }
-        menu
-    }
-    let time = |index: usize| {
-        (branches.get(index)).map_or(0, crate::app::git::branch::picker::branch_rank)
-    };
-    let mut sorted: Vec<(usize, &str, &str)> = names
-        .iter()
-        .map(|&(index, name)| (index, name, name))
-        .collect();
-    sorted.sort_by(|a, b| time(b.0).cmp(&time(a.0)).then(a.1.cmp(b.1)));
-    build(&sorted, stale)
-}
-
 /// 新建工作树对话框「基于」的菜单项：当前分支，然后是其余的本地分支、远程分支两组。
 pub fn form_base_menu(branches: &[winc_editor::git::Branch]) -> Vec<MenuEntry> {
     use MenuCommand::*;
@@ -348,15 +277,20 @@ pub fn form_base_menu(branches: &[winc_editor::git::Branch]) -> Vec<MenuEntry> {
 /// 在文件管理器中显示，复制路径。
 ///
 /// `exists` 表示文件还在磁盘上，删掉的文件不能打开、不能在文件管理器中显示；`in_workspace`
-/// 表示它在打开的目录里。
-pub fn commit_file_menu(exists: bool, in_workspace: bool) -> Vec<MenuEntry> {
+/// 表示它在打开的目录里；`staged` 表示它有已暂存的内容，此时才有「取消暂存」。
+pub fn commit_file_menu(exists: bool, in_workspace: bool, staged: bool) -> Vec<MenuEntry> {
     use MenuCommand::*;
     use MenuEntry::{Item, Separator};
 
-    vec![
+    let mut entries = vec![
         Item(GitShowDiff, true),
         Item(GitOpenFile, exists),
         Separator,
+    ];
+    if staged {
+        entries.push(Item(GitUnstageFile, true));
+    }
+    entries.extend([
         Item(GitRollbackFile, true),
         Separator,
         Item(RevealInTree, exists && in_workspace),
@@ -364,7 +298,8 @@ pub fn commit_file_menu(exists: bool, in_workspace: bool) -> Vec<MenuEntry> {
         Separator,
         Item(CopyPath, true),
         Item(CopyRelativePath, in_workspace),
-    ]
+    ]);
+    entries
 }
 
 /// 返回提交视图里选中了多个文件、右键点在其中一个上时的菜单项：打开（`any_exists`：有还在

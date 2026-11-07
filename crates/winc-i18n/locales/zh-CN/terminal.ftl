@@ -29,7 +29,7 @@ terminal-command-finished = { $name }已完成（{ $duration }）
 terminal-command-copied = 已复制命令
 terminal-no-failed-commands = 没有失败的命令
 terminal-no-error-location = 最后一条失败命令的输出中未找到文件位置
-terminal-error-position = 错误 { $index }/{ $total }：↩ 打开
+terminal-error-position = 错误 { $index }/{ $total }：{ common-key-enter } 打开
 terminal-folded-lines-unit = { $count ->
        *[other] 行
     }

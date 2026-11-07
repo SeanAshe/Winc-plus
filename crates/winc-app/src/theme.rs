@@ -322,8 +322,8 @@ struct Tokens {
     warning: Color,
     /// Git 状态：修改、新增、删除、冲突。
     ///
-    /// 文件名、行号栏标记、差异的底色都从这里来，同一种
-    /// 改动在哪里都是同一个颜色。
+    /// 文件名、行号栏标记、差异的底色都从这里来，同一种改动在哪里都是同一个颜色；差异里的删除
+    /// 例外，见 [`DELETED_DARK`]。
     git: [Color; 4],
     /// 当前标签是否带强调色；为 `false` 时是凸起的一块灰。
     tinted_tab: bool,
@@ -354,6 +354,11 @@ const fn mix(fg: Color, bg: Color, t: f32) -> Color {
 ///
 /// 四档比例依次用于行、行内改动的字、边线和行号栏标记；深色主题叠得浓一些，否则在深色底上
 /// 看不出来。比例取自调参，按两种配色下改动可见程度相当校准。
+/// 深色主题下差异里删除的颜色：比编辑区底色亮、不带色相的灰。
+const DELETED_DARK: Color = palettes::hex(0x868A91);
+/// 浅色主题下差异里删除的颜色：比编辑区底色暗、不带色相的灰。
+const DELETED_LIGHT: Color = palettes::hex(0x8C8F99);
+
 const fn shade(mark: Color, card: Color, dark: bool) -> DiffShade {
     let t = if dark {
         [0.14, 0.27, 0.36, 0.75]
@@ -454,7 +459,12 @@ impl Palette {
             git_conflict: t.git[3],
             diff_modified: shade(t.git[0], t.card, dark),
             diff_added: shade(t.git[1], t.card, dark),
-            diff_deleted: shade(t.git[2], t.card, dark),
+            // 删除用中性灰，不随主题的 Git 状态色变红：红色留给合并冲突。
+            diff_deleted: shade(
+                if dark { DELETED_DARK } else { DELETED_LIGHT },
+                t.card,
+                dark,
+            ),
             syntax_text: t.syntax[0],
             syntax_keyword: t.syntax[1],
             syntax_builtin: t.syntax[2],
@@ -694,6 +704,10 @@ pub const SCROLLBAR_END: f32 = 6.0;
 pub const SCROLLBAR_THUMB: f32 = 6.0;
 /// 滑块离卡片边缘的距离（逻辑像素）：紧贴着卡片的右边（水平滚动条是下边），只留一线。
 pub const SCROLLBAR_INSET: f32 = 1.0;
+/// 加载图标每秒旋转的圈数（圈）。
+///
+/// 1.25 圈每秒即 0.8 秒一圈：同步、提交、刷新的图标都按它转，转速一致。
+pub const SPIN_SPEED: f32 = 1.25;
 /// 鼠标悬停在按钮上多久后显示提示（毫秒）。
 ///
 /// 与 macOS 的悬停提示一致：指针停留约 0.5 s 后出现，扫过按钮时不弹出。

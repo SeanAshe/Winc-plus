@@ -240,6 +240,9 @@ impl App {
             if area == ScrollArea::Tree && self.over_tree_overflow_row(y) {
                 return false;
             }
+            if area == ScrollArea::Commit && self.over_commit_overflow_row(y) {
+                return false;
+            }
             self.scrollbars.reveals[area as usize]
                 .area
                 .is_some_and(|r| {

@@ -87,13 +87,34 @@ impl App {
     }
 
     /// 把窗口切到前台：关着的重新显示，最小化的还原。
+    ///
+    /// Wayland 上应用不能自行切到前台，有激活令牌（见 [`App::set_activation`]）时凭令牌请合成器
+    /// 切换；其他情况请系统切换。
     pub(crate) fn raise(&mut self) {
         self.show_window();
         if let Some(window) = &self.window {
             window.set_minimized(false);
-            window.focus_window();
+            #[cfg(all(unix, not(target_os = "macos")))]
+            let activated = (self.activation.take())
+                .is_some_and(|token| crate::wayland::activate(window, token));
+            #[cfg(not(all(unix, not(target_os = "macos"))))]
+            let activated = false;
+            if !activated {
+                window.focus_window();
+            }
         }
         self.request_redraw();
+    }
+
+    /// 记下新启动的 winc 交来的激活令牌 `token`（见 [`crate::instance::launch_token`]），在下一次
+    /// 建系统窗口或切到前台时使用一次。不使用 X11、Wayland 的平台上忽略。
+    pub(crate) fn set_activation(&mut self, token: Option<String>) {
+        #[cfg(all(unix, not(target_os = "macos")))]
+        {
+            self.activation = token.map(winit::window::ActivationToken::from_raw);
+        }
+        #[cfg(not(all(unix, not(target_os = "macos"))))]
+        let _ = token;
     }
 
     /// 是否显示状态栏（`statusBar`）。
@@ -141,20 +162,15 @@ impl App {
         }
     }
 
-    /// 把窗口左上角的三个控制按钮放进顶栏并垂直居中，并按它们的实际位置调整右侧按钮的
-    /// 布局。
+    /// 把窗口左上角的三个控制按钮放进顶栏并垂直居中（见 `crate::macos::TrafficLights`），
+    /// 并按它们的实际位置调整右侧按钮的布局。
     ///
-    /// 切换窗口外观或修改标题后 `AppKit` 会把它们恢复到默认位置，因此需要再次摆放。
+    /// 切换窗口外观、修改标题或改变窗口大小后 `AppKit` 会把它们恢复到默认位置，因此需要再次
+    /// 摆放。
     pub(super) fn place_traffic_lights(&self) {
         #[cfg(target_os = "macos")]
-        if let Some(window) = &self.window
-            && let Some(end) = crate::macos::place_traffic_lights(
-                window,
-                // 这三个按钮在卡片顶部的顶栏里垂直居中：顶栏上方有 `ISLAND_MARGIN` 的留白，
-                // 按钮按高度为留白两倍加顶栏高度的区域居中。
-                (2.0 * ISLAND_MARGIN + TOP_BAR) as f64,
-                TRAFFIC_LIGHT_LEFT as f64,
-            )
+        if let (Some(window), Some(lights)) = (&self.window, &self.traffic_lights)
+            && let Some(end) = lights.place()
             && crate::layout::set_traffic_lights_end(end as f32)
         {
             // 每次重绘都会重新计算布局。
@@ -239,6 +255,7 @@ impl App {
         self.place_preview_button();
         self.place_browser_button();
         self.place_split();
+        self.place_merge_panes();
         self.place_minimap();
 
         // 侧栏显示搜索面板时没有文件树，点击、悬停和滚动不能落在文件树原来的区域上。
@@ -463,6 +480,7 @@ impl App {
         self.advance_wheel_glide();
         self.continue_drag_scroll();
         self.track_modules();
+        self.track_commit_bars();
         self.track_search_rows();
         self.git_follow_active();
         self.relayout();
