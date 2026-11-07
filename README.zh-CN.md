@@ -61,6 +61,18 @@ winc 以 Rust 与自研渲染引擎构建：0.1 秒启动，十万行代码仅�
 主要在 macOS 上开发和测试。可从 [winc.si](https://winc.si/#download) 下载，所有版本见
 [GitHub Releases](https://github.com/DEEIX-AI/Winc/releases)。
 
+## 命令行
+
+```bash
+winc .                  # 打开当前目录
+winc file.rs:12:5       # 打开文件并跳到指定的行和列
+winc --wait file        # 等标签关闭后再退出，例如作为 Git 的编辑器
+```
+
+Windows 安装包和 Linux deb 包会把 `winc` 加入 `PATH`。macOS 和 Linux AppImage 请在命令面板中运行「Shell 命令：安装 winc 命令」。
+
+在 macOS 上应用由系统启动，不继承 shell 的环境变量；需要保留时使用 `winc --new-instance`。
+
 ## 从源代码构建
 
 需要 Rust 1.99.1，`rust-toolchain.toml` 会自动选用工具链。

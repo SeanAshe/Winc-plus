@@ -111,3 +111,10 @@ fn wsl_resolves_absolute_paths_inside_the_distribution() {
 fn wsl_needs_a_distribution_name() {
     assert!(parse([OsString::from("--wsl")]).is_err());
 }
+
+#[test]
+fn the_version_flag_returns_at_once() {
+    assert!(args(&["-v"]).unwrap().version);
+    assert!(args(&["--version", "--no-such-option"]).unwrap().version);
+    assert!(!args(&["."]).unwrap().version);
+}

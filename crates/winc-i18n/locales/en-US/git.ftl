@@ -331,6 +331,8 @@ git-switch-dirty-detail = { $count ->
 }
 git-switch-carry = Migrate Changes
 git-switch-stash = Stash and Check Out
+git-switch-carry-conflict = Checked out “{ $branch }”, but some changes conflict with it: conflicts are marked in the working tree and the original changes remain in the stash list
+git-switch-carry-unapplied = Checked out “{ $branch }”, but the changes could not be applied and remain in the stash list: { $error }
 git-switch-failed-restored = { $error } (your uncommitted changes were restored)
 git-switch-failed-stashed = { $error } (your uncommitted changes are still in the stash and can be restored from the stash list)
 git-switch-stash-message = Changes on { $branch } before switching branches

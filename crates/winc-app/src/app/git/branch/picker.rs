@@ -12,7 +12,7 @@ use winc_editor::git::{Branch, Status};
 use winc_i18n::t;
 use winc_render::Rect;
 
-use super::{BranchOp, local_name};
+use super::local_name;
 use crate::app::animation::TREE_ANIMATION;
 use crate::app::git::location_picker::LocationRow;
 use crate::app::input::context_menu::MenuTarget;
@@ -756,6 +756,7 @@ impl App {
         }
         let changes = self.git.status.as_ref().map_or(0, tracked_changes);
         self.close_picker();
+        // 未跟踪的文件不计入：它们同样可能使 git 拒绝切换，由 `switch_branch` 处理。
         if changes == 0 {
             self.switch_branch(branch, false);
             return;
@@ -775,12 +776,12 @@ impl App {
         });
     }
 
-    /// 切换到 `branch`；`stash` 时先储藏未提交的更改。
+    /// 切换到 `branch`；`stash` 时先储藏未提交的更改，否则更改留在工作区。
     pub(in crate::app) fn switch_branch(&mut self, branch: Branch, stash: bool) {
         if stash {
             self.stash_then_checkout(branch);
         } else {
-            self.run_branch_op(BranchOp::Checkout, branch);
+            self.carry_then_checkout(branch);
         }
     }
 

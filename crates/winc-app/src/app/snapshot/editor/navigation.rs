@@ -239,8 +239,15 @@ fn command_palette_runs_commands_and_remembers_them() {
     assert_eq!(palette()[app.picker_hits[0]].title(), "撤销");
     app.picker_input.set_text(">");
     app.picker_refresh();
-    // 模块关闭时（Git）其命令不列出。
-    let always = palette().iter().filter(|a| a.module().is_none()).count();
+    // 模块关闭时（Git）其命令不列出；开发构建没有要安装的 `winc` 命令，同样不列出。
+    let installable = |a: &&crate::keymap::Action| {
+        use crate::keymap::Action::{InstallShellCommand, UninstallShellCommand};
+        !matches!(a, InstallShellCommand | UninstallShellCommand)
+    };
+    let always = (palette().iter())
+        .filter(|a| a.module().is_none())
+        .filter(installable)
+        .count();
     assert_eq!(app.picker_hits.len(), always);
 
     // 中文名和英文名都能搜索；回车执行选中的命令。

@@ -98,6 +98,8 @@ pub(super) enum Then {
     /// 同步需要强制推送：确认以后推送（[`App::confirm_force_push`]），不说做完了；内容是上游将被
     /// 替换的提交数。
     ConfirmForcePush(usize),
+    /// 操作已完成，但有需要用户处理的情况：显示这条提示，不说做完了。
+    Warn(String),
     /// 要删除的分支未完全合并：确认以后强制删除（[`App::confirm_force_delete_branch`]），不说
     /// 做完了；内容是分支名。
     ConfirmForceDelete(String),
@@ -388,45 +390,65 @@ impl App {
 
     /// 储藏工作区和暂存区里的改动（含未跟踪的文件），再切换到 `branch`。
     ///
-    /// 切换失败时把储藏恢复回来，失败的原因里写明更改在哪儿。
+    /// 切换失败时把储藏恢复回来，失败的原因里写明更改的位置。
     pub(in crate::app) fn stash_then_checkout(&mut self, branch: Branch) {
-        let local = local_name(&branch).to_owned();
+        let (local, track, message) = self.switch_plan(&branch);
+        self.git_operate(
+            t!("git-op-checkout", name = local.as_str()),
+            move |git, root| {
+                git.operate(root, &stash_args(&message))?;
+                run_switch(git, root, &branch.name, &local, track)
+                    .map_err(|error| restored_error(git, root, &error))
+            },
+        );
+    }
+
+    /// 切换到 `branch`，未提交的更改留在工作区。
+    ///
+    /// 改动的文件在两个分支上内容不同时 git 拒绝切换：这时储藏更改、切换，再把更改应用到新分支。
+    /// 不依赖错误文字判断原因：错误文字随系统语言变化。更改无法完整应用时储藏保留，并提示用户。
+    pub(in crate::app) fn carry_then_checkout(&mut self, branch: Branch) {
+        let (local, track, message) = self.switch_plan(&branch);
+        let what = t!("git-op-checkout", name = local.as_str());
+        self.git_operate_then(what, move |git, root| {
+            let Err(refused) = run_switch(git, root, &branch.name, &local, track) else {
+                return Ok((String::new(), Then::Nothing));
+            };
+            // 没有可储藏的内容时 `stash push` 同样成功：比较储藏的顶端，避免恢复无关的旧储藏。
+            let tip = |git: &Git| git.operate(root, &["rev-parse", "-q", "--verify", "refs/stash"]);
+            let before = tip(git).ok();
+            // 储藏失败时（例如合并未完成）报告的仍是切换失败的原因。
+            if git.operate(root, &stash_args(&message)).is_err() || tip(git).ok() == before {
+                return Err(refused);
+            }
+            run_switch(git, root, &branch.name, &local, track)
+                .map_err(|error| restored_error(git, root, &error))?;
+            let Err(error) = git.operate(root, &["stash", "pop"]) else {
+                return Ok((String::new(), Then::Nothing));
+            };
+            // 恢复失败不一定有冲突：未跟踪的文件在新分支上已存在时，git 不写冲突标记。
+            let unmerged = ["diff", "--name-only", "--diff-filter=U"];
+            let conflicted = git.operate(root, &unmerged).is_ok_and(|f| !f.is_empty());
+            let branch = local.as_str();
+            let warning = if conflicted {
+                t!("git-switch-carry-conflict", branch = branch)
+            } else {
+                t!("git-switch-carry-unapplied", branch = branch, error = error)
+            };
+            Ok((String::new(), Then::Warn(warning)))
+        });
+    }
+
+    /// 返回切换到 `branch` 需要的（本地分支名，是否新建跟踪分支，储藏说明）。
+    fn switch_plan(&self, branch: &Branch) -> (String, bool, String) {
+        let local = local_name(branch).to_owned();
         let track =
             branch.remote && !(self.git.branches.iter()).any(|b| !b.remote && b.name == local);
         let current = (self.git.branches.iter())
             .find(|b| b.current)
             .map_or_else(String::new, |b| b.name.clone());
         let message = t!("git-switch-stash-message", branch = current.as_str());
-        self.git_operate(
-            t!("git-op-checkout", name = local.as_str()),
-            move |git, root| {
-                git.operate(
-                    root,
-                    &[
-                        "stash",
-                        "push",
-                        "--include-untracked",
-                        "--message",
-                        &message,
-                    ],
-                )?;
-                let switched = if track {
-                    git.operate(
-                        root,
-                        &["switch", "--track", "--end-of-options", &branch.name],
-                    )
-                } else {
-                    git.operate(root, &["switch", "--end-of-options", &local])
-                };
-                switched.map_err(|error| {
-                    let error = error.as_str();
-                    match git.operate(root, &["stash", "pop"]) {
-                        Ok(_) => t!("git-switch-failed-restored", error = error),
-                        Err(_) => t!("git-switch-failed-stashed", error = error),
-                    }
-                })
-            },
-        );
+        (local, track, message)
     }
 
     /// 储藏工作区和暂存区里的改动（含未跟踪的文件），说明是 `message`（空着时 git 自己写）。
@@ -605,6 +627,7 @@ impl App {
                         | Then::ConfirmForcePush(_)
                         | Then::ConfirmForceDelete(_),
                     )) => {}
+                    Ok((_, Then::Warn(warning))) => self.notify(warning),
                     Ok((_, then)) => {
                         self.flash(t!("git-op-done-in", name = name, what = done.what));
                         // 已经换了目录：当前窗口不再换过去，在新窗口打开。
@@ -628,6 +651,7 @@ impl App {
             match done.result {
                 Ok((_, Then::ConfirmRemove(check))) => self.confirm_remove_worktree(check),
                 Ok((_, Then::ConfirmForcePush(count))) => self.confirm_force_push(count),
+                Ok((_, Then::Warn(warning))) => self.notify(warning),
                 Ok((_, Then::ConfirmForceDelete(name))) => self.confirm_force_delete_branch(name),
                 Ok((summary, then)) => {
                     if summary.is_empty() {
@@ -647,6 +671,34 @@ impl App {
             self.check_disk();
         }
         self.request_redraw();
+    }
+}
+
+/// 返回储藏工作区和暂存区改动（含未跟踪的文件）的 git 参数。
+fn stash_args(message: &str) -> [&str; 5] {
+    ["stash", "push", "--include-untracked", "--message", message]
+}
+
+/// 切换到本地分支 `local`；`track` 时新建跟踪远程分支 `name` 的本地分支。
+fn run_switch(
+    git: &Git,
+    root: &Path,
+    name: &str,
+    local: &str,
+    track: bool,
+) -> Result<String, String> {
+    if track {
+        git.operate(root, &["switch", "--track", "--end-of-options", name])
+    } else {
+        git.operate(root, &["switch", "--end-of-options", local])
+    }
+}
+
+/// 切换失败后恢复储藏，返回写明更改位置的错误。
+fn restored_error(git: &Git, root: &Path, error: &str) -> String {
+    match git.operate(root, &["stash", "pop"]) {
+        Ok(_) => t!("git-switch-failed-restored", error = error),
+        Err(_) => t!("git-switch-failed-stashed", error = error),
     }
 }
 

@@ -39,6 +39,8 @@ use super::{App, CloseRequest, Focus, UserEvent};
 use crate::theme::{Palette, TOP_BAR, TOP_BAR_END};
 
 pub(crate) use blocks::{ErrorNav, format_duration};
+#[cfg(any(target_os = "macos", all(test, unix)))]
+pub(crate) use editor::shell_quote;
 pub(crate) use find::{FIND_OPTIONS_MIN, FindPart, TermFind};
 pub(crate) use link::TermLink;
 pub(crate) use pointer::BlockHit;
