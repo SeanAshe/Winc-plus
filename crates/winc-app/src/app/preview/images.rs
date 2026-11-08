@@ -131,6 +131,7 @@ impl App {
     pub(crate) fn advance_images(&mut self) {
         self.advance_split();
         self.advance_markdown();
+        self.advance_pdf();
         self.release_hidden_pictures();
         self.advance_tables();
         let Some(doc) = self.editor.active() else {
@@ -274,6 +275,7 @@ impl App {
             self.accept_rendered(rendered);
         }
         self.poll_markdown();
+        self.poll_pdf();
         self.poll_tables();
     }
 

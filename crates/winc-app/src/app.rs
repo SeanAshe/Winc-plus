@@ -790,6 +790,8 @@ pub struct App {
     pub(crate) split: preview::images::SplitPreview,
     /// Markdown 预览（分栏右边或只看预览）。
     pub(crate) markdown: preview::markdown::MarkdownPreview,
+    /// 当前标签的 PDF 预览。
+    pub(crate) pdf: preview::pdf::PdfPreview,
     /// 状态栏上键路径的缓存，键为（文档、版本号、光标位置）。
     key_path_cache: Option<((DocumentId, u64, usize), Option<String>)>,
     /// 当前文档 JSON 键路径的扫描记录，换了文档就重来。

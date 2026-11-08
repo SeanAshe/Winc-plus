@@ -9,6 +9,7 @@ pub mod docx;
 pub mod image;
 pub mod markdown;
 mod ooxml;
+pub mod pdf;
 pub mod svg;
 pub mod table;
 mod zip;
