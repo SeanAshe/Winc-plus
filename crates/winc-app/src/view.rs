@@ -61,7 +61,9 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     }
     let layout = app.layout;
     app.tree_overflow = tree_overflow(app, frame);
+    let before = app.commit.overflow.map(|o| o.row);
     app.commit.overflow = git::commit::commit_overflow(app, frame);
+    app.track_commit_actions(before);
 
     // 鼠标停在名称展开的行上并滚动文件树后，该位置对应的行可能不再展开名称；此时鼠标的位置
     // 已不在文件树范围内，需要清除悬停状态。
@@ -91,6 +93,7 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     app.sync_merge_panes();
     draw_editor(app, frame);
     editor::draw_split(app, frame);
+    preview::markdown::draw_diagram_view(app, frame);
     git::merge::draw_side_panes(app, frame);
     terminal::draw_terminal(app, frame);
     draw_window_controls(app, frame);
@@ -544,6 +547,10 @@ fn marked_label(
 /// 有焦点时改为编辑区底色并加一圈强调色外环，出错时外环为错误色。侧栏的搜索框、提交信息框和
 /// 日志标签的筛选框共用这段绘制。输入框不加边框：多个浅色边框叠在接近白色的侧栏上会互相干扰，
 /// 只保留一层底色时层次更清楚。
+///
+/// 外环宽度为整数个物理像素（缩放倍数四舍五入，至少为 1）：输入框四边先对齐到物理像素，再向外
+/// 扩出外环。缩放倍数不是整数（系统缩放 125%、界面缩放 110% 等）时，若按逻辑像素外扩 1，四边
+/// 各自取整后宽度在 0 到 2 个物理像素之间，宽度不一致。
 fn field_box(
     app: &App,
     frame: &mut Frame<'_>,
@@ -562,8 +569,13 @@ fn field_box(
     };
     match ring {
         Some(color) => {
-            frame.rounded(rect.inset(-1.0, -1.0), color, RADIUS_ROW + 1.0);
-            frame.rounded(rect, p.editor_bg, RADIUS_ROW);
+            let scale = frame.scale();
+            let snap = |v: f32| (v * scale).round() / scale;
+            let (x, y) = (snap(rect.x), snap(rect.y));
+            let inner = Rect::new(x, y, snap(rect.right()) - x, snap(rect.bottom()) - y);
+            let ring = scale.round().max(1.0) / scale;
+            frame.rounded(inner.inset(-ring, -ring), color, RADIUS_ROW + ring);
+            frame.rounded(inner, p.editor_bg, RADIUS_ROW);
         }
         None => frame.rounded(rect, workspace::panel::over(base, p.hover), RADIUS_ROW),
     }

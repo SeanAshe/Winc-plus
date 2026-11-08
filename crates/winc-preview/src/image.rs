@@ -149,6 +149,28 @@ pub fn load(path: &Path) -> Result<Picture, String> {
     })
 }
 
+/// 按内容识别格式并解码内存中的一张图片 `bytes`（docx 等文档包中的图片）。
+///
+/// 与 [`load`] 相同，长边超过 `KEEP_MAX` 的图会被缩小。
+///
+/// # Errors
+///
+/// 无法识别格式或解码失败时返回原因。
+pub fn load_bytes(bytes: &[u8]) -> Result<Picture, String> {
+    let format = sniff(bytes).ok_or(winc_i18n::t!("preview-image-format-unknown"))?;
+    let (pixels, (width, height)) = decode(format, bytes)
+        .map_err(|e| winc_i18n::t!("preview-image-decode-failed", error = e.to_string()))?;
+    let transparent = format != "JPEG" && pixels.rgba.as_chunks::<4>().0.iter().any(|p| p[3] < 255);
+    Ok(Picture {
+        width,
+        height,
+        format,
+        file_size: bytes.len() as u64,
+        source: Source::Raster(pixels),
+        transparent,
+    })
+}
+
 /// 按内容识别格式并解码一张图片，供 SVG 中内嵌的位图使用。
 ///
 /// # Errors

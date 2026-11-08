@@ -10,10 +10,12 @@
 mod files;
 mod search;
 mod settings;
+mod symbols;
 
 pub use files::*;
 pub use search::*;
 pub use settings::*;
+pub use symbols::*;
 
 use std::f32::consts::{FRAC_1_SQRT_2, FRAC_PI_2, PI};
 
@@ -476,6 +478,53 @@ pub fn refresh_turned(
     frame.stroke(&shapes, RING_STROKE, color, clip);
 }
 
+/// 绘制「同步」图标，约 13×13：同一个圆上相对的两段圆弧，各自顺时针画到直角箭头为止。
+///
+/// 用于与远程交换提交的操作；只重读本地状态的操作用 [`refresh`]。
+pub fn sync(frame: &mut Frame<'_>, center: (f32, f32), color: Color, clip: Rect) {
+    sync_turned(frame, center, 0.0, color, clip);
+}
+
+/// 绘制按 `turn`（圈数，可为任意实数）顺时针旋转后的「同步」图标，表示同步正在进行。
+pub fn sync_turned(
+    frame: &mut Frame<'_>,
+    (cx, cy): (f32, f32),
+    turn: f32,
+    color: Color,
+    clip: Rect,
+) {
+    let r = RING;
+    // 两段圆弧之间的空隙（弧度）。取 0.5：箭头落在空隙里，不碰到另一段圆弧。
+    let gap = 0.5;
+    // 箭头臂长（逻辑像素），与「刷新」图标相同。
+    let arm = 3.0;
+    let base = turn.rem_euclid(1.0) * 2.0 * PI;
+    // 从 `start` 起顺时针画半圈减去两个空隙的圆弧，末端加箭头。
+    let half = |start: f32| {
+        // 起点映射到 -π 至 π 之间，理由同 `refresh_turned`。
+        let mut from = start + base;
+        while from >= PI {
+            from -= 2.0 * PI;
+        }
+        let to = from + PI - 2.0 * gap;
+        // 箭头两臂与切线各成 45°，分在圆弧内外两侧。
+        let (sin, cos) = to.sin_cos();
+        let (tx, ty) = (cx + r * cos, cy + r * sin);
+        let k = FRAC_1_SQRT_2 * arm;
+        let (bx, by) = (sin, -cos);
+        [
+            Stroke::Arc(cx, cy, r, from, to),
+            Stroke::Line(tx, ty, tx + (bx - cos) * k, ty + (by - sin) * k),
+            Stroke::Line(tx, ty, tx + (bx + cos) * k, ty + (by + sin) * k),
+        ]
+    };
+    // 上半段从 9 点钟附近开始，下半段从 3 点钟附近开始。
+    let [a, b, c] = half(-PI + gap);
+    let [d, e, f] = half(gap);
+    let shapes = [a, b, c, d, e, f];
+    frame.stroke(&shapes, RING_STROKE, color, clip);
+}
+
 /// 绘制「全部折叠」图标，11×12：圆角卡片内一道横线，卡片上方露出后面一张较窄卡片的上沿，表示
 /// 卡片叠放。
 pub fn collapse_all(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
@@ -806,6 +855,21 @@ pub fn bookmark(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip:
         0.0,
         clip,
     );
+}
+
+/// 绘制「全屏」图标，约 12×12 逻辑像素：从中心分别指向右上角和左下角的两个箭头。
+pub fn expand(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let (near, far, head) = (1.5, 5.0, 3.0);
+    let arrow = |s: f32| {
+        let (tx, ty) = (cx + s * far, cy - s * far);
+        [
+            Stroke::Line(cx + s * near, cy - s * near, tx, ty),
+            Stroke::Line(tx - s * head, ty, tx, ty),
+            Stroke::Line(tx, ty, tx, ty + s * head),
+        ]
+    };
+    frame.stroke(&arrow(1.0), STROKE, color, clip);
+    frame.stroke(&arrow(-1.0), STROKE, color, clip);
 }
 
 /// 绘制「复制」图标，约 12×12：两张错开叠放的圆角方块，前面一张完整，后面一张只露出左上角。

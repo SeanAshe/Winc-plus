@@ -39,11 +39,12 @@ pub struct LineHunk {
 
 /// 返回从 `old` 到 `new` 的各段改动，按位置从前往后排列。
 ///
-/// 两段文本相同时结果为空。行按内容连同换行符比较，只差换行符的行也算改动。差异太大、超出
-/// 逐行差分的上限时，首尾相同的行之间整段算作一处改动。
+/// 两段文本相同时结果为空。行按去掉换行符后的内容比较：换行符的写法不同（`\n`、`\r\n`、单独的
+/// `\r`）不算改动，有无换行符不同仍算改动。差异太大、超出逐行差分的上限时，首尾相同的行之间
+/// 整段算作一处改动。
 pub fn line_hunks(old: &str, new: &str) -> Vec<LineHunk> {
     let (a, b) = (lines(old), lines(new));
-    hunks(&a, &b)
+    hunks(&eol_free(&a), &eol_free(&b))
         .into_iter()
         .map(|(old, new)| LineHunk { old, new })
         .collect()
@@ -57,8 +58,8 @@ pub fn line_hunks(old: &str, new: &str) -> Vec<LineHunk> {
 pub fn inline_changes(old: &str, new: &str) -> (Vec<Range<usize>>, Vec<Range<usize>>) {
     let (a, b) = (words(old), words(new));
     let (ia, ib) = intern(
-        &a.iter().map(|w| w.0).collect::<Vec<_>>(),
-        &b.iter().map(|w| w.0).collect::<Vec<_>>(),
+        &a.iter().map(|w| word_key(w.0)).collect::<Vec<_>>(),
+        &b.iter().map(|w| word_key(w.0)).collect::<Vec<_>>(),
     );
     let Some(hunks) = diff(&ia, &ib) else {
         let all = |text: &str| {
@@ -94,16 +95,22 @@ pub fn inline_changes(old: &str, new: &str) -> (Vec<Range<usize>>, Vec<Range<usi
 }
 
 /// 把文本切成词，每个词带着自己的字符区间（起点、终点）。
+///
+/// 连续的换行符单独成为一个词，不与前后的空白合并：行尾空白相同、只有换行符写法不同时，空白
+/// 不因换行符而被标为改动。
 fn words(text: &str) -> Vec<(&str, usize, usize)> {
     #[derive(PartialEq)]
     enum Class {
         Word,
+        Break,
         Space,
         Other,
     }
     let class = |c: char| {
         if c.is_alphanumeric() || c == '_' {
             Class::Word
+        } else if c == '\n' || c == '\r' {
+            Class::Break
         } else if c.is_whitespace() {
             Class::Space
         } else {
@@ -129,10 +136,20 @@ fn words(text: &str) -> Vec<(&str, usize, usize)> {
     out
 }
 
+/// 返回按词比较时一个词的键：由换行符组成的词按换行的次数比较，不区分 `\n`、`\r\n` 和单独的
+/// `\r`，与 [`line_hunks`] 的逐行比较一致；其他词按内容比较。
+fn word_key(word: &str) -> (&str, usize) {
+    if word.starts_with(['\n', '\r']) {
+        ("", lines(word).len())
+    } else {
+        (word, 0)
+    }
+}
+
 /// 逐行比较 `a` 和 `b`，返回不同的行区间（行号在 `a`、`b` 中的绝对位置），按位置从前往后排列。
 ///
 /// 先去掉首尾相同的行再差分；差异太大时中间整段算作一处。
-fn hunks(a: &[&str], b: &[&str]) -> Vec<Hunk> {
+fn hunks<T: Hash + Eq>(a: &[T], b: &[T]) -> Vec<Hunk> {
     let prefix = a.iter().zip(b).take_while(|(x, y)| x == y).count();
     let suffix = a[prefix..]
         .iter()
@@ -390,20 +407,28 @@ fn by_content(
 
 /// 按内容返回一段改动的键：包含同样几行（都带换行符）的旧侧和新侧得到相同的键。
 ///
-/// 重新比较以后行号会变，内容不变的改动仍然可以认出。键不写入磁盘，只在同一个进程内比较。
+/// 重新比较以后行号会变，内容不变的改动仍然可以认出。行按 [`line_hunks`] 的规则比较，换行符的
+/// 写法不同不影响键：差异视图里的文本与提交时读取的磁盘文件换行符写法可能不同，两处算出的键
+/// 仍然一致。键不写入磁盘，只在同一个进程内比较。
 pub fn hunk_key<'a>(
     old: impl IntoIterator<Item = &'a str>,
     new: impl IntoIterator<Item = &'a str>,
 ) -> u64 {
     use std::hash::{DefaultHasher, Hasher};
+    // 每行写入内容和是否换行，后者同时分隔相邻的行：「ab」与「a」「b」两行得到不同的键。
+    fn write(hasher: &mut DefaultHasher, line: &str) {
+        let (content, broken) = eol_free(&[line])[0];
+        hasher.write(content.as_bytes());
+        hasher.write_u8(u8::from(broken));
+    }
     let mut hasher = DefaultHasher::new();
     for line in old {
-        hasher.write(line.as_bytes());
+        write(&mut hasher, line);
     }
     // 分开两侧：「a」换成「」和「」换成「a」不能视为同一处改动。
     hasher.write_u8(0xff);
     for line in new {
-        hasher.write(line.as_bytes());
+        write(&mut hasher, line);
     }
     hasher.finish()
 }
@@ -430,13 +455,14 @@ pub enum Pick {
 
 /// 返回从 `old` 出发、按 `pick` 应用 `new` 相对它的各段改动之后得到的文本。
 ///
-/// `pick` 的参数是这段改动的 [`hunk_key`] 和它在 `old` 里的行区间。全部应用时结果是 `new`，全部
-/// 不应用时结果是 `old`。按行应用时，保留的旧行排在加入的新行之前。
+/// `pick` 的参数是这段改动的 [`hunk_key`] 和它在 `old` 里的行区间。改动的划分与 [`line_hunks`]
+/// 相同，只差换行符写法的行不算改动，取 `old` 中的写法。全部不应用时结果是 `old`；全部应用时
+/// 除这类行的换行符外与 `new` 相同。按行应用时，保留的旧行排在加入的新行之前。
 pub fn pick_changes(old: &str, new: &str, pick: impl Fn(u64, Range<usize>) -> Pick) -> String {
     let (a, b) = (lines(old), lines(new));
     let mut out = String::with_capacity(new.len().max(old.len()));
     let mut at = 0;
-    for (o, n) in hunks(&a, &b) {
+    for (o, n) in hunks(&eol_free(&a), &eol_free(&b)) {
         for line in &a[at..o.start] {
             out.push_str(line);
         }
@@ -468,38 +494,19 @@ pub fn pick_changes(old: &str, new: &str, pick: impl Fn(u64, Range<usize>) -> Pi
     out
 }
 
-/// 返回从 `old` 到 `new` 的各段改动里已经在 `staged` 里的部分：每段改动的 [`hunk_key`] 和按
-/// [`pick_changes`] 的写法表示的处理方式。
+/// 返回逐行比较用的各行：去掉换行符，并记下这一行有没有换行符。
 ///
-/// 用于只暂存了一部分的文件：`old` 是上一次提交里的版本，`new` 是工作区，`staged` 是暂存区。
-/// 旧行在 `staged` 中仍然存在时视为未删除，新行在 `staged` 中存在时视为已加入。按这些处理方式
-/// 应用到 `old` 上，结果通常等于 `staged`；暂存之后又修改过同一处时无法精确还原，结果是与
-/// `staged` 最接近的组合。
-pub fn staged_picks(old: &str, new: &str, staged: &str) -> Vec<(u64, Pick)> {
-    let (a, b, s) = (lines(old), lines(new), lines(staged));
-    let removed: BTreeSet<usize> = hunks(&a, &s).into_iter().flat_map(|(o, _)| o).collect();
-    let unstaged: BTreeSet<usize> = hunks(&b, &s).into_iter().flat_map(|(n, _)| n).collect();
-    hunks(&a, &b)
-        .into_iter()
-        .map(|(o, n)| {
-            let key = hunk_key(a[o.clone()].iter().copied(), b[n.clone()].iter().copied());
-            let set = LineSet {
-                old: (o.clone().filter(|i| !removed.contains(i)))
-                    .map(|i| i - o.start)
-                    .collect(),
-                new: (n.clone().filter(|j| unstaged.contains(j)))
-                    .map(|j| j - n.start)
-                    .collect(),
-            };
-            let pick = if set.old.is_empty() && set.new.is_empty() {
-                Pick::Apply
-            } else if set.old.len() == o.len() && set.new.len() == n.len() {
-                Pick::Skip
-            } else {
-                Pick::Lines(set)
-            };
-            (key, pick)
-        })
+/// 换行符的写法由平台和 `core.autocrlf` 等设置决定，同一份内容在提交里和工作区里可能分别是
+/// `\n` 和 `\r\n`，不作为改动；文件末尾有无换行符是内容的一部分，仍然区分。
+fn eol_free<'a>(lines: &[&'a str]) -> Vec<(&'a str, bool)> {
+    lines
+        .iter()
+        .map(
+            |line| match line.strip_suffix('\n').or_else(|| line.strip_suffix('\r')) {
+                Some(rest) => (rest.strip_suffix('\r').unwrap_or(rest), true),
+                None => (*line, false),
+            },
+        )
         .collect()
 }
 

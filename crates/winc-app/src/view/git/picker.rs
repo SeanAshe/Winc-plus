@@ -168,8 +168,11 @@ fn placed_row(app: &App, parts: &PickerParts, i: usize) -> (Rect, Rect) {
 struct Line {
     row: Rect,
     clip: Rect,
-    /// 键盘选中的行：强调色底，回车作用在它上面。
+    /// 键盘选中的行：强调色底，回车作用在它上面。分支选择器打开时自动选中的行不算，见
+    /// [`Line::begin`]。
     selected: bool,
+    /// 分支选择器打开时自动选中的行：浅色底，回车作用在它上面。
+    default: bool,
     /// 鼠标所在的行：浅色底。与选中的行相互独立，鼠标移动不改变选中项。
     hovered: bool,
     /// 名字的颜色。
@@ -182,12 +185,17 @@ struct Line {
 
 impl Line {
     /// 开始绘制第 `i` 行：选中时先铺强调色底，文字改用底色上的颜色；鼠标所在的行铺浅色底。
+    ///
+    /// 分支选择器打开时自动选中的行（`App::picker_default`）铺比悬停稍深的浅色底，文字颜色不变：
+    /// 回车仍作用在它上面，但不与行首对勾标出的当前分支混淆。移动选中项或输入查询后改为强调色底。
     fn begin(app: &App, frame: &mut Frame<'_>, parts: &PickerParts, i: usize) -> Line {
         let p = app.palette;
         let (row, clip) = placed_row(app, parts, i);
-        let selected = (app.picker_fold.as_ref()).map_or(app.picker_selected, |fold| {
+        let chosen = (app.picker_fold.as_ref()).map_or(app.picker_selected, |fold| {
             fold.drawn_index(app.picker_selected)
         }) == i;
+        let default = chosen && app.picker_default == Some(app.picker_selected);
+        let selected = chosen && !default;
         // 展开、收起的动画期间各行的位置在变化，悬停记录的行号与绘制位置不对应，因此不画悬停。
         let hovered = app.picker_fold.is_none()
             && matches!(app.hover,
@@ -197,7 +205,9 @@ impl Line {
             frame.rect_clipped(band, p.accent_fill, RADIUS_ROW, clip);
             band_ink(p)
         } else {
-            if hovered {
+            if default {
+                frame.rect_clipped(band, p.selected_inactive, RADIUS_ROW, clip);
+            } else if hovered {
                 frame.rect_clipped(band, p.hover, RADIUS_ROW, clip);
             }
             (p.text, p.text_dim)
@@ -207,6 +217,7 @@ impl Line {
             row,
             clip,
             selected,
+            default,
             hovered,
             text,
             dim,
@@ -315,8 +326,9 @@ impl Line {
         *right = self.end() - frame.measure(FontKind::Ui, app.fonts.ui_small, &text) - 12.0 - 6.0;
     }
 
-    /// 绘制第 `i` 行行尾的「⋯」，记下它的位置，返回按钮左边可以写名字的右边；选中的行和鼠标
-    /// 所在的行才有，其余行返回 `None`。按钮盖在行右端文字的位置上，这两行不写那段文字。
+    /// 绘制第 `i` 行行尾的「⋯」，记下它的位置，返回按钮左边可以写名字的右边；选中的行（含自动
+    /// 选中的行）和鼠标所在的行才有，其余行返回 `None`。按钮盖在行右端文字的位置上，这几行不写
+    /// 那段文字。
     fn draw_more(
         &self,
         app: &App,
@@ -324,7 +336,7 @@ impl Line {
         i: usize,
         hits: &mut Vec<(Rect, PickerPart)>,
     ) -> Option<f32> {
-        if !self.selected && !self.hovered {
+        if !self.selected && !self.default && !self.hovered {
             return None;
         }
         let part = PickerPart::More(i);

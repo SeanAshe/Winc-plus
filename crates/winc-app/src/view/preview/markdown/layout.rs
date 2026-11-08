@@ -127,7 +127,7 @@ impl LaidBlock {
 
 impl Item {
     /// 上下边缘（块里的坐标）；文字算上选中时铺底色的范围。
-    fn span_y(&self) -> (f32, f32) {
+    pub(super) fn span_y(&self) -> (f32, f32) {
         match self {
             Item::Text { baseline, size, .. } => (baseline - size * 1.2, baseline + size * 0.5),
             Item::Fill { rect, .. }
@@ -279,8 +279,14 @@ pub(super) enum Item {
         checked: bool,
         source: u32,
     },
-    /// 代码块的范围和内容：鼠标移上去时右上角出现复制按钮。
-    Code { rect: Rect, text: Arc<str> },
+    /// 代码块的范围和内容：鼠标悬停时右上角显示复制按钮。
+    ///
+    /// `diagram` 为真时表示 mermaid 图的范围和源码，复制按钮左侧另显示全屏按钮。
+    Code {
+        rect: Rect,
+        text: Arc<str>,
+        diagram: bool,
+    },
     /// 表格的范围和单元格。
     ///
     /// `cols`、`rows` 是各列宽度和各行高度（从 `rect` 的左上角起），点击单元格时只在该单元格内
@@ -1272,6 +1278,7 @@ impl Cx<'_, '_> {
             out.push(Item::Code {
                 rect,
                 text: code.into(),
+                diagram: false,
             });
         }
         let mut blank_out = Out::default();
@@ -1335,6 +1342,7 @@ impl Cx<'_, '_> {
         out.push(Item::Code {
             rect,
             text: text.into(),
+            diagram: false,
         });
         Flow {
             height,

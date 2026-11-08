@@ -694,6 +694,49 @@ fn the_status_menu_pulls_diverged_branches_and_needs_a_branch_to_push() {
     let _ = std::fs::remove_dir_all(&remote);
 }
 
+/// 工作区有未提交的更改时仍然拉取：更改先储藏、拉取后恢复；恢复时冲突则提示冲突已在工作区中
+/// 标记、原更改仍在储藏中。
+#[test]
+fn pulling_keeps_uncommitted_changes_and_reports_a_conflicting_restore() {
+    use crate::app::input::context_menu::MenuCommand;
+
+    let Some((mut app, root)) = picker_repo("git-pull-carry", false) else {
+        return;
+    };
+    let remote = root.with_extension("carry-remote.git");
+    let _ = std::fs::remove_dir_all(&remote);
+    git_in(&root, &["init", "-q", "--bare", remote.to_str().unwrap()]);
+    git_in(
+        &root,
+        &["remote", "add", "origin", remote.to_str().unwrap()],
+    );
+    git_in(&root, &["push", "-q", "-u", "origin", "main"]);
+    // 上游改了 `src/main.rs`，本地回到改动之前，再在同一行改出自己的、未提交的版本。
+    let file = root.join("src/main.rs");
+    std::fs::write(&file, "fn main() { theirs() }\n").unwrap();
+    git_in(&root, &["commit", "-q", "-am", "theirs"]);
+    git_in(&root, &["push", "-q", "origin", "main"]);
+    git_in(&root, &["reset", "-q", "--hard", "HEAD~1"]);
+    std::fs::write(&file, "fn main() { mine() }\n").unwrap();
+    app.git_refresh();
+
+    app.run_branch_command(MenuCommand::GitPull);
+    app.git_refresh();
+    assert_eq!(app.git.status.as_ref().unwrap().behind, 0);
+    assert!(
+        app.notice
+            .as_deref()
+            .is_some_and(|n| n.contains("拉取完成") && n.contains("保留在储藏中")),
+        "{:?}",
+        app.notice
+    );
+    assert!(std::fs::read_to_string(&file).unwrap().contains("mine"));
+    assert_eq!(app.git.stashes.len(), 1);
+
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_dir_all(&remote);
+}
+
 /// 侧栏收着时也能从状态栏打开分支选择器：面板在状态栏上方、窗口之内，搜索框下面是拉取、推送、
 /// 获取一行，列表从它下面开始；按住 ⌥ 时拉取换成拉取并变基。
 #[test]
@@ -1018,5 +1061,47 @@ fn hovering_a_picker_row_leaves_the_selection_alone() {
     paint(&mut app);
     assert_eq!(app.picker_selected, current);
     assert!(!more(&app, other));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// 本地分支多、单列最近使用时，打开面板自动选中上一个用过的分支：以浅色底显示，不与对勾标出的
+/// 当前分支混淆；回车仍切回它。移动选中项或输入查询后改为普通的选中样式，清空查询后恢复。
+#[test]
+fn the_default_branch_row_is_highlighted_softly() {
+    use crate::app::git::branch::picker::{BranchRow, BranchSection};
+
+    let Some((mut app, root)) = picker_repo("git-picker-default", false) else {
+        return;
+    };
+    for k in 0..20 {
+        git_in(&root, &["branch", &format!("topic-{k:02}")]);
+    }
+    git_in(&root, &["checkout", "-q", "topic-07"]);
+    git_in(&root, &["checkout", "-q", "main"]);
+    app.git_refresh();
+    app.open_branch_picker(GitAnchor::Branch);
+    paint(&mut app);
+    let rows = app.picker_branch_rows.clone().unwrap();
+    assert_eq!(rows[0], BranchRow::Heading(BranchSection::Recent));
+    assert!(matches!(
+        &rows[app.picker_selected],
+        BranchRow::Branch { label, .. } if label == "topic-07"
+    ));
+    assert_eq!(app.picker_default, Some(app.picker_selected));
+
+    app.picker_move(true);
+    assert_eq!(app.picker_default, None);
+    app.picker_move(false);
+    assert_eq!(app.picker_default, None);
+
+    app.picker_input.set_text("topic");
+    app.picker_refresh();
+    assert_eq!(app.picker_default, None);
+    app.picker_input.set_text("");
+    app.picker_refresh();
+    assert_eq!(app.picker_default, Some(app.picker_selected));
+    paint(&mut app);
+    app.picker_accept();
+    assert_eq!(head_name(&app).as_deref(), Some("topic-07"));
     let _ = std::fs::remove_dir_all(&root);
 }

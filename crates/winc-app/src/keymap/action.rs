@@ -141,6 +141,7 @@ pub enum Action {
     ToggleSidebar,
     FocusSidebar,
     ShowFiles,
+    ShowOutline,
     IncreaseFontSize,
     DecreaseFontSize,
     ResetFontSize,
@@ -377,6 +378,7 @@ impl Action {
             ToggleSidebar => t!("cmd-toggle-sidebar"),
             FocusSidebar => t!("cmd-focus-sidebar"),
             ShowFiles => t!("cmd-show-files"),
+            ShowOutline => t!("cmd-show-outline"),
             IncreaseFontSize => t!("cmd-increase-font-size"),
             DecreaseFontSize => t!("cmd-decrease-font-size"),
             ResetFontSize => t!("cmd-reset-font-size"),
@@ -574,6 +576,7 @@ impl Action {
             ToggleSidebar => "Toggle Sidebar",
             FocusSidebar => "Focus Sidebar",
             ShowFiles => "Show Explorer",
+            ShowOutline => "Show Outline",
             IncreaseFontSize => "Increase Font Size",
             DecreaseFontSize => "Decrease Font Size",
             ResetFontSize => "Reset Font Size",
@@ -738,6 +741,7 @@ impl Action {
             ToggleSidebar
             | FocusSidebar
             | ShowFiles
+            | ShowOutline
             | IncreaseFontSize
             | DecreaseFontSize
             | ResetFontSize
@@ -1078,6 +1082,7 @@ pub const ACTIONS: &[Action] = {
         ToggleSidebar,
         FocusSidebar,
         ShowFiles,
+        ShowOutline,
         IncreaseFontSize,
         DecreaseFontSize,
         ResetFontSize,

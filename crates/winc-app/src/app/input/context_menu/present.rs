@@ -426,15 +426,27 @@ impl App {
                 ]);
                 menu
             }
-            MenuTarget::Markdown => vec![
-                MenuEntry::Item(MenuCommand::Copy, self.markdown_selected_text().is_some()),
-                MenuEntry::Item(MenuCommand::SelectAll, true),
-                MenuEntry::Separator,
-                MenuEntry::Item(
-                    MenuCommand::RevealSource,
-                    self.markdown.menu_source.is_some(),
-                ),
-            ],
+            MenuTarget::Markdown => {
+                let mut menu = vec![
+                    MenuEntry::Item(MenuCommand::Copy, self.markdown_selected_text().is_some()),
+                    MenuEntry::Item(MenuCommand::SelectAll, true),
+                ];
+                // docx 的阅读视图由转换得到，没有可以显示的源代码。
+                let has_source = self
+                    .editor
+                    .active()
+                    .is_some_and(|d| d.unsupported.is_none());
+                if has_source {
+                    menu.extend([
+                        MenuEntry::Separator,
+                        MenuEntry::Item(
+                            MenuCommand::RevealSource,
+                            self.markdown.menu_source.is_some(),
+                        ),
+                    ]);
+                }
+                menu
+            }
             MenuTarget::TerminalTab(_) => vec![
                 MenuEntry::Item(MenuCommand::RenameTerminal, true),
                 MenuEntry::Separator,
@@ -522,11 +534,7 @@ impl App {
                 commit_selection_menu(any_exists)
             }
             MenuTarget::CommitFile(path) => {
-                let staged = (self.git.status.as_ref()).is_some_and(|status| {
-                    (status.entries.iter())
-                        .any(|e| e.path == *path && e.staged.is_some() && !e.conflicted())
-                });
-                commit_file_menu(path.exists(), self.relative_path(path).is_some(), staged)
+                commit_file_menu(path.exists(), self.relative_path(path).is_some())
             }
             MenuTarget::SearchResult(_, m) => {
                 search_result_menu(m.is_none(), self.global.replace_open)

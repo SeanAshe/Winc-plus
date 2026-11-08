@@ -120,6 +120,7 @@ editor-unreadable-permission = 没有读取权限
 editor-unreadable-failed = 读取失败（{ $error }）
 editor-unsupported-image = 图片
 editor-unsupported-workbook = 工作簿
+editor-unsupported-docx = Word 文档
 editor-unsupported-binary = 二进制文件或不支持的文本编码（{ $size }），无法显示预览
 editor-unsupported-too-large = 文件过大（{ $size } GB，上限 { $limit } GB），无法显示预览
 editor-unsupported-unreadable = { $reason }，无法显示预览

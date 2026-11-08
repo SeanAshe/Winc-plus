@@ -229,8 +229,6 @@ pub enum MenuCommand {
     GitOpenFile,
     /// 提交视图里的文件：回滚这一个文件（先确认）。
     GitRollbackFile,
-    /// 提交视图里的文件：移出暂存区，工作区的文件不变。
-    GitUnstageFile,
     /// 提交视图里多选时：勾上（`true`）或勾掉选中的各个文件。
     CommitCheck(bool),
     /// 差异里的文字：把光标处的一处改动换回 `HEAD` 的样子。
@@ -400,7 +398,6 @@ impl MenuCommand {
             MenuCommand::GitContinue => t!("menu-git-continue"),
             MenuCommand::GitShowDiff => t!("menu-git-show-diff"),
             MenuCommand::GitOpenFile => t!("menu-git-open-file"),
-            MenuCommand::GitUnstageFile => t!("menu-git-unstage"),
             MenuCommand::GitRollbackFile => t!("menu-git-roll-back"),
             MenuCommand::GitRevertHunk => t!("menu-git-roll-back-change"),
             MenuCommand::FileHistory => t!("menu-git-file-history"),

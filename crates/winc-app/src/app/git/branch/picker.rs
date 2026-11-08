@@ -689,7 +689,7 @@ impl App {
     }
 
     /// 按查询重新排列各行。没有查询也没有单列最近使用时选中当前分支，否则选中第一个分支（没有
-    /// 分支时是第一个能选中的行）。
+    /// 分支时是第一个能选中的行）。没有查询时选中的行记为自动选中（`App::picker_default`）。
     pub(in crate::app) fn branch_picker_refresh(&mut self) {
         let rows = self.current_branch_rows();
         let plain = self.picker_input.text().is_empty()
@@ -708,6 +708,11 @@ impl App {
             })
             .or_else(|| rows.iter().position(BranchRow::selectable))
             .unwrap_or(0);
+        self.picker_default = self
+            .picker_input
+            .text()
+            .is_empty()
+            .then_some(self.picker_selected);
         self.set_branch_rows(rows);
         self.picker_reveal();
     }
@@ -729,6 +734,7 @@ impl App {
         let selected = (self.picker_branch_rows.as_ref())
             .and_then(|rows| rows.get(self.picker_selected))
             .cloned();
+        let default = self.picker_default == Some(self.picker_selected);
         let rows = self.current_branch_rows();
         let same = |row: &BranchRow| {
             selected
@@ -740,6 +746,8 @@ impl App {
             .position(same)
             .or_else(|| rows.iter().position(BranchRow::selectable))
             .unwrap_or(0);
+        // 自动选中的行换了位置仍是自动选中的。
+        self.picker_default = default.then_some(self.picker_selected);
         self.set_branch_rows(rows);
         self.relayout();
         self.request_redraw();
@@ -875,6 +883,7 @@ impl App {
             }
             (BranchRow::Folder { .. } | BranchRow::Remotes { .. }, true) => {
                 self.picker_selected = self.branch_picker_step(true);
+                self.picker_default = None;
                 self.picker_reveal();
                 self.request_redraw();
             }
@@ -903,6 +912,7 @@ impl App {
         });
         if let Some(parent) = parent {
             self.picker_selected = parent;
+            self.picker_default = None;
             self.picker_reveal();
             self.request_redraw();
         }

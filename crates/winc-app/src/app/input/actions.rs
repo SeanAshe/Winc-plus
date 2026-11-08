@@ -398,6 +398,7 @@ impl App {
             }
             GitRevertChange => self.revert_change_at_caret(),
             ShowCommit => self.show_commit(),
+            ShowOutline => self.show_outline(),
             ToggleTerminal => self.toggle_terminal(),
             RunConfiguration => self.run_current_config(),
             StopConfiguration => self.stop_current_config(),

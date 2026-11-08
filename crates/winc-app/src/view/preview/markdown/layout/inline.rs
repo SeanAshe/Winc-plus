@@ -268,10 +268,7 @@ impl Cx<'_, '_> {
             _ => None,
         });
         let brk = match prev {
-            Some(p) => {
-                is_space(p)
-                    || ((is_cjk(p) || is_cjk(c)) && !no_break_before(c) && !no_break_after(p))
-            }
+            Some(p) => can_break(p, c),
             None => !atoms.is_empty(),
         };
         atoms.push(Atom {
@@ -599,7 +596,19 @@ fn break_lines(atoms: &[Atom], width: f32) -> Vec<std::ops::Range<usize>> {
         // 保留 0.01 逻辑像素的余量：测得的宽度加上边距再减去（表格的列宽）会产生浮点误差，
         // 恰好放得下的最后一个字符不应折到下一行。
         if x + atom.width > width + 0.01 && i > start && !atom.space {
-            let at = last_break.filter(|&b| b > start).unwrap_or(i);
+            // 没有可断处、只能在字与字之间强制断行时，若下一行将以不能出现在行首的标点开头，
+            // 断点向前移一个字，使该标点与前一个字一起换行。
+            let forced = |mut at: usize| {
+                while at > start + 1
+                    && matches!(atoms[at].kind, AtomKind::Char(c) if no_break_before(c))
+                {
+                    at -= 1;
+                }
+                at
+            };
+            let at = last_break
+                .filter(|&b| b > start)
+                .unwrap_or_else(|| forced(i));
             lines.push(start..at);
             start = at;
             while start < atoms.len() && atoms[start].space {
@@ -630,12 +639,27 @@ fn is_cjk(c: char) -> bool {
         | 0x20000..=0x2FA1F)
 }
 
+/// 是否可以在字 `p` 与紧随其后的 `c` 之间换行。
+///
+/// 空格之后、中日韩文字前后可以换行；`c` 不能出现在行首时不换行；`p` 不能出现在行尾时，除非
+/// `p` 是空格，否则不换行。
+fn can_break(p: char, c: char) -> bool {
+    (is_space(p) || is_cjk(p) || is_cjk(c))
+        && !no_break_before(c)
+        && (is_space(p) || !no_break_after(p))
+}
+
 /// 标点 `c` 是否不能出现在行首。
+///
+/// 包括中点 `·`、`・`：用空格隔开的中点作为分隔符时，留在前一个词所在行的末尾。
 fn no_break_before(c: char) -> bool {
-    "，。、；：？！）」』】》〉…—”’,.;:?!)]}%".contains(c)
+    "，。、；：？！）」』】》〉…—”’,.;:?!)]}%·・".contains(c)
 }
 
 /// 标点 `c` 是否不能出现在行尾。
 fn no_break_after(c: char) -> bool {
     "（「『【《〈“‘([{".contains(c)
 }
+
+#[cfg(test)]
+mod tests;

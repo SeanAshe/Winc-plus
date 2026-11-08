@@ -974,3 +974,46 @@ fn deleting_the_query_clears_the_results_at_once() {
     assert!(app.global.due.is_some());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 有焦点的输入框外环在各缩放倍数下四边宽度相同，且至少为 1 个物理像素。
+///
+/// 样本包括非整数倍数（系统缩放 125%、界面缩放 90%、110%）：按逻辑像素外扩时，四边各自取整
+/// 后宽度不同，部分边宽度为 0。
+#[test]
+fn the_focus_ring_has_even_sides_at_any_scale() {
+    let dir = search_folder("focus-ring-scale");
+    let mut app = app_with(&dir, true);
+    app.open_global_search(false);
+    app.press_panel_button(PanelButton::Expand);
+    app.focus = Focus::GlobalReplace;
+    for scale in [0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.2] {
+        let bg = app.palette.frame_bg;
+        let renderer = winc_render::Renderer::offscreen(SIZE.0, SIZE.1, scale, bg, None, None);
+        app.renderer = Some(renderer.unwrap());
+        // 每轮加宽侧栏 0.3 逻辑像素，使输入框的边落在非整数的物理像素上。
+        app.panel_width += 0.3;
+        paint(&mut app);
+        let field = app.panel_parts().replace;
+        let image = app.renderer.as_ref().unwrap().image().unwrap();
+        let accent = app.palette.accent;
+        let target = [accent.r, accent.g, accent.b].map(|c| (c * 255.0).round() as i32);
+        let lit = |x: i32, y: i32| {
+            let px = image.pixels[(y * image.width as i32 + x) as usize];
+            let rgb = [px >> 16, px >> 8, px].map(|c| (c & 0xFF) as i32);
+            (0..3).all(|i| (rgb[i] - target[i]).abs() <= 8)
+        };
+        let s = |v: f32| (v * scale).round() as i32;
+        let (cx, cy) = (s(field.x + field.w / 2.0), s(field.y + field.h / 2.0));
+        let count =
+            |line: &dyn Fn(i32) -> bool, at: i32| (at - 4..at + 4).filter(|&v| line(v)).count();
+        let sides = [
+            count(&|x| lit(x, cy), s(field.x)),
+            count(&|x| lit(x, cy), s(field.right())),
+            count(&|y| lit(cx, y), s(field.y)),
+            count(&|y| lit(cx, y), s(field.bottom())),
+        ];
+        assert!(sides[0] >= 1, "{scale}: {sides:?}");
+        assert!(sides.iter().all(|&n| n == sides[0]), "{scale}: {sides:?}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

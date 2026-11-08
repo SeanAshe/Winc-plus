@@ -5,7 +5,10 @@
 //!
 //! 只认字节和文本，不知道文档、标签和界面；编辑器决定什么时候预览，界面负责排版和绘制。
 
+pub mod docx;
 pub mod image;
 pub mod markdown;
+mod ooxml;
 pub mod svg;
 pub mod table;
+mod zip;

@@ -27,7 +27,8 @@ use crate::theme::SCROLLBAR_HIT;
 ///   [`panel::draw_view_tabs`]；
 /// - 第二行：左边是项目和分支的上下文栏（[`draw_context_bar`]，三个视图都一样），
 ///   右端是当前视图的工具按钮；
-/// - 下面是当前视图：文件树、全局搜索面板或提交视图。
+/// - 下面是当前视图：文件树（底部是可以展开的大纲，见 [`outline::draw_outline`]）、全局搜索
+///   面板或提交视图。
 pub(in crate::view) fn draw_sidebar(app: &mut App, frame: &mut Frame<'_>) {
     frame.rect(app.layout.sidebar, app.palette.sidebar_bg);
     panel::draw_view_tabs(app, frame);
@@ -58,6 +59,7 @@ pub(in crate::view) fn draw_sidebar(app: &mut App, frame: &mut Frame<'_>) {
 
     draw_project_header(app, frame);
     draw_tree(app, frame);
+    outline::draw_outline(app, frame);
 }
 
 /// 绘制文件视图的第二行：左边是上下文栏（项目、当前分支），右端是文件树工具栏。

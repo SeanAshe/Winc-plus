@@ -216,6 +216,7 @@ fn round_trips_through_json() {
         sticky_scroll: Some(false),
         word_wrap: Some(true),
         minimap: Some(true),
+        outline: Some(false),
         render_whitespace: Some(RenderWhitespace::Trailing),
         diff_inline: Some(true),
         line_numbers: Some(false),

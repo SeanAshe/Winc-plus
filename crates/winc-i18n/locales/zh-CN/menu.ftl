@@ -105,7 +105,6 @@ menu-git-show-diff = 显示差异
 menu-git-open-file = 打开文件
 menu-git-pull-rebase = 拉取并变基
 menu-log-tag = 标签「{ $name }」
-menu-git-unstage = 取消暂存
 menu-git-roll-back = 回滚
 menu-git-roll-back-change = 回滚此处更改
 menu-git-file-history = 显示文件历史

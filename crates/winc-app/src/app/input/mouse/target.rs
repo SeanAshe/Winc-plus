@@ -45,9 +45,6 @@ impl App {
             Target::Search => SearchParts::new(l.search)
                 .button_at(x, y)
                 .map_or(Hover::None, Hover::Search),
-            // 提交视图里从写全名的那一行往右移到伸出去的那一段，中间经过分隔条：这一行还算悬停
-            // 着，名字不缩回去又弹出来（按下时仍然可以拖动分隔条）。
-            Target::Splitter if self.over_commit_spill_row(y) => self.hover,
             Target::Splitter => Hover::Splitter,
             Target::TreeTool(tool) => Hover::TreeTool(tool),
             Target::ProjectName => Hover::ProjectName,
@@ -57,6 +54,7 @@ impl App {
             Target::Preview(mode) => Hover::Preview(mode),
             Target::Browser => Hover::Browser,
             Target::MarkdownLink(link) => Hover::MarkdownLink(link),
+            Target::MarkdownToc(target) => Hover::MarkdownToc(target),
             Target::MarkdownText => Hover::None,
             Target::Tab(index, on_close) => Hover::Tab(index, on_close),
             Target::RulerChange(hunk) => Hover::RulerChange(hunk),
@@ -73,6 +71,7 @@ impl App {
             Target::ChangeMark(hunk) => Hover::ChangeMark(hunk),
             Target::Gutter => Hover::Gutter,
             Target::TerminalDivider => Hover::TerminalDivider,
+            Target::OutlineDivider => Hover::OutlineDivider,
             Target::SplitDivider => Hover::SplitDivider,
             Target::TerminalHeader(hit) => Hover::TerminalHeader(hit),
             Target::TerminalBlock(hit) => Hover::TerminalBlock(hit),
@@ -139,10 +138,15 @@ impl App {
         // 搜索结果、改动列表的滚动条位于行的右端，先于行判断。显示全名的那一改动行覆盖在滚动条
         // 之上：鼠标移到这一行的右端时全名保持显示，按下作用于这一行。
         let over_commit_row = self.over_commit_overflow_row(y);
-        if let Some((bar @ (Scrollbar::Panel | Scrollbar::Commit), grab)) = self.scrollbar_at(x, y)
+        if let Some((bar @ (Scrollbar::Panel | Scrollbar::Commit | Scrollbar::Outline), grab)) =
+            self.scrollbar_at(x, y)
             && !(over_commit_row && bar == Scrollbar::Commit)
         {
             return Target::Scrollbar(bar, grab);
+        }
+        // 大纲标题行的上沿跨在文件树和大纲之间，先于两者判定。
+        if self.outline_divider().contains(x, y) {
+            return Target::OutlineDivider;
         }
         if let Some(hover) = self.panel_hover_at(x, y) {
             return Target::Panel(hover);
@@ -271,6 +275,12 @@ impl App {
         if self.log_active() && self.log_parts().details.contains(x, y) {
             return Target::LogText;
         }
+        // 标题指示条和展开的标题列表盖在预览的文字上面，先于文字判定。
+        if self.markdown.area.contains(x, y)
+            && let Some(target) = hit(&self.markdown.toc, x, y)
+        {
+            return Target::MarkdownToc(target);
+        }
         // 可编辑的预览中单击文字用于放置光标，便于编辑链接文本；按住 `⌘`（其他平台为 `Ctrl`）
         // 点击才打开链接。复制按钮、折叠块的标题仍然单击生效。
         if let Some(link) = self.markdown_link_at(x, y)
@@ -292,14 +302,6 @@ impl App {
             return Target::Editor;
         }
         Target::None
-    }
-
-    /// 提交视图里鼠标所在的高度是不是名字写全、伸出侧栏的那一行。
-    fn over_commit_spill_row(&self, y: f32) -> bool {
-        self.commit_shown()
-            && self.commit.overflow.is_some_and(|o| {
-                o.spill.is_some() && (o.y..o.y + crate::app::COMMIT_ROW).contains(&y)
-            })
     }
 
     /// 返回鼠标所在的可点击滚动条，以及此时按下后抓住滑块的位置。
@@ -324,6 +326,15 @@ impl App {
                 let content = (self.global.rows().len() as f32 + 1.0) * TREE_ROW;
                 let thumb = scrollbar_thumb(results, self.global.scroll, content)?;
                 return Some((Scrollbar::Panel, grab(y, thumb.y, thumb.h)));
+            }
+        }
+        // 大纲的符号列表。
+        if self.outline_shown() {
+            let list = self.outline_list();
+            if list.contains(x, y) && x >= list.right() - SCROLLBAR_HIT {
+                let content = self.outline_max_scroll() + list.h;
+                let thumb = scrollbar_thumb(list, self.outline.scroll, content)?;
+                return Some((Scrollbar::Outline, grab(y, thumb.y, thumb.h)));
             }
         }
         // 提交视图的改动列表。
@@ -457,6 +468,22 @@ impl App {
             self.set_cursor_icon(icon);
             return;
         }
+        // 全屏查看的图上：工具栏按钮处显示手形指针，其余位置显示表示可拖动的抓手指针。
+        if let Some(view) = &self.markdown.diagram
+            && (view.area.contains(x, y) || view.grab.is_some())
+            && !self.settings.open
+            && self.form_dialog.is_none()
+        {
+            let icon = if view.grab.is_some() {
+                CursorIcon::Grabbing
+            } else if view.hover.is_some() {
+                CursorIcon::Pointer
+            } else {
+                CursorIcon::Grab
+            };
+            self.set_cursor_icon(icon);
+            return;
+        }
         if self.settings.open {
             // 设置浮层打开时只看浮层自身：字体名输入框、搜索框和正在编辑的输入框上显示文本光标，
             // 链接上显示手形，其余位置显示箭头。
@@ -505,6 +532,10 @@ impl App {
             } else {
                 CursorIcon::Default
             }
+        } else if matches!(self.drag, Drag::OutlineDivider { .. })
+            || self.hover == Hover::OutlineDivider
+        {
+            CursorIcon::RowResize
         } else if matches!(self.drag, Drag::TerminalDivider { .. })
             || self.hover == Hover::TerminalDivider
         {
@@ -529,6 +560,7 @@ impl App {
             Hover::Log(crate::app::git::log::LogTarget::Line(..))
                 | Hover::TerminalBlock(_)
                 | Hover::MarkdownLink(_)
+                | Hover::MarkdownToc(crate::app::preview::markdown::TocTarget::Heading(_))
         ) || self.terminal.link.is_some()
         {
             // 提交图里的线可以点（沿着它跳过去）；终端里命令块的色带、吸顶的命令行也是。
@@ -587,6 +619,7 @@ pub(super) enum Target {
     Browser,
     /// Markdown 预览里的链接，参数为它在本帧 `links` 里的下标。
     MarkdownLink(usize),
+    MarkdownToc(crate::app::preview::markdown::TocTarget),
     /// Markdown 预览上不是链接的地方：选字。
     MarkdownText,
     /// 标签，参数为标签下标和在关闭按钮上。
@@ -625,6 +658,8 @@ pub(super) enum Target {
     Terminal,
     /// 编辑区和终端面板之间的间距。
     TerminalDivider,
+    /// 文件视图里大纲标题行的上沿。
+    OutlineDivider,
     /// 分栏预览中间的分隔线。
     SplitDivider,
     /// 编辑区右侧的缩略图。

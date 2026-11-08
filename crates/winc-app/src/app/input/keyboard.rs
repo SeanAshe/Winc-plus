@@ -82,6 +82,11 @@ impl App {
             return;
         }
 
+        // 全屏查看图时，关闭、缩放等按键先交给查看器处理。
+        if self.diagram_view_key(&event.logical_key, &base, cmd) {
+            return;
+        }
+
         // 快捷键都定义在键位表中，先查表；不是快捷键的按键（打字、方向键、回车）再交给
         // 焦点所在的部件。
         let stroke = self.stroke_of(
@@ -119,6 +124,7 @@ impl App {
             Focus::Results => self.on_key_results(event),
             Focus::CommitMessage => self.on_key_commit_message(event, &base, cmd),
             Focus::CommitList => self.on_key_commit_list(event),
+            Focus::Outline => self.outline_key(&event.logical_key),
             Focus::LogFilter => self.on_key_log_filter(event, &base, cmd),
             Focus::Terminal => self.on_key_terminal(event),
             // 这两个输入框使用终端的键位表，Windows、Linux 的 Ctrl+V 不在表中，在此处理。

@@ -396,6 +396,8 @@ pub fn bindings(os: Os) -> Vec<Binding> {
     t.one(FocusSidebar, Global, c(cmd, '0'));
     t.one(ShowFiles, Global, c(cmd | shift, 'e'));
     t.one(ShowCommit, Global, c(ctrl | shift, 'g'));
+    // 大纲与 Git 日志（`⌘9`）同为按数字键打开的工具视图。
+    t.one(ShowOutline, Global, c(cmd, '7'));
     // 打开 Git 工具窗口（日志）的键。
     t.one(GitShowLog, Global, c(cmd, '9'));
     // ⌃` 开关终端；在终端里按也要先给它，所以是 `Everywhere`。

@@ -309,22 +309,6 @@ impl App {
             .find(|e| e.path == path && !e.is_dir)
     }
 
-    /// 只暂存了一部分的文件首次在差异中修改勾选时，先将暂存区里的版本折算成各处的勾选，修改从
-    /// 当前显示的状态开始（见 `CommitState::adopt_staged`）。
-    fn adopt_staged_picks(&mut self, entry: &winc_editor::git::Entry) {
-        let Some(view) = self.editor.active().and_then(|d| d.diff.as_deref()) else {
-            return;
-        };
-        let Some(staged) = view.staged.as_deref() else {
-            return;
-        };
-        let all: Vec<(u64, std::ops::Range<usize>, usize)> = (view.keys.iter().zip(&view.hunks))
-            .map(|(&k, h)| (k, h.old.clone(), h.new.len()))
-            .collect();
-        let staged = staged.to_vec();
-        self.commit.adopt_staged(entry, &staged, &all);
-    }
-
     /// 勾上或勾掉第 `hunk` 处改动：提交时只提交勾上的改动。
     fn toggle_diff_hunk(&mut self, hunk: usize) {
         let Some(view) = self.editor.active().and_then(|d| d.diff.as_deref()) else {
@@ -339,7 +323,6 @@ impl App {
         let Some(entry) = self.diff_entry(view).cloned() else {
             return;
         };
-        self.adopt_staged_picks(&entry);
         self.commit.toggle_hunk(&entry, hunk, &all);
         self.request_redraw();
     }
@@ -371,7 +354,6 @@ impl App {
             return;
         };
         let offset = line - start;
-        self.adopt_staged_picks(&entry);
         self.commit
             .toggle_line(&entry, (hunk, new_len), (side, offset), &all);
         self.request_redraw();

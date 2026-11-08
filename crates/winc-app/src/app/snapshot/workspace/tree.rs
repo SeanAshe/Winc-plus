@@ -122,7 +122,10 @@ fn the_scrollbar_strip_belongs_to_the_scrollbar_not_the_row_under_it() {
     let tree = app.layout.tree;
     let thumb = hscrollbar_thumb(tree, 0.0, app.tree_content_w).unwrap();
     let x = thumb.x + thumb.w / 2.0;
-    let last_row = app.tree_row_at(thumb.y).unwrap();
+    // 紧挨在滚动条那一条上面的行。
+    let last_row = app
+        .tree_row_at(tree.bottom() - SCROLLBAR_HIT - 1.0)
+        .unwrap();
 
     // 从树底向上 `SCROLLBAR_HIT` 高的一条属于滚动条：其下的行不显示悬停高亮，长名称也不展开。
     app.on_mouse_move(x, tree.bottom() - SCROLLBAR_HIT);
@@ -1327,14 +1330,18 @@ fn a_row_that_does_not_fit_stays_above_the_tree_scrollbar() {
     assert_eq!(app.tree_overflow, None);
     assert_eq!(app.scrollbar_shown(ScrollArea::Tree), 1.0);
 
-    // 滚动时滚动条在显示：展开的一行盖住滑块，下一行不盖。
+    // 滚动时滚动条处于显示状态：写全名的一行覆盖在滑块之上，下一行不覆盖。先滚过开头几个名字
+    // 较短的文件，使滑块旁边是名字放不下的行。
     app.on_mouse_move(tree.x + 60.0, tree.y + 30.0);
-    app.on_wheel(MouseScrollDelta::LineDelta(0.0, -1.0));
+    app.on_wheel(MouseScrollDelta::LineDelta(0.0, -3.0));
     paint(&mut app);
     let total = app.editor.workspace.as_ref().unwrap().rows().len() as f32 * TREE_ROW;
     let thumb = crate::layout::scrollbar_thumb(tree, app.tree_scroll, total).unwrap();
     let y = thumb.y + thumb.h / 2.0;
     let row = app.tree_row_at(y).unwrap();
+    let rows = app.editor.workspace.as_ref().unwrap().rows();
+    let name = rows[row].path.to_string_lossy();
+    assert!(name.contains("a_very_long"), "{name}");
     let top = app.tree_row_top(row);
     app.on_mouse_move(tree.x + 60.0, top + TREE_ROW / 2.0);
     paint(&mut app);

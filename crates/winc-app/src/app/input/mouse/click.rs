@@ -92,6 +92,15 @@ impl App {
             && button == MouseButton::Left
             && self.modifiers.control_key();
         if button == MouseButton::Right || control_click {
+            // 全屏查看的图上不提供右键菜单，被遮住的预览也不响应。
+            if self
+                .markdown
+                .diagram
+                .as_ref()
+                .is_some_and(|v| v.area.contains(x, y))
+            {
+                return;
+            }
             self.context_click(x, y);
             return;
         }
@@ -126,6 +135,11 @@ impl App {
             return;
         }
 
+        // 全屏查看的图位于编辑区上层，落在其范围内的点击只由查看器处理。
+        if self.diagram_view_mouse_down(x, y) {
+            return;
+        }
+
         // 点在预览以外：预览的选区和焦点不要了（`click_markdown` 再拿回来）。拖预览的滚动条不算。
         let target = self.target_at(x, y);
         let keeps_preview = matches!(
@@ -150,7 +164,10 @@ impl App {
                 self.click_picker(x, y);
             }
             _ if self.picker_open => self.close_picker(),
-            Target::Scrollbar(bar @ (Scrollbar::Panel | Scrollbar::Commit), grab) => {
+            Target::Scrollbar(
+                bar @ (Scrollbar::Panel | Scrollbar::Commit | Scrollbar::Outline),
+                grab,
+            ) => {
                 self.grab_scrollbar(bar, grab);
             }
             Target::Panel(_) => {
@@ -186,6 +203,7 @@ impl App {
             Target::Preview(mode) => self.choose_preview_mode(mode),
             Target::Browser => self.open_in_browser(),
             Target::MarkdownLink(link) => self.open_markdown_link(link),
+            Target::MarkdownToc(target) => self.press_toc(target),
             Target::MarkdownText => self.click_markdown(x, y),
             Target::Tab(index, true) => {
                 self.close_pressed = self.editor.documents.get(index).map(|d| d.id);
@@ -315,6 +333,10 @@ impl App {
                     start_x: x,
                     start_left: self.layout.editor.w,
                 };
+            }
+            Target::OutlineDivider => {
+                let size = self.outline_list().h;
+                self.drag = Drag::OutlineDivider { start: y, size };
             }
             Target::TerminalDivider => {
                 // 拖动分隔条时取消最大化，从当前大小开始拖。

@@ -318,7 +318,8 @@ impl App {
 
     /// 记录当前目录的现场。
     ///
-    /// 内容包括：有路径且仍在磁盘上的标签、有备份的未保存内容、书签，以及当前标签。
+    /// 内容包括：有路径且仍在磁盘上的标签、有备份的未保存内容、书签、大纲里收起的符号，以及
+    /// 当前标签。
     pub(in crate::app) fn remember_session(&mut self) {
         let Some(folder) = self.editor.root().map(Path::to_path_buf) else {
             return;
@@ -345,12 +346,14 @@ impl App {
             .into_iter()
             .map(|(path, marks)| (path, marks.lines().to_vec()))
             .collect();
+        let outline = self.outline_session(&folder);
         self.update_state(|state| {
             state.set_session(Session {
                 folder,
                 tabs,
                 active,
                 bookmarks,
+                outline,
                 terminal,
                 run,
                 sidebar_hidden,

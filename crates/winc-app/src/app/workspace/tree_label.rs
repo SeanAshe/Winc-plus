@@ -222,7 +222,7 @@ impl<K: Hash + Eq + Clone> TreeLabels<K> {
     }
 
     /// 返回一次过渡的时钟。
-    fn clock(&self) -> Clock {
+    pub(crate) fn clock(&self) -> Clock {
         #[cfg(test)]
         if self.animate_without_window {
             return Clock::stopped(STATUS_SLIDE, std::time::Duration::from_millis(1));

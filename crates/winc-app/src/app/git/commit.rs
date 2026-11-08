@@ -11,7 +11,7 @@ pub(in crate::app) use actions::COMMITTED_SHOWN;
 pub(crate) use actions::SyncState;
 mod list;
 mod stash;
-pub(crate) use stash::{STASH_GAP, StashView};
+pub(crate) use stash::{STASH_GAP, StashLine, StashView};
 mod state;
 
 use state::*;
@@ -392,6 +392,8 @@ pub enum CommitTarget {
     Stashes,
     /// 第几条储藏（`GitState::stashes` 的下标）那一行：在预览标签里看它的改动。
     Stash(usize),
+    /// 正在看的储藏下面列出的一个文件（`StashView::files` 的下标）：在预览标签里看它。
+    StashFile(usize),
     /// 悬停储藏那一行时右端的「应用」。
     StashApply(usize),
     /// 悬停储藏那一行时右端的「⋯」：应用、应用并删除、删除。
@@ -551,6 +553,12 @@ pub(crate) struct CommitState {
     pub message_lines: usize,
     /// 行数变化后框高过渡的起始高度（逻辑像素）与时钟；不在过渡中时为 `None`。
     pub message_motion: Option<(f32, crate::app::animation::Clock)>,
+    /// 提交按钮宽度变化（文字变了，例如按住 ⌥ 换成「提交并推送」）时过渡的起始宽度（逻辑像素，
+    /// 连同下拉箭头）与时钟；不在过渡中时为 `None`。
+    pub button_motion: Option<(f32, crate::app::animation::Clock)>,
+    /// 「修改上次提交」随按钮变宽隐去、变窄出现的过渡：终点是否显示与时钟；不在过渡中时为
+    /// `None`。
+    pub amend_motion: Option<(bool, crate::app::animation::Clock)>,
     /// 提交卡片滑进、滑出（见 [`App::track_commit_bars`]）。
     pub(crate) card: Slide,
     /// 「上一次提交」那一栏拉开、收起。
@@ -598,6 +606,9 @@ pub(crate) struct CommitState {
     /// 鼠标停着的那一行名字放不下时，这一行写全名（每帧绘制前算，见
     /// `view::commit::commit_overflow`）。
     pub(crate) overflow: Option<CommitOverflow>,
+    /// 文件行写全名时「打开文件」「回滚」两个按钮从原位滑到全名后面的过渡：那一行（`overflow`
+    /// 的 `row`）和时钟。名字无需加长、只为按钮让出位置时，名字不动，过渡表现为按钮的移动。
+    pub(crate) actions_slide: Option<(usize, crate::app::Clock)>,
     /// 各行名字随鼠标展开、收回的过渡，和文件树的名字一样。
     pub(crate) names: crate::app::TreeLabels<CommitName>,
     /// 选中的文件；多选时是当前行（键盘从这里移动，预览的是它）。
@@ -625,6 +636,10 @@ pub(crate) struct CommitState {
     pub(crate) stash_motion: Option<(f32, crate::app::animation::Clock)>,
     /// 正在储藏的预览标签里看的一条储藏。
     pub(crate) stash_view: Option<StashView>,
+    /// 正在查看的储藏下面的文件是否已收起：再次点击该储藏时在收起与展开之间切换。
+    pub(crate) stash_files_folded: bool,
+    /// 上一帧储藏一组的终点高度（逻辑像素），见 [`App::track_stash_height`]。
+    pub(crate) stash_settled: f32,
     /// 储藏的预览标签：和改动列表的预览标签分开，那个标签跟着工作区里的文件刷新。
     pub(crate) stash_preview: Option<DocumentId>,
     /// 提交成功以后继续推送（「提交并推送」）。
@@ -666,6 +681,8 @@ impl Default for CommitState {
             message: TextField::multiline(),
             message_lines: 1,
             message_motion: None,
+            button_motion: None,
+            amend_motion: None,
             card: Slide::default(),
             undo: Slide::default(),
             undo_drawn: None,
@@ -686,6 +703,7 @@ impl Default for CommitState {
             scroll: 0.0,
             motion: None,
             overflow: None,
+            actions_slide: None,
             names: Default::default(),
             shift: None,
             selected: None,
@@ -699,6 +717,8 @@ impl Default for CommitState {
             stash_open: false,
             stash_motion: None,
             stash_view: None,
+            stash_files_folded: false,
+            stash_settled: 0.0,
             stash_preview: None,
             push_after: false,
             last: None,
@@ -833,9 +853,14 @@ impl App {
             (None, Some(card)) => card.y - SIDEBAR_LIST_GAP * card_share,
             (None, None) => panel.bottom(),
         };
-        // 储藏一组在改动列表下面，标题和各条储藏都是一行，上下各留 `STASH_GAP`。
+        // 储藏一组在改动列表下面，标题和各条储藏各占一行，上下各留 `STASH_GAP`。一组的下沿紧贴
+        // 卡片：`SIDEBAR_LIST_GAP` 是改动列表和卡片之间的间隔，再加上它时下方空隙远大于上方。
         let h = self.stash_section_height();
-        let stashes = (h > 0.0).then(|| Rect::new(panel.x, above - h, panel.w, h));
+        let stash_bottom = match (undo, card) {
+            (None, Some(card)) => card.y,
+            _ => above,
+        };
+        let stashes = (h > 0.0).then(|| Rect::new(panel.x, stash_bottom - h, panel.w, h));
         let list_end = stashes.map_or(above, |rect| rect.y);
         let list = Rect::new(panel.x, list_y, panel.w, (list_end - list_y).max(0.0));
         CommitParts {
@@ -902,13 +927,19 @@ impl App {
             0.0
         };
         let compact = beside + fitted <= footer.w;
-        let button_w = if compact { fitted } else { footer.w };
+        let settled_w = if compact { fitted } else { footer.w };
+        let button_w = self
+            .commit
+            .button_motion
+            .map_or(settled_w, |(from, clock)| clock.between(from, settled_w));
         let whole = Rect::new(footer.right() - button_w, footer.y, button_w, FOOTER_H);
         let menu_w = BUTTON_MENU_W.min(whole.w);
         let commit = Rect::new(whole.x, whole.y, whole.w - menu_w, FOOTER_H);
         let commit_menu = Rect::new(commit.right(), whole.y, menu_w, FOOTER_H);
-        let amend =
-            (amendable && compact).then(|| Rect::new(footer.x, footer.y, labels.amend, FOOTER_H));
+        // 隐去的过渡中仍排出「修改上次提交」，由绘制按进度淡出。
+        let leaving = matches!(self.commit.amend_motion, Some((false, _)));
+        let amend = (amendable && (compact || leaving))
+            .then(|| Rect::new(footer.x, footer.y, labels.amend, FOOTER_H));
         (
             Some(card),
             message,
@@ -1081,6 +1112,39 @@ impl App {
         self.commit.message_motion = clock.map(|c| (from, c));
     }
 
+    /// 记下绘制时量好的文字宽度（见 [`CommitLabels`]）。提交按钮因此变宽、变窄时宽度随之过渡，
+    /// 左边的「修改上次提交」因按钮放不下而隐去、因腾出位置而出现时同时淡出、淡入。
+    ///
+    /// 第一次量出宽度时直接到位，不做过渡。
+    pub(crate) fn set_commit_labels(&mut self, labels: CommitLabels) {
+        if labels == self.commit.labels {
+            return;
+        }
+        let first = self.commit.labels == CommitLabels::default();
+        let before = self.commit_parts();
+        // 「修改上次提交」原本是否显示：过渡中取过渡的终点，否则取当前布局中是否排出。
+        let motion = self.commit.amend_motion.take();
+        let was = motion.map_or(before.amend.is_some(), |(shown, _)| shown);
+        self.commit.labels = labels;
+        if first {
+            return;
+        }
+        let after = self.commit_parts();
+        let width = |parts: &CommitParts| parts.commit.w + parts.commit_menu.w;
+        let from = width(&before);
+        if (from - width(&after)).abs() >= 0.5 {
+            let clock = self.clock(crate::app::animation::TREE_ANIMATION);
+            self.commit.button_motion = clock.map(|c| (from, c));
+        }
+        let now = after.amend.is_some();
+        self.commit.amend_motion = if was == now {
+            motion
+        } else {
+            self.clock(crate::app::animation::TREE_ANIMATION)
+                .map(|c| (now, c))
+        };
+    }
+
     /// 鼠标没在拖东西、侧栏也没在开合：可以在悬停的行上展开写不下的名字。
     pub(crate) fn idle_pointer(&self) -> bool {
         self.sidebar_motion.is_none() && matches!(self.drag, crate::app::Drag::None)
@@ -1120,6 +1184,21 @@ impl App {
     pub(in crate::app) fn over_commit_overflow_row(&self, y: f32) -> bool {
         self.commit_shown()
             && (self.commit.overflow).is_some_and(|o| (o.y..o.y + COMMIT_ROW).contains(&y))
+    }
+
+    /// 每帧算出 `overflow` 之后调用：换了写全名的文件行时，按钮从原位开始滑到全名后面；
+    /// `before` 是上一帧写全名的那一行。
+    pub(crate) fn track_commit_actions(&mut self, before: Option<usize>) {
+        let now = (self.commit.overflow)
+            .filter(|o| o.actions.is_some())
+            .map(|o| o.row);
+        if now == before {
+            return;
+        }
+        let animate = self.animate_commit_names();
+        self.commit.actions_slide = now
+            .filter(|_| animate)
+            .map(|row| (row, self.commit.names.clock()));
     }
 
     /// 窗口坐标 (`x`, `y`) 是否在改动行伸出侧栏的那一段名字上。
@@ -1169,6 +1248,7 @@ impl App {
                 | CommitTarget::Dir(_)
                 | CommitTarget::DirCheck(_)
                 | CommitTarget::Stash(_)
+                | CommitTarget::StashFile(_)
                 | CommitTarget::StashApply(_)
                 | CommitTarget::StashMenu(_)
         );
@@ -1208,6 +1288,7 @@ impl App {
             CommitTarget::GroupRevert(group) => self.ask_rollback(group),
             CommitTarget::Stashes => self.toggle_stashes(),
             CommitTarget::Stash(i) => self.show_stash(i),
+            CommitTarget::StashFile(at) => self.open_stash_file(at),
             CommitTarget::StashApply(i) => {
                 if let Some(stash) = self.git.stashes.get(i).cloned() {
                     self.run_stash_op(super::branch::StashOp::Apply, stash);
@@ -1396,7 +1477,9 @@ impl App {
             MenuCommand::CommitPush,
             idle && (!clean || self.commit.amend),
         )];
-        if self.commit_amendable() && self.commit_parts().amend.is_none() {
+        // 正在淡出的「修改上次提交」视为已移入菜单。
+        let leaving = matches!(self.commit.amend_motion, Some((false, _)));
+        if self.commit_amendable() && (self.commit_parts().amend.is_none() || leaving) {
             entries.push(MenuEntry::Separator);
             entries.push(MenuEntry::Item(MenuCommand::CommitAmend, idle));
         }
@@ -1498,11 +1581,6 @@ impl App {
                 }
             }
             MenuCommand::GitRollbackFile => self.confirm_rollback(vec![path]),
-            MenuCommand::GitUnstageFile => {
-                self.git_operate(t!("git-op-unstage").into(), move |git, root| {
-                    git.unstage(root, &[path]).map(|()| String::new())
-                });
-            }
             MenuCommand::CopyPath | MenuCommand::CopyRelativePath => {
                 self.copy_path(&path, command == MenuCommand::CopyRelativePath);
             }

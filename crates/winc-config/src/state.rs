@@ -98,6 +98,10 @@ pub struct Session {
     pub active: Option<usize>,
     /// 各文件的书签（行号从 0 起），包括当前未打开的文件。
     pub bookmarks: Vec<(PathBuf, Vec<usize>)>,
+    /// 各文件的大纲中收起的符号，包括当前未打开的文件；没有收起符号的文件不记录。
+    ///
+    /// 每个符号记为从最外层上级到自身的名字，以 `\u{1f}`（单元分隔符）连接。
+    pub outline: Vec<(PathBuf, Vec<String>)>,
     /// 终端面板；终端里没有标签时为 `None`。
     pub terminal: Option<TerminalSession>,
     /// 选中的运行配置的名字。
@@ -224,6 +228,28 @@ impl State {
                         .collect()
                 })
                 .unwrap_or_default();
+            let outline = s
+                .get("outline")
+                .and_then(Json::as_object)
+                .map(|files| {
+                    files
+                        .iter()
+                        .filter(|(path, _)| !path.is_empty())
+                        .map(|(path, symbols)| {
+                            let symbols = symbols
+                                .as_array()
+                                .unwrap_or_default()
+                                .iter()
+                                .filter_map(Json::as_str)
+                                .filter(|s| !s.is_empty())
+                                .map(str::to_owned)
+                                .collect();
+                            (PathBuf::from(path), symbols)
+                        })
+                        .filter(|(_, symbols): &(PathBuf, Vec<String>)| !symbols.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default();
             let terminal = s.get("terminal").and_then(Json::as_object).and_then(|t| {
                 let number = |key| {
                     t.get(key)
@@ -260,6 +286,7 @@ impl State {
                 tabs,
                 active,
                 bookmarks,
+                outline,
                 terminal,
                 run: s.get("run").and_then(Json::as_str).map(str::to_owned),
                 sidebar_hidden: (s.get("sidebarHidden").and_then(Json::as_bool)).unwrap_or(false),
@@ -465,6 +492,13 @@ impl State {
                     (file.to_string_lossy().into_owned(), Json::Array(lines))
                 });
                 items.push(("bookmarks", Json::Object(files.collect())));
+            }
+            if !session.outline.is_empty() {
+                let files = session.outline.iter().map(|(file, symbols)| {
+                    let symbols = symbols.iter().cloned().map(Json::String).collect();
+                    (file.to_string_lossy().into_owned(), Json::Array(symbols))
+                });
+                items.push(("outline", Json::Object(files.collect())));
             }
             if let Some(t) = &session.terminal {
                 let number = |n: f32| Json::Number(f64::from(n));

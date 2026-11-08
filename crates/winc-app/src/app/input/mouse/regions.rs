@@ -19,10 +19,18 @@ impl App {
             return Some(Hover::ProjectName);
         }
 
+        // 文件视图底部的大纲：按绘制时记下的位置找；分隔条由 `Target::Splitter` 处理。
+        if self.layout.outline.contains(x, y) {
+            if self.panel_visible && self.layout.splitter.contains(x, y) {
+                return None;
+            }
+            return Some(hit(&self.outline.hits, x, y).map_or(Hover::None, Hover::Outline));
+        }
+
         // 提交视图：输入框之外按绘制时记下的位置找。
         if self.commit_shown() && y >= self.panel_rect().y {
-            // 分隔条由分隔条自己认（`Target::Splitter`）。
-            if self.panel_visible && self.layout.splitter.contains(x, y) {
+            // 分隔条由 `Target::Splitter` 处理，写全名的那一行除外：该行覆盖在分隔条之上。
+            if self.on_splitter_outside_commit_overflow(x, y) {
                 return None;
             }
             return Some(hit(&self.commit_hits, x, y).map_or(Hover::None, Hover::Commit));
@@ -238,6 +246,14 @@ impl App {
         true
     }
 
+    /// (`x`, `y`) 是否在分隔条上、且不在提交视图里写全名的那一行上：该行覆盖在分隔条之上，与文件
+    /// 树的处理相同（见 [`App::target_at`]）。
+    fn on_splitter_outside_commit_overflow(&self, x: f32, y: f32) -> bool {
+        self.panel_visible
+            && self.layout.splitter.contains(x, y)
+            && !self.over_commit_overflow_row(y)
+    }
+
     /// 是否已处理对侧栏顶部切换按钮或搜索面板的点击。
     pub(super) fn click_panel(&mut self, x: f32, y: f32) -> bool {
         let sidebar = self.layout.sidebar;
@@ -261,8 +277,21 @@ impl App {
             return true;
         }
 
-        if self.commit_shown() && y >= self.panel_rect().y {
+        if self.layout.outline.contains(x, y) {
             if self.panel_visible && self.layout.splitter.contains(x, y) {
+                return false;
+            }
+            if let Some(target) = hit(&self.outline.hits, x, y) {
+                self.press_outline(target);
+            } else if self.outline_list().contains(x, y) {
+                self.focus = Focus::Outline;
+            }
+            self.request_redraw();
+            return true;
+        }
+
+        if self.commit_shown() && y >= self.panel_rect().y {
+            if self.on_splitter_outside_commit_overflow(x, y) {
                 return false;
             }
             if let Some(focus) = self.field_at(x, y) {

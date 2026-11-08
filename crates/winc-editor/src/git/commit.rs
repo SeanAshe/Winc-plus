@@ -214,26 +214,6 @@ impl Git {
         result
     }
 
-    /// 把 `paths` 移出暂存区，工作区的文件保持不变；新加入的文件恢复为未跟踪。
-    ///
-    /// # Errors
-    ///
-    /// 仓库未获信任或 `git` 运行失败时返回原因。
-    pub fn unstage(&self, root: &Path, paths: &[PathBuf]) -> Result<(), String> {
-        self.require_trust(root)?;
-        let mut command = self.command(root);
-        command
-            .args(["reset", "--quiet", "--"])
-            .args(relative_all(root, paths));
-        let result = self.run(&mut command, STATUS_TIMEOUT, &Cancel::default());
-        let (code, text) = match &result {
-            Ok(_) => (Some(0), ""),
-            Err(reason) => (None, reason.as_str()),
-        };
-        output::record(root, &["reset", "--quiet", "--"], code, text.as_bytes());
-        result.map(|_| ())
-    }
-
     /// 运行 `git commit`，提交信息由标准输入传入。
     fn run_commit(&self, root: &Path, command: &mut Command, message: &str) -> Result<(), String> {
         command.stderr(Stdio::piped());

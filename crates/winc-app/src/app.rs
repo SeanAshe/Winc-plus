@@ -39,7 +39,8 @@ pub(crate) use git::branch::picker::{GitAnchor, PickerPart};
 pub(crate) use git::changes::{ChangeTarget, MARK_W, mark_x, ruler_rows};
 pub(crate) use git::commit::{
     COMMIT_ROW, CommitGroup, CommitLabels, CommitName, CommitOverflow, CommitParts, CommitRow,
-    CommitRows, CommitTarget, MESSAGE_LINE, MESSAGE_PAD, STASH_GAP, SyncState,
+    CommitRows, CommitTarget, MESSAGE_LINE, MESSAGE_PAD, STASH_GAP, StashLine, StashView,
+    SyncState,
 };
 pub(crate) use input::context_menu::{
     CHECK_COLUMN, ICON_COLUMN, MenuIcon, POPUP_PAD, POPUP_TEXT_X, PopupLevel, PopupMenu, PopupRow,
@@ -61,6 +62,8 @@ pub use status::status_bar::{StatusItem, indent_label};
 pub use workspace::file_drop::DropZone;
 pub use workspace::files::{Pick, PlaceholderAction, TabBar, TabHit};
 pub use workspace::global::{GlobalSearch, ResultRow};
+pub(crate) use workspace::outline::{OUTLINE_GAP, has_children as outline_has_children};
+pub use workspace::outline::{OutlineEmpty, OutlineState, OutlineTarget};
 use workspace::picker::PickerMotion;
 pub use workspace::picker::{
     PICKER_ICON_X, PICKER_MAX_ROWS, PICKER_PAD, PICKER_ROW, PICKER_TEXT_X, PLACES_FOOTER,
@@ -214,6 +217,8 @@ pub enum UserEvent {
     GitContent,
     /// 后台重新比较好了一个差异标签。
     Rediffed,
+    /// 后台提取好了大纲的符号。
+    Outline,
     /// 后台的提交、回滚做完了，或者取到了上一次提交的信息。
     GitCommit,
     /// 确认框上确认了回滚这些文件。
@@ -329,6 +334,8 @@ pub enum Focus {
     CommitMessage,
     /// 侧栏提交视图的改动列表。
     CommitList,
+    /// 文件视图底部大纲的符号列表。
+    Outline,
     /// 日志标签标题栏的筛选输入框。
     LogFilter,
     /// 功能对话框（新建工作树）里的输入框。
@@ -345,6 +352,7 @@ impl Focus {
                 | Focus::Results
                 | Focus::Settings
                 | Focus::CommitList
+                | Focus::Outline
                 | Focus::Terminal
         )
     }
@@ -373,6 +381,8 @@ impl Focus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Hover {
     None,
+    /// 文件视图底部大纲里的一处（符号行、行首箭头、标题行及其右端的按钮）。
+    Outline(OutlineTarget),
     /// 编辑区右侧的缩略图。
     Minimap,
     /// 应用绘制的标题栏上的窗口按钮。
@@ -396,6 +406,8 @@ pub enum Hover {
     Browser,
     /// Markdown 预览里的链接（`MarkdownPreview::links` 的序号）。
     MarkdownLink(usize),
+    /// Markdown 预览左侧的标题指示条或展开的标题列表。
+    MarkdownToc(crate::app::preview::markdown::TocTarget),
     Search(SearchButton),
     TreeRow(usize),
     /// 标签序号，以及是否悬停在该标签的关闭按钮上。
@@ -403,6 +415,8 @@ pub enum Hover {
     Splitter,
     /// 编辑区和终端面板之间的间距（拖动改面板的大小）。
     TerminalDivider,
+    /// 文件视图里大纲标题行的上沿（上下拖动改大纲的高度）。
+    OutlineDivider,
     /// 分栏预览中间的分隔线（左右拖动改两半的宽度）。
     SplitDivider,
     /// 终端面板标签栏上的标签、关闭按钮、「+」和位置按钮。
@@ -477,6 +491,7 @@ impl Hover {
                 | Hover::Preview(_)
                 | Hover::Browser
                 | Hover::ViewTab(_)
+                | Hover::Outline(OutlineTarget::FoldAll)
                 | Hover::Search(_)
                 | Hover::Panel(
                     PanelButton::Tool(_)
@@ -571,6 +586,11 @@ enum Drag {
     /// 面板在下面时是纵坐标
     /// 和高度，在右边时是横坐标和宽度。
     TerminalDivider {
+        start: f32,
+        size: f32,
+    },
+    /// 拖大纲标题行的上沿：按下时的纵坐标、符号列表当时的高度（逻辑像素）。
+    OutlineDivider {
         start: f32,
         size: f32,
     },
@@ -913,6 +933,8 @@ pub struct App {
 
     /// 侧栏搜索面板的状态。
     pub global: GlobalSearch,
+    /// 文件视图底部大纲的状态。
+    pub outline: OutlineState,
 
     // 快速打开
     /// 工作区中各文件的路径与匹配用的索引。
@@ -927,6 +949,11 @@ pub struct App {
     pub picker_hits: Vec<usize>,
     /// 当前选中的结果在 `picker_hits` 中的序号（从 0 起）。
     pub picker_selected: usize,
+    /// 分支选择器打开时自动选中的行（`picker_selected` 的值）；移动选中项或输入查询后为 `None`。
+    ///
+    /// 自动选中的行以浅色底显示：它不一定是当前分支（单列最近使用时选中上一个用过的分支，回车即
+    /// 切回），强调色底会被误认为当前分支。当前分支由行首的对勾标出。
+    pub picker_default: Option<usize>,
     /// 结果开头属于「最近打开」的条数（未输入查询时列在最前面）。
     pub picker_recent: usize,
     /// 查询末尾的 `:行` 或 `:行:列`，打开文件后跳转到该位置。
@@ -1085,9 +1112,11 @@ pub struct App {
     pub(crate) shared: std::rc::Rc<crate::winc::Shared>,
     /// 配置的版本：本窗口每写一次配置文件加一，应用层据此把新配置发给其他窗口。
     pub(crate) config_rev: u64,
-    /// 新窗口的位置：相对打开它的窗口往右下错开一段，建窗口时用一次。
-    pub(crate) cascade: Option<winit::dpi::Position>,
-    /// 窗口没有最大化、全屏时的大小和位置，关闭时记下来。
+    /// 新窗口的位置（外框左上角，物理像素）和打开它的窗口的缩放比例：比打开它的窗口往右下错开
+    /// 一段。建窗口时按当前的显示器校验后使用一次，见 `App::cascade_from`。
+    pub(crate) cascade: Option<((f64, f64), f64)>,
+    /// 窗口正常显示（没有最大化、全屏、最小化）时的大小和位置：关闭时记下来；最小化期间不更新，
+    /// 从最小化的窗口打开新窗口时按它错开（见 `App::cascade_from`）。
     pub(crate) window_frame: Option<winc_config::WindowFrame>,
     /// 新窗口和打开它的窗口共用的字体和字形缓存（建渲染器时用一次）。
     pub(crate) glyphs_from: Option<winc_render::SharedGlyphs>,
@@ -1215,6 +1244,11 @@ impl App {
             return;
         }
 
+        // 鼠标移到预览的标题指示条上：标题列表展开，淡入。
+        let toc = |h: Hover| matches!(h, Hover::MarkdownToc(_));
+        if toc(hover) && !toc(self.hover) {
+            self.markdown.toc_fade = self.clock(animation::TOC_FADE);
+        }
         self.hover = hover;
         self.tooltip_since = hover.has_tooltip().then(Instant::now);
         self.tooltip_shown = false;

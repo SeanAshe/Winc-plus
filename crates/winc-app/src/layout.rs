@@ -41,8 +41,10 @@ pub struct Layout {
     pub sidebar: Rect,
     /// 侧栏第二行：左边项目和分支，右端当前视图的工具。
     pub sidebar_header: Rect,
-    /// 侧栏中的文件树区域，位于项目名所在行之下。
+    /// 侧栏中的文件树区域，位于项目名所在行之下；文件视图里不含底部的大纲。
     pub tree: Rect,
+    /// 文件视图底部的大纲：标题行连同展开时的符号列表；不在文件视图时为空。
+    pub outline: Rect,
     /// 侧栏和编辑区之间可拖动的分隔条。
     pub splitter: Rect,
     /// 侧栏开关按钮：固定在红绿灯右侧，侧栏展开、收起时都不动。
@@ -200,6 +202,7 @@ impl Layout {
             sidebar,
             sidebar_header,
             tree,
+            outline: Rect::default(),
             splitter,
             sidebar_button,
             top_bar,
@@ -444,6 +447,8 @@ pub enum Scrollbar {
     Panel,
     /// 提交视图改动列表的竖直滚动条。
     Commit,
+    /// 文件视图底部大纲符号列表的竖直滚动条。
+    Outline,
     /// 终端面板的竖直滚动条（回滚缓冲）。
     Terminal,
     /// Markdown 预览的竖直滚动条。

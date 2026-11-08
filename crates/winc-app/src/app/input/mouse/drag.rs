@@ -58,6 +58,11 @@ impl App {
             return;
         }
 
+        // 鼠标位于全屏查看的图上或正在拖动图时，被遮住的部件不响应悬停。
+        if self.diagram_view_mouse_move(x, y) {
+            return;
+        }
+
         self.track_tree_segment();
         if self.tree_drag.is_some() {
             self.drag_tree_item(x, y);
@@ -118,6 +123,7 @@ impl App {
                     self.set_sidebar(true);
                 }
             }
+            Drag::OutlineDivider { start, size } => self.drag_outline_divider(start, size, y),
             Drag::TerminalDivider { start, size } => {
                 // 往上（在右边时往左）拖面板变大；限制在排版允许的范围里再记下，
                 // 记的就是画出来的大小。
@@ -213,6 +219,17 @@ impl App {
                 let max = self.commit_max_scroll();
                 if let Some(thumb) = scrollbar_thumb(list, 0.0, max + list.h) {
                     self.commit.scroll = scroll_for_thumb(list.y, list.h, thumb.h, y, grab, max);
+                }
+                self.request_redraw();
+            }
+            Drag::Scrollbar {
+                bar: Scrollbar::Outline,
+                grab,
+            } => {
+                let list = self.outline_list();
+                let max = self.outline_max_scroll();
+                if let Some(thumb) = scrollbar_thumb(list, 0.0, max + list.h) {
+                    self.outline.scroll = scroll_for_thumb(list.y, list.h, thumb.h, y, grab, max);
                 }
                 self.request_redraw();
             }

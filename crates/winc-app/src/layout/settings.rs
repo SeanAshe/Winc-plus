@@ -109,6 +109,7 @@ impl SettingsPage {
                     Setting::RestoreFolder,
                 ]),
                 plain(vec![
+                    Setting::Outline,
                     Setting::CompactFolders,
                     Setting::PreviewOnClick,
                     Setting::DiffInline,
@@ -233,6 +234,8 @@ pub enum Setting {
     WordWrap,
     /// 编辑区右侧的缩略图。
     Minimap,
+    /// 文件视图底部的大纲。
+    Outline,
     /// 显示行号。
     LineNumbers,
     /// 差异单栏显示。
@@ -370,6 +373,7 @@ impl Setting {
             | Setting::StickyScroll
             | Setting::WordWrap
             | Setting::Minimap
+            | Setting::Outline
             | Setting::LineNumbers
             | Setting::DiffInline
             | Setting::RenderWhitespace
@@ -427,6 +431,7 @@ impl Setting {
             Setting::RenderWhitespace => t!("settings-render-whitespace"),
             Setting::StatusBar => t!("settings-status-bar"),
             Setting::RestoreWindow => t!("settings-restore-window"),
+            Setting::Outline => t!("settings-outline"),
             Setting::CompactFolders => t!("settings-compact-folders"),
             Setting::PreviewOnClick => t!("settings-preview-on-click"),
             Setting::RemoteImages => t!("settings-remote-images"),
@@ -478,6 +483,7 @@ impl Setting {
             Setting::RestoreFolder => Some(t!("settings-restore-folder-desc")),
             Setting::StickyScroll => Some(t!("settings-sticky-scroll-desc")),
             Setting::WordWrap => Some(t!("settings-word-wrap-desc")),
+            Setting::Outline => Some(t!("settings-outline-desc")),
             Setting::CompactFolders => Some(t!("settings-compact-folders-desc")),
             Setting::PreviewOnClick => Some(t!("settings-preview-on-click-desc")),
             Setting::Minimap => Some(t!("settings-minimap-desc")),
@@ -524,6 +530,7 @@ impl Setting {
             | Setting::StickyScroll
             | Setting::WordWrap
             | Setting::Minimap
+            | Setting::Outline
             | Setting::LineNumbers
             | Setting::DiffInline
             | Setting::StatusBar

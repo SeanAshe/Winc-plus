@@ -127,6 +127,35 @@ fn the_banner_comes_before_the_output() {
     assert!(c.text().starts_with("> command\noutput"), "{}", c.text());
 }
 
+/// 带命令边界标记的 `banner`（运行配置的命令行）开始一个命令块；程序退出后辅助进程写入结束标记，
+/// 块带上退出码结束，与 shell 集成报告的命令相同。
+#[test]
+fn a_marked_banner_starts_a_block_that_ends_with_the_exit_code() {
+    let mut c = Client::start();
+    c.send(ToHelper::Spawn {
+        tab: 1,
+        program: Some(b"/bin/sh".to_vec()),
+        args: vec![b"-c".to_vec(), b"echo output; exit 3".to_vec()],
+        login: false,
+        cwd: b"/".to_vec(),
+        env: vec![(b"PATH".to_vec(), b"/usr/bin:/bin".to_vec())],
+        scrollback: 100,
+        size: SIZE,
+        integration: None,
+        banner: b"\x1b]133;A\x07\x1b]133;B\x07> command\r\n\x1b]133;C\x07".to_vec(),
+    });
+    let message = c.until(|_, m| {
+        matches!(m, FromHelper::Blocks { blocks, .. } if blocks.iter().any(|b| b.exit.is_some()))
+    });
+    let FromHelper::Blocks { blocks, .. } = message else {
+        unreachable!()
+    };
+    assert_eq!(blocks.len(), 1, "{blocks:?}");
+    let block = &blocks[0];
+    assert_eq!((block.prompt, block.command, block.output), (0, 0, Some(1)));
+    assert_eq!(block.exit, Some(3));
+}
+
 /// 停止结束忽略挂断的程序，到期强制结束；终端的内容保留，退出照常报告。
 #[test]
 fn stop_ends_the_program_and_keeps_the_terminal() {

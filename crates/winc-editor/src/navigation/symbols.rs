@@ -72,6 +72,12 @@ pub struct Symbol {
     pub col: usize,
     /// 上级符号的名字；没有上级时为 `None`。
     pub container: Option<String>,
+    /// 嵌套层级：没有上级时为 0，每多一层上级加 1。
+    ///
+    /// 按缩进（Markdown 为标题级别）判定；行内写明上级的写法（Go 方法的接收者类型）不计入。
+    pub depth: usize,
+    /// Markdown 标题的级别（行首 `#` 的个数，1 到 6）；其他符号为 0。
+    pub heading: u8,
 }
 
 /// 标识符的正则：字母、数字、下划线、`$`，不以数字开头。
@@ -224,6 +230,7 @@ pub fn symbols(text: &Rope, language: &Language) -> Vec<Symbol> {
             _ => kind,
         };
         let container = container.or_else(|| parent.map(|(_, name, _)| name.clone()));
+        let depth = parents.len();
         if kind.contains() {
             parents.push((level, name.clone(), kind));
         }
@@ -233,6 +240,12 @@ pub fn symbols(text: &Rope, language: &Language) -> Vec<Symbol> {
             line: i,
             col,
             container,
+            depth,
+            heading: if kind == SymbolKind::Heading {
+                level as u8
+            } else {
+                0
+            },
         });
     }
     found

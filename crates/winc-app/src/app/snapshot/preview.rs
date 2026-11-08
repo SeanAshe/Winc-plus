@@ -1,4 +1,5 @@
-//! Markdown 预览的测试：三段切换、后台解析、分栏联动滚动、点链接、本地与远程图片、截图与计时。
+//! Markdown 预览的测试：三段切换、后台解析、分栏联动滚动、点链接、本地与远程图片、全屏查看
+//! mermaid 图、截图与计时。
 
 use winc_editor::PreviewMode;
 
@@ -1820,19 +1821,27 @@ fn shoot_rich_markdown() {
     }
 }
 
+/// 能画的 mermaid 图悬停时显示全屏按钮；不支持的图按代码块显示，只有复制按钮。
 #[test]
 fn mermaid_blocks_draw_diagrams_and_fall_back_to_code() {
     let dir = sample_folder("md-mermaid-fallback");
     let path = dir.join("M.md");
     let drawn = "```mermaid\ngraph TD\n  A --> B\n```\n";
     let unknown = "```mermaid\ngantt\n  title 计划\n```\n";
-    for (source, codes) in [(drawn, 0), (unknown, 1)] {
+    let expand = crate::view::preview::markdown::EXPAND;
+    for (source, diagram) in [(drawn, true), (unknown, false)] {
         std::fs::write(&path, source).unwrap();
         let mut app = app_with(&path, false);
         paint(&mut app);
         app.set_preview_mode(PreviewMode::Preview);
         settle(&mut app);
-        assert_eq!(app.markdown.codes.len(), codes, "{source}");
+        let [block] = app.markdown.codes[..] else {
+            panic!("只有一个代码块或图：{source}");
+        };
+        app.on_mouse_move(block.x + block.w / 2.0, block.y + block.h / 2.0);
+        paint(&mut app);
+        let has_expand = app.markdown.links.iter().any(|(_, url)| url == expand);
+        assert_eq!(has_expand, diagram, "{source}");
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -1902,9 +1911,13 @@ fn shoot_html_readme() {
     }
 }
 
-/// mermaid 图的样本：流程图、状态图一张，时序图、饼图一张，子图多的架构图一张（一屏放不下
-/// 全部）。
-const DIAGRAMS: [&str; 3] = [
+/// mermaid 图的样本，每项为一个文档：
+///
+/// - 流程图与状态图；
+/// - 时序图与饼图；
+/// - 含多个子图的架构图，高度超过一屏；
+/// - 节点文字较多、从左向右的架构图，以及含多条回边的状态图。
+const DIAGRAMS: [&str; 4] = [
     r#"```mermaid
 flowchart TD
     A[开始] --> B{登录了吗?}
@@ -2008,6 +2021,57 @@ flowchart LR
     c --> y
 ```
 "#,
+    r#"# qcAgent 架构图
+
+## 1. 总体架构
+
+```mermaid
+flowchart LR
+    caller[调用方平台]
+    config[配置目录<br/>规则表 · 规则包 · 文档类型表 · 模型档案]
+    subgraph svc[qcAgent 服务（一个代码库，两个入口）]
+        api[qc-api<br/>鉴权 · 校验 · 数据等级闸门<br/>幂等 · 结果复用 · 规则预览]
+        worker[qc-worker<br/>领取任务（租约）· 心跳 / 取消 · 清扫<br/>执行流水线 · 上传结果 · 回调]
+        subgraph rt[运行环境（每个任务一套）]
+            shard[分片 s01 … sNN<br/>容器模式：工具容器 + 每轮一个 pi 容器<br/>本地模式：pi 和执行服务是本机进程]
+            net[容器模式：internal 网络 + 出口代理，只放行模型端点<br/>本地模式（QC_RUNTIME=local）：没有网络隔离]
+        end
+    end
+    model[私有化模型]
+    subgraph store[存储]
+        db[(Postgres / SQLite<br/>任务 · 事件 · 幂等键 · 回调发件箱)]
+        fs[(文件存储（本地目录）<br/>输入（按调用方、内容寻址）<br/>结果 · 审计包)]
+    end
+    caller -- 上传文件 / 提交任务 / 查询 / 取结果 --> api
+    config --> worker
+    api --> db
+    api --> fs
+    worker -- 领取 · 续租 · 写终态 --> db
+    worker -- 读输入 · 写结果和审计包 --> fs
+    worker --> shard
+    shard --> net
+    net --> model
+    worker -. 签名回调（只含任务 ID 和状态） .-> caller
+```
+
+## 2. 任务生命周期
+
+```mermaid
+stateDiagram-v2
+    [*] --> queued: 提交通过校验
+    [*] --> succeeded: 输入与通过验收的旧任务完全相同（复用结果）
+    queued --> running: worker 领取（设置租约）
+    running --> queued: 租约过期（worker 失联），重试次数未用完
+    queued --> failed: 排队超过截止时间（expired）
+    queued --> canceled: 取消
+    running --> canceled: 心跳发现取消，终止 pi 容器
+    running --> succeeded: 有结果（passed 或 degraded）
+    running --> failed: 拿不出结果（input_error / refused / system_error）
+    succeeded --> [*]
+    failed --> [*]
+    canceled --> [*]
+```
+"#,
 ];
 
 /// 宽度超过一行的流程图：多个子图并排，节点文字较长，结构来自实际的架构图。
@@ -2082,6 +2146,129 @@ fn shoot_mermaid_diagrams() {
     }
 }
 
+/// 打开内容为 `DIAGRAMS[k]` 的文档，切换到只看预览，鼠标移到第一张图上后点击全屏按钮。
+fn diagram_view_app(name: &str, k: usize, dark: bool) -> (App, PathBuf) {
+    let dir = sample_folder(name);
+    let path = dir.join("MERMAID.md");
+    std::fs::write(&path, DIAGRAMS[k]).unwrap();
+    let mut app = app_with(&path, dark);
+    paint(&mut app);
+    app.set_preview_mode(PreviewMode::Preview);
+    settle(&mut app);
+    let diagram = *app.markdown.codes.first().expect("画出了图");
+    app.on_mouse_move(diagram.x + diagram.w / 2.0, diagram.y + 20.0);
+    paint(&mut app);
+    let expand = crate::view::preview::markdown::EXPAND;
+    let (button, _) = app
+        .markdown
+        .links
+        .iter()
+        .find(|(_, url)| url == expand)
+        .cloned()
+        .expect("鼠标在图上时有全屏按钮");
+    click(
+        &mut app,
+        (button.x + button.w / 2.0, button.y + button.h / 2.0),
+    );
+    paint(&mut app);
+    (app, dir)
+}
+
+/// 全屏查看：图覆盖编辑区并按适应查看区域的倍数显示；工具栏按钮、按键与按住 `⌘` 滚动可以
+/// 缩放，拖动可以平移；`Esc`、关闭按钮或切回源代码时关闭，查看期间输入不写入文档。
+#[test]
+fn diagrams_open_full_screen_and_zoom() {
+    use winit::keyboard::{Key, NamedKey};
+
+    use crate::app::preview::markdown::DiagramTool;
+    let (mut app, dir) = diagram_view_app("md-diagram-view", 0, false);
+    let view = app.markdown.diagram.as_ref().expect("打开了全屏查看");
+    assert_eq!(view.area, app.layout.editor);
+    assert!(view.zoom.is_none());
+    let fit = view.scale();
+    assert!(fit > 1.0, "小图放大到适应窗口：{fit}");
+    let button = |app: &App, tool| {
+        let view = app.markdown.diagram.as_ref().unwrap();
+        let (r, _) = view.buttons.iter().find(|(_, t)| *t == tool).unwrap();
+        (r.x + r.w / 2.0, r.y + r.h / 2.0)
+    };
+    let scale = |app: &App| app.markdown.diagram.as_ref().unwrap().scale();
+
+    let at = button(&app, DiagramTool::ZoomIn);
+    click(&mut app, at);
+    paint(&mut app);
+    assert!((scale(&app) - fit * 1.25).abs() < 1e-3);
+    assert!(app.diagram_view_key(&Key::Character("-".into()), "-", false));
+    assert!((scale(&app) - fit).abs() < 1e-3);
+
+    // 按住 `⌘` 滚动：以鼠标处为中心放大，鼠标处的内容位置不变。
+    let area = app.markdown.diagram.as_ref().unwrap().area;
+    let at = (area.x + area.w / 4.0, area.y + area.h / 3.0);
+    app.on_mouse_move(at.0, at.1);
+    app.modifiers = command_modifiers();
+    // 滚动量以物理像素给出；离屏窗口的缩放倍数为 2，换算为 100 逻辑像素。
+    app.on_wheel(MouseScrollDelta::PixelDelta((0.0, 200.0).into()));
+    app.modifiers = Default::default();
+    paint(&mut app);
+    let view = app.markdown.diagram.as_ref().unwrap();
+    let k = view.scale() / fit;
+    assert!(k > 1.5, "{k}");
+    let (cx, cy) = (at.0 - area.x - area.w / 2.0, at.1 - area.y - area.h / 2.0);
+    assert!((view.pan.0 - (cx - cx * k)).abs() < 0.5);
+    assert!((view.pan.1 - (cy - cy * k)).abs() < 0.5);
+
+    // 拖动平移；点击倍数后恢复适应查看区域的倍数，图居中。
+    let before = view.pan;
+    app.on_mouse_down(MouseButton::Left);
+    app.on_mouse_move(at.0 + 30.0, at.1 - 10.0);
+    app.on_mouse_up(MouseButton::Left);
+    let view = app.markdown.diagram.as_ref().unwrap();
+    assert!((view.pan.0 - (before.0 + 30.0)).abs() < 1e-3);
+    assert!((view.pan.1 - (before.1 - 10.0)).abs() < 1e-3);
+    assert!(view.grab.is_none());
+    let at = button(&app, DiagramTool::Fit);
+    click(&mut app, at);
+    let view = app.markdown.diagram.as_ref().unwrap();
+    assert_eq!((view.zoom, view.pan), (None, (0.0, 0.0)));
+
+    // 全屏查看期间的输入不写入被遮住的文档。
+    let revision = app.editor.active().unwrap().revision;
+    assert!(app.diagram_view_key(&Key::Character("x".into()), "x", false));
+    assert_eq!(app.editor.active().unwrap().revision, revision);
+
+    assert!(app.diagram_view_key(&Key::Named(NamedKey::Escape), "", false));
+    assert!(app.markdown.diagram.is_none());
+
+    // 关闭按钮关闭全屏查看；切回源代码同样关闭。
+    let (mut app, dir2) = diagram_view_app("md-diagram-view-close", 0, false);
+    let at = button(&app, DiagramTool::Close);
+    click(&mut app, at);
+    assert!(app.markdown.diagram.is_none());
+    let (mut app, dir3) = diagram_view_app("md-diagram-view-source", 0, false);
+    app.set_preview_mode(PreviewMode::Source);
+    paint(&mut app);
+    assert!(app.markdown.diagram.is_none());
+    for dir in [dir, dir2, dir3] {
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[test]
+#[ignore = "截图，手动运行"]
+fn shoot_diagram_view() {
+    for dark in [false, true] {
+        let (mut app, dir) = diagram_view_app("md-diagram-shot", 3, dark);
+        let theme = if dark { "dark" } else { "light" };
+        shoot(&mut app, &format!("md-diagram-view-{theme}"));
+        // 关闭全屏查看后鼠标仍在图上，截取图右上角的全屏、复制按钮。
+        app.close_diagram_view();
+        let diagram = *app.markdown.codes.first().unwrap();
+        app.on_mouse_move(diagram.right() - 40.0, diagram.y + 20.0);
+        shoot(&mut app, &format!("md-diagram-buttons-{theme}"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 #[test]
 #[ignore = "截图，手动运行"]
 fn shoot_github_extras() {
@@ -2099,6 +2286,36 @@ fn shoot_github_extras() {
             &mut app,
             &format!("md-extras-{}", if dark { "dark" } else { "light" }),
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// 计时：`DIAGRAMS` 重复 5 遍组成的文档首次排版的耗时，以及只看预览时滚动 50 帧的耗时；
+/// 同一文档的图按普通代码块显示时的耗时作为对照。
+#[test]
+#[ignore = "计时，手动运行"]
+fn time_mermaid() {
+    for lang in ["mermaid", "text"] {
+        let text = DIAGRAMS
+            .join("\n\n")
+            .repeat(5)
+            .replace("```mermaid", &format!("```{lang}"));
+        let dir = sample_folder("md-time-mermaid");
+        let path = dir.join("MERMAID.md");
+        std::fs::write(&path, &text).unwrap();
+        let mut app = app_with(&path, false);
+        paint(&mut app);
+        app.set_preview_mode(PreviewMode::Preview);
+        app.wait_for_markdown();
+        let started = std::time::Instant::now();
+        paint(&mut app);
+        eprintln!("mermaid 第一次排版 {:?}", started.elapsed());
+        let started = std::time::Instant::now();
+        for i in 0..50 {
+            app.markdown.scroll_to((i * 173) as f32);
+            paint(&mut app);
+        }
+        eprintln!("{lang} 滚 50 次 {:?}", started.elapsed());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
@@ -2568,4 +2785,268 @@ fn the_live_preview_hides_its_caret_until_clicked_and_ignores_the_margins() {
     paint(&mut app);
     assert!(app.live_caret_shown());
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 只看预览时左侧有标题指示条，每个标题一条；鼠标停在指示条上时标题列表在原处展开，点击一项
+/// 滚到该标题。分栏时预览变窄，左侧留白放不下指示条，不画。
+#[test]
+fn the_preview_shows_a_heading_indicator() {
+    use crate::app::preview::markdown::TocTarget;
+
+    let (mut app, dir) = readme("md-toc", false, PreviewMode::Preview);
+    assert_eq!(app.markdown.toc_tops.len(), 2);
+    let find = |app: &App, target| {
+        app.markdown
+            .toc
+            .iter()
+            .find(|(_, t)| *t == target)
+            .map(|h| h.0)
+    };
+    let bars = find(&app, TocTarget::Bars).unwrap();
+    assert!(find(&app, TocTarget::Heading(0)).is_none());
+
+    app.on_mouse_move(bars.x + 20.0, bars.y + 10.0);
+    paint(&mut app);
+    assert!(matches!(app.hover, Hover::MarkdownToc(_)));
+    // 展开时第一行的横线落在指示条第一条的位置上（还没有滚到任何标题），横线不跳动。指示条的
+    // 范围比第一条高出 8，第一条粗 2。
+    let first = find(&app, TocTarget::Heading(0)).unwrap();
+    assert_eq!(first.y + first.h / 2.0, bars.y + 8.0 + 1.0);
+    // 列表盖住指示条展开；鼠标停在列表里两行之间的空白处时列表不收起。
+    let row = find(&app, TocTarget::Heading(1)).unwrap();
+    let card = app.markdown.toc.iter().rev().nth(1).unwrap().0;
+    assert!(card.contains(bars.x + 20.0, bars.y + 10.0));
+    app.on_mouse_move(card.x + 1.0, row.y);
+    paint(&mut app);
+    assert!(find(&app, TocTarget::Heading(1)).is_some());
+
+    click(&mut app, (row.x + 20.0, row.y + row.h / 2.0));
+    let max = (app.markdown.height - app.markdown.area.h).max(0.0);
+    assert_eq!(app.markdown.scroll(), app.markdown.toc_tops[1].min(max));
+    paint(&mut app);
+    assert_eq!(app.markdown.toc_current, Some(1));
+
+    // 指示条贴在正文左边，随正文居中的位置移动。
+    let left = app.markdown.layout.as_ref().unwrap().left;
+    // 列表展开着时卡片也记作 `Bars`，指示条本身总是最后一项。
+    let bars = app.markdown.toc.last().unwrap().0;
+    assert!(
+        bars.right() <= left && bars.right() >= left - 24.0,
+        "{bars:?} {left}"
+    );
+
+    // 点开头的标题后再滚到底：文末的标题滚不到顶上，当前所在的一节取屏幕里最后一个标题。
+    app.press_toc(TocTarget::Heading(0));
+    paint(&mut app);
+    assert_eq!(app.markdown.toc_current, Some(0));
+    app.scroll_markdown_to(max);
+    paint(&mut app);
+    assert_eq!(app.markdown.toc_current, Some(1));
+
+    app.set_preview_mode(PreviewMode::Split);
+    settle(&mut app);
+    assert!(app.markdown.toc.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 截图：本仓库的 README 只看预览，滚到第三个标题，鼠标停在标题指示条上；点最后一个标题后
+/// 正文里的底色。深浅两套配色。
+#[test]
+#[ignore]
+fn shoot_preview_heading_indicator() {
+    use crate::app::preview::markdown::TocTarget;
+
+    for dark in [false, true] {
+        let dir = sample_folder(if dark { "md-toc-dark" } else { "md-toc-light" });
+        let path = dir.join("README.md");
+        std::fs::write(&path, include_str!("../../../../../README.md")).unwrap();
+        let mut app = app_with(&path, dark);
+        paint(&mut app);
+        app.set_preview_mode(PreviewMode::Preview);
+        settle(&mut app);
+        let top = app.markdown.toc_tops[2];
+        app.scroll_markdown_to(top);
+        paint(&mut app);
+        shoot(&mut app, if dark { "md-toc-dark" } else { "md-toc-light" });
+        let bars = app
+            .markdown
+            .toc
+            .iter()
+            .find(|(_, t)| *t == TocTarget::Bars)
+            .unwrap()
+            .0;
+        app.on_mouse_move(bars.x + 20.0, bars.y + 10.0);
+        paint(&mut app);
+        let open = if dark {
+            "md-toc-open-dark"
+        } else {
+            "md-toc-open-light"
+        };
+        shoot(&mut app, open);
+        // 展开到一半：横线正从指示条滑向各行，卡片和文字淡入到一半。
+        let at = crate::app::animation::TOC_FADE;
+        app.markdown.toc_fade = Some(crate::app::animation::Clock::frozen(at / 2, at));
+        let half = if dark {
+            "md-toc-opening-dark"
+        } else {
+            "md-toc-opening-light"
+        };
+        shoot(&mut app, half);
+        app.markdown.toc_fade = None;
+        // 点最后一个标题：滚到底，它成为当前所在的一节，正文里的底色淡出到三成。
+        let last = app.markdown.toc_tops.len() - 1;
+        app.press_toc(TocTarget::Heading(last));
+        let at = crate::app::animation::TOC_FLASH;
+        let clock = crate::app::animation::Clock::frozen(at * 3 / 10, at);
+        app.markdown.toc_flash = Some((last, clock));
+        app.on_mouse_move(900.0, 400.0);
+        paint(&mut app);
+        let picked = if dark {
+            "md-toc-picked-dark"
+        } else {
+            "md-toc-picked-light"
+        };
+        shoot(&mut app, picked);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// 把 `files`（包中路径、内容）原样存放（不压缩）写成 zip，按 ZIP 文件格式（APPNOTE.TXT）
+/// 逐字段写出；读取时不核对 CRC，校验字段固定写 0。
+fn stored_zip(files: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut central = Vec::new();
+    for (name, data) in files {
+        let offset = out.len() as u32;
+        let sizes = [
+            (data.len() as u32).to_le_bytes(),
+            (data.len() as u32).to_le_bytes(),
+        ];
+        out.extend(0x0403_4b50u32.to_le_bytes());
+        out.extend([20, 0, 0, 0, 0, 0]);
+        out.extend([0; 8]);
+        out.extend(sizes.concat());
+        out.extend((name.len() as u16).to_le_bytes());
+        out.extend([0, 0]);
+        out.extend(name.as_bytes());
+        out.extend(*data);
+        central.extend(0x0201_4b50u32.to_le_bytes());
+        central.extend([20, 0, 20, 0, 0, 0, 0, 0]);
+        central.extend([0; 8]);
+        central.extend(sizes.concat());
+        central.extend((name.len() as u16).to_le_bytes());
+        central.extend([0; 12]);
+        central.extend(offset.to_le_bytes());
+        central.extend(name.as_bytes());
+    }
+    let start = out.len() as u32;
+    out.extend(&central);
+    out.extend(0x0605_4b50u32.to_le_bytes());
+    out.extend([0; 4]);
+    out.extend((files.len() as u16).to_le_bytes());
+    out.extend((files.len() as u16).to_le_bytes());
+    out.extend((central.len() as u32).to_le_bytes());
+    out.extend(start.to_le_bytes());
+    out.extend([0, 0]);
+    out
+}
+
+/// 一份 docx：两个标题、一段正文和包中的一张图（[`LOGO`]）。
+fn sample_docx() -> Vec<u8> {
+    let rel = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
+    let root = format!(
+        "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\
+         <Relationship Id=\"rId1\" Type=\"{rel}/officeDocument\" Target=\"word/document.xml\"/>\
+         </Relationships>"
+    );
+    let rels = format!(
+        "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\
+         <Relationship Id=\"rI\" Type=\"{rel}/image\" Target=\"media/logo.svg\"/>\
+         </Relationships>"
+    );
+    let heading = |level: u8, text: &str| {
+        format!(
+            "<w:p><w:pPr><w:outlineLvl w:val=\"{level}\"/></w:pPr>\
+             <w:r><w:t>{text}</w:t></w:r></w:p>"
+        )
+    };
+    let document = format!(
+        "<w:document xmlns:w=\"http://schemas.openxmlformats.org/wordprocessingml/2006/main\" \
+         xmlns:r=\"{rel}\" xmlns:a=\"http://schemas.openxmlformats.org/drawingml/2006/main\" \
+         xmlns:wp=\"http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing\">\
+         <w:body>{}{}<w:p><w:r><w:t>正文，</w:t></w:r><w:r><w:rPr><w:b/></w:rPr>\
+         <w:t>加粗</w:t></w:r></w:p><w:p><w:r><w:drawing><wp:inline>\
+         <wp:extent cx=\"914400\" cy=\"914400\"/><wp:docPr id=\"1\" name=\"标志\"/>\
+         <a:graphic><a:graphicData><a:blip r:embed=\"rI\"/></a:graphicData></a:graphic>\
+         </wp:inline></w:drawing></w:r></w:p></w:body></w:document>",
+        heading(0, "季度报告"),
+        heading(1, "概况"),
+    );
+    stored_zip(&[
+        ("_rels/.rels", root.as_bytes()),
+        ("word/document.xml", document.as_bytes()),
+        ("word/_rels/document.xml.rels", rels.as_bytes()),
+        ("word/media/logo.svg", LOGO.as_bytes()),
+    ])
+}
+
+/// docx 打开后显示阅读视图：只读、铺满编辑区，标题出现在标题指示条中，包中的图片从内存读取；
+/// 右键菜单没有「在源代码中显示」。文件损坏时显示原因和重试、用默认应用打开的按钮。
+#[test]
+fn docx_files_open_as_a_reading_view() {
+    let dir = sample_folder("md-docx");
+    let path = dir.join("季度报告.docx");
+    std::fs::write(&path, sample_docx()).unwrap();
+    let mut app = app_with(&path, false);
+    settle(&mut app);
+    let doc = app.editor.active().unwrap();
+    assert_eq!(doc.unsupported, Some(winc_editor::Unsupported::Docx));
+    assert!(doc.readonly);
+    assert_eq!(app.markdown.area, app.layout.editor);
+    assert!(app.markdown.failed.is_none());
+    assert_eq!(app.markdown.toc_tops.len(), 2);
+    // 图片按文档所在目录解析出路径，但不读磁盘：磁盘上没有这个文件。
+    let opened = doc.path.clone().unwrap();
+    let logo = opened.parent().unwrap().join("word/media/logo.svg");
+    assert!(!logo.exists());
+    assert!(matches!(
+        app.markdown.images.get(&logo),
+        Some(crate::app::preview::markdown::ImageSlot::Ready { pixels, .. }) if !pixels.is_empty()
+    ));
+    let laid = app.markdown.layout.as_ref().unwrap();
+    assert!(laid.chars() > 0);
+
+    let area = app.markdown.area;
+    right_click(&mut app, (area.x + area.w / 2.0, area.y + 60.0));
+    assert!(
+        !menu_commands(&app)
+            .iter()
+            .any(|(c, _)| *c == MenuCommand::RevealSource)
+    );
+
+    let broken = dir.join("损坏.docx");
+    std::fs::write(&broken, b"not a docx").unwrap();
+    app.open_path(&broken);
+    settle(&mut app);
+    assert_eq!(
+        app.markdown.failed.as_deref(),
+        Some(winc_i18n::t!("preview-docx-invalid"))
+    );
+    assert_eq!(app.placeholder_hits.len(), 2);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+#[ignore = "截图，手动运行"]
+fn shoot_docx() {
+    for dark in [false, true] {
+        let dir = sample_folder("md-docx-shot");
+        let path = dir.join("季度报告.docx");
+        std::fs::write(&path, sample_docx()).unwrap();
+        let mut app = app_with(&path, dark);
+        settle(&mut app);
+        let theme = if dark { "dark" } else { "light" };
+        shoot(&mut app, &format!("md-docx-{theme}"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

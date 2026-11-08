@@ -355,15 +355,15 @@ const fn mix(fg: Color, bg: Color, t: f32) -> Color {
 /// 四档比例依次用于行、行内改动的字、边线和行号栏标记；深色主题叠得浓一些，否则在深色底上
 /// 看不出来。比例取自调参，按两种配色下改动可见程度相当校准。
 /// 深色主题下差异里删除的颜色：比编辑区底色亮、不带色相的灰。
-const DELETED_DARK: Color = palettes::hex(0x868A91);
+const DELETED_DARK: Color = palettes::hex(0x9DA1A8);
 /// 浅色主题下差异里删除的颜色：比编辑区底色暗、不带色相的灰。
-const DELETED_LIGHT: Color = palettes::hex(0x8C8F99);
+const DELETED_LIGHT: Color = palettes::hex(0x70737D);
 
 const fn shade(mark: Color, card: Color, dark: bool) -> DiffShade {
     let t = if dark {
-        [0.14, 0.27, 0.36, 0.75]
+        [0.21, 0.36, 0.46, 0.75]
     } else {
-        [0.10, 0.22, 0.32, 0.62]
+        [0.16, 0.30, 0.42, 0.62]
     };
     DiffShade {
         line: mix(mark, card, t[0]),

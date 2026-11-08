@@ -717,6 +717,7 @@ impl App {
             Setting::StickyScroll => self.config.sticky_scroll != Some(false),
             Setting::WordWrap => self.config.word_wrap == Some(true),
             Setting::Minimap => self.config.minimap == Some(true),
+            Setting::Outline => self.config.outline != Some(false),
             Setting::LineNumbers => self.config.line_numbers != Some(false),
             Setting::DiffInline => self.config.diff_inline == Some(true),
             Setting::StatusBar => self.config.status_bar != Some(false),
@@ -759,6 +760,7 @@ impl App {
             Setting::StickyScroll => self.config.sticky_scroll = Some(on),
             Setting::WordWrap => self.config.word_wrap = Some(on),
             Setting::Minimap => self.config.minimap = Some(on),
+            Setting::Outline => self.config.outline = Some(on),
             Setting::LineNumbers => self.config.line_numbers = Some(on),
             Setting::DiffInline => self.config.diff_inline = Some(on),
             Setting::StatusBar => self.config.status_bar = Some(on),
@@ -786,9 +788,13 @@ impl App {
         }
         if matches!(
             setting,
-            Setting::Minimap | Setting::LineNumbers | Setting::StatusBar
+            Setting::Minimap | Setting::LineNumbers | Setting::StatusBar | Setting::Outline
         ) {
             self.relayout();
+        }
+        // 关掉大纲时焦点在大纲上的，交给文件树。
+        if setting == Setting::Outline && !on && self.focus == Focus::Outline {
+            self.focus = Focus::Tree;
         }
         if setting == Setting::DiffInline {
             self.apply_diff_layout();
