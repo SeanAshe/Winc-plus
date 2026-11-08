@@ -1,5 +1,5 @@
 //! `app_menu` 的测试：向一个公开的 `NSObject` 子类添加方法后只生效一次，并用类型编码调用
-//! 验证参数与返回值；文件、目录和网址交给回调时只保留文件路径。
+//! 验证参数与返回值；文件、目录和网址交给回调时只保留文件路径；应用菜单的项改用显示名。
 
 use super::*;
 
@@ -126,4 +126,23 @@ fn opened_urls_reach_the_handler_as_paths() {
         *OPENED.lock().unwrap(),
         [PathBuf::from("/tmp/a.txt"), PathBuf::from("/tmp/b c")]
     );
+}
+
+#[test]
+fn menu_items_take_the_display_name() {
+    // `winit` 按进程名写的项换成显示名。
+    assert_eq!(
+        renamed_title("About winc", "winc", "Winc").as_deref(),
+        Some("About Winc")
+    );
+    assert_eq!(
+        renamed_title("Quit winc", "winc", "Winc").as_deref(),
+        Some("Quit Winc")
+    );
+    // 不以进程名结尾的项、只是以这几个字母结尾的词，以及显示名与进程名相同（不在应用包中运行）
+    // 时都不改。
+    assert_eq!(renamed_title("Hide Others", "winc", "Winc"), None);
+    assert_eq!(renamed_title("Services", "winc", "Winc"), None);
+    assert_eq!(renamed_title("Quit xwinc", "winc", "Winc"), None);
+    assert_eq!(renamed_title("Quit winc", "winc", "winc"), None);
 }

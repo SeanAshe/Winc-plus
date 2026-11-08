@@ -16,6 +16,12 @@ mod finder;
 /// 系统按这个标识区分应用（权限、默认打开方式、Launch Services）。
 const BUNDLE_ID: &str = "com.deeix.winc";
 
+/// 应用的显示名：菜单栏、访达、程序坞、「打开方式」和更新窗口里写的名字，也是 dmg 的卷名。
+///
+/// 应用包（`winc.app`）、可执行文件和命令行命令仍是小写的 `winc`；访达按 `CFBundleDisplayName`
+/// 显示应用的名字，不显示包名。
+const APP_NAME: &str = "Winc";
+
 /// 构建 release，组成临时签名（ad-hoc）的 `target/release/bundle/winc.app`，返回应用的路径和
 /// 版本号。
 ///
@@ -135,8 +141,6 @@ pub fn app_arch(app: &Path) -> Result<String, String> {
     })
 }
 
-/// dmg 的卷名，也是打开后窗口的标题。
-const VOLUME_NAME: &str = "winc";
 /// dmg 窗口内容区的宽和高（点）。
 ///
 /// 取自调参：640 点宽的内容区里并排放两个图标及其名字，400 点高容纳图标、名字和箭头。
@@ -209,7 +213,7 @@ pub fn dmg(signed: Option<&Path>, output: Option<&Path>) -> Result<(), String> {
     // 留出余量放背景图、卷图标和文件系统自身的开销，空着的部分压缩后几乎不占空间。
     let megabytes = dir_size(&app).map_err(io)? / 1_048_576 + 16;
     run(Command::new("hdiutil")
-        .args(["create", "-quiet", "-fs", "HFS+", "-volname", VOLUME_NAME])
+        .args(["create", "-quiet", "-fs", "HFS+", "-volname", APP_NAME])
         .args(["-size", &format!("{megabytes}m")])
         .arg(&writable))?;
     // 挂到自己的目录上，不进 `/Volumes`：不和已经打开的 winc 镜像重名，也不出现在系统的卷列表中。
@@ -321,8 +325,8 @@ fn fill_volume(volume: &Path, app: &Path, background: &Path, icon: &Path) -> Res
         .arg(&volume_icon)
         .arg(&never_index))?;
 
-    let mount_point = format!("/Volumes/{VOLUME_NAME}");
-    let alias = finder::alias(volume, VOLUME_NAME, &mount_point, &picture).map_err(io)?;
+    let mount_point = format!("/Volumes/{APP_NAME}");
+    let alias = finder::alias(volume, APP_NAME, &mount_point, &picture).map_err(io)?;
     let (x, y) = WINDOW_AT;
     let (w, h) = (WINDOW.0, WINDOW.1 + TITLE_BAR);
     // 窗口只留内容区：没有工具栏、边栏、路径栏、状态栏、标签栏。
@@ -607,7 +611,7 @@ fn write_png(path: &Path, pixels: &winc_preview::image::Pixels) -> Result<(), St
 /// 生成 `Info.plist`；`arch` 是应用的架构（`arm64` 或 `x86_64`），决定请求哪一份 appcast。
 ///
 /// `CFBundleDocumentTypes` 声明能打开任意文件（`public.data`）和文件夹（`public.folder`）：
-/// 有了这一项，文件和文件夹才能拖到程序坞的图标上，「打开方式」里也才列出 winc。等级是
+/// 有了这一项，文件和文件夹才能拖到程序坞的图标上，「打开方式」里也才列出 Winc。等级是
 /// `Alternate`，不占用其他应用的默认打开方式。
 fn info_plist(version: &str, updates: &sparkle::UpdateConfig, arch: &str) -> String {
     let updates = updates.plist_entries(arch);
@@ -646,7 +650,7 @@ fn info_plist(version: &str, updates: &sparkle::UpdateConfig, arch: &str) -> Str
 	<key>CFBundleDevelopmentRegion</key>
 	<string>zh_CN</string>
 	<key>CFBundleDisplayName</key>
-	<string>winc</string>
+	<string>{APP_NAME}</string>
 	<key>CFBundleExecutable</key>
 	<string>winc</string>
 	<key>CFBundleIconFile</key>
@@ -656,7 +660,7 @@ fn info_plist(version: &str, updates: &sparkle::UpdateConfig, arch: &str) -> Str
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>winc</string>
+	<string>{APP_NAME}</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>

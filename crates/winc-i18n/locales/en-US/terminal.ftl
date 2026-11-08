@@ -9,10 +9,10 @@ terminal-module-disabled = The terminal module isn’t enabled
 
 ## Terminal helper
 
-terminal-helper-missing = Couldn’t find the terminal helper; reinstall winc
+terminal-helper-missing = Couldn’t find the terminal helper; reinstall Winc
 terminal-helper-start-failed = Couldn’t start the terminal helper: { $error }
 terminal-helper-exited = The terminal helper exited
-terminal-helper-version-mismatch = The terminal helper’s version doesn’t match winc; reinstall winc
+terminal-helper-version-mismatch = The terminal helper’s version doesn’t match Winc; reinstall Winc
 terminal-process-exited = Process exited (code { $code })
 terminal-disconnected = Terminal connection lost
 terminal-restart = Restart
@@ -51,7 +51,7 @@ terminal-quit-confirm-many = { $count ->
         [one] Quit and end { $count } running program?
        *[other] Quit and end { $count } running programs?
     }
-terminal-quit-confirm-detail = Programs are still running in the terminal. Quitting winc will end them.
+terminal-quit-confirm-detail = Programs are still running in the terminal. Quitting Winc will end them.
 terminal-close-window-confirm-one = Close the window and end “{ $name }”?
 terminal-close-window-confirm-many = { $count ->
         [one] Close the window and end { $count } running program?

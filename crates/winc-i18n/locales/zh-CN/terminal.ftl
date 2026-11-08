@@ -9,10 +9,10 @@ terminal-module-disabled = 终端模块未启用
 
 ## 终端组件
 
-terminal-helper-missing = 未找到终端组件，请重新安装 winc
+terminal-helper-missing = 未找到终端组件，请重新安装 Winc
 terminal-helper-start-failed = 无法启动终端组件：{ $error }
 terminal-helper-exited = 终端组件已退出
-terminal-helper-version-mismatch = 终端组件的版本与 winc 不一致，请重新安装 winc
+terminal-helper-version-mismatch = 终端组件的版本与 Winc 不一致，请重新安装 Winc
 terminal-process-exited = 进程已退出（代码 { $code }）
 terminal-disconnected = 终端连接已断开
 terminal-restart = 重新启动
@@ -47,7 +47,7 @@ terminal-find-no-results = 无结果
 
 terminal-quit-confirm-one = 要退出并结束「{ $name }」吗？
 terminal-quit-confirm-many = 要退出并结束 { $count } 个正在运行的程序吗？
-terminal-quit-confirm-detail = 终端里还有程序在运行，退出 winc 会结束它们。
+terminal-quit-confirm-detail = 终端里还有程序在运行，退出 Winc 会结束它们。
 terminal-close-window-confirm-one = 要关闭窗口并结束「{ $name }」吗？
 terminal-close-window-confirm-many = 要关闭窗口并结束 { $count } 个正在运行的程序吗？
 terminal-close-window-confirm-detail = 这个窗口的终端里还有程序在运行，关闭窗口会结束它们。

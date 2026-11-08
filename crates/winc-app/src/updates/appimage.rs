@@ -25,19 +25,24 @@ pub fn locate() -> Option<PathBuf> {
 }
 
 /// 下载 `item` 到 `appimage` 旁边，核对长度和签名后替换 `appimage`，返回重新启动时运行的
-/// 程序（即 `appimage`）；失败时不留下文件。
+/// 程序（即 `appimage`）；失败时不留下文件。下载期间把已下载的百分比交给 `progress`。
 ///
 /// # Errors
 ///
 /// `appimage` 没有所在目录或文件名、写不了下载的文件、`url` 取不到、长度或签名不对、改名失败时
 /// 返回错误说明。
-pub fn prepare(item: &Item, appimage: &Path, key: &VerifyingKey) -> Result<PathBuf, String> {
+pub fn prepare(
+    item: &Item,
+    appimage: &Path,
+    key: &VerifyingKey,
+    progress: &dyn Fn(u8),
+) -> Result<PathBuf, String> {
     let dir = appimage.parent().ok_or("AppImage 没有所在目录")?;
     let name = appimage.file_name().ok_or("AppImage 没有文件名")?;
     let part = dir.join(format!(".{}.update", name.to_string_lossy()));
     // 先建好文件：所在目录不能写时尽早说明，不必等下载完。
     std::fs::File::create(&part).map_err(|e| format!("无法写入「{}」：{e}", dir.display()))?;
-    let result = download(&item.url, &part).and_then(|()| {
+    let result = download(&item.url, &part, item.length, progress).and_then(|()| {
         let bytes = std::fs::read(&part).map_err(|e| e.to_string())?;
         verify(item, &bytes, key)?;
         let mode = std::fs::metadata(appimage).map_or(0o755, |m| m.permissions().mode()) | 0o755;

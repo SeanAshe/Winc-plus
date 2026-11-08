@@ -670,7 +670,7 @@ impl App {
             *self.shared.update_state.borrow(),
             UpdateState::Off
                 | UpdateState::Checking
-                | UpdateState::Downloading(_)
+                | UpdateState::Downloading(..)
                 | UpdateState::Ready(_)
         )
     }

@@ -226,7 +226,7 @@ impl App {
         self.watch_folder();
         self.set_sidebar(false);
         self.focus = Focus::Editor;
-        self.set_window_title("winc");
+        self.set_window_title(crate::layout::PRODUCT_NAME);
         self.relayout();
         self.request_redraw();
     }

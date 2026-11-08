@@ -20,7 +20,7 @@ impl ApplicationHandler<UserEvent> for App {
             .editor
             .workspace
             .as_ref()
-            .map_or("winc", |w| w.name.as_str());
+            .map_or(crate::layout::PRODUCT_NAME, |w| w.name.as_str());
         // 测量时窗口的大小要固定，结果才能比较。
         let saved = self
             .state

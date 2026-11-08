@@ -144,6 +144,17 @@ fn versions_compare_by_number() {
 }
 
 #[test]
+fn download_progress_is_a_whole_percent() {
+    assert_eq!(percent(0, 200), 0);
+    assert_eq!(percent(1, 200), 0);
+    assert_eq!(percent(100, 200), 50);
+    assert_eq!(percent(200, 200), 100);
+    // 比预期多的字节（长度不对，核对时会报错）不超过 100；不知道长度时为 0。
+    assert_eq!(percent(300, 200), 100);
+    assert_eq!(percent(10, 0), 0);
+}
+
+#[test]
 fn installation_type_selects_its_own_payload() {
     let sig = encode_base64(&[1; 64]);
     let tagged = |version, kind, url| {
@@ -243,22 +254,28 @@ fn a_verified_download_replaces_the_appimage() {
 
     // 别的密钥签的、长度不对的：报错，原文件不动。
     let other = SigningKey::from_bytes(&[9; 32]).verifying_key();
-    let error = appimage::prepare(&item, &appimage, &other).unwrap_err();
+    let error = appimage::prepare(&item, &appimage, &other, &|_| {}).unwrap_err();
     assert!(error.contains("签名"), "{error}");
     let long = Item {
         length: 999,
         ..item.clone()
     };
-    assert!(appimage::prepare(&long, &appimage, &key.verifying_key()).is_err());
+    assert!(appimage::prepare(&long, &appimage, &key.verifying_key(), &|_| {}).is_err());
     let missing = Item {
         url: file_url(&dir.join("missing")),
         ..item.clone()
     };
-    assert!(appimage::prepare(&missing, &appimage, &key.verifying_key()).is_err());
+    assert!(appimage::prepare(&missing, &appimage, &key.verifying_key(), &|_| {}).is_err());
     assert_eq!(std::fs::read(&appimage).unwrap(), b"old version");
     assert_eq!(leftovers(), 0);
 
-    let program = appimage::prepare(&item, &appimage, &key.verifying_key()).unwrap();
+    // 下载期间报告的百分比不超过 100，也不倒退。
+    let reported = std::cell::RefCell::new(Vec::new());
+    let progress = |percent: u8| reported.borrow_mut().push(percent);
+    let program = appimage::prepare(&item, &appimage, &key.verifying_key(), &progress).unwrap();
+    let reported = reported.into_inner();
+    assert!(reported.windows(2).all(|w| w[0] <= w[1]), "{reported:?}");
+    assert!(reported.iter().all(|&p| p <= 100), "{reported:?}");
     assert_eq!(program, appimage);
     assert_eq!(std::fs::read(&appimage).unwrap(), bytes);
     let mode = std::fs::metadata(&appimage).unwrap().permissions().mode();

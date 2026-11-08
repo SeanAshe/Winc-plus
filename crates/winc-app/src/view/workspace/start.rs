@@ -73,7 +73,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>) {
         app,
         app.fonts.ui + 13.0,
         (title.x, title),
-        "winc",
+        crate::layout::PRODUCT_NAME,
         p.text,
         editor,
     );

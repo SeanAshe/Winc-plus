@@ -4,15 +4,15 @@ RequestExecutionLevel user
 SetCompressor /SOLID lzma
 !include "MUI2.nsh"
 
-Name "winc"
+Name "Winc"
 OutFile "${OUT_FILE}"
 InstallDir "$LOCALAPPDATA\Programs\winc"
 InstallDirRegKey HKCU "Software\DEEIX\winc" "InstallDir"
 Icon "${SOURCE}\winc.ico"
 UninstallIcon "${SOURCE}\winc.ico"
 VIProductVersion "${VIVERSION}"
-VIAddVersionKey /LANG=1033 "ProductName" "winc"
-VIAddVersionKey /LANG=1033 "FileDescription" "winc installer"
+VIAddVersionKey /LANG=1033 "ProductName" "Winc"
+VIAddVersionKey /LANG=1033 "FileDescription" "Winc installer"
 VIAddVersionKey /LANG=1033 "FileVersion" "${VERSION}"
 VIAddVersionKey /LANG=1033 "LegalCopyright" "DEEIX"
 !ifdef SIGN_SCRIPT
@@ -208,7 +208,7 @@ Section "winc" SEC_MAIN
   !insertmacro UpdateUserPath "Add"
   WriteUninstaller "$INSTDIR\uninstall.exe"
   WriteRegStr HKCU "Software\DEEIX\winc" "InstallDir" "$INSTDIR"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\winc" "DisplayName" "winc"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\winc" "DisplayName" "Winc"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\winc" "DisplayVersion" "${VERSION}"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\winc" "Publisher" "DEEIX"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\winc" "DisplayIcon" "$INSTDIR\winc.ico"
@@ -216,7 +216,10 @@ Section "winc" SEC_MAIN
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\winc" "QuietUninstallString" '$\"$INSTDIR\uninstall.exe$\" /S'
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\winc" "NoModify" 1
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\winc" "NoRepair" 1
-  CreateShortcut "$SMPROGRAMS\winc.lnk" "$INSTDIR\winc.exe" "" "$INSTDIR\winc.ico"
+  ; The Start menu shows a shortcut's file name, and creating Winc.lnk over an existing winc.lnk
+  ; keeps the existing file name, so any shortcut of that name is removed first.
+  Delete "$SMPROGRAMS\winc.lnk"
+  CreateShortcut "$SMPROGRAMS\Winc.lnk" "$INSTDIR\winc.exe" "" "$INSTDIR\winc.ico"
   ; ProgIDs, file icons and Open With entries. Failure here must not roll back the copy.
   ClearErrors
   ExecWait '"$INSTDIR\winc.exe" --register-file-types'
@@ -230,7 +233,7 @@ Section "Uninstall"
     ExecWait '"$INSTDIR\winc.exe" --unregister-file-types'
     ClearErrors
 uninstall_files:
-  Delete "$SMPROGRAMS\winc.lnk"
+  Delete "$SMPROGRAMS\Winc.lnk"
   Delete "$INSTDIR\winc.exe"
   Delete "$INSTDIR\winc-pty.exe"
   !insertmacro DeleteRetrying "OpenConsole.exe"

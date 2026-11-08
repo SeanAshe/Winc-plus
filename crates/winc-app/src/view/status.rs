@@ -45,6 +45,14 @@ const BRANCH_ICON: f32 = 14.0;
 /// 下拉箭头的宽度（逻辑像素），位于分支名右侧。
 const BRANCH_ARROW: f32 = 12.0;
 
+/// 更新按钮中图标所占的宽度（逻辑像素）：直径 11 的图标，加上与文字之间的间距。
+const UPDATE_ICON: f32 = 16.0;
+
+/// 更新失败时按钮的底色：出错色的不透明度，悬停时为第二个值。
+///
+/// 取 0.18：与搜索面板中将被替换的文字的底色相同，红字在上面清楚可读。
+const UPDATE_ERROR_TINT: (f32, f32) = (0.18, 0.27);
+
 /// 分支图标的线条超出内容左边的最大距离（逻辑像素，经验值），裁剪时为其留出余量。
 const ICON_OVERHANG: f32 = 2.0;
 
@@ -80,15 +88,19 @@ fn draw_group(
     let entries = entries
         .into_iter()
         .map(|(key, text, item)| {
-            let extra = if matches!(item, Some(StatusItem::Branch | StatusItem::Worktree)) {
-                BRANCH_ICON + BRANCH_ARROW
-            } else {
-                0.0
+            let extra = match item {
+                Some(StatusItem::Branch | StatusItem::Worktree) => BRANCH_ICON + BRANCH_ARROW,
+                Some(StatusItem::Update) => UPDATE_ICON,
+                _ => 0.0,
             };
-            let stable: String = text
-                .chars()
-                .map(|c| if c.is_ascii_digit() { widest } else { c })
-                .collect();
+            // 下载的百分比按「100%」计宽：从个位数涨到 100 时按钮不变宽。
+            let stable: String = if key == StatusKey::Update && text.ends_with('%') {
+                format!("{widest}{widest}{widest}%")
+            } else {
+                text.chars()
+                    .map(|c| if c.is_ascii_digit() { widest } else { c })
+                    .collect()
+            };
             StatusEntry {
                 key,
                 content: frame.measure(FontKind::Ui, size, &text) + extra,
@@ -103,14 +115,28 @@ fn draw_group(
     for row in motion.sync(group, entries, animate).into_iter().rev() {
         let w = row.width;
         *right -= w;
-        // 可点击项与路径各段的样式相同：悬停时铺按钮底色，菜单打开时显示为按下状态。
-        if let Some(item) = row.item.filter(|_| opacity >= 1.0) {
-            let pill = Rect::new(
-                *right - CRUMB_PAD,
-                bar.y + 4.0,
-                w + 2.0 * CRUMB_PAD,
-                bar.h - 8.0,
-            );
+        let pill = Rect::new(
+            *right - CRUMB_PAD,
+            bar.y + 4.0,
+            w + 2.0 * CRUMB_PAD,
+            bar.h - 8.0,
+        );
+        // 更新按钮一直铺着底色，出现、消失时随宽度伸缩、随文字淡入淡出；图标在左端。
+        if row.key == StatusKey::Update
+            && let Some(button) = update_button(app)
+        {
+            let hovered = row.item.is_some() && app.hover == Hover::Status(StatusItem::Update);
+            let (fill, ink) = button.colors(p, hovered);
+            let alpha = row.alpha.max(row.previous.as_ref().map_or(0.0, |f| f.2)) * opacity;
+            frame.rect_clipped(pill, fill.alpha(fill.a * alpha), RADIUS_ROW, bar);
+            let clip = bar.intersect(pill);
+            let center = (*right + UPDATE_ICON / 2.0 - 2.5, bar.y + bar.h / 2.0);
+            button.draw_icon(frame, center, ink.alpha(ink.a * row.alpha * opacity), clip);
+            if let Some(item) = row.item.filter(|_| opacity >= 1.0) {
+                hits.push((pill, item));
+            }
+        } else if let Some(item) = row.item.filter(|_| opacity >= 1.0) {
+            // 可点击项与路径各段的样式相同：悬停时铺按钮底色，菜单打开时显示为按下状态。
             draw_button(
                 frame,
                 p,
@@ -124,20 +150,29 @@ fn draw_group(
             );
             hits.push((pill, item));
         }
-        // 内容靠右对齐。宽度过渡途中内容可能宽于占用宽度，超出部分不绘制，以免与左侧的项重叠。
-        // 裁剪范围向左多留 `ICON_OVERHANG`：分支图标的线条略超出内容的左边，不留时会被裁去。
+        // 内容靠右对齐（更新按钮除外，见下）。宽度过渡途中内容可能宽于占用宽度，超出部分不绘制，
+        // 以免与左侧的项重叠。裁剪范围向左多留 `ICON_OVERHANG`：分支图标的线条略超出内容的左边，
+        // 不留时会被裁去。
         let clip = bar.intersect(Rect::new(
             *right - ICON_OVERHANG,
             bar.y,
             w + ICON_OVERHANG,
             bar.h,
         ));
+        // 更新按钮的文字紧跟在左端的图标后面，百分比按「100%」留出的空位在右边。
+        let start = |content: f32| {
+            if row.key == StatusKey::Update {
+                *right
+            } else {
+                *right + w - content
+            }
+        };
         if let Some((text, content, alpha)) = &row.previous {
-            let x = *right + w - content;
+            let x = start(*content);
             draw_content(frame, app, x, bar, clip, text, row.key, alpha * opacity);
         }
         let (text, content) = &row.text;
-        let x = *right + w - content;
+        let x = start(*content);
         draw_content(frame, app, x, bar, clip, text, row.key, row.alpha * opacity);
         *right -= STATUS_GAP * row.share;
     }
@@ -145,7 +180,8 @@ fn draw_group(
 
 /// 在 `x` 处绘制 `key` 一项的内容，不透明度为 `alpha`，超出 `clip` 的部分不绘制。
 ///
-/// 工作树和分支的左侧是图标，右侧是下拉箭头。新版本提示使用强调色。
+/// 工作树和分支的左侧是图标，右侧是下拉箭头。更新按钮的图标由 `draw_group` 画在按钮左端，
+/// 这里只画文字，颜色随按钮的状态变化。
 #[allow(clippy::too_many_arguments)]
 fn draw_content(
     frame: &mut Frame<'_>,
@@ -162,13 +198,17 @@ fn draw_content(
     }
     let p = app.palette;
     let fade = |c: Color| c.alpha(c.a * alpha);
-    let ink = if key == StatusKey::Update {
-        p.accent
-    } else {
-        p.text_muted
+    let hovered = app.hover == Hover::Status(StatusItem::Update);
+    let ink = match update_button(app).filter(|_| key == StatusKey::Update) {
+        Some(button) => button.colors(p, hovered).1,
+        None => p.text_muted,
     };
     let picker = matches!(key, StatusKey::Branch | StatusKey::Worktree);
-    let icon = if picker { BRANCH_ICON } else { 0.0 };
+    let icon = match key {
+        _ if picker => BRANCH_ICON,
+        StatusKey::Update => UPDATE_ICON,
+        _ => 0.0,
+    };
     if picker {
         let cy = icon_center_y(app, bar, app.fonts.ui_small);
         let text_w = frame.measure(FontKind::Ui, app.fonts.ui_small, text);
@@ -181,6 +221,103 @@ fn draw_content(
         icons::chevron(frame, arrow, 5.5, Direction::Down, fade(p.text_dim), clip);
     }
     ui_text_small(frame, app, x + icon, bar, text, fade(ink), clip);
+}
+
+/// 状态栏上的更新按钮：按钮上写着点了会做什么，版本号、进度的细节和失败的原因在悬停提示里。
+struct UpdateButton {
+    /// 按钮左端的图标。
+    icon: UpdateIcon,
+    /// 按钮上的文字。
+    label: String,
+}
+
+/// 更新按钮的图标，表示更新进行到哪一步。
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum UpdateIcon {
+    /// 找到了新版本，点了下载安装（macOS 上打开 Sparkle 的更新窗口）。
+    Download,
+    /// 正在下载，已下载的百分比。
+    Progress(u8),
+    /// 已经装好（Windows 上为已下载），点了重新启动。
+    Restart,
+    /// 下载或安装失败，点了重试。
+    Retry,
+}
+
+impl UpdateButton {
+    /// 返回按钮的底色和文字、图标的颜色；`hovered` 为鼠标是否在按钮上。
+    ///
+    /// 平时铺淡强调色，不和代码抢注意力；只有「重新启动」铺满强调色：更新要等这一步才完成。
+    /// 「更新」悬停时也铺满，表示可以点；失败时铺淡的出错色（[`UPDATE_ERROR_TINT`]）。
+    fn colors(&self, p: &Palette, hovered: bool) -> (Color, Color) {
+        match self.icon {
+            UpdateIcon::Restart => (p.accent_fill, p.text_on_accent),
+            UpdateIcon::Download if hovered => (p.accent_fill, p.text_on_accent),
+            UpdateIcon::Retry => {
+                let (rest, hover) = UPDATE_ERROR_TINT;
+                (p.error.alpha(if hovered { hover } else { rest }), p.error)
+            }
+            UpdateIcon::Download | UpdateIcon::Progress(_) => (p.selected, p.accent),
+        }
+    }
+
+    /// 以 `center` 为中心、用 `color` 绘制按钮的图标。
+    fn draw_icon(&self, frame: &mut Frame<'_>, center: (f32, f32), color: Color, clip: Rect) {
+        match self.icon {
+            UpdateIcon::Download => icons::download(frame, center, color, clip),
+            UpdateIcon::Progress(percent) => {
+                let track = color.alpha(color.a * 0.3);
+                let fraction = f32::from(percent) / 100.0;
+                icons::progress_ring(frame, center, fraction, color, track, clip);
+            }
+            UpdateIcon::Restart => icons::refresh(frame, center, color, clip),
+            UpdateIcon::Retry => icons::warning(frame, center, color, clip),
+        }
+    }
+}
+
+/// 返回状态栏上的更新按钮；后台检查没有找到新版本时为 `None`。
+///
+/// macOS 上下载、安装和重新启动都在 Sparkle 的窗口里进行，按钮一直是「更新」。
+fn update_button(app: &App) -> Option<UpdateButton> {
+    use crate::winc::UpdateState;
+    app.shared.update.borrow().as_ref()?;
+    let (icon, label) = match &*app.shared.update_state.borrow() {
+        UpdateState::Downloading(_, percent) => {
+            (UpdateIcon::Progress(*percent), format!("{percent}%"))
+        }
+        UpdateState::Ready(_) => (
+            UpdateIcon::Restart,
+            t!("workspace-status-update-restart").to_owned(),
+        ),
+        UpdateState::InstallFailed(_) => (
+            UpdateIcon::Retry,
+            t!("workspace-status-update-retry").to_owned(),
+        ),
+        _ => (
+            UpdateIcon::Download,
+            t!("workspace-status-update").to_owned(),
+        ),
+    };
+    Some(UpdateButton { icon, label })
+}
+
+/// 返回更新按钮的悬停提示：与「关于」页的更新状态相同，写明版本号、进度或失败的原因。
+///
+/// 找到新版本后再次检查失败时，按钮仍是「更新」，提示仍写找到的版本。
+pub(in crate::view) fn update_tooltip(app: &App) -> Option<String> {
+    use crate::winc::UpdateState;
+    let version = app.shared.update.borrow().clone()?;
+    let tip = match &*app.shared.update_state.borrow() {
+        UpdateState::Downloading(..) | UpdateState::Ready(_) | UpdateState::InstallFailed(_) => {
+            return Some(super::settings::update_status(app).0);
+        }
+        _ => {
+            let version = crate::release_version::present_version(&version);
+            t!("settings-updates-found", version = version.as_str())
+        }
+    };
+    Some(tip)
 }
 
 /// 绘制状态栏，并更新路径段和右侧可点击项的命中区域（`crumb_hits`、`status_hits`）。
@@ -261,21 +398,10 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
         }
     }
 
-    // 后台检查更新找到了新版本：在终端开关左边提示，点了打开更新窗口（macOS），或者下载安装、
-    // 装好以后重新启动（其他平台）。
-    let update = app.shared.update.borrow().clone();
+    // 后台检查更新找到了新版本：在终端开关左边放一个更新按钮（见 [`update_button`]）。
     let mut items = Vec::new();
-    if let Some(version) = update {
-        use crate::winc::UpdateState;
-        let label = match &*app.shared.update_state.borrow() {
-            UpdateState::Downloading(_) => t!("workspace-status-update-downloading").to_owned(),
-            UpdateState::Ready(_) => t!("workspace-status-update-ready").to_owned(),
-            _ => {
-                let version = crate::release_version::present_version(&version);
-                t!("workspace-status-update", version = version)
-            }
-        };
-        items.push((StatusKey::Update, label, Some(StatusItem::Update)));
+    if let Some(button) = update_button(app) {
+        items.push((StatusKey::Update, button.label, Some(StatusItem::Update)));
     }
     draw_group(
         frame,

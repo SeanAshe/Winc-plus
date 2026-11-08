@@ -113,9 +113,10 @@ pub enum UpdateState {
     Found(String),
     /// 上次检查失败（各通道都连不上、appcast 签名不对……）。
     Failed,
-    /// 正在下载找到的新版本（版本号）；macOS 上这一段交给 Sparkle，由它显示进度。
+    /// 正在下载找到的新版本（版本号，已下载的百分比 0 到 100）；macOS 上这一段交给 Sparkle，由它
+    /// 显示进度。
     #[cfg_attr(target_os = "macos", allow(dead_code))]
-    Downloading(String),
+    Downloading(String, u8),
     /// 新版本（版本号）已经装好（Windows 上为已下载，退出时安装），重新启动后生效。
     #[cfg_attr(target_os = "macos", allow(dead_code))]
     Ready(String),

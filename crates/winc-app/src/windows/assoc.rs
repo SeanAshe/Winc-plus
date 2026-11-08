@@ -68,17 +68,17 @@ pub fn register_file_types() {
     changed |= ensure_named(
         r"Software\Classes\Applications\winc.exe",
         "FriendlyAppName",
-        "winc",
+        "Winc",
     );
     changed |= ensure_named(
         r"Software\DEEIX\winc\Capabilities",
         "ApplicationName",
-        "winc",
+        "Winc",
     );
     changed |= ensure_named(
         r"Software\DEEIX\winc\Capabilities",
         "ApplicationDescription",
-        "winc",
+        "Winc",
     );
     changed |= ensure_named(
         r"Software\DEEIX\winc\Capabilities",

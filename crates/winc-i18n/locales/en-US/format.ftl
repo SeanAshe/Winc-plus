@@ -156,13 +156,13 @@ format-file-too-large = The file is too large
 
 format-install-title = Install Formatter
 format-install-not-found-one = “{ $tool }” wasn’t found.
-format-install-not-found-many = No formatter found. Install any of the following; winc uses the first one installed: { $tools }.
+format-install-not-found-many = No formatter found. Install any of the following; Winc uses the first one installed: { $tools }.
 format-install-quoted = “{ $name }”
 format-install-list-separator = { ", " }
 format-install-intro =
-    winc has no built-in formatters or fixers; it uses tools installed
+    Winc has no built-in formatters or fixers; it uses tools installed
     on your system or in the project. After installing, just try again;
-    there’s no need to restart winc.
+    there’s no need to restart Winc.
 format-install-run-any = Run any of these commands in Terminal (install the package manager first):
 format-install-run-here = Run in Terminal (available on this computer):
 format-install-other = Other ways:

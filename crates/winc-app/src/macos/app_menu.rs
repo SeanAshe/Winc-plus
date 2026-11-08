@@ -1,5 +1,5 @@
-//! 挂在 `winit` 应用委托上的扩展：⌘Q 的拦截、应用菜单中的「设置…」、菜单项的动作方法，以及录制
-//! 按键期间暂停菜单项的快捷键。
+//! 挂在 `winit` 应用委托上的扩展：⌘Q 的拦截、应用菜单中的「设置…」和应用名、菜单项的动作方法，
+//! 以及录制按键期间暂停菜单项的快捷键。
 //!
 //! 这些方法通过 Objective-C 运行时（`class_addMethod`）添加到 `winit` 的应用委托类上，不替换
 //! 已有的实现；找不到委托类时，各功能保持系统或键盘事件的默认行为。
@@ -7,7 +7,7 @@
 use objc2::Encode;
 use objc2::runtime::Bool;
 
-use super::files::ns_string;
+use super::files::{ns_string, rust_string};
 use super::*;
 
 /// ⌘Q 时调用的回调，返回是否允许立即退出；只在主线程上设置和调用。
@@ -183,7 +183,8 @@ type SettingsHandler = Box<dyn Fn() + Send + Sync>;
 
 static SETTINGS_HANDLER: OnceLock<SettingsHandler> = OnceLock::new();
 
-/// 在应用菜单（菜单栏上的「winc」）中添加一项「设置…  ⌘,」，放在「关于」下面，选中时调用 `open`。
+/// 在应用菜单（菜单栏上的「Winc」）中添加一项「设置…  ⌘,」，放在「关于」下面，选中时调用 `open`；
+/// 同时把菜单项里的进程名换成应用的显示名（见 [`use_display_name`]）。
 ///
 /// 必须在事件循环开始之后（`winit` 已建好菜单和应用委托）调用；只有第一次调用生效。菜单项绑定
 /// `⌘,` 后，该按键先被菜单处理，不再作为键盘事件送到窗口，因此只由本函数注册的回调处理。
@@ -229,6 +230,7 @@ pub fn add_settings_menu(open: impl Fn() + Send + Sync + 'static) {
         let Some(app_menu) = app_menu.as_ref() else {
             return;
         };
+        use_display_name(app_menu);
 
         let Some(title) = ns_string(winc_i18n::t!("menu-settings")) else {
             return;
@@ -263,6 +265,65 @@ pub fn add_settings_menu(open: impl Fn() + Send + Sync + 'static) {
 
 /// 菜单项「设置…」的动作名，添加在 `winit` 的应用委托上。
 const SETTINGS_ACTION: &CStr = c"wincOpenSettings:";
+
+/// 把应用菜单 `app_menu` 中以进程名结尾的项（`winit` 建菜单时按进程名写的「About winc」
+/// 「Hide winc」「Quit winc」）改用应用的显示名，与菜单栏上的应用名一致。
+///
+/// 显示名取自 `Info.plist` 的 `CFBundleDisplayName`；不在应用包中运行（例如 `cargo run`）时
+/// 显示名就是进程名，菜单项不变。
+///
+/// # Safety
+///
+/// 只能在主线程调用；`app_menu` 必须是有效的 `NSMenu`。
+unsafe fn use_display_name(app_menu: &AnyObject) {
+    // SAFETY: `NSProcessInfo`、`NSRunningApplication`、`NSMenu`、`NSMenuItem` 是公开 API，由调用方
+    // 保证在主线程调用。取出的字符串和菜单项由 AppKit 持有，判空后在本块内使用；新标题由
+    // `ns_string` 创建并持有到 `setTitle:` 之后，菜单项会复制它。
+    unsafe {
+        let info: *mut AnyObject = msg_send![class!(NSProcessInfo), processInfo];
+        let Some(info) = info.as_ref() else {
+            return;
+        };
+        let process: *mut AnyObject = msg_send![info, processName];
+        let app: *mut AnyObject = msg_send![class!(NSRunningApplication), currentApplication];
+        let Some(app) = app.as_ref() else {
+            return;
+        };
+        let name: *mut AnyObject = msg_send![app, localizedName];
+        let (Some(process), Some(name)) = (
+            process.as_ref().and_then(|s| rust_string(s)),
+            name.as_ref().and_then(|s| rust_string(s)),
+        ) else {
+            return;
+        };
+
+        let count: isize = msg_send![app_menu, numberOfItems];
+        for index in 0..count {
+            let item: *mut AnyObject = msg_send![app_menu, itemAtIndex: index];
+            let Some(item) = item.as_ref() else {
+                continue;
+            };
+            let title: *mut AnyObject = msg_send![item, title];
+            let renamed = (title.as_ref())
+                .and_then(|t| rust_string(t))
+                .and_then(|t| renamed_title(&t, &process, &name))
+                .and_then(|t| ns_string(&t));
+            if let Some(renamed) = renamed {
+                let () = msg_send![item, setTitle: &*renamed];
+            }
+        }
+    }
+}
+
+/// 菜单项标题 `title` 以「空格 + 进程名 `process`」结尾时，返回把进程名换成显示名 `name` 后的
+/// 标题；不以进程名结尾或两个名字相同时返回 `None`。
+fn renamed_title(title: &str, process: &str, name: &str) -> Option<String> {
+    if process == name {
+        return None;
+    }
+    let head = title.strip_suffix(process)?.strip_suffix(' ')?;
+    Some(format!("{head} {name}"))
+}
 
 /// 暂停期间去掉了快捷键的菜单项：菜单项、原来的按键和修饰键。
 type Shortcuts = Vec<(Retained<AnyObject>, Retained<AnyObject>, usize)>;
