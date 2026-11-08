@@ -66,6 +66,7 @@ pub use workspace::picker::{
     PICKER_ICON_X, PICKER_MAX_ROWS, PICKER_PAD, PICKER_ROW, PICKER_TEXT_X, PLACES_FOOTER,
     PlacesGhost,
 };
+pub(crate) use workspace::recent::folder_label;
 pub use workspace::session::StartAction;
 pub use workspace::tab_drag::{TabDrag, TabSlide};
 pub use workspace::tool_fold::ToolFold;
@@ -322,6 +323,8 @@ pub enum Focus {
     Settings,
     /// 设置中「快捷键」页的搜索框。
     KeySearch,
+    /// 设置浮层分类栏顶部的搜索框。
+    SettingsSearch,
     /// 侧栏提交视图的提交信息输入框。
     CommitMessage,
     /// 侧栏提交视图的改动列表。
@@ -692,6 +695,10 @@ pub struct App {
     pub mono_metrics: Metrics,
     /// 等宽字体单个字符格的宽度（逻辑像素）。
     pub cell: f32,
+    /// 终端字体的行高、基线等尺寸（逻辑像素）。
+    pub terminal_metrics: Metrics,
+    /// 终端里一个字符格的宽度（逻辑像素）。
+    pub terminal_cell: f32,
 
     // 焦点、鼠标和键盘
     /// 键盘焦点所在的区域。
@@ -960,6 +967,8 @@ pub struct App {
     pub picker_branch_rows: Option<Vec<git::branch::picker::BranchRow>>,
     /// 面板列出位置（位置选择器）时的各行。
     pub picker_location_rows: Option<Vec<git::location_picker::LocationRow>>,
+    /// 面板是否列出最近打开的目录（`⌃R`）；为真时 `picker_hits` 是最近列表中的下标。
+    pub picker_folders: bool,
     /// 分支选择器、位置选择器从哪儿展开。
     pub picker_anchor: GitAnchor,
     /// 选择面板这一帧画出来的按钮：点击、悬停都按它们认。

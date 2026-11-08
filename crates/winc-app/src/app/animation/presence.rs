@@ -1,9 +1,10 @@
 //! 随 Git、终端模块开关或切换标签而出现、消失的界面元素及其动画。
 //!
-//! 涉及侧栏视图切换中的「提交」一段、状态栏右端的终端开关、状态栏左侧的分支名，以及标签栏
-//! 右端「源代码 / 分栏 / 预览」三个按钮（仅可预览的文件显示）。触发变化的来源很多（开关模块、
-//! 切换目录、仓库状态读取完成、切换标签），因此 [`App::track_modules`] 在每帧绘制前与上一帧
-//! 比较：新出现的元素淡入并展开，消失的元素淡出并收起，相邻元素随之滑动。
+//! 涉及侧栏视图切换中的「提交」一段、状态栏右端的终端开关和设置分类栏中的「终端」一项、状态栏
+//! 左侧的分支名，以及标签栏右端「源代码 / 分栏 / 预览」三个按钮（仅可预览的文件显示）。触发
+//! 变化的来源很多（开关模块、切换目录、仓库状态读取完成、切换标签），因此
+//! [`App::track_modules`] 在每帧绘制前与上一帧比较：新出现的元素淡入并展开，消失的元素淡出并
+//! 收起，相邻元素随之滑动。
 
 use super::*;
 
@@ -82,8 +83,8 @@ pub struct ModuleFx {
     primed: bool,
     /// 视图切换里的「提交」一段。
     pub commit_tab: Presence,
-    /// 状态栏右端的终端开关。
-    pub terminal_icon: Presence,
+    /// 状态栏右端的终端开关和设置分类栏中的「终端」一项：二者都随终端模块出现、消失。
+    pub terminal: Presence,
     /// 状态栏的分支名。
     pub branch: Presence,
     /// 最近一帧画的分支名：分支名消失（模块关了、仓库状态清掉了）以后淡出用。
@@ -100,7 +101,7 @@ impl ModuleFx {
     /// 是否有东西正在出现或消失。
     pub fn moving(&self) -> bool {
         self.commit_tab.moving()
-            || self.terminal_icon.moving()
+            || self.terminal.moving()
             || self.branch.moving()
             || self.preview.moving()
             || self.browser.moving()
@@ -118,7 +119,7 @@ impl App {
         let browser = self.browser_page().is_some();
         let fx = &self.module_fx;
         let changed = fx.commit_tab.shown != commit
-            || fx.terminal_icon.shown != terminal
+            || fx.terminal.shown != terminal
             || fx.branch.shown != branch
             || fx.preview.shown != preview
             || fx.browser.shown != browser;
@@ -131,7 +132,7 @@ impl App {
         };
         let fx = &mut self.module_fx;
         fx.commit_tab.track(commit, clock);
-        fx.terminal_icon.track(terminal, clock);
+        fx.terminal.track(terminal, clock);
         fx.branch.track(branch, clock);
         if !branch && !fx.branch.moving() {
             fx.branch_label = None;

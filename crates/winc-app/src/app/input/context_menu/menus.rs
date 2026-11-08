@@ -519,16 +519,51 @@ pub fn whitespace_menu() -> Vec<MenuEntry> {
         .collect()
 }
 
-/// 返回字体菜单的菜单项：第一项是默认，然后是本机已安装的字族，当前的选择打勾。
+/// 返回「界面缩放」菜单的菜单项：各个档位，当前的选择打勾。
+pub fn zoom_menu() -> Vec<MenuEntry> {
+    (0..crate::app::settings::ZOOM_STEPS.len())
+        .map(|i| MenuEntry::Item(MenuCommand::Zoom(i), true))
+        .collect()
+}
+
+/// 返回终端「位置」菜单的菜单项：底部、右侧，当前的选择打勾。
+pub fn terminal_position_menu() -> Vec<MenuEntry> {
+    [false, true]
+        .map(|right| MenuEntry::Item(MenuCommand::TerminalPosition(right), true))
+        .into()
+}
+
+/// 返回「Meta 键」菜单的菜单项，当前的选择打勾。
+pub fn option_as_meta_menu() -> Vec<MenuEntry> {
+    (0..winc_config::OptionAsMeta::ALL.len())
+        .map(|i| MenuEntry::Item(MenuCommand::OptionAsMeta(i), true))
+        .collect()
+}
+
+/// 返回「默认 Shell」菜单的菜单项：系统默认、检测到的 `shells` 个 shell 和「自定义命令…」，
+/// 当前的选择打勾。
+pub fn default_shell_menu(shells: usize) -> Vec<MenuEntry> {
+    use MenuEntry::{Item, Separator};
+    let mut menu = vec![Item(MenuCommand::DefaultShell(None), true)];
+    if shells > 0 {
+        menu.push(Separator);
+        menu.extend((0..shells).map(|i| Item(MenuCommand::DefaultShell(Some(i)), true)));
+    }
+    menu.extend([Separator, Item(MenuCommand::DefaultShellCustom, true)]);
+    menu
+}
+
+/// 返回字体菜单的菜单项：第一项是默认（终端字体为「跟随编辑器」），然后是本机已安装的字族，
+/// 当前的选择打勾。
 ///
-/// 编辑器字体把等宽字体排在前面，其余字体紧随其后，都在同一级菜单里，不用再进子菜单。
+/// 编辑器和终端字体把等宽字体排在前面，其余字体紧随其后，都在同一级菜单里，不用再进子菜单。
 /// 界面字体按名字排列。
 pub fn font_menu(setting: Setting) -> Vec<MenuEntry> {
     use MenuEntry::{Item, Separator};
 
     let item = |(i, _)| Item(MenuCommand::Font(i), true);
     let fonts = winc_render::installed_fonts().iter().enumerate();
-    let (mono, rest): (Vec<_>, Vec<_>) = if setting == Setting::EditorFont {
+    let (mono, rest): (Vec<_>, Vec<_>) = if setting != Setting::UiFont {
         fonts.partition(|(_, family)| family.monospace)
     } else {
         (fonts.collect(), Vec::new())

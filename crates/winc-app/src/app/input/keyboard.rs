@@ -106,7 +106,11 @@ impl App {
             Focus::Prompt => self.on_key_prompt(event, &base, cmd),
             Focus::Picker => self.on_key_picker(event, &base, cmd),
             // 设置浮层打开时已在上方处理，不会执行到这里。
-            Focus::Setting | Focus::Settings | Focus::KeySearch | Focus::Dialog => {}
+            Focus::Setting
+            | Focus::Settings
+            | Focus::KeySearch
+            | Focus::SettingsSearch
+            | Focus::Dialog => {}
             Focus::Tree => self.on_key_tree(&event.logical_key),
             Focus::GlobalQuery
             | Focus::GlobalReplace
@@ -470,6 +474,10 @@ impl App {
             self.on_key_search_keys(event, base, cmd);
             return;
         }
+        if self.focus == Focus::SettingsSearch {
+            self.on_key_settings_search(event, base, cmd);
+            return;
+        }
 
         if cmd && matches!(base, "," | "w") {
             self.close_settings();
@@ -497,7 +505,33 @@ impl App {
             Key::Named(NamedKey::ArrowLeft) => self.settings_step(false),
             Key::Named(NamedKey::ArrowRight) => self.settings_step(true),
             Key::Named(NamedKey::Enter | NamedKey::Space) => self.settings_activate(),
+            _ if cmd && base == "f" => self.focus_settings_search(),
+            // 直接打字即开始搜索：焦点移到搜索框，这个字写进去。
+            Key::Character(_) if !cmd && !self.modifiers.control_key() => {
+                self.focus = Focus::SettingsSearch;
+                self.on_key_field(event, base, cmd);
+            }
             _ => {}
+        }
+    }
+
+    /// 处理设置分类栏顶部搜索框中的按键：`↓`、`↩`、`Tab` 进入搜索结果，`Esc` 先清空搜索框，
+    /// 搜索框为空时关闭设置，其余交给输入框。
+    fn on_key_settings_search(&mut self, event: &KeyEvent, base: &str, cmd: bool) {
+        match &event.logical_key {
+            Key::Named(NamedKey::ArrowDown | NamedKey::Enter | NamedKey::Tab) => {
+                self.settings_enter_results();
+            }
+            Key::Named(NamedKey::Escape) if self.settings.search.text().is_empty() => {
+                self.close_settings();
+            }
+            Key::Named(NamedKey::Escape) => self.edit_field(|f| {
+                f.set_text("");
+                true
+            }),
+            _ if cmd && matches!(base, "," | "w") => self.close_settings(),
+            _ if cmd && base == "v" => self.paste(),
+            _ => self.on_key_field(event, base, cmd),
         }
     }
 
@@ -911,14 +945,17 @@ impl App {
     }
 
     /// 把输入法候选窗的位置（`ime_cursor`，逻辑像素）同步给窗口；位置没有变化时不重复设置。
+    ///
+    /// 窗口按系统的逻辑坐标接收位置，界面的逻辑像素乘以界面缩放倍数后传入。
     pub(in crate::app) fn update_ime_area(&mut self) {
         if let (Some(area), Some(window)) = (self.ime_cursor, &self.window)
             && self.last_ime_area != Some(area)
         {
             self.last_ime_area = Some(area);
+            let zoom = f64::from(self.zoom());
             window.set_ime_cursor_area(
-                LogicalPosition::new(area.x as f64, area.y as f64),
-                LogicalSize::new(area.w as f64, area.h as f64),
+                LogicalPosition::new(f64::from(area.x) * zoom, f64::from(area.y) * zoom),
+                LogicalSize::new(f64::from(area.w) * zoom, f64::from(area.h) * zoom),
             );
         }
     }

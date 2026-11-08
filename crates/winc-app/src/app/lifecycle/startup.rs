@@ -31,10 +31,7 @@ impl App {
             }
             files
         };
-        let fonts = ViewFonts::new(
-            config.editor_size.unwrap_or(CODE_FONT),
-            config.ui_size.unwrap_or(UI_FONT),
-        );
+        let fonts = ViewFonts::of(&config);
         // 实际度量值（逻辑像素）要在创建窗口、加载字体之后才能得到，此前使用占位值。
         let placeholder = Metrics {
             ascent: 12.0,
@@ -66,6 +63,8 @@ impl App {
             ui_metrics: placeholder,
             mono_metrics: placeholder,
             cell: placeholder.cell,
+            terminal_metrics: placeholder,
+            terminal_cell: placeholder.cell,
             focus: Focus::Editor,
             hover: Hover::None,
             modifiers: ModifiersState::empty(),
@@ -194,6 +193,7 @@ impl App {
             picker_places: None,
             picker_branch_rows: None,
             picker_location_rows: None,
+            picker_folders: false,
             picker_anchor: GitAnchor::Branch,
             picker_part_hits: Vec::new(),
             location_toggled: Default::default(),

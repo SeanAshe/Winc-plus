@@ -9,6 +9,7 @@ use winc_i18n::t;
 use super::*;
 use crate::app::{
     ConflictAction, Focus, NoticeAction, NoticeGhost, PICKER_ICON_X, PICKER_ROW, PICKER_TEXT_X,
+    PickerPart, folder_label,
 };
 use crate::icons::Direction;
 use crate::layout::{PickerParts, SearchButton, goto_bar};
@@ -312,7 +313,8 @@ pub(crate) fn picker_parts(app: &App, card: Rect) -> PickerParts {
 ///
 /// 文件列表中每条是「文件名 + 淡色的所在目录」，选中项底色高亮，输入框右端显示文件总数。
 /// 输入框以 `>` 开头时是命令面板（⇧⌘P），每条是「命令 + 淡色的英文名」，右侧是快捷键；
-/// 以 `@` 开头时列出当前文档的符号。
+/// 以 `@` 开头时列出当前文档的符号。列出最近的目录（⌃R）时，每条是「目录名 + 淡色的上级
+/// 目录」，输入框右端是在新窗口打开的按键。
 ///
 /// 文件索引尚未建好时，列表区显示「正在索引文件…」。
 pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
@@ -320,6 +322,8 @@ pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
         super::git::picker::draw(app, frame);
         return;
     }
+    // 行内按钮每帧重新登记：换成没有按钮的列表时，不留下上一种列表的按钮。
+    app.picker_part_hits.clear();
     let rect = app.layout.picker;
     if rect.w <= 0.0 || rect.h <= 0.0 {
         return;
@@ -335,7 +339,7 @@ pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
     let parts = PickerParts::new(rect);
     let (bar, list) = (parts.bar, parts.list);
 
-    {
+    let hint_x = {
         let app_mut = &mut *app;
         let p = app_mut.palette;
 
@@ -347,7 +351,9 @@ pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
         let cy = bar.y + bar.h / 2.0;
         icons::magnifier(frame, (x, cy), p.text_dim, bar);
 
-        let total = if app_mut.picker_lists_commands() {
+        let total = if app_mut.picker_folders {
+            t!("workspace-picker-folders-new-window").to_owned()
+        } else if app_mut.picker_lists_commands() {
             t!(
                 "workspace-picker-commands",
                 count = app_mut.picker_hits.len()
@@ -368,17 +374,19 @@ pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
         let hint_w = frame.measure(FontKind::Ui, app_mut.fonts.ui_small, &total);
         let hint_x = bar.right() - 14.0 - hint_w;
         ui_text_small(frame, app_mut, hint_x, bar, &total, p.text_dim, bar);
-    }
+        hint_x
+    };
 
-    // 输入文本与下方各行的名称从同一个 x 位置开始。
-    let text_area = Rect::new(
-        bar.x + PICKER_TEXT_X,
-        bar.y,
-        (bar.w - PICKER_TEXT_X - 100.0).max(0.0),
-        bar.h,
-    );
+    // 输入文本与下方各行的名称从同一个 x 位置开始，右端不伸到输入框右端的文字下面。
+    let text_x = bar.x + PICKER_TEXT_X;
+    let text_w = (hint_x - 12.0 - text_x).min(bar.w - PICKER_TEXT_X - 100.0);
+    let text_area = Rect::new(text_x, bar.y, text_w.max(0.0), bar.h);
 
-    let placeholder = t!("workspace-picker-placeholder");
+    let placeholder = if app.picker_folders {
+        t!("workspace-picker-folders-placeholder")
+    } else {
+        t!("workspace-picker-placeholder")
+    };
     let caret = {
         let app_mut = &mut *app;
         let focused = app_mut.focus == Focus::Picker;
@@ -404,6 +412,10 @@ pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
         rect,
     );
 
+    if app.picker_folders {
+        app.picker_part_hits = draw_folder_rows(app, frame, &parts);
+        return;
+    }
     if app.picker_lists_commands() {
         draw_palette_rows(app, frame, &parts);
         return;
@@ -638,6 +650,91 @@ fn draw_symbol_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts) {
             ui_text_small(frame, app, x + 8.0, row, &container, p.text_dim, clip);
         }
     }
+}
+
+/// 绘制最近打开的目录：目录图标、目录名，其后是淡色的上级目录；选中或悬停的那一行右端有
+/// 「✕」，点击后从最近列表中移除该目录。返回画出的「✕」，点击和悬停按它们判断。
+fn draw_folder_rows(
+    app: &App,
+    frame: &mut Frame<'_>,
+    parts: &PickerParts,
+) -> Vec<(Rect, PickerPart)> {
+    let p = app.palette;
+    let list = parts.list;
+    if app.picker_hits.is_empty() {
+        let root = app.editor.root();
+        let message = if app.state.recent.iter().any(|f| Some(f.as_path()) != root) {
+            t!("workspace-picker-no-matching-folders")
+        } else {
+            t!("workspace-picker-no-recent-folders")
+        };
+        let row = Rect::new(list.x, list.y, list.w, list.h.min(PICKER_ROW));
+        let x = list.x + PICKER_TEXT_X;
+        ui_text(frame, app, x, row, message, p.text_dim, list);
+        return Vec::new();
+    }
+
+    let mut hits = Vec::new();
+    let scroll = app.picker_scroll;
+    for i in parts.visible(scroll, app.picker_hits.len()) {
+        let Some(folder) = app.state.recent.get(app.picker_hits[i]) else {
+            continue;
+        };
+        let row = parts.row(i, scroll);
+        let clip = row.intersect(list);
+        let forget = PickerPart::ForgetFolder(i);
+        let selected = i == app.picker_selected;
+        let hovered = matches!(app.hover,
+            Hover::PickerRow(r) | Hover::PickerPart(PickerPart::ForgetFolder(r)) if r == i);
+        draw_pick_row(app, frame, row, i, clip);
+        if !selected && app.hover == Hover::PickerPart(forget) {
+            frame.rect_clipped(row.inset(6.0, 1.0), p.hover, RADIUS_ROW, clip);
+        }
+
+        // 目录图标与文件列表的文件图标、输入框的放大镜在同一条竖直轴线上。
+        let cy = icon_center_y(app, row, app.fonts.ui);
+        let x = row.x + PICKER_ICON_X + (icons::FILE_WIDTH - icons::FOLDER_WIDTH) / 2.0;
+        icons::folder(frame, (x, cy - 6.0), false, p.folder, clip);
+
+        // 「✕」只在选中或悬停时显示，但位置始终预留，名称和上级目录不会因它出现而移动。
+        let close = Rect::new(
+            row.right() - 8.0 - BUTTON_SMALL,
+            row.y + 2.0,
+            BUTTON_SMALL,
+            row.h - 4.0,
+        );
+        if selected || hovered {
+            let over = app.hover == Hover::PickerPart(forget);
+            draw_button(frame, p, close, clip, over, false);
+            icons::close(frame, center(close), 6.5, p.text_muted, clip);
+            hits.push((close, forget));
+        }
+
+        // 查询命中的字用强调色标出；从中间截短了的文字下标对不上，不标。
+        let (name, parent) = folder_label(folder);
+        let (in_name, in_parent) = app.folder_matched(i);
+        let room = (close.x - 8.0 - (row.x + PICKER_TEXT_X)).max(0.0);
+        let shown = ellipsize(frame, &name, app.fonts.ui, room);
+        let marks = if shown.len() == name.len() {
+            in_name
+        } else {
+            Vec::new()
+        };
+        let at = (row.x + PICKER_TEXT_X, row);
+        let x = marked_label(frame, app, app.fonts.ui, at, &shown, &marks, p.text, clip);
+        let room = close.x - 8.0 - (x + 8.0);
+        if !parent.is_empty() && room > 20.0 {
+            let shown = ellipsize(frame, &parent, app.fonts.ui_small, room);
+            let marks = if shown.len() == parent.len() {
+                in_parent
+            } else {
+                Vec::new()
+            };
+            let (at, size) = ((x + 8.0, row), app.fonts.ui_small);
+            marked_label(frame, app, size, at, &shown, &marks, p.text_dim, clip);
+        }
+    }
+    hits
 }
 
 /// 提示条与编辑区右上角（查找条打开时为查找条下方）之间的距离（逻辑像素），上边和右边相同。

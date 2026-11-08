@@ -271,8 +271,15 @@ fn a_mouse_wheel_notch_scrolls_the_platform_distance() {
     } else if !cfg!(windows) {
         assert_eq!(app.wheel_step(), (120.0, 120.0));
     }
-    // 终端中各系统上都为 3 行。
+    // 终端中各平台均为 3 行，行高按终端字号计算。
+    app.config.terminal_size = Some(app.fonts.code + 4.0);
+    app.apply_font_sizes();
     app.layout.terminal = text;
+    let lines = (
+        app.terminal_cell * 3.0,
+        app.fonts.terminal_line_height * 3.0,
+    );
+    assert!(lines.1 > app.fonts.line_height * 3.0);
     assert_eq!(app.wheel_step(), lines);
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -17,7 +17,7 @@ use super::editor::format::{task_commands, task_commands_mut};
 use super::input::context_menu::{MenuTarget, menu_below, tool_setting as tool_setting_of};
 use super::*;
 use crate::keymap::{self, Os, Stroke};
-use crate::layout::{KeysLayout, ToolLanguages};
+use crate::layout::{KeysLayout, SettingsView, ToolLanguages};
 
 /// 设置浮层的状态。
 #[derive(Debug, Default)]
@@ -54,6 +54,12 @@ pub struct SettingsState {
     ///
     /// 文字宽度要到绘制时才知道，悬停和点击使用这里记录的位置。
     pub install_links: Vec<(Setting, Rect)>,
+    /// 分类栏顶部的搜索框：按设置项的名称和说明搜索，不为空白时正文换成搜索结果。
+    pub search: TextField,
+    /// 「关于」页顶部的产品图标：渲染时的边长（物理像素）和 RGBA 像素；关闭浮层时释放。
+    ///
+    /// 渲染失败时像素为空，不再重试，图标不显示。
+    pub logo: Option<(u32, Vec<u8>)>,
     /// 快捷键页的搜索框：按命令名或按键搜索。
     pub keys_query: TextField,
     /// 是否正在录制按键：按下的键写入搜索框，不执行。
@@ -160,6 +166,11 @@ fn font_error(value: &Option<String>) -> Option<String> {
     })
 }
 
+/// 界面缩放的档位（百分比）：设置菜单中列出，快捷键依次经过。
+///
+/// 100% 附近每档 10%，便于微调；更大的倍数每档 25%，较少几次即可放大到上限。
+pub(crate) const ZOOM_STEPS: [u16; 9] = [70, 80, 90, 100, 110, 125, 150, 175, 200];
+
 /// 把 `value` 加 1（`up` 为 `true`）或减 1，结果限制在 `range` 之内。
 fn step(value: f32, up: bool, range: RangeInclusive<f32>) -> f32 {
     let next = if up { value + 1.0 } else { value - 1.0 };
@@ -189,13 +200,16 @@ impl App {
         self.settings.cache = None;
         self.settings.scroll = 0.0;
         self.settings.selected = Setting::default();
+        self.settings.search.set_text("");
         self.settings.error = self.broken_font(self.settings.selected.page());
         self.settings.keyboard = false;
         self.settings.hover = None;
         self.settings.languages = ToolLanguages::default();
         self.refresh_format_rows(true);
-        // 列出字体要读取字体文件，先在后台读好，打开字体菜单时不必等待。
+        // 列出字体要读取字体文件，先在后台读好，打开字体菜单时不必等待；「默认 Shell」菜单中的
+        // shell 同样在后台检测。
         std::thread::spawn(winc_render::installed_fonts);
+        self.detect_terminal_shells();
         // 能否找到工具取决于用户 shell 中的 `PATH`，因此在后台获取该环境，取到之后再补上提醒。
         if let Some(proxy) = self.proxy.clone() {
             self.format.formatter.prepare(move || {
@@ -227,12 +241,13 @@ impl App {
         self.settings.switch_slide = None;
         self.settings.error = None;
         self.settings.hover = None;
+        self.settings.logo = None;
         self.field_preedit.clear();
 
-        self.settings.recording = false;
+        self.set_recording(false);
         if matches!(
             self.focus,
-            Focus::Settings | Focus::Setting | Focus::KeySearch
+            Focus::Settings | Focus::Setting | Focus::KeySearch | Focus::SettingsSearch
         ) {
             self.focus = Focus::Editor;
         }
@@ -246,7 +261,7 @@ impl App {
     /// 链接不可点击。
     pub(super) fn settings_part_at(&self, x: f32, y: f32) -> Option<SettingsPart> {
         let layout = self.settings_layout();
-        if layout.page == SettingsPage::Keys {
+        if layout.page == SettingsPage::Keys && !layout.searching {
             let (search, record) = KeysLayout::header(layout.body);
             if record.contains(x, y) {
                 return Some(SettingsPart::Record);
@@ -260,19 +275,148 @@ impl App {
             .install_links
             .iter()
             .find(|(_, r)| r.contains(x, y) && layout.body.contains(x, y));
-        match link {
-            Some(&(setting, _)) => Some(SettingsPart::Install(setting)),
-            None => layout.part_at(x, y),
+        if let Some(&(setting, _)) = link {
+            return Some(SettingsPart::Install(setting));
+        }
+        match layout.part_at(x, y)? {
+            // 版本号和链接只有文字那一块可点，与悬停底色一致。
+            part @ (SettingsPart::Copy(setting) | SettingsPart::Link(setting)) => {
+                let area = self.settings_value_area(&layout, setting)?;
+                area.contains(x, y).then_some(part)
+            }
+            // 不支持应用内更新时不显示「检查更新」按钮。
+            SettingsPart::Action(Setting::Updates) if !self.updates_supported() => None,
+            part => Some(part),
+        }
+    }
+
+    /// 返回「关于」页中版本号或链接 `setting` 实际占的区域（悬停底色和点击范围）；不在布局
+    /// `layout` 中时返回 `None`。
+    pub(in crate::app) fn settings_value_area(
+        &self,
+        layout: &SettingsLayout,
+        setting: Setting,
+    ) -> Option<Rect> {
+        let row = layout.row(setting)?;
+        let measure = |text: &str| {
+            (self.renderer.as_ref()).map_or(0.0, |r| r.measure(FontKind::Ui, self.fonts.ui, text))
+        };
+        Some(if setting == Setting::Version {
+            let text_w = measure(&crate::layout::version_line());
+            crate::layout::ProductParts::new(row.row).version_area(text_w)
+        } else {
+            let text = crate::layout::about_value(setting).unwrap_or_default();
+            let content = measure(&text) + crate::layout::LINK_ICON_W;
+            crate::layout::value_area(row.control, content)
+        })
+    }
+
+    /// 返回边长 `size`（物理像素）的产品图标（RGBA），首次用到或缩放改变时从应用图标的 SVG
+    /// 渲染并留存。
+    pub(crate) fn product_logo(&mut self, size: u32) -> &[u8] {
+        /// 应用图标，与各平台安装包的图标同一份。
+        const LOGO: &str = include_str!("../../assets/icon.svg");
+        if self.settings.logo.as_ref().is_none_or(|&(s, _)| s != size) {
+            let rgba = winc_preview::svg::load(LOGO, None, None)
+                .map(|picture| picture.render(size, size).rgba)
+                .unwrap_or_default();
+            self.settings.logo = Some((size, rgba));
+        }
+        self.settings.logo.as_ref().map_or(&[], |(_, rgba)| rgba)
+    }
+
+    /// 是否支持应用内更新：不支持时「关于」页只写明原因，不显示「检查更新」按钮。
+    pub(crate) fn updates_supported(&self) -> bool {
+        use crate::winc::UpdateState;
+        !matches!(*self.shared.update_state.borrow(), UpdateState::Off)
+    }
+
+    /// 在浏览器中打开「关于」页的链接 `setting`；打不开时在状态栏说明原因。
+    pub(in crate::app) fn settings_open_link(&mut self, setting: Setting) {
+        self.settings.selected = setting;
+        let Some(url) = crate::layout::about_link(setting) else {
+            return;
+        };
+        if let Err(e) = crate::system::open_url(&url) {
+            self.flash(t!("settings-link-open-failed", error = e.to_string()));
         }
     }
 
     /// 返回设置浮层当前帧的几何布局，绘制、悬停和点击共用同一份。
+    ///
+    /// 说明文字用渲染器量宽度后折行；绘制期间渲染器不在 `App` 中，绘制时改用
+    /// [`Self::settings_layout_with`]，以同一份字形缓存量出相同的结果。
     pub(crate) fn settings_layout(&self) -> SettingsLayout {
-        let page = self.settings.selected.page();
-        let languages = &self.settings.languages;
-        let editing = self.settings.editing.as_ref().map(|(s, _)| *s);
-        let scroll = self.settings.scroll;
-        SettingsLayout::compute(self.layout.window, page, languages, editing, scroll)
+        let size = self.fonts.ui_small;
+        let renderer = self.renderer.as_ref();
+        self.settings_layout_with(&mut |text: &str| {
+            renderer.map_or(0.0, |r| r.measure(FontKind::Ui, size, text))
+        })
+    }
+
+    /// 同 [`Self::settings_layout`]，说明文字（界面小字号）的宽度由 `measure` 给出。
+    pub(crate) fn settings_layout_with(
+        &self,
+        measure: &mut dyn FnMut(&str) -> f32,
+    ) -> SettingsLayout {
+        let view = SettingsView {
+            page: self.settings.selected.page(),
+            query: self.settings.search.text(),
+            languages: &self.settings.languages,
+            terminal: self.module_fx.terminal.share(self.terminal_enabled()),
+            editing: self.settings.editing.as_ref().map(|(s, _)| *s),
+            scroll: self.settings.scroll,
+        };
+        SettingsLayout::compute(self.layout.window, &view, measure)
+    }
+
+    /// 是否在显示搜索结果：分类栏顶部的搜索框不为空白。
+    pub(crate) fn settings_searching(&self) -> bool {
+        !self.settings.search.text().trim().is_empty()
+    }
+
+    /// 返回键盘上下移动经过的设置项：搜索时为搜索结果，否则为各页的全部设置项。
+    fn settings_items(&self) -> Vec<Setting> {
+        let (languages, terminal) = (&self.settings.languages, self.terminal_enabled());
+        if self.settings_searching() {
+            Setting::found(self.settings.search.text(), languages, terminal)
+        } else {
+            Setting::all(languages, terminal)
+        }
+    }
+
+    /// 把焦点移到分类栏顶部的搜索框，全选其中的文字。
+    pub(super) fn focus_settings_search(&mut self) {
+        self.settings_leave_field();
+        self.set_recording(false);
+        self.settings.search.select_all();
+        self.focus = Focus::SettingsSearch;
+        self.reset_blink();
+        self.request_redraw();
+    }
+
+    /// 搜索框的内容变化后：结果从顶部显示，选中第一条结果；清空后回到选中项所在的页。
+    pub(in crate::app) fn settings_search_changed(&mut self) {
+        self.settings.scroll = 0.0;
+        self.settings.keyboard = false;
+        if let Some(&first) = self.settings_items().first()
+            && self.settings_searching()
+        {
+            self.settings.selected = first;
+        }
+        self.request_redraw();
+    }
+
+    /// 从搜索框进入结果列表：键盘焦点回到浮层，选中第一条结果；没有结果时不处理。
+    pub(super) fn settings_enter_results(&mut self) {
+        let Some(&first) = self.settings_items().first() else {
+            return;
+        };
+        self.settings.selected = first;
+        self.settings.keyboard = true;
+        self.focus = Focus::Settings;
+        self.settings_scroll_into_view();
+        self.request_redraw();
     }
 
     /// 切换到 `page`，并选中该页的第一项。
@@ -280,13 +424,22 @@ impl App {
     /// 正在编辑时先离开输入框（见 [`App::settings_leave_field`]）。进入快捷键页时，光标直接
     /// 位于搜索框中。
     pub(super) fn settings_show_page(&mut self, page: SettingsPage) {
+        // 未列出的页（模块关闭后正在淡出的「终端」一项）不切换过去。
+        if !SettingsPage::listed(self.terminal_enabled()).any(|listed| listed == page) {
+            return;
+        }
         self.settings_leave_field();
+        // 换页即离开搜索结果；选中的结果在该页时仍选中它。
+        if self.settings_searching() {
+            self.settings.search.set_text("");
+            self.settings.scroll = 0.0;
+        }
         if self.settings.selected.page() != page {
             self.settings.selected = page.first();
             self.settings.scroll = 0.0;
             self.settings.error = self.broken_font(page);
         }
-        self.settings.recording = false;
+        self.set_recording(false);
         self.focus = if page == SettingsPage::Keys {
             Focus::KeySearch
         } else {
@@ -331,9 +484,25 @@ impl App {
         self.request_redraw();
     }
 
+    /// 开始（`on` 为 `true`）或停止录制按键。
+    ///
+    /// macOS 上菜单栏中带快捷键的菜单项（「设置…」的 ⌘,、「退出」的 ⌘Q 等）先于窗口收到按键；
+    /// 录制期间暂停这些快捷键，按键照常送到窗口、写进搜索框。
+    pub(in crate::app) fn set_recording(&mut self, on: bool) {
+        if self.settings.recording == on {
+            return;
+        }
+        self.settings.recording = on;
+        // 没有窗口（测试中）时没有菜单栏，也不在主线程上。
+        #[cfg(target_os = "macos")]
+        if self.window.is_some() {
+            crate::macos::suspend_menu_shortcuts(on);
+        }
+    }
+
     /// 开始或停止录制按键；开始时清空搜索框。
     pub(super) fn toggle_recording(&mut self) {
-        self.settings.recording = !self.settings.recording;
+        self.set_recording(!self.settings.recording);
         if self.settings.recording {
             self.settings.keys_query.set_text("");
             self.settings.keys_recorded = false;
@@ -350,7 +519,10 @@ impl App {
     pub(super) fn settings_move(&mut self, down: bool) {
         self.settings_leave_field();
 
-        let all = Setting::all(&self.settings.languages);
+        let all = self.settings_items();
+        if all.is_empty() {
+            return;
+        }
         let position = all
             .iter()
             .position(|s| *s == self.settings.selected)
@@ -362,12 +534,13 @@ impl App {
         };
 
         self.settings.keyboard = true;
-        if all[next].page() != self.settings.selected.page() {
+        // 搜索结果在同一列中，跨页移动不回到顶部。
+        if all[next].page() != self.settings.selected.page() && !self.settings_searching() {
             self.settings.scroll = 0.0;
             self.settings.error = self.broken_font(all[next].page());
         }
         self.settings.selected = all[next];
-        self.settings.recording = false;
+        self.set_recording(false);
         self.focus = if all[next] == Setting::KeySearch {
             Focus::KeySearch
         } else {
@@ -470,7 +643,8 @@ impl App {
             | SettingControl::Action
             | SettingControl::Choice
             | SettingControl::Search
-            | SettingControl::Value
+            | SettingControl::Product
+            | SettingControl::Link
             | SettingControl::Button => {}
         }
     }
@@ -510,7 +684,8 @@ impl App {
     }
 
     /// 处理 `↩` 或空格：输入框进入编辑，开关切换，格式化命令、「添加语言…」「排除的语言」弹出菜单，
-    /// 数值项和主题项向前一步（等同 `→`），版本号复制到剪贴板，搜索项把焦点移到搜索框。
+    /// 数值项和主题项向前一步（等同 `→`），版本号复制到剪贴板，链接在浏览器中打开，搜索项把焦点移到
+    /// 搜索框。
     pub(super) fn settings_activate(&mut self) {
         self.settings.keyboard = true;
         let setting = self.settings.selected;
@@ -522,7 +697,8 @@ impl App {
             | SettingControl::Action
             | SettingControl::Choice
             | SettingControl::Button => self.settings_open_menu(setting),
-            SettingControl::Value => self.settings_copy_value(setting),
+            SettingControl::Product => self.settings_copy_value(setting),
+            SettingControl::Link => self.settings_open_link(setting),
             SettingControl::Stepper | SettingControl::Themes | SettingControl::ThemeList => {
                 self.settings_step(true)
             }
@@ -552,6 +728,12 @@ impl App {
             Setting::SystemTitleBar => self.config.ui_native_title_bar == Some(true),
             Setting::GitModule => self.git_enabled(),
             Setting::TerminalModule => self.terminal_enabled(),
+            Setting::TerminalCopyOnSelect => self.config.terminal_copy_on_select == Some(true),
+            Setting::TerminalConfirmClose => self.config.terminal_confirm_close != Some(false),
+            Setting::TerminalPrompt => self.config.terminal_prompt != Some(false),
+            Setting::TerminalShellIntegration => {
+                self.config.terminal_shell_integration != Some(false)
+            }
             _ => false,
         }
     }
@@ -588,6 +770,10 @@ impl App {
             Setting::SystemTitleBar => self.config.ui_native_title_bar = Some(on),
             Setting::GitModule => self.config.git_enabled = Some(on),
             Setting::TerminalModule => self.config.terminal_enabled = Some(on),
+            Setting::TerminalCopyOnSelect => self.config.terminal_copy_on_select = Some(on),
+            Setting::TerminalConfirmClose => self.config.terminal_confirm_close = Some(on),
+            Setting::TerminalPrompt => self.config.terminal_prompt = Some(on),
+            Setting::TerminalShellIntegration => self.config.terminal_shell_integration = Some(on),
             _ => return,
         }
         // 由命令切换（如 ⌥Z 自动换行）时设置浮层未打开，看不到开关，不必播放动画。
@@ -650,6 +836,7 @@ impl App {
 
         let current = match tool_setting(setting) {
             Some((task, id)) => task_commands(&self.config, task).get(id).cloned(),
+            None if setting == Setting::TerminalShell => self.config.terminal_shell.clone(),
             None => self.font_setting(setting).clone(),
         };
         let mut field = TextField::default();
@@ -669,12 +856,13 @@ impl App {
     ///
     /// 这样的字体在启动时已改用默认字体，但设置中仍是原来的名字，因此在该行写明原因。
     fn broken_font(&self, page: SettingsPage) -> Option<(Setting, String)> {
-        [Setting::EditorFont, Setting::UiFont]
+        [Setting::EditorFont, Setting::UiFont, Setting::TerminalFont]
             .into_iter()
             .filter(|setting| setting.page() == page)
             .find_map(|setting| {
                 let value = match setting {
                     Setting::UiFont => &self.config.ui_font,
+                    Setting::TerminalFont => &self.config.terminal_font,
                     _ => &self.config.editor_font,
                 };
                 font_error(value).map(|error| (setting, error))
@@ -684,6 +872,7 @@ impl App {
     fn font_setting(&mut self, setting: Setting) -> &mut Option<String> {
         match setting {
             Setting::UiFont => &mut self.config.ui_font,
+            Setting::TerminalFont => &mut self.config.terminal_font,
             _ => &mut self.config.editor_font,
         }
     }
@@ -742,7 +931,7 @@ impl App {
         self.request_redraw();
     }
 
-    /// 提交正在编辑的字体名或格式化命令。
+    /// 提交正在编辑的字体名或命令。
     pub(super) fn settings_commit_field(&mut self) {
         let Some((setting, field)) = self.settings.editing.as_ref() else {
             return;
@@ -752,6 +941,13 @@ impl App {
 
         match tool_setting(setting) {
             Some((task, id)) => self.settings_commit_command(task, id, value),
+            None if setting == Setting::TerminalShell => {
+                self.settings.editing = None;
+                self.settings.editing_original = None;
+                self.settings.error = None;
+                self.focus = Focus::Settings;
+                self.set_terminal_shell(value);
+            }
             None => self.settings_commit_font(setting, value),
         }
     }
@@ -819,23 +1015,64 @@ impl App {
         self.settings.editing_original = None;
     }
 
-    /// 放大或缩小编辑区的字号（`⌘+` `⌘−`），`⌘0` 还原（`up` 为 `None`）。
+    /// 放大或缩小字号（`⌘+` `⌘−`），`⌘0` 还原（`up` 为 `None`）。
     ///
-    /// 改的就是设置中的「编辑器字号」，并写回配置；界面字号不变。
-    pub(super) fn zoom(&mut self, up: Option<bool>) {
-        let current = self.config.editor_size.unwrap_or(CODE_FONT);
-        self.config.editor_size = up.map(|up| step(current, up, Config::EDITOR_SIZE_RANGE));
-
-        let code = self.config.editor_size.unwrap_or(CODE_FONT);
-        if code == current && up.is_some() {
-            self.flash(t!("settings-zoom-limit", size = code.to_string()));
+    /// 焦点在终端时调整终端字号，否则调整编辑区字号，两者互不影响；还原即回到默认字号。改动
+    /// 写回配置，界面字号不变。
+    pub(super) fn step_font_size(&mut self, up: Option<bool>) {
+        let terminal = self.focus.in_terminal();
+        let pick = |fonts: ViewFonts| if terminal { fonts.terminal } else { fonts.code };
+        let current = pick(ViewFonts::of(&self.config));
+        let next = up.map(|up| step(current, up, Config::EDITOR_SIZE_RANGE));
+        if next == Some(current) {
+            let size = current.to_string();
+            self.flash(if terminal {
+                t!("settings-terminal-font-size-limit", size = size)
+            } else {
+                t!("settings-font-size-limit", size = size)
+            });
             return;
         }
+        if terminal {
+            self.config.terminal_size = next;
+        } else {
+            self.config.editor_size = next;
+        }
 
-        let ui = self.config.ui_size.unwrap_or(UI_FONT);
-        self.apply_font_sizes(code, ui);
+        let size = pick(ViewFonts::of(&self.config)).to_string();
+        self.apply_font_sizes();
         self.save_config();
-        self.flash(t!("settings-zoom", size = code.to_string()));
+        self.flash(if terminal {
+            t!("settings-terminal-font-size", size = size)
+        } else {
+            t!("settings-font-size", size = size)
+        });
+    }
+
+    /// 按档位（[`ZOOM_STEPS`]）放大或缩小界面（`up` 为 `true` 时放大），`up` 为 `None` 时还原为
+    /// 100%。
+    ///
+    /// 配置文件中写了档位以外的值时，移到该方向上最近的档位。改动写回配置。
+    pub(super) fn step_zoom(&mut self, up: Option<bool>) {
+        let current = self.config.ui_zoom.unwrap_or(100);
+        let next = match up {
+            Some(true) => ZOOM_STEPS.into_iter().find(|&zoom| zoom > current),
+            Some(false) => ZOOM_STEPS.into_iter().rev().find(|&zoom| zoom < current),
+            None => Some(100),
+        };
+        let Some(next) = next else {
+            self.flash(t!("settings-zoom-limit", zoom = current.to_string()));
+            return;
+        };
+        self.set_zoom(next);
+        self.flash(t!("settings-zoom", zoom = next.to_string()));
+    }
+
+    /// 把界面缩放设为 `zoom`（百分比）并写回配置；100% 时从配置中去掉该项。
+    pub(in crate::app) fn set_zoom(&mut self, zoom: u16) {
+        self.config.ui_zoom = (zoom != 100).then_some(zoom);
+        self.apply_zoom();
+        self.save_config();
     }
 
     /// 返回数值设置当前的显示值，以及是否已到范围的下限、上限（到限的一侧按钮变淡）。
@@ -848,6 +1085,10 @@ impl App {
             Setting::UiSize => (
                 self.config.ui_size.unwrap_or(UI_FONT),
                 Config::UI_SIZE_RANGE,
+            ),
+            Setting::TerminalSize => (
+                ViewFonts::of(&self.config).terminal,
+                Config::EDITOR_SIZE_RANGE,
             ),
             Setting::TabWidth => (
                 self.config.tab_width.unwrap_or(self.editor.tab_width) as f32,
@@ -875,6 +1116,12 @@ impl App {
                 let current = self.config.ui_size.unwrap_or(UI_FONT);
                 self.config.ui_size = Some(step(current, up, Config::UI_SIZE_RANGE));
                 self.apply_fonts().ok();
+            }
+            // 只改字号，无需重新加载字体。
+            Setting::TerminalSize => {
+                let current = ViewFonts::of(&self.config).terminal;
+                self.config.terminal_size = Some(step(current, up, Config::EDITOR_SIZE_RANGE));
+                self.apply_font_sizes();
             }
             Setting::TabWidth => {
                 let current = self.config.tab_width.unwrap_or(self.editor.tab_width);
@@ -958,6 +1205,28 @@ impl App {
         self.request_redraw();
     }
 
+    /// 设置新建终端时运行的命令（`terminal.shell`）；`None` 表示系统默认。已打开的终端不受影响。
+    pub(in crate::app) fn set_terminal_shell(&mut self, command: Option<String>) {
+        self.settings.selected = Setting::TerminalShell;
+        self.config.terminal_shell = command;
+        self.save_config();
+        self.request_redraw();
+    }
+
+    /// 设置终端面板的位置：`right` 为编辑区右侧，否则为下方。
+    pub(in crate::app) fn set_terminal_position(&mut self, right: bool) {
+        if right != self.terminal_right() {
+            self.toggle_terminal_position();
+        }
+    }
+
+    /// 设置终端中用作 Meta 键的 ⌥。
+    pub(in crate::app) fn set_option_as_meta(&mut self, choice: winc_config::OptionAsMeta) {
+        self.config.option_as_meta = Some(choice);
+        self.save_config();
+        self.request_redraw();
+    }
+
     /// 把配置中修改过的项写回配置文件，再改用文件中的配置，使程序运行期间手动修改的项生效。
     ///
     /// 写入失败时提示原因，不影响继续使用，下次写回时再写入这些项。原文件无法解析或含有注释时，
@@ -997,8 +1266,10 @@ impl App {
     pub(crate) fn adopt_config(&mut self, config: Config) {
         let old = std::mem::replace(&mut self.config, config);
         let new = &self.config;
+        let zoom = old.ui_zoom != new.ui_zoom;
         let fonts = (old.editor_font != new.editor_font || old.ui_font != new.ui_font)
-            || (old.editor_size != new.editor_size || old.ui_size != new.ui_size);
+            || (old.editor_size != new.editor_size || old.ui_size != new.ui_size)
+            || (old.terminal_font != new.terminal_font || old.terminal_size != new.terminal_size);
         let theme = (old.theme != new.theme || old.dark_theme != new.dark_theme)
             || old.light_theme != new.light_theme;
         let tab_width = (old.tab_width != new.tab_width)
@@ -1027,6 +1298,9 @@ impl App {
         if fonts || glyph_language {
             // 别的窗口已经用上了这些字体，这里也用得上；万一用不上，留着原来的字体。
             let _ = self.apply_fonts();
+        }
+        if zoom {
+            self.apply_zoom();
         }
         if let Some(width) = tab_width {
             self.editor.tab_width = width;
@@ -1060,6 +1334,10 @@ impl App {
         }
         if stop_terminal {
             self.stop_terminal();
+            // 「终端」页不再列出：设置停在该页时改到「模块」页。
+            if self.settings.open && self.settings.selected.page() == SettingsPage::Terminal {
+                self.settings_show_page(SettingsPage::Modules);
+            }
         }
         self.reload_run_configs();
         if title_bar {

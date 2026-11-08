@@ -161,11 +161,18 @@ impl App {
             Some(SettingsPart::Action(setting)) => self.settings_open_menu(setting),
             Some(SettingsPart::Record) => self.toggle_recording(),
             Some(SettingsPart::KeySearch) => {
-                self.settings.recording = false;
+                self.set_recording(false);
                 self.focus = Focus::KeySearch;
                 self.click_field(x, y);
             }
+            Some(SettingsPart::SearchField) => {
+                self.settings_leave_field();
+                self.set_recording(false);
+                self.focus = Focus::SettingsSearch;
+                self.click_field(x, y);
+            }
             Some(SettingsPart::Copy(setting)) => self.settings_copy_value(setting),
+            Some(SettingsPart::Link(setting)) => self.settings_open_link(setting),
             Some(SettingsPart::Install(id)) => {
                 self.settings_choose_tool(id, MenuCommand::ToolInstall);
             }

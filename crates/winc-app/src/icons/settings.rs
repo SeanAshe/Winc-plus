@@ -1,4 +1,4 @@
-//! 设置浮层左侧各页的图标（外观、代码、格式化、模块、快捷键），以及锁、预览的眼睛、齿轮。
+//! 设置浮层左侧各页的图标（外观、代码、格式化、终端、模块、快捷键），以及锁、预览的眼睛、齿轮。
 
 use super::*;
 
@@ -98,6 +98,21 @@ pub fn format(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: R
         Stroke::Line(cx - 6.5, cy + 4.5, cx + 0.5, cy + 4.5),
     ];
     frame.stroke(&lines, RING_STROKE, color, clip);
+}
+
+/// 绘制「终端」图标，15×11：圆角框，内有提示符 `>_`。
+///
+/// 用于设置的分类栏。
+pub fn console(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let (w, h) = (15.0, 11.0);
+    let (x, y) = (cx - w / 2.0, cy - h / 2.0);
+    let prompt = [
+        Stroke::Line(x + 3.5, y + 3.0, x + 6.0, y + 5.5),
+        Stroke::Line(x + 6.0, y + 5.5, x + 3.5, y + 8.0),
+        Stroke::Line(x + 7.5, y + 8.0, x + 11.0, y + 8.0),
+    ];
+    let shapes: Strokes<11> = joined(&[&rounded_outline(x, y, w, h, 2.5), &prompt]);
+    frame.stroke(shapes.as_slice(), RING_STROKE, color, clip);
 }
 
 /// 绘制「模块」图标，13×13：四个圆角小方块排成两行两列，表示可以拼装的部件。

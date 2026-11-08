@@ -154,13 +154,13 @@ pub const MOD_COMMAND: usize = 1 << 20;
 
 /// 系统菜单弹出的位置和宽度。
 pub struct MenuPlace {
-    /// 窗口中的位置（逻辑坐标，左上角为原点），默认对准菜单的左上角。
+    /// 窗口中的位置（`AppKit` 的点，左上角为原点），默认对准菜单的左上角。
     pub at: (f64, f64),
     /// 改为对准第一个打勾的项，让当前选择盖在触发菜单的按钮上。
     pub at_checked: bool,
     /// `at` 是菜单的右上角，按菜单宽度往左挪。
     pub right_aligned: bool,
-    /// 菜单的最小宽度（逻辑像素）；没有要求时为 0。
+    /// 菜单的最小宽度（`AppKit` 的点）；没有要求时为 0。
     pub min_width: f64,
 }
 

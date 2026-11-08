@@ -27,6 +27,7 @@ impl App {
             Focus::Picker => Some(&mut self.picker_input),
             Focus::Setting => self.settings.editing.as_mut().map(|(_, field)| field),
             Focus::KeySearch => Some(&mut self.settings.keys_query),
+            Focus::SettingsSearch => Some(&mut self.settings.search),
             Focus::LogFilter => Some(&mut self.log.filter),
             Focus::Dialog => self.form_dialog.as_mut().map(|d| {
                 if d.focus == crate::layout::DialogPart::Second {
@@ -66,6 +67,7 @@ impl App {
                 Focus::Setting => self.settings_live_font(),
                 Focus::LogFilter => self.log_filter_changed(),
                 Focus::TerminalFind => self.terminal_find_changed(),
+                Focus::SettingsSearch => self.settings_search_changed(),
                 // 筛选后列表变短，滚动位置回到顶部。
                 Focus::KeySearch => {
                     self.settings.scroll = 0.0;

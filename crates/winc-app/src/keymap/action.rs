@@ -25,6 +25,7 @@ pub enum Action {
     NewWindow,
     OpenFile,
     OpenFolder,
+    OpenRecent,
     Save,
     SaveAs,
     CloseTab,
@@ -140,6 +141,9 @@ pub enum Action {
     ToggleSidebar,
     FocusSidebar,
     ShowFiles,
+    IncreaseFontSize,
+    DecreaseFontSize,
+    ResetFontSize,
     ZoomIn,
     ZoomOut,
     ResetZoom,
@@ -255,6 +259,7 @@ impl Action {
             NewWindow => t!("cmd-new-window"),
             OpenFile => t!("cmd-open-file"),
             OpenFolder => t!("cmd-open-folder"),
+            OpenRecent => t!("cmd-open-recent"),
             Save => t!("cmd-save"),
             SaveAs => t!("cmd-save-as"),
             CloseTab => t!("cmd-close-tab"),
@@ -372,6 +377,9 @@ impl Action {
             ToggleSidebar => t!("cmd-toggle-sidebar"),
             FocusSidebar => t!("cmd-focus-sidebar"),
             ShowFiles => t!("cmd-show-files"),
+            IncreaseFontSize => t!("cmd-increase-font-size"),
+            DecreaseFontSize => t!("cmd-decrease-font-size"),
+            ResetFontSize => t!("cmd-reset-font-size"),
             ZoomIn => t!("cmd-zoom-in"),
             ZoomOut => t!("cmd-zoom-out"),
             ResetZoom => t!("cmd-reset-zoom"),
@@ -454,6 +462,7 @@ impl Action {
             NewWindow => "New Window",
             OpenFile => "Open",
             OpenFolder => "Open Folder",
+            OpenRecent => "Open Recent Folder",
             Save => "Save",
             SaveAs => "Save As",
             CloseTab => "Close Editor",
@@ -565,6 +574,9 @@ impl Action {
             ToggleSidebar => "Toggle Sidebar",
             FocusSidebar => "Focus Sidebar",
             ShowFiles => "Show Explorer",
+            IncreaseFontSize => "Increase Font Size",
+            DecreaseFontSize => "Decrease Font Size",
+            ResetFontSize => "Reset Font Size",
             ZoomIn => "Zoom In",
             ZoomOut => "Zoom Out",
             ResetZoom => "Reset Zoom",
@@ -649,7 +661,7 @@ impl Action {
             | CloseAllTabs | ReopenClosed | NextTab | PreviousTab | CloseFolder | CloseWindow
             | CopyPath | CopyRelativePath | RevealInFinder | CopyActivePath | CopyKeyPath
             | RevealActiveFile | OpenInTerminal | Quit => Group::File,
-            NewWindow | CopyReference | CopyAbsoluteReference => Group::File,
+            NewWindow | OpenRecent | CopyReference | CopyAbsoluteReference => Group::File,
             Undo
             | Redo
             | Cut
@@ -726,6 +738,9 @@ impl Action {
             ToggleSidebar
             | FocusSidebar
             | ShowFiles
+            | IncreaseFontSize
+            | DecreaseFontSize
+            | ResetFontSize
             | ZoomIn
             | ZoomOut
             | ResetZoom
@@ -970,6 +985,7 @@ pub const ACTIONS: &[Action] = {
         NewWindow,
         OpenFile,
         OpenFolder,
+        OpenRecent,
         Save,
         SaveAs,
         CloseTab,
@@ -1062,6 +1078,9 @@ pub const ACTIONS: &[Action] = {
         ToggleSidebar,
         FocusSidebar,
         ShowFiles,
+        IncreaseFontSize,
+        DecreaseFontSize,
+        ResetFontSize,
         ZoomIn,
         ZoomOut,
         ResetZoom,

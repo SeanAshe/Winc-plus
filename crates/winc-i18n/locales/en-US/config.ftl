@@ -38,6 +38,7 @@ config-not-bool = { $name } should be true or false; ignored
 config-not-number = { $name } should be a number; ignored
 config-out-of-range = { $setting } is outside the { $label } range ({ $range }); ignored
 config-label-font-size = font size
+config-label-zoom = zoom
 config-label-tab-width = tab width
 config-label-repository-scan-depth = repository scan depth
 config-label-lines = line count

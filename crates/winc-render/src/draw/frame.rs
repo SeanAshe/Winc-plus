@@ -282,8 +282,7 @@ impl Frame<'_> {
             glyph,
             size: (size * s * 4.0) as u32,
             subpixel: 0,
-            oblique: (kind == FontKind::MonoItalic || faux.italic)
-                && slot != text::font::MONO_ITALIC,
+            oblique: (kind.italic() || faux.italic) && !text::font::italic_slot(slot),
             bold: faux.bold,
         };
         let glyph = self.glyphs.get(key, size * s)?;
@@ -368,8 +367,7 @@ impl Frame<'_> {
         pen
     }
 
-    /// 在等宽网格上用字体 `kind`（[`FontKind::Mono`] 或
-    /// [`FontKind::MonoItalic`]）绘制字符 `c`。
+    /// 在等宽网格上用等宽字体 `kind`（编辑区或终端的正体、斜体）绘制字符 `c`。
     ///
     /// 该字符占 `cells` 个格子（每格宽 `cell`，逻辑像素）。字形比占用的格子窄时（如宽字符）
     /// 水平居中。
@@ -535,8 +533,7 @@ impl Frame<'_> {
             subpixel,
             // 要斜体却落到了不是斜体的字体上：字体没有可用的斜体，或斜体里没有该字符（例如
             // 注释里的中文落到后备字体上），都斜切，一行注释里的字倾斜一致。
-            oblique: (kind == FontKind::MonoItalic || faux.italic)
-                && slot != text::font::MONO_ITALIC,
+            oblique: (kind.italic() || faux.italic) && !text::font::italic_slot(slot),
             bold: faux.bold,
         };
         let Some(glyph) = self.glyphs.get(key, size * s) else {

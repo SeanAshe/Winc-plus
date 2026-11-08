@@ -326,6 +326,10 @@ impl App {
             MenuTarget::SkipOnSave => skip_menu(&self.settings.languages.format),
             MenuTarget::Locale => locale_menu(),
             MenuTarget::Whitespace => whitespace_menu(),
+            MenuTarget::DefaultShell => default_shell_menu(self.terminal.shells.len()),
+            MenuTarget::Zoom => zoom_menu(),
+            MenuTarget::TerminalPosition => terminal_position_menu(),
+            MenuTarget::OptionAsMeta => option_as_meta_menu(),
             &MenuTarget::Font(setting) => font_menu(setting),
             &MenuTarget::Tool(task, id) => {
                 let row = self.settings.tool_row(tool_setting(task, id));
@@ -637,12 +641,18 @@ impl App {
                 | MenuTarget::TabList
                 | MenuTarget::Locale
                 | MenuTarget::Whitespace
+                | MenuTarget::Zoom
+                | MenuTarget::TerminalPosition
+                | MenuTarget::OptionAsMeta
                 | MenuTarget::Font(_)
         );
-        // 设置中语言、字体的菜单不窄于弹出它的控件。
+        // 设置中语言、字体等选项的菜单不窄于弹出它的控件。
         let control = match target {
             MenuTarget::Locale => Some(Setting::Language),
             MenuTarget::Whitespace => Some(Setting::RenderWhitespace),
+            MenuTarget::Zoom => Some(Setting::Zoom),
+            MenuTarget::TerminalPosition => Some(Setting::TerminalPosition),
+            MenuTarget::OptionAsMeta => Some(Setting::TerminalOptionAsMeta),
             MenuTarget::Font(setting) => Some(setting),
             _ => None,
         };
@@ -696,12 +706,14 @@ impl App {
                 .iter()
                 .map(|p| p.as_ref().map(Prepared::item))
                 .collect();
-            let at = (f64::from(at.0), f64::from(at.1));
+            // 界面的逻辑像素乘以界面缩放倍数得到 `AppKit` 的点。
+            let zoom = f64::from(self.zoom());
+            let at = (f64::from(at.0) * zoom, f64::from(at.1) * zoom);
             let place = crate::macos::MenuPlace {
                 at,
                 at_checked,
                 right_aligned,
-                min_width: f64::from(min_width),
+                min_width: f64::from(min_width) * zoom,
             };
             crate::macos::popup_menu(&window, &items, place);
         }
@@ -799,6 +811,36 @@ impl App {
                 MenuLabel {
                     title: shell.as_ref().map(|s| s.name.clone()).unwrap_or_default(),
                     subtitle: shell.map(|s| s.command),
+                    tooltip: None,
+                }
+            }
+            MenuCommand::Zoom(i) => MenuLabel {
+                title: (crate::app::settings::ZOOM_STEPS.get(i))
+                    .map(|zoom| format!("{zoom}%"))
+                    .unwrap_or_default(),
+                subtitle: None,
+                tooltip: None,
+            },
+            MenuCommand::DefaultShell(Some(i)) => {
+                let shell = self.terminal.shells.get(i);
+                MenuLabel {
+                    title: shell.map(|s| s.name.clone()).unwrap_or_default(),
+                    subtitle: shell.map(|s| s.command.clone()),
+                    tooltip: None,
+                }
+            }
+            MenuCommand::FontDefault
+                if matches!(
+                    &self.context_menu,
+                    Some(ContextMenu {
+                        target: MenuTarget::Font(Setting::TerminalFont),
+                        ..
+                    })
+                ) =>
+            {
+                MenuLabel {
+                    title: t!("settings-terminal-font-default").to_owned(),
+                    subtitle: None,
                     tooltip: None,
                 }
             }
@@ -1148,6 +1190,23 @@ impl App {
                 winc_config::RenderWhitespace::ALL.get(i)
                     == Some(&self.config.render_whitespace.unwrap_or_default())
             }
+            MenuCommand::DefaultShell(i) => {
+                let configured = self.configured_shell().map(|shell| shell.command);
+                let listed = i.and_then(|i| self.terminal.shells.get(i));
+                configured == listed.map(|shell| shell.command.clone())
+            }
+            MenuCommand::DefaultShellCustom => self.configured_shell().is_some_and(|configured| {
+                (self.terminal.shells.iter()).all(|shell| shell.command != configured.command)
+            }),
+            MenuCommand::TerminalPosition(right) => self.terminal_right() == right,
+            MenuCommand::Zoom(i) => {
+                crate::app::settings::ZOOM_STEPS.get(i) == Some(&self.config.ui_zoom.unwrap_or(100))
+            }
+            MenuCommand::OptionAsMeta(i) => {
+                let current =
+                    (self.config.option_as_meta).unwrap_or(winc_config::OptionAsMeta::Left);
+                winc_config::OptionAsMeta::ALL.get(i) == Some(&current)
+            }
             MenuCommand::FontDefault | MenuCommand::Font(_) => {
                 let Some(ContextMenu {
                     target: MenuTarget::Font(setting),
@@ -1158,6 +1217,7 @@ impl App {
                 };
                 let current = match setting {
                     Setting::UiFont => &self.config.ui_font,
+                    Setting::TerminalFont => &self.config.terminal_font,
                     _ => &self.config.editor_font,
                 };
                 match command {

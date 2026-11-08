@@ -91,6 +91,7 @@ impl GlyphCache {
     pub(crate) fn metrics(&self, kind: FontKind, size: f32) -> Metrics {
         let kind = match kind {
             FontKind::MonoItalic => FontKind::Mono,
+            FontKind::TerminalItalic => FontKind::Terminal,
             kind => kind,
         };
         let face = self.fonts.primary_face(kind).expect("主字体总是已加载");

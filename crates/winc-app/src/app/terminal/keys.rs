@@ -118,7 +118,7 @@ impl App {
     /// 轨道是内容区域加右边的留白；内容按显示行算，最新的一屏在最下面。
     pub(crate) fn terminal_scrollbar(&self) -> Option<(Rect, f32, f32)> {
         let tab = self.terminal.tab()?;
-        let lh = self.fonts.line_height;
+        let lh = self.fonts.terminal_line_height;
         let card = self.layout.terminal;
         let view = self.terminal_view();
         let track = Rect::new(view.x, view.y, card.right() - view.x, view.h);
@@ -137,7 +137,7 @@ impl App {
         };
         let max = content - track.h;
         let top = crate::layout::scroll_for_thumb(track.y, track.h, thumb.h, y, grab, max);
-        let lh = self.fonts.line_height;
+        let lh = self.fonts.terminal_line_height;
         if let Some(tab) = self.terminal.tab_mut() {
             tab.set_scroll_position(f64::from((max - top) / lh));
         }

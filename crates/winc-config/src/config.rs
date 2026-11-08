@@ -29,6 +29,11 @@ pub struct Config {
     ///
     /// 可用范围见 [`Config::UI_SIZE_RANGE`]。
     pub ui_size: Option<f32>,
+    /// 界面缩放（百分比）：整个窗口（界面、编辑区和终端）按此比例放大或缩小，叠加在系统的
+    /// 显示缩放之上。
+    ///
+    /// 可用范围见 [`Config::ZOOM_RANGE`]。
+    pub ui_zoom: Option<u16>,
     /// 是否用系统的标题栏（配置中的 `"titleBarStyle": "native"`）。
     ///
     /// 写成 `"custom"` 或没写时，窗口按钮在 winc 的顶栏中绘制。只影响 macOS 以外的平台。
@@ -94,6 +99,12 @@ pub struct Config {
     pub external_terminal: Option<String>,
     /// 是否启用终端模块（编辑区下方的终端面板），默认为否。
     pub terminal_enabled: Option<bool>,
+    /// 终端的等宽字体，写法同 [`Config::editor_font`]；未设置时与编辑区相同。
+    pub terminal_font: Option<String>,
+    /// 终端的字号（点）；未设置时用编辑区的默认字号，不随编辑区字号变化。
+    ///
+    /// 可用范围同 [`Config::EDITOR_SIZE_RANGE`]。
+    pub terminal_size: Option<f32>,
     /// 终端回滚缓冲的行数。
     ///
     /// 可用范围见 [`Config::SCROLLBACK_RANGE`]，默认 10000 行。
@@ -163,6 +174,14 @@ pub enum OptionAsMeta {
 }
 
 impl OptionAsMeta {
+    /// 全部选项，顺序与设置中菜单的顺序一致。
+    pub const ALL: [OptionAsMeta; 4] = [
+        OptionAsMeta::Left,
+        OptionAsMeta::Right,
+        OptionAsMeta::Both,
+        OptionAsMeta::None,
+    ];
+
     /// 返回该变体在配置文件里的写法。
     pub fn name(self) -> &'static str {
         match self {
@@ -218,6 +237,11 @@ impl Config {
     ///
     /// 超出范围的值在读入时忽略并报告；上下限为经验值。
     pub const UI_SIZE_RANGE: std::ops::RangeInclusive<f32> = 8.0..=24.0;
+    /// 界面缩放的合法范围（百分比）。
+    ///
+    /// 下限时 13 点的界面文字约为 9 点，仍可辨认；上限时 4K 屏幕在系统缩放为 100% 的情况下，
+    /// 界面与 1080p 屏幕上的原始大小相同。超出范围的值在读入时忽略并报告，小数取整。
+    pub const ZOOM_RANGE: std::ops::RangeInclusive<f32> = 70.0..=200.0;
     /// 制表符长度的合法范围（空格数）。
     ///
     /// 超出范围的值在读入时忽略并报告；上下限为经验值。

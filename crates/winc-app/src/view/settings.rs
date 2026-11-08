@@ -14,16 +14,22 @@ use crate::app::DialogCache;
 use crate::app::Focus;
 use crate::icons::Direction;
 use crate::layout::{
-    Setting, SettingControl, SettingRow, SettingsLayout, SettingsPage, SettingsPart, StepperParts,
-    THEME_CHOICES, settings_thumb, theme_segment, theme_thumb, theme_tile,
+    ProductParts, Setting, SettingControl, SettingRow, SettingsLayout, SettingsPage, SettingsPart,
+    StepperParts, THEME_CHOICES, settings_thumb, theme_segment, theme_thumb, theme_tile,
 };
 use crate::theme::themes;
 use winc_config::ThemeChoice;
 use winc_i18n::t;
 
+/// 返回设置浮层的布局：绘制期间渲染器不在 `App` 中，说明文字改用 `frame` 量宽度。
+fn layout(app: &App, frame: &mut Frame<'_>) -> SettingsLayout {
+    let size = app.fonts.ui_small;
+    app.settings_layout_with(&mut |text: &str| frame.measure(FontKind::Ui, size, text))
+}
+
 /// 绘制设置浮层：遮罩、卡片、分类栏、标题和当前页的内容。
 pub(super) fn draw(app: &mut App, frame: &mut Frame<'_>) {
-    let layout = app.settings_layout();
+    let layout = layout(app, frame);
     if app.settings.motion.is_some() {
         // 动画开头：底下的窗口已绘制完成，保存为快照；再绘制一张原大、不透明的卡片并保存，
         // 之后恢复底下的窗口。后续每帧直接用这两张快照（`draw_cached`），不必每帧重绘整个窗口
@@ -61,7 +67,7 @@ pub(crate) fn draw_scrolling(app: &mut App, frame: &mut Frame<'_>) -> bool {
     // `tint` 全透明时 `restore_tinted` 原样恢复快照。
     frame.restore_tinted(&base, app.palette.scrim.alpha(0.0));
     app.settings.scroll_base = Some(base);
-    let layout = app.settings_layout();
+    let layout = layout(app, frame);
     super::draw_card_frame(frame, app.palette, layout.card, RADIUS_CARD);
     draw_dialog(app, frame, &layout);
     true
@@ -73,7 +79,7 @@ pub(crate) fn draw_cached(app: &mut App, frame: &mut Frame<'_>) -> bool {
     if app.settings.motion.is_none() {
         return false;
     }
-    let layout = app.settings_layout();
+    let layout = layout(app, frame);
     let scale = frame.scale();
     let fresh =
         app.settings.cache.as_ref().is_some_and(|c| {
@@ -111,62 +117,114 @@ fn draw_dialog(app: &mut App, frame: &mut Frame<'_>, layout: &SettingsLayout) {
     let r = RADIUS_CARD;
     frame.rect_corners(layout.nav, p.frame_bg, [r, 0.0, 0.0, r], layout.card);
 
+    let search_caret = draw_search(app, frame, layout);
     draw_nav(app, frame, layout);
     draw_header(app, frame, layout);
 
     // 滚动内容被限制在标题下方的区域内：滚到上方的行不会压在标题上，滚到下方的行不会绘制到
     // 卡片之外。
-    let caret = if layout.page == SettingsPage::Keys {
+    let caret = if layout.page == SettingsPage::Keys && !layout.searching {
         frame.within(layout.body, |frame| keys::draw(app, frame))
     } else {
         frame.within(layout.body, |frame| draw_body(app, frame, layout))
     };
+    let caret = caret.or(search_caret);
     if caret.is_some() {
         app.ime_cursor = caret;
     }
 }
 
+/// 绘制分类栏顶部的搜索框，返回其中光标的矩形。
+///
+/// 样式与「快捷键」页的搜索框相同：编辑区底色，有焦点时外圈为强调色，没有焦点时一圈细边，
+/// 左侧是放大镜图标。
+fn draw_search(app: &mut App, frame: &mut Frame<'_>, layout: &SettingsLayout) -> Option<Rect> {
+    let p = app.palette;
+    let search = layout.search;
+    let focused = app.focus == Focus::SettingsSearch;
+    if focused {
+        frame.rounded(search.inset(-1.5, -1.5), p.accent, RADIUS_ROW + 1.5);
+    }
+    frame.rounded(search, p.editor_bg, RADIUS_ROW);
+    if !focused {
+        keys::outline(frame, p.border, search);
+    }
+    let cy = search.y + search.h / 2.0;
+    icons::magnifier(frame, (search.x + 14.0, cy), p.text_dim, search);
+    let x = search.x + 26.0;
+    let area = Rect::new(x, search.y, (search.right() - 8.0 - x).max(0.0), search.h);
+    let placeholder = t!("settings-search-placeholder");
+    let mut field = std::mem::take(&mut app.settings.search);
+    let caret = crate::view::draw_bar_field(app, frame, area, &mut field, placeholder, focused);
+    app.settings.search = field;
+    caret
+}
+
 /// 绘制分类栏：每项一个图标加名称，行样式与文件树的行相同：当前页铺选中底色，悬停的项铺淡底色。
 fn draw_nav(app: &App, frame: &mut Frame<'_>, layout: &SettingsLayout) {
-    let p = app.palette;
     for &(page, row) in &layout.pages {
-        let current = page == layout.page;
-        let hovered = app.settings.hover == Some(SettingsPart::Page(page));
-        // 当前分类使用与顶栏视图切换相同的选中样式：凸起底色（深色配色亮一档）加一圈细边；
-        // 悬停只铺浅色。两者仅靠底色深浅区分时难以辨认当前页，因此选中项额外加细边。
-        if current {
-            let (raised, edge) = super::workspace::panel::segment_colors(p, p.sidebar_bg);
-            frame.rect_clipped(row, edge, RADIUS_ROW, layout.nav);
-            frame.rect_clipped(row.inset(0.5, 0.5), raised, RADIUS_ROW - 0.5, layout.nav);
-        } else if hovered {
-            frame.rect_clipped(row, p.hover, RADIUS_ROW, layout.nav);
-        }
-
-        let icon = (row.x + 16.0, row.y + row.h / 2.0);
-        match page {
-            SettingsPage::Appearance => icons::appearance(frame, icon, p.text_muted, layout.nav),
-            SettingsPage::Editor => icons::code(frame, icon, p.text_muted, layout.nav),
-            SettingsPage::Format => icons::format(frame, icon, p.text_muted, layout.nav),
-            SettingsPage::Modules => icons::modules(frame, icon, p.text_muted, layout.nav),
-            SettingsPage::Keys => icons::keyboard(frame, icon, p.text_muted, layout.nav),
-            SettingsPage::About => icons::about(frame, icon, p.text_muted, layout.nav),
-        }
-        let color = if current { p.text } else { p.text_muted };
-        ui_text(
-            frame,
-            app,
-            row.x + 32.0,
-            row,
-            page.title(),
-            color,
-            layout.nav,
-        );
+        // 「终端」一项随终端模块淡入淡出（`App::track_modules`），高度在布局中按显示比例收放；
+        // 图标和文字仍按整行的高度居中，不随高度挤压。
+        let opacity = if page == SettingsPage::Terminal {
+            app.module_fx.terminal.opacity(app.terminal_enabled())
+        } else {
+            1.0
+        };
+        let full = Rect::new(row.x, row.y, row.w, SETTINGS_NAV_ROW);
+        frame.with_opacity(opacity, |frame| {
+            draw_nav_row(app, frame, layout, page, row, full);
+        });
     }
+}
+
+/// 绘制分类栏中的一项：`row` 是该项当前占的区域（底色），`full` 是整行高度的区域（图标、文字）。
+fn draw_nav_row(
+    app: &App,
+    frame: &mut Frame<'_>,
+    layout: &SettingsLayout,
+    page: SettingsPage,
+    row: Rect,
+    full: Rect,
+) {
+    let p = app.palette;
+    // 搜索时正文是各页的结果，不标出当前页。
+    let current = page == layout.page && !layout.searching;
+    let hovered = app.settings.hover == Some(SettingsPart::Page(page));
+    // 当前分类使用与顶栏视图切换相同的选中样式：凸起底色（深色配色亮一档）加一圈细边；
+    // 悬停只铺浅色。两者仅靠底色深浅区分时难以辨认当前页，因此选中项额外加细边。
+    if current {
+        let (raised, edge) = super::workspace::panel::segment_colors(p, p.sidebar_bg);
+        frame.rect_clipped(row, edge, RADIUS_ROW, layout.nav);
+        frame.rect_clipped(row.inset(0.5, 0.5), raised, RADIUS_ROW - 0.5, layout.nav);
+    } else if hovered {
+        frame.rect_clipped(row, p.hover, RADIUS_ROW, layout.nav);
+    }
+
+    let icon = (full.x + 16.0, full.y + full.h / 2.0);
+    match page {
+        SettingsPage::Appearance => icons::appearance(frame, icon, p.text_muted, layout.nav),
+        SettingsPage::Editor => icons::code(frame, icon, p.text_muted, layout.nav),
+        SettingsPage::Format => icons::format(frame, icon, p.text_muted, layout.nav),
+        SettingsPage::Terminal => icons::console(frame, icon, p.text_muted, layout.nav),
+        SettingsPage::Modules => icons::modules(frame, icon, p.text_muted, layout.nav),
+        SettingsPage::Keys => icons::keyboard(frame, icon, p.text_muted, layout.nav),
+        SettingsPage::About => icons::about(frame, icon, p.text_muted, layout.nav),
+    }
+    let color = if current { p.text } else { p.text_muted };
+    ui_text(
+        frame,
+        app,
+        full.x + 32.0,
+        full,
+        page.title(),
+        color,
+        layout.nav,
+    );
 }
 
 /// 绘制标题「设置 › 外观」和右上角的关闭按钮；标题各段之间用箭头隔开，与状态栏中的路径样式相同。
 ///
-/// 内容滚动之后，标题下方出现一条分隔线，其不透明度随滚动量渐变（滚动 16 逻辑像素时达到最大）。
+/// 标题下方不画分隔线：内容滚到标题下面时直接被裁去。
 fn draw_header(app: &App, frame: &mut Frame<'_>, layout: &SettingsLayout) {
     let p = app.palette;
     let header = layout.header;
@@ -175,26 +233,17 @@ fn draw_header(app: &App, frame: &mut Frame<'_>, layout: &SettingsLayout) {
     let x = ui_text(frame, app, x, header, title, p.text_muted, header);
     let arrow = (x + 10.0, header.y + header.h / 2.0);
     icons::chevron(frame, arrow, 6.5, Direction::Right, p.text_dim, header);
-    ui_text(
-        frame,
-        app,
-        x + 20.0,
-        header,
-        layout.page.title(),
-        p.text,
-        header,
-    );
+    let page = if layout.searching {
+        t!("settings-search-results")
+    } else {
+        layout.page.title()
+    };
+    ui_text(frame, app, x + 20.0, header, page, p.text, header);
 
     let close = layout.close;
     let hovered = app.settings.hover == Some(SettingsPart::Close);
     draw_button(frame, p, close, layout.card, hovered, false);
     icons::close(frame, center(close), 7.0, p.text_muted, close);
-
-    if app.settings.scroll > 0.0 {
-        let alpha = (app.settings.scroll / 16.0).clamp(0.0, 1.0);
-        let line = Rect::new(header.x, header.bottom() - 1.0, header.w, 1.0);
-        frame.rect(line, p.border.alpha(p.border.a * alpha));
-    }
 }
 
 /// 绘制标题下方的各组设置：组上方是小标题，每组一块圆角底色，行与行之间一条细线。
@@ -204,6 +253,15 @@ fn draw_body(app: &mut App, frame: &mut Frame<'_>, layout: &SettingsLayout) -> O
     let p = app.palette;
     let body = layout.body;
     app.settings.install_links.clear();
+
+    // 没有匹配的设置项：在正文顶部说明，与组内名称左对齐。
+    if layout.searching && layout.rows.is_empty() {
+        let x = body.x + SETTINGS_PAD + SETTINGS_INSET;
+        let line = Rect::new(x, body.y, body.w, SETTINGS_ROW);
+        let text = t!("settings-search-empty");
+        ui_text(frame, app, x, line, text, p.text_muted, body);
+        return None;
+    }
 
     // 组标题使用小字号和淡色，避免与设置项争夺视觉重心。
     for &(rect, title) in &layout.headings {
@@ -278,7 +336,7 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
     }
 
     let x = row.row.x + SETTINGS_INSET;
-    let room = (row.control.x - x - 16.0).max(0.0);
+    let room = crate::layout::description_room(row.row, row.control);
     let editing = matches!(&app.settings.editing, Some((s, _)) if *s == row.setting);
     // 字体名无法识别时，用红色小字写在输入框左侧。
     let error = match &app.settings.error {
@@ -288,7 +346,7 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
     let tall = row.row.h >= SETTINGS_ROW_TALL;
     match row.setting.control() {
         // 主题的缩略图排满整行，名称是上面的组标题。
-        SettingControl::ThemeList => {}
+        SettingControl::ThemeList | SettingControl::Product => {}
         _ if tall => {
             let (top, bottom) = two_lines(row.row);
             ui_text(frame, app, x, top, row.setting.label(), p.text, clip);
@@ -319,10 +377,24 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
                     let text = ellipsize(frame, &text, app.fonts.ui_small, room);
                     ui_text_small(frame, app, x, bottom, &text, color, clip);
                 }
+                // 说明按布局时的宽度折行，最后一行仍放不下时在末尾截短。
                 setting => {
                     let text = setting.description().unwrap_or_default();
-                    let text = ellipsize(frame, &text, app.fonts.ui_small, room);
-                    ui_text_small(frame, app, x, bottom, &text, p.text_muted, clip);
+                    let size = app.fonts.ui_small;
+                    let mut measure = |s: &str| frame.measure(FontKind::Ui, size, s);
+                    let lines =
+                        crate::layout::description_lines(setting, &text, room, &mut measure);
+                    let last = lines.len().saturating_sub(1);
+                    for (i, line) in lines.into_iter().enumerate() {
+                        let line = if i == last {
+                            truncate_end(frame, line, size, room)
+                        } else {
+                            Cow::Borrowed(line)
+                        };
+                        let at =
+                            Rect::new(x, bottom.y + i as f32 * SETTINGS_DESC_LINE, room, bottom.h);
+                        ui_text_small(frame, app, x, at, &line, p.text_muted, clip);
+                    }
                 }
             }
         }
@@ -344,6 +416,10 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
         SettingControl::Command => {
             let (text, dim) = match app.settings.tool_row(row.setting) {
                 Some(r) => (r.tool.clone(), r.unset),
+                None if row.setting == Setting::TerminalShell => match app.configured_shell() {
+                    Some(shell) => (shell.name, false),
+                    None => (t!("settings-terminal-shell-default").to_owned(), false),
+                },
                 None => (t!("format-tool-auto").to_owned(), false),
             };
             let hovered = app.settings.hover == Some(SettingsPart::Field(row.setting));
@@ -357,11 +433,24 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
             } else if row.setting == Setting::RenderWhitespace {
                 let choice = app.config.render_whitespace.unwrap_or_default();
                 (crate::layout::whitespace_label(choice).to_owned(), false)
+            } else if row.setting == Setting::Zoom {
+                (format!("{}%", app.config.ui_zoom.unwrap_or(100)), false)
+            } else if row.setting == Setting::TerminalPosition {
+                let text = if app.terminal_right() {
+                    t!("settings-terminal-position-right")
+                } else {
+                    t!("settings-terminal-position-bottom")
+                };
+                (text.to_owned(), false)
+            } else if row.setting == Setting::TerminalOptionAsMeta {
+                let choice = (app.config.option_as_meta).unwrap_or(winc_config::OptionAsMeta::Left);
+                (
+                    crate::layout::option_as_meta_label(choice).to_owned(),
+                    false,
+                )
             } else {
-                match app.skipped_on_save() {
-                    Some(names) => (names, false),
-                    None => (t!("settings-skip-on-save-none").to_owned(), true),
-                }
+                let none = || t!("settings-skip-on-save-none").to_owned();
+                (app.skipped_on_save().unwrap_or_else(none), false)
             };
             draw_popup(app, frame, row.control, &text, dim, hovered, clip);
             None
@@ -371,35 +460,22 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
             None
         }
         SettingControl::Action | SettingControl::Search => None,
-        // 版本号：点击复制，悬停时铺悬停底色。
-        SettingControl::Value => {
-            if app.settings.hover == Some(SettingsPart::Copy(row.setting)) {
-                frame.rect_clipped(row.control, p.hover, RADIUS_ROW, clip);
-            }
-            let text = crate::layout::version_label();
-            let w = frame.measure(FontKind::Ui, app.fonts.ui, &text);
-            let area = row.control.inset(10.0, 0.0);
-            ui_text(
-                frame,
-                app,
-                area.right() - w,
-                area,
-                &text,
-                p.text_muted,
-                clip,
-            );
+        SettingControl::Link => {
+            draw_link(app, frame, row, clip);
+            None
+        }
+        SettingControl::Product => {
+            draw_product(app, frame, row, clip);
             None
         }
         SettingControl::Button => {
-            // 不检查更新的版本、正在检查时按钮变淡，悬停不变色。
-            let enabled = app.can_check_updates();
-            let hovered = enabled && hovered;
-            draw_button(frame, p, row.control, clip, hovered, false);
-            let label = t!("settings-check-now");
-            let w = frame.measure(FontKind::Ui, app.fonts.ui, label);
-            let x = (row.control.x + (row.control.w - w) / 2.0).round();
-            let color = if enabled { p.text } else { p.text_dim };
-            ui_text(frame, app, x, row.control, label, color, clip);
+            // 不支持应用内更新时说明行已写明原因，不显示按钮；正在检查、下载时按钮变淡。
+            if app.updates_supported() {
+                let enabled = app.can_check_updates();
+                let label = t!("settings-check-now");
+                let role = ButtonRole::Normal;
+                draw_action_button(app, frame, row.control, label, role, enabled, hovered);
+            }
             None
         }
         SettingControl::Stepper => {
@@ -415,6 +491,60 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
             None
         }
     }
+}
+
+/// 绘制「关于」页的链接：右对齐的显示名后跟外链箭头。
+///
+/// 悬停时只在内容处铺悬停底色（[`crate::layout::value_area`]），点击范围与之相同。
+fn draw_link(app: &App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) {
+    let p = app.palette;
+    let text = crate::layout::about_value(row.setting).unwrap_or_default();
+    let text_w = frame.measure(FontKind::Ui, app.fonts.ui, &text);
+    let icon_w = crate::layout::LINK_ICON_W;
+    let area = crate::layout::value_area(row.control, text_w + icon_w);
+    if app.settings.hover == Some(SettingsPart::Link(row.setting)) {
+        frame.rect_clipped(area, p.hover, RADIUS_ROW, clip);
+    }
+    let right = area.right() - SETTINGS_GLYPH_PAD;
+    let center = (right - 4.5, area.y + area.h / 2.0);
+    icons::external(frame, center, p.text_dim, clip);
+    ui_text(
+        frame,
+        app,
+        right - icon_w - text_w,
+        area,
+        &text,
+        p.text_muted,
+        clip,
+    );
+}
+
+/// 绘制「关于」页顶部的产品信息：应用图标、名称和版本号，水平居中（[`ProductParts`]）。
+///
+/// 图标按当前缩放从应用图标的 SVG 渲染，与屏幕像素一一对应。版本号点击复制，悬停时只在文字处
+/// 铺悬停底色。
+fn draw_product(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) {
+    let p = app.palette;
+    let parts = ProductParts::new(row.row);
+    let size = (SETTINGS_LOGO * frame.scale()).round() as u32;
+    let logo = parts.logo;
+    frame.pixels((logo.x, logo.y), size, size, app.product_logo(size), clip);
+
+    // 名称比界面文字大 7 点，随界面字号一同缩放。
+    let name_size = app.fonts.ui + 7.0;
+    let name = crate::layout::PRODUCT_NAME;
+    let w = frame.measure(FontKind::Ui, name_size, name);
+    let x = (parts.name.x + (parts.name.w - w) / 2.0).round();
+    label(frame, app, name_size, (x, parts.name), name, p.text, clip);
+
+    let text = crate::layout::version_line();
+    let w = frame.measure(FontKind::Ui, app.fonts.ui, &text);
+    let area = parts.version_area(w);
+    if app.settings.hover == Some(SettingsPart::Copy(row.setting)) {
+        frame.rect_clipped(area, p.hover, RADIUS_ROW, clip);
+    }
+    let x = (area.x + (area.w - w) / 2.0).round();
+    ui_text(frame, app, x, area, &text, p.text_muted, clip);
 }
 
 /// 「关于」页「更新」一行下方的状态文字和颜色。
@@ -524,7 +654,12 @@ fn draw_popup(
     if hovered {
         frame.rect_clipped(rect, p.hover, RADIUS_ROW, clip);
     }
-    let area = rect.inset(10.0, 0.0);
+    let area = Rect::new(
+        rect.x + 10.0,
+        rect.y,
+        (rect.w - 10.0 - SETTINGS_GLYPH_PAD).max(0.0),
+        rect.h,
+    );
     let arrows = (area.right() - 3.0, rect.y + rect.h / 2.0);
     icons::up_down(frame, arrows, p.text_dim, clip);
 
@@ -535,7 +670,7 @@ fn draw_popup(
     ui_text(frame, app, room.right() - w, room, &text, color, room);
 }
 
-/// 绘制字体名和正在输入的格式化命令：平时是右对齐的一段文本（未设置时显示淡色的「系统默认」），
+/// 绘制字体名和正在输入的格式化命令：平时是右对齐的一段文本（未设置时显示「系统默认」），
 /// 悬停时铺输入框底色，点击后变成输入框，外圈为强调色（字体名无效时为错误色）。
 ///
 /// 正在编辑时返回光标矩形，否则返回 `None`。
@@ -549,9 +684,14 @@ fn draw_field(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect
     let hovered = hovered || on_menu;
     let (configured, placeholder) = match row.setting {
         Setting::UiFont => (app.config.ui_font.clone(), t!("settings-font-default")),
+        Setting::TerminalFont => (
+            app.config.terminal_font.clone(),
+            t!("settings-terminal-font-default"),
+        ),
         Setting::FormatCommand(_) | Setting::FixCommand(_) => {
             (None, t!("settings-command-placeholder"))
         }
+        Setting::TerminalShell => (None, t!("settings-terminal-shell-placeholder")),
         _ => (
             app.config.editor_font.clone(),
             winc_render::DEFAULT_EDITOR_FONT,
@@ -571,7 +711,10 @@ fn draw_field(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect
     };
     let draw_arrows = |app: &App, frame: &mut Frame<'_>| {
         if font {
-            let arrows = (rect.right() - 13.0, rect.y + rect.h / 2.0);
+            let arrows = (
+                rect.right() - SETTINGS_GLYPH_PAD - 3.0,
+                rect.y + rect.h / 2.0,
+            );
             icons::up_down(frame, arrows, app.palette.text_dim, clip);
         }
     };
@@ -601,10 +744,9 @@ fn draw_field(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect
         frame.rect_clipped(rect, p.hover, RADIUS_ROW, clip);
     }
 
-    let (text, color) = match configured {
-        Some(value) => (Cow::Owned(value), p.text_muted),
-        None => (Cow::Borrowed(placeholder), p.text_dim),
-    };
+    // 未设置时显示的「系统默认」「跟随编辑器」是菜单中的一项，与其他取值同色。
+    let text = configured.map_or(Cow::Borrowed(placeholder), Cow::Owned);
+    let color = p.text_muted;
     let text = ellipsize(frame, &text, app.fonts.ui, area.w);
     let w = frame.measure(FontKind::Ui, app.fonts.ui, &text);
     ui_text(frame, app, area.right() - w, area, &text, color, area);

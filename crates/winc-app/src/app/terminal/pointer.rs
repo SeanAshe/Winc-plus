@@ -28,7 +28,10 @@ impl App {
         let view = self.terminal_view();
         let (first, origin) = self.terminal_origin();
         let y = y.clamp(view.y, view.bottom() - 0.5);
-        first + ((y - origin) / self.fonts.line_height).floor().max(0.0) as u64
+        first
+            + ((y - origin) / self.fonts.terminal_line_height)
+                .floor()
+                .max(0.0) as u64
     }
 
     /// 窗口坐标 `y` 是否落在吸顶行上。
@@ -58,7 +61,7 @@ impl App {
     fn terminal_cell(&self, x: f32, y: f32) -> Option<(u16, u16)> {
         let tab = self.terminal.tab()?;
         let grid = self.terminal_grid();
-        let col = ((x - grid.x) / self.cell).floor().max(0.0) as usize;
+        let col = ((x - grid.x) / self.terminal_cell).floor().max(0.0) as usize;
         let cols = usize::from(tab.size.cols).max(1);
         let line = match tab.row_at(self.terminal_display_row(y))? {
             ViewRow::Line(line) => line,
@@ -81,7 +84,7 @@ impl App {
         } else {
             y
         };
-        let cells = (x - grid.x) / self.cell;
+        let cells = (x - grid.x) / self.terminal_cell;
         let col = if between {
             cells.round()
         } else {
@@ -284,7 +287,7 @@ impl App {
             self.drag_scrolled_at = None;
             return;
         }
-        let lines = self.drag_scroll_lines(outside.abs() / self.fonts.line_height);
+        let lines = self.drag_scroll_lines(outside.abs() / self.fonts.terminal_line_height);
         if let Some(tab) = self.terminal.tab_mut() {
             let (position, _) = tab.scroll_position();
             tab.set_scroll_position(position + f64::from(lines.copysign(outside)));
@@ -366,7 +369,7 @@ impl App {
     ///
     /// 翻回滚缓冲时按像素移动；上报给程序、改发方向键时攒够一行才发一次。
     pub(in crate::app) fn terminal_wheel(&mut self, dy: f32) {
-        let line_height = self.fonts.line_height;
+        let line_height = self.fonts.terminal_line_height;
         let reports = self.terminal_reports_mouse();
         let Some(tab) = self.terminal.tab_mut() else {
             return;

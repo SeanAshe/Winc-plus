@@ -388,3 +388,22 @@ fn the_minimap_moves_only_when_the_document_does_not_fit() {
     assert_eq!(minimap_first_row(1000, 200, 950.0, 950.0), 800);
     assert_eq!(minimap_first_row(1000, 200, 475.0, 950.0), 400);
 }
+
+#[test]
+fn setting_descriptions_wrap_up_to_a_limit() {
+    // 每个字宽 10：宽 30 时每行 3 个字。
+    let mut measure = |s: &str| s.chars().count() as f32 * 10.0;
+    let lines = description_lines(Setting::AutoSave, "一二三四五六", 30.0, &mut measure);
+    assert_eq!(lines, ["一二三", "四五六"]);
+    // 超过行数上限时，最后一行是剩下的全部文字，由绘制时截短。
+    let lines = description_lines(
+        Setting::AutoSave,
+        "一二三四五六七八九十",
+        30.0,
+        &mut measure,
+    );
+    assert_eq!(lines, ["一二三", "四五六", "七八九十"]);
+    // 「软件更新」下方是单行的状态，不折行。
+    let lines = description_lines(Setting::Updates, "一二三四五六", 30.0, &mut measure);
+    assert_eq!(lines, ["一二三四五六"]);
+}

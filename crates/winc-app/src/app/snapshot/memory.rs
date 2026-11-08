@@ -87,10 +87,9 @@ fn build_window(
     // 先建 1×1 的离屏画面，只测量字体和空字形缓存；整窗画面单独测量：真实窗口的画面是
     // IOSurface，显示中的一块 16 MB，不在窗口之间共用。
     let renderer = Renderer::offscreen(1.0, 1.0, SCALE, app.palette.frame_bg, None, None).unwrap();
-    app.ui_metrics = renderer.metrics(FontKind::Ui, app.fonts.ui);
-    app.mono_metrics = renderer.metrics(FontKind::Mono, app.fonts.code);
-    app.cell = app.mono_metrics.cell;
-    drop(renderer);
+    app.renderer = Some(renderer);
+    app.measure_fonts();
+    app.renderer = None;
     let mut renderer =
         Renderer::offscreen(SIZE.0, SIZE.1, SCALE, app.palette.frame_bg, None, None).unwrap();
     if let Some(glyphs) = glyphs {

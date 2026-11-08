@@ -458,20 +458,18 @@ impl App {
             return;
         }
         if self.settings.open {
-            // 设置浮层打开时只看浮层自身：字体名输入框、快捷键搜索框和正在编辑的输入框上显示
-            // 文本光标，其余位置显示箭头。
+            // 设置浮层打开时只看浮层自身：字体名输入框、搜索框和正在编辑的输入框上显示文本光标，
+            // 链接上显示手形，其余位置显示箭头。
             let editing = self.settings.editing.as_ref().map(|(s, _)| *s);
-            let in_font = match self.settings_part_at(x, y) {
-                Some(SettingsPart::Field(s)) => {
-                    s.control() == SettingControl::Font || editing == Some(s)
+            let icon = match self.settings_part_at(x, y) {
+                Some(SettingsPart::Field(s))
+                    if s.control() == SettingControl::Font || editing == Some(s) =>
+                {
+                    CursorIcon::Text
                 }
-                Some(SettingsPart::KeySearch) => true,
-                _ => false,
-            };
-            let icon = if in_font {
-                CursorIcon::Text
-            } else {
-                CursorIcon::Default
+                Some(SettingsPart::KeySearch | SettingsPart::SearchField) => CursorIcon::Text,
+                Some(SettingsPart::Link(_)) => CursorIcon::Pointer,
+                _ => CursorIcon::Default,
             };
             self.set_cursor_icon(icon);
             return;

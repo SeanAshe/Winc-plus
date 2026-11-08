@@ -25,7 +25,8 @@ fn reads_every_field() {
                 },
                 "ui": {
                     "font": "/System/Library/Fonts/SFNS.ttf",
-                    "size": 12
+                    "size": 12,
+                    "zoom": 125
                 },
                 "tree": { "confirmDragAndDrop": false },
                 "format": {
@@ -46,6 +47,7 @@ fn reads_every_field() {
         Some("/System/Library/Fonts/SFNS.ttf")
     );
     assert_eq!(config.ui_size, Some(12.0));
+    assert_eq!(config.ui_zoom, Some(125));
     assert_eq!(config.theme, Some(ThemeChoice::Light));
     assert_eq!(config.confirm_drag_and_drop, Some(false));
     // 语言写名字（`JSON`）也能识别并存成 id；空命令视为没写，因此 `rust` 一项不出现。
@@ -89,6 +91,12 @@ fn bad_values_are_reported_and_ignored() {
     let (fraction, why) = Config::parse(r#"{"editor": {"tabWidth": 2.5}}"#);
     assert_eq!(fraction.tab_width, None);
     assert!(why[0].contains("应为整数"), "{why:?}");
+    // 界面缩放：超出范围时忽略并报告，小数取整。
+    let (zoom, why) = Config::parse(r#"{"ui": {"zoom": 300}}"#);
+    assert_eq!(zoom.ui_zoom, None);
+    assert!(why[0].contains("超出界面缩放范围（70–200）"), "{why:?}");
+    let (zoom, why) = Config::parse(r#"{"ui": {"zoom": 117.5}}"#);
+    assert_eq!((zoom.ui_zoom, why.len()), (Some(118), 0));
     assert!(
         problems
             .iter()
@@ -198,6 +206,7 @@ fn round_trips_through_json() {
         editor_size: Some(14.0),
         ui_font: Some("「带引号」的字体".to_string()),
         ui_size: Some(12.5),
+        ui_zoom: Some(150),
         ui_native_title_bar: Some(true),
         tab_width: Some(8),
         auto_save: Some(true),
@@ -223,6 +232,8 @@ fn round_trips_through_json() {
         preview_on_click: Some(true),
         external_terminal: Some("test-terminal".to_string()),
         terminal_enabled: Some(true),
+        terminal_font: Some("Menlo".to_owned()),
+        terminal_size: Some(12.0),
         terminal_scrollback: Some(5000),
         option_as_meta: Some(OptionAsMeta::Both),
         terminal_minimum_contrast: Some(4.5),

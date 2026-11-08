@@ -168,14 +168,16 @@ impl App {
     ///   一次滚动一屏时为编辑区的一屏。横向按系统设置的字符数，每个字符一个字符宽度。
     /// - 其他系统上为 `WHEEL_NOTCH`。
     pub(in crate::app) fn wheel_step(&self) -> (f32, f32) {
-        let lines = (self.cell * 3.0, self.fonts.line_height * 3.0);
         let (x, y) = self.mouse;
         if self.layout.terminal.contains(x, y) {
-            return lines;
+            return (
+                self.terminal_cell * 3.0,
+                self.fonts.terminal_line_height * 3.0,
+            );
         }
         #[cfg(target_os = "macos")]
         {
-            lines
+            (self.cell * 3.0, self.fonts.line_height * 3.0)
         }
         #[cfg(windows)]
         {

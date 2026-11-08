@@ -750,6 +750,7 @@ fn draw_action_button(
         (true, false, _) => (p.hover, p.text_dim),
         (true, true, false) => (p.accent_fill, p.text_on_accent),
         (true, true, true) => (p.accent_fill.alpha(0.85), p.text_on_accent),
+        (false, false, _) => (p.hover, p.text_dim),
         (false, _, false) => (p.hover, ink),
         (false, _, true) => (p.selected_inactive, ink),
     };

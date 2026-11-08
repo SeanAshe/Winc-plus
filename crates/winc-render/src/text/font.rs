@@ -1,7 +1,8 @@
 //! 字体：按需 mmap 字体文件，不扫描系统字体库。
 //!
-//! 槽位 0 是等宽字体，槽位 1 是界面字体，槽位 2 是等宽字体的斜体，其后是按优先级排列的后备
-//! 字体；斜体和后备字体在首次需要时才映射文件。候选路径按平台给出，用户配置的字体排在最前面。
+//! 槽位依次是等宽字体、界面字体、等宽字体的斜体、数学字体、终端字体及其斜体，其后是按优先级
+//! 排列的后备字体；斜体和后备字体在首次需要时才映射文件。候选路径按平台给出，用户配置的字体
+//! 排在最前面。
 
 use std::fs::File;
 use std::path::PathBuf;
@@ -13,7 +14,7 @@ use crate::cache::FastMap;
 use crate::text::font_path::FontFile;
 use crate::text::system_outline::SystemOutlines;
 
-/// 字体种类：编辑区、界面、注释斜体和数学字体。
+/// 字体种类：编辑区、界面、注释斜体、数学字体，以及终端的正体和斜体。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FontKind {
     /// 编辑区的等宽字体。
@@ -29,6 +30,20 @@ pub enum FontKind {
     ///
     /// 系统没有时用界面字体。
     Math,
+    /// 终端的等宽字体；没有单独设置终端字体时即 [`FontKind::Mono`]。
+    Terminal,
+    /// 终端字体的斜体；没有单独设置终端字体时即 [`FontKind::MonoItalic`]。
+    TerminalItalic,
+}
+
+impl FontKind {
+    /// 字体种类的个数。
+    const COUNT: usize = 6;
+
+    /// 是否为斜体：要斜体的字落到正体字体上时斜切。
+    pub(crate) fn italic(self) -> bool {
+        matches!(self, FontKind::MonoItalic | FontKind::TerminalItalic)
+    }
 }
 
 /// 选后备字体时最多尝试的 fontconfig 结果数（经验值）：系统里没有合适的字体时不逐个打开全部字体。
@@ -288,17 +303,25 @@ enum Slot {
     Missing,
 }
 
-/// 等宽字体所在的槽位；槽位 0 是等宽字体，槽位 1 是界面字体，槽位 2 是等宽字体的斜体，
-/// 其后是后备字体。
+/// 等宽字体所在的槽位；各槽位的顺序见模块文档。
 pub(crate) const MONO: u8 = 0;
 /// 界面字体所在的槽位。
 const UI: u8 = 1;
 /// 等宽字体的斜体所在的槽位。
-pub(crate) const MONO_ITALIC: u8 = 2;
+const MONO_ITALIC: u8 = 2;
 /// 数学字体所在的槽位。
 const MATH: u8 = 3;
+/// 终端字体所在的槽位；没有单独设置终端字体时为 `Missing`。
+const TERMINAL: u8 = 4;
+/// 终端字体的斜体所在的槽位。
+const TERMINAL_ITALIC: u8 = 5;
 /// 第一个后备字体的槽位。
-const FALLBACK: u8 = 4;
+const FALLBACK: u8 = 6;
+
+/// 槽位 `slot` 中是否为斜体字体：要斜体的字落到其他槽位时斜切。
+pub(crate) fn italic_slot(slot: u8) -> bool {
+    matches!(slot, MONO_ITALIC | TERMINAL_ITALIC)
+}
 
 /// 字符解析结果缓存的最大项数（项，65536）。
 ///
@@ -307,18 +330,21 @@ const RESOLVED_ENTRIES: usize = 1 << 16;
 
 /// 全部字体槽位及字符解析缓存。
 pub(crate) struct Fonts {
-    /// 字体槽位：0 是等宽字体，1 是界面字体，2 是等宽字体的斜体，其后是后备字体。
+    /// 字体槽位，顺序见模块文档。
     slots: Vec<Slot>,
     /// 字符解析结果缓存：（字体种类，字符）→（槽位，字形 id）。
     resolved: FastMap<(FontKind, char), (u8, u16)>,
     /// ASCII 的快速路径：`[字体种类][码点]` →（槽位，字形 id），字体里没有该字符时为 `None`。
     ///
     /// 用于避免每个字符都查哈希表。
-    ascii: [[Option<(u8, u16)>; 128]; 4],
+    ascii: [[Option<(u8, u16)>; 128]; FontKind::COUNT],
 }
 
 impl Fonts {
-    /// 加载字体；`mono` 和 `ui` 是用户配置里指定的字体，为 `None` 时用内置候选。
+    /// 加载字体；`mono`、`ui` 和 `terminal` 是用户配置里指定的字体，为 `None` 时等宽字体和界面
+    /// 字体用内置候选，终端用等宽字体。
+    ///
+    /// 指定的终端字体打不开时同样用等宽字体，不报错。
     ///
     /// # Errors
     ///
@@ -327,7 +353,11 @@ impl Fonts {
     /// # Panics
     ///
     /// 等宽字体成功打开后又立即无法打开时 panic。
-    pub(crate) fn load(mono: Option<&FontSpec>, ui: Option<&FontSpec>) -> Result<Fonts, String> {
+    pub(crate) fn load(
+        mono: Option<&FontSpec>,
+        ui: Option<&FontSpec>,
+        terminal: Option<&FontSpec>,
+    ) -> Result<Fonts, String> {
         // 指定的字体不可用时退回内置候选而不报错：字体配置有误时程序仍可启动。
         let candidates = Candidates::for_platform(mono, ui);
         let (mono, mono_file) = first_opened(&candidates.mono).ok_or_else(|| {
@@ -346,25 +376,57 @@ impl Fonts {
         let italic = italic_candidates(&mono_file, &mono);
         // 数学字体一开始就映射（只是映射文件，很快）：度量要用到它，`metrics` 不能再去加载。
         let math = first_existing(&candidates.math).map_or(Slot::Missing, Slot::Ready);
+        // 终端字体同样一开始就映射：度量要用到它。
+        let (terminal, terminal_italic) = match first_opened(&resolve_first(terminal)) {
+            Some((face, file)) => {
+                let italic = italic_candidates(&file, &face);
+                (Slot::Ready(face), Slot::Pending(Choices::files(italic)))
+            }
+            None => (Slot::Missing, Slot::Missing),
+        };
         let mut slots = vec![
             Slot::Ready(mono),
             Slot::Ready(ui),
             Slot::Pending(Choices::files(italic)),
             math,
+            terminal,
+            terminal_italic,
         ];
         slots.extend(candidates.fallbacks.into_iter().map(Slot::Pending));
 
         let mut fonts = Fonts {
             slots,
             resolved: FastMap::default(),
-            ascii: [[None; 128]; 4],
+            ascii: [[None; 128]; FontKind::COUNT],
         };
 
         for kind in [FontKind::Mono, FontKind::Ui, FontKind::Math] {
             fonts.fill_ascii(kind);
         }
+        if fonts.face(TERMINAL).is_some() {
+            fonts.fill_ascii(FontKind::Terminal);
+        }
 
         Ok(fonts)
+    }
+
+    /// 返回实际使用的字体种类：没有单独的终端字体时，终端的正体、斜体即等宽字体的正体、斜体。
+    fn effective(&self, kind: FontKind) -> FontKind {
+        let separate = self.face(TERMINAL).is_some();
+        match kind {
+            FontKind::Terminal if !separate => FontKind::Mono,
+            FontKind::TerminalItalic if !separate => FontKind::MonoItalic,
+            kind => kind,
+        }
+    }
+
+    /// 返回斜体种类 `kind` 对应的（斜体槽位，正体槽位）；不是斜体时返回 `None`。
+    fn italic_slots(kind: FontKind) -> Option<(u8, u8)> {
+        match kind {
+            FontKind::MonoItalic => Some((MONO_ITALIC, MONO)),
+            FontKind::TerminalItalic => Some((TERMINAL_ITALIC, TERMINAL)),
+            _ => None,
+        }
     }
 
     /// 按 `kind` 主槽位中的字体填写 ASCII 快速路径；槽位中还没有字体时什么也不做。
@@ -375,6 +437,7 @@ impl Fonts {
         let primary = self.primary(kind);
         let slot = match (kind, &self.slots[primary as usize]) {
             (FontKind::MonoItalic, Slot::Missing) => MONO,
+            (FontKind::TerminalItalic, Slot::Missing) => TERMINAL,
             (FontKind::Math, Slot::Missing) => UI,
             _ => primary,
         };
@@ -391,11 +454,13 @@ impl Fonts {
 
     /// 返回字体种类 `kind` 对应的主槽位。
     pub(crate) fn primary(&self, kind: FontKind) -> u8 {
-        match kind {
+        match self.effective(kind) {
             FontKind::Mono => MONO,
             FontKind::Ui => UI,
             FontKind::MonoItalic => MONO_ITALIC,
             FontKind::Math => MATH,
+            FontKind::Terminal => TERMINAL,
+            FontKind::TerminalItalic => TERMINAL_ITALIC,
         }
     }
 
@@ -404,14 +469,17 @@ impl Fonts {
         self.face(self.primary(kind)).or_else(|| self.face(UI))
     }
 
-    /// 首次用到斜体时映射斜体字体。
+    /// 首次用到斜体种类 `kind` 时映射它的斜体字体。
     ///
     /// 斜体的字宽与正体不同时不使用斜体（字符必须落在等宽的格子里），改为把正体斜切代替。
-    fn load_italic(&mut self) {
-        if !matches!(self.slots[MONO_ITALIC as usize], Slot::Pending(_)) {
+    fn load_italic(&mut self, kind: FontKind) {
+        let Some((italic, upright)) = Self::italic_slots(kind) else {
+            return;
+        };
+        if !matches!(self.slots[italic as usize], Slot::Pending(_)) {
             return;
         }
-        self.ensure_loaded(MONO_ITALIC);
+        self.ensure_loaded(italic);
 
         let width = |face: &Face| {
             let font = face.font();
@@ -419,12 +487,12 @@ impl Fonts {
                 .advance_width(font.charmap().map('0'))
                 / f32::from(font.metrics(&face.coords).units_per_em.max(1))
         };
-        if let (Some(mono), Some(italic)) = (self.face(MONO), self.face(MONO_ITALIC))
-            && (width(mono) - width(italic)).abs() > 0.005
+        if let (Some(regular), Some(slanted)) = (self.face(upright), self.face(italic))
+            && (width(regular) - width(slanted)).abs() > 0.005
         {
-            self.slots[MONO_ITALIC as usize] = Slot::Missing;
+            self.slots[italic as usize] = Slot::Missing;
         }
-        self.fill_ascii(FontKind::MonoItalic);
+        self.fill_ascii(kind);
     }
 
     /// 返回槽位 `slot` 中已映射的字体；尚未映射或不存在时返回 `None`。
@@ -440,8 +508,9 @@ impl Fonts {
     /// 依次尝试 `kind` 对应的主字体、另一种主字体和各后备字体，必要时才映射文件。所有字体都没有
     /// 该字符时返回（主槽位，0），即该字体的 `.notdef` 字形。
     pub(crate) fn resolve(&mut self, kind: FontKind, c: char) -> (u8, u16) {
-        if kind == FontKind::MonoItalic {
-            self.load_italic();
+        let kind = self.effective(kind);
+        if kind.italic() {
+            self.load_italic(kind);
         }
         let primary = self.primary(kind);
 
@@ -455,13 +524,15 @@ impl Fonts {
             return hit;
         }
 
-        // 先找主字体，再找另外两种主字体（斜体没有的字符用正体），最后是后备字体。斜体不作为
-        // 其他字体的后备。
+        // 先找主字体，再找其他主字体（斜体没有的字符用正体，终端字体没有的用等宽字体），最后是
+        // 后备字体。斜体、终端字体不作为其他字体的后备。
         let mut order: Vec<u8> = match kind {
             FontKind::Mono => vec![MONO, UI],
             FontKind::Ui => vec![UI, MONO],
             FontKind::MonoItalic => vec![MONO_ITALIC, MONO, UI],
             FontKind::Math => vec![MATH, UI, MONO],
+            FontKind::Terminal => vec![TERMINAL, MONO, UI],
+            FontKind::TerminalItalic => vec![TERMINAL_ITALIC, TERMINAL, MONO, UI],
         };
         order.extend(FALLBACK..self.slots.len() as u8);
 

@@ -16,6 +16,8 @@ pub enum SettingsPage {
     Editor,
     /// 格式化：保存时的格式化和修复，以及各语言的工具命令。
     Format,
+    /// 终端：默认 shell、面板位置、字体、字号和终端行为。
+    Terminal,
     /// 模块：可选模块的开关。
     Modules,
     /// 快捷键：只列出键位，不含设置项，整页由 [`KeysLayout`] 单独布局。
@@ -26,14 +28,23 @@ pub enum SettingsPage {
 
 impl SettingsPage {
     /// 全部分类，顺序与分类栏从上到下的顺序一致。
-    pub const ALL: [SettingsPage; 6] = [
+    pub const ALL: [SettingsPage; 7] = [
         SettingsPage::Appearance,
         SettingsPage::Editor,
         SettingsPage::Format,
+        SettingsPage::Terminal,
         SettingsPage::Modules,
         SettingsPage::Keys,
         SettingsPage::About,
     ];
+
+    /// 返回分类栏列出的分类，顺序同 [`Self::ALL`]；终端模块关闭时（`terminal` 为 `false`）
+    /// 不列出「终端」。
+    pub fn listed(terminal: bool) -> impl Iterator<Item = SettingsPage> {
+        Self::ALL
+            .into_iter()
+            .filter(move |&page| terminal || page != SettingsPage::Terminal)
+    }
 
     /// 返回分类的标题。
     pub fn title(self) -> &'static str {
@@ -41,6 +52,7 @@ impl SettingsPage {
             SettingsPage::Appearance => t!("settings-page-appearance"),
             SettingsPage::Editor => t!("settings-page-editor"),
             SettingsPage::Format => t!("settings-page-format"),
+            SettingsPage::Terminal => t!("settings-page-terminal"),
             SettingsPage::Modules => t!("settings-page-modules"),
             SettingsPage::Keys => t!("settings-page-keys"),
             SettingsPage::About => t!("settings-page-about"),
@@ -58,6 +70,7 @@ impl SettingsPage {
                     plain(vec![
                         Setting::Theme,
                         Setting::Language,
+                        Setting::Zoom,
                         Setting::UiFont,
                         Setting::UiSize,
                     ]),
@@ -102,6 +115,23 @@ impl SettingsPage {
                     Setting::RemoteImages,
                 ]),
             ],
+            SettingsPage::Terminal => {
+                let mut behavior = vec![
+                    Setting::TerminalCopyOnSelect,
+                    Setting::TerminalConfirmClose,
+                    Setting::TerminalPrompt,
+                    Setting::TerminalShellIntegration,
+                ];
+                // 只有 macOS 能区分左右 ⌥，其他平台不列出该项。
+                if cfg!(target_os = "macos") {
+                    behavior.push(Setting::TerminalOptionAsMeta);
+                }
+                vec![
+                    plain(vec![Setting::TerminalShell, Setting::TerminalPosition]),
+                    plain(vec![Setting::TerminalFont, Setting::TerminalSize]),
+                    plain(behavior),
+                ]
+            }
             SettingsPage::Modules => vec![plain(vec![Setting::GitModule, Setting::TerminalModule])],
             SettingsPage::Format => {
                 let mut sections = vec![
@@ -136,6 +166,12 @@ impl SettingsPage {
             SettingsPage::About => vec![
                 plain(vec![Setting::Version]),
                 plain(vec![Setting::Updates, Setting::CheckUpdates]),
+                plain(vec![
+                    Setting::Website,
+                    Setting::Repository,
+                    Setting::Community,
+                    Setting::License,
+                ]),
             ],
         }
     }
@@ -219,10 +255,20 @@ pub enum Setting {
     Version,
     /// 「关于」页的更新状态和「检查更新」按钮。
     Updates,
+    /// 「关于」页的官网链接。
+    Website,
+    /// 「关于」页的源代码仓库（GitHub）链接。
+    Repository,
+    /// 「关于」页的社区群组（Telegram）链接。
+    Community,
+    /// 「关于」页的开源许可：许可证名称，链接到许可证全文。
+    License,
     /// 界面字体。
     UiFont,
     /// 界面字号。
     UiSize,
+    /// 界面缩放（`ui.zoom`）：整个窗口按同一比例放大或缩小。
+    Zoom,
     /// 用系统的标题栏和边框，而不是由应用在顶栏中绘制窗口按钮（macOS 以外的平台）。
     SystemTitleBar,
     /// 保存时格式化。
@@ -239,6 +285,24 @@ pub enum Setting {
     AddLanguage,
     /// 修复工具一组下面的「添加语言…」。
     AddFixLanguage,
+    /// 新建终端时运行的 shell（`terminal.shell`）。
+    TerminalShell,
+    /// 终端面板的位置：编辑区下方或右侧。
+    TerminalPosition,
+    /// 终端字体。
+    TerminalFont,
+    /// 终端字号。
+    TerminalSize,
+    /// 终端中选中文字时自动复制。
+    TerminalCopyOnSelect,
+    /// 关闭仍有程序运行的终端标签前确认。
+    TerminalConfirmClose,
+    /// 用户未设置提示符时使用 winc 的提示符。
+    TerminalPrompt,
+    /// 注入 shell 集成，按命令分块。
+    TerminalShellIntegration,
+    /// 终端中用作 Meta 键的 ⌥（只在 macOS 上列出）。
+    TerminalOptionAsMeta,
     /// Git 模块的开关。
     GitModule,
     /// 终端模块的开关。
@@ -250,12 +314,26 @@ pub enum Setting {
 }
 
 impl Setting {
-    /// 返回全部设置项，顺序为从第一页到最后一页、每页从上到下。
+    /// 名称或说明中是否含有 `query`；`query` 须已去掉首尾空白并转为小写，比较时不区分大小写。
+    pub fn matches(self, query: &str) -> bool {
+        let has = |text: &str| text.to_lowercase().contains(query);
+        has(self.label()) || self.description().is_some_and(|text| has(&text))
+    }
+
+    /// 返回搜索 `query` 时列出的设置项，顺序与搜索结果中从上到下的顺序相同（见
+    /// [`search_sections`]）；键盘上下移动按此顺序进行。
+    pub fn found(query: &str, languages: &ToolLanguages, terminal: bool) -> Vec<Setting> {
+        (search_sections(query, languages, terminal).into_iter())
+            .flat_map(|section| section.items)
+            .collect()
+    }
+
+    /// 返回列出的各页（见 [`SettingsPage::listed`]）的全部设置项，顺序为从第一页到最后一页、
+    /// 每页从上到下。
     ///
     /// 键盘上下移动按此顺序进行，越过一页的首尾时切换到相邻页。
-    pub fn all(languages: &ToolLanguages) -> Vec<Setting> {
-        SettingsPage::ALL
-            .into_iter()
+    pub fn all(languages: &ToolLanguages, terminal: bool) -> Vec<Setting> {
+        SettingsPage::listed(terminal)
             .flat_map(|page| match page {
                 // 「快捷键」页没有设置项，移动到该页即选中该页的搜索框。
                 SettingsPage::Keys => vec![Setting::KeySearch],
@@ -277,6 +355,7 @@ impl Setting {
             | Setting::DarkTheme
             | Setting::UiFont
             | Setting::UiSize
+            | Setting::Zoom
             | Setting::SystemTitleBar
             | Setting::StatusBar
             | Setting::RestoreWindow => SettingsPage::Appearance,
@@ -295,7 +374,13 @@ impl Setting {
             | Setting::DiffInline
             | Setting::RenderWhitespace
             | Setting::RemoteImages => SettingsPage::Editor,
-            Setting::Version | Setting::Updates | Setting::CheckUpdates => SettingsPage::About,
+            Setting::Version
+            | Setting::Updates
+            | Setting::CheckUpdates
+            | Setting::Website
+            | Setting::Repository
+            | Setting::Community
+            | Setting::License => SettingsPage::About,
             Setting::FormatOnSave
             | Setting::FixOnSave
             | Setting::SkipOnSave
@@ -303,6 +388,15 @@ impl Setting {
             | Setting::FixCommand(_)
             | Setting::AddLanguage
             | Setting::AddFixLanguage => SettingsPage::Format,
+            Setting::TerminalShell
+            | Setting::TerminalPosition
+            | Setting::TerminalFont
+            | Setting::TerminalSize
+            | Setting::TerminalCopyOnSelect
+            | Setting::TerminalConfirmClose
+            | Setting::TerminalPrompt
+            | Setting::TerminalShellIntegration
+            | Setting::TerminalOptionAsMeta => SettingsPage::Terminal,
             Setting::GitModule | Setting::TerminalModule => SettingsPage::Modules,
             Setting::KeySearch => SettingsPage::Keys,
         }
@@ -317,6 +411,7 @@ impl Setting {
             Setting::DarkTheme => t!("settings-dark-theme"),
             Setting::UiFont => t!("settings-ui-font"),
             Setting::UiSize => t!("settings-ui-size"),
+            Setting::Zoom => t!("settings-ui-zoom"),
             Setting::SystemTitleBar => t!("settings-system-title-bar"),
             Setting::EditorFont => t!("settings-editor-font"),
             Setting::EditorSize => t!("settings-editor-size"),
@@ -337,6 +432,10 @@ impl Setting {
             Setting::RemoteImages => t!("settings-remote-images"),
             Setting::CheckUpdates => t!("settings-check-updates"),
             Setting::Version => t!("settings-version"),
+            Setting::Website => t!("settings-website"),
+            Setting::Repository => "GitHub",
+            Setting::Community => "Telegram",
+            Setting::License => t!("settings-license"),
             Setting::Updates => t!("settings-updates"),
             Setting::FormatOnSave => t!("settings-format-on-save"),
             Setting::FixOnSave => t!("settings-fix-on-save"),
@@ -345,6 +444,15 @@ impl Setting {
                 winc_syntax::find(id).map_or(id, |l| l.name)
             }
             Setting::AddLanguage | Setting::AddFixLanguage => t!("settings-add-language"),
+            Setting::TerminalShell => t!("settings-terminal-shell"),
+            Setting::TerminalPosition => t!("settings-terminal-position"),
+            Setting::TerminalFont => t!("settings-terminal-font"),
+            Setting::TerminalSize => t!("settings-terminal-size"),
+            Setting::TerminalCopyOnSelect => t!("settings-terminal-copy-on-select"),
+            Setting::TerminalConfirmClose => t!("settings-terminal-confirm-close"),
+            Setting::TerminalPrompt => t!("settings-terminal-prompt"),
+            Setting::TerminalShellIntegration => t!("settings-terminal-shell-integration"),
+            Setting::TerminalOptionAsMeta => t!("settings-terminal-option-as-meta"),
             Setting::GitModule => "Git",
             Setting::TerminalModule => t!("settings-terminal-module"),
             Setting::KeySearch => t!("settings-key-search"),
@@ -386,6 +494,13 @@ impl Setting {
             Setting::FixOnSave => Some(t!("settings-fix-on-save-desc")),
             Setting::SkipOnSave => Some(t!("settings-skip-on-save-desc")),
             Setting::GitModule => Some(t!("settings-git-module-desc")),
+            Setting::TerminalCopyOnSelect => Some(t!("settings-terminal-copy-on-select-desc")),
+            Setting::TerminalConfirmClose => Some(t!("settings-terminal-confirm-close-desc")),
+            Setting::TerminalPrompt => Some(t!("settings-terminal-prompt-desc")),
+            Setting::TerminalShellIntegration => {
+                Some(t!("settings-terminal-shell-integration-desc"))
+            }
+            Setting::TerminalOptionAsMeta => Some(t!("settings-terminal-option-as-meta-desc")),
             _ => None,
         };
         text.map(Cow::Borrowed)
@@ -394,8 +509,10 @@ impl Setting {
     /// 返回设置项右侧的控件种类。
     pub fn control(self) -> SettingControl {
         match self {
-            Setting::EditorFont | Setting::UiFont => SettingControl::Font,
-            Setting::EditorSize | Setting::UiSize | Setting::TabWidth => SettingControl::Stepper,
+            Setting::EditorFont | Setting::UiFont | Setting::TerminalFont => SettingControl::Font,
+            Setting::EditorSize | Setting::UiSize | Setting::TerminalSize | Setting::TabWidth => {
+                SettingControl::Stepper
+            }
             Setting::Theme => SettingControl::Themes,
             Setting::LightTheme | Setting::DarkTheme => SettingControl::ThemeList,
             Setting::SystemTitleBar
@@ -416,14 +533,26 @@ impl Setting {
             | Setting::FormatOnSave
             | Setting::FixOnSave
             | Setting::GitModule
-            | Setting::TerminalModule => SettingControl::Switch,
-            Setting::FormatCommand(_) | Setting::FixCommand(_) => SettingControl::Command,
-            Setting::SkipOnSave | Setting::Language | Setting::RenderWhitespace => {
-                SettingControl::Choice
+            | Setting::TerminalModule
+            | Setting::TerminalCopyOnSelect
+            | Setting::TerminalConfirmClose
+            | Setting::TerminalPrompt
+            | Setting::TerminalShellIntegration => SettingControl::Switch,
+            Setting::FormatCommand(_) | Setting::FixCommand(_) | Setting::TerminalShell => {
+                SettingControl::Command
             }
+            Setting::SkipOnSave
+            | Setting::Language
+            | Setting::Zoom
+            | Setting::RenderWhitespace
+            | Setting::TerminalPosition
+            | Setting::TerminalOptionAsMeta => SettingControl::Choice,
             Setting::AddLanguage | Setting::AddFixLanguage => SettingControl::Action,
             Setting::KeySearch => SettingControl::Search,
-            Setting::Version => SettingControl::Value,
+            Setting::Version => SettingControl::Product,
+            Setting::Website | Setting::Repository | Setting::Community | Setting::License => {
+                SettingControl::Link
+            }
             Setting::Updates => SettingControl::Button,
         }
     }
@@ -442,16 +571,20 @@ pub enum SettingControl {
     ThemeList,
     /// 开关。
     Switch,
-    /// 格式化工具：点击后弹出菜单的值；选择「自定义命令…」时换成比字体名输入框更宽的输入框。
+    /// 格式化工具、默认 shell：点击后弹出菜单的值；选择「自定义命令…」时换成比字体名输入框
+    /// 更宽的输入框。
     Command,
     /// 组下方的文字按钮（「添加语言…」）。
     Action,
-    /// 点击后弹出菜单的值，显示当前选择（「语言」「排除的语言」）。
+    /// 点击后弹出菜单的值，显示当前选择（如「语言」「排除的语言」）。
     Choice,
     /// 「快捷键」页的搜索框；不按设置行排列，整页单独布局（[`KeysLayout`]）。
     Search,
-    /// 右侧一段只读的文字（版本号）。
-    Value,
+    /// 「关于」页顶部的产品信息：图标、名称和版本号，水平居中，没有左侧的名称；点击版本号复制
+    /// （见 [`ProductParts`]）。
+    Product,
+    /// 右侧一段链接文字，后跟外链箭头；点击后在浏览器中打开。
+    Link,
     /// 右侧的按钮（「检查更新」）。
     Button,
 }
@@ -466,6 +599,17 @@ pub fn whitespace_label(choice: winc_config::RenderWhitespace) -> &'static str {
         Selection => t!("settings-render-whitespace-selection"),
         Trailing => t!("settings-render-whitespace-trailing"),
         All => t!("settings-render-whitespace-all"),
+    }
+}
+
+/// 返回「Meta 键」设置中选项 `choice` 的名字。
+pub fn option_as_meta_label(choice: winc_config::OptionAsMeta) -> &'static str {
+    use winc_config::OptionAsMeta::{Both, Left, None, Right};
+    match choice {
+        Left => t!("settings-terminal-option-as-meta-left"),
+        Right => t!("settings-terminal-option-as-meta-right"),
+        Both => t!("settings-terminal-option-as-meta-both"),
+        None => t!("settings-terminal-option-as-meta-none"),
     }
 }
 
@@ -505,6 +649,88 @@ pub fn settings_thumb(area: Rect, scroll: f32, max: f32) -> Option<Rect> {
     Some(Rect::new(track.x, thumb.y, track.w, thumb.h))
 }
 
+/// 社区群组（Telegram）的地址。
+const COMMUNITY_URL: &str = "https://t.me/deeix_chat";
+
+/// 链接文字与其后外链箭头之间的距离，加上箭头的宽度（逻辑像素）。
+pub const LINK_ICON_W: f32 = 6.0 + 9.0;
+
+/// 产品名称，与 README 的标题一致，显示在「关于」页顶部。
+pub const PRODUCT_NAME: &str = "Winc";
+
+/// 「关于」页顶部产品信息的各部分：图标、名称所在的行、版本号所在的行，水平居中。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ProductParts {
+    /// 产品图标，边长 [`SETTINGS_LOGO`]。
+    pub logo: Rect,
+    /// 名称所在的行。
+    pub name: Rect,
+    /// 版本号所在的行。
+    pub version: Rect,
+}
+
+impl ProductParts {
+    /// 根据产品信息一行 `row` 计算各部分的位置（见 [`SETTINGS_PRODUCT_H`]）。
+    pub fn new(row: Rect) -> ProductParts {
+        let x = (row.x + (row.w - SETTINGS_LOGO) / 2.0).round();
+        let logo = Rect::new(x, row.y + 20.0, SETTINGS_LOGO, SETTINGS_LOGO);
+        let name = Rect::new(row.x, logo.bottom() + 10.0, row.w, 28.0);
+        let version = Rect::new(row.x, name.bottom() + 2.0, row.w, 24.0);
+        ProductParts {
+            logo,
+            name,
+            version,
+        }
+    }
+
+    /// 返回版本号实际占的区域：宽为文字宽 `text_w` 加左右各 10 的内边距，水平居中；悬停底色和
+    /// 点击范围都取这一块。
+    pub fn version_area(&self, text_w: f32) -> Rect {
+        let w = (text_w + 20.0).min(self.version.w);
+        let x = self.version.x + (self.version.w - w) / 2.0;
+        Rect::new(x, self.version.y, w, self.version.h)
+    }
+}
+
+/// 返回「关于」页顶部版本号一行的文字，例如「版本 0.1.368 (arm64)」。
+pub fn version_line() -> String {
+    t!("settings-version-line", version = version_label())
+}
+
+/// 返回「关于」页中链接的显示名（如「winc.si」）；不是链接时返回 `None`。
+///
+/// 官网、仓库和许可证取自 `Cargo.toml` 的 `homepage`、`repository` 和 `license`。
+pub fn about_value(setting: Setting) -> Option<String> {
+    let text = match setting {
+        Setting::Website => env!("CARGO_PKG_HOMEPAGE"),
+        Setting::Repository => env!("CARGO_PKG_REPOSITORY"),
+        Setting::Community => COMMUNITY_URL,
+        Setting::License => env!("CARGO_PKG_LICENSE"),
+        _ => return None,
+    };
+    let text = text.trim_start_matches("https://");
+    Some(text.strip_prefix("github.com/").unwrap_or(text).to_owned())
+}
+
+/// 返回「关于」页中链接的地址；不是链接时返回 `None`。许可证链接到仓库中的许可证全文。
+pub fn about_link(setting: Setting) -> Option<String> {
+    let repository = env!("CARGO_PKG_REPOSITORY");
+    Some(match setting {
+        Setting::Website => env!("CARGO_PKG_HOMEPAGE").to_owned(),
+        Setting::Repository => repository.to_owned(),
+        Setting::Community => COMMUNITY_URL.to_owned(),
+        Setting::License => format!("{repository}/blob/HEAD/LICENSE"),
+        _ => return None,
+    })
+}
+
+/// 返回链接实际占的区域：右缘与控件 `control` 对齐，宽为内容宽 `content` 加左右内边距，不超过
+/// 控件；悬停底色和点击范围都取这一块。
+pub fn value_area(control: Rect, content: f32) -> Rect {
+    let w = (content + 10.0 + SETTINGS_GLYPH_PAD).min(control.w);
+    Rect::new(control.right() - w, control.y, w, control.h)
+}
+
 /// 「关于」页的版本号：上游版本、这个 fork 的数字和处理器架构，例如 `0.1.502_115`（`x86_64`）。
 pub fn version_label() -> String {
     let arch = match std::env::consts::ARCH {
@@ -519,6 +745,8 @@ pub fn version_label() -> String {
 pub enum SettingsPart {
     /// 右上角的关闭按钮。
     Close,
+    /// 分类栏顶部的搜索框。
+    SearchField,
     /// 分类栏中的一项。
     Page(SettingsPage),
     /// 字体名、格式化命令的输入框。
@@ -533,6 +761,8 @@ pub enum SettingsPart {
     Install(Setting),
     /// 点击后复制到剪贴板的值（版本号）。
     Copy(Setting),
+    /// 点击后在浏览器中打开的链接。
+    Link(Setting),
     /// 「快捷键」页的搜索框。
     KeySearch,
     /// 搜索框右端的「录制按键」。
@@ -547,6 +777,59 @@ pub enum SettingsPart {
     NamedTheme(bool, usize),
 }
 
+/// 计算设置浮层布局所需的界面状态。
+#[derive(Debug, Clone, Copy)]
+pub struct SettingsView<'a> {
+    /// 当前页。
+    pub page: SettingsPage,
+    /// 分类栏顶部搜索框中的文字；不为空白时正文换成搜索结果。
+    pub query: &'a str,
+    /// 格式化页列出的语言。
+    pub languages: &'a ToolLanguages,
+    /// 分类栏中「终端」一项的显示比例（0 到 1，开关终端模块时渐变，见
+    /// [`SettingsPage::listed`]）。
+    pub terminal: f32,
+    /// 正在输入的设置项：输入格式化命令时换成更宽的输入框。
+    pub editing: Option<Setting>,
+    /// 正文的滚动量（像素）。
+    pub scroll: f32,
+}
+
+/// 返回搜索 `query` 时正文列出的各组：各页中名称或说明含有 `query` 的设置项
+/// （[`Setting::matches`]），按页和页内的顺序排列。
+///
+/// 有标题的组（主题、格式化工具）保留原标题，其余各组合并为一组，以页名为标题；「快捷键」页和
+/// 组下方的文字按钮不参与搜索。`terminal` 为终端模块是否开启（见 [`SettingsPage::listed`]）。
+pub fn search_sections(query: &str, languages: &ToolLanguages, terminal: bool) -> Vec<Section> {
+    let query = query.trim().to_lowercase();
+    let mut found = Vec::new();
+    for page in SettingsPage::listed(terminal).filter(|&page| page != SettingsPage::Keys) {
+        let mut plain = Vec::new();
+        let mut titled = Vec::new();
+        for section in page.sections(languages) {
+            let items: Vec<Setting> = (section.items.into_iter())
+                .filter(|s| s.control() != SettingControl::Action && s.matches(&query))
+                .collect();
+            match section.title {
+                _ if items.is_empty() => {}
+                Some(title) => titled.push(Section {
+                    title: Some(title),
+                    items,
+                }),
+                None => plain.extend(items),
+            }
+        }
+        if !plain.is_empty() {
+            found.push(Section {
+                title: Some(page.title()),
+                items: plain,
+            });
+        }
+        found.extend(titled);
+    }
+    found
+}
+
 /// 设置浮层的整套几何。
 ///
 /// 绘制、悬停和点击都从这里取位置，保证三者一致。
@@ -559,10 +842,15 @@ pub struct SettingsLayout {
     pub card: Rect,
     /// 左侧的分类栏。
     pub nav: Rect,
+    /// 分类栏顶部的搜索框。
+    pub search: Rect,
     /// 分类栏中的每一项及其位置。
     pub pages: Vec<(SettingsPage, Rect)>,
     /// 正在显示的页。
     pub page: SettingsPage,
+    /// 是否在显示搜索结果（搜索框不为空白）：此时正文是 [`search_sections`] 的各组，分类栏中
+    /// 不标出当前页。
+    pub searching: bool,
     /// 右侧顶部：「设置 › 外观」和关闭按钮。
     pub header: Rect,
     /// 关闭按钮。
@@ -597,15 +885,22 @@ pub struct SettingRow {
 impl SettingsLayout {
     /// 计算设置浮层的几何。
     ///
-    /// `window` 是窗口矩形，`page` 是当前页，`languages` 是格式化页列出的语言，`editing` 是
-    /// 正在输入的设置项（输入格式化命令时换成更宽的输入框），`scroll` 是正文的滚动量（像素）。
+    /// `window` 是窗口矩形，`view` 是当前的界面状态，`measure` 返回一段说明文字的宽度（逻辑
+    /// 像素），说明放不下一行时折行，该行随之加高。
     pub fn compute(
         window: Rect,
-        page: SettingsPage,
-        languages: &ToolLanguages,
-        editing: Option<Setting>,
-        scroll: f32,
+        view: &SettingsView<'_>,
+        measure: &mut dyn FnMut(&str) -> f32,
     ) -> Self {
+        let &SettingsView {
+            page,
+            query,
+            languages,
+            terminal,
+            editing,
+            scroll,
+        } = view;
+        let searching = !query.trim().is_empty();
         let w = SETTINGS_W.min(window.w - SETTINGS_MARGIN * 2.0).max(0.0);
         let h = SETTINGS_H.min(window.h - SETTINGS_MARGIN * 2.0).max(0.0);
         let card = Rect::new(
@@ -616,15 +911,27 @@ impl SettingsLayout {
         );
 
         let nav = Rect::new(card.x, card.y, SETTINGS_NAV_W.min(card.w), card.h);
-        // 分类栏的第一项与右侧标题行垂直居中对齐。
-        let first = card.y + (SETTINGS_HEADER - SETTINGS_NAV_ROW) / 2.0;
+        // 搜索框与右侧标题行垂直居中对齐，各页列在其下。「终端」一项的高度按显示比例收放，
+        // 下方各项随之滑动。
+        let search = Rect::new(
+            nav.x + 8.0,
+            card.y + (SETTINGS_HEADER - SETTINGS_CONTROL_H) / 2.0,
+            (nav.w - 16.0).max(0.0),
+            SETTINGS_CONTROL_H,
+        );
+        let mut y = search.bottom() + 8.0;
         let pages = SettingsPage::ALL
             .into_iter()
-            .enumerate()
-            .map(|(i, page)| {
-                let y = first + i as f32 * (SETTINGS_NAV_ROW + 2.0);
-                let row = Rect::new(nav.x + 8.0, y, (nav.w - 16.0).max(0.0), SETTINGS_NAV_ROW);
-                (page, row)
+            .filter_map(|page| {
+                let share = if page == SettingsPage::Terminal {
+                    terminal
+                } else {
+                    1.0
+                };
+                let h = SETTINGS_NAV_ROW * share;
+                let row = Rect::new(nav.x + 8.0, y, (nav.w - 16.0).max(0.0), h);
+                y += (SETTINGS_NAV_ROW + 2.0) * share;
+                (share > 0.0).then_some((page, row))
             })
             .collect();
 
@@ -653,7 +960,12 @@ impl SettingsLayout {
         let mut separators = Vec::new();
         let mut rows = Vec::new();
 
-        for (i, section) in page.sections(languages).into_iter().enumerate() {
+        let sections = if searching {
+            search_sections(query, languages, terminal > 0.0)
+        } else {
+            page.sections(languages)
+        };
+        for (i, section) in sections.into_iter().enumerate() {
             if i > 0 {
                 y += SETTINGS_GROUP_GAP;
             }
@@ -674,9 +986,10 @@ impl SettingsLayout {
                     let inner = group_w - SETTINGS_INSET * 2.0;
                     separators.push(Rect::new(x + SETTINGS_INSET, y, inner.max(0.0), 1.0));
                 }
-                let h = row_height(setting, group_w);
+                let editing = editing == Some(setting);
+                let h = row_height(setting, Rect::new(x, y, group_w, 0.0), editing, measure);
                 let row = Rect::new(x, y, group_w, h);
-                let control = control_rect(setting, row, editing == Some(setting));
+                let control = control_rect(setting, row, editing);
                 rows.push(SettingRow {
                     setting,
                     row,
@@ -704,8 +1017,10 @@ impl SettingsLayout {
         SettingsLayout {
             card,
             nav,
+            search,
             pages,
             page,
+            searching,
             header,
             close,
             body,
@@ -731,6 +1046,9 @@ impl SettingsLayout {
     pub fn part_at(&self, x: f32, y: f32) -> Option<SettingsPart> {
         if self.close.contains(x, y) {
             return Some(SettingsPart::Close);
+        }
+        if self.search.contains(x, y) {
+            return Some(SettingsPart::SearchField);
         }
 
         if let Some(&(page, _)) = self.pages.iter().find(|(_, r)| r.contains(x, y)) {
@@ -773,7 +1091,9 @@ impl SettingsLayout {
                     .find(|&i| theme_tile(row.control, i).contains(x, y))
                     .map(|i| SettingsPart::NamedTheme(dark, i))
             }
-            SettingControl::Value => Some(SettingsPart::Copy(row.setting)),
+            SettingControl::Product => (ProductParts::new(row.row).version.contains(x, y))
+                .then_some(SettingsPart::Copy(row.setting)),
+            SettingControl::Link => Some(SettingsPart::Link(row.setting)),
             SettingControl::Search => None,
         }
     }
@@ -876,20 +1196,62 @@ impl KeysLayout {
 
 /// 返回宽 `width` 的组里一行的高度。
 ///
-/// 格式化命令行在名称下方显示所用的命令，因此总是两行高；主题一行是几排缩略图，高度按
-/// 主题个数和组宽算。
-fn row_height(setting: Setting, width: f32) -> f32 {
+/// 格式化命令行在名称下方显示所用的命令，因此总是两行高；有说明的行按说明折成的行数加高
+/// （见 [`description_lines`]）；主题一行是几排缩略图，高度按主题个数和组宽算。
+///
+/// `row` 给出该行的横向位置和宽度，`editing` 为该行是否正在输入，`measure` 量说明文字的宽度。
+fn row_height(
+    setting: Setting,
+    row: Rect,
+    editing: bool,
+    measure: &mut dyn FnMut(&str) -> f32,
+) -> f32 {
     match setting.control() {
         SettingControl::ThemeList => {
             let n = crate::theme::themes(setting == Setting::DarkTheme).len();
             let rows = n.div_ceil(THEME_COLUMNS) as f32;
-            let tile = theme_tile_size((width - SETTINGS_INSET * 2.0).max(0.0));
+            let tile = theme_tile_size((row.w - SETTINGS_INSET * 2.0).max(0.0));
             rows * tile.1 + (rows - 1.0) * THEME_GRID_GAP + THEME_GRID_PAD * 2.0
         }
-        SettingControl::Command => SETTINGS_ROW_TALL,
-        _ if setting.description().is_some() => SETTINGS_ROW_TALL,
-        _ => SETTINGS_ROW,
+        SettingControl::Command if setting != Setting::TerminalShell => SETTINGS_ROW_TALL,
+        SettingControl::Product => SETTINGS_PRODUCT_H,
+        _ => match setting.description() {
+            Some(text) => {
+                let room = description_room(row, control_rect(setting, row, editing));
+                let lines = description_lines(setting, &text, room, measure).len();
+                SETTINGS_ROW_TALL + lines.saturating_sub(1) as f32 * SETTINGS_DESC_LINE
+            }
+            None => SETTINGS_ROW,
+        },
     }
+}
+
+/// 返回一行中说明文字可用的宽度（逻辑像素）：从名称的左缘到控件左侧，留出 16 的间隔。
+pub fn description_room(row: Rect, control: Rect) -> f32 {
+    (control.x - row.x - SETTINGS_INSET - 16.0).max(0.0)
+}
+
+/// 把 `setting` 的说明 `text` 按宽度 `room` 折成多行，最多 [`SETTINGS_DESC_LINES`] 行；
+/// 放不下时最后一行是剩下的全部文字，由绘制时在末尾截短。
+///
+/// 「软件更新」一行下方是单行的更新状态，不折行。
+pub fn description_lines<'a>(
+    setting: Setting,
+    text: &'a str,
+    room: f32,
+    measure: &mut dyn FnMut(&str) -> f32,
+) -> Vec<&'a str> {
+    if setting == Setting::Updates {
+        return vec![text];
+    }
+    let mut lines = crate::layout::wrap_text(text, room, measure);
+    if lines.len() > SETTINGS_DESC_LINES {
+        // 各行都是 `text` 的子串：最后一行从它在 `text` 中的位置一直取到末尾。
+        let start = lines[SETTINGS_DESC_LINES - 1].as_ptr() as usize - text.as_ptr() as usize;
+        lines.truncate(SETTINGS_DESC_LINES - 1);
+        lines.push(&text[start..]);
+    }
+    lines
 }
 
 /// 返回字体输入框 `control` 右端下拉按钮的位置。
@@ -916,9 +1278,11 @@ fn control_rect(setting: Setting, row: Rect, editing: bool) -> Rect {
             (segmented_width(), SETTINGS_CONTROL_H)
         }
         SettingControl::Command if editing => (SETTINGS_COMMAND_W, SETTINGS_CONTROL_H),
-        SettingControl::Command | SettingControl::Choice | SettingControl::Value => {
+        SettingControl::Command | SettingControl::Choice | SettingControl::Link => {
             (SETTINGS_CHOICE_W, SETTINGS_CONTROL_H)
         }
+        // 产品信息铺满整行。
+        SettingControl::Product => return row,
         SettingControl::Button => (SETTINGS_BUTTON_W, SETTINGS_CONTROL_H),
         SettingControl::Switch => (SETTINGS_SWITCH_W, SETTINGS_SWITCH_H),
         SettingControl::Stepper => (SETTINGS_STEP_W * 2.0 + SETTINGS_VALUE_W, SETTINGS_CONTROL_H),
@@ -930,8 +1294,16 @@ fn control_rect(setting: Setting, row: Rect, editing: bool) -> Rect {
     };
     // 控件宽度不超过行宽减去左右内边距，并给左侧名称至少留出 80 像素。
     let w = w.min((row.w - SETTINGS_INSET * 2.0 - 80.0).max(0.0));
+    // 可见内容的右缘对齐组内分隔线的右端：文字、图标类控件的底色向外多出内边距。
+    let pad = match setting.control() {
+        SettingControl::Choice | SettingControl::Link | SettingControl::Stepper => {
+            SETTINGS_GLYPH_PAD
+        }
+        SettingControl::Font | SettingControl::Command if !editing => SETTINGS_GLYPH_PAD,
+        _ => 0.0,
+    };
     Rect::new(
-        row.right() - SETTINGS_INSET + 4.0 - w,
+        row.right() - SETTINGS_INSET + pad - w,
         row.y + (row.h - h) / 2.0,
         w,
         h,

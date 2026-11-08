@@ -84,12 +84,12 @@ impl App {
     /// 支持）使用最后一次鼠标移动的位置。
     fn drop_point(&self) -> (f32, f32) {
         #[cfg(target_os = "macos")]
-        if let Some(at) = self
+        if let Some((x, y)) = self
             .window
             .as_ref()
             .and_then(|w| crate::macos::mouse_location(w))
         {
-            return at;
+            return (x / self.zoom(), y / self.zoom());
         }
         self.mouse
     }

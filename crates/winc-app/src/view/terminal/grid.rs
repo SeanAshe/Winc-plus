@@ -174,7 +174,7 @@ pub(super) fn draw_line(
     marks: &[(usize, usize, Color)],
     clip: Rect,
 ) {
-    let (cell, size) = (app.cell, app.fonts.code);
+    let (cell, size) = (app.terminal_cell, app.fonts.terminal);
     let parts = segments(line);
     let styles: Vec<(Color, Option<Color>)> =
         parts.iter().map(|p| colors.style(&p.style)).collect();
@@ -206,9 +206,9 @@ pub(super) fn draw_line(
         let attrs = part.style.attrs;
         let bold = attrs.has(Attrs::BOLD);
         let kind = if attrs.has(Attrs::ITALIC) {
-            FontKind::MonoItalic
+            FontKind::TerminalItalic
         } else {
-            FontKind::Mono
+            FontKind::Terminal
         };
         let mut col = part.start;
         // 前一个占格子的字：所在列和占几格，组合字符画在它上面。
@@ -260,7 +260,7 @@ pub(super) fn draw_line(
             draw_underline(frame, underline, (x0, x1), baseline + 2.0, color, clip);
         }
         if attrs.has(Attrs::STRIKE) && part.end > part.start {
-            let y = (baseline - app.mono_metrics.x_height / 2.0).round();
+            let y = (baseline - app.terminal_metrics.x_height / 2.0).round();
             frame.rect_clipped(span(y, 1.0), fg, 0.0, clip);
         }
     }
@@ -517,14 +517,18 @@ fn draw_cluster(
     if attrs.has(Attrs::HIDDEN) || draw_block_element(frame, cluster.base, at, color, clip) {
         return;
     }
-    let (cell, size) = (app.cell, app.fonts.code);
+    let (cell, size) = (app.terminal_cell, app.fonts.terminal);
     let kind = if attrs.has(Attrs::ITALIC) {
-        FontKind::MonoItalic
+        FontKind::TerminalItalic
     } else {
-        FontKind::Mono
+        FontKind::Terminal
     };
     let cells = ((at.w / cell).round() as usize).max(1);
-    let baseline = baseline_in(at, app.mono_metrics.ascent, app.mono_metrics.descent);
+    let baseline = baseline_in(
+        at,
+        app.terminal_metrics.ascent,
+        app.terminal_metrics.descent,
+    );
     frame.cell_char(
         kind,
         size,
@@ -579,11 +583,11 @@ pub(super) fn draw_preedit(
     clip: Rect,
 ) {
     let p = app.palette;
-    let cell = app.cell;
+    let cell = app.terminal_cell;
     let cells = |c: char| char_width(c).max(1);
     let width = app.preedit.chars().map(cells).sum::<usize>() as f32 * cell;
     frame.rect_clipped(
-        Rect::new(x, y, width, app.fonts.line_height),
+        Rect::new(x, y, width, app.fonts.terminal_line_height),
         p.editor_bg,
         0.0,
         clip,
@@ -591,8 +595,8 @@ pub(super) fn draw_preedit(
     let mut px = x;
     for c in app.preedit.chars() {
         frame.cell_char(
-            FontKind::Mono,
-            app.fonts.code,
+            FontKind::Terminal,
+            app.fonts.terminal,
             px,
             baseline,
             cell,
