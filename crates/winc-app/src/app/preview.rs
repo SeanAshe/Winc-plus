@@ -1,5 +1,5 @@
 //! 预览：Markdown（后台解析、滚动、链接和图片）、图片和 SVG（后台解码、分栏预览）、表格（后台
-//! 读取 xlsx、csv）。
+//! 读取 xlsx、csv）、PDF（渲染线程逐页渲染）。
 //!
 //! 各种预览都在后台线程完成解码、解析和绘制，界面只收结果；排版与绘制在 `view` 模块中完成。
 
@@ -11,6 +11,7 @@ use crate::app::App;
 
 pub(super) mod images;
 pub(crate) mod markdown;
+pub(crate) mod pdf;
 pub(super) mod tables;
 
 /// 能在浏览器中打开的网页文件的扩展名（小写）。

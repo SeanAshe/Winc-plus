@@ -250,7 +250,10 @@ impl App {
             }
             return;
         }
-        if self.markdown_key(&event.logical_key, cmd) || self.table_key(&event.logical_key, cmd) {
+        if self.markdown_key(&event.logical_key, cmd)
+            || self.table_key(&event.logical_key, cmd)
+            || self.pdf_key(&event.logical_key)
+        {
             return;
         }
         // 改动卡片开着时 `Esc` 先关卡片。

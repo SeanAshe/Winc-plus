@@ -386,6 +386,8 @@ impl App {
             self.terminal_wheel(dy);
         } else if self.markdown.area.contains(x, y) {
             self.scroll_markdown(dy);
+        } else if self.pdf.area.contains(x, y) {
+            self.scroll_pdf(dy);
         } else if self.table_at(x, y) {
             let (dx, dy) = if shift_wheel { (dy, 0.0) } else { (dx, dy) };
             self.scroll_table(dx, dy, (x, y));

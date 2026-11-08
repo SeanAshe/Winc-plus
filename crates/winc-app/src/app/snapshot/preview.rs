@@ -3050,3 +3050,146 @@ fn shoot_docx() {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// 写一份 `count` 页的 PDF（每页 US Letter 大小，612 × 792 点）：每页顶部用 Helvetica 写页号，
+/// 下面画一条长度随页号变化的红色横条。交叉引用表按各对象的实际偏移写出。
+#[cfg(any(target_os = "macos", windows))]
+fn sample_pdf(count: usize) -> Vec<u8> {
+    let mut objects: Vec<String> = vec![
+        "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
+        format!(
+            "<< /Type /Pages /Kids [{}] /Count {count} >>",
+            (0..count)
+                .map(|k| format!("{} 0 R", 3 + k * 2))
+                .collect::<Vec<_>>()
+                .join(" ")
+        ),
+    ];
+    for k in 0..count {
+        let content = format!(
+            "BT /F1 36 Tf 72 700 Td (Page {}) Tj ET 1 0 0 rg 72 620 {} 40 re f",
+            k + 1,
+            100 + k * 40
+        );
+        objects.push(format!(
+            "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents {} 0 R \
+             /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 \
+             /BaseFont /Helvetica >> >> >> >>",
+            4 + k * 2
+        ));
+        objects.push(format!(
+            "<< /Length {} >>\nstream\n{content}\nendstream",
+            content.len()
+        ));
+    }
+    let mut out = b"%PDF-1.4\n".to_vec();
+    let mut offsets = Vec::new();
+    for (k, body) in objects.iter().enumerate() {
+        offsets.push(out.len());
+        out.extend(format!("{} 0 obj\n{body}\nendobj\n", k + 1).as_bytes());
+    }
+    let xref = out.len();
+    out.extend(format!("xref\n0 {}\n0000000000 65535 f \n", objects.len() + 1).as_bytes());
+    for offset in offsets {
+        out.extend(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    out.extend(
+        format!(
+            "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n",
+            objects.len() + 1
+        )
+        .as_bytes(),
+    );
+    out
+}
+
+/// 打开 `path`，等待渲染线程完成打开和视口附近各页的渲染。
+#[cfg(any(target_os = "macos", windows))]
+fn open_pdf(path: &Path, dark: bool) -> App {
+    let mut app = app_with(path, dark);
+    for _ in 0..3 {
+        paint(&mut app);
+        app.wait_for_pdf();
+    }
+    paint(&mut app);
+    app
+}
+
+/// PDF 打开后逐页显示：只渲染视口附近的页，缓存中只保留这几页；滚动到结尾后，前面的页从缓存中
+/// 移除。文件损坏时显示原因，以及「重试」「用默认应用打开」两个按钮。
+#[cfg(any(target_os = "macos", windows))]
+#[test]
+fn pdf_files_render_only_the_pages_in_view() {
+    use winit::keyboard::{Key, NamedKey};
+
+    let dir = sample_folder("pdf-pages");
+    let path = dir.join("手册.pdf");
+    std::fs::write(&path, sample_pdf(30)).unwrap();
+    let mut app = open_pdf(&path, false);
+    let doc = app.editor.active().unwrap();
+    assert_eq!(doc.unsupported, Some(winc_editor::Unsupported::Pdf));
+    assert!(doc.readonly);
+    assert_eq!(app.pdf.area, app.layout.editor);
+    assert_eq!(app.pdf.pages.as_ref().unwrap().as_ref().unwrap().len(), 30);
+    let first: Vec<usize> = app.pdf.rendered.keys().copied().collect();
+    assert!(first.contains(&0), "{first:?}");
+    assert!(first.len() <= 4, "{first:?}");
+
+    assert!(app.pdf_key(&Key::Named(NamedKey::End)));
+    for _ in 0..3 {
+        paint(&mut app);
+        app.wait_for_pdf();
+    }
+    assert_eq!(app.pdf.scroll, app.pdf.max_scroll());
+    let last: Vec<usize> = app.pdf.rendered.keys().copied().collect();
+    assert!(last.contains(&29) && !last.contains(&0), "{last:?}");
+    assert!(last.len() <= 4, "{last:?}");
+
+    // 回归：页面滚出预览顶部时，超出预览区域的部分（包括边框）不绘制到标签栏上。
+    let above = |app: &mut App| {
+        paint(app);
+        let image = app.renderer.as_ref().unwrap().image().unwrap();
+        let scale = app.renderer.as_ref().unwrap().scale_factor();
+        let rows = (app.pdf.area.y * scale).floor() as usize;
+        image.pixels[..rows * image.width as usize].to_vec()
+    };
+    app.pdf.scroll = 0.0;
+    let before = above(&mut app);
+    app.pdf.scroll = 300.0;
+    assert_eq!(above(&mut app), before);
+
+    let broken = dir.join("损坏.pdf");
+    std::fs::write(&broken, b"not a pdf").unwrap();
+    app.open_path(&broken);
+    for _ in 0..3 {
+        paint(&mut app);
+        app.wait_for_pdf();
+    }
+    assert_eq!(
+        app.pdf
+            .pages
+            .as_ref()
+            .unwrap()
+            .as_ref()
+            .err()
+            .map(String::as_str),
+        Some(winc_i18n::t!("preview-pdf-invalid"))
+    );
+    assert_eq!(app.placeholder_hits.len(), 2);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[cfg(any(target_os = "macos", windows))]
+#[test]
+#[ignore = "截图，手动运行"]
+fn shoot_pdf() {
+    for dark in [false, true] {
+        let dir = sample_folder("pdf-shot");
+        let path = dir.join("手册.pdf");
+        std::fs::write(&path, sample_pdf(5)).unwrap();
+        let mut app = open_pdf(&path, dark);
+        let theme = if dark { "dark" } else { "light" };
+        shoot(&mut app, &format!("pdf-{theme}"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

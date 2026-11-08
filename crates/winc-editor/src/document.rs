@@ -180,6 +180,9 @@ pub enum Unsupported {
     Workbook,
     /// docx 文字文档：编辑区显示转换成 Markdown 后排版的阅读视图，由界面读取和转换。
     Docx,
+    /// PDF（只在能预览 PDF 的平台上，见 `winc_preview::pdf::supported`）：编辑区逐页显示，由界面
+    /// 读取和渲染。
+    Pdf,
     /// 二进制文件或不支持的文本编码，值为文件大小（字节）。
     Binary(u64),
     /// 文件超过 `OPEN_LIMIT`，值为文件大小（字节）。
@@ -208,6 +211,7 @@ impl std::fmt::Display for Unsupported {
             Unsupported::Image => f.write_str(t!("editor-unsupported-image")),
             Unsupported::Workbook => f.write_str(t!("editor-unsupported-workbook")),
             Unsupported::Docx => f.write_str(t!("editor-unsupported-docx")),
+            Unsupported::Pdf => f.write_str(t!("editor-unsupported-pdf")),
             Unsupported::Binary(size) => {
                 f.write_str(&t!("editor-unsupported-binary", size = size_text(*size)))
             }

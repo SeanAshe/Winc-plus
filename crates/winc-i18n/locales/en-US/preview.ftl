@@ -96,3 +96,11 @@ preview-docx-chart-titled = Chart: { $title }
 preview-docx-chart-series = { $count } series: { $names }
 preview-docx-chart-category = Category
 preview-docx-image-unsupported = The image “{ $name }” is in { $format } format and can’t be previewed
+
+## PDF preview
+
+preview-pdf-unsupported = PDF preview isn’t supported on this system
+preview-pdf-invalid = Not a valid PDF file
+preview-pdf-encrypted = Encrypted PDFs can’t be previewed
+preview-pdf-empty = The PDF has no pages
+preview-pdf-render-failed = The page couldn’t be rendered

@@ -100,6 +100,7 @@ impl App {
             table_layout: Default::default(),
             split: preview::images::SplitPreview::default(),
             markdown: preview::markdown::MarkdownPreview::default(),
+            pdf: preview::pdf::PdfPreview::default(),
             key_path_cache: None,
             key_path_scan: None,
             folded_hits: Vec::new(),

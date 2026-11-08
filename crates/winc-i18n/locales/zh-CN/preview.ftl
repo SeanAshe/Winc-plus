@@ -96,3 +96,11 @@ preview-docx-chart-titled = 图表：{ $title }
 preview-docx-chart-series = { $count } 组数据：{ $names }
 preview-docx-chart-category = 类别
 preview-docx-image-unsupported = 图片「{ $name }」为 { $format } 格式，无法预览
+
+## PDF 预览
+
+preview-pdf-unsupported = 当前系统不支持预览 PDF
+preview-pdf-invalid = 不是有效的 PDF 文件
+preview-pdf-encrypted = 不支持预览加密的 PDF
+preview-pdf-empty = PDF 中没有页面
+preview-pdf-render-failed = 无法渲染这一页
