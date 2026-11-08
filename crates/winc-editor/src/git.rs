@@ -19,7 +19,7 @@ mod sync;
 pub use output::output_text;
 pub use rebase::{RebaseAction, RebaseCommit, RebasePlan, RebaseStep, rebase_todo};
 pub use remote::{Remote, TagTarget, repository_dir_name};
-pub use sync::Synced;
+pub use sync::{Carried, Synced};
 mod trust;
 mod worktree;
 
@@ -319,17 +319,6 @@ impl Entry {
     /// 是否是未跟踪的文件（或目录）。
     pub fn untracked(&self) -> bool {
         self.unstaged == Some(Change::Untracked)
-    }
-
-    /// 是否只暂存了一部分：已暂存的内容和工作区的文件不同。
-    ///
-    /// 即 `git status` 的 `MM` 一类，暂存区和工作区相对各自的上一级都有变化。未跟踪、冲突、
-    /// 暂存了删除的文件不算。
-    pub fn partly_staged(&self) -> bool {
-        !self.conflicted()
-            && !self.untracked()
-            && self.unstaged.is_some()
-            && self.staged.is_some_and(|c| c != Change::Deleted)
     }
 
     /// 是否为合并时有冲突的文件。
@@ -1327,7 +1316,7 @@ fn mode_from_test(code: Option<i32>) -> Option<&'static str> {
 /// 把绝对路径换成相对于 `root` 的路径，交给 `git` 的路径参数（`--` 之后）。
 ///
 /// 每个都加上 `::(literal)`，按字面匹配：`app/[slug]/page.tsx` 里的 `[`、`*`、`?` 不当通配符，
-/// 回滚、提交、取消暂存时不会连带改动名字碰巧匹配上的其他文件。不用 `GIT_LITERAL_PATHSPECS`：
+/// 回滚、提交时不会连带改动名字碰巧匹配上的其他文件。不用 `GIT_LITERAL_PATHSPECS`：
 /// `git stash push -u` 自己也要用路径匹配，开启它以后不再收录未跟踪的文件。
 fn relative_all<'a>(
     root: &'a Path,

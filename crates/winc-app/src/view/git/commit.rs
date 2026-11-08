@@ -18,7 +18,8 @@ use crate::app::animation::stage;
 use crate::app::git::log::display_local;
 use crate::app::{
     COMMIT_ROW, CommitGroup, CommitLabels, CommitName, CommitOverflow, CommitParts, CommitRow,
-    CommitRows, CommitTarget, Focus, LabelCause, LabelView, MESSAGE_LINE, MESSAGE_PAD, SyncState,
+    CommitRows, CommitTarget, Focus, LabelCause, LabelView, MESSAGE_LINE, MESSAGE_PAD, StashLine,
+    StashView, SyncState,
 };
 use crate::icons::Direction;
 use crate::view::workspace::sidebar::{
@@ -38,9 +39,9 @@ const SYNC_TEXT_LEFT: f32 = 8.0;
 /// 「修改上次提交」的勾选框中心离那一段左边的距离（逻辑像素）：边长 12 的勾选框左边留 1，和
 /// 悬停底色的边缘分开。
 const AMEND_CHECK: f32 = 7.0;
-/// 「修改上次提交」的文字离那一段左边的距离（逻辑像素）：勾选框右边再隔 5，和改动列表里勾选框
-/// 与图标的间隔（`LABEL_GAP`）相同。
-const AMEND_TEXT: f32 = 18.0;
+/// 「修改上次提交」的文字离该区域左边的距离（逻辑像素）：勾选框右边再隔 8，与设置里勾选项中
+/// 勾选框与文字的间隔相同。
+const AMEND_TEXT: f32 = 21.0;
 /// 「修改上次提交」文字右边留到悬停底色边缘的距离（逻辑像素），与左边勾选框外的空隙相当。
 const AMEND_END: f32 = 6.0;
 /// 没有更改时空状态和下面「推送」「拉取」按钮之间的距离（逻辑像素）：比说明的两行之间宽，
@@ -53,6 +54,7 @@ const NEXT_PAD: f32 = 12.0;
 pub(in crate::view) fn draw_commit(app: &mut App, frame: &mut Frame<'_>) -> Option<Rect> {
     // 提交信息框随内容长高：先按框的宽度折好行（框的宽度和高度无关，卡片和分支行同宽，卡片
     // 收起时也照样折），框的高度按行数定，绘制时继续使用折好的行。
+    app.track_stash_height();
     let row = app.commit_parts().branch;
     let width = message_area(app, Rect::new(row.x, 0.0, row.w, 0.0)).w;
     let focused = app.focus == Focus::CommitMessage;
@@ -63,11 +65,11 @@ pub(in crate::view) fn draw_commit(app: &mut App, frame: &mut Frame<'_>) -> Opti
     // 底行的勾选框、按钮和「撤销」按文字宽度排：先量好，排版时就用上了。
     let size = app.fonts.ui_small;
     let (text, icon_w) = commit_button_text(app);
-    app.commit.labels = CommitLabels {
+    app.set_commit_labels(CommitLabels {
         amend: AMEND_TEXT + frame.measure(FontKind::Ui, size, t!("git-commit-amend")) + AMEND_END,
         button: icon_w + frame.measure(FontKind::Ui, size, &text),
         undo: frame.measure(FontKind::Ui, size, t!("git-commit-undo")),
-    };
+    });
     let parts = app.commit_parts();
     // 改动变少（提交、外部的 `git` 操作）或列表变高后，滚动位置可能超出内容，所有行都画不出来。
     // 展开、收起的动画中列表按动画结束时的行计算，由动画自己处理。
@@ -390,12 +392,13 @@ fn draw_sync(
         button.y + button.h / 2.0,
     );
     let faded = ink.alpha(ink.a * (1.0 - check));
+    // 同步与远程交换提交，图标与标题行只重读本地的「刷新」不同。
     if leaving {
-        icons::refresh_turned(frame, icon, spin_turn(), faded, clip);
+        icons::sync_turned(frame, icon, spin_turn(), faded, clip);
     } else if state == SyncState::Publish {
         icons::upload(frame, icon, faded, clip);
     } else {
-        icons::refresh(frame, icon, faded, clip);
+        icons::sync(frame, icon, faded, clip);
     }
     if check > 0.0 {
         icons::check(frame, icon, 11.0, p.git_added.alpha(check), clip);
@@ -536,6 +539,8 @@ fn draw_undo(
 /// 标题的箭头同一列。各条储藏和标题的文字对齐：行前面没有勾选框和图标，再缩进一层只会留下
 /// 一块空白。
 const STASH_TITLE: f32 = ARROW + 10.0;
+/// 正在查看的储藏下面各个文件的图标离行左边的距离（逻辑像素）：比储藏名再缩进一级。
+const STASH_FILE: f32 = STASH_TITLE + 12.0;
 /// 储藏那一行悬停时「应用」文字两侧的留白（逻辑像素），和「上一次提交」那一栏的「撤销」相同。
 const STASH_APPLY_PAD: f32 = 6.0;
 
@@ -600,9 +605,36 @@ fn draw_stashes(
     let viewing = (app.commit.stash_view.as_ref())
         .filter(|_| app.editor.active().map(|d| d.id) == app.commit.stash_preview)
         .map(|view| view.oid.as_str());
-    let shown = app.shown_stashes();
-    for (i, stash) in shown.iter().enumerate() {
-        let row = band(i + 1);
+    let listed = app.listed_stash_view();
+    for (n, line) in app.stash_lines().into_iter().enumerate() {
+        let row = band(n + 1);
+        let i = match line {
+            StashLine::Stash(i) => i,
+            StashLine::File(at) => {
+                if let Some(view) = listed {
+                    draw_stash_file(app, frame, row, view, at, clip);
+                    hits.push((row, CommitTarget::StashFile(at)));
+                }
+                continue;
+            }
+            StashLine::MoreFiles(count) => {
+                let text = t!("git-stash-more-files", count = count);
+                let x = row.x + STASH_FILE;
+                ui_text_small(frame, app, x, row, &text, p.text_dim, clip);
+                continue;
+            }
+            StashLine::MoreStashes(rest) => {
+                if app.hover == Hover::Commit(CommitTarget::StashMore) {
+                    frame.rect_clipped(shade(row), p.hover, RADIUS_ROW, clip);
+                }
+                let text = t!("git-stash-more", count = rest);
+                let x = row.x + STASH_TITLE;
+                ui_text_small(frame, app, x, row, &text, p.text_muted, clip);
+                hits.push((row, CommitTarget::StashMore));
+                continue;
+            }
+        };
+        let stash = &app.git.stashes[i];
         let hovered = matches!(
             app.hover,
             Hover::Commit(
@@ -657,16 +689,55 @@ fn draw_stashes(
         label(frame, app, app.fonts.ui, (x, row), &name, p.text, room);
         hits.push((row, CommitTarget::Stash(i)));
     }
-    let rest = app.git.stashes.len() - shown.len();
-    if rest > 0 {
-        let row = band(shown.len() + 1);
-        if app.hover == Hover::Commit(CommitTarget::StashMore) {
-            frame.rect_clipped(shade(row), p.hover, RADIUS_ROW, clip);
-        }
-        let text = t!("git-stash-more", count = rest);
-        let x = row.x + STASH_TITLE;
-        ui_text_small(frame, app, x, row, &text, p.text_muted, clip);
-        hits.push((row, CommitTarget::StashMore));
+}
+
+/// 绘制正在查看的储藏下面的一个文件：比储藏名再缩进一级，依次是文件图标、文件名、淡色的所在
+/// 目录，右端是状态字母；正在查看的文件铺选中的底色。
+fn draw_stash_file(
+    app: &App,
+    frame: &mut Frame<'_>,
+    row: Rect,
+    view: &StashView,
+    at: usize,
+    clip: Rect,
+) {
+    let p = app.palette;
+    let Some((file, ..)) = view.files.get(at) else {
+        return;
+    };
+    let hovered = app.hover == Hover::Commit(CommitTarget::StashFile(at));
+    let shade = Rect::new(row.x, row.y + 1.0, row.w, row.h - 2.0);
+    if let Some(color) = row_color(p, at == view.at, false, hovered) {
+        frame.rect_clipped(shade, color, RADIUS_ROW, clip);
+    }
+    let size = app.fonts.ui_small;
+    let cy = row.y + row.h / 2.0;
+    let name = winc_editor::display_name(&file.path).into_owned();
+    let x = row.x + STASH_FILE;
+    draw_file_icon(frame, p, (x, cy), &name, clip);
+    let letter = file.change.letter().to_string();
+    let letter_w = frame.measure(FontKind::Ui, size, &letter);
+    let right = row.right() - END_PAD;
+    let ink = git_color(p, file.change);
+    ui_text_small(frame, app, right - letter_w, row, &letter, ink, clip);
+    let text_x = x + icons::FILE_WIDTH + 6.0;
+    let room = (right - letter_w - 8.0 - text_x).max(0.0);
+    let name_w = frame.measure(FontKind::Ui, app.fonts.ui, &name).min(room);
+    let shown = fit(frame, &name, app.fonts.ui, room, false);
+    let color = file_color(file.change, p);
+    let area = clip.intersect(Rect::new(text_x, row.y, room, row.h));
+    label(frame, app, app.fonts.ui, (text_x, row), &shown, color, area);
+    // 所在目录相对仓库根目录，写在名字后面，放不下时截短。
+    let dir = app.editor.root().and_then(|root| {
+        let parent = file.path.parent()?.strip_prefix(root).ok()?;
+        let dir = parent.to_string_lossy().into_owned();
+        (!dir.is_empty()).then_some(dir)
+    });
+    if let Some(dir) = dir {
+        let dir_x = text_x + name_w + 6.0;
+        let dir_room = (text_x + room - dir_x).max(0.0);
+        let dir = fit(frame, &dir, size, dir_room, false);
+        ui_text_small(frame, app, dir_x, row, &dir, p.text_dim, clip);
     }
 }
 
@@ -1087,7 +1158,8 @@ fn draw_row(
     let focused = app.focus == Focus::CommitList;
     let checkbox = |frame: &mut Frame<'_>, x: f32, cy: f32, state: Option<bool>| {
         let border = p.text_dim.alpha(0.55);
-        icons::soft_checkbox(frame, (x, cy), state, p.accent, border, list);
+        let on_accent = p.text_on_accent;
+        icons::checkbox(frame, (x, cy), state, p.accent, border, on_accent, list);
     };
     let band = Rect::new(list.x + 8.0, y, list.w - 16.0, COMMIT_ROW);
     // 鼠标停着的这一行名字放不下：写全名，状态字母让开；伸出侧栏时底色铺到侧栏边缘、右边是
@@ -1207,7 +1279,10 @@ fn draw_row(
             let parts = dir_parts(app, frame, name, room);
             let width = parts_width(app, frame, &parts, true);
             let key = CommitName::Dir(*group, dir.clone());
-            let view = app.commit.names.sync(&key, cause, &parts, width);
+            let view = app
+                .commit
+                .names
+                .sync(&key, cause, &parts, shown_width(width, room));
             let retracting =
                 !wanted && view.progress < 1.0 && text_x + view.width > text_clip.right();
             let color = if retracting {
@@ -1308,8 +1383,14 @@ fn draw_row(
             let parts = file_parts(app, frame, (&name, dir.as_deref()), room);
             let width = parts_width(app, frame, &parts, false);
             let key = CommitName::File(entry.path.clone());
-            let view = app.commit.names.sync(&key, cause, &parts, width);
-            let lag = if wanted { width - view.width } else { 0.0 };
+            let view = app
+                .commit
+                .names
+                .sync(&key, cause, &parts, shown_width(width, room));
+            let lag = match actions {
+                Some((open, _)) if wanted => actions_lag(app, i, band, open, width - view.width),
+                _ => 0.0,
+            };
             let actions = actions.map(|(open, revert)| {
                 let back = |r: Rect| Rect::new(r.x - lag, r.y, r.w, r.h);
                 (back(open), back(revert))
@@ -1361,11 +1442,13 @@ fn draw_row(
                 ui_text_small(frame, app, letter_x, band, &letter, ink, list);
             }
             let color = file_color(change, p);
+            // 名字先于按钮绘制：按钮滑向名字后面的过程中，名字随按钮移开而逐渐显示。
             let name_end = if wanted || retracting {
                 text_x + view.width
             } else {
                 text_end
             };
+            let name_end = actions.map_or(name_end, |(open, _)| name_end.min(open.x - 4.0));
             let name_clip =
                 Rect::new(list.x, y, (name_end - list.x).max(0.0), COMMIT_ROW).intersect(list);
             draw_name(
@@ -1575,15 +1658,30 @@ fn draw_card(
     app.commit.message = field;
     let clip = panel.intersect(card);
 
-    // 「修改上次提交」：勾选框连同文字，整段都能点，悬停时铺底色。
+    // 「修改上次提交」：勾选框连同文字整段可点击，悬停时铺底色。随提交按钮变宽而隐去、变窄而
+    // 出现时按进度淡出、淡入，过渡中不响应鼠标。
     if let Some(amend) = parts.amend {
-        let hovered = app.hover == Hover::Commit(CommitTarget::Amend);
+        let (shown, fading) = match app.commit.amend_motion {
+            Some((true, clock)) => (clock.progress(), true),
+            Some((false, clock)) => (1.0 - clock.progress(), true),
+            None => (1.0, false),
+        };
+        let fade = |c: Color| c.alpha(c.a * shown);
+        let hovered = !fading && app.hover == Hover::Commit(CommitTarget::Amend);
         draw_button(frame, p, amend, clip, hovered, false);
         let cy = amend.y + amend.h / 2.0;
         let state = app.commit.amend.then_some(true);
-        let border = p.text_dim.alpha(0.55);
+        let border = fade(p.text_dim.alpha(0.55));
         let check = (amend.x + AMEND_CHECK, cy);
-        icons::soft_checkbox(frame, check, state, p.accent, border, clip);
+        icons::checkbox(
+            frame,
+            check,
+            state,
+            fade(p.accent),
+            border,
+            fade(p.text_on_accent),
+            clip,
+        );
         let x = amend.x + AMEND_TEXT;
         ui_text_small(
             frame,
@@ -1591,10 +1689,12 @@ fn draw_card(
             x,
             amend,
             t!("git-commit-amend"),
-            p.text_muted,
+            fade(p.text_muted),
             clip,
         );
-        hits.push((amend, CommitTarget::Amend));
+        if !fading {
+            hits.push((amend, CommitTarget::Amend));
+        }
     }
 
     // 「提交 ⌄」：强调色的拆分按钮，左边「✓ 提交」，右边一道细竖线隔开下拉箭头。
@@ -1840,6 +1940,29 @@ pub(in crate::view) fn commit_overflow(app: &App, frame: &mut Frame<'_>) -> Opti
     })
 }
 
+/// 返回第 `row` 行写全名时两个按钮离终点（「打开文件」在 `open`）还差的距离（逻辑像素）。
+///
+/// 按钮随名字滑出（名字还有 `name_lag` 未显示），同时从原位（[`file_actions`]）滑向终点
+/// （[`App::track_commit_actions`]），取两者中较大的距离：名字无需加长、只为按钮让出位置时，
+/// 名字不动，按钮仍然滑向终点。
+fn actions_lag(app: &App, row: usize, band: Rect, open: Rect, name_lag: f32) -> f32 {
+    let slide = app.commit.actions_slide.filter(|&(r, _)| r == row);
+    let rest = slide.map_or(0.0, |(_, clock)| {
+        let (home, _) = file_actions(band);
+        (open.x - home.x).max(0.0) * (1.0 - clock.progress())
+    });
+    name_lag.max(rest)
+}
+
+/// 返回名字显示出的宽度：内容宽 `width`，截短时可用宽度为 `room`（写全名时为 `None`）。
+///
+/// 截短后仍然放不下的名字（不能再缩短的文件名、目录名）在 `room` 处淡出，显示出的宽度为
+/// `room`。名字的过渡按显示出的宽度进行：写全名时从截断处滑出，按钮随之移动；内容不变时
+/// 同样有过渡。
+fn shown_width(width: f32, room: Option<f32>) -> f32 {
+    room.map_or(width, |room| width.min(room))
+}
+
 /// 返回 `band` 一行中名字（平铺时连同其后的目录）完整绘制时末尾的 x 坐标（逻辑像素）。
 fn name_end(app: &App, frame: &mut Frame<'_>, text: &RowText, band: Rect) -> f32 {
     let name_w = if text.folder {
@@ -1884,7 +2007,10 @@ pub(in crate::view) fn draw_commit_overflow(app: &App, frame: &mut Frame<'_>) {
     // 按钮跟着名字移动（见 `draw_row`），露出的部分到按钮为止；目录行露到名字后面 8。
     let parts = full_parts(&text);
     let width = parts_width(app, frame, &parts, text.folder);
-    let lag = width - view.width;
+    let lag = match actions {
+        Some((open, _)) => actions_lag(app, row, band, open, width - view.width),
+        None => width - view.width,
+    };
     let actions = actions.map(|(open, revert)| {
         let back = |r: Rect| Rect::new(r.x - lag, r.y, r.w, r.h);
         (back(open), back(revert))

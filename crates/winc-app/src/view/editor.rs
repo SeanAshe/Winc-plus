@@ -102,6 +102,25 @@ pub(super) fn draw_editor(app: &mut App, frame: &mut Frame<'_>) {
         }
         None => {}
     }
+    // docx：显示转换成 Markdown 后排版的阅读视图；读取或转换失败时说明原因。
+    if app.editor.documents[index].unsupported == Some(Unsupported::Docx) {
+        match app.markdown.failed.clone() {
+            Some(reason) => {
+                use PlaceholderAction::*;
+                let message = t!("editor-preview-failed", reason = reason);
+                let actions = [
+                    (Retry, t!("editor-retry")),
+                    (OpenWithDefaultApp, t!("editor-open-with-default-app")),
+                ];
+                draw_placeholder(app, frame, message, &actions);
+            }
+            None => {
+                let area = app.layout.editor;
+                super::preview::markdown::draw(app, frame, area);
+            }
+        }
+        return;
+    }
     let doc = &app.editor.documents[index];
     if let Some(view) = doc.table.as_deref().filter(|_| !doc.shows_text()) {
         let workbook = doc.unsupported.is_some();
@@ -166,7 +185,10 @@ pub(super) fn draw_editor(app: &mut App, frame: &mut Frame<'_>) {
                 (OpenWithDefaultApp, t!("editor-open-with-default-app")),
                 (Reveal, system::reveal_label()),
             ],
-            Unsupported::Unreadable(_) | Unsupported::Image | Unsupported::Workbook => &[
+            Unsupported::Unreadable(_)
+            | Unsupported::Image
+            | Unsupported::Workbook
+            | Unsupported::Docx => &[
                 (Retry, t!("editor-retry")),
                 (Reveal, system::reveal_label()),
             ],

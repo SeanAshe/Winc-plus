@@ -128,6 +128,7 @@ cmd-find-in-folder = 在目录中查找…
 cmd-toggle-sidebar = 显示或隐藏侧栏
 cmd-focus-sidebar = 聚焦到侧栏
 cmd-show-files = 显示文件
+cmd-show-outline = 显示大纲
 cmd-increase-font-size = 放大字号
 cmd-decrease-font-size = 缩小字号
 cmd-reset-font-size = 还原字号

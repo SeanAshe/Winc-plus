@@ -4,54 +4,10 @@
 use super::xlsx::{NumberFormat, classify, column_of, date_time, general};
 use super::*;
 
-/// 把 `files`（包中路径、内容）写成 zip：`deflate` 时用 deflate 压缩，否则原样存放。
-///
-/// `Archive` 读取时不核对 CRC，校验字段固定写 0。
+/// 把 `files`（包中路径、文字内容）写成 zip，见 [`crate::zip::build`]。
 fn zip(files: &[(&str, &str)], deflate: bool) -> Vec<u8> {
-    let mut out = Vec::new();
-    let mut central = Vec::new();
-    // 本地文件头和中央目录的记录按 ZIP 文件格式（APPNOTE.TXT）逐字段写出；压缩级别 6 是
-    // `miniz_oxide` 默认的级别。
-    for (name, content) in files {
-        let data = if deflate {
-            miniz_oxide::deflate::compress_to_vec(content.as_bytes(), 6)
-        } else {
-            content.as_bytes().to_vec()
-        };
-        let method: u16 = if deflate { 8 } else { 0 };
-        let offset = out.len() as u32;
-        out.extend(0x0403_4b50u32.to_le_bytes());
-        out.extend([20, 0, 0, 0]);
-        out.extend(method.to_le_bytes());
-        out.extend([0; 8]);
-        out.extend((data.len() as u32).to_le_bytes());
-        out.extend((content.len() as u32).to_le_bytes());
-        out.extend((name.len() as u16).to_le_bytes());
-        out.extend([0, 0]);
-        out.extend(name.as_bytes());
-        out.extend(&data);
-
-        central.extend(0x0201_4b50u32.to_le_bytes());
-        central.extend([20, 0, 20, 0, 0, 0]);
-        central.extend(method.to_le_bytes());
-        central.extend([0; 8]);
-        central.extend((data.len() as u32).to_le_bytes());
-        central.extend((content.len() as u32).to_le_bytes());
-        central.extend((name.len() as u16).to_le_bytes());
-        central.extend([0; 12]);
-        central.extend(offset.to_le_bytes());
-        central.extend(name.as_bytes());
-    }
-    let start = out.len() as u32;
-    out.extend(&central);
-    out.extend(0x0605_4b50u32.to_le_bytes());
-    out.extend([0; 4]);
-    out.extend((files.len() as u16).to_le_bytes());
-    out.extend((files.len() as u16).to_le_bytes());
-    out.extend((central.len() as u32).to_le_bytes());
-    out.extend(start.to_le_bytes());
-    out.extend([0, 0]);
-    out
+    let files: Vec<(&str, &[u8])> = files.iter().map(|(n, c)| (*n, c.as_bytes())).collect();
+    crate::zip::build(&files, deflate)
 }
 
 const NS: &str = "xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\" \

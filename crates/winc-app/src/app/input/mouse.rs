@@ -83,6 +83,9 @@ impl App {
         let was_tab = self.dragged_tab().is_some();
         self.drag_scrolled_at = None;
         if button == MouseButton::Left {
+            self.diagram_view_mouse_up();
+        }
+        if button == MouseButton::Left {
             self.release_tree_item();
             self.release_tab();
         }
@@ -101,7 +104,10 @@ impl App {
         let was_scrollbar = matches!(self.drag, Drag::Scrollbar { .. });
         let was_divider = matches!(
             self.drag,
-            Drag::Splitter { .. } | Drag::TerminalDivider { .. } | Drag::SplitDivider { .. }
+            Drag::Splitter { .. }
+                | Drag::TerminalDivider { .. }
+                | Drag::SplitDivider { .. }
+                | Drag::OutlineDivider { .. }
         );
         if matches!(self.drag, Drag::TerminalDivider { .. }) {
             self.terminal_dragging(false);
@@ -135,6 +141,11 @@ impl App {
             }
             MouseScrollDelta::PixelDelta(p) => (p.x as f32 / scale, p.y as f32 / scale),
         };
+        // 鼠标位于全屏查看的图上时，滚动用于平移或缩放图，不再传给被遮住的预览。
+        if self.diagram_view_wheel(dx, dy) {
+            self.pace_wheel_frame();
+            return;
+        }
         let line = matches!(delta, MouseScrollDelta::LineDelta(..));
         let glide = self
             .wheel_glides(delta)
@@ -331,6 +342,10 @@ impl App {
         {
             let max = self.commit_max_scroll();
             self.commit.scroll = (self.commit.scroll - dy).clamp(0.0, max);
+            self.set_hover(self.hover_at(x, y));
+        } else if self.outline_shown() && self.outline_list().contains(x, y) {
+            let max = self.outline_max_scroll();
+            self.outline.scroll = (self.outline.scroll - dy).clamp(0.0, max);
             self.set_hover(self.hover_at(x, y));
         } else if self.panel_shown() && l.sidebar.contains(x, y) {
             let max = self.results_max_scroll();

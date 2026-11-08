@@ -130,6 +130,7 @@ const EDITOR: &[Field] = &[
     bool_field!("stickyScroll", sticky_scroll),
     bool_field!("wordWrap", word_wrap),
     bool_field!("minimap", minimap),
+    bool_field!("outline", outline),
     Field {
         key: "renderWhitespace",
         read: |config, value, name, problems| {

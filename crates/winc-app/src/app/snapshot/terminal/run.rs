@@ -622,6 +622,14 @@ fn a_configuration_runs_in_a_real_terminal() {
     wait(&mut app, &exited(3));
     wait(&mut app, &|app| screen(app).contains("from-config sub"));
     assert!(screen(&app).starts_with("▶ echo"), "{}", screen(&app));
+    // 命令行那一行开始一个命令块，程序退出后带退出码结束。
+    let ended = |app: &App| {
+        app.terminal.tab().is_some_and(|t| {
+            let ends: Vec<_> = t.blocks.iter().map(|b| (b.command, b.exit)).collect();
+            ends == [(0, Some(3))]
+        })
+    };
+    wait(&mut app, &ended);
     assert_eq!(app.terminal.tabs.len(), 1);
 
     // 长时间运行的配置：重新运行时先结束旧的，停止后标签保留。
@@ -642,6 +650,19 @@ fn a_configuration_runs_in_a_real_terminal() {
     app.stop_current_config();
     wait(&mut app, &|app| !app.run_config_running());
     assert!(screen(&app).contains("up"));
+
+    // 输出超过一屏：命令行那一行滚出视口后吸顶。
+    let many = r#"{"configurations": [{"name": "real", "command": "seq 1 300"}]}"#;
+    std::fs::write(
+        winc_config::run_configs_path(app.editor.root().unwrap()),
+        many,
+    )
+    .unwrap();
+    run_current(&mut app);
+    wait(&mut app, &|app| screen(app).contains("300"));
+    wait(&mut app, &|app| {
+        app.terminal.tab().is_some_and(|t| t.sticky() == Some(0))
+    });
     clean(&dir);
 }
 

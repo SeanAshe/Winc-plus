@@ -249,19 +249,6 @@ fn draw_header(
             right -= 8.0;
         }
     }
-    // 只暂存了一部分的文件按暂存区提交时，说明各段的勾选反映的是暂存区；点击任一处的勾选框后
-    // 切换为按处选择，此时不显示这段说明。
-    let staged_only = view.staged.is_some()
-        && app
-            .diff_entry(view)
-            .is_some_and(|e| app.commit.staged_only(e));
-    if staged_only {
-        let text = t!("git-diff-staged-only");
-        let w = frame.measure(FontKind::Ui, app.fonts.ui_small, text);
-        right -= w + 4.0;
-        ui_text_small(frame, app, right, header, text, p.text_muted, header);
-        right -= 8.0;
-    }
     let stats_left = right - 8.0;
 
     // 两侧的标题各自从文字区的左边开始；右侧的不盖住统计。不能改的一侧前面一把锁。单栏只有一个
@@ -515,7 +502,7 @@ fn draw_body(
         let all: Vec<(u64, std::ops::Range<usize>)> = (view.keys.iter().zip(&view.hunks))
             .map(|(&key, hunk)| (key, hunk.old.clone()))
             .collect();
-        (app.commit).hunk_inclusions(entry, &all, view.staged.as_deref())
+        (app.commit).hunk_inclusions(entry, &all)
     });
     let mut chars: Vec<char> = Vec::with_capacity(256);
     let mut tokens = Vec::with_capacity(32);

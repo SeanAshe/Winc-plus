@@ -37,14 +37,14 @@ struct Entry {
 }
 
 /// 打开的 zip 压缩包。
-pub(super) struct Archive<'a> {
+pub(crate) struct Archive<'a> {
     bytes: &'a [u8],
     entries: Vec<Entry>,
 }
 
 /// 读 zip 时的错误。
 #[derive(Debug, PartialEq, Eq)]
-pub(super) enum Error {
+pub(crate) enum Error {
     /// 不是 zip 压缩包，或者结构损坏。
     Invalid,
     /// zip64、加密的包，或者不支持的压缩方法。
@@ -58,7 +58,7 @@ impl<'a> Archive<'a> {
     ///
     /// 找不到中央目录或结构损坏时返回 [`Error::Invalid`]；zip64 或加密的包返回
     /// [`Error::Unsupported`]。
-    pub(super) fn open(bytes: &'a [u8]) -> Result<Self, Error> {
+    pub(crate) fn open(bytes: &'a [u8]) -> Result<Self, Error> {
         let end = find_end(bytes).ok_or(Error::Invalid)?;
         let count = usize::from(u16_at(bytes, end + 10).ok_or(Error::Invalid)?);
         let start = u32_at(bytes, end + 16).ok_or(Error::Invalid)?;
@@ -110,7 +110,7 @@ impl<'a> Archive<'a> {
     ///
     /// 文件的压缩方法不支持时返回 [`Error::Unsupported`]；数据损坏或长度超出包的范围时返回
     /// [`Error::Invalid`]。
-    pub(super) fn read(&self, name: &str) -> Option<Result<Vec<u8>, Error>> {
+    pub(crate) fn read(&self, name: &str) -> Option<Result<Vec<u8>, Error>> {
         let entry = self
             .entries
             .iter()
@@ -159,4 +159,55 @@ fn u16_at(bytes: &[u8], at: usize) -> Option<u16> {
 /// `bytes` 中 `at` 处的小端 `u32`。
 fn u32_at(bytes: &[u8], at: usize) -> Option<u32> {
     Some(u32::from_le_bytes(bytes.get(at..at + 4)?.try_into().ok()?))
+}
+
+#[cfg(test)]
+/// 测试用：把 `files`（包中路径、内容）写成 zip：`deflate` 时用 deflate 压缩，否则原样存放。
+///
+/// `Archive` 读取时不核对 CRC，校验字段固定写 0。
+pub(crate) fn build(files: &[(&str, &[u8])], deflate: bool) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut central = Vec::new();
+    // 本地文件头和中央目录的记录按 ZIP 文件格式（APPNOTE.TXT）逐字段写出；压缩级别 6 是
+    // `miniz_oxide` 默认的级别。
+    for (name, content) in files {
+        let data = if deflate {
+            miniz_oxide::deflate::compress_to_vec(content, 6)
+        } else {
+            content.to_vec()
+        };
+        let method: u16 = if deflate { 8 } else { 0 };
+        let offset = out.len() as u32;
+        out.extend(0x0403_4b50u32.to_le_bytes());
+        out.extend([20, 0, 0, 0]);
+        out.extend(method.to_le_bytes());
+        out.extend([0; 8]);
+        out.extend((data.len() as u32).to_le_bytes());
+        out.extend((content.len() as u32).to_le_bytes());
+        out.extend((name.len() as u16).to_le_bytes());
+        out.extend([0, 0]);
+        out.extend(name.as_bytes());
+        out.extend(&data);
+
+        central.extend(0x0201_4b50u32.to_le_bytes());
+        central.extend([20, 0, 20, 0, 0, 0]);
+        central.extend(method.to_le_bytes());
+        central.extend([0; 8]);
+        central.extend((data.len() as u32).to_le_bytes());
+        central.extend((content.len() as u32).to_le_bytes());
+        central.extend((name.len() as u16).to_le_bytes());
+        central.extend([0; 12]);
+        central.extend(offset.to_le_bytes());
+        central.extend(name.as_bytes());
+    }
+    let start = out.len() as u32;
+    out.extend(&central);
+    out.extend(0x0605_4b50u32.to_le_bytes());
+    out.extend([0; 4]);
+    out.extend((files.len() as u16).to_le_bytes());
+    out.extend((files.len() as u16).to_le_bytes());
+    out.extend((central.len() as u32).to_le_bytes());
+    out.extend(start.to_le_bytes());
+    out.extend([0, 0]);
+    out
 }

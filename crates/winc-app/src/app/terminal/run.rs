@@ -124,7 +124,9 @@ fn launch_kind(launch: &Launch, windows: bool) -> ShellKind {
 
 /// 返回写在输出之前的一行：淡色的命令行，工作目录不是打开的目录时写在后面。
 ///
-/// 配置来自项目仓库，控制字符换成空格，不能借此改写终端的内容。
+/// 这一行带 shell 集成的命令边界标记（OSC 133 `A`、`B`，行尾 `C`），与终端里输入的命令一样
+/// 成为一个命令块：滚动时命令行吸顶，程序退出后由辅助进程写入结束标记和退出码。配置来自项目
+/// 仓库，控制字符换成空格，不能借此改写终端的内容。
 fn banner(config: &RunConfig, kind: ShellKind) -> Vec<u8> {
     let mut line = format!("▶ {}", command_line(config, kind));
     if let Some(cwd) = config.cwd.as_deref().filter(|cwd| *cwd != ".") {
@@ -133,7 +135,7 @@ fn banner(config: &RunConfig, kind: ShellKind) -> Vec<u8> {
     let line: String = (line.chars())
         .map(|c| if c.is_control() { ' ' } else { c })
         .collect();
-    format!("\x1b[2m{line}\x1b[0m\r\n").into_bytes()
+    format!("\x1b]133;A\x07\x1b]133;B\x07\x1b[2m{line}\x1b[0m\r\n\x1b]133;C\x07").into_bytes()
 }
 
 /// 返回运行 `config` 的启动方式和完整的环境变量；`env` 是继承的环境。

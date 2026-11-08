@@ -274,11 +274,6 @@ pub struct DiffView {
     ///
     /// 按块提交时用它找到提交视图里的文件。
     pub repo_path: Option<PathBuf>,
-    /// 只暂存了一部分的文件：各段改动里已经暂存的部分（[`diff::staged_picks`]），按 `keys`
-    /// 对上各段；其余文件和读不出暂存区时为 `None`。
-    ///
-    /// 这种文件整个勾着时提交的是暂存区里的版本，差异里各段的勾选按它显示。
-    pub staged: Option<Vec<(u64, diff::Pick)>>,
 }
 
 impl DiffView {
@@ -312,7 +307,6 @@ impl DiffView {
             read_selection: None,
             keys,
             repo_path: None,
-            staged: None,
         };
         view.layout();
         view
@@ -727,7 +721,7 @@ impl DiffView {
         self.old.text.len_chars() == 0 || self.new.text.len_chars() == 0
     }
 
-    /// 两侧内容是否完全相同。
+    /// 两侧是否没有改动：逐行比较不计换行符的写法，只差换行符时同样为 `true`。
     pub fn is_identical(&self) -> bool {
         self.hunks.is_empty()
     }

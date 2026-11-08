@@ -122,14 +122,25 @@ impl App {
         self.config.status_bar != Some(false)
     }
 
-    /// 新窗口放在哪里：比本窗口往右下错开，形成层叠。
-    pub(crate) fn cascade_from(&self) -> Option<winit::dpi::Position> {
-        // 错开的距离（逻辑像素），和 macOS 标题栏的高度接近。
-        const CASCADE: f64 = 28.0;
+    /// 返回从本窗口打开的新窗口的位置（外框左上角，物理像素）和本窗口的缩放比例：比本窗口往
+    /// 右下错开，形成层叠。
+    ///
+    /// 本窗口最小化时按最小化之前正常显示的位置（`window_frame`）错开：最小化期间系统报告的位置
+    /// 不在屏幕上，Windows 上为 (-32000, -32000)。本窗口隐藏，或最小化且没有记下正常显示的位置时
+    /// 返回 `None`，新窗口改用上次关闭窗口时记下的位置。
+    pub(crate) fn cascade_from(&self) -> Option<((f64, f64), f64)> {
         let window = self.window.as_ref()?;
-        let at = window.outer_position().ok()?;
-        let at = at.to_logical::<f64>(window.scale_factor());
-        Some(winit::dpi::LogicalPosition::new(at.x + CASCADE, at.y + CASCADE).into())
+        if self.window_hidden {
+            return None;
+        }
+        let (at, scale) = if window.is_minimized() == Some(true) {
+            let frame = self.window_frame?;
+            (frame.position?, frame.scale)
+        } else {
+            let at = window.outer_position().ok()?;
+            ((f64::from(at.x), f64::from(at.y)), window.scale_factor())
+        };
+        Some((super::placement::cascaded(at, scale), scale))
     }
 
     /// 窗口建不起来（系统窗口或渲染器）：还有别的窗口时只放弃这一个（标成关掉，应用层去掉它），
@@ -258,6 +269,7 @@ impl App {
         self.place_merge_panes();
         self.place_minimap();
 
+        self.place_outline();
         // 侧栏显示搜索面板时没有文件树，点击、悬停和滚动不能落在文件树原来的区域上。
         if self.sidebar_view == SidebarView::Search {
             let tree = self.layout.tree;

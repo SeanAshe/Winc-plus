@@ -21,10 +21,18 @@ use winit::keyboard::{Key, NamedKey};
 use crate::app::{App, UserEvent};
 use crate::system;
 
+mod viewer;
+pub(crate) use viewer::{DiagramTool, DiagramView, MAX_ZOOM, MIN_ZOOM};
+
+/// docx 包中的图片：Markdown 中引用的地址和图片文件的内容。
+type Media = Vec<(String, Arc<[u8]>)>;
+
 /// 后台任务的结果。
 enum Done {
     /// 文档、所依据的文档版本、解析结果。
     Parsed(DocumentId, u64, Markdown),
+    /// docx 文档、所依据的文档版本、转换并解析的结果（含包中的图片）或失败的原因。
+    Converted(DocumentId, u64, Result<(Markdown, Media), String>),
     /// 图片（解析好的本地路径）、读取结果。
     Loaded(PathBuf, Result<Arc<Picture>, String>),
     /// 图片、按显示大小（物理像素）画好的像素。
@@ -80,6 +88,15 @@ pub(crate) struct LiveLeaf {
 /// 一张图最多保留的已绘制尺寸数（种），超出时移除最早画好的。
 const SIZES: usize = 4;
 
+/// 预览左侧的标题指示条上可以指向的位置。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TocTarget {
+    /// 指示条本身：鼠标停在上面时展开标题列表。
+    Bars,
+    /// 标题列表里的一项，值为 [`MarkdownPreview::toc_tops`] 的序号：点击后滚到这个标题。
+    Heading(usize),
+}
+
 /// 当前标签的 Markdown 预览。
 pub(crate) struct MarkdownPreview {
     /// 预览的是哪个文档；当前标签换了时从头开始。
@@ -98,6 +115,11 @@ pub(crate) struct MarkdownPreview {
     pub memo: crate::view::preview::markdown::Memo,
     /// 用到的图片，键是解析好的本地路径。
     pub images: HashMap<PathBuf, ImageSlot>,
+    /// docx 包中的图片：键与 `images` 相同（按文档所在目录解析好的路径），值是图片文件的
+    /// 内容；读取这些图片时用这里的内容，不读磁盘。
+    embedded: HashMap<PathBuf, Arc<[u8]>>,
+    /// docx 读取或转换失败的原因；没有失败时为 `None`。
+    pub failed: Option<String>,
     /// 图片全部作废（联网的设置变了）：排版整份重来。
     ///
     /// 每作废一次加 1。
@@ -112,12 +134,34 @@ pub(crate) struct MarkdownPreview {
     pub pending_anchor: Option<(DocumentId, String)>,
     /// 上一帧画出来的链接：区域和地址，点击时按它找。
     pub links: Vec<(winc_render::Rect, String)>,
+    /// 上一帧画出来的标题指示条和标题列表的可点击位置，见 `view::markdown` 的 `draw_toc`。
+    pub toc: Vec<(winc_render::Rect, TocTarget)>,
+    /// 上一帧标题指示条列出的各标题在内容里的高度（逻辑像素），与 [`TocTarget::Heading`] 的
+    /// 序号对应；点击标题时滚到这里。
+    pub toc_tops: Vec<f32>,
+    /// 标题列表展开时淡入的时钟；不在淡入中时为 `None`。
+    pub toc_fade: Option<crate::app::animation::Clock>,
+    /// 在标题列表里点过的标题（`toc_tops` 的序号）和点完后的滚动位置。
+    ///
+    /// 靠近文末的标题滚不到预览顶上，按滚动位置算不出它是当前所在的一节；点过以后、再次滚动
+    /// 之前，指示条把它当作当前所在的一节。
+    pub toc_picked: Option<(usize, f32)>,
+    /// 上一帧标题指示条标出的当前所在一节（`toc_tops` 的序号）；没有时为 `None`。
+    pub toc_current: Option<usize>,
+    /// 点过的标题在正文里铺的底色：标题的序号与淡出的时钟。
+    pub toc_flash: Option<(usize, crate::app::animation::Clock)>,
     /// 上一帧画出来的代码块（屏幕坐标）：鼠标移进移出时重画，好显示、收起复制按钮。
     pub codes: Vec<winc_render::Rect>,
     /// 上一帧画出复制按钮的代码块的内容；按钮在 `links` 里只记 `COPY`，点了才取这里的文字。
     ///
     /// 与排版结果共用同一段文字：鼠标停在代码块上时每帧都要画按钮，不必每帧复制整块。
     pub copy: Option<std::sync::Arc<str>>,
+    /// 上一帧绘制了全屏按钮的图的源码。
+    ///
+    /// `links` 中的按钮只记录 `EXPAND`，点击时从这里取源码，绘制时不必复制源码。
+    pub expand: Option<std::sync::Arc<str>>,
+    /// 全屏查看中的图；未打开全屏查看时为 `None`。
+    pub diagram: Option<DiagramView>,
     /// 鼠标在第几个代码块（`codes` 的序号）上。
     pub code_hover: Option<usize>,
     /// 上一帧画在哪里（分栏的右半边或整个编辑区）；不显示时为空矩形。
@@ -216,14 +260,24 @@ impl Default for MarkdownPreview {
             layout: None,
             memo: Default::default(),
             images: HashMap::new(),
+            embedded: HashMap::new(),
+            failed: None,
             images_version: 0,
             loaded: Vec::new(),
             toggled: HashSet::new(),
             toggled_now: None,
             pending_anchor: None,
             links: Vec::new(),
+            toc: Vec::new(),
+            toc_tops: Vec::new(),
+            toc_fade: None,
+            toc_picked: None,
+            toc_current: None,
+            toc_flash: None,
             codes: Vec::new(),
             copy: None,
+            expand: None,
+            diagram: None,
             code_hover: None,
             area: winc_render::Rect::default(),
             height: 0.0,
@@ -285,6 +339,8 @@ impl MarkdownPreview {
         self.find_doc = None;
         self.motion = None;
         self.forget_images();
+        self.embedded.clear();
+        self.failed = None;
         self.loaded.clear();
     }
 }
@@ -328,6 +384,10 @@ fn in_fence<'a>(lines: impl Iterator<Item = ropey::RopeSlice<'a>>) -> bool {
 /// 当前标签是否显示 Markdown 预览，在哪里：分栏的右半边或整个编辑区。
 pub(crate) fn shown_area(app: &App) -> Option<winc_render::Rect> {
     let doc = app.editor.active()?;
+    // docx 没有源代码可切换，总是以整个编辑区显示阅读视图。
+    if doc.unsupported == Some(winc_editor::Unsupported::Docx) {
+        return Some(app.layout.editor);
+    }
     if doc.preview_kind() != Some(PreviewKind::Markdown) {
         return None;
     }
@@ -360,6 +420,23 @@ impl App {
         if md.checked == Some(revision) || md.pending.is_some() {
             return;
         }
+        if doc.unsupported == Some(winc_editor::Unsupported::Docx) {
+            let Some(path) = doc.path.clone() else {
+                return;
+            };
+            md.pending = Some(revision);
+            let (sender, proxy) = (md.sender.clone(), self.proxy.clone());
+            winc_editor::background::spawn(move || {
+                let result = winc_preview::docx::load(&path)
+                    .map(|c| (markdown::parse(&c.markdown), c.media));
+                if sender.send(Done::Converted(id, revision, result)).is_ok()
+                    && let Some(proxy) = proxy
+                {
+                    let _ = proxy.send_event(UserEvent::ImageReady);
+                }
+            });
+            return;
+        }
         // 克隆 rope 只是多一个引用；拼成整段文字（16 MB 的文件要几毫秒）放到后台做。
         let Some(rope) = doc.text().rope().cloned() else {
             return;
@@ -390,6 +467,32 @@ impl App {
                     md.pending = None;
                     md.checked = Some(revision);
                     md.parsed = Some(Arc::new(parsed));
+                }
+                Done::Converted(id, revision, result) => {
+                    if md.doc != Some(id) || md.pending != Some(revision) {
+                        continue;
+                    }
+                    md.pending = None;
+                    md.checked = Some(revision);
+                    md.forget_images();
+                    md.embedded.clear();
+                    match result {
+                        Ok((parsed, media)) => {
+                            let doc = self.editor.active().and_then(|d| d.path.as_deref());
+                            md.embedded = media
+                                .into_iter()
+                                .filter_map(|(url, bytes)| {
+                                    Some((image_path(doc, &url, false)?, bytes))
+                                })
+                                .collect();
+                            md.failed = None;
+                            md.parsed = Some(Arc::new(parsed));
+                        }
+                        Err(reason) => {
+                            md.failed = Some(reason);
+                            md.parsed = None;
+                        }
+                    }
                 }
                 Done::Loaded(path, result) => {
                     // 读取期间图片已作废（切换了文档或联网设置变化），丢弃结果。
@@ -441,13 +544,18 @@ impl App {
             path.to_path_buf(),
         );
         let remote = is_remote(url).then(|| url.to_owned());
+        let embedded = self.markdown.embedded.get(&path).cloned();
         let load = move || {
-            let result = match &remote {
-                Some(url) => download(url, &path).and_then(|()| load_downloaded(&path)),
-                None if image::is_svg(&path) => std::fs::read_to_string(&path)
+            let result = match (&remote, embedded) {
+                (_, Some(bytes)) if image::is_svg(&path) => std::str::from_utf8(&bytes)
+                    .map_err(|e| e.to_string())
+                    .and_then(|text| svg::load(text, None, Some(system_glyphs()))),
+                (_, Some(bytes)) => image::load_bytes(&bytes),
+                (Some(url), None) => download(url, &path).and_then(|()| load_downloaded(&path)),
+                (None, None) if image::is_svg(&path) => std::fs::read_to_string(&path)
                     .map_err(|e| e.to_string())
                     .and_then(|text| svg::load(&text, path.parent(), Some(system_glyphs()))),
-                None => image::load(&path),
+                (None, None) => image::load(&path),
             };
             if sender
                 .send(Done::Loaded(path, result.map(Arc::new)))
@@ -510,12 +618,12 @@ impl App {
             .position(|(rect, _)| rect.contains(x, y))
     }
 
-    /// 第 `index` 个链接是否为预览自身的控件（代码块的复制按钮、折叠块的标题、勾选框），
-    /// 而非正文中的链接。
+    /// 第 `index` 个链接是否为预览自身的控件（代码块的复制按钮、图的全屏按钮、折叠块的标题、
+    /// 勾选框），而非正文中的链接。
     pub(crate) fn markdown_link_is_control(&self, index: usize) -> bool {
-        use crate::view::preview::markdown::{COPY, DETAILS, TABLE, TASK};
+        use crate::view::preview::markdown::{COPY, DETAILS, EXPAND, TABLE, TASK};
         self.markdown.links.get(index).is_some_and(|(_, url)| {
-            [COPY, DETAILS, TABLE, TASK]
+            [COPY, DETAILS, EXPAND, TABLE, TASK]
                 .iter()
                 .any(|prefix| url.starts_with(prefix))
         })
@@ -526,6 +634,10 @@ impl App {
         let Some((_, url)) = self.markdown.links.get(index).cloned() else {
             return;
         };
+        if url == crate::view::preview::markdown::EXPAND {
+            self.open_diagram_view();
+            return;
+        }
         if url == crate::view::preview::markdown::COPY {
             let Some(code) = self.markdown.copy.clone() else {
                 return;
@@ -1696,7 +1808,8 @@ impl App {
     /// （刚打的字还没解析，位置可能已经错开）。
     fn current_source_at(&self, x: f32, y: f32) -> Option<usize> {
         let doc = self.editor.active()?;
-        if self.markdown.checked != Some(doc.revision) {
+        // docx 的预览由转换得到，位置不对应文档中的文字。
+        if doc.unsupported.is_some() || self.markdown.checked != Some(doc.revision) {
             return None;
         }
         crate::view::preview::markdown::source_at(self, x, y)
@@ -1876,6 +1989,23 @@ impl App {
     pub(crate) fn scroll_markdown(&mut self, dy: f32) {
         let y = self.markdown.scroll() - dy;
         self.scroll_markdown_to(y);
+    }
+
+    /// 点了标题指示条里的第 `i` 个标题：预览滚到它。
+    ///
+    /// 滚完后把它记为当前所在的一节（见 `MarkdownPreview::toc_picked`），并在正文里给它铺一层
+    /// 底色，慢慢淡出，标出跳到了哪里。
+    pub(in crate::app) fn press_toc(&mut self, target: TocTarget) {
+        let TocTarget::Heading(i) = target else {
+            return;
+        };
+        let Some(&top) = self.markdown.toc_tops.get(i) else {
+            return;
+        };
+        self.scroll_markdown_to(top);
+        self.markdown.toc_picked = Some((i, self.markdown.scroll()));
+        let clock = self.clock(crate::app::animation::TOC_FLASH);
+        self.markdown.toc_flash = clock.map(|clock| (i, clock));
     }
 
     /// 预览滚到 `y`；分栏时左边的文字跟着滚到对应的地方。

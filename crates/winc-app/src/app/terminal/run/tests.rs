@@ -144,13 +144,14 @@ fn a_missing_selection_falls_back_to_the_first() {
     assert!(run.current().is_none());
 }
 
-/// 输出之前的一行是淡色的命令行；工作目录写在后面；控制字符不能进入终端。
+/// 输出之前的一行是淡色的命令行，带命令边界标记（OSC 133 `A`、`B`、`C`）；工作目录写在后面；
+/// 控制字符不能进入终端。
 #[test]
 fn the_banner_shows_the_command() {
     let text = |config: &RunConfig| String::from_utf8(banner(config, ShellKind::Posix)).unwrap();
     assert_eq!(
         text(&config()),
-        "\x1b[2m▶ cargo run --release 'a b' 'it'\\''s'  (crates/api)\x1b[0m\r\n"
+        "\x1b]133;A\x07\x1b]133;B\x07\x1b[2m▶ cargo run --release 'a b' 'it'\\''s'  (crates/api)\x1b[0m\r\n\x1b]133;C\x07"
     );
     let plain = RunConfig {
         command: "run\x1b[2J\nmore".into(),
@@ -158,5 +159,8 @@ fn the_banner_shows_the_command() {
         cwd: Some(".".into()),
         ..config()
     };
-    assert_eq!(text(&plain), "\x1b[2m▶ run [2J more\x1b[0m\r\n");
+    assert_eq!(
+        text(&plain),
+        "\x1b]133;A\x07\x1b]133;B\x07\x1b[2m▶ run [2J more\x1b[0m\r\n\x1b]133;C\x07"
+    );
 }

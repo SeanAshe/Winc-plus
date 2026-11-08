@@ -64,56 +64,15 @@ impl CommitState {
 
     /// 文件的勾选框：`Some(true)` 整个提交，`Some(false)` 只提交一部分改动，`None` 不提交。
     ///
-    /// 只暂存了一部分的文件（[`Entry::partly_staged`]）勾着时只提交已暂存的内容，也是一部分。
+    /// 提交的是工作区里的内容，与暂存区无关：在终端里暂存过的文件与其他文件的处理相同。
     pub fn file_state(&self, entry: &Entry) -> Option<bool> {
         if !self.checked(entry) {
             None
-        } else if self.skips_hunks(entry) || self.staged_only(entry) {
+        } else if self.skips_hunks(entry) {
             Some(false)
         } else {
             Some(true)
         }
-    }
-
-    /// 只暂存了一部分的文件 `entry` 是否按暂存区提交：已勾选，且尚未在差异中修改过各处的勾选。
-    ///
-    /// 在差异中修改过勾选以后按处选择；此后全部勾上时提交整个文件，而不是暂存区里的版本。重新
-    /// 勾选文件本身时恢复为按暂存区提交。
-    pub fn staged_only(&self, entry: &Entry) -> bool {
-        entry.partly_staged() && self.checked(entry) && !self.skipped.contains_key(&entry.path)
-    }
-
-    /// 把只暂存了一部分的文件 `entry` 切换为按处选择：将暂存区里的版本折算成各处的勾选并记录
-    /// 下来（`staged` 见 [`CommitState::hunk_inclusions`]，`all` 是各段改动的键、在 `HEAD` 中的
-    /// 行区间和新行数）。之后在差异中修改的是这份记录，提交时只提交勾上的部分。
-    pub fn adopt_staged(
-        &mut self,
-        entry: &Entry,
-        staged: &[(u64, Pick)],
-        all: &[(u64, Range<usize>, usize)],
-    ) {
-        if !self.staged_only(entry) {
-            return;
-        }
-        let changes: Vec<(u64, Range<usize>)> = all
-            .iter()
-            .map(|(key, old, _)| (*key, old.clone()))
-            .collect();
-        let skips = (all.iter().enumerate())
-            .filter_map(
-                |(h, (key, old, new_len))| match staged_pick(staged, &changes, h) {
-                    Some(Pick::Apply) => None,
-                    Some(Pick::Lines(set)) => Some(Skip::with_lines(
-                        *key,
-                        old,
-                        set.clone(),
-                        old.len() + new_len,
-                    )),
-                    Some(Pick::Skip) | None => Some(Skip::whole(&(*key, old.clone()))),
-                },
-            )
-            .collect();
-        self.skipped.insert(entry.path.clone(), skips);
     }
 
     /// 文件 `entry` 是否在差异里勾掉了其中几处改动。
@@ -123,22 +82,9 @@ impl CommitState {
 
     /// 返回文件 `entry` 现在各段改动的提交方式，下标同 `all`（各段改动的键和在 `HEAD` 中的行
     /// 区间）。
-    ///
-    /// 只暂存了一部分的文件按暂存区提交时（见 [`CommitState::staged_only`]），按 `staged`（各段
-    /// 改动中已暂存的部分，见 `DiffView::staged`）返回；不在其中的改动未暂存，返回不提交。
-    pub fn hunk_inclusions(
-        &self,
-        entry: &Entry,
-        all: &[(u64, Range<usize>)],
-        staged: Option<&[(u64, Pick)]>,
-    ) -> Vec<Pick> {
+    pub fn hunk_inclusions(&self, entry: &Entry, all: &[(u64, Range<usize>)]) -> Vec<Pick> {
         if !self.checked(entry) {
             return vec![Pick::Skip; all.len()];
-        }
-        if let Some(staged) = staged.filter(|_| self.staged_only(entry)) {
-            return (0..all.len())
-                .map(|h| staged_pick(staged, all, h).cloned().unwrap_or(Pick::Skip))
-                .collect();
         }
         let skips = self.skipped.get(&entry.path).map_or(&[][..], Vec::as_slice);
         picks(skips, all)
@@ -598,23 +544,6 @@ pub(super) fn picks(skips: &[Skip], all: &[(u64, Range<usize>)]) -> Vec<Pick> {
     (assign(skips, all).into_iter().zip(all))
         .map(|(skip, (key, _))| skip.map_or(Pick::Apply, |skip| skip.pick(*key)))
         .collect()
-}
-
-/// 第 `hunk` 处改动在暂存区里的部分（`staged` 见 `DiffView::staged`，`all` 同 [`assign`]）。
-///
-/// `staged` 和 `all` 来自同一份差异时逐段对应，按下标取，内容相同的几处各取各的；差异在那之后
-/// 变了（编辑器里又改过）时按键找。
-fn staged_pick<'a>(
-    staged: &'a [(u64, Pick)],
-    all: &[(u64, Range<usize>)],
-    hunk: usize,
-) -> Option<&'a Pick> {
-    let aligned = staged.len() == all.len() && staged.iter().zip(all).all(|(s, a)| s.0 == a.0);
-    if aligned {
-        return staged.get(hunk).map(|(_, p)| p);
-    }
-    let key = all.get(hunk)?.0;
-    staged.iter().find(|(k, _)| *k == key).map(|(_, p)| p)
 }
 
 /// 两个相对路径按文件视图的自然顺序比（逐级比名字，`2.png` 在 `10.png` 前面）。

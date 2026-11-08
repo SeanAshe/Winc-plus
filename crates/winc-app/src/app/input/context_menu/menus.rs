@@ -277,20 +277,15 @@ pub fn form_base_menu(branches: &[winc_editor::git::Branch]) -> Vec<MenuEntry> {
 /// 在文件管理器中显示，复制路径。
 ///
 /// `exists` 表示文件还在磁盘上，删掉的文件不能打开、不能在文件管理器中显示；`in_workspace`
-/// 表示它在打开的目录里；`staged` 表示它有已暂存的内容，此时才有「取消暂存」。
-pub fn commit_file_menu(exists: bool, in_workspace: bool, staged: bool) -> Vec<MenuEntry> {
+/// 表示它在打开的目录里。
+pub fn commit_file_menu(exists: bool, in_workspace: bool) -> Vec<MenuEntry> {
     use MenuCommand::*;
     use MenuEntry::{Item, Separator};
 
-    let mut entries = vec![
+    vec![
         Item(GitShowDiff, true),
         Item(GitOpenFile, exists),
         Separator,
-    ];
-    if staged {
-        entries.push(Item(GitUnstageFile, true));
-    }
-    entries.extend([
         Item(GitRollbackFile, true),
         Separator,
         Item(RevealInTree, exists && in_workspace),
@@ -298,8 +293,7 @@ pub fn commit_file_menu(exists: bool, in_workspace: bool, staged: bool) -> Vec<M
         Separator,
         Item(CopyPath, true),
         Item(CopyRelativePath, in_workspace),
-    ]);
-    entries
+    ]
 }
 
 /// 返回提交视图里选中了多个文件、右键点在其中一个上时的菜单项：打开（`any_exists`：有还在

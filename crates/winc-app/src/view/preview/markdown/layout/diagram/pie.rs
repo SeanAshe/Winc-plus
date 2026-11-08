@@ -65,12 +65,7 @@ impl Cx<'_, '_> {
             at += sweep;
         }
         seams.push(Stroke::Circle(cx, cy, r));
-        let seam = if look.dark {
-            look.fill
-        } else {
-            Color::hex(0xffffff)
-        };
-        out.push(Item::path(seams, 1.5, seam));
+        out.push(Item::path(seams, 1.5, look.label_bg));
         for (text, mid) in percents {
             let label = self.label(&text, s * 0.85, ink, s * 6.0);
             // 百分比写在半径 68% 处（经验值），靠近外沿、又不会压到接缝。

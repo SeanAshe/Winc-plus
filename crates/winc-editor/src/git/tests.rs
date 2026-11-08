@@ -295,6 +295,21 @@ fn failures_pick_the_line_that_explains() {
         failure(b"\nfatal: not a git repository\n"),
         "not a git repository"
     );
+    // 以冒号结尾的说明后面是 `git` 列出的文件，接在冒号后面，多于三个时其余写成省略号；其后
+    // 不缩进的提示不算。翻译后的说明以全角冒号结尾，同样处理。
+    let untracked = b"error: The following untracked working tree files would be overwritten \
+                      by merge:\n\tnew.txt\n\tsrc/lib.rs\nPlease move or remove them before you merge.\n\
+                      Aborting\n";
+    assert_eq!(
+        failure(untracked),
+        "The following untracked working tree files would be overwritten by merge: new.txt, \
+         src/lib.rs"
+    );
+    let many = "error: 工作区中下列未跟踪的文件将会因为合并操作而被覆盖：\n\ta\n\tb\n\tc\n\td\n";
+    assert_eq!(
+        failure(many.as_bytes()),
+        "工作区中下列未跟踪的文件将会因为合并操作而被覆盖：a, b, c, …"
+    );
     assert_eq!(
         summary(b"Updating a..b\nFast-forward\n file | 1 +\n"),
         "file | 1 +"
@@ -560,6 +575,25 @@ fn runs_the_real_git() {
     sh(&["commit", "-q", "-m", "crlf"]);
     let head = git.head_content(&root, &crlf, &cancel).unwrap().unwrap();
     assert_eq!(head, std::fs::read(&crlf).unwrap());
+    // 工作区文件为 LF（由其他程序写入，不经检出）：`git` 判定文件未修改；`HEAD` 版本按检出方向
+    // 转换为 CRLF，两侧只差换行符写法，逐行比较没有改动。追加一行后，改动只有这一行。
+    let lf = root.join("lf.md");
+    std::fs::write(&lf, "a\nb\nc\n").unwrap();
+    sh(&["add", "lf.md"]);
+    sh(&["commit", "-q", "-m", "lf"]);
+    let clean = git.status(&root, &cancel).unwrap();
+    assert!(
+        !clean.entries.iter().any(|e| e.path == lf),
+        "{:?}",
+        clean.entries
+    );
+    let head = git.head_content(&root, &lf, &cancel).unwrap().unwrap();
+    assert_eq!(head, b"a\r\nb\r\nc\r\n");
+    let head = String::from_utf8(head).unwrap();
+    assert!(winc_core::diff::line_hunks(&head, "a\nb\nc\n").is_empty());
+    let hunks = winc_core::diff::line_hunks(&head, "a\nb\nc\nd\n");
+    assert_eq!(hunks.len(), 1);
+    assert_eq!((hunks[0].old.clone(), hunks[0].new.clone()), (3..3, 3..4));
 
     // 分支：新建、切换、列出。
     git.operate(&root, &["switch", "-c", "feature"]).unwrap();

@@ -458,6 +458,7 @@ impl App {
         }
 
         let last = self.picker_hits.len() - 1;
+        self.picker_default = None;
         self.picker_selected = if self.picker_lists_branches() {
             self.branch_picker_step(down)
         } else if down {

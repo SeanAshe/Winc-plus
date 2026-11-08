@@ -4,7 +4,7 @@ use winc_editor::git::Synced;
 use winc_i18n::t;
 
 use super::*;
-use crate::app::git::branch::Then;
+use crate::app::git::branch::{Then, keep_changes};
 use crate::app::lifecycle::notice::NoticeAction;
 
 /// 分支行右端同步控件的状态。
@@ -80,8 +80,10 @@ impl App {
     /// 在后台同步（[`winc_editor::git::Git::sync`]）；需要强制推送而 `force` 为假时转为询问。
     pub(in crate::app) fn run_git_sync(&mut self, force: bool) {
         self.git_operate_then(t!("git-op-sync").into(), move |git, root| {
-            git.sync(root, force).map(|synced| match synced {
-                Synced::Done(summary) => (summary, Then::Nothing),
+            let (synced, then) =
+                keep_changes(git, root, t!("git-op-sync"), |git| git.sync(root, force))?;
+            Ok(match synced {
+                Synced::Done(summary) => (summary, then),
                 Synced::NeedsForce(count) => (String::new(), Then::ConfirmForcePush(count)),
             })
         });
@@ -202,16 +204,6 @@ impl App {
                 (!skipped.is_empty()).then(|| (e.path.clone(), skipped.clone()))
             })
             .collect();
-        // 只暂存了一部分的文件整个勾着时只提交已暂存的内容（在终端里用 `git add -p` 选好的），
-        // 其余改动留在工作区；在差异里勾掉过几处时按勾选提交（即 `parts`）。合并、拣选、
-        // 还原进行中提交整个暂存区，不分开处理。
-        let staged: Vec<PathBuf> = self
-            .commit
-            .checked_entries(status)
-            .filter(|e| self.commit.staged_only(e))
-            .filter(|_| status.operation.is_none())
-            .map(|e| e.path.clone())
-            .collect();
         // 变基停下来时：勾上的文件标记为已解决，继续变基（git 用原来的提交信息）。
         if rebasing {
             self.git_operate(t!("git-op-continue-rebase").to_owned(), move |git, root| {
@@ -235,13 +227,10 @@ impl App {
         self.commit.busy = true;
         self.run_git_job(move |git, root| {
             let result = git.and_then(|git| {
-                let mut partial = parts
+                let partial = parts
                     .iter()
                     .map(|(path, skipped)| partial_content(git, root, path, skipped))
                     .collect::<Result<Vec<_>, _>>()?;
-                for path in &staged {
-                    partial.push(staged_content(git, root, path)?);
-                }
                 git.commit(root, &message, &paths, &add, &partial, amend)
             });
             let _ = sender.send(Outcome::Committed(result, message, root.to_path_buf()));
@@ -550,16 +539,6 @@ fn partial_content(
     Ok(Partial {
         path: path.to_path_buf(),
         content: content.into_bytes(),
-    })
-}
-
-/// 只暂存了一部分的文件 `path` 要提交成的内容：暂存区里的版本（按检出到工作区的形式）。
-fn staged_content(git: &Git, root: &Path, path: &Path) -> Result<Partial, String> {
-    let cancel = winc_editor::format::Cancel::default();
-    let content = git.content_at(root, "", path, &cancel)?.unwrap_or_default();
-    Ok(Partial {
-        path: path.to_path_buf(),
-        content,
     })
 }
 

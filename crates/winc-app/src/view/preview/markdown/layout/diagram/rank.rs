@@ -31,6 +31,9 @@ pub(super) struct Route {
     pub(super) points: Vec<(f32, f32)>,
     /// 连线文字的中心；没有文字时为 `None`。
     pub(super) label: Option<(f32, f32)>,
+    /// 连线文字所在的最内层子图，决定文字底色；没有文字时取两端共同的最内层子图；不在任何子图
+    /// 中时为 `None`。
+    pub(super) group: Option<usize>,
 }
 
 impl Plan {
@@ -77,6 +80,18 @@ impl Vertex {
     fn border(&self) -> bool {
         matches!(self.kind, Kind::Left(_) | Kind::Right(_))
     }
+}
+
+/// 一条边经过的真节点与虚节点；去除环时反转的边按反转后的方向排列。
+struct Chain {
+    /// 边在 `Flow::edges` 中的下标。
+    edge: usize,
+    /// 从起点到终点依次经过的点在 `vs` 中的下标。
+    points: Vec<usize>,
+    /// 中间一层的虚节点在 `vs` 中的下标，连线有文字时放置文字；没有中间层时为 `None`。
+    label_at: Option<usize>,
+    /// 连线文字所在的最内层子图，同 [`Route::group`]。
+    group: Option<usize>,
 }
 
 /// 子图之间的包含关系。
@@ -291,7 +306,22 @@ pub(super) fn layout(
             }
         }
     }
-    // 3. 跨层的边中间插虚节点；中间的一个装连线上的文字。虚节点算在两头共同的子图里。
+    // 3. 跨层的边插入虚节点，位于中间一层的虚节点放置连线文字。子图跨越其成员所在的各层。
+    let span: Vec<Option<(usize, usize)>> = f
+        .groups
+        .iter()
+        .map(|g| {
+            let ranks = g.members.iter().map(|&m| rank[m]);
+            Some((ranks.clone().min()?, ranks.max()?))
+        })
+        .collect();
+    // 第 `r` 层的虚节点所属的子图：从一端所在的子图逐级向外，取第一个跨越该层的子图；两端各得到
+    // 一个时取内层的一个。连线因此在子图跨越的各层中位于框内，离开这些层后才穿过边框，不需要
+    // 绕到框外。两个结果互不包含时取二者共同的外层子图。
+    let around = |home: Option<usize>, r: usize| {
+        std::iter::successors(home, |&g| tree.parent[g])
+            .find(|&g| span[g].is_some_and(|(top, bottom)| (top..=bottom).contains(&r)))
+    };
     let mut vs: Vec<Vertex> = (0..n)
         .map(|v| {
             let (cross, along) = flip(sizes[v]);
@@ -306,10 +336,10 @@ pub(super) fn layout(
             }
         })
         .collect();
-    let mut chains: Vec<(usize, Vec<usize>, Option<usize>)> = Vec::new();
+    let mut chains: Vec<Chain> = Vec::new();
     for &(k, a, b, _) in &dag {
         let (ra, rb) = (rank[a], rank[b]);
-        let group = tree.common(tree.home[a], tree.home[b]);
+        let mut group = tree.common(tree.home[a], tree.home[b]);
         let mut chain = vec![a];
         let mid = ra + (rb - ra) / 2;
         let mut label_at = None;
@@ -320,6 +350,15 @@ pub(super) fn layout(
             } else {
                 (s * 0.3, 0.0)
             };
+            let (ga, gb) = (around(tree.home[a], r), around(tree.home[b], r));
+            let common = tree.common(ga, gb);
+            let inner = if common == ga {
+                gb
+            } else if common == gb {
+                ga
+            } else {
+                common
+            };
             vs.push(Vertex {
                 cross,
                 along,
@@ -327,10 +366,11 @@ pub(super) fn layout(
                 up: Vec::new(),
                 down: Vec::new(),
                 kind: Kind::Dummy,
-                group,
+                group: inner,
             });
             if r == mid {
                 label_at = Some(vs.len() - 1);
+                group = inner;
             }
             chain.push(vs.len() - 1);
         }
@@ -339,17 +379,14 @@ pub(super) fn layout(
             vs[w[0]].down.push(w[1]);
             vs[w[1]].up.push(w[0]);
         }
-        chains.push((k, chain, label_at));
+        chains.push(Chain {
+            edge: k,
+            points: chain,
+            label_at,
+            group,
+        });
     }
-    // 子图跨过的层，和每层左右的边框点（上下连成一串，定横坐标时互相拉齐）。
-    let span: Vec<Option<(usize, usize)>> = f
-        .groups
-        .iter()
-        .map(|g| {
-            let ranks = g.members.iter().map(|&m| rank[m]);
-            Some((ranks.clone().min()?, ranks.max()?))
-        })
-        .collect();
+    // 子图在每层的左右边框点：同一侧的边框点上下相连，确定横坐标时互相对齐。
     let mut sides: Vec<[Vec<usize>; 2]> = vec![[Vec::new(), Vec::new()]; groups];
     for (g, sp) in span.iter().enumerate() {
         let Some((top, bottom)) = *sp else { continue };
@@ -521,11 +558,21 @@ pub(super) fn layout(
                 lefts.iter().for_each(|&v| x[v] = l);
                 rights.iter().for_each(|&v| x[v] = r);
             }
-            // 拉齐后可能挤到旁边的点：只往右推开，顺序不变。
+            // 对齐后的边框可能与相邻的点重叠。保持顺序，先从右向左把重叠的点向左推开，
+            // 再从左向右向右推开；推开时不移动对侧的边框：框只向外扩大，框外的点留在框外。
+            // 若同时移动对侧边框，各层的边框不再对齐，框外的点可能落入框内。
             for layer in &layers {
+                for k in (1..layer.len()).rev() {
+                    let (a, b) = (layer[k - 1], layer[k]);
+                    if !matches!(vs[a].kind, Kind::Right(_)) {
+                        x[a] = x[a].min(x[b] - gap(&vs[a], &vs[b]));
+                    }
+                }
                 for k in 1..layer.len() {
-                    let at = x[layer[k - 1]] + gap(&vs[layer[k - 1]], &vs[layer[k]]);
-                    x[layer[k]] = x[layer[k]].max(at);
+                    let (a, b) = (layer[k - 1], layer[k]);
+                    if !matches!(vs[b].kind, Kind::Left(_)) {
+                        x[b] = x[b].max(x[a] + gap(&vs[a], &vs[b]));
+                    }
                 }
             }
         }
@@ -627,7 +674,13 @@ pub(super) fn layout(
     }
     let center = |v: usize| (x[v] - min, y[vs[v].rank]);
     let mut routes: Vec<Option<Route>> = f.edges.iter().map(|_| None).collect();
-    for (k, chain, label_at) in chains {
+    for Chain {
+        edge: k,
+        points: chain,
+        label_at,
+        group,
+    } in chains
+    {
         let mut points: Vec<(f32, f32)> = chain.iter().map(|&v| center(v)).collect();
         if reversed[k] {
             points.reverse();
@@ -635,6 +688,7 @@ pub(super) fn layout(
         routes[k] = Some(Route {
             points,
             label: label_at.map(center),
+            group,
         });
     }
     for (k, e) in f.edges.iter().enumerate() {
@@ -642,6 +696,7 @@ pub(super) fn layout(
             routes[k] = Some(Route {
                 points: Vec::new(),
                 label: None,
+                group: None,
             });
         }
     }

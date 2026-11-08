@@ -63,6 +63,8 @@ pub struct Config {
     pub word_wrap: Option<bool>,
     /// 在编辑区右侧显示缩略图，默认为否。
     pub minimap: Option<bool>,
+    /// 在侧栏文件视图的底部显示大纲（当前文件的函数、类型、标题），默认为是。
+    pub outline: Option<bool>,
     /// 何时显示空格和制表符，默认为选中时。
     pub render_whitespace: Option<RenderWhitespace>,
     /// 差异单栏显示：新旧内容上下排列，默认为否（左右并排）。

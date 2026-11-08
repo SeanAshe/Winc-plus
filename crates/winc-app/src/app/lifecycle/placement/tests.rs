@@ -1,4 +1,4 @@
-//! `placement` 的测试：显示器变化以后窗口的大小和位置。
+//! `placement` 的测试：显示器变化以后窗口的大小和位置，以及新窗口的层叠位置。
 
 use super::*;
 
@@ -82,4 +82,24 @@ fn a_window_fits_its_screen_and_keeps_the_minimum_size() {
     // 没有显示器的信息时大小照旧。
     let placed = place(&frame(None, 3000.0, 2000.0, 1.0), &[]);
     assert_eq!((placed.width, placed.height), (3000.0, 2000.0));
+}
+
+#[test]
+fn a_new_window_cascades_from_the_one_that_opened_it() {
+    // 错开 28 逻辑像素，缩放比例为 2 时为 56 物理像素；错开后仍在显示器上，位置保留。
+    let at = cascaded((100.0, 200.0), 2.0);
+    assert_eq!(at, (156.0, 256.0));
+    let placed = place(&frame(Some(at), 1280.0, 820.0, 2.0), &[MAIN, LEFT]);
+    assert_eq!(placed.position, Some(at));
+}
+
+/// 回归 #95：从已最小化的窗口打开新窗口时，Windows 报告的位置为 (-32000, -32000)，错开后的位置
+/// 不在任何显示器上，校验时不予采用，由系统决定。
+#[test]
+fn a_window_cascaded_from_a_minimized_one_is_not_placed_off_screen() {
+    let at = cascaded((-32000.0, -32000.0), 2.0);
+    assert_eq!(at, (-31944.0, -31944.0));
+    let placed = place(&frame(Some(at), 1280.0, 820.0, 2.0), &[MAIN, LEFT]);
+    assert_eq!(placed.position, None);
+    assert_eq!((placed.width, placed.height), (1280.0, 820.0));
 }

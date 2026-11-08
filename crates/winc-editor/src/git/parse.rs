@@ -9,29 +9,59 @@ use super::*;
 /// 从 `git` 的输出里挑出失败的原因，用作给用户的说明。
 ///
 /// 优先取 `error:`、`fatal:`、`! [rejected]`、`CONFLICT` 开头的行，没有这样的行时取第一行
-/// 非空的内容。
+/// 非空的内容。这一行以冒号结尾时，`git` 在其后列出相关的文件（每行一个，以制表符缩进，与
+/// 语言无关）：最多 [`LISTED_FILES`] 个文件名接在冒号后面，其余写成省略号。
 pub(super) fn failure(output: &[u8]) -> String {
     // 不支持 `WSL_UTF8` 的 `wsl.exe` 以 UTF-16 输出，去掉 NUL 后 ASCII 范围的内容仍然可读。
     let text = String::from_utf8_lossy(output).replace('\0', "");
-    let lines: Vec<&str> = text
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty())
-        .collect();
-    let key = lines.iter().find(|l| {
+    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    let explains = |l: &&str| {
+        let l = l.trim();
         l.starts_with("error:")
             || l.starts_with("fatal:")
             || l.starts_with("! [")
             || l.starts_with("CONFLICT")
-    });
-    match key.or(lines.first()) {
-        Some(line) => line
-            .trim_start_matches("fatal: ")
-            .trim_start_matches("error: ")
-            .to_owned(),
-        None => winc_i18n::t!("git-run-failed").to_owned(),
+    };
+    let Some(at) = lines
+        .iter()
+        .position(explains)
+        .or((!lines.is_empty()).then_some(0))
+    else {
+        return winc_i18n::t!("git-run-failed").to_owned();
+    };
+    let line = lines[at]
+        .trim()
+        .trim_start_matches("fatal: ")
+        .trim_start_matches("error: ");
+    if !line.ends_with([':', '：']) {
+        return line.to_owned();
     }
+    let files: Vec<&str> = lines[at + 1..]
+        .iter()
+        .take_while(|l| l.starts_with('\t'))
+        .map(|l| l.trim())
+        .collect();
+    let mut shown = files
+        .iter()
+        .take(LISTED_FILES)
+        .copied()
+        .collect::<Vec<_>>()
+        .join(", ");
+    if files.len() > LISTED_FILES {
+        shown.push_str(", …");
+    }
+    if shown.is_empty() {
+        return line.to_owned();
+    }
+    // 全角冒号后面不空格。
+    let gap = if line.ends_with('：') { "" } else { " " };
+    format!("{line}{gap}{shown}")
 }
+
+/// [`failure`] 的说明中最多列出的文件数（个）。
+///
+/// 取 3：提示条只有一两行，列出几个文件足以认出是哪些文件，完整的列表在 Git 输出中。
+const LISTED_FILES: usize = 3;
 
 /// 返回 `git cat-file <rev>:<路径>` 以 128 退出时是否说明该版本里没有该文件。
 ///

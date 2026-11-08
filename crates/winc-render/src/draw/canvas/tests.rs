@@ -394,10 +394,11 @@ fn reference_coverage(shapes: &[Stroke], width: f32, scale: f32, x: i32, y: i32)
 #[test]
 fn culled_strokes_match_testing_every_shape() {
     use std::f32::consts::{FRAC_PI_2, PI};
-    // 像图标那样拼起来的一组形状：圆角框、超过半圈的圆弧、零长度的点，放在非整数的位置上，
-    // 按 1×、2× 和非整数倍的缩放各画一次，与逐像素求距离的结果逐点比较。
+    // 两组样本：图标式的小形状（圆角框、超过半圈的圆弧、零长度的点），以及 mermaid 图式的大而
+    // 空的形状（矩形的四条边、斜向长线、折线、大小不同的圆环）。坐标均为非整数，按 1×、2× 和
+    // 非整数倍各绘制一次，与逐像素求全部形状距离的结果逐点比较。
     let (x, y) = (3.3, 2.6);
-    let shapes = [
+    let icon = [
         Stroke::Line(x + 1.5, y, x + 10.5, y),
         Stroke::Arc(x + 10.5, y + 1.5, 1.5, -FRAC_PI_2, 0.0),
         Stroke::Line(x + 12.0, y + 1.5, x + 12.0, y + 9.5),
@@ -406,14 +407,28 @@ fn culled_strokes_match_testing_every_shape() {
         Stroke::Circle(x + 3.0, y + 9.0, 1.2),
         Stroke::Line(x + 8.0, y + 9.0, x + 8.0, y + 9.0),
     ];
-    for scale in [1.0, 2.0, 1.5] {
-        let area = stroke_area(&shapes, 1.25, scale).unwrap();
-        let mask = StrokeRaster::new(&shapes, 1.25, scale).unwrap().mask();
+    let diagram = [
+        Stroke::Line(x, y, x + 60.0, y),
+        Stroke::Line(x + 60.0, y, x + 60.0, y + 30.0),
+        Stroke::Line(x + 60.0, y + 30.0, x, y + 30.0),
+        Stroke::Line(x, y + 30.0, x, y),
+        Stroke::Line(x + 5.0, y + 40.0, x + 55.0, y + 33.0),
+        Stroke::Line(x + 10.0, y + 31.0, x + 13.5, y + 52.0),
+        Stroke::Line(x + 13.5, y + 52.0, x + 20.2, y + 55.1),
+        Stroke::Circle(x + 30.0, y + 15.0, 9.5),
+        Stroke::Circle(x + 45.0, y + 45.0, 0.6),
+    ];
+    for (shapes, scale) in [&icon[..], &diagram[..]]
+        .into_iter()
+        .flat_map(|s| [1.0, 2.0, 1.5].map(|k| (s, k)))
+    {
+        let area = stroke_area(shapes, 1.25, scale).unwrap();
+        let mask = StrokeRaster::new(shapes, 1.25, scale).unwrap().mask();
         let w = area.width();
         for yy in area.y0..area.y1 {
             for xx in area.x0..area.x1 {
                 let i = (yy - area.y0) as usize * w + (xx - area.x0) as usize;
-                let want = reference_coverage(&shapes, 1.25, scale, xx, yy);
+                let want = reference_coverage(shapes, 1.25, scale, xx, yy);
                 assert_eq!(u32::from(mask[i]), want, "({xx}, {yy}) ×{scale}");
             }
         }

@@ -2,6 +2,8 @@
 //!
 //! 两边都有对方没有的提交时，上游多出的提交若都是本分支以前的版本（修改上一次提交、变基等
 //! 改写了已推送的提交），确认后以本地为准推送；上游有本地从未有过的提交时，先拉取再推送。
+//!
+//! 拉取时未提交的更改先由 `git` 储藏（`--autostash`），拉取完成后再恢复，见 [`Carried`]。
 
 use super::*;
 
@@ -12,6 +14,17 @@ pub enum Synced {
     Done(String),
     /// 需要强制推送才能同步，尚未推送；内容是上游将被替换的提交数。
     NeedsForce(usize),
+}
+
+/// 拉取前未提交的更改在拉取完成后的去向。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Carried {
+    /// 已恢复到工作区，或者拉取前没有未提交的更改。
+    Restored,
+    /// 已恢复，但部分更改与拉取到的内容冲突，冲突已在工作区中标记；原更改仍保留在储藏中。
+    Conflicted,
+    /// 未能恢复，更改保留在储藏中。
+    Kept,
 }
 
 impl Git {
@@ -54,19 +67,53 @@ impl Git {
 
     /// 从上游拉取，返回 `git` 的结论。
     ///
-    /// 未配置 `pull.rebase` 时 `git` 拒绝拉取分叉的分支，因此显式按合并方式拉取。
+    /// 未配置 `pull.rebase` 时 `git` 拒绝拉取分叉的分支，因此显式按合并方式拉取。未提交的更改
+    /// 由 `git` 先储藏、拉取完成后恢复（`--autostash`）：工作区有改动时拉取不会因此被拒绝；拉取
+    /// 产生冲突时，更改在合并或变基结束（继续或放弃）后恢复。恢复的结果见 [`Git::carried`]。
     ///
     /// # Errors
     ///
-    /// 没有上游、出现冲突时返回 `git` 给出的原因。
+    /// 没有上游、出现冲突、未跟踪的文件会被拉取到的文件覆盖时返回 `git` 给出的原因。
     pub fn pull(&self, root: &Path) -> Result<String, String> {
         let configured = (self.config(root, "pull.rebase", &Cancel::default())).is_some();
         let pull: &[&str] = if configured {
-            &["pull"]
+            &["pull", "--autostash"]
         } else {
-            &["pull", "--no-rebase"]
+            &["pull", "--no-rebase", "--autostash"]
         };
         self.operate(root, pull)
+    }
+
+    /// 从上游拉取并把本地提交变基到上游之上，返回 `git` 的结论；未提交的更改的处理同
+    /// [`Git::pull`]。
+    ///
+    /// # Errors
+    ///
+    /// 没有上游、变基出现冲突时返回 `git` 给出的原因。
+    pub fn pull_rebase(&self, root: &Path) -> Result<String, String> {
+        self.operate(root, &["pull", "--rebase", "--autostash"])
+    }
+
+    /// 返回最新一条储藏的提交号；没有储藏时为 `None`。
+    ///
+    /// 拉取前记下，拉取后交给 [`Git::carried`]，判断未提交的更改是否留在了新的储藏里。
+    pub fn stash_tip(&self, root: &Path) -> Option<String> {
+        self.operate(root, &["rev-parse", "-q", "--verify", "refs/stash"])
+            .ok()
+    }
+
+    /// 返回拉取完成后未提交的更改的去向；`before` 是拉取前的 [`Git::stash_tip`]。
+    ///
+    /// `git` 恢复更改失败时把更改存为一条新的储藏：有未合并的文件时是冲突，否则是未能恢复。
+    pub fn carried(&self, root: &Path, before: Option<&str>) -> Carried {
+        let unmerged = ["diff", "--name-only", "--diff-filter=U"];
+        if self.operate(root, &unmerged).is_ok_and(|f| !f.is_empty()) {
+            return Carried::Conflicted;
+        }
+        if self.stash_tip(root).as_deref() != before {
+            return Carried::Kept;
+        }
+        Carried::Restored
     }
 
     /// 返回 `range` 中的提交数（`git rev-list --count`）。

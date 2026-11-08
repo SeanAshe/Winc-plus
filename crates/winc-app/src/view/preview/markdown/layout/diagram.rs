@@ -1,8 +1,8 @@
-//! mermaid 图的布局和画法（解析在 `winc_preview::markdown::mermaid`）。
+//! mermaid 图的布局与绘制；解析见 `winc_preview::markdown::mermaid`。
 //!
-//! 配色取 mermaid 默认主题的色值，深色主题另用一组暗色。流程图按分层排：去掉环，按最长路径分层，
-//! 跨层的连线中间插虚节点，逐层按邻居的平均位置排顺序减少交叉，再按邻居对齐定横坐标；连线上的文字
-//! 也放在虚节点里。时序图、饼图见子模块。坐标都是逻辑像素。
+//! 配色由预览的背景色和正文颜色按比例混合得出（见 `Look`）。流程图采用分层布局：去除环后按最长
+//! 路径分层，跨层的连线插入虚节点，连线文字占用其中一个虚节点；逐层按邻居的平均位置排序以减少
+//! 交叉，再按邻居对齐确定横坐标。时序图、饼图见子模块。坐标单位均为逻辑像素。
 
 use winc_preview::markdown::mermaid::{self, Diagram, Dir, Edge, Flow, Head, Line, Shape};
 use winc_preview::markdown::{Align, Inline, Run, Style};
@@ -19,63 +19,97 @@ mod sequence;
 
 use rank::layout;
 
+/// 流程图宽于可用宽度时，节点与连线文字的折行宽度相对原宽度的比例。
+///
+/// 先按该比例折行重排，仍然过宽才缩小字号：多折一行对可读性的影响小于整体缩小字号。取自
+/// 调参：0.7 时常见的横向架构图宽度可减少约四分之一，节点高度增加不超过一行。
+const NARROW_WRAP: f32 = 0.7;
+
+/// 连线的线宽（逻辑像素）：不随缩小的字号变细，图缩小后线条仍保持清晰。
+const EDGE_WIDTH: f32 = 1.25;
+/// 粗连线（`==>`）的线宽（逻辑像素），为普通连线的 2 倍。
+const EDGE_THICK: f32 = 2.5;
+
+/// 图中文字的字号与正文字号之比：正文 16 逻辑像素时为 14 逻辑像素。
+const TEXT_RATIO: f32 = 0.875;
+
+/// 解析一张图；无法识别或不支持绘制的图返回 `None`。
+fn supported(source: &str) -> Option<Diagram> {
+    mermaid::parse(source).filter(|d| !matches!(d, Diagram::Unsupported(_)))
+}
+
+/// 节点矩形的圆角半径（逻辑像素）。
+const NODE_RADIUS: f32 = 4.0;
+/// 圆角矩形节点（`(…)`）的圆角半径（逻辑像素）。
+const ROUND_RADIUS: f32 = 10.0;
+/// 子图框的圆角半径（逻辑像素）。
+const GROUP_RADIUS: f32 = 8.0;
+/// 时序图注释框的基准色（琥珀色），与预览背景色混合后得到注释框的填充色和边框色。
+const NOTE_TINT: Color = Color::hex(0xe8b339);
+
 /// 图的配色。
+///
+/// 各颜色由预览的背景色和正文颜色按比例混合得出，不另设色板：深浅主题使用同一组比例，图与
+/// 正文的明暗、色调保持一致；子图标题使用强调色。
 #[derive(Clone, Copy)]
 pub(super) struct Look {
-    /// 节点和连线上的文字颜色。
+    /// 节点上的文字颜色。
     text: Color,
+    /// 连线上的文字颜色：比节点上的文字浅，区分连线说明与节点内容的主次。
+    soft_text: Color,
     /// 节点的填充色。
     fill: Color,
     /// 节点的边框色。
     border: Color,
     /// 连线和箭头的颜色。
     line: Color,
-    /// 连线文字背后的底色（半透明）。
+    /// 子图外的连线文字的底色，即预览的背景色；穿过文字的连线在文字处被底色遮住。
+    ///
+    /// 子图内的连线文字使用子图的填充色 `group_fill`。
     label_bg: Color,
-    /// 子图框的填充色。
+    /// 子图框的填充色；不透明，子图内连线文字的底色与之相同。
     group_fill: Color,
     /// 子图框的边框色。
     group_border: Color,
+    /// 子图标题的颜色。
+    title: Color,
     /// 时序图注释框的填充色。
     note_fill: Color,
     /// 时序图注释框的边框色。
     note_border: Color,
-    /// 是否配深色主题。
-    dark: bool,
 }
 
 impl Look {
-    /// 按深浅主题取一组颜色。
+    /// 由预览的背景色 `page`、正文颜色 `text`、强调色 `accent` 生成一组颜色；`dark` 表示深色主题。
     ///
-    /// 色值取自 mermaid 默认主题，深色主题另用一组暗色（节点、边框、连线各一组）。
-    fn new(dark: bool, text: Color) -> Look {
-        if dark {
-            Look {
-                text,
-                fill: Color::hex(0x1f2020),
-                border: Color::hex(0xcccccc),
-                line: Color::hex(0xd3d3d3),
-                label_bg: Color::hex(0x585858),
-                group_fill: Color::hex(0x474949),
-                group_border: Color::hex(0xffffff).alpha(0.25),
-                note_fill: Color::hex(0x585858),
-                note_border: Color::hex(0xcccccc),
-                dark,
-            }
-        } else {
-            Look {
-                text,
-                fill: Color::hex(0xececff),
-                border: Color::hex(0x9370db),
-                line: Color::hex(0x333333),
-                label_bg: Color::hex(0xe8e8e8),
-                group_fill: Color::hex(0xffffde),
-                group_border: Color::hex(0xaaaa33),
-                note_fill: Color::hex(0xfff5ad),
-                note_border: Color::hex(0xaaaa33),
-                dark,
-            }
+    /// 混合比例取自调参：节点底色略深于背景，边框、连线依次加深；深色主题下同样比例的节点底色
+    /// 与背景几乎无法区分，因此节点底色和子图填充色混入更多正文颜色。
+    fn new(text: Color, page: Color, accent: Color, dark: bool) -> Look {
+        let ink = |t: f32| mix(page, text, t);
+        Look {
+            text,
+            soft_text: ink(0.72),
+            fill: ink(if dark { 0.07 } else { 0.045 }),
+            border: ink(0.2),
+            line: ink(0.48),
+            label_bg: page,
+            group_fill: ink(if dark { 0.03 } else { 0.018 }),
+            group_border: ink(0.14),
+            title: accent,
+            note_fill: mix(page, NOTE_TINT, if dark { 0.16 } else { 0.2 }),
+            note_border: mix(page, NOTE_TINT, 0.55),
         }
+    }
+}
+
+/// 返回 `a` 与 `b` 按 `t`（0–1，0 为 `a`）线性混合的不透明颜色。
+fn mix(a: Color, b: Color, t: f32) -> Color {
+    let at = |x: f32, y: f32| x + (y - x) * t;
+    Color {
+        r: at(a.r, b.r),
+        g: at(a.g, b.g),
+        b: at(a.b, b.b),
+        a: 1.0,
     }
 }
 
@@ -102,42 +136,32 @@ impl Cx<'_, '_> {
         env: Env,
         out: &mut Vec<Item>,
     ) -> Option<Laid> {
-        let diagram = mermaid::parse(source)?;
-        if matches!(diagram, Diagram::Unsupported(_)) {
-            return None;
-        }
-        let look = Look::new(self.dark, env.color);
+        let diagram = supported(source)?;
+        let look = self.look(env);
         let (text_len, chars) = (self.text.len(), self.chars);
-        let full = self.base * 0.875;
-        let mut size = full;
+        let mut size = self.base * TEXT_RATIO;
+        let mut wrap = 1.0;
         let mut items = Vec::new();
-        // 图宽于一行时缩小字号重排，直到放得下，使整张图无需横向滚动即可完整显示。文字折行
-        // 不随字号严格按比例变化，因此需要多次尝试。宽度按实际绘制范围计算：排版后的图左侧
-        // 可能留有空白（子图、连线避让处），因此将图平移至左对齐。
+        // 图宽于可用宽度时，先按 `NARROW_WRAP` 折窄文字重排，仍然过宽再按超出的比例缩小字号
+        // 重排，使整张图无需横向滚动即可完整显示。文字折行不随字号严格按比例变化，一次缩小后
+        // 可能仍然过宽。宽度按实际绘制范围计算：子图、连线避让处可能使图左侧留有空白，放置时
+        // 去掉这段空白。
         let mut bounds = (0.0, 0.0);
         let mut h = 0.0;
-        // 最多缩小字号重排 5 次（经验值）：再缩小也看不清，剩下的宽度直接超出。
-        for _ in 0..5 {
+        // 最多折窄 1 次、缩小字号 5 次：通常 1 至 2 次即可放下；5 次后仍然过宽时不再缩小，超出的
+        // 部分按原样绘制，避免字号缩小到无法辨认。
+        for _ in 0..6 {
             items.clear();
             self.text.truncate(text_len);
             self.chars = chars;
-            let laid = match &diagram {
-                Diagram::Flow(flow) => self.flowchart(flow, size, look, &mut items),
-                Diagram::Sequence(seq) => self.sequence(seq, size, look, &mut items),
-                Diagram::Pie(pie) => self.pie(pie, size, look, &mut items),
-                Diagram::Unsupported(_) => return None,
-            };
-            h = laid.1;
-            bounds = items
-                .iter()
-                .map(Item::span_x)
-                .fold((f32::MAX, f32::MIN), |(a, b), (l, r)| (a.min(l), b.max(r)));
-            if bounds.0 > bounds.1 {
-                bounds = (0.0, laid.0);
-            }
+            (bounds, h) = self.diagram_pass(&diagram, size, wrap, look, &mut items);
             let w = bounds.1 - bounds.0;
             if w <= width {
                 break;
+            }
+            if wrap > NARROW_WRAP && matches!(diagram, Diagram::Flow(_)) {
+                wrap = NARROW_WRAP;
+                continue;
             }
             let next = size * width / w * 0.98;
             if next >= size {
@@ -148,11 +172,76 @@ impl Cx<'_, '_> {
         let w = bounds.1 - bounds.0;
         let dx = x + ((width - w) / 2.0).max(0.0) - bounds.0;
         out.extend(items.iter().map(|item| item.moved(dx, y, 0)));
+        // 记录图所在的一栏：鼠标悬停时，栏的右上角显示全屏按钮和复制源码按钮。
+        out.push(Item::Code {
+            rect: Rect::new(x, y, width.max(w), h),
+            text: source.into(),
+            diagram: true,
+        });
         self.end_paragraph();
         Some(Laid {
             height: h,
             first_baseline: None,
         })
+    }
+
+    /// 为全屏查看排版一张图：字号为正文中图的默认字号的 `zoom` 倍，`narrow` 为真时按
+    /// [`NARROW_WRAP`] 折窄文字，不再缩小字号。
+    ///
+    /// 返回各项（左上角在原点）和宽高（逻辑像素）；无法识别或不支持绘制的图返回 `None`。
+    pub(in crate::view::preview::markdown) fn diagram_alone(
+        &mut self,
+        source: &str,
+        zoom: f32,
+        narrow: bool,
+        env: Env,
+    ) -> Option<(Vec<Item>, f32, f32)> {
+        let diagram = supported(source)?;
+        let look = self.look(env);
+        let mut items = Vec::new();
+        let size = self.base * TEXT_RATIO * zoom;
+        let wrap = if narrow { NARROW_WRAP } else { 1.0 };
+        let ((left, right), h) = self.diagram_pass(&diagram, size, wrap, look, &mut items);
+        let items = items.iter().map(|item| item.moved(-left, 0.0, 0)).collect();
+        Some((items, right - left, h))
+    }
+
+    /// 按字号 `size`、折行比例 `wrap` 排版一次，各项写入 `items`；返回实际绘制的左右边界和
+    /// 高度（逻辑像素）。
+    fn diagram_pass(
+        &mut self,
+        diagram: &Diagram,
+        size: f32,
+        wrap: f32,
+        look: Look,
+        items: &mut Vec<Item>,
+    ) -> ((f32, f32), f32) {
+        let laid = match diagram {
+            Diagram::Flow(flow) => self.flowchart(flow, size, wrap, look, items),
+            Diagram::Sequence(seq) => self.sequence(seq, size, look, items),
+            Diagram::Pie(pie) => self.pie(pie, size, look, items),
+            Diagram::Unsupported(_) => (0.0, 0.0),
+        };
+        let bounds = items
+            .iter()
+            .map(Item::span_x)
+            .fold((f32::MAX, f32::MIN), |(a, b), (l, r)| (a.min(l), b.max(r)));
+        let bounds = if bounds.0 > bounds.1 {
+            (0.0, laid.0)
+        } else {
+            bounds
+        };
+        (bounds, laid.1)
+    }
+
+    /// 由正文颜色 `env.color` 和当前配色生成图的颜色。
+    fn look(&self, env: Env) -> Look {
+        Look::new(
+            env.color,
+            self.palette.editor_bg,
+            self.palette.accent,
+            self.dark,
+        )
     }
 
     /// 单独排一段图里的文字（`\n` 分行），字号 `size`，最宽 `max`，各行居中。
@@ -195,13 +284,21 @@ impl Cx<'_, '_> {
         self.paste(&label.piece, cx - label.w / 2.0, cy - label.h / 2.0, 0, out);
     }
 
-    /// 排流程图，返回宽高。
-    fn flowchart(&mut self, f: &Flow, s: f32, look: Look, out: &mut Vec<Item>) -> (f32, f32) {
+    /// 排版流程图，返回宽高（逻辑像素）；`wrap` 为文字折行宽度相对默认宽度的比例（见
+    /// [`NARROW_WRAP`]）。
+    fn flowchart(
+        &mut self,
+        f: &Flow,
+        s: f32,
+        wrap: f32,
+        look: Look,
+        out: &mut Vec<Item>,
+    ) -> (f32, f32) {
         let vertical = matches!(f.dir, Dir::Down | Dir::Up);
         let labels: Vec<Label> = f
             .nodes
             .iter()
-            .map(|n| self.label(&n.label, s, look.text, s * 14.0))
+            .map(|n| self.label(&n.label, s, look.text, s * 14.0 * wrap))
             .collect();
         let sizes: Vec<(f32, f32)> = f
             .nodes
@@ -212,12 +309,12 @@ impl Cx<'_, '_> {
         let edge_labels: Vec<Label> = f
             .edges
             .iter()
-            .map(|e| self.label(&e.label, s * 0.9, look.text, s * 10.0))
+            .map(|e| self.label(&e.label, s * 0.85, look.soft_text, s * 10.0 * wrap.max(0.8)))
             .collect();
         let titles: Vec<Label> = f
             .groups
             .iter()
-            .map(|g| self.label(&g.title, s * 0.9, look.text, s * 16.0))
+            .map(|g| self.label(&g.title, s * 0.85, look.title, s * 16.0))
             .collect();
         let heights: Vec<f32> = titles.iter().map(|t| t.h).collect();
         let plan = layout(f, &sizes, &edge_labels, &heights, s, f.dir);
@@ -255,9 +352,13 @@ impl Cx<'_, '_> {
             out.push(Item::Fill {
                 rect,
                 color: look.group_fill,
-                radius: 0.0,
+                radius: GROUP_RADIUS,
             });
-            out.push(Item::path(outline(rect, 0.0), 1.0, look.group_border));
+            out.push(Item::path(
+                outline(rect, GROUP_RADIUS),
+                1.0,
+                look.group_border,
+            ));
         }
 
         // 连线。
@@ -273,23 +374,41 @@ impl Cx<'_, '_> {
                 points[0] = clip(f.nodes[edge.from].shape, rect_of(edge.from), points[1]);
                 points[n - 1] = clip(f.nodes[edge.to].shape, rect_of(edge.to), points[n - 2]);
             }
-            let points = smooth(&points);
+            // 布局为连线文字预留了位置，曲线必须经过该点：在该点分成两段分别平滑，
+            // 两段的接缝被文字的底色遮住。
+            let label_at = route.label.map(place);
+            let split = label_at.and_then(|p| {
+                let near = |q: &(f32, f32)| (q.0 - p.0).abs() < 0.01 && (q.1 - p.1).abs() < 0.01;
+                (1..points.len().saturating_sub(1)).find(|&i| near(&points[i]))
+            });
+            let points = match split {
+                Some(i) => {
+                    let mut curve = smooth(&points[..=i]);
+                    curve.extend(smooth(&points[i..]).into_iter().skip(1));
+                    curve
+                }
+                None => smooth(&points),
+            };
             self.edge(edge, &points, s, look, out);
             if !edge.label.is_empty() {
                 let label = &edge_labels[k];
-                let (cx, cy) = match route.label {
-                    Some(p) => place(p),
-                    None => points[points.len() / 2],
+                let (cx, cy) = label_at.unwrap_or(points[points.len() / 2]);
+                // 文字底色不透明，遮住从文字下方穿过的连线；底色左右各比文字宽出一段，
+                // 连线在文字两侧断开。
+                let (px, py) = (s * 0.3, s * 0.1);
+                let bg = if route.group.is_some() {
+                    look.group_fill
+                } else {
+                    look.label_bg
                 };
-                let pad = s * 0.15;
                 out.push(Item::Fill {
                     rect: Rect::new(
-                        cx - label.w / 2.0 - pad,
-                        cy - label.h / 2.0 - pad,
-                        label.w + pad * 2.0,
-                        label.h + pad * 2.0,
+                        cx - label.w / 2.0 - px,
+                        cy - label.h / 2.0 - py,
+                        label.w + px * 2.0,
+                        label.h + py * 2.0,
                     ),
-                    color: look.label_bg.alpha(0.85),
+                    color: bg,
                     radius: 2.0,
                 });
                 self.put_label(label, cx, cy, out);
@@ -301,7 +420,15 @@ impl Cx<'_, '_> {
                 continue;
             };
             if title.w > 0.0 {
-                let (cx, cy) = (rect.x + rect.w / 2.0, rect.y + s * 0.2 + title.h / 2.0);
+                // 标题放在框的左上角：连线多从框边的中部进出，放在角上可避免与箭头重叠；
+                // 框的宽度不足以容纳标题和两侧边距时居中。
+                let inset = s * 0.6;
+                let cx = if title.w + inset * 2.0 <= rect.w {
+                    rect.x + inset + title.w / 2.0
+                } else {
+                    rect.x + rect.w / 2.0
+                };
+                let cy = rect.y + s * 0.2 + title.h / 2.0;
                 out.push(Item::Fill {
                     rect: Rect::new(
                         cx - title.w / 2.0 - s * 0.2,
@@ -344,8 +471,8 @@ impl Cx<'_, '_> {
             return;
         }
         let width = match edge.line {
-            Line::Thick => s * 0.25,
-            _ => s * 0.1,
+            Line::Thick => EDGE_THICK,
+            _ => EDGE_WIDTH,
         };
         let mut points = points.to_vec();
         let len = s * 0.6;
@@ -485,10 +612,10 @@ fn ellipse(cx: f32, cy: f32, rx: f32, ry: f32, from: f32, to: f32, n: usize) -> 
 
 /// 画节点的形状（填色和边框）。
 ///
-/// 边框粗 1.2 逻辑像素。
+/// 边框线宽为 1 逻辑像素。
 fn draw_shape(shape: Shape, r: Rect, look: Look, out: &mut Vec<Item>) {
     let (fill, border) = (look.fill, look.border);
-    let width = 1.2;
+    let width = 1.0;
     let (x0, y0, x1, y1) = (r.x, r.y, r.right(), r.bottom());
     let (cx, cy) = (x0 + r.w / 2.0, y0 + r.h / 2.0);
     let polygon = |points: Vec<(f32, f32)>, out: &mut Vec<Item>| {
@@ -498,9 +625,9 @@ fn draw_shape(shape: Shape, r: Rect, look: Look, out: &mut Vec<Item>) {
     match shape {
         Shape::Rect | Shape::Round | Shape::Subroutine | Shape::Stadium => {
             let radius = match shape {
-                Shape::Round => 5.0,
+                Shape::Round => ROUND_RADIUS.min(r.h / 2.0),
                 Shape::Stadium => r.h / 2.0,
-                _ => 0.0,
+                _ => NODE_RADIUS,
             };
             out.push(Item::Fill {
                 rect: r,
@@ -677,35 +804,61 @@ fn self_loop(r: Rect, s: f32) -> Vec<(f32, f32)> {
     ]
 }
 
-/// 折线的拐角改成圆滑的曲线（拐角两边线段的中点之间用二次贝塞尔曲线连起来）。
+/// 把连线经过的折线点转换为平滑曲线：以各点为控制点的均匀三次 B 样条，首尾两点位于曲线上。
+///
+/// 曲线不经过中间的控制点，经过多个点的长连线因此不会在每个点处急转。每段曲线转换为三次
+/// 贝塞尔曲线后取 8 个点，以折线绘制。
 fn smooth(points: &[(f32, f32)]) -> Vec<(f32, f32)> {
     if points.len() <= 2 {
         return points.to_vec();
     }
-    let mid = |a: (f32, f32), b: (f32, f32)| ((a.0 + b.0) / 2.0, (a.1 + b.1) / 2.0);
-    let mut out = vec![points[0]];
-    for i in 1..points.len() - 1 {
-        let a = if i == 1 {
-            points[0]
-        } else {
-            mid(points[i - 1], points[i])
-        };
-        let b = if i == points.len() - 2 {
-            points[i + 1]
-        } else {
-            mid(points[i], points[i + 1])
-        };
+    type P = (f32, f32);
+    fn cubic(out: &mut Vec<P>, p0: P, c1: P, c2: P, p1: P) {
         for k in 1..=8 {
             let t = k as f32 / 8.0;
             let u = 1.0 - t;
-            let p = points[i];
+            let (a, b, c, d) = (u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t);
             out.push((
-                u * u * a.0 + 2.0 * u * t * p.0 + t * t * b.0,
-                u * u * a.1 + 2.0 * u * t * p.1 + t * t * b.1,
+                a * p0.0 + b * c1.0 + c * c2.0 + d * p1.0,
+                a * p0.1 + b * c1.1 + c * c2.1 + d * p1.1,
             ));
         }
     }
-    // 曲线的最后一点就是下一段的起点，去掉重复的点（线头要靠最后两点定方向）。
+    let mut out = vec![points[0]];
+    let lerp = |a: (f32, f32), b: (f32, f32), wa: f32, wb: f32| {
+        let w = wa + wb;
+        ((a.0 * wa + b.0 * wb) / w, (a.1 * wa + b.1 * wb) / w)
+    };
+    // 以相邻三点 x0、x1、x 确定一段：起点为上一段的终点，控制点位于 x0 与 x1 的三等分处，终点为
+    // (x0 + 4·x1 + x) / 6。第一段之前以直线连到 (5·p0 + p1) / 6，最后一段的终点为最后一点。
+    let first = lerp(points[0], points[1], 5.0, 1.0);
+    out.push(first);
+    let mut at = first;
+    for w in points.windows(3) {
+        let (x0, x1, x) = (w[0], w[1], w[2]);
+        let end = (
+            (x0.0 + 4.0 * x1.0 + x.0) / 6.0,
+            (x0.1 + 4.0 * x1.1 + x.1) / 6.0,
+        );
+        cubic(
+            &mut out,
+            at,
+            lerp(x0, x1, 2.0, 1.0),
+            lerp(x0, x1, 1.0, 2.0),
+            end,
+        );
+        at = end;
+    }
+    let n = points.len();
+    let (x0, x1) = (points[n - 2], points[n - 1]);
+    cubic(
+        &mut out,
+        at,
+        lerp(x0, x1, 2.0, 1.0),
+        lerp(x0, x1, 1.0, 2.0),
+        x1,
+    );
+    // 去除重复的点：箭头的方向由最后两点确定，两点重合时方向无法确定。
     out.dedup_by(|a, b| (a.0 - b.0).abs() < 0.01 && (a.1 - b.1).abs() < 0.01);
     out
 }

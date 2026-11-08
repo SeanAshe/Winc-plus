@@ -44,6 +44,10 @@ git-branch-force-delete-confirm-detail = Commits that exist only on this branch 
 git-branch-force-delete-confirm-button = Delete Anyway
 git-branch-compare-with-current = Compare with Current Branch
 git-stash-group = Stashes
+git-stash-more-files = { $count ->
+    [one] { $count } more file
+   *[other] { $count } more files
+}
 git-stash-more = { $count ->
     [one] 1 more stash…
    *[other] { $count } more stashes…
@@ -80,7 +84,6 @@ git-op-rebase-onto = rebasing onto “{ $name }”
 git-op-delete-branch = deleting branch “{ $name }”
 git-op-new-branch = creating branch “{ $name }”
 git-op-new-tag = creating tag “{ $name }”
-git-op-unstage = unstaging
 git-op-pull-rebase = pulling with rebase
 git-op-rename-branch = renaming branch “{ $name }”
 git-op-init = initializing the repository
@@ -327,6 +330,7 @@ git-diff-head-unreadable = Couldn’t read the last committed version of “{ $n
 git-diff-too-large = “{ $name }” is too large; no diff is shown
 git-diff-binary = “{ $name }” is a binary file; no diff is shown
 git-diff-identical = “{ $name }” is the same as in the last commit; no changes
+git-diff-line-endings-only = “{ $name }” differs from the last commit only in line endings
 git-diff-side-worktree-deleted = Working Tree · Deleted
 git-diff-side-head-missing = HEAD · File Doesn't Exist
 
@@ -413,6 +417,8 @@ git-switch-carry = Migrate Changes
 git-switch-stash = Stash and Check Out
 git-switch-carry-conflict = Checked out “{ $branch }”; some changes conflict and are marked in the working tree. The original changes remain in the stash
 git-switch-carry-unapplied = Checked out “{ $branch }”, but the changes couldn't be applied and remain in the stash: { $error }
+git-carry-conflict = Finished { $what }; some uncommitted changes conflict with the pulled changes and are marked in the working tree. The original changes remain in the stash
+git-carry-kept = Finished { $what }, but the uncommitted changes couldn't be restored and remain in the stash
 git-switch-failed-restored = { $error } (your uncommitted changes were restored)
 git-switch-failed-stashed = { $error } (your uncommitted changes are stashed and can be restored from the stash list)
 git-switch-stash-message = Changes on “{ $branch }” before switching branches
@@ -603,7 +609,6 @@ git-change-none-at-caret = No change on the current line
 
 git-diff-side-worktree = Working Tree
 git-diff-side-worktree-unsaved = Working Tree · Unsaved
-git-diff-staged-only = Staged part only
 git-diff-identical-sides = Both sides are identical
 git-diff-none-at-caret = No change at the cursor
 git-diff-revert-failed = Couldn't roll back the change: { $error }

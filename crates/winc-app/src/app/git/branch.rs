@@ -8,7 +8,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use winc_editor::git::{Branch, BranchDeleted, Git, Operation, Remote, Stash};
+use winc_editor::git::{Branch, BranchDeleted, Carried, Git, Operation, Remote, Stash};
 use winc_i18n::t;
 
 use super::commit::COMMITTED_SHOWN;
@@ -362,9 +362,13 @@ impl App {
             GitFetch => self.git_operate(t!("git-op-fetch").into(), |git, root| {
                 git.operate(root, &["fetch", "--all", "--prune"])
             }),
-            GitPull => self.git_operate(t!("git-op-pull").into(), |git, root| git.pull(root)),
-            GitPullRebase => self.git_operate(t!("git-op-pull-rebase").into(), |git, root| {
-                git.operate(root, &["pull", "--rebase"])
+            GitPull => self.git_operate_then(t!("git-op-pull").into(), |git, root| {
+                keep_changes(git, root, t!("git-op-pull"), |git| git.pull(root))
+            }),
+            GitPullRebase => self.git_operate_then(t!("git-op-pull-rebase").into(), |git, root| {
+                keep_changes(git, root, t!("git-op-pull-rebase"), |git| {
+                    git.pull_rebase(root)
+                })
             }),
             GitAddRemote => self.open_remote_dialog(None),
             GitRemote(op, i) => {
@@ -819,6 +823,25 @@ fn run_switch(
     } else {
         git.operate(root, &["switch", "--end-of-options", local])
     }
+}
+
+/// 执行包含拉取的操作 `pull`（拉取、同步），完成后检查未提交的更改是否已恢复（见
+/// [`Git::carried`]），返回操作的结果和后续动作：未能完整恢复时提示更改所在的位置。`what` 是
+/// 操作的名称。
+pub(super) fn keep_changes<T>(
+    git: &Git,
+    root: &Path,
+    what: &str,
+    pull: impl FnOnce(&Git) -> Result<T, String>,
+) -> Result<(T, Then), String> {
+    let before = git.stash_tip(root);
+    let summary = pull(git)?;
+    let then = match git.carried(root, before.as_deref()) {
+        Carried::Restored => Then::Nothing,
+        Carried::Conflicted => Then::Warn(t!("git-carry-conflict", what = what)),
+        Carried::Kept => Then::Warn(t!("git-carry-kept", what = what)),
+    };
+    Ok((summary, then))
 }
 
 /// 切换失败后恢复储藏，返回写明更改位置的错误。

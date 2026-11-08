@@ -71,6 +71,16 @@ pub(super) fn place(frame: &WindowFrame, screens: &[Screen]) -> Placement {
     }
 }
 
+/// 新窗口相对打开它的窗口往右下错开的距离（逻辑像素）：与 macOS 标题栏的高度接近，层叠的
+/// 各窗口露出标题栏。
+const CASCADE: f64 = 28.0;
+
+/// 返回从外框左上角位于 `at`（物理像素）、缩放比例为 `scale` 的窗口打开的新窗口的外框左上角
+/// 位置（物理像素）：往右下错开 [`CASCADE`]。
+pub(super) fn cascaded((x, y): (f64, f64), scale: f64) -> (f64, f64) {
+    (x + CASCADE * scale, y + CASCADE * scale)
+}
+
 /// 物理像素的坐标换成建窗口用的位置。
 ///
 /// macOS 的坐标按各显示器自己的缩放比例换算，建窗口时不知道窗口会落在哪一台，用记录时的比例

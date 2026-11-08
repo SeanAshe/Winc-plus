@@ -128,6 +128,7 @@ cmd-find-in-folder = Find in Folder…
 cmd-toggle-sidebar = Show or Hide Sidebar
 cmd-focus-sidebar = Focus Sidebar
 cmd-show-files = Show Files
+cmd-show-outline = Show Outline
 cmd-increase-font-size = Increase Font Size
 cmd-decrease-font-size = Decrease Font Size
 cmd-reset-font-size = Reset Font Size

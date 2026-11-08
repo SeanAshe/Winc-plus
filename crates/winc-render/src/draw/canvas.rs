@@ -229,6 +229,59 @@ impl Prepared {
         }
     }
 
+    /// 把第 `y` 行中可能有覆盖率的像素段（物理像素，左含右不含）追加到 `out`；`half` 为半个
+    /// 笔宽（物理像素）。
+    ///
+    /// 只取到中心线的距离不超过半个笔宽加 1 像素的部分，矩形边框的内部、大圆的内部不再逐像素
+    /// 求距离：直线取线段在该行上下这一距离内的部分，圆取圆环与该行相交的一段或两段，圆弧取
+    /// 外接矩形与该行相交的一段。
+    fn row_spans(&self, y: i32, half: f32, scale: f32, out: &mut Vec<(i32, i32)>) {
+        let area = self.area;
+        let reach = half + 1.0;
+        let yc = y as f32 + 0.5;
+        let mut push = |left: f32, right: f32| {
+            let (a, b) = ((left - 0.5).floor() as i32, (right + 0.5).ceil() as i32);
+            let (a, b) = (a.max(area.x0), b.min(area.x1));
+            if a < b {
+                out.push((a, b));
+            }
+        };
+        match self.shape {
+            Stroke::Line(x0, y0, x1, y1) => {
+                let (ax, ay, bx, by) = (x0 * scale, y0 * scale, x1 * scale, y1 * scale);
+                let dy = by - ay;
+                let (lo, hi) = if dy.abs() < 1e-3 {
+                    (0.0, 1.0)
+                } else {
+                    let (t0, t1) = ((yc - reach - ay) / dy, (yc + reach - ay) / dy);
+                    (t0.min(t1).max(0.0), t0.max(t1).min(1.0))
+                };
+                if lo <= hi {
+                    let (xa, xb) = (ax + (bx - ax) * lo, ax + (bx - ax) * hi);
+                    push(xa.min(xb) - reach, xa.max(xb) + reach);
+                }
+            }
+            Stroke::Circle(cx, cy, r) => {
+                let (cx, r) = (cx * scale, r * scale);
+                let dy = (yc - cy * scale).abs();
+                let outer = r + reach;
+                if dy > outer {
+                    return;
+                }
+                let wide = (outer * outer - dy * dy).sqrt();
+                let inner = r - reach;
+                if inner > 0.0 && dy < inner {
+                    let narrow = (inner * inner - dy * dy).sqrt();
+                    push(cx - wide, cx - narrow);
+                    push(cx + narrow, cx + wide);
+                } else {
+                    push(cx - wide, cx + wide);
+                }
+            }
+            Stroke::Arc(..) => out.push((area.x0, area.x1)),
+        }
+    }
+
     /// 返回点 `(px, py)` 到该形状中心线的距离（逻辑像素）。
     fn distance(&self, px: f32, py: f32) -> f32 {
         match self.shape {
@@ -264,13 +317,15 @@ impl Prepared {
 
 /// 一组描边形状的逐行覆盖率：[`Canvas::stroke`] 按它直接混合，描边缓存用它生成蒙版。
 ///
-/// 图标由十几到三十几个形状拼成，每个只占图标的一小块。每行先挑出范围跨过这一行的形状，每个像素
-/// 只算范围覆盖该像素的形状，不必对每个像素都求所有形状的距离。每个像素只取最近一个形状的距离，
-/// 被挑掉的形状离得更远，结果与逐个都算相同。
+/// 每行先选出范围跨越该行的形状，只计算它们在该行上可能有覆盖率的像素段（见
+/// `Prepared::row_spans`）；每个像素只对范围覆盖该像素的形状求距离。覆盖率只取决于最近的
+/// 形状，未选中的形状距离更远，因此结果与对每个像素求全部形状的距离相同。
 pub(crate) struct StrokeRaster {
     shapes: Vec<Prepared>,
     /// 当前行用到的形状在 `shapes` 中的下标，复用以免每行分配。
     active: Vec<usize>,
+    /// 当前行需要计算的像素段（物理像素，左含右不含），跨行复用以避免每行分配内存。
+    spans: Vec<(i32, i32)>,
     /// 半个笔宽（物理像素）。
     half: f32,
     /// 屏幕缩放系数。
@@ -291,6 +346,7 @@ impl StrokeRaster {
                 .map(|&s| Prepared::new(s, half, scale))
                 .collect(),
             active: Vec::with_capacity(shapes.len()),
+            spans: Vec::new(),
             half,
             scale,
             area,
@@ -301,31 +357,57 @@ impl StrokeRaster {
     ///
     /// 对覆盖率大于 0 的像素调用 `put(x, 覆盖率)`。
     fn row(&mut self, y: i32, (x0, x1): (i32, i32), mut put: impl FnMut(i32, u32)) {
-        let shapes = &self.shapes;
-        self.active.clear();
-        self.active.extend((0..shapes.len()).filter(|&i| {
+        let StrokeRaster {
+            shapes,
+            active,
+            spans,
+            half,
+            scale,
+            ..
+        } = self;
+        let (half, scale) = (*half, *scale);
+        active.clear();
+        active.extend((0..shapes.len()).filter(|&i| {
             let a = shapes[i].area;
             a.y0 <= y && y < a.y1 && a.x0 < x1 && x0 < a.x1
         }));
-        // 本行用到的形状合起来的横向范围，范围外的像素不用看。
-        let (lo, hi) = self.active.iter().fold((x1, x0), |(lo, hi), &i| {
-            (lo.min(shapes[i].area.x0), hi.max(shapes[i].area.x1))
+        // 各形状的像素段裁剪到 `x0..x1`，排序后合并重叠或相接的段：段外的像素不计算，段内每个像素
+        // 只计算一次。
+        spans.clear();
+        for &i in active.iter() {
+            shapes[i].row_spans(y, half, scale, spans);
+        }
+        spans.retain_mut(|s| {
+            *s = (s.0.max(x0), s.1.min(x1));
+            s.0 < s.1
         });
-        let py = (y as f32 + 0.5) / self.scale;
+        spans.sort_unstable();
+        let mut merged = 0;
+        for k in 0..spans.len() {
+            if merged > 0 && spans[k].0 <= spans[merged - 1].1 {
+                spans[merged - 1].1 = spans[merged - 1].1.max(spans[k].1);
+            } else {
+                spans[merged] = spans[k];
+                merged += 1;
+            }
+        }
+        spans.truncate(merged);
+        let py = (y as f32 + 0.5) / scale;
 
-        for x in lo.max(x0)..hi.min(x1) {
-            let px = (x as f32 + 0.5) / self.scale;
-            let d = self
-                .active
-                .iter()
-                .map(|&i| &shapes[i])
-                .filter(|s| s.area.x0 <= x && x < s.area.x1)
-                .map(|s| s.distance(px, py))
-                .fold(f32::MAX, f32::min);
-            let cov = ((self.half + 0.5 - d * self.scale).clamp(0.0, 1.0) * 255.0) as u32;
+        for &(lo, hi) in spans.iter() {
+            for x in lo..hi {
+                let px = (x as f32 + 0.5) / scale;
+                let d = active
+                    .iter()
+                    .map(|&i| &shapes[i])
+                    .filter(|s| s.area.x0 <= x && x < s.area.x1)
+                    .map(|s| s.distance(px, py))
+                    .fold(f32::MAX, f32::min);
+                let cov = ((half + 0.5 - d * scale).clamp(0.0, 1.0) * 255.0) as u32;
 
-            if cov > 0 {
-                put(x, cov);
+                if cov > 0 {
+                    put(x, cov);
+                }
             }
         }
     }

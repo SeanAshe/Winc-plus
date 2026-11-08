@@ -91,6 +91,9 @@ struct Tab {
     process_recheck: bool,
     /// 收到 [`ToHelper::Stop`] 以后：挂断时的前台作业，以及到期仍未退出时强制结束的时刻。
     stopping: Option<(Option<pty::Pid>, Instant)>,
+    /// 启动时写入过 `banner`（运行配置的标签）：程序退出时写入命令结束标记，见
+    /// [`ToHelper::Spawn`] 的 `banner`。
+    banner: bool,
 }
 
 /// 已经关掉、等进程组退出的终端。
@@ -568,6 +571,7 @@ impl Helper {
                         process_due: false,
                         process_recheck: false,
                         stopping: None,
+                        banner: !banner.is_empty(),
                     },
                 );
                 self.spawned = true;
@@ -590,6 +594,9 @@ impl Helper {
             if let Some(code) = pty.try_wait() {
                 // 先把剩下的输出读完再报退出。
                 read_output(tab, buf);
+                if tab.banner {
+                    tab.term.feed(format!("\x1b]133;D;{code}\x07").as_bytes());
+                }
                 // shell 退出后，留在后台、还占着这个终端的进程一起挂断。
                 if let Some(pty) = tab.pty.take() {
                     pty.hang_up_group();

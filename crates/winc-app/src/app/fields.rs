@@ -43,6 +43,7 @@ impl App {
             | Focus::Results
             | Focus::Settings
             | Focus::CommitList
+            | Focus::Outline
             | Focus::Terminal => None,
         }
     }

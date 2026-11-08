@@ -6,7 +6,7 @@ use winc_i18n::t;
 use winc_render::{Frame, Rect};
 
 use super::*;
-use crate::app::{Focus, ResultRow, SyncState};
+use crate::app::{Focus, OutlineTarget, ResultRow, SyncState};
 use crate::layout::{
     PANEL_CHEVRON, PANEL_LEFT, PANEL_TEXT, PanelButton, PanelParts, PanelTool, RowAction,
     SearchButton, SidebarView, row_actions,
@@ -932,15 +932,6 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
             };
             Some((rect, label.to_owned()))
         }
-        // 只暂存了一部分的文件：勾选框是「−」，说明只提交已暂存的内容。其他文件的勾选框没有提示。
-        Hover::Commit(target @ CommitTarget::Check(i)) => {
-            let entry = app.git.status.as_ref()?.entries.get(i)?;
-            if !app.commit.staged_only(entry) {
-                return None;
-            }
-            let rect = app.commit_hits.iter().find(|(_, t)| *t == target)?.0;
-            Some((rect, t!("workspace-tip-commit-staged-only").to_owned()))
-        }
         // 同步控件上没有文字，要做的事写在这里。
         Hover::Commit(target @ CommitTarget::Sync) => {
             let rect = app.commit_hits.iter().find(|(_, t)| *t == target)?.0;
@@ -967,6 +958,15 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
                 (None, SyncState::NoRemote | SyncState::Hidden) => t!("git-tip-fetch").to_owned(),
             };
             Some((rect, label))
+        }
+        Hover::Outline(target @ OutlineTarget::FoldAll) => {
+            let rect = app.outline.hits.iter().find(|(_, t)| *t == target)?.0;
+            let label = if app.outline_any_expanded() {
+                t!("workspace-outline-tool-collapse-all")
+            } else {
+                t!("workspace-outline-tool-expand-all")
+            };
+            Some((rect, label.to_owned()))
         }
         // 选择器开着时每一行都写着，不再提示。
         Hover::Commit(target @ CommitTarget::Location) if !app.picker_lists_locations() => {

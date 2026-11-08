@@ -8,7 +8,6 @@
 use std::path::Path;
 
 mod xlsx;
-mod zip;
 
 /// 每张工作表最多读的行数（行，经验值）。
 ///
@@ -21,7 +20,7 @@ pub const MAX_COLUMNS: usize = 1_000;
 /// 能读的 xlsx 文件的大小上限（字节，256 MiB，经验值）。
 ///
 /// 再大的工作簿解压后占用内存过多。
-const MAX_FILE: u64 = 256 * 1024 * 1024;
+pub(crate) const MAX_FILE: u64 = 256 * 1024 * 1024;
 
 /// 单元格区域，用于合并的单元格和选中的单元格。
 ///

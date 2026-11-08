@@ -184,9 +184,14 @@ impl Item {
                 cols: Arc::clone(cols),
                 rows: Arc::clone(rows),
             },
-            Item::Code { rect: r, text } => Item::Code {
+            Item::Code {
+                rect: r,
+                text,
+                diagram,
+            } => Item::Code {
                 rect: rect(r),
                 text: Arc::clone(text),
+                diagram: *diagram,
             },
             Item::Path {
                 rect: r,

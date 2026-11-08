@@ -231,7 +231,7 @@ impl Cx<'_, '_> {
                             color: look.line,
                             radius: r,
                         });
-                        let ink = Color::hex(if look.dark { 0x1f2020 } else { 0xffffff });
+                        let ink = look.label_bg;
                         let label = self.label(&number.to_string(), s * 0.7, ink, s * 4.0);
                         self.put_label(&label, cx, cy, &mut front);
                     }
@@ -444,7 +444,7 @@ fn activation(
     );
     out.push(Item::Fill {
         rect,
-        color: Color::hex(if look.dark { 0x585858 } else { 0xf4f4f4 }),
+        color: look.fill,
         radius: 0.0,
     });
     out.push(Item::path(outline(rect, 0.0), 1.0, look.border));

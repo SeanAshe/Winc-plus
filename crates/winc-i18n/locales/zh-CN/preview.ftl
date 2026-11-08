@@ -73,7 +73,7 @@ preview-table-delete = 删除表格
 ## 表格预览
 preview-table-invalid = 不是有效的 xlsx 文件
 preview-table-unsupported = 不支持加密或 zip64 格式的 xlsx 文件
-preview-table-damaged = 文件已损坏（{ $part }）
+preview-office-damaged = 文件已损坏（{ $part }）
 preview-table-too-large = 文件过大
 preview-table-no-sheets = 工作簿中没有可显示的工作表
 preview-table-empty = 此工作表为空
@@ -84,3 +84,15 @@ preview-table-sheet = 工作表 { $number }
 preview-browser-open = 在浏览器中打开
 preview-browser-unsaved = 已在浏览器中打开；有未保存的修改，浏览器中显示的是上次保存的内容
 preview-browser-failed = 无法打开浏览器：{ $error }
+
+## Word 文档预览
+
+preview-docx-invalid = 不是有效的 docx 文件
+preview-docx-unsupported = 不支持加密或 zip64 格式的 docx 文件
+preview-docx-too-large = 文件过大
+preview-docx-comment = 批注（{ $author }）：
+preview-docx-chart = 图表
+preview-docx-chart-titled = 图表：{ $title }
+preview-docx-chart-series = { $count } 组数据：{ $names }
+preview-docx-chart-category = 类别
+preview-docx-image-unsupported = 图片「{ $name }」为 { $format } 格式，无法预览

@@ -326,13 +326,10 @@ impl GitState {
 }
 
 /// 在后台准备一个文件的差异：取 `HEAD` 里的版本，和编辑器里的快照（没打开时读磁盘）比较。
-///
-/// `staged` 为真（只暂存了一部分的文件）时另外读取暂存区里的版本，算出各段改动中已暂存的部分
-/// （`DiffView::staged`）；读取失败时差异仍然正常显示，只是没有这部分信息。
 fn prepare(
     git: &Git,
     root: &Path,
-    (path, staged): (&Path, bool),
+    path: &Path,
     snapshot: Option<Snapshot>,
     oid: Option<&str>,
 ) -> Result<DiffView, String> {
@@ -403,12 +400,6 @@ fn prepare(
     );
     view.source = revision;
     view.repo_path = Some(path.to_path_buf());
-    if let (true, Some(old), Some(new), Some(encoding)) = (staged, &old, &new, encoding)
-        && let Ok(Some(bytes)) = git.content_at(root, "", path, &Cancel::default())
-    {
-        let index = decode_known(&bytes, encoding);
-        view.staged = Some(winc_core::diff::staged_picks(old, new, &index));
-    }
     Ok(view)
 }
 
@@ -1047,17 +1038,8 @@ impl App {
         true
     }
 
-    /// 文件 `path` 是否只暂存了一部分（见 `Entry::partly_staged`）。
-    fn git_partly_staged(&self, path: &Path) -> bool {
-        (self.git.status.as_ref())
-            .and_then(|s| s.entries.iter().find(|e| e.path == path))
-            .is_some_and(|e| e.partly_staged())
-    }
-
     /// 状态刷新以后，重新比较打开着的 Git 差异标签里过时了的，原地换内容：`HEAD` 动了（提交、
-    /// 切换分支）的左边要重新取；右边是磁盘上的内容（文件没在编辑器里打开）的，文件可能变了；
-    /// 只暂存了一部分的文件，暂存区可能已经改变（例如在终端中执行了 `git add -p`），需要重新
-    /// 计算各段的勾选。
+    /// 切换分支）的左边要重新取；右边是磁盘上的内容（文件没在编辑器里打开）的，文件可能变了。
     ///
     /// 其余的右边跟着编辑器里的文档（[`App::sync_diff_source`]），不必再运行一次 git。
     fn refresh_git_diffs(&mut self) {
@@ -1082,11 +1064,7 @@ impl App {
             .git
             .diff_tabs
             .iter()
-            .filter(|(id, tab)| {
-                tab.oid.as_deref() != oid
-                    || !follows_editor(**id)
-                    || self.git_partly_staged(&tab.path)
-            })
+            .filter(|(id, tab)| tab.oid.as_deref() != oid || !follows_editor(**id))
             .map(|(id, tab)| (*id, tab.path.clone()))
             .collect();
         for (id, path) in stale {
@@ -1156,11 +1134,10 @@ impl App {
         });
 
         let oid = self.git.status.as_ref().and_then(|s| s.oid.clone());
-        let staged = self.git_partly_staged(&path);
         let sender = self.git.prepared.0.clone();
         self.spawn_git(UserEvent::GitContent, move |tool| {
             let view = match &tool {
-                Ok(git) => prepare(git, &root, (&path, staged), snapshot, oid.as_deref()),
+                Ok(git) => prepare(git, &root, &path, snapshot, oid.as_deref()),
                 Err(e) => Err(unusable(e)),
             };
             let _ = sender.send(Prepared {
@@ -1219,7 +1196,14 @@ impl App {
                 }
                 _ if view.is_identical() => {
                     self.diff_land = None;
-                    self.flash(t!("git-diff-identical", name = name.as_str()));
+                    // 逐行比较不计换行符的写法，没有改动时两侧的内容仍可能只差换行符。这类差别
+                    // 是否算作修改由 `git` 按 `core.autocrlf` 和文件属性判定，提示只说明差别所在。
+                    let text = if view.old.text == view.new.text {
+                        t!("git-diff-identical", name = name.as_str())
+                    } else {
+                        t!("git-diff-line-endings-only", name = name.as_str())
+                    };
+                    self.flash(text);
                     continue;
                 }
                 Target::Preview(_) => {
