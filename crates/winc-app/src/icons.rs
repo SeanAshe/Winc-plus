@@ -404,6 +404,44 @@ pub fn upload(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: R
     frame.stroke(&shapes, RING_STROKE, color, clip);
 }
 
+/// 绘制「下载」图标，约 10×11，和「发布」图标上下对称：向下的箭头，下面是托盘。
+pub fn download(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let (top, bottom) = (cy - RING, cy + RING);
+    let tip = cy + 2.5;
+    let arm = 3.0;
+    let shapes = [
+        Stroke::Line(cx, top, cx, tip),
+        Stroke::Line(cx, tip, cx - arm, tip - arm),
+        Stroke::Line(cx, tip, cx + arm, tip - arm),
+        Stroke::Line(cx - 5.0, bottom, cx + 5.0, bottom),
+    ];
+    frame.stroke(&shapes, RING_STROKE, color, clip);
+}
+
+/// 绘制进度环，直径 11，和「刷新」图标的圆一样大：淡色 `track` 的整圆上，从 12 点钟起顺时针
+/// 画出 `fraction`（0 到 1）那么长的一段 `color`。
+pub fn progress_ring(
+    frame: &mut Frame<'_>,
+    (cx, cy): (f32, f32),
+    fraction: f32,
+    color: Color,
+    track: Color,
+    clip: Rect,
+) {
+    frame.stroke(
+        &[Stroke::Arc(cx, cy, RING, -PI, PI)],
+        RING_STROKE,
+        track,
+        clip,
+    );
+    let fraction = fraction.clamp(0.0, 1.0);
+    if fraction > 0.0 {
+        let start = -FRAC_PI_2;
+        let arc = Stroke::Arc(cx, cy, RING, start, start + fraction * 2.0 * PI);
+        frame.stroke(&[arc], RING_STROKE, color, clip);
+    }
+}
+
 /// 绘制按 `turn`（圈数，可为任意实数）顺时针旋转后的「刷新」图标，表示操作正在进行。
 pub fn refresh_turned(
     frame: &mut Frame<'_>,

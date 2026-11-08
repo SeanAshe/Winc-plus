@@ -209,9 +209,9 @@ workspace-tip-log-target-not-loaded = 目标提交尚未加载
 ## 状态栏
 
 workspace-status-spaces = 空格: { $size }
-workspace-status-update = 有可用更新：{ $version }
-workspace-status-update-downloading = 正在下载更新…
-workspace-status-update-ready = 重新启动以完成更新
+workspace-status-update = 更新
+workspace-status-update-restart = 重新启动
+workspace-status-update-retry = 重试
 workspace-status-not-shown = 未显示：{ $features }
 workspace-status-position-selected = { $position }（{ $count } 个字符）
 workspace-status-selections = { $count } 个选区
@@ -290,5 +290,5 @@ workspace-font-unusable = 无法使用此字体，请选择其他字体
 workspace-stdin-title = 标准输入
 workspace-stdin-read-failed = 读取标准输入时出错：{ $error }
 workspace-stdin-truncated = 只读取了标准输入的前 { $size } MB
-workspace-backup-locked = 此目录已在另一个 winc 窗口中打开，本窗口未保存的修改将不会自动备份
+workspace-backup-locked = 此目录已在另一个 Winc 窗口中打开，本窗口未保存的修改将不会自动备份
 workspace-backup-failed = 无法备份未保存的修改：{ $error }

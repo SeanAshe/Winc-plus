@@ -47,13 +47,13 @@ fn a_verified_installer_is_kept_for_exit() {
     };
 
     let other = SigningKey::from_bytes(&[9; 32]).verifying_key();
-    assert!(prepare_in(&dir, &item, &other, Kind::Nsis).is_err());
+    assert!(prepare_in(&dir, &item, &other, Kind::Nsis, &|_| {}).is_err());
     assert!(!dir.exists());
 
-    let setup = prepare_in(&dir, &item, &key.verifying_key(), Kind::Nsis).unwrap();
+    let setup = prepare_in(&dir, &item, &key.verifying_key(), Kind::Nsis, &|_| {}).unwrap();
     assert_eq!(std::fs::read(&setup).unwrap(), bytes);
     assert_eq!(setup.extension().unwrap(), "exe");
-    let setup = prepare_in(&dir, &item, &key.verifying_key(), Kind::Msi).unwrap();
+    let setup = prepare_in(&dir, &item, &key.verifying_key(), Kind::Msi, &|_| {}).unwrap();
     assert_eq!(setup.extension().unwrap(), "msi");
     assert_eq!(std::fs::read(&setup).unwrap(), bytes);
     let _ = std::fs::remove_dir_all(&root);

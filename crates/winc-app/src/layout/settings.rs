@@ -655,7 +655,8 @@ const COMMUNITY_URL: &str = "https://t.me/deeix_chat";
 /// 链接文字与其后外链箭头之间的距离，加上箭头的宽度（逻辑像素）。
 pub const LINK_ICON_W: f32 = 6.0 + 9.0;
 
-/// 产品名称，与 README 的标题一致，显示在「关于」页顶部。
+/// 产品名称，与 README 的标题和 macOS 应用包的显示名一致：显示在「关于」页顶部、开始页，
+/// 以及没有打开目录时的窗口标题中。命令行命令仍是小写的 `winc`。
 pub const PRODUCT_NAME: &str = "Winc";
 
 /// 「关于」页顶部产品信息的各部分：图标、名称所在的行、版本号所在的行，水平居中。

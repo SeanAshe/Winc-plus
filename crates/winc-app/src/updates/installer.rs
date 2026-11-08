@@ -65,21 +65,33 @@ pub fn locate() -> Option<PathBuf> {
         .filter(|exe| kind_at(exe).is_some())
 }
 
-/// 下载并核对安装包；失败时删除整个临时目录。
+/// 下载并核对安装包，下载期间把已下载的百分比交给 `progress`；失败时删除整个临时目录。
 ///
 /// # Errors
 /// 安装类型不明、下载或签名核对失败时返回原因。
-pub fn prepare(item: &Item, exe: &Path, key: &VerifyingKey) -> Result<PathBuf, String> {
+pub fn prepare(
+    item: &Item,
+    exe: &Path,
+    key: &VerifyingKey,
+    progress: &dyn Fn(u8),
+) -> Result<PathBuf, String> {
     let kind = kind_at(exe).ok_or("无法识别安装类型")?;
-    prepare_in(&std::env::temp_dir().join("winc-update"), item, key, kind)
+    let dir = std::env::temp_dir().join("winc-update");
+    prepare_in(&dir, item, key, kind, progress)
 }
 
 /// [`prepare`]，显式指定输出目录和安装类型，供隔离测试使用。
-fn prepare_in(dir: &Path, item: &Item, key: &VerifyingKey, kind: Kind) -> Result<PathBuf, String> {
+fn prepare_in(
+    dir: &Path,
+    item: &Item,
+    key: &VerifyingKey,
+    kind: Kind,
+    progress: &dyn Fn(u8),
+) -> Result<PathBuf, String> {
     let _ = std::fs::remove_dir_all(dir);
     std::fs::create_dir_all(dir).map_err(|e| format!("无法写入「{}」：{e}", dir.display()))?;
     let setup = dir.join(format!("winc-setup.{}", kind.extension()));
-    let result = download(&item.url, &setup).and_then(|()| {
+    let result = download(&item.url, &setup, item.length, progress).and_then(|()| {
         let bytes = std::fs::read(&setup).map_err(|e| e.to_string())?;
         verify(item, &bytes, key)
     });

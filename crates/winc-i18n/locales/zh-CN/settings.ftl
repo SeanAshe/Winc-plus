@@ -61,7 +61,7 @@ settings-terminal-font = 字体
 settings-terminal-size = 字号
 settings-terminal-copy-on-select = 选中时复制
 settings-terminal-confirm-close = 关闭前确认
-settings-terminal-prompt = winc 提示符
+settings-terminal-prompt = Winc 提示符
 settings-terminal-shell-integration = Shell 集成
 settings-terminal-option-as-meta = Meta 键
 settings-key-search = 搜索快捷键
@@ -95,13 +95,13 @@ settings-check-now = 检查更新
 settings-updates-off = 此版本不支持应用内更新
 settings-updates-idle = 尚未检查更新
 settings-updates-checking = 正在检查更新…
-settings-updates-latest = winc 已是最新版本
+settings-updates-latest = Winc 已是最新版本
 settings-updates-found = 有可用的新版本：{ $version }
 settings-updates-failed = 无法检查更新，请稍后重试
-settings-updates-downloading = 正在下载 { $version }…
+settings-updates-downloading = 正在下载 { $version }：{ $percent }%
 settings-updates-ready = { $platform ->
-    [windows] { $version } 已下载，重新启动或退出 winc 时安装
-   *[other] { $version } 已安装，重新启动 winc 后生效
+    [windows] { $version } 已下载，重新启动或退出 Winc 时安装
+   *[other] { $version } 已安装，重新启动 Winc 后生效
 }
 settings-updates-install-failed = 无法安装更新：{ $error }
 settings-format-on-save-desc = 保存文件前使用下方的工具进行格式化

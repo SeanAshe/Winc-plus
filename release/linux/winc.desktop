@@ -1,5 +1,5 @@
 [Desktop Entry]
-Name=winc
+Name=Winc
 Comment=A lighter, faster desktop code editor
 Exec=winc %F
 Icon=winc

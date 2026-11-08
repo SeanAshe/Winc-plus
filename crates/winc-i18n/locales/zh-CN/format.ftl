@@ -141,12 +141,12 @@ format-file-too-large = 文件过大
 
 format-install-title = 安装格式化工具
 format-install-not-found-one = 未找到「{ $tool }」。
-format-install-not-found-many = 未找到格式化工具。安装以下任一工具即可，winc 将使用第一个已安装的工具：{ $tools }。
+format-install-not-found-many = 未找到格式化工具。安装以下任一工具即可，Winc 将使用第一个已安装的工具：{ $tools }。
 format-install-quoted = 「{ $name }」
 format-install-list-separator = 、
 format-install-intro =
-    winc 不内置格式化、修复工具，而是使用系统或项目中已安装的工具。
-    安装完成后重试即可，无需重启 winc。
+    Winc 不内置格式化、修复工具，而是使用系统或项目中已安装的工具。
+    安装完成后重试即可，无需重启 Winc。
 format-install-run-any = 在终端中运行以下任一命令（需先安装对应的包管理器）：
 format-install-run-here = 在终端中运行（本机可用）：
 format-install-other = 其他方式：

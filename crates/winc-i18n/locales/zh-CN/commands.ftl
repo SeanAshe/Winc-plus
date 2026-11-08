@@ -217,7 +217,7 @@ cmd-cli-usage =
       winc 文件:行[:列]     打开文件并跳到那一行
       winc -                读取标准输入（例如 cargo build 2>&1 | winc -）
       -w, --wait            等文件的标签都关闭后再退出（例如 git config core.editor "winc -w"）
-      -n, --new-instance    不交给正在运行的 winc，另开一个进程（例如在 winc 的终端里运行开发中的版本）
+      -n, --new-instance    不交给正在运行的 Winc，另开一个进程（例如在 Winc 的终端里运行开发中的版本）
       --register-file-types 登记文件类型和图标后退出（安装程序使用）
       --unregister-file-types 去掉这些文件类型后退出（卸载程序使用）
       -h, --help            显示这些说明

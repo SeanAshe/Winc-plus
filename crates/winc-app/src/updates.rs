@@ -7,7 +7,7 @@
 
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError, mpsc};
 use std::time::Duration;
@@ -33,6 +33,10 @@ const CHECK_INTERVAL: Duration = Duration::from_secs(86_400);
 ///
 /// 超过该时长仍未返回时，该通道按没有回应处理。
 const FEED_TIMEOUT: u64 = 15;
+/// 下载时读取已下载大小的间隔。
+///
+/// 取 200 毫秒：进度每秒更新五次，看起来是连续的，读取文件大小的开销可以忽略。
+const PROGRESS_POLL: Duration = Duration::from_millis(200);
 /// 下载更新包的等待上限（秒）。
 ///
 /// 超过该时长仍未返回时按下载失败处理；该时长按慢速网络下传输完整个安装包留出余量。
@@ -185,9 +189,16 @@ pub fn install() {
     if !begin() {
         return;
     }
-    report(UpdateState::Downloading(item.version.clone()));
+    report(UpdateState::Downloading(item.version.clone(), 0));
     std::thread::spawn(move || {
-        let result = platform::prepare(&item, &updater.target, &updater.key);
+        // 百分比变了才通知应用，每次通知都会重画各个窗口。
+        let shown = std::cell::Cell::new(0);
+        let progress = |percent: u8| {
+            if percent != shown.replace(percent) {
+                report(UpdateState::Downloading(item.version.clone(), percent));
+            }
+        };
+        let result = platform::prepare(&item, &updater.target, &updater.key, &progress);
         work(|w| {
             w.busy = false;
             if let Ok(program) = &result {
@@ -380,10 +391,13 @@ fn fetch(url: &str) -> Option<Vec<u8>> {
 
 /// 把 `url` 下载到 `path`：优先使用 `curl`，未安装时使用 `wget`。
 ///
+/// 下载期间每隔 [`PROGRESS_POLL`] 按 `path` 的大小与预期的 `length`（字节）算出已下载的百分比，
+/// 交给 `progress`。
+///
 /// # Errors
 ///
 /// 命令无法运行时返回错误信息；下载失败时返回命令的错误输出或退出状态。
-fn download(url: &str, path: &Path) -> Result<(), String> {
+fn download(url: &str, path: &Path, length: u64, progress: &dyn Fn(u8)) -> Result<(), String> {
     let timeout = DOWNLOAD_TIMEOUT.to_string();
     let curl = command("curl")
         .args(["--fail", "--silent", "--show-error", "--location"])
@@ -391,17 +405,22 @@ fn download(url: &str, path: &Path) -> Result<(), String> {
         .arg(path)
         .arg(url)
         .stdin(Stdio::null())
-        .output();
-    let output = match curl {
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn();
+    let child = match curl {
         Err(e) if e.kind() == io::ErrorKind::NotFound => command("wget")
             .args(["--quiet", "--timeout", &timeout, "--output-document"])
             .arg(path)
             .arg(url)
             .stdin(Stdio::null())
-            .output()
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped())
+            .spawn()
             .map_err(|e| format!("curl、wget 都无法运行：{e}"))?,
         result => result.map_err(|e| format!("无法运行 curl：{e}"))?,
     };
+    let output = watch(child, path, length, progress).map_err(|e| e.to_string())?;
     if output.status.success() {
         return Ok(());
     }
@@ -411,6 +430,31 @@ fn download(url: &str, path: &Path) -> Result<(), String> {
     } else {
         message
     })
+}
+
+/// 等下载命令 `child` 结束，期间按 `path` 的大小报告进度（见 [`download`]），返回命令的输出。
+///
+/// 两个命令都只在出错时写标准错误，内容很少，结束前不读也不会写满管道。
+fn watch(
+    mut child: Child,
+    path: &Path,
+    length: u64,
+    progress: &dyn Fn(u8),
+) -> io::Result<std::process::Output> {
+    while child.try_wait()?.is_none() {
+        let done = std::fs::metadata(path).map_or(0, |m| m.len());
+        progress(percent(done, length));
+        std::thread::sleep(PROGRESS_POLL);
+    }
+    child.wait_with_output()
+}
+
+/// 已下载 `done` 字节、共 `length` 字节时的百分比，0 到 100；`length` 为 0 时为 0。
+pub(crate) fn percent(done: u64, length: u64) -> u8 {
+    if length == 0 {
+        return 0;
+    }
+    u8::try_from(done.min(length) * 100 / length).unwrap_or(100)
 }
 
 /// 核对下载的内容：长度与 appcast 中的一致，且签名由 `key` 对应的私钥签出。

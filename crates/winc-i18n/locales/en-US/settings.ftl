@@ -61,7 +61,7 @@ settings-terminal-font = Font
 settings-terminal-size = Font Size
 settings-terminal-copy-on-select = Copy on Select
 settings-terminal-confirm-close = Confirm Before Closing
-settings-terminal-prompt = winc Prompt
+settings-terminal-prompt = Winc Prompt
 settings-terminal-shell-integration = Shell Integration
 settings-terminal-option-as-meta = Meta Key
 settings-key-search = Search Shortcuts
@@ -95,13 +95,13 @@ settings-check-now = Check Now
 settings-updates-off = In-app updates aren’t available in this build
 settings-updates-idle = Not checked yet
 settings-updates-checking = Checking for updates…
-settings-updates-latest = winc is up to date
+settings-updates-latest = Winc is up to date
 settings-updates-found = A new version is available: { $version }
 settings-updates-failed = Couldn’t check for updates. Try again later.
-settings-updates-downloading = Downloading { $version }…
+settings-updates-downloading = Downloading { $version }: { $percent }%
 settings-updates-ready = { $platform ->
-    [windows] { $version } is downloaded. It installs when you restart or quit winc.
-   *[other] { $version } is installed. Restart winc to use it.
+    [windows] { $version } is downloaded. It installs when you restart or quit Winc.
+   *[other] { $version } is installed. Restart Winc to use it.
 }
 settings-updates-install-failed = Couldn’t install the update: { $error }
 settings-format-on-save-desc = Format files with the tools below before saving

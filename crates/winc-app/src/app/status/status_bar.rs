@@ -321,7 +321,7 @@ impl App {
                 crate::updates::restart();
                 self.request_quit();
             }
-            UpdateState::Downloading(_) => {}
+            UpdateState::Downloading(..) => {}
             _ => crate::updates::install(),
         }
     }

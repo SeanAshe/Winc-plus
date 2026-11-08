@@ -276,6 +276,91 @@ fn a_found_update_shows_in_the_status_bar_and_the_setting_turns_checks_off() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+#[test]
+fn the_update_button_shows_each_step_of_the_update() {
+    use crate::winc::UpdateState;
+    let dir = sample_folder("status-update-steps");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    *app.shared.update.borrow_mut() = Some("0.1.560".into());
+    let button = |app: &mut App| {
+        paint(app);
+        let rect = (app.status_hits.iter())
+            .find(|(_, i)| *i == StatusItem::Update)
+            .unwrap()
+            .0;
+        app.on_mouse_move(rect.x + rect.w / 2.0, rect.y + rect.h / 2.0);
+        let tip = crate::view::tests::tooltip(app).unwrap().1;
+        (rect.w, tip)
+    };
+    let set = |app: &mut App, state| *app.shared.update_state.borrow_mut() = state;
+
+    // 找到新版本：按钮上只写「更新」，版本号在悬停提示里。
+    let (found, tip) = button(&mut app);
+    assert!(tip.contains("0.1.560"), "{tip}");
+
+    // 下载中：按钮上是百分比，从个位数到 100% 宽度不变；提示里有版本号和百分比。
+    set(&mut app, UpdateState::Downloading("0.1.560".into(), 5));
+    let (five, tip) = button(&mut app);
+    assert!(tip.contains("0.1.560") && tip.contains("5%"), "{tip}");
+    set(&mut app, UpdateState::Downloading("0.1.560".into(), 100));
+    assert_eq!(button(&mut app).0, five);
+
+    // 装好了：按钮写「重新启动」，比「更新」宽。
+    set(&mut app, UpdateState::Ready("0.1.560".into()));
+    let (ready, tip) = button(&mut app);
+    assert!(ready > found && tip.contains("0.1.560"), "{tip}");
+
+    // 失败：按钮写「重试」，原因在提示里。
+    set(&mut app, UpdateState::InstallFailed("网络连接中断".into()));
+    let (_, tip) = button(&mut app);
+    assert!(tip.contains("网络连接中断"), "{tip}");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 截图：状态栏上的更新按钮。
+///
+/// 依次截取：找到新版本、悬停在按钮上、从「更新」变成百分比的途中（120 ms）、下载到 42%、
+/// 装好了、失败了；深色配色下再截找到新版本和下载中。
+#[test]
+#[ignore = "截图，手动运行"]
+fn shoot_update_button() {
+    use crate::winc::UpdateState;
+    for dark in [false, true] {
+        let dir = sample_folder("status-update-shot");
+        let mut app = app_with(&dir.join("short.rs"), dark);
+        let tag = if dark { "dark" } else { "light" };
+        *app.shared.update.borrow_mut() = Some("0.1.560".into());
+        shoot(&mut app, &format!("update-{tag}-found"));
+        let set = |app: &mut App, state| *app.shared.update_state.borrow_mut() = state;
+        set(&mut app, UpdateState::Downloading("0.1.560".into(), 42));
+        shoot(&mut app, &format!("update-{tag}-downloading"));
+        if !dark {
+            set(&mut app, UpdateState::Found("0.1.560".into()));
+            paint(&mut app);
+            let rect = (app.status_hits.iter())
+                .find(|(_, i)| *i == StatusItem::Update)
+                .unwrap()
+                .0;
+            app.on_mouse_move(rect.x + rect.w / 2.0, rect.y + rect.h / 2.0);
+            shoot(&mut app, "update-light-hover");
+            app.on_mouse_move(10.0, 10.0);
+            app.status_motion.animate_without_window = true;
+            set(&mut app, UpdateState::Downloading("0.1.560".into(), 0));
+            paint(&mut app);
+            app.status_motion.freeze(Duration::from_millis(120));
+            shoot(&mut app, "update-light-to-progress-120");
+            app.status_motion.freeze(STATUS_SLIDE);
+            app.status_motion.settle();
+            app.status_motion.animate_without_window = false;
+            set(&mut app, UpdateState::Ready("0.1.560".into()));
+            shoot(&mut app, "update-light-ready");
+            set(&mut app, UpdateState::InstallFailed("网络连接中断".into()));
+            shoot(&mut app, "update-light-failed");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 /// 没有系统菜单时（macOS 以外的平台，以及没有窗口的测试中）目录菜单画在窗口中：和系统菜单一样
 /// 列出该段的目录，打勾的当前文件（或通往它的目录）尽量对准被点击的段，文字和段的文字对齐；子目录
 /// 停留时才读出内容展开；选中文件打开它。
