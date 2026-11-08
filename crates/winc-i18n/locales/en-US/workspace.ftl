@@ -220,6 +220,13 @@ workspace-picker-recently-used = Recently used
 workspace-picker-symbols-too-large = File too large to list symbols
 workspace-picker-no-symbols = No symbols found in this file
 workspace-picker-no-matching-symbols = No matching symbols
+workspace-picker-folders-placeholder = Search folders by name or path…
+workspace-picker-folders-new-window = { $platform ->
+    [macos] ⌥↩
+   *[other] Alt+Enter
+} Open in New Window
+workspace-picker-no-recent-folders = No recently opened folders
+workspace-picker-no-matching-folders = No matching folders
 workspace-conflict-modified = “{ $name }” was changed by another app
 
 ## Tooltips

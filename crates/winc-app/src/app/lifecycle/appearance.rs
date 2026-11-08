@@ -1,23 +1,56 @@
-//! 外观：字体、字号和主题。
+//! 外观：界面缩放、字体、字号和主题。
 
 use super::*;
 
 impl App {
+    /// 返回界面缩放倍数（配置中的 `ui.zoom` 除以 100，未设置时为 1）。
+    pub(crate) fn zoom(&self) -> f32 {
+        f32::from(self.config.ui_zoom.unwrap_or(100)) / 100.0
+    }
+
+    /// 把界面缩放倍数交给渲染器和红绿灯；新窗口建好时与缩放改变时调用。
+    pub(in crate::app) fn sync_zoom(&mut self) {
+        let zoom = self.zoom();
+        if let Some(renderer) = &mut self.renderer {
+            renderer.set_zoom(zoom);
+        }
+        #[cfg(target_os = "macos")]
+        if let Some(lights) = &self.traffic_lights {
+            lights.set_zoom(f64::from(zoom));
+        }
+        self.last_ime_area = None;
+    }
+
+    /// 按配置应用界面缩放：整个窗口按新的倍数绘制，窗口的物理尺寸不变。
+    ///
+    /// 布局按新的逻辑尺寸重新计算，红绿灯随顶栏的高度重新摆放；编辑区首行不变，滚动位置只限制
+    /// 回有效范围。
+    pub(in crate::app) fn apply_zoom(&mut self) {
+        self.sync_zoom();
+        self.place_traffic_lights();
+        self.relayout();
+        self.clamp_scroll();
+        self.request_redraw();
+    }
+
     /// 按当前字号重新测量字体度量；字号或字体变化后调用。
-    pub(super) fn measure_fonts(&mut self) {
+    pub(in crate::app) fn measure_fonts(&mut self) {
         let Some(renderer) = &self.renderer else {
             return;
         };
         self.ui_metrics = renderer.metrics(FontKind::Ui, self.fonts.ui);
         self.mono_metrics = renderer.metrics(FontKind::Mono, self.fonts.code);
         self.cell = self.mono_metrics.cell;
+        self.terminal_metrics = renderer.metrics(FontKind::Terminal, self.fonts.terminal);
+        self.terminal_cell = self.terminal_metrics.cell;
     }
 
-    /// 应用新的字号（逻辑像素）。
+    /// 按配置应用新的字号（逻辑像素）。
     ///
-    /// 行高、可见行数和行号栏宽度随之变化；滚动位置限制回有效范围，并滚动到光标可见。
-    pub(in crate::app) fn apply_font_sizes(&mut self, code: f32, ui: f32) {
-        self.fonts = ViewFonts::new(code, ui);
+    /// 行高、可见行数和行号栏宽度随之变化；滚动位置限制回有效范围，并滚动到光标可见。终端的
+    /// 行列数在下一次排版后随之变化。
+    pub(in crate::app) fn apply_font_sizes(&mut self) {
+        self.fonts = ViewFonts::of(&self.config);
         self.measure_fonts();
 
         self.clamp_scroll();
@@ -25,15 +58,16 @@ impl App {
         self.request_redraw();
     }
 
-    /// 返回配置中的编辑区字体和界面字体；未配置时为 `None`。
+    /// 返回配置中的编辑区字体、界面字体和终端字体；未配置时为 `None`。
     ///
     /// 未配置时渲染层使用内置的系统字体路径表。按名字查询 CoreText 一次约 4–7 ms，
-    /// 路径表只需几次 `stat`，因此未配置时不调用 CoreText。
-    pub(super) fn font_specs(&self) -> (Option<FontSpec>, Option<FontSpec>) {
-        (
-            configured_font(&self.config.editor_font),
-            configured_font(&self.config.ui_font),
-        )
+    /// 路径表只需几次 `stat`，因此未配置时不调用 CoreText。终端字体与编辑区字体相同时同样为
+    /// `None`，不重复加载。
+    pub(in crate::app) fn font_specs(&self) -> [Option<FontSpec>; 3] {
+        let terminal = configured_font(&self.config.terminal_font);
+        let editor = configured_font(&self.config.editor_font);
+        let terminal = terminal.filter(|spec| Some(spec) != editor.as_ref());
+        [editor, configured_font(&self.config.ui_font), terminal]
     }
 
     /// 应用主题选择：`Auto` 交由系统决定，`Dark`、`Light` 固定为指定外观。
@@ -93,17 +127,17 @@ impl App {
     ///
     /// 渲染层无法使用配置的字体时，返回面向用户的错误说明。
     pub(in crate::app) fn apply_fonts(&mut self) -> Result<(), String> {
-        let (mono, ui) = self.font_specs();
+        let [mono, ui, terminal] = self.font_specs();
 
         if let Some(renderer) = &mut self.renderer
-            && renderer.set_fonts(mono.as_ref(), ui.as_ref()).is_err()
+            && renderer
+                .set_fonts(mono.as_ref(), ui.as_ref(), terminal.as_ref())
+                .is_err()
         {
             return Err(winc_i18n::t!("workspace-font-unusable").to_owned());
         }
 
-        let code = self.config.editor_size.unwrap_or(CODE_FONT);
-        let ui_size = self.config.ui_size.unwrap_or(UI_FONT);
-        self.apply_font_sizes(code, ui_size);
+        self.apply_font_sizes();
         Ok(())
     }
 }

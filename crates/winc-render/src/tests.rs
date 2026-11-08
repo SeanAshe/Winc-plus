@@ -50,6 +50,28 @@ fn opacity_fades_everything_drawn_inside_it() {
 }
 
 #[test]
+fn zoom_scales_drawing_without_resizing_the_image() {
+    let mut renderer =
+        Renderer::offscreen(40.0, 20.0, 2.0, Color::hex(0x000000), None, None).unwrap();
+    // 物理尺寸不变，逻辑尺寸按倍数变小；反复设置不累积误差。
+    renderer.set_zoom(1.25);
+    assert_eq!(renderer.scale_factor(), 2.5);
+    assert_eq!(renderer.logical_size(), (32.0, 16.0));
+    renderer.set_zoom(2.0);
+    renderer.set_zoom(1.0);
+    assert_eq!(renderer.logical_size(), (40.0, 20.0));
+
+    // 1 逻辑像素宽的竖线在 2 倍缩放下占 4 个物理像素。
+    renderer.set_zoom(2.0);
+    renderer.draw(|frame| frame.rect(Rect::new(1.0, 0.0, 1.0, 10.0), Color::hex(0xffffff)));
+    let image = renderer.image().unwrap();
+    let lit = (0..image.width as usize)
+        .filter(|&x| image.pixels[x] & 0xff > 0)
+        .count();
+    assert_eq!((image.width, lit), (80, 4));
+}
+
+#[test]
 fn faux_bold_is_heavier_and_wider() {
     // 西文取自界面字体，中文落到后备字体（macOS 15 起苹方的轮廓由系统提供）：两种字形都加粗。
     for c in ['H', '中'] {

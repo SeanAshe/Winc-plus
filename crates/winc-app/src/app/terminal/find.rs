@@ -106,7 +106,7 @@ impl App {
             return None;
         }
         let row = card.y + header_height(card);
-        let top = row + (self.fonts.line_height - TAB_HEIGHT) / 2.0;
+        let top = row + (self.fonts.terminal_line_height - TAB_HEIGHT) / 2.0;
         let w = FIND_W.min(card.w - FIND_MARGIN * 2.0).max(0.0);
         Some(Rect::new(
             card.right() - FIND_MARGIN - w,
@@ -472,9 +472,9 @@ impl App {
             return;
         };
         let (first, origin) = self.terminal_origin();
-        let lh = self.fonts.line_height;
+        let lh = self.fonts.terminal_line_height;
         let y = origin + display.saturating_sub(first) as f32 * lh;
-        let right = self.terminal_grid().x + end.col as f32 * self.cell;
+        let right = self.terminal_grid().x + end.col as f32 * self.terminal_cell;
         if display >= first && y < bar.bottom() && right > bar.x {
             self.scroll_terminal(((bar.bottom() - y) / lh).ceil() as isize);
         }

@@ -131,7 +131,7 @@ mod tests {
 
     #[test]
     fn a_single_letter_keeps_its_cmap_glyph() {
-        let fonts = Fonts::load(None, None).expect("系统里有等宽字体");
+        let fonts = Fonts::load(None, None, None).expect("系统里有等宽字体");
         let mut cache = GlyphCache::new(fonts);
         cache.shape_run(FontKind::Mono, 16.0, &['A']);
         let face = cache.fonts.primary_face(FontKind::Mono).unwrap();
@@ -158,7 +158,7 @@ mod tests {
         let Some(spec) = spec else {
             return;
         };
-        let fonts = Fonts::load(Some(&spec), None).expect("连字字体能打开");
+        let fonts = Fonts::load(Some(&spec), None, None).expect("连字字体能打开");
         let mut cache = GlyphCache::new(fonts);
         cache.shape_run(FontKind::Mono, 16.0, &['=', '>']);
         let face = cache.fonts.face(MONO).unwrap();

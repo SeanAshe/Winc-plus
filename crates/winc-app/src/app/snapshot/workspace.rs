@@ -5,6 +5,7 @@ use super::*;
 
 pub(super) mod loading;
 pub(super) mod picker;
+pub(super) mod recent;
 pub(super) mod search;
 pub(super) mod selection;
 pub(super) mod session;

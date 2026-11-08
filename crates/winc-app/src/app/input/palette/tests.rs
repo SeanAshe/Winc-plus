@@ -32,7 +32,8 @@ fn commands_match_chinese_and_english_names() {
     assert_eq!(titles("format doc")[0], "格式化文档");
     assert_eq!(titles("FORMAT")[0], "格式化文档");
     // 查询中的空白被忽略；分散出现的字符序列同样匹配（`zoomin`、`fmtsel`）。
-    assert_eq!(titles("zoomin")[0], "放大字号");
+    assert_eq!(titles("zoomin")[0], "放大界面");
+    assert_eq!(titles("increase font")[0], "放大字号");
     assert_eq!(titles("fmtsel")[0], "格式化所选内容");
     assert!(titles("修复").contains(&"修复问题"));
     assert!(titles("没有这条命令").is_empty());

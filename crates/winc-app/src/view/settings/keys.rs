@@ -70,7 +70,7 @@ fn draw_search(app: &mut App, frame: &mut Frame<'_>, keys: &KeysLayout) -> Optio
 }
 
 /// 绘制输入框外沿 1 逻辑像素的细边。
-fn outline(frame: &mut Frame<'_>, color: Color, rect: Rect) {
+pub(super) fn outline(frame: &mut Frame<'_>, color: Color, rect: Rect) {
     let shapes = icons::rounded_outline(rect.x, rect.y, rect.w, rect.h, RADIUS_ROW);
     frame.stroke(&shapes, 1.0, color, rect.inset(-1.0, -1.0));
 }

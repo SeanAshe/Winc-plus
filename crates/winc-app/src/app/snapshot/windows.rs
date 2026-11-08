@@ -204,7 +204,7 @@ fn dropped_on_the_dock_icon_open_in_the_window_that_has_them_or_a_blank_one() {
 #[test]
 fn settings_changed_in_one_window_reach_the_others() {
     let (mut winc, a, b, dir) = two_windows("windows-config");
-    winc.app(a).zoom(Some(true));
+    winc.app(a).step_font_size(Some(true));
     let size = winc.app(a).config.editor_size;
     assert!(size.is_some());
     winc.settle_for_test();

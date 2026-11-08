@@ -12,7 +12,7 @@ use objc2::runtime::Bool;
 /// `NSWindowButton` 的前三个值：关闭、最小化、缩放。
 pub(super) const BUTTONS: [usize; 3] = [0, 1, 2];
 
-/// 返回鼠标此刻在窗口内容区中的位置（逻辑像素，原点在左上角）；取不到时返回 `None`。
+/// 返回鼠标此刻在窗口内容区中的位置（`AppKit` 的点，原点在左上角）；取不到时返回 `None`。
 ///
 /// 从系统文件管理器拖文件进来时，系统不发鼠标移动事件，松手后的 `DroppedFile` 也不带位置；
 /// 该事件在松手后立即处理，此时鼠标的位置就是落点。
@@ -104,6 +104,8 @@ struct Lights {
     bar_height: f64,
     /// 第一个按钮距窗口左边缘的距离（逻辑像素）。
     left: f64,
+    /// 界面缩放倍数：逻辑像素乘以该值得到 `AppKit` 的点，按钮本身的大小不随之变化。
+    zoom: std::cell::Cell<f64>,
     /// 第一次摆放之前 `AppKit` 给出的位置：标题栏容器的矩形和三个按钮的原点；全屏时恢复。
     native: std::cell::Cell<Option<(CGRect, [CGPoint; 3])>>,
     /// 窗口是否处于全屏或正在进入全屏；在全屏过渡开始时更新，早于 winit 报告的状态。
@@ -134,6 +136,7 @@ impl TrafficLights {
             window,
             bar_height,
             left,
+            zoom: std::cell::Cell::new(1.0),
             native: std::cell::Cell::new(None),
             fullscreen: std::cell::Cell::new(style & STYLE_FULL_SCREEN != 0),
             moved: Box::new(moved),
@@ -170,6 +173,11 @@ impl TrafficLights {
     /// 红绿灯右侧留出空间；见 [`Lights::place`]。
     pub fn place(&self) -> Option<f64> {
         self.shared.place()
+    }
+
+    /// 设置界面缩放倍数 `zoom`，之后的 [`Self::place`] 按缩放后的顶栏摆放。
+    pub fn set_zoom(&self, zoom: f64) {
+        self.shared.zoom.set(zoom);
     }
 }
 
@@ -243,7 +251,7 @@ impl Lights {
                 let button: *mut AnyObject = msg_send![ns_window, standardWindowButton: kind];
                 button.as_ref()
             });
-            let [Some(close), Some(minimize), Some(zoom)] = buttons else {
+            let [Some(close), Some(minimize), Some(maximize)] = buttons else {
                 return None;
             };
             let container = titlebar_container(close)?;
@@ -253,33 +261,35 @@ impl Lights {
                     frame.origin
                 };
                 let frame: CGRect = msg_send![container, frame];
-                let origins = [origin(close), origin(minimize), origin(zoom)];
+                let origins = [origin(close), origin(minimize), origin(maximize)];
                 self.native.set(Some((frame, origins)));
             }
 
             // NSView 默认以左下角为原点：容器的底边放在窗口顶部向下 `bar_height` 处，使其占满
             // 顶栏。`AppKit` 可能忽略设置的高度，但按钮相对容器底边摆放，结果相同。
+            let zoom = self.zoom.get();
+            let (bar_height, left) = (self.bar_height * zoom, self.left * zoom);
             let window_frame: CGRect = msg_send![ns_window, frame];
             let mut frame: CGRect = msg_send![container, frame];
-            frame.size.height = self.bar_height;
-            frame.origin.y = window_frame.size.height - self.bar_height;
+            frame.size.height = bar_height;
+            frame.origin.y = window_frame.size.height - bar_height;
             let () = msg_send![container, setFrame: frame];
 
             let close_frame: CGRect = msg_send![close, frame];
             let minimize_frame: CGRect = msg_send![minimize, frame];
             let spacing = minimize_frame.origin.x - close_frame.origin.x;
 
-            let mut end = self.left;
-            for (i, button) in [close, minimize, zoom].into_iter().enumerate() {
+            let mut end = left;
+            for (i, button) in [close, minimize, maximize].into_iter().enumerate() {
                 let size: CGRect = msg_send![button, frame];
                 let origin = CGPoint::new(
-                    self.left + i as f64 * spacing,
-                    ((self.bar_height - size.size.height) / 2.0).round(),
+                    left + i as f64 * spacing,
+                    ((bar_height - size.size.height) / 2.0).round(),
                 );
                 let () = msg_send![button, setFrameOrigin: origin];
                 end = origin.x + size.size.width;
             }
-            Some(end)
+            Some(end / zoom)
         }
     }
 

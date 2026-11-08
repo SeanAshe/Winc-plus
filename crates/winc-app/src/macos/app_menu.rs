@@ -1,4 +1,5 @@
-//! 挂在 `winit` 应用委托上的扩展：⌘Q 的拦截、应用菜单中的「设置…」，以及菜单项的动作方法。
+//! 挂在 `winit` 应用委托上的扩展：⌘Q 的拦截、应用菜单中的「设置…」、菜单项的动作方法，以及录制
+//! 按键期间暂停菜单项的快捷键。
 //!
 //! 这些方法通过 Objective-C 运行时（`class_addMethod`）添加到 `winit` 的应用委托类上，不替换
 //! 已有的实现；找不到委托类时，各功能保持系统或键盘事件的默认行为。
@@ -262,6 +263,87 @@ pub fn add_settings_menu(open: impl Fn() + Send + Sync + 'static) {
 
 /// 菜单项「设置…」的动作名，添加在 `winit` 的应用委托上。
 const SETTINGS_ACTION: &CStr = c"wincOpenSettings:";
+
+/// 暂停期间去掉了快捷键的菜单项：菜单项、原来的按键和修饰键。
+type Shortcuts = Vec<(Retained<AnyObject>, Retained<AnyObject>, usize)>;
+
+thread_local! {
+    /// 录制按键期间暂时去掉快捷键的菜单项；没有暂停时为空。只在主线程上使用。
+    static SUSPENDED: std::cell::RefCell<Shortcuts> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// 暂停（`suspend` 为 `true`）或恢复菜单栏中各菜单项的快捷键。
+///
+/// 菜单项的快捷键（如「设置…」的 ⌘,、「退出」的 ⌘Q）先于窗口收到按键，不会作为键盘事件送到
+/// 窗口。录制按键时暂停这些快捷键，按键照常送到窗口；恢复时按原样放回。重复暂停或恢复不做任何
+/// 事。只能在主线程调用。
+pub fn suspend_menu_shortcuts(suspend: bool) {
+    SUSPENDED.with_borrow_mut(|saved| {
+        if !suspend {
+            for (item, key, mask) in saved.drain(..) {
+                // SAFETY: `item` 是暂停时持有引用的 `NSMenuItem`，`key` 是它原来的按键
+                // （`NSString`），两者都仍然有效；在主线程调用公开的 setter。
+                unsafe {
+                    let () = msg_send![&*item, setKeyEquivalent: &*key];
+                    let () = msg_send![&*item, setKeyEquivalentModifierMask: mask];
+                }
+            }
+            return;
+        }
+        if !saved.is_empty() {
+            return;
+        }
+        // SAFETY: `sharedApplication`、`mainMenu` 和 `+[NSString string]` 是公开 API，在主线程
+        // 调用；返回值先判空再使用，菜单由 `NSApplication` 持有，空字符串是自动释放的常量。
+        unsafe {
+            let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+            let Some(app) = app.as_ref() else {
+                return;
+            };
+            let menu: *mut AnyObject = msg_send![app, mainMenu];
+            let empty: *mut AnyObject = msg_send![class!(NSString), string];
+            if let (Some(menu), Some(empty)) = (menu.as_ref(), empty.as_ref()) {
+                clear_shortcuts(menu, empty, saved);
+            }
+        }
+    });
+}
+
+/// 去掉 `menu` 及其各级子菜单中菜单项的快捷键（换成空字符串 `empty`），把菜单项、原来的按键
+/// 和修饰键记入 `saved`。
+///
+/// # Safety
+///
+/// `menu` 必须是有效的 `NSMenu`，`empty` 必须是有效的 `NSString`，只能在主线程调用。
+unsafe fn clear_shortcuts(menu: &AnyObject, empty: &AnyObject, saved: &mut Shortcuts) {
+    // SAFETY: 由调用方保证 `menu` 有效、在主线程；用到的都是 `NSMenu`、`NSMenuItem` 的公开方法。
+    // 取出的菜单项、子菜单和按键先判空再使用；保存的菜单项和按键由 `Retained` 各持有一个引用，
+    // 菜单项换掉按键后原来的字符串仍然有效。
+    unsafe {
+        let count: isize = msg_send![menu, numberOfItems];
+        for i in 0..count {
+            let item: *mut AnyObject = msg_send![menu, itemAtIndex: i];
+            let Some(item) = Retained::retain(item) else {
+                continue;
+            };
+            let submenu: *mut AnyObject = msg_send![&*item, submenu];
+            if let Some(submenu) = submenu.as_ref() {
+                clear_shortcuts(submenu, empty, saved);
+            }
+            let key: *mut AnyObject = msg_send![&*item, keyEquivalent];
+            let Some(key) = Retained::retain(key) else {
+                continue;
+            };
+            let length: usize = msg_send![&*key, length];
+            if length == 0 {
+                continue;
+            }
+            let mask: usize = msg_send![&*item, keyEquivalentModifierMask];
+            let () = msg_send![&*item, setKeyEquivalent: empty];
+            saved.push((item, key, mask));
+        }
+    }
+}
 
 /// 菜单项动作或委托回调的函数类型，对应 Objective-C 的 `- (void)name:(id)arg`。
 pub(super) type Action = extern "C-unwind" fn(*mut AnyObject, Sel, *mut AnyObject);

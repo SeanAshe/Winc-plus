@@ -226,8 +226,8 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
     // 一样。
     // 开关模块时淡入淡出，左边的几项跟着滑过去（`App::track_modules`）；消失途中点不到。
     let enabled = app.terminal_enabled();
-    let share = app.module_fx.terminal_icon.share(enabled);
-    let opacity = app.module_fx.terminal_icon.opacity(enabled);
+    let share = app.module_fx.terminal.share(enabled);
+    let opacity = app.module_fx.terminal.opacity(enabled);
     if share > 0.0 {
         let item = StatusItem::Terminal;
         let slot = right - icons::SIDEBAR_WIDTH;

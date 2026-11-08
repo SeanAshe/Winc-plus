@@ -3,6 +3,8 @@
 // 格式化设置页的测试用 sh 脚本冒充格式化工具。
 #[cfg(unix)]
 mod format;
+mod search;
+mod terminal;
 
 use super::*;
 #[cfg(unix)]
@@ -62,30 +64,117 @@ fn scrolling_settings_reuses_the_window_below_and_looks_the_same() {
 }
 
 #[test]
-fn zoom_changes_the_editor_font_size_and_resets() {
+fn zoom_scales_the_whole_window_in_steps() {
+    use crate::app::input::context_menu::{MenuCommand, MenuTarget};
+
+    let dir = search_folder("ui-zoom");
+    let mut app = app_with(&dir, false);
+    paint(&mut app);
+    let window = app.layout.window;
+    let scale = |app: &App| app.renderer.as_ref().unwrap().scale_factor();
+    let base = scale(&app);
+
+    // 放大一档：渲染倍数变大，窗口的逻辑尺寸按比例变小；字号不变。
+    app.step_zoom(Some(true));
+    assert_eq!(app.config.ui_zoom, Some(110));
+    assert_eq!(app.status_message.as_deref(), Some("界面缩放 110%"));
+    assert!((scale(&app) - base * 1.1).abs() < 1e-4);
+    assert!((app.layout.window.w - window.w / 1.1).abs() < 0.01);
+    assert_eq!(app.fonts.code, CODE_FONT);
+
+    // 配置中写了档位以外的值：移到该方向上最近的档位。
+    app.config.ui_zoom = Some(117);
+    app.step_zoom(Some(true));
+    assert_eq!(app.config.ui_zoom, Some(125));
+    app.config.ui_zoom = Some(117);
+    app.step_zoom(Some(false));
+    assert_eq!(app.config.ui_zoom, Some(110));
+
+    // 已到上限时不变，并在状态栏提示。
+    app.set_zoom(200);
+    app.step_zoom(Some(true));
+    assert_eq!(app.config.ui_zoom, Some(200));
+    assert!(
+        app.status_message
+            .as_deref()
+            .is_some_and(|m| m.contains("无法继续调整"))
+    );
+
+    // 还原：配置中不再记录，窗口回到原来的逻辑尺寸。
+    app.step_zoom(None);
+    assert_eq!(app.config.ui_zoom, None);
+    assert_eq!(scale(&app), base);
+    assert_eq!(app.layout.window, window);
+
+    // 设置中的菜单列出各档位，当前的打勾；选中后写入配置。
+    app.open_settings();
+    app.settings_open_menu(Setting::Zoom);
+    assert_eq!(
+        app.context_menu.as_ref().map(|m| &m.target),
+        Some(&MenuTarget::Zoom)
+    );
+    assert!(app.menu_checked(MenuCommand::Zoom(3)));
+    assert_eq!(app.menu_label(MenuCommand::Zoom(6)).title, "150%");
+    app.run_menu_command(MenuCommand::Zoom(6));
+    assert_eq!(app.config.ui_zoom, Some(150));
+    assert!((scale(&app) - base * 1.5).abs() < 1e-4);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn long_descriptions_wrap_and_make_the_row_taller() {
+    use crate::theme::{SETTINGS_DESC_LINE, SETTINGS_DESC_LINES, SETTINGS_ROW_TALL};
+
+    let dir = search_folder("settings-wrap");
+    let mut app = app_with(&dir, false);
+    app.open_settings();
+    app.settings_show_page(SettingsPage::Format);
+    let row = |app: &App, setting| app.settings_layout().row(setting).unwrap().row;
+
+    // 默认大小的窗口中「排除的语言」的说明放不下一行：折成两行，该行加高一行的行距；短说明
+    // 仍是一行。
+    assert_eq!(
+        row(&app, Setting::SkipOnSave).h,
+        SETTINGS_ROW_TALL + SETTINGS_DESC_LINE
+    );
+    assert_eq!(row(&app, Setting::FormatOnSave).h, SETTINGS_ROW_TALL);
+
+    // 放大界面后可用宽度变小，折成的行更多，但不超过上限。
+    app.set_zoom(200);
+    let h = row(&app, Setting::SkipOnSave).h;
+    let most = SETTINGS_ROW_TALL + (SETTINGS_DESC_LINES - 1) as f32 * SETTINGS_DESC_LINE;
+    assert!(
+        h > SETTINGS_ROW_TALL + SETTINGS_DESC_LINE && h <= most,
+        "{h}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn font_size_keys_change_the_editor_font_size_and_reset() {
     let dir = search_folder("zoom");
     let mut app = app_with(&dir, false);
     app.open_path(&dir.join("src/main.rs"));
     let ui = app.fonts.ui;
 
-    app.zoom(Some(true));
+    app.step_font_size(Some(true));
     assert_eq!(app.config.editor_size, Some(CODE_FONT + 1.0));
     assert_eq!(app.fonts.code, CODE_FONT + 1.0);
     // 界面字号保持不变。
     assert_eq!(app.fonts.ui, ui);
 
-    app.zoom(Some(false));
-    app.zoom(Some(false));
+    app.step_font_size(Some(false));
+    app.step_font_size(Some(false));
     assert_eq!(app.fonts.code, CODE_FONT - 1.0);
 
     // ⌘0 还原：配置中不再记录字号。
-    app.zoom(None);
+    app.step_font_size(None);
     assert_eq!(app.config.editor_size, None);
     assert_eq!(app.fonts.code, CODE_FONT);
 
     // 已达上限时再放大：字号不变，并在状态栏提示。
     app.config.editor_size = Some(*Config::EDITOR_SIZE_RANGE.end());
-    app.zoom(Some(true));
+    app.step_font_size(Some(true));
     assert_eq!(
         app.config.editor_size,
         Some(*Config::EDITOR_SIZE_RANGE.end())
@@ -146,41 +235,48 @@ fn settings_is_a_modal_over_the_whole_window() {
 fn settings_keyboard_walks_every_item_and_adjusts() {
     let dir = search_folder("settings-keys");
     let mut app = app_with(&dir, false);
+    // 终端模块开启时才列出「终端」页。
+    app.config.terminal_enabled = Some(true);
     app.open_settings();
 
-    // 从第一页走到最后一页：依次经过外观、编辑器、格式化、模块各页的每一行、快捷键页的
+    // 从第一页走到最后一页：依次经过外观、编辑器、格式化、终端、模块各页的每一行、快捷键页的
     // 搜索框，最后是关于页的各行，到达末尾后不再移动。越过一页的末项时自动换页，右侧显示该页
     // 内容。
     // 格式化页列出的语言随机器上装了哪些工具而变，步数按全部设置项计算。
     let mut seen = vec![app.settings.selected];
-    for _ in 0..Setting::all(&app.settings.languages).len() + 2 {
+    for _ in 0..Setting::all(&app.settings.languages, true).len() + 2 {
         app.settings_move(true);
         if seen.last() != Some(&app.settings.selected) {
             seen.push(app.settings.selected);
         }
     }
-    assert_eq!(seen, Setting::all(&app.settings.languages));
-    assert_eq!(app.settings.selected, Setting::CheckUpdates);
+    assert_eq!(seen, Setting::all(&app.settings.languages, true));
+    assert_eq!(app.settings.selected, Setting::License);
     assert_eq!(app.settings_layout().page, SettingsPage::About);
-    // 往回走过关于页的三行，回到快捷键页的搜索框。
-    for _ in 0..3 {
+    // 往回走过关于页的七行（版本、更新两行、四个链接），回到快捷键页的搜索框。
+    for _ in 0..7 {
         app.settings_move(false);
     }
     assert_eq!(app.settings.selected, Setting::KeySearch);
     assert_eq!(app.settings_layout().page, SettingsPage::Keys);
     assert_eq!(app.focus, Focus::KeySearch);
-    // 向回走一步，回到模块页最后的终端开关，再一步是 Git 开关；再走一步，回到格式化页的最后
-    // 一项（修复工具一组的「添加语言…」），焦点回到浮层。
+    // 向回走一步，回到模块页最后的终端开关，焦点回到浮层；再一步是 Git 开关；再走一步，回到
+    // 终端页的最后一项（macOS 上是「Meta 键」，其他平台是「Shell 集成」）。
     app.settings_move(false);
     assert_eq!(app.settings.selected, Setting::TerminalModule);
     assert_eq!(app.focus, Focus::Settings);
     app.settings_move(false);
     assert_eq!(app.settings.selected, Setting::GitModule);
     app.settings_move(false);
-    assert_eq!(app.settings.selected, Setting::AddFixLanguage);
+    let last = if cfg!(target_os = "macos") {
+        Setting::TerminalOptionAsMeta
+    } else {
+        Setting::TerminalShellIntegration
+    };
+    assert_eq!(app.settings.selected, last);
 
     // 主题：← → 在三个选项之间切换，到头后不再变化。步数按全部设置项计算，原因同上。
-    for _ in 0..Setting::all(&app.settings.languages).len() {
+    for _ in 0..Setting::all(&app.settings.languages, true).len() {
         app.settings_move(false);
     }
     assert_eq!(app.settings.selected, Setting::Theme);
@@ -200,11 +296,11 @@ fn settings_keyboard_walks_every_item_and_adjusts() {
     app.settings_step(true);
     assert_eq!(app.config.language, None);
 
-    // 浅色主题（语言下面是界面字体、字号，macOS 以外的平台还有「使用系统标题栏」，然后是状态栏和
-    // 记住窗口两个开关，再下面是两组主题）：外观为深色时选一个浅色主题，外观随之切换。深色主题：
-    // → 换到下一个，外观回到深色；到头后不再变化。
+    // 浅色主题（语言下面是界面缩放、界面字体、字号，macOS 以外的平台还有「使用系统标题栏」，然后是
+    // 状态栏和记住窗口两个开关，再下面是两组主题）：外观为深色时选一个浅色主题，外观随之切换。深色
+    // 主题：→ 换到下一个，外观回到深色；到头后不再变化。
     let title_bar = usize::from(!cfg!(target_os = "macos"));
-    for _ in 0..5 + title_bar {
+    for _ in 0..6 + title_bar {
         app.settings_move(true);
     }
     assert_eq!(app.settings.selected, Setting::LightTheme);
@@ -392,7 +488,17 @@ fn settings_pages_are_listed_on_the_left() {
     app.open_settings();
     paint(&mut app);
 
+    // 终端模块关闭时不列出「终端」页。
+    let pages: Vec<SettingsPage> = (app.settings_layout().pages.iter())
+        .map(|&(page, _)| page)
+        .collect();
+    let expected: Vec<SettingsPage> = (SettingsPage::ALL.into_iter())
+        .filter(|&page| page != SettingsPage::Terminal)
+        .collect();
+    assert_eq!(pages, expected);
+
     // 分类栏列出每一页，每页只放属于该页的设置项；所有页合起来恰好是全部设置，不遗漏也不重复。
+    app.config.terminal_enabled = Some(true);
     let layout = app.settings_layout();
     assert_eq!(layout.pages.len(), SettingsPage::ALL.len());
     for &(_, row) in &layout.pages {
@@ -400,8 +506,15 @@ fn settings_pages_are_listed_on_the_left() {
     }
     let mut listed = Vec::new();
     for page in SettingsPage::ALL {
-        let languages = &app.settings.languages;
-        let layout = SettingsLayout::compute(app.layout.window, page, languages, None, 0.0);
+        let view = crate::layout::SettingsView {
+            page,
+            query: "",
+            languages: &app.settings.languages,
+            terminal: 1.0,
+            editing: None,
+            scroll: 0.0,
+        };
+        let layout = SettingsLayout::compute(app.layout.window, &view, &mut |_| 0.0);
         for row in &layout.rows {
             assert_eq!(row.setting.page(), page);
             // 分组下方的文字按钮（添加语言）不在分组内，其余设置项都在分组内。
@@ -418,7 +531,7 @@ fn settings_pages_are_listed_on_the_left() {
             listed.push(Setting::KeySearch);
         }
     }
-    assert_eq!(listed, Setting::all(&app.settings.languages));
+    assert_eq!(listed, Setting::all(&app.settings.languages, true));
 
     // 悬停在分类栏的一项上时记录该项；点击后换页，选中该页的第一项，滚动位置回到顶部。
     let (x, y) = settings_point(&app, SettingsPart::Page(SettingsPage::Editor));
@@ -820,13 +933,17 @@ fn the_about_page_shows_the_version_and_the_update_state() {
         assert!(layout.row(setting).is_some(), "{setting:?}");
     }
     assert_eq!(Setting::CheckUpdates.page(), SettingsPage::About);
-    // 点击版本号复制到剪贴板。
-    let version = layout.row(Setting::Version).unwrap().control;
-    let center = (version.x + version.w / 2.0, version.y + version.h / 2.0);
+    // 顶部是产品信息：图标、名称和版本号；点击版本号复制到剪贴板，点击图标没有反应。
+    let row = layout.row(Setting::Version).unwrap().row;
+    let parts = crate::layout::ProductParts::new(row);
+    let center = |r: Rect| (r.x + r.w / 2.0, r.y + r.h / 2.0);
+    let (x, y) = center(parts.version);
     assert_eq!(
-        layout.part_at(center.0, center.1),
+        layout.part_at(x, y),
         Some(SettingsPart::Copy(Setting::Version))
     );
+    let (x, y) = center(parts.logo);
+    assert_eq!(layout.part_at(x, y), None);
     click_part(&mut app, SettingsPart::Copy(Setting::Version));
     assert_eq!(
         app.copied.as_deref(),
@@ -916,6 +1033,53 @@ fn a_font_can_be_chosen_from_the_menu() {
 }
 
 #[test]
+fn the_about_page_links_out_and_hides_unavailable_updates() {
+    use crate::layout::{about_link, about_value};
+    use crate::winc::UpdateState;
+
+    let dir = search_folder("settings-about-links");
+    let mut app = app_with(&dir, false);
+    app.open_settings();
+    app.settings_show_page(SettingsPage::About);
+
+    // 链接取自 Cargo.toml：显示名去掉协议和 github.com，许可证链接到仓库中的全文。
+    let value = |setting| about_value(setting).unwrap();
+    assert_eq!(value(Setting::Website), "winc.si");
+    assert_eq!(value(Setting::Repository), "DEEIX-AI/Winc");
+    assert_eq!(value(Setting::Community), "t.me/deeix_chat");
+    assert_eq!(value(Setting::License), "Apache-2.0");
+    assert_eq!(
+        about_link(Setting::License).as_deref(),
+        Some("https://github.com/DEEIX-AI/Winc/blob/HEAD/LICENSE")
+    );
+    assert_eq!(about_link(Setting::Version), None);
+
+    // 版本号和链接只有文字那一块可点，控件左侧的空白不算。
+    for part in [
+        SettingsPart::Link(Setting::Website),
+        SettingsPart::Copy(Setting::Version),
+    ] {
+        let (x, y) = settings_point(&app, part);
+        assert_eq!(app.settings_part_at(x, y), Some(part));
+    }
+    let control = app.settings_layout().row(Setting::Website).unwrap().control;
+    let y = control.y + control.h / 2.0;
+    assert_eq!(app.settings_part_at(control.x + 2.0, y), None);
+
+    // 不支持应用内更新时不显示「检查更新」按钮，也点不到。
+    let button = app.settings_layout().row(Setting::Updates).unwrap().control;
+    let (x, y) = (button.x + button.w / 2.0, button.y + button.h / 2.0);
+    *app.shared.update_state.borrow_mut() = UpdateState::Off;
+    assert_eq!(app.settings_part_at(x, y), None);
+    *app.shared.update_state.borrow_mut() = UpdateState::Idle;
+    assert_eq!(
+        app.settings_part_at(x, y),
+        Some(SettingsPart::Action(Setting::Updates))
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn the_language_and_ui_font_controls_line_up() {
     let dir = search_folder("settings-language-width");
     let mut app = app_with(&dir, false);
@@ -926,9 +1090,10 @@ fn the_language_and_ui_font_controls_line_up() {
     let (language, font) = (control(Setting::Language), control(Setting::UiFont));
     assert_eq!((language.x, language.w), (font.x, font.w));
     assert_eq!(Setting::Language.description(), None);
-    // 与模式分段控件同宽。
+    // 与模式分段控件同宽、右缘对齐；菜单的值的底色向右多出内边距。
     let theme = control(Setting::Theme);
-    assert_eq!((language.x, language.w), (theme.x, theme.w));
+    let pad = crate::theme::SETTINGS_GLYPH_PAD;
+    assert_eq!((language.x - pad, language.w), (theme.x, theme.w));
 
     // 语言菜单比控件短，打开后与控件同宽并对齐。
     app.settings_open_menu(Setting::Language);

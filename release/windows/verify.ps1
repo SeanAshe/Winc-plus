@@ -37,8 +37,13 @@ foreach ($kind in @('nsis', 'msi')) {
         if ((Get-Content "$directory/winc-installation" -Raw).Trim() -ne $kind) { throw 'incorrect installation marker' }
         $command = (Get-ItemProperty -LiteralPath "$classes\winc.JSON\shell\open\command").'(default)'
         if ($command -ne "`"$directory\winc.exe`" `"%1`"") { throw "${kind}: wrong open command: $command" }
-        if ($null -eq (Get-ItemProperty -LiteralPath "$classes\.json\OpenWithProgids").'winc.JSON') { throw "${kind}: json is not registered" }
-        # Listing winc for a type Windows runs on double-click makes Windows ask instead of running it.
+        if ($null -eq (Get-ItemProperty -LiteralPath "$classes\Applications\winc.exe\SupportedTypes").'.json') { throw "${kind}: json is not a supported type" }
+        # A handler listed under a type makes Windows ask which program to use, and for types it runs
+        # on double-click (BAT, CMD) the question replaces running the script.
+        foreach ($type in @('bat', 'cmd')) {
+            $listed = Get-ItemProperty -LiteralPath "$classes\.$type\OpenWithProgids" -ErrorAction SilentlyContinue
+            if ($null -ne $listed -and $null -ne $listed."winc.$type") { throw "${kind}: winc is listed under .$type" }
+        }
         foreach ($type in @('bat', 'cmd')) {
             if (Test-Path -LiteralPath "$classes\winc.$type") { throw "${kind}: $type must not be registered" }
         }
@@ -63,6 +68,7 @@ foreach ($kind in @('nsis', 'msi')) {
     }
     if ((Get-CommandPath $kind) -contains "$directory\bin") { throw "${kind}: uninstall left bin on the Path" }
     if (Test-Path -LiteralPath "$classes\winc.JSON") { throw "${kind}: uninstall left the file type behind" }
+    if (Test-Path -LiteralPath "$classes\Applications\winc.exe") { throw "${kind}: uninstall left the application behind" }
 }
 Expand-Archive "$bundle/portable/Winc-$version-windows-x64-portable.zip" "$work/portable" -Force
 if ((Test-Path "$work/portable/winc-installation") -or -not (Test-Path "$work/portable/winc-pty.exe") -or -not (Test-Path "$work/portable/conpty.dll") -or -not (Test-Path "$work/portable/OpenConsole.exe") -or -not (Test-Path "$work/portable/bin/winc") -or -not (Test-Path "$work/portable/winc-watch") -or -not (Test-Path "$work/portable/data/README.txt")) { throw 'invalid portable layout' }

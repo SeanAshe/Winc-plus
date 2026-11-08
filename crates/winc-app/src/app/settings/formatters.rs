@@ -269,24 +269,29 @@ impl App {
             }
             Setting::SkipOnSave => (MenuTarget::SkipOnSave, row.control),
             // 右边对齐控件：不长于控件时与控件同宽，字体名更长时向左展开。
-            Setting::Language => {
+            Setting::Language
+            | Setting::RenderWhitespace
+            | Setting::Zoom
+            | Setting::TerminalPosition
+            | Setting::TerminalOptionAsMeta
+            | Setting::UiFont
+            | Setting::EditorFont
+            | Setting::TerminalFont => {
+                let target = match setting {
+                    Setting::Language => MenuTarget::Locale,
+                    Setting::RenderWhitespace => MenuTarget::Whitespace,
+                    Setting::Zoom => MenuTarget::Zoom,
+                    Setting::TerminalPosition => MenuTarget::TerminalPosition,
+                    Setting::TerminalOptionAsMeta => MenuTarget::OptionAsMeta,
+                    _ => MenuTarget::Font(setting),
+                };
                 self.settings.selected = setting;
                 let (_, y) = menu_below(row.control);
-                return self.open_context_menu(MenuTarget::Locale, (row.control.right(), y));
-            }
-            Setting::RenderWhitespace => {
-                self.settings.selected = setting;
-                let (_, y) = menu_below(row.control);
-                return self.open_context_menu(MenuTarget::Whitespace, (row.control.right(), y));
-            }
-            Setting::UiFont | Setting::EditorFont => {
-                self.settings.selected = setting;
-                let (_, y) = menu_below(row.control);
-                let target = MenuTarget::Font(setting);
                 return self.open_context_menu(target, (row.control.right(), y));
             }
             Setting::FormatCommand(id) => (MenuTarget::Tool(Task::Format, id), row.control),
             Setting::FixCommand(id) => (MenuTarget::Tool(Task::Fix, id), row.control),
+            Setting::TerminalShell => (MenuTarget::DefaultShell, row.control),
             Setting::Updates => return self.settings_check_updates(),
             _ => return,
         };

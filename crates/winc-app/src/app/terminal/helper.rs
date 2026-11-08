@@ -10,7 +10,7 @@ impl App {
     /// 时，原来的第一行成为零头处的半行，位置不变。
     pub(crate) fn terminal_grid(&self) -> Rect {
         let card = self.layout.terminal;
-        let grid = grid_rect(card, self.fonts.line_height);
+        let grid = grid_rect(card, self.fonts.terminal_line_height);
         let below = |tab: &TermTab| tab.view_top() > 0 && !tab.modes.has(Modes::ALT_SCREEN);
         if self.terminal.tab().is_some_and(below) {
             return grid;
@@ -35,14 +35,14 @@ impl App {
             return (0, top);
         };
         let scale = (self.renderer.as_ref()).map_or(1.0, winc_render::Renderer::scale_factor);
-        let y = top - cut * self.fonts.line_height;
+        let y = top - cut * self.fonts.terminal_line_height;
         (first, (y * scale).round() / scale)
     }
 
     /// 吸顶行露出的区域：紧贴标签栏，被下一条命令的提示符顶上去时变矮。
     pub(crate) fn terminal_sticky_band(&self) -> Rect {
         let card = self.layout.terminal;
-        let lh = self.fonts.line_height;
+        let lh = self.fonts.terminal_line_height;
         let push = self.terminal.tab().map_or(0.0, TermTab::sticky_push);
         Rect::new(
             card.x,
@@ -236,9 +236,13 @@ impl App {
     }
 
     /// 关掉终端模块：辅助进程连同里面的 shell 一起结束，面板收起。
+    ///
+    /// 保留面板高度和检测到的 shell；后者与面板无关，设置中的「默认 Shell」菜单仍需列出。
     pub(crate) fn stop_terminal(&mut self) {
         self.terminal = TerminalPanel {
             height: self.terminal.height,
+            shells: std::mem::take(&mut self.terminal.shells),
+            shells_detected: self.terminal.shells_detected,
             ..TerminalPanel::default()
         };
         if self.focus.in_terminal() {
@@ -257,9 +261,9 @@ impl App {
 
     /// 网格放得下几列几行，以及像素尺寸（物理像素，程序查询时回答它）。
     pub(in crate::app) fn terminal_size(&self) -> Size {
-        let grid = grid_rect(self.layout.terminal, self.fonts.line_height);
-        let cols = (grid.w / self.cell).floor().max(2.0);
-        let rows = (grid.h / self.fonts.line_height).floor().max(1.0);
+        let grid = grid_rect(self.layout.terminal, self.fonts.terminal_line_height);
+        let cols = (grid.w / self.terminal_cell).floor().max(2.0);
+        let rows = (grid.h / self.fonts.terminal_line_height).floor().max(1.0);
         let scale = self
             .renderer
             .as_ref()
@@ -267,8 +271,8 @@ impl App {
         Size {
             cols: cols.min(f32::from(u16::MAX)) as u16,
             rows: rows.min(f32::from(u16::MAX)) as u16,
-            width: (cols * self.cell * scale) as u16,
-            height: (rows * self.fonts.line_height * scale) as u16,
+            width: (cols * self.terminal_cell * scale) as u16,
+            height: (rows * self.fonts.terminal_line_height * scale) as u16,
         }
     }
 
@@ -278,7 +282,7 @@ impl App {
             return;
         }
         let size = self.terminal_size();
-        let slack = grid_slack(self.layout.terminal, self.fonts.line_height);
+        let slack = grid_slack(self.layout.terminal, self.fonts.terminal_line_height);
         for tab in &mut self.terminal.tabs {
             tab.shown = usize::from(size.rows);
             tab.slack = slack;
@@ -689,8 +693,9 @@ pub(super) struct Launch {
 
 /// 返回在目录 `cwd` 新建终端时的启动方式。
 ///
-/// 设置了 `shell` 时运行该命令。在 Windows（`windows`）上且 `cwd` 位于 WSL 发行版中时，进入对应的
-/// 发行版和目录：目录由 `wsl.exe` 的参数指定，进程本身从家目录启动。其余情况运行默认 shell。
+/// 设置了 `shell` 时运行该命令（分词见 [`super::shells::command_words`]）。在 Windows（`windows`）
+/// 上且 `cwd` 位于 WSL 发行版中时，进入对应的发行版和目录：目录由 `wsl.exe` 的参数指定，进程本身
+/// 从家目录启动。其余情况运行默认 shell。
 pub(super) fn launch(shell: Option<&str>, cwd: Vec<u8>, windows: bool) -> Launch {
     // Windows 上 `/` 开头的目录来自 WSL 中的 shell，不是 Windows 程序可用的工作目录。
     let cwd = if windows && cwd.first() == Some(&b'/') {
@@ -698,11 +703,14 @@ pub(super) fn launch(shell: Option<&str>, cwd: Vec<u8>, windows: bool) -> Launch
     } else {
         cwd
     };
-    let mut words = shell.into_iter().flat_map(str::split_whitespace);
+    let mut words = shell
+        .map(super::shells::command_words)
+        .unwrap_or_default()
+        .into_iter();
     if let Some(program) = words.next() {
         return Launch {
-            program: Some(program.as_bytes().to_vec()),
-            args: words.map(|word| word.as_bytes().to_vec()).collect(),
+            program: Some(program.into_bytes()),
+            args: words.map(String::into_bytes).collect(),
             login: !windows,
             cwd,
         };

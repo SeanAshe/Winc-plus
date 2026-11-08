@@ -582,30 +582,47 @@ pub struct ViewFonts {
     pub code: f32,
     /// 编辑区行高；行号与坐标的换算以该值为准。
     pub line_height: f32,
+    /// 终端的字号。
+    pub terminal: f32,
+    /// 终端的行高，算法与编辑区行高相同。
+    pub terminal_line_height: f32,
 }
 
 impl ViewFonts {
-    /// 按配置中的编辑区字号 `code` 和界面字号 `ui` 算出整套度量。
+    /// 按编辑区字号 `code`、界面字号 `ui` 和终端字号 `terminal` 算出整套度量。
     ///
     /// 行高取整到整像素：否则基线会落在半像素位置，相邻两行字形的浓淡不一致。
     ///
     /// 次要文字和徽章与界面字号保持固定的差值（与默认值相同），下限分别为 8 像素和 7 像素。
     /// 不按比例缩放：界面字号为 14 时按比例算出 12.92，字形落不到整像素上，笔画发虚，
     /// 看起来和其他文字粗细不一。
-    pub fn new(code: f32, ui: f32) -> ViewFonts {
+    pub fn new(code: f32, ui: f32, terminal: f32) -> ViewFonts {
+        let line_height = |size: f32| (size * LINE_HEIGHT_RATIO).round().max(8.0);
         ViewFonts {
             ui,
             ui_small: (ui - (UI_FONT - UI_FONT_SMALL)).max(8.0),
             initials: (ui - (UI_FONT - INITIALS_FONT)).max(7.0),
             code,
-            line_height: (code * LINE_HEIGHT_RATIO).round().max(8.0),
+            line_height: line_height(code),
+            terminal,
+            terminal_line_height: line_height(terminal),
         }
+    }
+
+    /// 按 `config` 中的字号算出整套度量，未设置的用默认字号。
+    ///
+    /// 终端字号与编辑区字号互不影响：终端未设置时用编辑区的默认字号 [`CODE_FONT`]，不随编辑区
+    /// 字号变化。
+    pub fn of(config: &winc_config::Config) -> ViewFonts {
+        let code = config.editor_size.unwrap_or(CODE_FONT);
+        let ui = config.ui_size.unwrap_or(UI_FONT);
+        ViewFonts::new(code, ui, config.terminal_size.unwrap_or(CODE_FONT))
     }
 }
 
 impl Default for ViewFonts {
     fn default() -> Self {
-        ViewFonts::new(CODE_FONT, UI_FONT)
+        ViewFonts::new(CODE_FONT, UI_FONT, CODE_FONT)
     }
 }
 
@@ -740,6 +757,20 @@ pub const SETTINGS_BOTTOM: f32 = 24.0;
 pub const SETTINGS_ROW: f32 = 40.0;
 /// 名称下方还有一行说明文字时的行高。
 pub const SETTINGS_ROW_TALL: f32 = 54.0;
+/// 文字、图标类控件（菜单的值、字体名、数值步进、版本号）的底色在可见内容右侧留出的边距。
+///
+/// 可见内容的右缘与组内分隔线的右端对齐，开关、分段控件、按钮这类有底色的控件右缘也对齐到
+/// 该处；悬停底色因此比可见内容向右多出这段边距。
+pub const SETTINGS_GLYPH_PAD: f32 = 8.0;
+/// 「关于」页顶部产品信息一行的高度：上方留白 20、图标、间隔 10、名称一行 28、间隔 2、版本号
+/// 一行 24，下方留白 16。
+pub const SETTINGS_PRODUCT_H: f32 = 164.0;
+/// 「关于」页顶部产品图标的边长（逻辑像素）。
+pub const SETTINGS_LOGO: f32 = 64.0;
+/// 说明文字折成多行时，每多一行增加的行高：说明文字的行距。
+pub const SETTINGS_DESC_LINE: f32 = 18.0;
+/// 说明文字最多折成的行数；更窄时最后一行在末尾截短。
+pub const SETTINGS_DESC_LINES: usize = 3;
 
 /// 组上方标题行的高度（含与组之间的间距）。
 pub const SETTINGS_TITLE: f32 = 26.0;
@@ -788,10 +819,10 @@ pub const DIALOG_BUTTON_W: f32 = 72.0;
 /// 「位置」右端选目录按钮（一个目录图标）的宽度。
 pub const DIALOG_CHANGE_W: f32 = 28.0;
 
-/// 「快捷键」页顶部搜索框的高度（逻辑像素）。
-pub const KEYS_SEARCH_H: f32 = 32.0;
-/// 搜索框右端「录制按键」按钮的边长（逻辑像素）。
-pub const KEYS_RECORD: f32 = 24.0;
+/// 「快捷键」页顶部搜索框的高度（逻辑像素），与分类栏顶部的搜索框相同。
+pub const KEYS_SEARCH_H: f32 = SETTINGS_CONTROL_H;
+/// 搜索框右端「录制按键」按钮的边长（逻辑像素）：上下各离搜索框边缘 3。
+pub const KEYS_RECORD: f32 = KEYS_SEARCH_H - 6.0;
 /// 「快捷键」页列表一行的高度（逻辑像素）。
 pub const KEYS_ROW: f32 = 34.0;
 

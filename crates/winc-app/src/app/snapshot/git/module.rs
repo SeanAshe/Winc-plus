@@ -661,7 +661,7 @@ fn freeze_modules(app: &mut App, on: bool, at: std::time::Duration) {
     // 消失时宽度在内容淡出结束后才开始收起，`at` 从收起开始计时。
     let at = if on { at } else { at + EXIT_FADE };
     let fx = &mut app.module_fx;
-    for p in [&mut fx.commit_tab, &mut fx.terminal_icon, &mut fx.branch] {
+    for p in [&mut fx.commit_tab, &mut fx.terminal, &mut fx.branch] {
         p.track(!on, None);
         p.track(on, Some(Clock::frozen(at, MODULE_FADE)));
     }

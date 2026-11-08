@@ -58,8 +58,8 @@ pub(super) fn serve(app: &mut App, term: &winc_pty::Terminal) {
 pub(super) fn cell_center(app: &App, row: usize, col: usize) -> (f32, f32) {
     let grid = app.terminal_grid();
     (
-        grid.x + (col as f32 + 0.5) * app.cell,
-        grid.y + (row as f32 + 0.5) * app.fonts.line_height,
+        grid.x + (col as f32 + 0.5) * app.terminal_cell,
+        grid.y + (row as f32 + 0.5) * app.fonts.terminal_line_height,
     )
 }
 
@@ -140,11 +140,11 @@ fn the_panel_takes_its_room_from_the_editor_card() {
 
     // 网格放得下的列数行数和面板一致。
     let size = app.terminal_size();
-    let grid = terminal::grid_rect(l.terminal, app.fonts.line_height);
-    assert_eq!(f32::from(size.cols), (grid.w / app.cell).floor());
+    let grid = terminal::grid_rect(l.terminal, app.fonts.terminal_line_height);
+    assert_eq!(f32::from(size.cols), (grid.w / app.terminal_cell).floor());
     assert_eq!(
         f32::from(size.rows),
-        (grid.h / app.fonts.line_height).floor()
+        (grid.h / app.fonts.terminal_line_height).floor()
     );
 
     // 窗口矮到放不下时面板不出现，编辑区保持原样。
@@ -152,6 +152,48 @@ fn the_panel_takes_its_room_from_the_editor_card() {
     app.relayout();
     assert!(app.layout.terminal.h <= l.editor.h + l.terminal.h);
     assert!(app.layout.editor.h >= terminal::EDITOR_MIN);
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_terminal_has_its_own_font_size_and_zoom() {
+    let dir = sample_folder("terminal-font-size");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    show_terminal(&mut app, "");
+    let code = app.fonts.code;
+    // 没有单独设置时用默认字号，与编辑区的默认字号相同。
+    assert_eq!((app.fonts.terminal, code), (CODE_FONT, CODE_FONT));
+    assert_eq!(app.terminal_cell, app.cell);
+    let cols = app.terminal_size().cols;
+
+    // 终端字号变大：网格的列数变少，编辑区不变。
+    app.config.terminal_size = Some(code + 6.0);
+    app.apply_font_sizes();
+    assert!(app.terminal_cell > app.cell);
+    assert!(app.fonts.terminal_line_height > app.fonts.line_height);
+    assert!(app.terminal_size().cols < cols);
+    assert_eq!(app.fonts.code, code);
+
+    // 焦点在终端时改终端字号；⌘0 还原为默认字号。
+    app.focus = Focus::Terminal;
+    app.step_font_size(Some(true));
+    assert_eq!(app.config.terminal_size, Some(code + 7.0));
+    assert_eq!(app.config.editor_size, None);
+    assert!(
+        app.status_message
+            .as_deref()
+            .is_some_and(|m| m.contains("终端字号"))
+    );
+    app.step_font_size(None);
+    assert_eq!(app.config.terminal_size, None);
+    assert_eq!(app.fonts.terminal, code);
+
+    // 焦点在编辑区时只改编辑区字号，终端字号不变。
+    app.focus = Focus::Editor;
+    app.step_font_size(Some(true));
+    assert_eq!(app.config.editor_size, Some(code + 1.0));
+    assert_eq!(app.fonts.terminal, code);
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -385,9 +427,9 @@ fn dragging_selects_and_command_c_copies() {
     // 从第 0 行第 2 格拖到第 1 行第 4 格（按两格之间的缝隙判定）。
     let (x0, y0) = cell_center(&app, 0, 2);
     let (x1, y1) = cell_center(&app, 1, 4);
-    app.on_mouse_move(x0 - app.cell / 2.0, y0);
+    app.on_mouse_move(x0 - app.terminal_cell / 2.0, y0);
     app.on_mouse_down(MouseButton::Left);
-    app.on_mouse_move(x1 + app.cell / 2.0, y1);
+    app.on_mouse_move(x1 + app.terminal_cell / 2.0, y1);
     app.on_mouse_up(MouseButton::Left);
     assert!(press(&mut app, &["term"], Char('c')));
     assert_eq!(app.copied.as_deref(), Some("cargo build\nerror"));
@@ -540,7 +582,7 @@ fn the_panel_keeps_the_dragged_height_without_a_gap_under_the_tabs() {
     let dir = sample_folder("terminal-no-gap");
     let mut app = app_with(&dir.join("short.rs"), false);
     show_terminal(&mut app, "$ ");
-    let line = app.fonts.line_height;
+    let line = app.fonts.terminal_line_height;
     let height = app.layout.terminal.h + (line / 2.0).round();
     app.terminal.height = height;
     app.relayout();
@@ -577,7 +619,7 @@ fn the_wheel_moves_rows_by_pixels_and_clicks_follow_them() {
     let term = add_tab(&mut app, "zsh", &output);
     app.relayout();
     serve(&mut app, &term);
-    let lh = app.fonts.line_height;
+    let lh = app.fonts.terminal_line_height;
 
     // 每次滚动 3 逻辑像素：同一行每次都移动 3 逻辑像素。
     let y_of = |app: &App, row: u64| {
@@ -600,7 +642,7 @@ fn the_wheel_moves_rows_by_pixels_and_clicks_follow_them() {
     let top = app.terminal_view().y;
     assert!(origin < top);
     let line = tab.row_at(first).unwrap().line(tab);
-    let x = app.terminal_view().x + app.cell * 0.5;
+    let x = app.terminal_view().x + app.terminal_cell * 0.5;
     app.on_mouse_move(x, top + 0.5);
     app.on_mouse_down(MouseButton::Left);
     let tab = app.terminal.tab().unwrap();
@@ -691,6 +733,13 @@ fn snapshot_terminal() {
         shoot(&mut app, &format!("terminal-{theme}"));
         app.focus = Focus::Editor;
         shoot(&mut app, &format!("terminal-unfocused-{theme}"));
+
+        // 终端单独的字体和字号，编辑区不变；新标签按新的网格尺寸建立。
+        app.config.terminal_font = Some("Courier New".to_owned());
+        app.config.terminal_size = Some(15.0);
+        app.apply_fonts().unwrap();
+        let _ = add_tab(&mut app, "zsh", screen);
+        shoot(&mut app, &format!("terminal-font-{theme}"));
     }
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -831,7 +880,7 @@ fn dragging_the_divider_resizes_live_without_jumping() {
     app.on_mouse_move(x, y);
     app.on_mouse_down(MouseButton::Left);
     serve(&mut app, &term);
-    let lh = app.fonts.line_height;
+    let lh = app.fonts.terminal_line_height;
     // 网格贴着面板下边：拖的时候最后一行的位置不动（零头留在上面）。
     let bottom = |app: &App| {
         let grid = terminal::grid_rect(app.layout.terminal, lh);
@@ -996,7 +1045,7 @@ fn block_elements_leave_no_gap_between_rows() {
     renderer.draw(|frame| scale = frame.scale());
     paint(&mut app);
     let (x, y) = cell_center(&app, 0, 0);
-    let lh = app.fonts.line_height;
+    let lh = app.fonts.terminal_line_height;
     let image = app.renderer.as_ref().unwrap().image().unwrap();
     let pixel = |y: f32| {
         let (x, y) = ((x * scale) as usize, (y * scale) as usize);
@@ -1025,7 +1074,7 @@ fn the_find_bar_takes_clicks_and_closes() {
 
     // 和第一行垂直居中，高度与标签相同。
     let bar = app.terminal_find_bar().unwrap();
-    let row = app.terminal_view().y + app.fonts.line_height / 2.0;
+    let row = app.terminal_view().y + app.fonts.terminal_line_height / 2.0;
     assert_eq!(bar.y + bar.h / 2.0, row);
     assert_eq!(bar.h, crate::theme::TAB_HEIGHT);
 
@@ -1442,7 +1491,7 @@ fn the_current_match_shows_above_the_selection() {
         paint(app);
         // 第一格左下角：字形碰不到的地方，只有底色。
         let grid = app.terminal_grid();
-        let (x, y) = (grid.x + 0.5, grid.y + app.fonts.line_height - 1.0);
+        let (x, y) = (grid.x + 0.5, grid.y + app.fonts.terminal_line_height - 1.0);
         let image = app.renderer.as_ref().unwrap().image().unwrap();
         image.pixels[(y * scale) as usize * image.width as usize + (x * scale) as usize]
     };
@@ -1574,7 +1623,7 @@ fn option_click_moves_the_shell_cursor_at_the_prompt() {
 
     // 光标在第 9 格（行尾），点第 2 格：左移 7 次。
     let (x, y) = cell_center(&app, 0, 2);
-    app.on_mouse_move(x - app.cell / 2.0 + 0.5, y);
+    app.on_mouse_move(x - app.terminal_cell / 2.0 + 0.5, y);
     app.on_mouse_down(winit::event::MouseButton::Left);
     app.on_mouse_up(winit::event::MouseButton::Left);
     assert_eq!(inputs(&app).concat(), b"\x1b[D".repeat(7));
@@ -1621,7 +1670,7 @@ fn the_find_bar_does_not_cover_the_current_match() {
     let bar = app.terminal_find_bar().unwrap();
     let (first, origin) = app.terminal_origin();
     let display = app.terminal.tab().unwrap().display_of(line);
-    let y = origin + (display - first) as f32 * app.fonts.line_height;
+    let y = origin + (display - first) as f32 * app.fonts.terminal_line_height;
     assert!(y >= bar.bottom(), "{y} 被盖住，查找条下沿 {}", bar.bottom());
 }
 

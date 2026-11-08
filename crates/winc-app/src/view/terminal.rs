@@ -2,9 +2,9 @@
 //! 光标、输入法组字、查找条；有 shell 集成时还有命令块：色带、时长和退出码、折起的输出、
 //! 吸顶的命令行。
 //!
-//! 网格直接用编辑区的等宽排版（每格宽 `app.cell`、每行高 `line_height`，字形缓存共用）：一行先画
-//! 所有样式段的底色，再画选区和查找的底色，最后画字和下划线，宽字符不会被后一段的底色盖住；对比度
-//! 不够时按 `terminal.minimumContrast` 调整。
+//! 网格按终端字体等宽排版（每格宽 `app.terminal_cell`、每行高 `terminal_line_height`，字形缓存
+//! 与编辑区共用）：一行先画所有样式段的底色，再画选区和查找的底色，最后画字和下划线，宽字符不会
+//! 被后一段的底色盖住；对比度不够时按 `terminal.minimumContrast` 调整。
 
 mod grid;
 
@@ -60,7 +60,7 @@ fn draw_panel(app: &mut App, frame: &mut Frame<'_>) {
 
     let grid = app.terminal_grid();
     if let Some(error) = &app.terminal.error {
-        let row = Rect::new(grid.x, grid.y, grid.w, app.fonts.line_height);
+        let row = Rect::new(grid.x, grid.y, grid.w, app.fonts.terminal_line_height);
         ui_text(frame, app, grid.x, row, error, p.error, grid);
         return;
     }
@@ -75,8 +75,8 @@ fn draw_panel(app: &mut App, frame: &mut Frame<'_>) {
         return;
     };
 
-    let (cell, lh) = (app.cell, app.fonts.line_height);
-    let (ascent, descent) = (app.mono_metrics.ascent, app.mono_metrics.descent);
+    let (cell, lh) = (app.terminal_cell, app.fonts.terminal_line_height);
+    let (ascent, descent) = (app.terminal_metrics.ascent, app.terminal_metrics.descent);
     let colors = Colors {
         p,
         reverse: tab.modes.has(Modes::REVERSE),
@@ -345,8 +345,8 @@ fn draw_outcome(
     let time_w = duration.as_deref().map_or(0.0, |d| measure(frame, d) + 8.0);
     let w = icon + code_w + time_w;
     let x = row.right() - w - 4.0;
-    let used = cells(line.trimmed()).map(|(_, w)| w).sum::<usize>() as f32 * app.cell;
-    if row.x + used + 2.0 * app.cell > x {
+    let used = cells(line.trimmed()).map(|(_, w)| w).sum::<usize>() as f32 * app.terminal_cell;
+    if row.x + used + 2.0 * app.terminal_cell > x {
         return;
     }
     let center = (x + icon / 2.0, row.y + row.h / 2.0);
@@ -379,7 +379,7 @@ fn draw_sticky(
 ) {
     let p = app.palette;
     let grid = app.terminal_grid();
-    let lh = app.fonts.line_height;
+    let lh = app.fonts.terminal_line_height;
     let block = &tab.blocks[index];
     // 紧贴标签栏；下一条命令的提示符上来时文字随底色的下沿一起往上走。
     let band = app.terminal_sticky_band();
@@ -400,7 +400,11 @@ fn draw_sticky(
         let bar = Rect::new(card.x + BAND_X, row.y + 2.0, MARK_W, lh - 4.0);
         frame.rect_clipped(bar, color, 0.0, band);
     }
-    let baseline = baseline_in(row, app.mono_metrics.ascent, app.mono_metrics.descent);
+    let baseline = baseline_in(
+        row,
+        app.terminal_metrics.ascent,
+        app.terminal_metrics.descent,
+    );
     match tab.sticky_line(index) {
         Some(line) => {
             draw_line(app, frame, colors, line, row, baseline, &[], clip);
@@ -871,7 +875,7 @@ fn draw_find_marks(
     /// 标记的宽和高（逻辑像素）：宽度小于滚动条滑块，高度保证 1× 屏幕上至少 2 个物理像素。
     const MARK_SIZE: (f32, f32) = (4.0, 2.0);
     let p = app.palette;
-    let lh = app.fonts.line_height;
+    let lh = app.fonts.terminal_line_height;
     let content = (tab.display_len() as f32 * lh).max(view.h).max(1.0);
     let x = card.right() - 2.0 - MARK_SIZE.0;
     let mark = |frame: &mut Frame<'_>, at: usize, color: Color| {

@@ -31,10 +31,10 @@ VIAddVersionKey /LANG=1033 "LegalCopyright" "DEEIX"
 !insertmacro MUI_LANGUAGE "English"
 !insertmacro MUI_LANGUAGE "SimpChinese"
 
-; Adds winc to "Open with" for these types. winc never becomes the default program, but once it
-; is listed Windows may ask which program to use the next time such a file is opened. That is why
-; types Windows runs on double-click (BAT, CMD and the like) are not listed: the question replaces
-; running the script. Keep this list the same as FileTypes in installer.wxs.
+; Types winc can open, listed under Applications\winc.exe\SupportedTypes: winc appears in
+; "Open with" > "Choose another app" for them. Nothing is written under the types themselves, so
+; Windows keeps their default program and icon and does not ask which program to use; scripts still
+; run on double-click. Keep this list the same as FileTypes in installer.wxs.
 ; Registry keys ignore case; upper case gives the "JSON File" name the shell shows for a type.
 !macro ForEachFileType Action
   !insertmacro ${Action} ASTRO
@@ -121,18 +121,27 @@ VIAddVersionKey /LANG=1033 "LegalCopyright" "DEEIX"
   !insertmacro ${Action} CMD
 !macroend
 
+; The winc.<type> ProgID is not listed under any type. Earlier versions listed it in the type's
+; OpenWithProgids, and a user who then chose winc as the default program has a choice that names
+; this ProgID; keeping it keeps that choice working.
 !macro RegisterFileType Type
-  WriteRegStr HKCU "Software\Classes\.${Type}\OpenWithProgids" "winc.${Type}" ""
+  WriteRegStr HKCU "Software\Classes\Applications\winc.exe\SupportedTypes" ".${Type}" ""
   WriteRegStr HKCU "Software\Classes\winc.${Type}" "" "${Type} File"
   WriteRegStr HKCU "Software\Classes\winc.${Type}\DefaultIcon" "" "$INSTDIR\winc.exe,0"
   WriteRegStr HKCU "Software\Classes\winc.${Type}\shell\open\command" "" '"$INSTDIR\winc.exe" "%1"'
 !macroend
 
-!macro UnregisterFileType Type
+; Removes the entry earlier versions added to the type's OpenWithProgids. A new handler listed there
+; makes Windows ask which program to use the next time such a file is opened.
+!macro UnlistFileType Type
   DeleteRegValue HKCU "Software\Classes\.${Type}\OpenWithProgids" "winc.${Type}"
-  DeleteRegKey HKCU "Software\Classes\winc.${Type}"
   DeleteRegKey /ifempty HKCU "Software\Classes\.${Type}\OpenWithProgids"
   DeleteRegKey /ifempty HKCU "Software\Classes\.${Type}"
+!macroend
+
+!macro UnregisterFileType Type
+  !insertmacro UnlistFileType ${Type}
+  DeleteRegKey HKCU "Software\Classes\winc.${Type}"
 !macroend
 
 ; SHCNE_ASSOCCHANGED: the shell refreshes its icons and "Open with" lists.

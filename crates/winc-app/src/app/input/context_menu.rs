@@ -154,7 +154,20 @@ pub enum MenuCommand {
     /// 设置中「空白符」菜单的一项，参数为
     /// [`RenderWhitespace::ALL`](winc_config::RenderWhitespace::ALL) 中的序号（从 0 起）。
     Whitespace(usize),
-    /// 设置中字体菜单的「系统默认」。
+    /// 设置中「默认 Shell」菜单的一项：`None` 为系统默认，`Some(i)` 为检测到的第 `i` 个 shell
+    /// （从 0 起）。
+    DefaultShell(Option<usize>),
+    /// 设置中「默认 Shell」菜单的「自定义命令…」，进入输入框。
+    DefaultShellCustom,
+    /// 设置中「界面缩放」菜单的一项，参数为 [`ZOOM_STEPS`](crate::app::settings::ZOOM_STEPS)
+    /// 中的序号（从 0 起）。
+    Zoom(usize),
+    /// 设置中终端「位置」菜单的一项：`true` 为右侧，`false` 为底部。
+    TerminalPosition(bool),
+    /// 设置中「Meta 键」菜单的一项，参数为
+    /// [`OptionAsMeta::ALL`](winc_config::OptionAsMeta::ALL) 中的序号（从 0 起）。
+    OptionAsMeta(usize),
+    /// 设置中字体菜单的「系统默认」（终端字体为「跟随编辑器」）。
     FontDefault,
     /// 设置中字体菜单的一项，参数为 [`winc_render::installed_fonts`] 中的序号（从 0 起）。
     Font(usize),
@@ -361,8 +374,17 @@ impl MenuCommand {
             | MenuCommand::ShowTab(_)
             | MenuCommand::RunSelect(_)
             | MenuCommand::NewTerminalShell(_)
+            | MenuCommand::DefaultShell(Some(_))
+            | MenuCommand::Zoom(_)
             | MenuCommand::TerminalDock
             | MenuCommand::OpenRecentInNewWindow(_) => "",
+            MenuCommand::DefaultShell(None) => t!("settings-terminal-shell-default"),
+            MenuCommand::DefaultShellCustom => t!("settings-terminal-shell-custom"),
+            MenuCommand::TerminalPosition(false) => t!("settings-terminal-position-bottom"),
+            MenuCommand::TerminalPosition(true) => t!("settings-terminal-position-right"),
+            MenuCommand::OptionAsMeta(i) => winc_config::OptionAsMeta::ALL
+                .get(i)
+                .map_or("", |&choice| crate::layout::option_as_meta_label(choice)),
             MenuCommand::NewWorktree => t!("menu-new-worktree"),
             MenuCommand::LocationNewWindow => t!("git-location-new-window"),
             MenuCommand::LocationRemove => t!("git-location-remove"),
@@ -586,6 +608,14 @@ pub enum MenuTarget {
     Locale,
     /// 设置的编辑器页中的「空白符」。
     Whitespace,
+    /// 设置的外观页中的「界面缩放」。
+    Zoom,
+    /// 设置的终端页中的「默认 Shell」。
+    DefaultShell,
+    /// 设置的终端页中的「位置」。
+    TerminalPosition,
+    /// 设置的终端页中的「Meta 键」。
+    OptionAsMeta,
     /// 设置中字体一行的下拉按钮。
     Font(Setting),
     /// 设置的格式化页中一种语言的格式化（修复）工具。

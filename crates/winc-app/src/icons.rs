@@ -155,6 +155,17 @@ pub fn up_down(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: 
     frame.stroke(&lines, CHEVRON_STROKE, color, clip);
 }
 
+/// 绘制外链箭头，9×9：指向右上方的箭头，表示在浏览器中打开。
+pub fn external(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let r = 3.5;
+    let lines = [
+        Stroke::Line(cx - r, cy + r, cx + r, cy - r),
+        Stroke::Line(cx - 1.0, cy - r, cx + r, cy - r),
+        Stroke::Line(cx + r, cy - r, cx + r, cy + 1.0),
+    ];
+    frame.stroke(&lines, CHEVRON_STROKE, color, clip);
+}
+
 /// 绘制提醒图标，12×11：三角形内一个感叹号。
 pub fn warning(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
     let (top, bottom, half) = (cy - 5.0, cy + 4.5, 5.5);

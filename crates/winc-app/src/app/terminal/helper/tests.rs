@@ -161,4 +161,12 @@ fn the_shell_setting_takes_priority() {
     // 仅含空白的值视为未设置。
     let (program, _, _) = launched(Some("   "), "/work", false);
     assert_eq!(program, None);
+    // 双引号括起的路径不拆开。
+    let shell = r#""C:\Program Files\Git\bin\bash.exe" --login -i"#;
+    let (program, args, _) = launched(Some(shell), r"C:\work", true);
+    assert_eq!(
+        program.as_deref(),
+        Some(r"C:\Program Files\Git\bin\bash.exe")
+    );
+    assert_eq!(args, ["--login", "-i"]);
 }

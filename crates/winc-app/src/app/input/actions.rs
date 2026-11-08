@@ -67,7 +67,10 @@ impl App {
         match action {
             ShowCommands => self.toggle_palette(),
             QuickOpen => {
-                if self.picker_open && !self.picker_lists_commands() && !self.picker_lists_symbols()
+                if self.picker_open
+                    && !self.picker_lists_commands()
+                    && !self.picker_lists_symbols()
+                    && !self.picker_folders
                 {
                     self.close_picker();
                 } else {
@@ -98,6 +101,7 @@ impl App {
             NewWindow => self.new_window(None),
             OpenFile => self.pick(Pick::Open),
             OpenFolder => self.pick(Pick::OpenFolder),
+            OpenRecent => self.open_recent_folders(),
             Save => self.save_active(),
             SaveAs => {
                 if let Some(id) = self.editor.active().map(|d| d.id) {
@@ -314,9 +318,12 @@ impl App {
             ToggleSidebar => self.toggle_sidebar(),
             FocusSidebar => self.focus_sidebar(),
             ShowFiles => self.show_files(),
-            ZoomIn => self.zoom(Some(true)),
-            ZoomOut => self.zoom(Some(false)),
-            ResetZoom => self.zoom(None),
+            IncreaseFontSize => self.step_font_size(Some(true)),
+            DecreaseFontSize => self.step_font_size(Some(false)),
+            ResetFontSize => self.step_font_size(None),
+            ZoomIn => self.step_zoom(Some(true)),
+            ZoomOut => self.step_zoom(Some(false)),
+            ResetZoom => self.step_zoom(None),
             ThemeAuto => self.set_theme_choice(ThemeChoice::Auto),
             ThemeLight => self.set_theme_choice(ThemeChoice::Light),
             ThemeDark => self.set_theme_choice(ThemeChoice::Dark),

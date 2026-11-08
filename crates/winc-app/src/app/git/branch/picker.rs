@@ -53,6 +53,8 @@ pub enum PickerPart {
     NewBranch,
     /// 底栏的「新建工作树」。
     NewWorktree,
+    /// 最近目录列表第几行行尾的「✕」：从最近列表中移除该目录。
+    ForgetFolder(usize),
 }
 
 /// 选择面板最小、最大的宽度（逻辑像素）：平时和 Git 上下文的行一样宽，两边对齐。最小宽度放得下
@@ -587,6 +589,7 @@ impl App {
                 self.close_picker();
                 self.open_worktree_dialog();
             }
+            PickerPart::ForgetFolder(row) => self.forget_picker_folder(row),
         }
         self.request_redraw();
     }
@@ -672,6 +675,7 @@ impl App {
         self.finish_name_input();
         self.picker_places = None;
         self.picker_location_rows = None;
+        self.picker_folders = false;
         self.picker_anchor = anchor;
         self.picker_open = true;
         self.picker_doc = self.editor.active().map(|d| d.id);

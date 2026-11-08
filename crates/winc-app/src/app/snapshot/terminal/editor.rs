@@ -744,9 +744,9 @@ fn the_terminal_menu_maximizes_and_the_options_apply() {
     app.copied = None;
     app.config.terminal_copy_on_select = Some(true);
     let (from, to) = (cell_center(&app, 1, 0), cell_center(&app, 1, 1));
-    app.on_mouse_move(from.0 - app.cell / 2.0 + 0.5, from.1);
+    app.on_mouse_move(from.0 - app.terminal_cell / 2.0 + 0.5, from.1);
     app.on_mouse_down(MouseButton::Left);
-    app.on_mouse_move(to.0 + app.cell / 2.0 - 0.5, to.1);
+    app.on_mouse_move(to.0 + app.terminal_cell / 2.0 - 0.5, to.1);
     app.on_mouse_up(MouseButton::Left);
     assert_eq!(app.copied.as_deref(), Some("hi"));
 

@@ -20,12 +20,14 @@ mod settings;
 #[cfg(test)]
 mod tests;
 mod workspace;
+mod wrap;
 
 pub use dialog::*;
 pub use overlays::*;
 pub use settings::*;
 pub use workspace::panel::*;
 pub use workspace::sidebar::*;
+pub use wrap::wrap_text;
 
 /// 窗口各主要区域的矩形，由 [`Layout::compute`] 生成。
 #[derive(Debug, Clone, Copy, Default)]

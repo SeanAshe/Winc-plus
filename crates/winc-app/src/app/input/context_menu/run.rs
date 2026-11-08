@@ -141,6 +141,37 @@ impl App {
                     self.set_render_whitespace(choice);
                 }
             }
+            MenuTarget::DefaultShell => match command {
+                MenuCommand::DefaultShell(None) => self.set_terminal_shell(None),
+                MenuCommand::DefaultShell(Some(i)) => {
+                    if let Some(shell) = self.terminal.shells.get(i) {
+                        self.set_terminal_shell(Some(shell.command.clone()));
+                    }
+                }
+                MenuCommand::DefaultShellCustom => {
+                    self.settings_start_editing(Setting::TerminalShell)
+                }
+                _ => {}
+            },
+            MenuTarget::Zoom => {
+                if let MenuCommand::Zoom(i) = command
+                    && let Some(&zoom) = crate::app::settings::ZOOM_STEPS.get(i)
+                {
+                    self.set_zoom(zoom);
+                }
+            }
+            MenuTarget::TerminalPosition => {
+                if let MenuCommand::TerminalPosition(right) = command {
+                    self.set_terminal_position(right);
+                }
+            }
+            MenuTarget::OptionAsMeta => {
+                if let MenuCommand::OptionAsMeta(i) = command
+                    && let Some(&choice) = winc_config::OptionAsMeta::ALL.get(i)
+                {
+                    self.set_option_as_meta(choice);
+                }
+            }
             MenuTarget::Font(setting) => match command {
                 MenuCommand::FontDefault => self.settings_choose_font(setting, None),
                 MenuCommand::Font(i) => {

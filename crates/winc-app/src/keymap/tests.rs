@@ -67,6 +67,23 @@ fn every_action_is_listed_once_in_order() {
 }
 
 #[test]
+fn zoom_keys_are_separate_from_font_size_and_work_in_the_terminal() {
+    let (ctrl, shift, alt) = (Mods::CTRL, Mods::SHIFT, Mods::ALT);
+    for (os, mods) in [
+        (Os::Mac, ctrl | alt),
+        (Os::Windows, alt | shift),
+        (Os::Linux, ctrl | alt | shift),
+    ] {
+        for context in [Context::Editor, Context::Terminal] {
+            let run = |key| runs(os, mods, KeyCode::Char(key), context);
+            assert_eq!(run('='), Some(Action::ZoomIn), "{os:?}");
+            assert_eq!(run('-'), Some(Action::ZoomOut), "{os:?}");
+            assert_eq!(run('0'), Some(Action::ResetZoom), "{os:?}");
+        }
+    }
+}
+
+#[test]
 fn default_key_labels_per_system() {
     let (cmd, ctrl, shift, alt) = (Mods::META, Mods::CTRL, Mods::SHIFT, Mods::ALT);
     let label = |os: Os, action: Action| {
@@ -129,6 +146,8 @@ fn default_key_labels_per_system() {
     assert_eq!(label(Os::Windows, Action::CloseTab), ["Ctrl+F4", "Ctrl+W"]);
     assert!(label(Os::Mac, Action::OpenFolder).is_empty());
     assert_eq!(label(Os::Linux, Action::OpenFolder), ["Ctrl+K Ctrl+O"]);
+    assert_eq!(label(Os::Mac, Action::OpenRecent), ["⌃R"]);
+    assert_eq!(label(Os::Windows, Action::OpenRecent), ["Ctrl+R"]);
     assert_eq!(label(Os::Mac, Action::NextTab), ["⌥⌘→", "⇧⌘]"]);
     assert!(label(Os::Windows, Action::Quit).is_empty());
     assert_eq!(label(Os::Mac, Action::JoinLines), ["⌃J"]);
@@ -185,6 +204,14 @@ fn default_key_labels_per_system() {
         None
     );
 
+    // ⌃R（其他系统上 Ctrl+R）打开最近的目录；终端里交给 shell，用于反向搜索历史。
+    for os in ALL_OS {
+        let ctrl_r = |context| runs(os, Mods::CTRL, KeyCode::Char('r'), context);
+        assert_eq!(ctrl_r(Context::Editor), Some(Action::OpenRecent));
+        assert_eq!(ctrl_r(Context::Other), Some(Action::OpenRecent));
+        assert_eq!(ctrl_r(Context::Terminal), None);
+    }
+
     // 同一个键在不同的地方。
     assert_eq!(
         runs(Os::Mac, cmd | alt, KeyCode::Char('c'), Context::Find),
@@ -221,7 +248,7 @@ fn default_key_labels_per_system() {
     // ⌘- 缩小字号，⌃- 后退；Linux 上 Ctrl+- 缩小字号，Ctrl+⇧- 前进。
     assert_eq!(
         runs(Os::Mac, cmd, KeyCode::Char('-'), Context::Editor),
-        Some(Action::ZoomOut)
+        Some(Action::DecreaseFontSize)
     );
     assert_eq!(
         runs(Os::Mac, ctrl, KeyCode::Char('-'), Context::Editor),

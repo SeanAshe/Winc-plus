@@ -102,6 +102,7 @@ impl App {
         self.finish_name_input();
         self.picker_places = None;
         self.picker_branch_rows = None;
+        self.picker_folders = false;
         self.picker_anchor = GitAnchor::Location;
         self.picker_open = true;
         self.picker_doc = self.editor.active().map(|d| d.id);

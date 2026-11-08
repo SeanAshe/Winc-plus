@@ -160,6 +160,13 @@ workspace-picker-recently-used = 最近使用
 workspace-picker-symbols-too-large = 文件过大，无法列出符号
 workspace-picker-no-symbols = 此文件中未找到符号
 workspace-picker-no-matching-symbols = 没有匹配的符号
+workspace-picker-folders-placeholder = 按目录名或路径查找…
+workspace-picker-folders-new-window = { $platform ->
+    [macos] ⌥↩
+   *[other] Alt+Enter
+} 在新窗口中打开
+workspace-picker-no-recent-folders = 没有最近打开的目录
+workspace-picker-no-matching-folders = 没有匹配的目录
 workspace-conflict-modified = 「{ $name }」已被其他程序修改
 
 ## 悬停提示

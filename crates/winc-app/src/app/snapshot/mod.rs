@@ -105,10 +105,8 @@ fn blank_app(dark: bool) -> App {
 
     let renderer =
         Renderer::offscreen(SIZE.0, SIZE.1, SCALE, palette.frame_bg, None, None).unwrap();
-    app.ui_metrics = renderer.metrics(FontKind::Ui, app.fonts.ui);
-    app.mono_metrics = renderer.metrics(FontKind::Mono, app.fonts.code);
-    app.cell = app.mono_metrics.cell;
     app.renderer = Some(renderer);
+    app.measure_fonts();
     app.relayout();
     app
 }
@@ -254,11 +252,14 @@ fn settings_point(app: &App, part: SettingsPart) -> (f32, f32) {
     let layout = app.settings_layout();
     let rect = match part {
         SettingsPart::Close => layout.close,
+        SettingsPart::SearchField => layout.search,
         SettingsPart::Page(page) => layout.pages.iter().find(|(p, _)| *p == page).unwrap().1,
-        SettingsPart::Field(s)
-        | SettingsPart::Switch(s)
-        | SettingsPart::Action(s)
-        | SettingsPart::Copy(s) => layout.row(s).unwrap().control,
+        SettingsPart::Field(s) | SettingsPart::Switch(s) | SettingsPart::Action(s) => {
+            layout.row(s).unwrap().control
+        }
+        SettingsPart::Copy(s) | SettingsPart::Link(s) => {
+            app.settings_value_area(&layout, s).unwrap()
+        }
         SettingsPart::FontMenu(s) => {
             crate::layout::font_menu_button(layout.row(s).unwrap().control)
         }
