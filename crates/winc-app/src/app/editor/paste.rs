@@ -26,6 +26,19 @@ impl App {
         }
     }
 
+    /// 把剪贴板中的图片存到临时目录 `winc-paste`，返回新文件的路径。没有图片时返回 `None`。
+    ///
+    /// 终端里的程序读不到剪贴板图片，粘贴时把这个路径发给它。文件名为 `image.png`，重名时
+    /// 依次加 `-1`、`-2`，不覆盖已有文件。
+    pub(in crate::app) fn clipboard_image_file(&mut self) -> Option<std::io::Result<PathBuf>> {
+        let png = self.clipboard_png()?;
+        let dir = std::env::temp_dir().join("winc-paste");
+        if let Err(error) = std::fs::create_dir_all(&dir) {
+            return Some(Err(error));
+        }
+        Some(paste::save_image(&dir, &png))
+    }
+
     /// 返回剪贴板中的图片，编码为 PNG；没有时返回 `None`。
     ///
     /// macOS 上直接取出剪贴板中的 PNG（只有 TIFF 时由系统转换）；其他平台上 arboard 给出 RGBA

@@ -25,7 +25,9 @@ use animation::{
     EXIT_FADE, FOLD_ANIMATION, PICKER_ANIMATION, POPUP_IN, POPUP_OUT, SIDEBAR_ANIMATION, TAB_SLIDE,
     TREE_ANIMATION,
 };
-pub(crate) use diff::{DIFF_TEXT_PAD, DiffParts, DiffTarget, HunkKind, diff_parts};
+pub(crate) use diff::{
+    DIFF_TEXT_PAD, DiffParts, DiffTarget, HunkKind, diff_max_scroll_x, diff_parts,
+};
 pub use editor::conflict::{ConflictAction, OverwriteChoice};
 pub use editor::editing::BraceKey;
 pub use editor::editing::ScrollGlide;
@@ -57,6 +59,7 @@ pub use lifecycle::title_bar::WindowControl;
 pub(crate) use lifecycle::title_bar::resize_cursor;
 use lifecycle::window::frame_interval;
 pub use settings::{DialogCache, SettingsState};
+pub(crate) use settings::UpdateClick;
 pub use status::motion::{StatusEntry, StatusKey, StatusMotion};
 pub use status::status_bar::{StatusItem, indent_label};
 pub use workspace::file_drop::DropZone;

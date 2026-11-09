@@ -918,6 +918,7 @@ fn measure_settings_motion() {
 
 #[test]
 fn the_about_page_shows_the_version_and_the_update_state() {
+    use crate::app::UpdateClick;
     use crate::winc::UpdateState;
 
     let dir = sample_folder("settings-about");
@@ -951,15 +952,22 @@ fn the_about_page_shows_the_version_and_the_update_state() {
     );
     assert_eq!(app.settings.selected, Setting::Version);
 
-    // 当前版本不检查更新时按钮点了没有反应；能检查时点了交给 Sparkle（测试里不启用）。
-    assert!(!app.can_check_updates());
+    // 当前版本不检查更新时按钮点了没有反应。找到新版本后与状态栏相同：下载安装，
+    // 完成后重新启动；正在检查或下载时点了没有反应。
+    assert_eq!(app.update_click(), UpdateClick::None);
     click_part(&mut app, SettingsPart::Action(Setting::Updates));
     assert_eq!(app.settings.selected, Setting::Updates);
     assert!(app.context_menu.is_none());
-    *app.shared.update_state.borrow_mut() = UpdateState::Found("0.1.400".into());
-    assert!(app.can_check_updates());
-    *app.shared.update_state.borrow_mut() = UpdateState::Checking;
-    assert!(!app.can_check_updates());
+    let click = |app: &mut App, state| {
+        *app.shared.update_state.borrow_mut() = state;
+        app.update_click()
+    };
+    assert_eq!(click(&mut app, UpdateState::Idle), UpdateClick::Check);
+    assert_eq!(click(&mut app, UpdateState::Found("0.1.400".into())), UpdateClick::Install);
+    assert_eq!(click(&mut app, UpdateState::Downloading("0.1.400".into(), 40)), UpdateClick::None);
+    assert_eq!(click(&mut app, UpdateState::Ready("0.1.400".into())), UpdateClick::Restart);
+    assert_eq!(click(&mut app, UpdateState::InstallFailed("disk".into())), UpdateClick::Install);
+    assert_eq!(click(&mut app, UpdateState::Checking), UpdateClick::None);
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

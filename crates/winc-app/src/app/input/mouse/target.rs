@@ -392,7 +392,7 @@ impl App {
             return Some((Scrollbar::Editor, grab(y, thumb.y, thumb.h)));
         }
 
-        let track = self.text_hscroll_track();
+        let track = self.hscroll_track();
         if track.contains(x, y)
             && y >= track.bottom() - SCROLLBAR_HIT
             && let Some(thumb) = hscrollbar_thumb(track, doc.scroll_x, self.text_content_w)

@@ -398,16 +398,8 @@ impl App {
         };
         doc.scroll_line = doc.scroll_line.clamp(0.0, max_scroll);
         if let Some(view) = doc.diff.as_deref() {
-            if view.is_wrapping() {
-                doc.scroll_x = 0.0;
-                return;
-            }
             // 差异的两侧共用一个横向滚动位置，按两侧最长的一行、半个编辑区宽的文字区限制。
-            let text_w = crate::app::diff_parts(self.layout.editor, view, cell).panes[1]
-                .text
-                .w;
-            let widest = view.widest(tab_width) as f32 * cell;
-            let max_x = (widest - text_w + crate::app::DIFF_TEXT_PAD + cell * 8.0).max(0.0);
+            let max_x = crate::app::diff_max_scroll_x(self.layout.editor, view, cell, tab_width);
             doc.scroll_x = doc.scroll_x.clamp(0.0, max_x);
             return;
         }
@@ -420,6 +412,18 @@ impl App {
         if let Some(doc) = self.editor.active_mut() {
             doc.scroll_x = doc.scroll_x.clamp(0.0, max_x);
         }
+    }
+
+    /// 返回当前文档水平滚动条的轨道。
+    ///
+    /// 差异视图是标题栏以下的正文，两侧共用这一根，右端让出竖直滚动条。其余情况与
+    /// [`Self::text_hscroll_track`] 相同。
+    pub(crate) fn hscroll_track(&self) -> Rect {
+        if self.editor.active().is_some_and(|d| d.diff.is_some()) {
+            let body = self.scroll_track();
+            return Rect::new(body.x, body.y, (body.w - SCROLLBAR_HIT).max(0.0), body.h);
+        }
+        self.text_hscroll_track()
     }
 
     /// 返回编辑区水平滚动条的轨道：文字区，右端让出竖直滚动条。
@@ -636,7 +640,7 @@ impl App {
     /// 粘贴剪贴板内容。
     ///
     /// 焦点在输入框时插入文本；在编辑区时粘贴文件、文本或图片，在文件树中粘贴文件或图片
-    /// （见 `paste` 模块）。
+    /// （见 `paste` 模块）。终端里没有文本、有图片时，把图片存成临时文件并粘贴路径。
     pub(in crate::app) fn paste(&mut self) {
         match self.focus {
             focus if focus.is_field() => {

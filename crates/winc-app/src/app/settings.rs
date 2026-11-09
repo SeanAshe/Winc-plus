@@ -171,6 +171,34 @@ fn font_error(value: &Option<String>) -> Option<String> {
 /// 100% 附近每档 10%，便于微调；更大的倍数每档 25%，较少几次即可放大到上限。
 pub(crate) const ZOOM_STEPS: [u16; 9] = [70, 80, 90, 100, 110, 125, 150, 175, 200];
 
+/// 「关于」页更新按钮这次点击该做什么，与状态栏上的更新按钮一致。
+///
+/// 还没找到新版本时检查；找到之后下载安装；已经准备好时重新启动。正在检查或下载时不响应。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum UpdateClick {
+    /// 不支持更新，或正在检查、下载。
+    None,
+    /// 检查有没有新版本。
+    Check,
+    /// 下载并安装上次找到的版本；安装失败时也是再试一次。
+    Install,
+    /// 重新启动以完成更新。
+    Restart,
+}
+
+impl UpdateClick {
+    /// 由当前的更新状态 `state` 得出按钮该做的事。
+    pub(crate) fn from_state(state: &crate::winc::UpdateState) -> Self {
+        use crate::winc::UpdateState;
+        match state {
+            UpdateState::Off | UpdateState::Checking | UpdateState::Downloading(..) => Self::None,
+            UpdateState::Ready(_) => Self::Restart,
+            UpdateState::Found(_) | UpdateState::InstallFailed(_) => Self::Install,
+            UpdateState::Idle | UpdateState::Latest | UpdateState::Failed => Self::Check,
+        }
+    }
+}
+
 /// 把 `value` 加 1（`up` 为 `true`）或减 1，结果限制在 `range` 之内。
 fn step(value: f32, up: bool, range: RangeInclusive<f32>) -> f32 {
     let next = if up { value + 1.0 } else { value - 1.0 };
@@ -649,30 +677,32 @@ impl App {
         }
     }
 
-    /// 处理「关于」页「检查更新」项的点击：macOS 上由 Sparkle 弹出更新窗口，其他平台在后台
-    /// 检查更新，结果显示在该页和状态栏上。
+    /// 处理「关于」页更新按钮的点击，和状态栏上的更新按钮做同一件事。
     ///
-    /// 当前版本不检查更新，或正在检查、下载时忽略本次点击。
+    /// 还没找到新版本时检查；找到之后下载安装，下载完成（Windows 上为已下载）后重新启动。
+    /// macOS 上这些步骤都在 Sparkle 的更新窗口里进行。不支持更新，或正在检查、下载时忽略本次点击。
     pub(in crate::app) fn settings_check_updates(&mut self) {
         self.settings.selected = Setting::Updates;
-        if self.can_check_updates() {
-            #[cfg(target_os = "macos")]
+        let click = self.update_click();
+        #[cfg(target_os = "macos")]
+        if click != UpdateClick::None {
             crate::macos::check_for_updates(true);
-            #[cfg(not(target_os = "macos"))]
-            crate::updates::check();
+        }
+        #[cfg(not(target_os = "macos"))]
+        match click {
+            UpdateClick::None => {}
+            UpdateClick::Check => crate::updates::check(),
+            UpdateClick::Install => crate::updates::install(),
+            UpdateClick::Restart => {
+                crate::updates::restart();
+                self.request_quit();
+            }
         }
     }
 
-    /// 是否可以检查更新：当前版本启用了更新检查，且没有正在检查、下载或已下载完成的更新。
-    pub(crate) fn can_check_updates(&self) -> bool {
-        use crate::winc::UpdateState;
-        !matches!(
-            *self.shared.update_state.borrow(),
-            UpdateState::Off
-                | UpdateState::Checking
-                | UpdateState::Downloading(..)
-                | UpdateState::Ready(_)
-        )
+    /// 「关于」页更新按钮这次点击该做什么。
+    pub(crate) fn update_click(&self) -> UpdateClick {
+        UpdateClick::from_state(&self.shared.update_state.borrow())
     }
 
     /// 将值 `setting`（版本号）复制到剪贴板，并在状态栏提示。
