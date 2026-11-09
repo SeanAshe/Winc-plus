@@ -62,6 +62,7 @@ terminal-close-confirm = 要结束「{ $name }」吗？
 terminal-close-confirm-detail = 关掉这个终端标签会结束里面正在运行的程序。
 terminal-paste-confirm = 要把 { $count } 行文字粘贴到终端吗？
 terminal-paste-confirm-detail = 终端里的程序没有开启括号粘贴，每一行会作为单独的命令立即执行。
+terminal-paste-image-failed = 无法保存图片：{ $error }
 
 ## 运行配置。
 

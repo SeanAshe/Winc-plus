@@ -78,6 +78,7 @@ terminal-paste-confirm = { $count ->
        *[other] Paste { $count } lines into the terminal?
     }
 terminal-paste-confirm-detail = The program in the terminal hasn’t enabled bracketed paste, so each line will run as a separate command right away.
+terminal-paste-image-failed = Couldn’t save the image: { $error }
 
 ## 运行配置。
 

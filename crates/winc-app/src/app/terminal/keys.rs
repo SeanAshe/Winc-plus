@@ -35,12 +35,35 @@ impl App {
 
     /// 粘贴到终端（括号粘贴见 [`input::paste`]）。
     ///
+    /// 有文字时粘贴文字（同时有图片也取文字）。没有文字、有图片时，把图片存成临时文件，把路径
+    /// 粘进去：终端里的程序读不到剪贴板图片，路径是它能打开的内容。
+    ///
     /// 程序没有开启括号粘贴、要粘贴的文字不止一行时先确认（[`input::paste_needs_confirm`]）：
     /// 弹出确认框（macOS 上是系统的，其他平台画在窗口里）。
     pub(in crate::app) fn terminal_paste(&mut self) {
-        let Some(text) = self.clipboard_text() else {
+        if let Some(text) = self.clipboard_text().filter(|text| !text.is_empty()) {
+            self.queue_terminal_paste(text);
             return;
+        }
+        self.paste_terminal_image();
+    }
+
+    /// 把剪贴板图片存成临时文件，把路径粘贴给终端里的程序。没有图片时返回 `false`。
+    fn paste_terminal_image(&mut self) -> bool {
+        let Some(saved) = self.clipboard_image_file() else {
+            return false;
         };
+        match saved {
+            Ok(path) => self.queue_terminal_paste(path.display().to_string()),
+            Err(error) => {
+                self.flash(t!("terminal-paste-image-failed", error = error.to_string()));
+            }
+        }
+        true
+    }
+
+    /// 把 `text` 交给当前标签；需要确认时先弹出确认框。
+    fn queue_terminal_paste(&mut self, text: String) {
         let Some(tab) = self.terminal.tab().map(|t| (t.id, t.modes)) else {
             return;
         };
@@ -202,6 +225,14 @@ impl App {
             }
         }
         let (modes, keyboard) = (tab.modes, tab.keyboard);
+        // 剪贴板里只有图片时，Ctrl+V 粘贴图片路径。这个键平时交给终端里的程序（Windows、Linux
+        // 上的粘贴是 Ctrl+Shift+V），程序读不到剪贴板图片。有文字时仍把按键发给程序。
+        if self.image_paste_key(event)
+            && self.clipboard_text().is_none_or(|text| text.is_empty())
+            && self.paste_terminal_image()
+        {
+            return;
+        }
         if let Some(bytes) = self.encode_terminal_key(event, modes, keyboard) {
             // 输入文字时清除选区，否则 ⌘C 会复制旧内容；方向键和快捷键保留选区。
             let mods = self.terminal_mods();
@@ -233,6 +264,19 @@ impl App {
             alt: meta,
             ctrl: m.control_key(),
         }
+    }
+
+    /// Ctrl+V，没有 Shift、Alt、⌘。macOS 上粘贴是 ⌘V，已经由快捷键处理。
+    fn image_paste_key(&self, event: &KeyEvent) -> bool {
+        let m = self.modifiers;
+        m.control_key()
+            && !m.shift_key()
+            && !m.alt_key()
+            && !m.super_key()
+            && matches!(
+                event.key_without_modifiers(),
+                Key::Character(text) if text.eq_ignore_ascii_case("v")
+            )
     }
 
     /// 把一次按键编码成写给终端的字节；这个键在终端里没有意义时返回 `None`。

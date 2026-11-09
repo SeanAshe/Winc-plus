@@ -640,7 +640,7 @@ impl App {
     /// 粘贴剪贴板内容。
     ///
     /// 焦点在输入框时插入文本；在编辑区时粘贴文件、文本或图片，在文件树中粘贴文件或图片
-    /// （见 `paste` 模块）。
+    /// （见 `paste` 模块）。终端里没有文本、有图片时，把图片存成临时文件并粘贴路径。
     pub(in crate::app) fn paste(&mut self) {
         match self.focus {
             focus if focus.is_field() => {
