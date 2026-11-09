@@ -88,7 +88,6 @@ settings-check-updates-desc = Check on launch and once a day, and show new versi
 settings-system-title-bar-desc = Use the title bar and window frame drawn by the desktop
 settings-version = Version
 settings-version-line = Version { $version }
-settings-website = Website
 settings-license = License
 settings-link-open-failed = Couldn’t open link: { $error }
 settings-version-copied = Copied version { $version }

@@ -253,8 +253,8 @@ fn settings_keyboard_walks_every_item_and_adjusts() {
     assert_eq!(seen, Setting::all(&app.settings.languages, true));
     assert_eq!(app.settings.selected, Setting::License);
     assert_eq!(app.settings_layout().page, SettingsPage::About);
-    // 往回走过关于页的七行（版本、更新两行、四个链接），回到快捷键页的搜索框。
-    for _ in 0..7 {
+    // 往回走过关于页的五行（版本、更新两行、仓库和许可证），回到快捷键页的搜索框。
+    for _ in 0..5 {
         app.settings_move(false);
     }
     assert_eq!(app.settings.selected, Setting::KeySearch);
@@ -1044,25 +1044,31 @@ fn the_about_page_links_out_and_hides_unavailable_updates() {
 
     // 链接取自 Cargo.toml：显示名去掉协议和 github.com，许可证链接到仓库中的全文。
     let value = |setting| about_value(setting).unwrap();
-    assert_eq!(value(Setting::Website), "winc.si");
-    assert_eq!(value(Setting::Repository), "DEEIX-AI/Winc");
-    assert_eq!(value(Setting::Community), "t.me/deeix_chat");
+    assert_eq!(value(Setting::Repository), "SeanAshe/Winc-plus");
+    assert_eq!(
+        about_link(Setting::Repository).as_deref(),
+        Some("https://github.com/SeanAshe/Winc-plus")
+    );
     assert_eq!(value(Setting::License), "Apache-2.0");
     assert_eq!(
         about_link(Setting::License).as_deref(),
-        Some("https://github.com/DEEIX-AI/Winc/blob/HEAD/LICENSE")
+        Some("https://github.com/SeanAshe/Winc-plus/blob/HEAD/LICENSE")
     );
     assert_eq!(about_link(Setting::Version), None);
 
     // 版本号和链接只有文字那一块可点，控件左侧的空白不算。
     for part in [
-        SettingsPart::Link(Setting::Website),
+        SettingsPart::Link(Setting::Repository),
         SettingsPart::Copy(Setting::Version),
     ] {
         let (x, y) = settings_point(&app, part);
         assert_eq!(app.settings_part_at(x, y), Some(part));
     }
-    let control = app.settings_layout().row(Setting::Website).unwrap().control;
+    let control = app
+        .settings_layout()
+        .row(Setting::Repository)
+        .unwrap()
+        .control;
     let y = control.y + control.h / 2.0;
     assert_eq!(app.settings_part_at(control.x + 2.0, y), None);
 
