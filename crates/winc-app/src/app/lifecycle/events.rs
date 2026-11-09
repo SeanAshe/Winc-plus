@@ -8,7 +8,7 @@ use super::placement::{
 use super::*;
 
 impl ApplicationHandler<UserEvent> for App {
-    /// 事件循环结束前保存现场；关闭窗口、⌘Q、程序坞中的「退出」都会经过这里。
+    /// 在事件循环结束前保存会话状态；关闭窗口、`⌘Q`、程序坞中的「退出」都经由此处。
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
         self.prepare_exit();
     }
@@ -23,13 +23,13 @@ impl ApplicationHandler<UserEvent> for App {
             .workspace
             .as_ref()
             .map_or(crate::layout::PRODUCT_NAME, |w| w.name.as_str());
-        // 测量时窗口的大小要固定，结果才能比较。
+        // 测量时窗口大小必须固定，测量结果才可比较。
         let saved = self
             .state
             .window
             .filter(|_| self.config.restore_window != Some(false) && !self.bench.silent());
-        // 从已有窗口打开的新窗口使用记下的大小（没有记录时用默认大小），位置比打开它的窗口往
-        // 右下错开。错开的位置与记下的位置都按当前的显示器校验，不在任何显示器上时由系统决定。
+        // 从已有窗口打开的新窗口使用记录的大小（没有记录时使用默认大小），位置相对来源窗口向
+        // 右下方偏移。偏移后的位置与记录的位置都按当前显示器校验，不在任何显示器上时由系统决定。
         let cascade = self.cascade.take().map(|(at, scale)| WindowFrame {
             position: Some(at),
             scale,
@@ -59,10 +59,10 @@ impl ApplicationHandler<UserEvent> for App {
             }
         }
 
-        // 由应用绘制标题栏时不要系统的边框和标题栏（见 `App::sync_title_bar`）。
+        // 由应用绘制标题栏时不使用系统的边框和标题栏（见 `App::sync_title_bar`）。
         self.sync_title_bar();
         attributes = attributes.with_decorations(!self.window_controls);
-        // Windows 上去掉系统边框的窗口默认也没有阴影，和其他窗口叠在一起时分不清边界。
+        // Windows 上去除系统边框的窗口默认没有阴影，与其他窗口重叠时无法区分边界。
         #[cfg(windows)]
         {
             use winit::platform::windows::{IconExtWindows, WindowAttributesExtWindows};
@@ -84,7 +84,7 @@ impl ApplicationHandler<UserEvent> for App {
             use winit::platform::startup_notify::WindowAttributesExtStartupNotify;
             use winit::platform::wayland::WindowAttributesExtWayland;
             attributes = attributes.with_name("winc", "winc");
-            // 激活令牌：Wayland 上新窗口凭它切到前台，X11 上凭它结束启动通知。
+            // 激活令牌：Wayland 上新窗口凭该令牌切换到前台，X11 上凭该令牌结束启动通知。
             if let Some(token) = self.activation.take() {
                 attributes = attributes.with_activation_token(token);
             }
@@ -113,7 +113,7 @@ impl ApplicationHandler<UserEvent> for App {
             crate::macos::capture_inserted_text(&window);
         }
 
-        // 一开始就最大化时量不到还原后的大小，先用记下的。
+        // 窗口初始即为最大化时无法测量还原后的大小，先使用记录的大小。
         self.window_frame = saved;
 
         // 测量时窗口透明且鼠标点击穿透，必须在显示之前设置，保证没有任何一帧可见。
@@ -131,8 +131,8 @@ impl ApplicationHandler<UserEvent> for App {
 
         let [mono, ui, terminal] = self.font_specs();
 
-        // 配置中的字体找不到或画不出来时仍使用默认字体启动，并提示用户；否则手动修改配置时写错
-        // 字体名，用户只会发现设置没有生效。仅在配置了字体时才解析字体。
+        // 配置中的字体找不到或无法绘制时仍使用默认字体启动，并提示用户；否则手动修改配置时写错
+        // 字体名，用户只能看到设置未生效而不知道原因。仅在配置了字体时才解析字体。
         let missing: Vec<String> = [
             ("editor.font", &mono, &self.config.editor_font),
             ("ui.font", &ui, &self.config.ui_font),
@@ -169,6 +169,10 @@ impl ApplicationHandler<UserEvent> for App {
         self.renderer = Some(renderer);
         self.measure_fonts();
         self.window = Some(window.clone());
+        #[cfg(windows)]
+        {
+            self.touch.window_input = crate::windows::WindowInput::new(&window);
+        }
         self.note_window_frame();
         window.set_ime_allowed(true);
         #[cfg(target_os = "macos")]
@@ -201,9 +205,8 @@ impl ApplicationHandler<UserEvent> for App {
         self.restore_terminal_for_window();
         self.restore_sidebar_for_window();
 
-        // 开启「保存时格式化」时，启动后在后台预先取得用户 shell 的环境，避免第一次 ⌘S 等待；
-        // shell 初始化脚本较慢时取环境会耗时较长，耗时取决于用户的配置。测量时不取，避免干扰
-        // 启动测量。
+        // 开启「保存时格式化」时，启动后在后台预先读取用户 shell 的环境，避免第一次 `⌘S` 时等待；
+        // 读取耗时取决于用户 shell 初始化脚本的速度。测量时不读取，避免干扰启动测量。
         if self.config.format_on_save == Some(true) && !self.bench.silent() {
             self.format.formatter.prepare(|| {});
         }
@@ -229,10 +232,12 @@ impl ApplicationHandler<UserEvent> for App {
 
         // 先在尚未显示的窗口上绘制第一帧，再显示窗口，避免出现一帧白屏。
         self.redraw();
+        #[cfg(windows)]
+        self.sync_window_input();
 
         #[cfg(target_os = "macos")]
         if self.bench.silent() {
-            // 测量时窗口上屏但不抢占焦点（窗口已设为透明）。
+            // 测量时窗口显示但不抢占焦点（窗口已设为透明）。
             crate::macos::show_without_focus(&window);
         } else {
             window.set_visible(true);
@@ -269,21 +274,28 @@ impl ApplicationHandler<UserEvent> for App {
         match event {
             WindowEvent::CloseRequested => self.request_close_window(),
             WindowEvent::RedrawRequested => self.redraw(),
-            WindowEvent::Moved(_) => self.note_window_frame(),
+            WindowEvent::Moved(_) => {
+                // 窗口移动后，此前的按下不再参与顶栏双击的判定。触摸拖动窗口时系统接管输入，
+                // 抬手事件可能不再送达，因此在此结束触摸。
+                self.title_click = None;
+                self.cancel_touch();
+                self.note_window_frame();
+            }
             WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
+                self.cancel_touch();
                 self.note_window_frame();
                 if let Some(renderer) = &mut self.renderer {
                     renderer.resize();
                 }
 
-                // 先摆放红绿灯，布局按其本次的位置计算。
+                // 先摆放窗口控制按钮，布局按其本次的位置计算。
                 self.place_traffic_lights();
                 self.relayout();
                 self.clamp_scroll();
                 // 拖动边缘或双击标题栏缩放时，窗口大小每改变一帧，winit 同步发出该事件，新的窗口
                 // 大小随这一帧的 Core Animation 事务提交。在此同步绘制，新画面在同一事务中提交，
-                // 与窗口大小同时显示。若只标记待重画，绘制要推迟到之后的事件循环，其间显示的是上一
-                // 帧的画面（固定在左上角），画面与窗口大小不一致。
+                // 与窗口大小同时显示。若只标记待重绘，绘制会推迟到之后的事件循环，其间显示上一帧
+                // 的画面（固定在左上角），画面与窗口大小不一致。
                 self.request_redraw();
                 self.redraw();
             }
@@ -298,6 +310,7 @@ impl ApplicationHandler<UserEvent> for App {
                 self.update_foreground(focused);
                 // 离开窗口时停止录制按键，菜单项的快捷键随之恢复，不影响别的窗口和应用。
                 if !focused {
+                    self.cancel_touch();
                     self.set_recording(false);
                 }
 
@@ -305,7 +318,7 @@ impl ApplicationHandler<UserEvent> for App {
                     self.check_disk();
                     self.reset_blink();
                     self.terminal_window_focused();
-                    // 别的 winc 窗口可能改了最近列表：重新读一遍，开始页和项目菜单显示最新的。
+                    // 其他 winc 窗口可能修改了最近列表，重新读取后开始页和项目菜单显示最新内容。
                     if let Some(path) = &self.state_path {
                         self.state = State::load_from(path);
                     }
@@ -317,10 +330,13 @@ impl ApplicationHandler<UserEvent> for App {
 
                 self.request_redraw();
             }
-            // 窗口被完全遮住、最小化或移到别的桌面时同样算作后台，回来时按焦点恢复。
-            // 完全看不见时不绘制，屏幕上那块画面也标成可清除（开着几个窗口时只有看得见的占着）；
-            // 又看得见时马上重绘一帧。测量时窗口透明，系统当它看不见，仍然绘制。
+            // 窗口被完全遮挡、最小化或移到其他桌面时同样视为后台，恢复时按焦点状态处理。
+            // 完全不可见时不绘制，并将呈现缓冲标记为可清除（打开多个窗口时只有可见窗口占用缓冲）；
+            // 重新可见时立即重绘一帧。测量时窗口透明，系统将其视为不可见，此时仍然绘制。
             WindowEvent::Occluded(occluded) => {
+                if occluded {
+                    self.cancel_touch();
+                }
                 self.update_foreground(!occluded && self.window_focused);
                 self.set_occluded(occluded);
             }
@@ -334,11 +350,11 @@ impl ApplicationHandler<UserEvent> for App {
                 if self.terminal.open {
                     self.update_terminal_link();
                 }
-                // 按住 ⌥ 时分支选择器里的「拉取」换成「拉取并变基」，提交按钮换成「提交并推送」。
+                // 按住 `⌥` 时分支选择器中的「拉取」变为「拉取并变基」，提交按钮变为「提交并推送」。
                 if (self.picker_open && self.picker_has_actions()) || self.commit_shown() {
                     self.request_redraw();
                 }
-                // 拖动文件树项时按下、松开 ⌥ 在移动和复制之间切换：放置目标和拖动卡片跟着变。
+                // 拖动文件树项时按下、松开 `⌥` 在移动与复制之间切换，放置目标和拖动卡片随之更新。
                 if self.tree_dragging().is_some() {
                     let (x, y) = self.mouse;
                     self.drag_tree_item(x, y);
@@ -355,6 +371,13 @@ impl ApplicationHandler<UserEvent> for App {
                 self.on_key(&event);
             }
             WindowEvent::Ime(ime) => self.on_ime(ime),
+            WindowEvent::Touch(touch) => self.on_touch(touch),
+            // 有接触点时指针位置由接触点决定；由触摸提升的鼠标事件不得再次触发点击或改变拖动目标。
+            WindowEvent::CursorMoved { .. }
+            | WindowEvent::CursorLeft { .. }
+            | WindowEvent::MouseInput { .. }
+            | WindowEvent::MouseWheel { .. }
+                if self.touch_blocks_mouse() => {}
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor_inside = true;
                 let scale = self.renderer.as_ref().map_or(1.0, Renderer::scale_factor);
@@ -390,7 +413,7 @@ impl ApplicationHandler<UserEvent> for App {
 impl App {
     /// 处理送回事件循环的事件 `event`。
     ///
-    /// 提示框在窗口里画出时，选中按钮的事件也直接交给这里。
+    /// 提示框由窗口自行绘制时，选中按钮的事件同样直接交给此处。
     pub(in crate::app) fn handle_event(&mut self, event: UserEvent) {
         match event {
             UserEvent::Picked(kind, path) => self.on_picked(kind, path),
@@ -413,7 +436,8 @@ impl App {
             | UserEvent::Saved
             | UserEvent::Loaded
             | UserEvent::BackedUp
-            | UserEvent::Replaced) => self.finished(done),
+            | UserEvent::Replaced
+            | UserEvent::Wrapped) => self.finished(done),
             UserEvent::Rediffed => self.poll_rediffs(),
             UserEvent::Outline => self.poll_outline(),
             UserEvent::GitRollback(paths) => self.git_rollback(paths),
@@ -451,7 +475,7 @@ impl App {
             UserEvent::NewWindow => self.new_window(None),
             // 提示框对应的窗口可能已经关闭：找不到目标窗口时不打开。
             UserEvent::FocusFolder(path) => _ = self.focus_window_with(&path),
-            // 应用层在把事件分给窗口之前已经处理。
+            // 应用层在将事件分发给窗口之前已处理。
             UserEvent::Launched(_, answer) => {
                 let _ = answer.send(false);
             }
@@ -479,8 +503,8 @@ impl App {
                 self.relayout();
                 self.request_redraw();
             }
-            // ⌘, 由菜单项接管，不会进入按键处理；设置已打开时再次触发，则在这里关闭设置。窗口
-            // 已关闭时先重新显示窗口。
+            // `⌘,` 由菜单项接管，不进入按键处理；设置已打开时再次触发则在此处关闭设置。窗口已
+            // 关闭时先重新显示窗口。
             UserEvent::OpenSettings if self.settings.open && !self.window_hidden => {
                 self.close_settings()
             }
@@ -488,7 +512,7 @@ impl App {
                 self.show_window();
                 self.open_settings();
             }
-            // 编号是弹出的那个菜单里的序号：按记下的这份菜单找回命令。
+            // 编号为所弹出菜单中的序号，按记录的菜单查找对应的命令。
             UserEvent::MenuCommand(tag) => {
                 let command = self.context_menu.as_ref().and_then(|menu| {
                     input::context_menu::MenuEntry::command_at(&menu.entries, tag)
@@ -511,10 +535,10 @@ impl App {
         }
     }
 
-    /// 事件循环空闲之前调用：处理到期的提示、光标闪烁、动画和后台轮询。
+    /// 在事件循环空闲之前处理到期的提示、光标闪烁、动画和后台轮询。
     ///
-    /// 返回本窗口下一次要醒来的时刻；没有要等的为 `None`。各窗口取最早的一个（见
-    /// [`crate::winc`]）。窗口何时退出由应用层决定，本窗口只置 `quit_requested`。
+    /// 返回本窗口下一次唤醒的时刻；无需唤醒时返回 `None`。应用层取各窗口中最早的时刻（见
+    /// [`crate::winc`]）。窗口何时退出由应用层决定，本窗口只设置 `quit_requested`。
     pub(crate) fn tick(&mut self) -> Option<Instant> {
         let now = Instant::now();
         self.track_navigation();
@@ -526,7 +550,7 @@ impl App {
         }
 
         if self.notice_until.is_some_and(|t| now >= t) {
-            // 到期后原地淡出；淡出时按钮不能再点。
+            // 到期后原地淡出；淡出期间按钮不可点击。
             let (message, action) = self.clear_notice();
             let label = action.map(|a| a.label());
             self.notice_out = match (message, self.clock(POPUP_OUT)) {
@@ -556,6 +580,7 @@ impl App {
             self.notice_until,
             committed,
             self.hint_tick(now),
+            self.touch_tick(now),
         ]
         .into_iter()
         .flatten()
@@ -563,7 +588,7 @@ impl App {
 
         let resize = self.terminal_resize_tick(now);
         earliest(&mut wake, resize);
-        // 当前标签在读、留着上一帧没画：到时候还没读好就画「正在读取」。
+        // 当前标签正在读取且保留上一帧未绘制时，到期仍未读取完成则绘制「正在读取」。
         if self.loads.held {
             match self.holding_frame(now) {
                 Some(until) => earliest(&mut wake, Some(until)),
@@ -589,8 +614,8 @@ impl App {
         }
 
         // 后台线程唤醒界面的事件经过节流，被丢弃的最后一批结果要等到下一个有匹配的文件或搜索
-        // 结束才会送达。因此搜索进行中按 `GLOBAL_POLL` 的间隔主动收取结果，避免列表长时间停留
-        // 在不完整的状态。
+        // 结束才会送达。因此搜索进行中按 `GLOBAL_POLL` 的间隔主动收取结果，
+        // 避免列表长时间停留在不完整的状态。
         if self.global.engine.is_running() {
             self.poll_global();
             earliest(&mut wake, Some(now + GLOBAL_POLL));
@@ -605,7 +630,7 @@ impl App {
             }
         }
 
-        // 光标闪烁的定时唤醒需要同时满足：窗口有焦点、看得见（被完全遮住时不绘制）、焦点位于
+        // 光标闪烁的定时唤醒需要同时满足：窗口有焦点、窗口可见（被完全遮挡时不绘制）、焦点位于
         // 可输入位置、当前文档可以编辑文字（或光标在差异里）、没有进行中的输入法组字；图片预览和
         // 无法打开的文件不显示光标。离上次输入超过 `BLINK_STOP` 后光标停在亮着的状态。
         let typing = self.focus.is_field()
@@ -623,8 +648,8 @@ impl App {
         let blinking = now.duration_since(self.blink_epoch) < BLINK_STOP;
 
         if !self.window_focused {
-            // 窗口没有焦点时不显示光标（终端的光标改画空心框），不随失焦前所处的闪烁相位停在
-            // 亮或暗的一半。
+            // 窗口没有焦点时不显示光标（终端的光标改为绘制空心框），
+            // 也不停留在失焦前所处的闪烁相位。
             if self.caret_visible {
                 self.caret_visible = false;
                 self.request_redraw();
@@ -661,8 +686,8 @@ impl App {
 
         earliest(&mut wake, self.blame_tick(now));
 
-        // 停止绘制后处理空闲的呈现缓冲（每块与窗口一样大）：标成可清除或释放，不必等到下一次
-        // 绘制。
+        // 停止绘制后处理空闲的呈现缓冲（每块与窗口大小相同）：
+        // 标记为可清除或释放，无需等到下一次绘制。
         if let Some(renderer) = &mut self.renderer
             && let Some(at) = renderer.purgeable_at()
         {
@@ -702,14 +727,14 @@ impl App {
         wake
     }
 
-    /// 事件循环结束前的收尾：等待后台保存完成，停止格式化，补写同意退出后的修改，记下现场。
+    /// 在事件循环结束前收尾：等待后台保存完成，停止格式化，补写同意退出后的修改，记录会话状态。
     pub(crate) fn prepare_exit(&mut self) {
-        // 等待后台保存的大文件写完，不留下只写了一部分的临时文件。
+        // 等待后台保存的大文件写完，避免留下写入不完整的临时文件。
         self.wait_for_saves();
         self.cancel_all_formatting();
-        // 同意退出后不再定时写备份，而其他窗口仍在询问期间，本窗口的文档可能又被修改：按当前
-        // 内容再写一次备份，下次启动时恢复最新的内容。没有经过询问就退出（未保存的内容都已有
-        // 备份，系统注销、关机时直接退出）时同样按当前内容写一次，不丢最近的修改。
+        // 同意退出后不再定时写备份，但其他窗口仍在询问期间本窗口的文档可能再被修改，因此按当前
+        // 内容再写一次备份，使下次启动恢复最新内容。未经询问直接退出时（未保存的内容均已有
+        // 备份，或系统注销、关机）同样按当前内容写一次，不丢失最近的修改。
         if self.backup_pending() {
             self.back_up_for_quit();
         }
@@ -717,18 +742,18 @@ impl App {
         self.save_session();
     }
 
-    /// 退出前是否需要询问用户：有退出时不会写进备份的未保存文档（[`App::kept_on_quit`]），或者
-    /// 终端中有程序在运行（[`App::terminal_busy`]）。
+    /// 退出前是否需要询问用户：存在退出时不会写入备份的未保存文档（[`App::kept_on_quit`]），
+    /// 或终端中有程序在运行（[`App::terminal_busy`]）。
     ///
-    /// macOS 上为假时 ⌘Q、注销和关机直接退出，退出前在 [`App::prepare_exit`] 里写好备份；为真时
-    /// 取消这次退出、回到事件循环询问，注销和关机也随之中断。
+    /// macOS 上为假时 `⌘Q`、注销和关机直接退出，退出前在 [`App::prepare_exit`] 中写入备份；为真时
+    /// 取消本次退出，回到事件循环询问，注销和关机也随之中断。
     pub(crate) fn asks_before_quit(&self) -> bool {
         self.terminal_busy()
             || (self.editor.documents.iter()).any(|d| d.is_dirty() && !self.kept_on_quit(d))
     }
 }
 
-/// 把 `at` 并入下一次唤醒的时间，取两者中较早的一个；`at` 为 `None` 时不变。
+/// 将 `at` 并入下一次唤醒的时间，取两者中较早的一个；`at` 为 `None` 时不变。
 fn earliest(wake: &mut Option<Instant>, at: Option<Instant>) {
     *wake = (*wake).into_iter().chain(at).min();
 }

@@ -189,7 +189,7 @@ fn growing_files_extend_the_index() {
     let rope = Rope::from_str(&expected);
     assert_same(&large, &rope, (0..rope.line_count()).step_by(3));
     assert_eq!(whole(&large), expected);
-    // 末尾还有半个字符没有接入，但已接入的部分没有变化：仍然可以写出。
+    // 末尾有一个不完整的字符尚未接入，但已接入的部分没有变化，仍然可以写出。
     assert!(!large.original_changed());
 
     // 补全被截断的字「末」：接入索引。
@@ -199,7 +199,7 @@ fn growing_files_extend_the_index() {
     assert_eq!(whole(&large), expected);
     assert!(!large.original_changed());
 
-    // 文件没有变长，或文档已被修改之后：都不接入。
+    // 文件没有变长，或文档已被修改时，均不接入。
     assert_eq!(large.grow(), None);
     large.replace(0, 1, "x");
     append(b"more\n");
@@ -207,8 +207,8 @@ fn growing_files_extend_the_index() {
 
     std::fs::remove_file(path).unwrap();
 
-    // 文档被整个删空（片段表为空，也没有新增输入）同样算已修改：已删除的内容不能随
-    // 新增部分重新出现。
+    // 文档内容被全部删除（片段表为空，也没有新增输入）同样视为已修改：
+    // 已删除的内容不能随新增部分重新出现。
     let (mut large, path) = open("grow-cleared", sample(100).as_bytes());
     large.replace(0, large.end_pos(), "");
     let mut file = File::options().append(true).open(&path).unwrap();
@@ -278,7 +278,7 @@ fn crlf_and_bom() {
 
 #[test]
 fn overlong_lines_are_capped_but_positions_stay_exact() {
-    // 开头多一个 ASCII 字符，让上限正好切开一个两字节字符。
+    // 开头多一个 ASCII 字符，使上限恰好切开一个两字节字符。
     let content = format!("a{}\nshort\n", "é".repeat(64));
     let path = write_temp("long", content.as_bytes());
     let large = LargeText::open_with(File::open(&path).unwrap(), 64).unwrap();
@@ -339,13 +339,13 @@ fn batched_edits_match_one_at_a_time() {
     let content = sample(400);
     let (mut large, path) = open("batched", content.as_bytes());
     let mut rope = Rope::from_str(&content);
-    // 先零散地改若干处，让片段表里有新增的片段，再做整批修改。
+    // 先修改若干分散的位置，使片段表中有新增的片段，再做整批修改。
     for &(start, removed, inserted) in &[(10, 3, "ab"), (5000, 0, "中\n文"), (200, 7, "")] {
         large.replace(start, removed, inserted);
         rope.replace(start, removed, inserted);
     }
     let len = rope.len_chars();
-    // 从前往后（全部替换）：每处的位置是改完前面若干处以后的位置。
+    // 从前往后（全部替换）：每处的位置是应用前面各处修改后的位置。
     let mut ascending = Vec::new();
     let mut shift = 0i64;
     for i in 0..300 {
@@ -370,8 +370,8 @@ fn batched_edits_match_one_at_a_time() {
     let _ = std::fs::remove_file(path);
 }
 
-/// 回归：每次取行都从磁盘读出整行再解码，一次按键（换算行列、找字素边界）要把光标所在的长行
-/// 反复读多次；因此记下最近读出的一行，片段表变化时作废。
+/// 回归：每次取行都从磁盘读出并解码整行时，一次按键（换算行列、查找字素边界）会多次读取
+/// 光标所在的长行。最近读出的一行应被缓存，并在片段表变化时失效。
 #[test]
 fn the_last_line_read_is_kept_until_an_edit() {
     let (mut large, path) = open("last-line", "第一行 abc\n第二行\r\n".as_bytes());
@@ -381,19 +381,19 @@ fn the_last_line_read_is_kept_until_an_edit() {
     assert_eq!(large.line_len(1), 3);
     assert_eq!(large.line_end(1), large.line_start(1) + 3);
 
-    // 记下的是第 0 行；改动以后作废，读到的是改过的内容。
+    // 缓存的是第 0 行；改动后缓存失效，读到的是修改后的内容。
     assert_eq!(large.line_len(0), 7);
     large.replace(1, 0, "XY");
     assert_eq!(large.line_content(0).slice(), "第XY一行 abc");
-    // 再取同一行时用记下的内容，不再读文件：文件被换掉以后读到的仍是记下的那一行。
+    // 再次读取同一行时使用缓存，不再读文件：文件被替换后读到的仍是缓存的行。
     std::fs::write(&path, "完全不同的内容\n").unwrap();
     assert_eq!(large.line_content(0).slice(), "第XY一行 abc");
     assert_eq!(large.line_len(0), 9);
     std::fs::remove_file(path).unwrap();
 }
 
-/// 回归：后台保存在写出之后、改名之前不复查原文件，期间被其他程序修改过的原文件会被替换
-/// 掉，其他程序的修改因此丢失，写出的内容还可能是修改前后的字节混在一起。
+/// 回归：后台保存在写出之后、重命名之前不复查原文件时，期间被其他程序修改的原文件会被替换，
+/// 该程序的修改随之丢失，写出的内容还可能混有修改前后的字节。
 #[test]
 fn writing_out_fails_when_the_original_changed_meanwhile() {
     let (large, path) = open("changed-meanwhile", b"0123456789\n");
@@ -404,5 +404,133 @@ fn writing_out_fails_when_the_original_changed_meanwhile() {
     assert!(large.original_changed());
     let error = large.write_to(&mut Vec::new()).unwrap_err();
     assert_eq!(error.to_string(), t!("editor-original-changed"));
+    std::fs::remove_file(path).unwrap();
+}
+
+/// 用 [`Lines::visit_short_lines`] 从第 `from` 行起遍历到末尾，返回各行的（行号，行首位置，内容）。
+fn short_lines(
+    text: &impl Lines,
+    from: usize,
+    max_bytes: usize,
+) -> Vec<(usize, usize, Option<String>)> {
+    let mut seen = Vec::new();
+    text.visit_short_lines(from, max_bytes, |line, start, content| {
+        seen.push((line, start, content.map(str::to_owned)));
+        ControlFlow::Continue(())
+    });
+    seen
+}
+
+/// 限制每行字节数的遍历读到上限即交出该行，再按索引跳到下一行；结果与整行读取后截断相同。
+///
+/// 样本含跨越多个读取块的超长行、多字节字符、编辑产生的新增片段，以及不以换行结尾的超长末行。
+#[test]
+fn capped_visits_skip_the_rest_of_long_lines() {
+    let long = |i: usize| format!("{i} INSERT 值{}", "中x".repeat(70_000 + i));
+    let mut content = String::new();
+    for i in 0..40 {
+        let line = if i % 3 == 0 {
+            long(i)
+        } else {
+            format!("{i} 短行")
+        };
+        content.push_str(&line);
+        content.push('\n');
+    }
+    content.push_str(&long(99));
+    let (mut large, path) = open("capped-visits", content.as_bytes());
+    let mut rope = Rope::from_str(&content);
+    let at = rope.line_start(6) + 1000;
+    for text in [&mut large as &mut dyn EditBuffer, &mut rope] {
+        text.replace(at, 10, "插入\n新行");
+    }
+
+    let visit = |text: &dyn VisitAll, from: usize, cap: usize, stop: usize| {
+        let mut seen = Vec::new();
+        let stopped = text.visit_all(from, cap, &mut |l, s, t| {
+            seen.push((l, s, t.to_owned()));
+            if l >= stop {
+                ControlFlow::Break(())
+            } else {
+                ControlFlow::Continue(())
+            }
+        });
+        (seen, stopped)
+    };
+    for cap in [7, 1000, winc_core::text::MAX_LINE_BYTES] {
+        for (from, stop) in [(0, usize::MAX), (5, 12), (38, usize::MAX), (41, usize::MAX)] {
+            assert_eq!(
+                visit(&large, from, cap, stop),
+                visit(&rope, from, cap, stop),
+                "从第 {from} 行起，每行最多 {cap} 字节"
+            );
+        }
+        // 超过上限的行不交出内容：大文件由行首位置得出行的字节数，不读取这些行，
+        // 结果与逐行读取的普通文本相同。
+        for from in [0, 5, 6, 38, 41] {
+            assert_eq!(
+                short_lines(&large, from, cap),
+                short_lines(&rope, from, cap),
+                "从第 {from} 行起，超过 {cap} 字节的行不交出内容"
+            );
+        }
+        // 只读行首得到的内容与按同一上限遍历时交出的内容相同。
+        let (seen, _) = visit(&large, 0, cap, usize::MAX);
+        for (line, _, content) in seen {
+            assert_eq!(
+                large.line_prefix(line, cap).slice(),
+                content.as_str(),
+                "第 {line} 行"
+            );
+        }
+    }
+    std::fs::remove_file(path).unwrap();
+}
+
+/// 以同一方式调用两种文本的 [`Lines::visit_lines`]。
+trait VisitAll {
+    fn visit_all(
+        &self,
+        from: usize,
+        cap: usize,
+        f: &mut dyn FnMut(usize, usize, &str) -> ControlFlow<()>,
+    ) -> Option<usize>;
+}
+
+impl<T: Lines> VisitAll for T {
+    fn visit_all(
+        &self,
+        from: usize,
+        cap: usize,
+        f: &mut dyn FnMut(usize, usize, &str) -> ControlFlow<()>,
+    ) -> Option<usize> {
+        self.visit_lines(from, cap, f)
+    }
+}
+
+/// 超长行内部记有位置，按字符位置查找时从行内最近的记录开始读；结果与 `Rope` 一致，并行扫描
+/// 分段与末尾追加后同样如此。
+#[test]
+fn positions_inside_long_lines_are_indexed() {
+    let mut content = String::new();
+    for i in 0..6 {
+        let unit = if i % 2 == 0 { "中x" } else { "ab" };
+        writeln!(content, "{i} {}", unit.repeat(150_000)).unwrap();
+    }
+    let path = write_temp("long-marks", content.as_bytes());
+    let large = LargeText::open_with(File::open(&path).unwrap(), LINE_CAP).unwrap();
+    let rope = Rope::from_str(&content);
+    assert!(
+        large.original.marks.len() > 6,
+        "{}",
+        large.original.marks.len()
+    );
+    let mut rng = Rng(7);
+    for _ in 0..300 {
+        let a = rng.below(rope.end_pos());
+        let b = (a + rng.below(300)).min(rope.end_pos());
+        assert_eq!(large.substring(a, b), rope.substring(a, b), "{a}..{b}");
+        assert_eq!(large.line_of(a), rope.line_of(a), "位置 {a}");
+    }
     std::fs::remove_file(path).unwrap();
 }

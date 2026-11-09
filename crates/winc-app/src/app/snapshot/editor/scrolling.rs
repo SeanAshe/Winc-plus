@@ -10,7 +10,7 @@ use crate::app::animation::SCROLL_GLIDE;
 /// 打开一个 480 行的文件并绘制一帧，返回界面与目录。
 ///
 /// 文件内容是同构的：60 个 8 行的小函数，第 `i` 个从第 `i * 8` 行开始，每行都短于一屏的宽度。
-/// 行号可以由序号直接算出作期望值，480 行又远高于一屏，跳转需要滚过若干屏才会到达。
+/// 期望的行号可由序号直接算出；480 行远超一屏高度，跳转需要滚过若干屏才能到达。
 fn long_file(name: &str) -> (App, PathBuf) {
     let dir = search_folder(name);
     let mut src = String::new();
@@ -26,11 +26,11 @@ fn long_file(name: &str) -> (App, PathBuf) {
     (app, dir)
 }
 
-fn scroll(app: &App) -> f32 {
+fn scroll(app: &App) -> f64 {
     app.editor.active().unwrap().scroll_line
 }
 
-/// 换了标签的跳转直接到位：跳转时开始的平滑滚动被取消；留在同一标签时保留。
+/// 切换标签的跳转直接到达目标：跳转时开始的平滑滚动被取消；留在同一标签时保留。
 #[test]
 fn opening_another_tab_does_not_glide() {
     fn jump(app: &mut App) {
@@ -57,8 +57,8 @@ fn opening_another_tab_does_not_glide() {
 fn far_jumps_glide_and_near_ones_do_not() {
     let (mut app, dir) = long_file("scroll-glide");
 
-    // 跳转到第 200 行（居中）：距离超过一屏，滚动需要一段动画。没有窗口时不做动画，滚动位置
-    // 直接等于目标。
+    // 跳转到第 200 行（居中）：距离超过一屏，滚动需要一段动画。
+    // 没有窗口时不做动画，滚动位置直接等于目标。
     app.scroll_to_line(200, 0.5, false);
     assert!(app.scroll_glide.is_none());
     let target = scroll(&app);
@@ -89,14 +89,14 @@ fn find_centres_far_matches_and_keeps_near_ones_still() {
     app.open_search(false);
     app.edit_field(|f| f.insert("item_40"));
     paint(&mut app);
-    let visible = app.visible_lines() as f32;
+    let visible = app.visible_lines() as f64;
 
     // 远处的匹配（`item_40` 在第 320 行）滚到编辑区正中，而不是刚刚露出的下边缘：按 0.4 到 0.6
     // 的屏内位置断言，留出预览留白与行高的余量。
     app.find_next(false);
     let line = 40 * 8;
     let row = scroll(&app);
-    let at = (line as f32 - row) / visible;
+    let at = (line as f64 - row) / visible;
     assert!((0.4..0.6).contains(&at), "匹配在 {at} 高处");
 
     // 匹配已可见时不滚动：`item_41` 在第 328 行，紧接上一处，仍在同一屏内。
@@ -112,7 +112,7 @@ fn find_centres_far_matches_and_keeps_near_ones_still() {
     // 被查找条盖住，视为不可见，编辑区向下滚一行使其露出。光标放在上一块（`item_40`）内，
     // 命中位置因此与光标分开。
     let doc = app.editor.active_mut().unwrap();
-    doc.scroll_line = (41 * 8) as f32;
+    doc.scroll_line = (41 * 8) as f64;
     doc.scroll_x = 0.0;
     app.edit_field(|f| {
         f.select_all();
@@ -124,7 +124,7 @@ fn find_centres_far_matches_and_keeps_near_ones_still() {
     let doc = app.editor.active().unwrap();
     let (found, _) = doc.text().pos_to_line_col(doc.selection.from());
     assert_eq!(found, 41 * 8);
-    assert!(scroll(&app) < found as f32 - 1.0);
+    assert!(scroll(&app) < found as f64 - 1.0);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -147,7 +147,7 @@ fn drag_select_keeps_scrolling_while_the_mouse_rests_outside() {
     assert!(second > first, "{first} → {second}");
     let head = app.editor.active().unwrap().selection.head;
     let (line, _) = app.editor.active().unwrap().text().pos_to_line_col(head);
-    assert!(line as f32 >= second);
+    assert!(line as f64 >= second);
 
     // 鼠标回到编辑区内时停止滚动。
     app.on_mouse_move(t.x + 40.0, t.y + 100.0);
@@ -181,6 +181,33 @@ fn selections_dim_without_focus_and_hide_the_current_line() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 触控板的滚动只按位移较大的方向生效：竖直滚动时附带的少量横向位移不使长行左右移动。
+#[test]
+fn a_trackpad_scrolls_along_the_dominant_axis_only() {
+    use winit::dpi::PhysicalPosition;
+    use winit::event::MouseScrollDelta::PixelDelta;
+
+    let dir = sample_folder("wheel-axis");
+    let code = format!("let x = \"{}\";\n", "long ".repeat(400)).repeat(300);
+    std::fs::write(dir.join("wide.rs"), code).unwrap();
+    let mut app = app_with(&dir.join("wide.rs"), false);
+    paint(&mut app);
+    let text = app.layout.text;
+    app.on_mouse_move(text.x + 100.0, text.y + 100.0);
+    let at = |app: &App| {
+        let doc = app.editor.active().unwrap();
+        (doc.scroll_x, doc.scroll_line)
+    };
+
+    app.on_wheel(PixelDelta(PhysicalPosition::new(-9.0, -80.0)));
+    let (x, line) = at(&app);
+    assert!(x == 0.0 && line > 0.0, "{x} {line}");
+    app.on_wheel(PixelDelta(PhysicalPosition::new(-80.0, -9.0)));
+    assert!(at(&app).0 > 0.0);
+    assert_eq!(at(&app).1, line);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn a_mouse_wheel_notch_glides_and_a_trackpad_follows_directly() {
     use winit::dpi::PhysicalPosition;
@@ -210,7 +237,7 @@ fn a_mouse_wheel_notch_glides_and_a_trackpad_follows_directly() {
     let progress = half.progress();
     app.start_wheel_glide((0.0, -30.0 * lh), half);
     app.advance_wheel_glide();
-    assert!((scroll(&app) - 30.0 * progress).abs() < 0.01);
+    assert!((scroll(&app) - 30.0 * f64::from(progress)).abs() < 0.01);
     assert!(app.wheel_glide.is_some());
     assert!(app.animating());
 
@@ -231,8 +258,8 @@ fn quick_wheel_notches_shorten_the_glide() {
     // 单独的一格和间隔较长的一格按完整时长过渡。
     assert_eq!(wheel_glide_length(None), SCROLL_GLIDE);
     assert_eq!(wheel_glide_length(Some(ms(400))), SCROLL_GLIDE);
-    // 回归：每格都按完整时长重新计时，快速转动滚轮时画面越来越落后于滚轮。过渡时长为间隔的
-    // 两倍，最短 50 毫秒。
+    // 回归：每格都按完整时长重新计时时，快速转动滚轮会使画面越来越落后于滚轮。过渡时长取
+    // 两格间隔的两倍，最短 50 毫秒。
     assert_eq!(wheel_glide_length(Some(ms(40))), ms(80));
     assert_eq!(wheel_glide_length(Some(ms(8))), ms(50));
 }

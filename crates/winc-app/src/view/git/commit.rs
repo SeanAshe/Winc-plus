@@ -51,7 +51,13 @@ const NEXT_GAP: f32 = 14.0;
 const NEXT_PAD: f32 = 12.0;
 
 /// 绘制提交视图，返回提交信息里光标的矩形（窗口坐标，逻辑像素），供输入法定位候选框。
-pub(in crate::view) fn draw_commit(app: &mut App, frame: &mut Frame<'_>) -> Option<Rect> {
+///
+/// `tools` 是标题行右端工具按钮的不透明度：与历史差异文件列表切换时，按钮随之淡入。
+pub(in crate::view) fn draw_commit(
+    app: &mut App,
+    frame: &mut Frame<'_>,
+    tools: f32,
+) -> Option<Rect> {
     // 提交信息框随内容长高：先按框的宽度折好行（框的宽度和高度无关，卡片和分支行同宽，卡片
     // 收起时也照样折），框的高度按行数定，绘制时继续使用折好的行。
     app.track_stash_height();
@@ -77,7 +83,7 @@ pub(in crate::view) fn draw_commit(app: &mut App, frame: &mut Frame<'_>) -> Opti
         app.commit.scroll = app.commit.scroll.min(app.commit_max_scroll());
     }
     let mut hits = Vec::new();
-    draw_header(app, frame, &parts, &mut hits);
+    frame.with_opacity(tools, |frame| draw_header(app, frame, &parts, &mut hits));
     let animate = app.animate_commit_names();
     app.commit.names.begin_frame(animate);
     match (&app.git.status, &app.git.problem) {
@@ -115,6 +121,51 @@ pub(in crate::view) fn draw_commit(app: &mut App, frame: &mut Frame<'_>) -> Opti
     app.commit_hits = hits;
     app.commit.hits_generation = app.git.generation;
     caret
+}
+
+/// 绘制浏览历史提交的文件列表（见 `App::with_log_list`）：只有改动列表，标题行由调用方绘制。
+///
+/// 借用提交视图时调用：列表的排列、写全名、固定在顶部的目录和各种过渡与提交视图相同。
+pub(in crate::view) fn draw_commit_browse(app: &mut App, frame: &mut Frame<'_>) {
+    let parts = app.commit_parts();
+    if app.commit.motion.is_none() && app.git.status.is_some() {
+        app.commit.scroll = app.commit.scroll.min(app.commit_max_scroll());
+    }
+    let mut hits = Vec::new();
+    let animate = app.animate_commit_names();
+    app.commit.names.begin_frame(animate);
+    if let Some(status) = &app.git.status {
+        if app.commit.shift.is_some() {
+            draw_shift(app, frame, &parts, status, &mut hits);
+        } else {
+            draw_list(app, frame, &parts, status, &mut hits);
+        }
+    }
+    app.commit.names.end_frame();
+    let content = app.commit_max_scroll() + parts.list.h;
+    let scroll = app.commit.scroll;
+    let owner = app.editor.active().map_or(0, |doc| doc.id.0);
+    draw_scrollbar(
+        app,
+        frame,
+        ScrollArea::Commit,
+        owner,
+        parts.list,
+        scroll,
+        content,
+    );
+    app.commit_hits = hits;
+    app.commit.hits_generation = app.git.generation;
+}
+
+/// 只绘制标题行右端的工具按钮，不透明度为 `opacity`，不记录点击区域：切换到历史差异文件列表
+/// 时，按钮在原位淡出。
+pub(in crate::view) fn draw_commit_tools(app: &mut App, frame: &mut Frame<'_>, opacity: f32) {
+    let parts = app.commit_parts();
+    let mut ignored = Vec::new();
+    frame.with_opacity(opacity, |frame| {
+        draw_header(app, frame, &parts, &mut ignored)
+    });
 }
 
 /// 绘制第二行右端的三个按钮（左边是共用的项目和分支）：「Git 日志」「刷新」「⋯」。
@@ -1156,10 +1207,21 @@ fn draw_row(
     } = *cx;
     let row = &rows[i];
     let focused = app.focus == Focus::CommitList;
+    // 浏览历史提交的文件时没有勾选框，也没有回滚、打开文件等按钮。
+    let browse = app.commit.browse;
     let checkbox = |frame: &mut Frame<'_>, x: f32, cy: f32, state: Option<bool>| {
+        if browse {
+            return;
+        }
         let border = p.text_dim.alpha(0.55);
         let on_accent = p.text_on_accent;
         icons::checkbox(frame, (x, cy), state, p.accent, border, on_accent, list);
+    };
+    // 勾选框的命中区域；浏览时没有勾选框，不记录。
+    let check_hit = |hits: &mut Vec<(Rect, CommitTarget)>, rect: Rect, target: CommitTarget| {
+        if !browse {
+            hits.push((rect.intersect(list), target));
+        }
     };
     let band = Rect::new(list.x + 8.0, y, list.w - 16.0, COMMIT_ROW);
     // 鼠标停着的这一行名字放不下：写全名，状态字母让开；伸出侧栏时底色铺到侧栏边缘、右边是
@@ -1191,7 +1253,7 @@ fn draw_row(
     let cy = y + COMMIT_ROW / 2.0;
     // 箭头、勾选框的列（勾选框按中心）：每深一层往右缩进 `INDENT`，目录的箭头在勾选框左边。
     let arrow_x = |level: usize| band.x + ARROW + level as f32 * INDENT;
-    let check_x = |level: usize| arrow_x(level) + CHECK;
+    let check_x = |level: usize| arrow_x(level) + check_gap(app);
     let text_clip = Rect::new(list.x, y, band.right() - 6.0 - list.x, COMMIT_ROW).intersect(list);
     // 缩进参考线：每一层上级目录一条，位于该目录的箭头正下方，相邻行连成一条竖线，
     // 目录层级深时能看出每个文件属于哪个目录。
@@ -1235,7 +1297,7 @@ fn draw_row(
             );
             // 悬停时右端的文件数换成「回滚」，回滚这一组里勾上的文件，位置和文件行悬停时的按钮
             // 相同。冲突组没有：回滚冲突的文件会丢掉解决到一半的内容。
-            let revert = (hovered && group != CommitGroup::Conflicts && state.is_some())
+            let revert = (hovered && !browse && group != CommitGroup::Conflicts && state.is_some())
                 .then(|| file_actions(band).1);
             match revert {
                 Some(rect) => {
@@ -1249,7 +1311,7 @@ fn draw_row(
                 None => draw_count_pill(app, frame, band, &members.len().to_string(), list),
             }
             let check = Rect::new(group_check - 8.0, y + 4.0, 16.0, 16.0);
-            hits.push((check.intersect(list), CommitTarget::GroupCheck(group)));
+            check_hit(hits, check, CommitTarget::GroupCheck(group));
             hits.push((band.intersect(list), CommitTarget::Group(group)));
         }
         CommitRow::Dir {
@@ -1334,7 +1396,7 @@ fn draw_row(
                 hits.push((spill, CommitTarget::Dir(i)));
             }
             let check = Rect::new(dir_check - 8.0, y + 4.0, 16.0, 16.0);
-            hits.push((check.intersect(list), CommitTarget::DirCheck(i)));
+            check_hit(hits, check, CommitTarget::DirCheck(i));
             hits.push((band.intersect(list), CommitTarget::Dir(i)));
         }
         CommitRow::File { index, depth } => {
@@ -1354,7 +1416,7 @@ fn draw_row(
             // 按钮跟在全名之后（见 `commit_overflow`）。
             let actions = match full {
                 Some(overflow) => overflow.actions,
-                None => hovered.then(|| file_actions(band)),
+                None => (hovered && !browse).then(|| file_actions(band)),
             };
             // 文件没有箭头：勾选框和同一层目录的勾选框对齐；平铺时没有层级，和组标题的勾选框
             // 对齐。
@@ -1477,7 +1539,7 @@ fn draw_row(
                 hits.push((spill, CommitTarget::File(index)));
             }
             let check = Rect::new(file_check - 8.0, y + 4.0, 16.0, 16.0);
-            hits.push((check.intersect(list), CommitTarget::Check(index)));
+            check_hit(hits, check, CommitTarget::Check(index));
             hits.push((band.intersect(list), CommitTarget::File(index)));
         }
     }
@@ -1822,6 +1884,11 @@ struct RowText {
 /// 返回深 `depth` 层的文件行的勾选框在第几列缩进。
 ///
 /// 按目录排成树时比所在目录深一层，平铺时不缩进。
+/// 返回箭头到勾选框中心的距离（逻辑像素）：浏览历史提交的文件时没有勾选框，为 0。
+fn check_gap(app: &App) -> f32 {
+    if app.commit.browse { 0.0 } else { CHECK }
+}
+
 fn file_column(app: &App, depth: usize) -> usize {
     if app.commit.flat() { 0 } else { depth + 1 }
 }
@@ -1831,7 +1898,7 @@ fn row_text(app: &App, status: &Status, root: &Path, row: &CommitRow) -> Option<
     let p = app.palette;
     // 箭头、勾选框、图标、图标那一列宽、间隔（见 `draw_row` 和 `ARROW` 那一组常量）。
     let offset = |level: usize| {
-        ARROW + level as f32 * INDENT + CHECK + ICON + icons::FOLDER_WIDTH + LABEL_GAP
+        ARROW + level as f32 * INDENT + check_gap(app) + ICON + icons::FOLDER_WIDTH + LABEL_GAP
     };
     match row {
         CommitRow::Group(_) => None,
@@ -1909,6 +1976,12 @@ pub(in crate::view) fn commit_overflow(app: &App, frame: &mut Frame<'_>) -> Opti
     let window = app.layout.window.right() - 8.0;
     let (right, actions) = if text.folder {
         if end <= band.right() - 6.0 {
+            return None;
+        }
+        ((end + 8.0).min(window), None)
+    } else if app.commit.browse {
+        // 浏览历史提交的文件时没有按钮：名字放不下（状态字母之前）时才写全名。
+        if end <= band.right() - END_CENTER * 2.0 {
             return None;
         }
         ((end + 8.0).min(window), None)

@@ -1,4 +1,4 @@
-//! 磁盘上的原文：分段并行扫描建检查点索引，按行号或字符位置找到并读出字节。
+//! 磁盘上的原文：分段并行扫描以建立检查点索引，按行号或字符位置定位并读取字节。
 
 use super::*;
 
@@ -32,6 +32,11 @@ pub(super) struct Original {
     pub(super) newlines: u64,
     /// 检查点，行号和字符偏移均升序。
     pub(super) checkpoints: Vec<Checkpoint>,
+    /// 超长行内部的位置记录，字符偏移升序；`line` 是所在行的行号。
+    ///
+    /// 检查点只设在行首，按字符位置查找时最多要从行首读到目标。超长行可达数 MB，
+    /// 因此在行内每隔一个读取块（[`CHUNK`]）另记一处，查找时最多读一个读取块。
+    pub(super) marks: Vec<Checkpoint>,
     /// 内容是否全部是合法的 UTF-8。
     pub(super) utf8: bool,
     /// 内容中第一个换行是否为 `\r\n`。
@@ -50,6 +55,8 @@ pub(super) struct Original {
 /// 检查点的行号和字符偏移相对于该段开头，字节偏移相对于内容起点（不含 BOM）。
 pub(super) struct Segment {
     pub(super) checkpoints: Vec<Checkpoint>,
+    /// 超长行内部的位置记录，坐标的含义同 `checkpoints`。
+    pub(super) marks: Vec<Checkpoint>,
     /// 段内换行数（个，`\n` 的个数）。
     pub(super) newlines: u64,
     /// 段内字符数（个，非法字节按一个字符计）。
@@ -67,11 +74,12 @@ pub(super) struct Segment {
 }
 
 impl Original {
-    /// 复制结构体：文件句柄复制一个（指向同一个文件），其余字段照抄。
+    /// 复制结构体：另建一个指向同一文件的文件句柄，其余字段原样复制。
     pub(super) fn try_clone(&self) -> io::Result<Self> {
         Ok(Self {
             file: self.file.try_clone()?,
             checkpoints: self.checkpoints.clone(),
+            marks: self.marks.clone(),
             tail: self.tail.clone(),
             ..*self
         })
@@ -87,7 +95,7 @@ impl Original {
             .is_ok_and(|n| n == now.len() && now == self.tail)
     }
 
-    /// 打开 `file` 并按 `workers` 个线程分段扫描建索引（实际线程数见 [`LargeText::open`]）。
+    /// 打开 `file` 并按 `workers` 个线程分段扫描并建立索引（实际线程数见 [`LargeText::open`]）。
     pub(super) fn open(file: File, workers: u64) -> io::Result<Self> {
         let metadata = file.metadata()?;
         let mut head = [0u8; 3];
@@ -104,6 +112,7 @@ impl Original {
             chars: 0,
             newlines: 0,
             checkpoints: Vec::new(),
+            marks: Vec::new(),
             utf8: true,
             crlf: false,
             longest_line: 0,
@@ -132,12 +141,14 @@ impl Original {
         let (mut line, mut char) = (0, 0);
 
         for segment in &segments {
+            let shift = |c: &Checkpoint| Checkpoint {
+                line: line + c.line,
+                byte: c.byte,
+                char: char + c.char,
+            };
             self.checkpoints
-                .extend(segment.checkpoints.iter().map(|c| Checkpoint {
-                    line: line + c.line,
-                    byte: c.byte,
-                    char: char + c.char,
-                }));
+                .extend(segment.checkpoints.iter().map(shift));
+            self.marks.extend(segment.marks.iter().map(shift));
             line += segment.newlines;
             char += segment.chars;
             self.utf8 &= segment.utf8;
@@ -185,6 +196,10 @@ impl Original {
     pub(super) fn locate_line(&self, line: u64) -> (u64, u64) {
         let line = line.min(self.newlines);
         let mut at = self.checkpoint_by(|c| c.line <= line);
+        // 超长行的下一行行首恰好有检查点，无需读取；逐行跳过超长行时每行都会执行此分支。
+        if at.line == line {
+            return (at.byte, at.char);
+        }
         let mut buf = [0u8; PROBE];
 
         while at.line < line {
@@ -220,6 +235,13 @@ impl Original {
     pub(super) fn locate_char(&self, char: u64) -> (u64, u64) {
         let char = char.min(self.chars);
         let mut at = self.checkpoint_by(|c| c.char <= char);
+        // 目标在超长行内部时，从行内最近的位置记录开始读。
+        let i = self.marks.partition_point(|m| m.char <= char);
+        if let Some(mark) = i.checked_sub(1).map(|i| self.marks[i])
+            && mark.byte > at.byte
+        {
+            at = mark;
+        }
         let mut buf = [0u8; PROBE];
 
         while at.char < char {
@@ -290,7 +312,8 @@ fn segment_bounds(file: &File, base: u64, len: u64, count: u64) -> io::Result<Ve
 ///
 /// `from` 必须是行首。
 pub(super) fn scan_segment(file: &File, base: u64, from: u64, to: u64) -> io::Result<Segment> {
-    // 按平均每行 64 字节（经验值）预估检查点个数，一次分配到位，避免反复扩容留下的内存碎片。
+    // 按平均每行 64 字节预估检查点个数，一次分配到位，避免反复扩容留下的内存碎片；估计值的
+    // 偏差只影响扩容次数，不影响结果。
     let mut checkpoints = Vec::with_capacity(((to - from) / (CHECKPOINT_LINES * 64)) as usize + 1);
     let mut last = Checkpoint {
         line: 0,
@@ -301,6 +324,7 @@ pub(super) fn scan_segment(file: &File, base: u64, from: u64, to: u64) -> io::Re
 
     let mut segment = Segment {
         checkpoints,
+        marks: Vec::new(),
         newlines: 0,
         chars: 0,
         end: from,
@@ -362,6 +386,19 @@ pub(super) fn scan_segment(file: &File, base: u64, from: u64, to: u64) -> io::Re
 
         segment.chars += count(&chunk[counted..]);
         segment.end += take as u64;
+
+        // 块尾位于一行中间，且距这一行最近的记录已超过 `CHECKPOINT_BYTES`：在块尾记录位置。
+        let recorded = segment
+            .marks
+            .last()
+            .map_or(last.byte, |m| m.byte.max(last.byte));
+        if segment.end > line_start && segment.end - recorded >= CHECKPOINT_BYTES {
+            segment.marks.push(Checkpoint {
+                line: segment.newlines,
+                byte: segment.end,
+                char: segment.chars,
+            });
+        }
     }
 
     segment.longest_line = segment.longest_line.max(segment.end - line_start);

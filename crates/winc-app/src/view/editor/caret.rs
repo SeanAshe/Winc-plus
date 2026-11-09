@@ -2,9 +2,60 @@
 
 use super::*;
 
+/// 返回 `y` 处开始、共 `rows` 段的一行中与 `clip` 相交的段（左闭右开）；`lh` 是行高。
+pub(super) fn visible_parts(y: f32, rows: usize, clip: Rect, lh: f32) -> Range<usize> {
+    let first = ((clip.y - y) / lh).floor().max(0.0) as usize;
+    let end = ((clip.bottom() - y) / lh).ceil().max(0.0) as usize;
+    first.min(rows)..end.min(rows)
+}
+
+/// 逐行读取时返回的 `content` 是否可能只是该行的开头部分（读取上限为 [`MAX_LINE_BYTES`]）。
+pub(super) fn reads_head_only(content: &str) -> bool {
+    cut_by(content, MAX_LINE_BYTES)
+}
+
+/// 按 `cap` 字节的上限逐行读取时，返回的 `content` 是否可能只是该行的开头部分。
+///
+/// 截断处不切开字符，截断后的内容最多比上限少 3 个字节（UTF-8 字符最长 4 字节）。
+pub(super) fn cut_by(content: &str, cap: usize) -> bool {
+    content.len() + 3 >= cap
+}
+
+/// 返回绘制文档 `doc` 时逐行读取的字节上限（字节）。
+///
+/// `aligned` 表示是否按列对齐；`origin_x` 是第 0 个显示列的 x 坐标，`right` 是文本区右边缘，
+/// `cell` 是显示列的宽度（均为逻辑像素）。
+///
+/// 大文件不换行时只需读取到右边缘：每个字符至少占 1 个显示列、最多 4 字节，另留 2 列余量。
+/// 一屏数十条超长行各按 [`MAX_LINE_BYTES`] 读取并解码，实测约占一帧的两成。其余情况
+/// （行在内存中，或换行、按列对齐需要更多字符）返回 `MAX_LINE_BYTES`。
+pub(super) fn line_read_cap(
+    doc: &winc_editor::Document,
+    aligned: bool,
+    (origin_x, right, cell): (f32, f32, f32),
+) -> usize {
+    if !doc.is_large() || doc.is_wrapping() || aligned {
+        return MAX_LINE_BYTES;
+    }
+    let cols = ((right - origin_x) / cell).ceil().max(0.0) as usize;
+    ((cols + 2) * 4).min(MAX_LINE_BYTES)
+}
+
+/// 返回只保留 `len` 个字符之内的断点的 `breaks`。
+///
+/// 断行结果与绘制的字符不同步（等待重新断行）时，断点可能超出只取了行首部分的字符。
+pub(super) fn fit_breaks(
+    mut breaks: winc_core::wrap::Breaks,
+    len: usize,
+) -> winc_core::wrap::Breaks {
+    let kept = breaks.starts.partition_point(|&start| start < len);
+    breaks.starts.truncate(kept);
+    breaks
+}
+
 /// 返回第 `line` 行的行末位置（字符偏移）。
 ///
-/// 截断的行只读取了开头一段（`shown` 个字符），行末要由下一行的行首推出。
+/// 截断的行只读取了开头的 `shown` 个字符，行末位置需要由下一行的行首推算。
 pub(super) fn line_end(
     text: &impl Lines,
     line: usize,
@@ -21,8 +72,8 @@ pub(super) fn line_end(
 
 /// 返回选区 `selection` 涉及的行（左闭右开）。
 ///
-/// 这几行以外的行上没有选中的部分，也不影响块的圆角，
-/// 绘制选区时只量这几行：有成千上万个选区时，不必为每个选区把屏幕上的每一行都量一遍。
+/// 范围以外的行既没有选中的部分，也不影响块的圆角，因此绘制选区时只测量这些行：
+/// 有数千个选区时，无需为每个选区测量屏幕上的所有行。
 fn selection_lines(text: &impl Lines, selection: Selection) -> Range<usize> {
     text.pos_to_line_col(selection.from()).0..text.pos_to_line_col(selection.to()).0 + 1
 }
@@ -65,17 +116,39 @@ pub(super) fn draw_wrapped_selection(
             if line >= range.end {
                 return ControlFlow::Break(());
             }
-            chars.clear();
-            chars.extend(content.chars().take(MAX_LINE_CHARS + 1));
-            let truncated = chars.len() > MAX_LINE_CHARS;
-            let len = chars.len().min(MAX_LINE_CHARS);
-            let line_end = line_end(text, line, line_start, len, truncated);
-            let breaks = doc.line_breaks(line);
             let y = row_y(line);
-            for part in 0..breaks.rows() {
+            // 只测量可见段及上下各一段（用于判断圆角）。按整行断开的长行可达数千段，这类行只取
+            // 上述各段（行内窗口），以下位置均相对窗口开头 `line_start`。
+            let count = doc.rows_of(line);
+            let shown = visible_parts(y, count, clip, lh);
+            let parts = shown.start.saturating_sub(1)..(shown.end + 1).min(count);
+            let window = (count > 1 && reads_head_only(content))
+                .then(|| doc.line_window(line, parts.clone()))
+                .flatten();
+            let (chars, breaks, truncated) = match &window {
+                Some(w) => (&w.chars[..], w.breaks.clone(), false),
+                None => {
+                    chars.clear();
+                    chars.extend(content.chars().take(MAX_LINE_CHARS + 1));
+                    let truncated = chars.len() > MAX_LINE_CHARS;
+                    chars.truncate(MAX_LINE_CHARS);
+                    let breaks = fit_breaks(doc.line_breaks(line), chars.len());
+                    (&chars[..], breaks, truncated)
+                }
+            };
+            let (first_part, first_col, ends) =
+                (window.as_deref()).map_or((0, 0, true), |w| (w.part, w.col, w.ends));
+            let line_start = line_start + first_col;
+            let len = chars.len();
+            let line_end = line_end(text, line, line_start, len, truncated);
+            for (whole_part, part) in parts
+                .filter_map(|p| Some((p, p.checked_sub(first_part)?)))
+                .filter(|&(_, part)| part < breaks.rows())
+            {
                 let r = breaks.range(part, len);
+                let r = r.start.min(len)..r.end.min(len);
                 let (a, b) = (line_start + r.start, line_start + r.end);
-                let last = part + 1 == breaks.rows();
+                let last = ends && part + 1 == breaks.rows();
                 // 该段的末尾：最后一段为行尾，其他段到下一段的开头（不含）。
                 let end = if last { line_end } else { b };
                 let x_at = |pos: usize| {
@@ -84,7 +157,7 @@ pub(super) fn draw_wrapped_selection(
                     origin_x
                         + text::slice_cells(span, breaks.indent_of(part), tab_width) as f32 * cell
                 };
-                // 最后一段按行尾判断；其他段只看该段内的字符。
+                // 最后一段按行尾判断；其他段只检查该段内的字符。
                 let covered = if last {
                     selection.from() <= end && selection.to() > a
                 } else {
@@ -99,7 +172,7 @@ pub(super) fn draw_wrapped_selection(
                     }
                     (x0, x1.max(x0 + 1.0))
                 });
-                rows.push((y + part as f32 * lh, span));
+                rows.push((y + whole_part as f32 * lh, span));
             }
             ControlFlow::Continue(())
         });
@@ -133,7 +206,7 @@ fn selection_color(app: &App) -> Color {
     }
 }
 
-/// 绘制选区 `selection`：每行一块，跨行时相邻的块连成一片，只有露在外面的角是圆的。
+/// 绘制选区 `selection`：每行一块，跨行时相邻的块相连，只有外露的角绘制为圆角。
 ///
 /// `columns` 是 CSV 按列对齐时各列的位置（调用方每帧取一次）。
 ///
@@ -151,6 +224,9 @@ pub(super) fn draw_selection(
 ) {
     let doc = app.editor.active().expect("调用方保证有当前文档");
     let text = doc.text();
+    // 选区在文本区右边缘之外的部分不可见，各行只读取到右边缘（见 `line_read_cap`）。
+    let span = (origin_x, app.layout.text.right(), app.cell);
+    let cap = line_read_cap(doc, columns.is_some(), span);
     let (cell, tab_width, clip) = (
         app.cell,
         doc.tab_width(app.editor.tab_width),
@@ -160,7 +236,7 @@ pub(super) fn draw_selection(
         return;
     };
 
-    // 上下各多取一行可见行，用来判断首尾两行的角是否需要圆角。
+    // 上下各多取一行可见行，用于判断首尾两行的角是否需要圆角。
     let mut ranges = Vec::with_capacity(segments.len() + 2);
     // 第一个显示行之前没有可见行时（它是第 0 个显示行），不取上一行。
     if let Some(row) = doc.row_of(first.start).checked_sub(1) {
@@ -174,20 +250,20 @@ pub(super) fn draw_selection(
     }
 
     let mut spans: Vec<(usize, Option<(f32, f32)>)> = Vec::new();
-    // CSV 按列对齐时各字符的显示列：各行共用一个缓冲，只排到选区在这一行的终点为止。
+    // CSV 按列对齐时各字符的显示列：各行共用一个缓冲区，只计算到选区在本行的终点为止。
     let mut cells = Vec::new();
     let lines = selection_lines(text, selection);
     for range in ranges.iter().map(|r| clamp_lines(r, &lines)) {
         if range.is_empty() {
             continue;
         }
-        text.visit_lines(range.start, MAX_LINE_BYTES, |line, line_start, content| {
+        text.visit_lines(range.start, cap, |line, line_start, content| {
             if line >= range.end {
                 return ControlFlow::Break(());
             }
 
             let shown = content.chars().take(MAX_LINE_CHARS + 1).count();
-            let truncated = shown > MAX_LINE_CHARS;
+            let truncated = shown > MAX_LINE_CHARS || cut_by(content, cap);
             let line_end = line_end(text, line, line_start, shown.min(MAX_LINE_CHARS), truncated);
 
             let span = (selection.from() <= line_end && selection.to() > line_start).then(|| {
@@ -297,7 +373,7 @@ pub(in crate::view) fn draw_caret(
     Rect::new(px, y, 2.0, app.fonts.line_height)
 }
 
-/// 在一行的顶边 `y` 处、横坐标 `x` 绘制一道光标竖线；闪烁到暗的那一半时不绘制。
+/// 在一行的顶边 `y` 处、横坐标 `x` 绘制一道光标竖线；处于闪烁周期的熄灭阶段时不绘制。
 pub(in crate::view) fn caret_bar(app: &App, frame: &mut Frame<'_>, x: f32, y: f32, clip: Rect) {
     if app.caret_visible {
         let bar = Rect::new(x.round(), y + 1.0, 2.0, app.fonts.line_height - 2.0);
@@ -307,7 +383,7 @@ pub(in crate::view) fn caret_bar(app: &App, frame: &mut Frame<'_>, x: f32, y: f3
 
 /// 返回光标旁括号及与之配对的括号的位置；没有时返回 `None`。
 ///
-/// 结果按（文档、版本号、光标位置）缓存：在大文件中向前查找需要读取多行，光标不动时不必每帧重算。
+/// 结果按（文档、版本号、光标位置）缓存：在大文件中向前查找需要读取多行，光标不动时无需每帧重算。
 pub(super) fn matching_brace(app: &mut App, index: usize) -> Option<(usize, usize)> {
     let doc = &app.editor.documents[index];
     let key = BraceKey {

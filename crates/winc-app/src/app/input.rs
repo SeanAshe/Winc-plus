@@ -9,3 +9,4 @@ pub(super) mod context_menu;
 pub(super) mod keyboard;
 pub(super) mod mouse;
 pub(super) mod palette;
+pub(super) mod touch;

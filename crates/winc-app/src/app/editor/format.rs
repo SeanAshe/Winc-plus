@@ -15,13 +15,15 @@ use super::*;
 /// 手动格式化、修复的最长等待时间。
 ///
 /// 工具在后台运行，期间可以继续输入（输入后结果作废），因此上限放宽：新装的工具首次运行较慢
-/// （系统要先检查一遍，node 要先编译缓存），实测可能超过 10 秒。
+/// （系统需要先完成检查，node 需要先生成编译缓存），实测可能超过 10 秒。
 const TIMEOUT: Duration = Duration::from_secs(30);
-/// 保存前修复、格式化各自的最长等待时间：按下 `⌘S` 后等待过久会拖延保存（3 秒为经验值）。
-const SAVE_TIMEOUT: Duration = Duration::from_secs(3);
-/// 任务运行超过该时长（经验值）才在状态栏显示「正在格式化…」或「正在修复…」。
+/// 保存前修复、格式化各自的最长等待时间。
 ///
-/// 避免工具很快完成时，状态栏内容短暂出现又消失。
+/// 取自调参：按下 `⌘S` 后等待过久会拖延保存。
+const SAVE_TIMEOUT: Duration = Duration::from_secs(3);
+/// 任务运行超过该时长才在状态栏显示「正在格式化…」或「正在修复…」。
+///
+/// 取自调参：避免工具很快完成时，状态栏内容短暂出现又消失。
 const SHOW_PROGRESS: Duration = Duration::from_millis(500);
 
 /// 后台线程送回的结果：文档及其格式化结果。
@@ -78,11 +80,11 @@ struct Running {
     task: Task,
     /// 送去格式化时的内容。
     ///
-    /// 结果返回时如果文档已不是这份内容，就不应用结果。
+    /// 结果返回时文档内容已变化则不应用结果。
     sent: Rope,
-    /// 完成后继续保存（`⌘S` 时启用了「保存时格式化」或「保存时修复问题」）。
+    /// 完成后是否继续保存（`⌘S` 时启用了「保存时格式化」或「保存时修复问题」）。
     save: bool,
-    /// 只格式化选中的部分。
+    /// 是否只格式化选中的部分。
     partial: bool,
     /// 开始运行的时刻，用来决定何时在状态栏显示进度（[`SHOW_PROGRESS`]）。
     started: Instant,
@@ -107,27 +109,31 @@ impl FormatState {
     }
 }
 
-/// 运行前需要用户确认的对象：项目设置（`.winc/config.json`）里写的命令，或项目自带的程序
+/// 运行前需要用户确认的对象：项目设置（`.winc/config.json`）中写的命令，或项目自带的程序
 /// （`node_modules/.bin/prettier`）。
 ///
 /// 打开陌生的仓库时，直接运行其中的程序不安全。
 struct Approval {
-    /// 用户的选择按此目录记录：项目自带程序所在的那一级目录，或项目的 `.winc` 目录。
+    /// 用户的选择按此目录记录：项目自带程序所在的目录，或项目的 `.winc` 目录。
     folder: PathBuf,
     /// 提示框中对象的描述，例如「项目中的「prettier」」「项目设置中的修复命令」。
     what: String,
     /// 提示框主句下方的说明小字。
     detail: String,
-    /// 用户不同意时，能否改用系统中安装的同名程序（命令中写相对路径的程序、项目设置中的命令不行）。
+    /// 用户不同意时是否可以改用系统中安装的同名程序。
+    ///
+    /// 命令中以相对路径指定的程序和项目设置中的命令不可以改用。
     searchable: bool,
-    /// 询问的是项目设置开启的保存时修复或格式化，而不是某个程序：按钮是「允许」「不允许」，
-    /// 不允许也记下来，之后保存时不再问、也不执行。
+    /// 是否询问项目设置开启的保存时修复或格式化（而非某个程序）。
+    ///
+    /// 此时按钮为「允许」「不允许」；选择「不允许」同样记录，之后保存时不再询问，也不执行。
     on_save: bool,
 }
 
 /// 提示框上对项目自带工具的回答。
 ///
-/// `run` 为 `Some(true)` 表示运行该工具，`Some(false)` 表示改用系统中安装的，`None` 表示取消。
+/// `run` 为 `Some(true)` 表示运行该工具，`Some(false)` 表示改用系统中安装的同名程序，
+/// `None` 表示取消。
 #[derive(Debug, Clone)]
 pub struct ToolAnswer {
     /// 发起询问的文档。
@@ -136,7 +142,7 @@ pub struct ToolAnswer {
     pub task: Task,
     /// 完成后是否继续保存。
     pub save: bool,
-    /// 只处理的区段（格式化选中部分时）。
+    /// 仅处理的区段（格式化选中部分时）。
     pub range: Option<FormatRange>,
     /// 记录用户选择的目录（见 `Approval::folder`）。
     pub folder: PathBuf,
@@ -208,11 +214,11 @@ impl App {
         on == Some(true) && !excluded(&self.config) && !project.is_some_and(excluded)
     }
 
-    /// 保存时的 `task` 是否是项目设置 `project` 开启的，而用户自己没有开：打开陌生的仓库后按
-    /// `⌘S` 不能自动运行用户不知情的工具（工具会加载项目里的配置，ESLint、Prettier 的配置就是
-    /// 能执行的 JS）。
+    /// 保存时的 `task` 由项目设置 `project` 开启、而用户未开启时，返回记录用户选择所用的键；
+    /// 否则返回 `None`。
     ///
-    /// 返回记录用户选择用的键，不是时返回 `None`。
+    /// 打开陌生的仓库后按 `⌘S` 不能自动运行用户不知情的工具：工具会加载项目中的配置，
+    /// ESLint、Prettier 的配置本身是可执行的 JS。
     fn project_on_save(&self, project: Option<&Config>, task: Task) -> Option<PathBuf> {
         let on = save_switch(project?, task) == Some(true);
         (on && save_switch(&self.config, task) != Some(true)).then(|| {
@@ -239,8 +245,9 @@ impl App {
         Some(config)
     }
 
-    /// 保存时的修复和格式化：先修复（修复后可能需要重新排版），再格式化，全部完成（或无法执行）
-    /// 后再保存。
+    /// 执行保存时的修复和格式化，之后保存。
+    ///
+    /// 先修复（修复后可能需要重新排版），再格式化；全部完成或无法执行后再保存。
     pub(in crate::app) fn format_then_save(&mut self, id: DocumentId) {
         if self.on_save(Task::Fix, id) {
             if let Err(e) = self.start(Task::Fix, id, true, None) {
@@ -251,9 +258,9 @@ impl App {
         }
     }
 
-    /// 保存前的某一步已结束（完成或未能执行），`note` 是保存后要显示的提示。
+    /// 处理保存前某一步的结束（完成或未能执行），`note` 为保存后要显示的提示。
     ///
-    /// 修复之后继续格式化，最后执行保存。
+    /// 修复后继续格式化，最后执行保存。
     fn save_step_done(&mut self, task: Task, id: DocumentId, note: Option<String>) {
         if let Some(note) = note {
             self.format.notes.push((id, note));
@@ -273,12 +280,13 @@ impl App {
 
     /// 开始格式化（或修复）文档 `id`。
     ///
-    /// `save` 为 `true` 时完成后继续保存，给出 `range` 时只处理该区段；返回 `Ok` 表示后续已交出。
+    /// `save` 为 `true` 时完成后继续保存，给出 `range` 时只处理该区段；
+    /// 返回 `Ok` 表示后续步骤已交给后台任务。
     ///
     /// # Errors
     ///
-    /// 没有开始时返回 [`FormatError`]：文档不可格式化、没有可用的工具、命令引用的程序不存在，或
-    /// 用户选择不运行项目自带的工具。
+    /// 未能开始时返回 [`FormatError`]：文档不可格式化、没有可用的工具、命令引用的程序不存在，
+    /// 或用户选择不运行项目自带的工具。
     fn start(
         &mut self,
         task: Task,
@@ -295,7 +303,7 @@ impl App {
         if save && let Some(folder) = self.project_on_save(project.as_ref(), task) {
             match self.state.tool_choice(&folder) {
                 Some(true) => {}
-                // 不允许：这次保存照常进行，只是不修复、不格式化，也不提示。
+                // 不允许：本次保存仍正常进行，但不修复、不格式化，也不提示。
                 Some(false) => return Err(FormatError::Cancelled),
                 None => {
                     let approval = Approval {
@@ -327,7 +335,7 @@ impl App {
                     t!("format-unsaved-no-language").to_owned(),
                 ));
             }
-            // 工具要读磁盘上的文件，没保存过的文件没有。
+            // 工具需要读取磁盘上的文件，未保存过的文件在磁盘上不存在。
             None if configured
                 .as_deref()
                 .is_some_and(Plan::reads_file_from_disk) =>
@@ -408,7 +416,7 @@ impl App {
         Ok(())
     }
 
-    /// 项目设置中的命令或项目自带的程序第一次运行前，弹出提示框，询问能否运行。
+    /// 在项目设置中的命令或项目自带的程序首次运行前弹出提示框，询问是否允许运行。
     ///
     /// # Errors
     ///
@@ -449,7 +457,7 @@ impl App {
             } else {
                 t!("common-cancel")
             }));
-            // 保存时的询问没有「取消」：不允许也是一个要记住的回答。
+            // 保存时的询问没有「取消」：「不允许」同样是需要记录的回答。
             let cancel = if approval.on_save {
                 usize::MAX
             } else {
@@ -481,9 +489,9 @@ impl App {
         )))
     }
 
-    /// 处理用户在提示框上对能否运行项目自带程序的回答 `answer`：记住该选择并继续格式化。
+    /// 处理用户在提示框中对是否运行项目自带程序的回答 `answer`：记录该选择并继续格式化。
     ///
-    /// 取消时只是本次不格式化，保存仍然进行。
+    /// 取消时仅本次不格式化，保存仍然进行。
     pub(in crate::app) fn answer_tool_choice(&mut self, answer: ToolAnswer) {
         let ToolAnswer { id, task, save, .. } = answer;
         let Some(run) = answer.run else {
@@ -503,7 +511,7 @@ impl App {
         }
     }
 
-    /// 收取后台线程送回的格式化结果。
+    /// 接收后台线程送回的格式化结果。
     pub(in crate::app) fn poll_formatting(&mut self) {
         while let Ok((id, result)) = self.format.receiver.try_recv() {
             self.formatting_done(id, result);
@@ -578,8 +586,8 @@ impl App {
         });
     }
 
-    /// 结果返回时用户已切换到其他标签，则返回该文档的名称，使提示能指明是哪个文件；
-    /// 仍在当前标签时返回 `None`。
+    /// 用户已切换到其他标签时返回文档 `id` 的名称，使提示能指明对应的文件；
+    /// 文档仍为当前标签时返回 `None`。
     fn background_name(&self, id: DocumentId) -> Option<String> {
         if self.editor.active().map(|d| d.id) == Some(id) {
             return None;
@@ -589,8 +597,8 @@ impl App {
 
     /// 提示任务失败的原因；已取消的任务不提示。
     ///
-    /// 工具出错时附带「查看输出」按钮，工具没装时附带安装方法的按钮，没有指定工具时附带
-    /// 打开设置的按钮。
+    /// 工具出错时附带「查看输出」按钮，工具未安装时附带安装方法的按钮，
+    /// 未指定工具时附带打开设置的按钮。
     fn task_failed(&mut self, task: Task, id: DocumentId, error: &FormatError) {
         if *error == FormatError::Cancelled {
             return;
@@ -640,10 +648,10 @@ impl App {
         self.request_redraw();
     }
 
-    /// 保存文档 `id`，再在状态栏提示修复、格式化的结果。
+    /// 保存文档 `id`，之后在状态栏提示修复、格式化的结果。
     ///
-    /// 保存失败时只提示保存的错误。关闭标签或退出时的保存如果正在等待这次保存，保存成功后继续关闭；
-    /// 保存失败则放弃整个关闭（与直接保存失败相同）。
+    /// 保存失败时只提示保存的错误。关闭标签或退出的流程正在等待本次保存时，保存成功后继续关闭，
+    /// 保存失败则放弃整个关闭流程（处理方式同直接保存失败）。
     fn save_with_notes(&mut self, id: DocumentId) {
         let closing = self.format.then_close.take();
         let (notes, others) = std::mem::take(&mut self.format.notes)
@@ -668,17 +676,17 @@ impl App {
 
     /// 是否已把格式化结果 `changes`（相对于送去格式化时的内容 `sent`）应用到文档 `id`。
     ///
-    /// 滚动位置保持稳定：光标原来在屏幕上时，仍留在屏幕上的同一显示行；不在屏幕上时，
-    /// 原来最上面的一行仍在最上面。
+    /// 滚动位置保持稳定：光标原先在屏幕上时，仍留在屏幕上的同一显示行；不在屏幕上时，
+    /// 原先最上方的行仍在最上方。
     fn apply_formatted(&mut self, id: DocumentId, sent: &Rope, changes: Vec<Change>) -> bool {
-        let visible = self.visible_lines() as f32;
+        let visible = self.visible_lines() as f64;
         let Some(doc) = self.editor.document_mut(id) else {
             return false;
         };
 
         // 位置都按显示行计算，已折叠的行不计入。
         let scroll = doc.scroll_line;
-        let caret_row = doc.row_at(doc.selection.head) as f32;
+        let caret_row = doc.row_at(doc.selection.head) as f64;
         let on_screen = caret_row >= scroll.floor() && caret_row < scroll + visible;
         let top = doc.text().line_start(doc.line_of_row(scroll as usize));
         let Some(top) = doc.apply_formatted(sent, changes, top) else {
@@ -686,11 +694,11 @@ impl App {
         };
 
         let scroll = if on_screen {
-            doc.row_at(doc.selection.head) as f32 - (caret_row - scroll)
+            doc.row_at(doc.selection.head) as f64 - (caret_row - scroll)
         } else {
-            doc.row_at(top) as f32 + scroll.fract()
+            doc.row_at(top) as f64 + scroll.fract()
         };
-        doc.scroll_line = scroll.clamp(0.0, (doc.row_count() as f32 - 2.0).max(0.0));
+        doc.scroll_line = scroll.clamp(0.0, (doc.row_count() as f64 - 2.0).max(0.0));
 
         if self.editor.active().map(|d| d.id) == Some(id) {
             self.relayout();
@@ -722,8 +730,8 @@ impl App {
         self.format.running.iter().any(|r| r.id == id)
     }
 
-    /// 返回状态栏应显示进度的任务种类（「正在格式化…」或「正在修复…」）；没有需要显示的任务时
-    /// 返回 `None`。
+    /// 返回状态栏应显示进度的任务种类（「正在格式化…」或「正在修复…」）；
+    /// 没有需要显示的任务时返回 `None`。
     pub(crate) fn format_in_progress(&self) -> Option<Task> {
         self.format.running.iter().find(|r| r.shown).map(|r| r.task)
     }
@@ -750,10 +758,10 @@ impl App {
     }
 }
 
-/// 没保存过、选了语言 `language` 的文件交给格式化工具的文件名：在打开的目录（没有时是临时
-/// 目录）里的 `untitled.json` 这种。
+/// 返回未保存过、语言为 `language` 的文件交给格式化工具时使用的路径。
 ///
-/// 工具只拿它当提示（`--stdin-filepath`），并按它所在的目录找配置，不会去读它。
+/// 路径形如打开的目录（没有时为临时目录）中的 `untitled.json`。工具只把该路径用作提示
+/// （`--stdin-filepath`），并在其所在目录查找配置，不会读取该文件。
 fn unsaved_path(language: &winc_syntax::Language, root: Option<&Path>) -> PathBuf {
     let name = match (language.extensions.first(), language.file_names.first()) {
         (Some(ext), _) => format!("untitled.{ext}"),
@@ -764,7 +772,7 @@ fn unsaved_path(language: &winc_syntax::Language, root: Option<&Path>) -> PathBu
         .join(name)
 }
 
-/// 返回这次格式化是否需要先询问用户；需要时返回询问的内容。
+/// 返回本次格式化需要先向用户询问的内容；无需询问时返回 `None`。
 ///
 /// 项目设置中的命令只询问一次，该命令用到的项目自带程序不再另外询问。
 fn approval(plan: &Plan, root: Option<&Path>, project: Option<&str>) -> Option<Approval> {
@@ -818,6 +826,6 @@ fn note_for(task: Task, error: FormatError) -> Option<String> {
     }
 }
 
-// 只有 Unix 上的测试用到：这些测试用 sh 脚本代替格式化工具，Git 相关的测试也只在 Unix 上运行。
+// 仅 Unix 上的测试使用：这些测试用 sh 脚本代替格式化工具，Git 相关的测试也只在 Unix 上运行。
 #[cfg(all(test, unix))]
 mod tests;

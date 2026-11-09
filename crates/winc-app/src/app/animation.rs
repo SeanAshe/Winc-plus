@@ -1,69 +1,73 @@
 //! 动画共用的时钟。
 //!
-//! 侧栏开关、目录展开收起、代码折叠展开、`⌘P` 面板高度变化和标签滑动都用 [`Clock`] 计算进度，
-//! 设置浮层、`⌘P` 面板和跳转条这类输入条出现、消失用同一条曲线（[`dialog_curve`]、[`CardFx`]），
-//! 动画结束后由 [`App::settle_animations`] 统一清除。文件树工具栏的收起动画目标随宽度连续变化，
-//! 不用时钟，见 `tool_fold.rs`。Git、终端模块开关时跟着出现、消失的几样东西见
-//! `presence.rs`。
+//! 侧栏开关、目录展开收起、代码折叠展开、`⌘P` 面板高度变化和标签滑动都用 [`Clock`] 计算进度；
+//! 设置浮层、`⌘P` 面板和跳转条等输入条的出现、消失使用同一条曲线（[`dialog_curve`]、
+//! [`CardFx`]）。动画结束后由 [`App::settle_animations`] 统一清除。
+//! 文件树工具栏的收起动画目标随宽度连续变化，不使用时钟，见 `tool_fold.rs`；
+//! 开关 Git、终端模块时随之出现、消失的界面元素见 `presence.rs`。
 
 use std::time::{Duration, Instant};
 
 use super::*;
 
-/// 侧栏展开、收起的动画时长（经验值）。
+/// 侧栏展开、收起的动画时长（取自调参）。
 pub(super) const SIDEBAR_ANIMATION: Duration = Duration::from_millis(200);
-/// 目录展开、收起的动画时长（经验值）。
+/// 目录展开、收起的动画时长（取自调参）。
 pub(super) const TREE_ANIMATION: Duration = Duration::from_millis(160);
-/// 编辑区跳转式滚动（翻页、跳到行、查找跳转）的平滑滚动时长（经验值）。
+/// 编辑区跳转式滚动（翻页、跳到行、查找跳转）的平滑滚动时长。
 ///
-/// 时长足以让用户看清滚动方向，连续翻页时也不会明显滞后于按键。
+/// 取自调参：该时长足以看清滚动方向，连续翻页时也不会明显滞后于按键。
 pub(super) const SCROLL_GLIDE: Duration = Duration::from_millis(125);
-/// 差异跳到一处改动时那一段高亮的时长（毫秒）。
+/// 差异跳转到一处改动时该段改动的高亮时长。
 ///
-/// 长于 [`SCROLL_GLIDE`]，滚动结束后高亮还持续约 475 ms，跳转距离很近时同样能看清落点。
+/// 长于 [`SCROLL_GLIDE`]：滚动结束后高亮仍持续约 475 ms，跳转距离很近时同样能看清落点。
 pub(super) const DIFF_PULSE: Duration = Duration::from_millis(600);
 /// 代码折叠、展开的动画时长，取 [`TREE_ANIMATION`]，使两种展开收起的节奏统一。
 pub(super) const FOLD_ANIMATION: Duration = TREE_ANIMATION;
 /// `⌘P` 面板高度变化的动画时长，取 [`TREE_ANIMATION`]。
 pub(super) const PICKER_ANIMATION: Duration = TREE_ANIMATION;
-/// 标签滑动的动画时长（经验值）：为拖动中的标签让位，以及松开拖动后落到目标位置。
+/// 标签滑动的动画时长（取自调参）：用于为拖动中的标签让位，以及松开后标签移到目标位置。
 pub(super) const TAB_SLIDE: Duration = Duration::from_millis(150);
-/// 元素消失时内容淡出的时长（经验值）。
+/// 元素消失时内容淡出的时长。
 ///
-/// 内容先在原宽度内淡出，宽度随后收起，收起途中不显示被裁去一部分的文字或图标。
+/// 取自调参：内容先在原宽度内淡出，之后宽度收起，收起途中不显示被部分裁去的文字或图标。
 pub(super) const EXIT_FADE: Duration = Duration::from_millis(70);
-/// 元素出现时内容开始淡入的显示比例（经验值）。
+/// 元素出现时内容开始淡入的显示比例（0 到 1）。
 ///
-/// 宽度按缓出曲线展开，达到该比例时约经过三分之一的时长，此后被裁去的内容很少。
+/// 取自调参：宽度按缓出曲线展开，达到该比例时约经过三分之一的时长，此后被裁去的内容很少。
 const REVEAL_FROM: f32 = 0.7;
-/// 日志详情换成另一个提交时内容淡入的时长（经验值）：比视图切换还短，只用于遮盖内容的突然替换。
-pub(super) const DETAILS_FADE: Duration = Duration::from_millis(120);
-/// Markdown 预览的标题列表展开的时长：卡片淡入、横线从指示条滑到各行，与文件树展开一个目录
-/// 相同。
-pub(super) const TOC_FADE: Duration = TREE_ANIMATION;
-/// 在 Markdown 预览的标题列表里点了一个标题后，正文里该标题的底色淡出的时长。
+/// 日志详情切换到另一个提交时内容淡入的时长。
 ///
-/// 取 1.2 秒（调参所得）：滚动结束后仍能看清标出的是哪一个标题，又不会久留。
+/// 取自调参：该淡入仅用于缓和内容的突然替换，因此短于视图切换的动画。
+pub(super) const DETAILS_FADE: Duration = Duration::from_millis(120);
+/// Markdown 预览的标题列表展开的时长，取 [`TREE_ANIMATION`]。
+///
+/// 展开时卡片淡入，横线从指示条滑到各行。
+pub(super) const TOC_FADE: Duration = TREE_ANIMATION;
+/// 在 Markdown 预览的标题列表中点击标题后，正文中该标题底色淡出的时长。
+///
+/// 取自调参：取 1.2 秒时，滚动结束后仍能看清被标出的标题，底色也不会长时间停留。
 pub(super) const TOC_FLASH: Duration = Duration::from_millis(1200);
-/// 切换侧栏视图时，视图切换中选中段滑到新位置的时长（经验值），取 [`TAB_SLIDE`]。
+/// 切换侧栏视图时，视图切换中选中段滑到新位置的时长，取 [`TAB_SLIDE`]。
 pub(super) const VIEW_SLIDE: Duration = TAB_SLIDE;
-/// 设置中开关切换时圆钮滑动、底色渐变的时长（经验值），取 [`TAB_SLIDE`]。
+/// 设置中开关切换时圆钮滑动、底色渐变的时长，取 [`TAB_SLIDE`]。
 ///
 /// macOS 系统开关的动画约为 0.2 秒；此处的开关更小，滑动距离更短，因此时长略短。
 pub(super) const SWITCH_SLIDE: Duration = TAB_SLIDE;
-/// 位置浮窗（定义、用法、书签）出现的动画时长（经验值）：从名字那一侧滑出并淡入。
+/// 位置浮窗（定义、用法、书签）出现的动画时长（取自调参）：浮窗从名字一侧滑出并淡入。
 pub(super) const POPUP_IN: Duration = Duration::from_millis(150);
-/// 位置浮窗消失的动画时长（经验值）：比出现时短，原地淡出，关闭时立即消失。
+/// 位置浮窗消失的动画时长（取自调参）：短于 [`POPUP_IN`]，浮窗在原位置淡出。
 pub(super) const POPUP_OUT: Duration = Duration::from_millis(110);
 /// 可编辑的预览重排后各块滑到新位置、新显示的标记淡入的时长，取 [`TREE_ANIMATION`]。
 pub(crate) const MARKDOWN_MOTION: Duration = TREE_ANIMATION;
-/// 设置浮层出现的时长（经验值）：整张卡片比小浮窗大得多，时长需要相应加长。
+/// 设置浮层出现的时长（取自调参）：卡片面积远大于小浮窗，时长相应加长。
 pub(super) const DIALOG_IN: Duration = Duration::from_millis(220);
-/// 设置浮层消失的时长（经验值）：比出现短。
+/// 设置浮层消失的时长（取自调参），短于 [`DIALOG_IN`]。
 pub(super) const DIALOG_OUT: Duration = Duration::from_millis(150);
 
-/// 浮层卡片（设置、`⌘P` 面板、输入条）出现、消失途中的（不透明度，缩放）：出现时整张淡入、
-/// 从 95% 放大到原大，消失时整张淡出、略微缩小。
+/// 返回浮层卡片（设置、`⌘P` 面板、输入条）出现、消失途中的（不透明度，缩放）。
+///
+/// 出现时整体淡入并从 95% 放大到原大，消失时整体淡出并略微缩小。
 pub fn dialog_curve(opening: bool, clock: Clock) -> (f32, f32) {
     let t = clock.progress();
     if opening {
@@ -73,9 +77,9 @@ pub fn dialog_curve(opening: bool, clock: Clock) -> (f32, f32) {
     }
 }
 
-/// `⌘P` 面板、输入条（跳转到行、新建分支……）出现和消失的动画，使用 [`dialog_curve`]。
+/// `⌘P` 面板、输入条（跳转到行、新建分支等）出现和消失的动画，使用 [`dialog_curve`]。
 ///
-/// 关闭的途径很多（`Esc`、回车、点击外部、焦点移走），因此不在各处记录，而由
+/// 关闭的途径较多（`Esc`、回车、点击外部、焦点移走），因此不在各处记录，而由
 /// [`App::track_card`] 每帧绘制时与上一帧比较：打开时淡入，关闭时用最后一帧保存的卡片淡出。
 #[derive(Debug, Default)]
 pub struct CardFx {
@@ -83,14 +87,14 @@ pub struct CardFx {
     shown: bool,
     /// 出现（`true`）或消失的动画；不在动画中时为 `None`。
     pub motion: Option<(bool, Clock)>,
-    /// 最近一帧画出来的卡片（位置，逻辑像素；不含阴影）：关闭以后淡出用。
+    /// 最近一帧绘制的卡片（位置为逻辑像素，不含阴影），用于关闭后的淡出。
     pub shot: Option<(winc_render::Rect, winc_render::Snapshot)>,
     /// 淡入途中存放卡片下方内容（连同阴影）的缓冲，每帧复用；淡入结束后释放。
     pub base: Option<winc_render::Snapshot>,
 }
 
 impl CardFx {
-    /// 正在淡出：关闭了，最后一帧的卡片还在。
+    /// 卡片已关闭且正在淡出时，返回动画时钟、卡片位置和最后一帧的卡片画面。
     pub fn closing(&self) -> Option<(Clock, winc_render::Rect, &winc_render::Snapshot)> {
         match (self.motion, &self.shot) {
             (Some((false, clock)), Some((rect, shot))) if !self.shown => Some((clock, *rect, shot)),
@@ -111,23 +115,23 @@ impl CardFx {
     }
 }
 
-/// 哪一张浮层卡片。
+/// 浮层卡片的种类。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Card {
     /// `⌘P` 面板（文件、命令、符号）。
     ///
-    /// 位置浮窗有自己的动画，不算。
+    /// 不含位置浮窗，位置浮窗使用单独的动画。
     Picker,
-    /// 编辑区顶上的输入条（跳转到行、新建分支、储藏……）。
+    /// 编辑区顶部的输入条（跳转到行、新建分支、储藏等）。
     Bar,
     /// 窗口正中的功能对话框（新建工作树）。
     Dialog,
-    /// 窗口中画出来的提示框（没有系统提示框时）。
+    /// 窗口内绘制的提示框（平台没有系统提示框时使用）。
     Alert,
 }
 
 impl Card {
-    /// 卡片的圆角半径：输入条和面板用较小的 `RADIUS_BAR`，对话框用 `RADIUS_CARD`。
+    /// 返回卡片的圆角半径：输入条和面板用较小的 `RADIUS_BAR`，对话框和提示框用 `RADIUS_CARD`。
     pub fn radius(self) -> f32 {
         match self {
             Card::Picker | Card::Bar => crate::theme::RADIUS_BAR,
@@ -157,7 +161,7 @@ impl Clock {
         }
     }
 
-    /// 返回停在 `at` 的时钟：测试里的进度不随实际时间变化。
+    /// 返回已用时间固定为 `at` 的时钟，测试中的进度不随实际时间变化。
     #[cfg(test)]
     pub(crate) fn stopped(duration: Duration, at: Duration) -> Clock {
         Clock {
@@ -181,7 +185,7 @@ impl Clock {
 
     /// 返回未加缓动的进度（经过的时间占时长的比例）：0 表示刚开始，1 表示已结束。
     ///
-    /// 需要别的曲线时（例如消失时先慢后快）由调用方在此基础上计算。
+    /// 需要其他曲线时（例如消失时先慢后快）由调用方在此基础上计算。
     pub fn linear(&self) -> f32 {
         (self.elapsed().as_secs_f32() / self.duration.as_secs_f32()).min(1.0)
     }
@@ -189,6 +193,11 @@ impl Clock {
     /// 返回从 `from` 过渡到 `to` 的动画在当前进度下的值。
     pub fn between(&self, from: f32, to: f32) -> f32 {
         from + (to - from) * self.progress()
+    }
+
+    /// 返回滚动位置（显示行）从 `from` 过渡到 `to` 在当前进度下的值。
+    pub fn between_rows(&self, from: f64, to: f64) -> f64 {
+        from + (to - from) * f64::from(self.progress())
     }
 
     /// 返回淡出途中的不透明度：按未加缓动的进度从 1 平滑降到 0。
@@ -245,7 +254,7 @@ pub fn reveal(share: f32) -> f32 {
 }
 
 impl App {
-    /// 画 `card` 之前调用：和上一帧比，刚开（`open`）就开始淡入，刚关就开始淡出。
+    /// 在绘制 `card` 之前与上一帧的状态比较：刚打开（`open`）时开始淡入，刚关闭时开始淡出。
     pub(crate) fn track_card(&mut self, card: Card, open: bool) {
         let shown = self.card_fx(card).shown;
         if shown != open {
@@ -260,7 +269,7 @@ impl App {
         }
     }
 
-    /// `card` 的动画状态。
+    /// 返回 `card` 的动画状态。
     pub(crate) fn card_fx(&mut self, card: Card) -> &mut CardFx {
         match card {
             Card::Picker => &mut self.picker_card,
@@ -297,6 +306,7 @@ impl App {
 
         settle(&mut self.sidebar_motion, |m| m.clock);
         settle(&mut self.tree_motion, |m| m.clock);
+        self.settle_log_tree();
         self.tree_labels.settle();
         self.commit.names.settle();
         settle(&mut self.commit.shift, |s| s.clock);
@@ -371,11 +381,11 @@ impl App {
         self.next_frame = animating.then(|| started + self.frame_interval);
     }
 
-    /// 这一帧没画成（呈现缓冲都被合成器占着，见 `Renderer::draw`）：下一次屏幕刷新时再画，
-    /// 不立即重试，避免界面线程空转等待。
+    /// 本帧未能绘制时（呈现缓冲均被合成器占用，见 `Renderer::draw`）安排重绘。
     ///
-    /// 存在显示链接时由它在下一次刷新时请求重画；显示链接没有回调时（窗口被遮住）由计时器在
-    /// 两个 `frame_interval` 后兜底，画成以后 [`Self::schedule_frame`] 会取消它。
+    /// 不立即重试，避免界面线程空转等待。存在显示链接时由显示链接在下一次刷新时请求重绘；
+    /// 显示链接没有回调时（窗口被遮挡），由计时器在两个 `frame_interval` 后重试，
+    /// 绘制成功后 [`Self::schedule_frame`] 会取消该计时器。
     pub(super) fn retry_frame(&mut self, started: Instant) {
         #[cfg(any(target_os = "macos", windows))]
         if let Some(link) = &mut self.display_link {
@@ -390,6 +400,7 @@ impl App {
     pub(super) fn animating(&self) -> bool {
         self.sidebar_motion.is_some()
             || self.tree_motion.is_some()
+            || self.log_tree_animating()
             || self.tree_labels.moving()
             || self.commit.names.moving()
             || self.commit.actions_slide.is_some()

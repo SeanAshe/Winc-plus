@@ -2,9 +2,11 @@
 
 mod assoc;
 mod display_link;
+mod touch;
 
 pub use assoc::{register_file_icons, register_file_types, unregister_file_types};
 pub use display_link::DisplayLink;
+pub use touch::{WindowHitTest, WindowInput};
 
 use std::io;
 use std::os::windows::ffi::OsStrExt;

@@ -268,6 +268,23 @@ impl CommitState {
         self.layout += 1;
     }
 
+    /// 展开 `dir`（相对仓库根目录）及其各级上级目录，以及所在的组，使其中的文件可见。
+    pub(crate) fn expand_to(&mut self, dir: &Path) {
+        for i in 0..CommitGroup::COUNT {
+            self.collapsed[i] = false;
+            self.collapsed_dirs[i].retain(|collapsed| !dir.starts_with(collapsed));
+        }
+        self.layout += 1;
+    }
+
+    /// 设定是否把只有一个子目录、没有文件的各级目录合成一行。
+    pub(crate) fn set_compact(&mut self, compact: bool) {
+        if self.compact != compact {
+            self.compact = compact;
+            self.layout += 1;
+        }
+    }
+
     /// 设定平铺（`true`）或按目录排成树。
     pub(crate) fn set_flat(&mut self, flat: bool) {
         if self.flat != flat {
@@ -321,7 +338,7 @@ impl CommitState {
     /// 排列表：每组一行标题，没收起的组下面按目录排成树（或者平铺）。
     ///
     /// 空的组不显示。`root` 是仓库的根目录，文件的路径按它算相对路径。
-    pub(super) fn build_rows(&self, status: &Status, root: &Path) -> CommitRows {
+    pub(in crate::app::git) fn build_rows(&self, status: &Status, root: &Path) -> CommitRows {
         let mut out = CommitRows::default();
         for group in CommitGroup::ALL {
             let files: Vec<(usize, &Path)> = status
@@ -375,9 +392,9 @@ impl CommitState {
             }
         }
         for (NaturalName(name), mut sub) in dirs {
-            // 只有一个子目录、没有文件：和子目录合成一行。
+            // 只有一个子目录、没有文件：按设置和子目录合成一行。
             let mut label = PathBuf::from(name);
-            while let Some(next) = only_subdir(&sub) {
+            while let Some(next) = only_subdir(&sub).filter(|_| self.compact) {
                 label.push(next);
                 for (_, p) in &mut sub {
                     let rest: &'a Path = p;

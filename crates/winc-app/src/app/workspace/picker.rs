@@ -21,22 +21,22 @@ pub const PICKER_ICON_X: f32 = 14.0;
 /// 输入框中输入的文字与结果行的名字在竖直方向上对齐。
 pub const PICKER_TEXT_X: f32 = 40.0;
 
-/// 结果列表最多同时显示的行数（行，经验值）；结果更多时滚动。
+/// 结果列表最多同时显示的行数（行）；结果更多时滚动。
 pub const PICKER_MAX_ROWS: usize = 10;
-/// 位置浮窗（定义、用法、书签）底栏的高度（逻辑像素）：显示选中那一项的完整路径。
+/// 位置浮窗（定义、用法、书签）底栏的高度（逻辑像素）：显示选中项的完整路径。
 pub const PLACES_FOOTER: f32 = 28.0;
 /// 位置浮窗的宽度（逻辑像素）：放得下文件名、行号和一行代码；窄窗口下随编辑区收窄。
 const PLACES_WIDTH: f32 = 720.0;
 /// 位置浮窗与名字所在行之间的间距（逻辑像素）。
 const PLACES_GAP: f32 = 4.0;
 
-/// 位置浮窗关掉那一刻的状态，淡出动画据此绘制（此时面板状态已清空）。
+/// 位置浮窗关闭时的状态，淡出动画据此绘制（此时面板状态已清空）。
 pub struct PlacesGhost {
     /// 列出的位置。
     pub places: editor::definition::Places,
     /// 筛选后留下的条目序号。
     pub hits: Vec<usize>,
-    /// 选中的是 `hits` 中的第几条。
+    /// 选中项在 `hits` 中的序号。
     pub selected: usize,
     /// 列表的滚动量（逻辑像素）。
     pub scroll: f32,
@@ -139,9 +139,9 @@ impl App {
         self.request_redraw();
     }
 
-    /// 关闭面板：释放符号列表和上一次查询的命中列表，清除输入法组字，并把焦点还给编辑区。
+    /// 关闭面板：释放符号列表和上一次查询的命中列表，清除输入法组字，并将焦点交还编辑区。
     ///
-    /// 位置浮窗关闭后淡出：按关闭那一刻的状态再绘制 100 ms（见 [`PlacesGhost`]）。
+    /// 位置浮窗关闭后淡出：按关闭时的状态再绘制 100 ms（见 [`PlacesGhost`]）。
     pub(in crate::app) fn close_picker(&mut self) {
         self.drop_symbols();
         self.picker.forget_query();
@@ -189,7 +189,7 @@ impl App {
         }
 
         let target = self.layout.picker.h;
-        // 位置浮窗和分支、位置选择器都挂在触发它们的地方，筛选时高度直接到位：卡片边沿滑动会使
+        // 位置浮窗和分支、位置选择器都依附于触发位置，筛选时高度直接到位：卡片边沿的滑动会使
         // 列表看起来在滚动。
         if self.picker_places.is_some() || self.picker_is_git() {
             self.picker_motion = None;
@@ -213,7 +213,7 @@ impl App {
         }
     }
 
-    /// 列出位置（定义、用法、书签）时，把面板改成挂在名字旁边的浮窗：在名字所在行的下方，
+    /// 列出位置（定义、用法、书签）时，将面板改为位于名字旁边的浮窗：在名字所在行的下方，
     /// 左边缘比名字所在的列靠左 12 逻辑像素，使文件图标落在名字下方附近；下方放不下全部行、
     /// 上方空间更多时放在上方。
     ///
@@ -253,7 +253,7 @@ impl App {
         self.layout.picker = Rect::new(x, y.round(), w, h);
     }
 
-    /// 面板是否是分支选择器或位置选择器。
+    /// 面板是否为分支选择器或位置选择器。
     pub(crate) fn picker_is_git(&self) -> bool {
         self.picker_lists_branches() || self.picker_lists_locations()
     }
@@ -267,8 +267,8 @@ impl App {
     pub(crate) fn anchor_point(&self, pos: usize) -> Option<(f32, f32)> {
         let doc = self.editor.active()?;
         let text = self.layout.text;
-        let row = doc.row_at(pos) as f32;
-        let y = text.y + (row - doc.scroll_line) * self.fonts.line_height;
+        let row = doc.row_at(pos) as f64;
+        let y = text.y + (row - doc.scroll_line) as f32 * self.fonts.line_height;
         let (line, col) = doc.text().pos_to_line_col(pos);
         let cell = doc.col_to_cell(line, col, self.editor.active_tab_width());
         let x = text.x + TEXT_PAD - doc.scroll_x + cell as f32 * self.cell;
@@ -374,9 +374,9 @@ impl App {
 
     /// 打开目录之后，在后台建立 `⌘P` 面板的文件表，使第一次按 `⌘P` 时即可列出文件。
     ///
-    /// 目录处于监视状态时，文件表建好后随变化增量更新，不需要重新遍历。建表耗时：大目录约 1 至
-    /// 2 秒，整个主目录约 3 秒以上。基准测试模式和没有事件循环时不建，避免干扰启动耗时和内存的
-    /// 测量。
+    /// 目录处于监视状态时，文件表建好后随变化增量更新，不需要重新遍历。建表耗时：大目录约
+    /// 1 至 2 秒，整个主目录约 3 秒以上。基准测试模式和没有事件循环时不建立，
+    /// 避免干扰启动耗时和内存的测量。
     pub(super) fn index_folder(&mut self) {
         if !self.bench.silent() && self.proxy.is_some() {
             self.prepare_index();
@@ -440,7 +440,7 @@ impl App {
 
     /// 把当前文件记入最近打开列表，供 `⌘P` 面板的「最近打开」使用。
     pub(super) fn note_recent_file(&mut self) {
-        // 最多记录的文件数（个，经验值）：约为一屏行数 `PICKER_MAX_ROWS` 的 3 倍。
+        // 最多记录的文件数（个）：取一屏行数 `PICKER_MAX_ROWS` 的 3 倍。
         const MAX_RECENT_FILES: usize = 30;
 
         let Some(path) = self.editor.active().and_then(|d| d.path.clone()) else {

@@ -1,10 +1,10 @@
-//! 字形：按语法着色绘制一行文字，自动换行的分段，显示列。
+//! 字形：按语法着色绘制一行文字，以及自动换行的分段与显示列的计算。
 
 use winc_config::RenderWhitespace;
 
 use super::*;
 
-/// 删掉的地方：在 `(x, y)` 这道行间的分界上绘制一个朝右的小三角，`lit` 时大一号。
+/// 标出删除位置：在 `(x, y)` 所在的行间分界上绘制一个朝右的小三角，`lit` 为真时尺寸大一号。
 pub(super) fn draw_deleted_mark(
     frame: &mut Frame<'_>,
     (x, y): (f32, f32),
@@ -48,7 +48,7 @@ pub(super) fn draw_glyph_run(
     )
 }
 
-/// 计算自动换行时一行中列 `from..to` 的文本落在哪几段，对每段调用 `f(段号, 起点格, 终点格)`。
+/// 计算自动换行时一行中列 `from..to` 的文本所在的各段，对每段调用 `f(段号, 起点格, 终点格)`。
 ///
 /// 格从行的左边起数（后续各段的缩进计入其中）。非最后一段绘制到该段末尾，而不是下一段的开头；
 /// 终点正好落在分段处时计入前一段末尾，下一段开头不会多出一块。
@@ -81,7 +81,7 @@ pub(super) fn wrapped_spans(
 }
 
 /// 第 `col` 个字符（空格或制表符）在 `mode` 下是否显示；`trailing` 是行尾空白开始的列，
-/// `selected` 表示这一列在选区里。
+/// `selected` 表示该列是否在选区内。
 pub(in crate::view) fn whitespace_shown(
     mode: RenderWhitespace,
     col: usize,
@@ -106,9 +106,9 @@ pub(in crate::view) fn trailing_whitespace(chars: &[char]) -> usize {
             .count()
 }
 
-/// 绘制一个空白符：空格是格子中央的小圆点，制表符是占满它的宽度的箭头。
+/// 绘制一个空白符：空格为单元格中央的小圆点，制表符为占满其宽度的箭头。
 ///
-/// `x`、`y` 是这个字符的左上角，`width` 是它的宽度（逻辑像素）。颜色取自缩进参考线，比文字淡得多。
+/// `x`、`y` 是该字符的左上角，`width` 是其宽度（逻辑像素）。颜色取自缩进参考线，明显淡于文字。
 pub(in crate::view) fn draw_whitespace_mark(
     app: &App,
     frame: &mut Frame<'_>,
@@ -440,3 +440,37 @@ pub(super) fn draw_columns(
 
 #[cfg(test)]
 mod tests;
+
+impl App {
+    /// 为文档 `doc` 第 `line` 行的字符 `chars` 着色，结果写入 `tokens`，返回下一行行首的状态；
+    /// 长行的结果跨帧复用（[`LineTokens`]）。
+    pub(super) fn highlight_cached(
+        &self,
+        doc: &winc_editor::Document,
+        line: usize,
+        language: &'static winc_syntax::Language,
+        chars: &[char],
+        state: LineState,
+        tokens: &mut Vec<winc_syntax::Token>,
+    ) -> LineState {
+        if chars.len() < LONG_TOKENS_MIN {
+            return winc_syntax::highlight_line(language, chars, state, tokens);
+        }
+        let key = (doc.id, doc.revision, line, chars.len(), state, language.id);
+        let mut cache = self.line_tokens.borrow_mut();
+        if let Some(i) = cache.entries.iter().position(|(k, ..)| *k == key) {
+            let entry = cache.entries.remove(i);
+            tokens.clear();
+            tokens.extend_from_slice(&entry.1);
+            let next = entry.2;
+            cache.entries.push(entry);
+            return next;
+        }
+        let next = winc_syntax::highlight_line(language, chars, state, tokens);
+        if cache.entries.len() >= LONG_TOKENS_LINES {
+            cache.entries.remove(0);
+        }
+        cache.entries.push((key, tokens.clone(), next));
+        next
+    }
+}

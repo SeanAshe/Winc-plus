@@ -1,4 +1,4 @@
-//! 启动：建立应用状态，接上系统菜单和退出拦截。
+//! 启动：建立应用状态，连接系统菜单与退出拦截。
 
 use super::*;
 
@@ -12,9 +12,10 @@ impl App {
         bench: Bench,
         config: Config,
     ) -> Self {
-        // 启动时打开的目录在界面创建之前读入，这里补上文件树的显示方式。
+        // 启动时打开的目录在界面创建之前读入，此处补充设置文件树的显示方式。
+        let compact = config.compact_folders != Some(false);
         if let Some(ws) = &mut editor.workspace {
-            ws.set_compact(config.compact_folders != Some(false));
+            ws.set_compact(compact);
         }
         // 启动时恢复的标签同样计入最近打开的文件，当前标签排在最前。
         let recent_files = {
@@ -70,6 +71,7 @@ impl App {
             modifiers: ModifiersState::empty(),
             option_side: (false, false),
             mouse: (0.0, 0.0),
+            touch: Default::default(),
             drag: Drag::None,
             last_click: None,
             title_click: None,
@@ -93,6 +95,11 @@ impl App {
             status_hits: Vec::new(),
             sticky: Vec::new(),
             sticky_cache: None,
+            wraps: Arc::default(),
+            line_tokens: Default::default(),
+            minimap_rows: Default::default(),
+            max_scroll_x: None,
+            line_widths: ((winc_editor::DocumentId(0), 0, 0), Default::default()),
             ruler_cache: None,
             picture_cache: None,
             images: preview::images::ImageJobs::default(),
@@ -205,7 +212,11 @@ impl App {
             settings: SettingsState::default(),
             format: FormatState::new(formatter()),
             git: git::GitState::default(),
-            commit: git::commit::CommitState::default(),
+            commit: {
+                let mut commit = git::commit::CommitState::default();
+                commit.set_compact(compact);
+                commit
+            },
             commit_hits: Vec::new(),
             changes: git::changes::LineChanges::default(),
             log: git::log::LogState::default(),
@@ -267,15 +278,15 @@ impl App {
         }
     }
 
-    /// 注册 macOS 的系统回调：菜单栏的「设置…」、右键菜单和目录菜单的选中项、⌘Q 和应用内
-    /// 更新（菜单里的「检查更新」、定时检查）。
+    /// 注册 macOS 的系统回调：菜单栏的「设置…」、右键菜单和目录菜单的选中项、`⌘Q` 和应用内
+    /// 更新（菜单中的「检查更新」、定时检查）。
     ///
     /// 回调只向事件循环发送一个事件，由事件循环处理。没有需要询问的内容（未保存的修改、终端中
-    /// 运行的程序）时，⌘Q 的拦截回调返回 `true`，允许退出；否则返回 `false` 取消本次退出，并
+    /// 运行的程序）时，`⌘Q` 的拦截回调返回 `true`，允许退出；否则返回 `false` 取消本次退出，并
     /// 发送 `QuitRequested`，由事件循环询问。
     pub(super) fn install_system_hooks(&mut self) {
-        // 其他平台：以 AppImage 运行或由安装包安装时由应用自己更新（`updates.rs`），结果同样交给
-        // 应用层。
+        // 其他平台：以 AppImage 运行或由安装包安装时由应用自行更新（`updates.rs`），
+        // 结果同样交给应用层。
         #[cfg(not(target_os = "macos"))]
         if let Some(proxy) = self.proxy.as_ref().map(crate::winc::WindowProxy::active) {
             let (found, state, tick) = (proxy.clone(), proxy.clone(), proxy);
@@ -292,7 +303,7 @@ impl App {
             );
         }
         #[cfg(target_os = "macos")]
-        // 这些都属于整个应用（菜单栏、程序坞、⌘Q），交给当前窗口。
+        // 以下回调属于整个应用（菜单栏、程序坞、`⌘Q`），交由当前窗口处理。
         if let Some(proxy) = self.proxy.as_ref().map(crate::winc::WindowProxy::active) {
             let settings = proxy.clone();
             crate::macos::add_settings_menu(move || {
@@ -350,8 +361,8 @@ impl App {
 
 /// 创建运行格式化工具的 `Formatter`。
 ///
-/// 测试中使用测试进程自己的环境变量，不运行用户的登录 shell；`PATH` 只含系统目录，使项目中
-/// 无法判断该用什么工具时的选择结果与本机已安装的工具无关。
+/// 测试中使用测试进程自身的环境变量，不运行用户的登录 shell；`PATH` 只含系统目录，使项目中
+/// 无法确定格式化工具时的选择结果与本机已安装的工具无关。
 fn formatter() -> winc_editor::format::Formatter {
     if cfg!(test) {
         let mut vars: Vec<_> = std::env::vars_os().filter(|(k, _)| k != "PATH").collect();

@@ -1,11 +1,11 @@
-//! 粘滞滚动：固定在编辑区顶部的几行。
+//! 粘滞滚动：固定在编辑区顶部的若干行。
 
 use super::*;
 
-/// 绘制固定在编辑区顶部的几行：覆盖在滚到上方的代码之上，行号仍然显示，下沿一道淡阴影把
+/// 绘制固定在编辑区顶部的行：覆盖在已滚出上方的代码之上，行号仍然显示，下沿的淡阴影把
 /// 固定行与滚动的代码分开。
 ///
-/// 被推上去的那一层压在上一层之下，因此按从内层到外层的顺序绘制。悬停的行铺悬停底色。
+/// 被向上推出的一层位于上一层之下，因此按从内层到外层的顺序绘制。悬停的行铺悬停底色。
 ///
 /// # Panics
 ///
@@ -21,7 +21,7 @@ pub(super) fn draw_sticky(app: &mut App, frame: &mut Frame<'_>, index: usize) {
     let p = app.palette;
     let line_height = app.fonts.line_height;
     let text_rect = layout.text;
-    // 固定行一直盖到编辑区右边缘，阴影也是整条；滚动条随后绘制在固定行之上。
+    // 固定行覆盖到编辑区右边缘，阴影同样横贯整个宽度；滚动条之后绘制在固定行之上。
     let area = Rect::new(layout.editor.x, text_rect.y, layout.editor.w, text_rect.h);
     let states: Vec<Option<LineState>> = rows
         .iter()
@@ -71,12 +71,12 @@ pub(super) fn draw_sticky(app: &mut App, frame: &mut Frame<'_>, index: usize) {
 
             chars.clear();
             chars.extend(
-                text.line_content(row.line)
+                text.line_prefix(row.line, MAX_LINE_BYTES)
                     .slice()
                     .chars()
                     .take(MAX_LINE_CHARS),
             );
-            // 尚未推算到这一行的高亮状态时先按普通文本绘制，推算完成后的下一帧就有颜色了。
+            // 尚未推算到该行的高亮状态时按普通文本绘制，推算完成后的下一帧显示语法着色。
             match state {
                 Some(state) => {
                     winc_syntax::highlight_line(language, &chars, *state, &mut tokens);

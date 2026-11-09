@@ -9,7 +9,7 @@ use winit::keyboard::ModifiersState;
 /// 测试样本：6 行长短不一的 Rust 代码，用于区分列位置与行尾。
 const CODE: &str = "fn main() {\n    let alpha = 1;\n    let beta = 2;\n    let gamma = 3;\n    println!(\"{alpha} {beta} {gamma}\");\n}\n";
 
-/// 打开写着 [`CODE`] 的 `src/main.rs` 并绘制一帧，返回界面与目录。
+/// 打开内容为 [`CODE`] 的 `src/main.rs` 并绘制一帧，返回界面与目录。
 fn cursors_app(name: &str, dark: bool) -> (App, PathBuf) {
     let dir = sample_folder(name);
     std::fs::write(dir.join("src/main.rs"), CODE).unwrap();
@@ -25,7 +25,7 @@ fn point(app: &App, line: usize, col: usize) -> (f32, f32) {
     let doc = app.editor.active().unwrap();
     (
         t.x + TEXT_PAD - doc.scroll_x + col as f32 * app.cell,
-        t.y + (line as f32 - doc.scroll_line + 0.5) * app.fonts.line_height,
+        t.y + ((line as f64 - doc.scroll_line) as f32 + 0.5) * app.fonts.line_height,
     )
 }
 
@@ -51,7 +51,7 @@ fn carets(app: &App) -> Vec<((usize, usize), (usize, usize))> {
         .collect()
 }
 
-/// 当前系统上「在上下行添加光标」的修饰键，见键位表。
+/// 当前系统上「在上下行添加光标」所用的修饰键，取自键位表。
 fn add_cursor_mods() -> &'static [&'static str] {
     match Os::CURRENT {
         Os::Mac => &["cmd", "alt"],
@@ -77,7 +77,7 @@ fn cursors_are_added_with_the_keymap_and_removed_with_escape() {
     assert_eq!(carets(&app), [caret((1, 8)), caret((2, 8)), caret((3, 8))]);
     app.run(Command::Insert("_".into()));
     assert!(text(&app).contains("let _alpha = 1;\n    let _beta = 2;\n    let _gamma = 3;"));
-    // ⇧⌘→ 各自选到行尾，再一起替换。
+    // ⇧⌘→ 使各光标分别选到行尾，之后同时替换。
     app.run(Command::LineEnd { extend: true });
     app.run(Command::Insert("x;".into()));
     assert!(text(&app).contains("let _x;\n    let _x;\n    let _x;"));
@@ -86,13 +86,13 @@ fn cursors_are_added_with_the_keymap_and_removed_with_escape() {
     assert_eq!(text(&app), CODE);
     assert_eq!(carets(&app).len(), 3);
 
-    // Esc 只保留主光标（最后添加的光标）；之后的 Esc 不再是这条快捷键，交给编辑区处理。
+    // Esc 只保留主光标（最后添加的光标）；此后再按 Esc 不再触发该快捷键，由编辑区处理。
     assert!(press(&mut app, &[], KeyCode::Escape));
     assert_eq!(carets(&app), [caret((3, 8))]);
     assert!(!press(&mut app, &[], KeyCode::Escape));
 
-    // ⌘D：先选中光标处的词，再逐个加入下一处（到末尾后从头找）；全都选中后 ⌘K ⌘D 没有
-    // 可以换去的地方，选区不变。
+    // ⌘D：先选中光标处的词，再逐个加入下一处（到达末尾后从开头查找）；全部选中后 ⌘K ⌘D
+    // 没有可移往的下一处，选区不变。
     let at = app.editor.active().unwrap().text().line_start(4) + 16;
     app.select(at, at);
     assert!(press(&mut app, &["cmd"], KeyCode::Char('d')));
@@ -104,7 +104,7 @@ fn cursors_are_added_with_the_keymap_and_removed_with_escape() {
     assert_eq!(carets(&app), [((1, 8), (1, 13)), ((4, 15), (4, 20))]);
     assert_eq!(app.status_message.as_deref(), Some("没有其他匹配项"));
 
-    // ⇧⌘L：选中全部匹配，一起改名。
+    // ⇧⌘L：选中全部匹配，同时改名。
     let at = app.editor.active().unwrap().text().line_start(2) + 9;
     app.select(at, at);
     assert!(press(&mut app, &["cmd", "shift"], KeyCode::Char('l')));
@@ -122,7 +122,7 @@ fn cursors_are_added_with_the_keymap_and_removed_with_escape() {
 fn alt_click_adds_cursors_and_shift_alt_drag_selects_a_column() {
     let (mut app, dir) = cursors_app("cursor-mouse", false);
 
-    // 普通单击放一个光标，⌥ 单击再添加一个；⌥ 单击已有的光标则移除该光标。
+    // 普通单击放置一个光标，⌥ 单击再添加一个；⌥ 单击已有的光标则移除该光标。
     click_at(&mut app, 1, 4);
     app.modifiers = ModifiersState::ALT;
     click_at(&mut app, 3, 4);
@@ -137,7 +137,7 @@ fn alt_click_adds_cursors_and_shift_alt_drag_selects_a_column() {
     click_at(&mut app, 0, 0);
     assert_eq!(carets(&app), [caret((0, 0))]);
 
-    // ⇧⌥ 拖动框出一列，拖到的那一行是主选区。
+    // ⇧⌥ 拖动框选一列，指针最终所在的行为主选区。
     app.modifiers = ModifiersState::SHIFT | ModifiersState::ALT;
     let (x, y) = point(&app, 1, 12);
     app.on_mouse_move(x, y);
@@ -155,7 +155,7 @@ fn alt_click_adds_cursors_and_shift_alt_drag_selects_a_column() {
     app.run(Command::Insert("v".into()));
     assert!(text(&app).contains("let va = 1;\n    let v = 2;\n    let va = 3;"));
 
-    // 比框左边短的行（只有「}」的一行）不生成选区；拖到的那一行即使为空也生成一个光标。
+    // 短于框左边界的行（只有「}」的一行）不生成选区；指针最终所在的行即使为空也生成光标。
     app.modifiers = ModifiersState::SHIFT | ModifiersState::ALT;
     let (x, y) = point(&app, 4, 30);
     app.on_mouse_move(x, y);
@@ -166,7 +166,7 @@ fn alt_click_adds_cursors_and_shift_alt_drag_selects_a_column() {
     app.modifiers = ModifiersState::empty();
     assert_eq!(carets(&app), [caret((4, 30)), caret((6, 0))]);
 
-    // 中键拖动同样框出一列；框超过行尾时停在行尾。
+    // 中键拖动同样框选一列；框超出行尾时，选区止于行尾。
     let (x, y) = point(&app, 1, 4);
     app.on_mouse_move(x, y);
     app.on_mouse_down(MouseButton::Middle);
@@ -190,7 +190,7 @@ fn copy_and_paste_with_several_cursors() {
     ];
     doc.set_selections(all, 2);
 
-    // 复制：各选区的文字用换行符连起来。粘贴回三个光标：每个光标分到一行。
+    // 复制：各选区的文字以换行符连接。粘贴到三个光标处时，每个光标各得一行。
     app.copy(false);
     assert_eq!(app.copied.as_deref(), Some("alpha\nbeta\ngamma"));
     app.run(Command::LineEnd { extend: false });
@@ -200,7 +200,7 @@ fn copy_and_paste_with_several_cursors() {
     );
     app.run(Command::Undo);
 
-    // 剪切只删掉选中的文字；光标不在选区上时，复制整行。
+    // 剪切只删除选中的文字；光标处没有选区时复制整行。
     app.run(Command::LineStart { extend: true });
     app.copy(true);
     assert_eq!(
@@ -231,7 +231,7 @@ fn line_ends_cursor_undo_and_keyboard_columns() {
     let (mut app, dir) = cursors_app("cursor-more", false);
     let start = |app: &App, line| app.editor.active().unwrap().text().line_start(line);
 
-    // ⇧⌥I：选中第 1 到第 3 行，每一行行尾一个光标，一起补上注释。
+    // ⇧⌥I：选中第 1 到第 3 行，每一行行尾各一个光标，同时插入注释。
     let (a, b) = (start(&app, 1), start(&app, 3) + 18);
     app.select(a, b);
     assert!(press(&mut app, &["shift", "alt"], KeyCode::Char('i')));
@@ -240,7 +240,7 @@ fn line_ends_cursor_undo_and_keyboard_columns() {
         [caret((1, 18)), caret((2, 17)), caret((3, 18))]
     );
 
-    // ⌘U 退回加光标之前的选区，⇧⌘U 再做一遍。
+    // ⌘U 恢复添加光标之前的选区，⇧⌘U 重做该操作。
     assert!(press(&mut app, &["cmd"], KeyCode::Char('u')));
     assert_eq!(carets(&app), [((1, 0), (3, 18))]);
     assert!(press(&mut app, &["cmd", "shift"], KeyCode::Char('u')));
@@ -249,7 +249,8 @@ fn line_ends_cursor_undo_and_keyboard_columns() {
     assert!(text(&app).contains("let alpha = 1; //\n    let beta = 2; //\n    let gamma = 3; //"));
     app.run(Command::Undo);
 
-    // ⇧⌥⌘↓ 两次、⇧⌥⌘→ 三次：从光标处框出三行三列（Linux 上这些组合键是复制行，没有默认键）。
+    // ⇧⌥⌘↓ 两次、⇧⌥⌘→ 三次：从光标处框出三行三列。Linux 上这些组合键用于复制行，
+    // 该命令没有默认快捷键。
     if Os::CURRENT != Os::Linux {
         let column: &[&str] = if Os::CURRENT == Os::Mac {
             &["cmd", "shift", "alt"]
@@ -269,7 +270,7 @@ fn line_ends_cursor_undo_and_keyboard_columns() {
         );
     }
 
-    // ⌥ 拖动：在原来的选区之外再拖出一个选区。
+    // ⌥ 拖动：在已有选区之外再添加一个选区。
     app.select(start(&app, 1) + 8, start(&app, 1) + 13);
     app.modifiers = ModifiersState::ALT;
     let (x, y) = point(&app, 3, 8);

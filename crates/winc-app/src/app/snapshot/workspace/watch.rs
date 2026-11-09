@@ -97,7 +97,7 @@ fn outside_changes_reach_the_tree_the_index_and_open_files() {
 fn changes_are_handled_together_a_moment_after_the_first() {
     let dir = sample_folder("watch-settle");
     let mut app = app_with(&dir, false);
-    // 测试中没有事件循环，不监视目录；但仍能验证收到通知与到点处理的节奏。
+    // 测试中没有事件循环，不监视目录；但仍可验证收到通知与到期处理的时序。
     assert!(app.watcher.is_none());
     let now = std::time::Instant::now();
     app.files_changed();
@@ -135,7 +135,7 @@ fn search_results_follow_only_the_files_that_changed() {
     std::fs::remove_file(dir.join("a.txt")).unwrap();
     std::fs::write(dir.join("new.rs"), "println!();\n").unwrap();
     app.apply_changes(changes(&dir, &["short.rs", "a.txt", "new.rs"]));
-    // 两个文件在后台重新搜索，搜完之前结果列表保持原样。
+    // 两个文件在后台重新搜索，搜索完成之前结果列表保持不变。
     assert_eq!(files(&app), before);
     finish_search(&mut app);
     let after = files(&app);
@@ -220,9 +220,9 @@ fn logs_written_by_others_are_followed_at_the_end() {
     assert!(app.status_message.is_none());
     let doc = app.editor.active().unwrap();
     assert!(!doc.is_dirty());
-    assert!(doc.scroll_line + app.visible_lines() as f32 > 300.0);
+    assert!(doc.scroll_line + app.visible_lines() as f64 > 300.0);
 
-    // 光标在上方：内容仍然接上，光标位置和滚动位置都不变。
+    // 光标在上方：追加的内容同样载入，光标位置和滚动位置都不变。
     let at = app.editor.active().unwrap().text().line_start(10);
     app.select(at, at);
     let scroll = app.editor.active().unwrap().scroll_line;
@@ -243,7 +243,7 @@ fn conflicts_wait_for_the_user_to_pick_a_side() {
     app.open_path(&dir.join("short.rs"));
     let disk = |name: &str| std::fs::read_to_string(dir.join(name)).unwrap();
 
-    // 两个标签都有未保存的修改，磁盘上的文件又被其他程序改了。
+    // 两个标签都有未保存的修改，磁盘上的文件又被其他程序修改。
     app.run(Command::Insert("// mine\n".into()));
     app.open_path(&dir.join("a.txt"));
     app.run(Command::Insert("mine ".into()));
@@ -253,7 +253,7 @@ fn conflicts_wait_for_the_user_to_pick_a_side() {
     touch_later(&dir.join("short.rs"));
     app.apply_changes(changes(&dir, &["a.txt", "short.rs"]));
 
-    // 当前标签显示冲突卡片；另一个标签只在提示条里点名。
+    // 当前标签显示冲突卡片；另一个标签只在提示条中列出。
     paint(&mut app);
     let (card, buttons) = app.conflict_card.clone().unwrap();
     assert_eq!(buttons.len(), 3);
@@ -265,7 +265,7 @@ fn conflicts_wait_for_the_user_to_pick_a_side() {
         "{notice}"
     );
 
-    // 卡片挡住下方的文字：悬停只识别按钮，点击卡片空白处不移动光标。
+    // 卡片遮挡下方的文字：悬停只识别按钮，点击卡片空白处不移动光标。
     let caret = app.editor.active().unwrap().selection;
     app.on_mouse_move(card.x + 20.0, card.y + card.h / 2.0);
     assert_eq!(app.hover, Hover::None);
@@ -273,7 +273,7 @@ fn conflicts_wait_for_the_user_to_pick_a_side() {
     app.on_mouse_up(MouseButton::Left);
     assert_eq!(app.editor.active().unwrap().selection, caret);
 
-    // ⌘S 不会静默覆盖：没有系统提示框时提示先选择，磁盘上仍是对方的内容。
+    // ⌘S 不会静默覆盖：没有系统提示框时提示先选择，磁盘上仍是其他程序写入的内容。
     app.save_active();
     assert_eq!(disk("a.txt"), "theirs\n");
 
@@ -295,7 +295,7 @@ fn conflicts_wait_for_the_user_to_pick_a_side() {
     assert_eq!(view.hunks.len(), 1);
     paint(&mut app);
 
-    // 回到 a.txt，使用磁盘版本：换成对方的内容，没有未保存的修改；⌘Z 找回自己的修改。
+    // 回到 a.txt，使用磁盘版本：内容替换为磁盘上的版本，没有未保存的修改；⌘Z 恢复本地的修改。
     app.open_path(&dir.join("a.txt"));
     paint(&mut app);
     let take = button(&app, ConflictAction::TakeDisk);
@@ -309,7 +309,7 @@ fn conflicts_wait_for_the_user_to_pick_a_side() {
     app.run(Command::Undo);
     assert!(app.editor.active().unwrap().is_dirty());
 
-    // short.rs 保留自己的修改：冲突解除，之后 ⌘S 直接覆盖磁盘。
+    // short.rs 保留本地的修改：冲突解除，之后 ⌘S 直接覆盖磁盘上的文件。
     app.open_path(&dir.join("short.rs"));
     paint(&mut app);
     let keep = button(&app, ConflictAction::KeepMine);
@@ -330,14 +330,14 @@ fn no_save_path_overwrites_a_conflict() {
     app.open_path(&dir.join("short.rs"));
     let id = app.editor.documents[0].id;
 
-    // a.txt 有未保存的修改；另一个程序改了它，文件监视还没来得及通知。
+    // a.txt 有未保存的修改；其他程序修改了该文件，文件监视尚未发出通知。
     app.open_path(&dir.join("a.txt"));
     app.run(Command::Insert("mine ".into()));
     std::fs::write(dir.join("a.txt"), "theirs\n").unwrap();
     touch_later(&dir.join("a.txt"));
     app.open_path(&dir.join("short.rs"));
 
-    // 关闭时选「保存」、保存时格式化之后，都走同一个保存入口：不写，切回 a.txt 等用户选择。
+    // 关闭时选择「保存」与保存时格式化都经过同一个保存入口：不写入，切回 a.txt 等待用户选择。
     assert!(!app.save_document(id, None));
     assert_eq!(
         std::fs::read_to_string(dir.join("a.txt")).unwrap(),
@@ -358,8 +358,8 @@ fn background_rereads_keep_only_the_latest_and_skip_edited_documents() {
     app.open_path(&path);
     let index = app.editor.active.unwrap();
     let id = app.editor.documents[index].id;
-    // 按 `sync_documents` 的方式发出一次重读，但不立即收下结果：先拿到读好的内容，再按给定
-    // 的顺序交回去。
+    // 按 `sync_documents` 的方式发出一次重新读取，但不立即接收结果：先取得读取的内容，
+    // 再按给定的顺序交回。
     let reread = |app: &mut App, text: &str, later: u64| {
         std::fs::write(&path, text).unwrap();
         let file = std::fs::File::options().write(true).open(&path).unwrap();
@@ -378,7 +378,7 @@ fn background_rereads_keep_only_the_latest_and_skip_edited_documents() {
             .to_string()
     };
 
-    // 文件接连被改了两次，先发的那次晚到：用后发的，晚到的旧内容不盖上去。
+    // 文件连续修改两次，先发出的读取后到达：采用后发出的结果，后到达的旧内容不覆盖新内容。
     let (first, old) = reread(&mut app, "fn first() {}\n", 1);
     let (second, new) = reread(&mut app, "fn second() {}\n", 2);
     let sender = app.rereads.results.0.clone();
@@ -388,7 +388,7 @@ fn background_rereads_keep_only_the_latest_and_skip_edited_documents() {
     assert_eq!(text(&app), "fn second() {}\n");
     assert!(app.editor.documents[index].can_save_quietly());
 
-    // 读的时候用户改了文档：读好的不换上，改为冲突，用户的修改还在。
+    // 读取期间用户修改了文档：不采用读取的内容，改为冲突，用户的修改保留。
     let (third, theirs) = reread(&mut app, "fn theirs() {}\n", 3);
     app.run(Command::Insert("mine ".into()));
     sender.send((id, third, theirs)).unwrap();
@@ -404,7 +404,7 @@ fn background_tree_scans_keep_only_the_latest_per_folder() {
     let dir = sample_folder("watch-tree-scan");
     let dir = winc_config::files::canonicalize(&dir).unwrap();
     let mut app = app_with(&dir, false);
-    // 按 `apply_changes` 的方式发出一次扫描，但不立即收下结果：先完成扫描，再按给定顺序交回。
+    // 按 `apply_changes` 的方式发出一次扫描，但不立即接收结果：先完成扫描，再按给定顺序交回。
     let scan = |app: &mut App| {
         let scan = app.editor.workspace.as_ref().unwrap().scan(None);
         let tickets: Vec<u64> = scan
@@ -415,7 +415,7 @@ fn background_tree_scans_keep_only_the_latest_per_folder() {
         (tickets, scan.run())
     };
 
-    // 目录接连变了两次，先发的那次晚到：用后发的，晚到的旧内容不盖上去。
+    // 目录连续变化两次，先发出的扫描后到达：采用后发出的结果，后到达的旧内容不覆盖新内容。
     std::fs::write(dir.join("first.rs"), "").unwrap();
     let old = scan(&mut app);
     std::fs::write(dir.join("second.rs"), "").unwrap();
@@ -445,7 +445,7 @@ fn large_files_save_in_the_background_and_skip_their_own_write() {
     let id = app.editor.documents[index].id;
     assert!(app.editor.documents[index].is_large());
 
-    // ⌘S 走后台保存（测试里没有事件循环，就地做完、马上收）。
+    // ⌘S 在后台保存（测试中没有事件循环，保存就地完成并立即接收结果）。
     app.run(Command::Insert("A".into()));
     app.save_active();
     assert!(!app.saving(id));
@@ -453,7 +453,7 @@ fn large_files_save_in_the_background_and_skip_their_own_write() {
     let head = std::fs::read(&path).unwrap()[..line.len() + 1].to_vec();
     assert_eq!(head, format!("A{line}").into_bytes());
 
-    // 正在后台存的文档不随磁盘同步：自己写出的文件不会被当成外部改动、报冲突。
+    // 正在后台保存的文档不随磁盘同步：本程序写出的文件不会被视为外部修改而报告冲突。
     app.run(Command::Insert("B".into()));
     app.saves.running.insert(id);
     touch_later(&path);

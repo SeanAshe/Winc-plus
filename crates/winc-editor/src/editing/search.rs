@@ -108,13 +108,15 @@ pub struct Search {
     gave_up: Option<usize>,
 }
 
-/// 搜索结果所属的文档及其版本。
+/// 搜索结果所属的文档、版本，以及差异快照的一侧。
 ///
 /// 查询和选项另记在 `Search::compiled` 中，比较时不必复制查询。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Key {
     doc: DocumentId,
     revision: u64,
+    /// 在差异标签的哪一侧快照中搜索（`LEFT` 或 `RIGHT`）；搜索文档自身的文本时为 `None`。
+    snapshot_side: Option<usize>,
 }
 
 /// 查找选项，各字段含义同 [`Search`] 的同名字段。
@@ -139,6 +141,14 @@ impl Search {
     /// 返回结果所属的文档标识；还没搜过时为 `None`。
     pub fn document(&self) -> Option<DocumentId> {
         self.key.as_ref().map(|k| k.doc)
+    }
+
+    /// 返回当前结果所属的差异快照一侧；结果不属于 `doc` 的当前版本，或不是快照的结果时
+    /// 返回 `None`。
+    pub fn snapshot_side(&self, doc: &Document) -> Option<usize> {
+        self.key
+            .filter(|k| k.doc == doc.id && k.revision == doc.revision)?
+            .snapshot_side
     }
 
     /// 返回全部匹配的位置范围（`char` 偏移），按起点排序、互不重叠。
@@ -190,13 +200,13 @@ impl Search {
         }
     }
 
-    /// 是否由 `doc` 的当前内容搜索得到：文档标识与 `revision` 都相同。
+    /// 是否由 `doc` 的当前内容搜索得到：文档标识与 `revision` 都相同，且不是差异快照的结果。
     ///
     /// 文档内容修改后、下一次 `update` 之前为 `false`。
     pub fn is_for(&self, doc: &Document) -> bool {
-        self.key
-            .as_ref()
-            .is_some_and(|k| k.doc == doc.id && k.revision == doc.revision)
+        self.key.as_ref().is_some_and(|k| {
+            k.doc == doc.id && k.revision == doc.revision && k.snapshot_side.is_none()
+        })
     }
 
     /// 返回查询的错误说明（正则语法错误，或大文件上的跨行查找）；没有错误时返回 `None`。
@@ -284,10 +294,13 @@ impl Search {
         let key = Key {
             doc: doc.id,
             revision: doc.revision,
+            snapshot_side: None,
         };
         if self.key != Some(key) {
             let kept = match self.key {
-                Some(old) if old.doc == doc.id && self.resume_kept() => {
+                Some(old)
+                    if old.doc == doc.id && old.snapshot_side.is_none() && self.resume_kept() =>
+                {
                     doc.unchanged_lines_since(old.revision)
                 }
                 _ => 0,
@@ -295,7 +308,29 @@ impl Search {
             self.key = Some(key);
             self.restart_from(kept, doc);
         }
+        self.scan(doc.text(), !doc.text().is_large());
+    }
 
+    /// 在差异标签 `doc` 第 `side` 侧的快照文本 `text` 中推进查找，单次调用最多耗时 `SLICE`。
+    ///
+    /// 快照不可修改，结果按（标签，版本，侧）区分，任一项变化时从头搜索。
+    pub fn update_snapshot(&mut self, doc: &Document, side: usize, text: &ropey::Rope) {
+        self.ensure_matcher();
+        let key = Key {
+            doc: doc.id,
+            revision: doc.revision,
+            snapshot_side: Some(side),
+        };
+        if self.key != Some(key) {
+            self.key = Some(key);
+            self.restart();
+        }
+        self.scan(text, true);
+    }
+
+    /// 从上次的断点起在 `text` 中继续搜索一个时间片；`multiline` 表示能否取得整篇文本，
+    /// 不能时不支持跨行查找。
+    fn scan(&mut self, text: &impl Lines, multiline: bool) {
         let (Some(from), Some(matcher)) = (self.resume.take(), &self.matcher) else {
             return;
         };
@@ -303,11 +338,11 @@ impl Search {
 
         // 跨行查找需要整篇文本，一次搜完。大文件按需从磁盘读取，无法取得整篇文本，因此不支持。
         if matcher.is_multiline() {
-            if doc.text().rope().is_none() {
+            if !multiline {
                 self.error = Some(t!("editor-find-large-multiline").to_owned());
                 return;
             }
-            let (joined, starts) = joined(doc.text());
+            let (joined, starts) = joined(text);
             matcher.scan_joined(&joined, &starts, |m| {
                 matches.push(m.range);
                 for line in m.line..=m.last {
@@ -330,27 +365,25 @@ impl Search {
         let started = Instant::now();
         let (mut count, mut bytes, mut full, mut paused_at) = (0, 0, false, 0);
 
-        let stopped = doc
-            .text()
-            .visit_lines(from.line, usize::MAX, |index, start, line| {
-                count += 1;
+        let stopped = text.visit_lines(from.line, usize::MAX, |index, start, line| {
+            count += 1;
 
-                if count % CLOCK_INTERVAL == 0 || bytes >= CLOCK_BYTES {
-                    bytes = 0;
-                    if started.elapsed() >= SLICE {
-                        paused_at = start;
-                        return ControlFlow::Break(());
-                    }
+            if count % CLOCK_INTERVAL == 0 || bytes >= CLOCK_BYTES {
+                bytes = 0;
+                if started.elapsed() >= SLICE {
+                    paused_at = start;
+                    return ControlFlow::Break(());
                 }
-                bytes += line.len();
+            }
+            bytes += line.len();
 
-                let flow = matcher.scan(index, start, line, matches, lines, MAX_MATCHES);
-                if matcher.take_gave_up() {
-                    gave_up.get_or_insert(index);
-                }
-                full = flow.is_break();
-                flow
-            });
+            let flow = matcher.scan(index, start, line, matches, lines, MAX_MATCHES);
+            if matcher.take_gave_up() {
+                gave_up.get_or_insert(index);
+            }
+            full = flow.is_break();
+            flow
+        });
 
         self.resume = match stopped {
             Some(line) if !full => Some(Resume {

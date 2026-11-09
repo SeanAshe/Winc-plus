@@ -8,20 +8,12 @@ impl App {
     /// 按状态的版本（`GitState::generation`，换仓库时也变）和收起、平铺的样子缓存：每帧绘制、
     /// 滚动、悬停都要用，不再每次从头排。
     pub(crate) fn commit_rows(&self) -> Rc<CommitRows> {
-        let (Some(status), Some(root)) = (self.git.status.as_ref(), self.git.root.as_deref())
-        else {
-            return Rc::default();
-        };
-        let key = (self.git.generation, self.commit.layout);
-        let mut cache = self.commit.rows.borrow_mut();
-        if let Some((built, rows)) = cache.as_ref()
-            && *built == key
-        {
-            return Rc::clone(rows);
-        }
-        let rows = Rc::new(self.commit.build_rows(status, root));
-        *cache = Some((key, Rc::clone(&rows)));
-        rows
+        rows_of(
+            &self.commit,
+            self.git.status.as_ref(),
+            self.git.root.as_deref(),
+            self.git.generation,
+        )
     }
 
     /// 状态里第 `i` 个文件；状态里没有这一项时为 `None`。
@@ -55,12 +47,32 @@ impl App {
     }
 
     /// 只选中 `path`（清掉多选），在预览标签里打开它的差异；列表滚到让它露出来。
+    ///
+    /// 浏览历史提交的文件时（`commit.browse`），在该提交的差异标签中打开这个文件。
     pub(in crate::app::git) fn select_commit_file(&mut self, path: PathBuf) {
         self.commit.marked.clear();
         self.commit.anchor = Some(path.clone());
         self.commit.selected = Some(path.clone());
         self.reveal_commit_selection();
+        if self.commit.browse {
+            let index = (self.git.status.as_ref())
+                .and_then(|status| status.entries.iter().position(|e| e.path == path));
+            if let Some(index) = index {
+                self.open_log_diff_file(index);
+            }
+            return;
+        }
         self.git_preview_changes(&path);
+    }
+
+    /// 浏览历史提交的文件时点击了第 `i` 个文件：选中它，并在差异标签中打开。
+    pub(super) fn browse_commit_file(&mut self, i: usize) {
+        let Some(path) = self.commit_entry(i).map(|e| e.path.clone()) else {
+            return;
+        };
+        self.focus = Focus::CommitList;
+        self.diff_land = None;
+        self.select_commit_file(path);
     }
 
     /// 列表里看得见的文件，按显示顺序。
@@ -253,7 +265,7 @@ impl App {
     }
 
     /// 让选中的文件露在列表里：盖在固定的组、目录下面、或者已滚出列表时，滚到它正好露出来。
-    pub(super) fn reveal_commit_selection(&mut self) {
+    pub(in crate::app) fn reveal_commit_selection(&mut self) {
         let Some(status) = self.git.status.as_ref() else {
             return;
         };
@@ -428,7 +440,23 @@ impl App {
     }
 
     /// [`App::on_key_commit_list`] 按下的是 `key` 时做的事。
+    ///
+    /// 浏览历史提交的文件时只处理移动和展开收起：勾选、回滚、打开工作区文件都不适用。
     pub(in crate::app) fn commit_list_key(&mut self, key: &Key) {
+        if self.commit.browse
+            && matches!(
+                key,
+                Key::Named(
+                    NamedKey::Space
+                        | NamedKey::Backspace
+                        | NamedKey::Delete
+                        | NamedKey::Enter
+                        | NamedKey::Tab
+                )
+            )
+        {
+            return;
+        }
         let rows = self.commit_rows();
         let Some(status) = self.git.status.as_ref() else {
             return;
@@ -498,7 +526,7 @@ impl App {
                 | NamedKey::PageDown,
             ) => {
                 if let Some(next) = target {
-                    if self.modifiers.shift_key() {
+                    if self.modifiers.shift_key() && !self.commit.browse {
                         self.select_commit_range(next);
                     } else {
                         self.select_commit_file(next);
@@ -557,4 +585,27 @@ impl App {
         }
         self.request_redraw();
     }
+}
+
+/// 按 `state` 的收起、平铺设置排出 `status` 的各行，按（`generation`，排列设置的版本）缓存在
+/// `state` 中；没有状态或仓库时返回空的列表。
+pub(in crate::app::git) fn rows_of(
+    state: &CommitState,
+    status: Option<&Status>,
+    root: Option<&Path>,
+    generation: u64,
+) -> Rc<CommitRows> {
+    let (Some(status), Some(root)) = (status, root) else {
+        return Rc::default();
+    };
+    let key = (generation, state.layout);
+    let mut cache = state.rows.borrow_mut();
+    if let Some((built, rows)) = cache.as_ref()
+        && *built == key
+    {
+        return Rc::clone(rows);
+    }
+    let rows = Rc::new(state.build_rows(status, root));
+    *cache = Some((key, Rc::clone(&rows)));
+    rows
 }

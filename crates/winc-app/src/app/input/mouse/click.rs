@@ -1,5 +1,6 @@
 //! 按下鼠标：先按焦点和浮层分，再落到各区域；连击的判断。
 
+use super::super::touch;
 use super::*;
 
 impl App {
@@ -386,13 +387,36 @@ impl App {
 
     /// 处理顶栏空白处的点击：拖动窗口；双击时按系统设置缩放或最小化窗口。
     fn click_title_bar(&mut self, x: f32, y: f32) {
+        if self.title_bar_pressed(x, y) {
+            self.title_bar_double_click();
+        } else if let Some(window) = &self.window {
+            let _ = window.drag_window();
+        }
+    }
+
+    /// 返回连击判断允许的位置偏差（逻辑像素）。
+    ///
+    /// 当前点击由触摸点按产生时取 [`touch::TAP_SLOP`]，容纳两次落指之间的位置偏差；
+    /// 鼠标点击取 4 逻辑像素，容纳按下与松开之间指针的轻微移动。
+    fn repeat_slop(&self) -> f32 {
+        if self.touch.tapping {
+            touch::TAP_SLOP
+        } else {
+            4.0
+        }
+    }
+
+    /// 记录顶栏空白处按下的位置和时刻，返回本次按下是否构成双击。
+    ///
+    /// 构成双击时清除记录，下一次按下重新计数。鼠标点击与触摸点按共用该判断。
+    pub(in crate::app) fn title_bar_pressed(&mut self, x: f32, y: f32) -> bool {
+        let slop = self.repeat_slop();
         let double = self.title_click.take().is_some_and(|c| {
-            c.at.elapsed() < DOUBLE_CLICK && (c.x - x).abs() < 4.0 && (c.y - y).abs() < 4.0
+            c.at.elapsed() < DOUBLE_CLICK && (c.x - x).abs() < slop && (c.y - y).abs() < slop
         });
 
         if double {
-            self.title_bar_double_click();
-            return;
+            return true;
         }
 
         self.title_click = Some(Click {
@@ -402,21 +426,20 @@ impl App {
             count: 1,
         });
 
-        if let Some(window) = &self.window {
-            let _ = window.drag_window();
-        }
+        false
     }
 
     /// 记录这次点击并返回连击次数：1 为单击，2 为双击，3 为三击，再点击则重新从 1 开始。
     ///
-    /// 相邻两次点击的间隔小于 `DOUBLE_CLICK`、位置相差小于 4 逻辑像素时算连击；位置容差为
-    /// 经验值，可容纳按下与松开之间鼠标的轻微移动。
+    /// 相邻两次点击的间隔小于 `DOUBLE_CLICK`，且横纵坐标之差均小于 [`App::repeat_slop`]
+    /// 返回的容差时，计为连击。
     pub(in crate::app) fn click_count(&mut self, x: f32, y: f32) -> u8 {
+        let slop = self.repeat_slop();
         let count = match self.last_click {
             Some(c)
                 if c.at.elapsed() < DOUBLE_CLICK
-                    && (c.x - x).abs() < 4.0
-                    && (c.y - y).abs() < 4.0 =>
+                    && (c.x - x).abs() < slop
+                    && (c.y - y).abs() < slop =>
             {
                 c.count % 3 + 1
             }

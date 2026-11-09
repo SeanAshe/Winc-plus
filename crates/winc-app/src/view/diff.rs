@@ -1,10 +1,10 @@
 //! 并排差异标签的绘制：标题栏（两侧标题、改动处数、增删行数、上一处、下一处、折叠开关），
 //! 左右两栏的代码和行号，中间连接对应改动的带子，滚动条上每处改动的位置，以及正文底部的横向滚动条。
 //!
-//! 两侧各绘制各的行，行号挨着中间的带子。每段改动按类型上色（新增绿、删除灰、修改蓝，都是主题里
-//! 配好的柔和色），两侧的底色与带子同色，一侧没有行时那一侧在插入的位置绘制一道线；改了的字再
-//! 深一层。并排时「»」和改动勾选框都在带子上，「»」把左侧的一段换到右侧；行勾选框在行号栏靠文字
-//! 一侧。折起来的一段同样用带子连接。
+//! 两侧分别绘制各自的行，行号靠近中间的带子。每段改动按类型使用主题中的柔和色（新增为绿、删除为灰、
+//! 修改为蓝），两侧底色与带子同色；一侧没有行时，在该侧的插入位置绘制一道线；改动的字符再加深
+//! 一层。并排时「»」和改动勾选框位于带子上，「»」用左侧的一段替换右侧；行勾选框位于行号栏靠近
+//! 文字的一侧。折叠的一段同样用带子连接。
 
 use std::fmt::Write as _;
 use std::ops::Range;
@@ -26,15 +26,15 @@ use crate::app::{DIFF_TEXT_PAD, DiffParts, DiffTarget, Focus, HunkKind, diff_par
 use crate::icons::Direction;
 use crate::layout::{GIT_LANE, Ruler, editor_content_height};
 
-/// 中间一栏勾选框的边长（逻辑像素）；「»」按钮的图标和它一样大，左右成对。
+/// 中间一栏勾选框的边长（逻辑像素）；「»」按钮的图标尺寸相同，左右成对。
 const DIFF_BUTTON: f32 = 13.0;
 /// 行勾选框的边长（逻辑像素）：小于整段改动的勾选框，以示层级。
 const LINE_CHECK_SIZE: f32 = 11.0;
-/// 不提交的行的底色相对正常底色的不透明度：仍可辨认是改动，又能与提交的行区分。
+/// 不提交的行的底色相对正常底色的不透明度（0 到 1）：仍可辨认为改动，又能与提交的行区分。
 const SKIPPED_LINE_ALPHA: f32 = 0.35;
 /// 工具栏按钮的边长（逻辑像素）。
 const BUTTON: f32 = 24.0;
-/// 返回一处改动使用的颜色：只在右侧新增的绿、只在左侧删掉的灰、两侧都有（修改）的蓝。
+/// 返回一处改动使用的颜色：仅右侧有的新增为绿，仅左侧有的删除为灰，两侧都有的修改为蓝。
 pub(super) fn hunk_shade(p: &Palette, hunk: &winc_core::diff::LineHunk) -> DiffShade {
     kind_shade(p, HunkKind::of(hunk))
 }
@@ -47,10 +47,10 @@ fn kind_shade(p: &Palette, kind: HunkKind) -> DiffShade {
     }
 }
 
-/// 「»」换掉的那段改动在原处淡出：两侧换完以后对应的行铺上原来的颜色，中间连一条带子，
-/// 透明度随进度降到 0。
+/// 绘制「»」替换后的改动在原处的淡出效果：两侧对应的行铺上原来的颜色，中间以带子连接，
+/// 不透明度随进度降到 0。
 ///
-/// 先绘制，文字压在上面。
+/// 该效果先于文字绘制，文字位于其上方。
 fn draw_fade(
     app: &App,
     frame: &mut Frame<'_>,
@@ -97,14 +97,14 @@ fn draw_fade(
     draw_ribbon(frame, parts.ribbon, spans[0], spans[1], shade, parts.body);
 }
 
-/// 标出跳到的那一段改动：一侧的边上一条强调色的竖线，这一侧没有行时是插入位置上的横线；刚跳到时
-/// 整段再叠一层渐隐的强调色。
+/// 标出跳转到的改动：在该侧边缘绘制强调色竖线，该侧没有行时在插入位置绘制横线；刚跳转时
+/// 整段再叠加一层渐隐的强调色。
 ///
-/// `(y0, y1)` 是这一段在这一侧的上下边，`clip` 是差异的文字区域。
+/// `(y0, y1)` 是该段在该侧的上下边，`clip` 是差异的文字区域。
 fn draw_hunk_focus(app: &App, frame: &mut Frame<'_>, pane: Rect, (y0, y1): (f32, f32), clip: Rect) {
-    /// 当前标记的粗细（逻辑像素）：比 1 像素的改动边线粗，能和普通改动区分开。
+    /// 当前标记的粗细（逻辑像素）：粗于 1 逻辑像素的改动边线，以便与普通改动区分。
     const MARK: f32 = 3.0;
-    /// 高亮开始时强调色的不透明度：能看出落点，又不遮挡文字。
+    /// 高亮开始时强调色的不透明度（0 到 1）：可辨认跳转位置，又不遮挡文字。
     const PULSE_ALPHA: f32 = 0.28;
     let accent = app.palette.accent;
     if y1 > y0 {
@@ -127,8 +127,8 @@ fn draw_hunk_focus(app: &App, frame: &mut Frame<'_>, pane: Rect, (y0, y1): (f32,
 /// 两侧的滚动位置（显示行）。
 #[derive(Clone, Copy)]
 struct Scroll {
-    /// 左侧、右侧。
-    rows: [f32; 2],
+    /// 左侧、右侧的滚动位置。
+    rows: [f64; 2],
     /// 两侧共用的横向滚动（逻辑像素）。
     x: f32,
 }
@@ -140,14 +140,14 @@ struct Scroll {
 /// `index` 超出 `documents` 的范围时 panic。
 pub(super) fn draw_diff(app: &mut App, frame: &mut Frame<'_>, index: usize) {
     app.sync_diff_source(index);
-    // 绘制时要推进两侧的着色状态，同时要读 `app` 的字体和配色：先把差异从文档里取出来，绘制完放回。
+    // 绘制时需要推进两侧的着色状态，同时读取 `app` 的字体和配色：先从文档中取出差异，绘制后恢复。
     let Some(mut view) = app.editor.documents[index].diff.take() else {
         return;
     };
     let parts = diff_parts(app.layout.editor, &view, app.cell);
     let doc = &app.editor.documents[index];
-    let visible = parts.body.h / app.fonts.line_height;
-    // 滚动位置是两侧共用的一把尺，两侧各自换算成自己滚到的行（见 `DiffView::row_at`）。
+    let visible = f64::from(parts.body.h / app.fonts.line_height);
+    // 滚动位置由两侧共用，各侧分别换算为自己的显示行（见 `DiffView::row_at`）。
     let pos = doc.scroll_line.max(0.0);
     let scroll = Scroll {
         rows: [
@@ -169,13 +169,13 @@ pub(super) fn draw_diff(app: &mut App, frame: &mut Frame<'_>, index: usize) {
     app.editor.documents[index].diff = Some(view);
 }
 
-/// 绘制标题栏：两侧标题、改动处数与增删行数，右侧是折叠开关、上一处、下一处三个按钮。
+/// 绘制标题栏：两侧标题、改动处数与增删行数，右端是布局切换、折叠开关和导航按钮。
 fn draw_header(
     app: &App,
     frame: &mut Frame<'_>,
     view: &DiffView,
     parts: &DiffParts,
-    scroll: f32,
+    scroll: f64,
     hits: &mut Vec<(Rect, DiffTarget)>,
 ) {
     let p = app.palette;
@@ -186,7 +186,8 @@ fn draw_header(
         p.separator,
     );
 
-    // 右端：折叠开关、下一处、上一处（从右往左排）。折叠开关按状态换图标，不绘制按下状态。
+    // 右端从右往左依次为：布局切换、折叠开关、下一个文件与上一个文件（可跨文件导航时）、下一处、
+    // 上一处。布局切换和折叠开关按状态更换图标，不绘制按下状态。
     let y = header.y + (header.h - BUTTON) / 2.0;
     let mut right = header.right() - 10.0;
     let files = [DiffTarget::NextFile, DiffTarget::PreviousFile];
@@ -217,7 +218,7 @@ fn draw_header(
             DiffTarget::NextFile => {
                 icons::chevron(frame, c, 8.0, Direction::Right, p.text_muted, rect)
             }
-            // 图标画的是点下去以后的样子。
+            // 图标表示点击后切换到的布局。
             DiffTarget::Layout if view.is_unified() => {
                 icons::split(frame, c, p.text_muted, rect);
             }
@@ -228,7 +229,7 @@ fn draw_header(
         hits.push((rect, target));
     }
 
-    // 按钮左边：增删行数，再左边第几处、一共几处。
+    // 按钮左侧为增删行数，再往左为当前处序号和总处数。
     right -= 10.0;
     if view.is_identical() {
         let text = t!("editor-diff-identical");
@@ -252,8 +253,8 @@ fn draw_header(
     }
     let stats_left = right - 8.0;
 
-    // 两侧的标题各自从文字区的左边开始；右侧的不盖住统计。不能改的一侧前面一把锁。单栏只有一个
-    // 文字区，两个标题前后排开，中间一个箭头。
+    // 两侧的标题分别从各自文字区的左边开始，右侧标题不遮挡统计；只读一侧的标题前显示锁图标。
+    // 单栏只有一个文字区，两个标题依次排列，中间以箭头分隔。
     let mut after = None;
     for (side, pane) in parts.panes.iter().enumerate() {
         let title = if side == LEFT { &view.old } else { &view.new };
@@ -277,7 +278,8 @@ fn draw_header(
             );
             x += 15.0;
         }
-        // 「HEAD · 7ca683c」「工作区 · 未保存」：前一半是哪个版本，正常字色；后一半是补充，淡色。
+        // 「HEAD · 7ca683c」「工作区 · 未保存」：前半部分表示版本，用正常字色；
+        // 后半部分为补充说明，用淡色。
         let (main, rest) = match title.title.split_once(" · ") {
             Some((main, rest)) => (main, Some(rest)),
             None => (title.title.as_str(), None),
@@ -287,7 +289,7 @@ fn draw_header(
             let rest = format!(" · {rest}");
             end = ui_text(frame, app, end, header, &rest, p.text_dim, clip);
         }
-        // 文件路径写在第一个标题后面（单栏写在最后），从中间截短。
+        // 文件路径显示在第一个标题之后（单栏显示在最后），过长时从中间截短。
         if side == if view.is_unified() { RIGHT } else { LEFT } {
             let path = view.repo_path.as_deref().map(|path| {
                 let root = app.git.root.as_deref();
@@ -314,36 +316,44 @@ fn draw_header(
 /// 一个选区的起点和终点（行，列），起点在前。
 type Span = ((usize, usize), (usize, usize));
 
-/// 右侧的光标和选区，按右侧的行号和列（字符）算。
+/// 右侧的光标和选区，以右侧的行号和列（字符）表示。
 #[derive(Default)]
 struct EditState {
-    /// 光标在右侧时为 `true`。
+    /// 光标是否在右侧。
     editing: bool,
-    /// 主光标所在的（行，列）：输入法的候选窗跟着它。
+    /// 主光标所在的（行，列）；输入法候选窗跟随主光标。
     caret: (usize, usize),
-    /// 其余光标所在的（行，列）（多光标），只有落在看得见的几行里的，按位置排好。
+    /// 其余光标所在的（行，列），仅含位于可见行内的光标，按位置排序。
     carets: Vec<(usize, usize)>,
-    /// 各个选区，按位置排好；只有和看得见的几行相交的，没有选中内容的选区不在里面。
+    /// 与可见行相交的非空选区，按位置排序。
     selections: Vec<Span>,
-    /// 只读一侧的选区：（哪一侧，选区）；没有选中内容时为 `None`。
+    /// 只读一侧的选区：（所在侧，选区）；没有选中内容时为 `None`。
     read: Option<(usize, Span)>,
-    /// 只读一侧的光标：（哪一侧，（行，列））。
+    /// 只读一侧的光标：（所在侧，（行，列））。
     read_caret: Option<(usize, (usize, usize))>,
-    /// 查找条开着、查的是右侧的文档时为它的标识：右侧要标出匹配。
-    searched: Option<winc_editor::DocumentId>,
+    /// 查找条打开时需要标出匹配的一侧（`LEFT` 或 `RIGHT`）；无需标出时为 `None`。
+    searched: Option<usize>,
 }
 
-/// 读出右侧对应文档的光标和选区；多光标只取右侧文档第 `lines` 行（左闭右开）里看得见的。
+/// 读取右侧对应文档的光标和选区；多光标只取右侧文档第 `lines` 行（左闭右开）内的部分。
 fn edit_state(app: &App, view: &DiffView, lines: Range<usize>) -> EditState {
-    // 只读一侧的选区和光标按这一侧的文本换成（行，列）。
+    // 只读一侧的选区和光标按该侧的文本换算为（行，列）。
     let at = |side: usize, pos: usize| {
         let text = &view.side(side).text;
         let pos = pos.min(text.len_chars());
         let line = text.char_to_line(pos);
         (line, pos - text.line_to_char(line))
     };
+    let snapshot = app
+        .editor
+        .active()
+        .filter(|_| app.layout.search.h > 0.0)
+        .and_then(|doc| app.search.snapshot_side(doc));
     let read = view.read_selection.and_then(|selection| {
         let (side, (a, b)) = (selection.side, selection.range);
+        if snapshot == Some(side) && app.search.current_match() == Some((a, b)) {
+            return None;
+        }
         (a != b).then(|| (side, (at(side, a.min(b)), at(side, a.max(b)))))
     });
     let read_caret = view.read_caret().map(|(side, pos)| (side, at(side, pos)));
@@ -356,11 +366,12 @@ fn edit_state(app: &App, view: &DiffView, lines: Range<usize>) -> EditState {
         return EditState {
             read,
             read_caret,
+            searched: snapshot,
             ..EditState::default()
         };
     };
     let text = source.text();
-    // 光标可能有上万个，只取看得见的：其余选区按位置排好、互不重叠，二分找到第一个够得着的。
+    // 光标可能有上万个，只取可见范围内的：其余选区按位置排序、互不重叠，二分查找第一个相交的选区。
     let count = text.line_count();
     let from = text.line_start(lines.start.min(count - 1));
     let to = if lines.end < count {
@@ -390,11 +401,11 @@ fn edit_state(app: &App, view: &DiffView, lines: Range<usize>) -> EditState {
         read,
         read_caret,
         searched: (app.layout.search.h > 0.0 && app.search.document() == Some(source.id))
-            .then_some(source.id),
+            .then_some(RIGHT),
     }
 }
 
-/// 右侧显示行 `rows` 覆盖的文档行（左闭右开）；折起来的一段算它折起来的全部行。
+/// 返回右侧显示行 `rows` 覆盖的文档行（左闭右开）；折叠的一段计入其包含的全部行。
 fn new_lines(view: &DiffView, rows: Range<usize>) -> Range<usize> {
     let all = &view.rows[RIGHT];
     let rows = &all[rows.start.min(all.len())..rows.end.min(all.len())];
@@ -408,30 +419,30 @@ fn new_lines(view: &DiffView, rows: Range<usize>) -> Range<usize> {
     }
 }
 
-/// 滚到第 `scroll` 显示行（可以带小数）时，高 `height` 的区域里露出的显示行。
-fn visible_rows(scroll: f32, height: f32, line_height: f32) -> Range<usize> {
+/// 返回滚动到第 `scroll` 显示行（可以是小数）时，高 `height` 的区域内可见的显示行。
+fn visible_rows(scroll: f64, height: f32, line_height: f32) -> Range<usize> {
     let first = scroll.floor() as usize;
     first..first + (height / line_height).ceil() as usize + 1
 }
 
 /// 要绘制的一个显示行。
 struct DrawnRow {
-    /// 哪一侧。
+    /// 所在侧。
     side: usize,
-    /// 这一侧的第几个显示行。
+    /// 在该侧的显示行序号（从 0 起）。
     row: usize,
-    /// 顶边。
+    /// 顶边的 y 坐标（逻辑像素）。
     y: f32,
-    /// 单栏时没改的行还要显示左侧的行号：左侧的行号（从 0 起）。
+    /// 左侧的行号（从 0 起）；单栏时未改动的行同时显示左侧行号。
     old_line: Option<usize>,
 }
 
-/// 排出这一帧要绘制的显示行：并排时两侧各自滚到自己的位置，单栏时一列。
+/// 返回本帧要绘制的显示行：并排时两侧分别按各自的滚动位置排列，单栏时排为一列。
 fn drawn_rows(
     view: &DiffView,
     body: Rect,
     scroll: Scroll,
-    pos: f32,
+    pos: f64,
     line_height: f32,
 ) -> Vec<DrawnRow> {
     if !view.is_unified() {
@@ -440,7 +451,7 @@ fn drawn_rows(
             (rows.start..rows.end.min(view.rows[side].len())).map(move |row| DrawnRow {
                 side,
                 row,
-                y: body.y + (row as f32 - scroll.rows[side]) * line_height,
+                y: body.y + (row as f64 - scroll.rows[side]) as f32 * line_height,
                 old_line: None,
             })
         });
@@ -451,12 +462,12 @@ fn drawn_rows(
             let (side, row) = view.unified_row(index)?;
             let unchanged = matches!(view.rows[side][row], SideRow::Line { hunk: None, .. });
             let old_line = unchanged
-                .then(|| view.line_at(LEFT, view.row_at(LEFT, index as f32) as usize))
+                .then(|| view.line_at(LEFT, view.row_at(LEFT, index as f64) as usize))
                 .flatten();
             Some(DrawnRow {
                 side,
                 row,
-                y: body.y + (index as f32 - pos) * line_height,
+                y: body.y + (index as f64 - pos) as f32 * line_height,
                 old_line,
             })
         })
@@ -471,7 +482,7 @@ fn draw_body(
     view: &mut DiffView,
     parts: &DiffParts,
     scroll: Scroll,
-    pos: f32,
+    pos: f64,
     edit: &EditState,
     hits: &mut Vec<(Rect, DiffTarget)>,
 ) {
@@ -480,23 +491,23 @@ fn draw_body(
     let body = parts.body;
     let (ascent, descent) = (app.mono_metrics.ascent, app.mono_metrics.descent);
     let tab_width = app.editor.tab_width;
-    // 光标只在编辑区有焦点时绘制，和编辑器一样。
+    // 光标只在编辑区有焦点时绘制。
     let carets_shown = edit.editing && app.focus == Focus::Editor;
     let read_caret = edit.read_caret.filter(|_| app.focus == Focus::Editor);
     let unified = view.is_unified();
-    // 单栏时的换算表从差异里取出来：绘制途中要修改差异两侧的着色状态。
+    // 预先取出单栏时的换算表：绘制过程中需要修改差异两侧的着色状态。
     let map = view.unified_map();
     // 第 `side` 侧显示行 `row` 的顶边。
     let row_y = |side: usize, row: usize| {
         if unified {
-            body.y + (map.pos_of(side, row as f32) - pos) * lh
+            body.y + (map.pos_of(side, row as f64) - pos) as f32 * lh
         } else {
-            body.y + (row as f32 - scroll.rows[side]) * lh
+            body.y + (row as f64 - scroll.rows[side]) as f32 * lh
         }
     };
-    // 这一段改动在单栏里的第一行的顶边，并排时为 `None`。
+    // 第 `h` 段改动在单栏中第一行的顶边；并排时为 `None`。
     let hunk_y =
-        |view: &DiffView, h: usize| unified.then(|| body.y + (view.hunk_pos(h) - pos) * lh);
+        |view: &DiffView, h: usize| unified.then(|| body.y + (view.hunk_pos(h) - pos) as f32 * lh);
     let drawn = drawn_rows(view, body, scroll, pos, lh);
     // 各段改动的提交方式；文件不在提交视图里时为空，不绘制任何勾选框。
     let inclusions: Vec<Pick> = app.diff_entry(view).map_or_else(Vec::new, |entry| {
@@ -512,9 +523,8 @@ fn draw_body(
 
     draw_fade(app, frame, view, parts, &row_y);
 
-    // 文字区和中间一栏之间的分隔线，先绘制：改动的几行铺的底色盖住它，一段改动左右连成一片，
-    // 不被竖线切开。
-    // 各自绘制到这一侧最后一行的底下，不在下面的空白里一直拉到底。
+    // 先绘制文字区和中间一栏之间的分隔线，使改动行的底色覆盖分隔线，一段改动左右连续，
+    // 不被竖线切开。分隔线只绘制到该侧最后一行的下沿，不延伸到下方的空白。
     let rule = p.separator.alpha(p.separator.a * 0.7);
     for (side, x) in [
         (LEFT, parts.panes[LEFT].text.right()),
@@ -527,7 +537,7 @@ fn draw_body(
         frame.rect(Rect::new(x, body.y, 1.0, end - body.y), rule);
     }
 
-    // 同一行的各段共用字符、分段和着色，换到另一行时才重新取。
+    // 同一行的各段共用字符、分段和着色，切换到另一行时才重新读取。
     let mut loaded = None;
     let mut breaks = Breaks::default();
     let mut prefix = std::cell::OnceCell::new();
@@ -543,8 +553,8 @@ fn draw_body(
         let baseline = baseline_in(band, ascent, descent);
         let (line, hunk, part) = match view.rows[side][row] {
             SideRow::Fold { gap, ref lines } => {
-                // 折起来的一段：一条淡底（不绘制上下两道细线：这些线在中间一栏会断开），行号
-                // 那一栏一对朝外的小箭头表示能展开；悬停时底色加深。
+                // 折叠的一段：绘制一条淡色底（不绘制上下边线，边线在中间一栏处会断开），行号栏中
+                // 一对朝外的小箭头表示可以展开；悬停时底色加深。
                 let hovered = app.hover == Hover::Diff(DiffTarget::Fold(gap));
                 let fill = if hovered {
                     p.hover
@@ -564,7 +574,7 @@ fn draw_body(
             SideRow::Line { line, hunk, part } => (line, hunk, part),
         };
 
-        // 单栏时左右两侧的行上下排开，要靠颜色区分：删掉的和新增的各用各的颜色。
+        // 单栏时左右两侧的行上下排列，需要以颜色区分：删除行与新增行使用不同的颜色。
         let row_shade = |view: &DiffView, h: usize| {
             if unified {
                 kind_shade(
@@ -580,7 +590,7 @@ fn draw_body(
             }
         };
         let shade = hunk.map(|h| row_shade(view, h));
-        // 只提交部分行的改动里，不提交的行底色变淡。
+        // 只提交部分行的改动中，不提交的行底色变淡。
         let line_skipped = hunk.is_some_and(|h| {
             let start = if side == LEFT {
                 view.hunks[h].old.start
@@ -633,7 +643,7 @@ fn draw_body(
             );
         }
 
-        // 行号靠中间的带子一边右对齐；后续各段不绘制行号。
+        // 行号在靠近中间带子的一侧右对齐；后续各段不绘制行号。
         if part == 0 {
             number.clear();
             let _ = write!(number, "{}", line + 1);
@@ -649,7 +659,7 @@ fn draw_body(
             );
         }
 
-        // 行勾选框：只提交部分行的改动一直显示；其他改动在鼠标移到这一格时显示。
+        // 行勾选框：只提交部分行的改动始终显示；其他改动在鼠标移到该格时显示。
         if let (0, Some(inclusion)) = (part, hunk.and_then(|h| inclusions.get(h))) {
             let cell = parts.line_checks[side];
             let rect = Rect::new(cell.x, y, cell.w, lh);
@@ -696,8 +706,8 @@ fn draw_body(
                 &mut tokens,
             );
         }
-        // 这一行各字符之前的格数用到时算一次：改了的字、查找结果、选区、光标都按列查表。
-        // 这一段之外的列夹到这一段的两端，绘制出来宽度为 0。
+        // 本行各字符之前的格数在首次使用时计算一次，改动的字符、查找结果、选区、光标均按列查表。
+        // 本段之外的列限制到本段的两端，绘制宽度为 0。
         let range = breaks.range(part.min(breaks.rows() - 1), chars.len());
         let last = range.end == chars.len();
         let cells = |col: usize| {
@@ -707,7 +717,7 @@ fn draw_body(
         let at = |col: usize| cells(col.clamp(range.start, range.end)) as f32 + lead;
         let origin_x = pane.text.x + DIFF_TEXT_PAD - scroll.x;
 
-        // 改了的字：行首的缩进和只有空白的地方不标。
+        // 改动的字符：行首缩进和仅含空白的部分不标记。
         if let (Some(h), Some(shade)) = (hunk, shade)
             && let Some(marks) = view.inline[h].as_ref()
         {
@@ -743,9 +753,13 @@ fn draw_body(
             }
         }
 
-        // 右侧：查找条开着时标出右侧文档里的匹配。
-        if side == RIGHT && edit.searched.is_some() {
-            let start = text_side.text.line_to_char(line);
+        // 单栏布局中未改动的行只按右侧绘制一次；查找左侧时按左侧行号换算字符偏移。
+        let search_start = match edit.searched {
+            Some(searched) if searched == side => Some(text_side.text.line_to_char(line)),
+            Some(LEFT) => old_line.map(|line| view.old.text.line_to_char(line)),
+            _ => None,
+        };
+        if let Some(start) = search_start {
             let end = start + chars.len();
             let current = app.search.current_match();
             for &(from, to) in app.search.matches_in(start, end.max(start + 1)) {
@@ -765,8 +779,8 @@ fn draw_body(
             }
         }
 
-        // 选区垫在字下面：光标在右侧时是右侧文档的各个选区，只读的一侧是它自己的选区。
-        // 选区按位置排好、互不重叠，二分找到第一个够得着这一行的。
+        // 选区绘制在文字下方：光标在右侧时绘制右侧文档的各个选区，只读一侧绘制该侧自身的选区。
+        // 选区按位置排序、互不重叠，二分查找第一个与本行相交的选区。
         let read = edit.read.as_ref().filter(|read| read.0 == side);
         let selections = match (side, read) {
             (RIGHT, _) if edit.editing => &edit.selections[..],
@@ -791,7 +805,7 @@ fn draw_body(
             }
         }
 
-        // 整行从行首绘制（Tab 的宽度与它在行内的位置有关），只露出这一段的范围。
+        // 整行从行首绘制（制表符的宽度取决于其在行内的位置），只显示本段的范围。
         let clip = if breaks.starts.is_empty() {
             pane.text
         } else {
@@ -800,7 +814,7 @@ fn draw_body(
             Rect::new(from, pane.text.y, (to - from).max(0.0), pane.text.h).intersect(pane.text)
         };
 
-        // 空白符垫在字下面，和编辑区用同一个设置。
+        // 空白符绘制在文字下方，使用与编辑区相同的设置。
         let whitespace = app.config.render_whitespace.unwrap_or_default();
         if whitespace != RenderWhitespace::None {
             let trailing = trailing_whitespace(&chars);
@@ -835,7 +849,7 @@ fn draw_body(
             &[],
         );
 
-        // 其余光标与主光标一起闪烁；输入法组字只显示在主光标处，候选窗也跟着它。
+        // 其余光标与主光标同步闪烁；输入法组字只显示在主光标处，候选窗同样跟随主光标。
         if side == RIGHT && carets_shown {
             let skip = edit.carets.partition_point(|c| c.0 < line);
             for &(_, col) in edit.carets[skip..].iter().take_while(|c| c.0 == line) {
@@ -849,7 +863,7 @@ fn draw_body(
                 app.ime_cursor = Some(draw_caret(app, frame, x, y, baseline, pane.text));
             }
         }
-        // 只读的一侧不能输入，不需要输入法的候选窗跟着。
+        // 只读一侧不接受输入，输入法候选窗不跟随该侧的光标。
         if let Some((caret_side, (caret_line, col))) = read_caret
             && caret_side == side
             && caret_line == line
@@ -860,7 +874,7 @@ fn draw_body(
         }
     }
 
-    // 只读一侧的光标在文件末尾换行符之后的空行上：绘制在最后一行下面。
+    // 只读一侧的光标位于文件末尾换行符之后的空行时，绘制在最后一行下方。
     if let Some((side, (line, _))) = read_caret
         && view.row_of(side, line) == view.rows[side].len()
     {
@@ -877,7 +891,7 @@ fn draw_body(
         }
     }
 
-    // 光标在文件末尾换行符之后的空行上：那一行没有显示行，绘制在最后一行下面。
+    // 光标位于文件末尾换行符之后的空行时，该行没有对应的显示行，绘制在最后一行下方。
     if carets_shown && view.row_of_new(edit.caret.0) == view.row_count() {
         let y = row_y(RIGHT, view.row_count());
         if y >= body.y && y < body.bottom() {
@@ -889,9 +903,9 @@ fn draw_body(
         }
     }
 
-    // 一侧整个是空的（新文件、删掉的文件）：整个文件是一处改动，带子没有形状可绘制（一头是
-    // 一个点，另一头是整个文件，绘制出来整块填满颜色），空的那一侧也不绘制插入线。文件不存在、
-    // 已删除时标题已经写明，留空即可；版本存在但内容为空时标题看不出这一点，中间写「空文件」。
+    // 一侧为空（新文件、已删除的文件）时整个文件是一处改动，带子一端为点、另一端为整个文件，
+    // 绘制结果是整块颜色，因此不绘制带子，空的一侧也不绘制插入线。文件不存在或已删除时标题已注明；
+    // 版本存在但内容为空时标题无法体现，中间显示「空文件」。
     let empty_side = [
         view.old.text.len_chars() == 0,
         view.new.text.len_chars() == 0,
@@ -909,9 +923,9 @@ fn draw_body(
         ui_text_small(frame, app, x, row, note, p.text_dim, text);
     }
 
-    // 带子：每段改动从左侧的改动行连到右侧的改动行；一侧没有行时那一侧绘制一道线。
+    // 带子：每段改动从左侧的改动行连接到右侧的改动行；一侧没有行时该侧绘制一道线。
     let ribbon = parts.ribbon;
-    // 折起来的一段两侧不一定同高：用与折叠行相同的淡底连起来，看得出是同一段。
+    // 折叠的一段在两侧的位置不一定相同：用与折叠行相同的淡色底连接，表示两侧为同一段。
     if !unified {
         let fill = p.hover.alpha(p.hover.a * 0.6);
         let shade = DiffShade {
@@ -953,7 +967,7 @@ fn draw_body(
         }
         if view.focus.is_some_and(|(focus, _)| focus == h) {
             for (side, span) in [(LEFT, (l0, l1)), (RIGHT, (r0, r1))] {
-                // 单栏时没有行的一侧不必画插入线，另一侧的行就在那里。
+                // 单栏时另一侧的行显示在同一位置，没有行的一侧无需绘制插入线。
                 if !unified || span.1 > span.0 {
                     draw_hunk_focus(app, frame, parts.panes[side].rect, span, body);
                 }
@@ -961,8 +975,8 @@ fn draw_body(
         }
     }
 
-    // 改动勾选框：与每段改动右侧第一行（右侧没有行时是插入的那道线）同高，提交时包含这一处改动。
-    // 文件不在提交视图里时不绘制。
+    // 改动勾选框与每段改动右侧的第一行（右侧没有行时为插入线）同高，勾选表示提交时包含该处改动。
+    // 文件不在提交视图中时不绘制。
     if !inclusions.is_empty() {
         for (h, rows) in view.hunk_rows[RIGHT].iter().enumerate() {
             let mid = if let Some(y) = hunk_y(view, h) {
@@ -977,7 +991,7 @@ fn draw_body(
             }
             let mid = mid.max(body.y + 10.0);
             let c = (parts.include_x, mid);
-            // 和左边的「»」一套线条图标（`icons::line_checkbox`），悬停时才有底色。
+            // 与左侧的「»」使用同一套线条图标（`icons::line_checkbox`），仅悬停时显示底色。
             let hovered = app.hover == Hover::Diff(DiffTarget::Include(h));
             match inclusions.get(h) {
                 Some(Pick::Lines(_)) => icons::line_checkbox_mixed(
@@ -1004,10 +1018,9 @@ fn draw_body(
         }
     }
 
-    // 「»」：与每段改动左侧第一行（左侧没有行时是插入的那道线）同高，用左侧替换右侧这一段（回滚
-    // 这一处改动）。右侧不是工作区的文件时不绘制。
-    // 左侧整个是空的（新文件）时也不绘制：用左侧替换就是把整个文件清空，这不是一处改动该有的
-    // 操作；新文件的回滚在提交视图里进行。
+    // 「»」与每段改动左侧的第一行（左侧没有行时为插入线）同高，用左侧替换右侧的该段，即回滚
+    // 该处改动。右侧不是工作区的文件时不绘制。左侧为空（新文件）时同样不绘制：替换会清空整个
+    // 文件，不属于单处改动的操作；新文件的回滚在提交视图中进行。
     if view.new.path.is_some() && !empty_side[LEFT] {
         for (h, rows) in view.hunk_rows[LEFT].iter().enumerate() {
             let mid = if let Some(y) = hunk_y(view, h) {
@@ -1020,8 +1033,8 @@ fn draw_body(
             if mid < body.y || mid > body.bottom() {
                 continue;
             }
-            // 和右边的勾选框一套线条图标：强调色、一样的笔宽，悬停时才有底色。
-            // 贴着顶边的（文件开头插入的）下移半个按钮高度，避免被标题栏裁掉。
+            // 与右侧的勾选框使用同一套线条图标：强调色、相同的笔宽，仅悬停时显示底色。
+            // 紧贴顶边的按钮（文件开头的插入）下移半个按钮高度，避免被标题栏裁切。
             let mid = mid.max(body.y + 10.0);
             let c = (parts.revert_x, mid);
             let hovered = app.hover == Hover::Diff(DiffTarget::Revert(h));
@@ -1032,11 +1045,11 @@ fn draw_body(
     }
 }
 
-/// 在 `area` 里绘制一条带子：左边从 `left` 的上下沿、右边到 `right` 的上下沿，中间按 S 形曲线
+/// 在 `area` 内绘制一条带子：左端为 `left` 的上下沿，右端为 `right` 的上下沿，中间按 S 形曲线
 /// 过渡。
 ///
-/// 逐列绘制：每列一段底色，上下沿各一段和前一列相连的边线。不用抗锯齿的笔画（按像素
-/// 算距离，大块曲线每帧要一两毫秒），逐列的矩形在滚动时每帧绘制开销也较小。
+/// 逐列绘制：每列一段底色，上下沿各一段与前一列相连的边线。抗锯齿笔画按像素计算距离，
+/// 大块曲线每帧需要一到两毫秒；逐列矩形在滚动时每帧的绘制开销较小。
 pub(in crate::view) fn draw_ribbon(
     frame: &mut Frame<'_>,
     area: Rect,
@@ -1053,7 +1066,7 @@ pub(in crate::view) fn draw_ribbon(
             left.1 + (right.1 - left.1) * s,
         )
     };
-    // 每列半个逻辑像素：高分屏上正好一个物理像素，边线的台阶看不出来。
+    // 每列宽半个逻辑像素：缩放倍数为 2 时恰为一个物理像素，边线不出现可见的台阶。
     const STEP: f32 = 0.5;
     let columns = (area.w / STEP).max(1.0) as usize;
     let mut previous = at(0.0);
@@ -1063,7 +1076,7 @@ pub(in crate::view) fn draw_ribbon(
         if bottom > top {
             frame.rect_clipped(Rect::new(x, top, STEP, bottom - top), shade.line, 0.0, clip);
         }
-        // 边线：从前一列的位置连到这一列，至少 1 像素高。
+        // 边线：从前一列的位置连接到本列，高度至少 1 逻辑像素。
         for (from, to) in [(previous.0, top), (previous.1, bottom)] {
             let (y0, y1) = (from.min(to), from.max(to));
             let rect = Rect::new(x, y0 - 0.5, STEP, (y1 - y0).max(1.0));
@@ -1120,9 +1133,10 @@ fn draw_overview(
 ) {
     let p = app.palette;
     let doc = &app.editor.documents[index];
-    let (owner, scroll) = (doc.id.0, doc.scroll_line * app.fonts.line_height);
+    let scroll = (doc.scroll_line * f64::from(app.fonts.line_height)) as f32;
+    let owner = doc.id.0;
     let total = view.scroll_rows().max(1);
-    // 让出标题栏：轨道从正文上沿开始（绘制时差异已从文档中取出，`App::scroll_track` 认不出）。
+    // 轨道从正文上沿开始，不含标题栏；绘制时差异已从文档中取出，`App::scroll_track` 无法识别。
     let track = Rect::new(
         app.layout.editor.x,
         parts.body.y,
@@ -1130,11 +1144,11 @@ fn draw_overview(
         parts.body.h,
     );
     let content = editor_content_height(total, track.h, app.fonts.line_height);
-    // 与普通文件的概览标尺同一道、同样的颜色；半透明的滑块绘制在上面。一侧整个是空的（新文件、
-    // 删掉的文件）时整个文件是一处改动，从头到底的色条说明不了位置，不绘制。
+    // 使用普通文件概览标尺的同一列和颜色，半透明的滑块绘制在上方。一侧为空（新文件、已删除的
+    // 文件）时整个文件是一处改动，贯穿全长的色条不提供位置信息，因此不绘制。
     let ruler = Ruler::new(track, total);
     if !view.one_side_empty() {
-        // 按滚动位置标：和滑块用同一把尺。
+        // 按滚动位置标记，与滑块使用相同的换算。
         for (i, hunk) in view.hunks.iter().enumerate() {
             let span = view.hunk_span(i);
             let rows = span.start.floor() as usize..span.end.ceil() as usize;
@@ -1152,7 +1166,7 @@ fn draw_overview(
     );
 }
 
-/// 把这一侧第 `line` 行去掉换行符的内容取进 `chars`，最多 [`MAX_LINE_CHARS`] 个字符。
+/// 把该侧第 `line` 行去掉换行符的内容读入 `chars`，最多 [`MAX_LINE_CHARS`] 个字符。
 pub(in crate::view) fn line_chars(side: &DiffSide, line: usize, chars: &mut Vec<char>) {
     chars.clear();
     if line >= side.text.len_lines() {

@@ -37,7 +37,7 @@ mod workspace;
 pub(crate) use workspace::top_bar::{tab_folder, tab_icon_name};
 
 use editor::draw_editor;
-pub(crate) use editor::{PictureCache, RulerCache};
+pub(crate) use editor::{LineTokens, MinimapRows, PictureCache, RulerCache};
 use fields::*;
 use overlays::{
     draw_conflict, draw_goto, draw_live_notice, draw_notice_ghost, draw_picker, draw_search,
@@ -61,12 +61,19 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     }
     let layout = app.layout;
     app.tree_overflow = tree_overflow(app, frame);
+    app.track_log_tree();
     let before = app.commit.overflow.map(|o| o.row);
     app.commit.overflow = git::commit::commit_overflow(app, frame);
     app.track_commit_actions(before);
+    // 历史提交的文件列表借用提交视图的列表，同样计算写全名的那一行。
+    app.with_log_list(|app| {
+        let before = app.commit.overflow.map(|o| o.row);
+        app.commit.overflow = git::commit::commit_overflow(app, frame);
+        app.track_commit_actions(before);
+    });
 
-    // 鼠标停在名称展开的行上并滚动文件树后，该位置对应的行可能不再展开名称；此时鼠标的位置
-    // 已不在文件树范围内，需要清除悬停状态。
+    // 鼠标停在名称展开的行上并滚动文件树后，该位置对应的行可能不再展开名称；鼠标位于文件树
+    // 范围之外时需要清除悬停状态。
     let (x, y) = app.mouse();
     if app.tree_overflow.is_none()
         && matches!(app.hover, Hover::TreeRow(_))
@@ -83,7 +90,7 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     if layout.sidebar.right() > 0.0 {
         draw_sidebar(app, frame);
     }
-    // 这一帧没有绘制工具栏（侧栏收起或处于搜索视图）：收起动画直接结束，不需要额外一帧。
+    // 本帧没有绘制工具栏（侧栏收起或处于搜索视图）时，收起动画直接结束，不需要额外一帧。
     if app.tree_tools.is_empty() && app.tree_more.is_none() {
         app.tool_fold.settle();
     }
@@ -104,6 +111,10 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     draw_tree_overflow(app, frame);
     git::commit::draw_commit_overflow_closing(app, frame);
     git::commit::draw_commit_overflow(app, frame);
+    app.with_log_list(|app| {
+        git::commit::draw_commit_overflow_closing(app, frame);
+        git::commit::draw_commit_overflow(app, frame);
+    });
     git::changes::draw_change_popup(app, frame);
 
     if layout.search.h > 0.0 {
@@ -115,7 +126,7 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     let picker_open = app.picker_open && app.picker_places.is_none();
     app.track_card(Card::Bar, bar_open);
     app.track_card(Card::Picker, picker_open);
-    // 正在淡出的先绘制：在 ⌘P 面板中按 ⌃G 时，跳转条绘制在淡出的面板之上。
+    // 先绘制正在淡出的卡片：在 ⌘P 面板中按 ⌃G 时，跳转条绘制在淡出的面板之上。
     draw_card_ghost(app, frame, Card::Bar);
     draw_card_ghost(app, frame, Card::Picker);
     if bar_open {
@@ -177,8 +188,8 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
         settings::draw(app, frame);
     }
 
-    // 窗口内的菜单、提示框绘制在所有内容之上；打开期间不显示悬停提示。关闭后的提示框还需要
-    // 若干帧完成淡出，因此每帧都调用一次绘制。
+    // 窗口内的菜单、提示框绘制在所有内容之上；打开期间不显示悬停提示。提示框关闭后仍需要
+    // 若干帧完成淡出，因此每帧都调用绘制。
     let modal = app.popup().is_some() || app.alert.is_some();
     draw_modal(app, frame);
     if modal {
@@ -187,7 +198,7 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     draw_tooltip(app, frame);
 }
 
-/// 绘制打开着的窗口内菜单和提示框：提示框盖在菜单上面。
+/// 绘制已打开的窗口内菜单和提示框；提示框覆盖在菜单之上。
 fn draw_modal(app: &mut App, frame: &mut Frame<'_>) {
     popup_menu::draw(app, frame);
     alert::draw(app, frame);
@@ -237,7 +248,7 @@ fn draw_file_drop(app: &App, frame: &mut Frame<'_>) {
 
 /// 绘制拖动文件树条目时跟随鼠标的小卡片，位于鼠标右下方，内容为被拖动条目的图标和名称。
 ///
-/// 拖动多项时名称写「N 项」，图标取被按住的那一项的图标。名称最多占 240 逻辑像素，超出时
+/// 拖动多项时名称显示为「N 项」，图标取按下的那一项的图标。名称最多占 240 逻辑像素，超出时
 /// 从中间截短；该上限取自调参：常见的文件名在 240 逻辑像素内可以完整显示，更长的名称已难以
 /// 辨认。卡片宽度按图标与内边距（逻辑像素）算出。
 fn draw_tree_drag(app: &App, frame: &mut Frame<'_>) {
@@ -252,7 +263,7 @@ fn draw_tree_drag(app: &App, frame: &mut Frame<'_>) {
         1 => ellipsize(frame, &drag.name, app.fonts.ui, 240.0),
         n => Cow::Owned(t!("workspace-tree-drag-items", count = n)),
     };
-    // 按着 ⌥ 时松开是复制。
+    // 按住 ⌥ 松开时执行复制。
     let name = if app.modifiers.alt_key() {
         Cow::Owned(t!("workspace-tree-drag-copy", name = name.as_ref()))
     } else {
@@ -282,7 +293,7 @@ fn draw_tree_drag(app: &App, frame: &mut Frame<'_>) {
 /// 鼠标在按钮上停留满 `TOOLTIP_DELAY`（500 毫秒）才显示，避免鼠标扫过时闪现。提示位于按钮
 /// 下方并水平居中；下方放不下时（状态栏上的按钮）改在上方；概览标尺上的提示位于标尺左侧。
 fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
-    // 停留时间不足时直接返回：不必先拼出提示文字、查找命中框。
+    // 停留时间不足时直接返回，不拼接提示文字，也不查找命中框。
     let rested = app
         .tooltip_since
         .is_some_and(|since| since.elapsed() >= TOOLTIP_DELAY);
@@ -325,7 +336,7 @@ fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
                     ),
                 }
             }
-            // 日志列表里的作者头像：名字和邮箱。
+            // 日志列表中的作者头像：提示作者名和邮箱。
             Hover::Log(crate::app::git::log::LogTarget::Avatar(i)) => {
                 let hit = app
                     .log
@@ -348,7 +359,7 @@ fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
                 if !app.log.hits.iter().any(|(_, t)| *t == target) {
                     return;
                 }
-                // 线段的命中框很小：提示放在鼠标下方，不按命中框居中。
+                // 线段的命中框很小，提示放在鼠标下方，不按命中框居中。
                 let (mx, my) = app.mouse();
                 let rect = Rect::new(mx, my + 6.0, 0.0, 0.0);
                 let commit = app.log_line_target(row, line).and_then(|j| {
@@ -381,7 +392,7 @@ fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
                     _ => return,
                 }
             }
-            // 日志列表里右端也放不下的说明：显示整句。
+            // 日志列表中延伸到右端仍放不下的提交说明：提示整句。
             Hover::Log(crate::app::git::log::LogTarget::Row(i)) if app.log.clipped == Some(i) => {
                 let hit = app
                     .log
@@ -405,25 +416,30 @@ fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
 
     let p = app.palette;
     // 提示分「名称   快捷键」两栏，快捷键以淡色显示在右侧，两栏间距至少 16 逻辑像素。含 `\n` 时
-    // 第一行为正文，其余各行为淡色说明（如标签的文件名和所在目录）。
+    // 第一段为正文，其余各段为淡色说明（如标签的文件名和所在目录）。
     let (name, key) = match label.split_once(crate::layout::TIP_KEY) {
         Some((name, key)) => (name, Some(key)),
         None => (label, None),
     };
-    let lines: Vec<&str> = name.split('\n').collect();
     let size = app.fonts.ui_small;
+    let key_w = key.map_or(0.0, |k| 16.0 + frame.measure(FontKind::Ui, size, k));
+    // 提示宽度不超过 `TOOLTIP_MAX_WIDTH`，也不超出窗口（左右各留 4 逻辑像素边距）；
+    // 文字区再减去左右各 10 逻辑像素的内边距。
+    let max_width = TOOLTIP_MAX_WIDTH.min(app.layout.window.w - 8.0);
+    let room = max_width - 20.0;
+    let lines = tip_lines(name, room, key_w, |piece| {
+        frame.measure(FontKind::Ui, size, piece)
+    });
     let name_w = lines
         .iter()
-        .map(|line| frame.measure(FontKind::Ui, size, line))
+        .map(|(line, _)| frame.measure(FontKind::Ui, size, line))
         .fold(0.0, f32::max);
-    let key_w = key.map_or(0.0, |k| 16.0 + frame.measure(FontKind::Ui, size, k));
-    // 很长的提示（日志里整句的说明）不超出窗口。
-    let width = (name_w + key_w + 20.0).min(app.layout.window.w - 8.0);
+    let width = (name_w + key_w + 20.0).min(max_width);
     // 单行高 26 逻辑像素，每多一行增加 18。
     const LINE: f32 = 18.0;
     let height = 8.0 + LINE * lines.len() as f32;
     let rect = if matches!(app.hover, Hover::RulerChange(_)) {
-        // 概览标尺贴着窗口右边：提示放在它左边、和鼠标同高，不盖住指着的那道标记。
+        // 概览标尺紧靠窗口右边缘：提示放在标尺左侧、与鼠标同高，不遮挡鼠标所指的标记。
         Rect::new(
             button.x - 8.0 - width,
             button.y + button.h / 2.0 - height / 2.0,
@@ -446,9 +462,9 @@ fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
         )
     };
     draw_card(frame, p, rect, RADIUS_ROW, p.popup_bg);
-    for (i, line) in lines.iter().enumerate() {
+    for (i, &(line, body)) in lines.iter().enumerate() {
         let row = Rect::new(rect.x, rect.y + 4.0 + LINE * i as f32, rect.w, LINE);
-        let color = if i == 0 { p.text } else { p.text_dim };
+        let color = if body { p.text } else { p.text_dim };
         ui_text_small(frame, app, rect.x + 10.0, row, line, color, rect);
     }
     if let Some(key) = key {
@@ -466,6 +482,25 @@ fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
     }
 }
 
+/// 把提示正文 `name` 按宽度 `room`（逻辑像素）折行，返回各行及其是否属于正文段。
+///
+/// `name` 以 `\n` 分段，第一段为正文，其余为说明；正文折出的各行都属于正文段。快捷键只占
+/// 第一行，因此第一段的宽度再减去 `key_w`。`measure` 返回一段文字的宽度（逻辑像素）。
+fn tip_lines(
+    name: &str,
+    room: f32,
+    key_w: f32,
+    mut measure: impl FnMut(&str) -> f32,
+) -> Vec<(&str, bool)> {
+    let mut lines = Vec::new();
+    for (i, part) in name.split('\n').enumerate() {
+        let width = (room - if i == 0 { key_w } else { 0.0 }).max(1.0);
+        let wrapped = crate::layout::wrap_text(part, width, &mut measure);
+        lines.extend(wrapped.into_iter().map(|line| (line, i == 0)));
+    }
+    lines
+}
+
 /// 返回文本在 `rect` 内垂直居中时的基线 y 坐标（逻辑像素，取整）。
 fn baseline_in(rect: Rect, ascent: f32, descent: f32) -> f32 {
     (rect.y + (rect.h - (ascent + descent)) / 2.0 + ascent).round()
@@ -474,8 +509,8 @@ fn baseline_in(rect: Rect, ascent: f32, descent: f32) -> f32 {
 /// 返回字号为 `size` 的界面文本的视觉中心在基线上方的高度（逻辑像素）。
 ///
 /// 视觉中心取小写字母中心与大写字母中心的中点，即（x 高度 + 大写高度）÷ 4。按字体的升降部
-/// 高度居中时，界面字体的下沿比上沿短，小写字母会比行的中心低约 1 像素，与按几何中心放置的
-/// 关闭按钮、行底色不对齐；按视觉中心居中后，文字、图标和按钮落在同一基线上。
+/// 高度居中时，界面字体的下沿比上沿短，小写字母比行的中心低约 1 像素，与按几何中心放置的
+/// 关闭按钮、行底色不对齐；按视觉中心居中后，文字、图标和按钮的垂直位置一致。
 fn optical_center(app: &App, size: f32) -> f32 {
     let k = size / app.fonts.ui;
     (app.ui_metrics.x_height + app.ui_metrics.cap_height) * k / 4.0
@@ -513,7 +548,7 @@ fn label(
 
 /// 与 [`label`] 相同，但把 `marked` 中的字符（字符下标，升序）用强调色绘制。
 ///
-/// 用于在快速打开和命令面板中标出查询命中的字符。文本按命中与否分成若干段依次绘制；界面
+/// 用于在快速打开和命令面板中标出查询命中的字符。文本按是否命中分成若干段依次绘制；界面
 /// 字体不做字距调整，段与段之间没有可见间隙。
 #[allow(clippy::too_many_arguments)]
 fn marked_label(
@@ -545,7 +580,7 @@ fn marked_label(
 /// 绘制输入框的外框：平时没有边框，只在底色 `base` 上铺一层略深的中性色。
 ///
 /// 有焦点时改为编辑区底色并加一圈强调色外环，出错时外环为错误色。侧栏的搜索框、提交信息框和
-/// 日志标签的筛选框共用这段绘制。输入框不加边框：多个浅色边框叠在接近白色的侧栏上会互相干扰，
+/// 日志标签的筛选框共用该函数。输入框不加边框：接近白色的侧栏上叠加多个浅色边框时层次混乱，
 /// 只保留一层底色时层次更清楚。
 ///
 /// 外环宽度为整数个物理像素（缩放倍数四舍五入，至少为 1）：输入框四边先对齐到物理像素，再向外
@@ -589,12 +624,12 @@ fn sidebar_span(app: &App) -> Rect {
 
 /// 绘制列表为空时（没有结果、没有更改、尚无提交）的说明文字。
 ///
-/// 外观统一：一行标题用正文字号和次要色，下面可以再写一行小字补充（淡色），放不下时按宽度
-/// 折行。整块在 `span`（纵向范围）内上下居中，中线位于 `span` 高度的 45% 处，列表很矮时顶部
-/// 至少留 16 逻辑像素。
+/// 标题一行使用正文字号和次要色，下方可附一行淡色小字作补充，放不下时按宽度折行。整块在
+/// `span`（纵向范围）内上下居中，中线位于 `span` 高度的 45% 处，列表很矮时顶部至少留
+/// 16 逻辑像素。
 ///
 /// 居中参照 `span` 而非各自的列表：各视图的列表起始高度不同，按列表居中会使切换视图时说明
-/// 文字上下跳动。返回最后一行的下沿，说明下面还要放按钮时从这里往下排。
+/// 文字上下跳动。返回最后一行的下沿，供调用方在说明下方继续排列按钮。
 fn draw_empty_state(
     app: &App,
     frame: &mut Frame<'_>,
@@ -609,7 +644,7 @@ fn draw_empty_state(
     let mut lines = vec![(title, app.fonts.ui, p.text_muted)];
     if let Some(detail) = detail {
         let size = app.fonts.ui_small;
-        // 逐字累加宽度（界面字体不做字距调整），放不下就换行；每行至少一个字。
+        // 逐字累加宽度（界面字体不做字距调整），超出可用宽度时换行；每行至少一个字。
         let (mut start, mut width) = (0, 0.0);
         for (i, c) in detail.char_indices() {
             let w = frame.measure(FontKind::Ui, size, c.encode_utf8(&mut [0; 4]));
@@ -635,8 +670,8 @@ fn draw_empty_state(
 /// 在 `rect` 内垂直居中绘制一段字号为 `size`、没有小写字母的界面文本，返回文本末尾的 x 坐标。
 ///
 /// 用于独自放在小框里的快捷键（⌘⇧F）、项目首字母、数字：按大写字母的高度居中（数字与大写字母
-/// 等高）。按 [`label`] 的视觉中心居中时，小写字母的中心也算在内，这样的文本会偏高约半个像素。
-/// 在一行内与普通文字并列的（状态栏、查找条的计数）仍用 [`label`]，与它们共用基线。
+/// 等高）。[`label`] 的视觉中心计入了小写字母的中心，此类文本按其居中会偏高约半个像素。
+/// 在一行内与普通文字并列的文本（状态栏、查找条的计数）仍用 [`label`]，与普通文字共用基线。
 fn caps_label(
     frame: &mut Frame<'_>,
     app: &App,
@@ -718,7 +753,7 @@ fn draw_file_icon(
     clip: Rect,
 ) -> f32 {
     let (glyph, color) = p.file_icon(file_name);
-    // 不取整：文件图标都是线条，`cy` 本来就落在半像素上（[`icon_center_y`]）；取整上沿会使图标
+    // 不取整：文件图标均由线条构成，`cy` 本身落在半像素上（[`icon_center_y`]）；取整上沿会使图标
     // 比同一行的侧栏开关、修改圆点、加号低约半个像素。
     icons::file(frame, (x, cy - 7.5), glyph, color, clip);
     x + icons::FILE_WIDTH
@@ -731,7 +766,7 @@ fn center(rect: Rect) -> (f32, f32) {
 /// 对话框、提示框底部按钮的种类。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ButtonRole {
-    /// 主按钮：强调色的实底、白字，按回车等同于点击它。
+    /// 主按钮：强调色实底、白色文字，按回车等同于点击该按钮。
     Primary,
     /// 其他按钮：浅灰底。
     Normal,
@@ -911,8 +946,8 @@ fn blend_card(
 
 /// 绘制一张带出现、消失动画的浮层卡片（`⌘P` 面板、输入条）。
 ///
-/// `draw` 照常绘制卡片内容，卡片位于 `rect`。淡入期间先照常绘制并保存卡片快照，再恢复卡片
-/// 下方（含阴影范围）的画面，然后整张淡入并放大；平时每帧也保存一份快照，关闭后由
+/// `draw` 绘制卡片内容，卡片位于 `rect`。淡入期间先绘制并保存卡片快照，再恢复卡片下方
+/// （含阴影范围）的画面，之后整张淡入并放大；其余时间每帧也保存一份快照，关闭后由
 /// [`draw_card_ghost`] 用最后一份快照淡出。
 fn draw_moving_card(
     app: &mut App,
@@ -995,7 +1030,7 @@ fn draw_thumb(frame: &mut Frame<'_>, p: &Palette, thumb: Rect, look: ThumbLook) 
 
 /// 把字号为 `size` 的界面文本截短到 `max`（逻辑像素）以内，超出时从末尾截断并接上「…」。
 ///
-/// 保留开头部分，「…」前不留空白。项目名、分支名、提交说明都从头读，开头部分足以辨认条目。
+/// 保留开头部分，「…」前不留空白。项目名、分支名、提交说明按开头辨认，保留开头即可识别条目。
 fn truncate_end<'a>(frame: &mut Frame<'_>, text: &'a str, size: f32, max: f32) -> Cow<'a, str> {
     fit(frame, text, size, max, false)
 }
@@ -1018,19 +1053,18 @@ fn shorten_path<'a>(frame: &mut Frame<'_>, path: &'a str, size: f32, max: f32) -
     };
     let (dir, file) = path.split_at(slash + 1);
     let room = max - frame.measure(FontKind::Ui, size, file);
-    // 目录部分至少要能显示开头两个字和「…」：目录更短时无法辨认是哪个目录，改为截短整个路径。
+    // 目录部分至少需要显示开头两个字和「…」；可用宽度更小时无法辨认目录，改为截短整个路径。
     if room < frame.measure(FontKind::Ui, size, "/…") * 2.0 {
         return ellipsize(frame, path, size, max);
     }
     Cow::Owned(format!("{}{file}", ellipsize(frame, dir, size, room)))
 }
 
-/// 把文本截短到 `max`（逻辑像素）宽以内并接上「…」，是 [`truncate_end`] 与 [`ellipsize`] 的实现。
+/// 把文本截短到 `max`（逻辑像素）宽以内并接上「…」；[`truncate_end`] 与 [`ellipsize`] 的实现。
 ///
 /// `middle` 为真时从中间截短（开头比结尾多留一个字素），否则从末尾截短。截短按字素进行
 /// （带肤色修饰或组合字符的 emoji、带声调的字母各算一个字素），不会切开字素。每个字素只测量
-/// 一次宽度，保留的字素个数按宽度逐个累加得出，结果只拼接一次。从中间截短时至少截掉一个字素，
-/// 不会出现原文一个字素未少却多出一个「…」的情况。
+/// 一次宽度，结果只拼接一次。从中间截短时至少截掉一个字素，避免原文完整却多出「…」。
 fn fit<'a>(
     frame: &mut Frame<'_>,
     text: &'a str,
@@ -1047,8 +1081,8 @@ fn fit<'a>(
         .map(|(i, g)| (i, frame.measure(FontKind::Ui, size, g)))
         .collect();
     let n = chars.len();
-    // 保留 `keep` 个字时，开头留 `keep - keep / 2` 个、结尾留 `keep / 2` 个；多留一个字时，
-    // `keep` 为偶数则开头多一个，为奇数则结尾多一个，宽度随 `keep` 只增不减。
+    // 保留 `keep` 个字素时，开头留 `keep - keep / 2` 个、结尾留 `keep / 2` 个；`keep` 每增加 1，
+    // 偶数时开头多一个，奇数时结尾多一个，宽度随 `keep` 单调不减。
     let added = |keep: usize| match (middle, keep % 2) {
         (true, 1) => chars[n - 1 - keep / 2].1,
         (true, _) => chars[keep / 2].1,

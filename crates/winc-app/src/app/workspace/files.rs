@@ -47,6 +47,8 @@ pub struct TabHit {
     pub tab: Rect,
     /// 关闭按钮的矩形（窗口坐标，逻辑像素）。
     pub close: Rect,
+    /// 标签上的名称是否被截短；没有对应文件的标签据此决定是否显示提示。
+    pub elided: bool,
 }
 
 /// 标签栏的滚动位置，以及绘制时记录的几何信息，供点击和滚轮使用。

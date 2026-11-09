@@ -91,7 +91,7 @@ fn right_clicking_the_text_offers_format_cut_copy_paste() {
     app.run_menu_command(Copy);
     assert_eq!(app.copied.as_deref(), Some("config"));
 
-    // 这一行加了书签以后，菜单里换成「删除书签」可用。
+    // 该行添加书签后，菜单项变为「删除书签」。
     right_click_text(&mut app, 1, 10);
     app.run_menu_command(AddBookmark);
     right_click_text(&mut app, 1, 10);
@@ -120,7 +120,7 @@ fn right_clicking_the_text_offers_format_cut_copy_paste() {
     assert_eq!(line(&app, 0), "fn main() {");
     assert_eq!(line(&app, 1), "    let config = load_config();");
 
-    // 查找条覆盖的区域不弹出编辑区菜单，右键事件由查找条自己处理。
+    // 查找条覆盖的区域不弹出编辑区菜单，右键事件由查找条处理。
     app.open_search(false);
     paint(&mut app);
     let bar = app.layout.search;
@@ -402,13 +402,13 @@ fn the_scrollbar_marks_other_occurrences_of_the_selection() {
             .and_then(|(_, l)| l.as_deref().map(<[usize]>::to_vec))
     };
 
-    // 只有光标、没有选区：光标停在第 200 行（从 0 起）的 `total` 上也不标。
+    // 只有光标、没有选区：光标停在第 200 行（从 0 起）的 `total` 上也不标记。
     let at = app.editor.active().unwrap().text().line_start(200) + 4;
     app.select(at, at);
     paint(&mut app);
     assert_eq!(marks(&app), None);
 
-    // 选中 `total`：标出包含该词的每一行（`totally` 里也有），同一行出现两次也只标一次。
+    // 选中 `total`：标出包含该词的每一行（`totally` 里也有），同一行出现两次也只标记一次。
     app.select(at, at + 5);
     paint(&mut app);
     assert_eq!(marks(&app), Some(vec![10, 200, 300, 390]));
@@ -623,14 +623,14 @@ fn word_wrap_folds_long_lines_to_the_editor_width() {
     let dir = sample_folder("word-wrap");
     let long = "word ".repeat(80);
     let path = dir.join("long.txt");
-    // 后面补 60 行，内容比一屏高，能滚动。
+    // 其后追加 60 行，内容超出一屏，可以滚动。
     let filler = "x\n".repeat(60);
     std::fs::write(&path, format!("first\n{long}\nlast\n{filler}")).unwrap();
     let mut app = app_with(&path, false);
     paint(&mut app);
     assert_eq!(app.row_count(), 64);
 
-    // 开启自动换行（`⌥Z`）：长行折成多段显示，不再横向滚动，并在状态栏给出提示。
+    // 开启自动换行（`⌥Z`）：长行折为多段显示，不再横向滚动，并在状态栏给出提示。
     app.run_action(Action::ToggleWordWrap);
     assert_eq!(app.config.word_wrap, Some(true));
     assert_eq!(app.status_message.as_deref(), Some("已开启自动换行"));
@@ -656,8 +656,8 @@ fn word_wrap_folds_long_lines_to_the_editor_width() {
     let doc = app.editor.active().unwrap();
     assert_eq!(doc.row_at(doc.selection.head), 2);
 
-    // 编辑区变窄（侧栏变宽）：长行断成更多段；滚动位置顶部的文本行保持不变。窄掉文本区的一半：
-    // 固定的宽度在某些字体下恰好断出同样的段数。
+    // 编辑区变窄（侧栏变宽）：长行断为更多段；滚动位置顶部的文本行保持不变。宽度减少文本区的
+    // 一半：减少固定宽度时，某些字体下断出的段数恰好不变。
     app.editor.active_mut().unwrap().scroll_line = 2.0;
     app.panel_width += app.layout.text.w / 2.0;
     paint(&mut app);
@@ -684,7 +684,7 @@ fn toggling_word_wrap_keeps_the_top_line_in_place() {
     let mut app = app_with(&path, false);
     paint(&mut app);
 
-    // 光标留在开头，视图滚到中间：开关不把视图带回光标。
+    // 光标留在开头，视图滚到中间：切换换行不使视图跳回光标。
     app.editor.active_mut().unwrap().scroll_line = 100.5;
     app.run_action(Action::ToggleWordWrap);
     paint(&mut app);
@@ -718,7 +718,7 @@ fn triple_click_selects_whole_lines_while_dragging() {
         app.on_mouse_up(MouseButton::Left);
     };
 
-    // 三击选中整行；按住第三下在同一行内移动，选区仍是整行，不会缩到光标处。
+    // 三击选中整行；第三次按下后保持按住并在同一行内移动，选区仍是整行，不会缩小到光标处。
     click(&mut app);
     click(&mut app);
     app.on_mouse_move(x, y);
@@ -727,7 +727,7 @@ fn triple_click_selects_whole_lines_while_dragging() {
     app.on_mouse_up(MouseButton::Left);
     assert_eq!(app.editor.active().unwrap().selection.range(), span);
 
-    // 按住第三下向上拖到上一行：整段按行选择。
+    // 第三次按下后向上拖到上一行：按整行扩展选区。
     click(&mut app);
     click(&mut app);
     app.on_mouse_move(x, y);
@@ -740,5 +740,169 @@ fn triple_click_selects_whole_lines_while_dragging() {
     };
     assert_eq!(app.editor.active().unwrap().selection.range(), expected);
 
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 大文件开启自动换行后，后台计算的断行按整行进行；滚动到超长行 `MAX_LINE_CHARS`
+/// 之后的段时，绘制、点击和上下移动仍然正常。
+#[test]
+fn word_wrap_reaches_the_end_of_long_lines_in_large_files() {
+    let dir = sample_folder("word-wrap-large");
+    let path = dir.join("dump.sql");
+    let mut content = String::new();
+    let mut i = 0;
+    while content.len() <= winc_editor::LARGE_FILE as usize {
+        let values: Vec<String> = (0..9_000).map(|n| format!("({n},'订单 {i}')")).collect();
+        content.push_str(&format!("INSERT INTO t VALUES {};\n", values.join(",")));
+        i += 1;
+    }
+    std::fs::write(&path, &content).unwrap();
+    let mut app = app_with(&path, false);
+    paint(&mut app);
+    assert!(app.editor.active().unwrap().is_large());
+
+    app.run_action(Action::ToggleWordWrap);
+    paint(&mut app);
+    let doc = app.editor.active().unwrap();
+    assert!(doc.is_wrapping());
+    let breaks = doc.line_breaks(0);
+    let deep = breaks.rows() - 3;
+    assert!(breaks.start_of(deep) > winc_core::text::MAX_LINE_CHARS);
+
+    // 滚动到第 0 行靠近末尾的段：点击该段开头，光标落在该段的第一个字符之前。
+    app.editor.active_mut().unwrap().scroll_line = (doc.row_of(0) + deep) as f64;
+    paint(&mut app);
+    let t = app.layout.text;
+    let pos = app
+        .pos_at(t.x + TEXT_PAD, t.y + 0.5 * app.fonts.line_height)
+        .unwrap();
+    let doc = app.editor.active().unwrap();
+    assert_eq!(pos, doc.text().line_start(0) + breaks.start_of(deep));
+
+    // 按 ↓ 移到下一段，该段同样能正常绘制。
+    app.editor.active_mut().unwrap().selection = winc_core::Selection::point(pos);
+    app.run(winc_editor::Command::MoveDown { extend: false });
+    paint(&mut app);
+    let doc = app.editor.active().unwrap();
+    assert_eq!(doc.row_at(doc.selection.head), doc.row_of(0) + deep + 1);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 大文件不换行时每行只读取到文本区右边缘；未读全的行之后，下一行的高亮状态仍按整行推算。
+///
+/// 三个文件的第 1 行相同，第 0 行分别在右边缘之外打开块注释、在行首打开块注释、不含块注释：
+/// 前两者的第 1 行都在注释中，画面相同；第三者不同。第 1 行不含第 0 行的词，
+/// 避免光标所在词的其他出现带底色而影响比较。
+#[test]
+fn lines_read_up_to_the_right_edge_keep_the_highlight_state() {
+    let dir = sample_folder("large-read-cap");
+    let filler = format!("{}\n", "f".repeat(200_000)).repeat(90);
+    let second_row = |name: &str, first: &str| {
+        let path = dir.join(name);
+        std::fs::write(&path, format!("{first}\ninside the comment\n*/\n{filler}")).unwrap();
+        let mut app = app_with(&path, false);
+        paint(&mut app);
+        assert!(app.editor.active().unwrap().is_large());
+        let (text, lh) = (app.layout.text, app.fonts.line_height);
+        let renderer = app.renderer.take().unwrap();
+        let scale = renderer.scale_factor();
+        let image = renderer.image().unwrap();
+        let (x0, x1) = (
+            (text.x * scale) as usize,
+            ((text.x + 240.0) * scale) as usize,
+        );
+        let (y0, y1) = (
+            ((text.y + lh) * scale) as usize,
+            ((text.y + 2.0 * lh) * scale) as usize,
+        );
+        let width = image.width as usize;
+        let pixels: Vec<u32> = (y0..y1)
+            .flat_map(|y| image.pixels[y * width + x0..y * width + x1].to_vec())
+            .collect();
+        app.renderer = Some(renderer);
+        pixels
+    };
+    let far = second_row(
+        "far.sql",
+        &format!("SELECT 1; {} /* open", "x".repeat(3_000)),
+    );
+    let near = second_row("near.sql", "/* open");
+    let none = second_row("none.sql", "SELECT 1;");
+    assert!(far == near, "右边缘之外打开的块注释延续到下一行");
+    assert!(far != none);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 回归：不换行时每行只显示前 `MAX_LINE_CHARS` 个字符。查找跳到其后的匹配时横向滚动到
+/// 显示部分的末尾并给出提示，文本区不出现空白；开启自动换行后匹配可见。
+#[test]
+fn finding_a_match_beyond_the_shown_part_of_a_line_keeps_text_on_screen() {
+    let dir = sample_folder("find-hidden");
+    let path = dir.join("dump.sql");
+    let line = format!(
+        "INSERT {} needle {};\n",
+        "x".repeat(60_000),
+        "y".repeat(90_000)
+    );
+    let count = winc_editor::LARGE_FILE as usize / line.len() + 2;
+    std::fs::write(&path, line.repeat(count)).unwrap();
+    let mut app = app_with(&path, false);
+    paint(&mut app);
+    assert!(app.editor.active().unwrap().is_large());
+
+    let find = |app: &mut App| {
+        app.open_search(false);
+        app.find_input.set_text("needle");
+        app.search.query = "needle".into();
+        app.search_changed();
+        app.status_message = None;
+        app.find_next(false);
+        paint(app);
+    };
+    find(&mut app);
+    let max_x = app.text_max_scroll_x();
+    let doc = app.editor.active().unwrap();
+    let (_, col) = doc.text().pos_to_line_col(doc.selection.from());
+    assert_eq!(col, 60_008);
+    assert!(
+        doc.scroll_x > 0.0 && doc.scroll_x <= max_x,
+        "{} {max_x}",
+        doc.scroll_x
+    );
+    let hint = winc_i18n::t!("editor-find-hidden-match-wrap");
+    assert_eq!(app.status_message.as_deref(), Some(hint));
+
+    // 开启自动换行后按整行断开：匹配所在的段滚动到屏幕上，不再提示。
+    app.run_action(Action::ToggleWordWrap);
+    paint(&mut app);
+    find(&mut app);
+    let doc = app.editor.active().unwrap();
+    let row = doc.row_at(doc.selection.from()) as f64;
+    let visible = app.visible_lines() as f64;
+    assert!(doc.is_wrapping() && row > 100.0);
+    assert!(row >= doc.scroll_line && row < doc.scroll_line + visible);
+    assert_ne!(app.status_message.as_deref(), Some(hint));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 回归：大文件的长行开启自动换行后，行首读取的截断处落在多字节字符中间（比上限少几个字节）
+/// 时，后续各段仍能正确绘制。
+#[test]
+fn wrapped_long_lines_cut_inside_a_character_draw_every_part() {
+    let dir = sample_folder("word-wrap-cut");
+    let path = dir.join("cjk.sql");
+    // 开头 1 个 ASCII 字符之后全是 3 字节的汉字：行首的读取上限落在某个汉字中间。
+    let line = format!("a{}\n", "中".repeat(70_000));
+    let count = winc_editor::LARGE_FILE as usize / line.len() + 2;
+    std::fs::write(&path, line.repeat(count)).unwrap();
+    let mut app = app_with(&path, false);
+    app.run_action(Action::ToggleWordWrap);
+    paint(&mut app);
+    let doc = app.editor.active().unwrap();
+    assert!(doc.is_large() && doc.is_wrapping());
+    let rows = doc.rows_of(0);
+    app.editor.active_mut().unwrap().scroll_line = (rows - 2) as f64;
+    paint(&mut app);
     let _ = std::fs::remove_dir_all(&dir);
 }

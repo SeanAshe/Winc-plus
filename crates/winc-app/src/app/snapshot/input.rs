@@ -4,6 +4,7 @@ use super::*;
 
 pub(super) mod dialogs;
 pub(super) mod menus;
+mod touch;
 
 #[test]
 fn a_key_taken_by_the_input_method_is_no_shortcut_while_composing() {

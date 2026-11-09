@@ -116,7 +116,7 @@ impl App {
             self.remember_panel_width();
         }
         self.drag = Drag::None;
-        // 拖动分隔条期间不重新断行（`sync_wrap`）；松开后重画，重画前的布局按最终宽度断行。
+        // 拖动分隔条期间不重新断行（`sync_wrap`）；松开后重绘，重绘前的布局按最终宽度断行。
         if was_divider {
             self.request_redraw();
         }
@@ -147,6 +147,12 @@ impl App {
             return;
         }
         let line = matches!(delta, MouseScrollDelta::LineDelta(..));
+        // 触控板竖直滚动时常伴有少量横向位移；只按位移较大的方向滚动，
+        // 避免长行在竖直滚动时左右抖动。
+        let (dx, dy) = match dy.abs() >= dx.abs() {
+            true => (0.0, dy),
+            false => (dx, 0.0),
+        };
         let glide = self
             .wheel_glides(delta)
             .then(|| self.next_wheel_glide())
@@ -250,9 +256,9 @@ impl App {
 
     /// 把滚轮事件引起的绘制推迟到下一次屏幕刷新，每次刷新最多绘制一帧。
     ///
-    /// winit 在 macOS 上收到重画请求后立即绘制，不等待屏幕刷新。滚轮事件与刷新不同步时，部分刷新
-    /// 周期绘制两帧，部分周期没有新帧，滚动出现抖动。没有显示链接（macOS 14 以下）或窗口不可见时
-    /// 不推迟。
+    /// winit 在 macOS 上收到重绘请求后立即绘制，不等待屏幕刷新。滚轮事件与刷新不同步时，部分刷新
+    /// 周期绘制两帧，部分周期没有新帧，滚动出现抖动。
+    /// 没有显示链接（macOS 14 以下）或窗口不可见时不推迟。
     fn pace_wheel_frame(&mut self) {
         #[cfg(target_os = "macos")]
         if self.display_link.is_some() && !self.unseen() {
@@ -263,19 +269,19 @@ impl App {
 
     /// 滚动鼠标所在区域的内容；`dx`、`dy` 的单位是逻辑像素，`line` 表示滚动量来自鼠标滚轮。
     fn wheel_by(&mut self, dx: f32, dy: f32, line: bool) {
-        // 按住 `Shift` 时竖直滚动改为横向滚动，只用于鼠标滚轮。触控板本身能横向滚动，手指离开后
-        // 还会持续发出惯性滚动事件；这时按 `⇧Tab` 等组合键，惯性滚动会被当成横向滚动，
-        // 编辑区突然右移几列。
+        // 按住 `Shift` 时竖直滚动改为横向滚动，只用于鼠标滚轮。触控板本身支持横向滚动，手指离开
+        // 后仍持续发出惯性滚动事件；此时按 `⇧Tab` 等组合键，惯性滚动会被视为横向滚动，
+        // 使编辑区意外右移数列。
         let shift_wheel = self.modifiers.shift_key() && dx == 0.0 && line;
 
         let (x, y) = self.mouse;
         let l = self.layout;
 
-        // 窗口内的提示框打开时什么也不滚；菜单打开时只滚动菜单。
+        // 窗口内的提示框打开时不滚动任何内容；菜单打开时只滚动菜单。
         if self.alert.is_some() || self.popup_wheel(dy) {
             return;
         }
-        // 对话框不滚动（交互式变基的列表除外）；下方的编辑区和文件树也不动。
+        // 对话框不滚动（交互式变基的列表除外），下方的编辑区和文件树同样不滚动。
         if self.form_dialog.is_some() {
             self.rebase_wheel(dy);
             return;
@@ -286,7 +292,7 @@ impl App {
         } else {
             x
         };
-        // 设置浮层打开时滚轮只滚动浮层的分组区，下方的编辑区和文件树不动。
+        // 设置浮层打开时滚轮只滚动浮层的分组区，下方的编辑区和文件树不滚动。
         if self.settings.open {
             if self.settings_layout().body.contains(x, y) {
                 self.settings_scroll_by(dy);
@@ -314,8 +320,8 @@ impl App {
             let rows = self.picker_hits.len();
             let max = (rows as f32 * PICKER_ROW - view::picker_span(self)).max(0.0);
             if self.picker_places.is_some() {
-                // 位置浮窗按整行滚动，任何时候都只露出完整的行：滚动量攒够一行才滚一行，
-                // 触控板的小幅滑动也不会让行停在半截上。
+                // 位置浮窗按整行滚动，始终只显示完整的行：滚动量累计满一行才滚动一行，
+                // 触控板的小幅滑动不会使行只显示一部分。
                 self.places_wheel += dy;
                 let steps = (self.places_wheel / PICKER_ROW).trunc();
                 self.places_wheel -= steps * PICKER_ROW;
@@ -332,6 +338,14 @@ impl App {
             let max = self.tabs.max_scroll();
             self.tabs.scroll = (self.tabs.scroll - delta).clamp(0.0, max);
             // 标签滚动后，鼠标下方的标签已改变。
+            self.set_hover(self.hover_at(x, y));
+        } else if self.log_diff_tree().is_some()
+            && (self.commit_parts().list.contains(x, y) || self.in_commit_overflow(x, y))
+        {
+            self.with_log_list(|app| {
+                let max = app.commit_max_scroll();
+                app.commit.scroll = (app.commit.scroll - dy).clamp(0.0, max);
+            });
             self.set_hover(self.hover_at(x, y));
         } else if self.commit_shown() && self.commit_parts().message.contains(x, y) {
             // 提交信息框里的文字超出最大行数时在框内滚动；上限在绘制时按文字的行数收紧。
@@ -396,7 +410,7 @@ impl App {
             let (dx, dy) = if shift_wheel { (dy, 0.0) } else { (dx, dy) };
 
             if let Some(doc) = self.editor.active_mut() {
-                doc.scroll_line -= dy / self.fonts.line_height;
+                doc.scroll_line -= f64::from(dy / self.fonts.line_height);
                 doc.scroll_x -= dx;
             }
 

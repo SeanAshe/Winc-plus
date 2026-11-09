@@ -1,8 +1,8 @@
-//! 并排差异视图的数据：两侧的文本、各段改动、两侧各自的显示行、每段改动里具体改了哪些字。
+//! 并排差异视图的数据：两侧的文本、各段改动、两侧各自的显示行，以及每段改动内的逐词标记。
 //!
-//! 两侧各排各的行，不插占位的空行：一段改动左侧占 `a` 行、右侧占 `b` 行，界面在两侧之间画一条带子
-//! 把它们连起来。滚动位置是两侧共用的一个坐标（[`DiffView::row_at`]）：没改的内容一行对一行，每段
-//! 改动按长的那一侧算。长段没改的内容默认折起来，只留改动前后各 [`CONTEXT`] 行。
+//! 两侧各自排列显示行，不插入占位空行：一段改动左侧占 `a` 行、右侧占 `b` 行，界面在两侧之间绘制
+//! 连接带。滚动位置是两侧共用的坐标（[`DiffView::row_at`]）：未改动的内容两侧逐行对应，每段改动
+//! 按行数较多的一侧计算。长段未改动的内容默认折叠，只保留改动前后各 [`CONTEXT`] 行。
 
 use std::ops::Range;
 use std::path::PathBuf;
@@ -18,30 +18,33 @@ use crate::editing::folding::line_breaks;
 
 /// 改动前后各自保留的未改动行数（行）。
 ///
-/// 取自调参：取值过小时，改动邻接的语句和块头被折起，看不出改动的上下文；取值过大时，长段未改动
-/// 内容露出的行数随之增加，折叠省下的显示行变少。作用范围是每段改动两侧的未改动内容，只影响折叠
-/// 后露出的行数，不参与两侧对齐的计算。
+/// 取自调参：取值过小时，改动邻接的语句和块头被折叠，无法判断改动的上下文；取值过大时，长段未改动
+/// 内容显示的行数随之增加，折叠节省的显示行变少。作用范围是每段改动两侧的未改动内容，只影响折叠
+/// 后显示的行数，不参与两侧对齐的计算。
 pub const CONTEXT: usize = 4;
 /// 一段改动任一侧超过该行数（行，200）时不再按词比较。
 ///
-/// 整段都已改动时，逐词标记不再有区分度，只标出整行即可，因此内容上的依据不构成约束；数值的大小
-/// 取自调参：逐词比较的耗时与改动段的行数成正比，行数越多，重新比较所需的时间越长。
+/// 改动段较长时通常整段都已改动，逐词标记不再有区分度，只标记整行即可。数值取自调参：逐词比较的
+/// 耗时随改动段的行数增长，行数越多，每次重新比较所需的时间越长。
 const INLINE_LIMIT: usize = 200;
 
-/// 自动换行的行数上限（行，经验值）：整篇断行约每 20 万行 115 ms，再多打字时会明显卡顿。
+/// 自动换行的行数上限（行）：任一侧的行数超过该值时不自动换行。
+///
+/// 依据实测：整篇断行约每 20 万行耗时 115 ms，每次编辑都要重新断行，行数更多时输入出现明显延迟。
 pub const WRAP_LINES: usize = 200_000;
 
 /// 差异的一侧。
 #[derive(Debug)]
 pub struct DiffSide {
-    /// 标题，写在这一侧的上方（「HEAD」「暂存区」「工作区」「磁盘上的版本」……）。
+    /// 显示在该侧上方的标题，例如「HEAD」「暂存区」「工作区」「磁盘上的版本」。
     pub title: String,
-    /// 这一侧的全部文本。
+    /// 该侧的全部文本。
     pub text: Rope,
-    /// 这一侧对应磁盘上的哪个文件；不是磁盘上的内容（某个提交、暂存区里的版本）时为 `None`。
+    /// 该侧对应的磁盘文件；内容不来自磁盘（某个提交、暂存区中的版本）时为 `None`。
     pub path: Option<PathBuf>,
-    /// 这一侧对应的版本里没有该文件（还没加进来、已经删掉）：文本为空，标题已经写明，
-    /// 界面不再写「空文件」。
+    /// 该侧对应的版本中是否不存在该文件（尚未添加、已删除）。
+    ///
+    /// 为 `true` 时文本为空，标题已说明原因，界面不再显示「空文件」。
     pub missing: bool,
     /// 语法着色的增量状态，绘制时推进。
     pub highlighter: Highlighter,
@@ -64,7 +67,7 @@ impl DiffSide {
         }
     }
 
-    /// 设置 `missing`：这一侧对应的文件在该版本中是否不存在（见 [`DiffSide::missing`]）。
+    /// 设置该侧对应的文件在该版本中是否不存在（见 [`DiffSide::missing`]）。
     pub fn with_missing(mut self, missing: bool) -> DiffSide {
         self.missing = missing;
         self
@@ -74,39 +77,39 @@ impl DiffSide {
 /// 一侧的一个显示行。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SideRow {
-    /// 这一侧的一行。
+    /// 该侧的一行（或自动换行后的一段）。
     ///
-    /// `hunk` 是这一行所在的改动（`DiffView::hunks` 的下标）；没改的行为 `None`。
+    /// `hunk` 是该行所在的改动（`DiffView::hunks` 的下标）；未改动的行为 `None`。
     Line {
         /// 行号（从 0 起）。
         line: usize,
-        /// 所在的改动。
+        /// 所在改动的下标。
         hunk: Option<usize>,
-        /// 自动换行时这一行的第几段（从 0 起）；不换行时为 0。
+        /// 自动换行时的段号（从 0 起）；不换行时为 0。
         part: usize,
     },
-    /// 折起来的一段没改的行：`gap` 是第几段没改的内容（第一段改动之前是 0），`lines` 是这一侧
-    /// 折起来的行。
+    /// 折叠的一段未改动的行。
     ///
+    /// `gap` 是未改动内容的段号（第一段改动之前为 0），`lines` 是该侧被折叠的行。
     /// 两侧同一段的行数相同。
     Fold {
-        /// 第几段没改的内容。
+        /// 未改动内容的段号（从 0 起）。
         gap: usize,
-        /// 这一侧折起来的行。
+        /// 该侧被折叠的行。
         lines: Range<usize>,
     },
 }
 
-/// 改动 `marks`（按位置排列）是否覆盖了行 `chars` 里全部非空白字符。
+/// 改动 `marks`（按位置排列）是否覆盖行 `chars` 中的全部非空白字符。
 ///
-/// 整行都是改动时逐词标记不再有区分度，只铺行底色即可。没有非空白字符时返回 `false`。
+/// 整行都已改动时逐词标记不再有区分度，只绘制行底色即可。没有非空白字符时返回 `false`。
 pub fn marks_cover_line(chars: &[char], marks: &[Range<usize>]) -> bool {
     let first = chars.iter().position(|c| !c.is_whitespace());
     let last = chars.iter().rposition(|c| !c.is_whitespace());
     let (Some(first), Some(last)) = (first, last) else {
         return false;
     };
-    // 标记按位置排列，一遍走完：一行最长一万个字符，每次绘制都要判断。
+    // 标记按位置排列，单次遍历即可完成：一行最多 `MAX_LINE_CHARS` 个字符，每次绘制都要判断。
     let mut marks = marks.iter();
     let mut mark = marks.next();
     for (i, c) in chars.iter().enumerate().take(last + 1).skip(first) {
@@ -123,12 +126,12 @@ pub fn marks_cover_line(chars: &[char], marks: &[Range<usize>]) -> bool {
     true
 }
 
-/// 一段改动里两侧逐行的逐词标记：`old[i]` 是这段改动左侧第 `i` 行里改了的字符区间。
+/// 一段改动中两侧逐行的逐词标记：`old[i]` 是该段改动左侧第 `i` 行中改动的字符区间。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct InlineMarks {
-    /// 左侧每一行改了的字符区间（按字符，从行首起）。
+    /// 左侧每一行中改动的字符区间（字符偏移，从行首起）。
     pub old: Vec<Vec<Range<usize>>>,
-    /// 右侧每一行改了的字符区间。
+    /// 右侧每一行中改动的字符区间。
     pub new: Vec<Vec<Range<usize>>>,
 }
 
@@ -139,7 +142,7 @@ pub const RIGHT: usize = 1;
 
 /// 两侧比较的结果：各段改动、逐词标记、按块提交用的 key。
 ///
-/// 只依赖两侧的文本，可以在后台算好再交给 [`DiffView::apply`]。
+/// 只依赖两侧的文本，可以在后台计算后交给 [`DiffView::apply`]。
 #[derive(Debug, Clone)]
 pub struct Compared {
     hunks: Vec<LineHunk>,
@@ -150,8 +153,8 @@ pub struct Compared {
 impl Compared {
     /// 比较 `old` 和 `new`。
     ///
-    /// 按块提交用的 key 直接从比较时切好的行算（与 `diff::pick_changes` 的切法相同），不再把每段
-    /// 改动的每一行另外复制成 `String`。
+    /// 按块提交用的 key 直接由比较时切分的行计算（切分方式同 `diff::pick_changes`），不必把每段
+    /// 改动的每一行另行复制为 `String`。
     pub fn new(old: &Rope, new: &Rope) -> Compared {
         let (a, b) = (old.to_string(), new.to_string());
         let hunks = diff::line_hunks(&a, &b);
@@ -174,17 +177,17 @@ impl Compared {
     }
 }
 
-/// 单栏时滚动位置和各侧显示行之间的换算表。
+/// 单栏时滚动位置与各侧显示行之间的换算表。
 ///
-/// 从差异里取出来单独持有：绘制时要同时修改差异两侧的着色状态。
+/// 从差异中取出后单独持有：绘制时需要同时修改差异两侧的着色状态。
 #[derive(Debug, Clone)]
-pub struct UnifiedMap(Vec<(f32, [f32; 2])>);
+pub struct UnifiedMap(Vec<(f64, [f64; 2])>);
 
 impl UnifiedMap {
-    /// 第 `side` 侧显示行 `row` 在滚动位置上的哪里。
+    /// 返回第 `side` 侧显示行 `row` 对应的滚动位置。
     ///
-    /// 每段改动先是左侧的行，后面接右侧的行。这一侧在一段改动里没有行时，取这段改动的结尾。
-    pub fn pos_of(&self, side: usize, row: f32) -> f32 {
+    /// 每段改动先排左侧的行，再排右侧的行。该侧在一段改动中没有行时，取该段改动的结尾。
+    pub fn pos_of(&self, side: usize, row: f64) -> f64 {
         let i = self.0.partition_point(|k| k.1[side] <= row);
         if i % 2 == 1 {
             let (start, from) = self.0[i - 1];
@@ -203,83 +206,86 @@ impl UnifiedMap {
     }
 }
 
-/// 差异只读一侧的选区：只能选中、复制。
+/// 差异中只读一侧的选区，只支持选中和复制。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReadSelection {
-    /// 在哪一侧：[`LEFT`] 或 [`RIGHT`]。
+    /// 所在的一侧：[`LEFT`] 或 [`RIGHT`]。
     pub side: usize,
-    /// 起点和终点，按这一侧文本的字符偏移。
+    /// 起点和终点（该侧文本的字符偏移）。
     pub range: (usize, usize),
 }
 
 /// 并排差异视图。
 #[derive(Debug)]
 pub struct DiffView {
-    /// 左侧：改之前。
+    /// 左侧：改动前的内容。
     pub old: DiffSide,
-    /// 右侧：改之后。
+    /// 右侧：改动后的内容。
     pub new: DiffSide,
     /// 各段改动，按位置排列。
     pub hunks: Vec<LineHunk>,
-    /// 每段改动的逐词标记，下标同 `hunks`；纯新增、纯删除、太大的改动为 `None`。
+    /// 每段改动的逐词标记，下标同 `hunks`；纯新增、纯删除、超过 `INLINE_LIMIT` 的改动为 `None`。
     pub inline: Vec<Option<InlineMarks>>,
     /// 两侧各自的显示行：`rows[LEFT]`、`rows[RIGHT]`。
     pub rows: [Vec<SideRow>; 2],
-    /// 每段改动在两侧占的显示行，下标同 `hunks`；这一侧没有行时是插入位置上的空区间。
+    /// 每段改动在两侧占用的显示行，下标同 `hunks`；该侧没有行时为插入位置上的空区间。
     pub hunk_rows: [Vec<Range<usize>>; 2],
-    /// 折起来的各段在两侧的显示行：（左侧，右侧），按位置排列。
+    /// 各折叠行在两侧的显示行：（左侧，右侧），按位置排列。
     pub fold_rows: Vec<(usize, usize)>,
     /// 滚动位置的分段点：每段改动的开头和结尾各一个，（滚动位置，[左侧显示行，右侧显示行]），
     /// 见 [`DiffView::row_at`]。
-    knots: Vec<(f32, [f32; 2])>,
-    /// 是否折起长段没改的内容。
+    knots: Vec<(f64, [f64; 2])>,
+    /// 是否折叠长段未改动的内容。
     collapse: bool,
-    /// 单栏显示：没改的行只显示一次，每段改动先是左侧的行，后面接右侧的行。
+    /// 是否单栏显示：未改动的行只显示一次，每段改动先排左侧的行，再排右侧的行。
     unified: bool,
     /// 自动换行的（断行宽度，Tab 宽度），单位是显示列；不换行时为 `None`。
     ///
-    /// 两侧用同一个宽度：没改的行两侧断法相同、行数相等，滚动位置的换算才成立。
+    /// 两侧使用同一宽度：未改动的行两侧断行结果相同、行数相等，滚动位置的换算依赖这一点。
     wrap: Option<(usize, usize)>,
-    /// 上一次跳到的是第几段改动，和跳过去以后的滚动位置。
+    /// 最近一次跳转到的改动序号，以及跳转后的滚动位置。
     ///
-    /// 滚动位置没变时，「上一处」「下一处」和「第几处」按它算：最后几段改动滚不到顶上（编辑区滚过
-    /// 最后一行只留四成屏），按滚动位置算会停在前面那段；用户自己滚动过之后改按滚动位置算。
-    pub focus: Option<(usize, f32)>,
-    /// 已经点开的没改内容，元素是各段的下标。
+    /// 滚动位置未变时，「上一处」「下一处」和当前序号按该记录计算：最后几段改动无法滚动到顶部
+    /// （编辑区滚过末行时只保留四成屏高），按滚动位置计算会得到前一段；用户滚动后改按滚动位置
+    /// 计算当前序号，不再使用该记录。
+    pub focus: Option<(usize, f64)>,
+    /// 已展开的未改动内容，元素是各段的段号。
     expanded: Vec<usize>,
-    /// 右侧要一直露出来的几行；没改内容里只露出这几行，其余部分仍然折起。
+    /// 右侧需要保持显示的行；所在的未改动内容中只显示这些行，其余部分仍然折叠。
     ///
-    /// 用「»」换掉一段改动以后，换上去的几行没有改动了，不能立即被折进去，也不应因此把整段
-    /// 都展开。
+    /// 用「»」还原一段改动后，还原的行不再有改动，不应立即被折叠，也不应因此展开整段内容。
     pinned: Option<Range<usize>>,
-    /// 算过的最长一行的显示宽度：（Tab 宽度，格数）。
+    /// 已计算的最长一行的显示宽度缓存：（Tab 宽度，显示列数）。
     ///
-    /// 内容不变，滚动时不必每次重新扫描全文。
+    /// 内容不变时，滚动无需每次重新扫描全文。
     widest: std::cell::Cell<Option<(usize, usize)>>,
-    /// 右侧取自编辑器里哪个版本的文档（[`crate::Document::revision`]）；右侧是磁盘内容时为
+    /// 右侧内容所取自的文档版本号（[`crate::Document::revision`]）；右侧是磁盘内容时为
     /// `None`。
     ///
-    /// 版本变了就用 [`DiffView::set_new_text`] 重新比较。
+    /// 版本号变化时用 [`DiffView::set_new_text`] 重新比较。
     pub source: Option<u64>,
-    /// 光标在右侧：键入的字进右侧对应的文档。
+    /// 光标是否位于右侧：为 `true` 时输入的文字写入右侧对应的文档。
     pub editing: bool,
-    /// 只读一侧的选区：左侧总是只读，右侧不是工作区里的文件时也只读（历史版本、已删除的文件）。
+    /// 只读一侧的选区：左侧总是只读，右侧不是工作区中的文件（历史版本、已删除的文件）时同样只读。
     ///
     /// 没有时为 `None`。
     pub read_selection: Option<ReadSelection>,
-    /// 每段改动的 [`diff::hunk_key`]，下标同 `hunks`：按块提交时按它认出勾掉的改动。
+    /// 每段改动的 [`diff::hunk_key`]，下标同 `hunks`：按块提交时据此识别取消勾选的改动。
     pub keys: Vec<u64>,
-    /// 这份差异对应仓库里的哪个文件（和仓库状态里的路径同一种写法）；不是 Git 的差异时为
-    /// `None`。
+    /// 差异对应的仓库内文件路径（写法同仓库状态中的路径）；不是 Git 差异时为 `None`。
     ///
-    /// 按块提交时用它找到提交视图里的文件。
+    /// 按块提交时据此找到提交视图中的文件。
     pub repo_path: Option<PathBuf>,
+    /// 历史版本差异对应的文件路径，仅用于显示（见 [`DiffView::file_path`]）。
+    ///
+    /// 历史版本不能按块提交，因此不写入 [`DiffView::repo_path`]。
+    pub snapshot_path: Option<PathBuf>,
 }
 
 impl DiffView {
-    /// 比较 `old` 和 `new` 两侧，算出改动并排好两侧的行。
+    /// 比较 `old` 和 `new` 两侧，创建差异视图并排列两侧的显示行。
     ///
-    /// 没改的长段默认折起来。
+    /// 长段未改动的内容默认折叠。
     pub fn new(old: DiffSide, new: DiffSide) -> DiffView {
         let Compared {
             hunks,
@@ -307,25 +313,26 @@ impl DiffView {
             read_selection: None,
             keys,
             repo_path: None,
+            snapshot_path: None,
         };
         view.layout();
         view
     }
 
-    /// 右侧换成 `text`（编辑器里改了），重新比较。
+    /// 把右侧替换为 `text`（编辑器中的修改）并重新比较。
     ///
-    /// 改动的段数没变时已经点开的折叠保持点开。
+    /// 改动的段数不变时，已展开的折叠保持展开。
     pub fn set_new_text(&mut self, text: Rope) {
         let compared = Compared::new(&self.old.text, &text);
         self.apply(text, compared);
     }
 
-    /// 把右侧换成 `text`，`compared` 是在后台对着同一份 `text` 算好的结果。
+    /// 把右侧替换为 `text`；`compared` 是在后台针对同一份 `text` 计算的比较结果。
     pub fn apply(&mut self, text: Rope, compared: Compared) {
         let first = first_difference(&self.new.text, &text);
         self.new.highlighter.invalidate_from(first);
-        // 钉住的几行跟着上面增删的行挪：改动从它们上面开始时整体挪，从中间开始时只挪下沿。
-        // 按一处连续的修改估算（打字、粘贴、撤销都是），足以让钉住的几行停在原来的内容上。
+        // 固定显示的行随上方增删的行移动：改动始于其上方时整体移动，始于其中间时只移动下边界。
+        // 按一处连续的修改估算（输入、粘贴、撤销均属此类），足以使这些行保持在原来的内容上。
         if let Some(pinned) = &mut self.pinned {
             let delta = text.len_lines() as isize - self.new.text.len_lines() as isize;
             let shift = |line: usize| line.saturating_add_signed(delta).max(first);
@@ -336,7 +343,7 @@ impl DiffView {
             }
         }
         self.new.text = text;
-        // 右侧换成了编辑器里的内容：文件是存在的，哪怕是空的。
+        // 右侧已替换为编辑器中的内容，文件必然存在，即使内容为空。
         self.new.missing = false;
         if compared.hunks.len() != self.hunks.len() {
             self.expanded.clear();
@@ -349,12 +356,13 @@ impl DiffView {
         self.layout();
     }
 
-    /// 沿用 `old` 的状态（重新比较以后换上来）：光标是否在右侧、是否折起，改动的段数没变时
-    /// 已经点开的折叠保持点开。
+    /// 沿用 `old` 的界面状态（重新比较后替换旧视图时使用）。
+    ///
+    /// 沿用光标是否在右侧、是否折叠等设置；改动的段数不变时，已展开的折叠保持展开。
     pub fn inherit(&mut self, old: &DiffView) {
         self.editing = old.editing;
         self.pinned.clone_from(&old.pinned);
-        // 选区所在的一侧没变（例如 `HEAD` 没变）时选区仍然有效。
+        // 选区所在一侧的文本未变（例如 `HEAD` 未变）时选区仍然有效。
         self.read_selection = old
             .read_selection
             .filter(|s| self.side(s.side).text == old.side(s.side).text);
@@ -372,7 +380,7 @@ impl DiffView {
 
     /// 设置自动换行：`wrap` 是（断行宽度，Tab 宽度），单位是显示列，`None` 表示不换行。
     ///
-    /// 两侧合起来超过 [`WRAP_LINES`] 行时不换行：每次编辑都要重新断行。设置变了时返回 `true`。
+    /// 任一侧超过 [`WRAP_LINES`] 行时不换行：每次编辑都要重新断行。设置变化时返回 `true`。
     pub fn set_wrap(&mut self, wrap: Option<(usize, usize)>) -> bool {
         let lines = self.old.text.len_lines().max(self.new.text.len_lines());
         let wrap = wrap.filter(|_| lines <= WRAP_LINES);
@@ -394,7 +402,7 @@ impl DiffView {
         self.wrap.is_some()
     }
 
-    /// 第 `side` 侧第 `line` 行的分段；不换行时只有一段。
+    /// 返回第 `side` 侧第 `line` 行的分段；不换行时只有一段。
     pub fn breaks(&self, side: usize, line: usize) -> Breaks {
         let text = if side == LEFT {
             &self.old.text
@@ -403,13 +411,13 @@ impl DiffView {
         };
         match self.wrap {
             Some((width, tab_width)) if line < text.len_lines() => {
-                line_breaks(text, line, width, tab_width)
+                line_breaks(text, line, width, tab_width, MAX_LINE_CHARS)
             }
             _ => Breaks::default(),
         }
     }
 
-    /// 第 `side` 侧第 `line` 行第 `col` 个字符所在的显示行；折起来时是折起来的那一行。
+    /// 返回第 `side` 侧第 `line` 行第 `col` 个字符所在的显示行；该行被折叠时返回所在的折叠行。
     pub fn row_of_col(&self, side: usize, line: usize, col: usize) -> usize {
         let row = self.row_of(side, line);
         match self.rows[side].get(row) {
@@ -420,9 +428,9 @@ impl DiffView {
         }
     }
 
-    /// 把第 `side` 侧显示行 `row` 里第 `cell` 个显示列换算成这一整行的显示列。
+    /// 把第 `side` 侧显示行 `row` 中的显示列 `cell` 换算为整行的显示列。
     ///
-    /// 超出这一段时停在这一段的最后一个字符之前，不落到下一段。
+    /// 超出该段时停在该段最后一个字符之前，不进入下一段。
     pub fn cell_in_row(&self, side: usize, row: usize, cell: usize) -> usize {
         let (Some((_, tab_width)), Some(SideRow::Line { line, part, .. })) =
             (self.wrap, self.rows[side].get(row))
@@ -455,31 +463,32 @@ impl DiffView {
         (prefix[range.start] + inner).min(end)
     }
 
-    /// 右侧的显示行数。
+    /// 返回右侧的显示行数。
     pub fn row_count(&self) -> usize {
         self.rows[RIGHT].len()
     }
 
-    /// 能滚动的行数（滚动位置的总长，见 [`DiffView::row_at`]）：每段改动按长的那一侧算，
-    /// 不只按右侧。
+    /// 返回可滚动的行数，即滚动位置的总长（见 [`DiffView::row_at`]）。
+    ///
+    /// 每段改动按行数较多的一侧计算，不只按右侧。
     pub fn scroll_rows(&self) -> usize {
         self.knots
             .last()
             .map_or(self.rows[RIGHT].len(), |&(pos, rows)| {
-                (pos + (self.rows[RIGHT].len() as f32 - rows[RIGHT])).ceil() as usize
+                (pos + (self.rows[RIGHT].len() as f64 - rows[RIGHT])).ceil() as usize
             })
     }
 
-    /// 滚动位置 `pos` 上第 `side` 侧对着的显示行（可以有小数）。
+    /// 返回滚动位置 `pos` 对应的第 `side` 侧显示行（可以是小数）。
     ///
-    /// 滚动位置是两侧共用的一把尺：没改的内容两侧一行对一行，每段改动占两侧里长的那一侧的
-    /// 行数，短的一侧按比例跟着走（一侧是 0 行时停在原地）。只按右侧的行数滚时，左侧删掉的一大段
-    /// 在右侧只是一个点，一滚就跳过去，比半屏长的部分永远看不到。
-    pub fn row_at(&self, side: usize, pos: f32) -> f32 {
+    /// 滚动位置是两侧共用的坐标：未改动的内容两侧逐行对应，每段改动占两侧中较多的行数，较短的
+    /// 一侧按比例移动（为 0 行时保持不动）。如果只按右侧的行数滚动，左侧删除的长段在右侧只占
+    /// 一个点，滚动时会被直接越过，超过半屏的部分无法显示。
+    pub fn row_at(&self, side: usize, pos: f64) -> f64 {
         if self.unified {
             return self.unified_row_at(side, pos);
         }
-        // 分段点按滚动位置排好了：二分找到第一个不在 `pos` 之前的，在它和前一个之间插值。
+        // 分段点按滚动位置排序：二分查找第一个不小于 `pos` 的分段点，在它与前一个之间插值。
         let i = self.knots.partition_point(|k| k.0 < pos);
         let from = self.knot(side, i);
         let Some(&(at, rows)) = self.knots.get(i) else {
@@ -494,21 +503,21 @@ impl DiffView {
         from.1 + (to.1 - from.1) * t
     }
 
-    /// 第 `i` 个分段点之前的那一个（滚动位置，第 `side` 侧的显示行）；`i` 是 0 时是开头。
-    fn knot(&self, side: usize, i: usize) -> (f32, f32) {
+    /// 返回第 `i` 个分段点的前一个（滚动位置，第 `side` 侧的显示行）；`i` 为 0 时返回起点。
+    fn knot(&self, side: usize, i: usize) -> (f64, f64) {
         i.checked_sub(1)
             .and_then(|i| self.knots.get(i))
             .map_or((0.0, 0.0), |&(at, rows)| (at, rows[side]))
     }
 
-    /// 第 `side` 侧显示行 `row` 在滚动位置上的哪里（[`DiffView::row_at`] 反过来）。
+    /// 返回第 `side` 侧显示行 `row` 对应的滚动位置，是 [`DiffView::row_at`] 的逆运算。
     ///
-    /// 这一侧在一段改动里停着不动（0 行）时取这段改动的开头。
-    pub fn pos_of(&self, side: usize, row: f32) -> f32 {
+    /// 该侧在一段改动中没有行（0 行）时取该段改动的开头。
+    pub fn pos_of(&self, side: usize, row: f64) -> f64 {
         if self.unified {
             return self.unified_map().pos_of(side, row);
         }
-        // 每一侧的显示行也随分段点递增：二分找到第一个不在 `row` 之前的。
+        // 每一侧的显示行同样随分段点递增：二分查找第一个不小于 `row` 的分段点。
         let i = self.knots.partition_point(|k| k.1[side] < row);
         let from = self.knot(side, i);
         let Some(&(at, rows)) = self.knots.get(i) else {
@@ -523,22 +532,22 @@ impl DiffView {
 
     /// 计算滚动位置为 `pos`、可见 `visible` 行时第 `side` 侧的滚动位置（显示行）。
     ///
-    /// 两侧在同一个对齐点上对齐：滚过半屏以后，对齐点位于视图中间；离开头不到半屏时，对齐点随之
-    /// 向上移动，在开头时位于顶边，两侧一起停在第一行。
-    pub fn side_scroll(&self, side: usize, pos: f32, visible: f32) -> f32 {
-        // 单栏只有一列，不需要对齐两侧。
+    /// 两侧在同一对齐点上对齐：滚过半屏后对齐点位于视图中间；距开头不足半屏时对齐点随之上移，
+    /// 位于开头时对齐点在顶边，两侧都停在第一行。
+    pub fn side_scroll(&self, side: usize, pos: f64, visible: f64) -> f64 {
+        // 单栏只有一列，无需对齐两侧。
         if self.unified {
             return self.row_at(side, pos);
         }
         let anchor = pos.min(visible / 2.0).max(0.0);
         let center = self.row_at(side, pos + anchor);
-        (center - anchor).clamp(0.0, self.rows[side].len() as f32)
+        (center - anchor).clamp(0.0, self.rows[side].len() as f64)
     }
 
-    /// 第 `side` 侧最上面显示到 `row` 时的滚动位置（[`DiffView::side_scroll`] 反过来）。
+    /// 返回第 `side` 侧顶部显示 `row` 时的滚动位置，是 [`DiffView::side_scroll`] 的逆运算。
     ///
-    /// 离开头不到半屏时对齐点随滚动移动，没有直接的反算公式，改用二分查找。
-    pub fn pos_of_top(&self, side: usize, row: f32, visible: f32) -> f32 {
+    /// 距开头不足半屏时对齐点随滚动移动，没有直接的反算公式，因此改用二分查找。
+    pub fn pos_of_top(&self, side: usize, row: f64, visible: f64) -> f64 {
         if self.unified {
             return self.pos_of(side, row);
         }
@@ -564,9 +573,9 @@ impl DiffView {
         self.unified
     }
 
-    /// 切换单栏显示和并排显示。
+    /// 切换单栏显示与并排显示。
     ///
-    /// 滚动位置的换算随之改变，调用方负责换算滚动位置。
+    /// 滚动位置的换算方式随之改变，调用方负责换算滚动位置。
     pub fn set_unified(&mut self, on: bool) {
         if self.unified != on {
             self.unified = on;
@@ -574,16 +583,16 @@ impl DiffView {
         }
     }
 
-    /// 单栏时滚动位置和各侧显示行之间的换算表。
+    /// 返回单栏时滚动位置与各侧显示行之间的换算表。
     pub fn unified_map(&self) -> UnifiedMap {
         UnifiedMap(self.knots.clone())
     }
 
-    /// 单栏第 `index` 个显示行（从 0 起）属于哪一侧的哪个显示行：（哪一侧，显示行）。
+    /// 返回单栏第 `index` 个显示行（从 0 起）对应的（所在侧，该侧的显示行）。
     ///
-    /// 没改的行和折起来的一段算右侧。超出最后一行时为 `None`。
+    /// 未改动的行和折叠行计入右侧。超出最后一行时返回 `None`。
     pub fn unified_row(&self, index: usize) -> Option<(usize, usize)> {
-        let pos = index as f32;
+        let pos = index as f64;
         let i = self.knots.partition_point(|k| k.0 <= pos);
         let (side, row) = if i % 2 == 1 {
             let (start, from) = self.knots[i - 1];
@@ -602,8 +611,8 @@ impl DiffView {
         (row < self.rows[side].len()).then_some((side, row))
     }
 
-    /// 单栏时滚动位置 `pos` 上第 `side` 侧对着的显示行：在另一侧的行上时是这一侧接下来的行。
-    fn unified_row_at(&self, side: usize, pos: f32) -> f32 {
+    /// 返回单栏时滚动位置 `pos` 对应的第 `side` 侧显示行；位于另一侧的行上时取该侧的下一行。
+    fn unified_row_at(&self, side: usize, pos: f64) -> f64 {
         let i = self.knots.partition_point(|k| k.0 <= pos);
         if i % 2 == 1 {
             let (start, from) = self.knots[i - 1];
@@ -619,9 +628,9 @@ impl DiffView {
         row + pos - at
     }
 
-    /// 滚动位置为 `pos`、可见 `visible` 行时，从顶边往下第 `below` 行（可以有小数）对着的第
-    /// `side` 侧的显示行。
-    pub fn row_under(&self, side: usize, pos: f32, visible: f32, below: f32) -> usize {
+    /// 返回滚动位置为 `pos`、可见 `visible` 行时，距顶边 `below` 行（可以是小数）处对应的
+    /// 第 `side` 侧显示行。
+    pub fn row_under(&self, side: usize, pos: f64, visible: f64, below: f64) -> usize {
         let row = if self.unified {
             self.row_at(side, (pos + below).floor())
         } else {
@@ -632,15 +641,15 @@ impl DiffView {
 
     /// 计算滚动位置为 `pos`、可见 `visible` 行时左侧的滚动位置，换算方式同
     /// [`DiffView::side_scroll`]。
-    pub fn left_scroll(&self, pos: f32, visible: f32) -> f32 {
+    pub fn left_scroll(&self, pos: f64, visible: f64) -> f64 {
         self.side_scroll(LEFT, pos, visible)
     }
 
-    /// 第 `side` 侧第 `line` 行所在的显示行；那一行折起来了时是折起来的那一行。
+    /// 返回第 `side` 侧第 `line` 行所在的显示行；该行被折叠时返回所在的折叠行。
     ///
-    /// 文件以换行符结尾时末尾的空行不参与比较、没有自己的显示行，算作最后一个显示行之后。
+    /// 文件以换行符结尾时，末尾的空行不参与比较、没有对应的显示行，视为位于最后一个显示行之后。
     pub fn row_of(&self, side: usize, line: usize) -> usize {
-        // 显示行按行号排好了，二分查找：编辑时每一帧都要按光标所在的行找一次。
+        // 显示行按行号排序，因此使用二分查找：编辑时每帧都要按光标所在的行查找一次。
         self.rows[side].partition_point(|row| match row {
             SideRow::Line { line: l, .. } => *l < line,
             SideRow::Fold { lines, .. } => lines.end <= line,
@@ -652,7 +661,7 @@ impl DiffView {
         self.row_of(RIGHT, line)
     }
 
-    /// 第 `side` 侧显示行 `row` 的行号；是折起来的行、或者超出了时为 `None`。
+    /// 返回第 `side` 侧显示行 `row` 的行号；该显示行是折叠行或超出范围时返回 `None`。
     pub fn line_at(&self, side: usize, row: usize) -> Option<usize> {
         match self.rows[side].get(row)? {
             SideRow::Line { line, .. } => Some(*line),
@@ -660,39 +669,39 @@ impl DiffView {
         }
     }
 
-    /// 让右侧 `lines` 这几行（连同上下各 [`CONTEXT`] 行）一直露出来，所在那段没改的内容其余
-    /// 部分仍然折起。
+    /// 使右侧 `lines` 范围内的行（连同上下各 [`CONTEXT`] 行）保持显示，
+    /// 所在未改动内容的其余部分仍然折叠。
     ///
-    /// `lines` 为空时露出该位置上下的几行。
+    /// `lines` 为空时显示该位置上下各 [`CONTEXT`] 行。
     pub fn pin_new(&mut self, lines: Range<usize>) {
         self.pinned = Some(lines);
         self.layout();
     }
 
-    /// 展开右侧第 `line` 行所在的折叠；该行没有折起来时不做改动。
-    pub fn reveal_new(&mut self, line: usize) {
-        let row = self.row_of_new(line);
-        if let Some(SideRow::Fold { gap, .. }) = self.rows[RIGHT].get(row) {
+    /// 展开第 `side` 侧第 `line` 行所在的折叠；该行未被折叠时不做改动。
+    pub fn reveal_line(&mut self, side: usize, line: usize) {
+        let row = self.row_of(side, line);
+        if let Some(SideRow::Fold { gap, .. }) = self.rows[side].get(row) {
             let gap = *gap;
             self.expand(gap);
         }
     }
 
-    /// 第 `side` 侧的内容。
+    /// 返回第 `side` 侧。
     pub fn side(&self, side: usize) -> &DiffSide {
         if side == LEFT { &self.old } else { &self.new }
     }
 
-    /// 只读一侧的光标：（哪一侧，字符偏移），在选区的终点。
+    /// 返回只读一侧的光标：（所在侧，字符偏移），位于选区的终点。
     ///
-    /// 没有选区、这一侧没有内容（文件不存在、已删除）时为 `None`。
+    /// 没有选区，或该侧没有内容（文件不存在、已删除）时返回 `None`。
     pub fn read_caret(&self) -> Option<(usize, usize)> {
         let selection = self.read_selection?;
         let len = self.side(selection.side).text.len_chars();
         (len > 0).then(|| (selection.side, selection.range.1.min(len)))
     }
 
-    /// 只读一侧选中的文本；没有选中内容时为 `None`。
+    /// 返回只读一侧选中的文本；没有选中内容时返回 `None`。
     pub fn read_selected(&self) -> Option<String> {
         let selection = self.read_selection?;
         let text = &self.side(selection.side).text;
@@ -701,7 +710,7 @@ impl DiffView {
         (from < to).then(|| text.slice(from..to).to_string())
     }
 
-    /// 第 `hunk` 段改动左侧的文本（含换行符），用来把右侧的这一段换回去。
+    /// 返回第 `hunk` 段改动左侧的文本（含换行符），用于把右侧的该段还原。
     pub fn old_lines(&self, hunk: usize) -> String {
         let Some(h) = self.hunks.get(hunk) else {
             return String::new();
@@ -713,33 +722,44 @@ impl DiffView {
         out
     }
 
-    /// 一侧整个是空的：文件不在 `HEAD` 里（新文件）、在工作区里删掉了，或者该版本本来就是
-    /// 空文件。
+    /// 是否有一侧完全为空：文件不在 `HEAD` 中（新文件）、已在工作区中删除，
+    /// 或该版本本身是空文件。
     ///
-    /// 这时整个文件是一处改动。
+    /// 此时整个文件是一处改动。
     pub fn one_side_empty(&self) -> bool {
         self.old.text.len_chars() == 0 || self.new.text.len_chars() == 0
     }
 
-    /// 两侧是否没有改动：逐行比较不计换行符的写法，只差换行符时同样为 `true`。
+    /// 返回差异所比较的文件路径，供标签的图标和提示使用；没有对应文件时（如合并冲突两侧的
+    /// 文本）返回 `None`。
+    ///
+    /// 依次取历史版本的路径、仓库文件的路径、右侧和左侧的文件路径。
+    pub fn file_path(&self) -> Option<&std::path::Path> {
+        (self.snapshot_path.as_deref())
+            .or(self.repo_path.as_deref())
+            .or(self.new.path.as_deref())
+            .or(self.old.path.as_deref())
+    }
+
+    /// 两侧是否没有改动；逐行比较时不区分换行符的写法，只有换行符不同时同样为 `true`。
     pub fn is_identical(&self) -> bool {
         self.hunks.is_empty()
     }
 
-    /// 新增、删除的行数（右侧多出的行，左侧去掉的行）。
+    /// 返回（新增行数，删除行数），即右侧改动中的行数与左侧改动中的行数。
     pub fn stats(&self) -> (usize, usize) {
         self.hunks.iter().fold((0, 0), |(add, del), h| {
             (add + h.new.len(), del + h.old.len())
         })
     }
 
-    /// 长段没改的内容是否折起来。
+    /// 是否折叠长段未改动的内容。
     pub fn collapses(&self) -> bool {
         self.collapse
     }
 
-    /// 切换是否折起长段没改的内容，返回切换后右侧显示行 `row` 那一行所在的显示行，使视图停在
-    /// 原处。
+    /// 设置是否折叠长段未改动的内容，返回切换前右侧显示行 `row` 的内容
+    /// 在切换后所在的显示行，使视图保持在原处。
     pub fn set_collapse(&mut self, on: bool, row: usize) -> usize {
         let anchor = match self.rows[RIGHT].get(row) {
             Some(SideRow::Line { line, .. }) => *line,
@@ -754,7 +774,7 @@ impl DiffView {
             .min(self.row_count().saturating_sub(1))
     }
 
-    /// 展开第 `gap` 段折起来的内容。
+    /// 展开第 `gap` 段未改动内容的折叠。
     pub fn expand(&mut self, gap: usize) {
         if !self.expanded.contains(&gap) {
             self.expanded.push(gap);
@@ -762,7 +782,7 @@ impl DiffView {
         }
     }
 
-    /// 右侧显示行 `row` 之后（不含）下一段改动的位置；后面没有改动时返回 `None`。
+    /// 返回右侧显示行 `row` 之后（不含）下一段改动的起始显示行；之后没有改动时返回 `None`。
     pub fn next_hunk(&self, row: usize) -> Option<usize> {
         self.hunk_rows[RIGHT]
             .iter()
@@ -770,7 +790,7 @@ impl DiffView {
             .find(|&r| r > row)
     }
 
-    /// 右侧显示行 `row` 之前（不含）上一段改动的位置；前面没有改动时返回 `None`。
+    /// 返回右侧显示行 `row` 之前（不含）上一段改动的起始显示行；之前没有改动时返回 `None`。
     pub fn previous_hunk(&self, row: usize) -> Option<usize> {
         self.hunk_rows[RIGHT]
             .iter()
@@ -779,40 +799,40 @@ impl DiffView {
             .find(|&r| r < row)
     }
 
-    /// 滚动到 `scroll`（滚动位置，见 [`DiffView::row_at`]）时「现在在第几段改动」：刚跳过去、
-    /// 还没滚动过时是跳到的那一段，否则按屏幕上第四行所在或之前最近的那一段算。
+    /// 返回滚动位置为 `scroll`（见 [`DiffView::row_at`]）时的当前改动序号。
     ///
-    /// 没有改动时为 `None`。
-    pub fn current_hunk(&self, scroll: f32) -> Option<usize> {
+    /// 跳转后尚未滚动时为跳转到的改动，否则取屏幕第四行所在或之前最近的改动。没有改动时返回
+    /// `None`。
+    pub fn current_hunk(&self, scroll: f64) -> Option<usize> {
         match self.focus {
             Some((hunk, at)) if at == scroll && hunk < self.hunks.len() => Some(hunk),
             _ => self.hunk_at_pos(scroll.max(0.0) + 3.0),
         }
     }
 
-    /// 滚动位置 `pos` 所在或之前最近的改动是第几段（从 0 起）；前面没有改动时是第一段。
-    pub fn hunk_at_pos(&self, pos: f32) -> Option<usize> {
+    /// 返回滚动位置 `pos` 所在或之前最近的改动序号（从 0 起）；之前没有改动时返回 0。
+    pub fn hunk_at_pos(&self, pos: f64) -> Option<usize> {
         if self.hunks.is_empty() {
             return None;
         }
-        // 分段点是每段改动的开头、结尾交替排着的：不在 `pos` 之后的有 `n` 个时，其中开头有
-        // `(n + 1) / 2` 个，最后一个就是要找的那段。
+        // 分段点按每段改动的开头、结尾交替排列：不大于 `pos` 的分段点有 `n` 个时，其中开头有
+        // `(n + 1) / 2` 个，最后一个开头所属的改动即为结果。
         let n = self.knots.partition_point(|k| k.0 <= pos.floor());
         Some(n.div_ceil(2).saturating_sub(1))
     }
 
-    /// 第 `hunk` 段改动的开头在滚动位置上的哪里。
-    pub fn hunk_pos(&self, hunk: usize) -> f32 {
+    /// 返回第 `hunk` 段改动开头的滚动位置。
+    pub fn hunk_pos(&self, hunk: usize) -> f64 {
         self.knots.get(hunk * 2).map_or(0.0, |&(pos, _)| pos)
     }
 
-    /// 第 `hunk` 段改动在滚动位置上占的范围。
-    pub fn hunk_span(&self, hunk: usize) -> Range<f32> {
+    /// 返回第 `hunk` 段改动占用的滚动位置范围。
+    pub fn hunk_span(&self, hunk: usize) -> Range<f64> {
         let end = self.knots.get(hunk * 2 + 1).map_or(0.0, |&(pos, _)| pos);
         self.hunk_pos(hunk)..end
     }
 
-    /// 右侧显示行 `row` 所在或之前最近的改动是第几段（从 0 起）；前面没有改动时是第一段。
+    /// 返回右侧显示行 `row` 所在或之前最近的改动序号（从 0 起）；之前没有改动时返回 0。
     pub fn hunk_at(&self, row: usize) -> Option<usize> {
         if self.hunks.is_empty() {
             return None;
@@ -821,7 +841,7 @@ impl DiffView {
         Some(i.saturating_sub(1))
     }
 
-    /// 两侧最长一行的显示宽度（格），用于限制横向滚动。
+    /// 返回两侧最长一行的显示宽度（显示列），用于限制横向滚动。
     ///
     /// 按 Tab 宽度缓存。
     pub fn widest(&self, tab_width: usize) -> usize {
@@ -853,7 +873,7 @@ impl DiffView {
         rows.extend((0..parts).map(|part| SideRow::Line { line, hunk, part }));
     }
 
-    /// 按改动和折叠状态重新排出两侧的显示行。
+    /// 按改动和折叠状态重新排列两侧的显示行。
     fn layout(&mut self) {
         let mut rows = [Vec::new(), Vec::new()];
         let mut hunk_rows = [
@@ -864,7 +884,7 @@ impl DiffView {
         let (mut a, mut b) = (0, 0);
 
         for gap in 0..=self.hunks.len() {
-            // 这一段没改的内容：上一段改动之后到下一段改动之前，两侧行数相同。
+            // 当前一段未改动的内容：从上一段改动之后到下一段改动之前，两侧行数相同。
             let (a_end, b_end) = match self.hunks.get(gap) {
                 Some(h) => (h.old.start, h.new.start),
                 None => (old_len, new_len),
@@ -872,7 +892,7 @@ impl DiffView {
             let len = a_end - a;
             let first = gap == 0;
             let last = gap == self.hunks.len();
-            // 文件开头只留改动前的上下文，结尾只留改动后的上下文。
+            // 文件开头只保留改动前的上下文，结尾只保留改动后的上下文。
             let head = if first { 0 } else { CONTEXT };
             let tail = if last { 0 } else { CONTEXT };
             let fold = self.collapse
@@ -886,8 +906,8 @@ impl DiffView {
                 }
             };
             if fold {
-                // 露出来的：开头 `head` 行、结尾 `tail` 行，钉住的几行和它们上下各 `CONTEXT`
-                // 行；其余每一截各折成一行。只隔一行的两截连起来，不为一行折一次。
+                // 显示开头 `head` 行、结尾 `tail` 行，以及固定显示的行和其上下各 `CONTEXT` 行；
+                // 其余每个区间折叠为一行。两个显示区间只相隔一行时直接显示该行，不单独折叠。
                 let mut shown = vec![0..head, len - tail..len];
                 if let Some(p) = &self.pinned
                     && p.start >= b
@@ -947,25 +967,25 @@ impl DiffView {
                 .map(|(i, _)| i)
                 .collect()
         };
-        // 折起来的一段总是两侧成对加入，按顺序一一对应。
+        // 折叠行总是在两侧成对加入，按顺序一一对应。
         self.fold_rows = folds(&rows[LEFT])
             .into_iter()
             .zip(folds(&rows[RIGHT]))
             .collect();
         self.rows = rows;
-        // 滚动位置：没改的两侧一行对一行，每段改动占长的那一侧的行数。
+        // 滚动位置：未改动的内容两侧逐行对应，每段改动占行数较多一侧的行数。
         let mut knots = Vec::with_capacity(2 * self.hunks.len());
         let (mut pos, mut prev) = (0usize, [0usize; 2]);
         for (l, r) in hunk_rows[LEFT].iter().zip(&hunk_rows[RIGHT]) {
             pos += r.start - prev[RIGHT];
-            knots.push((pos as f32, [l.start as f32, r.start as f32]));
-            // 并排时每段改动占长的那一侧的行数，单栏时两侧的行上下排开。
+            knots.push((pos as f64, [l.start as f64, r.start as f64]));
+            // 并排时每段改动占行数较多一侧的行数，单栏时两侧的行上下排列。
             pos += if self.unified {
                 l.len() + r.len()
             } else {
                 l.len().max(r.len())
             };
-            knots.push((pos as f32, [l.end as f32, r.end as f32]));
+            knots.push((pos as f64, [l.end as f64, r.end as f64]));
             prev = [l.end, r.end];
         }
         self.knots = knots;
@@ -973,7 +993,7 @@ impl DiffView {
     }
 }
 
-/// `a` 和 `b` 从第几行开始不同；完全相同时是最后一行之后。
+/// 返回 `a` 与 `b` 第一处不同所在的行号（`a` 中）；完全相同时返回 `a` 末尾所在的行号。
 fn first_difference(a: &Rope, b: &Rope) -> usize {
     let mut chars = 0;
     let (mut x, mut y) = (a.chunks(), b.chunks());
@@ -999,7 +1019,7 @@ fn first_difference(a: &Rope, b: &Rope) -> usize {
             .zip(&cb.as_bytes()[..n])
             .take_while(|(p, q)| p == q)
             .count();
-        // 退到字符边界上再数字符。
+        // 回退到字符边界后再统计字符数。
         let mut same = same;
         while !ca.is_char_boundary(same) {
             same -= 1;
@@ -1014,7 +1034,7 @@ fn first_difference(a: &Rope, b: &Rope) -> usize {
     a.char_to_line(chars.min(a.len_chars()))
 }
 
-/// 参与比较的行数：文本以换行符结尾时，末尾的空行不算（它在差分里不是一行）。
+/// 返回参与比较的行数；文本以换行符结尾时，末尾的空行不计入（差分不把该空行视为一行）。
 fn line_total(text: &Rope) -> usize {
     let count = text.len_lines();
     let trailing = text.len_chars() > 0 && matches!(text.char(text.len_chars() - 1), '\n' | '\r');
@@ -1025,7 +1045,7 @@ fn line_total(text: &Rope) -> usize {
     }
 }
 
-/// 一段改动里两侧逐行的逐词标记；纯新增、纯删除或者太大时返回 `None`。
+/// 计算一段改动中两侧逐行的逐词标记；纯新增、纯删除或超过 `INLINE_LIMIT` 行时返回 `None`。
 pub fn inline_marks(old: &Rope, new: &Rope, hunk: &LineHunk) -> Option<InlineMarks> {
     if hunk.old.is_empty()
         || hunk.new.is_empty()
@@ -1034,7 +1054,7 @@ pub fn inline_marks(old: &Rope, new: &Rope, hunk: &LineHunk) -> Option<InlineMar
     {
         return None;
     }
-    // 两侧各拼成一段，换行符也参与比较，这样跨行的改动也能对上。
+    // 两侧各拼接为一段，换行符同样参与比较，使跨行的改动也能对应。
     let joined = |text: &Rope, lines: &Range<usize>| -> (String, Vec<usize>) {
         let mut out = String::new();
         let mut starts = Vec::with_capacity(lines.len());
@@ -1051,7 +1071,7 @@ pub fn inline_marks(old: &Rope, new: &Rope, hunk: &LineHunk) -> Option<InlineMar
     let (b, b_starts) = joined(new, &hunk.new);
     let (left, right) = diff::inline_changes(&a, &b);
 
-    // 把整段里的字符区间拆回到各行，去掉落在换行符上的部分。
+    // 把整段中的字符区间拆分回各行，去掉落在换行符上的部分。
     let split = |ranges: &[Range<usize>], starts: &[usize], text: &Rope, lines: &Range<usize>| {
         let mut per_line = vec![Vec::new(); starts.len()];
         for (i, line) in lines.clone().enumerate() {
@@ -1073,7 +1093,7 @@ pub fn inline_marks(old: &Rope, new: &Rope, hunk: &LineHunk) -> Option<InlineMar
     })
 }
 
-/// 一行去掉换行符以后的字符数。
+/// 返回一行去掉换行符后的字符数。
 fn content_len(line: ropey::RopeSlice<'_>) -> usize {
     let mut len = line.len_chars();
     if len > 0 && line.char(len - 1) == '\n' {

@@ -1,5 +1,5 @@
-//! 文档内容的存储：普通文件整个读入 `Rope`，大文件（见 [`LargeText`]）的原文留在磁盘上，
-//! 内存中只保存改动。
+//! 文档内容的存储：普通文件整个读入 `Rope`；
+//! 大文件（见 [`LargeText`]）的原文留在磁盘上，内存中只保存改动。
 
 use std::ops::ControlFlow;
 
@@ -28,7 +28,7 @@ impl Content {
         }
     }
 
-    /// 是否是大文件（原文留在磁盘上按需读取）。
+    /// 是否为大文件（原文留在磁盘上按需读取）。
     pub fn is_large(&self) -> bool {
         matches!(self, Content::Large(_))
     }
@@ -85,6 +85,13 @@ impl Lines for Content {
         }
     }
 
+    fn line_prefix(&self, line: usize, max_bytes: usize) -> Line<'_> {
+        match self {
+            Content::Rope(rope) => rope.line_prefix(line, max_bytes),
+            Content::Large(large) => large.line_prefix(line, max_bytes),
+        }
+    }
+
     fn substring(&self, from: usize, to: usize) -> String {
         match self {
             Content::Rope(rope) => rope.substring(from, to),
@@ -115,6 +122,18 @@ impl Lines for Content {
         match self {
             Content::Rope(rope) => rope.visit_lines(from, max_bytes, f),
             Content::Large(large) => large.visit_lines(from, max_bytes, f),
+        }
+    }
+
+    fn visit_short_lines(
+        &self,
+        from: usize,
+        max_bytes: usize,
+        f: impl FnMut(usize, usize, Option<&str>) -> ControlFlow<()>,
+    ) -> Option<usize> {
+        match self {
+            Content::Rope(rope) => rope.visit_short_lines(from, max_bytes, f),
+            Content::Large(large) => large.visit_short_lines(from, max_bytes, f),
         }
     }
 

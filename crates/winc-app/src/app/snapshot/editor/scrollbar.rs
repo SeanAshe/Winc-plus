@@ -6,7 +6,7 @@ use crate::app::ScrollArea;
 #[test]
 fn scrollbars_show_while_scrolling_or_hovered() {
     let dir = sample_folder("scrollbar-reveal");
-    // 400 行远高于一屏：内容放不下，竖直滚动条有滑块可显示。
+    // 400 行远超一屏高度，竖直滚动条有可显示的滑块。
     let long: String = (0..400).map(|i| format!("line {i}\n")).collect();
     let path = dir.join("long.txt");
     std::fs::write(&path, long).unwrap();
@@ -42,7 +42,7 @@ fn scrollbars_show_while_scrolling_or_hovered() {
     paint(&mut app);
     assert_eq!(app.scrollbar_shown(ScrollArea::Editor), 1.0);
 
-    // 内容放得下的文件树没有滑块，鼠标移到文件树的右边缘也不显示。
+    // 内容不超过一屏的文件树没有滑块，鼠标移到文件树的右边缘也不显示。
     let tree = app.layout.tree;
     app.on_mouse_move(tree.right() - 4.0, tree.y + 10.0);
     paint(&mut app);
@@ -54,7 +54,7 @@ fn scrollbars_show_while_scrolling_or_hovered() {
 #[test]
 fn the_editor_scrolls_sideways_by_its_scrollbar_and_by_dragging_past_the_edge() {
     let dir = sample_folder("scrollbar-horizontal");
-    // 每行 300 格宽：远超编辑区宽度，横向滚动才有可滚的余量。
+    // 每行宽 300 列，远超编辑区宽度，横向滚动有可滚动的范围。
     let long: String = (0..20)
         .map(|i| format!("line {i} {}\n", "x".repeat(300)))
         .collect();
@@ -75,7 +75,7 @@ fn the_editor_scrolls_sideways_by_its_scrollbar_and_by_dragging_past_the_edge() 
     let max = app.text_content_w - track.w;
     assert!((app.editor.active().unwrap().scroll_x - max).abs() < 1.0);
 
-    // 回到左端后拖选文字，鼠标停在右缘外：持续向右滚动，选区随之扩展。
+    // 回到左端后拖选文字，鼠标停在右边缘之外：持续向右滚动，选区随之扩展。
     app.editor.active_mut().unwrap().scroll_x = 0.0;
     paint(&mut app);
     let t = app.layout.text;
@@ -112,7 +112,7 @@ fn the_minimap_takes_room_from_the_text_and_scrolls_the_editor() {
     let mut app = app_with(&path, false);
     paint(&mut app);
 
-    // 默认不显示；打开后从文字区右边让出位置，紧挨文字区。
+    // 默认不显示；开启后占用文字区右侧的宽度，紧邻文字区。
     let before = app.layout.text.w;
     assert_eq!(app.layout.minimap.w, 0.0);
     app.settings_toggle(Setting::Minimap);
@@ -122,7 +122,7 @@ fn the_minimap_takes_room_from_the_text_and_scrolls_the_editor() {
     assert!(app.layout.text.w < before);
     assert_eq!(map.x, app.layout.text.right());
 
-    // 点在滑块外：滑块移到指针下面，贴近底边时滚到文档末尾。
+    // 点击滑块之外：滑块移到指针下方，靠近底边时滚动到文档末尾。
     let scroll = |app: &App| app.editor.active().unwrap().scroll_line;
     app.on_mouse_move(map.x + 8.0, map.bottom() - 1.0);
     assert_eq!(app.hover, Hover::Minimap);
@@ -131,7 +131,7 @@ fn the_minimap_takes_room_from_the_text_and_scrolls_the_editor() {
     assert_eq!(scroll(&app), app.max_scroll_line());
     paint(&mut app);
 
-    // 按在滑块上不跳动；拖动时滑块跟着指针，拖到两端分别滚到文档的两端。
+    // 按在滑块上时滑块不跳动；拖动时滑块随指针移动，拖到两端时分别滚动到文档的两端。
     let (_, slider, _) = app.minimap_view();
     let (at, y) = (scroll(&app), slider.y + 2.0);
     app.on_mouse_move(map.x + 8.0, y);
@@ -145,13 +145,13 @@ fn the_minimap_takes_room_from_the_text_and_scrolls_the_editor() {
     assert_eq!(scroll(&app), 0.0);
     app.on_mouse_up(MouseButton::Left);
 
-    // 滚轮在缩略图上照常滚动编辑区。
+    // 滚轮在缩略图上仍然滚动编辑区。
     app.on_mouse_move(map.x + 8.0, map.y + 40.0);
     app.on_wheel(MouseScrollDelta::LineDelta(0.0, -1.0));
     assert!(app.editor.active().unwrap().scroll_line > 0.0);
     paint(&mut app);
 
-    // 关闭后还给文字区。
+    // 关闭后文字区恢复原宽度。
     app.settings_toggle(Setting::Minimap);
     assert_eq!(app.layout.minimap.w, 0.0);
     assert_eq!(app.layout.text.w, before);
@@ -169,7 +169,7 @@ fn pressing_the_minimap_puts_the_slider_under_the_pointer_once() {
         let (_, slider, _) = app.minimap_view();
         slider.y + slider.h / 2.0
     };
-    // 比缩略图长得多、比缩略图短的文档：滑块都落在指针下面。
+    // 远长于缩略图和短于缩略图的文档：滑块都位于指针下方。
     for (name, lines) in [("long.rs", 20_000), ("short.rs", 150)] {
         let text: String = (0..lines)
             .map(|i| format!("let row_{i} = {i};\n"))
@@ -222,7 +222,7 @@ fn dragging_the_minimap_slider_follows_the_pointer() {
     let x = map.x + 8.0;
     let scroll = |app: &App| app.editor.active().unwrap().scroll_line;
 
-    // 按在滑块上不跳动，之后滑块的位移等于指针的位移；取整到整行造成的误差不超过一行。
+    // 按在滑块上时滑块不跳动，之后滑块的位移等于指针的位移；取整到整行造成的误差不超过一行。
     let (_, slider, _) = app.minimap_view();
     let y = slider.y + 4.0;
     app.on_mouse_move(x, y);
@@ -238,7 +238,7 @@ fn dragging_the_minimap_slider_follows_the_pointer() {
         );
     }
 
-    // 指针往回拖到按下处，回到原来的位置。
+    // 指针拖回按下处时，滚动位置恢复原值。
     app.on_mouse_move(x, y);
     assert_eq!(scroll(&app), 0.0);
     app.on_mouse_up(MouseButton::Left);
@@ -270,6 +270,50 @@ fn wrapped_lines_fill_their_rows_in_the_minimap() {
     }
     app.renderer = Some(renderer);
     assert!(filled >= 6, "{filled}");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 大文件中按整行断开的长行占数千个显示行；
+/// 滚动到这类行的中部时，缩略图同样绘制出该行靠后的段。
+#[test]
+fn the_minimap_shows_the_later_rows_of_long_wrapped_lines() {
+    let dir = sample_folder("minimap-long-wrap");
+    let path = dir.join("dump.sql");
+    let values: Vec<String> = (0..9_000).map(|n| format!("({n},'订单 {n}')")).collect();
+    let line = format!("INSERT INTO t VALUES {};\n", values.join(","));
+    let count = winc_editor::LARGE_FILE as usize / line.len() + 2;
+    std::fs::write(&path, line.repeat(count)).unwrap();
+    let mut app = app_with(&path, false);
+    app.settings_toggle(Setting::Minimap);
+    app.settings_toggle(Setting::WordWrap);
+    paint(&mut app);
+    let doc = app.editor.active().unwrap();
+    assert!(doc.is_large() && doc.is_wrapping());
+    // 第 1 行的中部：缩略图的范围完全落在这一行之内。
+    let rows = doc.rows_of(1);
+    assert!(rows > 1_000, "{rows}");
+    let scroll = (doc.row_of(1) + rows / 2) as f64;
+    app.editor.active_mut().unwrap().scroll_line = scroll;
+    paint(&mut app);
+
+    let map = app.layout.minimap;
+    let renderer = app.renderer.take().unwrap();
+    let scale = renderer.scale_factor();
+    let image = renderer.image().unwrap();
+    let pixel = |x: f32, y: f32| {
+        let (x, y) = ((x * scale) as usize, (y * scale) as usize);
+        image.pixels[y * image.width as usize + x]
+    };
+    // 小块所在列与左侧留白的颜色不同，表示该显示行有内容。
+    let filled = (10..110)
+        .step_by(10)
+        .filter(|&row| {
+            let y = map.y + row as f32 * crate::theme::MINIMAP_ROW + 0.5;
+            pixel(map.x + 6.0, y) != pixel(map.x + 1.0, y)
+        })
+        .count();
+    app.renderer = Some(renderer);
+    assert!(filled >= 8, "{filled}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -341,7 +385,7 @@ fn measure_minimap() {
     let run = |app: &mut App| {
         let started = std::time::Instant::now();
         for i in 0..frames {
-            app.editor.active_mut().unwrap().scroll_line = (i * 500) as f32;
+            app.editor.active_mut().unwrap().scroll_line = (i * 500) as f64;
             paint(app);
         }
         started.elapsed() / frames
@@ -356,7 +400,7 @@ fn measure_minimap() {
 #[test]
 fn shift_turns_only_mouse_wheel_scrolling_sideways() {
     let dir = sample_folder("scrollbar-shift");
-    // 每行 300 格宽：远超编辑区宽度，横向滚动才有可滚的余量。
+    // 每行宽 300 列，远超编辑区宽度，横向滚动有可滚动的范围。
     let long: String = (0..400)
         .map(|i| format!("    line {i} {}\n", "x".repeat(300)))
         .collect();

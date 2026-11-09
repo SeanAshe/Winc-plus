@@ -1,7 +1,7 @@
 //! 比较文件树中选中的两个文件。
 //!
-//! 在并排差异标签中打开，左栏是先选中的文件（显示顺序靠前的），右栏是另一个文件。两边都按
-//! 磁盘上的内容比较、都只读，不依赖 Git。
+//! 在并排差异标签中打开：左栏是先选中的文件（显示顺序靠前者），右栏是另一个文件。两侧均按
+//! 磁盘上的内容比较且只读，不依赖 Git。
 
 use std::path::Path;
 
@@ -37,8 +37,9 @@ pub(crate) fn compare_title(left: &Path, right: &Path) -> String {
 }
 
 impl App {
-    /// 比较文件 `left` 与 `right`（磁盘上的内容），在并排差异标签中打开；内容相同或读取失败时
-    /// 只提示。
+    /// 按磁盘上的内容比较文件 `left` 与 `right`，在并排差异标签中打开。
+    ///
+    /// 内容相同或读取失败时只显示提示，不打开标签。
     pub(in crate::app) fn compare_files(&mut self, left: &Path, right: &Path) {
         let (old, new) = match (read_for_compare(left), read_for_compare(right)) {
             (Ok(old), Ok(new)) => (old, new),
@@ -66,14 +67,14 @@ impl App {
         }
 
         let index = self.editor.show_diff(&compare_title(left, right), view);
-        // 打开时直接停在第一处改动。
+        // 打开时定位到第一处改动。
         let doc = &mut self.editor.documents[index];
         if let Some(row) = doc.diff.as_deref().and_then(|v| {
             v.hunk_rows[winc_editor::diff_view::RIGHT]
                 .first()
                 .map(|r| r.start)
         }) {
-            doc.scroll_line = row.saturating_sub(3) as f32;
+            doc.scroll_line = row.saturating_sub(3) as f64;
         }
         self.focus = Focus::Editor;
         self.relayout();

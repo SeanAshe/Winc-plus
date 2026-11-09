@@ -1,4 +1,4 @@
-//! 一帧的绘制：矩形、圆角、描边、文字、图片、阴影，裁剪和整体透明度。
+//! 一帧的绘制：矩形、圆角矩形、描边、文字、图片、阴影，以及裁剪和整体不透明度。
 //!
 //! [`Frame`] 持有本帧的画布与各个缓存，把逻辑像素坐标换算成物理像素后交给 [`Canvas`] 绘制。
 
@@ -6,7 +6,8 @@ use super::*;
 
 /// 一帧的绘制上下文：画布、字形缓存、覆盖率表和裁剪区域。
 ///
-/// 绘制命令按调用顺序直接画到缓冲上，后画的盖住先画的；所有入口都受 `limit` 与 `opacity` 约束。
+/// 绘制命令按调用顺序直接写入缓冲，后绘制的内容覆盖先绘制的内容；
+/// 所有入口都受 `limit` 与 `opacity` 约束。
 pub struct Frame<'a> {
     pub(crate) canvas: Canvas<'a>,
     /// 字形缓存，与 [`Renderer`] 共用。
@@ -15,11 +16,13 @@ pub struct Frame<'a> {
     pub(crate) strokes: &'a mut StrokeCache,
     /// 覆盖率映射表，来自 [`Renderer`]。
     pub(crate) gamma: &'a [u8; 256],
+    /// `gamma` 是否为深色背景的映射表，用作字形缓存键的一部分。
+    pub(crate) dark: bool,
     /// 屏幕缩放系数（每个逻辑像素对应的物理像素数）。
     pub(crate) scale: f32,
     /// 本帧画布的范围（逻辑像素）。
     pub(crate) bounds: Rect,
-    /// 裁剪上限：不论各个调用传入的裁剪框是什么，都不会画到该范围之外。
+    /// 裁剪上限：不论各个调用传入的裁剪框是什么，绘制都不会超出该范围。
     ///
     /// 由 [`Frame::within`] 临时缩小。
     pub(crate) limit: Rect,
@@ -39,9 +42,9 @@ impl Frame<'_> {
 
     /// 在 `clip` 之内执行 `paint`，结束后恢复调用前的裁剪区域，返回 `paint` 的结果。
     ///
-    /// `paint` 中的所有绘制都不会超出 `clip`，不论各个调用自己传入的裁剪框是什么。滚动区域（设置
-    /// 页、列表）用它兜底：区域内只要有一处传入的裁剪框只有自己那一小块，滚动到边缘时就会画到区域
-    /// 之外。可以嵌套，内层的有效范围不会超出外层。
+    /// `paint` 中的所有绘制都不会超出 `clip`，不论各个调用传入的裁剪框是什么。滚动区域（设置页、
+    /// 列表）以此兜底：区域内任一调用传入的裁剪框只覆盖其自身范围时，滚动到边缘后该调用会绘制到
+    /// 区域之外。可以嵌套，内层的有效范围不会超出外层。
     pub fn within<R>(&mut self, clip: Rect, paint: impl FnOnce(&mut Self) -> R) -> R {
         let outer = self.limit;
         self.limit = outer.intersect(clip);
@@ -52,8 +55,8 @@ impl Frame<'_> {
 
     /// 以整体不透明度 `opacity`（0–1，与外层的相乘）执行 `paint`，用于浮层的淡入淡出。
     ///
-    /// 其中画的矩形、描边、阴影、文字和图片都按比例变淡。各部分分别变淡后再叠在一起，重叠处会比
-    /// 单独一层略深；淡入淡出只有一百多毫秒，这种加深难以察觉。
+    /// 其中绘制的矩形、描边、阴影、文字和图片都按比例变淡。各部分分别变淡后再叠加，重叠处会比
+    /// 单独一层略深；淡入淡出只持续一百多毫秒，这种加深难以察觉。
     pub fn with_opacity<R>(&mut self, opacity: f32, paint: impl FnOnce(&mut Self) -> R) -> R {
         let outer = self.opacity;
         self.opacity = outer * opacity.clamp(0.0, 1.0);
@@ -62,10 +65,10 @@ impl Frame<'_> {
         result
     }
 
-    /// 存下画面上 `rect`（逻辑像素，先裁到画面之内）里现在的像素，之后可以用
-    /// [`Self::restore_tinted`] 贴回该位置，或用 [`Self::blend_snapshot`] 当作图层叠上去。
+    /// 保存画面上 `rect`（逻辑像素，先裁剪到画面之内）中当前的像素。
     ///
-    /// 用于动画：开头画一次存下来，动画途中每帧直接复用，不必每帧重画不变的内容。
+    /// 之后可用 [`Self::restore_tinted`] 写回该位置，或用 [`Self::blend_snapshot`] 作为图层叠加。
+    /// 用于动画：动画开始时绘制并保存一次，动画过程中每帧直接复用，无需每帧重绘不变的内容。
     pub fn snapshot(&self, rect: Rect) -> Snapshot {
         let (area, px) = self.canvas.copy(rect.to_pixels(self.scale));
         Snapshot {
@@ -75,10 +78,10 @@ impl Frame<'_> {
         }
     }
 
-    /// 同 [`Self::snapshot`]，存进已有的 `snapshot`，继续使用它的像素缓冲：每帧都要存一次时用它。
+    /// 与 [`Self::snapshot`] 相同，但保存到已有的 `snapshot` 并复用其像素缓冲。
     ///
-    /// 每帧新分配一块几 MB 的拷贝再释放，macOS 的分配器会保留释放的大块内存而不还给系统，
-    /// 内存而不还给系统，打开 `⌘P` 面板时物理内存会多占三十多 MB。
+    /// 用于每帧都要保存的场景。每帧新分配数 MB 的副本再释放时，macOS 的分配器会保留释放的大块
+    /// 内存而不归还系统，打开 `⌘P` 面板时物理内存会多占用三十多 MB。
     pub fn snapshot_into(&self, rect: Rect, snapshot: &mut Snapshot) {
         snapshot.area = self
             .canvas
@@ -86,10 +89,10 @@ impl Frame<'_> {
         snapshot.scale = self.scale;
     }
 
-    /// 把快照 `snapshot` 贴回它存下来的位置，同时叠一层颜色 `tint`（乘上整体不透明度）。
-    /// 用于把底下的窗口内容恢复并压上遮罩，一遍画完。
+    /// 把快照 `snapshot` 写回其保存时的位置，同时叠加一层颜色 `tint`（乘以整体不透明度）。
     ///
-    /// `tint` 全透明时原样贴回；缩放系数变了（换了显示器）时不贴。
+    /// 用于恢复下方的窗口内容并叠加遮罩，一次完成。`tint` 全透明时直接写回；缩放系数改变
+    /// （切换显示器）时不写回。
     pub fn restore_tinted(&mut self, snapshot: &Snapshot, tint: Color) {
         if snapshot.scale == self.scale {
             let tint = self.faded(tint);
@@ -98,11 +101,10 @@ impl Frame<'_> {
         }
     }
 
-    /// 把快照 `snapshot` 当作一张圆角半径 `radius`（逻辑像素）的卡片叠到现在的画面上：以它的
-    /// 中心缩放 `scale`，整体按 `opacity` 叠上去，圆角外面不动。
+    /// 把快照 `snapshot` 作为圆角半径为 `radius`（逻辑像素）的卡片叠加到当前画面上。
     ///
-    /// 与 [`Self::with_opacity`] 逐个图形叠透明度不同，这里整张卡片一起淡入淡出、一起缩放，
-    /// 缩放系数变了时不画。
+    /// 以卡片中心缩放 `scale`，整体按 `opacity` 叠加，圆角之外保持不变。[`Self::with_opacity`]
+    /// 逐个图形应用不透明度，本方法则使整张卡片一起淡入淡出、一起缩放。缩放系数改变时不绘制。
     pub fn blend_snapshot(&mut self, snapshot: &Snapshot, radius: f32, opacity: f32, scale: f32) {
         if snapshot.scale == self.scale {
             let radius = radius * self.scale;
@@ -111,7 +113,7 @@ impl Frame<'_> {
         }
     }
 
-    /// 返回乘上整体不透明度之后的颜色。
+    /// 返回乘以整体不透明度之后的颜色。
     fn faded(&self, color: Color) -> Color {
         color.alpha(color.a * self.opacity)
     }
@@ -122,9 +124,9 @@ impl Frame<'_> {
     }
 
     /// 绘制一张非预乘的 RGBA 图像，与屏幕像素一一对应，左上角在 `(x, y)`。
-    /// `rgba` 含 `width` × `height` 个物理像素，`(x, y)` 是逻辑像素，四舍五入到物理像素。图像不
     ///
-    /// 缩放，需要缩放时由调用方先处理。超出 `clip` 的部分不画；`rgba` 不足
+    /// `rgba` 含 `width` × `height` 个物理像素，`(x, y)` 是逻辑像素，四舍五入到物理像素。图像
+    /// 不缩放，需要缩放时由调用方先处理。超出 `clip` 的部分不绘制；`rgba` 不足
     /// `width * height * 4` 字节时不绘制。
     pub fn pixels(&mut self, (x, y): (f32, f32), width: u32, height: u32, rgba: &[u8], clip: Rect) {
         let opacity = (self.opacity * 255.0).round() as u32;
@@ -141,10 +143,10 @@ impl Frame<'_> {
         self.canvas.rgba(area, rgba, opacity, clip);
     }
 
-    /// 在 `rect` 里铺棋盘格（透明图片下面的底），超出 `clip` 的部分不画。
-    /// 方格边长 `cell`（逻辑像素），左上角的一格为 `first`，与它相邻的为 `second`。两种颜色都不
+    /// 在 `rect` 中绘制棋盘格（透明图片的底色），超出 `clip` 的部分不绘制。
     ///
-    /// 透明时一遍按行填色；有半透明（淡入淡出）时逐格画。
+    /// 方格边长 `cell`（逻辑像素），左上角的方格为 `first`，与其相邻的为 `second`。两种颜色都
+    /// 不透明时按行一次填色；有半透明（淡入淡出）时逐格绘制。
     pub fn checker(&mut self, rect: Rect, cell: f32, (first, second): (Color, Color), clip: Rect) {
         if self.opacity >= 1.0 && first.a >= 1.0 && second.a >= 1.0 {
             let area = rect.to_pixels(self.scale);
@@ -176,7 +178,7 @@ impl Frame<'_> {
         self.rect_clipped(rect, color, radius, self.bounds);
     }
 
-    /// 绘制矩形，`radius` 大于 0 时为圆角矩形，超出 `clip` 的部分不画。
+    /// 绘制矩形，`radius` 大于 0 时为圆角矩形，超出 `clip` 的部分不绘制。
     pub fn rect_clipped(&mut self, rect: Rect, color: Color, radius: f32, clip: Rect) {
         self.rect_corners(rect, color, [radius; 4], clip);
     }
@@ -200,14 +202,14 @@ impl Frame<'_> {
         }
     }
 
-    /// 返回不透明的圆角矩形 `rect`（圆角半径 `radius`，逻辑像素）一定会盖住的像素。
+    /// 返回不透明的圆角矩形 `rect`（圆角半径 `radius`，逻辑像素）必然覆盖的像素。
     ///
-    /// 先画在该矩形底下的阴影、边框和遮罩时传入该值，可跳过这些随后会被盖住的像素。
+    /// 绘制位于该矩形下方的阴影、边框和遮罩时传入该值，可跳过这些随后会被覆盖的像素。
     pub fn covered(&self, rect: Rect, radius: f32) -> Covered {
         Covered::new(rect.to_pixels(self.scale), radius * self.scale)
     }
 
-    /// 绘制圆角矩形，`covered` 中的像素不画；用于画不透明卡片底下的边框和遮罩。
+    /// 绘制圆角矩形并跳过 `covered` 中的像素；用于绘制不透明卡片下方的边框和遮罩。
     pub fn rect_except(&mut self, rect: Rect, color: Color, radius: f32, covered: Covered) {
         let color = self.faded(color);
         if rect.w <= 0.0 || rect.h <= 0.0 || color.a <= 0.0 {
@@ -220,9 +222,9 @@ impl Frame<'_> {
             .rounded_rect(area, radii, color.argb(), clip, Some(covered));
     }
 
-    /// 把矩形 `rect` 四角半径为 `radius`（逻辑像素）的圆弧外侧涂成 `color`，使其显示为圆角矩形。
+    /// 把矩形 `rect` 四角半径为 `radius`（逻辑像素）的圆弧外侧填充为 `color`，使其显示为圆角矩形。
     ///
-    /// 先画好 `rect` 内的内容，最后用外侧的底色修圆四角。
+    /// 先绘制 `rect` 内的内容，最后用外侧的底色修整四角。
     pub fn round_corners(&mut self, rect: Rect, radius: f32, color: Color) {
         let color = self.faded(color);
         if rect.w <= 0.0 || rect.h <= 0.0 || color.a <= 0.0 {
@@ -234,9 +236,9 @@ impl Frame<'_> {
             .round_corners(area, radius * self.scale, color.argb(), clip);
     }
 
-    /// 用宽 `width`（逻辑像素）的笔绘制一组线段、圆周和圆弧，用于画图标。
+    /// 用宽 `width`（逻辑像素）的笔绘制一组线段、圆周和圆弧，用于绘制图标。
     ///
-    /// 图标大小的一组形状只在第一次画时逐像素计算覆盖率，存成蒙版，以后按颜色贴上去（见
+    /// 图标大小的一组形状只在第一次绘制时逐像素计算覆盖率并存为蒙版，之后按颜色叠加（见
     /// `StrokeCache`），结果与直接描边相同。
     pub fn stroke(&mut self, shapes: &[Stroke], width: f32, color: Color, clip: Rect) {
         let color = self.faded(color);
@@ -246,7 +248,7 @@ impl Frame<'_> {
 
         let clip = clip.intersect(self.limit).to_pixels_outer(self.scale);
         match self.strokes.get(shapes, width, self.scale) {
-            // 描边的覆盖率本来就是线性的，不经过文字用的覆盖率映射。
+            // 描边的覆盖率已是线性值，不经过文字使用的覆盖率映射。
             Some((area, mask)) => {
                 self.canvas
                     .mask(area, mask, color.argb(), &LINEAR_COVERAGE, clip)
@@ -259,7 +261,7 @@ impl Frame<'_> {
 
     /// 填充凸多边形 `points`（逻辑像素），边缘抗锯齿。
     ///
-    /// 用于 Markdown 预览里的图（菱形、箭头）。
+    /// 用于 Markdown 预览中的图表（菱形、箭头）。
     pub fn polygon(&mut self, points: &[(f32, f32)], color: Color, clip: Rect) {
         let color = self.faded(color);
         if color.a <= 0.0 {
@@ -271,9 +273,9 @@ impl Frame<'_> {
         self.canvas.polygon(&scaled, color.argb(), clip);
     }
 
-    /// 返回字符 `c` 的墨迹在基线上方、下方各有多高（逻辑像素，下方为正）。
-    /// 空白这类没有墨迹的字符返回 `None`。排公式时按它定根号、分数线、括号的高度。
+    /// 返回字符 `c` 的墨迹在基线上方、下方的高度（逻辑像素，下方为正）。
     ///
+    /// 空白等没有墨迹的字符返回 `None`。排版公式时据此确定根号、分数线、括号的高度。
     pub fn ink(&mut self, kind: FontKind, faux: Faux, size: f32, c: char) -> Option<(f32, f32)> {
         let Resolved { slot, glyph, .. } = self.glyphs.lookup_faux(kind, faux, size, c);
         let s = self.scale;
@@ -284,8 +286,9 @@ impl Frame<'_> {
             subpixel: 0,
             oblique: (kind.italic() || faux.italic) && !text::font::italic_slot(slot),
             bold: faux.bold,
+            dark: self.dark,
         };
-        let glyph = self.glyphs.get(key, size * s)?;
+        let glyph = self.glyphs.get(key, size * s, self.gamma)?;
         (glyph.height > 0).then(|| {
             let top = f32::from(glyph.top) / s;
             (top, f32::from(glyph.height) / s - top)
@@ -294,9 +297,9 @@ impl Frame<'_> {
 
     /// 绘制圆角矩形下方的柔和阴影，向下偏移 `offset`，向外扩散 `blur`（均为逻辑像素）。
     ///
-    /// 先画阴影再画卡片。
+    /// 调用方先绘制阴影，再绘制卡片。
     ///
-    /// `covered` 是随后画在阴影上方的不透明卡片盖住的像素（[`Frame::covered`]），这些像素不画。
+    /// `covered` 是随后绘制在阴影上方的不透明卡片覆盖的像素（[`Frame::covered`]），这些像素不绘制。
     pub fn shadow(
         &mut self,
         rect: Rect,
@@ -325,7 +328,6 @@ impl Frame<'_> {
     /// 绘制一段文字，返回文字末尾的横坐标（逻辑像素）。
     ///
     /// `x` 是起点横坐标，`baseline` 是基线的纵坐标，字号 `size` 也是逻辑像素。
-    ///
     #[allow(clippy::too_many_arguments)]
     pub fn text(
         &mut self,
@@ -340,7 +342,7 @@ impl Frame<'_> {
         self.text_faux(kind, Faux::default(), size, x, baseline, text, color, clip)
     }
 
-    /// 同 [`Self::text`]，按 `faux` 模拟粗体、斜体。
+    /// 与 [`Self::text`] 相同，但按 `faux` 模拟粗体、斜体。
     #[allow(clippy::too_many_arguments)]
     pub fn text_faux(
         &mut self,
@@ -369,8 +371,8 @@ impl Frame<'_> {
 
     /// 在等宽网格上用等宽字体 `kind`（编辑区或终端的正体、斜体）绘制字符 `c`。
     ///
-    /// 该字符占 `cells` 个格子（每格宽 `cell`，逻辑像素）。字形比占用的格子窄时（如宽字符）
-    /// 水平居中。
+    /// 该字符占 `cells` 个格子（每格宽 `cell`，逻辑像素）。
+    /// 字形比占用的格子窄时（如宽字符）水平居中。
     #[allow(clippy::too_many_arguments)]
     pub fn cell_char(
         &mut self,
@@ -531,12 +533,13 @@ impl Frame<'_> {
             glyph,
             size: (size * s * 4.0) as u32,
             subpixel,
-            // 要斜体却落到了不是斜体的字体上：字体没有可用的斜体，或斜体里没有该字符（例如
-            // 注释里的中文落到后备字体上），都斜切，一行注释里的字倾斜一致。
+            // 需要斜体但实际使用的字体不是斜体：字体没有可用的斜体，或斜体中没有该字符
+            // （例如注释中的中文使用后备字体）时均做斜切，使同一行注释中的文字倾斜一致。
             oblique: (kind.italic() || faux.italic) && !text::font::italic_slot(slot),
             bold: faux.bold,
+            dark: self.dark,
         };
-        let Some(glyph) = self.glyphs.get(key, size * s) else {
+        let Some(glyph) = self.glyphs.get(key, size * s, self.gamma) else {
             return;
         };
 
@@ -551,8 +554,7 @@ impl Frame<'_> {
             let opacity = (color.a.clamp(0.0, 1.0) * 255.0) as u32;
             self.canvas.rgba(area, &glyph.data, opacity, clip);
         } else {
-            self.canvas
-                .mask(area, &glyph.data, color.argb(), self.gamma, clip);
+            self.canvas.coverage(area, &glyph.data, color.argb(), clip);
         }
     }
 }
