@@ -946,14 +946,15 @@ fn sizes_read_like_finder() {
     assert_eq!(size_text(3_200_000_000), "3.2 GB");
 }
 
-/// 回归：「按编码重新打开」把整个文件读进内存再解码，打开以后变大的文件也不例外。
+/// 回归：「按编码重新打开」把整个文件读进内存再解码。打开以后变大、超过
+/// [`UTF16_INLINE`] 的文件仍然拒绝，文档保持打开时的内容。
 #[test]
 fn reopening_with_an_encoding_refuses_files_grown_past_the_large_limit() {
     let dir = scratch("reopen-large");
     let path = dir.join("grown.txt");
     fs::write(&path, "short\n").unwrap();
     let mut doc = Document::open(DocumentId(1), path.clone()).unwrap();
-    fs::write(&path, "x".repeat(LARGE_FILE as usize + 1)).unwrap();
+    fs::write(&path, "x".repeat(UTF16_INLINE as usize + 1)).unwrap();
     let error = doc
         .reopen_with_encoding(Encoding::Legacy(encoding_rs::GBK))
         .unwrap_err();
