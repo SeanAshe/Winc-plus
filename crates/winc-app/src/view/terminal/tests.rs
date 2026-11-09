@@ -58,6 +58,24 @@ fn a_light_theme_lifts_near_black_backgrounds() {
 }
 
 #[test]
+fn a_light_theme_keeps_the_inverted_cursor_black() {
+    let p = &crate::theme::LIGHT;
+    let colors = Colors {
+        p,
+        reverse: false,
+        min: 0.0,
+        bright: false,
+    };
+    let cursor = Style {
+        attrs: Attrs(Attrs::INVERSE),
+        ..Style::default()
+    };
+    let (fg, bg) = colors.style(&cursor);
+    assert_eq!(bg, Some(p.caret));
+    assert!(crate::theme::luminance(fg) > 0.7, "{fg:?}");
+}
+
+#[test]
 fn a_dark_theme_keeps_near_black_backgrounds() {
     let p = &crate::theme::DARK;
     let colors = Colors {

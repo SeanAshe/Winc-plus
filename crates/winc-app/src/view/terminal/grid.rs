@@ -67,10 +67,15 @@ impl Colors {
             fg = back;
         }
         // 浅色终端上，按深色界面画的近黑底（输入框、差异高亮）提成同色相的浅底。
+        // 反色光标的底就是正文色：再提亮会洗成浅灰，浅色底上几乎看不见，保持黑色。
         if !self.p.dark
             && let Some(color) = bg.as_mut()
         {
-            *color = lighten_dark_fill(*color);
+            *color = if !self.reverse && *color == self.p.syntax_text {
+                self.p.caret
+            } else {
+                lighten_dark_fill(*color)
+            };
         }
         let under = bg.unwrap_or_else(|| self.default_bg());
         if attrs.has(Attrs::DIM) {
