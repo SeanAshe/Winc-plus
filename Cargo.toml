@@ -9,7 +9,7 @@ edition = "2024"
 rust-version = "1.89"
 publish = false
 license = "Apache-2.0"
-repository = "https://github.com/DEEIX-AI/Winc"
+repository = "https://github.com/SeanAshe/Winc-plus"
 homepage = "https://winc.si"
 
 [workspace.dependencies]

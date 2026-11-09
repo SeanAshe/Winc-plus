@@ -167,12 +167,7 @@ impl SettingsPage {
             SettingsPage::About => vec![
                 plain(vec![Setting::Version]),
                 plain(vec![Setting::Updates, Setting::CheckUpdates]),
-                plain(vec![
-                    Setting::Website,
-                    Setting::Repository,
-                    Setting::Community,
-                    Setting::License,
-                ]),
+                plain(vec![Setting::Repository, Setting::License]),
             ],
         }
     }
@@ -258,12 +253,8 @@ pub enum Setting {
     Version,
     /// 「关于」页的更新状态和「检查更新」按钮。
     Updates,
-    /// 「关于」页的官网链接。
-    Website,
     /// 「关于」页的源代码仓库（GitHub）链接。
     Repository,
-    /// 「关于」页的社区群组（Telegram）链接。
-    Community,
     /// 「关于」页的开源许可：许可证名称，链接到许可证全文。
     License,
     /// 界面字体。
@@ -381,9 +372,7 @@ impl Setting {
             Setting::Version
             | Setting::Updates
             | Setting::CheckUpdates
-            | Setting::Website
             | Setting::Repository
-            | Setting::Community
             | Setting::License => SettingsPage::About,
             Setting::FormatOnSave
             | Setting::FixOnSave
@@ -437,9 +426,7 @@ impl Setting {
             Setting::RemoteImages => t!("settings-remote-images"),
             Setting::CheckUpdates => t!("settings-check-updates"),
             Setting::Version => t!("settings-version"),
-            Setting::Website => t!("settings-website"),
             Setting::Repository => "GitHub",
-            Setting::Community => "Telegram",
             Setting::License => t!("settings-license"),
             Setting::Updates => t!("settings-updates"),
             Setting::FormatOnSave => t!("settings-format-on-save"),
@@ -557,9 +544,7 @@ impl Setting {
             Setting::AddLanguage | Setting::AddFixLanguage => SettingControl::Action,
             Setting::KeySearch => SettingControl::Search,
             Setting::Version => SettingControl::Product,
-            Setting::Website | Setting::Repository | Setting::Community | Setting::License => {
-                SettingControl::Link
-            }
+            Setting::Repository | Setting::License => SettingControl::Link,
             Setting::Updates => SettingControl::Button,
         }
     }
@@ -656,9 +641,6 @@ pub fn settings_thumb(area: Rect, scroll: f32, max: f32) -> Option<Rect> {
     Some(Rect::new(track.x, thumb.y, track.w, thumb.h))
 }
 
-/// 社区群组（Telegram）的地址。
-const COMMUNITY_URL: &str = "https://t.me/deeix_chat";
-
 /// 链接文字与其后外链箭头之间的距离，加上箭头的宽度（逻辑像素）。
 pub const LINK_ICON_W: f32 = 6.0 + 9.0;
 
@@ -705,14 +687,12 @@ pub fn version_line() -> String {
     t!("settings-version-line", version = version_label())
 }
 
-/// 返回「关于」页中链接的显示名（如「winc.si」）；不是链接时返回 `None`。
+/// 返回「关于」页中链接的显示名（如「SeanAshe/Winc-plus」）；不是链接时返回 `None`。
 ///
-/// 官网、仓库和许可证取自 `Cargo.toml` 的 `homepage`、`repository` 和 `license`。
+/// 仓库和许可证取自 `Cargo.toml` 的 `repository` 和 `license`。
 pub fn about_value(setting: Setting) -> Option<String> {
     let text = match setting {
-        Setting::Website => env!("CARGO_PKG_HOMEPAGE"),
         Setting::Repository => env!("CARGO_PKG_REPOSITORY"),
-        Setting::Community => COMMUNITY_URL,
         Setting::License => env!("CARGO_PKG_LICENSE"),
         _ => return None,
     };
@@ -724,9 +704,7 @@ pub fn about_value(setting: Setting) -> Option<String> {
 pub fn about_link(setting: Setting) -> Option<String> {
     let repository = env!("CARGO_PKG_REPOSITORY");
     Some(match setting {
-        Setting::Website => env!("CARGO_PKG_HOMEPAGE").to_owned(),
         Setting::Repository => repository.to_owned(),
-        Setting::Community => COMMUNITY_URL.to_owned(),
         Setting::License => format!("{repository}/blob/HEAD/LICENSE"),
         _ => return None,
     })

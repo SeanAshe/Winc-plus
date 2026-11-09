@@ -88,7 +88,6 @@ settings-check-updates-desc = 启动时及之后每天检查一次，发现新�
 settings-system-title-bar-desc = 由桌面环境绘制标题栏和窗口边框
 settings-version = 版本
 settings-version-line = 版本 { $version }
-settings-website = 官网
 settings-license = 开源许可
 settings-link-open-failed = 无法打开链接：{ $error }
 settings-version-copied = 已复制版本号 { $version }
