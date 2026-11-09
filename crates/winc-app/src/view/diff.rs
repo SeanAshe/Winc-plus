@@ -1,5 +1,5 @@
 //! 并排差异标签的绘制：标题栏（两侧标题、改动处数、增删行数、上一处、下一处、折叠开关），
-//! 左右两栏的代码和行号，中间连接对应改动的带子，滚动条上每处改动的位置。
+//! 左右两栏的代码和行号，中间连接对应改动的带子，滚动条上每处改动的位置，以及正文底部的横向滚动条。
 //!
 //! 两侧各绘制各的行，行号挨着中间的带子。每段改动按类型上色（新增绿、删除灰、修改蓝，都是主题里
 //! 配好的柔和色），两侧的底色与带子同色，一侧没有行时那一侧在插入的位置绘制一道线；改了的字再
@@ -163,6 +163,7 @@ pub(super) fn draw_diff(app: &mut App, frame: &mut Frame<'_>, index: usize) {
     draw_body(app, frame, &mut view, &parts, scroll, pos, &edit, &mut hits);
     draw_header(app, frame, &view, &parts, pos, &mut hits);
     draw_overview(app, frame, &view, &parts, index);
+    draw_horizontal_scrollbar(app, frame, &view, &parts, index);
 
     app.diff_hits = hits;
     app.editor.documents[index].diff = Some(view);
@@ -1069,6 +1070,43 @@ pub(in crate::view) fn draw_ribbon(
             frame.rect_clipped(rect, shade.edge, 0.0, clip);
         }
         previous = (top, bottom);
+    }
+}
+
+/// 绘制差异正文底部的横向滚动条。
+///
+/// 两侧共用一个滚动位置。一行放得下或正在自动换行时没有滑块。滑块的显示、拖动与编辑区的
+/// 横向滚动条相同。
+fn draw_horizontal_scrollbar(
+    app: &mut App,
+    frame: &mut Frame<'_>,
+    view: &DiffView,
+    parts: &DiffParts,
+    index: usize,
+) {
+    use crate::layout::hscrollbar_thumb;
+    let body = parts.body;
+    let track = Rect::new(body.x, body.y, (body.w - SCROLLBAR_HIT).max(0.0), body.h);
+    let max_x = crate::app::diff_max_scroll_x(
+        app.layout.editor,
+        view,
+        app.cell,
+        app.editor.active_tab_width(),
+    );
+    app.text_content_w = if max_x > 0.0 { track.w + max_x } else { 0.0 };
+    let (owner, scroll_x) = {
+        let doc = &app.editor.documents[index];
+        (doc.id.0, doc.scroll_x)
+    };
+    let thumb = hscrollbar_thumb(track, scroll_x, app.text_content_w);
+    let look = app.scrollbar_look(
+        ScrollArea::EditorHorizontal,
+        owner,
+        scroll_x,
+        thumb.map(|_| track),
+    );
+    if let Some(thumb) = thumb {
+        draw_thumb(frame, app.palette, thumb, look);
     }
 }
 

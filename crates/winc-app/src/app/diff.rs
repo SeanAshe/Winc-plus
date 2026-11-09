@@ -1118,6 +1118,23 @@ pub(crate) fn worktree_title(dirty: bool) -> &'static str {
     }
 }
 
+/// 差异 `view` 的最大横向滚动量（逻辑像素）。
+///
+/// 两侧共用一个滚动位置，按最长的一行相对右侧文字区的宽度计算。自动换行或一行放得下时为 0。
+pub(crate) fn diff_max_scroll_x(
+    editor: Rect,
+    view: &DiffView,
+    cell: f32,
+    tab_width: usize,
+) -> f32 {
+    if view.is_wrapping() {
+        return 0.0;
+    }
+    let text_w = diff_parts(editor, view, cell).panes[1].text.w;
+    let widest = view.widest(tab_width) as f32 * cell;
+    (widest - text_w + DIFF_TEXT_PAD + cell * 8.0).max(0.0)
+}
+
 /// 在编辑区 `editor` 里计算差异 `view` 的几何布局。
 ///
 /// 中间从左到右依次是「»」、左侧行号栏、带子、右侧行号栏、勾选框，两侧文字区平分剩余宽度；

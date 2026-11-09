@@ -1468,6 +1468,40 @@ fn word_wrap_applies_to_the_diff_view() {
 }
 
 #[test]
+fn the_diff_view_scrolls_sideways_from_the_bottom_bar() {
+    let Some((dir, file)) = long_lines_repo("git-diff-hscroll") else {
+        return;
+    };
+    let mut app = app_with(&dir, false);
+    app.settings_toggle(Setting::GitModule);
+    if git_unusable(&app) {
+        let _ = std::fs::remove_dir_all(&dir);
+        return;
+    }
+    app.fetch_changes(&file, Target::Open);
+    paint(&mut app);
+
+    // 长行超出一侧的文字区：正文下沿有横向滚动条，拖到右端能看到行尾。
+    let track = app.hscroll_track();
+    assert!(app.text_content_w > track.w);
+    let y = track.bottom() - 4.0;
+    app.on_mouse_move(track.x + 8.0, y);
+    assert_eq!(app.hover, Hover::Scrollbar(Scrollbar::EditorHorizontal));
+    app.on_mouse_down(MouseButton::Left);
+    app.on_mouse_move(track.right(), y);
+    app.on_mouse_up(MouseButton::Left);
+    let max = app.text_content_w - track.w;
+    assert!((app.editor.active().unwrap().scroll_x - max).abs() < 1.0);
+
+    // 自动换行后一行放得下，横向滚动条消失。
+    app.settings_toggle(Setting::WordWrap);
+    paint(&mut app);
+    assert_eq!(app.editor.active().unwrap().scroll_x, 0.0);
+    assert_eq!(app.text_content_w, 0.0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn toggling_word_wrap_keeps_the_top_line_of_the_diff_in_place() {
     let Some((dir, file)) = uneven_lines_repo("git-diff-wrap-top") else {
         return;

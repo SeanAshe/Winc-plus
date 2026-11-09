@@ -268,7 +268,7 @@ impl App {
                 bar: Scrollbar::EditorHorizontal,
                 grab,
             } => {
-                let track = self.text_hscroll_track();
+                let track = self.hscroll_track();
                 let content = self.text_content_w;
                 if let Some(doc) = self.editor.active_mut()
                     && let Some(thumb) = hscrollbar_thumb(track, doc.scroll_x, content)
