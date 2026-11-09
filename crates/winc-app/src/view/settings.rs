@@ -471,10 +471,8 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
         SettingControl::Button => {
             // 不支持应用内更新时说明行已写明原因，不显示按钮；正在检查、下载时按钮变淡。
             if app.updates_supported() {
-                let enabled = app.can_check_updates();
-                let label = t!("settings-check-now");
-                let role = ButtonRole::Normal;
-                draw_action_button(app, frame, row.control, label, role, enabled, hovered);
+                let (label, role, enabled) = update_button(app);
+                draw_action_button(app, frame, row.control, &label, role, enabled, hovered);
             }
             None
         }
@@ -545,6 +543,28 @@ fn draw_product(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Re
     }
     let x = (area.x + (area.w - w) / 2.0).round();
     ui_text(frame, app, x, area, &text, p.text_muted, clip);
+}
+
+/// 「关于」页更新按钮上的文字、样式，以及现在能不能点。
+///
+/// 还没找到新版本时是「检查更新」。找到之后与状态栏相同：下载安装、下载中显示百分比、
+/// 准备好之后重新启动；安装失败时是「重试」。正在检查或下载时按钮变淡，点了没有反应。
+fn update_button(app: &App) -> (String, ButtonRole, bool) {
+    use crate::app::UpdateClick;
+    use crate::winc::UpdateState;
+    let state = app.shared.update_state.borrow();
+    let enabled = UpdateClick::from_state(&state) != UpdateClick::None;
+    let (label, role) = match &*state {
+        UpdateState::Downloading(_, percent) => (format!("{percent}%"), ButtonRole::Normal),
+        UpdateState::Ready(_) => (t!("settings-update-restart").to_owned(), ButtonRole::Primary),
+        UpdateState::InstallFailed(_) => (
+            t!("settings-update-retry").to_owned(),
+            ButtonRole::Normal,
+        ),
+        UpdateState::Found(_) => (t!("settings-update-download").to_owned(), ButtonRole::Primary),
+        _ => (t!("settings-check-now").to_owned(), ButtonRole::Normal),
+    };
+    (label, role, enabled)
 }
 
 /// 「关于」页「更新」一行下方的状态文字和颜色；也是状态栏更新按钮的悬停提示（见
