@@ -647,9 +647,10 @@ fn large_utf16_is_searched_on_decoded_lines() {
     let found = search(&dir, &query("找到了"));
     let file = &found.results[0];
     assert_eq!(file.matches.len(), 1);
-    let newlines = units[2..]
-        .chunks_exact(2)
-        .filter(|c| u16::from_le_bytes([c[0], c[1]]) == u16::from(b'\n'))
+    let (pairs, _) = units[2..].as_chunks::<2>();
+    let newlines = pairs
+        .iter()
+        .filter(|unit| u16::from_le_bytes(**unit) == u16::from(b'\n'))
         .count();
     assert_eq!(file.matches[0].line, newlines - 1);
     fs::remove_dir_all(&dir).unwrap();

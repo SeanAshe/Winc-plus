@@ -664,10 +664,11 @@ fn large_utf16_opens_as_text_and_saves_back() {
     doc.save().unwrap();
     let saved = fs::read(&path).unwrap();
     assert!(saved.starts_with(&[0xFF, 0xFE]));
+    let (units, _) = saved[2..].as_chunks::<2>();
     let text = String::from_utf16(
-        &saved[2..]
-            .chunks_exact(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        &units
+            .iter()
+            .map(|unit| u16::from_le_bytes(*unit))
             .collect::<Vec<_>>(),
     )
     .unwrap();
