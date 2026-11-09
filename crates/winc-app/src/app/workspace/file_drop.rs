@@ -81,7 +81,8 @@ impl App {
     /// 返回拖入中的文件此刻的位置（逻辑像素）。
     ///
     /// 系统在拖动期间不发送鼠标移动事件，需要向系统查询；查不到时（测试中没有窗口，或平台不
-    /// 支持）使用最后一次鼠标移动的位置。
+    /// 支持）使用最后一次鼠标移动的位置。macOS 的坐标已经是点，再除以界面缩放；Windows 的
+    /// 坐标是物理像素，除以渲染器的缩放（系统缩放乘以界面缩放），与 `CursorMoved` 一致。
     fn drop_point(&self) -> (f32, f32) {
         #[cfg(target_os = "macos")]
         if let Some((x, y)) = self
@@ -90,6 +91,15 @@ impl App {
             .and_then(|w| crate::macos::mouse_location(w))
         {
             return (x / self.zoom(), y / self.zoom());
+        }
+        #[cfg(windows)]
+        if let Some((x, y)) = self
+            .window
+            .as_ref()
+            .and_then(|w| crate::windows::mouse_location(w))
+        {
+            let scale = self.renderer.as_ref().map_or(1.0, |r| r.scale_factor());
+            return (x / scale, y / scale);
         }
         self.mouse
     }

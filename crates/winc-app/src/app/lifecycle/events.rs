@@ -66,7 +66,10 @@ impl ApplicationHandler<UserEvent> for App {
         #[cfg(windows)]
         {
             use winit::platform::windows::{IconExtWindows, WindowAttributesExtWindows};
-            attributes = attributes.with_undecorated_shadow(true);
+            attributes = attributes
+                .with_undecorated_shadow(true)
+                // 接受资源管理器拖入的文件，拖到终端上时把路径贴进正在运行的程序。
+                .with_drag_and_drop(true);
             // 图标由构建脚本嵌入可执行文件；窗口类没有默认图标，要在这里指定。
             if let Ok(icon) = winit::window::Icon::from_resource(1, None) {
                 attributes = attributes
