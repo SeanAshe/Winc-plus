@@ -1084,13 +1084,20 @@ fn the_about_page_links_out_and_hides_unavailable_updates() {
         let (x, y) = settings_point(&app, part);
         assert_eq!(app.settings_part_at(x, y), Some(part));
     }
-    let control = app
-        .settings_layout()
-        .row(Setting::Repository)
-        .unwrap()
-        .control;
+    let layout = app.settings_layout();
+    let control = layout.row(Setting::Repository).unwrap().control;
+    let area = app
+        .settings_value_area(&layout, Setting::Repository)
+        .unwrap();
     let y = control.y + control.h / 2.0;
-    assert_eq!(app.settings_part_at(control.x + 2.0, y), None);
+    // 文字左缘之外的控件空白不可点。文字占满整行时没有这块空白。
+    if area.x > control.x + 1.0 {
+        assert_eq!(app.settings_part_at(area.x - 1.0, y), None);
+    }
+    assert_eq!(
+        app.settings_part_at(area.x + 1.0, y),
+        Some(SettingsPart::Link(Setting::Repository))
+    );
 
     // 不支持应用内更新时不显示「检查更新」按钮，也点不到。
     let button = app.settings_layout().row(Setting::Updates).unwrap().control;
