@@ -139,10 +139,10 @@ pub struct Config {
     /// 在打开的目录下查找仓库的层数，默认见 [`Config::REPOSITORY_SCAN_DEPTH`]，可用范围见
     /// [`Config::REPOSITORY_SCAN_DEPTH_RANGE`]。
     pub repository_scan_depth: Option<usize>,
-    /// 新建的工作树放在哪个目录下（按仓库分开，`<目录>/<仓库名>/<分支名>`）；可以用 `~/`，相对
-    /// 路径相对于主工作树。
+    /// 新建工作树的存放目录，按仓库分开：`<目录>/<仓库名>/<分支名>`。
     ///
-    /// 没写时放在仓库旁边的 `<仓库名>.worktrees` 里。
+    /// 开头的 `~/` 指仓库所在系统（本机或 WSL 发行版）中用户的主目录，相对路径相对于主工作树。
+    /// 未设置，或者该目录与仓库不在同一系统中时，存放在仓库旁边的 `<仓库名>.worktrees` 中。
     pub git_worktree_root: Option<String>,
     /// 新建工作树时复制过去的被忽略的文件（gitignore 写法的 glob，如 `.env*`），默认不复制。
     pub git_worktree_copy: Vec<String>,

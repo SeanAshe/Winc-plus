@@ -502,6 +502,7 @@ git-form-name-leading-dash = Branch names can't start with “-”
 git-form-name-exists = A branch with this name already exists
 git-form-current-branch-held = The current branch can't be checked out in another worktree
 git-form-stale-worktree = Checked out by a stale worktree; prune it first
+git-form-other-system = The selected location isn't on the same system as the repository
 git-form-create = Create
 git-form-open = Open
 git-op-new-worktree = creating worktree “{ $name }”

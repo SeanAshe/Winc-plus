@@ -27,7 +27,7 @@ use ropey::Rope;
 use winc_editor::diff_view::{DiffSide, DiffView};
 use winc_editor::encoding::{decode_known, decode_unknown};
 use winc_editor::format::Cancel;
-use winc_editor::git::{self, Branch, Change, Git, Ignored, Stash, Status, Unavailable, Worktree};
+use winc_editor::git::{self, Branch, Change, Git, Stash, Status, Unavailable, Worktree};
 use winc_editor::shell::Shell;
 use winc_editor::{DocumentId, Encoding, LARGE_FILE, looks_binary};
 use winc_i18n::t;
@@ -109,6 +109,8 @@ struct Refs {
     /// 取不到（git 太旧、超时）时为 `None`，保留此前的列表：否则被占用的分支、窗口标题、新建
     /// 工作树存放在哪儿都会跟着出错。
     worktrees: Option<Vec<Worktree>>,
+    /// 仓库所在系统中用户的主目录（[`winc_editor::wsl::home_dir`]）。
+    home: Option<PathBuf>,
 }
 
 /// 差异打开在哪里。
@@ -199,16 +201,18 @@ pub(crate) struct GitState {
     pub recent_branches: Vec<String>,
     /// 仓库的工作树，主工作树在最前面，和状态一起刷新；只有一个工作树时为空。
     pub worktrees: Vec<Worktree>,
+    /// 仓库所在系统中用户的主目录，和分支一起刷新；`git.worktreeRoot` 开头的 `~/` 展开为该目录。
+    pub home: Option<PathBuf>,
     /// 最近一次刷新失败的原因（找不到 git、git 报错）；成功以后清掉。
     pub problem: Option<String>,
     /// 状态每更新一次加 1；提交视图据此判断绘制时记下的行是否还对得上。
     pub generation: u64,
     /// 文件树要用的状态（[`Status::decorations`]）。
     pub decorations: HashMap<PathBuf, Change>,
-    /// 被忽略且未跟踪的文件和目录（[`Status::ignored`]），文件树以淡色绘制。
+    /// 被忽略且未跟踪的文件和目录（[`Status::ignored`]）。
+    ///
+    /// 文件树以淡色绘制这些路径，其下的变化不触发状态刷新。
     ignored_paths: HashSet<PathBuf>,
-    /// 仓库的忽略规则，判断一次变化要不要刷新。
-    ignored: Option<Ignored>,
     /// 正在运行的刷新；`None` 表示没有在运行。
     running: Option<Cancel>,
     /// 运行期间又要求刷新：完成以后再来一次。
@@ -249,11 +253,11 @@ impl Default for GitState {
             stashes: Vec::new(),
             recent_branches: Vec::new(),
             worktrees: Vec::new(),
+            home: None,
             problem: None,
             generation: 0,
             decorations: HashMap::new(),
             ignored_paths: HashSet::new(),
-            ignored: None,
             running: None,
             again: false,
             refs_wanted: false,
@@ -317,8 +321,8 @@ impl GitState {
         self.remote_list.clear();
         self.stashes.clear();
         self.worktrees.clear();
+        self.home = None;
         self.problem = None;
-        self.ignored = None;
         self.generation += 1;
         self.decorations.clear();
         self.ignored_paths.clear();
@@ -662,7 +666,6 @@ impl App {
         self.branch.running = None;
         self.branch.finished = None;
         self.reset_commit_view();
-        self.git.ignored = root.as_deref().map(Ignored::new);
         self.git.root = root;
         if let Some(root) = self.git.root.clone() {
             self.commit.restore_draft(&root);
@@ -701,24 +704,22 @@ impl App {
         self.request_redraw();
     }
 
-    /// 目录里有变化：路径都被忽略、`.git` 也没变时不刷新。
+    /// 处理目录监视报告的变化：`rescan` 或 `git` 为真时刷新状态和分支，否则仅当 `paths` 中有
+    /// 位于仓库内且未被忽略的路径时刷新状态。
     ///
-    /// `.gitignore` 变了先清除已读的规则；需要重新扫描时 `paths` 不完整，无从得知 `.gitignore`
-    /// 是否变了，也一并清除。
+    /// 是否被忽略以 `git` 上次给出的忽略列表为准（[`GitState::is_ignored`]）。该列表只含未跟踪的
+    /// 路径，因此已跟踪的文件即使匹配忽略规则，其改动仍然触发刷新。不在列表中的新文件触发一次
+    /// 刷新，之后即出现在列表中；`.gitignore` 自身不被忽略，其改动触发的刷新会得到新的列表。
     pub(super) fn git_paths_changed(&mut self, paths: &[PathBuf], rescan: bool, git: bool) {
-        let Some(ignored) = self.git.ignored.as_mut() else {
+        let Some(root) = self.git.root.as_deref() else {
             return;
         };
-        if rescan
-            || paths
-                .iter()
-                .any(|p| p.file_name().is_some_and(|n| n == ".gitignore"))
-        {
-            ignored.forget();
-        }
         if rescan || git {
             self.git_refresh();
-        } else if paths.iter().any(|p| !ignored.is_ignored(p)) {
+        } else if paths
+            .iter()
+            .any(|p| p.starts_with(root) && !self.git.is_ignored(p))
+        {
             self.git_refresh_status();
         }
     }
@@ -764,6 +765,7 @@ impl App {
                     stashes: git.stashes(&root, &cancel).unwrap_or_default(),
                     recent_branches: git.recent_branches(&root, &cancel).unwrap_or_default(),
                     worktrees: git.worktrees(&root, &cancel).ok(),
+                    home: winc_editor::wsl::home_dir(&root),
                 }),
                 _ => None,
             };
@@ -824,6 +826,7 @@ impl App {
                         self.git.recent_branches = refs.recent_branches;
                         self.git.remotes = refs.remotes;
                         self.git.remote_list = refs.remote_list;
+                        self.git.home = refs.home;
                         if let Some(watcher) = &mut self.watcher {
                             watcher.watch_git_dir(refs.common_dir.as_deref());
                         }

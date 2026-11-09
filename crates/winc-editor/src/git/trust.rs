@@ -57,9 +57,16 @@ fn risky_key(key: &str) -> bool {
 /// 只看仓库自己的配置（`local`、`worktree` 范围，含它们 `include` 进来的文件）：系统和用户
 /// 范围的配置由用户自己维护，视为用户的选择。`core.fsmonitor` 是布尔值时运行的是
 /// `git` 自带的监视进程，不计入。
-/// hooks 目录按 [`hooks_dir`] 确定（`root` 是工作树的根目录，`default` 是共用的 git 目录下的
-/// `hooks`），其中可执行的普通文件都算，`.sample` 示例除外。
-pub(super) fn parse_risks(stdout: &[u8], root: &Path, default: Option<&Path>) -> Risks {
+///
+/// 钩子目录由 [`hooks_dir`] 确定，其中可执行的普通文件都计入，`.sample` 示例除外。
+/// `root` 是工作树的根目录，`default` 是共用的 git 目录下的 `hooks`，
+/// `home` 是 `root` 所在系统中用户的主目录。
+pub(super) fn parse_risks(
+    stdout: &[u8],
+    root: &Path,
+    default: Option<&Path>,
+    home: Option<&Path>,
+) -> Risks {
     let mut risks = Risks::default();
     // 指纹依次写入每项设置（`键\n值`）和每个 hook（名字、内容），各段之后跟一个 0 字节。
     // 记录顺序和分隔符不能改：指纹记在状态文件里，变了就要用户重新确认所有信任过的仓库。
@@ -96,7 +103,7 @@ pub(super) fn parse_risks(stdout: &[u8], root: &Path, default: Option<&Path>) ->
     }
 
     // 先只列出名字排好序，再逐个读内容喂进指纹：同一时刻只有一个 hook 的内容在内存里。
-    let (dir, label) = hooks_dir(stdout, root, default).unzip();
+    let (dir, label) = hooks_dir(stdout, root, default, home).unzip();
     let mut hooks: Vec<(String, PathBuf)> = dir
         .and_then(|dir| std::fs::read_dir(dir).ok())
         .into_iter()
@@ -127,10 +134,15 @@ pub(super) fn parse_risks(stdout: &[u8], root: &Path, default: Option<&Path>) ->
 /// 返回 `git` 实际运行钩子的目录，以及列出钩子时写在名字前面的路径。
 ///
 /// 目录取最后一个 `core.hooksPath`（各范围都算，后出现的覆盖先出现的），列出时写配置里的原文；
-/// 没有设置时是 `default`，写作 `hooks`。相对路径从工作树的根目录 `root` 算起，`~/` 开头的路径
-/// 从主目录算起。系统和用户自己的配置里写的绝对路径是用户自己的钩子目录，不属于仓库，返回
-/// `None`。
-fn hooks_dir(stdout: &[u8], root: &Path, default: Option<&Path>) -> Option<(PathBuf, String)> {
+/// 没有设置时是 `default`，写作 `hooks`。相对路径从工作树的根目录 `root` 算起；`~/` 开头的路径
+/// 从 `home` 算起，`git` 同样按仓库所在系统中用户的主目录展开。系统和用户自己的配置里写的
+/// 绝对路径是用户自己的钩子目录，不属于仓库，返回 `None`。
+fn hooks_dir(
+    stdout: &[u8],
+    root: &Path,
+    default: Option<&Path>,
+    home: Option<&Path>,
+) -> Option<(PathBuf, String)> {
     let mut configured = None;
     let mut entries = stdout.split(|&b| b == 0);
     while let (Some(scope), Some(entry)) = (entries.next(), entries.next()) {
@@ -144,7 +156,7 @@ fn hooks_dir(stdout: &[u8], root: &Path, default: Option<&Path>) -> Option<(Path
     };
     let home = value
         .strip_prefix("~/")
-        .and_then(|rest| Some(PathBuf::from(std::env::var_os("HOME")?).join(rest)));
+        .and_then(|rest| Some(home?.join(rest)));
     let own = scope != b"local" && scope != b"worktree";
     let dir = match home {
         Some(_) if own => return None,
@@ -162,7 +174,10 @@ fn executable(metadata: &std::fs::Metadata) -> bool {
     metadata.permissions().mode() & 0o111 != 0
 }
 
-/// Windows 上 `git` 不看可执行位，hooks 目录里的文件都会运行。
+/// Windows 上的 `git` 不检查可执行位，钩子目录中的文件都会运行。
+///
+/// WSL 发行版中的仓库由发行版内的 `git` 运行钩子，不可执行的文件不会运行。Windows 无法读取
+/// 这类文件的可执行位，因此同样计入：结果最多多出一次信任确认，不会遗漏实际运行的钩子。
 #[cfg(not(unix))]
 fn executable(_: &std::fs::Metadata) -> bool {
     true
@@ -216,7 +231,13 @@ impl Git {
         ]);
         let stdout = self.run(&mut command, SHOW_TIMEOUT, &Cancel::default())?;
         let hooks = git_common_dir(root).map(|d| d.join("hooks"));
-        let risks = Arc::new(parse_risks(&stdout, root, hooks.as_deref()));
+        let home = crate::wsl::home_dir(root);
+        let risks = Arc::new(parse_risks(
+            &stdout,
+            root,
+            hooks.as_deref(),
+            home.as_deref(),
+        ));
         self.lock().risks.insert(root.to_path_buf(), risks.clone());
         Ok(risks)
     }

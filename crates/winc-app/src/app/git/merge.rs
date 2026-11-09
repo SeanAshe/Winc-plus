@@ -667,10 +667,7 @@ impl App {
         let name = winc_editor::display_name(&path).into_owned();
         self.git_operate(
             t!("git-op-mark-resolved", name = name.as_str()),
-            move |git, root| {
-                let relative = path.strip_prefix(root).unwrap_or(&path);
-                git.operate(root, &["add", "--", &relative.to_string_lossy()])
-            },
+            move |git, root| git.stage(root, &[path]),
         );
     }
 }

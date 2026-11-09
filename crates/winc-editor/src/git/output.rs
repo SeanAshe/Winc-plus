@@ -4,6 +4,7 @@
 //! 地址中的凭据在写入前被替换。
 
 use std::collections::VecDeque;
+use std::ffi::OsStr;
 use std::path::Path;
 use std::sync::{Mutex, PoisonError};
 
@@ -17,7 +18,7 @@ const TEXT_LIMIT: usize = 64 << 10;
 static RECORDS: Mutex<VecDeque<String>> = Mutex::new(VecDeque::new());
 
 /// 记录在仓库 `root` 中运行 `git args` 的结果：`code` 是退出码，进程未能正常结束时为 `None`。
-pub(super) fn record(root: &Path, args: &[&str], code: Option<i32>, output: &[u8]) {
+pub(super) fn record<S: AsRef<OsStr>>(root: &Path, args: &[S], code: Option<i32>, output: &[u8]) {
     let output = String::from_utf8_lossy(output).replace('\0', "");
     let entry = entry(root, args, code, &output);
     let mut records = RECORDS.lock().unwrap_or_else(PoisonError::into_inner);
@@ -37,8 +38,9 @@ pub fn output_text() -> String {
         .join("\n")
 }
 
-/// 返回一条命令结果的文本。
-fn entry(root: &Path, args: &[&str], code: Option<i32>, output: &str) -> String {
+/// 返回一条命令结果的文本；参数中不是 UTF-8 的部分按有损转换显示。
+fn entry<S: AsRef<OsStr>>(root: &Path, args: &[S], code: Option<i32>, output: &str) -> String {
+    let args: Vec<_> = args.iter().map(|a| a.as_ref().to_string_lossy()).collect();
     let command = redact(&args.join(" "));
     // 先替换再截断：截断点落在地址中间时，剩下的凭据前面已经没有 `://`，认不出来。
     let output = redact(output.trim_end());

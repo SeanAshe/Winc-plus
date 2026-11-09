@@ -154,7 +154,8 @@ impl App {
         let main =
             (self.git.worktrees.first().map(|w| w.path.as_path())).or(self.git.root.as_deref())?;
         let folder = self.config.git_worktree_root.as_deref();
-        Some(winc_editor::git::worktree_dir(main, folder, branch))
+        let home = self.git.home.as_deref();
+        Some(winc_editor::git::worktree_dir(main, folder, home, branch))
     }
 
     /// 分支操作菜单、日志菜单里写的新工作树的位置：默认位置写相对于仓库所在目录的

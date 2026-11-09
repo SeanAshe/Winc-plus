@@ -13,7 +13,7 @@ fn worktree_list_reads_branches_detached_and_states() {
          worktree /gone\0HEAD {a}\0branch refs/heads/feat/x\0prunable gitdir file points to non-existent location\0\0\
          worktree /bare.git\0bare\0\0"
     );
-    let list = parse_worktrees(output.as_bytes());
+    let list = parse_worktrees(output.as_bytes(), b'\0');
     assert_eq!(list.len(), 4);
     assert_eq!(list[0].path, Path::new("/repo"));
     assert_eq!(list[0].branch(), Some("main"));
@@ -22,7 +22,24 @@ fn worktree_list_reads_branches_detached_and_states() {
     assert_eq!(list[2].branch(), Some("feat/x"));
     assert!(list[2].prunable && !list[2].locked);
     assert_eq!(list[3].head, None);
-    assert!(parse_worktrees(b"").is_empty());
+    assert!(parse_worktrees(b"", b'\0').is_empty());
+}
+
+/// `git` 2.36 以前的输出以换行分隔，没有 `prunable`，`locked` 不带原因。
+#[test]
+fn worktree_list_reads_the_output_without_nul() {
+    let a = "a".repeat(40);
+    let output = format!(
+        "worktree /repo\nHEAD {a}\nbranch refs/heads/main\n\n\
+         worktree /repo.worktrees/fix\nHEAD {a}\ndetached\nlocked\n\n"
+    );
+    let list = parse_worktrees(output.as_bytes(), b'\n');
+    assert_eq!(list.len(), 2);
+    assert_eq!(list[0].path, Path::new("/repo"));
+    assert_eq!(list[0].branch(), Some("main"));
+    assert_eq!(list[1].path, Path::new("/repo.worktrees/fix"));
+    assert_eq!(list[1].head, Some(Head::Detached("aaaaaaa".into())));
+    assert!(list[1].locked);
 }
 
 /// 只有一个工作树时不运行 `git`（返回空列表）；加了一个之后两个都列出来，路径是解析过符号
@@ -83,17 +100,17 @@ fn new_worktrees_go_next_to_the_repository_with_unique_names() {
     let dir = crate::test_util::scratch("worktree-dir");
     let main = dir.join("winc");
     assert_eq!(
-        worktree_dir(&main, None, "feat/x"),
+        worktree_dir(&main, None, None, "feat/x"),
         dir.join("winc.worktrees").join("feat-x")
     );
     // 裸仓库去掉 `.git`；配置了目录时放在它下面按仓库分开，相对路径相对于主工作树。
     let other = dir.join("elsewhere");
     assert_eq!(
-        worktree_dir(&dir.join("winc.git"), other.to_str(), "main"),
+        worktree_dir(&dir.join("winc.git"), other.to_str(), None, "main"),
         other.join("winc").join("main")
     );
     assert_eq!(
-        worktree_dir(&main, Some("../trees"), "main"),
+        worktree_dir(&main, Some("../trees"), None, "main"),
         main.join("../trees").join("winc").join("main")
     );
     // 已有同名的目录时加 `-2`、`-3`。
@@ -101,9 +118,118 @@ fn new_worktrees_go_next_to_the_repository_with_unique_names() {
     std::fs::create_dir_all(&taken).unwrap();
     std::fs::create_dir_all(taken.with_file_name("fix-2")).unwrap();
     assert_eq!(
-        worktree_dir(&main, None, "fix"),
+        worktree_dir(&main, None, None, "fix"),
         taken.with_file_name("fix-3")
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 配置的目录以 `~/` 开头时放在仓库所在系统的主目录下；主目录未知时用默认位置。
+#[test]
+fn configured_roots_starting_with_a_tilde_use_the_given_home() {
+    let main = Path::new("/work/winc");
+    let home = Path::new("/home/me");
+    assert_eq!(
+        worktree_parent(main, Some("~/trees"), Some(home)),
+        home.join("trees").join("winc")
+    );
+    assert_eq!(
+        worktree_parent(main, Some("~/trees"), None),
+        Path::new("/work/winc.worktrees")
+    );
+}
+
+/// 配置的目录与仓库不在同一系统中时用默认位置；对发行版中的仓库，`~/` 指发行版内的主目录。
+#[cfg(windows)]
+#[test]
+fn configured_roots_on_another_system_are_not_used() {
+    let main = Path::new(r"\\wsl.localhost\Ubuntu\home\me\winc");
+    let beside = Path::new(r"\\wsl.localhost\Ubuntu\home\me\winc.worktrees");
+    assert_eq!(worktree_parent(main, Some(r"D:\trees"), None), beside);
+    let windows_home = Path::new(r"C:\Users\me");
+    assert_eq!(
+        worktree_parent(main, Some("~/trees"), Some(windows_home)),
+        beside
+    );
+    let linux_home = Path::new(r"\\wsl.localhost\Ubuntu\home\me");
+    assert_eq!(
+        worktree_parent(main, Some("~/trees"), Some(linux_home)),
+        linux_home.join("trees").join("winc")
+    );
+    // 发行版内的绝对路径接在仓库的访问路径上，仍在同一发行版中。
+    assert_eq!(
+        worktree_parent(main, Some("/srv/trees"), None),
+        Path::new(r"\\wsl.localhost\Ubuntu\srv\trees\winc")
+    );
+    let local = Path::new(r"C:\work\winc");
+    assert_eq!(
+        worktree_parent(local, Some(r"\\wsl.localhost\Ubuntu\trees"), None),
+        Path::new(r"C:\work\winc.worktrees")
+    );
+}
+
+/// `git` 不认识 `worktree list -z`（2.36 以前）时改用以换行分隔的输出，结果相同。
+#[cfg(unix)]
+#[test]
+fn old_git_lists_worktrees_without_nul() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let Some(git) = super::super::tests::real_git() else {
+        return;
+    };
+    let dir = crate::test_util::scratch("worktrees-old-git");
+    let main = dir.join("repo");
+    std::fs::create_dir_all(&main).unwrap();
+    let sh = |args: &[&str]| {
+        let ok = Command::new("git")
+            .arg("-C")
+            .arg(&main)
+            .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+            .args(["-c", "commit.gpgsign=false"])
+            .args(args)
+            .output()
+            .unwrap()
+            .status
+            .success();
+        assert!(ok, "git {args:?}");
+    };
+    sh(&["init", "-q", "-b", "main"]);
+    sh(&["commit", "-q", "--allow-empty", "-m", "first"]);
+    let linked = dir.join("repo.worktrees").join("feat");
+    sh(&[
+        "worktree",
+        "add",
+        "-q",
+        "-b",
+        "feat",
+        linked.to_str().unwrap(),
+    ]);
+
+    let script = dir.join("git");
+    let body = format!(
+        "#!/bin/sh\n\
+         case \" $* \" in *' worktree list '*' -z '*) echo 'error: unknown switch' >&2; exit 129;; esac\n\
+         exec '{}' \"$@\"\n",
+        git.program.display()
+    );
+    std::fs::write(&script, body).unwrap();
+    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let rejected = Command::new(&script)
+        .arg("-C")
+        .arg(&main)
+        .args(["worktree", "list", "--porcelain", "-z"])
+        .output()
+        .unwrap();
+    assert_eq!(rejected.status.code(), Some(129));
+
+    let old = Git {
+        program: script,
+        ..git.clone()
+    };
+    let cancel = Cancel::default();
+    let list = old.worktrees(&main, &cancel).unwrap();
+    assert_eq!(list.len(), 2);
+    assert_eq!(list, git.worktrees(&main, &cancel).unwrap());
     let _ = std::fs::remove_dir_all(&dir);
 }
 

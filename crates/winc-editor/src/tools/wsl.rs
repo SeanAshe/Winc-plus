@@ -18,6 +18,14 @@ const HOSTS: [&str; 2] = ["wsl.localhost", "wsl$"];
 pub(crate) const GIT_ENV: &str = "GIT_OPTIONAL_LOCKS:GIT_TERMINAL_PROMPT:GIT_EDITOR:GIT_SEQUENCE_EDITOR:GIT_INDEX_FILE:NO_COLOR:LC_ALL:\
 LANGUAGE";
 
+/// 发行版内的 `git` 经互操作运行 Windows 上的 askpass 程序时，在 [`GIT_ENV`] 之外传递的环境变量。
+///
+/// 程序路径按 `/p` 换算为发行版内的路径，带 `/u` 的变量只传入发行版。
+/// 端点 `WINC_GIT_ASKPASS` 不带标志，由 `git` 继续传给 askpass 程序；
+/// `ssh` 设置的 `SSH_ASKPASS_PROMPT` 带 `/w`，只从发行版传回 Windows。
+pub(crate) const ASKPASS_ENV: &str = "GIT_ASKPASS/pu:SSH_ASKPASS/pu:SSH_ASKPASS_REQUIRE/u:\
+WINC_GIT_ASKPASS:SSH_ASKPASS_PROMPT/w";
+
 /// 通过 `WSLENV` 传给发行版内格式化工具的环境变量。
 pub(crate) const FORMAT_ENV: &str = "WINC_FILE:NO_COLOR";
 
@@ -32,6 +40,9 @@ const RUN_WINDOWS_FILE: &str = r#"exec "$(wslpath -u "$0")" "$@""#;
 /// 已查询过的各发行版用户 `PATH`：（发行版名称，值）；查询失败时值为 `None`。
 static LOGIN_PATHS: Mutex<Vec<(String, Option<String>)>> = Mutex::new(Vec::new());
 
+/// 已查询过的各发行版用户主目录：（发行版名称，发行版内的路径）；查询失败时值为 `None`。
+static HOMES: Mutex<Vec<(String, Option<String>)>> = Mutex::new(Vec::new());
+
 /// 在发行版内核对并复制文件权限的脚本：`$1` 是原文件，`$2` 是临时文件。
 ///
 /// 原文件有多个硬链接或属于其他用户时以非零状态退出，这时改名替换会改变文件的身份。
@@ -41,6 +52,27 @@ const KEEP_IDENTITY: &str = concat!(
     r#"chmod "$(stat -c %a "$1")" "$2""#,
 );
 
+/// 在发行版内复制文件的脚本：`$1` 是源目录，`$2` 是目标目录，其余参数是相对于两者的路径。
+///
+/// `cp -a` 保留权限和符号链接。每复制完一项，输出该项的路径并以 NUL 结尾；
+/// 某一项复制失败时以非零状态退出。
+const COPY_ENTRIES: &str = concat!(
+    r#"from=$1 to=$2; shift 2; for p do "#,
+    r#"mkdir -p -- "$to/$(dirname -- "$p")" && cp -a -- "$from/$p" "$to/$p" || exit 1; "#,
+    r#"printf '%s\0' "$p"; done"#,
+);
+
+/// 单次复制命令中路径参数的总长度上限（字节）。
+///
+/// Windows 命令行最长 32767 个 UTF-16 码元，路径的 UTF-8 字节数不少于其码元数；取约一半，
+/// 为脚本、源目录和目标目录等其他参数留出余量。
+const COPY_ARGS_LIMIT: usize = 16 << 10;
+
+/// 发行版内复制的最长等待时间（30 分钟）。
+///
+/// 复制依赖目录等大型目录可能需要数分钟；超时只用于结束失去响应的进程。
+const COPY_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+
 /// 发行版内单次查询的最长等待时间（秒）。
 ///
 /// 发行版尚未启动时包含其启动耗时，取值与 `git` 只读查询的超时相同。
@@ -49,8 +81,11 @@ const QUERY_TIMEOUT: Duration = Duration::from_secs(10);
 /// 发行版中的一个位置。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Location {
-    /// 路径中的主机名。换算回 Windows 路径时沿用，使同一仓库的路径可以相互比较。
-    host: String,
+    /// 路径开头到发行版名称之前的部分，按原样保留（`\\wsl.localhost\`、`\\?\UNC\WSL$\` 等）。
+    ///
+    /// 换算回 Windows 路径时沿用该部分，同一仓库中的路径才能直接比较：Windows 上比较路径时，
+    /// 前缀的种类或主机名的大小写不同即视为不同的路径。
+    prefix: String,
     /// 发行版名称。
     pub distro: String,
     /// 发行版内的绝对路径。
@@ -63,16 +98,24 @@ pub struct Location {
 #[must_use]
 pub fn locate(path: &Path) -> Option<Location> {
     let text = path.to_string_lossy().replace('/', "\\");
+    let verbatim = r"\\?\UNC\";
     let rest = text
-        .strip_prefix(r"\\?\UNC\")
+        .strip_prefix(verbatim)
         .or_else(|| text.strip_prefix(r"\\"))?;
     let mut parts = rest.split('\\').filter(|part| !part.is_empty());
     let host = parts.next()?;
-    let host = HOSTS.iter().find(|h| h.eq_ignore_ascii_case(host))?;
+    if !HOSTS.iter().any(|h| h.eq_ignore_ascii_case(host)) {
+        return None;
+    }
+    let lead = if text.starts_with(verbatim) {
+        verbatim
+    } else {
+        r"\\"
+    };
     let distro = parts.next()?.to_owned();
     let path = parts.fold(String::new(), |path, part| path + "/" + part);
     Some(Location {
-        host: (*host).to_owned(),
+        prefix: format!(r"{lead}{host}\"),
         distro,
         path: if path.is_empty() {
             "/".to_owned()
@@ -86,6 +129,60 @@ pub fn locate(path: &Path) -> Option<Location> {
 #[must_use]
 pub fn locate_here(path: &Path) -> Option<Location> {
     if cfg!(windows) { locate(path) } else { None }
+}
+
+/// `a` 与 `b` 是否位于同一系统中：同一个发行版，或者都不在发行版中。
+///
+/// 一侧的 `git` 无法使用另一侧的路径，由 `git` 记录路径的目录（例如工作树）须与仓库位于同一系统。
+#[must_use]
+pub fn same_system(a: &Path, b: &Path) -> bool {
+    match (locate_here(a), locate_here(b)) {
+        (Some(a), Some(b)) => a.distro.eq_ignore_ascii_case(&b.distro),
+        (a, b) => a.is_none() && b.is_none(),
+    }
+}
+
+/// 返回 `root` 所在系统中当前用户的主目录；无法取得时返回 `None`。
+///
+/// `root` 位于发行版中时，返回发行版内 `HOME` 在 Windows 上的访问路径；
+/// 否则返回本机用户的主目录（Windows 上为 `USERPROFILE`，其他平台为 `HOME`）。
+/// 发行版内的查询需要运行 `wsl.exe`，每个发行版在进程内只查询一次，界面线程应使用后台取得的结果。
+#[must_use]
+pub fn home_dir(root: &Path) -> Option<PathBuf> {
+    let Some(place) = locate_here(root) else {
+        let name = if cfg!(windows) { "USERPROFILE" } else { "HOME" };
+        return std::env::var_os(name).map(PathBuf::from);
+    };
+    let home = remembered(&HOMES, &place.distro, || {
+        let mut command = Command::new("wsl.exe");
+        enter(&mut command, &place.distro);
+        command
+            .args(["--exec", "printenv", "HOME"])
+            .stderr(Stdio::null());
+        let output =
+            process::run(&mut command, Vec::new(), QUERY_TIMEOUT, &Cancel::default()).ok()?;
+        let text = String::from_utf8(output.stdout).ok()?;
+        let home = text.trim_end_matches('\n');
+        (output.status.success() && home.starts_with('/')).then(|| home.to_owned())
+    })?;
+    Some(place.windows_path(&home))
+}
+
+/// 返回 `store` 中发行版 `distro` 的查询结果。
+///
+/// 尚未查询时运行 `query` 并记下结果，失败的结果同样记下。运行 `query` 期间不持有锁。
+fn remembered(
+    store: &Mutex<Vec<(String, Option<String>)>>,
+    distro: &str,
+    query: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    let entries = || store.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some((_, value)) = entries().iter().find(|(name, _)| name == distro) {
+        return value.clone();
+    }
+    let value = query();
+    entries().push((distro.to_owned(), value.clone()));
+    value
 }
 
 /// 把 `git` 输出的路径 `text` 转换为本机路径。
@@ -142,29 +239,25 @@ pub(crate) fn enter(command: &mut Command, distro: &str) {
 /// 运行用户的 shell 可能较慢，启动脚本还可能等到 [`QUERY_TIMEOUT`]，因此每个发行版在进程内只查询
 /// 一次，失败的结果同样保留。
 pub(crate) fn login_path(distro: &str) -> Option<String> {
-    let paths = || LOGIN_PATHS.lock().unwrap_or_else(PoisonError::into_inner);
-    if let Some((_, path)) = paths().iter().find(|(name, _)| name == distro) {
-        return path.clone();
-    }
-    let mut command = Command::new("wsl.exe");
-    enter(&mut command, distro);
-    command
-        .args([
-            "--exec",
-            "sh",
-            "-c",
-            LOGIN_SHELL,
-            &environment::print_script(),
-        ])
-        // 用户的启动脚本可据此跳过只应在打开终端时运行的内容（启动 tmux、代理进程等）。
-        .env("WINC_RESOLVING_ENVIRONMENT", "1")
-        .env("WSLENV", "WINC_RESOLVING_ENVIRONMENT")
-        .stderr(Stdio::null());
-    let path = process::run(&mut command, Vec::new(), QUERY_TIMEOUT, &Cancel::default())
-        .ok()
-        .and_then(|output| environment::path_in(&output.stdout));
-    paths().push((distro.to_owned(), path.clone()));
-    path
+    remembered(&LOGIN_PATHS, distro, || {
+        let mut command = Command::new("wsl.exe");
+        enter(&mut command, distro);
+        command
+            .args([
+                "--exec",
+                "sh",
+                "-c",
+                LOGIN_SHELL,
+                &environment::print_script(),
+            ])
+            // 用户的启动脚本可据此跳过只应在打开终端时运行的内容（启动 tmux、代理进程等）。
+            .env("WINC_RESOLVING_ENVIRONMENT", "1")
+            .env("WSLENV", "WINC_RESOLVING_ENVIRONMENT")
+            .stderr(Stdio::null());
+        process::run(&mut command, Vec::new(), QUERY_TIMEOUT, &Cancel::default())
+            .ok()
+            .and_then(|output| environment::path_in(&output.stdout))
+    })
 }
 
 /// 让 `command`（`wsl.exe`）在 `path` 下运行随后的 shell 脚本和参数；`path` 是 `None` 时由登录
@@ -291,6 +384,57 @@ pub(crate) fn keep_identity(target: &Path, temp: &Path) -> std::io::Result<()> {
     }
 }
 
+/// 在发行版内把 `from` 中的各项 `entries`（相对路径）复制到同一发行版中 `to` 的相同位置。
+///
+/// 返回复制的项数，`to` 中已有的项由调用方排除。Windows 无法读写发行版中文件的 Linux 权限，
+/// 经文件共享复制会丢失可执行位，因此在发行版内复制。
+///
+/// # Errors
+///
+/// 某一项复制失败时返回该项的路径和原因；此前已复制的项保留。
+pub(crate) fn copy_entries(
+    from: &Location,
+    to: &Location,
+    entries: &[String],
+    cancel: &Cancel,
+) -> Result<usize, (String, String)> {
+    let mut copied = 0;
+    let mut rest = entries;
+    while !rest.is_empty() {
+        let mut size = 0;
+        let fits = rest.iter().take_while(|entry| {
+            size += entry.len() + 1;
+            size <= COPY_ARGS_LIMIT
+        });
+        let (chunk, next) = rest.split_at(fits.count().max(1));
+        let mut command = Command::new("wsl.exe");
+        enter(&mut command, &from.distro);
+        command
+            .args([
+                "--exec",
+                "sh",
+                "-c",
+                COPY_ENTRIES,
+                "sh",
+                &from.path,
+                &to.path,
+            ])
+            .args(chunk)
+            .stderr(Stdio::piped());
+        let failed = |done: usize, error: String| (chunk[done.min(chunk.len() - 1)].clone(), error);
+        let output = process::run(&mut command, Vec::new(), COPY_TIMEOUT, cancel)
+            .map_err(|e| failed(0, e.to_string()))?;
+        let done = output.stdout.iter().filter(|&&b| b == 0).count();
+        copied += done;
+        if !output.status.success() {
+            let error = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+            return Err(failed(done, error));
+        }
+        rest = next;
+    }
+    Ok(copied)
+}
+
 /// 本机是否已安装 WSL。只检查 `wsl.exe` 是否存在，不启动它。
 #[must_use]
 pub fn available() -> bool {
@@ -303,7 +447,7 @@ impl Location {
     /// 返回本发行版内的绝对路径 `linux` 在 Windows 上的访问路径。
     #[must_use]
     pub fn windows_path(&self, linux: &str) -> PathBuf {
-        let mut text = format!(r"\\{}\{}", self.host, self.distro);
+        let mut text = format!("{}{}", self.prefix, self.distro);
         for part in linux.split('/').filter(|part| !part.is_empty()) {
             text.push('\\');
             text.push_str(part);
