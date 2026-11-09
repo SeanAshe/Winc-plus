@@ -963,10 +963,22 @@ fn the_about_page_shows_the_version_and_the_update_state() {
         app.update_click()
     };
     assert_eq!(click(&mut app, UpdateState::Idle), UpdateClick::Check);
-    assert_eq!(click(&mut app, UpdateState::Found("0.1.400".into())), UpdateClick::Install);
-    assert_eq!(click(&mut app, UpdateState::Downloading("0.1.400".into(), 40)), UpdateClick::None);
-    assert_eq!(click(&mut app, UpdateState::Ready("0.1.400".into())), UpdateClick::Restart);
-    assert_eq!(click(&mut app, UpdateState::InstallFailed("disk".into())), UpdateClick::Install);
+    assert_eq!(
+        click(&mut app, UpdateState::Found("0.1.400".into())),
+        UpdateClick::Install
+    );
+    assert_eq!(
+        click(&mut app, UpdateState::Downloading("0.1.400".into(), 40)),
+        UpdateClick::None
+    );
+    assert_eq!(
+        click(&mut app, UpdateState::Ready("0.1.400".into())),
+        UpdateClick::Restart
+    );
+    assert_eq!(
+        click(&mut app, UpdateState::InstallFailed("disk".into())),
+        UpdateClick::Install
+    );
     assert_eq!(click(&mut app, UpdateState::Checking), UpdateClick::None);
     std::fs::remove_dir_all(&dir).unwrap();
 }

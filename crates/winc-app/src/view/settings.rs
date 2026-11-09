@@ -556,12 +556,17 @@ fn update_button(app: &App) -> (String, ButtonRole, bool) {
     let enabled = UpdateClick::from_state(&state) != UpdateClick::None;
     let (label, role) = match &*state {
         UpdateState::Downloading(_, percent) => (format!("{percent}%"), ButtonRole::Normal),
-        UpdateState::Ready(_) => (t!("settings-update-restart").to_owned(), ButtonRole::Primary),
-        UpdateState::InstallFailed(_) => (
-            t!("settings-update-retry").to_owned(),
-            ButtonRole::Normal,
+        UpdateState::Ready(_) => (
+            t!("settings-update-restart").to_owned(),
+            ButtonRole::Primary,
         ),
-        UpdateState::Found(_) => (t!("settings-update-download").to_owned(), ButtonRole::Primary),
+        UpdateState::InstallFailed(_) => {
+            (t!("settings-update-retry").to_owned(), ButtonRole::Normal)
+        }
+        UpdateState::Found(_) => (
+            t!("settings-update-download").to_owned(),
+            ButtonRole::Primary,
+        ),
         _ => (t!("settings-check-now").to_owned(), ButtonRole::Normal),
     };
     (label, role, enabled)

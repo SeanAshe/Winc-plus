@@ -94,7 +94,8 @@ pub fn move_to_recycle_bin(path: &Path) -> io::Result<()> {
 #[allow(unsafe_code)] // GetCursorPos、ScreenToClient
 pub fn mouse_location(window: &Window) -> Option<(f32, f32)> {
     use windows_sys::Win32::Foundation::POINT;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{GetCursorPos, ScreenToClient};
+    use windows_sys::Win32::Graphics::Gdi::ScreenToClient;
+    use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
 
     let handle = window.window_handle().ok()?;
     let RawWindowHandle::Win32(win32) = handle.as_raw() else {

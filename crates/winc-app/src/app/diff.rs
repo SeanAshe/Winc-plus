@@ -1121,12 +1121,7 @@ pub(crate) fn worktree_title(dirty: bool) -> &'static str {
 /// 差异 `view` 的最大横向滚动量（逻辑像素）。
 ///
 /// 两侧共用一个滚动位置，按最长的一行相对右侧文字区的宽度计算。自动换行或一行放得下时为 0。
-pub(crate) fn diff_max_scroll_x(
-    editor: Rect,
-    view: &DiffView,
-    cell: f32,
-    tab_width: usize,
-) -> f32 {
+pub(crate) fn diff_max_scroll_x(editor: Rect, view: &DiffView, cell: f32, tab_width: usize) -> f32 {
     if view.is_wrapping() {
         return 0.0;
     }

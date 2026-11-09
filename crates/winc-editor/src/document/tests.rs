@@ -649,7 +649,7 @@ fn large_utf16_opens_as_text_and_saves_back() {
     assert_eq!(doc.encoding, Encoding::Utf16Le);
     assert!(!doc.is_large() && !doc.readonly);
     assert_eq!(doc.line_ending, LineEnding::CrLf);
-    assert!(doc.text().line_content(0).slice().starts_with("KEY_"));
+    assert!(doc.text().line_content(0).slice().to_string().starts_with("KEY_"));
     let needle = doc.text().line_count() - 2;
     assert_eq!(doc.text().line_content(needle).slice(), "NEEDLE\t找到了");
 
