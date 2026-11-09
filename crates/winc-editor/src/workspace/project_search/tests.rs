@@ -632,6 +632,30 @@ fn reading_in_chunks_finds_what_the_opened_file_shows() {
 }
 
 #[test]
+fn large_utf16_is_searched_on_decoded_lines() {
+    let dir = scratch("large-utf16-search");
+    let line = format!("KEY_{}\t平\r\n", "a".repeat(240));
+    let mut units = vec![0xFF, 0xFE];
+    let encoded: Vec<u8> = line.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    while units.len() as u64 <= LARGE_FILE {
+        units.extend_from_slice(&encoded);
+    }
+    let tail = "NEEDLE\t找到了\r\n";
+    units.extend(tail.encode_utf16().flat_map(u16::to_le_bytes));
+    write(&dir, "CommonLocalization.txt", &units);
+
+    let found = search(&dir, &query("找到了"));
+    let file = &found.results[0];
+    assert_eq!(file.matches.len(), 1);
+    let newlines = units[2..]
+        .chunks_exact(2)
+        .filter(|c| u16::from_le_bytes([c[0], c[1]]) == u16::from(b'\n'))
+        .count();
+    assert_eq!(file.matches[0].line, newlines - 1);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn large_files_are_searched_and_replaced_too() {
     let dir = scratch("large-replace");
     let mut text = b"needle\r\n".to_vec();

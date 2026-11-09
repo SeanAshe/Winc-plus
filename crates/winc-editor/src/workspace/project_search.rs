@@ -35,7 +35,9 @@ use winc_core::Lines;
 
 use crate::document::encoding::{UTF8_BOM, decode, utf16_bom};
 use crate::document::large::{LINE_CAP, visible_len};
-use crate::document::{BINARY_SNIFF, Document, DocumentId, LARGE_FILE, OPEN_LIMIT, looks_binary};
+use crate::document::{
+    BINARY_SNIFF, Document, DocumentId, LARGE_FILE, OPEN_LIMIT, UTF16_INLINE, looks_binary,
+};
 use crate::editing::search::{Matcher, Options, Pattern, Search, count_chars, joined, unescape};
 use crate::workspace::tree::{is_listed_file, natural_cmp, walker, walker_with_ignored};
 
