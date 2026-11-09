@@ -17,10 +17,17 @@ export const releasePlatforms = Object.keys(specifications);
 export function releaseAssets(platform, version) {
   msiVersion(version);
   if (!specifications[platform]) throw new Error(`unsupported release platform: ${platform}`);
-  return specifications[platform].map(([directory, suffix, role]) => ({
+  const assets = specifications[platform].map(([directory, suffix, role]) => ({
     directory, extension: suffix, update: role === "update", feed: role === "feed",
     name: role === "feed" ? suffix : `Winc-${version}-${platform}${suffix}`,
   }));
+  if (platform === "linux-x64" && /^\d+\.\d+\.\d+$/.test(version)) {
+    assets.push({
+      directory: "arch", extension: ".pkg.tar.zst", update: false, feed: false,
+      name: `winc-${version}-1-x86_64.pkg.tar.zst`,
+    });
+  }
+  return assets;
 }
 
 export function requireFile(file) {

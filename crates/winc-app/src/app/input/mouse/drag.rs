@@ -1,4 +1,4 @@
-//! 移动鼠标：悬停、各种拖动、拖选文字时贴边滚动。
+//! 鼠标移动：悬停、各类拖动，以及拖选文字时的边缘自动滚动。
 
 use super::*;
 
@@ -8,16 +8,16 @@ impl App {
         self.mouse = (x, y);
         self.update_scrollbar_hover(x, y);
 
-        // 鼠标离开顶栏：解除关闭标签时锁定的宽度，标签重新排开。
+        // 鼠标离开顶栏时解除关闭标签期间锁定的宽度，标签重新排布。
         if y >= TOP_BAR_END && self.tabs.width_lock.take().is_some() {
             self.request_redraw();
         }
 
-        // 窗口内的提示框、菜单在最上面：打开期间只有它们响应悬停。
+        // 窗口内的提示框和菜单位于最上层，打开期间只有它们响应悬停。
         if self.alert_mouse_move(x, y) || self.popup_mouse_move(x, y) {
             return;
         }
-        // 对话框和设置浮层覆盖整个窗口：下方的按钮、文件树都不响应悬停，只判断浮层内的各部分。
+        // 对话框和设置浮层覆盖整个窗口：下方的按钮和文件树不响应悬停，只判断浮层内的各部分。
         if self.form_dialog.is_some() {
             self.hover_form_dialog(x, y);
             return;
@@ -102,7 +102,7 @@ impl App {
                 start_width,
             } => {
                 // 宽度拖到最小宽度的一半以下时收起侧栏，拖回该阈值以上时重新打开。
-                // 收起时宽度恢复为拖动前的值，之后用 `⌘B` 打开仍是原来的宽度。
+                // 收起时宽度恢复为拖动前的值，之后用 `⌘B` 打开时仍为拖动前的宽度。
                 let width = start_width + x - start_x;
                 if width < MIN_PANEL_WIDTH / 2.0 {
                     if self.panel_visible {
@@ -125,8 +125,8 @@ impl App {
             }
             Drag::OutlineDivider { start, size } => self.drag_outline_divider(start, size, y),
             Drag::TerminalDivider { start, size } => {
-                // 往上（在右边时往左）拖面板变大；限制在排版允许的范围里再记下，
-                // 记的就是画出来的大小。
+                // 向上（面板在右侧时向左）拖动使面板变大；按排版允许的范围限制后再记录，
+                // 使记录的尺寸等于绘制的尺寸。
                 if self.terminal_right() {
                     self.terminal.width = size - (x - start);
                     self.relayout();
@@ -142,7 +142,7 @@ impl App {
                 start_x,
                 start_left,
             } => {
-                // 比例按分开之前编辑区的总宽度计算，排版时再夹在两边的最小宽度之间。
+                // 比例按分栏前编辑区的总宽度计算，排版时再限制在两侧的最小宽度之间。
                 let total = self.layout.editor.w + self.layout.split.w + 1.0;
                 if total > 0.0 {
                     let left = start_left + (x - start_x);
@@ -155,7 +155,7 @@ impl App {
                 start_x,
                 start_width,
             } => {
-                // 往左拖详情变宽。夹在排版允许的范围里再存，存的就是画出来的宽度。
+                // 向左拖动使详情变宽；按排版允许的范围限制后再保存，使保存的宽度等于绘制的宽度。
                 self.log.details_w = Some(start_width - (x - start_x));
                 self.log.details_w = Some(self.log_parts().details.w);
                 self.request_redraw();
@@ -215,10 +215,16 @@ impl App {
                 bar: Scrollbar::Commit,
                 grab,
             } => {
-                let list = self.commit_parts().list;
-                let max = self.commit_max_scroll();
-                if let Some(thumb) = scrollbar_thumb(list, 0.0, max + list.h) {
-                    self.commit.scroll = scroll_for_thumb(list.y, list.h, thumb.h, y, grab, max);
+                // 历史提交的文件列表借用提交视图的列表，滚动方式相同。
+                let drag = |app: &mut App| {
+                    let list = app.commit_parts().list;
+                    let max = app.commit_max_scroll();
+                    if let Some(thumb) = scrollbar_thumb(list, 0.0, max + list.h) {
+                        app.commit.scroll = scroll_for_thumb(list.y, list.h, thumb.h, y, grab, max);
+                    }
+                };
+                if self.with_log_list(drag).is_none() && self.commit_shown() {
+                    drag(self);
                 }
                 self.request_redraw();
             }
@@ -259,7 +265,8 @@ impl App {
                 if let Some(thumb) = scrollbar_thumb(track, 0.0, self.content_height())
                     && let Some(doc) = self.editor.active_mut()
                 {
-                    doc.scroll_line = scroll_for_thumb(track.y, track.h, thumb.h, y, grab, max);
+                    let at = scroll_for_thumb(track.y, track.h, thumb.h, y, grab, 1.0);
+                    doc.scroll_line = f64::from(at) * max;
                 }
 
                 self.request_redraw();
@@ -278,7 +285,7 @@ impl App {
                 }
                 self.request_redraw();
             }
-            // 设置浮层打开时在上面处理，不会走到这里。
+            // 设置浮层打开时已在前面的分支处理，不会执行到此处。
             Drag::Scrollbar {
                 bar: Scrollbar::Settings,
                 ..
@@ -370,7 +377,8 @@ impl App {
         if let Some(doc) = self.editor.active_mut() {
             if outside != 0.0 {
                 let step = drag_scroll_speed(outside.abs() / lh) * seconds;
-                doc.scroll_line = (doc.scroll_line + step.copysign(outside)).clamp(0.0, max);
+                doc.scroll_line =
+                    (doc.scroll_line + f64::from(step.copysign(outside))).clamp(0.0, max);
             }
             if outside_x != 0.0 {
                 let step = drag_scroll_speed(outside_x.abs() / cell) * cell * seconds;
@@ -448,8 +456,8 @@ impl App {
 
 /// 返回鼠标超出编辑区边缘 `lines` 行时的滚动速度（行/秒）。
 ///
-/// 紧贴边缘时为 6 行/秒，每远一行加 6 行/秒，上限 120 行/秒（经验值）：刚超出边缘时
-/// 能逐行看清内容，拖远后可以快速到达文档两端。
+/// 紧贴边缘时为 6 行/秒，每远一行增加 6 行/秒，上限 120 行/秒。取自调参：刚超出边缘时可以
+/// 逐行查看内容，拖远后可以快速到达文档两端。
 fn drag_scroll_speed(lines: f32) -> f32 {
     (6.0 + 6.0 * lines).min(120.0)
 }

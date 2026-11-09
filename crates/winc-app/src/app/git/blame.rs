@@ -1,9 +1,9 @@
-//! 逐行追溯（`git blame`）：行号栏左边多一栏，写每一行最后是谁、什么时候改的。
+//! 逐行追溯（`git blame`）：在行号栏左侧增加一栏，显示每一行最后一次修改的作者与时间。
 //!
-//! 按文档开关（命令「Git：逐行追溯」、编辑区右键菜单）。打开以后在后台运行
-//! `git blame --porcelain --contents -`，把编辑器里的内容（含未保存的修改）交给 git，行号与
-//! 编辑器一致，改过还没提交的行算「未提交」；打字时不每次都运行 git，停手 [`BLAME_IDLE`] 或
-//! 保存后再在后台重算。绘制在 `view/editor.rs` 的行号栏里。
+//! 按文档开关（命令「Git：逐行追溯」、编辑区右键菜单）。开启后在后台运行
+//! `git blame --porcelain --contents -`，将编辑器中的内容（含未保存的修改）交给 `git`，使行号与
+//! 编辑器一致，已修改但未提交的行记为「未提交」。输入时不每次运行 `git`，停止输入
+//! [`BLAME_IDLE`] 后或保存后在后台重新计算。该栏由 `view/editor.rs` 在行号栏中绘制。
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -24,26 +24,26 @@ use super::log::{display_at, local_text, short};
 use super::unusable;
 use crate::app::{App, UserEvent};
 
-/// 逐行追溯那一栏的宽度（逻辑像素）。
+/// 逐行追溯一栏的宽度（逻辑像素）。
 ///
-/// 176 是经验值：容得下 7 位提交号、作者名和日期的常见长度。
+/// 取自调参：可容纳 7 位提交号以及常见长度的作者名和日期。
 pub(crate) const BLAME_W: f32 = 176.0;
 
-/// 停止输入多久以后重新运行 `git blame`（时长，经验值 1 秒）。
+/// 停止输入后重新运行 `git blame` 的等待时长。
 ///
-/// 在这之前按改动就地挪动上一次的结果，连续输入时不反复运行 git。
+/// 取自调参：连续输入期间不反复运行 `git`。在此之前按改动原地平移上一次的结果。
 const BLAME_IDLE: Duration = Duration::from_secs(1);
 
-/// 一次逐行追溯的结果，以及该结果对应的文字。
+/// 一次逐行追溯的结果及其对应的文本。
 struct Entry {
     /// 对应的文档版本。
     revision: u64,
     blame: Arc<Blame>,
-    /// 算这份结果时的文字，下一次就地挪动时和新文字比。
+    /// 计算该结果时的文本，下一次原地平移时与新文本比较。
     text: Rope,
 }
 
-/// 后台算好的一次逐行追溯。
+/// 后台计算完成的一次逐行追溯。
 struct Computed {
     doc: DocumentId,
     revision: u64,
@@ -53,13 +53,13 @@ struct Computed {
 
 /// 逐行追溯的状态。
 pub(crate) struct BlameState {
-    /// 开着逐行追溯的文档。
+    /// 开启了逐行追溯的文档。
     on: HashSet<DocumentId>,
-    /// 各文档最近一次的结果（后台算好的，或者按改动就地挪过的）。
+    /// 各文档最近一次的结果（后台计算的结果，或按改动原地平移后的结果）。
     data: HashMap<DocumentId, Entry>,
-    /// 正在后台算的文档和版本。
+    /// 正在后台计算的文档及其版本号。
     computing: HashMap<DocumentId, u64>,
-    /// 就地挪过、该在这个时刻重新运行 `git blame` 的文档。
+    /// 已原地平移、需要在对应时刻重新运行 `git blame` 的文档。
     due: HashMap<DocumentId, Instant>,
     results: (Sender<Computed>, Receiver<Computed>),
 }
@@ -77,14 +77,14 @@ impl Default for BlameState {
 }
 
 impl BlameState {
-    /// 文档 `id` 开着逐行追溯。
+    /// 文档 `id` 是否开启了逐行追溯。
     pub(crate) fn is_on(&self, id: DocumentId) -> bool {
         self.on.contains(&id)
     }
 
-    /// 文档 `id` 关闭了：释放它的逐行追溯。
+    /// 在文档 `id` 关闭后释放其逐行追溯。
     ///
-    /// 正在算的结果交回来时文档已经不在 `on` 里，丢弃。
+    /// 正在计算的结果送达时文档已不在 `on` 中，结果被丢弃。
     pub(super) fn forget(&mut self, id: DocumentId) {
         self.on.remove(&id);
         self.data.remove(&id);
@@ -92,7 +92,7 @@ impl BlameState {
         self.due.remove(&id);
     }
 
-    /// 关闭所有文档的逐行追溯（模块关了、仓库换了）。
+    /// 关闭所有文档的逐行追溯（模块关闭或仓库更换时）。
     pub(super) fn clear(&mut self) {
         self.on.clear();
         self.data.clear();
@@ -102,9 +102,9 @@ impl BlameState {
 }
 
 impl App {
-    /// 当前文档开着逐行追溯时那一栏的宽度，否则为 0。
+    /// 返回当前文档的逐行追溯一栏的宽度（逻辑像素）；未开启时为 0。
     ///
-    /// 行号栏跟着变宽。
+    /// 行号栏的宽度随之增加。
     pub(crate) fn blame_width(&self) -> f32 {
         match self.editor.active() {
             Some(doc) if self.blame.is_on(doc.id) && doc.shows_text() => BLAME_W,
@@ -112,7 +112,7 @@ impl App {
         }
     }
 
-    /// 开关当前文档的逐行追溯（命令「Git：逐行追溯」）。
+    /// 切换当前文档的逐行追溯（命令「Git：逐行追溯」）。
     pub(in crate::app) fn toggle_blame(&mut self) {
         let Some(doc) = self.editor.active() else {
             return;
@@ -135,7 +135,7 @@ impl App {
         self.request_redraw();
     }
 
-    /// 文档 `id` 在仓库里的文件路径；不是仓库里的文本文件时为 `None`。
+    /// 返回文档 `id` 所在的仓库与文件路径；不是仓库中的文本文件时返回 `None`。
     fn blame_path(&self, id: DocumentId) -> Option<(PathBuf, PathBuf)> {
         let root = self.git.root.clone()?;
         let doc = self.editor.document(id)?;
@@ -153,10 +153,10 @@ impl App {
         Some((root, path))
     }
 
-    /// 绘制前调用：文档 `id` 开着逐行追溯、结果不是最新的就更新。
+    /// 在绘制前更新文档 `id` 的逐行追溯；未开启或结果已是最新时不做处理。
     ///
-    /// 还没有结果、或者到了重算的时刻就在后台运行 `git blame`（同一时刻一个文档只算一次）；
-    /// 文字刚变过就先按改动挪动上一次的结果，停止输入 [`BLAME_IDLE`] 以后再重算。
+    /// 尚无结果或到达重新计算的时刻时，在后台运行 `git blame`（同一文档同一时刻只计算一次）。
+    /// 文本刚变化时先按改动平移上一次的结果，停止输入 [`BLAME_IDLE`] 后再重新计算。
     pub(crate) fn update_blame(&mut self, id: DocumentId) {
         if !self.blame.is_on(id) {
             return;
@@ -206,7 +206,7 @@ impl App {
         });
     }
 
-    /// 文档 `id` 刚保存：开着逐行追溯就马上重算，不等停手。
+    /// 在文档 `id` 保存后立即重新计算逐行追溯，不等待停止输入；未开启时不做处理。
     pub(in crate::app) fn blame_saved(&mut self, id: DocumentId) {
         if self.blame.is_on(id) {
             self.blame.due.insert(id, Instant::now());
@@ -214,7 +214,7 @@ impl App {
         }
     }
 
-    /// 事件循环每一轮调用：到了重算时刻的文档在后台重新运行；返回下一个重算时刻。
+    /// 在后台重新计算已到时刻的文档，返回下一个重新计算的时刻；事件循环每一轮调用。
     pub(in crate::app) fn blame_tick(&mut self, now: Instant) -> Option<Instant> {
         let ready: Vec<_> = (self.blame.due.iter())
             .filter(|&(_, &at)| now >= at)
@@ -226,9 +226,9 @@ impl App {
         self.blame.due.values().min().copied()
     }
 
-    /// 收下后台算好的逐行追溯。
+    /// 接收后台计算完成的逐行追溯。
     ///
-    /// 失败时（文件还没被跟踪）说明原因并关闭。
+    /// 失败时（文件尚未被跟踪）提示原因并关闭逐行追溯。
     pub(in crate::app) fn poll_blame(&mut self) {
         while let Ok(done) = self.blame.results.1.try_recv() {
             self.blame.computing.remove(&done.doc);
@@ -254,12 +254,12 @@ impl App {
         self.request_redraw();
     }
 
-    /// 文档 `id` 最近一次算好的逐行追溯（可能比文字旧一点）。
+    /// 返回文档 `id` 最近一次计算的逐行追溯；可能落后于当前文本。
     pub(crate) fn blame_of(&self, id: DocumentId) -> Option<Arc<Blame>> {
         self.blame.data.get(&id).map(|e| e.blame.clone())
     }
 
-    /// 鼠标在 `(x, y)` 时指着逐行追溯那一栏的第几行（从 0 起）。
+    /// 返回窗口坐标 `(x, y)`（逻辑像素）处逐行追溯一栏对应的行号（从 0 起）。
     pub(crate) fn blame_at(&self, x: f32, y: f32) -> Option<usize> {
         let width = self.blame_width();
         let l = self.layout;
@@ -270,12 +270,13 @@ impl App {
             return None;
         }
         let doc = self.editor.active()?;
-        let row = ((y - l.text.y) / self.fonts.line_height + doc.scroll_line).floor() as usize;
+        let row =
+            (f64::from((y - l.text.y) / self.fonts.line_height) + doc.scroll_line).floor() as usize;
         let line = doc.line_of_row(row);
         (line < doc.text().line_count()).then_some(line)
     }
 
-    /// 第 `line` 行是哪次提交改的。
+    /// 返回最后修改第 `line` 行的提交。
     pub(crate) fn blame_commit(&self, line: usize) -> Option<BlameCommit> {
         let doc = self.editor.active()?;
         let blame = self.blame_of(doc.id)?;
@@ -283,13 +284,13 @@ impl App {
         blame.commits.get(index as usize).cloned()
     }
 
-    /// 鼠标停在逐行追溯第 `line` 行上的提示：挂在哪里，和「a1b2c3d 说明 · 作者 · 时间」。
+    /// 返回鼠标悬停在逐行追溯第 `line` 行时的提示：锚点矩形，以及「a1b2c3d 说明 · 作者 · 时间」。
     pub(crate) fn blame_tip(&self, line: usize) -> Option<(Rect, String)> {
         let commit = self.blame_commit(line)?;
         let doc = self.editor.active()?;
         let l = self.layout;
         let lh = self.fonts.line_height;
-        let y = l.text.y + (doc.row_of(line) as f32 - doc.scroll_line) * lh;
+        let y = l.text.y + (doc.row_of(line) as f64 - doc.scroll_line) as f32 * lh;
         let rect = Rect::new(l.gutter.x + 8.0, y, BLAME_W - 16.0, lh);
         let label = if commit.uncommitted {
             t!("git-blame-uncommitted").to_owned()
@@ -305,7 +306,7 @@ impl App {
         Some((rect, label))
     }
 
-    /// 点了逐行追溯的第 `line` 行：在日志标签里选中那次提交。
+    /// 处理对逐行追溯第 `line` 行的点击：在日志标签中选中对应的提交。
     pub(in crate::app) fn click_blame(&mut self, line: usize) {
         let Some(commit) = self.blame_commit(line) else {
             return;
@@ -318,16 +319,15 @@ impl App {
     }
 }
 
-/// 逐行追溯一栏里写的时间：今天、昨天、几分钟前，或者日期（按作者所在时区）。
+/// 返回逐行追溯一栏显示的时间：今天、昨天、若干分钟前，或日期（按作者所在时区）。
 pub(crate) fn blame_time(commit: &BlameCommit, now: i64) -> String {
     display_at(commit.time + commit.offset, commit.time, now)
 }
 
-/// 文字从 `old` 改成 `new` 以后的逐行追溯：两头没动的行沿用 `blame` 里的提交，中间改过的行
-/// 记成「未提交」。
+/// 返回文本从 `old` 变为 `new` 后平移得到的逐行追溯。
 ///
-/// 比的是整行，只看开头和结尾相同的部分，不运行 git；行数跟着改动增减（git 不追溯末尾换行
-/// 后面那个空行，这里也不补）。
+/// 首尾未变的行沿用 `blame` 中的提交，中间修改过的行记为「未提交」。只按整行比较首尾相同的
+/// 部分，不运行 `git`；行数随改动增减。`git` 不追溯末尾换行符之后的空行，此处同样不补。
 fn shifted(blame: &Blame, old: &Rope, new: &Rope) -> Blame {
     let head = old
         .lines()

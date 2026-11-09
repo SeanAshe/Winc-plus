@@ -56,15 +56,15 @@ pub struct Layout {
     pub controls: Rect,
     /// 顶栏中放置标签和新建按钮的区域。
     pub tabs: Rect,
-    /// 标签栏右端切换「源代码 / 分栏 / 预览」的三个按钮（SVG 这类能预览的文件才有，见
+    /// 标签栏右端切换「源代码 / 分栏 / 预览」的三个按钮（仅 SVG 等可预览的文件有，见
     /// [`preview_segments`]）；没有时为空矩形，由 `App::relayout` 放置。
     pub preview: Rect,
-    /// 标签栏右端「在浏览器中打开」按钮（当前文件是网页时才有）；没有时为空矩形，由
+    /// 标签栏右端「在浏览器中打开」按钮（仅当前文件是网页时有）；没有时为空矩形，由
     /// `App::relayout` 放置。
     pub browser: Rect,
-    /// 分栏预览时编辑区右边画预览的那一半（编辑区、文本区让出这一块）；不分栏时为空矩形。
+    /// 分栏预览时编辑区右半部分的预览区域（编辑区、文本区不含该区域）；不分栏时为空矩形。
     pub split: Rect,
-    /// 分栏预览时左右两半之间可以拖动的范围：分隔线两侧各放宽几个逻辑像素；不分栏时为空矩形。
+    /// 分栏预览时左右两半之间可拖动的范围，比分隔线两侧各宽出数个逻辑像素；不分栏时为空矩形。
     pub split_divider: Rect,
     /// 编辑区，包含行号栏和文本区。
     pub editor: Rect,
@@ -80,12 +80,12 @@ pub struct Layout {
     pub picker: Rect,
     /// 窗口底部的状态栏。
     pub status: Rect,
-    /// 编辑区旁边的终端面板（终端模块）：在下面时从编辑区卡片下方切出，在右边时从右侧切出；
-    /// 关着时尺寸为 0。
+    /// 编辑区旁边的终端面板：位于下方时从编辑区卡片下部划出，位于右侧时从右部划出；
+    /// 关闭时尺寸为 0。
     ///
     /// 由 `App::relayout` 计算。
     pub terminal: Rect,
-    /// 编辑区和终端面板之间的间距：面板在下面时上下拖改高度，在右边时左右拖改宽度。
+    /// 编辑区和终端面板之间的间距：面板在下方时上下拖动调整高度，在右侧时左右拖动调整宽度。
     pub terminal_divider: Rect,
 }
 
@@ -115,7 +115,7 @@ impl Layout {
         let body_h = status.y.max(0.0);
 
         // 取整：拖动分隔条时宽度来自鼠标位置，可能是小数。`visible_w` 已取整；若 `full_w` 不取整，
-        // 两者的小数差会落到侧栏起点上，拖动时整个侧栏会随鼠标左右抖动。
+        // 两者的小数差会计入侧栏起点，拖动时整个侧栏随鼠标左右抖动。
         let full_w = panel_width
             .min((width - 320.0).max(MIN_PANEL_WIDTH))
             .round();
@@ -147,7 +147,7 @@ impl Layout {
         let main_w = (width - m - main_x).max(0.0);
         let top_bar = Rect::new(main_x, m, main_w, TOP_BAR);
 
-        // 侧栏开关固定在红绿灯右侧，侧栏展开、收起、动画途中都不动，连续点击时不必重新定位。
+        // 侧栏开关固定在红绿灯右侧，侧栏展开、收起和动画期间位置不变，连续点击时无需重新定位。
         // 侧栏收起时标签从开关右侧开始，与开关相隔 `TAB_GAP`，和标签之间的间距相同；
         // 侧栏展开时开关右边是视图切换图标（`view_tabs`）。
         let button_y = m + (TOP_BAR - BUTTON) / 2.0;
@@ -158,7 +158,7 @@ impl Layout {
             BUTTON,
         );
         let tabs_x = (main_x + TAB_INSET).max(sidebar_button.right() + TAB_GAP);
-        // 标签栏一直延伸到顶栏右端：查找由快捷键打开，设置的入口在菜单栏和命令面板里。
+        // 标签栏延伸到顶栏右端：查找由快捷键打开，设置的入口位于菜单栏和命令面板中。
         let tabs = Rect::new(
             tabs_x,
             m,
@@ -225,7 +225,7 @@ impl Layout {
     }
 }
 
-/// 返回绘制时记录的可点击区域中包含 `(x, y)` 的那一项的目标；区域重叠时取排在前面的，
+/// 返回绘制时记录的可点击区域中包含 `(x, y)` 的一项的目标；区域重叠时取排在前面的一项，
 /// 没有时返回 `None`。
 pub fn hit<T: Copy>(regions: &[(Rect, T)], x: f32, y: f32) -> Option<T> {
     regions
@@ -290,26 +290,28 @@ pub fn tree_row_slot(
     (row, clip)
 }
 
-/// 编辑区能滚过最后一行多少（比例：可见高度的四成）。
+/// 编辑区可滚动超出最后一行的距离（可见高度的比例）。
 ///
-/// 不允许滚到更远：滚到底时最后一行停在六成高的位置，下方留出四成可见高度的空白，
-/// 避免滚动到尽头时窗口底部以上全是空白。
+/// 滚到底时最后一行位于可见高度的 60% 处，下方留出 40% 的空白；不允许滚得更远，
+/// 避免可见范围内只剩空白。
 pub const OVERSCROLL: f32 = 0.4;
 
-/// 返回编辑区（以及差异、日志）最多滚到第几行（以显示行计，可以是小数）。
+/// 返回编辑区（以及差异、日志）的最大滚动位置（显示行，可以是小数）。
 ///
 /// 内容放得下时为 0，不滚动；放不下时滚到底，最后一行下面留 [`OVERSCROLL`] 的空白。
-pub fn editor_max_scroll(lines: usize, view_height: f32, line_height: f32) -> f32 {
-    let content = lines as f32 * line_height;
+pub fn editor_max_scroll(lines: usize, view_height: f32, line_height: f32) -> f64 {
+    let (view_height, line_height) = (f64::from(view_height), f64::from(line_height));
+    let content = lines as f64 * line_height;
     if content <= view_height || line_height <= 0.0 {
         return 0.0;
     }
-    (content - view_height * (1.0 - OVERSCROLL)) / line_height
+    (content - view_height * (1.0 - f64::from(OVERSCROLL))) / line_height
 }
 
-/// 返回编辑区内容的总高度（像素），供滚动条使用：能滚的距离加一屏。
+/// 返回编辑区内容的总高度（逻辑像素），供滚动条使用：最大滚动距离加一屏的高度。
 pub fn editor_content_height(lines: usize, view_height: f32, line_height: f32) -> f32 {
-    editor_max_scroll(lines, view_height, line_height) * line_height + view_height
+    (editor_max_scroll(lines, view_height, line_height) * f64::from(line_height)) as f32
+        + view_height
 }
 
 /// 返回竖直滚动条的滑块位置；内容不超过可视高度时没有滑块，返回 `None`。
@@ -330,8 +332,8 @@ pub const GIT_LANE: (f32, f32) = (11.0, 3.0);
 /// 概览标尺中查找结果、选中文字出现位置与书签一列标记的参数（离轨道右边的距离，宽度），
 /// 逻辑像素。
 ///
-/// 宽度与 [`GIT_LANE`] 相同，居中于滑块所在的一列；该列画成圆头，
-/// [`GIT_LANE`] 画成直角细条（与行号栏的标记同形），形状可区分。
+/// 宽度与 [`GIT_LANE`] 相同，居中于滑块所在的一列；该列绘制为圆头，
+/// [`GIT_LANE`] 绘制为直角细条（与行号栏的标记同形），二者形状可区分。
 pub const MARK_LANE: (f32, f32) = (5.5, 3.0);
 
 /// 概览标尺上单个标记的最小高度（逻辑像素）。
@@ -367,8 +369,8 @@ impl Ruler {
         self.top + row as f32 / self.total as f32 * self.height
     }
 
-    /// `lane` 上从 `rows.start` 行到 `rows.end` 行的一段，至少 [`RULER_MIN`] 高；空的一段
-    /// 落在那道分界上。
+    /// 返回 `lane` 上从 `rows.start` 行到 `rows.end` 行的一段，至少 [`RULER_MIN`] 高；
+    /// `rows` 为空时标记以该行的上沿为中心。
     pub fn rect(&self, lane: (f32, f32), rows: std::ops::Range<usize>) -> Rect {
         let (y0, y1) = (self.y(rows.start), self.y(rows.end));
         let h = (y1 - y0).max(RULER_MIN);
@@ -376,7 +378,7 @@ impl Ruler {
         Rect::new(self.right - lane.0, y.round(), lane.1, h.round())
     }
 
-    /// 在 `lane` 上画一段直角标记，形状与行号栏的标记相同（几何同 [`Ruler::rect`]）。
+    /// 在 `lane` 上绘制一段直角标记，形状与行号栏的标记相同（几何同 [`Ruler::rect`]）。
     pub fn mark(
         &self,
         frame: &mut Frame<'_>,
@@ -387,7 +389,7 @@ impl Ruler {
         frame.rect_clipped(self.rect(lane, rows), color, 0.0, self.clip);
     }
 
-    /// 横跨两道标记列、高 2 像素的细线，落在第 `row` 个显示行的中间，标出光标所在行。
+    /// 在第 `row` 个显示行的中间绘制横跨两列标记、高 2 逻辑像素的细线，标出光标所在行。
     pub fn line(&self, frame: &mut Frame<'_>, row: usize, color: Color) {
         let y = (self.y(row) + self.y(row + 1)) / 2.0;
         let (left, right) = (
@@ -398,10 +400,10 @@ impl Ruler {
         frame.rect_clipped(rect, color, 1.0, self.clip);
     }
 
-    /// 在 `lane` 上给每个显示行画一道 [`RULER_MIN`] 高的标记；挨着的（间隔不到 1 逻辑像素）
-    /// 连成一段，密集的地方是一道长条而不是多条叠在一起的短横。
+    /// 在 `lane` 上为每个显示行绘制 [`RULER_MIN`] 高的标记；间隔不到 1 逻辑像素的相邻标记
+    /// 合并为一段，密集处显示为一道长条，而非多条重叠的短横。
     ///
-    /// `rows` 必须从小到大排好。
+    /// `rows` 必须按升序排列。
     pub fn runs(
         &self,
         frame: &mut Frame<'_>,
@@ -457,16 +459,16 @@ pub enum Scrollbar {
     Settings,
 }
 
-/// 返回缩略图最上面显示的行：`total` 行放不下 `shown` 行时，随滚动位置 `scroll`（最大为 `max`）
+/// 返回缩略图最上方显示的行：`total` 行超出 `shown` 行时，随滚动位置 `scroll`（最大为 `max`）
 /// 按比例移动。
-pub fn minimap_first_row(total: usize, shown: usize, scroll: f32, max: f32) -> usize {
+pub fn minimap_first_row(total: usize, shown: usize, scroll: f64, max: f64) -> usize {
     if total <= shown || max <= 0.0 {
         return 0;
     }
-    ((scroll / max).clamp(0.0, 1.0) * (total - shown) as f32) as usize
+    ((scroll / max).clamp(0.0, 1.0) * (total - shown) as f64) as usize
 }
 
-/// 返回水平滚动条的滑块位置，贴着 `track` 的下边；内容不超过可视宽度时没有滑块，返回 `None`。
+/// 返回水平滚动条的滑块位置，紧贴 `track` 的下边；内容不超过可视宽度时没有滑块，返回 `None`。
 ///
 /// 滑块的活动范围比 `track` 两端各短 [`SCROLLBAR_END`]。
 pub fn hscrollbar_thumb(track: Rect, scroll: f32, content: f32) -> Option<Rect> {
@@ -475,12 +477,12 @@ pub fn hscrollbar_thumb(track: Rect, scroll: f32, content: f32) -> Option<Rect> 
     Some(Rect::new(x, y, w, SCROLLBAR_THUMB))
 }
 
-/// 返回滑块沿轨道方向的起点和长度（像素）。
+/// 返回滑块沿轨道方向的起点和长度（逻辑像素）。
 ///
 /// `start`、`len` 是可视区域沿轨道方向的起点和长度。
 ///
-/// 长度按「可见 / 内容」的比例计算，至少 24 像素（短文档的滑块也要便于点中）；活动范围不足
-/// 24 像素时取活动范围的长度。
+/// 长度按「可见 / 内容」的比例计算，至少 24 逻辑像素，使长文档的滑块仍便于点中；活动范围
+/// 不足 24 逻辑像素时取活动范围的长度。
 fn thumb_span(start: f32, len: f32, scroll: f32, content: f32) -> Option<(f32, f32)> {
     if content <= len || len <= 0.0 {
         return None;

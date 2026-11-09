@@ -30,7 +30,7 @@ impl WindowControl {
 pub(crate) const WINDOW_CONTROLS_W: f32 = 3.0 * BUTTON + 2.0 * BUTTON_GAP;
 
 /// 窗口边缘可以拖动改变大小的宽度（逻辑像素）。
-const RESIZE_EDGE: f32 = 4.0;
+pub(in crate::app) const RESIZE_EDGE: f32 = 4.0;
 
 /// 改变窗口大小的方向对应的鼠标指针。
 pub(crate) fn resize_cursor(direction: ResizeDirection) -> CursorIcon {

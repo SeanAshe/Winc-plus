@@ -1,4 +1,4 @@
-//! Markdown 预览的测试：三段切换、后台解析、分栏联动滚动、点链接、本地与远程图片、全屏查看
+//! Markdown 预览的测试：三段切换、后台解析、分栏联动滚动、点击链接、本地与远程图片、全屏查看
 //! mermaid 图、截图与计时。
 
 use winc_editor::PreviewMode;
@@ -57,7 +57,7 @@ const LOGO: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 
 
 /// 打开 README，等预览完成解析与图片加载，返回应用和临时目录。
 ///
-/// 读取与绘制图片的请求在绘制一帧时发出，因此用 `settle` 多绘制几轮。
+/// 读取与绘制图片的请求在绘制一帧时发出，因此用 `settle` 绘制多轮。
 fn readme(name: &str, dark: bool, mode: PreviewMode) -> (App, PathBuf) {
     let dir = sample_folder(name);
     std::fs::write(dir.join("logo.svg"), LOGO).unwrap();
@@ -84,7 +84,7 @@ fn markdown_files_get_the_three_way_switch() {
     assert_eq!(doc.preview_mode(), PreviewMode::Split);
     assert!(doc.shows_text() && !doc.readonly);
     assert!(app.layout.preview.w > 0.0);
-    // 右边是预览：绘制在分栏的右半边，已排出内容和链接。
+    // 右边是预览：绘制在分栏的右半边，已完成排版并记录链接。
     assert_eq!(app.markdown.area, app.layout.split);
     assert!(app.markdown.height > app.markdown.area.h);
     assert!(app.markdown.links.len() >= 2);
@@ -94,7 +94,7 @@ fn markdown_files_get_the_three_way_switch() {
         Some(crate::app::preview::markdown::ImageSlot::Ready { pixels, .. }) if !pixels.is_empty()
     ));
 
-    // 只看预览：整个编辑区，不显示源代码，但可以直接编辑；切回代码照常编辑。
+    // 只看预览：整个编辑区，不显示源代码，但可以直接编辑；切回源代码后仍可正常编辑。
     app.set_preview_mode(PreviewMode::Preview);
     settle(&mut app);
     let doc = app.editor.active().unwrap();
@@ -121,7 +121,7 @@ fn split_preview_follows_edits_and_scrolls() {
     settle(&mut app);
     assert!(app.markdown.height > before);
 
-    // 滚轮滚预览。
+    // 滚轮滚动预览。
     let area = app.markdown.area;
     app.mouse = (area.x + 50.0, area.y + 50.0);
     app.markdown.scroll_to(0.0);
@@ -170,7 +170,7 @@ fn split_sides_scroll_together() {
     paint(&mut app);
     let line = app.editor.active().unwrap().scroll_line;
     assert!((line - 88.0).abs() < 0.5, "{line}");
-    // 左侧没有再次滚动，右侧也不会被拉回。
+    // 左侧没有再次滚动，右侧也不会被恢复到对齐位置。
     assert!((app.markdown.scroll() - target).abs() < 1.0);
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -198,7 +198,7 @@ fn keys_scroll_the_full_preview() {
     let down = key(&mut app, Key::Named(NamedKey::ArrowDown), false);
     assert!(down > 0.0);
     assert_eq!(key(&mut app, Key::Named(NamedKey::ArrowUp), false), 0.0);
-    // 一屏比一行多，保留部分上一屏的内容。
+    // 翻页的距离大于一次 ↓ 的距离、小于预览高度，保留上一屏的部分内容。
     let page = key(&mut app, Key::Named(NamedKey::PageDown), false);
     assert!(page > down && page < app.markdown.area.h);
     assert_eq!(key(&mut app, Key::Named(NamedKey::PageUp), false), 0.0);
@@ -210,7 +210,7 @@ fn keys_scroll_the_full_preview() {
     // 其他键交给编辑区。
     assert!(!app.markdown_key(&Key::Character("x".into()), false));
 
-    // Esc 清掉选区；没有选区时不管。
+    // Esc 清除选区；没有选区时不处理。
     app.markdown_select_all();
     assert!(app.markdown_key(&Key::Named(NamedKey::Escape), false));
     assert!(app.markdown.selection.is_none());
@@ -233,7 +233,7 @@ fn keys_scroll_the_full_preview() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 按着 ⌘（其他平台 Ctrl）在 `at` 处单击。
+/// 按住 ⌘（其他平台为 Ctrl）在 `at` 处单击。
 fn command_click(app: &mut App, at: (f32, f32)) {
     app.modifiers = if cfg!(target_os = "macos") {
         command_modifiers()
@@ -244,7 +244,7 @@ fn command_click(app: &mut App, at: (f32, f32)) {
     app.modifiers = winit::keyboard::ModifiersState::empty();
 }
 
-/// 文字光标在原文中的位置（字节偏移）之后的一段原文。
+/// 返回文字光标在原文中的位置（字节偏移）之后的一段原文。
 fn after_caret(app: &App, len: usize) -> String {
     let doc = app.editor.active().unwrap();
     let text = doc.text().rope().unwrap().to_string();
@@ -252,7 +252,7 @@ fn after_caret(app: &App, len: usize) -> String {
     text[at..].chars().take(len).collect()
 }
 
-/// 光标在屏幕上的高度（窗口坐标）。
+/// 返回光标在屏幕上的纵坐标（窗口坐标）。
 fn caret_screen_y(app: &App) -> f32 {
     let laid = app.markdown.layout.as_ref().unwrap();
     let (_, y, _) = laid.caret_point(app.live_caret_source().unwrap()).unwrap();
@@ -264,7 +264,7 @@ fn the_full_preview_edits_the_document() {
     use winit::keyboard::{Key, NamedKey};
 
     let (mut app, dir) = readme("md-live", false, PreviewMode::Preview);
-    // 刚打开时整篇都是排好的样子。
+    // 刚打开时整篇按排版显示。
     let shown = crate::view::preview::markdown::full_text(&app).unwrap();
     assert!(!shown.contains("**Rust**"));
     // 点击「启动快」：光标移到原文中对应的位置，被点击的文字位置不变。该段落仍按排版显示，
@@ -283,7 +283,7 @@ fn the_full_preview_edits_the_document() {
     assert!(!shown.contains("# winc"));
     assert!((caret_screen_y(&app) - before).abs() < 1.0);
 
-    // 打字改的是文档，重新解析之前预览就显示刚打的字。
+    // 输入修改的是文档；重新解析之前，预览已显示刚输入的文字。
     app.run(winc_editor::Command::Insert("很".into()));
     paint(&mut app);
     assert!(
@@ -303,14 +303,14 @@ fn the_full_preview_edits_the_document() {
             .contains("*很启动快*")
     );
 
-    // ↓ 按显示的行往下走，走出这一段后到下一段；↑ 回来。
+    // ↓ 按显示行向下移动，移出该段后到达下一段；↑ 返回。
     let start = app.live_caret_source().unwrap();
     assert!(app.markdown_key(&Key::Named(NamedKey::ArrowDown), false));
     paint(&mut app);
     let down = app.live_caret_source().unwrap();
     assert!(down > start);
-    // 继续往下：经过提示块的标题（没有对应的原文，取块的开头），到它正文的最后一行；保持原来
-    // 的横坐标，落在这一行的末尾。一段折成几行随字体而定，按行走到那里为止，每一步都往前。
+    // 继续向下：经过提示块的标题（没有对应的原文，取块的开头），到达其正文的最后一行；保持
+    // 原来的横坐标，落在该行末尾。一段折成几行取决于字体，因此逐行移动到该处，每一步都向前。
     let mut last = down;
     for _ in 0..8 {
         if after_caret(&app, 12).starts_with("\n\n## 安装") {
@@ -346,7 +346,7 @@ fn the_full_preview_edits_the_document() {
     assert!(!app.markdown_key(&Key::Character("x".into()), false));
     assert!(!app.markdown_key(&Key::Named(NamedKey::ArrowLeft), false));
 
-    // 光标到了文末：预览滚到能看见光标。
+    // 光标到达文末：预览滚动到光标可见。
     app.run(winc_editor::Command::DocEnd { extend: false });
     paint(&mut app);
     paint(&mut app);
@@ -383,7 +383,7 @@ fn the_caret_paragraph_keeps_its_look() {
         shown.contains("[链接](https://a.dev)") && !shown.contains("**"),
         "{shown}"
     );
-    // 段落末尾回车：光标落在下面单独的一行上。
+    // 段落末尾回车：光标落在下方单独的一行上。
     put_caret(&mut app, "第二段", true);
     let line = caret_screen_y(&app);
     assert!(app.markdown_key(&Key::Named(NamedKey::Enter), false));
@@ -399,7 +399,7 @@ fn the_caret_paragraph_keeps_its_look() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 预览的滚动条能拖：只看预览和分栏时都能，不会选中文字；分栏时左边跟着滚。
+/// 预览的滚动条可以拖动：只看预览和分栏时均可，不会选中文字；分栏时左侧随之滚动。
 #[test]
 fn the_preview_scrollbar_can_be_dragged() {
     use crate::layout::{Scrollbar, scrollbar_thumb};
@@ -420,7 +420,7 @@ fn the_preview_scrollbar_can_be_dragged() {
         app.on_mouse_down(MouseButton::Left);
         assert!(matches!(app.drag, crate::app::Drag::Scrollbar { .. }));
 
-        // 拖到底：滚到最后，滑块跟到底。
+        // 拖到底部：滚动到末尾，滑块位于底端。
         app.on_mouse_move(x, area.bottom() + 100.0);
         let end = height - area.h;
         assert!((app.markdown.scroll() - end).abs() < 1.0, "{name}");
@@ -430,19 +430,19 @@ fn the_preview_scrollbar_can_be_dragged() {
             assert!(app.editor.active().unwrap().scroll_line > 0.0);
         }
 
-        // 拖回顶上。
+        // 拖回顶部。
         app.on_mouse_move(x, area.y - 100.0);
         assert!(app.markdown.scroll() < 1.0, "{name}");
         app.on_mouse_up(MouseButton::Left);
         assert!(matches!(app.drag, crate::app::Drag::None));
 
-        // 点轨道：滑块跳过去。
+        // 点击轨道：滑块移到点击处。
         app.on_mouse_move(x, area.bottom() - 2.0);
         app.on_mouse_down(MouseButton::Left);
         app.on_mouse_up(MouseButton::Left);
         assert!(app.markdown.scroll() > 0.0, "{name}");
 
-        // 滚动条左边还是选字。
+        // 滚动条左侧仍然是选择文字。
         app.on_mouse_move(area.x + 50.0, area.y + 50.0);
         app.on_mouse_down(MouseButton::Left);
         assert!(matches!(app.drag, crate::app::Drag::MarkdownText));
@@ -705,7 +705,7 @@ fn every_table_cell_takes_one_click_from_anywhere() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 打开内容为 `text` 的 Markdown 文件，只看预览，等解析、排版完成。
+/// 打开内容为 `text` 的 Markdown 文件，只看预览，等待解析、排版完成。
 fn live_doc(name: &str, text: &str) -> (App, PathBuf) {
     let dir = sample_folder(name);
     let path = dir.join("LIVE.md");
@@ -717,8 +717,8 @@ fn live_doc(name: &str, text: &str) -> (App, PathBuf) {
     (app, dir)
 }
 
-/// 回归：打字之后、重新解析之前，光标所在块的范围来自上一版文档。文档变短或范围落到多字节字符
-/// 中间时，曾在绘制或按回车时 panic，发布版中表现为闪退。
+/// 回归：输入之后、重新解析之前，光标所在块的范围来自上一版文档。文档变短或范围落在多字节
+/// 字符中间时，绘制或按回车不应 panic（发布版中 panic 即进程中止）。
 #[test]
 fn edits_before_the_next_parse_keep_the_live_block_inside_the_text() {
     use winit::keyboard::{Key, NamedKey};
@@ -730,7 +730,7 @@ fn edits_before_the_next_parse_keep_the_live_block_inside_the_text() {
         let doc = app.editor.active_mut().unwrap();
         let count = doc.text().rope().unwrap().len_chars();
         doc.selection = winc_core::Selection::new(0, count);
-        // 整篇换成更短的文字，不等重新解析：后台的解析结果还留在上一版。
+        // 整篇替换为更短的文字，不等待重新解析：后台的解析结果仍属于上一版。
         app.run(winc_editor::Command::Insert(keep.into()));
         let count = app
             .editor
@@ -772,7 +772,7 @@ fn deeply_nested_documents_lay_out_and_paint() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 文档现在的文字。
+/// 返回文档当前的文字。
 fn doc_text(app: &App) -> String {
     app.editor
         .active()
@@ -783,7 +783,7 @@ fn doc_text(app: &App) -> String {
         .to_string()
 }
 
-/// 光标放到第一处 `needle` 之后（`after` 为假时之前），等排版完成。
+/// 将光标放到第一处 `needle` 之后（`after` 为假时之前），等待排版完成。
 fn put_caret(app: &mut App, needle: &str, after: bool) {
     let text = doc_text(app);
     let byte = text.find(needle).unwrap() + if after { needle.len() } else { 0 };
@@ -793,7 +793,7 @@ fn put_caret(app: &mut App, needle: &str, after: bool) {
     settle(app);
 }
 
-/// 文档中光标处插着 `|` 的文字。
+/// 返回在光标处插入 `|` 后的文档文字。
 fn with_caret(app: &App) -> String {
     let mut text = doc_text(app);
     text.insert(app.live_caret_source().unwrap(), '|');
@@ -935,7 +935,7 @@ fn enter_in_the_preview_continues_lists_and_splits_paragraphs() {
         "{}",
         with_caret(&app)
     );
-    // 代码块里交给编辑区照常换行。
+    // 代码块中交给编辑区按普通方式换行。
     put_caret(&mut app, "code", true);
     assert!(!app.markdown_key(&enter, false));
 
@@ -954,7 +954,7 @@ fn arrows_skip_the_blank_lines_between_blocks() {
     assert!(app.markdown_key(&Key::Named(NamedKey::ArrowLeft), false));
     assert_eq!(with_caret(&app), "甲|\n\n\n乙\n");
     settle(&mut app);
-    // 块里面逐字移动交给编辑区。
+    // 块内的逐字移动交给编辑区。
     assert!(!app.markdown_key(&Key::Named(NamedKey::ArrowLeft), false));
     // 文末之后没有块：停在空行上（交给编辑区）。
     put_caret(&mut app, "乙", true);
@@ -986,7 +986,7 @@ fn pasting_a_url_over_selected_text_makes_a_link() {
         app.markdown_link_paste("https://a.dev/(1)").as_deref(),
         Some("[文档](<https://a.dev/(1)>)")
     );
-    // 不是网址、没有选区、在行内代码或代码块里时照常粘贴。
+    // 不是网址、没有选区、在行内代码或代码块中时按普通方式粘贴。
     assert!(app.markdown_link_paste("文字").is_none());
     assert!(app.markdown_link_paste("https://a.dev x").is_none());
     select(&mut app, "代码");
@@ -1042,7 +1042,7 @@ fn switching_modes_keeps_the_place() {
         .map(|i| format!("## 第 {i} 节\n\n第 {i} 节的正文。\n\n"))
         .collect();
     let (mut app, dir) = live_doc("md-switch", &text);
-    // 预览滚到第 30 节：换成源代码后文字顶上是第 30 节的标题（第 120 行）。
+    // 预览滚动到第 30 节：切换为源代码后文字顶部是第 30 节的标题（第 120 行）。
     let y = crate::view::preview::markdown::anchor_top(&app, "第-30-节").unwrap();
     app.scroll_markdown_to(y);
     paint(&mut app);
@@ -1050,7 +1050,7 @@ fn switching_modes_keeps_the_place() {
     paint(&mut app);
     let line = app.editor.active().unwrap().scroll_line;
     assert!((line - 120.0).abs() < 2.0, "{line}");
-    // 文字滚到第 10 节，换回只看预览：预览顶上是第 10 节，光标所在的块不显示原文。
+    // 文字滚动到第 10 节，切换回只看预览：预览顶部是第 10 节，光标所在的块不显示原文。
     app.editor.active_mut().unwrap().scroll_line = 40.0;
     app.set_preview_mode(PreviewMode::Preview);
     settle(&mut app);
@@ -1110,7 +1110,7 @@ fn tables_are_edited_cell_by_cell() {
     put_caret(&mut app, "粗", false);
     app.run(winc_editor::Command::Insert("很".into()));
     paint(&mut app);
-    // 只有光标所在的那一格显示原文，表格照常排。
+    // 只有光标所在的那一格显示原文，表格仍按排版显示。
     let shown = crate::view::preview::markdown::full_text(&app).unwrap();
     assert!(shown.contains("**很粗**"), "{shown}");
     assert!(
@@ -1123,7 +1123,7 @@ fn tables_are_edited_cell_by_cell() {
         rope.slice(doc.selection.from()..doc.selection.to())
             .to_string()
     };
-    // Tab 选中下一格，最后一格再 Tab 添一行；⇧Tab 回去。
+    // Tab 选中下一格，在最后一格按 Tab 新增一行；⇧Tab 返回上一格。
     assert!(app.markdown_key(&tab, false));
     assert_eq!(selected(&app), "d");
     settle(&mut app);
@@ -1144,7 +1144,7 @@ fn tables_are_edited_cell_by_cell() {
         with_caret(&app),
         "| a | b |\n|---|---|\n| **很粗** | d |\n|  | | |\n\n后文\n"
     );
-    // 表头下面那一行上：整张表显示原文，Tab 交给编辑区。
+    // 位于表头下方的分隔行上：整张表显示原文，Tab 交给编辑区。
     put_caret(&mut app, "|---", true);
     assert!(
         crate::view::preview::markdown::full_text(&app)
@@ -1347,7 +1347,7 @@ fn clicking_an_anchor_link_scrolls_to_the_heading() {
     command_click(&mut app, (rect.x + 2.0, rect.y + 2.0));
     let top = crate::view::preview::markdown::anchor_top(&app, "安装").unwrap();
     assert!(top > 0.0);
-    // 标题滚到顶上；文档剩下的不够一屏时滚到底为止。
+    // 标题滚动到顶部；其后的内容不足一屏时滚动到底为止。
     let max = app.markdown.height - app.markdown.area.h;
     assert_eq!(app.markdown.scroll(), top.min(max));
     // 脚注的编号和末尾的 ↩ 能找到彼此。
@@ -1463,7 +1463,7 @@ fn preview_text_can_be_selected_and_copied() {
     use super::editor::navigation::press;
     use crate::keymap::KeyCode::Char;
 
-    // 分栏时点了预览：选的是排出来的字。可编辑的预览中选的是原文，见
+    // 分栏时点击了预览：选择的是排版后的文字。可编辑的预览中选的是原文，见
     // `the_full_preview_edits_the_document`。
     let (mut app, dir) = readme("md-select", false, PreviewMode::Split);
     let area = app.markdown.area;
@@ -1481,12 +1481,12 @@ fn preview_text_can_be_selected_and_copied() {
     assert!(all.contains("fn main() {\n    // 打印一行\n"));
     assert!(all.contains("下载发行版\n解压到 /Applications\n"));
 
-    // 拖着选一段（从「Rust」的 R 后面起）；双击选一个词。
+    // 拖动选择一段（从「Rust」的 R 之后开始）；双击选中一个词。
     let at = all[..all.find("Rust").unwrap()].chars().count() + 1;
     let (x, y) = point_of(&app, at);
     app.on_mouse_move(x, y);
     app.on_mouse_down(MouseButton::Left);
-    // 拖到「混排」之后：按字的位置找，不按行数算（各系统的字体宽度不同，折行的位置也不同）。
+    // 拖到「混排」之后：按字的位置查找，不按行数计算（各系统的字体宽度不同，折行的位置也不同）。
     let end = all[..all.find("混排").unwrap()].chars().count() + 2;
     let (end_x, end_y) = point_of(&app, end);
     app.on_mouse_move(end_x, end_y);
@@ -1515,7 +1515,7 @@ fn preview_and_source_point_at_each_other() {
     let (mut app, dir) = readme("md-locate", false, PreviewMode::Split);
     assert!(press(&mut app, &["cmd"], Char('a')));
     let shown = crate::view::preview::markdown::full_text(&app).unwrap();
-    // 样式标记、嵌套列表、代码块、表格、引用中的软换行和脚注都能对应到原文；点击链接是打开
+    // 样式标记、嵌套列表、代码块、表格、引用中的软换行和脚注都能对应到原文；点击链接会打开
     // 链接，不在此列。
     for target in [
         "启动快",
@@ -1527,7 +1527,7 @@ fn preview_and_source_point_at_each_other() {
         "这是脚注",
     ] {
         let at = shown[..shown.find(target).unwrap()].chars().count();
-        // 先滚到看得见。
+        // 先滚动到可见位置。
         app.select_in_markdown(at, at + 1);
         paint(&mut app);
         let (x, y) = point_of(&app, at);
@@ -1539,7 +1539,7 @@ fn preview_and_source_point_at_each_other() {
         let doc = app.editor.active().unwrap();
         assert_eq!(doc.selection, Selection::point(expected), "{target}");
 
-        // 反过来：光标所在的字在预览上落在点中的那一行。
+        // 反向：光标所在的字在预览上落在点中的那一行。
         let source = app.markdown_caret_source().unwrap();
         let laid = app.markdown.layout.as_ref().unwrap();
         let (_, top, _) = crate::view::preview::markdown::point_of(laid, source).expect(target);
@@ -1591,7 +1591,7 @@ fn point_of(app: &App, offset: usize) -> (f32, f32) {
 
 #[test]
 fn command_f_searches_the_rendered_preview() {
-    // 分栏时点了预览：查找排出来的字。
+    // 分栏时点击了预览：查找排版后的文字。
     let (mut app, dir) = readme("md-find", false, PreviewMode::Split);
     let area = app.markdown.area;
     super::click(&mut app, (area.x + 5.0, area.bottom() - 5.0));
@@ -1612,10 +1612,10 @@ fn command_f_searches_the_rendered_preview() {
     assert!(app.markdown.scroll() > 0.0);
     app.find_next(false);
     assert_eq!(app.markdown.selection, first);
-    // 预览没有「行」：「只显示匹配的行」按了没反应。
+    // 预览没有「行」的概念：「只显示匹配的行」不生效。
     app.press_search_button(crate::layout::SearchButton::Filter);
     assert!(!app.filter_lines);
-    // 排出来的字不能改：不展开替换。
+    // 排版后的文字不可修改：不展开替换。
     app.close_search();
     app.open_search(true);
     assert!(!app.replace_open);
@@ -1637,7 +1637,7 @@ fn remote_images_come_from_the_cache_and_can_be_turned_off() {
     use crate::app::preview::markdown::{ImageSlot, image_path};
     use crate::layout::Setting;
 
-    // 一个不会联网的地址：先把已下载的文件放进缓存，预览直接读取缓存。
+    // 一个不会联网的地址：先将已下载的文件放入缓存，预览直接读取缓存。
     let url = format!("https://example.invalid/{}/badge", std::process::id());
     let cached = image_path(None, &url, true).unwrap();
     assert_eq!(image_path(None, &url, false), None);
@@ -1657,7 +1657,7 @@ fn remote_images_come_from_the_cache_and_can_be_turned_off() {
     ));
     assert_eq!(app.markdown.layout.as_ref().unwrap().chars(), 0);
 
-    // 关掉联网：显示替代文字。
+    // 关闭联网：显示替代文字。
     app.settings_toggle(Setting::RemoteImages);
     assert_eq!(app.config.markdown_remote_images, Some(false));
     settle(&mut app);
@@ -1678,7 +1678,7 @@ fn the_image_cache_drops_old_and_partial_files() {
     std::fs::write(dir.join("used.png"), b"x").unwrap();
     std::fs::write(dir.join("old.png"), b"x").unwrap();
     std::fs::write(dir.join("half.part123"), b"x").unwrap();
-    // 把时间推后 2 小时：未下载完的临时文件视为过期，图片仍保留。
+    // 将时间推后 2 小时：未下载完的临时文件视为过期，图片仍保留。
     let later = SystemTime::now() + Duration::from_secs(2 * 3600);
     clean_cache(&dir, later);
     assert!(!dir.join("half.part123").exists());
@@ -1704,7 +1704,7 @@ fn headings_get_github_anchors() {
     assert_eq!(slug("a_b-c"), "a_b-c");
 }
 
-/// 截图：分栏（左边源代码、右边预览）和只看预览，浅色、深色各一张。
+/// 截图：分栏（左侧源代码、右侧预览）和只看预览，浅色、深色各一张。
 #[test]
 #[ignore = "截图，手动运行"]
 fn shoot_markdown_preview() {
@@ -1821,7 +1821,7 @@ fn shoot_rich_markdown() {
     }
 }
 
-/// 能画的 mermaid 图悬停时显示全屏按钮；不支持的图按代码块显示，只有复制按钮。
+/// 可绘制的 mermaid 图在悬停时显示全屏按钮；不支持的图按代码块显示，只有复制按钮。
 #[test]
 fn mermaid_blocks_draw_diagrams_and_fall_back_to_code() {
     let dir = sample_folder("md-mermaid-fallback");
@@ -1846,7 +1846,7 @@ fn mermaid_blocks_draw_diagrams_and_fall_back_to_code() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// README 顶上常见的 HTML：居中的标题和图标、徽章、按百分比并排的截图、表格里的图。
+/// README 顶部常见的 HTML：居中的标题和图标、徽章、按百分比并排的截图、表格里的图。
 const HTML_README: &str = r#"<h1 align="center">
   <img src="logo.svg" width="64"><br>
   DEEIX Chat
@@ -2320,7 +2320,7 @@ fn time_mermaid() {
     }
 }
 
-/// 计时：只有一个很大的顶层块（长列表、长表格、长代码块）时，分栏滚动每帧要多久。
+/// 计时：只有一个很大的顶层块（长列表、长表格、长代码块）时，分栏滚动时每帧的耗时。
 #[test]
 #[ignore = "计时，手动运行"]
 fn time_huge_blocks() {
@@ -2343,10 +2343,10 @@ fn time_huge_blocks() {
         std::fs::write(&path, &text).unwrap();
         let mut app = app_with(&path, false);
         paint(&mut app);
-        // 对照：不分栏时滚同样的位置。
+        // 对照：不分栏时滚动到同样的位置。
         let started = std::time::Instant::now();
         for i in 0..50 {
-            app.editor.active_mut().unwrap().scroll_line = (i * 97) as f32;
+            app.editor.active_mut().unwrap().scroll_line = (i * 97) as f64;
             paint(&mut app);
         }
         eprintln!("{name} 不分栏滚 50 次 {:?}", started.elapsed());
@@ -2361,11 +2361,11 @@ fn time_huge_blocks() {
         );
         let started = std::time::Instant::now();
         for i in 0..50 {
-            app.editor.active_mut().unwrap().scroll_line = (i * 97) as f32;
+            app.editor.active_mut().unwrap().scroll_line = (i * 97) as f64;
             paint(&mut app);
         }
         eprintln!("{name} 滚左边 50 次 {:?}", started.elapsed());
-        // 在中间某一项（行）里改一个字。
+        // 在中间某一项（行）中修改一个字符。
         app.go_to(4000, 3, 0);
         paint(&mut app);
         app.run(winc_editor::Command::Insert("字".into()));
@@ -2373,7 +2373,7 @@ fn time_huge_blocks() {
         let started = std::time::Instant::now();
         paint(&mut app);
         eprintln!("{name} 改一个字 {:?}", started.elapsed());
-        // 只看预览时在同一处打字：光标所在的块显示原文，每打一个字重排这一块（不等解析）。
+        // 只看预览时在同一处输入：光标所在的块显示原文，每输入一个字符重排该块（不等待解析）。
         app.set_preview_mode(PreviewMode::Preview);
         settle(&mut app);
         app.run(winc_editor::Command::Insert("字".into()));
@@ -2391,7 +2391,7 @@ fn time_huge_blocks() {
 /// 测量约 1 MB 的文档在预览中执行各步骤后增加的堆内存（MB）和排版缓存的条目数。
 #[test]
 #[ignore = "测量，手动运行"]
-// 按全局分配器（`large_alloc`，仅 macOS）记下的大块内存计算。
+// 按全局分配器（`large_alloc`，仅 macOS）记录的大块内存计算。
 #[cfg(target_os = "macos")]
 fn measure_markdown_memory() {
     let mb = |b: u64| b as f64 / (1024.0 * 1024.0);
@@ -2548,7 +2548,7 @@ fn heap_breakdown(md: &winc_preview::markdown::Markdown) {
     );
 }
 
-/// 计时：用一个约 1 MB 的文档，量第一次排版和改一个字以后重排各要多久。
+/// 计时：用约 1 MB 的文档测量首次排版与修改一个字符后重排的耗时。
 #[test]
 #[ignore = "计时，手动运行"]
 fn time_large_markdown() {
@@ -2578,15 +2578,15 @@ fn time_large_markdown() {
     let started = std::time::Instant::now();
     paint(&mut app);
     eprintln!("改一个字后重排加两帧 {:?}", started.elapsed());
-    // 有一张图片读好了：只重排用到它的块。
+    // 一张图片读取完成：只重排用到该图片的块。
     app.markdown.loaded.push(dir.join("other.png"));
     let started = std::time::Instant::now();
     paint(&mut app);
     eprintln!("读好一张图片后重排加两帧 {:?}", started.elapsed());
-    // 分栏时滚左边的文字（右边跟着滚）、滚右边的预览（左边跟着滚），每次一帧。
+    // 分栏时滚动左侧文字（右侧随之滚动）、滚动右侧预览（左侧随之滚动），每次一帧。
     let started = std::time::Instant::now();
     for i in 0..100 {
-        app.editor.active_mut().unwrap().scroll_line = (i * 37) as f32;
+        app.editor.active_mut().unwrap().scroll_line = (i * 37) as f64;
         paint(&mut app);
     }
     eprintln!("滚左边 100 帧 {:?}", started.elapsed());
@@ -2674,7 +2674,7 @@ fn markdown_images_render_one_size_at_a_time() {
         drawing: Vec::new(),
     };
     app.markdown.images.insert(path.clone(), slot);
-    // 拖动改变窗口大小：每帧要一个新尺寸，正在绘制时不再提交，只有第一个在后台绘制。
+    // 拖动改变窗口大小：每帧需要一个新尺寸，正在绘制时不再提交，只有第一个在后台绘制。
     for width in 100..110 {
         app.request_markdown_pixels(&path, (width, 50));
     }
@@ -2698,7 +2698,7 @@ fn the_chosen_preview_mode_applies_to_files_opened_later() {
     let mode = |app: &App| app.editor.active().unwrap().preview_mode();
     assert_eq!(mode(&app), PreviewMode::Source);
 
-    // 选择只看预览：记进状态，之后打开的 Markdown 文件同样只看预览。
+    // 选择只看预览：记入状态，之后打开的 Markdown 文件同样只看预览。
     app.choose_preview_mode(PreviewMode::Preview);
     assert_eq!(app.state.preview_mode.as_deref(), Some("preview"));
     app.open_path(&b);
@@ -2768,11 +2768,11 @@ fn dragging_the_split_divider_resizes_both_halves() {
 fn the_live_preview_hides_its_caret_until_clicked_and_ignores_the_margins() {
     let (mut app, dir) = readme("md-live-caret", false, PreviewMode::Preview);
     paint(&mut app);
-    // 刚打开、只是阅读：不显示光标。
+    // 刚打开、仅阅读时：不显示光标。
     assert!(!app.live_caret_shown());
     let before = app.editor.active().unwrap().selection;
 
-    // 点在内容一栏左侧的空白：不放光标、不开始选字。
+    // 点在内容一栏左侧的空白：不放置光标、不开始选择。
     let area = app.markdown.area;
     super::click(&mut app, (area.x + 2.0, area.y + area.h / 2.0));
     paint(&mut app);
@@ -2788,7 +2788,7 @@ fn the_live_preview_hides_its_caret_until_clicked_and_ignores_the_margins() {
 }
 
 /// 只看预览时左侧有标题指示条，每个标题一条；鼠标停在指示条上时标题列表在原处展开，点击一项
-/// 滚到该标题。分栏时预览变窄，左侧留白放不下指示条，不画。
+/// 滚动到该标题。分栏时预览变窄，左侧留白容纳不下指示条，不绘制。
 #[test]
 fn the_preview_shows_a_heading_indicator() {
     use crate::app::preview::markdown::TocTarget;
@@ -2808,11 +2808,11 @@ fn the_preview_shows_a_heading_indicator() {
     app.on_mouse_move(bars.x + 20.0, bars.y + 10.0);
     paint(&mut app);
     assert!(matches!(app.hover, Hover::MarkdownToc(_)));
-    // 展开时第一行的横线落在指示条第一条的位置上（还没有滚到任何标题），横线不跳动。指示条的
+    // 展开时第一行的横线落在指示条第一条的位置上（尚未滚动到任何标题），横线不跳动。指示条的
     // 范围比第一条高出 8，第一条粗 2。
     let first = find(&app, TocTarget::Heading(0)).unwrap();
     assert_eq!(first.y + first.h / 2.0, bars.y + 8.0 + 1.0);
-    // 列表盖住指示条展开；鼠标停在列表里两行之间的空白处时列表不收起。
+    // 列表覆盖指示条展开；鼠标停在列表里两行之间的空白处时列表不收起。
     let row = find(&app, TocTarget::Heading(1)).unwrap();
     let card = app.markdown.toc.iter().rev().nth(1).unwrap().0;
     assert!(card.contains(bars.x + 20.0, bars.y + 10.0));
@@ -2835,7 +2835,7 @@ fn the_preview_shows_a_heading_indicator() {
         "{bars:?} {left}"
     );
 
-    // 点开头的标题后再滚到底：文末的标题滚不到顶上，当前所在的一节取屏幕里最后一个标题。
+    // 点击开头的标题后滚动到底：文末的标题无法滚动到顶部，当前所在的一节取屏幕里最后一个标题。
     app.press_toc(TocTarget::Heading(0));
     paint(&mut app);
     assert_eq!(app.markdown.toc_current, Some(0));
@@ -2849,8 +2849,8 @@ fn the_preview_shows_a_heading_indicator() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 截图：本仓库的 README 只看预览，滚到第三个标题，鼠标停在标题指示条上；点最后一个标题后
-/// 正文里的底色。深浅两套配色。
+/// 截图：本仓库的 README 只看预览，滚动到第三个标题，鼠标停在标题指示条上；点击最后一个
+/// 标题后正文中的底色。深浅两套配色。
 #[test]
 #[ignore]
 fn shoot_preview_heading_indicator() {
@@ -2893,7 +2893,7 @@ fn shoot_preview_heading_indicator() {
         };
         shoot(&mut app, half);
         app.markdown.toc_fade = None;
-        // 点最后一个标题：滚到底，它成为当前所在的一节，正文里的底色淡出到三成。
+        // 点击最后一个标题：滚动到底，它成为当前所在的一节，正文里的底色淡出到三成。
         let last = app.markdown.toc_tops.len() - 1;
         app.press_toc(TocTarget::Heading(last));
         let at = crate::app::animation::TOC_FLASH;
@@ -3052,7 +3052,7 @@ fn shoot_docx() {
 }
 
 /// 写一份 `count` 页的 PDF（每页 US Letter 大小，612 × 792 点）：每页顶部用 Helvetica 写页号，
-/// 下面画一条长度随页号变化的红色横条。交叉引用表按各对象的实际偏移写出。
+/// 下方绘制一条长度随页号变化的红色横条。交叉引用表按各对象的实际偏移写出。
 #[cfg(any(target_os = "macos", windows))]
 fn sample_pdf(count: usize) -> Vec<u8> {
     let mut objects: Vec<String> = vec![

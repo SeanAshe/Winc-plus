@@ -45,6 +45,7 @@ fn draw_search_bar(
     let search = &app.search;
     let hovered = |button| app.hover == Hover::Search(button);
     let expanded = parts.replace_field.w > 0.0;
+    let can_replace = app.can_replace();
     draw_card(frame, p, bar, RADIUS_BAR, p.popup_bg);
 
     draw_button(
@@ -52,7 +53,7 @@ fn draw_search_bar(
         p,
         parts.expand,
         bar,
-        hovered(SearchButton::Expand),
+        can_replace && hovered(SearchButton::Expand),
         false,
     );
     let direction = if expanded {
@@ -65,7 +66,11 @@ fn draw_search_bar(
         center(parts.expand),
         8.0,
         direction,
-        p.text_muted,
+        if can_replace {
+            p.text_muted
+        } else {
+            p.text_dim
+        },
         bar,
     );
 

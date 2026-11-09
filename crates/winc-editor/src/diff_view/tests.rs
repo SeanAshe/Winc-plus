@@ -1,5 +1,5 @@
-//! `diff_view` 模块的测试：两侧各自排出的显示行、滚动位置与显示行的换算、长段折叠与展开、
-//! 逐词标记、重新比较以后沿用状态。
+//! `diff_view` 模块的测试：两侧各自排列的显示行、滚动位置与显示行的换算、长段折叠与展开、
+//! 逐词标记，以及重新比较后沿用的状态。
 
 use super::*;
 
@@ -25,8 +25,8 @@ fn line(line: usize, hunk: Option<usize>) -> SideRow {
 
 #[test]
 fn a_long_deletion_in_the_middle_is_scrolled_through_line_by_line() {
-    // HEAD 第 30 到 80 行在工作区里删掉了：滚动位置给这段留 50 行，滚过去时左侧一行行走，
-    // 右侧停在删除的地方不动。
+    // 工作区删除了 HEAD 的第 30 至 79 行：滚动位置为该段保留 50 行，滚过该段时左侧逐行移动，
+    // 右侧停在删除处不动。
     let old = numbered(100);
     let new: String = old
         .lines()
@@ -40,39 +40,39 @@ fn a_long_deletion_in_the_middle_is_scrolled_through_line_by_line() {
     assert_eq!(v.scroll_rows(), 100);
     assert_eq!(v.hunk_span(0), 30.0..80.0);
 
-    // 一屏 20 行。
+    // 可见 20 行。
     let at = |side, pos| v.side_scroll(side, pos, 20.0);
-    // 对齐点（视图中间）在删掉的那段里：左侧每次走一行，右侧不动。
+    // 对齐点（视图中间）位于删除的段内：左侧每次移动一行，右侧不动。
     assert!((at(LEFT, 41.0) - at(LEFT, 40.0) - 1.0).abs() < 0.01);
     assert_eq!(at(RIGHT, 40.0), at(RIGHT, 41.0));
     assert!((at(RIGHT, 40.0) - 20.0).abs() < 0.01, "{}", at(RIGHT, 40.0));
-    // 过了这段：两侧又一行对一行，右侧少 50 行。
+    // 越过该段后两侧恢复逐行对应，右侧比左侧少 50 行。
     assert!((at(RIGHT, 90.0) - 40.0).abs() < 0.01);
     assert!((at(LEFT, 90.0) - 90.0).abs() < 0.01);
-    // 换回来：右侧删除点在这段的开头，左侧的行原样。
+    // 逆向换算：右侧的删除点对应该段的开头，左侧的行与滚动位置一一对应。
     assert_eq!(v.pos_of(RIGHT, 30.0), 30.0);
     assert_eq!(v.pos_of(RIGHT, 40.0), 90.0);
     assert_eq!(v.pos_of(LEFT, 55.0), 55.0);
-    // 屏幕第四行落在删掉的那段里，算这一段。
+    // 屏幕第四行位于删除的段内，当前改动为该段。
     assert_eq!(v.current_hunk(40.0), Some(0));
 }
 
 #[test]
 fn a_long_deletion_at_the_end_can_still_be_scrolled_through() {
-    // HEAD 末尾删掉了 80 行：右侧只有 20 行，滚动范围按左侧算，左侧能一直滚到末尾。
+    // 删除了 HEAD 末尾的 80 行：右侧只有 20 行，滚动范围按左侧计算，左侧可以滚动到末尾。
     let mut v = view(&numbered(100), &numbered(20));
     v.set_collapse(false, 0);
     assert_eq!(v.row_count(), 20);
     assert_eq!(v.scroll_rows(), 100);
-    // 一屏 30 行、滚到底（末尾留四成）：左侧也停在末尾，最后一行在六成高的地方。
+    // 可见 30 行、滚动到底（末尾保留四成屏高）：左侧同样停在末尾，最后一行位于六成屏高处。
     let left = v.left_scroll(100.0 - 0.6 * 30.0, 30.0);
     assert!((left - 82.0).abs() < 0.01, "{left}");
-    // 滚动一行，左侧也走一行（不按比例压缩成一次跳过去）。
+    // 滚动一行时左侧同样移动一行，不按比例压缩为一次跳过。
     let a = v.left_scroll(40.0, 30.0);
     let b = v.left_scroll(41.0, 30.0);
     assert!((b - a - 1.0).abs() < 0.01, "{a} {b}");
 
-    // 反过来：末尾新增的行在右侧，本来就能滚到，不多加。
+    // 末尾新增的行位于右侧，本身即可滚动到达，滚动范围不额外增加。
     let v = view(&numbered(20), &numbered(100));
     assert_eq!(v.scroll_rows(), v.row_count());
 }
@@ -107,7 +107,7 @@ fn long_unchanged_runs_fold_and_expand() {
     let old = numbered(40);
     let new = old.replace("line 20\n", "line twenty\n");
     let mut v = view(&old, &new);
-    // 开头：折起 0..16，留 16..20；改动一行；结尾：留 21..25，折起 25..40。
+    // 开头折叠 0..16、显示 16..20；改动一行；结尾显示 21..25、折叠 25..40。
     assert_eq!(
         v.rows[RIGHT][0],
         SideRow::Fold {
@@ -145,7 +145,7 @@ fn navigation_walks_hunks_in_order() {
 
 #[test]
 fn left_side_follows_the_right_around_hunks() {
-    // 右侧在第 10 行插了 20 行。
+    // 右侧在第 10 行处插入 20 行。
     let old = numbered(60);
     let mut new = String::new();
     for (i, l) in old.lines().enumerate() {
@@ -157,7 +157,7 @@ fn left_side_follows_the_right_around_hunks() {
     }
     let mut v = view(&old, &new);
     v.set_collapse(false, 0);
-    // 改动之前两侧一样；插入的那段滚过去时左侧停在插入点上；之后左侧少 20 行。
+    // 改动之前两侧相同；滚过插入的段时左侧停在插入点；之后左侧比右侧少 20 行。
     assert_eq!(v.left_scroll(0.0, 10.0), 0.0);
     assert_eq!(v.left_scroll(2.0, 10.0), 2.0);
     assert_eq!(v.left_scroll(10.0, 10.0), 5.0);
@@ -168,7 +168,7 @@ fn left_side_follows_the_right_around_hunks() {
 fn pinned_lines_stay_visible_with_only_their_context() {
     let old = numbered(80);
     let mut v = view(&old, &old.replace("line 40\n", "forty\n"));
-    // 改回去以后整个文件没有改动，不折叠；再改两处，中间那段很长。
+    // 还原后整个文件没有改动，不折叠；之后修改相距较远的两处，使两处之间的未改动内容很长。
     v.set_new_text(Rope::from_str(
         &old.replace("line 5\n", "five\n")
             .replace("line 75\n", "seventy-five\n"),
@@ -176,7 +176,7 @@ fn pinned_lines_stay_visible_with_only_their_context() {
     v.pin_new(40..41);
     let row = v.row_of_new(40);
     assert_eq!(v.line_at(RIGHT, row), Some(40));
-    // 钉住的那一行上下各露 CONTEXT 行，两边仍然折着。
+    // 固定显示的行上下各显示 `CONTEXT` 行，更外侧仍然折叠。
     assert!(matches!(
         v.rows[RIGHT][row - CONTEXT - 1],
         SideRow::Fold { .. }
@@ -196,7 +196,7 @@ fn pinned_lines_follow_edits_above_them() {
         .replace("line 75\n", "seventy-five\n");
     let mut v = view(&old, &changed);
     v.pin_new(40..41);
-    // 在上面加两行：钉住的那一行跟着往下挪两行，仍然露在外面。
+    // 在上方插入两行：固定显示的行随之下移两行，仍然保持显示。
     let added = changed.replace("line 10\n", "line 10\nnew a\nnew b\n");
     v.set_new_text(Rope::from_str(&added));
     let row = v.row_of_new(42);
@@ -209,7 +209,7 @@ fn pinned_lines_follow_edits_above_them() {
 
 #[test]
 fn both_sides_start_at_the_top_when_the_file_starts_with_a_change() {
-    // 开头一段左边 1 行、右边 5 行：右侧在开头时左侧也在开头。
+    // 开头的改动左侧 1 行、右侧 5 行：右侧位于开头时左侧同样位于开头。
     let old = numbered(60);
     let new = format!("a\nb\nc\nd\n{}", old.replacen("line 0\n", "zero\n", 1));
     let v = view(&old, &new);
@@ -248,18 +248,18 @@ fn editing_the_right_side_rediffs_and_maps_lines() {
     let old = numbered(40);
     let mut v = view(&old, &old.replace("line 20\n", "line twenty\n"));
     assert_eq!(v.hunks.len(), 1);
-    // 右侧第 2 行位于开头折起的一段里：先展开才看得见。
+    // 右侧第 2 行位于开头的折叠内，展开后才显示。
     assert!(matches!(
         v.rows[RIGHT][v.row_of_new(2)],
         SideRow::Fold { .. }
     ));
-    v.reveal_new(2);
+    v.reveal_line(RIGHT, 2);
     assert_eq!(v.line_at(RIGHT, v.row_of_new(2)), Some(2));
 
-    // 改回去：两侧相同。
+    // 还原后两侧相同。
     v.set_new_text(Rope::from_str(&old));
     assert!(v.is_identical());
-    // 再改一处别的。
+    // 修改另一处。
     v.set_new_text(Rope::from_str(&old.replace("line 3\n", "line three\n")));
     assert_eq!(v.hunks.len(), 1);
     assert_eq!(v.hunks[0].new, 3..4);
@@ -280,14 +280,14 @@ fn comparing_elsewhere_then_applying_matches_comparing_in_place() {
         (b.hunks.clone(), b.keys.clone())
     );
     assert_eq!(a.rows, b.rows);
-    // 只读一侧的选区：取出选中的文本。
+    // 只读一侧的选区：读取选中的文本。
     let range = (b.old.text.line_to_char(2), b.old.text.line_to_char(4));
     b.read_selection = Some(ReadSelection { side: LEFT, range });
     assert_eq!(b.read_selected().as_deref(), Some("line 2\nline 3\n"));
     let range = (b.new.text.line_to_char(0), b.new.text.line_to_char(1));
     b.read_selection = Some(ReadSelection { side: RIGHT, range });
     assert_eq!(b.read_selected(), Some(b.new.text.line(0).to_string()));
-    // 光标在选区的终点；没有选中内容时也有光标。
+    // 光标位于选区的终点；没有选中内容时同样有光标。
     assert_eq!(b.read_caret(), Some((RIGHT, range.1)));
     b.read_selection = Some(ReadSelection {
         side: RIGHT,
@@ -307,11 +307,11 @@ fn first_difference_counts_lines_across_chunks() {
 }
 
 mod measure {
-    //! 重新比较耗时的测量：右侧每改一个字就重新比较一次。
+    //! 重新比较的耗时测量：右侧每修改一个字符即重新比较一次。
 
     use super::*;
 
-    /// 测量：右侧改一个字以后重新比较要多久。
+    /// 测量右侧修改一个字符后重新比较的耗时。
     ///
     /// `cargo test -p winc-editor measure_rediff -- --ignored --nocapture`
     #[test]
@@ -352,7 +352,7 @@ fn wrapping_gives_each_part_of_a_long_line_its_own_row() {
     assert!(view.is_wrapping());
     assert!(!view.set_wrap(Some((20, 4))));
 
-    // 没改的行两侧断法相同，行数相等。
+    // 未改动的行两侧断行结果相同，行数相等。
     let parts = view.breaks(LEFT, 1).rows();
     assert!(parts > 1);
     assert_eq!(view.rows[LEFT].len(), 2 + parts);
@@ -366,11 +366,11 @@ fn wrapping_gives_each_part_of_a_long_line_its_own_row() {
         }
     );
 
-    // 改动的显示行和滚动位置跟着多出来的段走。
+    // 改动的显示行和滚动位置随断行增加的段数相应后移。
     assert_eq!(view.hunk_rows[RIGHT][0], 2 + parts..3 + parts);
-    assert_eq!(view.row_at(RIGHT, (2 + parts) as f32), (2 + parts) as f32);
+    assert_eq!(view.row_at(RIGHT, (2 + parts) as f64), (2 + parts) as f64);
 
-    // 行号查到的是第一段，字符查到它所在的那一段。
+    // 按行号查找得到第一段，按字符查找得到该字符所在的段。
     assert_eq!(view.row_of(LEFT, 1), 1);
     let second = view.breaks(LEFT, 1).start_of(1);
     assert_eq!(view.row_of_col(LEFT, 1, second), 2);
@@ -389,23 +389,23 @@ fn a_cell_in_a_wrapped_row_maps_to_the_whole_line() {
     assert_eq!(breaks.indent, 4);
     let start = breaks.start_of(1);
 
-    // 第一段不变；第二段先去掉缩进，再加上这一段开头的列。
+    // 第一段的显示列不变；第二段先减去缩进，再加上该段开头的显示列。
     assert_eq!(view.cell_in_row(LEFT, 0, 3), 3);
     assert_eq!(view.cell_in_row(LEFT, 1, 4), start);
     assert_eq!(view.cell_in_row(LEFT, 1, 6), start + 2);
     assert_eq!(view.cell_in_row(LEFT, 1, 0), start);
-    // 超出这一段时不落到下一段。
+    // 超出该段时不进入下一段。
     let next = breaks.start_of(2);
     assert!(view.cell_in_row(LEFT, 1, 1000) < next);
 
-    // 不换行时不换算。
+    // 不换行时显示列保持不变。
     view.set_wrap(None);
     assert_eq!(view.cell_in_row(LEFT, 0, 7), 7);
 }
 
 #[test]
 fn the_top_row_maps_back_to_its_scroll_position() {
-    // 一段删除让两侧不等长：开头半屏内、停在删除处、越过删除之后都能反算回来。
+    // 一段删除使两侧行数不等：位于开头半屏内、删除处、删除之后时都能正确反算。
     let old = numbered(100);
     let new: String = old
         .lines()
@@ -449,7 +449,7 @@ fn the_unified_layout_lists_old_rows_before_new_rows() {
         .map(|i| v.unified_row(i).unwrap())
         .collect();
     assert_eq!(v.unified_row(rows.len()), None);
-    // 每一行只出现一次，两侧各自按顺序排列；改动里左侧的行在右侧的行前面。
+    // 每一行只出现一次，两侧各自按顺序排列；改动中左侧的行排在右侧的行之前。
     for side in [LEFT, RIGHT] {
         let of_side: Vec<_> = rows.iter().filter(|r| r.0 == side).map(|r| r.1).collect();
         assert!(of_side.windows(2).all(|w| w[0] < w[1]), "{of_side:?}");
@@ -459,20 +459,20 @@ fn the_unified_layout_lists_old_rows_before_new_rows() {
     let old_rows = first[LEFT][0].len();
     assert_eq!(rows[at], (LEFT, first[LEFT][0].start));
     assert_eq!(rows[at + old_rows], (RIGHT, first[RIGHT][0].start));
-    // 没改的行算右侧，只显示一次：总行数是右侧的行数加上左侧在改动里的行数。
+    // 未改动的行计入右侧，只显示一次：总行数为右侧的行数加上左侧改动中的行数。
     let changed: usize = first[LEFT].iter().map(|r| r.len()).sum();
     assert_eq!(rows.len(), v.rows[RIGHT].len() + changed);
 
-    // 滚动位置和显示行互相换算。
+    // 滚动位置与显示行可以互相换算。
     let map = v.unified_map();
     for (index, &(side, row)) in rows.iter().enumerate() {
-        assert_eq!(v.pos_of(side, row as f32), index as f32, "{side} {row}");
-        assert_eq!(map.pos_of(side, row as f32), index as f32, "{side} {row}");
-        assert_eq!(v.row_at(side, index as f32), row as f32, "{side} {row}");
-        assert_eq!(v.row_under(side, 0.0, 10.0, index as f32), row);
+        assert_eq!(v.pos_of(side, row as f64), index as f64, "{side} {row}");
+        assert_eq!(map.pos_of(side, row as f64), index as f64, "{side} {row}");
+        assert_eq!(v.row_at(side, index as f64), row as f64, "{side} {row}");
+        assert_eq!(v.row_under(side, 0.0, 10.0, index as f64), row);
     }
 
-    // 切回并排，排布恢复。
+    // 切换回并排显示后排列恢复原状。
     let side_by_side = view(old, new);
     v.set_unified(false);
     assert_eq!(v.scroll_rows(), side_by_side.scroll_rows());
@@ -492,7 +492,7 @@ fn a_unified_view_stays_unified_after_comparing_again() {
 #[test]
 fn marks_covering_every_visible_character_cover_the_line() {
     let chars: Vec<char> = "  let a = 1;  ".chars().collect();
-    // 缩进和行尾空白不必标记，中间的空格可以分属多段标记。
+    // 缩进和行尾空白无需标记，行中间的空格可以分属不同的标记区间。
     assert!(marks_cover_line(&chars, std::slice::from_ref(&(2..12))));
     assert!(marks_cover_line(&chars, &[2..5, 6..7, 8..9, 10..12]));
     assert!(!marks_cover_line(&chars, std::slice::from_ref(&(10..11))));

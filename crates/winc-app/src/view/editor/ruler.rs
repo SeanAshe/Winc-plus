@@ -1,12 +1,12 @@
-//! 滚动条上的标注，以及选中的文字在文件里和屏幕上的其他出现。
+//! 滚动条上的标注，以及选中文字在文件中和屏幕上的其他出现。
 
 use super::*;
 use crate::layout::hscrollbar_thumb;
 
 /// 绘制编辑区的滚动条，同时是概览标尺。
 ///
-/// 左边一道（[`GIT_LANE`]）标出与 `HEAD` 比较出的改动，右边一道（[`MARK_LANE`]）标出查找结果
-/// 或选中文字的其他出现，以及书签；半透明的滑块绘制在标记上面，能滚动时还标出光标所在的行。
+/// 左侧一列（[`GIT_LANE`]）标出与 `HEAD` 比较得到的改动，右侧一列（[`MARK_LANE`]）标出查找结果
+/// 或选中文字的其他出现，以及书签；半透明的滑块绘制在标记之上，可滚动时还标出光标所在的行。
 ///
 /// # Panics
 ///
@@ -21,15 +21,15 @@ pub(super) fn draw_editor_scrollbar(app: &mut App, frame: &mut Frame<'_>, index:
 
     let (p, layout) = (app.palette, app.layout);
     let doc = &app.editor.documents[index];
-    let (owner, scroll) = (doc.id.0, doc.scroll_line * app.fonts.line_height);
+    let scroll = (doc.scroll_line * f64::from(app.fonts.line_height)) as f32;
+    let owner = doc.id.0;
     let total = doc.row_count();
     let content = editor_content_height(total, layout.editor.h, app.fonts.line_height);
     let track = layout.editor;
     let ruler = Ruler::new(track, total);
 
-    // Git 改动：一段占几行，标记就绘制多高。
-    // 鼠标指着的那一处向左加宽 1 逻辑像素。
-    // 三栏合并里改动由连接带表示，不再标出与 `HEAD` 的差别。
+    // Git 改动：标记高度与改动所占的行数成比例，鼠标所指的一处向左加宽 1 逻辑像素。
+    // 三栏合并中改动由连接带表示，不再标出与 `HEAD` 的差别。
     let hunks = if app.merge_panes_placed() {
         Default::default()
     } else {
@@ -45,7 +45,7 @@ pub(super) fn draw_editor_scrollbar(app: &mut App, frame: &mut Frame<'_>, index:
         ruler.mark(frame, lane, ruler_rows(doc, h), color);
     }
 
-    // 按行号换算为显示行，边换算边绘制，不另外收集：查找结果的数量可能很大。
+    // 按行号换算为显示行并直接绘制，不另行收集：查找结果的数量可能很大。
     let mut marks = |lines: &[usize], color: Color| {
         let rows = lines.iter().map(|&line| doc.row_of(line));
         ruler.runs(frame, MARK_LANE, rows, color);
@@ -57,7 +57,7 @@ pub(super) fn draw_editor_scrollbar(app: &mut App, frame: &mut Frame<'_>, index:
     }
     marks(doc.bookmark_lines(), p.accent);
 
-    // 滑块是半透明的，绘制在标记上面：标记再密也看得见滑块在哪。
+    // 滑块半透明，绘制在标记之上：标记密集时仍可辨认滑块的位置。
     let caret = doc.row_of(doc.text().line_of(doc.selection.head));
     let look = draw_scrollbar(
         app,
@@ -100,11 +100,11 @@ pub(crate) type RulerCache = (
 
 /// 返回选中的文本在整个文件中出现的行号（从 0 起）；没有选区、只出现一次时返回 `None`。
 ///
-/// 只认选区，不认光标所在的词：整列标记随光标所在的词变来变去，停在 `self`、`return`
-/// 这类常见词上时满列都是，是标尺上标记过密的主要原因。
+/// 只依据选区，不依据光标所在的词：按光标所在的词标记时，整列标记随光标移动频繁变化，
+/// 光标停在 `self`、`return` 等常见词上时整列布满标记。
 ///
-/// 结果按（文档、版本号、查找内容）缓存，选区不变、滚动时不重算；文件超过
-/// [`RULER_SCAN_MAX`] 时不查找，每次修改都要重新搜索整个文件。
+/// 结果按（文档、版本号、查找内容）缓存，选区不变时滚动不重新计算。每次修改都需要重新搜索
+/// 整个文件，因此文件超过 [`RULER_SCAN_MAX`] 时不查找。
 fn occurrence_lines(app: &mut App, index: usize) -> Option<Arc<[usize]>> {
     let doc = &app.editor.documents[index];
     if doc
@@ -149,10 +149,12 @@ fn occurrence_lines(app: &mut App, index: usize) -> Option<Arc<[usize]>> {
     lines
 }
 
-/// 光标所在的词（或选中的一小段文字）在屏幕上的其他出现，铺一层淡底色便于辨认该变量的使用位置。
+/// 光标所在的词（或选中的一小段文字）在屏幕上其他出现位置的查找条件；这些位置铺一层淡底色，
+/// 便于辨认同一标识符的使用位置。
 ///
-/// 没有选区时取光标两侧的标识符，按整词查找（`id` 不会命中 `width`）；有选区时（不跨行、不太长、
-/// 不全是空白）查找完全相同的文字，选区本身不再标注。纯数字不标注，避免满屏的 `0` 和 `1` 形成干扰。
+/// 没有选区时取光标两侧的标识符，按整词查找（`id` 不会命中 `width`）；有选区时（不跨行、
+/// 不超过 `OCCURRENCE_MAX`、不全是空白）查找完全相同的文字，选区本身不再标注。纯数字不标注，
+/// 避免大量 `0`、`1` 的标记造成干扰。
 pub(super) struct Occurrences {
     /// 要查找的字符序列。
     needle: Vec<char>,
@@ -162,12 +164,14 @@ pub(super) struct Occurrences {
     pub(super) skip: Option<(usize, usize)>,
 }
 
-/// 选中的文字或光标所在的词超过该长度（字符，经验值）时，不再查找其他出现。
+/// 查找其他出现时选中文字或光标所在词的最大长度（字符）。
+///
+/// 超过该长度时不再查找，限定每个可见行逐处比较的开销。
 const OCCURRENCE_MAX: usize = 200;
 
 /// 在滚动条上标注选中文字的其他出现时的文件大小上限（字节，512 KiB）。
 ///
-/// 每次修改都要搜索整个文件（release 下 1 MB 约 5 ms，因此 512 KiB 约 2.5 ms，远小于输入时
+/// 每次修改都需要搜索整个文件（release 构建下 1 MB 约 5 ms，512 KiB 约 2.5 ms，远小于输入时
 /// 一帧的预算）。超过上限时只在屏幕上标注，不在滚动条上标注。
 const RULER_SCAN_MAX: usize = 512 << 10;
 
@@ -187,7 +191,7 @@ impl Occurrences {
                 return None;
             }
             let needle: Vec<char> = text.substring(from, to).chars().collect();
-            // 单个字符几乎处处出现，标注没有意义。
+            // 单个字符的出现过于普遍，标注不提供有效信息。
             if needle.len() < 2 || needle.iter().all(|c| c.is_whitespace()) {
                 return None;
             }
@@ -198,13 +202,13 @@ impl Occurrences {
             });
         }
 
-        // 只看光标两侧的标识符，不读取整行（行可能很长）：该逻辑每帧都会执行一次。
+        // 只读取光标两侧的标识符，不读取整行（行可能很长）：该逻辑每帧执行。
         let (line, col) = text.pos_to_line_col(selection.head);
         let content = text.line_content(line);
         let slice = content.slice();
         let col = col.min(slice.len_chars()).min(MAX_LINE_CHARS);
-        // 与选中文字一样最多 `OCCURRENCE_MAX` 个字符：光标停在几 MB 长、没有分隔的一串字符里时，
-        // 每个可见行都要拿它逐处比较；数到超过上限就停，不必数完整串。
+        // 与选中文字相同，最多取 `OCCURRENCE_MAX` 个字符：光标位于数 MB 长、无分隔的字符串中时，
+        // 每个可见行都需要逐处比较；计数超过上限即停止，不遍历整串。
         let word = |c: &char| is_word_char(*c);
         let limit = OCCURRENCE_MAX + 1;
         let before = (slice.chars_at(col).reversed())
@@ -259,7 +263,7 @@ impl Occurrences {
         })
     }
 
-    /// 返回 `segments` 所指的屏幕行范围内共出现几处；数到 2 即停止，因此结果最大为 2。
+    /// 返回 `segments` 所指的屏幕行范围内的出现次数；计数到 2 即停止，因此结果最大为 2。
     pub(super) fn count(&self, text: &impl Lines, segments: &[Range<usize>]) -> usize {
         let mut count = 0;
         let mut chars = Vec::new();

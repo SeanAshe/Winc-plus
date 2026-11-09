@@ -1,9 +1,9 @@
-//! 编辑区行号栏里的 Git 改动标记：和 `HEAD` 里的版本逐行比较，新增、修改的行在行号右边一道
-//! 细色条，删掉的地方一个小三角；点标记弹出一张卡片，有原内容、回滚、显示差异。
+//! 编辑区行号栏中的 Git 改动标记：与 `HEAD` 中的版本逐行比较，新增、修改的行在行号右侧显示
+//! 细色条，删除处显示小三角；点击标记弹出卡片，提供原内容、回滚和显示差异。
 //!
-//! 每个文件在 `HEAD` 里的内容用到时在后台取，按文档编码解码，`HEAD` 变了就整体作废重取。改动按
-//! 文档的版本缓存，文字没变不重算，变了在后台重算，算好之前继续画上一次的；回滚、跳转、打开卡片
-//! 要准确行号，标记不是最新时就当场算一次。绘制在 `view/git/changes.rs`。
+//! 各文件在 `HEAD` 中的内容（基准）在首次使用时于后台读取，按文档编码解码，`HEAD` 变化时全部
+//! 作废并重新读取。改动按文档版本号缓存，文本变化时在后台重新计算，完成前继续绘制上一次的结果；
+//! 回滚、跳转和打开卡片需要准确的行号，标记不是最新时当场计算。绘制由 `view/git/changes.rs` 完成。
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -26,45 +26,47 @@ use crate::layout::{GIT_LANE, Ruler};
 
 use crate::app::{App, UserEvent};
 
-/// 标记那一条的宽度（逻辑像素），贴在行号右边。
+/// 改动标记色条的宽度（逻辑像素），位于行号右侧。
 ///
-/// 3 是经验值：比 1 像素宽，非整数缩放时不会糊成两像素。
+/// 取自调参：宽于 1 像素，非整数缩放时不会模糊成两个像素宽的淡色条。
 pub(crate) const MARK_W: f32 = 3.0;
-/// 点标记时认的宽度（逻辑像素）：比色条宽一些，好点中；不伸到右边折叠箭头上（经验值 7）。
+/// 改动标记的点击判定宽度（逻辑像素）。
+///
+/// 取自调参：宽于色条以便点中，且不延伸到右侧的折叠箭头。
 const MARK_HIT_W: f32 = 7.0;
 
-/// 行号栏里改动标记的左边（逻辑像素）：行号右边、折叠箭头左边那一小条空当。
+/// 返回行号栏中改动标记的左边界（逻辑像素），位于行号与折叠箭头之间的空隙。
 pub(crate) fn mark_x(gutter: Rect) -> f32 {
     crate::app::fold_column(gutter).x + 2.0
 }
 
-/// 后台算好的改动。
+/// 后台计算完成的改动。
 struct Computed {
     id: DocumentId,
-    /// 算的是哪个版本号（`Document::revision`）。
+    /// 计算时的文档版本号（`Document::revision`）。
     revision: u64,
-    /// 算的时候的基准编号（[`LineChanges::epoch`]）：对不上就丢弃。
+    /// 计算时的基准编号（[`LineChanges::epoch`]）；与当前编号不一致时丢弃。
     epoch: u64,
     hunks: Vec<LineHunk>,
 }
 
-/// 一个文件的改动，按文档版本缓存。
+/// 一个文件的改动，按文档版本号缓存。
 struct Marks {
-    /// 算的是哪个版本号（`Document::revision`）。
+    /// 计算时的文档版本号（`Document::revision`）。
     revision: u64,
-    /// 算的时候的基准编号（[`LineChanges::epoch`]）。
+    /// 计算时的基准编号（[`LineChanges::epoch`]）。
     epoch: u64,
     hunks: Vec<LineHunk>,
 }
 
-/// 卡片上可以点的地方。
+/// 卡片上可点击的控件。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ChangeTarget {
     /// 上一处改动。
     Previous,
     /// 下一处改动。
     Next,
-    /// 回滚这一块。
+    /// 回滚该处改动。
     Revert,
     /// 打开该文件的差异。
     ShowDiff,
@@ -72,28 +74,30 @@ pub enum ChangeTarget {
     Close,
 }
 
-/// 打开着的卡片：哪个文档的第几处改动。
+/// 已打开的卡片：所属文档与改动的下标。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ChangePopup {
-    /// 卡片开在哪个文档上。
+    /// 卡片所属的文档。
     pub doc: DocumentId,
     /// 文档改动的下标（[`LineChanges::hunks`]）。
     pub hunk: usize,
-    /// 卡片跟着的行（左闭右开，可以为空）：卡片贴在它们下面，放不下贴在上面，不盖住它们。
+    /// 卡片的锚定行（从 0 起，左闭右开，可以为空）。
     ///
-    /// 点标记打开时是点的那一行，改动很长时卡片也不会超出屏幕；删掉的地方是那道分界。
+    /// 卡片位于这些行下方，空间不足时位于上方，不遮挡这些行。点击标记打开时为被点击的行，
+    /// 改动很长时卡片也不超出屏幕；删除处为删除位置的分界。
     pub anchor: (usize, usize),
 }
 
-/// 卡片里要画的原来的内容：按（文档版本、基准、这一处改动）缓存，每帧不再从头翻基准、逐词
-/// 比较、着色。
+/// 卡片中绘制的原内容。
+///
+/// 按（文档版本号、基准、该处改动）缓存，避免每帧重新查找基准、逐词比较和着色。
 pub(crate) struct Preview {
     key: PreviewKey,
-    /// 着色时用上了文档在这一块开头的状态；还没推算到时先从头着色，下一帧再算一次。
+    /// 着色时是否使用了文档在该处改动开头的高亮状态；尚未推算到时从头着色，下一帧重新计算。
     settled: bool,
-    /// 原来的行，最多 `PREVIEW_LINES` 行。
+    /// 原内容的各行，最多 `PREVIEW_LINES` 行。
     pub lines: Vec<PreviewLine>,
-    /// 没显示出来的行数。
+    /// 未显示的行数。
     pub more: usize,
 }
 
@@ -102,55 +106,57 @@ struct PreviewKey {
     doc: DocumentId,
     /// 文档的版本号（`Document::revision`）。
     revision: u64,
-    /// 当时的基准编号（[`LineChanges::epoch`]）。
+    /// 缓存时的基准编号（[`LineChanges::epoch`]）。
     epoch: u64,
     hunk: LineHunk,
     language: *const winc_syntax::Language,
 }
 
-/// 卡片里原来的一行。
+/// 卡片中原内容的一行。
 pub(crate) struct PreviewLine {
-    /// 这一行的字符（不含换行符）。
+    /// 该行的字符（不含换行符）。
     pub chars: Vec<char>,
-    /// 这一行的高亮记号。
+    /// 该行的高亮记号。
     pub tokens: Vec<winc_syntax::Token>,
-    /// 和现在的内容相比改了的字符区间（按词比较）。
+    /// 相对当前内容修改过的字符区间（按词比较）。
     pub words: Vec<std::ops::Range<usize>>,
 }
 
-/// 卡片里最多显示的原来的行数（行，经验值）：超出部分写「还有 N 行」。
+/// 卡片中最多显示的原内容行数（行）。
+///
+/// 取自调参：保持卡片高度适中；超出部分显示为「还有 N 行」。
 const PREVIEW_LINES: usize = 14;
 
-/// 后台取到的基准。
+/// 后台读取的基准。
 struct Fetched {
     path: PathBuf,
-    /// 取的时候的基准编号（[`LineChanges::epoch`]）：对不上就丢弃。
+    /// 读取时的基准编号（[`LineChanges::epoch`]）；与当前编号不一致时丢弃。
     epoch: u64,
-    /// 文件在 `HEAD` 里的内容；不在 `HEAD` 里、是二进制、太大或取不到时为 `None`（不标）。
+    /// 文件在 `HEAD` 中的内容；不在 `HEAD` 中、为二进制、过大或读取失败时为 `None`，不显示标记。
     text: Option<Arc<str>>,
 }
 
 /// 行号栏改动标记的状态。
 pub(crate) struct LineChanges {
-    /// 各文件的基准；`None` 表示该文件不标（不在 `HEAD` 里、二进制、太大）。
+    /// 各文件的基准；`None` 表示该文件不显示标记（不在 `HEAD` 中、二进制、过大）。
     bases: HashMap<PathBuf, Option<Arc<str>>>,
-    /// 正在后台取基准的文件。
+    /// 正在后台读取基准的文件。
     pending: HashSet<PathBuf>,
-    /// 基准对应的 `HEAD` 提交号；变了就作废。
+    /// 基准对应的 `HEAD` 提交号；变化时基准作废。
     oid: Option<String>,
-    /// 基准每作废一次加 1；作废之前发出的请求交回来时据此丢弃。
+    /// 基准编号，每作废一次加 1；作废前发出的请求送达时据此丢弃。
     epoch: u64,
     marks: HashMap<DocumentId, Marks>,
-    /// 正在后台重算的文档和它们的版本；同一个文档同一时刻只算一次。
+    /// 正在后台重新计算的文档及其版本号；同一文档同一时刻只计算一次。
     computing: HashMap<DocumentId, u64>,
     computed: (Sender<Computed>, Receiver<Computed>),
-    /// 打开着的卡片。
+    /// 已打开的卡片。
     pub popup: Option<ChangePopup>,
-    /// 卡片上可以点的地方，绘制时更新。
+    /// 卡片上可点击的控件，绘制时更新。
     pub hits: Vec<(Rect, ChangeTarget)>,
-    /// 卡片的位置，绘制时更新；点在卡片外面时关闭卡片。
+    /// 卡片的位置，绘制时更新；点击卡片外部时关闭卡片。
     pub card: Option<Rect>,
-    /// 卡片里原来的内容。
+    /// 卡片中的原内容。
     preview: Option<Rc<Preview>>,
     results: (Sender<Fetched>, Receiver<Fetched>),
 }
@@ -175,7 +181,7 @@ impl Default for LineChanges {
 }
 
 impl LineChanges {
-    /// 作废所有基准和改动（`HEAD` 变了、仓库换了、模块关了）。
+    /// 作废所有基准和改动（`HEAD` 变化、仓库更换或模块关闭时）。
     pub(super) fn forget(&mut self) {
         self.bases.clear();
         self.pending.clear();
@@ -186,7 +192,7 @@ impl LineChanges {
         self.epoch += 1;
     }
 
-    /// 文档 `id` 关闭了：放下它的改动；卡片开在它上面时关闭。
+    /// 在文档 `id` 关闭后释放其改动；卡片属于该文档时关闭卡片。
     pub(super) fn forget_document(&mut self, id: DocumentId) {
         self.marks.remove(&id);
         self.computing.remove(&id);
@@ -198,14 +204,15 @@ impl LineChanges {
         }
     }
 
-    /// 文件 `path` 不再有打开着的文档：放下它的基准（正在取的，取回来也不要了），再打开时
-    /// 重新取一次。
+    /// 在文件 `path` 不再有打开的文档时释放其基准，再次打开时重新读取。
+    ///
+    /// 正在读取的基准送达后同样丢弃。
     pub(super) fn forget_base(&mut self, path: &std::path::Path) {
         self.bases.remove(path);
         self.pending.remove(path);
     }
 
-    /// `HEAD` 现在指向 `oid`：和基准取自的不一样时作废。
+    /// 记录 `HEAD` 当前指向 `oid`；与基准所取自的提交不同时作废基准。
     pub(super) fn head_is(&mut self, oid: Option<&str>) {
         if self.oid.as_deref() != oid {
             self.oid = oid.map(str::to_owned);
@@ -213,24 +220,24 @@ impl LineChanges {
         }
     }
 
-    /// 基准版本对应的 `HEAD` 提交号的前 7 位；不在仓库里、还没有提交时为 `None`。
+    /// 返回基准对应的 `HEAD` 提交号的前 7 位；不在仓库中或尚无提交时返回 `None`。
     pub(crate) fn short_head(&self) -> Option<&str> {
         self.oid.as_deref().map(|oid| &oid[..oid.len().min(7)])
     }
 
-    /// 文件 `path` 的基准（在 `HEAD` 里的内容）；还没取到、不标时为 `None`。
+    /// 返回文件 `path` 的基准（在 `HEAD` 中的内容）；尚未读取或不显示标记时返回 `None`。
     pub(crate) fn base(&self, path: &std::path::Path) -> Option<&str> {
         self.bases.get(path)?.as_deref()
     }
 
-    /// 文档 `id` 已经算好的改动；没有基准、不标时为空。
+    /// 返回文档 `id` 已计算的改动；没有基准或不显示标记时为空。
     pub(crate) fn hunks(&self, id: DocumentId) -> &[LineHunk] {
         self.marks.get(&id).map_or(&[], |m| m.hunks.as_slice())
     }
 }
 
 impl App {
-    /// 第 `index` 个文档的 `id` 和它在仓库里的路径；不标该文档时返回 `None`。
+    /// 返回第 `index` 个文档的 `id` 及其在仓库中的路径；该文档不显示标记时返回 `None`。
     fn line_change_inputs(&mut self, index: usize) -> Option<(DocumentId, PathBuf)> {
         let root = self.git.root.as_deref()?;
         let doc = &self.editor.documents[index];
@@ -241,11 +248,11 @@ impl App {
         Some((doc.id, path))
     }
 
-    /// 让第 `index` 个文档的改动尽量是最新的（绘制前调用）：没有基准时去后台取；文字变了时在
-    /// 后台重算，算好之前继续用上一次的。
+    /// 在绘制前更新第 `index` 个文档的改动：没有基准时在后台读取；文本变化时在后台重新计算，
+    /// 完成前继续使用上一次的结果。
     ///
-    /// 同一个文档同一时刻只算一次：算的期间又打了字，算完下一帧再按最新的文字算一次，连续输入
-    /// 时不排一串整个文件的比较。
+    /// 同一文档同一时刻只计算一次。计算期间又有输入时，完成后的下一帧按最新文本再计算一次，
+    /// 连续输入时不会排队执行多次全文比较。
     pub(crate) fn update_line_changes(&mut self, index: usize) {
         let Some((id, path)) = self.line_change_inputs(index) else {
             return;
@@ -289,7 +296,7 @@ impl App {
         });
     }
 
-    /// 打开着的卡片里要画的原来的内容；缓存还对得上就直接用。
+    /// 返回已打开的卡片中绘制的原内容；缓存仍然有效时直接使用缓存。
     pub(crate) fn change_preview(&mut self) -> Option<Rc<Preview>> {
         let popup = self.changes.popup?;
         let index = self
@@ -316,7 +323,7 @@ impl App {
         let old = lines_of(base, hunk.old.clone());
         let new = current_lines(doc, &hunk);
         let language = doc.highlighter.language();
-        // 按词标出改了的字，和差异视图一样。
+        // 按词标记修改过的字符。
         let marks = (!hunk.old.is_empty() && !hunk.new.is_empty())
             .then(|| {
                 let local = LineHunk {
@@ -326,7 +333,7 @@ impl App {
                 inline_marks(&Rope::from_str(&old), &Rope::from_str(&new), &local)
             })
             .flatten();
-        // 着色沿用文档在这一块开头的状态，块注释、多行字符串里的几行也着对颜色。
+        // 着色沿用文档在该处改动开头的高亮状态，使块注释、多行字符串中的行颜色正确。
         let state = self.editor.documents[index].highlight_state(hunk.new.start, 20_000);
         let settled = state.is_some();
         let mut state = state.unwrap_or_default();
@@ -355,7 +362,7 @@ impl App {
         Some(preview)
     }
 
-    /// 回滚、跳转、打开卡片之前：当前文档的改动不是最新的就当场算一次，行号才准。
+    /// 在回滚、跳转或打开卡片之前确保当前文档的改动是最新的，必要时当场计算，以保证行号准确。
     fn fresh_line_changes(&mut self) {
         let Some(index) = self.editor.active else {
             return;
@@ -407,7 +414,7 @@ impl App {
         });
     }
 
-    /// 收下后台取到的基准和算好的改动。
+    /// 接收后台读取的基准与计算完成的改动。
     pub(in crate::app) fn poll_bases(&mut self) {
         while let Ok(fetched) = self.changes.results.1.try_recv() {
             if fetched.epoch != self.changes.epoch {
@@ -418,17 +425,17 @@ impl App {
             }
         }
         while let Ok(computed) = self.changes.computed.1.try_recv() {
-            // 作废之前发出的结果：`computing` 在作废时已经清空，这里再出现该文档说明它是之后
-            // 新发出的那一次。
+            // 作废前发出的结果直接丢弃，且不从 `computing` 中移除：作废时 `computing` 已清空，
+            // 其中再出现的该文档属于作废后新发出的请求。
             if computed.epoch != self.changes.epoch {
                 continue;
             }
             self.changes.computing.remove(&computed.id);
-            // 等结果的时候文档关闭了。
+            // 等待结果期间文档已关闭。
             if self.editor.document(computed.id).is_none() {
                 continue;
             }
-            // 比手上的旧才丢；比文档当前的旧也先用着（下一帧会继续重算）。
+            // 只丢弃比已有结果更旧的结果；比文档当前版本旧的结果仍先使用，下一帧继续重新计算。
             let newer = self
                 .changes
                 .marks
@@ -444,7 +451,7 @@ impl App {
                     },
                 );
             }
-            // 卡片指向的那一处可能已经没有了。
+            // 卡片指向的改动可能已不存在。
             if let Some(popup) = self.changes.popup
                 && popup.doc == computed.id
                 && popup.hunk >= self.changes.hunks(computed.id).len()
@@ -455,12 +462,12 @@ impl App {
         self.request_redraw();
     }
 
-    /// 鼠标在 `(x, y)` 时，下面是当前文档的第几处改动的标记。
+    /// 返回窗口坐标 `(x, y)`（逻辑像素）处改动标记所属的改动下标。
     pub(in crate::app) fn change_mark_at(&self, x: f32, y: f32) -> Option<usize> {
         self.change_mark_hit(x, y).map(|(hunk, _)| hunk)
     }
 
-    /// 鼠标在 `(x, y)` 时，下面的改动标记：第几处改动、指着的是哪一行。
+    /// 返回窗口坐标 `(x, y)`（逻辑像素）处的改动标记：（改动下标，所在行号）。
     fn change_mark_hit(&self, x: f32, y: f32) -> Option<(usize, usize)> {
         // 三栏合并不绘制这些标记。
         if self.merge_panes_placed() {
@@ -476,11 +483,12 @@ impl App {
         if hunks.is_empty() {
             return None;
         }
-        let row = ((y - l.text.y) / self.fonts.line_height + doc.scroll_line).floor() as usize;
+        let row =
+            (f64::from((y - l.text.y) / self.fonts.line_height) + doc.scroll_line).floor() as usize;
         let line = doc.line_of_row(row);
         let hunk = hunks.iter().position(|h| {
             if h.new.is_empty() {
-                // 删掉的地方：标记画在下一行的顶上，上一行和下一行都认。
+                // 删除处的标记绘制在下一行顶边，上一行和下一行都可命中。
                 line == h.new.start || line + 1 == h.new.start
             } else {
                 h.new.contains(&line)
@@ -489,10 +497,10 @@ impl App {
         Some((hunk, line))
     }
 
-    /// 鼠标在 `(x, y)` 时指着滚动条（概览标尺）上的第几处改动，和那道标记的位置。
+    /// 返回窗口坐标 `(x, y)` 处概览标尺上的改动下标及其标记的位置。
     ///
-    /// 认的范围比色条宽一些、上下各多 2 像素，便于点中；不伸到右边滑块那一列。
-    /// 挨得近时取离得最近的。
+    /// 判定范围宽于色条，上下各扩展 2 像素以便点中，不延伸到右侧滑块所在的列。
+    /// 多个标记相邻时取距离最近的一个。
     pub(crate) fn ruler_change_at(&self, x: f32, y: f32) -> Option<(usize, Rect)> {
         // 三栏合并不绘制这些标记。
         if self.merge_panes_placed() {
@@ -518,14 +526,15 @@ impl App {
             .min_by(|a, b| distance(&a.1).total_cmp(&distance(&b.1)))
     }
 
-    /// 鼠标停在概览标尺第 `hunk` 处改动上时的提示：提示挂在哪里（标记上鼠标所在的高度），和
-    /// 「修改 · 第 3–4 行」这样的说明（行号是现在的）。
+    /// 返回鼠标悬停在概览标尺第 `hunk` 处改动上时的提示。
+    ///
+    /// 返回锚点矩形（标记上鼠标所在的高度）与「修改 · 第 3–4 行」形式的说明（按当前行号）。
     pub(crate) fn ruler_tip(&self, hunk: usize) -> Option<(Rect, String)> {
         let doc = self.editor.active()?;
         let h = self.changes.hunks(doc.id).get(hunk)?;
         let ruler = Ruler::new(self.layout.editor, doc.row_count());
         let mark = ruler.rect(GIT_LANE, ruler_rows(doc, h));
-        // 提示跟着鼠标的高度：几十行的一处改动在标尺上是一长条，贴着整条的下沿会离鼠标很远。
+        // 提示跟随鼠标高度：数十行的改动在标尺上较长，锚定在下沿时会远离鼠标。
         let y = self.mouse.1.clamp(mark.y, mark.bottom());
         let rect = Rect::new(mark.x, y, mark.w, 10.0);
         let lines = |r: &std::ops::Range<usize>| match r.len() {
@@ -546,10 +555,9 @@ impl App {
         Some((rect, label))
     }
 
-    /// 点了概览标尺上的第 `hunk` 处改动：光标移到该处改动的第一行；整处改动不是全在屏幕上
-    /// 时滚过去，停在离顶上三行的地方。
+    /// 处理对概览标尺上第 `hunk` 处改动的点击：光标移到该改动的第一行。
     ///
-    /// 不打开卡片：标尺只管定位，卡片从行号栏的标记打开。
+    /// 改动未完全可见时滚动到距顶部三行处。不打开卡片：标尺只负责定位，卡片由行号栏的标记打开。
     pub(in crate::app) fn go_to_change(&mut self, hunk: usize) {
         let Some(doc) = self.editor.active() else {
             return;
@@ -559,29 +567,29 @@ impl App {
         };
         let line = h.new.start.min(doc.text().line_count() - 1);
         let pos = doc.text().line_start(line);
-        let visible = self.visible_lines() as f32;
+        let visible = self.visible_lines() as f64;
         self.changes.popup = None;
         self.focus = crate::app::Focus::Editor;
         if let Some(doc) = self.editor.active_mut() {
             let rows = ruler_rows(doc, &h);
-            let (top, bottom) = (rows.start as f32, rows.end.max(rows.start + 1) as f32);
+            let (top, bottom) = (rows.start as f64, rows.end.max(rows.start + 1) as f64);
             if top < doc.scroll_line || bottom > doc.scroll_line + visible {
                 doc.scroll_line = (top - 3.0).max(0.0);
             }
         }
         self.clamp_scroll();
-        // 滚好了再放光标：光标已经在屏幕上，不会再滚。
+        // 滚动完成后再设置光标，此时光标已可见，不再触发滚动。
         self.select(pos, pos);
     }
 
-    /// 点了 `(x, y)` 处的改动标记：打开那一处的卡片，贴在点的那一行旁边。
+    /// 处理对 `(x, y)` 处改动标记的点击：打开该处改动的卡片，锚定在被点击的行。
     ///
-    /// 没点在标记上时返回 `false`。
+    /// 未点中标记时返回 `false`。
     pub(in crate::app) fn click_change_mark(&mut self, x: f32, y: f32) -> bool {
         if self.change_mark_hit(x, y).is_none() {
             return false;
         }
-        // 标记不是最新的就先重算，行号才准。
+        // 标记不是最新时先重新计算，以保证行号准确。
         self.fresh_line_changes();
         let Some((hunk, line)) = self.change_mark_hit(x, y) else {
             return true;
@@ -605,9 +613,9 @@ impl App {
         true
     }
 
-    /// 打开第 `hunk` 处改动的卡片（上一处、下一处），并让它露在屏幕上。
+    /// 打开第 `hunk` 处改动的卡片（用于上一处、下一处），并使其可见。
     ///
-    /// 卡片贴在这一块下面；这一块长到最后一行不在屏幕上时贴在第一行下面。
+    /// 卡片位于该处改动下方；改动过长、最后一行不可见时位于第一行下方。
     pub(in crate::app) fn open_change_popup(&mut self, hunk: usize) {
         self.fresh_line_changes();
         let Some(doc) = self.editor.active() else {
@@ -621,12 +629,12 @@ impl App {
         let anchor = if h.new.is_empty() {
             (h.new.start, h.new.start)
         } else {
-            let visible = self.visible_lines() as f32;
+            let visible = self.visible_lines() as f64;
             let doc = self
                 .editor
                 .active()
                 .expect("开头确认过有当前文档，滚动不会关掉它");
-            let last = doc.row_of(h.new.end - 1) as f32;
+            let last = doc.row_of(h.new.end - 1) as f64;
             if last + 1.0 <= doc.scroll_line + visible {
                 (h.new.start, h.new.end)
             } else {
@@ -641,7 +649,7 @@ impl App {
         self.request_redraw();
     }
 
-    /// 点了卡片上的 `target`。
+    /// 处理对卡片上 `target` 的点击。
     pub(in crate::app) fn press_change(&mut self, target: ChangeTarget) {
         let Some(popup) = self.changes.popup else {
             return;
@@ -661,9 +669,9 @@ impl App {
         self.request_redraw();
     }
 
-    /// 回滚当前文档的第 `hunk` 处改动：这几行换回 `HEAD` 里的样子。
+    /// 回滚当前文档的第 `hunk` 处改动，将这些行恢复为 `HEAD` 中的内容。
     ///
-    /// 是一次普通的修改，⌘Z 能撤销。
+    /// 回滚是一次普通的编辑，可以用 `⌘Z` 撤销。
     pub(super) fn revert_change(&mut self, hunk: usize) {
         self.fresh_line_changes();
         let Some(index) = self.editor.active else {
@@ -689,9 +697,9 @@ impl App {
         self.request_redraw();
     }
 
-    /// 在当前文档里跳到下一处（`forward`）或上一处改动的第一行，返回当前文档是否有改动标记。
+    /// 跳转到当前文档中下一处（`forward`）或上一处改动的第一行，返回当前文档是否有改动标记。
     ///
-    /// 没有了就在状态栏说一声；返回 `false` 时什么都没做。
+    /// 没有更多改动时在状态栏提示；返回 `false` 时不做任何操作。
     pub(in crate::app) fn jump_change(&mut self, forward: bool) -> bool {
         self.fresh_line_changes();
         let Some(doc) = self.editor.active() else {
@@ -737,11 +745,11 @@ impl App {
         }
     }
 
-    /// 让第 `line` 行露在编辑区里（不动光标）。
+    /// 滚动编辑区使第 `line` 行可见，光标不变。
     fn reveal_line(&mut self, line: usize) {
-        let visible = self.visible_lines() as f32;
+        let visible = self.visible_lines() as f64;
         if let Some(doc) = self.editor.active_mut() {
-            let row = doc.row_of(line) as f32;
+            let row = doc.row_of(line) as f64;
             if row < doc.scroll_line + 1.0 || row > doc.scroll_line + visible - 6.0 {
                 doc.scroll_line = (row - 3.0).max(0.0);
             }
@@ -750,10 +758,10 @@ impl App {
     }
 }
 
-/// 一处改动在概览标尺上占的显示行（行）：当前文档中该改动的各行；删除处是那道分界，文件末尾
-/// 删掉的在最后一行底下。
+/// 返回一处改动在概览标尺上占用的显示行范围（行）。
 ///
-/// 绘制和点击共用。
+/// 范围为当前文档中该改动的各行；删除处为删除位置的分界，文件末尾的删除位于最后一行之下。
+/// 绘制与点击判定共用该函数。
 pub(crate) fn ruler_rows(doc: &winc_editor::Document, h: &LineHunk) -> std::ops::Range<usize> {
     let count = doc.text().line_count();
     if h.new.is_empty() {
@@ -767,7 +775,7 @@ pub(crate) fn ruler_rows(doc: &winc_editor::Document, h: &LineHunk) -> std::ops:
     doc.row_of(h.new.start)..doc.row_of(h.new.end - 1) + doc.rows_of(h.new.end - 1)
 }
 
-/// 文档里这一块现在的几行（连同换行符），用来和原来的内容逐词比较。
+/// 返回文档中该处改动当前的各行（含换行符），用于与原内容逐词比较。
 fn current_lines(doc: &winc_editor::Document, hunk: &LineHunk) -> String {
     let text = doc.text();
     let start = |line: usize| {
@@ -785,11 +793,11 @@ fn compare(base: &str, rope: &Rope) -> Vec<LineHunk> {
     diff::line_hunks(base, &rope.to_string())
 }
 
-/// 把 `doc` 的第 `lines` 行（含换行符）换成 `inserted`，作为一步可以撤销的编辑；光标不动。
+/// 将 `doc` 的第 `lines` 行（含换行符）替换为 `inserted`，作为一步可撤销的编辑；光标不变。
 ///
 /// # Errors
 ///
-/// 文档不能改（只读、大文件）时返回原因。
+/// 文档不可编辑（只读、大文件）时返回原因。
 pub(crate) fn replace_lines(
     doc: &mut winc_editor::Document,
     lines: std::ops::Range<usize>,
@@ -830,9 +838,9 @@ pub(crate) fn replace_lines(
 
 /// 返回文本中第 `lines` 行范围（从 0 起，左闭右开）的内容，保留各行的换行符。
 ///
-/// 换行符认 `\n`、`\r\n` 和单独的 `\r`，和 `diff::line_hunks` 分行一致。按 `\n` 跳着找，
-/// 一段里有 `\r` 时才细分：卡片每次打开都要从基准开头数到这一块，几万行的文件逐字节数要
-/// 一两毫秒。
+/// 换行符包括 `\n`、`\r\n` 和单独的 `\r`，分行规则同 `diff::line_hunks`。按 `\n` 分段查找，
+/// 段内含 `\r` 时才细分：每次打开卡片都要从基准开头计数到该处改动，
+/// 数万行的文件逐字节计数需要 1–2 ms。
 pub(crate) fn lines_of(text: &str, lines: std::ops::Range<usize>) -> String {
     let mut out = String::new();
     let mut line = 0;
@@ -840,7 +848,7 @@ pub(crate) fn lines_of(text: &str, lines: std::ops::Range<usize>) -> String {
     while line < lines.end && !rest.is_empty() {
         let segment = rest.find('\n').map_or(rest, |i| &rest[..=i]);
         rest = &rest[segment.len()..];
-        // 这一段里单独的 `\r` 也是换行（`\r\n` 的 `\r` 不算）。
+        // 段内单独的 `\r` 同样是换行符（`\r\n` 中的 `\r` 除外）。
         let body = segment.strip_suffix('\n').unwrap_or(segment);
         let body = body.strip_suffix('\r').unwrap_or(body);
         let ends = body

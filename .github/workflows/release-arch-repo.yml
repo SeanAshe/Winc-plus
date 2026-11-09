@@ -1,0 +1,56 @@
+name: Release · Sign Arch repository
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  sign:
+    if: >-
+      github.repository == 'DEEIX-AI/Winc' && !github.event.release.draft &&
+      !github.event.release.prerelease && !contains(github.event.release.tag_name, '+') &&
+      !contains(github.event.release.tag_name, '-')
+    runs-on: ubuntu-24.04
+    container: archlinux:base-devel
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install signing tools
+        run: pacman -Syu --noconfirm --needed git github-cli
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Sign Arch repository
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          WINC_ARCH_SIGNING_FINGERPRINT: ${{ secrets.WINC_ARCH_SIGNING_FINGERPRINT }}
+          WINC_ARCH_SIGNING_PRIVATE_KEY: ${{ secrets.WINC_ARCH_SIGNING_PRIVATE_KEY }}
+          WINC_ARCH_SIGNING_PASSPHRASE: ${{ secrets.WINC_ARCH_SIGNING_PASSPHRASE }}
+        run: |
+          : "${WINC_ARCH_SIGNING_PRIVATE_KEY:?Set the WINC_ARCH_SIGNING_PRIVATE_KEY repository secret}"
+          : "${WINC_ARCH_SIGNING_PASSPHRASE:?Set the WINC_ARCH_SIGNING_PASSPHRASE repository secret}"
+          : "${WINC_ARCH_SIGNING_FINGERPRINT:?Set the WINC_ARCH_SIGNING_FINGERPRINT repository secret}"
+          umask 077
+          GNUPGHOME=$(mktemp -d)
+          export GNUPGHOME
+          trap 'gpgconf --kill all || true; rm -rf -- "$GNUPGHOME"' EXIT
+          # repo-add 调用 gpg 时也使用临时目录中的非交互签名配置。
+          printf '%s\n' "$WINC_ARCH_SIGNING_PASSPHRASE" > "$GNUPGHOME/passphrase"
+          printf 'batch\npinentry-mode loopback\npassphrase-file %s\n' "$GNUPGHOME/passphrase" > "$GNUPGHOME/gpg.conf"
+          printf '%s\n' "$WINC_ARCH_SIGNING_PRIVATE_KEY" | gpg --import
+          unset WINC_ARCH_SIGNING_PRIVATE_KEY WINC_ARCH_SIGNING_PASSPHRASE
+          bash release/linux/arch/prepare-repo.sh --tag "$RELEASE_TAG" --out target/winc-arch-repo
+      - uses: actions/upload-artifact@v7
+        with:
+          name: winc-arch-repo-${{ github.event.release.tag_name }}
+          path: target/winc-arch-repo
+          compression-level: 0
+          if-no-files-found: error
+          overwrite: true

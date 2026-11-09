@@ -123,7 +123,15 @@ impl App {
             | Focus::GlobalExclude => self.on_key_panel_field(event, &base, cmd),
             Focus::Results => self.on_key_results(event),
             Focus::CommitMessage => self.on_key_commit_message(event, &base, cmd),
-            Focus::CommitList => self.on_key_commit_list(event),
+            // 历史提交的文件列表借用提交视图的列表，按键同样交给它处理。
+            Focus::CommitList => {
+                if self
+                    .with_log_list(|app| app.on_key_commit_list(event))
+                    .is_none()
+                {
+                    self.on_key_commit_list(event);
+                }
+            }
             Focus::Outline => self.outline_key(&event.logical_key),
             Focus::LogFilter => self.on_key_log_filter(event, &base, cmd),
             Focus::Terminal => self.on_key_terminal(event),

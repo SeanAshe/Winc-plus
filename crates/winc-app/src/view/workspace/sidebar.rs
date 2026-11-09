@@ -45,21 +45,99 @@ pub(in crate::view) fn draw_sidebar(app: &mut App, frame: &mut Frame<'_>) {
     }
 
     if app.sidebar_view == SidebarView::Commit {
-        let tools = app.commit_parts().tools[0].0.x - 4.0;
-        // 上下文栏自己会在右边留出 4 的间距。
-        let right = git::commit::location_span(app, frame).map_or(tools, |(left, _)| left);
-        let bar = ContextBar::new(app, frame);
-        draw_context_bar(app, frame, &bar, right);
-        if let Some(caret) = git::commit::draw_commit(app, frame) {
-            app.ime_cursor = Some(caret);
-        }
-
+        draw_commit_view(app, frame);
         return;
     }
 
     draw_project_header(app, frame);
     draw_tree(app, frame);
     outline::draw_outline(app, frame);
+}
+
+/// 绘制提交视图：工作区改动，或从日志打开的差异的文件列表（见 `App::with_log_list`）。
+///
+/// 两者切换时列表直接替换，只有标题行右端过渡（[`App::log_tree_share`]）：前一半时间里离开
+/// 一方的按钮（或提交号）淡出，后一半时间里目标一方的淡入，两者位置重叠，不同时显示；左侧
+/// 项目栏的右端随之伸缩。
+fn draw_commit_view(app: &mut App, frame: &mut Frame<'_>) {
+    let share = app.log_tree_share();
+    let version = (2.0 * share - 1.0).clamp(0.0, 1.0);
+    let tools = (1.0 - 2.0 * share).clamp(0.0, 1.0);
+    // 项目栏的右端：提交视图在工具按钮（或位置按钮）之前，文件列表在提交号之前；上下文栏
+    // 自己会在右边留出 4 的间距。
+    let commit_right = app.with_log_tree_shown(false, |app| {
+        let tools = app.commit_parts().tools[0].0.x - 4.0;
+        git::commit::location_span(app, frame).map_or(tools, |(left, _)| left)
+    });
+    let right = match log_version_left(app, frame) {
+        Some(left) => commit_right + (left - 4.0 - commit_right) * share,
+        None => commit_right,
+    };
+    let bar = ContextBar::new(app, frame);
+    draw_context_bar(app, frame, &bar, right);
+
+    if app.log_diff_tree().is_some() {
+        if tools > 0.0 {
+            app.with_log_tree_shown(false, |app| {
+                git::commit::draw_commit_tools(app, frame, tools);
+            });
+        }
+        app.with_log_list(|app| git::commit::draw_commit_browse(app, frame));
+        frame.with_opacity(version, |frame| draw_log_diff_version(app, frame, version));
+    } else {
+        if version > 0.0 {
+            app.with_log_tree_shown(true, |app| {
+                frame.with_opacity(version, |frame| draw_log_diff_version(app, frame, version));
+            });
+        }
+        if let Some(caret) = git::commit::draw_commit(app, frame, tools) {
+            app.ime_cursor = Some(caret);
+        }
+    }
+}
+
+/// 返回文件列表标题行中版本（提交号）的左边；没有文件列表时返回 `None`。与
+/// [`draw_log_diff_version`] 使用同一套排法。
+fn log_version_left(app: &App, frame: &mut Frame<'_>) -> Option<f32> {
+    let version = app.log_tree_version()?;
+    let header = app.layout.sidebar_header;
+    let right = app.log_diff_layout_button().x - 4.0;
+    let version = truncate_end(
+        frame,
+        version,
+        app.fonts.ui_small,
+        (header.w / 2.0).max(0.0),
+    );
+    Some(right - frame.measure(FontKind::Ui, app.fonts.ui_small, &version))
+}
+
+/// 在侧栏标题行右端、提交视图工具按钮的位置绘制切换树形与列表的按钮和文件列表的版本
+/// （提交号），返回版本的左边。
+///
+/// 按钮显示切换后的显示方式。`reveal` 是文件列表的露出比例：切换过程中版本从右侧滑入。
+fn draw_log_diff_version(app: &mut App, frame: &mut Frame<'_>, reveal: f32) -> f32 {
+    let Some(version) = app.log_tree_version().map(str::to_owned) else {
+        return app.layout.sidebar_header.right();
+    };
+    let p = app.palette;
+    let header = app.layout.sidebar_header;
+    let button = app.log_diff_layout_button();
+    let hovered = app.hover == Hover::LogDiffLayout;
+    draw_button(frame, p, button, header, hovered, false);
+    let color = if hovered { p.text } else { p.text_muted };
+    if app.log_list().flat() {
+        icons::tree_view(frame, center(button), color, header);
+    } else {
+        icons::list_view(frame, center(button), color, header);
+    }
+    let right = button.x - 4.0;
+    let room = (header.w / 2.0).max(0.0);
+    let version = truncate_end(frame, &version, app.fonts.ui_small, room);
+    let width = frame.measure(FontKind::Ui, app.fonts.ui_small, &version);
+    let left = right - width;
+    let x = left + (1.0 - reveal) * 8.0;
+    ui_text_small(frame, app, x, header, &version, p.text_dim, header);
+    left
 }
 
 /// 绘制文件视图的第二行：左边是上下文栏（项目、当前分支），右端是文件树工具栏。

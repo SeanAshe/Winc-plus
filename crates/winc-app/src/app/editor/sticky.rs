@@ -1,23 +1,23 @@
 //! 编辑区的粘滞滚动：滚过函数、类、标题的开头后，把该行固定在编辑区顶部。
 //!
-//! 块即将结束时，固定的行被下方的代码推上去；单击固定的行可跳转到该行。
-//! 块的识别在 `winc_editor::scopes`。
+//! 块即将结束时，固定的行随下方的代码上移；单击固定的行跳转到该行。
+//! 块的识别由 `winc_editor::scopes` 完成。
 
 use winc_editor::DocumentId;
 use winc_editor::scopes::Scope;
 
 use super::*;
 
-/// 固定行数的上限（行，经验值）。
+/// 固定行数的上限（行）。
 ///
-/// 实际行数还受 `App::sticky_max` 限制：不超过可见行数的 40%。
+/// 取自调参：限制深层嵌套时固定区域占用的高度。实际行数还受 `App::sticky_max` 限制，
+/// 不超过可见行数的 40%。
 const STICKY_MAX: usize = 5;
 
 /// 已计算的块的缓存。
 ///
-/// 文档、版本号和顶部显示的行都不变时无需重新计算。语法高亮尚未推算到所需位置时
-/// （例如刚跳到长文件的后部），字符串内的行可能被误判为代码，此时 `settled` 为 `false`，
-/// 下一帧重新计算。
+/// 文档、版本号和顶部显示的行都不变时无需重新计算。语法高亮尚未推算到所需位置时（例如刚跳到
+/// 长文件的后部），字符串内的行可能被误判为代码，此时 `settled` 为 `false`，下一帧重新计算。
 pub struct StickyCache {
     /// 缓存对应的文档。
     id: DocumentId,
@@ -44,7 +44,7 @@ pub struct StickyRow {
     pub line: usize,
     /// 嵌套层级，最外层为 0。
     pub depth: usize,
-    /// 这一行顶边的纵坐标（逻辑像素），从编辑区文字区的顶部起算；被推上去时为负。
+    /// 这一行顶边的纵坐标（逻辑像素），从编辑区文字区的顶部起算；上移超出顶部时为负。
     pub y: f32,
 }
 
@@ -117,7 +117,7 @@ impl App {
             .map(|(depth, scope)| {
                 let natural = depth as f32 * line_height;
                 let pushed = scope.last_row.map_or(natural, |last| {
-                    (first_row + last as f32 - scroll) * line_height
+                    (first_row + last as f64 - scroll) as f32 * line_height
                 });
                 StickyRow {
                     line: scope.start,
@@ -157,7 +157,7 @@ impl App {
             return None;
         }
         let line_height = self.fonts.line_height;
-        // 被推上去的内层与外层重叠，外层绘制在上面；因此从外层到内层查找，先匹配的即为最上层。
+        // 上移的内层与外层重叠时外层绘制在上面，因此从外层到内层查找，先匹配的即为最上层。
         self.sticky
             .iter()
             .find(|row| {
@@ -185,7 +185,7 @@ impl App {
         doc.selection = Selection::point(winc_core::movement::snap_to_grapheme(doc.text(), pos));
         doc.goal_cell = None;
         let before = doc.scroll_line;
-        doc.scroll_line = (doc.row_of(row.line) as f32 - row.depth as f32).clamp(0.0, max.max(0.0));
+        doc.scroll_line = (doc.row_of(row.line) as f64 - row.depth as f64).clamp(0.0, max.max(0.0));
         self.glide_scroll(before);
         self.focus = Focus::Editor;
         self.reset_blink();

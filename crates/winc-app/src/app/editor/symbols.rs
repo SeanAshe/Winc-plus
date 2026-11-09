@@ -20,7 +20,7 @@ pub struct SymbolList {
     /// 打开列表时编辑区的滚动位置：首行（行，从 0 起）和横向偏移（逻辑像素）。
     ///
     /// 未选择符号就离开时据此恢复。
-    scroll: (f32, f32),
+    scroll: (f64, f32),
 }
 
 impl App {
@@ -135,7 +135,7 @@ impl App {
         let Some(symbol) = self.selected_symbol().cloned() else {
             return;
         };
-        // 先清空 `picker_symbols`，关闭面板时 `drop_symbols` 就不会再恢复原来的滚动位置。
+        // 先清空 `picker_symbols`，使关闭面板时 `drop_symbols` 不恢复打开前的滚动位置。
         self.picker_symbols = None;
         self.close_picker();
         self.jump_to(symbol.line, symbol.col, symbol.name.chars().count());

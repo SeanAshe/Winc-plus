@@ -20,7 +20,7 @@ fn caret_line(app: &App) -> usize {
 /// `x` 为距行号栏左边缘的偏移（逻辑像素）。
 fn gutter_point(app: &App, line: usize, x: f32) -> (f32, f32) {
     let doc = app.editor.active().unwrap();
-    let row = doc.row_of(line) as f32 - doc.scroll_line;
+    let row = (doc.row_of(line) as f64 - doc.scroll_line) as f32;
     let lh = app.fonts.line_height;
     (
         app.layout.gutter.x + x,
@@ -39,7 +39,7 @@ fn folding_from_keys_the_gutter_and_the_dots() {
         ["ctrl", "shift"].as_slice()
     };
 
-    // 光标位于 `load` 内：折叠的是 `load`，光标移到 `def` 所在行的行尾，后面的行上移补位。
+    // 光标位于 `load` 内：折叠的是 `load`，光标移到 `def` 所在行的行尾，其后的行随之上移。
     let pos = app.editor.active().unwrap().text().line_start(10);
     app.select(pos, pos);
     assert!(press(&mut app, fold, Char('[')));
@@ -115,17 +115,17 @@ fn folding_from_keys_the_gutter_and_the_dots() {
     app.run(Command::Undo);
     assert_eq!(folded(&app), [(3, 63)]);
 
-    // 滚动位置按显示行计算：滚到底时，最后一行停在六成高的地方，下面留四成空白；折起来以后
-    // 放得下就不滚。
+    // 滚动位置按显示行计算：滚动到底时，最后一行位于编辑区高度的 60% 处，下方留出 40% 空白；
+    // 折叠后内容能在一屏内显示时不滚动。
     app.editor.active_mut().unwrap().scroll_line = 1000.0;
     app.clamp_scroll();
     let doc = app.editor.active().unwrap();
-    let view = app.scroll_track().h / app.fonts.line_height;
-    let rows = doc.row_count() as f32;
+    let view = f64::from(app.scroll_track().h / app.fonts.line_height);
+    let rows = doc.row_count() as f64;
     let expected = if rows <= view {
         0.0
     } else {
-        rows - view * (1.0 - crate::layout::OVERSCROLL)
+        rows - view * (1.0 - f64::from(crate::layout::OVERSCROLL))
     };
     assert!((doc.scroll_line - expected).abs() < 1e-3);
 
@@ -147,7 +147,7 @@ fn sticky_scroll_follows_folded_rows() {
 }
 
 /// 记录折叠变化前的状态：折叠集合与首行位置（行，可以是小数）。
-fn fold_state(app: &App) -> (winc_editor::Folds, f32) {
+fn fold_state(app: &App) -> (winc_editor::Folds, f64) {
     let doc = app.editor.active().unwrap();
     (doc.folds().clone(), doc.scroll_line)
 }
@@ -163,8 +163,8 @@ fn folding_animates_like_the_file_tree() {
     let tab_width = 4;
     paint(&mut app);
 
-    // 折叠 `load`：变化的是 `def` 下方的 60 行（按展开状态计，为第 4 到 63 个显示行，从 0 起），
-    // 方向为向回收起。
+    // 折叠 `load`，方向为收起：变化的是 `def` 下方的 60 行
+    // （按展开状态计，为第 4 到 63 个显示行，从 0 起）。
     let before = fold_state(&app);
     app.editor
         .active_mut()
@@ -174,7 +174,7 @@ fn folding_animates_like_the_file_tree() {
     assert_eq!((motion.rows.clone(), motion.expanding), (4..64, false));
     assert_eq!(motion.reveal(), 1.0);
 
-    // 动画进行中：绘制时临时换成展开状态，绘制后换回，文档的折叠状态保持不变。
+    // 动画进行中：绘制时临时切换为展开状态，绘制后恢复，文档的折叠状态保持不变。
     app.fold_motion = Some(crate::app::FoldMotion {
         clock: at(80),
         ..motion
@@ -191,7 +191,7 @@ fn folding_animates_like_the_file_tree() {
     assert!(app.fold_motion.is_none());
     app.editor.active_mut().unwrap().scroll_line = 0.0;
 
-    // 再展开：涉及同一范围，方向为向外展开。
+    // 再次展开：涉及同一范围，方向为展开。
     let before = fold_state(&app);
     app.editor
         .active_mut()
@@ -253,7 +253,7 @@ fn the_arrow_of_a_wrapped_line_pinned_to_the_top_can_be_clicked() {
     paint(&mut app);
     assert!(app.editor.active().unwrap().rows_of(0) >= 3);
 
-    // 滚动到 `def` 行只露出其后的几个显示行：该行的箭头仍绘制在最上面一个显示行，
+    // 滚动到 `def` 行只有后几个显示行可见的位置：该行的箭头仍绘制在可见的最上面一个显示行，
     // 点击该箭头即折叠该块。
     app.editor.active_mut().unwrap().scroll_line = 1.0;
     let column = fold_column(app.layout.gutter);
@@ -270,8 +270,8 @@ fn the_arrow_of_a_wrapped_line_pinned_to_the_top_can_be_clicked() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// 向上滚开、光标不在屏幕上时点击行号栏的箭头折叠下面的块：最上面一行不动，视图不跳回光标
-/// 位置，折叠仍然有动画。
+/// 视图滚离光标、光标不在屏幕上时，点击行号栏的箭头折叠其下的块：最上面一行保持不动，
+/// 视图不跳回光标位置，折叠仍有动画。
 ///
 /// 光标在屏幕上时仍保持在可见范围内。
 #[test]

@@ -16,6 +16,7 @@ mod sticky;
 use area::draw_text_area;
 pub(super) use caret::*;
 pub(super) use glyphs::*;
+pub(crate) use minimap::MinimapRows;
 pub(crate) use picture::*;
 use placeholder::*;
 pub(crate) use ruler::*;
@@ -39,13 +40,15 @@ use crate::app::{BraceKey, Focus, MARK_W, PlaceholderAction, fold_column, mark_x
 use crate::layout::{GIT_LANE, MARK_LANE, Ruler, editor_content_height};
 use crate::system;
 
-/// 每帧最多向后推算高亮状态的行数（行，经验值）。
+/// 每帧最多向后推算高亮状态的行数（行）。
 ///
-/// 跳到长文件靠后的位置时，推算分多帧完成。与粘滞滚动的预算合计约 16 ms（约一次屏幕刷新），
-/// 期间界面保持响应。
+/// 取自调参：跳到长文件靠后的位置时推算分多帧完成，该行数与粘滞滚动的推算合计约 16 ms
+/// （约一次屏幕刷新），期间界面保持响应。
 pub(super) const HIGHLIGHT_BUDGET: usize = 4_000;
 
-/// 查找匹配括号时，向前或向后最多扫描的字符数（字符，经验值）。
+/// 查找匹配括号时，向前或向后最多扫描的字符数（字符）。
+///
+/// 超出该范围仍未找到时视为没有配对的括号，限定光标移动后单次查找的耗时。
 const BRACE_SCAN_LIMIT: usize = 20_000;
 
 /// 绘制编辑区：当前标签是文本时绘制文本区（见 `area`）。
@@ -59,11 +62,11 @@ pub(super) fn draw_editor(app: &mut App, frame: &mut Frame<'_>) {
     app.placeholder_hits.clear();
     app.diff_hits.clear();
     app.start_hits.clear();
-    // 日志标签绘制时再填充；切换到其他标签后若仍保留，日志中提交行的命中区域会遮挡代码的点击。
+    // 日志标签绘制时重新填充；切换到其他标签后若仍保留，日志中提交行的命中区域会拦截代码区的点击。
     app.log.hits.clear();
     app.sticky.clear();
     app.folded_hits.clear();
-    // Markdown、PDF 预览绘制时再填充；不显示时若仍保留，滚轮和点击会落到它上面。
+    // Markdown、PDF 预览绘制时重新填充；预览不显示时若仍保留，滚轮和点击事件会被预览接收。
     app.markdown.area = Rect::default();
     app.pdf.area = Rect::default();
     app.markdown.links.clear();
@@ -88,7 +91,7 @@ pub(super) fn draw_editor(app: &mut App, frame: &mut Frame<'_>) {
             draw_picture(app, frame, id, &picture, area);
             return;
         }
-        // 仍在后台解码：先留空，解码完成后会重新绘制。
+        // 仍在后台解码时留空，解码完成后重新绘制。
         Some(PictureState::Loading) => return,
         Some(PictureState::Failed(reason)) => {
             app.picture_cache = None;
@@ -149,7 +152,7 @@ pub(super) fn draw_editor(app: &mut App, frame: &mut Frame<'_>) {
                 let area = app.layout.editor;
                 super::preview::table::draw(app, frame, index, area);
             }
-            // 仍在后台读取：先留空，读好后会重新绘制。
+            // 仍在后台读取时留空，读取完成后重新绘制。
             winc_editor::TableState::Loading => {}
             winc_editor::TableState::Failed(reason) => {
                 use PlaceholderAction::*;
@@ -175,7 +178,7 @@ pub(super) fn draw_editor(app: &mut App, frame: &mut Frame<'_>) {
         super::preview::markdown::draw(app, frame, area);
         return;
     }
-    // 分栏预览时缓存里是右边那张图（`draw_split`）。
+    // 分栏预览时缓存中保存的是右半部分的图片（`draw_split`），不清除。
     if app.layout.split.w <= 0.0 {
         app.picture_cache = None;
     }
@@ -187,7 +190,7 @@ pub(super) fn draw_editor(app: &mut App, frame: &mut Frame<'_>) {
         super::git::log::draw_log(app, frame, index);
         return;
     }
-    // 仍在读取中（读取耗时较长时才会绘制到这里）：提示正在读取的文件名。
+    // 文件仍在读取（仅读取耗时较长时执行到此处）：提示正在读取的文件名。
     if app.editor.documents[index].is_pending() {
         let name = app.editor.documents[index].name().into_owned();
         draw_placeholder(app, frame, t!("editor-reading", name = name), &[]);
@@ -223,3 +226,29 @@ pub(super) fn draw_editor(app: &mut App, frame: &mut Frame<'_>) {
 
 #[cfg(test)]
 mod tests;
+
+/// 长行的着色结果，跨帧复用。
+///
+/// 不换行时每个可见行都要为前 `MAX_LINE_CHARS` 个字符着色，一屏数十条超长行逐帧重新分析
+/// 会占去大部分帧时间。只缓存不短于 [`LONG_TOKENS_MIN`] 的行，最多 [`LONG_TOKENS_LINES`] 行，
+/// 按最近使用淘汰。
+#[derive(Default)]
+pub(crate) struct LineTokens {
+    pub(super) entries: Vec<(TokensKey, Vec<winc_syntax::Token>, winc_syntax::LineState)>,
+}
+
+/// [`LineTokens`] 的键：（文档，版本，行号，着色的字符数，行首状态，语言的标识）。
+pub(super) type TokensKey = (
+    winc_editor::DocumentId,
+    u64,
+    usize,
+    usize,
+    winc_syntax::LineState,
+    &'static str,
+);
+
+/// 着色结果需要缓存的行的最短长度（字符）：更短的行重新分析的开销可以忽略。
+pub(super) const LONG_TOKENS_MIN: usize = 1_000;
+
+/// [`LineTokens`] 最多缓存的行数（行）：足以容纳编辑区和缩略图同时显示的长行。
+pub(super) const LONG_TOKENS_LINES: usize = 512;

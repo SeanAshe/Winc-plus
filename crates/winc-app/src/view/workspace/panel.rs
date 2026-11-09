@@ -982,6 +982,15 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
             })
         }
         Hover::Commit(CommitTarget::Location) => None,
+        // 历史差异文件列表的显示方式按钮：写明点击后切换成哪一种。
+        Hover::LogDiffLayout => {
+            let label = if app.log_list().flat() {
+                t!("workspace-tip-show-as-tree")
+            } else {
+                t!("workspace-tip-show-as-list")
+            };
+            Some((app.log_diff_layout_button(), label.to_owned()))
+        }
         Hover::Commit(CommitTarget::CommitMenu) => Some((
             app.commit_parts().commit_menu,
             t!("workspace-tip-commit-menu").to_owned(),
@@ -1088,7 +1097,7 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
             };
             Some((rect, label))
         }
-        // 标签显示两行：文件全名和所在目录，便于在名称被截短或同名文件只标注上级目录时确认文件；
+        // 标签提示显示完整名称和所在目录，便于确认被截短的文件名和历史差异的版本；
         // 关闭按钮显示快捷键。按住或拖动标签时不显示提示。
         Hover::Tab(index, close) => {
             if app.tabs.drag.is_some() {
@@ -1101,12 +1110,20 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
                     with_key(t!("workspace-tip-close-tab"), Some(Action::CloseTab)),
                 ));
             }
-            let path = app.editor.documents.get(index)?.path.as_deref()?;
-            let name = path.file_name()?.to_string_lossy();
-            let folder = path
-                .parent()
-                .map_or_else(String::new, |d| winc_editor::display_path(d, None));
-            Some((hit.tab, format!("{name}\n{folder}")))
+            let doc = app.editor.documents.get(index)?;
+            let title = doc.name();
+            let path = (doc.path.as_deref()).or_else(|| {
+                doc.diff
+                    .as_deref()
+                    .and_then(winc_editor::diff_view::DiffView::file_path)
+            });
+            let label = match path.and_then(std::path::Path::parent) {
+                Some(dir) => format!("{title}\n{}", winc_editor::display_path(dir, None)),
+                // 没有对应文件的标签（未命名文件、日志等）只在名称被截短时提示完整名称。
+                None if hit.elided => title.into_owned(),
+                None => return None,
+            };
+            Some((hit.tab, label))
         }
         Hover::TabList => Some((app.tabs.list?, t!("workspace-tip-all-tabs").to_owned())),
         Hover::ViewTab(view) => {

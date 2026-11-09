@@ -55,7 +55,7 @@ const MAX_WORKERS: usize = 8;
 const PROBE: usize = 16 << 10;
 /// 按顺序读取时第一次读取的字节数（字节，4 KiB），之后每次翻倍，直到 [`CHUNK`]。
 ///
-/// 读取一个短行只需要一次小读取。
+/// 读取短行时只需一次小规模读取。
 const FIRST_READ: usize = 4 << 10;
 
 /// 片段内容的来源。
@@ -106,8 +106,9 @@ pub struct LargeText {
     line_cap: usize,
     /// 最近读出的一行：（行号，文字，字符数）。
     ///
-    /// 一次按键要多次取光标所在的行（换算行列、找字素边界、上下移动），每次都从磁盘读出并解码
-    /// 整行；记下最近读出的一行，再取同一行时不再读。片段表变化时清空（`LargeText::rebuild_from`）。
+    /// 一次按键需要多次读取光标所在的行（换算行列、查找字素边界、上下移动），每次都要从磁盘读出
+    /// 并解码整行；缓存最近读出的一行后，再次读取同一行时不访问磁盘。片段表变化时清空缓存
+    /// （`LargeText::rebuild_from`）。
     last_line: Mutex<Option<(usize, String, usize)>>,
 }
 
@@ -201,7 +202,7 @@ impl LargeText {
     /// 末尾尚未写完的多字节字符留到下一次再接入。
     pub fn grow(&mut self) -> Option<u64> {
         let only_original = match self.pieces.as_slice() {
-            // 没有片段：原文件本来就是空的才算未修改，否则说明内容已被全部删除。
+            // 没有片段：只有原文件本身为空时才视为未修改，否则说明内容已被全部删除。
             [] => self.original.len == 0,
             [p] => p.source == Source::Original && p.start == 0 && p.bytes == self.original.len,
             _ => false,
@@ -230,7 +231,7 @@ impl LargeText {
             return None;
         }
 
-        // 从最后一行的行首开始扫描：这样最后一行的长度和检查点都能与原索引衔接。
+        // 从最后一行的行首开始扫描，使最后一行的长度和检查点都能与原索引衔接。
         let (line_byte, line_char) = o.locate_line(o.newlines);
         let start = Checkpoint {
             line: o.newlines,
@@ -257,18 +258,21 @@ impl LargeText {
             original.tail = tail;
         }
         original.checkpoints.retain(|c| c.byte < line_byte);
+        original.marks.retain(|m| m.byte < line_byte);
         segment.checkpoints[0] = Checkpoint {
             line: 0,
             byte: line_byte,
             char: 0,
         };
+        let shift = |c: &Checkpoint| Checkpoint {
+            line: start.line + c.line,
+            byte: c.byte,
+            char: start.char + c.char,
+        };
         original
             .checkpoints
-            .extend(segment.checkpoints.iter().map(|c| Checkpoint {
-                line: start.line + c.line,
-                byte: c.byte,
-                char: start.char + c.char,
-            }));
+            .extend(segment.checkpoints.iter().map(shift));
+        original.marks.extend(segment.marks.iter().map(shift));
         original.len = segment.end;
         original.chars = start.char + segment.chars;
         original.newlines = start.line + segment.newlines;
@@ -305,7 +309,7 @@ impl LargeText {
         total
     }
 
-    /// 复制出副本：与原文件共用文件句柄，按位置读取，互不影响；片段表和行索引各自独立。
+    /// 创建副本：与原文件共用文件句柄，按位置读取，互不影响；片段表和行索引各自独立。
     ///
     /// 后台保存时使用：界面线程上继续编辑原来的内容，后台写出副本。
     ///
@@ -328,10 +332,10 @@ impl LargeText {
     ///
     /// # Errors
     ///
-    /// 写入失败（磁盘已满、管道关闭等）时返回对应的 `std::io::Error`。原文件读不出来（读取出错、
-    /// 写的过程中被别的程序截短）时返回 [`io::ErrorKind::UnexpectedEof`]：写出的内容不完整，
-    /// 调用方不能用它替换原文件。写完时原文件已被别的程序修改（`LargeText::original_changed`）
-    /// 同样返回错误：写出的内容可能混有修改前后的字节，替换原文件还会丢失对方的修改。
+    /// 写入失败（磁盘已满、管道关闭等）时返回对应的 `std::io::Error`。无法读取原文件（读取出错、
+    /// 写出过程中被其他程序截短）时返回 [`io::ErrorKind::UnexpectedEof`]：写出的内容不完整，
+    /// 调用方不能用它替换原文件。写完时原文件已被其他程序修改（`LargeText::original_changed`）
+    /// 同样返回错误：写出的内容可能混有修改前后的字节，替换原文件还会丢失该程序的修改。
     pub fn write_to(&self, out: &mut impl Write) -> io::Result<()> {
         let mut result = Ok(());
         let mut written = 0u64;
@@ -417,7 +421,7 @@ impl LargeText {
         self.cut_point(&self.pieces[i], c)
     }
 
-    /// 片段 `p` 里第 `c` 个字符的（片段内字节偏移，之前的换行数）。
+    /// 返回片段 `p` 中第 `c` 个字符的（片段内字节偏移，之前的换行数）。
     fn cut_point(&self, p: &Piece, c: u64) -> (u64, u64) {
         match p.source {
             Source::Original => {
@@ -652,9 +656,9 @@ impl LargeText {
         let old = std::mem::take(&mut self.pieces);
         let mut out = Vec::with_capacity(old.len() + 2 * ranges.len());
         let mut rest = old.into_iter();
-        // 旧表里还没走到的部分：当前片段剩下的一段，和这段在旧文字里的起点。
+        // 旧表中尚未处理的部分：当前片段的剩余部分，及其在旧文字中的起点。
         let (mut cur, mut pos) = (rest.next(), 0u64);
-        // 把旧文字里到 `to` 为止的部分移进新表（`keep` 为 `true`）或舍弃。
+        // 把旧文字中到 `to` 为止的部分移入新表（`keep` 为 `true`）或舍弃。
         let mut walk = |to: u64, keep: bool, out: &mut Vec<Piece>| {
             while let Some(p) = cur {
                 if pos + p.chars <= to {
@@ -686,7 +690,7 @@ impl LargeText {
         self.rebuild();
     }
 
-    /// 把 `text` 记进新增缓冲，返回指向这段文字的片段。
+    /// 把 `text` 写入新增缓冲，返回指向这段文字的片段。
     fn add(&mut self, text: &str) -> Piece {
         let piece = Piece {
             source: Source::Added,

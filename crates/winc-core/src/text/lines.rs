@@ -10,7 +10,8 @@ use unicode_width::UnicodeWidthChar;
 
 /// 每行最多显示和高亮的字符数（字符）。
 ///
-/// 更长的行（例如压缩过的 JS）只处理开头这一段。取值为经验值，用于限制超长行的绘制与词法分析开销。
+/// 更长的行（例如压缩过的 JS）只处理开头的这些字符。取自调参：该上限使超长行的绘制与词法分析
+/// 开销有界，常见源代码的行远短于该长度，不受截断影响。
 pub const MAX_LINE_CHARS: usize = 10_000;
 /// 读取一行开头 [`MAX_LINE_CHARS`] 个字符所需的最大字节数（字节）。
 ///
@@ -53,8 +54,8 @@ impl LineEnding {
 
     /// 统计文本前 1000 行的行尾，返回出现次数最多的一种。
     ///
-    /// 文件开头的行已足以确定行尾风格，因此只扫描前 1000 行（经验值），不遍历全文；
-    /// 没有换行符时返回 `LF`。
+    /// 同一文件的行尾风格通常一致，因此只扫描前 1000 行，不遍历全文。1000 行取自调参，混有少量
+    /// 其他行尾时仍能得出多数风格。没有换行符时返回 `LF`。
     pub fn detect(text: &Rope) -> LineEnding {
         let (mut lf, mut crlf, mut cr) = (0usize, 0usize, 0usize);
 
@@ -131,6 +132,15 @@ pub trait Lines {
     /// 返回第 `line` 行的内容，不含换行符。
     fn line_content(&self, line: usize) -> Line<'_>;
 
+    /// 返回第 `line` 行的开头部分，不含换行符。
+    ///
+    /// 结果至少包含前 `max_bytes` 字节，整行不足时为整行，截断处不切开字符。只需要行首（缩进、
+    /// 开头的若干字符）时使用，按需读取的大文件因此不必读出整行；默认实现返回整行。
+    fn line_prefix(&self, line: usize, max_bytes: usize) -> Line<'_> {
+        let _ = max_bytes;
+        self.line_content(line)
+    }
+
     /// 返回位置区间 `from..to` 内的文本，包含其中的换行符。
     fn substring(&self, from: usize, to: usize) -> String;
 
@@ -150,7 +160,7 @@ pub trait Lines {
     /// 从第 `from` 行起依次对每一行调用 `f`，直到 `f` 返回 `Break` 或到达文本末尾。
     ///
     /// `f` 的参数依次为行号、行首位置和行内容。行内容最多取 `max_bytes` 字节，截断处不切开字符。
-    /// `f` 返回 `Break` 时，返回停在的行号；遍历到末尾时返回 `None`。
+    /// `f` 返回 `Break` 时，返回该行的行号；遍历到末尾时返回 `None`。
     fn visit_lines(
         &self,
         from: usize,
@@ -169,6 +179,23 @@ pub trait Lines {
         }
 
         None
+    }
+
+    /// 同 [`Lines::visit_lines`]，但超过 `max_bytes` 字节的行不交出内容，以 `None` 表示。
+    ///
+    /// 供对超长行另有处理的调用方使用（如推算高亮状态时保持原状态），按需读取的大文件
+    /// 因此无需读取和解码超长行。
+    fn visit_short_lines(
+        &self,
+        from: usize,
+        max_bytes: usize,
+        mut f: impl FnMut(usize, usize, Option<&str>) -> ControlFlow<()>,
+    ) -> Option<usize> {
+        // 截断处不切开字符，多取 4 字节（UTF-8 字符的最大长度）后，超过 `max_bytes` 字节的行
+        // 交出的内容必然长于 `max_bytes`。
+        self.visit_lines(from, max_bytes.saturating_add(4), |line, start, content| {
+            f(line, start, (content.len() <= max_bytes).then_some(content))
+        })
     }
 
     /// 返回 `pos` 处的字符；行尾的换行符一律返回 `'\n'`，`pos` 不在文本范围内时返回 `None`。
@@ -227,8 +254,8 @@ pub trait EditBuffer {
 
     /// 依次应用 `changes` 中的每一处修改，结果为逐处调用 [`Self::replace`] 后的文本。
     ///
-    /// 每一项是起点、删除的字符数和插入的文字，起点是做完之前各项修改后的位置。默认实现逐处
-    /// 调用 [`Self::replace`]；逐处修改代价高的实现（大文件的片段表）可以一次做完。
+    /// 每一项是起点、删除的字符数和插入的文字，起点是应用之前各项修改后的位置。默认实现逐处
+    /// 调用 [`Self::replace`]；逐处修改代价高的实现（大文件的片段表）可以一次完成全部修改。
     fn replace_each(&mut self, changes: &[(usize, usize, &str)]) {
         for &(start, removed, inserted) in changes {
             self.replace(start, removed, inserted);
@@ -353,12 +380,21 @@ pub fn line_slice(text: &Rope, line: usize) -> RopeSlice<'_> {
 /// # Panics
 ///
 /// `c` 是制表符且 `tab_width` 为 0 时 panic。
+#[inline(always)]
 pub fn char_cells(c: char, cell: usize, tab_width: usize) -> usize {
-    if c == '\t' {
-        tab_width - cell % tab_width
-    } else {
-        c.width().unwrap_or(0)
+    match c {
+        '\t' => tab_width - cell % tab_width,
+        // 可打印 ASCII 字符占 1 个显示列，无需查 Unicode 宽度表。断行与测宽都逐字符调用本函数，
+        // 该分支随调用方内联，查表放在单独的函数中。
+        ' '..='~' => 1,
+        _ => table_cells(c),
     }
+}
+
+/// 按 Unicode 宽度表返回 `c` 占的显示列数；没有显示宽度的字符返回 0。
+#[inline(never)]
+fn table_cells(c: char) -> usize {
+    c.width().unwrap_or(0)
 }
 
 /// 返回 `line` 前 `col` 个字符占用的显示宽度（显示列数）。
@@ -388,8 +424,8 @@ pub fn slice_cells(chars: &[char], start: usize, tab_width: usize) -> usize {
 
 /// 返回 `chars` 中每个字符起始处的显示列，共 `chars.len() + 1` 项。
 ///
-/// 第 `i` 项是前 `i` 个字符排下之后到达的显示列，末项为全部字符排下之后的显示列。一行内要
-/// 换算多个位置（查找结果、选区）时先算好整张表，之后每个位置查一次表。
+/// 第 `i` 项是前 `i` 个字符排下之后到达的显示列，末项为全部字符排下之后的显示列。同一行内
+/// 需要换算多个位置（查找结果、选区）时，先计算整张表，每个位置再各查表一次。
 ///
 /// # Panics
 ///
@@ -444,7 +480,7 @@ pub struct Columns {
 
 /// 相邻两列之间的最小空隙（显示列）。
 ///
-/// 取 1 个显示列（经验值）：为 0 时相邻列的内容连在一起，取值更大则浪费水平空间。
+/// 取能分开相邻两列内容的最小值 1：为 0 时相邻列的内容连在一起，取值更大则占用更多水平空间。
 const COLUMN_GAP: usize = 1;
 
 impl Columns {
@@ -468,7 +504,7 @@ impl Columns {
     /// 依次是每个字符所属的字段序号（从 0 起）。分隔符属于其前面的字段，其后的字符从下一列的
     /// 起始显示列开始；引号内的分隔符不分列。
     ///
-    /// 缓冲区由调用方复用：逐帧绘制时每个可见行都要算一遍，复用后不必每行分配。
+    /// 缓冲区由调用方复用：每帧绘制都要为每个可见行计算一次，复用后无需逐行分配内存。
     pub fn layout(
         &self,
         line: RopeSlice<'_>,
@@ -557,11 +593,11 @@ fn for_each_field<'a>(
     f(field, width);
 }
 
-/// 按列对齐时各列的最大宽度，可以随改动增量更新，打字时不必重新测量整个文件。
+/// 按列对齐时各列的最大宽度，可以随改动增量更新，输入时不必重新测量整个文件。
 ///
-/// 每列记着最宽的字段的宽度，以及有几个字段同为最宽。改动后先加上新文字里的字段，再减去旧文字
-/// 里的；某一列最宽的字段都被删掉时无法知道第二宽的字段，[`ColumnWidths::update`] 返回
-/// `false`，由调用方重新测量。
+/// 每列记录最宽字段的宽度，以及同为最宽的字段个数。改动后先计入新文字中的字段，再减去旧文字
+/// 中的字段；某一列最宽的字段全部被删除时无法得知次宽字段的宽度，此时
+/// [`ColumnWidths::update`] 返回 `false`，由调用方重新测量。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ColumnWidths {
     /// 分隔各列的字符。
@@ -570,7 +606,7 @@ pub struct ColumnWidths {
     pub tab_width: usize,
     /// 各列最宽的字段的显示宽度。
     widths: Vec<usize>,
-    /// 各列有几个字段一样最宽。
+    /// 各列中宽度等于该列最大宽度的字段个数。
     holders: Vec<usize>,
 }
 
@@ -591,11 +627,11 @@ impl ColumnWidths {
         widths
     }
 
-    /// 把一段文字（`removed`）换成另一段（`inserted`）以后更新各列宽度。
+    /// 把文字 `removed` 替换为 `inserted` 后更新各列宽度。
     ///
     /// 两段都必须是完整的行：从行首开始，到换行或文件末尾结束。
     ///
-    /// 返回 `false` 时结果不再准确（某一列最宽的字段都删掉了），应重新测量整个文件。
+    /// 某一列最宽的字段全部被删除时结果不再准确，返回 `false`，调用方应重新测量整个文件。
     pub fn update<'a, 'b>(
         &mut self,
         removed: impl IntoIterator<Item = &'a str>,

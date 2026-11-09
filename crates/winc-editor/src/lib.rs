@@ -32,7 +32,7 @@ pub use document::{
 pub use document::{editorconfig, encoding};
 pub use editing::command::Command;
 pub use editing::cursors::MAX_CURSORS;
-pub use editing::folding::{Fold, FoldCommand, Folds};
+pub use editing::folding::{Fold, FoldCommand, Folds, LineWindow, WrapJob, WrapResult};
 pub use editing::search::{MAX_MATCHES, Search, TextSearch};
 pub use editing::{paste, scopes};
 pub use navigation::bookmarks::{BookmarkMap, Bookmarks};
@@ -60,19 +60,19 @@ pub struct Editor {
     pub active: Option<usize>,
     /// 打开的工作区（目录）；没有打开目录时为 `None`。
     pub workspace: Option<Workspace>,
-    /// 默认的制表符显示宽度（列）：4。
+    /// 默认的制表符显示宽度（列）。
     ///
-    /// 经验值，只作用于未设置制表符宽度的文档；文档可经状态栏或 `.editorconfig` 覆盖，见
+    /// 只作用于未设置制表符宽度的文档；文档可经状态栏或 `.editorconfig` 覆盖，见
     /// [`Self::active_tab_width`]。
     pub tab_width: usize,
     /// 新打开的差异是否单栏显示。
     pub diff_unified: bool,
     /// 未打开文件的书签，键为文件的规范路径。
     ///
-    /// 打开文件时移入对应文档，关闭标签时从文档取回。打不开的文件（占位标签）没有文本，书签
-    /// 留在这里，等「重试」打开之后再移入。
+    /// 打开文件时移入对应文档，关闭标签时从文档取回。无法打开的文件（占位标签）没有文本，
+    /// 其书签保留在此处，「重试」打开成功后再移入。
     pub bookmarks: BookmarkMap,
-    /// 能预览的文件读取完成时采用的显示方式（[`Editor::finish_load`]）；默认为源代码。
+    /// 可预览的文件读取完成时采用的显示方式（[`Editor::finish_load`]）；默认为源代码。
     pub preview_default: PreviewMode,
     next_id: u64,
 }
@@ -133,9 +133,9 @@ impl Editor {
 
     /// 打开文件并切换到其标签，返回标签序号（从 0 起）。
     ///
-    /// 路径规范化后与已打开文档相同时直接切换到已有标签，不重复读取。打不开的文件（二进制、
-    /// 超过大小上限、读取失败）同样占一个占位标签，编辑区显示原因。在调用的线程上读取；界面
-    /// 线程上改用 [`Editor::open_tab`]，把读取交给后台。
+    /// 路径规范化后与已打开文档相同时直接切换到已有标签，不重复读取。无法打开的文件（二进制、
+    /// 超过大小上限、读取失败）同样占用一个占位标签，编辑区显示原因。读取在调用线程上进行；
+    /// 界面线程上改用 [`Editor::open_tab`]，在后台读取。
     pub fn open(&mut self, path: &Path) -> usize {
         let index = self.open_tab(path);
         self.load(index);
@@ -154,7 +154,7 @@ impl Editor {
 
     /// 为 `path` 创建一个尚未读取的标签（[`Document::pending`]），不切换过去，返回标签序号。
     ///
-    /// 用于恢复现场：文件等切换到该标签时再读。路径规范化后与已打开文档相同时返回已有标签。
+    /// 用于恢复会话：切换到该标签时再读取文件。路径规范化后与已打开文档相同时返回已有标签。
     pub fn open_pending(&mut self, path: &Path) -> usize {
         let canonical = canonical_path(path);
         if let Some(index) = self
@@ -169,19 +169,19 @@ impl Editor {
         self.documents.len() - 1
     }
 
-    /// 第 `index` 个标签尚未读取（[`Document::pending`]）时在当前线程读入文件，返回是否读取了。
+    /// 第 `index` 个标签尚未读取（[`Document::pending`]）时在当前线程读入文件，返回是否已读取。
     ///
-    /// 耗时与文件大小成正比；界面线程上改用 [`Editor::begin_load`] 交给后台。标签已经读过或
+    /// 耗时与文件大小成正比；界面线程上改用 [`Editor::begin_load`] 在后台读取。标签已读取或
     /// `index` 越界时返回 `false`。
     pub fn load(&mut self, index: usize) -> bool {
         self.begin_load(index)
             .is_some_and(|job| self.finish_load(job.run()).is_some())
     }
 
-    /// 第 `index` 个标签尚未读取时返回读取它的任务：在后台调用 [`LoadJob::run`]，读好的结果
+    /// 第 `index` 个标签尚未读取时返回读取该标签的任务：在后台调用 [`LoadJob::run`]，读取结果
     /// 交给 [`Editor::finish_load`]。
     ///
-    /// 标签已经读过，或 `index` 越界时返回 `None`。
+    /// 标签已读取或 `index` 越界时返回 `None`。
     pub fn begin_load(&self, index: usize) -> Option<LoadJob> {
         let doc = self.documents.get(index).filter(|d| d.is_pending())?;
         Some(LoadJob {
@@ -191,11 +191,11 @@ impl Editor {
         })
     }
 
-    /// 换上后台读好的文件 `loaded`，返回该标签的序号；无法替换时返回 `None`。
+    /// 用后台读取的文件 `loaded` 替换对应标签的内容，返回该标签的序号；无法替换时返回 `None`。
     ///
-    /// 读不出来的文件换成说明原因的占位标签。文档标识不变，`revision` 在原有值上继续递增，
-    /// 按（标识、版本号）缓存的结果随之作废。期间标签已关闭、已经读过（就地 [`Editor::load`]
-    /// 过）或者换了路径时什么也不做。
+    /// 读取失败的文件替换为说明原因的占位标签。文档标识不变，`revision` 在原有值上继续递增，
+    /// 按（标识、版本号）缓存的结果随之作废。读取期间标签已关闭、已经读取（经 [`Editor::load`]
+    /// 就地读取）或路径已改变时不做改动，返回 `None`。
     pub fn finish_load(&mut self, loaded: LoadedFile) -> Option<usize> {
         let index = self.index_of(loaded.id)?;
         let doc = &mut self.documents[index];
@@ -203,7 +203,7 @@ impl Editor {
             return None;
         }
         let mut fresh = Document::from_opened(loaded.id, loaded.path, loaded.opened);
-        // 能预览的文件按最近一次选择的方式显示；不能预览的文件不切换。
+        // 可预览的文件按最近一次选择的方式显示；不可预览的文件不改变显示方式。
         if self.preview_default != PreviewMode::Source {
             fresh.set_preview_mode(self.preview_default);
         }
@@ -212,7 +212,7 @@ impl Editor {
         Some(index)
     }
 
-    /// 当前标签尚未读取时读入，返回是否读取了；见 [`Editor::load`]。
+    /// 当前标签尚未读取时读入文件，返回是否已读取；见 [`Editor::load`]。
     pub fn load_active(&mut self) -> bool {
         self.active.is_some_and(|index| self.load(index))
     }
@@ -220,8 +220,8 @@ impl Editor {
     /// 把第 `index` 个无法打开的文件的占位标签改回尚未读取，返回是否改动。
     ///
     /// `as_text` 为 `false` 时对应「重试」，为 `true` 时对应「以文本方式打开」图片或二进制文件。
-    /// 读取交给 [`Editor::begin_load`]（界面线程上在后台读）或 [`Editor::load`]，重试仍然失败时
-    /// 读好的仍是说明原因的占位标签。`index` 越界或标签不是占位标签时返回 `false`。
+    /// 读取交给 [`Editor::begin_load`]（界面线程上在后台读取）或 [`Editor::load`]；重试仍然失败时，
+    /// 读取结果仍是说明原因的占位标签。`index` 越界或标签不是占位标签时返回 `false`。
     pub fn reopen(&mut self, index: usize, as_text: bool) -> bool {
         let Some(doc) = self.documents.get_mut(index) else {
             return false;
@@ -245,7 +245,7 @@ impl Editor {
         self.show_readonly(title, |id| Document::output(id, title, text))
     }
 
-    /// 在标签 `slot` 里显示并排差异（换掉原来的内容）并切换过去，返回标签序号（从 0 起）。
+    /// 在标签 `slot` 中显示并排差异（替换原有内容）并切换到该标签，返回标签序号（从 0 起）。
     ///
     /// `slot` 已经关闭或不是差异标签时按 [`Editor::show_diff`] 查找或新建。逐个预览多个文件的
     /// 改动时只占一个标签。
@@ -271,10 +271,10 @@ impl Editor {
         index
     }
 
-    /// 把差异标签 `id` 换成新的差异 `view`（标题换成 `title`），返回其序号，不切换标签。
+    /// 把差异标签 `id` 的内容替换为差异 `view`（标题改为 `title`），返回其序号，不切换标签。
     ///
-    /// 滚动位置保持不变，折叠与光标是否在右侧沿用原来的差异。标签已经关闭或不是差异标签时
-    /// 返回 `None`。
+    /// 滚动位置保持不变，折叠状态与光标是否在右侧沿用原差异。
+    /// 标签已经关闭或不是差异标签时返回 `None`。
     pub fn replace_diff(
         &mut self,
         id: DocumentId,
@@ -300,15 +300,15 @@ impl Editor {
 
     /// 在只读标签中显示并排差异，标签标题为 `title`，并切换到该标签。
     ///
-    /// 已存在标题相同、没有对应文件的标签时，换成新的差异而不新开标签。返回标签序号（从 0 起）。
+    /// 已存在标题相同、没有对应文件的标签时，替换为新的差异而不新开标签。返回标签序号（从 0 起）。
     pub fn show_diff(&mut self, title: &str, mut view: diff_view::DiffView) -> usize {
         view.set_unified(self.diff_unified);
         self.show_readonly(title, |id| Document::diff(id, title, view))
     }
 
-    /// 在没有对应文件、标题为 `title` 的标签中显示 `make` 创建的文档并切换过去。
+    /// 在没有对应文件、标题为 `title` 的标签中显示 `make` 创建的文档并切换到该标签。
     ///
-    /// 已有这样的标签时换掉内容、保留文档标识，没有时新建。返回标签序号（从 0 起）。
+    /// 已有这样的标签时替换内容、保留文档标识，没有时新建。返回标签序号（从 0 起）。
     fn show_readonly(&mut self, title: &str, make: impl FnOnce(DocumentId) -> Document) -> usize {
         let existing = self
             .documents
@@ -333,7 +333,7 @@ impl Editor {
 
     /// 切换到标题为 `title` 的日志标签，没有时新建，返回标签序号与是否新建。
     ///
-    /// 新建的日志标签内容为空（`LogView::new()`），需要调用方取提交。
+    /// 新建的日志标签内容为空（`LogView::new()`），提交记录由调用方读取。
     pub fn show_log(&mut self, title: &str) -> (usize, bool) {
         if let Some(index) = self
             .documents
@@ -433,8 +433,8 @@ impl Editor {
 
     /// 返回所有文件的书签（键为路径）：未打开文件的书签加上已打开文档的书签。
     ///
-    /// 用于把书签写入会话状态。占位标签（打不开的文件、图片）和尚未读取的标签的书签仍记在
-    /// [`Self::bookmarks`] 里。
+    /// 用于把书签写入会话状态。占位标签（无法打开的文件、图片）和尚未读取的标签的书签仍保存在
+    /// [`Self::bookmarks`] 中。
     pub fn all_bookmarks(&self) -> BookmarkMap {
         let mut all = self.bookmarks.clone();
         for doc in &self.documents {
@@ -461,7 +461,6 @@ impl Editor {
     /// 目录不存在或没有读权限时返回 `std::io::Error`。
     pub fn open_folder(&mut self, path: &Path) -> std::io::Result<()> {
         self.workspace = Some(Workspace::open(path)?);
-        // 书签按工作区目录保存，切换目录后原有书签不再适用；新目录的书签由调用方写入。
         self.bookmarks.clear();
         Ok(())
     }
@@ -472,10 +471,10 @@ impl Editor {
     }
 }
 
-/// 文档 `document` 能显示文本时，把 `bookmarks` 中记着的该文件的书签移进去。
+/// 文档 `document` 能显示文本时，把 `bookmarks` 中该文件的书签移入文档。
 ///
-/// 占位标签（打不开的文件、图片）的文本为空，移进去的书签会被限制到第 0 行，其余书签会
-/// 丢失，因此留在 `bookmarks` 里不动。
+/// 占位标签（无法打开的文件、图片）的文本为空，移入的书签会被限制到第 0 行，原有行号随之丢失，
+/// 因此书签保留在 `bookmarks` 中。
 fn adopt_bookmarks(bookmarks: &mut BookmarkMap, document: &mut Document) {
     if document.unsupported.is_some() {
         return;
@@ -487,7 +486,7 @@ fn adopt_bookmarks(bookmarks: &mut BookmarkMap, document: &mut Document) {
 
 /// 返回 `from` 改名为 `to` 后路径 `path` 的新路径。
 ///
-/// `path` 原来位于 `from` 之下（或就是 `from`）时返回 `to` 之下的对应路径；否则返回 `None`。
+/// `path` 位于 `from` 之下（或等于 `from`）时返回 `to` 之下的对应路径；否则返回 `None`。
 fn rebase(path: &Path, from: &Path, to: &Path) -> Option<PathBuf> {
     let rest = path.strip_prefix(from).ok()?;
     Some(if rest.as_os_str().is_empty() {
@@ -507,12 +506,12 @@ pub struct LoadJob {
 }
 
 impl LoadJob {
-    /// 要读的标签。
+    /// 待读取的标签。
     pub fn id(&self) -> DocumentId {
         self.id
     }
 
-    /// 读文件（耗时和文件大小成正比，在后台线程上调用）。
+    /// 读取文件；耗时与文件大小成正比，在后台线程上调用。
     pub fn run(self) -> LoadedFile {
         LoadedFile {
             opened: Document::read(&self.path, self.as_text),
@@ -522,7 +521,7 @@ impl LoadJob {
     }
 }
 
-/// 后台读好的文件，交给 [`Editor::finish_load`]。
+/// 后台读取完成的文件，交给 [`Editor::finish_load`]。
 pub struct LoadedFile {
     id: DocumentId,
     path: PathBuf,

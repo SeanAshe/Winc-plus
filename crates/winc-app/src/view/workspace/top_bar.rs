@@ -56,6 +56,8 @@ struct TabLabel {
     name: String,
     /// 截短后的上级目录名；仅在存在同名标签、且标签里放得下时有值。
     folder: Option<String>,
+    /// 名称是否被截短。
+    elided: bool,
 }
 
 /// 标签中除文本以外的部分的宽度（逻辑像素）：左内边距 10、文件图标、间隔 7，文本后的间隔 6、
@@ -116,7 +118,7 @@ pub(crate) fn tab_folder(docs: &[winc_editor::Document], index: usize) -> Option
 pub(crate) fn tab_icon_name(doc: &winc_editor::Document) -> String {
     doc.diff
         .as_deref()
-        .and_then(|v| v.new.path.as_deref().or(v.old.path.as_deref()))
+        .and_then(winc_editor::diff_view::DiffView::file_path)
         .and_then(|p| p.file_name())
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| {
@@ -160,10 +162,11 @@ fn tab_labels(app: &App, frame: &mut Frame<'_>) -> Vec<TabLabel> {
             let room = width - TAB_CHROME;
 
             let Some(folder) = folder else {
-                let name = ellipsize(frame, name, app.fonts.ui, room).into_owned();
+                let shown = ellipsize(frame, name, app.fonts.ui, room).into_owned();
                 return TabLabel {
                     width,
-                    name,
+                    elided: shown != name,
+                    name: shown,
                     folder: None,
                 };
             };
@@ -173,8 +176,8 @@ fn tab_labels(app: &App, frame: &mut Frame<'_>) -> Vec<TabLabel> {
             let folder_w = frame
                 .measure(FontKind::Ui, app.fonts.ui_small, &folder)
                 .min(room * TAB_FOLDER_SHARE);
-            let name = ellipsize(frame, name, app.fonts.ui, room - 6.0 - folder_w).into_owned();
-            let left = room - 6.0 - frame.measure(FontKind::Ui, app.fonts.ui, &name);
+            let shown = ellipsize(frame, name, app.fonts.ui, room - 6.0 - folder_w).into_owned();
+            let left = room - 6.0 - frame.measure(FontKind::Ui, app.fonts.ui, &shown);
             // 放得下完整目录名时直接显示（`src`、`api` 等短名比 `TAB_FOLDER_MIN` 还窄）；
             // 须截短时至少保留 `TAB_FOLDER_MIN`。
             let full = frame.measure(FontKind::Ui, app.fonts.ui_small, &folder);
@@ -182,7 +185,8 @@ fn tab_labels(app: &App, frame: &mut Frame<'_>) -> Vec<TabLabel> {
                 .then(|| ellipsize(frame, &folder, app.fonts.ui_small, left).into_owned());
             TabLabel {
                 width,
-                name,
+                elided: shown != name,
+                name: shown,
                 folder,
             }
         })
@@ -540,7 +544,12 @@ fn draw_tab(
         draw_tab_close(frame, p, close, app.hover == Hover::Tab(index, true), view);
     }
 
-    TabHit { index, tab, close }
+    TabHit {
+        index,
+        tab,
+        close,
+        elided: label.elided,
+    }
 }
 
 /// 标签的底（编辑区和终端面板的标签共用），都不带边：当前的是一块实底，颜色由主题定，带一点

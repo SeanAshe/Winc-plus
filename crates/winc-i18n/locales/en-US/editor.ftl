@@ -14,7 +14,7 @@ editor-welcome-go-to-file = Go to File
 editor-welcome-find-in-files = Find in Files
 editor-welcome-toggle-sidebar = Show or Hide Sidebar
 editor-welcome-settings = Settings
-editor-line-truncated = … Line too long; only the beginning is shown
+editor-line-truncated = … Line too long; showing the first { $count } characters
 editor-blame-uncommitted = Uncommitted
 
 ## Find, replace, and multiple cursors.
@@ -30,6 +30,8 @@ editor-replaced = Replaced { $count ->
        *[other] { $count } occurrences
     }
 editor-find-large-multiline = Multiline search isn’t supported in large files
+editor-find-hidden-match = Match is beyond the visible part of the line
+editor-find-hidden-match-wrap = Match is beyond the visible part of the line; turn on word wrap to see it
 editor-replace-all-pending = Search isn’t finished yet; try Replace All again shortly
 editor-replace-all-too-many = More than 10,000 matches; can’t replace all
 editor-replace-all-gave-up = The regular expression backtracked too much on some lines, so the results are incomplete; can’t replace all
@@ -38,8 +40,9 @@ editor-large-no-multi-cursor = The file is too large for multi-cursor search
 
 ## Word wrap and folding.
 
-editor-word-wrap-on-large = Word wrap on (this file is too large to wrap)
-editor-word-wrap-on-table = Word wrap on (column-aligned tables don’t wrap)
+editor-word-wrap-on-large = File too large to wrap
+editor-word-wrap-on-pending = Word wrap on (large file mode)
+editor-word-wrap-on-table = Column-aligned tables can’t be wrapped
 editor-word-wrap-on = Word wrap on
 editor-word-wrap-off = Word wrap off
 editor-fold-large = The file is too large to fold

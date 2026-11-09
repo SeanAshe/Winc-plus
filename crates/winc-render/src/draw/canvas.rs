@@ -1,6 +1,6 @@
-//! 像素画布：所有绘制最终都落到一块不透明的 32 位缓冲上。
+//! 像素画布：所有绘制最终写入一块不透明的 32 位像素缓冲。
 //!
-//! 像素为 `0xAARRGGBB`，画到画布上之后 alpha 恒为 `0xff`。[`Canvas`] 负责矩形、圆角矩形、阴影、
+//! 像素为 `0xAARRGGBB`，绘制到画布后 alpha 恒为 `0xff`。[`Canvas`] 负责矩形、圆角矩形、阴影、
 //! 描边、蒙版和位图的混合绘制，坐标和尺寸都是物理像素；[`Stroke`] 的形状坐标是逻辑像素。
 
 use std::f32::consts::TAU;
@@ -67,9 +67,9 @@ pub(crate) struct Canvas<'a> {
 
 /// 按权重 `a`（单位 1/256，取值 0–256）从不透明像素 `d` 过渡到 `s`。
 ///
-/// 红、蓝两个通道放在同一个 32 位整数里相隔 16 位的两格，一次乘法同时算两个通道；每格最大
-/// 255 × 256 = 65280，不超过 16 位，格之间不会进位，结果与逐个通道计算完全相同（见测试
-/// `lerp_matches_per_channel`），循环里也没有分支。
+/// 红、蓝两个通道存放在同一个 32 位整数中相隔 16 位的两个字段，一次乘法同时计算两个通道；每个
+/// 字段最大 255 × 256 = 65280，不超过 16 位，字段之间不会进位，结果与逐通道计算完全相同（见测试
+/// `lerp_matches_per_channel`），循环中也没有分支。
 #[inline(always)]
 fn lerp(d: u32, s: u32, a: u32) -> u32 {
     let da = 256 - a;
@@ -84,7 +84,7 @@ fn div255(x: u32) -> u32 {
     (x + 128 + ((x + 128) >> 8)) >> 8
 }
 
-/// 返回按覆盖率 `cov`（0 至 255）把 `src` 叠到 `dst` 上的不透明像素。
+/// 返回按覆盖率 `cov`（0 至 255）把 `src` 叠加到 `dst` 上得到的不透明像素。
 ///
 /// `src` 是非预乘的 `0xAARRGGBB`。
 #[inline(always)]
@@ -103,11 +103,12 @@ fn blend(dst: u32, src: u32, cov: u32) -> u32 {
     mix(dst, src, sa)
 }
 
-/// 返回按透明度 `sa`（0 至 255）把 `src` 的颜色叠到 `dst` 上的不透明像素。
+/// 返回按透明度 `sa`（0 至 255）把 `src` 的颜色叠加到 `dst` 上得到的不透明像素。
 ///
-/// 不看 `src` 自带的透明度。红、蓝两个通道放在同一个 32 位整数里相隔 16 位的两格，一次乘法同时
-/// 算两个通道；每格最大 255 × 255 = 65025，加上 [`div255`] 的进位也不超过 16 位，格之间不会进位，
-/// 结果与逐个通道算 [`div255`] 完全相同（见测试 `mix_matches_per_channel`），循环里也没有分支。
+/// 忽略 `src` 自带的透明度。红、蓝两个通道存放在同一个 32 位整数中相隔 16 位的两个字段，一次乘法
+/// 同时计算两个通道；每个字段最大 255 × 255 = 65025，加上 [`div255`] 的进位也不超过 16 位，字段
+/// 之间不会进位，结果与逐通道计算 [`div255`] 完全相同（见测试 `mix_matches_per_channel`），
+/// 循环中也没有分支。
 #[inline(always)]
 fn mix(dst: u32, src: u32, sa: u32) -> u32 {
     let da = 255 - sa;
@@ -117,10 +118,10 @@ fn mix(dst: u32, src: u32, sa: u32) -> u32 {
     0xff00_0000 | rb | (g << 8)
 }
 
-/// 把同一处分别画在黑底和白底上得到的两个像素，还原成透明底上的像素（已预乘透明度）。
+/// 把同一位置分别绘制在黑底和白底上得到的两个像素，还原为透明底上的像素（已预乘透明度）。
 ///
-/// 白底比黑底亮出的部分等于透出的底色，因此用两者绿色通道的差得到透明度；黑底上的颜色就是颜色
-/// 乘以透明度。
+/// 白底像素比黑底像素多出的亮度等于透出的底色，因此用两者绿色通道的差得到透明度；黑底上的颜色
+/// 即为颜色乘以透明度。
 pub(crate) fn unblend(on_black: u32, on_white: u32) -> u32 {
     let shown = ((on_white >> 8) & 0xff).saturating_sub((on_black >> 8) & 0xff);
     let alpha = 255 - shown;
@@ -140,7 +141,7 @@ fn corner_radius(radii: [f32; 4], left: bool, top: bool) -> f32 {
     }
 }
 
-/// 返回点 `(px, py)` 到圆角矩形 `area` 边缘的有向距离（像素）：里面为负，外面为正。
+/// 返回点 `(px, py)` 到圆角矩形 `area` 边缘的有向距离（像素）：内部为负，外部为正。
 ///
 /// `r` 是圆角半径。
 #[inline(always)]
@@ -162,7 +163,7 @@ pub enum Stroke {
     Circle(f32, f32, f32),
     /// 圆心 `(x, y)`、半径 `r` 的一段圆弧，从角度 `from` 到 `to`（弧度，`from < to`）。
     ///
-    /// 0 指向右边；屏幕坐标 y 向下，因此 -π 到 0 是上半圆。两端是圆头。
+    /// 角度 0 指向右侧；屏幕坐标 y 向下，因此 -π 到 0 是上半圆。两端是圆头。
     Arc(f32, f32, f32, f32, f32),
 }
 
@@ -177,8 +178,8 @@ impl Stroke {
         }
     }
 
-    /// 返回用半笔宽 `half`（物理像素）描该形状时可能有覆盖率的像素范围：外接矩形按 `scale`
-    /// 换算成物理像素，再向外扩出半个笔宽和 1 像素的抗锯齿边。
+    /// 返回用半笔宽 `half`（物理像素）描边该形状时可能有覆盖率的像素范围：外接矩形按 `scale`
+    /// 换算成物理像素，再向外扩展半个笔宽和 1 像素的抗锯齿边。
     fn pixel_area(self, half: f32, scale: f32) -> IRect {
         let (left, top, right, bottom) = self.bounds();
         IRect {
@@ -190,7 +191,7 @@ impl Stroke {
     }
 }
 
-/// 返回用笔宽 `width`（逻辑像素）描 `shapes` 时可能有覆盖率的像素范围（物理像素，按 `scale`
+/// 返回用笔宽 `width`（逻辑像素）描边 `shapes` 时可能有覆盖率的像素范围（物理像素，按 `scale`
 /// 换算）；`shapes` 为空时返回 `None`。
 pub(crate) fn stroke_area(shapes: &[Stroke], width: f32, scale: f32) -> Option<IRect> {
     let half = width * scale / 2.0;
@@ -205,14 +206,14 @@ pub(crate) fn stroke_area(shapes: &[Stroke], width: f32, scale: f32) -> Option<I
         })
 }
 
-/// 准备好逐像素求距离的形状：圆弧两端相对圆心的位置先算好，不必每个像素都算一遍三角函数。
+/// 预处理后用于逐像素求距离的形状：预先计算圆弧两端相对圆心的位置，避免每个像素都计算三角函数。
 struct Prepared {
     shape: Stroke,
-    /// 圆弧起点、终点相对圆心的偏移（逻辑像素）；不是圆弧时不用。
+    /// 圆弧起点、终点相对圆心的偏移（逻辑像素）；不是圆弧时不使用。
     ends: [(f32, f32); 2],
     /// 可能有覆盖率的像素范围，见 `Stroke::pixel_area`。
     ///
-    /// 范围外的像素离形状比半个笔宽加 1 像素还远，覆盖率一定为 0。
+    /// 范围外的像素到形状的距离超过半个笔宽加 1 像素，覆盖率必为 0。
     area: IRect,
 }
 
@@ -233,8 +234,8 @@ impl Prepared {
     /// 笔宽（物理像素）。
     ///
     /// 只取到中心线的距离不超过半个笔宽加 1 像素的部分，矩形边框的内部、大圆的内部不再逐像素
-    /// 求距离：直线取线段在该行上下这一距离内的部分，圆取圆环与该行相交的一段或两段，圆弧取
-    /// 外接矩形与该行相交的一段。
+    /// 求距离：线段取该行上下该距离内的部分，圆取圆环与该行相交的一段或两段，圆弧取外接矩形与
+    /// 该行相交的一段。
     fn row_spans(&self, y: i32, half: f32, scale: f32, out: &mut Vec<(i32, i32)>) {
         let area = self.area;
         let reach = half + 1.0;
@@ -298,8 +299,8 @@ impl Prepared {
             Stroke::Circle(cx, cy, r) => ((px - cx).hypot(py - cy) - r).abs(),
             Stroke::Arc(cx, cy, r, from, to) => {
                 let angle = (py - cy).atan2(px - cx);
-                // `atan2` 的结果在 -π 到 π 之间，圆弧的角度范围可能落在这之外（如 0 到 1.75π），
-                // 所以加减一圈各试一次。
+                // `atan2` 的结果在 -π 到 π 之间，圆弧的角度范围可能超出该区间（如 0 到 1.75π），
+                // 因此分别加减 2π 各检查一次。
                 let on_arc = [angle - TAU, angle, angle + TAU]
                     .iter()
                     .any(|a| (from..=to).contains(a));
@@ -322,7 +323,7 @@ impl Prepared {
 /// 形状，未选中的形状距离更远，因此结果与对每个像素求全部形状的距离相同。
 pub(crate) struct StrokeRaster {
     shapes: Vec<Prepared>,
-    /// 当前行用到的形状在 `shapes` 中的下标，复用以免每行分配。
+    /// 当前行用到的形状在 `shapes` 中的下标，跨行复用以避免每行分配内存。
     active: Vec<usize>,
     /// 当前行需要计算的像素段（物理像素，左含右不含），跨行复用以避免每行分配内存。
     spans: Vec<(i32, i32)>,
@@ -335,8 +336,8 @@ pub(crate) struct StrokeRaster {
 }
 
 impl StrokeRaster {
-    /// 准备用笔宽 `width`（逻辑像素）描 `shapes`，按 `scale` 换算成物理像素；`shapes` 为空时
-    /// 返回 `None`。
+    /// 准备用笔宽 `width`（逻辑像素）描边 `shapes`，按 `scale` 换算成物理像素；
+    /// `shapes` 为空时返回 `None`。
     pub(crate) fn new(shapes: &[Stroke], width: f32, scale: f32) -> Option<Self> {
         let area = stroke_area(shapes, width, scale)?;
         let half = width * scale / 2.0;
@@ -371,8 +372,8 @@ impl StrokeRaster {
             let a = shapes[i].area;
             a.y0 <= y && y < a.y1 && a.x0 < x1 && x0 < a.x1
         }));
-        // 各形状的像素段裁剪到 `x0..x1`，排序后合并重叠或相接的段：段外的像素不计算，段内每个像素
-        // 只计算一次。
+        // 各形状的像素段裁剪到 `x0..x1`，排序后合并重叠或相接的段：段外的像素不计算，
+        // 段内每个像素只计算一次。
         spans.clear();
         for &i in active.iter() {
             shapes[i].row_spans(y, half, scale, spans);
@@ -412,7 +413,7 @@ impl StrokeRaster {
         }
     }
 
-    ///   返回整个 [`Self::area`] 的覆盖率蒙版：每像素 1 字节（0–255），按行排列。
+    /// 返回整个 [`Self::area`] 的覆盖率蒙版：每像素 1 字节（0–255），按行排列。
     pub(crate) fn mask(mut self) -> Box<[u8]> {
         let area = self.area;
         let w = area.width();
@@ -428,7 +429,7 @@ impl StrokeRaster {
 }
 
 impl Canvas<'_> {
-    /// 返回 `area` 裁到画布之内后的范围，以及其中像素的拷贝。
+    /// 返回 `area` 裁剪到画布之内后的范围，以及其中像素的副本。
     ///
     /// 像素按行排列，每行 `area` 宽。
     pub fn copy(&self, area: IRect) -> (IRect, Vec<u32>) {
@@ -437,9 +438,9 @@ impl Canvas<'_> {
         (area, out)
     }
 
-    ///   同 [`Self::copy`]，拷进 `out`（先清空，已有的容量继续使用），返回裁过的 `area`。
+    /// 与 [`Self::copy`] 相同，但复制到 `out`（先清空，保留已有容量），返回裁剪后的 `area`。
     ///
-    /// 每帧都要拷贝一次时用它：不必每帧新分配几 MB 再释放。
+    /// 用于每帧都要复制的场景：避免每帧分配并释放数 MB 内存。
     pub fn copy_into(&self, area: IRect, out: &mut Vec<u32>) -> IRect {
         out.clear();
         let area = area.intersect(IRect::new(0, 0, self.width as i32, self.height as i32));
@@ -455,17 +456,17 @@ impl Canvas<'_> {
         area
     }
 
-    /// 把 [`Canvas::copy`] 取出的像素 `px` 贴回 `area`；画布外面的部分不贴。
+    /// 把 [`Canvas::copy`] 取出的像素 `px` 写回 `area`；画布之外的部分忽略。
     pub fn paste(&mut self, area: IRect, px: &[u32]) {
         for (dst, src) in self.paste_rows(area, px) {
             self.px[dst.clone()].copy_from_slice(&px[src]);
         }
     }
 
-    /// 返回贴回 `area`（`px` 按 `area` 的宽排列）时每一行的下标范围：画布中的范围与 `px` 中的范围。
+    /// 返回写回 `area`（`px` 按 `area` 的宽排列）时每一行的下标范围：画布中的范围与 `px` 中的范围。
     ///
-    /// 两个范围都已裁到画布里；`px` 的长度与 `area` 不符时没有行。先裁剪再计算下标，因此 `area` 伸到
-    /// 画布外面（窗口缩小、坐标为负）时不会越界或贴到下一行。
+    /// 两个范围都已裁剪到画布内；`px` 的长度与 `area` 不符时不返回任何行。先裁剪再计算下标，
+    /// 因此 `area` 超出画布（窗口缩小、坐标为负）时不会越界或写入下一行。
     fn paste_rows(
         &self,
         area: IRect,
@@ -485,9 +486,9 @@ impl Canvas<'_> {
         })
     }
 
-    /// 同 [`Canvas::paste`]，贴回的同时按 `tint` 的 alpha 叠上一层颜色（非预乘的 `0xAARRGGBB`）。
+    /// 与 [`Canvas::paste`] 相同，写回时按 `tint`（非预乘的 `0xAARRGGBB`）的 alpha 叠加一层颜色。
     ///
-    /// 一遍里同时完成贴回与压暗，不必贴回后再整块铺一遍半透明的遮罩。
+    /// 一次遍历同时完成写回与压暗，无需写回后再整块绘制一层半透明遮罩。
     pub fn paste_tinted(&mut self, area: IRect, px: &[u32], tint: u32) {
         let a = (tint >> 24) * 256 / 255;
         if a == 0 {
@@ -499,12 +500,12 @@ impl Canvas<'_> {
         }
     }
 
-    /// 把图层 `layer`（`area` 大小的像素，按行排列）叠到画布现有的像素上：图层是 `area` 里圆角
-    /// 半径 `radius`（物理像素）的圆角矩形，以中心缩放 `scale`，再按不透明度 `opacity`（0–1）叠上。
+    /// 把图层 `layer`（`area` 大小的像素，按行排列）叠加到画布现有的像素上。
     ///
-    /// 整层画完再一次性叠上去，半透明的卡片才不会透出它自己底下的边框和底色；圆角外面、缩小后
-    /// 空出来的地方不动，边缘按覆盖率柔化。缩放按双线性取样：每行先在纵向混合出一行像素，再在
-    /// 横向取样。每行的内部整段覆盖率相同，只有边缘和圆角逐像素计算覆盖率。
+    /// 图层是 `area` 中圆角半径为 `radius`（物理像素）的圆角矩形，以中心为原点缩放 `scale`，再按
+    /// 不透明度 `opacity`（0–1）叠加。整层绘制完成后一次性叠加，半透明的卡片才不会透出自身下方的
+    /// 边框和底色；圆角之外、缩小后空出的区域保持不变，边缘按覆盖率柔化。缩放按双线性取样：每行先
+    /// 在纵向混合出一行像素，再在横向取样。每行内部的覆盖率相同，只有边缘和圆角逐像素计算覆盖率。
     pub fn blend_layer(
         &mut self,
         area: IRect,
@@ -523,7 +524,8 @@ impl Canvas<'_> {
         let (cx, cy) = (w as f32 / 2.0, h as f32 / 2.0);
         // 缩放后的圆角矩形：中心不变，半宽、半高和圆角半径都乘以 `scale`。
         let (hw, hh, r) = (cx * scale, cy * scale, radius * scale);
-        // 每列、每行在图层里的取样位置：左（上）边像素和相邻像素的下标，以及后者的权重（单位 1/256）。
+        // 每列、每行在图层中的取样位置：左（上）侧像素和相邻像素的下标，
+        // 以及后者的权重（单位 1/256）。
         let samples = |n: usize, c: f32| -> Vec<(usize, usize, u32)> {
             (0..n)
                 .map(|i| {
@@ -556,7 +558,7 @@ impl Canvas<'_> {
             if py > hh + 1.0 {
                 continue;
             }
-            // 这一行里离边一个像素以上、又不在圆角那一块的列：`inner.0..inner.1`。
+            // 该行中距边缘超过一个像素且不在圆角区域内的列：`inner.0..inner.1`。
             let half = if py >= hh - 1.0 {
                 0.0
             } else if py < hh - r - 1.0 {
@@ -591,7 +593,7 @@ impl Canvas<'_> {
             let (middle, right) = rest.split_at_mut(inner.1.min(w) - inner.0.min(w));
 
             if scaled {
-                // 先取出每列的两个相邻像素，混合的循环只读连续的内存，可以被向量化。
+                // 先取出每列的两个相邻像素，使混合循环只读取连续内存，便于向量化。
                 let (span, fxs) = (&xs[inner.0..inner.1], &weights[inner.0..inner.1]);
                 let (first, second) = (&mut before[..span.len()], &mut after[..span.len()]);
                 for ((a, b), &(x0, x1, _)) in first.iter_mut().zip(&mut *second).zip(span) {
@@ -616,13 +618,13 @@ impl Canvas<'_> {
         }
     }
 
-    /// 用 `color` 填满画布；alpha 强制为不透明。
+    /// 用 `color` 填充整个画布；alpha 强制为不透明。
     pub fn fill(&mut self, color: u32) {
         let n = (self.stride * self.height).min(self.px.len());
         self.px[..n].fill(color | 0xff00_0000);
     }
 
-    ///   同 [`Self::fill`]，但 `covered` 中的像素不画（随后会被不透明的内容盖住）。
+    /// 与 [`Self::fill`] 相同，但跳过 `covered` 中的像素（这些像素随后会被不透明的内容覆盖）。
     pub fn fill_except(&mut self, color: u32, covered: Option<Covered>) {
         let Some(covered) = covered else {
             return self.fill(color);
@@ -640,7 +642,7 @@ impl Canvas<'_> {
         }
     }
 
-    /// 绘制实心矩形，`covered` 中的像素不画。
+    /// 绘制实心矩形，跳过 `covered` 中的像素。
     ///
     /// `color` 不透明时直接覆盖，否则与底色混合。
     pub fn rect(&mut self, area: IRect, color: u32, clip: IRect, covered: Option<Covered>) {
@@ -662,11 +664,11 @@ impl Canvas<'_> {
         }
     }
 
-    /// 在 `area` 里铺棋盘格：边长 `cell`（物理像素）的方格，左上角的一格为 `first`，与它相邻的为
-    /// `second`。
+    /// 在 `area` 中绘制棋盘格：边长 `cell`（物理像素）的方格，左上角的方格为 `first`，
+    /// 与其相邻的为 `second`。
     ///
-    /// 两种颜色都必须不透明（`0xff` 开头）。每行按格子切成几段直接填色：逐格当作矩形画时每格都要
-    /// 单独裁剪和换算，大图上有上万格。
+    /// 两种颜色都必须不透明（alpha 为 `0xff`）。每行按方格切分为多段直接填色：逐格按矩形绘制时
+    /// 每格都要单独裁剪和换算坐标，大图上可达上万格。
     pub fn checker(&mut self, area: IRect, cell: usize, (first, second): (u32, u32), clip: IRect) {
         let Some(v) = self.visible(area, clip) else {
             return;
@@ -692,8 +694,8 @@ impl Canvas<'_> {
 
     /// 绘制圆角矩形，四个角的半径依次是左上、右上、右下、左下。
     ///
-    /// 半径超过短边的一半时按一半计。圆角边缘按像素中心到圆弧的距离做抗锯齿。`covered` 中的
-    /// 像素不画。
+    /// 半径超过短边的一半时按一半计。圆角边缘按像素中心到圆弧的距离做抗锯齿。
+    /// 跳过 `covered` 中的像素。
     pub fn rounded_rect(
         &mut self,
         area: IRect,
@@ -718,8 +720,8 @@ impl Canvas<'_> {
             (area.y0 + area.y1) as f32 / 2.0,
         );
         let opaque = color >> 24 == 0xff;
-        // 离上下边都不小于最大半径的行整行实心，其余行中离左右边都不小于最大半径的像素也实心；
-        // 只有四个角里需要计算到圆弧的距离。
+        // 距上下边都不小于最大半径的行整行为实心，其余行中距左右边都不小于最大半径的像素也为
+        // 实心；只有四个角需要计算到圆弧的距离。
         let r_max = radii.iter().copied().fold(0.0, f32::max).ceil() as i32;
 
         for y in v.y0..v.y1 {
@@ -731,7 +733,7 @@ impl Canvas<'_> {
             };
 
             for (a, b) in uncovered(v, covered, y) {
-                // 每段分成三截：左角、实心、右角。矩形比两个半径还窄时实心的一截为空。
+                // 每段分为三部分：左角、实心部分、右角。矩形宽度小于两个半径之和时实心部分为空。
                 let mid0 = solid0.clamp(a, b);
                 let mid1 = solid1.clamp(mid0, b);
                 let row = self.span(y, a, b);
@@ -760,10 +762,10 @@ impl Canvas<'_> {
         }
     }
 
-    /// 把圆角矩形 `area` 四个角圆弧外侧的像素涂成 `color`，圆弧上的像素按覆盖比例混合。
+    /// 把圆角矩形 `area` 四个角圆弧外侧的像素填充为 `color`，圆弧上的像素按覆盖比例混合。
     ///
-    /// 半径超过短边的一半时按一半计。区域内的内容先按直角矩形画好，再用它修圆四角，内容不必
-    /// 各自按圆角裁剪。
+    /// 半径超过短边的一半时按一半计。区域内的内容先按直角矩形绘制，再由本方法修整为圆角，
+    /// 内容无需各自按圆角裁剪。
     pub fn round_corners(&mut self, area: IRect, radius: f32, color: u32, clip: IRect) {
         let limit = ((area.x1 - area.x0).min(area.y1 - area.y0) as f32 / 2.0).max(0.0);
         let r = radius.clamp(0.0, limit);
@@ -802,7 +804,7 @@ impl Canvas<'_> {
 
     /// 绘制圆角矩形的柔和阴影：边缘内外各 `blur` 像素按平滑曲线过渡，近似高斯模糊。
     ///
-    /// `covered` 中的像素不画。
+    /// 跳过 `covered` 中的像素。
     pub fn shadow(
         &mut self,
         area: IRect,
@@ -827,7 +829,7 @@ impl Canvas<'_> {
             .max(0.0);
         let alpha = ((color >> 24) & 0xff) as f32;
 
-        // 每个像素都计算一遍、不提前跳过，循环没有分支，可以被向量化：离边缘超过 `blur`
+        // 每个像素都参与计算、不提前跳过，使循环没有分支、便于向量化：距边缘超过 `blur`
         // 的像素透明度为 0，[`mix`] 按 0 叠加后像素不变。
         for y in v.y0..v.y1 {
             let py = y as f32 + 0.5;
@@ -836,7 +838,8 @@ impl Canvas<'_> {
                 for (i, p) in self.span(y, start, end).iter_mut().enumerate() {
                     let d = rounded_distance(area, r, (start + i as i32) as f32 + 0.5, py);
 
-                    // smoothstep 曲线：边缘处一半浓度，往里 `blur` 处最浓，往外 `blur` 处消失。
+                    // smoothstep 曲线：边缘处为一半浓度，向内 `blur` 处浓度最高，
+                    // 向外 `blur` 处降为 0。
                     let u = ((d / blur + 1.0) / 2.0).clamp(0.0, 1.0);
                     let a = (alpha * (1.0 - u * u * (3.0 - 2.0 * u))) as u32;
                     *p = mix(*p, color, a);
@@ -849,7 +852,7 @@ impl Canvas<'_> {
     ///
     /// 形状坐标和笔宽 `width` 是逻辑像素，按 `scale` 换算为物理像素。
     ///
-    /// 每个像素只取到最近一个形状的距离，因此交叉处只叠一次色，半透明的图标不会在交点处变深。
+    /// 每个像素只取到最近一个形状的距离，因此交叉处只叠加一次颜色，半透明的图标不会在交点处变深。
     pub fn stroke(&mut self, shapes: &[Stroke], width: f32, scale: f32, color: u32, clip: IRect) {
         let Some(mut raster) = StrokeRaster::new(shapes, width, scale) else {
             return;
@@ -869,7 +872,7 @@ impl Canvas<'_> {
 
     /// 绘制 8 位覆盖率蒙版（单色字形），按 `color` 着色后叠加，覆盖率经 `gamma` 映射。
     ///
-    /// `area` 的尺寸就是蒙版 `data` 的尺寸。
+    /// `area` 的尺寸即为蒙版 `data` 的尺寸。
     ///
     /// # Panics
     ///
@@ -893,9 +896,41 @@ impl Canvas<'_> {
         }
     }
 
+    /// 绘制 8 位覆盖率蒙版（单色字形），按 `color` 着色后叠加；覆盖率已是最终值，不再映射。
+    ///
+    /// `area` 的尺寸即蒙版 `data` 的尺寸，结果与以恒等映射表调用 [`Canvas::mask`] 相同。
+    /// 循环内无分支、无查表：在覆盖率随机的 12×20 像素蒙版上实测每像素约 0.64 ns，
+    /// 逐像素查表并判断覆盖率时约 1.48 ns。字形混色是每帧绘制中开销最大的一项。
+    ///
+    /// # Panics
+    ///
+    /// `data` 的长度小于 `area` 宽高之积，且可见部分超出 `data` 时 panic。
+    pub fn coverage(&mut self, area: IRect, data: &[u8], color: u32, clip: IRect) {
+        let alpha = (color >> 24) & 0xff;
+        let Some(v) = self.visible(area, clip).filter(|_| alpha > 0) else {
+            return;
+        };
+        let (w, cols) = (area.width(), v.width());
+
+        for y in v.y0..v.y1 {
+            let src = (y - area.y0) as usize * w + (v.x0 - area.x0) as usize;
+            let pixels = self.row(y, v).iter_mut().zip(&data[src..src + cols]);
+
+            if alpha == 255 {
+                for (p, &m) in pixels {
+                    *p = mix(*p, color, u32::from(m));
+                }
+            } else {
+                for (p, &m) in pixels {
+                    *p = mix(*p, color, div255(alpha * u32::from(m)));
+                }
+            }
+        }
+    }
+
     /// 绘制非预乘的 RGBA8 位图（彩色 emoji），整体乘以不透明度 `opacity`（0 至 255）。
     ///
-    /// `area` 的尺寸就是位图 `data` 的尺寸。
+    /// `area` 的尺寸即为位图 `data` 的尺寸。
     ///
     /// # Panics
     ///
@@ -922,8 +957,8 @@ impl Canvas<'_> {
 
     /// 填充凸多边形 `points`（物理像素，顺序不限方向）。
     ///
-    /// 边缘按覆盖率抗锯齿：每行取四条扫描线，各算出多边形在这条线上的左右端，按横向覆盖的长度
-    /// 累加。
+    /// 边缘按覆盖率抗锯齿：每行取四条扫描线，分别计算多边形在各扫描线上的左右端点，按横向
+    /// 覆盖的长度累加。
     pub fn polygon(&mut self, points: &[(f32, f32)], color: u32, clip: IRect) {
         if points.len() < 3 {
             return;
@@ -946,7 +981,7 @@ impl Canvas<'_> {
             cover.fill(0.0);
             for k in 0..4 {
                 let sy = y as f32 + 0.125 + k as f32 * 0.25;
-                // 凸多边形与扫描线的交点中，最左和最右的交点之间就是多边形在这一行上的范围。
+                // 凸多边形与扫描线的交点中，最左和最右的交点之间即为多边形在该扫描线上的范围。
                 let (mut l, mut r) = (f32::MAX, f32::MIN);
                 for (i, &(ax, ay)) in points.iter().enumerate() {
                     let (bx, by) = points[(i + 1) % points.len()];
@@ -992,11 +1027,11 @@ impl Canvas<'_> {
     }
 }
 
-/// 不透明圆角矩形一定会整个盖住的像素。
+/// 不透明圆角矩形必然完全覆盖的像素范围。
 ///
-/// 离上下边都不小于半径的行整行被盖住，其余行去掉左右各一个半径，范围与 `Canvas::rounded_rect`
-/// 画成实心的像素相同。先画在该矩形底下的阴影、边框和遮罩可以跳过这些像素，因为这些像素
-/// 随后会被盖掉；大卡片上可以省去这部分像素的混合计算。
+/// 距上下边都不小于半径的行整行被覆盖，其余行去掉左右各一个半径，范围与 `Canvas::rounded_rect`
+/// 绘制为实心的像素相同。先于该矩形绘制在其下方的阴影、边框和遮罩可以跳过这些像素，因为这些
+/// 像素随后会被覆盖；大卡片上可以省去这部分像素的混合计算。
 #[derive(Debug, Clone, Copy)]
 pub struct Covered {
     /// 圆角矩形的范围（物理像素）。
@@ -1015,7 +1050,7 @@ impl Covered {
         }
     }
 
-    /// 返回第 `y` 行被盖住的列区间 `(x0, x1)`，左闭右开；没有时为空区间。
+    /// 返回第 `y` 行被覆盖的列区间 `(x0, x1)`，左闭右开；没有时为空区间。
     fn span(self, y: i32) -> (i32, i32) {
         let a = self.area;
         if y < a.y0 || y >= a.y1 {
@@ -1028,7 +1063,7 @@ impl Covered {
     }
 }
 
-/// 返回可见范围 `v` 的第 `y` 行中没被 `covered` 盖住的部分：最多左右两段，空的段起止相同。
+/// 返回可见范围 `v` 的第 `y` 行中未被 `covered` 覆盖的部分：最多左右两段，空的段起止相同。
 fn uncovered(v: IRect, covered: Option<Covered>, y: i32) -> [(i32, i32); 2] {
     let Some((c0, c1)) = covered.map(|c| c.span(y)).filter(|(c0, c1)| c0 < c1) else {
         return [(v.x0, v.x1), (v.x1, v.x1)];

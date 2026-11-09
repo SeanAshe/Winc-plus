@@ -1,0 +1,18 @@
+pkgname=winc
+pkgver=${WINC_ARCH_VERSION:?WINC_ARCH_VERSION is required}
+pkgrel=1
+pkgdesc='A lighter, faster desktop code editor'
+arch=('x86_64')
+url='https://winc.si'
+license=('Apache-2.0')
+depends=('glibc>=2.39' 'libgcc' 'fontconfig' 'ttf-dejavu' 'libxkbcommon'
+         'libxkbcommon-x11' 'libx11' 'libxcb' 'libxcursor' 'libxi' 'libxrandr' 'wayland')
+options=('!strip' '!debug')
+
+package() {
+  install -Dm755 "$startdir/winc" "$pkgdir/usr/bin/winc"
+  install -Dm755 "$startdir/winc-pty" "$pkgdir/usr/bin/winc-pty"
+  install -Dm644 "$startdir/winc.desktop" "$pkgdir/usr/share/applications/winc.desktop"
+  install -Dm644 "$startdir/winc.png" "$pkgdir/usr/share/icons/hicolor/256x256/apps/winc.png"
+  install -Dm644 "$startdir/LICENSE" "$startdir/NOTICE" -t "$pkgdir/usr/share/licenses/winc"
+}

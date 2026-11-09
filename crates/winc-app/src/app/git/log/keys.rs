@@ -1,10 +1,12 @@
-//! 键盘：在提交列表和改动的文件之间移动，以及后退、前进。
+//! 日志标签的键盘操作：在提交列表与改动文件列表之间移动，以及后退、前进。
 
 use super::*;
 
 impl App {
-    /// 日志标签有焦点时的按键：`↑` `↓` 选提交，`PageUp` `PageDown` 翻页，`Home` `End` 到头，
-    /// 回车打开第一个改动文件的差异，`→` 进到详情的文件列表（见 [`App::log_file_key`]）。
+    /// 处理日志标签有焦点时的按键。
+    ///
+    /// `↑` `↓` 选择提交，`PageUp` `PageDown` 翻页，`Home` `End` 移到首尾，回车打开第一个改动文件
+    /// 的差异，`→` 进入详情中的文件列表（见 [`App::log_file_key`]）。
     pub(in crate::app) fn log_key(&mut self, key: &Key) {
         if self.log.file.is_some() {
             self.log_file_key(key);
@@ -36,7 +38,7 @@ impl App {
             Key::Named(NamedKey::PageUp) => at.saturating_sub(page),
             Key::Named(NamedKey::PageDown) => (at + page).min(count - 1),
             Key::Named(NamedKey::Home) => 0,
-            // Esc 退出比较，回到选着的那个提交。
+            // `Esc` 退出比较，详情区域恢复显示选中的提交。
             Key::Named(NamedKey::Escape) => {
                 self.clear_log_compare();
                 return;
@@ -51,8 +53,9 @@ impl App {
         self.select_log_row(row);
     }
 
-    /// 键盘在详情的文件列表里时的按键：`↑` `↓` `Home` `End` 选文件，回车打开它的差异，`←`、
-    /// `Esc` 回到提交列表。
+    /// 处理焦点位于详情文件列表时的按键。
+    ///
+    /// `↑` `↓` `Home` `End` 选择文件，回车打开该文件的差异，`←`、`Esc` 返回提交列表。
     fn log_file_key(&mut self, key: &Key) {
         let count = self.log_files_len();
         let Some(at) = self.log.file.filter(|_| count > 0) else {
@@ -81,16 +84,17 @@ impl App {
         self.request_redraw();
     }
 
-    /// 跳到第 `row` 个提交（顺着提交图的线、点详情里的父提交）：选中它，记下跳之前选着的那个
-    /// （`后退` 回得去，[`App::log_navigate`]）；它不在屏幕上时滚到离顶上三分之一的地方，上下
-    /// 都看得到，不像一般的选中那样只滚到贴着边。
+    /// 跳转到第 `row` 个提交（沿提交图的连线或点击详情中的父提交时使用）并选中。
+    ///
+    /// 跳转前选中的提交记入后退历史（见 [`App::log_navigate`]）。目标行不可见时滚动到距列表
+    /// 顶部约三分之一处，使目标前后的提交都可见。
     pub(super) fn jump_log_row(&mut self, row: usize) {
         let visible = ((self.log_parts().list.h - self.log_list_top()) / self.fonts.line_height)
             .floor()
-            .max(1.0);
+            .max(1.0) as f64;
         let Some((from, shown)) = self.editor.active().and_then(|d| {
             let view = d.log.as_deref()?;
-            let r = row as f32;
+            let r = row as f64;
             let shown = r >= d.scroll_line && r + 1.0 <= d.scroll_line + visible;
             Some((view.selected_oid().map(str::to_owned), shown))
         }) else {
@@ -111,16 +115,16 @@ impl App {
             self.log.forward.clear();
         }
         if !shown && let Some(doc) = self.editor.active_mut() {
-            doc.scroll_line = (row as f32 - (visible / 3.0).floor()).max(0.0);
+            doc.scroll_line = (row as f64 - (visible / 3.0).floor()).max(0.0);
             self.clamp_scroll();
         }
         self.request_redraw();
     }
 
-    /// 在日志里后退（`forward` 为 `false`）或前进到跳之前、之后选着的提交。
+    /// 在日志中后退（`forward` 为 `false`）或前进到跳转前、后选中的提交。
     ///
-    /// 日志标签不在前面、或者没有可后退的历史时返回 `false`，交给编辑区的后退、前进。
-    /// 记着的提交已经不在列表里了（换了筛选、刷新以后没了）就跳过该提交。
+    /// 日志标签不是当前标签，或者没有可用的历史时返回 `false`，由编辑区处理后退、前进。
+    /// 历史中的提交已不在列表中时（更换了筛选或刷新后消失）跳过该提交。
     pub(in crate::app) fn log_navigate(&mut self, forward: bool) -> bool {
         if !self.log_active() {
             return false;

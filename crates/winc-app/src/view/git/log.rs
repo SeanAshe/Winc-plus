@@ -1,8 +1,8 @@
-//! Git 日志标签的绘制：顶上一行标题栏，左边提交列表（提交图、引用徽章、说明、作者、时间），
-//! 右边一栏选中提交的详情（说明、作者、时间、提交号、父提交、改动的文件和增删行数）。
+//! Git 日志标签的绘制：顶部为标题栏，左侧为提交列表（提交图、引用徽章、说明、作者、时间），
+//! 右侧一栏为选中提交的详情（说明、作者、时间、提交号、父提交、改动的文件和增删行数）。
 //!
-//! 交互在 `app/git/log.rs`。列表一个提交一行，行高是编辑区的行高（逻辑像素），滚动走文档的
-//! 通用逻辑；详情一栏自己滚。
+//! 交互逻辑位于 `crate::app::git::log`。列表每个提交占一行，行高等于编辑区的行高（逻辑像素），
+//! 滚动使用文档的通用逻辑；详情一栏单独滚动。
 
 mod badges;
 mod details;
@@ -35,47 +35,53 @@ use crate::layout::editor_content_height;
 use crate::view::workspace::sidebar::git_color;
 use crate::view::*;
 
-/// 提交图里相邻两条车道的间距（逻辑像素，经验值）。
+/// 提交图中相邻两条车道的间距（逻辑像素）。
 const LANE: f32 = 12.0;
-/// 提交图线条的粗细（逻辑像素，经验值）：几条车道并排时仍能区分，在浅色底上也能看清走向，
-/// 又不比说明的文字笔画更重。
+/// 提交图线条的粗细（逻辑像素）。
+///
+/// 取自调参：多条车道并排时仍可区分，在浅色底上走向清晰，且不比说明文字的笔画更重。
 const GRAPH_LINE: f32 = 1.5;
-/// 换车道的线拐弯处的圆角半径（逻辑像素，经验值）。
+/// 换车道的线在拐弯处的圆角半径（逻辑像素）。
 const CORNER: f32 = 6.0;
-/// 拐弯处的圆弧用几段折线近似（段，经验值）：段数越多越圆滑，绘制开销也越大。
+/// 拐弯处圆弧的折线近似段数（段）：段数越多越圆滑，绘制开销也越大。
 const CORNER_STEPS: usize = 6;
-/// 选中一个提交时，不在选中提交那条线上的线、圆点保留的不透明度：仍能看清走向和颜色，
-/// 选中的线又比它们突出。
+/// 选中提交时，不在选中提交所在线上的线和圆点保留的不透明度（0 到 1）。
+///
+/// 取自调参：淡化后仍可辨认走向和颜色，同时选中的线更突出。
 const GRAPH_FADED: f32 = 0.55;
-/// 提交图最多画的车道数（条，经验值）：更多的车道挤在最右边，说明不至于被挤没。
+/// 提交图最多绘制的车道数（条）：超出的车道压缩在最右侧，避免提交说明的可用宽度被占满。
 const MAX_LANES: usize = 10;
-/// 作者一列的宽度（逻辑像素，经验值）。
+/// 作者一列的宽度（逻辑像素）。
 const AUTHOR_W: f32 = 150.0;
-/// 时间一列的宽度（逻辑像素，经验值）。
+/// 时间一列的宽度（逻辑像素）。
 const DATE_W: f32 = 104.0;
-/// 列表窄于这个宽度（逻辑像素，经验值）时作者一列只画头像（`AVATAR_W` 宽），不写名字，
-/// 仍能认出提交者；宽度在 `AUTHOR_MIN_LIST - AUTHOR_BLEND` 到 `AUTHOR_MIN_LIST` 之间时，
-/// 从只有头像渐渐展开成头像加名字。
+/// 作者一列完整显示头像和名字所需的最小列表宽度（逻辑像素）。
+///
+/// 列表窄于 `AUTHOR_MIN_LIST - AUTHOR_BLEND` 时作者一列只显示头像（`AVATAR_W` 宽），仍可辨认
+/// 提交者；宽度在该值与 `AUTHOR_MIN_LIST` 之间时，从仅头像逐渐展开为头像加名字。
 const AUTHOR_MIN_LIST: f32 = 620.0;
-/// 作者一列从只有头像过渡到头像加名字的宽度范围（逻辑像素，经验值）。
+/// 作者一列从仅头像过渡到头像加名字的列表宽度范围（逻辑像素）。
 const AUTHOR_BLEND: f32 = 120.0;
-/// 头像的边长（逻辑像素，经验值）。
+/// 仅显示头像时作者一列的宽度（逻辑像素）。
 const AVATAR_W: f32 = 26.0;
-/// 一个引用徽章最多多宽（逻辑像素，经验值），更长的名字从末尾截短（详情里写全名）。
+/// 单个引用徽章的最大宽度（逻辑像素）；更长的名字从末尾截短，详情中显示全名。
 const BADGE_MAX: f32 = 140.0;
-/// 截短的徽章至少多宽（逻辑像素，经验值），再窄就认不出是哪个了，不如收进「+N」。
+/// 截短后徽章的最小宽度（逻辑像素）；更窄时无法辨认引用名，改为计入「+N」。
 const BADGE_MIN: f32 = 64.0;
-/// 一行里的引用徽章最多占说明那一段的几成（0 到 1）：徽章多的提交（几个分支、远程、标签都
-/// 指向它）不至于把说明挤没；放不下的收成「+N」。
+/// 一行中引用徽章占说明区宽度的最大比例（0 到 1）。
+///
+/// 多个分支、远程分支、标签指向同一提交时，说明仍保留足够的宽度；放不下的徽章合并为「+N」。
 const BADGE_SHARE: f32 = 0.45;
-/// 相邻两个徽章之间、徽章和说明之间的间隔（逻辑像素，经验值）。
+/// 相邻两个徽章之间、徽章与说明之间的间隔（逻辑像素）。
 const BADGE_GAP: f32 = 6.0;
-/// 提交图第几种颜色取调色板里的哪一种：相邻的颜色色相差得远（蓝、绿、红、紫……），并排的
-/// 车道不会是红、橙、黄这样相近的几种；第一种（通常是主线）是蓝色。
+/// 提交图各颜色序号对应的调色板下标。
+///
+/// 相邻序号的色相相差较大（蓝、绿、红、紫等），并排的车道不会使用红、橙、黄等相近色；
+/// 第一种颜色（通常为主线）是蓝色。
 const LANE_ORDER: [usize; 10] = [6, 3, 0, 7, 4, 1, 8, 5, 2, 9];
-/// 详情一栏的左右留白（逻辑像素，经验值）。
+/// 详情一栏的左右留白（逻辑像素）。
 const PAD: f32 = 18.0;
-/// 详情里文件一行的高度（逻辑像素）。
+/// 详情中文件列表每行的高度（逻辑像素）。
 const FILE_ROW: f32 = crate::app::git::log::LOG_FILE_ROW;
 
 /// 绘制第 `index` 个文档（日志标签）。
@@ -94,7 +100,7 @@ pub(in crate::view) fn draw_log(app: &mut App, frame: &mut Frame<'_>, index: usi
     };
     let first = scroll.floor().max(0.0) as usize;
     let visible = (parts.list.h / lh).ceil() as usize + 1;
-    // 快滚到取回来的最后一个提交了：继续取下一批。
+    // 可见范围接近已读取的最后一个提交时，继续读取下一批。
     app.log_near_end(id, first + visible);
 
     let mut hits = Vec::new();
@@ -111,7 +117,7 @@ pub(in crate::view) fn draw_log(app: &mut App, frame: &mut Frame<'_>, index: usi
         let p = app.palette;
         frame.rect(app.layout.editor, p.editor_bg);
     }
-    // 筛选输入框要改输入框自己的排版状态（点击、拖选用），先单独画。
+    // 筛选输入框需要更新自身的排版状态（供点击、拖选使用），因此先单独绘制。
     app.sync_log_filter();
     let search = draw_search(app, frame, &parts);
     hits.push((search, LogTarget::Search));
@@ -122,7 +128,7 @@ pub(in crate::view) fn draw_log(app: &mut App, frame: &mut Frame<'_>, index: usi
         };
         draw_header(app, frame, view, &parts, search, &mut hits);
         draw_list(app, frame, view, &parts, scroll, &mut hits, &mut clipped);
-        // 换成另一个提交时内容淡入（`App::note_log_details_shown`）。
+        // 切换到另一个提交时内容淡入（`App::note_log_details_shown`）。
         draw_details_footer(app, frame, view, &parts);
         let opacity = app.log.fade.map_or(1.0, |c| 0.4 + 0.6 * c.progress());
         details_bottom = frame.with_opacity(opacity, |frame| {
@@ -135,8 +141,8 @@ pub(in crate::view) fn draw_log(app: &mut App, frame: &mut Frame<'_>, index: usi
             )
         });
     }
-    // 详情一栏最多滚到哪：内容底下留 16 逻辑像素，最下面那一行提示（30 逻辑像素高）不挡着
-    // 最后一行。
+    // 详情一栏的最大滚动位置：内容下方留 16 逻辑像素，使底部的提示行（高 30 逻辑像素）不遮挡
+    // 最后一行内容。
     let details = parts.details;
     if let Some(view) = app.editor.documents[index].log.as_deref_mut() {
         let content = details_bottom + view.details_scroll - details.y + 16.0;
@@ -149,7 +155,7 @@ pub(in crate::view) fn draw_log(app: &mut App, frame: &mut Frame<'_>, index: usi
     app.log.long_files = long_files;
     app.log.runs = runs;
 
-    // 列表的滚动条贴在列表的右边。
+    // 列表的滚动条紧贴列表右边缘。
     let top = {
         let view = app.editor.documents[index].log.as_deref();
         let extra = view.is_some_and(|v| app.log_uncommitted(v) > 0);
@@ -162,14 +168,14 @@ pub(in crate::view) fn draw_log(app: &mut App, frame: &mut Frame<'_>, index: usi
         ScrollArea::Editor,
         id.0,
         parts.list,
-        scroll * lh,
+        (scroll * f64::from(lh)) as f32,
         content,
     );
 }
 
-/// 绘制标题栏左边的筛选输入框，返回它的位置（窗口坐标，逻辑像素）。
+/// 绘制标题栏左侧的筛选输入框，返回其位置（窗口坐标，逻辑像素）。
 ///
-/// 与侧栏的搜索框共用 `field_box` 的画法：平时没有边框、铺一层淡底色，有焦点时外圈强调色。
+/// 与侧栏的搜索框共用 `field_box`：无焦点时没有边框、只铺一层淡底色，有焦点时加强调色外环。
 fn draw_search(app: &mut App, frame: &mut Frame<'_>, parts: &LogParts) -> Rect {
     let p = app.palette;
     let header = parts.header;
@@ -196,8 +202,8 @@ fn draw_search(app: &mut App, frame: &mut Frame<'_>, parts: &LogParts) -> Rect {
     search
 }
 
-/// 标题栏：筛选输入框右边是「分支」「作者」两个下拉（筛着的时候铺淡强调色），文件历史还有一个
-/// 写着文件名的小签，筛过时最后是「清除筛选」；右端是提交数和刷新按钮。
+/// 绘制标题栏：筛选输入框右侧是「分支」「作者」两个下拉框（已筛选时铺淡强调色），文件历史另有
+/// 一个显示文件名的标签，已筛选时最后是「清除筛选」；右端是提交数和刷新按钮。
 fn draw_header(
     app: &App,
     frame: &mut Frame<'_>,
@@ -217,7 +223,7 @@ fn draw_header(
     let pill_h = search.h;
     let y = search.y;
 
-    // 两个下拉：「分支 全部」「作者 张伟」。
+    // 两个下拉框，例如「分支 全部」「作者 张伟」。
     let branch = query.branch.as_deref().unwrap_or(t!("git-log-filter-all"));
     let author = query.author.as_deref().unwrap_or(t!("git-log-filter-all"));
     for (target, name, value, on) in [
@@ -255,7 +261,7 @@ fn draw_header(
         x = rect.right() + 4.0;
     }
 
-    // 文件历史：看的是哪个文件。
+    // 文件历史：显示所查看的文件。
     if let Some(path) = &query.path {
         let shown = app
             .git
@@ -276,7 +282,7 @@ fn draw_header(
         x = rect.right() + 4.0;
     }
 
-    // 右端：刷新按钮（边长 24 逻辑像素，经验值）；左边是提交数。
+    // 右端为刷新按钮（边长 24 逻辑像素），其左侧为提交数。
     let size = 24.0;
     let refresh = Rect::new(
         header.right() - 10.0 - size,
@@ -290,8 +296,8 @@ fn draw_header(
     hits.push((refresh, LogTarget::Refresh));
     let count = view.commits.len();
     let more = if view.complete { "" } else { "+" };
-    // 重取时列表仍是旧数据（`stale`），超过 `LOADING_DELAY`（300 ms）仍未取回才显示正在刷新；
-    // 一般很快就返回，先显示提示再换回提交数会闪烁一次。
+    // 重新读取时列表仍为旧数据（`stale`），超过 `LOADING_DELAY`（300 ms）仍未返回才显示正在刷新；
+    // 多数读取在此之前完成，立即显示提示再恢复提交数会产生一次闪烁。
     let quiet = app.log_list_quiet();
     let note = if view.stale && !quiet {
         t!("git-log-refreshing").to_owned()
@@ -308,7 +314,7 @@ fn draw_header(
     let note_x = refresh.x - 10.0 - note_w;
     ui_text_small(frame, app, note_x, header, &note, p.text_dim, header);
 
-    // 筛过时在左侧画「清除筛选」，与右端的提交数之间放得下才画。
+    // 已筛选时在左侧绘制「清除筛选」，仅在与右端提交数之间的空间足够时绘制。
     if query.filtered() {
         let text = t!("git-log-clear-filter");
         let w = frame.measure(FontKind::Ui, app.fonts.ui_small, text) + 20.0;
@@ -325,7 +331,7 @@ fn draw_header(
     }
 }
 
-/// 返回 `HEAD` 提交在提交图中的车道和颜色；该提交尚未读取（不在列表中）时为 `None`。
+/// 返回 `HEAD` 提交在提交图中的车道和颜色；该提交尚未读取（不在列表中）时返回 `None`。
 fn head_lane(view: &LogView) -> Option<(usize, u8)> {
     let graph = view.graph.get(view.head_row()?)?;
     Some((graph.lane, graph.color))
@@ -362,7 +368,7 @@ fn draw_uncommitted(
             let line = Rect::new(cx - GRAPH_LINE / 2.0, cy, GRAPH_LINE, lh);
             frame.rect_clipped(line, ink.alpha(ink.a * GRAPH_FADED), 0.0, list);
         }
-        let r = 3.75; // 空心圆的半径（逻辑像素，经验值），与 `HEAD` 的圆点相近
+        let r = 3.75; // 空心圆的半径（逻辑像素），与 `HEAD` 的圆点相近
         let dot = Rect::new(cx - r, cy - r, 2.0 * r, 2.0 * r);
         frame.rect_clipped(dot, ink, r, list);
         let inner = r - GRAPH_LINE;
@@ -400,7 +406,7 @@ fn draw_list(
     frame: &mut Frame<'_>,
     view: &LogView,
     parts: &LogParts,
-    scroll: f32,
+    scroll: f64,
     hits: &mut Vec<(Rect, LogTarget)>,
     clipped: &mut Option<usize>,
 ) {
@@ -411,7 +417,7 @@ fn draw_list(
         // 与侧栏的空列表共用 `draw_empty_state`。
         let (title, detail) = match &view.error {
             Some(e) => (t!("git-log-error"), Some(e.as_str())),
-            // 刚开始取时先空着，超过 `LOADING_DELAY`（300 ms）仍未返回才显示。
+            // 开始读取时保持空白，超过 `LOADING_DELAY`（300 ms）仍未返回才显示提示。
             None if view.is_loading() && app.log_list_quiet() => return,
             None if view.is_loading() => (t!("git-log-loading-commits"), None),
             None if view.query.filtered() => (
@@ -420,7 +426,7 @@ fn draw_list(
             ),
             None => (t!("git-log-empty"), Some(t!("git-log-empty-detail"))),
         };
-        // 列表空着时详情一栏也没有内容可看（`draw_details` 不画），提示在整个标签里居中。
+        // 列表为空时详情一栏同样没有内容（`draw_details` 不绘制），提示在整个标签内居中。
         let whole = Rect::new(list.x, list.y, parts.details.right() - list.x, list.h);
         draw_empty_state(app, frame, (whole, whole), title, detail);
         return;
@@ -428,23 +434,23 @@ fn draw_list(
 
     let first = scroll.floor().max(0.0) as usize;
     let visible = (list.h / lh).ceil() as usize + 1;
-    // 从上一行画起：第一行上面有 `LOG_LIST_PAD` 的留白，滚动时上一行的下半截还露在留白里。
+    // 从上一行开始绘制：第一行上方有 `LOG_LIST_PAD` 的留白，滚动时上一行的下半部分显示在留白中。
     let rows = first.saturating_sub(1)..(first + visible).min(view.commits.len());
-    // 提交图那一列的宽度按上下各多一屏的范围取：车道数随滚动变化，说明文字会左右跳，
-    // 范围取大一些可以减少跳动。
+    // 提交图一列的宽度按可见范围上下各扩展一屏计算：车道数随滚动变化时说明文字会左右移动，
+    // 扩大范围可以减少移动。
     let around = first.saturating_sub(visible)..first + 2 * visible;
     let lanes = view.graph_width(around).min(MAX_LANES);
     let graph_x = list.x + 12.0;
-    // 筛过说明、作者、文件时不画提交图（父提交大多不在列表里，图连不起来），说明从左边开始。
+    // 按说明、作者、文件筛选时不绘制提交图（父提交大多不在列表中，图无法连通），说明从左侧开始。
     let graphless = view.query.graphless();
     let text_x = if graphless {
         list.x + 16.0
     } else {
         graph_x + lanes as f32 * LANE + 8.0
     };
-    // 作者一列随列表宽窄连续地变：窄于 `AUTHOR_MIN_LIST` 前后一段（`AUTHOR_BLEND`）里从只有
-    // 头像渐渐展宽到头像加名字，名字跟着淡入。拖分隔线、缩窗口时一路跟着变，不在某个宽度上
-    // 突然冒出来或消失。
+    // 作者一列随列表宽度连续变化：在 `AUTHOR_MIN_LIST` 以下 `AUTHOR_BLEND` 的范围内，从仅头像
+    // 逐渐展宽为头像加名字，名字同步淡入。拖动分隔线或缩放窗口时连续过渡，名字不会在某个宽度
+    // 突然出现或消失。
     let show = ((list.w - (AUTHOR_MIN_LIST - AUTHOR_BLEND)) / AUTHOR_BLEND).clamp(0.0, 1.0);
     let date_x = list.right() - SCROLLBAR_HIT - DATE_W;
     let author_x = date_x - (AVATAR_W + (AUTHOR_W - AVATAR_W) * show);
@@ -453,10 +459,10 @@ fn draw_list(
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64);
-    // 键盘在详情的文件列表里时，选中的提交铺不带焦点的底色。
+    // 键盘焦点位于详情的文件列表时，选中的提交铺无焦点时的底色。
     let focused = app.focus == Focus::Editor && app.log.file.is_none();
-    // 选中的提交所在的那条线：高亮这条线，别的线淡下去。比较两个版本时两头不在一条线上，
-    // 不高亮。鼠标指着一条线时高亮指着的那条（点击后沿这条线跳转，先让人看清是哪条）。
+    // 高亮选中提交所在的线，其他线淡化。比较两个版本时两端不在同一条线上，不高亮。鼠标指向
+    // 一条线时高亮该线：点击后沿该线跳转，高亮用于提示跳转目标。
     let line = match app.hover {
         Hover::Log(LogTarget::Line(_, l)) => Some(l),
         _ => view
@@ -470,7 +476,7 @@ fn draw_list(
     let uncommitted = app.log_uncommitted(view);
     let top = LOG_LIST_PAD + if uncommitted > 0 { lh } else { 0.0 };
     if uncommitted > 0 {
-        let y = list.y + LOG_LIST_PAD - scroll * lh;
+        let y = list.y + LOG_LIST_PAD - (scroll * f64::from(lh)) as f32;
         let lane = (!graphless)
             .then(|| head_lane(view).map(|(lane, color)| (graph_x, lane, color)))
             .flatten();
@@ -481,10 +487,10 @@ fn draw_list(
 
     for i in rows {
         let commit = &view.commits[i];
-        let y = list.y + top + (i as f32 - scroll) * lh;
+        let y = list.y + top + (i as f64 - scroll) as f32 * lh;
         let row = Rect::new(list.x, y, list.w, lh);
         let band = Rect::new(list.x + 4.0, y, list.w - 8.0, lh);
-        // 比较两个版本时两头都算选中。
+        // 比较两个版本时两端的提交均视为选中。
         let selected = match &view.compare {
             Some(c) => rev_matches(commit, &c.from) || rev_matches(commit, &c.to),
             None => view.selected == Some(i),
@@ -508,9 +514,8 @@ fn draw_list(
             );
         }
 
-        // 说明从提交图右边的同一列开始，引用徽章靠右排在说明那一段的末尾：上下各行的说明
-        // 对齐，便于逐行浏览。徽章最多占说明那一段宽度的 `BADGE_SHARE`（45%），放不下的收成
-        // 「+N」。
+        // 说明从提交图右侧的同一列开始，引用徽章靠右排在说明区末尾，使各行说明对齐，便于逐行
+        // 浏览。徽章最多占说明区宽度的 `BADGE_SHARE`（45%），放不下的合并为「+N」。
         let x = text_x;
         let room = ((subject_end - text_x) * BADGE_SHARE).max(0.0);
         let fitted = fit_badges(app, frame, &badges(p, commit), room);
@@ -522,8 +527,8 @@ fn draw_list(
         };
         let merge = commit.parents.len() > 1;
         let color = if merge { p.text_muted } else { p.text };
-        // 悬停在一行上、说明写不下时，说明一直铺到列表右边，盖掉这一行的作者和时间（详情里
-        // 还有），徽章跟着挪到右边；还写不下的，悬停片刻后提示整句（`clipped`）。
+        // 悬停的行说明放不下时，说明延伸到列表右边缘，覆盖该行的作者和时间（详情中仍可查看），
+        // 徽章随之右移；仍放不下时，悬停片刻后提示整句（`clipped`）。
         let full = frame.measure(FontKind::Ui, app.fonts.ui, &commit.subject);
         let spill = hovered && x + full + gap + badges_w > subject_end;
         let row_end = if spill { spill_end } else { subject_end };
@@ -562,8 +567,8 @@ fn draw_list(
         hits.push((band.intersect(list), LogTarget::Row(i)));
     }
 
-    // 列表和详情之间的分隔线，可以左右拖：悬停、拖着的时候换成强调色的粗一点的线。
-    // 能抓的范围往详情那边多留 4 逻辑像素：线左边紧挨着的是列表的滚动条。
+    // 列表和详情之间的分隔线可以左右拖动，悬停或拖动时改为较粗的强调色线条。可拖动范围向详情
+    // 一侧扩展 4 逻辑像素：分隔线左侧紧邻列表的滚动条。
     let divider = Rect::new(list.right() - 1.0, list.y, 5.0, list.h);
     let active = app.log_dividing() || app.hover == Hover::Log(LogTarget::Divider);
     if active {
@@ -578,10 +583,10 @@ fn draw_list(
     hits.insert(0, (divider, LogTarget::Divider));
 }
 
-/// 绘制一行右边的作者（头像加名字，或只有头像）和时间（靠右对齐）。
+/// 绘制一行右侧的作者（头像加名字，或仅头像）和时间（右对齐）。
 ///
-/// `show` 是名字显出来的程度（0 到 1），名字按它淡入；名字一栏宽的时候连名字一起画，
-/// 窄的时候只有头像。时间用等宽字体，数字一位对一位，便于扫视。
+/// `show` 是名字的显示程度（0 到 1），名字按该值淡入；为 0 时只绘制头像。
+/// 时间使用等宽字体，各行数字逐位对齐，便于浏览。
 #[allow(clippy::too_many_arguments)]
 fn draw_author_and_time(
     app: &App,
@@ -597,16 +602,16 @@ fn draw_author_and_time(
     let (y, lh) = (row.y, row.h);
     let clip = Rect::new(author_x, y, date_x - author_x - 8.0, lh).intersect(list);
     draw_avatar(app, frame, commit, (author_x + 8.0, y + lh / 2.0), clip);
-    // 头像可点击的范围（逻辑像素）：16 宽、整行高，比头像本身大一点。
+    // 头像的可点击范围：宽 16 逻辑像素、高为整行，略大于头像本身。
     let avatar = Rect::new(author_x, y, 16.0, lh).intersect(list);
     hits.push((avatar, LogTarget::Avatar(i)));
     if show > 0.0 {
-        // 按展开以后的宽度截短，展开途中被这一列裁掉，不在半路上换「…」的位置。
+        // 按完全展开后的宽度截短，展开过程中由该列裁切，「…」的位置不随展开变化。
         let name = truncate_end(frame, &commit.author, app.fonts.ui_small, AUTHOR_W - 32.0);
         let ink = p.text_muted.alpha(p.text_muted.a * show);
         ui_text_small(frame, app, author_x + 22.0, row, &name, ink, clip);
     }
-    // 等宽字体、靠右对齐：一列时间数字一位对一位（`list_time` 只用数字和 `-`、`:`）。
+    // 等宽字体、右对齐，使各行时间逐位对齐（`list_time` 只使用数字和 `-`、`:`）。
     let time = list_time(commit, now);
     let clip = Rect::new(date_x, y, DATE_W, lh).intersect(list);
     let w = frame.measure(FontKind::Mono, app.fonts.ui_small, &time);
@@ -620,12 +625,12 @@ fn draw_author_and_time(
     );
 }
 
-/// 可以点的提交号的颜色：平时强调色，悬停时深一些。
+/// 返回可点击的提交号的颜色：平时为强调色，悬停时为正文色。
 fn link(p: &Palette, hovered: bool) -> Color {
     if hovered { p.text } else { p.accent }
 }
 
-/// 用等宽字体写一段文字（提交号），在 `row` 里垂直居中，返回末尾的 x（逻辑像素）。
+/// 用等宽字体绘制一段文字（提交号），在 `row` 内垂直居中，返回末尾的 x 坐标（逻辑像素）。
 pub(in crate::view) fn mono(
     app: &App,
     frame: &mut Frame<'_>,
@@ -641,7 +646,7 @@ pub(in crate::view) fn mono(
     frame.text(FontKind::Mono, size, x, baseline, text, color, clip)
 }
 
-/// 把一段文字按宽度 `width`（逻辑像素）折成几行，返回各行的文字；折法见
+/// 把一段文字按宽度 `width`（逻辑像素）折行，返回各行的文字；折行规则见
 /// [`crate::layout::wrap_text`]。
 pub(in crate::view) fn wrap<'a>(
     frame: &mut Frame<'_>,
@@ -682,7 +687,7 @@ fn matches(text: &str, needle: &str) -> Vec<Range<usize>> {
     found
 }
 
-/// 提交图第 `color` 种颜色（[`GraphRow::color`]、[`winc_core::graph::Segment::color`]）的线色。
+/// 返回提交图第 `color` 种颜色（[`GraphRow::color`]、[`winc_core::graph::Segment::color`]）的线色。
 fn lane_color(p: &Palette, color: u8) -> Color {
     let i = LANE_ORDER[color as usize % LANE_ORDER.len()];
     p.badges[i % p.badges.len()].0

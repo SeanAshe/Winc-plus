@@ -1,4 +1,4 @@
-//! 语法高亮：按 [`Language`] 的规则表逐行词法分析，跨行的结构由行首的 [`LineState`] 串起来。
+//! 语法高亮：按 [`Language`] 的规则表逐行做词法分析，跨行结构的状态记录在行首的 [`LineState`] 中。
 //!
 //! [`Highlighter`] 按文档逐行缓存行首状态，编辑后从修改行开始失效，绘制时只推算可见区域。
 //! 本 crate 不依赖绘制与主题：token 只标出类别，颜色由 `winc-render` 和 `winc-app` 决定。
@@ -55,6 +55,12 @@ impl Highlighter {
         self.language
     }
 
+    /// 返回已推算出的第 `line` 行行首的状态，不做新的推算；尚未推算到该行时返回 `None`。
+    pub fn known_state(&self, line: usize) -> Option<LineState> {
+        let near = || self.near.get(line.checked_sub(self.near_from)?);
+        self.states.get(line).or_else(near).copied()
+    }
+
     /// 丢弃第 `line` 行之后各行行首的状态；在第 `line` 行发生编辑后调用。
     pub fn invalidate_from(&mut self, line: usize) {
         self.states.truncate(line + 1);
@@ -66,7 +72,7 @@ impl Highlighter {
 
     /// 返回第 `line` 行行首的状态（行号从 0 起）；本次推算后仍未到达该行时返回 `None`。
     ///
-    /// 从已推算到的位置向后推，每次最远推 `budget` 行。返回 `None` 时，调用方先按 `Normal`
+    /// 从已推算到的位置向后推算，每次最多推算 `budget` 行。返回 `None` 时，调用方先按 `Normal`
     /// 绘制，下一帧继续推算，使跳转到长文件末尾时不会阻塞单帧。`line` 超过末行时按末行计算。
     pub fn state_at(&mut self, text: &impl Lines, line: usize, budget: usize) -> Option<LineState> {
         let target = line.min(text.line_count() - 1);
@@ -76,13 +82,13 @@ impl Highlighter {
         if end > start {
             let (language, states, chars) = (self.language, &mut self.states, &mut self.chars);
 
-            text.visit_lines(start, MAX_LINE_BYTES, |index, _, content| {
+            text.visit_short_lines(start, MAX_LINE_BYTES, |index, _, content| {
                 if index >= end {
                     return ControlFlow::Break(());
                 }
 
                 let state = states[states.len() - 1];
-                states.push(scan(language, chars, content, state));
+                states.push(content.map_or(state, |line| scan(language, chars, line, state)));
                 ControlFlow::Continue(())
             });
         }
@@ -95,7 +101,7 @@ impl Highlighter {
     /// 查看大文件末尾时无需从文件开头扫描；代价是跨度超过 `lookback` 行的块注释和多行
     /// 字符串可能着色错误。
     ///
-    /// 推算出的一段状态保留在 `near` 中，`line` 落在其中时直接返回，否则从这一段末尾继续推算。
+    /// 推算出的一段状态保留在 `near` 中，`line` 落在其中时直接返回，否则从该段末尾继续推算。
     pub fn state_near(&mut self, text: &impl Lines, line: usize, lookback: usize) -> LineState {
         let end = self.near_from + self.near.len();
         if self.near.is_empty() || line < self.near_from || line > end + lookback {
@@ -105,7 +111,7 @@ impl Highlighter {
         let (language, chars, near) = (self.language, &mut self.chars, &mut self.near);
         let from = self.near_from;
         if line >= from + near.len() {
-            text.visit_lines(
+            text.visit_short_lines(
                 from + near.len() - 1,
                 MAX_LINE_BYTES,
                 |index, _, content| {
@@ -113,7 +119,7 @@ impl Highlighter {
                         return ControlFlow::Break(());
                     }
                     let state = near[near.len() - 1];
-                    near.push(scan(language, chars, content, state));
+                    near.push(content.map_or(state, |line| scan(language, chars, line, state)));
                     ControlFlow::Continue(())
                 },
             );
@@ -124,8 +130,8 @@ impl Highlighter {
 
 /// 推算第 `line` 行之后下一行行首的状态。
 ///
-/// `chars` 是复用的字符缓冲，只取行首的 `MAX_LINE_CHARS` 个字符：超过该长度的行只扫描
-/// 了开头，此时原样返回 `state`，避免截断在字符串或块注释中间后整个文件都按字符串着色。
+/// `chars` 是复用的字符缓冲，只取行首的 `MAX_LINE_CHARS` 个字符。超过该长度的行只扫描开头，
+/// 此时直接返回 `state`，避免截断位置落在字符串或块注释中间时后续整个文件都按字符串着色。
 fn scan(language: &Language, chars: &mut Vec<char>, line: &str, state: LineState) -> LineState {
     chars.clear();
     let mut all = line.chars();

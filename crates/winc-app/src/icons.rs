@@ -551,6 +551,31 @@ pub fn locate(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: R
     frame.stroke(&shapes, RING_STROKE, color, clip);
 }
 
+/// 绘制「以列表显示」图标，约 12×10：左侧三个圆点，右侧三道等长的横线，表示平铺的各行。
+pub fn list_view(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let rows = [cy - 4.0, cy, cy + 4.0];
+    // 零长度的线段描边后呈圆点。
+    let dots = rows.map(|y| Stroke::Line(cx - 5.0, y, cx - 5.0, y));
+    let lines = rows.map(|y| Stroke::Line(cx - 2.0, y, cx + 6.0, y));
+    frame.stroke(&dots, 2.0, color, clip);
+    frame.stroke(&lines, RING_STROKE, color, clip);
+}
+
+/// 绘制「以树形显示」图标，约 12×10：顶格一道横线，其下两道缩进的横线，左侧的竖线和短横线
+/// 把它们连到上一行，表示目录与其中的文件。
+pub fn tree_view(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let (trunk, child) = (cx - 4.0, cx - 1.0);
+    let shapes = [
+        Stroke::Line(cx - 6.0, cy - 4.0, cx + 6.0, cy - 4.0),
+        Stroke::Line(trunk, cy - 4.0, trunk, cy + 4.0),
+        Stroke::Line(trunk, cy, child, cy),
+        Stroke::Line(trunk, cy + 4.0, child, cy + 4.0),
+        Stroke::Line(child + 1.5, cy, cx + 6.0, cy),
+        Stroke::Line(child + 1.5, cy + 4.0, cx + 6.0, cy + 4.0),
+    ];
+    frame.stroke(&shapes, RING_STROKE, color, clip);
+}
+
 /// 绘制「更多操作」图标，12×2：横排三个圆点，相邻圆心间距 4.5 逻辑像素，点径 2 逻辑像素。
 pub fn more(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
     // 零长度的线段描边后呈圆点，直径等于笔宽。

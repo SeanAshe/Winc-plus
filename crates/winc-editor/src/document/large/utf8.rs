@@ -1,4 +1,4 @@
-//! UTF-8 字节的辅助：数字符、找字符的位置、截断超长行、解码时替换坏字节。
+//! UTF-8 字节处理的辅助函数：统计字符数、查找字符位置、截断超长行、解码时替换非法字节。
 
 use super::*;
 
@@ -36,7 +36,7 @@ fn decode_into(bytes: &[u8], ended: bool, cap: usize, out: &mut String) {
 ///
 /// 已知是合法 UTF-8 时直接借用 `text`；否则先校验，不合法则有损解码到 `scratch`。
 pub(super) fn emit_line(
-    f: &mut impl FnMut(usize, usize, &str) -> ControlFlow<()>,
+    f: &mut impl FnMut(usize, usize, Option<&str>) -> ControlFlow<()>,
     (line, start): (usize, usize),
     bytes: &[u8],
     text: Option<&str>,
@@ -50,10 +50,10 @@ pub(super) fn emit_line(
         .map(|t| &t[..len])
         .or_else(|| std::str::from_utf8(&bytes[..len]).ok())
     {
-        Some(text) => f(line, start, text),
+        Some(text) => f(line, start, Some(text)),
         None => {
             decode_into(bytes, ended, cap, scratch);
-            f(line, start, scratch)
+            f(line, start, Some(scratch))
         }
     }
 }
@@ -113,7 +113,7 @@ pub(super) fn complete_prefix(bytes: &[u8]) -> usize {
     for back in 1..=n.min(4) {
         let b = bytes[n - back];
 
-        // 不是后续字节（`10xxxxxx`）的字节，就是最后一个字符的首字节。
+        // 从末尾向前遇到的第一个非后续字节（`10xxxxxx`）即为最后一个字符的首字节。
         if b & 0xC0 != 0x80 {
             let width = match b {
                 0xC0..=0xDF => 2,

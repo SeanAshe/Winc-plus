@@ -1,7 +1,7 @@
-//! 折叠代码：折叠的块只剩开头那一行，其余行不显示。
+//! 代码折叠：折叠后的块只显示第一行，其余行不显示。
 //!
-//! 块按缩进划分，Markdown 按标题划分（见 [`scopes::fold_ranges`]）。折叠的块记录开头那一行和最后一
-//! 行的行尾（字符偏移），文本变化时随之移动（[`Tracked`]）；修改在块内部时保持折叠，跨过块的边界时
+//! 块按缩进划分，Markdown 按标题划分（见 [`scopes::fold_ranges`]）。折叠块记录第一行和最后一行的
+//! 行尾（字符偏移），文本变化时随之移动（[`Tracked`]）；修改位于块内部时保持折叠，跨越块的边界时
 //! 展开该块，避免修改用户看不到的文本。
 //!
 //! 编辑区按显示行排列：折叠的行不占显示行，自动换行时一行可以占多个显示行（见 [`Wrap`]）。
@@ -11,7 +11,9 @@ mod wrapping;
 
 use wrapping::*;
 
+pub(crate) use wrapping::WindowKey;
 pub(crate) use wrapping::line_breaks;
+pub use wrapping::{LineWindow, WrapJob, WrapKey, WrapResult};
 
 use std::ops::{ControlFlow, Range};
 use std::rc::Rc;
@@ -25,7 +27,7 @@ use crate::document::content::Content;
 use crate::editing::scopes::{self, FoldRange};
 use crate::navigation::bookmarks::Bookmarks;
 
-/// 折叠的一块：`start` 行保留显示，`start + 1..=end` 行不显示。
+/// 一个折叠块：`start` 行保持显示，`start + 1..=end` 行不显示。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Fold {
     /// 折叠块的第一行（从 0 起），始终显示。
@@ -49,45 +51,52 @@ impl Fold {
     }
 }
 
-/// 一个文档中折叠的块，以及由它们算出的不显示的行。
+/// 一个文档的折叠块，以及由折叠块与筛选得出的不显示的行。
 #[derive(Debug, Clone)]
 pub struct Folds {
     /// 按开头行排序；块可以嵌套（外层展开后内层仍保持折叠）。
     list: Vec<Fold>,
     /// 「只显示匹配的行」隐藏的行：若干段连续的行（含两端，行号从 0 起），按顺序排列，互不相交。
     ///
-    /// 与折叠的块不同，可以从第 0 行开始，前面没有保留显示的那一行。
+    /// 与折叠块不同，可以从第 0 行开始，之前没有保持显示的行。
     filter: Vec<(usize, usize)>,
     /// 不显示的行：若干段连续的行（含两端，行号从 0 起），按顺序排列，互不相交。
     hidden: Vec<(usize, usize)>,
     /// `before[i]` 是 `hidden[..=i]` 共包含的行数（个）。
     ///
-    /// 块数很多时（例如大文件全部折叠后），行号与显示行的互换仍然只需二分查找。
+    /// 块数很多时（例如大文件全部折叠后），行号与显示行的换算仍然只需二分查找。
     before: Vec<usize>,
-    /// 自动换行的设置与各行的段数；`None` 表示没有开启。
+    /// 自动换行的设置与各行的段数；`None` 表示未开启。
     wrap: Option<Wrap>,
-    /// 显示着的、被断成多段的行，按行号排序，用于换算显示行。
+    /// 处于显示状态且被断成多段的行，按行号排序，用于换算显示行。
     wrapped: Vec<Wrapped>,
     /// 文本修改后 `Wrap::extra` 是否有变化、`wrapped` 尚未随之重算。
     ///
-    /// 多数按键只改动一行里的字，那一行断成的段数不变，`wrapped` 仍然可用。自动换行的大文件里被
-    /// 断开的行可达数十万行，每次按键都重新计算会占去输入的大部分时间。
+    /// 多数按键只修改一行内的文字，该行的段数不变，`wrapped` 仍然可用。自动换行的大文件中被断开的
+    /// 行可达数十万行，每次按键都重新计算会占用输入处理的大部分时间。
     wrapped_stale: bool,
 }
 
-/// 自动换行的设置：断行宽度，以及被断成多段的行各多占几个显示行。
+/// 自动换行的设置：断行宽度，以及被断成多段的行各自额外占用的显示行数。
 #[derive(Debug, Clone)]
 pub(crate) struct Wrap {
     /// 断行宽度（显示列）。
     pub width: usize,
     /// 一个 Tab 的显示宽度（显示列）。
     pub tab_width: usize,
-    /// 被断开的行及各自多占的显示行数：（行号，多占的显示行数），按行号排序。
+    /// 每行参与断行的字符数上限（字符），见 [`Document::wrap_limit`]。
+    pub limit: usize,
+    /// 被断开的行及各自额外占用的显示行数：（行号，额外显示行数），按行号排序。
     extra: Vec<(usize, usize)>,
-    /// 计算时对应的文档版本；与文档当前版本对不上时整个重算（例如改名后 CSV 的列对齐可能
-    /// 随之变化）。
+    /// 长行的行内断点索引，按行号排序；只在整行断开（`limit` 不设上限）时建立。
+    long: Vec<LongRows>,
+    /// 是否只断开了屏幕附近的行（见 [`Document::preview_wrap`]）：其余行暂按一段显示，
+    /// 等待后台任务给出全文的结果。
+    pub partial: bool,
+    /// 计算时对应的文档版本；与文档当前版本不一致时整体重算
+    /// （例如改名后 CSV 的列对齐可能随之变化）。
     ///
-    /// 文本修改、末尾追加时只重算改到的行，并同步记录新的版本。
+    /// 文本修改、末尾追加时只重算受影响的行，并同步记录新的版本。
     pub revision: u64,
 }
 
@@ -96,18 +105,84 @@ impl Wrap {
     pub fn breaks_line(&self, line: usize) -> bool {
         self.extra.binary_search_by_key(&line, |&(l, _)| l).is_ok()
     }
+
+    /// 返回第 `line` 行的行内断点索引；该行不是长行时返回 `None`。
+    pub fn long_rows(&self, line: usize) -> Option<&LongRows> {
+        let i = self.long.binary_search_by_key(&line, |l| l.line).ok()?;
+        Some(&self.long[i])
+    }
 }
 
-/// 一行显示着且被断成多段。
+/// 行内断点索引的间隔（段）：每隔该段数记录一个段的开头。
+///
+/// 读取长行中的任意一段时，从该段之前最近的记录处开始断行，最多额外计算 `ROW_STRIDE - 1` 段；
+/// 按每段 100 到 200 个字符计，约为 1 万到 3 万个字符。每条记录占 8 字节，每 MB 文字约占 0.5 KB。
+pub(crate) const ROW_STRIDE: usize = 128;
+
+/// 长行的行内断点索引：段数超过 [`ROW_STRIDE`] 的行每隔 `ROW_STRIDE` 段记录一个段的开头。
+///
+/// 这类行可达数 MB、数千段。借助索引，绘制与定位只需读取可见段之前最近一处记录起的文字
+/// （见 [`Document::line_window`]），开销与行的长度无关。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LongRows {
+    /// 行号（从 0 起）。
+    pub line: usize,
+    /// 该行参与断行的字符数（字符）。
+    pub len: usize,
+    /// 后续各段的缩进宽度（显示列）。
+    pub indent: usize,
+    /// 第 `k` 项是第 `(k + 1) * ROW_STRIDE` 段开头的字符序号（行内，从 0 起）。
+    pub stops: Vec<usize>,
+}
+
+impl LongRows {
+    /// 由第 `line` 行（共 `len` 个字符）的断行结果建立索引；段数不超过 [`ROW_STRIDE`] 时返回
+    /// `None`。
+    fn of(line: usize, len: usize, breaks: &Breaks) -> Option<Self> {
+        (breaks.rows() > ROW_STRIDE).then(|| LongRows {
+            line,
+            len,
+            indent: breaks.indent,
+            // `starts[i]` 是第 `i + 1` 段的开头。
+            stops: (breaks.starts.iter().copied())
+                .skip(ROW_STRIDE - 1)
+                .step_by(ROW_STRIDE)
+                .collect(),
+        })
+    }
+}
+
+/// 一批行的断行结果：被断开的行各自额外占用的显示行数，以及其中长行的行内断点索引。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct WrapRows {
+    /// （行号，额外占用的显示行数），按行号排序。
+    pub extra: Vec<(usize, usize)>,
+    /// 长行的行内断点索引，按行号排序。
+    pub long: Vec<LongRows>,
+}
+
+impl WrapRows {
+    /// 记入第 `line` 行（共 `len` 个字符）的断行结果；`index` 表示是否为长行建立行内索引。
+    fn push(&mut self, line: usize, len: usize, breaks: &Breaks, index: bool) {
+        if breaks.rows() > 1 {
+            self.extra.push((line, breaks.rows() - 1));
+        }
+        if index {
+            self.long.extend(LongRows::of(line, len, breaks));
+        }
+    }
+}
+
+/// 一个处于显示状态且被断成多段的行。
 #[derive(Debug, Clone, Copy)]
 struct Wrapped {
     /// 行号（从 0 起）。
     line: usize,
-    /// 不计换行时这一行的显示行号（从 0 起，见 [`Folds::visible_index`]）。
+    /// 不计换行时该行的显示行号（从 0 起，见 [`Folds::visible_index`]）。
     vis: usize,
-    /// 这一行之前显示着的行共多占的显示行数（显示行）。
+    /// 该行之前处于显示状态的行共额外占用的显示行数（显示行）。
     before: usize,
-    /// 这一行自己多占的显示行数（显示行）。
+    /// 该行自身额外占用的显示行数（显示行）。
     extra: usize,
 }
 
@@ -126,7 +201,7 @@ impl Default for Folds {
 }
 
 impl Folds {
-    /// 是否没有折叠的块、也没有在筛选，即每一行都显示。
+    /// 是否既没有折叠块也没有筛选，即所有行都显示。
     pub fn is_empty(&self) -> bool {
         self.list.is_empty() && self.filter.is_empty()
     }
@@ -141,7 +216,7 @@ impl Folds {
         self.list.iter()
     }
 
-    /// 返回 `line` 所在的那一段不显示的行（含两端）；`line` 显示着时返回 `None`。
+    /// 返回包含 `line` 的一段不显示的行（含两端）；`line` 处于显示状态时返回 `None`。
     fn hidden_span(&self, line: usize) -> Option<(usize, usize)> {
         let i = self.hidden.partition_point(|&(_, b)| b < line);
         self.hidden.get(i).copied().filter(|&(a, _)| a <= line)
@@ -152,17 +227,17 @@ impl Folds {
         self.hidden_span(line).is_some()
     }
 
-    /// 是否有以第 `line` 行为开头的折叠块（不管这一行自己是否显示）。
+    /// 是否有以第 `line` 行为第一行的折叠块（不论该行本身是否显示）。
     fn has(&self, line: usize) -> bool {
         self.list.binary_search_by_key(&line, |f| f.start).is_ok()
     }
 
-    /// 是否第 `line` 行是一个折叠块的开头且该行显示着。
+    /// 是否有以第 `line` 行为第一行的折叠块，且该行处于显示状态。
     pub fn is_collapsed(&self, line: usize) -> bool {
         !self.is_hidden(line) && self.has(line)
     }
 
-    /// 返回不计换行时第 `line` 行所在的显示行号（在显示着的行里排第几，从 0 起）。
+    /// 返回不计换行时第 `line` 行所在的显示行号（即在显示的行中的序号，从 0 起）。
     fn visible_index(&self, line: usize) -> usize {
         let line = match self.hidden_span(line) {
             Some((0, _)) => return 0,
@@ -172,7 +247,7 @@ impl Folds {
         line - self.before[self.hidden.partition_point(|&(a, _)| a < line)]
     }
 
-    /// 返回第 `line` 行之前显示着、被断开的行共多占的显示行数。
+    /// 返回第 `line` 行之前处于显示状态、被断开的行共额外占用的显示行数。
     fn extra_before_line(&self, line: usize) -> usize {
         let i = self.wrapped.partition_point(|w| w.line < line);
         i.checked_sub(1)
@@ -181,7 +256,7 @@ impl Folds {
 
     /// 返回第 `line` 行的第一段所在的显示行号（从 0 起）。
     ///
-    /// 不显示的行算在它前面最近一行显示着的行上；从第 0 行起就隐藏的行算在第 0 个显示行。
+    /// 不显示的行计入其前最近一个显示的行；从第 0 行起不显示的行计入第 0 个显示行。
     pub fn row_of(&self, line: usize) -> usize {
         let shown = match self.hidden_span(line) {
             Some((0, _)) => return 0,
@@ -191,7 +266,7 @@ impl Folds {
         self.visible_index(shown) + self.extra_before_line(shown)
     }
 
-    /// 返回第 `line` 行（应是显示着的行）占的显示行数。
+    /// 返回第 `line` 行（应为处于显示状态的行）占用的显示行数。
     pub fn rows_of(&self, line: usize) -> usize {
         let i = self.wrapped.partition_point(|w| w.line < line);
         1 + self
@@ -222,7 +297,7 @@ impl Folds {
 
     /// 返回不计换行时第 `row` 个显示行对应的行号（从 0 起）。
     fn line_of_visible(&self, row: usize) -> usize {
-        // 第 i 段之后的那一行位于第 `a - before[i]` 个显示行；该行不在 `row` 之后时，要跳过这一段。
+        // 第 `i` 段之后的行位于第 `a - before[i]` 个显示行；该行不在 `row` 之后时跳过第 `i` 段。
         let (mut lo, mut hi) = (0, self.hidden.len());
         while lo < hi {
             let mid = (lo + hi) / 2;
@@ -235,25 +310,25 @@ impl Folds {
         row + self.before[lo]
     }
 
-    /// 返回 `line_count` 行的文件共有多少个显示行（至少 1 个）。
+    /// 返回共 `line_count` 行的文件的显示行数（至少 1 个）。
     pub fn row_count(&self, line_count: usize) -> usize {
         let hidden = self.before.last().copied().unwrap_or(0);
         let extra = self.wrapped.last().map_or(0, |w| w.before + w.extra);
         line_count.saturating_sub(hidden).max(1) + extra
     }
 
-    /// 是否开着自动换行。
+    /// 是否已开启自动换行。
     pub fn is_wrapping(&self) -> bool {
         self.wrap.is_some()
     }
 
-    /// 返回从 `line` 起向下第一行显示着的行的行号（`line` 自己显示着时就是它）。
+    /// 返回从 `line` 起向下第一个显示的行的行号；`line` 本身显示时返回 `line`。
     pub fn visible_from(&self, line: usize) -> usize {
         self.hidden_span(line).map_or(line, |(_, b)| b + 1)
     }
 
     /// 返回从第 `first_row` 个显示行起向下 `rows` 个显示行对应的行：若干段连续的行（左闭右开，
-    /// 行号从 0 起）；第一行可以只露出后面几段。
+    /// 行号从 0 起）；第一行可以只显示其后部的若干段。
     pub fn segments(&self, first_row: usize, rows: usize, line_count: usize) -> Vec<Range<usize>> {
         if self.wrapped.is_empty() {
             return self.visible_segments(first_row, rows, line_count);
@@ -293,11 +368,11 @@ impl Folds {
         out
     }
 
-    /// 返回折叠前后差异所在的显示行范围；差异不是单独一片时返回 `None`。
+    /// 返回折叠前后差异所在的显示行范围；差异不是单个连续范围时返回 `None`。
     ///
-    /// `open` 是展开状态，`closed` 是折叠状态；差异指在 `open` 中显示、在 `closed` 中折起的行，
-    /// 范围按 `open` 的显示行号（从 0 起）计。只有一处且连成一片时（折起或展开一块，连同它里面的
-    /// 块）才有结果，动画作用在这一片上；差异分成几处（例如全部折叠）时返回 `None`。
+    /// `open` 是展开状态，`closed` 是折叠状态；差异指在 `open` 中显示、在 `closed` 中折叠的行，
+    /// 范围按 `open` 的显示行号（从 0 起）计。仅有一处且范围连续时（折叠或展开一个块及其内部的块）
+    /// 才有结果，动画作用于该范围；差异分为多处（例如全部折叠）时返回 `None`。
     pub fn changed_rows(open: &Folds, closed: &Folds) -> Option<Range<usize>> {
         let inside = |(a, b): (usize, usize)| {
             closed
@@ -308,7 +383,7 @@ impl Folds {
             return None;
         }
 
-        // `closed` 的每一段减去 `open` 里本来就隐藏的行，剩下的在 `open` 里都显示着。
+        // `closed` 的每一段减去 `open` 中已经不显示的行，剩余的行在 `open` 中均显示。
         let mut found: Option<Range<usize>> = None;
         for &(ca, cb) in &closed.hidden {
             let mut at = ca;
@@ -335,9 +410,9 @@ impl Folds {
         found
     }
 
-    /// 折叠 `folds` 中的块，已经折叠的跳过，返回是否有新折叠的块。
+    /// 折叠 `folds` 中的块并跳过已折叠的块，返回是否有新折叠的块。
     ///
-    /// 全部折叠时一次插入的块可达数万个，因此最后才重算一次。
+    /// 全部折叠时一次插入的块可达数万个，因此全部插入后只重算一次。
     fn insert(&mut self, folds: impl IntoIterator<Item = Fold>) -> bool {
         let new: Vec<Fold> = folds
             .into_iter()
@@ -370,8 +445,8 @@ impl Folds {
         self.rebuild();
     }
 
-    /// 只显示 `shown` 列出的行（按顺序），第 `end` 行起都显示（尚未搜索到那里）；`shown` 为 `None`
-    /// 时取消筛选。
+    /// 只显示 `shown` 列出的行（按顺序），第 `end` 行及之后尚未搜索的行全部显示；`shown` 为
+    /// `None` 时取消筛选。
     fn set_filter(&mut self, shown: Option<&[usize]>, line_count: usize, end: usize) {
         self.filter.clear();
         if let Some(shown) = shown {
@@ -386,8 +461,8 @@ impl Folds {
             if next < end {
                 self.filter.push((next, end - 1));
             }
-            // 一行都不显示时保留最后一行，使编辑区不至于空白。文件只有一行时无法保留这一行，于是
-            // 不筛选，这一行仍然显示。
+            // 没有任何行显示时保留最后一行，避免编辑区空白。文件只有一行时无法保留该行之外的行，
+            // 因此不筛选，该行仍然显示。
             if shown.is_empty() && end == line_count && end <= 1 {
                 self.filter.clear();
             } else if shown.is_empty() && end == line_count {
@@ -417,7 +492,7 @@ impl Folds {
         }
         for (a, b) in spans {
             match self.hidden.last_mut() {
-                // 开头那一行已经在上一段里（嵌套在内的块），或与上一段紧挨：合并进上一段。
+                // 块的第一行已在上一段中（嵌套的块）或与上一段相邻：合并入上一段。
                 Some(last) if a <= last.1 + 1 => last.1 = last.1.max(b),
                 _ => self.hidden.push((a, b)),
             }
@@ -456,50 +531,44 @@ impl Folds {
         self.wrap = Some(wrap);
     }
 
-    /// 开启、关闭自动换行或更换宽度：按 `text` 整个重新计算。
+    /// 开启、关闭自动换行或更换宽度：按 `text` 整体重新计算。
     ///
-    /// `wrap` 是（断行宽度，Tab 宽度），单位均为显示列，`None` 表示关闭；`revision` 是此时的文档
-    /// 版本号。
+    /// `wrap` 是（断行宽度，Tab 宽度），单位均为显示列，`None` 表示关闭；`limit` 是每行参与断行的
+    /// 字符数上限，`revision` 是此时的文档版本号。
     pub(crate) fn set_wrap(
         &mut self,
         text: &impl Lines,
         wrap: Option<(usize, usize)>,
+        limit: usize,
         revision: u64,
     ) {
         self.wrap = wrap.map(|(width, tab_width)| {
-            // 按顺序遍历各行：逐行按行号定位的开销与行数成正比，10 万行约 20 ms。每行最多取
-            // `MAX_LINE_CHARS` 个字符所需的字节，与 `line_breaks` 看的字符相同。
-            let mut extra = Vec::new();
-            text.visit_lines(0, MAX_LINE_CHARS * 4, |line, _, content| {
-                // 每个字符占的显示列数不超过它的 UTF-8 字节数（Tab 除外），按字节数放得下的行
-                // 不必逐字符测量。
-                let tabs = content.bytes().filter(|&b| b == b'\t').count();
-                let cells = content.len() + tabs * tab_width.saturating_sub(1);
-                if cells <= width {
-                    return ControlFlow::Continue(());
-                }
-                let rows = breaks_of(content.len(), || content.chars(), width, tab_width).rows();
-                if rows > 1 {
-                    extra.push((line, rows - 1));
-                }
-                ControlFlow::Continue(())
-            });
+            let rows = wrapped_lines(text, 0..usize::MAX, width, tab_width, limit);
             Wrap {
                 width,
                 tab_width,
-                extra,
+                limit,
+                extra: rows.extra,
+                long: rows.long,
+                partial: false,
                 revision,
             }
         });
         self.rebuild();
     }
 
-    /// 返回自动换行的设置；没有开启时返回 `None`。
+    /// 采用已完成的自动换行结果，例如后台完成的大文件断行。
+    pub(crate) fn install_wrap(&mut self, wrap: Wrap) {
+        self.wrap = Some(wrap);
+        self.rebuild();
+    }
+
+    /// 返回自动换行的设置；未开启时返回 `None`。
     pub(crate) fn wrap(&self) -> Option<&Wrap> {
         self.wrap.as_ref()
     }
 
-    /// 返回自动换行设置的可变引用；没有开启时返回 `None`。
+    /// 返回自动换行设置的可变引用；未开启时返回 `None`。
     pub(crate) fn wrap_mut(&mut self) -> Option<&mut Wrap> {
         self.wrap.as_mut()
     }
@@ -512,33 +581,41 @@ impl Folds {
         let delta = new_last as isize - old_last as isize;
         let from = wrap.extra.partition_point(|&(l, _)| l < first);
         let to = wrap.extra.partition_point(|&(l, _)| l <= old_last);
-        let fresh: Vec<(usize, usize)> = (first
-            ..=new_last.min(text.line_count().saturating_sub(1)))
-            .filter_map(|line| {
-                let rows = line_rows(text, line, wrap.width, wrap.tab_width);
-                (rows > 1).then_some((line, rows - 1))
-            })
-            .collect();
-        // 行数没变（行内输入、同一行内的全部替换）时后面的行号不需要移动：全部替换一次可能
-        // 修改上万处，每处都遍历后面所有被断开的行会明显变慢。
+        let mut fresh = WrapRows::default();
+        for line in first..=new_last.min(text.line_count().saturating_sub(1)) {
+            let (breaks, len) = measure_line(text, line, wrap.width, wrap.tab_width, wrap.limit);
+            fresh.push(line, len, &breaks, wrap.limit == usize::MAX);
+        }
+        let long_from = wrap.long.partition_point(|l| l.line < first);
+        let long_to = wrap.long.partition_point(|l| l.line <= old_last);
+        // 行数不变（行内输入、同一行内的全部替换）时其后的行号无需移动：全部替换一次可能修改
+        // 上万处，每处都遍历其后所有被断开的行会显著增加耗时。
         if delta != 0 && to < wrap.extra.len() {
             for entry in &mut wrap.extra[to..] {
                 entry.0 = entry.0.saturating_add_signed(delta);
             }
             self.wrapped_stale = true;
         }
-        if wrap.extra[from..to] != fresh[..] {
-            wrap.extra.splice(from..to, fresh);
+        if delta != 0 {
+            for entry in &mut wrap.long[long_to..] {
+                entry.line = entry.line.saturating_add_signed(delta);
+            }
+        }
+        if wrap.extra[from..to] != fresh.extra[..] {
+            wrap.extra.splice(from..to, fresh.extra);
             self.wrapped_stale = true;
         }
+        // 行内文字变化后断点随之移动，即使段数不变也要替换索引。
+        wrap.long.splice(long_from..long_to, fresh.long);
     }
 
-    /// 按一处修改调整折叠块的位置和行号，并移除被修改跨过边界的块。
+    /// 按一处修改调整折叠块的位置和行号，并移除修改跨越边界的块。
     ///
-    /// 修改是在 `start`（字符偏移）处删除 `removed` 个字符并插入 `inserted`，行数增加 `lines` 行
-    /// （减少时为负）。不按位置重新查行号：全部折叠后块数可达数万个，输入一个字符不能遍历全部块。
+    /// 修改是在 `start`（字符偏移）处删除 `removed` 个字符并插入 `inserted`，行数增加 `lines`
+    /// 行（减少时为负）。不按位置重新查找行号：全部折叠后块数可达数万个，
+    /// 输入一个字符时不能遍历全部块。
     fn edit(&mut self, start: usize, removed: usize, inserted: &str, lines: isize) {
-        // 文本修改后，筛选出的行号不再对应，等重新搜索完成后再按新的结果筛选。
+        // 文本修改后筛选出的行号不再对应，待重新搜索完成后再按新的结果筛选。
         self.filter.clear();
         let end = start + removed;
         let delta = inserted.chars().count() as isize - removed as isize;
@@ -546,15 +623,15 @@ impl Folds {
         let breaks = inserted.contains(['\n', '\r']);
         self.list.retain_mut(|f| {
             if end < f.head || (end == f.head && !breaks) {
-                // 修改在块的开头那一行或更靠上的位置。
+                // 修改位于块的第一行或其上方。
                 f.head = shift(f.head);
                 f.tail = shift(f.tail);
-                // 修改都在开头那一行的行尾之前，增减的行都在该行之上。
+                // 修改都在第一行的行尾之前，增减的行都在该行之上。
                 f.start = f.start.saturating_add_signed(lines);
                 f.end = f.end.saturating_add_signed(lines);
                 true
             } else if start > f.head && end <= f.tail {
-                // 修改在折叠的行内部。
+                // 修改位于被折叠的行内部。
                 f.tail = shift(f.tail);
                 f.end = f.end.saturating_add_signed(lines);
                 f.end > f.start
@@ -566,9 +643,9 @@ impl Folds {
 
     /// 文本修改后重新计算不显示的行和 `wrapped`。
     ///
-    /// 折叠的块可能在这次修改中全部被移除（跨过边界时移除），修改也会取消筛选，因此修改前还有
-    /// 不显示的行时就必须整个重算：否则 `hidden` 仍是旧的几段，行会被无故隐藏。修改前后都没有
-    /// 不显示的行时 `hidden` 不变，`wrapped` 只在被断开的行有变化时才重算。
+    /// 折叠块可能在本次修改中全部被移除（修改跨越边界时移除），修改也会取消筛选，因此修改前存在
+    /// 不显示的行时必须整体重算，否则 `hidden` 保留旧的范围，导致行被错误地隐藏。修改前后都没有
+    /// 不显示的行时 `hidden` 不变，`wrapped` 只在被断开的行有变化时重算。
     fn refresh(&mut self) {
         if self.is_empty() && self.hidden.is_empty() {
             if self.wrapped_stale {
@@ -593,7 +670,7 @@ pub(crate) struct Tracked<'a> {
 impl EditBuffer for Tracked<'_> {
     fn replace(&mut self, start: usize, removed: usize, inserted: &str) {
         let before = self.text.line_count();
-        // 书签需要知道修改落在哪几行上，必须在修改之前计算。
+        // 书签需要修改所在的行范围，该范围必须在修改之前计算。
         let (start_line, end_line, whole_lines) = if self.bookmarks.is_empty() {
             (0, 0, false)
         } else {
@@ -606,7 +683,7 @@ impl EditBuffer for Tracked<'_> {
                     && self.text.line_start(self.text.line_of(end)) == end,
             )
         };
-        // 自动换行需要重新计算改动的行。
+        // 自动换行需要重新计算受影响的行。
         let wrap_lines = self.folds.wrap.is_some().then(|| {
             let end = (start + removed).min(self.text.end_pos());
             (self.text.line_of(start), self.text.line_of(end))
@@ -631,8 +708,8 @@ impl EditBuffer for Tracked<'_> {
         }
     }
 
-    /// 没有要跟着移动的折叠、自动换行和书签时整批交给文本（大文件的片段表一次做完）；否则逐处
-    /// 修改，每处都先算好它落在哪几行。
+    /// 没有需要随之移动的折叠、自动换行和书签时，整批修改交给文本一次完成（大文件的片段表一次
+    /// 处理）；否则逐处修改，每处先计算其所在的行范围。
     fn replace_each(&mut self, changes: &[(usize, usize, &str)]) {
         if self.folds.is_empty() && self.folds.wrap.is_none() && self.bookmarks.is_empty() {
             self.text.replace_each(changes);
@@ -644,7 +721,7 @@ impl EditBuffer for Tracked<'_> {
     }
 }
 
-/// 折叠的命令。
+/// 折叠命令。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FoldCommand {
     /// 折叠光标所在的、仍然展开的最内层块（⌥⌘[）。

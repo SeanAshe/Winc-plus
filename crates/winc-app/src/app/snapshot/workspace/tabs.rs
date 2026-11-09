@@ -901,6 +901,34 @@ fn hovering_a_tab_shows_its_path_and_the_close_shortcut() {
 }
 
 #[test]
+fn tabs_without_a_file_show_a_tooltip_only_when_the_name_is_shortened() {
+    let mut app = blank_app(false);
+    app.new_file();
+    paint(&mut app);
+    let index = app.editor.active.unwrap();
+    let (x, y) = tab_point(&app, index);
+    app.on_mouse_move(x, y);
+    assert_eq!(app.hover, Hover::Tab(index, false));
+    assert_eq!(
+        crate::view::tests::tooltip(&app),
+        None,
+        "名称完整显示时不提示"
+    );
+
+    // 名称超出标签宽度被截短时，提示显示完整名称。
+
+    let long = "很长的标签名称".repeat(12);
+    app.editor.documents[index].title = Some(long.clone());
+    paint(&mut app);
+    let (x, y) = tab_point(&app, index);
+    app.on_mouse_move(x, y);
+    assert_eq!(
+        crate::view::tests::tooltip(&app),
+        Some((tab_rect(&app, index), long))
+    );
+}
+
+#[test]
 fn the_tab_list_lists_every_tab_when_they_overflow() {
     use crate::app::MenuCommand;
 

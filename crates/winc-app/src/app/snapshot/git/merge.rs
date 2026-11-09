@@ -22,7 +22,7 @@ fn conflicted_repo(dir: &Path) -> bool {
             .output()
             .is_ok_and(|o| o.status.success())
     };
-    // `make_repo` 修改或新增的文件先储藏起来，工作区干净才能合并。
+    // `make_repo` 修改或新增的文件先储藏，工作区干净后才能合并。
     assert!(git(&["stash", "-u", "-q"]));
     assert!(git(&["switch", "-q", "-c", "other"]));
     std::fs::write(
@@ -57,10 +57,10 @@ fn conflicts_resolve_in_the_file_and_finish_the_merge() {
     assert_eq!(status.operation, Some(winc_editor::git::Operation::Merge));
     let index = app.editor.active.unwrap();
     assert_eq!(app.conflicts(index).len(), 1);
-    // 合并的提交信息草稿已经填上。
+    // 合并的提交信息草稿已经填入。
     assert!(app.commit.message.text().contains("other"));
 
-    // 标记行上有按钮；右上角的卡片说还剩一处。
+    // 标记行上有按钮；右上角的卡片显示还剩一处。
     paint(&mut app);
     use crate::app::git::merge::MergeTarget;
     use winc_editor::git::merge::Pick;
@@ -71,10 +71,10 @@ fn conflicts_resolve_in_the_file_and_finish_the_merge() {
             .any(|(_, t)| *t == MergeTarget::Pick(0, Pick::Both))
     );
     assert!(app.merge.card.is_some());
-    // 下一处冲突：光标跳到冲突那一行。
+    // 下一处冲突：光标跳转到冲突所在的行。
     assert!(app.run_action(Action::NextDifference));
 
-    // 采用对方：整段换成对方的那一行，可以撤销。
+    // 采用对方：整段替换为对方的那一行，可以撤销。
     app.press_merge(MergeTarget::Pick(0, Pick::Theirs));
     let text = app
         .editor
@@ -265,7 +265,7 @@ fn the_three_way_view_shows_both_sides_next_to_the_file() {
     assert!(app.merge_panes_shown());
     let [left, right] = app.merge.pane_rects;
     assert!(left.w > 0.0 && right.w > 0.0);
-    // 中间夹在两侧之间，文字区跟着文档移动。
+    // 中栏位于两侧之间，文字区随文档移动。
     assert!(app.layout.editor.x >= app.merge.ribbons[0].right());
     assert!(app.layout.editor.right() <= app.merge.ribbons[1].x);
     assert!(app.merge.footer.y >= left.bottom());
@@ -306,12 +306,12 @@ fn the_three_way_view_shows_both_sides_next_to_the_file() {
         "{text}"
     );
     paint(&mut app);
-    // 解决后不留下折叠：冲突之后的行都显示着。
+    // 解决后不留下折叠：冲突之后的行都正常显示。
     let doc = app.editor.active().unwrap();
     assert!(doc.folds().is_empty());
     let three = text.lines().position(|l| l == "three").unwrap();
     assert!(!doc.folds().is_hidden(three));
-    // 没有冲突标记但文件还没标记为已解决时，两侧仍然显示。
+    // 没有冲突标记但文件尚未标记为已解决时，两侧仍然显示。
     assert!(app.merge_panes_shown());
 
     // 标记为已解决后两侧收起。
@@ -351,7 +351,7 @@ fn snapshot_three_way_view() {
     shoot(&mut app, "git-three-way");
 }
 
-/// 手动编辑展开冲突并把光标放进去；退出三栏后所有冲突恢复原样。
+/// 手动编辑时展开冲突并将光标放入其中；退出三栏后所有冲突恢复原状。
 #[test]
 fn a_conflict_can_be_opened_for_manual_editing_and_folds_are_undone_on_exit() {
     let Some((mut app, _file)) = three_way_app("merge-three-way-edit") else {
@@ -366,7 +366,7 @@ fn a_conflict_can_be_opened_for_manual_editing_and_folds_are_undone_on_exit() {
     let caret = doc.text().pos_to_line_col(doc.selection.head).0;
     assert_eq!(caret, start + 1);
 
-    // 在展开的冲突里键入，下一帧不会把它重新折叠。
+    // 在展开的冲突里键入，下一帧不会重新折叠该冲突。
     let pos = app.editor.active().unwrap().selection.head;
     app.select(pos, pos);
     paint(&mut app);
@@ -378,7 +378,7 @@ fn a_conflict_can_be_opened_for_manual_editing_and_folds_are_undone_on_exit() {
     assert!(app.editor.active().unwrap().folds().is_empty());
 }
 
-/// 窗口放不下三栏时冲突不能被折叠，否则看不到内容也没有两侧可用。
+/// 窗口宽度不足以显示三栏时不折叠冲突，否则内容不可见且没有两侧可用。
 #[test]
 fn conflicts_are_unfolded_when_the_panes_no_longer_fit() {
     let Some((mut app, _file)) = three_way_app("merge-three-way-narrow") else {
@@ -392,7 +392,7 @@ fn conflicts_are_unfolded_when_the_panes_no_longer_fit() {
     assert!(app.editor.active().unwrap().folds().is_empty());
 }
 
-/// 回归：折叠行的文字被提示条盖住，光标移上去时必须展开，否则键入的字会改掉看不见的标记。
+/// 回归：折叠行的文字被提示条遮挡，光标移到该行时必须展开，否则键入的字符会修改不可见的标记。
 #[test]
 fn moving_the_caret_onto_a_folded_conflict_expands_it() {
     let Some((mut app, _file)) = three_way_app("merge-three-way-caret") else {
@@ -413,7 +413,7 @@ fn moving_the_caret_onto_a_folded_conflict_expands_it() {
     assert!(app.editor.active().unwrap().folds().is_collapsed(start));
 }
 
-/// 选区一端在冲突里时不折叠，选区不会被悄悄改动。
+/// 选区一端位于冲突中时不折叠，避免选区在用户不知情时被改动。
 #[test]
 fn folding_never_moves_a_selection_endpoint() {
     let Some((mut app, _file)) = three_way_app("merge-three-way-selection") else {
@@ -464,7 +464,7 @@ fn a_finished_merge_forgets_its_side_panes() {
     assert!(app.merge.panes.is_none());
 }
 
-/// 建一个文件，第 100 到 159 行在两个分支上都改过：合并后这一段是 120 多行的冲突。
+/// 创建一个文件，第 100 到 159 行在两个分支上都改过：合并后这一段是 120 多行的冲突。
 fn long_conflict_app(name: &str) -> Option<(App, PathBuf)> {
     let text = |tag: &str| -> String {
         (0..300)
@@ -480,13 +480,13 @@ fn long_conflict_app(name: &str) -> Option<(App, PathBuf)> {
     three_way_app_with(name, &text("base"), &text("side"), &text("main"))
 }
 
-/// 第 `line` 行离滚动位置的显示行数。
-fn row_on_screen(app: &App, line: usize) -> f32 {
+/// 返回第 `line` 行与滚动位置之间相隔的显示行数。
+fn row_on_screen(app: &App, line: usize) -> f64 {
     let doc = app.editor.active().unwrap();
-    doc.row_of(line) as f32 - doc.scroll_line
+    doc.row_of(line) as f64 - doc.scroll_line
 }
 
-/// 回归：文档改过而对齐还没算好时，连接带上的冲突序号已经过期，点击会解决另一段冲突。
+/// 回归：文档已修改而对齐尚未计算完成时，连接带上的冲突序号已经过期，点击会解决另一段冲突。
 #[test]
 fn ribbon_buttons_ignore_clicks_until_the_alignment_is_current() {
     let Some((mut app, _file)) = three_way_app("merge-three-way-stale") else {
@@ -525,7 +525,7 @@ fn collapsing_a_conflict_keeps_the_caret_line_in_place() {
     paint(&mut app);
     let below = conflict.end + 1;
     let doc = app.editor.active_mut().unwrap();
-    doc.scroll_line = doc.row_of(below) as f32 - 5.0;
+    doc.scroll_line = doc.row_of(below) as f64 - 5.0;
     let pos = doc.text().line_start(below);
     assert_eq!(row_on_screen(&app, below), 5.0);
     app.select(pos, pos);
@@ -537,7 +537,7 @@ fn collapsing_a_conflict_keeps_the_caret_line_in_place() {
     assert_eq!(row_on_screen(&app, below), 5.0);
 }
 
-/// 回归：退出三栏时展开冲突，下面的内容不能因此滚走。
+/// 回归：退出三栏时展开冲突，下方的内容不能因此滚动离开。
 #[test]
 fn leaving_the_three_way_view_keeps_the_scrolled_line_in_place() {
     let Some((mut app, _file)) = long_conflict_app("merge-three-way-exit-view") else {
@@ -548,7 +548,7 @@ fn leaving_the_three_way_view_keeps_the_scrolled_line_in_place() {
     let conflict = app.conflicts(app.editor.active.unwrap())[0].clone();
     let below = conflict.end + 20;
     let doc = app.editor.active_mut().unwrap();
-    doc.scroll_line = doc.row_of(below) as f32;
+    doc.scroll_line = doc.row_of(below) as f64;
     paint(&mut app);
     assert_eq!(row_on_screen(&app, below), 0.0);
     app.press_merge(MergeTarget::ThreePane);
@@ -557,7 +557,7 @@ fn leaving_the_three_way_view_keeps_the_scrolled_line_in_place() {
     assert_eq!(row_on_screen(&app, below), 0.0);
 }
 
-/// 回归：滚不动时要说明没有更多冲突，不能没有任何反应。
+/// 回归：无法继续滚动时需要提示没有更多冲突，不能没有任何反应。
 #[test]
 fn jumping_reports_when_the_view_cannot_move() {
     let Some((mut app, _file)) = three_way_app("merge-three-way-limits") else {
@@ -602,7 +602,7 @@ fn hidden_change_marks_do_not_respond_in_the_three_way_view() {
     assert!(!responds(&app));
 }
 
-/// 上一处、下一处滚到冲突，滚到头以后说明没有更多冲突。
+/// 上一处、下一处滚动到冲突；到达末端后提示没有更多冲突。
 #[test]
 fn jumping_stops_at_the_conflict_and_then_reports() {
     let Some((mut app, _file)) = long_conflict_app("merge-three-way-jump-far") else {

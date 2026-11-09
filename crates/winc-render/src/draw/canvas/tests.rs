@@ -1,5 +1,5 @@
-//! `Canvas` 的测试：混合与覆盖率的取整、圆角、阴影、描边的裁剪，以及跳过被不透明卡片盖住
-//! 的像素。
+//! `Canvas` 的测试：混合与覆盖率的取整、圆角、阴影、描边的裁剪，
+//! 以及跳过被不透明卡片覆盖的像素。
 
 use super::*;
 
@@ -21,7 +21,7 @@ fn canvas(px: &mut [u32], w: usize, h: usize) -> Canvas<'_> {
 
 #[test]
 fn composite_fades_and_scales_the_whole_layer() {
-    // 黑底上叠一整块白的图层、不透明度 0.5：每个像素都是同一个中灰，没有哪一处透出更多底色。
+    // 在黑底上以不透明度 0.5 叠加整块白色图层：每个像素都是相同的中灰，没有任何位置透出更多底色。
     let mut px = vec![0xff00_0000; 8 * 8];
     let mut c = canvas(&mut px, 8, 8);
     let area = IRect::new(0, 0, 8, 8);
@@ -30,7 +30,7 @@ fn composite_fades_and_scales_the_whole_layer() {
     assert!(px.iter().all(|&p| p == px[0]), "{px:x?}");
     assert!(((px[0] >> 16) & 0xff).abs_diff(128) <= 1, "{:x}", px[0]);
 
-    // 以中心缩到 0.5 倍：中间仍是白色，四周空出来的地方保持原来的黑色。
+    // 以中心缩小到 0.5 倍：中间仍为白色，四周空出的区域保持原有的黑色。
     let mut px = vec![0xff00_0000; 8 * 8];
     let mut c = canvas(&mut px, 8, 8);
     let area = IRect::new(0, 0, 8, 8);
@@ -40,7 +40,7 @@ fn composite_fades_and_scales_the_whole_layer() {
     assert_eq!(px[3 * 8 + 3], 0xffff_ffff);
     assert_eq!(px[7 * 8 + 7], 0xff00_0000);
 
-    // 超出画布的部分先裁掉：面积和像素数都按裁剪后的 2 × 2 计。
+    // 超出画布的部分先被裁剪：面积和像素数都按裁剪后的 2 × 2 计。
     let mut px = vec![0xff00_0000; 4];
     let c = canvas(&mut px, 2, 2);
     let (area, under) = c.copy(IRect::new(-5, -5, 20, 20));
@@ -53,7 +53,7 @@ fn blend_endpoints() {
     assert_eq!(blend(0xff12_3456, 0xffff_ffff, 0), 0xff12_3456);
     assert_eq!(blend(0xff12_3456, 0x00ff_ffff, 255), 0xff12_3456);
 
-    // 不透明度 0x80 的白色叠在黑色上，结果约为中灰（128 上下相差不超过 1）。
+    // 不透明度 0x80 的白色叠加在黑色上，结果约为中灰（与 128 相差不超过 1）。
     let mid = blend(0xff00_0000, 0x80ff_ffff, 255);
     assert!(((mid >> 16) & 0xff).abs_diff(128) <= 1);
 }
@@ -80,7 +80,7 @@ fn unblend_recovers_what_was_painted() {
 #[test]
 fn mix_matches_per_channel() {
     // 三个通道取不同的值：红通道由 `s` 决定、绿通道由 `255 - s` 决定、蓝通道由 `d` 决定，
-    // 三个通道合起来覆盖 `(src, dst, sa)` 的全部组合。
+    // 三个通道合计覆盖 `(src, dst, sa)` 的全部组合。
     for sa in 0..=255 {
         for s in 0..=255 {
             for d in 0..=255 {
@@ -139,7 +139,7 @@ fn span_loops_match_the_single_pixel_functions() {
     for (color, a) in [(0x00c8_4010, 0), (0x80c8_4010, 128), (0xfe01_ff7f, 256)] {
         let sa = a.min(255);
 
-        // 半透明矩形按颜色自带的透明度铺满，结果与逐像素调用 `blend` 相同。
+        // 半透明矩形按颜色自带的透明度填满，结果与逐像素调用 `blend` 相同。
         let want: Vec<u32> = row.iter().map(|&p| blend(p, color, 255)).collect();
         assert_eq!(run(&|o| wide::mix_span(o, color, color >> 24)), want);
         let want: Vec<u32> = row.iter().map(|&p| mix(p, color, sa)).collect();
@@ -164,7 +164,7 @@ fn span_loops_match_the_single_pixel_functions() {
     }
 }
 
-/// 逐像素判断覆盖率、按四个相邻像素取样的合成结果，与 `Canvas::blend_layer` 的算法无关。
+/// 返回逐像素判断覆盖率、按四个相邻像素取样的合成结果；实现独立于 `Canvas::blend_layer`。
 fn reference_layer(
     (w, h): (usize, usize),
     under: u32,
@@ -301,7 +301,7 @@ fn per_corner_radii_and_shadow() {
         ALL,
         None,
     );
-    // 只有左上角是圆的：左上角像素不变，右上角、左下角两处仍然被填满。
+    // 只有左上角为圆角：左上角像素不变，右上角、左下角仍被填充。
     assert_eq!(px[0], 0xff00_0000);
     assert_eq!(px[19], 0xffff_ffff);
     assert_eq!(px[19 * 20], 0xffff_ffff);
@@ -309,7 +309,7 @@ fn per_corner_radii_and_shadow() {
     let mut px = vec![0xffff_ffffu32; 20 * 20];
     let mut c = canvas(&mut px, 20, 20);
     c.shadow(IRect::new(5, 5, 10, 10), 2.0, 4.0, 0x8000_0000, ALL, None);
-    // 阴影中心最浓，往外越过边缘后越来越淡，`blur` 之外完全不画。
+    // 阴影中心浓度最高，向外越过边缘后逐渐变淡，`blur` 之外不绘制。
     let at = |x: usize| px[10 * 20 + x] & 0xff;
     assert!(at(10) < at(15) && at(15) < at(16) && at(16) < 0xff);
     assert_eq!(at(19), 0xff);
@@ -317,8 +317,8 @@ fn per_corner_radii_and_shadow() {
 
 #[test]
 fn skipping_what_an_opaque_card_covers_changes_nothing_you_can_see() {
-    // 依次画阴影、半透明边框和遮罩，最后盖上不透明的圆角卡片：跳过卡片盖住的像素与否，
-    // 最终像素必须完全相同。
+    // 依次绘制阴影、半透明边框和遮罩，最后绘制不透明的圆角卡片：无论是否跳过卡片覆盖的像素，
+    // 最终像素都必须完全相同。
     let draw = |covered: bool| {
         let mut px = vec![0xff20_4060u32; 40 * 40];
         let mut c = canvas(&mut px, 40, 40);
@@ -342,7 +342,7 @@ fn strokes_blend_once_where_they_cross() {
         Stroke::Line(10.0, 2.0, 10.0, 18.0),
     ];
     c.stroke(&cross, 2.0, 1.0, 0x80ff_ffff, ALL);
-    // 交点与只有一条线经过的像素颜色相同（只叠一次色），离线较远的像素不变。
+    // 交点与只有一条线经过的像素颜色相同（只叠加一次颜色），距线较远的像素不变。
     assert_eq!(px[10 * 20 + 10], px[10 * 20 + 4]);
     assert_ne!(px[10 * 20 + 4], 0xff00_0000);
     assert_eq!(px[4 * 20 + 4], 0xff00_0000);
@@ -356,7 +356,7 @@ fn strokes_blend_once_where_they_cross() {
         0xffff_ffff,
         ALL,
     );
-    // 圆周上有颜色，圆心是空的。
+    // 圆周上有颜色，圆心处没有颜色。
     assert_eq!(px[10 * 20 + 15], 0xffff_ffff);
     assert_eq!(px[10 * 20 + 10], 0xff00_0000);
 
@@ -369,7 +369,7 @@ fn strokes_blend_once_where_they_cross() {
     assert_eq!(px[16 * 20 + 10], 0xff00_0000);
 }
 
-/// 返回对照用的覆盖率：逐像素求到每个形状的距离，不挑形状，每个像素都算三角函数。
+/// 返回作为参照的覆盖率：逐像素求到每个形状的距离，不筛选形状，每个像素都计算三角函数。
 fn reference_coverage(shapes: &[Stroke], width: f32, scale: f32, x: i32, y: i32) -> u32 {
     let (px, py) = ((x as f32 + 0.5) / scale, (y as f32 + 0.5) / scale);
     let distance = |s: Stroke| match s {
@@ -394,9 +394,9 @@ fn reference_coverage(shapes: &[Stroke], width: f32, scale: f32, x: i32, y: i32)
 #[test]
 fn culled_strokes_match_testing_every_shape() {
     use std::f32::consts::{FRAC_PI_2, PI};
-    // 两组样本：图标式的小形状（圆角框、超过半圈的圆弧、零长度的点），以及 mermaid 图式的大而
-    // 空的形状（矩形的四条边、斜向长线、折线、大小不同的圆环）。坐标均为非整数，按 1×、2× 和
-    // 非整数倍各绘制一次，与逐像素求全部形状距离的结果逐点比较。
+    // 两组样本：图标式的小形状（圆角框、超过半圈的圆弧、零长度的点），以及图表式的大而空的形状
+    // （矩形的四条边、斜向长线、折线、大小不同的圆环）。坐标均为非整数，按 1×、2× 和非整数倍
+    // 各绘制一次，与逐像素求全部形状距离的结果逐点比较。
     let (x, y) = (3.3, 2.6);
     let icon = [
         Stroke::Line(x + 1.5, y, x + 10.5, y),
@@ -437,8 +437,8 @@ fn culled_strokes_match_testing_every_shape() {
 
 #[test]
 fn rounded_rect_spans_match_pixel_by_pixel() {
-    // 分成左角、实心、右角三截画，结果与逐像素判断相同：奇数宽（两个半径比宽度还大）、
-    // 半透明、被卡片盖住一部分的情况都包括在内。
+    // 分为左角、实心部分、右角三部分绘制，结果与逐像素判断相同：奇数宽度（两个半径之和大于
+    // 宽度）、半透明、被卡片覆盖一部分的情况都包括在内。
     let reference = |area: IRect, radii: [f32; 4], color: u32, covered: Option<Covered>| {
         let mut px = vec![0xff20_4060u32; 30 * 30];
         let limit = ((area.x1 - area.x0).min(area.y1 - area.y0) as f32 / 2.0).max(0.0);
@@ -503,10 +503,40 @@ fn mask_is_clipped_against_its_own_origin() {
     assert_eq!(px[1], 0xff00_0000);
 }
 
+/// 覆盖率已是最终值的蒙版，绘制结果与按恒等映射表逐像素叠加相同，包括覆盖率为 0 和 255、
+/// 半透明的颜色，以及裁剪后只显示一部分的情况。
+#[test]
+fn coverage_matches_mask_with_an_identity_gamma() {
+    let identity: [u8; 256] = std::array::from_fn(|i| i as u8);
+    let (w, h) = (37, 9);
+    let data: Vec<u8> = (0..w * h).map(|i| (i * 7 % 256) as u8).collect();
+    let dst: Vec<u32> = (0..w * h)
+        .map(|i| 0xff00_0000 | (i as u32).wrapping_mul(2_654_435_761) >> 8)
+        .collect();
+    let clips = [ALL, IRect::new(3, 2, 30, 7)];
+    for color in [
+        0xffff_ffff,
+        0xff12_3456,
+        0x8040_c0ff,
+        0x01ff_0000,
+        0x00ff_ffff,
+    ] {
+        for (area, clip) in [IRect::new(0, 0, 37, 9), IRect::new(-5, -2, 32, 7)]
+            .into_iter()
+            .flat_map(|area| clips.map(|clip| (area, clip)))
+        {
+            let (mut a, mut b) = (dst.clone(), dst.clone());
+            canvas(&mut a, w, h).mask(area, &data, color, &identity, clip);
+            canvas(&mut b, w, h).coverage(area, &data, color, clip);
+            assert!(a == b, "{color:08x} {area:?} {clip:?}");
+        }
+    }
+}
+
 mod composite_bench {
     use super::*;
 
-    /// 测量设置卡片大小（2× 屏，1440×1040 个物理像素）的图层合成一次需要多久。
+    /// 测量设置卡片大小（2× 屏幕，1440×1040 个物理像素）的图层合成一次的耗时。
     #[test]
     #[ignore]
     fn measure_composite() {
@@ -551,22 +581,22 @@ fn fill_except_leaves_the_covered_block_alone() {
             assert_eq!(px[y * w + x], want, "({x}, {y})");
         }
     }
-    // 没有要跳过的像素：与 `fill` 一样铺满整个画布。
+    // 没有需要跳过的像素时，结果与 `fill` 相同，填满整个画布。
     canvas(&mut px, w, h).fill_except(0x123456, None);
     assert!(px.iter().all(|&p| p == 0xff12_3456));
 }
 
-/// 回归：`paste` 不裁到画布里时，`area` 伸到画布外面会越界 panic 或贴到下一行。
+/// 回归：`paste` 不先裁剪到画布内时，`area` 超出画布会导致越界 panic 或写入下一行。
 #[test]
 fn pasting_clips_to_the_canvas() {
-    // 3 × 2 的像素贴到左上角在 `(-1, 1)` 的地方：只有中间、右边两列的第一行落在 2 × 2 的画布
-    // 里，画布上的值应当是 `[0, 0, 2, 3]`。
+    // 把 3 × 2 的像素写回左上角位于 `(-1, 1)` 的区域：只有中间、右侧两列的第一行落在 2 × 2 的
+    // 画布内，画布上的值应为 `[0, 0, 2, 3]`。
     let mut px = vec![0; 4];
     let mut c = canvas(&mut px, 2, 2);
     let area = IRect::new(-1, 1, 3, 2);
     c.paste(area, &[1, 2, 3, 4, 5, 6]);
     assert_eq!(px, [0, 0, 2, 3]);
-    // 叠颜色的贴法同样裁剪；完全在画布外面的一律不贴。
+    // 叠加颜色的写回同样先裁剪；完全位于画布之外的区域不写入。
     let mut px = vec![0; 4];
     let mut c = canvas(&mut px, 2, 2);
     c.paste_tinted(IRect::new(1, -1, 2, 2), &[0xff00_0000; 4], 0x80ff_ffff);
@@ -576,16 +606,16 @@ fn pasting_clips_to_the_canvas() {
     assert_eq!(px[2..], [0, 0]);
 }
 
-/// 回归：透明图片的棋盘格逐格当作矩形绘制时，大图上每帧要画上万个矩形。
+/// 回归：透明图片的棋盘格逐格按矩形绘制时，大图上每帧要绘制上万个矩形。
 ///
-/// 一遍按格子填色：左上角一格是第一种颜色，相邻的是第二种；画布外面、裁剪框外面不画。
+/// 按方格一次填色：左上角的方格为第一种颜色，相邻方格为第二种；画布之外、裁剪框之外不绘制。
 #[test]
 fn checkers_alternate_cell_by_cell() {
     let (a, b) = (0xff11_1111, 0xff22_2222);
     let mut px = vec![0; 6 * 4];
     let mut c = canvas(&mut px, 6, 4);
     c.checker(IRect::new(-1, 0, 7, 4), 2, (a, b), IRect::new(0, 0, 5, 4));
-    // 格子从 x = -1 起算：第 0 列是第 0 格的后一半，因此第一行从第一种颜色开始。
+    // 方格从 x = -1 起算：第 0 列属于第 0 格的后半部分，因此第一行从第一种颜色开始。
     let row = |y: usize| px[y * 6..y * 6 + 6].to_vec();
     assert_eq!(row(0), [a, b, b, a, a, 0]);
     assert_eq!(row(1), [a, b, b, a, a, 0]);

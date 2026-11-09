@@ -10,7 +10,7 @@ use std::io::{self, BufReader, Read, Seek, Write};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use ropey::Rope;
@@ -24,7 +24,7 @@ use winc_syntax::{Highlighter, LineState};
 use crate::Command;
 use crate::diff_view::DiffView;
 use crate::editing::cursors::others;
-use crate::editing::folding::{Folds, Tracked};
+use crate::editing::folding::{Folds, LineWindow, Tracked, WindowKey, WrapKey};
 use crate::editing::scopes::{self, Ancestry, FoldRange, Scope};
 use crate::navigation::bookmarks::Bookmarks;
 use content::Content;
@@ -82,12 +82,12 @@ impl std::fmt::Display for OpenError {
 
 impl std::error::Error for OpenError {}
 
-/// 编辑区里显示的图：解码或绘制中、已就绪，或失败原因。
+/// 编辑区中显示的图像的状态：解码或绘制中、已就绪，或失败原因。
 #[derive(Debug, Clone)]
 pub enum PictureState {
     /// 已交给后台线程解码（图片）或绘制（SVG）。
     Loading,
-    /// 已生成可直接上屏的位图。
+    /// 已生成可直接显示的位图。
     Ready(Arc<Picture>),
     /// 生成失败的原因（例如 SVG 语法错误）。
     Failed(String),
@@ -98,7 +98,7 @@ pub enum PictureState {
 pub enum TableState {
     /// 已交给后台线程读取。
     Loading,
-    /// 读好的表格。
+    /// 已读取的表格。
     Ready(Arc<Table>),
     /// 读取失败的原因（例如文件损坏）。
     Failed(String),
@@ -115,12 +115,13 @@ pub struct TableView {
     pub sheet: usize,
     /// 横向、纵向的滚动位置（逻辑像素）。
     pub scroll: (f32, f32),
-    /// 选中的单元格：起点（按下处，或按 `⇧` 之前的那一格）和当前格（行号，列号），选区是以
-    /// 两者为对角的区域，打开时选中 A1。
+    /// 选中的单元格：起点（按下处，或按住 `⇧` 之前所在的单元格）和当前格，均为（行号，列号）。
+    ///
+    /// 选区是以两者为对角的区域，打开时选中 A1。
     pub selection: ((usize, usize), (usize, usize)),
-    /// 当前格卡片（显示没有显示全的文字）的滚动位置（逻辑像素）。
+    /// 当前格卡片（完整显示单元格中未显示全的文字）的滚动位置（逻辑像素）。
     pub card_scroll: f32,
-    /// 当前格的卡片按 Esc 收起了；换到另一格时重新显示。
+    /// 当前格的卡片是否已按 Esc 收起；切换到另一格时重新显示。
     pub card_closed: bool,
 }
 
@@ -138,7 +139,7 @@ impl TableView {
         })
     }
 
-    /// 读好的表格；尚未读完或读取失败时返回 `None`。
+    /// 返回已读取的表格；尚未读完或读取失败时返回 `None`。
     pub fn table(&self) -> Option<&Arc<Table>> {
         match &self.state {
             TableState::Ready(table) => Some(table),
@@ -147,23 +148,23 @@ impl TableView {
     }
 }
 
-/// 能预览的文件的种类，见 `Document::preview_kind`。
+/// 可预览文件的种类，见 `Document::preview_kind`。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreviewKind {
-    /// SVG：预览是画出来的图（`Document::picture`）。
+    /// SVG：预览为绘制出的图像（`Document::picture`）。
     Svg,
-    /// Markdown：预览是排好版的文档，由界面解析、排版。
+    /// Markdown：预览为排版后的文档，由界面解析和排版。
     Markdown,
-    /// csv、tsv：预览是表格（`Document::table`）。
+    /// csv、tsv：预览为表格（`Document::table`）。
     Table,
 }
 
-/// 能预览的文件（SVG、Markdown）怎么显示。
+/// 可预览文件（SVG、Markdown）的显示方式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreviewMode {
     /// 只显示源代码。
     Source,
-    /// 左边源代码（可以继续编辑），右边跟着文字实时预览。
+    /// 左侧显示源代码（可以继续编辑），右侧随文字实时预览。
     Split,
     /// 只显示预览，文档暂时只读。
     Preview,
@@ -180,8 +181,8 @@ pub enum Unsupported {
     Workbook,
     /// docx 文字文档：编辑区显示转换成 Markdown 后排版的阅读视图，由界面读取和转换。
     Docx,
-    /// PDF（只在能预览 PDF 的平台上，见 `winc_preview::pdf::supported`）：编辑区逐页显示，由界面
-    /// 读取和渲染。
+    /// PDF（只在能预览 PDF 的平台上，见 `winc_preview::pdf::supported`）：
+    /// 编辑区逐页显示，由界面读取和渲染。
     Pdf,
     /// 二进制文件或不支持的文本编码，值为文件大小（字节）。
     Binary(u64),
@@ -227,7 +228,7 @@ impl std::fmt::Display for Unsupported {
     }
 }
 
-/// 把文件大小写成「2.4 MB」这样的文字：不到 1 KB 写字节数，再往上按 1000 进位并保留一位小数。
+/// 把文件大小格式化为「2.4 MB」形式的文字：不足 1 KB 时写字节数，否则按 1000 进位并保留一位小数。
 fn size_text(bytes: u64) -> String {
     const UNITS: [&str; 4] = ["KB", "MB", "GB", "TB"];
     if bytes < 1000 {
@@ -255,8 +256,8 @@ pub enum DiskChange {
     Unchanged,
     /// 文档没有未保存的修改，已经按磁盘内容重新加载。
     Reloaded,
-    /// 文件仅在末尾追加了内容（例如日志）：只把追加的部分接到文档末尾，撤销记录、光标、折叠保持
-    /// 不变。
+    /// 文件仅在末尾追加了内容（例如日志）：只把追加的部分接入文档末尾，
+    /// 撤销记录、光标、折叠保持不变。
     Appended,
     /// 磁盘文件和文档都有修改，保留文档中的内容。
     Conflict,
@@ -270,14 +271,14 @@ type FoldCache = ((u64, usize), Rc<[FoldRange]>);
 
 /// 按列对齐 CSV、TSV 的文件大小上限（字节，2 MiB）。
 ///
-/// 打字时只重新测量改动的几行（[`ColumnWidths`]），但删掉某一列最宽的字段、换了文件时要测量
-/// 整个文件，耗时随文件大小线性增长。超过上限的文件只着色、不对齐。2 MiB 的文件约需数毫秒。
+/// 输入时只重新测量改动的行（[`ColumnWidths`]），但删除某一列最宽的字段或更换文件时需要测量
+/// 整个文件，耗时随文件大小线性增长，2 MiB 的文件约需数毫秒。超过上限的文件只着色、不对齐。
 const ALIGN_MAX: usize = 2 << 20;
 
-/// 把 `old` 改成 `new` 时改动涉及的行：`old` 的 `head..old_end` 行换成了 `new` 的
-/// `head..new_end` 行，前后其余的行没变。
+/// 返回 `old` 改为 `new` 时涉及的行 `(head, old_end, new_end)`。
 ///
-/// 逐块比较两头相同的字节，不逐行比。
+/// `old` 的 `head..old_end` 行替换为 `new` 的 `head..new_end` 行，其余行不变。从两端逐块比较
+/// 相同的字节，不逐行比较。
 fn changed_lines(old: &ropey::Rope, new: &ropey::Rope) -> (usize, usize, usize) {
     let same = |a: ropey::iter::Chunks<'_>, b: ropey::iter::Chunks<'_>, back: bool| {
         let (mut a, mut b) = (a.map(str::as_bytes), b.map(str::as_bytes));
@@ -325,7 +326,7 @@ fn changed_lines(old: &ropey::Rope, new: &ropey::Rope) -> (usize, usize, usize) 
         text.chunks_at_byte(text.len_bytes()).0.reversed()
     }
     let suffix = same(tail_of(old), tail_of(new), true);
-    // 整行都落在相同的结尾里的行数。
+    // 完全落在相同结尾部分内的行数。
     let full = |text: &ropey::Rope| {
         let at = text.len_bytes() - suffix.min(text.len_bytes());
         let line = text.byte_to_line(at);
@@ -341,7 +342,7 @@ fn changed_lines(old: &ropey::Rope, new: &ropey::Rope) -> (usize, usize, usize) 
     (head, old_n - tail, new_n - tail)
 }
 
-/// 新增改动记下多少次（次，64），供 `Document::unchanged_lines_since` 向前追溯。
+/// 改动日志保留的最近改动条数（条，64），供 `Document::unchanged_lines_since` 向前追溯。
 ///
 /// 一次连续输入与随后的滚动查询通常只涉及几十次改动，64 条足以覆盖；记录更多只会增加内存开销。
 const EDIT_LOG: usize = 64;
@@ -443,13 +444,13 @@ pub struct Document {
     ///
     /// 此时文本为空，文档只读。
     pub unsupported: Option<Unsupported>,
-    /// 编辑区显示图而不是文本：图片文件，或切换到预览的 SVG。
+    /// 编辑区显示图像而不是文本时的图像：图片文件，或切换到预览的 SVG。
     pub picture: Option<PictureState>,
-    /// 表格：xlsx 工作簿、只看预览的 csv 和 tsv 在编辑区显示它，分栏时显示在右边。
+    /// 编辑区显示的表格：xlsx 工作簿，或仅预览的 csv、tsv；分栏时表格显示在右侧。
     pub table: Option<Box<TableView>>,
     /// 编辑区显示并排差异而不是文本，差异由 `DiffView` 管理。
     ///
-    /// 这样的文档只读、没有对应的文件。
+    /// 此类文档只读，没有对应的文件。
     pub diff: Option<Box<DiffView>>,
     /// 编辑区显示 Git 日志而不是文本，日志由 `LogView` 管理。
     ///
@@ -457,17 +458,18 @@ pub struct Document {
     pub log: Option<Box<crate::git::log::LogView>>,
     /// 切换到预览之前的 `readonly`：SVG 的预览期间强制只读，切回源代码时恢复该值。
     readonly_before_preview: bool,
-    /// 分栏预览（`PreviewMode::Split`）：文本仍然显示，右边的预览由界面管理。
+    /// 分栏预览（`PreviewMode::Split`）：文本仍然显示，右侧的预览由界面管理。
     split: bool,
-    /// Markdown 只看预览：编辑区画排好版的文档，光标所在的块显示原文，可以直接编辑（SVG 的
-    /// 预览用 `picture`）。
+    /// 是否为 Markdown 仅预览模式：编辑区绘制排版后的文档，光标所在的块显示原文，可以直接编辑。
+    ///
+    /// SVG 的预览使用 `picture`。
     rendered: bool,
     /// 不对应文件的只读标签（格式化工具的输出、安装说明）的标题。
     pub title: Option<String>,
     /// 文本每变化一次加 1，搜索结果等缓存据此判断是否失效。
     pub revision: u64,
     /// 滚动位置的首行（行，从 0 起，可以是小数，用于平滑滚动）。
-    pub scroll_line: f32,
+    pub scroll_line: f64,
     /// 横向滚动的偏移（像素）。
     pub scroll_x: f32,
     /// 主选区以外的其余选区（多光标）。
@@ -482,13 +484,19 @@ pub struct Document {
     pub(crate) bookmarks: Bookmarks,
     /// CSV、TSV 按列对齐时每一列的起始位置，按（版本、Tab 宽度）缓存。
     columns: Option<ColumnsCache>,
-    /// 上一次测量列宽时的文字和各列宽度：文字变了只重新测量改动的行。
+    /// 上一次测量列宽时的文字和各列宽度；文字变化时只重新测量改动的行。
     column_widths: Option<(ropey::Rope, ColumnWidths)>,
     /// 整个文件可折叠的块，按（版本、Tab 宽度）缓存。
     pub(crate) fold_cache: Option<FoldCache>,
     /// 粘滞滚动上一次向上查找的结果，键为（版本、Tab 宽度）；键不变时下一次直接复用。
     sticky_memo: ((u64, usize), Vec<Ancestry>),
-    /// 最近几次改动：（改动后的版本号，第一处改动所在的行），供
+    /// 大文件需要的后台断行设置；`None` 表示当前的断行结果可用或不需要换行。
+    pub(crate) wrap_wanted: Option<WrapKey>,
+    /// 已交给后台、尚未收到结果的断行设置。
+    pub(crate) wrap_pending: Option<WrapKey>,
+    /// 最近使用的长行行内窗口（见 [`Document::line_window`]），最近使用的排在最后。
+    pub(crate) windows: Mutex<Vec<(WindowKey, Arc<LineWindow>)>>,
+    /// 最近的若干次改动：（改动后的版本号，第一处改动所在的行），供
     /// `Document::unchanged_lines_since` 判断哪些行没有变。
     edits: std::collections::VecDeque<(u64, usize)>,
     /// 文档的文本：`rope`，或按需读取磁盘的大文件。
@@ -501,8 +509,8 @@ pub struct Document {
     ///
     /// 保存或重新加载后清除。
     conflict: bool,
-    /// 恢复现场时还没有读取的标签（见 `Document::pending`）：文本为空、只读，切换到该标签时
-    /// 由 `crate::Editor::load` 换成读好的文档。
+    /// 是否为恢复会话时尚未读取的标签（见 `Document::pending`）：文本为空、只读，切换到该标签
+    /// 时由 `crate::Editor::load` 替换为已读取的文档。
     pending: bool,
     /// 尚未读取的文档在读取时是否把二进制内容也按文本读入（「以文本方式打开」）。
     pending_as_text: bool,
@@ -569,6 +577,9 @@ impl Document {
             column_widths: None,
             fold_cache: None,
             sticky_memo: ((0, 0), Vec::new()),
+            wrap_wanted: None,
+            wrap_pending: None,
+            windows: Mutex::new(Vec::new()),
             edits: std::collections::VecDeque::new(),
             text,
             disk_mtime: None,
@@ -640,8 +651,8 @@ impl Document {
 
     /// 返回 CSV、TSV 按列对齐时每一列的起始显示列；列宽由该列所有行中最宽的一格决定。
     ///
-    /// 不是表格，或文件超过 `ALIGN_MAX` 时返回 `None`，此时按普通文本显示。结果按（版本、Tab 宽度）
-    /// 缓存。
+    /// 不是表格，或文件超过 `ALIGN_MAX` 时返回 `None`，此时按普通文本显示。
+    /// 结果按（版本、Tab 宽度）缓存。
     pub fn columns(&mut self, tab_width: usize) -> Option<Arc<Columns>> {
         let key = (self.revision, tab_width);
         if let Some((cached, columns)) = &self.columns
@@ -654,7 +665,9 @@ impl Document {
         columns
     }
 
-    /// 当前文字各列的宽度：与上一次测量时比较，只重新测量改动的行；不是表格时为 `None`。
+    /// 返回当前文字各列的宽度；不是表格时返回 `None`。
+    ///
+    /// 与上一次测量时的文字比较，只重新测量改动的行。
     fn column_widths(&mut self, tab_width: usize) -> Option<&ColumnWidths> {
         let Some(separator) = self.column_separator() else {
             self.column_widths = None;
@@ -684,8 +697,8 @@ impl Document {
 
     /// 与 [`Document::columns`] 相同，但只借用 `&self`。
     ///
-    /// 缓存对应当前版本时直接使用，否则重新测量（整个文件扫一遍），且不写入缓存；要换算很多
-    /// 位置时先用 [`Document::columns`] 取一次，再交给 `*_with` 系列的换算函数。
+    /// 缓存对应当前版本时直接使用，否则重新测量整个文件，且不写入缓存。需要换算大量位置时，
+    /// 先用 [`Document::columns`] 取得一次结果，再交给 `*_with` 系列的换算函数。
     pub fn current_columns(&self, tab_width: usize) -> Option<Arc<Columns>> {
         match &self.columns {
             Some((key, columns)) if *key == (self.revision, tab_width) => columns.clone(),
@@ -693,8 +706,8 @@ impl Document {
         }
     }
 
-    /// 把第 `line` 行的行内列 `col`（字符偏移，从 0 起）换算为显示列；按列对齐的 CSV 返回
-    /// 对齐后的位置。
+    /// 把第 `line` 行的行内列 `col`（字符偏移，从 0 起）换算为显示列；
+    /// 按列对齐的 CSV 返回对齐后的位置。
     ///
     /// # Panics
     ///
@@ -753,7 +766,7 @@ impl Document {
         Some(Columns::measure(separator, rope.chunks(), tab_width))
     }
 
-    /// 按列对齐时的分隔符；不是表格、不在内存里或超过 `ALIGN_MAX` 时为 `None`。
+    /// 按列对齐时的分隔符；不是表格、是大文件或超过 `ALIGN_MAX` 时为 `None`。
     fn column_separator(&self) -> Option<char> {
         let separator = match self.highlighter.language().id {
             "csv" => ',',
@@ -791,7 +804,7 @@ impl Document {
 
     /// 向只读的输出标签（标准输入、格式化工具的输出）末尾追加文本。
     ///
-    /// 追加不进入撤销记录，也不算修改。内容不是 `rope`（大文件）时不做任何事。
+    /// 追加不进入撤销记录，也不算修改。内容不是 `rope`（大文件）时不做改动。
     pub fn append_output(&mut self, text: &str) {
         let Content::Rope(rope) = &mut self.text else {
             return;
@@ -865,7 +878,7 @@ impl Document {
         if matches!(command, Command::Undo | Command::Redo) {
             return None;
         }
-        // 多光标时每个选区都会被改写，被删掉的文字都要记进撤销历史，按全部选区的总和计算。
+        // 多光标时每个选区都会被改写，被删除的文字都要记入撤销历史，按全部选区的总和计算。
         // 光标（空选区）不占字节，不必逐个计算。
         let mut total = 0;
         for selection in self.all_selections().filter(|s| !s.is_empty()) {
@@ -893,6 +906,15 @@ impl Document {
                 HIGHLIGHT_LOOKBACK,
             )),
         }
+    }
+
+    /// 返回已推算出的第 `line` 行（从 0 起）开头的高亮状态，不触发新的推算；尚未推算到时返回
+    /// `None`。
+    ///
+    /// 供只需近似着色的调用方（缩略图）使用：大文件只保留一段推算结果，另行推算会使该段
+    /// 在编辑区与缩略图之间反复重建。
+    pub fn known_highlight_state(&self, line: usize) -> Option<LineState> {
+        self.highlighter.known_state(line)
     }
 
     /// 返回编辑区显示 `rows` 各行时固定在顶部的块（粘滞滚动，从外层到内层，最多 `max` 个），
@@ -933,14 +955,14 @@ impl Document {
             &mut quoted,
             memo,
         );
-        // 高亮尚未推算到位时，字符串中的行可能被当作代码，这次的结果不缓存给下一帧。
+        // 高亮尚未推算到位时，字符串中的行可能被当作代码，本次结果不缓存到下一帧。
         if !settled {
             memo.clear();
         }
         (found, settled)
     }
 
-    /// 返回包住第 `line` 行的块的层数，即粘滞滚动时顶部需要固定的行数。
+    /// 返回包含第 `line` 行的块的层数，即粘滞滚动时顶部需要固定的行数。
     pub fn scope_depth(&mut self, line: usize, tab_width: usize) -> usize {
         let language = self.highlighter.language();
         let (text, highlighter) = (&self.text, &mut self.highlighter);
@@ -952,16 +974,17 @@ impl Document {
         scopes::depth(text, language, line, tab_width, &mut quoted, memo)
     }
 
-    /// 返回位置 `from` 到 `to` 之间的文本（字符偏移），用于复制；超过 [`COPY_LIMIT`] 字节时
-    /// 返回 `None`。
+    /// 返回位置 `from` 到 `to` 之间的文本（字符偏移），用于复制；
+    /// 超过 [`COPY_LIMIT`] 字节时返回 `None`。
     pub fn text_range(&self, from: usize, to: usize) -> Option<String> {
         self.text.text_range(from, to, COPY_LIMIT)
     }
 
-    /// 按文件名确定语言并重建高亮状态；文件名认不出时按首行的 `#!` 识别。语言变化会影响列对齐和
-    /// 折叠，因此同时推进 `revision` 让按内容缓存的结果失效。
+    /// 按文件名确定语言并重建高亮状态；无法按文件名识别时按首行的 `#!` 识别。
+    ///
+    /// 语言变化会影响列对齐和折叠，因此同时递增 `revision`，使按内容缓存的结果失效。
     pub fn set_language(&mut self, file_name: &str) {
-        // `#!` 行很短，只取开头一段，超长的首行不必整行复制。
+        // `#!` 行通常很短，只取开头 `SHEBANG_CHARS` 个字符，超长的首行无需整行复制。
         let first_line: String = self
             .text
             .line_content(0)
@@ -972,14 +995,14 @@ impl Document {
         self.choose_language(winc_syntax::detect_with_first_line(file_name, &first_line));
     }
 
-    /// 改用语言 `language`（状态栏上选的）：重建高亮状态，按内容缓存的结果一起失效，见
+    /// 改用状态栏中选择的语言 `language`：重建高亮状态，并使按内容缓存的结果失效，见
     /// [`Document::set_language`]。
     ///
-    /// 文件之后改名、另存为时按新的文件名重新识别。
+    /// 文件之后重命名或另存为时，按新的文件名重新识别。
     pub fn choose_language(&mut self, language: &'static winc_syntax::Language) {
         self.highlighter = Highlighter::new(language);
-        // 列对齐、折叠、粘滞滚动的结果取决于语言，而缓存的键只有（版本、Tab 宽度）。改名换
-        // 扩展名（`a.txt` → `a.csv`）时文本没有变化，因此递增 `revision` 使缓存重新计算。
+        // 列对齐、折叠、粘滞滚动的结果取决于语言，而缓存的键只有（版本、Tab 宽度）。重命名改变
+        // 扩展名（`a.txt` → `a.csv`）时文本不变，因此递增 `revision` 使缓存失效。
         self.revision += 1;
         self.columns = None;
     }
@@ -1007,10 +1030,10 @@ impl Document {
 
     /// 恢复备份中上次未保存的内容，返回备份写入后磁盘文件是否被外部修改；无法恢复时返回 `None`。
     ///
-    /// 调用前文档应已按磁盘上当前的内容打开。恢复时把内容换成 `text`，算一次修改，⌘Z 回到磁盘上
-    /// 的内容。`mtime` 与当前修改时间不同且恢复后有未保存的修改时，说明备份之后文件被其他程序改
-    /// 过，标记为冲突并返回 `Some(true)`；`conflict` 表示备份时已处于冲突中。只读或大文件时不做
-    /// 改动并返回 `None`。
+    /// 调用前文档应已按磁盘上当前的内容打开。恢复时把内容替换为 `text`，记为一次修改，⌘Z 可回到
+    /// 磁盘上的内容。`mtime` 与当前修改时间不同且恢复后有未保存的修改时，说明备份之后文件被其他
+    /// 程序修改过，此时标记为冲突并返回 `Some(true)`；`conflict` 表示备份时已处于冲突中。只读或
+    /// 大文件时不做改动并返回 `None`。
     pub fn restore_unsaved(
         &mut self,
         text: &str,
@@ -1061,13 +1084,13 @@ impl Document {
             self.history.push(transaction);
             self.after_change(first);
         }
-        // 不带其余选区的事务改动文本后，其余选区随版本号变化自动作废；带着的按它恢复。
+        // 事务不含其余选区时，文本改动后其余选区随版本号变化自动失效；含其余选区时按事务恢复。
         if !extra.is_empty() {
             self.restore_extra(extra);
         }
     }
 
-    /// 记下刚才那次改动（已递增 `revision`）从第 `line` 行开始。
+    /// 记录最近一次改动（`revision` 已递增）的起始行 `line`。
     fn note_edit(&mut self, line: usize) {
         self.edits.push_back((self.revision, line));
         if self.edits.len() > EDIT_LOG {
@@ -1075,10 +1098,10 @@ impl Document {
         }
     }
 
-    /// 从版本 `revision` 到现在，开头有多少行一直没变：之后的每次改动都在这些行之下。
+    /// 返回从版本 `revision` 至今始终未变的开头行数：此后的每次改动都位于这些行之下。
     ///
-    /// 只记得最近 `EDIT_LOG` 次改动；更早的版本，或者中间经过了不是编辑的变化（从磁盘重新
-    /// 读取、换了语言）时返回 0。版本没变时返回 `usize::MAX`。
+    /// 只记录最近 `EDIT_LOG` 次改动；版本更早，或期间发生了编辑以外的变化（从磁盘重新读取、
+    /// 更换语言）时返回 0。版本未变时返回 `usize::MAX`。
     pub fn unchanged_lines_since(&self, revision: u64) -> usize {
         let mut unchanged = usize::MAX;
         let mut count = 0;
@@ -1094,13 +1117,13 @@ impl Document {
         }
     }
 
-    /// 文本变化后的善后：让变化所在行起的高亮失效，递增 `revision`，刷新折叠。
+    /// 处理文本变化的后续工作：让变化所在行起的高亮失效，递增 `revision`，刷新折叠。
     ///
     /// `first_offset` 是第一处变化的位置（字符偏移）。
     pub(crate) fn after_change(&mut self, first_offset: usize) {
         let line = self.text.line_of(first_offset);
         self.highlighter.invalidate_from(line);
-        // 粘滞滚动记下的结果在改动之上足够远时仍然适用：在屏幕下方打字时不必从头向上查找。
+        // 粘滞滚动缓存的结果位于改动上方足够远时仍然适用：在屏幕下方输入时无需从头向上查找。
         let (key, memo) = &mut self.sticky_memo;
         if key.0 == self.revision {
             memo.retain(|a| a.survives_edit_at(line));

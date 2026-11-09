@@ -11,9 +11,9 @@ pub(super) const DEFAULT_WIDTH: f64 = 1280.0;
 /// 窗口内容区的默认高度（逻辑像素）。
 pub(super) const DEFAULT_HEIGHT: f64 = 820.0;
 /// 窗口内容区的最小宽度（逻辑像素）。
-pub(super) const MIN_WIDTH: f64 = 640.0;
+pub(in crate::app) const MIN_WIDTH: f64 = 640.0;
 /// 窗口内容区的最小高度（逻辑像素）。
-pub(super) const MIN_HEIGHT: f64 = 420.0;
+pub(in crate::app) const MIN_HEIGHT: f64 = 420.0;
 /// 窗口至少要有这么多留在显示器内（逻辑像素），用户才能把它拖回来。
 ///
 /// 取 128，与主流编辑器恢复窗口时的边距一致。

@@ -1,13 +1,19 @@
-//! 文本区的一行：行号栏里的部分（见 `gutter`）、缩进参考线、各类标注、文字、折叠标记和光标。
+//! 文本区的一行：行号栏中的部分（见 `gutter`）、缩进参考线、各类标注、文字、折叠标记和光标。
 
 use winc_config::RenderWhitespace;
 use winc_i18n::t;
 
 use super::*;
 
+/// 查找光标所在词的其他出现时，在可见列两侧额外检查的字符数（字符）。
+///
+/// 只需覆盖跨越屏幕边缘的一个词；更长的标识符在边缘处可能被当作不完整的词，
+/// 仅影响边缘处的标记。
+const OCCURRENCE_MARGIN: usize = 256;
+
 impl Screen<'_> {
-    /// 绘制行 `line`：`line_start` 是行首的字符偏移，`content` 是这一行的文字，`state` 是行首的
-    /// 高亮状态，绘制完后换成下一行行首的状态。
+    /// 绘制行 `line`：`line_start` 是行首的字符偏移，`content` 是本行的文字，`state` 是行首的
+    /// 高亮状态，绘制后更新为下一行行首的状态。
     pub(super) fn draw_line(
         &self,
         frame: &mut Frame<'_>,
@@ -35,38 +41,66 @@ impl Screen<'_> {
             self.app.mono_metrics.ascent,
             self.app.mono_metrics.descent,
         );
-        let slice = RopeSlice::from(content);
-
+        // `head` 为行首最多 `MAX_LINE_CHARS` 个字符：着色只处理这一部分，多数行的内容全在其中。
         chars.clear();
         chars.extend(content.chars().take(MAX_LINE_CHARS + 1));
-        let truncated = chars.len() > MAX_LINE_CHARS;
+        // 未读到行尾的行同样视为超长：其后的内容未知。
+        let long = chars.len() > MAX_LINE_CHARS || cut_by(content, self.read_cap);
         chars.truncate(MAX_LINE_CHARS);
+        let head = &chars[..];
+        // 按整行断开且 `content` 不是整行时，改取屏幕上可见的若干段（行内窗口）；
+        // 其余行绘制 `head`。
+        let rows = self.doc.rows_of(line);
+        let window = (rows > 1 && reads_head_only(content))
+            .then(|| {
+                let parts = visible_parts(y, rows, text_rect, lh);
+                self.doc.line_window(line, parts)
+            })
+            .flatten();
+        let (chars, slice, breaks, truncated) = match &window {
+            Some(w) => (&w.chars[..], &w.text[..], w.breaks.clone(), false),
+            None => {
+                let breaks = fit_breaks(self.doc.line_breaks(line), head.len());
+                (head, content, breaks, long)
+            }
+        };
+        let (first_part, first_col, ends) =
+            (window.as_deref()).map_or((0, 0, true), |w| (w.part, w.col, w.ends));
+        let slice = RopeSlice::from(slice);
+        let top = y + first_part as f32 * lh;
+        let parts = visible_parts(top, breaks.rows(), text_rect, lh);
 
-        let line_end = line_end(self.doc.text(), line, line_start, chars.len(), truncated);
+        let start = line_start + first_col;
+        let line_end = line_end(self.doc.text(), line, start, chars.len(), truncated);
         // 按列对齐时，每个字符所在的单元格位置和所属的列。
         let aligned = self.columns.map(|c| {
             let fields = Some(&mut *column_fields);
             c.layout(slice, self.tab_width, chars.len(), column_cells, fields);
             (&column_cells[..], &column_fields[..], c.separator)
         });
-        let breaks = self.doc.line_breaks(line);
 
-        // 行号、书签、折叠箭头绘制在行号栏中该行的位置上。断成多段的行滚动到只露出后面几段时，
-        // 第一段已经超出编辑区上沿，行号栏里放不下，于是下移后贴在顶部绘制，使行号仍然
-        // 对应这一行。下移量最多到最后一段：普通行（只有一段）只是上半部分被滚出，
-        // 最后一段只露出下半部分时同样如此，两种情况都不能与下一行的行号重叠。
-        let gutter_shift = (text_rect.y - y).clamp(0.0, (breaks.rows() - 1) as f32 * lh);
+        // 行号、书签、折叠箭头绘制在行号栏中该行的位置。断成多段的行滚动到只显示后续各段时，
+        // 第一段已超出编辑区上沿，因此下移到顶部绘制，使行号仍对应本行。下移量最多到最后一段：
+        // 只有一段的行仅上半部分滚出，最后一段只显示下半部分时同理，两种情况下行号都不得与
+        // 下一行的行号重叠。
+        let gutter_rows = rows.max(first_part + breaks.rows());
+        let gutter_shift = (text_rect.y - y).clamp(0.0, (gutter_rows - 1) as f32 * lh);
         let row = Row {
             line,
-            line_start,
+            origin: line_start,
+            line_start: start,
             line_end,
-            y,
-            baseline,
+            first_part,
+            ends,
+            y: top,
+            baseline: baseline + first_part as f32 * lh,
             gutter_y: y + gutter_shift,
             gutter_baseline: baseline + gutter_shift,
             slice,
-            chars: &chars[..],
+            head: RopeSlice::from(content),
+            chars,
             truncated,
+            parts,
             breaks,
             aligned,
             collapsed: self.doc.folds().is_collapsed(line),
@@ -81,7 +115,33 @@ impl Screen<'_> {
         self.draw_guides(frame, &row, guide_indent);
         self.draw_marks(frame, &row);
 
-        *state = winc_syntax::highlight_line(self.language, row.chars, *state, tokens);
+        // 只为前 `MAX_LINE_CHARS` 个字符着色，其后按普通文本绘制。超长行不改变下一行的高亮状态，
+        // 与高亮状态推算的规则相同（截断处可能位于字符串中间）；不换行时只需着色到编辑区右边缘。
+        let mut colored = head.len();
+        if row.truncated && row.breaks.rows() == 1 {
+            let shown = ((self.text_rect.right() - self.origin_x) / self.cell)
+                .ceil()
+                .max(0.0);
+            colored = colored.min(shown as usize + 1);
+        }
+        if first_col < colored {
+            let (doc, language) = (self.doc, self.language);
+            let next =
+                (self.app).highlight_cached(doc, line, language, &head[..colored], *state, tokens);
+            if !long {
+                *state = next;
+            }
+            // 词法单元的位置相对行首，换算为相对 `chars` 的开头。
+            if first_col > 0 {
+                tokens.retain_mut(|token| {
+                    token.start = token.start.saturating_sub(first_col);
+                    token.end = token.end.saturating_sub(first_col);
+                    token.end > 0
+                });
+            }
+        } else {
+            tokens.clear();
+        }
         self.ligature_splits(&row, splits);
         self.draw_whitespace(frame, &row);
         let cells = self.draw_content(frame, &row, tokens, splits);
@@ -89,7 +149,7 @@ impl Screen<'_> {
         self.draw_carets(frame, &row, ime_cursor);
     }
 
-    /// 返回位置 `pos` 在这一行中的段号（从 0 起）和 x 坐标。
+    /// 返回位置 `pos` 在本行中的段号（从 0 起）和 x 坐标。
     fn place(&self, row: &Row<'_>, pos: usize) -> (usize, f32) {
         let (origin_x, cell, tab_width) = (self.origin_x, self.cell, self.tab_width);
         let col = (pos - row.line_start).min(row.chars.len());
@@ -107,7 +167,7 @@ impl Screen<'_> {
         (0, origin_x + cells as f32 * cell)
     }
 
-    /// 文本范围 `start..end` 在屏幕上占据的几块：跨段时每段一块，对每块调用 `f(y, x0, x1)`。
+    /// 对文本范围 `start..end` 在屏幕上占据的每一块调用 `f(y, x0, x1)`；跨段时每段一块。
     fn spans(&self, row: &Row<'_>, start: usize, end: usize, f: &mut dyn FnMut(f32, f32, f32)) {
         if row.breaks.rows() == 1 {
             f(row.y, self.place(row, start).1, self.place(row, end).1);
@@ -125,21 +185,23 @@ impl Screen<'_> {
         });
     }
 
-    /// 缩进参考线：每级缩进一条，空行沿用上一行的缩进 `guide_indent`。
+    /// 绘制缩进参考线：每级缩进一条，空行沿用上一行的缩进 `guide_indent`。
     fn draw_guides(&self, frame: &mut Frame<'_>, row: &Row<'_>, guide_indent: &mut usize) {
         let breaks = &row.breaks;
-        if !text::is_blank(row.slice) {
-            *guide_indent = text::indent_cells(row.slice, self.tab_width);
+        if !text::is_blank(row.head) {
+            *guide_indent = text::indent_cells(row.head, self.tab_width);
         }
 
         for level in (0..*guide_indent).step_by(self.indent_unit.max(1)) {
             let x = (self.origin_x + level as f32 * self.cell).round();
-            // 折成多段时，参考线一直绘制到最后一段（后续各段与第一段缩进相同）。
-            let height = self.lh
-                * breaks
-                    .rows()
-                    .min(if level < breaks.indent { usize::MAX } else { 1 })
-                    as f32;
+            // 折成多段且后续各段与第一段缩进相同时，参考线绘制到最后一段；后续各段不缩进时
+            // 只绘制在整行的第一段上。
+            let spanned = match (level < breaks.indent, row.first_part) {
+                (true, _) => breaks.rows(),
+                (false, 0) => 1,
+                (false, _) => 0,
+            };
+            let height = self.lh * spanned as f32;
             let guide = Rect::new(x, row.y, 1.0, height);
             let active = self
                 .active_guide
@@ -155,14 +217,21 @@ impl Screen<'_> {
         }
     }
 
-    /// 查找结果、光标所在的词的其他出现、配对的括号。
+    /// 绘制查找结果、光标所在词的其他出现和配对的括号。
     fn draw_marks(&self, frame: &mut Frame<'_>, row: &Row<'_>) {
         let (app, p, lh, text_rect) = (self.app, self.app.palette, self.lh, self.text_rect);
         let (line_start, line_end) = (row.line_start, row.line_end);
+        let shown = row.shown_cols();
         if self.show_matches {
             let current = app.search.current_match();
 
-            for &(start, end) in app.search.matches_in(line_start, line_end) {
+            // 只取可见列内的结果；可见段延伸到行尾时取到行尾，包括截断后未显示的部分。
+            let to = if shown.end == row.chars.len() {
+                line_end
+            } else {
+                line_start + shown.end
+            };
+            for &(start, end) in app.search.matches_in(line_start + shown.start, to) {
                 let color = if current == Some((start, end)) {
                     p.search_current
                 } else {
@@ -181,7 +250,14 @@ impl Screen<'_> {
         }
 
         if let Some(occurrences) = &self.occurrences {
-            for (start, end) in occurrences.find(row.chars) {
+            // 前后各多检查 `OCCURRENCE_MARGIN` 个字符，使跨越屏幕边缘的词按完整的词判断。
+            let from = shown.start.saturating_sub(OCCURRENCE_MARGIN);
+            let to = (shown.end + OCCURRENCE_MARGIN).min(row.chars.len());
+            for (start, end) in occurrences.find(&row.chars[from..to]) {
+                let (start, end) = (from + start, from + end);
+                if end < shown.start || start > shown.end {
+                    continue;
+                }
                 let (start, end) = (line_start + start, line_start + end);
                 if occurrences.skip == Some((start, end)) {
                     continue;
@@ -244,8 +320,8 @@ impl Screen<'_> {
             let len = chars.len();
             let mut last = 0;
             for part in 0..breaks.rows() {
-                // 一行可以断成上百段，只绘制与编辑区相交的段。返回值只用于在最后一段之后绘制
-                // 说明：最后一段不在编辑区内时，说明同样不在编辑区内。
+                // 一行可以断成上百段，只绘制与编辑区相交的段。返回值仅用于在最后一段之后绘制
+                // 说明；最后一段不在编辑区内时，说明同样不在编辑区内。
                 let top = row.y + part as f32 * self.lh;
                 if top >= text_rect.bottom() {
                     break;
@@ -293,7 +369,7 @@ impl Screen<'_> {
         }
     }
 
-    /// 按设置（`renderWhitespace`）绘制这一行的空格和制表符。
+    /// 按设置（`renderWhitespace`）绘制本行的空格和制表符。
     ///
     /// 按列对齐的表格里空白的位置不代表文件内容，不绘制。
     fn draw_whitespace(&self, frame: &mut Frame<'_>, row: &Row<'_>) {
@@ -302,7 +378,7 @@ impl Screen<'_> {
             return;
         }
         let line_end = row.line_start + row.chars.len();
-        // 多光标时选区可能很多，先留下和这一行相交的。
+        // 多光标时选区可能很多，先筛选出与本行相交的选区。
         let selected: Vec<(usize, usize)> = std::iter::once(&self.selection)
             .chain(self.extra)
             .filter(|s| !s.is_empty() && s.from() < line_end && s.to() > row.line_start)
@@ -311,8 +387,19 @@ impl Screen<'_> {
         if mode == RenderWhitespace::Selection && selected.is_empty() {
             return;
         }
-        let trailing = trailing_whitespace(row.chars);
-        for (col, &c) in row.chars.iter().enumerate() {
+        let trailing = match row.ends {
+            true => trailing_whitespace(row.chars),
+            false => row.chars.len(),
+        };
+        // 断成多段时只处理可见段：按整行断开的长行可达数 MB。
+        let shown = row.shown_cols();
+        for (col, &c) in row
+            .chars
+            .iter()
+            .enumerate()
+            .take(shown.end)
+            .skip(shown.start)
+        {
             if !matches!(c, ' ' | '\t') {
                 continue;
             }
@@ -336,7 +423,7 @@ impl Screen<'_> {
         }
     }
 
-    /// 最后一段之后：截断说明，以及折叠行的小块（点击区域收进 `folded_hits`）。
+    /// 在最后一段之后绘制截断说明，以及折叠行的小块（点击区域记录到 `folded_hits`）。
     ///
     /// `cells` 是最后一段绘制到的单元格数。
     fn draw_tail(
@@ -359,14 +446,14 @@ impl Screen<'_> {
                 app.fonts.ui_small,
                 x,
                 tail_baseline,
-                t!("editor-line-truncated"),
+                &t!("editor-line-truncated", count = MAX_LINE_CHARS),
                 p.text_dim,
                 text_rect,
             );
         }
 
-        // 折叠行之后是一个圆角小块，里面三个点，点击后展开。
-        if row.collapsed {
+        // 折叠行之后绘制一个含三个点的圆角小块，点击后展开。
+        if row.collapsed && row.ends {
             let x = (origin_x + (cells + 1) as f32 * self.cell).round();
             let chip = Rect::new(x, tail_y + 3.0, 22.0, app.fonts.line_height - 6.0);
             frame.rect_clipped(chip, p.selected_inactive, 4.0, text_rect);
@@ -382,11 +469,20 @@ impl Screen<'_> {
         }
     }
 
-    /// 编辑区有焦点时绘制这一行上的光标；主光标的位置记进 `ime_cursor`。
+    /// 编辑区有焦点时绘制本行的光标；主光标的位置记录到 `ime_cursor`。
     fn draw_carets(&self, frame: &mut Frame<'_>, row: &Row<'_>, ime_cursor: &mut Option<Rect>) {
         let (app, lh, text_rect) = (self.app, self.lh, self.text_rect);
-        if row.line == self.caret_line && self.focused {
-            let (part, x) = self.place(row, row.line_start + self.caret_col.min(MAX_LINE_CHARS));
+        // 超出 `chars` 末尾的光标绘制在末尾；所在段不在 `chars` 内时不绘制。
+        let end = row.line_start + row.chars.len();
+        let caret_pos = |col: usize| {
+            let pos = row.origin + col;
+            let pos = if row.ends { pos.min(end) } else { pos };
+            (pos >= row.line_start && (pos < end || row.ends)).then_some(pos)
+        };
+        if let Some(pos) =
+            caret_pos(self.caret_col).filter(|_| row.line == self.caret_line && self.focused)
+        {
+            let (part, x) = self.place(row, pos);
             let shift = part as f32 * lh;
             *ime_cursor = Some(draw_caret(
                 app,
@@ -397,10 +493,11 @@ impl Screen<'_> {
                 text_rect,
             ));
         }
-        // 其余光标与主光标一起闪烁；输入法组字只显示在主光标处。
+        // 其余光标与主光标同步闪烁；输入法组字只显示在主光标处。
         if self.focused {
-            for &(_, col) in self.extra_carets.iter().filter(|c| c.0 == row.line) {
-                let (part, x) = self.place(row, row.line_start + col.min(MAX_LINE_CHARS));
+            let carets = self.extra_carets.iter().filter(|c| c.0 == row.line);
+            for pos in carets.filter_map(|&(_, col)| caret_pos(col)) {
+                let (part, x) = self.place(row, pos);
                 caret_bar(app, frame, x, row.y + part as f32 * lh, text_rect);
             }
         }
@@ -423,7 +520,7 @@ pub(in crate::view::editor) fn active_guide(
         return None;
     }
     let indent = |line: usize| {
-        let content = text.line_content(line);
+        let content = text.line_prefix(line, MAX_LINE_BYTES);
         let slice = content.slice();
         (!text::is_blank(slice)).then(|| text::indent_cells(slice, tab_width))
     };

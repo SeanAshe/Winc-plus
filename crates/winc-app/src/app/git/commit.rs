@@ -10,6 +10,7 @@ mod actions;
 pub(in crate::app) use actions::COMMITTED_SHOWN;
 pub(crate) use actions::SyncState;
 mod list;
+pub(in crate::app::git) use list::rows_of;
 mod stash;
 pub(crate) use stash::{STASH_GAP, StashLine, StashView};
 mod state;
@@ -588,6 +589,9 @@ pub(crate) struct CommitState {
     /// 平铺显示（不按目录排成树）：每个文件一行，名字后面淡色写所在目录。默认平铺；用标题行的
     /// 切换按钮改成树形。
     flat: bool,
+    /// 是否把只有一个子目录、没有文件的各级目录合成一行（「src/core」），跟随设置
+    /// `compactFolders`。
+    compact: bool,
     /// 每一组里收起的目录（相对仓库根目录；下标是 `CommitGroup as usize`）。
     collapsed_dirs: [HashSet<PathBuf>; CommitGroup::COUNT],
     /// 收起、平铺的样子每变一次加 1。
@@ -642,6 +646,9 @@ pub(crate) struct CommitState {
     pub(crate) stash_settled: f32,
     /// 储藏的预览标签：和改动列表的预览标签分开，那个标签跟着工作区里的文件刷新。
     pub(crate) stash_preview: Option<DocumentId>,
+    /// 是否为只读的浏览列表：列出历史提交中改动的文件（见 [`App::with_log_list`]），没有勾选框、
+    /// 回滚等修改工作区的操作，点击文件在差异标签中打开该文件。
+    pub(crate) browse: bool,
     /// 提交成功以后继续推送（「提交并推送」）。
     push_after: bool,
     /// `HEAD` 指向的提交，「上一次提交」那一行用。
@@ -655,6 +662,16 @@ pub(crate) struct CommitState {
 }
 
 impl CommitState {
+    /// 创建只读的浏览列表（见 [`CommitState::browse`]），平铺和合并目录的设置同 `like`。
+    pub(crate) fn browsing(like: &CommitState) -> Self {
+        CommitState {
+            browse: true,
+            flat: like.flat,
+            compact: like.compact,
+            ..CommitState::default()
+        }
+    }
+
     /// 勾选的版本：勾选每变一次加 1。
     pub(crate) fn checks(&self) -> u64 {
         self.checks
@@ -665,6 +682,13 @@ impl CommitState {
         self.excluded.clear();
         self.included.clear();
         self.checks += 1;
+    }
+
+    /// 只选中 `path`，清掉多选。
+    pub(crate) fn select_only(&mut self, path: PathBuf) {
+        self.marked.clear();
+        self.anchor = Some(path.clone());
+        self.selected = Some(path);
     }
 
     /// 清掉选中的文件和多选（换目录时）。
@@ -696,6 +720,7 @@ impl Default for CommitState {
             prefilled: false,
             collapsed: [false; CommitGroup::COUNT],
             flat: true,
+            compact: true,
             collapsed_dirs: Default::default(),
             layout: 0,
             checks: 0,
@@ -720,6 +745,7 @@ impl Default for CommitState {
             stash_files_folded: false,
             stash_settled: 0.0,
             stash_preview: None,
+            browse: false,
             push_after: false,
             last: None,
             last_for: None,
@@ -785,9 +811,25 @@ impl App {
         }
     }
 
-    /// 提交视图是否正在显示。
+    /// 提交视图是否正在显示；借用提交视图显示历史提交的文件时（`commit.browse`）同样为
+    /// `true`。
     pub(crate) fn commit_shown(&self) -> bool {
-        self.sidebar_view == crate::layout::SidebarView::Commit && self.layout.sidebar.right() > 0.0
+        self.sidebar_view == crate::layout::SidebarView::Commit
+            && self.layout.sidebar.right() > 0.0
+            && (self.commit.browse || self.log_diff_tree().is_none())
+    }
+
+    /// 改动列表或历史提交的文件列表是否正在显示。
+    pub(in crate::app) fn commit_list_shown(&self) -> bool {
+        self.commit_shown() || self.log_diff_tree().is_some()
+    }
+
+    /// 返回正在显示的列表的状态：显示历史提交的文件时为其浏览列表，否则为提交视图。
+    pub(in crate::app) fn shown_commit_list(&self) -> &CommitState {
+        match self.log_diff_tree() {
+            Some(_) if !self.commit.browse => self.log_list(),
+            _ => &self.commit,
+        }
     }
 
     /// 计算提交视图的布局。
@@ -808,6 +850,27 @@ impl App {
             (tool(1), CommitTarget::Refresh),
             (tool(2), CommitTarget::More),
         ];
+        // 浏览历史提交的文件时只有标题行和列表：列表从标题行下面一直到视图底部。
+        if self.shown_commit_list().browse {
+            let list_y = header.bottom() + SIDEBAR_LIST_GAP;
+            let list = Rect::new(panel.x, list_y, panel.w, (panel.bottom() - list_y).max(0.0));
+            return CommitParts {
+                header,
+                tools,
+                location: None,
+                branch: Rect::new(panel.x, header.bottom(), panel.w, 0.0),
+                banner: None,
+                card: None,
+                message: Rect::default(),
+                message_settled: Rect::default(),
+                amend: None,
+                commit: Rect::default(),
+                commit_menu: Rect::default(),
+                undo: None,
+                stashes: None,
+                list,
+            };
+        }
         let inner_x = panel.x + MARGIN;
         let inner_w = (panel.w - 2.0 * MARGIN).max(0.0);
 
@@ -1019,7 +1082,9 @@ impl App {
 
     /// 打开提交视图时焦点落在哪：显示提交卡片时在提交信息里，否则在改动列表上。
     pub(crate) fn commit_view_focus(&self) -> Focus {
-        if self.commit_compose_shown() {
+        if self.log_diff_tree().is_some() {
+            Focus::CommitList
+        } else if self.commit_compose_shown() {
             Focus::CommitMessage
         } else {
             Focus::CommitList
@@ -1182,8 +1247,9 @@ impl App {
     /// 窗口坐标的 `y` 是否落在写全名的那一改动行上：鼠标在这一行上时不唤出列表的滚动条，
     /// 和文件树相同。
     pub(in crate::app) fn over_commit_overflow_row(&self, y: f32) -> bool {
-        self.commit_shown()
-            && (self.commit.overflow).is_some_and(|o| (o.y..o.y + COMMIT_ROW).contains(&y))
+        self.commit_list_shown()
+            && (self.shown_commit_list().overflow)
+                .is_some_and(|o| (o.y..o.y + COMMIT_ROW).contains(&y))
     }
 
     /// 每帧算出 `overflow` 之后调用：换了写全名的文件行时，按钮从原位开始滑到全名后面；
@@ -1203,10 +1269,8 @@ impl App {
 
     /// 窗口坐标 (`x`, `y`) 是否在改动行伸出侧栏的那一段名字上。
     pub(in crate::app) fn in_commit_overflow(&self, x: f32, y: f32) -> bool {
-        self.commit_shown()
-            && self
-                .commit
-                .overflow
+        self.commit_list_shown()
+            && (self.shown_commit_list().overflow)
                 .and_then(|o| o.spill)
                 .is_some_and(|r| r.contains(x, y))
     }
@@ -1222,16 +1286,25 @@ impl App {
     }
 
     /// 打开提交视图（⌃⇧G），焦点放进提交信息。
+    ///
+    /// 当前标签是从日志打开的差异时，提交视图已经可见则在该差异的文件树与工作区改动之间
+    /// 切换，否则显示文件树（见 [`App::toggle_log_diff_tree`]）。
     pub(in crate::app) fn show_commit(&mut self) {
         if self.git.root.is_none() {
             self.flash(t!("git-not-a-repository"));
             return;
         }
+        // 从日志打开的差异标签中，提交视图在文件树与工作区改动之间切换。
+        self.toggle_log_diff_tree();
         if !self.panel_visible {
             self.set_sidebar(true);
         }
         self.set_sidebar_view(crate::layout::SidebarView::Commit);
-        self.git_refresh();
+        if self.log_diff_tree().is_some() {
+            self.reveal_log_diff_file();
+        } else {
+            self.git_refresh();
+        }
         self.focus = self.commit_view_focus();
         self.request_redraw();
     }
@@ -1255,6 +1328,18 @@ impl App {
         if indexed && self.commit.hits_generation != self.git.generation {
             self.request_redraw();
             return;
+        }
+        // 浏览历史提交的文件时只能展开、收起和查看文件，其余目标（勾选、回滚、储藏、提交等）
+        // 都会修改工作区，不处理。
+        if self.commit.browse {
+            match target {
+                CommitTarget::File(i) => self.browse_commit_file(i),
+                CommitTarget::Group(_) | CommitTarget::Dir(_) | CommitTarget::Sticky(..) => {}
+                _ => return,
+            }
+            if matches!(target, CommitTarget::File(_)) {
+                return;
+            }
         }
         match target {
             CommitTarget::Log => self.git_show_log(),
@@ -1515,6 +1600,7 @@ impl App {
         self.update_state(|state| state.commit_tree = !flat);
         self.commit.scroll = self.commit.scroll.min(self.commit_max_scroll());
         self.reveal_commit_selection();
+        self.sync_log_diff_layout();
         self.request_redraw();
     }
 

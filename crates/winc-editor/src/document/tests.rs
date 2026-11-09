@@ -16,7 +16,7 @@ fn atomic_writes_use_a_fresh_private_temporary_file() {
     fs::write(&path, "old").unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o640)).unwrap();
 
-    // 临时文件新建时只给自己读写，写完换成原文件的权限。
+    // 临时文件新建时只有所有者可读写，写入完成后改为原文件的权限。
     write_atomic(&path, false, true, |out| {
         let tmp = fs::read_dir(&dir)
             .unwrap()
@@ -44,7 +44,7 @@ fn indentation_and_line_endings_chosen_in_the_status_bar() {
     doc.set_language("a.rs");
     assert_eq!(doc.indent(), Indent::Spaces(4));
 
-    // 换成 Tab：宽度不变，一个 Tab 显示为 4 列；此时修改宽度改的是 Tab 的显示宽度。
+    // 改用 Tab 缩进：宽度不变，一个 Tab 显示为 4 列；此时修改宽度即修改 Tab 的显示宽度。
     doc.use_indent(true, 8);
     assert_eq!(doc.indent(), Indent::Tabs);
     assert_eq!(doc.tab_width(8), 4);
@@ -136,7 +136,7 @@ fn rejects_binary_and_marks_invalid_utf8_readonly() {
 fn other_encodings_open_edit_and_save_back() {
     let dir = scratch("encodings");
 
-    // GBK：能识别和编辑，按原编码写回（编码记为 GB18030，与 GBK 使用同一解码器）。
+    // GBK：可以识别和编辑，按原编码写回（编码记为 GB18030，与 GBK 使用同一解码器）。
     let path = dir.join("gbk.txt");
     let (bytes, _, _) = encoding_rs::GBK.encode("你好，世界。这是一段用 GBK 写的中文。\n");
     fs::write(&path, &bytes).unwrap();
@@ -154,7 +154,7 @@ fn other_encodings_open_edit_and_save_back() {
     let (expected, _, _) = encoding_rs::GBK.encode("改：你好，世界。这是一段用 GBK 写的中文。\n");
     assert_eq!(fs::read(&path).unwrap(), expected.as_ref());
 
-    // GB18030 可以表示所有 Unicode 字符：emoji 也能保存（用四字节序列表示）。
+    // GB18030 可以表示所有 Unicode 字符：emoji 同样可以保存（用四字节序列表示）。
     doc.apply(winc_core::edit::replace_selection(
         doc.text.rope().unwrap(),
         Selection::point(0),
@@ -240,7 +240,7 @@ fn a_file_deleted_on_disk_is_not_saved_quietly() {
     let mut doc = Document::open(DocumentId(1), path.clone()).unwrap();
     assert!(!doc.deleted_on_disk() && doc.can_save_quietly());
 
-    // 其他程序删除了文件：不算修改，文档保留；自动保存不写入，用户手动保存时重新创建。
+    // 其他程序删除了文件：不视为修改，文档保留；自动保存不写入，用户手动保存时重新创建。
     fs::remove_file(&path).unwrap();
     assert_eq!(doc.sync_with_disk().unwrap(), DiskChange::Unchanged);
     assert!(doc.deleted_on_disk() && !doc.can_save_quietly());
@@ -287,7 +287,7 @@ fn saving_a_hard_linked_file_keeps_the_link() {
     doc.execute(Command::SelectAll, 10, 4);
     doc.execute(Command::Insert("two\n".into()), 10, 4);
 
-    // 改名替换只会换掉其中一个名字：有多个硬链接时原地写入，两个名字都看到新内容。
+    // 改名替换只替换其中一个名字：有多个硬链接时原地写入，两个名字都读到新内容。
     doc.save().unwrap();
     assert_eq!(fs::read_to_string(&link).unwrap(), "two\n");
     assert_eq!(fs::metadata(&path).unwrap().nlink(), 2);
@@ -364,7 +364,7 @@ fn conflicts_can_take_the_disk_version_or_keep_mine() {
         ));
     };
 
-    // 改了一处尚未保存，磁盘上的文件又被其他程序修改：保存前检查出来，标记为冲突。
+    // 有一处未保存的修改时，磁盘上的文件被其他程序修改：保存前检测到变化并标记为冲突。
     edit(&mut doc, 4, "TWO ");
     doc.selection = Selection::point(12);
     touch("one\ntwo\nthree\nfour\n", 5);
@@ -373,7 +373,7 @@ fn conflicts_can_take_the_disk_version_or_keep_mine() {
     assert!(doc.in_conflict());
     assert_eq!(doc.disk_text().unwrap(), "one\ntwo\nthree\nfour\n");
 
-    // 后台读取期间文档又被编辑：读到的结果不再对应，不换内容，冲突仍然保留。
+    // 后台读取期间文档又被编辑：读取结果与文档不再对应，不替换内容，冲突仍然保留。
     let take = doc.begin_take_disk_version().unwrap();
     edit(&mut doc, 0, "x");
     assert_eq!(doc.finish_take_disk_version(take.read()).unwrap(), None);
@@ -381,7 +381,7 @@ fn conflicts_can_take_the_disk_version_or_keep_mine() {
     doc.execute(Command::Undo, 10, 4);
     doc.selection = Selection::point(12);
 
-    // 用磁盘上的版本：内容换掉，没有未保存的修改，光标还在 three 上；⌘Z 回到自己的修改。
+    // 采用磁盘上的版本：内容被替换，没有未保存的修改，光标仍在 three 上；⌘Z 恢复本地的修改。
     assert!(doc.take_disk_version().unwrap());
     assert!(!doc.in_conflict() && !doc.is_dirty());
     assert_eq!(
@@ -397,7 +397,7 @@ fn conflicts_can_take_the_disk_version_or_keep_mine() {
     );
     assert!(doc.is_dirty());
 
-    // 又冲突一次，这次保留自己的：冲突解除，之后的保存覆盖磁盘内容。
+    // 再次冲突时保留本地版本：冲突解除，之后的保存覆盖磁盘内容。
     touch("changed again\n", 10);
     assert_eq!(doc.sync_with_disk().unwrap(), DiskChange::Conflict);
     doc.keep_mine();
@@ -423,7 +423,7 @@ fn tidying_keeps_every_cursor_and_its_line() {
     let cursors = vec![Selection::point(4), Selection::point(14)];
     doc.set_selections(cursors.clone(), 1);
 
-    // 自动保存：两个光标所在的行都保留行尾空白，只清理中间那一行；两个光标都还在。
+    // 自动保存：两个光标所在的行都保留行尾空白，只清理中间一行；两个光标都保留。
     assert!(doc.tidy_for_save(None, true));
     assert_eq!(doc.text_range(0, 100).unwrap(), "a = \nb =\nc = \n");
     assert_eq!(
@@ -485,8 +485,8 @@ fn taking_a_damaged_disk_version_makes_the_document_read_only() {
         "mine ",
         winc_core::EditKind::Other,
     ));
-    // 写入的内容里有 GBK 解不开的字节：换成磁盘版本后必须只读，否则保存会把这些字节
-    // 改写成替换字符。
+    // 写入的内容含 GBK 无法解码的字节：采用磁盘版本后文档必须只读，否则保存会把这些字节
+    // 改写为替换字符。
     let damaged = b"\xC4\xE3\x81\x20\n";
     fs::write(&path, damaged).unwrap();
     fs::File::options()
@@ -527,7 +527,7 @@ fn changes_within_the_same_timestamp_are_still_noticed() {
     assert_eq!(doc.sync_with_disk().unwrap(), DiskChange::Reloaded);
     assert_eq!(doc.text_range(0, usize::MAX).unwrap(), "one two\n");
 
-    // 有未保存的修改时同样算作冲突，按 ⌘S 之前也能检测到。
+    // 有未保存的修改时同样视为冲突，按 ⌘S 之前也能检测到。
     doc.apply(winc_core::edit::replace_selection(
         doc.text.rope().unwrap(),
         Selection::point(0),
@@ -545,7 +545,7 @@ fn edits_before_an_append_are_not_mistaken_for_one() {
     let path = dir.join("app.log");
     fs::write(&path, "first line\nsecond line\n").unwrap();
     let mut doc = Document::open(DocumentId(1), path.clone()).unwrap();
-    // 开头原地改了同样长度的内容，又在末尾追加：不能只接上追加的部分。
+    // 开头被原地改写为等长的内容，同时末尾有追加：不能只追加末尾新增的部分。
     fs::write(&path, "FIRST LINE\nsecond line\nthird\n").unwrap();
     fs::File::options()
         .write(true)
@@ -577,7 +577,7 @@ fn growing_files_only_read_what_was_added() {
         file.set_modified(later(n)).unwrap();
     };
 
-    // 末尾追加了两行：接到文档后面，光标不动，文档仍是未修改状态。
+    // 末尾追加了两行：追加到文档末尾，光标不动，文档仍是未修改状态。
     append("第二行\nthird\n".as_bytes(), 1);
     assert_eq!(doc.sync_with_disk().unwrap(), DiskChange::Appended);
     assert_eq!(
@@ -587,7 +587,7 @@ fn growing_files_only_read_what_was_added() {
     assert_eq!(doc.selection, Selection::point(2));
     assert!(!doc.is_dirty());
 
-    // 写入未完成，最后一个字只写入了第一个字节：先追加前面完整的部分，写完后再追加其余。
+    // 写入未完成，最后一个字符只写入了第一个字节：先追加之前完整的部分，写入完成后再追加其余部分。
     append(&"4 四".as_bytes()[..3], 2);
     assert_eq!(doc.sync_with_disk().unwrap(), DiskChange::Appended);
     assert!(
@@ -713,8 +713,8 @@ fn large_files_edit_save_and_undo() {
 
     let mut search = crate::Search::default();
     search.query = "STATUS".into();
-    // 查找按 8 ms 的时间片分段进行，机器繁忙（例如并行运行测试）时一次调用搜不完；
-    // 反复调用直到搜完或结果达到上限，使断言不依赖机器当时的负载。
+    // 查找按 8 ms 的时间片分段进行，机器繁忙（例如并行运行测试）时一次调用可能无法完成搜索；
+    // 反复调用直到搜索完成或结果达到上限，使断言不依赖机器当时的负载。
     search.update(&doc);
     while !search.is_complete() {
         search.update(&doc);
@@ -728,7 +728,7 @@ fn large_files_edit_save_and_undo() {
     doc.selection = Selection::new(0, doc.text().end_pos());
     assert!(doc.edit_blocked(&Command::Delete { word: false }).is_some());
     assert!(doc.edit_blocked(&Command::Undo).is_none());
-    // 超过上限的选区不是主选区（主选区只是个光标）时同样拒绝。
+    // 超过上限的选区不是主选区（主选区为光标）时同样拒绝。
     let end = doc.text().end_pos();
     doc.set_selections(vec![Selection::new(0, end - 1), Selection::point(end)], 1);
     assert_eq!(doc.selection, Selection::point(end));
@@ -790,7 +790,7 @@ fn changed_lines_cover_only_the_lines_that_differ() {
     assert_eq!(case("a\nb", "a\nbc"), (1, 2, 2));
     assert_eq!(case("a\nb\n", "a\nb\n"), (2, 2, 2));
     assert_eq!(case("", "x"), (0, 1, 1));
-    // 换行符变了：`\r` 和 `\r\n` 都算一处换行，两边按各自的行切分。
+    // 换行符不同：`\r` 和 `\r\n` 都算一处换行，两侧按各自的换行符切分行。
     let (head, old_end, new_end) = case("a\rb\nc", "a\r\nb\nc");
     assert!(head == 0 && old_end >= 1 && new_end >= 1);
 }
@@ -809,7 +809,8 @@ fn aligned_columns_follow_edits_without_drifting() {
     d.set_language("a.csv");
     let full = |d: &Document| d.measure_columns(4);
     assert_eq!(d.columns(4).as_deref().cloned(), full(&d));
-    // 加宽、删除最宽的一格、加一列、删行、在行中间断行：结果每次都与整个重新测量相同。
+    // 依次加宽单元格、删除最宽的单元格、增加一列、删除多行、在行中插入换行、在开头插入 `\r\n`：
+    // 每次的结果都与整体重新测量的结果相同。
     let edits: [(usize, &str, usize); 6] = [
         (5, "wider-than-anything-else", 0),
         (5, "", 24),
@@ -842,7 +843,7 @@ fn sticky_scopes_keep_their_memo_across_edits_far_below() {
     let rows: Vec<usize> = (200..210).collect();
     let (before, settled) = d.sticky_scopes(&rows, false, 5, 4);
     assert!(settled && !d.sticky_memo.1.is_empty());
-    // 在下方很远处输入：记下的结果保留，算出的结果与新打开的文档相同。
+    // 在远离测量范围的下方输入：已记录的结果保留，计算结果与新打开的文档相同。
     let at = d.text().line_start(380);
     d.set_selections(vec![Selection::point(at)], 0);
     d.execute(Command::Insert("        y = 1\n".into()), 10, 4);
@@ -855,7 +856,7 @@ fn sticky_scopes_keep_their_memo_across_edits_far_below() {
     );
     assert_eq!(d.sticky_scopes(&rows, false, 5, 4).0, before);
     assert_eq!(d.scope_depth(300, 4), fresh.scope_depth(300, 4));
-    // 在上面改：记下的结果作废。
+    // 在上方编辑：已记录的结果作废。
     let at = d.text().line_start(1);
     d.set_selections(vec![Selection::point(at)], 0);
     d.execute(Command::Insert("    pass\n".into()), 10, 4);
@@ -874,7 +875,7 @@ fn unchanged_lines_are_only_known_across_plain_edits() {
     }
     assert_eq!(d.unchanged_lines_since(start), 1);
     assert_eq!(d.unchanged_lines_since(d.revision - 1), 2);
-    // 换语言也推进了版本，但不是编辑：不知道哪些行没变。
+    // 切换语言同样使版本号递增，但不属于编辑，无法确定哪些行未改变。
     let before = d.revision;
     d.set_language("a.py");
     assert_eq!(d.unchanged_lines_since(before), 0);
@@ -896,7 +897,7 @@ fn large_files_save_in_the_background_while_editing() {
     let mut plain = Document::open(DocumentId(2), small).unwrap();
     assert!(plain.begin_save().unwrap().is_none());
 
-    // 改了一处，发起保存；写的时候又改了一处。
+    // 修改一处后发起保存，写入期间再修改一处。
     doc.selection = Selection::point(0);
     doc.execute(Command::Insert("A".into()), 10, 4);
     let job = doc.begin_save().unwrap().unwrap();
@@ -904,7 +905,8 @@ fn large_files_save_in_the_background_while_editing() {
     let saved = job.run();
     doc.finish_save(saved).unwrap();
 
-    // 磁盘上是发起那一刻的内容；文档里两处都在，仍算未保存，撤销回那一刻算已保存。
+    // 磁盘上是发起保存时的内容；文档保留两处修改，仍为未保存状态，
+    // 撤销到发起保存时的状态后视为已保存。
     let disk = fs::read_to_string(&path).unwrap();
     assert!(disk.starts_with(&format!("A{line}")));
     assert_eq!(
@@ -916,7 +918,8 @@ fn large_files_save_in_the_background_while_editing() {
     assert!(!doc.is_dirty());
     doc.execute(Command::Redo, 10, 4);
 
-    // 被替换的原文件还开着，文档仍然能读、能再存；期间没再改时存完就是已保存。
+    // 被替换的原文件仍处于打开状态，文档仍可读取、可再次保存；写入期间没有新的修改时，
+    // 保存完成后即为已保存状态。
     assert_eq!(doc.text().line_content(count).slice(), "");
     let job = doc.begin_save().unwrap().unwrap();
     doc.finish_save(job.run()).unwrap();
@@ -963,7 +966,7 @@ fn reopening_with_an_encoding_refuses_files_grown_past_the_large_limit() {
     fs::remove_dir_all(&dir).unwrap();
 }
 
-/// 回归：有多个硬链接的大文件保存时改名替换，断开了链接（属于其他用户的文件同理会换掉属主）。
+/// 回归：有多个硬链接的大文件保存时被改名替换，链接随之断开（属于其他用户的文件同样会改变属主）。
 #[cfg(unix)]
 #[test]
 fn large_files_with_hard_links_are_not_replaced() {
@@ -987,7 +990,7 @@ fn large_files_with_hard_links_are_not_replaced() {
     fs::remove_dir_all(&dir).unwrap();
 }
 
-/// 回归：改名替换以后文件的属组变成当前用户的默认组；当前用户只属于一个组时跳过。
+/// 回归：改名替换后文件的属组变为当前用户的默认组；当前用户只属于一个组时跳过该测试。
 #[cfg(unix)]
 #[test]
 fn saving_keeps_the_group() {
@@ -1012,5 +1015,131 @@ fn saving_keeps_the_group() {
     doc.save().unwrap();
     assert_eq!(fs::read_to_string(&path).unwrap(), "new old\n");
     assert_eq!(fs::metadata(&path).unwrap().gid(), other);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 大文件按整行断行：全文断行在后台任务中计算，结果采用前保持原有的断行状态。
+///
+/// 超长行超过 `MAX_LINE_CHARS` 的部分同样断开，结果与按整行断开的参照相同；
+/// 设置或内容在任务完成前变化时，结果不被采用。
+#[test]
+fn large_files_wrap_whole_lines_in_the_background() {
+    let dir = scratch("large-wrap");
+    let path = dir.join("dump.sql");
+    let mut content = String::new();
+    let mut i = 0;
+    while content.len() <= LARGE_FILE as usize {
+        if i % 4 == 3 {
+            content.push_str("-- 注释\n");
+        } else {
+            let values = (0..9_000)
+                .map(|n| format!("({n},'订单 {i}')"))
+                .collect::<Vec<_>>();
+            content.push_str(&format!("INSERT INTO t VALUES {};\n", values.join(",")));
+        }
+        i += 1;
+    }
+    fs::write(&path, &content).unwrap();
+    let rope = Rope::from_str(&content);
+    let whole = |line: usize, width: usize| {
+        let chars: Vec<char> = rope.line_content(line).slice().chars().collect();
+        winc_core::wrap::breaks(&chars, width, 4)
+    };
+
+    let mut doc = Document::open(DocumentId(1), path.clone()).unwrap();
+    assert!(doc.is_large());
+    assert!(!doc.ensure_wrap(Some(80), 4) && doc.wrap_pending());
+    let job = doc.take_wrap_job().unwrap();
+    assert!(doc.take_wrap_job().is_none(), "同样的任务只交出一次");
+    // 任务完成前预先断开屏幕上的行：这些行立即换行，其余行暂按一段显示。
+    assert!(doc.preview_wrap(1, 50) && doc.is_wrapping());
+    assert_eq!(doc.rows_of(1), whole(1, 80).rows());
+    assert_eq!((doc.rows_of(0), doc.rows_of(2)), (1, 1));
+    assert!(doc.is_long_line(1) && doc.line_window(1, 300..301).is_some());
+    assert!(!doc.preview_wrap(1, 50), "同一设置下只预先断开一次");
+    assert!(doc.ensure_wrap(Some(80), 4) && doc.wrap_pending());
+    assert!(doc.finish_wrap(job.run()) && doc.is_wrapping() && !doc.wrap_pending());
+    for line in 0..rope.line_count() {
+        assert_eq!(
+            doc.rows_of(line),
+            whole(line, 80).rows(),
+            "第 {line} 行的段数"
+        );
+    }
+    assert!(
+        doc.rows_of(0) > winc_core::text::MAX_LINE_CHARS / 80,
+        "超过上限的部分同样断开"
+    );
+    assert_eq!(doc.line_breaks(0), whole(0, 80));
+
+    // 长行有行内索引：任取若干段窗口，文字与断点都与整行断开的结果相同，且窗口不含整行。
+    assert!(doc.is_long_line(0) && !doc.is_long_line(3));
+    let reference = whole(0, 80);
+    let rows = reference.rows();
+    let line: Vec<char> = rope.line_content(0).slice().chars().collect();
+    for parts in [0..1, 5..40, 127..129, 300..301, rows - 2..rows] {
+        let window = doc.line_window(0, parts.clone()).unwrap();
+        assert!(window.part <= parts.start && window.chars.len() < line.len() / 2);
+        assert_eq!(window.col, reference.start_of(window.part));
+        assert_eq!(
+            window.chars[..],
+            line[window.col..window.col + window.chars.len()]
+        );
+        for part in parts {
+            let (range, indent) = window.row(part);
+            let range = window.col + range.start..window.col + range.end;
+            assert_eq!(range, reference.range(part, line.len()), "第 {part} 段");
+            assert_eq!(indent, reference.indent_of(part));
+            assert_eq!(window.is_last(part), part + 1 == rows);
+        }
+    }
+    for col in [0, 79, 80, 5_000, line.len() - 1, line.len()] {
+        assert_eq!(
+            doc.part_of(0, col),
+            reference.row_of(col),
+            "第 {col} 个字符"
+        );
+    }
+    // 显示行与位置的换算同样只取所在的窗口。
+    let deep = rows - 3;
+    let pos = doc.pos_in_row(deep, 0, 4);
+    assert_eq!(pos, reference.start_of(deep));
+    assert_eq!(doc.row_at(pos), deep);
+
+    // 编辑后只重算受影响的行，结果仍然可用，不需要新的后台任务。
+    doc.selection = Selection::point(doc.text().line_start(1) + 10);
+    doc.execute(Command::Insert("插入的文字".repeat(30)), 10, 4);
+    assert!(doc.ensure_wrap(Some(80), 4) && !doc.wrap_pending());
+    let edited: Vec<char> = doc.text().line_content(1).slice().chars().collect();
+    let reference = winc_core::wrap::breaks(&edited, 80, 4);
+    assert_eq!(doc.rows_of(1), reference.rows());
+    // 行内的断点随编辑移动，行内索引随之更新。
+    let last = reference.rows() - 1;
+    let window = doc.line_window(1, last..last + 1).unwrap();
+    let (range, _) = window.row(last);
+    assert_eq!(
+        window.col + range.start..window.col + range.end,
+        reference.range(last, edited.len())
+    );
+
+    // 修改宽度后、任务完成前再修改内容：结果作废，原有断行保持不变，等待新的任务。
+    assert!(doc.ensure_wrap(Some(60), 4) && doc.wrap_pending());
+    let job = doc.take_wrap_job().unwrap();
+    doc.selection = Selection::point(0);
+    doc.execute(Command::Insert("x".into()), 10, 4);
+    doc.ensure_wrap(Some(60), 4);
+    assert!(
+        doc.take_wrap_job().is_none(),
+        "上一个任务完成前不交出新任务"
+    );
+    assert!(!doc.finish_wrap(job.run()));
+    assert_eq!(doc.wrap_width(), Some((80, 4)));
+    doc.ensure_wrap(Some(60), 4);
+    let job = doc.take_wrap_job().unwrap();
+    assert!(doc.finish_wrap(job.run()));
+    assert_eq!(doc.wrap_width(), Some((60, 4)));
+
+    // 关闭换行立即生效，不经后台任务。
+    assert!(!doc.ensure_wrap(None, 4) && !doc.wrap_pending());
     fs::remove_dir_all(&dir).unwrap();
 }

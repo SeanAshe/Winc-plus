@@ -1,7 +1,7 @@
-//! 渲染层：swash 光栅化字形，CPU 合成整帧，写进窗口的呈现缓冲。
+//! 渲染层：用 swash 光栅化字形，由 CPU 合成整帧并写入窗口的呈现缓冲。
 //!
-//! [`Renderer`] 负责字体加载、字形缓存和整帧的呈现；绘制通过 [`Frame`] 完成，所有坐标都是逻辑像素，
-//! 呈现时按 [`Renderer::scale_factor`] 换算成物理像素。颜色是未预乘的 sRGB 分量，
+//! [`Renderer`] 负责字体加载、字形缓存和整帧的呈现；绘制通过 [`Frame`] 完成，所有坐标都是
+//! 逻辑像素，呈现时按 [`Renderer::scale_factor`] 换算成物理像素。颜色是未预乘的 sRGB 分量，
 //! 打包时使用 `0xAARRGGBB` 布局。macOS 用 `IOSurface` 呈现（`present/macos.rs`），
 //! 其他平台用软件缓冲（`present/soft.rs`）。
 
@@ -145,18 +145,18 @@ impl Rect {
     }
 }
 
-/// 画面上一块的像素拷贝（物理像素），见 [`Frame::snapshot`]。
+/// 画面上一块区域的像素副本（物理像素），见 [`Frame::snapshot`]。
 ///
-/// 整个窗口的拷贝在 2× 屏上超过 10 MB，因此不实现 `Clone`，避免被无意复制。
+/// 整个窗口的副本在 2× 屏上超过 10 MB，因此不实现 `Clone`，避免被无意复制。
 pub struct Snapshot {
     area: draw::canvas::IRect,
     px: Vec<u32>,
-    /// 存下来时的缩放系数：换了显示器以后不再适用。
+    /// 保存时的缩放系数：切换显示器后快照不再适用。
     scale: f32,
 }
 
 impl Default for Snapshot {
-    /// 空的快照，用来给 [`Frame::snapshot_into`] 当缓冲。
+    /// 创建空的快照，用作 [`Frame::snapshot_into`] 的缓冲。
     fn default() -> Self {
         Snapshot {
             area: draw::canvas::IRect::new(0, 0, 0, 0),
@@ -167,7 +167,7 @@ impl Default for Snapshot {
 }
 
 impl Snapshot {
-    /// 存下来的范围是否就是 `rect`（逻辑像素）在缩放系数 `scale` 下的位置。
+    /// 是否保存的范围恰为 `rect`（逻辑像素）在缩放系数 `scale` 下的位置。
     pub fn covers(&self, rect: Rect, scale: f32) -> bool {
         self.scale == scale && self.area == rect.to_pixels(scale)
     }
@@ -199,17 +199,17 @@ pub struct Metrics {
 
 /// 字形缓存一代的软上限（字节，2 MiB）。
 ///
-/// 缓存分新旧两代（见 `Generations`），平时合起来最多约 4 MiB；超过时在下一帧开头换代，旧一代
-/// 里又用到的字形搬回来，不必重新光栅化。一帧要的字形多于一代时（中文密集的一屏，每个字最多
-/// 4 种子像素位置），这一帧用到的字形仍然全部保留，最多到上限的 4 倍。该值是经验值。
+/// 缓存分新旧两代（见 `Generations`），通常合计最多约 4 MiB；超过上限时在下一帧开始时换代，
+/// 旧一代中再次用到的字形移回新一代，无需重新光栅化。一帧所需的字形多于一代时（中文密集的
+/// 一屏，每个字最多 4 种亚像素位置），该帧用到的字形仍全部保留，最多达到上限的 4 倍。
 const GLYPH_CACHE_BYTES: usize = 2 << 20;
 /// 前进宽度缓存的最大项数（项，65536）。
 ///
-/// 每种字号的每个字符各占一项，浏览大量中文或反复切换字号时会持续增长，因此满了就整体清空；
+/// 每种字号的每个字符各占一项，浏览大量中文或反复切换字号时会持续增长，因此达到上限时整体清空；
 /// 重新测量单个字符只需查一次字体度量表。
 const ADVANCE_CACHE_ENTRIES: usize = 1 << 16;
 
-/// 原样不变的覆盖率映射表：描边蒙版按算出的覆盖率混合，不按背景调整浓淡。
+/// 恒等覆盖率映射表：描边蒙版按计算出的覆盖率混合，不按背景调整浓淡。
 const LINEAR_COVERAGE: [u8; 256] = {
     let mut table = [0; 256];
     let mut i = 0;
@@ -231,10 +231,10 @@ const OBLIQUE_DEGREES: f32 = 10.0;
 /// 避免相邻字之间过于拥挤。
 const BOLD_RATIO: f32 = 1.0 / 24.0;
 
-/// 字体本身没有、绘制时模拟出来的字形变化：粗体加宽笔画，斜体把正体斜切。
+/// 字体本身不提供、在绘制时模拟的字形变化：粗体加宽笔画，斜体把正体斜切。
 ///
-/// Markdown 预览里的加粗、强调用它，因此不用另外加载粗体、斜体字体文件，后备字体（例如中文）
-/// 也一样能加粗、倾斜。
+/// Markdown 预览中的加粗、强调使用该模拟，因此无需另外加载粗体、斜体字体文件，后备字体（例如
+/// 中文字体）同样可以加粗、倾斜。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct Faux {
     /// 加粗。
@@ -247,26 +247,28 @@ pub struct Faux {
 pub struct Renderer {
     /// 呈现目标：窗口或内存图像。
     target: Target,
-    /// 字体、字形缓存和前进宽度缓存；同一个进程里的几个窗口可以共用同一个缓存（[`SharedGlyphs`]）。
+    /// 字体、字形缓存和前进宽度缓存；同一进程中的多个窗口可以共用同一缓存（[`SharedGlyphs`]）。
     pub(crate) glyphs: Rc<RefCell<GlyphCache>>,
     /// 图标描边的覆盖率蒙版缓存。
     strokes: StrokeCache,
     /// 覆盖率映射表：深色背景上的浅色文字略微加粗，避免显得单薄；随背景色调整。
     gamma: [u8; 256],
-    /// 逻辑像素到物理像素的倍数：系统的缩放系数乘以 [`Self::zoom`]；[`Self::resize`] 和
+    /// `gamma` 是否为深色背景的映射表（见 [`is_dark`]）。
+    dark: bool,
+    /// 逻辑像素到物理像素的倍数：系统的缩放系数乘以 [`Self::zoom`]；调用 [`Self::resize`] 和
     /// [`Self::set_zoom`] 时更新。
     scale: f32,
     /// 界面缩放倍数，1 为不缩放（见 [`Self::set_zoom`]）。
     zoom: f32,
     /// 当前背景色，打包成 `0xAARRGGBB`。
     background: u32,
-    /// 下一帧画的内容一定会不透明地整个盖住的一块（逻辑像素），铺背景色时跳过，见
+    /// 下一帧必然被不透明内容完全覆盖的区域（逻辑像素），填充背景色时跳过，见
     /// [`Self::cover_next_frame`]。
     cover: Option<Rect>,
 }
 
-/// 可以给几个渲染器共用的字体和字形缓存：同一个进程里的几个窗口用同样的字体，光栅化好的字形
-/// 不必每个窗口各存一遍（键里带着物理像素字号，不同缩放的屏幕上的窗口也能共用）。
+/// 可供多个渲染器共用的字体和字形缓存：同一进程中的多个窗口使用相同的字体，已光栅化的字形无需
+/// 每个窗口各存一份（键中包含物理像素字号，不同缩放的屏幕上的窗口也能共用）。
 ///
 /// 只在界面线程上使用。
 #[derive(Clone)]
@@ -288,13 +290,19 @@ pub struct Image {
     pub height: u32,
 }
 
+/// 背景是否为深色：按 Rec. 709 的系数加权计算的亮度低于 0.5。
+///
+/// 深色与浅色背景各用一张覆盖率映射表（[`gamma_for`]）。
+fn is_dark(background: Color) -> bool {
+    0.2126 * background.r + 0.7152 * background.g + 0.0722 * background.b < 0.5
+}
+
 /// 按背景亮度生成覆盖率映射表。
 ///
-/// 亮度按 Rec. 709 的系数加权计算。亮度低于 0.5 的深色背景取指数 1.25，其余取 1.1；指数越大，
-/// 半透明的覆盖率被抬得越高，文字越粗。这两个指数都是经验值。
+/// 深色背景（[`is_dark`]）取指数 1.25，其余取 1.1；指数越大，半透明的覆盖率提升越多，
+/// 文字越粗。两个指数取自调参。
 fn gamma_for(background: Color) -> [u8; 256] {
-    let luminance = 0.2126 * background.r + 0.7152 * background.g + 0.0722 * background.b;
-    let exponent = if luminance < 0.5 { 1.25 } else { 1.1 };
+    let exponent = if is_dark(background) { 1.25 } else { 1.1 };
 
     std::array::from_fn(|i| {
         let coverage = i as f32 / 255.0;
@@ -310,8 +318,8 @@ impl Renderer {
     ///
     /// # Errors
     ///
-    /// 字体文件不存在、无法读取或格式不支持时返回错误描述；创建平台呈现缓冲失败时同样返回
-    /// 错误描述。
+    /// 字体文件不存在、无法读取或格式不支持时返回错误描述；
+    /// 创建平台呈现缓冲失败时同样返回错误描述。
     pub fn new(
         window: Arc<Window>,
         background: Color,
@@ -323,8 +331,8 @@ impl Renderer {
         Self::with_glyphs(window, background, SharedGlyphs(new_glyphs(fonts)))
     }
 
-    /// 同 [`Renderer::new`]，字体和字形缓存用 `glyphs`（另一个窗口的渲染器的，见
-    /// [`Renderer::shared_glyphs`]），不再加载一遍字体。
+    /// 与 [`Renderer::new`] 相同，但使用 `glyphs`（另一个窗口渲染器的字体和字形缓存，见
+    /// [`Renderer::shared_glyphs`]），不再重复加载字体。
     ///
     /// # Errors
     ///
@@ -342,6 +350,7 @@ impl Renderer {
             glyphs: glyphs.0,
             strokes: StrokeCache::new(),
             gamma: gamma_for(background),
+            dark: is_dark(background),
             scale,
             zoom: 1.0,
             background: background.argb(),
@@ -375,6 +384,7 @@ impl Renderer {
             glyphs: new_glyphs(Fonts::load(mono, ui, None)?),
             strokes: StrokeCache::new(),
             gamma: gamma_for(background),
+            dark: is_dark(background),
             scale,
             zoom: 1.0,
             background: background.argb(),
@@ -382,17 +392,17 @@ impl Renderer {
         })
     }
 
-    /// 本渲染器的字体和字形缓存，供之后新建的窗口共用（[`Renderer::with_glyphs`]）。
+    /// 返回本渲染器的字体和字形缓存，供之后新建的窗口共用（[`Renderer::with_glyphs`]）。
     pub fn shared_glyphs(&self) -> SharedGlyphs {
         SharedGlyphs(Rc::clone(&self.glyphs))
     }
 
-    /// 改用 `glyphs` 这份字体和字形缓存（离屏渲染的测量里模拟同一个进程的第二个窗口）。
+    /// 改用 `glyphs` 中的字体和字形缓存（用于在离屏渲染的测量中模拟同一进程的第二个窗口）。
     pub fn use_glyphs(&mut self, glyphs: SharedGlyphs) {
         self.glyphs = glyphs.0;
     }
 
-    /// 离屏渲染时返回最近画好的一帧；呈现到窗口时返回 `None`。
+    /// 离屏渲染时返回最近绘制完成的一帧；呈现到窗口时返回 `None`。
     pub fn image(&self) -> Option<&Image> {
         match &self.target {
             Target::Window(..) => None,
@@ -404,12 +414,13 @@ impl Renderer {
     pub fn set_background(&mut self, background: Color) {
         self.background = background.argb();
         self.gamma = gamma_for(background);
+        self.dark = is_dark(background);
     }
 
     /// 更换字体；用户在设置界面修改字体名或字体文件后调用，失败时保留原字体。
     ///
-    /// 重新加载字体会重新测量度量，因此整个字形缓存清空：缓存中的字形都带着旧字体的槽位和字形
-    /// id，不清空会画出错误的字符。共用这份缓存的其他窗口也一起换，它们随后收到同样的配置。
+    /// 重新加载字体会重新测量度量，因此整个字形缓存清空：缓存中的字形都带有旧字体的槽位和字形
+    /// id，不清空会绘制出错误的字符。共用该缓存的其他窗口同时更换字体，随后收到相同的配置。
     ///
     /// # Errors
     ///
@@ -445,7 +456,7 @@ impl Renderer {
     ///
     /// 缩放变化时不清空字形缓存和描边缓存：两者的键都按物理像素计算（字号、描边坐标），
     /// 不同缩放的结果互不冲突；字形缓存由各窗口共用，按旧缩放光栅化的条目不再使用后按代淘汰。
-    /// 离屏渲染时不做任何事。
+    /// 离屏渲染时不做处理。
     pub fn resize(&mut self) {
         let Target::Window(window, presenter) = &mut self.target else {
             return;
@@ -454,14 +465,14 @@ impl Renderer {
         let scale = window.scale_factor();
 
         self.scale = scale as f32 * self.zoom;
-        // 呈现缓冲的像素密度是屏幕的，与界面缩放无关。
+        // 呈现缓冲的像素密度取决于屏幕，与界面缩放无关。
         presenter.resize(size.width, size.height, scale);
     }
 
-    /// 返回应当处理空闲的呈现缓冲的时刻：macOS 上标成可清除，其他平台上释放（Wayland 除外）；
-    /// 都已处理好或离屏渲染时为 `None`。
+    /// 返回应处理空闲呈现缓冲的时刻：macOS 上标记为可清除，其他平台上释放（Wayland 除外）；
+    /// 均已处理或离屏渲染时为 `None`。
     ///
-    /// 停止绘制后可能不再画新的一帧，因此调用方按该时刻安排唤醒，到时调用
+    /// 停止绘制后可能不再绘制新的一帧，因此调用方按该时刻安排唤醒，到时调用
     /// [`Self::make_idle_purgeable`]。
     pub fn purgeable_at(&self) -> Option<std::time::Instant> {
         match &self.target {
@@ -470,28 +481,28 @@ impl Renderer {
         }
     }
 
-    /// 处理空闲的呈现缓冲：macOS 上将当前显示的一块以外的缓冲标为可清除（不计入进程内存，系统
-    /// 可以收回），其他平台上释放窗口缓冲，下一帧重建；距上次绘制未到规定时长时不做处理。
+    /// 处理空闲的呈现缓冲：macOS 上把当前显示的缓冲以外的缓冲标记为可清除（不计入进程内存，系统
+    /// 可以回收），其他平台上释放窗口缓冲，下一帧重建；距上次绘制未到规定时长时不做处理。
     pub fn make_idle_purgeable(&mut self) {
         if let Target::Window(_, presenter) = &mut self.target {
             presenter.make_idle_purgeable();
         }
     }
 
-    /// 设置窗口是否在前台（有焦点且没有被完全遮住）。
+    /// 设置窗口是否在前台（有焦点且没有被完全遮挡）。
     ///
-    /// 转入后台时马上把屏幕上显示着的那块以外的呈现缓冲标成可清除。
+    /// 转入后台时立即把当前显示的缓冲以外的呈现缓冲标记为可清除。
     pub fn set_foreground(&mut self, foreground: bool) {
         if let Target::Window(_, presenter) = &mut self.target {
             presenter.set_foreground(foreground);
         }
     }
 
-    /// 设置窗口是否完全看不见（被挡住、最小化、在别的桌面上）：看不见时屏幕上显示着的那块
-    /// 呈现缓冲也标成可清除，重新可见时标回不可清除。
+    /// 设置窗口是否完全不可见（被遮挡、最小化、位于其他桌面）：不可见时当前显示的呈现缓冲也
+    /// 标记为可清除，重新可见时恢复为不可清除。
     ///
-    /// 调用方在看不见期间不绘制，重新可见后马上重画一帧（内容可能已被系统收回）。离屏渲染时
-    /// 不做任何事。
+    /// 调用方在不可见期间不绘制，重新可见后立即重绘一帧（内容可能已被系统回收）。
+    /// 离屏渲染时不做处理。
     pub fn set_occluded(&mut self, occluded: bool) {
         if let Target::Window(_, presenter) = &mut self.target {
             presenter.set_occluded(occluded);
@@ -507,8 +518,8 @@ impl Renderer {
         (w as f32 / self.scale, h as f32 / self.scale)
     }
 
-    /// 返回一段文字按字体 `kind`、字号 `size` 排出的宽度（逻辑像素），与绘制时
-    /// [`Frame::measure`] 的结果相同；布局在绘制之前用它折行。
+    /// 返回一段文字按字体 `kind`、字号 `size` 排版后的宽度（逻辑像素），与绘制时
+    /// [`Frame::measure`] 的结果相同；布局在绘制之前据此折行。
     pub fn measure(&self, kind: FontKind, size: f32, text: &str) -> f32 {
         let mut glyphs = self.glyphs.borrow_mut();
         text.chars().map(|c| glyphs.advance(kind, size, c)).sum()
@@ -525,25 +536,26 @@ impl Renderer {
         self.glyphs.borrow().metrics(kind, size)
     }
 
-    /// 声明下一帧（下一次 `Self::draw`）的 `paint` 一定会用不透明的颜色整个盖住 `rect`；
-    /// 铺背景色时跳过这一块（四边各留一个像素给抗锯齿），避免每帧先把编辑区这样的大块铺一遍，
-    /// 再盖掉。
+    /// 声明下一帧（下一次 `Self::draw`）的 `paint` 必然以不透明的颜色完全覆盖 `rect`。
+    ///
+    /// 填充背景色时跳过该区域（四边各留一个像素用于抗锯齿），
+    /// 避免每帧先填充编辑区等大块区域再将其覆盖。
     pub fn cover_next_frame(&mut self, rect: Rect) {
         self.cover = Some(rect);
     }
 
-    /// 绘制一帧：先铺满背景色（[`Self::cover_next_frame`] 说明的那一块除外），再调用 `paint`，
+    /// 绘制一帧：先填充背景色（[`Self::cover_next_frame`] 声明的区域除外），再调用 `paint`，
     /// 最后呈现（离屏渲染时只写入内存图像）。
     ///
-    /// 呈现缓冲都被合成器占着、等不到空闲的一块时不画（不调用 `paint`），返回 `false`：调用方
-    /// 在下一次屏幕刷新时再画。画了返回 `true`。
+    /// 呈现缓冲都被合成器占用、无法取得空闲缓冲时不绘制（不调用 `paint`），返回 `false`：调用方
+    /// 在下一次屏幕刷新时重试。绘制完成时返回 `true`。
     pub fn draw(&mut self, paint: impl FnOnce(&mut Frame<'_>)) -> bool {
         let (w, h) = self.logical_size();
         let bounds = Rect::new(0.0, 0.0, w, h);
         let mut glyphs = self.glyphs.borrow_mut();
         glyphs.new_frame();
         let glyphs = &mut *glyphs;
-        let (strokes, gamma) = (&mut self.strokes, &self.gamma);
+        let (strokes, gamma, dark) = (&mut self.strokes, &self.gamma, self.dark);
         let (scale, background) = (self.scale, self.background);
         let cover = self.cover.take().map(|rect| {
             let mut area = rect.to_pixels(scale);
@@ -558,6 +570,7 @@ impl Renderer {
                 glyphs,
                 strokes,
                 gamma,
+                dark,
                 scale,
                 bounds,
                 limit: bounds,
@@ -585,7 +598,7 @@ impl Renderer {
     /// 在透明底上离屏绘制一张 `width`×`height`（逻辑像素）的小图，按当前缩放系数绘制，
     /// 用于生成系统菜单图标。
     ///
-    /// 画布不保存透明度，因此 `paint` 会画两遍（一次黑底、一次白底），再逐像素还原透明度。
+    /// 画布不保存透明度，因此 `paint` 会执行两次（一次黑底、一次白底），再逐像素还原透明度。
     /// 返回的像素已预乘透明度。
     pub fn draw_transparent(
         &mut self,
@@ -612,6 +625,7 @@ impl Renderer {
                 glyphs: &mut glyphs,
                 strokes: &mut self.strokes,
                 gamma: &self.gamma,
+                dark: self.dark,
                 scale: self.scale,
                 bounds: Rect::new(0.0, 0.0, width, height),
                 limit: Rect::new(0.0, 0.0, width, height),

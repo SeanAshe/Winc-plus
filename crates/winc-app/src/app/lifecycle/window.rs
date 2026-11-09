@@ -209,6 +209,13 @@ impl App {
         if self.goto_input.is_some() && self.focus != Focus::Prompt {
             self.goto_input = None;
         }
+        // 切换到不能替换的标签时收起替换。
+        if self.replace_open && !self.can_replace() {
+            self.replace_open = false;
+            if self.focus == Focus::Replace {
+                self.focus = Focus::Search;
+            }
+        }
         let Some(renderer) = &self.renderer else {
             return;
         };
@@ -270,8 +277,8 @@ impl App {
         self.place_minimap();
 
         self.place_outline();
-        // 侧栏显示搜索面板时没有文件树，点击、悬停和滚动不能落在文件树原来的区域上。
-        if self.sidebar_view == SidebarView::Search {
+        // 搜索和历史差异各有自己的列表，不能命中工作区文件树原来的区域。
+        if self.sidebar_view == SidebarView::Search || self.log_diff_tree().is_some() {
             let tree = self.layout.tree;
             self.layout.tree = Rect::new(tree.x, tree.y, 0.0, 0.0);
         }
@@ -533,6 +540,9 @@ impl App {
             (self.frame_log).record(elapsed, refresh, (size.width, size.height));
         }
         self.refresh_hover();
+        // 命中测试区域随本帧的布局更新；两帧之间的落指与抬手由 `on_touch` 另行同步。
+        #[cfg(windows)]
+        self.sync_window_input();
 
         // 高亮状态尚未推算完、大文件尚未搜完时，马上绘制下一帧，不按刷新率等：每帧本身有预算
         // （高亮 `HIGHLIGHT_BUDGET` 行、查找一个 8 ms 的时间片），已经不比刷新间隔短，按刷新率

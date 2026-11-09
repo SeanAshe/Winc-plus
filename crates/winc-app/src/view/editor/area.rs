@@ -25,8 +25,8 @@ use crate::app::git::merge::MergeTarget;
 pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize) {
     let layout = app.layout;
 
-    // 折叠或展开动画进行中，按展开后的位置与高度绘制：临时换上该状态的折叠与滚动位置，
-    // 绘制完再恢复。
+    // 折叠或展开动画进行中，按展开后的位置与高度绘制：临时替换为该状态的折叠与滚动位置，
+    // 绘制后恢复。
     let mut motion = app
         .fold_motion
         .take()
@@ -39,21 +39,31 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
     let motion_ref = motion.as_ref();
     let hidden = motion_ref.map_or(0.0, |m| m.hidden(app.fonts.line_height));
 
-    // `scroll_line` 以显示行计；被折叠隐藏的行不显示，因此屏幕上显示的是文件中的若干段连续的行。
+    // `scroll_line` 以显示行计；折叠隐藏的行不显示，因此屏幕上显示的是文件中若干段连续的行。
     let doc = &mut app.editor.documents[index];
     let first_row = doc.scroll_line.floor().max(0.0) as usize;
-    // 动画中变化的那段行只收起了一部分，因此下方多绘制几行。
+    // 动画中变化的行仅收起了一部分，因此下方额外绘制与这些行数量相同的行。
     let rows = (layout.text.h / app.fonts.line_height).ceil() as usize
         + 1
         + motion_ref.map_or(0, |m| m.rows.len());
     let segments = doc
         .folds()
         .segments(first_row, rows, doc.text().line_count());
-    // CSV 按列对齐：取得每一列的起始位置。
+    // CSV 按列对齐时需要每一列的起始位置。
     let columns = doc.columns(doc.tab_width(app.editor.tab_width));
+    let origin_x = layout.text.x + TEXT_PAD - doc.scroll_x;
+    let span = (origin_x, layout.text.right(), app.cell);
+    let read_cap = line_read_cap(doc, columns.is_some(), span);
     let states: Vec<Option<LineState>> = segments
         .iter()
-        .map(|range| doc.highlight_state(range.start, HIGHLIGHT_BUDGET))
+        .map(|range| {
+            let start = doc.highlight_state(range.start, HIGHLIGHT_BUDGET);
+            // 行未读全时，下一行的高亮状态无法由该行顺推：先推算到本段最后一行，绘制时逐行取用。
+            if read_cap < MAX_LINE_BYTES {
+                doc.highlight_state(range.end.saturating_sub(1), HIGHLIGHT_BUDGET);
+            }
+            start
+        })
         .collect();
     app.highlight_pending |= states.iter().any(Option::is_none);
     // 鼠标在行号栏上时，所有可折叠的行都绘制箭头（已折叠的行始终绘制）。
@@ -69,15 +79,15 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
     let conflicts = app.conflicts(index);
     let mut merge_hits = Vec::new();
 
-    // 与 `HEAD` 比较出的改动绘制在行号右边；卡片打开着的那一处在文字区铺一层底色。
+    // 与 `HEAD` 比较得到的改动绘制在行号右侧；改动卡片打开的一处在文字区铺一层底色。
     app.update_line_changes(index);
     let id = app.editor.documents[index].id;
 
-    // 逐行追溯绘制在行号栏左边多出来的一栏里。
+    // 逐行追溯绘制在行号栏左侧额外的一栏中。
     app.update_blame(id);
     let blame_w = app.blame_width();
     let blame = (blame_w > 0.0).then(|| app.blame_of(id)).flatten();
-    // 新旧的范围：最旧的提交色条最淡，最新的最深。
+    // 提交时间的范围：最旧的提交色条最淡，最新的最深。
     let ages = blame.as_ref().map(|b| {
         let times = b.commits.iter().filter(|c| !c.uncommitted).map(|c| c.time);
         (times.clone().min().unwrap_or(0), times.max().unwrap_or(0))
@@ -94,7 +104,7 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
 
     {
         let app = &*app;
-        // 三栏合并里改动由连接带表示，不再标出与 `HEAD` 的差别。
+        // 三栏合并中改动由连接带表示，不再标出与 `HEAD` 的差别。
         let hunks = if app.merge_panes_placed() {
             &[][..]
         } else {
@@ -104,13 +114,13 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
         let text = doc.text();
         let tab_width = doc.tab_width(app.editor.tab_width);
         let lh = app.fonts.line_height;
-        // 查找对着分栏右边的预览时，匹配的位置是预览文字里的，不标在左边。
+        // 查找对象是分栏右侧的预览时，匹配位置属于预览文字，不在左侧标注。
         let show_matches = layout.search.h > 0.0 && !app.markdown_focused();
 
         let selection = doc.selection;
         let (caret_line, caret_col) = text.pos_to_line_col(selection.head);
-        // 多光标：主选区以外、落在可见范围里的选区和光标（行，列）。光标可能有上万个，
-        // 只取看得见的。
+        // 多光标：主选区以外、位于可见范围内的选区和光标（行，列）。光标可能有上万个，
+        // 只取可见的部分。
         let shown_range = {
             let first = segments.first().map_or(0, |r| r.start);
             let end = segments.last().map_or(0, |r| r.end);
@@ -140,14 +150,15 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
             segments: &segments,
             visible: visible.clone(),
             first_row,
-            offset: (doc.scroll_line - first_row as f32) * lh,
+            offset: (doc.scroll_line - first_row as f64) as f32 * lh,
             motion: motion_ref,
             hidden,
             turning: motion_ref.map(|m| (doc.line_of_row(m.rows.start - 1), m.reveal())),
             text_rect: layout.text,
             gutter: layout.gutter,
             editor: layout.editor,
-            origin_x: layout.text.x + TEXT_PAD - doc.scroll_x,
+            origin_x,
+            read_cap,
             cell: app.cell,
             lh,
             tab_width,
@@ -158,8 +169,8 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
             language: doc.highlighter.language(),
             focused: app.focus == Focus::Editor,
             show_matches,
-            // 光标所在的词在屏幕上其他位置的出现。查找条打开时只标注查找结果，避免两种底色混在
-            // 一起；屏幕上只有该词自己时不标注。
+            // 光标所在的词在屏幕上其他位置的出现。查找条打开时只标注查找结果，避免两种底色混杂；
+            // 屏幕上只有该词本身时不标注。
             occurrences: (!show_matches)
                 .then(|| Occurrences::of(doc))
                 .flatten()
@@ -190,7 +201,7 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
         screen.draw_current_lines(frame);
         screen.draw_selections(frame);
 
-        // 动画中变化的那段行：停在原位，只露出动画已展开的那一截；起始行的箭头随进度转动。
+        // 动画中变化的行：位置不变，只显示动画已展开的部分；起始行的箭头随进度旋转。
         let curtain = motion_ref.map(|m| {
             let top = screen.top_of(m.rows.start);
             let h = m.rows.len() as f32 * lh - hidden;
@@ -199,9 +210,12 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
         // 每一段都从缓存的行首高亮状态开始绘制；状态尚未推算完时按普通文本处理。
         for (range, start) in segments.iter().zip(&states) {
             let mut state = start.unwrap_or(LineState::Normal);
-            text.visit_lines(range.start, MAX_LINE_BYTES, |line, line_start, content| {
+            text.visit_lines(range.start, read_cap, |line, line_start, content| {
                 if line >= range.end {
                     return ControlFlow::Break(());
+                }
+                if read_cap < MAX_LINE_BYTES {
+                    state = doc.known_highlight_state(line).unwrap_or(state);
                 }
                 let mut draw = |frame: &mut Frame<'_>| {
                     screen.draw_line(frame, &mut scratch, line, line_start, content, &mut state)
@@ -240,13 +254,13 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
 struct Screen<'a> {
     app: &'a App,
     doc: &'a Document,
-    /// 屏幕上显示的几段连续的行（文件中的行号）；`visible` 是从第一段开头到最后一段末尾。
+    /// 屏幕上显示的各段连续的行（文件中的行号）；`visible` 是从第一段开头到最后一段末尾的范围。
     segments: &'a [Range<usize>],
     visible: Range<usize>,
-    /// 第一个显示行，以及它的顶边超出文本区上沿的距离（逻辑像素）。
+    /// 第一个显示行，以及该行顶边超出文本区上沿的距离（逻辑像素）。
     first_row: usize,
     offset: f32,
-    /// 折叠或展开动画、变化的几行尚未露出的高度，以及起始行的箭头（行，展开的比例）。
+    /// 折叠或展开动画、变化的行尚未显示的高度，以及起始行的箭头（行，展开的比例）。
     motion: Option<&'a FoldMotion>,
     hidden: f32,
     turning: Option<(usize, f32)>,
@@ -255,10 +269,12 @@ struct Screen<'a> {
     editor: Rect,
     /// 每行第 0 个单元格的 x 坐标（已减去横向滚动）。
     origin_x: f32,
+    /// 逐行读取的字节上限（字节），见 `line_read_cap`。
+    read_cap: usize,
     /// 一个单元格的宽度（逻辑像素）。
     cell: f32,
     lh: f32,
-    /// 制表符展开为几个空格（格）。
+    /// 制表符展开的宽度（单元格）。
     tab_width: usize,
     /// 缩进参考线的间隔（单元格）。
     indent_unit: usize,
@@ -267,25 +283,25 @@ struct Screen<'a> {
     /// CSV 按列对齐时各列的位置。
     columns: Option<&'a Columns>,
     language: &'static Language,
-    /// 编辑区有焦点时才绘制光标。
+    /// 是否绘制光标；仅编辑区有焦点时为真。
     focused: bool,
     /// 是否标注查找结果。
     show_matches: bool,
     occurrences: Option<Occurrences>,
-    /// 光标旁的括号和与它配对的括号（字符偏移）。
+    /// 光标旁的括号和与之配对的括号（字符偏移）。
     brace: Option<(usize, usize)>,
     /// 绘制折叠箭头的行（鼠标在行号栏上时）。
     foldable: &'a [usize],
-    /// 主选区，以及落在可见范围里的其余选区和光标（行，列）。
+    /// 主选区，以及位于可见范围内的其余选区和光标（行，列）。
     selection: Selection,
     extra: &'a [Selection],
     caret_line: usize,
     caret_col: usize,
     extra_carets: &'a [(usize, usize)],
-    /// 和 `HEAD` 比较出的改动，以及卡片打开着的那一处。
+    /// 与 `HEAD` 比较得到的改动，以及改动卡片打开的一处。
     hunks: &'a [LineHunk],
     open: Option<usize>,
-    /// 逐行追溯、它那一栏的宽度、最旧和最新的提交时间、现在的时间（Unix 秒），以及鼠标指着的
+    /// 逐行追溯、追溯栏的宽度、最旧和最新的提交时间、当前时间（Unix 秒），以及鼠标所指的
     /// 提交（`commits` 中的位置）。
     blame: Option<&'a Blame>,
     blame_w: f32,
@@ -294,7 +310,7 @@ struct Screen<'a> {
     blame_hover: Option<u32>,
 }
 
-/// 逐行绘制时复用的缓冲区，以及从各行收集起来的结果。
+/// 逐行绘制时复用的缓冲区，以及从各行收集的结果。
 struct Scratch {
     chars: Vec<char>,
     /// 按列对齐时各字符的单元格位置和所属的列。
@@ -304,11 +320,11 @@ struct Scratch {
     /// 这一行里要断开连字的列（光标和选区边界），已排序、去重。
     splits: Vec<usize>,
     number: String,
-    /// 上一个非空行的缩进（单元格）；空行沿用它绘制缩进参考线。
+    /// 上一个非空行的缩进（单元格）；空行按该缩进绘制缩进参考线。
     guide_indent: usize,
-    /// 折叠行之后的小块和它所在的行，点击后展开。
+    /// 折叠行之后的小块及其所在的行，点击小块后展开。
     folded_hits: Vec<(Rect, usize)>,
-    /// 主光标的位置，输入法的候选框跟着它。
+    /// 主光标的位置；输入法候选框跟随该位置。
     ime_cursor: Option<Rect>,
 }
 
@@ -329,30 +345,62 @@ impl Scratch {
 }
 
 /// 正在绘制的一行。
+///
+/// 按整行断开的长行只取屏幕上可见的若干段（行内窗口，见 `Document::line_window`）：此时
+/// `line_start`、`chars`、`breaks`、`y` 等均以窗口开头为准，`origin`、`first_part` 给出窗口在
+/// 整行中的位置。其他行的窗口即整行。
 struct Row<'r> {
     line: usize,
-    /// 行首和（截断后的）行尾的字符偏移。
+    /// 整行行首的字符偏移。
+    origin: usize,
+    /// `chars` 起止处的字符偏移（末尾为截断后的位置）。
     line_start: usize,
     line_end: usize,
-    /// 第一段的顶边和基线。
+    /// `chars` 的第一段在整行中的段号（从 0 起），以及 `chars` 是否到行尾为止。
+    first_part: usize,
+    ends: bool,
+    /// `chars` 第一段的顶边和基线。
     y: f32,
     baseline: f32,
     /// 行号、书签、折叠箭头在行号栏中的顶边和基线（见 `Screen::draw_line`）。
     gutter_y: f32,
     gutter_baseline: f32,
     slice: RopeSlice<'r>,
-    /// 绘制的字符（过长的行只取开头部分），以及是否截断了。
+    /// 整行的开头部分，用于计算缩进。
+    head: RopeSlice<'r>,
+    /// 绘制的字符（过长的行只取开头部分），以及是否已截断。
     chars: &'r [char],
     truncated: bool,
+    /// 与编辑区相交的段（左闭右开）。
+    parts: Range<usize>,
     /// 自动换行时的分段。
     breaks: Breaks,
     /// 按列对齐时各字符的单元格位置、所属的列和分隔符。
     aligned: Option<(&'r [usize], &'r [usize], char)>,
-    /// 这一行是否已折叠。
+    /// 本行是否已折叠。
     collapsed: bool,
-    /// 第 `i` 项是前 `i` 个字符占的格数，用到时才算（见 `Screen::place`），一行里标记再多也只
-    /// 数一遍。
+    /// 第 `i` 项是前 `i` 个字符占用的单元格数；首次使用时计算（见 `Screen::place`），
+    /// 一行中的标记无论多少只计算一次。
     prefix: std::cell::OnceCell<Vec<usize>>,
+}
+
+impl Row<'_> {
+    /// 可见各段覆盖的列（行内字符序号，左闭右开）；只有一段时为整行。
+    ///
+    /// 按整行断开的长行可达数 MB，标记和空白只在这些列内计算。
+    fn shown_cols(&self) -> Range<usize> {
+        let len = self.chars.len();
+        let rows = self.breaks.rows();
+        if rows == 1 {
+            return 0..len;
+        }
+        let end = match self.parts.end {
+            end if end < rows => self.breaks.start_of(end),
+            _ => len,
+        };
+        let start = self.breaks.start_of(self.parts.start.min(rows - 1));
+        start.min(len)..end.min(len)
+    }
 }
 
 impl Screen<'_> {
@@ -376,13 +424,13 @@ impl Screen<'_> {
         self.top_of(row) - shift
     }
 
-    /// 行 `line` 是否在动画中变化的那段行里。
+    /// 行 `line` 是否属于动画中变化的行。
     fn in_curtain(&self, line: usize) -> bool {
         self.motion
             .is_some_and(|m| m.rows.contains(&self.doc.row_of(line)))
     }
 
-    /// 三栏合并的结果一栏：连接带连到的各段铺底色，从行号栏一直铺到右边，与连接带连成一片。
+    /// 为三栏合并的结果一栏中连接带对应的各段铺底色，从行号栏延伸到右边缘，与连接带连续。
     ///
     /// 展开着的冲突由 [`Screen::draw_conflict_tints`] 按当前、对方分别上色。
     fn draw_merge_tints(&self, frame: &mut Frame<'_>) {
@@ -401,7 +449,7 @@ impl Screen<'_> {
         let p = self.app.palette;
         let editor = self.app.layout.editor;
         let clip = Rect::new(editor.x, self.text_rect.y, editor.w, self.text_rect.h);
-        // 冲突在两侧都有一段，底色是半透明的，只取第一侧绘制，否则叠加后颜色加深。
+        // 冲突在两侧各有一段，底色半透明，只按第一侧绘制，避免叠加后颜色加深。
         let segments = (aligned.iter().enumerate()).flat_map(|(side, align)| {
             (align.segments().iter()).filter(move |segment| side == 0 || segment.conflict.is_none())
         });
@@ -431,7 +479,7 @@ impl Screen<'_> {
         }
     }
 
-    /// 合并冲突：当前、对方、共同祖先各铺一种底色；标记行等文字绘制完以后绘制成标题。
+    /// 为合并冲突的当前、对方、共同祖先各铺一种底色；标记行在文字绘制后绘制为标题。
     fn draw_conflict_tints(&self, frame: &mut Frame<'_>, conflicts: &[Conflict]) {
         let p = self.app.palette;
         let text_rect = self.text_rect;
@@ -449,8 +497,8 @@ impl Screen<'_> {
         }
     }
 
-    /// 卡片打开着的那一处：现在的几行铺一层浅一些的改动底色（比卡片里原来的内容浅，长的一块
-    /// 不至于满屏都是颜色），和卡片对照着看；删掉的地方绘制一道线。
+    /// 标出改动卡片打开的一处：当前内容铺一层比卡片中原内容更浅的改动底色，使大段改动仍不遮挡
+    /// 文字，便于与卡片对照；删除处绘制一道线。
     fn draw_open_hunk(&self, frame: &mut Frame<'_>) {
         let Some(h) = self.open.and_then(|i| self.hunks.get(i)) else {
             return;
@@ -486,7 +534,7 @@ impl Screen<'_> {
     fn draw_current_lines(&self, frame: &mut Frame<'_>) {
         let primary = (
             self.caret_line,
-            self.doc.line_breaks(self.caret_line).row_of(self.caret_col),
+            self.doc.part_of(self.caret_line, self.caret_col),
         );
         let drawn = self.selection.is_empty().then_some(primary);
         if let Some(row) = drawn {
@@ -495,6 +543,7 @@ impl Screen<'_> {
         let mut previous = drawn;
         let text = self.doc.text();
         // 断行结果按行计算一次：同一行上的多个光标在 `extra` 中相邻，屏幕外的行不计算。
+        // 有行内索引的长行不计算整行断点，按光标所在的窗口换算段号。
         let mut breaks = None;
         for s in self.extra.iter().filter(|s| s.is_empty()) {
             let (line, col) = text.pos_to_line_col(s.head);
@@ -502,12 +551,14 @@ impl Screen<'_> {
                 continue;
             }
             if breaks.as_ref().is_none_or(|&(l, _)| l != line) {
-                breaks = Some((line, self.doc.line_breaks(line)));
+                let whole = (!self.doc.is_long_line(line)).then(|| self.doc.line_breaks(line));
+                breaks = Some((line, whole));
             }
-            let Some((_, line_breaks)) = &breaks else {
-                continue;
+            let part = match &breaks {
+                Some((_, Some(line_breaks))) => line_breaks.row_of(col),
+                _ => self.doc.part_of(line, col),
             };
-            let row = (line, line_breaks.row_of(col));
+            let row = (line, part);
             if Some(row) != drawn && Some(row) != previous {
                 self.draw_current_line(frame, row);
             }
@@ -515,7 +566,7 @@ impl Screen<'_> {
         }
     }
 
-    /// 给行 `line` 的第 `part` 段铺一层当前行的底色。
+    /// 为行 `line` 的第 `part` 段铺当前行底色。
     fn draw_current_line(&self, frame: &mut Frame<'_>, (line, part): (usize, usize)) {
         if !self.shown(line) {
             return;
@@ -530,7 +581,7 @@ impl Screen<'_> {
         frame.rect_clipped(row, self.app.palette.current_line, RADIUS_ROW, editor);
     }
 
-    /// 主选区和其余选区。
+    /// 绘制主选区和其余选区。
     fn draw_selections(&self, frame: &mut Frame<'_>) {
         let row_y = |line: usize| self.row_y(line);
         for &selection in std::iter::once(&self.selection).chain(self.extra) {
@@ -547,7 +598,7 @@ impl Screen<'_> {
         }
     }
 
-    /// 合并冲突的标记行绘制成标题，点击区域收进 `hits`。
+    /// 把合并冲突的标记行绘制为标题，点击区域记录到 `hits`。
     fn draw_conflict_markers(
         &self,
         frame: &mut Frame<'_>,
@@ -576,9 +627,9 @@ impl Screen<'_> {
     }
 }
 
-/// `all`（按位置排好、互不重叠的选区）中与位置范围 `shown` 相交的一段。
+/// 返回 `all`（按位置排序、互不重叠的选区）中与位置范围 `shown` 相交的部分。
 ///
-/// 二分找出两端，不必每帧逐个比较：光标可能有上万个，看得见的只有数十个。
+/// 以二分查找确定两端，避免每帧逐个比较：光标可能有上万个，可见的只有数十个。
 pub(super) fn visible_selections<'a>(
     all: &'a [Selection],
     shown: &std::ops::RangeInclusive<usize>,
