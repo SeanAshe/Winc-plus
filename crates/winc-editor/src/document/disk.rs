@@ -796,19 +796,35 @@ impl Document {
     }
 }
 
+/// 把整个文件按打开时的规则解码成 rope。用于超过 `LARGE_FILE`、大文件读取器无法表示的编码
+/// （带 BOM 的 UTF-16）。
+fn load_decoded(file: &mut fs::File, mtime: Option<SystemTime>) -> Result<Loaded, OpenError> {
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes)?;
+    let decoded = charset::decode(&bytes);
+    let rope = Rope::from_str(&decoded.text);
+    Ok(Loaded {
+        line_ending: LineEnding::detect(&rope),
+        text: Content::Rope(rope),
+        encoding: decoded.encoding,
+        mtime,
+        len: bytes.len() as u64,
+    })
+}
+
 /// 读入文件并按 `encoding` 解码（「通过编码重新打开」）。
 ///
-/// 无法解码的字节替换为 U+FFFD，编码记为 `Lossy`；文件超过 `LARGE_FILE` 时返回错误。修改时间
+/// 无法解码的字节替换为 U+FFFD，编码记为 `Lossy`；文件超过 `UTF16_INLINE` 时返回错误。修改时间
 /// 和大小取自同一个已打开的文件、在读取内容之前获取：读取期间文件被其他程序修改时，记录的
 /// 修改时间早于实际内容，之后的磁盘同步仍能发现这次修改。
 fn load_as(path: &Path, encoding: Encoding) -> Result<Loaded, OpenError> {
     let file = fs::File::open(path)?;
     let mtime = file.metadata()?.modified().ok();
-    // 文档打开时不超过 `LARGE_FILE`，之后文件可能变大：超过时按大文件的规则只支持 UTF-8，
-    // 不把整个文件读进内存再解码。读的过程中还在变大的，读到上限为止再判断。
+    // 文档打开时可能不超过 `LARGE_FILE`，之后文件变大：超过 `UTF16_INLINE` 时不再整篇解码。
+    // 读的过程中还在变大的，读到上限为止再判断。
     let mut bytes = Vec::new();
-    file.take(LARGE_FILE + 1).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > LARGE_FILE {
+    file.take(UTF16_INLINE + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > UTF16_INLINE {
         return Err(OpenError::Io(io::Error::other(t!(
             "editor-large-utf8-only"
         ))));
@@ -849,11 +865,23 @@ fn load_with(path: &Path, allow_binary: bool, prefer: Encoding) -> Result<Loaded
         .take(BINARY_SNIFF as u64)
         .read_to_end(&mut head)?;
 
-    // 大文件只支持按需读取 UTF-8；带 UTF-16 BOM 的大文件无法读取，按二进制文件处理。
-    let binary = looks_binary(&head) || (size > LARGE_FILE && utf16_bom(&head));
+    // 带 BOM 的 UTF-16 含 NUL，但不是二进制。大文件读取器只认 UTF-8，因此在
+    // `UTF16_INLINE` 以内整篇解码；再大的无法按 UTF-16 打开。
+    let utf16 = utf16_bom(&head);
+    if utf16 && size > UTF16_INLINE {
+        return Err(OpenError::Io(io::Error::other(t!(
+            "editor-large-utf8-only"
+        ))));
+    }
+    let binary = looks_binary(&head);
 
     if binary && !allow_binary {
         return Err(OpenError::Binary(size));
+    }
+
+    if size > LARGE_FILE && utf16 {
+        file.rewind()?;
+        return load_decoded(&mut file, mtime);
     }
 
     if size > LARGE_FILE {

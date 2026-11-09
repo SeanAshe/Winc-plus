@@ -631,6 +631,45 @@ fn growing_files_only_read_what_was_added() {
 }
 
 #[test]
+fn large_utf16_opens_as_text_and_saves_back() {
+    let dir = scratch("large-utf16");
+    let path = dir.join("CommonLocalization.txt");
+    let line = format!("KEY_{}\t平宝\r\n", "a".repeat(240));
+    let mut units: Vec<u8> = Vec::new();
+    units.extend_from_slice(&0xFEFFu16.to_le_bytes());
+    let encoded: Vec<u8> = line.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    while units.len() as u64 <= LARGE_FILE {
+        units.extend_from_slice(&encoded);
+    }
+    let tail = "NEEDLE\t找到了\r\n";
+    units.extend(tail.encode_utf16().flat_map(u16::to_le_bytes));
+    fs::write(&path, &units).unwrap();
+
+    let mut doc = Document::open(DocumentId(1), path.clone()).unwrap();
+    assert_eq!(doc.encoding, Encoding::Utf16Le);
+    assert!(!doc.is_large() && !doc.readonly);
+    assert_eq!(doc.line_ending, LineEnding::CrLf);
+    assert!(doc.text().line_content(0).slice().starts_with("KEY_"));
+    let needle = doc.text().line_count() - 2;
+    assert_eq!(doc.text().line_content(needle).slice(), "NEEDLE\t找到了");
+
+    doc.selection = Selection::point(doc.text().line_start(needle));
+    doc.execute(Command::Insert("改".into()), 10, 4);
+    doc.save().unwrap();
+    let saved = fs::read(&path).unwrap();
+    assert!(saved.starts_with(&[0xFF, 0xFE]));
+    let text = String::from_utf16(
+        &saved[2..]
+            .chunks_exact(2)
+            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+            .collect::<Vec<_>>(),
+    )
+    .unwrap();
+    assert!(text.contains("改NEEDLE\t找到了\r\n"));
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn large_files_edit_save_and_undo() {
     let dir = scratch("large");
     let path = dir.join("big.py");

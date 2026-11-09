@@ -6,8 +6,9 @@ use super::*;
 /// 返回值的第二项表示是否有字节按 U+FFFD 替换字符解码。
 ///
 /// 判断规则与打开文件时相同，因此搜出的行号和列与打开后一致：开头 `BINARY_SNIFF` 字节含 NUL
-/// 的文件是二进制；不是 UTF-8 时整个读入内存并识别编码；大文件（按需从磁盘读取）只按 `\n` 分行，非
-/// UTF-8 的字节替换为 U+FFFD。
+/// 的文件是二进制；不是 UTF-8 时整个读入内存并识别编码；带 BOM 的 UTF-16 在 `UTF16_INLINE`
+/// 以内同样整篇解码，超过的不搜索。其余大文件按需从磁盘读取，只按 `\n` 分行，非 UTF-8 的字节
+/// 替换为 U+FFFD。
 pub(super) fn search_disk(
     matcher: &Matcher,
     buffer: &mut Vec<u8>,
@@ -26,13 +27,16 @@ pub(super) fn search_disk(
     buffer.clear();
     let mut left = size;
     read_chunk(&mut file, buffer, &mut left, CHUNK.max(BINARY_SNIFF)).ok()?;
-    if looks_binary(buffer) || (large && utf16_bom(buffer)) {
+    // 带 BOM 的 UTF-16 在 `UTF16_INLINE` 以内整篇解码，与打开文件相同。
+    let inline_utf16 = utf16_bom(buffer) && size <= UTF16_INLINE;
+    if looks_binary(buffer) || (large && utf16_bom(buffer) && !inline_utf16) {
         return None;
     }
 
-    // 跨行查找需要整个文件的内容；大文件（按需从磁盘读取）不支持跨行查找，与文件内查找相同。
+    // 跨行查找需要整个文件的内容；按需读取的大文件不支持跨行查找，与文件内查找相同。
+    // 整篇解码的 UTF-16 除外，它的行号与打开后的文本一致。
     if matcher.is_multiline() {
-        if large {
+        if large && !inline_utf16 {
             return None;
         }
         let mut bytes = std::mem::take(buffer);
@@ -67,8 +71,9 @@ pub(super) fn search_disk(
     };
     let result = match streamed {
         Some(()) => Some((search.matches, search.lossy)),
-        // 不是 UTF-8：整个读入内存并识别编码，从头重新搜索（文件不超过 `LARGE_FILE`）。
-        None if !large => {
+        // 不是 UTF-8：整个读入内存并识别编码，从头重新搜索。超过 `LARGE_FILE` 的只有
+        // `UTF16_INLINE` 以内的 UTF-16 走这里，更大的文件已在上面跳过。
+        None if !large || inline_utf16 => {
             let mut bytes = Vec::new();
             bytes.try_reserve_exact(size as usize + 1).ok()?;
             file.rewind().ok()?;
