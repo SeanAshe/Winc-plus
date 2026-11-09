@@ -208,15 +208,7 @@ impl App {
         if rebasing {
             self.git_operate(t!("git-op-continue-rebase").to_owned(), move |git, root| {
                 if !paths.is_empty() {
-                    let mut args = vec!["add".to_owned(), "--all".to_owned(), "--".to_owned()];
-                    args.extend(paths.iter().map(|p| {
-                        p.strip_prefix(root)
-                            .unwrap_or(p)
-                            .to_string_lossy()
-                            .into_owned()
-                    }));
-                    let args: Vec<&str> = args.iter().map(String::as_str).collect();
-                    git.operate(root, &args)?;
+                    git.stage(root, &paths)?;
                 }
                 git.continue_operation(root, Operation::Rebase)
             });

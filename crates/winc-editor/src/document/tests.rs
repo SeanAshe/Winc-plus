@@ -649,7 +649,13 @@ fn large_utf16_opens_as_text_and_saves_back() {
     assert_eq!(doc.encoding, Encoding::Utf16Le);
     assert!(!doc.is_large() && !doc.readonly);
     assert_eq!(doc.line_ending, LineEnding::CrLf);
-    assert!(doc.text().line_content(0).slice().starts_with("KEY_"));
+    assert!(
+        doc.text()
+            .line_content(0)
+            .slice()
+            .to_string()
+            .starts_with("KEY_")
+    );
     let needle = doc.text().line_count() - 2;
     assert_eq!(doc.text().line_content(needle).slice(), "NEEDLE\t找到了");
 
@@ -658,10 +664,11 @@ fn large_utf16_opens_as_text_and_saves_back() {
     doc.save().unwrap();
     let saved = fs::read(&path).unwrap();
     assert!(saved.starts_with(&[0xFF, 0xFE]));
+    let (units, _) = saved[2..].as_chunks::<2>();
     let text = String::from_utf16(
-        &saved[2..]
-            .chunks_exact(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
+        &units
+            .iter()
+            .map(|unit| u16::from_le_bytes(*unit))
             .collect::<Vec<_>>(),
     )
     .unwrap();
@@ -939,14 +946,15 @@ fn sizes_read_like_finder() {
     assert_eq!(size_text(3_200_000_000), "3.2 GB");
 }
 
-/// 回归：「按编码重新打开」把整个文件读进内存再解码，打开以后变大的文件也不例外。
+/// 回归：「按编码重新打开」把整个文件读进内存再解码。打开以后变大、超过
+/// [`UTF16_INLINE`] 的文件仍然拒绝，文档保持打开时的内容。
 #[test]
 fn reopening_with_an_encoding_refuses_files_grown_past_the_large_limit() {
     let dir = scratch("reopen-large");
     let path = dir.join("grown.txt");
     fs::write(&path, "short\n").unwrap();
     let mut doc = Document::open(DocumentId(1), path.clone()).unwrap();
-    fs::write(&path, "x".repeat(LARGE_FILE as usize + 1)).unwrap();
+    fs::write(&path, "x".repeat(UTF16_INLINE as usize + 1)).unwrap();
     let error = doc
         .reopen_with_encoding(Encoding::Legacy(encoding_rs::GBK))
         .unwrap_err();

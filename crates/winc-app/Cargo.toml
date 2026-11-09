@@ -45,6 +45,10 @@ zbus = { version = "5.19", default-features = false, features = ["async-io", "bl
 wayland-backend = { version = "0.3", features = ["client_system"] }
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }
+# Wayland 会话：通过 data-control 协议（ext 或 wlr）直接读写 Wayland 剪贴板。不开时 arboard 只走
+# XWayland 的 X11 剪贴板，而合成器只在 X11 窗口获得焦点时才把 Wayland 剪贴板同步过去，winc 是原生
+# Wayland 窗口，读不到其他应用复制的内容。合成器没有该协议时 arboard 自动退回 X11。
+arboard = { workspace = true, features = ["wayland-data-control"] }
 
 # Windows：打开、另存为用系统的文件对话框（`IFileOpenDialog`、`IFileSaveDialog`，COM 接口）。
 # 回收站（`SHFileOperationW`）、滚轮设置（`SystemParametersInfoW`）等系统接口；版本与 `rfd` 保持
@@ -54,6 +58,7 @@ rfd = { version = "0.15", default-features = false }
 windows-sys = { version = "0.59", features = [
     "Win32_Foundation",
     "Win32_Graphics_Dwm",
+    "Win32_Graphics_Gdi",
     "Win32_Security",
     "Win32_Storage_FileSystem",
     "Win32_System_Console",

@@ -92,8 +92,12 @@ impl App {
         let Some(parent) = dir.parent().map(Path::to_path_buf) else {
             return;
         };
+        // `git` 在 `parent` 中运行，目标只需目录名：`parent` 可能与当前仓库不在同一系统中，
+        // 绝对路径的写法取决于 `git` 在哪一侧运行。
+        let Some(target) = dir.file_name().map(|n| n.to_string_lossy().into_owned()) else {
+            return;
+        };
         let new_window = self.editor.root().is_some();
-        let target = self.git_path_arg(&dir);
         let name = winc_editor::display_name(&dir).into_owned();
         self.git_operate_in(
             parent,

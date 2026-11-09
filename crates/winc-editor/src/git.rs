@@ -9,7 +9,6 @@ pub mod log;
 pub mod merge;
 
 mod commit;
-mod ignored;
 mod output;
 mod parse;
 mod rebase;
@@ -23,7 +22,6 @@ pub use sync::{Carried, Synced};
 mod trust;
 mod worktree;
 
-pub use ignored::*;
 use parse::*;
 pub use trust::*;
 pub use worktree::*;
@@ -60,6 +58,27 @@ const COMMIT_TIMEOUT: Duration = Duration::from_secs(600);
 ///
 /// 网络慢、hooks 需要运行测试或格式检查时耗时较长。
 const OPERATION_TIMEOUT: Duration = Duration::from_secs(600);
+/// 决定 `git` 作用于哪个仓库、暂存区和对象库的环境变量，运行 `git` 时不从环境继承。
+///
+/// 列表取自 `git rev-parse --local-env-vars`，其中的 `GIT_CONFIG_PARAMETERS`、`GIT_CONFIG_COUNT`
+/// 除外：二者只携带配置项，`git` 进入子模块时同样保留。本程序由 `git` 启动时（作为编辑器或在钩子
+/// 中运行）继承这些变量；例如 `git commit` 传给编辑器的 `GIT_INDEX_FILE` 指向一个临时暂存区，
+/// 提交结束后该文件即被删除。
+const REPOSITORY_ENV: [&str; 13] = [
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CONFIG",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_IMPLICIT_WORK_TREE",
+    "GIT_GRAFT_FILE",
+    "GIT_INDEX_FILE",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_PREFIX",
+    "GIT_SHALLOW_FILE",
+    "GIT_COMMON_DIR",
+];
 
 /// `HEAD` 指向的提交（提交视图里「撤销上一次提交」使用）。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -710,7 +729,7 @@ impl Git {
     /// # Errors
     ///
     /// 失败时返回 `git` 给出的原因：优先取 `error::`、`fatal::`、`! [rejected]` 这样的行。
-    pub fn operate(&self, root: &Path, args: &[&str]) -> Result<String, String> {
+    pub fn operate<S: AsRef<OsStr>>(&self, root: &Path, args: &[S]) -> Result<String, String> {
         if let Err(refused) = self.require_trust(root) {
             output::record(root, args, None, refused.as_bytes());
             return Err(refused);
@@ -718,21 +737,34 @@ impl Git {
         self.run_operation(root, args, OPERATION_TIMEOUT)
     }
 
+    /// 把 `paths` 的当前状态加入暂存区（`git add --all`），已删除的文件记为删除。
+    ///
+    /// 路径以 `/` 分隔并按字面匹配：`[`、`*`、`?` 不作为通配符。
+    ///
+    /// # Errors
+    ///
+    /// 同 [`Git::operate`]。
+    pub fn stage(&self, root: &Path, paths: &[PathBuf]) -> Result<String, String> {
+        let mut args: Vec<OsString> = ["add", "--all", "--"].map(OsString::from).into();
+        args.extend(relative_all(root, paths));
+        self.operate(root, &args)
+    }
+
     /// 在目录 `root` 里运行 `git args`，记录输出，返回 `git` 的结论；调用方负责信任检查。
-    fn run_operation(
+    fn run_operation<S: AsRef<OsStr>>(
         &self,
         root: &Path,
-        args: &[&str],
+        args: &[S],
         timeout: Duration,
     ) -> Result<String, String> {
         self.run_prepared(root, args, timeout, |_| {})
     }
 
     /// 和 [`Git::run_operation`] 相同，运行前由 `prepare` 调整命令，例如设置环境变量。
-    fn run_prepared(
+    fn run_prepared<S: AsRef<OsStr>>(
         &self,
         root: &Path,
-        args: &[&str],
+        args: &[S],
         timeout: Duration,
         prepare: impl FnOnce(&mut Command),
     ) -> Result<String, String> {
@@ -768,20 +800,22 @@ impl Git {
 
     /// 为 `command` 设置 [`Git::with_askpass`] 指定的 askpass 程序。
     ///
-    /// WSL 发行版内的 `git` 无法运行 Windows 程序，不作设置。`git` 优先使用凭据助手，没有结果时才
-    /// 运行该程序。`SSH_ASKPASS_REQUIRE` 使 `ssh` 不依赖 `DISPLAY` 和控制终端。
+    /// `git` 优先使用凭据助手，没有结果时才运行该程序。`SSH_ASKPASS_REQUIRE` 使 `ssh` 不依赖
+    /// `DISPLAY` 和控制终端。WSL 发行版内的 `git` 经互操作运行该程序，`WSLENV` 另外列出
+    /// [`crate::wsl::ASKPASS_ENV`]；发行版禁用了互操作时程序无法运行，需要输入时 `git` 报错。
     fn ask_through(&self, root: &Path, command: &mut Command) {
         let Some(askpass) = &self.askpass else {
             return;
         };
-        if crate::wsl::locate_here(root).is_some() {
-            return;
-        }
         command
             .env("GIT_ASKPASS", &askpass.program)
             .env("SSH_ASKPASS", &askpass.program)
             .env("SSH_ASKPASS_REQUIRE", "force")
             .env(ASKPASS_ENDPOINT, &askpass.endpoint);
+        if crate::wsl::locate_here(root).is_some() {
+            let list = format!("{}:{}", crate::wsl::GIT_ENV, crate::wsl::ASKPASS_ENV);
+            command.env("WSLENV", list);
+        }
     }
 
     /// 删除本地分支 `name`。
@@ -1167,17 +1201,28 @@ impl Git {
     ///
     /// 发行版中的仓库使用发行版内的 `git`：跨文件系统读取仓库的速度较低，文件属主不同时 `git` 还会
     /// 按 `safe.directory` 拒绝访问。
+    ///
+    /// 环境中的 [`REPOSITORY_ENV`] 不传给 `git`：仓库由 `root` 决定，调用方需要时（例如临时暂存区）
+    /// 在返回的命令上另行设置。
     pub(super) fn at(&self, root: &Path) -> Command {
-        let Some(place) = crate::wsl::locate_here(root) else {
-            let mut command = self.shell.command(&self.program);
-            command.arg("-C").arg(root);
-            return command;
+        let mut command = match crate::wsl::locate_here(root) {
+            None => {
+                let mut command = self.shell.command(&self.program);
+                command.arg("-C").arg(root);
+                command
+            }
+            Some(place) => {
+                let mut command = self.shell.command(Path::new("wsl.exe"));
+                crate::wsl::enter(&mut command, &place.distro);
+                command
+                    .args(["--exec", "git", "-C", &place.path])
+                    .env("WSLENV", crate::wsl::GIT_ENV);
+                command
+            }
         };
-        let mut command = self.shell.command(Path::new("wsl.exe"));
-        crate::wsl::enter(&mut command, &place.distro);
-        command
-            .args(["--exec", "git", "-C", &place.path])
-            .env("WSLENV", crate::wsl::GIT_ENV);
+        for name in REPOSITORY_ENV {
+            command.env_remove(name);
+        }
         command
     }
 
@@ -1286,6 +1331,14 @@ fn slash_path(root: &Path, path: &Path) -> Result<OsString, String> {
     let relative = path
         .strip_prefix(root)
         .map_err(|_| winc_i18n::t!("git-file-outside-repository"))?;
+    Ok(slashed(relative))
+}
+
+/// 把相对路径 `relative` 的各段用 `/` 连接。
+///
+/// Windows 上的路径以 `\` 分隔，发行版内的 `git` 把 `\` 当作文件名中的普通字符，
+/// `src\main.rs` 匹配不到 `src/main.rs`。
+fn slashed(relative: &Path) -> OsString {
     let mut out = OsString::new();
     for (i, part) in relative.components().enumerate() {
         if i > 0 {
@@ -1293,7 +1346,7 @@ fn slash_path(root: &Path, path: &Path) -> Result<OsString, String> {
         }
         out.push(part.as_os_str());
     }
-    Ok(out)
+    out
 }
 
 /// 把 `parts` 依次接成一个参数，路径部分保持原样的字节（见 [`slash_path`]）。
@@ -1313,9 +1366,10 @@ fn mode_from_test(code: Option<i32>) -> Option<&'static str> {
     }
 }
 
-/// 把绝对路径换成相对于 `root` 的路径，交给 `git` 的路径参数（`--` 之后）。
+/// 返回 `paths` 对应的 `git` 路径参数（用于 `--` 之后）：位于 `root` 之下的路径换算为相对路径，
+/// 各段以 `/` 连接（[`slashed`]）。
 ///
-/// 每个都加上 `::(literal)`，按字面匹配：`app/[slug]/page.tsx` 里的 `[`、`*`、`?` 不当通配符，
+/// 每个都加上 `:(literal)`，按字面匹配：`app/[slug]/page.tsx` 里的 `[`、`*`、`?` 不当通配符，
 /// 回滚、提交时不会连带改动名字碰巧匹配上的其他文件。不用 `GIT_LITERAL_PATHSPECS`：
 /// `git stash push -u` 自己也要用路径匹配，开启它以后不再收录未跟踪的文件。
 fn relative_all<'a>(
@@ -1324,7 +1378,10 @@ fn relative_all<'a>(
 ) -> impl Iterator<Item = std::ffi::OsString> + 'a {
     paths.iter().map(move |p| {
         let mut spec = std::ffi::OsString::from(":(literal)");
-        spec.push(p.strip_prefix(root).unwrap_or(p));
+        match p.strip_prefix(root) {
+            Ok(relative) => spec.push(slashed(relative)),
+            Err(_) => spec.push(p),
+        }
         spec
     })
 }

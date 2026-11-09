@@ -219,6 +219,46 @@ fn ignored_files_are_known_to_the_tree() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+#[test]
+fn outside_changes_refresh_the_status_unless_git_ignores_them() {
+    let dir = search_folder("git-ignored-tracked");
+    if !make_repo(&dir) {
+        return;
+    }
+    std::fs::write(dir.join(".gitignore"), "target/\n*.log\n").unwrap();
+    std::fs::write(dir.join("keep.log"), "one\n").unwrap();
+    git_in(&dir, &["add", "-f", ".gitignore", "keep.log"]);
+    git_in(&dir, &["commit", "-q", "-m", "log"]);
+    std::fs::create_dir_all(dir.join("target/debug")).unwrap();
+    let mut app = app_with(&dir, false);
+    app.settings_toggle(Setting::GitModule);
+    if git_unusable(&app) {
+        return;
+    }
+    let root = app.editor.root().unwrap().to_path_buf();
+    let changed = |path: PathBuf| winc_editor::Changes {
+        paths: vec![path],
+        rescan: false,
+        git: false,
+    };
+
+    // 被忽略目录中的变化和仓库之外的变化不触发状态刷新。
+    let generation = app.git.generation;
+    std::fs::write(root.join("target/debug/app"), "x").unwrap();
+    app.apply_changes(changed(root.join("target/debug/app")));
+    app.apply_changes(changed(PathBuf::from("/elsewhere/file")));
+    assert_eq!(app.git.generation, generation);
+
+    // 已跟踪的文件即使匹配忽略规则，被其他程序修改后仍然触发状态刷新。
+    let log = root.join("keep.log");
+    assert_eq!(app.git.change_of(&log), None);
+    std::fs::write(&log, "two\n").unwrap();
+    app.apply_changes(changed(log.clone()));
+    assert_eq!(app.git.change_of(&log), Some(Change::Modified));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// 截图：Git 模块启用时的文件树和状态栏，深浅两套配色。
 #[test]
 #[ignore]
@@ -468,12 +508,6 @@ fn measure_git_costs() {
     let paths: Vec<PathBuf> = (0..4000)
         .map(|i| repo.join(format!("target/debug/deps/x{i}.o")))
         .collect();
-    let mut ignored = winc_editor::git::Ignored::new(&repo);
-    time("判断 4000 个 target 路径是否忽略", 5, &mut || {
-        for p in &paths {
-            ignored.is_ignored(p);
-        }
-    });
     let status = app.git.status.clone().unwrap();
     time("算文件树装饰", 20, &mut || {
         let _ = status.decorations(&repo);

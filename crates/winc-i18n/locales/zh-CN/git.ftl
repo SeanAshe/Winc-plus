@@ -401,6 +401,7 @@ git-form-name-leading-dash = 分支名称不能以「-」开头
 git-form-name-exists = 已存在同名的分支
 git-form-current-branch-held = 当前分支无法在其他工作树中签出
 git-form-stale-worktree = 已被失效的工作树签出，请先清理
+git-form-other-system = 所选位置与仓库不在同一系统中
 git-form-create = 创建
 git-form-open = 打开
 git-op-new-worktree = 新建工作树「{ $name }」

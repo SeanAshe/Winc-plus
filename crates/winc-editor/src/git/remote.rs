@@ -60,7 +60,7 @@ impl Git {
         self.run_operation(dir, &["init"], OPERATION_TIMEOUT)
     }
 
-    /// 在目录 `parent` 中把 `url` 克隆到 `dir`，返回 `git` 的结论。
+    /// 把 `url` 克隆到目录 `parent` 下的 `dir`（相对路径），返回 `git` 的结论。
     ///
     /// 新仓库的配置由 `git clone` 生成，不含远端内容，因此不做信任检查；`ext` 协议能运行任意命令，
     /// 不允许使用。

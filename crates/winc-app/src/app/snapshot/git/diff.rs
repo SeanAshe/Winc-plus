@@ -1226,6 +1226,8 @@ fn diffs_follow_the_file_and_skip_binaries_and_stale_previews() {
     assert_eq!(app.editor.active().unwrap().id, active);
 
     // 被忽略的路径里的变化不触发刷新。
+    std::fs::create_dir_all(root.join("target/debug")).unwrap();
+    std::fs::write(root.join("target/debug/app"), "x").unwrap();
     std::fs::write(root.join(".gitignore"), "/target\n").unwrap();
     app.apply_changes(winc_editor::Changes {
         paths: vec![root.join(".gitignore")],

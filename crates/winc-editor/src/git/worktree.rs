@@ -55,22 +55,32 @@ pub fn repo_name(main: &Path) -> String {
 /// 返回新建工作树的目录：`folder` 下的 `<仓库名>/<分支名>`；没有 `folder` 时放在主工作树
 /// `main` 旁边的 `<仓库名>.worktrees/<分支名>`，同名目录已存在时加后缀。
 ///
-/// `folder` 对应配置项 `git.worktreeRoot`，可以以 `~/` 开头，相对路径相对于 `main`。
-pub fn worktree_dir(main: &Path, folder: Option<&str>, branch: &str) -> PathBuf {
-    unique_dir(&worktree_parent(main, folder), branch)
+/// `folder` 对应配置项 `git.worktreeRoot`，开头的 `~/` 展开为 `home`，相对路径相对于 `main`。
+/// `home` 是 `main` 所在系统中用户的主目录（[`crate::wsl::home_dir`]）。
+pub fn worktree_dir(
+    main: &Path,
+    folder: Option<&str>,
+    home: Option<&Path>,
+    branch: &str,
+) -> PathBuf {
+    unique_dir(&worktree_parent(main, folder, home), branch)
 }
 
 /// 返回新建工作树所在的上层目录：`folder` 下的 `<仓库名>`；没有 `folder` 时是主工作树
 /// `main` 旁边的 `<仓库名>.worktrees`。
-pub fn worktree_parent(main: &Path, folder: Option<&str>) -> PathBuf {
+///
+/// 以下情况同样使用 `main` 旁边的目录：
+///
+/// - `folder` 以 `~/` 开头，而 `home` 未知；
+/// - `folder` 与 `main` 不在同一系统中（[`crate::wsl::same_system`]）。
+pub fn worktree_parent(main: &Path, folder: Option<&str>, home: Option<&Path>) -> PathBuf {
     let repo = repo_name(main);
-    let home = || std::env::var_os("HOME").map(PathBuf::from);
-    match folder {
-        Some(folder) => match folder.strip_prefix("~/").zip(home()) {
-            Some((rest, home)) => home.join(rest),
-            None => main.join(folder),
-        }
-        .join(repo),
+    let configured = folder.and_then(|folder| match folder.strip_prefix("~/") {
+        Some(rest) => home.map(|home| home.join(rest)),
+        None => Some(main.join(folder)),
+    });
+    match configured.filter(|dir| crate::wsl::same_system(main, dir)) {
+        Some(dir) => dir.join(repo),
         None => main
             .parent()
             .unwrap_or(main)
@@ -97,17 +107,31 @@ impl Git {
     /// 只有一个工作树时（共用的 `git` 目录里没有 `worktrees/`，绝大多数仓库都是这样）不运行
     /// `git`，返回空列表，调用方按只有主工作树处理。
     ///
+    /// `git` 2.36 以前不支持 `-z`，此时改用以换行分隔的输出；路径中含换行时该格式无法解析。
+    ///
     /// # Errors
     ///
-    /// `git` 运行失败时返回原因（`--porcelain -z` 需要 `git` 2.36 及以上）。
+    /// `git` 运行失败时返回原因。
     pub fn worktrees(&self, root: &Path, cancel: &Cancel) -> Result<Vec<Worktree>, String> {
         if !git_common_dir(root).is_some_and(|d| d.join("worktrees").is_dir()) {
             return Ok(Vec::new());
         }
         let mut command = self.command(root);
-        command.args(["worktree", "list", "--porcelain", "-z"]);
-        let stdout = self.run(&mut command, STATUS_TIMEOUT, cancel)?;
-        let mut worktrees = parse_worktrees(&stdout);
+        command
+            .args(["worktree", "list", "--porcelain", "-z"])
+            .stderr(Stdio::piped());
+        let output = process::run(&mut command, Vec::new(), STATUS_TIMEOUT, cancel)
+            .map_err(|e| describe(&e))?;
+        let mut worktrees = match output.status.code() {
+            Some(0) => parse_worktrees(&output.stdout, b'\0'),
+            // `git` 遇到不支持的选项时按用法错误退出，退出码为 129。
+            Some(129) => {
+                let mut command = self.command(root);
+                command.args(["worktree", "list", "--porcelain"]);
+                parse_worktrees(&self.run(&mut command, STATUS_TIMEOUT, cancel)?, b'\n')
+            }
+            _ => return Err(failure(&output.stderr)),
+        };
         // `git` 给出的路径没有解析符号链接（`/tmp` 和 `/private/tmp`），打开目录时记下的是
         // 解析过的路径。
         for worktree in &mut worktrees {
@@ -123,6 +147,7 @@ impl Git {
     ///
     /// 返回复制了几项，`to` 里已经有的不覆盖。被忽略的整个目录（`git` 列出时合成一项）也整个
     /// 复制；复制用 `fs::copy`，macOS 上同一磁盘内是 `clonefile`，几乎不占额外空间。
+    /// WSL 发行版中的仓库在发行版内复制，以保留可执行位和符号链接。
     ///
     /// # Errors
     ///
@@ -155,7 +180,7 @@ impl Git {
         ]);
         command.arg("--directory");
         let stdout = self.run(&mut command, STATUS_TIMEOUT, cancel)?;
-        let mut copied = 0;
+        let mut entries = Vec::new();
         for entry in stdout.split(|&b| b == 0).filter(|e| !e.is_empty()) {
             let entry = String::from_utf8_lossy(entry);
             let (relative, is_dir) = match entry.strip_suffix('/') {
@@ -172,16 +197,28 @@ impl Git {
             {
                 continue;
             }
+            entries.push(relative.to_owned());
+        }
+        let failed = |path: &str, error: String| {
+            winc_i18n::t!("git-worktree-copy-failed", path = path, error = error)
+        };
+        if let (Some(source), Some(target)) =
+            (crate::wsl::locate_here(from), crate::wsl::locate_here(to))
+            && source.distro.eq_ignore_ascii_case(&target.distro)
+        {
+            return crate::wsl::copy_entries(&source, &target, &entries, cancel)
+                .map_err(|(path, error)| failed(&path, error));
+        }
+        let mut copied = 0;
+        for relative in &entries {
+            let (source, target) = (from.join(relative), to.join(relative));
             let copy = || {
                 if let Some(parent) = target.parent() {
                     std::fs::create_dir_all(parent)?;
                 }
                 crate::editing::paste::copy_entry(&source, &target)
             };
-            copy().map_err(|e| {
-                let error = e.to_string();
-                winc_i18n::t!("git-worktree-copy-failed", path = relative, error = error)
-            })?;
+            copy().map_err(|e| failed(relative, e.to_string()))?;
             copied += 1;
         }
         Ok(copied)
@@ -254,14 +291,15 @@ impl Git {
     }
 }
 
-/// 解析 `git worktree list --porcelain -z` 的输出，返回各工作树及它们的签出状态。
+/// 解析 `git worktree list --porcelain` 的输出，返回各工作树及其签出状态。
 ///
-/// 每个工作树若干个以 NUL 结尾的字段：`worktree 路径`、`HEAD 提交号`、`branch refs/heads/x`、
-/// `detached`、`bare`、`locked [原因]`、`prunable [原因]`，工作树之间多一个 NUL。
-pub(super) fn parse_worktrees(output: &[u8]) -> Vec<Worktree> {
+/// 每个工作树若干个字段：`worktree 路径`、`HEAD 提交号`、`branch refs/heads/x`、`detached`、
+/// `bare`、`locked [原因]`、`prunable [原因]`。各字段以 `terminator` 结尾，带 `-z` 时为 NUL，
+/// 否则为换行；工作树之间多一个 `terminator`。
+pub(super) fn parse_worktrees(output: &[u8], terminator: u8) -> Vec<Worktree> {
     let mut worktrees = Vec::new();
     let mut current: Option<(Worktree, Option<String>)> = None;
-    for field in output.split(|&b| b == 0) {
+    for field in output.split(|&b| b == terminator) {
         let field = String::from_utf8_lossy(field);
         let (key, value) = field.split_once(' ').unwrap_or((&field, ""));
         match key {

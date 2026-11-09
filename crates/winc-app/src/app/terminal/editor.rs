@@ -54,9 +54,15 @@ impl App {
 
     /// 文件拖到了终端上（见 [`Self::terminal_takes_drop`]）：在光标处插入加好引号的路径，后面
     /// 跟一个空格。
+    ///
+    /// 走粘贴而不是逐键输入。全屏的 agent 开着括号粘贴时，整段路径进入它的输入框，不会被当成
+    /// 快捷键；没开括号粘贴的 shell 收到的字节与逐键输入相同。
     pub(crate) fn drop_path_on_terminal(&mut self, path: &Path) {
         let text = format!("{} ", shell_quote(path));
-        self.terminal_input(text.into_bytes());
+        let modes = self.terminal.tab().map_or_else(Modes::default, |t| t.modes);
+        let mut bytes = Vec::new();
+        input::paste(&text, modes, &mut bytes);
+        self.terminal_input(bytes);
         self.focus = Focus::Terminal;
         self.request_redraw();
     }

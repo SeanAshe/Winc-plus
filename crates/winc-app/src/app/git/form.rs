@@ -292,12 +292,27 @@ impl App {
             base_enabled: false,
             ..plan
         };
+        // 所选目录与仓库不在同一系统中时不允许新建工作树：一侧的 `git` 无法使用另一侧的路径。
+        let elsewhere = (dialog.folder.as_deref())
+            .zip(self.git.root.as_deref())
+            .is_some_and(|(folder, root)| !winc_editor::wsl::same_system(root, folder));
+        let creating = |plan: FormPlan| {
+            if elsewhere {
+                FormPlan {
+                    enabled: false,
+                    problem: Some(t!("git-form-other-system").to_owned()),
+                    ..plan
+                }
+            } else {
+                plan
+            }
+        };
 
         if name.is_empty() {
-            return FormPlan {
+            return creating(FormPlan {
                 enabled: false,
                 ..plan(None)
-            };
+            });
         }
         match self.worktree_name_target(name) {
             // `git worktree add -b` 把名字原样交给 `git branch`，「-」开头的会被当成选项。
@@ -305,13 +320,15 @@ impl App {
                 dir: None,
                 ..plan(Some(t!("git-form-name-leading-dash").to_owned()))
             },
-            NameTarget::New => plan(None),
+            NameTarget::New => creating(plan(None)),
             // 远程分支：签出同名的本地分支，「基于」写跟踪的远程分支。
-            NameTarget::Branch(branch) if branch.remote => FormPlan {
+            NameTarget::Branch(branch) if branch.remote => creating(FormPlan {
                 dir: dir(local_name(&branch)),
                 ..fixed(plan(None), &branch.name)
-            },
-            NameTarget::Branch(_) => fixed(plan(None), t!("git-form-base-existing-branch")),
+            }),
+            NameTarget::Branch(_) => {
+                creating(fixed(plan(None), t!("git-form-base-existing-branch")))
+            }
             // 已在别的工作树中签出：主按钮换成「打开」，位置写那个工作树的目录。
             NameTarget::Held(i) => FormPlan {
                 confirm: t!("git-form-open"),
