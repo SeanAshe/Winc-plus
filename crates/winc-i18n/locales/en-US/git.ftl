@@ -287,6 +287,18 @@ git-force-push-confirm-detail = { $count ->
    *[other] { $count } upstream commits will be replaced with your rewritten local versions. If others have pushed new commits since, the push is rejected.
 }
 git-force-push-confirm-button = Force Push
+git-push-confirm-publish = Publish to { $remote }?
+git-push-confirm-publish-detail = “{ $branch }” will be pushed to { $target } and set as its upstream.
+git-push-confirm-publish-button = Publish
+git-push-confirm-push = Push to { $upstream }?
+git-push-confirm-push-detail = { $count ->
+    [one] 1 commit will be pushed to { $target }.
+   *[other] { $count } commits will be pushed to { $target }.
+}
+git-push-confirm-push-button = Push
+git-push-confirm-sync = Sync with { $upstream }?
+git-push-confirm-sync-detail = Pulls { $behind } and pushes { $ahead } commits with { $target }.
+git-push-confirm-sync-button = Sync
 git-commit-push-confirm = Commit and push?
 git-commit-push-confirm-scope = { $count ->
     [one] 1 file will be committed to “{ $branch }” and pushed to upstream.

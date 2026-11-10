@@ -1,6 +1,7 @@
 ## 多个领域共用的文案：通用按钮和选项。
 
 common-cancel = 取消
+common-dont-ask = 不再询问
 common-open = 打开
 common-save = 保存
 common-save-as-label = 存储为：

@@ -4,8 +4,8 @@
 //! 路径，由用户执行命令后创建符号链接（[`placement`]）。启动时不自动安装：写入系统目录必须由用户
 //! 发起。
 //!
-//! 在 Unix 上从终端启动时，窗口进程转到后台（[`detach`]），命令立即返回；macOS 的应用包由
-//! `LaunchServices` 启动。转到后台之前报告读不了的目标（[`report_unreadable`]），错误仍然回到终端。
+//! 从终端启动时，窗口进程转到后台（[`detach`]），命令立即返回；macOS 的应用包由 `LaunchServices`
+//! 启动。转到后台之前报告读不了的目标（[`report_unreadable`]），错误仍然回到终端。
 
 #[cfg(any(target_os = "macos", all(test, unix)))]
 use crate::app::terminal::shell_quote;
@@ -305,8 +305,9 @@ fn unreadable(path: &std::path::Path) -> Option<String> {
 
 /// 从终端启动时，用同样的参数在后台启动窗口进程；已启动时返回真，调用方应当退出。
 ///
-/// 仅在标准输入是终端时转移；新进程的标准输入不是终端，不会再次转移。`--wait` 和 `-` 必须留在前台，
-/// `--new-instance` 和开发构建留在前台以便查看输出。
+/// Unix 上仅在标准输入是终端时转移；新进程的标准输入不是终端，不会再次转移。Windows 上仅在由启动
+/// 脚本启动（[`Args::launcher`]）时转移；新进程的参数不带该标记，不会再次转移。`--wait` 和 `-`
+/// 必须留在前台，`--new-instance` 和开发构建留在前台以便查看输出。
 pub(crate) fn detach(args: &Args) -> bool {
     #[cfg(unix)]
     {
@@ -341,9 +342,41 @@ pub(crate) fn detach(args: &Args) -> bool {
             .spawn()
             .is_ok()
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     {
-        // Windows 的程序属于图形子系统，从命令行启动时命令已经立即返回。
+        use std::os::windows::process::CommandExt;
+        use std::process::{Command, Stdio};
+        // 图形界面程序由启动脚本（批处理文件或 shell 脚本）调用时，脚本等待程序退出，命令不会
+        // 返回；只有经过启动脚本时才转移。
+        if cfg!(debug_assertions) || !args.launcher || stays_in_foreground(args) {
+            return false;
+        }
+        let Ok(exe) = std::env::current_exe() else {
+            return false;
+        };
+        // 先离开命令行的控制台，新进程因此接不上它：关闭终端时系统会结束接在控制台上的进程。
+        crate::windows::detach_console();
+        const DETACHED_PROCESS: u32 = 0x0000_0008;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+        let child = Command::new(exe)
+            .args(crate::cli::without_launcher_flag(
+                std::env::args_os().skip(1),
+            ))
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP)
+            .spawn();
+        match child {
+            Ok(child) => {
+                crate::windows::allow_foreground(child.id());
+                true
+            }
+            Err(_) => false,
+        }
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
         let _ = args;
         false
     }
@@ -400,7 +433,7 @@ fn has_display(x11: Option<&std::ffi::OsStr>, wayland: Option<&std::ffi::OsStr>)
 }
 
 /// 这次启动是否必须留在前台。
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn stays_in_foreground(args: &Args) -> bool {
     args.one_off() || args.new_instance
 }

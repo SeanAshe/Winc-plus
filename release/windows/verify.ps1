@@ -46,6 +46,14 @@ foreach ($kind in @('nsis', 'msi')) {
         if ($command -ne "`"$directory\winc.exe`" `"%1`"") { throw "${kind}: wrong open command: $command" }
         if ($null -eq (Get-ItemProperty -LiteralPath "$classes\Applications\winc.exe\SupportedTypes").'.json') { throw "${kind}: json is not a supported type" }
         if ((Get-ItemProperty -LiteralPath "$classes\Applications\winc.exe").FriendlyAppName -cne 'Winc') { throw "${kind}: the application is not named Winc" }
+        # Explorer context menu: supported types open the file, folders and their empty space open
+        # the folder. The label follows the installer's language.
+        foreach ($verb in @(@('SystemFileAssociations\.json', '%1'), @('Directory', '%V'), @('Directory\Background', '%V'))) {
+            $key = "$classes\$($verb[0])\shell\winc"
+            if (-not (Get-ItemProperty -LiteralPath $key -ErrorAction SilentlyContinue).'(default)') { throw "${kind}: no context menu label under $($verb[0])" }
+            $command = (Get-ItemProperty -LiteralPath "$key\command").'(default)'
+            if ($command -ne "`"$directory\winc.exe`" `"$($verb[1])`"") { throw "${kind}: wrong context menu command under $($verb[0]): $command" }
+        }
         $link = Get-ChildItem -LiteralPath $menu -Filter 'winc.lnk'
         if (@($link).Count -ne 1 -or $link.Name -cne 'Winc.lnk') { throw "${kind}: the Start menu shortcut is not named Winc" }
         if ($kind -eq 'msi' -and (Get-Item -LiteralPath $menu).Name -cne 'Winc') { throw 'msi: the Start menu folder is not named Winc' }
@@ -81,6 +89,9 @@ foreach ($kind in @('nsis', 'msi')) {
     if ((Get-CommandPath $kind) -contains "$directory\bin") { throw "${kind}: uninstall left bin on the Path" }
     if (Test-Path -LiteralPath "$classes\winc.JSON") { throw "${kind}: uninstall left the file type behind" }
     if (Test-Path -LiteralPath "$classes\Applications\winc.exe") { throw "${kind}: uninstall left the application behind" }
+    foreach ($key in @('SystemFileAssociations\.json', 'Directory', 'Directory\Background')) {
+        if (Test-Path -LiteralPath "$classes\$key\shell\winc") { throw "${kind}: uninstall left the context menu under $key" }
+    }
     if (Test-Path -LiteralPath (Join-Path $menu 'Winc.lnk')) { throw "${kind}: uninstall left the Start menu shortcut behind" }
 }
 Expand-Archive "$bundle/portable/Winc-$version-windows-x64-portable.zip" "$work/portable" -Force

@@ -1,0 +1,13 @@
+# Dolphin service menu, installed to /usr/share/kio/servicemenus. Text files only: most code and
+# configuration types are subclasses of text/plain, and service menus match subclasses.
+[Desktop Entry]
+Type=Service
+MimeType=text/plain;
+Actions=openWithWinc;
+X-KDE-Priority=TopLevel
+
+[Desktop Action openWithWinc]
+Name=Open with Winc
+Name[zh_CN]=通过 Winc 打开
+Icon=winc
+Exec=winc %F

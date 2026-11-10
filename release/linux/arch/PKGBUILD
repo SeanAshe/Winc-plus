@@ -14,5 +14,9 @@ package() {
   install -Dm755 "$startdir/winc-pty" "$pkgdir/usr/bin/winc-pty"
   install -Dm644 "$startdir/winc.desktop" "$pkgdir/usr/share/applications/winc.desktop"
   install -Dm644 "$startdir/winc.png" "$pkgdir/usr/share/icons/hicolor/256x256/apps/winc.png"
+  # Context menus of the Dolphin and Nemo file managers.
+  install -Dm644 "$startdir/winc-open-file.desktop" "$startdir/winc-open-folder.desktop" \
+    -t "$pkgdir/usr/share/kio/servicemenus"
+  install -Dm644 "$startdir"/winc-open-*.nemo_action -t "$pkgdir/usr/share/nemo/actions"
   install -Dm644 "$startdir/LICENSE" "$startdir/NOTICE" -t "$pkgdir/usr/share/licenses/winc"
 }

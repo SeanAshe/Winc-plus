@@ -82,6 +82,7 @@ pub fn app(target: Option<&str>, prebuilt: bool) -> Result<(PathBuf, String), St
     )
     .map_err(io)?;
     std::fs::write(contents.join("PkgInfo"), "APPL????").map_err(io)?;
+    write_services_menu(&contents.join("Resources"))?;
     // 图标必须在签名之前放进去：签名会封存 Resources 里的全部文件。
     let icon = contents.join("Resources").join(format!("{ICON_NAME}.icns"));
     app_icon(&bundle, &icon)?;
@@ -608,11 +609,31 @@ fn write_png(path: &Path, pixels: &winc_preview::image::Pixels) -> Result<(), St
         .map_err(|e| format!("{}：{e}", path.display()))
 }
 
+/// 访达「服务」菜单中的服务名，也是 `ServicesMenu.strings` 中各语言译文的键。
+const SERVICE_TITLE: &str = "Open in Winc";
+
+/// 写入各语言的服务名（`<语言>.lproj/ServicesMenu.strings`），系统按用户的首选语言显示。
+fn write_services_menu(resources: &Path) -> Result<(), String> {
+    for (language, title) in [("en", SERVICE_TITLE), ("zh-Hans", "在 Winc 中打开")] {
+        let dir = resources.join(format!("{language}.lproj"));
+        std::fs::create_dir_all(&dir).map_err(|e| format!("{}：{e}", dir.display()))?;
+        let file = dir.join("ServicesMenu.strings");
+        std::fs::write(&file, format!("\"{SERVICE_TITLE}\" = \"{title}\";\n"))
+            .map_err(|e| format!("{}：{e}", file.display()))?;
+    }
+    Ok(())
+}
+
 /// 生成 `Info.plist`；`arch` 是应用的架构（`arm64` 或 `x86_64`），决定请求哪一份 appcast。
 ///
 /// `CFBundleDocumentTypes` 声明能打开任意文件（`public.data`）和文件夹（`public.folder`）：
 /// 有了这一项，文件和文件夹才能拖到程序坞的图标上，「打开方式」里也才列出 Winc。等级是
 /// `Alternate`，不占用其他应用的默认打开方式。
+///
+/// `NSServices` 声明一项服务「在 Winc 中打开」（见 [`SERVICE_TITLE`]），出现在访达右键菜单的
+/// 「服务」中，只针对文本文件（`public.text`）和文件夹。声明了 `NSRequiredContext`，安装后即
+/// 启用；用户可在「系统设置 → 键盘 → 键盘快捷键 → 服务」中关闭。服务由应用委托处理（消息名
+/// `openInWinc`），不安装扩展，也不修改任何文件类型的默认打开方式。
 fn info_plist(version: &str, updates: &sparkle::UpdateConfig, arch: &str) -> String {
     let updates = updates.plist_entries(arch);
     format!(
@@ -643,6 +664,25 @@ fn info_plist(version: &str, updates: &sparkle::UpdateConfig, arch: &str) -> Str
 			<string>Alternate</string>
 			<key>LSItemContentTypes</key>
 			<array>
+				<string>public.folder</string>
+			</array>
+		</dict>
+	</array>
+	<key>NSServices</key>
+	<array>
+		<dict>
+			<key>NSMenuItem</key>
+			<dict>
+				<key>default</key>
+				<string>{SERVICE_TITLE}</string>
+			</dict>
+			<key>NSMessage</key>
+			<string>openInWinc</string>
+			<key>NSRequiredContext</key>
+			<dict/>
+			<key>NSSendFileTypes</key>
+			<array>
+				<string>public.text</string>
 				<string>public.folder</string>
 			</array>
 		</dict>
@@ -682,3 +722,6 @@ fn info_plist(version: &str, updates: &sparkle::UpdateConfig, arch: &str) -> Str
 "#
     )
 }
+
+#[cfg(test)]
+mod tests;

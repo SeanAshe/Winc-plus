@@ -1,0 +1,11 @@
+# Nemo action, installed to /usr/share/nemo/actions. Applies to the empty space of the folder being
+# viewed; %P is that folder.
+[Nemo Action]
+Name=Open in Winc
+Name[zh_CN]=在 Winc 中打开
+Comment=Open this folder in Winc
+Comment[zh_CN]=在 Winc 中打开当前文件夹
+Exec=winc %P
+Icon-Name=winc
+Selection=none
+Extensions=any;

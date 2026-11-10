@@ -1542,3 +1542,95 @@ fn a_stash_knows_the_branch_it_was_made_on() {
     );
     assert_eq!(stash("autostash").branch(), None);
 }
+
+#[test]
+fn publishing_prefers_configured_targets_then_origin() {
+    let names = ["github-desktop-alice", "github-desktop-bob", "origin"].map(String::from);
+    let remotes: Vec<&String> = names.iter().collect();
+    // 没有配置推送目标：推到 `origin`，即使它按名字排在后面。
+    assert_eq!(publish_remote(&remotes, &[]).unwrap(), "origin");
+    // 配置的推送目标优先；配置了已不存在的远程时跳过它。
+    let preferred = ["gone".to_owned(), "github-desktop-bob".to_owned()];
+    assert_eq!(
+        publish_remote(&remotes, &preferred).unwrap(),
+        "github-desktop-bob"
+    );
+    // 没有 `origin` 时取第一个；没有远程时为 `None`。
+    assert_eq!(
+        publish_remote(&remotes[..2], &[]).unwrap(),
+        "github-desktop-alice"
+    );
+    assert_eq!(publish_remote(&[], &[]), None);
+}
+
+/// 审阅拉取请求时添加的远程按名字排在 `origin` 之前；发布新分支时仍然推到 `origin`。
+#[test]
+fn publishing_a_branch_pushes_to_origin_before_other_remotes() {
+    let shell = Shell::with_vars(std::env::vars_os().collect());
+    let Ok(git) = Git::find(&shell) else {
+        return;
+    };
+    let dir = crate::test_util::scratch("publish-remote");
+    let root = winc_config::files::canonicalize(&dir).unwrap().join("work");
+    let sh = |cwd: &Path, args: &[&str]| {
+        let ok = Command::new("git")
+            .arg("-C")
+            .arg(cwd)
+            .args(args)
+            .output()
+            .unwrap()
+            .status
+            .success();
+        assert!(ok, "git {args:?}");
+    };
+    let base = root.parent().unwrap();
+    for bare in ["fork.git", "origin.git"] {
+        std::fs::create_dir_all(base.join(bare)).unwrap();
+        sh(&base.join(bare), &["init", "-q", "--bare"]);
+    }
+    std::fs::create_dir_all(&root).unwrap();
+    sh(&root, &["init", "-q", "-b", "main"]);
+    sh(&root, &["config", "user.name", "t"]);
+    sh(&root, &["config", "user.email", "t@t"]);
+    sh(&root, &["config", "commit.gpgsign", "false"]);
+    sh(&root, &["commit", "-q", "--allow-empty", "-m", "a"]);
+    let fork = base.join("fork.git");
+    let origin = base.join("origin.git");
+    sh(
+        &root,
+        &[
+            "remote",
+            "add",
+            "github-desktop-alice",
+            fork.to_str().unwrap(),
+        ],
+    );
+    sh(
+        &root,
+        &["remote", "add", "origin", origin.to_str().unwrap()],
+    );
+    sh(&root, &["switch", "-q", "-c", "feature"]);
+    assert!(git.untrusted(&root).is_none());
+
+    git.push(&root, false).unwrap();
+    let upstream = Command::new("git")
+        .arg("-C")
+        .arg(&root)
+        .args(["config", "branch.feature.remote"])
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8_lossy(&upstream.stdout).trim(), "origin");
+    let pushed = |bare: &Path| {
+        Command::new("git")
+            .arg("-C")
+            .arg(bare)
+            .args(["rev-parse", "--verify", "--quiet", "refs/heads/feature"])
+            .status()
+            .unwrap()
+            .success()
+    };
+    assert!(pushed(&origin));
+    assert!(!pushed(&fork), "推到了按名字排在前面的远程");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

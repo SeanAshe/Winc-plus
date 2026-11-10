@@ -118,3 +118,22 @@ fn the_version_flag_returns_at_once() {
     assert!(args(&["--version", "--no-such-option"]).unwrap().version);
     assert!(!args(&["."]).unwrap().version);
 }
+
+#[test]
+fn the_launcher_flag_is_recorded_and_dropped_when_relaunching() {
+    let parsed = args(&["--launcher", "-n", "a"]).unwrap();
+    assert!(parsed.launcher && parsed.new_instance);
+    assert_eq!(parsed.targets, [at("a", None, None)]);
+    // 启动脚本传入的标记不列入用法说明。
+    assert!(!usage().contains(LAUNCHER_FLAG));
+
+    // 转到后台的新进程不带该标记；`--` 之后的同名参数是文件名，保留。
+    let relaunched = without_launcher_flag(
+        ["--launcher", "--wsl", "Ubuntu", "a", "--", "--launcher"].map(OsString::from),
+    );
+    assert_eq!(
+        relaunched,
+        ["--wsl", "Ubuntu", "a", "--", "--launcher"].map(OsString::from)
+    );
+    assert!(!args(&["a"]).unwrap().launcher);
+}

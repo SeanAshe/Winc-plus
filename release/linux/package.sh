@@ -24,6 +24,10 @@ desktop-file-validate "$appdir/usr/share/applications/winc.desktop"
 deb="$workdir/deb"
 mkdir -p "$deb/DEBIAN" "$deb/usr/share/doc/winc" "$bundle/deb" "$bundle/appimage"
 cp -a "$appdir/usr" "$deb/"
+# File manager context menus belong to the installed package only: the AppImage installs nothing.
+install -Dm644 release/linux/file-manager/winc-open-file.desktop release/linux/file-manager/winc-open-folder.desktop \
+  -t "$deb/usr/share/kio/servicemenus"
+install -Dm644 release/linux/file-manager/*.nemo_action -t "$deb/usr/share/nemo/actions"
 install -m644 LICENSE NOTICE "$deb/usr/share/doc/winc/"
 cat > "$deb/DEBIAN/control" <<EOF
 Package: winc

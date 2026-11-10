@@ -1,0 +1,10 @@
+# Nemo action, installed to /usr/share/nemo/actions. Applies to selected folders.
+[Nemo Action]
+Name=Open in Winc
+Name[zh_CN]=在 Winc 中打开
+Comment=Open the selected folders in Winc
+Comment[zh_CN]=在 Winc 中打开所选文件夹
+Exec=winc %F
+Icon-Name=winc
+Selection=notnone
+Extensions=dir;

@@ -120,8 +120,9 @@ type OpenHandler = Box<dyn Fn(Vec<PathBuf>) + Send + Sync>;
 
 static OPEN_HANDLER: OnceLock<OpenHandler> = OnceLock::new();
 
-/// 文件或目录拖到程序坞的图标上、在文件管理器里用「打开方式 → winc」打开时，以它们的路径调用
-/// `open`（`application:openURLs:`）；winc 还没运行时，系统先启动它再交来。
+/// 文件或目录拖到程序坞的图标上、在文件管理器里用「打开方式 → winc」或「服务 → 在 Winc 中
+/// 打开」打开时，以它们的路径调用 `open`（`application:openURLs:`、`openInWinc:userData:error:`）；
+/// winc 还没运行时，系统先启动它再交来。
 ///
 /// 必须在 `winit` 建好事件循环（已设置应用委托）之后、开始运行之前调用：启动时交来的那一批在
 /// `applicationDidFinishLaunching:` 之前就到了。只有第一次调用生效。
@@ -132,6 +133,9 @@ pub fn on_open_files(open: impl Fn(Vec<PathBuf>) + Send + Sync + 'static) {
 
     if let Some(delegate) = AnyClass::get(DELEGATE) {
         add_open_urls(delegate, open_urls);
+        if add_open_service(delegate, open_service) {
+            provide_services();
+        }
     }
 }
 
@@ -143,14 +147,32 @@ extern "C-unwind" fn open_urls(
     _app: *mut AnyObject,
     urls: *mut AnyObject,
 ) {
-    // SAFETY: `urls` 由 AppKit 传入，在整个调用期间有效（所有权归自动释放池），可为空。
-    // `count` 与 `objectAtIndex:` 是 NSArray 的公开方法，下标小于 `count`；元素是 NSURL，
-    // 由数组持有，在本次调用内有效。数组为空时不取元素；每个元素判空后再转路径，不是文件
-    // URL 的（`url_path` 返回 `None`）跳过。
-    let paths: Vec<PathBuf> = unsafe {
-        let Some(urls) = urls.as_ref() else {
-            return;
-        };
+    // SAFETY: `urls` 由 AppKit 传入，在整个调用期间有效（所有权归自动释放池），可为空；不为空时
+    // 是元素均为 NSURL 的 NSArray，满足 `file_paths` 的要求。
+    let paths = unsafe {
+        urls.as_ref()
+            .map(|urls| file_paths(urls))
+            .unwrap_or_default()
+    };
+    open_paths(paths);
+}
+
+/// 把要打开的路径交给 [`on_open_files`] 登记的回调；没有路径时不调用。
+fn open_paths(paths: Vec<PathBuf>) {
+    if let Some(open) = OPEN_HANDLER.get().filter(|_| !paths.is_empty()) {
+        open(paths);
+    }
+}
+
+/// 取出 NSURL 数组中的文件路径，跳过不是文件 URL 的元素。
+///
+/// # Safety
+///
+/// `urls` 必须是元素均为 NSURL 的有效 NSArray，且在调用期间有效。
+unsafe fn file_paths(urls: &AnyObject) -> Vec<PathBuf> {
+    // SAFETY: 由调用方保证 `urls` 是有效的 NSArray；`count` 与 `objectAtIndex:` 是 NSArray 的
+    // 公开方法，下标小于 `count`；元素是 NSURL，由数组持有，在本次调用内有效，判空后再转路径。
+    unsafe {
         let count: usize = msg_send![urls, count];
         (0..count)
             .filter_map(|i| {
@@ -158,9 +180,92 @@ extern "C-unwind" fn open_urls(
                 super::files::url_path(url.as_ref()?)
             })
             .collect()
+    }
+}
+
+/// 实现 `- (void)openInWinc:(NSPasteboard *)pasteboard userData:(NSString *)userData
+/// error:(NSString **)error`：访达「服务」菜单中的「在 Winc 中打开」（声明见 `Info.plist` 的
+/// `NSServices`）。
+///
+/// 只读取剪贴板中的文件 URL；没有文件时不做任何事，也不报告错误。
+extern "C-unwind" fn open_service(
+    _this: *mut AnyObject,
+    _cmd: Sel,
+    pasteboard: *mut AnyObject,
+    _user_data: *mut AnyObject,
+    _error: *mut *mut AnyObject,
+) {
+    // SAFETY: `pasteboard` 由系统传入，在整个调用期间有效，可为空，判空后使用。
+    let paths = unsafe {
+        pasteboard
+            .as_ref()
+            .map(|p| service_paths(p))
+            .unwrap_or_default()
     };
-    if let Some(open) = OPEN_HANDLER.get().filter(|_| !paths.is_empty()) {
-        open(paths);
+    open_paths(paths);
+}
+
+/// 读出服务剪贴板中的文件路径。
+///
+/// # Safety
+///
+/// `pasteboard` 必须是有效的 NSPasteboard，且在调用期间有效。
+unsafe fn service_paths(pasteboard: &AnyObject) -> Vec<PathBuf> {
+    #[link(name = "AppKit", kind = "framework")]
+    unsafe extern "C" {
+        static NSPasteboardURLReadingFileURLsOnlyKey: &'static AnyObject;
+    }
+
+    // SAFETY: 由调用方保证 `pasteboard` 有效。`arrayWithObject:`、`numberWithBool:`、
+    // `dictionaryWithObject:forKey:` 和 `readObjectsForClasses:options:` 是公开 API，返回自动
+    // 释放的对象或 nil，判空后在本块内使用；NSURL 类对象可作为数组元素。
+    // `NSPasteboardURLReadingFileURLsOnlyKey` 是 AppKit 导出的常量字符串，在进程内一直有效；
+    // 选项限定只读取文件 URL，返回的数组元素均为 NSURL，满足 `file_paths` 的要求。
+    unsafe {
+        let classes: *mut AnyObject = msg_send![class!(NSArray), arrayWithObject: class!(NSURL)];
+        let yes: *mut AnyObject = msg_send![class!(NSNumber), numberWithBool: Bool::YES];
+        let options: *mut AnyObject = msg_send![
+            class!(NSDictionary),
+            dictionaryWithObject: yes,
+            forKey: NSPasteboardURLReadingFileURLsOnlyKey
+        ];
+        let urls: *mut AnyObject =
+            msg_send![pasteboard, readObjectsForClasses: classes, options: options];
+        urls.as_ref()
+            .map(|urls| file_paths(urls))
+            .unwrap_or_default()
+    }
+}
+
+type OpenService =
+    extern "C-unwind" fn(*mut AnyObject, Sel, *mut AnyObject, *mut AnyObject, *mut *mut AnyObject);
+
+/// 给 `class` 添加 `openInWinc:userData:error:` 方法，返回是否添加成功；类已有该方法时不做
+/// 任何事并返回 `false`。
+fn add_open_service(class: &AnyClass, imp: OpenService) -> bool {
+    // SAFETY: `OpenService` 与 `Imp` 都是函数指针，大小相同，`transmute` 成立。类型编码
+    // `v@:@@^@` 与实际签名一致：返回 void（v），参数依次为 self（@）、_cmd（:）、
+    // NSPasteboard（@）、NSString（@）和指向 NSString 指针的指针（^@）；系统按该编码调用，
+    // 不会读错参数。
+    unsafe {
+        let imp = std::mem::transmute::<OpenService, Imp>(imp);
+        add_raw_method(class, sel!(openInWinc:userData:error:), imp, c"v@:@@^@")
+    }
+}
+
+/// 把应用委托设为服务提供者，接收「服务」菜单交来的请求；取不到应用或委托时不设置。
+fn provide_services() {
+    // SAFETY: `sharedApplication`、`delegate` 和 `setServicesProvider:` 是公开 API，在主线程
+    // 调用；委托由 `winit` 创建并在应用运行期间一直存在，判空后传入，AppKit 不取得其所有权。
+    unsafe {
+        let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+        let Some(app) = app.as_ref() else {
+            return;
+        };
+        let delegate: *mut AnyObject = msg_send![app, delegate];
+        if let Some(delegate) = delegate.as_ref() {
+            let () = msg_send![app, setServicesProvider: delegate];
+        }
     }
 }
 
@@ -265,6 +370,109 @@ pub fn add_settings_menu(open: impl Fn() + Send + Sync + 'static) {
 
 /// 菜单项「设置…」的动作名，添加在 `winit` 的应用委托上。
 const SETTINGS_ACTION: &CStr = c"wincOpenSettings:";
+
+/// 菜单栏「安装 winc 命令…」被选中时调用的回调；只在主线程上设置和调用。
+type InstallCommandHandler = Box<dyn Fn() + Send + Sync>;
+
+static INSTALL_COMMAND_HANDLER: OnceLock<InstallCommandHandler> = OnceLock::new();
+
+/// 菜单项「安装 winc 命令…」的动作名，添加在 `winit` 的应用委托上。
+const INSTALL_COMMAND_ACTION: &CStr = c"wincInstallCommand:";
+
+/// 在应用菜单的「设置…」下面添加一项「安装 winc 命令…」，选中时调用 `install`。
+///
+/// 只在用户选择时安装，与命令面板中的同名命令相同；启动时不自动安装。必须在
+/// [`add_settings_menu`] 之后调用：找不到「设置…」时不添加。只有第一次调用生效。
+pub fn add_install_command_menu(install: impl Fn() + Send + Sync + 'static) {
+    if INSTALL_COMMAND_HANDLER.set(Box::new(install)).is_err() {
+        return;
+    }
+
+    /// 实现 `- (void)wincInstallCommand:(id)sender`：菜单项「安装 winc 命令…」的动作。
+    extern "C-unwind" fn install_command(
+        _this: *mut AnyObject,
+        _cmd: Sel,
+        _sender: *mut AnyObject,
+    ) {
+        if let Some(install) = INSTALL_COMMAND_HANDLER.get() {
+            install();
+        }
+    }
+
+    let Some(delegate) = AnyClass::get(DELEGATE) else {
+        return;
+    };
+    add_method(delegate, INSTALL_COMMAND_ACTION, install_command);
+
+    // SAFETY: 用到的 `NSApplication`、`NSMenu` 是公开 API，只在主线程调用。指针先判空再使用；
+    // 取出的 `app`、`main_menu`、`app_item`、`app_menu` 和委托由 AppKit 持有，调用内有效，满足
+    // `insert_install_item` 的要求。
+    unsafe {
+        let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+        let Some(app) = app.as_ref() else {
+            return;
+        };
+        let target: *mut AnyObject = msg_send![app, delegate];
+        let Some(target) = target.as_ref() else {
+            return;
+        };
+        let main_menu: *mut AnyObject = msg_send![app, mainMenu];
+        let Some(main_menu) = main_menu.as_ref() else {
+            return;
+        };
+        let app_item: *mut AnyObject = msg_send![main_menu, itemAtIndex: 0isize];
+        let Some(app_item) = app_item.as_ref() else {
+            return;
+        };
+        let app_menu: *mut AnyObject = msg_send![app_item, submenu];
+        if let Some(app_menu) = app_menu.as_ref() {
+            insert_install_item(app_menu, target);
+        }
+    }
+}
+
+/// 在应用菜单 `app_menu` 中，动作对象为 `target` 的「设置…」下面插入「安装 winc 命令…」，返回
+/// 是否插入；找不到「设置…」时不插入。
+///
+/// # Safety
+///
+/// 只能在主线程调用；`app_menu` 必须是有效的 `NSMenu`，`target` 必须在菜单存在期间有效。
+unsafe fn insert_install_item(app_menu: &AnyObject, target: &AnyObject) -> bool {
+    let (Some(title), Some(key)) = (
+        ns_string(winc_i18n::t!("menu-install-command")),
+        ns_string(""),
+    ) else {
+        return false;
+    };
+    // SAFETY: 由调用方保证在主线程调用、`app_menu` 和 `target` 有效。`NSMenu`、`NSMenuItem` 是
+    // 公开 API；标题和空的快捷键字符串由 `ns_string` 创建并持有到块末尾。菜单项 `alloc` 后 +1，
+    // 加入菜单后由菜单持有，`release` 抵消。插入下标为「设置…」的下标加 1，不超过项数。
+    unsafe {
+        // 「设置…」的下标；不存在时为 -1。
+        let settings: isize = msg_send![
+            app_menu,
+            indexOfItemWithTarget: target,
+            andAction: Sel::register(SETTINGS_ACTION)
+        ];
+        if settings < 0 {
+            return false;
+        }
+        let item: *mut AnyObject = msg_send![class!(NSMenuItem), alloc];
+        let item: *mut AnyObject = msg_send![
+            item,
+            initWithTitle: &*title,
+            action: Sel::register(INSTALL_COMMAND_ACTION),
+            keyEquivalent: &*key
+        ];
+        let Some(item) = item.as_ref() else {
+            return false;
+        };
+        let () = msg_send![item, setTarget: target];
+        let () = msg_send![app_menu, insertItem: item, atIndex: settings + 1];
+        let () = msg_send![item, release];
+        true
+    }
+}
 
 /// 把应用菜单 `app_menu` 中以进程名结尾的项（`winit` 建菜单时按进程名写的「About winc」
 /// 「Hide winc」「Quit winc」）改用应用的显示名，与菜单栏上的应用名一致。

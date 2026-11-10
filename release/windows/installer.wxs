@@ -55,6 +55,23 @@
             <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\shell\open\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
             <?endforeach?>
           </Component>
+          <!-- Explorer context menu: "Open with Winc" on the supported types, added under
+               SystemFileAssociations so their default program stays unchanged, and "Open in Winc" on
+               a folder and on the empty space inside one (also the desktop), where %V is that folder.
+               Windows 11 shows these under "Show more options". -->
+          <Component Id="ContextMenu" Guid="*" Win64="yes">
+            <RegistryValue Root="HKLM" Key="Software\Classes\Directory\shell\winc" Value="Open in Winc" Type="string" KeyPath="yes"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\Directory\shell\winc" Name="Icon" Value="[#WincExe],0" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\Directory\shell\winc\command" Value="&quot;[#WincExe]&quot; &quot;%V&quot;" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\Directory\Background\shell\winc" Value="Open in Winc" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\Directory\Background\shell\winc" Name="Icon" Value="[#WincExe],0" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\Directory\Background\shell\winc\command" Value="&quot;[#WincExe]&quot; &quot;%V&quot;" Type="string"/>
+            <?foreach Type in $(var.FileTypes)?>
+            <RegistryValue Root="HKLM" Key="Software\Classes\SystemFileAssociations\.$(var.Type)\shell\winc" Value="Open with Winc" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\SystemFileAssociations\.$(var.Type)\shell\winc" Name="Icon" Value="[#WincExe],0" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\SystemFileAssociations\.$(var.Type)\shell\winc\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
+            <?endforeach?>
+          </Component>
           <Directory Id="BINFOLDER" Name="bin">
             <Component Id="CommandLine" Guid="*" Win64="yes">
               <File Id="WincLauncher" Source="$(var.Source)\bin\winc" KeyPath="yes"/>
@@ -81,7 +98,7 @@
     <Feature Id="Main" Title="winc" Level="1">
       <ComponentRef Id="Application"/><ComponentRef Id="TerminalHelper"/><ComponentRef Id="InstallationKind"/>
       <ComponentRef Id="ConptyLibrary"/><ComponentRef Id="ConsoleHost"/>
-      <ComponentRef Id="FileAssociations"/>
+      <ComponentRef Id="FileAssociations"/><ComponentRef Id="ContextMenu"/>
       <ComponentRef Id="CommandLine"/><ComponentRef Id="CommandLineCmd"/><ComponentRef Id="WslWatcher"/>
       <ComponentRef Id="License"/><ComponentRef Id="Notice"/><ComponentRef Id="StartMenu"/>
     </Feature>
