@@ -320,6 +320,7 @@ impl App {
         settle(&mut self.outline.fold, |f| f.clock);
         settle(&mut self.markdown.toc_fade, |c| *c);
         settle(&mut self.markdown.toc_flash, |f| f.1);
+        settle(&mut self.markdown.anchor_flash, |f| f.1);
         settle(&mut self.commit.card.motion, |m| m.1);
         settle(&mut self.commit.undo.motion, |m| m.1);
         settle(&mut self.global.field_motion, |m| m.2);
@@ -414,6 +415,7 @@ impl App {
             || self.outline.fold.is_some()
             || self.markdown.toc_fade.is_some()
             || self.markdown.toc_flash.is_some()
+            || self.markdown.anchor_flash.is_some()
             || self.commit.card.motion.is_some()
             || self.commit.undo.motion.is_some()
             || self.global.field_motion.is_some()

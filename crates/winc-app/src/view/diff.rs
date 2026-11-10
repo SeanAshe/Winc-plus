@@ -6,6 +6,8 @@
 //! 一层。并排时「»」和改动勾选框位于带子上，「»」用左侧的一段替换右侧；行勾选框位于行号栏靠近
 //! 文字的一侧。折叠的一段同样用带子连接。
 
+mod sticky;
+
 use std::fmt::Write as _;
 use std::ops::Range;
 
@@ -22,6 +24,7 @@ use super::editor::{
     trailing_whitespace, whitespace_shown,
 };
 use super::*;
+use crate::app::diff::DiffPane;
 use crate::app::{DIFF_TEXT_PAD, DiffParts, DiffTarget, Focus, HunkKind, diff_parts};
 use crate::icons::Direction;
 use crate::layout::{GIT_LANE, Ruler, editor_content_height};
@@ -161,6 +164,7 @@ pub(super) fn draw_diff(app: &mut App, frame: &mut Frame<'_>, index: usize) {
     let mut hits = Vec::new();
 
     draw_body(app, frame, &mut view, &parts, scroll, pos, &edit, &mut hits);
+    sticky::draw(app, frame, &mut view, &parts, scroll, pos, &mut hits);
     draw_header(app, frame, &view, &parts, pos, &mut hits);
     draw_overview(app, frame, &view, &parts, index);
     draw_horizontal_scrollbar(app, frame, &view, &parts, index);
@@ -460,10 +464,7 @@ fn drawn_rows(
     visible_rows(pos, body.h, line_height)
         .filter_map(|index| {
             let (side, row) = view.unified_row(index)?;
-            let unchanged = matches!(view.rows[side][row], SideRow::Line { hunk: None, .. });
-            let old_line = unchanged
-                .then(|| view.line_at(LEFT, view.row_at(LEFT, index as f64) as usize))
-                .flatten();
+            let old_line = unified_old_line(view, side, row, index as f64);
             Some(DrawnRow {
                 side,
                 row,
@@ -472,6 +473,66 @@ fn drawn_rows(
             })
         })
         .collect()
+}
+
+/// 单栏中第 `side` 侧显示行 `row`（位于单栏位置 `pos`）未改动时，返回同时显示的左侧行号；
+/// 改动行和并排时为 `None`。
+fn unified_old_line(view: &DiffView, side: usize, row: usize, pos: f64) -> Option<usize> {
+    let unchanged = matches!(
+        view.rows[side].get(row),
+        Some(SideRow::Line { hunk: None, .. })
+    );
+    (view.is_unified() && unchanged)
+        .then(|| view.line_at(LEFT, view.row_at(LEFT, pos) as usize))
+        .flatten()
+}
+
+/// 绘制文字区与中间一栏之间的竖向分隔线：每侧从正文顶部画到 `ends` 中该侧的下端（窗口
+/// 纵坐标），不超出正文区域。单栏只有右侧一条。
+fn draw_pane_rules(
+    app: &App,
+    frame: &mut Frame<'_>,
+    view: &DiffView,
+    parts: &DiffParts,
+    ends: [f32; 2],
+) {
+    let p = app.palette;
+    let body = parts.body;
+    let rule = p.separator.alpha(p.separator.a * 0.7);
+    for (side, x) in [
+        (LEFT, parts.panes[LEFT].text.right()),
+        (RIGHT, parts.panes[RIGHT].text.x - 1.0),
+    ] {
+        if view.is_unified() && side == LEFT {
+            continue;
+        }
+        let end = ends[side].clamp(body.y, body.bottom());
+        frame.rect(Rect::new(x, body.y, 1.0, end - body.y), rule);
+    }
+}
+
+/// 在 `pane` 的行号栏中靠文字一侧右对齐绘制行号（`line` 从 0 起，显示时加 1）。
+fn draw_line_number(
+    app: &App,
+    frame: &mut Frame<'_>,
+    pane: &DiffPane,
+    line: usize,
+    baseline: f32,
+    number: &mut String,
+) {
+    number.clear();
+    let _ = write!(number, "{}", line + 1);
+    let x = pane.number_end - number.chars().count() as f32 * app.cell;
+    let p = app.palette;
+    frame.text(
+        FontKind::Mono,
+        app.fonts.code,
+        x,
+        baseline,
+        number,
+        p.gutter_text,
+        pane.gutter,
+    );
 }
 
 /// 绘制两侧的代码与行号、改动的底色和带子、查找结果与选区、光标，以及勾选框和「»」按钮。
@@ -525,17 +586,8 @@ fn draw_body(
 
     // 先绘制文字区和中间一栏之间的分隔线，使改动行的底色覆盖分隔线，一段改动左右连续，
     // 不被竖线切开。分隔线只绘制到该侧最后一行的下沿，不延伸到下方的空白。
-    let rule = p.separator.alpha(p.separator.a * 0.7);
-    for (side, x) in [
-        (LEFT, parts.panes[LEFT].text.right()),
-        (RIGHT, parts.panes[RIGHT].text.x - 1.0),
-    ] {
-        if unified && side == LEFT {
-            continue;
-        }
-        let end = row_y(side, view.rows[side].len()).clamp(body.y, body.bottom());
-        frame.rect(Rect::new(x, body.y, 1.0, end - body.y), rule);
-    }
+    let ends = [LEFT, RIGHT].map(|side| row_y(side, view.rows[side].len()));
+    draw_pane_rules(app, frame, view, parts, ends);
 
     // 同一行的各段共用字符、分段和着色，切换到另一行时才重新读取。
     let mut loaded = None;
@@ -627,36 +679,12 @@ fn draw_body(
                 );
             }
         }
-        if let Some(line) = old_line.filter(|_| part == 0) {
-            number.clear();
-            let _ = write!(number, "{}", line + 1);
-            let gutter = parts.panes[LEFT].gutter;
-            let number_x = parts.panes[LEFT].number_end - number.chars().count() as f32 * app.cell;
-            frame.text(
-                FontKind::Mono,
-                app.fonts.code,
-                number_x,
-                baseline,
-                &number,
-                p.gutter_text,
-                gutter,
-            );
-        }
-
         // 行号在靠近中间带子的一侧右对齐；后续各段不绘制行号。
         if part == 0 {
-            number.clear();
-            let _ = write!(number, "{}", line + 1);
-            let number_x = pane.number_end - number.chars().count() as f32 * app.cell;
-            frame.text(
-                FontKind::Mono,
-                app.fonts.code,
-                number_x,
-                baseline,
-                &number,
-                p.gutter_text,
-                pane.gutter,
-            );
+            if let Some(line) = old_line {
+                draw_line_number(app, frame, &parts.panes[LEFT], line, baseline, &mut number);
+            }
+            draw_line_number(app, frame, &pane, line, baseline, &mut number);
         }
 
         // 行勾选框：只提交部分行的改动始终显示；其他改动在鼠标移到该格时显示。
@@ -803,6 +831,25 @@ fn draw_body(
                 let rect = Rect::new(x0, y, x1 - x0, lh);
                 frame.rect_clipped(rect, p.selection, 0.0, pane.text);
             }
+        }
+
+        // 固定高亮画在选区底色上方，选中的文字仍能看到颜色。不折行时 `range` 是整行，只取
+        // 窗口中可见的列：超长的行不必逐帧整行查找。
+        let shown = if app.word_highlights.is_empty() {
+            0..0
+        } else {
+            let prefix = prefix.get_or_init(|| text::prefix_cells(&chars, tab_width));
+            let cell_at = |x: f32| ((x - origin_x) / app.cell - lead).max(0.0) as usize;
+            let (left, right) = (cell_at(pane.text.x), cell_at(pane.text.right()) + 1);
+            let first = prefix.partition_point(|&c| c <= left).saturating_sub(1);
+            let last = prefix.partition_point(|&c| c <= right);
+            first.max(range.start)..last.min(range.end).max(first.max(range.start))
+        };
+        for (from, to, color) in marked_occurrences(app, &chars, shown) {
+            let x0 = origin_x + at(from) * app.cell;
+            let x1 = origin_x + at(to) * app.cell;
+            let rect = Rect::new(x0, y + 1.0, (x1 - x0).max(2.0), lh - 2.0);
+            frame.rect_clipped(rect, color, 3.0, pane.text);
         }
 
         // 整行从行首绘制（制表符的宽度取决于其在行内的位置），只显示本段的范围。

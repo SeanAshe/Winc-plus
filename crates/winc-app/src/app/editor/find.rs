@@ -83,6 +83,49 @@ impl App {
         usable_seed(range, selection, |from, to| doc.text_range(from, to))
     }
 
+    /// 固定或取消光标下的词；查找条、选区和滚动位置保持原样。
+    pub(in crate::app) fn toggle_word_highlight(&mut self) -> bool {
+        if !self.preedit.is_empty() {
+            return false;
+        }
+        let Some(doc) = self.editor.active() else {
+            return false;
+        };
+        let term = if let Some(view) = doc.diff.as_deref() {
+            if let Some(read) = view.read_selection {
+                let (a, b) = read.range;
+                highlight_seed(&view.side(read.side).text, Selection::new(a, b))
+            } else if let Some(path) = view.new.path.as_deref().filter(|_| view.editing) {
+                self.editor
+                    .documents
+                    .iter()
+                    .find(|doc| doc.path.as_deref() == Some(path))
+                    .and_then(|doc| highlight_seed(doc.text(), doc.selection))
+            } else {
+                None
+            }
+        } else if doc.shows_text() {
+            highlight_seed(doc.text(), doc.selection)
+        } else {
+            None
+        };
+        let Some(term) = term else {
+            return false;
+        };
+
+        let marks = &mut self.word_highlights;
+        if let Some(index) = marks.iter().position(|(_, mark)| *mark == term) {
+            marks.remove(index);
+        } else {
+            let color = (0..WORD_HIGHLIGHT_COUNT)
+                .find(|color| marks.iter().all(|(used, _)| used != color))
+                .unwrap_or_else(|| marks.remove(0).0);
+            marks.push((color, term));
+        }
+        self.request_redraw();
+        true
+    }
+
     /// 执行编辑区中的「查找下一个」（`F3`、`⌘G`），`backwards` 为 `true` 时反向查找。
     ///
     /// 还没有查找内容时，先用光标所在的词（`search_seed`）作为查找内容。
@@ -579,6 +622,17 @@ impl App {
         self.scroll_to_line(line, 1.0 / 3.0, false);
         self.select(start, start + len);
     }
+}
+
+/// 返回固定高亮的内容：选中的文字，没有选区时取光标所在的词；规则同 [`App::search_seed`]。
+///
+/// 选中的文字按字面匹配，可以是词的一部分；光标所在的词只匹配完整的词。
+fn highlight_seed(text: &impl Lines, selection: Selection) -> Option<WordHighlight> {
+    let range = seed_range(text, selection);
+    let seed = usable_seed(range, selection, |from, to| Some(text.substring(from, to)))?;
+    let chars: Vec<char> = seed.chars().collect();
+    let whole_word = selection.is_empty();
+    (!chars.iter().all(|c| c.is_whitespace())).then_some(WordHighlight { chars, whole_word })
 }
 
 /// 返回 `selection` 对应的预填范围（字符偏移）：有选区时为选区，否则为光标所在的词。

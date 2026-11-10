@@ -37,7 +37,8 @@ pub(crate) struct Stream {
 
 impl Stream {
     /// 启动 `command`：标准输入接空设备，标准输出、标准错误接管道；进程自成一个进程组
-    /// （与 [`super::run`] 相同）。
+    /// （与 [`super::run`] 相同）。启动前去掉 `WSLENV` 中命令上没有设置的变量（见
+    /// `wsl::drop_unset`）。
     ///
     /// # Errors
     ///
@@ -47,6 +48,7 @@ impl Stream {
         std::os::unix::process::CommandExt::process_group(command, 0);
         #[cfg(windows)]
         std::os::windows::process::CommandExt::creation_flags(command, 0x0800_0000);
+        crate::wsl::drop_unset(command);
         let mut child = command
             .stdin(Stdio::null())
             .stdout(Stdio::piped())

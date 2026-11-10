@@ -25,7 +25,7 @@ use crate::Command;
 use crate::diff_view::DiffView;
 use crate::editing::cursors::others;
 use crate::editing::folding::{Folds, LineWindow, Tracked, WindowKey, WrapKey};
-use crate::editing::scopes::{self, Ancestry, FoldRange, Scope};
+use crate::editing::scopes::{self, FoldRange, Scope, ScopeMemo};
 use crate::navigation::bookmarks::Bookmarks;
 use content::Content;
 use editorconfig::FileConfig;
@@ -387,7 +387,7 @@ const HIGHLIGHT_LOOKBACK: usize = 256;
 ///
 /// 与编辑区绘制时的每帧预算取同一个值：推算不完时本次结果不缓存，下一帧重新计算。该值取自调参，
 /// 上限越大，跳到文件靠后位置时粘滞块能更早算出，单帧耗时也随之增长。
-const STICKY_HIGHLIGHT_BUDGET: usize = 4_000;
+pub(crate) const STICKY_HIGHLIGHT_BUDGET: usize = 4_000;
 /// 二进制检测读取的文件前缀长度（字节，8 KiB）。
 ///
 /// 这段前缀中出现 NUL 即视为二进制文件；带 UTF-16 BOM 的文件除外。
@@ -489,7 +489,7 @@ pub struct Document {
     /// 整个文件可折叠的块，按（版本、Tab 宽度）缓存。
     pub(crate) fold_cache: Option<FoldCache>,
     /// 粘滞滚动上一次向上查找的结果，键为（版本、Tab 宽度）；键不变时下一次直接复用。
-    sticky_memo: ((u64, usize), Vec<Ancestry>),
+    sticky_memo: ScopeMemo,
     /// 大文件需要的后台断行设置；`None` 表示当前的断行结果可用或不需要换行。
     pub(crate) wrap_wanted: Option<WrapKey>,
     /// 已交给后台、尚未收到结果的断行设置。
@@ -576,7 +576,7 @@ impl Document {
             columns: None,
             column_widths: None,
             fold_cache: None,
-            sticky_memo: ((0, 0), Vec::new()),
+            sticky_memo: ScopeMemo::default(),
             wrap_wanted: None,
             wrap_pending: None,
             windows: Mutex::new(Vec::new()),
@@ -940,11 +940,7 @@ impl Document {
         let language = self.highlighter.language();
         let (text, highlighter) = (&self.text, &mut self.highlighter);
         let mut quoted = |line| starts_quoted(highlighter, text, line);
-        let key = (self.revision, tab_width);
-        if self.sticky_memo.0 != key {
-            self.sticky_memo = (key, Vec::new());
-        }
-        let memo = &mut self.sticky_memo.1;
+        let memo = self.sticky_memo.records(self.revision, tab_width);
         let found = scopes::sticky(
             text,
             language,
@@ -957,7 +953,7 @@ impl Document {
         );
         // 高亮尚未推算到位时，字符串中的行可能被当作代码，本次结果不缓存到下一帧。
         if !settled {
-            memo.clear();
+            self.sticky_memo.discard();
         }
         (found, settled)
     }
@@ -967,10 +963,7 @@ impl Document {
         let language = self.highlighter.language();
         let (text, highlighter) = (&self.text, &mut self.highlighter);
         let mut quoted = |line| starts_quoted(highlighter, text, line);
-        let memo = match &self.sticky_memo {
-            (key, memo) if *key == (self.revision, tab_width) => &memo[..],
-            _ => &[],
-        };
+        let memo = self.sticky_memo.get(self.revision, tab_width);
         scopes::depth(text, language, line, tab_width, &mut quoted, memo)
     }
 
@@ -1123,12 +1116,7 @@ impl Document {
     pub(crate) fn after_change(&mut self, first_offset: usize) {
         let line = self.text.line_of(first_offset);
         self.highlighter.invalidate_from(line);
-        // 粘滞滚动缓存的结果位于改动上方足够远时仍然适用：在屏幕下方输入时无需从头向上查找。
-        let (key, memo) = &mut self.sticky_memo;
-        if key.0 == self.revision {
-            memo.retain(|a| a.survives_edit_at(line));
-            key.0 += 1;
-        }
+        self.sticky_memo.edited(self.revision, line);
         self.revision += 1;
         self.note_edit(line);
         self.refresh_folds();
@@ -1144,9 +1132,17 @@ impl Document {
 /// 普通文档只使用已经推算好的高亮状态，不向后推算，尚未推算到的行视为不在其中；大文件按
 /// `HIGHLIGHT_LOOKBACK` 回看推算。
 pub(crate) fn starts_quoted(highlighter: &mut Highlighter, text: &Content, line: usize) -> bool {
-    let state = match text {
-        Content::Rope(rope) => highlighter.state_at(rope, line, 0),
-        Content::Large(large) => Some(highlighter.state_near(&**large, line, HIGHLIGHT_LOOKBACK)),
-    };
-    state.is_some_and(|s| s != LineState::Normal)
+    match text {
+        Content::Rope(rope) => rope_starts_quoted(highlighter, rope, line),
+        Content::Large(large) => {
+            highlighter.state_near(&**large, line, HIGHLIGHT_LOOKBACK) != LineState::Normal
+        }
+    }
+}
+
+/// 同 [`starts_quoted`]，文本为整体载入内存的 `rope`。
+pub(crate) fn rope_starts_quoted(highlighter: &mut Highlighter, rope: &Rope, line: usize) -> bool {
+    highlighter
+        .state_at(rope, line, 0)
+        .is_some_and(|s| s != LineState::Normal)
 }

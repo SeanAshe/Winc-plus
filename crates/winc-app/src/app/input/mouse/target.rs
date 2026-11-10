@@ -530,6 +530,15 @@ impl App {
         // 预览（分栏时位于右侧，仅预览时占满编辑区）先于编辑区判断，仅预览时两者重叠。
         let preview = self.markdown.area;
         if preview.contains(x, y) {
+            // 比正文宽的表格的水平滚动条：位于表格显示区域的底边。
+            if let Some(bar) = self.markdown.table_bar
+                && bar.track.contains(x, y)
+                && y >= bar.track.bottom() - SCROLLBAR_HIT
+                && let Some(thumb) =
+                    hscrollbar_thumb(bar.track, self.markdown_table_scroll(bar.key), bar.content)
+            {
+                return Some((Scrollbar::MarkdownTable, grab(x, thumb.x, thumb.w)));
+            }
             if x < preview.right() - SCROLLBAR_HIT {
                 return None;
             }
@@ -713,6 +722,7 @@ impl App {
             self.hover,
             Hover::Log(crate::app::git::log::LogTarget::Line(..))
                 | Hover::TerminalBlock(_)
+                | Hover::Diff(crate::app::DiffTarget::Sticky(..))
                 | Hover::MarkdownLink(_)
                 | Hover::MarkdownToc(crate::app::preview::markdown::TocTarget::Heading(_))
         ) || self.terminal.link.is_some()

@@ -82,11 +82,13 @@ impl Document {
 
     /// 把第 `index` 页（从 0 起）画成 `width × height` 像素的位图，白色底。
     ///
-    /// 页面按自身比例缩放到位图里，宽高比与 [`PageSize`] 一致时恰好铺满。
+    /// 页面按自身比例缩放到位图里，宽高比与 [`PageSize`] 一致时恰好铺满。返回的位图大小与请求的
+    /// 大小完全相同。
     ///
     /// # Errors
     ///
-    /// 页号超出范围、尺寸为 0 或超过 [`MAX_SIDE`]，或系统渲染失败时返回原因。
+    /// 页号超出范围、尺寸为 0 或超过 [`MAX_SIDE`]、系统渲染失败，或渲染结果的大小与请求不符时
+    /// 返回原因。
     pub fn render(&self, index: usize, width: u32, height: u32) -> Result<Pixels, String> {
         if index >= self.pages.len() {
             return Err(winc_i18n::t!("preview-pdf-render-failed").to_owned());
@@ -96,7 +98,12 @@ impl Document {
         }
         #[cfg(any(target_os = "macos", windows))]
         {
-            self.inner.render(index, width, height)
+            let pixels = self.inner.render(index, width, height)?;
+            let size = (width as usize) * (height as usize) * 4;
+            if (pixels.width, pixels.height) != (width, height) || pixels.rgba.len() != size {
+                return Err(winc_i18n::t!("preview-pdf-render-failed").to_owned());
+            }
+            Ok(pixels)
         }
         #[cfg(not(any(target_os = "macos", windows)))]
         {

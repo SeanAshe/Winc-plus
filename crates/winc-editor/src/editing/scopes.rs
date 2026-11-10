@@ -169,6 +169,58 @@ fn own_scope(
     brace_below.then(|| header(next))
 }
 
+/// 一份文本上记录的 [`Ancestry`]，按文本的版本号和 Tab 宽度失效。
+///
+/// 编辑区的文档与差异的两侧各持有一份，粘滞滚动和光标避让都从这里复用已有的结果。
+#[derive(Debug, Clone, Default)]
+pub(crate) struct ScopeMemo {
+    /// 记录时文本的版本号和 Tab 宽度（显示列）。
+    key: (u64, usize),
+    /// 记录的结果，按行号排序。
+    found: Vec<Ancestry>,
+}
+
+impl ScopeMemo {
+    /// 返回版本 `revision`、Tab 宽度 `tab_width` 下可以复用并继续记录的结果；条件不同时先清空。
+    pub(crate) fn records(&mut self, revision: u64, tab_width: usize) -> &mut Vec<Ancestry> {
+        if self.key != (revision, tab_width) {
+            self.key = (revision, tab_width);
+            self.found.clear();
+        }
+        &mut self.found
+    }
+
+    /// 返回版本 `revision`、Tab 宽度 `tab_width` 下可以复用的结果；条件不同时为空。
+    pub(crate) fn get(&self, revision: u64, tab_width: usize) -> &[Ancestry] {
+        if self.key == (revision, tab_width) {
+            &self.found
+        } else {
+            &[]
+        }
+    }
+
+    /// 是否没有记录任何结果。
+    #[cfg(test)]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.found.is_empty()
+    }
+
+    /// 丢弃本次记录的结果：高亮尚未推算到位时，字符串中的行可能被当作代码。
+    pub(crate) fn discard(&mut self) {
+        self.found.clear();
+    }
+
+    /// 文本从第 `line` 行起改动、版本号由 `revision` 加 1 时，保留改动上方仍然适用的结果。
+    ///
+    /// 在屏幕下方输入时，粘滞滚动无需从头向上查找。
+    pub(crate) fn edited(&mut self, revision: u64, line: usize) {
+        if self.key.0 == revision {
+            self.found.retain(|a| a.survives_edit_at(line));
+            self.key.0 += 1;
+        }
+    }
+}
+
 impl Ancestry {
     /// 是否第 `line` 行起的改动不影响该结果。
     ///

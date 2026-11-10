@@ -145,6 +145,7 @@ impl App {
     /// 返回当前焦点对应的键位上下文，键位表按它划分适用范围。
     pub(super) fn key_context(&self) -> Context {
         match self.focus {
+            Focus::Editor if self.markdown_live() => Context::Markdown,
             Focus::Editor => Context::Editor,
             Focus::Search => Context::Find,
             Focus::Replace => Context::Replace,
@@ -330,7 +331,14 @@ impl App {
             }
         };
 
+        let head = self.editor.active().map(|d| (d.selection.head, d.revision));
         self.run(command);
+        // 可编辑的 Markdown 预览：只移动了光标时，不停留在预览中不显示的块标记里。
+        if let Some((head, revision)) = head
+            && self.editor.active().is_some_and(|d| d.revision == revision)
+        {
+            self.live_settle_caret(head);
+        }
     }
 
     /// 处理查找条（查找、替换输入框）中的按键。

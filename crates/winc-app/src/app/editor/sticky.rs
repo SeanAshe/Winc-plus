@@ -1,7 +1,8 @@
-//! 编辑区的粘滞滚动：滚过函数、类、标题的开头后，把该行固定在编辑区顶部。
+//! 粘滞滚动：滚过函数、类、标题的开头后，把该行固定在编辑区顶部。
 //!
-//! 块即将结束时，固定的行随下方的代码上移；单击固定的行跳转到该行。
-//! 块的识别由 `winc_editor::scopes` 完成。
+//! 块即将结束时，固定的行随下方的代码上移；单击固定的行跳转到该行。块的识别由
+//! `winc_editor::scopes` 完成；固定行数的上限和各行的位置（[`sticky_limit`]、
+//! [`place_sticky_rows`]）由编辑区与差异视图共用。
 
 use winc_editor::DocumentId;
 use winc_editor::scopes::Scope;
@@ -10,9 +11,44 @@ use super::*;
 
 /// 固定行数的上限（行）。
 ///
-/// 取自调参：限制深层嵌套时固定区域占用的高度。实际行数还受 `App::sticky_max` 限制，
+/// 取自调参：限制深层嵌套时固定区域占用的高度。实际行数还受 [`sticky_limit`] 限制，
 /// 不超过可见行数的 40%。
 const STICKY_MAX: usize = 5;
+
+/// 返回可见 `visible` 行时最多固定的行数（行）：不超过可见行数的 40%，也不超过
+/// [`STICKY_MAX`]。
+///
+/// 40% 取自调参：区域较矮时固定行仍给滚动的代码留出多数空间。
+pub(crate) fn sticky_limit(visible: usize) -> usize {
+    (visible * 2 / 5).min(STICKY_MAX)
+}
+
+/// 返回固定的块 `scopes`（从外层到内层）在固定区域中的各行，已完全移出顶部的行不包含在内。
+///
+/// 第 `depth` 层通常位于第 `depth` 行（从 0 起）；块在屏幕上的最后一行的顶边高于该位置时，
+/// 固定行随这一行上移，直至移出顶部。`last_top` 返回 [`Scope::last_row`] 所指的行的顶边
+/// （逻辑像素，相对固定区域的顶部），`line_height` 是行高（逻辑像素）。
+pub(crate) fn place_sticky_rows(
+    scopes: &[Scope],
+    line_height: f32,
+    last_top: impl Fn(usize) -> f32,
+) -> Vec<StickyRow> {
+    scopes
+        .iter()
+        .enumerate()
+        .map(|(depth, scope)| {
+            let natural = depth as f32 * line_height;
+            StickyRow {
+                line: scope.start,
+                depth,
+                y: scope
+                    .last_row
+                    .map_or(natural, |last| natural.min(last_top(last))),
+            }
+        })
+        .filter(|row| row.y + line_height > 0.0)
+        .collect()
+}
 
 /// 已计算的块的缓存。
 ///
@@ -53,7 +89,7 @@ impl App {
     ///
     /// 编辑区较矮时固定的行数相应减少。
     fn sticky_max(&self) -> usize {
-        (self.visible_lines() * 2 / 5).min(STICKY_MAX)
+        sticky_limit(self.visible_lines())
     }
 
     /// 返回当前固定在编辑区顶部的行，从外层到内层。
@@ -105,28 +141,12 @@ impl App {
             return Vec::new();
         };
 
-        // 第 `depth` 层通常固定在第 `depth` 行（从 0 起）的位置；块在屏幕上的最后一行的顶边
-        // 高于该位置时，固定行随这一行上移，直至滚出编辑区。位置按屏幕上的显示行计算，
-        // 已折叠的行不占位置。
+        // 位置按屏幕上的显示行计算，已折叠的行不占位置。
         let line_height = self.fonts.line_height;
         let first_row = scroll.floor();
-        cache
-            .scopes
-            .iter()
-            .enumerate()
-            .map(|(depth, scope)| {
-                let natural = depth as f32 * line_height;
-                let pushed = scope.last_row.map_or(natural, |last| {
-                    (first_row + last as f64 - scroll) as f32 * line_height
-                });
-                StickyRow {
-                    line: scope.start,
-                    depth,
-                    y: natural.min(pushed),
-                }
-            })
-            .filter(|row| row.y + line_height > 0.0)
-            .collect()
+        place_sticky_rows(&cache.scopes, line_height, |last| {
+            (first_row + last as f64 - scroll) as f32 * line_height
+        })
     }
 
     /// 返回光标在 `line` 行时顶部需要固定的层数（不超过 `sticky_max`）。

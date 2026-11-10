@@ -181,6 +181,10 @@ impl App {
             }
             SelectAll => editing(self, Command::SelectAll),
             ToggleComment => editing(self, Command::ToggleComment),
+            MarkdownBold => self.live_format("**"),
+            MarkdownItalic => self.live_format("*"),
+            MarkdownCode => self.live_format("`"),
+            MarkdownStrikethrough => self.live_format("~~"),
             DeleteLine => editing(self, Command::DeleteLine),
             DeleteAllLeft => editing(self, Command::DeleteToLineStart),
             IndentLines => editing(self, Command::IndentLines),
@@ -268,6 +272,13 @@ impl App {
             Replace => self.open_search(true),
             FindNext => self.find_again(false),
             FindPrevious => self.find_again(true),
+            HighlightWord => return self.toggle_word_highlight(),
+            // 没有高亮时不处理，`⇧Esc` 按 `Esc` 关闭查找条、收起选区。
+            ClearWordHighlights if self.word_highlights.is_empty() => return false,
+            ClearWordHighlights => {
+                self.word_highlights.clear();
+                self.request_redraw();
+            }
             ReplaceOne if self.search_open => self.replace_current(),
             ReplaceAll if self.search_open => self.replace_all(),
             ReplaceOne | ReplaceAll => return false,
@@ -438,6 +449,15 @@ impl App {
                 return false;
             }
             Action::StopConfiguration if !self.run_config_running() => return false,
+            // 行内格式只在可编辑的 Markdown 预览中可用；其余位置同一个键执行其他命令。
+            Action::MarkdownBold
+            | Action::MarkdownItalic
+            | Action::MarkdownCode
+            | Action::MarkdownStrikethrough
+                if !self.markdown_live() =>
+            {
+                return false;
+            }
             Action::EditRunConfigurations if self.editor.root().is_none() => return false,
             // Windows 安装包、deb 包已经把 `winc` 放进 `PATH`，没有要安装的。
             Action::InstallShellCommand | Action::UninstallShellCommand

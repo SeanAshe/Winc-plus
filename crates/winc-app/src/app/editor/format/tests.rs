@@ -3,10 +3,13 @@
 use super::*;
 
 impl App {
-    /// 等待后台格式化送回一个结果并处理，最长等待 20 秒。
+    /// 等待后台格式化送回一个结果并处理，最长等待 20 秒；没有正在进行的格式化时立即返回。
     ///
     /// 测试中没有事件循环。
     pub(in crate::app) fn wait_formatting(&mut self) {
+        if self.format.running.is_empty() {
+            return;
+        }
         if let Ok((id, result)) = self.format.receiver.recv_timeout(Duration::from_secs(20)) {
             self.formatting_done(id, result);
         }

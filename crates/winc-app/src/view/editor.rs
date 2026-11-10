@@ -21,6 +21,7 @@ pub(crate) use picture::*;
 use placeholder::*;
 pub(crate) use ruler::*;
 use sticky::*;
+pub(in crate::view) use sticky::{draw_pinned_rows, draw_pinned_shadow, pinned_height};
 
 use std::fmt::Write as _;
 use std::ops::{ControlFlow, Range};

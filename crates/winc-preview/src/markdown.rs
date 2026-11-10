@@ -286,10 +286,12 @@ pub enum Block {
     /// 表格：各列的对齐方式、各行单元格、第一行是不是表头（Markdown 的表格总是，HTML 写的
     /// 看第一行是不是 `<th>`）。
     Table(Vec<Align>, Vec<Vec<Inline>>, bool),
-    /// 单独成行的公式（`$$…$$`、```` ```math ````）：LaTeX 原文，见 [`math`]。
-    Math(String),
-    /// 分隔线。
-    Rule,
+    /// 单独成行的公式（`$$…$$`、```` ```math ````）：LaTeX 原文（见 [`math`]）和公式在原文中的
+    /// 起点（字节偏移，解析完成后相对所在的顶层块）。
+    Math(String, usize),
+    /// 分隔线和它在原文中的起点（字节偏移，解析完成后相对所在的顶层块）；HTML 的 `<hr>`、
+    /// 脚注之前生成的分隔线没有对应的原文，为 `None`。
+    Rule(Option<usize>),
     /// 一条脚注：编号（按正文里第一次引用的先后）和内容。
     Footnote(String, Vec<Block>),
     /// HTML 的 `<details>`：点标题（`<summary>`，没写时是「Details」）展开、收起的一块。
@@ -314,6 +316,10 @@ pub struct Item {
     pub task_source: usize,
     /// 内容。
     pub blocks: Vec<Block>,
+    /// 记号之后没有空格的空项（原文只有 `-`、`1.`）：按文字显示记号，不画圆点和序号。
+    ///
+    /// 输入记号后再输入空格才成为列表项；`blocks` 是记号原文构成的一个段落。
+    pub bare: bool,
 }
 
 /// 表格一列的对齐方式；HTML 的 `align="center"` 等写法也归到这里的各变体。
@@ -737,11 +743,94 @@ impl Builder<'_> {
         }
     }
 
+    /// 将原文 `range` 逐字作为一个段落放入当前容器，不带样式。
+    ///
+    /// 用于后面没有空格的块标记（`-`、`1.`、`#`、`>`）：输入空格之前按文字显示。
+    fn literal(&mut self, range: Range<usize>) {
+        let mut inline = Inline::default();
+        inline.push(&self.source[range.clone()], Style::default());
+        inline.map.push(0, range.start, range.len());
+        self.leaf = Some(range);
+        self.push_block(Block::Paragraph(inline));
+        self.leaf = None;
+    }
+
+    /// 列表项的内容只有 `[ ]`、`[x]` 时按任务项处理：勾选框之后尚未输入文字。
+    ///
+    /// 解析器要求勾选框之后有内容才识别任务项；输入 `- [ ]` 后即显示勾选框，无需先输入文字。
+    fn bare_task(&mut self) {
+        let Some(Container::Item(task @ None, blocks)) = self.stack.last_mut() else {
+            return;
+        };
+        let [Block::Paragraph(inline)] = blocks.as_slice() else {
+            return;
+        };
+        let checked = match inline.text.trim() {
+            "[ ]" => false,
+            "[x]" | "[X]" => true,
+            _ => return,
+        };
+        let item = &self.source[self.start..self.end.max(self.start)];
+        let Some(at) = item.find('[') else {
+            return;
+        };
+        *task = Some((checked, self.start + at));
+        blocks.clear();
+        if !self.in_html {
+            self.leaves.pop();
+        }
+    }
+
+    /// 只有记号的列表项（`- `、`1. `、`- [ ] `）中放一个空段落，位于记号所在行的末尾；返回该项
+    /// 是否为记号之后没有空格的空项（见 [`Item::bare`]）。
+    ///
+    /// 可编辑的预览中光标需要落在某个叶子块里：回车续出的新项在输入文字之前是空项，没有这个
+    /// 空段落时光标只能归到下一项，该项改为显示原文，新项和下一项的原文混在一起。
+    fn empty_item(&mut self) -> bool {
+        let Some(Container::Item(task, blocks)) = self.stack.last() else {
+            return false;
+        };
+        if !blocks.is_empty() || self.in_html {
+            return false;
+        }
+        let task = task.is_some();
+        let item = &self.source[self.start..self.end.max(self.start)];
+        let line = item.find('\n').unwrap_or(item.len());
+        let text = item[..line].trim_end_matches('\r');
+        let at = self.start + text.len();
+        let marker = text.trim_start();
+        if !task && !marker.is_empty() && !marker.ends_with([' ', '\t']) {
+            self.literal(at - marker.len()..at);
+            return true;
+        }
+        self.anchor(at);
+        false
+    }
+
+    /// 在当前容器中放一个空段落，原文位置为 `at`：没有内容的列表项、引用中光标据此定位。
+    fn anchor(&mut self, at: usize) {
+        let mut inline = Inline::default();
+        inline.map.push(0, at, 0);
+        self.leaf = Some(at..at);
+        self.push_block(Block::Paragraph(inline));
+        self.leaf = None;
+    }
+
+    /// 当前块的原文第一行是否只由标记字符 `mark` 组成（后面没有空格）；是则返回这些字符的范围。
+    fn bare_marks(&self, mark: u8) -> Option<Range<usize>> {
+        let block = &self.source[self.start..self.end.max(self.start)];
+        let line = block.lines().next().unwrap_or_default();
+        let marks = line.trim_start();
+        let end = self.start + line.len();
+        (!marks.is_empty() && marks.bytes().all(|b| b == mark) && !self.in_html)
+            .then(|| end - marks.len()..end)
+    }
+
     fn push_block(&mut self, block: Block) {
         let table = matches!(block, Block::Table(..));
         let leaf = match block {
             Block::Paragraph(_) | Block::Heading(..) => self.leaf.clone().map(|r| (r, true)),
-            Block::Code { .. } | Block::Math(_) | Block::Rule | Block::Table(..) => {
+            Block::Code { .. } | Block::Math(..) | Block::Rule(_) | Block::Table(..) => {
                 Some((self.start..self.end, false))
             }
             _ => None,
@@ -789,7 +878,13 @@ impl Builder<'_> {
                     self.push_block(Block::Paragraph(inline));
                 }
             }
-            Leaf::Heading(level) => self.push_block(Block::Heading(level, inline)),
+            // 只有 `#`、后面没有空格：按文字显示，输入空格后才成为标题。
+            Leaf::Heading(level) => match self.bare_marks(b'#') {
+                Some(range) if inline.is_blank() && inline.images.is_empty() => {
+                    self.literal(range);
+                }
+                _ => self.push_block(Block::Heading(level, inline)),
+            },
             Leaf::Summary => match self.stack.last_mut() {
                 Some(Container::Details(_, summary, _)) => *summary = Some(inline),
                 _ => self.push_block(Block::Paragraph(inline)),
@@ -824,7 +919,7 @@ impl Builder<'_> {
             Event::DisplayMath(text) if self.in_cell() => self.text(&text, Style::MATH),
             Event::DisplayMath(text) => {
                 self.finish_inline();
-                self.push_block(Block::Math(text.trim().to_owned()));
+                self.push_block(Block::Math(text.trim().to_owned(), self.start));
             }
             Event::Html(html) | Event::InlineHtml(html) => match &mut self.html {
                 Some(block) => block.push_str(&html),
@@ -852,7 +947,7 @@ impl Builder<'_> {
             Event::HardBreak => self.text("\n", 0),
             Event::Rule => {
                 self.finish_inline();
-                self.push_block(Block::Rule);
+                self.push_block(Block::Rule(Some(self.start)));
             }
             Event::TaskListMarker(checked) => {
                 if let Some(Container::Item(task, _)) = self.stack.last_mut() {
@@ -957,8 +1052,23 @@ impl Builder<'_> {
             TagEnd::Paragraph | TagEnd::Heading(_) | TagEnd::TableCell => self.finish_inline(),
             TagEnd::BlockQuote(_) => {
                 self.finish_inline();
+                let bare = self.bare_marks(b'>');
+                let empty = matches!(
+                    self.stack.last(),
+                    Some(Container::Quote(None, blocks)) if blocks.is_empty()
+                );
+                // 没有内容的引用（`> `）中放一个空段落，位于第一行的末尾，光标据此定位。
+                if empty && bare.is_none() && !self.in_html {
+                    let block = &self.source[self.start..self.end.max(self.start)];
+                    let line = block.lines().next().unwrap_or_default();
+                    self.anchor(self.start + line.len());
+                }
                 if let Some(Container::Quote(kind, blocks)) = self.stack.pop() {
-                    self.push_container(Block::Quote(kind, blocks));
+                    // 只有 `>`、后面没有空格：按文字显示，输入空格后才成为引用。
+                    match bare {
+                        Some(range) if empty => self.literal(range),
+                        _ => self.push_container(Block::Quote(kind, blocks)),
+                    }
                 }
             }
             TagEnd::CodeBlock | TagEnd::MetadataBlock(_) => {
@@ -973,7 +1083,7 @@ impl Builder<'_> {
                     let block = match table {
                         Some(table) => table,
                         // 语言为 math 的围栏代码块是单独成行的公式。
-                        None if lang.eq_ignore_ascii_case("math") => Block::Math(text),
+                        None if lang.eq_ignore_ascii_case("math") => Block::Math(text, self.start),
                         None => Block::Code {
                             lang,
                             text,
@@ -1005,6 +1115,8 @@ impl Builder<'_> {
             }
             TagEnd::Item => {
                 self.finish_inline();
+                self.bare_task();
+                let bare = self.empty_item();
                 if let Some(Container::Item(task, blocks)) = self.stack.pop()
                     && let Some(Container::List(_, items)) = self.stack.last_mut()
                 {
@@ -1012,6 +1124,7 @@ impl Builder<'_> {
                         task: task.map(|(checked, _)| checked),
                         task_source: task.map_or(0, |(_, at)| at),
                         blocks,
+                        bare,
                     });
                 }
             }
@@ -1074,7 +1187,7 @@ impl Builder<'_> {
         }
         let main = self.root.len();
         if !self.footnotes.is_empty() {
-            self.root.push(Block::Rule);
+            self.root.push(Block::Rule(None));
             self.ranges.push(source.len()..source.len());
             let mut footnotes = std::mem::take(&mut self.footnotes);
             // 按正文里第一次引用的先后排；没有被引用的放在最后。
@@ -1097,6 +1210,7 @@ impl Builder<'_> {
                 self.ranges.push(range);
             }
         }
+        contents(&mut self.root[..main]);
         for (block, range) in self.root.iter_mut().zip(&self.ranges) {
             rebase(block, range.start);
         }
@@ -1194,8 +1308,8 @@ fn shrink(blocks: &mut Vec<Block>) {
                     row.iter_mut().for_each(shrink_inline);
                 }
             }
-            Block::Math(tex) => tex.shrink_to_fit(),
-            Block::Rule => {}
+            Block::Math(tex, _) => tex.shrink_to_fit(),
+            Block::Rule(_) => {}
             Block::Details {
                 summary, blocks, ..
             } => {
@@ -1212,6 +1326,88 @@ fn shrink_inline(inline: &mut Inline) {
     inline.links.shrink_to_fit();
     inline.images.shrink_to_fit();
     inline.map.0.shrink_to_fit();
+}
+
+/// 给标题生成锚点的规则：转成小写，空格换成 `-`，去掉其他标点（保留 `-`、`_`）。
+pub fn slug(text: &str) -> String {
+    text.chars()
+        .filter_map(|c| {
+            if c == ' ' {
+                Some('-')
+            } else if c.is_alphanumeric() || c == '-' || c == '_' {
+                Some(c)
+            } else {
+                None
+            }
+        })
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+/// 把只有 `[TOC]`（或 `[[TOC]]`，不分大小写）的段落换成目录：按文中标题的层级嵌套的列表，每一项
+/// 链接到对应的标题（锚点见 [`slug`]）。`blocks` 是正文的顶层块，不含脚注。
+///
+/// 目录随标题生成，标题改变时所在块的内容随之改变；没有标题时保留原段落。
+fn contents(blocks: &mut [Block]) {
+    let is_marker = |block: &Block| {
+        matches!(block, Block::Paragraph(inline)
+            if matches!(inline.text.trim().to_ascii_lowercase().as_str(), "[toc]" | "[[toc]]"))
+    };
+    if !blocks.iter().any(is_marker) {
+        return;
+    }
+    let headings: Vec<(u8, String)> = blocks
+        .iter()
+        .filter_map(|block| match block {
+            Block::Heading(level, inline) if !inline.text.trim().is_empty() => {
+                Some((*level, inline.text.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    if headings.is_empty() {
+        return;
+    }
+    let list = Block::List(None, contents_items(&headings));
+    for block in blocks.iter_mut().filter(|block| is_marker(block)) {
+        *block = list.clone();
+    }
+}
+
+/// 把按先后排列的（级别，标题）排成嵌套的列表项：级别比前一项高的标题排在前一项下面。
+fn contents_items(headings: &[(u8, String)]) -> Vec<Item> {
+    let mut items = Vec::new();
+    let mut i = 0;
+    while i < headings.len() {
+        let (level, text) = &headings[i];
+        // 级别更深的后续标题都是这一项的子项。
+        let end = headings[i + 1..]
+            .iter()
+            .position(|(l, _)| l <= level)
+            .map_or(headings.len(), |k| i + 1 + k);
+        let mut inline = Inline::default();
+        inline.links.push(format!("#{}", slug(text)));
+        let link = u16::try_from(inline.links.len()).unwrap_or(u16::MAX);
+        inline.push(
+            text,
+            Style {
+                link,
+                ..Style::default()
+            },
+        );
+        let mut blocks = vec![Block::Paragraph(inline)];
+        if end > i + 1 {
+            blocks.push(Block::List(None, contents_items(&headings[i + 1..end])));
+        }
+        items.push(Item {
+            task: None,
+            task_source: 0,
+            blocks,
+            bare: false,
+        });
+        i = end;
+    }
+    items
 }
 
 /// 行内文字的对照再改为相对于该段文字最靠前的位置（见 [`Inline::source`]）。
@@ -1240,7 +1436,10 @@ fn rebase(block: &mut Block, start: usize) {
             inline(summary);
             blocks(b);
         }
-        Block::Math(_) | Block::Rule => {}
+        Block::Math(_, source) | Block::Rule(Some(source)) => {
+            *source = source.saturating_sub(start);
+        }
+        Block::Rule(None) => {}
     }
 }
 
@@ -1285,6 +1484,7 @@ mod autolink;
 pub mod cells;
 mod emoji;
 pub mod enter;
+pub mod format;
 mod front;
 mod html;
 pub mod math;

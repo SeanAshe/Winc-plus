@@ -48,6 +48,16 @@ impl App {
     /// 未改动段内时先展开该段。
     pub(in crate::app) fn reveal_diff_match(&mut self, side: usize, start: usize, end: usize) {
         let tab_width = self.editor.tab_width;
+        let Some(index) = self.editor.active else {
+            return;
+        };
+        let Some(line) = (self.editor.documents[index].diff.as_deref())
+            .map(|view| view.side(side).text.char_to_line(start))
+        else {
+            return;
+        };
+        // 匹配所在行的外层块固定在顶部时，匹配需要位于这些固定行之下。
+        let sticky = self.diff_sticky_depth(index, side, line);
         let Some(doc) = self.editor.active_mut() else {
             return;
         };
@@ -87,7 +97,7 @@ impl App {
         } else {
             (row, view.side_scroll(side, doc.scroll_line, visible))
         };
-        if row < top + covered || row + 1.0 > top + visible {
+        if row < top + covered.max(sticky) || row + 1.0 > top + visible {
             let top = (row - visible / 2.0).max(0.0);
             doc.scroll_line = if view.is_unified() {
                 top

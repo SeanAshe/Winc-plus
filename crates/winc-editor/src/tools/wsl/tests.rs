@@ -315,6 +315,45 @@ fn the_temporary_index_reaches_git_in_the_distribution() {
     assert!(GIT_ENV.split(':').any(|name| name == "GIT_INDEX_FILE"));
 }
 
+/// 回归：`WSLENV` 只保留命令上设置了的变量，列出而未设置的变量（如普通命令的 `GIT_INDEX_FILE`）
+/// 不传入发行版，否则在发行版内取空字符串；只从发行版传回的项保留，已有的顺序不变。
+#[test]
+fn only_variables_set_on_the_command_are_forwarded() {
+    let forwarded = |command: &mut Command| {
+        drop_unset(command);
+        let list = command
+            .get_envs()
+            .find(|(name, _)| *name == "WSLENV")
+            .and_then(|(_, value)| value)
+            .unwrap();
+        list.to_string_lossy().into_owned()
+    };
+    let mut command = Command::new("wsl.exe");
+    command
+        .env_clear()
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GIT_ASKPASS", "/a")
+        .env("WSLENV", format!("{GIT_ENV}:{ASKPASS_ENV}"));
+    command.env_remove("LC_ALL");
+    assert_eq!(
+        forwarded(&mut command),
+        "GIT_TERMINAL_PROMPT:GIT_ASKPASS/pu:SSH_ASKPASS_PROMPT/w"
+    );
+
+    // 部分提交设置了临时暂存区：照常传递。
+    command.env("GIT_INDEX_FILE", "/tmp/my index");
+    command.env("WSLENV", GIT_ENV);
+    assert_eq!(
+        forwarded(&mut command),
+        "GIT_TERMINAL_PROMPT:GIT_INDEX_FILE"
+    );
+
+    // 没有 `WSLENV` 的命令不受影响。
+    let mut command = Command::new("git");
+    drop_unset(&mut command);
+    assert!(command.get_envs().all(|(name, _)| name != "WSLENV"));
+}
+
 /// askpass 程序的路径换算为发行版内的路径，端点在两个方向上都传递，`ssh` 的提示类型传回 Windows。
 #[test]
 fn askpass_variables_cross_into_the_distribution_and_back() {

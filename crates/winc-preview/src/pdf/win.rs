@@ -1,7 +1,8 @@
 //! Windows 上用 `Windows.Data.Pdf`（Windows 10 起系统自带）打开和渲染 PDF。
 //!
 //! 页面先渲染成内存中的 PNG，再由 Windows 图像组件（WIC）的 `BitmapDecoder` 解成 RGBA 像素：
-//! `Windows.Data.Pdf` 只能把页面输出成编码后的图片流。异步接口在渲染线程上阻塞等待结果
+//! `Windows.Data.Pdf` 只能把页面输出成编码后的图片流。输出的图片大小由系统决定，可能与请求的
+//! 大小相差一两个像素，解码时缩放到请求的大小。异步接口在渲染线程上阻塞等待结果
 //! （`join`），首次调用时 `windows-core` 为该线程初始化多线程单元（MTA）。
 
 use std::path::Path;
@@ -9,8 +10,8 @@ use std::path::Path;
 use winc_i18n::t;
 use windows::Data::Pdf::{PdfDocument, PdfPageRenderOptions};
 use windows::Graphics::Imaging::{
-    BitmapAlphaMode, BitmapDecoder, BitmapPixelFormat, BitmapTransform, ColorManagementMode,
-    ExifOrientationMode,
+    BitmapAlphaMode, BitmapDecoder, BitmapInterpolationMode, BitmapPixelFormat, BitmapTransform,
+    ColorManagementMode, ExifOrientationMode,
 };
 use windows::Storage::StorageFile;
 use windows::Storage::Streams::InMemoryRandomAccessStream;
@@ -27,9 +28,10 @@ fn invalid(_: windows::core::Error) -> String {
     t!("preview-pdf-invalid").to_owned()
 }
 
-/// 渲染失败时给用户看的原因。
-fn failed(_: windows::core::Error) -> String {
-    t!("preview-pdf-render-failed").to_owned()
+/// 渲染失败时给用户看的原因，附系统的错误码，便于排查。
+fn failed(error: windows::core::Error) -> String {
+    let code = format!("0x{:08X}", error.code().0 as u32);
+    t!("preview-pdf-render-failed-code", code = code).to_owned()
 }
 
 /// 用 `Windows.Data.Pdf` 打开的 PDF 文档。
@@ -80,30 +82,29 @@ impl Document {
         let decoder = BitmapDecoder::CreateAsync(&stream)
             .and_then(|op| op.join())
             .map_err(failed)?;
+        // 系统输出的图片可能与请求的大小相差一两个像素：缩放到请求的大小，调用方按该大小绘制。
+        let transform = BitmapTransform::new().map_err(failed)?;
+        transform.SetScaledWidth(width).map_err(failed)?;
+        transform.SetScaledHeight(height).map_err(failed)?;
+        transform
+            .SetInterpolationMode(BitmapInterpolationMode::Fant)
+            .map_err(failed)?;
         // 背景为不透明的白色（`PdfPageRenderOptions` 的默认值），因此按不预乘的 RGBA 取出像素。
         let provider = decoder
             .GetPixelDataTransformedAsync(
                 BitmapPixelFormat::Rgba8,
                 BitmapAlphaMode::Straight,
-                &BitmapTransform::new().map_err(failed)?,
+                &transform,
                 ExifOrientationMode::IgnoreExifOrientation,
                 ColorManagementMode::DoNotColorManage,
             )
             .and_then(|op| op.join())
             .map_err(failed)?;
         let data = provider.DetachPixelData().map_err(failed)?;
-        let (w, h) = (
-            decoder.PixelWidth().map_err(failed)?,
-            decoder.PixelHeight().map_err(failed)?,
-        );
-        let rgba = data.to_vec();
-        if rgba.len() != (w as usize) * (h as usize) * 4 {
-            return Err(t!("preview-pdf-render-failed").to_owned());
-        }
         Ok(Pixels {
-            width: w,
-            height: h,
-            rgba,
+            width,
+            height,
+            rgba: data.to_vec(),
         })
     }
 }

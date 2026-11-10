@@ -106,11 +106,14 @@ impl Cancel {
 
 /// 启动 `command`；程序文件暂时被占用（`ETXTBSY`）时稍等再试，最多试 [`SPAWN_TRIES`] 次。
 ///
+/// 启动前去掉 `WSLENV` 中命令上没有设置的变量（见 `wsl::drop_unset`）。
+///
 /// 程序文件刚写完时，同时启动的另一个进程可能在 exec 之前仍继承着它的可写描述符。这种占用
 /// 只持续片刻，不能当作程序无法运行。
 fn spawn(command: &mut Command) -> std::io::Result<Child> {
     /// Unix 上 `ETXTBSY` 的错误码。
     const TEXT_BUSY: i32 = 26;
+    crate::wsl::drop_unset(command);
     let mut tries = 1;
     loop {
         match command.spawn() {

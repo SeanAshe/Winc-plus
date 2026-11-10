@@ -171,6 +171,7 @@ impl App {
             find_input: TextField::default(),
             replace_input: TextField::default(),
             search_open: false,
+            word_highlights: Vec::new(),
             filter_lines: false,
             filter_key: None,
             replace_open: false,

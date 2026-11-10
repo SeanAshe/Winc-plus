@@ -12,7 +12,7 @@ use winc_i18n::t;
 use winc_render::{Color, FontKind, Frame, Rect, Stroke};
 
 use crate::app::Hover;
-use crate::app::preview::markdown::{ImageSlot, TocTarget};
+use crate::app::preview::markdown::{ImageSlot, TableBar, TocTarget};
 use crate::app::{App, ScrollArea};
 use crate::icons;
 use crate::theme::Palette;
@@ -57,12 +57,19 @@ pub(crate) struct Laid {
     live: Option<LiveKey>,
     /// 上一次找的光标位置和结果（见 [`point_of`]）：滚动时光标不动，不必每帧在大块里再找。
     caret: std::cell::Cell<Option<(usize, Option<Point>)>>,
+    /// 应画在上一显示行末尾的光标位置（原文字节偏移），见 [`Laid::set_upstream`]。
+    upstream: std::cell::Cell<Option<usize>>,
     /// 内容总高度。
     height: f32,
     /// 上一次画的时候内容的左边缘（窗口坐标，逻辑像素），鼠标定位用。
     pub(crate) left: f32,
     /// 上一次画的时候内容四周的留白（逻辑像素），鼠标定位用。
     pad: f32,
+    /// 比正文宽的表格的横向滚动位置（逻辑像素）：键为（顶层块序号，块中表格的序号，见
+    /// [`LaidBlock::scrolls`]）。重排后按序号沿用。
+    pub(crate) hscroll: HashMap<(usize, usize), f32>,
+    /// 上一次横向滚动使其可见的光标位置（原文字节偏移），见 [`Laid::follow_caret`]。
+    followed: Option<usize>,
 }
 
 /// 预览上的一个位置：左边缘（相对内容左边）、所在那一行铺底色的上边缘（和滚动位置同一个
@@ -96,6 +103,8 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
     app.markdown.codes.clear();
     app.markdown.copy = None;
     app.markdown.expand = None;
+    // 可编辑的预览在排版之前取得当前文字的解析结果，本帧即按最新的结构显示。
+    app.parse_markdown_inline();
     // 第一次解析还没回来：先留空。
     let Some(parsed) = app.markdown.parsed.clone() else {
         return;
@@ -131,16 +140,18 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
             laid
         }
         old => {
+            let hscroll = old.as_ref().map(|l| l.hscroll.clone()).unwrap_or_default();
             // 文字变了：选区、查找用的文字作废。只是重排（宽度、图片变了）时选区留着。
             if old.as_ref().is_none_or(|l| l.source != source) {
                 app.markdown.selection = None;
             }
             app.markdown.find_doc = None;
             still = old_caret(app, old.as_ref(), source, live_key.as_ref());
+            let slide = std::mem::take(&mut app.markdown.slide);
             before = old
                 .as_ref()
                 .filter(|l| l.key == key && app.markdown_live())
-                .map(|l| Before::of(app, l));
+                .map(|l| (Before::of(app, l), slide));
             // 有图片刚读好时，用到它的块大小变了，需要重排；折叠块开合时，它所在的块需要
             // 重排；其余块沿用上次的结果。
             let reuse = old.filter(|l| l.key == key).map(|l| {
@@ -152,7 +163,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
                     })
                     .collect()
             });
-            lay_out(
+            let mut laid = lay_out(
                 app,
                 frame,
                 &parsed,
@@ -160,12 +171,19 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
                 source,
                 live.as_ref(),
                 reuse.unwrap_or_default(),
-            )
+            );
+            laid.hscroll = hscroll;
+            laid
         }
     };
     laid.left = left;
     laid.pad = pad;
+    laid.set_upstream(app.live_upstream());
     app.markdown.height = laid.height + pad * 2.0;
+    // 可编辑的预览与编辑区相同：内容高于一屏时，最后一行下方可以滚出一段空白。
+    if app.markdown_live() && app.markdown.height > area.h {
+        app.markdown.height += area.h * crate::layout::OVERSCROLL;
+    }
     keep_caret_still(app, still, &laid);
     app.markdown.layout = Some(laid);
     app.follow_live_caret();
@@ -177,14 +195,14 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
     }
     app.scroll_to_pending_anchor();
     // `layout` 刚在上面放进去，取出时一定存在。
-    let laid = app.markdown.layout.take().expect("刚放进去");
+    let mut laid = app.markdown.layout.take().expect("刚放进去");
 
     let max = (app.markdown.height - area.h).max(0.0);
     let scroll = app.markdown.scroll().min(max);
     let origin_y = area.y + pad - scroll;
-    if let Some(before) = before {
+    if let Some((before, slide)) = before {
         let muted = Colors::new(p).muted;
-        let (from, fading) = before.motion(&laid, scroll, muted);
+        let (from, fading) = before.motion(&laid, scroll, muted, slide);
         app.start_markdown_motion(from, fading);
     }
     let motion = app.markdown.motion.take();
@@ -207,6 +225,9 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
         .then(|| app.live_caret_source())
         .flatten()
         .filter(|_| editing);
+    if let Some(source) = live_caret {
+        laid.follow_caret(source);
+    }
     let live_selection = live_caret
         .and_then(|_| {
             let doc = app.editor.active()?;
@@ -237,6 +258,8 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
     let mut wanted = Vec::new();
     let mut shown = Vec::new();
     let mut toolbar = None;
+    // 可横向滚动的表格的滚动条，各块绘制完成后再绘制：（块，表格，显示区域，滚动位置）。
+    let mut bars = Vec::new();
     let first = laid
         .tops
         .partition_point(|&t| origin_y + t <= area.y)
@@ -265,12 +288,17 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
         };
         let fading = motion.as_ref().map_or(&[][..], |m| m.fading(i));
         let fade = motion.as_ref().map_or(1.0, |m| m.clock.progress());
-        let at = |r: &Rect| Rect::new(left + r.x, top + r.y, r.w, r.h);
+        let fixed = |r: &Rect| Rect::new(left + r.x, top + r.y, r.w, r.h);
         block.visible(area.y - top, area.bottom() - top, &mut shown);
         for (k, item) in shown
             .iter()
             .map(|&k| (k as usize, &block.items[k as usize]))
         {
+            // 可横向滚动的表格中的项：按滚动位置左移，裁剪到正文一栏内。
+            let (off, strip) = laid.shift(i, k);
+            let area = strip.map_or(area, |s| area.intersect(fixed(&s)));
+            let left = left - off;
+            let at = |r: &Rect| Rect::new(left + r.x, top + r.y, r.w, r.h);
             match item {
                 Item::Text {
                     x,
@@ -354,6 +382,9 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
                     color,
                     radius,
                 } => frame.rect_clipped(at(rect), *color, *radius, area),
+                Item::Corners { rect, color, radii } => {
+                    frame.rect_corners(at(rect), *color, *radii, area);
+                }
                 Item::Image { rect, path, .. } => {
                     let r = at(rect);
                     let scale = frame.scale();
@@ -408,12 +439,13 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
                     frame.polygon(&moved, *color, area);
                 }
                 // 所有块绘制完成后再绘制，使其覆盖在上一块的文字之上。
+                // 工具栏贴着正文一栏的左边，不随表格横向滚动。
                 Item::Table {
                     rect,
                     align: Some(align),
                     ..
-                } => toolbar = Some((at(rect), *align)),
-                Item::Table { .. } => {}
+                } => toolbar = Some((fixed(rect), *align)),
+                Item::Table { .. } | Item::Spot { .. } => {}
                 Item::Code {
                     rect,
                     text,
@@ -440,6 +472,36 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
                 }
             }
         }
+        for (s, scroller) in block.scrolls.iter().enumerate() {
+            bars.push((i, s, fixed(&scroller.rect), laid.hscroll_of(i, s)));
+        }
+    }
+    // 显示滚动条的表格：鼠标所在的表格，其次是最近一次横向滚动的表格。
+    let mut chosen = None;
+    for &(i, s, strip, off) in &bars {
+        let scroller = &laid.blocks[i].1.scrolls[s];
+        draw_table_fades(frame, p, scroller, strip, off, area);
+        let bar = TableBar {
+            key: (i, s),
+            track: strip.intersect(area),
+            content: scroller.content,
+        };
+        if strip.contains(mouse.0, mouse.1) {
+            chosen = Some((bar, off, true));
+        } else if chosen.is_none() && md.last_table == Some((i, s)) {
+            chosen = Some((bar, off, false));
+        }
+    }
+    // 跳转到的脚注或脚注引用铺一层强调色的底色，慢慢淡出（同标题列表点过的标题）。
+    if let Some(((y, h), clock)) = md.anchor_flash {
+        let alpha = 0.14 * (1.0 - clock.linear());
+        let band = Rect::new(left, origin_y + y, key.width, h);
+        frame.rect_clipped(
+            band,
+            p.accent.alpha(p.accent.a * alpha),
+            TOC_FLASH_RADIUS,
+            area,
+        );
     }
     if let Some((table, align)) = toolbar {
         table_toolbar(frame, p, table, align, area, mouse, &mut md.links);
@@ -474,6 +536,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
     for (path, size) in wanted {
         app.request_markdown_pixels(&path, size);
     }
+    draw_table_scrollbar(app, frame, chosen, area);
     draw_toc(app, frame, area, pad);
 
     // 和编辑区的滚动条一样：平时隐藏，滚动、悬停时显示，可以拖动。
@@ -488,6 +551,68 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
         scroll,
         content,
     );
+}
+
+/// 表格被裁掉的一侧渐隐的宽度（逻辑像素），与标签栏两端的渐隐（`TAB_FADE`）相同。
+const TABLE_FADE: f32 = 24.0;
+
+/// 画可横向滚动的表格被裁掉一侧的渐隐，提示可以横向滚动：`strip` 是显示区域（窗口坐标），
+/// `off` 是滚动位置。渐隐的强度随离该侧尽头的距离在 [`TABLE_FADE`] 内线性变化，裁剪到 `area` 内。
+fn draw_table_fades(
+    frame: &mut Frame<'_>,
+    p: &Palette,
+    scroller: &layout::Scroller,
+    strip: Rect,
+    off: f32,
+    area: Rect,
+) {
+    let max = scroller.max();
+    if max <= 0.0 {
+        return;
+    }
+    let table = Rect::new(strip.x, strip.y, strip.w, strip.h - layout::SCROLL_BAR_ROOM);
+    let left = (off / TABLE_FADE).min(1.0);
+    let right = ((max - off) / TABLE_FADE).min(1.0);
+    frame.within(table.intersect(area), |frame| {
+        if left > 0.0 {
+            let edge = Rect::new(table.x, table.y, TABLE_FADE, table.h);
+            frame.with_opacity(left, |f| crate::view::fade(f, edge, p.editor_bg, true));
+        }
+        if right > 0.0 {
+            let edge = Rect::new(table.right() - TABLE_FADE, table.y, TABLE_FADE, table.h);
+            frame.with_opacity(right, |f| crate::view::fade(f, edge, p.editor_bg, false));
+        }
+    });
+}
+
+/// 画表格 `chosen`（表格、滚动位置、是否因鼠标所在而选中）的水平滚动条，与其他区域的滚动条
+/// 一致：平时隐藏，滚动、鼠标移到底边或拖动时显示（见 `App::scrollbar_look`），可以拖动。
+fn draw_table_scrollbar(
+    app: &mut App,
+    frame: &mut Frame<'_>,
+    chosen: Option<(TableBar, f32, bool)>,
+    area: Rect,
+) {
+    app.markdown.table_bar = chosen.map(|(bar, ..)| bar);
+    let Some((bar, off, hovered)) = chosen else {
+        return;
+    };
+    if hovered {
+        app.markdown.last_table = Some(bar.key);
+    }
+    let thumb = crate::layout::hscrollbar_thumb(bar.track, off, bar.content);
+    // 滚动条状态的所属对象按表格区分：换到另一个表格时立即隐藏上一个表格的滚动条。
+    let owner = ((bar.key.0 as u64) << 32) | bar.key.1 as u64;
+    let look = app.scrollbar_look(
+        ScrollArea::MarkdownTable,
+        owner,
+        off,
+        thumb.map(|_| bar.track),
+    );
+    if let Some(thumb) = thumb {
+        let p = app.palette;
+        frame.within(area, |frame| crate::view::draw_thumb(frame, p, thumb, look));
+    }
 }
 
 /// 标题指示条左边离预览区域左边至少的距离（逻辑像素）。
@@ -753,11 +878,15 @@ impl Before {
     /// 块数不变时按序号对应；块数变化（删除了一块、解析出新的块）时，按开头和末尾哈希相同的块
     /// 对应，中间新增的块随前一块移动。仅移动光标时，外观变化的块中新增的标记（次要色 `muted`
     /// 的文字中比原来多出的段）淡入。
+    ///
+    /// 文字已修改时各块直接到位、偏移全为 0，输入的结果在同一帧显示在最终位置；`slide` 为真
+    /// （表格工具增删行列）时仍然滑动。
     fn motion(
         &self,
         laid: &Laid,
         scroll: f32,
         muted: Color,
+        slide: bool,
     ) -> (Vec<f32>, crate::app::preview::markdown::Fading) {
         let (old, new) = (&self.blocks, &laid.blocks);
         let matched: Vec<Option<usize>> = if old.len() == new.len() {
@@ -790,6 +919,9 @@ impl Before {
             from.push(last);
         }
         let moved = laid.live.as_ref().map(|k| k.2) == self.revision && self.revision.is_some();
+        if !moved && !slide {
+            from.fill(0.0);
+        }
         let mut fading = Vec::new();
         for (i, j) in matched.iter().enumerate() {
             let Some(j) = *j else { continue };
@@ -920,7 +1052,10 @@ fn lay_out(
         let caret = snap(live.at).saturating_sub(start);
         let preedit = ((live.prose || live.table) && !app.preedit.is_empty())
             .then(|| Arc::from(&*app.preedit));
-        Some((live.block, text, leaf, caret, live.prose, preedit))
+        let parsed_end = live.parsed_end.saturating_sub(start);
+        Some((
+            live.block, text, leaf, parsed_end, caret, live.prose, preedit,
+        ))
     });
     let p = app.palette;
     app.markdown.memo.prepare(layout::memo_key(|h| {
@@ -963,9 +1098,9 @@ fn lay_out(
         let raw = raw.as_ref().filter(|r| r.0 == i);
         // 显示原文的块换一个键存：光标离开后同样内容的块要重新按排版显示。
         let hash = match raw {
-            Some((_, text, leaf, caret, prose, preedit)) => layout::memo_key(|h| {
+            Some((_, text, leaf, parsed_end, caret, prose, preedit)) => layout::memo_key(|h| {
                 use std::hash::Hash;
-                (hash, &**text, leaf, caret, prose, preedit).hash(h);
+                (hash, &**text, leaf, parsed_end, caret, prose, preedit).hash(h);
             }),
             None => hash,
         };
@@ -974,10 +1109,11 @@ fn lay_out(
             cx.text.clear();
             cx.chars = 0;
             cx.memo.take_touched();
-            cx.raw = raw.map(|(_, text, leaf, caret, prose, preedit)| {
+            cx.raw = raw.map(|(_, text, leaf, parsed_end, caret, prose, preedit)| {
                 Raw::new(
                     Arc::clone(text),
                     leaf.clone(),
+                    *parsed_end,
                     *caret,
                     *prose,
                     preedit.clone(),
@@ -990,6 +1126,7 @@ fn lay_out(
             // 顶层块显示原文。
             if let Some(raw) = cx.raw.as_mut().filter(|r| !r.done) {
                 raw.leaf = 0..raw.block.len();
+                raw.parsed_end = raw.block.len();
                 raw.kind = raw.guess();
                 out = Out::default();
                 cx.text.clear();
@@ -1006,6 +1143,7 @@ fn lay_out(
                 cx.memo.take_touched(),
             );
             laid.preedit = cx.preedit;
+            laid.scrolls = out.scrolls;
             Arc::new(laid)
         });
         starts.push(chars);
@@ -1055,9 +1193,12 @@ fn lay_out(
         },
         live: live.map(|l| live_key(l, &app.preedit)),
         caret: std::cell::Cell::new(None),
+        upstream: std::cell::Cell::new(None),
         height: y,
         left: 0.0,
         pad: 0.0,
+        hscroll: HashMap::new(),
+        followed: None,
     }
 }
 
@@ -1081,27 +1222,111 @@ impl Laid {
             .iter()
             .zip(blocks)
             .flat_map(move |((_, block), i)| {
-                block.items.iter().filter_map(move |item| match item {
-                    Item::Text {
-                        x,
-                        baseline,
-                        size,
-                        text,
-                        span: Some(span),
-                        ..
-                    } => Some((
-                        self.tops[i],
-                        self.starts[i] + span.start,
-                        *x,
-                        *baseline,
-                        *size,
-                        span,
-                        i,
-                        &**text,
-                    )),
-                    _ => None,
-                })
+                block
+                    .items
+                    .iter()
+                    .enumerate()
+                    .filter_map(move |(k, item)| match item {
+                        Item::Text {
+                            x,
+                            baseline,
+                            size,
+                            text,
+                            span: Some(span),
+                            ..
+                        } => Some((
+                            self.tops[i],
+                            self.starts[i] + span.start,
+                            *x - self.shift(i, k).0,
+                            *baseline,
+                            *size,
+                            span,
+                            i,
+                            &**text,
+                        )),
+                        _ => None,
+                    })
             })
+    }
+
+    /// 第 `block` 块第 `item` 项的横向滚动位置（逻辑像素）和所在表格的显示区域（块里的坐标）；
+    /// 不在可横向滚动的表格中时为 `(0.0, None)`。
+    pub(crate) fn shift(&self, block: usize, item: usize) -> (f32, Option<Rect>) {
+        let Some((_, laid)) = self.blocks.get(block) else {
+            return (0.0, None);
+        };
+        laid.scroller_of(item).map_or((0.0, None), |s| {
+            (self.hscroll_of(block, s), Some(laid.scrolls[s].rect))
+        })
+    }
+
+    /// 第 `block` 块第 `scroller` 个可横向滚动的表格当前的滚动位置，限制在可滚动的范围内。
+    pub(crate) fn hscroll_of(&self, block: usize, scroller: usize) -> f32 {
+        let max = self
+            .blocks
+            .get(block)
+            .and_then(|(_, b)| b.scrolls.get(scroller))
+            .map_or(0.0, |s| s.max());
+        self.hscroll
+            .get(&(block, scroller))
+            .copied()
+            .unwrap_or(0.0)
+            .clamp(0.0, max)
+    }
+
+    /// 光标（原文位置 `source`）落在可横向滚动的表格中、位于显示区域之外时，横向滚动该表格使
+    /// 光标可见。只在光标移动后对齐一次，不干扰用户自行滚动。
+    fn follow_caret(&mut self, source: usize) {
+        if self.followed == Some(source) {
+            return;
+        }
+        self.followed = Some(source);
+        let Some((x, y, _)) = self.caret_point(source) else {
+            return;
+        };
+        let Some(block) = self
+            .ranges
+            .iter()
+            .rposition(|r| r.start <= source && source <= r.end)
+        else {
+            return;
+        };
+        let y = y - self.pad - self.tops[block];
+        let Some(s) = self.blocks[block]
+            .1
+            .scrolls
+            .iter()
+            .position(|s| (s.rect.y..s.rect.bottom()).contains(&y))
+        else {
+            return;
+        };
+        let rect = self.blocks[block].1.scrolls[s].rect;
+        let max = self.blocks[block].1.scrolls[s].max();
+        // 光标两侧至少留出的距离（逻辑像素），与单元格的内边距相近。
+        let margin = (self.key.base * 0.8125).round();
+        let now = self.hscroll_of(block, s);
+        let next = if x < rect.x + margin {
+            now - (rect.x + margin - x)
+        } else if x > rect.right() - margin {
+            now + (x - (rect.right() - margin))
+        } else {
+            return;
+        };
+        self.hscroll.insert((block, s), next.clamp(0.0, max));
+        // 光标位置按滚动位置算过，滚动后重新计算。
+        self.caret.set(None);
+    }
+
+    /// 内容坐标 `(x, y)`（相对内容左上角）处可横向滚动的表格：（块序号，表格序号，最大滚动距离）。
+    pub(crate) fn scroller_at(&self, x: f32, y: f32) -> Option<(usize, usize, f32)> {
+        let i = self.tops.partition_point(|&t| t <= y).checked_sub(1)?;
+        let (_, block) = self.blocks.get(i)?;
+        let y = y - self.tops[i];
+        block
+            .scrolls
+            .iter()
+            .position(|s| s.rect.contains(x, y))
+            .map(|s| (i, s, block.scrolls[s].max()))
     }
 
     /// 返回整份文字里第 `from` 到 `to` 个字符。
@@ -1168,6 +1393,21 @@ impl Laid {
         point
     }
 
+    /// 指定应画在上一显示行末尾的光标位置（原文字节偏移，没有时为 `None`）。
+    ///
+    /// 折行处的原文位置同时是上一行的末尾和下一行的开头，[`point_of`] 默认取下一行的开头；
+    /// 按 End 移到行尾后光标应留在本行。
+    pub(crate) fn set_upstream(&self, source: Option<usize>) {
+        if self.upstream.replace(source) != source {
+            self.caret.set(None);
+        }
+    }
+
+    /// 正文一栏的宽度（逻辑像素）。
+    pub(crate) fn width(&self) -> f32 {
+        self.key.width
+    }
+
     /// 内容总高度（含四周留白）。
     ///
     /// 分栏对齐滚动时判断排版变了没有。
@@ -1221,6 +1461,24 @@ pub(crate) fn source_at(app: &App, x: f32, y: f32) -> Option<usize> {
     Some(start + hit.source.unwrap_or(0))
 }
 
+/// 把窗口坐标 `(x, y)` 处可横向滚动的表格横向滚动 `dx`（逻辑像素，向右滚动为负），返回是否
+/// 滚动了；该处没有可滚动的表格时返回 `false`，由调用方按竖直方向滚动预览。
+pub(crate) fn scroll_table(app: &mut App, x: f32, y: f32, dx: f32) -> bool {
+    let (area, scroll) = (app.markdown.area, app.markdown.scroll());
+    let Some(laid) = app.markdown.layout.as_mut() else {
+        return false;
+    };
+    let (cx, cy) = (x - laid.left, y - (area.y + laid.pad - scroll));
+    let Some((block, s, max)) = laid.scroller_at(cx, cy).filter(|&(.., max)| max > 0.0) else {
+        return false;
+    };
+    let now = laid.hscroll_of(block, s);
+    laid.hscroll.insert((block, s), (now - dx).clamp(0.0, max));
+    app.markdown.last_table = Some((block, s));
+    app.request_redraw();
+    true
+}
+
 /// 鼠标落在的字：在整份文字里的位置、所在的顶层块、在原文中的位置（相对顶层块）。
 struct Hit {
     offset: usize,
@@ -1237,13 +1495,19 @@ fn table_cell(
 ) -> Option<(usize, Rect)> {
     for block in blocks {
         let y = y - laid.tops[block];
-        for item in laid.blocks[block].1.items.iter() {
+        for (k, item) in laid.blocks[block].1.items.iter().enumerate() {
             let Item::Table {
                 rect, cols, rows, ..
             } = item
             else {
                 continue;
             };
+            // 可横向滚动的表格：只认显示区域内的点，单元格按滚动位置左移。
+            let (off, strip) = laid.shift(block, k);
+            if strip.is_some_and(|s| !s.contains(x, y)) {
+                continue;
+            }
+            let rect = &Rect::new(rect.x - off, rect.y, rect.w, rect.h);
             if !rect.contains(x, y) {
                 continue;
             }
@@ -1310,13 +1574,17 @@ fn hit(app: &App, x: f32, y: f32) -> Option<Hit> {
     // 点击图片时光标移到图片的原文处，因为图片中没有可定位的文字。
     for block in blocks {
         let top = laid.tops[block];
-        for item in laid.blocks[block].1.items.iter() {
-            if let Item::Image {
-                rect,
-                at: Some((start, source)),
-                ..
-            } = item
-                && rect.contains(x, y - top)
+        for (k, item) in laid.blocks[block].1.items.iter().enumerate() {
+            let off = laid.shift(block, k).0;
+            let spot = match item {
+                Item::Image {
+                    rect, at: Some(at), ..
+                }
+                | Item::Spot { rect, at } => Some((rect, at)),
+                _ => None,
+            };
+            if let Some((rect, (start, source))) = spot
+                && rect.contains(x + off, y - top)
             {
                 return Some(Hit {
                     offset: laid.starts[block] + start,
@@ -1340,7 +1608,21 @@ pub(crate) fn point_of(laid: &Laid, source: usize) -> Option<Point> {
         .ranges
         .iter()
         .rposition(|r| r.start <= source && source <= r.end)?;
+    let upstream = laid.upstream.get() == Some(source);
     let source = source - laid.ranges[block].start;
+    // 光标应画在上一显示行的末尾：取原文位置在它之前的最后一段，该段正好在此结束时用其末尾。
+    if upstream
+        && let Some((top, x, baseline, size, span, text)) = laid
+            .spans(block..block + 1)
+            .filter(|(.., span, _, _)| span.source.is_some_and(|s| (s as usize) < source))
+            .max_by_key(|(.., span, _, _)| span.source)
+            .map(|(top, _, x, baseline, size, span, _, text)| (top, x, baseline, size, span, text))
+        && span.char_at_source(text, source) == Some(span.advances.len())
+    {
+        let x = x + span.advances.iter().sum::<f32>();
+        let (y, h) = line_box(top + baseline, size);
+        return Some((x, laid.pad + y, h));
+    }
     // 先按每段第一个字找（每段只看一次），再在找到的那段里逐字找：长列表、长代码块是一个
     // 顶层块，每帧都要找，不逐字看整块。
     let (top, x, baseline, size, span, text) = laid
@@ -1604,6 +1886,12 @@ fn draw_check(frame: &mut Frame<'_>, p: &Palette, r: Rect, checked: bool, clip: 
 ///
 /// `anchor` 先做百分号解码再转小写；以 `fnref-` 开头的锚点指向引用脚注的编号。
 pub(crate) fn anchor_top(app: &App, anchor: &str) -> Option<f32> {
+    anchor_box(app, anchor).map(|(top, _)| top)
+}
+
+/// 锚点 `anchor` 的范围：上边缘（取法同 [`anchor_top`]）和高度。脚注引用是编号所在那一行，脚注是
+/// 整条脚注，标题是标题所在的块。
+pub(crate) fn anchor_box(app: &App, anchor: &str) -> Option<(f32, f32)> {
     let laid = app.markdown.layout.as_ref()?;
     let anchor = crate::app::preview::markdown::percent_decode(anchor).to_lowercase();
     // 脚注末尾的 ↩ 跳回正文里第一次引用该脚注的位置，即链到脚注的编号。
@@ -1612,18 +1900,18 @@ pub(crate) fn anchor_top(app: &App, anchor: &str) -> Option<f32> {
         .iter()
         .zip(&laid.tops)
         .find_map(|((_, block), top)| {
-            let y = match &reference {
+            let (y, h) = match &reference {
                 Some(url) => block.items.iter().find_map(|item| match item {
-                    Item::Link { rect, url: u } if **u == **url => Some(rect.y),
+                    Item::Link { rect, url: u } if **u == **url => Some((rect.y, rect.h)),
                     _ => None,
                 }),
                 None => block
                     .anchors
                     .iter()
                     .find(|(slug, _)| *slug == anchor)
-                    .map(|(_, y)| *y),
-            };
-            y.map(|y| top + y)
+                    .map(|(_, y)| (*y, block.height - y)),
+            }?;
+            Some((top + y, h))
         })
 }
 

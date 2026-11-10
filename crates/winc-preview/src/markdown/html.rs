@@ -230,7 +230,7 @@ impl Builder<'_> {
             }
             ("hr", _) if block => {
                 self.finish_html_leaf();
-                self.push_block(Block::Rule);
+                self.push_block(Block::Rule(None));
             }
             // 定义列表：被定义的词加粗成一段，解释另起一段。
             ("dt", false) if block => {

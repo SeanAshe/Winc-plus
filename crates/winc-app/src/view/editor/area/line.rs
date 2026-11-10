@@ -269,6 +269,14 @@ impl Screen<'_> {
             }
         }
 
+        // 固定颜色放在光标词的临时底色上方，按下快捷键时不必先移走光标。
+        for (a, b, color) in marked_occurrences(app, row.chars, shown) {
+            self.spans(row, line_start + a, line_start + b, &mut |top, x0, x1| {
+                let rect = Rect::new(x0, top + 1.0, x1 - x0, lh - 2.0);
+                frame.rect_clipped(rect, color, 3.0, text_rect);
+            });
+        }
+
         for pos in self
             .brace
             .into_iter()

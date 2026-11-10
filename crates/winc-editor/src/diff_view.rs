@@ -14,7 +14,9 @@ use winc_core::text::{self, MAX_LINE_CHARS};
 use winc_core::wrap::Breaks;
 use winc_syntax::{Highlighter, Language};
 
+use crate::document::{STICKY_HIGHLIGHT_BUDGET, rope_starts_quoted};
 use crate::editing::folding::line_breaks;
+use crate::editing::scopes::{self, Scope, ScopeMemo};
 
 /// 改动前后各自保留的未改动行数（行）。
 ///
@@ -48,6 +50,10 @@ pub struct DiffSide {
     pub missing: bool,
     /// 语法着色的增量状态，绘制时推进。
     pub highlighter: Highlighter,
+    /// 文字的版本号：右侧随工作区文件改变时加 1，使按内容缓存的结果失效。
+    revision: u64,
+    /// 粘滞滚动查找外层块时记录的结果，见 [`ScopeMemo`]。
+    sticky_memo: ScopeMemo,
 }
 
 impl DiffSide {
@@ -64,6 +70,8 @@ impl DiffSide {
             path,
             missing: false,
             highlighter: Highlighter::new(language),
+            revision: 0,
+            sticky_memo: ScopeMemo::default(),
         }
     }
 
@@ -71,6 +79,49 @@ impl DiffSide {
     pub fn with_missing(mut self, missing: bool) -> DiffSide {
         self.missing = missing;
         self
+    }
+
+    /// 返回该侧自上而下显示 `rows` 各行时固定在顶部的块（从外层到内层，最多 `max` 个），以及
+    /// 高亮是否已推算到位；参数与返回值的含义同 [`crate::Document::sticky_scopes`]。
+    pub fn sticky_scopes(
+        &mut self,
+        rows: &[usize],
+        partial: bool,
+        max: usize,
+        tab_width: usize,
+    ) -> (Vec<Scope>, bool) {
+        // 判断块是否在字符串中，需要 `rows` 及其下方 `SCAN_DOWN` 行的高亮状态，先推算到那里。
+        let last = rows.last().copied().unwrap_or(0) + scopes::SCAN_DOWN;
+        let settled = (self.highlighter)
+            .state_at(&self.text, last, STICKY_HIGHLIGHT_BUDGET)
+            .is_some();
+        let language = self.highlighter.language();
+        let (text, highlighter) = (&self.text, &mut self.highlighter);
+        let mut quoted = |line| rope_starts_quoted(highlighter, text, line);
+        let memo = self.sticky_memo.records(self.revision, tab_width);
+        let found = scopes::sticky(
+            text,
+            language,
+            rows,
+            partial,
+            max,
+            tab_width,
+            &mut quoted,
+            memo,
+        );
+        if !settled {
+            self.sticky_memo.discard();
+        }
+        (found, settled)
+    }
+
+    /// 返回包含第 `line` 行的块的层数，即该行显示在固定行下方时顶部固定的行数。
+    pub fn scope_depth(&mut self, line: usize, tab_width: usize) -> usize {
+        let language = self.highlighter.language();
+        let (text, highlighter) = (&self.text, &mut self.highlighter);
+        let mut quoted = |line| rope_starts_quoted(highlighter, text, line);
+        let memo = self.sticky_memo.get(self.revision, tab_width);
+        scopes::depth(text, language, line, tab_width, &mut quoted, memo)
     }
 }
 
@@ -331,6 +382,8 @@ impl DiffView {
     pub fn apply(&mut self, text: Rope, compared: Compared) {
         let first = first_difference(&self.new.text, &text);
         self.new.highlighter.invalidate_from(first);
+        self.new.sticky_memo.edited(self.new.revision, first);
+        self.new.revision += 1;
         // 固定显示的行随上方增删的行移动：改动始于其上方时整体移动，始于其中间时只移动下边界。
         // 按一处连续的修改估算（输入、粘贴、撤销均属此类），足以使这些行保持在原来的内容上。
         if let Some(pinned) = &mut self.pinned {
@@ -690,6 +743,15 @@ impl DiffView {
     /// 返回第 `side` 侧。
     pub fn side(&self, side: usize) -> &DiffSide {
         if side == LEFT { &self.old } else { &self.new }
+    }
+
+    /// 返回第 `side` 侧（[`LEFT`] 或 [`RIGHT`]）的可变借用。
+    pub fn side_mut(&mut self, side: usize) -> &mut DiffSide {
+        if side == LEFT {
+            &mut self.old
+        } else {
+            &mut self.new
+        }
     }
 
     /// 返回只读一侧的光标：（所在侧，字符偏移），位于选区的终点。

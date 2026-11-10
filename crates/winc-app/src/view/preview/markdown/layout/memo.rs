@@ -155,6 +155,15 @@ impl Item {
                 color: *color,
                 radius: *radius,
             },
+            Item::Corners {
+                rect: r,
+                color,
+                radii,
+            } => Item::Corners {
+                rect: rect(r),
+                color: *color,
+                radii: *radii,
+            },
             Item::Image { rect: r, path, at } => Item::Image {
                 rect: rect(r),
                 path: path.clone(),
@@ -163,6 +172,10 @@ impl Item {
             Item::Link { rect: r, url } => Item::Link {
                 rect: rect(r),
                 url: Arc::clone(url),
+            },
+            Item::Spot { rect: r, at } => Item::Spot {
+                rect: rect(r),
+                at: (at.0 + dc, at.1),
             },
             Item::Check {
                 rect: r,

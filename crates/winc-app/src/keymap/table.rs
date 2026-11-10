@@ -147,6 +147,9 @@ pub fn bindings(os: Os) -> Vec<Binding> {
     }
     t.one(FindNext, EditorOrFind, key(none, F(3)));
     t.one(FindPrevious, EditorOrFind, key(shift, F(3)));
+    // 固定高亮使用带修饰键的组合：不带 ⌘ 的可输入字符键会占用正文中的输入（如 `*`、`(`）。
+    t.one(HighlightWord, Editor, key(cmd | shift, F(7)));
+    t.one(ClearWordHighlights, Editor, key(shift, Escape));
 
     t.one(GoToDefinition, Editor, key(none, F(12)));
     t.one(FindReferences, Editor, key(shift, F(12)));
@@ -283,6 +286,12 @@ pub fn bindings(os: Os) -> Vec<Binding> {
             t.one(RevealInFinder, NotEditor, c(ctrl | alt, 'r'));
         }
     }
+    // 可编辑的 Markdown 预览中的行内格式。范围小于编辑区，写在同键的绑定之前；其余位置这些键
+    // 执行表中靠后的绑定（⌘B 显示或隐藏侧栏，⌘I 复制代码引用）。
+    t.one(MarkdownBold, Markdown, c(cmd, 'b'));
+    t.one(MarkdownItalic, Markdown, c(cmd, 'i'));
+    t.one(MarkdownCode, Markdown, c(cmd, 'e'));
+    t.one(MarkdownStrikethrough, Markdown, c(cmd | shift, 'x'));
     // 复制代码引用（`路径:行`）：⌘I 是相对路径，⌘L 是绝对路径（其他系统上 Ctrl）。
     t.one(CopyReference, Editor, c(cmd, 'i'));
     t.one(CopyAbsoluteReference, Editor, c(cmd, 'l'));

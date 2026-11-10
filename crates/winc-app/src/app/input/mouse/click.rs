@@ -145,7 +145,8 @@ impl App {
         let target = self.target_at(x, y);
         let keeps_preview = matches!(
             target,
-            Target::MarkdownText | Target::Scrollbar(Scrollbar::Markdown, _)
+            Target::MarkdownText
+                | Target::Scrollbar(Scrollbar::Markdown | Scrollbar::MarkdownTable, _)
         );
         if !keeps_preview && self.markdown.focused {
             self.markdown.focused = false;
