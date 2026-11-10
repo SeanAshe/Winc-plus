@@ -104,3 +104,4 @@ preview-pdf-invalid = Not a valid PDF file
 preview-pdf-encrypted = Encrypted PDFs can’t be previewed
 preview-pdf-empty = The PDF has no pages
 preview-pdf-render-failed = The page couldn’t be rendered
+preview-pdf-render-failed-code = The page couldn’t be rendered (error { $code })

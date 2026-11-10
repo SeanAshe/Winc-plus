@@ -1,6 +1,6 @@
 //! 饼图：从正上方顺时针一块块画，块里写百分比，右边是图例。
 //!
-//! 各块的颜色按 [`PALETTE`] 轮流取，色值取自 mermaid 默认主题。坐标和尺寸都是逻辑像素，
+//! 各块的颜色按 [`super::PALETTE`] 轮流取。坐标和尺寸都是逻辑像素，
 //! `s` 是排版用的字号。
 
 use std::f32::consts::{FRAC_PI_2, TAU};
@@ -9,13 +9,7 @@ use winc_preview::markdown::mermaid::Pie;
 use winc_render::{Color, Rect, Stroke};
 
 use super::super::{Cx, Item};
-use super::{Look, bounds, ellipse};
-
-/// 各块的颜色（`0xRRGGBB`），按顺序轮流使用，共 10 种，块数更多时从头重复。
-const PALETTE: [u32; 10] = [
-    0x4e79a7, 0xf28e2b, 0xe15759, 0x76b7b2, 0x59a14f, 0xedc948, 0xb07aa1, 0xff9da7, 0x9c755f,
-    0xbab0ac,
-];
+use super::{Look, bounds, ellipse, palette};
 
 impl Cx<'_, '_> {
     /// 排饼图，返回宽高。
@@ -40,7 +34,7 @@ impl Cx<'_, '_> {
             }
             let share = (value.max(0.0) / total) as f32;
             let sweep = share * TAU;
-            let color = Color::hex(PALETTE[k % PALETTE.len()]);
+            let color = palette(k);
             // 多边形要凸：每块切成不超过四分之一圈的小扇形。
             let chunks = (sweep / FRAC_PI_2).ceil().max(1.0) as usize;
             for c in 0..chunks {
@@ -93,7 +87,7 @@ impl Cx<'_, '_> {
             let sq = s * 0.9;
             out.push(Item::Fill {
                 rect: Rect::new(left, y + (row_h - sq) / 2.0, sq, sq),
-                color: Color::hex(PALETTE[k % PALETTE.len()]),
+                color: palette(k),
                 radius: 2.0,
             });
             self.put_label(

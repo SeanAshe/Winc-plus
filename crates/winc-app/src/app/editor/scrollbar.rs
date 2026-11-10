@@ -43,11 +43,13 @@ pub(crate) enum ScrollArea {
     Terminal,
     /// Markdown 预览。
     Markdown,
+    /// Markdown 预览中比正文宽的表格的水平滚动条。
+    MarkdownTable,
 }
 
 impl ScrollArea {
     /// 全部区域，遍历时用。
-    const ALL: [ScrollArea; 10] = [
+    const ALL: [ScrollArea; 11] = [
         ScrollArea::Editor,
         ScrollArea::EditorHorizontal,
         ScrollArea::Tree,
@@ -58,6 +60,7 @@ impl ScrollArea {
         ScrollArea::Settings,
         ScrollArea::Terminal,
         ScrollArea::Markdown,
+        ScrollArea::MarkdownTable,
     ];
 
     /// 该区域可以拖动的滚动条；不能拖动时为 `None`。
@@ -73,13 +76,14 @@ impl ScrollArea {
             ScrollArea::Settings => Some(Scrollbar::Settings),
             ScrollArea::Terminal => Some(Scrollbar::Terminal),
             ScrollArea::Markdown => Some(Scrollbar::Markdown),
+            ScrollArea::MarkdownTable => Some(Scrollbar::MarkdownTable),
         }
     }
 
     fn horizontal(self) -> bool {
         matches!(
             self,
-            ScrollArea::EditorHorizontal | ScrollArea::TreeHorizontal
+            ScrollArea::EditorHorizontal | ScrollArea::TreeHorizontal | ScrollArea::MarkdownTable
         )
     }
 }

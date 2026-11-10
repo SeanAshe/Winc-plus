@@ -44,6 +44,10 @@ cmd-copy = Copy
 cmd-paste = Paste
 cmd-select-all = Select All
 cmd-toggle-comment = Toggle Line Comment
+cmd-markdown-bold = Markdown: Toggle Bold
+cmd-markdown-italic = Markdown: Toggle Italic
+cmd-markdown-code = Markdown: Toggle Inline Code
+cmd-markdown-strikethrough = Markdown: Toggle Strikethrough
 cmd-delete-line = Delete Line
 cmd-delete-all-left = Delete to Line Start
 cmd-indent-lines = Indent Line
@@ -107,6 +111,8 @@ cmd-fix = Fix Problems
 cmd-find = Find
 cmd-replace = Replace
 cmd-find-next = Find Next
+cmd-highlight-word = Toggle Word Highlight
+cmd-clear-word-highlights = Clear Word Highlights
 cmd-find-previous = Find Previous
 cmd-replace-one = Replace This Match
 cmd-replace-all = Replace All
@@ -235,6 +241,7 @@ cmd-cli-event-loop-failed = Couldn’t create the event loop: { $error }
 ## Keyboard Shortcuts page: command scopes and groups
 
 cmd-when-editor = Editor
+cmd-when-markdown = Markdown preview
 cmd-when-editor-or-find = Editor, Find Bar
 cmd-when-replace-input = Replace Field
 cmd-when-panel = Search View

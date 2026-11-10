@@ -984,7 +984,7 @@ impl Git {
     /// 日志筛选同时匹配说明和提交号，使用户粘贴提交号即可定位提交。`git log` 无法按
     /// 「说明或提交号」筛选，因此该提交单独读取并排在最前面。
     fn commit_by_hash(&self, root: &Path, text: &str) -> Option<Box<Commit>> {
-        if !(4..=40).contains(&text.len()) || !text.bytes().all(|b| b.is_ascii_hexdigit()) {
+        if !(4..=64).contains(&text.len()) || !text.bytes().all(|b| b.is_ascii_hexdigit()) {
             return None;
         }
         let mut command = self.command(root);

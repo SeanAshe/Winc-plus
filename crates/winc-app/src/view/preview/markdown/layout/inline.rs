@@ -295,6 +295,12 @@ impl Cx<'_, '_> {
     ) -> Flow {
         let (atoms, runs) = self.atoms(inline, para, width);
         let lines = break_lines(&atoms, width);
+        // 没有文字的段落（只有记号的列表项）仍记下原文位置，可编辑的预览中光标落在该行。
+        // 光标所在的空段落按原文重新生成，没有对照，取段落的起点。
+        let anchor = atoms
+            .is_empty()
+            .then(|| source_of(inline, 0).or_else(|| u32::try_from(inline.source).ok()))
+            .flatten();
         let mut top = y;
         let mut first_baseline = None;
         let main = self.frame.metrics(FontKind::Ui, para.size);
@@ -358,6 +364,23 @@ impl Cx<'_, '_> {
                 Align::None | Align::Left => 0.0,
             };
             self.emit_line(atoms, &runs, &mut pen, baseline, (top, height), inline, out);
+            if let Some(source) = anchor {
+                out.push(Item::Text {
+                    x: pen,
+                    baseline,
+                    text: "".into(),
+                    font: FontKind::Ui,
+                    faux: Faux::default(),
+                    size: para.size,
+                    color: para.color,
+                    span: Some(Span {
+                        start: self.chars,
+                        advances: Arc::from([]),
+                        source: Some(source),
+                        jumps: None,
+                    }),
+                });
+            }
             top += height;
         }
         self.end_paragraph();
@@ -420,6 +443,13 @@ impl Cx<'_, '_> {
                         flush_text(out, &mut text, at, st);
                         let x = *pen;
                         out.extend(b.items.iter().map(|item| item.moved(x, baseline, 0)));
+                        // 公式中没有可定位的字：点击公式时光标移到公式的原文处。
+                        if let Some(source) = atom.source {
+                            out.push(Item::Spot {
+                                rect: Rect::new(x, baseline - b.asc, atom.width, b.asc + b.desc),
+                                at: (self.chars, source),
+                            });
+                        }
                         self.text.push_str(tex);
                         self.chars += tex.chars().count();
                     }

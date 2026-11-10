@@ -54,6 +54,14 @@ pub enum Action {
     Paste,
     SelectAll,
     ToggleComment,
+    /// 可编辑的 Markdown 预览中切换粗体（`**`）。
+    MarkdownBold,
+    /// 可编辑的 Markdown 预览中切换斜体（`*`）。
+    MarkdownItalic,
+    /// 可编辑的 Markdown 预览中切换行内代码（`` ` ``）。
+    MarkdownCode,
+    /// 可编辑的 Markdown 预览中切换删除线（`~~`）。
+    MarkdownStrikethrough,
     DeleteLine,
     DeleteAllLeft,
     IndentLines,
@@ -119,6 +127,8 @@ pub enum Action {
     Replace,
     FindNext,
     FindPrevious,
+    HighlightWord,
+    ClearWordHighlights,
     ReplaceOne,
     ReplaceAll,
     SelectAllMatches,
@@ -294,6 +304,10 @@ impl Action {
             Paste => t!("cmd-paste"),
             SelectAll => t!("cmd-select-all"),
             ToggleComment => t!("cmd-toggle-comment"),
+            MarkdownBold => t!("cmd-markdown-bold"),
+            MarkdownItalic => t!("cmd-markdown-italic"),
+            MarkdownCode => t!("cmd-markdown-code"),
+            MarkdownStrikethrough => t!("cmd-markdown-strikethrough"),
             DeleteLine => t!("cmd-delete-line"),
             DeleteAllLeft => t!("cmd-delete-all-left"),
             IndentLines => t!("cmd-indent-lines"),
@@ -358,6 +372,8 @@ impl Action {
             Replace => t!("cmd-replace"),
             FindNext => t!("cmd-find-next"),
             FindPrevious => t!("cmd-find-previous"),
+            HighlightWord => t!("cmd-highlight-word"),
+            ClearWordHighlights => t!("cmd-clear-word-highlights"),
             ReplaceOne => t!("cmd-replace-one"),
             ReplaceAll => t!("cmd-replace-all"),
             SelectAllMatches => t!("cmd-select-all-matches"),
@@ -492,6 +508,10 @@ impl Action {
             Paste => "Paste",
             SelectAll => "Select All",
             ToggleComment => "Toggle Line Comment",
+            MarkdownBold => "Markdown: Toggle Bold",
+            MarkdownItalic => "Markdown: Toggle Italic",
+            MarkdownCode => "Markdown: Toggle Inline Code",
+            MarkdownStrikethrough => "Markdown: Toggle Strikethrough",
             DeleteLine => "Delete Line",
             DeleteAllLeft => "Delete All Left",
             IndentLines => "Indent Line",
@@ -556,6 +576,8 @@ impl Action {
             Replace => "Replace",
             FindNext => "Find Next",
             FindPrevious => "Find Previous",
+            HighlightWord => "Toggle Word Highlight",
+            ClearWordHighlights => "Clear Word Highlights",
             ReplaceOne => "Replace",
             ReplaceAll => "Replace All",
             SelectAllMatches => "Select All Matches",
@@ -672,6 +694,10 @@ impl Action {
             | Paste
             | SelectAll
             | ToggleComment
+            | MarkdownBold
+            | MarkdownItalic
+            | MarkdownCode
+            | MarkdownStrikethrough
             | DeleteLine
             | DeleteAllLeft
             | IndentLines
@@ -732,11 +758,10 @@ impl Action {
             | Format
             | FormatSelection
             | Fix => Group::Edit,
-            Find | Replace | FindNext | FindPrevious | ReplaceOne | ReplaceAll
-            | SelectAllMatches | ToggleCase | ToggleWord | ToggleRegex | FilterLines
-            | FindInFiles | ReplaceInFiles | ReplaceAllInFiles | NextResult | PreviousResult => {
-                Group::Find
-            }
+            Find | Replace | FindNext | FindPrevious | HighlightWord | ClearWordHighlights
+            | ReplaceOne | ReplaceAll | SelectAllMatches | ToggleCase | ToggleWord
+            | ToggleRegex | FilterLines | FindInFiles | ReplaceInFiles | ReplaceAllInFiles
+            | NextResult | PreviousResult => Group::Find,
             RenameFile | DeleteFile | OpenSelected | PreviewSelected | FindInFolder => Group::Tree,
             ToggleSidebar
             | FocusSidebar
@@ -850,7 +875,11 @@ impl Action {
             | ConvertIndentationToTabs
             | DetectIndentation
             | ChangeEndOfLine
-            | ChangeLanguageMode => false,
+            | ChangeLanguageMode
+            | MarkdownBold
+            | MarkdownItalic
+            | MarkdownCode
+            | MarkdownStrikethrough => false,
             _ => self.group() == Group::Edit,
         }
     }
@@ -973,6 +1002,8 @@ pub const ACTIONS: &[Action] = {
         Replace,
         FindNext,
         FindPrevious,
+        HighlightWord,
+        ClearWordHighlights,
         ReplaceOne,
         ReplaceAll,
         SelectAllMatches,
@@ -1017,6 +1048,10 @@ pub const ACTIONS: &[Action] = {
         Paste,
         SelectAll,
         ToggleComment,
+        MarkdownBold,
+        MarkdownItalic,
+        MarkdownCode,
+        MarkdownStrikethrough,
         DeleteLine,
         DeleteAllLeft,
         IndentLines,

@@ -25,7 +25,7 @@ fn blocks_come_out_in_order() {
     assert!(matches!(&doc.blocks[0], Block::Heading(1, h) if h.text == "标题"));
     // 中文之间的软换行不加空格。
     assert_eq!(paragraph(&doc.blocks[1]).text, "第一段第二行");
-    assert_eq!(doc.blocks[2], Block::Rule);
+    assert_eq!(doc.blocks[2], Block::Rule(Some(0)));
     assert!(matches!(
         &doc.blocks[3],
         Block::Code { lang, text, .. } if lang == "rust" && text == "fn main() {}"
@@ -168,7 +168,7 @@ fn footnotes_are_numbered_and_moved_to_the_end() {
     assert_eq!(inline.text, "甲[1] 乙[2]");
     let n = doc.blocks.len();
     assert_eq!(paragraph(&doc.blocks[1]).text, "尾");
-    assert_eq!(doc.blocks[n - 3], Block::Rule);
+    assert_eq!(doc.blocks[n - 3], Block::Rule(None));
     assert!(
         matches!(&doc.blocks[n - 2], Block::Footnote(l, b) if l == "1" && paragraph(&b[0]).text == "B ↩")
     );
@@ -356,7 +356,7 @@ fn html_tables_lists_and_pre_become_blocks() {
     assert_eq!(paragraph(&items[1].blocks[0]).text, "二");
     assert!(matches!(&items[1].blocks[1], Block::List(Some(3), inner) if inner.len() == 1));
     assert!(matches!(&doc.blocks[2], Block::Quote(None, b) if paragraph(&b[0]).text == "引用"));
-    assert_eq!(doc.blocks[3], Block::Rule);
+    assert_eq!(doc.blocks[3], Block::Rule(None));
     assert!(matches!(
         &doc.blocks[4],
         Block::Code { lang, text, .. } if lang == "rust" && text == "fn a() {\n    1 < 2\n}"
@@ -539,4 +539,89 @@ fn deep_containers_are_flattened() {
         blocks = inner;
     }
     assert_eq!(paragraph(&blocks[0]).text, "deep");
+}
+
+#[test]
+fn toc_marker_becomes_a_nested_list_of_heading_links() {
+    let md = parse("# 概述\n\n[TOC]\n\n## 安装 winc\n\n### 下载\n\n## 使用\n\n正文\n");
+    let Block::List(None, items) = &md.blocks[1] else {
+        panic!("[TOC] 没有换成目录：{:?}", md.blocks[1]);
+    };
+    // 「概述」一项，其下是「安装 winc」（含「下载」）和「使用」。
+    assert_eq!(items.len(), 1);
+    let link = |item: &Item| paragraph(&item.blocks[0]).links.clone();
+    assert_eq!(link(&items[0]), ["#概述"]);
+    let Block::List(None, children) = &items[0].blocks[1] else {
+        panic!("没有子项");
+    };
+    assert_eq!(children.len(), 2);
+    assert_eq!(link(&children[0]), ["#安装-winc"]);
+    assert_eq!(link(&children[1]), ["#使用"]);
+    let Block::List(None, grand) = &children[0].blocks[1] else {
+        panic!("没有第三级");
+    };
+    assert_eq!(link(&grand[0]), ["#下载"]);
+
+    // 没有标题时保留原文，不分大小写的 `[[toc]]` 同样识别。
+    let none = parse("[TOC]\n\n正文\n");
+    assert_eq!(paragraph(&none.blocks[0]).text, "[TOC]");
+    let wiki = parse("# 标题\n\n[[toc]]\n");
+    assert!(matches!(&wiki.blocks[1], Block::List(None, _)));
+}
+
+/// 只有记号的列表项里有一个空段落，位于记号之后，是一个叶子块：可编辑的预览中光标停在这里。
+#[test]
+fn empty_list_items_hold_an_empty_paragraph() {
+    let source = "1. 一\n2. \n3. 三\n";
+    let doc = parse(source);
+    let Block::List(Some(1), items) = &doc.blocks[0] else {
+        panic!("{:?}", doc.blocks[0]);
+    };
+    let empty = paragraph(&items[1].blocks[0]);
+    assert!(empty.text.is_empty());
+    let at = source.find("2. ").unwrap() + 3;
+    assert_eq!(empty.source_of(0), Some(at));
+    assert!(doc.leaves.iter().any(|l| l.range == (at..at) && l.prose));
+    // 分隔线记下在原文中的起点。
+    let doc = parse("段落\n\n1. 甲\n2. ---\n");
+    let Block::List(Some(1), items) = &doc.blocks[1] else {
+        panic!("{:?}", doc.blocks[1]);
+    };
+    assert_eq!(items[1].blocks[0], Block::Rule(Some("1. 甲\n2. ".len())));
+}
+
+#[test]
+fn block_markers_need_a_space_to_take_effect() {
+    // 只有记号、后面没有空格：按文字显示，不成为列表项、标题、引用。
+    for text in ["-", "1.", "#", "##", ">"] {
+        let doc = parse(text);
+        let block = match &doc.blocks[0] {
+            Block::List(_, items) => {
+                assert!(items[0].bare, "{text}");
+                &items[0].blocks[0]
+            }
+            block => block,
+        };
+        assert_eq!(paragraph(block).text, text);
+        assert_eq!(doc.leaves[0].range, 0..text.len(), "{text}");
+    }
+    // 输入空格之后生效。
+    assert!(matches!(&parse("- ").blocks[0], Block::List(None, items) if !items[0].bare));
+    assert!(matches!(&parse("# ").blocks[0], Block::Heading(1, _)));
+    assert!(matches!(&parse("> ").blocks[0], Block::Quote(..)));
+    // 有内容的项不受影响。
+    assert!(matches!(&parse("- 甲\n- 乙").blocks[0], Block::List(None, items) if !items[1].bare));
+}
+
+#[test]
+fn a_task_box_without_text_is_already_a_task_item() {
+    for (text, checked) in [("- [ ]", false), ("- [ ] ", false), ("1. [x]", true)] {
+        let doc = parse(text);
+        let Block::List(_, items) = &doc.blocks[0] else {
+            panic!("{text}");
+        };
+        assert_eq!(items[0].task, Some(checked), "{text}");
+        assert_eq!(items[0].task_source, text.find('[').unwrap(), "{text}");
+        assert!(paragraph(&items[0].blocks[0]).text.is_empty(), "{text}");
+    }
 }

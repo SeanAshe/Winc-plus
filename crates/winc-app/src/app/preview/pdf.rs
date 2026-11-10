@@ -30,8 +30,8 @@ struct Request {
 enum Done {
     /// 打开的结果：各页大小，或失败的原因。
     Opened(u64, Result<Vec<PageSize>, String>),
-    /// 渲染好的一页：页号和位图；渲染失败时位图为 `None`。
-    Rendered(u64, usize, Option<Arc<Pixels>>),
+    /// 渲染完的一页：页号、请求的位图宽度，以及位图或失败的原因。
+    Rendered(u64, usize, u32, Result<Arc<Pixels>, String>),
 }
 
 /// 当前标签的 PDF 预览。
@@ -52,6 +52,9 @@ pub(crate) struct PdfPreview {
     pub pages: Option<Result<Arc<[PageSize]>, String>>,
     /// 渲染好的页：页号到位图，只保留当前需要的页。
     pub rendered: HashMap<usize, Arc<Pixels>>,
+    /// 渲染失败的（页号，位图宽度）和原因：在页面上显示原因，不再重复请求；位图宽度改变（窗口
+    /// 缩放）或重新打开文档时重试。
+    pub failed: HashMap<(usize, u32), String>,
     /// 滚动位置（逻辑像素，内容顶部到视口顶部的距离）。
     pub scroll: f32,
     /// 上一帧绘制的区域（窗口坐标）；不显示时为空矩形。
@@ -73,6 +76,7 @@ impl Default for PdfPreview {
             receiver,
             pages: None,
             rendered: HashMap::new(),
+            failed: HashMap::new(),
             scroll: 0.0,
             area: Rect::default(),
             height: 0.0,
@@ -92,6 +96,7 @@ impl PdfPreview {
         }
         self.pages = None;
         self.rendered.clear();
+        self.failed.clear();
         self.scroll = 0.0;
         self.height = 0.0;
     }
@@ -170,12 +175,9 @@ impl App {
                     }
                     let pixels = document
                         .render(request.page, request.width, request.height)
-                        .ok()
                         .map(Arc::new);
-                    if sender
-                        .send(Done::Rendered(generation, request.page, pixels))
-                        .is_err()
-                    {
+                    let done = Done::Rendered(generation, request.page, request.width, pixels);
+                    if sender.send(done).is_err() {
                         return;
                     }
                     notify();
@@ -200,10 +202,16 @@ impl App {
                     }
                     changed = true;
                 }
-                Done::Rendered(generation, page, pixels) if generation == pdf.generation => {
-                    pdf.requested.retain(|&(p, _)| p != page);
-                    if let Some(pixels) = pixels {
-                        pdf.rendered.insert(page, pixels);
+                Done::Rendered(generation, page, width, pixels) if generation == pdf.generation => {
+                    pdf.requested.remove(&(page, width));
+                    match pixels {
+                        Ok(pixels) => {
+                            pdf.failed.remove(&(page, width));
+                            pdf.rendered.insert(page, pixels);
+                        }
+                        Err(reason) => {
+                            pdf.failed.insert((page, width), reason);
+                        }
                     }
                     changed = true;
                 }
@@ -224,6 +232,7 @@ impl App {
         pdf.rendered
             .retain(|&page, pixels| keys.contains(&(page, pixels.width)));
         pdf.requested.retain(|key| keys.contains(key));
+        pdf.failed.retain(|key, _| keys.contains(key));
         if let Ok(mut wanted) = pdf.wanted.lock() {
             wanted.clone_from(&keys);
         }
@@ -233,7 +242,8 @@ impl App {
         for &(page, width, height) in pages {
             let key = (page, width);
             let ready = pdf.rendered.get(&page).is_some_and(|p| p.width == width);
-            if ready || pdf.requested.contains(&key) {
+            // 失败过的页不再请求，否则每一帧都会重新渲染。
+            if ready || pdf.requested.contains(&key) || pdf.failed.contains_key(&key) {
                 continue;
             }
             if requests
@@ -274,6 +284,14 @@ impl App {
         let pdf = &mut self.pdf;
         pdf.scroll = (pdf.scroll - dy).clamp(0.0, pdf.max_scroll());
         self.request_redraw();
+    }
+
+    /// 测试中模拟渲染线程送回第 `page` 页（请求宽度 `width`）渲染失败的结果。
+    #[cfg(all(test, any(target_os = "macos", windows)))]
+    pub(crate) fn fail_pdf_page(&mut self, page: usize, width: u32, reason: &str) {
+        let done = Done::Rendered(self.pdf.generation, page, width, Err(reason.to_owned()));
+        let _ = self.pdf.sender.send(done);
+        self.poll_pdf();
     }
 
     /// 测试中等渲染线程完成打开和已发出的渲染请求，并收下结果。

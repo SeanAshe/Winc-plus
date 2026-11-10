@@ -6,6 +6,7 @@
 //! x 向右、y 向下；各区域的位置由 `crate::layout` 计算。
 
 use std::borrow::Cow;
+use std::ops::Range;
 
 use unicode_segmentation::UnicodeSegmentation;
 use winc_editor::EntryKind;
@@ -13,7 +14,7 @@ use winc_i18n::t;
 use winc_render::{Color, Faux, FontKind, Frame, Rect};
 
 use crate::app::animation::{Card, dialog_curve, reveal};
-use crate::app::{App, DropZone, Hover, MenuButton, ScrollArea, ThumbLook};
+use crate::app::{App, DropZone, Hover, MenuButton, ScrollArea, ThumbLook, WORD_HIGHLIGHT_COUNT};
 use crate::field::{FieldView, TextField};
 use crate::icons;
 use crate::keymap::{self, Action};
@@ -1145,6 +1146,71 @@ fn draw_keycap(app: &App, frame: &mut Frame<'_>, row: Rect, key: &str, clip: Rec
         p.text_muted,
         clip,
     );
+}
+
+/// 固定高亮的调色板：琥珀、蓝、紫、青、粉、绿，按色相错开。
+///
+/// 不透明度 0.38 取自调参：深浅两套主题下文字仍清晰可读，叠在选区底色上时仍能区分颜色。
+const WORD_HIGHLIGHT_COLORS: [Color; WORD_HIGHLIGHT_COUNT] = [
+    Color::hex(0xF3B325).alpha(0.38),
+    Color::hex(0x418FF6).alpha(0.38),
+    Color::hex(0xC47BFA).alpha(0.38),
+    Color::hex(0x19BCA9).alpha(0.38),
+    Color::hex(0xF9759D).alpha(0.38),
+    Color::hex(0x83B83D).alpha(0.38),
+];
+
+/// 是否为组成词的字符：字母、数字或下划线。
+pub(crate) fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_'
+}
+
+/// 返回行内的字面匹配，范围以字符列计。
+fn line_occurrences<'a>(
+    chars: &'a [char],
+    needle: &'a [char],
+    whole_word: bool,
+) -> impl Iterator<Item = (usize, usize)> + 'a {
+    let n = needle.len();
+    let mut at = 0;
+    std::iter::from_fn(move || {
+        while at + n <= chars.len() {
+            let start = at;
+            at += 1;
+            if chars[start..start + n] != *needle {
+                continue;
+            }
+            if whole_word {
+                let before = start.checked_sub(1).map(|i| chars[i]);
+                let after = chars.get(start + n).copied();
+                if before.is_some_and(is_word_char) || after.is_some_and(is_word_char) {
+                    continue;
+                }
+            }
+            at = start + n;
+            return Some((start, start + n));
+        }
+        None
+    })
+}
+
+/// 返回一行 `chars` 中固定高亮的各处（列范围与颜色），只取与可见列 `shown` 相交的部分。
+///
+/// 只扫描可见列及其两侧各一个查找内容长度的范围，供普通编辑器和差异两栏共用。
+fn marked_occurrences<'a>(
+    app: &'a App,
+    chars: &'a [char],
+    shown: Range<usize>,
+) -> impl Iterator<Item = (usize, usize, Color)> + 'a {
+    app.word_highlights.iter().flat_map(move |(color, mark)| {
+        let color = WORD_HIGHLIGHT_COLORS[*color];
+        let from = shown.start.saturating_sub(mark.chars.len());
+        let to = (shown.end + mark.chars.len()).min(chars.len());
+        let (start, end) = (shown.start, shown.end);
+        line_occurrences(&chars[from..to], &mark.chars, mark.whole_word)
+            .map(move |(a, b)| (from + a, from + b, color))
+            .filter(move |&(a, b, _)| a < end && b > start)
+    })
 }
 
 #[cfg(test)]

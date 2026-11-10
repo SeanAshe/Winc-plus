@@ -37,6 +37,7 @@ pub use editor::format::{FormatState, ToolAnswer};
 pub use editor::hint::NameHint;
 pub(crate) use editor::scrollbar::{ScrollArea, Scrollbars, ThumbLook};
 pub use editor::sticky::{StickyCache, StickyRow};
+pub(crate) use editor::sticky::{place_sticky_rows, sticky_limit};
 pub(crate) use git::branch::picker::{GitAnchor, PickerPart};
 pub(crate) use git::changes::{ChangeTarget, MARK_W, mark_x, ruler_rows};
 pub(crate) use git::commit::{
@@ -684,6 +685,20 @@ const GLOBAL_POLL: Duration = Duration::from_millis(100);
 /// 「只显示匹配的行」的缓存键，各项依次为：文档、版本号、匹配的行数、已搜索到的位置、是否有查询。
 type FilterKey = (DocumentId, u64, usize, usize, bool);
 
+/// 同时固定的高亮的最大数量（个），等于高亮调色板的颜色数。
+///
+/// 超出时移除最早的一个并沿用其颜色，同一屏中的颜色互不相同。
+pub(crate) const WORD_HIGHLIGHT_COUNT: usize = 6;
+
+/// 固定高亮的一个查找内容：编辑区与差异两栏中，各处字面相同的文字铺上同一种颜色。
+#[derive(PartialEq, Eq)]
+pub(crate) struct WordHighlight {
+    /// 要标注的文字。
+    pub chars: Vec<char>,
+    /// 是否只标注完整的词：由光标所在的词生成时为真，由选中的文字生成时为假。
+    pub whole_word: bool,
+}
+
 /// 应用状态：编辑器、界面状态、绘制时记录的几何，以及窗口和事件循环的句柄。
 ///
 /// 各功能的事件处理方法分布在 `app/` 的子模块中，均只读写本结构的字段。
@@ -951,6 +966,8 @@ pub struct App {
     /// 查找条中的替换输入；内容变化后同步到 `search.replacement`。
     pub replace_input: TextField,
     search_open: bool,
+    /// 阅读时固定的词或短选区及其颜色编号，按标记时间从早到晚排列。
+    pub(crate) word_highlights: Vec<(usize, WordHighlight)>,
     /// 查找条上是否开启了「只显示匹配的行」。
     pub(crate) filter_lines: bool,
     /// 上次筛选使用的缓存键，以及筛选后是否隐藏了行。

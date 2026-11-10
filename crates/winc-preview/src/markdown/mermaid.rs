@@ -1,10 +1,23 @@
 //! `` ```mermaid `` 代码块的解析：源码转成图的结构，布局和绘制由 `winc-app` 的预览完成。
 //!
 //! 支持的图：流程图（`graph`、`flowchart`，含 `subgraph`）、状态图（`stateDiagram`）、时序图
-//! （`sequenceDiagram`）和饼图（`pie`）。样式设置与点击事件被忽略，其余种类的图返回
-//! [`Diagram::Unsupported`]。
+//! （`sequenceDiagram`）、饼图（`pie`）、类图（`classDiagram`）、实体关系图（`erDiagram`）、
+//! 思维导图（`mindmap`）、Git 提交图（`gitGraph`）和甘特图（`gantt`）。样式设置与点击事件被
+//! 忽略，其余种类的图返回 [`Diagram::Unsupported`]。
 
 use std::collections::HashMap;
+
+mod class;
+mod er;
+mod gantt;
+mod git;
+mod mindmap;
+
+pub use class::{Class, ClassBox, End, Relation};
+pub use er::{Attribute, Card, Entity, Er, Link};
+pub use gantt::{Gantt, Task, format_time, month_start};
+pub use git::{Commit, CommitKind, Git};
+pub use mindmap::{MindNode, MindShape, Mindmap};
 
 /// 一个 mermaid 图的结构。
 #[derive(Debug, Clone, PartialEq)]
@@ -15,6 +28,16 @@ pub enum Diagram {
     Sequence(Sequence),
     /// 饼图。
     Pie(Pie),
+    /// 类图。
+    Class(Class),
+    /// 实体关系图。
+    Er(Er),
+    /// 思维导图。
+    Mindmap(Mindmap),
+    /// Git 提交图。
+    Git(Git),
+    /// 甘特图。
+    Gantt(Gantt),
     /// 识别出种类但尚未支持绘制的图，内容为种类名（如 `classDiagram`）。
     Unsupported(String),
 }
@@ -253,16 +276,19 @@ pub struct Pie {
 ///
 /// 无法识别的图返回 `None`，包括连线数超过上限而拒绝绘制的流程图。
 pub fn parse(source: &str) -> Option<Diagram> {
-    let mut lines = source
+    // 保留行首空白：思维导图按缩进确定层级，其余种类的图使用去掉首尾空白的行。
+    let raw: Vec<&str> = source
         .lines()
         .map(strip_comment)
-        .map(str::trim)
-        .filter(|l| !l.is_empty());
+        .filter(|l| !l.trim().is_empty())
+        .collect();
     // 开头的 `---` 之间是 front matter，可设置图的标题，内容不参与后续解析。
-    let mut first = lines.next()?;
+    let mut at = 0;
     let mut title = None;
-    if first == "---" {
-        for line in lines.by_ref() {
+    if raw.first()?.trim() == "---" {
+        at = 1;
+        while let Some(line) = raw.get(at).map(|l| l.trim()) {
+            at += 1;
             if line == "---" {
                 break;
             }
@@ -270,11 +296,13 @@ pub fn parse(source: &str) -> Option<Diagram> {
                 title = Some(unquote(t.trim()).to_owned());
             }
         }
-        first = lines.next()?;
     }
-    let rest: Vec<&str> = lines.collect();
+    let first = raw.get(at)?.trim();
+    let raw = &raw[at + 1..];
+    let rest: Vec<&str> = raw.iter().map(|l| l.trim()).collect();
     let (kind, args) = first.split_once(char::is_whitespace).unwrap_or((first, ""));
     Some(match kind {
+        "gitGraph" | "gitGraph:" => Diagram::Git(git::parse(args, &rest)?),
         "graph" | "flowchart" | "flowchart-elk" => {
             Diagram::Flow(flowchart(direction(args.trim()), &rest)?)
         }
@@ -289,8 +317,15 @@ pub fn parse(source: &str) -> Option<Diagram> {
             pie.title = pie.title.or(title);
             Diagram::Pie(pie)
         }
-        "classDiagram" | "classDiagram-v2" | "erDiagram" | "gantt" | "journey" | "gitGraph"
-        | "mindmap" | "timeline" | "quadrantChart" | "requirementDiagram" | "C4Context"
+        "classDiagram" | "classDiagram-v2" => Diagram::Class(class::parse(&rest)?),
+        "erDiagram" => Diagram::Er(er::parse(&rest)?),
+        "mindmap" => Diagram::Mindmap(mindmap::parse(raw)?),
+        "gantt" => {
+            let mut gantt = gantt::parse(&rest)?;
+            gantt.title = gantt.title.or(title);
+            Diagram::Gantt(gantt)
+        }
+        "journey" | "timeline" | "quadrantChart" | "requirementDiagram" | "C4Context"
         | "sankey-beta" | "xychart-beta" | "block-beta" | "packet-beta" | "kanban"
         | "architecture-beta" | "radar-beta" => Diagram::Unsupported(kind.to_owned()),
         _ => return None,

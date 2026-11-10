@@ -256,6 +256,10 @@ impl App {
                 }
             }
             Drag::Scrollbar {
+                bar: Scrollbar::MarkdownTable,
+                grab,
+            } => self.drag_markdown_table_scrollbar(x, grab),
+            Drag::Scrollbar {
                 bar: Scrollbar::Editor,
                 grab,
             } => {

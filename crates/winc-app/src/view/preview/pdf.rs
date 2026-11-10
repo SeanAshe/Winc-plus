@@ -1,7 +1,8 @@
 //! PDF 预览的绘制：各页从上到下居中排列，按显示宽度渲染，位图与物理像素一一对应。
 //!
 //! 页面宽度适应编辑区，最宽不超过 [`MAX_PAGE_WIDTH`]；只请求视口内和视口上下各一屏范围内的页
-//! （见 `App::request_pdf_pages`），尚未渲染完成的页先显示白色底。右下角显示当前页号和总页数。
+//! （见 `App::request_pdf_pages`），尚未渲染完成的页先显示白色底，渲染失败的页在页面中央显示
+//! 原因。右下角显示当前页号和总页数。
 
 use winc_render::{FontKind, Frame, Rect};
 
@@ -86,10 +87,37 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
             .filter(|px| px.width == w && px.height == h)
         {
             frame.pixels((page.x, page.y), w, h, &pixels.rgba, area);
+        } else if let Some(reason) = app.pdf.failed.get(&(i, w)) {
+            draw_failure(app, frame, page.intersect(area), reason);
         }
     }
     app.request_pdf_pages(&wanted);
     draw_page_number(app, frame, area, current, pages.len());
+}
+
+/// 页面背景固定为白色，失败原因用固定的中灰色，在浅色和深色主题下都清晰可读。
+const FAILURE_TEXT: u32 = 0x6e6e73;
+
+/// 在渲染失败的页面 `page`（窗口坐标，已裁剪到预览区域）中央画失败的原因，过长时截短。
+fn draw_failure(app: &App, frame: &mut Frame<'_>, page: Rect, reason: &str) {
+    if page.w <= 0.0 || page.h <= 0.0 {
+        return;
+    }
+    let size = app.fonts.ui_small;
+    let room = (page.w - 32.0).max(0.0);
+    let text = crate::view::ellipsize(frame, reason, size, room);
+    let tw = frame.measure(FontKind::Ui, size, &text);
+    let row = Rect::new(page.x, page.y + page.h / 2.0 - 12.0, page.w, 24.0);
+    let baseline = crate::view::ui_baseline(app, row, size);
+    frame.text(
+        FontKind::Ui,
+        size,
+        (page.x + (page.w - tw) / 2.0).round(),
+        baseline,
+        &text,
+        winc_render::Color::hex(FAILURE_TEXT),
+        page,
+    );
 }
 
 /// 在右下角画「当前页 / 总页数」：当前页是视口中线所在的页。

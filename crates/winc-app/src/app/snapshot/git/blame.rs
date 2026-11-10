@@ -96,12 +96,93 @@ fn blame_annotates_lines_and_jumps_to_the_commit_in_the_log() {
     let view = app.editor.active().unwrap().log.as_deref().unwrap();
     let selected = view.selected.map(|i| view.commits[i].subject.clone());
     assert_eq!(selected.as_deref(), Some("服务器：对外网开放"));
+    // 日志显示完整的历史，不按该提交筛选。
+    assert!(view.query.text.is_empty() && app.log.filter.text().is_empty());
+    assert!(view.commits.len() > 1);
 
     // 回到文件再关闭追溯：行号栏恢复原来的宽度。
     app.open_path(&root.join("src/server.rs"));
     assert!(app.run_action(Action::GitBlame));
     paint(&mut app);
     assert_eq!(app.layout.gutter.w, width);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn blame_click_finds_a_commit_older_than_the_first_log_batch() {
+    use std::fmt::Write as _;
+    use std::io::Write as _;
+    use std::process::Stdio;
+    use winc_editor::git::log::BATCH;
+
+    let Some((mut app, root)) = git_app("git-blame-deep-log", false) else {
+        return;
+    };
+    blame_repo(&root);
+    let head = Command::new("git")
+        .arg("-C")
+        .arg(&root)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .unwrap();
+    assert!(head.status.success());
+    let head = std::str::from_utf8(&head.stdout).unwrap().trim();
+    // 一次写入整批空提交，使目标超出首批日志，同时保留原文件的逐行归属。
+    let mut history = String::new();
+    for i in 0..BATCH {
+        let time = 1_800_000_000 + i;
+        writeln!(
+            history,
+            "commit refs/heads/main\ncommitter Test <t@t> {time} +0000\ndata 7\nhistory"
+        )
+        .unwrap();
+        if i == 0 {
+            writeln!(history, "from {head}").unwrap();
+        }
+        history.push('\n');
+    }
+    let mut import = Command::new("git")
+        .arg("-C")
+        .arg(&root)
+        .args(["fast-import", "--quiet"])
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    import
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(history.as_bytes())
+        .unwrap();
+    assert!(import.wait().unwrap().success());
+
+    app.git_refresh();
+    let path = root.join("src/server.rs");
+    app.open_path(&path);
+    assert!(app.run_action(Action::GitBlame));
+    let target = app.blame_commit(0).unwrap();
+    assert_eq!(target.summary, "服务器：监听 8080 端口");
+
+    assert!(app.run_action(Action::GitShowLog));
+    let view = app.editor.active().unwrap().log.as_deref().unwrap();
+    assert_eq!(view.commits.len(), BATCH);
+    assert!(view.commits.iter().all(|c| c.oid != target.oid));
+
+    app.open_path(&path);
+    paint(&mut app);
+    let x = app.layout.gutter.x + 40.0;
+    let y = app.layout.text.y + app.fonts.line_height / 2.0;
+    assert_eq!(app.hover_at(x, y), Hover::Blame(0));
+    click(&mut app, (x, y));
+
+    // 逐批读取到该提交后选中；日志仍是完整的历史，不按该提交筛选。
+    let view = app.editor.active().unwrap().log.as_deref().unwrap();
+    assert_eq!(view.selected_oid(), Some(target.oid.as_str()));
+    assert!(view.query.text.is_empty() && app.log.filter.text().is_empty());
+    assert!(view.commits.len() > BATCH);
+    let details = view.details.as_ref().unwrap();
+    assert_eq!(details.oid, target.oid);
+    assert!(details.files.is_some());
     let _ = std::fs::remove_dir_all(&root);
 }
 

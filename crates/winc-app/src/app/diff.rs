@@ -27,7 +27,7 @@ use winit::keyboard::{Key, NamedKey};
 
 use super::git::changes::replace_lines;
 use super::lifecycle::notice::FLASH_DURATION;
-use super::{App, Focus, UserEvent};
+use super::{App, Focus, UserEvent, sticky_limit};
 use crate::keymap::Action;
 
 /// 差异标签顶部标题栏的高度（逻辑像素）；标题栏包含两侧的标题，右端为统计和按钮。
@@ -164,6 +164,8 @@ pub enum DiffTarget {
     Collapse,
     /// 折叠的一段，参数为未改动段的序号。
     Fold(usize),
+    /// 固定在顶部的块头：（侧，行号）。点击后光标放到该行，该行滚到其外层的固定行之下。
+    Sticky(usize, usize),
     /// 用左侧替换右侧的一段改动（参数为改动序号），即把该处恢复为 `HEAD` 中的内容。
     Revert(usize),
     /// 切换提交时是否包含一段改动（参数为改动序号）。
@@ -293,11 +295,105 @@ impl App {
                 }
                 self.clamp_scroll();
             }
+            DiffTarget::Sticky(side, line) => self.click_diff_sticky(side, line),
             DiffTarget::Revert(hunk) => self.revert_diff_hunk(hunk),
             DiffTarget::Include(hunk) => self.toggle_diff_hunk(hunk),
             DiffTarget::IncludeLine(side, line) => self.toggle_diff_line(side, line),
         }
         self.request_redraw();
+    }
+
+    /// 处理固定行上的点击：光标放到该行上点击处的列，并滚动使该行位于固定行之下（行为同
+    /// 编辑区的固定行）。
+    ///
+    /// 右侧是工作区文件时光标放在右侧文档中，否则在该侧选中这一位置（只读）。
+    fn click_diff_sticky(&mut self, side: usize, line: usize) {
+        let max = self.max_scroll_line();
+        let x = self.mouse.0;
+        let Some(index) = self.editor.active else {
+            return;
+        };
+        let depth = self.diff_sticky_depth(index, side, line);
+        let Some(view) = self.editor.documents[index].diff.as_deref() else {
+            return;
+        };
+        let row = view.row_of(side, line);
+        let cell = self.diff_cell_at(view, side, row, x);
+        let source = view
+            .new
+            .path
+            .clone()
+            .filter(|_| side == RIGHT)
+            .and_then(|path| self.diff_source(&path, true));
+        if let Some(source) = source {
+            let tab_width = self.editor.active_tab_width();
+            let doc = &mut self.editor.documents[source];
+            let col = doc.cell_to_col(line, cell, tab_width);
+            let pos = doc.text().line_col_to_pos(line, col);
+            doc.collapse_selections();
+            doc.selection = Selection::point(pos);
+            doc.goal_cell = None;
+        }
+        let read = source
+            .is_none()
+            .then(|| self.diff_read_pos(side, line, cell))
+            .flatten();
+        let doc = &mut self.editor.documents[index];
+        let Some(view) = doc.diff.as_deref_mut() else {
+            return;
+        };
+        view.editing = source.is_some();
+        view.read_selection = read.map(|pos| ReadSelection {
+            side,
+            range: (pos, pos),
+        });
+        let parts = diff_parts(self.layout.editor, view, self.cell);
+        let visible = f64::from(parts.body.h / self.fonts.line_height);
+        let row = row as f64;
+        let top = if view.is_unified() {
+            view.pos_of(side, row) - depth
+        } else {
+            view.pos_of_top(side, (row - depth).max(0.0), visible)
+        };
+        let before = doc.scroll_line;
+        doc.scroll_line = top.clamp(0.0, max.max(0.0));
+        self.focus = Focus::Editor;
+        self.glide_scroll(before);
+        self.reset_blink();
+    }
+
+    /// 返回第 `side` 侧第 `line` 行显示在固定行下方时，顶部固定区域的高度（显示行）。
+    ///
+    /// 光标或查找到的匹配移到该行时，滚动需要再让出这些行；折叠了未改动内容或关闭了粘滞
+    /// 滚动时为 0。高度按目标行计算，不依赖当前画面。并排时固定区域横贯两侧，高度取较深的
+    /// 一侧：另一侧取与该行显示在同一高度的行。
+    fn diff_sticky_depth(&mut self, index: usize, side: usize, line: usize) -> f64 {
+        if self.config.sticky_scroll == Some(false) {
+            return 0.0;
+        }
+        let tab_width = self.editor.tab_width;
+        let lh = self.fonts.line_height;
+        let editor = self.layout.editor;
+        let cell = self.cell;
+        let Some(view) = self.editor.documents[index].diff.as_deref_mut() else {
+            return 0.0;
+        };
+        if view.collapses() {
+            return 0.0;
+        }
+        let body = diff_parts(editor, view, cell).body.h / lh;
+        let max = sticky_limit(body as usize);
+        let own = view.side_mut(side).scope_depth(line, tab_width).min(max);
+        if view.is_unified() {
+            return own as f64;
+        }
+        let other = if side == LEFT { RIGHT } else { LEFT };
+        let visible = f64::from(body);
+        let row = view.row_of(side, line) as f64 - own as f64;
+        let top = view.side_scroll(other, view.pos_of_top(side, row.max(0.0), visible), visible);
+        let beside = view.line_at(other, (top + own as f64).floor() as usize);
+        let deeper = beside.map_or(0, |l| view.side_mut(other).scope_depth(l, tab_width));
+        own.max(deeper.min(max)) as f64
     }
 
     /// 返回差异标签在提交视图中对应的条目；不在提交视图中（没有改动、模块关闭）时为 `None`。
@@ -681,20 +777,39 @@ impl App {
                 (col, doc.col_to_cell(line, col, tab_width))
             })
             .unwrap_or((0, 0));
-        let width = {
+        let sticky = self.diff_sticky_depth(index, RIGHT, line);
+        let (width, pane_height) = {
             let Some(view) = self.editor.documents[index].diff.as_deref() else {
                 return;
             };
-            diff_parts(self.layout.editor, view, cell).panes[1].text.w - DIFF_TEXT_PAD
+            let parts = diff_parts(self.layout.editor, view, cell);
+            (
+                parts.panes[RIGHT].text.w - DIFF_TEXT_PAD,
+                f64::from(parts.body.h / self.fonts.line_height),
+            )
         };
         let doc = &mut self.editor.documents[index];
         let Some(view) = doc.diff.as_deref_mut() else {
             return;
         };
         view.reveal_line(RIGHT, line);
-        // 按滚动位置比较：左侧较长的改动中右侧不前进，按右侧的行数比较会产生偏差。
-        let at = view.pos_of(RIGHT, view.row_of_col(RIGHT, line, caret_col) as f64);
-        if at < doc.scroll_line {
+        // 按滚动位置比较：左侧较长的改动中右侧不前进，按右侧的行数比较会产生偏差。光标所在行
+        // 的外层块固定在顶部时，光标需要位于这些固定行之下。
+        let row = view.row_of_col(RIGHT, line, caret_col) as f64;
+        let at = view.pos_of(RIGHT, row);
+        let covered = sticky > 0.0
+            && if view.is_unified() {
+                at < doc.scroll_line + sticky
+            } else {
+                row < view.side_scroll(RIGHT, doc.scroll_line, pane_height) + sticky
+            };
+        if covered {
+            doc.scroll_line = if view.is_unified() {
+                (at - sticky).max(0.0)
+            } else {
+                view.pos_of_top(RIGHT, (row - sticky).max(0.0), pane_height)
+            };
+        } else if at < doc.scroll_line {
             doc.scroll_line = at;
         } else if at >= doc.scroll_line + visible as f64 {
             doc.scroll_line = at - visible as f64 + 1.0;

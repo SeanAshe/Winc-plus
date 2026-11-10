@@ -15,6 +15,9 @@ use crate::shell::process::{self, Cancel};
 const HOSTS: [&str; 2] = ["wsl.localhost", "wsl$"];
 
 /// 通过 `WSLENV` 传给发行版内 `git` 的环境变量：`wsl.exe` 默认不向发行版传递环境变量。
+///
+/// 只有命令上设置了的才实际传递（见 [`drop_unset`]）：临时暂存区 `GIT_INDEX_FILE` 只在部分
+/// 提交时设置。
 pub(crate) const GIT_ENV: &str = "GIT_OPTIONAL_LOCKS:GIT_TERMINAL_PROMPT:GIT_EDITOR:GIT_SEQUENCE_EDITOR:GIT_INDEX_FILE:NO_COLOR:LC_ALL:\
 LANGUAGE";
 
@@ -202,6 +205,35 @@ pub fn git_arg(root: &Path, path: &Path) -> String {
     match locate_here(root).and(locate_here(path)) {
         Some(place) => place.path,
         None => path.to_string_lossy().into_owned(),
+    }
+}
+
+/// 从 `command` 的 `WSLENV` 中去掉命令上没有设置的变量，使发行版只收到有值的变量。
+///
+/// `wsl.exe` 把列出而未设置的变量在发行版内设为空字符串，与未设置的含义不同：`GIT_INDEX_FILE`
+/// 为空时 `git` 读取空的暂存区，干净的仓库显示为跟踪的文件全部删除。各处按用途列出可能传递的
+/// 变量（[`GIT_ENV`] 等），启动程序时去掉本次没有设置的；只从发行版传回的项（`/w`）保留。命令
+/// 的环境由 `Shell::command` 整体给出（先清空再逐项设置），因此只看命令上显式设置的值。
+pub(crate) fn drop_unset(command: &mut Command) {
+    let Some(list) = command
+        .get_envs()
+        .find(|(name, _)| *name == "WSLENV")
+        .and_then(|(_, value)| value)
+        .map(|value| value.to_string_lossy().into_owned())
+    else {
+        return;
+    };
+    let set = |name: &str| command.get_envs().any(|(k, v)| k == name && v.is_some());
+    let kept: Vec<&str> = list
+        .split(':')
+        .filter(|entry| {
+            let (name, flags) = entry.split_once('/').unwrap_or((entry, ""));
+            !name.is_empty() && (flags.contains('w') || set(name))
+        })
+        .collect();
+    let kept = kept.join(":");
+    if kept != list {
+        command.env("WSLENV", kept);
     }
 }
 

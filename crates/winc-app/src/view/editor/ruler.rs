@@ -175,10 +175,6 @@ const OCCURRENCE_MAX: usize = 200;
 /// 一帧的预算）。超过上限时只在屏幕上标注，不在滚动条上标注。
 const RULER_SCAN_MAX: usize = 512 << 10;
 
-fn is_word_char(c: char) -> bool {
-    c.is_alphanumeric() || c == '_'
-}
-
 impl Occurrences {
     /// 按当前选区或光标位置确定要标注的内容；无需标注时返回 `None`。
     pub(super) fn of(doc: &winc_editor::Document) -> Option<Occurrences> {
@@ -240,27 +236,7 @@ impl Occurrences {
         &'a self,
         chars: &'a [char],
     ) -> impl Iterator<Item = (usize, usize)> + 'a {
-        let n = self.needle.len();
-        let mut at = 0;
-        std::iter::from_fn(move || {
-            while at + n <= chars.len() {
-                let start = at;
-                at += 1;
-                if chars[start..start + n] != self.needle[..] {
-                    continue;
-                }
-                if self.whole_word {
-                    let before = start.checked_sub(1).map(|i| chars[i]);
-                    let after = chars.get(start + n).copied();
-                    if before.is_some_and(is_word_char) || after.is_some_and(is_word_char) {
-                        continue;
-                    }
-                }
-                at = start + n;
-                return Some((start, start + n));
-            }
-            None
-        })
+        line_occurrences(chars, &self.needle, self.whole_word)
     }
 
     /// 返回 `segments` 所指的屏幕行范围内的出现次数；计数到 2 即停止，因此结果最大为 2。

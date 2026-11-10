@@ -19,6 +19,19 @@ use super::{Block, Inline, Run, SourceMap, Style, options, parse};
 pub fn reveal(text: &str, caret: Option<usize>, insert: Option<&str>) -> Block {
     let lines = Lines::strip(text);
     let plain = &lines.plain;
+    // 去掉引用标记后没有内容（只输入了 `>`）：逐字显示原文，光标仍有位置可落。
+    if plain.trim().is_empty() && !text.trim().is_empty() {
+        let mut out = Out::default();
+        for (i, c) in text.trim_end_matches(['\n', '\r']).char_indices() {
+            out.push(c, Style::default(), Some(i));
+        }
+        return Block::Paragraph(Inline {
+            text: out.text,
+            runs: out.runs,
+            map: out.map,
+            ..Inline::default()
+        });
+    }
     let parsed = parse(plain);
     let (heading, inline) = match parsed.blocks.as_slice() {
         [Block::Paragraph(inline)] => (None, inline),

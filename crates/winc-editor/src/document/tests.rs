@@ -842,12 +842,12 @@ fn sticky_scopes_keep_their_memo_across_edits_far_below() {
     d.set_language("a.py");
     let rows: Vec<usize> = (200..210).collect();
     let (before, settled) = d.sticky_scopes(&rows, false, 5, 4);
-    assert!(settled && !d.sticky_memo.1.is_empty());
+    assert!(settled && !d.sticky_memo.is_empty());
     // 在远离测量范围的下方输入：已记录的结果保留，计算结果与新打开的文档相同。
     let at = d.text().line_start(380);
     d.set_selections(vec![Selection::point(at)], 0);
     d.execute(Command::Insert("        y = 1\n".into()), 10, 4);
-    assert!(!d.sticky_memo.1.is_empty());
+    assert!(!d.sticky_memo.is_empty());
     let mut fresh = Document::from_text(DocumentId(2), &d.text().rope().unwrap().to_string());
     fresh.set_language("a.py");
     assert_eq!(
@@ -860,7 +860,7 @@ fn sticky_scopes_keep_their_memo_across_edits_far_below() {
     let at = d.text().line_start(1);
     d.set_selections(vec![Selection::point(at)], 0);
     d.execute(Command::Insert("    pass\n".into()), 10, 4);
-    assert!(d.sticky_memo.1.is_empty());
+    assert!(d.sticky_memo.is_empty());
 }
 
 #[test]

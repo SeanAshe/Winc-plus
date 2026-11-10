@@ -399,7 +399,14 @@ impl App {
         } else if l.terminal.contains(x, y) {
             self.terminal_wheel(dy);
         } else if self.markdown.area.contains(x, y) {
-            self.scroll_markdown(dy);
+            // 横向滚动（按住 `Shift` 时的竖直滚轮）落在比正文宽的表格上时滚动该表格，其余按
+            // 竖直方向滚动预览。
+            let across = if shift_wheel { dy } else { dx };
+            let table =
+                across != 0.0 && crate::view::preview::markdown::scroll_table(self, x, y, across);
+            if !table {
+                self.scroll_markdown(dy);
+            }
         } else if self.pdf.area.contains(x, y) {
             self.scroll_pdf(dy);
         } else if self.table_at(x, y) {

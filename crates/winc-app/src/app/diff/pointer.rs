@@ -88,7 +88,6 @@ impl App {
         let view = doc.diff.as_deref()?;
         let path = view.new.path.clone()?;
         let parts = diff_parts(self.layout.editor, view, self.cell);
-        let pane = parts.panes[RIGHT];
         if y < parts.body.y {
             return None;
         }
@@ -96,15 +95,12 @@ impl App {
         let below = f64::from((y - parts.body.y) / lh);
         let visible = f64::from(parts.body.h / lh);
         let row = view.row_under(RIGHT, doc.scroll_line.max(0.0), visible, below);
-        let cell = ((x - pane.text.x - DIFF_TEXT_PAD + doc.scroll_x) / self.cell)
-            .round()
-            .max(0.0) as usize;
         let (line, past_end) = match view.rows[RIGHT].get(row) {
             Some(SideRow::Line { line, .. }) => (*line, false),
             Some(SideRow::Fold { .. }) => return None,
             None => (usize::MAX, true),
         };
-        let cell = view.cell_in_row(RIGHT, row, cell);
+        let cell = self.diff_cell_at(view, RIGHT, row, x);
         let source = self.diff_source(&path, open)?;
         let lines = self.editor.documents[source].text().line_count();
         Some(DiffSpot {
@@ -337,17 +333,30 @@ impl App {
         let below = f64::from((y - parts.body.y) / lh);
         let visible = f64::from(parts.body.h / lh);
         let row = view.row_under(side, doc.scroll_line.max(0.0), visible, below);
-        let text = &view.side(side).text;
         let line = match view.rows[side].get(row) {
             Some(SideRow::Line { line, .. }) => *line,
             Some(SideRow::Fold { .. }) => return None,
-            None => return Some(text.len_chars()),
+            None => return Some(view.side(side).text.len_chars()),
         };
-        let pane = parts.panes[side];
-        let cell = ((x - pane.text.x - DIFF_TEXT_PAD + doc.scroll_x) / self.cell)
+        let cell = self.diff_cell_at(view, side, row, x);
+        self.diff_read_pos(side, line, cell)
+    }
+
+    /// 返回窗口横坐标 `x` 在第 `side` 侧显示行 `row` 中对应的显示列（自动换行时从该行的
+    /// 开头算起）。
+    pub(super) fn diff_cell_at(&self, view: &DiffView, side: usize, row: usize, x: f32) -> usize {
+        let scroll_x = self.editor.active().map_or(0.0, |doc| doc.scroll_x);
+        let pane = diff_parts(self.layout.editor, view, self.cell).panes[side];
+        let cell = ((x - pane.text.x - DIFF_TEXT_PAD + scroll_x) / self.cell)
             .round()
             .max(0.0) as usize;
-        let cell = view.cell_in_row(side, row, cell);
+        view.cell_in_row(side, row, cell)
+    }
+
+    /// 返回第 `side` 侧第 `line` 行显示列 `cell` 处的位置（字符偏移），不超过该行的末尾。
+    pub(super) fn diff_read_pos(&self, side: usize, line: usize, cell: usize) -> Option<usize> {
+        let view = self.editor.active()?.diff.as_deref()?;
+        let text = &view.side(side).text;
         let slice = text.line(line);
         let content = slice.len_chars()
             - slice

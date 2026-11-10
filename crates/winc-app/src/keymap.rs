@@ -333,13 +333,15 @@ pub enum Context {
     Keys,
     /// 终端面板。除了带 ⌘ 的快捷键，按键都交给终端里的程序。
     Terminal,
+    /// 可编辑的 Markdown 预览。编辑区的绑定在这里同样生效，另有行内格式的绑定。
+    Markdown,
 }
 
 impl Context {
     /// 该区域在 [`When`] 的生效范围掩码中占用的位。
     ///
     /// 各区域占用的位互不重叠，按位与可判断覆盖关系。
-    const fn bit(self) -> u8 {
+    const fn bit(self) -> u16 {
         match self {
             Context::Editor => 1,
             Context::Find => 2,
@@ -349,6 +351,7 @@ impl Context {
             Context::Replace => 32,
             Context::Keys => 64,
             Context::Terminal => 128,
+            Context::Markdown => 256,
         }
     }
 }
@@ -360,6 +363,8 @@ pub enum When {
     Global,
     /// 编辑区。
     Editor,
+    /// 可编辑的 Markdown 预览：范围小于 [`When::Editor`]，同一个键优先执行这里的绑定。
+    Markdown,
     /// 编辑区和查找条（含替换输入）。
     EditorOrFind,
     /// 查找条的替换输入里。
@@ -383,20 +388,23 @@ pub enum When {
 }
 
 impl When {
-    fn mask(self) -> u8 {
-        const EDITOR: u8 = Context::Editor.bit();
-        const FIND: u8 = Context::Find.bit();
-        const PANEL: u8 = Context::Panel.bit();
-        const TREE: u8 = Context::Tree.bit();
-        const OTHER: u8 = Context::Other.bit();
-        const REPLACE: u8 = Context::Replace.bit();
-        const KEYS: u8 = Context::Keys.bit();
-        const TERMINAL: u8 = Context::Terminal.bit();
+    fn mask(self) -> u16 {
+        const MARKDOWN: u16 = Context::Markdown.bit();
+        // 可编辑的 Markdown 预览属于编辑区：覆盖编辑区的范围都覆盖该预览。
+        const EDITOR: u16 = Context::Editor.bit() | MARKDOWN;
+        const FIND: u16 = Context::Find.bit();
+        const PANEL: u16 = Context::Panel.bit();
+        const TREE: u16 = Context::Tree.bit();
+        const OTHER: u16 = Context::Other.bit();
+        const REPLACE: u16 = Context::Replace.bit();
+        const KEYS: u16 = Context::Keys.bit();
+        const TERMINAL: u16 = Context::Terminal.bit();
         match self {
             // 终端里只认带 ⌘ 的全局快捷键，其余按键交给终端里的程序；
             // 判断条件在 `lookup` 中。
             When::Global => EDITOR | FIND | REPLACE | PANEL | TREE | OTHER | TERMINAL,
             When::Editor => EDITOR,
+            When::Markdown => MARKDOWN,
             When::EditorOrFind => EDITOR | FIND | REPLACE,
             When::ReplaceInput => REPLACE,
             When::Panel => PANEL,
@@ -420,6 +428,7 @@ impl When {
         match self {
             When::Global => None,
             When::Editor => Some(t!("cmd-when-editor")),
+            When::Markdown => Some(t!("cmd-when-markdown")),
             When::EditorOrFind => Some(t!("cmd-when-editor-or-find")),
             When::ReplaceInput => Some(t!("cmd-when-replace-input")),
             When::Panel => Some(t!("cmd-when-panel")),

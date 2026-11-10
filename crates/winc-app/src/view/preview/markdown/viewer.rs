@@ -233,6 +233,10 @@ fn draw_items(frame: &mut Frame<'_>, items: &[Item], (left, top): (f32, f32), cl
                 let r = Rect::new(left + rect.x, top + rect.y, rect.w, rect.h);
                 frame.rect_clipped(r, *color, *radius, clip);
             }
+            Item::Corners { rect, color, radii } => {
+                let r = Rect::new(left + rect.x, top + rect.y, rect.w, rect.h);
+                frame.rect_corners(r, *color, *radii, clip);
+            }
             Item::Path {
                 strokes,
                 width,

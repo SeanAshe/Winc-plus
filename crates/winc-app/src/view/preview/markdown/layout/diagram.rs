@@ -13,11 +13,15 @@ use super::memo::Piece;
 use super::{Cx, Env, Flow as Laid, Item, Para};
 use crate::icons::rounded_outline;
 
+mod class;
+mod gantt;
+mod git;
+mod mindmap;
 mod pie;
 mod rank;
 mod sequence;
 
-use rank::layout;
+use rank::{Plan, Route, layout};
 
 /// 流程图宽于可用宽度时，节点与连线文字的折行宽度相对原宽度的比例。
 ///
@@ -46,6 +50,18 @@ const ROUND_RADIUS: f32 = 10.0;
 const GROUP_RADIUS: f32 = 8.0;
 /// 时序图注释框的基准色（琥珀色），与预览背景色混合后得到注释框的填充色和边框色。
 const NOTE_TINT: Color = Color::hex(0xe8b339);
+
+/// 饼图各块、思维导图各分支、Git 提交图各分支的颜色（`0xRRGGBB`），按顺序轮流使用，共 10 种，
+/// 更多时从头重复。色值取自 mermaid 默认主题。
+const PALETTE: [u32; 10] = [
+    0x4e79a7, 0xf28e2b, 0xe15759, 0x76b7b2, 0x59a14f, 0xedc948, 0xb07aa1, 0xff9da7, 0x9c755f,
+    0xbab0ac,
+];
+
+/// 第 `k` 种轮流使用的颜色，见 [`PALETTE`]。
+fn palette(k: usize) -> Color {
+    Color::hex(PALETTE[k % PALETTE.len()])
+}
 
 /// 图的配色。
 ///
@@ -77,6 +93,10 @@ pub(super) struct Look {
     note_fill: Color,
     /// 时序图注释框的边框色。
     note_border: Color,
+    /// 类图、实体关系图方框标题栏的填充色，比节点的填充色略深。
+    head: Color,
+    /// 是否为深色主题：图中按色相区分的颜色（分支、任务状态）与背景混合时据此调整比例。
+    dark: bool,
 }
 
 impl Look {
@@ -98,6 +118,19 @@ impl Look {
             title: accent,
             note_fill: mix(page, NOTE_TINT, if dark { 0.16 } else { 0.2 }),
             note_border: mix(page, NOTE_TINT, 0.55),
+            head: ink(if dark { 0.13 } else { 0.09 }),
+            dark,
+        }
+    }
+}
+
+impl Look {
+    /// 连线文字的底色：文字在子图内时为子图的填充色，否则为预览的背景色。
+    fn behind(&self, route: &Route) -> Color {
+        if route.group.is_some() {
+            self.group_fill
+        } else {
+            self.label_bg
         }
     }
 }
@@ -159,7 +192,12 @@ impl Cx<'_, '_> {
             if w <= width {
                 break;
             }
-            if wrap > NARROW_WRAP && matches!(diagram, Diagram::Flow(_)) {
+            if wrap > NARROW_WRAP
+                && matches!(
+                    diagram,
+                    Diagram::Flow(_) | Diagram::Class(_) | Diagram::Er(_)
+                )
+            {
                 wrap = NARROW_WRAP;
                 continue;
             }
@@ -220,6 +258,11 @@ impl Cx<'_, '_> {
             Diagram::Flow(flow) => self.flowchart(flow, size, wrap, look, items),
             Diagram::Sequence(seq) => self.sequence(seq, size, look, items),
             Diagram::Pie(pie) => self.pie(pie, size, look, items),
+            Diagram::Class(class) => self.class(class, size, wrap, look, items),
+            Diagram::Er(er) => self.er(er, size, wrap, look, items),
+            Diagram::Mindmap(map) => self.mindmap(map, size, look, items),
+            Diagram::Git(git) => self.git(git, size, look, items),
+            Diagram::Gantt(gantt) => self.gantt(gantt, size, look, items),
             Diagram::Unsupported(_) => (0.0, 0.0),
         };
         let bounds = items
@@ -246,9 +289,14 @@ impl Cx<'_, '_> {
 
     /// 单独排一段图里的文字（`\n` 分行），字号 `size`，最宽 `max`，各行居中。
     fn label(&mut self, text: &str, size: f32, color: Color, max: f32) -> Label {
+        self.styled_label(text, size, color, max, false)
+    }
+
+    /// 同 [`Cx::label`]，`bold` 为真时使用粗体。
+    fn styled_label(&mut self, text: &str, size: f32, color: Color, max: f32, bold: bool) -> Label {
         let para = Para {
             size,
-            bold: false,
+            bold,
             color,
             line: 1.35,
             align: Align::Center,
@@ -282,6 +330,131 @@ impl Cx<'_, '_> {
     /// 把排好的文字放在中心 `(cx, cy)`。
     fn put_label(&mut self, label: &Label, cx: f32, cy: f32, out: &mut Vec<Item>) {
         self.paste(&label.piece, cx - label.w / 2.0, cy - label.h / 2.0, 0, out);
+    }
+
+    /// 在 `(cx, cy)` 写连线上的文字 `label`，文字下面垫一块不透明的底色 `bg`：遮住从文字下方
+    /// 穿过的连线，底色左右各比文字宽出一段，连线在文字两侧断开。
+    fn edge_label(
+        &mut self,
+        label: &Label,
+        (cx, cy): (f32, f32),
+        s: f32,
+        bg: Color,
+        out: &mut Vec<Item>,
+    ) {
+        let (px, py) = (s * 0.3, s * 0.1);
+        out.push(Item::Fill {
+            rect: Rect::new(
+                cx - label.w / 2.0 - px,
+                cy - label.h / 2.0 - py,
+                label.w + px * 2.0,
+                label.h + py * 2.0,
+            ),
+            color: bg,
+            radius: 2.0,
+        });
+        self.put_label(label, cx, cy, out);
+    }
+
+    /// 在子图框的左上角写标题 `titles`；`boxes`、`order` 同 [`group_frames`] 的返回值。
+    fn group_titles(
+        &mut self,
+        boxes: &[Option<Rect>],
+        order: &[usize],
+        titles: &[Label],
+        s: f32,
+        look: Look,
+        out: &mut Vec<Item>,
+    ) {
+        for &g in order {
+            let (Some(rect), title) = (boxes[g], &titles[g]) else {
+                continue;
+            };
+            if title.w > 0.0 {
+                // 标题放在框的左上角：连线多从框边的中部进出，放在角上可避免与箭头重叠；
+                // 框的宽度不足以容纳标题和两侧边距时居中。
+                let inset = s * 0.6;
+                let cx = if title.w + inset * 2.0 <= rect.w {
+                    rect.x + inset + title.w / 2.0
+                } else {
+                    rect.x + rect.w / 2.0
+                };
+                let cy = rect.y + s * 0.2 + title.h / 2.0;
+                out.push(Item::Fill {
+                    rect: Rect::new(
+                        cx - title.w / 2.0 - s * 0.2,
+                        cy - title.h / 2.0,
+                        title.w + s * 0.4,
+                        title.h,
+                    ),
+                    color: look.group_fill,
+                    radius: 2.0,
+                });
+                self.put_label(title, cx, cy, out);
+            }
+        }
+    }
+
+    /// 类图、实体关系图共用的排布：按分层布局排开宽高为 `sizes` 的方框，画出分组的框、连线和
+    /// 连线文字，返回各方框的位置和图的宽高（逻辑像素）。
+    ///
+    /// `flow` 只用到连线的起止、文字和分组，节点的形状均按矩形处理；连线本身由 `draw` 画，参数
+    /// 为连线的序号和平滑后经过的点。方框由调用方在之后画出，盖住连线的端点。
+    #[allow(clippy::too_many_arguments)]
+    fn boxed(
+        &mut self,
+        flow: &Flow,
+        sizes: &[(f32, f32)],
+        s: f32,
+        wrap: f32,
+        look: Look,
+        out: &mut Vec<Item>,
+        mut draw: impl FnMut(&mut Self, usize, &[(f32, f32)], &mut Vec<Item>),
+    ) -> (Vec<Rect>, f32, f32) {
+        let edge_labels: Vec<Label> = flow
+            .edges
+            .iter()
+            .map(|e| self.label(&e.label, s * 0.85, look.soft_text, s * 10.0 * wrap.max(0.8)))
+            .collect();
+        let titles: Vec<Label> = flow
+            .groups
+            .iter()
+            .map(|g| self.label(&g.title, s * 0.85, look.title, s * 16.0))
+            .collect();
+        let heights: Vec<f32> = titles.iter().map(|t| t.h).collect();
+        let plan = layout(flow, sizes, &edge_labels, &heights, s, flow.dir);
+        let rects: Vec<Rect> = plan
+            .centers
+            .iter()
+            .zip(sizes)
+            .map(|(&c, &(w, h))| {
+                let (cx, cy) = plan.place(c, flow.dir);
+                Rect::new(cx - w / 2.0, cy - h / 2.0, w, h)
+            })
+            .collect();
+        let (boxes, outer_first) = group_frames(&plan, flow.dir, look, out);
+        for (k, edge) in flow.edges.iter().enumerate() {
+            let Some(route) = plan.routes[k].as_ref() else {
+                continue;
+            };
+            let ends = [edge.from, edge.to].map(|i| (Shape::Rect, rects[i]));
+            let (points, label_at) = curve(&plan, route, flow.dir, ends, edge.from == edge.to, s);
+            if points.len() < 2 {
+                continue;
+            }
+            draw(self, k, &points, out);
+            if !edge.label.is_empty() {
+                let at = label_at.unwrap_or(points[points.len() / 2]);
+                self.edge_label(&edge_labels[k], at, s, look.behind(route), out);
+            }
+        }
+        self.group_titles(&boxes, &outer_first, &titles, s, look, out);
+        let (w, h) = if matches!(flow.dir, Dir::Down | Dir::Up) {
+            (plan.cross, plan.along)
+        } else {
+            (plan.along, plan.cross)
+        };
+        (rects, w, h)
     }
 
     /// 排版流程图，返回宽高（逻辑像素）；`wrap` 为文字折行宽度相对默认宽度的比例（见
@@ -331,117 +504,20 @@ impl Cx<'_, '_> {
         };
 
         // 子图的框，外面的先画；标题等连线画完再写，不被线压住。
-        let boxes: Vec<Option<Rect>> = plan
-            .boxes
-            .iter()
-            .map(|b| {
-                (b[0] <= b[2]).then(|| {
-                    let (x0, y0) = place((b[0], b[1]));
-                    let (x1, y1) = place((b[2], b[3]));
-                    Rect::new(x0.min(x1), y0.min(y1), (x1 - x0).abs(), (y1 - y0).abs())
-                })
-            })
-            .collect();
-        let mut outer_first: Vec<usize> = (0..boxes.len()).collect();
-        outer_first.sort_by(|&a, &b| {
-            let area = |g: usize| boxes[g].map_or(0.0, |r| r.w * r.h);
-            area(b).total_cmp(&area(a))
-        });
-        for &g in &outer_first {
-            let Some(rect) = boxes[g] else { continue };
-            out.push(Item::Fill {
-                rect,
-                color: look.group_fill,
-                radius: GROUP_RADIUS,
-            });
-            out.push(Item::path(
-                outline(rect, GROUP_RADIUS),
-                1.0,
-                look.group_border,
-            ));
-        }
-
-        // 连线。
+        let (boxes, outer_first) = group_frames(&plan, f.dir, look, out);
         for (k, edge) in f.edges.iter().enumerate() {
             let Some(route) = plan.routes[k].as_ref() else {
                 continue;
             };
-            let mut points: Vec<(f32, f32)> = route.points.iter().map(|&p| place(p)).collect();
-            if edge.from == edge.to {
-                points = self_loop(rect_of(edge.from), s);
-            } else if points.len() >= 2 {
-                let n = points.len();
-                points[0] = clip(f.nodes[edge.from].shape, rect_of(edge.from), points[1]);
-                points[n - 1] = clip(f.nodes[edge.to].shape, rect_of(edge.to), points[n - 2]);
-            }
-            // 布局为连线文字预留了位置，曲线必须经过该点：在该点分成两段分别平滑，
-            // 两段的接缝被文字的底色遮住。
-            let label_at = route.label.map(place);
-            let split = label_at.and_then(|p| {
-                let near = |q: &(f32, f32)| (q.0 - p.0).abs() < 0.01 && (q.1 - p.1).abs() < 0.01;
-                (1..points.len().saturating_sub(1)).find(|&i| near(&points[i]))
-            });
-            let points = match split {
-                Some(i) => {
-                    let mut curve = smooth(&points[..=i]);
-                    curve.extend(smooth(&points[i..]).into_iter().skip(1));
-                    curve
-                }
-                None => smooth(&points),
-            };
+            let ends = [edge.from, edge.to].map(|i| (f.nodes[i].shape, rect_of(i)));
+            let (points, label_at) = curve(&plan, route, f.dir, ends, edge.from == edge.to, s);
             self.edge(edge, &points, s, look, out);
             if !edge.label.is_empty() {
-                let label = &edge_labels[k];
-                let (cx, cy) = label_at.unwrap_or(points[points.len() / 2]);
-                // 文字底色不透明，遮住从文字下方穿过的连线；底色左右各比文字宽出一段，
-                // 连线在文字两侧断开。
-                let (px, py) = (s * 0.3, s * 0.1);
-                let bg = if route.group.is_some() {
-                    look.group_fill
-                } else {
-                    look.label_bg
-                };
-                out.push(Item::Fill {
-                    rect: Rect::new(
-                        cx - label.w / 2.0 - px,
-                        cy - label.h / 2.0 - py,
-                        label.w + px * 2.0,
-                        label.h + py * 2.0,
-                    ),
-                    color: bg,
-                    radius: 2.0,
-                });
-                self.put_label(label, cx, cy, out);
+                let at = label_at.unwrap_or(points[points.len() / 2]);
+                self.edge_label(&edge_labels[k], at, s, look.behind(route), out);
             }
         }
-
-        for &g in &outer_first {
-            let (Some(rect), title) = (boxes[g], &titles[g]) else {
-                continue;
-            };
-            if title.w > 0.0 {
-                // 标题放在框的左上角：连线多从框边的中部进出，放在角上可避免与箭头重叠；
-                // 框的宽度不足以容纳标题和两侧边距时居中。
-                let inset = s * 0.6;
-                let cx = if title.w + inset * 2.0 <= rect.w {
-                    rect.x + inset + title.w / 2.0
-                } else {
-                    rect.x + rect.w / 2.0
-                };
-                let cy = rect.y + s * 0.2 + title.h / 2.0;
-                out.push(Item::Fill {
-                    rect: Rect::new(
-                        cx - title.w / 2.0 - s * 0.2,
-                        cy - title.h / 2.0,
-                        title.w + s * 0.4,
-                        title.h,
-                    ),
-                    color: look.group_fill,
-                    radius: 2.0,
-                });
-                self.put_label(title, cx, cy, out);
-            }
-        }
+        self.group_titles(&boxes, &outer_first, &titles, s, look, out);
 
         // 节点画在连线上面。
         for (i, node) in f.nodes.iter().enumerate() {
@@ -502,6 +578,89 @@ impl Cx<'_, '_> {
             out.push(Item::path(strokes, width, look.line));
         }
     }
+}
+
+/// 画分层布局中各子图的框（填色和边框），外面的先画。
+///
+/// 返回各框的位置（框内没有节点时为 `None`，与 [`Plan::boxes`] 一一对应）和由外到内的顺序。
+fn group_frames(
+    plan: &Plan,
+    dir: Dir,
+    look: Look,
+    out: &mut Vec<Item>,
+) -> (Vec<Option<Rect>>, Vec<usize>) {
+    let boxes: Vec<Option<Rect>> = plan
+        .boxes
+        .iter()
+        .map(|b| {
+            (b[0] <= b[2]).then(|| {
+                let (x0, y0) = plan.place((b[0], b[1]), dir);
+                let (x1, y1) = plan.place((b[2], b[3]), dir);
+                Rect::new(x0.min(x1), y0.min(y1), (x1 - x0).abs(), (y1 - y0).abs())
+            })
+        })
+        .collect();
+    let mut outer_first: Vec<usize> = (0..boxes.len()).collect();
+    outer_first.sort_by(|&a, &b| {
+        let area = |g: usize| boxes[g].map_or(0.0, |r| r.w * r.h);
+        area(b).total_cmp(&area(a))
+    });
+    for &g in &outer_first {
+        let Some(rect) = boxes[g] else { continue };
+        out.push(Item::Fill {
+            rect,
+            color: look.group_fill,
+            radius: GROUP_RADIUS,
+        });
+        out.push(Item::path(
+            outline(rect, GROUP_RADIUS),
+            1.0,
+            look.group_border,
+        ));
+    }
+    (boxes, outer_first)
+}
+
+/// 屏幕上的一点（逻辑像素）。
+type Point = (f32, f32);
+
+/// 把布局排好的一条连线换成屏幕上的平滑曲线，返回曲线经过的点和连线文字的中心（布局没有为
+/// 文字留位置时为 `None`）。
+///
+/// `ends` 是起点、终点节点的形状和位置，曲线两端裁到形状的边缘；`to_self` 为真时画成从节点
+/// 右侧绕出又绕回的环。
+fn curve(
+    plan: &Plan,
+    route: &Route,
+    dir: Dir,
+    ends: [(Shape, Rect); 2],
+    to_self: bool,
+    s: f32,
+) -> (Vec<Point>, Option<Point>) {
+    let mut points: Vec<(f32, f32)> = route.points.iter().map(|&p| plan.place(p, dir)).collect();
+    if to_self {
+        points = self_loop(ends[0].1, s);
+    } else if points.len() >= 2 {
+        let n = points.len();
+        points[0] = clip(ends[0].0, ends[0].1, points[1]);
+        points[n - 1] = clip(ends[1].0, ends[1].1, points[n - 2]);
+    }
+    // 布局为连线文字预留了位置，曲线必须经过该点：在该点分成两段分别平滑，两段的接缝被文字的
+    // 底色遮住。
+    let label_at = route.label.map(|p| plan.place(p, dir));
+    let split = label_at.and_then(|p| {
+        let near = |q: &(f32, f32)| (q.0 - p.0).abs() < 0.01 && (q.1 - p.1).abs() < 0.01;
+        (1..points.len().saturating_sub(1)).find(|&i| near(&points[i]))
+    });
+    let points = match split {
+        Some(i) => {
+            let mut curve = smooth(&points[..=i]);
+            curve.extend(smooth(&points[i..]).into_iter().skip(1));
+            curve
+        }
+        None => smooth(&points),
+    };
+    (points, label_at)
 }
 
 /// 所有项的外框（不小于 `(w, h)`），左上角挪到原点，返回宽高（逻辑像素）。

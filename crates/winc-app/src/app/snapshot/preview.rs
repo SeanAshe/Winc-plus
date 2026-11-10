@@ -727,6 +727,8 @@ fn edits_before_the_next_parse_keep_the_live_block_inside_the_text() {
         "第一段中文\n\n第二段中文内容\n\n| 表头 | 中 |\n| - | - |\n| 一 | 二 |\n\n最后一段\n";
     for keep in ["", "中", "中文\n\n表", "第一段中文\n\n第"] {
         let (mut app, dir) = live_doc("md-stale", text);
+        // 按后台解析处理：输入之后的排版与按键仍依据上一版的解析结果。
+        app.markdown.cost = Some(std::time::Duration::MAX);
         let doc = app.editor.active_mut().unwrap();
         let count = doc.text().rope().unwrap().len_chars();
         doc.selection = winc_core::Selection::new(0, count);
@@ -1827,7 +1829,7 @@ fn mermaid_blocks_draw_diagrams_and_fall_back_to_code() {
     let dir = sample_folder("md-mermaid-fallback");
     let path = dir.join("M.md");
     let drawn = "```mermaid\ngraph TD\n  A --> B\n```\n";
-    let unknown = "```mermaid\ngantt\n  title 计划\n```\n";
+    let unknown = "```mermaid\njourney\n  title 步骤\n```\n";
     let expand = crate::view::preview::markdown::EXPAND;
     for (source, diagram) in [(drawn, true), (unknown, false)] {
         std::fs::write(&path, source).unwrap();
@@ -2110,6 +2112,155 @@ flowchart TD
   Infra --> Storage
 ```
 ";
+
+/// 类图、实体关系图、思维导图、Git 提交图、甘特图的样本，每项为一个文档。
+const MORE_DIAGRAMS: [&str; 5] = [
+    r#"```mermaid
+classDiagram
+  direction LR
+  class Shape {
+    <<interface>>
+    +area() double
+    +perimeter() double
+  }
+  class Circle {
+    -double radius
+    +area() double
+  }
+  class Square {
+    -double side
+    +area() double
+  }
+  class Canvas {
+    +List~Shape~ shapes
+    +draw()
+  }
+  class Palette
+  Shape <|.. Circle
+  Shape <|.. Square
+  Canvas "1" *-- "many" Shape : 包含
+  Canvas o-- Palette
+  Canvas ..> Logger : 使用
+```
+"#,
+    r#"```mermaid
+erDiagram
+  SHELF ||--o{ BOOK : holds
+  BOOK ||--|{ PAGE : contains
+  BOOK }o..o| SERIES : "belongs to"
+  SHELF {
+    int id PK
+    string label
+  }
+  BOOK {
+    string isbn PK "编号"
+    int shelf_id FK
+    string title
+    int pages
+  }
+  PAGE {
+    int number PK
+    string isbn FK
+  }
+```
+"#,
+    r#"```mermaid
+mindmap
+  root((学习计划))
+    基础
+      数据结构
+      算法
+        排序
+        查找
+    工具
+      [编辑器]
+      (版本控制)
+    实践
+      小项目
+      代码评审
+    阅读
+      {{技术书籍}}
+      文档
+```
+"#,
+    r#"```mermaid
+gitGraph
+  commit id: "init"
+  commit id: "readme"
+  branch develop
+  checkout develop
+  commit id: "parser"
+  branch feature
+  checkout feature
+  commit id: "layout"
+  commit id: "draw" type: HIGHLIGHT
+  checkout develop
+  merge feature
+  checkout main
+  commit id: "hotfix" type: REVERSE
+  merge develop tag: "v1.0"
+  cherry-pick id: "parser"
+```
+"#,
+    r#"```mermaid
+gantt
+  title 版本计划
+  dateFormat YYYY-MM-DD
+  section 设计
+  需求整理 :done, a1, 2024-03-01, 4d
+  界面草图 :done, a2, after a1, 3d
+  section 开发
+  解析器 :active, b1, 2024-03-08, 6d
+  布局 :crit, b2, after b1, 5d
+  绘制 :b3, after b2, 4d
+  section 发布
+  测试 :c1, after b3, 3d
+  发布 :milestone, after c1, 0d
+```
+"#,
+];
+
+/// 类图、实体关系图、思维导图、Git 提交图、甘特图都画成图，不按代码块显示。
+#[test]
+fn more_diagram_kinds_draw_as_diagrams() {
+    for source in MORE_DIAGRAMS {
+        let (mut app, dir) = live_doc("md-mermaid-more", source);
+        app.set_preview_mode(PreviewMode::Preview);
+        settle(&mut app);
+        let [block] = app.markdown.codes[..] else {
+            panic!("只有一张图：{source}");
+        };
+        app.on_mouse_move(block.x + block.w / 2.0, block.y + block.h / 2.0);
+        paint(&mut app);
+        let expand = crate::view::preview::markdown::EXPAND;
+        assert!(
+            app.markdown.links.iter().any(|(_, url)| url == expand),
+            "{source}"
+        );
+        let over = crate::view::preview::markdown::tests::overflow(&app);
+        assert!(over <= 0.5, "超出 {over}：{source}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[test]
+#[ignore = "截图，手动运行"]
+fn shoot_more_mermaid_diagrams() {
+    for dark in [false, true] {
+        for (k, source) in MORE_DIAGRAMS.iter().enumerate() {
+            let dir = sample_folder("md-mermaid-more");
+            let path = dir.join("MERMAID.md");
+            std::fs::write(&path, source).unwrap();
+            let mut app = app_with(&path, dark);
+            paint(&mut app);
+            app.set_preview_mode(PreviewMode::Preview);
+            settle(&mut app);
+            let theme = if dark { "dark" } else { "light" };
+            shoot(&mut app, &format!("md-mermaid-more-{k}-{theme}"));
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+    }
+}
 
 #[test]
 fn wide_diagrams_shrink_to_fit_the_page() {
@@ -2520,8 +2671,8 @@ fn heap_breakdown(md: &winc_preview::markdown::Markdown) {
                         }
                     }
                 }
-                Block::Math(t) => s.code += t.capacity(),
-                Block::Rule => {}
+                Block::Math(t, _) => s.code += t.capacity(),
+                Block::Rule(_) => {}
                 Block::Details {
                     summary, blocks: b, ..
                 } => {
@@ -3179,6 +3330,40 @@ fn pdf_files_render_only_the_pages_in_view() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 回归（#105）：某一页渲染失败时在页面中央显示原因，不再空白；失败的页不在每一帧重新请求。
+#[cfg(any(target_os = "macos", windows))]
+#[test]
+fn a_page_that_fails_to_render_shows_why_instead_of_staying_blank() {
+    let dir = sample_folder("pdf-failure");
+    let path = dir.join("sample.pdf");
+    std::fs::write(&path, sample_pdf(2)).unwrap();
+    let mut app = open_pdf(&path, false);
+    let width = app.pdf.rendered[&0].width;
+    let height = app.pdf.rendered[&0].height;
+
+    // 第一页渲染失败：记下原因，不再请求。
+    app.pdf.rendered.remove(&0);
+    app.fail_pdf_page(0, width, "无法渲染这一页（错误代码 0x80004005）");
+    assert!(app.pdf.failed.contains_key(&(0, width)));
+    paint(&mut app);
+    assert!(!app.pdf.is_busy(), "失败的页被重新请求");
+    assert!(!app.pdf.rendered.contains_key(&0));
+
+    // 页面可见部分不再全是白色：在中央画出了失败的原因（页面比视口高时画在可见部分的中央）。
+    let image = app.renderer.as_ref().unwrap().image().unwrap();
+    let scale = app.renderer.as_ref().unwrap().scale_factor();
+    let area = app.pdf.area;
+    let top = ((area.y + 32.0) * scale) as usize + 2;
+    let bottom = ((area.bottom() * scale) as usize).min(top + height as usize) - 2;
+    let left = ((area.x + area.w / 2.0) * scale) as usize - width as usize / 2 + 2;
+    let row = image.width as usize;
+    let white = image.pixels[top * row + left];
+    let drawn = (top..bottom)
+        .any(|y| (left..left + width as usize - 4).any(|x| image.pixels[y * row + x] != white));
+    assert!(drawn, "失败的页仍然是空白");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[cfg(any(target_os = "macos", windows))]
 #[test]
 #[ignore = "截图，手动运行"]
@@ -3192,4 +3377,674 @@ fn shoot_pdf() {
         shoot(&mut app, &format!("pdf-{theme}"));
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
+
+/// 回归：列很多的表格不把各列压窄到逐字换行，而是按自然宽度排版、超出正文的部分横向滚动；横向
+/// 滚动后点击仍落在对应的字上；编辑表格时光标移到看不见的列，表格横向滚动使光标可见。
+#[test]
+fn wide_tables_keep_their_columns_and_scroll_sideways() {
+    use winit::dpi::PhysicalPosition;
+    use winit::event::MouseScrollDelta;
+
+    let head = "| 编号 | 品名 | 类别 | 颜色 | 尺寸 | 重量 | 口感 | 货号 | 条码 | 上架日期 | 批次 \
+                | 规格 | 状态 | 单价 | 库存 | 好评率 | 等级 | 备注 |";
+    let rule = format!("|{}", "---|".repeat(18));
+    let row = "| 1 | 苹果 | 水果 | 红色 | 中号 | 200 克 | 脆甜 | SKU-FRUIT-APPLE-0001 \
+               | 6901234567890 | 2024-03-15 | B001 | 每箱十二个 | 在售 | 6.5 | 120 | 98% | 一级 \
+               | 需冷藏保存运输 |";
+    let (mut app, dir) = live_doc(
+        "md-wide-table",
+        &format!("前文\n\n{head}\n{rule}\n{row}\n\n后文\n"),
+    );
+    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    let at = |c: &str| shown[..shown.find(c).unwrap()].chars().count();
+    let offset_at = crate::view::preview::markdown::offset_at;
+
+    // 表头「编号」排在同一行，没有被压成逐字换行。
+    let (first, second) = (point_of(&app, at("编")), point_of(&app, at("号")));
+    assert!((first.1 - second.1).abs() < 1.0, "{first:?} {second:?}");
+
+    // 在表格上横向滚动：表格左移，同一位置下的字随之改变，点击仍对应移过来的字。
+    let probe = (first.0, point_of(&app, at("苹")).1);
+    let before = offset_at(&app, probe.0, probe.1);
+    app.on_mouse_move(probe.0, probe.1);
+    app.on_wheel(MouseScrollDelta::PixelDelta(PhysicalPosition::new(
+        -400.0, 0.0,
+    )));
+    paint(&mut app);
+    let after = offset_at(&app, probe.0, probe.1);
+    assert_ne!(before, after);
+    // 表格外（「前文」一行）的横向滚动不移动表格。
+    let outside = point_of(&app, at("前"));
+    app.on_mouse_move(outside.0, outside.1);
+    app.on_wheel(MouseScrollDelta::PixelDelta(PhysicalPosition::new(
+        -400.0, 0.0,
+    )));
+    paint(&mut app);
+    assert_eq!(offset_at(&app, probe.0, probe.1), after);
+
+    // 滚动条与其他区域一致：鼠标移到表格底边时可以按住滑块拖动，拖到最右后滚动到尽头。
+    let bar = app.markdown.table_bar.expect("表格有滚动条");
+    let edge = (bar.track.x + 4.0, bar.track.bottom() - 4.0);
+    app.on_mouse_move(edge.0, edge.1);
+    paint(&mut app);
+    assert_eq!(
+        app.hover,
+        Hover::Scrollbar(crate::layout::Scrollbar::MarkdownTable)
+    );
+    let thumb_x =
+        crate::layout::hscrollbar_thumb(bar.track, app.markdown_table_scroll(bar.key), bar.content)
+            .unwrap()
+            .x;
+    app.on_mouse_move(thumb_x + 2.0, edge.1);
+    app.on_mouse_down(MouseButton::Left);
+    app.on_mouse_move(bar.track.right() + 200.0, edge.1);
+    app.on_mouse_up(MouseButton::Left);
+    paint(&mut app);
+    assert_eq!(
+        app.markdown_table_scroll(bar.key),
+        bar.content - bar.track.w
+    );
+
+    // 滚回最左，光标移到最后一列：表格横向滚动，最后一列的字出现在预览区域内。
+    app.on_mouse_move(probe.0, probe.1);
+    app.on_wheel(MouseScrollDelta::PixelDelta(PhysicalPosition::new(
+        4000.0, 0.0,
+    )));
+    paint(&mut app);
+    assert_eq!(offset_at(&app, probe.0, probe.1), before);
+    let cell = point_of(&app, at("苹"));
+    app.on_mouse_move(cell.0, cell.1);
+    app.on_mouse_down(MouseButton::Left);
+    app.on_mouse_up(MouseButton::Left);
+    settle(&mut app);
+    put_caret(&mut app, "需冷藏", false);
+    let last = point_of(&app, at("需冷藏"));
+    assert!(app.markdown.area.contains(last.0, last.1), "{last:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 回归：单独成行的公式中没有可定位的文字，点击后光标仍应进入公式的原文，公式随之显示原文、
+/// 可以编辑（`$$…$$` 和语言为 math 的围栏代码块都是如此）。
+#[test]
+fn clicking_a_block_formula_puts_the_caret_in_its_source() {
+    for (name, formula) in [
+        ("md-math-dollars", "$$\nx^2 + y^2 = z^2\n$$"),
+        ("md-math-fence", "```math\nx^2 + y^2 = z^2\n```"),
+    ] {
+        let text = format!("前文\n\n{formula}\n\n后文\n");
+        let (mut app, dir) = live_doc(name, &text);
+        let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+        let at = |c: &str| shown[..shown.find(c).unwrap()].chars().count();
+        let (above, below) = (point_of(&app, at("前文")), point_of(&app, at("后文")));
+        // 公式在两段之间居中显示：从上往下找第一处落在公式上的点（正文的字不会落到公式的原文处）。
+        let area = app.markdown.area;
+        let start = text.find(formula).unwrap();
+        let x = area.x + area.w / 2.0;
+        let middle = (above.1 as usize..below.1 as usize)
+            .map(|y| (x, y as f32))
+            .find(|&(x, y)| crate::view::preview::markdown::source_at(&app, x, y) == Some(start))
+            .expect("点得到公式");
+        app.on_mouse_move(middle.0, middle.1);
+        app.on_mouse_down(MouseButton::Left);
+        app.on_mouse_up(MouseButton::Left);
+        settle(&mut app);
+        let caret = app.live_caret_source().unwrap();
+        assert!(
+            (start..start + formula.len()).contains(&caret),
+            "{name}: {}",
+            with_caret(&app)
+        );
+        // 光标在公式里：公式显示原文，可以直接编辑。
+        let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+        assert!(shown.contains("x^2 + y^2 = z^2"), "{name}: {shown}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// 跳到脚注和跳回引用处时，目标位于预览上部三分之一处（滚动不到时尽量靠近），上方保留一段
+/// 上下文；跳到标题时标题仍在顶部。测试中没有动画时钟，标示目标的底色不在此检查。
+#[test]
+fn footnote_jumps_keep_context_above_and_mark_the_target() {
+    let mut text = String::from("# 标题\n\n");
+    for i in 1..=40 {
+        if i == 20 {
+            text.push_str("这一段引用了一个脚注[^a]。\n\n");
+        } else {
+            text.push_str(&format!("第 {i} 段正文。\n\n"));
+        }
+    }
+    text.push_str("[^a]: 脚注的内容。\n");
+    let (mut app, dir) = live_doc("md-footnote-jump", &text);
+    let max = app.markdown.height - app.markdown.area.h;
+    let third = app.markdown.area.h / 3.0;
+
+    app.jump_to_anchor("fn-1");
+    let note = crate::view::preview::markdown::anchor_top(&app, "fn-1").unwrap();
+    assert_eq!(app.markdown.scroll(), (note - third).clamp(0.0, max));
+
+    app.jump_to_anchor("fnref-1");
+    let back = crate::view::preview::markdown::anchor_top(&app, "fnref-1").unwrap();
+    assert_eq!(app.markdown.scroll(), (back - third).clamp(0.0, max));
+
+    // 标题照旧滚动到顶部。
+    app.jump_to_anchor("标题");
+    assert_eq!(app.markdown.scroll(), 0.0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 回归：行内公式（如希腊字母、运算符）中没有可定位的字，点击公式时光标仍应进入公式的原文。
+#[test]
+fn clicking_inline_math_puts_the_caret_in_its_source() {
+    let text = "前文\n\n$\\alpha\\beta\\gamma \\nabla\\partial\\infty$\n\n后文\n";
+    let (mut app, dir) = live_doc("md-inline-math", text);
+    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    let at = |c: &str| shown[..shown.find(c).unwrap()].chars().count();
+    let (above, below) = (point_of(&app, at("前文")), point_of(&app, at("后文")));
+    let tex = text.find("\\alpha").unwrap();
+    let area = app.markdown.area;
+    // 从左到右、从上到下找第一处落在公式原文上的点（正文的字不会落到公式的原文处）。
+    let spot = (above.1 as usize..below.1 as usize)
+        .flat_map(|y| {
+            (area.x as usize..area.right() as usize)
+                .step_by(4)
+                .map(move |x| (x, y))
+        })
+        .map(|(x, y)| (x as f32, y as f32))
+        .find(|&(x, y)| crate::view::preview::markdown::source_at(&app, x, y) == Some(tex))
+        .expect("点得到公式");
+    app.on_mouse_move(spot.0, spot.1);
+    app.on_mouse_down(MouseButton::Left);
+    app.on_mouse_up(MouseButton::Left);
+    settle(&mut app);
+    let caret = app.live_caret_source().unwrap();
+    let end = text.find("$\n\n后文").unwrap();
+    assert!((tex..=end).contains(&caret), "{}", with_caret(&app));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 回车续出的空项：光标停在新项的记号之后，不归到下一项；下一项照常按排版显示。
+#[test]
+fn enter_in_a_list_puts_the_caret_in_the_new_empty_item() {
+    use winit::keyboard::{Key, NamedKey};
+    let (mut app, dir) = live_doc("md-empty-item", "1. 一\n2. 二\n3. 三\n\n后文\n");
+    put_caret(&mut app, "二", true);
+    let before = caret_screen_y(&app);
+    assert!(app.markdown_key(&Key::Named(NamedKey::Enter), false));
+    settle(&mut app);
+    assert_eq!(with_caret(&app), "1. 一\n2. 二\n3. |\n4. 三\n\n后文\n");
+    assert!(caret_screen_y(&app) > before + 10.0);
+    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    assert!(shown.contains("\n三\n") && !shown.contains("3."), "{shown}");
+    // 在空项上输入的文字排在这一项里。
+    app.run(winc_editor::Command::Insert("新".into()));
+    settle(&mut app);
+    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    assert!(shown.contains("二\n新\n三"), "{shown}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 输入多字节的字之后、重新解析之前，光标所在项之后的项照常显示：页面高度不变，下方内容不
+/// 上下跳动。
+#[test]
+fn typing_wide_characters_keeps_the_following_blocks_in_place() {
+    let text = "前文\n\n1. 第一\n2. 第二\n3. 第三\n\n1. 第四\n\n后文\n";
+    let (mut app, dir) = live_doc("md-typing-wide", text);
+    // 按后台解析处理：输入之后的第一帧仍依据上一版的解析结果。
+    app.markdown.cost = Some(std::time::Duration::MAX);
+    put_caret(&mut app, "第二", true);
+    let height = app.markdown.height;
+    for c in ["a", "项", "，", "b"] {
+        app.run(winc_editor::Command::Insert(c.into()));
+        paint(&mut app);
+        let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+        assert!(
+            shown.contains("第三") && shown.contains("第四"),
+            "{c}：{shown}"
+        );
+        assert!((app.markdown.height - height).abs() < 0.5, "{c}");
+        settle(&mut app);
+        assert!((app.markdown.height - height).abs() < 0.5, "{c}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 光标移到分隔线上：显示原文，高度不变，下方内容不移动；列表里的分隔线只显示这一行的原文，
+/// 列表的其余项仍按排版显示。
+#[test]
+fn rules_show_their_source_in_place() {
+    let text = "前文\n\n---\n\n1. 一\n2. ---\n\n后文\n";
+    let (mut app, dir) = live_doc("md-rule-live", text);
+    put_caret(&mut app, "前文", true);
+    let height = app.markdown.height;
+    put_caret(&mut app, "\n---", false);
+    let doc = app.editor.active_mut().unwrap();
+    doc.selection = winc_core::Selection::point(doc.selection.head + 1);
+    settle(&mut app);
+    assert!((app.markdown.height - height).abs() < 0.5);
+    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    assert!(shown.contains("---") && shown.contains("一"), "{shown}");
+    put_caret(&mut app, "2. ---", true);
+    assert!((app.markdown.height - height).abs() < 0.5);
+    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    assert!(shown.contains("一") && !shown.contains("1."), "{shown}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 删除键：空项上先移除记号，再删除留下的缩进并回到上一行末尾。
+#[test]
+fn backspace_on_an_empty_item_removes_it_in_two_steps() {
+    use winit::keyboard::{Key, NamedKey};
+    let back = Key::Named(NamedKey::Backspace);
+    let (mut app, dir) = live_doc("md-back-item", "- 甲\n  - 乙\n  - \n\n后文\n");
+    put_caret(&mut app, "  - \n", true);
+    let doc = app.editor.active_mut().unwrap();
+    doc.selection = winc_core::Selection::point(doc.selection.head - 1);
+    settle(&mut app);
+    assert!(app.markdown_key(&back, false));
+    settle(&mut app);
+    assert_eq!(with_caret(&app), "- 甲\n  - 乙\n    |\n\n后文\n");
+    assert!(app.markdown_key(&back, false));
+    settle(&mut app);
+    assert_eq!(with_caret(&app), "- 甲\n  - 乙|\n\n后文\n");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 点击分隔线：光标移到它的原文处，分隔线显示原文；列表里的分隔线同样可以点击。
+#[test]
+fn clicking_a_rule_puts_the_caret_on_it() {
+    for (text, expect) in [
+        ("前文\n\n---\n\n后文\n", "前文\n\n|---\n\n后文\n"),
+        (
+            "前文\n\n1. 一\n2. ***\n\n后文\n",
+            "前文\n\n1. 一\n2. |***\n\n后文\n",
+        ),
+    ] {
+        let (mut app, dir) = live_doc("md-rule-click", text);
+        put_caret(&mut app, "前文", true);
+        let area = app.markdown.area;
+        let middle = |app: &App, s: &str| {
+            let laid = app.markdown.layout.as_ref().unwrap();
+            let at = doc_text(app).find(s).unwrap();
+            let (_, y, h) = laid.caret_point(at).unwrap();
+            area.y + y - app.markdown.scroll() + h / 2.0
+        };
+        // 分隔线在上一行文字与「后文」之间，取两者正中。
+        let above = if text.contains("一") {
+            "一"
+        } else {
+            "前文"
+        };
+        let y = (middle(&app, above) + middle(&app, "后文")) / 2.0;
+        super::click(&mut app, (area.x + area.w / 2.0, y));
+        settle(&mut app);
+        assert_eq!(with_caret(&app), expect);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// 输入之后的第一帧即按当前文字的结构排版：与等待后台解析之后的排版相同，没有按上一版结构
+/// 推算的中间帧；输入引起的重排不滑动。
+#[test]
+fn typing_shows_the_final_layout_in_the_same_frame() {
+    use winit::keyboard::{Key, NamedKey};
+    let enter = Key::Named(NamedKey::Enter);
+    let (mut app, dir) = live_doc("md-same-frame", "前文\n\n- 一\n- 二\n\n后文\n");
+    app.markdown.frozen = Some(crate::app::animation::MARKDOWN_MOTION / 2);
+    let shown = |app: &App| {
+        let text = crate::view::preview::markdown::full_text(app).unwrap();
+        (text, app.markdown.height, caret_screen_y(app))
+    };
+    let step = |app: &mut App, name: &str, act: &dyn Fn(&mut App)| {
+        act(app);
+        paint(app);
+        let first = shown(app);
+        assert!(
+            app.markdown.motion.as_ref().is_none_or(|m| !m.moving()),
+            "{name}"
+        );
+        settle(app);
+        assert_eq!(first, shown(app), "{name}");
+        first
+    };
+    put_caret(&mut app, "前文", true);
+    // 新的一段：空行的位置与输入第一个字之后段落的位置相同。
+    let empty = step(&mut app, "回车", &|app| {
+        assert!(app.markdown_key(&enter, false));
+    });
+    let typed = step(&mut app, "输入", &|app| {
+        app.run(winc_editor::Command::Insert("新".into()));
+    });
+    assert!(
+        (empty.1 - typed.1).abs() < 1.5 && (empty.2 - typed.2).abs() < 1.5,
+        "{empty:?} {typed:?}"
+    );
+    // 列表里续一项、把一段文字改成标题：结构变化同样在第一帧显示。
+    put_caret(&mut app, "二", true);
+    let item = step(&mut app, "续项", &|app| {
+        assert!(app.markdown_key(&enter, false));
+    });
+    put_caret(&mut app, "后文", false);
+    let heading = step(&mut app, "标题", &|app| {
+        app.run(winc_editor::Command::Insert("# ".into()));
+    });
+    // 标题的字号、上下间距大于段落：第一帧的总高度已经增加。
+    assert!(heading.1 > item.1 + 10.0, "{heading:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// ←→ 不停留在预览中不显示的列表记号、引用标记里：从项的开头向左到上一行的末尾，向右到
+/// 下一块内容的开头。
+#[test]
+fn arrows_skip_the_hidden_block_markers() {
+    use winit::keyboard::{Key, NamedKey};
+    let left = Key::Named(NamedKey::ArrowLeft);
+    let right = Key::Named(NamedKey::ArrowRight);
+    let (mut app, dir) = live_doc("md-hidden-markers", "- 一\n- 二\n  - 三\n\n> 引\n");
+    for (needle, before, after) in [
+        ("二", "- 一|\n- 二\n", "- 一\n- |二\n"),
+        ("三", "- 二|\n  - 三\n", "- 二\n  - |三\n"),
+        ("引", "  - 三|\n\n> 引\n", "  - 三\n\n> |引\n"),
+    ] {
+        put_caret(&mut app, needle, false);
+        assert!(app.markdown_key(&left, false), "{needle}");
+        settle(&mut app);
+        assert!(with_caret(&app).contains(before), "{}", with_caret(&app));
+        assert!(app.markdown_key(&right, false), "{needle}");
+        settle(&mut app);
+        assert!(with_caret(&app).contains(after), "{}", with_caret(&app));
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Home、End 按预览中折行后的显示行移动：一段原文折成多行时，End 停在本行的右端，光标不换行；
+/// 再按 ↓ 到下一行的右端，Home 回到该行的开头。
+#[test]
+fn home_and_end_follow_the_wrapped_rows() {
+    use winit::keyboard::{Key, NamedKey};
+    let para = "折行的段落".repeat(40);
+    let (mut app, dir) = live_doc("md-row-edges", &format!("前文\n\n{para}\n\n后文\n"));
+    let start = doc_text(&app).find(&para).unwrap();
+    put_caret(&mut app, "折行的段落折", false);
+    let caret = |app: &App| {
+        let laid = app.markdown.layout.as_ref().unwrap();
+        let (x, y, _) = laid.caret_point(app.live_caret_source().unwrap()).unwrap();
+        (x, y)
+    };
+    let first = caret(&app);
+    assert!(app.markdown_key(&Key::Named(NamedKey::End), false));
+    settle(&mut app);
+    let end = caret(&app);
+    let at = app.live_caret_source().unwrap();
+    assert!(at > start && at < start + para.len(), "{at}");
+    assert!(
+        (end.1 - first.1).abs() < 0.5 && end.0 > first.0 + 100.0,
+        "{end:?}"
+    );
+    assert!(app.markdown_key(&Key::Named(NamedKey::ArrowDown), false));
+    settle(&mut app);
+    let below = caret(&app);
+    assert!(
+        below.1 > end.1 + 10.0 && (below.0 - end.0).abs() < 20.0,
+        "{below:?}"
+    );
+    assert!(app.markdown_key(&Key::Named(NamedKey::Home), false));
+    settle(&mut app);
+    let home = caret(&app);
+    assert!((home.1 - below.1).abs() < 0.5 && home.0 < 1.0, "{home:?}");
+    assert_eq!(app.live_caret_source().unwrap(), at);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 块的开头按删除键、块的末尾按向前删除键：隔着空行的两段正文合并为一段；上一块是代码块时
+/// 不合并，光标移到代码的末尾。
+#[test]
+fn deleting_at_a_block_edge_joins_the_neighbouring_block() {
+    use winit::keyboard::{Key, NamedKey};
+    let text = "甲\n\n乙\n\n```\nc\n```\n\n丙\n";
+    let (mut app, dir) = live_doc("md-join-blocks", text);
+    put_caret(&mut app, "乙", false);
+    assert!(app.markdown_key(&Key::Named(NamedKey::Backspace), false));
+    settle(&mut app);
+    assert!(
+        with_caret(&app).starts_with("甲|乙\n\n```"),
+        "{}",
+        with_caret(&app)
+    );
+    app.run(winc_editor::Command::Undo);
+    assert_eq!(doc_text(&app), text);
+    put_caret(&mut app, "甲", true);
+    assert!(app.markdown_key(&Key::Named(NamedKey::Delete), false));
+    settle(&mut app);
+    assert!(
+        with_caret(&app).starts_with("甲|乙\n\n```"),
+        "{}",
+        with_caret(&app)
+    );
+    app.run(winc_editor::Command::Undo);
+    put_caret(&mut app, "丙", false);
+    assert!(app.markdown_key(&Key::Named(NamedKey::Backspace), false));
+    settle(&mut app);
+    assert_eq!(with_caret(&app), "甲\n\n乙\n\n```\nc|\n```\n\n丙\n");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 有序列表中间回车续出一项：其后各项的序号顺延，光标停在新的一项里，撤销一步恢复原文。
+#[test]
+fn enter_in_an_ordered_list_renumbers_the_items_below() {
+    use winit::keyboard::{Key, NamedKey};
+    let text = "1. 一\n2. 二\n   - 子项\n3. 三\n\n后文\n";
+    let (mut app, dir) = live_doc("md-renumber", text);
+    put_caret(&mut app, "一", true);
+    assert!(app.markdown_key(&Key::Named(NamedKey::Enter), false));
+    settle(&mut app);
+    assert_eq!(
+        with_caret(&app),
+        "1. 一\n2. |\n3. 二\n   - 子项\n4. 三\n\n后文\n"
+    );
+    app.run(winc_editor::Command::Undo);
+    assert_eq!(doc_text(&app), text);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 行内格式的命令只在可编辑的预览中可用：选中的文字加上、去掉标记，没有选区时插入一对标记；
+/// 代码块中不修改。
+#[test]
+fn format_commands_toggle_inline_marks_in_the_live_preview() {
+    use crate::keymap::Action;
+    let (mut app, dir) = live_doc("md-format", "正文 粗体 字\n\n```\ncode\n```\n");
+    let select = |app: &mut App, needle: &str| {
+        let at = doc_text(app).find(needle).unwrap();
+        let doc = app.editor.active_mut().unwrap();
+        let rope = doc.text().rope().unwrap();
+        let (a, b) = (rope.byte_to_char(at), rope.byte_to_char(at + needle.len()));
+        doc.selection = winc_core::Selection::new(a, b);
+        settle(app);
+    };
+    select(&mut app, "粗体");
+    assert!(app.run_action(Action::MarkdownBold));
+    settle(&mut app);
+    assert!(doc_text(&app).starts_with("正文 **粗体** 字\n"));
+    let sel = app.editor.active().unwrap().selection;
+    assert_eq!(sel.to() - sel.from(), 2);
+    assert!(app.run_action(Action::MarkdownBold));
+    settle(&mut app);
+    assert!(doc_text(&app).starts_with("正文 粗体 字\n"));
+    put_caret(&mut app, "字", true);
+    assert!(app.run_action(Action::MarkdownCode));
+    assert_eq!(with_caret(&app), "正文 粗体 字`|`\n\n```\ncode\n```\n");
+    app.run(winc_editor::Command::Undo);
+    put_caret(&mut app, "code", false);
+    let before = doc_text(&app);
+    assert!(app.run_action(Action::MarkdownItalic));
+    assert_eq!(doc_text(&app), before);
+    // 换成源代码后这些命令不可用，同一个键执行其他命令。
+    app.set_preview_mode(PreviewMode::Source);
+    paint(&mut app);
+    assert!(!app.action_available(Action::MarkdownBold));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 列表记号、标题和引用的标记之后输入空格才生效：只输入 `-`、`#`、`>` 时按文字显示。
+#[test]
+fn block_markers_take_effect_after_a_space() {
+    let (mut app, dir) = live_doc("md-bare-markers", "前文\n\n\n\n后文\n");
+    let doc = app.editor.active_mut().unwrap();
+    doc.selection = winc_core::Selection::point(4);
+    settle(&mut app);
+    let shown = |app: &App| crate::view::preview::markdown::full_text(app).unwrap();
+    for marker in ["-", "1.", "#", ">"] {
+        app.run(winc_editor::Command::Insert(marker.into()));
+        paint(&mut app);
+        assert!(
+            shown(&app).contains(&format!("前文\n{marker}\n")),
+            "{}",
+            shown(&app)
+        );
+        let y = caret_screen_y(&app);
+        app.run(winc_editor::Command::Insert(" ".into()));
+        paint(&mut app);
+        // 成为列表项、引用之后记号不再按文字显示，光标仍在同一行上；标题在光标位于开头时
+        // 显示 `#`，字号随之变大。
+        if marker != "#" {
+            assert!(!shown(&app).contains(marker), "{marker}：{}", shown(&app));
+            assert!((caret_screen_y(&app) - y).abs() < 4.0, "{marker}");
+        } else {
+            let parsed = app.markdown.parsed.clone().unwrap();
+            let heading = |b: &winc_preview::markdown::Block| {
+                matches!(b, winc_preview::markdown::Block::Heading(1, _))
+            };
+            assert!(parsed.blocks.iter().any(heading));
+        }
+        app.run(winc_editor::Command::Undo);
+        app.run(winc_editor::Command::Undo);
+        settle(&mut app);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 任务列表可以逐字输入：`- [` 之后括号配对补上 `]`，再输入空格即成为任务项；`[]`、`-[]`
+/// 加空格是同样的简写。
+#[test]
+fn task_items_can_be_typed() {
+    use winit::keyboard::Key;
+    let space = Key::Character(" ".into());
+    for typed in [&["-", " ", "["][..], &["[", "]"], &["-", "[", "]"]] {
+        let (mut app, dir) = live_doc("md-typed-task", "前文\n\n\n\n后文\n");
+        let doc = app.editor.active_mut().unwrap();
+        doc.selection = winc_core::Selection::point(4);
+        settle(&mut app);
+        for key in typed {
+            app.run(winc_editor::Command::Insert((*key).into()));
+            paint(&mut app);
+        }
+        assert!(app.markdown_key(&space, false), "{typed:?}");
+        paint(&mut app);
+        assert_eq!(with_caret(&app), "前文\n\n- [ ] |\n\n后文\n", "{typed:?}");
+        app.run(winc_editor::Command::Insert("任务".into()));
+        settle(&mut app);
+        let parsed = app.markdown.parsed.clone().unwrap();
+        let task = parsed.blocks.iter().find_map(|b| match b {
+            winc_preview::markdown::Block::List(_, items) => items[0].task,
+            _ => None,
+        });
+        assert_eq!(task, Some(false), "{typed:?}");
+        let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+        assert!(shown.contains("前文\n任务\n后文"), "{shown}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// Tab、⇧Tab 调整列表项的层级时，子项和续行随该项移动。
+#[test]
+fn tab_moves_a_list_item_with_its_children() {
+    use winit::keyboard::{Key, NamedKey};
+    let tab = Key::Named(NamedKey::Tab);
+    let text = "- 一\n- 二\n  - 子\n\n    续行\n- 三\n";
+    let (mut app, dir) = live_doc("md-tab-subtree", text);
+    put_caret(&mut app, "二", true);
+    assert!(app.markdown_key(&tab, false));
+    settle(&mut app);
+    assert_eq!(
+        with_caret(&app),
+        "- 一\n  - 二|\n    - 子\n\n      续行\n- 三\n"
+    );
+    app.modifiers = winit::keyboard::ModifiersState::SHIFT;
+    assert!(app.markdown_key(&tab, false));
+    app.modifiers = winit::keyboard::ModifiersState::empty();
+    settle(&mut app);
+    assert_eq!(with_caret(&app), text.replace("二", "二|"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 代码块的新建与删除：输入第三个反引号即补上闭围栏；回车进入代码块；空的代码块按一次删除键
+/// 整块删除；有内容时在开围栏上删除只移除两行围栏；⌘↩ 在代码块之后另起一段。
+#[test]
+fn code_blocks_are_created_and_removed_as_a_whole() {
+    use winit::keyboard::{Key, NamedKey};
+    let tick = Key::Character("`".into());
+    let back = Key::Named(NamedKey::Backspace);
+    let (mut app, dir) = live_doc("md-code-whole", "前文\n\n\n\n后文\n");
+    let doc = app.editor.active_mut().unwrap();
+    doc.selection = winc_core::Selection::point(4);
+    settle(&mut app);
+    for _ in 0..2 {
+        assert!(!app.markdown_key(&tick, false));
+        app.run(winc_editor::Command::Insert("`".into()));
+        paint(&mut app);
+    }
+    assert!(app.markdown_key(&tick, false));
+    paint(&mut app);
+    assert_eq!(with_caret(&app), "前文\n\n```|\n```\n\n后文\n");
+    // 后文没有成为代码。
+    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    assert!(
+        shown.ends_with("后文\n") || shown.ends_with("后文"),
+        "{shown}"
+    );
+    assert!(!app.markdown_key(&Key::Named(NamedKey::Enter), false));
+    app.run(winc_editor::Command::Newline);
+    settle(&mut app);
+    assert_eq!(with_caret(&app), "前文\n\n```\n|\n```\n\n后文\n");
+    // 有内容：在内容开头按删除键不删除；⌘↩ 到代码块之后。
+    app.run(winc_editor::Command::Insert("x".into()));
+    app.run(winc_editor::Command::MoveLeft {
+        word: false,
+        extend: false,
+    });
+    settle(&mut app);
+    assert!(app.markdown_key(&back, false));
+    assert_eq!(with_caret(&app), "前文\n\n```\n|x\n```\n\n后文\n");
+    app.modifiers = command_modifiers();
+    assert!(app.markdown_key(&Key::Named(NamedKey::Enter), true));
+    app.modifiers = winit::keyboard::ModifiersState::empty();
+    settle(&mut app);
+    assert_eq!(with_caret(&app), "前文\n\n```\nx\n```\n\n|\n\n后文\n");
+    app.run(winc_editor::Command::Undo);
+    // 在开围栏上删除：移除两行围栏，保留内容。
+    put_caret(&mut app, "```", true);
+    assert!(app.markdown_key(&back, false));
+    settle(&mut app);
+    assert_eq!(with_caret(&app), "前文\n\n|x\n\n后文\n");
+    app.run(winc_editor::Command::Undo);
+    // 空的代码块：按一次删除键整块删除。
+    put_caret(&mut app, "x\n", false);
+    app.run(winc_editor::Command::Delete { word: false });
+    settle(&mut app);
+    assert!(app.markdown_key(&back, false));
+    settle(&mut app);
+    assert_eq!(with_caret(&app), "前文\n\n|\n\n后文\n");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 文档以代码块结束时再按 ↓：在其后另起一段，光标移到该段。
+#[test]
+fn down_after_a_trailing_code_block_adds_a_paragraph() {
+    use winit::keyboard::{Key, NamedKey};
+    let (mut app, dir) = live_doc("md-trailing-code", "前文\n\n```\nx\n```");
+    put_caret(&mut app, "x", true);
+    assert!(app.markdown_key(&Key::Named(NamedKey::ArrowDown), false));
+    settle(&mut app);
+    assert_eq!(with_caret(&app), "前文\n\n```\nx\n```\n\n|");
+    let _ = std::fs::remove_dir_all(&dir);
 }
