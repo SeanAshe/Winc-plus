@@ -20,8 +20,8 @@ mod window;
 mod window_menu;
 
 pub use app_menu::{
-    add_settings_menu, intercept_quit, on_menu_command, on_open_files, on_reopen,
-    suspend_menu_shortcuts,
+    add_install_command_menu, add_settings_menu, intercept_quit, on_menu_command, on_open_files,
+    on_reopen, suspend_menu_shortcuts,
 };
 pub use dialogs::{
     AlertButton, MOD_COMMAND, MenuIcon, MenuItem, MenuPlace, Panel, alert, key_equivalent,

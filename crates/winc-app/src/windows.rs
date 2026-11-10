@@ -116,6 +116,22 @@ pub fn mouse_location(window: &Window) -> Option<(f32, f32)> {
     Some((point.x as f32, point.y as f32))
 }
 
+/// 离开当前接上的控制台；没有接上控制台时没有效果。
+#[allow(unsafe_code)] // FreeConsole
+pub fn detach_console() {
+    use windows_sys::Win32::System::Console::FreeConsole;
+    // SAFETY: 没有参数；未接上控制台时调用失败，没有其他影响。
+    unsafe { FreeConsole() };
+}
+
+/// 允许进程 `pid` 把自己的窗口切到前台；本进程没有这项权限时没有效果。
+#[allow(unsafe_code)] // AllowSetForegroundWindow
+pub fn allow_foreground(pid: u32) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::AllowSetForegroundWindow;
+    // SAFETY: 只传入进程编号；调用失败时没有其他影响。
+    unsafe { AllowSetForegroundWindow(pid) };
+}
+
 /// 从命令行启动时接上该命令行的控制台，之后的 `println!`、`eprintln!` 输出到该控制台；从图形
 /// 界面启动（没有父控制台）时什么也不做。
 ///

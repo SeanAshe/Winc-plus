@@ -121,7 +121,19 @@ fn branch_menu_creates_switches_pushes_and_deletes() {
         &root,
         &["remote", "add", "origin", remote.to_str().unwrap()],
     );
+    app.git_refresh();
+    // 推送前确认目标远程：取消时不推送，确认后才推送。
     app.run_branch_command(MenuCommand::GitPush);
+    press_alert(&mut app, 1);
+    app.git_refresh();
+    assert!(
+        app.git
+            .branches
+            .iter()
+            .all(|b| !b.current || b.upstream.is_none())
+    );
+    app.run_branch_command(MenuCommand::GitPush);
+    press_alert(&mut app, 0);
     app.git_refresh();
     assert!(
         app.git
@@ -1103,5 +1115,83 @@ fn the_default_branch_row_is_highlighted_softly() {
     paint(&mut app);
     app.picker_accept();
     assert_eq!(head_name(&app).as_deref(), Some("topic-07"));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// 发布前的提示框写明目标远程和地址（按名字排在前面的远程不会被选中）；勾选「不再询问」后写入
+/// 配置，设置中的开关随之关闭，之后推送不再询问。
+#[test]
+fn publishing_asks_with_the_target_remote_until_told_not_to() {
+    use crate::layout::Setting;
+
+    let Some((mut app, root)) = git_app("git-push-confirm", false) else {
+        return;
+    };
+    git_in(&root, &["add", "-A"]);
+    git_in(&root, &["commit", "-q", "-m", "one"]);
+    let fork = root.with_extension("fork.git");
+    let origin = root.with_extension("origin.git");
+    for bare in [&fork, &origin] {
+        let _ = std::fs::remove_dir_all(bare);
+        git_in(
+            root.parent().unwrap(),
+            &["init", "-q", "--bare", bare.to_str().unwrap()],
+        );
+    }
+    git_in(
+        &root,
+        &[
+            "remote",
+            "add",
+            "github-desktop-alice",
+            fork.to_str().unwrap(),
+        ],
+    );
+    git_in(
+        &root,
+        &["remote", "add", "origin", origin.to_str().unwrap()],
+    );
+    app.git_refresh();
+    assert_eq!(app.git.publish_remote.as_deref(), Some("origin"));
+    assert!(app.switch_on(Setting::GitConfirmPush));
+
+    app.run_branch_command(MenuCommand::GitPush);
+    let alert = app.alert.as_ref().unwrap();
+    assert!(alert.message.contains("origin"), "{}", alert.message);
+    assert!(
+        alert.detail.contains(origin.to_str().unwrap()),
+        "{}",
+        alert.detail
+    );
+    assert!(alert.suppression.is_some() && !alert.checked);
+
+    // 勾选「不再询问」后确认：推到 `origin`，配置随之写入。测试中没有配置文件路径，不写入用户的
+    // 配置。
+    app.alert.as_mut().unwrap().checked = true;
+    press_alert(&mut app, 0);
+    app.git_refresh();
+    let has = |bare: &Path| {
+        Command::new("git")
+            .arg("-C")
+            .arg(bare)
+            .args(["rev-parse", "--verify", "--quiet", "refs/heads/main"])
+            .output()
+            .is_ok_and(|o| o.status.success())
+    };
+    assert!(has(&origin) && !has(&fork));
+    assert_eq!(app.config.git_confirm_push, Some(false));
+    assert!(!app.switch_on(Setting::GitConfirmPush));
+    assert!(app.config_path.is_none());
+
+    // 之后推送不再询问。
+    git_in(&root, &["commit", "-q", "--allow-empty", "-m", "two"]);
+    app.git_refresh();
+    app.run_branch_command(MenuCommand::GitPush);
+    assert!(app.alert.is_none());
+    app.git_refresh();
+    assert_eq!(app.git.status.as_ref().unwrap().ahead, 0);
+
+    let _ = std::fs::remove_dir_all(&fork);
+    let _ = std::fs::remove_dir_all(&origin);
     let _ = std::fs::remove_dir_all(&root);
 }

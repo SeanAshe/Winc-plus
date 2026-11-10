@@ -536,6 +536,7 @@ fn the_status_bar_switches_worktrees_and_branches_from_menus() {
     let current = (app.git.branches.iter()).find(|b| b.current).unwrap();
     assert_eq!(current.upstream.as_deref(), Some("origin/feature/a"));
     app.press_picker_part(PickerPart::Push);
+    press_alert(&mut app, 0);
     assert!(!app.picker_open);
     assert_eq!(app.git_sync_state(), crate::app::SyncState::InSync);
     let _ = std::fs::remove_dir_all(&remote);

@@ -77,7 +77,7 @@ winc file.rs:12:5       # 打开文件并跳到指定的行和列
 winc --wait file        # 等标签关闭后再退出，例如作为 Git 的编辑器
 ```
 
-Windows 安装包和 Linux deb 包会把 `winc` 加入 `PATH`。macOS 和 Linux AppImage 请在命令面板中运行「Shell 命令：安装 winc 命令」。
+Windows 安装包、Linux deb 包和 Arch 包会把 `winc` 加入 `PATH`；Windows 便携版不修改 `PATH`。macOS 请在菜单栏选择「Winc → 安装 winc 命令…」，或在命令面板中运行「Shell 命令：安装 winc 命令」；Linux AppImage 请使用命令面板。
 
 在 macOS 上应用由系统启动，不继承 shell 的环境变量；需要保留时使用 `winc --new-instance`。
 

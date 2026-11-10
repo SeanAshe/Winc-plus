@@ -31,6 +31,12 @@ VIAddVersionKey /LANG=1033 "LegalCopyright" "DEEIX"
 !insertmacro MUI_LANGUAGE "English"
 !insertmacro MUI_LANGUAGE "SimpChinese"
 
+; Explorer context menu labels, in the installer's language.
+LangString OpenFileVerb ${LANG_ENGLISH} "Open with Winc"
+LangString OpenFileVerb ${LANG_SIMPCHINESE} "通过 Winc 打开"
+LangString OpenFolderVerb ${LANG_ENGLISH} "Open in Winc"
+LangString OpenFolderVerb ${LANG_SIMPCHINESE} "在 Winc 中打开"
+
 ; Types winc can open, listed under Applications\winc.exe\SupportedTypes: winc appears in
 ; "Open with" > "Choose another app" for them. Nothing is written under the types themselves, so
 ; Windows keeps their default program and icon and does not ask which program to use; scripts still
@@ -124,11 +130,16 @@ VIAddVersionKey /LANG=1033 "LegalCopyright" "DEEIX"
 ; The winc.<type> ProgID is not listed under any type. Earlier versions listed it in the type's
 ; OpenWithProgids, and a user who then chose winc as the default program has a choice that names
 ; this ProgID; keeping it keeps that choice working.
+; The verb under SystemFileAssociations adds "Open with Winc" to the type's context menu without
+; changing its default program. Windows 11 shows it under "Show more options".
 !macro RegisterFileType Type
   WriteRegStr HKCU "Software\Classes\Applications\winc.exe\SupportedTypes" ".${Type}" ""
   WriteRegStr HKCU "Software\Classes\winc.${Type}" "" "${Type} File"
   WriteRegStr HKCU "Software\Classes\winc.${Type}\DefaultIcon" "" "$INSTDIR\winc.exe,0"
   WriteRegStr HKCU "Software\Classes\winc.${Type}\shell\open\command" "" '"$INSTDIR\winc.exe" "%1"'
+  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\.${Type}\shell\winc" "" "$(OpenFileVerb)"
+  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\.${Type}\shell\winc" "Icon" "$INSTDIR\winc.exe,0"
+  WriteRegStr HKCU "Software\Classes\SystemFileAssociations\.${Type}\shell\winc\command" "" '"$INSTDIR\winc.exe" "%1"'
 !macroend
 
 ; Removes the entry earlier versions added to the type's OpenWithProgids. A new handler listed there
@@ -142,6 +153,20 @@ VIAddVersionKey /LANG=1033 "LegalCopyright" "DEEIX"
 !macro UnregisterFileType Type
   !insertmacro UnlistFileType ${Type}
   DeleteRegKey HKCU "Software\Classes\winc.${Type}"
+  DeleteRegKey HKCU "Software\Classes\SystemFileAssociations\.${Type}\shell\winc"
+  DeleteRegKey /ifempty HKCU "Software\Classes\SystemFileAssociations\.${Type}\shell"
+  DeleteRegKey /ifempty HKCU "Software\Classes\SystemFileAssociations\.${Type}"
+!macroend
+
+; "Open in Winc" on a folder and on the empty space inside one (also the desktop); %V is that folder.
+!macro RegisterFolderVerb Key
+  WriteRegStr HKCU "Software\Classes\${Key}\shell\winc" "" "$(OpenFolderVerb)"
+  WriteRegStr HKCU "Software\Classes\${Key}\shell\winc" "Icon" "$INSTDIR\winc.exe,0"
+  WriteRegStr HKCU "Software\Classes\${Key}\shell\winc\command" "" '"$INSTDIR\winc.exe" "%V"'
+!macroend
+
+!macro UnregisterFolderVerb Key
+  DeleteRegKey HKCU "Software\Classes\${Key}\shell\winc"
 !macroend
 
 ; SHCNE_ASSOCCHANGED: the shell refreshes its icons and "Open with" lists.
@@ -220,7 +245,17 @@ Section "winc" SEC_MAIN
   ; keeps the existing file name, so any shortcut of that name is removed first.
   Delete "$SMPROGRAMS\winc.lnk"
   CreateShortcut "$SMPROGRAMS\Winc.lnk" "$INSTDIR\winc.exe" "" "$INSTDIR\winc.ico"
-  ; ProgIDs, file icons and Open With entries. Failure here must not roll back the copy.
+  WriteRegStr HKCU "Software\Classes\Applications\winc.exe" "FriendlyAppName" "Winc"
+  WriteRegStr HKCU "Software\Classes\Applications\winc.exe\DefaultIcon" "" "$INSTDIR\winc.exe,0"
+  WriteRegStr HKCU "Software\Classes\Applications\winc.exe\shell\open\command" "" '"$INSTDIR\winc.exe" "%1"'
+  !insertmacro ForEachRetiredFileType UnregisterFileType
+  !insertmacro ForEachFileType UnlistFileType
+  !insertmacro ForEachFileType RegisterFileType
+  !insertmacro RegisterFolderVerb "Directory"
+  !insertmacro RegisterFolderVerb "Directory\Background"
+  !insertmacro NotifyAssociationsChanged
+  ; Per-type icons and Open With entries, after the context-menu keys above. Failure here must not
+  ; roll back the copy. The executable refreshes ProgID icons and does not remove those menu keys.
   ClearErrors
   ExecWait '"$INSTDIR\winc.exe" --register-file-types'
   ClearErrors
@@ -253,6 +288,8 @@ uninstall_files:
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\winc"
   !insertmacro ForEachFileType UnregisterFileType
   !insertmacro ForEachRetiredFileType UnregisterFileType
+  !insertmacro UnregisterFolderVerb "Directory"
+  !insertmacro UnregisterFolderVerb "Directory\Background"
   DeleteRegKey HKCU "Software\Classes\Applications\winc.exe"
   !insertmacro NotifyAssociationsChanged
 SectionEnd

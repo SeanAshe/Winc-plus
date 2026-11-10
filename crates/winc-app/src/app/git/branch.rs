@@ -11,7 +11,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use winc_editor::git::{Branch, BranchDeleted, Carried, Git, Operation, Remote, Stash};
 use winc_i18n::t;
 
-use super::commit::COMMITTED_SHOWN;
+use super::commit::{COMMITTED_SHOWN, PushIntent};
 use super::question;
 use super::unusable;
 use super::worktree::RemoveCheck;
@@ -348,6 +348,22 @@ pub(crate) fn stash_title(stash: &Stash) -> String {
 }
 
 impl App {
+    /// 推送当前分支要做的事：有上游时推送，没有时发布到 `publish_remote`（状态还没读到时按
+    /// `origin`、第一个远程的顺序选择）；没有远程时提示原因并返回 `None`。
+    pub(in crate::app) fn push_intent(&mut self) -> Option<PushIntent> {
+        if self.has_upstream() {
+            return Some(PushIntent::Push);
+        }
+        let fallback = (self.git.remotes.iter())
+            .find(|r| *r == "origin")
+            .or(self.git.remotes.first());
+        let remote = self.git.publish_remote.clone().or(fallback.cloned());
+        if remote.is_none() {
+            self.notify(t!("git-push-no-remote"));
+        }
+        remote.map(PushIntent::Publish)
+    }
+
     pub(in crate::app) fn has_upstream(&self) -> bool {
         self.git
             .branches
@@ -380,11 +396,11 @@ impl App {
                     RemoteOp::Remove => self.confirm_remove_remote(remote.name),
                 }
             }
+            // 推送前确认目标远程（[`App::ask_push`]）。
             GitPush => {
-                let upstream = self.has_upstream();
-                self.git_operate(t!("git-op-push").into(), move |git, root| {
-                    git.push(root, upstream)
-                });
+                if let Some(intent) = self.push_intent() {
+                    self.ask_push(intent);
+                }
             }
             GitStash => self.open_stash_prompt(),
             GitContinue | GitAbort => {

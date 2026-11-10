@@ -1,6 +1,7 @@
 ## Menu bar and Dock menu
 
 menu-settings = Settings…
+menu-install-command = Install winc Command…
 menu-check-updates = Check for Updates
 menu-window = Window
 menu-window-minimize = Minimize

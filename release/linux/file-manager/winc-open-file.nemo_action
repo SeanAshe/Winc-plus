@@ -1,0 +1,10 @@
+# Nemo action, installed to /usr/share/nemo/actions. Text files only, as in winc-open-file.desktop.
+[Nemo Action]
+Name=Open with Winc
+Name[zh_CN]=通过 Winc 打开
+Comment=Open the selected files in Winc
+Comment[zh_CN]=在 Winc 中打开所选文件
+Exec=winc %F
+Icon-Name=winc
+Selection=notnone
+Mimetypes=text/plain;

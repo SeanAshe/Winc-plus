@@ -1,6 +1,7 @@
 ## Text shared across areas: common buttons and options.
 
 common-cancel = Cancel
+common-dont-ask = Don’t ask again
 common-open = Open
 common-save = Save
 common-save-as-label = Save As:

@@ -31,6 +31,17 @@ pub(crate) enum SyncState {
     },
 }
 
+/// 需要确认的推送（见 [`App::ask_push`]）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum PushIntent {
+    /// 把还没有上游的当前分支发布到这个远程，并设为上游。
+    Publish(String),
+    /// 把当前分支推送到上游。
+    Push,
+    /// 同步：拉取上游的新提交，再推送本地的提交。
+    Sync,
+}
+
 /// 提交成功后按钮显示「✓ 已提交」的时长（经验值）。
 ///
 /// 短于状态栏提示的显示时长，足以让用户确认提交已完成。
@@ -64,13 +75,14 @@ impl App {
         }
     }
 
-    /// 点击同步控件：有差异时同步，没有上游时发布，其余时候获取远程更新。只有强制推送要确认。
+    /// 点击同步控件：有差异时同步，没有上游时发布，其余时候获取远程更新。
+    ///
+    /// 会推送的发布和同步先确认（[`App::ask_push`]）；只拉取时不确认。
     pub(in crate::app) fn git_sync(&mut self) {
         match self.git_sync_state() {
             SyncState::Publish => self.run_branch_command(MenuCommand::GitPush),
-            SyncState::Push(_) | SyncState::Pull(_) | SyncState::Both { .. } => {
-                self.run_git_sync(false);
-            }
+            SyncState::Push(_) | SyncState::Both { .. } => self.ask_push(PushIntent::Sync),
+            SyncState::Pull(_) => self.run_git_sync(false),
             SyncState::NoRemote | SyncState::Hidden | SyncState::InSync => {
                 self.run_branch_command(MenuCommand::GitFetch);
             }
@@ -87,6 +99,99 @@ impl App {
                 Synced::NeedsForce(count) => (String::new(), Then::ConfirmForcePush(count)),
             })
         });
+    }
+
+    /// 发布、推送或同步当前分支前用提示框确认，写明推到哪个远程仓库；配置项 `git.confirmPush`
+    /// 为 `false`（提示框上勾选过「不再询问」）时不询问，直接执行。
+    pub(in crate::app) fn ask_push(&mut self, intent: PushIntent) {
+        if self.config.git_confirm_push == Some(false) {
+            self.run_push(intent);
+            return;
+        }
+        let (message, detail, button) = self.push_prompt(&intent);
+        let buttons = vec![
+            AlertButton::new(&button),
+            AlertButton::cancel(t!("common-cancel")),
+        ];
+        let asked = Some((t!("common-dont-ask"), false));
+        self.show_alert(&message, &detail, buttons, asked, move |choice, never| {
+            (choice == 0).then(|| UserEvent::GitPushConfirmed(intent.clone(), never))
+        });
+    }
+
+    /// 提示框中确认了 `intent`：勾选了「不再询问」（`never`）时写入配置，然后执行。
+    pub(in crate::app) fn push_confirmed(&mut self, intent: PushIntent, never: bool) {
+        if never {
+            self.config.git_confirm_push = Some(false);
+            self.save_config();
+        }
+        self.run_push(intent);
+    }
+
+    /// 确认 `intent` 的提示框内容：（标题，说明，确认按钮的文字）。
+    pub(in crate::app) fn push_prompt(&self, intent: &PushIntent) -> (String, String, String) {
+        let current = self.git.branches.iter().find(|b| b.current && !b.remote);
+        let branch = current.map_or("HEAD", |b| b.name.as_str());
+        let upstream = current.and_then(|b| b.upstream.as_deref()).unwrap_or("");
+        let (ahead, behind) = (self.git.status.as_ref()).map_or((0, 0), |s| (s.ahead, s.behind));
+        // 上游写作「远程名/分支名」，远程名本身可以含 `/`，按已知的远程名匹配最长的一个。
+        let upstream_remote = (self.git.remotes.iter())
+            .filter(|r| upstream.starts_with(&format!("{r}/")))
+            .max_by_key(|r| r.len())
+            .map(String::as_str);
+        // 推送的目标写远程的地址；取不到地址时写远程名。
+        let target = |remote: &str| {
+            (self.git.remote_list.iter())
+                .find(|r| r.name == remote)
+                .map_or_else(|| remote.to_owned(), |r| r.url.clone())
+        };
+        let upstream_target = target(upstream_remote.unwrap_or(upstream));
+        let (message, detail, button) = match intent {
+            PushIntent::Publish(remote) => (
+                t!("git-push-confirm-publish", remote = remote.as_str()),
+                t!(
+                    "git-push-confirm-publish-detail",
+                    branch = branch,
+                    target = target(remote)
+                ),
+                t!("git-push-confirm-publish-button"),
+            ),
+            PushIntent::Push => (
+                t!("git-push-confirm-push", upstream = upstream),
+                t!(
+                    "git-push-confirm-push-detail",
+                    count = ahead,
+                    target = upstream_target
+                ),
+                t!("git-push-confirm-push-button"),
+            ),
+            PushIntent::Sync => (
+                t!("git-push-confirm-sync", upstream = upstream),
+                t!(
+                    "git-push-confirm-sync-detail",
+                    ahead = ahead,
+                    behind = behind,
+                    target = upstream_target
+                ),
+                t!("git-push-confirm-sync-button"),
+            ),
+        };
+        (message.to_owned(), detail.to_owned(), button.to_owned())
+    }
+
+    /// 执行确认过的 `intent`：发布推到确认时写明的远程。
+    pub(in crate::app) fn run_push(&mut self, intent: PushIntent) {
+        match intent {
+            PushIntent::Publish(remote) => {
+                self.git_operate(t!("git-op-push").into(), move |git, root| {
+                    git.publish(root, &remote)
+                });
+            }
+            PushIntent::Push => {
+                self.git_operate(t!("git-op-push").into(), |git, root| git.push(root, true))
+            }
+            PushIntent::Sync => self.run_git_sync(false),
+        }
     }
 
     /// 同步需要强制推送：用提示框询问，确认后才替换上游的 `count` 个提交。
@@ -393,10 +498,11 @@ impl App {
                                 self.commit.message.set_text("");
                             }
                             let subject = message.lines().next().unwrap_or_default();
-                            if std::mem::take(&mut self.commit.push_after) {
-                                self.run_branch_command(
-                                    crate::app::input::context_menu::MenuCommand::GitPush,
-                                );
+                            // 「提交并推送」已经确认过，推送不再询问。
+                            if std::mem::take(&mut self.commit.push_after)
+                                && let Some(intent) = self.push_intent()
+                            {
+                                self.run_push(intent);
                             }
                             self.commit.amend = false;
                             self.commit.draft = None;

@@ -309,6 +309,13 @@ impl App {
             crate::macos::add_settings_menu(move || {
                 let _ = settings.send_event(UserEvent::OpenSettings);
             });
+            // 只有以应用包运行时才有要安装的命令（见 `shell_command::placement`）。
+            if crate::shell_command::placement().is_some() {
+                let install = proxy.clone();
+                crate::macos::add_install_command_menu(move || {
+                    let _ = install.send_event(UserEvent::InstallShellCommand);
+                });
+            }
 
             // 菜单在事件回调中弹出，选中结果不能在该回调内直接处理，因此转成用户事件。
             let menu = proxy.clone();

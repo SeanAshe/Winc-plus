@@ -133,7 +133,10 @@ impl SettingsPage {
                     plain(behavior),
                 ]
             }
-            SettingsPage::Modules => vec![plain(vec![Setting::GitModule, Setting::TerminalModule])],
+            SettingsPage::Modules => vec![
+                plain(vec![Setting::GitModule, Setting::TerminalModule]),
+                plain(vec![Setting::GitConfirmPush]),
+            ],
             SettingsPage::Format => {
                 let mut sections = vec![
                     plain(vec![
@@ -299,6 +302,8 @@ pub enum Setting {
     TerminalOptionAsMeta,
     /// Git 模块的开关。
     GitModule,
+    /// 发布、推送或同步分支前确认（`git.confirmPush`）。
+    GitConfirmPush,
     /// 终端模块的开关。
     TerminalModule,
     /// 「快捷键」页顶部的搜索框。
@@ -390,7 +395,9 @@ impl Setting {
             | Setting::TerminalPrompt
             | Setting::TerminalShellIntegration
             | Setting::TerminalOptionAsMeta => SettingsPage::Terminal,
-            Setting::GitModule | Setting::TerminalModule => SettingsPage::Modules,
+            Setting::GitModule | Setting::GitConfirmPush | Setting::TerminalModule => {
+                SettingsPage::Modules
+            }
             Setting::KeySearch => SettingsPage::Keys,
         }
     }
@@ -446,6 +453,7 @@ impl Setting {
             Setting::TerminalShellIntegration => t!("settings-terminal-shell-integration"),
             Setting::TerminalOptionAsMeta => t!("settings-terminal-option-as-meta"),
             Setting::GitModule => "Git",
+            Setting::GitConfirmPush => t!("settings-git-confirm-push"),
             Setting::TerminalModule => t!("settings-terminal-module"),
             Setting::KeySearch => t!("settings-key-search"),
         }
@@ -487,6 +495,7 @@ impl Setting {
             Setting::FixOnSave => Some(t!("settings-fix-on-save-desc")),
             Setting::SkipOnSave => Some(t!("settings-skip-on-save-desc")),
             Setting::GitModule => Some(t!("settings-git-module-desc")),
+            Setting::GitConfirmPush => Some(t!("settings-git-confirm-push-desc")),
             Setting::TerminalCopyOnSelect => Some(t!("settings-terminal-copy-on-select-desc")),
             Setting::TerminalConfirmClose => Some(t!("settings-terminal-confirm-close-desc")),
             Setting::TerminalPrompt => Some(t!("settings-terminal-prompt-desc")),
@@ -527,6 +536,7 @@ impl Setting {
             | Setting::FormatOnSave
             | Setting::FixOnSave
             | Setting::GitModule
+            | Setting::GitConfirmPush
             | Setting::TerminalModule
             | Setting::TerminalCopyOnSelect
             | Setting::TerminalConfirmClose

@@ -260,11 +260,13 @@ fn settings_keyboard_walks_every_item_and_adjusts() {
     assert_eq!(app.settings.selected, Setting::KeySearch);
     assert_eq!(app.settings_layout().page, SettingsPage::Keys);
     assert_eq!(app.focus, Focus::KeySearch);
-    // 向回走一步，回到模块页最后的终端开关，焦点回到浮层；再一步是 Git 开关；再走一步，回到
-    // 终端页的最后一项（macOS 上是「Meta 键」，其他平台是「Shell 集成」）。
+    // 向回走一步，回到模块页最后的「推送前确认」，焦点回到浮层；再两步依次是终端、Git 开关；再
+    // 走一步，回到终端页的最后一项（macOS 上是「Meta 键」，其他平台是「Shell 集成」）。
+    app.settings_move(false);
+    assert_eq!(app.settings.selected, Setting::GitConfirmPush);
+    assert_eq!(app.focus, Focus::Settings);
     app.settings_move(false);
     assert_eq!(app.settings.selected, Setting::TerminalModule);
-    assert_eq!(app.focus, Focus::Settings);
     app.settings_move(false);
     assert_eq!(app.settings.selected, Setting::GitModule);
     app.settings_move(false);

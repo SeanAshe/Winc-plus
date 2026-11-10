@@ -137,6 +137,10 @@ pub struct Config {
     pub terminal_right: Option<bool>,
     /// 是否启用 Git 模块（文件状态、分支、变更视图），默认为否。
     pub git_enabled: Option<bool>,
+    /// 发布、推送或同步分支前是否先确认目标远程仓库，默认为是。
+    ///
+    /// 提示框上勾选「不再询问」后写成 `false`，可在设置中重新打开。
+    pub git_confirm_push: Option<bool>,
     /// 在打开的目录下查找仓库的层数，默认见 [`Config::REPOSITORY_SCAN_DEPTH`]，可用范围见
     /// [`Config::REPOSITORY_SCAN_DEPTH_RANGE`]。
     pub repository_scan_depth: Option<usize>,

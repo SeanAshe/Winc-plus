@@ -1958,6 +1958,7 @@ fn a_deleted_upstream_keeps_its_commits_and_its_remote() {
 
     assert_eq!(app.git_sync_state(), SyncState::Publish);
     app.press_commit(CommitTarget::Sync);
+    press_alert(&mut app, 0);
     let remote_has = |dir: &Path| {
         Command::new("git")
             .arg("-C")
@@ -2238,14 +2239,17 @@ fn a_rewritten_branch_is_not_force_pushed_without_confirmation() {
     paint(&mut app);
     assert!(matches!(app.git_sync_state(), SyncState::Both { .. }));
 
-    // 同步发现需要强制推送：只用提示框询问，确认按钮标记为危险操作，上游不变。
+    // 同步发现需要强制推送：只用提示框询问，确认按钮标记为危险操作，上游不变。同步本身先确认
+    // （见 `App::ask_push`）。
     app.press_commit(CommitTarget::Sync);
+    press_alert(&mut app, 0);
     assert_eq!(pushed(&root), before);
     assert!(app.alert.as_ref().unwrap().buttons[0].destructive);
     // 取消后还是不推送，可以再问一次。
     press_alert(&mut app, 1);
     assert_eq!(pushed(&root), before);
     app.press_commit(CommitTarget::Sync);
+    press_alert(&mut app, 0);
 
     // 确认后才替换上游。
     press_alert(&mut app, 0);

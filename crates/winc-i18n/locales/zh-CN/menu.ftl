@@ -1,6 +1,7 @@
 ## 菜单栏与程序坞菜单
 
 menu-settings = 设置…
+menu-install-command = 安装 winc 命令…
 menu-check-updates = 检查更新
 menu-window = 窗口
 menu-window-minimize = 最小化

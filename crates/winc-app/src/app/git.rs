@@ -101,6 +101,9 @@ struct Refs {
     remotes: Vec<String>,
     /// 仓库配置的远程仓库和地址。
     remote_list: Vec<winc_editor::git::Remote>,
+    /// 发布当前分支时使用的远程（[`winc_editor::git::Git::publish_target`]）；没有远程时为
+    /// `None`。
+    publish_remote: Option<String>,
     /// 仓库的公共 Git 目录；取不到时为 `None`。
     common_dir: Option<PathBuf>,
     /// 储藏，最新的在前。
@@ -197,6 +200,8 @@ pub(crate) struct GitState {
     pub remotes: Vec<String>,
     /// 仓库配置的远程仓库和地址，与状态一起刷新。
     pub remote_list: Vec<winc_editor::git::Remote>,
+    /// 发布当前分支时使用的远程，与状态一起刷新；没有远程时为 `None`。
+    pub publish_remote: Option<String>,
     /// 储藏，最新的在前，与状态一起刷新。
     pub stashes: Vec<Stash>,
     /// 最近切换到过的分支名，最近的在前，与状态一起刷新。
@@ -253,6 +258,7 @@ impl Default for GitState {
             branches: Vec::new(),
             remotes: Vec::new(),
             remote_list: Vec::new(),
+            publish_remote: None,
             stashes: Vec::new(),
             recent_branches: Vec::new(),
             worktrees: Vec::new(),
@@ -322,6 +328,7 @@ impl GitState {
         self.branches.clear();
         self.remotes.clear();
         self.remote_list.clear();
+        self.publish_remote = None;
         self.stashes.clear();
         self.worktrees.clear();
         self.home = None;
@@ -766,6 +773,7 @@ impl App {
                     branches: git.branches(&root, &cancel).unwrap_or_default(),
                     remotes: git.remotes(&root, &cancel).unwrap_or_default(),
                     remote_list: git.remote_list(&root, &cancel).unwrap_or_default(),
+                    publish_remote: git.publish_target(&root).ok(),
                     common_dir: git.common_dir(&root, &cancel).ok(),
                     stashes: git.stashes(&root, &cancel).unwrap_or_default(),
                     recent_branches: git.recent_branches(&root, &cancel).unwrap_or_default(),
@@ -833,6 +841,7 @@ impl App {
                         self.git.recent_branches = refs.recent_branches;
                         self.git.remotes = refs.remotes;
                         self.git.remote_list = refs.remote_list;
+                        self.git.publish_remote = refs.publish_remote;
                         self.git.home = refs.home;
                         if let Some(watcher) = &mut self.watcher {
                             watcher.watch_git_dir(refs.common_dir.as_deref());

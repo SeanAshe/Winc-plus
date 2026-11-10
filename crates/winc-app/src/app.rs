@@ -132,6 +132,9 @@ pub enum UserEvent {
     /// 菜单栏的「设置…」（或 ⌘,）被触发；设置已打开时关闭设置。
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     OpenSettings,
+    /// 菜单栏的「安装 winc 命令…」被触发。
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    InstallShellCommand,
     /// macOS 上全屏过渡中红绿灯的位置发生变化（见 `crate::macos::TrafficLights`），
     /// 需要重新计算布局并重绘。
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
@@ -233,6 +236,8 @@ pub enum UserEvent {
     GitSwitchBranch(winc_editor::git::Branch, bool),
     /// 确认框中确认强制推送当前分支。
     GitForcePush,
+    /// 提示框中确认发布、推送或同步当前分支；为 `true` 时勾选了「不再询问」。
+    GitPushConfirmed(crate::app::git::commit::PushIntent, bool),
     /// 提示框中确认提交已勾选的文件并推送。
     GitCommitAndPush,
     /// 提示框中确认撤销上一次提交。

@@ -81,7 +81,7 @@ winc file.rs:12:5       # open a file at a line and column
 winc --wait file        # wait until the tab closes, for example as the Git editor
 ```
 
-The Windows installers and the Linux deb package add `winc` to `PATH`. On macOS and with the Linux AppImage, run **Shell Command: Install winc Command** from the command palette.
+The Windows installers and the Linux deb and Arch packages add `winc` to `PATH`; the Windows portable ZIP leaves `PATH` unchanged. On macOS, choose **Winc → Install winc Command…** from the menu bar or run **Shell Command: Install winc Command** from the command palette; with the Linux AppImage, use the command palette.
 
 On macOS the app is started by the system, so it does not inherit the environment variables of your shell. Use `winc --new-instance` to keep them.
 

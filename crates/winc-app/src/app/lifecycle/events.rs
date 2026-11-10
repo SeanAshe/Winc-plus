@@ -446,6 +446,7 @@ impl App {
             }
             UserEvent::GitSwitchBranch(branch, stash) => self.switch_branch(branch, stash),
             UserEvent::GitForcePush => self.run_git_sync(true),
+            UserEvent::GitPushConfirmed(intent, never) => self.push_confirmed(intent, never),
             UserEvent::GitCommitAndPush => self.git_commit_and_push(),
             UserEvent::GitUndoCommit => self.undo_last_commit(),
             UserEvent::ReplaceAllConfirmed(total) => self.replace_all_confirmed(total),
@@ -512,6 +513,7 @@ impl App {
                 self.show_window();
                 self.open_settings();
             }
+            UserEvent::InstallShellCommand => self.install_shell_command(),
             // 编号为所弹出菜单中的序号，按记录的菜单查找对应的命令。
             UserEvent::MenuCommand(tag) => {
                 let command = self.context_menu.as_ref().and_then(|menu| {

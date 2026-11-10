@@ -8,7 +8,7 @@
 
 mod actions;
 pub(in crate::app) use actions::COMMITTED_SHOWN;
-pub(crate) use actions::SyncState;
+pub(crate) use actions::{PushIntent, SyncState};
 mod list;
 pub(in crate::app::git) use list::rows_of;
 mod stash;
