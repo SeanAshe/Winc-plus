@@ -1,7 +1,6 @@
 [package]
 name = "winc-watch"
 description = "运行在 WSL 发行版内的文件监视程序：把目录中的变化经标准输出报告给 Windows 上的 winc。"
-version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true

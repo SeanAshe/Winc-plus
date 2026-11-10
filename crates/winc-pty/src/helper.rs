@@ -156,7 +156,7 @@ pub fn run() -> io::Result<()> {
     helper.send(&FromHelper::Hello {
         magic: MAGIC,
         version: VERSION,
-        build: env!("CARGO_PKG_VERSION").into(),
+        build: winc_version::VERSION.into(),
     });
     helper.flush()?;
 
@@ -943,7 +943,7 @@ fn environment(env: Vec<(Vec<u8>, Vec<u8>)>) -> Vec<(Vec<u8>, Vec<u8>)> {
         (b"TERM_PROGRAM".to_vec(), b"winc".to_vec()),
         (
             b"TERM_PROGRAM_VERSION".to_vec(),
-            env!("CARGO_PKG_VERSION").as_bytes().to_vec(),
+            winc_version::VERSION.as_bytes().to_vec(),
         ),
     ]);
     env

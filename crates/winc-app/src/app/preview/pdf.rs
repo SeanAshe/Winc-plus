@@ -36,6 +36,8 @@ enum Done {
 
 /// 当前标签的 PDF 预览。
 pub(crate) struct PdfPreview {
+    /// 上一帧绘制的区域（窗口坐标）；不显示时为空矩形。
+    pub area: Rect,
     /// 预览的文档及其版本号（`revision`）；文档或版本改变时重新打开。
     doc: Option<(DocumentId, u64)>,
     /// 当前打开的序号，每次重新打开加一，用来丢弃旧线程送回的结果。
@@ -57,8 +59,6 @@ pub(crate) struct PdfPreview {
     pub failed: HashMap<(usize, u32), String>,
     /// 滚动位置（逻辑像素，内容顶部到视口顶部的距离）。
     pub scroll: f32,
-    /// 上一帧绘制的区域（窗口坐标）；不显示时为空矩形。
-    pub area: Rect,
     /// 上一帧排出的内容总高度（逻辑像素），滚动时按它限制范围。
     pub height: f32,
 }

@@ -14,6 +14,8 @@ use winc_i18n::t;
 use winc_render::{Color, Faux, FontKind, Frame, Rect};
 
 use crate::app::animation::{Card, dialog_curve, reveal};
+use crate::app::workspace::picker::picker_parts;
+use crate::app::workspace::tab_names::{tab_folder, tab_icon_name};
 use crate::app::{App, DropZone, Hover, MenuButton, ScrollArea, ThumbLook, WORD_HIGHLIGHT_COUNT};
 use crate::field::{FieldView, TextField};
 use crate::icons;
@@ -35,15 +37,12 @@ mod status;
 mod terminal;
 mod workspace;
 
-pub(crate) use workspace::top_bar::{tab_folder, tab_icon_name};
-
 use editor::draw_editor;
-pub(crate) use editor::{LineTokens, MinimapRows, PictureCache, RulerCache};
+pub(crate) use editor::{LineTokens, MinimapRows, RulerCache};
 use fields::*;
 use overlays::{
     draw_conflict, draw_goto, draw_live_notice, draw_notice_ghost, draw_picker, draw_search,
 };
-pub(crate) use overlays::{picker_parts, picker_span};
 use status::draw_status;
 use workspace::sidebar::{
     draw_sidebar, draw_sidebar_button, draw_tree_overflow, draw_tree_overflow_closing,
@@ -51,17 +50,32 @@ use workspace::sidebar::{
 };
 use workspace::top_bar::{draw_top_bar, draw_window_controls};
 
+/// 返回本帧的底色矩形：侧栏、顶栏、编辑区的底色，由 [`draw`] 最先绘制。
+///
+/// `App::declare_base` 事先向渲染器声明，使其随窗口背景色一趟绘制（见 [`Frame::base`]）。
+/// 侧栏收起时其矩形位于窗口之外。
+pub(crate) fn base(app: &App) -> [(Rect, Color); 3] {
+    let (l, p) = (&app.layout, app.palette);
+    [
+        (l.sidebar, p.sidebar_bg),
+        (l.top_bar, p.editor_bg),
+        (l.editor, p.editor_bg),
+    ]
+}
+
 /// 绘制一帧界面，并重置、重新收集本帧的命中区域（文件树工具栏、项目名等）。
 ///
-/// 绘制顺序为：先绘制侧栏、顶栏、编辑区、状态栏，再绘制查找条、跳转条、快速打开卡片、
-/// 提示条等浮层；设置浮层打开时覆盖整个窗口并直接返回，其余情况最后绘制悬停提示。
+/// 绘制顺序为：先绘制底色（[`base`]）和侧栏、顶栏、编辑区、状态栏，再绘制查找条、跳转条、
+/// 快速打开卡片、提示条等浮层；设置浮层打开时覆盖整个窗口并直接返回，其余情况最后绘制悬停提示。
 pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     // 设置浮层出现、消失的动画期间，下方的窗口和卡片内容不变，用动画开始时保存的快照绘制。
     if settings::draw_cached(app, frame) || settings::draw_scrolling(app, frame) {
         return;
     }
+    app.hits.clear();
+    frame.base(&base(app));
     let layout = app.layout;
-    app.tree_overflow = tree_overflow(app, frame);
+    app.tree.overflow = tree_overflow(app, frame);
     app.track_log_tree();
     let before = app.commit.overflow.map(|o| o.row);
     app.commit.overflow = git::commit::commit_overflow(app, frame);
@@ -76,23 +90,20 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     // 鼠标停在名称展开的行上并滚动文件树后，该位置对应的行可能不再展开名称；鼠标位于文件树
     // 范围之外时需要清除悬停状态。
     let (x, y) = app.mouse();
-    if app.tree_overflow.is_none()
+    if app.tree.overflow.is_none()
         && matches!(app.hover, Hover::TreeRow(_))
         && !layout.tree.contains(x, y)
     {
         app.set_hover(Hover::None);
     }
 
-    app.tree_tools.clear();
-    app.tree_more = None;
-    app.project_hit = Rect::default();
     app.begin_scrollbars();
 
     if layout.sidebar.right() > 0.0 {
         draw_sidebar(app, frame);
     }
     // 本帧没有绘制工具栏（侧栏收起或处于搜索视图）时，收起动画直接结束，不需要额外一帧。
-    if app.tree_tools.is_empty() && app.tree_more.is_none() {
+    if app.hits.tree_tools.is_empty() && app.hits.tree_more.is_none() {
         app.tool_fold.settle();
     }
 
@@ -124,7 +135,7 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
 
     // 位置浮窗显示在名称旁边，有独立的动画（滑出、淡出）。
     let bar_open = app.goto_input.is_some();
-    let picker_open = app.picker_open && app.picker_places.is_none();
+    let picker_open = app.picker.open && app.picker.places.is_none();
     app.track_card(Card::Bar, bar_open);
     app.track_card(Card::Picker, picker_open);
     // 先绘制正在淡出的卡片：在 ⌘P 面板中按 ⌃G 时，跳转条绘制在淡出的面板之上。
@@ -137,32 +148,32 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     if picker_open {
         let rect = app.layout.picker;
         draw_moving_card(app, frame, Card::Picker, rect, draw_picker);
-    } else if app.picker_open {
+    } else if app.picker.open {
         draw_picker(app, frame);
-    } else if let Some(ghost) = &app.places_out {
+    } else if let Some(ghost) = &app.picker.places_out {
         editor::places::draw_ghost(app, frame, ghost);
     }
 
     editor::hint::draw_name_hint(app, frame);
 
-    app.conflict_card = draw_conflict(app, frame);
+    app.hits.conflict_card = draw_conflict(app, frame);
     // 合并冲突的卡片排在磁盘冲突卡片下面。
-    let top = match &app.conflict_card {
+    let top = match &app.hits.conflict_card {
         Some((card, _)) => card.bottom(),
         None if app.layout.search.h > 0.0 => app.layout.search.bottom(),
         None => app.layout.editor.y,
     } + 8.0;
-    let mut hits = std::mem::take(&mut app.merge.hits);
-    app.merge.card = git::merge::draw_merge_card(app, frame, top, &mut hits);
-    app.merge.hits = hits;
-    (app.notice_card, app.notice_button) = match app.notice.as_deref() {
+    let mut hits = std::mem::take(&mut app.hits.merge);
+    app.hits.merge_card = git::merge::draw_merge_card(app, frame, top, &mut hits);
+    app.hits.merge = hits;
+    (app.hits.notice_card, app.hits.notice_button) = match app.notice.text.as_deref() {
         Some(message) => {
             let (card, button) = draw_live_notice(app, frame, message);
             (Some(card), button)
         }
         None => (None, None),
     };
-    if let Some(ghost) = &app.notice_out {
+    if let Some(ghost) = &app.notice.leaving {
         draw_notice_ghost(app, frame, ghost);
     }
 
@@ -296,7 +307,8 @@ fn draw_tree_drag(app: &App, frame: &mut Frame<'_>) {
 fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
     // 停留时间不足时直接返回，不拼接提示文字，也不查找命中框。
     let rested = app
-        .tooltip_since
+        .tooltip
+        .since
         .is_some_and(|since| since.elapsed() >= TOOLTIP_DELAY);
     if !rested {
         return;
@@ -308,11 +320,11 @@ fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
                 SearchParts::new(app.layout.search).rect(button),
                 button.label(),
             ),
-            Hover::TreeTool(tool) => match app.tree_tools.iter().find(|(_, t)| *t == tool) {
+            Hover::TreeTool(tool) => match app.hits.tree_tools.iter().find(|(_, t)| *t == tool) {
                 Some(&(button, _)) => (button, tool.label().to_owned()),
                 None => return,
             },
-            Hover::TreeMore => match app.tree_more {
+            Hover::TreeMore => match app.hits.tree_more {
                 Some(button) => (button, t!("workspace-tip-more-actions").to_owned()),
                 None => return,
             },
@@ -340,8 +352,8 @@ fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
             // 日志列表中的作者头像：提示作者名和邮箱。
             Hover::Log(crate::app::git::log::LogTarget::Avatar(i)) => {
                 let hit = app
-                    .log
                     .hits
+                    .log
                     .iter()
                     .find(|(_, t)| *t == crate::app::git::log::LogTarget::Avatar(i));
                 let commit = app
@@ -357,7 +369,7 @@ fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
             // 提交图中线段的目标：点击后跳转到的提交。
             Hover::Log(crate::app::git::log::LogTarget::Line(row, line)) => {
                 let target = crate::app::git::log::LogTarget::Line(row, line);
-                if !app.log.hits.iter().any(|(_, t)| *t == target) {
+                if !app.hits.log.iter().any(|(_, t)| *t == target) {
                     return;
                 }
                 // 线段的命中框很小，提示放在鼠标下方，不按命中框居中。
@@ -384,8 +396,8 @@ fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
                 if app.log.long_files.contains(&i) =>
             {
                 let hit = app
-                    .log
                     .hits
+                    .log
                     .iter()
                     .find(|(_, t)| *t == crate::app::git::log::LogTarget::File(i));
                 match (hit, app.log_file_tip(i)) {
@@ -396,8 +408,8 @@ fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
             // 日志列表中延伸到右端仍放不下的提交说明：提示整句。
             Hover::Log(crate::app::git::log::LogTarget::Row(i)) if app.log.clipped == Some(i) => {
                 let hit = app
-                    .log
                     .hits
+                    .log
                     .iter()
                     .find(|(_, t)| *t == crate::app::git::log::LogTarget::Row(i));
                 let commit = app

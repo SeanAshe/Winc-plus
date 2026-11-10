@@ -251,12 +251,12 @@ fn auto_save_writes_on_switching_tabs_and_leaving_the_window() {
 
     // 开启自动保存：切换离开时保存，且不在状态栏提示。
     app.config.auto_save = Some(true);
-    app.status_message = None;
+    app.status.message = None;
     app.activate_tab(a_index.unwrap());
     app.run(Command::Insert("y".into()));
     app.open_path(&b);
     assert!(read(&a).starts_with("xy"), "{}", read(&a));
-    assert!(app.status_message.is_none());
+    assert!(app.status.message.is_none());
     assert!(
         app.editor
             .documents
@@ -294,10 +294,10 @@ fn auto_save_writes_on_switching_tabs_and_leaving_the_window() {
     app.auto_save(&ids);
     assert!(!b.exists());
     assert!(app.editor.active().unwrap().is_dirty());
-    let notice = app.notice.take().unwrap();
+    let notice = app.notice.text.take().unwrap();
     assert!(notice.contains("已从磁盘上删除"), "{notice}");
     app.auto_save(&ids);
-    assert!(app.notice.is_none());
+    assert!(app.notice.text.is_none());
     assert!(app.run_action(crate::keymap::Action::Save));
     assert!(b.exists());
 
@@ -375,7 +375,7 @@ fn status_bar_changes_indentation_and_line_endings() {
     app.open_path(&dir.join("src/main.rs"));
     paint(&mut app);
     let status_point = |app: &App, item: StatusItem| {
-        let (rect, _) = app.status_hits.iter().find(|(_, i)| *i == item).unwrap();
+        let (rect, _) = app.hits.status.iter().find(|(_, i)| *i == item).unwrap();
         (rect.x + rect.w / 2.0, rect.y + rect.h / 2.0)
     };
     fn doc(app: &App) -> &winc_editor::Document {
@@ -453,7 +453,7 @@ fn status_bar_changes_indentation_and_line_endings() {
     // 仅供查看的输出标签（格式化输出）的状态栏上，可点击的项只有设置按钮。
     app.editor.show_output("格式化输出", "x\n");
     paint(&mut app);
-    let items: Vec<StatusItem> = app.status_hits.iter().map(|&(_, item)| item).collect();
+    let items: Vec<StatusItem> = app.hits.status.iter().map(|&(_, item)| item).collect();
     assert_eq!(items, [StatusItem::Settings]);
 
     std::fs::remove_dir_all(&dir).unwrap();
@@ -532,7 +532,7 @@ fn bookmarks_jump_list_and_survive_closing_and_restarting() {
 
     // 没有书签时无法跳转，状态栏给出提示。
     app.run_action(Action::NextBookmark);
-    assert_eq!(app.status_message.as_deref(), Some("此文件中没有书签"));
+    assert_eq!(app.status.message.as_deref(), Some("此文件中没有书签"));
 
     // 在第 1、3 行（从 0 起）添加书签；第 2 行切换两次，即添加后又移除。
     go(&mut app, 3);
@@ -557,12 +557,12 @@ fn bookmarks_jump_list_and_survive_closing_and_restarting() {
 
     // 列出书签：卡片中有两行，回车跳转到选中的书签。
     app.run_action(Action::ListBookmarks);
-    assert!(app.picker_open);
-    assert_eq!(app.picker_hits.len(), 2);
+    assert!(app.picker.open);
+    assert_eq!(app.picker.hits.len(), 2);
     paint(&mut app);
-    app.picker_selected = 0;
+    app.picker.selected = 0;
     app.places_accept();
-    assert!(!app.picker_open);
+    assert!(!app.picker.open);
     assert_eq!(line_of(&app), 1);
 
     // 关闭标签后重新打开：书签仍在。
@@ -581,7 +581,7 @@ fn bookmarks_jump_list_and_survive_closing_and_restarting() {
 
     app.run_action(Action::ClearBookmarks);
     assert!(app.editor.active().unwrap().bookmark_lines().is_empty());
-    assert_eq!(app.status_message.as_deref(), Some("已清除 2 个书签"));
+    assert_eq!(app.status.message.as_deref(), Some("已清除 2 个书签"));
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -612,7 +612,8 @@ fn other_encodings_can_be_reopened_and_saved_from_the_status_bar() {
     paint(&mut app);
     assert_eq!(app.editor.active().unwrap().encoding.label(), "GB18030");
     assert!(
-        app.status_hits
+        app.hits
+            .status
             .iter()
             .any(|&(_, i)| i == StatusItem::Encoding)
     );
@@ -713,7 +714,7 @@ fn word_wrap_folds_long_lines_to_the_editor_width() {
     // 开启自动换行（`⌥Z`）：长行折为多段显示，不再横向滚动，并在状态栏给出提示。
     app.run_action(Action::ToggleWordWrap);
     assert_eq!(app.config.word_wrap, Some(true));
-    assert_eq!(app.status_message.as_deref(), Some("已开启自动换行"));
+    assert_eq!(app.status.message.as_deref(), Some("已开启自动换行"));
     paint(&mut app);
     let doc = app.editor.active().unwrap();
     let rows = doc.rows_of(1);
@@ -739,7 +740,7 @@ fn word_wrap_folds_long_lines_to_the_editor_width() {
     // 编辑区变窄（侧栏变宽）：长行断为更多段；滚动位置顶部的文本行保持不变。宽度减少文本区的
     // 一半：减少固定宽度时，某些字体下断出的段数恰好不变。
     app.editor.active_mut().unwrap().scroll_line = 2.0;
-    app.panel_width += app.layout.text.w / 2.0;
+    app.sidebar.width += app.layout.text.w / 2.0;
     paint(&mut app);
     let doc = app.editor.active().unwrap();
     assert!(doc.rows_of(1) > rows);
@@ -749,7 +750,7 @@ fn word_wrap_folds_long_lines_to_the_editor_width() {
     app.run_action(Action::ToggleWordWrap);
     paint(&mut app);
     assert_eq!(app.row_count(), 64);
-    assert_eq!(app.status_message.as_deref(), Some("已关闭自动换行"));
+    assert_eq!(app.status.message.as_deref(), Some("已关闭自动换行"));
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -933,10 +934,10 @@ fn finding_a_match_beyond_the_shown_part_of_a_line_keeps_text_on_screen() {
 
     let find = |app: &mut App| {
         app.open_search(false);
-        app.find_input.set_text("needle");
+        app.find.input.set_text("needle");
         app.search.query = "needle".into();
         app.search_changed();
-        app.status_message = None;
+        app.status.message = None;
         app.find_next(false);
         paint(app);
     };
@@ -951,7 +952,7 @@ fn finding_a_match_beyond_the_shown_part_of_a_line_keeps_text_on_screen() {
         doc.scroll_x
     );
     let hint = winc_i18n::t!("editor-find-hidden-match-wrap");
-    assert_eq!(app.status_message.as_deref(), Some(hint));
+    assert_eq!(app.status.message.as_deref(), Some(hint));
 
     // 开启自动换行后按整行断开：匹配所在的段滚动到屏幕上，不再提示。
     app.run_action(Action::ToggleWordWrap);
@@ -962,7 +963,7 @@ fn finding_a_match_beyond_the_shown_part_of_a_line_keeps_text_on_screen() {
     let visible = app.visible_lines() as f64;
     assert!(doc.is_wrapping() && row > 100.0);
     assert!(row >= doc.scroll_line && row < doc.scroll_line + visible);
-    assert_ne!(app.status_message.as_deref(), Some(hint));
+    assert_ne!(app.status.message.as_deref(), Some(hint));
     let _ = std::fs::remove_dir_all(&dir);
 }
 

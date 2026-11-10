@@ -534,3 +534,38 @@ fn positions_inside_long_lines_are_indexed() {
     }
     std::fs::remove_file(path).unwrap();
 }
+
+/// 大文件上的编辑耗时：在文件中部键入、删除行、撤销，以及保存。
+///
+/// 用 `WINC_MEASURE_FILE=<文件> cargo test --release -p winc-editor measure_large_file_editing
+/// -- --ignored --nocapture` 运行。文件会被改写，须使用可以丢弃的副本；未设置环境变量时跳过。
+#[test]
+#[ignore]
+fn measure_large_file_editing() {
+    use std::time::Instant;
+
+    use winc_core::{Lines, Selection};
+
+    use crate::{Command, Document, DocumentId};
+
+    let Some(path) = std::env::var_os("WINC_MEASURE_FILE") else {
+        return;
+    };
+    let start = Instant::now();
+    let mut d = Document::open(DocumentId(1), path.into()).unwrap();
+    eprintln!("打开：{:?}", start.elapsed());
+    let middle = d.text().line_count() / 2;
+    d.selection = Selection::point(d.text().line_start(middle));
+    let time = |d: &mut Document, command: Command| {
+        let start = Instant::now();
+        d.execute(command, 10, 4);
+        start.elapsed()
+    };
+    let typed = (0..100).map(|_| time(&mut d, Command::Insert("x".into())));
+    eprintln!("键入 100 次，最慢：{:?}", typed.max().unwrap());
+    eprintln!("删除行：{:?}", time(&mut d, Command::DeleteLine));
+    eprintln!("撤销：{:?}", time(&mut d, Command::Undo));
+    let start = Instant::now();
+    d.save().unwrap();
+    eprintln!("保存：{:?}", start.elapsed());
+}

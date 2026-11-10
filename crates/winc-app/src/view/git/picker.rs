@@ -61,7 +61,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>) {
         draw_branch_rows(app, frame, &parts, &mut hits);
     }
     draw_footer(app, frame, &parts, &mut hits);
-    app.picker_part_hits = hits;
+    app.hits.picker_parts = hits;
 }
 
 /// 绘制内嵌的搜索框：左边是放大镜。
@@ -84,11 +84,11 @@ fn draw_search(app: &mut App, frame: &mut Frame<'_>, bar: Rect) {
     };
     let x = bar.x + TEXT_LEFT;
     let area = Rect::new(x, field.y, (bar.right() - CONTENT - x).max(0.0), field.h);
-    let mut input = std::mem::take(&mut app.picker_input);
+    let mut input = std::mem::take(&mut app.picker.input);
     let caret = draw_bar_field(app, frame, area, &mut input, placeholder, focused);
-    app.picker_input = input;
+    app.picker.input = input;
     if caret.is_some() {
-        app.ime_cursor = caret;
+        app.ime.cursor = caret;
     }
 }
 
@@ -141,7 +141,7 @@ fn draw_actions(
 /// 这一帧要画的行：展开、收起的动画期间下面的行往上收，视口里能多露出几行。
 fn drawn_rows(app: &App, parts: &PickerParts, count: usize) -> Range<usize> {
     let scroll = app.picker_drawn_scroll();
-    let hidden = app.picker_fold.as_ref().map_or(0.0, |fold| fold.hidden());
+    let hidden = app.picker.fold.as_ref().map_or(0.0, |fold| fold.hidden());
     let first = ((scroll / PICKER_ROW).floor().max(0.0) as usize).min(count);
     let last = (((scroll + parts.list.h + hidden) / PICKER_ROW).ceil() as usize).min(count);
     first..last.max(first)
@@ -153,7 +153,7 @@ fn placed_row(app: &App, parts: &PickerParts, i: usize) -> (Rect, Rect) {
     let scroll = app.picker_drawn_scroll();
     let mut row = parts.row(i, scroll);
     let mut clip = parts.list;
-    if let Some(fold) = app.picker_fold.as_ref().filter(|f| i > f.before.parent) {
+    if let Some(fold) = app.picker.fold.as_ref().filter(|f| i > f.before.parent) {
         row.y -= fold.hidden();
         if i <= fold.before.parent + fold.count {
             let top = parts.row(fold.before.parent, scroll).bottom();
@@ -186,18 +186,18 @@ struct Line {
 impl Line {
     /// 开始绘制第 `i` 行：选中时先铺强调色底，文字改用底色上的颜色；鼠标所在的行铺浅色底。
     ///
-    /// 分支选择器打开时自动选中的行（`App::picker_default`）铺比悬停稍深的浅色底，文字颜色不变：
+    /// 分支选择器打开时自动选中的行（`Picker::default`）铺比悬停稍深的浅色底，文字颜色不变：
     /// 回车仍作用在它上面，但不与行首对勾标出的当前分支混淆。移动选中项或输入查询后改为强调色底。
     fn begin(app: &App, frame: &mut Frame<'_>, parts: &PickerParts, i: usize) -> Line {
         let p = app.palette;
         let (row, clip) = placed_row(app, parts, i);
-        let chosen = (app.picker_fold.as_ref()).map_or(app.picker_selected, |fold| {
-            fold.drawn_index(app.picker_selected)
+        let chosen = (app.picker.fold.as_ref()).map_or(app.picker.selected, |fold| {
+            fold.drawn_index(app.picker.selected)
         }) == i;
-        let default = chosen && app.picker_default == Some(app.picker_selected);
+        let default = chosen && app.picker.default == Some(app.picker.selected);
         let selected = chosen && !default;
         // 展开、收起的动画期间各行的位置在变化，悬停记录的行号与绘制位置不对应，因此不画悬停。
-        let hovered = app.picker_fold.is_none()
+        let hovered = app.picker.fold.is_none()
             && matches!(app.hover,
                 Hover::PickerRow(r) | Hover::PickerPart(PickerPart::More(r)) if r == i);
         let band = row.inset(GUTTER, 1.0);
@@ -246,7 +246,7 @@ impl Line {
 
     /// 在图标一列画第 `i` 行展开、收起的箭头：这一行正在展开或收起时跟着动画转到对应角度。
     fn draw_fold(&self, app: &App, frame: &mut Frame<'_>, (i, depth, open): (usize, usize, bool)) {
-        let turned = match &app.picker_fold {
+        let turned = match &app.picker.fold {
             Some(fold) if fold.before.parent == i => fold.turned(),
             _ => f32::from(u8::from(open)),
         };
@@ -380,9 +380,9 @@ fn draw_location_rows(
     parts: &PickerParts,
     hits: &mut Vec<(Rect, PickerPart)>,
 ) {
-    let rows = match &app.picker_fold {
+    let rows = match &app.picker.fold {
         Some(fold) if !fold.expanding => fold.before.locations.as_slice(),
-        _ => app.picker_location_rows.as_deref().unwrap_or_default(),
+        _ => app.picker.location_rows.as_deref().unwrap_or_default(),
     };
     if rows.is_empty() {
         draw_empty(app, frame, parts.list, t!("git-location-picker-empty"));
@@ -466,9 +466,9 @@ fn draw_branch_rows(
     parts: &PickerParts,
     hits: &mut Vec<(Rect, PickerPart)>,
 ) {
-    let rows = match &app.picker_fold {
+    let rows = match &app.picker.fold {
         Some(fold) if !fold.expanding => fold.before.branches.as_slice(),
-        _ => app.picker_branch_rows.as_deref().unwrap_or_default(),
+        _ => app.picker.branch_rows.as_deref().unwrap_or_default(),
     };
     if rows.is_empty() {
         draw_empty(app, frame, parts.list, t!("git-branch-picker-empty"));

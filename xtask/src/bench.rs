@@ -14,14 +14,19 @@ use crate::{build_release, root};
 const BUDGET_STARTUP_MS: f64 = 200.0;
 /// 空载物理内存预算（MB）。
 ///
-/// 取自调参：把各样本文件空载时的物理内存向上整到 70 MB，超出即视为内存占用回升。
+/// 取自调参：各样本文件空载时的物理内存为 40–48 MB（M4 Pro，2× 缩放，120 Hz 显示器）。
 /// 作用范围是 `bench` 对空载物理内存的判定；样本或缓存策略变化后需重新标定。
-const BUDGET_IDLE_MB: f64 = 70.0;
+const BUDGET_IDLE_MB: f64 = 50.0;
 /// 滚动单帧耗时的 p95 预算（毫秒）。
 ///
-/// 该值由屏幕刷新率决定：120 Hz 下的一帧间隔为 8.3 ms，取 8 ms 留出误差余量。
-/// 超过一帧间隔即视为掉帧。
-const BUDGET_SCROLL_P95_MS: f64 = 8.0;
+/// 取 120 Hz 下一帧间隔（8.3 ms）的四分之一，其余时间留给同一帧内的输入处理与合成器。
+/// 各样本文件实测的 p95 为 1.0–1.6 ms（M4 Pro）。
+const BUDGET_SCROLL_P95_MS: f64 = 2.0;
+/// Markdown 预览滚动单帧耗时的 p95 预算（毫秒）。
+///
+/// 预览按比例字体排版，每帧绘制的文字与图形多于等宽的代码区，预算高于 [`BUDGET_SCROLL_P95_MS`]。
+/// 本仓库的 `README.md` 实测 p95 为 1.6–1.9 ms（M4 Pro）。
+const BUDGET_PREVIEW_P95_MS: f64 = 3.0;
 
 /// 跑一遍全部基准，返回所有指标是否都在预算内。
 ///
@@ -72,12 +77,12 @@ pub fn bench(runs: usize) -> Result<bool, String> {
         );
     }
 
-    let (p50, p95) = scroll_once(&exe, &large)?;
+    let (p50, p95) = scroll_once(&exe, &large, "scroll")?;
     println!("{:<34} {:>8.2}ms", "滚动 p50（large.rs）", p50);
     ok &= report("滚动 p95（large.rs）", p95, BUDGET_SCROLL_P95_MS, "ms");
 
     for name in ["huge.txt", "huge.rs"] {
-        let (_, p95) = scroll_once(&exe, &dir.join(name))?;
+        let (_, p95) = scroll_once(&exe, &dir.join(name), "scroll")?;
         ok &= report(
             &format!("滚动 p95（{name}）"),
             p95,
@@ -85,6 +90,14 @@ pub fn bench(runs: usize) -> Result<bool, String> {
             "ms",
         );
     }
+
+    let (_, p95) = scroll_once(&exe, &root().join("README.md"), "preview")?;
+    ok &= report(
+        "预览滚动 p95（README.md）",
+        p95,
+        BUDGET_PREVIEW_P95_MS,
+        "ms",
+    );
 
     // 快速转动鼠标滚轮：帧间隔、画面落后于滚轮的格数、最后一格之后画面停止的耗时。只列出，
     // 不对照预算。
@@ -209,13 +222,15 @@ fn startup_once(exe: &Path, file: &Path) -> Result<f64, String> {
 
 /// 启动后连续滚动，返回（单帧耗时的 p50，毫秒；p95，毫秒）。
 ///
+/// `mode` 是测量模式：`scroll` 滚动文本，`preview` 先切换到只显示预览再滚动。
+///
 /// # Errors
 ///
 /// 进程启动失败，或输出里缺少滚动耗时与帧率时返回错误描述。
-fn scroll_once(exe: &Path, file: &Path) -> Result<(f64, f64), String> {
+fn scroll_once(exe: &Path, file: &Path, mode: &str) -> Result<(f64, f64), String> {
     let output = Command::new(exe)
         .arg(file)
-        .env("WINC_BENCH", "scroll")
+        .env("WINC_BENCH", mode)
         .stderr(Stdio::null())
         .output()
         .map_err(|e| e.to_string())?;

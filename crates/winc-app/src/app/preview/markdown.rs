@@ -22,8 +22,9 @@ use winit::keyboard::{Key, NamedKey};
 use crate::app::{App, UserEvent};
 use crate::system;
 
+pub(crate) mod laid;
 mod viewer;
-pub(crate) use viewer::{DiagramTool, DiagramView, MAX_ZOOM, MIN_ZOOM};
+pub(crate) use viewer::{DiagramLaid, DiagramTool, DiagramView, MAX_ZOOM, MIN_ZOOM};
 
 /// docx 包中的图片：Markdown 中引用的地址和图片文件的内容。
 type Media = Vec<(String, Arc<[u8]>)>;
@@ -40,21 +41,7 @@ enum Done {
     Drawn(PathBuf, Arc<Pixels>),
 }
 
-/// 一张图片的状态。
-pub(crate) enum ImageSlot {
-    /// 正在后台读取。
-    Loading,
-    /// 已读取；`pixels` 是按显示大小绘制的像素，最近绘制的在前，最多保留 [`SIZES`] 种
-    /// （同一张图可能以多种大小出现，例如并排的截图和表格中的缩略图）；`drawing` 是正在
-    /// 后台绘制的大小。
-    Ready {
-        picture: Arc<Picture>,
-        pixels: Vec<Arc<Pixels>>,
-        drawing: Vec<(u32, u32)>,
-    },
-    /// 无法读取（文件不存在或格式不支持）：显示替代文字。
-    Failed,
-}
+pub(crate) use winc_typeset::ImageSlot;
 
 /// 可编辑的预览中光标所在的叶子块（见 [`Markdown::leaves`]），该块显示原文。
 ///
@@ -119,6 +106,8 @@ pub(crate) struct TableBar {
 }
 
 pub(crate) struct MarkdownPreview {
+    /// 上一帧的绘制区域（分栏的右半边或整个编辑区）；不显示时为空矩形。
+    pub area: winc_render::Rect,
     /// 预览的文档；当前标签改变时重新开始。
     pub doc: Option<DocumentId>,
     /// 最近一次解析的结果。
@@ -133,10 +122,10 @@ pub(crate) struct MarkdownPreview {
     pub(crate) cost: Option<std::time::Duration>,
     /// 各文档预览的滚动位置（逻辑像素），切换到其他标签再切回时保持不变。
     scrolls: HashMap<DocumentId, f32>,
-    /// 排版结果，见 `view::markdown`。
-    pub layout: Option<crate::view::preview::markdown::Laid>,
-    /// 排版缓存，见 `view::markdown::Memo`。
-    pub memo: crate::view::preview::markdown::Memo,
+    /// 排版结果，见 [`laid::Laid`]。
+    pub layout: Option<crate::app::preview::markdown::laid::Laid>,
+    /// 排版缓存，见 `winc_typeset::Memo`。
+    pub memo: crate::app::preview::markdown::laid::Memo,
     /// 用到的图片，键为解析后的本地路径。
     pub images: HashMap<PathBuf, ImageSlot>,
     /// docx 包中的图片：键与 `images` 相同（按文档所在目录解析后的路径），值是图片文件的
@@ -156,20 +145,9 @@ pub(crate) struct MarkdownPreview {
     pub toggled_now: Option<String>,
     /// 点击 `其他.md#标题` 打开的文档与目标标题：该文档排版完成后滚动到该标题。
     pub pending_anchor: Option<(DocumentId, String)>,
-    /// 上一帧绘制的链接（区域和地址），点击时据此查找。
-    pub links: Vec<(winc_render::Rect, String)>,
-    /// 上一帧绘制了滚动条的可横向滚动的表格；没有时为 `None`。
-    ///
-    /// 同一时刻只显示一个表格的滚动条：鼠标所在的表格，或最近一次横向滚动的表格。
-    pub table_bar: Option<TableBar>,
     /// 最近一次横向滚动的表格：（顶层块序号，块中表格的序号），见 `view::markdown` 的
     /// `Laid::hscroll`。
     pub last_table: Option<(usize, usize)>,
-    /// 上一帧绘制的标题指示条和标题列表的可点击位置，见 `view::markdown` 的 `draw_toc`。
-    pub toc: Vec<(winc_render::Rect, TocTarget)>,
-    /// 上一帧标题指示条列出的各标题在内容里的高度（逻辑像素），与 [`TocTarget::Heading`] 的
-    /// 序号对应；点击标题时滚动到该处。
-    pub toc_tops: Vec<f32>,
     /// 标题列表展开时淡入的时钟；不在淡入中时为 `None`。
     pub toc_fade: Option<crate::app::animation::Clock>,
     /// 在标题列表中点击过的标题（`toc_tops` 的序号）和点击后的滚动位置。
@@ -184,26 +162,13 @@ pub(crate) struct MarkdownPreview {
     /// 跳转到的脚注或脚注引用在正文中的底色：范围（上边缘和高度，相对内容顶部，逻辑像素）与
     /// 淡出的时钟。
     pub anchor_flash: Option<((f32, f32), crate::app::animation::Clock)>,
-    /// 上一帧绘制的代码块（屏幕坐标）：鼠标移入、移出时重绘，以显示或隐藏复制按钮。
-    pub codes: Vec<winc_render::Rect>,
-    /// 上一帧绘制了复制按钮的代码块的内容；按钮在 `links` 中只记录 `COPY`，点击时才取这里的
-    /// 文字。
-    ///
-    /// 与排版结果共用同一段文字：鼠标停在代码块上时每帧都要绘制按钮，无需每帧复制整块。
-    pub copy: Option<std::sync::Arc<str>>,
-    /// 上一帧绘制了全屏按钮的图的源码。
-    ///
-    /// `links` 中的按钮只记录 `EXPAND`，点击时从这里取源码，绘制时不必复制源码。
-    pub expand: Option<std::sync::Arc<str>>,
     /// 全屏查看中的图；未打开全屏查看时为 `None`。
     pub diagram: Option<DiagramView>,
     /// 鼠标所在代码块在 `codes` 中的序号。
     pub code_hover: Option<usize>,
-    /// 上一帧的绘制区域（分栏的右半边或整个编辑区）；不显示时为空矩形。
-    pub area: winc_render::Rect,
     /// 上一帧排版的总高度（逻辑像素），滚动时据此限制范围。
     pub height: f32,
-    /// 选中的文字：起点和终点（整份文字里的字符偏移，见 `view::markdown::Laid::text`）。
+    /// 选中的文字：起点和终点（整份文字里的字符偏移，见 `laid::Laid::text`）。
     pub selection: Option<(usize, usize)>,
     /// 最近一次点击是否在预览上：为真时分栏中的 ⌘C、⌘A、⌘F 作用于预览；点击左侧文字后
     /// 恢复为作用于文字。
@@ -305,7 +270,6 @@ impl Default for MarkdownPreview {
             cost: None,
             scrolls: HashMap::new(),
             layout: None,
-            table_bar: None,
             last_table: None,
             memo: Default::default(),
             images: HashMap::new(),
@@ -316,17 +280,11 @@ impl Default for MarkdownPreview {
             toggled: HashSet::new(),
             toggled_now: None,
             pending_anchor: None,
-            links: Vec::new(),
-            toc: Vec::new(),
-            toc_tops: Vec::new(),
             toc_fade: None,
             toc_picked: None,
             toc_current: None,
             toc_flash: None,
             anchor_flash: None,
-            codes: Vec::new(),
-            copy: None,
-            expand: None,
             diagram: None,
             code_hover: None,
             area: winc_render::Rect::default(),
@@ -733,8 +691,8 @@ impl App {
         if !self.markdown.area.contains(x, y) {
             return None;
         }
-        self.markdown
-            .links
+        self.hits
+            .markdown_links
             .iter()
             .position(|(rect, _)| rect.contains(x, y))
     }
@@ -742,8 +700,8 @@ impl App {
     /// 第 `index` 个链接是否为预览自身的控件（代码块的复制按钮、图的全屏按钮、折叠块的标题、
     /// 勾选框），而非正文中的链接。
     pub(crate) fn markdown_link_is_control(&self, index: usize) -> bool {
-        use crate::view::preview::markdown::{COPY, DETAILS, EXPAND, TABLE, TASK};
-        self.markdown.links.get(index).is_some_and(|(_, url)| {
+        use crate::app::preview::markdown::laid::{COPY, DETAILS, EXPAND, TABLE, TASK};
+        self.hits.markdown_links.get(index).is_some_and(|(_, url)| {
             [COPY, DETAILS, EXPAND, TABLE, TASK]
                 .iter()
                 .any(|prefix| url.starts_with(prefix))
@@ -752,32 +710,32 @@ impl App {
 
     /// 处理预览中链接的点击：网址交给浏览器，`#标题` 滚动到该标题，本地文件在编辑器中打开。
     pub(crate) fn open_markdown_link(&mut self, index: usize) {
-        let Some((_, url)) = self.markdown.links.get(index).cloned() else {
+        let Some((_, url)) = self.hits.markdown_links.get(index).cloned() else {
             return;
         };
-        if url == crate::view::preview::markdown::EXPAND {
+        if url == crate::app::preview::markdown::laid::EXPAND {
             self.open_diagram_view();
             return;
         }
-        if url == crate::view::preview::markdown::COPY {
-            let Some(code) = self.markdown.copy.clone() else {
+        if url == crate::app::preview::markdown::laid::COPY {
+            let Some(code) = self.hits.markdown_copy.clone() else {
                 return;
             };
             self.set_clipboard(code.to_string(), false);
             self.flash(t!("preview-markdown-code-copied"));
             return;
         }
-        if let Some(op) = url.strip_prefix(crate::view::preview::markdown::TABLE) {
+        if let Some(op) = url.strip_prefix(crate::app::preview::markdown::laid::TABLE) {
             self.live_table_tool(op);
             return;
         }
-        if let Some(at) = url.strip_prefix(crate::view::preview::markdown::TASK) {
+        if let Some(at) = url.strip_prefix(crate::app::preview::markdown::laid::TASK) {
             if let Ok(at) = at.parse() {
                 self.toggle_markdown_task(at);
             }
             return;
         }
-        if let Some(id) = url.strip_prefix(crate::view::preview::markdown::DETAILS) {
+        if let Some(id) = url.strip_prefix(crate::app::preview::markdown::laid::DETAILS) {
             if let Ok(id) = u64::from_str_radix(id, 16)
                 && !self.markdown.toggled.remove(&id)
             {
@@ -889,7 +847,7 @@ impl App {
         let Some((_, anchor)) = md.pending_anchor.take_if(|(id, _)| md.doc == Some(*id)) else {
             return;
         };
-        match crate::view::preview::markdown::anchor_top(self, &anchor) {
+        match crate::app::preview::markdown::laid::anchor_top(self, &anchor) {
             Some(y) => self.scroll_markdown_to(y),
             None => self.flash(t!("preview-markdown-heading-not-found")),
         }
@@ -2303,7 +2261,7 @@ impl App {
             laid.left - self.markdown.area.w
         };
         let sy = self.markdown.area.y - self.markdown.scroll() + y + h / 2.0;
-        let Some(found) = crate::view::preview::markdown::source_at(self, x, sy) else {
+        let Some(found) = crate::app::preview::markdown::laid::source_at(self, x, sy) else {
             return false;
         };
         // 折行处的位置按下一行的开头定位：纵坐标与当前行不同时，光标应画在本行的末尾。
@@ -2391,7 +2349,7 @@ impl App {
         let step = by.unwrap_or(h);
         let sign = if down { 1.0 } else { -1.0 };
         let height = laid.height();
-        let screen = |laid: &crate::view::preview::markdown::Laid, v: f32| {
+        let screen = |laid: &crate::app::preview::markdown::laid::Laid, v: f32| {
             (
                 laid.left + goal,
                 self.markdown.area.y - self.markdown.scroll() + v,
@@ -2404,7 +2362,7 @@ impl App {
         let mut upstream = false;
         while (0.0..=height).contains(&target) {
             let (sx, sy) = screen(laid, target);
-            let found = crate::view::preview::markdown::source_at(self, sx, sy);
+            let found = crate::app::preview::markdown::laid::source_at(self, sx, sy);
             moved = found.filter(|&s| {
                 upstream = self.live_row_affinity(s, sy);
                 let point = self.markdown.layout.as_ref().and_then(|l| l.caret_point(s));
@@ -2455,7 +2413,7 @@ impl App {
         self.markdown.goal = None;
         self.markdown.line_end = None;
         self.request_redraw();
-        let Some(source) = crate::view::preview::markdown::source_at(self, x, y) else {
+        let Some(source) = crate::app::preview::markdown::laid::source_at(self, x, y) else {
             // 没有可定位的文字（空文档）：仍然进入编辑，显示光标。
             self.start_live_editing();
             return;
@@ -2512,7 +2470,7 @@ impl App {
         let Some((origin, by_word, _)) = self.markdown.live_drag else {
             return;
         };
-        let Some(source) = crate::view::preview::markdown::source_at(self, x, y) else {
+        let Some(source) = crate::app::preview::markdown::laid::source_at(self, x, y) else {
             return;
         };
         let upstream = !by_word && self.live_row_affinity(source, y);
@@ -2617,7 +2575,7 @@ impl App {
     pub(in crate::app) fn click_markdown(&mut self, x: f32, y: f32) {
         self.focus = crate::app::Focus::Editor;
         // 内容一栏两侧的空白：分栏时将键盘焦点交给预览，但不放置光标、不开始选择，保留已有选区。
-        if !crate::view::preview::markdown::in_content(self, x) {
+        if !crate::app::preview::markdown::laid::in_content(self, x) {
             if !self.markdown_live() {
                 self.markdown.focused = true;
                 self.request_redraw();
@@ -2630,7 +2588,7 @@ impl App {
         }
         self.markdown.focused = true;
         self.request_redraw();
-        let Some(at) = crate::view::preview::markdown::offset_at(self, x, y) else {
+        let Some(at) = crate::app::preview::markdown::laid::offset_at(self, x, y) else {
             self.markdown.selection = None;
             return;
         };
@@ -2675,7 +2633,7 @@ impl App {
         if doc.unsupported.is_some() || self.markdown.checked != Some(doc.revision) {
             return None;
         }
-        crate::view::preview::markdown::source_at(self, x, y)
+        crate::app::preview::markdown::laid::source_at(self, x, y)
     }
 
     /// 将文字光标放到原文第 `source` 个字节处；光标所在行不可见时滚动到距顶部三分之一处。
@@ -2720,7 +2678,7 @@ impl App {
         }
         self.focus = crate::app::Focus::Editor;
         if self.markdown_live() {
-            self.markdown.menu_source = crate::view::preview::markdown::source_at(self, x, y);
+            self.markdown.menu_source = crate::app::preview::markdown::laid::source_at(self, x, y);
             if let Some(source) = self.markdown.menu_source
                 && let Some(doc) = self.editor.active_mut()
                 && let Some(rope) = doc.text().rope()
@@ -2736,7 +2694,7 @@ impl App {
         }
         self.markdown.focused = true;
         self.markdown.menu_source = self.current_source_at(x, y);
-        let at = crate::view::preview::markdown::offset_at(self, x, y);
+        let at = crate::app::preview::markdown::laid::offset_at(self, x, y);
         let inside = self
             .markdown
             .selection
@@ -2797,7 +2755,7 @@ impl App {
             self.request_redraw();
             return;
         }
-        if let Some(at) = crate::view::preview::markdown::offset_at(self, x, y)
+        if let Some(at) = crate::app::preview::markdown::laid::offset_at(self, x, y)
             && let Some((anchor, _)) = self.markdown.selection
         {
             self.markdown.selection = Some((anchor, at));
@@ -2824,7 +2782,7 @@ impl App {
     /// 尚未排版时返回 `None`。
     pub(crate) fn markdown_find_doc(&mut self) -> Option<&winc_editor::Document> {
         if self.markdown.find_doc.is_none() {
-            let text = crate::view::preview::markdown::full_text(self)?;
+            let text = crate::app::preview::markdown::laid::full_text(self)?;
             let md = &mut self.markdown;
             md.find_serial += 1;
             // 与实际文档、差异所用的标识互不重叠。
@@ -2838,7 +2796,7 @@ impl App {
     /// 不滚动，否则滚动到距顶部三分之一屏处。
     pub(crate) fn select_in_markdown(&mut self, from: usize, to: usize) {
         self.markdown.selection = Some((from, to));
-        if let Some(y) = crate::view::preview::markdown::offset_top(self, from) {
+        if let Some(y) = crate::app::preview::markdown::laid::offset_top(self, from) {
             let md = &mut self.markdown;
             let scroll = md.scroll();
             if y < scroll || y + 40.0 > scroll + md.area.h {
@@ -2857,7 +2815,7 @@ impl App {
 
     /// 拖动表格的水平滚动条：按鼠标横坐标 `x` 和按下时在滑块上的位置 `grab` 设置滚动位置。
     pub(in crate::app) fn drag_markdown_table_scrollbar(&mut self, x: f32, grab: f32) {
-        let Some(bar) = self.markdown.table_bar else {
+        let Some(bar) = self.hits.markdown_table_bar else {
             return;
         };
         let scroll = self.markdown_table_scroll(bar.key);
@@ -2886,7 +2844,7 @@ impl App {
         let TocTarget::Heading(i) = target else {
             return;
         };
-        let Some(&top) = self.markdown.toc_tops.get(i) else {
+        let Some(&top) = self.hits.markdown_toc_tops.get(i) else {
             return;
         };
         self.scroll_markdown_to(top);
@@ -2901,7 +2859,8 @@ impl App {
     /// 点击标题列表一样铺一层逐渐淡出的底色，标示跳转的目标：脚注集中在文末，滚动到底之后
     /// 仅凭位置看不出是哪一条。
     pub(in crate::app) fn jump_to_anchor(&mut self, anchor: &str) {
-        let Some((top, height)) = crate::view::preview::markdown::anchor_box(self, anchor) else {
+        let Some((top, height)) = crate::app::preview::markdown::laid::anchor_box(self, anchor)
+        else {
             self.flash(t!("preview-markdown-heading-not-found"));
             return;
         };

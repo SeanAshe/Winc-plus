@@ -3,19 +3,20 @@
 
 /// 关于页和启动页上的版本，例如 `0.1.502_115`。
 pub(crate) fn display_version() -> String {
-    format!(
-        "{}_{}",
-        env!("CARGO_PKG_VERSION"),
-        env!("WINC_FORK_VERSION")
-    )
+    format!("{}_{}", winc_version::VERSION, fork_number())
 }
 
 /// 写进 appcast、并用来和当前安装比较的版本，例如 `0.1.502.115`。
 ///
 /// macOS 由 Sparkle 比较版本，这个四段数字只给其他平台的应用内更新。
 #[cfg(not(target_os = "macos"))]
-pub(crate) fn update_version() -> &'static str {
-    concat!(env!("CARGO_PKG_VERSION"), ".", env!("WINC_FORK_VERSION"))
+pub(crate) fn update_version() -> String {
+    format!("{}.{}", winc_version::VERSION, fork_number())
+}
+
+/// 这个 fork 比 DEEIX-AI/Winc 的 `dev` 多出来的提交数（`release/fork-version`）。
+fn fork_number() -> &'static str {
+    include_str!("../../../release/fork-version").trim()
 }
 
 /// 把四段数字版本显示成 `上游_自己的数字`。其他写法原样保留。

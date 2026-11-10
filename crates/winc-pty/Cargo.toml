@@ -1,7 +1,6 @@
 [package]
 name = "winc-pty"
 description = "终端：VT 解析、屏幕网格、回滚缓冲、和主程序之间的协议，以及打开伪终端的辅助进程 winc-pty。"
-version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
@@ -14,6 +13,7 @@ name = "winc-pty"
 path = "src/main.rs"
 
 [dependencies]
+winc-version.workspace = true
 unicode-width.workspace = true
 vte.workspace = true
 libc.workspace = true

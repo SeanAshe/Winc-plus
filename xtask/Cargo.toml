@@ -1,7 +1,6 @@
 [package]
 name = "xtask"
 description = "开发自动化：生成测试样本、测量启动时间和内存。"
-version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
@@ -11,6 +10,7 @@ homepage.workspace = true
 
 [dependencies]
 winc-config.workspace = true
+winc-version.workspace = true
 # 打包时把应用图标的 SVG 渲染成各个尺寸的 PNG，与应用内预览 SVG 用的是同一个渲染器。
 winc-preview.workspace = true
 png.workspace = true

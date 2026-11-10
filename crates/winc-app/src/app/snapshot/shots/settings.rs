@@ -241,7 +241,7 @@ fn snapshot_format_output() {
         app.format_active();
         app.wait_formatting();
         paint(&mut app);
-        let button = app.notice_button.unwrap();
+        let button = app.hits.notice_button.unwrap();
         app.on_mouse_move(button.x + 10.0, button.y + 10.0);
         shoot(&mut app, &format!("format-output-{tag}"));
 
@@ -267,7 +267,7 @@ fn snapshot_format_install() {
         app.format_active();
         app.wait_formatting();
         paint(&mut app);
-        let button = app.notice_button.unwrap();
+        let button = app.hits.notice_button.unwrap();
         app.on_mouse_move(button.x + 10.0, button.y + 10.0);
         shoot(&mut app, &format!("format-install-{tag}"));
 

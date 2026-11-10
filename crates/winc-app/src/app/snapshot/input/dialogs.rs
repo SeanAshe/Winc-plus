@@ -8,7 +8,7 @@ use winit::keyboard::{Key, NamedKey};
 fn opened(app: &App, which: Action) -> bool {
     match which {
         Action::GoToLine => app.goto_input.is_some(),
-        _ => app.picker_open,
+        _ => app.picker.open,
     }
 }
 
@@ -149,16 +149,16 @@ fn shoot_dialog_motion() {
     let mut app = app_with(&dir.join("short.rs"), true);
     app.open_picker();
     paint(&mut app);
-    app.picker_card.motion = Some((true, Clock::frozen(DIALOG_IN / 3, DIALOG_IN)));
+    app.picker.card.motion = Some((true, Clock::frozen(DIALOG_IN / 3, DIALOG_IN)));
     shoot(&mut app, "dialog-picker-in");
-    app.picker_card.motion = None;
+    app.picker.card.motion = None;
     app.close_picker();
     paint(&mut app);
-    app.picker_card.motion = Some((false, Clock::frozen(DIALOG_OUT / 2, DIALOG_OUT)));
+    app.picker.card.motion = Some((false, Clock::frozen(DIALOG_OUT / 2, DIALOG_OUT)));
     app.open_goto();
     paint(&mut app);
     app.bar_card.motion = Some((true, Clock::frozen(DIALOG_IN / 3, DIALOG_IN)));
-    app.picker_card.motion = Some((false, Clock::frozen(DIALOG_OUT / 2, DIALOG_OUT)));
+    app.picker.card.motion = Some((false, Clock::frozen(DIALOG_OUT / 2, DIALOG_OUT)));
     shoot(&mut app, "dialog-bar-in-picker-out");
     let _ = std::fs::remove_dir_all(&dir);
 }

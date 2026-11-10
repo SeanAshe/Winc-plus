@@ -1,43 +1,60 @@
 //! Markdown 预览的排版：把解析好的块排成一项项待绘制的内容（文字、底色、图片、链接范围）。
 //!
 //! [`LaidBlock`] 是排好的一块，[`Item`] 是其中一项，[`Cx`] 带着排版上下文逐块排；行内文字、
-//! 公式、流程图、饼图和时序图在子模块里。坐标都是逻辑像素，相对顶层块的左上角；字号、留白
-//! 等版式常量在上一级模块。
+//! 公式、流程图、饼图和时序图在子模块中。坐标都是逻辑像素，相对顶层块的左上角。排版不依赖
+//! 应用层：配色、图片的状态和图片地址的解析由调用方通过 [`Cx`] 传入。
 
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use winc_preview::image::{Picture, Pixels};
 use winc_preview::markdown::{Alert, Align, Block, Inline, Item as ListItem, SourceMap, Style};
 use winc_render::{Color, Faux, FontKind, Frame, Rect, Stroke};
+use winc_syntax::TokenKind;
 
-use crate::app::preview::markdown::ImageSlot;
-use crate::theme::Palette;
+/// 一张图片的状态。
+pub enum ImageSlot {
+    /// 正在后台读取。
+    Loading,
+    /// 已读取；`pixels` 是按显示大小绘制的像素，最近绘制的在前（同一张图可能以多种大小出现，
+    /// 例如并排的截图和表格中的缩略图）；`drawing` 是正在后台绘制的大小。
+    Ready {
+        /// 解码后的图片。
+        picture: Arc<Picture>,
+        /// 按显示大小绘制的像素。
+        pixels: Vec<Arc<Pixels>>,
+        /// 正在后台绘制的大小（物理像素）。
+        drawing: Vec<(u32, u32)>,
+    },
+    /// 无法读取（文件不存在或格式不支持）：显示替代文字。
+    Failed,
+}
 
 mod diagram;
 mod inline;
 mod math;
 mod memo;
 
-pub(crate) use memo::Memo;
-pub(super) use memo::{key as memo_key, shift};
+pub use memo::Memo;
+pub use memo::{key as memo_key, shift};
 
 /// 一个排好版的顶层块：要画的项，坐标相对块的左上角。
 #[derive(Default)]
-pub(super) struct LaidBlock {
+pub struct LaidBlock {
     /// 块的高度（逻辑像素）。
-    pub(super) height: f32,
+    pub height: f32,
     /// 要画的项，按绘制先后排列。
-    pub(super) items: Vec<Item>,
+    pub items: Vec<Item>,
     /// 标题的锚点（小写、空格换成 `-`、去掉标点）和所在高度，`[跳转](#标题)` 用。
-    pub(super) anchors: Vec<(String, f32)>,
+    pub anchors: Vec<(String, f32)>,
     /// 块里能选中的文字连起来：段落、单元格、代码行之间是换行，折行处不加。
     ///
     /// 选中、复制、查找都按它，位置是字符偏移。
-    pub(super) text: Box<str>,
+    pub text: Box<str>,
     /// `text` 有多少个字符。
-    pub(super) chars: usize,
+    pub chars: usize,
     /// 按高度找看得见的项用（见 [`LaidBlock::visible`]）。
     ///
     /// `tall` 是高的项（代码块的底色、引用的竖条、表格的竖线、大图）的序号，`short` 是矮的项
@@ -45,27 +62,27 @@ pub(super) struct LaidBlock {
     tall: Vec<u32>,
     short: Vec<(f32, u32)>,
     /// 排版这一块时使用的排版缓存条目，见 [`Memo::sweep`]。
-    pub(super) memo: Box<[u64]>,
+    pub memo: Box<[u64]>,
     /// 输入法组字是否排在这一块中，见 [`Cx::preedit`]。
-    pub(super) preedit: bool,
+    pub preedit: bool,
     /// 比正文宽、可以横向滚动的表格，按项的先后排列。
-    pub(super) scrolls: Vec<Scroller>,
+    pub scrolls: Vec<Scroller>,
 }
 
 /// 比正文宽的表格：表格的各项按自然宽度排版，绘制时横向平移、裁剪到正文一栏内。
 #[derive(Debug, Clone)]
-pub(super) struct Scroller {
+pub struct Scroller {
     /// 属于该表格的项（[`LaidBlock::items`] 的序号）。
-    pub(super) items: std::ops::Range<u32>,
+    pub items: std::ops::Range<u32>,
     /// 显示表格的区域（块里的坐标）：正文一栏宽，高度含表格下方的滚动条。
-    pub(super) rect: Rect,
+    pub rect: Rect,
     /// 表格的总宽度（逻辑像素）。
-    pub(super) content: f32,
+    pub content: f32,
 }
 
 impl Scroller {
     /// 最大横向滚动距离（逻辑像素）。
-    pub(super) fn max(&self) -> f32 {
+    pub fn max(&self) -> f32 {
         (self.content - self.rect.w).max(0.0)
     }
 }
@@ -96,7 +113,7 @@ fn rounded_frame(rect: Rect, radius: f32) -> Vec<Stroke> {
 const TABLE_TEXT: f32 = 0.875;
 
 /// 可横向滚动的表格下方为滚动条留出的高度（逻辑像素）。
-pub(super) const SCROLL_BAR_ROOM: f32 = 10.0;
+pub const SCROLL_BAR_ROOM: f32 = 10.0;
 
 /// 高项与矮项的分界（逻辑像素，经验值）：高度超过该值的项算「高的」，每次绘制都检查一遍；
 /// 矮的项按上边缘二分查找。
@@ -104,7 +121,7 @@ const TALL: f32 = 120.0;
 
 impl LaidBlock {
     /// 创建一个排好的顶层块，同时按高度建好查找可见项的索引。
-    pub(super) fn new(
+    pub fn new(
         height: f32,
         items: Vec<Item>,
         anchors: Vec<(String, f32)>,
@@ -137,13 +154,13 @@ impl LaidBlock {
     }
 
     /// 第 `item` 项所在的可横向滚动的表格的序号（[`LaidBlock::scrolls`]）；不在其中时为 `None`。
-    pub(super) fn scroller_of(&self, item: usize) -> Option<usize> {
+    pub fn scroller_of(&self, item: usize) -> Option<usize> {
         let item = u32::try_from(item).ok()?;
         self.scrolls.iter().position(|s| s.items.contains(&item))
     }
 
     /// 块里有没有用到 `paths` 里的图片（排版时还在读的也算）。
-    pub(super) fn uses_any(&self, paths: &[PathBuf]) -> bool {
+    pub fn uses_any(&self, paths: &[PathBuf]) -> bool {
         !paths.is_empty()
             && self
                 .items
@@ -152,7 +169,7 @@ impl LaidBlock {
     }
 
     /// 块里有没有指向 `url` 的链接。
-    pub(super) fn links_to(&self, url: &str) -> bool {
+    pub fn links_to(&self, url: &str) -> bool {
         self.items
             .iter()
             .any(|item| matches!(item, Item::Link { url: u, .. } if &**u == url))
@@ -161,7 +178,7 @@ impl LaidBlock {
     /// 和 `y0..y1`（块里的坐标）有交集的项的序号，按原来的先后（先画的底色在下面）。
     ///
     /// 长列表、长表格、长代码块是一个顶层块，里面成千上万项，每帧只看屏上那些。
-    pub(super) fn visible(&self, y0: f32, y1: f32, out: &mut Vec<u32>) {
+    pub fn visible(&self, y0: f32, y1: f32, out: &mut Vec<u32>) {
         out.clear();
         let hit = |i: u32| {
             let (top, bottom) = self.items[i as usize].span_y();
@@ -182,7 +199,7 @@ impl LaidBlock {
 
 impl Item {
     /// 上下边缘（块里的坐标）；文字算上选中时铺底色的范围。
-    pub(super) fn span_y(&self) -> (f32, f32) {
+    pub fn span_y(&self) -> (f32, f32) {
         match self {
             Item::Text { baseline, size, .. } => (baseline - size * 1.2, baseline + size * 0.5),
             Item::Fill { rect, .. }
@@ -199,7 +216,7 @@ impl Item {
     }
 
     /// 左右边缘（块内坐标）；文字按各字符的宽度计算，宽度未知时只计算起点。
-    pub(super) fn span_x(&self) -> (f32, f32) {
+    pub fn span_x(&self) -> (f32, f32) {
         match self {
             Item::Text { x, span, .. } => {
                 let w = span.as_ref().map_or(0.0, |s| s.advances.iter().sum());
@@ -222,23 +239,23 @@ impl Item {
 /// 一段能选中的文字在块文字（[`LaidBlock::text`]）里从哪个字符开始、每个字的宽度，以及在
 /// 原文中的位置。
 #[derive(Clone)]
-pub(super) struct Span {
+pub struct Span {
     /// 这一段在块文字里的起点（字符偏移）。
-    pub(super) start: usize,
+    pub start: usize,
     /// 每个字的宽度（逻辑像素）。
-    pub(super) advances: Arc<[f32]>,
+    pub advances: Arc<[f32]>,
     /// 第一个字在原文中的位置（字节偏移，相对所在顶层块的起点）；由原文生成的文字（提示块的
     /// 标题、图里的字）为 `None`。
-    pub(super) source: Option<u32>,
+    pub source: Option<u32>,
     /// 原文不连续之处：（第几个字，该字相对 `source` 的字节偏移），按字的先后排列。
     ///
     /// 其余的字在原文中紧接前一个字。
-    pub(super) jumps: Option<Arc<[(u32, u32)]>>,
+    pub jumps: Option<Arc<[(u32, u32)]>>,
 }
 
 impl Span {
     /// 第 `k` 个字（`k` 可以等于字数，即末尾）在原文中的位置，`text` 是这一段的文字。
-    pub(super) fn source_of(&self, text: &str, k: usize) -> Option<usize> {
+    pub fn source_of(&self, text: &str, k: usize) -> Option<usize> {
         let at = self.source? as usize;
         let (from, base) = self
             .jumps
@@ -257,7 +274,7 @@ impl Span {
     }
 
     /// 原文位置在 `source`（相对顶层块）之前的字有几个：选区的两端换成这一段里的字。
-    pub(super) fn chars_before(&self, text: &str, source: usize) -> usize {
+    pub fn chars_before(&self, text: &str, source: usize) -> usize {
         match self.char_at_source(text, source) {
             Some(k) if self.source_of(text, k).is_some_and(|s| s < source) => {
                 (k + 1).min(self.advances.len())
@@ -269,7 +286,7 @@ impl Span {
 
     /// 原文位置 `source`（相对顶层块）落在第几个字之前：取原文位置不超过它的最后一个字；
     /// 比第一个字还靠前时为 `None`。
-    pub(super) fn char_at_source(&self, text: &str, source: usize) -> Option<usize> {
+    pub fn char_at_source(&self, text: &str, source: usize) -> Option<usize> {
         let at = self.source? as usize;
         if at > source {
             return None;
@@ -303,33 +320,49 @@ impl Span {
 /// 文字、宽度用 `Arc` 存，排版缓存（[`Memo`]）里取出来挪个位置就能用，
 /// 不用再分配。坐标都是逻辑像素，相对顶层块的左上角。
 #[derive(Clone)]
-pub(super) enum Item {
+pub enum Item {
+    /// 一段文字。
     Text {
         /// 相对顶层块左上角的横坐标。
         x: f32,
         /// 基线相对顶层块左上角的纵坐标。
         baseline: f32,
+        /// 文字内容。
         text: Arc<str>,
+        /// 字体。
         font: FontKind,
+        /// 模拟的粗体与斜体。
         faux: Faux,
+        /// 字号（逻辑像素）。
         size: f32,
+        /// 颜色。
         color: Color,
         /// 能选中时在块文字里的位置；列表记号这类不算文字的为 `None`。
         span: Option<Span>,
     },
+    /// 圆角半径为 `radius`（逻辑像素）的底色。
     Fill {
+        /// 范围。
         rect: Rect,
+        /// 颜色。
         color: Color,
+        /// 圆角半径。
         radius: f32,
     },
     /// 四个角半径各不相同的底色，`radii` 依次是左上、右上、右下、左下（逻辑像素）。
     Corners {
+        /// 范围。
         rect: Rect,
+        /// 颜色。
         color: Color,
+        /// 四个角的半径。
         radii: [f32; 4],
     },
+    /// 一张图片。
     Image {
+        /// 范围。
         rect: Rect,
+        /// 图片对应的本地文件。
         path: PathBuf,
         /// 图片在块文字中的字符序号及其在原文中的位置（相对顶层块）。
         ///
@@ -337,23 +370,39 @@ pub(super) enum Item {
         at: Option<(usize, u32)>,
     },
     /// 链接能点的范围，不画。
-    Link { rect: Rect, url: Arc<str> },
+    Link {
+        /// 范围。
+        rect: Rect,
+        /// 链接的地址。
+        url: Arc<str>,
+    },
     /// 点击时光标移到原文 `at` 处的范围，不画：单独成行的公式中没有可定位的文字。
     ///
     /// `at` 同 [`Item::Image`] 的 `at`：块文字中的字符序号和原文中的位置（相对顶层块）。
-    Spot { rect: Rect, at: (usize, u32) },
+    Spot {
+        /// 范围。
+        rect: Rect,
+        /// 块文字中的字符序号和原文中的位置。
+        at: (usize, u32),
+    },
     /// 任务列表的勾选框：`source` 是 `[ ]` 在原文中的位置（相对顶层块的开头），点击时切换。
     Check {
+        /// 范围。
         rect: Rect,
+        /// 是否已勾选。
         checked: bool,
+        /// `[ ]` 在原文中的位置。
         source: u32,
     },
     /// 代码块的范围和内容：鼠标悬停时右上角显示复制按钮。
     ///
     /// `diagram` 为真时表示 mermaid 图的范围和源码，复制按钮左侧另显示全屏按钮。
     Code {
+        /// 范围。
         rect: Rect,
+        /// 代码或图的源码。
         text: Arc<str>,
+        /// 是否为 mermaid 图。
         diagram: bool,
     },
     /// 表格的范围和单元格。
@@ -362,22 +411,33 @@ pub(super) enum Item {
     /// 查找文字。可编辑的预览中光标位于该表格时，`align` 是光标所在列的对齐方式，
     /// 表格上方绘制工具栏。
     Table {
+        /// 范围。
         rect: Rect,
+        /// 光标所在列的对齐方式。
         align: Option<Align>,
+        /// 各列的宽度。
         cols: Arc<[f32]>,
+        /// 各行的高度。
         rows: Arc<[f32]>,
     },
     /// 一组线（公式的根号、括号，图的边框、连线），`rect` 是外框。
     Path {
+        /// 外框。
         rect: Rect,
+        /// 各段线。
         strokes: Arc<[Stroke]>,
+        /// 线宽（逻辑像素）。
         width: f32,
+        /// 颜色。
         color: Color,
     },
     /// 填色的凸多边形（图里的菱形、箭头）。
     Polygon {
+        /// 外框。
         rect: Rect,
+        /// 各顶点。
         points: Arc<[(f32, f32)]>,
+        /// 颜色。
         color: Color,
     },
 }
@@ -385,7 +445,7 @@ pub(super) enum Item {
 impl Item {
     /// 返回宽 `width`（逻辑像素）的线 `strokes` 组成的一项；`rect` 取所有线段的包围盒，
     /// 四周加上一半线宽。
-    pub(super) fn path(strokes: Vec<Stroke>, width: f32, color: Color) -> Item {
+    pub fn path(strokes: Vec<Stroke>, width: f32, color: Color) -> Item {
         let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
         let mut grow = |x: f32, y: f32, r: f32| {
             (x0, y0, x1, y1) = (x0.min(x - r), y0.min(y - r), x1.max(x + r), y1.max(y + r));
@@ -409,7 +469,7 @@ impl Item {
     }
 
     /// 返回填色的凸多边形 `points` 组成的一项；`rect` 取各点的包围盒。
-    pub(super) fn polygon(points: Vec<(f32, f32)>, color: Color) -> Item {
+    pub fn polygon(points: Vec<(f32, f32)>, color: Color) -> Item {
         let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
         for &(x, y) in &points {
             (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
@@ -427,11 +487,11 @@ impl Item {
 /// 边框、底色都是正文色的低不透明度值：深色主题取 20%/12%/5%/3%，浅色主题取
 /// 16%/8%/4%/2.5%。
 #[derive(Clone, Copy)]
-pub(super) struct Colors {
+pub struct Colors {
     /// 正文和标题的颜色。
-    pub(super) text: Color,
+    pub text: Color,
     /// 次要颜色，六级标题、引用正文、提示块的说明用。
-    pub(super) muted: Color,
+    pub muted: Color,
     /// 链接颜色，取配色的强调色。
     link: Color,
     /// 边框、分隔线、表格线的颜色。
@@ -449,19 +509,19 @@ pub(super) struct Colors {
 }
 
 impl Colors {
-    /// 从配色推出排版用的颜色，深色、浅色主题各取一组不透明度。
-    pub(super) fn new(p: &Palette) -> Colors {
-        let dark = p.dark;
+    /// 由正文色 `text`、次要色 `muted`、强调色 `accent` 推出排版用的颜色；`dark` 为深色主题，
+    /// 深色、浅色主题各取一组不透明度。
+    pub fn new(text: Color, muted: Color, accent: Color, dark: bool) -> Colors {
         Colors {
-            text: p.text,
-            muted: p.text_muted,
-            link: p.accent,
-            border: p.text.alpha(if dark { 0.2 } else { 0.16 }),
-            code_inline: p.text.alpha(if dark { 0.12 } else { 0.08 }),
-            code_block: p.text.alpha(if dark { 0.05 } else { 0.04 }),
-            table_head: p.text.alpha(if dark { 0.06 } else { 0.04 }),
-            table_frame: p.text.alpha(if dark { 0.14 } else { 0.11 }),
-            table_line: p.text.alpha(if dark { 0.09 } else { 0.07 }),
+            text,
+            muted,
+            link: accent,
+            border: text.alpha(if dark { 0.2 } else { 0.16 }),
+            code_inline: text.alpha(if dark { 0.12 } else { 0.08 }),
+            code_block: text.alpha(if dark { 0.05 } else { 0.04 }),
+            table_head: text.alpha(if dark { 0.06 } else { 0.04 }),
+            table_frame: text.alpha(if dark { 0.14 } else { 0.11 }),
+            table_line: text.alpha(if dark { 0.09 } else { 0.07 }),
         }
     }
 
@@ -479,66 +539,68 @@ impl Colors {
 }
 
 /// 排版时的上下文。
-pub(super) struct Cx<'a, 'f> {
+pub struct Cx<'a, 'f> {
     /// 量字宽、画图用的绘制上下文。
-    pub(super) frame: &'a mut Frame<'f>,
+    pub frame: &'a mut Frame<'f>,
     /// 正文字号（逻辑像素），标题、代码按它缩放。
-    pub(super) base: f32,
-    /// 当前配色，代码高亮的颜色按它取。
-    pub(super) palette: &'static Palette,
+    pub base: f32,
+    /// 返回语法标记对应的颜色，用于代码的高亮。
+    pub token: &'a dyn Fn(TokenKind) -> Color,
+    /// 编辑区的底色，图的填充色由它与强调色混合得到。
+    pub surface: Color,
+    /// 强调色。
+    pub accent: Color,
     /// 由配色推出的排版颜色。
-    pub(super) colors: Colors,
+    pub colors: Colors,
     /// 是否深色主题。
-    pub(super) dark: bool,
+    pub dark: bool,
     /// 已读好的图片，按路径查。
-    pub(super) images: &'a HashMap<PathBuf, ImageSlot>,
-    /// 当前文档的路径，图片的相对路径按它算。
-    pub(super) doc: Option<PathBuf>,
+    pub images: &'a HashMap<PathBuf, ImageSlot>,
+    /// 返回图片地址对应的本地文件；不显示该图片时返回 `None`。
+    pub image_path: &'a dyn Fn(&str) -> Option<PathBuf>,
     /// 排版时遇到、还没读过的图片：本地路径和文件里写的地址。
-    pub(super) wanted: Vec<(PathBuf, String)>,
-    /// 网址的图片要不要联网下载（设置里可以关）。
-    pub(super) remote: bool,
+    pub wanted: Vec<(PathBuf, String)>,
     /// 跨次排版留着的排版缓存。
-    pub(super) memo: &'a mut Memo,
-    /// 点过、和原来开合相反的折叠块（见 [`details_id`]）。
-    pub(super) toggled: &'a HashSet<u64>,
+    pub memo: &'a mut Memo,
+    /// 点过、和原来开合相反的折叠块（见 `details_id`）。
+    pub toggled: &'a HashSet<u64>,
     /// 正在排的块的文字（见 [`LaidBlock::text`]）和它的字符数。
-    pub(super) text: String,
+    pub text: String,
     /// `text` 的字符数。
-    pub(super) chars: usize,
+    pub chars: usize,
     /// 可编辑的预览中，正在排的顶层块里光标所在的叶子块：显示原文，见 [`Raw`]。
-    pub(super) raw: Option<Raw>,
-    /// 光标所在的表格里显示原文的那一格，见 [`Cx::live_cell`]；排这张表时取走。
-    pub(super) cell: Option<LiveCell>,
+    pub raw: Option<Raw>,
+    /// 光标所在的表格里显示原文的那一格，见 `Cx::live_cell`；排这张表时取走。
+    pub cell: Option<LiveCell>,
     /// 这一块中是否排入了输入法组字（[`Raw::preedit`]）；为真时，绘制光标时不再重复绘制组字文字。
-    pub(super) preedit: bool,
+    pub preedit: bool,
 }
 
 /// 可编辑的预览中光标所在的叶子块：不排版，显示原文。
-pub(super) struct Raw {
+pub struct Raw {
     /// 所在顶层块现在的原文（从块的起点起，含解析之后的修改）。
-    pub(super) block: Arc<str>,
+    pub block: Arc<str>,
     /// 叶子块在 `block` 中的范围。
-    pub(super) leaf: std::ops::Range<usize>,
+    pub leaf: std::ops::Range<usize>,
     /// 叶子块在解析结果中的终点（相对顶层块）。
     ///
     /// 块里记下的原文位置来自解析结果；输入之后、重新解析之前，`leaf` 的终点已按新增的字节
     /// 后移，其后的块仍是旧的位置。判断块是否属于该叶子块时与这个终点比较，其后的块不会落入
     /// 叶子块而被跳过。
-    pub(super) parsed_end: usize,
+    pub parsed_end: usize,
     /// 已经显示过：同一个叶子块里排出的其余块（HTML 块里的几段、表格的其余单元格）不再显示。
-    pub(super) done: bool,
+    pub done: bool,
     /// 光标在 `block` 中的位置：表格只把光标所在的单元格显示为原文。
-    pub(super) caret: usize,
+    pub caret: usize,
     /// 叶子块的种类，决定原文的显示方式。
-    pub(super) kind: RawKind,
+    pub kind: RawKind,
     /// 输入法正在组合的文字（仅限正文），排入光标所在的行，见 `reveal`。
-    pub(super) preedit: Option<Arc<str>>,
+    pub preedit: Option<Arc<str>>,
 }
 
 /// 显示原文的叶子块的种类。
 #[derive(Clone, PartialEq, Eq)]
-pub(super) enum RawKind {
+pub enum RawKind {
     /// 段落、标题：按排版显示，只显示光标接触到的标记，见 `reveal`。
     Prose,
     /// 围栏代码块、公式（`$$`）：放入代码框按语言着色，围栏行只在光标位于其上时显示；
@@ -553,7 +615,7 @@ pub(super) enum RawKind {
 impl Raw {
     /// 光标位于 `block` 的 `caret` 处，所在的叶子块为 `leaf`，在解析结果中的终点为
     /// `parsed_end`；`prose` 表示正文。
-    pub(super) fn new(
+    pub fn new(
         block: Arc<str>,
         leaf: std::ops::Range<usize>,
         parsed_end: usize,
@@ -575,7 +637,7 @@ impl Raw {
     }
 
     /// 按叶子块原文的第一行识别其种类（仅用于非正文的块）。
-    pub(super) fn guess(&self) -> RawKind {
+    pub fn guess(&self) -> RawKind {
         let text = self.block.get(self.leaf.clone()).unwrap_or_default();
         let first = text.split('\n').next().unwrap_or_default();
         let line = first.trim_start_matches(' ');
@@ -659,11 +721,11 @@ fn reveal(raw: &Raw) -> (Block, Vec<usize>) {
 
 /// 块里文字继承的样式：颜色和嵌套深度。
 #[derive(Clone, Copy)]
-pub(super) struct Env {
+pub struct Env {
     /// 文字颜色，标题、链接会另外覆盖。
-    pub(super) color: Color,
+    pub color: Color,
     /// 嵌套深度（列表、引用各算一层），决定项目符号的形状和块引用里外边距是否紧凑。
-    pub(super) depth: usize,
+    pub depth: usize,
 }
 
 /// 一段行内文字的样式。
@@ -696,9 +758,9 @@ struct Row {
 
 /// 排一段行内文字的结果。
 #[derive(Clone, Copy)]
-pub(super) struct Flow {
+pub struct Flow {
     /// 占用的高度（逻辑像素）。
-    pub(super) height: f32,
+    pub height: f32,
     /// 第一行的基线（逻辑像素，相对 `y`）；没有文字时为 `None`。
     first_baseline: Option<f32>,
 }
@@ -739,7 +801,7 @@ impl Cx<'_, '_> {
     /// 排一个块，左上角在 `(x, y)`、宽 `width`（逻辑像素），要画的项追加到 `out`。
     ///
     /// 返回块的高度和第一行的基线（相对 `y`）。
-    pub(super) fn block(
+    pub fn block(
         &mut self,
         block: &Block,
         x: f32,
@@ -976,7 +1038,7 @@ impl Cx<'_, '_> {
     }
 
     /// 块文字（[`Cx::text`]）里一段（段落、单元格、代码的一行）结束：接一个换行。
-    pub(super) fn end_paragraph(&mut self) {
+    pub fn end_paragraph(&mut self) {
         if !self.text.is_empty() && !self.text.ends_with('\n') {
             self.text.push('\n');
             self.chars += 1;
@@ -1240,7 +1302,7 @@ impl Cx<'_, '_> {
     ///
     /// 公式、mermaid 图和 HTML 的下方另外绘制渲染结果，编辑时可以直接查看效果。
     /// 渲染结果来自最近一次的解析结果，可能比原文滞后一个解析周期。
-    pub(super) fn raw_with_preview(
+    pub fn raw_with_preview(
         &mut self,
         block: &Block,
         x: f32,
@@ -1305,9 +1367,9 @@ impl Cx<'_, '_> {
 
     /// 排版光标所在叶子块的原文（见 [`Raw`]）。
     ///
-    /// 代码、公式、HTML 放入代码框（见 [`Cx::raw_box`]）；其余块使用等宽字体并按 Markdown 着色，
+    /// 代码、公式、HTML 放入代码框（见 `Cx::raw_box`）；其余块使用等宽字体并按 Markdown 着色，
     /// 保留原有换行，过长时在字符之间折行。每段文字的原文位置即其在原文中的位置。
-    pub(super) fn raw(&mut self, x: f32, y: f32, width: f32, out: &mut Vec<Item>) -> Flow {
+    pub fn raw(&mut self, x: f32, y: f32, width: f32, out: &mut Vec<Item>) -> Flow {
         let Some(raw) = &self.raw else {
             return Flow {
                 height: 0.0,
@@ -1618,7 +1680,7 @@ impl Cx<'_, '_> {
             let mut tokens = Vec::new();
             *state = winc_syntax::highlight_line(language, &chars, *state, &mut tokens);
             for token in &tokens {
-                let color = self.palette.token(token.kind);
+                let color = (self.token)(token.kind);
                 for c in &mut colors[token.start.min(chars.len())..token.end.min(chars.len())] {
                     *c = color;
                 }
@@ -1918,13 +1980,13 @@ impl Cx<'_, '_> {
 
 /// 收集一个块里要画的项和标题锚点。
 #[derive(Default)]
-pub(super) struct Out {
+pub struct Out {
     /// 要画的项，按绘制先后排列。
-    pub(super) items: Vec<Item>,
+    pub items: Vec<Item>,
     /// 标题锚点和所在高度（逻辑像素，相对块的左上角）。
-    pub(super) anchors: Vec<(String, f32)>,
+    pub anchors: Vec<(String, f32)>,
     /// 比正文宽、可以横向滚动的表格。
-    pub(super) scrolls: Vec<Scroller>,
+    pub scrolls: Vec<Scroller>,
 }
 
 /// 列表相邻两项之间的间距与正文字号之比。
@@ -1938,7 +2000,7 @@ fn rule_height(base: f32) -> f32 {
 /// 块上下的外边距（逻辑像素）。
 ///
 /// `tight` 为真时在列表项里：段落之间不额外留空，嵌套的列表之前只留出列表项之间的间距。
-pub(super) fn margins(block: &Block, base: f32, tight: bool) -> (f32, f32) {
+pub fn margins(block: &Block, base: f32, tight: bool) -> (f32, f32) {
     match block {
         // 项里的文字之后接嵌套的列表时，间距与相邻两项之间相同（见 [`LIST_GAP`]）。
         Block::List(..) if tight => (base * LIST_GAP, 0.0),
@@ -1950,8 +2012,8 @@ pub(super) fn margins(block: &Block, base: f32, tight: bool) -> (f32, f32) {
     }
 }
 
-/// 折叠块标题的「链接」地址的开头，后面接 [`details_id`]：点了不是打开链接，是展开、收起。
-pub(crate) const DETAILS: &str = "\u{1}details:";
+/// 折叠块标题的「链接」地址的开头，后面接 `details_id`：点了不是打开链接，是展开、收起。
+pub const DETAILS: &str = "\u{1}details:";
 
 /// 折叠块的标识：内容的哈希。
 ///
@@ -1961,3 +2023,6 @@ fn details_id(block: &Block) -> u64 {
 }
 
 pub(crate) use winc_preview::markdown::slug;
+
+#[cfg(test)]
+mod tests;

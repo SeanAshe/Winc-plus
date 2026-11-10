@@ -49,7 +49,6 @@ pub(super) fn draw_terminal(app: &mut App, frame: &mut Frame<'_>) {
 /// 绘制标签栏和内容区，查找条之外的部分。
 fn draw_panel(app: &mut App, frame: &mut Frame<'_>) {
     let card = app.layout.terminal;
-    app.terminal.hits.clear();
     if card.h <= 0.0 || card.w <= 0.0 {
         return;
     }
@@ -217,7 +216,7 @@ fn draw_panel(app: &mut App, frame: &mut Frame<'_>) {
     let start = preedit_x(x, &app.preedit, cell, view.right());
     if focused {
         // 候选窗对齐组字文字的左边；组字文字超出左边界时对齐可见范围。
-        app.ime_cursor = Some(Rect::new(start.max(view.x), y, cell, lh));
+        app.ime.cursor = Some(Rect::new(start.max(view.x), y, cell, lh));
     }
     if focused && !app.preedit.is_empty() {
         let baseline = baseline_in(at, ascent, descent);
@@ -553,7 +552,7 @@ fn draw_header(app: &mut App, frame: &mut Frame<'_>, card: Rect) {
     }
     app.terminal.rename = rename;
     if caret.is_some() {
-        app.ime_cursor = caret;
+        app.ime.cursor = caret;
     }
     // 放不下时被裁掉的一端渐隐，强度随离两端的距离变化，与编辑区标签栏相同。
     let edge = workspace::top_bar::TAB_FADE;
@@ -623,7 +622,7 @@ fn draw_header(app: &mut App, frame: &mut Frame<'_>, card: Rect) {
     if let Some(run) = run {
         draw_run_buttons(app, frame, run, header, &mut hits);
     }
-    app.terminal.hits = hits;
+    app.hits.terminal = hits;
 }
 
 /// 配置名按钮最宽多少（逻辑像素），约容纳 8 个汉字；更长的名字截短。
@@ -858,7 +857,7 @@ fn draw_end_notice(app: &mut App, frame: &mut Frame<'_>, row: Rect, clip: Rect) 
     icons::return_key(frame, icon, p.text, clip);
     let text = button.x + 6.0 + RESTART_ICON;
     ui_text(frame, app, text, row, label, p.text, clip);
-    app.terminal.hits.push((button, HeaderHit::Restart));
+    app.hits.terminal.push((button, HeaderHit::Restart));
 }
 
 /// 在滚动条轨道上标出匹配的位置，当前匹配用强调色。匹配超过上限时等间隔取样。
@@ -996,7 +995,7 @@ fn draw_find(app: &mut App, frame: &mut Frame<'_>) {
         focused,
     );
     if focused && caret.is_some() {
-        app.ime_cursor = caret;
+        app.ime.cursor = caret;
     }
     app.terminal.find = Some(find);
     // 排在命中列表最前：查找条覆盖下方内容，优先响应点击。
@@ -1010,7 +1009,7 @@ fn draw_find(app: &mut App, frame: &mut Frame<'_>) {
             (bar, HeaderHit::Find(FindPart::Bar)),
         ]);
     let hits: Vec<_> = hits.collect();
-    app.terminal.hits.splice(0..0, hits);
+    app.hits.terminal.splice(0..0, hits);
 }
 
 #[cfg(test)]

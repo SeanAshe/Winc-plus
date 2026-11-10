@@ -104,10 +104,11 @@ fn branch_menu_creates_switches_pushes_and_deletes() {
     app.run_branch_command(MenuCommand::GitPush);
     assert!(
         app.notice
+            .text
             .as_deref()
             .is_some_and(|n| n.contains("未配置远程仓库")),
         "{:?}",
-        app.notice
+        app.notice.text
     );
 
     // 加一个远程：第一次推送设好上游，之后获取、拉取都能用，远程分支出现在列表里。
@@ -209,17 +210,17 @@ fn a_running_branch_operation_slides_into_the_status_bar() {
     let Some((mut app, root)) = git_app("git-status-running", false) else {
         return;
     };
-    app.status_motion.animate_without_window = true;
+    app.status.motion.animate_without_window = true;
     paint(&mut app);
     // 打开时各项出现的过渡直接走完。
     let slide = crate::app::status::motion::STATUS_SLIDE;
-    app.status_motion.freeze(slide);
-    app.status_motion.settle();
+    app.status.motion.freeze(slide);
+    app.status.motion.settle();
     paint(&mut app);
-    assert!(!app.status_motion.moving());
+    assert!(!app.status.motion.moving());
     app.branch.running = Some(winc_i18n::t!("git-op-sync").to_owned());
     paint(&mut app);
-    assert!(app.status_motion.moving());
+    assert!(app.status.motion.moving());
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -239,7 +240,8 @@ fn picker_repo(name: &str, dark: bool) -> Option<(App, PathBuf)> {
 
 fn picker_labels(app: &App) -> Vec<String> {
     use crate::app::git::branch::picker::BranchRow;
-    app.picker_branch_rows
+    app.picker
+        .branch_rows
         .as_deref()
         .unwrap()
         .iter()
@@ -254,7 +256,7 @@ fn picker_labels(app: &App) -> Vec<String> {
 
 /// 点提交视图里的 `target`（按这一帧画出来的位置）。
 fn click_commit(app: &mut App, target: CommitTarget) {
-    let rect = (app.commit_hits.iter())
+    let rect = (app.hits.commit.iter())
         .find(|(_, t)| *t == target)
         .unwrap()
         .0;
@@ -285,19 +287,19 @@ fn the_branch_row_opens_the_picker_below_it_and_enter_switches() {
     assert_eq!(picker_labels(&app), ["main", "feature", "fix"]);
 
     // 搜索展开目录，回车切换并关闭。
-    app.picker_input.set_text("search");
+    app.picker.input.set_text("search");
     app.picker_refresh();
     assert_eq!(picker_labels(&app), ["feature", "search"]);
     app.picker_accept();
-    assert!(!app.picker_open);
+    assert!(!app.picker.open);
     assert_eq!(head_name(&app).as_deref(), Some("feature/search"));
 
     // 分支不多：不单列最近使用，一开始选中当前分支；它所在的目录默认展开。
     app.open_branch_picker(GitAnchor::Branch);
-    let rows = app.picker_branch_rows.clone().unwrap();
+    let rows = app.picker.branch_rows.clone().unwrap();
     assert_eq!(rows[0], BranchRow::Heading(BranchSection::Local));
     assert!(matches!(
-        &rows[app.picker_selected],
+        &rows[app.picker.selected],
         BranchRow::Branch { label, .. } if label == "search"
     ));
     paint(&mut app);
@@ -305,7 +307,7 @@ fn the_branch_row_opens_the_picker_below_it_and_enter_switches() {
     // 再点分支行（面板之外）关闭。
     let row = app.commit_parts().branch;
     click(&mut app, (row.x + 4.0, row.y + 4.0));
-    assert!(!app.picker_open);
+    assert!(!app.picker.open);
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -319,14 +321,14 @@ fn switching_with_uncommitted_changes_asks_to_bring_or_stash_them() {
     app.git_refresh();
     let ask_for = |app: &mut App, query: &str| {
         app.open_branch_picker(GitAnchor::Branch);
-        app.picker_input.set_text(query);
+        app.picker.input.set_text(query);
         app.picker_refresh();
         app.picker_accept();
     };
 
     // 问的时候还没切换，面板已经关了；取消以后还在原来的分支。
     ask_for(&mut app, "feature/login");
-    assert!(!app.picker_open);
+    assert!(!app.picker.open);
     assert_eq!(head_name(&app).as_deref(), Some("main"));
     assert_eq!(app.alert.as_ref().unwrap().buttons.len(), 3);
     press_alert(&mut app, 2);
@@ -365,17 +367,17 @@ fn the_search_box_can_create_a_branch() {
     };
     app.open_branch_picker(GitAnchor::Branch);
     // 搜不到时回车就新建。
-    app.picker_input.set_text("brand new");
+    app.picker.input.set_text("brand new");
     app.picker_refresh();
     app.picker_accept();
-    assert!(!app.picker_open);
+    assert!(!app.picker.open);
     assert_eq!(head_name(&app).as_deref(), Some("brand-new"));
 
     // 底栏的「新建分支」：关闭选择器，打开新建分支的对话框（基于当前分支）。
     app.open_branch_picker(GitAnchor::Branch);
     paint(&mut app);
     app.press_picker_part(PickerPart::NewBranch);
-    assert!(!app.picker_open);
+    assert!(!app.picker.open);
     let kind = app.form_dialog.as_ref().map(|dialog| dialog.kind.clone());
     assert_eq!(
         kind,
@@ -397,37 +399,37 @@ fn the_branch_picker_folds_folders_and_opens_branch_actions() {
     // 选中目录，右键展开，再按进入，左键回到目录，再按收起。
     let at = |app: &App, name: &str| {
         use crate::app::git::branch::picker::BranchRow;
-        (app.picker_branch_rows.as_deref().unwrap().iter()).position(|row| match row {
+        (app.picker.branch_rows.as_deref().unwrap().iter()).position(|row| match row {
             BranchRow::Folder { label, .. } | BranchRow::Branch { label, .. } => label == name,
             _ => false,
         })
     };
-    app.picker_selected = at(&app, "feature").unwrap();
+    app.picker.selected = at(&app, "feature").unwrap();
     assert!(app.branch_picker_side(true));
     assert!(picker_labels(&app).contains(&"login".to_owned()));
     assert!(app.branch_picker_side(true));
-    assert_eq!(app.picker_selected, at(&app, "login").unwrap());
+    assert_eq!(app.picker.selected, at(&app, "login").unwrap());
     assert!(app.branch_picker_side(false));
-    assert_eq!(app.picker_selected, at(&app, "feature").unwrap());
+    assert_eq!(app.picker.selected, at(&app, "feature").unwrap());
     assert!(app.branch_picker_side(false));
     assert!(!picker_labels(&app).contains(&"login".to_owned()));
     // 输入查询时左右键交给输入框。
-    app.picker_input.set_text("f");
+    app.picker.input.set_text("f");
     app.picker_refresh();
     assert!(!app.branch_picker_side(true));
-    app.picker_input.set_text("");
+    app.picker.input.set_text("");
     app.picker_refresh();
 
     // 点「⋯」打开分支的操作菜单，选择器还在；选了一项才关闭。
-    app.picker_selected = at(&app, "main").unwrap();
-    let main_row = app.picker_selected;
-    app.picker_selected = at(&app, "fix").unwrap();
+    app.picker.selected = at(&app, "main").unwrap();
+    let main_row = app.picker.selected;
+    app.picker.selected = at(&app, "fix").unwrap();
     assert!(app.branch_picker_side(true));
-    app.picker_selected = at(&app, "one").unwrap();
+    app.picker.selected = at(&app, "one").unwrap();
     let _ = main_row;
     paint(&mut app);
-    let more = PickerPart::More(app.picker_selected);
-    assert!(app.picker_part_hits.iter().any(|(_, p)| *p == more));
+    let more = PickerPart::More(app.picker.selected);
+    assert!(app.hits.picker_parts.iter().any(|(_, p)| *p == more));
     app.press_picker_part(more);
     assert!(app.picker_lists_branches());
     let branches = &app.git.branches;
@@ -435,7 +437,7 @@ fn the_branch_picker_folds_folders_and_opens_branch_actions() {
     let delete = MenuCommand::GitBranch(BranchOp::Delete, one);
     assert!(menu_commands(&app).contains(&(delete, true)));
     app.run_menu_command(delete);
-    assert!(!app.picker_open);
+    assert!(!app.picker.open);
     press_alert(&mut app, 0);
     assert!(app.git.branches.iter().all(|b| b.name != "fix/one"));
     let _ = std::fs::remove_dir_all(&root);
@@ -538,14 +540,19 @@ fn carrying_changes_works_when_git_refuses_the_switch() {
     git_in(&root, &["switch", "-q", "main"]);
     std::fs::write(&file, lines.replacen("1\n", "mine\n", 1)).unwrap();
     app.git_refresh();
-    app.notice = None;
+    app.notice.text = None;
     app.switch_branch(other, false);
     app.git_refresh();
     let current = app.git.branches.iter().find(|b| b.current).unwrap();
     assert_eq!(current.name, "other");
     assert!(std::fs::read_to_string(&file).unwrap().contains("<<<<<<<"));
     assert_eq!(app.git.stashes.len(), 1);
-    assert!(app.notice.as_deref().is_some_and(|n| n.contains("other")));
+    assert!(
+        app.notice
+            .text
+            .as_deref()
+            .is_some_and(|n| n.contains("other"))
+    );
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -577,8 +584,8 @@ fn an_untracked_file_in_the_way_is_stashed_and_reported() {
     assert_eq!(app.git.stashes.len(), 1, "无法恢复的内容保留在储藏里");
     // 工作区没有冲突标记，提示不能说有。
     let conflict = winc_i18n::t!("git-switch-carry-conflict", branch = "other");
-    assert_ne!(app.notice.as_deref(), Some(conflict.as_str()));
-    assert!(app.notice.is_some());
+    assert_ne!(app.notice.text.as_deref(), Some(conflict.as_str()));
+    assert!(app.notice.text.is_some());
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -608,9 +615,9 @@ fn a_failed_stash_reports_why_the_switch_failed() {
         .find(|b| b.name == "other")
         .unwrap()
         .clone();
-    app.notice = None;
+    app.notice.text = None;
     app.carry_then_checkout(other);
-    let notice = app.notice.as_deref().unwrap();
+    let notice = app.notice.text.as_deref().unwrap();
     assert!(!notice.to_lowercase().contains("stash"), "{notice}");
     assert!(app.git.stashes.is_empty());
     let _ = std::fs::remove_dir_all(&root);
@@ -634,7 +641,7 @@ fn a_refused_switch_with_nothing_to_stash_keeps_old_stashes() {
     app.carry_then_checkout(missing);
     app.git_refresh();
     assert_eq!(app.git.stashes.len(), 1);
-    assert!(app.notice.is_some());
+    assert!(app.notice.text.is_some());
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -697,7 +704,7 @@ fn the_status_menu_pulls_diverged_branches_and_needs_a_branch_to_push() {
     app.open_path(&root.join("src/main.rs"));
     paint(&mut app);
     app.open_status_menu(StatusItem::Branch);
-    assert!(app.picker_open);
+    assert!(app.picker.open);
     assert!(!app.picker_action_enabled(PickerPart::Push));
     assert!(app.picker_action_enabled(PickerPart::Fetch));
     app.close_picker();
@@ -737,10 +744,11 @@ fn pulling_keeps_uncommitted_changes_and_reports_a_conflicting_restore() {
     assert_eq!(app.git.status.as_ref().unwrap().behind, 0);
     assert!(
         app.notice
+            .text
             .as_deref()
             .is_some_and(|n| n.contains("拉取完成") && n.contains("保留在储藏中")),
         "{:?}",
-        app.notice
+        app.notice.text
     );
     assert!(std::fs::read_to_string(&file).unwrap().contains("mine"));
     assert_eq!(app.git.stashes.len(), 1);
@@ -764,14 +772,14 @@ fn the_status_bar_opens_the_branch_picker_with_the_sync_actions() {
     paint(&mut app);
     app.open_status_menu(StatusItem::Branch);
     paint(&mut app);
-    assert!(app.picker_open && app.picker_has_actions());
-    let (item, _) = *(app.status_hits.iter())
+    assert!(app.picker.open && app.picker_has_actions());
+    let (item, _) = *(app.hits.status.iter())
         .find(|(_, i)| *i == StatusItem::Branch)
         .unwrap();
     let card = app.layout.picker;
     assert!(card.bottom() <= item.y && card.y >= 0.0);
     assert!(card.x >= 0.0 && card.right() <= app.layout.window.right());
-    let parts = crate::view::picker_parts(&app, card);
+    let parts = crate::app::workspace::picker::picker_parts(&app, card);
     assert!(parts.actions.h > 0.0);
     assert!(parts.actions.y >= parts.bar.bottom() && parts.list.y >= parts.actions.bottom());
 
@@ -798,14 +806,14 @@ fn the_switch_branch_command_opens_the_picker_where_it_can_be_seen() {
         return;
     };
     app.run_action(Action::GitSwitchBranch);
-    assert!(app.picker_open && app.picker_lists_branches());
-    assert_eq!(app.picker_anchor, GitAnchor::Branch);
+    assert!(app.picker.open && app.picker_lists_branches());
+    assert_eq!(app.picker.anchor, GitAnchor::Branch);
     app.close_picker();
     app.run_action(Action::ShowFiles);
     app.open_path(&root.join("src/main.rs"));
     paint(&mut app);
     app.run_action(Action::GitSwitchBranch);
-    assert_eq!(app.picker_anchor, GitAnchor::Status);
+    assert_eq!(app.picker.anchor, GitAnchor::Status);
     app.close_picker();
     for action in [
         Action::GitFetch,
@@ -860,18 +868,18 @@ fn the_left_key_moves_from_a_remote_branch_to_its_group() {
     app.git_refresh();
     app.open_branch_picker(GitAnchor::Branch);
     let group = |app: &App| {
-        (app.picker_branch_rows.as_deref().unwrap().iter())
+        (app.picker.branch_rows.as_deref().unwrap().iter())
             .position(|row| matches!(row, BranchRow::Remotes { .. }))
             .unwrap()
     };
-    app.picker_selected = group(&app);
+    app.picker.selected = group(&app);
     assert!(app.branch_picker_side(true));
 
-    app.picker_selected = group(&app) + 1;
-    let row = &app.picker_branch_rows.as_deref().unwrap()[app.picker_selected];
+    app.picker.selected = group(&app) + 1;
+    let row = &app.picker.branch_rows.as_deref().unwrap()[app.picker.selected];
     assert!(matches!(row, BranchRow::Branch { depth: 0, .. }));
     assert!(app.branch_picker_side(false));
-    assert_eq!(app.picker_selected, group(&app));
+    assert_eq!(app.picker.selected, group(&app));
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -890,27 +898,27 @@ fn folding_keeps_the_new_rows_in_view() {
     app.git_refresh();
     app.open_branch_picker(GitAnchor::Branch);
     paint(&mut app);
-    let group = (app.picker_branch_rows.as_deref().unwrap().iter())
+    let group = (app.picker.branch_rows.as_deref().unwrap().iter())
         .position(|row| matches!(row, BranchRow::Remotes { .. }))
         .unwrap();
-    assert_eq!(app.picker_scroll, 0.0);
+    assert_eq!(app.picker.scroll, 0.0);
 
     // 展开：放不下时滚到组在最上面，下面的行露出来。
-    app.picker_selected = group;
+    app.picker.selected = group;
     app.picker_accept();
     paint(&mut app);
     let (parts, row) = (
-        crate::view::picker_parts(&app, app.layout.picker),
+        crate::app::workspace::picker::picker_parts(&app, app.layout.picker),
         crate::app::PICKER_ROW,
     );
-    assert_eq!(app.picker_scroll, group as f32 * row);
-    assert!(parts.row(group, app.picker_scroll).y >= parts.list.y);
-    assert!(parts.row(group + 1, app.picker_scroll).bottom() <= parts.list.bottom());
+    assert_eq!(app.picker.scroll, group as f32 * row);
+    assert!(parts.row(group, app.picker.scroll).y >= parts.list.y);
+    assert!(parts.row(group + 1, app.picker.scroll).bottom() <= parts.list.bottom());
 
     // 收起：一屏放得下了，滚动量回到 0，列表下面没有空白。
     app.picker_accept();
     paint(&mut app);
-    assert_eq!(app.picker_scroll, 0.0);
+    assert_eq!(app.picker.scroll, 0.0);
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -931,10 +939,10 @@ fn folding_animates_the_rows_and_the_height() {
     app.open_branch_picker(GitAnchor::Branch);
     paint(&mut app);
     let closed = app.layout.picker.h;
-    let group = (app.picker_branch_rows.as_deref().unwrap().iter())
+    let group = (app.picker.branch_rows.as_deref().unwrap().iter())
         .position(|row| matches!(row, BranchRow::Remotes { .. }))
         .unwrap();
-    app.picker_selected = group;
+    app.picker.selected = group;
     let before = app.picker_fold_before();
     app.picker_accept();
     paint(&mut app);
@@ -945,13 +953,13 @@ fn folding_animates_the_rows_and_the_height() {
         std::time::Duration::from_millis(1000),
         std::time::Duration::from_millis(2000),
     );
-    app.picker_fold = Some(PickerFold {
+    app.picker.fold = Some(PickerFold {
         before,
         count: 3,
         expanding: true,
         clock: half,
     });
-    let fold = app.picker_fold.as_ref().unwrap();
+    let fold = app.picker.fold.as_ref().unwrap();
     let hidden = fold.hidden();
     assert!(hidden > 0.0 && hidden < 3.0 * crate::app::PICKER_ROW);
     assert!(fold.turned() > 0.0 && fold.turned() < 1.0);
@@ -964,7 +972,7 @@ fn folding_animates_the_rows_and_the_height() {
     let inside = app.layout.picker;
     app.on_mouse_move(inside.x + 40.0, inside.y + 12.0);
     app.on_mouse_down(MouseButton::Left);
-    assert!(app.picker_fold.is_none());
+    assert!(app.picker.fold.is_none());
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -991,12 +999,12 @@ fn shoot_branch_picker() {
         app.alert = None;
         app.open_branch_picker(GitAnchor::Branch);
         shoot(&mut app, &format!("branch-picker-{theme}"));
-        app.picker_input.set_text("rel");
+        app.picker.input.set_text("rel");
         app.picker_refresh();
         shoot(&mut app, &format!("branch-picker-search-{theme}"));
         app.close_picker();
         app.open_branch_picker(GitAnchor::Branch);
-        app.picker_input.set_text("fix/one");
+        app.picker.input.set_text("fix/one");
         app.picker_refresh();
         app.picker_accept();
         shoot(&mut app, &format!("branch-picker-dirty-{theme}"));
@@ -1017,7 +1025,7 @@ fn shoot_branch_picker() {
         }
         app.git_refresh();
         app.open_branch_picker(GitAnchor::Branch);
-        app.picker_selected = (app.picker_branch_rows.as_deref().unwrap().iter())
+        app.picker.selected = (app.picker.branch_rows.as_deref().unwrap().iter())
             .position(|row| {
                 matches!(
                     row,
@@ -1043,8 +1051,8 @@ fn hovering_a_picker_row_leaves_the_selection_alone() {
     app.git_refresh();
     app.open_branch_picker(GitAnchor::Branch);
     paint(&mut app);
-    let current = app.picker_selected;
-    let rows = app.picker_branch_rows.clone().unwrap();
+    let current = app.picker.selected;
+    let rows = app.picker.branch_rows.clone().unwrap();
     let other = (0..rows.len())
         .find(|&r| {
             r != current
@@ -1055,23 +1063,23 @@ fn hovering_a_picker_row_leaves_the_selection_alone() {
         })
         .unwrap();
     let more = |app: &App, row| {
-        (app.picker_part_hits.iter()).any(|(_, p)| *p == crate::app::PickerPart::More(row))
+        (app.hits.picker_parts.iter()).any(|(_, p)| *p == crate::app::PickerPart::More(row))
     };
     assert!(more(&app, current));
     assert!(!more(&app, other));
 
-    let parts = crate::view::picker_parts(&app, app.layout.picker);
-    let row = parts.row(other, app.picker_scroll);
+    let parts = crate::app::workspace::picker::picker_parts(&app, app.layout.picker);
+    let row = parts.row(other, app.picker.scroll);
     app.on_mouse_move(row.x + 40.0, row.y + row.h / 2.0);
     assert_eq!(app.hover, Hover::PickerRow(other));
     paint(&mut app);
-    assert_eq!(app.picker_selected, current);
+    assert_eq!(app.picker.selected, current);
     assert!(more(&app, other) && more(&app, current));
 
     let card = app.layout.picker;
     app.on_mouse_move(card.right() + 40.0, card.y + 10.0);
     paint(&mut app);
-    assert_eq!(app.picker_selected, current);
+    assert_eq!(app.picker.selected, current);
     assert!(!more(&app, other));
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -1093,25 +1101,25 @@ fn the_default_branch_row_is_highlighted_softly() {
     app.git_refresh();
     app.open_branch_picker(GitAnchor::Branch);
     paint(&mut app);
-    let rows = app.picker_branch_rows.clone().unwrap();
+    let rows = app.picker.branch_rows.clone().unwrap();
     assert_eq!(rows[0], BranchRow::Heading(BranchSection::Recent));
     assert!(matches!(
-        &rows[app.picker_selected],
+        &rows[app.picker.selected],
         BranchRow::Branch { label, .. } if label == "topic-07"
     ));
-    assert_eq!(app.picker_default, Some(app.picker_selected));
+    assert_eq!(app.picker.default, Some(app.picker.selected));
 
     app.picker_move(true);
-    assert_eq!(app.picker_default, None);
+    assert_eq!(app.picker.default, None);
     app.picker_move(false);
-    assert_eq!(app.picker_default, None);
+    assert_eq!(app.picker.default, None);
 
-    app.picker_input.set_text("topic");
+    app.picker.input.set_text("topic");
     app.picker_refresh();
-    assert_eq!(app.picker_default, None);
-    app.picker_input.set_text("");
+    assert_eq!(app.picker.default, None);
+    app.picker.input.set_text("");
     app.picker_refresh();
-    assert_eq!(app.picker_default, Some(app.picker_selected));
+    assert_eq!(app.picker.default, Some(app.picker.selected));
     paint(&mut app);
     app.picker_accept();
     assert_eq!(head_name(&app).as_deref(), Some("topic-07"));

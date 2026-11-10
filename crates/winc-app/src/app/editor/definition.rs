@@ -526,14 +526,14 @@ impl App {
         );
         let origin = self.relative_name();
         self.finish_name_input();
-        self.places_out = None;
+        self.picker.places_out = None;
         self.name_hint = None;
-        self.places_wheel = 0.0;
-        self.places_in = self.clock(POPUP_IN);
-        self.picker_branch_rows = None;
-        self.picker_location_rows = None;
-        self.picker_folders = false;
-        self.picker_places = Some(Places {
+        self.picker.places_wheel = 0.0;
+        self.picker.places_in = self.clock(POPUP_IN);
+        self.picker.branch_rows = None;
+        self.picker.location_rows = None;
+        self.picker.folders = false;
+        self.picker.places = Some(Places {
             kind,
             name,
             items,
@@ -541,9 +541,9 @@ impl App {
             anchor,
             widest_label: Default::default(),
         });
-        self.picker_open = true;
-        self.picker_doc = self.editor.active().map(|d| d.id);
-        self.picker_input.set_text("");
+        self.picker.open = true;
+        self.picker.doc = self.editor.active().map(|d| d.id);
+        self.picker.input.set_text("");
         self.focus = Focus::Picker;
         self.picker_refresh();
         self.relayout();
@@ -552,11 +552,11 @@ impl App {
 
     /// 按输入框的文字筛选列表：路径或所在行的内容包含输入的文字（不区分大小写）即保留。
     pub(in crate::app) fn places_refresh(&mut self) {
-        let query = self.picker_input.text().trim().to_lowercase();
-        let Some(places) = &self.picker_places else {
+        let query = self.picker.input.text().trim().to_lowercase();
+        let Some(places) = &self.picker.places else {
             return;
         };
-        self.picker_hits = places
+        self.picker.hits = places
             .items
             .iter()
             .enumerate()
@@ -571,11 +571,11 @@ impl App {
 
     /// 处理列表中的回车：关闭面板并跳转到所选的一处。
     pub(in crate::app) fn places_accept(&mut self) {
-        let Some(&i) = self.picker_hits.get(self.picker_selected) else {
+        let Some(&i) = self.picker.hits.get(self.picker.selected) else {
             return;
         };
         // 所选的一项不存在时面板保持打开，列表也留在原处。
-        let Some(mut places) = self.picker_places.take_if(|p| i < p.items.len()) else {
+        let Some(mut places) = self.picker.places.take_if(|p| i < p.items.len()) else {
             return;
         };
         let place = places.items.swap_remove(i);
@@ -608,7 +608,7 @@ impl App {
         self.global.query.remember();
         self.global.query.set_text(&name);
         self.set_sidebar_view(SidebarView::Search);
-        if !self.panel_visible {
+        if !self.sidebar.visible {
             self.set_sidebar(true);
         }
         self.global_changed(true);

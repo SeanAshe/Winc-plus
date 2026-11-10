@@ -49,10 +49,10 @@ pub(crate) fn resize_cursor(direction: ResizeDirection) -> CursorIcon {
 impl App {
     /// 按配置决定是否由应用绘制标题栏，并相应地打开或关闭系统的边框和标题栏。
     pub(in crate::app) fn sync_title_bar(&mut self) {
-        self.window_controls =
+        self.window.controls =
             !cfg!(target_os = "macos") && self.config.ui_native_title_bar != Some(true);
-        if let Some(window) = &self.window {
-            window.set_decorations(!self.window_controls);
+        if let Some(window) = &self.window.handle {
+            window.set_decorations(!self.window.controls);
         }
     }
 
@@ -62,7 +62,7 @@ impl App {
     pub(in crate::app) fn place_window_controls(&mut self) {
         let l = &mut self.layout;
         l.controls = Rect::default();
-        if !self.window_controls {
+        if !self.window.controls {
             return;
         }
         let top = ISLAND_MARGIN + (TOP_BAR - BUTTON) / 2.0;
@@ -93,7 +93,13 @@ impl App {
 
     /// `(x, y)` 处可以拖动改变窗口大小的方向：只在应用绘制标题栏、窗口没有最大化时有。
     pub(in crate::app) fn resize_edge_at(&self, x: f32, y: f32) -> Option<ResizeDirection> {
-        if !self.window_controls || self.window.as_ref().is_some_and(|w| w.is_maximized()) {
+        if !self.window.controls
+            || self
+                .window
+                .handle
+                .as_ref()
+                .is_some_and(|w| w.is_maximized())
+        {
             return None;
         }
         let w = self.layout.window;
@@ -114,7 +120,7 @@ impl App {
 
     /// 按下窗口边缘：交给系统拖动改变窗口大小。
     pub(in crate::app) fn start_resize(&self, direction: ResizeDirection) {
-        if let Some(window) = &self.window {
+        if let Some(window) = &self.window.handle {
             let _ = window.drag_resize_window(direction);
         }
     }
@@ -123,7 +129,7 @@ impl App {
     pub(in crate::app) fn press_window_control(&mut self, control: WindowControl) {
         match control {
             WindowControl::Minimize => {
-                if let Some(window) = &self.window {
+                if let Some(window) = &self.window.handle {
                     window.set_minimized(true);
                 }
             }
@@ -134,12 +140,15 @@ impl App {
 
     /// 窗口是否最大化（没有窗口时为否）。
     pub(crate) fn window_maximized(&self) -> bool {
-        self.window.as_ref().is_some_and(|w| w.is_maximized())
+        self.window
+            .handle
+            .as_ref()
+            .is_some_and(|w| w.is_maximized())
     }
 
     /// 切换窗口的最大化。
     pub(in crate::app) fn toggle_maximized(&self) {
-        if let Some(window) = &self.window {
+        if let Some(window) = &self.window.handle {
             window.set_maximized(!window.is_maximized());
         }
     }

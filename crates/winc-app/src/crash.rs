@@ -60,7 +60,7 @@ fn entry(seconds: u64, thread: &str, location: &str, message: &str) -> String {
     let _ = writeln!(
         text,
         "time: {seconds}\nversion: {}\nsystem: {} {}\nthread: {thread}\nlocation: {location}",
-        env!("CARGO_PKG_VERSION"),
+        winc_version::VERSION,
         std::env::consts::OS,
         std::env::consts::ARCH,
     );

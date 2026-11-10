@@ -4,7 +4,7 @@ use super::shape::Ligature;
 use super::*;
 use swash::FontRef;
 use swash::shape::ShapeContext;
-use swash::zeno::{Fill, Join, Mask, Origin, Placement, Stroke, Style};
+use swash::zeno::{Fill, Join, Placement, Stroke, Style};
 
 /// 字形缓存的键：同一字体槽位、字形、字号和亚像素档位对应同一张位图。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -316,43 +316,39 @@ fn rasterize(
 /// 合并字形与宽 `size_px * BOLD_RATIO` 的描边，得到模拟的粗体：两侧各加宽该比例的一半。
 ///
 /// 不沿轮廓方向偏移：组合字形的轮廓方向判断不可靠，判断错误时笔画会变细。描边只会向外扩展。
+/// 描边与填充各由 swash 的 [`Render`] 光栅化一次，再逐像素取较大的覆盖率合并。
 fn rasterize_bold(
     scaler: &mut swash::scale::Scaler,
     key: GlyphKey,
     size_px: f32,
     dx: f32,
 ) -> Option<Glyph> {
-    let mut outline = scaler.scale_outline(key.glyph)?;
-    if key.oblique {
-        outline.transform(&Transform::skew(
-            Angle::from_degrees(OBLIQUE_DEGREES),
-            Angle::from_degrees(0.0),
-        ));
-    }
-    let offset = Vector::new(dx, 0.0);
-    let render = |style: Style<'_>| {
-        Mask::new(outline.path())
+    let mut render = |style: Style<'_>| {
+        Render::new(&[Source::Outline])
             .format(Format::Alpha)
-            .origin(Origin::BottomLeft)
             .style(style)
-            .offset(offset)
-            .render_offset(offset)
-            // 先调用 `inspect` 使 `Mask` 计算尺寸：否则返回的 `top` 未计入高度。
-            .inspect(|_, _, _| {})
-            .render()
+            .offset(Vector::new(dx, 0.0))
+            .transform(key.oblique.then(|| {
+                Transform::skew(
+                    Angle::from_degrees(OBLIQUE_DEGREES),
+                    Angle::from_degrees(0.0),
+                )
+            }))
+            .render(scaler, key.glyph)
     };
     let mut stroke = Stroke::new(size_px * BOLD_RATIO);
     stroke.join(Join::Miter);
-    let (mut data, placement) = render(Style::Stroke(stroke));
-    let (fill, inner) = render(Style::Fill(Fill::NonZero));
-    merge_coverage(&mut data, placement, &fill, inner);
+    let mut image = render(Style::Stroke(stroke))?;
+    let fill = render(Style::Fill(Fill::NonZero))?;
+    let placement = image.placement;
+    merge_coverage(&mut image.data, placement, &fill.data, fill.placement);
     Some(Glyph {
         width: placement.width as u16,
         height: placement.height as u16,
         left: placement.left as i16,
         top: placement.top as i16,
         color: false,
-        data: data.into_boxed_slice(),
+        data: image.data.into_boxed_slice(),
     })
 }
 

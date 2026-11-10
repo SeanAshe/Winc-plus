@@ -102,7 +102,7 @@ fn cursors_are_added_with_the_keymap_and_removed_with_escape() {
     press(&mut app, &["cmd"], KeyCode::Char('k'));
     assert!(press(&mut app, &["cmd"], KeyCode::Char('d')));
     assert_eq!(carets(&app), [((1, 8), (1, 13)), ((4, 15), (4, 20))]);
-    assert_eq!(app.status_message.as_deref(), Some("没有其他匹配项"));
+    assert_eq!(app.status.message.as_deref(), Some("没有其他匹配项"));
 
     // ⇧⌘L：选中全部匹配，同时改名。
     let at = app.editor.active().unwrap().text().line_start(2) + 9;
@@ -284,7 +284,7 @@ fn line_ends_cursor_undo_and_keyboard_columns() {
 
     // 查找条打开时 ⌥↩ 把全部查找结果变成选区，焦点回到编辑区。
     app.run_action(Action::Find);
-    app.find_input.set_text("let");
+    app.find.input.set_text("let");
     app.search.query = "let".into();
     app.search_changed();
     assert!(press(&mut app, &["alt"], KeyCode::Enter));
@@ -319,7 +319,7 @@ fn snapshot_cursors() {
             word: true,
             extend: true,
         });
-        app.caret_visible = true;
+        app.blink.visible = true;
         shoot(&mut app, &format!("cursors-multiple-{theme}"));
 
         // 列选择：从第 1 行第 4 列框到第 4 行第 12 列。
@@ -331,7 +331,7 @@ fn snapshot_cursors() {
         app.on_mouse_move(x, y);
         app.on_mouse_up(MouseButton::Left);
         app.modifiers = ModifiersState::empty();
-        app.caret_visible = true;
+        app.blink.visible = true;
         shoot(&mut app, &format!("cursors-column-{theme}"));
 
         let _ = std::fs::remove_dir_all(&dir);

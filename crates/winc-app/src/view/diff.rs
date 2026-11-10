@@ -61,7 +61,7 @@ fn draw_fade(
     parts: &DiffParts,
     row_y: &dyn Fn(usize, usize) -> f32,
 ) {
-    let Some(fade) = &app.diff_fade else {
+    let Some(fade) = &app.diff.fade else {
         return;
     };
     if app.editor.active().map(|d| d.id) != Some(fade.doc) {
@@ -111,7 +111,7 @@ fn draw_hunk_focus(app: &App, frame: &mut Frame<'_>, pane: Rect, (y0, y1): (f32,
     const PULSE_ALPHA: f32 = 0.28;
     let accent = app.palette.accent;
     if y1 > y0 {
-        if let Some(pulse) = app.diff_pulse {
+        if let Some(pulse) = app.diff.pulse {
             let band = Rect::new(pane.x, y0, pane.w, y1 - y0);
             frame.rect_clipped(
                 band,
@@ -169,7 +169,7 @@ pub(super) fn draw_diff(app: &mut App, frame: &mut Frame<'_>, index: usize) {
     draw_overview(app, frame, &view, &parts, index);
     draw_horizontal_scrollbar(app, frame, &view, &parts, index);
 
-    app.diff_hits = hits;
+    app.hits.diff = hits;
     app.editor.documents[index].diff = Some(view);
 }
 
@@ -907,7 +907,7 @@ fn draw_body(
             }
             if edit.caret.0 == line && breaks.row_of(edit.caret.1) == part {
                 let x = origin_x + at(edit.caret.1) * app.cell;
-                app.ime_cursor = Some(draw_caret(app, frame, x, y, baseline, pane.text));
+                app.ime.cursor = Some(draw_caret(app, frame, x, y, baseline, pane.text));
             }
         }
         // 只读一侧不接受输入，输入法候选窗不跟随该侧的光标。
@@ -946,7 +946,7 @@ fn draw_body(
             let band = Rect::new(pane.text.x, y, pane.text.w, lh);
             let x = pane.text.x + DIFF_TEXT_PAD - scroll.x;
             let baseline = baseline_in(band, ascent, descent);
-            app.ime_cursor = Some(draw_caret(app, frame, x, y, baseline, pane.text));
+            app.ime.cursor = Some(draw_caret(app, frame, x, y, baseline, pane.text));
         }
     }
 

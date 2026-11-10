@@ -40,12 +40,18 @@ impl App {
     ///
     /// 程序没有开启括号粘贴、要粘贴的文字不止一行时先确认（[`input::paste_needs_confirm`]）：
     /// 弹出确认框（macOS 上是系统的，其他平台画在窗口里）。
+    ///
+    /// 剪贴板里既没有文字也没有图片时按空文字粘贴：程序开启了括号粘贴时收到一次空的括号粘贴；
+    /// 未开启时不发送任何内容。
     pub(in crate::app) fn terminal_paste(&mut self) {
         if let Some(text) = self.clipboard_text().filter(|text| !text.is_empty()) {
             self.queue_terminal_paste(text);
             return;
         }
-        self.paste_terminal_image();
+        if self.paste_terminal_image() {
+            return;
+        }
+        self.queue_terminal_paste(String::new());
     }
 
     /// 把剪贴板图片存成临时文件，把路径粘贴给终端里的程序。没有图片时返回 `false`。
@@ -70,7 +76,7 @@ impl App {
         let (id, modes) = tab;
         if input::paste_needs_confirm(&text, modes) {
             let message = t!("terminal-paste-confirm", count = text.lines().count());
-            if self.window.is_some() {
+            if self.window.handle.is_some() {
                 // 没有弹出时不粘贴，并说明原因。
                 let detail = t!("terminal-paste-confirm-detail");
                 self.show_confirm(&message, detail, t!("cmd-paste"), move |ok| {
@@ -249,16 +255,23 @@ impl App {
         }
     }
 
-    /// 当前的修饰键，按 `terminal.optionAsMeta` 决定 ⌥ 算不算 Meta。
+    /// 返回编码终端按键和鼠标上报时使用的修饰键。
+    ///
+    /// Alt 是否视为 Meta 按平台区分：
+    /// - macOS：⌥ 参与输入字符（如 ⌥e 输入重音符），视为 Meta 的一侧由
+    ///   `terminal.optionAsMeta` 指定。
+    /// - 其他平台：Alt 不参与输入字符，一律视为 Meta；winit 在这些平台上不报告左右 Alt 的状态。
+    ///   `AltGr` 不计入 Alt，按其输入的字符发送。
     pub(super) fn terminal_mods(&self) -> Mods {
         let m = self.modifiers;
         let meta = m.alt_key()
-            && match self.config.option_as_meta.unwrap_or(OptionAsMeta::Left) {
-                OptionAsMeta::Left => self.option_side.0,
-                OptionAsMeta::Right => self.option_side.1,
-                OptionAsMeta::Both => true,
-                OptionAsMeta::None => false,
-            };
+            && (!cfg!(target_os = "macos")
+                || match self.config.option_as_meta.unwrap_or(OptionAsMeta::Left) {
+                    OptionAsMeta::Left => self.option_side.0,
+                    OptionAsMeta::Right => self.option_side.1,
+                    OptionAsMeta::Both => true,
+                    OptionAsMeta::None => false,
+                });
         Mods {
             shift: m.shift_key(),
             alt: meta,

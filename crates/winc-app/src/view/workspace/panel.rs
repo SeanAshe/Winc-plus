@@ -43,10 +43,11 @@ pub(super) fn draw_view_tabs(app: &App, frame: &mut Frame<'_>) {
     let track_bg = over(p.sidebar_bg, p.hover);
     let (raised, edge) = segment_colors(p, track_bg);
 
-    // 凸起的那一段：切换视图时从上一个视图的位置滑过来（`App::view_slide`），先绘制，图标压在上面。
+    // 凸起的那一段：切换视图时从上一个视图的位置滑过来（`Sidebar::view_slide`），先绘制，图标压在上面。
     let at = |view: SidebarView| tabs.iter().find(|t| t.1 == view).map(|t| t.0);
-    if let Some(to) = at(app.sidebar_view) {
+    if let Some(to) = at(app.sidebar.view) {
         let slot = match app
+            .sidebar
             .view_slide
             .and_then(|(from, clock)| Some((at(from)?, clock)))
         {
@@ -58,7 +59,7 @@ pub(super) fn draw_view_tabs(app: &App, frame: &mut Frame<'_>) {
     }
 
     for &(rect, view) in &tabs {
-        let on = app.sidebar_view == view;
+        let on = app.sidebar.view == view;
         let hovered = app.hover == Hover::ViewTab(view);
         // 图标外圈（改动小圆点的隔圈）用这一段的底色。
         let base = if on {
@@ -802,7 +803,7 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
     use crate::layout::with_key;
     match app.hover {
         Hover::TerminalHeader(hit @ crate::app::terminal::HeaderHit::ShellMenu) => {
-            let rect = app.terminal.hits.iter().find(|(_, h)| *h == hit)?.0;
+            let rect = app.hits.terminal.iter().find(|(_, h)| *h == hit)?.0;
             Some((rect, t!("terminal-shell-select").to_owned()))
         }
         Hover::TerminalHeader(hit @ crate::app::terminal::HeaderHit::Find(part)) => {
@@ -816,11 +817,11 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
                 FindPart::Word => t!("workspace-find-whole-word"),
                 FindPart::Regex => t!("workspace-find-use-regex"),
             };
-            let rect = app.terminal.hits.iter().find(|(_, h)| *h == hit)?.0;
+            let rect = app.hits.terminal.iter().find(|(_, h)| *h == hit)?.0;
             Some((rect, label.to_owned()))
         }
         Hover::TerminalHeader(hit @ crate::app::terminal::HeaderHit::Position) => {
-            let rect = app.terminal.hits.iter().find(|(_, h)| *h == hit)?.0;
+            let rect = app.hits.terminal.iter().find(|(_, h)| *h == hit)?.0;
             let label = if app.terminal_right() {
                 t!("terminal-dock-bottom")
             } else {
@@ -829,7 +830,7 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
             Some((rect, label.to_owned()))
         }
         Hover::TerminalHeader(hit @ crate::app::terminal::HeaderHit::Hide) => {
-            let rect = app.terminal.hits.iter().find(|(_, h)| *h == hit)?.0;
+            let rect = app.hits.terminal.iter().find(|(_, h)| *h == hit)?.0;
             Some((
                 rect,
                 with_key(t!("terminal-hide-panel"), Some(Action::ToggleTerminal)),
@@ -837,7 +838,7 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
         }
         Hover::TerminalHeader(hit @ crate::app::terminal::HeaderHit::Run(button)) => {
             use crate::app::terminal::run::RunButton;
-            let rect = app.terminal.hits.iter().find(|(_, h)| *h == hit)?.0;
+            let rect = app.hits.terminal.iter().find(|(_, h)| *h == hit)?.0;
             let label = match button {
                 RunButton::Menu => t!("terminal-run-select").to_owned(),
                 RunButton::Start if app.run.list.is_empty() => t!("terminal-run-add").to_owned(),
@@ -855,7 +856,7 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
             Some((rect, label))
         }
         Hover::Status(item @ crate::app::StatusItem::Terminal) => {
-            let rect = app.status_hits.iter().find(|(_, i)| *i == item)?.0;
+            let rect = app.hits.status.iter().find(|(_, i)| *i == item)?.0;
             let label = if app.terminal.open {
                 t!("terminal-hide-panel")
             } else {
@@ -864,11 +865,11 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
             Some((rect, with_key(label, Some(Action::ToggleTerminal))))
         }
         Hover::Status(item @ crate::app::StatusItem::Update) => {
-            let rect = app.status_hits.iter().find(|(_, i)| *i == item)?.0;
+            let rect = app.hits.status.iter().find(|(_, i)| *i == item)?.0;
             Some((rect, crate::view::status::update_tooltip(app)?))
         }
         Hover::Status(item @ crate::app::StatusItem::Settings) => {
-            let rect = app.status_hits.iter().find(|(_, i)| *i == item)?.0;
+            let rect = app.hits.status.iter().find(|(_, i)| *i == item)?.0;
             Some((rect, with_key(t!("cmd-settings"), Some(Action::Settings))))
         }
         // 分支选择器的拉取、推送、获取：写明会做什么（和谁差几个提交、推到哪儿）；不能用时写原因。
@@ -877,7 +878,7 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
             | crate::app::PickerPart::Push
             | crate::app::PickerPart::Fetch),
         ) => {
-            let rect = app.picker_part_hits.iter().find(|(_, p)| *p == part)?.0;
+            let rect = app.hits.picker_parts.iter().find(|(_, p)| *p == part)?.0;
             let command = app.picker_action_command(part);
             let label = app.menu_label(command);
             let tip = if app.git.remotes.is_empty() {
@@ -924,7 +925,7 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
             | CommitTarget::RevertFile(_)
             | CommitTarget::GroupRevert(_)),
         ) => {
-            let rect = app.commit_hits.iter().find(|(_, t)| *t == target)?.0;
+            let rect = app.hits.commit.iter().find(|(_, t)| *t == target)?.0;
             let label = match target {
                 CommitTarget::OpenFile(_) => t!("workspace-tip-open-file"),
                 CommitTarget::GroupRevert(_) => t!("menu-commit-roll-back"),
@@ -934,7 +935,7 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
         }
         // 同步控件上没有文字，要做的事写在这里。
         Hover::Commit(target @ CommitTarget::Sync) => {
-            let rect = app.commit_hits.iter().find(|(_, t)| *t == target)?.0;
+            let rect = app.hits.commit.iter().find(|(_, t)| *t == target)?.0;
             let upstream = (app.git.branches.iter())
                 .find(|b| b.current)
                 .and_then(|b| b.upstream.as_deref())
@@ -960,7 +961,7 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
             Some((rect, label))
         }
         Hover::Outline(target @ OutlineTarget::FoldAll) => {
-            let rect = app.outline.hits.iter().find(|(_, t)| *t == target)?.0;
+            let rect = app.hits.outline.iter().find(|(_, t)| *t == target)?.0;
             let label = if app.outline_any_expanded() {
                 t!("workspace-outline-tool-collapse-all")
             } else {
@@ -970,7 +971,7 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
         }
         // 选择器开着时每一行都写着，不再提示。
         Hover::Commit(target @ CommitTarget::Location) if !app.picker_lists_locations() => {
-            let rect = app.commit_hits.iter().find(|(_, t)| *t == target)?.0;
+            let rect = app.hits.commit.iter().find(|(_, t)| *t == target)?.0;
             let count = app.git_other_changes();
             (count > 0).then(|| {
                 let label = if app.git.repositories.len() >= 2 {
@@ -1015,7 +1016,7 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
         }
         Hover::Merge(target) => {
             use crate::app::git::merge::MergeTarget;
-            let rect = app.merge.hits.iter().find(|(_, t)| *t == target)?.0;
+            let rect = app.hits.merge.iter().find(|(_, t)| *t == target)?.0;
             let label = match target {
                 MergeTarget::Previous => with_key(
                     t!("workspace-tip-previous-conflict"),
@@ -1035,13 +1036,13 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
             let name = crate::app::git::worktree::worktree_name(main);
             let path = winc_editor::display_path(root, None);
             let tip = t!("workspace-tip-worktree-of", name = name, path = path);
-            Some((app.project_hit, tip))
+            Some((app.hits.project, tip))
         }
         Hover::RulerChange(hunk) => app.ruler_tip(hunk),
         Hover::Blame(line) => app.blame_tip(line),
         Hover::Change(target) => {
             use crate::app::ChangeTarget;
-            let rect = app.changes.hits.iter().find(|(_, t)| *t == target)?.0;
+            let rect = app.hits.changes.iter().find(|(_, t)| *t == target)?.0;
             let label = match target {
                 ChangeTarget::Previous => with_key(
                     t!("workspace-tip-previous-change"),
@@ -1063,7 +1064,7 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
             Some((rect, label))
         }
         Hover::Diff(target) => {
-            let rect = app.diff_hits.iter().find(|(_, t)| *t == target)?.0;
+            let rect = app.hits.diff.iter().find(|(_, t)| *t == target)?.0;
             let label = match target {
                 DiffTarget::Previous => with_key(
                     t!("workspace-tip-previous-change"),
@@ -1103,7 +1104,7 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
             if app.tabs.drag.is_some() {
                 return None;
             }
-            let hit = app.tabs.hits.iter().find(|h| h.index == index)?;
+            let hit = app.hits.tabs.iter().find(|h| h.index == index)?;
             if close {
                 return Some((
                     hit.close,

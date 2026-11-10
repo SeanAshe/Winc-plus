@@ -36,17 +36,17 @@ impl App {
 
         if let Some(seed) = self.search_seed() {
             // 被替换的旧查找内容记入历史，按 `↑` 可以恢复。
-            self.find_input.remember();
-            self.find_input.set_text(&seed);
+            self.find.input.remember();
+            self.find.input.set_text(&seed);
             self.search.query = seed;
         } else {
             // 全选已有的查找内容，后续键入会直接替换该内容。
-            self.find_input.select_all();
+            self.find.input.select_all();
         }
 
-        self.search_open = true;
+        self.find.open = true;
         // 预览只读，不能替换。
-        self.replace_open = replace && !preview;
+        self.find.replace_open = replace && !preview;
         self.focus = if replace && !self.search.query.is_empty() {
             Focus::Replace
         } else {
@@ -137,7 +137,7 @@ impl App {
         if self.search.query.is_empty()
             && let Some(seed) = self.search_seed()
         {
-            self.find_input.set_text(&seed);
+            self.find.input.set_text(&seed);
             self.search.query = seed;
         }
 
@@ -145,16 +145,16 @@ impl App {
     }
 
     fn remember_search(&mut self) {
-        self.find_input.remember();
-        self.replace_input.remember();
+        self.find.input.remember();
+        self.find.replace_input.remember();
     }
 
     /// 关闭查找条，并把焦点还给编辑区。
     pub(in crate::app) fn close_search(&mut self) {
         self.remember_search();
         self.stop_line_filter();
-        self.search_open = false;
-        self.pending_jump = None;
+        self.find.open = false;
+        self.find.pending_jump = None;
         self.field_preedit.clear();
         self.focus = Focus::Editor;
         self.relayout();
@@ -172,7 +172,7 @@ impl App {
         if self.diff_active() || self.markdown_focused() || self.markdown_live() {
             return;
         }
-        if self.filter_lines {
+        if self.find.filter_lines {
             self.stop_line_filter();
             return;
         }
@@ -186,7 +186,7 @@ impl App {
             }
             return;
         }
-        self.filter_lines = true;
+        self.find.filter_lines = true;
         self.apply_line_filter();
         self.request_redraw();
     }
@@ -195,7 +195,7 @@ impl App {
     ///
     /// 光标所在行已经不可见时，滚动到使它位于可见区域顶部起约 1/3 处。
     fn stop_line_filter(&mut self) {
-        if !std::mem::take(&mut self.filter_lines) {
+        if !std::mem::take(&mut self.find.filter_lines) {
             return;
         }
         let top = self
@@ -205,7 +205,7 @@ impl App {
         if let Some(doc) = self.editor.active_mut() {
             doc.filter_lines(None, 0);
         }
-        self.filter_key = None;
+        self.find.filter_key = None;
         self.sticky_cache = None;
         if let Some(line) = top {
             self.scroll_to_line(line, 1.0 / 3.0, true);
@@ -217,7 +217,7 @@ impl App {
     ///
     /// 搜索结果没有变化时不处理。
     pub(in crate::app) fn apply_line_filter(&mut self) {
-        if !self.filter_lines {
+        if !self.find.filter_lines {
             return;
         }
         // 切换标签后，其他文档取消筛选，只筛选当前文档。
@@ -247,6 +247,7 @@ impl App {
         // 状态要与 `is_filtered` 的实际结果比较，不能只判断是否有查询：每一行都匹配时筛选不会
         // 隐藏任何行，若只判断是否有查询，每一帧都会重新筛选并把光标滚回可见范围，导致无法滚动。
         if self
+            .find
             .filter_key
             .is_some_and(|(k, filtered)| k == key && filtered == doc.folds().is_filtered())
         {
@@ -259,7 +260,7 @@ impl App {
             doc.filter_lines(shown.as_deref(), searched);
             filtered = doc.folds().is_filtered();
         }
-        self.filter_key = Some((key, filtered));
+        self.find.filter_key = Some((key, filtered));
         self.sticky_cache = None;
         self.clamp_scroll();
         self.ensure_caret_visible();
@@ -272,9 +273,9 @@ impl App {
                 if !self.can_replace() {
                     return;
                 }
-                self.replace_open = !self.replace_open;
+                self.find.replace_open = !self.find.replace_open;
 
-                if !self.replace_open && self.focus == Focus::Replace {
+                if !self.find.replace_open && self.focus == Focus::Replace {
                     self.focus = Focus::Search;
                 }
 
@@ -396,9 +397,9 @@ impl App {
 
     /// 选中从 `pos`（字符偏移）起的下一个匹配，`backwards` 为 `true` 时反向查找。
     ///
-    /// 大文件尚未搜索到匹配时，把请求记入 `pending_jump`，搜索到后再跳转。
+    /// 大文件尚未搜索到匹配时，把请求记入 `FindBar::pending_jump`，搜索到后再跳转。
     pub(in crate::app) fn jump_to_match(&mut self, pos: usize, backwards: bool) {
-        self.pending_jump = None;
+        self.find.pending_jump = None;
 
         let preview = self.markdown_focused();
         let side = self
@@ -410,7 +411,7 @@ impl App {
             Some((start, end)) if let Some(side) = side => self.reveal_diff_match(side, start, end),
             Some((start, end)) => self.reveal_match(start, end),
             None if !self.search.is_complete() => {
-                self.pending_jump = self.search.document().map(|id| (id, pos, backwards));
+                self.find.pending_jump = self.search.document().map(|id| (id, pos, backwards));
             }
             None => {}
         }
@@ -481,7 +482,7 @@ impl App {
             self.in_diff_search(|app| app.find_next(backwards));
             return;
         }
-        self.find_input.remember();
+        self.find.input.remember();
 
         if self.search.query.is_empty() {
             return;
@@ -662,4 +663,21 @@ fn usable_seed(
         text.chars().count() < 200 && !text.contains(['\n', '\r'])
     };
     usable.then_some(text)
+}
+
+/// 查找条的界面状态：是否打开、输入框、只显示匹配行的筛选，以及等待执行的跳转。
+#[derive(Default)]
+pub struct FindBar {
+    pub(in crate::app) open: bool,
+    pub(in crate::app) replace_open: bool,
+    /// 查找条上是否开启了「只显示匹配的行」。
+    pub(crate) filter_lines: bool,
+    /// 上次筛选使用的缓存键，以及筛选后是否隐藏了行。
+    pub(in crate::app) filter_key: Option<(FilterKey, bool)>,
+    /// 大文件尚未搜索完时等待执行的跳转：（文档，起点位置，是否反向查找），找到下一处匹配后执行。
+    pub(in crate::app) pending_jump: Option<(DocumentId, usize, bool)>,
+    /// 查找条中的查找输入；内容变化后同步到 `search.query`。
+    pub(crate) input: TextField,
+    /// 查找条中的替换输入；内容变化后同步到 `search.replacement`。
+    pub(crate) replace_input: TextField,
 }

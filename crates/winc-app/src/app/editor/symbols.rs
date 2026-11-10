@@ -33,14 +33,14 @@ impl App {
             return;
         }
         self.finish_name_input();
-        self.picker_places = None;
-        self.picker_branch_rows = None;
-        self.picker_location_rows = None;
-        self.picker_folders = false;
-        self.picker_open = true;
-        self.picker_doc = self.editor.active().map(|d| d.id);
-        self.picker_input.set_text("@");
-        self.picker_input.set_caret(1, false);
+        self.picker.places = None;
+        self.picker.branch_rows = None;
+        self.picker.location_rows = None;
+        self.picker.folders = false;
+        self.picker.open = true;
+        self.picker.doc = self.editor.active().map(|d| d.id);
+        self.picker.input.set_text("@");
+        self.picker.input.set_caret(1, false);
         self.focus = Focus::Picker;
         self.picker_refresh();
         self.relayout();
@@ -50,11 +50,11 @@ impl App {
 
     /// 是否正在列出符号，即输入框以 `@` 开头且不在「位置」列表中。
     pub(crate) fn picker_lists_symbols(&self) -> bool {
-        self.picker_places.is_none()
+        self.picker.places.is_none()
             && !self.picker_lists_branches()
             && !self.picker_lists_locations()
-            && !self.picker_folders
-            && self.picker_input.text().starts_with('@')
+            && !self.picker.folders
+            && self.picker.input.text().starts_with('@')
     }
 
     /// 按当前查询刷新符号列表。
@@ -63,26 +63,26 @@ impl App {
     /// 否则按名字的匹配度（见 [`input::palette::rate`]）排序，匹配度相同时保持文件中的顺序。
     pub(in crate::app) fn symbols_refresh(&mut self) {
         let Some(doc) = self.editor.active() else {
-            self.picker_symbols = None;
-            self.picker_hits.clear();
+            self.picker.symbols = None;
+            self.picker.hits.clear();
             return;
         };
-        if self.picker_symbols.as_ref().is_none_or(|l| l.id != doc.id) {
+        if self.picker.symbols.as_ref().is_none_or(|l| l.id != doc.id) {
             let items = doc.text().rope().map_or_else(Vec::new, |rope| {
                 symbols::symbols(rope, doc.highlighter.language())
             });
-            self.picker_symbols = Some(SymbolList {
+            self.picker.symbols = Some(SymbolList {
                 id: doc.id,
                 items,
                 too_large: doc.is_large(),
                 scroll: (doc.scroll_line, doc.scroll_x),
             });
         }
-        let Some(list) = &self.picker_symbols else {
+        let Some(list) = &self.picker.symbols else {
             return;
         };
 
-        let needle = input::palette::needle(self.picker_input.text().trim_start_matches('@'));
+        let needle = input::palette::needle(self.picker.input.text().trim_start_matches('@'));
         let caret_line = self
             .editor
             .active()
@@ -106,13 +106,13 @@ impl App {
         if needle.is_empty()
             && let Some(caret) = caret_line
         {
-            self.picker_selected = list
+            self.picker.selected = list
                 .items
                 .iter()
                 .rposition(|s| s.line <= caret)
                 .unwrap_or(0);
         }
-        self.picker_hits = scored.into_iter().map(|(_, i)| i).collect();
+        self.picker.hits = scored.into_iter().map(|(_, i)| i).collect();
         self.symbols_preview();
     }
 
@@ -126,8 +126,8 @@ impl App {
     }
 
     fn selected_symbol(&self) -> Option<&Symbol> {
-        let list = self.picker_symbols.as_ref()?;
-        list.items.get(*self.picker_hits.get(self.picker_selected)?)
+        let list = self.picker.symbols.as_ref()?;
+        list.items.get(*self.picker.hits.get(self.picker.selected)?)
     }
 
     /// 跳转到选中的符号并选中其名字，同时关闭面板。
@@ -135,8 +135,8 @@ impl App {
         let Some(symbol) = self.selected_symbol().cloned() else {
             return;
         };
-        // 先清空 `picker_symbols`，使关闭面板时 `drop_symbols` 不恢复打开前的滚动位置。
-        self.picker_symbols = None;
+        // 先清空 `Picker::symbols`，使关闭面板时 `drop_symbols` 不恢复打开前的滚动位置。
+        self.picker.symbols = None;
         self.close_picker();
         self.jump_to(symbol.line, symbol.col, symbol.name.chars().count());
     }
@@ -145,7 +145,7 @@ impl App {
     ///
     /// 未跳转到符号时，编辑区恢复到打开列表时的滚动位置。
     pub(in crate::app) fn drop_symbols(&mut self) {
-        let Some(list) = self.picker_symbols.take() else {
+        let Some(list) = self.picker.symbols.take() else {
             return;
         };
         if let Some(doc) = self.editor.document_mut(list.id) {

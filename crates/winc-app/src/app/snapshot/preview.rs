@@ -87,7 +87,7 @@ fn markdown_files_get_the_three_way_switch() {
     // 右边是预览：绘制在分栏的右半边，已完成排版并记录链接。
     assert_eq!(app.markdown.area, app.layout.split);
     assert!(app.markdown.height > app.markdown.area.h);
-    assert!(app.markdown.links.len() >= 2);
+    assert!(app.hits.markdown_links.len() >= 2);
     // 图片已读取，并按显示大小绘制。
     assert!(matches!(
         app.markdown.images.values().next(),
@@ -154,7 +154,7 @@ fn split_sides_scroll_together() {
     app.set_preview_mode(PreviewMode::Split);
     settle(&mut app);
     let heading_y = |app: &App, i: usize| {
-        crate::view::preview::markdown::anchor_top(app, &format!("第-{i}-节")).unwrap()
+        crate::app::preview::markdown::laid::anchor_top(app, &format!("第-{i}-节")).unwrap()
     };
 
     // 左侧滚到第 20 节的标题（第 80 行）：右侧的第 20 节也到达顶部。
@@ -265,7 +265,7 @@ fn the_full_preview_edits_the_document() {
 
     let (mut app, dir) = readme("md-live", false, PreviewMode::Preview);
     // 刚打开时整篇按排版显示。
-    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
     assert!(!shown.contains("**Rust**"));
     // 点击「启动快」：光标移到原文中对应的位置，被点击的文字位置不变。该段落仍按排版显示，
     // 只显示光标接触到的标记，即「启动快」两侧的 `*`；未接触的 `**Rust**` 不显示标记。
@@ -275,7 +275,7 @@ fn the_full_preview_edits_the_document() {
     assert_eq!(after_caret(&app, 3), "启动快");
     let before = caret_screen_y(&app);
     paint(&mut app);
-    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
     assert!(
         shown.contains("一个用 Rust 写的") && shown.contains("*启动快*"),
         "{shown}"
@@ -287,7 +287,7 @@ fn the_full_preview_edits_the_document() {
     app.run(winc_editor::Command::Insert("很".into()));
     paint(&mut app);
     assert!(
-        crate::view::preview::markdown::full_text(&app)
+        crate::app::preview::markdown::laid::full_text(&app)
             .unwrap()
             .contains("很启动快")
     );
@@ -359,7 +359,7 @@ fn the_full_preview_edits_the_document() {
 
 #[test]
 fn the_caret_paragraph_keeps_its_look() {
-    use crate::view::preview::markdown::full_text;
+    use crate::app::preview::markdown::laid::full_text;
     use winit::keyboard::{Key, NamedKey};
 
     let (mut app, dir) = live_doc(
@@ -473,7 +473,7 @@ fn clicking_where_markers_appear_does_not_select() {
         ("甲", "**甲**"),
         ("main", "fn main() {}"),
     ] {
-        let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+        let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
         let at = shown[..shown.find(needle).unwrap()].chars().count();
         let (x, y) = point_of(&app, at);
         app.on_mouse_move(x - 1.0, y);
@@ -484,7 +484,7 @@ fn clicking_where_markers_appear_does_not_select() {
         settle(&mut app);
         assert!(app.editor.active().unwrap().selection.is_empty());
         assert!(after_caret(&app, 1) == needle[..needle.chars().next().unwrap().len_utf8()]);
-        let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+        let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
         assert!(shown.contains(marker), "{shown}");
     }
 
@@ -502,7 +502,7 @@ fn clicking_an_image_shows_its_source_above_it() {
     app.set_preview_mode(PreviewMode::Preview);
     settle(&mut app);
     // 点击图片中部：光标进入图片的原文，原文显示在图片上方，图片另起一行。
-    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
     let (x, top) = point_of(&app, shown.find('前').unwrap());
     let (_, bottom) = point_of(&app, shown.chars().position(|c| c == '后').unwrap());
     app.on_mouse_move(x + 20.0, (top + bottom) / 2.0 + 20.0);
@@ -513,7 +513,7 @@ fn clicking_an_image_shows_its_source_above_it() {
     let text = doc_text(&app);
     let image = text.find("![").unwrap();
     assert!((image..=text.find("后").unwrap() - 2).contains(&at), "{at}");
-    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
     assert!(shown.contains("![标志](logo.svg)\n"), "{shown:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -524,7 +524,7 @@ fn clicking_an_empty_table_cell_puts_the_caret_in_it() {
         "md-table-empty",
         "前文\n\n| a | b |\n|---|---|\n| c |  |\n|  |  |\n\n后文\n",
     );
-    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
     let at = |c: char| shown.chars().position(|s| s == c).unwrap();
     let (a, b, c) = (
         point_of(&app, at('a')),
@@ -571,9 +571,9 @@ fn clicking_table_cells_once_keeps_the_page_still() {
         &format!("{filler}| a | b |\n|---|---|\n| c |  |\n|  |  |\n\n{filler}"),
     );
     // 将表格滚动到屏幕中部。
-    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
     let a = shown.chars().position(|s| s == 'a').unwrap();
-    let top = crate::view::preview::markdown::offset_top(&app, a).unwrap();
+    let top = crate::app::preview::markdown::laid::offset_top(&app, a).unwrap();
     app.markdown.scroll_to(top - app.markdown.area.h / 2.0);
     settle(&mut app);
     let at = |c: char| shown.chars().position(|s| s == c).unwrap();
@@ -629,12 +629,12 @@ fn every_table_cell_takes_one_click_from_anywhere() {
         &format!("{filler}上面 **粗** 段\n\n{table}\n下面 `码` 段\n\n{filler}"),
     );
     app.markdown.frozen = Some(crate::app::animation::MARKDOWN_MOTION / 2);
-    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
     let a = shown
         .find("名称")
         .map(|b| shown[..b].chars().count())
         .unwrap();
-    let top = crate::view::preview::markdown::offset_top(&app, a).unwrap();
+    let top = crate::app::preview::markdown::laid::offset_top(&app, a).unwrap();
     app.markdown.scroll_to(top - app.markdown.area.h / 2.0);
     settle(&mut app);
     let start = doc_text(&app).find("| 名称").unwrap();
@@ -818,7 +818,7 @@ fn enter_after_a_fence_closes_the_block() {
     settle(&mut app);
     app.run(winc_editor::Command::Insert("fn x() {}".into()));
     settle(&mut app);
-    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
     assert!(
         shown.contains("fn x() {}") && shown.contains("后文"),
         "{shown}"
@@ -1012,10 +1012,10 @@ fn pasting_a_url_over_selected_text_makes_a_link() {
 #[test]
 fn clicking_a_task_box_toggles_it() {
     let (mut app, dir) = live_doc("md-task", "开头\n\n- [ ] 甲\n- [x] 乙\n");
-    let task = crate::view::preview::markdown::TASK;
+    let task = crate::app::preview::markdown::laid::TASK;
     let boxes = |app: &App| -> Vec<winc_render::Rect> {
-        app.markdown
-            .links
+        app.hits
+            .markdown_links
             .iter()
             .filter(|(_, url)| url.starts_with(task))
             .map(|(r, _)| *r)
@@ -1045,7 +1045,7 @@ fn switching_modes_keeps_the_place() {
         .collect();
     let (mut app, dir) = live_doc("md-switch", &text);
     // 预览滚动到第 30 节：切换为源代码后文字顶部是第 30 节的标题（第 120 行）。
-    let y = crate::view::preview::markdown::anchor_top(&app, "第-30-节").unwrap();
+    let y = crate::app::preview::markdown::laid::anchor_top(&app, "第-30-节").unwrap();
     app.scroll_markdown_to(y);
     paint(&mut app);
     app.set_preview_mode(PreviewMode::Source);
@@ -1056,12 +1056,12 @@ fn switching_modes_keeps_the_place() {
     app.editor.active_mut().unwrap().scroll_line = 40.0;
     app.set_preview_mode(PreviewMode::Preview);
     settle(&mut app);
-    let y = crate::view::preview::markdown::anchor_top(&app, "第-10-节").unwrap();
+    let y = crate::app::preview::markdown::laid::anchor_top(&app, "第-10-节").unwrap();
     // 差值来自预览顶部的留白，分栏同步滚动的映射同样包含这段留白。
     let pad = app.markdown.scroll() - y;
     assert!((0.0..=40.0).contains(&pad), "{pad}");
     assert!(
-        !crate::view::preview::markdown::full_text(&app)
+        !crate::app::preview::markdown::laid::full_text(&app)
             .unwrap()
             .contains("## ")
     );
@@ -1072,7 +1072,7 @@ fn switching_modes_keeps_the_place() {
 #[test]
 fn dragging_across_blocks_keeps_the_layout_still() {
     let (mut app, dir) = live_doc("md-drag", "第一段文字\n\n第二段文字\n\n第三段文字\n");
-    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
     let at = |s: &str| shown[..shown.find(s).unwrap()].chars().count();
     let (x, y) = point_of(&app, at("第一段") + 1);
     let (x2, y2) = point_of(&app, at("第三段") + 1);
@@ -1085,7 +1085,7 @@ fn dragging_across_blocks_keeps_the_layout_still() {
     paint(&mut app);
     assert!(app.live_leaf().is_none());
     assert_eq!(
-        crate::view::preview::markdown::full_text(&app).unwrap(),
+        crate::app::preview::markdown::laid::full_text(&app).unwrap(),
         shown
     );
     app.on_mouse_up(MouseButton::Left);
@@ -1113,7 +1113,7 @@ fn tables_are_edited_cell_by_cell() {
     app.run(winc_editor::Command::Insert("很".into()));
     paint(&mut app);
     // 只有光标所在的那一格显示原文，表格仍按排版显示。
-    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
     assert!(shown.contains("**很粗**"), "{shown}");
     assert!(
         !shown.contains("|---|") && !shown.contains("| a |"),
@@ -1149,7 +1149,7 @@ fn tables_are_edited_cell_by_cell() {
     // 位于表头下方的分隔行上：整张表显示原文，Tab 交给编辑区。
     put_caret(&mut app, "|---", true);
     assert!(
-        crate::view::preview::markdown::full_text(&app)
+        crate::app::preview::markdown::laid::full_text(&app)
             .unwrap()
             .contains("|---|")
     );
@@ -1162,7 +1162,7 @@ fn tables_are_edited_cell_by_cell() {
 fn code_fences_show_only_with_the_caret_on_them() {
     let (mut app, dir) = live_doc("md-fences", "前\n\n```rust\nfn x() {}\n```\n");
     put_caret(&mut app, "fn x", false);
-    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
     assert!(shown.contains("fn x") && !shown.contains("```"), "{shown}");
     // 按 ← 移到围栏行：显示围栏，可以修改语言标识。
     app.run(winc_editor::Command::MoveLeft {
@@ -1170,7 +1170,7 @@ fn code_fences_show_only_with_the_caret_on_them() {
         word: false,
     });
     settle(&mut app);
-    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
     assert!(shown.contains("```rust\nfn x"), "{shown}");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -1185,10 +1185,10 @@ fn the_table_toolbar_adds_aligns_and_deletes() {
     put_caret(&mut app, "c", true);
     // 光标在表格中时上方显示工具栏，单击按钮执行操作，不移动光标。
     let click = |app: &mut App, op: &str| {
-        let url = format!("{}{op}", crate::view::preview::markdown::TABLE);
+        let url = format!("{}{op}", crate::app::preview::markdown::laid::TABLE);
         let (rect, _) = app
-            .markdown
-            .links
+            .hits
+            .markdown_links
             .iter()
             .find(|(_, u)| *u == url)
             .cloned()
@@ -1316,7 +1316,7 @@ fn math_and_diagrams_show_the_result_below_the_source() {
         put_caret(&mut app, "A", false);
         app.run(winc_editor::Command::Insert(" ".into()));
         settle(&mut app);
-        let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+        let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
         // 光标不在围栏行上时只显示围栏之间的原文，不显示围栏。
         assert!(shown.contains(" A") && !shown.contains("```"), "{shown}");
         assert!(!shown.contains("$$"), "{shown}");
@@ -1337,24 +1337,25 @@ fn math_and_diagrams_show_the_result_below_the_source() {
 fn clicking_an_anchor_link_scrolls_to_the_heading() {
     let (mut app, dir) = readme("md-anchor", false, PreviewMode::Preview);
     let index = app
-        .markdown
-        .links
+        .hits
+        .markdown_links
         .iter()
         .position(|(_, url)| url == "#安装")
         .expect("有转到「安装」的链接");
-    let (rect, _) = app.markdown.links[index].clone();
+    let (rect, _) = app.hits.markdown_links[index].clone();
     // 可编辑的预览中单击链接只放光标。
     super::click(&mut app, (rect.x + 2.0, rect.y + 2.0));
     assert_eq!(app.markdown.scroll(), 0.0);
     command_click(&mut app, (rect.x + 2.0, rect.y + 2.0));
-    let top = crate::view::preview::markdown::anchor_top(&app, "安装").unwrap();
+    let top = crate::app::preview::markdown::laid::anchor_top(&app, "安装").unwrap();
     assert!(top > 0.0);
     // 标题滚动到顶部；其后的内容不足一屏时滚动到底为止。
     let max = app.markdown.height - app.markdown.area.h;
     assert_eq!(app.markdown.scroll(), top.min(max));
     // 脚注的编号和末尾的 ↩ 能找到彼此。
-    let note = crate::view::preview::markdown::anchor_top(&app, "fn-1").expect("脚注有锚点");
-    let back = crate::view::preview::markdown::anchor_top(&app, "fnref-1").expect("能跳回引用处");
+    let note = crate::app::preview::markdown::laid::anchor_top(&app, "fn-1").expect("脚注有锚点");
+    let back =
+        crate::app::preview::markdown::laid::anchor_top(&app, "fnref-1").expect("能跳回引用处");
     assert!(back > top && note > back);
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -1374,7 +1375,7 @@ fn details_open_and_close_on_click() {
     app.set_preview_mode(PreviewMode::Preview);
     settle(&mut app);
     let shown = |app: &App| {
-        crate::view::preview::markdown::full_text(app)
+        crate::app::preview::markdown::laid::full_text(app)
             .unwrap()
             .contains("藏起来的话")
     };
@@ -1382,10 +1383,10 @@ fn details_open_and_close_on_click() {
     let height = app.markdown.height;
     let toggle = |app: &mut App| {
         let (rect, _) = app
-            .markdown
-            .links
+            .hits
+            .markdown_links
             .iter()
-            .find(|(_, url)| url.starts_with(crate::view::preview::markdown::DETAILS))
+            .find(|(_, url)| url.starts_with(crate::app::preview::markdown::laid::DETAILS))
             .cloned()
             .expect("折叠块的标题能点");
         super::click(app, (rect.x + 4.0, rect.y + 4.0));
@@ -1404,19 +1405,19 @@ fn details_open_and_close_on_click() {
 #[test]
 fn code_blocks_offer_a_copy_button_on_hover() {
     let (mut app, dir) = readme("md-copy-code", false, PreviewMode::Preview);
-    let copy = crate::view::preview::markdown::COPY;
+    let copy = crate::app::preview::markdown::laid::COPY;
     assert!(
-        !app.markdown
-            .links
+        !app.hits
+            .markdown_links
             .iter()
             .any(|(_, url)| url.starts_with(copy))
     );
-    let code = *app.markdown.codes.first().expect("画出了代码块");
+    let code = *app.hits.markdown_codes.first().expect("画出了代码块");
     app.on_mouse_move(code.x + 20.0, code.y + 20.0);
     paint(&mut app);
     let (rect, _) = app
-        .markdown
-        .links
+        .hits
+        .markdown_links
         .iter()
         .find(|(_, url)| url.starts_with(copy))
         .cloned()
@@ -1445,13 +1446,13 @@ fn links_to_headings_in_other_files_open_there() {
     paint(&mut app);
     app.set_preview_mode(PreviewMode::Preview);
     settle(&mut app);
-    let (rect, _) = app.markdown.links[0].clone();
+    let (rect, _) = app.hits.markdown_links[0].clone();
     command_click(&mut app, (rect.x + 2.0, rect.y + 2.0));
     settle(&mut app);
     let doc = app.editor.active().unwrap();
     assert!(doc.path.as_ref().unwrap().ends_with("docs/guide.md"));
     assert_eq!(doc.preview_mode(), PreviewMode::Preview);
-    let top = crate::view::preview::markdown::anchor_top(&app, "用法").unwrap();
+    let top = crate::app::preview::markdown::laid::anchor_top(&app, "用法").unwrap();
     assert!(top > 0.0);
     assert!(app.markdown.pending_anchor.is_none());
     let max = app.markdown.height - app.markdown.area.h;
@@ -1516,7 +1517,7 @@ fn preview_and_source_point_at_each_other() {
 
     let (mut app, dir) = readme("md-locate", false, PreviewMode::Split);
     assert!(press(&mut app, &["cmd"], Char('a')));
-    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
     // 样式标记、嵌套列表、代码块、表格、引用中的软换行和脚注都能对应到原文；点击链接会打开
     // 链接，不在此列。
     for target in [
@@ -1544,8 +1545,9 @@ fn preview_and_source_point_at_each_other() {
         // 反向：光标所在的字在预览上落在点中的那一行。
         let source = app.markdown_caret_source().unwrap();
         let laid = app.markdown.layout.as_ref().unwrap();
-        let (_, top, _) = crate::view::preview::markdown::point_of(laid, source).expect(target);
-        let line = crate::view::preview::markdown::offset_top(&app, at).expect(target);
+        let (_, top, _) =
+            crate::app::preview::markdown::laid::point_of(laid, source).expect(target);
+        let line = crate::app::preview::markdown::laid::offset_top(&app, at).expect(target);
         assert_eq!(top, line, "{target}");
     }
 
@@ -1579,8 +1581,9 @@ fn point_of(app: &App, offset: usize) -> (f32, f32) {
     while y < area.bottom() {
         let mut x = area.x;
         while x < area.right() {
-            if crate::view::preview::markdown::offset_at(app, x, y) == Some(offset)
-                && crate::view::preview::markdown::offset_at(app, x + 4.0, y) == Some(offset + 1)
+            if crate::app::preview::markdown::laid::offset_at(app, x, y) == Some(offset)
+                && crate::app::preview::markdown::laid::offset_at(app, x + 4.0, y)
+                    == Some(offset + 1)
             {
                 return (x, y);
             }
@@ -1599,8 +1602,8 @@ fn command_f_searches_the_rendered_preview() {
     super::click(&mut app, (area.x + 5.0, area.bottom() - 5.0));
     assert!(app.markdown_focused());
     app.open_search(false);
-    assert!(app.search_open);
-    app.find_input.set_text("预览");
+    assert!(app.find.open);
+    app.find.input.set_text("预览");
     app.search.query = "预览".into();
     app.search_changed();
     paint(&mut app);
@@ -1616,11 +1619,11 @@ fn command_f_searches_the_rendered_preview() {
     assert_eq!(app.markdown.selection, first);
     // 预览没有「行」的概念：「只显示匹配的行」不生效。
     app.press_search_button(crate::layout::SearchButton::Filter);
-    assert!(!app.filter_lines);
+    assert!(!app.find.filter_lines);
     // 排版后的文字不可修改：不展开替换。
     app.close_search();
     app.open_search(true);
-    assert!(!app.replace_open);
+    assert!(!app.find.replace_open);
     app.close_search();
 
     // 点击左侧文字后查找文字。
@@ -1731,7 +1734,7 @@ fn shoot_markdown_preview() {
                 app.markdown_select_all();
                 app.markdown.selection = Some((10, 40));
                 app.open_search(false);
-                app.find_input.set_text("预览");
+                app.find.input.set_text("预览");
                 app.search.query = "预览".into();
                 app.search_changed();
                 settle(&mut app);
@@ -1830,19 +1833,19 @@ fn mermaid_blocks_draw_diagrams_and_fall_back_to_code() {
     let path = dir.join("M.md");
     let drawn = "```mermaid\ngraph TD\n  A --> B\n```\n";
     let unknown = "```mermaid\njourney\n  title 步骤\n```\n";
-    let expand = crate::view::preview::markdown::EXPAND;
+    let expand = crate::app::preview::markdown::laid::EXPAND;
     for (source, diagram) in [(drawn, true), (unknown, false)] {
         std::fs::write(&path, source).unwrap();
         let mut app = app_with(&path, false);
         paint(&mut app);
         app.set_preview_mode(PreviewMode::Preview);
         settle(&mut app);
-        let [block] = app.markdown.codes[..] else {
+        let [block] = app.hits.markdown_codes[..] else {
             panic!("只有一个代码块或图：{source}");
         };
         app.on_mouse_move(block.x + block.w / 2.0, block.y + block.h / 2.0);
         paint(&mut app);
-        let has_expand = app.markdown.links.iter().any(|(_, url)| url == expand);
+        let has_expand = app.hits.markdown_links.iter().any(|(_, url)| url == expand);
         assert_eq!(has_expand, diagram, "{source}");
     }
     let _ = std::fs::remove_dir_all(&dir);
@@ -2227,14 +2230,14 @@ fn more_diagram_kinds_draw_as_diagrams() {
         let (mut app, dir) = live_doc("md-mermaid-more", source);
         app.set_preview_mode(PreviewMode::Preview);
         settle(&mut app);
-        let [block] = app.markdown.codes[..] else {
+        let [block] = app.hits.markdown_codes[..] else {
             panic!("只有一张图：{source}");
         };
         app.on_mouse_move(block.x + block.w / 2.0, block.y + block.h / 2.0);
         paint(&mut app);
-        let expand = crate::view::preview::markdown::EXPAND;
+        let expand = crate::app::preview::markdown::laid::EXPAND;
         assert!(
-            app.markdown.links.iter().any(|(_, url)| url == expand),
+            app.hits.markdown_links.iter().any(|(_, url)| url == expand),
             "{source}"
         );
         let over = crate::view::preview::markdown::tests::overflow(&app);
@@ -2306,13 +2309,13 @@ fn diagram_view_app(name: &str, k: usize, dark: bool) -> (App, PathBuf) {
     paint(&mut app);
     app.set_preview_mode(PreviewMode::Preview);
     settle(&mut app);
-    let diagram = *app.markdown.codes.first().expect("画出了图");
+    let diagram = *app.hits.markdown_codes.first().expect("画出了图");
     app.on_mouse_move(diagram.x + diagram.w / 2.0, diagram.y + 20.0);
     paint(&mut app);
-    let expand = crate::view::preview::markdown::EXPAND;
+    let expand = crate::app::preview::markdown::laid::EXPAND;
     let (button, _) = app
-        .markdown
-        .links
+        .hits
+        .markdown_links
         .iter()
         .find(|(_, url)| url == expand)
         .cloned()
@@ -2413,7 +2416,7 @@ fn shoot_diagram_view() {
         shoot(&mut app, &format!("md-diagram-view-{theme}"));
         // 关闭全屏查看后鼠标仍在图上，截取图右上角的全屏、复制按钮。
         app.close_diagram_view();
-        let diagram = *app.markdown.codes.first().unwrap();
+        let diagram = *app.hits.markdown_codes.first().unwrap();
         app.on_mouse_move(diagram.right() - 40.0, diagram.y + 20.0);
         shoot(&mut app, &format!("md-diagram-buttons-{theme}"));
         let _ = std::fs::remove_dir_all(&dir);
@@ -2431,7 +2434,7 @@ fn shoot_github_extras() {
         paint(&mut app);
         app.set_preview_mode(PreviewMode::Preview);
         settle(&mut app);
-        let code = *app.markdown.codes.first().unwrap();
+        let code = *app.hits.markdown_codes.first().unwrap();
         app.on_mouse_move(code.x + 20.0, code.y + 10.0);
         shoot(
             &mut app,
@@ -2945,10 +2948,10 @@ fn the_preview_shows_a_heading_indicator() {
     use crate::app::preview::markdown::TocTarget;
 
     let (mut app, dir) = readme("md-toc", false, PreviewMode::Preview);
-    assert_eq!(app.markdown.toc_tops.len(), 2);
+    assert_eq!(app.hits.markdown_toc_tops.len(), 2);
     let find = |app: &App, target| {
-        app.markdown
-            .toc
+        app.hits
+            .markdown_toc
             .iter()
             .find(|(_, t)| *t == target)
             .map(|h| h.0)
@@ -2965,7 +2968,7 @@ fn the_preview_shows_a_heading_indicator() {
     assert_eq!(first.y + first.h / 2.0, bars.y + 8.0 + 1.0);
     // 列表覆盖指示条展开；鼠标停在列表里两行之间的空白处时列表不收起。
     let row = find(&app, TocTarget::Heading(1)).unwrap();
-    let card = app.markdown.toc.iter().rev().nth(1).unwrap().0;
+    let card = app.hits.markdown_toc.iter().rev().nth(1).unwrap().0;
     assert!(card.contains(bars.x + 20.0, bars.y + 10.0));
     app.on_mouse_move(card.x + 1.0, row.y);
     paint(&mut app);
@@ -2973,14 +2976,17 @@ fn the_preview_shows_a_heading_indicator() {
 
     click(&mut app, (row.x + 20.0, row.y + row.h / 2.0));
     let max = (app.markdown.height - app.markdown.area.h).max(0.0);
-    assert_eq!(app.markdown.scroll(), app.markdown.toc_tops[1].min(max));
+    assert_eq!(
+        app.markdown.scroll(),
+        app.hits.markdown_toc_tops[1].min(max)
+    );
     paint(&mut app);
     assert_eq!(app.markdown.toc_current, Some(1));
 
     // 指示条贴在正文左边，随正文居中的位置移动。
     let left = app.markdown.layout.as_ref().unwrap().left;
     // 列表展开着时卡片也记作 `Bars`，指示条本身总是最后一项。
-    let bars = app.markdown.toc.last().unwrap().0;
+    let bars = app.hits.markdown_toc.last().unwrap().0;
     assert!(
         bars.right() <= left && bars.right() >= left - 24.0,
         "{bars:?} {left}"
@@ -2996,7 +3002,7 @@ fn the_preview_shows_a_heading_indicator() {
 
     app.set_preview_mode(PreviewMode::Split);
     settle(&mut app);
-    assert!(app.markdown.toc.is_empty());
+    assert!(app.hits.markdown_toc.is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -3015,13 +3021,13 @@ fn shoot_preview_heading_indicator() {
         paint(&mut app);
         app.set_preview_mode(PreviewMode::Preview);
         settle(&mut app);
-        let top = app.markdown.toc_tops[2];
+        let top = app.hits.markdown_toc_tops[2];
         app.scroll_markdown_to(top);
         paint(&mut app);
         shoot(&mut app, if dark { "md-toc-dark" } else { "md-toc-light" });
         let bars = app
-            .markdown
-            .toc
+            .hits
+            .markdown_toc
             .iter()
             .find(|(_, t)| *t == TocTarget::Bars)
             .unwrap()
@@ -3045,7 +3051,7 @@ fn shoot_preview_heading_indicator() {
         shoot(&mut app, half);
         app.markdown.toc_fade = None;
         // 点击最后一个标题：滚动到底，它成为当前所在的一节，正文里的底色淡出到三成。
-        let last = app.markdown.toc_tops.len() - 1;
+        let last = app.hits.markdown_toc_tops.len() - 1;
         app.press_toc(TocTarget::Heading(last));
         let at = crate::app::animation::TOC_FLASH;
         let clock = crate::app::animation::Clock::frozen(at * 3 / 10, at);
@@ -3155,7 +3161,7 @@ fn docx_files_open_as_a_reading_view() {
     assert!(doc.readonly);
     assert_eq!(app.markdown.area, app.layout.editor);
     assert!(app.markdown.failed.is_none());
-    assert_eq!(app.markdown.toc_tops.len(), 2);
+    assert_eq!(app.hits.markdown_toc_tops.len(), 2);
     // 图片按文档所在目录解析出路径，但不读磁盘：磁盘上没有这个文件。
     let opened = doc.path.clone().unwrap();
     let logo = opened.parent().unwrap().join("word/media/logo.svg");
@@ -3183,7 +3189,7 @@ fn docx_files_open_as_a_reading_view() {
         app.markdown.failed.as_deref(),
         Some(winc_i18n::t!("preview-docx-invalid"))
     );
-    assert_eq!(app.placeholder_hits.len(), 2);
+    assert_eq!(app.hits.placeholder.len(), 2);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -3326,7 +3332,7 @@ fn pdf_files_render_only_the_pages_in_view() {
             .map(String::as_str),
         Some(winc_i18n::t!("preview-pdf-invalid"))
     );
-    assert_eq!(app.placeholder_hits.len(), 2);
+    assert_eq!(app.hits.placeholder.len(), 2);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -3396,9 +3402,9 @@ fn wide_tables_keep_their_columns_and_scroll_sideways() {
         "md-wide-table",
         &format!("前文\n\n{head}\n{rule}\n{row}\n\n后文\n"),
     );
-    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
     let at = |c: &str| shown[..shown.find(c).unwrap()].chars().count();
-    let offset_at = crate::view::preview::markdown::offset_at;
+    let offset_at = crate::app::preview::markdown::laid::offset_at;
 
     // 表头「编号」排在同一行，没有被压成逐字换行。
     let (first, second) = (point_of(&app, at("编")), point_of(&app, at("号")));
@@ -3424,7 +3430,7 @@ fn wide_tables_keep_their_columns_and_scroll_sideways() {
     assert_eq!(offset_at(&app, probe.0, probe.1), after);
 
     // 滚动条与其他区域一致：鼠标移到表格底边时可以按住滑块拖动，拖到最右后滚动到尽头。
-    let bar = app.markdown.table_bar.expect("表格有滚动条");
+    let bar = app.hits.markdown_table_bar.expect("表格有滚动条");
     let edge = (bar.track.x + 4.0, bar.track.bottom() - 4.0);
     app.on_mouse_move(edge.0, edge.1);
     paint(&mut app);
@@ -3474,7 +3480,7 @@ fn clicking_a_block_formula_puts_the_caret_in_its_source() {
     ] {
         let text = format!("前文\n\n{formula}\n\n后文\n");
         let (mut app, dir) = live_doc(name, &text);
-        let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+        let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
         let at = |c: &str| shown[..shown.find(c).unwrap()].chars().count();
         let (above, below) = (point_of(&app, at("前文")), point_of(&app, at("后文")));
         // 公式在两段之间居中显示：从上往下找第一处落在公式上的点（正文的字不会落到公式的原文处）。
@@ -3483,7 +3489,9 @@ fn clicking_a_block_formula_puts_the_caret_in_its_source() {
         let x = area.x + area.w / 2.0;
         let middle = (above.1 as usize..below.1 as usize)
             .map(|y| (x, y as f32))
-            .find(|&(x, y)| crate::view::preview::markdown::source_at(&app, x, y) == Some(start))
+            .find(|&(x, y)| {
+                crate::app::preview::markdown::laid::source_at(&app, x, y) == Some(start)
+            })
             .expect("点得到公式");
         app.on_mouse_move(middle.0, middle.1);
         app.on_mouse_down(MouseButton::Left);
@@ -3496,7 +3504,7 @@ fn clicking_a_block_formula_puts_the_caret_in_its_source() {
             with_caret(&app)
         );
         // 光标在公式里：公式显示原文，可以直接编辑。
-        let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+        let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
         assert!(shown.contains("x^2 + y^2 = z^2"), "{name}: {shown}");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -3520,11 +3528,11 @@ fn footnote_jumps_keep_context_above_and_mark_the_target() {
     let third = app.markdown.area.h / 3.0;
 
     app.jump_to_anchor("fn-1");
-    let note = crate::view::preview::markdown::anchor_top(&app, "fn-1").unwrap();
+    let note = crate::app::preview::markdown::laid::anchor_top(&app, "fn-1").unwrap();
     assert_eq!(app.markdown.scroll(), (note - third).clamp(0.0, max));
 
     app.jump_to_anchor("fnref-1");
-    let back = crate::view::preview::markdown::anchor_top(&app, "fnref-1").unwrap();
+    let back = crate::app::preview::markdown::laid::anchor_top(&app, "fnref-1").unwrap();
     assert_eq!(app.markdown.scroll(), (back - third).clamp(0.0, max));
 
     // 标题照旧滚动到顶部。
@@ -3538,7 +3546,7 @@ fn footnote_jumps_keep_context_above_and_mark_the_target() {
 fn clicking_inline_math_puts_the_caret_in_its_source() {
     let text = "前文\n\n$\\alpha\\beta\\gamma \\nabla\\partial\\infty$\n\n后文\n";
     let (mut app, dir) = live_doc("md-inline-math", text);
-    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
     let at = |c: &str| shown[..shown.find(c).unwrap()].chars().count();
     let (above, below) = (point_of(&app, at("前文")), point_of(&app, at("后文")));
     let tex = text.find("\\alpha").unwrap();
@@ -3551,7 +3559,7 @@ fn clicking_inline_math_puts_the_caret_in_its_source() {
                 .map(move |x| (x, y))
         })
         .map(|(x, y)| (x as f32, y as f32))
-        .find(|&(x, y)| crate::view::preview::markdown::source_at(&app, x, y) == Some(tex))
+        .find(|&(x, y)| crate::app::preview::markdown::laid::source_at(&app, x, y) == Some(tex))
         .expect("点得到公式");
     app.on_mouse_move(spot.0, spot.1);
     app.on_mouse_down(MouseButton::Left);
@@ -3574,12 +3582,12 @@ fn enter_in_a_list_puts_the_caret_in_the_new_empty_item() {
     settle(&mut app);
     assert_eq!(with_caret(&app), "1. 一\n2. 二\n3. |\n4. 三\n\n后文\n");
     assert!(caret_screen_y(&app) > before + 10.0);
-    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
     assert!(shown.contains("\n三\n") && !shown.contains("3."), "{shown}");
     // 在空项上输入的文字排在这一项里。
     app.run(winc_editor::Command::Insert("新".into()));
     settle(&mut app);
-    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
     assert!(shown.contains("二\n新\n三"), "{shown}");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -3597,7 +3605,7 @@ fn typing_wide_characters_keeps_the_following_blocks_in_place() {
     for c in ["a", "项", "，", "b"] {
         app.run(winc_editor::Command::Insert(c.into()));
         paint(&mut app);
-        let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+        let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
         assert!(
             shown.contains("第三") && shown.contains("第四"),
             "{c}：{shown}"
@@ -3622,11 +3630,11 @@ fn rules_show_their_source_in_place() {
     doc.selection = winc_core::Selection::point(doc.selection.head + 1);
     settle(&mut app);
     assert!((app.markdown.height - height).abs() < 0.5);
-    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
     assert!(shown.contains("---") && shown.contains("一"), "{shown}");
     put_caret(&mut app, "2. ---", true);
     assert!((app.markdown.height - height).abs() < 0.5);
-    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
     assert!(shown.contains("一") && !shown.contains("1."), "{shown}");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -3692,7 +3700,7 @@ fn typing_shows_the_final_layout_in_the_same_frame() {
     let (mut app, dir) = live_doc("md-same-frame", "前文\n\n- 一\n- 二\n\n后文\n");
     app.markdown.frozen = Some(crate::app::animation::MARKDOWN_MOTION / 2);
     let shown = |app: &App| {
-        let text = crate::view::preview::markdown::full_text(app).unwrap();
+        let text = crate::app::preview::markdown::laid::full_text(app).unwrap();
         (text, app.markdown.height, caret_screen_y(app))
     };
     let step = |app: &mut App, name: &str, act: &dyn Fn(&mut App)| {
@@ -3892,7 +3900,7 @@ fn block_markers_take_effect_after_a_space() {
     let doc = app.editor.active_mut().unwrap();
     doc.selection = winc_core::Selection::point(4);
     settle(&mut app);
-    let shown = |app: &App| crate::view::preview::markdown::full_text(app).unwrap();
+    let shown = |app: &App| crate::app::preview::markdown::laid::full_text(app).unwrap();
     for marker in ["-", "1.", "#", ">"] {
         app.run(winc_editor::Command::Insert(marker.into()));
         paint(&mut app);
@@ -3949,7 +3957,7 @@ fn task_items_can_be_typed() {
             _ => None,
         });
         assert_eq!(task, Some(false), "{typed:?}");
-        let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+        let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
         assert!(shown.contains("前文\n任务\n后文"), "{shown}");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -3997,7 +4005,7 @@ fn code_blocks_are_created_and_removed_as_a_whole() {
     paint(&mut app);
     assert_eq!(with_caret(&app), "前文\n\n```|\n```\n\n后文\n");
     // 后文没有成为代码。
-    let shown = crate::view::preview::markdown::full_text(&app).unwrap();
+    let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
     assert!(
         shown.ends_with("后文\n") || shown.ends_with("后文"),
         "{shown}"

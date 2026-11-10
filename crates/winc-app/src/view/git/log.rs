@@ -90,7 +90,6 @@ const FILE_ROW: f32 = crate::app::git::log::LOG_FILE_ROW;
 ///
 /// `index` 超出 `app.editor.documents` 的范围时 panic。
 pub(in crate::view) fn draw_log(app: &mut App, frame: &mut Frame<'_>, index: usize) {
-    app.log.hits.clear();
     let id = app.editor.documents[index].id;
     let parts = app.log_parts();
     let lh = app.fonts.line_height;
@@ -150,7 +149,7 @@ pub(in crate::view) fn draw_log(app: &mut App, frame: &mut Frame<'_>, index: usi
         app.log.details_max = max;
         view.details_scroll = view.details_scroll.min(max);
     }
-    app.log.hits = hits;
+    app.hits.log = hits;
     app.log.clipped = clipped;
     app.log.long_files = long_files;
     app.log.runs = runs;
@@ -197,7 +196,7 @@ fn draw_search(app: &mut App, frame: &mut Frame<'_>, parts: &LogParts) -> Rect {
     let caret = draw_bar_field(app, frame, area, &mut field, &placeholder, focused);
     app.log.filter = field;
     if focused {
-        app.ime_cursor = caret;
+        app.ime.cursor = caret;
     }
     search
 }

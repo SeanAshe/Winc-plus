@@ -51,7 +51,7 @@ fn refreshing_the_log_keeps_the_selection_and_its_details() {
 
     // 换选一个详情还没取回来的提交：短时间内详情一栏继续显示上一条详情（此时点击旧提交号不生效），
     // 取回来一次换掉；超过等待时长还没返回才换成新的提交、显示「正在读取」。
-    let copy = |app: &App| app.log.hits.iter().any(|(_, t)| *t == LogTarget::CopyOid);
+    let copy = |app: &App| app.hits.log.iter().any(|(_, t)| *t == LogTarget::CopyOid);
     {
         let v = app.editor.active_mut().unwrap().log.as_deref_mut().unwrap();
         v.previous = v.details.clone();
@@ -102,8 +102,8 @@ fn the_log_shows_who_wrote_each_commit_and_copies_its_hash() {
     use crate::app::git::log::LogTarget;
     // 每一行都有作者头像，悬停提示名字和邮箱。
     let (avatar, _) = *app
-        .log
         .hits
+        .log
         .iter()
         .find(|(_, t)| *t == LogTarget::Avatar(0))
         .expect("第一行的头像");
@@ -181,8 +181,8 @@ fn the_log_files_can_be_walked_with_the_keyboard_and_commits_opened_by_double_cl
     app.run_action(Action::GitShowLog);
     paint(&mut app);
     let (row, _) = *app
-        .log
         .hits
+        .log
         .iter()
         .find(|(_, t)| *t == LogTarget::Row(2))
         .unwrap();
@@ -265,8 +265,8 @@ fn a_file_in_the_log_details_has_a_menu_and_a_full_path_tip() {
 
     // 右键文件：菜单作用于该文件，键盘焦点也移到该文件。
     let (file, _) = *app
-        .log
         .hits
+        .log
         .iter()
         .find(|(_, t)| *t == LogTarget::File(0))
         .unwrap();
@@ -403,8 +403,8 @@ fn the_log_details_stop_scrolling_at_their_end() {
     assert!(scroll(&app) > 0.0);
     assert_eq!(scroll(&app), app.log.details_max);
     let last = app
-        .log
         .hits
+        .log
         .iter()
         .filter(|(_, t)| matches!(t, crate::app::git::log::LogTarget::File(_)))
         .map(|(r, _)| r.bottom())
@@ -474,13 +474,13 @@ fn refreshing_the_log_updates_the_repository_state_and_reports_it() {
     assert_eq!(uncommitted(&app), 0);
     assert!(!has_branch(&app));
 
-    app.status_message = None;
+    app.status.message = None;
     app.press_log(LogTarget::Refresh);
     paint(&mut app);
     assert!(uncommitted(&app) > 0);
     assert!(has_branch(&app));
     assert_eq!(
-        app.status_message.as_deref(),
+        app.status.message.as_deref(),
         Some(winc_i18n::t!("git-log-refreshed"))
     );
     assert_eq!(app.log.refreshing, None);

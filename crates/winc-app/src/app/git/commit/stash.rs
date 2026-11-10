@@ -252,7 +252,7 @@ impl App {
                 self.land_diff_file();
             }
             Err(e) => {
-                self.diff_land = None;
+                self.diff.land = None;
                 self.flash(e);
             }
         }

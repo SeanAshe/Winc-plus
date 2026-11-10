@@ -20,7 +20,7 @@ type Rows = Vec<Label>;
 
 impl Cx<'_, '_> {
     /// 排类图，返回宽高。
-    pub(super) fn class(
+    pub(crate) fn class(
         &mut self,
         c: &Class,
         s: f32,
@@ -124,7 +124,7 @@ impl Cx<'_, '_> {
     }
 
     /// 排实体关系图，返回宽高。
-    pub(super) fn er(
+    pub(crate) fn er(
         &mut self,
         er: &Er,
         s: f32,

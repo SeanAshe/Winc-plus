@@ -138,8 +138,6 @@ pub struct OutlineState {
     pub selected: Option<usize>,
     /// 上次滚动到可见的光标所在符号：光标移到另一个符号时才再次滚动，用户滚动列表后不被拉回。
     revealed: Option<usize>,
-    /// 绘制时记下的可点击位置。
-    pub hits: Vec<(Rect, OutlineTarget)>,
 }
 
 impl Default for OutlineState {
@@ -163,7 +161,6 @@ impl Default for OutlineState {
             scroll: 0.0,
             selected: None,
             revealed: None,
-            hits: Vec::new(),
         }
     }
 }
@@ -216,7 +213,7 @@ impl App {
         let l = &mut self.layout;
         l.outline = Rect::default();
         let off = self.config.outline == Some(false);
-        if off || self.sidebar_view != SidebarView::Files || l.tree.h <= 0.0 {
+        if off || self.sidebar.view != SidebarView::Files || l.tree.h <= 0.0 {
             return;
         }
         let room = (l.tree.h - OUTLINE_HEADER - OUTLINE_MIN).max(0.0);
@@ -278,7 +275,7 @@ impl App {
             return;
         }
         self.set_sidebar_view(SidebarView::Files);
-        if !self.panel_visible {
+        if !self.sidebar.visible {
             self.set_sidebar(true);
         }
         if !self.outline.open {

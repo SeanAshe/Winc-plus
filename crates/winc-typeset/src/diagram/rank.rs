@@ -12,33 +12,33 @@ use super::Label;
 
 /// 流程图排好的位置，坐标在「从上往下」的方向里：`cross` 是横的（同一层里的先后），
 /// `along` 是竖的（层）。
-pub(super) struct Plan {
+pub(crate) struct Plan {
     /// 各节点的中心。
-    pub(super) centers: Vec<(f32, f32)>,
+    pub(crate) centers: Vec<(f32, f32)>,
     /// 各连线经过的点（中心到中心）和文字的位置；连到自己的为空的路线。
-    pub(super) routes: Vec<Option<Route>>,
+    pub(crate) routes: Vec<Option<Route>>,
     /// 各子图的框（左、上、右、下），和 [`Flow::groups`] 一一对应。
-    pub(super) boxes: Vec<[f32; 4]>,
+    pub(crate) boxes: Vec<[f32; 4]>,
     /// 横向总宽（逻辑像素，同一层里各点的跨度）。
-    pub(super) cross: f32,
+    pub(crate) cross: f32,
     /// 纵向总长（逻辑像素，各层叠起来的高度）。
-    pub(super) along: f32,
+    pub(crate) along: f32,
 }
 
 /// 一条连线排好的路线：经过的点和文字的位置（逻辑像素，坐标系同 [`Plan`]）。
-pub(super) struct Route {
+pub(crate) struct Route {
     /// 从起点到终点依次经过的点；连到自己的线为空。
-    pub(super) points: Vec<(f32, f32)>,
+    pub(crate) points: Vec<(f32, f32)>,
     /// 连线文字的中心；没有文字时为 `None`。
-    pub(super) label: Option<(f32, f32)>,
+    pub(crate) label: Option<(f32, f32)>,
     /// 连线文字所在的最内层子图，决定文字底色；没有文字时取两端共同的最内层子图；不在任何子图
     /// 中时为 `None`。
-    pub(super) group: Option<usize>,
+    pub(crate) group: Option<usize>,
 }
 
 impl Plan {
     /// 按图的方向换成屏幕坐标。
-    pub(super) fn place(&self, (c, a): (f32, f32), dir: Dir) -> (f32, f32) {
+    pub(crate) fn place(&self, (c, a): (f32, f32), dir: Dir) -> (f32, f32) {
         match dir {
             Dir::Down => (c, a),
             Dir::Up => (c, self.along - a),
@@ -206,7 +206,7 @@ fn arrange(layer: &[usize], key: &[f32], vs: &[Vertex], tree: &Tree) -> Vec<usiz
 ///
 /// `sizes` 是各节点在屏幕上的宽高，`labels` 是各连线上排好的文字，`titles` 是各子图标题的
 /// 高度（都是逻辑像素）；`s` 是字号，`dir` 是图的方向。
-pub(super) fn layout(
+pub(crate) fn layout(
     f: &Flow,
     sizes: &[(f32, f32)],
     labels: &[Label],

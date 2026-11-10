@@ -5,36 +5,28 @@
 
 #[path = "build_icon.rs"]
 mod build_icon;
-#[path = "src/shell_icons.rs"]
+#[path = "../winc-app/src/shell_icons.rs"]
 mod shell_icons;
 
 use std::env::var;
 use std::path::Path;
 
-fn main() {
-    let fork_path = Path::new(&var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"))
-        .join("../../release/fork-version");
-    println!("cargo:rerun-if-changed={}", fork_path.display());
-    let fork = std::fs::read_to_string(&fork_path)
-        .unwrap_or_else(|error| panic!("{}: {error}", fork_path.display()));
-    let fork = fork.trim();
-    if !fork.bytes().all(|b| b.is_ascii_digit()) || fork.is_empty() || fork == "0" {
-        panic!("release/fork-version must be a positive integer, got {fork:?}");
-    }
-    println!("cargo:rustc-env=WINC_FORK_VERSION={fork}");
+/// 应用图标的路径，相对于本 crate 的目录。
+const ICO: &str = "../winc-app/assets/winc.ico";
 
+fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=build_icon.rs");
-    println!("cargo:rerun-if-changed=assets/winc.ico");
-    println!("cargo:rerun-if-changed=src/shell_icons.rs");
-    println!("cargo:rerun-if-changed=assets/file-icons");
+    println!("cargo:rerun-if-changed={ICO}");
+    println!("cargo:rerun-if-changed=../winc-app/src/shell_icons.rs");
+    println!("cargo:rerun-if-changed=../winc-app/assets/file-icons");
 
     let msvc = var("CARGO_CFG_TARGET_OS").is_ok_and(|os| os == "windows")
         && var("CARGO_CFG_TARGET_ENV").is_ok_and(|env| env == "msvc");
     if !msvc {
         return;
     }
-    let app = std::fs::read("assets/winc.ico").expect("读取应用图标");
+    let app = std::fs::read(ICO).expect("读取应用图标");
     let mut owned = vec![(shell_icons::APP_ICON_ID, app)];
     for (index, icon) in shell_icons::FILE_ICONS.iter().enumerate() {
         let id = shell_icons::APP_ICON_ID + 1 + index as u16;
@@ -57,7 +49,7 @@ fn main() {
 fn file_ico(asset: &str) -> Vec<u8> {
     let mut images = Vec::new();
     for size in [16u32, 32, 48, 512] {
-        let path = format!("assets/file-icons/{asset}.targetsize-{size}.png");
+        let path = format!("../winc-app/assets/file-icons/{asset}.targetsize-{size}.png");
         let png = std::fs::read(&path).unwrap_or_else(|error| panic!("{path}: {error}"));
         images.push((size, build_icon::icon_payload(&png, size)));
     }

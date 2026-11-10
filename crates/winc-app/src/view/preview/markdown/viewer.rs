@@ -6,14 +6,14 @@
 
 use std::collections::{HashMap, HashSet};
 
-use winc_render::{Color, FontKind, Frame, Rect, Stroke};
+use winc_render::{FontKind, Frame, Rect, Stroke};
 
 use super::BASE_RATIO;
-use super::layout::{self, Colors, Cx, Env, Item, Memo};
 use crate::app::App;
-use crate::app::preview::markdown::{DiagramTool, DiagramView, MAX_ZOOM, MIN_ZOOM};
+use crate::app::preview::markdown::{DiagramLaid, DiagramTool, DiagramView, MAX_ZOOM, MIN_ZOOM};
 use crate::icons;
 use crate::theme::{Palette, RADIUS_POPUP};
+use winc_typeset::{Colors, Cx, Env, Item, Memo};
 
 /// 工具栏按钮的边长（逻辑像素），与预览中代码块的复制按钮相同。
 const BUTTON: f32 = 28.0;
@@ -31,22 +31,6 @@ const MARGIN: f32 = INSET + BUTTON + PAD * 2.0;
 /// 取自调参：只有几个节点的小图放大到 2 倍时字号约 28 逻辑像素，继续放大只增加视线移动的
 /// 距离，不再提高可读性。
 const FIT_MAX: f32 = 2.0;
-
-/// 按某个缩放倍数排版的图。
-pub(crate) struct DiagramLaid {
-    /// 排版依据：缩放倍数、正文字号、正文颜色、底色；任何一项改变时重新排版。
-    key: (f32, f32, Color, Color),
-    /// 节点上的文字是否折窄：倍数为 1 时两种折行各排版一次，取适应倍数较大的一种。
-    narrow: bool,
-    /// 排版得到的各项，图的左上角位于原点。
-    items: Vec<Item>,
-    /// 图的宽高（逻辑像素）。
-    size: (f32, f32),
-    /// 倍数为 1 时图的宽高（逻辑像素），用于计算适应查看区域的倍数。
-    natural: (f32, f32),
-    /// 计算 `natural` 时可用的查看区域大小（逻辑像素）；区域改变后重新选择是否折窄。
-    room: (f32, f32),
-}
 
 /// 返回全屏查看的查看区域：编辑区，分栏时包括右侧的预览。
 fn view_area(app: &App) -> Rect {
@@ -171,16 +155,18 @@ fn lay_diagram(
     let images = HashMap::new();
     let toggled = HashSet::new();
     let mut memo = Memo::default();
+    let token = |kind| p.token(kind);
     let mut cx = Cx {
         frame,
         base,
-        palette: p,
-        colors: Colors::new(p),
+        token: &token,
+        surface: p.editor_bg,
+        accent: p.accent,
+        colors: Colors::new(p.text, p.text_muted, p.accent, p.dark),
         dark: p.dark,
         images: &images,
-        doc: None,
+        image_path: &|_| None,
         wanted: Vec::new(),
-        remote: false,
         memo: &mut memo,
         toggled: &toggled,
         text: String::new(),
@@ -245,7 +231,7 @@ fn draw_items(frame: &mut Frame<'_>, items: &[Item], (left, top): (f32, f32), cl
             } => {
                 let moved: Vec<Stroke> = strokes
                     .iter()
-                    .map(|&s| layout::shift(s, left, top))
+                    .map(|&s| winc_typeset::shift(s, left, top))
                     .collect();
                 frame.stroke(&moved, *width, *color, clip);
             }

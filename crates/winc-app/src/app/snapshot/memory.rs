@@ -1,7 +1,7 @@
 //! 窗口内存的测试：在进程里建起一个窗口的全部状态（绘制到内存），每步后读进程的物理内存
 //! （footprint），再建第二个窗口测量它额外占多少；单进程多窗口的设计按这些数字取舍。
 //!
-//! 手动运行：`WINC_MEMORY_REPO=<仓库的本地克隆> cargo test --release -p winc-app --bin winc --
+//! 手动运行：`WINC_MEMORY_REPO=<仓库的本地克隆> cargo test --release -p winc-app --lib --
 //! measure_window_memory --ignored --nocapture`；打开的是该变量指向的仓库。
 //! 不直接打开本仓库，因为它开在 winc 窗口里时请求会被交给那个窗口，测不到占用；未设置时跳过。
 

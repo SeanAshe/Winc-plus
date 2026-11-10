@@ -199,7 +199,7 @@ impl App {
         if !self.log_active() {
             return None;
         }
-        let LogTarget::File(i) = crate::layout::hit(&self.log.hits, x, y)? else {
+        let LogTarget::File(i) = crate::layout::hit(&self.hits.log, x, y)? else {
             return None;
         };
         let path = self.log_file(i)?.path.clone();
@@ -260,7 +260,7 @@ impl App {
         let area = self.log_parts().details;
         // 最下面一行小字（比较的提示）占 30 逻辑像素。
         let bottom = area.bottom() - 30.0;
-        let Some(top) = self.log.hits.iter().find_map(|(rect, t)| match t {
+        let Some(top) = self.hits.log.iter().find_map(|(rect, t)| match t {
             LogTarget::File(j) => Some(rect.y + (i as f32 - *j as f32) * LOG_FILE_ROW),
             _ => None,
         }) else {

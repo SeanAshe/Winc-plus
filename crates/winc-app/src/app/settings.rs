@@ -50,10 +50,6 @@ pub struct SettingsState {
     pub languages: ToolLanguages,
     /// 格式化页每一行（格式化工具、修复工具）上显示的内容。
     pub tool_rows: Vec<(Setting, FormatRow)>,
-    /// 当前帧绘制出的「安装方法…」链接的位置，以及链接所属的设置项。
-    ///
-    /// 文字宽度要到绘制时才知道，悬停和点击使用这里记录的位置。
-    pub install_links: Vec<(Setting, Rect)>,
     /// 分类栏顶部的搜索框：按设置项的名称和说明搜索，不为空白时正文换成搜索结果。
     pub search: TextField,
     /// 「关于」页顶部的产品图标：渲染时的边长（物理像素）和 RGBA 像素；关闭浮层时释放。
@@ -215,7 +211,7 @@ impl App {
         }
 
         // 先关闭其他浮层和菜单：设置浮层位于最上层，不与它们同时显示。
-        if self.picker_open {
+        if self.picker.open {
             self.close_picker();
         }
         self.close_form_dialog();
@@ -299,7 +295,7 @@ impl App {
             }
         }
         let link = self
-            .settings
+            .hits
             .install_links
             .iter()
             .find(|(_, r)| r.contains(x, y) && layout.body.contains(x, y));
@@ -523,7 +519,7 @@ impl App {
         self.settings.recording = on;
         // 没有窗口（测试中）时没有菜单栏，也不在主线程上。
         #[cfg(target_os = "macos")]
-        if self.window.is_some() {
+        if self.window.handle.is_some() {
             crate::macos::suspend_menu_shortcuts(on);
         }
     }

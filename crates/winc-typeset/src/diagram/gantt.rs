@@ -28,7 +28,7 @@ enum Step {
 
 impl Cx<'_, '_> {
     /// 排甘特图，返回宽高。
-    pub(super) fn gantt(
+    pub(crate) fn gantt(
         &mut self,
         g: &Gantt,
         s: f32,

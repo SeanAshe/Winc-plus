@@ -65,12 +65,12 @@ fn conflicts_resolve_in_the_file_and_finish_the_merge() {
     use crate::app::git::merge::MergeTarget;
     use winc_editor::git::merge::Pick;
     assert!(
-        app.merge
-            .hits
+        app.hits
+            .merge
             .iter()
             .any(|(_, t)| *t == MergeTarget::Pick(0, Pick::Both))
     );
-    assert!(app.merge.card.is_some());
+    assert!(app.hits.merge_card.is_some());
     // 下一处冲突：光标跳转到冲突所在的行。
     assert!(app.run_action(Action::NextDifference));
 
@@ -102,8 +102,8 @@ fn conflicts_resolve_in_the_file_and_finish_the_merge() {
     // 冲突全部解决后：卡片变成「标记为已解决」；点击后保存并 `git add`。
     paint(&mut app);
     assert!(
-        app.merge
-            .hits
+        app.hits
+            .merge
             .iter()
             .any(|(_, t)| *t == MergeTarget::MarkResolved)
     );
@@ -147,7 +147,8 @@ fn files_with_conflict_markers_are_not_committed() {
     ));
     assert!(app.commit_parts().banner.is_some());
     assert!(
-        app.commit_hits
+        app.hits
+            .commit
             .iter()
             .any(|(_, t)| *t == CommitTarget::Abort)
     );
@@ -289,7 +290,7 @@ fn the_three_way_view_shows_both_sides_next_to_the_file() {
     let target = MergeTarget::Pick(0, Pick::Theirs);
     let ribbon = app.merge.ribbons[1];
     assert!(
-        (app.merge.hits.iter()).any(|(rect, t)| *t == target && ribbon.contains(rect.x, rect.y)),
+        (app.hits.merge.iter()).any(|(rect, t)| *t == target && ribbon.contains(rect.x, rect.y)),
         "连接带上应当有采用按钮"
     );
     app.press_merge(target);
@@ -495,7 +496,7 @@ fn ribbon_buttons_ignore_clicks_until_the_alignment_is_current() {
     app.press_merge(MergeTarget::ThreePane);
     paint(&mut app);
     let ribbon = |app: &App| {
-        (app.merge.hits.iter()).any(|(_, target)| {
+        (app.hits.merge.iter()).any(|(_, target)| {
             matches!(
                 target,
                 MergeTarget::Pick(_, Pick::Ours) | MergeTarget::Pick(_, Pick::Theirs)
@@ -566,15 +567,15 @@ fn jumping_reports_when_the_view_cannot_move() {
     app.press_merge(MergeTarget::ThreePane);
     paint(&mut app);
     assert_eq!(app.editor.active().unwrap().scroll_line, 0.0);
-    app.status_message = None;
+    app.status.message = None;
     app.press_merge(MergeTarget::Previous);
     assert_eq!(
-        app.status_message.as_deref(),
+        app.status.message.as_deref(),
         Some(t!("git-merge-no-previous"))
     );
-    app.status_message = None;
+    app.status.message = None;
     app.press_merge(MergeTarget::Next);
-    assert_eq!(app.status_message.as_deref(), Some(t!("git-merge-no-next")));
+    assert_eq!(app.status.message.as_deref(), Some(t!("git-merge-no-next")));
     assert_eq!(app.editor.active().unwrap().scroll_line, 0.0);
 }
 
@@ -611,13 +612,13 @@ fn jumping_stops_at_the_conflict_and_then_reports() {
     app.press_merge(MergeTarget::ThreePane);
     paint(&mut app);
     let start = app.conflicts(app.editor.active.unwrap())[0].start;
-    app.status_message = None;
+    app.status.message = None;
     app.press_merge(MergeTarget::Next);
     assert_eq!(row_on_screen(&app, start), 3.0);
-    assert_eq!(app.status_message, None);
+    assert_eq!(app.status.message, None);
     app.press_merge(MergeTarget::Next);
     assert_eq!(row_on_screen(&app, start), 3.0);
-    assert_eq!(app.status_message.as_deref(), Some(t!("git-merge-no-next")));
+    assert_eq!(app.status.message.as_deref(), Some(t!("git-merge-no-next")));
 }
 
 /// 后台任务不保证按提交的顺序完成：旧版本的结果不能覆盖新版本的。

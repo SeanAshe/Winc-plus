@@ -184,7 +184,7 @@ pub(crate) fn draw_area_field(
     if display.is_empty() {
         ui_text(frame, app, area.x, band(0), placeholder, p.text_dim, area);
         // 光标与输入文字后的位置相同，位于文字起点，不向左越出文字区域。
-        if focused && app.caret_visible {
+        if focused && app.blink.visible {
             draw_field_caret(frame, p, area.x, band(0), area.inset(-3.0, 0.0));
         }
         return focused.then(|| Rect::new(area.x, area.y + 2.0, 2.0, 16.0));
@@ -245,7 +245,7 @@ pub(crate) fn draw_area_field(
 
     let line = band(pre_end.0);
     let x = area.x + pre_end.1;
-    if focused && app.caret_visible && from == to {
+    if focused && app.blink.visible && from == to {
         draw_field_caret(frame, p, x, line, area.inset(-3.0, 0.0));
     }
     focused.then(|| Rect::new(x, line.y + 2.0, 2.0, 16.0))
@@ -370,7 +370,7 @@ pub(super) fn draw_bar_field(
         ui_text(frame, app, area.x, area, placeholder, p.text_dim, area);
 
         // 没有文本时，光标绘制在占位文本左侧，不覆盖占位文本的第一个字符。
-        if focused && app.caret_visible {
+        if focused && app.blink.visible {
             draw_field_caret(frame, p, area.x - 3.0, area, area.inset(-3.0, 0.0));
         }
 
@@ -417,7 +417,7 @@ pub(super) fn draw_bar_field(
     }
 
     // 有选区时不显示光标，选区本身已指示位置。
-    if focused && app.caret_visible && from == to {
+    if focused && app.blink.visible && from == to {
         draw_field_caret(frame, p, x, area, area.inset(-3.0, 0.0));
     }
 

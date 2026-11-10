@@ -7,7 +7,7 @@ fn entries_name_the_version_thread_and_location() {
     let text = entry(42, "main", "src/a.rs:1:2", "boom");
     assert!(text.starts_with("time: 42\nversion: "), "{text}");
     assert!(text.contains("thread: main\nlocation: src/a.rs:1:2\nmessage: boom\n"));
-    assert!(text.contains(env!("CARGO_PKG_VERSION")));
+    assert!(text.contains(winc_version::VERSION));
 }
 
 #[test]

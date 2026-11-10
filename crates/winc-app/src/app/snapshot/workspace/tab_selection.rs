@@ -16,7 +16,7 @@ fn names(app: &App) -> Vec<String> {
 
 /// 返回第 `index` 个标签（从 0 起）内的一点：距标签左边缘 20 逻辑像素，垂直居中。
 fn tab_point(app: &App, index: usize) -> (f32, f32) {
-    let rect = app.tabs.hits.iter().find(|h| h.index == index).unwrap().tab;
+    let rect = app.hits.tabs.iter().find(|h| h.index == index).unwrap().tab;
     (rect.x + 20.0, rect.y + rect.h / 2.0)
 }
 

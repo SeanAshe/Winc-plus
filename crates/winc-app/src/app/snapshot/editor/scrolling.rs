@@ -172,10 +172,10 @@ fn selections_dim_without_focus_and_hide_the_current_line() {
     assert!(!app.editor_focused());
     shoot(&mut app, "selection-unfocused");
     app.focus = Focus::Editor;
-    app.window_focused = false;
+    app.window.focused = false;
     assert!(!app.editor_focused());
     // 窗口不在前台也按无焦点绘制；无焦点时用淡一层的 `selection_inactive`，当前行不高亮。
-    app.window_focused = true;
+    app.window.focused = true;
     let p = app.palette;
     assert_ne!(p.selection_inactive, p.selection);
     let _ = std::fs::remove_dir_all(&dir);
@@ -238,14 +238,14 @@ fn a_mouse_wheel_notch_glides_and_a_trackpad_follows_directly() {
     app.start_wheel_glide((0.0, -30.0 * lh), half);
     app.advance_wheel_glide();
     assert!((scroll(&app) - 30.0 * f64::from(progress)).abs() < 0.01);
-    assert!(app.wheel_glide.is_some());
+    assert!(app.wheel.glide.is_some());
     assert!(app.animating());
 
     // 过渡途中再次滚动：未完成的距离计入新的总距离。
     app.start_wheel_glide((0.0, -10.0 * lh), Clock::stopped(LENGTH, LENGTH));
     app.advance_wheel_glide();
     assert!((scroll(&app) - 40.0).abs() < 0.01);
-    assert!(app.wheel_glide.is_none());
+    assert!(app.wheel.glide.is_none());
 
     std::fs::remove_dir_all(&dir).unwrap();
 }

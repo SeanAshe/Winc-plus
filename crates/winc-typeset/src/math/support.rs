@@ -8,7 +8,7 @@ use winc_render::{Color, Stroke};
 /// 返回类别 `left` 后面接 `right` 时中间留多少（单位是字号的 1/18）。
 ///
 /// 上下标里只留窄的；返回值 3、4、5 分别对应 TeX 的窄、中、宽三档，负值的类别回来取 0。
-pub(super) fn spacing(left: Class, right: Class, script: bool) -> f32 {
+pub(crate) fn spacing(left: Class, right: Class, script: bool) -> f32 {
     use Class::{Bin, Close, Op, Open, Ord, Punct, Rel};
     // TeX 的表：1 窄、2 中、3 宽；负的只在不是上下标时才留。
     let space: i8 = match (left, right) {
@@ -28,7 +28,7 @@ pub(super) fn spacing(left: Class, right: Class, script: bool) -> f32 {
 }
 
 /// 单个字母（或希腊字母）的符号节点，用斜体：上标、重音往右挪一点。
-pub(super) fn italic_letter(node: &Node) -> bool {
+pub(crate) fn italic_letter(node: &Node) -> bool {
     match node {
         Node::Sym(text, _, Font::Italic | Font::BoldItalic) => text.chars().count() == 1,
         Node::Row(nodes) if nodes.len() == 1 => italic_letter(&nodes[0]),
@@ -37,7 +37,7 @@ pub(super) fn italic_letter(node: &Node) -> bool {
 }
 
 /// 是否只有一个字（重音按一个字的宽度画，不铺满）。
-pub(super) fn single_glyph(node: &Node) -> bool {
+pub(crate) fn single_glyph(node: &Node) -> bool {
     match node {
         Node::Sym(text, ..) => text.chars().count() == 1,
         Node::Row(nodes) if nodes.len() == 1 => single_glyph(&nodes[0]),
@@ -46,7 +46,7 @@ pub(super) fn single_glyph(node: &Node) -> bool {
 }
 
 /// 字体 `font` 下的字 `c`：字母换成 Unicode 数学字母区里对应的字（数学字体里有）。
-pub(super) fn letter(c: char, font: Font) -> char {
+pub(crate) fn letter(c: char, font: Font) -> char {
     let at = |base: u32, offset: u32| char::from_u32(base + offset).unwrap_or(c);
     let upper = c.is_ascii_uppercase().then(|| c as u32 - 'A' as u32);
     let lower = c.is_ascii_lowercase().then(|| c as u32 - 'a' as u32);
@@ -91,7 +91,7 @@ pub(super) fn letter(c: char, font: Font) -> char {
 }
 
 /// 依次连起 `points` 的线段（逻辑像素）。
-pub(in crate::view::preview::markdown::layout) fn polyline(points: &[(f32, f32)]) -> Vec<Stroke> {
+pub(crate) fn polyline(points: &[(f32, f32)]) -> Vec<Stroke> {
     points
         .windows(2)
         .map(|w| Stroke::Line(w[0].0, w[0].1, w[1].0, w[1].1))
@@ -115,7 +115,7 @@ fn bezier(a: (f32, f32), c: (f32, f32), b: (f32, f32), n: usize) -> Vec<(f32, f3
 /// 画出高 `top`..`bottom` 的括号 `delim`：返回宽、线段和线宽（逻辑像素）。
 ///
 /// 没有画法的括号返回 `None`，改用放大的字。
-pub(super) fn drawn_delimiter(
+pub(crate) fn drawn_delimiter(
     delim: &str,
     top: f32,
     bottom: f32,
@@ -179,7 +179,7 @@ pub(super) fn drawn_delimiter(
 }
 
 /// `\color` 写的颜色：常见的名字和 `#rrggbb`。
-pub(super) fn named_color(name: &str) -> Option<Color> {
+pub(crate) fn named_color(name: &str) -> Option<Color> {
     let name = name.trim();
     let hex = match name.to_ascii_lowercase().as_str() {
         "red" => 0xff0000,

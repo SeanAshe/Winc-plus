@@ -16,15 +16,15 @@ impl App {
     /// 返回当前持有焦点的输入框；焦点不在输入框上时返回 `None`。
     pub(super) fn focused_field(&mut self) -> Option<&mut TextField> {
         match self.focus {
-            Focus::Search => Some(&mut self.find_input),
-            Focus::Replace => Some(&mut self.replace_input),
+            Focus::Search => Some(&mut self.find.input),
+            Focus::Replace => Some(&mut self.find.replace_input),
             Focus::Prompt => self.prompt_field_mut(),
             Focus::GlobalQuery => Some(&mut self.global.query),
             Focus::CommitMessage => Some(&mut self.commit.message),
             Focus::GlobalReplace => Some(&mut self.global.replace),
             Focus::GlobalInclude => Some(&mut self.global.include),
             Focus::GlobalExclude => Some(&mut self.global.exclude),
-            Focus::Picker => Some(&mut self.picker_input),
+            Focus::Picker => Some(&mut self.picker.input),
             Focus::Setting => self.settings.editing.as_mut().map(|(_, field)| field),
             Focus::KeySearch => Some(&mut self.settings.keys_query),
             Focus::SettingsSearch => Some(&mut self.settings.search),
@@ -57,10 +57,12 @@ impl App {
         if edit(field) {
             match self.focus {
                 Focus::Search => {
-                    self.search.query = self.find_input.text().to_owned();
+                    self.search.query = self.find.input.text().to_owned();
                     self.search_changed();
                 }
-                Focus::Replace => self.search.replacement = self.replace_input.text().to_owned(),
+                Focus::Replace => {
+                    self.search.replacement = self.find.replace_input.text().to_owned()
+                }
                 Focus::GlobalQuery | Focus::GlobalInclude | Focus::GlobalExclude => {
                     self.global_changed(false);
                 }

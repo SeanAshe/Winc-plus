@@ -586,6 +586,50 @@ fn fill_except_leaves_the_covered_block_alone() {
     assert!(px.iter().all(|&p| p == 0xff12_3456));
 }
 
+#[test]
+fn layered_fill_matches_filling_then_drawing_each_rect() {
+    let rect = |x0, y0, x1, y1| IRect { x0, y0, x1, y1 };
+    let rects = [
+        (rect(1, 1, 4, 6), 0xff11_1111),
+        // 与上一个重叠；alpha 不是 `0xff`。
+        (rect(3, 0, 9, 3), 0x0022_2222),
+        // 超出画布。
+        (rect(-5, 5, 30, 40), 0xff33_3333),
+        // 空矩形、完全位于画布之外的矩形。
+        (rect(4, 4, 4, 6), 0xff44_4444),
+        (rect(-8, 0, 0, 7), 0xff55_5555),
+    ];
+    // 行宽大于画布宽度；`short` 为真时最后一行没有行尾的填充部分。
+    let (w, h, stride) = (9, 7, 12);
+    let mut row = Vec::new();
+    for (count, short) in [(5, false), (5, true), (1, false), (0, false)] {
+        let len = stride * h - if short { stride - w } else { 0 };
+        let rects = &rects[..count];
+        let mut want = vec![7; len];
+        let mut c = Canvas {
+            px: &mut want,
+            width: w,
+            height: h,
+            stride,
+        };
+        c.fill(0x123456);
+        for &(area, color) in rects {
+            c.rect(area, color | 0xff00_0000, ALL, None);
+        }
+        let mut got = vec![7; len];
+        let mut c = Canvas {
+            px: &mut got,
+            width: w,
+            height: h,
+            stride,
+        };
+        c.fill_layered(0x123456, rects, &mut row);
+        assert_eq!(got, want, "{count} 个矩形，short = {short}");
+    }
+    // 宽度为 0 的画布不 panic。
+    canvas(&mut [], 0, 4).fill_layered(0x123456, &rects, &mut row);
+}
+
 /// 回归：`paste` 不先裁剪到画布内时，`area` 超出画布会导致越界 panic 或写入下一行。
 #[test]
 fn pasting_clips_to_the_canvas() {

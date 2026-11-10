@@ -4,7 +4,7 @@
 //! 卡片分标题行（名字、发起查找的文件、数量）、列表（文件图标、文件名、行号和该行代码，名字铺
 //! 查找结果的琥珀色底）和底栏（选中项的完整路径和行号）。
 //!
-//! 出现时从名字那一侧滑出并淡入，关掉时原地淡出（`App::places_in`、`App::places_out`）；选择、
+//! 出现时从名字那一侧滑出并淡入，关掉时原地淡出（`Picker::places_in`、`Picker::places_out`）；选择、
 //! 筛选、滚动和键盘操作与快速打开面板共用（`picker_*`），这里只负责绘制。
 
 use std::fmt::Write as _;
@@ -47,16 +47,16 @@ impl<'a> PlacesView<'a> {
     /// 打开中的浮窗。
     fn live(app: &'a App) -> Option<PlacesView<'a>> {
         Some(PlacesView {
-            places: app.picker_places.as_ref()?,
-            hits: &app.picker_hits,
-            selected: app.picker_selected,
+            places: app.picker.places.as_ref()?,
+            hits: &app.picker.hits,
+            selected: app.picker.selected,
             hovered: match app.hover {
                 Hover::PickerRow(i) => Some(i),
                 _ => None,
             },
-            scroll: app.picker_scroll,
-            filter: app.picker_input.text(),
-            caret: app.focus == Focus::Picker && app.caret_visible,
+            scroll: app.picker.scroll,
+            filter: app.picker.input.text(),
+            caret: app.focus == Focus::Picker && app.blink.visible,
         })
     }
 
@@ -80,7 +80,7 @@ impl<'a> PlacesView<'a> {
 /// 三次缓出（最后一段慢慢停稳）。
 pub(in crate::view) fn draw_live(app: &App, frame: &mut Frame<'_>, rect: Rect) -> Option<Rect> {
     let view = PlacesView::live(app)?;
-    let t = app.places_in.map_or(1.0, |clock| clock.linear());
+    let t = app.picker.places_in.map_or(1.0, |clock| clock.linear());
     let opacity = 1.0 - (1.0 - t).powi(2);
     let rect = slid(rect, app.places_above(), (1.0 - t).powi(3));
     frame.with_opacity(opacity, |frame| draw_places(app, frame, rect, &view))

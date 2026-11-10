@@ -1,0 +1,18 @@
+[package]
+name = "winc-typeset"
+description = "Markdown 预览的排版：把解析后的块排成带位置的文字、图形和图片。"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+winc-preview.workspace = true
+winc-render.workspace = true
+winc-syntax.workspace = true
+winc-i18n.workspace = true
+
+[lints]
+workspace = true

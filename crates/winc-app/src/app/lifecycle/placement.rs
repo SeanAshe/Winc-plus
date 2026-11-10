@@ -113,10 +113,10 @@ pub(super) fn screens(event_loop: &ActiveEventLoop) -> Vec<Screen> {
 impl App {
     /// 窗口大小或位置变了：没有最大化、全屏、最小化时记下来，还原后回到这个大小。
     pub(super) fn note_window_frame(&mut self) {
-        let Some(window) = &self.window else {
+        let Some(window) = &self.window.handle else {
             return;
         };
-        if self.window_hidden
+        if self.window.hidden
             || window.is_minimized() == Some(true)
             || window.is_maximized()
             || window.fullscreen().is_some()
@@ -129,7 +129,7 @@ impl App {
             return;
         }
         let at = window.outer_position().ok();
-        self.window_frame = Some(WindowFrame {
+        self.window.frame = Some(WindowFrame {
             position: at.map(|at| (f64::from(at.x), f64::from(at.y))),
             width: size.width,
             height: size.height,
@@ -140,10 +140,10 @@ impl App {
 
     /// 窗口要关了：记下它的大小和位置；有多个窗口时最后关闭的算数。
     pub(super) fn remember_window(&mut self) {
-        if self.config.restore_window == Some(false) || self.window_hidden {
+        if self.config.restore_window == Some(false) || self.window.hidden {
             return;
         }
-        let (Some(window), Some(frame)) = (&self.window, self.window_frame) else {
+        let (Some(window), Some(frame)) = (&self.window.handle, self.window.frame) else {
             return;
         };
         let frame = WindowFrame {

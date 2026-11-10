@@ -1,7 +1,6 @@
 [package]
 name = "winc-config"
 description = "用户配置：各平台的配置路径、JSON 读写、字体设置解析。无 GUI 依赖。"
-version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true

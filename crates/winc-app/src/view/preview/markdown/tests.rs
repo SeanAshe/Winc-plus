@@ -3,7 +3,7 @@
 
 use super::*;
 
-pub(crate) use super::layout::slug;
+pub(crate) use winc_preview::markdown::slug;
 
 /// 绘制的框和线超出内容宽度的量（逻辑像素，未超出时不大于 0），供测试检查图是否完整显示。
 pub(crate) fn overflow(app: &App) -> f32 {

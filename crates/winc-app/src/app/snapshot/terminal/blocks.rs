@@ -489,7 +489,7 @@ fn a_long_command_finishing_in_the_background_is_noticed() {
     assert_eq!(app.terminal.tabs[0].unseen, None);
 
     // 窗口不在前台时结束的长命令：回到窗口时提示。
-    app.window_focused = false;
+    app.window.focused = false;
     let mut again = running.clone();
     again.id = 2;
     app.terminal_blocks(1, vec![again.clone()], false);
@@ -502,10 +502,10 @@ fn a_long_command_finishing_in_the_background_is_noticed() {
         false,
     );
     assert_eq!(app.terminal.tabs[0].unseen, None, "回来时看到的就是它");
-    app.window_focused = true;
+    app.window.focused = true;
     app.terminal_window_focused();
     assert_eq!(
-        app.notice.as_deref(),
+        app.notice.text.as_deref(),
         Some("「cargo build」已完成（12.4 s）")
     );
 

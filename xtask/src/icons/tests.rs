@@ -2,7 +2,7 @@
 
 use super::*;
 
-#[path = "../../../crates/winc-app/build_icon.rs"]
+#[path = "../../../crates/winc/build_icon.rs"]
 mod build_icon;
 
 /// 读取提交在仓库里、嵌入 Windows 可执行文件的 ICO。

@@ -549,16 +549,19 @@ impl Formatter {
         self.0.shell.is_ready()
     }
 
-    /// 在后台获取环境，完成后调用 `done`；环境已取到时什么也不做。
+    /// 在后台获取环境并更新 `PATH` 的清单，完成后调用 `done`。
     ///
-    /// 同时通过 xcrun 查询需要查询才能确定是否安装的工具，使设置页能显示 C 和 Swift 所用的工具。
+    /// 环境已取到时重新列出清单，反映期间安装或卸载的工具。同时通过 xcrun 查询需要查询才能
+    /// 确定是否安装的工具，使设置页能显示 C 和 Swift 所用的工具。
     pub fn prepare(&self, done: impl FnOnce() + Send + 'static) {
-        if self.is_ready() {
-            return;
-        }
         let formatter = self.clone();
         crate::background::spawn(move || {
-            formatter.0.shell.resolve();
+            // 第一次取到环境时已列出清单，不必再列一次。
+            if formatter.is_ready() {
+                formatter.0.shell.list();
+            } else {
+                formatter.0.shell.resolve();
+            }
             for name in ["clang-format", "swift-format"] {
                 if tools::needs_xcrun(name) && formatter.in_path(name).is_none() {
                     formatter.xcrun(name);
@@ -570,16 +573,14 @@ impl Formatter {
 
     /// 返回 `program` 是否已安装；不知道时返回 `None`。
     ///
-    /// 只检查文件是否存在，不运行别的程序，也不等待，因此可以在界面线程上调用（设置页使用）。
-    /// 尚未取到用户 shell 的 `PATH`，或需要先通过 xcrun 查询才能确定的，都算不知道。
+    /// 按 `PATH` 的清单判断（见 [`Shell::peek`]），不逐个目录探测，不运行别的程序，也不等待，
+    /// 因此可以在界面线程上调用（设置页使用）。尚未取到用户 shell 的 `PATH`，或需要先通过
+    /// xcrun 查询才能确定的，都算不知道。
     pub fn installed(&self, program: &Program) -> Option<bool> {
         let Program::Search(name) = program else {
             return Some(self.locate(program).is_some());
         };
-        if !self.is_ready() {
-            return None;
-        }
-        if self.in_path(name).is_some() {
+        if self.0.shell.peek(name)?.is_some() {
             return Some(true);
         }
         if !tools::needs_xcrun(name) {
@@ -648,7 +649,7 @@ impl Formatter {
         }
     }
 
-    /// 在 `PATH` 里找程序 `name`，不通过 xcrun 查找。
+    /// 在 `PATH` 里找程序 `name`，不通过 xcrun 查找；逐个目录检查，应在后台线程调用。
     fn in_path(&self, name: &str) -> Option<PathBuf> {
         self.0.shell.find(name)
     }

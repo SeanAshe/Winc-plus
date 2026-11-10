@@ -67,10 +67,10 @@ impl App {
         match action {
             ShowCommands => self.toggle_palette(),
             QuickOpen => {
-                if self.picker_open
+                if self.picker.open
                     && !self.picker_lists_commands()
                     && !self.picker_lists_symbols()
-                    && !self.picker_folders
+                    && !self.picker.folders
                 {
                     self.close_picker();
                 } else {
@@ -78,7 +78,7 @@ impl App {
                 }
             }
             // 和 `⌘P` 一样，已经在列符号时再按一次关掉。
-            GoToSymbol if self.picker_open && self.picker_lists_symbols() => self.close_picker(),
+            GoToSymbol if self.picker.open && self.picker_lists_symbols() => self.close_picker(),
             GoToSymbol => self.open_symbols(),
             GoToLine => self.open_goto(),
             GoToDefinition => self.go_to_definition(),
@@ -279,8 +279,8 @@ impl App {
                 self.word_highlights.clear();
                 self.request_redraw();
             }
-            ReplaceOne if self.search_open => self.replace_current(),
-            ReplaceAll if self.search_open => self.replace_all(),
+            ReplaceOne if self.find.open => self.replace_current(),
+            ReplaceAll if self.find.open => self.replace_all(),
             ReplaceOne | ReplaceAll => return false,
             ToggleCase | ToggleWord | ToggleRegex if panel => {
                 self.press_panel_button(match action {
@@ -289,7 +289,7 @@ impl App {
                     _ => PanelButton::Regex,
                 })
             }
-            ToggleCase | ToggleWord | ToggleRegex if self.search_open => {
+            ToggleCase | ToggleWord | ToggleRegex if self.find.open => {
                 self.press_search_button(match action {
                     ToggleCase => SearchButton::Case,
                     ToggleWord => SearchButton::Word,
@@ -298,7 +298,7 @@ impl App {
             }
             ToggleCase | ToggleWord | ToggleRegex => return false,
             FilterLines => {
-                if !self.search_open {
+                if !self.find.open {
                     self.open_search(false);
                 }
                 self.press_search_button(SearchButton::Filter);
@@ -503,10 +503,10 @@ impl App {
 
     /// 将焦点移到侧栏（`⌘0`）：侧栏已收起时先展开，焦点落在当前显示的视图上。
     fn focus_sidebar(&mut self) {
-        if !self.panel_visible {
+        if !self.sidebar.visible {
             self.set_sidebar(true);
         }
-        self.focus = match self.sidebar_view {
+        self.focus = match self.sidebar.view {
             SidebarView::Files => Focus::Tree,
             SidebarView::Search => Focus::GlobalQuery,
             SidebarView::Commit => self.commit_view_focus(),

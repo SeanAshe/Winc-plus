@@ -39,7 +39,7 @@ fn outside_changes_reach_the_tree_the_index_and_open_files() {
     app.open_path(&dir.join("a.txt"));
     app.open_picker();
     app.close_picker();
-    let indexed = app.picker.len();
+    let indexed = app.picker.index.len();
 
     // 其他程序新建了一个文件；修改了已打开且没有未保存修改的 `short.rs`（直接重新读取）；
     // 修改了已打开且有未保存修改的 `a.txt`（提示冲突，不覆盖）。
@@ -68,23 +68,23 @@ fn outside_changes_reach_the_tree_the_index_and_open_files() {
     assert!(!a.can_save_quietly());
     // 冲突的是当前文档：由冲突卡片提示，不另弹提示条。
     assert_eq!(app.active_conflict().as_deref(), Some("a.txt"));
-    assert!(app.notice.is_none(), "{:?}", app.notice);
+    assert!(app.notice.text.is_none(), "{:?}", app.notice.text);
 
     // ⌘P 的文件表在后台更新：测试中没有事件循环，需要等待更新完成后手动取回。
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while !app.picker.is_ready() || app.picker.len() == indexed {
+    while !app.picker.index.is_ready() || app.picker.index.len() == indexed {
         assert!(std::time::Instant::now() < deadline, "⌘P 的文件表没改好");
         std::thread::sleep(Duration::from_millis(5));
         app.picker_indexed();
     }
-    assert_eq!(app.picker.len(), indexed + 1);
-    assert!(app.picker.position_of(&dir.join("new.rs")).is_some());
+    assert_eq!(app.picker.index.len(), indexed + 1);
+    assert!(app.picker.index.position_of(&dir.join("new.rs")).is_some());
 
     // 删除文件后：文件树和文件表中都不再有该文件。
     std::fs::remove_file(dir.join("new.rs")).unwrap();
     app.apply_changes(changes(&dir, &["new.rs"]));
     assert!(!tree_names(&app).contains(&"new.rs".to_owned()));
-    while !app.picker.is_ready() || app.picker.len() != indexed {
+    while !app.picker.index.is_ready() || app.picker.index.len() != indexed {
         assert!(std::time::Instant::now() < deadline, "⌘P 的文件表没改好");
         std::thread::sleep(Duration::from_millis(5));
         app.picker_indexed();
@@ -163,7 +163,7 @@ fn files_made_here_reach_quick_open_without_walking_again() {
     let mut app = app_with(&dir, false);
     app.open_picker();
     app.close_picker();
-    let before = app.picker.len();
+    let before = app.picker.index.len();
 
     // 在文件树中一次创建两级的目录和文件：`docs` → `guide` → `intro.md`。
     app.start_new_entry(false);
@@ -175,6 +175,7 @@ fn files_made_here_reach_quick_open_without_walking_again() {
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     while app
         .picker
+        .index
         .position_of(&dir.join("docs/guide/intro.md"))
         .is_none()
     {
@@ -182,7 +183,7 @@ fn files_made_here_reach_quick_open_without_walking_again() {
         std::thread::sleep(Duration::from_millis(5));
         app.picker_indexed();
     }
-    assert_eq!(app.picker.len(), before + 1);
+    assert_eq!(app.picker.index.len(), before + 1);
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -217,7 +218,7 @@ fn logs_written_by_others_are_followed_at_the_end() {
     append(200, 300, 1);
     app.apply_changes(changes(&root, &["app.log"]));
     assert_eq!(caret_line(&app), 300);
-    assert!(app.status_message.is_none());
+    assert!(app.status.message.is_none());
     let doc = app.editor.active().unwrap();
     assert!(!doc.is_dirty());
     assert!(doc.scroll_line + app.visible_lines() as f64 > 300.0);
@@ -255,11 +256,11 @@ fn conflicts_wait_for_the_user_to_pick_a_side() {
 
     // 当前标签显示冲突卡片；另一个标签只在提示条中列出。
     paint(&mut app);
-    let (card, buttons) = app.conflict_card.clone().unwrap();
+    let (card, buttons) = app.hits.conflict_card.clone().unwrap();
     assert_eq!(buttons.len(), 3);
     assert!(buttons.iter().all(|(b, _)| card.contains(b.x, b.y)));
     assert!(card.right() <= app.layout.editor.right());
-    let notice = app.notice.clone().unwrap_or_default();
+    let notice = app.notice.text.clone().unwrap_or_default();
     assert!(
         notice.contains("short.rs") && !notice.contains("a.txt"),
         "{notice}"
@@ -279,7 +280,7 @@ fn conflicts_wait_for_the_user_to_pick_a_side() {
 
     // 比较：打开并排的差异标签，左边是磁盘版本，右边是自己的修改。
     let button = |app: &App, action: ConflictAction| {
-        let (_, buttons) = app.conflict_card.clone().unwrap();
+        let (_, buttons) = app.hits.conflict_card.clone().unwrap();
         buttons.iter().find(|(_, a)| *a == action).unwrap().0
     };
     let compare = button(&app, ConflictAction::Compare);
@@ -305,7 +306,7 @@ fn conflicts_wait_for_the_user_to_pick_a_side() {
     assert_eq!(doc.text_range(0, usize::MAX).unwrap(), "theirs\n");
     assert!(!doc.is_dirty() && !doc.in_conflict());
     paint(&mut app);
-    assert!(app.conflict_card.is_none());
+    assert!(app.hits.conflict_card.is_none());
     app.run(Command::Undo);
     assert!(app.editor.active().unwrap().is_dirty());
 
@@ -410,7 +411,7 @@ fn background_tree_scans_keep_only_the_latest_per_folder() {
         let tickets: Vec<u64> = scan
             .dirs()
             .iter()
-            .map(|d| app.tree_scans.tickets.issue(d.clone()))
+            .map(|d| app.tree.scans.tickets.issue(d.clone()))
             .collect();
         (tickets, scan.run())
     };
@@ -420,7 +421,7 @@ fn background_tree_scans_keep_only_the_latest_per_folder() {
     let old = scan(&mut app);
     std::fs::write(dir.join("second.rs"), "").unwrap();
     let new = scan(&mut app);
-    let sender = app.tree_scans.results.0.clone();
+    let sender = app.tree.scans.results.0.clone();
     sender.send(new).unwrap();
     sender.send(old).unwrap();
     app.poll_tree_scans();

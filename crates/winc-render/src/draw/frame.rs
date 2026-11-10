@@ -30,6 +30,10 @@ pub struct Frame<'a> {
     ///
     /// 由 [`Frame::with_opacity`] 临时相乘。
     pub(crate) opacity: f32,
+    /// 背景色，`0xAARRGGBB`。
+    pub(crate) background: u32,
+    /// 已随背景色绘制的底色矩形（物理像素），见 [`Frame::base`]。
+    pub(crate) based: &'a [(IRect, u32)],
 }
 
 impl Frame<'_> {
@@ -165,6 +169,27 @@ impl Frame<'_> {
                 let square = Rect::new(x, rect.y + row as f32 * cell, cell, cell);
                 self.rect_clipped(square.intersect(rect), first, 0.0, clip);
             }
+        }
+    }
+
+    /// 绘制本帧的底色矩形 `rects`，后者覆盖前者；须为本帧的第一次绘制。
+    ///
+    /// `rects` 与 [`Renderer::base_next_frame`] 声明的一致时已由渲染器绘制，直接返回；未声明时
+    /// 逐个绘制；不一致时重新填充背景色后绘制。三种情况的画面相同。
+    pub fn base(&mut self, rects: &[(Rect, Color)]) {
+        let scale = self.scale;
+        let painted = self.based.len() == rects.len()
+            && (self.based.iter().zip(rects)).all(|(&(area, argb), &(rect, color))| {
+                area == rect.to_pixels(scale) && argb == color.argb()
+            });
+        if painted {
+            return;
+        }
+        if !self.based.is_empty() {
+            self.canvas.fill(self.background);
+        }
+        for &(rect, color) in rects {
+            self.rect(rect, color);
         }
     }
 

@@ -19,7 +19,7 @@ use swash::scale::{Render, ScaleContext, Source, StrikeWith};
 use swash::zeno::{Angle, Format, Transform, Vector};
 use winit::window::Window;
 
-pub use draw::canvas::{Covered, Stroke};
+pub use draw::canvas::{Covered, Stroke, rounded_outline};
 pub use draw::frame::Frame;
 pub use text::font::{FontKind, set_cjk_language};
 pub use text::font_list::{FontFamily, installed_fonts};
@@ -265,6 +265,10 @@ pub struct Renderer {
     /// 下一帧必然被不透明内容完全覆盖的区域（逻辑像素），填充背景色时跳过，见
     /// [`Self::cover_next_frame`]。
     cover: Option<Rect>,
+    /// 下一帧的底色矩形（物理像素），见 [`Self::base_next_frame`]。
+    base: Vec<(IRect, u32)>,
+    /// `Canvas::fill_layered` 复用的行缓冲。
+    row: Vec<u32>,
 }
 
 /// 可供多个渲染器共用的字体和字形缓存：同一进程中的多个窗口使用相同的字体，已光栅化的字形无需
@@ -355,6 +359,8 @@ impl Renderer {
             zoom: 1.0,
             background: background.argb(),
             cover: None,
+            base: Vec::new(),
+            row: Vec::new(),
         })
     }
 
@@ -389,6 +395,8 @@ impl Renderer {
             zoom: 1.0,
             background: background.argb(),
             cover: None,
+            base: Vec::new(),
+            row: Vec::new(),
         })
     }
 
@@ -544,8 +552,22 @@ impl Renderer {
         self.cover = Some(rect);
     }
 
-    /// 绘制一帧：先填充背景色（[`Self::cover_next_frame`] 声明的区域除外），再调用 `paint`，
-    /// 最后呈现（离屏渲染时只写入内存图像）。
+    /// 声明下一帧将由 [`Frame::base`] 绘制的底色矩形 `rects`，使其与背景色在同一趟中绘制
+    /// （见 `Canvas::fill_layered`）。
+    ///
+    /// 存在非不透明的颜色时不声明，由 [`Frame::base`] 逐个混合。声明后该帧忽略
+    /// [`Self::cover_next_frame`]。
+    pub fn base_next_frame(&mut self, rects: &[(Rect, Color)]) {
+        self.base.clear();
+        if rects.iter().all(|(_, color)| color.a >= 1.0) {
+            let scale = self.scale;
+            (self.base).extend(rects.iter().map(|&(r, c)| (r.to_pixels(scale), c.argb())));
+        }
+    }
+
+    /// 绘制一帧：先填充背景色（[`Self::cover_next_frame`] 声明的区域除外）和
+    /// [`Self::base_next_frame`] 声明的底色矩形，再调用 `paint`，最后呈现（离屏渲染时只写入内存
+    /// 图像）。
     ///
     /// 呈现缓冲都被合成器占用、无法取得空闲缓冲时不绘制（不调用 `paint`），返回 `false`：调用方
     /// 在下一次屏幕刷新时重试。绘制完成时返回 `true`。
@@ -563,8 +585,13 @@ impl Renderer {
                 (area.x0 + 1, area.y0 + 1, area.x1 - 1, area.y1 - 1);
             Covered::new(area, 0.0)
         });
+        let (based, row) = (&self.base, &mut self.row);
         let paint = |mut canvas: Canvas<'_>| {
-            canvas.fill_except(background, cover);
+            if based.is_empty() {
+                canvas.fill_except(background, cover);
+            } else {
+                canvas.fill_layered(background, based, row);
+            }
             paint(&mut Frame {
                 canvas,
                 glyphs,
@@ -575,10 +602,12 @@ impl Renderer {
                 bounds,
                 limit: bounds,
                 opacity: 1.0,
+                background,
+                based,
             });
         };
 
-        match &mut self.target {
+        let drawn = match &mut self.target {
             Target::Window(window, presenter) => presenter.frame(|canvas| {
                 paint(canvas);
                 window.pre_present_notify();
@@ -592,7 +621,9 @@ impl Renderer {
                 });
                 true
             }
-        }
+        };
+        self.base.clear();
+        drawn
     }
 
     /// 在透明底上离屏绘制一张 `width`×`height`（逻辑像素）的小图，按当前缩放系数绘制，
@@ -630,6 +661,8 @@ impl Renderer {
                 bounds: Rect::new(0.0, 0.0, width, height),
                 limit: Rect::new(0.0, 0.0, width, height),
                 opacity: 1.0,
+                background,
+                based: &[],
             });
             px
         };

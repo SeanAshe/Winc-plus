@@ -168,7 +168,7 @@ impl App {
         done: impl Fn(usize, bool) -> Option<UserEvent> + 'static,
     ) -> bool {
         #[cfg(target_os = "macos")]
-        if let (Some(window), Some(proxy)) = (self.window.clone(), self.proxy.clone()) {
+        if let (Some(window), Some(proxy)) = (self.window.handle.clone(), self.proxy.clone()) {
             use crate::macos::{MOD_COMMAND, alert};
             let keys: Vec<Option<String>> = buttons
                 .iter()

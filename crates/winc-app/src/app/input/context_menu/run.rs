@@ -668,7 +668,7 @@ impl App {
             return;
         }
 
-        if self.window.is_some() {
+        if self.window.handle.is_some() {
             let message = match paths.as_slice() {
                 [path] => {
                     let name = winc_editor::display_name(path);
@@ -735,7 +735,7 @@ impl App {
             ws.refresh();
             let count = ws.rows().len();
             ws.select(was.filter(|_| count > 0).map(|i| i.min(count - 1)));
-            self.tree_motion = None;
+            self.tree.motion = None;
             self.clamp_tree_scroll();
         }
 

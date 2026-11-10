@@ -11,7 +11,7 @@ use crate::app::StickyRow;
 /// `index` 超出 `documents` 的范围时 panic。
 pub(super) fn draw_sticky(app: &mut App, frame: &mut Frame<'_>, index: usize) {
     let rows = app.sticky_rows();
-    app.sticky.clone_from(&rows);
+    app.hits.sticky.clone_from(&rows);
     if rows.is_empty() {
         return;
     }

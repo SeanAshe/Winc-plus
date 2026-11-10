@@ -429,7 +429,7 @@ impl App {
     pub(crate) fn backup_tick(&mut self, now: Instant) -> Option<Instant> {
         self.collect_backups(false);
         // 已经提出退出请求时，备份已在退出流程中写好，不再改动。
-        if self.quit_requested {
+        if self.closing.quit_requested {
             return None;
         }
         if !self.backup_pending() {

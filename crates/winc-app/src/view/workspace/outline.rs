@@ -31,7 +31,6 @@ const LABEL: f32 = 48.0;
 pub(in crate::view) fn draw_outline(app: &mut App, frame: &mut Frame<'_>) {
     let section = app.layout.outline;
     if section.h <= 0.0 {
-        app.outline.hits.clear();
         return;
     }
     app.sync_outline(std::time::Instant::now());
@@ -109,7 +108,7 @@ pub(in crate::view) fn draw_outline(app: &mut App, frame: &mut Frame<'_>) {
             draw_rows(app, frame, list, &mut hits);
         }
     }
-    app.outline.hits = hits;
+    app.hits.outline = hits;
 }
 
 /// 绘制标题行右端的「全部折叠」（有展开着的符号时）或「全部展开」按钮。

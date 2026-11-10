@@ -89,7 +89,7 @@ impl App {
             self.tabs.anchor = Some(id);
         }
         self.activate_tab(index);
-        let Some(hit) = self.tabs.hits.iter().find(|h| h.index == index) else {
+        let Some(hit) = self.hits.tabs.iter().find(|h| h.index == index) else {
             return;
         };
         // 清除该标签上次松开后尚未结束的滑动，使本次拖动不再叠加旧的滑动偏移。

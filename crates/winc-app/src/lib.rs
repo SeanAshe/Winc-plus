@@ -1,13 +1,9 @@
-//! `winc` 可执行文件的入口：读取配置和状态，按命令行参数或上次的现场打开文件，创建窗口和事件循环。
+//! winc 桌面程序的实现：读取配置和状态，按命令行参数或上次的现场打开文件，创建窗口和事件循环。
 //!
-//! `app` 模块放 `App` 的状态与各项功能，`view` 绘制并把几何交给 `layout`，
-//! `keymap`、`theme`、`icons` 给出快捷键、配色和尺寸，`field` 是单行输入框，
-//! `macos` 放直接调用 `AppKit` 的能力。Windows 上
-//! 是图形界面程序：从命令行启动时接上该命令行的控制台，`--help` 和错误信息输出到该控制台
-//! （`windows::attach_console`）。
-
-// 不加时 Windows 每次启动 winc 都会另开一个控制台窗口。
-#![cfg_attr(windows, windows_subsystem = "windows")]
+//! 入口是 [`run`]，由可执行文件 `winc` 调用。`app` 模块放 `App` 的状态与各项功能，`view` 绘制并把
+//! 几何交给 `layout`，`keymap`、`theme`、`icons` 给出快捷键、配色和尺寸，`field` 是单行输入框，
+//! `macos` 放直接调用 `AppKit` 的能力。Windows 上是图形界面程序：从命令行启动时接上该命令行的
+//! 控制台，`--help` 和错误信息输出到该控制台（`windows::attach_console`）。
 
 mod app;
 mod askpass;
@@ -60,7 +56,10 @@ use app::App;
 use bench::Bench;
 use winc::{Envelope, Winc};
 
-fn main() {
+/// 运行 winc：按命令行参数或上次的现场打开文件，创建窗口并运行事件循环，直到全部窗口关闭。
+///
+/// 无需窗口的情形（输出用法或版本、把目标交给已在运行的 winc、参数有误）直接返回或退出进程。
+pub fn run() {
     // 作为 `git`、`ssh` 的 askpass 程序启动时不创建窗口。
     if let Some(code) = askpass::helper() {
         std::process::exit(code);
@@ -77,7 +76,7 @@ fn main() {
             return;
         }
         Ok(args) if args.version => {
-            println!("winc {}", env!("CARGO_PKG_VERSION"));
+            println!("winc {}", winc_version::VERSION);
             return;
         }
         // 安装、卸载时只登记或去掉文件类型，不打开窗口。

@@ -281,7 +281,7 @@ impl App {
 
     /// 打开「+」右边的 shell 菜单。
     pub(in crate::app) fn open_terminal_shell_menu(&mut self) {
-        let menu = (self.terminal.hits.iter()).find(|(_, hit)| *hit == HeaderHit::ShellMenu);
+        let menu = (self.hits.terminal.iter()).find(|(_, hit)| *hit == HeaderHit::ShellMenu);
         let Some(&(menu, _)) = menu else {
             return;
         };

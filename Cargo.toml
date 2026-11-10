@@ -1,10 +1,9 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "xtask"]
-default-members = ["crates/winc-app"]
+default-members = ["crates/winc"]
 
 [workspace.package]
-version = "0.1.601"
 edition = "2024"
 rust-version = "1.89"
 publish = false
@@ -21,6 +20,9 @@ winc-editor = { path = "crates/winc-editor" }
 winc-preview = { path = "crates/winc-preview" }
 winc-pty = { path = "crates/winc-pty" }
 winc-i18n = { path = "crates/winc-i18n" }
+winc-version = { path = "crates/winc-version" }
+winc-app = { path = "crates/winc-app" }
+winc-typeset = { path = "crates/winc-typeset" }
 
 # 只把 LF、CR、CRLF 当换行。默认的 `unicode_lines` 还认 VT、FF、U+0085、U+2028、U+2029，
 # 行号会和编译器、git、grep 报的对不上（C 和 Python 源码里常见分页符 FF）。
@@ -114,8 +116,13 @@ codegen-units = 1
 strip = true
 panic = "abort"
 
-# 依赖按体积优化（二进制再小约 0.2 MB），下面几个在热路径上的除外。
 [profile.release.package."*"]
+opt-level = "s"
+
+# 应用层按体积优化（二进制小约 0.7 MB）：其中是事件处理、命令、布局和各界面的绘制；逐像素合成、
+# 文本存储、语法高亮、查找在各自的 crate 中，级别不变。可执行文件单独在 `winc` crate 中：
+# 链接时优化的流程由可执行 crate 的级别决定，该 crate 设为 `"s"` 时二进制反而增大。
+[profile.release.package.winc-app]
 opt-level = "s"
 
 # 文件内查找、全局搜索：按体积优化时纯文字查找慢约 7%。

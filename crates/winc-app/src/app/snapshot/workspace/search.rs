@@ -113,7 +113,7 @@ fn global_search_finds_opens_and_replaces() {
     app.on_mouse_move(search_tab.x + 4.0, search_tab.y + 4.0);
     assert_eq!(app.hover, Hover::ViewTab(SidebarView::Search));
     app.on_mouse_down(MouseButton::Left);
-    assert_eq!(app.sidebar_view, SidebarView::Search);
+    assert_eq!(app.sidebar.view, SidebarView::Search);
     assert_eq!(app.focus, Focus::GlobalQuery);
     assert_eq!(app.layout.tree.h, 0.0);
 
@@ -233,7 +233,7 @@ fn global_search_finds_opens_and_replaces() {
     let (files_tab, _) = app.sidebar_tabs()[0];
     app.on_mouse_move(files_tab.x + 4.0, files_tab.y + 4.0);
     app.on_mouse_down(MouseButton::Left);
-    assert_eq!(app.sidebar_view, SidebarView::Files);
+    assert_eq!(app.sidebar.view, SidebarView::Files);
     assert_eq!(app.focus, Focus::Tree);
     assert!(app.layout.tree.h > 0.0);
 
@@ -412,13 +412,13 @@ fn showing_only_matching_lines_hides_the_rest_until_turned_off() {
 
     // ⌘F 搜索 `ERROR` 并开启「只显示匹配的行」：只剩四行。
     app.run_action(Action::Find);
-    app.find_input.set_text("ERROR");
+    app.find.input.set_text("ERROR");
     app.search.query = "ERROR".into();
     app.search_changed();
     app.run_action(Action::FilterLines);
     app.advance_search();
     paint(&mut app);
-    assert!(app.filter_lines);
+    assert!(app.find.filter_lines);
     assert_eq!(rows(&app), 4);
     let doc = app.editor.active().unwrap();
     let shown: Vec<usize> = (0..4).map(|r| doc.line_of_row(r)).collect();
@@ -453,7 +453,7 @@ fn showing_only_matching_lines_hides_the_rest_until_turned_off() {
     app.close_search();
     app.advance_search();
     paint(&mut app);
-    assert!(!app.filter_lines);
+    assert!(!app.find.filter_lines);
     assert_eq!(rows(&app), 201);
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -471,13 +471,13 @@ fn a_filter_that_hides_nothing_leaves_the_scroll_alone() {
     let mut app = app_with(&file, false);
 
     app.run_action(Action::Find);
-    app.find_input.set_text("x");
+    app.find.input.set_text("x");
     app.search.query = "x".into();
     app.search_changed();
     app.run_action(Action::FilterLines);
     app.advance_search();
     paint(&mut app);
-    assert!(app.filter_lines);
+    assert!(app.find.filter_lines);
     assert_eq!(app.row_count(), 200);
 
     // 向下滚动（光标仍在第一处匹配上）：之后的每一帧都不应把视图拉回光标处。
@@ -496,12 +496,12 @@ fn closing_the_last_tab_drops_a_pending_jump() {
     let mut app = app_with(&dir.join("a.txt"), false);
     let id = app.editor.active().unwrap().id;
     // 大文件中按 ⌘G，一个时间片内没有搜到下一处：记录待跳转，搜到后再跳。
-    app.pending_jump = Some((id, 0, false));
+    app.find.pending_jump = Some((id, 0, false));
     app.run_action(Action::CloseTab);
     assert!(app.editor.documents.is_empty());
     // 已没有标签，等待中的跳转作废；否则每帧都会视为仍在搜索，导致持续重绘。
     app.advance_search();
-    assert!(app.pending_jump.is_none());
+    assert!(app.find.pending_jump.is_none());
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -578,7 +578,7 @@ fn switching_folders_keeps_the_search_view_and_searches_the_new_folder() {
         app.editor.root(),
         Some(winc_config::files::canonicalize(&second).unwrap().as_path())
     );
-    assert_eq!(app.sidebar_view, SidebarView::Search);
+    assert_eq!(app.sidebar.view, SidebarView::Search);
     assert_eq!(app.global.query.text(), "config");
     finish_search(&mut app);
     let root = winc_config::files::canonicalize(&second).unwrap();
@@ -745,7 +745,7 @@ fn right_clicking_a_search_result_offers_its_menu() {
     let file = row_of(&app, ResultRow::File(0)).unwrap();
     click_row(&mut app, file);
     app.run_menu_command(RevealInTree);
-    assert_eq!(app.sidebar_view, SidebarView::Files);
+    assert_eq!(app.sidebar.view, SidebarView::Files);
     let ws = app.editor.workspace.as_ref().unwrap();
     assert_eq!(
         ws.selected_entry().map(|e| e.path.clone()),
@@ -991,7 +991,7 @@ fn the_focus_ring_has_even_sides_at_any_scale() {
         let renderer = winc_render::Renderer::offscreen(SIZE.0, SIZE.1, scale, bg, None, None);
         app.renderer = Some(renderer.unwrap());
         // 每轮加宽侧栏 0.3 逻辑像素，使输入框的边落在非整数的物理像素上。
-        app.panel_width += 0.3;
+        app.sidebar.width += 0.3;
         paint(&mut app);
         let field = app.panel_parts().replace;
         let image = app.renderer.as_ref().unwrap().image().unwrap();

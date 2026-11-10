@@ -1,7 +1,7 @@
 //! 并排差异标签的几何、命中区与交互。
 //!
 //! 负责标题栏按钮、折叠的未改动段、上一处与下一处改动之间的跳转，以及把左侧的一段内容
-//! 替换到右侧。绘制由 `view` 子模块完成；可点击区域在绘制时记录到 `diff_hits`，
+//! 替换到右侧。绘制由 `view` 子模块完成；可点击区域在绘制时记录到 `DiffState::hits`，
 //! 悬停与点击均据此判定目标。
 //!
 //! 右侧对应工作区文件时可直接编辑：右侧即编辑器中该文件的文档，光标、选区与撤销记录都属于该
@@ -643,7 +643,7 @@ impl App {
         }
         self.clamp_scroll();
         // 被替换的改动不立即失去颜色，而是在原处淡出；系统开启「减弱动态效果」时不显示淡出。
-        self.diff_fade = self
+        self.diff.fade = self
             .clock(REPLACE_FADE)
             .map(|clock| DiffFade { clock, ..fade });
         self.flash(t!("git-change-reverted"));
@@ -956,8 +956,8 @@ impl App {
         self.clamp_scroll();
         self.glide_scroll(before);
         self.place_diff_caret(hunk);
-        self.diff_cross = None;
-        self.diff_pulse = self.clock(crate::app::animation::DIFF_PULSE);
+        self.diff.cross = None;
+        self.diff.pulse = self.clock(crate::app::animation::DIFF_PULSE);
         if let Some(doc) = self.editor.active_mut() {
             let scroll = doc.scroll_line;
             if let Some(view) = doc.diff.as_deref_mut() {
@@ -1078,19 +1078,19 @@ impl App {
     /// 差异由储藏打开时为同一条储藏中的文件，由日志打开时为同一提交中的文件，否则为提交视图
     /// 列出的文件，均在当前标签中切换。`last` 为 `true` 时打开后停在最后一处改动，否则停在第一处。
     fn enter_diff_file(&mut self, forward: bool, last: bool) -> bool {
-        self.diff_land = Some(last);
+        self.diff.land = Some(last);
         let entered = self.step_stash_file(forward)
             || self.step_log_file(forward)
             || self.step_changed_file(forward);
         if !entered {
-            self.diff_land = None;
+            self.diff.land = None;
         }
         entered
     }
 
     /// 切换文件后的差异载入后，按 [`App::enter_diff_file`] 的要求跳转到第一处或最后一处改动。
     pub(in crate::app) fn land_diff_file(&mut self) {
-        let Some(last) = self.diff_land.take() else {
+        let Some(last) = self.diff.land.take() else {
             return;
         };
         let hunks = self
@@ -1132,7 +1132,7 @@ impl App {
             hunk: view.focus.map(|(hunk, _)| hunk),
             scroll: doc.scroll_line,
         };
-        let armed = self.diff_cross.take();
+        let armed = self.diff.cross.take();
         if armed.is_some_and(|(at, armed)| armed == cross && at.elapsed() < FLASH_DURATION)
             && self.enter_diff_file(forward, !forward)
         {
@@ -1142,7 +1142,7 @@ impl App {
             self.flash(none);
             return;
         };
-        self.diff_cross = Some((Instant::now(), cross));
+        self.diff.cross = Some((Instant::now(), cross));
         let name = name.as_str();
         self.flash(if forward {
             t!("git-press-again-next-file", name = name)
@@ -1340,4 +1340,18 @@ pub(crate) fn diff_parts(editor: Rect, view: &DiffView, cell: f32) -> DiffParts 
         revert_x: ribbon.x + DIFF_RIBBON_BUTTON_INSET,
         include_x: ribbon.right() - DIFF_RIBBON_BUTTON_INSET,
     }
+}
+
+/// 差异视图的界面状态：命中区域以及切换、定位时的过渡。
+#[derive(Default)]
+pub struct DiffState {
+    /// 差异中用「»」替换一段改动后正在淡出的颜色。
+    pub(crate) fade: Option<crate::app::diff::DiffFade>,
+    /// 跳转到一处改动时该段改动的短暂高亮；没有时为 `None`。
+    pub(crate) pulse: Option<crate::app::animation::Clock>,
+    /// 差异切换文件后新文件的停留位置：`true` 为最后一处改动，`false` 为第一处；
+    /// 不在切换文件时为 `None`。
+    pub(crate) land: Option<bool>,
+    /// 差异导航到达首尾时等待再次按键的状态与提示时刻；不在等待时为 `None`。
+    pub(crate) cross: Option<(Instant, crate::app::diff::DiffCross)>,
 }

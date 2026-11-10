@@ -2,7 +2,7 @@ param([string]$Target = 'x86_64-pc-windows-msvc')
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path "$PSScriptRoot/../..").Path
 $version = (& node "$PSScriptRoot/../common/version.mjs").Trim()
-if ($LASTEXITCODE -ne 0) { throw 'cannot read the Cargo.toml version' }
+if ($LASTEXITCODE -ne 0) { throw 'cannot read the VERSION file' }
 $bundle = "$root/target/$Target/release/bundle"
 $work = Join-Path $env:RUNNER_TEMP 'winc-installer-verification'
 New-Item -ItemType Directory -Force $work | Out-Null

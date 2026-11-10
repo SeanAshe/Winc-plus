@@ -113,7 +113,7 @@ fn dragging_a_file_onto_a_folder_moves_it_and_its_tab_follows() {
     assert!(doc.is_dirty());
     let ws = app.editor.workspace.as_ref().unwrap();
     assert_eq!(ws.selected_entry().unwrap().path, root.join("lib/notes.md"));
-    assert!(app.tree_drag.is_none());
+    assert!(app.tree.drag.is_none());
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -179,6 +179,7 @@ fn a_folder_cannot_go_into_itself_and_escape_cancels() {
     );
     assert!(
         app.notice
+            .text
             .as_deref()
             .unwrap()
             .starts_with("无法移动「main.rs」")
@@ -211,14 +212,14 @@ fn resting_on_a_closed_folder_opens_it_and_the_edges_scroll() {
     // 鼠标贴着文件树下边缘：文件树自动向下滚动，放置目标随之重新计算。
     let tree = app.layout.tree;
     app.on_mouse_move(60.0, tree.bottom() - 2.0);
-    assert_eq!(app.tree_scroll, 0.0);
+    assert_eq!(app.tree.scroll, 0.0);
     let wake = app.tree_drag_tick(Instant::now());
-    assert!(app.tree_scroll > 0.0 && wake.is_some());
+    assert!(app.tree.scroll > 0.0 && wake.is_some());
     // 离开边缘后停止滚动，也不再需要唤醒事件循环。
     app.on_mouse_move(60.0, tree.y + tree.h / 2.0);
-    let scroll = app.tree_scroll;
+    let scroll = app.tree.scroll;
     assert_eq!(app.tree_drag_tick(Instant::now()), None);
-    assert_eq!(app.tree_scroll, scroll);
+    assert_eq!(app.tree.scroll, scroll);
 
     app.on_mouse_up(MouseButton::Left);
     std::fs::remove_dir_all(&dir).unwrap();

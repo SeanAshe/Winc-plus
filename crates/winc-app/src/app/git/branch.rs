@@ -571,7 +571,7 @@ impl App {
     /// 删除储藏前先确认（删掉就找不回来了）；没有窗口时（测试中）直接删。
     fn confirm_drop_stash(&mut self, stash: Stash) {
         let message = t!("git-stash-drop-confirm", name = stash_title(&stash));
-        if self.window.is_some() {
+        if self.window.handle.is_some() {
             let detail = t!("git-stash-drop-confirm-detail");
             let button = t!("git-stash-drop-confirm-button");
             self.show_confirm(&message, detail, button, move |ok| {

@@ -173,9 +173,9 @@ impl App {
                 let tickets = scan
                     .dirs()
                     .iter()
-                    .map(|dir| self.tree_scans.tickets.issue(dir.clone()))
+                    .map(|dir| self.tree.scans.tickets.issue(dir.clone()))
                     .collect();
-                let sender = self.tree_scans.results.0.clone();
+                let sender = self.tree.scans.results.0.clone();
                 self.spawn_then(UserEvent::TreeScanned, move || {
                     let _ = sender.send((tickets, scan.run()));
                 });
@@ -192,7 +192,7 @@ impl App {
             self.results_touched(&changes.paths);
         }
         self.git_paths_changed(&changes.paths, changes.rescan, changes.git);
-        self.picker.apply(changes);
+        self.picker.index.apply(changes);
 
         self.relayout();
         self.clamp_scroll();
@@ -233,16 +233,16 @@ impl App {
     /// 收取后台重读完成的目录（见 [`TreeScans`]）并换进文件树；之后又发出过重读的目录不换。
     pub(in crate::app) fn poll_tree_scans(&mut self) {
         let mut changed = false;
-        while let Ok((tickets, mut listing)) = self.tree_scans.results.1.try_recv() {
+        while let Ok((tickets, mut listing)) = self.tree.scans.results.1.try_recv() {
             let mut tickets = tickets.into_iter();
-            let scans = &mut self.tree_scans.tickets;
+            let scans = &mut self.tree.scans.tickets;
             listing.retain(|dir| tickets.next().is_some_and(|t| scans.redeem(dir, t)));
             if let Some(ws) = &mut self.editor.workspace {
                 changed |= ws.apply_scan(listing);
             }
         }
         if changed {
-            self.tree_motion = None;
+            self.tree.motion = None;
             self.clamp_tree_scroll();
             self.request_redraw();
         }

@@ -112,7 +112,7 @@ impl App {
     /// 文件树中点中的那一行先被选中，点在空白处表示根目录。其他位置没有菜单。设置浮层或
     /// 快速打开面板打开时不处理。
     pub(in crate::app) fn context_click(&mut self, x: f32, y: f32) {
-        if self.settings.open || self.form_dialog.is_some() || self.picker_open {
+        if self.settings.open || self.form_dialog.is_some() || self.picker.open {
             return;
         }
 
@@ -126,8 +126,8 @@ impl App {
             .and_then(|(index, _)| self.editor.documents.get(index));
         let target = if let Some(doc) = tab {
             MenuTarget::Tab(doc.id)
-        } else if self.panel_visible
-            && self.sidebar_view == SidebarView::Files
+        } else if self.sidebar.visible
+            && self.sidebar.view == SidebarView::Files
             && (self.layout.tree.contains(x, y) || self.in_tree_overflow(x, y))
             && self.editor.workspace.is_some()
         {
@@ -193,7 +193,7 @@ impl App {
         if !self.commit_shown() || self.commit.hits_generation != self.git.generation {
             return None;
         }
-        match hit(&self.commit_hits, x, y)? {
+        match hit(&self.hits.commit, x, y)? {
             CommitTarget::Stash(i) | CommitTarget::StashApply(i) | CommitTarget::StashMenu(i) => {
                 Some(i)
             }
@@ -206,14 +206,14 @@ impl App {
     /// 点击目录或组标题时选中其下的各个文件，返回第一个文件的路径。
     fn commit_context_target(&mut self, x: f32, y: f32) -> Option<PathBuf> {
         // 历史提交的文件列表只能查看：其中的文件不在工作区的状态里，不提供修改工作区的菜单。
-        if !self.panel_visible
-            || self.sidebar_view != SidebarView::Commit
+        if !self.sidebar.visible
+            || self.sidebar.view != SidebarView::Commit
             || self.commit.hits_generation != self.git.generation
             || self.log_diff_tree().is_some()
         {
             return None;
         }
-        let path = match hit(&self.commit_hits, x, y)? {
+        let path = match hit(&self.hits.commit, x, y)? {
             CommitTarget::File(i) | CommitTarget::Check(i) => {
                 self.git.status.as_ref()?.entries.get(i)?.path.clone()
             }
@@ -287,7 +287,7 @@ impl App {
 
     /// 右键点在终端的标签上：它成为正在看的标签，返回它的编号。
     fn terminal_tab_context_target(&mut self, x: f32, y: f32) -> Option<u16> {
-        let index = match crate::layout::hit(&self.terminal.hits, x, y)? {
+        let index = match crate::layout::hit(&self.hits.terminal, x, y)? {
             crate::app::terminal::HeaderHit::Tab(i) | crate::app::terminal::HeaderHit::Close(i) => {
                 i
             }
@@ -692,7 +692,7 @@ impl App {
 
         // 没有系统菜单（macOS 以外的平台，以及没有窗口的测试中）：在窗口里画出来，由应用自己
         // 处理悬停、点击和按键，打开期间菜单按钮保持按下的样子。
-        if !cfg!(target_os = "macos") || self.window.is_none() {
+        if !cfg!(target_os = "macos") || self.window.handle.is_none() {
             let rows = self.popup_rows(&entries, context, &mut 0);
             if let Some(menu) = &mut self.context_menu {
                 let mut popup = PopupMenu::new(rows, at, (at_checked, right_aligned));
@@ -711,7 +711,7 @@ impl App {
         self.paint_now();
 
         #[cfg(target_os = "macos")]
-        if let Some(window) = self.window.clone() {
+        if let Some(window) = self.window.handle.clone() {
             let items: Vec<_> = prepared
                 .iter()
                 .map(|p| p.as_ref().map(Prepared::item))
@@ -1292,7 +1292,9 @@ impl App {
                         clip,
                     );
                 } else {
-                    let (glyph, color) = self.palette.file_icon(&crate::view::tab_icon_name(doc));
+                    let (glyph, color) = self
+                        .palette
+                        .file_icon(&crate::app::workspace::tab_names::tab_icon_name(doc));
                     // 文件图标 12 × 15。
                     icons::file(frame, (x + 2.0, y + 0.5), glyph, color, clip);
                 }
@@ -1325,7 +1327,7 @@ impl App {
         };
         MenuLabel {
             title: doc.name().into_owned(),
-            subtitle: crate::view::tab_folder(docs, i),
+            subtitle: crate::app::workspace::tab_names::tab_folder(docs, i),
             tooltip: doc
                 .path
                 .as_deref()
@@ -1335,7 +1337,7 @@ impl App {
 
     /// 文件树工具栏「⋯」的菜单：列出收起的各个工具，按工具栏中的顺序排列。
     pub(super) fn tree_tools_menu(&self) -> Vec<MenuEntry> {
-        crate::layout::folded_tools(self.tree_tools.len())
+        crate::layout::folded_tools(self.hits.tree_tools.len())
             .iter()
             .map(|&tool| {
                 let command = match tool {
@@ -1354,7 +1356,7 @@ impl App {
     pub(in crate::app) fn open_project_menu(&mut self) {
         self.git_discover();
         self.git_scan_repositories();
-        let hit = self.project_hit;
+        let hit = self.hits.project;
         self.open_button_menu(MenuButton::Project, MenuTarget::Project, menu_below(hit));
     }
 
@@ -1379,7 +1381,7 @@ impl App {
     pub(in crate::app) fn paint_now(&mut self) {
         self.relayout();
         if let Some(mut renderer) = self.renderer.take() {
-            self.cover_frame(&mut renderer);
+            self.declare_base(&mut renderer);
             renderer.draw(|frame| view::draw(self, frame));
             self.renderer = Some(renderer);
         }

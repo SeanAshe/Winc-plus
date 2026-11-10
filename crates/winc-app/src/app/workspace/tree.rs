@@ -72,7 +72,7 @@ enum TreeSlot {
     Empty,
 }
 
-/// 侧栏的显示动画：从露出比例 `from` 开始，朝 `panel_visible` 对应的一端过渡。
+/// 侧栏的显示动画：从露出比例 `from` 开始，朝 `Sidebar::visible` 对应的一端过渡。
 #[derive(Debug, Clone, Copy)]
 pub(in crate::app) struct SidebarMotion {
     /// 起始的露出比例：0 为隐藏，1 为完全展开。
@@ -122,8 +122,8 @@ impl TreeMotion {
 impl App {
     /// 返回侧栏露出的比例：0 为隐藏，1 为完全展开，动画中介于两者之间。
     pub(in crate::app) fn sidebar_shown(&self) -> f32 {
-        let target = if self.panel_visible { 1.0 } else { 0.0 };
-        let Some(motion) = self.sidebar_motion else {
+        let target = if self.sidebar.visible { 1.0 } else { 0.0 };
+        let Some(motion) = self.sidebar.motion else {
             return target;
         };
         motion.clock.between(motion.from, target)
@@ -132,38 +132,38 @@ impl App {
     /// 用状态文件里记下的侧栏宽度（启动、新开窗口时）。
     pub(crate) fn restore_panel_width(&mut self) {
         if let Some(width) = self.state.panel_width {
-            self.panel_width = width.max(crate::theme::MIN_PANEL_WIDTH);
+            self.sidebar.width = width.max(crate::theme::MIN_PANEL_WIDTH);
         }
     }
 
     /// 把侧栏宽度记进状态文件：以后打开的窗口、下次启动都用这个宽度。
     pub(in crate::app) fn remember_panel_width(&mut self) {
-        let width = self.panel_width.round();
+        let width = self.sidebar.width.round();
         self.update_state(|state| state.panel_width = Some(width));
     }
 
     /// 侧栏是否处于显示状态（动画的目标状态）。
     pub(crate) fn sidebar_open(&self) -> bool {
-        self.panel_visible
+        self.sidebar.visible
     }
 
     /// 启动时直接定下侧栏，不播放展开或收起动画。
     pub(crate) fn set_initial_sidebar(&mut self, visible: bool) {
-        self.panel_visible = visible;
-        self.sidebar_motion = None;
+        self.sidebar.visible = visible;
+        self.sidebar.motion = None;
     }
 
     /// 带动画地显示或隐藏侧栏。
     ///
     /// 动画中途反向时从当前位置继续。
     pub(in crate::app) fn set_sidebar(&mut self, visible: bool) {
-        if visible == self.panel_visible {
+        if visible == self.sidebar.visible {
             return;
         }
 
         let from = self.sidebar_shown();
-        self.panel_visible = visible;
-        self.sidebar_motion = self
+        self.sidebar.visible = visible;
+        self.sidebar.motion = self
             .clock(SIDEBAR_ANIMATION)
             .map(|clock| SidebarMotion { from, clock });
         self.relayout();
@@ -179,8 +179,8 @@ impl App {
             .root()
             .and_then(|root| self.state.session_for(root));
         if session.is_some_and(|session| session.sidebar_hidden) {
-            self.panel_visible = false;
-            self.sidebar_motion = None;
+            self.sidebar.visible = false;
+            self.sidebar.motion = None;
         }
     }
 
@@ -264,7 +264,7 @@ impl App {
         change(ws);
         let count = ws.rows().len().abs_diff(before);
 
-        self.tree_motion = self.clock(TREE_ANIMATION).map(|clock| TreeMotion {
+        self.tree.motion = self.clock(TREE_ANIMATION).map(|clock| TreeMotion {
             parent: index,
             count,
             expanding,
@@ -287,7 +287,8 @@ impl App {
 
     /// 返回第 `index` 行里横坐标 `x` 处合并显示的目录；不在其中时返回 `None`。
     pub(in crate::app) fn tree_segment_at(&self, index: usize, x: f32) -> Option<PathBuf> {
-        self.tree_segments
+        self.hits
+            .tree_segments
             .iter()
             .find(|(row, left, right, _)| *row == index && (*left..*right).contains(&x))
             .map(|(.., path)| path.clone())
@@ -295,7 +296,7 @@ impl App {
 
     /// 按鼠标现在的位置更新悬停的合并目录；同一行内换到另一级时悬停目标不变，要在这里请求重画。
     pub(in crate::app) fn track_tree_segment(&mut self) {
-        if self.tree_segments.is_empty() && self.tree_hover_segment.is_none() {
+        if self.hits.tree_segments.is_empty() && self.tree.hover_segment.is_none() {
             return;
         }
         let (x, y) = self.mouse;
@@ -303,8 +304,8 @@ impl App {
             .then(|| self.tree_row_at(y))
             .flatten()
             .and_then(|row| self.tree_segment_at(row, x));
-        if segment != self.tree_hover_segment {
-            self.tree_hover_segment = segment;
+        if segment != self.tree.hover_segment {
+            self.tree.hover_segment = segment;
             self.request_redraw();
         }
     }
@@ -313,8 +314,8 @@ impl App {
     ///
     /// 显示时焦点交给文件树或搜索输入框，隐藏时还给编辑区；焦点在终端里时保持不变。
     pub(in crate::app) fn toggle_sidebar(&mut self) {
-        self.set_sidebar(!self.panel_visible);
-        self.focus = match (self.panel_visible, self.sidebar_view) {
+        self.set_sidebar(!self.sidebar.visible);
+        self.focus = match (self.sidebar.visible, self.sidebar.view) {
             (true, SidebarView::Files) => Focus::Tree,
             (true, SidebarView::Search) => Focus::GlobalQuery,
             (true, SidebarView::Commit) => self.commit_view_focus(),
@@ -328,7 +329,7 @@ impl App {
     ///
     /// 动画中和拖动时不展开，返回 `None`。
     pub(crate) fn overflow_candidate(&self) -> Option<usize> {
-        let idle = self.sidebar_motion.is_none() && matches!(self.drag, Drag::None);
+        let idle = self.sidebar.motion.is_none() && matches!(self.drag, Drag::None);
         // 拖动文件时没有悬停目标，放不下的名称同样要显示，才看得到、放得进那几级目录。
         let pointing = matches!(self.hover, Hover::TreeRow(_) | Hover::Splitter)
             || self.tree_dragging().is_some_and(|drag| drag.active);
@@ -341,7 +342,7 @@ impl App {
 
         // 展开、收起的动画中其他行在移动；正在展开、收起的这一行不动，继续显示完整名称。
         let row = self.tree_row_at(y)?;
-        match &self.tree_motion {
+        match &self.tree.motion {
             Some(motion) if motion.parent != row => None,
             _ => Some(row),
         }
@@ -386,13 +387,13 @@ impl App {
             return TreeSlot::Empty;
         };
         let rows = ws.rows().len();
-        let content_y = y - self.layout.tree.y + self.tree_scroll;
+        let content_y = y - self.layout.tree.y + self.tree.scroll;
 
         if content_y < 0.0 {
             return TreeSlot::Empty;
         }
 
-        let motion = self.tree_motion.as_ref().filter(|m| m.parent < rows);
+        let motion = self.tree.motion.as_ref().filter(|m| m.parent < rows);
         let shift = motion.map_or(0.0, |m| {
             let (_, end) = m.block();
             let hidden = m.hidden();
@@ -434,7 +435,7 @@ impl App {
             .workspace
             .as_ref()
             .map_or(0, |ws| ws.rows().len());
-        let motion = self.tree_motion.as_ref().filter(|m| m.parent < rows);
+        let motion = self.tree.motion.as_ref().filter(|m| m.parent < rows);
         let mut v = index;
         if let Some(m) = motion.filter(|m| index > m.parent) {
             v += m.removed.len();
@@ -444,7 +445,7 @@ impl App {
         }
         let block = motion.map(TreeMotion::block);
         let hidden = motion.map_or(0.0, TreeMotion::hidden);
-        tree_row_slot(self.layout.tree, self.tree_scroll, v, block, hidden)
+        tree_row_slot(self.layout.tree, self.tree.scroll, v, block, hidden)
             .0
             .y
     }
@@ -478,7 +479,7 @@ impl App {
                     Some(input) if input.index > 0 => input.index - 1,
                     _ => break,
                 },
-                TreeSlot::Removed => match &self.tree_motion {
+                TreeSlot::Removed => match &self.tree.motion {
                     Some(m) => m.parent,
                     None => break,
                 },
@@ -531,7 +532,7 @@ impl App {
     /// 固定的位置（第 `level` 层，从 0 起），画面看起来没有移动；之后再展开或收起。
     pub(super) fn settle_sticky(&mut self, index: usize, level: usize) {
         let target = self.layout.tree.y + level as f32 * TREE_ROW;
-        self.tree_scroll = (self.tree_scroll + self.tree_row_top(index) - target).max(0.0);
+        self.tree.scroll = (self.tree.scroll + self.tree_row_top(index) - target).max(0.0);
     }
 
     /// 返回新建时插入文件树的那一行所在的槽位序号。
@@ -572,13 +573,13 @@ impl App {
         let tree_h = self.layout.tree.h;
         let y = slot as f32 * TREE_ROW;
         let above = depth.min(self.tree_sticky_max()) as f32 * TREE_ROW;
-        let visible = y >= self.tree_scroll + above && y + TREE_ROW <= self.tree_scroll + tree_h;
+        let visible = y >= self.tree.scroll + above && y + TREE_ROW <= self.tree.scroll + tree_h;
 
-        self.tree_scroll = match (visible, center) {
-            (true, _) => self.tree_scroll,
+        self.tree.scroll = match (visible, center) {
+            (true, _) => self.tree.scroll,
             (false, true) => (y - tree_h / 2.0).max(0.0),
             (false, false) => {
-                scroll_to_show(self.tree_scroll, y - above, y + TREE_ROW, tree_h).max(0.0)
+                scroll_to_show(self.tree.scroll, y - above, y + TREE_ROW, tree_h).max(0.0)
             }
         };
     }
@@ -600,7 +601,7 @@ impl App {
         let depth = ws.selected.map(|index| ws.rows()[index].depth);
 
         // 侧栏显示搜索时文件树不在屏幕上，只展开、选中，切回文件树时再滚动到该处。
-        if self.sidebar_view == SidebarView::Search {
+        if self.sidebar.view == SidebarView::Search {
             return;
         }
 
@@ -619,13 +620,13 @@ impl App {
         let tree = self.layout.tree;
         let indent = depth as f32 * TREE_INDENT;
 
-        if indent < self.tree_scroll_x {
-            self.tree_scroll_x = indent;
-        } else if indent + TREE_ROW > self.tree_scroll_x + tree.w - 40.0 {
-            self.tree_scroll_x = indent + TREE_ROW - tree.w + 40.0;
+        if indent < self.tree.scroll_x {
+            self.tree.scroll_x = indent;
+        } else if indent + TREE_ROW > self.tree.scroll_x + tree.w - 40.0 {
+            self.tree.scroll_x = indent + TREE_ROW - tree.w + 40.0;
         }
 
-        self.tree_scroll_x = self.tree_scroll_x.max(0.0);
+        self.tree.scroll_x = self.tree.scroll_x.max(0.0);
     }
 
     /// 在文件树中插入一行用于输入名字，`folder` 为 `true` 时新建目录，否则新建文件。
@@ -676,7 +677,7 @@ impl App {
             self.set_dir_expanded(at, Some(true));
         }
 
-        self.tree_scroll_x = 0.0;
+        self.tree.scroll_x = 0.0;
         self.name_input = Some(NameInput {
             dir,
             kind,
@@ -724,7 +725,7 @@ impl App {
     pub(in crate::app) fn name_input_rect(&self) -> Option<Rect> {
         let entry = self.name_input.as_ref()?;
         let tree = self.layout.tree;
-        let y = tree.y + entry.index as f32 * TREE_ROW - self.tree_scroll;
+        let y = tree.y + entry.index as f32 * TREE_ROW - self.tree.scroll;
         let rect = Rect::new(tree.x, y, tree.w, TREE_ROW);
         (rect.bottom() > tree.y && rect.y < tree.bottom()).then_some(rect)
     }
@@ -797,7 +798,7 @@ impl App {
 
     /// 在工具栏的「⋯」下方弹出系统菜单，列出收起的工具。
     pub(in crate::app) fn open_tree_tools_menu(&mut self) {
-        let Some(more) = self.tree_more else {
+        let Some(more) = self.hits.tree_more else {
             return;
         };
         self.open_button_menu(
@@ -815,7 +816,7 @@ impl App {
             TreeTool::Refresh => {
                 if let Some(ws) = &mut self.editor.workspace {
                     ws.refresh();
-                    self.tree_motion = None;
+                    self.tree.motion = None;
                     self.clamp_tree_scroll();
                 }
 
@@ -824,9 +825,9 @@ impl App {
             TreeTool::CollapseAll => {
                 if let Some(ws) = &mut self.editor.workspace {
                     ws.collapse_all();
-                    self.tree_motion = None;
-                    self.tree_scroll = 0.0;
-                    self.tree_scroll_x = 0.0;
+                    self.tree.motion = None;
+                    self.tree.scroll = 0.0;
+                    self.tree.scroll_x = 0.0;
                 }
             }
             TreeTool::Locate => {
@@ -849,7 +850,7 @@ impl App {
     /// 按正确的行计算。
     pub(in crate::app) fn clamp_tree_scroll(&mut self) {
         let rows = self.editor.workspace.as_ref().map_or(0, |w| w.rows().len());
-        self.tree_scroll = self.tree_scroll.clamp(0.0, self.tree_max_scroll(rows));
+        self.tree.scroll = self.tree.scroll.clamp(0.0, self.tree_max_scroll(rows));
     }
 
     /// 与自由函数 [`tree_max_scroll`] 相同，但结果不小于 0。
@@ -861,11 +862,53 @@ impl App {
     ///
     /// 滑块按同一个宽度计算，因此滑块拖到头时正好滚到头。
     pub(in crate::app) fn tree_max_scroll_x(&self) -> f32 {
-        (self.tree_content_w - self.layout.tree.w).max(0.0)
+        (self.tree.content_w - self.layout.tree.w).max(0.0)
     }
 
     /// 内容变化之后把横向滚动位置限制回有效范围；目录展开、收起和刷新后调用。
     pub(crate) fn clamp_tree_scroll_x(&mut self) {
-        self.tree_scroll_x = self.tree_scroll_x.clamp(0.0, self.tree_max_scroll_x());
+        self.tree.scroll_x = self.tree.scroll_x.clamp(0.0, self.tree_max_scroll_x());
+    }
+}
+
+/// 文件树的界面状态：滚动位置、工具栏与行的命中区域、展开收起与拖动的过程。
+pub struct TreeState {
+    /// 鼠标所在文件树行的名字显示不全时，叠加在编辑区上方绘制的区域，以及该行的序号。
+    pub(crate) overflow: Option<(Rect, usize)>,
+    /// 文件树的纵向滚动量（逻辑像素）。
+    pub(crate) scroll: f32,
+    /// 文件树的横向滚动量；缩进、图标和名字整体向左移动。
+    pub(crate) scroll_x: f32,
+    /// 文件树中最宽一行的内容宽度，横向滚动范围和滑块据此计算；绘制时测量。
+    pub(crate) content_w: f32,
+    /// 鼠标所在的合并显示目录；鼠标不在合并显示的目录上时为 `None`。
+    pub(crate) hover_segment: Option<PathBuf>,
+    /// 文件树各行名字的过渡状态。
+    pub(crate) labels: crate::app::workspace::tree_label::TreeLabels,
+    /// 文件树中连续键入的字符与最后一次键入的时刻，用于跳到名称以这些字符开头的行
+    /// （`App::on_key_tree`）。
+    pub(crate) typed: Option<(String, std::time::Instant)>,
+    /// 目录展开、收起的动画。
+    pub(crate) motion: Option<TreeMotion>,
+    /// 在文件树中按住的项；拖动该项可移动到其他目录。
+    pub(crate) drag: Option<crate::app::workspace::tree_drag::TreeDrag>,
+    /// 正在后台重读的、文件树中被其他程序修改的目录。
+    pub(in crate::app) scans: crate::app::workspace::watch::TreeScans,
+}
+
+impl Default for TreeState {
+    fn default() -> Self {
+        Self {
+            overflow: None,
+            scroll: 0.0,
+            scroll_x: 0.0,
+            content_w: 0.0,
+            hover_segment: None,
+            labels: Default::default(),
+            typed: None,
+            motion: None,
+            drag: None,
+            scans: Default::default(),
+        }
     }
 }

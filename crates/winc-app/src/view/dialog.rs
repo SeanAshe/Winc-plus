@@ -433,7 +433,7 @@ fn draw_rebase(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
         );
         app.form_dialog = Some(dialog);
         if caret.is_some() {
-            app.ime_cursor = caret;
+            app.ime.cursor = caret;
         }
     }
 
@@ -701,7 +701,7 @@ fn draw_field(
     let caret = draw_bar_field(app, frame, area, field, placeholder, focused);
     app.form_dialog = Some(dialog);
     if caret.is_some() {
-        app.ime_cursor = caret;
+        app.ime.cursor = caret;
     }
 }
 

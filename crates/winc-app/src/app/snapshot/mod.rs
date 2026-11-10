@@ -11,6 +11,7 @@ use winit::event::{MouseButton, MouseScrollDelta};
 use super::input::context_menu::MenuTarget;
 use super::*;
 use crate::app::StartAction;
+use crate::app::workspace::picker::PickerMotion;
 use crate::layout::{
     PanelButton, PickerParts, RowAction, Scrollbar, SearchParts, Setting, SettingsPage,
     SettingsPart, SidebarView, StepperParts, THEME_CHOICES, TREE_NAME_MIN, hscrollbar_thumb,
@@ -132,12 +133,14 @@ fn hover_tree_row(app: &mut App, index: usize, x: f32) {
 /// 绘制一帧。
 ///
 /// 第一次绘制会记录各可点击区域的位置，据此重新计算鼠标悬停状态；因此再绘制一次，
-/// 使第二帧带有悬停效果。
+/// 使第二帧带有悬停效果。与 `App::redraw` 相同，绘制前先声明底色矩形。
 pub(super) fn paint(app: &mut App) {
     app.relayout();
     let mut renderer = app.renderer.take().unwrap();
+    app.declare_base(&mut renderer);
     renderer.draw(|frame| view::draw(app, frame));
     app.hover = app.hover_at(app.mouse.0, app.mouse.1);
+    app.declare_base(&mut renderer);
     renderer.draw(|frame| view::draw(app, frame));
     app.renderer = Some(renderer);
 }
@@ -285,7 +288,7 @@ fn settings_point(app: &App, part: SettingsPart) -> (f32, f32) {
         SettingsPart::Record => app.keys_layout().record,
         // 链接的位置在绘制时才确定，调用前需要先绘制一帧。
         SettingsPart::Install(id) => {
-            let links = &app.settings.install_links;
+            let links = &app.hits.install_links;
             links.iter().find(|(l, _)| *l == id).unwrap().1
         }
     };
@@ -410,7 +413,7 @@ fn a_commit_finishing_after_a_folder_switch_does_not_push_the_new_repo() {
     assert!(app.branch.running.is_none());
     assert!(app.commit.busy, "这边正在提交的不受影响");
     assert_eq!(
-        app.status_message.as_deref(),
+        app.status.message.as_deref(),
         Some("已在「other-repo」中提交 abc1234")
     );
     std::fs::remove_dir_all(&dir).unwrap();

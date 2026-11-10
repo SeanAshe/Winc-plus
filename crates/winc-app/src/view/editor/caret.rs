@@ -375,7 +375,7 @@ pub(in crate::view) fn draw_caret(
 
 /// 在一行的顶边 `y` 处、横坐标 `x` 绘制一道光标竖线；处于闪烁周期的熄灭阶段时不绘制。
 pub(in crate::view) fn caret_bar(app: &App, frame: &mut Frame<'_>, x: f32, y: f32, clip: Rect) {
-    if app.caret_visible {
+    if app.blink.visible {
         let bar = Rect::new(x.round(), y + 1.0, 2.0, app.fonts.line_height - 2.0);
         frame.rect_clipped(bar, app.palette.caret, 1.0, clip);
     }

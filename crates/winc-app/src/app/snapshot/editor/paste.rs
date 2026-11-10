@@ -115,7 +115,8 @@ fn other_documents_get_paths_and_refuse_images() {
     app.paste();
     assert_eq!(text(&app), before);
     assert!(
-        app.status_message
+        app.status
+            .message
             .as_deref()
             .is_some_and(|m| m.contains("Markdown"))
     );
@@ -167,6 +168,7 @@ fn the_tree_copies_files_and_pastes_text_and_images_as_new_files() {
     app.paste();
     assert!(
         app.notice
+            .text
             .as_deref()
             .is_some_and(|m| m.contains("自身内部"))
     );

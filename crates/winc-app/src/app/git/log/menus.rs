@@ -20,7 +20,7 @@ impl App {
             return None;
         }
         let (LogTarget::Row(row) | LogTarget::Avatar(row)) =
-            crate::layout::hit(&self.log.hits, x, y)?
+            crate::layout::hit(&self.hits.log, x, y)?
         else {
             return None;
         };
@@ -184,7 +184,7 @@ impl App {
                 return self.run_log_confirmed(op);
             }
         };
-        if self.window.is_some() {
+        if self.window.handle.is_some() {
             self.show_confirm(&message, &detail, action, move |ok| {
                 ok.then(|| UserEvent::GitLogConfirmed(op.clone()))
             });

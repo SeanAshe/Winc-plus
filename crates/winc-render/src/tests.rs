@@ -328,3 +328,53 @@ fn windows_sharing_glyphs_draw_the_same_and_rasterize_once() {
     assert_eq!(draw(&mut second), alone);
     assert_eq!(first.glyphs.borrow().cached(), before);
 }
+
+#[test]
+fn base_rects_look_the_same_declared_or_not() {
+    let new = || Renderer::offscreen(20.0, 10.0, 2.0, Color::hex(0x101010), None, None).unwrap();
+    // 声明 `declared`（`None` 时不声明）后绘制底色矩形 `base` 和其上的一个矩形。
+    let draw = |declared: Option<&[(Rect, Color)]>, base: &[(Rect, Color)]| {
+        let mut renderer = new();
+        if let Some(rects) = declared {
+            renderer.base_next_frame(rects);
+        }
+        renderer.draw(|frame| {
+            frame.base(base);
+            frame.rect(Rect::new(4.0, 4.0, 8.0, 2.0), Color::hex(0xffffff));
+        });
+        renderer.image().unwrap().pixels.clone()
+    };
+    let base = [
+        (Rect::new(0.0, 0.0, 6.5, 10.0), Color::hex(0x112233)),
+        (Rect::new(5.0, 2.0, 15.0, 6.0), Color::hex(0x445566)),
+    ];
+    let plain = draw(None, &base);
+    assert_eq!(plain[0] & 0xff_ffff, 0x112233);
+    assert_eq!(plain[2 * 40 + 39] & 0xff_ffff, 0x101010);
+    assert_eq!(plain[5 * 40 + 39] & 0xff_ffff, 0x445566);
+    // 声明的与绘制的一致。
+    assert_eq!(draw(Some(&base), &base), plain);
+    // 不一致：画面上不留下声明的矩形。
+    let other = [(Rect::new(0.0, 0.0, 20.0, 10.0), Color::hex(0xff0000))];
+    assert_eq!(draw(Some(&other), &base), plain);
+    // 存在非不透明的颜色：不声明，逐个混合。
+    let sheer = [base[0], (base[1].0, base[1].1.alpha(0.5))];
+    assert_eq!(draw(Some(&sheer), &sheer), draw(None, &sheer));
+}
+
+#[test]
+fn declared_base_rects_are_painted_for_one_frame_only() {
+    let mut renderer =
+        Renderer::offscreen(20.0, 10.0, 2.0, Color::hex(0x101010), None, None).unwrap();
+    let colors = |renderer: &Renderer| {
+        let px = &renderer.image().unwrap().pixels;
+        (px[0] & 0xff_ffff, px[px.len() - 1] & 0xff_ffff)
+    };
+    // 声明的矩形由渲染器绘制，与 `paint` 是否绘制无关。
+    renderer.base_next_frame(&[(Rect::new(0.0, 0.0, 6.0, 10.0), Color::hex(0x112233))]);
+    renderer.draw(|_| {});
+    assert_eq!(colors(&renderer), (0x112233, 0x101010));
+    // 声明只对下一帧有效。
+    renderer.draw(|_| {});
+    assert_eq!(colors(&renderer), (0x101010, 0x101010));
+}

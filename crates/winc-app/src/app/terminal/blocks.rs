@@ -146,7 +146,7 @@ impl App {
         if !(t.open && t.active == index) {
             t.tabs[index].unseen = Some(failed);
         }
-        if self.window_focused || block.duration.is_none_or(|d| d < LONG_COMMAND) {
+        if self.window.focused || block.duration.is_none_or(|d| d < LONG_COMMAND) {
             return;
         }
         let name = command_name(block);
@@ -165,7 +165,7 @@ impl App {
             ),
         };
         t.pending_notice = Some(message);
-        if let Some(window) = &self.window {
+        if let Some(window) = &self.window.handle {
             window.request_user_attention(Some(winit::window::UserAttentionType::Informational));
         }
     }
@@ -180,7 +180,7 @@ impl App {
         let Some(index) = t.index_of(id) else {
             return;
         };
-        let seen = t.open && t.active == index && self.window_focused;
+        let seen = t.open && t.active == index && self.window.focused;
         if seen && message.is_none() {
             return;
         }
@@ -188,7 +188,7 @@ impl App {
             let tab = &mut t.tabs[index];
             tab.unseen = Some(tab.unseen == Some(true));
         }
-        if self.window_focused {
+        if self.window.focused {
             if let Some(message) = message {
                 self.notify(message);
             }
@@ -196,7 +196,7 @@ impl App {
             if message.is_some() {
                 t.pending_notice = message;
             }
-            if let Some(window) = &self.window {
+            if let Some(window) = &self.window.handle {
                 window
                     .request_user_attention(Some(winit::window::UserAttentionType::Informational));
             }

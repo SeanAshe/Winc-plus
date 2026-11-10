@@ -21,10 +21,8 @@ const HEADER: f32 = 30.0;
 /// 标题栏中按钮的边长（逻辑像素），与差异标签工具栏按钮的边长相同。
 const BUTTON: f32 = 24.0;
 
-/// 绘制已打开的改动卡片，并把按钮的可点击范围记录到 `app.changes.hits`。
+/// 绘制已打开的改动卡片，并把按钮的可点击范围记录到 `app.hits.changes`。
 pub(in crate::view) fn draw_change_popup(app: &mut App, frame: &mut Frame<'_>) {
-    app.changes.hits.clear();
-    app.changes.card = None;
     let Some(popup) = app.changes.popup else {
         return;
     };
@@ -248,8 +246,8 @@ pub(in crate::view) fn draw_change_popup(app: &mut App, frame: &mut Frame<'_>) {
         }
     }
 
-    app.changes.hits = hits;
-    app.changes.card = Some(card);
+    app.hits.changes = hits;
+    app.hits.changes_card = Some(card);
 }
 
 /// 返回 `chars` 的前 `col` 个字符占用的显示列数（制表符按 `tab` 列宽展开）。

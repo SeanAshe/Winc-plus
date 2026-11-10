@@ -148,7 +148,7 @@ impl App {
     /// 它们；是否正在运行不一定查得到（Windows 上没有前台进程），所以一律确认。
     pub(in crate::app) fn terminal_restart_needs_confirm(&self) -> bool {
         let t = &self.terminal;
-        self.window.is_some()
+        self.window.handle.is_some()
             && !t.crashed
             && self.config.terminal_confirm_close != Some(false)
             && t.tab()

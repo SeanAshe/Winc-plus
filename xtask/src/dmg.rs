@@ -61,7 +61,7 @@ pub fn app(target: Option<&str>, prebuilt: bool) -> Result<(PathBuf, String), St
     let bundle = built.join("bundle");
     let version = format!(
         "{}.{}",
-        env!("CARGO_PKG_VERSION"),
+        winc_version::VERSION,
         include_str!("../../release/fork-version").trim()
     );
     let app = bundle.join("winc.app");

@@ -37,7 +37,7 @@ impl App {
         let selection =
             read.map_or_else(Selection::default, |s| Selection::new(s.range.0, s.range.1));
         if self.search.snapshot_side(doc) != Some(side) {
-            self.pending_jump = None;
+            self.find.pending_jump = None;
         }
         self.search
             .update_snapshot(doc, side, &view.side(side).text);

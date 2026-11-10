@@ -69,7 +69,7 @@ impl App {
             self.click_update();
             return;
         }
-        let Some(&(rect, _)) = self.status_hits.iter().find(|&&(_, i)| i == item) else {
+        let Some(&(rect, _)) = self.hits.status.iter().find(|&&(_, i)| i == item) else {
             return;
         };
         let target = match (item, self.editor.active().map(|d| d.id)) {
@@ -153,7 +153,7 @@ impl App {
             self.reopen_with_encoding(id, encoding);
             return;
         }
-        if self.window.is_some() {
+        if self.window.handle.is_some() {
             let message = t!("workspace-reopen-confirm");
             let detail = t!("workspace-reopen-confirm-detail");
             let button = t!("workspace-reopen-discard");
