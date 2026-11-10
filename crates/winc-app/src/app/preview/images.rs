@@ -301,7 +301,7 @@ impl App {
             .filter(|d| d.id == id)
             .and_then(|d| d.picture().or(split));
         if current.is_some_and(|p| Arc::ptr_eq(p, &picture)) {
-            self.picture_cache = Some(crate::view::PictureCache {
+            self.picture_cache = Some(PictureCache {
                 doc: id,
                 picture,
                 pixels,
@@ -406,6 +406,20 @@ impl App {
         }
         self.request_redraw();
     }
+}
+
+/// 缩放后、按物理像素一一对应绘制的图片缓存：记录属于哪个文档的哪张图，以及缩放到多大。
+///
+/// 窗口大小改变时才重新缩放。
+pub(crate) struct PictureCache {
+    /// 图片所属的文档。
+    pub(crate) doc: winc_editor::DocumentId,
+    /// 缩放前的原图。
+    pub(crate) picture: std::sync::Arc<winc_preview::image::Picture>,
+    /// 缩放后的像素。
+    pub(crate) pixels: winc_preview::image::Pixels,
+    /// 是否按当前大小绘制；为 `false` 时先沿用上一次的缩放结果（SVG 正在后台按新大小重绘）。
+    pub(crate) exact: bool,
 }
 
 #[cfg(test)]

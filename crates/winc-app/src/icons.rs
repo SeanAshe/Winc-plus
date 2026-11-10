@@ -21,6 +21,8 @@ use std::f32::consts::{FRAC_1_SQRT_2, FRAC_PI_2, PI};
 
 use winc_render::{Color, Frame, Rect, Stroke};
 
+pub(crate) use winc_render::rounded_outline;
+
 /// 线条图标的笔宽（逻辑像素）。
 ///
 /// 顶栏、目录、新建文件、工具栏图标与文件内的记号共用该笔宽，并排放在同一行时笔画粗细一致。
@@ -300,24 +302,6 @@ const RING_STROKE: f32 = STROKE;
 /// 工具栏其余图标的外形按该圆的直径（11 逻辑像素）确定大小，使并排显示的工具栏图标尺寸一致；
 /// 刷新与历史图标在同一个圆上绘制，路径与箭头按该半径计算。
 const RING: f32 = 5.5;
-
-/// 返回圆角矩形描边的八段笔画：四条边加四段圆角弧线。
-///
-/// 矩形左上角为 `(x, y)`，宽 `w`、高 `h`，圆角半径 `r`，单位均为逻辑像素；`r` 不超过
-/// `w / 2` 与 `h / 2` 中的较小值。
-pub(crate) fn rounded_outline(x: f32, y: f32, w: f32, h: f32, r: f32) -> [Stroke; 8] {
-    let (right, bottom) = (x + w, y + h);
-    [
-        Stroke::Line(x + r, y, right - r, y),
-        Stroke::Arc(right - r, y + r, r, -FRAC_PI_2, 0.0),
-        Stroke::Line(right, y + r, right, bottom - r),
-        Stroke::Arc(right - r, bottom - r, r, 0.0, FRAC_PI_2),
-        Stroke::Line(right - r, bottom, x + r, bottom),
-        Stroke::Arc(x + r, bottom - r, r, FRAC_PI_2, PI),
-        Stroke::Line(x, bottom - r, x, y + r),
-        Stroke::Arc(x + r, y + r, r, -PI, -FRAC_PI_2),
-    ]
-}
 
 /// 返回以 `(cx, cy)` 为中心、单臂长 `h`（逻辑像素）的加号笔画，用于图标的内部记号。
 fn small_plus(cx: f32, cy: f32, h: f32) -> [Stroke; 2] {

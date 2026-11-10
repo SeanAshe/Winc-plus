@@ -13,7 +13,7 @@ use super::{Look, bounds, ellipse, palette};
 
 impl Cx<'_, '_> {
     /// 排饼图，返回宽高。
-    pub(super) fn pie(&mut self, pie: &Pie, s: f32, look: Look, out: &mut Vec<Item>) -> (f32, f32) {
+    pub(crate) fn pie(&mut self, pie: &Pie, s: f32, look: Look, out: &mut Vec<Item>) -> (f32, f32) {
         let total: f64 = pie.slices.iter().map(|(_, v)| v.max(0.0)).sum();
         let mut top = 0.0;
         // 饼的半径（逻辑像素，经验值）：字号的 7 倍，加上图例后仍能排进正文宽度。

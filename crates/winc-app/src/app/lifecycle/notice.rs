@@ -60,8 +60,8 @@ impl App {
             self.notify(message);
             return;
         }
-        self.status_message = Some(message.into());
-        self.status_until = Some(Instant::now() + FLASH_DURATION);
+        self.status.message = Some(message.into());
+        self.status.until = Some(Instant::now() + FLASH_DURATION);
         self.request_redraw();
     }
 
@@ -69,8 +69,8 @@ impl App {
     ///
     /// 隐藏状态栏时消息显示在提示条上，清除提示条。
     pub(crate) fn clear_flash(&mut self) {
-        self.status_message = None;
-        self.status_until = None;
+        self.status.message = None;
+        self.status.until = None;
         if !self.status_bar_shown() {
             self.clear_notice();
         }
@@ -84,13 +84,13 @@ impl App {
     pub(in crate::app) fn notify(&mut self, message: impl Into<String>) {
         // 换一条消息时重新播放入场动画；同一条消息再来一次只延长显示时间，不重新播放。
         let message = message.into();
-        if self.notice.as_deref() != Some(message.as_str()) {
-            self.notice_in = self.clock(POPUP_IN);
+        if self.notice.text.as_deref() != Some(message.as_str()) {
+            self.notice.entering = self.clock(POPUP_IN);
         }
-        self.notice = Some(message);
-        self.notice_until = Some(Instant::now() + NOTICE_DURATION);
-        self.notice_action = None;
-        self.notice_out = None;
+        self.notice.text = Some(message);
+        self.notice.until = Some(Instant::now() + NOTICE_DURATION);
+        self.notice.action = None;
+        self.notice.leaving = None;
         self.request_redraw();
     }
 
@@ -108,22 +108,22 @@ impl App {
     /// 显示带一个按钮的提示（例如「查看输出」），显示时间为 [`NOTICE_ACTION_DURATION`]。
     pub(in crate::app) fn notify_with(&mut self, message: impl Into<String>, action: NoticeAction) {
         self.notify(message);
-        self.notice_until = Some(Instant::now() + NOTICE_ACTION_DURATION);
-        self.notice_action = Some(action);
+        self.notice.until = Some(Instant::now() + NOTICE_ACTION_DURATION);
+        self.notice.action = Some(action);
     }
 
     /// 收起提示条，返回它的文字和按钮操作；清除提示的各处都经过这里，避免漏掉某个字段。
     pub(super) fn clear_notice(&mut self) -> (Option<String>, Option<NoticeAction>) {
-        self.notice_until = None;
-        self.notice_button = None;
-        self.notice_card = None;
-        self.notice_in = None;
-        (self.notice.take(), self.notice_action.take())
+        self.notice.until = None;
+        self.hits.notice_button = None;
+        self.hits.notice_card = None;
+        self.notice.entering = None;
+        (self.notice.text.take(), self.notice.action.take())
     }
 
     /// 执行提示条上按钮对应的操作，并收起提示。
     pub(in crate::app) fn run_notice_action(&mut self) {
-        let Some(action) = self.notice_action.take() else {
+        let Some(action) = self.notice.action.take() else {
             return;
         };
         self.clear_notice();
@@ -144,4 +144,18 @@ impl App {
         }
         self.request_redraw();
     }
+}
+
+/// 右上角提示条的状态：文字、按钮、显示期限以及出现和消失的过渡。
+#[derive(Default)]
+pub struct Notice {
+    /// 编辑区右上角需要用户注意的提示。
+    pub(crate) text: Option<String>,
+    pub(in crate::app) until: Option<Instant>,
+    /// 提示条上的按钮。
+    pub(crate) action: Option<NoticeAction>,
+    /// 提示条出现的动画；结束后为 `None`。
+    pub(crate) entering: Option<crate::app::animation::Clock>,
+    /// 到期后正在淡出的提示条：消息、按钮文字和消失的动画。
+    pub(crate) leaving: Option<NoticeGhost>,
 }

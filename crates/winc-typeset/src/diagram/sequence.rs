@@ -26,7 +26,7 @@ struct Frame {
 
 impl Cx<'_, '_> {
     /// 排时序图，返回宽高。
-    pub(super) fn sequence(
+    pub(crate) fn sequence(
         &mut self,
         seq: &Sequence,
         s: f32,

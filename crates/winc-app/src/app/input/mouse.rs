@@ -28,7 +28,6 @@ use crate::layout::{
     settings_track,
 };
 use crate::theme::*;
-use crate::view;
 
 /// 鼠标滚轮滚动一格的距离（逻辑像素）；macOS 上不使用。
 ///
@@ -217,7 +216,7 @@ impl App {
     /// 其他系统上按计时器绘制，帧与屏幕刷新不同步，过渡只增加绘制量而不会更平滑。
     fn next_wheel_glide(&mut self) -> Option<Duration> {
         let now = Instant::now();
-        let interval = self.wheel_at.replace(now).map(|at| now.duration_since(at));
+        let interval = self.wheel.at.replace(now).map(|at| now.duration_since(at));
         #[cfg(target_os = "macos")]
         let follows_refresh = self.display_link.is_some();
         #[cfg(not(target_os = "macos"))]
@@ -227,11 +226,11 @@ impl App {
 
     /// 追加滚动距离 `delta`（逻辑像素）：未完成的距离计入新的总距离，按 `clock` 重新计时。
     pub(in crate::app) fn start_wheel_glide(&mut self, delta: (f32, f32), clock: Clock) {
-        let rest = self.wheel_glide.take().map_or((0.0, 0.0), |g| {
+        let rest = self.wheel.glide.take().map_or((0.0, 0.0), |g| {
             let left = 1.0 - g.done;
             (g.total.0 * left, g.total.1 * left)
         });
-        self.wheel_glide = Some(WheelGlide {
+        self.wheel.glide = Some(WheelGlide {
             total: (rest.0 + delta.0, rest.1 + delta.1),
             done: 0.0,
             clock,
@@ -241,7 +240,7 @@ impl App {
 
     /// 应用本帧对应的滚动距离，绘制前调用；时钟结束时清除过渡状态。
     pub(in crate::app) fn advance_wheel_glide(&mut self) {
-        let Some(glide) = &mut self.wheel_glide else {
+        let Some(glide) = &mut self.wheel.glide else {
             return;
         };
         let progress = glide.clock.progress();
@@ -249,7 +248,7 @@ impl App {
         glide.done = progress;
         let (dx, dy) = (glide.total.0 * step, glide.total.1 * step);
         if glide.clock.done() {
-            self.wheel_glide = None;
+            self.wheel.glide = None;
         }
         self.wheel_by(dx, dy, true);
     }
@@ -301,7 +300,7 @@ impl App {
         }
 
         // 查找条覆盖在内容上：滚轮不滚动下方的终端，输入框内的文字过长时横向滚动。
-        if !self.picker_open
+        if !self.picker.open
             && self
                 .terminal_find_bar()
                 .is_some_and(|bar| bar.contains(x, y))
@@ -315,20 +314,21 @@ impl App {
             return;
         }
 
-        if self.picker_open && l.picker.contains(x, y) {
+        if self.picker.open && l.picker.contains(x, y) {
             // 滚轮只滚动列表，选中项不变。
-            let rows = self.picker_hits.len();
-            let max = (rows as f32 * PICKER_ROW - view::picker_span(self)).max(0.0);
-            if self.picker_places.is_some() {
+            let rows = self.picker.hits.len();
+            let max = (rows as f32 * PICKER_ROW - crate::app::workspace::picker::picker_span(self))
+                .max(0.0);
+            if self.picker.places.is_some() {
                 // 位置浮窗按整行滚动，始终只显示完整的行：滚动量累计满一行才滚动一行，
                 // 触控板的小幅滑动不会使行只显示一部分。
-                self.places_wheel += dy;
-                let steps = (self.places_wheel / PICKER_ROW).trunc();
-                self.places_wheel -= steps * PICKER_ROW;
+                self.picker.places_wheel += dy;
+                let steps = (self.picker.places_wheel / PICKER_ROW).trunc();
+                self.picker.places_wheel -= steps * PICKER_ROW;
                 let max = (max / PICKER_ROW).ceil() * PICKER_ROW;
-                self.picker_scroll = (self.picker_scroll - steps * PICKER_ROW).clamp(0.0, max);
+                self.picker.scroll = (self.picker.scroll - steps * PICKER_ROW).clamp(0.0, max);
             } else {
-                self.picker_scroll = (self.picker_scroll - dy).clamp(0.0, max);
+                self.picker.scroll = (self.picker.scroll - dy).clamp(0.0, max);
             }
             // 列表滚动后，鼠标下方的行已改变。
             self.set_hover(self.hover_at(x, y));
@@ -369,7 +369,7 @@ impl App {
             let rows = self.editor.workspace.as_ref().map_or(0, |w| w.rows().len());
             let (dx, dy) = if shift_wheel { (dy, 0.0) } else { (dx, dy) };
             let max = tree_max_scroll(l.tree, rows).max(0.0);
-            self.tree_scroll = (self.tree_scroll - dy).clamp(0.0, max);
+            self.tree.scroll = (self.tree.scroll - dy).clamp(0.0, max);
             // 触控板的斜向滚动只取主方向，竖直滚动时不会同时产生左右位移。
             if dx != 0.0 {
                 let max_x = self.tree_max_scroll_x();
@@ -378,7 +378,7 @@ impl App {
                 } else {
                     0.0
                 };
-                self.tree_scroll_x = (self.tree_scroll_x + delta).clamp(0.0, max_x);
+                self.tree.scroll_x = (self.tree.scroll_x + delta).clamp(0.0, max_x);
             }
 
             // 文件树滚动后，鼠标下方的行已改变。
@@ -402,8 +402,8 @@ impl App {
             // 横向滚动（按住 `Shift` 时的竖直滚轮）落在比正文宽的表格上时滚动该表格，其余按
             // 竖直方向滚动预览。
             let across = if shift_wheel { dy } else { dx };
-            let table =
-                across != 0.0 && crate::view::preview::markdown::scroll_table(self, x, y, across);
+            let table = across != 0.0
+                && crate::app::preview::markdown::laid::scroll_table(self, x, y, across);
             if !table {
                 self.scroll_markdown(dy);
             }
@@ -426,4 +426,13 @@ impl App {
 
         self.request_redraw();
     }
+}
+
+/// 鼠标滚轮滚动的过渡状态。
+#[derive(Default)]
+pub struct Wheel {
+    /// 鼠标滚轮滚动的过渡状态；没有进行中的过渡时为 `None`。
+    pub(crate) glide: Option<crate::app::input::mouse::WheelGlide>,
+    /// 上一次鼠标滚轮整格滚动的时刻，用于按两格的间隔确定过渡时长。
+    pub(in crate::app) at: Option<Instant>,
 }

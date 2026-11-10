@@ -10,7 +10,7 @@ pub(crate) fn tooltip(app: &App) -> Option<(Rect, String)> {
 }
 
 pub(crate) use super::settings::draw_cached as settings_draw_cached;
-pub(crate) use super::workspace::top_bar::distinct_folder;
+pub(crate) use crate::app::workspace::tab_names::distinct_folder;
 
 #[test]
 fn fit_keeps_as_many_characters_as_the_width_allows() {

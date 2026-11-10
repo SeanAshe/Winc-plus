@@ -18,7 +18,7 @@ impl App {
         if let Some(lights) = &self.traffic_lights {
             lights.set_zoom(f64::from(zoom));
         }
-        self.last_ime_area = None;
+        self.ime.last_area = None;
     }
 
     /// 按配置应用界面缩放：整个窗口按新的倍数绘制，窗口的物理尺寸不变。
@@ -74,7 +74,7 @@ impl App {
     pub(in crate::app) fn apply_theme(&mut self, choice: ThemeChoice) {
         self.theme_choice = choice;
         // 同步窗口外观：系统菜单、提示框和面板按窗口外观显示深浅，需与界面配色一致。
-        if let Some(window) = &self.window {
+        if let Some(window) = &self.window.handle {
             window.set_theme(forced_theme(&choice));
         }
 
@@ -83,6 +83,7 @@ impl App {
                 // 改为跟随系统：先查询一次当前外观，此后系统切换外观时会收到 `ThemeChanged`。
                 let dark = self
                     .window
+                    .handle
                     .as_ref()
                     .and_then(|w| w.theme())
                     .map_or(self.palette.dark, |theme| theme != Theme::Light);

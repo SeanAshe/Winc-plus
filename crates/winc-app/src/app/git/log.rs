@@ -292,8 +292,6 @@ pub(crate) struct LogState {
     pub filter: TextField,
     /// 作者菜单中列出的作者，弹出菜单时从已读取的提交中收集；菜单项按下标对应。
     pub authors: Vec<String>,
-    /// 可点击的区域，绘制时更新。
-    pub hits: Vec<(Rect, LogTarget)>,
     /// 打开文件差异的标签；依次查看多个文件时只占用一个标签。
     preview: Option<DocumentId>,
     /// 当前预览对应的提交及文件列表，独立于日志中后来选中的提交。
@@ -404,7 +402,6 @@ impl Default for LogState {
             results: channel(),
             filter: TextField::default(),
             authors: Vec::new(),
-            hits: Vec::new(),
             preview: None,
             tree: None,
             list: crate::app::git::commit::CommitState::browsing(&Default::default()),
@@ -797,8 +794,8 @@ impl App {
             }
             LogTarget::Branch | LogTarget::Author => {
                 let Some(rect) = self
-                    .log
                     .hits
+                    .log
                     .iter()
                     .find(|(_, t)| *t == target)
                     .map(|(r, _)| *r)
@@ -859,7 +856,7 @@ impl App {
         }) else {
             return;
         };
-        self.diff_land = None;
+        self.diff.land = None;
         self.load_log_diff(
             Arc::new(LogDiffSource {
                 root,
@@ -1063,7 +1060,7 @@ impl App {
                         self.land_diff_file();
                     }
                     Err(e) => {
-                        self.diff_land = None;
+                        self.diff.land = None;
                         self.flash(e);
                     }
                 },

@@ -11,7 +11,7 @@ use winc_render::{Color, Rect, Stroke};
 use super::math::polyline;
 use super::memo::Piece;
 use super::{Cx, Env, Flow as Laid, Item, Para};
-use crate::icons::rounded_outline;
+use winc_render::rounded_outline;
 
 mod class;
 mod gantt;
@@ -68,7 +68,7 @@ fn palette(k: usize) -> Color {
 /// 各颜色由预览的背景色和正文颜色按比例混合得出，不另设色板：深浅主题使用同一组比例，图与
 /// 正文的明暗、色调保持一致；子图标题使用强调色。
 #[derive(Clone, Copy)]
-pub(super) struct Look {
+pub(crate) struct Look {
     /// 节点上的文字颜色。
     text: Color,
     /// 连线上的文字颜色：比节点上的文字浅，区分连线说明与节点内容的主次。
@@ -147,7 +147,7 @@ fn mix(a: Color, b: Color, t: f32) -> Color {
 }
 
 /// 排好的一段图里的文字：单独排好的段和它的宽高（逻辑像素）。
-pub(super) struct Label {
+pub(crate) struct Label {
     /// 单独排好的这一段（坐标从 0 起）。
     piece: Piece,
     /// 段的宽度（逻辑像素）。
@@ -160,7 +160,7 @@ impl Cx<'_, '_> {
     /// 排一张 mermaid 图，左上角在 `(x, y)`、最宽 `width`（逻辑像素），水平居中。
     ///
     /// 认不出、不会画的图返回 `None`（按代码块显示）。
-    pub(super) fn diagram(
+    pub(crate) fn diagram(
         &mut self,
         source: &str,
         x: f32,
@@ -224,10 +224,10 @@ impl Cx<'_, '_> {
     }
 
     /// 为全屏查看排版一张图：字号为正文中图的默认字号的 `zoom` 倍，`narrow` 为真时按
-    /// [`NARROW_WRAP`] 折窄文字，不再缩小字号。
+    /// `NARROW_WRAP` 折窄文字，不再缩小字号。
     ///
     /// 返回各项（左上角在原点）和宽高（逻辑像素）；无法识别或不支持绘制的图返回 `None`。
-    pub(in crate::view::preview::markdown) fn diagram_alone(
+    pub fn diagram_alone(
         &mut self,
         source: &str,
         zoom: f32,
@@ -279,12 +279,7 @@ impl Cx<'_, '_> {
 
     /// 由正文颜色 `env.color` 和当前配色生成图的颜色。
     fn look(&self, env: Env) -> Look {
-        Look::new(
-            env.color,
-            self.palette.editor_bg,
-            self.palette.accent,
-            self.dark,
-        )
+        Look::new(env.color, self.surface, self.accent, self.dark)
     }
 
     /// 单独排一段图里的文字（`\n` 分行），字号 `size`，最宽 `max`，各行居中。
@@ -458,7 +453,7 @@ impl Cx<'_, '_> {
     }
 
     /// 排版流程图，返回宽高（逻辑像素）；`wrap` 为文字折行宽度相对默认宽度的比例（见
-    /// [`NARROW_WRAP`]）。
+    /// `NARROW_WRAP`）。
     fn flowchart(
         &mut self,
         f: &Flow,
@@ -1025,7 +1020,7 @@ fn smooth(points: &[(f32, f32)]) -> Vec<(f32, f32)> {
 /// 画线头（尖在 `tip`，线从 `from` 那边来），返回线该画到哪里为止。
 ///
 /// `len` 是线头的长度（逻辑像素）。
-pub(super) fn arrow_head(
+pub(crate) fn arrow_head(
     head: Head,
     tip: (f32, f32),
     from: (f32, f32),
@@ -1075,7 +1070,7 @@ pub(super) fn arrow_head(
 }
 
 /// 虚线：沿折线画 `on` 长、空 `off` 长（都是逻辑像素）。
-pub(super) fn dashed(points: &[(f32, f32)], on: f32, off: f32) -> Vec<Stroke> {
+pub(crate) fn dashed(points: &[(f32, f32)], on: f32, off: f32) -> Vec<Stroke> {
     let mut out = Vec::new();
     let mut drawing = true;
     let mut left = on;

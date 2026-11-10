@@ -1,7 +1,6 @@
 [package]
 name = "winc-core"
 description = "文本内核：位置换算、选区、编辑、撤销、光标移动。无 IO、无线程。"
-version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true

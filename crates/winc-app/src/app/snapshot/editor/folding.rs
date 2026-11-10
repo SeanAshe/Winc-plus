@@ -52,7 +52,7 @@ fn folding_from_keys_the_gutter_and_the_dots() {
 
     // 行末的 `⋯`：悬停时高亮，单击展开。
     paint(&mut app);
-    let (chip, line) = app.folded_hits[0];
+    let (chip, line) = app.hits.folded[0];
     assert_eq!(line, 3);
     let (x, y) = (chip.x + chip.w / 2.0, chip.y + chip.h / 2.0);
     app.on_mouse_move(x, y);
@@ -141,7 +141,7 @@ fn sticky_scroll_follows_folded_rows() {
     app.editor.active_mut().unwrap().toggle_fold_at(3, 4);
     app.editor.active_mut().unwrap().scroll_line = 3.0;
     paint(&mut app);
-    let pinned: Vec<_> = app.sticky.iter().map(|r| r.line).collect();
+    let pinned: Vec<_> = app.hits.sticky.iter().map(|r| r.line).collect();
     assert_eq!(pinned, [2]);
     std::fs::remove_dir_all(&dir).unwrap();
 }

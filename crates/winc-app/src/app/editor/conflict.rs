@@ -182,7 +182,7 @@ impl App {
         let name = doc.name().into_owned();
         self.request_redraw();
 
-        if self.window.is_some() {
+        if self.window.handle.is_some() {
             use crate::app::AlertButton;
 
             let buttons = vec![

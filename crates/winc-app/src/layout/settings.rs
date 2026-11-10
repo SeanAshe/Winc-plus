@@ -123,7 +123,7 @@ impl SettingsPage {
                     Setting::TerminalPrompt,
                     Setting::TerminalShellIntegration,
                 ];
-                // 只有 macOS 能区分左右 ⌥，其他平台不列出该项。
+                // 其他平台的 Alt 一律视为 Meta，不列出该项。
                 if cfg!(target_os = "macos") {
                     behavior.push(Setting::TerminalOptionAsMeta);
                 }

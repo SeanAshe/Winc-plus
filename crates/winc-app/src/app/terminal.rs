@@ -193,8 +193,6 @@ pub(crate) struct TerminalPanel {
     requests: Vec<(u32, u16, Request)>,
     /// 上一次告诉终端里的程序的焦点状态（焦点上报，模式 1004）。
     focus_sent: bool,
-    /// 标签栏上各个按钮的位置，绘制时记下。
-    pub hits: Vec<(Rect, HeaderHit)>,
     /// 查找条。
     pub find: Option<TermFind>,
     /// 正在改名字的标签（编号）和标签上的输入框。
@@ -520,6 +518,12 @@ impl App {
         }
     }
 
+    /// 是否已连接辅助进程且当前标签已创建，此时可以向终端写入。
+    pub(crate) fn terminal_ready(&self) -> bool {
+        let t = &self.terminal;
+        t.client.is_some() && t.tabs.get(t.active).is_some()
+    }
+
     /// 终端中是否有程序在运行、关闭前需要确认；设置中关闭了确认（`terminal.confirmClose`）时为假。
     pub(crate) fn terminal_busy(&self) -> bool {
         self.config.terminal_confirm_close != Some(false)
@@ -532,7 +536,7 @@ impl App {
     /// 已弹出确认框或正在确认时返回真。用户确认后，由 [`UserEvent::TerminalQuit`] 继续处理
     /// 关闭请求 `request`；用户取消时不执行任何操作。
     pub(super) fn confirm_terminal_quit(&mut self, request: CloseRequest) -> bool {
-        if self.quit_confirming.is_some() {
+        if self.closing.confirming.is_some() {
             return true;
         }
         if self.config.terminal_confirm_close == Some(false) {
@@ -577,7 +581,7 @@ impl App {
                 t!("cmd-close-window"),
             ),
         };
-        if self.window.is_some() {
+        if self.window.handle.is_some() {
             // macOS 上关闭最后一个窗口时窗口只是隐藏，终端继续运行：先显示窗口，确认框才可见。
             self.show_window();
             let shown = self.show_confirm(&message, detail, button, move |ok| {
@@ -586,7 +590,7 @@ impl App {
             // 没有弹出时不记「正在确认」：否则退出、关窗口一直等一个不会来的回答。这次关闭
             // 不进行，与取消相同。
             if shown {
-                self.quit_confirming = Some(request);
+                self.closing.confirming = Some(request);
             }
             return true;
         }
@@ -747,7 +751,7 @@ impl App {
             .busy()
             .filter(|_| self.config.terminal_confirm_close != Some(false));
         if let Some(busy) = busy
-            && self.window.is_some()
+            && self.window.handle.is_some()
         {
             let id = tab.id;
             let message = t!("terminal-close-confirm", name = busy);
@@ -899,7 +903,7 @@ impl App {
 
     /// 画完一帧以后：给正在看的标签额度，焦点变了时告诉终端里的程序。
     pub(super) fn after_terminal_frame(&mut self) {
-        let focused = self.focus == Focus::Terminal && self.window_focused;
+        let focused = self.focus == Focus::Terminal && self.window.focused;
         let t = &mut self.terminal;
         if !t.open {
             // 收起面板时焦点去了编辑区：程序也要知道（1004），否则一直以为自己有焦点。

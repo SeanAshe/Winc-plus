@@ -1,7 +1,6 @@
 [package]
 name = "winc-preview"
 description = "预览的解析和光栅化：图片解码（PNG、JPEG、GIF、WebP、BMP、ICO）、SVG、Markdown（含公式和 mermaid）。不依赖编辑器和 GUI。"
-version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true

@@ -6,11 +6,11 @@
 use std::sync::Arc;
 
 use winc_editor::DocumentId;
-use winc_render::Rect;
+use winc_render::{Color, Rect};
+use winc_typeset::Item;
 use winit::keyboard::{Key, NamedKey};
 
 use crate::app::App;
-use crate::view::preview::markdown::DiagramLaid;
 
 /// 缩放倍数的下限（相对预览正文中图的默认字号）。
 ///
@@ -86,7 +86,7 @@ impl App {
     /// 全屏查看上一帧绘制了全屏按钮的图（`MarkdownPreview::expand`）。
     pub(crate) fn open_diagram_view(&mut self) {
         let (Some(source), Some(doc)) = (
-            self.markdown.expand.clone(),
+            self.hits.markdown_expand.clone(),
             self.editor.active().map(|d| d.id),
         ) else {
             return;
@@ -262,4 +262,20 @@ impl App {
         }
         true
     }
+}
+
+/// 按某个缩放倍数排版的图。
+pub(crate) struct DiagramLaid {
+    /// 排版依据：缩放倍数、正文字号、正文颜色、底色；任何一项改变时重新排版。
+    pub(crate) key: (f32, f32, Color, Color),
+    /// 节点上的文字是否折窄：倍数为 1 时两种折行各排版一次，取适应倍数较大的一种。
+    pub(crate) narrow: bool,
+    /// 排版得到的各项，图的左上角位于原点。
+    pub(crate) items: Vec<Item>,
+    /// 图的宽高（逻辑像素）。
+    pub(crate) size: (f32, f32),
+    /// 倍数为 1 时图的宽高（逻辑像素），用于计算适应查看区域的倍数。
+    pub(crate) natural: (f32, f32),
+    /// 计算 `natural` 时可用的查看区域大小（逻辑像素）；区域改变后重新选择是否折窄。
+    pub(crate) room: (f32, f32),
 }

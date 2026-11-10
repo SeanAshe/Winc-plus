@@ -134,7 +134,7 @@ fn escape_cancels_and_the_failure_is_not_reported_as_an_error() {
     assert!(answers.try_recv().is_err());
     assert!(app.branch.declined);
     app.report_git_failure("推送", "无法推送：could not read Password".into());
-    assert!(app.notice.is_none());
+    assert!(app.notice.text.is_none());
     assert!(!app.branch.declined);
 }
 
@@ -143,8 +143,8 @@ fn a_real_failure_offers_the_full_output() {
     let (mut app, _answers) = asking("question-failure", passphrase());
     app.end_git_questions(app.branch.started);
     app.report_git_failure("推送", "无法推送：denied".into());
-    assert_eq!(app.notice.as_deref(), Some("无法推送：denied"));
-    assert_eq!(app.notice_action, Some(NoticeAction::GitOutput));
+    assert_eq!(app.notice.text.as_deref(), Some("无法推送：denied"));
+    assert_eq!(app.notice.action, Some(NoticeAction::GitOutput));
     app.run_notice_action();
     assert_eq!(app.focus, Focus::Editor);
 }

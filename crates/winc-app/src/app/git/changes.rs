@@ -152,10 +152,6 @@ pub(crate) struct LineChanges {
     computed: (Sender<Computed>, Receiver<Computed>),
     /// 已打开的卡片。
     pub popup: Option<ChangePopup>,
-    /// 卡片上可点击的控件，绘制时更新。
-    pub hits: Vec<(Rect, ChangeTarget)>,
-    /// 卡片的位置，绘制时更新；点击卡片外部时关闭卡片。
-    pub card: Option<Rect>,
     /// 卡片中的原内容。
     preview: Option<Rc<Preview>>,
     results: (Sender<Fetched>, Receiver<Fetched>),
@@ -172,8 +168,6 @@ impl Default for LineChanges {
             computing: HashMap::new(),
             computed: channel(),
             popup: None,
-            hits: Vec::new(),
-            card: None,
             preview: None,
             results: channel(),
         }

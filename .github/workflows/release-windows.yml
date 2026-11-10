@@ -59,7 +59,7 @@ jobs:
           node release/common/config.mjs "${args[@]}" --output "$RUNNER_TEMP/build-config.json"
       - name: Compile
         run: |
-          cargo build --release --locked --target "$TARGET" -p winc-app -p winc-pty
+          cargo build --release --locked --target "$TARGET" -p winc -p winc-pty
           cargo xtask icons "target/$TARGET/release/bundle/icons"
       # The file watcher runs inside WSL distributions. It is static and has no C code, so the
       # linker bundled with Rust is enough to build it on Windows.

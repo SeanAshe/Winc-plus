@@ -77,7 +77,7 @@ fn zoom_scales_the_whole_window_in_steps() {
     // 放大一档：渲染倍数变大，窗口的逻辑尺寸按比例变小；字号不变。
     app.step_zoom(Some(true));
     assert_eq!(app.config.ui_zoom, Some(110));
-    assert_eq!(app.status_message.as_deref(), Some("界面缩放 110%"));
+    assert_eq!(app.status.message.as_deref(), Some("界面缩放 110%"));
     assert!((scale(&app) - base * 1.1).abs() < 1e-4);
     assert!((app.layout.window.w - window.w / 1.1).abs() < 0.01);
     assert_eq!(app.fonts.code, CODE_FONT);
@@ -95,7 +95,8 @@ fn zoom_scales_the_whole_window_in_steps() {
     app.step_zoom(Some(true));
     assert_eq!(app.config.ui_zoom, Some(200));
     assert!(
-        app.status_message
+        app.status
+            .message
             .as_deref()
             .is_some_and(|m| m.contains("无法继续调整"))
     );
@@ -180,7 +181,8 @@ fn font_size_keys_change_the_editor_font_size_and_reset() {
         Some(*Config::EDITOR_SIZE_RANGE.end())
     );
     assert!(
-        app.status_message
+        app.status
+            .message
             .as_deref()
             .is_some_and(|m| m.contains("无法继续调整"))
     );
@@ -710,7 +712,7 @@ fn scrolled_rows_stay_under_the_header() {
     }
     // 不可见的「安装方法…」链接不会被点击命中。
     let hidden = app
-        .settings
+        .hits
         .install_links
         .iter()
         .find(|(s, _)| *s == Setting::FormatCommand("python"));
@@ -1150,7 +1152,7 @@ fn line_numbers_and_the_status_bar_can_be_hidden() {
         app.layout.text.w,
         app.layout.editor.bottom(),
     );
-    assert!(!app.status_hits.is_empty());
+    assert!(!app.hits.status.is_empty());
 
     // 行号：行号栏变窄，文字区域变宽，折叠箭头和书签的空白还在。
     assert!(app.switch_on(Setting::LineNumbers));
@@ -1169,13 +1171,13 @@ fn line_numbers_and_the_status_bar_can_be_hidden() {
     assert_eq!(app.layout.status.h, crate::theme::ISLAND_MARGIN);
     assert!(app.layout.editor.bottom() > editor_bottom);
     paint(&mut app);
-    assert!(app.status_hits.is_empty());
-    assert!(app.crumb_hits.is_empty());
+    assert!(app.hits.status.is_empty());
+    assert!(app.hits.crumbs.is_empty());
 
     // 短提示本来显示在状态栏上，隐藏后改到右上角。
     app.flash("copied");
-    assert_eq!(app.status_message, None);
-    assert_eq!(app.notice.as_deref(), Some("copied"));
+    assert_eq!(app.status.message, None);
+    assert_eq!(app.notice.text.as_deref(), Some("copied"));
 
     // 命令面板能把它们打开回来。
     assert!(app.run_action(crate::keymap::Action::ToggleStatusBar));
@@ -1183,7 +1185,7 @@ fn line_numbers_and_the_status_bar_can_be_hidden() {
     assert_eq!(app.layout.gutter.w, gutter);
     assert_eq!(app.layout.editor.bottom(), editor_bottom);
     paint(&mut app);
-    assert!(!app.status_hits.is_empty());
+    assert!(!app.hits.status.is_empty());
 
     std::fs::remove_dir_all(&dir).unwrap();
 }

@@ -263,14 +263,14 @@ impl App {
             return None;
         }
         let key = (doc.id, doc.revision, doc.selection.head);
-        if let Some((cached, path)) = &self.key_path_cache
+        if let Some((cached, path)) = &self.key_path.cache
             && *cached == key
         {
             return path.clone();
         }
         let pos = doc.selection.head;
         let segments = if language == "json" {
-            let scan = match &mut self.key_path_scan {
+            let scan = match &mut self.key_path.scan {
                 Some((id, scan)) if *id == doc.id => scan,
                 slot => &mut slot.insert((doc.id, keypath::KeyPathScan::default())).1,
             };
@@ -280,7 +280,7 @@ impl App {
         };
         let path = keypath::format(&segments);
         let path = (!path.is_empty()).then_some(path);
-        self.key_path_cache = Some((key, path.clone()));
+        self.key_path.cache = Some((key, path.clone()));
         path
     }
 
@@ -339,11 +339,11 @@ impl App {
         let Some(dir) = crumb_folder(&path, &current) else {
             return;
         };
-        let Some(&(rect, _)) = self.crumb_hits.iter().find(|&&(_, i)| i == index) else {
+        let Some(&(rect, _)) = self.hits.crumbs.iter().find(|&&(_, i)| i == index) else {
             return;
         };
 
-        if !cfg!(target_os = "macos") || self.window.is_none() {
+        if !cfg!(target_os = "macos") || self.window.handle.is_none() {
             // 打勾那一行的文字对准被点击的段：文字前面是打勾和图标两列。
             let at = (rect.x - POPUP_TEXT_X, rect.y + rect.h / 2.0);
             let mut popup = PopupMenu::new(folder_rows(dir, &current), at, (true, false));
@@ -367,7 +367,7 @@ impl App {
         self.paint_now();
 
         #[cfg(target_os = "macos")]
-        if let Some(window) = self.window.clone() {
+        if let Some(window) = self.window.handle.clone() {
             let icons = self.folder_icons();
             FOLDER_ICONS.set(icons);
             let at = (f64::from(rect.x - MENU_TITLE_INSET), f64::from(rect.y));
@@ -384,3 +384,12 @@ impl App {
 
 #[cfg(test)]
 pub(in crate::app) mod tests;
+
+/// 状态栏键路径的缓存与扫描记录。
+#[derive(Default)]
+pub struct KeyPath {
+    /// 状态栏上键路径的缓存，键为（文档、版本号、光标位置）。
+    pub(in crate::app) cache: Option<((DocumentId, u64, usize), Option<String>)>,
+    /// 当前文档 JSON 键路径的扫描记录；切换文档后重新扫描。
+    pub(in crate::app) scan: Option<(DocumentId, winc_editor::keypath::KeyPathScan)>,
+}

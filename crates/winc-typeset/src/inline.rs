@@ -11,7 +11,7 @@ use winc_render::{Color, Faux, FontKind, Rect};
 
 use super::math::MathBox;
 use super::{Cx, Flow, Item, Para, Span};
-use crate::app::preview::markdown::ImageSlot;
+use crate::ImageSlot;
 
 /// 行内文字拆出的一个单位（一个字、图片、行内代码两边的留白）。
 struct Atom {
@@ -118,8 +118,7 @@ impl Cx<'_, '_> {
             Some(dark) if self.dark => dark,
             _ => &image.url,
         };
-        let path =
-            crate::app::preview::markdown::image_path(self.doc.as_deref(), url, self.remote)?;
+        let path = (self.image_path)(url)?;
         let picture = match self.images.get(&path) {
             Some(ImageSlot::Ready { picture, .. }) => picture,
             Some(ImageSlot::Failed) => return None,
@@ -284,7 +283,7 @@ impl Cx<'_, '_> {
     /// 排一段行内文字：左上角在 `(x, y)`，最宽 `width`。
     ///
     /// 不经过缓存，见 [`Cx::flow`]。
-    pub(super) fn flow_at(
+    pub(crate) fn flow_at(
         &mut self,
         inline: &Inline,
         x: f32,
@@ -538,7 +537,7 @@ impl Cx<'_, '_> {
 
     /// 返回一段行内文字的测量结果：最长的不能断开的一段有多宽、整段不换行有多宽（逻辑像素），
     /// 表格按它分列宽。
-    pub(super) fn measure_raw(&mut self, inline: &Inline, para: Para) -> (f32, f32) {
+    pub(crate) fn measure_raw(&mut self, inline: &Inline, para: Para) -> (f32, f32) {
         let (atoms, _) = self.atoms(inline, para, f32::INFINITY);
         let (mut longest_word, mut word, mut line, mut longest_line) = (0f32, 0f32, 0f32, 0f32);
         for atom in &atoms {

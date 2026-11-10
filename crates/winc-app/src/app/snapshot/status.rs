@@ -15,7 +15,7 @@ fn the_settings_button_stays_at_the_right_end_of_the_status_bar() {
     app.settings_toggle(Setting::TerminalModule);
     paint(&mut app);
     fn pill(app: &App, wanted: StatusItem) -> Option<Rect> {
-        let hit = app.status_hits.iter().find(|(_, item)| *item == wanted);
+        let hit = app.hits.status.iter().find(|(_, item)| *item == wanted);
         hit.map(|(rect, _)| *rect)
     }
 
@@ -61,10 +61,10 @@ fn every_crumb_opens_the_folder_it_names() {
     assert_eq!(names[1..], ["src", "main.rs"]);
     assert_eq!(crumbs[0].path.as_deref(), Some(root.as_path()));
     assert_eq!(crumbs[2].path.as_deref(), Some(main.as_path()));
-    assert_eq!(app.crumb_hits.len(), 3);
+    assert_eq!(app.hits.crumbs.len(), 3);
 
     // 鼠标位于某一段内时悬停该段；位于两段之间的箭头上时没有悬停项。
-    let (src, _) = app.crumb_hits[1];
+    let (src, _) = app.hits.crumbs[1];
     let y = src.y + src.h / 2.0;
     app.on_mouse_move(src.x + 4.0, y);
     assert_eq!(app.hover, Hover::Crumb(1));
@@ -139,7 +139,7 @@ fn every_crumb_opens_the_folder_it_names() {
     paint(&mut app);
     assert_eq!(app.crumbs().len(), 1);
     assert!(app.crumbs()[0].path.is_none());
-    assert!(app.crumb_hits.is_empty());
+    assert!(app.hits.crumbs.is_empty());
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -169,7 +169,7 @@ fn config_files_show_and_copy_the_key_under_the_caret() {
     assert_eq!(app.key_path(), None);
     app.run_action(crate::keymap::Action::CopyKeyPath);
     assert_eq!(
-        app.status_message.as_deref(),
+        app.status.message.as_deref(),
         Some("光标不在 JSON、YAML 或 TOML 的键中")
     );
 
@@ -253,7 +253,8 @@ fn a_found_update_shows_in_the_status_bar_and_the_setting_turns_checks_off() {
     let mut app = app_with(&dir.join("short.rs"), false);
     paint(&mut app);
     let has_update = |app: &App| {
-        app.status_hits
+        app.hits
+            .status
             .iter()
             .any(|(_, i)| *i == StatusItem::Update)
     };
@@ -284,7 +285,7 @@ fn the_update_button_shows_each_step_of_the_update() {
     *app.shared.update.borrow_mut() = Some("0.1.560".into());
     let button = |app: &mut App| {
         paint(app);
-        let rect = (app.status_hits.iter())
+        let rect = (app.hits.status.iter())
             .find(|(_, i)| *i == StatusItem::Update)
             .unwrap()
             .0;
@@ -337,21 +338,21 @@ fn shoot_update_button() {
         if !dark {
             set(&mut app, UpdateState::Found("0.1.560".into()));
             paint(&mut app);
-            let rect = (app.status_hits.iter())
+            let rect = (app.hits.status.iter())
                 .find(|(_, i)| *i == StatusItem::Update)
                 .unwrap()
                 .0;
             app.on_mouse_move(rect.x + rect.w / 2.0, rect.y + rect.h / 2.0);
             shoot(&mut app, "update-light-hover");
             app.on_mouse_move(10.0, 10.0);
-            app.status_motion.animate_without_window = true;
+            app.status.motion.animate_without_window = true;
             set(&mut app, UpdateState::Downloading("0.1.560".into(), 0));
             paint(&mut app);
-            app.status_motion.freeze(Duration::from_millis(120));
+            app.status.motion.freeze(Duration::from_millis(120));
             shoot(&mut app, "update-light-to-progress-120");
-            app.status_motion.freeze(STATUS_SLIDE);
-            app.status_motion.settle();
-            app.status_motion.animate_without_window = false;
+            app.status.motion.freeze(STATUS_SLIDE);
+            app.status.motion.settle();
+            app.status.motion.animate_without_window = false;
             set(&mut app, UpdateState::Ready("0.1.560".into()));
             shoot(&mut app, "update-light-ready");
             set(&mut app, UpdateState::InstallFailed("网络连接中断".into()));
@@ -379,7 +380,7 @@ fn the_folder_menu_is_drawn_in_the_window_without_a_system_menu() {
     paint(&mut app);
 
     // 点 `main.rs` 一段：列出 `src` 的内容，目录在前、文件在后，`main.rs` 打勾。
-    let (crumb, _) = app.crumb_hits[2];
+    let (crumb, _) = app.hits.crumbs[2];
     click(&mut app, (crumb.x + 4.0, crumb.y + crumb.h / 2.0));
     paint(&mut app);
     let level = app.popup().expect("窗口内的目录菜单").levels[0].clone();
@@ -419,7 +420,7 @@ fn the_folder_menu_is_drawn_in_the_window_without_a_system_menu() {
     );
 
     // 键盘：↓ 移到下一项，→ 展开目录，↩ 打开文件。
-    let (crumb, _) = app.crumb_hits[0];
+    let (crumb, _) = app.hits.crumbs[0];
     click(&mut app, (crumb.x + 4.0, crumb.y + crumb.h / 2.0));
     paint(&mut app);
     let press = |app: &mut App, key: NamedKey| {
@@ -448,21 +449,21 @@ fn shoot_status_motion() {
     let path = dir.join("notes.txt");
     std::fs::write(&path, "hello world\n".repeat(40)).unwrap();
     let mut app = app_with(&dir, false);
-    app.status_motion.animate_without_window = true;
+    app.status.motion.animate_without_window = true;
     shoot(&mut app, "status-motion-empty");
 
     app.open_path(&path);
     paint(&mut app);
     for ms in [60, 120] {
-        app.status_motion.freeze(Duration::from_millis(ms));
+        app.status.motion.freeze(Duration::from_millis(ms));
         shoot(&mut app, &format!("status-motion-enter-{ms}"));
     }
-    app.status_motion.freeze(STATUS_SLIDE);
-    app.status_motion.settle();
+    app.status.motion.freeze(STATUS_SLIDE);
+    app.status.motion.settle();
 
     app.select(0, 300);
     paint(&mut app);
-    app.status_motion.freeze(Duration::from_millis(160));
+    app.status.motion.freeze(Duration::from_millis(160));
     shoot(&mut app, "status-motion-select-160");
     let _ = std::fs::remove_dir_all(&dir);
 }

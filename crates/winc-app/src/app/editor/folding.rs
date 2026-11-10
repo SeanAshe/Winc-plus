@@ -222,6 +222,6 @@ impl App {
     ///
     /// 该处没有 `⋯` 时返回 `None`。位置取自上一次绘制时记录的 `folded_hits`。
     pub(in crate::app) fn folded_at(&self, x: f32, y: f32) -> Option<usize> {
-        hit(&self.folded_hits, x, y)
+        hit(&self.hits.folded, x, y)
     }
 }

@@ -7,7 +7,7 @@ impl App {
     /// 处理鼠标按键 `button` 在当前鼠标位置按下。
     pub(in crate::app) fn on_mouse_down(&mut self, button: MouseButton) {
         // 选择面板的动画期间高度还在变，而点击按最终的布局：先取消动画，使显示直接到位。
-        if self.picker_fold.take().is_some() {
+        if self.picker.fold.take().is_some() {
             self.relayout();
         }
         let (x, y) = self.mouse;
@@ -59,7 +59,7 @@ impl App {
         if button == MouseButton::Middle
             && !self.settings.open
             && self.form_dialog.is_none()
-            && !self.picker_open
+            && !self.picker.open
             && l.text.contains(x, y)
             && self.active_shows_text()
             && self.editor.active().is_some_and(|d| d.diff.is_none())
@@ -71,7 +71,7 @@ impl App {
         if button == MouseButton::Middle
             && !self.settings.open
             && self.form_dialog.is_none()
-            && !self.picker_open
+            && !self.picker.open
             && self.over_diff_editable(x, y)
         {
             self.start_diff_columns(x, y);
@@ -115,8 +115,8 @@ impl App {
 
         // 改动卡片：点按钮执行；点卡片里的其他位置什么都不做；点卡片外面关掉卡片，
         // 该事件仍然向下传递。
-        if let Some(card) = self.changes.card {
-            if let Some(target) = hit(&self.changes.hits, x, y) {
+        if let Some(card) = self.hits.changes_card {
+            if let Some(target) = hit(&self.hits.changes, x, y) {
                 self.press_change(target);
                 return;
             }
@@ -165,7 +165,7 @@ impl App {
             Target::Picker => {
                 self.click_picker(x, y);
             }
-            _ if self.picker_open => self.close_picker(),
+            _ if self.picker.open => self.close_picker(),
             Target::Scrollbar(
                 bar @ (Scrollbar::Panel | Scrollbar::Commit | Scrollbar::Outline),
                 grab,
@@ -183,7 +183,7 @@ impl App {
             Target::Search => self.click_search(x, y),
             // 双击分隔条恢复默认宽度。
             Target::Splitter if self.click_count(x, y) == 2 => {
-                self.panel_width = DEFAULT_PANEL_WIDTH;
+                self.sidebar.width = DEFAULT_PANEL_WIDTH;
                 self.remember_panel_width();
                 self.relayout();
                 self.request_redraw();
@@ -193,7 +193,7 @@ impl App {
                 let most = (self.layout.window.w - 320.0).max(crate::theme::MIN_PANEL_WIDTH);
                 self.drag = Drag::Splitter {
                     start_x: x,
-                    start_width: self.panel_width.min(most),
+                    start_width: self.sidebar.width.min(most),
                 };
             }
             Target::TreeTool(tool) => self.run_tree_tool(tool),
@@ -390,7 +390,7 @@ impl App {
     fn click_title_bar(&mut self, x: f32, y: f32) {
         if self.title_bar_pressed(x, y) {
             self.title_bar_double_click();
-        } else if let Some(window) = &self.window {
+        } else if let Some(window) = &self.window.handle {
             let _ = window.drag_window();
         }
     }

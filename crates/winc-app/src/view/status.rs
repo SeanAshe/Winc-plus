@@ -145,8 +145,8 @@ fn draw_group(
                 app.hover == Hover::Status(item),
                 app.menu_button == Some(MenuButton::Status(item))
                     || (item == StatusItem::Branch
-                        && app.picker_open
-                        && app.picker_anchor == crate::app::GitAnchor::Status),
+                        && app.picker.open
+                        && app.picker.anchor == crate::app::GitAnchor::Status),
             );
             hits.push((pill, item));
         }
@@ -320,20 +320,18 @@ pub(in crate::view) fn update_tooltip(app: &App) -> Option<String> {
     Some(tip)
 }
 
-/// 绘制状态栏，并更新路径段和右侧可点击项的命中区域（`crumb_hits`、`status_hits`）。
+/// 绘制状态栏，并更新路径段和右侧可点击项的命中区域（`StatusState::crumb_hits`、`StatusState::hits`）。
 pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
     let p = app.palette;
     let bar = app.layout.status;
     frame.rect(bar, p.frame_bg);
     // 隐藏时只剩窗口底边的边距，没有可以点击的项。
     if !app.status_bar_shown() {
-        app.status_hits.clear();
-        app.crumb_hits.clear();
         return;
     }
     // 绘制各组时同时读取 `app`，因此过渡状态先移出，绘制结束后恢复。
     let animate = app.animate_status();
-    let mut motion = std::mem::take(&mut app.status_motion);
+    let mut motion = std::mem::take(&mut app.status.motion);
 
     let doc = app.editor.active();
     // 无法显示文本的文件没有光标、编码等信息；仍在读取中的文件这些信息也尚不可用。
@@ -664,16 +662,16 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
         winc_editor::format::Task::Format => t!("workspace-status-formatting"),
         winc_editor::format::Task::Fix => t!("workspace-status-fixing"),
     });
-    if let Some(message) = app.status_message.as_deref().or(progress)
+    if let Some(message) = app.status.message.as_deref().or(progress)
         && room > 60.0
     {
         let message = ellipsize(frame, message, app.fonts.ui_small, room);
         ui_text_small(frame, app, x, bar, &message, p.status_message, left);
     }
 
-    app.status_motion = motion;
-    app.crumb_hits = hits;
-    app.status_hits = status_hits;
+    app.status.motion = motion;
+    app.hits.crumbs = hits;
+    app.hits.status = status_hits;
 }
 
 /// 状态栏上的分支：分支名（分离头指针时是提交号），领先、落后时加上 ↑、↓ 和提交数。

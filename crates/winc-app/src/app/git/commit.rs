@@ -814,7 +814,7 @@ impl App {
     /// 提交视图是否正在显示；借用提交视图显示历史提交的文件时（`commit.browse`）同样为
     /// `true`。
     pub(crate) fn commit_shown(&self) -> bool {
-        self.sidebar_view == crate::layout::SidebarView::Commit
+        self.sidebar.view == crate::layout::SidebarView::Commit
             && self.layout.sidebar.right() > 0.0
             && (self.commit.browse || self.log_diff_tree().is_none())
     }
@@ -1212,7 +1212,7 @@ impl App {
 
     /// 鼠标没在拖东西、侧栏也没在开合：可以在悬停的行上展开写不下的名字。
     pub(crate) fn idle_pointer(&self) -> bool {
-        self.sidebar_motion.is_none() && matches!(self.drag, crate::app::Drag::None)
+        self.sidebar.motion.is_none() && matches!(self.drag, crate::app::Drag::None)
     }
 
     /// 仓库状态刷新了，`old` 是刷新前的状态，`rows` 是刷新前的各行（提交视图不在屏幕上时为
@@ -1296,7 +1296,7 @@ impl App {
         }
         // 从日志打开的差异标签中，提交视图在文件树与工作区改动之间切换。
         self.toggle_log_diff_tree();
-        if !self.panel_visible {
+        if !self.sidebar.visible {
             self.set_sidebar(true);
         }
         self.set_sidebar_view(crate::layout::SidebarView::Commit);
@@ -1381,7 +1381,7 @@ impl App {
             }
             CommitTarget::StashMenu(i) => {
                 let Some(&(rect, _)) =
-                    (self.commit_hits.iter()).find(|(_, t)| *t == CommitTarget::StashMenu(i))
+                    (self.hits.commit.iter()).find(|(_, t)| *t == CommitTarget::StashMenu(i))
                 else {
                     return;
                 };
@@ -1389,7 +1389,7 @@ impl App {
             }
             CommitTarget::StashMore => {
                 let Some(&(rect, _)) =
-                    (self.commit_hits.iter()).find(|(_, t)| *t == CommitTarget::StashMore)
+                    (self.hits.commit.iter()).find(|(_, t)| *t == CommitTarget::StashMore)
                 else {
                     return;
                 };

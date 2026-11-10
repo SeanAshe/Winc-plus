@@ -88,12 +88,13 @@ impl TreeDrag {
 impl App {
     /// 返回正在拖动的文件树项；没有按住，或尚未形成拖动时返回 `None`。
     pub(crate) fn tree_dragging(&self) -> Option<&TreeDrag> {
-        self.tree_drag.as_ref().filter(|d| d.active)
+        self.tree.drag.as_ref().filter(|d| d.active)
     }
 
     /// 是否按住了文件树中的一个文件、尚未形成拖动：此时松开就会打开该文件。
     pub(crate) fn tree_open_pending(&self) -> bool {
-        self.tree_drag
+        self.tree
+            .drag
             .as_ref()
             .is_some_and(|d| !d.active && d.kind == EntryKind::File)
     }
@@ -102,7 +103,7 @@ impl App {
     ///
     /// 移动距离超过 [`DRAG_THRESHOLD`] 后形成拖动，之后随鼠标位置重新计算放置目标。
     pub(in crate::app) fn drag_tree_item(&mut self, x: f32, y: f32) {
-        let Some(drag) = &mut self.tree_drag else {
+        let Some(drag) = &mut self.tree.drag else {
             return;
         };
         if !drag.active {
@@ -123,7 +124,7 @@ impl App {
             .map(|e| e.path.clone())
             .filter(|path| target.as_ref() == Some(path));
 
-        let Some(drag) = &mut self.tree_drag else {
+        let Some(drag) = &mut self.tree.drag else {
             return;
         };
         drag.target = target;
@@ -138,7 +139,7 @@ impl App {
     /// 未形成拖动时按单击处理：只选中这一行，文件打开，目录展开或收起。已形成拖动时把被拖的
     /// 各项放入目标目录。
     pub(in crate::app) fn release_tree_item(&mut self) {
-        let Some(drag) = self.tree_drag.take() else {
+        let Some(drag) = self.tree.drag.take() else {
             return;
         };
 
@@ -181,7 +182,7 @@ impl App {
 
     /// 取消拖动（按下 Esc 或窗口失去焦点），不移动任何文件。
     pub(in crate::app) fn cancel_tree_drag(&mut self) {
-        if self.tree_drag.take().is_some_and(|d| d.active) {
+        if self.tree.drag.take().is_some_and(|d| d.active) {
             self.set_hover(self.hover_at(self.mouse.0, self.mouse.1));
             self.request_redraw();
         }
@@ -240,7 +241,7 @@ impl App {
                 if let Some(index) = index {
                     self.set_dir_expanded(index, Some(true));
                 }
-                if let Some(drag) = &mut self.tree_drag {
+                if let Some(drag) = &mut self.tree.drag {
                     drag.resting = None;
                 }
             }
@@ -259,9 +260,9 @@ impl App {
         };
         let rows = self.editor.workspace.as_ref().map_or(0, |w| w.rows().len());
         let scroll =
-            (self.tree_scroll + push / EDGE * EDGE_SPEED).clamp(0.0, self.tree_max_scroll(rows));
-        if scroll != self.tree_scroll {
-            self.tree_scroll = scroll;
+            (self.tree.scroll + push / EDGE * EDGE_SPEED).clamp(0.0, self.tree_max_scroll(rows));
+        if scroll != self.tree.scroll {
+            self.tree.scroll = scroll;
             // 文件树滚动后，鼠标下方的行改变，需要重新计算放置目标。
             self.drag_tree_item(x, y);
             let next = now + self.frame_interval;
@@ -355,7 +356,7 @@ impl App {
                 ws.reveal(copy);
             }
             ws.select_paths(&copies);
-            self.tree_motion = None;
+            self.tree.motion = None;
             self.focus = Focus::Tree;
             if let Some(index) = ws.selected {
                 self.scroll_tree_to(index, false);
@@ -372,7 +373,7 @@ impl App {
     /// 配置项 `tree.confirmDragAndDrop` 为 `false`（提示框上勾选过「不再询问」）时不询问，
     /// 直接移动。
     fn ask_move(&mut self, paths: Vec<PathBuf>, dir: PathBuf) {
-        if self.config.confirm_drag_and_drop != Some(false) && self.window.is_some() {
+        if self.config.confirm_drag_and_drop != Some(false) && self.window.handle.is_some() {
             use crate::app::AlertButton;
 
             let to = winc_editor::display_name(&dir);
@@ -461,7 +462,7 @@ impl App {
             && let Some(ws) = &mut self.editor.workspace
         {
             ws.select_paths(&moved);
-            self.tree_motion = None;
+            self.tree.motion = None;
             self.focus = Focus::Tree;
             if let Some(index) = ws.selected {
                 self.scroll_tree_to(index, false);

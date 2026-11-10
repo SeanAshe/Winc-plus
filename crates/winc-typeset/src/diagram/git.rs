@@ -12,7 +12,7 @@ use super::{Label, Look, bounds, dashed, mix, palette};
 
 impl Cx<'_, '_> {
     /// 排 Git 提交图，返回宽高。
-    pub(super) fn git(&mut self, g: &Git, s: f32, look: Look, out: &mut Vec<Item>) -> (f32, f32) {
+    pub(crate) fn git(&mut self, g: &Git, s: f32, look: Look, out: &mut Vec<Item>) -> (f32, f32) {
         let across = g.dir == Dir::Right;
         let names: Vec<Label> = g
             .branches

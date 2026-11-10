@@ -2,12 +2,17 @@
 
 use super::*;
 
+/// 预览滚动测量中每帧滚动的距离（逻辑像素）。
+///
+/// 取默认字号下约三行的高度：文本的滚动测量每帧滚动三行。
+const BENCH_PREVIEW_STEP: f32 = 60.0;
+
 impl App {
     /// 处理双击顶栏空白处。
     ///
     /// macOS 上执行系统偏好中的标题栏双击动作（缩放或最小化），其他平台切换最大化。
     pub(in crate::app) fn title_bar_double_click(&self) {
-        let Some(window) = &self.window else {
+        let Some(window) = &self.window.handle else {
             return;
         };
 
@@ -36,7 +41,7 @@ impl App {
     /// `AppKit` 修改标题时会重排标题栏并把那三个控制按钮恢复到默认位置，因此随后重新摆放
     /// 一次。
     pub(in crate::app) fn set_window_title(&self, title: &str) {
-        if let Some(window) = &self.window {
+        if let Some(window) = &self.window.handle {
             window.set_title(title);
         }
         self.place_traffic_lights();
@@ -45,10 +50,10 @@ impl App {
     /// 隐藏窗口（macOS 上关闭窗口时）：应用留在程序坞中，点击图标时由 [`App::show_window`]
     /// 重新显示。
     pub(super) fn hide_window(&mut self) {
-        if let Some(window) = &self.window {
+        if let Some(window) = &self.window.handle {
             window.set_visible(false);
         }
-        self.window_hidden = true;
+        self.window.hidden = true;
     }
 
     /// 打开 `targets` 里的文件（目录跳过：已经是本窗口的目录），`文件:行:列` 跳到该位置，再把
@@ -66,12 +71,12 @@ impl App {
     /// 窗口是否完全看不见（见 `occluded`）；看得见时，或者测量时（窗口透明，系统当它看不见）
     /// 为假。
     pub(in crate::app) fn unseen(&self) -> bool {
-        self.occluded && !self.bench.silent()
+        self.window.occluded && !self.bench.silent()
     }
 
     /// 窗口变得完全看不见或又看得见（`WindowEvent::Occluded`）。
     pub(super) fn set_occluded(&mut self, occluded: bool) {
-        self.occluded = occluded;
+        self.window.occluded = occluded;
         let unseen = self.unseen();
         if let Some(renderer) = &mut self.renderer {
             renderer.set_occluded(unseen);
@@ -92,7 +97,7 @@ impl App {
     /// 切换；其他情况请系统切换。
     pub(crate) fn raise(&mut self) {
         self.show_window();
-        if let Some(window) = &self.window {
+        if let Some(window) = &self.window.handle {
             window.set_minimized(false);
             #[cfg(all(unix, not(target_os = "macos")))]
             let activated = (self.activation.take())
@@ -125,16 +130,16 @@ impl App {
     /// 返回从本窗口打开的新窗口的位置（外框左上角，物理像素）和本窗口的缩放比例：比本窗口往
     /// 右下错开，形成层叠。
     ///
-    /// 本窗口最小化时按最小化之前正常显示的位置（`window_frame`）错开：最小化期间系统报告的位置
+    /// 本窗口最小化时按最小化之前正常显示的位置（`WindowState::frame`）错开：最小化期间系统报告的位置
     /// 不在屏幕上，Windows 上为 (-32000, -32000)。本窗口隐藏，或最小化且没有记下正常显示的位置时
     /// 返回 `None`，新窗口改用上次关闭窗口时记下的位置。
     pub(crate) fn cascade_from(&self) -> Option<((f64, f64), f64)> {
-        let window = self.window.as_ref()?;
-        if self.window_hidden {
+        let window = self.window.handle.as_ref()?;
+        if self.window.hidden {
             return None;
         }
         let (at, scale) = if window.is_minimized() == Some(true) {
-            let frame = self.window_frame?;
+            let frame = self.window.frame?;
             (frame.position?, frame.scale)
         } else {
             let at = window.outer_position().ok()?;
@@ -147,8 +152,8 @@ impl App {
     /// 否则结束。
     pub(super) fn give_up_window(&mut self, event_loop: &ActiveEventLoop) {
         if self.shared.others() {
-            self.window = None;
-            self.window_hidden = true;
+            self.window.handle = None;
+            self.window.hidden = true;
         } else {
             event_loop.exit();
         }
@@ -158,16 +163,16 @@ impl App {
     ///
     /// 先在隐藏的窗口上画好一帧（开始页）再显示，不会先显示关闭前的画面。
     pub(in crate::app) fn show_window(&mut self) {
-        if !self.window_hidden {
+        if !self.window.hidden {
             return;
         }
-        self.window_hidden = false;
+        self.window.hidden = false;
         // 关着时系统当它看不见；显示之前先画好一帧，不等 `Occluded(false)`。
         self.set_occluded(false);
         self.relayout();
         self.request_redraw();
         self.redraw();
-        if let Some(window) = &self.window {
+        if let Some(window) = &self.window.handle {
             window.set_visible(true);
             window.focus_window();
         }
@@ -180,7 +185,7 @@ impl App {
     /// 摆放。
     pub(super) fn place_traffic_lights(&self) {
         #[cfg(target_os = "macos")]
-        if let (Some(window), Some(lights)) = (&self.window, &self.traffic_lights)
+        if let (Some(window), Some(lights)) = (&self.window.handle, &self.traffic_lights)
             && let Some(end) = lights.place()
             && crate::layout::set_traffic_lights_end(end as f32)
         {
@@ -196,13 +201,13 @@ impl App {
         // 面板打开以后换了标签（⌘W、切换标签、后退前进、新建文件）：面板里的符号、书签、用法
         // 都属于原来的文档，回车会在新标签里跳到错误的位置，所以关掉。`close_picker` 会再次
         // 调用本函数，那时面板已经关了。
-        if self.picker_open && self.editor.active().map(|d| d.id) != self.picker_doc {
+        if self.picker.open && self.editor.active().map(|d| d.id) != self.picker.doc {
             self.close_picker();
             return;
         }
         // 浮层和焦点不分家：快捷键、点击把焦点挪到了其他位置（⌘F、⇧⌘F、⌃G、⌃Tab、点编辑区……）
         // 时面板、输入条跟着关掉。否则 Esc 和回车都到不了面板，面板会一直留在屏幕上。
-        if self.picker_open && self.focus != Focus::Picker {
+        if self.picker.open && self.focus != Focus::Picker {
             self.close_picker();
             return;
         }
@@ -210,8 +215,8 @@ impl App {
             self.goto_input = None;
         }
         // 切换到不能替换的标签时收起替换。
-        if self.replace_open && !self.can_replace() {
-            self.replace_open = false;
+        if self.find.replace_open && !self.can_replace() {
+            self.find.replace_open = false;
             if self.focus == Focus::Replace {
                 self.focus = Focus::Search;
             }
@@ -228,8 +233,8 @@ impl App {
             ISLAND_MARGIN
         };
         let rows = match (
-            self.search_open && self.editor.active.is_some(),
-            self.replace_open,
+            self.find.open && self.editor.active.is_some(),
+            self.find.replace_open,
         ) {
             (false, _) => 0,
             (true, false) => 1,
@@ -237,15 +242,15 @@ impl App {
         };
         // ⌘P 面板高度随结果数变化：至少一行（显示「正在整理文件…」「没有匹配」），最多
         // `PICKER_MAX_ROWS` 行，且不能延伸到状态栏。
-        let picker_rows = if self.picker_open {
+        let picker_rows = if self.picker.open {
             let room =
                 (h - status_height - TOP_BAR_END - BAR_HEIGHT - 2.0 * PICKER_PAD - 16.0).max(0.0);
             let most = ((room / PICKER_ROW).floor() as usize).clamp(1, PICKER_MAX_ROWS);
-            self.picker_hits.len().clamp(1, most)
+            self.picker.hits.len().clamp(1, most)
         } else {
             0
         };
-        let (panel, shown) = (self.panel_width, self.sidebar_shown());
+        let (panel, shown) = (self.sidebar.width, self.sidebar_shown());
         self.layout = Layout::compute(
             w,
             h,
@@ -259,7 +264,7 @@ impl App {
         self.place_places();
         self.place_git_picker();
         self.animate_picker((w, h));
-        if let Some(bottom) = self.places_bottom {
+        if let Some(bottom) = self.picker.places_bottom {
             self.layout.picker.y = bottom - self.layout.picker.h;
         }
 
@@ -278,7 +283,7 @@ impl App {
 
         self.place_outline();
         // 搜索和历史差异各有自己的列表，不能命中工作区文件树原来的区域。
-        if self.sidebar_view == SidebarView::Search || self.log_diff_tree().is_some() {
+        if self.sidebar.view == SidebarView::Search || self.log_diff_tree().is_some() {
             let tree = self.layout.tree;
             self.layout.tree = Rect::new(tree.x, tree.y, 0.0, 0.0);
         }
@@ -465,15 +470,14 @@ impl App {
         l.terminal_divider = Rect::new(l.editor.x, l.editor.bottom(), l.editor.w, gap);
     }
 
-    /// 编辑区每帧都先用不透明的 `editor_bg` 整个铺一遍（`view::editor::draw_editor`），告诉渲染器
-    /// 那一块不必先铺窗口背景色。
-    pub(in crate::app) fn cover_frame(&self, renderer: &mut winc_render::Renderer) {
+    /// 向渲染器声明下一帧的底色矩形（`view::base`），使其随窗口背景色一趟绘制。
+    pub(in crate::app) fn declare_base(&self, renderer: &mut winc_render::Renderer) {
         let (window, scale) = (self.layout.window, renderer.scale_factor());
         if self.settings_reuses_base(window, scale) {
             // 滚动设置页时由保存的快照覆盖整个窗口，无需先填充背景。
             renderer.cover_next_frame(window);
-        } else if self.palette.editor_bg.a >= 1.0 {
-            renderer.cover_next_frame(self.layout.editor);
+        } else {
+            renderer.base_next_frame(&view::base(self));
         }
     }
 
@@ -508,7 +512,7 @@ impl App {
         self.advance_images();
 
         self.highlight_pending = false;
-        self.ime_cursor = None;
+        self.ime.cursor = None;
         // 此前的重画请求由这一帧满足；绘制之后（例如 `refresh_hover`）再提出的请求留到下一帧。
         self.dirty = false;
 
@@ -516,11 +520,11 @@ impl App {
             return;
         };
         let started = Instant::now();
-        self.cover_frame(&mut renderer);
+        self.declare_base(&mut renderer);
         // Wayland 上随本帧向合成器请求帧回调：之后的重画在合成器发出帧回调后进行，动画跟随
         // 合成器的刷新，而不是计时器。本帧在 `renderer.draw` 中绘制并提交，因此在调用它之前请求。
         #[cfg(all(unix, not(target_os = "macos")))]
-        if let Some(window) = &self.window {
+        if let Some(window) = &self.window.handle {
             window.pre_present_notify();
         }
         let glide = self.begin_glide_frame();
@@ -533,7 +537,7 @@ impl App {
             return;
         }
         if self.frame_log.enabled()
-            && let Some(window) = &self.window
+            && let Some(window) = &self.window.handle
         {
             let size = window.inner_size();
             let refresh = frame_interval(window);
@@ -547,7 +551,7 @@ impl App {
         // 高亮状态尚未推算完、大文件尚未搜完时，马上绘制下一帧，不按刷新率等：每帧本身有预算
         // （高亮 `HIGHLIGHT_BUDGET` 行、查找一个 8 ms 的时间片），已经不比刷新间隔短，按刷新率
         // 等反而常常错过一次刷新。
-        let searching = self.search_open || self.pending_jump.is_some();
+        let searching = self.find.open || self.find.pending_jump.is_some();
         self.dirty |= self.highlight_pending || (searching && !self.search.is_complete());
         // 终端查找同样按时间片进行：这一帧之后再找一个时间片，没找完就马上绘制下一帧。
         self.dirty |= self.terminal_find_tick();
@@ -561,7 +565,16 @@ impl App {
         match self.bench.on_present(self.presented, elapsed) {
             Next::Continue => {}
             // 应用层看到以后结束事件循环（测量时只有一个窗口）。
-            Next::Exit => self.quit_requested = true,
+            Next::Exit => self.closing.quit_requested = true,
+            // 当前显示 Markdown 预览时滚动预览，到达末尾后回到开头。
+            Next::Scroll if self.markdown.area.h > 0.0 => {
+                let before = self.markdown.scroll();
+                self.scroll_markdown(-BENCH_PREVIEW_STEP);
+                if self.markdown.scroll() == before {
+                    self.scroll_markdown_to(0.0);
+                }
+                self.request_redraw();
+            }
             Next::Scroll => {
                 let max = self.max_scroll_line();
 
@@ -575,6 +588,11 @@ impl App {
 
                 self.request_redraw();
             }
+            Next::Preview => {
+                self.set_preview_mode(winc_editor::PreviewMode::Preview);
+                self.request_redraw();
+            }
+            Next::Terminal => self.toggle_terminal(),
             Next::Search(query) => {
                 self.open_global_search(false);
                 self.global.query.set_text(&query);
@@ -583,7 +601,7 @@ impl App {
             Next::QuickOpen => self.open_picker(),
             Next::Find(query) => {
                 self.open_search(false);
-                self.find_input.set_text(&query);
+                self.find.input.set_text(&query);
                 self.search.query = query;
                 self.search_changed();
             }
@@ -595,14 +613,18 @@ impl App {
                 self.request_redraw();
             }
         }
-        let searching = self.search_open || self.pending_jump.is_some();
+        let ready = self.terminal_ready();
+        if let Some(command) = self.bench.terminal_command(ready) {
+            self.terminal_input(format!("{command}\n").into_bytes());
+        }
+        let searching = self.find.open || self.find.pending_jump.is_some();
         let done = !self.highlight_pending && (!searching || self.search.is_complete());
         if self.bench.on_progress(done) {
-            self.quit_requested = true;
+            self.closing.quit_requested = true;
         }
         let scroll = self.editor.active().map_or(0.0, |doc| doc.scroll_line);
         if self.bench.on_wheel_frame(scroll) {
-            self.quit_requested = true;
+            self.closing.quit_requested = true;
         }
     }
 
@@ -633,4 +655,35 @@ pub(in crate::app) fn frame_interval(window: &Window) -> Duration {
         .filter(|&mhz| mhz >= 30_000)
         .unwrap_or(60_000);
     Duration::from_micros(1_000_000_000 / u64::from(millihertz))
+}
+
+/// 系统窗口及其状态：窗口句柄、是否有焦点、是否隐藏、是否由应用绘制窗口按钮、保存的位置。
+pub struct WindowState {
+    pub(in crate::app) handle: Option<Arc<Window>>,
+    /// 是否由应用绘制标题栏和窗口按钮（见 `lifecycle::title_bar`）。
+    pub(crate) controls: bool,
+    pub(in crate::app) focused: bool,
+    /// 窗口是否已关闭（隐藏）而应用仍在运行。
+    ///
+    /// macOS 上关闭窗口不退出应用，点击程序坞中的图标时重新显示窗口。
+    pub(crate) hidden: bool,
+    /// 窗口正常显示（未最大化、全屏或最小化）时的大小和位置，关闭时记录。
+    ///
+    /// 最小化期间不更新；从最小化的窗口打开新窗口时按该位置错开（见 `App::cascade_from`）。
+    pub(crate) frame: Option<winc_config::WindowFrame>,
+    /// 窗口是否完全不可见（被遮挡、最小化或位于其他桌面）；不可见时不绘制，窗口画面标记为可清除。
+    pub(in crate::app) occluded: bool,
+}
+
+impl Default for WindowState {
+    fn default() -> Self {
+        Self {
+            handle: None,
+            controls: false,
+            focused: true,
+            hidden: false,
+            frame: None,
+            occluded: false,
+        }
+    }
 }

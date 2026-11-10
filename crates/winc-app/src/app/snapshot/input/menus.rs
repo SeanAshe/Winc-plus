@@ -16,9 +16,9 @@ fn closing_unsaved_tabs_asks_save_discard_or_cancel() {
     // 取消：标签和修改都保留。
     app.close_tab(0);
     assert_eq!(app.editor.documents.len(), 1);
-    assert_eq!(app.save_prompt.as_ref().unwrap().dirty.len(), 1);
+    assert_eq!(app.closing.prompt.as_ref().unwrap().dirty.len(), 1);
     app.answer_save_prompt(SaveChoice::Cancel);
-    assert!(app.save_prompt.is_none());
+    assert!(app.closing.prompt.is_none());
     assert!(app.editor.active().unwrap().is_dirty());
 
     // 不保存：关闭标签，磁盘上的文件保持原样。
@@ -49,9 +49,9 @@ fn closing_unsaved_tabs_asks_save_discard_or_cancel() {
     let id = app.editor.active().unwrap().id;
     app.close_tab(0);
     app.answer_save_prompt(SaveChoice::Save);
-    assert!(app.save_continuation.is_some());
+    assert!(app.closing.continuation.is_some());
     app.on_picked(Pick::SaveAs(id), None);
-    assert!(app.save_continuation.is_none());
+    assert!(app.closing.continuation.is_none());
     assert_eq!(app.editor.documents.len(), 1);
 
     // 再次关闭并这次选定保存位置：文件写入磁盘，标签关闭。
@@ -71,20 +71,20 @@ fn closing_unsaved_tabs_asks_save_discard_or_cancel() {
     let ids: Vec<_> = app.editor.documents.iter().map(|d| d.id).collect();
     app.close_tabs(ids);
     assert_eq!(app.editor.documents.len(), 2);
-    assert_eq!(app.save_prompt.as_ref().unwrap().dirty.len(), 2);
+    assert_eq!(app.closing.prompt.as_ref().unwrap().dirty.len(), 2);
     // 提示框已显示时再请求关闭，不会再次询问。
     app.request_quit();
-    assert_eq!(app.save_prompt.as_ref().unwrap().dirty.len(), 2);
+    assert_eq!(app.closing.prompt.as_ref().unwrap().dirty.len(), 2);
     app.answer_save_prompt(SaveChoice::Cancel);
 
     // 退出：有修改时先询问，选择不保存则直接退出；没有修改时不询问，直接退出。
     app.request_quit();
-    assert!(!app.quit_requested);
+    assert!(!app.closing.quit_requested);
     app.answer_save_prompt(SaveChoice::Discard);
-    assert!(app.quit_requested);
+    assert!(app.closing.quit_requested);
     let mut clean = app_with(&dir, false);
     clean.request_quit();
-    assert!(clean.quit_requested && clean.save_prompt.is_none());
+    assert!(clean.closing.quit_requested && clean.closing.prompt.is_none());
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -142,7 +142,7 @@ fn tree_context_menu_targets_the_clicked_row() {
     let at = tree_row_center(&app, src);
     right_click(&mut app, at);
     app.run_menu_command(MenuCommand::FindInFolder);
-    assert_eq!(app.sidebar_view, SidebarView::Search);
+    assert_eq!(app.sidebar.view, SidebarView::Search);
     assert_eq!(app.global.include.text(), "./src");
     assert!(app.global.details_open);
     assert_eq!(app.focus, Focus::GlobalQuery);
@@ -254,7 +254,8 @@ fn delete_from_the_tree_closes_clean_tabs_and_keeps_dirty_ones() {
         .collect();
     assert_eq!(names, ["config.rs", "Cargo.toml"]);
     assert!(
-        app.status_message
+        app.status
+            .message
             .as_deref()
             .is_some_and(|m| m.contains(&format!("已移到{}", super::trash_name())))
     );
@@ -292,7 +293,7 @@ fn tab_context_menu_closes_others_right_and_saved() {
             .collect()
     };
     let tab = |app: &App, i: usize| {
-        let rect = app.tabs.hits.iter().find(|h| h.index == i).unwrap().tab;
+        let rect = app.hits.tabs.iter().find(|h| h.index == i).unwrap().tab;
         (rect.x + 20.0, rect.y + rect.h / 2.0)
     };
 
@@ -319,7 +320,7 @@ fn tab_context_menu_closes_others_right_and_saved() {
     right_click(&mut app, at);
     app.run_menu_command(MenuCommand::CloseOthers);
     assert_eq!(names(&app), ["main.rs", "config.rs"]);
-    assert_eq!(app.save_prompt.as_ref().unwrap().dirty.len(), 1);
+    assert_eq!(app.closing.prompt.as_ref().unwrap().dirty.len(), 1);
     app.answer_save_prompt(SaveChoice::Cancel);
 
     // 「关闭已保存」只保留有未保存修改的标签。
@@ -335,7 +336,7 @@ fn tab_context_menu_closes_others_right_and_saved() {
     let at = tab(&app, 0);
     right_click(&mut app, at);
     app.run_menu_command(MenuCommand::RevealInTree);
-    assert_eq!(app.sidebar_view, SidebarView::Files);
+    assert_eq!(app.sidebar.view, SidebarView::Files);
     let ws = app.editor.workspace.as_ref().unwrap();
     assert_eq!(ws.selected_entry().unwrap().name, "main.rs");
 
@@ -363,7 +364,7 @@ fn bookmark_commands_are_available_in_the_editor_menu() {
 
     app.context_menu = Some(menu(true));
     app.run_menu_command(crate::app::MenuCommand::ListBookmarks);
-    assert!(app.picker_open && app.picker_places.is_some());
+    assert!(app.picker.open && app.picker.places.is_some());
     app.close_picker();
 
     app.context_menu = Some(menu(true));

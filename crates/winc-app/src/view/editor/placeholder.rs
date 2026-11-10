@@ -81,7 +81,7 @@ pub(super) fn draw_placeholder(
         x = rect.right() + GAP;
     }
 
-    app.placeholder_hits = hits;
+    app.hits.placeholder = hits;
 }
 
 /// 绘制打开了目录但没有标签时的欢迎页：几条常用操作，前面是图标，快捷键放在圆角键帽里。

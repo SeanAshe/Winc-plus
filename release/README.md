@@ -1,6 +1,6 @@
 # Releasing winc
 
-Every merge into `main` is a release. It creates the annotated tag `v<version>`, explicitly
+Every merge into `main` is a release. It creates the annotated tag `<version>_<fork>`, explicitly
 dispatches the Release workflow on that tag, builds the Windows x64 target, and publishes one
 GitHub Release. No platform job uploads directly to a Release, and nobody publishes it by hand.
 
@@ -21,18 +21,17 @@ of releasing it again. To retry a failed build, rerun the Release workflow on th
 
 ## Version and source
 
-The release version is `version` in the `[workspace.package]` section of `Cargo.toml`. To prepare
-a version:
+The release version is the single line of the `VERSION` file at the repository root. To prepare a
+version, edit that file, commit it, then merge into `main`. The program reads the same file at
+compile time through the `winc-version` crate.
 
-```sh
-# Edit [workspace.package] version in Cargo.toml, then refresh the workspace entries in Cargo.lock.
-cargo update --workspace
-```
-
-Commit `Cargo.toml` and `Cargo.lock` together, then merge into `main`. `cargo update --workspace`
-changes only the workspace's own entries, never dependency versions. The Release workflow rejects
-a `Cargo.lock` that does not match `Cargo.toml`, a tag that does not equal `v<version>`, a checkout
-that differs from the workflow's immutable commit, or a tag that moved after the build began.
+The crates themselves carry no version: Cargo hashes a package's version into its build
+artifacts, so a version in `Cargo.toml` would rebuild every crate from scratch on each release and
+leave the old artifacts in `target`. `Cargo.lock` therefore does not change with the release
+version. The Release workflow rejects a `Cargo.lock` that does not match `Cargo.toml`, a tag that
+does not equal `<version>_<fork>` (`release/fork-version` is how many commits this checkout is
+ahead of DEEIX-AI/Winc `dev`), a checkout that differs from the workflow's immutable commit, or a
+tag that moved after the build began.
 
 The Release workflow can also be dispatched manually. With `release_tag` set, a branch-context request
 dispatches a new run on that existing tag. With no tag selected, a branch run builds downloadable

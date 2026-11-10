@@ -27,7 +27,7 @@ struct Spot {
 
 impl Cx<'_, '_> {
     /// 排思维导图，返回宽高。
-    pub(super) fn mindmap(
+    pub(crate) fn mindmap(
         &mut self,
         m: &Mindmap,
         s: f32,

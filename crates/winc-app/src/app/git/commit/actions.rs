@@ -364,7 +364,7 @@ impl App {
         };
         let label = operation.label();
         let message = t!("git-abort-confirm", operation = label);
-        if self.window.is_some() {
+        if self.window.handle.is_some() {
             let detail = t!("git-abort-confirm-detail");
             let button = t!("git-abort-confirm-button", operation = label);
             self.show_confirm(&message, detail, &button, move |ok| {
@@ -403,7 +403,7 @@ impl App {
             }
             many => t!("git-rollback-confirm-many", count = many.len()),
         };
-        if self.window.is_some() {
+        if self.window.handle.is_some() {
             let detail = t!("git-rollback-confirm-detail");
             let button = t!("git-rollback-confirm-button");
             self.show_confirm(&message, detail, button, move |ok| {

@@ -324,7 +324,7 @@ impl App {
     /// 状态栏本帧是否播放过渡；没有窗口、系统开启「减弱动态效果」时为假。
     pub(crate) fn animate_status(&mut self) -> bool {
         #[cfg(test)]
-        if self.status_motion.animate_without_window {
+        if self.status.motion.animate_without_window {
             return true;
         }
         self.clock(STATUS_SLIDE).is_some()

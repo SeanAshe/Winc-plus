@@ -54,8 +54,6 @@ pub struct TabHit {
 /// 标签栏的滚动位置，以及绘制时记录的几何信息，供点击和滚轮使用。
 #[derive(Debug, Default)]
 pub struct TabBar {
-    /// 各标签的位置，按绘制顺序排列。
-    pub hits: Vec<TabHit>,
     /// 标签的可见范围；放不下全部标签时，右侧为新建按钮和「⌄」留出位置。
     pub view: Rect,
     /// 新建按钮的矩形。
@@ -135,7 +133,7 @@ impl App {
         }
 
         // 被拖动的标签最后绘制、压在其他标签之上，因此从后向前查找，先判断被拖动的标签。
-        let hit = self.tabs.hits.iter().rev().find(|h| h.tab.contains(x, y))?;
+        let hit = self.hits.tabs.iter().rev().find(|h| h.tab.contains(x, y))?;
         Some((hit.index, hit.close.inset(-2.0, -2.0).contains(x, y)))
     }
 
@@ -533,7 +531,12 @@ impl App {
             return;
         }
         #[cfg(target_os = "macos")]
-        if self.window.as_deref().is_some_and(crate::macos::has_sheet) {
+        if self
+            .window
+            .handle
+            .as_deref()
+            .is_some_and(crate::macos::has_sheet)
+        {
             return;
         }
         for &id in ids {
@@ -719,7 +722,7 @@ impl App {
         {
             use crate::macos::{Panel, show_panel};
 
-            let Some(window) = self.window.clone() else {
+            let Some(window) = self.window.handle.clone() else {
                 return;
             };
             let panel = match &kind {
@@ -782,7 +785,7 @@ impl App {
             };
             // 对话框的标题不带省略号；挂在窗口上，打开期间窗口不响应。
             let mut dialog = rfd::FileDialog::new().set_title(title.trim_end_matches('…'));
-            if let Some(window) = &self.window {
+            if let Some(window) = &self.window.handle {
                 dialog = dialog.set_parent(&**window);
             }
             if let Some(dir) = &dir {
@@ -827,7 +830,7 @@ impl App {
         // 关闭流程中的「保存」在等待这次另存为：保存成功后继续处理剩下的文档；
         // 取消或保存失败时放弃整个关闭。
         let continuation = match kind {
-            Pick::SaveAs(_) => self.save_continuation.take(),
+            Pick::SaveAs(_) => self.closing.continuation.take(),
             Pick::Open | Pick::OpenFolder | Pick::WslFolder(_) | Pick::WorktreeFolder => None,
         };
 
@@ -877,7 +880,7 @@ impl App {
             if let Some(ws) = (self.editor.workspace.as_mut()).filter(|_| reachable) {
                 ws.refresh();
             }
-            self.picker_stale = true;
+            self.picker.stale = true;
         }
 
         self.relayout();

@@ -1,9 +1,10 @@
 //! 测量钩子：设置环境变量 `WINC_BENCH` 后启用，供 `cargo xtask bench` 使用。
 //!
-//! 环境变量的值决定测量模式：`startup` 在首帧呈现后退出，`scroll` 连续滚动并统计帧耗时，
-//! `wheel` 按固定间隔送出鼠标滚轮滚动并统计帧间隔和画面的跟随情况，`search:<内容>`、`picker`
-//! 完成后保持运行，`find:<内容>`、`highlight` 输出耗时、帧数和 CPU 时间后退出，其他值只输出
-//! 时间戳并保持运行。保持运行的模式由外部进程采样内存；未设置时不测量。
+//! 环境变量的值决定测量模式：`startup` 在首帧呈现后退出；`scroll`、`preview`、`terminal:<命令>`
+//! 分别在滚动文本、滚动预览、终端输出期间统计帧耗时；`wheel` 按固定间隔送出鼠标滚轮滚动并统计
+//! 帧间隔和画面的跟随情况；`search:<内容>`、`picker` 完成后保持运行；`find:<内容>`、`highlight`
+//! 输出耗时、帧数和 CPU 时间后退出；其他值只输出时间戳并保持运行。保持运行的模式由外部进程
+//! 采样内存；未设置时不测量。
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -39,6 +40,12 @@ enum Mode {
     Startup,
     /// 连续滚动并统计每帧耗时，采集 [`SCROLL_FRAMES`] 帧后退出。
     Scroll,
+    /// 首帧呈现后切换到只显示预览（Markdown、SVG），之后与 [`Mode::Scroll`] 相同。
+    Preview,
+    /// 首帧呈现后打开终端面板并运行给定的命令，统计此后 [`SCROLL_FRAMES`] 帧的耗时后退出。
+    ///
+    /// 帧由终端的输出触发：命令必须持续输出，否则采集不满，进程不会退出。
+    Terminal(String),
     /// 按 [`WHEEL_INTERVAL`] 送出 [`WHEEL_NOTCHES`] 格鼠标滚轮滚动，画面停止后输出统计并退出。
     Wheel,
     /// 首帧呈现后在打开的目录里搜索给定的内容，之后保持运行。
@@ -57,6 +64,10 @@ pub enum Next {
     Continue,
     /// 滚动测量：调用方向下滚动一段并请求下一帧。
     Scroll,
+    /// 把当前标签切换到只显示预览。
+    Preview,
+    /// 打开终端面板。
+    Terminal,
     /// 测量完成，退出事件循环。
     Exit,
     /// 在打开的目录里搜索给定的内容。
@@ -78,6 +89,8 @@ pub struct Bench {
     progress: Option<(Instant, Duration, usize)>,
     /// 滚轮测量的进度；只在 [`Mode::Wheel`] 下、首帧呈现之后存在。
     wheel: Option<WheelRun>,
+    /// 终端测量中尚未写给终端的命令，见 [`Bench::terminal_command`]。
+    command: Option<String>,
 }
 
 /// 滚轮测量的进度。
@@ -106,6 +119,7 @@ impl Bench {
             frame_times: Vec::new(),
             progress: None,
             wheel: None,
+            command: None,
         }
     }
 
@@ -115,13 +129,17 @@ impl Bench {
             Err(_) => Mode::Off,
             Ok("startup") => Mode::Startup,
             Ok("scroll") => Mode::Scroll,
+            Ok("preview") => Mode::Preview,
             Ok("wheel") => Mode::Wheel,
             Ok("picker") => Mode::QuickOpen,
             Ok("highlight") => Mode::Highlight,
             Ok(value) => match (value.strip_prefix("search:"), value.strip_prefix("find:")) {
                 (Some(query), _) => Mode::Search(query.to_owned()),
                 (_, Some(query)) => Mode::Find(query.to_owned()),
-                _ => Mode::Idle,
+                _ => match value.strip_prefix("terminal:") {
+                    Some(command) => Mode::Terminal(command.to_owned()),
+                    None => Mode::Idle,
+                },
             },
         };
 
@@ -130,6 +148,7 @@ impl Bench {
             frame_times: Vec::new(),
             progress: None,
             wheel: None,
+            command: None,
         }
     }
 
@@ -184,11 +203,19 @@ impl Bench {
                         frames: Vec::new(),
                     });
                 }
+                Mode::Preview => return Next::Preview,
+                Mode::Terminal(command) => {
+                    self.command = Some(command.clone());
+                    return Next::Terminal;
+                }
                 Mode::Off | Mode::Idle | Mode::Scroll => {}
             }
         }
 
-        if self.mode != Mode::Scroll || presented < 2 {
+        let terminal = matches!(self.mode, Mode::Terminal(_));
+        let timed = terminal || matches!(self.mode, Mode::Scroll | Mode::Preview);
+        // 终端测量只统计命令写入终端之后的帧。
+        if !timed || presented < 2 || self.command.is_some() {
             return Next::Continue;
         }
 
@@ -197,7 +224,11 @@ impl Bench {
         }
 
         if self.frame_times.len() < SCROLL_FRAMES {
-            return Next::Scroll;
+            return if terminal {
+                Next::Continue
+            } else {
+                Next::Scroll
+            };
         }
 
         self.frame_times.sort_unstable();
@@ -217,6 +248,11 @@ impl Bench {
 }
 
 impl Bench {
+    /// 返回终端测量中待写入终端的命令：终端可以写入（`ready`）后返回一次，其余情况返回 `None`。
+    pub fn terminal_command(&mut self, ready: bool) -> Option<String> {
+        self.command.take_if(|_| ready)
+    }
+
     /// 返回滚轮测量中是否已到送出下一格的时刻，以及之后需要唤醒的时刻；不在滚轮测量中或已
     /// 全部送出时返回 `(false, None)`。
     pub fn wheel_due(&self, now: Instant) -> (bool, Option<Instant>) {

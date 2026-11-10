@@ -14,7 +14,7 @@ use super::{Cx, Item};
 
 mod support;
 
-pub(super) use support::polyline;
+pub(crate) use support::polyline;
 use support::{drawn_delimiter, italic_letter, letter, named_color, single_glyph, spacing};
 
 /// 括号用放大的字绘制时的最大放大倍数（无量纲，相对于字的自然高度）；更高的括号画出来。
@@ -22,15 +22,15 @@ const GLYPH_STRETCH: f32 = 2.2;
 
 /// 排好的一块公式：项的坐标以左端、基线为原点（y 向下）。
 #[derive(Default)]
-pub(super) struct MathBox {
+pub(crate) struct MathBox {
     /// 宽度（逻辑像素）。
-    pub(super) w: f32,
+    pub(crate) w: f32,
     /// 基线上方多高。
-    pub(super) asc: f32,
+    pub(crate) asc: f32,
     /// 基线下方多深。
-    pub(super) desc: f32,
+    pub(crate) desc: f32,
     /// 要画的项，坐标以左端、基线为原点。
-    pub(super) items: Vec<Item>,
+    pub(crate) items: Vec<Item>,
 }
 
 /// 公式字号的放大系数（无量纲，经验值）：数学字体的字面比界面字体小，放大后小写字母的高度
@@ -110,7 +110,7 @@ impl MathBox {
 impl Cx<'_, '_> {
     /// 排公式 `tex`：正文字号 `size`，`display` 为真时是单独成行的（大运算符更大，上下限放在
     /// 正上下方）。
-    pub(super) fn math(&mut self, tex: &str, size: f32, display: bool, color: Color) -> MathBox {
+    pub(crate) fn math(&mut self, tex: &str, size: f32, display: bool, color: Color) -> MathBox {
         let node = math::parse(tex);
         let level = if display { Level::Display } else { Level::Text };
         let mut m = Math {

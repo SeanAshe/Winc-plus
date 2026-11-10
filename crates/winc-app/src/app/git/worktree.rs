@@ -378,7 +378,7 @@ impl App {
 
     /// 要移除的工作树在另一个窗口里开着：请用户先关闭那个窗口，可以直接切过去。
     fn ask_close_worktree_window(&mut self, name: &str, path: &Path) {
-        if self.window.is_some() {
+        if self.window.handle.is_some() {
             let message = t!("git-worktree-open-elsewhere", name = name);
             let detail = t!("git-worktree-open-elsewhere-detail");
             let buttons = vec![
@@ -409,7 +409,7 @@ impl App {
         let deletable = branch.filter(|_| check.merged);
         let name = winc_editor::git::repo_name(&path);
         let message = t!("git-worktree-remove-confirm", name = name.as_str());
-        if self.window.is_some() {
+        if self.window.handle.is_some() {
             let mut detail = t!("git-worktree-remove-confirm-detail").to_owned();
             // 有没提交的改动、游离的提交时没有默认按钮（↩ 不会误删）。
             let dirty = check.changed + check.untracked + check.unreachable > 0;

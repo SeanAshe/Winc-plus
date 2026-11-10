@@ -112,7 +112,7 @@ pub struct Config {
     ///
     /// 可用范围见 [`Config::SCROLLBACK_RANGE`]，默认 10000 行。
     pub terminal_scrollback: Option<u32>,
-    /// 终端里哪一边的 ⌥ 当 Meta 用（发 `ESC` 前缀），默认左边。
+    /// 终端中视为 Meta（按键前加 `ESC`）的 ⌥ 键，默认为左侧；只在 macOS 上生效。
     pub option_as_meta: Option<OptionAsMeta>,
     /// 终端的对比度保护：字与底色的对比度低于设定值时把字调亮或调暗，0 表示关闭。
     ///

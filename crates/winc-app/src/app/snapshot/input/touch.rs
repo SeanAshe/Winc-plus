@@ -110,11 +110,11 @@ fn caption_controls_cover_top_bar_targets() {
         }
     };
     let mut app = document();
-    app.window_controls = true;
+    app.window.controls = true;
     app.relayout();
     paint(&mut app);
     verify(&app);
-    app.panel_visible = true;
+    app.sidebar.visible = true;
     app.relayout();
     paint(&mut app);
     verify(&app);
@@ -147,7 +147,7 @@ fn touch_scrolls_by_logical_pixels_without_moving_the_selection() {
     assert!((doc.scroll_line * f64::from(app.fonts.line_height) - 100.0).abs() < 0.01);
     assert_eq!(doc.selection, selection);
     assert_eq!(app.drag, Drag::None);
-    assert!(app.wheel_glide.is_none());
+    assert!(app.wheel.glide.is_none());
 }
 
 #[test]
@@ -169,9 +169,9 @@ fn touch_scroll_stays_in_the_panel_where_it_started() {
     touch(&mut app, 1, TouchPhase::Started, x, y);
     touch(&mut app, 1, TouchPhase::Moved, editor_x, y - 100.0);
     touch(&mut app, 1, TouchPhase::Ended, x, y - 100.0);
-    assert_eq!(app.tree_scroll, 100.0);
+    assert_eq!(app.tree.scroll, 100.0);
     assert!(app.editor.documents.is_empty());
-    assert!(app.tree_drag.is_none());
+    assert!(app.tree.drag.is_none());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -255,7 +255,7 @@ fn touch_closes_a_tab_only_on_tap_not_swipe_or_cancel() {
     let mut app = blank_app(false);
     app.new_file();
     paint(&mut app);
-    let close = app.tabs.hits[0].close;
+    let close = app.hits.tabs[0].close;
     let x = close.x + close.w / 2.0;
     let y = close.y + close.h / 2.0;
     touch(&mut app, 1, TouchPhase::Started, x, y);
@@ -293,7 +293,7 @@ fn additional_fingers_end_a_scrollbar_drag_without_starting_a_new_action() {
 #[test]
 fn touch_title_bar_starts_on_contact_without_scrolling_or_long_press() {
     let mut app = document();
-    app.window_controls = true;
+    app.window.controls = true;
     app.relayout();
     paint(&mut app);
     let x = app.layout.window.w / 2.0;
@@ -331,7 +331,7 @@ fn touch_window_edges_are_distinct_from_buttons_and_overlays() {
     use crate::app::input::touch::WindowTouch;
     use winit::window::ResizeDirection;
     let mut app = document();
-    app.window_controls = true;
+    app.window.controls = true;
     app.relayout();
     paint(&mut app);
     assert_eq!(
@@ -378,11 +378,11 @@ fn native_touch_caption_matches_application_targets() {
         }
     };
     let mut app = document();
-    app.window_controls = true;
+    app.window.controls = true;
     app.relayout();
     paint(&mut app);
     verify(&app);
-    app.panel_visible = true;
+    app.sidebar.visible = true;
     app.relayout();
     paint(&mut app);
     verify(&app);

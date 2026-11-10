@@ -71,7 +71,7 @@ impl App {
             return;
         };
         self.focus = Focus::CommitList;
-        self.diff_land = None;
+        self.diff.land = None;
         self.select_commit_file(path);
     }
 

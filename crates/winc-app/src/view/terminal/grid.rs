@@ -451,7 +451,7 @@ pub(super) fn draw_cursor(
         return;
     }
     // 程序要求不闪烁时（DECSCUSR 2、4、6）一直显示。
-    if !app.caret_visible && tab.cursor.blink {
+    if !app.blink.visible && tab.cursor.blink {
         return;
     }
     match tab.cursor.shape {

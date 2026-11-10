@@ -9,10 +9,10 @@ use winc_i18n::t;
 
 use crate::app::App;
 
-pub(super) mod images;
+pub(crate) mod images;
 pub(crate) mod markdown;
 pub(crate) mod pdf;
-pub(super) mod tables;
+pub(crate) mod tables;
 
 /// 能在浏览器中打开的网页文件的扩展名（小写）。
 const PAGE_EXTENSIONS: &[&str] = &["html", "htm", "xhtml"];

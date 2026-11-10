@@ -1,7 +1,6 @@
 [package]
 name = "winc-editor"
 description = "无界面编辑器：文档、标签、工作区文件树、编辑命令、读写文件。不依赖任何 GUI。"
-version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true

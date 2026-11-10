@@ -33,7 +33,8 @@ fn command_and_shift_clicks_select_several_changes_for_one_check_and_rollback() 
         let status = app.git.status.as_ref().unwrap();
         let index = status.entries.iter().position(|e| e.path == path).unwrap();
         let row = app
-            .commit_hits
+            .hits
+            .commit
             .iter()
             .find(|(_, t)| *t == CommitTarget::File(index))
             .unwrap()
@@ -77,7 +78,8 @@ fn command_and_shift_clicks_select_several_changes_for_one_check_and_rollback() 
         .position(|e| e.path == files[2])
         .unwrap();
     let row = app
-        .commit_hits
+        .hits
+        .commit
         .iter()
         .find(|(_, t)| *t == CommitTarget::File(index))
         .unwrap()
@@ -254,7 +256,8 @@ fn arrow_keys_fold_the_selected_changes_folders_and_backspace_reverts_it() {
     // 右键点击组标题时，菜单作用于组内的各个文件。
     paint(&mut app);
     let header = app
-        .commit_hits
+        .hits
+        .commit
         .iter()
         .find(|(_, t)| *t == CommitTarget::Group(CommitGroup::Changes))
         .unwrap()

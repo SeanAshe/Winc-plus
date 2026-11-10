@@ -41,7 +41,7 @@ impl App {
     /// 且该列表没有被切换为工作区改动时才有。
     pub(crate) fn log_diff_tree(&self) -> Option<&LogDiffTree> {
         let id = self.editor.active()?.id;
-        (self.sidebar_view == SidebarView::Commit && self.steps_log_files(id))
+        (self.sidebar.view == SidebarView::Commit && self.steps_log_files(id))
             .then_some(self.log.tree.as_ref())
             .flatten()
             .filter(|tree| tree.shown)
@@ -84,7 +84,7 @@ impl App {
     /// 在提交视图中切换显示历史差异文件列表与工作区改动：提交视图已经可见时切换，
     /// 否则显示文件列表。当前标签不是从日志打开的差异时不做处理。
     pub(in crate::app) fn toggle_log_diff_tree(&mut self) {
-        let visible = self.panel_visible && self.sidebar_view == SidebarView::Commit;
+        let visible = self.sidebar.visible && self.sidebar.view == SidebarView::Commit;
         let Some(id) = self.editor.active().map(|doc| doc.id) else {
             return;
         };
@@ -229,7 +229,7 @@ impl App {
     /// 视图或刚打开时不过渡，由侧栏自己的过渡处理。
     pub(crate) fn track_log_tree(&mut self) {
         let shown = self.log_diff_tree().is_some();
-        let commit_view = self.panel_visible && self.sidebar_view == SidebarView::Commit;
+        let commit_view = self.sidebar.visible && self.sidebar.view == SidebarView::Commit;
         let (was_shown, was_commit, _) = self.log.header;
         if shown != was_shown {
             let clock = (commit_view && was_commit)

@@ -140,7 +140,7 @@ fn the_menu_on_a_selection_copies_and_deletes_every_selected_item() {
         assert!(!path.exists(), "{}", path.display());
     }
     let moved = format!("已将 3 项移到{}", crate::app::snapshot::trash_name());
-    assert_eq!(app.status_message.as_deref(), Some(moved.as_str()));
+    assert_eq!(app.status.message.as_deref(), Some(moved.as_str()));
     assert!(!app.editor.workspace.as_ref().unwrap().multi_selected());
 
     // 右键点在选区外：只选那一行，菜单是平常的。
@@ -182,7 +182,7 @@ fn delete_key_trashes_the_selection_and_a_selected_folder_covers_its_children() 
     assert!(!root.join("src").exists());
     assert!(!root.join("a.txt").exists());
     let moved = format!("已将 2 项移到{}", crate::app::snapshot::trash_name());
-    assert_eq!(app.status_message.as_deref(), Some(moved.as_str()));
+    assert_eq!(app.status.message.as_deref(), Some(moved.as_str()));
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -243,7 +243,7 @@ fn cut_and_paste_in_the_tree_moves_the_selection_once() {
         [root.join("a.txt"), root.join("short.rs")]
     );
     assert_eq!(app.copied_files, *app.shared.cut_files.borrow());
-    assert_eq!(app.status_message.as_deref(), Some("已剪切 2 项"));
+    assert_eq!(app.status.message.as_deref(), Some("已剪切 2 项"));
 
     // 粘贴到 lib：两项移过去，剪切的记录清掉，移过去的两项选中。
     let lib = row_of(&app, "lib");
@@ -317,7 +317,7 @@ fn opening_and_comparing_a_selection() {
     app.compare_files(&dir.join("a.txt"), &dir.join("same.txt"));
     assert_eq!(app.editor.documents.len(), tabs);
     assert_eq!(
-        app.status_message.as_deref(),
+        app.status.message.as_deref(),
         Some("「a.txt」与「same.txt」相同")
     );
 
@@ -371,7 +371,7 @@ fn typing_jumps_to_names_and_home_end_page_keys_move() {
     };
     // 把上次键入的时刻提前到 `TYPE_RESET` 之前，使下一个字符开始新一轮查找。
     let pause = |app: &mut App| {
-        if let Some((_, at)) = &mut app.tree_typed {
+        if let Some((_, at)) = &mut app.tree.typed {
             *at = Instant::now() - Duration::from_secs(1);
         }
     };

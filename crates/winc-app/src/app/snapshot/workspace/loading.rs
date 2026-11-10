@@ -147,7 +147,7 @@ fn a_slow_read_shows_what_is_being_read() {
     app.loads.since = Some((load.0, Instant::now() - Duration::from_secs(1)));
     assert!(app.holding_frame(Instant::now()).is_none());
     shoot(&mut app, "loading-slow");
-    assert!(app.placeholder_hits.is_empty());
+    assert!(app.hits.placeholder.is_empty());
 
     deliver(&mut app, load);
     assert!(!app.editor.active().unwrap().is_pending());

@@ -422,17 +422,17 @@ impl App {
 
     /// 搜索面板是否正在显示：侧栏当前是搜索视图，且侧栏可见。
     pub(in crate::app) fn panel_shown(&self) -> bool {
-        self.sidebar_view == SidebarView::Search && self.layout.sidebar.right() > 0.0
+        self.sidebar.view == SidebarView::Search && self.layout.sidebar.right() > 0.0
     }
 
     /// 把侧栏切换到视图 `view`（文件树或搜索）。
     pub(in crate::app) fn set_sidebar_view(&mut self, view: SidebarView) {
-        if self.sidebar_view == view {
+        if self.sidebar.view == view {
             return;
         }
 
-        let from = std::mem::replace(&mut self.sidebar_view, view);
-        self.view_slide = self
+        let from = std::mem::replace(&mut self.sidebar.view, view);
+        self.sidebar.view_slide = self
             .clock(crate::app::animation::VIEW_SLIDE)
             .map(|clock| (from, clock));
         self.finish_name_input();
@@ -455,7 +455,7 @@ impl App {
     pub(in crate::app) fn show_files(&mut self) {
         self.set_sidebar_view(SidebarView::Files);
 
-        if !self.panel_visible {
+        if !self.sidebar.visible {
             self.set_sidebar(true);
         }
 
@@ -475,7 +475,7 @@ impl App {
 
         self.set_sidebar_view(SidebarView::Search);
 
-        if !self.panel_visible {
+        if !self.sidebar.visible {
             self.set_sidebar(true);
         }
 
@@ -707,7 +707,7 @@ impl App {
     /// 「替换」为默认按钮（`↩`），「取消」对应 `Esc`。
     fn confirm_replace_all(&mut self) {
         let total = self.global.engine.total();
-        if self.window.is_some() {
+        if self.window.handle.is_some() {
             use crate::app::AlertButton;
             let files = self.global.engine.results.len();
             let replacement = self.global.replace.text();

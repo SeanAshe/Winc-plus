@@ -426,27 +426,31 @@ impl Winc {
     ///
     /// 关掉之前目录的现场、未保存内容的备份都已记下。
     fn drop_closed(&mut self) {
-        if self.windows.iter().all(|slot| slot.app.window_hidden) {
+        if self.windows.iter().all(|slot| slot.app.window.hidden) {
             return;
         }
-        self.windows.retain(|slot| !slot.app.window_hidden);
+        self.windows.retain(|slot| !slot.app.window.hidden);
     }
 
-    /// 推进退出流程：有窗口请求退出（⌘Q，`quit_requested`）时逐个请求其他窗口退出，
+    /// 推进退出流程：有窗口请求退出（⌘Q，`Closing::quit_requested`）时逐个请求其他窗口退出，
     /// 由各窗口自行完成保存询问；全部窗口均已退出时返回 `true`，此时应结束事件循环。
     ///
     /// 任一窗口在询问期间选择「取消」时终止整个退出流程，已经同意退出的窗口保持打开。窗口正在
     /// 进行其他询问（关闭标签时的保存确认）时，等该询问结束后再请求它退出。
     fn advance_quit(&mut self) -> bool {
         if self.quitting.is_none() {
-            if !self.windows.iter().any(|slot| slot.app.quit_requested) {
+            if !self
+                .windows
+                .iter()
+                .any(|slot| slot.app.closing.quit_requested)
+            {
                 return false;
             }
             // 当前窗口最后退：下次启动打开的是它的目录（`State::last`）。从末尾往前问，当前窗口
             // 排在最前。
             let active = self.active_key();
             let mut rest: Vec<WindowKey> = (self.windows.iter())
-                .filter(|slot| !slot.app.quit_requested)
+                .filter(|slot| !slot.app.closing.quit_requested)
                 .map(|slot| slot.key)
                 .collect();
             rest.sort_by_key(|key| Some(*key) != active);
@@ -462,7 +466,7 @@ impl Winc {
                     continue;
                 };
                 let app = &app.app;
-                if app.quit_requested {
+                if app.closing.quit_requested {
                     quitting.asking = None;
                     continue;
                 }
@@ -491,7 +495,7 @@ impl Winc {
     fn ask_to_quit(&mut self, key: WindowKey) {
         let deferred = self.by_key(key).is_some_and(|app| {
             app.request_quit();
-            !app.quit_requested && app.closing_pending() && !app.quit_pending()
+            !app.closing.quit_requested && app.closing_pending() && !app.quit_pending()
         });
         if let Some(quitting) = &mut self.quitting {
             quitting.asking = Some(Asking { key, deferred });
@@ -505,7 +509,7 @@ impl Winc {
         #[cfg(not(target_os = "macos"))]
         crate::updates::cancel_restart();
         for slot in &mut self.windows {
-            slot.app.quit_requested = false;
+            slot.app.closing.quit_requested = false;
         }
     }
 
@@ -709,7 +713,7 @@ impl Winc {
         let hidden = self
             .windows
             .iter()
-            .find(|s| s.app.window_hidden)
+            .find(|s| s.app.window.hidden)
             .map(|s| s.key);
         if let Some(key) = hidden {
             if let Some(app) = self.by_key(key) {

@@ -230,9 +230,9 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
 
         screen.draw_conflict_markers(frame, &conflicts, &mut merge_hits);
     }
-    app.merge.hits = merge_hits;
+    app.hits.merge = merge_hits;
 
-    app.folded_hits = scratch.folded_hits;
+    app.hits.folded = scratch.folded_hits;
     draw_sticky(app, frame, index);
     minimap::draw_minimap(app, frame, index);
     // 滚动条绘制在固定行的上层，使滚动条从上到下是完整的一条。
@@ -246,7 +246,7 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
     }
 
     if scratch.ime_cursor.is_some() {
-        app.ime_cursor = scratch.ime_cursor;
+        app.ime.cursor = scratch.ime_cursor;
     }
 }
 

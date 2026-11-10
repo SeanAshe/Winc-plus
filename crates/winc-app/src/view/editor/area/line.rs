@@ -477,7 +477,7 @@ impl Screen<'_> {
         }
     }
 
-    /// 编辑区有焦点时绘制本行的光标；主光标的位置记录到 `ime_cursor`。
+    /// 编辑区有焦点时绘制本行的光标；主光标的位置记录到 `ImeState::cursor`。
     fn draw_carets(&self, frame: &mut Frame<'_>, row: &Row<'_>, ime_cursor: &mut Option<Rect>) {
         let (app, lh, text_rect) = (self.app, self.lh, self.text_rect);
         // 超出 `chars` 末尾的光标绘制在末尾；所在段不在 `chars` 内时不绘制。

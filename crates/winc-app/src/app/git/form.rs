@@ -137,7 +137,7 @@ impl App {
 
     /// 关闭其他浮层，显示表单对话框：`name` 是它的输入框，`focus` 是一开始的键盘焦点。
     pub(super) fn show_form_dialog(&mut self, kind: FormKind, name: TextField, focus: DialogPart) {
-        if self.picker_open {
+        if self.picker.open {
             self.close_picker();
         }
         if self.goto_input.is_some() {

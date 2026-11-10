@@ -376,7 +376,7 @@ pub(in crate::view) fn draw_side_panes(app: &mut App, frame: &mut Frame<'_>) {
         }
     }
     draw_merge_chrome(app, frame, &panes, count, &mut hits);
-    app.merge.hits.extend(hits);
+    app.hits.merge.extend(hits);
     app.merge.panes = Some(panes);
 }
 

@@ -1,17 +1,12 @@
 [package]
 name = "winc-app"
-description = "winc 桌面程序：窗口、布局、圆润风格界面、输入处理。"
-version.workspace = true
+description = "winc 桌面程序的实现：窗口、布局、圆润风格界面、输入处理。"
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
 license.workspace = true
 repository.workspace = true
 homepage.workspace = true
-
-[[bin]]
-name = "winc"
-path = "src/main.rs"
 
 [dependencies]
 winc-config.workspace = true
@@ -20,8 +15,10 @@ winc-syntax.workspace = true
 winc-render.workspace = true
 winc-editor.workspace = true
 winc-preview.workspace = true
+winc-typeset.workspace = true
 winc-pty.workspace = true
 winc-i18n.workspace = true
+winc-version.workspace = true
 winit.workspace = true
 ropey.workspace = true
 arboard.workspace = true
@@ -70,9 +67,6 @@ windows-sys = { version = "0.59", features = [
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
 ] }
-
-[build-dependencies]
-png = { workspace = true }
 
 # 其他平台上读剪贴板中的图片：arboard 把图片解码成 RGBA 像素，再由 winc-editor 编码为 PNG。
 # macOS 上直接取系统剪贴板中的 PNG（TIFF 由系统转换），不开该项，不带进图片编解码库。

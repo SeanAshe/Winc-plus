@@ -104,10 +104,6 @@ struct SidesLoaded {
 pub(crate) struct MergeState {
     /// 识别出的冲突，按（文档，版本号）缓存，文档不变时无需每帧重新扫描。
     cache: Option<(DocumentId, u64, Arc<Vec<Conflict>>)>,
-    /// 可点击的区域，绘制时更新。
-    pub hits: Vec<(Rect, MergeTarget)>,
-    /// 右上角的卡片；没有时为 `None`。
-    pub card: Option<Rect>,
     /// 三栏合并两侧的内容；没有打开时为 `None`。
     pub panes: Option<MergePanes>,
     /// 三栏合并两侧的位置；不显示时宽度为 0。

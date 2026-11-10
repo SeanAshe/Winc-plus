@@ -64,7 +64,7 @@ fn worktrees_show_in_the_location_picker_and_the_branch_menu() {
     assert!(app.git_has_locations());
     app.run_action(Action::ShowCommit);
     app.open_location_picker();
-    let rows = app.picker_location_rows.clone().unwrap();
+    let rows = app.picker.location_rows.clone().unwrap();
     let places: Vec<_> = rows
         .iter()
         .filter_map(|row| match row {
@@ -350,14 +350,14 @@ fn a_missing_worktree_is_cleaned_up_from_its_menu() {
     app.git_refresh();
     app.run_action(Action::ShowCommit);
     app.open_location_picker();
-    let rows = app.picker_location_rows.clone().unwrap();
-    app.picker_selected = rows
+    let rows = app.picker.location_rows.clone().unwrap();
+    app.picker.selected = rows
         .iter()
         .position(|row| matches!(row, LocationRow::Place(place) if place.missing))
         .unwrap();
     paint(&mut app);
-    let more = PickerPart::More(app.picker_selected);
-    assert!(app.picker_part_hits.iter().any(|(_, part)| *part == more));
+    let more = PickerPart::More(app.picker.selected);
+    assert!(app.hits.picker_parts.iter().any(|(_, part)| *part == more));
 
     app.location_picker_accept();
     assert_eq!(menu_commands(&app), [(MenuCommand::LocationPrune, true)]);
@@ -438,7 +438,7 @@ fn a_single_repository_lists_its_worktrees_flat() {
     app.git_refresh();
     app.run_action(Action::ShowCommit);
     app.open_location_picker();
-    let rows = app.picker_location_rows.clone().unwrap();
+    let rows = app.picker.location_rows.clone().unwrap();
     assert_eq!(rows.len(), 2);
     assert!(rows.iter().all(|row| match row {
         LocationRow::Place(place) => place.depth == 0,
@@ -470,17 +470,17 @@ fn the_status_bar_switches_worktrees_and_branches_from_menus() {
     app.git_refresh();
     app.open_path(&root.join("src/main.rs"));
     paint(&mut app);
-    let hit = |app: &App, item| app.status_hits.iter().any(|(_, i)| *i == item);
+    let hit = |app: &App, item| app.hits.status.iter().any(|(_, i)| *i == item);
     assert!(hit(&app, StatusItem::Branch));
     assert!(!hit(&app, StatusItem::Worktree));
 
     // 文件视图里也能从状态栏打开：面板的底边在分支名上面，右边和它对齐。
     app.open_status_menu(StatusItem::Branch);
     assert!(app.popup().is_none());
-    assert!(app.picker_open && app.picker_lists_branches());
-    assert_eq!(app.picker_anchor, GitAnchor::Status);
+    assert!(app.picker.open && app.picker_lists_branches());
+    assert_eq!(app.picker.anchor, GitAnchor::Status);
     paint(&mut app);
-    let (item, _) = *(app.status_hits.iter())
+    let (item, _) = *(app.hits.status.iter())
         .find(|(_, i)| *i == StatusItem::Branch)
         .unwrap();
     let card = app.layout.picker;
@@ -490,21 +490,21 @@ fn the_status_bar_switches_worktrees_and_branches_from_menus() {
     for part in [PickerPart::Pull, PickerPart::Push, PickerPart::Fetch] {
         assert!(!app.picker_action_enabled(part), "{part:?}");
         assert!(
-            (app.picker_part_hits.iter()).any(|(_, p)| *p == part),
+            (app.hits.picker_parts.iter()).any(|(_, p)| *p == part),
             "{part:?}"
         );
     }
     let index = |app: &App, name: &str| {
-        let rows = app.picker_branch_rows.as_deref().unwrap();
+        let rows = app.picker.branch_rows.as_deref().unwrap();
         rows.iter().position(|row| {
             matches!(row, crate::app::git::branch::picker::BranchRow::Branch { index, .. }
                 if app.git.branches[*index].name == name)
         })
     };
     // 「feature」目录收着：搜一下，选中切过去。
-    app.picker_input.set_text("feature/a");
+    app.picker.input.set_text("feature/a");
     app.picker_refresh();
-    app.picker_selected = index(&app, "feature/a").unwrap();
+    app.picker.selected = index(&app, "feature/a").unwrap();
     app.branch_picker_accept();
     assert_eq!(
         app.git.status.as_ref().unwrap().head,
@@ -537,7 +537,7 @@ fn the_status_bar_switches_worktrees_and_branches_from_menus() {
     assert_eq!(current.upstream.as_deref(), Some("origin/feature/a"));
     app.press_picker_part(PickerPart::Push);
     press_alert(&mut app, 0);
-    assert!(!app.picker_open);
+    assert!(!app.picker.open);
     assert_eq!(app.git_sync_state(), crate::app::SyncState::InSync);
     let _ = std::fs::remove_dir_all(&remote);
 
@@ -572,34 +572,34 @@ fn the_location_shares_the_row_with_the_project() {
     assert_eq!(parts.branch, single.branch);
     assert_eq!(parts.message, single.message);
 
-    let location = (app.commit_hits.iter())
+    let location = (app.hits.commit.iter())
         .find(|(_, t)| *t == CommitTarget::Location)
         .unwrap()
         .0;
     let tools = parts.tools[0].0;
     assert_eq!(location.y, tools.y);
-    assert!(app.project_hit.right() <= location.x);
+    assert!(app.hits.project.right() <= location.x);
     assert!(location.right() <= tools.x);
 
     // 放得下时项目名不截短：按钮紧贴位置按钮，中间只有固定的间距。
     for name in ["w", "wi", "winc", "test", "project", "项目"] {
         app.editor.workspace.as_mut().unwrap().name = name.to_owned();
         paint(&mut app);
-        let location = (app.commit_hits.iter())
+        let location = (app.hits.commit.iter())
             .find(|(_, t)| *t == CommitTarget::Location)
             .unwrap()
             .0;
-        let gap = location.x - app.project_hit.right();
+        let gap = location.x - app.hits.project.right();
         assert!((gap - 4.0).abs() < 1.0, "{name}: {gap}");
     }
 
-    app.panel_width = crate::theme::MIN_PANEL_WIDTH;
+    app.sidebar.width = crate::theme::MIN_PANEL_WIDTH;
     paint(&mut app);
-    let location = (app.commit_hits.iter())
+    let location = (app.hits.commit.iter())
         .find(|(_, t)| *t == CommitTarget::Location)
         .unwrap()
         .0;
-    assert!(app.project_hit.right() <= location.x);
+    assert!(app.hits.project.right() <= location.x);
     assert!(location.right() <= app.commit_parts().tools[0].0.x);
 
     app.open_location_picker();
@@ -623,13 +623,13 @@ fn the_location_row_tells_when_other_worktrees_have_changes() {
     app.run_action(Action::ShowCommit);
     paint(&mut app);
     let tip = |app: &mut App| {
-        let rect = (app.commit_hits.iter())
+        let rect = (app.hits.commit.iter())
             .find(|(_, t)| *t == CommitTarget::Location)
             .unwrap()
             .0;
         app.on_mouse_move(900.0, 500.0);
         app.on_mouse_move(rect.x + 4.0, rect.y + 4.0);
-        assert!(app.tooltip_since.is_some());
+        assert!(app.tooltip.since.is_some());
         crate::view::tests::tooltip(app).map(|(_, text)| text)
     };
     assert_eq!(tip(&mut app), None);

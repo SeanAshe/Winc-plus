@@ -64,7 +64,7 @@ impl App {
         }
 
         self.track_tree_segment();
-        if self.tree_drag.is_some() {
+        if self.tree.drag.is_some() {
             self.drag_tree_item(x, y);
         }
         if self.tabs.drag.is_some() {
@@ -73,7 +73,11 @@ impl App {
         self.drag_terminal_tab(x);
 
         self.set_hover(self.hover_at(x, y));
-        let code = self.markdown.codes.iter().position(|r| r.contains(x, y));
+        let code = self
+            .hits
+            .markdown_codes
+            .iter()
+            .position(|r| r.contains(x, y));
         if code != self.markdown.code_hover {
             self.markdown.code_hover = code;
             self.request_redraw();
@@ -105,8 +109,8 @@ impl App {
                 // 收起时宽度恢复为拖动前的值，之后用 `⌘B` 打开时仍为拖动前的宽度。
                 let width = start_width + x - start_x;
                 if width < MIN_PANEL_WIDTH / 2.0 {
-                    if self.panel_visible {
-                        self.panel_width = start_width;
+                    if self.sidebar.visible {
+                        self.sidebar.width = start_width;
                         self.set_sidebar(false);
                         if self.focus_in_sidebar() {
                             self.focus = Focus::Editor;
@@ -115,8 +119,8 @@ impl App {
                     return;
                 }
                 let max = (self.layout.window.w - 320.0).max(MIN_PANEL_WIDTH);
-                self.panel_width = width.clamp(MIN_PANEL_WIDTH, max);
-                if self.panel_visible {
+                self.sidebar.width = width.clamp(MIN_PANEL_WIDTH, max);
+                if self.sidebar.visible {
                     self.relayout();
                     self.request_redraw();
                 } else {
@@ -170,17 +174,17 @@ impl App {
                     let max = self.tree_max_scroll_x();
 
                     if let Some(thumb) =
-                        hscrollbar_thumb(tree, self.tree_scroll_x, self.tree_content_w)
+                        hscrollbar_thumb(tree, self.tree.scroll_x, self.tree.content_w)
                     {
-                        self.tree_scroll_x =
+                        self.tree.scroll_x =
                             scroll_for_thumb(tree.x, tree.w, thumb.w, x, grab, max);
                     }
                 } else {
                     let rows = self.editor.workspace.as_ref().map_or(0, |w| w.rows().len());
                     let content = (rows as f32 + 1.0) * TREE_ROW;
 
-                    if let Some(thumb) = scrollbar_thumb(tree, self.tree_scroll, content) {
-                        self.tree_scroll = scroll_for_thumb(
+                    if let Some(thumb) = scrollbar_thumb(tree, self.tree.scroll, content) {
+                        self.tree.scroll = scroll_for_thumb(
                             tree.y,
                             tree.h,
                             thumb.h,

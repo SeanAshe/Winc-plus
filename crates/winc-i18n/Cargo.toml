@@ -1,7 +1,6 @@
 [package]
 name = "winc-i18n"
 description = "界面文案的多语言：Fluent 格式的语言包、界面语言的选择、消息的查找和格式化。"
-version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true

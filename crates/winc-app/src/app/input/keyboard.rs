@@ -27,7 +27,7 @@ const TYPE_RESET: std::time::Duration = std::time::Duration::from_millis(800);
 impl App {
     /// 处理键盘按下事件 `event`。
     ///
-    /// 要退出时置 `quit_requested`，由应用层结束事件循环。
+    /// 要退出时置 `Closing::quit_requested`，由应用层结束事件循环。
     ///
     /// 处理顺序：取消文件树拖动、关闭「⋯」菜单、设置浮层（模态）、键位表中的快捷键，
     /// 最后按焦点分发。
@@ -184,7 +184,7 @@ impl App {
         let context = self.key_context();
 
         if let Some(first) = self.pending_chord.take() {
-            self.status_message = None;
+            self.status.message = None;
             if stroke.key == keymap::KeyCode::Escape {
                 return true;
             }
@@ -219,9 +219,9 @@ impl App {
             Lookup::Chord => {
                 self.pending_chord = Some(stroke);
                 let key = stroke.label(Os::CURRENT);
-                // 状态栏提示在第二步到来之前一直保留，不自动消失（`status_until` 为 `None`）。
-                self.status_message = Some(winc_i18n::t!("cmd-chord-pending", key = key));
-                self.status_until = None;
+                // 状态栏提示在第二步到来之前一直保留，不自动消失（`StatusState::until` 为 `None`）。
+                self.status.message = Some(winc_i18n::t!("cmd-chord-pending", key = key));
+                self.status.until = None;
                 self.request_redraw();
                 true
             }
@@ -312,7 +312,7 @@ impl App {
             Key::Named(NamedKey::Backspace) => Command::Backspace { word },
             Key::Named(NamedKey::Delete) => Command::Delete { word },
             Key::Named(NamedKey::Escape) => {
-                if self.search_open {
+                if self.find.open {
                     self.close_search();
                 } else if let Some(doc) = self.editor.active_mut() {
                     doc.selection = Selection::point(doc.selection.head);
@@ -357,7 +357,7 @@ impl App {
             Key::Named(NamedKey::Enter) => self.find_next(shift),
             Key::Named(NamedKey::ArrowUp) if !shift => self.edit_field(|f| f.recall(true)),
             Key::Named(NamedKey::ArrowDown) if !shift => self.edit_field(|f| f.recall(false)),
-            Key::Named(NamedKey::Tab) if self.replace_open => {
+            Key::Named(NamedKey::Tab) if self.find.replace_open => {
                 self.focus = if replacing {
                     Focus::Search
                 } else {
@@ -830,7 +830,7 @@ impl App {
             && typed.chars().all(|c| !c.is_control())
         {
             let now = Instant::now();
-            let mut word = match self.tree_typed.take() {
+            let mut word = match self.tree.typed.take() {
                 Some((word, at)) if now.duration_since(at) < TYPE_RESET => word,
                 _ => String::new(),
             };
@@ -852,7 +852,7 @@ impl App {
                             .iter()
                             .any(|path| matches(&segment_name(path)))
                 });
-            self.tree_typed = Some((word, now));
+            self.tree.typed = Some((word, now));
             let Some(hit) = hit else {
                 return;
             };
@@ -969,14 +969,14 @@ impl App {
         self.request_redraw();
     }
 
-    /// 把输入法候选窗的位置（`ime_cursor`，逻辑像素）同步给窗口；位置没有变化时不重复设置。
+    /// 把输入法候选窗的位置（`ImeState::cursor`，逻辑像素）同步给窗口；位置没有变化时不重复设置。
     ///
     /// 窗口按系统的逻辑坐标接收位置，界面的逻辑像素乘以界面缩放倍数后传入。
     pub(in crate::app) fn update_ime_area(&mut self) {
-        if let (Some(area), Some(window)) = (self.ime_cursor, &self.window)
-            && self.last_ime_area != Some(area)
+        if let (Some(area), Some(window)) = (self.ime.cursor, &self.window.handle)
+            && self.ime.last_area != Some(area)
         {
-            self.last_ime_area = Some(area);
+            self.ime.last_area = Some(area);
             let zoom = f64::from(self.zoom());
             window.set_ime_cursor_area(
                 LogicalPosition::new(f64::from(area.x) * zoom, f64::from(area.y) * zoom),
@@ -984,4 +984,12 @@ impl App {
             );
         }
     }
+}
+
+/// 输入法候选框的定位状态。
+#[derive(Default)]
+pub struct ImeState {
+    /// 输入法候选框应出现的位置。
+    pub(crate) cursor: Option<winc_render::Rect>,
+    pub(in crate::app) last_area: Option<winc_render::Rect>,
 }

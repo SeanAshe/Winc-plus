@@ -639,7 +639,7 @@ impl App {
             self.git.repositories.push(root.clone());
             self.git_read_summaries();
         }
-        let stay = self.sidebar_view == SidebarView::Commit
+        let stay = self.sidebar.view == SidebarView::Commit
             || self.commit.busy
             || self.branch.running.is_some()
             || !self.commit.message.text().is_empty();
@@ -701,7 +701,7 @@ impl App {
         // 不再位于仓库中时提交视图不可用，切换回文件树；焦点位于提交视图时同样移出，
         // 否则键入的文字会进入不可见的输入框。
         if self.git.root.is_none() {
-            if self.sidebar_view == SidebarView::Commit {
+            if self.sidebar.view == SidebarView::Commit {
                 self.set_sidebar_view(SidebarView::Files);
             }
             if matches!(self.focus, Focus::CommitMessage | Focus::CommitList) {
@@ -916,7 +916,7 @@ impl App {
             return;
         }
 
-        if self.window.is_some() {
+        if self.window.handle.is_some() {
             use crate::app::AlertButton;
 
             let name = winc_editor::display_name(&root).into_owned();
@@ -1195,7 +1195,7 @@ impl App {
                 // 原地更新失败（文件变为二进制、无法读取）时不提示，标签保留上一次的内容。
                 Err(_) if matches!(prepared.target, Target::Refresh(_)) => continue,
                 Err(e) => {
-                    self.diff_land = None;
+                    self.diff.land = None;
                     self.flash(e);
                     continue;
                 }
@@ -1215,7 +1215,7 @@ impl App {
                     continue;
                 }
                 _ if view.is_identical() => {
-                    self.diff_land = None;
+                    self.diff.land = None;
                     // 逐行比较不计换行符的写法，没有改动时两侧的内容仍可能只差换行符。这类差别
                     // 是否算作修改由 `git` 按 `core.autocrlf` 和文件属性判定，提示只说明差别所在。
                     let text = if view.old.text == view.new.text {

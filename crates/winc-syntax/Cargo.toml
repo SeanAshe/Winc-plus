@@ -1,7 +1,6 @@
 [package]
 name = "winc-syntax"
 description = "语法高亮。当前是逐行词法高亮，接口按行给出 token，以后换成 tree-sitter 时调用方不变。"
-version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true

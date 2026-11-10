@@ -1,0 +1,19 @@
+[package]
+name = "winc"
+description = "winc 可执行文件的入口，程序的实现在 winc-app 中。"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+winc-app.workspace = true
+
+# 构建脚本把各文件类型的 PNG 打进 `winc.exe` 的图标资源（见 `build.rs`）。
+[build-dependencies]
+png = { workspace = true }
+
+[lints]
+workspace = true

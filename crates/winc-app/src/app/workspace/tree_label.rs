@@ -252,7 +252,7 @@ impl App {
     /// 文件树名字本帧是否播放过渡；没有窗口、系统开启「减弱动态效果」时为假。
     pub(crate) fn animate_tree_labels(&mut self) -> bool {
         #[cfg(test)]
-        if self.tree_labels.animate_without_window {
+        if self.tree.labels.animate_without_window {
             return true;
         }
         self.clock(STATUS_SLIDE).is_some()

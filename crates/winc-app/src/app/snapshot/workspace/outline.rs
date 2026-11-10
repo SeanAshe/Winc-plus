@@ -64,7 +64,7 @@ fn the_outline_opens_below_the_file_tree_and_resizes() {
 
     app.run_action(Action::ShowOutline);
     paint(&mut app);
-    assert_eq!(app.sidebar_view, SidebarView::Files);
+    assert_eq!(app.sidebar.view, SidebarView::Files);
     assert_eq!(app.focus, Focus::Outline);
     assert_eq!(app.outline_list().h, 10.0 * TREE_ROW);
     assert_eq!(
@@ -86,8 +86,8 @@ fn the_outline_opens_below_the_file_tree_and_resizes() {
     // 点标题行收起：只剩标题行，焦点回到文件树。
     paint(&mut app);
     let header = app
-        .outline
         .hits
+        .outline
         .iter()
         .find(|(_, t)| *t == OutlineTarget::Header)
         .unwrap()
@@ -110,7 +110,7 @@ fn the_outline_can_be_turned_off_in_settings() {
     paint(&mut app);
     assert_eq!(app.layout.outline.h, 0.0);
     assert_eq!(app.layout.tree.h, full);
-    assert!(app.outline.hits.is_empty());
+    assert!(app.hits.outline.is_empty());
 
     app.focus = Focus::Editor;
     app.run_action(Action::ShowOutline);
@@ -163,8 +163,8 @@ fn the_outline_lists_symbols_as_a_tree_and_follows_the_caret() {
 fn clicking_the_outline_jumps_and_folds() {
     let (mut app, dir) = outline_app("outline-click", false);
     let find = |app: &App, target| {
-        app.outline
-            .hits
+        app.hits
+            .outline
             .iter()
             .find(|(_, t)| *t == target)
             .unwrap()
@@ -399,8 +399,8 @@ fn shoot_outline() {
         app.go_to(5, 4, 0);
         paint(&mut app);
         let row = app
-            .outline
             .hits
+            .outline
             .iter()
             .find(|(_, t)| *t == OutlineTarget::Row(3))
             .unwrap()

@@ -34,8 +34,8 @@ fn long_subject_row(app: &mut App, root: &Path) -> usize {
 /// 将鼠标移到日志列表第 `row` 行的说明上，并重新绘制一帧。
 fn hover_log_row(app: &mut App, row: usize) {
     let (rect, _) = *app
-        .log
         .hits
+        .log
         .iter()
         .find(|(_, t)| *t == crate::app::git::log::LogTarget::Row(row))
         .unwrap();
@@ -127,8 +127,8 @@ fn log_lists_commits_with_their_graph_and_opens_a_files_diff() {
     // 鼠标移出标签后提示消失。
     paint(&mut app);
     let hit = app
-        .tabs
         .hits
+        .tabs
         .iter()
         .find(|hit| hit.index == diff_index)
         .unwrap()
@@ -177,7 +177,7 @@ fn stepping_past_the_last_change_opens_the_commits_next_file() {
     app.run_action(Action::NextDifference);
     app.run_action(Action::NextDifference);
     assert!(title(&app).starts_with("b.txt · "));
-    assert_eq!(app.status_message.as_deref(), Some("没有下一处更改"));
+    assert_eq!(app.status.message.as_deref(), Some("没有下一处更改"));
     app.run_action(Action::PreviousDifference);
     app.run_action(Action::PreviousDifference);
     assert!(title(&app).starts_with("a.txt · "));
@@ -303,7 +303,7 @@ fn commit_diff_tree_follows_its_order_and_the_users_sidebar() {
     app.activate_tab(log_index);
     app.press_log(LogTarget::File(1));
     paint(&mut app);
-    assert_eq!(app.sidebar_view, SidebarView::Files);
+    assert_eq!(app.sidebar.view, SidebarView::Files);
 
     // 关闭差异标签后文件列表作废。
     app.activate_tab(diff_index);
@@ -389,8 +389,8 @@ fn uncommitted_changes_sit_above_head_in_the_log() {
     paint(&mut app);
     let list = app.log_parts().list;
     let row_y = |app: &App, target: LogTarget| {
-        app.log
-            .hits
+        app.hits
+            .log
             .iter()
             .filter(|(_, t)| *t == target)
             .map(|(r, _)| r.y)
@@ -527,8 +527,8 @@ fn log_spills_long_subjects_on_hover_and_drags_the_divider() {
     hover_log_row(&mut app, long);
     assert_eq!(app.log.clipped, Some(long));
     assert!(
-        !app.log
-            .hits
+        !app.hits
+            .log
             .iter()
             .any(|(_, t)| *t == LogTarget::Avatar(long))
     );
@@ -540,8 +540,8 @@ fn log_spills_long_subjects_on_hover_and_drags_the_divider() {
     // 向左拖动分隔线：详情一栏随之变宽；双击恢复默认宽度。
     let before = app.log_parts().details.w;
     let (divider, _) = *app
-        .log
         .hits
+        .log
         .iter()
         .find(|(_, t)| *t == LogTarget::Divider)
         .unwrap();
@@ -562,8 +562,8 @@ fn log_spills_long_subjects_on_hover_and_drags_the_divider() {
     assert!(parts.list.w >= 360.0 - 0.5);
     paint(&mut app);
     let (divider, _) = *app
-        .log
         .hits
+        .log
         .iter()
         .find(|(_, t)| *t == LogTarget::Divider)
         .unwrap();
@@ -593,9 +593,9 @@ fn shoot_log_graph() {
         history_repo(&root, 40);
         let long = long_subject_row(&mut app, &root);
         hover_log_row(&mut app, long);
-        app.tooltip_since = Some(std::time::Instant::now() - crate::theme::TOOLTIP_DELAY);
+        app.tooltip.since = Some(std::time::Instant::now() - crate::theme::TOOLTIP_DELAY);
         shoot(&mut app, &format!("log-graph-{theme}"));
-        app.tooltip_since = None;
+        app.tooltip.since = None;
 
         // 指针位于合并提交分出的那段线上：这条线高亮并显示手形指针，提示点击后跳转到的提交。
         let (merge, line) = {
@@ -609,16 +609,16 @@ fn shoot_log_graph() {
             (merge, v.graph[tip].line)
         };
         let (rect, _) = *app
-            .log
             .hits
+            .log
             .iter()
             .find(|(_, t)| *t == LogTarget::Line(merge, line))
             .unwrap();
         app.on_mouse_move(rect.x + rect.w / 2.0, rect.y + rect.h / 2.0);
         paint(&mut app);
-        app.tooltip_since = Some(std::time::Instant::now() - crate::theme::TOOLTIP_DELAY);
+        app.tooltip.since = Some(std::time::Instant::now() - crate::theme::TOOLTIP_DELAY);
         shoot(&mut app, &format!("log-line-{theme}"));
-        app.tooltip_since = None;
+        app.tooltip.since = None;
         app.set_hover(Hover::Log(LogTarget::Divider));
         app.log.details_w = Some(460.0);
         shoot(&mut app, &format!("log-divider-{theme}"));
@@ -755,8 +755,8 @@ fn log_commit_menu_checks_out_branches_picks_reverts_and_resets() {
     let right_click_row = |app: &mut App, subject: &str| {
         let row = row_of(app, subject);
         let rect = app
-            .log
             .hits
+            .log
             .iter()
             .find(|(_, t)| *t == LogTarget::Row(row))
             .unwrap()
@@ -949,7 +949,7 @@ fn log_compares_two_commits_or_a_branch_and_the_branch_menu_stashes() {
     assert!(app.commit_parts().stashes.is_some());
     app.press_commit(CommitTarget::Stashes);
     paint(&mut app);
-    assert!((app.commit_hits.iter()).any(|(_, t)| *t == CommitTarget::Stash(0)));
+    assert!((app.hits.commit.iter()).any(|(_, t)| *t == CommitTarget::Stash(0)));
 
     // 应用并删除：改动恢复，储藏被移除。
     choose_in_branch_menu(&mut app, MenuCommand::GitStashOp(StashOp::Pop, 0));
@@ -1130,8 +1130,8 @@ fn graph_lines_and_dots_can_be_clicked() {
     // 合并提交所在行分出、连接到 `feature/login` 的那段线：悬停时高亮并显示手形指针，
     // 提示点击后跳转到的提交。
     let (rect, _) = *app
-        .log
         .hits
+        .log
         .iter()
         .find(|(_, t)| *t == LogTarget::Line(merge, feature))
         .expect("合并提交那一行有 feature/login 的线");
@@ -1169,8 +1169,8 @@ fn graph_lines_and_dots_can_be_clicked() {
     // 点击圆点选中该提交。
     paint(&mut app);
     let (dot, _) = *app
-        .log
         .hits
+        .log
         .iter()
         .find(|(r, t)| *t == LogTarget::Row(merge) && r.w <= 12.0)
         .expect("合并提交的圆点");
@@ -1194,8 +1194,8 @@ fn the_log_list_has_room_on_top_and_the_author_column_eases_in() {
     let list = app.log_parts().list;
     // 该行的底边（取最宽的 `Row(0)`，圆点同样记为 `Row(0)`）。
     let (first, _) = *app
-        .log
         .hits
+        .log
         .iter()
         .filter(|(_, t)| *t == LogTarget::Row(0))
         .max_by(|a, b| a.0.w.total_cmp(&b.0.w))
@@ -1208,8 +1208,8 @@ fn the_log_list_has_room_on_top_and_the_author_column_eases_in() {
 
     // 拖动分隔线使列表逐渐变窄：作者一列（头像左边缘到时间之间）连续变窄，不发生跳变。
     let avatar_x = |app: &App| {
-        app.log
-            .hits
+        app.hits
+            .log
             .iter()
             .find(|(_, t)| *t == LogTarget::Avatar(0))
             .map(|(r, _)| r.x)
@@ -1242,7 +1242,7 @@ fn log_rows_left_behind_do_not_swallow_editor_clicks() {
     paint(&mut app);
     // 日志标签绘制过的提交行：切换到代码标签后不再绘制日志，这些位置不再识别为提交。
     let text = app.layout.text;
-    app.log.hits.push((text, LogTarget::Row(0)));
+    app.hits.log.push((text, LogTarget::Row(0)));
     paint(&mut app);
     let (x, y) = (text.x + 40.0, text.y + 5.0);
     assert_ne!(app.hover_at(x, y), Hover::Log(LogTarget::Row(0)));

@@ -79,13 +79,13 @@ fn formatting_replaces_the_text_as_one_undo_step() {
     let after = text(&app);
     assert_eq!(after, "fn main() {\n    run();\n    stop();\n}\n");
     assert_eq!(
-        app.status_message.as_deref(),
+        app.status.message.as_deref(),
         Some("已使用 reindent 格式化，更改了 2 行")
     );
     // 选区仍然落在原来的词上。
     let s = app.editor.active().unwrap().selection;
     assert_eq!(&after[s.from()..s.to()], "stop");
-    assert!(app.notice.is_none());
+    assert!(app.notice.text.is_none());
 
     // ⌘Z 一次即可还原。
     app.run(Command::Undo);
@@ -96,7 +96,7 @@ fn formatting_replaces_the_text_as_one_undo_step() {
     app.save_active();
     app.format_active();
     app.wait_formatting();
-    assert_eq!(app.status_message.as_deref(), Some("格式正确，无需更改"));
+    assert_eq!(app.status.message.as_deref(), Some("格式正确，无需更改"));
     assert!(!app.editor.active().unwrap().is_dirty());
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -125,7 +125,7 @@ fn a_selection_can_be_formatted_on_its_own() {
         text(&app)
     );
     assert_eq!(
-        app.status_message.as_deref(),
+        app.status.message.as_deref(),
         Some("已使用 clang-format 格式化所选内容，更改了 1 行")
     );
 
@@ -144,7 +144,7 @@ fn a_selection_can_be_formatted_on_its_own() {
     app.format_selection();
     assert_eq!(app.formatting_count(), 0);
     assert_eq!(
-        app.notice.as_deref(),
+        app.notice.text.as_deref(),
         Some("无法格式化：「reindent」不支持格式化所选内容")
     );
     assert_eq!(text(&app), before);
@@ -172,7 +172,7 @@ fn edits_made_while_formatting_win() {
     app.wait_formatting();
     assert_eq!(text(&app), typed);
     assert_eq!(
-        app.status_message.as_deref(),
+        app.status.message.as_deref(),
         Some("文件在格式化期间被修改，未应用结果")
     );
 
@@ -197,7 +197,7 @@ fn closing_the_tab_stops_the_tool() {
     // 工具进程被终止，后台线程很快送回「已取消」的结果，且不弹出提示。
     app.wait_formatting();
     assert!(started.elapsed() < Duration::from_secs(5));
-    assert!(app.notice.is_none());
+    assert!(app.notice.text.is_none());
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -221,18 +221,18 @@ fn failures_explain_themselves_and_leave_the_text_alone() {
     app.wait_formatting();
     assert_eq!(text(&app), before);
     assert_eq!(
-        app.notice.as_deref(),
+        app.notice.text.as_deref(),
         Some("无法格式化：expected expression（2:3）")
     );
 
     // 点击提示条上的「查看输出」：在只读标签中打开完整输出，提示条收起。
     paint(&mut app);
-    let button = app.notice_button.expect("提示条上有按钮");
+    let button = app.hits.notice_button.expect("提示条上有按钮");
     app.on_mouse_move(button.x + 4.0, button.y + 4.0);
     assert_eq!(app.hover, Hover::NoticeButton);
     app.on_mouse_down(MouseButton::Left);
     app.on_mouse_up(MouseButton::Left);
-    assert!(app.notice.is_none());
+    assert!(app.notice.text.is_none());
     let output = app.editor.active().unwrap();
     assert_eq!(output.name(), "格式化输出");
     let shown = text(&app);
@@ -244,7 +244,7 @@ fn failures_explain_themselves_and_leave_the_text_alone() {
     app.run(Command::Insert("x".into()));
     assert_eq!(text(&app), shown);
     app.save_active();
-    assert_eq!(app.status_message.as_deref(), Some("此标签页为只读"));
+    assert_eq!(app.status.message.as_deref(), Some("此标签页为只读"));
     app.open_path(&dir.join("src/main.rs"));
 
     // 看不出用哪种工具、候选工具都没安装：提示可安装哪些工具，「安装方法」打开安装说明。
@@ -252,11 +252,11 @@ fn failures_explain_themselves_and_leave_the_text_alone() {
     app.format_active();
     app.wait_formatting();
     assert_eq!(
-        app.notice.as_deref(),
+        app.notice.text.as_deref(),
         Some("无法格式化：未安装 JavaScript 格式化工具（Prettier 或 Biome）")
     );
     assert!(matches!(
-        &app.notice_action,
+        &app.notice.action,
         Some(NoticeAction::Install { tools, .. }) if tools == &["prettier", "biome"]
     ));
     app.run_notice_action();
@@ -269,10 +269,10 @@ fn failures_explain_themselves_and_leave_the_text_alone() {
     app.format_active();
     app.wait_formatting();
     assert_eq!(
-        app.notice.as_deref(),
+        app.notice.text.as_deref(),
         Some("无法格式化：Makefile 没有可自动使用的格式化工具，请在设置中指定命令")
     );
-    assert_eq!(app.notice_action, Some(NoticeAction::FormatSettings));
+    assert_eq!(app.notice.action, Some(NoticeAction::FormatSettings));
     app.run_notice_action();
     assert!(app.settings.open);
     assert_eq!(app.settings.selected.page(), SettingsPage::Format);
@@ -288,7 +288,7 @@ fn failures_explain_themselves_and_leave_the_text_alone() {
     app.wait_formatting();
     assert_eq!(text(&app), "LET A = 1\n");
     assert_eq!(
-        app.status_message.as_deref(),
+        app.status.message.as_deref(),
         Some("已使用 biome 格式化，更改了 1 行")
     );
     app.run(Command::Undo);
@@ -298,20 +298,29 @@ fn failures_explain_themselves_and_leave_the_text_alone() {
         .format_commands
         .insert("javascript".to_owned(), "./scripts/fmt.sh".to_owned());
     app.format_active();
-    assert_eq!(app.notice.as_deref(), Some("无法格式化：未找到「fmt.sh」"));
+    assert_eq!(
+        app.notice.text.as_deref(),
+        Some("无法格式化：未找到「fmt.sh」")
+    );
     assert_eq!(app.formatting_count(), 0);
 
     // 无法识别语言的文件和只读文档，同样提示原因。
     app.open_path(&dir.join("a.txt"));
     app.format_active();
     assert_eq!(
-        app.notice.as_deref(),
+        app.notice.text.as_deref(),
         Some("无法格式化：无法识别文件的语言")
     );
     app.open_path(&dir.join("src/main.rs"));
     app.editor.active_mut().unwrap().readonly = true;
     app.format_active();
-    assert!(app.notice.as_deref().unwrap().starts_with("无法格式化："));
+    assert!(
+        app.notice
+            .text
+            .as_deref()
+            .unwrap()
+            .starts_with("无法格式化：")
+    );
     assert_eq!(app.formatting_count(), 0);
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -329,7 +338,7 @@ fn project_tools_run_only_after_asking() {
     app.format_active();
     assert_eq!(app.formatting_count(), 0);
     assert_eq!(
-        app.notice.as_deref(),
+        app.notice.text.as_deref(),
         Some("无法格式化：需要先确认是否允许运行项目中的「prettier」")
     );
     assert_eq!(text(&app), "let a = 1\n");
@@ -351,11 +360,11 @@ fn project_tools_run_only_after_asking() {
 
     // 用户选择「使用系统中安装的」：到 `PATH` 中查找；找不到时说明项目使用的是哪种工具。
     app.state.set_tool_choice(&root, false);
-    app.notice = None;
+    app.notice.text = None;
     app.format_active();
     app.wait_formatting();
     assert_eq!(
-        app.notice.as_deref(),
+        app.notice.text.as_deref(),
         Some("无法格式化：项目使用 Prettier（.prettierrc），但未找到「prettier」")
     );
 
@@ -387,7 +396,7 @@ fn project_settings_win_but_run_only_after_asking() {
     app.format_active();
     assert_eq!(app.formatting_count(), 0);
     assert_eq!(
-        app.notice.as_deref(),
+        app.notice.text.as_deref(),
         Some("无法格式化：需要先确认是否允许运行项目设置中的格式化命令")
     );
 
@@ -428,7 +437,7 @@ fn project_settings_win_but_run_only_after_asking() {
     app.open_path(&dir.join("app.js"));
     app.format_active();
     assert_eq!(
-        app.notice.as_deref(),
+        app.notice.text.as_deref(),
         Some("无法格式化：已选择不运行项目设置中的格式化命令")
     );
 
@@ -479,7 +488,7 @@ fn project_enabling_format_on_save_asks_first() {
 
     // 不允许：仍然保存，不格式化，也不提示。
     app.state.set_tool_choice(&key, false);
-    app.notice = None;
+    app.notice.text = None;
     app.run(Command::Insert("d".into()));
     app.save_active();
     assert_eq!(app.formatting_count(), 0);
@@ -522,11 +531,11 @@ fn saving_formats_first_and_always_saves() {
     assert!(
         on_disk().contains("\n    run();"),
         "{:?}",
-        app.status_message
+        app.status.message
     );
     assert!(!app.editor.active().unwrap().is_dirty());
     assert_eq!(
-        app.status_message.as_deref(),
+        app.status.message.as_deref(),
         Some("已保存 main.rs，使用 reindent 格式化了 2 行")
     );
 
@@ -541,10 +550,10 @@ fn saving_formats_first_and_always_saves() {
     app.wait_formatting();
     assert!(on_disk().starts_with("// a\n// b\n// c\n"));
     assert_eq!(
-        app.status_message.as_deref(),
+        app.status.message.as_deref(),
         Some("已保存 main.rs，未格式化：bad input")
     );
-    assert!(app.notice.is_none());
+    assert!(app.notice.text.is_none());
 
     // 被排除的语言，以及项目中无法判断使用哪种工具且候选工具都未安装的语言：直接保存，
     // 不给任何提示。
@@ -552,13 +561,13 @@ fn saving_formats_first_and_always_saves() {
     app.run(Command::Insert("// d\n".into()));
     app.save_active();
     assert_eq!(app.formatting_count(), 0);
-    assert_eq!(app.status_message.as_deref(), Some("已保存 main.rs"));
+    assert_eq!(app.status.message.as_deref(), Some("已保存 main.rs"));
     app.open_path(&dir.join("app.js"));
     app.run(Command::Insert("x".into()));
     app.save_active();
     app.wait_formatting();
-    assert_eq!(app.status_message.as_deref(), Some("已保存 app.js"));
-    assert!(app.notice.is_none());
+    assert_eq!(app.status.message.as_deref(), Some("已保存 app.js"));
+    assert!(app.notice.text.is_none());
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -579,12 +588,12 @@ fn saving_from_the_close_prompt_formats_too() {
     app.run(Command::Insert("// y\n".into()));
     let ids: Vec<_> = app.editor.documents.iter().map(|d| d.id).collect();
     app.close_tabs(ids);
-    assert!(app.save_prompt.is_some());
+    assert!(app.closing.prompt.is_some());
     app.answer_save_prompt(SaveChoice::Save);
     assert_eq!(app.formatting_count(), 1);
     // 正在为关闭而格式化时再次请求关闭，不会再次弹出确认。
     app.request_quit();
-    assert!(app.save_prompt.is_none() && !app.quit_requested);
+    assert!(app.closing.prompt.is_none() && !app.closing.quit_requested);
 
     app.wait_formatting();
     assert_eq!(app.formatting_count(), 1, "第一个存好了，接着格式化第二个");
@@ -608,7 +617,7 @@ fn saving_from_the_close_prompt_formats_too() {
     app.request_quit();
     app.answer_save_prompt(SaveChoice::Save);
     app.wait_formatting();
-    assert!(app.quit_requested);
+    assert!(app.closing.quit_requested);
     assert!(on_disk("main.rs").starts_with("// z\n// x\n"));
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -654,10 +663,10 @@ fn fixing_is_separate_and_runs_before_formatting_on_save() {
     app.fix_active();
     assert_eq!(app.formatting_count(), 0);
     assert_eq!(
-        app.notice.as_deref(),
+        app.notice.text.as_deref(),
         Some("无法修复：项目未配置 Python 的修复工具（Ruff），可在设置中指定")
     );
-    app.notice = None;
+    app.notice.text = None;
 
     // 冒充的修复工具删除未使用的 `import`，冒充的格式化工具在等号两侧加空格。
     let fixer = fake_tool(&dir.join("bin"), "unused", "sed '/^import os$/d'");
@@ -675,12 +684,12 @@ fn fixing_is_separate_and_runs_before_formatting_on_save() {
     app.wait_formatting();
     assert_eq!(text(&app), "x=1\n", "只修复，不格式化");
     assert_eq!(
-        app.status_message.as_deref(),
+        app.status.message.as_deref(),
         Some("已使用 unused 修复，更改了 1 行")
     );
     app.fix_active();
     app.wait_formatting();
-    assert_eq!(app.status_message.as_deref(), Some("没有需要修复的问题"));
+    assert_eq!(app.status.message.as_deref(), Some("没有需要修复的问题"));
     app.run(Command::Undo);
     assert_eq!(text(&app), "import os\nx=1\n");
 
@@ -696,7 +705,7 @@ fn fixing_is_separate_and_runs_before_formatting_on_save() {
     assert_eq!(on_disk(), "y=2\nx = 1\n");
     assert!(!app.editor.active().unwrap().is_dirty());
     assert_eq!(
-        app.status_message.as_deref(),
+        app.status.message.as_deref(),
         Some("已保存 a.py，使用 unused 修复了 1 行，使用 spaces 格式化了 1 行")
     );
     app.run(Command::Undo);
@@ -715,17 +724,17 @@ fn fixing_is_separate_and_runs_before_formatting_on_save() {
     app.wait_formatting();
     assert_eq!(on_disk(), "y=2\nimport os\nx=1\n");
     assert_eq!(
-        app.status_message.as_deref(),
+        app.status.message.as_deref(),
         Some("已保存 a.py，未修复：bad config")
     );
-    assert!(app.notice.is_none());
+    assert!(app.notice.text.is_none());
 
     // 项目中无法判断使用哪种修复工具：保存时不给任何提示。
     app.config.fix_commands.clear();
     app.run(Command::Insert("z=3\n".into()));
     app.save_active();
     assert_eq!(app.formatting_count(), 0);
-    assert_eq!(app.status_message.as_deref(), Some("已保存 a.py"));
+    assert_eq!(app.status.message.as_deref(), Some("已保存 a.py"));
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -747,15 +756,16 @@ fn untitled_files_format_after_choosing_a_language_in_the_status_bar() {
     // 没保存、认不出语言：提示先在状态栏选择语言。
     app.format_active();
     assert_eq!(
-        app.notice.as_deref(),
+        app.notice.text.as_deref(),
         Some("无法格式化：文件尚未保存，无法确定语言，请在状态栏中选择语言")
     );
 
     // 点状态栏上的语言：弹出语言菜单，纯文本打勾；没有文件名，没有「按文件名识别」。
-    app.notice = None;
+    app.notice.text = None;
     paint(&mut app);
     let (rect, _) = *app
-        .status_hits
+        .hits
+        .status
         .iter()
         .find(|(_, i)| *i == StatusItem::Language)
         .unwrap();
