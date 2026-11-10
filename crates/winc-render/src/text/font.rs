@@ -58,13 +58,16 @@ pub(crate) struct Face {
     /// swash 用来区分不同字体的缓存键。
     key: CacheKey,
     /// 可变字体的归一化坐标：请求的是命名实例（如 `PingFangSC-Regular`）时取该实例的坐标，
-    /// 否则把 `wght` 轴固定为 400 字重；不是可变字体，或以不固定字重的方式打开时为空。
+    /// 否则把 `wght` 轴固定为 400 字重，再加上打开时给定的偏移；不是可变字体，或以不固定字重的
+    /// 方式打开时为空。
     ///
     /// 系统等宽字体 `SFNSMono.ttf` 的 `wght` 轴默认值约为 295（取自该字体的 `fvar` 表），
     /// 低于常规字重 400，因此需要固定。
     pub(crate) coords: Vec<i16>,
     /// 字形只放在 `hvgl` 表中时，由系统提供轮廓；否则为 `None`，由 swash 读取。
     pub(crate) system: Option<SystemOutlines>,
+    /// 笔画加宽的量与字号之比，补足字体自身达不到的字重。
+    pub(crate) embolden: f32,
 }
 
 impl Face {
@@ -82,26 +85,58 @@ impl Face {
     ///
     /// 文件无法打开、映射或解析，或字体中没有可绘制的字形数据时返回 `None`。
     pub(crate) fn open(file: &FontFile) -> Option<Face> {
-        Self::open_with(file, true)
+        Self::open_at(file, 0)
+    }
+
+    /// 同 [`Self::open`]，字重在字体自身的基础上加 `shift`（正数更粗）。
+    ///
+    /// 依次采用：沿 `wght` 轴调整、改用同目录中同族的字体（见 `sibling`）、加宽笔画
+    /// （[`Self::embolden`]）。笔画只能加宽，调细时达不到的部分不处理。
+    pub(crate) fn open_at(file: &FontFile, shift: i16) -> Option<Face> {
+        Self::open_as(file, Some(shift))
     }
 
     /// 同 [`Self::open`]；`pin_weight` 为假时不固定字重，可变字体不是命名实例时坐标为空，由
     /// 调用方按需要的字重另算（SVG 文字的轮廓，见 `outline` 模块）。
     pub(crate) fn open_with(file: &FontFile, pin_weight: bool) -> Option<Face> {
+        Self::open_as(file, pin_weight.then_some(0))
+    }
+
+    /// 打开字体；`shift` 为 `None` 时不固定字重，否则是字重的偏移。
+    fn open_as(file: &FontFile, shift: Option<i16>) -> Option<Face> {
         let data = load(&File::open(&file.path).ok()?)?;
         let selected = select(&data, file.postscript.as_deref())?;
         let font = selected.font;
         let (offset, key) = (font.offset, font.key);
+        let wanted = f32::from(shift.unwrap_or(0));
+        // 没有字重轴：改用同族中字重更接近的字体。
+        if wanted != 0.0
+            && !selected.system
+            && weight_range(&font).is_none()
+            && let Some((sibling, reached)) = sibling(file, &font, wanted)
+            && let Some(mut face) = Self::open_as(&sibling, Some(0))
+        {
+            face.embolden = (wanted - reached).max(0.0) / BOLD_STEP * crate::BOLD_RATIO;
+            return Some(face);
+        }
         // 系统提供轮廓时，CoreText 字体就是所请求的实例（或默认实例），字宽要与之一致，
-        // 不再固定字重。
-        let coords = match selected.instance {
-            Some(coords) => coords,
-            None if pin_weight && !selected.system && weight_axis(&font) => font
-                .variations()
-                .normalized_coords([("wght", 400.0)])
-                .collect(),
-            None => Vec::new(),
+        // 不再固定字重，也不沿字重轴调整。
+        let axis = weight_range(&font).filter(|_| !selected.system);
+        let (coords, reached) = match (selected.instance, axis) {
+            (Some(instance), Some(axis)) if wanted != 0.0 => {
+                let (coords, weight) = instance.shifted(&font, wanted, axis);
+                (coords, weight - instance.weight(&font))
+            }
+            (Some(instance), _) => (instance.coords, 0.0),
+            (None, Some((min, max))) if shift.is_some() => {
+                let weight = (REGULAR + wanted).clamp(min, max);
+                let coords = font.variations().normalized_coords([("wght", weight)]);
+                // 轴的范围不含 400 时，以其中最接近 400 的值为基准。
+                (coords.collect(), weight - REGULAR.clamp(min, max))
+            }
+            (None, _) => (Vec::new(), 0.0),
         };
+        let embolden = (wanted - reached).max(0.0) / BOLD_STEP * crate::BOLD_RATIO;
         let system = match selected.system {
             true => {
                 let name = file.postscript.clone().or_else(|| postscript_name(&font))?;
@@ -116,6 +151,7 @@ impl Face {
             key,
             coords,
             system,
+            embolden,
         })
     }
 
@@ -129,8 +165,121 @@ impl Face {
 
 /// 字体是否有 `wght`（字重）轴。
 fn weight_axis(font: &FontRef) -> bool {
-    font.variations()
-        .any(|v| v.tag() == swash::tag_from_bytes(b"wght"))
+    weight_range(font).is_some()
+}
+
+/// 返回 `wght` 轴的最小值和最大值；没有该轴时返回 `None`。
+fn weight_range(font: &FontRef) -> Option<(f32, f32)> {
+    let axis = font.variations().find(|v| v.tag() == WGHT)?;
+    Some((axis.min_value(), axis.max_value()))
+}
+
+/// 在 `file` 所在的目录中找与 `font` 同族、同样式的字体：字重介于自身与「自身加 `shift`」
+/// 之间，且最接近后者。返回该字体和实际得到的字重差。
+///
+/// 只打开文件名前 [`SIBLING_PREFIX`] 个字符与 `file` 相同的字体文件，包括 `file` 自身。
+fn sibling(file: &FontFile, font: &FontRef, shift: f32) -> Option<(FontFile, f32)> {
+    let family = weight_family(font)?;
+    let (stretch, own, style) = font.attributes().parts();
+    let own = f32::from(own.0);
+    let wanted = own + shift;
+    let prefix = name_prefix(&file.path)?;
+    let mut best: Option<(FontFile, f32)> = None;
+    for entry in std::fs::read_dir(file.path.parent()?).ok()?.flatten() {
+        let path = entry.path();
+        let is_font = path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
+            ["ttf", "otf", "ttc", "otc"]
+                .iter()
+                .any(|known| e.eq_ignore_ascii_case(known))
+        });
+        if !is_font || name_prefix(&path).as_ref() != Some(&prefix) {
+            continue;
+        }
+        let Some(data) = File::open(&path).ok().and_then(|file| load(&file)) else {
+            continue;
+        };
+        let count = swash::FontDataRef::new(&data).map_or(1, |d| d.len());
+        for other in (0..count).filter_map(|i| FontRef::from_index(&data, i)) {
+            let (other_stretch, weight, other_style) = other.attributes().parts();
+            let weight = f32::from(weight.0);
+            let between = weight != own && weight >= own.min(wanted) && weight <= own.max(wanted);
+            let closer = best
+                .as_ref()
+                .is_none_or(|(_, reached)| (wanted - weight).abs() < (shift - reached).abs());
+            if between
+                && closer
+                && (other_stretch, other_style) == (stretch, style)
+                && weight_range(&other).is_none()
+                && weight_family(&other).as_deref() == Some(family.as_str())
+            {
+                let found = FontFile {
+                    path: path.clone(),
+                    postscript: postscript_name(&other),
+                };
+                best = Some((found, weight - own));
+            }
+        }
+    }
+    best
+}
+
+/// 查找同族字体时比较的文件名前缀的长度（字符）。
+///
+/// 同族各字重的文件名开头相同（如 `segoeui.ttf` 与 `seguisb.ttf`），据此不必打开目录中的
+/// 每个字体文件。
+const SIBLING_PREFIX: usize = 3;
+
+/// 返回文件名的前 [`SIBLING_PREFIX`] 个字符（小写）；不足该长度时返回 `None`。
+fn name_prefix(path: &std::path::Path) -> Option<String> {
+    let name = path.file_name()?.to_string_lossy().to_lowercase();
+    let prefix: String = name.chars().take(SIBLING_PREFIX).collect();
+    (prefix.chars().count() == SIBLING_PREFIX).then_some(prefix)
+}
+
+/// 返回字族名，优先取把各字重归为一族的排版字族名。
+fn weight_family(font: &FontRef) -> Option<String> {
+    let strings = font.localized_strings();
+    let name = strings
+        .find_by_id(StringId::TypographicFamily, None)
+        .or_else(|| strings.find_by_id(StringId::Family, None))?;
+    Some(name.to_string())
+}
+
+/// `wght` 轴的标签。
+const WGHT: swash::Tag = swash::tag_from_bytes(b"wght");
+
+/// 常规体的字重。
+const REGULAR: f32 = 400.0;
+
+/// `BOLD_RATIO` 对应的字重差：常规体 400 到粗体 700。
+const BOLD_STEP: f32 = 300.0;
+
+/// 可变字体的一个命名实例。
+pub(crate) struct Instance {
+    /// 实例的归一化坐标。
+    coords: Vec<i16>,
+    /// 实例在各轴上的取值，顺序与字体的轴相同。
+    values: Vec<f32>,
+}
+
+impl Instance {
+    /// 返回实例的字重；没有 `wght` 轴时为 400。
+    fn weight(&self, font: &FontRef) -> f32 {
+        let axis = font.variations().position(|v| v.tag() == WGHT);
+        axis.and_then(|at| self.values.get(at).copied())
+            .unwrap_or(REGULAR)
+    }
+
+    /// 返回字重加 `shift`（限制在 `range` 之内）后的归一化坐标和字重，其余各轴不变。
+    fn shifted(&self, font: &FontRef, shift: f32, range: (f32, f32)) -> (Vec<i16>, f32) {
+        let weight = (self.weight(font) + shift).clamp(range.0, range.1);
+        let settings = font.variations().zip(&self.values).map(|(axis, &value)| {
+            let value = if axis.tag() == WGHT { weight } else { value };
+            (axis.tag(), value)
+        });
+        let coords = font.variations().normalized_coords(settings).collect();
+        (coords, weight)
+    }
 }
 
 /// swash 能读的字形表：TrueType 轮廓、CFF 轮廓、彩色位图。
@@ -148,8 +297,8 @@ const SYSTEM_GLYPH_TABLE: &[u8; 4] = b"hvgl";
 pub(crate) struct Selected<'a> {
     /// 选中的字体。
     pub font: FontRef<'a>,
-    /// 请求的 PostScript 名是可变字体的命名实例时，该实例的归一化坐标；否则为 `None`。
-    pub instance: Option<Vec<i16>>,
+    /// 请求的 PostScript 名是可变字体的命名实例时为该实例；否则为 `None`。
+    pub instance: Option<Instance>,
     /// 字形只放在 `SYSTEM_GLYPH_TABLE`（`hvgl` 表）中，轮廓要由系统提供。
     pub system: bool,
 }
@@ -179,9 +328,9 @@ pub(crate) fn select<'a>(data: &'a [u8], postscript: Option<&str>) -> Option<Sel
     })
 }
 
-/// 在字体文件数据 `data` 中查找 PostScript 名为 `postscript` 的字体，返回该字体和命名实例的
-/// 归一化坐标（不是命名实例时为 `None`）；找不到时返回 `None`。
-fn find<'a>(data: &'a [u8], postscript: &str) -> Option<(FontRef<'a>, Option<Vec<i16>>)> {
+/// 在字体文件数据 `data` 中查找 PostScript 名为 `postscript` 的字体，返回该字体和命名实例
+/// （不是命名实例时为 `None`）；找不到时返回 `None`。
+fn find<'a>(data: &'a [u8], postscript: &str) -> Option<(FontRef<'a>, Option<Instance>)> {
     let count = swash::FontDataRef::new(data).map_or(1, |d| d.len());
     let fonts = || (0..count).filter_map(|i| FontRef::from_index(data, i));
     let named = |name: Option<swash::LocalizedString>| {
@@ -199,7 +348,11 @@ fn find<'a>(data: &'a [u8], postscript: &str) -> Option<(FontRef<'a>, Option<Vec
         let instance = font.instances().find(|instance| {
             instance_postscript(&font, instance.index()).is_some_and(|name| name == postscript)
         })?;
-        Some((font, Some(instance.normalized_coords().collect())))
+        let instance = Instance {
+            coords: instance.normalized_coords().collect(),
+            values: instance.values().collect(),
+        };
+        Some((font, Some(instance)))
     })
 }
 
@@ -293,6 +446,11 @@ fn map(file: &File) -> Option<memmap2::Mmap> {
 const PINGFANG: &str =
     "/System/Library/PrivateFrameworks/FontServices.framework/Resources/Reserved/PingFangUI.ttc";
 
+/// 可以设置的最小字重。
+pub(crate) const WEIGHT_MIN: u16 = 100;
+/// 可以设置的最大字重。
+pub(crate) const WEIGHT_MAX: u16 = 900;
+
 /// 字体槽位的状态。
 enum Slot {
     /// 尚未映射，值是候选字体。
@@ -332,6 +490,8 @@ const RESOLVED_ENTRIES: usize = 1 << 16;
 pub(crate) struct Fonts {
     /// 字体槽位，顺序见模块文档。
     slots: Vec<Slot>,
+    /// 各字体的字重偏移（见 [`Face::open_at`]）。
+    shift: i16,
     /// 字符解析结果缓存：（字体种类，字符）→（槽位，字形 id）。
     resolved: FastMap<(FontKind, char), (u8, u16)>,
     /// ASCII 的快速路径：`[字体种类][码点]` →（槽位，字形 id），字体里没有该字符时为 `None`。
@@ -344,7 +504,8 @@ impl Fonts {
     /// 加载字体；`mono`、`ui` 和 `terminal` 是用户配置里指定的字体，为 `None` 时等宽字体和界面
     /// 字体用内置候选，终端用等宽字体。
     ///
-    /// 指定的终端字体打不开时同样用等宽字体，不报错。
+    /// 指定的终端字体打不开时同样用等宽字体，不报错。`weight` 是全部文字的字重，超出 100 至
+    /// 900 时取最接近的值。
     ///
     /// # Errors
     ///
@@ -357,10 +518,12 @@ impl Fonts {
         mono: Option<&FontSpec>,
         ui: Option<&FontSpec>,
         terminal: Option<&FontSpec>,
+        weight: u16,
     ) -> Result<Fonts, String> {
+        let shift = weight.clamp(WEIGHT_MIN, WEIGHT_MAX) as i16 - REGULAR as i16;
         // 指定的字体不可用时退回内置候选而不报错：字体配置有误时程序仍可启动。
         let candidates = Candidates::for_platform(mono, ui);
-        let (mono, mono_file) = first_opened(&candidates.mono).ok_or_else(|| {
+        let (mono, mono_file) = first_opened(&candidates.mono, shift).ok_or_else(|| {
             format!(
                 "找不到等宽字体，尝试过：{:?}。可以用 WINC_FONT 指定字体文件，\
                  或在配置里设置 editor.font。",
@@ -369,15 +532,15 @@ impl Fonts {
         })?;
 
         // 没有界面字体时用等宽字体代替。
-        let ui = first_existing(&candidates.ui)
-            .or_else(|| first_existing(&candidates.mono))
+        let ui = first_existing(&candidates.ui, shift)
+            .or_else(|| first_existing(&candidates.mono, shift))
             .expect("等宽字体刚刚成功打开过");
 
         let italic = italic_candidates(&mono_file, &mono);
         // 数学字体一开始就映射（只是映射文件，很快）：度量要用到它，`metrics` 不能再去加载。
-        let math = first_existing(&candidates.math).map_or(Slot::Missing, Slot::Ready);
+        let math = first_existing(&candidates.math, shift).map_or(Slot::Missing, Slot::Ready);
         // 终端字体同样一开始就映射：度量要用到它。
-        let (terminal, terminal_italic) = match first_opened(&resolve_first(terminal)) {
+        let (terminal, terminal_italic) = match first_opened(&resolve_first(terminal), shift) {
             Some((face, file)) => {
                 let italic = italic_candidates(&file, &face);
                 (Slot::Ready(face), Slot::Pending(Choices::files(italic)))
@@ -396,6 +559,7 @@ impl Fonts {
 
         let mut fonts = Fonts {
             slots,
+            shift,
             resolved: FastMap::default(),
             ascii: [[None; 128]; FontKind::COUNT],
         };
@@ -567,7 +731,7 @@ impl Fonts {
         };
 
         if let Slot::Pending(choices) = entry {
-            *entry = match choices.open() {
+            *entry = match choices.open(self.shift) {
                 Some(face) => Slot::Ready(face),
                 None => Slot::Missing,
             };
@@ -580,15 +744,15 @@ fn resolve_first(spec: Option<&FontSpec>) -> Vec<FontFile> {
     spec.and_then(FontSpec::resolve).into_iter().collect()
 }
 /// 返回 `files` 中第一个能打开的字体；都打不开时返回 `None`。
-fn first_existing(files: &[FontFile]) -> Option<Face> {
-    files.iter().find_map(Face::open)
+fn first_existing(files: &[FontFile], shift: i16) -> Option<Face> {
+    files.iter().find_map(|file| Face::open_at(file, shift))
 }
 
 /// 返回 `files` 中第一个能打开的字体及其文件；都打不开时返回 `None`。
-fn first_opened(files: &[FontFile]) -> Option<(Face, FontFile)> {
+fn first_opened(files: &[FontFile], shift: i16) -> Option<(Face, FontFile)> {
     files
         .iter()
-        .find_map(|file| Face::open(file).map(|face| (face, file.clone())))
+        .find_map(|file| Face::open_at(file, shift).map(|face| (face, file.clone())))
 }
 
 /// 返回等宽字体 `file`（已打开为 `face`）的斜体候选，按优先级排列。
@@ -755,14 +919,15 @@ impl Choices {
 
     /// 打开第一个含有 [`Self::probe`] 的候选字体；没有 `probe` 时打开第一个能打开的。
     ///
-    /// 都不含 `probe` 时返回第一个能打开的字体，都打不开时返回 `None`。
-    fn open(&self) -> Option<Face> {
+    /// 都不含 `probe` 时返回第一个能打开的字体，都打不开时返回 `None`。`shift` 是字重的偏移。
+    fn open(&self, shift: i16) -> Option<Face> {
         let asked = self
             .query
             .as_deref()
             .map_or_else(Vec::new, fontconfig_sorted);
         let mut first = None;
-        for face in asked.iter().chain(&self.files).filter_map(Face::open) {
+        let faces = asked.iter().chain(&self.files);
+        for face in faces.filter_map(|file| Face::open_at(file, shift)) {
             let Some(probe) = self.probe else {
                 return Some(face);
             };

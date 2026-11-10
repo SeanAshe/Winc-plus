@@ -21,6 +21,8 @@ pub enum Pick {
     SaveAs(DocumentId),
     /// 新建工作树对话框「位置」右端的目录按钮：选工作树放在哪个目录下面。
     WorktreeFolder,
+    /// 设置中选择窗口的背景图片。
+    BackgroundImage,
 }
 
 /// 无法打开的文件在编辑区中给出的操作。
@@ -713,9 +715,11 @@ impl App {
                     .or_else(|| self.editor.root().map(Path::to_path_buf));
                 (name, dir)
             }
-            Pick::Open | Pick::OpenFolder | Pick::WslFolder(_) | Pick::WorktreeFolder => {
-                (String::new(), None)
-            }
+            Pick::Open
+            | Pick::OpenFolder
+            | Pick::WslFolder(_)
+            | Pick::WorktreeFolder
+            | Pick::BackgroundImage => (String::new(), None),
         };
 
         #[cfg(target_os = "macos")]
@@ -726,7 +730,7 @@ impl App {
                 return;
             };
             let panel = match &kind {
-                Pick::Open => Panel::Open { files: true },
+                Pick::Open | Pick::BackgroundImage => Panel::Open { files: true },
                 Pick::OpenFolder | Pick::WslFolder(_) | Pick::WorktreeFolder => {
                     Panel::Open { files: false }
                 }
@@ -751,7 +755,9 @@ impl App {
             use crate::portal::Choose;
             // 门户的面板只能选文件或者只能选目录：「打开…」选文件，目录从「打开目录…」选。
             let (choose, title) = match &kind {
-                Pick::Open => (Choose::Open { directory: false }, t!("cmd-open-file")),
+                Pick::Open | Pick::BackgroundImage => {
+                    (Choose::Open { directory: false }, t!("cmd-open-file"))
+                }
                 Pick::OpenFolder | Pick::WslFolder(_) | Pick::WorktreeFolder => {
                     (Choose::Open { directory: true }, t!("cmd-open-folder"))
                 }
@@ -778,7 +784,7 @@ impl App {
         {
             // 系统的对话框只能选文件或者只能选目录：「打开…」选文件，目录从「打开目录…」选。
             let title = match &kind {
-                Pick::Open => t!("cmd-open-file"),
+                Pick::Open | Pick::BackgroundImage => t!("cmd-open-file"),
                 Pick::OpenFolder | Pick::WorktreeFolder => t!("cmd-open-folder"),
                 Pick::WslFolder(_) => t!("cmd-open-wsl-folder"),
                 Pick::SaveAs(_) => t!("cmd-save-as"),
@@ -798,7 +804,7 @@ impl App {
                     dialog = dialog.set_directory(winc_editor::wsl::distro_root(distro));
                 }
                 let path = match &kind {
-                    Pick::Open => dialog.pick_file(),
+                    Pick::Open | Pick::BackgroundImage => dialog.pick_file(),
                     Pick::OpenFolder | Pick::WslFolder(_) | Pick::WorktreeFolder => {
                         dialog.pick_folder()
                     }
@@ -831,7 +837,11 @@ impl App {
         // 取消或保存失败时放弃整个关闭。
         let continuation = match kind {
             Pick::SaveAs(_) => self.closing.continuation.take(),
-            Pick::Open | Pick::OpenFolder | Pick::WslFolder(_) | Pick::WorktreeFolder => None,
+            Pick::Open
+            | Pick::OpenFolder
+            | Pick::WslFolder(_)
+            | Pick::WorktreeFolder
+            | Pick::BackgroundImage => None,
         };
 
         let Some(path) = path else { return };
@@ -839,6 +849,7 @@ impl App {
         match kind {
             Pick::Open | Pick::OpenFolder | Pick::WslFolder(_) => self.open_path(&path),
             Pick::WorktreeFolder => self.worktree_folder_picked(path),
+            Pick::BackgroundImage => self.set_background_image(Some(path)),
             Pick::SaveAs(id) => {
                 if self.save_document(id, Some(path))
                     && let Some(prompt) = continuation

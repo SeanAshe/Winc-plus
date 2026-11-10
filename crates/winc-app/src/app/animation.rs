@@ -60,6 +60,8 @@ pub(super) const POPUP_IN: Duration = Duration::from_millis(150);
 pub(super) const POPUP_OUT: Duration = Duration::from_millis(110);
 /// 可编辑的预览重排后各块滑到新位置、新显示的标记淡入的时长，取 [`TREE_ANIMATION`]。
 pub(crate) const MARKDOWN_MOTION: Duration = TREE_ANIMATION;
+/// PDF 预览缩放、缩略图栏滑入滑出的时长，取 [`TREE_ANIMATION`]。
+pub(crate) const PDF_MOTION: Duration = TREE_ANIMATION;
 /// 设置浮层出现的时长（取自调参）：卡片面积远大于小浮窗，时长相应加长。
 pub(super) const DIALOG_IN: Duration = Duration::from_millis(220);
 /// 设置浮层消失的时长（取自调参），短于 [`DIALOG_IN`]。
@@ -281,17 +283,24 @@ impl App {
 
     /// 创建一段时长为 `duration` 的动画时钟，并按窗口所在显示器更新帧间隔 `frame_interval`。
     ///
-    /// 没有窗口，或系统开启了「减弱动态效果」时返回 `None`，调用方应直接跳到动画终点。
+    /// 没有窗口，或动态效果已关闭（见 [`App::animations_on`]）时返回 `None`，调用方应直接跳到
+    /// 动画终点。
     pub(super) fn clock(&mut self, duration: Duration) -> Option<Clock> {
         let window = self.window.handle.as_ref()?;
-
-        #[cfg(target_os = "macos")]
-        if crate::macos::reduce_motion() {
+        if !self.animations_on() {
             return None;
         }
 
         self.frame_interval = frame_interval(window);
         Some(Clock::new(duration))
+    }
+
+    /// 是否播放过渡动画：以设置（`ui.animations`）为准，没有设置时跟随系统的「减弱动态效果」。
+    ///
+    /// 系统的设置只在 macOS 上读取，测试中视为未开启，使结果不随运行测试的机器变化。
+    pub(crate) fn animations_on(&self) -> bool {
+        let reduced = !cfg!(test) && system_reduces_motion();
+        self.config.ui_animations.unwrap_or(!reduced)
     }
 
     /// 清除已经结束的动画。
@@ -328,6 +337,8 @@ impl App {
         settle(&mut self.fold_motion, |m| m.clock);
         settle(&mut self.scroll_glide, |g| g.clock);
         settle(&mut self.picker.motion, |m| m.clock);
+        settle(&mut self.pdf.zoom_motion, |m| m.clock);
+        settle(&mut self.pdf.strip_motion, |m| m.1);
         settle(&mut self.picker.fold, |f| f.clock);
         if self.picker.places_in.is_some_and(|c| c.done()) {
             self.picker.places_in = None;
@@ -426,6 +437,8 @@ impl App {
             || self.scroll_glide.is_some()
             || self.wheel.glide.is_some()
             || self.picker.motion.is_some()
+            || self.pdf.zoom_motion.is_some()
+            || self.pdf.strip_motion.is_some()
             || self.picker.fold.is_some()
             || self.picker.places_in.is_some()
             || self.picker.places_out.is_some()
@@ -487,6 +500,18 @@ impl Default for Blink {
             visible: true,
             epoch: Instant::now(),
         }
+    }
+}
+
+/// 系统是否开启了「减弱动态效果」；没有读取该设置的平台上为否。
+fn system_reduces_motion() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        crate::macos::reduce_motion()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
     }
 }
 

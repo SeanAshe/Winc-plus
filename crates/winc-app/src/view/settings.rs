@@ -67,6 +67,8 @@ pub(crate) fn draw_scrolling(app: &mut App, frame: &mut Frame<'_>) -> bool {
     // `tint` 全透明时 `restore_tinted` 原样恢复快照。
     frame.restore_tinted(&base, app.palette.scrim.alpha(0.0));
     app.settings.scroll_base = Some(base);
+    // 与完整绘制时相同，卡片不透出背景图。
+    frame.end_wallpaper();
     let layout = layout(app, frame);
     super::draw_card_frame(frame, app.palette, layout.card, RADIUS_CARD);
     draw_dialog(app, frame, &layout);
@@ -163,12 +165,12 @@ fn draw_search(app: &mut App, frame: &mut Frame<'_>, layout: &SettingsLayout) ->
 /// 绘制分类栏：每项一个图标加名称，行样式与文件树的行相同：当前页铺选中底色，悬停的项铺淡底色。
 fn draw_nav(app: &App, frame: &mut Frame<'_>, layout: &SettingsLayout) {
     for &(page, row) in &layout.pages {
-        // 「终端」一项随终端模块淡入淡出（`App::track_modules`），高度在布局中按显示比例收放；
+        // 「Git」「终端」两项随各自的模块淡入淡出（`App::track_modules`），高度在布局中按显示比例收放；
         // 图标和文字仍按整行的高度居中，不随高度挤压。
-        let opacity = if page == SettingsPage::Terminal {
-            app.module_fx.terminal.opacity(app.terminal_enabled())
-        } else {
-            1.0
+        let opacity = match page {
+            SettingsPage::Terminal => app.module_fx.terminal.opacity(app.terminal_enabled()),
+            SettingsPage::Git => app.module_fx.git.opacity(app.git_enabled()),
+            _ => 1.0,
         };
         let full = Rect::new(row.x, row.y, row.w, SETTINGS_NAV_ROW);
         frame.with_opacity(opacity, |frame| {
@@ -205,6 +207,7 @@ fn draw_nav_row(
         SettingsPage::Appearance => icons::appearance(frame, icon, p.text_muted, layout.nav),
         SettingsPage::Editor => icons::code(frame, icon, p.text_muted, layout.nav),
         SettingsPage::Format => icons::format(frame, icon, p.text_muted, layout.nav),
+        SettingsPage::Git => icons::git(frame, icon, 1.0, p.text_muted, layout.nav),
         SettingsPage::Terminal => icons::console(frame, icon, p.text_muted, layout.nav),
         SettingsPage::Modules => icons::modules(frame, icon, p.text_muted, layout.nav),
         SettingsPage::Keys => icons::keyboard(frame, icon, p.text_muted, layout.nav),
@@ -434,6 +437,20 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
                 (crate::layout::whitespace_label(choice).to_owned(), false)
             } else if row.setting == Setting::Zoom {
                 (format!("{}%", app.config.ui_zoom.unwrap_or(100)), false)
+            } else if row.setting == Setting::BackgroundFit {
+                let choice = app.config.ui_background_fit.unwrap_or_default();
+                (
+                    crate::layout::background_fit_label(choice).to_owned(),
+                    false,
+                )
+            } else if row.setting == Setting::BackgroundImage {
+                let name = (app.config.ui_background_image.as_deref())
+                    .map(|path| winc_editor::display_name(std::path::Path::new(path)).into_owned());
+                let none = name.is_none();
+                (
+                    name.unwrap_or_else(|| t!("settings-background-none").to_owned()),
+                    none,
+                )
             } else if row.setting == Setting::TerminalPosition {
                 let text = if app.terminal_right() {
                     t!("settings-terminal-position-right")

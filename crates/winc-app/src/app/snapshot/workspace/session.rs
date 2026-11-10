@@ -253,8 +253,8 @@ fn switching_folders_keeps_each_folders_tabs() {
     assert_eq!(names(&app), ["main.rs", "Cargo.toml"]);
     assert_eq!(app.editor.active().unwrap().name(), "Cargo.toml");
 
-    // 项目名菜单：最近的目录（不含当前目录）、打开目录、关闭目录。菜单开着时项目名按钮处于
-    // 按下状态，关掉菜单后放开。
+    // 项目名菜单：最近的目录（不含当前目录）、新建窗口、打开目录、关闭目录。菜单开着时项目名
+    // 按钮处于按下状态，关掉菜单后放开。
     app.open_project_menu();
     assert_eq!(app.menu_button, Some(crate::app::MenuButton::Project));
     let menu = app.context_menu.as_ref().unwrap();
@@ -271,6 +271,7 @@ fn switching_folders_keeps_each_folders_tabs() {
         commands,
         [
             MenuCommand::OpenRecent(b_index),
+            MenuCommand::NewWindow,
             MenuCommand::OpenFolder,
             MenuCommand::CloseFolder
         ]
@@ -305,7 +306,7 @@ fn switching_folders_keeps_each_folders_tabs() {
         })
         .collect();
     let folder_icon = crate::app::input::context_menu::MenuIcon::Folder;
-    assert_eq!(icons, [Some(folder_icon), None, None]);
+    assert_eq!(icons, [Some(folder_icon), None, None, None]);
     let row = popup.row_rects[0];
     let image = app.renderer.as_ref().unwrap().image().unwrap();
     let scale = image.width as f32 / app.layout.window.w;
@@ -794,6 +795,35 @@ fn with_hot_exit_off_quitting_asks_and_then_drops_the_backups() {
 }
 
 #[test]
+fn folded_blocks_are_restored_with_the_session() {
+    let dir = search_folder("session-folds");
+    let mut app = app_with(&dir, false);
+    app.open_path(&dir.join("src/main.rs"));
+    let tab_width = app.editor.active_tab_width();
+    let doc = app.editor.active_mut().unwrap();
+    let start = doc
+        .fold_ranges(tab_width)
+        .first()
+        .expect("有可折叠的块")
+        .start;
+    assert!(doc.toggle_fold_at(start, tab_width));
+    let folded = doc.folded();
+
+    app.save_session();
+    let session = app.state.last_session().cloned().unwrap();
+    assert_eq!(session.folds.len(), 1);
+    assert_eq!(session.folds[0].1, folded);
+
+    // 下次启动：当前标签读入后恢复折叠。
+    let mut editor = Editor::default();
+    assert!(crate::open_session_folder(&mut editor, &session));
+    crate::app::restore_at_launch(&mut editor, Some(&session), None);
+    assert_eq!(editor.active().unwrap().folded(), folded);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn waiting_quits_once_the_files_are_closed_and_leaves_no_trace() {
     let dir = search_folder("wait");
     let message = dir.join("COMMIT_EDITMSG");
@@ -874,8 +904,8 @@ fn files_given_with_a_line_open_there() {
     let doc = editor.active().unwrap();
     let (line, col) = doc.text().pos_to_line_col(doc.selection.head);
     assert_eq!((line, col), (2, 4));
-    // 命令行只给出文件时：以其所在目录作为项目。
-    assert!(editor.workspace.is_some());
+    // 命令行只给出文件时：不打开其所在的目录。
+    assert!(editor.workspace.is_none());
     let _ = std::fs::remove_dir_all(&dir);
 }
 

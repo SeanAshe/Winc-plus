@@ -70,6 +70,11 @@ impl App {
         [editor, configured_font(&self.config.ui_font), terminal]
     }
 
+    /// 返回全部文字的字重（`ui.fontWeight`），未配置时为 400。
+    pub(in crate::app) fn font_weight(&self) -> u16 {
+        self.config.ui_font_weight.unwrap_or(Config::FONT_WEIGHT)
+    }
+
     /// 应用主题选择：`Auto` 交由系统决定，`Dark`、`Light` 固定为指定外观。
     pub(in crate::app) fn apply_theme(&mut self, choice: ThemeChoice) {
         self.theme_choice = choice;
@@ -129,10 +134,11 @@ impl App {
     /// 渲染层无法使用配置的字体时，返回面向用户的错误说明。
     pub(in crate::app) fn apply_fonts(&mut self) -> Result<(), String> {
         let [mono, ui, terminal] = self.font_specs();
+        let weight = self.font_weight();
 
         if let Some(renderer) = &mut self.renderer
             && renderer
-                .set_fonts(mono.as_ref(), ui.as_ref(), terminal.as_ref())
+                .set_fonts(mono.as_ref(), ui.as_ref(), terminal.as_ref(), weight)
                 .is_err()
         {
             return Err(winc_i18n::t!("workspace-font-unusable").to_owned());

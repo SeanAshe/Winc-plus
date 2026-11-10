@@ -101,6 +101,7 @@ impl App {
             split: preview::images::SplitPreview::default(),
             markdown: preview::markdown::MarkdownPreview::default(),
             pdf: preview::pdf::PdfPreview::default(),
+            wallpaper: Default::default(),
             key_path: Default::default(),
             tree: Default::default(),
             tool_fold: ToolFold::default(),
@@ -188,6 +189,7 @@ impl App {
             shared: Default::default(),
             config_rev: 0,
             cascade: None,
+            open_fullscreen: false,
             glyphs_from: None,
             #[cfg(all(unix, not(target_os = "macos")))]
             activation: None,

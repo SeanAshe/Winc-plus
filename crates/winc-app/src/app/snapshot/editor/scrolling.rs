@@ -310,3 +310,70 @@ fn a_mouse_wheel_notch_scrolls_the_platform_distance() {
     assert_eq!(app.wheel_step(), lines);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 返回主修饰键：macOS 上为 `⌘`，其他系统上为 `Ctrl`。
+fn command_key() -> winit::keyboard::ModifiersState {
+    if cfg!(target_os = "macos") {
+        winit::keyboard::ModifiersState::SUPER
+    } else {
+        winit::keyboard::ModifiersState::CONTROL
+    }
+}
+
+#[test]
+fn the_wheel_with_the_command_key_steps_the_font_size() {
+    use winit::event::TouchPhase::{Moved, Started};
+    use winit::keyboard::ModifiersState;
+
+    let (mut app, dir) = long_file("wheel-font-size");
+    let size = |app: &App| ViewFonts::of(&app.config).code;
+    let notch =
+        |app: &mut App, y: f32| app.on_wheel_event(MouseScrollDelta::LineDelta(0.0, y), Moved);
+    let text = app.layout.text;
+    app.mouse = (text.x + 40.0, text.y + 40.0);
+    let start = size(&app);
+
+    // 不按修饰键：滚动，字号不变。
+    notch(&mut app, -1.0);
+    assert!(app.editor.active().unwrap().scroll_line > 0.0);
+    assert_eq!(size(&app), start);
+
+    // 只按主修饰键：向上放大，向下缩小，不滚动。
+    let top = app.editor.active().unwrap().scroll_line;
+    app.modifiers = command_key();
+    notch(&mut app, 1.0);
+    assert_eq!(size(&app), start + 1.0);
+    notch(&mut app, -1.0);
+    assert_eq!(size(&app), start);
+    assert_eq!(app.editor.active().unwrap().scroll_line, top);
+    // 同时按着其他修饰键、鼠标不在编辑区或终端上时照常滚动。
+    app.modifiers = command_key() | ModifiersState::SHIFT;
+    notch(&mut app, 1.0);
+    app.modifiers = command_key();
+    app.mouse = (app.layout.sidebar.x + 20.0, app.layout.sidebar.y + 80.0);
+    notch(&mut app, 1.0);
+    assert_eq!(size(&app), start);
+
+    // 触控板：累计满一档才调整，每个事件至多一档。
+    let pixels = |y: f32| MouseScrollDelta::PixelDelta(PhysicalPosition::new(0.0, f64::from(y)));
+    let step = crate::app::input::mouse::ZOOM_WHEEL_PIXELS * SCALE;
+    app.mouse = (text.x + 40.0, text.y + 40.0);
+    app.on_wheel_event(pixels(step / 2.0), Started);
+    assert_eq!(size(&app), start);
+    app.on_wheel_event(pixels(step * 5.0), Moved);
+    assert_eq!(size(&app), start + 1.0);
+    // 调整途中松开修饰键：余下的滚动量丢弃，既不调整也不滚动。
+    let top = app.editor.active().unwrap().scroll_line;
+    app.modifiers = ModifiersState::empty();
+    app.on_wheel_event(pixels(-step * 5.0), Moved);
+    assert_eq!(size(&app), start + 1.0);
+    assert_eq!(app.editor.active().unwrap().scroll_line, top);
+    // 滚动途中按下修饰键：仍是滚动。
+    app.on_wheel_event(pixels(-step), Started);
+    app.modifiers = command_key();
+    app.on_wheel_event(pixels(-step * 5.0), Moved);
+    assert_eq!(size(&app), start + 1.0);
+    assert!(app.editor.active().unwrap().scroll_line > top);
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}

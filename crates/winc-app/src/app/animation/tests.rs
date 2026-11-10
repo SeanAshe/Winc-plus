@@ -56,7 +56,7 @@ fn presence_fades_both_ways_and_turns_back_midway() {
     assert!((p.share(false) - 0.125).abs() < 1e-6);
     assert_eq!(p.opacity(false), 0.0);
 
-    // 走完以后下一次比较时清掉动画；没有时钟（没有窗口、减弱动态效果）时直接到终点。
+    // 走完以后下一次比较时清掉动画；没有时钟（没有窗口、动态效果关闭）时直接到终点。
     let mut p = Presence::default();
     p.track(true, Some(Clock::frozen(MODULE_FADE, MODULE_FADE)));
     assert!(p.moving());

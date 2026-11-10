@@ -55,7 +55,7 @@ impl App {
         self.request_redraw();
     }
 
-    /// 让提示气泡淡出；没有窗口（测试中）或开启了「减弱动态效果」时直接去掉。
+    /// 让提示气泡淡出；没有窗口（测试中）或动态效果关闭时直接去掉。
     pub(in crate::app) fn dismiss_hint(&mut self) {
         let Some(hint) = &self.name_hint else {
             return;

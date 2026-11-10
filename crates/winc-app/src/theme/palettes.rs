@@ -444,12 +444,16 @@ impl ThemeEntry {
             "paper" => t!("settings-theme-name-paper"),
             "vermilion" => t!("settings-theme-name-vermilion"),
             "mist" => t!("settings-theme-name-mist"),
+            "veil-snow" => t!("settings-theme-name-veil-snow"),
+            "veil-linen" => t!("settings-theme-name-veil-linen"),
             "winc-night" => t!("settings-theme-name-winc-night"),
             "winc-slate" => t!("settings-theme-name-winc-slate"),
             "ink" => t!("settings-theme-name-ink"),
             "ember" => t!("settings-theme-name-ember"),
             "midnight" => t!("settings-theme-name-midnight"),
             "dusk" => t!("settings-theme-name-dusk"),
+            "veil-night" => t!("settings-theme-name-veil-night"),
+            "veil-umber" => t!("settings-theme-name-veil-umber"),
             id => id,
         }
     }
@@ -459,24 +463,28 @@ const fn entry(id: &'static str, palette: &'static Palette) -> ThemeEntry {
     ThemeEntry { id, palette }
 }
 
-/// 可选的浅色主题，第一个是默认的：Winc 系列排在前面。
-pub static LIGHT_THEMES: [ThemeEntry; 6] = [
+/// 可选的浅色主题，第一个是默认的：Winc 系列排在前面，为背景图设计的「幕」系列排在最后。
+pub static LIGHT_THEMES: [ThemeEntry; 8] = [
     entry("winc-day", &WINC_DAY),
     entry("winc-paper", &WINC_PAPER),
     entry("sky", &LIGHT),
     entry("paper", &PAPER),
     entry("vermilion", &VERMILION),
     entry("mist", &MIST),
+    entry("veil-snow", &VEIL_SNOW),
+    entry("veil-linen", &VEIL_LINEN),
 ];
 
-/// 可选的深色主题，第一个是默认的：Winc 系列排在前面。
-pub static DARK_THEMES: [ThemeEntry; 6] = [
+/// 可选的深色主题，第一个是默认的：Winc 系列排在前面，为背景图设计的「幕」系列排在最后。
+pub static DARK_THEMES: [ThemeEntry; 8] = [
     entry("winc-night", &WINC_NIGHT),
     entry("winc-slate", &WINC_SLATE),
     entry("ink", &DARK),
     entry("ember", &EMBER),
     entry("midnight", &MIDNIGHT),
     entry("dusk", &DUSK),
+    entry("veil-night", &VEIL_NIGHT),
+    entry("veil-umber", &VEIL_UMBER),
 ];
 
 /// 深色（`dark`）或浅色主题的列表。

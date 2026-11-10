@@ -264,6 +264,29 @@ impl App {
                 grab,
             } => self.drag_markdown_table_scrollbar(x, grab),
             Drag::Scrollbar {
+                bar: Scrollbar::PdfStrip,
+                grab,
+            } => {
+                let (strip, content) = (self.pdf.strip, self.pdf.strip_height);
+                if let Some(thumb) = scrollbar_thumb(strip, 0.0, content) {
+                    let max = (content - strip.h).max(0.0);
+                    self.pdf.strip_scroll =
+                        scroll_for_thumb(strip.y, strip.h, thumb.h, y, grab, max);
+                    self.request_redraw();
+                }
+            }
+            Drag::Scrollbar {
+                bar: Scrollbar::Pdf,
+                grab,
+            } => {
+                let area = self.pdf.area;
+                if let Some(thumb) = scrollbar_thumb(area, 0.0, self.pdf.height) {
+                    let max = self.pdf.max_scroll();
+                    self.pdf.scroll = scroll_for_thumb(area.y, area.h, thumb.h, y, grab, max);
+                    self.request_redraw();
+                }
+            }
+            Drag::Scrollbar {
                 bar: Scrollbar::Editor,
                 grab,
             } => {

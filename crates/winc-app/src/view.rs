@@ -118,6 +118,8 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     draw_window_controls(app, frame);
     draw_status(app, frame);
     draw_island_corners(app, frame);
+    // 以下都是浮在内容之上的面板、菜单和提示，底色保持不透明。
+    frame.end_wallpaper();
     draw_file_drop(app, frame);
     draw_tree_overflow_closing(app, frame);
     draw_tree_overflow(app, frame);

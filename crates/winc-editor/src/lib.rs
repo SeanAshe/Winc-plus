@@ -72,6 +72,8 @@ pub struct Editor {
     /// 打开文件时移入对应文档，关闭标签时从文档取回。无法打开的文件（占位标签）没有文本，
     /// 其书签保留在此处，「重试」打开成功后再移入。
     pub bookmarks: BookmarkMap,
+    /// 未打开文件中折叠的块，键为文件的规范路径；打开文件时移入文档，关闭标签时取回。
+    pub folds: FoldMap,
     /// 可预览的文件读取完成时采用的显示方式（[`Editor::finish_load`]）；默认为源代码。
     pub preview_default: PreviewMode,
     next_id: u64,
@@ -86,6 +88,7 @@ impl Default for Editor {
             tab_width: 4,
             diff_unified: false,
             bookmarks: BookmarkMap::new(),
+            folds: FoldMap::new(),
             preview_default: PreviewMode::Source,
             next_id: 0,
         }
@@ -208,6 +211,7 @@ impl Editor {
             fresh.set_preview_mode(self.preview_default);
         }
         adopt_bookmarks(&mut self.bookmarks, &mut fresh);
+        adopt_folds(&mut self.folds, &mut fresh, self.tab_width);
         replace_document(doc, fresh);
         Some(index)
     }
@@ -362,8 +366,8 @@ impl Editor {
 
     /// 关闭第 `index` 个标签并返回其文档；`index` 越界时返回 `None`。
     ///
-    /// 关闭活动标签后，活动标签切换到右侧相邻的标签；右侧没有标签时切换到左侧。文档带有书签
-    /// 时，书签存入 [`Self::bookmarks`]。
+    /// 关闭活动标签后，活动标签切换到右侧相邻的标签；右侧没有标签时切换到左侧。文档的书签
+    /// 存入 [`Self::bookmarks`]，折叠的块存入 [`Self::folds`]。
     pub fn close(&mut self, index: usize) -> Option<Document> {
         if index >= self.documents.len() {
             return None;
@@ -375,6 +379,11 @@ impl Editor {
         {
             self.bookmarks
                 .insert(path.clone(), document.bookmarks().clone());
+        }
+        if let Some(path) = &document.path
+            && !document.is_pending()
+        {
+            keep_folds(&mut self.folds, path, document.folded());
         }
 
         self.active = match self.active {
@@ -429,6 +438,12 @@ impl Editor {
                 self.bookmarks.insert(new, marks);
             }
         }
+        let moved: Vec<PathBuf> = self.folds.keys().cloned().collect();
+        for old in moved {
+            if let (Some(new), Some(folds)) = (rebase(&old, &from, &to), self.folds.remove(&old)) {
+                self.folds.insert(new, folds);
+            }
+        }
     }
 
     /// 返回所有文件的书签（键为路径）：未打开文件的书签加上已打开文档的书签。
@@ -452,9 +467,23 @@ impl Editor {
         all
     }
 
-    /// 打开目录作为工作区，只读取顶层目录，并清空未打开文件的书签。
+    /// 返回所有文件中折叠的块（键为路径）：未打开的文件加上已打开的文档，用于写入会话状态。
+    pub fn all_folds(&self) -> FoldMap {
+        let mut all = self.folds.clone();
+        for doc in &self.documents {
+            if let Some(path) = &doc.path
+                && doc.unsupported.is_none()
+                && !doc.is_pending()
+            {
+                keep_folds(&mut all, path, doc.folded());
+            }
+        }
+        all
+    }
+
+    /// 打开目录作为工作区，只读取顶层目录，并清空未打开文件的书签和折叠的块。
     ///
-    /// 书签按工作区目录保存，切换目录后原有书签不再适用；新目录的书签由调用方写入。
+    /// 两者按工作区目录保存，切换目录后不再适用；新目录的由调用方写入。
     ///
     /// # Errors
     ///
@@ -462,6 +491,7 @@ impl Editor {
     pub fn open_folder(&mut self, path: &Path) -> std::io::Result<()> {
         self.workspace = Some(Workspace::open(path)?);
         self.bookmarks.clear();
+        self.folds.clear();
         Ok(())
     }
 
@@ -481,6 +511,30 @@ fn adopt_bookmarks(bookmarks: &mut BookmarkMap, document: &mut Document) {
     }
     if let Some(marks) = document.path.as_ref().and_then(|p| bookmarks.remove(p)) {
         document.set_bookmarks(marks);
+    }
+}
+
+/// 各文件中折叠的块（开头行，末尾行），键为路径。
+pub type FoldMap = std::collections::BTreeMap<PathBuf, Vec<(usize, usize)>>;
+
+/// 文档 `document` 能显示文本时，把 `folds` 中该文件折叠的块移入文档（见
+/// [`Document::restore_folds`]）。
+fn adopt_folds(folds: &mut FoldMap, document: &mut Document, tab_width: usize) {
+    if document.unsupported.is_some() {
+        return;
+    }
+    if let Some(saved) = document.path.as_ref().and_then(|p| folds.remove(p)) {
+        let tab_width = document.tab_width(tab_width);
+        document.restore_folds(&saved, tab_width);
+    }
+}
+
+/// 在 `folds` 中记下 `path` 折叠的块；没有折叠的块时去掉该文件。
+fn keep_folds(folds: &mut FoldMap, path: &Path, folded: Vec<(usize, usize)>) {
+    if folded.is_empty() {
+        folds.remove(path);
+    } else {
+        folds.insert(path.to_path_buf(), folded);
     }
 }
 

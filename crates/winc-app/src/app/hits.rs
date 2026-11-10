@@ -81,6 +81,10 @@ pub struct Hits {
     /// 上一帧标题指示条列出的各标题在内容里的高度（逻辑像素），与 [`TocTarget::Heading`] 的
     /// 序号对应；点击标题时滚动到该处。
     pub(crate) markdown_toc_tops: Vec<f32>,
+    /// PDF 预览缩略图栏中各页的位置，以及点击后正文滚动到的位置（逻辑像素）。
+    pub(crate) pdf_thumbs: Vec<(Rect, f32)>,
+    /// PDF 预览右下角工具栏上各按钮的位置。
+    pub(crate) pdf_tools: Vec<(Rect, crate::app::preview::pdf::PdfTool)>,
     /// 当前帧绘制出的「安装方法…」链接的位置，以及链接所属的设置项。
     ///
     /// 文字宽度要到绘制时才知道，悬停和点击使用这里记录的位置。
@@ -124,6 +128,8 @@ impl Hits {
             markdown_table_bar,
             markdown_toc,
             markdown_toc_tops,
+            pdf_thumbs,
+            pdf_tools,
             install_links,
         } = self;
         start.clear();
@@ -157,6 +163,8 @@ impl Hits {
         *markdown_table_bar = None;
         markdown_toc.clear();
         markdown_toc_tops.clear();
+        pdf_thumbs.clear();
+        pdf_tools.clear();
         install_links.clear();
     }
 }

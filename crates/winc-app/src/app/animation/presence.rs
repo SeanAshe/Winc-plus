@@ -57,7 +57,7 @@ impl Presence {
 
     /// 与上一帧比较显示状态，变化时从当前的显示比例开始向另一端过渡。
     ///
-    /// `clock` 为 `None`（没有窗口、开启「减弱动态效果」、启动后第一帧）时直接到终态。
+    /// `clock` 为 `None`（没有窗口、动态效果关闭、启动后第一帧）时直接到终态。
     pub(in crate::app) fn track(&mut self, present: bool, clock: Option<Clock>) {
         if self.motion.is_some_and(|(_, c)| c.done()) {
             self.motion = None;
@@ -85,6 +85,8 @@ pub struct ModuleFx {
     pub commit_tab: Presence,
     /// 状态栏右端的终端开关和设置分类栏中的「终端」一项：二者都随终端模块出现、消失。
     pub terminal: Presence,
+    /// 设置分类栏中的「Git」一项，随 Git 模块出现、消失。
+    pub git: Presence,
     /// 状态栏的分支名。
     pub branch: Presence,
     /// 最近一帧画的分支名：分支名消失（模块关了、仓库状态清掉了）以后淡出用。
@@ -102,6 +104,7 @@ impl ModuleFx {
     pub fn moving(&self) -> bool {
         self.commit_tab.moving()
             || self.terminal.moving()
+            || self.git.moving()
             || self.branch.moving()
             || self.preview.moving()
             || self.browser.moving()
@@ -114,12 +117,14 @@ impl App {
     pub(in crate::app) fn track_modules(&mut self) {
         let commit = self.git.root.is_some();
         let terminal = self.terminal_enabled();
+        let git = self.git_enabled();
         let branch = self.git.status.as_ref().is_some_and(|s| s.head.is_some());
         let preview = self.editor.active().is_some_and(|d| d.can_preview());
         let browser = self.browser_page().is_some();
         let fx = &self.module_fx;
         let changed = fx.commit_tab.shown != commit
             || fx.terminal.shown != terminal
+            || fx.git.shown != git
             || fx.branch.shown != branch
             || fx.preview.shown != preview
             || fx.browser.shown != browser;
@@ -133,6 +138,7 @@ impl App {
         let fx = &mut self.module_fx;
         fx.commit_tab.track(commit, clock);
         fx.terminal.track(terminal, clock);
+        fx.git.track(git, clock);
         fx.branch.track(branch, clock);
         if !branch && !fx.branch.moving() {
             fx.branch_label = None;

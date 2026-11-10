@@ -59,6 +59,7 @@ pub use lifecycle::closing::{CloseRequest, SaveChoice, SavePrompt};
 pub use lifecycle::notice::{NoticeAction, NoticeGhost};
 pub use lifecycle::title_bar::WindowControl;
 pub(crate) use lifecycle::title_bar::resize_cursor;
+pub(crate) use lifecycle::wallpaper::Layer as WallpaperLayer;
 use lifecycle::window::frame_interval;
 pub(crate) use settings::UpdateClick;
 pub use settings::{DialogCache, SettingsState};
@@ -420,6 +421,8 @@ pub enum Hover {
     MarkdownLink(usize),
     /// Markdown 预览左侧的标题指示条或展开的标题列表。
     MarkdownToc(crate::app::preview::markdown::TocTarget),
+    /// PDF 预览右下角工具栏上的按钮。
+    PdfTool(crate::app::preview::pdf::PdfTool),
     Search(SearchButton),
     TreeRow(usize),
     /// 历史差异侧栏标题行中切换树形与列表的按钮。
@@ -822,6 +825,8 @@ pub struct App {
     pub(crate) markdown: preview::markdown::MarkdownPreview,
     /// 当前标签的 PDF 预览。
     pub(crate) pdf: preview::pdf::PdfPreview,
+    /// 窗口背景图的状态。
+    pub(crate) wallpaper: lifecycle::wallpaper::WallpaperState,
     /// 状态栏键路径的缓存与扫描记录。
     pub key_path: status::breadcrumb::KeyPath,
     /// 文件树的界面状态。
@@ -1003,6 +1008,8 @@ pub struct App {
     ///
     /// 创建窗口时按当前显示器校验后使用一次，见 `App::cascade_from`。
     pub(crate) cascade: Option<((f64, f64), f64)>,
+    /// 窗口创建并显示后是否进入全屏（来源窗口处于全屏时），使用一次。
+    pub(crate) open_fullscreen: bool,
     /// 新窗口与来源窗口共用的字体和字形缓存（创建渲染器时使用一次）。
     pub(crate) glyphs_from: Option<winc_render::SharedGlyphs>,
     /// 待使用的激活令牌（见 [`App::set_activation`]）。

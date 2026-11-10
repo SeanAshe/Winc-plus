@@ -642,7 +642,7 @@ impl App {
             doc.scroll_line = view.pos_of(RIGHT, row.max(0.0));
         }
         self.clamp_scroll();
-        // 被替换的改动不立即失去颜色，而是在原处淡出；系统开启「减弱动态效果」时不显示淡出。
+        // 被替换的改动不立即失去颜色，而是在原处淡出；动态效果关闭时不显示淡出。
         self.diff.fade = self
             .clock(REPLACE_FADE)
             .map(|clock| DiffFade { clock, ..fade });

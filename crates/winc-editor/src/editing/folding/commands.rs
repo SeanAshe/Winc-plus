@@ -203,6 +203,27 @@ impl Document {
         self.keep_selection_visible();
     }
 
+    /// 返回已折叠的块（开头行，末尾行），按开头行排序。
+    pub fn folded(&self) -> Vec<(usize, usize)> {
+        self.folds.iter().map(|f| (f.start, f.end)).collect()
+    }
+
+    /// 折叠 `saved` 中仍与文档里可折叠的块一致的块；文件改动后对不上的不折叠。
+    pub fn restore_folds(&mut self, saved: &[(usize, usize)], tab_width: usize) {
+        if !self.can_fold() {
+            return;
+        }
+        let ranges = self.fold_ranges(tab_width);
+        let same = |&&(start, end): &&(usize, usize)| {
+            (ranges.iter()).any(|range| (range.start, range.end) == (start, end))
+        };
+        let folds: Vec<Fold> = (saved.iter().filter(same))
+            .map(|&(start, end)| Fold::new(&self.text, start, end))
+            .collect();
+        self.folds.insert(folds);
+        self.keep_selection_visible();
+    }
+
     /// 展开以第 `line` 行为开头的块（点击折叠行后面的 `⋯` 时调用），返回是否有块被展开。
     pub fn unfold_at(&mut self, line: usize) -> bool {
         self.folds.remove(|f| f.start == line)

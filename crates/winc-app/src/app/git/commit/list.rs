@@ -302,7 +302,7 @@ impl App {
     ///
     /// `before` 是变化之前的各行。子行从第 `parent` 行下方逐渐显示（或收回），其后的各行随之移动。
     ///
-    /// 打开了「减弱动态效果」时直接到位。
+    /// 动态效果关闭时直接到位。
     pub(super) fn start_commit_motion(&mut self, before: Rc<CommitRows>, parent: usize) {
         let after = self.commit_rows();
         let expanding = after.len() > before.len();

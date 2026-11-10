@@ -164,6 +164,7 @@ const EDITOR: &[Field] = &[
 /// `ui` 一节。
 const UI: &[Field] = &[
     string_field!("font", ui_font),
+    bool_field!("animations", ui_animations),
     Field {
         key: "size",
         read: |config, value, name, problems| {
@@ -180,6 +181,54 @@ const UI: &[Field] = &[
                 .map(|zoom| zoom.round() as u16);
         },
         write: |config| config.ui_zoom.map(|zoom| number(f32::from(zoom))),
+    },
+    Field {
+        key: "fontWeight",
+        read: |config, value, name, problems| {
+            let label = t!("config-label-font-weight");
+            let range = Config::FONT_WEIGHT_RANGE;
+            config.ui_font_weight =
+                read_number(value, name, range, label, problems).map(|w| w.round() as u16);
+        },
+        write: |config| {
+            config
+                .ui_font_weight
+                .map(|weight| number(f32::from(weight)))
+        },
+    },
+    string_field!("backgroundImage", ui_background_image),
+    Field {
+        key: "backgroundOpacity",
+        read: |config, value, name, problems| {
+            let label = t!("config-label-background-opacity");
+            let range = Config::BACKGROUND_OPACITY_RANGE;
+            config.ui_background_opacity = read_number(value, name, range, label, problems);
+        },
+        write: |config| config.ui_background_opacity.map(number),
+    },
+    Field {
+        key: "backgroundFit",
+        read: |config, value, name, problems| {
+            config.ui_background_fit = match value.as_str() {
+                Some("fill") => Some(BackgroundFit::Fill),
+                Some("fit") => Some(BackgroundFit::Fit),
+                Some("stretch") => Some(BackgroundFit::Stretch),
+                Some("tile") => Some(BackgroundFit::Tile),
+                _ => {
+                    problems.push(t!("config-background-fit-invalid", name = name));
+                    None
+                }
+            };
+        },
+        write: |config| {
+            let value = match config.ui_background_fit? {
+                BackgroundFit::Fill => "fill",
+                BackgroundFit::Fit => "fit",
+                BackgroundFit::Stretch => "stretch",
+                BackgroundFit::Tile => "tile",
+            };
+            Some(Json::String(value.into()))
+        },
     },
     Field {
         // `titleBarStyle` 在配置中是字符串，读入后只保留是否用系统的标题栏。

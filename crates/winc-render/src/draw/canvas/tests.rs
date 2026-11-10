@@ -247,11 +247,12 @@ fn div255_exact() {
 fn rect_is_clipped_to_canvas_and_clip() {
     let mut px = vec![0u32; 8 * 4];
     let mut c = canvas(&mut px, 8, 4);
-    c.rect(IRect::new(-2, -2, 6, 4), 0xffff_0000, ALL, None);
+    c.rect(IRect::new(-2, -2, 6, 4), 0xffff_0000, ALL, None, None);
     c.rect(
         IRect::new(4, 0, 10, 10),
         0xff00_ff00,
         IRect::new(5, 1, 2, 2),
+        None,
         None,
     );
 
@@ -275,7 +276,7 @@ fn stride_padding_is_untouched() {
         height: 2,
         stride: 6,
     };
-    c.rect(IRect::new(0, 0, 100, 100), 0xff00_00ff, ALL, None);
+    c.rect(IRect::new(0, 0, 100, 100), 0xff00_00ff, ALL, None, None);
     assert_eq!(&px[4..6], &[7, 7]);
     assert_eq!(px[6], 0xff00_00ff);
 }
@@ -284,7 +285,14 @@ fn stride_padding_is_untouched() {
 fn rounded_corners_are_soft() {
     let mut px = vec![0xff00_0000u32; 20 * 20];
     let mut c = canvas(&mut px, 20, 20);
-    c.rounded_rect(IRect::new(0, 0, 20, 20), [8.0; 4], 0xffff_ffff, ALL, None);
+    c.rounded_rect(
+        IRect::new(0, 0, 20, 20),
+        [8.0; 4],
+        0xffff_ffff,
+        ALL,
+        None,
+        None,
+    );
     assert_eq!(px[0], 0xff00_0000);
     assert_eq!(px[10 * 20 + 10], 0xffff_ffff);
     assert_ne!(px[2 * 20 + 2], 0xffff_ffff);
@@ -299,6 +307,7 @@ fn per_corner_radii_and_shadow() {
         [8.0, 0.0, 0.0, 0.0],
         0xffff_ffff,
         ALL,
+        None,
         None,
     );
     // 只有左上角为圆角：左上角像素不变，右上角、左下角仍被填充。
@@ -324,10 +333,17 @@ fn skipping_what_an_opaque_card_covers_changes_nothing_you_can_see() {
         let mut c = canvas(&mut px, 40, 40);
         let card = IRect::new(8, 6, 24, 26);
         let skip = covered.then(|| Covered::new(card, 5.0));
-        c.rect(IRect::new(0, 0, 40, 40), 0x5900_0000, ALL, skip);
+        c.rect(IRect::new(0, 0, 40, 40), 0x5900_0000, ALL, skip, None);
         c.shadow(IRect::new(8, 9, 24, 26), 5.0, 6.0, 0x8000_0000, ALL, skip);
-        c.rounded_rect(IRect::new(7, 5, 26, 28), [6.0; 4], 0x14ff_ffff, ALL, skip);
-        c.rounded_rect(card, [5.0; 4], 0xffee_eeee, ALL, None);
+        c.rounded_rect(
+            IRect::new(7, 5, 26, 28),
+            [6.0; 4],
+            0x14ff_ffff,
+            ALL,
+            skip,
+            None,
+        );
+        c.rounded_rect(card, [5.0; 4], 0xffee_eeee, ALL, None, None);
         px
     };
     assert_eq!(draw(true), draw(false));
@@ -484,7 +500,7 @@ fn rounded_rect_spans_match_pixel_by_pixel() {
         for color in [0xffee_eeee, 0x80ff_ffff] {
             for covered in [None, Some(Covered::new(IRect::new(6, 6, 12, 14), 3.0))] {
                 let mut px = vec![0xff20_4060u32; 30 * 30];
-                canvas(&mut px, 30, 30).rounded_rect(area, radii, color, ALL, covered);
+                canvas(&mut px, 30, 30).rounded_rect(area, radii, color, ALL, covered, None);
                 let want = reference(area, radii, color, covered);
                 assert!(px == want, "{area:?} {radii:?} {color:08x}");
             }
@@ -614,7 +630,7 @@ fn layered_fill_matches_filling_then_drawing_each_rect() {
         };
         c.fill(0x123456);
         for &(area, color) in rects {
-            c.rect(area, color | 0xff00_0000, ALL, None);
+            c.rect(area, color | 0xff00_0000, ALL, None, None);
         }
         let mut got = vec![7; len];
         let mut c = Canvas {

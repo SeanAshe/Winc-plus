@@ -17,4 +17,5 @@ pub(super) mod placement;
 mod shell_command;
 pub(super) mod startup;
 pub(super) mod title_bar;
+pub(super) mod wallpaper;
 pub(super) mod window;

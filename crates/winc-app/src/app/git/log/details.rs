@@ -4,7 +4,7 @@ use super::*;
 
 impl App {
     /// 绘制前记下详情一栏这一帧要画哪个提交（`oid`）：换成了另一个提交（不是从没有到有）时，
-    /// 内容从四成不透明淡入（`DETAILS_FADE`）；减弱动态效果、没有窗口时不淡入。
+    /// 内容从四成不透明淡入（`DETAILS_FADE`）；动态效果关闭、没有窗口时不淡入。
     pub(crate) fn note_log_details_shown(&mut self, oid: Option<String>) {
         if oid == self.log.shown {
             return;

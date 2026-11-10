@@ -274,8 +274,8 @@ pub fn run() {
 
 /// 按命令行参数打开目录和文件，返回需要提示用户的 `Vec<String>`。
 ///
-/// 给出多个文件时，以第一个文件所在的目录作为项目；`文件:行` 形式的目标会跳到对应行
-/// （行号和列号从 0 起）。临时打开（`--wait`、`-`）时不打开项目，只打开给出的文件。
+/// 只给出文件时不打开其所在的目录；`文件:行` 形式的目标会跳到对应行（行号和列号从 0 起）。
+/// 临时打开（`--wait`、`-`）时不接受目录。
 pub(crate) fn open_targets(editor: &mut Editor, args: &cli::Args) -> Vec<String> {
     let mut problems = Vec::new();
     let mut first_file = None;
@@ -307,16 +307,6 @@ pub(crate) fn open_targets(editor: &mut Editor, args: &cli::Args) -> Vec<String>
         first_file.get_or_insert(index);
     }
 
-    // 命令行只给了文件：以第一个文件所在的目录作为项目，并在文件树中展开到该文件。
-    if !args.one_off()
-        && editor.workspace.is_none()
-        && let Some(file) = first_file.and_then(|i| editor.documents[i].path.clone())
-        && let Some(parent) = file.parent().map(Path::to_path_buf)
-        && editor.open_folder(&parent).is_ok()
-        && let Some(workspace) = &mut editor.workspace
-    {
-        workspace.reveal(&file);
-    }
     if let Some(index) = first_file {
         editor.active = Some(index);
     }

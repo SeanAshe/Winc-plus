@@ -5,10 +5,12 @@
 
 mod kinds;
 mod palettes;
+mod veil;
 mod winc;
 
 pub use kinds::*;
 pub use palettes::*;
+pub use veil::*;
 pub use winc::*;
 
 use std::borrow::Cow;

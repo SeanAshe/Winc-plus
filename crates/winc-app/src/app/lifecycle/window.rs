@@ -159,6 +159,19 @@ impl App {
         }
     }
 
+    /// 窗口是否处于全屏；隐藏的窗口不算。
+    pub(crate) fn is_fullscreen(&self) -> bool {
+        let window = self.window.handle.as_ref().filter(|_| !self.window.hidden);
+        window.is_some_and(|window| window.fullscreen().is_some())
+    }
+
+    /// 让窗口进入全屏；macOS 上窗口独占一个桌面空间。
+    pub(crate) fn enter_fullscreen(&self) {
+        if let Some(window) = &self.window.handle {
+            window.set_fullscreen(Some(winit::window::Fullscreen::Borderless(None)));
+        }
+    }
+
     /// 重新显示隐藏的窗口，并让它成为前台窗口；窗口没有隐藏时不做任何事。
     ///
     /// 先在隐藏的窗口上画好一帧（开始页）再显示，不会先显示关闭前的画面。
@@ -471,7 +484,10 @@ impl App {
     }
 
     /// 向渲染器声明下一帧的底色矩形（`view::base`），使其随窗口背景色一趟绘制。
-    pub(in crate::app) fn declare_base(&self, renderer: &mut winc_render::Renderer) {
+    ///
+    /// 同时让渲染器的背景图与配置一致（见 `App::sync_wallpaper`）。
+    pub(in crate::app) fn declare_base(&mut self, renderer: &mut winc_render::Renderer) {
+        self.sync_wallpaper(renderer);
         let (window, scale) = (self.layout.window, renderer.scale_factor());
         if self.settings_reuses_base(window, scale) {
             // 滚动设置页时由保存的快照覆盖整个窗口，无需先填充背景。

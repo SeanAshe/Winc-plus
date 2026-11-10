@@ -3336,6 +3336,310 @@ fn pdf_files_render_only_the_pages_in_view() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// PDF 预览有可以拖动的滚动条：滚动后显示，按住滑块拖到底即滚到结尾，途中不选中任何内容。
+#[cfg(any(target_os = "macos", windows))]
+#[test]
+fn the_pdf_preview_scrolls_by_its_scrollbar() {
+    use crate::layout::{Scrollbar, scrollbar_thumb};
+
+    let dir = sample_folder("pdf-scrollbar");
+    let path = dir.join("长文档.pdf");
+    std::fs::write(&path, sample_pdf(30)).unwrap();
+    let mut app = open_pdf(&path, false);
+    let area = app.pdf.area;
+    assert!(app.pdf.max_scroll() > area.h);
+
+    // 滚动后滚动条显示。
+    app.on_mouse_move(area.x + area.w / 2.0, area.y + area.h / 2.0);
+    assert_eq!(app.scrollbar_shown(ScrollArea::Pdf), 0.0);
+    app.on_wheel(MouseScrollDelta::PixelDelta(PhysicalPosition::new(
+        0.0, -200.0,
+    )));
+    paint(&mut app);
+    assert_eq!(app.scrollbar_shown(ScrollArea::Pdf), 1.0);
+
+    // 按住滑块拖到底：滚到结尾；拖回顶部：回到开头。
+    let thumb = scrollbar_thumb(area, app.pdf.scroll, app.pdf.height).unwrap();
+    app.on_mouse_move(area.right() - 3.0, thumb.y + thumb.h / 2.0);
+    assert!(matches!(app.hover, Hover::Scrollbar(Scrollbar::Pdf)));
+    app.on_mouse_down(MouseButton::Left);
+    app.on_mouse_move(area.right() - 3.0, area.bottom() + 50.0);
+    assert_eq!(app.pdf.scroll, app.pdf.max_scroll());
+    app.on_mouse_move(area.right() - 3.0, area.y - 50.0);
+    assert_eq!(app.pdf.scroll, 0.0);
+    app.on_mouse_up(MouseButton::Left);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// PDF 预览左侧有缩略图栏：只渲染栏内附近的页，点击缩略图跳到该页，栏随当前页滚动，有自己的
+/// 滚动条；右下角工具栏上的开关显示或隐藏它，并记入状态。
+#[cfg(any(target_os = "macos", windows))]
+#[test]
+fn the_pdf_preview_lists_page_thumbnails() {
+    use crate::app::preview::pdf::PdfTool;
+
+    let dir = sample_folder("pdf-thumbnails");
+    let path = dir.join("长文档.pdf");
+    std::fs::write(&path, sample_pdf(30)).unwrap();
+    let mut app = open_pdf(&path, false);
+    let (area, strip) = (app.pdf.area, app.pdf.strip);
+    assert!(strip.w > 0.0 && strip.h == area.h && strip.x == area.x);
+    // 只渲染栏内及其上下各一项的缩略图，不是全部 30 页；正文的页不受影响。
+    let listed = app.pdf.thumbs.len();
+    assert!((3..30).contains(&listed), "{listed}");
+    assert!(app.pdf.thumbs.contains_key(&0) && app.pdf.rendered.contains_key(&0));
+
+    // 点击第 3 页的缩略图：正文滚动到该页，栏内该页成为当前页。
+    let (third, to) = app.hits.pdf_thumbs[2];
+    assert!(to > 0.0);
+    click(&mut app, (third.x + third.w / 2.0, third.y + third.h / 2.0));
+    assert_eq!(app.pdf.scroll, to);
+    paint(&mut app);
+    assert_eq!(app.pdf.current, 2);
+
+    // 在栏上滚动只滚动栏，正文不动；在正文上滚动到结尾后，栏跟到最后一页。
+    app.on_mouse_move(strip.x + strip.w / 2.0, strip.y + strip.h / 2.0);
+    app.on_wheel(MouseScrollDelta::PixelDelta(PhysicalPosition::new(
+        0.0, -400.0,
+    )));
+    assert!(app.pdf.strip_scroll > 0.0);
+    assert_eq!(app.pdf.scroll, to);
+    app.scroll_pdf(-f32::MAX);
+    for _ in 0..3 {
+        paint(&mut app);
+        app.wait_for_pdf();
+    }
+    assert_eq!(app.pdf.current, 29);
+    assert!(app.pdf.thumbs.contains_key(&29) && !app.pdf.thumbs.contains_key(&0));
+    assert!(
+        app.hits
+            .pdf_thumbs
+            .iter()
+            .any(|(rect, _)| rect.bottom() >= strip.bottom() - 40.0)
+    );
+
+    // 栏内有滚动条：按住滑块拖到底，栏滚到最后；正文不动。
+    let scroll = app.pdf.scroll;
+    let strip = app.pdf.strip;
+    let (at, content) = (app.pdf.strip_scroll, app.pdf.strip_height);
+    let thumb = crate::layout::scrollbar_thumb(strip, at, content).unwrap();
+    app.on_mouse_move(strip.right() - 3.0, thumb.y + thumb.h / 2.0);
+    assert!(matches!(
+        app.hover,
+        Hover::Scrollbar(crate::layout::Scrollbar::PdfStrip)
+    ));
+    app.on_mouse_down(MouseButton::Left);
+    app.on_mouse_move(strip.right() - 3.0, strip.y - 50.0);
+    assert_eq!(app.pdf.strip_scroll, 0.0);
+    app.on_mouse_move(strip.right() - 3.0, strip.bottom() + 50.0);
+    assert_eq!(app.pdf.strip_scroll, content - strip.h);
+    app.on_mouse_up(MouseButton::Left);
+    assert_eq!(app.pdf.scroll, scroll);
+
+    // 点击工具栏上的开关：隐藏缩略图栏，正文占满预览区域，缩略图释放；再点一次恢复。
+    let tool = |app: &App, tool: PdfTool| {
+        let (rect, _) = *app.hits.pdf_tools.iter().find(|(_, t)| *t == tool).unwrap();
+        (rect.x + rect.w / 2.0, rect.y + rect.h / 2.0)
+    };
+    let press = |app: &mut App, which: PdfTool| {
+        let at = tool(app, which);
+        click(app, at);
+    };
+    let toggle = tool(&app, PdfTool::Thumbnails);
+    app.on_mouse_move(toggle.0, toggle.1);
+    assert_eq!(app.hover, Hover::PdfTool(PdfTool::Thumbnails));
+    click(&mut app, toggle);
+    assert!(app.state.pdf_thumbnails_hidden);
+    paint(&mut app);
+    assert_eq!(app.pdf.strip.w, 0.0);
+    assert!(app.pdf.thumbs.is_empty() && app.hits.pdf_thumbs.is_empty());
+    press(&mut app, PdfTool::Thumbnails);
+    paint(&mut app);
+    assert!(!app.state.pdf_thumbnails_hidden && app.pdf.strip.w > 0.0);
+
+    // 工具栏上的缩放按钮：放大、缩小各一档，点击倍数还原。
+    press(&mut app, PdfTool::ZoomIn);
+    assert_eq!(app.pdf.zoom, 1.25);
+    paint(&mut app);
+    press(&mut app, PdfTool::ZoomOut);
+    press(&mut app, PdfTool::ZoomOut);
+    assert_eq!(app.pdf.zoom, 0.8);
+    paint(&mut app);
+    press(&mut app, PdfTool::ZoomReset);
+    assert_eq!(app.pdf.zoom, 1.0);
+
+    // 只有一页的文档没有缩略图栏，工具栏上也没有它的开关。
+    let single = dir.join("单页.pdf");
+    std::fs::write(&single, sample_pdf(1)).unwrap();
+    app.open_path(&single);
+    for _ in 0..3 {
+        paint(&mut app);
+        app.wait_for_pdf();
+    }
+    assert_eq!(app.pdf.strip.w, 0.0);
+    assert!(
+        app.hits
+            .pdf_tools
+            .iter()
+            .all(|(_, t)| *t != PdfTool::Thumbnails)
+    );
+    assert_eq!(app.hits.pdf_tools.len(), 3);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// PDF 可以缩放：快捷键和主修饰键加滚轮各缩放一档，鼠标处的内容保持在原位；放大后可以横向
+/// 滚动，位图过大的倍数不可选。
+#[cfg(any(target_os = "macos", windows))]
+#[test]
+fn the_pdf_preview_zooms_around_the_pointer() {
+    use crate::keymap::Action;
+
+    let dir = sample_folder("pdf-zoom");
+    let path = dir.join("长文档.pdf");
+    std::fs::write(&path, sample_pdf(30)).unwrap();
+    let mut app = open_pdf(&path, false);
+    let settle = |app: &mut App| {
+        for _ in 0..3 {
+            paint(app);
+            app.wait_for_pdf();
+        }
+    };
+    let size = app.config.editor_size;
+    let fit = app.pdf.rendered[&0].width;
+    assert_eq!((app.pdf.zoom, app.pdf.scroll_x), (1.0, 0.0));
+
+    // 字号的快捷键在 PDF 上缩放 PDF，不改字号；还原回到适应宽度。
+    app.run_action(Action::DecreaseFontSize);
+    settle(&mut app);
+    assert_eq!(app.pdf.zoom, 0.8);
+    assert!(app.pdf.rendered[&0].width < fit);
+    app.run_action(Action::ResetFontSize);
+    assert_eq!((app.pdf.zoom, app.config.editor_size), (1.0, size));
+
+    // 主修饰键加滚轮放大：鼠标处的内容保持在原位，页面比区域宽后可以横向滚动。
+    app.scroll_pdf_to(app.pdf.max_scroll() / 2.0);
+    settle(&mut app);
+    let body = app.pdf.area.x + app.pdf.strip.w;
+    let at = (body + 200.0, app.pdf.area.y + 300.0);
+    app.on_mouse_move(at.0, at.1);
+    let under = |app: &App| {
+        let pages = app.pdf.pages.clone().unwrap().unwrap();
+        let width = app.pdf.area.w - app.pdf.strip.w;
+        let (rects, ..) = crate::app::preview::pdf::page_rects(&pages, width, app.pdf.zoom);
+        let (x, y) = (
+            app.pdf.scroll_x + at.0 - body,
+            app.pdf.scroll + at.1 - app.pdf.area.y,
+        );
+        let page = rects.iter().rposition(|r| r.y <= y).unwrap();
+        let r = rects[page];
+        (page, (x - r.x) / r.w, (y - r.y) / r.h)
+    };
+    let before = under(&app);
+    app.modifiers = if cfg!(target_os = "macos") {
+        winit::keyboard::ModifiersState::SUPER
+    } else {
+        winit::keyboard::ModifiersState::CONTROL
+    };
+    let notch = MouseScrollDelta::LineDelta(0.0, 1.0);
+    for _ in 0..2 {
+        app.on_wheel_event(notch, winit::event::TouchPhase::Moved);
+    }
+    settle(&mut app);
+    assert_eq!((app.pdf.zoom, app.config.editor_size), (1.5, size));
+    let after = under(&app);
+    assert_eq!(after.0, before.0);
+    assert!((after.1 - before.1).abs() < 0.01 && (after.2 - before.2).abs() < 0.01);
+    assert!(app.pdf.width > app.pdf.area.w - app.pdf.strip.w);
+    assert!(app.pdf.scroll_x > 0.0);
+    app.modifiers = winit::keyboard::ModifiersState::empty();
+    let x = app.pdf.scroll_x;
+    app.on_wheel(MouseScrollDelta::PixelDelta(PhysicalPosition::new(
+        -40.0, 0.0,
+    )));
+    assert!(app.pdf.scroll_x > x);
+
+    // 放大到最大的一档（或位图大小的上限）后不再变化。
+    app.run_action(Action::IncreaseFontSize);
+    let most = app.pdf.zoom;
+    app.run_action(Action::IncreaseFontSize);
+    assert_eq!(app.pdf.zoom, most);
+    settle(&mut app);
+    let px = &app.pdf.rendered.values().next().unwrap();
+    assert!(u64::from(px.width) * u64::from(px.height) <= 17_000_000);
+    // 缩小到最小的一档后不再变化，内容不超出区域，横向不能滚动。
+    for _ in 0..10 {
+        app.run_action(Action::DecreaseFontSize);
+    }
+    settle(&mut app);
+    assert_eq!((app.pdf.zoom, app.pdf.scroll_x), (0.5, 0.0));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 缩放和缩略图栏的显示、隐藏都有过渡：缩放期间倍数逐帧变化，锚点处的内容不动，请求的始终是
+/// 最终倍数的位图，旧位图留到新的渲染完成；缩略图栏滑入期间只露出一部分。
+#[cfg(any(target_os = "macos", windows))]
+#[test]
+fn the_pdf_preview_animates_zooming_and_the_thumbnail_strip() {
+    use crate::app::animation::PDF_MOTION;
+    use crate::app::preview::pdf::{ZoomMotion, page_rects};
+
+    let dir = sample_folder("pdf-motion");
+    let path = dir.join("长文档.pdf");
+    std::fs::write(&path, sample_pdf(30)).unwrap();
+    let mut app = open_pdf(&path, false);
+    let pages = app.pdf.pages.clone().unwrap().unwrap();
+    let body = app.pdf.area.w - app.pdf.strip.w;
+    let fit = app.pdf.rendered[&0].width;
+
+    // 放大到 1.5 倍，过渡走到一半：页面介于两种大小之间，第 1 页的指定位置停在锚点上。
+    let anchor = (body / 2.0, 200.0);
+    app.pdf.zoom = 1.5;
+    app.pdf.zoom_motion = Some(ZoomMotion {
+        from: 1.0,
+        clock: Clock::stopped(PDF_MOTION, PDF_MOTION / 2),
+        page: 0,
+        at: (0.5, 0.25),
+        anchor,
+    });
+    paint(&mut app);
+    let (small, _, least) = page_rects(&pages, body, 1.0);
+    let (large, _, most) = page_rects(&pages, body, 1.5);
+    let zoom = Clock::stopped(PDF_MOTION, PDF_MOTION / 2).between(1.0, 1.5);
+    let (now, _, height) = page_rects(&pages, body, zoom);
+    assert!(least < height && height < most && small[0].w < now[0].w);
+    assert_eq!(app.pdf.height, height);
+    let center = now[0].y + now[0].h * 0.25;
+    assert!((center - app.pdf.scroll - anchor.1).abs() < 2.0, "{center}");
+    // 旧位图还在（缩放显示），已请求的是最终倍数的位图。
+    assert_eq!(app.pdf.rendered[&0].width, fit);
+    app.pdf.zoom_motion = None;
+    for _ in 0..3 {
+        paint(&mut app);
+        app.wait_for_pdf();
+    }
+    assert_eq!(
+        app.pdf.rendered[&0].width,
+        (large[0].w * SCALE).round() as u32
+    );
+
+    // 缩略图栏滑出到一半：只露出一部分，命中范围限制在露出的部分之内。
+    app.pdf.strip_motion = Some((false, Clock::stopped(PDF_MOTION, PDF_MOTION / 4)));
+    paint(&mut app);
+    let strip = app.pdf.strip;
+    assert!(strip.w > 0.0 && strip.w < 136.0, "{strip:?}");
+    assert!(
+        app.hits
+            .pdf_thumbs
+            .iter()
+            .all(|(rect, _)| rect.right() <= strip.right())
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// 回归（#105）：某一页渲染失败时在页面中央显示原因，不再空白；失败的页不在每一帧重新请求。
 #[cfg(any(target_os = "macos", windows))]
 #[test]

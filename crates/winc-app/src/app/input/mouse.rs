@@ -12,7 +12,7 @@ use target::*;
 
 use std::time::{Duration, Instant};
 
-use winit::event::{MouseButton, MouseScrollDelta};
+use winit::event::{MouseButton, MouseScrollDelta, TouchPhase};
 use winit::window::CursorIcon;
 
 use winc_core::{Lines, Selection, movement};
@@ -38,6 +38,11 @@ const WHEEL_NOTCH: f32 = 120.0;
 /// Windows 上滚轮一格默认滚动的行数（行），依据 `SPI_GETWHEELSCROLLLINES` 的默认值。
 #[cfg(windows)]
 const WHEEL_LINES: f32 = 3.0;
+
+/// 触控板调整字号时，每调整一档所需的滚动距离（逻辑像素，经验值）。
+pub(in crate::app) const ZOOM_WHEEL_PIXELS: f32 = 48.0;
+/// 两次触控板滚动事件的间隔超过该值时视为新的手势（毫秒，经验值）。
+const WHEEL_GESTURE_GAP: Duration = Duration::from_millis(150);
 
 /// 鼠标滚轮过渡的最短时长（毫秒）。
 ///
@@ -123,6 +128,84 @@ impl App {
             self.set_hover(self.hover_at(self.mouse.0, self.mouse.1));
         }
         self.update_cursor_icon();
+    }
+
+    /// 处理窗口的滚轮事件：按住主修饰键时调整字号（见 [`Self::wheel_zoom`]），否则滚动。
+    pub(in crate::app) fn on_wheel_event(&mut self, delta: MouseScrollDelta, phase: TouchPhase) {
+        if !self.wheel_zoom(delta, phase) {
+            self.on_wheel(delta);
+        }
+    }
+
+    /// 只按住主修饰键滚动时，调整鼠标所在的编辑区或终端的字号，或缩放 PDF，返回事件是否已处理。
+    ///
+    /// 触控板的一次手势是否调整字号在手势开始时确定：滚动途中按下修饰键仍是滚动，调整途中
+    /// 松开修饰键后余下的滚动量丢弃。每个事件至多调整一档。
+    fn wheel_zoom(&mut self, delta: MouseScrollDelta, phase: TouchPhase) -> bool {
+        let keys = self.modifiers;
+        let held = self.command_held()
+            && keys.control_key() != keys.super_key()
+            && !keys.shift_key()
+            && !keys.alt_key();
+        let zoomed = match self.target_at(self.mouse.0, self.mouse.1) {
+            Target::Editor if self.on_pdf_body() => Some(Zoomed::Pdf),
+            Target::Editor | Target::Gutter => Some(Zoomed::Editor),
+            Target::Terminal | Target::TerminalBlock(_) => Some(Zoomed::Terminal),
+            _ => None,
+        };
+        let amount = match delta {
+            MouseScrollDelta::LineDelta(_, y) => {
+                if !held || zoomed.is_none() {
+                    self.wheel.zoom = 0.0;
+                    return false;
+                }
+                // macOS 按滚动速度给出不足一格的量，每个事件按一格计。
+                if cfg!(target_os = "macos") {
+                    y.signum()
+                } else {
+                    y
+                }
+            }
+            MouseScrollDelta::PixelDelta(delta) => {
+                let now = Instant::now();
+                let last = self.wheel.pixel_at.replace(now);
+                let fresh = phase == TouchPhase::Started
+                    || last.is_none_or(|at| now.duration_since(at) > WHEEL_GESTURE_GAP);
+                if fresh {
+                    self.wheel.zooming = held && zoomed.is_some();
+                    self.wheel.zoom = 0.0;
+                }
+                if !self.wheel.zooming {
+                    return false;
+                }
+                if !held {
+                    return true;
+                }
+                let scale = self.renderer.as_ref().map_or(1.0, Renderer::scale_factor);
+                delta.y as f32 / scale / ZOOM_WHEEL_PIXELS
+            }
+        };
+        let Some(zoomed) = zoomed else {
+            return true;
+        };
+        self.wheel.zoom += amount;
+        if self.wheel.zoom.abs() >= 1.0 {
+            let up = self.wheel.zoom > 0.0;
+            self.wheel.zoom = 0.0;
+            self.dismiss_hint();
+            if zoomed == Zoomed::Pdf {
+                self.zoom_pdf(Some(up), Some(self.mouse));
+                return true;
+            }
+            // 调整字号会把光标滚入视野；这里保持编辑区顶部的行不变。
+            let top = self.editor.active().map(|doc| doc.scroll_line);
+            self.step_font_size_in(zoomed == Zoomed::Terminal, Some(up));
+            if let (Some(top), Some(doc)) = (top, self.editor.active_mut()) {
+                doc.scroll_line = top;
+                self.clamp_scroll();
+            }
+        }
+        true
     }
 
     /// 处理滚轮事件 `delta`：滚动鼠标所在区域对应的内容。
@@ -407,8 +490,11 @@ impl App {
             if !table {
                 self.scroll_markdown(dy);
             }
+        } else if self.pdf.strip.contains(x, y) {
+            self.scroll_pdf_strip(dy);
         } else if self.pdf.area.contains(x, y) {
-            self.scroll_pdf(dy);
+            let (dx, dy) = if shift_wheel { (dy, 0.0) } else { (dx, dy) };
+            self.scroll_pdf_by(dx, dy);
         } else if self.table_at(x, y) {
             let (dx, dy) = if shift_wheel { (dy, 0.0) } else { (dx, dy) };
             self.scroll_table(dx, dy, (x, y));
@@ -428,6 +514,14 @@ impl App {
     }
 }
 
+/// 按住主修饰键滚动时调整的对象。
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Zoomed {
+    Editor,
+    Terminal,
+    Pdf,
+}
+
 /// 鼠标滚轮滚动的过渡状态。
 #[derive(Default)]
 pub struct Wheel {
@@ -435,4 +529,10 @@ pub struct Wheel {
     pub(crate) glide: Option<crate::app::input::mouse::WheelGlide>,
     /// 上一次鼠标滚轮整格滚动的时刻，用于按两格的间隔确定过渡时长。
     pub(in crate::app) at: Option<Instant>,
+    /// 调整字号时累计的滚动量（档），满一档调整一次。
+    pub(in crate::app) zoom: f32,
+    /// 当前的触控板手势是否用于调整字号。
+    pub(in crate::app) zooming: bool,
+    /// 上一次触控板滚动事件的时刻，用于区分两次手势。
+    pub(in crate::app) pixel_at: Option<Instant>,
 }

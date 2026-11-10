@@ -26,7 +26,7 @@ const STILL: f32 = 0.5;
 /// 绘制时才知道每行的内容和宽度，因此可在只读 `App` 的绘制路径中更新。
 pub struct TreeLabels<K = PathBuf> {
     rows: RefCell<HashMap<K, Label>>,
-    /// 本帧是否播放过渡；没有窗口、系统开启「减弱动态效果」时为假。
+    /// 本帧是否播放过渡；没有窗口、动态效果关闭时为假。
     animate: bool,
     /// 绘制的帧号，用来清除不再显示的行。
     frame: u64,
@@ -249,7 +249,7 @@ impl<K: Hash + Eq + Clone> TreeLabels<K> {
 }
 
 impl App {
-    /// 文件树名字本帧是否播放过渡；没有窗口、系统开启「减弱动态效果」时为假。
+    /// 文件树名字本帧是否播放过渡；没有窗口、动态效果关闭时为假。
     pub(crate) fn animate_tree_labels(&mut self) -> bool {
         #[cfg(test)]
         if self.tree.labels.animate_without_window {
