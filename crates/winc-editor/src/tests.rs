@@ -51,6 +51,44 @@ fn bookmarks_survive_a_placeholder_tab_until_the_file_opens() {
 }
 
 #[test]
+fn folded_blocks_come_back_when_the_file_is_opened_again() {
+    let base = crate::test_util::scratch("folds-reopen");
+    std::fs::create_dir_all(&base).unwrap();
+    let path = canonical_path(&base).join("notes.md");
+    std::fs::write(&path, "# A\na1\n## B\nb1\nb2\n# C\nc1\n").unwrap();
+
+    // 折叠两个标题后关闭标签：折叠的块留在编辑器中，保存会话时一并给出。
+    let mut editor = Editor::default();
+    let index = editor.open(&path);
+    let doc = &mut editor.documents[index];
+    assert!(doc.toggle_fold_at(2, 4) && doc.toggle_fold_at(5, 4));
+    let folded = doc.folded();
+    assert_eq!(folded.len(), 2);
+    assert_eq!(editor.all_folds().get(&path), Some(&folded));
+    editor.close(index);
+    assert_eq!(editor.all_folds().get(&path), Some(&folded));
+
+    // 再次打开：恢复折叠，编辑器中不再留有记录。
+    let index = editor.open(&path);
+    assert_eq!(editor.documents[index].folded(), folded);
+    assert!(editor.folds.is_empty());
+
+    // 全部展开后关闭：不再记录该文件。
+    let doc = &mut editor.documents[index];
+    assert!(doc.unfold_at(2) && doc.unfold_at(5));
+    editor.close(index);
+    assert!(editor.all_folds().is_empty());
+
+    // 文件在此期间被改动：仍对得上的块恢复，对不上的丢弃。
+    editor.folds.insert(path.clone(), folded.clone());
+    std::fs::write(&path, "# A\na1\n## B\nb1\nb2\n# C\nc1\nc2\n").unwrap();
+    let index = editor.open(&path);
+    assert_eq!(editor.documents[index].folded(), [folded[0]]);
+
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+#[test]
 fn moving_a_tab_keeps_the_active_document() {
     let mut editor = Editor::default();
     for _ in 0..4 {

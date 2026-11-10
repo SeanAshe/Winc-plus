@@ -115,6 +115,8 @@ pub enum MenuCommand {
     OpenRecent(usize),
     /// 项目名菜单（按住 `⌥`）：在新窗口中打开最近列表中的目录。
     OpenRecentInNewWindow(usize),
+    /// 项目菜单：新建窗口。
+    NewWindow,
     OpenFolder,
     /// 项目菜单：打开 WSL 发行版中的目录。
     OpenWslFolder(usize),
@@ -162,6 +164,13 @@ pub enum MenuCommand {
     /// 设置中「界面缩放」菜单的一项，参数为 [`ZOOM_STEPS`](crate::app::settings::ZOOM_STEPS)
     /// 中的序号（从 0 起）。
     Zoom(usize),
+    /// 背景图片菜单：选择一张图片。
+    BackgroundChoose,
+    /// 背景图片菜单：不使用背景图片。
+    BackgroundNone,
+    /// 设置中「背景显示方式」菜单的一项，参数为
+    /// [`BackgroundFit::ALL`](winc_config::BackgroundFit::ALL) 中的序号（从 0 起）。
+    BackgroundFit(usize),
     /// 设置中终端「位置」菜单的一项：`true` 为右侧，`false` 为底部。
     TerminalPosition(bool),
     /// 设置中「Meta 键」菜单的一项，参数为
@@ -478,6 +487,12 @@ impl MenuCommand {
             MenuCommand::Font(i) => winc_render::installed_fonts()
                 .get(i)
                 .map_or("", |family| family.name.as_str()),
+            MenuCommand::NewWindow => t!("cmd-new-window"),
+            MenuCommand::BackgroundChoose => t!("settings-background-choose"),
+            MenuCommand::BackgroundNone => t!("settings-background-none"),
+            MenuCommand::BackgroundFit(i) => winc_config::BackgroundFit::ALL
+                .get(i)
+                .map_or("", |&choice| crate::layout::background_fit_label(choice)),
             MenuCommand::OpenFolder => t!("cmd-open-folder"),
             MenuCommand::OpenWslFolder(i) => crate::system::wsl_distributions()
                 .get(i)
@@ -532,6 +547,7 @@ impl MenuCommand {
             MenuCommand::Close => Action::CloseTab,
             MenuCommand::CloseOthers => Action::CloseOtherTabs,
             MenuCommand::CloseAll => Action::CloseAllTabs,
+            MenuCommand::NewWindow => Action::NewWindow,
             MenuCommand::OpenFolder => Action::OpenFolder,
             MenuCommand::CloseFolder => Action::CloseFolder,
             MenuCommand::Cut => Action::Cut,
@@ -607,6 +623,10 @@ pub enum MenuTarget {
     Whitespace,
     /// 设置的外观页中的「界面缩放」。
     Zoom,
+    /// 设置的外观页中的「背景图片」。
+    BackgroundImage,
+    /// 设置的外观页中的「背景显示方式」。
+    BackgroundFit,
     /// 设置的终端页中的「默认 Shell」。
     DefaultShell,
     /// 设置的终端页中的「位置」。

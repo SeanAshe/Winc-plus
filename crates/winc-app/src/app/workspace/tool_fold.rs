@@ -84,7 +84,7 @@ impl App {
             return;
         }
 
-        // 刚开始动时确认可以播放动画（有窗口、没有开启「减弱动态效果」），否则直接到位。
+        // 刚开始动时确认可以播放动画（有窗口、动态效果开启），否则直接到位。
         if fold.at.is_none() && self.clock(TOOL_FOLD).is_none() {
             self.tool_fold.shown = target;
             return;

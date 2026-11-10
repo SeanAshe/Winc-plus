@@ -1158,7 +1158,7 @@ impl App {
     ///
     /// 各块从偏移 `from` 处滑动到新位置，`fading` 中的项淡入。
     ///
-    /// 没有需要移动或淡入的内容、或系统开启减弱动态效果时不开始动画，直接绘制新的排版。
+    /// 没有需要移动或淡入的内容、或动态效果关闭时不开始动画，直接绘制新的排版。
     pub(crate) fn start_markdown_motion(&mut self, from: Vec<f32>, fading: Fading) {
         let still = from.iter().all(|d| d.abs() < 0.5);
         if still && fading.is_empty() {

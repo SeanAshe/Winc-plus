@@ -129,6 +129,42 @@ fn light_syntax_colors_stand_out_from_the_card() {
     }
 }
 
+/// 「幕」系列在背景图最不利时仍然清晰：不透明度 30%，深色主题下方是纯白的图，浅色主题下方是
+/// 纯黑的图，正文至少 6.5:1，语法色至少 4.5:1，注释和次要文字至少 3:1。浮层的底色与卡片不同。
+#[test]
+fn veil_themes_stay_readable_over_a_background_image() {
+    let veils = (LIGHT_THEMES.iter().chain(&DARK_THEMES)).filter(|t| t.id.starts_with("veil-"));
+    let mut count = 0;
+    for theme in veils {
+        count += 1;
+        let p = theme.palette;
+        let image = if p.dark { 1.0 } else { 0.0 };
+        let part = |c: f32| c * 0.7 + image * 0.3;
+        let (c, mut worst) = (p.editor_bg, p.editor_bg);
+        (worst.r, worst.g, worst.b) = (part(c.r), part(c.g), part(c.b));
+        let check = |name: &str, color: Color, least: f32| {
+            let ratio = contrast(color, worst);
+            assert!(ratio >= least, "{} {name}: {ratio:.2}", theme.id);
+        };
+        check("text", p.text, 6.45);
+        for (name, color) in [
+            ("keyword", p.syntax_keyword),
+            ("builtin", p.syntax_builtin),
+            ("string", p.syntax_string),
+            ("number", p.syntax_number),
+            ("function", p.syntax_function),
+            ("decorator", p.syntax_decorator),
+            ("property", p.syntax_property),
+        ] {
+            check(name, color, 4.45);
+        }
+        check("comment", p.syntax_comment, 2.95);
+        check("muted", p.text_muted, 2.95);
+        assert_ne!(p.popup_bg, p.editor_bg, "{}", theme.id);
+    }
+    assert_eq!(count, 4);
+}
+
 #[test]
 fn terminal_colors_stand_out_from_the_card() {
     for theme in LIGHT_THEMES.iter().chain(&DARK_THEMES) {

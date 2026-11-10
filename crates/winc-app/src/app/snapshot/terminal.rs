@@ -380,6 +380,30 @@ fn the_cursor_waits_for_the_prompt_after_return() {
 }
 
 #[test]
+fn the_wheel_with_the_command_key_steps_the_terminal_font_size() {
+    let dir = sample_folder("terminal-wheel-font-size");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    show_terminal(&mut app, "line\r\n");
+    let before = ViewFonts::of(&app.config);
+    let card = app.layout.terminal;
+    app.on_mouse_move(card.x + 100.0, card.y + 80.0);
+    app.modifiers = if cfg!(target_os = "macos") {
+        winit::keyboard::ModifiersState::SUPER
+    } else {
+        winit::keyboard::ModifiersState::CONTROL
+    };
+    let notch = MouseScrollDelta::LineDelta(0.0, 1.0);
+    app.on_wheel_event(notch, winit::event::TouchPhase::Moved);
+    // 鼠标在终端上：只调整终端的字号，焦点在哪里无关。
+    let after = ViewFonts::of(&app.config);
+    assert_eq!(
+        (after.terminal, after.code),
+        (before.terminal + 1.0, before.code)
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn the_wheel_scrolls_back_through_the_history() {
     let dir = sample_folder("terminal-scroll");
     let mut app = app_with(&dir.join("short.rs"), false);

@@ -60,6 +60,7 @@ pub(super) fn draw_editor(app: &mut App, frame: &mut Frame<'_>) {
     // Markdown、PDF 预览绘制时重新填充；预览不显示时若仍保留，滚轮和点击事件会被预览接收。
     app.markdown.area = Rect::default();
     app.pdf.area = Rect::default();
+    app.pdf.strip = Rect::default();
 
     let Some(index) = app.editor.active else {
         // 没有标签：释放缩放后的预览缓存，避免继续占用内存。

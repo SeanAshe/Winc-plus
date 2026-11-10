@@ -336,7 +336,7 @@ impl App {
     /// 在真正从文档列表里删掉之前调用。
     ///
     /// 新位置按关掉以后的宽度计算：用鼠标关闭时，紧邻的标签暂用被关标签的宽度（`width_lock`），
-    /// 该标签不动，再往右的标签照常滑过来。没有窗口、减弱动态效果时不做动画。
+    /// 该标签不动，再往右的标签照常滑过来。没有窗口、动态效果关闭时不做动画。
     pub(in crate::app) fn animate_tab_close(&mut self, index: usize) {
         if let Some(fade) = self.clock(EXIT_FADE) {
             self.animate_tab_close_with(index, fade);
@@ -391,7 +391,7 @@ impl App {
     /// 绘制标签栏前调用：和上一帧比，正好多出一个标签（新建、打开文件、打开差异、日志……）时，
     /// 它从零宽过渡到原来的宽度并淡入，右边的标签和新建按钮跟着让开（`tab_grow`）。
     ///
-    /// 一次多出多个标签（启动时恢复现场、切换目录）、第一次画、减弱动态效果时不做，直接到位。
+    /// 一次多出多个标签（启动时恢复现场、切换目录）、第一次画、动态效果关闭时不做，直接到位。
     pub(crate) fn note_opened_tabs(&mut self) {
         let ids: Vec<DocumentId> = self.editor.documents.iter().map(|d| d.id).collect();
         if let Some(known) = &self.tabs.known {

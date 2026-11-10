@@ -804,7 +804,7 @@ impl App {
                         self.flash(t!("git-op-done-summary", what = what, summary = summary));
                     }
                     self.worktree_done(then);
-                    // 只更新帧间隔：对勾是操作结果，减弱动态效果时也要显示。
+                    // 只更新帧间隔：对勾是操作结果，动态效果关闭时也要显示。
                     let _ = self.clock(COMMITTED_SHOWN);
                     self.branch.finished = Some(Clock::new(COMMITTED_SHOWN));
                 }

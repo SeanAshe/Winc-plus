@@ -246,13 +246,16 @@ fn settings_keyboard_walks_every_item_and_adjusts() {
     // 内容。
     // 格式化页列出的语言随机器上装了哪些工具而变，步数按全部设置项计算。
     let mut seen = vec![app.settings.selected];
-    for _ in 0..Setting::all(&app.settings.languages, true).len() + 2 {
+    for _ in 0..Setting::all(&app.settings.languages, app.settings_modules()).len() + 2 {
         app.settings_move(true);
         if seen.last() != Some(&app.settings.selected) {
             seen.push(app.settings.selected);
         }
     }
-    assert_eq!(seen, Setting::all(&app.settings.languages, true));
+    assert_eq!(
+        seen,
+        Setting::all(&app.settings.languages, app.settings_modules())
+    );
     assert_eq!(app.settings.selected, Setting::License);
     assert_eq!(app.settings_layout().page, SettingsPage::About);
     // 往回走过关于页的五行（版本、更新两行、仓库和许可证），回到快捷键页的搜索框。
@@ -262,13 +265,11 @@ fn settings_keyboard_walks_every_item_and_adjusts() {
     assert_eq!(app.settings.selected, Setting::KeySearch);
     assert_eq!(app.settings_layout().page, SettingsPage::Keys);
     assert_eq!(app.focus, Focus::KeySearch);
-    // 向回走一步，回到模块页最后的「推送前确认」，焦点回到浮层；再两步依次是终端、Git 开关；再
-    // 走一步，回到终端页的最后一项（macOS 上是「Meta 键」，其他平台是「Shell 集成」）。
-    app.settings_move(false);
-    assert_eq!(app.settings.selected, Setting::GitConfirmPush);
-    assert_eq!(app.focus, Focus::Settings);
+    // 向回走一步，回到模块页最后的终端开关，焦点回到浮层；再一步是 Git 开关；再走一步，回到
+    // 终端页的最后一项（macOS 上是「Meta 键」，其他平台是「Shell 集成」）。
     app.settings_move(false);
     assert_eq!(app.settings.selected, Setting::TerminalModule);
+    assert_eq!(app.focus, Focus::Settings);
     app.settings_move(false);
     assert_eq!(app.settings.selected, Setting::GitModule);
     app.settings_move(false);
@@ -280,7 +281,7 @@ fn settings_keyboard_walks_every_item_and_adjusts() {
     assert_eq!(app.settings.selected, last);
 
     // 主题：← → 在三个选项之间切换，到头后不再变化。步数按全部设置项计算，原因同上。
-    for _ in 0..Setting::all(&app.settings.languages, true).len() {
+    for _ in 0..Setting::all(&app.settings.languages, app.settings_modules()).len() {
         app.settings_move(false);
     }
     assert_eq!(app.settings.selected, Setting::Theme);
@@ -300,11 +301,12 @@ fn settings_keyboard_walks_every_item_and_adjusts() {
     app.settings_step(true);
     assert_eq!(app.config.language, None);
 
-    // 浅色主题（语言下面是界面缩放、界面字体、字号，macOS 以外的平台还有「使用系统标题栏」，然后是
-    // 状态栏和记住窗口两个开关，再下面是两组主题）：外观为深色时选一个浅色主题，外观随之切换。深色
-    // 主题：→ 换到下一个，外观回到深色；到头后不再变化。
+    // 浅色主题（语言下面是界面缩放、界面字体、字号、字重，macOS 以外的平台还有「使用系统标题栏」，
+    // 然后是状态栏、记住窗口、动态效果三个开关和背景的图片、显示方式、不透明度，再下面是两组
+    // 主题）：外观为深色时选一个浅色主题，外观随之切换。深色主题：→ 换到下一个，外观回到深色；
+    // 到头后不再变化。
     let title_bar = usize::from(!cfg!(target_os = "macos"));
-    for _ in 0..6 + title_bar {
+    for _ in 0..11 + title_bar {
         app.settings_move(true);
     }
     assert_eq!(app.settings.selected, Setting::LightTheme);
@@ -492,17 +494,18 @@ fn settings_pages_are_listed_on_the_left() {
     app.open_settings();
     paint(&mut app);
 
-    // 终端模块关闭时不列出「终端」页。
+    // 模块关闭时不列出它的那一页。
     let pages: Vec<SettingsPage> = (app.settings_layout().pages.iter())
         .map(|&(page, _)| page)
         .collect();
     let expected: Vec<SettingsPage> = (SettingsPage::ALL.into_iter())
-        .filter(|&page| page != SettingsPage::Terminal)
+        .filter(|&page| !matches!(page, SettingsPage::Terminal | SettingsPage::Git))
         .collect();
     assert_eq!(pages, expected);
 
     // 分类栏列出每一页，每页只放属于该页的设置项；所有页合起来恰好是全部设置，不遗漏也不重复。
     app.config.terminal_enabled = Some(true);
+    app.config.git_enabled = Some(true);
     let layout = app.settings_layout();
     assert_eq!(layout.pages.len(), SettingsPage::ALL.len());
     for &(_, row) in &layout.pages {
@@ -515,6 +518,7 @@ fn settings_pages_are_listed_on_the_left() {
             query: "",
             languages: &app.settings.languages,
             terminal: 1.0,
+            git: 1.0,
             editing: None,
             scroll: 0.0,
         };
@@ -535,7 +539,10 @@ fn settings_pages_are_listed_on_the_left() {
             listed.push(Setting::KeySearch);
         }
     }
-    assert_eq!(listed, Setting::all(&app.settings.languages, true));
+    assert_eq!(
+        listed,
+        Setting::all(&app.settings.languages, app.settings_modules())
+    );
 
     // 悬停在分类栏的一项上时记录该项；点击后换页，选中该页的第一项，滚动位置回到顶部。
     let (x, y) = settings_point(&app, SettingsPart::Page(SettingsPage::Editor));
@@ -1205,6 +1212,367 @@ fn turning_off_window_restore_forgets_the_saved_frame() {
     app.settings_toggle(Setting::RestoreWindow);
     assert_eq!(app.config.restore_window, Some(false));
     assert_eq!(app.state.window, None);
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_animations_switch_overrides_the_system_setting() {
+    let dir = sample_folder("settings-animations");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    // 没有设置时跟随系统；测试中系统视为未开启「减弱动态效果」。
+    assert_eq!(app.config.ui_animations, None);
+    assert!(app.animations_on() && app.switch_on(Setting::Animations));
+    assert_eq!(Setting::Animations.page(), SettingsPage::Appearance);
+
+    app.settings_toggle(Setting::Animations);
+    assert_eq!(app.config.ui_animations, Some(false));
+    assert!(!app.animations_on() && !app.switch_on(Setting::Animations));
+    // 关闭后不再创建动画时钟，各处直接显示终态。
+    assert!(app.clock(std::time::Duration::from_millis(100)).is_none());
+
+    app.settings_toggle(Setting::Animations);
+    assert_eq!(app.config.ui_animations, Some(true));
+    assert!(app.animations_on());
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn the_font_weight_steps_by_hundreds_within_its_range() {
+    let dir = sample_folder("settings-font-weight");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    assert_eq!(Setting::FontWeight.page(), SettingsPage::Appearance);
+    assert_eq!(app.setting_value(Setting::FontWeight).0, "400");
+
+    app.settings_adjust(Setting::FontWeight, true);
+    assert_eq!(app.config.ui_font_weight, Some(500));
+    // 回到 400 时从配置中去掉该项。
+    app.settings_adjust(Setting::FontWeight, false);
+    assert_eq!(app.config.ui_font_weight, None);
+
+    // 不在档位上的值移到该方向上最近的一档。
+    app.config.ui_font_weight = Some(450);
+    app.settings_adjust(Setting::FontWeight, true);
+    assert_eq!(app.config.ui_font_weight, Some(500));
+    app.config.ui_font_weight = Some(450);
+    app.settings_adjust(Setting::FontWeight, false);
+    assert_eq!(app.config.ui_font_weight, None);
+
+    // 到上下限后不再变化。
+    app.config.ui_font_weight = Some(900);
+    app.settings_adjust(Setting::FontWeight, true);
+    assert_eq!(app.config.ui_font_weight, Some(900));
+    assert_eq!(
+        app.setting_value(Setting::FontWeight),
+        ("900".to_owned(), false, true)
+    );
+    app.config.ui_font_weight = Some(100);
+    app.settings_adjust(Setting::FontWeight, false);
+    assert_eq!(app.config.ui_font_weight, Some(100));
+    assert_eq!(
+        app.setting_value(Setting::FontWeight),
+        ("100".to_owned(), true, false)
+    );
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 各档字重的截图：`cargo test -p winc-app shoot_font_weights -- --ignored`。
+#[test]
+#[ignore = "截图，手动运行"]
+fn shoot_font_weights() {
+    let dir = sample_folder("settings-font-weights");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    app.run(Command::Insert("// 字重 weight 0123 fn main() {}\n".into()));
+    for weight in [300, 400, 500, 600, 700] {
+        app.config.ui_font_weight = Some(weight);
+        app.apply_fonts().unwrap();
+        shoot(&mut app, &format!("font-weight-{weight}"));
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 背景图片：配置后在后台生成铺满窗口（按逻辑像素）的图层，底色之下透出图片；不透明度、配色
+/// 改变后随之更新，取消后恢复纯色；无法加载的图片提示一次，不反复重试。生成好的图层写入磁盘
+/// 缓存，之后直接读取，不再解码原图。
+#[test]
+fn the_background_image_shows_under_the_base_colors() {
+    let dir = sample_folder("settings-background");
+    // 一张纯红的图片，比窗口大。
+    let image = dir.join("红.png");
+    let red = winc_render::Image {
+        pixels: vec![0xffff_0000; 2000 * 1500],
+        width: 2000,
+        height: 1500,
+    };
+    write_png(&image, &red).unwrap();
+    let mut app = app_with(&dir.join("short.rs"), false);
+    // 状态文件所在的目录即缓存所在的目录。
+    app.state_path = Some(dir.join("state.json"));
+    let cache = dir.join("wallpaper.cache");
+    assert_eq!(Setting::BackgroundImage.page(), SettingsPage::Appearance);
+    assert_eq!(app.setting_value(Setting::BackgroundOpacity).0, "15");
+
+    let pixel = |app: &mut App, (x, y): (f32, f32)| {
+        paint(app);
+        app.wait_for_wallpaper();
+        paint(app);
+        let image = app.renderer.as_ref().unwrap().image().unwrap();
+        let at = (y * SCALE) as usize * image.width as usize + (x * SCALE) as usize;
+        let px = image.pixels[at];
+        ((px >> 16) & 0xff, (px >> 8) & 0xff, px & 0xff)
+    };
+    // 编辑区右下角空白处的一个像素（只有底色）。
+    let sample = |app: &mut App| {
+        let editor = app.layout.editor;
+        pixel(app, (editor.right() - 40.0, editor.bottom() - 40.0))
+    };
+    // 设置卡片左下角的一个像素（只有卡片的底色）。
+    let card = |app: &mut App| {
+        app.open_settings();
+        let card = app.settings_layout().card;
+        let px = pixel(app, (card.x + 10.0, card.bottom() - 10.0));
+        app.close_settings();
+        px
+    };
+    let plain = sample(&mut app);
+    let plain_card = card(&mut app);
+    let mixed = |base: (u32, u32, u32), opacity: f32| {
+        let part = |c: u32| (c as f32 * (1.0 - opacity)).round() as u32;
+        let red = (255 * (opacity * 256.0) as u32) >> 8;
+        (part(base.0) + red, part(base.1), part(base.2))
+    };
+
+    app.set_background_image(Some(image.clone()));
+    assert_eq!(sample(&mut app), mixed(plain, 0.15));
+    // 图层保持图片的宽高比，缩小到刚好铺满窗口（按逻辑像素，不是物理像素）。
+    let size = app.renderer.as_ref().unwrap().wallpaper_size();
+    assert_eq!((SIZE.0, SIZE.1), (1280.0, 820.0));
+    assert_eq!(size, Some((1280, 960)));
+    // 浮在内容之上的设置卡片不透出背景图。
+    assert_eq!(card(&mut app), plain_card);
+
+    // 图层已写入缓存。把缓存中的像素改成绿色后调整不透明度：读的是缓存，不再解码原图。
+    let mut bytes = std::fs::read(&cache).unwrap();
+    let pixels = bytes.len() - 1280 * 960 * 4;
+    for px in bytes[pixels..].as_chunks_mut::<4>().0 {
+        *px = [0, 255, 0, 255];
+    }
+    std::fs::write(&cache, &bytes).unwrap();
+    app.settings_adjust(Setting::BackgroundOpacity, true);
+    let green = sample(&mut app);
+    assert!(green.1 > green.0 && green.1 > green.2, "{green:?}");
+    // 换回原来的像素，后面的检查不受影响。
+    for px in bytes[pixels..].as_chunks_mut::<4>().0 {
+        *px = [255, 0, 0, 255];
+    }
+    std::fs::write(&cache, &bytes).unwrap();
+    app.settings_adjust(Setting::BackgroundOpacity, false);
+    assert_eq!(sample(&mut app), mixed(plain, 0.15));
+
+    // 调高不透明度：重新生成。
+    app.settings_adjust(Setting::BackgroundOpacity, true);
+    assert_eq!(app.config.ui_background_opacity, Some(20.0));
+    assert_eq!(sample(&mut app), mixed(plain, 0.2));
+
+    // 范围是 0 到 100：调到 0 时按没有背景图处理，图层释放；调回来后重新生成。
+    app.config.ui_background_opacity = Some(5.0);
+    app.settings_adjust(Setting::BackgroundOpacity, false);
+    app.settings_adjust(Setting::BackgroundOpacity, false);
+    assert_eq!(app.config.ui_background_opacity, Some(0.0));
+    assert_eq!(sample(&mut app), plain);
+    assert_eq!(app.renderer.as_ref().unwrap().wallpaper_size(), None);
+    app.config.ui_background_opacity = Some(95.0);
+    app.settings_adjust(Setting::BackgroundOpacity, true);
+    app.settings_adjust(Setting::BackgroundOpacity, true);
+    assert_eq!(app.config.ui_background_opacity, Some(100.0));
+    assert_eq!(sample(&mut app), (255, 0, 0));
+    // 不透明度超过一半：图层按物理像素生成，这里即图片原来的大小。
+    let size = |app: &App| app.renderer.as_ref().unwrap().wallpaper_size();
+    assert_eq!(size(&app), Some((2000, 1500)));
+    app.config.ui_background_opacity = Some(20.0);
+    assert_eq!(sample(&mut app), mixed(plain, 0.2));
+
+    // 显示方式。适应：图片按高度缩小并居中，取样处在图片之外，只有底色。
+    use winc_config::BackgroundFit;
+    assert_eq!(Setting::BackgroundFit.page(), SettingsPage::Appearance);
+    app.set_background_fit(BackgroundFit::Fit);
+    assert_eq!(sample(&mut app), plain);
+    assert_eq!(size(&app), Some((1093, 820)));
+    let middle = (SIZE.0 / 2.0, app.layout.editor.bottom() - 40.0);
+    assert_eq!(pixel(&mut app, middle), mixed(plain, 0.2));
+    // 拉伸：铺满窗口。
+    app.set_background_fit(BackgroundFit::Stretch);
+    assert_eq!(sample(&mut app), mixed(plain, 0.2));
+    // 平铺：图层保持图片的大小（不超过上限）。
+    app.set_background_fit(BackgroundFit::Tile);
+    assert_eq!(sample(&mut app), mixed(plain, 0.2));
+    assert_eq!(size(&app), Some((1920, 1440)));
+    app.set_background_fit(BackgroundFit::Fill);
+    assert_eq!(sample(&mut app), mixed(plain, 0.2));
+
+    // 换成深色配色：底色随之更换，图片不必重新生成。
+    app.set_theme(winit::window::Theme::Dark);
+    let dark = {
+        let c = app.palette.editor_bg;
+        let part = |v: f32| (v * 255.0 + 0.5) as u32;
+        (part(c.r), part(c.g), part(c.b))
+    };
+    paint(&mut app);
+    assert!(!app.wallpaper.is_busy());
+    assert_eq!(sample(&mut app), mixed(dark, 0.2));
+
+    // 取消：恢复纯色，图层释放。
+    app.set_background_image(None);
+    assert_eq!(sample(&mut app), dark);
+    assert_eq!(app.renderer.as_ref().unwrap().wallpaper_size(), None);
+
+    // 无法加载的图片：保持纯色，之后不再重试。
+    app.set_background_image(Some(dir.join("不存在.png")));
+    assert_eq!(sample(&mut app), dark);
+    paint(&mut app);
+    assert!(!app.wallpaper.is_busy());
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 「Git」页只在 Git 模块开启时列出，放着 Git 的选项；停在该页时关闭模块，改到模块页。
+#[test]
+fn the_git_page_is_listed_only_when_the_module_is_on() {
+    let dir = sample_folder("settings-git-page");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    app.open_settings();
+    let listed = |app: &App| {
+        (app.settings_layout().pages.iter()).any(|&(page, _)| page == SettingsPage::Git)
+    };
+    assert!(!listed(&app));
+    assert_eq!(Setting::GitConfirmPush.page(), SettingsPage::Git);
+
+    // 在模块页开启后立即列出，「推送前确认」在该页。
+    app.settings_toggle(Setting::GitModule);
+    assert!(listed(&app));
+    app.settings_show_page(SettingsPage::Git);
+    let rows: Vec<Setting> = (app.settings_layout().rows.iter())
+        .map(|row| row.setting)
+        .collect();
+    assert_eq!(rows, [Setting::GitConfirmPush]);
+
+    // 配置文件中关闭 Git 模块：不再列出该页，停在该页时改到模块页。
+    let mut config = app.config.clone();
+    config.git_enabled = Some(false);
+    app.adopt_config(config);
+    assert!(!listed(&app));
+    assert_eq!(app.settings_layout().page, SettingsPage::Modules);
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 截取带背景图的界面：图片取环境变量 `WINC_BACKGROUND`，每套主题各截主界面、文件面板、设置
+/// 和各显示方式。
+#[test]
+#[ignore = "截图，手动运行"]
+fn shoot_background_image() {
+    let Some(image) = std::env::var_os("WINC_BACKGROUND") else {
+        return;
+    };
+    let dir = sample_folder("shoot-background");
+    let themes = [
+        (false, None, "light"),
+        (true, None, "dark"),
+        (false, Some("veil-snow"), "snow"),
+        (true, Some("veil-night"), "night"),
+    ];
+    for (dark, id, name) in themes {
+        for opacity in [30.0, 60.0, 100.0] {
+            let mut app = app_with(&dir.join("src/main.rs"), dark);
+            app.config.ui_background_image = Some(image.to_string_lossy().into_owned());
+            app.config.ui_background_opacity = Some(opacity);
+            if dark {
+                app.config.dark_theme = id.map(str::to_owned);
+            } else {
+                app.config.light_theme = id.map(str::to_owned);
+            }
+            let theme = if dark { Theme::Dark } else { Theme::Light };
+            app.set_theme(theme);
+            paint(&mut app);
+            app.wait_for_wallpaper();
+            shoot(&mut app, &format!("background-{name}-{opacity}"));
+            if opacity > 30.0 {
+                continue;
+            }
+            app.open_picker();
+            shoot(&mut app, &format!("background-{name}-picker"));
+            app.close_picker();
+            app.open_settings();
+            shoot(&mut app, &format!("background-{name}-settings"));
+            app.close_settings();
+            for (i, fit) in winc_config::BackgroundFit::ALL.into_iter().enumerate() {
+                app.set_background_fit(fit);
+                paint(&mut app);
+                app.wait_for_wallpaper();
+                shoot(&mut app, &format!("background-{name}-fit-{i}"));
+            }
+        }
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 有背景图时滚动设置页：使用快照的帧与完整绘制的帧相同，卡片不随之透出或不透出背景图。
+#[test]
+fn scrolling_settings_over_a_background_image_looks_the_same() {
+    let dir = sample_folder("settings-scroll-background");
+    // 一张渐变的图片：位置有偏差时像素不同。
+    let image = dir.join("图.png");
+    let (w, h) = (640, 400);
+    let pixels = (0..w * h).map(|i| 0xff00_0000 | ((i % w * 255 / w) << 16) | (i / w * 255 / h));
+    let gradient = winc_render::Image {
+        pixels: pixels.collect(),
+        width: w,
+        height: h,
+    };
+    write_png(&image, &gradient).unwrap();
+    let mut app = app_with(&dir.join("short.rs"), false);
+    app.config.ui_background_image = Some(image.to_string_lossy().into_owned());
+    app.config.ui_background_opacity = Some(60.0);
+    paint(&mut app);
+    app.wait_for_wallpaper();
+    app.open_settings();
+    app.settings.motion = None;
+    let shot = |app: &mut App| {
+        paint(app);
+        app.renderer
+            .as_ref()
+            .unwrap()
+            .image()
+            .unwrap()
+            .pixels
+            .clone()
+    };
+    shot(&mut app);
+
+    app.settings_scroll_by(-10.0);
+    shot(&mut app);
+    app.settings_scroll_by(-30.0);
+    let reused = shot(&mut app);
+    let (window, scale) = (app.layout.window, SCALE);
+    assert!(app.settings_reuses_base(window, scale));
+    let later = std::time::Instant::now() + std::time::Duration::from_secs(1);
+    assert_eq!(app.settings_scroll_tick(later), None);
+    assert!(!app.settings_reuses_base(window, scale));
+    let full = shot(&mut app);
+    let differ = (reused.iter().zip(&full)).filter(|(a, b)| a != b).count();
+    assert_eq!(differ, 0, "使用快照的画面与完整绘制不同");
+
+    // 卡片左下角只有卡片的底色，不透出背景图。
+    let card = app.settings_layout().card;
+    let at =
+        |x: f32, y: f32| (y * SCALE) as usize * (SIZE.0 * SCALE) as usize + (x * SCALE) as usize;
+    let corner = full[at(card.x + 10.0, card.bottom() - 10.0)];
+    let part = |v: f32| (v * 255.0 + 0.5) as u32;
+    let c = app.palette.frame_bg;
+    let plain = (part(c.r) << 16) | (part(c.g) << 8) | part(c.b);
+    assert_eq!(corner & 0xff_ffff, plain);
 
     std::fs::remove_dir_all(&dir).unwrap();
 }

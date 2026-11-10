@@ -34,10 +34,23 @@ pub struct Config {
     ///
     /// 可用范围见 [`Config::ZOOM_RANGE`]。
     pub ui_zoom: Option<u16>,
+    /// 全部文字的字重，默认为 400（各字体自身的字重）；范围见 [`Config::FONT_WEIGHT_RANGE`]。
+    pub ui_font_weight: Option<u16>,
+    /// 窗口背景图片的路径；没写时没有背景图。
+    pub ui_background_image: Option<String>,
+    /// 背景图片在底色之上的不透明度（百分比），默认为 15；范围见
+    /// [`Config::BACKGROUND_OPACITY_RANGE`]。
+    pub ui_background_opacity: Option<f32>,
+    /// 背景图片的显示方式，默认为填充。
+    pub ui_background_fit: Option<BackgroundFit>,
     /// 是否用系统的标题栏（配置中的 `"titleBarStyle": "native"`）。
     ///
     /// 写成 `"custom"` 或没写时，窗口按钮在 winc 的顶栏中绘制。只影响 macOS 以外的平台。
     pub ui_native_title_bar: Option<bool>,
+    /// 是否播放界面的过渡动画（面板、弹出层、列表的变化）。
+    ///
+    /// 没写时跟随系统的「减弱动态效果」设置；系统没有该设置或未读取时为是。
+    pub ui_animations: Option<bool>,
     /// 制表符的显示宽度（空格数）；文件用制表符缩进时，也是每级缩进的宽度。
     ///
     /// 空格缩进的宽度不取此值，按文件内容判断，判断不出时用语言的默认缩进。
@@ -224,6 +237,30 @@ impl RenderWhitespace {
     ];
 }
 
+/// 背景图在窗口中的显示方式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BackgroundFit {
+    /// 等比缩放并裁剪，铺满窗口。
+    #[default]
+    Fill,
+    /// 等比缩放到整张可见。
+    Fit,
+    /// 拉伸到窗口的大小。
+    Stretch,
+    /// 按原始大小平铺。
+    Tile,
+}
+
+impl BackgroundFit {
+    /// 全部选项，顺序与设置中菜单的顺序一致。
+    pub const ALL: [BackgroundFit; 4] = [
+        BackgroundFit::Fill,
+        BackgroundFit::Fit,
+        BackgroundFit::Stretch,
+        BackgroundFit::Tile,
+    ];
+}
+
 /// 配色方案的选择。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ThemeChoice {
@@ -249,6 +286,16 @@ impl Config {
     /// 下限时 13 点的界面文字约为 9 点，仍可辨认；上限时 4K 屏幕在系统缩放为 100% 的情况下，
     /// 界面与 1080p 屏幕上的原始大小相同。超出范围的值在读入时忽略并报告，小数取整。
     pub const ZOOM_RANGE: std::ops::RangeInclusive<f32> = 70.0..=200.0;
+    /// 字重的合法范围；超出的值在读入时忽略并报告，小数取整。
+    pub const FONT_WEIGHT_RANGE: std::ops::RangeInclusive<f32> = 100.0..=900.0;
+    /// 默认的字重。
+    pub const FONT_WEIGHT: u16 = 400;
+    /// 背景图片不透明度的合法范围（百分比）：0 时不显示图片，100 时图片完全盖住底色。
+    ///
+    /// 超出范围的值在读入时忽略并报告。
+    pub const BACKGROUND_OPACITY_RANGE: std::ops::RangeInclusive<f32> = 0.0..=100.0;
+    /// 背景图片不透明度的默认值（百分比）。
+    pub const BACKGROUND_OPACITY: f32 = 15.0;
     /// 制表符长度的合法范围（空格数）。
     ///
     /// 超出范围的值在读入时忽略并报告；上下限为经验值。

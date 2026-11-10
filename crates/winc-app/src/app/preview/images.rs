@@ -277,6 +277,7 @@ impl App {
         self.poll_markdown();
         self.poll_pdf();
         self.poll_tables();
+        self.poll_wallpaper();
     }
 
     fn accept_rendered(&mut self, (id, picture, pixels): Rendered) {

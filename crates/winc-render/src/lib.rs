@@ -27,7 +27,7 @@ pub use text::font_path::{DEFAULT_EDITOR_FONT, FontError, FontSpec};
 pub use text::outline::{OutlineFonts, OutlineGlyph, OutlineMetrics};
 
 use cache::{FastMap, Generations, StrokeCache};
-use draw::canvas::{Canvas, IRect};
+use draw::canvas::{Canvas, IRect, Tinted, Wall};
 use present::Presenter;
 use text::font::Fonts;
 use text::glyphs::*;
@@ -225,6 +225,9 @@ const LINEAR_COVERAGE: [u8; 256] = {
 /// 常见等宽字体的斜体约倾斜 9° 至 12°。
 const OBLIQUE_DEGREES: f32 = 10.0;
 
+/// 默认的字重：各字体使用自身的字重。字重可以取 100 至 900。
+pub const FONT_WEIGHT_NORMAL: u16 = 400;
+
 /// 模拟粗体时笔画加宽的量与字号之比。
 ///
 /// 取 `FreeType` 粗体模拟所用的比例（1/24）。笔画两侧各加宽一半，前进宽度也加上同样的量，
@@ -269,7 +272,135 @@ pub struct Renderer {
     base: Vec<(IRect, u32)>,
     /// `Canvas::fill_layered` 复用的行缓冲。
     row: Vec<u32>,
+    /// 窗口背景图，见 [`Self::set_wallpaper`]；多个窗口可以共用同一张。
+    wallpaper: Option<Arc<Wallpaper>>,
+    /// 透出背景图的底色（`0xAARRGGBB`）及其加在图层像素上的值。
+    surfaces: Vec<(u32, u32)>,
+    /// 画布各列、各行对应的背景图的列、行；画布大小或背景图改变时重算。
+    wall_map: Map,
+    /// `wall_map` 对应的图片范围和缩放系数。
+    wall_span: (IRect, f32),
+    /// 底色矩形换算成加在图层像素上的值，逐帧复用。
+    wall_rects: Vec<(IRect, u32)>,
 }
+
+/// 背景图在窗口中的显示方式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WallpaperFit {
+    /// 等比缩放并居中裁剪，铺满窗口。
+    #[default]
+    Fill,
+    /// 等比缩放到整张可见并居中，两侧或上下只有底色。
+    Fit,
+    /// 拉伸到窗口的大小，不保持宽高比。
+    Stretch,
+    /// 按图层的大小从左上角起平铺，图层的一个像素对应一个逻辑像素。
+    Tile,
+}
+
+/// 窗口背景图：按不透明度预乘后的像素。
+///
+/// 绘制时按 [`WallpaperFit`] 映射到画布（取最近的像素）；窗口大小改变时只需重算映射，不必
+/// 重新生成。
+/// 界面各处的底色之下透出这张图，最终的颜色为「图片 × 不透明度 + 底色 × (1 − 不透明度)」。
+/// 前一项在创建时算好，绘制时每个像素只做一次加法。可以在后台线程创建。
+pub struct Wallpaper {
+    px: Vec<u32>,
+    width: usize,
+    height: usize,
+    opacity: f32,
+    fit: WallpaperFit,
+}
+
+impl Wallpaper {
+    /// 由 `width` × `height` 的非预乘 RGBA 图像创建，`opacity`（0–1）是图片在底色之上的
+    /// 不透明度；透明的像素按黑色处理。
+    ///
+    /// 尺寸为 0，或 `rgba` 不足 `width * height * 4` 字节时返回 `None`。
+    pub fn new(
+        (width, height): (u32, u32),
+        rgba: &[u8],
+        opacity: f32,
+        fit: WallpaperFit,
+    ) -> Option<Wallpaper> {
+        let (w, h) = (width as usize, height as usize);
+        if w == 0 || h == 0 || rgba.len() < w * h * 4 {
+            return None;
+        }
+        let opacity = opacity.clamp(0.0, 1.0);
+        // 向下取整：与底色一项（四舍五入，见 `Self::tint`）相加后各通道不超过 255。
+        let weight = (opacity * 256.0) as u32;
+        let pixels = rgba.as_chunks::<4>().0.iter().take(w * h);
+        let px = pixels
+            .map(|&[r, g, b, a]| {
+                let weight = weight * u32::from(a) / 255;
+                let part = |c: u8| (u32::from(c) * weight) >> 8;
+                (part(r) << 16) | (part(g) << 8) | part(b)
+            })
+            .collect();
+        Some(Wallpaper {
+            px,
+            width: w,
+            height: h,
+            opacity,
+            fit,
+        })
+    }
+
+    /// 按显示方式算出 `columns` × `rows` 的画布各列、各行对应的图层列、行，写入 `map`；返回
+    /// 画布上显示图片的范围。`scale` 是屏幕缩放系数。
+    fn map(&self, (columns, rows): (usize, usize), scale: f32, map: &mut Map) -> IRect {
+        let (w, h) = (self.width as f64, self.height as f64);
+        let (fx, fy) = (w / columns.max(1) as f64, h / rows.max(1) as f64);
+        // 画布上每个像素对应图层上多少个像素。
+        let (sx, sy) = match self.fit {
+            WallpaperFit::Fill => (fx.min(fy), fx.min(fy)),
+            WallpaperFit::Fit => (fx.max(fy), fx.max(fy)),
+            WallpaperFit::Stretch => (fx, fy),
+            WallpaperFit::Tile => {
+                let step = 1.0 / f64::from(scale.max(0.1));
+                (step, step)
+            }
+        };
+        let tile = self.fit == WallpaperFit::Tile;
+        let axis = |n: usize, size: f64, step: f64, to: &mut Vec<u32>| {
+            // 平铺从边缘起，其余方式居中；`first` 为负时图片在这个方向上铺不满画布。
+            let first = if tile {
+                0.0
+            } else {
+                (size - n as f64 * step) / 2.0
+            };
+            to.clear();
+            to.extend((0..n).map(|i| {
+                let at = (first + (i as f64 + 0.5) * step).floor();
+                let at = if tile { at.rem_euclid(size) } else { at };
+                at.clamp(0.0, size - 1.0) as u32
+            }));
+            if tile {
+                return (0, n as i32);
+            }
+            let edge = |at: f64| ((at - first) / step - 0.5).ceil().clamp(0.0, n as f64) as i32;
+            (edge(0.0), edge(size))
+        };
+        let (x0, x1) = axis(columns, w, sx, &mut map.0);
+        let (y0, y1) = axis(rows, h, sy, &mut map.1);
+        IRect { x0, y0, x1, y1 }
+    }
+
+    /// 返回宽度和高度（像素）。
+    pub fn size(&self) -> (u32, u32) {
+        (self.width as u32, self.height as u32)
+    }
+
+    /// 返回底色 `color` 加在图层像素上的值：各通道乘以 1 减去不透明度，alpha 为不透明。
+    fn tint(&self, color: Color) -> u32 {
+        let part = |c: f32| (c.clamp(0.0, 1.0) * (1.0 - self.opacity) * 255.0).round() as u32;
+        0xff00_0000 | (part(color.r) << 16) | (part(color.g) << 8) | part(color.b)
+    }
+}
+
+/// 画布各列、各行对应的背景图层列、行。
+type Map = (Vec<u32>, Vec<u32>);
 
 /// 可供多个渲染器共用的字体和字形缓存：同一进程中的多个窗口使用相同的字体，已光栅化的字形无需
 /// 每个窗口各存一份（键中包含物理像素字号，不同缩放的屏幕上的窗口也能共用）。
@@ -318,7 +449,7 @@ impl Renderer {
     /// 创建渲染器，呈现到 `window`。
     ///
     /// `mono` 和 `ui` 是用户配置的字体，为 `None` 时使用平台默认字体；`terminal` 是终端字体，为
-    /// `None` 时终端使用 `mono`。
+    /// `None` 时终端使用 `mono`。`weight` 是全部文字的字重。
     ///
     /// # Errors
     ///
@@ -330,8 +461,9 @@ impl Renderer {
         mono: Option<&FontSpec>,
         ui: Option<&FontSpec>,
         terminal: Option<&FontSpec>,
+        weight: u16,
     ) -> Result<Renderer, String> {
-        let fonts = Fonts::load(mono, ui, terminal)?;
+        let fonts = Fonts::load(mono, ui, terminal, weight)?;
         Self::with_glyphs(window, background, SharedGlyphs(new_glyphs(fonts)))
     }
 
@@ -361,6 +493,11 @@ impl Renderer {
             cover: None,
             base: Vec::new(),
             row: Vec::new(),
+            wallpaper: None,
+            surfaces: Vec::new(),
+            wall_map: (Vec::new(), Vec::new()),
+            wall_span: (IRect::new(0, 0, 0, 0), 0.0),
+            wall_rects: Vec::new(),
         })
     }
 
@@ -387,7 +524,7 @@ impl Renderer {
                 width: w,
                 height: h,
             }),
-            glyphs: new_glyphs(Fonts::load(mono, ui, None)?),
+            glyphs: new_glyphs(Fonts::load(mono, ui, None, FONT_WEIGHT_NORMAL)?),
             strokes: StrokeCache::new(),
             gamma: gamma_for(background),
             dark: is_dark(background),
@@ -397,6 +534,11 @@ impl Renderer {
             cover: None,
             base: Vec::new(),
             row: Vec::new(),
+            wallpaper: None,
+            surfaces: Vec::new(),
+            wall_map: (Vec::new(), Vec::new()),
+            wall_span: (IRect::new(0, 0, 0, 0), 0.0),
+            wall_rects: Vec::new(),
         })
     }
 
@@ -425,7 +567,40 @@ impl Renderer {
         self.dark = is_dark(background);
     }
 
-    /// 更换字体；用户在设置界面修改字体名或字体文件后调用，失败时保留原字体。
+    /// 设置或取消窗口背景图；`surfaces` 是透出背景图的底色，其余颜色照常绘制。
+    ///
+    /// 以这些颜色填充的不透明矩形（包括窗口背景和 [`Self::base_next_frame`] 声明的底色）改为
+    /// 写入「背景图 + 底色」。
+    pub fn set_wallpaper(&mut self, wallpaper: Option<Arc<Wallpaper>>, surfaces: &[Color]) {
+        self.surfaces.clear();
+        if let Some(wallpaper) = &wallpaper {
+            let tinted = surfaces.iter().map(|&c| (c.argb(), wallpaper.tint(c)));
+            self.surfaces.extend(tinted);
+        }
+        self.wallpaper = wallpaper;
+        self.wall_map.0.clear();
+    }
+
+    /// 更换透出背景图的底色（配色改变时调用）；没有背景图时不做任何事。
+    pub fn set_wallpaper_surfaces(&mut self, surfaces: &[Color]) {
+        self.surfaces.clear();
+        if let Some(wallpaper) = &self.wallpaper {
+            let tinted = surfaces.iter().map(|&c| (c.argb(), wallpaper.tint(c)));
+            self.surfaces.extend(tinted);
+        }
+    }
+
+    /// 返回当前的背景图；没有时为 `None`。
+    pub fn wallpaper(&self) -> Option<&Arc<Wallpaper>> {
+        self.wallpaper.as_ref()
+    }
+
+    /// 返回当前背景图的大小（像素）；没有背景图时为 `None`。
+    pub fn wallpaper_size(&self) -> Option<(u32, u32)> {
+        self.wallpaper.as_ref().map(|wallpaper| wallpaper.size())
+    }
+
+    /// 更换字体和字重；用户在设置界面修改后调用，失败时保留原字体。
     ///
     /// 重新加载字体会重新测量度量，因此整个字形缓存清空：缓存中的字形都带有旧字体的槽位和字形
     /// id，不清空会绘制出错误的字符。共用该缓存的其他窗口同时更换字体，随后收到相同的配置。
@@ -438,8 +613,9 @@ impl Renderer {
         mono: Option<&FontSpec>,
         ui: Option<&FontSpec>,
         terminal: Option<&FontSpec>,
+        weight: u16,
     ) -> Result<(), String> {
-        let fonts = Fonts::load(mono, ui, terminal)?;
+        let fonts = Fonts::load(mono, ui, terminal, weight)?;
         let mut glyphs = self.glyphs.borrow_mut();
         glyphs.fonts = fonts;
         glyphs.clear();
@@ -586,8 +762,49 @@ impl Renderer {
             Covered::new(area, 0.0)
         });
         let (based, row) = (&self.base, &mut self.row);
+        let (wallpaper, surfaces) = (self.wallpaper.as_deref(), &self.surfaces);
+        let (wall_map, wall_rects) = (&mut self.wall_map, &mut self.wall_rects);
+        let wall_span = &mut self.wall_span;
         let paint = |mut canvas: Canvas<'_>| {
-            if based.is_empty() {
+            let all = IRect::new(0, 0, canvas.width as i32, canvas.height as i32);
+            let wall = wallpaper.map(|wallpaper| {
+                let size = (canvas.width, canvas.height);
+                if (wall_map.0.len(), wall_map.1.len()) != size || wall_span.1 != scale {
+                    *wall_span = (wallpaper.map(size, scale, wall_map), scale);
+                }
+                Wall {
+                    px: &wallpaper.px,
+                    width: wallpaper.width,
+                    xmap: &wall_map.0,
+                    ymap: &wall_map.1,
+                    span: wall_span.0,
+                }
+            });
+            // 背景色和底色都透出背景图时，与没有背景图时一样只写一遍。
+            let tint = |argb: u32| {
+                let found = surfaces
+                    .iter()
+                    .find(|(surface, _)| *surface == argb | 0xff00_0000);
+                found.map(|&(_, k)| k)
+            };
+            wall_rects.clear();
+            wall_rects.extend(based.iter().filter_map(|&(r, c)| Some((r, tint(c)?))));
+            let layered = wall
+                .zip(tint(background))
+                .filter(|_| wall_rects.len() == based.len());
+            if let Some((wall, k)) = layered {
+                // 整个窗口随后会被不透明的内容盖住时（见 `cover_next_frame`），跳过这些像素。
+                let plain = background | 0xff00_0000;
+                if based.is_empty() && cover.is_some() {
+                    canvas.rect(all, k, all, cover, Some(Tinted { wall, k, plain }));
+                } else {
+                    // 图片铺不满画布：先按没有背景图时填充，再写图片所在的部分。
+                    if wall.span != all {
+                        canvas.fill_layered(background, based, row);
+                    }
+                    canvas.wall_layered(wall, k, wall_rects, row);
+                }
+            } else if based.is_empty() {
                 canvas.fill_except(background, cover);
             } else {
                 canvas.fill_layered(background, based, row);
@@ -604,6 +821,8 @@ impl Renderer {
                 opacity: 1.0,
                 background,
                 based,
+                wall,
+                surfaces,
             });
         };
 
@@ -663,6 +882,8 @@ impl Renderer {
                 opacity: 1.0,
                 background,
                 based: &[],
+                wall: None,
+                surfaces: &[],
             });
             px
         };

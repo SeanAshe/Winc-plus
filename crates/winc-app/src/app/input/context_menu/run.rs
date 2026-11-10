@@ -104,6 +104,7 @@ impl App {
             MenuTarget::Project => match command {
                 MenuCommand::OpenRecent(i) => self.run_start_action(StartAction::Recent(i)),
                 MenuCommand::OpenRecentInNewWindow(i) => self.open_recent_in_new_window(i),
+                MenuCommand::NewWindow => self.new_window(None),
                 MenuCommand::OpenFolder => self.pick(Pick::OpenFolder),
                 MenuCommand::OpenWslFolder(i) => {
                     if let Some(distro) = crate::system::wsl_distributions().get(i) {
@@ -151,6 +152,18 @@ impl App {
                 MenuCommand::DefaultShellCustom => {
                     self.settings_start_editing(Setting::TerminalShell)
                 }
+                _ => {}
+            },
+            MenuTarget::BackgroundFit => {
+                if let MenuCommand::BackgroundFit(i) = command
+                    && let Some(&fit) = winc_config::BackgroundFit::ALL.get(i)
+                {
+                    self.set_background_fit(fit);
+                }
+            }
+            MenuTarget::BackgroundImage => match command {
+                MenuCommand::BackgroundChoose => self.pick(Pick::BackgroundImage),
+                MenuCommand::BackgroundNone => self.set_background_image(None),
                 _ => {}
             },
             MenuTarget::Zoom => {

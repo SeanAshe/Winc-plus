@@ -154,7 +154,7 @@ fn italics_are_found_next_to_the_regular_face() {
 fn ascii_comments_take_the_fast_path_without_an_italic() {
     // Monaco 没有斜体：注释里的 ASCII 字符落到正体上，查 ASCII 表即可，不进哈希表。
     let monaco = FontSpec::Path("/System/Library/Fonts/Monaco.ttf".into());
-    let mut fonts = Fonts::load(Some(&monaco), None, None).expect("Monaco 是 macOS 自带字体");
+    let mut fonts = Fonts::load(Some(&monaco), None, None, 400).expect("Monaco 是 macOS 自带字体");
     let regular = fonts.resolve(FontKind::Mono, 'a');
     assert_eq!(fonts.resolve(FontKind::MonoItalic, 'a'), regular);
     assert!(matches!(fonts.slots[MONO_ITALIC as usize], Slot::Missing));
@@ -169,7 +169,7 @@ fn ascii_comments_take_the_fast_path_without_an_italic() {
 #[test]
 fn the_terminal_uses_its_own_font_or_the_editor_font() {
     // 没有单独的终端字体：终端的正体、斜体与编辑区的相同。
-    let mut fonts = Fonts::load(None, None, None).expect("系统里有等宽字体");
+    let mut fonts = Fonts::load(None, None, None, 400).expect("系统里有等宽字体");
     assert_eq!(
         fonts.resolve(FontKind::Terminal, 'a'),
         fonts.resolve(FontKind::Mono, 'a')
@@ -179,7 +179,7 @@ fn the_terminal_uses_its_own_font_or_the_editor_font() {
 
     // 单独设置了终端字体：用终端自己的槽位。Monaco 没有斜体，终端的斜体落到终端的正体上。
     let monaco = FontSpec::Path("/System/Library/Fonts/Monaco.ttf".into());
-    let mut fonts = Fonts::load(None, None, Some(&monaco)).expect("Monaco 是 macOS 自带字体");
+    let mut fonts = Fonts::load(None, None, Some(&monaco), 400).expect("Monaco 是 macOS 自带字体");
     let (slot, glyph) = fonts.resolve(FontKind::Terminal, 'a');
     assert_eq!(slot, TERMINAL);
     assert_ne!(glyph, 0);
@@ -188,13 +188,13 @@ fn the_terminal_uses_its_own_font_or_the_editor_font() {
 
     // 指定的终端字体打不开时用编辑区的字体，不报错。
     let missing = FontSpec::Path("/nonexistent/font.ttf".into());
-    let mut fonts = Fonts::load(None, None, Some(&missing)).expect("系统里有等宽字体");
+    let mut fonts = Fonts::load(None, None, Some(&missing), 400).expect("系统里有等宽字体");
     assert_eq!(fonts.resolve(FontKind::Terminal, 'a').0, MONO);
 }
 
 #[test]
 fn italic_comments_fall_back_to_the_regular_face() {
-    let mut fonts = Fonts::load(None, None, None).expect("系统里有等宽字体");
+    let mut fonts = Fonts::load(None, None, None, 400).expect("系统里有等宽字体");
     // 有斜体时用斜体槽位，没有时用正体；两种情况下注释里的字符都画得出来。
     let (slot, glyph) = fonts.resolve(FontKind::MonoItalic, 'a');
     assert!(slot == MONO_ITALIC || slot == MONO);
@@ -237,7 +237,7 @@ fn only_files_users_cannot_change_are_mapped() {
 /// 基线，整体偏上。
 #[test]
 fn fonts_without_stated_heights_measure_their_letters() {
-    let fonts = Fonts::load(None, None, None).expect("系统中有等宽字体");
+    let fonts = Fonts::load(None, None, None, 400).expect("系统中有等宽字体");
     let face = fonts.primary_face(FontKind::Mono).unwrap();
     let font = face.font();
     let stated = crate::text::glyphs::heights(font, &face.coords, 100.0);
@@ -318,7 +318,7 @@ fn the_cjk_slot_skips_fonts_without_chinese() {
         files: vec![latin.clone(), chinese.clone()],
         probe: Some('中'),
     };
-    let face = choices.open().unwrap();
+    let face = choices.open(0).unwrap();
     assert_ne!(face.font().charmap().map('中'), 0);
 
     // 查询结果本身也是如此，无论 fontconfig 把什么字体排在第一个。
@@ -327,7 +327,7 @@ fn the_cjk_slot_skips_fonts_without_chinese() {
         files: Vec::new(),
         probe: Some('中'),
     };
-    assert_ne!(choices.open().unwrap().font().charmap().map('中'), 0);
+    assert_ne!(choices.open(0).unwrap().font().charmap().map('中'), 0);
 
     // 都不含时仍用第一个能打开的字体。
     let choices = Choices {
@@ -335,7 +335,7 @@ fn the_cjk_slot_skips_fonts_without_chinese() {
         files: vec![latin.clone()],
         probe: Some('中'),
     };
-    assert!(choices.open().is_some());
+    assert!(choices.open(0).is_some());
 }
 
 /// 回归：Linux 上默认字体能绘制中文。字体不在常见位置的发行版靠 fontconfig 找到中文字体；系统里
@@ -350,7 +350,7 @@ fn chinese_text_finds_a_font_on_linux() {
     if !has_chinese {
         return;
     }
-    let mut fonts = Fonts::load(None, None, None).expect("系统里有等宽字体");
+    let mut fonts = Fonts::load(None, None, None, 400).expect("系统里有等宽字体");
     for kind in [FontKind::Ui, FontKind::Mono] {
         let (_, glyph) = fonts.resolve(kind, '中');
         assert_ne!(glyph, 0, "{kind:?}");
@@ -391,4 +391,61 @@ fn the_app_language_overrides_the_system_language_for_cjk_glyphs() {
                 .unwrap_or_default()
         )
     );
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn weight_follows_the_axis_and_the_rest_is_emboldened() {
+    // 有字重轴：只调整坐标，不加宽笔画。
+    let sf = FontFile::first("/System/Library/Fonts/SFNSMono.ttf");
+    let regular = Face::open(&sf).expect("SF Mono 是 macOS 自带字体");
+    let (_, max) = weight_range(&regular.font()).expect("SF Mono 有字重轴");
+    let bold = Face::open_at(&sf, 300).unwrap();
+    assert_ne!(bold.coords, regular.coords);
+    assert_eq!((regular.embolden, bold.embolden), (0.0, 0.0));
+    assert_eq!(Face::open_at(&sf, 0).unwrap().coords, regular.coords);
+    // 超出轴的范围：不足的部分加宽笔画。
+    let past = Face::open_at(&sf, (max - REGULAR) as i16 + 150).unwrap();
+    assert!((past.embolden - crate::BOLD_RATIO / 2.0).abs() < 1e-6);
+
+    // Menlo 没有字重轴，同一文件中有粗体（700）：加 300 换用粗体；加 200 仍用常规体，加 450
+    // 用粗体，差额都加宽笔画。
+    let menlo = FontFile::first("/System/Library/Fonts/Menlo.ttc");
+    let bold = Face::open_at(&menlo, 300).unwrap();
+    assert_eq!(
+        (postscript(&bold).as_str(), bold.embolden),
+        ("Menlo-Bold", 0.0)
+    );
+    let medium = Face::open_at(&menlo, 200).unwrap();
+    assert_eq!(postscript(&medium), "Menlo-Regular");
+    assert!((medium.embolden - crate::BOLD_RATIO * 2.0 / 3.0).abs() < 1e-6);
+    let black = Face::open_at(&menlo, 450).unwrap();
+    assert_eq!(postscript(&black), "Menlo-Bold");
+    assert!((black.embolden - crate::BOLD_RATIO / 2.0).abs() < 1e-6);
+    // 斜体只在斜体中找。
+    let italic = FontFile {
+        postscript: Some("Menlo-Italic".to_owned()),
+        ..menlo.clone()
+    };
+    assert_eq!(
+        postscript(&Face::open_at(&italic, 300).unwrap()),
+        "Menlo-BoldItalic"
+    );
+    // 调细时换用同族中更细的字体。
+    let heavy = FontFile {
+        postscript: Some("Menlo-Bold".to_owned()),
+        ..menlo
+    };
+    assert_eq!(
+        postscript(&Face::open_at(&heavy, -300).unwrap()),
+        "Menlo-Regular"
+    );
+
+    // Monaco 没有同族的其他字体：调粗靠加宽笔画，调细不处理。
+    let monaco = FontFile::first("/System/Library/Fonts/Monaco.ttf");
+    assert_eq!(
+        Face::open_at(&monaco, 300).unwrap().embolden,
+        crate::BOLD_RATIO
+    );
+    assert_eq!(Face::open_at(&monaco, -100).unwrap().embolden, 0.0);
 }

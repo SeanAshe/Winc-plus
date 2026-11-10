@@ -251,14 +251,16 @@ fn rasterize(
 ) -> Option<Glyph> {
     let face = fonts.face(key.slot)?;
     let dx = key.subpixel as f32 / 4.0;
+    // 笔画加宽的总量（物理像素）：补足字重的部分与模拟粗体之和。
+    let bold = if key.bold { BOLD_RATIO } else { 0.0 };
+    let widen = size_px * (face.embolden + bold);
     if let Some(system) = &face.system {
         let slant = if key.oblique {
             OBLIQUE_DEGREES.to_radians().tan()
         } else {
             0.0
         };
-        let bold = if key.bold { size_px * BOLD_RATIO } else { 0.0 };
-        let mask = system.fill(key.glyph, size_px, dx, slant, bold)?;
+        let mask = system.fill(key.glyph, size_px, dx, slant, widen)?;
         return Some(Glyph {
             width: mask.width as u16,
             height: mask.height as u16,
@@ -274,10 +276,10 @@ fn rasterize(
         .hint(false)
         .normalized_coords(&face.coords)
         .build();
-    if key.bold
+    if widen > 0.0
         && !scaler.has_color_outlines()
         && !scaler.has_color_bitmaps()
-        && let Some(glyph) = rasterize_bold(&mut scaler, key, size_px, dx)
+        && let Some(glyph) = rasterize_bold(&mut scaler, key, widen, dx)
     {
         return Some(glyph);
     }
@@ -289,11 +291,7 @@ fn rasterize(
     .format(Format::Alpha)
     .offset(Vector::new(dx, 0.0))
     // swash 在两侧各加宽传入的量（FreeType 则先除以 2），总宽度增加该量的两倍。
-    .embolden(if key.bold {
-        size_px * BOLD_RATIO / 2.0
-    } else {
-        0.0
-    })
+    .embolden(widen / 2.0)
     .transform(key.oblique.then(|| {
         Transform::skew(
             Angle::from_degrees(OBLIQUE_DEGREES),
@@ -313,14 +311,14 @@ fn rasterize(
     })
 }
 
-/// 合并字形与宽 `size_px * BOLD_RATIO` 的描边，得到模拟的粗体：两侧各加宽该比例的一半。
+/// 合并字形与宽 `widen`（物理像素）的描边，得到加粗的字形：笔画两侧各加宽一半。
 ///
 /// 不沿轮廓方向偏移：组合字形的轮廓方向判断不可靠，判断错误时笔画会变细。描边只会向外扩展。
 /// 描边与填充各由 swash 的 [`Render`] 光栅化一次，再逐像素取较大的覆盖率合并。
 fn rasterize_bold(
     scaler: &mut swash::scale::Scaler,
     key: GlyphKey,
-    size_px: f32,
+    widen: f32,
     dx: f32,
 ) -> Option<Glyph> {
     let mut render = |style: Style<'_>| {
@@ -336,7 +334,7 @@ fn rasterize_bold(
             }))
             .render(scaler, key.glyph)
     };
-    let mut stroke = Stroke::new(size_px * BOLD_RATIO);
+    let mut stroke = Stroke::new(widen);
     stroke.join(Join::Miter);
     let mut image = render(Style::Stroke(stroke))?;
     let fill = render(Style::Fill(Fill::NonZero))?;

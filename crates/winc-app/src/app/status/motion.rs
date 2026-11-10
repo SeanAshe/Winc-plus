@@ -321,7 +321,7 @@ impl Row {
 }
 
 impl App {
-    /// 状态栏本帧是否播放过渡；没有窗口、系统开启「减弱动态效果」时为假。
+    /// 状态栏本帧是否播放过渡；没有窗口、动态效果已关闭时为假。
     pub(crate) fn animate_status(&mut self) -> bool {
         #[cfg(test)]
         if self.status.motion.animate_without_window {

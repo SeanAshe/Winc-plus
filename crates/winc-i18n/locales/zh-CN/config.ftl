@@ -21,6 +21,7 @@ config-run-template-note = 每项需要 name 和 command；args、cwd、env 为�
 
 config-theme-invalid = { $name } 的值只能是 auto、dark 或 light，已忽略
 config-render-whitespace-invalid = { $name } 的值只能是 none、selection、trailing 或 all，已忽略
+config-background-fit-invalid = { $name } 的值只能是 fill、fit、stretch 或 tile，已忽略
 config-language-invalid = { $name } 的值只能是 auto、zh-CN 或 en-US，已忽略
 config-not-integer = { $name } 应为整数（当前为 { $value }），已忽略
 config-not-string = { $name } 应为字符串，已忽略
@@ -38,6 +39,8 @@ config-not-bool = { $name } 应为 true 或 false，已忽略
 config-not-number = { $name } 应为数字，已忽略
 config-out-of-range = { $setting } 超出{ $label }范围（{ $range }），已忽略
 config-label-font-size = 字号
+config-label-font-weight = 字重
+config-label-background-opacity = 背景透明度
 config-label-zoom = 界面缩放
 config-label-tab-width = 制表符长度
 config-label-repository-scan-depth = 仓库扫描深度

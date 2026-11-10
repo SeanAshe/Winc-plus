@@ -12,7 +12,9 @@ mod run;
 mod state;
 mod version;
 
-pub use config::{Backup, Config, OptionAsMeta, RenderWhitespace, Saved, ThemeChoice, config_path};
+pub use config::{
+    BackgroundFit, Backup, Config, OptionAsMeta, RenderWhitespace, Saved, ThemeChoice, config_path,
+};
 pub use font::{FontRequest, resolve_font};
 pub use json::Json;
 pub use run::{

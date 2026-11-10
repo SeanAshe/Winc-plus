@@ -325,7 +325,7 @@ impl App {
     ///
     /// 距离不小于 [`GLIDE_MIN_ROWS`] 行时按 [`ScrollGlide`] 平滑滚动，否则直接到达目标。
     /// 已在滚动时从屏幕上的当前位置继续滚动，不跳回起点。
-    /// 开启「减弱动态效果」或没有窗口时不播放动画。
+    /// 动态效果关闭或没有窗口时不播放动画。
     pub(in crate::app) fn glide_scroll(&mut self, from: f64) {
         let Some(doc) = self.editor.active() else {
             return;

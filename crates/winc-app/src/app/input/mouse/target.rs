@@ -202,7 +202,8 @@ impl App {
             Target::Browser => Hover::Browser,
             Target::MarkdownLink(link) => Hover::MarkdownLink(link),
             Target::MarkdownToc(target) => Hover::MarkdownToc(target),
-            Target::MarkdownText => Hover::None,
+            Target::MarkdownText | Target::PdfThumb(_) => Hover::None,
+            Target::PdfTool(tool) => Hover::PdfTool(tool),
             Target::Tab(index, on_close) => Hover::Tab(index, on_close),
             Target::RulerChange(hunk) => Hover::RulerChange(hunk),
             Target::Crumb(index) => Hover::Crumb(index),
@@ -445,6 +446,17 @@ impl App {
         {
             return Target::MarkdownLink(link);
         }
+        if let Some(tool) = hit(&self.hits.pdf_tools, x, y) {
+            return Target::PdfTool(tool);
+        }
+        if self.pdf.strip.contains(x, y) {
+            let thumb = self
+                .hits
+                .pdf_thumbs
+                .iter()
+                .find(|(rect, _)| rect.contains(x, y));
+            return thumb.map_or(Target::Blocked, |&(_, to)| Target::PdfThumb(to));
+        }
         // 在预览上按下时选择文字并获得焦点，以便用键盘滚动和复制。
         if self.markdown.area.contains(x, y) {
             return Target::MarkdownText;
@@ -549,6 +561,24 @@ impl App {
             let scroll = self.markdown.scroll();
             let thumb = scrollbar_thumb(preview, scroll, self.markdown.height)?;
             return Some((Scrollbar::Markdown, grab(y, thumb.y, thumb.h)));
+        }
+
+        let strip = self.pdf.strip;
+        if strip.contains(x, y) {
+            if x < strip.right() - SCROLLBAR_HIT {
+                return None;
+            }
+            let (scroll, content) = (self.pdf.strip_scroll, self.pdf.strip_height);
+            let thumb = scrollbar_thumb(strip, scroll, content)?;
+            return Some((Scrollbar::PdfStrip, grab(y, thumb.y, thumb.h)));
+        }
+        let pdf = self.pdf.area;
+        if pdf.contains(x, y) {
+            if x < pdf.right() - SCROLLBAR_HIT {
+                return None;
+            }
+            let thumb = scrollbar_thumb(pdf, self.pdf.scroll, self.pdf.height)?;
+            return Some((Scrollbar::Pdf, grab(y, thumb.y, thumb.h)));
         }
 
         let editor = self.scroll_track();
@@ -776,6 +806,10 @@ pub(super) enum Target {
     Scrollbar(Scrollbar, f32),
     /// 侧栏中由视图切换、项目名、分支、搜索和提交面板处理的区域，参数为悬停目标。
     Panel(Hover),
+    /// PDF 预览缩略图栏中的一页，参数为点击后正文滚动到的位置（逻辑像素）。
+    PdfThumb(f32),
+    /// PDF 预览右下角工具栏上的按钮。
+    PdfTool(crate::app::preview::pdf::PdfTool),
     /// 跳转条，或正在输入名称的行。
     Prompt,
     Search,

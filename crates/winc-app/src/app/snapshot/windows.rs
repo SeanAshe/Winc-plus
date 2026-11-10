@@ -169,7 +169,7 @@ fn opening_another_folder_follows_the_new_window_setting() {
 }
 
 #[test]
-fn dropped_on_the_dock_icon_open_in_the_window_that_has_them_or_a_blank_one() {
+fn dropped_on_the_dock_icon_open_in_the_window_that_has_them_or_the_current_one() {
     let (mut winc, a, b, dir) = two_windows("windows-dock");
     winc.settle_for_test();
     let src = winc_config::files::canonicalize(dir.join("src")).unwrap();
@@ -182,18 +182,18 @@ fn dropped_on_the_dock_icon_open_in_the_window_that_has_them_or_a_blank_one() {
     // 开着它所在目录的窗口收下。
     assert_eq!(winc.window_for_test(&[target(&src.join("main.rs"))]), Ok(a));
 
-    // 其他目录的文件：没有窗口开着该目录，第二个窗口停在开始页上，就在该窗口里打开文件
-    // 所在的目录，不再新建窗口。
+    // 项目外的文件：交给当前窗口，窗口打开的目录不变，也不打开文件所在的目录。
     let elsewhere = winc_config::files::canonicalize(&dir).unwrap();
-    winc.set_active(a);
-    assert_eq!(
-        winc.window_for_test(&[target(&elsewhere.join("a.txt"))]),
-        Ok(b)
-    );
-    assert_eq!(winc.app(b).editor.root(), Some(elsewhere.as_path()));
+    let file = elsewhere.join("a.txt");
+    for (key, root) in [(a, Some(src.clone())), (b, None)] {
+        winc.set_active(key);
+        assert_eq!(winc.window_for_test(&[target(&file)]), Ok(key));
+        winc.app(key).open_files(&[target(&file)]);
+        assert_eq!(winc.app(key).editor.root(), root.as_deref());
+    }
     winc.settle_for_test();
 
-    // 两个窗口都开着目录：要新建窗口打开别的目录。
+    // 目录不交给已有标签的窗口：没有空着的窗口时新建窗口打开。
     let other = search_folder("windows-dock-other");
     let other = winc_config::files::canonicalize(&other).unwrap();
     assert_eq!(
@@ -478,5 +478,40 @@ fn the_title_bar_setting_applies_at_once() {
     assert_eq!(app.layout.controls, Rect::default());
     app.settings_toggle(Setting::SystemTitleBar);
     assert!(app.window.controls && app.layout.controls.w > 0.0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 各窗口共用同一张背景图层：第二个窗口直接采用已有的，不再生成。
+#[test]
+fn windows_share_one_background_layer() {
+    let (mut winc, a, b, dir) = two_windows("windows-wallpaper");
+    let image = dir.join("bg.png");
+    let red = winc_render::Image {
+        pixels: vec![0xffff_0000; 64 * 48],
+        width: 64,
+        height: 48,
+    };
+    write_png(&image, &red).unwrap();
+    for key in [a, b] {
+        winc.app(key).config.ui_background_image = Some(image.to_string_lossy().into_owned());
+    }
+    paint(winc.app(a));
+    winc.app(a).wait_for_wallpaper();
+    paint(winc.app(a));
+    let layer = |app: &App| app.renderer.as_ref().unwrap().wallpaper().cloned();
+    let first = layer(winc.app(a)).expect("第一个窗口的图层");
+
+    paint(winc.app(b));
+    assert!(!winc.app(b).wallpaper.is_busy());
+    let second = layer(winc.app(b)).expect("第二个窗口的图层");
+    assert!(std::sync::Arc::ptr_eq(&first, &second));
+    drop(second);
+
+    // 两个窗口都取消后，图层释放。
+    for key in [a, b] {
+        winc.app(key).config.ui_background_image = None;
+        paint(winc.app(key));
+    }
+    assert_eq!(std::sync::Arc::strong_count(&first), 1);
     let _ = std::fs::remove_dir_all(&dir);
 }

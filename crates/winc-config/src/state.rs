@@ -40,6 +40,8 @@ pub struct State {
     ///
     /// `false`（默认）时平铺，每个文件一行。所有窗口和仓库共用，下次启动沿用。
     pub commit_tree: bool,
+    /// PDF 预览是否隐藏页面缩略图栏；默认显示。所有窗口共用，下次启动沿用。
+    pub pdf_thumbnails_hidden: bool,
     /// 侧栏宽度（逻辑像素）；`None` 表示没有调整过。所有视图、窗口和仓库共用，下次启动沿用。
     pub panel_width: Option<f32>,
     /// 能预览的文件（SVG、Markdown、表格）打开时的显示方式：`"split"`（分栏）或 `"preview"`
@@ -102,6 +104,8 @@ pub struct Session {
     ///
     /// 每个符号记为从最外层上级到自身的名字，以 `\u{1f}`（单元分隔符）连接。
     pub outline: Vec<(PathBuf, Vec<String>)>,
+    /// 各文件中折叠的块（开头行，末尾行；行号从 0 起），包括当前未打开的文件。
+    pub folds: Vec<(PathBuf, Vec<(usize, usize)>)>,
     /// 终端面板；终端里没有标签时为 `None`。
     pub terminal: Option<TerminalSession>,
     /// 选中的运行配置的名字。
@@ -228,6 +232,30 @@ impl State {
                         .collect()
                 })
                 .unwrap_or_default();
+            let folds = s
+                .get("folds")
+                .and_then(Json::as_object)
+                .map(|files| {
+                    let line = |n: &Json| {
+                        let n = n.as_number().filter(|n| *n >= 0.0 && n.fract() == 0.0)?;
+                        Some(n as usize)
+                    };
+                    let block = |pair: &Json| match pair.as_array()? {
+                        [start, end] => Some((line(start)?, line(end)?)),
+                        _ => None,
+                    };
+                    files
+                        .iter()
+                        .filter(|(path, _)| !path.is_empty())
+                        .map(|(path, blocks)| {
+                            let blocks = blocks.as_array().unwrap_or_default();
+                            let blocks = blocks.iter().filter_map(block);
+                            (PathBuf::from(path), blocks.filter(|(s, e)| s < e).collect())
+                        })
+                        .filter(|(_, blocks): &(PathBuf, Vec<(usize, usize)>)| !blocks.is_empty())
+                        .collect()
+                })
+                .unwrap_or_default();
             let outline = s
                 .get("outline")
                 .and_then(Json::as_object)
@@ -287,6 +315,7 @@ impl State {
                 active,
                 bookmarks,
                 outline,
+                folds,
                 terminal,
                 run: s.get("run").and_then(Json::as_str).map(str::to_owned),
                 sidebar_hidden: (s.get("sidebarHidden").and_then(Json::as_bool)).unwrap_or(false),
@@ -368,6 +397,10 @@ impl State {
             .get("commitTree")
             .and_then(Json::as_bool)
             .unwrap_or(false);
+        state.pdf_thumbnails_hidden = root
+            .get("pdfThumbnailsHidden")
+            .and_then(Json::as_bool)
+            .unwrap_or(false);
         state.stay_outside_applications = root
             .get("stayOutsideApplications")
             .and_then(Json::as_bool)
@@ -424,7 +457,7 @@ impl State {
     /// 序列化为 `state.json` 的内容，末尾带一个换行符。
     ///
     /// `last`、`previewMode` 没有值，`otherWindows`、`toolChoices`、`trustedRepos` 为空，
-    /// `commitTree`、`stayOutsideApplications` 为假时省略对应的键。
+    /// `commitTree`、`pdfThumbnailsHidden`、`stayOutsideApplications` 为假时省略对应的键。
     pub fn to_json(&self) -> String {
         let path = |p: &PathBuf| Json::String(p.to_string_lossy().into_owned());
         let mut fields = vec![(
@@ -444,6 +477,9 @@ impl State {
 
         if self.commit_tree {
             fields.push(("commitTree", Json::Bool(true)));
+        }
+        if self.pdf_thumbnails_hidden {
+            fields.push(("pdfThumbnailsHidden", Json::Bool(true)));
         }
         if self.stay_outside_applications {
             fields.push(("stayOutsideApplications", Json::Bool(true)));
@@ -492,6 +528,16 @@ impl State {
                     (file.to_string_lossy().into_owned(), Json::Array(lines))
                 });
                 items.push(("bookmarks", Json::Object(files.collect())));
+            }
+            if !session.folds.is_empty() {
+                let files = session.folds.iter().map(|(file, blocks)| {
+                    let pair = |&(start, end): &(usize, usize)| {
+                        Json::Array(vec![Json::Number(start as f64), Json::Number(end as f64)])
+                    };
+                    let blocks = blocks.iter().map(pair).collect();
+                    (file.to_string_lossy().into_owned(), Json::Array(blocks))
+                });
+                items.push(("folds", Json::Object(files.collect())));
             }
             if !session.outline.is_empty() {
                 let files = session.outline.iter().map(|(file, symbols)| {
