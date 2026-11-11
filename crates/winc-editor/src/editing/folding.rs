@@ -24,6 +24,7 @@ use winc_core::{Lines, Selection};
 
 use crate::document::Document;
 use crate::document::content::Content;
+use crate::editing::long_lines::{Limits, WholeLines};
 use crate::editing::scopes::{self, FoldRange};
 use crate::navigation::bookmarks::Bookmarks;
 
@@ -533,21 +534,21 @@ impl Folds {
 
     /// 开启、关闭自动换行或更换宽度：按 `text` 整体重新计算。
     ///
-    /// `wrap` 是（断行宽度，Tab 宽度），单位均为显示列，`None` 表示关闭；`limit` 是每行参与断行的
+    /// `wrap` 是（断行宽度，Tab 宽度），单位均为显示列，`None` 表示关闭；`limits` 是各行参与断行的
     /// 字符数上限，`revision` 是此时的文档版本号。
     pub(crate) fn set_wrap(
         &mut self,
         text: &impl Lines,
         wrap: Option<(usize, usize)>,
-        limit: usize,
+        limits: Limits<'_>,
         revision: u64,
     ) {
         self.wrap = wrap.map(|(width, tab_width)| {
-            let rows = wrapped_lines(text, 0..usize::MAX, width, tab_width, limit);
+            let rows = wrapped_lines(text, 0..usize::MAX, width, tab_width, limits);
             Wrap {
                 width,
                 tab_width,
-                limit,
+                limit: limits.base,
                 extra: rows.extra,
                 long: rows.long,
                 partial: false,
@@ -573,18 +574,35 @@ impl Folds {
         self.wrap.as_mut()
     }
 
-    /// 按改动重新计算断行：改动前是第 `first..=old_last` 行，改动后是第 `first..=new_last` 行。
-    fn edit_wrap(&mut self, text: &impl Lines, first: usize, old_last: usize, new_last: usize) {
+    /// 第 `line` 行改为显示整行或不再显示整行后，重新断开该行。
+    pub(crate) fn rewrap(&mut self, text: &impl Lines, line: usize, whole: &WholeLines) {
+        self.edit_wrap(text, (line, line, line), whole);
+        self.refresh();
+    }
+
+    /// 按改动重新计算断行：`lines` 是（第一行，改动前的最后一行，改动后的最后一行）；`whole` 是
+    /// 显示整行的行，行号已是改动后的。
+    fn edit_wrap(
+        &mut self,
+        text: &impl Lines,
+        (first, old_last, new_last): (usize, usize, usize),
+        whole: &WholeLines,
+    ) {
         let Some(wrap) = &mut self.wrap else {
             return;
+        };
+        let limits = Limits {
+            base: wrap.limit,
+            whole: Some(whole),
         };
         let delta = new_last as isize - old_last as isize;
         let from = wrap.extra.partition_point(|&(l, _)| l < first);
         let to = wrap.extra.partition_point(|&(l, _)| l <= old_last);
         let mut fresh = WrapRows::default();
         for line in first..=new_last.min(text.line_count().saturating_sub(1)) {
-            let (breaks, len) = measure_line(text, line, wrap.width, wrap.tab_width, wrap.limit);
-            fresh.push(line, len, &breaks, wrap.limit == usize::MAX);
+            let limit = limits.of(line);
+            let (breaks, len) = measure_line(text, line, wrap.width, wrap.tab_width, limit);
+            fresh.push(line, len, &breaks, limit == usize::MAX);
         }
         let long_from = wrap.long.partition_point(|l| l.line < first);
         let long_to = wrap.long.partition_point(|l| l.line <= old_last);
@@ -657,7 +675,7 @@ impl Folds {
     }
 }
 
-/// 修改文本时一并移动折叠块和书签的位置。
+/// 修改文本时一并移动折叠块、书签和显示整行的行的位置。
 pub(crate) struct Tracked<'a> {
     /// 被修改的文本。
     pub text: &'a mut Content,
@@ -665,13 +683,16 @@ pub(crate) struct Tracked<'a> {
     pub folds: &'a mut Folds,
     /// 需要随修改移动的书签。
     pub bookmarks: &'a mut Bookmarks,
+    /// 需要随修改移动的显示整行的行。
+    pub whole: &'a mut WholeLines,
 }
 
 impl EditBuffer for Tracked<'_> {
     fn replace(&mut self, start: usize, removed: usize, inserted: &str) {
         let before = self.text.line_count();
-        // 书签需要修改所在的行范围，该范围必须在修改之前计算。
-        let (start_line, end_line, whole_lines) = if self.bookmarks.is_empty() {
+        // 书签和显示整行的行需要修改所在的行范围，该范围必须在修改之前计算。
+        let marked = !self.bookmarks.is_empty() || self.whole.tracks();
+        let (start_line, end_line, whole_lines) = if !marked {
             (0, 0, false)
         } else {
             let end = (start + removed).min(self.text.end_pos());
@@ -694,24 +715,26 @@ impl EditBuffer for Tracked<'_> {
             self.folds
                 .edit(start, removed, inserted, after as isize - before as isize);
         }
-        if let Some((first, old_last)) = wrap_lines {
-            let new_last = old_last.saturating_add_signed(after as isize - before as isize);
-            self.folds.edit_wrap(&*self.text, first, old_last, new_last);
+        let delta = after as isize - before as isize;
+        self.bookmarks
+            .edit(start_line, end_line, delta, whole_lines);
+        if marked {
+            (self.whole).edit(start_line, end_line, delta, whole_lines);
         }
-        if !self.bookmarks.is_empty() {
-            self.bookmarks.edit(
-                start_line,
-                end_line,
-                after as isize - before as isize,
-                whole_lines,
-            );
+        if let Some((first, old_last)) = wrap_lines {
+            let new_last = old_last.saturating_add_signed(delta);
+            let lines = (first, old_last, new_last);
+            self.folds.edit_wrap(&*self.text, lines, &*self.whole);
         }
     }
 
     /// 没有需要随之移动的折叠、自动换行和书签时，整批修改交给文本一次完成（大文件的片段表一次
     /// 处理）；否则逐处修改，每处先计算其所在的行范围。
     fn replace_each(&mut self, changes: &[(usize, usize, &str)]) {
-        if self.folds.is_empty() && self.folds.wrap.is_none() && self.bookmarks.is_empty() {
+        let marked = !self.bookmarks.is_empty() || !self.whole.lines.is_empty();
+        if self.folds.is_empty() && self.folds.wrap.is_none() && !marked {
+            // 整批修改不逐处调整列索引，全部丢弃。
+            self.whole.forget();
             self.text.replace_each(changes);
             return;
         }

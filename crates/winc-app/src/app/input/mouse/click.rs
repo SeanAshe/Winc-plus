@@ -263,6 +263,10 @@ impl App {
             Target::Start(action) => self.run_start_action(action),
             Target::Sticky(row) => self.click_sticky(row, x),
             Target::Folded(line) => self.click_folded(line),
+            Target::LongLine(line) => {
+                self.focus = Focus::Editor;
+                self.show_whole_line(line);
+            }
             Target::Blame(line) => self.click_blame(line),
             Target::ChangeMark(_) => {
                 self.click_change_mark(x, y);
@@ -280,6 +284,7 @@ impl App {
                 }
             }
             Target::Editor => self.click_editor(x, y),
+            Target::Picture => self.click_picture(x, y),
             Target::Terminal => {
                 if self.terminal_view().contains(x, y) {
                     self.terminal_mouse_down(x, y, MouseButton::Left);

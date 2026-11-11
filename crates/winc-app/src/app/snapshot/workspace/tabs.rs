@@ -252,12 +252,11 @@ fn images_open_as_previews_decoded_in_the_background() {
     assert!(doc.readonly);
     app.run_action(crate::keymap::Action::Find);
     assert!(!app.find.open);
-    // 小图按原大小绘制：8 个逻辑像素，在缩放倍数 `SCALE` 为 2 时是 16 个物理像素。
-    let cache = app.picture_cache.as_ref().unwrap();
-    assert_eq!(
-        (cache.width(), cache.height()),
-        ((8.0 * SCALE) as u32, (8.0 * SCALE) as u32)
-    );
+    // 小图按原大小显示，占 8 个逻辑像素；显示大小不小于解码后的像素，直接绘制，不另存位图。
+    let (picture, area) = app.shown_picture().unwrap();
+    let rect = app.picture_view.rect(picture, area).unwrap();
+    assert_eq!((rect.w, rect.h), (8.0, 8.0));
+    assert!(app.picture_cache.is_none());
 
     // 其他程序替换了图片文件：重新解码。
     std::fs::write(&path, image_bytes_16()).unwrap();

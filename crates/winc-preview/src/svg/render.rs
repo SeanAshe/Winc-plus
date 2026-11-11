@@ -124,6 +124,12 @@ fn render_mask<'a>(
 /// 本来就在画布之外。
 const LIMIT: f32 = 8192.0;
 
+/// 光栅化时整张图长边的上限（像素），等于画布坐标的范围上限。
+///
+/// 不超过时，图内的坐标都在范围之内，按原样绘制；超过时，坐标超出范围的形状被限制到范围的
+/// 边缘而变形。按显示大小光栅化的调用方据此限制大小，更大的显示大小改为缩放位图。
+pub const MAX_EDGE: u32 = LIMIT as u32;
+
 /// 一条描边最多绘制的虚线段数（段），超过时按实线描边。
 ///
 /// 依据 Skia 的 `kMaxDashCount`。zeno 把短于 1 像素的虚线画成实线，但更长的虚线在由大量
@@ -437,8 +443,23 @@ impl Drawing {
     ///
     /// `width` 或 `height` 为 0 时按 1 处理。
     pub fn render(&self, width: u32, height: u32) -> Pixels {
+        let (width, height) = (width.max(1), height.max(1));
+        self.render_region((width, height), [0, 0, width, height])
+    }
+
+    /// 绘制整张图为 `size`（宽、高，像素）时其中 `region` 部分的位图（非预乘的 RGBA）。
+    ///
+    /// `region` 依次为该部分左上角的横、纵坐标和宽、高（像素），结果的大小为其宽、高；`size`
+    /// 与 `region` 的宽、高为 0 时按 1 处理。内存取决于 `region` 的大小，与 `size` 无关：放大后
+    /// 只需要可见的部分时使用。`size` 的长边不应超过 [`MAX_EDGE`]。
+    ///
+    /// 滤镜只处理 `region` 内的像素：模糊等滤镜在 `region` 的边缘取不到外侧的内容，这些位置的
+    /// 结果与绘制整张图后裁剪略有差别。
+    pub fn render_region(&self, size: (u32, u32), [x, y, width, height]: [u32; 4]) -> Pixels {
         let (w, h) = (width.max(1) as usize, height.max(1) as usize);
-        let viewport = fit(self.view_box, self.aspect, w as f32, h as f32);
+        let whole = (size.0.max(1) as f32, size.1.max(1) as f32);
+        let viewport = fit(self.view_box, self.aspect, whole.0, whole.1)
+            .then(Affine::translate(-(x as f32), -(y as f32)));
         let mut layer = Layer::new(w, h);
         draw_items(&self.items, &mut layer, viewport);
         TILES.with_borrow_mut(HashMap::clear);

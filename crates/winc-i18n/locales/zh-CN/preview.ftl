@@ -102,6 +102,7 @@ preview-docx-image-unsupported = 图片「{ $name }」为 { $format } 格式，�
 preview-pdf-unsupported = 当前系统不支持预览 PDF
 preview-pdf-invalid = 不是有效的 PDF 文件
 preview-pdf-zoom = PDF 缩放 { $zoom }%
+preview-picture-zoom = 图片缩放 { $zoom }%
 preview-pdf-encrypted = 不支持预览加密的 PDF
 preview-pdf-empty = PDF 中没有页面
 preview-pdf-render-failed = 无法渲染这一页

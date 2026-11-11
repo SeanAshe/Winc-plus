@@ -15,6 +15,7 @@ editor-welcome-find-in-files = 在文件中查找
 editor-welcome-toggle-sidebar = 显示或隐藏侧栏
 editor-welcome-settings = 设置
 editor-line-truncated = … 此行过长，仅显示前 { $count } 个字符
+editor-line-show-whole = 显示整行
 editor-blame-uncommitted = 未提交
 
 ## 查找、替换和多光标。
@@ -27,8 +28,6 @@ editor-find-large-filter = 文件过大，无法只显示匹配的行
 editor-replace-none = 没有可替换的匹配项
 editor-replaced = 已替换 { $count } 处
 editor-find-large-multiline = 大文件不支持跨行查找
-editor-find-hidden-match = 匹配项超出该行的显示范围
-editor-find-hidden-match-wrap = 匹配项超出该行的显示范围，开启自动换行后可见
 editor-replace-all-pending = 查找尚未完成，请稍后再全部替换
 editor-replace-all-too-many = 匹配超过 10000 处，无法全部替换
 editor-replace-all-gave-up = 正则在部分行上回溯过多，查找结果不完整，无法全部替换

@@ -416,6 +416,7 @@ impl ApplicationHandler<UserEvent> for App {
             WindowEvent::PinchGesture { delta, .. } => {
                 self.diagram_view_pinch(delta as f32);
                 self.pdf_pinch(delta as f32);
+                self.picture_pinch(delta as f32);
             }
             WindowEvent::HoveredFile(_) => self.hover_file(),
             WindowEvent::HoveredFileCancelled => self.end_file_hover(),
@@ -650,17 +651,7 @@ impl App {
         // 光标闪烁的定时唤醒需要同时满足：窗口有焦点、窗口可见（被完全遮挡时不绘制）、焦点位于
         // 可输入位置、当前文档可以编辑文字（或光标在差异里）、没有进行中的输入法组字；图片预览和
         // 无法打开的文件不显示光标。离上次输入超过 `BLINK_STOP` 后光标停在亮着的状态。
-        let typing = self.focus.is_field()
-            || (self.focus == Focus::Terminal
-                && self.terminal.tab().is_some_and(|t| t.ended.is_none()))
-            || (self.focus == Focus::Editor
-                && self.editor.active().is_some_and(|doc| {
-                    doc.edits_text()
-                        || doc
-                            .diff
-                            .as_deref()
-                            .is_some_and(|v| v.editing || v.read_caret().is_some())
-                }));
+        let typing = self.takes_text();
 
         let blinking = now.duration_since(self.blink.epoch) < BLINK_STOP;
 

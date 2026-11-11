@@ -465,6 +465,8 @@ pub enum Hover {
     Gutter,
     /// 已折叠行末尾的 `⋯`，参数是行号（从 0 起）。
     Folded(usize),
+    /// 超长行截断说明中的「显示整行」，参数是行号（从 0 起）。
+    LongLine(usize),
     /// 滚动条的可点击区域。
     Scrollbar(Scrollbar),
     /// 提示条上的按钮。
@@ -595,6 +597,10 @@ enum Drag {
     MarkdownText,
     /// 在表格中拖选单元格（`App::drag_table`）。
     TableCells,
+    /// 拖动图片预览中的图片（`App::drag_picture`）；`at` 是上一次的鼠标位置（窗口坐标）。
+    Picture {
+        at: (f32, f32),
+    },
     /// 在终端中拖选文字。
     TerminalSelect,
     /// 终端中的程序启用了鼠标上报：按住参数所示的按键拖动，松开时上报。
@@ -814,6 +820,8 @@ pub struct App {
     pub(crate) ruler_cache: Option<crate::view::RulerCache>,
     /// 图片预览缩放后的图片缓存。
     pub(crate) picture_cache: Option<preview::images::PictureCache>,
+    /// 当前图片预览的缩放倍数与滚动位置。
+    pub(crate) picture_view: preview::images::PictureView,
     /// 后台的图片解码和 SVG 绘制任务。
     pub(crate) images: preview::images::ImageJobs,
     pub(crate) tables: preview::tables::TableJobs,

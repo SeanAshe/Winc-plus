@@ -60,7 +60,7 @@ pub(super) const POPUP_IN: Duration = Duration::from_millis(150);
 pub(super) const POPUP_OUT: Duration = Duration::from_millis(110);
 /// 可编辑的预览重排后各块滑到新位置、新显示的标记淡入的时长，取 [`TREE_ANIMATION`]。
 pub(crate) const MARKDOWN_MOTION: Duration = TREE_ANIMATION;
-/// PDF 预览缩放、缩略图栏滑入滑出的时长，取 [`TREE_ANIMATION`]。
+/// PDF 预览与图片预览缩放、PDF 缩略图栏滑入滑出的时长，取 [`TREE_ANIMATION`]。
 pub(crate) const PDF_MOTION: Duration = TREE_ANIMATION;
 /// 设置浮层出现的时长（取自调参）：卡片面积远大于小浮窗，时长相应加长。
 pub(super) const DIALOG_IN: Duration = Duration::from_millis(220);
@@ -338,6 +338,7 @@ impl App {
         settle(&mut self.scroll_glide, |g| g.clock);
         settle(&mut self.picker.motion, |m| m.clock);
         settle(&mut self.pdf.zoom_motion, |m| m.clock);
+        settle(&mut self.picture_view.zoom_motion, |m| m.clock);
         settle(&mut self.pdf.strip_motion, |m| m.1);
         settle(&mut self.picker.fold, |f| f.clock);
         if self.picker.places_in.is_some_and(|c| c.done()) {
@@ -438,6 +439,7 @@ impl App {
             || self.wheel.glide.is_some()
             || self.picker.motion.is_some()
             || self.pdf.zoom_motion.is_some()
+            || self.picture_view.zoom_motion.is_some()
             || self.pdf.strip_motion.is_some()
             || self.picker.fold.is_some()
             || self.picker.places_in.is_some()

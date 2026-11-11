@@ -590,7 +590,8 @@ pub(super) fn draw_preedit(
     let p = app.palette;
     let cell = app.terminal_cell;
     let cells = |c: char| char_width(c).max(1);
-    let width = app.preedit.chars().map(cells).sum::<usize>() as f32 * cell;
+    let preedit = app.preedit_at(Focus::Terminal);
+    let width = preedit.chars().map(cells).sum::<usize>() as f32 * cell;
     frame.rect_clipped(
         Rect::new(x, y, width, app.fonts.terminal_line_height),
         p.editor_bg,
@@ -598,7 +599,7 @@ pub(super) fn draw_preedit(
         clip,
     );
     let mut px = x;
-    for c in app.preedit.chars() {
+    for c in preedit.chars() {
         frame.cell_char(
             FontKind::Terminal,
             app.fonts.terminal,

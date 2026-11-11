@@ -382,7 +382,7 @@ fn draw_branch_row(
         (BADGE_CENTER, BADGE_ROOM),
         right,
         CommitTarget::Branch,
-        app.picker_lists_branches() && app.picker.anchor == crate::app::GitAnchor::Branch,
+        app.branch_picker_from(crate::app::GitAnchor::Branch),
         |frame, center, color| icons::branch_small(frame, center, color, clip),
         &[(head.as_str(), p.text)],
         clip,

@@ -670,6 +670,7 @@ impl Document {
                 text: &mut self.text,
                 folds: &mut self.folds,
                 bookmarks: &mut self.bookmarks,
+                whole: &mut self.whole,
             });
             typing &= transaction.kind == EditKind::Typing;
             first = first.min(transaction.first_offset());

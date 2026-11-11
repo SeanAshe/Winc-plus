@@ -175,6 +175,8 @@ impl Document {
     /// 撤销记录中的位置都在原内容范围内，追加到末尾不影响它们；当前内容就是磁盘上的内容。
     pub(super) fn apply_append(&mut self, appended: Appended) {
         let line = self.text.line_count() - 1;
+        // 最后一行可能变长，其列索引不再可用。
+        self.whole.forget();
         match appended {
             Appended::Rope { rope, len, mtime } => {
                 self.text = Content::Rope(rope);

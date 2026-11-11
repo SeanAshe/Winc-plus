@@ -145,8 +145,7 @@ fn draw_group(
                 app.hover == Hover::Status(item),
                 app.menu_button == Some(MenuButton::Status(item))
                     || (item == StatusItem::Branch
-                        && app.picker.open
-                        && app.picker.anchor == crate::app::GitAnchor::Status),
+                        && app.branch_picker_from(crate::app::GitAnchor::Status)),
             );
             hits.push((pill, item));
         }

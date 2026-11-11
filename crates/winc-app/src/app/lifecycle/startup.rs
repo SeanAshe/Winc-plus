@@ -95,6 +95,7 @@ impl App {
             line_widths: ((winc_editor::DocumentId(0), 0, 0), Default::default()),
             ruler_cache: None,
             picture_cache: None,
+            picture_view: Default::default(),
             images: preview::images::ImageJobs::default(),
             tables: preview::tables::TableJobs::default(),
             table_layout: Default::default(),

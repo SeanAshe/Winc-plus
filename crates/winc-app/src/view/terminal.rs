@@ -213,12 +213,14 @@ fn draw_panel(app: &mut App, frame: &mut Frame<'_>) {
         cell * width_at(line, usize::from(cursor.col)) as f32,
         lh,
     );
-    let start = preedit_x(x, &app.preedit, cell, view.right());
+    let preedit = app.preedit_at(Focus::Terminal);
+    let start = preedit_x(x, preedit, cell, view.right());
+    let composing = !preedit.is_empty();
     if focused {
         // 候选窗对齐组字文字的左边；组字文字超出左边界时对齐可见范围。
         app.ime.cursor = Some(Rect::new(start.max(view.x), y, cell, lh));
     }
-    if focused && !app.preedit.is_empty() {
+    if composing {
         let baseline = baseline_in(at, ascent, descent);
         draw_preedit(app, frame, (start, y), baseline, view);
     } else if cursor.visible && tab.settle.is_none() {

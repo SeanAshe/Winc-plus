@@ -137,7 +137,8 @@ impl App {
         }
     }
 
-    /// 只按住主修饰键滚动时，调整鼠标所在的编辑区或终端的字号，或缩放 PDF，返回事件是否已处理。
+    /// 只按住主修饰键滚动时，调整鼠标所在的编辑区或终端的字号，或缩放 PDF、图片，
+    /// 返回事件是否已处理。
     ///
     /// 触控板的一次手势是否调整字号在手势开始时确定：滚动途中按下修饰键仍是滚动，调整途中
     /// 松开修饰键后余下的滚动量丢弃。每个事件至多调整一档。
@@ -149,6 +150,7 @@ impl App {
             && !keys.alt_key();
         let zoomed = match self.target_at(self.mouse.0, self.mouse.1) {
             Target::Editor if self.on_pdf_body() => Some(Zoomed::Pdf),
+            Target::Picture => Some(Zoomed::Picture),
             Target::Editor | Target::Gutter => Some(Zoomed::Editor),
             Target::Terminal | Target::TerminalBlock(_) => Some(Zoomed::Terminal),
             _ => None,
@@ -193,8 +195,13 @@ impl App {
             let up = self.wheel.zoom > 0.0;
             self.wheel.zoom = 0.0;
             self.dismiss_hint();
-            if zoomed == Zoomed::Pdf {
-                self.zoom_pdf(Some(up), Some(self.mouse));
+            // PDF 和图片缩放时鼠标处的内容保持在原位。
+            match zoomed {
+                Zoomed::Pdf => drop(self.zoom_pdf(Some(up), Some(self.mouse))),
+                Zoomed::Picture => drop(self.zoom_picture(Some(up), Some(self.mouse))),
+                Zoomed::Editor | Zoomed::Terminal => {}
+            }
+            if matches!(zoomed, Zoomed::Pdf | Zoomed::Picture) {
                 return true;
             }
             // 调整字号会把光标滚入视野；这里保持编辑区顶部的行不变。
@@ -495,6 +502,9 @@ impl App {
         } else if self.pdf.area.contains(x, y) {
             let (dx, dy) = if shift_wheel { (dy, 0.0) } else { (dx, dy) };
             self.scroll_pdf_by(dx, dy);
+        } else if self.picture_at(x, y) {
+            let (dx, dy) = if shift_wheel { (dy, 0.0) } else { (dx, dy) };
+            self.scroll_picture_by(dx, dy);
         } else if self.table_at(x, y) {
             let (dx, dy) = if shift_wheel { (dy, 0.0) } else { (dx, dy) };
             self.scroll_table(dx, dy, (x, y));
@@ -502,12 +512,26 @@ impl App {
             // 按住 `Shift` 时，竖直滚轮用于横向滚动。
             let (dx, dy) = if shift_wheel { (dy, 0.0) } else { (dx, dy) };
 
+            let mut wanted = 0.0;
             if let Some(doc) = self.editor.active_mut() {
                 doc.scroll_line -= f64::from(dy / self.fonts.line_height);
-                doc.scroll_x -= dx;
+                // 展开的超长行可达数千万像素宽，`f32` 在该处的间隔大于一次滚动的距离：没有体现
+                // 在滚动位置上的部分留到下一次，不丢弃。
+                let x = f64::from(doc.scroll_x) - f64::from(dx) + self.wheel.carry_x;
+                doc.scroll_x = x as f32;
+                self.wheel.carry_x = x - f64::from(doc.scroll_x);
+                wanted = doc.scroll_x;
             }
 
             self.clamp_scroll();
+            // 到达两端后不再累计。
+            if self
+                .editor
+                .active()
+                .is_some_and(|doc| doc.scroll_x != wanted)
+            {
+                self.wheel.carry_x = 0.0;
+            }
         }
 
         self.request_redraw();
@@ -520,6 +544,7 @@ enum Zoomed {
     Editor,
     Terminal,
     Pdf,
+    Picture,
 }
 
 /// 鼠标滚轮滚动的过渡状态。
@@ -535,4 +560,6 @@ pub struct Wheel {
     pub(in crate::app) zooming: bool,
     /// 上一次触控板滚动事件的时刻，用于区分两次手势。
     pub(in crate::app) pixel_at: Option<Instant>,
+    /// 编辑区横向滚动中尚未体现在滚动位置上的距离（逻辑像素）。
+    pub(in crate::app) carry_x: f64,
 }

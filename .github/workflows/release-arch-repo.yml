@@ -5,7 +5,7 @@ on:
     types: [published]
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   sign:
@@ -54,3 +54,14 @@ jobs:
           compression-level: 0
           if-no-files-found: error
           overwrite: true
+      - name: Upload Arch repository to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          archive="target/winc-arch-repo-${RELEASE_TAG}.zip"
+          # 签名阶段使用私有权限，部署文件需要允许静态服务器读取。
+          chmod -R u=rwX,go=rX target/winc-arch-repo
+          bsdtar --format zip -cf "$archive" -C target/winc-arch-repo .
+          gh release upload "$RELEASE_TAG" "$archive" --repo "$GH_REPO" --clobber

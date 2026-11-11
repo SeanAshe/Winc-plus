@@ -780,6 +780,7 @@ impl Document {
             self.readonly = true;
         }
         self.text = loaded.text;
+        self.whole.forget();
         self.clear_folds();
         self.encoding = loaded.encoding;
         self.line_ending = loaded.line_ending;

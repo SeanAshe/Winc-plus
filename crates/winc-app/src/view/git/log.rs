@@ -26,8 +26,8 @@ use winc_render::Stroke;
 
 use crate::app::Focus;
 use crate::app::git::log::{
-    LOG_LIST_PAD, LogParts, LogTarget, TextRun, details_top, display_time, is_relative_time,
-    list_time, short,
+    LOG_FILTER_GAP, LOG_LIST_PAD, LogParts, LogTarget, TextRun, details_top, display_time,
+    is_relative_time, list_time, short,
 };
 use crate::icons::Direction;
 use crate::keymap::{self, Action};
@@ -177,8 +177,7 @@ pub(in crate::view) fn draw_log(app: &mut App, frame: &mut Frame<'_>, index: usi
 /// 与侧栏的搜索框共用 `field_box`：无焦点时没有边框、只铺一层淡底色，有焦点时加强调色外环。
 fn draw_search(app: &mut App, frame: &mut Frame<'_>, parts: &LogParts) -> Rect {
     let p = app.palette;
-    let header = parts.header;
-    let search = Rect::new(header.x + 12.0, header.y + 6.0, 220.0, header.h - 12.0);
+    let search = parts.search();
     let focused = app.focus == Focus::LogFilter;
     field_box(app, frame, search, p.editor_bg, focused, false);
     icons::magnifier(
@@ -218,7 +217,7 @@ fn draw_header(
         p.separator,
     );
     let query = &view.query;
-    let mut x = search.right() + 8.0;
+    let mut x = search.right() + LOG_FILTER_GAP;
     let pill_h = search.h;
     let y = search.y;
 
@@ -247,7 +246,7 @@ fn draw_header(
         let hovered = app.hover == Hover::Log(target);
         if on {
             frame.rounded(rect, p.accent.alpha(p.accent.a * 0.14), RADIUS_ROW);
-        } else if hovered {
+        } else if hovered || (target == LogTarget::Branch && app.picker_filters_log()) {
             frame.rounded(rect, p.hover, RADIUS_ROW);
         }
         let end = ui_text_small(frame, app, rect.x + 10.0, rect, name, p.text_dim, rect);

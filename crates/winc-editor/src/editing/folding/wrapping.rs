@@ -71,23 +71,24 @@ pub(super) fn measure_line(
 /// 以及长行的行内断点索引。
 ///
 /// 按顺序遍历各行：逐行按行号定位的开销与行数成正比，10 万行约 20 ms。
-/// 每行最多取 `limit` 个字符所需的字节，与 [`line_breaks`] 处理的字符相同；`limit` 不设上限
-/// （`usize::MAX`，整行断开）时为长行建立行内索引。
+/// 每行最多取 `limits` 给出的字符数，与 [`line_breaks`] 处理的字符相同；不设上限
+/// （`usize::MAX`，整行断开）的行为长行建立行内索引。
 pub(crate) fn wrapped_lines(
     text: &impl Lines,
     lines: std::ops::Range<usize>,
     width: usize,
     tab_width: usize,
-    limit: usize,
+    limits: Limits<'_>,
 ) -> WrapRows {
     let mut rows = WrapRows::default();
     if lines.start >= text.line_count() {
         return rows;
     }
-    text.visit_lines(lines.start, limit.saturating_mul(4), |line, _, content| {
+    text.visit_lines(lines.start, limits.cap(), |line, _, content| {
         if line >= lines.end {
             return ControlFlow::Break(());
         }
+        let limit = limits.of(line);
         // 每个字符占的显示列数不超过它的 UTF-8 字节数（Tab 除外），
         // 按字节数可容纳的行无需逐字符测量。
         let tabs = content.bytes().filter(|&b| b == b'\t').count();
@@ -176,7 +177,7 @@ impl WrapJob {
         let text = std::sync::Arc::new(self.text);
         let pieces = crate::background::split(count, threads, move |i| {
             let range = bounds[i]..bounds[i + 1];
-            wrapped_lines(&*text, range, width, tab_width, usize::MAX)
+            wrapped_lines(&*text, range, width, tab_width, WHOLE)
         });
         let mut rows = WrapRows::default();
         for piece in pieces {
@@ -189,6 +190,12 @@ impl WrapJob {
         }
     }
 }
+
+/// 大文件换行时各行都按整行断开。
+const WHOLE: Limits<'static> = Limits {
+    base: usize::MAX,
+    whole: None,
+};
 
 /// 后台断行时每个线程平均分到的份数（份）。
 ///
@@ -278,9 +285,12 @@ impl Document {
         } else {
             self.wrap_wanted = None;
             let revision = self.revision;
-            let limit = self.wrap_limit();
+            let limits = Limits {
+                base: self.wrap_limit(),
+                whole: Some(&self.whole),
+            };
             self.folds
-                .set_wrap(&self.text, width.map(|w| (w, tab_width)), limit, revision);
+                .set_wrap(&self.text, width.map(|w| (w, tab_width)), limits, revision);
         }
         self.is_wrapping()
     }
@@ -348,13 +358,7 @@ impl Document {
             if shown >= rows {
                 break;
             }
-            let part = wrapped_lines(
-                &self.text,
-                line..line + 1,
-                key.width,
-                key.tab_width,
-                usize::MAX,
-            );
+            let part = wrapped_lines(&self.text, line..line + 1, key.width, key.tab_width, WHOLE);
             shown += 1 + part.extra.first().map_or(0, |&(_, extra)| extra);
             preview.extra.extend(part.extra);
             preview.long.extend(part.long);
@@ -391,7 +395,7 @@ impl Document {
         parts: std::ops::Range<usize>,
     ) -> Option<Arc<LineWindow>> {
         let wrap = self.folds.wrap().filter(|w| w.revision == self.revision)?;
-        if wrap.limit != usize::MAX || !wrap.breaks_line(line) {
+        if self.wrap_limit_of(line) != usize::MAX || !wrap.breaks_line(line) {
             return None;
         }
         let long = wrap.long_rows(line);
@@ -448,7 +452,8 @@ impl Document {
             return window;
         }
         let content = self.text.line_content(line);
-        let text: String = content.slice().chars().take(self.wrap_limit()).collect();
+        let limit = self.wrap_limit_of(line);
+        let text: String = content.slice().chars().take(limit).collect();
         Arc::new(LineWindow {
             part: 0,
             col: 0,
@@ -487,6 +492,16 @@ impl Document {
         }
     }
 
+    /// 第 `line` 行参与断行和绘制的字符数上限：显示整行的行不设上限，其余同
+    /// [`Document::wrap_limit`]。
+    pub fn wrap_limit_of(&self, line: usize) -> usize {
+        if self.shows_whole_line(line) {
+            usize::MAX
+        } else {
+            self.wrap_limit()
+        }
+    }
+
     /// 是否已开启自动换行。
     pub fn is_wrapping(&self) -> bool {
         self.folds.is_wrapping()
@@ -510,7 +525,7 @@ impl Document {
         match self.folds.wrap() {
             Some(w) if w.revision == self.revision && !w.breaks_line(line) => Breaks::default(),
             Some(w) if w.revision == self.revision && line < count => {
-                line_breaks(text, line, w.width, w.tab_width, w.limit)
+                line_breaks(text, line, w.width, w.tab_width, self.wrap_limit_of(line))
             }
             Some(w) if line < count => line_breaks(
                 text,
