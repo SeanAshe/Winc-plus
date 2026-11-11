@@ -329,6 +329,7 @@ impl App {
     /// 关闭而删除），关闭所有标签和目录，隐藏窗口。以后从最近列表打开该目录时，标签和未保存的
     /// 内容都恢复。
     fn close_window_now(&mut self) {
+        self.vim_persist();
         self.remember_window();
         self.quit_backups();
         self.remember_session();
@@ -370,6 +371,9 @@ impl App {
             return;
         };
         self.cancel_format(id);
+        if self.vim.is_some() {
+            self.vim_store_marks(id);
+        }
         if let Some(doc) = self.editor.close(index) {
             self.forget_git_document(doc.id, doc.path.as_deref());
         }
@@ -383,6 +387,9 @@ impl App {
             let id = doc.id;
             self.remember_closed(doc.path.clone(), doc.selection.head);
             self.cancel_format(id);
+            if self.vim.is_some() {
+                self.vim_store_marks(id);
+            }
         }
         self.animate_tab_close(index);
         if let Some(doc) = self.editor.close(index) {

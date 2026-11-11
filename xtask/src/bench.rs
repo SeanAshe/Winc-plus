@@ -22,6 +22,11 @@ const BUDGET_IDLE_MB: f64 = 50.0;
 /// 取 120 Hz 下一帧间隔（8.3 ms）的四分之一，其余时间留给同一帧内的输入处理与合成器。
 /// 各样本文件实测的 p95 为 1.0–1.6 ms（M4 Pro）。
 const BUDGET_SCROLL_P95_MS: f64 = 2.0;
+/// 一次按键从处理到出帧的 p95 耗时预算（毫秒），用于 Vim 模式的按键与编辑区的键入。
+///
+/// 取 120 Hz 下一帧间隔（8.3 ms）的一半：按键的处理与随后一帧的绘制在同一个刷新周期内完成。
+const BUDGET_KEY_P95_MS: f64 = 4.0;
+
 /// Markdown 预览滚动单帧耗时的 p95 预算（毫秒）。
 ///
 /// 预览按比例字体排版，每帧绘制的文字与图形多于等宽的代码区，预算高于 [`BUDGET_SCROLL_P95_MS`]。
@@ -90,6 +95,19 @@ pub fn bench(runs: usize) -> Result<bool, String> {
             "ms",
         );
     }
+
+    // Vim 模式：按键处理加随后一帧的耗时；键入的耗时用于核对关闭 Vim 模式时没有额外开销。
+    let (p50, p95) = scroll_once(&exe, &large, "vim")?;
+    println!("{:<34} {:>8.2}ms", "Vim 按键到出帧 p50（large.rs）", p50);
+    ok &= report(
+        "Vim 按键到出帧 p95（large.rs）",
+        p95,
+        BUDGET_KEY_P95_MS,
+        "ms",
+    );
+    let (p50, p95) = scroll_once(&exe, &large, "typing")?;
+    println!("{:<34} {:>8.2}ms", "键入到出帧 p50（large.rs）", p50);
+    ok &= report("键入到出帧 p95（large.rs）", p95, BUDGET_KEY_P95_MS, "ms");
 
     let (_, p95) = scroll_once(&exe, &root().join("README.md"), "preview")?;
     ok &= report(

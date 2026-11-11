@@ -1,0 +1,376 @@
+# 由 `cargo xtask vim-fixtures` 录制，不手工修改；用例写在同名的 .cases 文件中。
+vim 9.1.1752
+
+case delete-one
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys x
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case count
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys 3x
+> text "defghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "abc"
+> reg - v "abc"
+
+case count-with-zero
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys 10x
+> text "klmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "abcdefghij"
+> reg - v "abcdefghij"
+
+case count-past-the-line-end
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 30
+keys 99x
+> text "abcdefghijklmnopqrstuvwxyz0123"
+> cursor 0 29
+> reg " v "456789"
+> reg - v "456789"
+
+case zero-without-count-is-a-motion
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 5
+keys 0x
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case delete-key
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys <Del>
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case del-after-one-digit-leaves-nothing-pending
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys 2<Del>
+> unchanged
+> cursor 0 0
+
+case register
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys "ax
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg 1 v "a"
+> reg a v "a"
+
+case register-then-count
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys "a3x
+> text "defghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "abc"
+> reg 1 v "abc"
+> reg a v "abc"
+
+case count-then-register
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys 3"ax
+> text "defghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "abc"
+> reg 1 v "abc"
+> reg a v "abc"
+
+case counts-around-a-register-multiply
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys 2"a3x
+> text "ghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "abcdef"
+> reg 1 v "abcdef"
+> reg a v "abcdef"
+
+case counts-around-two-registers-multiply
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys 2"a3"b4x
+> text "yz0123456789"
+> cursor 0 0
+> reg " v "abcdefghijklmnopqrstuvwx"
+> reg 1 v "abcdefghijklmnopqrstuvwx"
+> reg b v "abcdefghijklmnopqrstuvwx"
+
+case last-register-wins
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys "a"bx
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg 1 v "a"
+> reg b v "a"
+
+case uppercase-register-appends
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys "a2x"A3x
+> text "fghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "cde"
+> reg 1 v "cde"
+> reg 2 v "ab"
+> reg a v "abcde"
+
+case del-removes-the-last-digit
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys 12<Del>x
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case del-removes-the-only-digit
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys 1<Del>x
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case del-twice
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys 10<Del><Del>x
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case del-after-a-register
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys "a25<Del>x
+> text "cdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "ab"
+> reg 1 v "ab"
+> reg a v "ab"
+
+case escape-after-count
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys 3<Esc>x
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case escape-instead-of-register-name
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys "<Esc>x
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case escape-after-register
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys "a<Esc>x
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case escape-after-operator
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys d<Esc>x
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case escape-after-prefix-key
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys g<Esc>x
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case escape-instead-of-argument
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys f<Esc>x
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case escape-after-operator-and-prefix-key
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys dg<Esc>x
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case escape-after-operator-and-counts
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys 2d3<Esc>x
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case invalid-register-name
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys "!x
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case second-operator-is-invalid
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys dyx
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case unknown-key-after-prefix-key
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys 3gZx
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case register-is-invalid-after-operator
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys d"x
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case delete-key-is-invalid-after-operator
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys d<Del>x
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case del-keeps-the-operator-pending
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys d2<Del>x
+> unchanged
+> cursor 0 0
+
+case unsupported-command
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys Ux
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case unsupported-operator-reads-its-target
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys gqqgq$x
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case ctrl-c-alone-does-nothing
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys <C-c>x
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case ctrl-c-cancels-the-count
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys 3<C-c>x
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case ctrl-c-cancels-the-register
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys "a<C-c>x
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case ctrl-c-cancels-the-operator
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys d<C-c>x
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case ctrl-c-cancels-the-awaited-character
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys f<C-c>x
+> text "bcdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 0
+> reg " v "a"
+> reg - v "a"
+
+case ctrl-c-leaves-visual-mode
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys vll<C-c>x
+> text "abdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 2
+> reg " v "c"
+> reg - v "c"
+
+case ctrl-c-leaves-visual-mode-with-a-count
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 0
+keys vll3<C-c>x
+> text "abdefghijklmnopqrstuvwxyz0123456789"
+> cursor 0 2
+> reg " v "c"
+> reg - v "c"

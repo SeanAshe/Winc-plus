@@ -1,0 +1,21 @@
+# 由 `cargo xtask vim-fixtures` 录制，不手工修改；用例写在同名的 .cases 文件中。
+vim 9.1.1752
+
+case dot-after-visual-to-line-end
+text "ab cd"
+text "ef gh"
+text "ij kl"
+cursor 0 3
+keys v$dj.
+= text "ab ef gh"
+= text "ij "
+= cursor 1 2
+= reg " v "kl"
+= reg 1 v "cd" ""
+= reg - v "kl"
+> text "ab ef gh"
+> text "l"
+> cursor 1 0
+> reg " v "ij k"
+> reg 1 v "cd" ""
+> reg - v "ij k"

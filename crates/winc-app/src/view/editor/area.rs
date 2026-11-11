@@ -116,10 +116,14 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
         let tab_width = doc.tab_width(app.editor.tab_width);
         let lh = app.fonts.line_height;
         // 查找对象是分栏右侧的预览时，匹配位置属于预览文字，不在左侧标注。
-        let show_matches = layout.search.h > 0.0 && !app.markdown_focused();
+        let show_matches =
+            (layout.search.h > 0.0 || app.vim_highlights()) && !app.markdown_focused();
 
         let selection = doc.selection;
-        let (caret_line, caret_col) = text.pos_to_line_col(selection.head);
+        // Vim 的可视模式下光标画在选区的光标一端所含的字符上。
+        let vim_caret = app.vim_caret();
+        let caret = vim_caret.map_or(selection.head, |(pos, _)| pos);
+        let (caret_line, caret_col) = text.pos_to_line_col(caret);
         // 多光标：主选区以外、位于可见范围内的选区和光标（行，列）。光标可能有上万个，
         // 只取可见的部分。
         let shown_range = {
@@ -182,6 +186,9 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
             extra: &extra,
             caret_line,
             caret_col,
+            relative: app.vim_relative(),
+            yanked: app.vim_yanked(id),
+            vim_caret: vim_caret.map(|(_, shape)| shape),
             extra_carets: &extra_carets,
             hunks,
             open: app
@@ -299,6 +306,12 @@ struct Screen<'a> {
     extra: &'a [Selection],
     caret_line: usize,
     caret_col: usize,
+    /// 行号栏是否显示相对行号。
+    relative: bool,
+    /// Vim 模式下刚被复制、仍在高亮的范围。
+    yanked: Option<Selection>,
+    /// Vim 模式下光标的形状；使用竖线光标时为 `None`。
+    vim_caret: Option<crate::app::vim::CaretShape>,
     extra_carets: &'a [(usize, usize)],
     /// 与 `HEAD` 比较得到的改动，以及改动卡片打开的一处。
     hunks: &'a [LineHunk],
@@ -611,7 +624,8 @@ impl Screen<'_> {
     fn draw_selections(&self, frame: &mut Frame<'_>) {
         let row_y = |line: usize| self.row_y(line);
         let line_y = |line: usize| self.line_y(line);
-        for &selection in std::iter::once(&self.selection).chain(self.extra) {
+        let selections = std::iter::once(&self.selection).chain(self.extra);
+        for &selection in selections.chain(&self.yanked) {
             if selection.is_empty() {
                 continue;
             }

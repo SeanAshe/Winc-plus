@@ -487,6 +487,13 @@ pub fn locale_menu() -> Vec<MenuEntry> {
         .collect()
 }
 
+/// 返回「Vim 剪贴板」菜单的菜单项，当前的选择打勾。
+pub fn vim_clipboard_menu() -> Vec<MenuEntry> {
+    (0..winc_config::VimClipboard::ALL.len())
+        .map(|i| MenuEntry::Item(MenuCommand::VimClipboard(i), true))
+        .collect()
+}
+
 /// 返回「空白符」菜单的菜单项，当前的选择打勾。
 pub fn whitespace_menu() -> Vec<MenuEntry> {
     (0..winc_config::RenderWhitespace::ALL.len())

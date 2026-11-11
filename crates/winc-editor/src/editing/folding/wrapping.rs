@@ -559,6 +559,32 @@ impl Document {
         }
     }
 
+    /// 返回第 `row` 个显示行的位置范围：第一个字符的位置，以及最后一个字符之后的位置。
+    pub(crate) fn row_bounds(&self, row: usize) -> (usize, usize) {
+        let (line, part) = self.line_and_part(row);
+        let window = self.window_at(line, part);
+        let (range, _) = window.row(part);
+        let start = self.text.line_start(line) + window.col;
+        (start + range.start, start + range.end)
+    }
+
+    /// 返回从位置 `pos` 上下移动 `delta` 个显示行之后的位置，保持在显示行内的同一显示列；
+    /// 越过首尾时停在第一个或最后一个显示行。不换行时返回 `None`。
+    pub fn display_vertical(&self, pos: usize, delta: isize) -> Option<usize> {
+        let tab_width = self.folds.wrap()?.tab_width;
+        let (line, col) = self.text.pos_to_line_col(pos);
+        let part = self.part_of(line, col);
+        let window = self.window_at(line, part);
+        let (range, indent) = window.row(part);
+        let end = col.saturating_sub(window.col).clamp(range.start, range.end);
+        let cell = winc_core::text::slice_cells(&window.chars[range.start..end], indent, tab_width);
+        let last = self.row_count().saturating_sub(1);
+        let row = (self.folds.row_of(line) + part)
+            .saturating_add_signed(delta)
+            .min(last);
+        Some(self.pos_in_row(row, cell, tab_width))
+    }
+
     /// 返回位置 `pos`（字符偏移）所在的显示行号（从 0 起）。
     pub fn row_at(&self, pos: usize) -> usize {
         let (line, col) = self.text.pos_to_line_col(pos);

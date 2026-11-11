@@ -240,7 +240,8 @@ impl App {
         let (w, h) = renderer.logical_size();
 
         // 隐藏状态栏时留下和窗口其他三边一样的边距，卡片不贴着窗口底边。
-        let status_height = if self.status_bar_shown() {
+        // Vim 模式的命令行占状态栏所在的一行：状态栏隐藏时临时显示。
+        let status_height = if self.status_bar_shown() || self.vim_prompt_open() {
             STATUS_HEIGHT
         } else {
             ISLAND_MARGIN
@@ -515,6 +516,7 @@ impl App {
             self.dirty = false;
             return;
         }
+        self.vim_sync();
         self.settle_animations();
         self.advance_wheel_glide();
         self.continue_drag_scroll();
@@ -567,7 +569,7 @@ impl App {
         // 高亮状态尚未推算完、大文件尚未搜完时，马上绘制下一帧，不按刷新率等：每帧本身有预算
         // （高亮 `HIGHLIGHT_BUDGET` 行、查找一个 8 ms 的时间片），已经不比刷新间隔短，按刷新率
         // 等反而常常错过一次刷新。
-        let searching = self.find.open || self.find.pending_jump.is_some();
+        let searching = self.find.open || self.find.pending_jump.is_some() || self.vim_highlights();
         self.dirty |= self.highlight_pending || (searching && !self.search.is_complete());
         // 终端查找同样按时间片进行：这一帧之后再找一个时间片，没找完就马上绘制下一帧。
         self.dirty |= self.terminal_find_tick();
@@ -602,6 +604,18 @@ impl App {
                     };
                 }
 
+                self.request_redraw();
+            }
+            Next::Key { vim, step } => {
+                let started = Instant::now();
+                if vim {
+                    self.vim_bench_key(step);
+                } else if step % 40 == 39 {
+                    self.run(Command::Newline);
+                } else {
+                    self.run(Command::Insert("x".into()));
+                }
+                self.bench.key_handled(started.elapsed());
                 self.request_redraw();
             }
             Next::Preview => {

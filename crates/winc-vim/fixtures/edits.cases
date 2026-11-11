@@ -1,0 +1,2094 @@
+# 由 `cargo xtask vim-fixtures` 生成，不手工修改。替换字符、切换大小写、合并行、粘贴与点重复。
+
+buffer b1
+text "foo bar.baz  qux_1 (x) end"
+text "   lead, tail;  "
+text ""
+text "中文 text，全角。next"
+text "a-b a1b2 #$% éx"
+
+buffer b2
+text "fn main() {"
+text "    call(a, [b, c], \"s)\");"
+text "    if (x) { y('(') }"
+text "}"
+text ""
+text "{"
+text "  inner } {"
+text "}"
+text "tail"
+
+buffer b3
+text "First one.  Second one! Third?  "
+text "Still (third.) Fourth."
+text ""
+text ""
+text "New para here. End"
+text "\tTabbed\tline here"
+text "   "
+text "last"
+
+case e0001
+use b1
+cursor 0 11
+keys rQ
+
+case e0002
+use b1
+cursor 3 9
+keys rQ
+
+case e0003
+use b1
+cursor 1 0
+keys 3rQ
+
+case e0004
+use b1
+cursor 4 15
+keys 3rQ
+
+case e0005
+use b1
+cursor 0 25
+keys 99rQ
+
+case e0006
+use b1
+cursor 4 13
+keys 99rQ
+
+case e0007
+use b1
+cursor 0 5
+keys r<CR>
+
+case e0008
+use b1
+cursor 2 0
+keys r<CR>
+
+case e0009
+use b1
+cursor 0 11
+keys 2r<CR>
+
+case e0010
+use b1
+cursor 3 9
+keys 2r<CR>
+
+case e0011
+use b1
+cursor 0 11
+keys r<Tab>
+
+case e0012
+use b1
+cursor 3 9
+keys r<Tab>
+
+case e0013
+use b1
+cursor 0 0
+keys r<Space>
+
+case e0014
+use b1
+cursor 1 15
+keys r<Space>
+
+case e0015
+use b1
+cursor 0 11
+keys r中
+
+case e0016
+use b1
+cursor 3 9
+keys r中
+
+case e0017
+use b1
+cursor 1 0
+keys ~
+
+case e0018
+use b1
+cursor 4 15
+keys ~
+
+case e0019
+use b1
+cursor 0 5
+keys 3~
+
+case e0020
+use b1
+cursor 2 0
+keys 3~
+
+case e0021
+use b1
+cursor 0 0
+keys 99~
+
+case e0022
+use b1
+cursor 1 15
+keys 99~
+
+case e0023
+use b1
+cursor 0 7
+keys J
+
+case e0024
+use b1
+cursor 3 1
+keys J
+
+case e0025
+use b1
+cursor 0 25
+keys 3J
+
+case e0026
+use b1
+cursor 4 13
+keys 3J
+
+case e0027
+use b1
+cursor 0 20
+keys 99J
+
+case e0028
+use b1
+cursor 4 0
+keys 99J
+
+case e0029
+use b1
+cursor 0 5
+keys gJ
+
+case e0030
+use b1
+cursor 2 0
+keys gJ
+
+case e0031
+use b1
+cursor 0 20
+keys 3gJ
+
+case e0032
+use b1
+cursor 4 0
+keys 3gJ
+
+case e0033
+use b1
+cursor 0 20
+keys JJ
+
+case e0034
+use b1
+cursor 4 0
+keys JJ
+
+case e0035
+use b1
+cursor 0 7
+keys Jx
+
+case e0036
+use b1
+cursor 3 1
+keys Jx
+
+case e0037
+use b1
+cursor 0 20
+keys 2J
+
+case e0038
+use b1
+cursor 4 0
+keys 2J
+
+case e0039
+use b1
+cursor 1 0
+keys yyp
+
+case e0040
+use b1
+cursor 3 1
+keys yyP
+
+case e0041
+use b1
+cursor 2 0
+keys yy3p
+
+case e0042
+use b1
+cursor 0 0
+keys yy2P
+
+case e0043
+use b1
+cursor 4 0
+keys yy2P
+
+case e0044
+use b1
+cursor 0 20
+keys ywp
+
+case e0045
+use b1
+cursor 1 15
+keys ywP
+
+case e0046
+use b1
+cursor 1 3
+keys yw3p
+
+case e0047
+use b1
+cursor 3 1
+keys yw2P
+
+case e0048
+use b1
+cursor 0 11
+keys yjp
+
+case e0049
+use b1
+cursor 1 3
+keys yjP
+
+case e0050
+use b1
+cursor 0 25
+keys y$p
+
+case e0051
+use b1
+cursor 2 0
+keys y$P
+
+case e0052
+use b1
+cursor 0 0
+keys ddp
+
+case e0053
+use b1
+cursor 4 0
+keys ddp
+
+case e0054
+use b1
+cursor 0 20
+keys ddP
+
+case e0055
+use b1
+cursor 0 20
+keys xp
+
+case e0056
+use b1
+cursor 1 15
+keys xP
+
+case e0057
+use b1
+cursor 3 9
+keys dwP
+
+case e0058
+use b1
+cursor 1 3
+keys dwp
+
+case e0059
+use b1
+cursor 0 11
+keys yy]p
+
+case e0060
+use b1
+cursor 0 0
+keys yj]p
+
+case e0061
+use b1
+cursor 4 0
+keys yj]p
+
+case e0062
+use b1
+cursor 0 5
+keys yw]p
+
+case e0063
+use b1
+cursor 4 13
+keys yw]p
+
+case e0064
+use b1
+cursor 0 5
+keys yygp
+
+case e0065
+use b1
+cursor 4 13
+keys yygp
+
+case e0066
+use b1
+cursor 0 25
+keys yygP
+
+case e0067
+use b1
+cursor 0 11
+keys yy2gp
+
+case e0068
+use b1
+cursor 3 9
+keys ywgp
+
+case e0069
+use b1
+cursor 0 11
+keys ywgP
+
+case e0070
+use b1
+cursor 0 5
+keys yw2gp
+
+case e0071
+use b1
+cursor 4 13
+keys yw2gp
+
+case e0072
+use b1
+cursor 3 1
+keys yjgp
+
+case e0073
+use b1
+cursor 2 0
+keys yjGgp
+
+case e0074
+use b1
+cursor 0 25
+keys yyGp
+
+case e0075
+use b1
+cursor 2 0
+keys yyGP
+
+case e0076
+use b1
+cursor 0 0
+keys yyggP
+
+case e0077
+use b1
+cursor 4 0
+keys yyggP
+
+case e0078
+use b1
+cursor 3 1
+keys y}p
+
+case e0079
+use b1
+cursor 0 7
+keys y}P
+
+case e0080
+use b1
+cursor 4 15
+keys y}P
+
+case e0081
+use b1
+cursor 3 1
+keys y)p
+
+case e0082
+use b1
+cursor 0 25
+keys y}gp
+
+case e0083
+use b1
+cursor 0 20
+keys "ayy"ap
+
+case e0084
+use b1
+cursor 0 25
+keys "ayw"Ayw"ap
+
+case e0085
+use b1
+cursor 1 3
+keys "ayy"Ayw"ap
+
+case e0086
+use b1
+cursor 1 3
+keys "ayw"Ayy"ap
+
+case e0087
+use b1
+cursor 3 1
+keys yyjdd"0p
+
+case e0088
+use b1
+cursor 2 0
+keys ywdw"0P
+
+case e0089
+use b1
+cursor 1 3
+keys dddd"1p
+
+case e0090
+use b1
+cursor 1 15
+keys dddd"2p
+
+case e0091
+use b1
+cursor 0 25
+keys dddd"1p.
+
+case e0092
+use b1
+cursor 0 25
+keys dwdw"-p
+
+case e0093
+use b1
+cursor 0 7
+keys ywjp
+
+case e0094
+use b1
+cursor 4 15
+keys ywjp
+
+case e0095
+use b1
+cursor 0 20
+keys y2wj$p
+
+case e0096
+use b1
+cursor 1 3
+keys yljP
+
+case e0097
+use b1
+cursor 0 20
+keys p
+
+case e0098
+use b1
+cursor 1 15
+keys P
+
+case e0099
+use b1
+cursor 1 3
+keys "qp
+
+case e0100
+use b1
+cursor 3 1
+keys x.
+
+case e0101
+use b1
+cursor 0 5
+keys 3x.
+
+case e0102
+use b1
+cursor 4 13
+keys 3x.
+
+case e0103
+use b1
+cursor 0 0
+keys x2.
+
+case e0104
+use b1
+cursor 4 0
+keys x2.
+
+case e0105
+use b1
+cursor 3 9
+keys 3x..
+
+case e0106
+use b1
+cursor 0 5
+keys dw.
+
+case e0107
+use b1
+cursor 4 13
+keys dw.
+
+case e0108
+use b1
+cursor 3 9
+keys dw..
+
+case e0109
+use b1
+cursor 0 11
+keys dw2.
+
+case e0110
+use b1
+cursor 0 11
+keys d2w.
+
+case e0111
+use b1
+cursor 1 0
+keys dd.
+
+case e0112
+use b1
+cursor 1 15
+keys dd2.
+
+case e0113
+use b1
+cursor 1 15
+keys 2dd.
+
+case e0114
+use b1
+cursor 0 5
+keys rQ.
+
+case e0115
+use b1
+cursor 4 13
+keys rQ.
+
+case e0116
+use b1
+cursor 0 20
+keys 3rQl.
+
+case e0117
+use b1
+cursor 0 20
+keys ~.
+
+case e0118
+use b1
+cursor 0 0
+keys J.
+
+case e0119
+use b1
+cursor 4 0
+keys J.
+
+case e0120
+use b1
+cursor 0 7
+keys >>.
+
+case e0121
+use b1
+cursor 4 15
+keys >>.
+
+case e0122
+use b1
+cursor 3 1
+keys g~w.
+
+case e0123
+use b1
+cursor 0 5
+keys guw.
+
+case e0124
+use b1
+cursor 4 13
+keys guw.
+
+case e0125
+use b1
+cursor 0 25
+keys gUUj.
+
+case e0126
+use b1
+cursor 0 20
+keys yyp.
+
+case e0127
+use b1
+cursor 1 15
+keys yyP.
+
+case e0128
+use b1
+cursor 0 7
+keys ywp.
+
+case e0129
+use b1
+cursor 4 15
+keys ywp.
+
+case e0130
+use b1
+cursor 0 20
+keys ywp2.
+
+case e0131
+use b1
+cursor 1 0
+keys D.
+
+case e0132
+use b1
+cursor 0 20
+keys Dj.
+
+case e0133
+use b1
+cursor 0 7
+keys X.
+
+case e0134
+use b1
+cursor 4 15
+keys X.
+
+case e0135
+use b1
+cursor 0 7
+keys dl.
+
+case e0136
+use b1
+cursor 4 15
+keys dl.
+
+case e0137
+use b1
+cursor 0 0
+keys d$j.
+
+case e0138
+use b1
+cursor 4 0
+keys d$j.
+
+case e0139
+use b1
+cursor 1 3
+keys dfaj.
+
+case e0140
+use b1
+cursor 3 9
+keys dta.
+
+case e0141
+use b1
+cursor 0 0
+keys "adw.
+
+case e0142
+use b1
+cursor 4 0
+keys "adw.
+
+case e0143
+use b1
+cursor 1 15
+keys "add."ap
+
+case e0144
+use b2
+cursor 1 4
+keys rQ
+
+case e0145
+use b2
+cursor 6 4
+keys rQ
+
+case e0146
+use b2
+cursor 1 21
+keys 3rQ
+
+case e0147
+use b2
+cursor 1 13
+keys 99rQ
+
+case e0148
+use b2
+cursor 8 2
+keys 99rQ
+
+case e0149
+use b2
+cursor 0 7
+keys r<CR>
+
+case e0150
+use b2
+cursor 3 0
+keys r<CR>
+
+case e0151
+use b2
+cursor 1 4
+keys 2r<CR>
+
+case e0152
+use b2
+cursor 6 4
+keys 2r<CR>
+
+case e0153
+use b2
+cursor 1 4
+keys r<Tab>
+
+case e0154
+use b2
+cursor 6 4
+keys r<Tab>
+
+case e0155
+use b2
+cursor 0 0
+keys r<Space>
+
+case e0156
+use b2
+cursor 2 16
+keys r<Space>
+
+case e0157
+use b2
+cursor 1 4
+keys r中
+
+case e0158
+use b2
+cursor 6 4
+keys r中
+
+case e0159
+use b2
+cursor 1 21
+keys ~
+
+case e0160
+use b2
+cursor 0 7
+keys 3~
+
+case e0161
+use b2
+cursor 3 0
+keys 3~
+
+case e0162
+use b2
+cursor 0 0
+keys 99~
+
+case e0163
+use b2
+cursor 2 16
+keys 99~
+
+case e0164
+use b2
+cursor 0 10
+keys J
+
+case e0165
+use b2
+cursor 4 0
+keys J
+
+case e0166
+use b2
+cursor 1 13
+keys 3J
+
+case e0167
+use b2
+cursor 8 2
+keys 3J
+
+case e0168
+use b2
+cursor 1 8
+keys 99J
+
+case e0169
+use b2
+cursor 6 10
+keys 99J
+
+case e0170
+use b2
+cursor 0 7
+keys gJ
+
+case e0171
+use b2
+cursor 3 0
+keys gJ
+
+case e0172
+use b2
+cursor 1 8
+keys 3gJ
+
+case e0173
+use b2
+cursor 6 10
+keys 3gJ
+
+case e0174
+use b2
+cursor 1 8
+keys JJ
+
+case e0175
+use b2
+cursor 6 10
+keys JJ
+
+case e0176
+use b2
+cursor 0 10
+keys Jx
+
+case e0177
+use b2
+cursor 4 0
+keys Jx
+
+case e0178
+use b2
+cursor 1 8
+keys 2J
+
+case e0179
+use b2
+cursor 6 10
+keys 2J
+
+case e0180
+use b2
+cursor 1 21
+keys yyp
+
+case e0181
+use b2
+cursor 4 0
+keys yyP
+
+case e0182
+use b2
+cursor 3 0
+keys yy3p
+
+case e0183
+use b2
+cursor 0 0
+keys yy2P
+
+case e0184
+use b2
+cursor 6 10
+keys yy2P
+
+case e0185
+use b2
+cursor 1 8
+keys ywp
+
+case e0186
+use b2
+cursor 2 16
+keys ywP
+
+case e0187
+use b2
+cursor 2 7
+keys yw3p
+
+case e0188
+use b2
+cursor 4 0
+keys yw2P
+
+case e0189
+use b2
+cursor 1 4
+keys yjp
+
+case e0190
+use b2
+cursor 2 7
+keys yjP
+
+case e0191
+use b2
+cursor 1 13
+keys y$p
+
+case e0192
+use b2
+cursor 3 0
+keys y$P
+
+case e0193
+use b2
+cursor 0 0
+keys ddp
+
+case e0194
+use b2
+cursor 6 10
+keys ddp
+
+case e0195
+use b2
+cursor 1 8
+keys ddP
+
+case e0196
+use b2
+cursor 1 8
+keys xp
+
+case e0197
+use b2
+cursor 2 16
+keys xP
+
+case e0198
+use b2
+cursor 6 4
+keys dwP
+
+case e0199
+use b2
+cursor 2 7
+keys dwp
+
+case e0200
+use b2
+cursor 1 4
+keys yy]p
+
+case e0201
+use b2
+cursor 0 0
+keys yj]p
+
+case e0202
+use b2
+cursor 6 10
+keys yj]p
+
+case e0203
+use b2
+cursor 0 7
+keys yw]p
+
+case e0204
+use b2
+cursor 8 2
+keys yw]p
+
+case e0205
+use b2
+cursor 0 7
+keys yygp
+
+case e0206
+use b2
+cursor 8 2
+keys yygp
+
+case e0207
+use b2
+cursor 1 13
+keys yygP
+
+case e0208
+use b2
+cursor 1 4
+keys yy2gp
+
+case e0209
+use b2
+cursor 6 4
+keys ywgp
+
+case e0210
+use b2
+cursor 1 4
+keys ywgP
+
+case e0211
+use b2
+cursor 0 7
+keys yw2gp
+
+case e0212
+use b2
+cursor 8 2
+keys yw2gp
+
+case e0213
+use b2
+cursor 4 0
+keys yjgp
+
+case e0214
+use b2
+cursor 3 0
+keys yjGgp
+
+case e0215
+use b2
+cursor 1 13
+keys yyGp
+
+case e0216
+use b2
+cursor 3 0
+keys yyGP
+
+case e0217
+use b2
+cursor 0 0
+keys yyggP
+
+case e0218
+use b2
+cursor 6 10
+keys yyggP
+
+case e0219
+use b2
+cursor 4 0
+keys y}p
+
+case e0220
+use b2
+cursor 0 10
+keys y}P
+
+case e0221
+use b2
+cursor 4 0
+keys y)p
+
+case e0222
+use b2
+cursor 1 13
+keys y}gp
+
+case e0223
+use b2
+cursor 1 8
+keys "ayy"ap
+
+case e0224
+use b2
+cursor 1 13
+keys "ayw"Ayw"ap
+
+case e0225
+use b2
+cursor 2 7
+keys "ayy"Ayw"ap
+
+case e0226
+use b2
+cursor 2 7
+keys "ayw"Ayy"ap
+
+case e0227
+use b2
+cursor 4 0
+keys yyjdd"0p
+
+case e0228
+use b2
+cursor 3 0
+keys ywdw"0P
+
+case e0229
+use b2
+cursor 2 7
+keys dddd"1p
+
+case e0230
+use b2
+cursor 2 16
+keys dddd"2p
+
+case e0231
+use b2
+cursor 1 13
+keys dddd"1p.
+
+case e0232
+use b2
+cursor 1 13
+keys dwdw"-p
+
+case e0233
+use b2
+cursor 0 10
+keys ywjp
+
+case e0234
+use b2
+cursor 1 8
+keys y2wj$p
+
+case e0235
+use b2
+cursor 2 7
+keys yljP
+
+case e0236
+use b2
+cursor 1 8
+keys p
+
+case e0237
+use b2
+cursor 2 16
+keys P
+
+case e0238
+use b2
+cursor 2 7
+keys "qp
+
+case e0239
+use b2
+cursor 4 0
+keys x.
+
+case e0240
+use b2
+cursor 0 7
+keys 3x.
+
+case e0241
+use b2
+cursor 8 2
+keys 3x.
+
+case e0242
+use b2
+cursor 0 0
+keys x2.
+
+case e0243
+use b2
+cursor 6 10
+keys x2.
+
+case e0244
+use b2
+cursor 6 4
+keys 3x..
+
+case e0245
+use b2
+cursor 0 7
+keys dw.
+
+case e0246
+use b2
+cursor 8 2
+keys dw.
+
+case e0247
+use b2
+cursor 6 4
+keys dw..
+
+case e0248
+use b2
+cursor 1 4
+keys dw2.
+
+case e0249
+use b2
+cursor 1 4
+keys d2w.
+
+case e0250
+use b2
+cursor 1 21
+keys dd.
+
+case e0251
+use b2
+cursor 2 16
+keys dd2.
+
+case e0252
+use b2
+cursor 2 16
+keys 2dd.
+
+case e0253
+use b2
+cursor 0 7
+keys rQ.
+
+case e0254
+use b2
+cursor 8 2
+keys rQ.
+
+case e0255
+use b2
+cursor 1 8
+keys 3rQl.
+
+case e0256
+use b2
+cursor 1 8
+keys ~.
+
+case e0257
+use b2
+cursor 0 0
+keys J.
+
+case e0258
+use b2
+cursor 6 10
+keys J.
+
+case e0259
+use b2
+cursor 0 10
+keys >>.
+
+case e0260
+use b2
+cursor 4 0
+keys g~w.
+
+case e0261
+use b2
+cursor 0 7
+keys guw.
+
+case e0262
+use b2
+cursor 8 2
+keys guw.
+
+case e0263
+use b2
+cursor 1 13
+keys gUUj.
+
+case e0264
+use b2
+cursor 1 8
+keys yyp.
+
+case e0265
+use b2
+cursor 2 16
+keys yyP.
+
+case e0266
+use b2
+cursor 0 10
+keys ywp.
+
+case e0267
+use b2
+cursor 1 8
+keys ywp2.
+
+case e0268
+use b2
+cursor 1 21
+keys D.
+
+case e0269
+use b2
+cursor 1 8
+keys Dj.
+
+case e0270
+use b2
+cursor 0 10
+keys X.
+
+case e0271
+use b2
+cursor 0 10
+keys dl.
+
+case e0272
+use b2
+cursor 0 0
+keys d$j.
+
+case e0273
+use b2
+cursor 6 10
+keys d$j.
+
+case e0274
+use b2
+cursor 2 7
+keys dfaj.
+
+case e0275
+use b2
+cursor 6 4
+keys dta.
+
+case e0276
+use b2
+cursor 0 0
+keys "adw.
+
+case e0277
+use b2
+cursor 6 10
+keys "adw.
+
+case e0278
+use b2
+cursor 2 16
+keys "add."ap
+
+case e0279
+use b3
+cursor 0 31
+keys rQ
+
+case e0280
+use b3
+cursor 5 7
+keys rQ
+
+case e0281
+use b3
+cursor 2 0
+keys 3rQ
+
+case e0282
+use b3
+cursor 1 21
+keys 99rQ
+
+case e0283
+use b3
+cursor 7 3
+keys 99rQ
+
+case e0284
+use b3
+cursor 0 9
+keys r<CR>
+
+case e0285
+use b3
+cursor 5 0
+keys r<CR>
+
+case e0286
+use b3
+cursor 0 31
+keys 2r<CR>
+
+case e0287
+use b3
+cursor 5 7
+keys 2r<CR>
+
+case e0288
+use b3
+cursor 0 31
+keys r<Tab>
+
+case e0289
+use b3
+cursor 5 7
+keys r<Tab>
+
+case e0290
+use b3
+cursor 0 0
+keys r<Space>
+
+case e0291
+use b3
+cursor 4 17
+keys r<Space>
+
+case e0292
+use b3
+cursor 0 31
+keys r中
+
+case e0293
+use b3
+cursor 5 7
+keys r中
+
+case e0294
+use b3
+cursor 2 0
+keys ~
+
+case e0295
+use b3
+cursor 0 9
+keys 3~
+
+case e0296
+use b3
+cursor 5 0
+keys 3~
+
+case e0297
+use b3
+cursor 0 0
+keys 99~
+
+case e0298
+use b3
+cursor 4 17
+keys 99~
+
+case e0299
+use b3
+cursor 0 14
+keys J
+
+case e0300
+use b3
+cursor 5 3
+keys J
+
+case e0301
+use b3
+cursor 1 21
+keys 3J
+
+case e0302
+use b3
+cursor 7 3
+keys 3J
+
+case e0303
+use b3
+cursor 1 8
+keys 99J
+
+case e0304
+use b3
+cursor 6 1
+keys 99J
+
+case e0305
+use b3
+cursor 0 9
+keys gJ
+
+case e0306
+use b3
+cursor 5 0
+keys gJ
+
+case e0307
+use b3
+cursor 1 8
+keys 3gJ
+
+case e0308
+use b3
+cursor 6 1
+keys 3gJ
+
+case e0309
+use b3
+cursor 1 8
+keys JJ
+
+case e0310
+use b3
+cursor 6 1
+keys JJ
+
+case e0311
+use b3
+cursor 0 14
+keys Jx
+
+case e0312
+use b3
+cursor 5 3
+keys Jx
+
+case e0313
+use b3
+cursor 1 8
+keys 2J
+
+case e0314
+use b3
+cursor 6 1
+keys 2J
+
+case e0315
+use b3
+cursor 2 0
+keys yyp
+
+case e0316
+use b3
+cursor 5 3
+keys yyP
+
+case e0317
+use b3
+cursor 5 0
+keys yy3p
+
+case e0318
+use b3
+cursor 0 0
+keys yy2P
+
+case e0319
+use b3
+cursor 6 1
+keys yy2P
+
+case e0320
+use b3
+cursor 1 8
+keys ywp
+
+case e0321
+use b3
+cursor 4 17
+keys ywP
+
+case e0322
+use b3
+cursor 4 4
+keys yw3p
+
+case e0323
+use b3
+cursor 5 3
+keys yw2P
+
+case e0324
+use b3
+cursor 0 31
+keys yjp
+
+case e0325
+use b3
+cursor 4 4
+keys yjP
+
+case e0326
+use b3
+cursor 1 21
+keys y$p
+
+case e0327
+use b3
+cursor 5 0
+keys y$P
+
+case e0328
+use b3
+cursor 0 0
+keys ddp
+
+case e0329
+use b3
+cursor 6 1
+keys ddp
+
+case e0330
+use b3
+cursor 1 8
+keys ddP
+
+case e0331
+use b3
+cursor 1 8
+keys xp
+
+case e0332
+use b3
+cursor 4 17
+keys xP
+
+case e0333
+use b3
+cursor 5 7
+keys dwP
+
+case e0334
+use b3
+cursor 4 4
+keys dwp
+
+case e0335
+use b3
+cursor 0 31
+keys yy]p
+
+case e0336
+use b3
+cursor 0 0
+keys yj]p
+
+case e0337
+use b3
+cursor 6 1
+keys yj]p
+
+case e0338
+use b3
+cursor 0 9
+keys yw]p
+
+case e0339
+use b3
+cursor 7 3
+keys yw]p
+
+case e0340
+use b3
+cursor 0 9
+keys yygp
+
+case e0341
+use b3
+cursor 7 3
+keys yygp
+
+case e0342
+use b3
+cursor 1 21
+keys yygP
+
+case e0343
+use b3
+cursor 0 31
+keys yy2gp
+
+case e0344
+use b3
+cursor 5 7
+keys ywgp
+
+case e0345
+use b3
+cursor 0 31
+keys ywgP
+
+case e0346
+use b3
+cursor 0 9
+keys yw2gp
+
+case e0347
+use b3
+cursor 7 3
+keys yw2gp
+
+case e0348
+use b3
+cursor 5 3
+keys yjgp
+
+case e0349
+use b3
+cursor 5 0
+keys yjGgp
+
+case e0350
+use b3
+cursor 1 21
+keys yyGp
+
+case e0351
+use b3
+cursor 5 0
+keys yyGP
+
+case e0352
+use b3
+cursor 0 0
+keys yyggP
+
+case e0353
+use b3
+cursor 6 1
+keys yyggP
+
+case e0354
+use b3
+cursor 5 3
+keys y}p
+
+case e0355
+use b3
+cursor 0 14
+keys y}P
+
+case e0356
+use b3
+cursor 5 3
+keys y)p
+
+case e0357
+use b3
+cursor 1 21
+keys y}gp
+
+case e0358
+use b3
+cursor 1 8
+keys "ayy"ap
+
+case e0359
+use b3
+cursor 1 21
+keys "ayw"Ayw"ap
+
+case e0360
+use b3
+cursor 4 4
+keys "ayy"Ayw"ap
+
+case e0361
+use b3
+cursor 4 4
+keys "ayw"Ayy"ap
+
+case e0362
+use b3
+cursor 5 3
+keys yyjdd"0p
+
+case e0363
+use b3
+cursor 5 0
+keys ywdw"0P
+
+case e0364
+use b3
+cursor 4 4
+keys dddd"1p
+
+case e0365
+use b3
+cursor 4 17
+keys dddd"2p
+
+case e0366
+use b3
+cursor 1 21
+keys dddd"1p.
+
+case e0367
+use b3
+cursor 1 21
+keys dwdw"-p
+
+case e0368
+use b3
+cursor 0 14
+keys ywjp
+
+case e0369
+use b3
+cursor 1 8
+keys y2wj$p
+
+case e0370
+use b3
+cursor 4 4
+keys yljP
+
+case e0371
+use b3
+cursor 1 8
+keys p
+
+case e0372
+use b3
+cursor 4 17
+keys P
+
+case e0373
+use b3
+cursor 4 4
+keys "qp
+
+case e0374
+use b3
+cursor 5 3
+keys x.
+
+case e0375
+use b3
+cursor 0 9
+keys 3x.
+
+case e0376
+use b3
+cursor 7 3
+keys 3x.
+
+case e0377
+use b3
+cursor 0 0
+keys x2.
+
+case e0378
+use b3
+cursor 6 1
+keys x2.
+
+case e0379
+use b3
+cursor 5 7
+keys 3x..
+
+case e0380
+use b3
+cursor 0 9
+keys dw.
+
+case e0381
+use b3
+cursor 7 3
+keys dw.
+
+case e0382
+use b3
+cursor 5 7
+keys dw..
+
+case e0383
+use b3
+cursor 0 31
+keys dw2.
+
+case e0384
+use b3
+cursor 0 31
+keys d2w.
+
+case e0385
+use b3
+cursor 2 0
+keys dd.
+
+case e0386
+use b3
+cursor 4 17
+keys dd2.
+
+case e0387
+use b3
+cursor 4 17
+keys 2dd.
+
+case e0388
+use b3
+cursor 0 9
+keys rQ.
+
+case e0389
+use b3
+cursor 7 3
+keys rQ.
+
+case e0390
+use b3
+cursor 1 8
+keys 3rQl.
+
+case e0391
+use b3
+cursor 1 8
+keys ~.
+
+case e0392
+use b3
+cursor 0 0
+keys J.
+
+case e0393
+use b3
+cursor 6 1
+keys J.
+
+case e0394
+use b3
+cursor 0 14
+keys >>.
+
+case e0395
+use b3
+cursor 5 3
+keys g~w.
+
+case e0396
+use b3
+cursor 0 9
+keys guw.
+
+case e0397
+use b3
+cursor 7 3
+keys guw.
+
+case e0398
+use b3
+cursor 1 21
+keys gUUj.
+
+case e0399
+use b3
+cursor 1 8
+keys yyp.
+
+case e0400
+use b3
+cursor 4 17
+keys yyP.
+
+case e0401
+use b3
+cursor 0 14
+keys ywp.
+
+case e0402
+use b3
+cursor 1 8
+keys ywp2.
+
+case e0403
+use b3
+cursor 2 0
+keys D.
+
+case e0404
+use b3
+cursor 1 8
+keys Dj.
+
+case e0405
+use b3
+cursor 0 14
+keys X.
+
+case e0406
+use b3
+cursor 0 14
+keys dl.
+
+case e0407
+use b3
+cursor 0 0
+keys d$j.
+
+case e0408
+use b3
+cursor 6 1
+keys d$j.
+
+case e0409
+use b3
+cursor 4 4
+keys dfaj.
+
+case e0410
+use b3
+cursor 5 7
+keys dta.
+
+case e0411
+use b3
+cursor 0 0
+keys "adw.
+
+case e0412
+use b3
+cursor 6 1
+keys "adw.
+
+case e0413
+use b3
+cursor 4 17
+keys "add."ap

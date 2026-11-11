@@ -271,6 +271,7 @@ impl App {
             // 右边对齐控件：不长于控件时与控件同宽，字体名更长时向左展开。
             Setting::Language
             | Setting::RenderWhitespace
+            | Setting::VimClipboard
             | Setting::Zoom
             | Setting::BackgroundImage
             | Setting::BackgroundFit
@@ -282,6 +283,7 @@ impl App {
                 let target = match setting {
                     Setting::Language => MenuTarget::Locale,
                     Setting::RenderWhitespace => MenuTarget::Whitespace,
+                    Setting::VimClipboard => MenuTarget::VimClipboard,
                     Setting::Zoom => MenuTarget::Zoom,
                     Setting::BackgroundImage => MenuTarget::BackgroundImage,
                     Setting::BackgroundFit => MenuTarget::BackgroundFit,

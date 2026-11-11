@@ -756,6 +756,9 @@ impl App {
             Setting::HotExit => self.config.hot_exit != Some(false),
             Setting::RestoreFolder => self.config.restore_folder != Some(false),
             Setting::StickyScroll => self.config.sticky_scroll != Some(false),
+            Setting::VimMode => self.config.vim_enabled == Some(true),
+            Setting::VimRelativeNumber => self.config.vim_relative_number == Some(true),
+            Setting::VimYankHighlight => self.config.vim_yank_highlight != Some(0),
             Setting::WordWrap => self.config.word_wrap == Some(true),
             Setting::WholeLines => self.config.whole_lines == Some(true),
             Setting::Minimap => self.config.minimap == Some(true),
@@ -795,6 +798,7 @@ impl App {
         if self.switch_on(setting) == on {
             return;
         }
+        self.vim_forget_option(setting);
         match setting {
             Setting::FormatOnSave => self.config.format_on_save = Some(on),
             Setting::FixOnSave => self.config.fix_on_save = Some(on),
@@ -802,6 +806,13 @@ impl App {
             Setting::HotExit => self.config.hot_exit = Some(on),
             Setting::RestoreFolder => self.config.restore_folder = Some(on),
             Setting::StickyScroll => self.config.sticky_scroll = Some(on),
+            Setting::VimMode => {
+                self.config.vim_enabled = Some(on);
+                self.vim_apply_config();
+            }
+            Setting::VimRelativeNumber => self.config.vim_relative_number = Some(on),
+            // 关闭记为 0 毫秒，打开恢复默认的时长。
+            Setting::VimYankHighlight => self.config.vim_yank_highlight = (!on).then_some(0),
             Setting::WordWrap => self.config.word_wrap = Some(on),
             Setting::WholeLines => self.config.whole_lines = Some(on),
             Setting::Minimap => self.config.minimap = Some(on),
@@ -1283,8 +1294,17 @@ impl App {
         self.request_redraw();
     }
 
+    /// 设置 Vim 模式下无名寄存器与系统剪贴板的同步方式。
+    pub(in crate::app) fn set_vim_clipboard(&mut self, choice: winc_config::VimClipboard) {
+        self.config.vim_clipboard = Some(choice);
+        self.vim_apply_config();
+        self.save_config();
+        self.request_redraw();
+    }
+
     /// 设置何时显示空格和制表符。
     pub(in crate::app) fn set_render_whitespace(&mut self, choice: winc_config::RenderWhitespace) {
+        self.vim_forget_option(Setting::RenderWhitespace);
         self.config.render_whitespace = Some(choice);
         self.save_config();
         self.request_redraw();
@@ -1319,6 +1339,14 @@ impl App {
     /// （`config_rev`）加一，应用层据此把新配置发给其他窗口。
     pub(super) fn save_config(&mut self) {
         self.config_rev += 1;
+        // `:set` 的改动只在本次运行中生效：写入时换回配置文件中的值。
+        self.vim_swap_options();
+        self.write_config();
+        self.vim_swap_options();
+    }
+
+    /// 把配置写入配置文件。
+    fn write_config(&mut self) {
         let Some(path) = &self.config_path else {
             return;
         };
@@ -1429,6 +1457,7 @@ impl App {
         if title_bar {
             self.sync_title_bar();
         }
+        self.vim_apply_config();
         self.relayout();
         self.request_redraw();
     }

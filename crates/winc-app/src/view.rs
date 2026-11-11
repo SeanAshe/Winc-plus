@@ -20,7 +20,7 @@ use crate::app::{App, DropZone, Hover, MenuButton, ScrollArea, ThumbLook, WORD_H
 use crate::field::{FieldView, TextField};
 use crate::icons;
 use crate::keymap::{self, Action};
-use crate::layout::{SearchParts, goto_bar, scrollbar_thumb};
+use crate::layout::{SearchParts, scrollbar_thumb};
 use crate::theme::*;
 
 mod alert;
@@ -136,7 +136,7 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     }
 
     // 位置浮窗显示在名称旁边，有独立的动画（滑出、淡出）。
-    let bar_open = app.goto_input.is_some();
+    let bar_open = app.goto_input.is_some() && !app.prompt_kind.is_vim();
     let picker_open = app.picker.open && app.picker.places.is_none();
     app.track_card(Card::Bar, bar_open);
     app.track_card(Card::Picker, picker_open);
@@ -144,7 +144,7 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     draw_card_ghost(app, frame, Card::Bar);
     draw_card_ghost(app, frame, Card::Picker);
     if bar_open {
-        let rect = goto_bar(app.layout.editor);
+        let rect = app.prompt_bar();
         draw_moving_card(app, frame, Card::Bar, rect, draw_goto);
     }
     if picker_open {

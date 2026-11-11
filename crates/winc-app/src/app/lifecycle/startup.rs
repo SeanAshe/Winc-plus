@@ -45,6 +45,7 @@ impl App {
         let panel_visible = editor.workspace.is_some();
         // 主题以配置为准；配置中没有时参考环境变量 `WINC_THEME`（见 `forced_theme`）。
         let theme_choice = config.theme.unwrap_or(ThemeChoice::Auto);
+        let vim = (config.vim_enabled == Some(true)).then(Box::default);
 
         Self {
             editor,
@@ -137,6 +138,7 @@ impl App {
             #[cfg(test)]
             copied_image: None,
             line_clipboard: None,
+            vim,
             search: Search::default(),
             find: Default::default(),
             word_highlights: Vec::new(),

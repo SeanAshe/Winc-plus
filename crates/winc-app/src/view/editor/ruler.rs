@@ -12,7 +12,7 @@ use crate::layout::hscrollbar_thumb;
 ///
 /// `index` 超出 `documents` 的范围时 panic。
 pub(super) fn draw_editor_scrollbar(app: &mut App, frame: &mut Frame<'_>, index: usize) {
-    let show_matches = app.layout.search.h > 0.0;
+    let show_matches = app.layout.search.h > 0.0 || app.vim_highlights();
     let occurrences = if show_matches {
         None
     } else {

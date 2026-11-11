@@ -23,6 +23,7 @@ winc-i18n = { path = "crates/winc-i18n" }
 winc-version = { path = "crates/winc-version" }
 winc-app = { path = "crates/winc-app" }
 winc-typeset = { path = "crates/winc-typeset" }
+winc-vim = { path = "crates/winc-vim" }
 
 # 只把 LF、CR、CRLF 当换行。默认的 `unicode_lines` 还认 VT、FF、U+0085、U+2028、U+2029，
 # 行号会和编译器、git、grep 报的对不上（C 和 Python 源码里常见分页符 FF）。

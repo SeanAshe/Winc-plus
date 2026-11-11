@@ -1,0 +1,989 @@
+# 由 `cargo xtask vim-fixtures` 生成，不手工修改。宏的记录与回放：结果文本、光标与寄存器。
+
+buffer b1
+text "b2 alpha beta"
+text "a10 gamma  alpha"
+text ""
+text "c1 Alpha beta beta"
+text "  a2 delta"
+text "b2 alpha beta"
+text "-3 x.y(z) 0x1f"
+text "zeta"
+
+buffer b2
+text "foo bar.baz  qux_1 (x) end"
+text "   lead, tail;  "
+text ""
+text "中文 text，全角。next"
+text "a-b a1b2 #$% éx"
+
+buffer b3
+text "fn main() {"
+text "    call(a, [b, c], \"s)\");"
+text "    if (x) { y('(') }"
+text "}"
+text ""
+text "{"
+text "  inner } {"
+text "}"
+text "tail"
+
+case q0001
+use b1
+cursor 6 5
+keys qaxjq@a
+
+case q0002
+use b1
+cursor 0 0
+keys qaxjq2@a
+
+case q0003
+use b1
+cursor 6 5
+keys qaxjq@a@@
+
+case q0004
+use b1
+cursor 4 3
+keys qaA!<Esc>jq@a@@
+
+case q0005
+use b1
+cursor 1 6
+keys qadwq3@a
+
+case q0006
+use b1
+cursor 4 3
+keys qaiab<Esc>q@a
+
+case q0007
+use b1
+cursor 3 9
+keys qqxq@q
+
+case q0008
+use b1
+cursor 2 0
+keys qaxqqAlq@a
+
+case q0009
+use b1
+cursor 6 5
+keys qaxq"ap
+
+case q0010
+use b1
+cursor 6 5
+keys qaIx<Esc>jq2@a
+
+case q0011
+use b1
+cursor 1 6
+keys qa~q@a@@
+
+case q0012
+use b1
+cursor 2 0
+keys qaq
+
+case q0013
+use b1
+cursor 3 9
+keys qaxq2@a.
+
+case q0014
+use b1
+cursor 4 3
+keys qaxlq@au
+
+case q0015
+use b1
+cursor 0 0
+keys qaxlq3@au
+
+case q0016
+use b1
+cursor 0 4
+keys qaA<CR>x<Esc>q@a
+
+case q0017
+use b1
+cursor 3 9
+keys qa0d$q@a
+
+case q0018
+use b1
+cursor 4 3
+keys qayiwPq@a
+
+case q0019
+use b1
+cursor 7 2
+keys qarXlq5@a
+
+case q0020
+use b1
+cursor 1 6
+keys qa>>jq@a
+
+case q0021
+use b1
+cursor 7 2
+keys qa<C-a>q@a
+
+case q0022
+use b1
+cursor 1 6
+keys qaix<BS>y<Esc>q@a
+
+case q0023
+use b1
+cursor 4 3
+keys qaA<Tab>x<Esc>jq@a
+
+case q0024
+use b1
+cursor 2 0
+keys qbvlyq@b"0p
+
+case q0025
+use b1
+cursor 1 6
+keys qaqqbq@a@b
+
+case q0026
+use b1
+cursor 0 4
+keys "ayl@a
+
+case q0027
+use b1
+cursor 6 5
+keys "ayy@a
+
+case q0028
+use b1
+cursor 0 4
+keys @a
+
+case q0029
+use b1
+cursor 0 0
+keys @@
+
+case q0030
+use b1
+cursor 1 6
+keys @:
+
+case q0031
+use b1
+cursor 4 3
+keys qa2q
+
+case q0032
+use b1
+cursor 3 9
+keys qaxq@Ax
+
+case q0033
+use b1
+cursor 0 0
+keys qa:s/a/X/<CR>jq@a
+
+case q0034
+use b1
+cursor 2 0
+keys qa/a<CR>xq@a
+
+case q0035
+use b1
+cursor 0 4
+keys qa:d<CR>q@a
+
+case q0036
+use b1
+cursor 7 2
+keys qa:normal<Space>Ax<CR>q2@a
+
+case q0037
+use b1
+cursor 7 2
+keys qax:2<CR>q@a
+
+case q0038
+use b1
+cursor 0 0
+keys qa/zzz<CR>xq@a
+
+case q0039
+use b1
+cursor 3 9
+keys :normal<Space>qaxq<CR>@a
+
+case q0040
+use b1
+cursor 0 4
+keys qaxq:%normal<Space>@a<CR>
+
+case q0041
+use b1
+cursor 1 6
+keys qaxq:g/a/normal<Space>@a<CR>
+
+case q0042
+use b2
+cursor 1 0
+keys qaxjq@a
+
+case q0043
+use b2
+cursor 4 15
+keys qaxjq@a
+
+case q0044
+use b2
+cursor 0 0
+keys qaxjq2@a
+
+case q0045
+use b2
+cursor 1 15
+keys qaxjq2@a
+
+case q0046
+use b2
+cursor 1 0
+keys qaxjq@a@@
+
+case q0047
+use b2
+cursor 4 15
+keys qaxjq@a@@
+
+case q0048
+use b2
+cursor 0 25
+keys qaA!<Esc>jq@a@@
+
+case q0049
+use b2
+cursor 4 13
+keys qaA!<Esc>jq@a@@
+
+case q0050
+use b2
+cursor 0 7
+keys qadwq3@a
+
+case q0051
+use b2
+cursor 3 1
+keys qadwq3@a
+
+case q0052
+use b2
+cursor 0 25
+keys qaiab<Esc>q@a
+
+case q0053
+use b2
+cursor 4 13
+keys qaiab<Esc>q@a
+
+case q0054
+use b2
+cursor 0 20
+keys qqxq@q
+
+case q0055
+use b2
+cursor 4 0
+keys qqxq@q
+
+case q0056
+use b2
+cursor 0 11
+keys qaxqqAlq@a
+
+case q0057
+use b2
+cursor 3 9
+keys qaxqqAlq@a
+
+case q0058
+use b2
+cursor 1 0
+keys qaxq"ap
+
+case q0059
+use b2
+cursor 4 15
+keys qaxq"ap
+
+case q0060
+use b2
+cursor 1 0
+keys qaIx<Esc>jq2@a
+
+case q0061
+use b2
+cursor 4 15
+keys qaIx<Esc>jq2@a
+
+case q0062
+use b2
+cursor 0 7
+keys qa~q@a@@
+
+case q0063
+use b2
+cursor 3 1
+keys qa~q@a@@
+
+case q0064
+use b2
+cursor 0 11
+keys qaq
+
+case q0065
+use b2
+cursor 3 9
+keys qaq
+
+case q0066
+use b2
+cursor 0 20
+keys qaxq2@a.
+
+case q0067
+use b2
+cursor 4 0
+keys qaxq2@a.
+
+case q0068
+use b2
+cursor 0 25
+keys qaxlq@au
+
+case q0069
+use b2
+cursor 4 13
+keys qaxlq@au
+
+case q0070
+use b2
+cursor 0 0
+keys qaxlq3@au
+
+case q0071
+use b2
+cursor 1 15
+keys qaxlq3@au
+
+case q0072
+use b2
+cursor 0 5
+keys qaA<CR>x<Esc>q@a
+
+case q0073
+use b2
+cursor 2 0
+keys qaA<CR>x<Esc>q@a
+
+case q0074
+use b2
+cursor 0 20
+keys qa0d$q@a
+
+case q0075
+use b2
+cursor 4 0
+keys qa0d$q@a
+
+case q0076
+use b2
+cursor 0 25
+keys qayiwPq@a
+
+case q0077
+use b2
+cursor 4 13
+keys qayiwPq@a
+
+case q0078
+use b2
+cursor 1 3
+keys qarXlq5@a
+
+case q0079
+use b2
+cursor 0 7
+keys qa>>jq@a
+
+case q0080
+use b2
+cursor 3 1
+keys qa>>jq@a
+
+case q0081
+use b2
+cursor 1 3
+keys qa<C-a>q@a
+
+case q0082
+use b2
+cursor 0 7
+keys qaix<BS>y<Esc>q@a
+
+case q0083
+use b2
+cursor 3 1
+keys qaix<BS>y<Esc>q@a
+
+case q0084
+use b2
+cursor 0 25
+keys qaA<Tab>x<Esc>jq@a
+
+case q0085
+use b2
+cursor 4 13
+keys qaA<Tab>x<Esc>jq@a
+
+case q0086
+use b2
+cursor 0 11
+keys qbvlyq@b"0p
+
+case q0087
+use b2
+cursor 3 9
+keys qbvlyq@b"0p
+
+case q0088
+use b2
+cursor 0 7
+keys qaqqbq@a@b
+
+case q0089
+use b2
+cursor 3 1
+keys qaqqbq@a@b
+
+case q0090
+use b2
+cursor 0 5
+keys "ayl@a
+
+case q0091
+use b2
+cursor 2 0
+keys "ayl@a
+
+case q0092
+use b2
+cursor 1 0
+keys "ayy@a
+
+case q0093
+use b2
+cursor 4 15
+keys "ayy@a
+
+case q0094
+use b2
+cursor 0 5
+keys @a
+
+case q0095
+use b2
+cursor 2 0
+keys @a
+
+case q0096
+use b2
+cursor 0 0
+keys @@
+
+case q0097
+use b2
+cursor 1 15
+keys @@
+
+case q0098
+use b2
+cursor 0 7
+keys @:
+
+case q0099
+use b2
+cursor 3 1
+keys @:
+
+case q0100
+use b2
+cursor 0 25
+keys qa2q
+
+case q0101
+use b2
+cursor 4 13
+keys qa2q
+
+case q0102
+use b2
+cursor 0 20
+keys qaxq@Ax
+
+case q0103
+use b2
+cursor 4 0
+keys qaxq@Ax
+
+case q0104
+use b2
+cursor 0 0
+keys qa:s/a/X/<CR>jq@a
+
+case q0105
+use b2
+cursor 1 15
+keys qa:s/a/X/<CR>jq@a
+
+case q0106
+use b2
+cursor 0 11
+keys qa/a<CR>xq@a
+
+case q0107
+use b2
+cursor 3 9
+keys qa/a<CR>xq@a
+
+case q0108
+use b2
+cursor 0 5
+keys qa:d<CR>q@a
+
+case q0109
+use b2
+cursor 2 0
+keys qa:d<CR>q@a
+
+case q0110
+use b2
+cursor 1 3
+keys qa:normal<Space>Ax<CR>q2@a
+
+case q0111
+use b2
+cursor 1 3
+keys qax:2<CR>q@a
+
+case q0112
+use b2
+cursor 0 0
+keys qa/zzz<CR>xq@a
+
+case q0113
+use b2
+cursor 1 15
+keys qa/zzz<CR>xq@a
+
+case q0114
+use b2
+cursor 0 20
+keys :normal<Space>qaxq<CR>@a
+
+case q0115
+use b2
+cursor 4 0
+keys :normal<Space>qaxq<CR>@a
+
+case q0116
+use b2
+cursor 0 5
+keys qaxq:%normal<Space>@a<CR>
+
+case q0117
+use b2
+cursor 2 0
+keys qaxq:%normal<Space>@a<CR>
+
+case q0118
+use b2
+cursor 0 7
+keys qaxq:g/a/normal<Space>@a<CR>
+
+case q0119
+use b2
+cursor 3 1
+keys qaxq:g/a/normal<Space>@a<CR>
+
+case q0120
+use b3
+cursor 1 21
+keys qaxjq@a
+
+case q0121
+use b3
+cursor 0 0
+keys qaxjq2@a
+
+case q0122
+use b3
+cursor 2 16
+keys qaxjq2@a
+
+case q0123
+use b3
+cursor 1 21
+keys qaxjq@a@@
+
+case q0124
+use b3
+cursor 1 13
+keys qaA!<Esc>jq@a@@
+
+case q0125
+use b3
+cursor 8 2
+keys qaA!<Esc>jq@a@@
+
+case q0126
+use b3
+cursor 0 10
+keys qadwq3@a
+
+case q0127
+use b3
+cursor 4 0
+keys qadwq3@a
+
+case q0128
+use b3
+cursor 1 13
+keys qaiab<Esc>q@a
+
+case q0129
+use b3
+cursor 8 2
+keys qaiab<Esc>q@a
+
+case q0130
+use b3
+cursor 1 8
+keys qqxq@q
+
+case q0131
+use b3
+cursor 6 10
+keys qqxq@q
+
+case q0132
+use b3
+cursor 1 4
+keys qaxqqAlq@a
+
+case q0133
+use b3
+cursor 6 4
+keys qaxqqAlq@a
+
+case q0134
+use b3
+cursor 1 21
+keys qaxq"ap
+
+case q0135
+use b3
+cursor 1 21
+keys qaIx<Esc>jq2@a
+
+case q0136
+use b3
+cursor 0 10
+keys qa~q@a@@
+
+case q0137
+use b3
+cursor 4 0
+keys qa~q@a@@
+
+case q0138
+use b3
+cursor 1 4
+keys qaq
+
+case q0139
+use b3
+cursor 6 4
+keys qaq
+
+case q0140
+use b3
+cursor 1 8
+keys qaxq2@a.
+
+case q0141
+use b3
+cursor 6 10
+keys qaxq2@a.
+
+case q0142
+use b3
+cursor 1 13
+keys qaxlq@au
+
+case q0143
+use b3
+cursor 8 2
+keys qaxlq@au
+
+case q0144
+use b3
+cursor 0 0
+keys qaxlq3@au
+
+case q0145
+use b3
+cursor 2 16
+keys qaxlq3@au
+
+case q0146
+use b3
+cursor 0 7
+keys qaA<CR>x<Esc>q@a
+
+case q0147
+use b3
+cursor 3 0
+keys qaA<CR>x<Esc>q@a
+
+case q0148
+use b3
+cursor 1 8
+keys qa0d$q@a
+
+case q0149
+use b3
+cursor 6 10
+keys qa0d$q@a
+
+case q0150
+use b3
+cursor 1 13
+keys qayiwPq@a
+
+case q0151
+use b3
+cursor 8 2
+keys qayiwPq@a
+
+case q0152
+use b3
+cursor 2 7
+keys qarXlq5@a
+
+case q0153
+use b3
+cursor 0 10
+keys qa>>jq@a
+
+case q0154
+use b3
+cursor 4 0
+keys qa>>jq@a
+
+case q0155
+use b3
+cursor 2 7
+keys qa<C-a>q@a
+
+case q0156
+use b3
+cursor 0 10
+keys qaix<BS>y<Esc>q@a
+
+case q0157
+use b3
+cursor 4 0
+keys qaix<BS>y<Esc>q@a
+
+case q0158
+use b3
+cursor 1 13
+keys qaA<Tab>x<Esc>jq@a
+
+case q0159
+use b3
+cursor 8 2
+keys qaA<Tab>x<Esc>jq@a
+
+case q0160
+use b3
+cursor 1 4
+keys qbvlyq@b"0p
+
+case q0161
+use b3
+cursor 6 4
+keys qbvlyq@b"0p
+
+case q0162
+use b3
+cursor 0 10
+keys qaqqbq@a@b
+
+case q0163
+use b3
+cursor 4 0
+keys qaqqbq@a@b
+
+case q0164
+use b3
+cursor 0 7
+keys "ayl@a
+
+case q0165
+use b3
+cursor 3 0
+keys "ayl@a
+
+case q0166
+use b3
+cursor 1 21
+keys "ayy@a
+
+case q0167
+use b3
+cursor 0 7
+keys @a
+
+case q0168
+use b3
+cursor 3 0
+keys @a
+
+case q0169
+use b3
+cursor 0 0
+keys @@
+
+case q0170
+use b3
+cursor 2 16
+keys @@
+
+case q0171
+use b3
+cursor 0 10
+keys @:
+
+case q0172
+use b3
+cursor 4 0
+keys @:
+
+case q0173
+use b3
+cursor 1 13
+keys qa2q
+
+case q0174
+use b3
+cursor 8 2
+keys qa2q
+
+case q0175
+use b3
+cursor 1 8
+keys qaxq@Ax
+
+case q0176
+use b3
+cursor 6 10
+keys qaxq@Ax
+
+case q0177
+use b3
+cursor 0 0
+keys qa:s/a/X/<CR>jq@a
+
+case q0178
+use b3
+cursor 2 16
+keys qa:s/a/X/<CR>jq@a
+
+case q0179
+use b3
+cursor 1 4
+keys qa/a<CR>xq@a
+
+case q0180
+use b3
+cursor 6 4
+keys qa/a<CR>xq@a
+
+case q0181
+use b3
+cursor 0 7
+keys qa:d<CR>q@a
+
+case q0182
+use b3
+cursor 3 0
+keys qa:d<CR>q@a
+
+case q0183
+use b3
+cursor 2 7
+keys qa:normal<Space>Ax<CR>q2@a
+
+case q0184
+use b3
+cursor 2 7
+keys qax:2<CR>q@a
+
+case q0185
+use b3
+cursor 0 0
+keys qa/zzz<CR>xq@a
+
+case q0186
+use b3
+cursor 2 16
+keys qa/zzz<CR>xq@a
+
+case q0187
+use b3
+cursor 1 8
+keys :normal<Space>qaxq<CR>@a
+
+case q0188
+use b3
+cursor 6 10
+keys :normal<Space>qaxq<CR>@a
+
+case q0189
+use b3
+cursor 0 7
+keys qaxq:%normal<Space>@a<CR>
+
+case q0190
+use b3
+cursor 3 0
+keys qaxq:%normal<Space>@a<CR>
+
+case q0191
+use b3
+cursor 0 10
+keys qaxq:g/a/normal<Space>@a<CR>
+
+case q0192
+use b3
+cursor 4 0
+keys qaxq:g/a/normal<Space>@a<CR>

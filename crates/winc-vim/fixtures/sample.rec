@@ -1,0 +1,105 @@
+# 由 `cargo xtask vim-fixtures` 录制，不手工修改；用例写在同名的 .cases 文件中。
+vim 9.1.1752
+
+case delete-word
+text "one two three"
+cursor 0 4
+keys dw
+> text "one three"
+> cursor 0 4
+> reg " v "two "
+> reg - v "two "
+
+case delete-words-with-two-counts
+text "a b c d e f g h"
+cursor 0 0
+keys 2d3w
+> text "g h"
+> cursor 0 0
+> reg " v "a b c d e f "
+> reg - v "a b c d e f "
+
+case yank-line-and-paste
+text "first"
+text "second"
+cursor 0 0
+keys yyjp
+> text "first"
+> text "second"
+> text "first"
+> cursor 2 0
+> reg " V "first"
+> reg 0 V "first"
+
+case delete-last-line
+text "first"
+text "last"
+cursor 1 2
+keys dd
+> text "first"
+> cursor 0 0
+> reg " V "last"
+> reg 1 V "last"
+
+case blockwise-yank
+text "abcd"
+text "efgh"
+cursor 0 1
+tag later
+keys <C-v>jly
+> unchanged
+> cursor 0 1
+> reg " b2 "bc" "fg"
+> reg 0 b2 "bc" "fg"
+
+case named-register-inner-word
+text "foo(bar, baz)"
+cursor 0 5
+tag later
+keys "qyiw
+> unchanged
+> cursor 0 4
+> reg " v "bar"
+> reg q v "bar"
+
+case change-word-and-insert
+text "one two"
+cursor 0 0
+keys cwthree<Esc>
+> text "three two"
+> cursor 0 4
+> reg " v "one"
+> reg - v "one"
+> reg . v "three"
+
+case tab-and-wide-characters
+text "\t中文 mixed  "
+cursor 0 1
+keys xlx$
+> text "\t文mixed  "
+> cursor 0 8
+> reg " v " "
+> reg - v " "
+
+case combining-character
+text "éa"
+cursor 0 0
+keys x
+> text "a"
+> cursor 0 0
+> reg " v "é"
+> reg - v "é"
+
+case toggle-case-of-line
+text "Hello World"
+cursor 0 0
+keys g~~
+> text "hELLO wORLD"
+> cursor 0 0
+
+case delete-in-empty-buffer
+text ""
+cursor 0 0
+keys x
+> unchanged
+> cursor 0 0

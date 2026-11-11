@@ -359,10 +359,22 @@ fn native_touch_caption_matches_application_targets() {
     let verify = |app: &App| {
         let native = app.window_hit_test();
         let size = app.layout.window;
+        // 原生命中测试的坐标只除以系统 DPI，仍包含应用缩放。
+        let zoom = app.zoom();
+        for (rect, control) in app.window_control_rects() {
+            for part in [0.1, 0.5, 0.9] {
+                let (x, y) = (rect.x + rect.w * part, rect.y + rect.h * part);
+                assert_eq!(
+                    native.hit(x * zoom, y * zoom, size.w * zoom, size.h * zoom, false),
+                    HTCLIENT,
+                    "窗口按钮被系统拦截：{control:?}, 缩放 {zoom}, ({x}, {y})"
+                );
+            }
+        }
         for y in (0..TOP_BAR_END as usize).step_by(2) {
             for x in (0..size.w as usize).step_by(2) {
                 let (x, y) = (x as f32 + 0.5, y as f32 + 0.5);
-                let hit = native.hit(x, y, size.w, size.h, false);
+                let hit = native.hit(x * zoom, y * zoom, size.w * zoom, size.h * zoom, false);
                 let target = app.touch_window_at(x, y);
                 assert_eq!(
                     hit == HTCAPTION,
@@ -399,6 +411,11 @@ fn native_touch_caption_matches_application_targets() {
     app.relayout();
     paint(&mut app);
     verify(&app);
+    for zoom in [125, 150, 200, 70, 100] {
+        app.set_zoom(zoom);
+        paint(&mut app);
+        verify(&app);
+    }
     app.open_settings();
     verify(&app);
 }

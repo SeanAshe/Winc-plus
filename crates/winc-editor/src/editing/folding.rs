@@ -25,6 +25,7 @@ use winc_core::{Lines, Selection};
 use crate::document::Document;
 use crate::document::content::Content;
 use crate::editing::long_lines::{Limits, WholeLines};
+use crate::editing::modal::Marks;
 use crate::editing::scopes::{self, FoldRange};
 use crate::navigation::bookmarks::Bookmarks;
 
@@ -685,6 +686,8 @@ pub(crate) struct Tracked<'a> {
     pub bookmarks: &'a mut Bookmarks,
     /// 需要随修改移动的显示整行的行。
     pub whole: &'a mut WholeLines,
+    /// 需要随修改移动的模态编辑层的标记与修改列表。
+    pub marks: &'a mut Marks,
 }
 
 impl EditBuffer for Tracked<'_> {
@@ -709,6 +712,10 @@ impl EditBuffer for Tracked<'_> {
             let end = (start + removed).min(self.text.end_pos());
             (self.text.line_of(start), self.text.line_of(end))
         });
+        if !self.marks.is_empty() {
+            self.marks
+                .edit(&*self.text, start, removed, inserted.chars().count());
+        }
         self.text.replace(start, removed, inserted);
         let after = self.text.line_count();
         if !self.folds.is_empty() {

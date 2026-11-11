@@ -208,6 +208,28 @@ impl Document {
 
         // 符号链接写入其指向的文件，不替换链接本身。
         let target = winc_config::files::canonicalize(path).unwrap_or_else(|_| path.clone());
+        self.write_content(&target)?;
+        self.history.mark_saved();
+        let metadata = fs::metadata(&target).ok();
+        self.disk_mtime = metadata.as_ref().and_then(|m| m.modified().ok());
+        self.disk_len = metadata.map_or(0, |m| m.len());
+        self.conflict = false;
+        Ok(())
+    }
+
+    /// 把文档的内容按当前的编码写到 `path`，文档对应的路径与保存状态不变。
+    ///
+    /// # Errors
+    ///
+    /// 文本含当前编码无法表示的字符、大文件的原文件在打开后被其他程序修改，或写入失败时返回
+    /// `std::io::Error`。
+    pub fn write_copy(&self, path: &Path) -> io::Result<()> {
+        let target = winc_config::files::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        self.write_content(&target)
+    }
+
+    /// 把文档的内容按当前的编码写到 `target`，先写临时文件再改名替换。
+    fn write_content(&self, target: &Path) -> io::Result<()> {
         let bom = self.encoding == Encoding::Utf8Bom;
 
         match &self.text {
@@ -223,9 +245,9 @@ impl Document {
                     );
                     io::Error::other(message)
                 })?;
-                write_atomic(&target, false, true, |out| out.write_all(&bytes))?;
+                write_atomic(target, false, true, |out| out.write_all(&bytes))?;
             }
-            Content::Rope(rope) => write_atomic(&target, bom, true, |out| {
+            Content::Rope(rope) => write_atomic(target, bom, true, |out| {
                 rope.chunks()
                     .try_for_each(|chunk| out.write_all(chunk.as_bytes()))
             })?,
@@ -237,18 +259,12 @@ impl Document {
                 }
 
                 // 片段引用原文件的字节范围，原地写入会在读取这些片段之前截断原文件。
-                write_atomic(&target, bom, false, |out| large.write_to(out))?;
+                write_atomic(target, bom, false, |out| large.write_to(out))?;
                 // 继续引用被替换掉的原文件（打开着的句柄仍指向原来的内容），与新文件内容相同：
                 // 重新打开要按文件大小重建行索引，同步保存在界面线程上执行（另存为、关闭前保存），
                 // 不在这里做。原文件占的磁盘空间在文档关闭或重新载入时释放。
             }
         }
-
-        self.history.mark_saved();
-        let metadata = fs::metadata(&target).ok();
-        self.disk_mtime = metadata.as_ref().and_then(|m| m.modified().ok());
-        self.disk_len = metadata.map_or(0, |m| m.len());
-        self.conflict = false;
         Ok(())
     }
 

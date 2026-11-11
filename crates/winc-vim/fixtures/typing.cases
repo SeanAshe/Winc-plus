@@ -1,0 +1,1344 @@
+# 由 `cargo xtask vim-fixtures` 生成，不手工修改。替换模式与插入模式的 Ctrl 键。
+
+buffer b1
+text "foo bar.baz  qux_1 (x) end"
+text "   lead, tail;  "
+text ""
+text "中文 text，全角。next"
+text "a-b a1b2 #$% éx"
+
+buffer b2
+text "fn main() {"
+text "    call(a, [b, c], \"s)\");"
+text "    if (x) { y('(') }"
+text "}"
+text ""
+text "{"
+text "  inner } {"
+text "}"
+text "tail"
+
+buffer b3
+text "First one.  Second one! Third?  "
+text "Still (third.) Fourth."
+text ""
+text ""
+text "New para here. End"
+text "\tTabbed\tline here"
+text "   "
+text "last"
+
+case y0001
+use b1
+cursor 0 0
+keys RXY<Esc>
+
+case y0002
+use b1
+cursor 1 15
+keys RXY<Esc>
+
+case y0003
+use b1
+cursor 0 11
+keys 3RXY<Esc>
+
+case y0004
+use b1
+cursor 3 9
+keys 3RXY<Esc>
+
+case y0005
+use b1
+cursor 1 3
+keys RXY<BS><Esc>
+
+case y0006
+use b1
+cursor 1 3
+keys RXY<BS><BS><BS>Z<Esc>
+
+case y0007
+use b1
+cursor 1 3
+keys RX<CR>Y<Esc>
+
+case y0008
+use b1
+cursor 1 0
+keys RXY<Esc>.
+
+case y0009
+use b1
+cursor 4 15
+keys RXY<Esc>.
+
+case y0010
+use b1
+cursor 0 0
+keys RXY<Esc>j.
+
+case y0011
+use b1
+cursor 1 15
+keys RXY<Esc>j.
+
+case y0012
+use b1
+cursor 0 5
+keys RXY<Esc>3.
+
+case y0013
+use b1
+cursor 2 0
+keys RXY<Esc>3.
+
+case y0014
+use b1
+cursor 1 3
+keys R<Esc>
+
+case y0015
+use b1
+cursor 0 11
+keys Rabcdefghijklmnopqrstuvwxyz0123456789<Esc>
+
+case y0016
+use b1
+cursor 3 9
+keys Rabcdefghijklmnopqrstuvwxyz0123456789<Esc>
+
+case y0017
+use b1
+cursor 0 25
+keys RXY<Esc>u
+
+case y0018
+use b1
+cursor 4 13
+keys RXY<Esc>u
+
+case y0019
+use b1
+cursor 0 11
+keys RXYZ<Esc>u<C-r>
+
+case y0020
+use b1
+cursor 3 9
+keys RXYZ<Esc>u<C-r>
+
+case y0021
+use b1
+cursor 0 0
+keys R中<Esc>
+
+case y0022
+use b1
+cursor 1 15
+keys R中<Esc>
+
+case y0023
+use b1
+cursor 0 7
+keys RX<C-h>Y<Esc>
+
+case y0024
+use b1
+cursor 3 1
+keys RX<C-h>Y<Esc>
+
+case y0025
+use b1
+cursor 0 0
+keys RXY<C-c>
+
+case y0026
+use b1
+cursor 1 15
+keys RXY<C-c>
+
+case y0027
+use b1
+cursor 0 0
+keys 2RX<CR><Esc>
+
+case y0028
+use b1
+cursor 1 15
+keys 2RX<CR><Esc>
+
+case y0029
+use b1
+cursor 1 3
+keys iab<Space>cd<C-w>X<Esc>
+
+case y0030
+use b1
+cursor 0 11
+keys Oab<Space>cd<C-u>X<Esc>
+
+case y0031
+use b1
+cursor 3 9
+keys Oab<Space>cd<C-u>X<Esc>
+
+case y0032
+use b1
+cursor 1 0
+keys Oab<Space>cd<C-w><C-w>X<Esc>
+
+case y0033
+use b1
+cursor 4 15
+keys Oab<Space>cd<C-w><C-w>X<Esc>
+
+case y0034
+use b1
+cursor 1 0
+keys iab<C-h>c<Esc>
+
+case y0035
+use b1
+cursor 4 15
+keys iab<C-h>c<Esc>
+
+case y0036
+use b1
+cursor 1 3
+keys ia<C-t>b<Esc>
+
+case y0037
+use b1
+cursor 0 25
+keys ia<C-t><C-t>b<Esc>
+
+case y0038
+use b1
+cursor 4 13
+keys ia<C-t><C-t>b<Esc>
+
+case y0039
+use b1
+cursor 0 25
+keys ia<C-t><C-d>b<Esc>
+
+case y0040
+use b1
+cursor 4 13
+keys ia<C-t><C-d>b<Esc>
+
+case y0041
+use b1
+cursor 1 3
+keys ia<C-d>b<Esc>
+
+case y0042
+use b1
+cursor 0 20
+keys ywA<C-r>"<Esc>
+
+case y0043
+use b1
+cursor 4 0
+keys ywA<C-r>"<Esc>
+
+case y0044
+use b1
+cursor 1 0
+keys ywA<C-r>0<C-r>0<Esc>
+
+case y0045
+use b1
+cursor 4 15
+keys ywA<C-r>0<C-r>0<Esc>
+
+case y0046
+use b1
+cursor 0 0
+keys "aylA<C-r>a<C-r>a<Esc>
+
+case y0047
+use b1
+cursor 1 15
+keys "aylA<C-r>a<C-r>a<Esc>
+
+case y0048
+use b1
+cursor 0 20
+keys A<C-r>z<Esc>
+
+case y0049
+use b1
+cursor 4 0
+keys A<C-r>z<Esc>
+
+case y0050
+use b1
+cursor 1 3
+keys A<C-r><Esc>x<Esc>
+
+case y0051
+use b1
+cursor 0 7
+keys ia<C-o>xb<Esc>
+
+case y0052
+use b1
+cursor 3 1
+keys ia<C-o>xb<Esc>
+
+case y0053
+use b1
+cursor 1 3
+keys A<C-o>0x<Esc>
+
+case y0054
+use b1
+cursor 0 7
+keys Aab<C-o>hX<Esc>
+
+case y0055
+use b1
+cursor 3 1
+keys Aab<C-o>hX<Esc>
+
+case y0056
+use b1
+cursor 0 11
+keys A<C-o>$X<Esc>
+
+case y0057
+use b1
+cursor 3 9
+keys A<C-o>$X<Esc>
+
+case y0058
+use b1
+cursor 1 3
+keys A<C-o>xX<Esc>
+
+case y0059
+use b1
+cursor 0 25
+keys ia<C-o>dwb<Esc>
+
+case y0060
+use b1
+cursor 4 13
+keys ia<C-o>dwb<Esc>
+
+case y0061
+use b1
+cursor 0 25
+keys i<C-o>2lX<Esc>
+
+case y0062
+use b1
+cursor 4 13
+keys i<C-o>2lX<Esc>
+
+case y0063
+use b1
+cursor 0 20
+keys ia<C-o>jb<Esc>
+
+case y0064
+use b1
+cursor 4 0
+keys ia<C-o>jb<Esc>
+
+case y0065
+use b1
+cursor 1 0
+keys ia<C-o>$b<Esc>
+
+case y0066
+use b1
+cursor 4 15
+keys ia<C-o>$b<Esc>
+
+case y0067
+use b1
+cursor 0 7
+keys ia<C-o>0b<Esc>
+
+case y0068
+use b1
+cursor 3 1
+keys ia<C-o>0b<Esc>
+
+case y0069
+use b1
+cursor 1 3
+keys ia<C-o><Esc>b<Esc>
+
+case y0070
+use b1
+cursor 0 0
+keys ia<C-o>xb<Esc>.
+
+case y0071
+use b1
+cursor 1 15
+keys ia<C-o>xb<Esc>.
+
+case y0072
+use b1
+cursor 1 3
+keys ia<C-o>xb<Esc>u
+
+case y0073
+use b1
+cursor 0 20
+keys ia<C-o>xb<Esc>uu
+
+case y0074
+use b1
+cursor 4 0
+keys ia<C-o>xb<Esc>uu
+
+case y0075
+use b1
+cursor 0 25
+keys RX<C-o>lY<Esc>
+
+case y0076
+use b1
+cursor 4 13
+keys RX<C-o>lY<Esc>
+
+case y0077
+use b1
+cursor 0 20
+keys i<C-e><C-e><Esc>
+
+case y0078
+use b1
+cursor 4 0
+keys i<C-e><C-e><Esc>
+
+case y0079
+use b1
+cursor 0 20
+keys i<C-y><C-y><Esc>
+
+case y0080
+use b1
+cursor 4 0
+keys i<C-y><C-y><Esc>
+
+case y0081
+use b1
+cursor 0 25
+keys A<C-e><Esc>
+
+case y0082
+use b1
+cursor 4 13
+keys A<C-e><Esc>
+
+case y0083
+use b1
+cursor 0 5
+keys A<C-y>x<Esc>
+
+case y0084
+use b1
+cursor 2 0
+keys A<C-y>x<Esc>
+
+case y0085
+use b1
+cursor 0 5
+keys iab<C-c>
+
+case y0086
+use b1
+cursor 2 0
+keys iab<C-c>
+
+case y0087
+use b1
+cursor 0 20
+keys 3iab<C-c>
+
+case y0088
+use b1
+cursor 4 0
+keys 3iab<C-c>
+
+case y0089
+use b1
+cursor 0 25
+keys ia<C-c>.
+
+case y0090
+use b1
+cursor 4 13
+keys ia<C-c>.
+
+case y0091
+use b1
+cursor 1 3
+keys cwab<C-c>w.
+
+case y0092
+use b2
+cursor 0 0
+keys RXY<Esc>
+
+case y0093
+use b2
+cursor 2 16
+keys RXY<Esc>
+
+case y0094
+use b2
+cursor 1 4
+keys 3RXY<Esc>
+
+case y0095
+use b2
+cursor 6 4
+keys 3RXY<Esc>
+
+case y0096
+use b2
+cursor 2 7
+keys RXY<BS><Esc>
+
+case y0097
+use b2
+cursor 2 7
+keys RXY<BS><BS><BS>Z<Esc>
+
+case y0098
+use b2
+cursor 2 7
+keys RX<CR>Y<Esc>
+
+case y0099
+use b2
+cursor 1 21
+keys RXY<Esc>.
+
+case y0100
+use b2
+cursor 0 0
+keys RXY<Esc>j.
+
+case y0101
+use b2
+cursor 2 16
+keys RXY<Esc>j.
+
+case y0102
+use b2
+cursor 0 7
+keys RXY<Esc>3.
+
+case y0103
+use b2
+cursor 3 0
+keys RXY<Esc>3.
+
+case y0104
+use b2
+cursor 2 7
+keys R<Esc>
+
+case y0105
+use b2
+cursor 1 4
+keys Rabcdefghijklmnopqrstuvwxyz0123456789<Esc>
+
+case y0106
+use b2
+cursor 6 4
+keys Rabcdefghijklmnopqrstuvwxyz0123456789<Esc>
+
+case y0107
+use b2
+cursor 1 13
+keys RXY<Esc>u
+
+case y0108
+use b2
+cursor 8 2
+keys RXY<Esc>u
+
+case y0109
+use b2
+cursor 1 4
+keys RXYZ<Esc>u<C-r>
+
+case y0110
+use b2
+cursor 6 4
+keys RXYZ<Esc>u<C-r>
+
+case y0111
+use b2
+cursor 0 0
+keys R中<Esc>
+
+case y0112
+use b2
+cursor 2 16
+keys R中<Esc>
+
+case y0113
+use b2
+cursor 0 10
+keys RX<C-h>Y<Esc>
+
+case y0114
+use b2
+cursor 4 0
+keys RX<C-h>Y<Esc>
+
+case y0115
+use b2
+cursor 0 0
+keys RXY<C-c>
+
+case y0116
+use b2
+cursor 2 16
+keys RXY<C-c>
+
+case y0117
+use b2
+cursor 0 0
+keys 2RX<CR><Esc>
+
+case y0118
+use b2
+cursor 2 16
+keys 2RX<CR><Esc>
+
+case y0119
+use b2
+cursor 2 7
+keys iab<Space>cd<C-w>X<Esc>
+
+case y0120
+use b2
+cursor 1 4
+keys Oab<Space>cd<C-u>X<Esc>
+
+case y0121
+use b2
+cursor 6 4
+keys Oab<Space>cd<C-u>X<Esc>
+
+case y0122
+use b2
+cursor 1 21
+keys Oab<Space>cd<C-w><C-w>X<Esc>
+
+case y0123
+use b2
+cursor 1 21
+keys iab<C-h>c<Esc>
+
+case y0124
+use b2
+cursor 2 7
+keys ia<C-t>b<Esc>
+
+case y0125
+use b2
+cursor 1 13
+keys ia<C-t><C-t>b<Esc>
+
+case y0126
+use b2
+cursor 8 2
+keys ia<C-t><C-t>b<Esc>
+
+case y0127
+use b2
+cursor 1 13
+keys ia<C-t><C-d>b<Esc>
+
+case y0128
+use b2
+cursor 8 2
+keys ia<C-t><C-d>b<Esc>
+
+case y0129
+use b2
+cursor 2 7
+keys ia<C-d>b<Esc>
+
+case y0130
+use b2
+cursor 1 8
+keys ywA<C-r>"<Esc>
+
+case y0131
+use b2
+cursor 6 10
+keys ywA<C-r>"<Esc>
+
+case y0132
+use b2
+cursor 1 21
+keys ywA<C-r>0<C-r>0<Esc>
+
+case y0133
+use b2
+cursor 0 0
+keys "aylA<C-r>a<C-r>a<Esc>
+
+case y0134
+use b2
+cursor 2 16
+keys "aylA<C-r>a<C-r>a<Esc>
+
+case y0135
+use b2
+cursor 1 8
+keys A<C-r>z<Esc>
+
+case y0136
+use b2
+cursor 6 10
+keys A<C-r>z<Esc>
+
+case y0137
+use b2
+cursor 2 7
+keys A<C-r><Esc>x<Esc>
+
+case y0138
+use b2
+cursor 0 10
+keys ia<C-o>xb<Esc>
+
+case y0139
+use b2
+cursor 4 0
+keys ia<C-o>xb<Esc>
+
+case y0140
+use b2
+cursor 2 7
+keys A<C-o>0x<Esc>
+
+case y0141
+use b2
+cursor 0 10
+keys Aab<C-o>hX<Esc>
+
+case y0142
+use b2
+cursor 4 0
+keys Aab<C-o>hX<Esc>
+
+case y0143
+use b2
+cursor 1 4
+keys A<C-o>$X<Esc>
+
+case y0144
+use b2
+cursor 6 4
+keys A<C-o>$X<Esc>
+
+case y0145
+use b2
+cursor 2 7
+keys A<C-o>xX<Esc>
+
+case y0146
+use b2
+cursor 1 13
+keys ia<C-o>dwb<Esc>
+
+case y0147
+use b2
+cursor 8 2
+keys ia<C-o>dwb<Esc>
+
+case y0148
+use b2
+cursor 1 13
+keys i<C-o>2lX<Esc>
+
+case y0149
+use b2
+cursor 8 2
+keys i<C-o>2lX<Esc>
+
+case y0150
+use b2
+cursor 1 8
+keys ia<C-o>jb<Esc>
+
+case y0151
+use b2
+cursor 6 10
+keys ia<C-o>jb<Esc>
+
+case y0152
+use b2
+cursor 1 21
+keys ia<C-o>$b<Esc>
+
+case y0153
+use b2
+cursor 0 10
+keys ia<C-o>0b<Esc>
+
+case y0154
+use b2
+cursor 4 0
+keys ia<C-o>0b<Esc>
+
+case y0155
+use b2
+cursor 2 7
+keys ia<C-o><Esc>b<Esc>
+
+case y0156
+use b2
+cursor 0 0
+keys ia<C-o>xb<Esc>.
+
+case y0157
+use b2
+cursor 2 16
+keys ia<C-o>xb<Esc>.
+
+case y0158
+use b2
+cursor 2 7
+keys ia<C-o>xb<Esc>u
+
+case y0159
+use b2
+cursor 1 8
+keys ia<C-o>xb<Esc>uu
+
+case y0160
+use b2
+cursor 6 10
+keys ia<C-o>xb<Esc>uu
+
+case y0161
+use b2
+cursor 1 13
+keys RX<C-o>lY<Esc>
+
+case y0162
+use b2
+cursor 8 2
+keys RX<C-o>lY<Esc>
+
+case y0163
+use b2
+cursor 1 8
+keys i<C-e><C-e><Esc>
+
+case y0164
+use b2
+cursor 6 10
+keys i<C-e><C-e><Esc>
+
+case y0165
+use b2
+cursor 1 8
+keys i<C-y><C-y><Esc>
+
+case y0166
+use b2
+cursor 6 10
+keys i<C-y><C-y><Esc>
+
+case y0167
+use b2
+cursor 1 13
+keys A<C-e><Esc>
+
+case y0168
+use b2
+cursor 8 2
+keys A<C-e><Esc>
+
+case y0169
+use b2
+cursor 0 7
+keys A<C-y>x<Esc>
+
+case y0170
+use b2
+cursor 3 0
+keys A<C-y>x<Esc>
+
+case y0171
+use b2
+cursor 0 7
+keys iab<C-c>
+
+case y0172
+use b2
+cursor 3 0
+keys iab<C-c>
+
+case y0173
+use b2
+cursor 1 8
+keys 3iab<C-c>
+
+case y0174
+use b2
+cursor 6 10
+keys 3iab<C-c>
+
+case y0175
+use b2
+cursor 1 13
+keys ia<C-c>.
+
+case y0176
+use b2
+cursor 8 2
+keys ia<C-c>.
+
+case y0177
+use b2
+cursor 2 7
+keys cwab<C-c>w.
+
+case y0178
+use b3
+cursor 0 0
+keys RXY<Esc>
+
+case y0179
+use b3
+cursor 4 17
+keys RXY<Esc>
+
+case y0180
+use b3
+cursor 0 31
+keys 3RXY<Esc>
+
+case y0181
+use b3
+cursor 5 7
+keys 3RXY<Esc>
+
+case y0182
+use b3
+cursor 4 4
+keys RXY<BS><Esc>
+
+case y0183
+use b3
+cursor 4 4
+keys RXY<BS><BS><BS>Z<Esc>
+
+case y0184
+use b3
+cursor 4 4
+keys RX<CR>Y<Esc>
+
+case y0185
+use b3
+cursor 2 0
+keys RXY<Esc>.
+
+case y0186
+use b3
+cursor 0 0
+keys RXY<Esc>j.
+
+case y0187
+use b3
+cursor 4 17
+keys RXY<Esc>j.
+
+case y0188
+use b3
+cursor 0 9
+keys RXY<Esc>3.
+
+case y0189
+use b3
+cursor 5 0
+keys RXY<Esc>3.
+
+case y0190
+use b3
+cursor 4 4
+keys R<Esc>
+
+case y0191
+use b3
+cursor 0 31
+keys Rabcdefghijklmnopqrstuvwxyz0123456789<Esc>
+
+case y0192
+use b3
+cursor 5 7
+keys Rabcdefghijklmnopqrstuvwxyz0123456789<Esc>
+
+case y0193
+use b3
+cursor 1 21
+keys RXY<Esc>u
+
+case y0194
+use b3
+cursor 7 3
+keys RXY<Esc>u
+
+case y0195
+use b3
+cursor 0 31
+keys RXYZ<Esc>u<C-r>
+
+case y0196
+use b3
+cursor 5 7
+keys RXYZ<Esc>u<C-r>
+
+case y0197
+use b3
+cursor 0 0
+keys R中<Esc>
+
+case y0198
+use b3
+cursor 4 17
+keys R中<Esc>
+
+case y0199
+use b3
+cursor 0 14
+keys RX<C-h>Y<Esc>
+
+case y0200
+use b3
+cursor 5 3
+keys RX<C-h>Y<Esc>
+
+case y0201
+use b3
+cursor 0 0
+keys RXY<C-c>
+
+case y0202
+use b3
+cursor 4 17
+keys RXY<C-c>
+
+case y0203
+use b3
+cursor 0 0
+keys 2RX<CR><Esc>
+
+case y0204
+use b3
+cursor 4 17
+keys 2RX<CR><Esc>
+
+case y0205
+use b3
+cursor 4 4
+keys iab<Space>cd<C-w>X<Esc>
+
+case y0206
+use b3
+cursor 0 31
+keys Oab<Space>cd<C-u>X<Esc>
+
+case y0207
+use b3
+cursor 5 7
+keys Oab<Space>cd<C-u>X<Esc>
+
+case y0208
+use b3
+cursor 2 0
+keys Oab<Space>cd<C-w><C-w>X<Esc>
+
+case y0209
+use b3
+cursor 2 0
+keys iab<C-h>c<Esc>
+
+case y0210
+use b3
+cursor 4 4
+keys ia<C-t>b<Esc>
+
+case y0211
+use b3
+cursor 1 21
+keys ia<C-t><C-t>b<Esc>
+
+case y0212
+use b3
+cursor 7 3
+keys ia<C-t><C-t>b<Esc>
+
+case y0213
+use b3
+cursor 1 21
+keys ia<C-t><C-d>b<Esc>
+
+case y0214
+use b3
+cursor 7 3
+keys ia<C-t><C-d>b<Esc>
+
+case y0215
+use b3
+cursor 4 4
+keys ia<C-d>b<Esc>
+
+case y0216
+use b3
+cursor 1 8
+keys ywA<C-r>"<Esc>
+
+case y0217
+use b3
+cursor 6 1
+keys ywA<C-r>"<Esc>
+
+case y0218
+use b3
+cursor 2 0
+keys ywA<C-r>0<C-r>0<Esc>
+
+case y0219
+use b3
+cursor 0 0
+keys "aylA<C-r>a<C-r>a<Esc>
+
+case y0220
+use b3
+cursor 4 17
+keys "aylA<C-r>a<C-r>a<Esc>
+
+case y0221
+use b3
+cursor 1 8
+keys A<C-r>z<Esc>
+
+case y0222
+use b3
+cursor 6 1
+keys A<C-r>z<Esc>
+
+case y0223
+use b3
+cursor 4 4
+keys A<C-r><Esc>x<Esc>
+
+case y0224
+use b3
+cursor 0 14
+keys ia<C-o>xb<Esc>
+
+case y0225
+use b3
+cursor 5 3
+keys ia<C-o>xb<Esc>
+
+case y0226
+use b3
+cursor 4 4
+keys A<C-o>0x<Esc>
+
+case y0227
+use b3
+cursor 0 14
+keys Aab<C-o>hX<Esc>
+
+case y0228
+use b3
+cursor 5 3
+keys Aab<C-o>hX<Esc>
+
+case y0229
+use b3
+cursor 0 31
+keys A<C-o>$X<Esc>
+
+case y0230
+use b3
+cursor 5 7
+keys A<C-o>$X<Esc>
+
+case y0231
+use b3
+cursor 4 4
+keys A<C-o>xX<Esc>
+
+case y0232
+use b3
+cursor 1 21
+keys ia<C-o>dwb<Esc>
+
+case y0233
+use b3
+cursor 7 3
+keys ia<C-o>dwb<Esc>
+
+case y0234
+use b3
+cursor 1 21
+keys i<C-o>2lX<Esc>
+
+case y0235
+use b3
+cursor 7 3
+keys i<C-o>2lX<Esc>
+
+case y0236
+use b3
+cursor 1 8
+keys ia<C-o>jb<Esc>
+
+case y0237
+use b3
+cursor 6 1
+keys ia<C-o>jb<Esc>
+
+case y0238
+use b3
+cursor 2 0
+keys ia<C-o>$b<Esc>
+
+case y0239
+use b3
+cursor 0 14
+keys ia<C-o>0b<Esc>
+
+case y0240
+use b3
+cursor 5 3
+keys ia<C-o>0b<Esc>
+
+case y0241
+use b3
+cursor 4 4
+keys ia<C-o><Esc>b<Esc>
+
+case y0242
+use b3
+cursor 0 0
+keys ia<C-o>xb<Esc>.
+
+case y0243
+use b3
+cursor 4 17
+keys ia<C-o>xb<Esc>.
+
+case y0244
+use b3
+cursor 4 4
+keys ia<C-o>xb<Esc>u
+
+case y0245
+use b3
+cursor 1 8
+keys ia<C-o>xb<Esc>uu
+
+case y0246
+use b3
+cursor 6 1
+keys ia<C-o>xb<Esc>uu
+
+case y0247
+use b3
+cursor 1 21
+keys RX<C-o>lY<Esc>
+
+case y0248
+use b3
+cursor 7 3
+keys RX<C-o>lY<Esc>
+
+case y0249
+use b3
+cursor 1 8
+keys i<C-e><C-e><Esc>
+
+case y0250
+use b3
+cursor 6 1
+keys i<C-e><C-e><Esc>
+
+case y0251
+use b3
+cursor 1 8
+keys i<C-y><C-y><Esc>
+
+case y0252
+use b3
+cursor 6 1
+keys i<C-y><C-y><Esc>
+
+case y0253
+use b3
+cursor 1 21
+keys A<C-e><Esc>
+
+case y0254
+use b3
+cursor 7 3
+keys A<C-e><Esc>
+
+case y0255
+use b3
+cursor 0 9
+keys A<C-y>x<Esc>
+
+case y0256
+use b3
+cursor 5 0
+keys A<C-y>x<Esc>
+
+case y0257
+use b3
+cursor 0 9
+keys iab<C-c>
+
+case y0258
+use b3
+cursor 5 0
+keys iab<C-c>
+
+case y0259
+use b3
+cursor 1 8
+keys 3iab<C-c>
+
+case y0260
+use b3
+cursor 6 1
+keys 3iab<C-c>
+
+case y0261
+use b3
+cursor 1 21
+keys ia<C-c>.
+
+case y0262
+use b3
+cursor 7 3
+keys ia<C-c>.
+
+case y0263
+use b3
+cursor 4 4
+keys cwab<C-c>w.

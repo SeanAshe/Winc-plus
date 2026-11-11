@@ -1,0 +1,2958 @@
+# 由 `cargo xtask vim-fixtures` 录制，不手工修改；用例写在同名的 .cases 文件中。
+vim 9.1.1752
+
+buffer b1
+text "abcdefgh"
+text "ij"
+text "klmnopqrst"
+text ""
+text "uvwxyz12"
+text "  indented line"
+text "last one here"
+
+buffer b2
+text "foo bar.baz  qux_1 (x) end"
+text "   lead, tail;  "
+text ""
+text "中文 text，全角。next"
+text "a-b a1b2 #$% éx"
+
+buffer b3
+text "fn main() {"
+text "    call(a, [b, c], \"s)\");"
+text "    if (x) { y('(') }"
+text "}"
+text ""
+text "{"
+text "  inner } {"
+text "}"
+text "tail"
+
+case b0001
+use b1
+cursor 0 6
+keys <C-v>jld
+> text "abh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 2
+> reg " b5 "cdefg" ""
+> reg 1 b5 "cdefg" ""
+
+case b0002
+use b1
+cursor 5 2
+keys <C-v>jld
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  dented line"
+> text "la one here"
+> cursor 5 2
+> reg " b2 "in" "st"
+> reg 1 b2 "in" "st"
+
+case b0003
+use b1
+cursor 1 1
+keys <C-v>jly
+> unchanged
+> cursor 1 1
+> reg " b2 "j" "lm"
+> reg 0 b2 "j" "lm"
+
+case b0004
+use b1
+cursor 0 0
+keys <C-v>jjlld
+> text "defgh"
+> text ""
+> text "nopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+> reg " b3 "abc" "ij" "klm"
+> reg 1 b3 "abc" "ij" "klm"
+
+case b0005
+use b1
+cursor 2 4
+keys <C-v>jjlld
+> text "abcdefgh"
+> text "ij"
+> text "klmnrst"
+> text ""
+> text "uvwx2"
+> text "  indented line"
+> text "last one here"
+> cursor 2 4
+> reg " b3 "opq" "   " "yz1"
+> reg 1 b3 "opq" "   " "yz1"
+
+case b0006
+use b1
+cursor 1 1
+keys <C-v>jjjly
+> unchanged
+> cursor 1 1
+> reg " b2 "j" "lm" "  " "vw"
+> reg 0 b2 "j" "lm" "  " "vw"
+
+case b0007
+use b1
+cursor 0 0
+keys <C-v>jj$d
+> text ""
+> text ""
+> text ""
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+> reg " b10 "abcdefgh" "ij" "klmnopqrst"
+> reg 1 b10 "abcdefgh" "ij" "klmnopqrst"
+
+case b0008
+use b1
+cursor 2 4
+keys <C-v>jj$d
+> text "abcdefgh"
+> text "ij"
+> text "klmn"
+> text ""
+> text "uvwx"
+> text "  indented line"
+> text "last one here"
+> cursor 2 3
+> reg " b6 "opqrst" "       " "yz12"
+> reg 1 b6 "opqrst" "       " "yz12"
+
+case b0009
+use b1
+cursor 0 2
+keys <C-v>jj$y
+> unchanged
+> cursor 0 2
+> reg " b8 "cdefgh" "" "mnopqrst"
+> reg 0 b8 "cdefgh" "" "mnopqrst"
+
+case b0010
+use b1
+cursor 4 3
+keys <C-v>jj$y
+> unchanged
+> cursor 4 3
+> reg " b12 "xyz12" "ndented line" "t one here"
+> reg 0 b12 "xyz12" "ndented line" "t one here"
+
+case b0011
+use b1
+cursor 0 6
+keys <C-v>j$hd
+> text "ah"
+> text "i"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 1
+> reg " b6 "bcdefg" "j"
+> reg 1 b6 "bcdefg" "j"
+
+case b0012
+use b1
+cursor 5 2
+keys <C-v>j$hd
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  ne"
+> text "la"
+> cursor 5 2
+> reg " b11 "indented li" "st one here"
+> reg 1 b11 "indented li" "st one here"
+
+case b0013
+use b1
+cursor 0 0
+keys <C-v>ld
+> text "cdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+> reg " b2 "ab"
+> reg - b2 "ab"
+
+case b0014
+use b1
+cursor 2 4
+keys <C-v>ld
+> text "abcdefgh"
+> text "ij"
+> text "klmnqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 2 4
+> reg " b2 "op"
+> reg - b2 "op"
+
+case b0015
+use b1
+cursor 0 0
+keys <C-v>d
+> text "bcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+> reg " b1 "a"
+> reg - b1 "a"
+
+case b0016
+use b1
+cursor 2 4
+keys <C-v>d
+> text "abcdefgh"
+> text "ij"
+> text "klmnpqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 2 4
+> reg " b1 "o"
+> reg - b1 "o"
+
+case b0017
+use b1
+cursor 0 2
+keys <C-v>y
+> unchanged
+> cursor 0 2
+> reg " b1 "c"
+> reg 0 b1 "c"
+
+case b0018
+use b1
+cursor 4 3
+keys <C-v>y
+> unchanged
+> cursor 4 3
+> reg " b1 "x"
+> reg 0 b1 "x"
+
+case b0019
+use b1
+cursor 0 0
+keys <C-v>3ly
+> unchanged
+> cursor 0 0
+> reg " b4 "abcd"
+> reg 0 b4 "abcd"
+
+case b0020
+use b1
+cursor 2 4
+keys <C-v>3ly
+> unchanged
+> cursor 2 4
+> reg " b4 "opqr"
+> reg 0 b4 "opqr"
+
+case b0021
+use b1
+cursor 1 1
+keys <C-v>kld
+> text "adefgh"
+> text "i"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 1
+> reg " b2 "bc" "j"
+> reg 1 b2 "bc" "j"
+
+case b0022
+use b1
+cursor 0 6
+keys <C-v>jhd
+> text "ah"
+> text "i"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 1
+> reg " b6 "bcdefg" "j"
+> reg 1 b6 "bcdefg" "j"
+
+case b0023
+use b1
+cursor 5 2
+keys <C-v>jhd
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text " ndented line"
+> text "lt one here"
+> cursor 5 1
+> reg " b2 " i" "as"
+> reg 1 b2 " i" "as"
+
+case b0024
+use b1
+cursor 0 6
+keys <C-v>jlcX<Esc>
+> text "abXh"
+> text "ijX"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 2
+> reg " b5 "cdefg" ""
+> reg 1 b5 "cdefg" ""
+> reg . v "X"
+
+case b0025
+use b1
+cursor 5 2
+keys <C-v>jlcX<Esc>
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  Xdented line"
+> text "laX one here"
+> cursor 5 2
+> reg " b2 "in" "st"
+> reg 1 b2 "in" "st"
+> reg . v "X"
+
+case b0026
+use b1
+cursor 0 2
+keys <C-v>jjcXY<Esc>
+> text "abXYdefgh"
+> text "ijXY"
+> text "klXYnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 3
+> reg " b1 "c" "" "m"
+> reg 1 b1 "c" "" "m"
+> reg . v "XY"
+
+case b0027
+use b1
+cursor 4 3
+keys <C-v>jjcXY<Esc>
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwXYyz12"
+> text "  iXYdented line"
+> text "lasXY one here"
+> cursor 4 4
+> reg " b1 "x" "n" "t"
+> reg 1 b1 "x" "n" "t"
+> reg . v "XY"
+
+case b0028
+use b1
+cursor 0 0
+keys <C-v>jj$cX<Esc>
+> text "X"
+> text "X"
+> text "X"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+> reg " b10 "abcdefgh" "ij" "klmnopqrst"
+> reg 1 b10 "abcdefgh" "ij" "klmnopqrst"
+> reg . v "X"
+
+case b0029
+use b1
+cursor 2 4
+keys <C-v>jj$cX<Esc>
+> text "abcdefgh"
+> text "ij"
+> text "klmnX"
+> text ""
+> text "uvwxX"
+> text "  indented line"
+> text "last one here"
+> cursor 2 4
+> reg " b6 "opqrst" "       " "yz12"
+> reg 1 b6 "opqrst" "       " "yz12"
+> reg . v "X"
+
+case b0030
+use b1
+cursor 0 6
+keys <C-v>jlsX<Esc>
+> text "abXh"
+> text "ijX"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 2
+> reg " b5 "cdefg" ""
+> reg 1 b5 "cdefg" ""
+> reg . v "X"
+
+case b0031
+use b1
+cursor 5 2
+keys <C-v>jlsX<Esc>
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  Xdented line"
+> text "laX one here"
+> cursor 5 2
+> reg " b2 "in" "st"
+> reg 1 b2 "in" "st"
+> reg . v "X"
+
+case b0032
+use b1
+cursor 0 6
+keys <C-v>jjIX<Esc>
+> text "abcdefXgh"
+> text "ij"
+> text "klmnopXqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 6
+> reg . v "X"
+
+case b0033
+use b1
+cursor 5 2
+keys <C-v>jjIX<Esc>
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  Xindented line"
+> text "laXst one here"
+> cursor 5 2
+> reg . v "X"
+
+case b0034
+use b1
+cursor 1 1
+keys <C-v>jjlIXY<Esc>
+> text "abcdefgh"
+> text "XYij"
+> text "XYklmnopqrst"
+> text "XY"
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 0
+> reg . v "XY"
+
+case b0035
+use b1
+cursor 0 6
+keys <C-v>jjlAX<Esc>
+> text "abcdefghX"
+> text "ij      X"
+> text "klmnopqrXst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 6
+> reg . v "X"
+
+case b0036
+use b1
+cursor 5 2
+keys <C-v>jjlAX<Esc>
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  inXdented line"
+> text "lastX one here"
+> cursor 5 2
+> reg . v "X"
+
+case b0037
+use b1
+cursor 1 1
+keys <C-v>jjllAXY<Esc>
+> text "abcdefgh"
+> text "ijXY"
+> text "klXYmnopqrst"
+> text "  XY"
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 0
+> reg . v "XY"
+
+case b0038
+use b1
+cursor 0 6
+keys <C-v>jj$AX<Esc>
+> text "abcdefghX"
+> text "ijX"
+> text "klmnopqrstX"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 6
+> reg . v "X"
+
+case b0039
+use b1
+cursor 5 2
+keys <C-v>jj$AX<Esc>
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented lineX"
+> text "last one hereX"
+> cursor 5 2
+> reg . v "X"
+
+case b0040
+use b1
+cursor 0 6
+keys <C-v>jjI<Esc>
+> unchanged
+> cursor 0 5
+> reg . v ""
+
+case b0041
+use b1
+cursor 5 2
+keys <C-v>jjI<Esc>
+> unchanged
+> cursor 5 1
+> reg . v ""
+
+case b0042
+use b1
+cursor 0 2
+keys <C-v>jlrQ
+> text "abQdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 2
+
+case b0043
+use b1
+cursor 4 3
+keys <C-v>jlrQ
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwQQz12"
+> text "  iQQented line"
+> text "last one here"
+> cursor 4 3
+
+case b0044
+use b1
+cursor 1 1
+keys <C-v>jj$rQ
+> text "abcdefgh"
+> text "QQ"
+> text "QQQQQQQQQQ"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 0
+
+case b0045
+use b1
+cursor 0 0
+keys <C-v>jl~
+> text "ABcdefgh"
+> text "IJ"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+
+case b0046
+use b1
+cursor 2 4
+keys <C-v>jl~
+> text "abcdefgh"
+> text "ij"
+> text "KLMNOpqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 2 0
+
+case b0047
+use b1
+cursor 1 1
+keys <C-v>jlU
+> text "abcdefgh"
+> text "iJ"
+> text "kLMnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 1
+
+case b0048
+use b1
+cursor 1 1
+keys <C-v>jlu
+> unchanged
+> cursor 1 1
+
+case b0049
+use b1
+cursor 0 0
+keys <C-v>jlg?
+> text "nocdefgh"
+> text "vw"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+
+case b0050
+use b1
+cursor 2 4
+keys <C-v>jlg?
+> text "abcdefgh"
+> text "ij"
+> text "xyzabpqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 2 0
+
+case b0051
+use b1
+cursor 0 0
+keys <C-v>jl>
+> text "\tabcdefgh"
+> text "\tij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+
+case b0052
+use b1
+cursor 2 4
+keys <C-v>jl>
+> text "abcdefgh"
+> text "ij"
+> text "\tklmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 2 0
+
+case b0053
+use b1
+cursor 0 6
+keys <C-v>jl2>
+> text "ab\t\t  cdefgh"
+> text "ij\t\t  "
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 2
+
+case b0054
+use b1
+cursor 5 2
+keys <C-v>jl2>
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "\t\t  indented line"
+> text "la\t\t  st one here"
+> cursor 5 2
+
+case b0055
+use b1
+cursor 0 6
+keys <C-v>jjl<lt>
+> unchanged
+> cursor 0 6
+
+case b0056
+use b1
+cursor 5 2
+keys <C-v>jjl<lt>
+> unchanged
+> cursor 5 2
+
+case b0057
+use b1
+cursor 0 6
+keys <C-v>jl>.
+> text "ab\t\t  cdefgh"
+> text "ij\t\t  "
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 2
+
+case b0058
+use b1
+cursor 5 2
+keys <C-v>jl>.
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "\t\t  indented line"
+> text "la\t\t  st one here"
+> cursor 5 2
+
+case b0059
+use b1
+cursor 0 0
+keys <C-v>jlJ
+> text "abcdefgh ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 8
+
+case b0060
+use b1
+cursor 2 4
+keys <C-v>jlJ
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 2 9
+
+case b0061
+use b1
+cursor 1 1
+keys <C-v>jlgJ
+> text "abcdefgh"
+> text "ijklmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 2
+
+case b0062
+use b1
+cursor 0 6
+keys <C-v>jlD
+> text "ab"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 1
+> reg " b6 "cdefgh" ""
+> reg 1 b6 "cdefgh" ""
+
+case b0063
+use b1
+cursor 5 2
+keys <C-v>jlD
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  "
+> text "la"
+> cursor 5 1
+> reg " b13 "indented line" "st one here"
+> reg 1 b13 "indented line" "st one here"
+
+case b0064
+use b1
+cursor 0 6
+keys <C-v>jlX
+> text "abh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 2
+> reg " b5 "cdefg" ""
+> reg 1 b5 "cdefg" ""
+
+case b0065
+use b1
+cursor 5 2
+keys <C-v>jlX
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  dented line"
+> text "la one here"
+> cursor 5 2
+> reg " b2 "in" "st"
+> reg 1 b2 "in" "st"
+
+case b0066
+use b1
+cursor 1 1
+keys <C-v>jlY
+> unchanged
+> cursor 1 1
+> reg " b2 "j" "lm"
+> reg 0 b2 "j" "lm"
+
+case b0067
+use b1
+cursor 1 1
+keys <C-v>jlCQ<Esc>
+> text "abcdefgh"
+> text "iQ"
+> text "kQ"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 1
+> reg " b9 "j" "lmnopqrst"
+> reg 1 b9 "j" "lmnopqrst"
+> reg . v "Q"
+
+case b0068
+use b1
+cursor 0 6
+keys <C-v>jlRQ<Esc>
+> text "Q"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+> reg " V "abcdefgh" "ij"
+> reg 1 V "abcdefgh" "ij"
+> reg . v "Q"
+
+case b0069
+use b1
+cursor 5 2
+keys <C-v>jlRQ<Esc>
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "Q"
+> cursor 5 0
+> reg " V "  indented line" "last one here"
+> reg 1 V "  indented line" "last one here"
+> reg . v "Q"
+
+case b0070
+use b1
+cursor 0 2
+keys <C-v>jlod
+> text "abdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 2
+> reg " b1 "c" ""
+> reg 1 b1 "c" ""
+
+case b0071
+use b1
+cursor 4 3
+keys <C-v>jlod
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwz12"
+> text "  iented line"
+> text "last one here"
+> cursor 4 3
+> reg " b2 "xy" "nd"
+> reg 1 b2 "xy" "nd"
+
+case b0072
+use b1
+cursor 0 2
+keys <C-v>jlOd
+> text "abdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 2
+> reg " b1 "c" ""
+> reg 1 b1 "c" ""
+
+case b0073
+use b1
+cursor 4 3
+keys <C-v>jlOd
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwz12"
+> text "  iented line"
+> text "last one here"
+> cursor 4 3
+> reg " b2 "xy" "nd"
+> reg 1 b2 "xy" "nd"
+
+case b0074
+use b1
+cursor 0 2
+keys <C-v>jlOhd
+> text "adefgh"
+> text "i"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 1
+> reg " b2 "bc" "j"
+> reg 1 b2 "bc" "j"
+
+case b0075
+use b1
+cursor 4 3
+keys <C-v>jlOhd
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvz12"
+> text "  ented line"
+> text "last one here"
+> cursor 4 2
+> reg " b3 "wxy" "ind"
+> reg 1 b3 "wxy" "ind"
+
+case b0076
+use b1
+cursor 0 0
+keys <C-v>jlokd
+> text "cdefgh"
+> text ""
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+> reg " b2 "ab" "ij"
+> reg 1 b2 "ab" "ij"
+
+case b0077
+use b1
+cursor 2 4
+keys <C-v>jlokd
+> text "abcdefgh"
+> text ""
+> text "nopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 0
+> reg " b3 "ij" "klm" ""
+> reg 1 b3 "ij" "klm" ""
+
+case b0078
+use b1
+cursor 1 1
+keys <C-v>jl<Esc>x
+> text "abcdefgh"
+> text "ij"
+> text "klnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 2 2
+> reg " v "m"
+> reg - v "m"
+
+case b0079
+use b1
+cursor 0 6
+keys <C-v>jl<C-v>x
+> text "abcdefgh"
+> text "i"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 0
+> reg " v "j"
+> reg - v "j"
+
+case b0080
+use b1
+cursor 5 2
+keys <C-v>jl<C-v>x
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "las one here"
+> cursor 6 3
+> reg " v "t"
+> reg - v "t"
+
+case b0081
+use b1
+cursor 1 1
+keys <C-v>jlyP
+> text "abcdefgh"
+> text "ij j"
+> text "klmlmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 1
+> reg " b2 "j" "lm"
+> reg 0 b2 "j" "lm"
+
+case b0082
+use b1
+cursor 1 1
+keys <C-v>jlyp
+> text "abcdefgh"
+> text "ijj"
+> text "kllmmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 2
+> reg " b2 "j" "lm"
+> reg 0 b2 "j" "lm"
+
+case b0083
+use b1
+cursor 1 1
+keys <C-v>jly$p
+> text "abcdefgh"
+> text "ijj"
+> text "kllmmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 2
+> reg " b2 "j" "lm"
+> reg 0 b2 "j" "lm"
+
+case b0084
+use b1
+cursor 0 6
+keys <C-v>jlyGp
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "lcdefgast one here"
+> text " "
+> cursor 6 1
+> reg " b5 "cdefg" ""
+> reg 0 b5 "cdefg" ""
+
+case b0085
+use b1
+cursor 5 2
+keys <C-v>jlyGp
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "linast one here"
+> text " st"
+> cursor 6 1
+> reg " b2 "in" "st"
+> reg 0 b2 "in" "st"
+
+case b0086
+use b1
+cursor 0 6
+keys <C-v>jlyG$p
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one herecdefg"
+> text "             "
+> cursor 6 13
+> reg " b5 "cdefg" ""
+> reg 0 b5 "cdefg" ""
+
+case b0087
+use b1
+cursor 5 2
+keys <C-v>jlyG$p
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one herein"
+> text "             st"
+> cursor 6 13
+> reg " b2 "in" "st"
+> reg 0 b2 "in" "st"
+
+case b0088
+use b1
+cursor 0 6
+keys <C-v>jly3p
+> text "abccdefgcdefgcdefgdefgh"
+> text "ij           "
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 3
+> reg " b5 "cdefg" ""
+> reg 0 b5 "cdefg" ""
+
+case b0089
+use b1
+cursor 5 2
+keys <C-v>jly3p
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  iinininndented line"
+> text "lasstststt one here"
+> cursor 5 3
+> reg " b2 "in" "st"
+> reg 0 b2 "in" "st"
+
+case b0090
+use b1
+cursor 0 6
+keys <C-v>jlygP
+> text "abcdefgcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 1
+> reg " b5 "cdefg" ""
+> reg 0 b5 "cdefg" ""
+
+case b0091
+use b1
+cursor 5 2
+keys <C-v>jlygP
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  inindented line"
+> text "lastst one here"
+> cursor 6 4
+> reg " b2 "in" "st"
+> reg 0 b2 "in" "st"
+
+case b0092
+use b1
+cursor 1 1
+keys <C-v>jlyjjp
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text "j"
+> text "lmuvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 3 0
+> reg " b2 "j" "lm"
+> reg 0 b2 "j" "lm"
+
+case b0093
+use b1
+cursor 0 6
+keys <C-v>jldp
+> text "abhcdefg"
+> text "ij "
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 3
+> reg " b5 "cdefg" ""
+> reg 1 b5 "cdefg" ""
+
+case b0094
+use b1
+cursor 5 2
+keys <C-v>jldp
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  dinented line"
+> text "la stone here"
+> cursor 5 3
+> reg " b2 "in" "st"
+> reg 1 b2 "in" "st"
+
+case b0095
+use b1
+cursor 0 0
+keys <C-v>jld.
+> text "efgh"
+> text ""
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+> reg " b2 "cd" ""
+> reg 1 b2 "cd" ""
+> reg 2 b2 "ab" "ij"
+
+case b0096
+use b1
+cursor 2 4
+keys <C-v>jld.
+> text "abcdefgh"
+> text "ij"
+> text ""
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 2 0
+> reg " b5 "pqrst" ""
+> reg 1 b5 "pqrst" ""
+> reg 2 b5 "klmno" ""
+
+case b0097
+use b1
+cursor 0 6
+keys <C-v>jldj.
+> text "abh"
+> text "i"
+> text "kqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 0
+> reg " b5 "j" "lmnop"
+> reg 1 b5 "j" "lmnop"
+> reg 2 b5 "cdefg" ""
+
+case b0098
+use b1
+cursor 5 2
+keys <C-v>jldj.
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  dented line"
+> text "lane here"
+> cursor 6 2
+> reg " b2 " o"
+> reg 1 b2 "in" "st"
+> reg - b2 " o"
+
+case b0099
+use b1
+cursor 0 0
+keys <C-v>jlIX<Esc>j.
+> text "Xabcdefgh"
+> text "XXij"
+> text "Xklmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 0
+> reg . v "X"
+
+case b0100
+use b1
+cursor 2 4
+keys <C-v>jlIX<Esc>j.
+> text "abcdefgh"
+> text "ij"
+> text "Xklmnopqrst"
+> text "XX"
+> text "Xuvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 3 0
+> reg . v "X"
+
+case b0101
+use b1
+cursor 0 0
+keys <C-v>jlAX<Esc>j.
+> text "abXcdefgh"
+> text "ijXX"
+> text "klXmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 0
+> reg . v "X"
+
+case b0102
+use b1
+cursor 2 4
+keys <C-v>jlAX<Esc>j.
+> text "abcdefgh"
+> text "ij"
+> text "klmnoXpqrst"
+> text "     XX"
+> text "uvwxyXz12"
+> text "  indented line"
+> text "last one here"
+> cursor 3 0
+> reg . v "X"
+
+case b0103
+use b1
+cursor 0 6
+keys <C-v>jlcX<Esc>j.
+> text "abXh"
+> text "ijX"
+> text "klXrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 2
+> reg " b5 "X" "mnopq"
+> reg 1 b5 "X" "mnopq"
+> reg 2 b5 "cdefg" ""
+> reg . v "X"
+
+case b0104
+use b1
+cursor 5 2
+keys <C-v>jlcX<Esc>j.
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  Xdented line"
+> text "laXone here"
+> cursor 6 2
+> reg " b2 "X "
+> reg 1 b2 "in" "st"
+> reg - b2 "X "
+> reg . v "X"
+
+case b0105
+use b1
+cursor 0 2
+keys <C-v>jlrQj.
+> text "abQdefgh"
+> text "iQ"
+> text "kQmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 1
+
+case b0106
+use b1
+cursor 4 3
+keys <C-v>jlrQj.
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwQQz12"
+> text "  iQQented line"
+> text "lasQQone here"
+> cursor 5 3
+
+case b0107
+use b1
+cursor 0 0
+keys <C-v>jl~j.
+> text "ABcdefgh"
+> text "ij"
+> text "KLmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 0
+
+case b0108
+use b1
+cursor 2 4
+keys <C-v>jl~j.
+> text "abcdefgh"
+> text "ij"
+> text "KLMNOpqrst"
+> text ""
+> text "UVWXYz12"
+> text "  indented line"
+> text "last one here"
+> cursor 3 0
+
+case b0109
+use b1
+cursor 1 1
+keys <C-v>jldu
+> unchanged
+> cursor 1 1
+> reg " b2 "j" "lm"
+> reg 1 b2 "j" "lm"
+
+case b0110
+use b1
+cursor 0 2
+keys <C-v>jlIX<Esc>u
+> unchanged
+> cursor 0 2
+> reg . v "X"
+
+case b0111
+use b1
+cursor 4 3
+keys <C-v>jlIX<Esc>u
+> unchanged
+> cursor 4 3
+> reg . v "X"
+
+case b0112
+use b1
+cursor 1 1
+keys <C-v>jlcX<Esc>u
+> unchanged
+> cursor 1 1
+> reg " b2 "j" "lm"
+> reg 1 b2 "j" "lm"
+> reg . v "X"
+
+case b0113
+use b1
+cursor 0 0
+keys <C-v>jl<Esc>gvd
+> text "cdefgh"
+> text ""
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+> reg " b2 "ab" "ij"
+> reg 1 b2 "ab" "ij"
+
+case b0114
+use b1
+cursor 2 4
+keys <C-v>jl<Esc>gvd
+> text "abcdefgh"
+> text "ij"
+> text "pqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 2 0
+> reg " b5 "klmno" ""
+> reg 1 b5 "klmno" ""
+
+case b0115
+use b1
+cursor 0 2
+keys <C-v>jl<Esc>ggjgvy
+> unchanged
+> cursor 0 2
+> reg " b1 "c" ""
+> reg 0 b1 "c" ""
+
+case b0116
+use b1
+cursor 4 3
+keys <C-v>jl<Esc>ggjgvy
+> unchanged
+> cursor 4 3
+> reg " b2 "xy" "nd"
+> reg 0 b2 "xy" "nd"
+
+case b0117
+use b1
+cursor 0 0
+keys <C-v>jlvd
+> text ""
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+> reg " v "abcdefgh" "ij"
+> reg 1 v "abcdefgh" "ij"
+
+case b0118
+use b1
+cursor 2 4
+keys <C-v>jlvd
+> text "abcdefgh"
+> text "ij"
+> text "klmnuvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 2 4
+> reg " v "opqrst" "" ""
+> reg 1 v "opqrst" "" ""
+
+case b0119
+use b1
+cursor 0 0
+keys <C-v>jlVd
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+> reg " V "abcdefgh" "ij"
+> reg 1 V "abcdefgh" "ij"
+
+case b0120
+use b1
+cursor 2 4
+keys <C-v>jlVd
+> text "abcdefgh"
+> text "ij"
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 2 0
+> reg " V "klmnopqrst" ""
+> reg 1 V "klmnopqrst" ""
+
+case b0121
+use b1
+cursor 0 0
+keys vjl<C-v>d
+> text "cdefgh"
+> text ""
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+> reg " b2 "ab" "ij"
+> reg 1 b2 "ab" "ij"
+
+case b0122
+use b1
+cursor 2 4
+keys vjl<C-v>d
+> text "abcdefgh"
+> text "ij"
+> text "pqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 2 0
+> reg " b5 "klmno" ""
+> reg 1 b5 "klmno" ""
+
+case b0123
+use b1
+cursor 0 0
+keys Vj<C-v>d
+> text "bcdefgh"
+> text "j"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+> reg " b1 "a" "i"
+> reg 1 b1 "a" "i"
+
+case b0124
+use b1
+cursor 2 4
+keys Vj<C-v>d
+> text "abcdefgh"
+> text "ij"
+> text "pqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 2 0
+> reg " b5 "klmno" ""
+> reg 1 b5 "klmno" ""
+
+case b0125
+use b1
+cursor 0 2
+keys <C-q>jld
+> text "abdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 2
+> reg " b1 "c" ""
+> reg 1 b1 "c" ""
+
+case b0126
+use b1
+cursor 4 3
+keys <C-q>jld
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwz12"
+> text "  iented line"
+> text "last one here"
+> cursor 4 3
+> reg " b2 "xy" "nd"
+> reg 1 b2 "xy" "nd"
+
+case b0127
+use b1
+cursor 0 2
+keys <C-v>jl"ay"ap
+> text "abccdefgh"
+> text "ij "
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 3
+> reg " b1 "c" ""
+> reg a b1 "c" ""
+
+case b0128
+use b1
+cursor 4 3
+keys <C-v>jl"ay"ap
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxxyyz12"
+> text "  innddented line"
+> text "last one here"
+> cursor 4 4
+> reg " b2 "xy" "nd"
+> reg a b2 "xy" "nd"
+
+case b0129
+use b1
+cursor 0 0
+keys <C-v>jl"ad"aP
+> unchanged
+> cursor 0 0
+> reg " b2 "ab" "ij"
+> reg 1 b2 "ab" "ij"
+> reg a b2 "ab" "ij"
+
+case b0130
+use b1
+cursor 2 4
+keys <C-v>jl"ad"aP
+> unchanged
+> cursor 2 0
+> reg " b5 "klmno" ""
+> reg 1 b5 "klmno" ""
+> reg a b5 "klmno" ""
+
+case b0131
+use b1
+cursor 0 2
+keys <C-v>jly"0p
+> text "abccdefgh"
+> text "ij "
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 3
+> reg " b1 "c" ""
+> reg 0 b1 "c" ""
+
+case b0132
+use b1
+cursor 4 3
+keys <C-v>jly"0p
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxxyyz12"
+> text "  innddented line"
+> text "last one here"
+> cursor 4 4
+> reg " b2 "xy" "nd"
+> reg 0 b2 "xy" "nd"
+
+case b0133
+use b1
+cursor 0 0
+keys <C-v>jleyp
+> text "aabcdefgh  bcdefgh"
+> text "iij        j"
+> text "kklmnopqrstlmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 1
+> reg " b10 "abcdefgh" "ij" "klmnopqrst"
+> reg 0 b10 "abcdefgh" "ij" "klmnopqrst"
+
+case b0134
+use b1
+cursor 2 4
+keys <C-v>jleyp
+> text "abcdefgh"
+> text "ij"
+> text "klmnoopqrpqrst"
+> text "         "
+> text "uvwxyyz12z12"
+> text "  indented line"
+> text "last one here"
+> cursor 2 5
+> reg " b4 "opqr" "    " "yz12"
+> reg 0 b4 "opqr" "    " "yz12"
+
+case b0135
+use b1
+cursor 0 2
+keys <C-v>jwd
+> text "defgh"
+> text ""
+> text "nopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+> reg " b3 "abc" "ij" "klm"
+> reg 1 b3 "abc" "ij" "klm"
+
+case b0136
+use b1
+cursor 4 3
+keys <C-v>jwd
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvw"
+> text "  iine"
+> text "last one here"
+> cursor 4 2
+> reg " b9 "xyz12" "ndented l"
+> reg 1 b9 "xyz12" "ndented l"
+
+case b0137
+use b1
+cursor 0 0
+keys <C-v>j$A<Esc>x
+> text "abcdefg"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 6
+> reg " v "h"
+> reg - v "h"
+> reg . v ""
+
+case b0138
+use b1
+cursor 2 4
+keys <C-v>j$A<Esc>x
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrs"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 2 8
+> reg " v "t"
+> reg - v "t"
+> reg . v ""
+
+case b0139
+use b1
+cursor 0 6
+keys <C-v>jliwd
+> text "abcdef"
+> text "ij"
+> text "klmnop"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 5
+> reg " b4 "gh" "    " "qrst"
+> reg 1 b4 "gh" "    " "qrst"
+
+case b0140
+use b1
+cursor 5 2
+keys <C-v>jliwd
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  ented line"
+> text "laone here"
+> cursor 5 2
+> reg " b3 "ind" "st "
+> reg 1 b3 "ind" "st "
+
+case b0141
+use b1
+cursor 1 1
+keys <C-v>jl<Esc>gg`<lt>
+> unchanged
+> cursor 1 1
+
+case b0142
+use b1
+cursor 0 2
+keys <C-v>jl<Esc>`>
+> unchanged
+> cursor 1 1
+
+case b0143
+use b1
+cursor 4 3
+keys <C-v>jl<Esc>`>
+> unchanged
+> cursor 5 4
+
+case b0144
+use b1
+cursor 0 6
+keys d<C-v>j
+> text "ah"
+> text "i"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 1
+> reg " b6 "bcdefg" "j"
+> reg 1 b6 "bcdefg" "j"
+
+case b0145
+use b1
+cursor 5 2
+keys d<C-v>j
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  ndented line"
+> text "lat one here"
+> cursor 5 2
+> reg " b1 "i" "s"
+> reg 1 b1 "i" "s"
+
+case b0146
+use b1
+cursor 0 0
+keys d<C-v>2j
+> text "bcdefgh"
+> text "j"
+> text "lmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+> reg " b1 "a" "i" "k"
+> reg 1 b1 "a" "i" "k"
+
+case b0147
+use b1
+cursor 2 4
+keys d<C-v>2j
+> text "abcdefgh"
+> text "ij"
+> text "klmnpqrst"
+> text ""
+> text "uvwxz12"
+> text "  indented line"
+> text "last one here"
+> cursor 2 4
+> reg " b1 "o" " " "y"
+> reg 1 b1 "o" " " "y"
+
+case b0148
+use b1
+cursor 0 0
+keys d<C-v>l
+> text "cdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+> reg " b2 "ab"
+> reg - b2 "ab"
+
+case b0149
+use b1
+cursor 2 4
+keys d<C-v>l
+> text "abcdefgh"
+> text "ij"
+> text "klmnqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 2 4
+> reg " b2 "op"
+> reg - b2 "op"
+
+case b0150
+use b1
+cursor 1 1
+keys d<C-v>w
+> text "abcdefgh"
+> text "i"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 0
+> reg " b1 "j"
+> reg - b1 "j"
+
+case b0151
+use b1
+cursor 1 1
+keys y<C-v>jp
+> text "abcdefgh"
+> text "ijj"
+> text "kllmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 2
+> reg " b1 "j" "l"
+> reg 0 b1 "j" "l"
+
+case b0152
+use b1
+cursor 0 6
+keys c<C-v>jX<Esc>
+> text "aXh"
+> text "iX"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 1
+> reg " b6 "bcdefg" "j"
+> reg 1 b6 "bcdefg" "j"
+> reg . v "X"
+
+case b0153
+use b1
+cursor 5 2
+keys c<C-v>jX<Esc>
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  Xndented line"
+> text "laXt one here"
+> cursor 5 2
+> reg " b1 "i" "s"
+> reg 1 b1 "i" "s"
+> reg . v "X"
+
+case b0154
+use b1
+cursor 0 0
+keys d<C-v>j.
+> text "cdefgh"
+> text ""
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+> reg " b1 "b" "j"
+> reg 1 b1 "b" "j"
+> reg 2 b1 "a" "i"
+
+case b0155
+use b1
+cursor 2 4
+keys d<C-v>j.
+> text "abcdefgh"
+> text "ij"
+> text "qrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 2 0
+> reg " b1 "p" ""
+> reg 1 b1 "p" ""
+> reg 2 b5 "klmno" ""
+
+case b0156
+use b1
+cursor 0 0
+keys vlIX<Esc>
+> text "Xabcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+> reg . v "X"
+
+case b0157
+use b1
+cursor 2 4
+keys vlIX<Esc>
+> text "abcdefgh"
+> text "ij"
+> text "Xklmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 2 0
+> reg . v "X"
+
+case b0158
+use b1
+cursor 0 0
+keys vlAX<Esc>
+> text "abXcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 2
+> reg . v "X"
+
+case b0159
+use b1
+cursor 2 4
+keys vlAX<Esc>
+> text "abcdefgh"
+> text "ij"
+> text "klmnopXqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 2 6
+> reg . v "X"
+
+case b0160
+use b1
+cursor 0 6
+keys vjIX<Esc>
+> text "Xabcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+> reg . v "X"
+
+case b0161
+use b1
+cursor 5 2
+keys vjIX<Esc>
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "X  indented line"
+> text "last one here"
+> cursor 5 0
+> reg . v "X"
+
+case b0162
+use b1
+cursor 0 6
+keys vjAX<Esc>
+> text "abcdefgh"
+> text "ijX"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 2
+> reg . v "X"
+
+case b0163
+use b1
+cursor 5 2
+keys vjAX<Esc>
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "lasXt one here"
+> cursor 6 3
+> reg . v "X"
+
+case b0164
+use b1
+cursor 0 6
+keys VjIX<Esc>
+> text "Xabcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+> reg . v "X"
+
+case b0165
+use b1
+cursor 5 2
+keys VjIX<Esc>
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "X  indented line"
+> text "last one here"
+> cursor 5 0
+> reg . v "X"
+
+case b0166
+use b1
+cursor 0 6
+keys VjAX<Esc>
+> text "abcdefgh"
+> text "ijX"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 2
+> reg . v "X"
+
+case b0167
+use b1
+cursor 5 2
+keys VjAX<Esc>
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "lasXt one here"
+> cursor 6 3
+> reg . v "X"
+
+case b0168
+use b1
+cursor 0 0
+keys v$AX<Esc>
+> text "abcdefgXh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 7
+> reg . v "X"
+
+case b0169
+use b1
+cursor 2 4
+keys v$AX<Esc>
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrsXt"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 2 9
+> reg . v "X"
+
+case b0170
+use b1
+cursor 0 0
+keys vAX<Esc>
+> text "Xabcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+> reg . v "X"
+
+case b0171
+use b1
+cursor 2 4
+keys vAX<Esc>
+> text "abcdefgh"
+> text "ij"
+> text "klmnoXpqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 2 5
+> reg . v "X"
+
+case b0172
+use b1
+cursor 0 0
+keys v$hAX<Esc>
+> text "abcdefghX"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 8
+> reg . v "X"
+
+case b0173
+use b1
+cursor 2 4
+keys v$hAX<Esc>
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrstX"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 2 10
+> reg . v "X"
+
+case b0174
+use b1
+cursor 0 6
+keys vjhAX<Esc>
+> text "abcdefgh"
+> text "ijX"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 2
+> reg . v "X"
+
+case b0175
+use b1
+cursor 5 2
+keys vjhAX<Esc>
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "laXst one here"
+> cursor 6 2
+> reg . v "X"
+
+case b0176
+use b1
+cursor 0 0
+keys vlIX<Esc>j.
+> text "Xabcdefgh"
+> text "Xij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 0
+> reg . v "X"
+
+case b0177
+use b1
+cursor 2 4
+keys vlIX<Esc>j.
+> text "abcdefgh"
+> text "ij"
+> text "Xklmnopqrst"
+> text "X"
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 3 0
+> reg . v "X"
+
+case b0178
+use b1
+cursor 0 0
+keys vlAX<Esc>j.
+> text "abXcdefgh"
+> text "ijX"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 2
+> reg . v "X"
+
+case b0179
+use b1
+cursor 2 4
+keys vlAX<Esc>j.
+> text "abcdefgh"
+> text "ij"
+> text "klmnopXqrst"
+> text "X"
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 3 0
+> reg . v "X"
+
+case b0180
+use b1
+cursor 0 0
+keys vhAX<Esc>
+> text "Xabcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+> reg . v "X"
+
+case b0181
+use b1
+cursor 2 4
+keys vhAX<Esc>
+> text "abcdefgh"
+> text "ij"
+> text "klmnXopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 2 4
+> reg . v "X"
+
+case b0182
+use b1
+cursor 1 1
+keys vkAX<Esc>
+> text "abcdefgh"
+> text "Xij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 0
+> reg . v "X"
+
+case b0183
+use b1
+cursor 1 1
+keys vkIX<Esc>
+> text "aXbcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 1
+> reg . v "X"
+
+case b0184
+use b1
+cursor 1 1
+keys vkhIX<Esc>
+> text "Xabcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+> reg . v "X"
+
+case b0185
+use b1
+cursor 0 6
+keys vkk$IX<Esc>
+> text "Xabcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+> reg . v "X"
+
+case b0186
+use b1
+cursor 5 2
+keys vkk$IX<Esc>
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text "X"
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 3 0
+> reg . v "X"
+
+case b0187
+use b1
+cursor 0 0
+keys vhIX<Esc>j.
+> text "Xabcdefgh"
+> text "Xij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 0
+> reg . v "X"
+
+case b0188
+use b1
+cursor 2 4
+keys vhIX<Esc>j.
+> text "abcdefgh"
+> text "ij"
+> text "Xklmnopqrst"
+> text "X"
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 3 0
+> reg . v "X"
+
+case b0189
+use b1
+cursor 0 0
+keys vAX<Esc>j.
+> text "Xabcdefgh"
+> text "Xij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 0
+> reg . v "X"
+
+case b0190
+use b1
+cursor 2 4
+keys vAX<Esc>j.
+> text "abcdefgh"
+> text "ij"
+> text "klmnoXpqrst"
+> text "X"
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 3 0
+> reg . v "X"
+
+case b0191
+use b1
+cursor 0 0
+keys v$AX<Esc>j0.
+> text "abcdefgXh"
+> text "iXj"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 1
+> reg . v "X"
+
+case b0192
+use b1
+cursor 2 4
+keys v$AX<Esc>j0.
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrsXt"
+> text "X"
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 3 0
+> reg . v "X"
+
+case b0193
+use b1
+cursor 0 6
+keys vjAX<Esc>gg.
+> text "abcdefgh"
+> text "iXjX"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 1 1
+> reg . v "X"
+
+case b0194
+use b1
+cursor 5 2
+keys vjAX<Esc>gg.
+> text "abcdefgh"
+> text "iXj"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "lasXt one here"
+> cursor 1 1
+> reg . v "X"
+
+case b0195
+use b1
+cursor 0 6
+keys vjIX<Esc>gg.
+> text "XXabcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 0 0
+> reg . v "X"
+
+case b0196
+use b1
+cursor 5 2
+keys vjIX<Esc>gg.
+> text "Xabcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "X  indented line"
+> text "last one here"
+> cursor 0 0
+> reg . v "X"
+
+case b0197
+use b1
+cursor 0 6
+keys VjAX<Esc>j.
+> text "abcdefgh"
+> text "ijX"
+> text "klmnopqrst"
+> text "X"
+> text "uvwxyz12"
+> text "  indented line"
+> text "last one here"
+> cursor 3 0
+> reg . v "X"
+
+case b0198
+use b1
+cursor 5 2
+keys VjAX<Esc>j.
+> text "abcdefgh"
+> text "ij"
+> text "klmnopqrst"
+> text ""
+> text "uvwxyz12"
+> text "  indented line"
+> text "lasXXt one here"
+> cursor 6 4
+> reg . v "X"
+
+case b0199
+use b2
+cursor 1 0
+keys <C-v>jld
+> text "foo bar.baz  qux_1 (x) end"
+> text "  lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 1 0
+> reg " b1 " " ""
+> reg 1 b1 " " ""
+
+case b0200
+use b2
+cursor 0 11
+keys <C-v>jly
+> unchanged
+> cursor 0 11
+> reg " b2 "  " "il"
+> reg 0 b2 "  " "il"
+
+case b0201
+use b2
+cursor 0 5
+keys <C-v>jj$y
+> unchanged
+> cursor 0 0
+> reg " b26 "foo bar.baz  qux_1 (x) end" "   lead, tail;  " ""
+> reg 0 b26 "foo bar.baz  qux_1 (x) end" "   lead, tail;  " ""
+
+case b0202
+use b2
+cursor 4 13
+keys <C-v>jj$y
+> unchanged
+> cursor 4 13
+> reg " b2 "éx"
+> reg 0 b2 "éx"
+
+case b0203
+use b2
+cursor 0 20
+keys <C-v>jlIX<Esc>
+> text "foo bar.baz  quxX_1 (x) end"
+> text "   lead, tail;  X"
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 0 16
+> reg . v "X"
+
+case b0204
+use b2
+cursor 1 15
+keys <C-v>jlAX<Esc>
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  X"
+> text "                X"
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 1 0
+> reg . v "X"
+
+case b0205
+use b2
+cursor 1 0
+keys <C-v>jlcX<Esc>
+> text "foo bar.baz  qux_1 (x) end"
+> text "X  lead, tail;  "
+> text "X"
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 1 0
+> reg " b1 " " ""
+> reg 1 b1 " " ""
+> reg . v "X"
+
+case b0206
+use b2
+cursor 1 3
+keys <C-v>jlyp
+> text "foo bar.baz  qux_1 (x) end"
+> text "    l  lead, tail;  "
+> text " "
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 1 1
+> reg " b4 "   l" ""
+> reg 0 b4 "   l" ""
+
+case b0207
+use b3
+cursor 1 21
+keys <C-v>jld
+> text "fn main() {"
+> text "    call(a, [b, c], \")\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 1 21
+> reg " b1 "s" ""
+> reg 1 b1 "s" ""
+
+case b0208
+use b3
+cursor 1 4
+keys <C-v>jly
+> unchanged
+> cursor 1 4
+> reg " b2 "ca" "if"
+> reg 0 b2 "ca" "if"
+
+case b0209
+use b3
+cursor 0 7
+keys <C-v>jj$y
+> unchanged
+> cursor 0 7
+> reg " b19 "() {" "l(a, [b, c], \"s)\");" "(x) { y('(') }"
+> reg 0 b19 "() {" "l(a, [b, c], \"s)\");" "(x) { y('(') }"
+
+case b0210
+use b3
+cursor 8 2
+keys <C-v>jj$y
+> unchanged
+> cursor 8 2
+> reg " b2 "il"
+> reg 0 b2 "il"
+
+case b0211
+use b3
+cursor 1 8
+keys <C-v>jlIX<Esc>
+> text "fn main() {"
+> text "    callX(a, [b, c], \"s)\");"
+> text "    if (Xx) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 1 8
+> reg . v "X"
+
+case b0212
+use b3
+cursor 2 16
+keys <C-v>jlAX<Esc>
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(X') }"
+> text "}                X"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 2 1
+> reg . v "X"
+
+case b0213
+use b3
+cursor 1 21
+keys <C-v>jlcX<Esc>
+> text "fn main() {"
+> text "    call(a, [b, c], \"X)\");"
+> text "    if (x) { y('(') }X"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 1 21
+> reg " b1 "s" ""
+> reg 1 b1 "s" ""
+> reg . v "X"
+
+case b0214
+use b3
+cursor 2 7
+keys <C-v>jlyp
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "     if (  if (x) { y('(') }"
+> text "} "
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 2 2
+> reg " b7 "   if (" ""
+> reg 0 b7 "   if (" ""

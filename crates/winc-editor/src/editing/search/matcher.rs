@@ -73,6 +73,9 @@ pub(super) enum Kind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct GaveUp;
 
+/// 一处匹配中各分组的字节范围：第 0 项是整个匹配，没有参与匹配的分组为 `None`。
+pub(crate) type Groups = Vec<Option<(usize, usize)>>;
+
 /// 用户查询对应的正则，按语法选择实现。
 ///
 /// `regex` 不支持的写法使用 `fancy-regex` 编译（支持回溯），包括环视（`(?=…)`、`(?<=…)`、`(?!…)`、
@@ -133,6 +136,30 @@ impl Pattern {
             Pattern::Plain(regex) => Ok(regex.find_at(text, from).map(|m| (m.start(), m.end()))),
             Pattern::Fancy(regex) => match regex.find_from_pos(text, from) {
                 Ok(found) => Ok(found.map(|m| (m.start(), m.end()))),
+                Err(_) => Err(GaveUp),
+            },
+        }
+    }
+
+    /// 返回从字节偏移 `from` 起的第一个匹配及其各分组的字节范围；第 0 项是整个匹配，没有
+    /// 参与匹配的分组为 `None`。
+    ///
+    /// # Errors
+    ///
+    /// 回溯超过上限时返回 [`GaveUp`]，同 [`Pattern::find_at`]。
+    pub(crate) fn captures_at(&self, text: &str, from: usize) -> Result<Option<Groups>, GaveUp> {
+        match self {
+            Pattern::Plain(regex) => Ok(regex.captures_at(text, from).map(|captures| {
+                (captures.iter())
+                    .map(|group| group.map(|m| (m.start(), m.end())))
+                    .collect()
+            })),
+            Pattern::Fancy(regex) => match regex.captures_from_pos(text, from) {
+                Ok(found) => Ok(found.map(|captures| {
+                    (captures.iter())
+                        .map(|group| group.map(|m| (m.start(), m.end())))
+                        .collect()
+                })),
                 Err(_) => Err(GaveUp),
             },
         }

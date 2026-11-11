@@ -1448,15 +1448,16 @@ fn the_git_page_is_listed_only_when_the_module_is_on() {
     };
     assert!(!listed(&app));
     assert_eq!(Setting::GitConfirmPush.page(), SettingsPage::Git);
+    assert_eq!(Setting::DiffInline.page(), SettingsPage::Git);
 
-    // 在模块页开启后立即列出，「推送前确认」在该页。
+    // 在模块页开启后立即列出，「推送前确认」与「单栏差异视图」在该页。
     app.settings_toggle(Setting::GitModule);
     assert!(listed(&app));
     app.settings_show_page(SettingsPage::Git);
     let rows: Vec<Setting> = (app.settings_layout().rows.iter())
         .map(|row| row.setting)
         .collect();
-    assert_eq!(rows, [Setting::GitConfirmPush]);
+    assert_eq!(rows, [Setting::GitConfirmPush, Setting::DiffInline]);
 
     // 配置文件中关闭 Git 模块：不再列出该页，停在该页时改到模块页。
     let mut config = app.config.clone();

@@ -27,6 +27,12 @@ pub struct History {
     ///
     /// 保存、撤销、重做和清空之后置为真。
     sealed: bool,
+    /// 尚未结束的分组的嵌套层数；大于 0 时处于分组期间（见 [`History::begin_group`]）。
+    groups: u32,
+    /// 分组期间栈顶事务是否属于当前分组；为真且未封口时，下一个事务并入栈顶事务。
+    ///
+    /// 最外层分组开始时为假，分组内的第一个事务另起一个撤销单元。
+    grouped: bool,
 }
 
 /// 连续键入合并为一个撤销单元的最长间隔（毫秒）。
@@ -81,6 +87,32 @@ impl History {
         self.saved_version = version;
     }
 
+    /// 开始一个分组：到对应的 [`History::end_group`] 为止，入栈的事务合并成一个撤销单元。
+    ///
+    /// 合并不受 [`EditKind`] 与键入间隔的限制，分组内的第一个事务不并入分组之前的事务。
+    /// 分组期间封口（[`History::seal`]、保存、撤销、重做）之后入栈的事务另起一个撤销单元。
+    /// 分组可以嵌套，最外层的分组结束时整组结束。
+    pub fn begin_group(&mut self) {
+        if self.groups == 0 {
+            self.grouped = false;
+        }
+        self.groups = self.groups.saturating_add(1);
+    }
+
+    /// 结束最近一次 [`History::begin_group`] 开始的分组；没有未结束的分组时不做任何事。
+    ///
+    /// 最外层的分组结束时封口，之后的键入不并入该分组的撤销单元。
+    pub fn end_group(&mut self) {
+        if self.groups == 0 {
+            return;
+        }
+        self.groups -= 1;
+        if self.groups == 0 && self.grouped {
+            self.grouped = false;
+            self.sealed = true;
+        }
+    }
+
     /// 丢弃全部撤销和重做记录，并把当前内容视为已保存；重新加载文件时调用。
     pub fn clear(&mut self) {
         self.undo.clear();
@@ -93,23 +125,28 @@ impl History {
 
     /// 记录一个已经应用到文本上的事务。
     ///
-    /// 同时清空重做栈并分配新的版本号；符合合并条件的键入并入栈顶事务，撤销栈超过上限时
-    /// 丢弃最早的事务。
+    /// 同时清空重做栈并分配新的版本号；符合合并条件的键入并入栈顶事务，分组期间的事务并入
+    /// 该分组的撤销单元（[`History::begin_group`]），撤销栈超过上限时丢弃最早的事务。
     pub fn push(&mut self, mut transaction: Transaction) {
         self.redo.clear();
         self.next_version += 1;
         transaction.version = self.next_version;
 
+        let grouping = self.groups > 0;
         if !self.sealed
             && let Some(last) = self.undo.last_mut()
-            && can_merge(last, &transaction)
+            && (if grouping {
+                self.grouped
+            } else {
+                can_merge(last, &transaction)
+            })
         {
             // 紧邻的插入直接追加到上一处修改的 `inserted` 末尾：逐字符各记一处修改，会使每个
             // 字符多占一个 `Change` 和一次堆分配，撤销栈随键入量线性增大。
-            // 多光标的修改各在一处，只能整组追加。
+            // 多光标的修改各在一处，只能整组追加。分组期间不经 `can_merge`，在此判断是否紧邻。
             let single = transaction.extra_after.is_empty();
             let added = match (last.changes.last_mut(), transaction.changes.as_slice()) {
-                (Some(prev), [next]) if single => {
+                (Some(prev), [next]) if single && (!grouping || extends(prev, next)) => {
                     let before = heap(&prev.inserted);
                     prev.inserted.push_str(&next.inserted);
                     heap(&prev.inserted) - before
@@ -130,6 +167,7 @@ impl History {
             transaction.bytes = changes_size(&transaction.changes);
             self.undo_bytes += transaction.bytes;
             self.sealed = false;
+            self.grouped = grouping;
             self.undo.push(transaction);
         }
         self.trim(MAX_UNDO_BYTES);
@@ -176,6 +214,11 @@ impl History {
         Some(result)
     }
 
+    /// 返回下一次重做的撤销单元执行之前的主选区；重做栈为空时返回 `None`。
+    pub fn redo_origin(&self) -> Option<Selection> {
+        self.redo.last().map(|transaction| transaction.before)
+    }
+
     /// 重做最近撤销的事务；返回值含义同 [`Self::undo`]，重做栈为空时返回 `None`。
     pub fn redo(&mut self, text: &mut impl EditBuffer) -> Option<Restored> {
         let transaction = self.redo.pop()?;
@@ -218,6 +261,12 @@ pub struct Restored {
     pub extra: Vec<Selection>,
     /// 修改涉及的最小位置（`char` 偏移），从这一行起重新高亮。
     pub first: usize,
+}
+
+/// 是否可以把 `next` 插入的文本追加到 `prev.inserted` 末尾：`next` 是纯插入，且紧接在 `prev`
+/// 插入的文本之后。
+fn extends(prev: &Change, next: &Change) -> bool {
+    next.removed.is_empty() && next.start == prev.start + prev.inserted.chars().count()
 }
 
 /// 是否可以把 `next` 并入 `last`：两者都是键入，间隔不超过 [`MERGE_WINDOW`]，且插入位置首尾相接。

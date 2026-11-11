@@ -263,7 +263,7 @@ impl App {
     fn editor_context_target(&mut self, x: f32, y: f32) -> Option<DocumentId> {
         let l = self.layout;
         let covered = l.search.contains(x, y)
-            || (self.goto_input.is_some() && goto_bar(l.editor).contains(x, y))
+            || (self.goto_input.is_some() && self.prompt_bar().contains(x, y))
             || self.over_corner_card(x, y);
         if covered || !l.editor.contains(x, y) {
             return None;
@@ -328,6 +328,7 @@ impl App {
             MenuTarget::SkipOnSave => skip_menu(&self.settings.languages.format),
             MenuTarget::Locale => locale_menu(),
             MenuTarget::Whitespace => whitespace_menu(),
+            MenuTarget::VimClipboard => vim_clipboard_menu(),
             MenuTarget::DefaultShell => default_shell_menu(self.terminal.shells.len()),
             MenuTarget::Zoom => zoom_menu(),
             MenuTarget::BackgroundImage => background_menu(),
@@ -652,6 +653,7 @@ impl App {
                 | MenuTarget::TabList
                 | MenuTarget::Locale
                 | MenuTarget::Whitespace
+                | MenuTarget::VimClipboard
                 | MenuTarget::Zoom
                 | MenuTarget::BackgroundImage
                 | MenuTarget::BackgroundFit
@@ -663,6 +665,7 @@ impl App {
         let control = match target {
             MenuTarget::Locale => Some(Setting::Language),
             MenuTarget::Whitespace => Some(Setting::RenderWhitespace),
+            MenuTarget::VimClipboard => Some(Setting::VimClipboard),
             MenuTarget::Zoom => Some(Setting::Zoom),
             MenuTarget::BackgroundImage => Some(Setting::BackgroundImage),
             MenuTarget::BackgroundFit => Some(Setting::BackgroundFit),
@@ -1188,6 +1191,10 @@ impl App {
             MenuCommand::Whitespace(i) => {
                 winc_config::RenderWhitespace::ALL.get(i)
                     == Some(&self.config.render_whitespace.unwrap_or_default())
+            }
+            MenuCommand::VimClipboard(i) => {
+                winc_config::VimClipboard::ALL.get(i)
+                    == Some(&self.config.vim_clipboard.unwrap_or_default())
             }
             MenuCommand::DefaultShell(i) => {
                 let configured = self.configured_shell().map(|shell| shell.command);

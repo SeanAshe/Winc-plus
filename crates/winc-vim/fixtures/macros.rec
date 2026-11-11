@@ -1,0 +1,2759 @@
+# 由 `cargo xtask vim-fixtures` 录制，不手工修改；用例写在同名的 .cases 文件中。
+vim 9.1.1752
+
+buffer b1
+text "b2 alpha beta"
+text "a10 gamma  alpha"
+text ""
+text "c1 Alpha beta beta"
+text "  a2 delta"
+text "b2 alpha beta"
+text "-3 x.y(z) 0x1f"
+text "zeta"
+
+buffer b2
+text "foo bar.baz  qux_1 (x) end"
+text "   lead, tail;  "
+text ""
+text "中文 text，全角。next"
+text "a-b a1b2 #$% éx"
+
+buffer b3
+text "fn main() {"
+text "    call(a, [b, c], \"s)\");"
+text "    if (x) { y('(') }"
+text "}"
+text ""
+text "{"
+text "  inner } {"
+text "}"
+text "tail"
+
+case q0001
+use b1
+cursor 6 5
+keys qaxjq@a
+> text "b2 alpha beta"
+> text "a10 gamma  alpha"
+> text ""
+> text "c1 Alpha beta beta"
+> text "  a2 delta"
+> text "b2 alpha beta"
+> text "-3 x.(z) 0x1f"
+> text "zet"
+> cursor 7 2
+> reg " v "a"
+> reg - v "a"
+> reg a v "xj"
+
+case q0002
+use b1
+cursor 0 0
+keys qaxjq2@a
+> text "2 alpha beta"
+> text "10 gamma  alpha"
+> text ""
+> text "c1 Alpha beta beta"
+> text "  a2 delta"
+> text "b2 alpha beta"
+> text "-3 x.y(z) 0x1f"
+> text "zeta"
+> cursor 3 0
+> reg " v "a"
+> reg - v "a"
+> reg a v "xj"
+
+case q0003
+use b1
+cursor 6 5
+keys qaxjq@a@@
+> text "b2 alpha beta"
+> text "a10 gamma  alpha"
+> text ""
+> text "c1 Alpha beta beta"
+> text "  a2 delta"
+> text "b2 alpha beta"
+> text "-3 x.(z) 0x1f"
+> text "ze"
+> cursor 7 1
+> reg " v "t"
+> reg - v "t"
+> reg a v "xj"
+
+case q0004
+use b1
+cursor 4 3
+keys qaA!<Esc>jq@a@@
+> text "b2 alpha beta"
+> text "a10 gamma  alpha"
+> text ""
+> text "c1 Alpha beta beta"
+> text "  a2 delta!"
+> text "b2 alpha beta!"
+> text "-3 x.y(z) 0x1f!"
+> text "zeta"
+> cursor 7 3
+> reg a v "A!\u{1b}j"
+> reg . v "!"
+
+case q0005
+use b1
+cursor 1 6
+keys qadwq3@a
+> text "b2 alpha beta"
+> text "a10 "
+> text ""
+> text "c1 Alpha beta beta"
+> text "  a2 delta"
+> text "b2 alpha beta"
+> text "-3 x.y(z) 0x1f"
+> text "zeta"
+> cursor 1 3
+> reg " v "g"
+> reg - v "g"
+> reg a v "dw"
+
+case q0006
+use b1
+cursor 4 3
+keys qaiab<Esc>q@a
+> text "b2 alpha beta"
+> text "a10 gamma  alpha"
+> text ""
+> text "c1 Alpha beta beta"
+> text "  aaabb2 delta"
+> text "b2 alpha beta"
+> text "-3 x.y(z) 0x1f"
+> text "zeta"
+> cursor 4 5
+> reg a v "iab\u{1b}"
+> reg . v "ab"
+
+case q0007
+use b1
+cursor 3 9
+keys qqxq@q
+> text "b2 alpha beta"
+> text "a10 gamma  alpha"
+> text ""
+> text "c1 Alpha ta beta"
+> text "  a2 delta"
+> text "b2 alpha beta"
+> text "-3 x.y(z) 0x1f"
+> text "zeta"
+> cursor 3 9
+> reg " v "e"
+> reg - v "e"
+> reg q v "x"
+
+case q0008
+use b1
+cursor 2 0
+keys qaxqqAlq@a
+> unchanged
+> cursor 2 0
+> reg a v "xl"
+
+case q0009
+use b1
+cursor 6 5
+keys qaxq"ap
+> text "b2 alpha beta"
+> text "a10 gamma  alpha"
+> text ""
+> text "c1 Alpha beta beta"
+> text "  a2 delta"
+> text "b2 alpha beta"
+> text "-3 x.(xz) 0x1f"
+> text "zeta"
+> cursor 6 6
+> reg " v "y"
+> reg - v "y"
+> reg a v "x"
+
+case q0010
+use b1
+cursor 6 5
+keys qaIx<Esc>jq2@a
+> text "b2 alpha beta"
+> text "a10 gamma  alpha"
+> text ""
+> text "c1 Alpha beta beta"
+> text "  a2 delta"
+> text "b2 alpha beta"
+> text "x-3 x.y(z) 0x1f"
+> text "xzeta"
+> cursor 7 0
+> reg a v "Ix\u{1b}j"
+> reg . v "x"
+
+case q0011
+use b1
+cursor 1 6
+keys qa~q@a@@
+> text "b2 alpha beta"
+> text "a10 gaMMA  alpha"
+> text ""
+> text "c1 Alpha beta beta"
+> text "  a2 delta"
+> text "b2 alpha beta"
+> text "-3 x.y(z) 0x1f"
+> text "zeta"
+> cursor 1 9
+> reg a v "~"
+
+case q0012
+use b1
+cursor 2 0
+keys qaq
+> unchanged
+> cursor 2 0
+> reg a v ""
+
+case q0013
+use b1
+cursor 3 9
+keys qaxq2@a.
+> text "b2 alpha beta"
+> text "a10 gamma  alpha"
+> text ""
+> text "c1 Alpha  beta"
+> text "  a2 delta"
+> text "b2 alpha beta"
+> text "-3 x.y(z) 0x1f"
+> text "zeta"
+> cursor 3 9
+> reg " v "a"
+> reg - v "a"
+> reg a v "x"
+
+case q0014
+use b1
+cursor 4 3
+keys qaxlq@au
+> text "b2 alpha beta"
+> text "a10 gamma  alpha"
+> text ""
+> text "c1 Alpha beta beta"
+> text "  a delta"
+> text "b2 alpha beta"
+> text "-3 x.y(z) 0x1f"
+> text "zeta"
+> cursor 4 4
+> reg " v "d"
+> reg - v "d"
+> reg a v "xl"
+
+case q0015
+use b1
+cursor 0 0
+keys qaxlq3@au
+> text "2 alpha beta"
+> text "a10 gamma  alpha"
+> text ""
+> text "c1 Alpha beta beta"
+> text "  a2 delta"
+> text "b2 alpha beta"
+> text "-3 x.y(z) 0x1f"
+> text "zeta"
+> cursor 0 1
+> reg " v "h"
+> reg - v "h"
+> reg a v "xl"
+
+case q0016
+use b1
+cursor 0 4
+keys qaA<CR>x<Esc>q@a
+> text "b2 alpha beta"
+> text "x"
+> text "x"
+> text "a10 gamma  alpha"
+> text ""
+> text "c1 Alpha beta beta"
+> text "  a2 delta"
+> text "b2 alpha beta"
+> text "-3 x.y(z) 0x1f"
+> text "zeta"
+> cursor 2 0
+> reg a v "A\rx\u{1b}"
+> reg . v "\u{0}x"
+
+case q0017
+use b1
+cursor 3 9
+keys qa0d$q@a
+> text "b2 alpha beta"
+> text "a10 gamma  alpha"
+> text ""
+> text ""
+> text "  a2 delta"
+> text "b2 alpha beta"
+> text "-3 x.y(z) 0x1f"
+> text "zeta"
+> cursor 3 0
+> reg " v "c1 Alpha beta beta"
+> reg - v "c1 Alpha beta beta"
+> reg a v "0d$"
+
+case q0018
+use b1
+cursor 4 3
+keys qayiwPq@a
+> text "b2 alpha beta"
+> text "a10 gamma  alpha"
+> text ""
+> text "c1 Alpha beta beta"
+> text "  a2a2a2a2 delta"
+> text "b2 alpha beta"
+> text "-3 x.y(z) 0x1f"
+> text "zeta"
+> cursor 4 5
+> reg " v "a2a2"
+> reg 0 v "a2a2"
+> reg a v "yiwP"
+
+case q0019
+use b1
+cursor 7 2
+keys qarXlq5@a
+> text "b2 alpha beta"
+> text "a10 gamma  alpha"
+> text ""
+> text "c1 Alpha beta beta"
+> text "  a2 delta"
+> text "b2 alpha beta"
+> text "-3 x.y(z) 0x1f"
+> text "zeXX"
+> cursor 7 3
+> reg a v "�"
+> reg . v "X"
+
+case q0020
+use b1
+cursor 1 6
+keys qa>>jq@a
+> text "b2 alpha beta"
+> text "\ta10 gamma  alpha"
+> text ""
+> text "c1 Alpha beta beta"
+> text "  a2 delta"
+> text "b2 alpha beta"
+> text "-3 x.y(z) 0x1f"
+> text "zeta"
+> cursor 3 0
+> reg a v ">>j"
+
+case q0021
+use b1
+cursor 7 2
+keys qa<C-a>q@a
+> unchanged
+> cursor 7 2
+> reg a v "\u{1}"
+
+case q0022
+use b1
+cursor 1 6
+keys qaix<BS>y<Esc>q@a
+> text "b2 alpha beta"
+> text "a10 gayymma  alpha"
+> text ""
+> text "c1 Alpha beta beta"
+> text "  a2 delta"
+> text "b2 alpha beta"
+> text "-3 x.y(z) 0x1f"
+> text "zeta"
+> cursor 1 6
+> reg a v "�"
+> reg . v "�"
+
+case q0023
+use b1
+cursor 4 3
+keys qaA<Tab>x<Esc>jq@a
+> text "b2 alpha beta"
+> text "a10 gamma  alpha"
+> text ""
+> text "c1 Alpha beta beta"
+> text "  a2 delta\tx"
+> text "b2 alpha beta\tx"
+> text "-3 x.y(z) 0x1f"
+> text "zeta"
+> cursor 6 13
+> reg a v "A\tx\u{1b}j"
+> reg . v "\tx"
+
+case q0024
+use b1
+cursor 2 0
+keys qbvlyq@b"0p
+> unchanged
+> cursor 2 0
+> reg " v "" ""
+> reg 0 v "" ""
+> reg 1 v "" ""
+> reg b v "vly"
+
+case q0025
+use b1
+cursor 1 6
+keys qaqqbq@a@b
+> unchanged
+> cursor 1 6
+> reg a v ""
+> reg b v ""
+
+case q0026
+use b1
+cursor 0 4
+keys "ayl@a
+> unchanged
+> cursor 0 5
+> reg " v "l"
+> reg a v "l"
+
+case q0027
+use b1
+cursor 6 5
+keys "ayy@a
+> text "b2 alpha beta"
+> text "a10 gamma  alpha"
+> text ""
+> text "c1 Alpha beta beta"
+> text "  a2 delta"
+> text "b2 pha beta"
+> text "-3 x.y(z) 0x1f"
+> text "zeta"
+> cursor 3 0
+> reg " v "c1 Alpha beta beta" "  a2 delta" "b2 "
+> reg 0 v "c1 Alpha beta beta" "  a2 delta" "b2 "
+> reg - v "l"
+> reg a V "-3 x.y(z) 0x1f"
+
+case q0028
+use b1
+cursor 0 4
+keys @a
+> unchanged
+> cursor 0 4
+
+case q0029
+use b1
+cursor 0 0
+keys @@
+> unchanged
+> cursor 0 0
+
+case q0030
+use b1
+cursor 1 6
+keys @:
+> unchanged
+> cursor 1 6
+
+case q0031
+use b1
+cursor 4 3
+keys qa2q
+> unchanged
+> cursor 4 3
+> reg a v "2"
+
+case q0032
+use b1
+cursor 3 9
+keys qaxq@Ax
+> text "b2 alpha beta"
+> text "a10 gamma  alpha"
+> text ""
+> text "c1 Alpha a beta"
+> text "  a2 delta"
+> text "b2 alpha beta"
+> text "-3 x.y(z) 0x1f"
+> text "zeta"
+> cursor 3 9
+> reg " v "t"
+> reg - v "t"
+> reg a v "x"
+
+case q0033
+use b1
+cursor 0 0
+keys qa:s/a/X/<CR>jq@a
+> text "b2 Xlpha beta"
+> text "X10 gamma  alpha"
+> text ""
+> text "c1 Alpha beta beta"
+> text "  a2 delta"
+> text "b2 alpha beta"
+> text "-3 x.y(z) 0x1f"
+> text "zeta"
+> cursor 2 0
+> reg a v ":s/a/X/\rj"
+> reg : v "s/a/X/"
+> reg / v "a"
+
+case q0034
+use b1
+cursor 2 0
+keys qa/a<CR>xq@a
+> text "b2 alpha beta"
+> text "a10 gamma  alpha"
+> text ""
+> text "c1 Alph bet beta"
+> text "  a2 delta"
+> text "b2 alpha beta"
+> text "-3 x.y(z) 0x1f"
+> text "zeta"
+> cursor 3 11
+> reg " v "a"
+> reg - v "a"
+> reg a v "/a\rx"
+> reg / v "a"
+
+case q0035
+use b1
+cursor 0 4
+keys qa:d<CR>q@a
+> text ""
+> text "c1 Alpha beta beta"
+> text "  a2 delta"
+> text "b2 alpha beta"
+> text "-3 x.y(z) 0x1f"
+> text "zeta"
+> cursor 0 0
+> reg " V "a10 gamma  alpha"
+> reg 1 V "a10 gamma  alpha"
+> reg 2 V "b2 alpha beta"
+> reg a v ":d\r"
+> reg : v "d"
+
+case q0036
+use b1
+cursor 7 2
+keys qa:normal<Space>Ax<CR>q2@a
+> text "b2 alpha beta"
+> text "a10 gamma  alpha"
+> text ""
+> text "c1 Alpha beta beta"
+> text "  a2 delta"
+> text "b2 alpha beta"
+> text "-3 x.y(z) 0x1f"
+> text "zetaxxx"
+> cursor 7 6
+> reg a v ":normal Ax\r"
+> reg . v "x"
+> reg : v "normal Ax"
+
+case q0037
+use b1
+cursor 7 2
+keys qax:2<CR>q@a
+> text "b2 alpha beta"
+> text "10 gamma  alpha"
+> text ""
+> text "c1 Alpha beta beta"
+> text "  a2 delta"
+> text "b2 alpha beta"
+> text "-3 x.y(z) 0x1f"
+> text "zea"
+> cursor 1 0
+> reg " v "a"
+> reg - v "a"
+> reg a v "x:2\r"
+> reg : v "2"
+
+case q0038
+use b1
+cursor 0 0
+keys qa/zzz<CR>xq@a
+> text "2 alpha beta"
+> text "a10 gamma  alpha"
+> text ""
+> text "c1 Alpha beta beta"
+> text "  a2 delta"
+> text "b2 alpha beta"
+> text "-3 x.y(z) 0x1f"
+> text "zeta"
+> cursor 0 0
+> reg " v "b"
+> reg - v "b"
+> reg a v "/zzz\rx"
+> reg / v "zzz"
+
+case q0039
+use b1
+cursor 3 9
+keys :normal<Space>qaxq<CR>@a
+> text "b2 alpha beta"
+> text "a10 gamma  alpha"
+> text ""
+> text "c1 Alpha eta beta"
+> text "  a2 delta"
+> text "b2 alpha beta"
+> text "-3 x.y(z) 0x1f"
+> text "zeta"
+> cursor 3 9
+> reg " v "b"
+> reg - v "b"
+> reg a v ""
+> reg : v "normal qaxq"
+
+case q0040
+use b1
+cursor 0 4
+keys qaxq:%normal<Space>@a<CR>
+> text "2 apha beta"
+> text "10 gamma  alpha"
+> text ""
+> text "1 Alpha beta beta"
+> text " a2 delta"
+> text "2 alpha beta"
+> text "3 x.y(z) 0x1f"
+> text "eta"
+> cursor 7 0
+> reg " v "z"
+> reg - v "z"
+> reg a v "x"
+> reg : v "%normal @a"
+
+case q0041
+use b1
+cursor 1 6
+keys qaxq:g/a/normal<Space>@a<CR>
+> text "2 alpha beta"
+> text "10 gama  alpha"
+> text ""
+> text "1 Alpha beta beta"
+> text " a2 delta"
+> text "2 alpha beta"
+> text "-3 x.y(z) 0x1f"
+> text "eta"
+> cursor 7 0
+> reg " v "z"
+> reg - v "z"
+> reg a v "x"
+> reg : v "g/a/normal @a"
+> reg / v "a"
+
+case q0042
+use b2
+cursor 1 0
+keys qaxjq@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "  lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 3 0
+> reg " v " "
+> reg - v " "
+> reg a v "xj"
+
+case q0043
+use b2
+cursor 4 15
+keys qaxjq@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% "
+> cursor 4 12
+> reg " v "é"
+> reg - v "é"
+> reg a v "xj"
+
+case q0044
+use b2
+cursor 0 0
+keys qaxjq2@a
+> text "oo bar.baz  qux_1 (x) end"
+> text "  lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 3 0
+> reg " v " "
+> reg - v " "
+> reg a v "xj"
+
+case q0045
+use b2
+cursor 1 15
+keys qaxjq2@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail; "
+> text ""
+> text "文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 4 0
+> reg " v "中"
+> reg - v "中"
+> reg a v "xj"
+
+case q0046
+use b2
+cursor 1 0
+keys qaxjq@a@@
+> text "foo bar.baz  qux_1 (x) end"
+> text "  lead, tail;  "
+> text ""
+> text "文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 4 0
+> reg " v "中"
+> reg - v "中"
+> reg a v "xj"
+
+case q0047
+use b2
+cursor 4 15
+keys qaxjq@a@@
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$%"
+> cursor 4 11
+> reg " v " "
+> reg - v " "
+> reg a v "xj"
+
+case q0048
+use b2
+cursor 0 25
+keys qaA!<Esc>jq@a@@
+> text "foo bar.baz  qux_1 (x) end!"
+> text "   lead, tail;  !"
+> text "!"
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 3 0
+> reg a v "A!\u{1b}j"
+> reg . v "!"
+
+case q0049
+use b2
+cursor 4 13
+keys qaA!<Esc>jq@a@@
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx!!!"
+> cursor 4 18
+> reg a v "A!\u{1b}j"
+> reg . v "!"
+
+case q0050
+use b2
+cursor 0 7
+keys qadwq3@a
+> text "foo barx) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 0 7
+> reg " v "("
+> reg - v "("
+> reg a v "dw"
+
+case q0051
+use b2
+cursor 3 1
+keys qadwq3@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中。next"
+> text "a-b a1b2 #$% éx"
+> cursor 3 1
+> reg " v "全角"
+> reg - v "全角"
+> reg a v "dw"
+
+case q0052
+use b2
+cursor 0 25
+keys qaiab<Esc>q@a
+> text "foo bar.baz  qux_1 (x) enaabbd"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 0 27
+> reg a v "iab\u{1b}"
+> reg . v "ab"
+
+case q0053
+use b2
+cursor 4 13
+keys qaiab<Esc>q@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% aabbéx"
+> cursor 4 15
+> reg a v "iab\u{1b}"
+> reg . v "ab"
+
+case q0054
+use b2
+cursor 0 20
+keys qqxq@q
+> text "foo bar.baz  qux_1 ( end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 0 20
+> reg " v ")"
+> reg - v ")"
+> reg q v "x"
+
+case q0055
+use b2
+cursor 4 0
+keys qqxq@q
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "b a1b2 #$% éx"
+> cursor 4 0
+> reg " v "-"
+> reg - v "-"
+> reg q v "x"
+
+case q0056
+use b2
+cursor 0 11
+keys qaxqqAlq@a
+> text "foo bar.baz ux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 0 13
+> reg " v "q"
+> reg - v "q"
+> reg a v "xl"
+
+case q0057
+use b2
+cursor 3 9
+keys qaxqqAlq@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全。ext"
+> text "a-b a1b2 #$% éx"
+> cursor 3 11
+> reg " v "n"
+> reg - v "n"
+> reg a v "xl"
+
+case q0058
+use b2
+cursor 1 0
+keys qaxq"ap
+> text "foo bar.baz  qux_1 (x) end"
+> text " x lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 1 1
+> reg " v " "
+> reg - v " "
+> reg a v "x"
+
+case q0059
+use b2
+cursor 4 15
+keys qaxq"ap
+> unchanged
+> cursor 4 15
+> reg " v "x"
+> reg - v "x"
+> reg a v "x"
+
+case q0060
+use b2
+cursor 1 0
+keys qaIx<Esc>jq2@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "   xlead, tail;  "
+> text "x"
+> text "x中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 4 0
+> reg a v "Ix\u{1b}j"
+> reg . v "x"
+
+case q0061
+use b2
+cursor 4 15
+keys qaIx<Esc>jq2@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "xxa-b a1b2 #$% éx"
+> cursor 4 0
+> reg a v "Ix\u{1b}j"
+> reg . v "x"
+
+case q0062
+use b2
+cursor 0 7
+keys qa~q@a@@
+> text "foo bar.BAz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 0 10
+> reg a v "~"
+
+case q0063
+use b2
+cursor 3 1
+keys qa~q@a@@
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 Text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 3 4
+> reg a v "~"
+
+case q0064
+use b2
+cursor 0 11
+keys qaq
+> unchanged
+> cursor 0 11
+> reg a v ""
+
+case q0065
+use b2
+cursor 3 9
+keys qaq
+> unchanged
+> cursor 3 9
+> reg a v ""
+
+case q0066
+use b2
+cursor 0 20
+keys qaxq2@a.
+> text "foo bar.baz  qux_1 (nd"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 0 20
+> reg " v "e"
+> reg - v "e"
+> reg a v "x"
+
+case q0067
+use b2
+cursor 4 0
+keys qaxq2@a.
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a1b2 #$% éx"
+> cursor 4 0
+> reg " v " "
+> reg - v " "
+> reg a v "x"
+
+case q0068
+use b2
+cursor 0 25
+keys qaxlq@au
+> text "foo bar.baz  qux_1 (x) en"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 0 24
+> reg " v "n"
+> reg - v "n"
+> reg a v "xl"
+
+case q0069
+use b2
+cursor 4 13
+keys qaxlq@au
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% x"
+> cursor 4 13
+> reg " v "x"
+> reg - v "x"
+> reg a v "xl"
+
+case q0070
+use b2
+cursor 0 0
+keys qaxlq3@au
+> text "oo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 0 1
+> reg " v "r"
+> reg - v "r"
+> reg a v "xl"
+
+case q0071
+use b2
+cursor 1 15
+keys qaxlq3@au
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail; "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 1 14
+> reg " v " "
+> reg - v " "
+> reg a v "xl"
+
+case q0072
+use b2
+cursor 0 5
+keys qaA<CR>x<Esc>q@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "x"
+> text "x"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 2 0
+> reg a v "A\rx\u{1b}"
+> reg . v "\u{0}x"
+
+case q0073
+use b2
+cursor 2 0
+keys qaA<CR>x<Esc>q@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "x"
+> text "x"
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 4 0
+> reg a v "A\rx\u{1b}"
+> reg . v "\u{0}x"
+
+case q0074
+use b2
+cursor 0 20
+keys qa0d$q@a
+> text ""
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 0 0
+> reg " v "foo bar.baz  qux_1 (x) end"
+> reg - v "foo bar.baz  qux_1 (x) end"
+> reg a v "0d$"
+
+case q0075
+use b2
+cursor 4 0
+keys qa0d$q@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text ""
+> cursor 4 0
+> reg " v "a-b a1b2 #$% éx"
+> reg - v "a-b a1b2 #$% éx"
+> reg a v "0d$"
+
+case q0076
+use b2
+cursor 0 25
+keys qayiwPq@a
+> text "foo bar.baz  qux_1 (x) endendendend"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 0 28
+> reg " v "endend"
+> reg 0 v "endend"
+> reg a v "yiwP"
+
+case q0077
+use b2
+cursor 4 13
+keys qayiwPq@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éxéxéxéx"
+> cursor 4 18
+> reg " v "éxéx"
+> reg 0 v "éxéx"
+> reg a v "yiwP"
+
+case q0078
+use b2
+cursor 1 3
+keys qarXlq5@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "   XXXXXXtail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 1 9
+> reg a v "�"
+> reg . v "X"
+
+case q0079
+use b2
+cursor 0 7
+keys qa>>jq@a
+> text "\tfoo bar.baz  qux_1 (x) end"
+> text "\t   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 2 0
+> reg a v ">>j"
+
+case q0080
+use b2
+cursor 3 1
+keys qa>>jq@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "\t中文 text，全角。next"
+> text "\ta-b a1b2 #$% éx"
+> cursor 4 1
+> reg a v ">>j"
+
+case q0081
+use b2
+cursor 1 3
+keys qa<C-a>q@a
+> unchanged
+> cursor 1 3
+> reg a v "\u{1}"
+
+case q0082
+use b2
+cursor 0 7
+keys qaix<BS>y<Esc>q@a
+> text "foo baryy.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 0 7
+> reg a v "�"
+> reg . v "�"
+
+case q0083
+use b2
+cursor 3 1
+keys qaix<BS>y<Esc>q@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中yy文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 3 1
+> reg a v "�"
+> reg . v "�"
+
+case q0084
+use b2
+cursor 0 25
+keys qaA<Tab>x<Esc>jq@a
+> text "foo bar.baz  qux_1 (x) end\tx"
+> text "   lead, tail;  \tx"
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 2 0
+> reg a v "A\tx\u{1b}j"
+> reg . v "\tx"
+
+case q0085
+use b2
+cursor 4 13
+keys qaA<Tab>x<Esc>jq@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx\tx\tx"
+> cursor 4 19
+> reg a v "A\tx\u{1b}j"
+> reg . v "\tx"
+
+case q0086
+use b2
+cursor 0 11
+keys qbvlyq@b"0p
+> text "foo bar.baz    qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 0 13
+> reg " v "  "
+> reg 0 v "  "
+> reg b v "vly"
+
+case q0087
+use b2
+cursor 3 9
+keys qbvlyq@b"0p
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角角。。next"
+> text "a-b a1b2 #$% éx"
+> cursor 3 11
+> reg " v "角。"
+> reg 0 v "角。"
+> reg b v "vly"
+
+case q0088
+use b2
+cursor 0 7
+keys qaqqbq@a@b
+> unchanged
+> cursor 0 7
+> reg a v ""
+> reg b v ""
+
+case q0089
+use b2
+cursor 3 1
+keys qaqqbq@a@b
+> unchanged
+> cursor 3 1
+> reg a v ""
+> reg b v ""
+
+case q0090
+use b2
+cursor 0 5
+keys "ayl@a
+> unchanged
+> cursor 0 5
+> reg " v "a"
+> reg a v "a"
+> reg . v ""
+
+case q0091
+use b2
+cursor 2 0
+keys "ayl@a
+> unchanged
+> cursor 2 0
+> reg " v ""
+> reg a v ""
+
+case q0092
+use b2
+cursor 1 0
+keys "ayy@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "   leadd, tail;  "
+> text ", tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 2 0
+> reg " V "   lead, tail;  "
+> reg a V "   lead, tail;  "
+> reg . v "d, tail;  \u{0}"
+
+case q0093
+use b2
+cursor 4 15
+keys "ayy@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx-b a1b2 #$% éx"
+> text ""
+> cursor 5 0
+> reg " V "a-b a1b2 #$% éx"
+> reg a V "a-b a1b2 #$% éx"
+> reg . v "-b a1b2 #$% éx\u{0}"
+
+case q0094
+use b2
+cursor 0 5
+keys @a
+> unchanged
+> cursor 0 5
+
+case q0095
+use b2
+cursor 2 0
+keys @a
+> unchanged
+> cursor 2 0
+
+case q0096
+use b2
+cursor 0 0
+keys @@
+> unchanged
+> cursor 0 0
+
+case q0097
+use b2
+cursor 1 15
+keys @@
+> unchanged
+> cursor 1 15
+
+case q0098
+use b2
+cursor 0 7
+keys @:
+> unchanged
+> cursor 0 7
+
+case q0099
+use b2
+cursor 3 1
+keys @:
+> unchanged
+> cursor 3 1
+
+case q0100
+use b2
+cursor 0 25
+keys qa2q
+> unchanged
+> cursor 0 25
+> reg a v "2"
+
+case q0101
+use b2
+cursor 4 13
+keys qa2q
+> unchanged
+> cursor 4 13
+> reg a v "2"
+
+case q0102
+use b2
+cursor 0 20
+keys qaxq@Ax
+> text "foo bar.baz  qux_1 (end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 0 20
+> reg " v " "
+> reg - v " "
+> reg a v "x"
+
+case q0103
+use b2
+cursor 4 0
+keys qaxq@Ax
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text " a1b2 #$% éx"
+> cursor 4 0
+> reg " v "b"
+> reg - v "b"
+> reg a v "x"
+
+case q0104
+use b2
+cursor 0 0
+keys qa:s/a/X/<CR>jq@a
+> text "foo bXr.baz  qux_1 (x) end"
+> text "   leXd, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 2 0
+> reg a v ":s/a/X/\rj"
+> reg : v "s/a/X/"
+> reg / v "a"
+
+case q0105
+use b2
+cursor 1 15
+keys qa:s/a/X/<CR>jq@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "   leXd, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 2 0
+> reg a v ":s/a/X/\rj"
+> reg : v "s/a/X/"
+> reg / v "a"
+
+case q0106
+use b2
+cursor 0 11
+keys qa/a<CR>xq@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "   led, til;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 1 9
+> reg " v "a"
+> reg - v "a"
+> reg a v "/a\rx"
+> reg / v "a"
+
+case q0107
+use b2
+cursor 3 9
+keys qa/a<CR>xq@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "-b 1b2 #$% éx"
+> cursor 4 3
+> reg " v "a"
+> reg - v "a"
+> reg a v "/a\rx"
+> reg / v "a"
+
+case q0108
+use b2
+cursor 0 5
+keys qa:d<CR>q@a
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 0 0
+> reg " V "   lead, tail;  "
+> reg 1 V "   lead, tail;  "
+> reg 2 V "foo bar.baz  qux_1 (x) end"
+> reg a v ":d\r"
+> reg : v "d"
+
+case q0109
+use b2
+cursor 2 0
+keys qa:d<CR>q@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text "a-b a1b2 #$% éx"
+> cursor 2 0
+> reg " V "中文 text，全角。next"
+> reg 1 V "中文 text，全角。next"
+> reg 2 V ""
+> reg a v ":d\r"
+> reg : v "d"
+
+case q0110
+use b2
+cursor 1 3
+keys qa:normal<Space>Ax<CR>q2@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  xxx"
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 1 18
+> reg a v ":normal Ax\r"
+> reg . v "x"
+> reg : v "normal Ax"
+
+case q0111
+use b2
+cursor 1 3
+keys qax:2<CR>q@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "   ad, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 1 3
+> reg " v "e"
+> reg - v "e"
+> reg a v "x:2\r"
+> reg : v "2"
+
+case q0112
+use b2
+cursor 0 0
+keys qa/zzz<CR>xq@a
+> text "oo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 0 0
+> reg " v "f"
+> reg - v "f"
+> reg a v "/zzz\rx"
+> reg / v "zzz"
+
+case q0113
+use b2
+cursor 1 15
+keys qa/zzz<CR>xq@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail; "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 1 14
+> reg " v " "
+> reg - v " "
+> reg a v "/zzz\rx"
+> reg / v "zzz"
+
+case q0114
+use b2
+cursor 0 20
+keys :normal<Space>qaxq<CR>@a
+> text "foo bar.baz  qux_1 () end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 0 20
+> reg " v "x"
+> reg - v "x"
+> reg a v ""
+> reg : v "normal qaxq"
+
+case q0115
+use b2
+cursor 4 0
+keys :normal<Space>qaxq<CR>@a
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "-b a1b2 #$% éx"
+> cursor 4 0
+> reg " v "a"
+> reg - v "a"
+> reg a v ""
+> reg : v "normal qaxq"
+
+case q0116
+use b2
+cursor 0 5
+keys qaxq:%normal<Space>@a<CR>
+> text "oo br.baz  qux_1 (x) end"
+> text "  lead, tail;  "
+> text ""
+> text "文 text，全角。next"
+> text "-b a1b2 #$% éx"
+> cursor 4 0
+> reg " v "a"
+> reg - v "a"
+> reg a v "x"
+> reg : v "%normal @a"
+
+case q0117
+use b2
+cursor 2 0
+keys qaxq:%normal<Space>@a<CR>
+> text "oo bar.baz  qux_1 (x) end"
+> text "  lead, tail;  "
+> text ""
+> text "文 text，全角。next"
+> text "-b a1b2 #$% éx"
+> cursor 4 0
+> reg " v "a"
+> reg - v "a"
+> reg a v "x"
+> reg : v "%normal @a"
+
+case q0118
+use b2
+cursor 0 7
+keys qaxq:g/a/normal<Space>@a<CR>
+> text "oo barbaz  qux_1 (x) end"
+> text "  lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "-b a1b2 #$% éx"
+> cursor 4 0
+> reg " v "a"
+> reg - v "a"
+> reg a v "x"
+> reg : v "g/a/normal @a"
+> reg / v "a"
+
+case q0119
+use b2
+cursor 3 1
+keys qaxq:g/a/normal<Space>@a<CR>
+> text "oo bar.baz  qux_1 (x) end"
+> text "  lead, tail;  "
+> text ""
+> text "中 text，全角。next"
+> text "-b a1b2 #$% éx"
+> cursor 4 0
+> reg " v "a"
+> reg - v "a"
+> reg a v "x"
+> reg : v "g/a/normal @a"
+> reg / v "a"
+
+case q0120
+use b3
+cursor 1 21
+keys qaxjq@a
+> text "fn main() {"
+> text "    call(a, [b, c], \")\");"
+> text "    if (x) { y('(') "
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 3 0
+> reg " v "}"
+> reg - v "}"
+> reg a v "xj"
+
+case q0121
+use b3
+cursor 0 0
+keys qaxjq2@a
+> text "n main() {"
+> text "   call(a, [b, c], \"s)\");"
+> text "   if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 3 0
+> reg " v " "
+> reg - v " "
+> reg a v "xj"
+
+case q0122
+use b3
+cursor 2 16
+keys qaxjq2@a
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('') }"
+> text ""
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 5 0
+> reg " v "}"
+> reg - v "}"
+> reg a v "xj"
+
+case q0123
+use b3
+cursor 1 21
+keys qaxjq@a@@
+> text "fn main() {"
+> text "    call(a, [b, c], \")\");"
+> text "    if (x) { y('(') "
+> text ""
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 4 0
+> reg " v "}"
+> reg - v "}"
+> reg a v "xj"
+
+case q0124
+use b3
+cursor 1 13
+keys qaA!<Esc>jq@a@@
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");!"
+> text "    if (x) { y('(') }!"
+> text "}!"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 4 0
+> reg a v "A!\u{1b}j"
+> reg . v "!"
+
+case q0125
+use b3
+cursor 8 2
+keys qaA!<Esc>jq@a@@
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail!!!"
+> cursor 8 6
+> reg a v "A!\u{1b}j"
+> reg . v "!"
+
+case q0126
+use b3
+cursor 0 10
+keys qadwq3@a
+> text "fn main"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 0 6
+> reg " v "("
+> reg - v "("
+> reg a v "dw"
+
+case q0127
+use b3
+cursor 4 0
+keys qadwq3@a
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text "  } {"
+> text "}"
+> text "tail"
+> cursor 4 2
+> reg " v "inner "
+> reg 1 V ""
+> reg 2 V ""
+> reg - v "inner "
+> reg a v "dw"
+
+case q0128
+use b3
+cursor 1 13
+keys qaiab<Esc>q@a
+> text "fn main() {"
+> text "    call(a, [aabbb, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 1 15
+> reg a v "iab\u{1b}"
+> reg . v "ab"
+
+case q0129
+use b3
+cursor 8 2
+keys qaiab<Esc>q@a
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "taaabbil"
+> cursor 8 4
+> reg a v "iab\u{1b}"
+> reg . v "ab"
+
+case q0130
+use b3
+cursor 1 8
+keys qqxq@q
+> text "fn main() {"
+> text "    call, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 1 8
+> reg " v "a"
+> reg - v "a"
+> reg q v "x"
+
+case q0131
+use b3
+cursor 6 10
+keys qqxq@q
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner }"
+> text "}"
+> text "tail"
+> cursor 6 8
+> reg " v " "
+> reg - v " "
+> reg q v "x"
+
+case q0132
+use b3
+cursor 1 4
+keys qaxqqAlq@a
+> text "fn main() {"
+> text "    al(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 1 6
+> reg " v "l"
+> reg - v "l"
+> reg a v "xl"
+
+case q0133
+use b3
+cursor 6 4
+keys qaxqqAlq@a
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  ine } {"
+> text "}"
+> text "tail"
+> cursor 6 6
+> reg " v "r"
+> reg - v "r"
+> reg a v "xl"
+
+case q0134
+use b3
+cursor 1 21
+keys qaxq"ap
+> text "fn main() {"
+> text "    call(a, [b, c], \")x\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 1 22
+> reg " v "s"
+> reg - v "s"
+> reg a v "x"
+
+case q0135
+use b3
+cursor 1 21
+keys qaIx<Esc>jq2@a
+> text "fn main() {"
+> text "    xcall(a, [b, c], \"s)\");"
+> text "    xif (x) { y('(') }"
+> text "x}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 4 0
+> reg a v "Ix\u{1b}j"
+> reg . v "x"
+
+case q0136
+use b3
+cursor 0 10
+keys qa~q@a@@
+> unchanged
+> cursor 0 10
+> reg a v "~"
+
+case q0137
+use b3
+cursor 4 0
+keys qa~q@a@@
+> unchanged
+> cursor 4 0
+> reg a v "~"
+
+case q0138
+use b3
+cursor 1 4
+keys qaq
+> unchanged
+> cursor 1 4
+> reg a v ""
+
+case q0139
+use b3
+cursor 6 4
+keys qaq
+> unchanged
+> cursor 6 4
+> reg a v ""
+
+case q0140
+use b3
+cursor 1 8
+keys qaxq2@a.
+> text "fn main() {"
+> text "    call[b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 1 8
+> reg " v " "
+> reg - v " "
+> reg a v "x"
+
+case q0141
+use b3
+cursor 6 10
+keys qaxq2@a.
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner"
+> text "}"
+> text "tail"
+> cursor 6 6
+> reg " v " "
+> reg - v " "
+> reg a v "x"
+
+case q0142
+use b3
+cursor 1 13
+keys qaxlq@au
+> text "fn main() {"
+> text "    call(a, [, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 1 14
+> reg " v " "
+> reg - v " "
+> reg a v "xl"
+
+case q0143
+use b3
+cursor 8 2
+keys qaxlq@au
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tal"
+> cursor 8 2
+> reg " v "l"
+> reg - v "l"
+> reg a v "xl"
+
+case q0144
+use b3
+cursor 0 0
+keys qaxlq3@au
+> text "n main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 0 1
+> reg " v "n"
+> reg - v "n"
+> reg a v "xl"
+
+case q0145
+use b3
+cursor 2 16
+keys qaxlq3@au
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 2 17
+> reg " v "}"
+> reg - v "}"
+> reg a v "xl"
+
+case q0146
+use b3
+cursor 0 7
+keys qaA<CR>x<Esc>q@a
+> text "fn main() {"
+> text "x"
+> text "x"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 2 0
+> reg a v "A\rx\u{1b}"
+> reg . v "\u{0}x"
+
+case q0147
+use b3
+cursor 3 0
+keys qaA<CR>x<Esc>q@a
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text "x"
+> text "x"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 5 0
+> reg a v "A\rx\u{1b}"
+> reg . v "\u{0}x"
+
+case q0148
+use b3
+cursor 1 8
+keys qa0d$q@a
+> text "fn main() {"
+> text ""
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 1 0
+> reg " v "    call(a, [b, c], \"s)\");"
+> reg - v "    call(a, [b, c], \"s)\");"
+> reg a v "0d$"
+
+case q0149
+use b3
+cursor 6 10
+keys qa0d$q@a
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text ""
+> text "}"
+> text "tail"
+> cursor 6 0
+> reg " v "  inner } {"
+> reg - v "  inner } {"
+> reg a v "0d$"
+
+case q0150
+use b3
+cursor 1 13
+keys qayiwPq@a
+> text "fn main() {"
+> text "    call(a, [bbbb, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 1 14
+> reg " v "bb"
+> reg 0 v "bb"
+> reg a v "yiwP"
+
+case q0151
+use b3
+cursor 8 2
+keys qayiwPq@a
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tailtailtailtail"
+> cursor 8 7
+> reg " v "tailtail"
+> reg 0 v "tailtail"
+> reg a v "yiwP"
+
+case q0152
+use b3
+cursor 2 7
+keys qarXlq5@a
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if XXXXXXy('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 2 13
+> reg a v "�"
+> reg . v "X"
+
+case q0153
+use b3
+cursor 0 10
+keys qa>>jq@a
+> text "\tfn main() {"
+> text "\t    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 2 12
+> reg a v ">>j"
+
+case q0154
+use b3
+cursor 4 0
+keys qa>>jq@a
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "\t{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 6 8
+> reg a v ">>j"
+
+case q0155
+use b3
+cursor 2 7
+keys qa<C-a>q@a
+> unchanged
+> cursor 2 7
+> reg a v "\u{1}"
+
+case q0156
+use b3
+cursor 0 10
+keys qaix<BS>y<Esc>q@a
+> text "fn main() yy{"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 0 10
+> reg a v "�"
+> reg . v "�"
+
+case q0157
+use b3
+cursor 4 0
+keys qaix<BS>y<Esc>q@a
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text "yy"
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 4 0
+> reg a v "�"
+> reg . v "�"
+
+case q0158
+use b3
+cursor 1 13
+keys qaA<Tab>x<Esc>jq@a
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");\tx"
+> text "    if (x) { y('(') }\tx"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 3 0
+> reg a v "A\tx\u{1b}j"
+> reg . v "\tx"
+
+case q0159
+use b3
+cursor 8 2
+keys qaA<Tab>x<Esc>jq@a
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail\tx\tx"
+> cursor 8 7
+> reg a v "A\tx\u{1b}j"
+> reg . v "\tx"
+
+case q0160
+use b3
+cursor 1 4
+keys qbvlyq@b"0p
+> text "fn main() {"
+> text "    ccaall(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 1 6
+> reg " v "ca"
+> reg 0 v "ca"
+> reg b v "vly"
+
+case q0161
+use b3
+cursor 6 4
+keys qbvlyq@b"0p
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  innneer } {"
+> text "}"
+> text "tail"
+> cursor 6 6
+> reg " v "ne"
+> reg 0 v "ne"
+> reg b v "vly"
+
+case q0162
+use b3
+cursor 0 10
+keys qaqqbq@a@b
+> unchanged
+> cursor 0 10
+> reg a v ""
+> reg b v ""
+
+case q0163
+use b3
+cursor 4 0
+keys qaqqbq@a@b
+> unchanged
+> cursor 4 0
+> reg a v ""
+> reg b v ""
+
+case q0164
+use b3
+cursor 0 7
+keys "ayl@a
+> unchanged
+> cursor 0 0
+> reg " v "("
+> reg a v "("
+
+case q0165
+use b3
+cursor 3 0
+keys "ayl@a
+> unchanged
+> cursor 4 0
+> reg " v "}"
+> reg a v "}"
+
+case q0166
+use b3
+cursor 1 21
+keys "ayy@a
+> unchanged
+> cursor 1 25
+> reg " V "    call(a, [b, c], \"s)\");"
+> reg a V "    call(a, [b, c], \"s)\");"
+
+case q0167
+use b3
+cursor 0 7
+keys @a
+> unchanged
+> cursor 0 7
+
+case q0168
+use b3
+cursor 3 0
+keys @a
+> unchanged
+> cursor 3 0
+
+case q0169
+use b3
+cursor 0 0
+keys @@
+> unchanged
+> cursor 0 0
+
+case q0170
+use b3
+cursor 2 16
+keys @@
+> unchanged
+> cursor 2 16
+
+case q0171
+use b3
+cursor 0 10
+keys @:
+> unchanged
+> cursor 0 10
+
+case q0172
+use b3
+cursor 4 0
+keys @:
+> unchanged
+> cursor 4 0
+
+case q0173
+use b3
+cursor 1 13
+keys qa2q
+> unchanged
+> cursor 1 13
+> reg a v "2"
+
+case q0174
+use b3
+cursor 8 2
+keys qa2q
+> unchanged
+> cursor 8 2
+> reg a v "2"
+
+case q0175
+use b3
+cursor 1 8
+keys qaxq@Ax
+> text "fn main() {"
+> text "    call [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 1 8
+> reg " v ","
+> reg - v ","
+> reg a v "x"
+
+case q0176
+use b3
+cursor 6 10
+keys qaxq@Ax
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner "
+> text "}"
+> text "tail"
+> cursor 6 7
+> reg " v "}"
+> reg - v "}"
+> reg a v "x"
+
+case q0177
+use b3
+cursor 0 0
+keys qa:s/a/X/<CR>jq@a
+> text "fn mXin() {"
+> text "    cXll(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 2 4
+> reg a v ":s/a/X/\rj"
+> reg : v "s/a/X/"
+> reg / v "a"
+
+case q0178
+use b3
+cursor 2 16
+keys qa:s/a/X/<CR>jq@a
+> unchanged
+> cursor 3 0
+> reg a v ":s/a/X/\rj"
+> reg : v "s/a/X/"
+> reg / v "a"
+
+case q0179
+use b3
+cursor 1 4
+keys qa/a<CR>xq@a
+> text "fn main() {"
+> text "    cll(, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 1 8
+> reg " v "a"
+> reg - v "a"
+> reg a v "/a\rx"
+> reg / v "a"
+
+case q0180
+use b3
+cursor 6 4
+keys qa/a<CR>xq@a
+> text "fn min() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "til"
+> cursor 0 4
+> reg " v "a"
+> reg - v "a"
+> reg a v "/a\rx"
+> reg / v "a"
+
+case q0181
+use b3
+cursor 0 7
+keys qa:d<CR>q@a
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 0 4
+> reg " V "    call(a, [b, c], \"s)\");"
+> reg 1 V "    call(a, [b, c], \"s)\");"
+> reg 2 V "fn main() {"
+> reg a v ":d\r"
+> reg : v "d"
+
+case q0182
+use b3
+cursor 3 0
+keys qa:d<CR>q@a
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 3 0
+> reg " V ""
+> reg 1 V ""
+> reg 2 V "}"
+> reg a v ":d\r"
+> reg : v "d"
+
+case q0183
+use b3
+cursor 2 7
+keys qa:normal<Space>Ax<CR>q2@a
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }xxx"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 2 23
+> reg a v ":normal Ax\r"
+> reg . v "x"
+> reg : v "normal Ax"
+
+case q0184
+use b3
+cursor 2 7
+keys qax:2<CR>q@a
+> text "fn main() {"
+> text "    all(a, [b, c], \"s)\");"
+> text "    if x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 1 4
+> reg " v "c"
+> reg - v "c"
+> reg a v "x:2\r"
+> reg : v "2"
+
+case q0185
+use b3
+cursor 0 0
+keys qa/zzz<CR>xq@a
+> text "n main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 0 0
+> reg " v "f"
+> reg - v "f"
+> reg a v "/zzz\rx"
+> reg / v "zzz"
+
+case q0186
+use b3
+cursor 2 16
+keys qa/zzz<CR>xq@a
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 2 16
+> reg " v "("
+> reg - v "("
+> reg a v "/zzz\rx"
+> reg / v "zzz"
+
+case q0187
+use b3
+cursor 1 8
+keys :normal<Space>qaxq<CR>@a
+> text "fn main() {"
+> text "    calla, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 1 8
+> reg " v "("
+> reg - v "("
+> reg a v ""
+> reg : v "normal qaxq"
+
+case q0188
+use b3
+cursor 6 10
+keys :normal<Space>qaxq<CR>@a
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } "
+> text "}"
+> text "tail"
+> cursor 6 9
+> reg " v "{"
+> reg - v "{"
+> reg a v ""
+> reg : v "normal qaxq"
+
+case q0189
+use b3
+cursor 0 7
+keys qaxq:%normal<Space>@a<CR>
+> text "n main) {"
+> text "   call(a, [b, c], \"s)\");"
+> text "   if (x) { y('(') }"
+> text ""
+> text ""
+> text ""
+> text " inner } {"
+> text ""
+> text "ail"
+> cursor 8 0
+> reg " v "t"
+> reg - v "t"
+> reg a v "x"
+> reg : v "%normal @a"
+
+case q0190
+use b3
+cursor 3 0
+keys qaxq:%normal<Space>@a<CR>
+> text "n main() {"
+> text "   call(a, [b, c], \"s)\");"
+> text "   if (x) { y('(') }"
+> text ""
+> text ""
+> text ""
+> text " inner } {"
+> text ""
+> text "ail"
+> cursor 8 0
+> reg " v "t"
+> reg - v "t"
+> reg a v "x"
+> reg : v "%normal @a"
+
+case q0191
+use b3
+cursor 0 10
+keys qaxq:g/a/normal<Space>@a<CR>
+> text "n main() "
+> text "   call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "ail"
+> cursor 8 0
+> reg " v "t"
+> reg - v "t"
+> reg a v "x"
+> reg : v "g/a/normal @a"
+> reg / v "a"
+
+case q0192
+use b3
+cursor 4 0
+keys qaxq:g/a/normal<Space>@a<CR>
+> text "n main() {"
+> text "   call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "ail"
+> cursor 8 0
+> reg " v "t"
+> reg - v "t"
+> reg a v "x"
+> reg : v "g/a/normal @a"
+> reg / v "a"

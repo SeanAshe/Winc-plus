@@ -1,0 +1,1363 @@
+# 由 `cargo xtask vim-fixtures` 生成，不手工修改。进入插入模式的命令、输入的重复与点重复。
+
+buffer b1
+text "foo bar.baz  qux_1 (x) end"
+text "   lead, tail;  "
+text ""
+text "中文 text，全角。next"
+text "a-b a1b2 #$% éx"
+
+buffer b2
+text "fn main() {"
+text "    call(a, [b, c], \"s)\");"
+text "    if (x) { y('(') }"
+text "}"
+text ""
+text "{"
+text "  inner } {"
+text "}"
+text "tail"
+
+buffer b3
+text "First one.  Second one! Third?  "
+text "Still (third.) Fourth."
+text ""
+text ""
+text "New para here. End"
+text "\tTabbed\tline here"
+text "   "
+text "last"
+
+buffer b4
+text "ab cd"
+text ""
+
+case i0001
+use b1
+cursor 0 5
+keys iab<Esc>
+
+case i0002
+use b1
+cursor 2 0
+keys iab<Esc>
+
+case i0003
+use b1
+cursor 0 5
+keys aab<Esc>
+
+case i0004
+use b1
+cursor 2 0
+keys aab<Esc>
+
+case i0005
+use b1
+cursor 0 5
+keys Iab<Esc>
+
+case i0006
+use b1
+cursor 2 0
+keys Iab<Esc>
+
+case i0007
+use b1
+cursor 0 5
+keys Aab<Esc>
+
+case i0008
+use b1
+cursor 2 0
+keys Aab<Esc>
+
+case i0009
+use b1
+cursor 0 0
+keys gIab<Esc>
+
+case i0010
+use b1
+cursor 1 15
+keys gIab<Esc>
+
+case i0011
+use b1
+cursor 1 3
+keys oab<Esc>
+
+case i0012
+use b1
+cursor 1 3
+keys Oab<Esc>
+
+case i0013
+use b1
+cursor 1 0
+keys i<Esc>
+
+case i0014
+use b1
+cursor 4 15
+keys i<Esc>
+
+case i0015
+use b1
+cursor 1 0
+keys a<Esc>
+
+case i0016
+use b1
+cursor 4 15
+keys a<Esc>
+
+case i0017
+use b1
+cursor 1 0
+keys A<Esc>
+
+case i0018
+use b1
+cursor 4 15
+keys A<Esc>
+
+case i0019
+use b1
+cursor 1 0
+keys I<Esc>
+
+case i0020
+use b1
+cursor 4 15
+keys I<Esc>
+
+case i0021
+use b1
+cursor 0 20
+keys o<Esc>
+
+case i0022
+use b1
+cursor 4 0
+keys o<Esc>
+
+case i0023
+use b1
+cursor 0 20
+keys O<Esc>
+
+case i0024
+use b1
+cursor 4 0
+keys O<Esc>
+
+case i0025
+use b1
+cursor 0 20
+keys 3iab<Esc>
+
+case i0026
+use b1
+cursor 4 0
+keys 3iab<Esc>
+
+case i0027
+use b1
+cursor 0 11
+keys 2aab<Esc>
+
+case i0028
+use b1
+cursor 3 9
+keys 2aab<Esc>
+
+case i0029
+use b1
+cursor 0 11
+keys 2Iab<Esc>
+
+case i0030
+use b1
+cursor 3 9
+keys 2Iab<Esc>
+
+case i0031
+use b1
+cursor 0 11
+keys 2Aab<Esc>
+
+case i0032
+use b1
+cursor 3 9
+keys 2Aab<Esc>
+
+case i0033
+use b1
+cursor 0 7
+keys 3oab<Esc>
+
+case i0034
+use b1
+cursor 3 1
+keys 3oab<Esc>
+
+case i0035
+use b1
+cursor 0 5
+keys 2Oab<Esc>
+
+case i0036
+use b1
+cursor 2 0
+keys 2Oab<Esc>
+
+case i0037
+use b1
+cursor 0 0
+keys ia<CR>b<Esc>
+
+case i0038
+use b1
+cursor 1 15
+keys ia<CR>b<Esc>
+
+case i0039
+use b1
+cursor 0 7
+keys 2ia<CR>b<Esc>
+
+case i0040
+use b1
+cursor 3 1
+keys 2ia<CR>b<Esc>
+
+case i0041
+use b1
+cursor 0 0
+keys Aa<CR>b<Esc>
+
+case i0042
+use b1
+cursor 1 15
+keys Aa<CR>b<Esc>
+
+case i0043
+use b1
+cursor 1 3
+keys <Insert>ab<Esc>
+
+case i0044
+use b1
+cursor 1 3
+keys iab<Esc>.
+
+case i0045
+use b1
+cursor 0 25
+keys iab<Esc>j.
+
+case i0046
+use b1
+cursor 2 0
+keys aab<Esc>..
+
+case i0047
+use b1
+cursor 0 5
+keys Aab<Esc>j.
+
+case i0048
+use b1
+cursor 4 13
+keys Aab<Esc>j.
+
+case i0049
+use b1
+cursor 2 0
+keys Iab<Esc>j.
+
+case i0050
+use b1
+cursor 0 5
+keys oab<Esc>.
+
+case i0051
+use b1
+cursor 4 13
+keys oab<Esc>.
+
+case i0052
+use b1
+cursor 0 25
+keys Oab<Esc>.
+
+case i0053
+use b1
+cursor 3 1
+keys 3iab<Esc>.
+
+case i0054
+use b1
+cursor 3 1
+keys iab<Esc>3.
+
+case i0055
+use b1
+cursor 0 0
+keys 3iab<Esc>2.
+
+case i0056
+use b1
+cursor 4 0
+keys 3iab<Esc>2.
+
+case i0057
+use b1
+cursor 0 11
+keys oab<Esc>2.
+
+case i0058
+use b1
+cursor 0 11
+keys 2oab<Esc>.
+
+case i0059
+use b1
+cursor 0 0
+keys cwab<Esc>.
+
+case i0060
+use b1
+cursor 4 0
+keys cwab<Esc>.
+
+case i0061
+use b1
+cursor 3 9
+keys cwab<Esc>w.
+
+case i0062
+use b1
+cursor 3 1
+keys cwab<Esc>ww.
+
+case i0063
+use b1
+cursor 0 5
+keys c2wab<Esc>w.
+
+case i0064
+use b1
+cursor 4 13
+keys c2wab<Esc>w.
+
+case i0065
+use b1
+cursor 0 25
+keys ceab<Esc>w.
+
+case i0066
+use b1
+cursor 3 9
+keys c$ab<Esc>j.
+
+case i0067
+use b1
+cursor 0 11
+keys Cab<Esc>j.
+
+case i0068
+use b1
+cursor 0 7
+keys ccab<Esc>j.
+
+case i0069
+use b1
+cursor 4 15
+keys ccab<Esc>j.
+
+case i0070
+use b1
+cursor 1 3
+keys Sab<Esc>j.
+
+case i0071
+use b1
+cursor 0 25
+keys sab<Esc>l.
+
+case i0072
+use b1
+cursor 1 15
+keys 3sab<Esc>l.
+
+case i0073
+use b1
+cursor 3 1
+keys cfaZ<Esc>;.
+
+case i0074
+use b1
+cursor 0 0
+keys ia<CR>b<Esc>j.
+
+case i0075
+use b1
+cursor 4 0
+keys ia<CR>b<Esc>j.
+
+case i0076
+use b1
+cursor 1 3
+keys iab<Esc>giXY<Esc>
+
+case i0077
+use b1
+cursor 2 0
+keys Aab<Esc>ggiQ<Esc>giR<Esc>
+
+case i0078
+use b1
+cursor 1 0
+keys iab<Esc>u
+
+case i0079
+use b1
+cursor 0 11
+keys iab<Esc>uu
+
+case i0080
+use b1
+cursor 0 0
+keys oab<Esc>u
+
+case i0081
+use b1
+cursor 4 0
+keys oab<Esc>u
+
+case i0082
+use b1
+cursor 3 9
+keys cwab<Esc>u
+
+case i0083
+use b1
+cursor 2 0
+keys 3iab<Esc>u
+
+case i0084
+use b1
+cursor 0 20
+keys iab<Esc>u.
+
+case i0085
+use b2
+cursor 0 7
+keys iab<Esc>
+
+case i0086
+use b2
+cursor 3 0
+keys iab<Esc>
+
+case i0087
+use b2
+cursor 0 7
+keys aab<Esc>
+
+case i0088
+use b2
+cursor 3 0
+keys aab<Esc>
+
+case i0089
+use b2
+cursor 0 7
+keys Iab<Esc>
+
+case i0090
+use b2
+cursor 3 0
+keys Iab<Esc>
+
+case i0091
+use b2
+cursor 0 7
+keys Aab<Esc>
+
+case i0092
+use b2
+cursor 3 0
+keys Aab<Esc>
+
+case i0093
+use b2
+cursor 0 0
+keys gIab<Esc>
+
+case i0094
+use b2
+cursor 2 16
+keys gIab<Esc>
+
+case i0095
+use b2
+cursor 2 7
+keys oab<Esc>
+
+case i0096
+use b2
+cursor 2 7
+keys Oab<Esc>
+
+case i0097
+use b2
+cursor 1 21
+keys i<Esc>
+
+case i0098
+use b2
+cursor 1 21
+keys a<Esc>
+
+case i0099
+use b2
+cursor 1 21
+keys A<Esc>
+
+case i0100
+use b2
+cursor 1 21
+keys I<Esc>
+
+case i0101
+use b2
+cursor 1 8
+keys o<Esc>
+
+case i0102
+use b2
+cursor 6 10
+keys o<Esc>
+
+case i0103
+use b2
+cursor 1 8
+keys O<Esc>
+
+case i0104
+use b2
+cursor 6 10
+keys O<Esc>
+
+case i0105
+use b2
+cursor 1 8
+keys 3iab<Esc>
+
+case i0106
+use b2
+cursor 6 10
+keys 3iab<Esc>
+
+case i0107
+use b2
+cursor 1 4
+keys 2aab<Esc>
+
+case i0108
+use b2
+cursor 6 4
+keys 2aab<Esc>
+
+case i0109
+use b2
+cursor 1 4
+keys 2Iab<Esc>
+
+case i0110
+use b2
+cursor 6 4
+keys 2Iab<Esc>
+
+case i0111
+use b2
+cursor 1 4
+keys 2Aab<Esc>
+
+case i0112
+use b2
+cursor 6 4
+keys 2Aab<Esc>
+
+case i0113
+use b2
+cursor 0 10
+keys 3oab<Esc>
+
+case i0114
+use b2
+cursor 4 0
+keys 3oab<Esc>
+
+case i0115
+use b2
+cursor 0 7
+keys 2Oab<Esc>
+
+case i0116
+use b2
+cursor 3 0
+keys 2Oab<Esc>
+
+case i0117
+use b2
+cursor 0 0
+keys ia<CR>b<Esc>
+
+case i0118
+use b2
+cursor 2 16
+keys ia<CR>b<Esc>
+
+case i0119
+use b2
+cursor 0 10
+keys 2ia<CR>b<Esc>
+
+case i0120
+use b2
+cursor 4 0
+keys 2ia<CR>b<Esc>
+
+case i0121
+use b2
+cursor 0 0
+keys Aa<CR>b<Esc>
+
+case i0122
+use b2
+cursor 2 16
+keys Aa<CR>b<Esc>
+
+case i0123
+use b2
+cursor 2 7
+keys <Insert>ab<Esc>
+
+case i0124
+use b2
+cursor 2 7
+keys iab<Esc>.
+
+case i0125
+use b2
+cursor 1 13
+keys iab<Esc>j.
+
+case i0126
+use b2
+cursor 3 0
+keys aab<Esc>..
+
+case i0127
+use b2
+cursor 0 7
+keys Aab<Esc>j.
+
+case i0128
+use b2
+cursor 8 2
+keys Aab<Esc>j.
+
+case i0129
+use b2
+cursor 3 0
+keys Iab<Esc>j.
+
+case i0130
+use b2
+cursor 0 7
+keys oab<Esc>.
+
+case i0131
+use b2
+cursor 8 2
+keys oab<Esc>.
+
+case i0132
+use b2
+cursor 1 13
+keys Oab<Esc>.
+
+case i0133
+use b2
+cursor 4 0
+keys 3iab<Esc>.
+
+case i0134
+use b2
+cursor 4 0
+keys iab<Esc>3.
+
+case i0135
+use b2
+cursor 0 0
+keys 3iab<Esc>2.
+
+case i0136
+use b2
+cursor 6 10
+keys 3iab<Esc>2.
+
+case i0137
+use b2
+cursor 1 4
+keys oab<Esc>2.
+
+case i0138
+use b2
+cursor 1 4
+keys 2oab<Esc>.
+
+case i0139
+use b2
+cursor 0 0
+keys cwab<Esc>.
+
+case i0140
+use b2
+cursor 6 10
+keys cwab<Esc>.
+
+case i0141
+use b2
+cursor 6 4
+keys cwab<Esc>w.
+
+case i0142
+use b2
+cursor 4 0
+keys cwab<Esc>ww.
+
+case i0143
+use b2
+cursor 0 7
+keys c2wab<Esc>w.
+
+case i0144
+use b2
+cursor 8 2
+keys c2wab<Esc>w.
+
+case i0145
+use b2
+cursor 1 13
+keys ceab<Esc>w.
+
+case i0146
+use b2
+cursor 6 4
+keys c$ab<Esc>j.
+
+case i0147
+use b2
+cursor 1 4
+keys Cab<Esc>j.
+
+case i0148
+use b2
+cursor 0 10
+keys ccab<Esc>j.
+
+case i0149
+use b2
+cursor 2 7
+keys Sab<Esc>j.
+
+case i0150
+use b2
+cursor 1 13
+keys sab<Esc>l.
+
+case i0151
+use b2
+cursor 2 16
+keys 3sab<Esc>l.
+
+case i0152
+use b2
+cursor 4 0
+keys cfaZ<Esc>;.
+
+case i0153
+use b2
+cursor 0 0
+keys ia<CR>b<Esc>j.
+
+case i0154
+use b2
+cursor 6 10
+keys ia<CR>b<Esc>j.
+
+case i0155
+use b2
+cursor 2 7
+keys iab<Esc>giXY<Esc>
+
+case i0156
+use b2
+cursor 3 0
+keys Aab<Esc>ggiQ<Esc>giR<Esc>
+
+case i0157
+use b2
+cursor 1 21
+keys iab<Esc>u
+
+case i0158
+use b2
+cursor 1 4
+keys iab<Esc>uu
+
+case i0159
+use b2
+cursor 0 0
+keys oab<Esc>u
+
+case i0160
+use b2
+cursor 6 10
+keys oab<Esc>u
+
+case i0161
+use b2
+cursor 6 4
+keys cwab<Esc>u
+
+case i0162
+use b2
+cursor 3 0
+keys 3iab<Esc>u
+
+case i0163
+use b2
+cursor 1 8
+keys iab<Esc>u.
+
+case i0164
+use b3
+cursor 0 9
+keys iab<Esc>
+
+case i0165
+use b3
+cursor 5 0
+keys iab<Esc>
+
+case i0166
+use b3
+cursor 0 9
+keys aab<Esc>
+
+case i0167
+use b3
+cursor 5 0
+keys aab<Esc>
+
+case i0168
+use b3
+cursor 0 9
+keys Iab<Esc>
+
+case i0169
+use b3
+cursor 5 0
+keys Iab<Esc>
+
+case i0170
+use b3
+cursor 0 9
+keys Aab<Esc>
+
+case i0171
+use b3
+cursor 5 0
+keys Aab<Esc>
+
+case i0172
+use b3
+cursor 0 0
+keys gIab<Esc>
+
+case i0173
+use b3
+cursor 4 17
+keys gIab<Esc>
+
+case i0174
+use b3
+cursor 4 4
+keys oab<Esc>
+
+case i0175
+use b3
+cursor 4 4
+keys Oab<Esc>
+
+case i0176
+use b3
+cursor 2 0
+keys i<Esc>
+
+case i0177
+use b3
+cursor 2 0
+keys a<Esc>
+
+case i0178
+use b3
+cursor 2 0
+keys A<Esc>
+
+case i0179
+use b3
+cursor 2 0
+keys I<Esc>
+
+case i0180
+use b3
+cursor 1 8
+keys o<Esc>
+
+case i0181
+use b3
+cursor 6 1
+keys o<Esc>
+
+case i0182
+use b3
+cursor 1 8
+keys O<Esc>
+
+case i0183
+use b3
+cursor 6 1
+keys O<Esc>
+
+case i0184
+use b3
+cursor 1 8
+keys 3iab<Esc>
+
+case i0185
+use b3
+cursor 6 1
+keys 3iab<Esc>
+
+case i0186
+use b3
+cursor 0 31
+keys 2aab<Esc>
+
+case i0187
+use b3
+cursor 5 7
+keys 2aab<Esc>
+
+case i0188
+use b3
+cursor 0 31
+keys 2Iab<Esc>
+
+case i0189
+use b3
+cursor 5 7
+keys 2Iab<Esc>
+
+case i0190
+use b3
+cursor 0 31
+keys 2Aab<Esc>
+
+case i0191
+use b3
+cursor 5 7
+keys 2Aab<Esc>
+
+case i0192
+use b3
+cursor 0 14
+keys 3oab<Esc>
+
+case i0193
+use b3
+cursor 5 3
+keys 3oab<Esc>
+
+case i0194
+use b3
+cursor 0 9
+keys 2Oab<Esc>
+
+case i0195
+use b3
+cursor 5 0
+keys 2Oab<Esc>
+
+case i0196
+use b3
+cursor 0 0
+keys ia<CR>b<Esc>
+
+case i0197
+use b3
+cursor 4 17
+keys ia<CR>b<Esc>
+
+case i0198
+use b3
+cursor 0 14
+keys 2ia<CR>b<Esc>
+
+case i0199
+use b3
+cursor 5 3
+keys 2ia<CR>b<Esc>
+
+case i0200
+use b3
+cursor 0 0
+keys Aa<CR>b<Esc>
+
+case i0201
+use b3
+cursor 4 17
+keys Aa<CR>b<Esc>
+
+case i0202
+use b3
+cursor 4 4
+keys <Insert>ab<Esc>
+
+case i0203
+use b3
+cursor 4 4
+keys iab<Esc>.
+
+case i0204
+use b3
+cursor 1 21
+keys iab<Esc>j.
+
+case i0205
+use b3
+cursor 5 0
+keys aab<Esc>..
+
+case i0206
+use b3
+cursor 0 9
+keys Aab<Esc>j.
+
+case i0207
+use b3
+cursor 7 3
+keys Aab<Esc>j.
+
+case i0208
+use b3
+cursor 5 0
+keys Iab<Esc>j.
+
+case i0209
+use b3
+cursor 0 9
+keys oab<Esc>.
+
+case i0210
+use b3
+cursor 7 3
+keys oab<Esc>.
+
+case i0211
+use b3
+cursor 1 21
+keys Oab<Esc>.
+
+case i0212
+use b3
+cursor 5 3
+keys 3iab<Esc>.
+
+case i0213
+use b3
+cursor 5 3
+keys iab<Esc>3.
+
+case i0214
+use b3
+cursor 0 0
+keys 3iab<Esc>2.
+
+case i0215
+use b3
+cursor 6 1
+keys 3iab<Esc>2.
+
+case i0216
+use b3
+cursor 0 31
+keys oab<Esc>2.
+
+case i0217
+use b3
+cursor 0 31
+keys 2oab<Esc>.
+
+case i0218
+use b3
+cursor 0 0
+keys cwab<Esc>.
+
+case i0219
+use b3
+cursor 6 1
+keys cwab<Esc>.
+
+case i0220
+use b3
+cursor 5 7
+keys cwab<Esc>w.
+
+case i0221
+use b3
+cursor 5 3
+keys cwab<Esc>ww.
+
+case i0222
+use b3
+cursor 0 9
+keys c2wab<Esc>w.
+
+case i0223
+use b3
+cursor 7 3
+keys c2wab<Esc>w.
+
+case i0224
+use b3
+cursor 1 21
+keys ceab<Esc>w.
+
+case i0225
+use b3
+cursor 5 7
+keys c$ab<Esc>j.
+
+case i0226
+use b3
+cursor 0 31
+keys Cab<Esc>j.
+
+case i0227
+use b3
+cursor 0 14
+keys ccab<Esc>j.
+
+case i0228
+use b3
+cursor 4 4
+keys Sab<Esc>j.
+
+case i0229
+use b3
+cursor 1 21
+keys sab<Esc>l.
+
+case i0230
+use b3
+cursor 4 17
+keys 3sab<Esc>l.
+
+case i0231
+use b3
+cursor 5 3
+keys cfaZ<Esc>;.
+
+case i0232
+use b3
+cursor 0 0
+keys ia<CR>b<Esc>j.
+
+case i0233
+use b3
+cursor 6 1
+keys ia<CR>b<Esc>j.
+
+case i0234
+use b3
+cursor 4 4
+keys iab<Esc>giXY<Esc>
+
+case i0235
+use b3
+cursor 5 0
+keys Aab<Esc>ggiQ<Esc>giR<Esc>
+
+case i0236
+use b3
+cursor 2 0
+keys iab<Esc>u
+
+case i0237
+use b3
+cursor 0 31
+keys iab<Esc>uu
+
+case i0238
+use b3
+cursor 0 0
+keys oab<Esc>u
+
+case i0239
+use b3
+cursor 6 1
+keys oab<Esc>u
+
+case i0240
+use b3
+cursor 5 7
+keys cwab<Esc>u
+
+case i0241
+use b3
+cursor 5 0
+keys 3iab<Esc>u
+
+case i0242
+use b3
+cursor 1 8
+keys iab<Esc>u.
+
+case i0243
+text "x"
+cursor 0 0
+keys iab<Esc>
+
+case i0244
+text "x"
+cursor 0 0
+keys aab<Esc>
+
+case i0245
+text "x"
+cursor 0 0
+keys Aab<Esc>
+
+case i0246
+text "x"
+cursor 0 0
+keys oab<Esc>
+
+case i0247
+text "x"
+cursor 0 0
+keys Oab<Esc>
+
+case i0248
+text "x"
+cursor 0 0
+keys 3iab<Esc>
+
+case i0249
+text ""
+cursor 0 0
+keys iab<Esc>
+
+case i0250
+text ""
+cursor 0 0
+keys aab<Esc>
+
+case i0251
+text ""
+cursor 0 0
+keys Aab<Esc>
+
+case i0252
+text ""
+cursor 0 0
+keys oab<Esc>
+
+case i0253
+text ""
+cursor 0 0
+keys Oab<Esc>
+
+case i0254
+text ""
+cursor 0 0
+keys 3iab<Esc>
+
+case i0255
+use b4
+cursor 0 4
+keys iab<Esc>
+
+case i0256
+use b4
+cursor 1 0
+keys iab<Esc>
+
+case i0257
+use b4
+cursor 0 4
+keys aab<Esc>
+
+case i0258
+use b4
+cursor 1 0
+keys aab<Esc>
+
+case i0259
+use b4
+cursor 0 4
+keys Aab<Esc>
+
+case i0260
+use b4
+cursor 1 0
+keys Aab<Esc>
+
+case i0261
+use b4
+cursor 0 4
+keys oab<Esc>
+
+case i0262
+use b4
+cursor 1 0
+keys oab<Esc>
+
+case i0263
+use b4
+cursor 0 4
+keys Oab<Esc>
+
+case i0264
+use b4
+cursor 1 0
+keys Oab<Esc>
+
+case i0265
+use b4
+cursor 0 4
+keys 3iab<Esc>
+
+case i0266
+use b4
+cursor 1 0
+keys 3iab<Esc>

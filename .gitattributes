@@ -1,0 +1,2 @@
+# 生成与录制的测试数据：差异中默认折叠，不计入语言统计。
+crates/winc-vim/fixtures/* linguist-generated=true

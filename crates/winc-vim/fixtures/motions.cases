@@ -1,0 +1,6678 @@
+# 由 `cargo xtask vim-fixtures` 生成，不手工修改。单独执行的动作：核对光标的位置。
+
+buffer b1
+text "foo bar.baz  qux_1 (x) end"
+text "   lead, tail;  "
+text ""
+text "中文 text，全角。next"
+text "a-b a1b2 #$% éx"
+
+buffer b2
+text "fn main() {"
+text "    call(a, [b, c], \"s)\");"
+text "    if (x) { y('(') }"
+text "}"
+text ""
+text "{"
+text "  inner } {"
+text "}"
+text "tail"
+
+buffer b3
+text "First one.  Second one! Third?  "
+text "Still (third.) Fourth."
+text ""
+text ""
+text "New para here. End"
+text "\tTabbed\tline here"
+text "   "
+text "last"
+
+buffer b4
+text "ab cd"
+text ""
+
+case m0001
+use b1
+cursor 0 0
+keys h
+
+case m0002
+use b1
+cursor 0 20
+keys h
+
+case m0003
+use b1
+cursor 1 15
+keys h
+
+case m0004
+use b1
+cursor 4 0
+keys h
+
+case m0005
+use b1
+cursor 0 7
+keys 2h
+
+case m0006
+use b1
+cursor 3 1
+keys 2h
+
+case m0007
+use b1
+cursor 0 0
+keys l
+
+case m0008
+use b1
+cursor 0 20
+keys l
+
+case m0009
+use b1
+cursor 1 15
+keys l
+
+case m0010
+use b1
+cursor 4 0
+keys l
+
+case m0011
+use b1
+cursor 1 0
+keys 2l
+
+case m0012
+use b1
+cursor 4 15
+keys 2l
+
+case m0013
+use b1
+cursor 0 11
+keys <BS>
+
+case m0014
+use b1
+cursor 1 3
+keys <BS>
+
+case m0015
+use b1
+cursor 3 9
+keys <BS>
+
+case m0016
+use b1
+cursor 0 5
+keys 2<BS>
+
+case m0017
+use b1
+cursor 2 0
+keys 2<BS>
+
+case m0018
+use b1
+cursor 0 7
+keys <Space>
+
+case m0019
+use b1
+cursor 1 0
+keys <Space>
+
+case m0020
+use b1
+cursor 3 1
+keys <Space>
+
+case m0021
+use b1
+cursor 4 15
+keys <Space>
+
+case m0022
+use b1
+cursor 0 0
+keys 2<Space>
+
+case m0023
+use b1
+cursor 1 15
+keys 2<Space>
+
+case m0024
+use b1
+cursor 0 0
+keys 0
+
+case m0025
+use b1
+cursor 0 20
+keys 0
+
+case m0026
+use b1
+cursor 1 15
+keys 0
+
+case m0027
+use b1
+cursor 4 0
+keys 0
+
+case m0028
+use b1
+cursor 0 7
+keys 20
+
+case m0029
+use b1
+cursor 3 1
+keys 20
+
+case m0030
+use b1
+cursor 0 7
+keys ^
+
+case m0031
+use b1
+cursor 1 0
+keys ^
+
+case m0032
+use b1
+cursor 3 1
+keys ^
+
+case m0033
+use b1
+cursor 4 15
+keys ^
+
+case m0034
+use b1
+cursor 0 0
+keys 2^
+
+case m0035
+use b1
+cursor 1 15
+keys 2^
+
+case m0036
+use b1
+cursor 0 0
+keys $
+
+case m0037
+use b1
+cursor 0 20
+keys $
+
+case m0038
+use b1
+cursor 1 15
+keys $
+
+case m0039
+use b1
+cursor 4 0
+keys $
+
+case m0040
+use b1
+cursor 1 0
+keys 2$
+
+case m0041
+use b1
+cursor 4 15
+keys 2$
+
+case m0042
+use b1
+cursor 0 7
+keys g_
+
+case m0043
+use b1
+cursor 1 0
+keys g_
+
+case m0044
+use b1
+cursor 3 1
+keys g_
+
+case m0045
+use b1
+cursor 4 15
+keys g_
+
+case m0046
+use b1
+cursor 0 0
+keys 2g_
+
+case m0047
+use b1
+cursor 1 15
+keys 2g_
+
+case m0048
+use b1
+cursor 0 11
+keys g0
+
+case m0049
+use b1
+cursor 1 3
+keys g0
+
+case m0050
+use b1
+cursor 3 9
+keys g0
+
+case m0051
+use b1
+cursor 0 5
+keys 2g0
+
+case m0052
+use b1
+cursor 2 0
+keys 2g0
+
+case m0053
+use b1
+cursor 0 5
+keys g^
+
+case m0054
+use b1
+cursor 0 25
+keys g^
+
+case m0055
+use b1
+cursor 2 0
+keys g^
+
+case m0056
+use b1
+cursor 4 13
+keys g^
+
+case m0057
+use b1
+cursor 1 3
+keys 2g^
+
+case m0058
+use b1
+cursor 0 11
+keys g$
+
+case m0059
+use b1
+cursor 1 3
+keys g$
+
+case m0060
+use b1
+cursor 3 9
+keys g$
+
+case m0061
+use b1
+cursor 0 25
+keys 2g$
+
+case m0062
+use b1
+cursor 4 13
+keys 2g$
+
+case m0063
+use b1
+cursor 0 0
+keys gm
+
+case m0064
+use b1
+cursor 0 20
+keys gm
+
+case m0065
+use b1
+cursor 1 15
+keys gm
+
+case m0066
+use b1
+cursor 4 0
+keys gm
+
+case m0067
+use b1
+cursor 1 0
+keys 2gm
+
+case m0068
+use b1
+cursor 4 15
+keys 2gm
+
+case m0069
+use b1
+cursor 0 0
+keys |
+
+case m0070
+use b1
+cursor 0 20
+keys |
+
+case m0071
+use b1
+cursor 1 15
+keys |
+
+case m0072
+use b1
+cursor 4 0
+keys |
+
+case m0073
+use b1
+cursor 1 0
+keys 2|
+
+case m0074
+use b1
+cursor 4 15
+keys 2|
+
+case m0075
+use b1
+cursor 0 11
+keys k
+
+case m0076
+use b1
+cursor 1 3
+keys k
+
+case m0077
+use b1
+cursor 3 9
+keys k
+
+case m0078
+use b1
+cursor 0 25
+keys 2k
+
+case m0079
+use b1
+cursor 4 13
+keys 2k
+
+case m0080
+use b1
+cursor 0 7
+keys j
+
+case m0081
+use b1
+cursor 1 0
+keys j
+
+case m0082
+use b1
+cursor 3 1
+keys j
+
+case m0083
+use b1
+cursor 4 15
+keys j
+
+case m0084
+use b1
+cursor 0 20
+keys 2j
+
+case m0085
+use b1
+cursor 4 0
+keys 2j
+
+case m0086
+use b1
+cursor 0 7
+keys gk
+
+case m0087
+use b1
+cursor 1 0
+keys gk
+
+case m0088
+use b1
+cursor 3 1
+keys gk
+
+case m0089
+use b1
+cursor 4 15
+keys gk
+
+case m0090
+use b1
+cursor 0 20
+keys 2gk
+
+case m0091
+use b1
+cursor 4 0
+keys 2gk
+
+case m0092
+use b1
+cursor 0 5
+keys gj
+
+case m0093
+use b1
+cursor 0 25
+keys gj
+
+case m0094
+use b1
+cursor 2 0
+keys gj
+
+case m0095
+use b1
+cursor 4 13
+keys gj
+
+case m0096
+use b1
+cursor 0 11
+keys 2gj
+
+case m0097
+use b1
+cursor 3 9
+keys 2gj
+
+case m0098
+use b1
+cursor 0 5
+keys -
+
+case m0099
+use b1
+cursor 0 25
+keys -
+
+case m0100
+use b1
+cursor 2 0
+keys -
+
+case m0101
+use b1
+cursor 4 13
+keys -
+
+case m0102
+use b1
+cursor 1 3
+keys 2-
+
+case m0103
+use b1
+cursor 0 11
+keys +
+
+case m0104
+use b1
+cursor 1 3
+keys +
+
+case m0105
+use b1
+cursor 3 9
+keys +
+
+case m0106
+use b1
+cursor 0 25
+keys 2+
+
+case m0107
+use b1
+cursor 4 13
+keys 2+
+
+case m0108
+use b1
+cursor 0 11
+keys <CR>
+
+case m0109
+use b1
+cursor 1 3
+keys <CR>
+
+case m0110
+use b1
+cursor 3 9
+keys <CR>
+
+case m0111
+use b1
+cursor 0 5
+keys 2<CR>
+
+case m0112
+use b1
+cursor 2 0
+keys 2<CR>
+
+case m0113
+use b1
+cursor 0 11
+keys _
+
+case m0114
+use b1
+cursor 1 3
+keys _
+
+case m0115
+use b1
+cursor 3 9
+keys _
+
+case m0116
+use b1
+cursor 0 5
+keys 2_
+
+case m0117
+use b1
+cursor 2 0
+keys 2_
+
+case m0118
+use b1
+cursor 0 7
+keys gg
+
+case m0119
+use b1
+cursor 1 0
+keys gg
+
+case m0120
+use b1
+cursor 3 1
+keys gg
+
+case m0121
+use b1
+cursor 4 15
+keys gg
+
+case m0122
+use b1
+cursor 0 0
+keys 2gg
+
+case m0123
+use b1
+cursor 1 15
+keys 2gg
+
+case m0124
+use b1
+cursor 0 11
+keys G
+
+case m0125
+use b1
+cursor 1 3
+keys G
+
+case m0126
+use b1
+cursor 3 9
+keys G
+
+case m0127
+use b1
+cursor 0 5
+keys 2G
+
+case m0128
+use b1
+cursor 2 0
+keys 2G
+
+case m0129
+use b1
+cursor 0 5
+keys <C-End>
+
+case m0130
+use b1
+cursor 0 25
+keys <C-End>
+
+case m0131
+use b1
+cursor 2 0
+keys <C-End>
+
+case m0132
+use b1
+cursor 4 13
+keys <C-End>
+
+case m0133
+use b1
+cursor 0 11
+keys 2<C-End>
+
+case m0134
+use b1
+cursor 3 9
+keys 2<C-End>
+
+case m0135
+use b1
+cursor 0 5
+keys %
+
+case m0136
+use b1
+cursor 0 25
+keys %
+
+case m0137
+use b1
+cursor 2 0
+keys %
+
+case m0138
+use b1
+cursor 4 13
+keys %
+
+case m0139
+use b1
+cursor 1 3
+keys 2%
+
+case m0140
+use b1
+cursor 0 0
+keys H
+
+case m0141
+use b1
+cursor 0 20
+keys H
+
+case m0142
+use b1
+cursor 1 15
+keys H
+
+case m0143
+use b1
+cursor 4 0
+keys H
+
+case m0144
+use b1
+cursor 0 7
+keys 2H
+
+case m0145
+use b1
+cursor 3 1
+keys 2H
+
+case m0146
+use b1
+cursor 0 5
+keys M
+
+case m0147
+use b1
+cursor 0 25
+keys M
+
+case m0148
+use b1
+cursor 2 0
+keys M
+
+case m0149
+use b1
+cursor 4 13
+keys M
+
+case m0150
+use b1
+cursor 1 3
+keys 2M
+
+case m0151
+use b1
+cursor 0 0
+keys L
+
+case m0152
+use b1
+cursor 0 20
+keys L
+
+case m0153
+use b1
+cursor 1 15
+keys L
+
+case m0154
+use b1
+cursor 4 0
+keys L
+
+case m0155
+use b1
+cursor 1 0
+keys 2L
+
+case m0156
+use b1
+cursor 4 15
+keys 2L
+
+case m0157
+use b1
+cursor 0 11
+keys w
+
+case m0158
+use b1
+cursor 1 3
+keys w
+
+case m0159
+use b1
+cursor 3 9
+keys w
+
+case m0160
+use b1
+cursor 0 5
+keys 2w
+
+case m0161
+use b1
+cursor 2 0
+keys 2w
+
+case m0162
+use b1
+cursor 0 11
+keys W
+
+case m0163
+use b1
+cursor 1 3
+keys W
+
+case m0164
+use b1
+cursor 3 9
+keys W
+
+case m0165
+use b1
+cursor 0 5
+keys 2W
+
+case m0166
+use b1
+cursor 2 0
+keys 2W
+
+case m0167
+use b1
+cursor 0 7
+keys b
+
+case m0168
+use b1
+cursor 1 0
+keys b
+
+case m0169
+use b1
+cursor 3 1
+keys b
+
+case m0170
+use b1
+cursor 4 15
+keys b
+
+case m0171
+use b1
+cursor 0 20
+keys 2b
+
+case m0172
+use b1
+cursor 4 0
+keys 2b
+
+case m0173
+use b1
+cursor 0 7
+keys B
+
+case m0174
+use b1
+cursor 1 0
+keys B
+
+case m0175
+use b1
+cursor 3 1
+keys B
+
+case m0176
+use b1
+cursor 4 15
+keys B
+
+case m0177
+use b1
+cursor 0 20
+keys 2B
+
+case m0178
+use b1
+cursor 4 0
+keys 2B
+
+case m0179
+use b1
+cursor 0 5
+keys e
+
+case m0180
+use b1
+cursor 0 25
+keys e
+
+case m0181
+use b1
+cursor 2 0
+keys e
+
+case m0182
+use b1
+cursor 4 13
+keys e
+
+case m0183
+use b1
+cursor 1 3
+keys 2e
+
+case m0184
+use b1
+cursor 0 5
+keys E
+
+case m0185
+use b1
+cursor 0 25
+keys E
+
+case m0186
+use b1
+cursor 2 0
+keys E
+
+case m0187
+use b1
+cursor 4 13
+keys E
+
+case m0188
+use b1
+cursor 1 3
+keys 2E
+
+case m0189
+use b1
+cursor 0 0
+keys ge
+
+case m0190
+use b1
+cursor 0 20
+keys ge
+
+case m0191
+use b1
+cursor 1 15
+keys ge
+
+case m0192
+use b1
+cursor 4 0
+keys ge
+
+case m0193
+use b1
+cursor 1 0
+keys 2ge
+
+case m0194
+use b1
+cursor 4 15
+keys 2ge
+
+case m0195
+use b1
+cursor 0 0
+keys gE
+
+case m0196
+use b1
+cursor 0 20
+keys gE
+
+case m0197
+use b1
+cursor 1 15
+keys gE
+
+case m0198
+use b1
+cursor 4 0
+keys gE
+
+case m0199
+use b1
+cursor 1 0
+keys 2gE
+
+case m0200
+use b1
+cursor 4 15
+keys 2gE
+
+case m0201
+use b1
+cursor 0 0
+keys (
+
+case m0202
+use b1
+cursor 0 20
+keys (
+
+case m0203
+use b1
+cursor 1 15
+keys (
+
+case m0204
+use b1
+cursor 4 0
+keys (
+
+case m0205
+use b1
+cursor 0 7
+keys 2(
+
+case m0206
+use b1
+cursor 3 1
+keys 2(
+
+case m0207
+use b1
+cursor 0 5
+keys )
+
+case m0208
+use b1
+cursor 0 25
+keys )
+
+case m0209
+use b1
+cursor 2 0
+keys )
+
+case m0210
+use b1
+cursor 4 13
+keys )
+
+case m0211
+use b1
+cursor 0 11
+keys 2)
+
+case m0212
+use b1
+cursor 3 9
+keys 2)
+
+case m0213
+use b1
+cursor 0 11
+keys {
+
+case m0214
+use b1
+cursor 1 3
+keys {
+
+case m0215
+use b1
+cursor 3 9
+keys {
+
+case m0216
+use b1
+cursor 0 25
+keys 2{
+
+case m0217
+use b1
+cursor 4 13
+keys 2{
+
+case m0218
+use b1
+cursor 0 5
+keys }
+
+case m0219
+use b1
+cursor 0 25
+keys }
+
+case m0220
+use b1
+cursor 2 0
+keys }
+
+case m0221
+use b1
+cursor 4 13
+keys }
+
+case m0222
+use b1
+cursor 1 3
+keys 2}
+
+case m0223
+use b1
+cursor 0 7
+keys [[
+
+case m0224
+use b1
+cursor 1 0
+keys [[
+
+case m0225
+use b1
+cursor 3 1
+keys [[
+
+case m0226
+use b1
+cursor 4 15
+keys [[
+
+case m0227
+use b1
+cursor 0 0
+keys 2[[
+
+case m0228
+use b1
+cursor 1 15
+keys 2[[
+
+case m0229
+use b1
+cursor 0 7
+keys ]]
+
+case m0230
+use b1
+cursor 1 0
+keys ]]
+
+case m0231
+use b1
+cursor 3 1
+keys ]]
+
+case m0232
+use b1
+cursor 4 15
+keys ]]
+
+case m0233
+use b1
+cursor 0 20
+keys 2]]
+
+case m0234
+use b1
+cursor 4 0
+keys 2]]
+
+case m0235
+use b1
+cursor 0 0
+keys []
+
+case m0236
+use b1
+cursor 0 20
+keys []
+
+case m0237
+use b1
+cursor 1 15
+keys []
+
+case m0238
+use b1
+cursor 4 0
+keys []
+
+case m0239
+use b1
+cursor 0 7
+keys 2[]
+
+case m0240
+use b1
+cursor 3 1
+keys 2[]
+
+case m0241
+use b1
+cursor 0 0
+keys ][
+
+case m0242
+use b1
+cursor 0 20
+keys ][
+
+case m0243
+use b1
+cursor 1 15
+keys ][
+
+case m0244
+use b1
+cursor 4 0
+keys ][
+
+case m0245
+use b1
+cursor 0 7
+keys 2][
+
+case m0246
+use b1
+cursor 3 1
+keys 2][
+
+case m0247
+use b1
+cursor 0 11
+keys [(
+
+case m0248
+use b1
+cursor 1 3
+keys [(
+
+case m0249
+use b1
+cursor 3 9
+keys [(
+
+case m0250
+use b1
+cursor 0 25
+keys 2[(
+
+case m0251
+use b1
+cursor 4 13
+keys 2[(
+
+case m0252
+use b1
+cursor 0 7
+keys [{
+
+case m0253
+use b1
+cursor 1 0
+keys [{
+
+case m0254
+use b1
+cursor 3 1
+keys [{
+
+case m0255
+use b1
+cursor 4 15
+keys [{
+
+case m0256
+use b1
+cursor 0 0
+keys 2[{
+
+case m0257
+use b1
+cursor 1 15
+keys 2[{
+
+case m0258
+use b1
+cursor 0 7
+keys ])
+
+case m0259
+use b1
+cursor 1 0
+keys ])
+
+case m0260
+use b1
+cursor 3 1
+keys ])
+
+case m0261
+use b1
+cursor 4 15
+keys ])
+
+case m0262
+use b1
+cursor 0 0
+keys 2])
+
+case m0263
+use b1
+cursor 1 15
+keys 2])
+
+case m0264
+use b1
+cursor 0 7
+keys ]}
+
+case m0265
+use b1
+cursor 1 0
+keys ]}
+
+case m0266
+use b1
+cursor 3 1
+keys ]}
+
+case m0267
+use b1
+cursor 4 15
+keys ]}
+
+case m0268
+use b1
+cursor 0 20
+keys 2]}
+
+case m0269
+use b1
+cursor 4 0
+keys 2]}
+
+case m0270
+use b1
+cursor 0 5
+keys <Left>
+
+case m0271
+use b1
+cursor 4 13
+keys <Left>
+
+case m0272
+use b1
+cursor 1 15
+keys <Right>
+
+case m0273
+use b1
+cursor 1 3
+keys <Up>
+
+case m0274
+use b1
+cursor 0 7
+keys <Down>
+
+case m0275
+use b1
+cursor 4 15
+keys <Down>
+
+case m0276
+use b1
+cursor 3 9
+keys <Home>
+
+case m0277
+use b1
+cursor 0 25
+keys <End>
+
+case m0278
+use b1
+cursor 0 20
+keys <S-Right>
+
+case m0279
+use b1
+cursor 0 0
+keys <C-Right>
+
+case m0280
+use b1
+cursor 4 0
+keys <C-Right>
+
+case m0281
+use b1
+cursor 2 0
+keys <S-Left>
+
+case m0282
+use b1
+cursor 0 25
+keys <C-Left>
+
+case m0283
+use b1
+cursor 0 11
+keys <C-Home>
+
+case m0284
+use b1
+cursor 1 0
+keys g<Home>
+
+case m0285
+use b1
+cursor 0 0
+keys g<End>
+
+case m0286
+use b1
+cursor 4 0
+keys g<End>
+
+case m0287
+use b1
+cursor 0 7
+keys g<Up>
+
+case m0288
+use b1
+cursor 4 15
+keys g<Up>
+
+case m0289
+use b1
+cursor 2 0
+keys g<Down>
+
+case m0290
+use b1
+cursor 0 7
+keys <C-h>
+
+case m0291
+use b1
+cursor 4 15
+keys <C-h>
+
+case m0292
+use b1
+cursor 0 20
+keys <C-j>
+
+case m0293
+use b1
+cursor 1 15
+keys <C-n>
+
+case m0294
+use b1
+cursor 3 1
+keys <C-p>
+
+case m0295
+use b1
+cursor 1 3
+keys fa
+
+case m0296
+use b1
+cursor 1 3
+keys Fa
+
+case m0297
+use b1
+cursor 0 25
+keys ta
+
+case m0298
+use b1
+cursor 4 13
+keys ta
+
+case m0299
+use b1
+cursor 0 25
+keys Ta
+
+case m0300
+use b1
+cursor 4 13
+keys Ta
+
+case m0301
+use b1
+cursor 0 20
+keys f<Space>
+
+case m0302
+use b1
+cursor 4 0
+keys f<Space>
+
+case m0303
+use b1
+cursor 0 20
+keys f.
+
+case m0304
+use b1
+cursor 4 0
+keys f.
+
+case m0305
+use b1
+cursor 0 25
+keys t)
+
+case m0306
+use b1
+cursor 4 13
+keys t)
+
+case m0307
+use b1
+cursor 1 0
+keys F(
+
+case m0308
+use b1
+cursor 4 15
+keys F(
+
+case m0309
+use b1
+cursor 0 5
+keys 2fa
+
+case m0310
+use b1
+cursor 2 0
+keys 2fa
+
+case m0311
+use b1
+cursor 0 7
+keys fa;
+
+case m0312
+use b1
+cursor 3 1
+keys fa;
+
+case m0313
+use b1
+cursor 0 11
+keys fa,
+
+case m0314
+use b1
+cursor 3 9
+keys fa,
+
+case m0315
+use b1
+cursor 0 0
+keys ta;
+
+case m0316
+use b1
+cursor 1 15
+keys ta;
+
+case m0317
+use b1
+cursor 0 0
+keys Ta;
+
+case m0318
+use b1
+cursor 1 15
+keys Ta;
+
+case m0319
+use b1
+cursor 0 5
+keys ta,
+
+case m0320
+use b1
+cursor 2 0
+keys ta,
+
+case m0321
+use b1
+cursor 0 20
+keys fa2;
+
+case m0322
+use b1
+cursor 4 0
+keys fa2;
+
+case m0323
+use b1
+cursor 0 0
+keys fz
+
+case m0324
+use b1
+cursor 1 15
+keys fz
+
+case m0325
+use b1
+cursor 1 3
+keys f中
+
+case m0326
+use b1
+cursor 0 5
+keys t。
+
+case m0327
+use b1
+cursor 2 0
+keys t。
+
+case m0328
+use b1
+cursor 0 20
+keys jj
+
+case m0329
+use b1
+cursor 4 0
+keys jj
+
+case m0330
+use b1
+cursor 0 25
+keys jk
+
+case m0331
+use b1
+cursor 4 13
+keys jk
+
+case m0332
+use b1
+cursor 1 0
+keys $j
+
+case m0333
+use b1
+cursor 4 15
+keys $j
+
+case m0334
+use b1
+cursor 0 0
+keys $jj
+
+case m0335
+use b1
+cursor 1 15
+keys $jj
+
+case m0336
+use b1
+cursor 0 7
+keys $kk
+
+case m0337
+use b1
+cursor 3 1
+keys $kk
+
+case m0338
+use b1
+cursor 0 5
+keys 3|j
+
+case m0339
+use b1
+cursor 2 0
+keys 3|j
+
+case m0340
+use b1
+cursor 0 7
+keys lljjkk
+
+case m0341
+use b1
+cursor 3 1
+keys lljjkk
+
+case m0342
+use b1
+cursor 1 0
+keys gmj
+
+case m0343
+use b1
+cursor 4 15
+keys gmj
+
+case m0344
+use b1
+cursor 0 0
+keys g_j
+
+case m0345
+use b1
+cursor 1 15
+keys g_j
+
+case m0346
+use b1
+cursor 1 0
+keys $hj
+
+case m0347
+use b1
+cursor 4 15
+keys $hj
+
+case m0348
+use b1
+cursor 0 7
+keys 3G
+
+case m0349
+use b1
+cursor 4 15
+keys 3G
+
+case m0350
+use b1
+cursor 0 0
+keys 1G
+
+case m0351
+use b1
+cursor 4 0
+keys 1G
+
+case m0352
+use b1
+cursor 0 25
+keys 99G
+
+case m0353
+use b1
+cursor 0 25
+keys 3gg
+
+case m0354
+use b1
+cursor 1 0
+keys 50%
+
+case m0355
+use b1
+cursor 0 7
+keys 100%
+
+case m0356
+use b1
+cursor 4 15
+keys 100%
+
+case m0357
+use b1
+cursor 0 7
+keys 1%
+
+case m0358
+use b1
+cursor 4 15
+keys 1%
+
+case m0359
+use b1
+cursor 0 11
+keys 101%
+
+case m0360
+use b1
+cursor 1 15
+keys 4|
+
+case m0361
+use b1
+cursor 1 3
+keys 30|
+
+case m0362
+use b1
+cursor 3 1
+keys 99|
+
+case m0363
+use b1
+cursor 0 7
+keys 2H
+
+case m0364
+use b1
+cursor 4 15
+keys 2H
+
+case m0365
+use b1
+cursor 1 0
+keys 2L
+
+case m0366
+use b1
+cursor 1 0
+keys 99H
+
+case m0367
+use b1
+cursor 0 7
+keys 3w
+
+case m0368
+use b1
+cursor 4 15
+keys 3w
+
+case m0369
+use b1
+cursor 0 20
+keys 5w
+
+case m0370
+use b1
+cursor 0 25
+keys 99w
+
+case m0371
+use b1
+cursor 0 25
+keys 3b
+
+case m0372
+use b1
+cursor 1 15
+keys 99b
+
+case m0373
+use b1
+cursor 1 15
+keys 3e
+
+case m0374
+use b1
+cursor 0 11
+keys 3ge
+
+case m0375
+use b1
+cursor 0 7
+keys 99h
+
+case m0376
+use b1
+cursor 4 15
+keys 99h
+
+case m0377
+use b1
+cursor 1 0
+keys 99l
+
+case m0378
+use b1
+cursor 0 25
+keys 3<Space>
+
+case m0379
+use b1
+cursor 1 15
+keys 99<Space>
+
+case m0380
+use b1
+cursor 3 1
+keys 3<BS>
+
+case m0381
+use b1
+cursor 0 5
+keys 99<BS>
+
+case m0382
+use b1
+cursor 4 13
+keys 99<BS>
+
+case m0383
+use b1
+cursor 0 5
+keys 3j
+
+case m0384
+use b1
+cursor 4 13
+keys 3j
+
+case m0385
+use b1
+cursor 0 20
+keys 99j
+
+case m0386
+use b1
+cursor 0 7
+keys 3k
+
+case m0387
+use b1
+cursor 4 15
+keys 3k
+
+case m0388
+use b1
+cursor 0 25
+keys 99k
+
+case m0389
+use b1
+cursor 3 1
+keys 3+
+
+case m0390
+use b1
+cursor 0 0
+keys 3-
+
+case m0391
+use b1
+cursor 4 0
+keys 3-
+
+case m0392
+use b1
+cursor 0 7
+keys 3_
+
+case m0393
+use b1
+cursor 4 15
+keys 3_
+
+case m0394
+use b1
+cursor 0 7
+keys 2$
+
+case m0395
+use b1
+cursor 4 15
+keys 2$
+
+case m0396
+use b1
+cursor 0 11
+keys 3$
+
+case m0397
+use b1
+cursor 1 0
+keys 99$
+
+case m0398
+use b1
+cursor 1 15
+keys 3)
+
+case m0399
+use b1
+cursor 1 3
+keys 3(
+
+case m0400
+use b1
+cursor 1 15
+keys 3}
+
+case m0401
+use b1
+cursor 1 0
+keys 3{
+
+case m0402
+use b1
+cursor 1 15
+keys 2g_
+
+case m0403
+use b1
+cursor 0 11
+keys 2%
+
+case m0404
+use b2
+cursor 0 0
+keys h
+
+case m0405
+use b2
+cursor 1 8
+keys h
+
+case m0406
+use b2
+cursor 2 16
+keys h
+
+case m0407
+use b2
+cursor 6 10
+keys h
+
+case m0408
+use b2
+cursor 0 10
+keys 2h
+
+case m0409
+use b2
+cursor 4 0
+keys 2h
+
+case m0410
+use b2
+cursor 0 0
+keys l
+
+case m0411
+use b2
+cursor 1 8
+keys l
+
+case m0412
+use b2
+cursor 2 16
+keys l
+
+case m0413
+use b2
+cursor 6 10
+keys l
+
+case m0414
+use b2
+cursor 1 21
+keys 2l
+
+case m0415
+use b2
+cursor 1 4
+keys <BS>
+
+case m0416
+use b2
+cursor 2 7
+keys <BS>
+
+case m0417
+use b2
+cursor 6 4
+keys <BS>
+
+case m0418
+use b2
+cursor 0 7
+keys 2<BS>
+
+case m0419
+use b2
+cursor 3 0
+keys 2<BS>
+
+case m0420
+use b2
+cursor 0 10
+keys <Space>
+
+case m0421
+use b2
+cursor 1 21
+keys <Space>
+
+case m0422
+use b2
+cursor 4 0
+keys <Space>
+
+case m0423
+use b2
+cursor 0 0
+keys 2<Space>
+
+case m0424
+use b2
+cursor 2 16
+keys 2<Space>
+
+case m0425
+use b2
+cursor 0 0
+keys 0
+
+case m0426
+use b2
+cursor 1 8
+keys 0
+
+case m0427
+use b2
+cursor 2 16
+keys 0
+
+case m0428
+use b2
+cursor 6 10
+keys 0
+
+case m0429
+use b2
+cursor 0 10
+keys 20
+
+case m0430
+use b2
+cursor 4 0
+keys 20
+
+case m0431
+use b2
+cursor 0 10
+keys ^
+
+case m0432
+use b2
+cursor 1 21
+keys ^
+
+case m0433
+use b2
+cursor 4 0
+keys ^
+
+case m0434
+use b2
+cursor 0 0
+keys 2^
+
+case m0435
+use b2
+cursor 2 16
+keys 2^
+
+case m0436
+use b2
+cursor 0 0
+keys $
+
+case m0437
+use b2
+cursor 1 8
+keys $
+
+case m0438
+use b2
+cursor 2 16
+keys $
+
+case m0439
+use b2
+cursor 6 10
+keys $
+
+case m0440
+use b2
+cursor 1 21
+keys 2$
+
+case m0441
+use b2
+cursor 0 10
+keys g_
+
+case m0442
+use b2
+cursor 1 21
+keys g_
+
+case m0443
+use b2
+cursor 4 0
+keys g_
+
+case m0444
+use b2
+cursor 0 0
+keys 2g_
+
+case m0445
+use b2
+cursor 2 16
+keys 2g_
+
+case m0446
+use b2
+cursor 1 4
+keys g0
+
+case m0447
+use b2
+cursor 2 7
+keys g0
+
+case m0448
+use b2
+cursor 6 4
+keys g0
+
+case m0449
+use b2
+cursor 0 7
+keys 2g0
+
+case m0450
+use b2
+cursor 3 0
+keys 2g0
+
+case m0451
+use b2
+cursor 0 7
+keys g^
+
+case m0452
+use b2
+cursor 1 13
+keys g^
+
+case m0453
+use b2
+cursor 3 0
+keys g^
+
+case m0454
+use b2
+cursor 8 2
+keys g^
+
+case m0455
+use b2
+cursor 2 7
+keys 2g^
+
+case m0456
+use b2
+cursor 1 4
+keys g$
+
+case m0457
+use b2
+cursor 2 7
+keys g$
+
+case m0458
+use b2
+cursor 6 4
+keys g$
+
+case m0459
+use b2
+cursor 1 13
+keys 2g$
+
+case m0460
+use b2
+cursor 8 2
+keys 2g$
+
+case m0461
+use b2
+cursor 0 0
+keys gm
+
+case m0462
+use b2
+cursor 1 8
+keys gm
+
+case m0463
+use b2
+cursor 2 16
+keys gm
+
+case m0464
+use b2
+cursor 6 10
+keys gm
+
+case m0465
+use b2
+cursor 1 21
+keys 2gm
+
+case m0466
+use b2
+cursor 0 0
+keys |
+
+case m0467
+use b2
+cursor 1 8
+keys |
+
+case m0468
+use b2
+cursor 2 16
+keys |
+
+case m0469
+use b2
+cursor 6 10
+keys |
+
+case m0470
+use b2
+cursor 1 21
+keys 2|
+
+case m0471
+use b2
+cursor 1 4
+keys k
+
+case m0472
+use b2
+cursor 2 7
+keys k
+
+case m0473
+use b2
+cursor 6 4
+keys k
+
+case m0474
+use b2
+cursor 1 13
+keys 2k
+
+case m0475
+use b2
+cursor 8 2
+keys 2k
+
+case m0476
+use b2
+cursor 0 10
+keys j
+
+case m0477
+use b2
+cursor 1 21
+keys j
+
+case m0478
+use b2
+cursor 4 0
+keys j
+
+case m0479
+use b2
+cursor 1 8
+keys 2j
+
+case m0480
+use b2
+cursor 6 10
+keys 2j
+
+case m0481
+use b2
+cursor 0 10
+keys gk
+
+case m0482
+use b2
+cursor 1 21
+keys gk
+
+case m0483
+use b2
+cursor 4 0
+keys gk
+
+case m0484
+use b2
+cursor 1 8
+keys 2gk
+
+case m0485
+use b2
+cursor 6 10
+keys 2gk
+
+case m0486
+use b2
+cursor 0 7
+keys gj
+
+case m0487
+use b2
+cursor 1 13
+keys gj
+
+case m0488
+use b2
+cursor 3 0
+keys gj
+
+case m0489
+use b2
+cursor 8 2
+keys gj
+
+case m0490
+use b2
+cursor 1 4
+keys 2gj
+
+case m0491
+use b2
+cursor 6 4
+keys 2gj
+
+case m0492
+use b2
+cursor 0 7
+keys -
+
+case m0493
+use b2
+cursor 1 13
+keys -
+
+case m0494
+use b2
+cursor 3 0
+keys -
+
+case m0495
+use b2
+cursor 8 2
+keys -
+
+case m0496
+use b2
+cursor 2 7
+keys 2-
+
+case m0497
+use b2
+cursor 1 4
+keys +
+
+case m0498
+use b2
+cursor 2 7
+keys +
+
+case m0499
+use b2
+cursor 6 4
+keys +
+
+case m0500
+use b2
+cursor 1 13
+keys 2+
+
+case m0501
+use b2
+cursor 8 2
+keys 2+
+
+case m0502
+use b2
+cursor 1 4
+keys <CR>
+
+case m0503
+use b2
+cursor 2 7
+keys <CR>
+
+case m0504
+use b2
+cursor 6 4
+keys <CR>
+
+case m0505
+use b2
+cursor 0 7
+keys 2<CR>
+
+case m0506
+use b2
+cursor 3 0
+keys 2<CR>
+
+case m0507
+use b2
+cursor 1 4
+keys _
+
+case m0508
+use b2
+cursor 2 7
+keys _
+
+case m0509
+use b2
+cursor 6 4
+keys _
+
+case m0510
+use b2
+cursor 0 7
+keys 2_
+
+case m0511
+use b2
+cursor 3 0
+keys 2_
+
+case m0512
+use b2
+cursor 0 10
+keys gg
+
+case m0513
+use b2
+cursor 1 21
+keys gg
+
+case m0514
+use b2
+cursor 4 0
+keys gg
+
+case m0515
+use b2
+cursor 0 0
+keys 2gg
+
+case m0516
+use b2
+cursor 2 16
+keys 2gg
+
+case m0517
+use b2
+cursor 1 4
+keys G
+
+case m0518
+use b2
+cursor 2 7
+keys G
+
+case m0519
+use b2
+cursor 6 4
+keys G
+
+case m0520
+use b2
+cursor 0 7
+keys 2G
+
+case m0521
+use b2
+cursor 3 0
+keys 2G
+
+case m0522
+use b2
+cursor 0 7
+keys <C-End>
+
+case m0523
+use b2
+cursor 1 13
+keys <C-End>
+
+case m0524
+use b2
+cursor 3 0
+keys <C-End>
+
+case m0525
+use b2
+cursor 8 2
+keys <C-End>
+
+case m0526
+use b2
+cursor 1 4
+keys 2<C-End>
+
+case m0527
+use b2
+cursor 6 4
+keys 2<C-End>
+
+case m0528
+use b2
+cursor 0 7
+keys %
+
+case m0529
+use b2
+cursor 1 13
+keys %
+
+case m0530
+use b2
+cursor 3 0
+keys %
+
+case m0531
+use b2
+cursor 8 2
+keys %
+
+case m0532
+use b2
+cursor 2 7
+keys 2%
+
+case m0533
+use b2
+cursor 0 0
+keys H
+
+case m0534
+use b2
+cursor 1 8
+keys H
+
+case m0535
+use b2
+cursor 2 16
+keys H
+
+case m0536
+use b2
+cursor 6 10
+keys H
+
+case m0537
+use b2
+cursor 0 10
+keys 2H
+
+case m0538
+use b2
+cursor 4 0
+keys 2H
+
+case m0539
+use b2
+cursor 0 7
+keys M
+
+case m0540
+use b2
+cursor 1 13
+keys M
+
+case m0541
+use b2
+cursor 3 0
+keys M
+
+case m0542
+use b2
+cursor 8 2
+keys M
+
+case m0543
+use b2
+cursor 2 7
+keys 2M
+
+case m0544
+use b2
+cursor 0 0
+keys L
+
+case m0545
+use b2
+cursor 1 8
+keys L
+
+case m0546
+use b2
+cursor 2 16
+keys L
+
+case m0547
+use b2
+cursor 6 10
+keys L
+
+case m0548
+use b2
+cursor 1 21
+keys 2L
+
+case m0549
+use b2
+cursor 1 4
+keys w
+
+case m0550
+use b2
+cursor 2 7
+keys w
+
+case m0551
+use b2
+cursor 6 4
+keys w
+
+case m0552
+use b2
+cursor 0 7
+keys 2w
+
+case m0553
+use b2
+cursor 3 0
+keys 2w
+
+case m0554
+use b2
+cursor 1 4
+keys W
+
+case m0555
+use b2
+cursor 2 7
+keys W
+
+case m0556
+use b2
+cursor 6 4
+keys W
+
+case m0557
+use b2
+cursor 0 7
+keys 2W
+
+case m0558
+use b2
+cursor 3 0
+keys 2W
+
+case m0559
+use b2
+cursor 0 10
+keys b
+
+case m0560
+use b2
+cursor 1 21
+keys b
+
+case m0561
+use b2
+cursor 4 0
+keys b
+
+case m0562
+use b2
+cursor 1 8
+keys 2b
+
+case m0563
+use b2
+cursor 6 10
+keys 2b
+
+case m0564
+use b2
+cursor 0 10
+keys B
+
+case m0565
+use b2
+cursor 1 21
+keys B
+
+case m0566
+use b2
+cursor 4 0
+keys B
+
+case m0567
+use b2
+cursor 1 8
+keys 2B
+
+case m0568
+use b2
+cursor 6 10
+keys 2B
+
+case m0569
+use b2
+cursor 0 7
+keys e
+
+case m0570
+use b2
+cursor 1 13
+keys e
+
+case m0571
+use b2
+cursor 3 0
+keys e
+
+case m0572
+use b2
+cursor 8 2
+keys e
+
+case m0573
+use b2
+cursor 2 7
+keys 2e
+
+case m0574
+use b2
+cursor 0 7
+keys E
+
+case m0575
+use b2
+cursor 1 13
+keys E
+
+case m0576
+use b2
+cursor 3 0
+keys E
+
+case m0577
+use b2
+cursor 8 2
+keys E
+
+case m0578
+use b2
+cursor 2 7
+keys 2E
+
+case m0579
+use b2
+cursor 0 0
+keys ge
+
+case m0580
+use b2
+cursor 1 8
+keys ge
+
+case m0581
+use b2
+cursor 2 16
+keys ge
+
+case m0582
+use b2
+cursor 6 10
+keys ge
+
+case m0583
+use b2
+cursor 1 21
+keys 2ge
+
+case m0584
+use b2
+cursor 0 0
+keys gE
+
+case m0585
+use b2
+cursor 1 8
+keys gE
+
+case m0586
+use b2
+cursor 2 16
+keys gE
+
+case m0587
+use b2
+cursor 6 10
+keys gE
+
+case m0588
+use b2
+cursor 1 21
+keys 2gE
+
+case m0589
+use b2
+cursor 0 0
+keys (
+
+case m0590
+use b2
+cursor 1 8
+keys (
+
+case m0591
+use b2
+cursor 2 16
+keys (
+
+case m0592
+use b2
+cursor 6 10
+keys (
+
+case m0593
+use b2
+cursor 0 10
+keys 2(
+
+case m0594
+use b2
+cursor 4 0
+keys 2(
+
+case m0595
+use b2
+cursor 0 7
+keys )
+
+case m0596
+use b2
+cursor 1 13
+keys )
+
+case m0597
+use b2
+cursor 3 0
+keys )
+
+case m0598
+use b2
+cursor 8 2
+keys )
+
+case m0599
+use b2
+cursor 1 4
+keys 2)
+
+case m0600
+use b2
+cursor 6 4
+keys 2)
+
+case m0601
+use b2
+cursor 1 4
+keys {
+
+case m0602
+use b2
+cursor 2 7
+keys {
+
+case m0603
+use b2
+cursor 6 4
+keys {
+
+case m0604
+use b2
+cursor 1 13
+keys 2{
+
+case m0605
+use b2
+cursor 8 2
+keys 2{
+
+case m0606
+use b2
+cursor 0 7
+keys }
+
+case m0607
+use b2
+cursor 1 13
+keys }
+
+case m0608
+use b2
+cursor 3 0
+keys }
+
+case m0609
+use b2
+cursor 8 2
+keys }
+
+case m0610
+use b2
+cursor 2 7
+keys 2}
+
+case m0611
+use b2
+cursor 0 10
+keys [[
+
+case m0612
+use b2
+cursor 1 21
+keys [[
+
+case m0613
+use b2
+cursor 4 0
+keys [[
+
+case m0614
+use b2
+cursor 0 0
+keys 2[[
+
+case m0615
+use b2
+cursor 2 16
+keys 2[[
+
+case m0616
+use b2
+cursor 0 10
+keys ]]
+
+case m0617
+use b2
+cursor 1 21
+keys ]]
+
+case m0618
+use b2
+cursor 4 0
+keys ]]
+
+case m0619
+use b2
+cursor 1 8
+keys 2]]
+
+case m0620
+use b2
+cursor 6 10
+keys 2]]
+
+case m0621
+use b2
+cursor 0 0
+keys []
+
+case m0622
+use b2
+cursor 1 8
+keys []
+
+case m0623
+use b2
+cursor 2 16
+keys []
+
+case m0624
+use b2
+cursor 6 10
+keys []
+
+case m0625
+use b2
+cursor 0 10
+keys 2[]
+
+case m0626
+use b2
+cursor 4 0
+keys 2[]
+
+case m0627
+use b2
+cursor 0 0
+keys ][
+
+case m0628
+use b2
+cursor 1 8
+keys ][
+
+case m0629
+use b2
+cursor 2 16
+keys ][
+
+case m0630
+use b2
+cursor 6 10
+keys ][
+
+case m0631
+use b2
+cursor 0 10
+keys 2][
+
+case m0632
+use b2
+cursor 4 0
+keys 2][
+
+case m0633
+use b2
+cursor 1 4
+keys [(
+
+case m0634
+use b2
+cursor 2 7
+keys [(
+
+case m0635
+use b2
+cursor 6 4
+keys [(
+
+case m0636
+use b2
+cursor 1 13
+keys 2[(
+
+case m0637
+use b2
+cursor 8 2
+keys 2[(
+
+case m0638
+use b2
+cursor 0 10
+keys [{
+
+case m0639
+use b2
+cursor 1 21
+keys [{
+
+case m0640
+use b2
+cursor 4 0
+keys [{
+
+case m0641
+use b2
+cursor 0 0
+keys 2[{
+
+case m0642
+use b2
+cursor 2 16
+keys 2[{
+
+case m0643
+use b2
+cursor 0 10
+keys ])
+
+case m0644
+use b2
+cursor 1 21
+keys ])
+
+case m0645
+use b2
+cursor 4 0
+keys ])
+
+case m0646
+use b2
+cursor 0 0
+keys 2])
+
+case m0647
+use b2
+cursor 2 16
+keys 2])
+
+case m0648
+use b2
+cursor 0 10
+keys ]}
+
+case m0649
+use b2
+cursor 1 21
+keys ]}
+
+case m0650
+use b2
+cursor 4 0
+keys ]}
+
+case m0651
+use b2
+cursor 1 8
+keys 2]}
+
+case m0652
+use b2
+cursor 6 10
+keys 2]}
+
+case m0653
+use b2
+cursor 0 7
+keys <Left>
+
+case m0654
+use b2
+cursor 8 2
+keys <Left>
+
+case m0655
+use b2
+cursor 2 16
+keys <Right>
+
+case m0656
+use b2
+cursor 2 7
+keys <Up>
+
+case m0657
+use b2
+cursor 0 10
+keys <Down>
+
+case m0658
+use b2
+cursor 6 4
+keys <Home>
+
+case m0659
+use b2
+cursor 1 13
+keys <End>
+
+case m0660
+use b2
+cursor 1 8
+keys <S-Right>
+
+case m0661
+use b2
+cursor 0 0
+keys <C-Right>
+
+case m0662
+use b2
+cursor 6 10
+keys <C-Right>
+
+case m0663
+use b2
+cursor 3 0
+keys <S-Left>
+
+case m0664
+use b2
+cursor 1 13
+keys <C-Left>
+
+case m0665
+use b2
+cursor 1 4
+keys <C-Home>
+
+case m0666
+use b2
+cursor 1 21
+keys g<Home>
+
+case m0667
+use b2
+cursor 0 0
+keys g<End>
+
+case m0668
+use b2
+cursor 6 10
+keys g<End>
+
+case m0669
+use b2
+cursor 0 10
+keys g<Up>
+
+case m0670
+use b2
+cursor 3 0
+keys g<Down>
+
+case m0671
+use b2
+cursor 0 10
+keys <C-h>
+
+case m0672
+use b2
+cursor 1 8
+keys <C-j>
+
+case m0673
+use b2
+cursor 2 16
+keys <C-n>
+
+case m0674
+use b2
+cursor 4 0
+keys <C-p>
+
+case m0675
+use b2
+cursor 2 7
+keys fa
+
+case m0676
+use b2
+cursor 2 7
+keys Fa
+
+case m0677
+use b2
+cursor 1 13
+keys ta
+
+case m0678
+use b2
+cursor 8 2
+keys ta
+
+case m0679
+use b2
+cursor 1 13
+keys Ta
+
+case m0680
+use b2
+cursor 8 2
+keys Ta
+
+case m0681
+use b2
+cursor 1 8
+keys f<Space>
+
+case m0682
+use b2
+cursor 6 10
+keys f<Space>
+
+case m0683
+use b2
+cursor 1 8
+keys f.
+
+case m0684
+use b2
+cursor 6 10
+keys f.
+
+case m0685
+use b2
+cursor 1 13
+keys t)
+
+case m0686
+use b2
+cursor 8 2
+keys t)
+
+case m0687
+use b2
+cursor 1 21
+keys F(
+
+case m0688
+use b2
+cursor 0 7
+keys 2fa
+
+case m0689
+use b2
+cursor 3 0
+keys 2fa
+
+case m0690
+use b2
+cursor 0 10
+keys fa;
+
+case m0691
+use b2
+cursor 4 0
+keys fa;
+
+case m0692
+use b2
+cursor 1 4
+keys fa,
+
+case m0693
+use b2
+cursor 6 4
+keys fa,
+
+case m0694
+use b2
+cursor 0 0
+keys ta;
+
+case m0695
+use b2
+cursor 2 16
+keys ta;
+
+case m0696
+use b2
+cursor 0 0
+keys Ta;
+
+case m0697
+use b2
+cursor 2 16
+keys Ta;
+
+case m0698
+use b2
+cursor 0 7
+keys ta,
+
+case m0699
+use b2
+cursor 3 0
+keys ta,
+
+case m0700
+use b2
+cursor 1 8
+keys fa2;
+
+case m0701
+use b2
+cursor 6 10
+keys fa2;
+
+case m0702
+use b2
+cursor 0 0
+keys fz
+
+case m0703
+use b2
+cursor 2 16
+keys fz
+
+case m0704
+use b2
+cursor 2 7
+keys f中
+
+case m0705
+use b2
+cursor 0 7
+keys t。
+
+case m0706
+use b2
+cursor 3 0
+keys t。
+
+case m0707
+use b2
+cursor 1 8
+keys jj
+
+case m0708
+use b2
+cursor 6 10
+keys jj
+
+case m0709
+use b2
+cursor 1 13
+keys jk
+
+case m0710
+use b2
+cursor 8 2
+keys jk
+
+case m0711
+use b2
+cursor 1 21
+keys $j
+
+case m0712
+use b2
+cursor 0 0
+keys $jj
+
+case m0713
+use b2
+cursor 2 16
+keys $jj
+
+case m0714
+use b2
+cursor 0 10
+keys $kk
+
+case m0715
+use b2
+cursor 4 0
+keys $kk
+
+case m0716
+use b2
+cursor 0 7
+keys 3|j
+
+case m0717
+use b2
+cursor 3 0
+keys 3|j
+
+case m0718
+use b2
+cursor 0 10
+keys lljjkk
+
+case m0719
+use b2
+cursor 4 0
+keys lljjkk
+
+case m0720
+use b2
+cursor 1 21
+keys gmj
+
+case m0721
+use b2
+cursor 0 0
+keys g_j
+
+case m0722
+use b2
+cursor 2 16
+keys g_j
+
+case m0723
+use b2
+cursor 1 21
+keys $hj
+
+case m0724
+use b2
+cursor 0 10
+keys 3G
+
+case m0725
+use b2
+cursor 0 0
+keys 1G
+
+case m0726
+use b2
+cursor 6 10
+keys 1G
+
+case m0727
+use b2
+cursor 1 13
+keys 99G
+
+case m0728
+use b2
+cursor 1 13
+keys 3gg
+
+case m0729
+use b2
+cursor 1 21
+keys 50%
+
+case m0730
+use b2
+cursor 0 10
+keys 100%
+
+case m0731
+use b2
+cursor 0 10
+keys 1%
+
+case m0732
+use b2
+cursor 1 4
+keys 101%
+
+case m0733
+use b2
+cursor 2 16
+keys 4|
+
+case m0734
+use b2
+cursor 2 7
+keys 30|
+
+case m0735
+use b2
+cursor 4 0
+keys 99|
+
+case m0736
+use b2
+cursor 0 10
+keys 2H
+
+case m0737
+use b2
+cursor 1 21
+keys 2L
+
+case m0738
+use b2
+cursor 1 21
+keys 99H
+
+case m0739
+use b2
+cursor 0 10
+keys 3w
+
+case m0740
+use b2
+cursor 1 8
+keys 5w
+
+case m0741
+use b2
+cursor 1 13
+keys 99w
+
+case m0742
+use b2
+cursor 1 13
+keys 3b
+
+case m0743
+use b2
+cursor 2 16
+keys 99b
+
+case m0744
+use b2
+cursor 2 16
+keys 3e
+
+case m0745
+use b2
+cursor 1 4
+keys 3ge
+
+case m0746
+use b2
+cursor 0 10
+keys 99h
+
+case m0747
+use b2
+cursor 1 21
+keys 99l
+
+case m0748
+use b2
+cursor 1 13
+keys 3<Space>
+
+case m0749
+use b2
+cursor 2 16
+keys 99<Space>
+
+case m0750
+use b2
+cursor 4 0
+keys 3<BS>
+
+case m0751
+use b2
+cursor 0 7
+keys 99<BS>
+
+case m0752
+use b2
+cursor 8 2
+keys 99<BS>
+
+case m0753
+use b2
+cursor 0 7
+keys 3j
+
+case m0754
+use b2
+cursor 8 2
+keys 3j
+
+case m0755
+use b2
+cursor 1 8
+keys 99j
+
+case m0756
+use b2
+cursor 0 10
+keys 3k
+
+case m0757
+use b2
+cursor 1 13
+keys 99k
+
+case m0758
+use b2
+cursor 4 0
+keys 3+
+
+case m0759
+use b2
+cursor 0 0
+keys 3-
+
+case m0760
+use b2
+cursor 6 10
+keys 3-
+
+case m0761
+use b2
+cursor 0 10
+keys 3_
+
+case m0762
+use b2
+cursor 0 10
+keys 2$
+
+case m0763
+use b2
+cursor 1 4
+keys 3$
+
+case m0764
+use b2
+cursor 1 21
+keys 99$
+
+case m0765
+use b2
+cursor 2 16
+keys 3)
+
+case m0766
+use b2
+cursor 2 7
+keys 3(
+
+case m0767
+use b2
+cursor 2 16
+keys 3}
+
+case m0768
+use b2
+cursor 1 21
+keys 3{
+
+case m0769
+use b2
+cursor 2 16
+keys 2g_
+
+case m0770
+use b2
+cursor 1 4
+keys 2%
+
+case m0771
+use b3
+cursor 0 0
+keys h
+
+case m0772
+use b3
+cursor 1 8
+keys h
+
+case m0773
+use b3
+cursor 4 17
+keys h
+
+case m0774
+use b3
+cursor 6 1
+keys h
+
+case m0775
+use b3
+cursor 0 14
+keys 2h
+
+case m0776
+use b3
+cursor 5 3
+keys 2h
+
+case m0777
+use b3
+cursor 0 0
+keys l
+
+case m0778
+use b3
+cursor 1 8
+keys l
+
+case m0779
+use b3
+cursor 4 17
+keys l
+
+case m0780
+use b3
+cursor 6 1
+keys l
+
+case m0781
+use b3
+cursor 2 0
+keys 2l
+
+case m0782
+use b3
+cursor 0 31
+keys <BS>
+
+case m0783
+use b3
+cursor 4 4
+keys <BS>
+
+case m0784
+use b3
+cursor 5 7
+keys <BS>
+
+case m0785
+use b3
+cursor 0 9
+keys 2<BS>
+
+case m0786
+use b3
+cursor 5 0
+keys 2<BS>
+
+case m0787
+use b3
+cursor 0 14
+keys <Space>
+
+case m0788
+use b3
+cursor 2 0
+keys <Space>
+
+case m0789
+use b3
+cursor 5 3
+keys <Space>
+
+case m0790
+use b3
+cursor 0 0
+keys 2<Space>
+
+case m0791
+use b3
+cursor 4 17
+keys 2<Space>
+
+case m0792
+use b3
+cursor 0 0
+keys 0
+
+case m0793
+use b3
+cursor 1 8
+keys 0
+
+case m0794
+use b3
+cursor 4 17
+keys 0
+
+case m0795
+use b3
+cursor 6 1
+keys 0
+
+case m0796
+use b3
+cursor 0 14
+keys 20
+
+case m0797
+use b3
+cursor 5 3
+keys 20
+
+case m0798
+use b3
+cursor 0 14
+keys ^
+
+case m0799
+use b3
+cursor 2 0
+keys ^
+
+case m0800
+use b3
+cursor 5 3
+keys ^
+
+case m0801
+use b3
+cursor 0 0
+keys 2^
+
+case m0802
+use b3
+cursor 4 17
+keys 2^
+
+case m0803
+use b3
+cursor 0 0
+keys $
+
+case m0804
+use b3
+cursor 1 8
+keys $
+
+case m0805
+use b3
+cursor 4 17
+keys $
+
+case m0806
+use b3
+cursor 6 1
+keys $
+
+case m0807
+use b3
+cursor 2 0
+keys 2$
+
+case m0808
+use b3
+cursor 0 14
+keys g_
+
+case m0809
+use b3
+cursor 2 0
+keys g_
+
+case m0810
+use b3
+cursor 5 3
+keys g_
+
+case m0811
+use b3
+cursor 0 0
+keys 2g_
+
+case m0812
+use b3
+cursor 4 17
+keys 2g_
+
+case m0813
+use b3
+cursor 0 31
+keys g0
+
+case m0814
+use b3
+cursor 4 4
+keys g0
+
+case m0815
+use b3
+cursor 5 7
+keys g0
+
+case m0816
+use b3
+cursor 0 9
+keys 2g0
+
+case m0817
+use b3
+cursor 5 0
+keys 2g0
+
+case m0818
+use b3
+cursor 0 9
+keys g^
+
+case m0819
+use b3
+cursor 1 21
+keys g^
+
+case m0820
+use b3
+cursor 5 0
+keys g^
+
+case m0821
+use b3
+cursor 7 3
+keys g^
+
+case m0822
+use b3
+cursor 4 4
+keys 2g^
+
+case m0823
+use b3
+cursor 0 31
+keys g$
+
+case m0824
+use b3
+cursor 4 4
+keys g$
+
+case m0825
+use b3
+cursor 5 7
+keys g$
+
+case m0826
+use b3
+cursor 1 21
+keys 2g$
+
+case m0827
+use b3
+cursor 7 3
+keys 2g$
+
+case m0828
+use b3
+cursor 0 0
+keys gm
+
+case m0829
+use b3
+cursor 1 8
+keys gm
+
+case m0830
+use b3
+cursor 4 17
+keys gm
+
+case m0831
+use b3
+cursor 6 1
+keys gm
+
+case m0832
+use b3
+cursor 2 0
+keys 2gm
+
+case m0833
+use b3
+cursor 0 0
+keys |
+
+case m0834
+use b3
+cursor 1 8
+keys |
+
+case m0835
+use b3
+cursor 4 17
+keys |
+
+case m0836
+use b3
+cursor 6 1
+keys |
+
+case m0837
+use b3
+cursor 2 0
+keys 2|
+
+case m0838
+use b3
+cursor 0 31
+keys k
+
+case m0839
+use b3
+cursor 4 4
+keys k
+
+case m0840
+use b3
+cursor 5 7
+keys k
+
+case m0841
+use b3
+cursor 1 21
+keys 2k
+
+case m0842
+use b3
+cursor 7 3
+keys 2k
+
+case m0843
+use b3
+cursor 0 14
+keys j
+
+case m0844
+use b3
+cursor 2 0
+keys j
+
+case m0845
+use b3
+cursor 5 3
+keys j
+
+case m0846
+use b3
+cursor 1 8
+keys 2j
+
+case m0847
+use b3
+cursor 6 1
+keys 2j
+
+case m0848
+use b3
+cursor 0 14
+keys gk
+
+case m0849
+use b3
+cursor 2 0
+keys gk
+
+case m0850
+use b3
+cursor 5 3
+keys gk
+
+case m0851
+use b3
+cursor 1 8
+keys 2gk
+
+case m0852
+use b3
+cursor 6 1
+keys 2gk
+
+case m0853
+use b3
+cursor 0 9
+keys gj
+
+case m0854
+use b3
+cursor 1 21
+keys gj
+
+case m0855
+use b3
+cursor 5 0
+keys gj
+
+case m0856
+use b3
+cursor 7 3
+keys gj
+
+case m0857
+use b3
+cursor 0 31
+keys 2gj
+
+case m0858
+use b3
+cursor 5 7
+keys 2gj
+
+case m0859
+use b3
+cursor 0 9
+keys -
+
+case m0860
+use b3
+cursor 1 21
+keys -
+
+case m0861
+use b3
+cursor 5 0
+keys -
+
+case m0862
+use b3
+cursor 7 3
+keys -
+
+case m0863
+use b3
+cursor 4 4
+keys 2-
+
+case m0864
+use b3
+cursor 0 31
+keys +
+
+case m0865
+use b3
+cursor 4 4
+keys +
+
+case m0866
+use b3
+cursor 5 7
+keys +
+
+case m0867
+use b3
+cursor 1 21
+keys 2+
+
+case m0868
+use b3
+cursor 7 3
+keys 2+
+
+case m0869
+use b3
+cursor 0 31
+keys <CR>
+
+case m0870
+use b3
+cursor 4 4
+keys <CR>
+
+case m0871
+use b3
+cursor 5 7
+keys <CR>
+
+case m0872
+use b3
+cursor 0 9
+keys 2<CR>
+
+case m0873
+use b3
+cursor 5 0
+keys 2<CR>
+
+case m0874
+use b3
+cursor 0 31
+keys _
+
+case m0875
+use b3
+cursor 4 4
+keys _
+
+case m0876
+use b3
+cursor 5 7
+keys _
+
+case m0877
+use b3
+cursor 0 9
+keys 2_
+
+case m0878
+use b3
+cursor 5 0
+keys 2_
+
+case m0879
+use b3
+cursor 0 14
+keys gg
+
+case m0880
+use b3
+cursor 2 0
+keys gg
+
+case m0881
+use b3
+cursor 5 3
+keys gg
+
+case m0882
+use b3
+cursor 0 0
+keys 2gg
+
+case m0883
+use b3
+cursor 4 17
+keys 2gg
+
+case m0884
+use b3
+cursor 0 31
+keys G
+
+case m0885
+use b3
+cursor 4 4
+keys G
+
+case m0886
+use b3
+cursor 5 7
+keys G
+
+case m0887
+use b3
+cursor 0 9
+keys 2G
+
+case m0888
+use b3
+cursor 5 0
+keys 2G
+
+case m0889
+use b3
+cursor 0 9
+keys <C-End>
+
+case m0890
+use b3
+cursor 1 21
+keys <C-End>
+
+case m0891
+use b3
+cursor 5 0
+keys <C-End>
+
+case m0892
+use b3
+cursor 7 3
+keys <C-End>
+
+case m0893
+use b3
+cursor 0 31
+keys 2<C-End>
+
+case m0894
+use b3
+cursor 5 7
+keys 2<C-End>
+
+case m0895
+use b3
+cursor 0 9
+keys %
+
+case m0896
+use b3
+cursor 1 21
+keys %
+
+case m0897
+use b3
+cursor 5 0
+keys %
+
+case m0898
+use b3
+cursor 7 3
+keys %
+
+case m0899
+use b3
+cursor 4 4
+keys 2%
+
+case m0900
+use b3
+cursor 0 0
+keys H
+
+case m0901
+use b3
+cursor 1 8
+keys H
+
+case m0902
+use b3
+cursor 4 17
+keys H
+
+case m0903
+use b3
+cursor 6 1
+keys H
+
+case m0904
+use b3
+cursor 0 14
+keys 2H
+
+case m0905
+use b3
+cursor 5 3
+keys 2H
+
+case m0906
+use b3
+cursor 0 9
+keys M
+
+case m0907
+use b3
+cursor 1 21
+keys M
+
+case m0908
+use b3
+cursor 5 0
+keys M
+
+case m0909
+use b3
+cursor 7 3
+keys M
+
+case m0910
+use b3
+cursor 4 4
+keys 2M
+
+case m0911
+use b3
+cursor 0 0
+keys L
+
+case m0912
+use b3
+cursor 1 8
+keys L
+
+case m0913
+use b3
+cursor 4 17
+keys L
+
+case m0914
+use b3
+cursor 6 1
+keys L
+
+case m0915
+use b3
+cursor 2 0
+keys 2L
+
+case m0916
+use b3
+cursor 0 31
+keys w
+
+case m0917
+use b3
+cursor 4 4
+keys w
+
+case m0918
+use b3
+cursor 5 7
+keys w
+
+case m0919
+use b3
+cursor 0 9
+keys 2w
+
+case m0920
+use b3
+cursor 5 0
+keys 2w
+
+case m0921
+use b3
+cursor 0 31
+keys W
+
+case m0922
+use b3
+cursor 4 4
+keys W
+
+case m0923
+use b3
+cursor 5 7
+keys W
+
+case m0924
+use b3
+cursor 0 9
+keys 2W
+
+case m0925
+use b3
+cursor 5 0
+keys 2W
+
+case m0926
+use b3
+cursor 0 14
+keys b
+
+case m0927
+use b3
+cursor 2 0
+keys b
+
+case m0928
+use b3
+cursor 5 3
+keys b
+
+case m0929
+use b3
+cursor 1 8
+keys 2b
+
+case m0930
+use b3
+cursor 6 1
+keys 2b
+
+case m0931
+use b3
+cursor 0 14
+keys B
+
+case m0932
+use b3
+cursor 2 0
+keys B
+
+case m0933
+use b3
+cursor 5 3
+keys B
+
+case m0934
+use b3
+cursor 1 8
+keys 2B
+
+case m0935
+use b3
+cursor 6 1
+keys 2B
+
+case m0936
+use b3
+cursor 0 9
+keys e
+
+case m0937
+use b3
+cursor 1 21
+keys e
+
+case m0938
+use b3
+cursor 5 0
+keys e
+
+case m0939
+use b3
+cursor 7 3
+keys e
+
+case m0940
+use b3
+cursor 4 4
+keys 2e
+
+case m0941
+use b3
+cursor 0 9
+keys E
+
+case m0942
+use b3
+cursor 1 21
+keys E
+
+case m0943
+use b3
+cursor 5 0
+keys E
+
+case m0944
+use b3
+cursor 7 3
+keys E
+
+case m0945
+use b3
+cursor 4 4
+keys 2E
+
+case m0946
+use b3
+cursor 0 0
+keys ge
+
+case m0947
+use b3
+cursor 1 8
+keys ge
+
+case m0948
+use b3
+cursor 4 17
+keys ge
+
+case m0949
+use b3
+cursor 6 1
+keys ge
+
+case m0950
+use b3
+cursor 2 0
+keys 2ge
+
+case m0951
+use b3
+cursor 0 0
+keys gE
+
+case m0952
+use b3
+cursor 1 8
+keys gE
+
+case m0953
+use b3
+cursor 4 17
+keys gE
+
+case m0954
+use b3
+cursor 6 1
+keys gE
+
+case m0955
+use b3
+cursor 2 0
+keys 2gE
+
+case m0956
+use b3
+cursor 0 0
+keys (
+
+case m0957
+use b3
+cursor 1 8
+keys (
+
+case m0958
+use b3
+cursor 4 17
+keys (
+
+case m0959
+use b3
+cursor 6 1
+keys (
+
+case m0960
+use b3
+cursor 0 14
+keys 2(
+
+case m0961
+use b3
+cursor 5 3
+keys 2(
+
+case m0962
+use b3
+cursor 0 9
+keys )
+
+case m0963
+use b3
+cursor 1 21
+keys )
+
+case m0964
+use b3
+cursor 5 0
+keys )
+
+case m0965
+use b3
+cursor 7 3
+keys )
+
+case m0966
+use b3
+cursor 0 31
+keys 2)
+
+case m0967
+use b3
+cursor 5 7
+keys 2)
+
+case m0968
+use b3
+cursor 0 31
+keys {
+
+case m0969
+use b3
+cursor 4 4
+keys {
+
+case m0970
+use b3
+cursor 5 7
+keys {
+
+case m0971
+use b3
+cursor 1 21
+keys 2{
+
+case m0972
+use b3
+cursor 7 3
+keys 2{
+
+case m0973
+use b3
+cursor 0 9
+keys }
+
+case m0974
+use b3
+cursor 1 21
+keys }
+
+case m0975
+use b3
+cursor 5 0
+keys }
+
+case m0976
+use b3
+cursor 7 3
+keys }
+
+case m0977
+use b3
+cursor 4 4
+keys 2}
+
+case m0978
+use b3
+cursor 0 14
+keys [[
+
+case m0979
+use b3
+cursor 2 0
+keys [[
+
+case m0980
+use b3
+cursor 5 3
+keys [[
+
+case m0981
+use b3
+cursor 0 0
+keys 2[[
+
+case m0982
+use b3
+cursor 4 17
+keys 2[[
+
+case m0983
+use b3
+cursor 0 14
+keys ]]
+
+case m0984
+use b3
+cursor 2 0
+keys ]]
+
+case m0985
+use b3
+cursor 5 3
+keys ]]
+
+case m0986
+use b3
+cursor 1 8
+keys 2]]
+
+case m0987
+use b3
+cursor 6 1
+keys 2]]
+
+case m0988
+use b3
+cursor 0 0
+keys []
+
+case m0989
+use b3
+cursor 1 8
+keys []
+
+case m0990
+use b3
+cursor 4 17
+keys []
+
+case m0991
+use b3
+cursor 6 1
+keys []
+
+case m0992
+use b3
+cursor 0 14
+keys 2[]
+
+case m0993
+use b3
+cursor 5 3
+keys 2[]
+
+case m0994
+use b3
+cursor 0 0
+keys ][
+
+case m0995
+use b3
+cursor 1 8
+keys ][
+
+case m0996
+use b3
+cursor 4 17
+keys ][
+
+case m0997
+use b3
+cursor 6 1
+keys ][
+
+case m0998
+use b3
+cursor 0 14
+keys 2][
+
+case m0999
+use b3
+cursor 5 3
+keys 2][
+
+case m1000
+use b3
+cursor 0 31
+keys [(
+
+case m1001
+use b3
+cursor 4 4
+keys [(
+
+case m1002
+use b3
+cursor 5 7
+keys [(
+
+case m1003
+use b3
+cursor 1 21
+keys 2[(
+
+case m1004
+use b3
+cursor 7 3
+keys 2[(
+
+case m1005
+use b3
+cursor 0 14
+keys [{
+
+case m1006
+use b3
+cursor 2 0
+keys [{
+
+case m1007
+use b3
+cursor 5 3
+keys [{
+
+case m1008
+use b3
+cursor 0 0
+keys 2[{
+
+case m1009
+use b3
+cursor 4 17
+keys 2[{
+
+case m1010
+use b3
+cursor 0 14
+keys ])
+
+case m1011
+use b3
+cursor 2 0
+keys ])
+
+case m1012
+use b3
+cursor 5 3
+keys ])
+
+case m1013
+use b3
+cursor 0 0
+keys 2])
+
+case m1014
+use b3
+cursor 4 17
+keys 2])
+
+case m1015
+use b3
+cursor 0 14
+keys ]}
+
+case m1016
+use b3
+cursor 2 0
+keys ]}
+
+case m1017
+use b3
+cursor 5 3
+keys ]}
+
+case m1018
+use b3
+cursor 1 8
+keys 2]}
+
+case m1019
+use b3
+cursor 6 1
+keys 2]}
+
+case m1020
+use b3
+cursor 0 9
+keys <Left>
+
+case m1021
+use b3
+cursor 7 3
+keys <Left>
+
+case m1022
+use b3
+cursor 4 17
+keys <Right>
+
+case m1023
+use b3
+cursor 4 4
+keys <Up>
+
+case m1024
+use b3
+cursor 0 14
+keys <Down>
+
+case m1025
+use b3
+cursor 5 7
+keys <Home>
+
+case m1026
+use b3
+cursor 1 21
+keys <End>
+
+case m1027
+use b3
+cursor 1 8
+keys <S-Right>
+
+case m1028
+use b3
+cursor 0 0
+keys <C-Right>
+
+case m1029
+use b3
+cursor 6 1
+keys <C-Right>
+
+case m1030
+use b3
+cursor 5 0
+keys <S-Left>
+
+case m1031
+use b3
+cursor 1 21
+keys <C-Left>
+
+case m1032
+use b3
+cursor 0 31
+keys <C-Home>
+
+case m1033
+use b3
+cursor 2 0
+keys g<Home>
+
+case m1034
+use b3
+cursor 0 0
+keys g<End>
+
+case m1035
+use b3
+cursor 6 1
+keys g<End>
+
+case m1036
+use b3
+cursor 0 14
+keys g<Up>
+
+case m1037
+use b3
+cursor 5 0
+keys g<Down>
+
+case m1038
+use b3
+cursor 0 14
+keys <C-h>
+
+case m1039
+use b3
+cursor 1 8
+keys <C-j>
+
+case m1040
+use b3
+cursor 4 17
+keys <C-n>
+
+case m1041
+use b3
+cursor 5 3
+keys <C-p>
+
+case m1042
+use b3
+cursor 4 4
+keys fa
+
+case m1043
+use b3
+cursor 4 4
+keys Fa
+
+case m1044
+use b3
+cursor 1 21
+keys ta
+
+case m1045
+use b3
+cursor 7 3
+keys ta
+
+case m1046
+use b3
+cursor 1 21
+keys Ta
+
+case m1047
+use b3
+cursor 7 3
+keys Ta
+
+case m1048
+use b3
+cursor 1 8
+keys f<Space>
+
+case m1049
+use b3
+cursor 6 1
+keys f<Space>
+
+case m1050
+use b3
+cursor 1 8
+keys f.
+
+case m1051
+use b3
+cursor 6 1
+keys f.
+
+case m1052
+use b3
+cursor 1 21
+keys t)
+
+case m1053
+use b3
+cursor 7 3
+keys t)
+
+case m1054
+use b3
+cursor 2 0
+keys F(
+
+case m1055
+use b3
+cursor 0 9
+keys 2fa
+
+case m1056
+use b3
+cursor 5 0
+keys 2fa
+
+case m1057
+use b3
+cursor 0 14
+keys fa;
+
+case m1058
+use b3
+cursor 5 3
+keys fa;
+
+case m1059
+use b3
+cursor 0 31
+keys fa,
+
+case m1060
+use b3
+cursor 5 7
+keys fa,
+
+case m1061
+use b3
+cursor 0 0
+keys ta;
+
+case m1062
+use b3
+cursor 4 17
+keys ta;
+
+case m1063
+use b3
+cursor 0 0
+keys Ta;
+
+case m1064
+use b3
+cursor 4 17
+keys Ta;
+
+case m1065
+use b3
+cursor 0 9
+keys ta,
+
+case m1066
+use b3
+cursor 5 0
+keys ta,
+
+case m1067
+use b3
+cursor 1 8
+keys fa2;
+
+case m1068
+use b3
+cursor 6 1
+keys fa2;
+
+case m1069
+use b3
+cursor 0 0
+keys fz
+
+case m1070
+use b3
+cursor 4 17
+keys fz
+
+case m1071
+use b3
+cursor 4 4
+keys f中
+
+case m1072
+use b3
+cursor 0 9
+keys t。
+
+case m1073
+use b3
+cursor 5 0
+keys t。
+
+case m1074
+use b3
+cursor 1 8
+keys jj
+
+case m1075
+use b3
+cursor 6 1
+keys jj
+
+case m1076
+use b3
+cursor 1 21
+keys jk
+
+case m1077
+use b3
+cursor 7 3
+keys jk
+
+case m1078
+use b3
+cursor 2 0
+keys $j
+
+case m1079
+use b3
+cursor 0 0
+keys $jj
+
+case m1080
+use b3
+cursor 4 17
+keys $jj
+
+case m1081
+use b3
+cursor 0 14
+keys $kk
+
+case m1082
+use b3
+cursor 5 3
+keys $kk
+
+case m1083
+use b3
+cursor 0 9
+keys 3|j
+
+case m1084
+use b3
+cursor 5 0
+keys 3|j
+
+case m1085
+use b3
+cursor 0 14
+keys lljjkk
+
+case m1086
+use b3
+cursor 5 3
+keys lljjkk
+
+case m1087
+use b3
+cursor 2 0
+keys gmj
+
+case m1088
+use b3
+cursor 0 0
+keys g_j
+
+case m1089
+use b3
+cursor 4 17
+keys g_j
+
+case m1090
+use b3
+cursor 2 0
+keys $hj
+
+case m1091
+use b3
+cursor 0 14
+keys 3G
+
+case m1092
+use b3
+cursor 0 0
+keys 1G
+
+case m1093
+use b3
+cursor 6 1
+keys 1G
+
+case m1094
+use b3
+cursor 1 21
+keys 99G
+
+case m1095
+use b3
+cursor 1 21
+keys 3gg
+
+case m1096
+use b3
+cursor 2 0
+keys 50%
+
+case m1097
+use b3
+cursor 0 14
+keys 100%
+
+case m1098
+use b3
+cursor 0 14
+keys 1%
+
+case m1099
+use b3
+cursor 0 31
+keys 101%
+
+case m1100
+use b3
+cursor 4 17
+keys 4|
+
+case m1101
+use b3
+cursor 4 4
+keys 30|
+
+case m1102
+use b3
+cursor 5 3
+keys 99|
+
+case m1103
+use b3
+cursor 0 14
+keys 2H
+
+case m1104
+use b3
+cursor 2 0
+keys 2L
+
+case m1105
+use b3
+cursor 2 0
+keys 99H
+
+case m1106
+use b3
+cursor 0 14
+keys 3w
+
+case m1107
+use b3
+cursor 1 8
+keys 5w
+
+case m1108
+use b3
+cursor 1 21
+keys 99w
+
+case m1109
+use b3
+cursor 1 21
+keys 3b
+
+case m1110
+use b3
+cursor 4 17
+keys 99b
+
+case m1111
+use b3
+cursor 4 17
+keys 3e
+
+case m1112
+use b3
+cursor 0 31
+keys 3ge
+
+case m1113
+use b3
+cursor 0 14
+keys 99h
+
+case m1114
+use b3
+cursor 2 0
+keys 99l
+
+case m1115
+use b3
+cursor 1 21
+keys 3<Space>
+
+case m1116
+use b3
+cursor 4 17
+keys 99<Space>
+
+case m1117
+use b3
+cursor 5 3
+keys 3<BS>
+
+case m1118
+use b3
+cursor 0 9
+keys 99<BS>
+
+case m1119
+use b3
+cursor 7 3
+keys 99<BS>
+
+case m1120
+use b3
+cursor 0 9
+keys 3j
+
+case m1121
+use b3
+cursor 7 3
+keys 3j
+
+case m1122
+use b3
+cursor 1 8
+keys 99j
+
+case m1123
+use b3
+cursor 0 14
+keys 3k
+
+case m1124
+use b3
+cursor 1 21
+keys 99k
+
+case m1125
+use b3
+cursor 5 3
+keys 3+
+
+case m1126
+use b3
+cursor 0 0
+keys 3-
+
+case m1127
+use b3
+cursor 6 1
+keys 3-
+
+case m1128
+use b3
+cursor 0 14
+keys 3_
+
+case m1129
+use b3
+cursor 0 14
+keys 2$
+
+case m1130
+use b3
+cursor 0 31
+keys 3$
+
+case m1131
+use b3
+cursor 2 0
+keys 99$
+
+case m1132
+use b3
+cursor 4 17
+keys 3)
+
+case m1133
+use b3
+cursor 4 4
+keys 3(
+
+case m1134
+use b3
+cursor 4 17
+keys 3}
+
+case m1135
+use b3
+cursor 2 0
+keys 3{
+
+case m1136
+use b3
+cursor 4 17
+keys 2g_
+
+case m1137
+use b3
+cursor 0 31
+keys 2%
+
+case m1138
+text "x"
+cursor 0 0
+keys h
+
+case m1139
+text "x"
+cursor 0 0
+keys l
+
+case m1140
+text "x"
+cursor 0 0
+keys <BS>
+
+case m1141
+text "x"
+cursor 0 0
+keys <Space>
+
+case m1142
+text "x"
+cursor 0 0
+keys 0
+
+case m1143
+text "x"
+cursor 0 0
+keys ^
+
+case m1144
+text "x"
+cursor 0 0
+keys $
+
+case m1145
+text "x"
+cursor 0 0
+keys g_
+
+case m1146
+text "x"
+cursor 0 0
+keys g0
+
+case m1147
+text "x"
+cursor 0 0
+keys g^
+
+case m1148
+text "x"
+cursor 0 0
+keys g$
+
+case m1149
+text "x"
+cursor 0 0
+keys gm
+
+case m1150
+text "x"
+cursor 0 0
+keys |
+
+case m1151
+text "x"
+cursor 0 0
+keys k
+
+case m1152
+text "x"
+cursor 0 0
+keys j
+
+case m1153
+text "x"
+cursor 0 0
+keys gk
+
+case m1154
+text "x"
+cursor 0 0
+keys gj
+
+case m1155
+text "x"
+cursor 0 0
+keys -
+
+case m1156
+text "x"
+cursor 0 0
+keys +
+
+case m1157
+text "x"
+cursor 0 0
+keys <CR>
+
+case m1158
+text "x"
+cursor 0 0
+keys _
+
+case m1159
+text "x"
+cursor 0 0
+keys gg
+
+case m1160
+text "x"
+cursor 0 0
+keys G
+
+case m1161
+text "x"
+cursor 0 0
+keys <C-End>
+
+case m1162
+text "x"
+cursor 0 0
+keys %
+
+case m1163
+text "x"
+cursor 0 0
+keys H
+
+case m1164
+text "x"
+cursor 0 0
+keys M
+
+case m1165
+text "x"
+cursor 0 0
+keys L
+
+case m1166
+text "x"
+cursor 0 0
+keys w
+
+case m1167
+text "x"
+cursor 0 0
+keys W
+
+case m1168
+text "x"
+cursor 0 0
+keys b
+
+case m1169
+text "x"
+cursor 0 0
+keys B
+
+case m1170
+text "x"
+cursor 0 0
+keys e
+
+case m1171
+text "x"
+cursor 0 0
+keys E
+
+case m1172
+text "x"
+cursor 0 0
+keys ge
+
+case m1173
+text "x"
+cursor 0 0
+keys gE
+
+case m1174
+text "x"
+cursor 0 0
+keys (
+
+case m1175
+text "x"
+cursor 0 0
+keys )
+
+case m1176
+text "x"
+cursor 0 0
+keys {
+
+case m1177
+text "x"
+cursor 0 0
+keys }
+
+case m1178
+text "x"
+cursor 0 0
+keys [[
+
+case m1179
+text "x"
+cursor 0 0
+keys ]]
+
+case m1180
+text "x"
+cursor 0 0
+keys []
+
+case m1181
+text "x"
+cursor 0 0
+keys ][
+
+case m1182
+text "x"
+cursor 0 0
+keys [(
+
+case m1183
+text "x"
+cursor 0 0
+keys [{
+
+case m1184
+text "x"
+cursor 0 0
+keys ])
+
+case m1185
+text "x"
+cursor 0 0
+keys ]}
+
+case m1186
+text ""
+cursor 0 0
+keys h
+
+case m1187
+text ""
+cursor 0 0
+keys l
+
+case m1188
+text ""
+cursor 0 0
+keys <BS>
+
+case m1189
+text ""
+cursor 0 0
+keys <Space>
+
+case m1190
+text ""
+cursor 0 0
+keys 0
+
+case m1191
+text ""
+cursor 0 0
+keys ^
+
+case m1192
+text ""
+cursor 0 0
+keys $
+
+case m1193
+text ""
+cursor 0 0
+keys g_
+
+case m1194
+text ""
+cursor 0 0
+keys g0
+
+case m1195
+text ""
+cursor 0 0
+keys g^
+
+case m1196
+text ""
+cursor 0 0
+keys g$
+
+case m1197
+text ""
+cursor 0 0
+keys gm
+
+case m1198
+text ""
+cursor 0 0
+keys |
+
+case m1199
+text ""
+cursor 0 0
+keys k
+
+case m1200
+text ""
+cursor 0 0
+keys j
+
+case m1201
+text ""
+cursor 0 0
+keys gk
+
+case m1202
+text ""
+cursor 0 0
+keys gj
+
+case m1203
+text ""
+cursor 0 0
+keys -
+
+case m1204
+text ""
+cursor 0 0
+keys +
+
+case m1205
+text ""
+cursor 0 0
+keys <CR>
+
+case m1206
+text ""
+cursor 0 0
+keys _
+
+case m1207
+text ""
+cursor 0 0
+keys gg
+
+case m1208
+text ""
+cursor 0 0
+keys G
+
+case m1209
+text ""
+cursor 0 0
+keys <C-End>
+
+case m1210
+text ""
+cursor 0 0
+keys %
+
+case m1211
+text ""
+cursor 0 0
+keys H
+
+case m1212
+text ""
+cursor 0 0
+keys M
+
+case m1213
+text ""
+cursor 0 0
+keys L
+
+case m1214
+text ""
+cursor 0 0
+keys w
+
+case m1215
+text ""
+cursor 0 0
+keys W
+
+case m1216
+text ""
+cursor 0 0
+keys b
+
+case m1217
+text ""
+cursor 0 0
+keys B
+
+case m1218
+text ""
+cursor 0 0
+keys e
+
+case m1219
+text ""
+cursor 0 0
+keys E
+
+case m1220
+text ""
+cursor 0 0
+keys ge
+
+case m1221
+text ""
+cursor 0 0
+keys gE
+
+case m1222
+text ""
+cursor 0 0
+keys (
+
+case m1223
+text ""
+cursor 0 0
+keys )
+
+case m1224
+text ""
+cursor 0 0
+keys {
+
+case m1225
+text ""
+cursor 0 0
+keys }
+
+case m1226
+text ""
+cursor 0 0
+keys [[
+
+case m1227
+text ""
+cursor 0 0
+keys ]]
+
+case m1228
+text ""
+cursor 0 0
+keys []
+
+case m1229
+text ""
+cursor 0 0
+keys ][
+
+case m1230
+text ""
+cursor 0 0
+keys [(
+
+case m1231
+text ""
+cursor 0 0
+keys [{
+
+case m1232
+text ""
+cursor 0 0
+keys ])
+
+case m1233
+text ""
+cursor 0 0
+keys ]}
+
+case m1234
+use b4
+cursor 0 4
+keys h
+
+case m1235
+use b4
+cursor 1 0
+keys h
+
+case m1236
+use b4
+cursor 0 4
+keys l
+
+case m1237
+use b4
+cursor 1 0
+keys l
+
+case m1238
+use b4
+cursor 0 4
+keys <BS>
+
+case m1239
+use b4
+cursor 1 0
+keys <BS>
+
+case m1240
+use b4
+cursor 0 4
+keys <Space>
+
+case m1241
+use b4
+cursor 1 0
+keys <Space>
+
+case m1242
+use b4
+cursor 0 4
+keys 0
+
+case m1243
+use b4
+cursor 1 0
+keys 0
+
+case m1244
+use b4
+cursor 0 4
+keys ^
+
+case m1245
+use b4
+cursor 1 0
+keys ^
+
+case m1246
+use b4
+cursor 0 4
+keys $
+
+case m1247
+use b4
+cursor 1 0
+keys $
+
+case m1248
+use b4
+cursor 0 4
+keys g_
+
+case m1249
+use b4
+cursor 1 0
+keys g_
+
+case m1250
+use b4
+cursor 0 4
+keys g0
+
+case m1251
+use b4
+cursor 1 0
+keys g0
+
+case m1252
+use b4
+cursor 0 4
+keys g^
+
+case m1253
+use b4
+cursor 1 0
+keys g^
+
+case m1254
+use b4
+cursor 0 4
+keys g$
+
+case m1255
+use b4
+cursor 1 0
+keys g$
+
+case m1256
+use b4
+cursor 0 4
+keys gm
+
+case m1257
+use b4
+cursor 1 0
+keys gm
+
+case m1258
+use b4
+cursor 0 4
+keys |
+
+case m1259
+use b4
+cursor 1 0
+keys |
+
+case m1260
+use b4
+cursor 0 4
+keys k
+
+case m1261
+use b4
+cursor 1 0
+keys k
+
+case m1262
+use b4
+cursor 0 4
+keys j
+
+case m1263
+use b4
+cursor 1 0
+keys j
+
+case m1264
+use b4
+cursor 0 4
+keys gk
+
+case m1265
+use b4
+cursor 1 0
+keys gk
+
+case m1266
+use b4
+cursor 0 4
+keys gj
+
+case m1267
+use b4
+cursor 1 0
+keys gj
+
+case m1268
+use b4
+cursor 0 4
+keys -
+
+case m1269
+use b4
+cursor 1 0
+keys -
+
+case m1270
+use b4
+cursor 0 4
+keys +
+
+case m1271
+use b4
+cursor 1 0
+keys +
+
+case m1272
+use b4
+cursor 0 4
+keys <CR>
+
+case m1273
+use b4
+cursor 1 0
+keys <CR>
+
+case m1274
+use b4
+cursor 0 4
+keys _
+
+case m1275
+use b4
+cursor 1 0
+keys _
+
+case m1276
+use b4
+cursor 0 4
+keys gg
+
+case m1277
+use b4
+cursor 1 0
+keys gg
+
+case m1278
+use b4
+cursor 0 4
+keys G
+
+case m1279
+use b4
+cursor 1 0
+keys G
+
+case m1280
+use b4
+cursor 0 4
+keys <C-End>
+
+case m1281
+use b4
+cursor 1 0
+keys <C-End>
+
+case m1282
+use b4
+cursor 0 4
+keys %
+
+case m1283
+use b4
+cursor 1 0
+keys %
+
+case m1284
+use b4
+cursor 0 4
+keys H
+
+case m1285
+use b4
+cursor 1 0
+keys H
+
+case m1286
+use b4
+cursor 0 4
+keys M
+
+case m1287
+use b4
+cursor 1 0
+keys M
+
+case m1288
+use b4
+cursor 0 4
+keys L
+
+case m1289
+use b4
+cursor 1 0
+keys L
+
+case m1290
+use b4
+cursor 0 4
+keys w
+
+case m1291
+use b4
+cursor 1 0
+keys w
+
+case m1292
+use b4
+cursor 0 4
+keys W
+
+case m1293
+use b4
+cursor 1 0
+keys W
+
+case m1294
+use b4
+cursor 0 4
+keys b
+
+case m1295
+use b4
+cursor 1 0
+keys b
+
+case m1296
+use b4
+cursor 0 4
+keys B
+
+case m1297
+use b4
+cursor 1 0
+keys B
+
+case m1298
+use b4
+cursor 0 4
+keys e
+
+case m1299
+use b4
+cursor 1 0
+keys e
+
+case m1300
+use b4
+cursor 0 4
+keys E
+
+case m1301
+use b4
+cursor 1 0
+keys E
+
+case m1302
+use b4
+cursor 0 4
+keys ge
+
+case m1303
+use b4
+cursor 1 0
+keys ge
+
+case m1304
+use b4
+cursor 0 4
+keys gE
+
+case m1305
+use b4
+cursor 1 0
+keys gE
+
+case m1306
+use b4
+cursor 0 4
+keys (
+
+case m1307
+use b4
+cursor 1 0
+keys (
+
+case m1308
+use b4
+cursor 0 4
+keys )
+
+case m1309
+use b4
+cursor 1 0
+keys )
+
+case m1310
+use b4
+cursor 0 4
+keys {
+
+case m1311
+use b4
+cursor 1 0
+keys {
+
+case m1312
+use b4
+cursor 0 4
+keys }
+
+case m1313
+use b4
+cursor 1 0
+keys }
+
+case m1314
+use b4
+cursor 0 4
+keys [[
+
+case m1315
+use b4
+cursor 1 0
+keys [[
+
+case m1316
+use b4
+cursor 0 4
+keys ]]
+
+case m1317
+use b4
+cursor 1 0
+keys ]]
+
+case m1318
+use b4
+cursor 0 4
+keys []
+
+case m1319
+use b4
+cursor 1 0
+keys []
+
+case m1320
+use b4
+cursor 0 4
+keys ][
+
+case m1321
+use b4
+cursor 1 0
+keys ][
+
+case m1322
+use b4
+cursor 0 4
+keys [(
+
+case m1323
+use b4
+cursor 1 0
+keys [(
+
+case m1324
+use b4
+cursor 0 4
+keys [{
+
+case m1325
+use b4
+cursor 1 0
+keys [{
+
+case m1326
+use b4
+cursor 0 4
+keys ])
+
+case m1327
+use b4
+cursor 1 0
+keys ])
+
+case m1328
+use b4
+cursor 0 4
+keys ]}
+
+case m1329
+use b4
+cursor 1 0
+keys ]}

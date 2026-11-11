@@ -1,0 +1,2424 @@
+# 由 `cargo xtask vim-fixtures` 生成，不手工修改。标记、跳转历史与修改列表。
+
+buffer b1
+text "foo bar.baz  qux_1 (x) end"
+text "   lead, tail;  "
+text ""
+text "中文 text，全角。next"
+text "a-b a1b2 #$% éx"
+
+buffer b2
+text "fn main() {"
+text "    call(a, [b, c], \"s)\");"
+text "    if (x) { y('(') }"
+text "}"
+text ""
+text "{"
+text "  inner } {"
+text "}"
+text "tail"
+
+buffer b3
+text "First one.  Second one! Third?  "
+text "Still (third.) Fourth."
+text ""
+text ""
+text "New para here. End"
+text "\tTabbed\tline here"
+text "   "
+text "last"
+
+case k0001
+use b1
+cursor 0 11
+keys majj`a
+
+case k0002
+use b1
+cursor 3 9
+keys majj`a
+
+case k0003
+use b1
+cursor 0 7
+keys majj'a
+
+case k0004
+use b1
+cursor 3 1
+keys majj'a
+
+case k0005
+use b1
+cursor 1 0
+keys ma3l`a
+
+case k0006
+use b1
+cursor 4 15
+keys ma3l`a
+
+case k0007
+use b1
+cursor 0 11
+keys ma$`a
+
+case k0008
+use b1
+cursor 3 9
+keys ma$`a
+
+case k0009
+use b1
+cursor 1 0
+keys maG`a
+
+case k0010
+use b1
+cursor 4 15
+keys maG`a
+
+case k0011
+use b1
+cursor 1 0
+keys mbgg'b
+
+case k0012
+use b1
+cursor 4 15
+keys mbgg'b
+
+case k0013
+use b1
+cursor 0 5
+keys maGd'a
+
+case k0014
+use b1
+cursor 2 0
+keys maGd'a
+
+case k0015
+use b1
+cursor 1 3
+keys majjd`a
+
+case k0016
+use b1
+cursor 1 0
+keys mawwy`a
+
+case k0017
+use b1
+cursor 4 15
+keys mawwy`a
+
+case k0018
+use b1
+cursor 0 25
+keys maggy'a
+
+case k0019
+use b1
+cursor 4 13
+keys maggy'a
+
+case k0020
+use b1
+cursor 0 25
+keys mAG'A
+
+case k0021
+use b1
+cursor 4 13
+keys mAG'A
+
+case k0022
+use b1
+cursor 0 25
+keys mAgg`A
+
+case k0023
+use b1
+cursor 4 13
+keys mAgg`A
+
+case k0024
+use b1
+cursor 0 0
+keys 'a
+
+case k0025
+use b1
+cursor 1 15
+keys 'a
+
+case k0026
+use b1
+cursor 0 7
+keys `z
+
+case k0027
+use b1
+cursor 3 1
+keys `z
+
+case k0028
+use b1
+cursor 0 20
+keys d'a
+
+case k0029
+use b1
+cursor 4 0
+keys d'a
+
+case k0030
+use b1
+cursor 1 3
+keys G``
+
+case k0031
+use b1
+cursor 0 25
+keys G''
+
+case k0032
+use b1
+cursor 4 13
+keys G''
+
+case k0033
+use b1
+cursor 0 25
+keys Ggg``
+
+case k0034
+use b1
+cursor 4 13
+keys Ggg``
+
+case k0035
+use b1
+cursor 0 11
+keys Ggg''
+
+case k0036
+use b1
+cursor 3 9
+keys Ggg''
+
+case k0037
+use b1
+cursor 1 3
+keys G````
+
+case k0038
+use b1
+cursor 0 11
+keys G''''
+
+case k0039
+use b1
+cursor 3 9
+keys G''''
+
+case k0040
+use b1
+cursor 0 5
+keys jjG``kk``
+
+case k0041
+use b1
+cursor 2 0
+keys jjG``kk``
+
+case k0042
+use b1
+cursor 0 11
+keys G``d``
+
+case k0043
+use b1
+cursor 3 9
+keys G``d``
+
+case k0044
+use b1
+cursor 1 0
+keys Gy''
+
+case k0045
+use b1
+cursor 4 15
+keys Gy''
+
+case k0046
+use b1
+cursor 0 25
+keys }``
+
+case k0047
+use b1
+cursor 4 13
+keys }``
+
+case k0048
+use b1
+cursor 1 3
+keys )''
+
+case k0049
+use b1
+cursor 0 25
+keys %``
+
+case k0050
+use b1
+cursor 4 13
+keys %``
+
+case k0051
+use b1
+cursor 0 20
+keys L``
+
+case k0052
+use b1
+cursor 4 0
+keys L``
+
+case k0053
+use b1
+cursor 1 0
+keys 3G5G``
+
+case k0054
+use b1
+cursor 4 15
+keys 3G5G``
+
+case k0055
+use b1
+cursor 0 20
+keys jj``
+
+case k0056
+use b1
+cursor 4 0
+keys jj``
+
+case k0057
+use b1
+cursor 0 11
+keys m'G``
+
+case k0058
+use b1
+cursor 3 9
+keys m'G``
+
+case k0059
+use b1
+cursor 0 7
+keys m`G''
+
+case k0060
+use b1
+cursor 3 1
+keys m`G''
+
+case k0061
+use b1
+cursor 1 0
+keys maGdd`a
+
+case k0062
+use b1
+cursor 4 15
+keys maGdd`a
+
+case k0063
+use b1
+cursor 0 20
+keys maggdd'a
+
+case k0064
+use b1
+cursor 4 0
+keys maggdd'a
+
+case k0065
+use b1
+cursor 0 5
+keys majdd`a
+
+case k0066
+use b1
+cursor 2 0
+keys majdd`a
+
+case k0067
+use b1
+cursor 0 0
+keys maggOx<Esc>G`a
+
+case k0068
+use b1
+cursor 1 15
+keys maggOx<Esc>G`a
+
+case k0069
+use b1
+cursor 1 3
+keys yw$`[
+
+case k0070
+use b1
+cursor 0 25
+keys yw0`]
+
+case k0071
+use b1
+cursor 4 13
+keys yw0`]
+
+case k0072
+use b1
+cursor 0 7
+keys y$0`]
+
+case k0073
+use b1
+cursor 3 1
+keys y$0`]
+
+case k0074
+use b1
+cursor 0 0
+keys yj`]
+
+case k0075
+use b1
+cursor 1 15
+keys yj`]
+
+case k0076
+use b1
+cursor 0 20
+keys yyG`[
+
+case k0077
+use b1
+cursor 4 0
+keys yyG`[
+
+case k0078
+use b1
+cursor 1 0
+keys yjG']
+
+case k0079
+use b1
+cursor 4 15
+keys yjG']
+
+case k0080
+use b1
+cursor 1 3
+keys ywP$`[
+
+case k0081
+use b1
+cursor 0 25
+keys ywP0`]
+
+case k0082
+use b1
+cursor 4 13
+keys ywP0`]
+
+case k0083
+use b1
+cursor 0 25
+keys yyp`[
+
+case k0084
+use b1
+cursor 4 13
+keys yyp`[
+
+case k0085
+use b1
+cursor 1 3
+keys yyP`]
+
+case k0086
+use b1
+cursor 0 11
+keys vjy`<lt>
+
+case k0087
+use b1
+cursor 3 9
+keys vjy`<lt>
+
+case k0088
+use b1
+cursor 1 3
+keys vjy`>
+
+case k0089
+use b1
+cursor 0 20
+keys vj<Esc>gg'<lt>
+
+case k0090
+use b1
+cursor 4 0
+keys vj<Esc>gg'<lt>
+
+case k0091
+use b1
+cursor 0 0
+keys vj<Esc>gg'>
+
+case k0092
+use b1
+cursor 1 15
+keys vj<Esc>gg'>
+
+case k0093
+use b1
+cursor 1 3
+keys Vjy`>
+
+case k0094
+use b1
+cursor 1 3
+keys Vj<Esc>`<lt>
+
+case k0095
+use b1
+cursor 0 20
+keys vlohy`<lt>
+
+case k0096
+use b1
+cursor 4 0
+keys vlohy`<lt>
+
+case k0097
+use b1
+cursor 0 11
+keys m<lt>jjm>gv
+
+case k0098
+use b1
+cursor 3 9
+keys m<lt>jjm>gv
+
+case k0099
+use b1
+cursor 0 25
+keys iab<Esc>gg`^
+
+case k0100
+use b1
+cursor 4 13
+keys iab<Esc>gg`^
+
+case k0101
+use b1
+cursor 0 25
+keys Aab<Esc>gg`^
+
+case k0102
+use b1
+cursor 4 13
+keys Aab<Esc>gg`^
+
+case k0103
+use b1
+cursor 0 20
+keys ia<Esc>G`.
+
+case k0104
+use b1
+cursor 4 0
+keys ia<Esc>G`.
+
+case k0105
+use b1
+cursor 0 25
+keys xG`.
+
+case k0106
+use b1
+cursor 4 13
+keys xG`.
+
+case k0107
+use b1
+cursor 1 3
+keys xjxG`.
+
+case k0108
+use b1
+cursor 0 20
+keys ddG'.
+
+case k0109
+use b1
+cursor 4 0
+keys ddG'.
+
+case k0110
+use b1
+cursor 0 0
+keys rQG`.
+
+case k0111
+use b1
+cursor 1 15
+keys rQG`.
+
+case k0112
+use b1
+cursor 0 7
+keys iab<Esc>gg`[
+
+case k0113
+use b1
+cursor 3 1
+keys iab<Esc>gg`[
+
+case k0114
+use b1
+cursor 0 20
+keys iab<Esc>gg`]
+
+case k0115
+use b1
+cursor 4 0
+keys iab<Esc>gg`]
+
+case k0116
+use b1
+cursor 0 20
+keys xjg;
+
+case k0117
+use b1
+cursor 4 0
+keys xjg;
+
+case k0118
+use b1
+cursor 0 20
+keys xjxg;
+
+case k0119
+use b1
+cursor 4 0
+keys xjxg;
+
+case k0120
+use b1
+cursor 1 0
+keys xjxg;g;
+
+case k0121
+use b1
+cursor 4 15
+keys xjxg;g;
+
+case k0122
+use b1
+cursor 0 5
+keys xjxg;g;g,
+
+case k0123
+use b1
+cursor 2 0
+keys xjxg;g;g,
+
+case k0124
+use b1
+cursor 0 25
+keys xjxG2g;
+
+case k0125
+use b1
+cursor 4 13
+keys xjxG2g;
+
+case k0126
+use b1
+cursor 1 0
+keys xjxGg;g,
+
+case k0127
+use b1
+cursor 4 15
+keys xjxGg;g,
+
+case k0128
+use b1
+cursor 0 7
+keys g;
+
+case k0129
+use b1
+cursor 3 1
+keys g;
+
+case k0130
+use b1
+cursor 0 11
+keys g,
+
+case k0131
+use b1
+cursor 3 9
+keys g,
+
+case k0132
+use b1
+cursor 0 11
+keys xg,
+
+case k0133
+use b1
+cursor 3 9
+keys xg,
+
+case k0134
+use b1
+cursor 0 0
+keys ia<Esc>Gg;
+
+case k0135
+use b1
+cursor 1 15
+keys ia<Esc>Gg;
+
+case k0136
+use b1
+cursor 0 5
+keys xGxggg;g;
+
+case k0137
+use b1
+cursor 2 0
+keys xGxggg;g;
+
+case k0138
+use b1
+cursor 0 0
+keys G<C-o>
+
+case k0139
+use b1
+cursor 1 15
+keys G<C-o>
+
+case k0140
+use b1
+cursor 1 0
+keys Ggg<C-o>
+
+case k0141
+use b1
+cursor 4 15
+keys Ggg<C-o>
+
+case k0142
+use b1
+cursor 1 3
+keys Ggg<C-o><C-o>
+
+case k0143
+use b1
+cursor 0 5
+keys G<C-o><Tab>
+
+case k0144
+use b1
+cursor 2 0
+keys G<C-o><Tab>
+
+case k0145
+use b1
+cursor 0 0
+keys Ggg<C-o><C-o><Tab>
+
+case k0146
+use b1
+cursor 1 15
+keys Ggg<C-o><C-o><Tab>
+
+case k0147
+use b1
+cursor 0 11
+keys }}<C-o>
+
+case k0148
+use b1
+cursor 3 9
+keys }}<C-o>
+
+case k0149
+use b1
+cursor 0 5
+keys G<C-o><C-o>
+
+case k0150
+use b1
+cursor 2 0
+keys G<C-o><C-o>
+
+case k0151
+use b1
+cursor 1 3
+keys 3G5G<C-o>
+
+case k0152
+use b1
+cursor 0 0
+keys 3G5G<C-o><C-o>
+
+case k0153
+use b1
+cursor 1 15
+keys 3G5G<C-o><C-o>
+
+case k0154
+use b1
+cursor 0 5
+keys 3G5G2<C-o>
+
+case k0155
+use b1
+cursor 2 0
+keys 3G5G2<C-o>
+
+case k0156
+use b1
+cursor 0 7
+keys 3G5G<C-o><C-o><Tab><Tab>
+
+case k0157
+use b1
+cursor 3 1
+keys 3G5G<C-o><C-o><Tab><Tab>
+
+case k0158
+use b1
+cursor 0 0
+keys G<C-o>``
+
+case k0159
+use b1
+cursor 1 15
+keys G<C-o>``
+
+case k0160
+use b1
+cursor 0 5
+keys <C-o>
+
+case k0161
+use b1
+cursor 2 0
+keys <C-o>
+
+case k0162
+use b1
+cursor 0 5
+keys <Tab>
+
+case k0163
+use b1
+cursor 2 0
+keys <Tab>
+
+case k0164
+use b1
+cursor 0 11
+keys *<C-o>
+
+case k0165
+use b1
+cursor 3 9
+keys *<C-o>
+
+case k0166
+use b1
+cursor 0 0
+keys Gx<C-o>
+
+case k0167
+use b1
+cursor 1 15
+keys Gx<C-o>
+
+case k0168
+use b2
+cursor 1 4
+keys majj`a
+
+case k0169
+use b2
+cursor 6 4
+keys majj`a
+
+case k0170
+use b2
+cursor 0 10
+keys majj'a
+
+case k0171
+use b2
+cursor 4 0
+keys majj'a
+
+case k0172
+use b2
+cursor 1 21
+keys ma3l`a
+
+case k0173
+use b2
+cursor 1 4
+keys ma$`a
+
+case k0174
+use b2
+cursor 6 4
+keys ma$`a
+
+case k0175
+use b2
+cursor 1 21
+keys maG`a
+
+case k0176
+use b2
+cursor 1 21
+keys mbgg'b
+
+case k0177
+use b2
+cursor 0 7
+keys maGd'a
+
+case k0178
+use b2
+cursor 3 0
+keys maGd'a
+
+case k0179
+use b2
+cursor 2 7
+keys majjd`a
+
+case k0180
+use b2
+cursor 1 21
+keys mawwy`a
+
+case k0181
+use b2
+cursor 1 13
+keys maggy'a
+
+case k0182
+use b2
+cursor 8 2
+keys maggy'a
+
+case k0183
+use b2
+cursor 1 13
+keys mAG'A
+
+case k0184
+use b2
+cursor 8 2
+keys mAG'A
+
+case k0185
+use b2
+cursor 1 13
+keys mAgg`A
+
+case k0186
+use b2
+cursor 8 2
+keys mAgg`A
+
+case k0187
+use b2
+cursor 0 0
+keys 'a
+
+case k0188
+use b2
+cursor 2 16
+keys 'a
+
+case k0189
+use b2
+cursor 0 10
+keys `z
+
+case k0190
+use b2
+cursor 4 0
+keys `z
+
+case k0191
+use b2
+cursor 1 8
+keys d'a
+
+case k0192
+use b2
+cursor 6 10
+keys d'a
+
+case k0193
+use b2
+cursor 2 7
+keys G``
+
+case k0194
+use b2
+cursor 1 13
+keys G''
+
+case k0195
+use b2
+cursor 8 2
+keys G''
+
+case k0196
+use b2
+cursor 1 13
+keys Ggg``
+
+case k0197
+use b2
+cursor 8 2
+keys Ggg``
+
+case k0198
+use b2
+cursor 1 4
+keys Ggg''
+
+case k0199
+use b2
+cursor 6 4
+keys Ggg''
+
+case k0200
+use b2
+cursor 2 7
+keys G````
+
+case k0201
+use b2
+cursor 1 4
+keys G''''
+
+case k0202
+use b2
+cursor 6 4
+keys G''''
+
+case k0203
+use b2
+cursor 0 7
+keys jjG``kk``
+
+case k0204
+use b2
+cursor 3 0
+keys jjG``kk``
+
+case k0205
+use b2
+cursor 1 4
+keys G``d``
+
+case k0206
+use b2
+cursor 6 4
+keys G``d``
+
+case k0207
+use b2
+cursor 1 21
+keys Gy''
+
+case k0208
+use b2
+cursor 1 13
+keys }``
+
+case k0209
+use b2
+cursor 8 2
+keys }``
+
+case k0210
+use b2
+cursor 2 7
+keys )''
+
+case k0211
+use b2
+cursor 1 13
+keys %``
+
+case k0212
+use b2
+cursor 8 2
+keys %``
+
+case k0213
+use b2
+cursor 1 8
+keys L``
+
+case k0214
+use b2
+cursor 6 10
+keys L``
+
+case k0215
+use b2
+cursor 1 21
+keys 3G5G``
+
+case k0216
+use b2
+cursor 1 8
+keys jj``
+
+case k0217
+use b2
+cursor 6 10
+keys jj``
+
+case k0218
+use b2
+cursor 1 4
+keys m'G``
+
+case k0219
+use b2
+cursor 6 4
+keys m'G``
+
+case k0220
+use b2
+cursor 0 10
+keys m`G''
+
+case k0221
+use b2
+cursor 4 0
+keys m`G''
+
+case k0222
+use b2
+cursor 1 21
+keys maGdd`a
+
+case k0223
+use b2
+cursor 1 8
+keys maggdd'a
+
+case k0224
+use b2
+cursor 6 10
+keys maggdd'a
+
+case k0225
+use b2
+cursor 0 7
+keys majdd`a
+
+case k0226
+use b2
+cursor 3 0
+keys majdd`a
+
+case k0227
+use b2
+cursor 0 0
+keys maggOx<Esc>G`a
+
+case k0228
+use b2
+cursor 2 16
+keys maggOx<Esc>G`a
+
+case k0229
+use b2
+cursor 2 7
+keys yw$`[
+
+case k0230
+use b2
+cursor 1 13
+keys yw0`]
+
+case k0231
+use b2
+cursor 8 2
+keys yw0`]
+
+case k0232
+use b2
+cursor 0 10
+keys y$0`]
+
+case k0233
+use b2
+cursor 4 0
+keys y$0`]
+
+case k0234
+use b2
+cursor 0 0
+keys yj`]
+
+case k0235
+use b2
+cursor 2 16
+keys yj`]
+
+case k0236
+use b2
+cursor 1 8
+keys yyG`[
+
+case k0237
+use b2
+cursor 6 10
+keys yyG`[
+
+case k0238
+use b2
+cursor 1 21
+keys yjG']
+
+case k0239
+use b2
+cursor 2 7
+keys ywP$`[
+
+case k0240
+use b2
+cursor 1 13
+keys ywP0`]
+
+case k0241
+use b2
+cursor 8 2
+keys ywP0`]
+
+case k0242
+use b2
+cursor 1 13
+keys yyp`[
+
+case k0243
+use b2
+cursor 8 2
+keys yyp`[
+
+case k0244
+use b2
+cursor 2 7
+keys yyP`]
+
+case k0245
+use b2
+cursor 1 4
+keys vjy`<lt>
+
+case k0246
+use b2
+cursor 6 4
+keys vjy`<lt>
+
+case k0247
+use b2
+cursor 2 7
+keys vjy`>
+
+case k0248
+use b2
+cursor 1 8
+keys vj<Esc>gg'<lt>
+
+case k0249
+use b2
+cursor 6 10
+keys vj<Esc>gg'<lt>
+
+case k0250
+use b2
+cursor 0 0
+keys vj<Esc>gg'>
+
+case k0251
+use b2
+cursor 2 16
+keys vj<Esc>gg'>
+
+case k0252
+use b2
+cursor 2 7
+keys Vjy`>
+
+case k0253
+use b2
+cursor 2 7
+keys Vj<Esc>`<lt>
+
+case k0254
+use b2
+cursor 1 8
+keys vlohy`<lt>
+
+case k0255
+use b2
+cursor 6 10
+keys vlohy`<lt>
+
+case k0256
+use b2
+cursor 1 4
+keys m<lt>jjm>gv
+
+case k0257
+use b2
+cursor 6 4
+keys m<lt>jjm>gv
+
+case k0258
+use b2
+cursor 1 13
+keys iab<Esc>gg`^
+
+case k0259
+use b2
+cursor 8 2
+keys iab<Esc>gg`^
+
+case k0260
+use b2
+cursor 1 13
+keys Aab<Esc>gg`^
+
+case k0261
+use b2
+cursor 8 2
+keys Aab<Esc>gg`^
+
+case k0262
+use b2
+cursor 1 8
+keys ia<Esc>G`.
+
+case k0263
+use b2
+cursor 6 10
+keys ia<Esc>G`.
+
+case k0264
+use b2
+cursor 1 13
+keys xG`.
+
+case k0265
+use b2
+cursor 8 2
+keys xG`.
+
+case k0266
+use b2
+cursor 2 7
+keys xjxG`.
+
+case k0267
+use b2
+cursor 1 8
+keys ddG'.
+
+case k0268
+use b2
+cursor 6 10
+keys ddG'.
+
+case k0269
+use b2
+cursor 0 0
+keys rQG`.
+
+case k0270
+use b2
+cursor 2 16
+keys rQG`.
+
+case k0271
+use b2
+cursor 0 10
+keys iab<Esc>gg`[
+
+case k0272
+use b2
+cursor 4 0
+keys iab<Esc>gg`[
+
+case k0273
+use b2
+cursor 1 8
+keys iab<Esc>gg`]
+
+case k0274
+use b2
+cursor 6 10
+keys iab<Esc>gg`]
+
+case k0275
+use b2
+cursor 1 8
+keys xjg;
+
+case k0276
+use b2
+cursor 6 10
+keys xjg;
+
+case k0277
+use b2
+cursor 1 8
+keys xjxg;
+
+case k0278
+use b2
+cursor 6 10
+keys xjxg;
+
+case k0279
+use b2
+cursor 1 21
+keys xjxg;g;
+
+case k0280
+use b2
+cursor 0 7
+keys xjxg;g;g,
+
+case k0281
+use b2
+cursor 3 0
+keys xjxg;g;g,
+
+case k0282
+use b2
+cursor 1 13
+keys xjxG2g;
+
+case k0283
+use b2
+cursor 8 2
+keys xjxG2g;
+
+case k0284
+use b2
+cursor 1 21
+keys xjxGg;g,
+
+case k0285
+use b2
+cursor 0 10
+keys g;
+
+case k0286
+use b2
+cursor 4 0
+keys g;
+
+case k0287
+use b2
+cursor 1 4
+keys g,
+
+case k0288
+use b2
+cursor 6 4
+keys g,
+
+case k0289
+use b2
+cursor 1 4
+keys xg,
+
+case k0290
+use b2
+cursor 6 4
+keys xg,
+
+case k0291
+use b2
+cursor 0 0
+keys ia<Esc>Gg;
+
+case k0292
+use b2
+cursor 2 16
+keys ia<Esc>Gg;
+
+case k0293
+use b2
+cursor 0 7
+keys xGxggg;g;
+
+case k0294
+use b2
+cursor 3 0
+keys xGxggg;g;
+
+case k0295
+use b2
+cursor 0 0
+keys G<C-o>
+
+case k0296
+use b2
+cursor 2 16
+keys G<C-o>
+
+case k0297
+use b2
+cursor 1 21
+keys Ggg<C-o>
+
+case k0298
+use b2
+cursor 2 7
+keys Ggg<C-o><C-o>
+
+case k0299
+use b2
+cursor 0 7
+keys G<C-o><Tab>
+
+case k0300
+use b2
+cursor 3 0
+keys G<C-o><Tab>
+
+case k0301
+use b2
+cursor 0 0
+keys Ggg<C-o><C-o><Tab>
+
+case k0302
+use b2
+cursor 2 16
+keys Ggg<C-o><C-o><Tab>
+
+case k0303
+use b2
+cursor 1 4
+keys }}<C-o>
+
+case k0304
+use b2
+cursor 6 4
+keys }}<C-o>
+
+case k0305
+use b2
+cursor 0 7
+keys G<C-o><C-o>
+
+case k0306
+use b2
+cursor 3 0
+keys G<C-o><C-o>
+
+case k0307
+use b2
+cursor 2 7
+keys 3G5G<C-o>
+
+case k0308
+use b2
+cursor 0 0
+keys 3G5G<C-o><C-o>
+
+case k0309
+use b2
+cursor 2 16
+keys 3G5G<C-o><C-o>
+
+case k0310
+use b2
+cursor 0 7
+keys 3G5G2<C-o>
+
+case k0311
+use b2
+cursor 3 0
+keys 3G5G2<C-o>
+
+case k0312
+use b2
+cursor 0 10
+keys 3G5G<C-o><C-o><Tab><Tab>
+
+case k0313
+use b2
+cursor 4 0
+keys 3G5G<C-o><C-o><Tab><Tab>
+
+case k0314
+use b2
+cursor 0 0
+keys G<C-o>``
+
+case k0315
+use b2
+cursor 2 16
+keys G<C-o>``
+
+case k0316
+use b2
+cursor 0 7
+keys <C-o>
+
+case k0317
+use b2
+cursor 3 0
+keys <C-o>
+
+case k0318
+use b2
+cursor 0 7
+keys <Tab>
+
+case k0319
+use b2
+cursor 3 0
+keys <Tab>
+
+case k0320
+use b2
+cursor 1 4
+keys *<C-o>
+
+case k0321
+use b2
+cursor 6 4
+keys *<C-o>
+
+case k0322
+use b2
+cursor 0 0
+keys Gx<C-o>
+
+case k0323
+use b2
+cursor 2 16
+keys Gx<C-o>
+
+case k0324
+use b3
+cursor 0 31
+keys majj`a
+
+case k0325
+use b3
+cursor 5 7
+keys majj`a
+
+case k0326
+use b3
+cursor 0 14
+keys majj'a
+
+case k0327
+use b3
+cursor 5 3
+keys majj'a
+
+case k0328
+use b3
+cursor 2 0
+keys ma3l`a
+
+case k0329
+use b3
+cursor 0 31
+keys ma$`a
+
+case k0330
+use b3
+cursor 5 7
+keys ma$`a
+
+case k0331
+use b3
+cursor 2 0
+keys maG`a
+
+case k0332
+use b3
+cursor 2 0
+keys mbgg'b
+
+case k0333
+use b3
+cursor 0 9
+keys maGd'a
+
+case k0334
+use b3
+cursor 5 0
+keys maGd'a
+
+case k0335
+use b3
+cursor 4 4
+keys majjd`a
+
+case k0336
+use b3
+cursor 2 0
+keys mawwy`a
+
+case k0337
+use b3
+cursor 1 21
+keys maggy'a
+
+case k0338
+use b3
+cursor 7 3
+keys maggy'a
+
+case k0339
+use b3
+cursor 1 21
+keys mAG'A
+
+case k0340
+use b3
+cursor 7 3
+keys mAG'A
+
+case k0341
+use b3
+cursor 1 21
+keys mAgg`A
+
+case k0342
+use b3
+cursor 7 3
+keys mAgg`A
+
+case k0343
+use b3
+cursor 0 0
+keys 'a
+
+case k0344
+use b3
+cursor 4 17
+keys 'a
+
+case k0345
+use b3
+cursor 0 14
+keys `z
+
+case k0346
+use b3
+cursor 5 3
+keys `z
+
+case k0347
+use b3
+cursor 1 8
+keys d'a
+
+case k0348
+use b3
+cursor 6 1
+keys d'a
+
+case k0349
+use b3
+cursor 4 4
+keys G``
+
+case k0350
+use b3
+cursor 1 21
+keys G''
+
+case k0351
+use b3
+cursor 7 3
+keys G''
+
+case k0352
+use b3
+cursor 1 21
+keys Ggg``
+
+case k0353
+use b3
+cursor 7 3
+keys Ggg``
+
+case k0354
+use b3
+cursor 0 31
+keys Ggg''
+
+case k0355
+use b3
+cursor 5 7
+keys Ggg''
+
+case k0356
+use b3
+cursor 4 4
+keys G````
+
+case k0357
+use b3
+cursor 0 31
+keys G''''
+
+case k0358
+use b3
+cursor 5 7
+keys G''''
+
+case k0359
+use b3
+cursor 0 9
+keys jjG``kk``
+
+case k0360
+use b3
+cursor 5 0
+keys jjG``kk``
+
+case k0361
+use b3
+cursor 0 31
+keys G``d``
+
+case k0362
+use b3
+cursor 5 7
+keys G``d``
+
+case k0363
+use b3
+cursor 2 0
+keys Gy''
+
+case k0364
+use b3
+cursor 1 21
+keys }``
+
+case k0365
+use b3
+cursor 7 3
+keys }``
+
+case k0366
+use b3
+cursor 4 4
+keys )''
+
+case k0367
+use b3
+cursor 1 21
+keys %``
+
+case k0368
+use b3
+cursor 7 3
+keys %``
+
+case k0369
+use b3
+cursor 1 8
+keys L``
+
+case k0370
+use b3
+cursor 6 1
+keys L``
+
+case k0371
+use b3
+cursor 2 0
+keys 3G5G``
+
+case k0372
+use b3
+cursor 1 8
+keys jj``
+
+case k0373
+use b3
+cursor 6 1
+keys jj``
+
+case k0374
+use b3
+cursor 0 31
+keys m'G``
+
+case k0375
+use b3
+cursor 5 7
+keys m'G``
+
+case k0376
+use b3
+cursor 0 14
+keys m`G''
+
+case k0377
+use b3
+cursor 5 3
+keys m`G''
+
+case k0378
+use b3
+cursor 2 0
+keys maGdd`a
+
+case k0379
+use b3
+cursor 1 8
+keys maggdd'a
+
+case k0380
+use b3
+cursor 6 1
+keys maggdd'a
+
+case k0381
+use b3
+cursor 0 9
+keys majdd`a
+
+case k0382
+use b3
+cursor 5 0
+keys majdd`a
+
+case k0383
+use b3
+cursor 0 0
+keys maggOx<Esc>G`a
+
+case k0384
+use b3
+cursor 4 17
+keys maggOx<Esc>G`a
+
+case k0385
+use b3
+cursor 4 4
+keys yw$`[
+
+case k0386
+use b3
+cursor 1 21
+keys yw0`]
+
+case k0387
+use b3
+cursor 7 3
+keys yw0`]
+
+case k0388
+use b3
+cursor 0 14
+keys y$0`]
+
+case k0389
+use b3
+cursor 5 3
+keys y$0`]
+
+case k0390
+use b3
+cursor 0 0
+keys yj`]
+
+case k0391
+use b3
+cursor 4 17
+keys yj`]
+
+case k0392
+use b3
+cursor 1 8
+keys yyG`[
+
+case k0393
+use b3
+cursor 6 1
+keys yyG`[
+
+case k0394
+use b3
+cursor 2 0
+keys yjG']
+
+case k0395
+use b3
+cursor 4 4
+keys ywP$`[
+
+case k0396
+use b3
+cursor 1 21
+keys ywP0`]
+
+case k0397
+use b3
+cursor 7 3
+keys ywP0`]
+
+case k0398
+use b3
+cursor 1 21
+keys yyp`[
+
+case k0399
+use b3
+cursor 7 3
+keys yyp`[
+
+case k0400
+use b3
+cursor 4 4
+keys yyP`]
+
+case k0401
+use b3
+cursor 0 31
+keys vjy`<lt>
+
+case k0402
+use b3
+cursor 5 7
+keys vjy`<lt>
+
+case k0403
+use b3
+cursor 4 4
+keys vjy`>
+
+case k0404
+use b3
+cursor 1 8
+keys vj<Esc>gg'<lt>
+
+case k0405
+use b3
+cursor 6 1
+keys vj<Esc>gg'<lt>
+
+case k0406
+use b3
+cursor 0 0
+keys vj<Esc>gg'>
+
+case k0407
+use b3
+cursor 4 17
+keys vj<Esc>gg'>
+
+case k0408
+use b3
+cursor 4 4
+keys Vjy`>
+
+case k0409
+use b3
+cursor 4 4
+keys Vj<Esc>`<lt>
+
+case k0410
+use b3
+cursor 1 8
+keys vlohy`<lt>
+
+case k0411
+use b3
+cursor 6 1
+keys vlohy`<lt>
+
+case k0412
+use b3
+cursor 0 31
+keys m<lt>jjm>gv
+
+case k0413
+use b3
+cursor 5 7
+keys m<lt>jjm>gv
+
+case k0414
+use b3
+cursor 1 21
+keys iab<Esc>gg`^
+
+case k0415
+use b3
+cursor 7 3
+keys iab<Esc>gg`^
+
+case k0416
+use b3
+cursor 1 21
+keys Aab<Esc>gg`^
+
+case k0417
+use b3
+cursor 7 3
+keys Aab<Esc>gg`^
+
+case k0418
+use b3
+cursor 1 8
+keys ia<Esc>G`.
+
+case k0419
+use b3
+cursor 6 1
+keys ia<Esc>G`.
+
+case k0420
+use b3
+cursor 1 21
+keys xG`.
+
+case k0421
+use b3
+cursor 7 3
+keys xG`.
+
+case k0422
+use b3
+cursor 4 4
+keys xjxG`.
+
+case k0423
+use b3
+cursor 1 8
+keys ddG'.
+
+case k0424
+use b3
+cursor 6 1
+keys ddG'.
+
+case k0425
+use b3
+cursor 0 0
+keys rQG`.
+
+case k0426
+use b3
+cursor 4 17
+keys rQG`.
+
+case k0427
+use b3
+cursor 0 14
+keys iab<Esc>gg`[
+
+case k0428
+use b3
+cursor 5 3
+keys iab<Esc>gg`[
+
+case k0429
+use b3
+cursor 1 8
+keys iab<Esc>gg`]
+
+case k0430
+use b3
+cursor 6 1
+keys iab<Esc>gg`]
+
+case k0431
+use b3
+cursor 1 8
+keys xjg;
+
+case k0432
+use b3
+cursor 6 1
+keys xjg;
+
+case k0433
+use b3
+cursor 1 8
+keys xjxg;
+
+case k0434
+use b3
+cursor 6 1
+keys xjxg;
+
+case k0435
+use b3
+cursor 2 0
+keys xjxg;g;
+
+case k0436
+use b3
+cursor 0 9
+keys xjxg;g;g,
+
+case k0437
+use b3
+cursor 5 0
+keys xjxg;g;g,
+
+case k0438
+use b3
+cursor 1 21
+keys xjxG2g;
+
+case k0439
+use b3
+cursor 7 3
+keys xjxG2g;
+
+case k0440
+use b3
+cursor 2 0
+keys xjxGg;g,
+
+case k0441
+use b3
+cursor 0 14
+keys g;
+
+case k0442
+use b3
+cursor 5 3
+keys g;
+
+case k0443
+use b3
+cursor 0 31
+keys g,
+
+case k0444
+use b3
+cursor 5 7
+keys g,
+
+case k0445
+use b3
+cursor 0 31
+keys xg,
+
+case k0446
+use b3
+cursor 5 7
+keys xg,
+
+case k0447
+use b3
+cursor 0 0
+keys ia<Esc>Gg;
+
+case k0448
+use b3
+cursor 4 17
+keys ia<Esc>Gg;
+
+case k0449
+use b3
+cursor 0 9
+keys xGxggg;g;
+
+case k0450
+use b3
+cursor 5 0
+keys xGxggg;g;
+
+case k0451
+use b3
+cursor 0 0
+keys G<C-o>
+
+case k0452
+use b3
+cursor 4 17
+keys G<C-o>
+
+case k0453
+use b3
+cursor 2 0
+keys Ggg<C-o>
+
+case k0454
+use b3
+cursor 4 4
+keys Ggg<C-o><C-o>
+
+case k0455
+use b3
+cursor 0 9
+keys G<C-o><Tab>
+
+case k0456
+use b3
+cursor 5 0
+keys G<C-o><Tab>
+
+case k0457
+use b3
+cursor 0 0
+keys Ggg<C-o><C-o><Tab>
+
+case k0458
+use b3
+cursor 4 17
+keys Ggg<C-o><C-o><Tab>
+
+case k0459
+use b3
+cursor 0 31
+keys }}<C-o>
+
+case k0460
+use b3
+cursor 5 7
+keys }}<C-o>
+
+case k0461
+use b3
+cursor 0 9
+keys G<C-o><C-o>
+
+case k0462
+use b3
+cursor 5 0
+keys G<C-o><C-o>
+
+case k0463
+use b3
+cursor 4 4
+keys 3G5G<C-o>
+
+case k0464
+use b3
+cursor 0 0
+keys 3G5G<C-o><C-o>
+
+case k0465
+use b3
+cursor 4 17
+keys 3G5G<C-o><C-o>
+
+case k0466
+use b3
+cursor 0 9
+keys 3G5G2<C-o>
+
+case k0467
+use b3
+cursor 5 0
+keys 3G5G2<C-o>
+
+case k0468
+use b3
+cursor 0 14
+keys 3G5G<C-o><C-o><Tab><Tab>
+
+case k0469
+use b3
+cursor 5 3
+keys 3G5G<C-o><C-o><Tab><Tab>
+
+case k0470
+use b3
+cursor 0 0
+keys G<C-o>``
+
+case k0471
+use b3
+cursor 4 17
+keys G<C-o>``
+
+case k0472
+use b3
+cursor 0 9
+keys <C-o>
+
+case k0473
+use b3
+cursor 5 0
+keys <C-o>
+
+case k0474
+use b3
+cursor 0 9
+keys <Tab>
+
+case k0475
+use b3
+cursor 5 0
+keys <Tab>
+
+case k0476
+use b3
+cursor 0 31
+keys *<C-o>
+
+case k0477
+use b3
+cursor 5 7
+keys *<C-o>
+
+case k0478
+use b3
+cursor 0 0
+keys Gx<C-o>
+
+case k0479
+use b3
+cursor 4 17
+keys Gx<C-o>

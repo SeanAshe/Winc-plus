@@ -40,6 +40,7 @@ const LAYERS: &[(&str, &[&str])] = &[
             "winc-syntax",
             "winc-typeset",
             "winc-version",
+            "winc-vim",
         ],
     ),
     (
@@ -59,10 +60,14 @@ const LAYERS: &[(&str, &[&str])] = &[
     ("winc-config", &["winc-i18n", "winc-syntax"]),
     ("winc-preview", &["winc-i18n"]),
     ("winc-syntax", &["winc-core"]),
+    ("winc-vim", &["winc-core"]),
     ("winc-pty", &["winc-version"]),
     // 仅测试依赖。
     ("winc-watch", &["winc-config"]),
-    ("xtask", &["winc-config", "winc-preview", "winc-version"]),
+    (
+        "xtask",
+        &["winc-config", "winc-preview", "winc-version", "winc-vim"],
+    ),
 ];
 
 /// 返回不在 [`LAYERS`] 允许范围内的依赖，每项写成「包 → 依赖」；全部合规时为空。

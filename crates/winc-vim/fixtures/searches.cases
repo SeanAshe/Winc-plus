@@ -1,0 +1,7524 @@
+# 由 `cargo xtask vim-fixtures` 生成，不手工修改。查找：模式语法的转换、偏移、重复、光标处的词与匹配的文本对象。
+
+buffer b1
+text "foo bar.baz  qux_1 (x) end"
+text "   lead, tail;  "
+text ""
+text "中文 text，全角。next"
+text "a-b a1b2 #$% éx"
+
+buffer b2
+text "fn main() {"
+text "    call(a, [b, c], \"s)\");"
+text "    if (x) { y('(') }"
+text "}"
+text ""
+text "{"
+text "  inner } {"
+text "}"
+text "tail"
+
+buffer b3
+text "First one.  Second one! Third?  "
+text "Still (third.) Fourth."
+text ""
+text ""
+text "New para here. End"
+text "\tTabbed\tline here"
+text "   "
+text "last"
+
+case s0001
+use b1
+cursor 1 3
+keys /a<CR>
+
+case s0002
+use b1
+cursor 3 9
+keys ?a<CR>
+
+case s0003
+use b1
+cursor 0 0
+keys /a<CR>n
+
+case s0004
+use b1
+cursor 0 25
+keys d/a<CR>
+
+case s0005
+use b1
+cursor 4 13
+keys /a<CR>N
+
+case s0006
+use b1
+cursor 1 0
+keys ?a<CR>nn
+
+case s0007
+use b1
+cursor 0 0
+keys 2/a<CR>
+
+case s0008
+use b1
+cursor 4 0
+keys y?a<CR>
+
+case s0009
+use b1
+cursor 0 11
+keys v/a<CR>d
+
+case s0010
+use b1
+cursor 1 15
+keys /a<CR>dgn
+
+case s0011
+use b1
+cursor 1 15
+keys /a<CR>gnd
+
+case s0012
+use b1
+cursor 0 20
+keys /a<CR>ggdgn
+
+case s0013
+use b1
+cursor 4 0
+keys /a<CR>gNy
+
+case s0014
+use b1
+cursor 0 0
+keys /one<CR>
+
+case s0015
+use b1
+cursor 1 15
+keys /one<CR>
+
+case s0016
+use b1
+cursor 3 9
+keys ?one<CR>
+
+case s0017
+use b1
+cursor 0 0
+keys /one<CR>n
+
+case s0018
+use b1
+cursor 0 25
+keys d/one<CR>
+
+case s0019
+use b1
+cursor 4 13
+keys /one<CR>N
+
+case s0020
+use b1
+cursor 1 0
+keys ?one<CR>nn
+
+case s0021
+use b1
+cursor 0 0
+keys 2/one<CR>
+
+case s0022
+use b1
+cursor 4 0
+keys y?one<CR>
+
+case s0023
+use b1
+cursor 0 11
+keys v/one<CR>d
+
+case s0024
+use b1
+cursor 1 15
+keys /one<CR>dgn
+
+case s0025
+use b1
+cursor 1 15
+keys /one<CR>gnd
+
+case s0026
+use b1
+cursor 0 20
+keys /one<CR>ggdgn
+
+case s0027
+use b1
+cursor 4 0
+keys /one<CR>gNy
+
+case s0028
+use b1
+cursor 1 0
+keys /x<CR>
+
+case s0029
+use b1
+cursor 4 15
+keys /x<CR>
+
+case s0030
+use b1
+cursor 0 20
+keys ?x<CR>
+
+case s0031
+use b1
+cursor 1 15
+keys /x<CR>n
+
+case s0032
+use b1
+cursor 4 13
+keys d/x<CR>
+
+case s0033
+use b1
+cursor 1 0
+keys /x<CR>N
+
+case s0034
+use b1
+cursor 4 15
+keys ?x<CR>nn
+
+case s0035
+use b1
+cursor 1 15
+keys 2/x<CR>
+
+case s0036
+use b1
+cursor 0 25
+keys y?x<CR>
+
+case s0037
+use b1
+cursor 3 9
+keys v/x<CR>d
+
+case s0038
+use b1
+cursor 0 5
+keys /x<CR>dgn
+
+case s0039
+use b1
+cursor 0 5
+keys /x<CR>gnd
+
+case s0040
+use b1
+cursor 4 0
+keys /x<CR>ggdgn
+
+case s0041
+use b1
+cursor 0 25
+keys /x<CR>gNy
+
+case s0042
+use b1
+cursor 0 25
+keys /\<lt>a<CR>
+
+case s0043
+use b1
+cursor 4 13
+keys /\<lt>a<CR>
+
+case s0044
+use b1
+cursor 4 15
+keys ?\<lt>a<CR>
+
+case s0045
+use b1
+cursor 0 11
+keys /\<lt>a<CR>n
+
+case s0046
+use b1
+cursor 1 15
+keys d/\<lt>a<CR>
+
+case s0047
+use b1
+cursor 0 5
+keys /\<lt>a<CR>N
+
+case s0048
+use b1
+cursor 2 0
+keys ?\<lt>a<CR>nn
+
+case s0049
+use b1
+cursor 0 11
+keys 2/\<lt>a<CR>
+
+case s0050
+use b1
+cursor 0 0
+keys y?\<lt>a<CR>
+
+case s0051
+use b1
+cursor 1 0
+keys v/\<lt>a<CR>d
+
+case s0052
+use b1
+cursor 3 9
+keys /\<lt>a<CR>dgn
+
+case s0053
+use b1
+cursor 3 9
+keys /\<lt>a<CR>gnd
+
+case s0054
+use b1
+cursor 1 3
+keys /\<lt>a<CR>ggdgn
+
+case s0055
+use b1
+cursor 0 0
+keys /\<lt>a<CR>gNy
+
+case s0056
+use b1
+cursor 0 25
+keys /e\><CR>
+
+case s0057
+use b1
+cursor 4 13
+keys /e\><CR>
+
+case s0058
+use b1
+cursor 0 20
+keys ?e\><CR>
+
+case s0059
+use b1
+cursor 1 15
+keys /e\><CR>n
+
+case s0060
+use b1
+cursor 4 13
+keys d/e\><CR>
+
+case s0061
+use b1
+cursor 1 0
+keys /e\><CR>N
+
+case s0062
+use b1
+cursor 4 15
+keys ?e\><CR>nn
+
+case s0063
+use b1
+cursor 1 15
+keys 2/e\><CR>
+
+case s0064
+use b1
+cursor 0 25
+keys y?e\><CR>
+
+case s0065
+use b1
+cursor 3 9
+keys v/e\><CR>d
+
+case s0066
+use b1
+cursor 0 5
+keys /e\><CR>dgn
+
+case s0067
+use b1
+cursor 0 5
+keys /e\><CR>gnd
+
+case s0068
+use b1
+cursor 4 0
+keys /e\><CR>ggdgn
+
+case s0069
+use b1
+cursor 0 25
+keys /e\><CR>gNy
+
+case s0070
+use b1
+cursor 0 0
+keys /\<lt>\w\+\><CR>
+
+case s0071
+use b1
+cursor 1 15
+keys /\<lt>\w\+\><CR>
+
+case s0072
+use b1
+cursor 4 0
+keys ?\<lt>\w\+\><CR>
+
+case s0073
+use b1
+cursor 0 5
+keys /\<lt>\w\+\><CR>n
+
+case s0074
+use b1
+cursor 1 0
+keys d/\<lt>\w\+\><CR>
+
+case s0075
+use b1
+cursor 4 15
+keys /\<lt>\w\+\><CR>N
+
+case s0076
+use b1
+cursor 1 3
+keys ?\<lt>\w\+\><CR>nn
+
+case s0077
+use b1
+cursor 0 5
+keys 2/\<lt>\w\+\><CR>
+
+case s0078
+use b1
+cursor 4 13
+keys y?\<lt>\w\+\><CR>
+
+case s0079
+use b1
+cursor 0 20
+keys v/\<lt>\w\+\><CR>d
+
+case s0080
+use b1
+cursor 2 0
+keys /\<lt>\w\+\><CR>dgn
+
+case s0081
+use b1
+cursor 2 0
+keys /\<lt>\w\+\><CR>gnd
+
+case s0082
+use b1
+cursor 0 25
+keys /\<lt>\w\+\><CR>ggdgn
+
+case s0083
+use b1
+cursor 4 13
+keys /\<lt>\w\+\><CR>gNy
+
+case s0084
+use b1
+cursor 0 20
+keys /o\+<CR>
+
+case s0085
+use b1
+cursor 4 0
+keys /o\+<CR>
+
+case s0086
+use b1
+cursor 3 1
+keys ?o\+<CR>
+
+case s0087
+use b1
+cursor 4 15
+keys /o\+<CR>n
+
+case s0088
+use b1
+cursor 0 20
+keys d/o\+<CR>
+
+case s0089
+use b1
+cursor 4 0
+keys /o\+<CR>N
+
+case s0090
+use b1
+cursor 0 25
+keys ?o\+<CR>nn
+
+case s0091
+use b1
+cursor 4 15
+keys 2/o\+<CR>
+
+case s0092
+use b1
+cursor 3 9
+keys y?o\+<CR>
+
+case s0093
+use b1
+cursor 0 7
+keys v/o\+<CR>d
+
+case s0094
+use b1
+cursor 1 3
+keys /o\+<CR>dgn
+
+case s0095
+use b1
+cursor 1 3
+keys /o\+<CR>gnd
+
+case s0096
+use b1
+cursor 0 11
+keys /o\+<CR>ggdgn
+
+case s0097
+use b1
+cursor 3 9
+keys /o\+<CR>gNy
+
+case s0098
+use b1
+cursor 1 3
+keys /[a-c]<CR>
+
+case s0099
+use b1
+cursor 2 0
+keys ?[a-c]<CR>
+
+case s0100
+use b1
+cursor 4 13
+keys /[a-c]<CR>n
+
+case s0101
+use b1
+cursor 0 11
+keys d/[a-c]<CR>
+
+case s0102
+use b1
+cursor 3 9
+keys /[a-c]<CR>N
+
+case s0103
+use b1
+cursor 0 20
+keys ?[a-c]<CR>nn
+
+case s0104
+use b1
+cursor 4 13
+keys 2/[a-c]<CR>
+
+case s0105
+use b1
+cursor 3 1
+keys y?[a-c]<CR>
+
+case s0106
+use b1
+cursor 0 5
+keys v/[a-c]<CR>d
+
+case s0107
+use b1
+cursor 1 0
+keys /[a-c]<CR>dgn
+
+case s0108
+use b1
+cursor 1 0
+keys /[a-c]<CR>gnd
+
+case s0109
+use b1
+cursor 0 7
+keys /[a-c]<CR>ggdgn
+
+case s0110
+use b1
+cursor 3 1
+keys /[a-c]<CR>gNy
+
+case s0111
+use b1
+cursor 0 7
+keys /[^a-z<Space>]<CR>
+
+case s0112
+use b1
+cursor 3 1
+keys /[^a-z<Space>]<CR>
+
+case s0113
+use b1
+cursor 0 25
+keys ?[^a-z<Space>]<CR>
+
+case s0114
+use b1
+cursor 2 0
+keys /[^a-z<Space>]<CR>n
+
+case s0115
+use b1
+cursor 4 15
+keys d/[^a-z<Space>]<CR>
+
+case s0116
+use b1
+cursor 1 3
+keys /[^a-z<Space>]<CR>N
+
+case s0117
+use b1
+cursor 0 0
+keys ?[^a-z<Space>]<CR>nn
+
+case s0118
+use b1
+cursor 2 0
+keys 2/[^a-z<Space>]<CR>
+
+case s0119
+use b1
+cursor 1 0
+keys y?[^a-z<Space>]<CR>
+
+case s0120
+use b1
+cursor 4 0
+keys v/[^a-z<Space>]<CR>d
+
+case s0121
+use b1
+cursor 0 7
+keys /[^a-z<Space>]<CR>dgn
+
+case s0122
+use b1
+cursor 0 7
+keys /[^a-z<Space>]<CR>gnd
+
+case s0123
+use b1
+cursor 4 13
+keys /[^a-z<Space>]<CR>ggdgn
+
+case s0124
+use b1
+cursor 1 0
+keys /[^a-z<Space>]<CR>gNy
+
+case s0125
+use b1
+cursor 0 11
+keys /[]x]<CR>
+
+case s0126
+use b1
+cursor 3 9
+keys /[]x]<CR>
+
+case s0127
+use b1
+cursor 3 9
+keys ?[]x]<CR>
+
+case s0128
+use b1
+cursor 0 0
+keys /[]x]<CR>n
+
+case s0129
+use b1
+cursor 0 25
+keys d/[]x]<CR>
+
+case s0130
+use b1
+cursor 4 13
+keys /[]x]<CR>N
+
+case s0131
+use b1
+cursor 1 0
+keys ?[]x]<CR>nn
+
+case s0132
+use b1
+cursor 0 0
+keys 2/[]x]<CR>
+
+case s0133
+use b1
+cursor 4 0
+keys y?[]x]<CR>
+
+case s0134
+use b1
+cursor 0 11
+keys v/[]x]<CR>d
+
+case s0135
+use b1
+cursor 1 15
+keys /[]x]<CR>dgn
+
+case s0136
+use b1
+cursor 1 15
+keys /[]x]<CR>gnd
+
+case s0137
+use b1
+cursor 0 20
+keys /[]x]<CR>ggdgn
+
+case s0138
+use b1
+cursor 4 0
+keys /[]x]<CR>gNy
+
+case s0139
+use b1
+cursor 1 0
+keys /\d<CR>
+
+case s0140
+use b1
+cursor 4 15
+keys /\d<CR>
+
+case s0141
+use b1
+cursor 0 5
+keys ?\d<CR>
+
+case s0142
+use b1
+cursor 0 25
+keys /\d<CR>n
+
+case s0143
+use b1
+cursor 3 1
+keys d/\d<CR>
+
+case s0144
+use b1
+cursor 0 11
+keys /\d<CR>N
+
+case s0145
+use b1
+cursor 3 9
+keys ?\d<CR>nn
+
+case s0146
+use b1
+cursor 0 25
+keys 2/\d<CR>
+
+case s0147
+use b1
+cursor 0 7
+keys y?\d<CR>
+
+case s0148
+use b1
+cursor 1 15
+keys v/\d<CR>d
+
+case s0149
+use b1
+cursor 4 13
+keys /\d<CR>dgn
+
+case s0150
+use b1
+cursor 4 13
+keys /\d<CR>gnd
+
+case s0151
+use b1
+cursor 2 0
+keys /\d<CR>ggdgn
+
+case s0152
+use b1
+cursor 0 7
+keys /\d<CR>gNy
+
+case s0153
+use b1
+cursor 0 20
+keys /\s\+<CR>
+
+case s0154
+use b1
+cursor 4 0
+keys /\s\+<CR>
+
+case s0155
+use b1
+cursor 0 5
+keys ?\s\+<CR>
+
+case s0156
+use b1
+cursor 0 25
+keys /\s\+<CR>n
+
+case s0157
+use b1
+cursor 3 1
+keys d/\s\+<CR>
+
+case s0158
+use b1
+cursor 0 11
+keys /\s\+<CR>N
+
+case s0159
+use b1
+cursor 3 9
+keys ?\s\+<CR>nn
+
+case s0160
+use b1
+cursor 0 25
+keys 2/\s\+<CR>
+
+case s0161
+use b1
+cursor 0 7
+keys y?\s\+<CR>
+
+case s0162
+use b1
+cursor 1 15
+keys v/\s\+<CR>d
+
+case s0163
+use b1
+cursor 4 13
+keys /\s\+<CR>dgn
+
+case s0164
+use b1
+cursor 4 13
+keys /\s\+<CR>gnd
+
+case s0165
+use b1
+cursor 2 0
+keys /\s\+<CR>ggdgn
+
+case s0166
+use b1
+cursor 0 7
+keys /\s\+<CR>gNy
+
+case s0167
+use b1
+cursor 0 0
+keys /\S\+$<CR>
+
+case s0168
+use b1
+cursor 1 15
+keys /\S\+$<CR>
+
+case s0169
+use b1
+cursor 0 25
+keys ?\S\+$<CR>
+
+case s0170
+use b1
+cursor 2 0
+keys /\S\+$<CR>n
+
+case s0171
+use b1
+cursor 4 15
+keys d/\S\+$<CR>
+
+case s0172
+use b1
+cursor 0 0
+keys /\w\+<CR>
+
+case s0173
+use b1
+cursor 1 15
+keys /\w\+<CR>
+
+case s0174
+use b1
+cursor 0 25
+keys ?\w\+<CR>
+
+case s0175
+use b1
+cursor 2 0
+keys /\w\+<CR>n
+
+case s0176
+use b1
+cursor 4 15
+keys d/\w\+<CR>
+
+case s0177
+use b1
+cursor 0 11
+keys /\a\d<CR>
+
+case s0178
+use b1
+cursor 3 9
+keys /\a\d<CR>
+
+case s0179
+use b1
+cursor 3 1
+keys ?\a\d<CR>
+
+case s0180
+use b1
+cursor 4 15
+keys /\a\d<CR>n
+
+case s0181
+use b1
+cursor 0 20
+keys d/\a\d<CR>
+
+case s0182
+use b1
+cursor 1 0
+keys /\u\l\+<CR>
+
+case s0183
+use b1
+cursor 4 15
+keys /\u\l\+<CR>
+
+case s0184
+use b1
+cursor 1 15
+keys ?\u\l\+<CR>
+
+case s0185
+use b1
+cursor 4 0
+keys /\u\l\+<CR>n
+
+case s0186
+use b1
+cursor 0 7
+keys d/\u\l\+<CR>
+
+case s0187
+use b1
+cursor 0 25
+keys /^\s*<CR>
+
+case s0188
+use b1
+cursor 4 13
+keys /^\s*<CR>
+
+case s0189
+use b1
+cursor 0 7
+keys ?^\s*<CR>
+
+case s0190
+use b1
+cursor 1 0
+keys /^\s*<CR>n
+
+case s0191
+use b1
+cursor 3 9
+keys d/^\s*<CR>
+
+case s0192
+use b1
+cursor 0 20
+keys /^<CR>
+
+case s0193
+use b1
+cursor 4 0
+keys /^<CR>
+
+case s0194
+use b1
+cursor 1 15
+keys ?^<CR>
+
+case s0195
+use b1
+cursor 4 0
+keys /^<CR>n
+
+case s0196
+use b1
+cursor 0 7
+keys d/^<CR>
+
+case s0197
+use b1
+cursor 0 7
+keys /$<CR>
+
+case s0198
+use b1
+cursor 3 1
+keys /$<CR>
+
+case s0199
+use b1
+cursor 3 1
+keys ?$<CR>
+
+case s0200
+use b1
+cursor 4 15
+keys /$<CR>n
+
+case s0201
+use b1
+cursor 0 20
+keys d/$<CR>
+
+case s0202
+use b1
+cursor 0 20
+keys /.<CR>
+
+case s0203
+use b1
+cursor 4 0
+keys /.<CR>
+
+case s0204
+use b1
+cursor 0 25
+keys ?.<CR>
+
+case s0205
+use b1
+cursor 2 0
+keys /.<CR>n
+
+case s0206
+use b1
+cursor 4 15
+keys d/.<CR>
+
+case s0207
+use b1
+cursor 1 3
+keys /a.b<CR>
+
+case s0208
+use b1
+cursor 0 25
+keys ?a.b<CR>
+
+case s0209
+use b1
+cursor 2 0
+keys /a.b<CR>n
+
+case s0210
+use b1
+cursor 4 15
+keys d/a.b<CR>
+
+case s0211
+use b1
+cursor 0 0
+keys /\.<CR>
+
+case s0212
+use b1
+cursor 1 15
+keys /\.<CR>
+
+case s0213
+use b1
+cursor 1 3
+keys ?\.<CR>
+
+case s0214
+use b1
+cursor 3 9
+keys /\.<CR>n
+
+case s0215
+use b1
+cursor 0 5
+keys d/\.<CR>
+
+case s0216
+use b1
+cursor 0 5
+keys /a*<CR>
+
+case s0217
+use b1
+cursor 2 0
+keys /a*<CR>
+
+case s0218
+use b1
+cursor 1 15
+keys ?a*<CR>
+
+case s0219
+use b1
+cursor 4 0
+keys /a*<CR>n
+
+case s0220
+use b1
+cursor 0 7
+keys d/a*<CR>
+
+case s0221
+use b1
+cursor 0 0
+keys /*<CR>
+
+case s0222
+use b1
+cursor 1 15
+keys /*<CR>
+
+case s0223
+use b1
+cursor 0 5
+keys ?*<CR>
+
+case s0224
+use b1
+cursor 0 25
+keys /*<CR>n
+
+case s0225
+use b1
+cursor 3 1
+keys d/*<CR>
+
+case s0226
+use b1
+cursor 1 3
+keys /\(a\|e\)r<CR>
+
+case s0227
+use b1
+cursor 0 7
+keys ?\(a\|e\)r<CR>
+
+case s0228
+use b1
+cursor 1 0
+keys /\(a\|e\)r<CR>n
+
+case s0229
+use b1
+cursor 3 9
+keys d/\(a\|e\)r<CR>
+
+case s0230
+use b1
+cursor 0 7
+keys /\vo+<CR>
+
+case s0231
+use b1
+cursor 3 1
+keys /\vo+<CR>
+
+case s0232
+use b1
+cursor 1 15
+keys ?\vo+<CR>
+
+case s0233
+use b1
+cursor 4 0
+keys /\vo+<CR>n
+
+case s0234
+use b1
+cursor 0 7
+keys d/\vo+<CR>
+
+case s0235
+use b1
+cursor 0 25
+keys /\v(a|e)r<CR>
+
+case s0236
+use b1
+cursor 4 13
+keys /\v(a|e)r<CR>
+
+case s0237
+use b1
+cursor 3 9
+keys ?\v(a|e)r<CR>
+
+case s0238
+use b1
+cursor 0 0
+keys /\v(a|e)r<CR>n
+
+case s0239
+use b1
+cursor 0 25
+keys d/\v(a|e)r<CR>
+
+case s0240
+use b1
+cursor 0 25
+keys /\vx|y<CR>
+
+case s0241
+use b1
+cursor 4 13
+keys /\vx|y<CR>
+
+case s0242
+use b1
+cursor 2 0
+keys ?\vx|y<CR>
+
+case s0243
+use b1
+cursor 4 13
+keys /\vx|y<CR>n
+
+case s0244
+use b1
+cursor 0 11
+keys d/\vx|y<CR>
+
+case s0245
+use b1
+cursor 0 5
+keys /\v<lt>t\w*><CR>
+
+case s0246
+use b1
+cursor 2 0
+keys /\v<lt>t\w*><CR>
+
+case s0247
+use b1
+cursor 0 5
+keys ?\v<lt>t\w*><CR>
+
+case s0248
+use b1
+cursor 0 25
+keys /\v<lt>t\w*><CR>n
+
+case s0249
+use b1
+cursor 3 1
+keys d/\v<lt>t\w*><CR>
+
+case s0250
+use b1
+cursor 0 0
+keys /\Vfn<Space>main()<CR>
+
+case s0251
+use b1
+cursor 1 15
+keys /\Vfn<Space>main()<CR>
+
+case s0252
+use b1
+cursor 3 1
+keys ?\Vfn<Space>main()<CR>
+
+case s0253
+use b1
+cursor 4 15
+keys /\Vfn<Space>main()<CR>n
+
+case s0254
+use b1
+cursor 0 20
+keys d/\Vfn<Space>main()<CR>
+
+case s0255
+use b1
+cursor 1 0
+keys /\V.<CR>
+
+case s0256
+use b1
+cursor 4 15
+keys /\V.<CR>
+
+case s0257
+use b1
+cursor 0 11
+keys ?\V.<CR>
+
+case s0258
+use b1
+cursor 1 3
+keys /\V.<CR>n
+
+case s0259
+use b1
+cursor 4 0
+keys d/\V.<CR>
+
+case s0260
+use b1
+cursor 0 0
+keys /\Ma.b<CR>
+
+case s0261
+use b1
+cursor 1 15
+keys /\Ma.b<CR>
+
+case s0262
+use b1
+cursor 2 0
+keys ?\Ma.b<CR>
+
+case s0263
+use b1
+cursor 4 13
+keys /\Ma.b<CR>n
+
+case s0264
+use b1
+cursor 0 11
+keys d/\Ma.b<CR>
+
+case s0265
+use b1
+cursor 0 25
+keys /\cFIRST<CR>
+
+case s0266
+use b1
+cursor 4 13
+keys /\cFIRST<CR>
+
+case s0267
+use b1
+cursor 0 7
+keys ?\cFIRST<CR>
+
+case s0268
+use b1
+cursor 1 0
+keys /\cFIRST<CR>n
+
+case s0269
+use b1
+cursor 3 9
+keys d/\cFIRST<CR>
+
+case s0270
+use b1
+cursor 0 25
+keys /\CFirst<CR>
+
+case s0271
+use b1
+cursor 4 13
+keys /\CFirst<CR>
+
+case s0272
+use b1
+cursor 1 15
+keys ?\CFirst<CR>
+
+case s0273
+use b1
+cursor 4 0
+keys /\CFirst<CR>n
+
+case s0274
+use b1
+cursor 0 7
+keys d/\CFirst<CR>
+
+case s0275
+use b1
+cursor 0 5
+keys /e\{2}<CR>
+
+case s0276
+use b1
+cursor 2 0
+keys /e\{2}<CR>
+
+case s0277
+use b1
+cursor 0 0
+keys ?e\{2}<CR>
+
+case s0278
+use b1
+cursor 0 20
+keys /e\{2}<CR>n
+
+case s0279
+use b1
+cursor 2 0
+keys d/e\{2}<CR>
+
+case s0280
+use b1
+cursor 0 11
+keys /o\{-1,}<CR>
+
+case s0281
+use b1
+cursor 3 9
+keys /o\{-1,}<CR>
+
+case s0282
+use b1
+cursor 1 15
+keys ?o\{-1,}<CR>
+
+case s0283
+use b1
+cursor 4 0
+keys /o\{-1,}<CR>n
+
+case s0284
+use b1
+cursor 0 7
+keys d/o\{-1,}<CR>
+
+case s0285
+use b1
+cursor 0 25
+keys /l\{1,2}<CR>
+
+case s0286
+use b1
+cursor 4 13
+keys /l\{1,2}<CR>
+
+case s0287
+use b1
+cursor 3 1
+keys ?l\{1,2}<CR>
+
+case s0288
+use b1
+cursor 4 15
+keys /l\{1,2}<CR>n
+
+case s0289
+use b1
+cursor 0 20
+keys d/l\{1,2}<CR>
+
+case s0290
+use b1
+cursor 0 0
+keys /x\=)<CR>
+
+case s0291
+use b1
+cursor 1 15
+keys /x\=)<CR>
+
+case s0292
+use b1
+cursor 0 11
+keys ?x\=)<CR>
+
+case s0293
+use b1
+cursor 1 3
+keys /x\=)<CR>n
+
+case s0294
+use b1
+cursor 4 0
+keys d/x\=)<CR>
+
+case s0295
+use b1
+cursor 0 7
+keys /n\zse<CR>
+
+case s0296
+use b1
+cursor 3 1
+keys /n\zse<CR>
+
+case s0297
+use b1
+cursor 0 20
+keys ?n\zse<CR>
+
+case s0298
+use b1
+cursor 1 15
+keys /n\zse<CR>n
+
+case s0299
+use b1
+cursor 4 13
+keys d/n\zse<CR>
+
+case s0300
+use b1
+cursor 0 25
+keys /\w\ze)<CR>
+
+case s0301
+use b1
+cursor 4 13
+keys /\w\ze)<CR>
+
+case s0302
+use b1
+cursor 0 5
+keys ?\w\ze)<CR>
+
+case s0303
+use b1
+cursor 0 25
+keys /\w\ze)<CR>n
+
+case s0304
+use b1
+cursor 3 1
+keys d/\w\ze)<CR>
+
+case s0305
+use b1
+cursor 0 5
+keys /(\@<lt>=x<CR>
+
+case s0306
+use b1
+cursor 2 0
+keys /(\@<lt>=x<CR>
+
+case s0307
+use b1
+cursor 1 3
+keys ?(\@<lt>=x<CR>
+
+case s0308
+use b1
+cursor 3 9
+keys /(\@<lt>=x<CR>n
+
+case s0309
+use b1
+cursor 0 5
+keys d/(\@<lt>=x<CR>
+
+case s0310
+use b1
+cursor 0 0
+keys /x)\@=<CR>
+
+case s0311
+use b1
+cursor 1 15
+keys /x)\@=<CR>
+
+case s0312
+use b1
+cursor 1 3
+keys ?x)\@=<CR>
+
+case s0313
+use b1
+cursor 3 9
+keys /x)\@=<CR>n
+
+case s0314
+use b1
+cursor 0 5
+keys d/x)\@=<CR>
+
+case s0315
+use b1
+cursor 0 5
+keys /\(foo\)\@!\<lt>\w<CR>
+
+case s0316
+use b1
+cursor 2 0
+keys /\(foo\)\@!\<lt>\w<CR>
+
+case s0317
+use b1
+cursor 1 0
+keys ?\(foo\)\@!\<lt>\w<CR>
+
+case s0318
+use b1
+cursor 3 1
+keys /\(foo\)\@!\<lt>\w<CR>n
+
+case s0319
+use b1
+cursor 0 0
+keys d/\(foo\)\@!\<lt>\w<CR>
+
+case s0320
+use b1
+cursor 0 7
+keys /\n\n<CR>
+
+case s0321
+use b1
+cursor 3 1
+keys /\n\n<CR>
+
+case s0322
+use b1
+cursor 0 11
+keys ?\n\n<CR>
+
+case s0323
+use b1
+cursor 1 3
+keys /\n\n<CR>n
+
+case s0324
+use b1
+cursor 4 0
+keys d/\n\n<CR>
+
+case s0325
+use b1
+cursor 0 25
+keys /e\n<CR>
+
+case s0326
+use b1
+cursor 4 13
+keys /e\n<CR>
+
+case s0327
+use b1
+cursor 1 3
+keys ?e\n<CR>
+
+case s0328
+use b1
+cursor 3 9
+keys /e\n<CR>n
+
+case s0329
+use b1
+cursor 0 5
+keys d/e\n<CR>
+
+case s0330
+use b1
+cursor 1 0
+keys /\_s\+\w<CR>
+
+case s0331
+use b1
+cursor 4 15
+keys /\_s\+\w<CR>
+
+case s0332
+use b1
+cursor 1 3
+keys ?\_s\+\w<CR>
+
+case s0333
+use b1
+cursor 3 9
+keys /\_s\+\w<CR>n
+
+case s0334
+use b1
+cursor 0 5
+keys d/\_s\+\w<CR>
+
+case s0335
+use b1
+cursor 1 3
+keys /(x)<CR>
+
+case s0336
+use b1
+cursor 3 1
+keys ?(x)<CR>
+
+case s0337
+use b1
+cursor 4 15
+keys /(x)<CR>n
+
+case s0338
+use b1
+cursor 0 20
+keys d/(x)<CR>
+
+case s0339
+use b1
+cursor 0 11
+keys /[[:digit:]]<CR>
+
+case s0340
+use b1
+cursor 3 9
+keys /[[:digit:]]<CR>
+
+case s0341
+use b1
+cursor 4 0
+keys ?[[:digit:]]<CR>
+
+case s0342
+use b1
+cursor 0 5
+keys /[[:digit:]]<CR>n
+
+case s0343
+use b1
+cursor 1 0
+keys d/[[:digit:]]<CR>
+
+case s0344
+use b1
+cursor 0 5
+keys /[[:upper:]]\w<CR>
+
+case s0345
+use b1
+cursor 2 0
+keys /[[:upper:]]\w<CR>
+
+case s0346
+use b1
+cursor 3 1
+keys ?[[:upper:]]\w<CR>
+
+case s0347
+use b1
+cursor 4 15
+keys /[[:upper:]]\w<CR>n
+
+case s0348
+use b1
+cursor 0 20
+keys d/[[:upper:]]\w<CR>
+
+case s0349
+use b1
+cursor 0 11
+keys /\%(ab\)\=c<CR>
+
+case s0350
+use b1
+cursor 3 9
+keys /\%(ab\)\=c<CR>
+
+case s0351
+use b1
+cursor 0 11
+keys ?\%(ab\)\=c<CR>
+
+case s0352
+use b1
+cursor 1 3
+keys /\%(ab\)\=c<CR>n
+
+case s0353
+use b1
+cursor 4 0
+keys d/\%(ab\)\=c<CR>
+
+case s0354
+use b1
+cursor 1 3
+keys /中<CR>
+
+case s0355
+use b1
+cursor 0 20
+keys ?中<CR>
+
+case s0356
+use b1
+cursor 1 15
+keys /中<CR>n
+
+case s0357
+use b1
+cursor 4 13
+keys d/中<CR>
+
+case s0358
+use b1
+cursor 1 0
+keys /\t<CR>
+
+case s0359
+use b1
+cursor 4 15
+keys /\t<CR>
+
+case s0360
+use b1
+cursor 0 7
+keys ?\t<CR>
+
+case s0361
+use b1
+cursor 1 0
+keys /\t<CR>n
+
+case s0362
+use b1
+cursor 3 9
+keys d/\t<CR>
+
+case s0363
+use b1
+cursor 0 20
+keys /a\|b\|c<CR>
+
+case s0364
+use b1
+cursor 4 0
+keys /a\|b\|c<CR>
+
+case s0365
+use b1
+cursor 3 1
+keys ?a\|b\|c<CR>
+
+case s0366
+use b1
+cursor 4 15
+keys /a\|b\|c<CR>n
+
+case s0367
+use b1
+cursor 0 20
+keys d/a\|b\|c<CR>
+
+case s0368
+use b1
+cursor 0 7
+keys /\<lt>\(\w\)\w*\1<CR>
+
+case s0369
+use b1
+cursor 3 1
+keys /\<lt>\(\w\)\w*\1<CR>
+
+case s0370
+use b1
+cursor 1 3
+keys ?\<lt>\(\w\)\w*\1<CR>
+
+case s0371
+use b1
+cursor 3 9
+keys /\<lt>\(\w\)\w*\1<CR>n
+
+case s0372
+use b1
+cursor 0 5
+keys d/\<lt>\(\w\)\w*\1<CR>
+
+case s0373
+use b1
+cursor 0 20
+keys /zzz<CR>
+
+case s0374
+use b1
+cursor 4 0
+keys /zzz<CR>
+
+case s0375
+use b1
+cursor 3 1
+keys ?zzz<CR>
+
+case s0376
+use b1
+cursor 4 15
+keys /zzz<CR>n
+
+case s0377
+use b1
+cursor 0 20
+keys d/zzz<CR>
+
+case s0378
+use b1
+cursor 0 11
+keys /a/e<CR>
+
+case s0379
+use b1
+cursor 3 9
+keys /a/e<CR>
+
+case s0380
+use b1
+cursor 0 20
+keys /one/e<CR>
+
+case s0381
+use b1
+cursor 4 0
+keys /one/e<CR>
+
+case s0382
+use b1
+cursor 0 0
+keys /one/e+1<CR>
+
+case s0383
+use b1
+cursor 1 15
+keys /one/e+1<CR>
+
+case s0384
+use b1
+cursor 0 7
+keys /one/e-1<CR>
+
+case s0385
+use b1
+cursor 3 1
+keys /one/e-1<CR>
+
+case s0386
+use b1
+cursor 1 0
+keys /one/s+1<CR>
+
+case s0387
+use b1
+cursor 4 15
+keys /one/s+1<CR>
+
+case s0388
+use b1
+cursor 0 0
+keys /one/s-1<CR>
+
+case s0389
+use b1
+cursor 1 15
+keys /one/s-1<CR>
+
+case s0390
+use b1
+cursor 1 0
+keys /one/b+2<CR>
+
+case s0391
+use b1
+cursor 4 15
+keys /one/b+2<CR>
+
+case s0392
+use b1
+cursor 0 7
+keys /a/+1<CR>
+
+case s0393
+use b1
+cursor 3 1
+keys /a/+1<CR>
+
+case s0394
+use b1
+cursor 0 20
+keys /a/-1<CR>
+
+case s0395
+use b1
+cursor 4 0
+keys /a/-1<CR>
+
+case s0396
+use b1
+cursor 1 3
+keys /a/1<CR>
+
+case s0397
+use b1
+cursor 0 11
+keys ?a?e<CR>
+
+case s0398
+use b1
+cursor 3 9
+keys ?a?e<CR>
+
+case s0399
+use b1
+cursor 0 7
+keys ?a?+1<CR>
+
+case s0400
+use b1
+cursor 3 1
+keys ?a?+1<CR>
+
+case s0401
+use b1
+cursor 0 5
+keys /a/e<CR>n
+
+case s0402
+use b1
+cursor 2 0
+keys /a/e<CR>n
+
+case s0403
+use b1
+cursor 0 5
+keys /a/e<CR>N
+
+case s0404
+use b1
+cursor 2 0
+keys /a/e<CR>N
+
+case s0405
+use b1
+cursor 0 25
+keys /a/e+1<CR>n
+
+case s0406
+use b1
+cursor 4 13
+keys /a/e+1<CR>n
+
+case s0407
+use b1
+cursor 0 25
+keys /a/s-1<CR>n
+
+case s0408
+use b1
+cursor 4 13
+keys /a/s-1<CR>n
+
+case s0409
+use b1
+cursor 0 0
+keys /a/+1<CR>n
+
+case s0410
+use b1
+cursor 1 15
+keys /a/+1<CR>n
+
+case s0411
+use b1
+cursor 1 3
+keys d/a/e<CR>
+
+case s0412
+use b1
+cursor 1 0
+keys d/a/+1<CR>
+
+case s0413
+use b1
+cursor 4 15
+keys d/a/+1<CR>
+
+case s0414
+use b1
+cursor 0 20
+keys y/a/e<CR>
+
+case s0415
+use b1
+cursor 4 0
+keys y/a/e<CR>
+
+case s0416
+use b1
+cursor 0 25
+keys /a<CR>/<CR>
+
+case s0417
+use b1
+cursor 4 13
+keys /a<CR>/<CR>
+
+case s0418
+use b1
+cursor 0 5
+keys /a<CR>//e<CR>
+
+case s0419
+use b1
+cursor 2 0
+keys /a<CR>//e<CR>
+
+case s0420
+use b1
+cursor 0 5
+keys /a/e<CR>/<CR>
+
+case s0421
+use b1
+cursor 2 0
+keys /a/e<CR>/<CR>
+
+case s0422
+use b1
+cursor 0 25
+keys /a<CR>?<CR>
+
+case s0423
+use b1
+cursor 4 13
+keys /a<CR>?<CR>
+
+case s0424
+use b1
+cursor 0 11
+keys /a<Esc>n
+
+case s0425
+use b1
+cursor 3 9
+keys /a<Esc>n
+
+case s0426
+use b1
+cursor 0 0
+keys /a<CR>3n
+
+case s0427
+use b1
+cursor 1 15
+keys /a<CR>3n
+
+case s0428
+use b1
+cursor 1 3
+keys /a<CR>99n
+
+case s0429
+use b1
+cursor 0 5
+keys /a<CR>dn
+
+case s0430
+use b1
+cursor 2 0
+keys /a<CR>dn
+
+case s0431
+use b1
+cursor 0 5
+keys /a<CR>dN
+
+case s0432
+use b1
+cursor 2 0
+keys /a<CR>dN
+
+case s0433
+use b1
+cursor 1 0
+keys /a<CR>cnQ<Esc>
+
+case s0434
+use b1
+cursor 4 15
+keys /a<CR>cnQ<Esc>
+
+case s0435
+use b1
+cursor 1 0
+keys /a<CR>yn
+
+case s0436
+use b1
+cursor 4 15
+keys /a<CR>yn
+
+case s0437
+use b1
+cursor 0 11
+keys /a<CR>d2n
+
+case s0438
+use b1
+cursor 3 9
+keys /a<CR>d2n
+
+case s0439
+use b1
+cursor 1 0
+keys n
+
+case s0440
+use b1
+cursor 4 15
+keys n
+
+case s0441
+use b1
+cursor 1 0
+keys N
+
+case s0442
+use b1
+cursor 4 15
+keys N
+
+case s0443
+use b1
+cursor 1 0
+keys /<CR>
+
+case s0444
+use b1
+cursor 4 15
+keys /<CR>
+
+case s0445
+use b1
+cursor 0 5
+keys dgn
+
+case s0446
+use b1
+cursor 2 0
+keys dgn
+
+case s0447
+use b1
+cursor 0 7
+keys *
+
+case s0448
+use b1
+cursor 3 1
+keys *
+
+case s0449
+use b1
+cursor 0 11
+keys #
+
+case s0450
+use b1
+cursor 3 9
+keys #
+
+case s0451
+use b1
+cursor 0 5
+keys g*
+
+case s0452
+use b1
+cursor 2 0
+keys g*
+
+case s0453
+use b1
+cursor 0 7
+keys g#
+
+case s0454
+use b1
+cursor 3 1
+keys g#
+
+case s0455
+use b1
+cursor 0 20
+keys 2*
+
+case s0456
+use b1
+cursor 4 0
+keys 2*
+
+case s0457
+use b1
+cursor 0 25
+keys 2#
+
+case s0458
+use b1
+cursor 4 13
+keys 2#
+
+case s0459
+use b1
+cursor 0 0
+keys *n
+
+case s0460
+use b1
+cursor 1 15
+keys *n
+
+case s0461
+use b1
+cursor 0 0
+keys *N
+
+case s0462
+use b1
+cursor 1 15
+keys *N
+
+case s0463
+use b1
+cursor 0 5
+keys #n
+
+case s0464
+use b1
+cursor 2 0
+keys #n
+
+case s0465
+use b1
+cursor 0 5
+keys #N
+
+case s0466
+use b1
+cursor 2 0
+keys #N
+
+case s0467
+use b1
+cursor 0 20
+keys **
+
+case s0468
+use b1
+cursor 4 0
+keys **
+
+case s0469
+use b1
+cursor 0 25
+keys *#
+
+case s0470
+use b1
+cursor 4 13
+keys *#
+
+case s0471
+use b1
+cursor 1 3
+keys g*n
+
+case s0472
+use b1
+cursor 1 0
+keys d*
+
+case s0473
+use b1
+cursor 4 15
+keys d*
+
+case s0474
+use b1
+cursor 0 20
+keys y#
+
+case s0475
+use b1
+cursor 4 0
+keys y#
+
+case s0476
+use b1
+cursor 0 11
+keys *dgn
+
+case s0477
+use b1
+cursor 3 9
+keys *dgn
+
+case s0478
+use b1
+cursor 0 0
+keys *cgnQ<Esc>
+
+case s0479
+use b1
+cursor 1 15
+keys *cgnQ<Esc>
+
+case s0480
+use b1
+cursor 1 0
+keys *cgnQ<Esc>.
+
+case s0481
+use b1
+cursor 4 15
+keys *cgnQ<Esc>.
+
+case s0482
+use b1
+cursor 0 20
+keys *cgnQ<Esc>..
+
+case s0483
+use b1
+cursor 4 0
+keys *cgnQ<Esc>..
+
+case s0484
+use b1
+cursor 0 5
+keys *dgn.
+
+case s0485
+use b1
+cursor 2 0
+keys *dgn.
+
+case s0486
+use b1
+cursor 0 11
+keys *gnd
+
+case s0487
+use b1
+cursor 3 9
+keys *gnd
+
+case s0488
+use b1
+cursor 0 11
+keys *gNd
+
+case s0489
+use b1
+cursor 3 9
+keys *gNd
+
+case s0490
+use b1
+cursor 1 0
+keys *vgny
+
+case s0491
+use b1
+cursor 4 15
+keys *vgny
+
+case s0492
+use b1
+cursor 0 11
+keys *vgngny
+
+case s0493
+use b1
+cursor 3 9
+keys *vgngny
+
+case s0494
+use b1
+cursor 0 25
+keys *2dgn
+
+case s0495
+use b1
+cursor 4 13
+keys *2dgn
+
+case s0496
+use b1
+cursor 0 5
+keys *ggdgn
+
+case s0497
+use b1
+cursor 2 0
+keys *ggdgn
+
+case s0498
+use b1
+cursor 0 7
+keys *GdgN
+
+case s0499
+use b1
+cursor 3 1
+keys *GdgN
+
+case s0500
+use b1
+cursor 0 25
+keys *Ncgn<Esc>
+
+case s0501
+use b1
+cursor 4 13
+keys *Ncgn<Esc>
+
+case s0502
+use b1
+cursor 0 5
+keys /a<CR>cgnXY<Esc>n.
+
+case s0503
+use b1
+cursor 2 0
+keys /a<CR>cgnXY<Esc>n.
+
+case s0504
+use b1
+cursor 0 20
+keys /a\/b<CR>
+
+case s0505
+use b1
+cursor 4 0
+keys /a\/b<CR>
+
+case s0506
+use b1
+cursor 0 20
+keys ?a\?b<CR>
+
+case s0507
+use b1
+cursor 4 0
+keys ?a\?b<CR>
+
+case s0508
+use b1
+cursor 0 5
+keys /\/<CR>
+
+case s0509
+use b1
+cursor 2 0
+keys /\/<CR>
+
+case s0510
+use b1
+cursor 0 11
+keys /a<BS>e<CR>
+
+case s0511
+use b1
+cursor 3 9
+keys /a<BS>e<CR>
+
+case s0512
+use b2
+cursor 2 7
+keys /a<CR>
+
+case s0513
+use b2
+cursor 6 4
+keys ?a<CR>
+
+case s0514
+use b2
+cursor 2 7
+keys /a<CR>n
+
+case s0515
+use b2
+cursor 6 4
+keys d/a<CR>
+
+case s0516
+use b2
+cursor 1 4
+keys /a<CR>N
+
+case s0517
+use b2
+cursor 2 7
+keys ?a<CR>nn
+
+case s0518
+use b2
+cursor 1 4
+keys 2/a<CR>
+
+case s0519
+use b2
+cursor 1 21
+keys y?a<CR>
+
+case s0520
+use b2
+cursor 1 4
+keys v/a<CR>d
+
+case s0521
+use b2
+cursor 0 0
+keys /a<CR>dgn
+
+case s0522
+use b2
+cursor 0 0
+keys /a<CR>gnd
+
+case s0523
+use b2
+cursor 4 0
+keys /a<CR>ggdgn
+
+case s0524
+use b2
+cursor 1 4
+keys /a<CR>gNy
+
+case s0525
+use b2
+cursor 0 0
+keys /one<CR>
+
+case s0526
+use b2
+cursor 2 16
+keys /one<CR>
+
+case s0527
+use b2
+cursor 6 10
+keys ?one<CR>
+
+case s0528
+use b2
+cursor 2 16
+keys /one<CR>n
+
+case s0529
+use b2
+cursor 6 10
+keys d/one<CR>
+
+case s0530
+use b2
+cursor 1 8
+keys /one<CR>N
+
+case s0531
+use b2
+cursor 2 16
+keys ?one<CR>nn
+
+case s0532
+use b2
+cursor 1 8
+keys 2/one<CR>
+
+case s0533
+use b2
+cursor 2 7
+keys y?one<CR>
+
+case s0534
+use b2
+cursor 1 8
+keys v/one<CR>d
+
+case s0535
+use b2
+cursor 0 7
+keys /one<CR>dgn
+
+case s0536
+use b2
+cursor 0 7
+keys /one<CR>gnd
+
+case s0537
+use b2
+cursor 6 4
+keys /one<CR>ggdgn
+
+case s0538
+use b2
+cursor 1 8
+keys /one<CR>gNy
+
+case s0539
+use b2
+cursor 1 21
+keys /x<CR>
+
+case s0540
+use b2
+cursor 1 21
+keys ?x<CR>
+
+case s0541
+use b2
+cursor 0 10
+keys /x<CR>n
+
+case s0542
+use b2
+cursor 1 21
+keys d/x<CR>
+
+case s0543
+use b2
+cursor 6 10
+keys /x<CR>N
+
+case s0544
+use b2
+cursor 0 10
+keys ?x<CR>nn
+
+case s0545
+use b2
+cursor 6 10
+keys 2/x<CR>
+
+case s0546
+use b2
+cursor 0 7
+keys y?x<CR>
+
+case s0547
+use b2
+cursor 6 10
+keys v/x<CR>d
+
+case s0548
+use b2
+cursor 3 0
+keys /x<CR>dgn
+
+case s0549
+use b2
+cursor 3 0
+keys /x<CR>gnd
+
+case s0550
+use b2
+cursor 1 13
+keys /x<CR>ggdgn
+
+case s0551
+use b2
+cursor 6 10
+keys /x<CR>gNy
+
+case s0552
+use b2
+cursor 1 13
+keys /\<lt>a<CR>
+
+case s0553
+use b2
+cursor 8 2
+keys /\<lt>a<CR>
+
+case s0554
+use b2
+cursor 0 7
+keys ?\<lt>a<CR>
+
+case s0555
+use b2
+cursor 6 4
+keys /\<lt>a<CR>n
+
+case s0556
+use b2
+cursor 0 7
+keys d/\<lt>a<CR>
+
+case s0557
+use b2
+cursor 2 7
+keys /\<lt>a<CR>N
+
+case s0558
+use b2
+cursor 6 4
+keys ?\<lt>a<CR>nn
+
+case s0559
+use b2
+cursor 2 7
+keys 2/\<lt>a<CR>
+
+case s0560
+use b2
+cursor 4 0
+keys y?\<lt>a<CR>
+
+case s0561
+use b2
+cursor 2 7
+keys v/\<lt>a<CR>d
+
+case s0562
+use b2
+cursor 1 8
+keys /\<lt>a<CR>dgn
+
+case s0563
+use b2
+cursor 1 8
+keys /\<lt>a<CR>gnd
+
+case s0564
+use b2
+cursor 0 0
+keys /\<lt>a<CR>ggdgn
+
+case s0565
+use b2
+cursor 2 7
+keys /\<lt>a<CR>gNy
+
+case s0566
+use b2
+cursor 1 13
+keys /e\><CR>
+
+case s0567
+use b2
+cursor 8 2
+keys /e\><CR>
+
+case s0568
+use b2
+cursor 0 7
+keys ?e\><CR>
+
+case s0569
+use b2
+cursor 6 4
+keys /e\><CR>n
+
+case s0570
+use b2
+cursor 0 7
+keys d/e\><CR>
+
+case s0571
+use b2
+cursor 2 7
+keys /e\><CR>N
+
+case s0572
+use b2
+cursor 6 4
+keys ?e\><CR>nn
+
+case s0573
+use b2
+cursor 2 7
+keys 2/e\><CR>
+
+case s0574
+use b2
+cursor 4 0
+keys y?e\><CR>
+
+case s0575
+use b2
+cursor 2 7
+keys v/e\><CR>d
+
+case s0576
+use b2
+cursor 1 8
+keys /e\><CR>dgn
+
+case s0577
+use b2
+cursor 1 8
+keys /e\><CR>gnd
+
+case s0578
+use b2
+cursor 0 0
+keys /e\><CR>ggdgn
+
+case s0579
+use b2
+cursor 2 7
+keys /e\><CR>gNy
+
+case s0580
+use b2
+cursor 0 0
+keys /\<lt>\w\+\><CR>
+
+case s0581
+use b2
+cursor 2 16
+keys /\<lt>\w\+\><CR>
+
+case s0582
+use b2
+cursor 6 10
+keys ?\<lt>\w\+\><CR>
+
+case s0583
+use b2
+cursor 2 16
+keys /\<lt>\w\+\><CR>n
+
+case s0584
+use b2
+cursor 6 10
+keys d/\<lt>\w\+\><CR>
+
+case s0585
+use b2
+cursor 1 8
+keys /\<lt>\w\+\><CR>N
+
+case s0586
+use b2
+cursor 2 16
+keys ?\<lt>\w\+\><CR>nn
+
+case s0587
+use b2
+cursor 1 8
+keys 2/\<lt>\w\+\><CR>
+
+case s0588
+use b2
+cursor 2 7
+keys y?\<lt>\w\+\><CR>
+
+case s0589
+use b2
+cursor 1 8
+keys v/\<lt>\w\+\><CR>d
+
+case s0590
+use b2
+cursor 0 7
+keys /\<lt>\w\+\><CR>dgn
+
+case s0591
+use b2
+cursor 0 7
+keys /\<lt>\w\+\><CR>gnd
+
+case s0592
+use b2
+cursor 6 4
+keys /\<lt>\w\+\><CR>ggdgn
+
+case s0593
+use b2
+cursor 1 8
+keys /\<lt>\w\+\><CR>gNy
+
+case s0594
+use b2
+cursor 1 8
+keys /o\+<CR>
+
+case s0595
+use b2
+cursor 6 10
+keys /o\+<CR>
+
+case s0596
+use b2
+cursor 1 21
+keys ?o\+<CR>
+
+case s0597
+use b2
+cursor 0 10
+keys /o\+<CR>n
+
+case s0598
+use b2
+cursor 1 21
+keys d/o\+<CR>
+
+case s0599
+use b2
+cursor 6 10
+keys /o\+<CR>N
+
+case s0600
+use b2
+cursor 0 10
+keys ?o\+<CR>nn
+
+case s0601
+use b2
+cursor 6 10
+keys 2/o\+<CR>
+
+case s0602
+use b2
+cursor 0 7
+keys y?o\+<CR>
+
+case s0603
+use b2
+cursor 6 10
+keys v/o\+<CR>d
+
+case s0604
+use b2
+cursor 3 0
+keys /o\+<CR>dgn
+
+case s0605
+use b2
+cursor 3 0
+keys /o\+<CR>gnd
+
+case s0606
+use b2
+cursor 1 13
+keys /o\+<CR>ggdgn
+
+case s0607
+use b2
+cursor 6 10
+keys /o\+<CR>gNy
+
+case s0608
+use b2
+cursor 2 7
+keys /[a-c]<CR>
+
+case s0609
+use b2
+cursor 1 4
+keys ?[a-c]<CR>
+
+case s0610
+use b2
+cursor 8 2
+keys /[a-c]<CR>n
+
+case s0611
+use b2
+cursor 1 4
+keys d/[a-c]<CR>
+
+case s0612
+use b2
+cursor 3 0
+keys /[a-c]<CR>N
+
+case s0613
+use b2
+cursor 8 2
+keys ?[a-c]<CR>nn
+
+case s0614
+use b2
+cursor 3 0
+keys 2/[a-c]<CR>
+
+case s0615
+use b2
+cursor 6 10
+keys y?[a-c]<CR>
+
+case s0616
+use b2
+cursor 3 0
+keys v/[a-c]<CR>d
+
+case s0617
+use b2
+cursor 1 21
+keys /[a-c]<CR>dgn
+
+case s0618
+use b2
+cursor 1 21
+keys /[a-c]<CR>gnd
+
+case s0619
+use b2
+cursor 0 10
+keys /[a-c]<CR>ggdgn
+
+case s0620
+use b2
+cursor 3 0
+keys /[a-c]<CR>gNy
+
+case s0621
+use b2
+cursor 0 10
+keys /[^a-z<Space>]<CR>
+
+case s0622
+use b2
+cursor 4 0
+keys /[^a-z<Space>]<CR>
+
+case s0623
+use b2
+cursor 1 21
+keys ?[^a-z<Space>]<CR>
+
+case s0624
+use b2
+cursor 0 10
+keys /[^a-z<Space>]<CR>n
+
+case s0625
+use b2
+cursor 1 21
+keys d/[^a-z<Space>]<CR>
+
+case s0626
+use b2
+cursor 6 10
+keys /[^a-z<Space>]<CR>N
+
+case s0627
+use b2
+cursor 0 10
+keys ?[^a-z<Space>]<CR>nn
+
+case s0628
+use b2
+cursor 6 10
+keys 2/[^a-z<Space>]<CR>
+
+case s0629
+use b2
+cursor 0 7
+keys y?[^a-z<Space>]<CR>
+
+case s0630
+use b2
+cursor 6 10
+keys v/[^a-z<Space>]<CR>d
+
+case s0631
+use b2
+cursor 3 0
+keys /[^a-z<Space>]<CR>dgn
+
+case s0632
+use b2
+cursor 3 0
+keys /[^a-z<Space>]<CR>gnd
+
+case s0633
+use b2
+cursor 1 13
+keys /[^a-z<Space>]<CR>ggdgn
+
+case s0634
+use b2
+cursor 6 10
+keys /[^a-z<Space>]<CR>gNy
+
+case s0635
+use b2
+cursor 1 4
+keys /[]x]<CR>
+
+case s0636
+use b2
+cursor 6 4
+keys /[]x]<CR>
+
+case s0637
+use b2
+cursor 1 4
+keys ?[]x]<CR>
+
+case s0638
+use b2
+cursor 8 2
+keys /[]x]<CR>n
+
+case s0639
+use b2
+cursor 1 4
+keys d/[]x]<CR>
+
+case s0640
+use b2
+cursor 3 0
+keys /[]x]<CR>N
+
+case s0641
+use b2
+cursor 8 2
+keys ?[]x]<CR>nn
+
+case s0642
+use b2
+cursor 3 0
+keys 2/[]x]<CR>
+
+case s0643
+use b2
+cursor 6 10
+keys y?[]x]<CR>
+
+case s0644
+use b2
+cursor 3 0
+keys v/[]x]<CR>d
+
+case s0645
+use b2
+cursor 1 21
+keys /[]x]<CR>dgn
+
+case s0646
+use b2
+cursor 1 21
+keys /[]x]<CR>gnd
+
+case s0647
+use b2
+cursor 0 10
+keys /[]x]<CR>ggdgn
+
+case s0648
+use b2
+cursor 3 0
+keys /[]x]<CR>gNy
+
+case s0649
+use b2
+cursor 1 21
+keys /\d<CR>
+
+case s0650
+use b2
+cursor 2 16
+keys ?\d<CR>
+
+case s0651
+use b2
+cursor 1 8
+keys /\d<CR>n
+
+case s0652
+use b2
+cursor 2 16
+keys d/\d<CR>
+
+case s0653
+use b2
+cursor 0 0
+keys /\d<CR>N
+
+case s0654
+use b2
+cursor 1 8
+keys ?\d<CR>nn
+
+case s0655
+use b2
+cursor 0 0
+keys 2/\d<CR>
+
+case s0656
+use b2
+cursor 1 4
+keys y?\d<CR>
+
+case s0657
+use b2
+cursor 0 0
+keys v/\d<CR>d
+
+case s0658
+use b2
+cursor 6 4
+keys /\d<CR>dgn
+
+case s0659
+use b2
+cursor 6 4
+keys /\d<CR>gnd
+
+case s0660
+use b2
+cursor 2 7
+keys /\d<CR>ggdgn
+
+case s0661
+use b2
+cursor 0 0
+keys /\d<CR>gNy
+
+case s0662
+use b2
+cursor 1 8
+keys /\s\+<CR>
+
+case s0663
+use b2
+cursor 6 10
+keys /\s\+<CR>
+
+case s0664
+use b2
+cursor 1 8
+keys ?\s\+<CR>
+
+case s0665
+use b2
+cursor 0 0
+keys /\s\+<CR>n
+
+case s0666
+use b2
+cursor 1 8
+keys d/\s\+<CR>
+
+case s0667
+use b2
+cursor 4 0
+keys /\s\+<CR>N
+
+case s0668
+use b2
+cursor 0 0
+keys ?\s\+<CR>nn
+
+case s0669
+use b2
+cursor 4 0
+keys 2/\s\+<CR>
+
+case s0670
+use b2
+cursor 8 2
+keys y?\s\+<CR>
+
+case s0671
+use b2
+cursor 4 0
+keys v/\s\+<CR>d
+
+case s0672
+use b2
+cursor 2 7
+keys /\s\+<CR>dgn
+
+case s0673
+use b2
+cursor 2 7
+keys /\s\+<CR>gnd
+
+case s0674
+use b2
+cursor 1 4
+keys /\s\+<CR>ggdgn
+
+case s0675
+use b2
+cursor 4 0
+keys /\s\+<CR>gNy
+
+case s0676
+use b2
+cursor 0 0
+keys /\S\+$<CR>
+
+case s0677
+use b2
+cursor 2 16
+keys /\S\+$<CR>
+
+case s0678
+use b2
+cursor 2 16
+keys ?\S\+$<CR>
+
+case s0679
+use b2
+cursor 1 8
+keys /\S\+$<CR>n
+
+case s0680
+use b2
+cursor 2 16
+keys d/\S\+$<CR>
+
+case s0681
+use b2
+cursor 0 0
+keys /\w\+<CR>
+
+case s0682
+use b2
+cursor 2 16
+keys /\w\+<CR>
+
+case s0683
+use b2
+cursor 2 16
+keys ?\w\+<CR>
+
+case s0684
+use b2
+cursor 1 8
+keys /\w\+<CR>n
+
+case s0685
+use b2
+cursor 2 16
+keys d/\w\+<CR>
+
+case s0686
+use b2
+cursor 1 4
+keys /\a\d<CR>
+
+case s0687
+use b2
+cursor 6 4
+keys /\a\d<CR>
+
+case s0688
+use b2
+cursor 0 7
+keys ?\a\d<CR>
+
+case s0689
+use b2
+cursor 6 4
+keys /\a\d<CR>n
+
+case s0690
+use b2
+cursor 0 7
+keys d/\a\d<CR>
+
+case s0691
+use b2
+cursor 1 21
+keys /\u\l\+<CR>
+
+case s0692
+use b2
+cursor 4 0
+keys ?\u\l\+<CR>
+
+case s0693
+use b2
+cursor 1 21
+keys /\u\l\+<CR>n
+
+case s0694
+use b2
+cursor 4 0
+keys d/\u\l\+<CR>
+
+case s0695
+use b2
+cursor 1 13
+keys /^\s*<CR>
+
+case s0696
+use b2
+cursor 8 2
+keys /^\s*<CR>
+
+case s0697
+use b2
+cursor 1 13
+keys ?^\s*<CR>
+
+case s0698
+use b2
+cursor 0 7
+keys /^\s*<CR>n
+
+case s0699
+use b2
+cursor 1 13
+keys d/^\s*<CR>
+
+case s0700
+use b2
+cursor 1 8
+keys /^<CR>
+
+case s0701
+use b2
+cursor 6 10
+keys /^<CR>
+
+case s0702
+use b2
+cursor 2 16
+keys ?^<CR>
+
+case s0703
+use b2
+cursor 1 8
+keys /^<CR>n
+
+case s0704
+use b2
+cursor 2 16
+keys d/^<CR>
+
+case s0705
+use b2
+cursor 0 10
+keys /$<CR>
+
+case s0706
+use b2
+cursor 4 0
+keys /$<CR>
+
+case s0707
+use b2
+cursor 1 21
+keys ?$<CR>
+
+case s0708
+use b2
+cursor 0 10
+keys /$<CR>n
+
+case s0709
+use b2
+cursor 1 21
+keys d/$<CR>
+
+case s0710
+use b2
+cursor 1 8
+keys /.<CR>
+
+case s0711
+use b2
+cursor 6 10
+keys /.<CR>
+
+case s0712
+use b2
+cursor 0 10
+keys ?.<CR>
+
+case s0713
+use b2
+cursor 6 10
+keys /.<CR>n
+
+case s0714
+use b2
+cursor 0 10
+keys d/.<CR>
+
+case s0715
+use b2
+cursor 2 7
+keys /a.b<CR>
+
+case s0716
+use b2
+cursor 0 7
+keys ?a.b<CR>
+
+case s0717
+use b2
+cursor 6 4
+keys /a.b<CR>n
+
+case s0718
+use b2
+cursor 0 7
+keys d/a.b<CR>
+
+case s0719
+use b2
+cursor 0 0
+keys /\.<CR>
+
+case s0720
+use b2
+cursor 2 16
+keys /\.<CR>
+
+case s0721
+use b2
+cursor 4 0
+keys ?\.<CR>
+
+case s0722
+use b2
+cursor 1 21
+keys /\.<CR>n
+
+case s0723
+use b2
+cursor 4 0
+keys d/\.<CR>
+
+case s0724
+use b2
+cursor 0 7
+keys /a*<CR>
+
+case s0725
+use b2
+cursor 3 0
+keys /a*<CR>
+
+case s0726
+use b2
+cursor 6 4
+keys ?a*<CR>
+
+case s0727
+use b2
+cursor 2 7
+keys /a*<CR>n
+
+case s0728
+use b2
+cursor 6 4
+keys d/a*<CR>
+
+case s0729
+use b2
+cursor 0 0
+keys /*<CR>
+
+case s0730
+use b2
+cursor 2 16
+keys /*<CR>
+
+case s0731
+use b2
+cursor 6 10
+keys ?*<CR>
+
+case s0732
+use b2
+cursor 2 16
+keys /*<CR>n
+
+case s0733
+use b2
+cursor 6 10
+keys d/*<CR>
+
+case s0734
+use b2
+cursor 2 7
+keys /\(a\|e\)r<CR>
+
+case s0735
+use b2
+cursor 2 7
+keys ?\(a\|e\)r<CR>
+
+case s0736
+use b2
+cursor 1 4
+keys /\(a\|e\)r<CR>n
+
+case s0737
+use b2
+cursor 2 7
+keys d/\(a\|e\)r<CR>
+
+case s0738
+use b2
+cursor 0 10
+keys /\vo+<CR>
+
+case s0739
+use b2
+cursor 4 0
+keys /\vo+<CR>
+
+case s0740
+use b2
+cursor 6 10
+keys ?\vo+<CR>
+
+case s0741
+use b2
+cursor 2 16
+keys /\vo+<CR>n
+
+case s0742
+use b2
+cursor 6 10
+keys d/\vo+<CR>
+
+case s0743
+use b2
+cursor 1 13
+keys /\v(a|e)r<CR>
+
+case s0744
+use b2
+cursor 8 2
+keys /\v(a|e)r<CR>
+
+case s0745
+use b2
+cursor 6 4
+keys ?\v(a|e)r<CR>
+
+case s0746
+use b2
+cursor 2 7
+keys /\v(a|e)r<CR>n
+
+case s0747
+use b2
+cursor 6 4
+keys d/\v(a|e)r<CR>
+
+case s0748
+use b2
+cursor 1 13
+keys /\vx|y<CR>
+
+case s0749
+use b2
+cursor 8 2
+keys /\vx|y<CR>
+
+case s0750
+use b2
+cursor 8 2
+keys ?\vx|y<CR>
+
+case s0751
+use b2
+cursor 3 0
+keys /\vx|y<CR>n
+
+case s0752
+use b2
+cursor 8 2
+keys d/\vx|y<CR>
+
+case s0753
+use b2
+cursor 0 7
+keys /\v<lt>t\w*><CR>
+
+case s0754
+use b2
+cursor 3 0
+keys /\v<lt>t\w*><CR>
+
+case s0755
+use b2
+cursor 1 13
+keys ?\v<lt>t\w*><CR>
+
+case s0756
+use b2
+cursor 0 7
+keys /\v<lt>t\w*><CR>n
+
+case s0757
+use b2
+cursor 1 13
+keys d/\v<lt>t\w*><CR>
+
+case s0758
+use b2
+cursor 0 0
+keys /\Vfn<Space>main()<CR>
+
+case s0759
+use b2
+cursor 2 16
+keys /\Vfn<Space>main()<CR>
+
+case s0760
+use b2
+cursor 1 21
+keys ?\Vfn<Space>main()<CR>
+
+case s0761
+use b2
+cursor 0 10
+keys /\Vfn<Space>main()<CR>n
+
+case s0762
+use b2
+cursor 1 21
+keys d/\Vfn<Space>main()<CR>
+
+case s0763
+use b2
+cursor 1 21
+keys /\V.<CR>
+
+case s0764
+use b2
+cursor 6 10
+keys ?\V.<CR>
+
+case s0765
+use b2
+cursor 2 16
+keys /\V.<CR>n
+
+case s0766
+use b2
+cursor 6 10
+keys d/\V.<CR>
+
+case s0767
+use b2
+cursor 0 0
+keys /\Ma.b<CR>
+
+case s0768
+use b2
+cursor 2 16
+keys /\Ma.b<CR>
+
+case s0769
+use b2
+cursor 0 10
+keys ?\Ma.b<CR>
+
+case s0770
+use b2
+cursor 6 10
+keys /\Ma.b<CR>n
+
+case s0771
+use b2
+cursor 0 10
+keys d/\Ma.b<CR>
+
+case s0772
+use b2
+cursor 1 13
+keys /\cFIRST<CR>
+
+case s0773
+use b2
+cursor 8 2
+keys /\cFIRST<CR>
+
+case s0774
+use b2
+cursor 2 7
+keys ?\cFIRST<CR>
+
+case s0775
+use b2
+cursor 1 4
+keys /\cFIRST<CR>n
+
+case s0776
+use b2
+cursor 2 7
+keys d/\cFIRST<CR>
+
+case s0777
+use b2
+cursor 1 13
+keys /\CFirst<CR>
+
+case s0778
+use b2
+cursor 8 2
+keys /\CFirst<CR>
+
+case s0779
+use b2
+cursor 1 13
+keys ?\CFirst<CR>
+
+case s0780
+use b2
+cursor 0 7
+keys /\CFirst<CR>n
+
+case s0781
+use b2
+cursor 1 13
+keys d/\CFirst<CR>
+
+case s0782
+use b2
+cursor 0 7
+keys /e\{2}<CR>
+
+case s0783
+use b2
+cursor 3 0
+keys /e\{2}<CR>
+
+case s0784
+use b2
+cursor 8 2
+keys ?e\{2}<CR>
+
+case s0785
+use b2
+cursor 3 0
+keys /e\{2}<CR>n
+
+case s0786
+use b2
+cursor 8 2
+keys d/e\{2}<CR>
+
+case s0787
+use b2
+cursor 1 4
+keys /o\{-1,}<CR>
+
+case s0788
+use b2
+cursor 6 4
+keys /o\{-1,}<CR>
+
+case s0789
+use b2
+cursor 8 2
+keys ?o\{-1,}<CR>
+
+case s0790
+use b2
+cursor 3 0
+keys /o\{-1,}<CR>n
+
+case s0791
+use b2
+cursor 8 2
+keys d/o\{-1,}<CR>
+
+case s0792
+use b2
+cursor 1 13
+keys /l\{1,2}<CR>
+
+case s0793
+use b2
+cursor 8 2
+keys /l\{1,2}<CR>
+
+case s0794
+use b2
+cursor 0 7
+keys ?l\{1,2}<CR>
+
+case s0795
+use b2
+cursor 6 4
+keys /l\{1,2}<CR>n
+
+case s0796
+use b2
+cursor 0 7
+keys d/l\{1,2}<CR>
+
+case s0797
+use b2
+cursor 0 0
+keys /x\=)<CR>
+
+case s0798
+use b2
+cursor 2 16
+keys /x\=)<CR>
+
+case s0799
+use b2
+cursor 1 8
+keys ?x\=)<CR>
+
+case s0800
+use b2
+cursor 0 0
+keys /x\=)<CR>n
+
+case s0801
+use b2
+cursor 1 8
+keys d/x\=)<CR>
+
+case s0802
+use b2
+cursor 0 10
+keys /n\zse<CR>
+
+case s0803
+use b2
+cursor 4 0
+keys /n\zse<CR>
+
+case s0804
+use b2
+cursor 1 21
+keys ?n\zse<CR>
+
+case s0805
+use b2
+cursor 0 10
+keys /n\zse<CR>n
+
+case s0806
+use b2
+cursor 1 21
+keys d/n\zse<CR>
+
+case s0807
+use b2
+cursor 1 13
+keys /\w\ze)<CR>
+
+case s0808
+use b2
+cursor 8 2
+keys /\w\ze)<CR>
+
+case s0809
+use b2
+cursor 1 13
+keys ?\w\ze)<CR>
+
+case s0810
+use b2
+cursor 0 7
+keys /\w\ze)<CR>n
+
+case s0811
+use b2
+cursor 1 13
+keys d/\w\ze)<CR>
+
+case s0812
+use b2
+cursor 0 7
+keys /(\@<lt>=x<CR>
+
+case s0813
+use b2
+cursor 3 0
+keys /(\@<lt>=x<CR>
+
+case s0814
+use b2
+cursor 2 7
+keys ?(\@<lt>=x<CR>
+
+case s0815
+use b2
+cursor 1 4
+keys /(\@<lt>=x<CR>n
+
+case s0816
+use b2
+cursor 2 7
+keys d/(\@<lt>=x<CR>
+
+case s0817
+use b2
+cursor 0 0
+keys /x)\@=<CR>
+
+case s0818
+use b2
+cursor 2 16
+keys /x)\@=<CR>
+
+case s0819
+use b2
+cursor 6 10
+keys ?x)\@=<CR>
+
+case s0820
+use b2
+cursor 2 16
+keys /x)\@=<CR>n
+
+case s0821
+use b2
+cursor 6 10
+keys d/x)\@=<CR>
+
+case s0822
+use b2
+cursor 0 7
+keys /\(foo\)\@!\<lt>\w<CR>
+
+case s0823
+use b2
+cursor 3 0
+keys /\(foo\)\@!\<lt>\w<CR>
+
+case s0824
+use b2
+cursor 6 4
+keys ?\(foo\)\@!\<lt>\w<CR>
+
+case s0825
+use b2
+cursor 2 7
+keys /\(foo\)\@!\<lt>\w<CR>n
+
+case s0826
+use b2
+cursor 6 4
+keys d/\(foo\)\@!\<lt>\w<CR>
+
+case s0827
+use b2
+cursor 0 10
+keys /\n\n<CR>
+
+case s0828
+use b2
+cursor 4 0
+keys /\n\n<CR>
+
+case s0829
+use b2
+cursor 4 0
+keys ?\n\n<CR>
+
+case s0830
+use b2
+cursor 1 21
+keys /\n\n<CR>n
+
+case s0831
+use b2
+cursor 4 0
+keys d/\n\n<CR>
+
+case s0832
+use b2
+cursor 1 13
+keys /e\n<CR>
+
+case s0833
+use b2
+cursor 8 2
+keys /e\n<CR>
+
+case s0834
+use b2
+cursor 2 7
+keys ?e\n<CR>
+
+case s0835
+use b2
+cursor 1 4
+keys /e\n<CR>n
+
+case s0836
+use b2
+cursor 2 7
+keys d/e\n<CR>
+
+case s0837
+use b2
+cursor 1 21
+keys /\_s\+\w<CR>
+
+case s0838
+use b2
+cursor 0 10
+keys ?\_s\+\w<CR>
+
+case s0839
+use b2
+cursor 6 10
+keys /\_s\+\w<CR>n
+
+case s0840
+use b2
+cursor 0 10
+keys d/\_s\+\w<CR>
+
+case s0841
+use b2
+cursor 2 7
+keys /(x)<CR>
+
+case s0842
+use b2
+cursor 1 4
+keys ?(x)<CR>
+
+case s0843
+use b2
+cursor 8 2
+keys /(x)<CR>n
+
+case s0844
+use b2
+cursor 1 4
+keys d/(x)<CR>
+
+case s0845
+use b2
+cursor 1 4
+keys /[[:digit:]]<CR>
+
+case s0846
+use b2
+cursor 6 4
+keys /[[:digit:]]<CR>
+
+case s0847
+use b2
+cursor 1 4
+keys ?[[:digit:]]<CR>
+
+case s0848
+use b2
+cursor 8 2
+keys /[[:digit:]]<CR>n
+
+case s0849
+use b2
+cursor 1 4
+keys d/[[:digit:]]<CR>
+
+case s0850
+use b2
+cursor 0 7
+keys /[[:upper:]]\w<CR>
+
+case s0851
+use b2
+cursor 3 0
+keys /[[:upper:]]\w<CR>
+
+case s0852
+use b2
+cursor 1 4
+keys ?[[:upper:]]\w<CR>
+
+case s0853
+use b2
+cursor 8 2
+keys /[[:upper:]]\w<CR>n
+
+case s0854
+use b2
+cursor 1 4
+keys d/[[:upper:]]\w<CR>
+
+case s0855
+use b2
+cursor 1 4
+keys /\%(ab\)\=c<CR>
+
+case s0856
+use b2
+cursor 6 4
+keys /\%(ab\)\=c<CR>
+
+case s0857
+use b2
+cursor 1 13
+keys ?\%(ab\)\=c<CR>
+
+case s0858
+use b2
+cursor 0 7
+keys /\%(ab\)\=c<CR>n
+
+case s0859
+use b2
+cursor 1 13
+keys d/\%(ab\)\=c<CR>
+
+case s0860
+use b2
+cursor 2 7
+keys /中<CR>
+
+case s0861
+use b2
+cursor 3 0
+keys ?中<CR>
+
+case s0862
+use b2
+cursor 1 13
+keys /中<CR>n
+
+case s0863
+use b2
+cursor 3 0
+keys d/中<CR>
+
+case s0864
+use b2
+cursor 1 21
+keys /\t<CR>
+
+case s0865
+use b2
+cursor 4 0
+keys ?\t<CR>
+
+case s0866
+use b2
+cursor 1 21
+keys /\t<CR>n
+
+case s0867
+use b2
+cursor 4 0
+keys d/\t<CR>
+
+case s0868
+use b2
+cursor 1 8
+keys /a\|b\|c<CR>
+
+case s0869
+use b2
+cursor 6 10
+keys /a\|b\|c<CR>
+
+case s0870
+use b2
+cursor 4 0
+keys ?a\|b\|c<CR>
+
+case s0871
+use b2
+cursor 1 21
+keys /a\|b\|c<CR>n
+
+case s0872
+use b2
+cursor 4 0
+keys d/a\|b\|c<CR>
+
+case s0873
+use b2
+cursor 0 10
+keys /\<lt>\(\w\)\w*\1<CR>
+
+case s0874
+use b2
+cursor 4 0
+keys /\<lt>\(\w\)\w*\1<CR>
+
+case s0875
+use b2
+cursor 1 8
+keys ?\<lt>\(\w\)\w*\1<CR>
+
+case s0876
+use b2
+cursor 0 0
+keys /\<lt>\(\w\)\w*\1<CR>n
+
+case s0877
+use b2
+cursor 1 8
+keys d/\<lt>\(\w\)\w*\1<CR>
+
+case s0878
+use b2
+cursor 1 8
+keys /zzz<CR>
+
+case s0879
+use b2
+cursor 6 10
+keys /zzz<CR>
+
+case s0880
+use b2
+cursor 0 0
+keys ?zzz<CR>
+
+case s0881
+use b2
+cursor 4 0
+keys /zzz<CR>n
+
+case s0882
+use b2
+cursor 0 0
+keys d/zzz<CR>
+
+case s0883
+use b2
+cursor 1 4
+keys /a/e<CR>
+
+case s0884
+use b2
+cursor 6 4
+keys /a/e<CR>
+
+case s0885
+use b2
+cursor 1 8
+keys /one/e<CR>
+
+case s0886
+use b2
+cursor 6 10
+keys /one/e<CR>
+
+case s0887
+use b2
+cursor 0 0
+keys /one/e+1<CR>
+
+case s0888
+use b2
+cursor 2 16
+keys /one/e+1<CR>
+
+case s0889
+use b2
+cursor 0 10
+keys /one/e-1<CR>
+
+case s0890
+use b2
+cursor 4 0
+keys /one/e-1<CR>
+
+case s0891
+use b2
+cursor 1 21
+keys /one/s+1<CR>
+
+case s0892
+use b2
+cursor 0 0
+keys /one/s-1<CR>
+
+case s0893
+use b2
+cursor 2 16
+keys /one/s-1<CR>
+
+case s0894
+use b2
+cursor 1 21
+keys /one/b+2<CR>
+
+case s0895
+use b2
+cursor 0 10
+keys /a/+1<CR>
+
+case s0896
+use b2
+cursor 4 0
+keys /a/+1<CR>
+
+case s0897
+use b2
+cursor 1 8
+keys /a/-1<CR>
+
+case s0898
+use b2
+cursor 6 10
+keys /a/-1<CR>
+
+case s0899
+use b2
+cursor 2 7
+keys /a/1<CR>
+
+case s0900
+use b2
+cursor 1 4
+keys ?a?e<CR>
+
+case s0901
+use b2
+cursor 6 4
+keys ?a?e<CR>
+
+case s0902
+use b2
+cursor 0 10
+keys ?a?+1<CR>
+
+case s0903
+use b2
+cursor 4 0
+keys ?a?+1<CR>
+
+case s0904
+use b2
+cursor 0 7
+keys /a/e<CR>n
+
+case s0905
+use b2
+cursor 3 0
+keys /a/e<CR>n
+
+case s0906
+use b2
+cursor 0 7
+keys /a/e<CR>N
+
+case s0907
+use b2
+cursor 3 0
+keys /a/e<CR>N
+
+case s0908
+use b2
+cursor 1 13
+keys /a/e+1<CR>n
+
+case s0909
+use b2
+cursor 8 2
+keys /a/e+1<CR>n
+
+case s0910
+use b2
+cursor 1 13
+keys /a/s-1<CR>n
+
+case s0911
+use b2
+cursor 8 2
+keys /a/s-1<CR>n
+
+case s0912
+use b2
+cursor 0 0
+keys /a/+1<CR>n
+
+case s0913
+use b2
+cursor 2 16
+keys /a/+1<CR>n
+
+case s0914
+use b2
+cursor 2 7
+keys d/a/e<CR>
+
+case s0915
+use b2
+cursor 1 21
+keys d/a/+1<CR>
+
+case s0916
+use b2
+cursor 1 8
+keys y/a/e<CR>
+
+case s0917
+use b2
+cursor 6 10
+keys y/a/e<CR>
+
+case s0918
+use b2
+cursor 1 13
+keys /a<CR>/<CR>
+
+case s0919
+use b2
+cursor 8 2
+keys /a<CR>/<CR>
+
+case s0920
+use b2
+cursor 0 7
+keys /a<CR>//e<CR>
+
+case s0921
+use b2
+cursor 3 0
+keys /a<CR>//e<CR>
+
+case s0922
+use b2
+cursor 0 7
+keys /a/e<CR>/<CR>
+
+case s0923
+use b2
+cursor 3 0
+keys /a/e<CR>/<CR>
+
+case s0924
+use b2
+cursor 1 13
+keys /a<CR>?<CR>
+
+case s0925
+use b2
+cursor 8 2
+keys /a<CR>?<CR>
+
+case s0926
+use b2
+cursor 1 4
+keys /a<Esc>n
+
+case s0927
+use b2
+cursor 6 4
+keys /a<Esc>n
+
+case s0928
+use b2
+cursor 0 0
+keys /a<CR>3n
+
+case s0929
+use b2
+cursor 2 16
+keys /a<CR>3n
+
+case s0930
+use b2
+cursor 2 7
+keys /a<CR>99n
+
+case s0931
+use b2
+cursor 0 7
+keys /a<CR>dn
+
+case s0932
+use b2
+cursor 3 0
+keys /a<CR>dn
+
+case s0933
+use b2
+cursor 0 7
+keys /a<CR>dN
+
+case s0934
+use b2
+cursor 3 0
+keys /a<CR>dN
+
+case s0935
+use b2
+cursor 1 21
+keys /a<CR>cnQ<Esc>
+
+case s0936
+use b2
+cursor 1 21
+keys /a<CR>yn
+
+case s0937
+use b2
+cursor 1 4
+keys /a<CR>d2n
+
+case s0938
+use b2
+cursor 6 4
+keys /a<CR>d2n
+
+case s0939
+use b2
+cursor 1 21
+keys n
+
+case s0940
+use b2
+cursor 1 21
+keys N
+
+case s0941
+use b2
+cursor 1 21
+keys /<CR>
+
+case s0942
+use b2
+cursor 0 7
+keys dgn
+
+case s0943
+use b2
+cursor 3 0
+keys dgn
+
+case s0944
+use b2
+cursor 0 10
+keys *
+
+case s0945
+use b2
+cursor 4 0
+keys *
+
+case s0946
+use b2
+cursor 1 4
+keys #
+
+case s0947
+use b2
+cursor 6 4
+keys #
+
+case s0948
+use b2
+cursor 0 7
+keys g*
+
+case s0949
+use b2
+cursor 3 0
+keys g*
+
+case s0950
+use b2
+cursor 0 10
+keys g#
+
+case s0951
+use b2
+cursor 4 0
+keys g#
+
+case s0952
+use b2
+cursor 1 8
+keys 2*
+
+case s0953
+use b2
+cursor 6 10
+keys 2*
+
+case s0954
+use b2
+cursor 1 13
+keys 2#
+
+case s0955
+use b2
+cursor 8 2
+keys 2#
+
+case s0956
+use b2
+cursor 0 0
+keys *n
+
+case s0957
+use b2
+cursor 2 16
+keys *n
+
+case s0958
+use b2
+cursor 0 0
+keys *N
+
+case s0959
+use b2
+cursor 2 16
+keys *N
+
+case s0960
+use b2
+cursor 0 7
+keys #n
+
+case s0961
+use b2
+cursor 3 0
+keys #n
+
+case s0962
+use b2
+cursor 0 7
+keys #N
+
+case s0963
+use b2
+cursor 3 0
+keys #N
+
+case s0964
+use b2
+cursor 1 8
+keys **
+
+case s0965
+use b2
+cursor 6 10
+keys **
+
+case s0966
+use b2
+cursor 1 13
+keys *#
+
+case s0967
+use b2
+cursor 8 2
+keys *#
+
+case s0968
+use b2
+cursor 2 7
+keys g*n
+
+case s0969
+use b2
+cursor 1 21
+keys d*
+
+case s0970
+use b2
+cursor 1 8
+keys y#
+
+case s0971
+use b2
+cursor 6 10
+keys y#
+
+case s0972
+use b2
+cursor 1 4
+keys *dgn
+
+case s0973
+use b2
+cursor 6 4
+keys *dgn
+
+case s0974
+use b2
+cursor 0 0
+keys *cgnQ<Esc>
+
+case s0975
+use b2
+cursor 2 16
+keys *cgnQ<Esc>
+
+case s0976
+use b2
+cursor 1 21
+keys *cgnQ<Esc>.
+
+case s0977
+use b2
+cursor 1 8
+keys *cgnQ<Esc>..
+
+case s0978
+use b2
+cursor 6 10
+keys *cgnQ<Esc>..
+
+case s0979
+use b2
+cursor 0 7
+keys *dgn.
+
+case s0980
+use b2
+cursor 3 0
+keys *dgn.
+
+case s0981
+use b2
+cursor 1 4
+keys *gnd
+
+case s0982
+use b2
+cursor 6 4
+keys *gnd
+
+case s0983
+use b2
+cursor 1 4
+keys *gNd
+
+case s0984
+use b2
+cursor 6 4
+keys *gNd
+
+case s0985
+use b2
+cursor 1 21
+keys *vgny
+
+case s0986
+use b2
+cursor 1 4
+keys *vgngny
+
+case s0987
+use b2
+cursor 6 4
+keys *vgngny
+
+case s0988
+use b2
+cursor 1 13
+keys *2dgn
+
+case s0989
+use b2
+cursor 8 2
+keys *2dgn
+
+case s0990
+use b2
+cursor 0 7
+keys *ggdgn
+
+case s0991
+use b2
+cursor 3 0
+keys *ggdgn
+
+case s0992
+use b2
+cursor 0 10
+keys *GdgN
+
+case s0993
+use b2
+cursor 4 0
+keys *GdgN
+
+case s0994
+use b2
+cursor 1 13
+keys *Ncgn<Esc>
+
+case s0995
+use b2
+cursor 8 2
+keys *Ncgn<Esc>
+
+case s0996
+use b2
+cursor 0 7
+keys /a<CR>cgnXY<Esc>n.
+
+case s0997
+use b2
+cursor 3 0
+keys /a<CR>cgnXY<Esc>n.
+
+case s0998
+use b2
+cursor 1 8
+keys /a\/b<CR>
+
+case s0999
+use b2
+cursor 6 10
+keys /a\/b<CR>
+
+case s1000
+use b2
+cursor 1 8
+keys ?a\?b<CR>
+
+case s1001
+use b2
+cursor 6 10
+keys ?a\?b<CR>
+
+case s1002
+use b2
+cursor 0 7
+keys /\/<CR>
+
+case s1003
+use b2
+cursor 3 0
+keys /\/<CR>
+
+case s1004
+use b2
+cursor 1 4
+keys /a<BS>e<CR>
+
+case s1005
+use b2
+cursor 6 4
+keys /a<BS>e<CR>
+
+case s1006
+use b3
+cursor 4 4
+keys /a<CR>
+
+case s1007
+use b3
+cursor 5 7
+keys ?a<CR>
+
+case s1008
+use b3
+cursor 4 4
+keys /a<CR>n
+
+case s1009
+use b3
+cursor 5 7
+keys d/a<CR>
+
+case s1010
+use b3
+cursor 0 31
+keys /a<CR>N
+
+case s1011
+use b3
+cursor 4 4
+keys ?a<CR>nn
+
+case s1012
+use b3
+cursor 0 31
+keys 2/a<CR>
+
+case s1013
+use b3
+cursor 2 0
+keys y?a<CR>
+
+case s1014
+use b3
+cursor 0 31
+keys v/a<CR>d
+
+case s1015
+use b3
+cursor 0 0
+keys /a<CR>dgn
+
+case s1016
+use b3
+cursor 0 0
+keys /a<CR>gnd
+
+case s1017
+use b3
+cursor 5 3
+keys /a<CR>ggdgn
+
+case s1018
+use b3
+cursor 0 31
+keys /a<CR>gNy
+
+case s1019
+use b3
+cursor 0 0
+keys /one<CR>
+
+case s1020
+use b3
+cursor 4 17
+keys /one<CR>
+
+case s1021
+use b3
+cursor 6 1
+keys ?one<CR>
+
+case s1022
+use b3
+cursor 4 17
+keys /one<CR>n
+
+case s1023
+use b3
+cursor 6 1
+keys d/one<CR>
+
+case s1024
+use b3
+cursor 1 8
+keys /one<CR>N
+
+case s1025
+use b3
+cursor 4 17
+keys ?one<CR>nn
+
+case s1026
+use b3
+cursor 1 8
+keys 2/one<CR>
+
+case s1027
+use b3
+cursor 4 4
+keys y?one<CR>
+
+case s1028
+use b3
+cursor 1 8
+keys v/one<CR>d
+
+case s1029
+use b3
+cursor 0 9
+keys /one<CR>dgn
+
+case s1030
+use b3
+cursor 0 9
+keys /one<CR>gnd
+
+case s1031
+use b3
+cursor 5 7
+keys /one<CR>ggdgn
+
+case s1032
+use b3
+cursor 1 8
+keys /one<CR>gNy
+
+case s1033
+use b3
+cursor 2 0
+keys /x<CR>
+
+case s1034
+use b3
+cursor 2 0
+keys ?x<CR>
+
+case s1035
+use b3
+cursor 0 14
+keys /x<CR>n
+
+case s1036
+use b3
+cursor 2 0
+keys d/x<CR>
+
+case s1037
+use b3
+cursor 6 1
+keys /x<CR>N
+
+case s1038
+use b3
+cursor 0 14
+keys ?x<CR>nn
+
+case s1039
+use b3
+cursor 6 1
+keys 2/x<CR>
+
+case s1040
+use b3
+cursor 0 9
+keys y?x<CR>
+
+case s1041
+use b3
+cursor 6 1
+keys v/x<CR>d
+
+case s1042
+use b3
+cursor 5 0
+keys /x<CR>dgn
+
+case s1043
+use b3
+cursor 5 0
+keys /x<CR>gnd
+
+case s1044
+use b3
+cursor 1 21
+keys /x<CR>ggdgn
+
+case s1045
+use b3
+cursor 6 1
+keys /x<CR>gNy
+
+case s1046
+use b3
+cursor 1 21
+keys /\<lt>a<CR>
+
+case s1047
+use b3
+cursor 7 3
+keys /\<lt>a<CR>
+
+case s1048
+use b3
+cursor 0 9
+keys ?\<lt>a<CR>
+
+case s1049
+use b3
+cursor 5 7
+keys /\<lt>a<CR>n
+
+case s1050
+use b3
+cursor 0 9
+keys d/\<lt>a<CR>
+
+case s1051
+use b3
+cursor 4 4
+keys /\<lt>a<CR>N
+
+case s1052
+use b3
+cursor 5 7
+keys ?\<lt>a<CR>nn
+
+case s1053
+use b3
+cursor 4 4
+keys 2/\<lt>a<CR>
+
+case s1054
+use b3
+cursor 5 3
+keys y?\<lt>a<CR>
+
+case s1055
+use b3
+cursor 4 4
+keys v/\<lt>a<CR>d
+
+case s1056
+use b3
+cursor 1 8
+keys /\<lt>a<CR>dgn
+
+case s1057
+use b3
+cursor 1 8
+keys /\<lt>a<CR>gnd
+
+case s1058
+use b3
+cursor 0 0
+keys /\<lt>a<CR>ggdgn
+
+case s1059
+use b3
+cursor 4 4
+keys /\<lt>a<CR>gNy
+
+case s1060
+use b3
+cursor 1 21
+keys /e\><CR>
+
+case s1061
+use b3
+cursor 7 3
+keys /e\><CR>
+
+case s1062
+use b3
+cursor 0 9
+keys ?e\><CR>
+
+case s1063
+use b3
+cursor 5 7
+keys /e\><CR>n
+
+case s1064
+use b3
+cursor 0 9
+keys d/e\><CR>
+
+case s1065
+use b3
+cursor 4 4
+keys /e\><CR>N
+
+case s1066
+use b3
+cursor 5 7
+keys ?e\><CR>nn
+
+case s1067
+use b3
+cursor 4 4
+keys 2/e\><CR>
+
+case s1068
+use b3
+cursor 5 3
+keys y?e\><CR>
+
+case s1069
+use b3
+cursor 4 4
+keys v/e\><CR>d
+
+case s1070
+use b3
+cursor 1 8
+keys /e\><CR>dgn
+
+case s1071
+use b3
+cursor 1 8
+keys /e\><CR>gnd
+
+case s1072
+use b3
+cursor 0 0
+keys /e\><CR>ggdgn
+
+case s1073
+use b3
+cursor 4 4
+keys /e\><CR>gNy
+
+case s1074
+use b3
+cursor 0 0
+keys /\<lt>\w\+\><CR>
+
+case s1075
+use b3
+cursor 4 17
+keys /\<lt>\w\+\><CR>
+
+case s1076
+use b3
+cursor 6 1
+keys ?\<lt>\w\+\><CR>
+
+case s1077
+use b3
+cursor 4 17
+keys /\<lt>\w\+\><CR>n
+
+case s1078
+use b3
+cursor 6 1
+keys d/\<lt>\w\+\><CR>
+
+case s1079
+use b3
+cursor 1 8
+keys /\<lt>\w\+\><CR>N
+
+case s1080
+use b3
+cursor 4 17
+keys ?\<lt>\w\+\><CR>nn
+
+case s1081
+use b3
+cursor 1 8
+keys 2/\<lt>\w\+\><CR>
+
+case s1082
+use b3
+cursor 4 4
+keys y?\<lt>\w\+\><CR>
+
+case s1083
+use b3
+cursor 1 8
+keys v/\<lt>\w\+\><CR>d
+
+case s1084
+use b3
+cursor 0 9
+keys /\<lt>\w\+\><CR>dgn
+
+case s1085
+use b3
+cursor 0 9
+keys /\<lt>\w\+\><CR>gnd
+
+case s1086
+use b3
+cursor 5 7
+keys /\<lt>\w\+\><CR>ggdgn
+
+case s1087
+use b3
+cursor 1 8
+keys /\<lt>\w\+\><CR>gNy
+
+case s1088
+use b3
+cursor 1 8
+keys /o\+<CR>
+
+case s1089
+use b3
+cursor 6 1
+keys /o\+<CR>
+
+case s1090
+use b3
+cursor 2 0
+keys ?o\+<CR>
+
+case s1091
+use b3
+cursor 0 14
+keys /o\+<CR>n
+
+case s1092
+use b3
+cursor 2 0
+keys d/o\+<CR>
+
+case s1093
+use b3
+cursor 6 1
+keys /o\+<CR>N
+
+case s1094
+use b3
+cursor 0 14
+keys ?o\+<CR>nn
+
+case s1095
+use b3
+cursor 6 1
+keys 2/o\+<CR>
+
+case s1096
+use b3
+cursor 0 9
+keys y?o\+<CR>
+
+case s1097
+use b3
+cursor 6 1
+keys v/o\+<CR>d
+
+case s1098
+use b3
+cursor 5 0
+keys /o\+<CR>dgn
+
+case s1099
+use b3
+cursor 5 0
+keys /o\+<CR>gnd
+
+case s1100
+use b3
+cursor 1 21
+keys /o\+<CR>ggdgn
+
+case s1101
+use b3
+cursor 6 1
+keys /o\+<CR>gNy
+
+case s1102
+use b3
+cursor 4 4
+keys /[a-c]<CR>
+
+case s1103
+use b3
+cursor 0 31
+keys ?[a-c]<CR>
+
+case s1104
+use b3
+cursor 7 3
+keys /[a-c]<CR>n
+
+case s1105
+use b3
+cursor 0 31
+keys d/[a-c]<CR>
+
+case s1106
+use b3
+cursor 5 0
+keys /[a-c]<CR>N
+
+case s1107
+use b3
+cursor 7 3
+keys ?[a-c]<CR>nn
+
+case s1108
+use b3
+cursor 5 0
+keys 2/[a-c]<CR>
+
+case s1109
+use b3
+cursor 6 1
+keys y?[a-c]<CR>
+
+case s1110
+use b3
+cursor 5 0
+keys v/[a-c]<CR>d
+
+case s1111
+use b3
+cursor 2 0
+keys /[a-c]<CR>dgn
+
+case s1112
+use b3
+cursor 2 0
+keys /[a-c]<CR>gnd
+
+case s1113
+use b3
+cursor 0 14
+keys /[a-c]<CR>ggdgn
+
+case s1114
+use b3
+cursor 5 0
+keys /[a-c]<CR>gNy
+
+case s1115
+use b3
+cursor 0 14
+keys /[^a-z<Space>]<CR>
+
+case s1116
+use b3
+cursor 5 3
+keys /[^a-z<Space>]<CR>
+
+case s1117
+use b3
+cursor 2 0
+keys ?[^a-z<Space>]<CR>
+
+case s1118
+use b3
+cursor 0 14
+keys /[^a-z<Space>]<CR>n
+
+case s1119
+use b3
+cursor 2 0
+keys d/[^a-z<Space>]<CR>
+
+case s1120
+use b3
+cursor 6 1
+keys /[^a-z<Space>]<CR>N
+
+case s1121
+use b3
+cursor 0 14
+keys ?[^a-z<Space>]<CR>nn
+
+case s1122
+use b3
+cursor 6 1
+keys 2/[^a-z<Space>]<CR>
+
+case s1123
+use b3
+cursor 0 9
+keys y?[^a-z<Space>]<CR>
+
+case s1124
+use b3
+cursor 6 1
+keys v/[^a-z<Space>]<CR>d
+
+case s1125
+use b3
+cursor 5 0
+keys /[^a-z<Space>]<CR>dgn
+
+case s1126
+use b3
+cursor 5 0
+keys /[^a-z<Space>]<CR>gnd
+
+case s1127
+use b3
+cursor 1 21
+keys /[^a-z<Space>]<CR>ggdgn
+
+case s1128
+use b3
+cursor 6 1
+keys /[^a-z<Space>]<CR>gNy
+
+case s1129
+use b3
+cursor 0 31
+keys /[]x]<CR>
+
+case s1130
+use b3
+cursor 5 7
+keys /[]x]<CR>
+
+case s1131
+use b3
+cursor 0 31
+keys ?[]x]<CR>
+
+case s1132
+use b3
+cursor 7 3
+keys /[]x]<CR>n
+
+case s1133
+use b3
+cursor 0 31
+keys d/[]x]<CR>
+
+case s1134
+use b3
+cursor 5 0
+keys /[]x]<CR>N
+
+case s1135
+use b3
+cursor 7 3
+keys ?[]x]<CR>nn
+
+case s1136
+use b3
+cursor 5 0
+keys 2/[]x]<CR>
+
+case s1137
+use b3
+cursor 6 1
+keys y?[]x]<CR>
+
+case s1138
+use b3
+cursor 5 0
+keys v/[]x]<CR>d
+
+case s1139
+use b3
+cursor 2 0
+keys /[]x]<CR>dgn
+
+case s1140
+use b3
+cursor 2 0
+keys /[]x]<CR>gnd
+
+case s1141
+use b3
+cursor 0 14
+keys /[]x]<CR>ggdgn
+
+case s1142
+use b3
+cursor 5 0
+keys /[]x]<CR>gNy
+
+case s1143
+use b3
+cursor 2 0
+keys /\d<CR>
+
+case s1144
+use b3
+cursor 4 17
+keys ?\d<CR>
+
+case s1145
+use b3
+cursor 1 8
+keys /\d<CR>n
+
+case s1146
+use b3
+cursor 4 17
+keys d/\d<CR>
+
+case s1147
+use b3
+cursor 0 0
+keys /\d<CR>N
+
+case s1148
+use b3
+cursor 1 8
+keys ?\d<CR>nn
+
+case s1149
+use b3
+cursor 0 0
+keys 2/\d<CR>
+
+case s1150
+use b3
+cursor 0 31
+keys y?\d<CR>
+
+case s1151
+use b3
+cursor 0 0
+keys v/\d<CR>d
+
+case s1152
+use b3
+cursor 5 7
+keys /\d<CR>dgn
+
+case s1153
+use b3
+cursor 5 7
+keys /\d<CR>gnd
+
+case s1154
+use b3
+cursor 4 4
+keys /\d<CR>ggdgn
+
+case s1155
+use b3
+cursor 0 0
+keys /\d<CR>gNy
+
+case s1156
+use b3
+cursor 1 8
+keys /\s\+<CR>
+
+case s1157
+use b3
+cursor 6 1
+keys /\s\+<CR>
+
+case s1158
+use b3
+cursor 1 8
+keys ?\s\+<CR>
+
+case s1159
+use b3
+cursor 0 0
+keys /\s\+<CR>n
+
+case s1160
+use b3
+cursor 1 8
+keys d/\s\+<CR>
+
+case s1161
+use b3
+cursor 5 3
+keys /\s\+<CR>N
+
+case s1162
+use b3
+cursor 0 0
+keys ?\s\+<CR>nn
+
+case s1163
+use b3
+cursor 5 3
+keys 2/\s\+<CR>
+
+case s1164
+use b3
+cursor 7 3
+keys y?\s\+<CR>
+
+case s1165
+use b3
+cursor 5 3
+keys v/\s\+<CR>d
+
+case s1166
+use b3
+cursor 4 4
+keys /\s\+<CR>dgn
+
+case s1167
+use b3
+cursor 4 4
+keys /\s\+<CR>gnd
+
+case s1168
+use b3
+cursor 0 31
+keys /\s\+<CR>ggdgn
+
+case s1169
+use b3
+cursor 5 3
+keys /\s\+<CR>gNy
+
+case s1170
+use b3
+cursor 0 0
+keys /\S\+$<CR>
+
+case s1171
+use b3
+cursor 4 17
+keys /\S\+$<CR>
+
+case s1172
+use b3
+cursor 4 17
+keys ?\S\+$<CR>
+
+case s1173
+use b3
+cursor 1 8
+keys /\S\+$<CR>n
+
+case s1174
+use b3
+cursor 4 17
+keys d/\S\+$<CR>
+
+case s1175
+use b3
+cursor 0 0
+keys /\w\+<CR>
+
+case s1176
+use b3
+cursor 4 17
+keys /\w\+<CR>
+
+case s1177
+use b3
+cursor 4 17
+keys ?\w\+<CR>
+
+case s1178
+use b3
+cursor 1 8
+keys /\w\+<CR>n
+
+case s1179
+use b3
+cursor 4 17
+keys d/\w\+<CR>
+
+case s1180
+use b3
+cursor 0 31
+keys /\a\d<CR>
+
+case s1181
+use b3
+cursor 5 7
+keys /\a\d<CR>
+
+case s1182
+use b3
+cursor 0 9
+keys ?\a\d<CR>
+
+case s1183
+use b3
+cursor 5 7
+keys /\a\d<CR>n
+
+case s1184
+use b3
+cursor 0 9
+keys d/\a\d<CR>
+
+case s1185
+use b3
+cursor 2 0
+keys /\u\l\+<CR>
+
+case s1186
+use b3
+cursor 5 3
+keys ?\u\l\+<CR>
+
+case s1187
+use b3
+cursor 2 0
+keys /\u\l\+<CR>n
+
+case s1188
+use b3
+cursor 5 3
+keys d/\u\l\+<CR>
+
+case s1189
+use b3
+cursor 1 21
+keys /^\s*<CR>
+
+case s1190
+use b3
+cursor 7 3
+keys /^\s*<CR>
+
+case s1191
+use b3
+cursor 1 21
+keys ?^\s*<CR>
+
+case s1192
+use b3
+cursor 0 9
+keys /^\s*<CR>n
+
+case s1193
+use b3
+cursor 1 21
+keys d/^\s*<CR>
+
+case s1194
+use b3
+cursor 1 8
+keys /^<CR>
+
+case s1195
+use b3
+cursor 6 1
+keys /^<CR>
+
+case s1196
+use b3
+cursor 4 17
+keys ?^<CR>
+
+case s1197
+use b3
+cursor 1 8
+keys /^<CR>n
+
+case s1198
+use b3
+cursor 4 17
+keys d/^<CR>
+
+case s1199
+use b3
+cursor 0 14
+keys /$<CR>
+
+case s1200
+use b3
+cursor 5 3
+keys /$<CR>
+
+case s1201
+use b3
+cursor 2 0
+keys ?$<CR>
+
+case s1202
+use b3
+cursor 0 14
+keys /$<CR>n
+
+case s1203
+use b3
+cursor 2 0
+keys d/$<CR>
+
+case s1204
+use b3
+cursor 1 8
+keys /.<CR>
+
+case s1205
+use b3
+cursor 6 1
+keys /.<CR>
+
+case s1206
+use b3
+cursor 0 14
+keys ?.<CR>
+
+case s1207
+use b3
+cursor 6 1
+keys /.<CR>n
+
+case s1208
+use b3
+cursor 0 14
+keys d/.<CR>
+
+case s1209
+use b3
+cursor 4 4
+keys /a.b<CR>
+
+case s1210
+use b3
+cursor 0 9
+keys ?a.b<CR>
+
+case s1211
+use b3
+cursor 5 7
+keys /a.b<CR>n
+
+case s1212
+use b3
+cursor 0 9
+keys d/a.b<CR>
+
+case s1213
+use b3
+cursor 0 0
+keys /\.<CR>
+
+case s1214
+use b3
+cursor 4 17
+keys /\.<CR>
+
+case s1215
+use b3
+cursor 5 3
+keys ?\.<CR>
+
+case s1216
+use b3
+cursor 2 0
+keys /\.<CR>n
+
+case s1217
+use b3
+cursor 5 3
+keys d/\.<CR>
+
+case s1218
+use b3
+cursor 0 9
+keys /a*<CR>
+
+case s1219
+use b3
+cursor 5 0
+keys /a*<CR>
+
+case s1220
+use b3
+cursor 5 7
+keys ?a*<CR>
+
+case s1221
+use b3
+cursor 4 4
+keys /a*<CR>n
+
+case s1222
+use b3
+cursor 5 7
+keys d/a*<CR>
+
+case s1223
+use b3
+cursor 0 0
+keys /*<CR>
+
+case s1224
+use b3
+cursor 4 17
+keys /*<CR>
+
+case s1225
+use b3
+cursor 6 1
+keys ?*<CR>
+
+case s1226
+use b3
+cursor 4 17
+keys /*<CR>n
+
+case s1227
+use b3
+cursor 6 1
+keys d/*<CR>
+
+case s1228
+use b3
+cursor 4 4
+keys /\(a\|e\)r<CR>
+
+case s1229
+use b3
+cursor 4 4
+keys ?\(a\|e\)r<CR>
+
+case s1230
+use b3
+cursor 0 31
+keys /\(a\|e\)r<CR>n
+
+case s1231
+use b3
+cursor 4 4
+keys d/\(a\|e\)r<CR>
+
+case s1232
+use b3
+cursor 0 14
+keys /\vo+<CR>
+
+case s1233
+use b3
+cursor 5 3
+keys /\vo+<CR>
+
+case s1234
+use b3
+cursor 6 1
+keys ?\vo+<CR>
+
+case s1235
+use b3
+cursor 4 17
+keys /\vo+<CR>n
+
+case s1236
+use b3
+cursor 6 1
+keys d/\vo+<CR>
+
+case s1237
+use b3
+cursor 1 21
+keys /\v(a|e)r<CR>
+
+case s1238
+use b3
+cursor 7 3
+keys /\v(a|e)r<CR>
+
+case s1239
+use b3
+cursor 5 7
+keys ?\v(a|e)r<CR>
+
+case s1240
+use b3
+cursor 4 4
+keys /\v(a|e)r<CR>n
+
+case s1241
+use b3
+cursor 5 7
+keys d/\v(a|e)r<CR>
+
+case s1242
+use b3
+cursor 1 21
+keys /\vx|y<CR>
+
+case s1243
+use b3
+cursor 7 3
+keys /\vx|y<CR>
+
+case s1244
+use b3
+cursor 7 3
+keys ?\vx|y<CR>
+
+case s1245
+use b3
+cursor 5 0
+keys /\vx|y<CR>n
+
+case s1246
+use b3
+cursor 7 3
+keys d/\vx|y<CR>
+
+case s1247
+use b3
+cursor 0 9
+keys /\v<lt>t\w*><CR>
+
+case s1248
+use b3
+cursor 5 0
+keys /\v<lt>t\w*><CR>
+
+case s1249
+use b3
+cursor 1 21
+keys ?\v<lt>t\w*><CR>
+
+case s1250
+use b3
+cursor 0 9
+keys /\v<lt>t\w*><CR>n
+
+case s1251
+use b3
+cursor 1 21
+keys d/\v<lt>t\w*><CR>
+
+case s1252
+use b3
+cursor 0 0
+keys /\Vfn<Space>main()<CR>
+
+case s1253
+use b3
+cursor 4 17
+keys /\Vfn<Space>main()<CR>
+
+case s1254
+use b3
+cursor 2 0
+keys ?\Vfn<Space>main()<CR>
+
+case s1255
+use b3
+cursor 0 14
+keys /\Vfn<Space>main()<CR>n
+
+case s1256
+use b3
+cursor 2 0
+keys d/\Vfn<Space>main()<CR>
+
+case s1257
+use b3
+cursor 2 0
+keys /\V.<CR>
+
+case s1258
+use b3
+cursor 6 1
+keys ?\V.<CR>
+
+case s1259
+use b3
+cursor 4 17
+keys /\V.<CR>n
+
+case s1260
+use b3
+cursor 6 1
+keys d/\V.<CR>
+
+case s1261
+use b3
+cursor 0 0
+keys /\Ma.b<CR>
+
+case s1262
+use b3
+cursor 4 17
+keys /\Ma.b<CR>
+
+case s1263
+use b3
+cursor 0 14
+keys ?\Ma.b<CR>
+
+case s1264
+use b3
+cursor 6 1
+keys /\Ma.b<CR>n
+
+case s1265
+use b3
+cursor 0 14
+keys d/\Ma.b<CR>
+
+case s1266
+use b3
+cursor 1 21
+keys /\cFIRST<CR>
+
+case s1267
+use b3
+cursor 7 3
+keys /\cFIRST<CR>
+
+case s1268
+use b3
+cursor 4 4
+keys ?\cFIRST<CR>
+
+case s1269
+use b3
+cursor 0 31
+keys /\cFIRST<CR>n
+
+case s1270
+use b3
+cursor 4 4
+keys d/\cFIRST<CR>
+
+case s1271
+use b3
+cursor 1 21
+keys /\CFirst<CR>
+
+case s1272
+use b3
+cursor 7 3
+keys /\CFirst<CR>
+
+case s1273
+use b3
+cursor 1 21
+keys ?\CFirst<CR>
+
+case s1274
+use b3
+cursor 0 9
+keys /\CFirst<CR>n
+
+case s1275
+use b3
+cursor 1 21
+keys d/\CFirst<CR>
+
+case s1276
+use b3
+cursor 0 9
+keys /e\{2}<CR>
+
+case s1277
+use b3
+cursor 5 0
+keys /e\{2}<CR>
+
+case s1278
+use b3
+cursor 7 3
+keys ?e\{2}<CR>
+
+case s1279
+use b3
+cursor 5 0
+keys /e\{2}<CR>n
+
+case s1280
+use b3
+cursor 7 3
+keys d/e\{2}<CR>
+
+case s1281
+use b3
+cursor 0 31
+keys /o\{-1,}<CR>
+
+case s1282
+use b3
+cursor 5 7
+keys /o\{-1,}<CR>
+
+case s1283
+use b3
+cursor 7 3
+keys ?o\{-1,}<CR>
+
+case s1284
+use b3
+cursor 5 0
+keys /o\{-1,}<CR>n
+
+case s1285
+use b3
+cursor 7 3
+keys d/o\{-1,}<CR>
+
+case s1286
+use b3
+cursor 1 21
+keys /l\{1,2}<CR>
+
+case s1287
+use b3
+cursor 7 3
+keys /l\{1,2}<CR>
+
+case s1288
+use b3
+cursor 0 9
+keys ?l\{1,2}<CR>
+
+case s1289
+use b3
+cursor 5 7
+keys /l\{1,2}<CR>n
+
+case s1290
+use b3
+cursor 0 9
+keys d/l\{1,2}<CR>
+
+case s1291
+use b3
+cursor 0 0
+keys /x\=)<CR>
+
+case s1292
+use b3
+cursor 4 17
+keys /x\=)<CR>
+
+case s1293
+use b3
+cursor 1 8
+keys ?x\=)<CR>
+
+case s1294
+use b3
+cursor 0 0
+keys /x\=)<CR>n
+
+case s1295
+use b3
+cursor 1 8
+keys d/x\=)<CR>
+
+case s1296
+use b3
+cursor 0 14
+keys /n\zse<CR>
+
+case s1297
+use b3
+cursor 5 3
+keys /n\zse<CR>
+
+case s1298
+use b3
+cursor 2 0
+keys ?n\zse<CR>
+
+case s1299
+use b3
+cursor 0 14
+keys /n\zse<CR>n
+
+case s1300
+use b3
+cursor 2 0
+keys d/n\zse<CR>
+
+case s1301
+use b3
+cursor 1 21
+keys /\w\ze)<CR>
+
+case s1302
+use b3
+cursor 7 3
+keys /\w\ze)<CR>
+
+case s1303
+use b3
+cursor 1 21
+keys ?\w\ze)<CR>
+
+case s1304
+use b3
+cursor 0 9
+keys /\w\ze)<CR>n
+
+case s1305
+use b3
+cursor 1 21
+keys d/\w\ze)<CR>
+
+case s1306
+use b3
+cursor 0 9
+keys /(\@<lt>=x<CR>
+
+case s1307
+use b3
+cursor 5 0
+keys /(\@<lt>=x<CR>
+
+case s1308
+use b3
+cursor 4 4
+keys ?(\@<lt>=x<CR>
+
+case s1309
+use b3
+cursor 0 31
+keys /(\@<lt>=x<CR>n
+
+case s1310
+use b3
+cursor 4 4
+keys d/(\@<lt>=x<CR>
+
+case s1311
+use b3
+cursor 0 0
+keys /x)\@=<CR>
+
+case s1312
+use b3
+cursor 4 17
+keys /x)\@=<CR>
+
+case s1313
+use b3
+cursor 6 1
+keys ?x)\@=<CR>
+
+case s1314
+use b3
+cursor 4 17
+keys /x)\@=<CR>n
+
+case s1315
+use b3
+cursor 6 1
+keys d/x)\@=<CR>
+
+case s1316
+use b3
+cursor 0 9
+keys /\(foo\)\@!\<lt>\w<CR>
+
+case s1317
+use b3
+cursor 5 0
+keys /\(foo\)\@!\<lt>\w<CR>
+
+case s1318
+use b3
+cursor 5 7
+keys ?\(foo\)\@!\<lt>\w<CR>
+
+case s1319
+use b3
+cursor 4 4
+keys /\(foo\)\@!\<lt>\w<CR>n
+
+case s1320
+use b3
+cursor 5 7
+keys d/\(foo\)\@!\<lt>\w<CR>
+
+case s1321
+use b3
+cursor 0 14
+keys /\n\n<CR>
+
+case s1322
+use b3
+cursor 5 3
+keys /\n\n<CR>
+
+case s1323
+use b3
+cursor 5 3
+keys ?\n\n<CR>
+
+case s1324
+use b3
+cursor 2 0
+keys /\n\n<CR>n
+
+case s1325
+use b3
+cursor 5 3
+keys d/\n\n<CR>
+
+case s1326
+use b3
+cursor 1 21
+keys /e\n<CR>
+
+case s1327
+use b3
+cursor 7 3
+keys /e\n<CR>
+
+case s1328
+use b3
+cursor 4 4
+keys ?e\n<CR>
+
+case s1329
+use b3
+cursor 0 31
+keys /e\n<CR>n
+
+case s1330
+use b3
+cursor 4 4
+keys d/e\n<CR>
+
+case s1331
+use b3
+cursor 2 0
+keys /\_s\+\w<CR>
+
+case s1332
+use b3
+cursor 0 14
+keys ?\_s\+\w<CR>
+
+case s1333
+use b3
+cursor 6 1
+keys /\_s\+\w<CR>n
+
+case s1334
+use b3
+cursor 0 14
+keys d/\_s\+\w<CR>
+
+case s1335
+use b3
+cursor 4 4
+keys /(x)<CR>
+
+case s1336
+use b3
+cursor 0 31
+keys ?(x)<CR>
+
+case s1337
+use b3
+cursor 7 3
+keys /(x)<CR>n
+
+case s1338
+use b3
+cursor 0 31
+keys d/(x)<CR>
+
+case s1339
+use b3
+cursor 0 31
+keys /[[:digit:]]<CR>
+
+case s1340
+use b3
+cursor 5 7
+keys /[[:digit:]]<CR>
+
+case s1341
+use b3
+cursor 0 31
+keys ?[[:digit:]]<CR>
+
+case s1342
+use b3
+cursor 7 3
+keys /[[:digit:]]<CR>n
+
+case s1343
+use b3
+cursor 0 31
+keys d/[[:digit:]]<CR>
+
+case s1344
+use b3
+cursor 0 9
+keys /[[:upper:]]\w<CR>
+
+case s1345
+use b3
+cursor 5 0
+keys /[[:upper:]]\w<CR>
+
+case s1346
+use b3
+cursor 0 31
+keys ?[[:upper:]]\w<CR>
+
+case s1347
+use b3
+cursor 7 3
+keys /[[:upper:]]\w<CR>n
+
+case s1348
+use b3
+cursor 0 31
+keys d/[[:upper:]]\w<CR>
+
+case s1349
+use b3
+cursor 0 31
+keys /\%(ab\)\=c<CR>
+
+case s1350
+use b3
+cursor 5 7
+keys /\%(ab\)\=c<CR>
+
+case s1351
+use b3
+cursor 1 21
+keys ?\%(ab\)\=c<CR>
+
+case s1352
+use b3
+cursor 0 9
+keys /\%(ab\)\=c<CR>n
+
+case s1353
+use b3
+cursor 1 21
+keys d/\%(ab\)\=c<CR>
+
+case s1354
+use b3
+cursor 4 4
+keys /中<CR>
+
+case s1355
+use b3
+cursor 5 0
+keys ?中<CR>
+
+case s1356
+use b3
+cursor 1 21
+keys /中<CR>n
+
+case s1357
+use b3
+cursor 5 0
+keys d/中<CR>
+
+case s1358
+use b3
+cursor 2 0
+keys /\t<CR>
+
+case s1359
+use b3
+cursor 5 3
+keys ?\t<CR>
+
+case s1360
+use b3
+cursor 2 0
+keys /\t<CR>n
+
+case s1361
+use b3
+cursor 5 3
+keys d/\t<CR>
+
+case s1362
+use b3
+cursor 1 8
+keys /a\|b\|c<CR>
+
+case s1363
+use b3
+cursor 6 1
+keys /a\|b\|c<CR>
+
+case s1364
+use b3
+cursor 5 3
+keys ?a\|b\|c<CR>
+
+case s1365
+use b3
+cursor 2 0
+keys /a\|b\|c<CR>n
+
+case s1366
+use b3
+cursor 5 3
+keys d/a\|b\|c<CR>
+
+case s1367
+use b3
+cursor 0 14
+keys /\<lt>\(\w\)\w*\1<CR>
+
+case s1368
+use b3
+cursor 5 3
+keys /\<lt>\(\w\)\w*\1<CR>
+
+case s1369
+use b3
+cursor 1 8
+keys ?\<lt>\(\w\)\w*\1<CR>
+
+case s1370
+use b3
+cursor 0 0
+keys /\<lt>\(\w\)\w*\1<CR>n
+
+case s1371
+use b3
+cursor 1 8
+keys d/\<lt>\(\w\)\w*\1<CR>
+
+case s1372
+use b3
+cursor 1 8
+keys /zzz<CR>
+
+case s1373
+use b3
+cursor 6 1
+keys /zzz<CR>
+
+case s1374
+use b3
+cursor 0 0
+keys ?zzz<CR>
+
+case s1375
+use b3
+cursor 5 3
+keys /zzz<CR>n
+
+case s1376
+use b3
+cursor 0 0
+keys d/zzz<CR>
+
+case s1377
+use b3
+cursor 0 31
+keys /a/e<CR>
+
+case s1378
+use b3
+cursor 5 7
+keys /a/e<CR>
+
+case s1379
+use b3
+cursor 1 8
+keys /one/e<CR>
+
+case s1380
+use b3
+cursor 6 1
+keys /one/e<CR>
+
+case s1381
+use b3
+cursor 0 0
+keys /one/e+1<CR>
+
+case s1382
+use b3
+cursor 4 17
+keys /one/e+1<CR>
+
+case s1383
+use b3
+cursor 0 14
+keys /one/e-1<CR>
+
+case s1384
+use b3
+cursor 5 3
+keys /one/e-1<CR>
+
+case s1385
+use b3
+cursor 2 0
+keys /one/s+1<CR>
+
+case s1386
+use b3
+cursor 0 0
+keys /one/s-1<CR>
+
+case s1387
+use b3
+cursor 4 17
+keys /one/s-1<CR>
+
+case s1388
+use b3
+cursor 2 0
+keys /one/b+2<CR>
+
+case s1389
+use b3
+cursor 0 14
+keys /a/+1<CR>
+
+case s1390
+use b3
+cursor 5 3
+keys /a/+1<CR>
+
+case s1391
+use b3
+cursor 1 8
+keys /a/-1<CR>
+
+case s1392
+use b3
+cursor 6 1
+keys /a/-1<CR>
+
+case s1393
+use b3
+cursor 4 4
+keys /a/1<CR>
+
+case s1394
+use b3
+cursor 0 31
+keys ?a?e<CR>
+
+case s1395
+use b3
+cursor 5 7
+keys ?a?e<CR>
+
+case s1396
+use b3
+cursor 0 14
+keys ?a?+1<CR>
+
+case s1397
+use b3
+cursor 5 3
+keys ?a?+1<CR>
+
+case s1398
+use b3
+cursor 0 9
+keys /a/e<CR>n
+
+case s1399
+use b3
+cursor 5 0
+keys /a/e<CR>n
+
+case s1400
+use b3
+cursor 0 9
+keys /a/e<CR>N
+
+case s1401
+use b3
+cursor 5 0
+keys /a/e<CR>N
+
+case s1402
+use b3
+cursor 1 21
+keys /a/e+1<CR>n
+
+case s1403
+use b3
+cursor 7 3
+keys /a/e+1<CR>n
+
+case s1404
+use b3
+cursor 1 21
+keys /a/s-1<CR>n
+
+case s1405
+use b3
+cursor 7 3
+keys /a/s-1<CR>n
+
+case s1406
+use b3
+cursor 0 0
+keys /a/+1<CR>n
+
+case s1407
+use b3
+cursor 4 17
+keys /a/+1<CR>n
+
+case s1408
+use b3
+cursor 4 4
+keys d/a/e<CR>
+
+case s1409
+use b3
+cursor 2 0
+keys d/a/+1<CR>
+
+case s1410
+use b3
+cursor 1 8
+keys y/a/e<CR>
+
+case s1411
+use b3
+cursor 6 1
+keys y/a/e<CR>
+
+case s1412
+use b3
+cursor 1 21
+keys /a<CR>/<CR>
+
+case s1413
+use b3
+cursor 7 3
+keys /a<CR>/<CR>
+
+case s1414
+use b3
+cursor 0 9
+keys /a<CR>//e<CR>
+
+case s1415
+use b3
+cursor 5 0
+keys /a<CR>//e<CR>
+
+case s1416
+use b3
+cursor 0 9
+keys /a/e<CR>/<CR>
+
+case s1417
+use b3
+cursor 5 0
+keys /a/e<CR>/<CR>
+
+case s1418
+use b3
+cursor 1 21
+keys /a<CR>?<CR>
+
+case s1419
+use b3
+cursor 7 3
+keys /a<CR>?<CR>
+
+case s1420
+use b3
+cursor 0 31
+keys /a<Esc>n
+
+case s1421
+use b3
+cursor 5 7
+keys /a<Esc>n
+
+case s1422
+use b3
+cursor 0 0
+keys /a<CR>3n
+
+case s1423
+use b3
+cursor 4 17
+keys /a<CR>3n
+
+case s1424
+use b3
+cursor 4 4
+keys /a<CR>99n
+
+case s1425
+use b3
+cursor 0 9
+keys /a<CR>dn
+
+case s1426
+use b3
+cursor 5 0
+keys /a<CR>dn
+
+case s1427
+use b3
+cursor 0 9
+keys /a<CR>dN
+
+case s1428
+use b3
+cursor 5 0
+keys /a<CR>dN
+
+case s1429
+use b3
+cursor 2 0
+keys /a<CR>cnQ<Esc>
+
+case s1430
+use b3
+cursor 2 0
+keys /a<CR>yn
+
+case s1431
+use b3
+cursor 0 31
+keys /a<CR>d2n
+
+case s1432
+use b3
+cursor 5 7
+keys /a<CR>d2n
+
+case s1433
+use b3
+cursor 2 0
+keys n
+
+case s1434
+use b3
+cursor 2 0
+keys N
+
+case s1435
+use b3
+cursor 2 0
+keys /<CR>
+
+case s1436
+use b3
+cursor 0 9
+keys dgn
+
+case s1437
+use b3
+cursor 5 0
+keys dgn
+
+case s1438
+use b3
+cursor 0 14
+keys *
+
+case s1439
+use b3
+cursor 5 3
+keys *
+
+case s1440
+use b3
+cursor 0 31
+keys #
+
+case s1441
+use b3
+cursor 5 7
+keys #
+
+case s1442
+use b3
+cursor 0 9
+keys g*
+
+case s1443
+use b3
+cursor 5 0
+keys g*
+
+case s1444
+use b3
+cursor 0 14
+keys g#
+
+case s1445
+use b3
+cursor 5 3
+keys g#
+
+case s1446
+use b3
+cursor 1 8
+keys 2*
+
+case s1447
+use b3
+cursor 6 1
+keys 2*
+
+case s1448
+use b3
+cursor 1 21
+keys 2#
+
+case s1449
+use b3
+cursor 7 3
+keys 2#
+
+case s1450
+use b3
+cursor 0 0
+keys *n
+
+case s1451
+use b3
+cursor 4 17
+keys *n
+
+case s1452
+use b3
+cursor 0 0
+keys *N
+
+case s1453
+use b3
+cursor 4 17
+keys *N
+
+case s1454
+use b3
+cursor 0 9
+keys #n
+
+case s1455
+use b3
+cursor 5 0
+keys #n
+
+case s1456
+use b3
+cursor 0 9
+keys #N
+
+case s1457
+use b3
+cursor 5 0
+keys #N
+
+case s1458
+use b3
+cursor 1 8
+keys **
+
+case s1459
+use b3
+cursor 6 1
+keys **
+
+case s1460
+use b3
+cursor 1 21
+keys *#
+
+case s1461
+use b3
+cursor 7 3
+keys *#
+
+case s1462
+use b3
+cursor 4 4
+keys g*n
+
+case s1463
+use b3
+cursor 2 0
+keys d*
+
+case s1464
+use b3
+cursor 1 8
+keys y#
+
+case s1465
+use b3
+cursor 6 1
+keys y#
+
+case s1466
+use b3
+cursor 0 31
+keys *dgn
+
+case s1467
+use b3
+cursor 5 7
+keys *dgn
+
+case s1468
+use b3
+cursor 0 0
+keys *cgnQ<Esc>
+
+case s1469
+use b3
+cursor 4 17
+keys *cgnQ<Esc>
+
+case s1470
+use b3
+cursor 2 0
+keys *cgnQ<Esc>.
+
+case s1471
+use b3
+cursor 1 8
+keys *cgnQ<Esc>..
+
+case s1472
+use b3
+cursor 6 1
+keys *cgnQ<Esc>..
+
+case s1473
+use b3
+cursor 0 9
+keys *dgn.
+
+case s1474
+use b3
+cursor 5 0
+keys *dgn.
+
+case s1475
+use b3
+cursor 0 31
+keys *gnd
+
+case s1476
+use b3
+cursor 5 7
+keys *gnd
+
+case s1477
+use b3
+cursor 0 31
+keys *gNd
+
+case s1478
+use b3
+cursor 5 7
+keys *gNd
+
+case s1479
+use b3
+cursor 2 0
+keys *vgny
+
+case s1480
+use b3
+cursor 0 31
+keys *vgngny
+
+case s1481
+use b3
+cursor 5 7
+keys *vgngny
+
+case s1482
+use b3
+cursor 1 21
+keys *2dgn
+
+case s1483
+use b3
+cursor 7 3
+keys *2dgn
+
+case s1484
+use b3
+cursor 0 9
+keys *ggdgn
+
+case s1485
+use b3
+cursor 5 0
+keys *ggdgn
+
+case s1486
+use b3
+cursor 0 14
+keys *GdgN
+
+case s1487
+use b3
+cursor 5 3
+keys *GdgN
+
+case s1488
+use b3
+cursor 1 21
+keys *Ncgn<Esc>
+
+case s1489
+use b3
+cursor 7 3
+keys *Ncgn<Esc>
+
+case s1490
+use b3
+cursor 0 9
+keys /a<CR>cgnXY<Esc>n.
+
+case s1491
+use b3
+cursor 5 0
+keys /a<CR>cgnXY<Esc>n.
+
+case s1492
+use b3
+cursor 1 8
+keys /a\/b<CR>
+
+case s1493
+use b3
+cursor 6 1
+keys /a\/b<CR>
+
+case s1494
+use b3
+cursor 1 8
+keys ?a\?b<CR>
+
+case s1495
+use b3
+cursor 6 1
+keys ?a\?b<CR>
+
+case s1496
+use b3
+cursor 0 9
+keys /\/<CR>
+
+case s1497
+use b3
+cursor 5 0
+keys /\/<CR>
+
+case s1498
+use b3
+cursor 0 31
+keys /a<BS>e<CR>
+
+case s1499
+use b3
+cursor 5 7
+keys /a<BS>e<CR>

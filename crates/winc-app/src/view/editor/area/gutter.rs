@@ -14,7 +14,12 @@ impl Screen<'_> {
         }
         let (p, gutter, line) = (self.app.palette, self.gutter, row.line);
         number.clear();
-        let _ = write!(number, "{}", line + 1);
+        // 相对行号：当前行显示行号，其余各行显示与当前行的距离。
+        let shown = match self.relative {
+            true if line != self.caret_line => line.abs_diff(self.caret_line),
+            _ => line + 1,
+        };
+        let _ = write!(number, "{shown}");
         let number_x = gutter.right() - GUTTER_PADDING - number.len() as f32 * self.cell;
         let number_color =
             if line == self.caret_line || self.extra_carets.iter().any(|c| c.0 == line) {

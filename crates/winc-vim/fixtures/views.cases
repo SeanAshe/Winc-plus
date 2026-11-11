@@ -1,0 +1,458 @@
+# 由 `cargo xtask vim-fixtures` 生成，不手工修改。滚动与折叠命令：核对光标的位置。
+
+buffer b1
+text "  line01 x"
+text "  line02 x"
+text "  line03 x"
+text "  line04 x"
+text "  line05 x"
+text "  line06 x"
+text "  line07 x"
+text "  line08 x"
+text "  line09 x"
+text "  line10 x"
+text "  line11 x"
+text "  line12 x"
+text "  line13 x"
+text "  line14 x"
+text "  line15 x"
+text "  line16 x"
+text "  line17 x"
+text "  line18 x"
+text "  line19 x"
+text "  line20 x"
+text "  line21 x"
+text "  line22 x"
+text "  line23 x"
+text "  line24 x"
+text "  line25 x"
+text "  line26 x"
+text "  line27 x"
+text "  line28 x"
+text "  line29 x"
+text "  line30 x"
+text "  line31 x"
+text "  line32 x"
+text "  line33 x"
+text "  line34 x"
+text "  line35 x"
+text "  line36 x"
+text "  line37 x"
+text "  line38 x"
+text "  line39 x"
+text "  line40 x"
+text "  line41 x"
+text "  line42 x"
+text "  line43 x"
+text "  line44 x"
+text "  line45 x"
+text "  line46 x"
+text "  line47 x"
+text "  line48 x"
+text "  line49 x"
+text "  line50 x"
+text "  line51 x"
+text "  line52 x"
+text "  line53 x"
+text "  line54 x"
+text "  line55 x"
+text "  line56 x"
+text "  line57 x"
+text "  line58 x"
+text "  line59 x"
+text "  line60 x"
+
+case w0001
+use b1
+cursor 29 0
+keys <C-d>
+
+case w0002
+use b1
+cursor 40 9
+keys <C-u>
+
+case w0003
+use b1
+cursor 0 0
+keys 2<C-d>
+
+case w0004
+use b1
+cursor 57 5
+keys 2<C-d>
+
+case w0005
+use b1
+cursor 4 3
+keys 2<C-u>
+
+case w0006
+use b1
+cursor 59 0
+keys 2<C-u>
+
+case w0007
+use b1
+cursor 0 0
+keys <C-d><C-d>
+
+case w0008
+use b1
+cursor 57 5
+keys <C-d><C-d>
+
+case w0009
+use b1
+cursor 4 3
+keys <C-d><C-u>
+
+case w0010
+use b1
+cursor 59 0
+keys <C-d><C-u>
+
+case w0011
+use b1
+cursor 4 3
+keys <C-u><C-d>
+
+case w0012
+use b1
+cursor 59 0
+keys <C-u><C-d>
+
+case w0013
+use b1
+cursor 4 3
+keys 5<C-d><C-d>
+
+case w0014
+use b1
+cursor 59 0
+keys 5<C-d><C-d>
+
+case w0015
+use b1
+cursor 4 3
+keys 30<C-d>
+
+case w0016
+use b1
+cursor 59 0
+keys 30<C-d>
+
+case w0017
+use b1
+cursor 0 0
+keys <C-f>
+
+case w0018
+use b1
+cursor 57 5
+keys <C-f>
+
+case w0019
+use b1
+cursor 29 0
+keys 2<C-f>
+
+case w0020
+use b1
+cursor 0 0
+keys <C-f><C-f>
+
+case w0021
+use b1
+cursor 57 5
+keys <C-f><C-f>
+
+case w0022
+use b1
+cursor 40 9
+keys <PageDown>
+
+case w0023
+use b1
+cursor 29 0
+keys <S-Down>
+
+case w0024
+use b1
+cursor 40 9
+keys <C-e>
+
+case w0025
+use b1
+cursor 29 0
+keys 3<C-e>
+
+case w0026
+use b1
+cursor 40 9
+keys <C-y>
+
+case w0027
+use b1
+cursor 4 3
+keys 2<C-y>
+
+case w0028
+use b1
+cursor 59 0
+keys 2<C-y>
+
+case w0029
+use b1
+cursor 0 0
+keys zz
+
+case w0030
+use b1
+cursor 57 5
+keys zz
+
+case w0031
+use b1
+cursor 29 0
+keys zt
+
+case w0032
+use b1
+cursor 0 0
+keys zb
+
+case w0033
+use b1
+cursor 57 5
+keys zb
+
+case w0034
+use b1
+cursor 0 0
+keys z.
+
+case w0035
+use b1
+cursor 57 5
+keys z.
+
+case w0036
+use b1
+cursor 4 3
+keys z<CR>
+
+case w0037
+use b1
+cursor 59 0
+keys z<CR>
+
+case w0038
+use b1
+cursor 40 9
+keys z-
+
+case w0039
+use b1
+cursor 40 9
+keys 5zt
+
+case w0040
+use b1
+cursor 4 3
+keys 5z.
+
+case w0041
+use b1
+cursor 59 0
+keys 5z.
+
+case w0042
+use b1
+cursor 0 0
+keys 70z<CR>
+
+case w0043
+use b1
+cursor 57 5
+keys 70z<CR>
+
+case w0044
+use b1
+cursor 29 0
+keys zh
+
+case w0045
+use b1
+cursor 29 0
+keys zl
+
+case w0046
+use b1
+cursor 40 9
+keys z<Left>
+
+case w0047
+use b1
+cursor 29 0
+keys z<Right>
+
+case w0048
+use b1
+cursor 29 0
+keys zH
+
+case w0049
+use b1
+cursor 29 0
+keys zL
+
+case w0050
+use b1
+cursor 4 3
+keys zs
+
+case w0051
+use b1
+cursor 59 0
+keys zs
+
+case w0052
+use b1
+cursor 40 9
+keys ze
+
+case w0053
+use b1
+cursor 4 3
+keys zo
+
+case w0054
+use b1
+cursor 59 0
+keys zo
+
+case w0055
+use b1
+cursor 4 3
+keys zc
+
+case w0056
+use b1
+cursor 59 0
+keys zc
+
+case w0057
+use b1
+cursor 40 9
+keys za
+
+case w0058
+use b1
+cursor 4 3
+keys zO
+
+case w0059
+use b1
+cursor 59 0
+keys zO
+
+case w0060
+use b1
+cursor 4 3
+keys zC
+
+case w0061
+use b1
+cursor 59 0
+keys zC
+
+case w0062
+use b1
+cursor 40 9
+keys zA
+
+case w0063
+use b1
+cursor 0 0
+keys zR
+
+case w0064
+use b1
+cursor 57 5
+keys zR
+
+case w0065
+use b1
+cursor 40 9
+keys zM
+
+case w0066
+use b1
+cursor 0 0
+keys zv
+
+case w0067
+use b1
+cursor 57 5
+keys zv
+
+case w0068
+use b1
+cursor 0 0
+keys zj
+
+case w0069
+use b1
+cursor 57 5
+keys zj
+
+case w0070
+use b1
+cursor 4 3
+keys zk
+
+case w0071
+use b1
+cursor 59 0
+keys zk
+
+case w0072
+use b1
+cursor 4 3
+keys v<C-d>y
+
+case w0073
+use b1
+cursor 59 0
+keys v<C-d>y
+
+case w0074
+use b1
+cursor 40 9
+keys V<C-f>y
+
+case w0075
+use b1
+cursor 29 0
+keys $<C-d>
+
+case w0076
+use b1
+cursor 40 9
+keys $<C-e>
+
+case w0077
+use b1
+cursor 0 0
+keys <C-b>
+
+case w0078
+use b1
+cursor 0 0
+keys <PageUp>
+
+case w0079
+use b1
+cursor 0 0
+keys <S-Up>

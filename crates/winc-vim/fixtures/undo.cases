@@ -1,0 +1,1171 @@
+# 由 `cargo xtask vim-fixtures` 生成，不手工修改。撤销与重做之后的文本与光标。
+
+buffer b1
+text "foo bar.baz  qux_1 (x) end"
+text "   lead, tail;  "
+text ""
+text "中文 text，全角。next"
+text "a-b a1b2 #$% éx"
+
+buffer b2
+text "fn main() {"
+text "    call(a, [b, c], \"s)\");"
+text "    if (x) { y('(') }"
+text "}"
+text ""
+text "{"
+text "  inner } {"
+text "}"
+text "tail"
+
+buffer b3
+text "First one.  Second one! Third?  "
+text "Still (third.) Fourth."
+text ""
+text ""
+text "New para here. End"
+text "\tTabbed\tline here"
+text "   "
+text "last"
+
+case u0001
+use b1
+cursor 2 0
+keys xu
+
+case u0002
+use b1
+cursor 0 0
+keys 3xu
+
+case u0003
+use b1
+cursor 4 0
+keys 3xu
+
+case u0004
+use b1
+cursor 2 0
+keys xu<C-r>
+
+case u0005
+use b1
+cursor 2 0
+keys xxu
+
+case u0006
+use b1
+cursor 1 0
+keys xxuu
+
+case u0007
+use b1
+cursor 3 9
+keys xxx2u
+
+case u0008
+use b1
+cursor 2 0
+keys xxxu<C-r><C-r>
+
+case u0009
+use b1
+cursor 1 0
+keys xxuu<C-r>
+
+case u0010
+use b1
+cursor 0 0
+keys dwu
+
+case u0011
+use b1
+cursor 4 0
+keys dwu
+
+case u0012
+use b1
+cursor 0 11
+keys dbu
+
+case u0013
+use b1
+cursor 0 5
+keys d$u
+
+case u0014
+use b1
+cursor 4 13
+keys d$u
+
+case u0015
+use b1
+cursor 0 5
+keys d0u
+
+case u0016
+use b1
+cursor 4 13
+keys d0u
+
+case u0017
+use b1
+cursor 0 25
+keys ddu
+
+case u0018
+use b1
+cursor 1 3
+keys 2ddu
+
+case u0019
+use b1
+cursor 3 9
+keys dju
+
+case u0020
+use b1
+cursor 0 0
+keys dku
+
+case u0021
+use b1
+cursor 4 0
+keys dku
+
+case u0022
+use b1
+cursor 0 0
+keys dGu
+
+case u0023
+use b1
+cursor 4 0
+keys dGu
+
+case u0024
+use b1
+cursor 0 11
+keys dggu
+
+case u0025
+use b1
+cursor 1 0
+keys d}u
+
+case u0026
+use b1
+cursor 0 20
+keys d{u
+
+case u0027
+use b1
+cursor 0 25
+keys ddu<C-r>
+
+case u0028
+use b1
+cursor 0 0
+keys dku<C-r>
+
+case u0029
+use b1
+cursor 4 0
+keys dku<C-r>
+
+case u0030
+use b1
+cursor 0 0
+keys dwu<C-r>
+
+case u0031
+use b1
+cursor 4 0
+keys dwu<C-r>
+
+case u0032
+use b1
+cursor 0 11
+keys dbu<C-r>
+
+case u0033
+use b1
+cursor 0 11
+keys yypu
+
+case u0034
+use b1
+cursor 1 3
+keys yyPu
+
+case u0035
+use b1
+cursor 0 5
+keys ywpu
+
+case u0036
+use b1
+cursor 4 13
+keys ywpu
+
+case u0037
+use b1
+cursor 0 25
+keys ywPu
+
+case u0038
+use b1
+cursor 0 11
+keys yypu<C-r>
+
+case u0039
+use b1
+cursor 1 3
+keys yyPu<C-r>
+
+case u0040
+use b1
+cursor 0 5
+keys ywpu<C-r>
+
+case u0041
+use b1
+cursor 4 13
+keys ywpu<C-r>
+
+case u0042
+use b1
+cursor 3 9
+keys Ju
+
+case u0043
+use b1
+cursor 0 7
+keys 3Ju
+
+case u0044
+use b1
+cursor 4 15
+tag known
+keys 3Ju
+
+case u0045
+use b1
+cursor 3 9
+keys Ju<C-r>
+
+case u0046
+use b1
+cursor 0 0
+keys rQu
+
+case u0047
+use b1
+cursor 4 0
+keys rQu
+
+case u0048
+use b1
+cursor 0 5
+keys >>u
+
+case u0049
+use b1
+cursor 4 13
+keys >>u
+
+case u0050
+use b1
+cursor 0 20
+keys g~~u
+
+case u0051
+use b1
+cursor 2 0
+keys g~wu
+
+case u0052
+use b1
+cursor 0 11
+keys gUju
+
+case u0053
+use b1
+cursor 0 11
+keys Dju
+
+case u0054
+use b1
+cursor 3 9
+keys ddjddu
+
+case u0055
+use b1
+cursor 1 15
+keys ddjdduu
+
+case u0056
+use b1
+cursor 2 0
+keys u
+
+case u0057
+use b1
+cursor 0 0
+keys <C-r>
+
+case u0058
+use b1
+cursor 4 0
+keys <C-r>
+
+case u0059
+use b1
+cursor 2 0
+keys xu<C-r>x
+
+case u0060
+use b1
+cursor 0 7
+keys Aab<Esc>u
+
+case u0061
+use b1
+cursor 4 15
+keys Aab<Esc>u
+
+case u0062
+use b1
+cursor 3 1
+keys Iab<Esc>u
+
+case u0063
+use b1
+cursor 0 20
+keys Oab<Esc>u
+
+case u0064
+use b1
+cursor 0 0
+keys oab<Esc>u<C-r>
+
+case u0065
+use b1
+cursor 4 0
+keys oab<Esc>u<C-r>
+
+case u0066
+use b1
+cursor 1 0
+keys iab<Esc>u<C-r>
+
+case u0067
+use b1
+cursor 3 9
+keys cwab<Esc>u<C-r>
+
+case u0068
+use b1
+cursor 2 0
+keys vjdu
+
+case u0069
+use b1
+cursor 0 5
+keys Vjdu
+
+case u0070
+use b1
+cursor 4 13
+keys Vjdu
+
+case u0071
+use b1
+cursor 3 9
+keys vldu
+
+case u0072
+use b1
+cursor 2 0
+keys vjdu<C-r>
+
+case u0073
+use b1
+cursor 0 0
+keys x3u
+
+case u0074
+use b1
+cursor 4 0
+keys x3u
+
+case u0075
+use b1
+cursor 0 0
+keys xxx3u<C-r>
+
+case u0076
+use b1
+cursor 4 0
+keys xxx3u<C-r>
+
+case u0077
+use b1
+cursor 0 7
+keys xxx3u2<C-r>
+
+case u0078
+use b1
+cursor 4 15
+keys xxx3u2<C-r>
+
+case u0079
+use b2
+cursor 3 0
+keys xu
+
+case u0080
+use b2
+cursor 0 0
+keys 3xu
+
+case u0081
+use b2
+cursor 6 10
+keys 3xu
+
+case u0082
+use b2
+cursor 3 0
+keys xu<C-r>
+
+case u0083
+use b2
+cursor 3 0
+tag known
+keys xxu
+
+case u0084
+use b2
+cursor 1 21
+keys xxuu
+
+case u0085
+use b2
+cursor 6 4
+keys xxx2u
+
+case u0086
+use b2
+cursor 3 0
+keys xxxu<C-r><C-r>
+
+case u0087
+use b2
+cursor 1 21
+keys xxuu<C-r>
+
+case u0088
+use b2
+cursor 0 0
+keys dwu
+
+case u0089
+use b2
+cursor 6 10
+keys dwu
+
+case u0090
+use b2
+cursor 1 4
+keys dbu
+
+case u0091
+use b2
+cursor 0 7
+keys d$u
+
+case u0092
+use b2
+cursor 8 2
+keys d$u
+
+case u0093
+use b2
+cursor 0 7
+keys d0u
+
+case u0094
+use b2
+cursor 8 2
+keys d0u
+
+case u0095
+use b2
+cursor 1 13
+keys ddu
+
+case u0096
+use b2
+cursor 2 7
+keys 2ddu
+
+case u0097
+use b2
+cursor 6 4
+keys dju
+
+case u0098
+use b2
+cursor 0 0
+keys dku
+
+case u0099
+use b2
+cursor 6 10
+keys dku
+
+case u0100
+use b2
+cursor 0 0
+keys dGu
+
+case u0101
+use b2
+cursor 6 10
+keys dGu
+
+case u0102
+use b2
+cursor 1 4
+keys dggu
+
+case u0103
+use b2
+cursor 1 21
+keys d}u
+
+case u0104
+use b2
+cursor 1 8
+keys d{u
+
+case u0105
+use b2
+cursor 1 13
+keys ddu<C-r>
+
+case u0106
+use b2
+cursor 0 0
+keys dku<C-r>
+
+case u0107
+use b2
+cursor 6 10
+keys dku<C-r>
+
+case u0108
+use b2
+cursor 0 0
+keys dwu<C-r>
+
+case u0109
+use b2
+cursor 6 10
+keys dwu<C-r>
+
+case u0110
+use b2
+cursor 1 4
+keys dbu<C-r>
+
+case u0111
+use b2
+cursor 1 4
+keys yypu
+
+case u0112
+use b2
+cursor 2 7
+keys yyPu
+
+case u0113
+use b2
+cursor 0 7
+keys ywpu
+
+case u0114
+use b2
+cursor 8 2
+keys ywpu
+
+case u0115
+use b2
+cursor 1 13
+keys ywPu
+
+case u0116
+use b2
+cursor 1 4
+keys yypu<C-r>
+
+case u0117
+use b2
+cursor 2 7
+keys yyPu<C-r>
+
+case u0118
+use b2
+cursor 0 7
+keys ywpu<C-r>
+
+case u0119
+use b2
+cursor 8 2
+keys ywpu<C-r>
+
+case u0120
+use b2
+cursor 6 4
+keys Ju
+
+case u0121
+use b2
+cursor 0 10
+keys 3Ju
+
+case u0122
+use b2
+cursor 6 4
+keys Ju<C-r>
+
+case u0123
+use b2
+cursor 0 0
+keys rQu
+
+case u0124
+use b2
+cursor 6 10
+keys rQu
+
+case u0125
+use b2
+cursor 0 7
+keys >>u
+
+case u0126
+use b2
+cursor 8 2
+keys >>u
+
+case u0127
+use b2
+cursor 1 8
+keys g~~u
+
+case u0128
+use b2
+cursor 3 0
+keys g~wu
+
+case u0129
+use b2
+cursor 1 4
+keys gUju
+
+case u0130
+use b2
+cursor 1 4
+keys Dju
+
+case u0131
+use b2
+cursor 6 4
+keys ddjddu
+
+case u0132
+use b2
+cursor 2 16
+keys ddjdduu
+
+case u0133
+use b2
+cursor 3 0
+keys u
+
+case u0134
+use b2
+cursor 0 0
+keys <C-r>
+
+case u0135
+use b2
+cursor 6 10
+keys <C-r>
+
+case u0136
+use b2
+cursor 3 0
+keys xu<C-r>x
+
+case u0137
+use b2
+cursor 0 10
+keys Aab<Esc>u
+
+case u0138
+use b2
+cursor 4 0
+keys Iab<Esc>u
+
+case u0139
+use b2
+cursor 1 8
+keys Oab<Esc>u
+
+case u0140
+use b2
+cursor 0 0
+keys oab<Esc>u<C-r>
+
+case u0141
+use b2
+cursor 6 10
+keys oab<Esc>u<C-r>
+
+case u0142
+use b2
+cursor 1 21
+keys iab<Esc>u<C-r>
+
+case u0143
+use b2
+cursor 6 4
+keys cwab<Esc>u<C-r>
+
+case u0144
+use b2
+cursor 3 0
+keys vjdu
+
+case u0145
+use b2
+cursor 0 7
+keys Vjdu
+
+case u0146
+use b2
+cursor 8 2
+keys Vjdu
+
+case u0147
+use b2
+cursor 6 4
+keys vldu
+
+case u0148
+use b2
+cursor 3 0
+keys vjdu<C-r>
+
+case u0149
+use b2
+cursor 0 0
+keys x3u
+
+case u0150
+use b2
+cursor 6 10
+keys x3u
+
+case u0151
+use b2
+cursor 0 0
+keys xxx3u<C-r>
+
+case u0152
+use b2
+cursor 6 10
+keys xxx3u<C-r>
+
+case u0153
+use b2
+cursor 0 10
+keys xxx3u2<C-r>
+
+case u0154
+use b3
+cursor 5 0
+keys xu
+
+case u0155
+use b3
+cursor 0 0
+keys 3xu
+
+case u0156
+use b3
+cursor 6 1
+keys 3xu
+
+case u0157
+use b3
+cursor 5 0
+keys xu<C-r>
+
+case u0158
+use b3
+cursor 5 0
+keys xxu
+
+case u0159
+use b3
+cursor 2 0
+keys xxuu
+
+case u0160
+use b3
+cursor 5 7
+keys xxx2u
+
+case u0161
+use b3
+cursor 5 0
+keys xxxu<C-r><C-r>
+
+case u0162
+use b3
+cursor 2 0
+keys xxuu<C-r>
+
+case u0163
+use b3
+cursor 0 0
+keys dwu
+
+case u0164
+use b3
+cursor 6 1
+keys dwu
+
+case u0165
+use b3
+cursor 0 31
+keys dbu
+
+case u0166
+use b3
+cursor 0 9
+keys d$u
+
+case u0167
+use b3
+cursor 7 3
+keys d$u
+
+case u0168
+use b3
+cursor 0 9
+keys d0u
+
+case u0169
+use b3
+cursor 7 3
+keys d0u
+
+case u0170
+use b3
+cursor 1 21
+keys ddu
+
+case u0171
+use b3
+cursor 4 4
+keys 2ddu
+
+case u0172
+use b3
+cursor 5 7
+keys dju
+
+case u0173
+use b3
+cursor 0 0
+keys dku
+
+case u0174
+use b3
+cursor 6 1
+keys dku
+
+case u0175
+use b3
+cursor 0 0
+keys dGu
+
+case u0176
+use b3
+cursor 6 1
+keys dGu
+
+case u0177
+use b3
+cursor 0 31
+keys dggu
+
+case u0178
+use b3
+cursor 2 0
+keys d}u
+
+case u0179
+use b3
+cursor 1 8
+keys d{u
+
+case u0180
+use b3
+cursor 1 21
+keys ddu<C-r>
+
+case u0181
+use b3
+cursor 0 0
+keys dku<C-r>
+
+case u0182
+use b3
+cursor 6 1
+keys dku<C-r>
+
+case u0183
+use b3
+cursor 0 0
+keys dwu<C-r>
+
+case u0184
+use b3
+cursor 6 1
+keys dwu<C-r>
+
+case u0185
+use b3
+cursor 0 31
+keys dbu<C-r>
+
+case u0186
+use b3
+cursor 0 31
+keys yypu
+
+case u0187
+use b3
+cursor 4 4
+keys yyPu
+
+case u0188
+use b3
+cursor 0 9
+keys ywpu
+
+case u0189
+use b3
+cursor 7 3
+keys ywpu
+
+case u0190
+use b3
+cursor 1 21
+keys ywPu
+
+case u0191
+use b3
+cursor 0 31
+keys yypu<C-r>
+
+case u0192
+use b3
+cursor 4 4
+keys yyPu<C-r>
+
+case u0193
+use b3
+cursor 0 9
+keys ywpu<C-r>
+
+case u0194
+use b3
+cursor 7 3
+keys ywpu<C-r>
+
+case u0195
+use b3
+cursor 5 7
+keys Ju
+
+case u0196
+use b3
+cursor 0 14
+keys 3Ju
+
+case u0197
+use b3
+cursor 5 7
+keys Ju<C-r>
+
+case u0198
+use b3
+cursor 0 0
+keys rQu
+
+case u0199
+use b3
+cursor 6 1
+keys rQu
+
+case u0200
+use b3
+cursor 0 9
+keys >>u
+
+case u0201
+use b3
+cursor 7 3
+keys >>u
+
+case u0202
+use b3
+cursor 1 8
+keys g~~u
+
+case u0203
+use b3
+cursor 5 0
+keys g~wu
+
+case u0204
+use b3
+cursor 0 31
+keys gUju
+
+case u0205
+use b3
+cursor 0 31
+keys Dju
+
+case u0206
+use b3
+cursor 5 7
+keys ddjddu
+
+case u0207
+use b3
+cursor 4 17
+keys ddjdduu
+
+case u0208
+use b3
+cursor 5 0
+keys u
+
+case u0209
+use b3
+cursor 0 0
+keys <C-r>
+
+case u0210
+use b3
+cursor 6 1
+keys <C-r>
+
+case u0211
+use b3
+cursor 5 0
+keys xu<C-r>x
+
+case u0212
+use b3
+cursor 0 14
+keys Aab<Esc>u
+
+case u0213
+use b3
+cursor 5 3
+keys Iab<Esc>u
+
+case u0214
+use b3
+cursor 1 8
+keys Oab<Esc>u
+
+case u0215
+use b3
+cursor 0 0
+keys oab<Esc>u<C-r>
+
+case u0216
+use b3
+cursor 6 1
+keys oab<Esc>u<C-r>
+
+case u0217
+use b3
+cursor 2 0
+keys iab<Esc>u<C-r>
+
+case u0218
+use b3
+cursor 5 7
+keys cwab<Esc>u<C-r>
+
+case u0219
+use b3
+cursor 5 0
+keys vjdu
+
+case u0220
+use b3
+cursor 0 9
+keys Vjdu
+
+case u0221
+use b3
+cursor 7 3
+keys Vjdu
+
+case u0222
+use b3
+cursor 5 7
+keys vldu
+
+case u0223
+use b3
+cursor 5 0
+keys vjdu<C-r>
+
+case u0224
+use b3
+cursor 0 0
+keys x3u
+
+case u0225
+use b3
+cursor 6 1
+keys x3u
+
+case u0226
+use b3
+cursor 0 0
+keys xxx3u<C-r>
+
+case u0227
+use b3
+cursor 6 1
+keys xxx3u<C-r>
+
+case u0228
+use b3
+cursor 0 14
+keys xxx3u2<C-r>
