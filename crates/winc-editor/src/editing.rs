@@ -7,6 +7,7 @@
 pub(crate) mod command;
 pub(crate) mod cursors;
 pub(crate) mod folding;
+pub(crate) mod long_lines;
 pub mod paste;
 pub mod scopes;
 pub(crate) mod search;

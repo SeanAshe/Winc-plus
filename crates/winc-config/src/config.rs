@@ -74,6 +74,8 @@ pub struct Config {
     pub sticky_scroll: Option<bool>,
     /// 自动换行：按编辑区宽度把长行断开显示（不修改文件），默认为否。
     pub word_wrap: Option<bool>,
+    /// 超长行显示全部内容，而不是只显示开头的一部分，默认为否。
+    pub whole_lines: Option<bool>,
     /// 在编辑区右侧显示缩略图，默认为否。
     pub minimap: Option<bool>,
     /// 在侧栏文件视图的底部显示大纲（当前文件的函数、类型、标题），默认为是。

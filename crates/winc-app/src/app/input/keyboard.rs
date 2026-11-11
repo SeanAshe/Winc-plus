@@ -939,11 +939,18 @@ impl App {
     /// 编辑区或输入框。
     pub(in crate::app) fn on_ime(&mut self, ime: Ime) {
         match ime {
+            // 组字文字只属于焦点所在的一处，另一处的清空。
             Ime::Preedit(text, _) => {
                 if self.focus.is_field() {
                     self.field_preedit = text;
+                    self.preedit.clear();
                 } else {
+                    // 尚未在预览上点击就开始组字时，预览同样显示光标和组字文字。
+                    if !text.is_empty() && self.focus == Focus::Editor && self.markdown_live() {
+                        self.start_live_editing();
+                    }
                     self.preedit = text;
+                    self.field_preedit.clear();
                 }
             }
             Ime::Commit(text) => {
@@ -969,10 +976,51 @@ impl App {
         self.request_redraw();
     }
 
-    /// 把输入法候选窗的位置（`ImeState::cursor`，逻辑像素）同步给窗口；位置没有变化时不重复设置。
+    /// 输入法正在组字的文字，只在焦点位于 `focus` 时返回。
     ///
-    /// 窗口按系统的逻辑坐标接收位置，界面的逻辑像素乘以界面缩放倍数后传入。
+    /// 组字文字显示在焦点所在的一处：编辑区、可编辑的预览和终端都读取同一份文字，各自只在
+    /// 持有焦点时显示。
+    pub(crate) fn preedit_at(&self, focus: Focus) -> &str {
+        if self.focus == focus {
+            &self.preedit
+        } else {
+            ""
+        }
+    }
+
+    /// 焦点所在的位置是否可以输入文字：输入框、未结束的终端，或者可以编辑文字的文档（含光标
+    /// 位于差异中）。光标闪烁和输入法都只在这些位置生效。
+    pub(in crate::app) fn takes_text(&self) -> bool {
+        match self.focus {
+            Focus::Terminal => self.terminal.tab().is_some_and(|t| t.ended.is_none()),
+            Focus::Editor => self.editor.active().is_some_and(|doc| {
+                let diff = doc.diff.as_deref();
+                doc.edits_text() || diff.is_some_and(|v| v.editing || v.read_caret().is_some())
+            }),
+            focus => focus.is_field(),
+        }
+    }
+
+    /// 让输入法的状态与焦点一致，并把候选窗的位置（`ImeState::cursor`，逻辑像素）同步给窗口。
+    ///
+    /// 焦点不在可以输入文字的位置时停用输入法：按键按原样送达，不进入组字，候选窗也不会出现在
+    /// 上一次输入的位置。位置没有变化时不重复设置；窗口按系统的逻辑坐标接收位置，界面的逻辑
+    /// 像素乘以界面缩放倍数后传入。
     pub(in crate::app) fn update_ime_area(&mut self) {
+        let allowed = self.takes_text();
+        if self.ime.allowed != Some(allowed)
+            && let Some(window) = &self.window.handle
+        {
+            window.set_ime_allowed(allowed);
+            self.ime.allowed = Some(allowed);
+            // 重新启用后再告知一次候选窗的位置。
+            self.ime.last_area = None;
+        }
+        if !allowed && !(self.preedit.is_empty() && self.field_preedit.is_empty()) {
+            self.preedit.clear();
+            self.field_preedit.clear();
+            self.request_redraw();
+        }
         if let (Some(area), Some(window)) = (self.ime.cursor, &self.window.handle)
             && self.ime.last_area != Some(area)
         {
@@ -992,4 +1040,6 @@ pub struct ImeState {
     /// 输入法候选框应出现的位置。
     pub(crate) cursor: Option<winc_render::Rect>,
     pub(in crate::app) last_area: Option<winc_render::Rect>,
+    /// 上一次告知窗口的输入法是否启用；尚未告知时为 `None`。
+    pub(in crate::app) allowed: Option<bool>,
 }

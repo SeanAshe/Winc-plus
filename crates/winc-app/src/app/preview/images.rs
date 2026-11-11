@@ -8,15 +8,23 @@ use std::sync::{Arc, OnceLock, mpsc};
 
 use winc_editor::DocumentId;
 use winc_editor::{PictureState, PreviewMode};
-use winc_preview::image::{self, Picture, Pixels};
+use winc_preview::image::{self, Picture, Pixels, Source};
 use winc_preview::svg;
 
 use crate::app::{App, UserEvent};
 
+mod viewport;
+pub(crate) use viewport::PictureView;
+
 /// 后台完成的加载任务：文档、任务依据的文档版本号（`revision`）、加载结果。
 type Done = (DocumentId, u64, Result<Picture, String>);
-/// 后台按指定大小绘制完成的 SVG：文档、源图片、绘制得到的像素。
-type Rendered = (DocumentId, Arc<Picture>, Pixels);
+/// 后台绘制完成的 SVG：文档、源图片、光栅化的结果，以及结果是否为整张图的低分辨率位图
+/// （[`PictureCache::base`]）。
+type Rendered = (DocumentId, Arc<Picture>, Raster, bool);
+
+/// 一次 SVG 后台绘制：（文档，图片的 `Arc` 指针地址，整张图的大小，绘制的部分，是否为低分辨率
+/// 位图），大小和位置的单位为物理像素。
+type Drawing = (DocumentId, usize, (u32, u32), [u32; 4], bool);
 
 /// 图片与 SVG 的后台任务状态：任务结果的通道，以及进行中的任务记录。
 pub(crate) struct ImageJobs {
@@ -26,10 +34,8 @@ pub(crate) struct ImageJobs {
     pending: HashSet<(DocumentId, u64)>,
     rendered_sender: mpsc::Sender<Rendered>,
     rendered: mpsc::Receiver<Rendered>,
-    /// 正在后台绘制的 SVG：（文档，图片的 `Arc` 指针地址，目标大小（物理像素））。
-    ///
-    /// 完成前不提交新的绘制（见 [`App::render_picture`]）。
-    drawing: Option<(DocumentId, usize, (u32, u32))>,
+    /// 正在后台绘制的 SVG；完成前不提交新的绘制（见 [`App::render_picture`]）。
+    drawing: Option<Drawing>,
     split_sender: mpsc::Sender<Done>,
     split_done: mpsc::Receiver<Done>,
     /// 最近显示过的两个标签：当前标签和它之前的那一个。
@@ -132,6 +138,7 @@ impl App {
         self.advance_split();
         self.advance_markdown();
         self.advance_pdf();
+        self.advance_picture_view();
         self.release_hidden_pictures();
         self.advance_tables();
         let Some(doc) = self.editor.active() else {
@@ -232,7 +239,9 @@ impl App {
         self.request_redraw();
     }
 
-    /// 提交后台任务，将 SVG `picture` 绘制为 `size`（物理像素，宽、高）的位图。
+    /// 提交后台任务，绘制 SVG `picture` 的一部分：整张图为 `size`（宽、高）时的 `region`
+    /// （左上角的横、纵坐标和宽、高），单位为物理像素。`base` 表示结果用作整张图的低分辨率
+    /// 位图。`picture` 不是 SVG 时不提交。
     ///
     /// 拖动窗口边缘时 `size` 每帧都在变化。同一时刻只在后台绘制一张：已有绘制在进行时不提交，
     /// 那一张完成后界面重绘，届时仍不符合的尺寸再提交。否则每帧一张，过时的绘制挤在共用的
@@ -242,20 +251,29 @@ impl App {
         id: DocumentId,
         picture: &Arc<Picture>,
         size: (u32, u32),
+        region: [u32; 4],
+        base: bool,
     ) {
-        let key = (id, Arc::as_ptr(picture) as usize, size);
+        let Source::Vector(drawing) = &picture.source else {
+            return;
+        };
         if self.images.drawing.is_some() {
             return;
         }
-        self.images.drawing = Some(key);
-        let (sender, proxy, picture) = (
+        self.images.drawing = Some((id, Arc::as_ptr(picture) as usize, size, region, base));
+        let (sender, proxy, picture, drawing) = (
             self.images.rendered_sender.clone(),
             self.proxy.clone(),
             Arc::clone(picture),
+            Arc::clone(drawing),
         );
         winc_editor::background::spawn(move || {
-            let pixels = picture.render(size.0, size.1);
-            if sender.send((id, picture, pixels)).is_ok()
+            let raster = Raster {
+                pixels: drawing.render_region(size, region),
+                size,
+                origin: (region[0], region[1]),
+            };
+            if sender.send((id, picture, raster, base)).is_ok()
                 && let Some(proxy) = proxy
             {
                 let _ = proxy.send_event(UserEvent::ImageReady);
@@ -280,17 +298,21 @@ impl App {
         self.poll_wallpaper();
     }
 
-    fn accept_rendered(&mut self, (id, picture, pixels): Rendered) {
+    fn accept_rendered(&mut self, (id, picture, raster, base): Rendered) {
+        let px = &raster.pixels;
+        let region = [raster.origin.0, raster.origin.1, px.width, px.height];
         let key = (
             id,
             Arc::as_ptr(&picture) as usize,
-            (pixels.width, pixels.height),
+            raster.size,
+            region,
+            base,
         );
         if self.images.drawing == Some(key) {
             self.images.drawing = None;
         }
-        // 文档或图片已经切换时丢弃结果。大小与最新窗口尺寸不符的结果仍先使用，
-        // 其清晰度高于拉伸旧图；下一帧会按新尺寸重新提交绘制。
+        // 文档或图片已经切换时丢弃结果。大小或位置与最新的显示不符的结果仍先使用，
+        // 其清晰度高于拉伸旧图；下一帧会按新的大小和位置重新提交绘制。
         let split = self
             .split
             .picture
@@ -301,15 +323,26 @@ impl App {
             .active()
             .filter(|d| d.id == id)
             .and_then(|d| d.picture().or(split));
-        if current.is_some_and(|p| Arc::ptr_eq(p, &picture)) {
-            self.picture_cache = Some(PictureCache {
-                doc: id,
-                picture,
-                pixels,
-                exact: true,
-            });
-            self.request_redraw();
+        if !current.is_some_and(|p| Arc::ptr_eq(p, &picture)) {
+            return;
         }
+        let cache = self
+            .picture_cache
+            .take()
+            .filter(|c| c.doc == id && Arc::ptr_eq(&c.picture, &picture));
+        let mut cache = cache.unwrap_or(PictureCache {
+            doc: id,
+            picture,
+            sharp: None,
+            base: None,
+        });
+        if base {
+            cache.base = Some(raster.pixels);
+        } else {
+            cache.sharp = Some(raster);
+        }
+        self.picture_cache = Some(cache);
+        self.request_redraw();
     }
 
     fn accept_image(&mut self, (id, revision, result): Done) {
@@ -409,18 +442,31 @@ impl App {
     }
 }
 
-/// 缩放后、按物理像素一一对应绘制的图片缓存：记录属于哪个文档的哪张图，以及缩放到多大。
+/// 图片光栅化的结果：整张图为 `size` 时自 `origin` 起的部分。
+pub(crate) struct Raster {
+    /// 这一部分的像素。
+    pub(crate) pixels: Pixels,
+    /// 光栅化时整张图的大小（宽、高，物理像素）。
+    pub(crate) size: (u32, u32),
+    /// `pixels` 的左上角在整张图中的位置（物理像素）。
+    pub(crate) origin: (u32, u32),
+}
+
+/// 按显示大小光栅化的图片缓存：缩小后的位图，或 SVG 可见的部分。
 ///
-/// 窗口大小改变时才重新缩放。
+/// 大小有上限：位图不超过解码后保留的像素；SVG 的 `sharp` 不超过预览区域加四周多绘制的宽度，
+/// `base` 的长边不超过固定的上限。显示大小不小于保留的像素的位图直接取样绘制，不使用缓存
+/// （见 `view::editor::picture`）。
 pub(crate) struct PictureCache {
     /// 图片所属的文档。
-    pub(crate) doc: winc_editor::DocumentId,
+    pub(crate) doc: DocumentId,
     /// 缩放前的原图。
-    pub(crate) picture: std::sync::Arc<winc_preview::image::Picture>,
-    /// 缩放后的像素。
-    pub(crate) pixels: winc_preview::image::Pixels,
-    /// 是否按当前大小绘制；为 `false` 时先沿用上一次的缩放结果（SVG 正在后台按新大小重绘）。
-    pub(crate) exact: bool,
+    pub(crate) picture: Arc<Picture>,
+    /// 按显示大小光栅化的部分；SVG 尚未绘制完成时为 `None`。
+    pub(crate) sharp: Option<Raster>,
+    /// SVG 整张图的低分辨率位图：`sharp` 尚未覆盖的位置（缩放、平移之后）先放大显示它，
+    /// 不留空白。位图不使用。
+    pub(crate) base: Option<Pixels>,
 }
 
 #[cfg(test)]

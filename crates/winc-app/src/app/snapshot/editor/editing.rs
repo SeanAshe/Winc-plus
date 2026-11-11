@@ -915,8 +915,8 @@ fn lines_read_up_to_the_right_edge_keep_the_highlight_state() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 回归：不换行时每行只显示前 `MAX_LINE_CHARS` 个字符。查找跳到其后的匹配时横向滚动到
-/// 显示部分的末尾并给出提示，文本区不出现空白；开启自动换行后匹配可见。
+/// 不换行时每行只显示前 `MAX_LINE_CHARS` 个字符。查找跳到其后的匹配时展开该行并横向滚动到
+/// 匹配处；开启自动换行后匹配同样可见。
 #[test]
 fn finding_a_match_beyond_the_shown_part_of_a_line_keeps_text_on_screen() {
     let dir = sample_folder("find-hidden");
@@ -944,17 +944,24 @@ fn finding_a_match_beyond_the_shown_part_of_a_line_keeps_text_on_screen() {
     find(&mut app);
     let max_x = app.text_max_scroll_x();
     let doc = app.editor.active().unwrap();
-    let (_, col) = doc.text().pos_to_line_col(doc.selection.from());
+    let (line, col) = doc.text().pos_to_line_col(doc.selection.from());
     assert_eq!(col, 60_008);
+    assert!(doc.shows_whole_line(line) && !doc.shows_whole_line(line + 1));
+    // 匹配在文本区内：滚动位置在匹配的左侧不到一屏处。
+    let x = 60_008.0 * app.cell;
+    let scroll = doc.scroll_x;
     assert!(
-        doc.scroll_x > 0.0 && doc.scroll_x <= max_x,
-        "{} {max_x}",
-        doc.scroll_x
+        scroll < x && scroll > x - app.layout.text.w && scroll <= max_x,
+        "{scroll} {max_x}"
     );
-    let hint = winc_i18n::t!("editor-find-hidden-match-wrap");
-    assert_eq!(app.status.message.as_deref(), Some(hint));
+    // 匹配处画有文字，点击该处落在匹配上。
+    let t = app.layout.text;
+    let at = t.x + TEXT_PAD + x - scroll + 0.4 * app.cell;
+    let row = (doc.row_of(line) as f64 - doc.scroll_line) as f32 + 0.5;
+    let pos = app.pos_at(at, t.y + row * app.fonts.line_height).unwrap();
+    assert_eq!(pos, app.editor.active().unwrap().selection.from());
 
-    // 开启自动换行后按整行断开：匹配所在的段滚动到屏幕上，不再提示。
+    // 开启自动换行后按整行断开：匹配所在的段滚动到屏幕上。
     app.run_action(Action::ToggleWordWrap);
     paint(&mut app);
     find(&mut app);
@@ -963,7 +970,6 @@ fn finding_a_match_beyond_the_shown_part_of_a_line_keeps_text_on_screen() {
     let visible = app.visible_lines() as f64;
     assert!(doc.is_wrapping() && row > 100.0);
     assert!(row >= doc.scroll_line && row < doc.scroll_line + visible);
-    assert_ne!(app.status.message.as_deref(), Some(hint));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -985,5 +991,151 @@ fn wrapped_long_lines_cut_inside_a_character_draw_every_part() {
     let rows = doc.rows_of(0);
     app.editor.active_mut().unwrap().scroll_line = (rows - 2) as f64;
     paint(&mut app);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 回归：显示行号超过 2²⁴（`f32` 无法逐一表示）时，相邻的行仍各占一行，行号不重叠。
+#[test]
+fn lines_past_sixteen_million_rows_each_take_their_own_row() {
+    let dir = sample_folder("rows-past-f32");
+    let path = dir.join("lines.txt");
+    let lines = (1usize << 24) + 100_000;
+    std::fs::write(&path, "\n".repeat(lines)).unwrap();
+    let mut app = app_with(&path, false);
+    paint(&mut app);
+    // 从一个奇数行开始显示：按 `f32` 换算时奇数行并入相邻的偶数行。
+    app.editor.active_mut().unwrap().scroll_line = ((1 << 24) + 50_001) as f64;
+    paint(&mut app);
+
+    let (gutter, text, lh) = (app.layout.gutter, app.layout.text, app.fonts.line_height);
+    let image = app.renderer.as_ref().unwrap().image().unwrap();
+    let width = image.width as usize;
+    let px = |v: f32| (v * SCALE) as usize;
+    // 行号栏中每一行都画有行号。
+    for row in 0..8 {
+        let top = text.y + row as f32 * lh;
+        let background = image.pixels[px(top + 1.0) * width + px(gutter.x + 1.0)];
+        let ink = (px(top + 1.0)..px(top + lh - 1.0))
+            .flat_map(|y| &image.pixels[y * width + px(gutter.x)..y * width + px(gutter.right())])
+            .filter(|&&p| p != background)
+            .count();
+        assert!(ink > 0, "第 {row} 行没有行号");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 超长行默认只显示开头的 `MAX_LINE_CHARS` 个字符：点击截断处的「显示整行」展开这一行，
+/// 设置「超长行完整显示」展开所有的行；展开后可以滚动、点击到行尾，换行时按整行断开。
+#[test]
+fn long_lines_expand_by_clicking_or_by_the_setting() {
+    let dir = sample_folder("long-lines");
+    let path = dir.join("long.txt");
+    let long = format!("{}{}", "a".repeat(10_000), "b".repeat(20_000));
+    std::fs::write(&path, format!("{long}\nshort\n{long}\n")).unwrap();
+    let mut app = app_with(&path, false);
+    paint(&mut app);
+    let scroll_to = |app: &mut App, x: f32| {
+        app.editor.active_mut().unwrap().scroll_x = x;
+        paint(app);
+    };
+    let lines = |app: &App| app.hits.long_lines.iter().map(|h| h.1).collect::<Vec<_>>();
+    // 文本区第 `row` 行右半边是否画有内容。
+    let inked = |app: &App, row: usize| {
+        let (t, lh) = (app.layout.text, app.fonts.line_height);
+        let image = app.renderer.as_ref().unwrap().image().unwrap();
+        let px = |v: f32| (v * SCALE) as usize;
+        let (y0, y1) = (
+            px(t.y + row as f32 * lh + 2.0),
+            px(t.y + (row + 1) as f32 * lh - 2.0),
+        );
+        let (x0, x1) = (px(t.x + t.w / 2.0), px(t.right() - 40.0));
+        let width = image.width as usize;
+        let background = image.pixels[y0 * width + x1];
+        (y0..y1).any(|y| {
+            image.pixels[y * width + x0..y * width + x1]
+                .iter()
+                .any(|&p| p != background)
+        })
+    };
+
+    // 滚动到截断处：两条超长行之后都有「显示整行」。
+    let narrow = app.text_max_scroll_x();
+    scroll_to(&mut app, narrow);
+    assert_eq!(lines(&app), [0, 2]);
+    let (rect, _) = app.hits.long_lines[0];
+    assert!(
+        rect.right() <= app.layout.text.right(),
+        "「显示整行」滚动不到屏幕内"
+    );
+    click(&mut app, (rect.x + rect.w / 2.0, rect.y + rect.h / 2.0));
+    paint(&mut app);
+    let doc = app.editor.active().unwrap();
+    assert!(doc.shows_whole_line(0) && !doc.shows_whole_line(2));
+    assert_eq!(lines(&app), [2]);
+
+    // 展开的行可以滚动到行尾：行尾画有文字，点击处与字符对应；未展开的行在该处没有内容。
+    let wide = app.text_max_scroll_x();
+    assert!(wide > narrow + 19_000.0 * app.cell, "{narrow} {wide}");
+    let near_end = wide - 20.0 * app.cell;
+    scroll_to(&mut app, near_end);
+    assert!(inked(&app, 0) && !inked(&app, 2));
+    let (t, lh) = (app.layout.text, app.fonts.line_height);
+    let x = t.x + TEXT_PAD + 29_990.0 * app.cell - app.editor.active().unwrap().scroll_x;
+    assert_eq!(app.pos_at(x, t.y + 0.5 * lh), Some(29_990));
+
+    // 设置打开后所有的行都显示整行，不再有截断说明。
+    app.config.whole_lines = Some(true);
+    paint(&mut app);
+    assert!(app.editor.active().unwrap().shows_whole_line(2));
+    assert!(lines(&app).is_empty() && inked(&app, 2));
+    app.config.whole_lines = None;
+    paint(&mut app);
+    assert!(!inked(&app, 2));
+
+    // 换行时展开的行按整行断开，未展开的行只断开显示的部分。
+    app.run_action(Action::ToggleWordWrap);
+    paint(&mut app);
+    let doc = app.editor.active().unwrap();
+    assert!(
+        doc.rows_of(0) > 2 * doc.rows_of(2),
+        "{} {}",
+        doc.rows_of(0),
+        doc.rows_of(2)
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 展开的行长达数百万列时，行尾附近的字符仍绘制在按列算出的位置上（`f32` 在数千万像素处只能
+/// 精确到几个像素）。
+#[test]
+fn the_far_end_of_a_whole_line_is_drawn_in_place() {
+    let dir = sample_folder("long-line-far-end");
+    let path = dir.join("wide.txt");
+    let col = 2_999_950;
+    std::fs::write(&path, format!("{}#{}\n", " ".repeat(col), " ".repeat(49))).unwrap();
+    let mut app = app_with(&path, false);
+    app.config.whole_lines = Some(true);
+    paint(&mut app);
+    app.editor.active_mut().unwrap().scroll_x = (col - 20) as f32 * app.cell;
+    paint(&mut app);
+
+    let (t, lh, cell) = (app.layout.text, app.fonts.line_height, app.cell);
+    let scroll = f64::from(app.editor.active().unwrap().scroll_x);
+    let expected = f64::from(t.x + TEXT_PAD) + col as f64 * f64::from(cell) - scroll;
+    let image = app.renderer.as_ref().unwrap().image().unwrap();
+    let px = |v: f32| (v * SCALE) as usize;
+    let (y0, y1) = (px(t.y + 2.0), px(t.y + lh - 2.0));
+    let width = image.width as usize;
+    let background = image.pixels[y0 * width + px(t.right() - 40.0)];
+    let inked = |x: usize| (y0..y1).any(|y| image.pixels[y * width + x] != background);
+    let left = (px(t.x)..px(t.right() - 40.0)).find(|&x| inked(x)).unwrap();
+    let left = left as f64 / f64::from(SCALE);
+    assert!(
+        left >= expected - 0.5 && left < expected + f64::from(cell),
+        "{left} {expected}"
+    );
+    // 点击该字符的左半边，落在它之前。
+    let pos = app.pos_at(expected as f32 + 0.3 * cell, t.y + 0.5 * lh);
+    assert_eq!(pos, Some(col));
     let _ = std::fs::remove_dir_all(&dir);
 }

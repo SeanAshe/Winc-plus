@@ -14,13 +14,21 @@ include_line="Include = $repo_config"
 ((EUID == 0)) || fail '请使用 sudo bash install-arch.sh'
 [[ $(uname -m) == x86_64 ]] || fail 'Winc 的 Arch 软件源当前支持 x86_64'
 . /etc/os-release
-[[ ${ID:-} == arch ]] || fail '此安装脚本适用于 Arch Linux'
+[[ ${ID:-} == arch || ${ID:-} == cachyos ]] || fail '此安装脚本适用于 Arch Linux 和 CachyOS'
 [[ $expected_fingerprint =~ ^[0-9A-F]{40}$ ]] || fail '请从 Winc 官网下载正式安装脚本'
 for command in curl gpg pacman pacman-key pacman-conf flock; do
   command -v "$command" >/dev/null || fail "缺少命令 $command"
 done
-[[ $(pacman-conf --config "$pacman_config" Architecture) == x86_64 ]] ||
-  fail 'pacman 的 Architecture 必须解析为 x86_64，请检查 /etc/pacman.conf'
+architectures=$(pacman-conf --config "$pacman_config" Architecture)
+server_url=$base_url/\$arch
+if [[ $ID == cachyos ]]; then
+  [[ -z $architectures ]] || grep -Fxq x86_64 <<< "$architectures" ||
+    fail 'pacman 的 Architecture 必须允许 x86_64，请检查 /etc/pacman.conf'
+  server_url=$base_url/x86_64
+else
+  [[ $architectures == x86_64 ]] ||
+    fail 'pacman 的 Architecture 必须解析为 x86_64，请检查 /etc/pacman.conf'
+fi
 
 workdir=$(mktemp -d)
 trap 'rm -rf -- "$workdir"' EXIT
@@ -46,12 +54,9 @@ flock -n 9 || fail '另一个 Winc 安装进程正在运行'
 cat > "$workdir/repo.conf" <<EOF
 [$repo]
 SigLevel = Required TrustedOnly
-Server = $base_url/\$arch
+Server = $server_url
 EOF
 [[ ! -L $repo_config ]] || fail "仓库配置是符号链接 $repo_config"
-if [[ -e $repo_config ]] && ! cmp -s "$repo_config" "$workdir/repo.conf"; then
-  fail "已有冲突的仓库配置 $repo_config"
-fi
 include_count=$(awk -v path="$repo_config" '
   /^[[:blank:]]*Include[[:blank:]]*=/ {
     sub(/^[^=]*=[[:blank:]]*/, "")
@@ -60,6 +65,12 @@ include_count=$(awk -v path="$repo_config" '
   }
   END {print count+0}
 ' "$pacman_config")
+if [[ -e $repo_config ]] && ! cmp -s "$repo_config" "$workdir/repo.conf"; then
+  # CachyOS 上已启用的旧配置仍需通过下方的实际地址和签名设置检查。
+  [[ $ID == cachyos && $include_count == 1 ]] &&
+    cmp -s "$repo_config" <(sed 's|/x86_64$|/$arch|' "$workdir/repo.conf") ||
+    fail "已有冲突的仓库配置 $repo_config"
+fi
 repos=$(pacman-conf --config "$pacman_config" --repo-list)
 if grep -Fxq "$repo" <<< "$repos"; then
   server=$(pacman-conf --config "$pacman_config" --repo "$repo" Server)

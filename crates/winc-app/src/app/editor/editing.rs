@@ -92,6 +92,12 @@ impl App {
             _ => width,
         };
         let place = TopRow::of(doc);
+        // 设置「超长行完整显示」的变化在此生效：各行的宽度和段数随之变化。
+        let whole = doc.show_whole_lines(self.config.whole_lines == Some(true));
+        if whole {
+            self.line_widths.1.clear();
+            self.max_scroll_x = None;
+        }
         doc.ensure_wrap(width, tab_width);
         let job = doc.take_wrap_job().map(|job| (doc.id, job));
         // 大文件在后台断行；完成前先断开屏幕附近两屏的显示行，使换行立即生效。
@@ -100,7 +106,7 @@ impl App {
             doc.preview_wrap(top, 2 * visible);
         }
         let wrapping = doc.is_wrapping();
-        if doc.wrap_width() != before {
+        if doc.wrap_width() != before || whole {
             place.restore(doc, wrapping);
             self.sticky_cache = None;
             self.fold_motion = None;
@@ -116,6 +122,23 @@ impl App {
                     .push((id, result));
             });
         }
+    }
+
+    /// 展开第 `line` 行，此后显示整行；屏幕顶部的文字位置保持不变。
+    pub(in crate::app) fn show_whole_line(&mut self, line: usize) {
+        let Some(doc) = self.editor.active_mut() else {
+            return;
+        };
+        let place = TopRow::of(doc);
+        doc.show_whole_line(line);
+        let wrapping = doc.is_wrapping();
+        place.restore(doc, wrapping);
+        self.line_widths.1.remove(&line);
+        self.max_scroll_x = None;
+        self.sticky_cache = None;
+        self.fold_motion = None;
+        self.clamp_scroll();
+        self.request_redraw();
     }
 
     /// 采用后台完成的大文件断行结果，屏幕顶部的文字位置保持不变。
@@ -438,7 +461,8 @@ impl App {
         doc.columns(tab_width);
         // 不换行时每行只显示前 `MAX_LINE_CHARS` 个字符；光标超出时滚动到显示部分的末尾，
         // 避免文本区滚动到没有内容的位置。
-        let caret_x = doc.col_to_cell(line, col.min(MAX_LINE_CHARS), tab_width) as f32 * cell;
+        let col = col.min(doc.line_limit(line));
+        let caret_x = doc.col_to_cell(line, col, tab_width) as f32 * cell;
         let margin = cell * 4.0;
         let right = width - TEXT_PAD - margin - SCROLLBAR_HIT;
 
@@ -521,6 +545,7 @@ impl App {
             tab_width,
             width: width.to_bits(),
             cell: cell.to_bits(),
+            epoch: doc.long_lines_epoch(),
         };
         if let Some((cached, max_x)) = &self.max_scroll_x
             && *cached == key
@@ -551,11 +576,41 @@ impl App {
         if widths.1.len() > LINE_WIDTHS_MAX {
             widths.1.clear();
         }
+        // 截断的行之后有一句说明和「显示整行」，滚动范围为它们留出位置；遇到截断的行时才测量。
+        let (renderer, size) = (&self.renderer, self.fonts.ui_small);
+        let mut note = None;
+        let mut note_cells = || {
+            *note.get_or_insert_with(|| {
+                let note = t!("editor-line-truncated", count = MAX_LINE_CHARS);
+                let text = format!("{note}{}", t!("editor-line-show-whole"));
+                let estimate = text.chars().count() as f32 * size;
+                let measured = renderer
+                    .as_ref()
+                    .map(|r| r.measure(FontKind::Ui, size, &text));
+                ((measured.unwrap_or(estimate) + 24.0) / cell).ceil() as usize
+            })
+        };
         for line in segments.into_iter().flatten() {
-            let cells = *widths.1.entry(line).or_insert_with(|| {
-                let content = doc.text().line_prefix(line, MAX_LINE_BYTES);
-                head_cells(content.slice(), tab_width)
-            });
+            let cells = match widths.1.get(&line) {
+                Some(&cells) => cells,
+                None => {
+                    let (cells, exact) = match doc.whole_line_cells(line, tab_width) {
+                        Some(width) => width,
+                        None => {
+                            let content = doc.text().line_prefix(line, MAX_LINE_BYTES);
+                            let slice = content.slice();
+                            let cut = slice.len_chars() > MAX_LINE_CHARS;
+                            let note = if cut { note_cells() } else { 0 };
+                            (head_cells(slice, tab_width) + note, true)
+                        }
+                    };
+                    // 展开的行在列索引延伸到行尾之前只有估计的宽度，不缓存。
+                    if exact {
+                        widths.1.insert(line, cells);
+                    }
+                    cells
+                }
+            };
             widest = widest.max(shift + cells);
         }
         let max_x = (widest as f32 * cell - width + TEXT_PAD + cell * 8.0).max(0.0);
@@ -869,6 +924,8 @@ pub(crate) struct MaxScrollKey {
     /// 文字区宽度和单元格宽度（逻辑像素）的位表示。
     width: u32,
     cell: u32,
+    /// 超长行列索引的计数：展开的行的宽度随之变化，见 `Document::long_lines_epoch`。
+    epoch: u64,
 }
 
 /// [`App::text_max_scroll_x`] 缓存行宽的最大行数（行）；超出时清空。

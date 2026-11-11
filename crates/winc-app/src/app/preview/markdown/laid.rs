@@ -12,7 +12,7 @@ use winc_typeset::{Colors, Cx, Env, Item, LaidBlock, Out, Raw, Span, margins};
 
 pub(crate) use winc_typeset::{DETAILS, Memo};
 
-use crate::app::App;
+use crate::app::{App, Focus};
 
 /// 正文字号与编辑器字号之比：编辑器字号 13 逻辑像素时，正文为 16 逻辑像素。
 pub(crate) const BASE_RATIO: f32 = 16.0 / 13.0;
@@ -285,8 +285,9 @@ pub(crate) fn lay_out(
         let leaf =
             snap(live.leaf.start).saturating_sub(start)..snap(live.leaf.end).saturating_sub(start);
         let caret = snap(live.at).saturating_sub(start);
-        let preedit = ((live.prose || live.table) && !app.preedit.is_empty())
-            .then(|| Arc::from(&*app.preedit));
+        let preedit = app.preedit_at(Focus::Editor);
+        let preedit =
+            ((live.prose || live.table) && !preedit.is_empty()).then(|| Arc::from(preedit));
         let parsed_end = live.parsed_end.saturating_sub(start);
         Some((
             live.block, text, leaf, parsed_end, caret, live.prose, preedit,
@@ -434,7 +435,7 @@ pub(crate) fn lay_out(
             }
             ranges
         },
-        live: live.map(|l| live_key(l, &app.preedit)),
+        live: live.map(|l| live_key(l, app.preedit_at(Focus::Editor))),
         caret: std::cell::Cell::new(None),
         upstream: std::cell::Cell::new(None),
         height: y,

@@ -244,8 +244,6 @@ pub enum MenuCommand {
     GitRevertHunk,
     /// 文件树、标签上的文件：打开它的 Git 历史。
     FileHistory,
-    /// 日志的分支筛选：0 是全部分支，`i + 1` 是分支列表里第 `i` 个分支。
-    LogBranch(usize),
     /// 状态栏的位置菜单：切换到第几个位置。
     StatusPlace(usize),
     /// 新建工作树的起点：0 是当前分支，`i + 1` 是分支列表里第 `i` 个分支。
@@ -466,10 +464,9 @@ impl MenuCommand {
                 _ => "",
             },
             MenuCommand::GitStashOp(op, _) => op.label(),
-            MenuCommand::LogBranch(0) => t!("menu-log-all-branches"),
             MenuCommand::LogAuthor(0) => t!("menu-log-all-authors"),
             MenuCommand::FormBase(0) => t!("menu-git-current-branch"),
-            MenuCommand::LogBranch(_) | MenuCommand::LogAuthor(_) | MenuCommand::FormBase(_) => "",
+            MenuCommand::LogAuthor(_) | MenuCommand::FormBase(_) => "",
             MenuCommand::GitAbort => t!("git-operation-abort"),
             MenuCommand::GitHeading(false) => t!("menu-git-local-branches"),
             MenuCommand::GitHeading(true) => t!("menu-git-remote-branches"),
@@ -665,8 +662,6 @@ pub enum MenuTarget {
     TerminalShells,
     /// 提交视图改动列表里的一个文件。
     CommitFile(PathBuf),
-    /// 日志标题栏的「分支」下拉。
-    LogBranch,
     /// 新建工作树对话框的「基于」。
     FormBase,
     /// 交互式变基列表第几行的处理方式。

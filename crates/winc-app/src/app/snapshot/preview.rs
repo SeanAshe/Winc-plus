@@ -395,6 +395,17 @@ fn the_caret_paragraph_keeps_its_look() {
     paint(&mut app);
     let shown = full_text(&app).unwrap();
     assert!(shown.contains("粗中文** 和"), "{shown}");
+    // 焦点移到终端后组字文字属于终端：预览不再显示，也不绘制光标、不占用候选窗的位置。
+    app.focus = Focus::Terminal;
+    app.ime.cursor = None;
+    paint(&mut app);
+    let shown = full_text(&app).unwrap();
+    assert!(!shown.contains("中文"), "{shown}");
+    assert!(app.ime.cursor.is_none());
+    app.focus = Focus::Editor;
+    paint(&mut app);
+    assert!(full_text(&app).unwrap().contains("粗中文** 和"));
+    assert!(app.ime.cursor.is_some());
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -4358,5 +4369,32 @@ fn down_after_a_trailing_code_block_adds_a_paragraph() {
     assert!(app.markdown_key(&Key::Named(NamedKey::ArrowDown), false));
     settle(&mut app);
     assert_eq!(with_caret(&app), "前文\n\n```\nx\n```\n\n|");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 段落之后的空行上组字时，组字文字画在光标处；尚未点击预览就开始组字时同样显示。
+#[test]
+fn composing_on_a_blank_line_shows_the_text() {
+    use crate::app::preview::markdown::laid::full_text;
+    use winit::event::Ime;
+
+    let (mut app, dir) = live_doc("md-preedit-blank", "# 标题\n\n是的\n\n\n");
+    app.run(winc_editor::Command::DocEnd { extend: false });
+    settle(&mut app);
+    let caret = app.ime.cursor.unwrap();
+    app.on_ime(Ime::Preedit("xiexie".into(), None));
+    paint(&mut app);
+    let after = app.ime.cursor.unwrap();
+    assert!(after.x > caret.x + 20.0, "{caret:?} {after:?}");
+    assert_eq!((after.y, after.h), (caret.y, caret.h));
+    let _ = std::fs::remove_dir_all(&dir);
+
+    // 刚打开、尚未点击：组字开始后显示光标。
+    let (mut app, dir) = live_doc("md-preedit-fresh", "你好\n");
+    assert!(app.ime.cursor.is_none());
+    app.on_ime(Ime::Preedit("ni".into(), None));
+    paint(&mut app);
+    assert!(app.ime.cursor.is_some());
+    assert!(full_text(&app).unwrap().contains("ni"));
     let _ = std::fs::remove_dir_all(&dir);
 }

@@ -1159,15 +1159,17 @@ impl Canvas<'_> {
             return;
         }
         let (w, h) = (area.width(), (area.y1 - area.y0) as usize);
-        // 横向按 16 位定点数步进，避免逐像素做除法。
-        let step = (width << 16) / w;
-        let first = (v.x0 - area.x0) as usize * step;
+        // 横向按定点数步进，避免逐像素做除法。小数部分取 32 位：步进的舍入误差逐像素累积，
+        // 16 位时放大到数万像素宽的位图在右端偏移可达一个源像素以上。步长向上取整：向下取整
+        // 时，位于源像素边界上的目标像素会取到前一个源像素，与竖直方向的整数除法不一致。
+        let step = ((width as u64) << 32).div_ceil(w as u64);
+        let first = (v.x0 - area.x0) as u64 * step;
         for y in v.y0..v.y1 {
             let row = ((y - area.y0) as usize * height / h).min(height - 1);
             let line = &data[row * width * 4..(row + 1) * width * 4];
             let mut at = first;
             for p in self.row(y, v) {
-                let x = (at >> 16).min(width - 1) * 4;
+                let x = ((at >> 32) as usize).min(width - 1) * 4;
                 let [r, g, b, a] = [line[x], line[x + 1], line[x + 2], line[x + 3]].map(u32::from);
                 *p = blend(*p, (a << 24) | (r << 16) | (g << 8) | b, opacity);
                 at += step;

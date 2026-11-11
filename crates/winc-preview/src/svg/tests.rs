@@ -820,3 +820,37 @@ fn too_many_dashes_stroke_solid() {
         <path d="M0 5 H100" stroke="black" stroke-width="4" stroke-dasharray="10"/></svg>"#;
     assert_eq!(pixel(svg, 100, 10, 15, 5)[3], 0);
 }
+
+/// 按区域绘制的结果与绘制整张图后裁剪出的同一部分相同（形状、渐变、裁剪和图案；滤镜除外，
+/// 见 [`Drawing::render_region`]）。
+#[test]
+fn a_rendered_region_equals_the_same_part_of_the_whole() {
+    let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 30">
+<defs>
+<linearGradient id="g"><stop offset="0" stop-color="#f00"/><stop offset="1" stop-color="#00f"/></linearGradient>
+<pattern id="p" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="2" height="2" fill="#0a0"/></pattern>
+<clipPath id="c"><circle cx="20" cy="15" r="12"/></clipPath>
+</defs>
+<rect width="40" height="30" fill="url(#g)"/>
+<g clip-path="url(#c)" opacity="0.8"><rect width="40" height="30" fill="url(#p)"/></g>
+<path d="M2 28L38 2" stroke="#fc0" stroke-width="1.5"/>
+</svg>"##;
+    let drawing = Drawing::parse(svg, None, None).unwrap();
+    let size = (160, 120);
+    let whole = drawing.render(size.0, size.1);
+    for region in [[0, 0, 160, 120], [37, 21, 64, 48], [150, 110, 10, 10]] {
+        let [x, y, w, h] = region;
+        let part = drawing.render_region(size, region);
+        assert_eq!((part.width, part.height), (w, h));
+        for row in 0..h {
+            let at = (((y + row) * size.0 + x) * 4) as usize;
+            let line = (row * w * 4) as usize;
+            let len = (w * 4) as usize;
+            assert_eq!(
+                part.rgba[line..line + len],
+                whole.rgba[at..at + len],
+                "区域 {region:?} 的第 {row} 行"
+            );
+        }
+    }
+}

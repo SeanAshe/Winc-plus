@@ -703,9 +703,9 @@ fn blanks(raw: &Raw) -> Vec<usize> {
     }
 }
 
-/// 返回光标所在的段落、标题按当前原文生成的块（见 `winc_preview::markdown::reveal`），
-/// 以及光标位于其后的空行上时需要排版的空行（原文起点，相对顶层块）。
-fn reveal(raw: &Raw) -> (Block, Vec<usize>) {
+/// 返回光标所在的段落、标题按当前原文生成的块（见 `winc_preview::markdown::reveal`）、
+/// 光标位于其后的空行上时需要排版的空行（原文起点，相对顶层块），以及组字是否已排入该块。
+fn reveal(raw: &Raw) -> (Block, Vec<usize>, bool) {
     let text = raw.block.get(raw.leaf.clone()).unwrap_or_default();
     let caret = raw.caret.saturating_sub(raw.leaf.start).min(text.len());
     let content = text.trim_end().len();
@@ -716,7 +716,7 @@ fn reveal(raw: &Raw) -> (Block, Vec<usize>) {
     if let Block::Paragraph(inline) | Block::Heading(_, inline) = &mut block {
         inline.source = raw.leaf.start;
     }
-    (block, blanks)
+    (block, blanks, preedit.is_some())
 }
 
 /// 块里文字继承的样式：颜色和嵌套深度。
@@ -1223,8 +1223,8 @@ impl Cx<'_, '_> {
                 if matches!(block, Block::Paragraph(_) | Block::Heading(..))
                     && let Some(raw) = self.raw.as_ref().filter(|r| r.kind == RawKind::Prose)
                 {
-                    let (revealed, blanks) = reveal(raw);
-                    self.preedit |= raw.preedit.is_some();
+                    let (revealed, blanks, placed) = reveal(raw);
+                    self.preedit |= placed;
                     return RawState::Reveal(Box::new(revealed), blanks);
                 }
                 if matches!(block, Block::Rule(_)) {

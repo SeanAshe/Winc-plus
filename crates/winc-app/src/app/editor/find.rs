@@ -423,6 +423,18 @@ impl App {
     /// 把匹配滚动到编辑区正中而不是边缘：位于边缘时上下文只显示一两行，反向查找时匹配还可能
     /// 恰好位于查找条下方。
     pub(in crate::app) fn reveal_match(&mut self, start: usize, end: usize) {
+        // 匹配在该行未显示的部分时展开该行。
+        let hidden = self.editor.active().and_then(|doc| {
+            let (line, col) = doc.text().pos_to_line_col(start);
+            let limit = match doc.is_wrapping() {
+                true => doc.wrap_limit_of(line),
+                false => doc.line_limit(line),
+            };
+            (col >= limit).then_some(line)
+        });
+        if let Some(line) = hidden {
+            self.show_whole_line(line);
+        }
         let Some(doc) = self.editor.active_mut() else {
             return;
         };
@@ -439,13 +451,9 @@ impl App {
         let Some(doc) = self.editor.active_mut() else {
             return;
         };
-        let (line, col) = doc.text().pos_to_line_col(start);
+        let line = doc.text().line_of(start);
         let (end_line, end_col) = doc.text().pos_to_line_col(end);
-        // 每行只显示前 `MAX_LINE_CHARS` 个字符，之后的匹配无法显示；
-        // 大文件开启自动换行后按整行断开，不受此限。
-        let large = doc.is_large();
-        let hidden = col >= MAX_LINE_CHARS && !(large && doc.is_wrapping());
-        let end_col = end_col.min(MAX_LINE_CHARS);
+        let end_col = end_col.min(doc.line_limit(end_line));
         let right = text.x + TEXT_PAD + doc.col_to_cell(end_line, end_col, tab_width) as f32 * cell
             - doc.scroll_x;
         let row = doc.row_at(start) as f64;
@@ -467,12 +475,6 @@ impl App {
                 doc.scroll_line = (row - visible * 0.5).clamp(0.0, max);
                 self.glide_scroll(before);
             }
-        }
-        if hidden {
-            self.flash(match large {
-                true => t!("editor-find-hidden-match-wrap"),
-                false => t!("editor-find-hidden-match"),
-            });
         }
     }
 

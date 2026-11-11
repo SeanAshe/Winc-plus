@@ -628,6 +628,7 @@ fn shoot_log_graph() {
 
 #[test]
 fn log_filters_by_text_branch_and_author_and_shows_a_files_history() {
+    use crate::app::git::branch::picker::{BranchRow, BranchSection};
     use crate::app::git::log::LogTarget;
     use crate::app::input::context_menu::{MenuCommand, MenuTarget};
 
@@ -635,6 +636,14 @@ fn log_filters_by_text_branch_and_author_and_shows_a_files_history() {
         return;
     };
     history_repo(&root, 10);
+    git_in(
+        &root,
+        &[
+            "update-ref",
+            "refs/remotes/origin/feature/login",
+            "feature/login",
+        ],
+    );
     app.git_refresh();
     show_all_log(&mut app);
     paint(&mut app);
@@ -665,16 +674,67 @@ fn log_filters_by_text_branch_and_author_and_shows_a_files_history() {
     });
     assert_eq!(subjects(&app).len(), 9);
 
-    // 按分支筛选（经分支菜单）：feature/login 上的五个提交，仍然绘制提交图。
+    // 按分支名搜索本地和远程分支。选择后只修改日志，工作树留在 main。
     paint(&mut app);
-    app.open_context_menu(MenuTarget::LogBranch, (0.0, 0.0));
-    let feature = app
-        .git
-        .branches
+    let (button, _) = *app
+        .hits
+        .log
         .iter()
-        .position(|b| b.name == "feature/login")
+        .find(|(_, target)| *target == LogTarget::Branch)
         .unwrap();
-    app.run_menu_command(MenuCommand::LogBranch(feature + 1));
+    click(&mut app, (button.x + 5.0, button.y + button.h / 2.0));
+    assert_eq!(app.focus, Focus::Picker);
+    app.edit_field(|f| f.insert("no-such-branch"));
+    assert!(app.picker.hits.is_empty());
+    app.picker_accept();
+    assert!(app.picker.open);
+    assert_eq!(app.log_branch_filter(), None);
+    app.edit_field(|f| {
+        f.set_text("LOGIN");
+        true
+    });
+    // 只有一个远程：远程分支一组的标题为「远程分支」，各行省去远程名。
+    let label = |name: &str| BranchRow::Branch {
+        index: app
+            .git
+            .branches
+            .iter()
+            .position(|b| b.name == name)
+            .unwrap(),
+        depth: 0,
+        label: "feature/login".to_owned(),
+    };
+    assert_eq!(
+        app.picker.branch_rows.as_deref().unwrap(),
+        [
+            BranchRow::Heading(BranchSection::Local),
+            label("feature/login"),
+            BranchRow::Heading(BranchSection::Remote(None)),
+            label("origin/feature/login"),
+        ]
+    );
+    paint(&mut app);
+    assert!(app.hits.picker_parts.is_empty());
+    app.picker_move(true);
+    app.picker_accept();
+    assert!(!app.picker.open);
+    assert_eq!(app.log_branch_filter(), Some("origin/feature/login"));
+    assert!(
+        app.git
+            .branches
+            .iter()
+            .any(|b| b.current && b.name == "main")
+    );
+
+    // 点击搜索结果也能选回本地分支；分支筛选后仍然绘制提交图。
+    paint(&mut app);
+    app.press_log(LogTarget::Branch);
+    app.edit_field(|f| f.insert("feature/login"));
+    paint(&mut app);
+    let parts = crate::app::workspace::picker::picker_parts(&app, app.layout.picker);
+    let row = parts.row(app.picker.selected, app.picker.scroll);
+    click(&mut app, (row.x + 40.0, row.y + row.h / 2.0));
+    assert_eq!(app.log_branch_filter(), Some("feature/login"));
     assert_eq!(subjects(&app).len(), 5);
     assert!(
         !app.editor
@@ -717,6 +777,90 @@ fn log_filters_by_text_branch_and_author_and_shows_a_files_history() {
     let doc = app.editor.active().unwrap();
     assert!(doc.title.as_deref().unwrap().starts_with("login.rs · "));
     assert!(doc.diff.is_some());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// 日志分支筛选的分组与选中项：多个远程按远程分组；命中规则与分支选择器相同；重新打开时选中
+/// 已应用的筛选，查询只有空白字符时视为没有查询；筛选的分支已不在列表中时选中「全部」。
+#[test]
+fn log_branch_filter_selects_the_applied_branch_or_all() {
+    use crate::app::git::branch::picker::{BranchRow, BranchSection};
+    use crate::app::git::log::LogTarget;
+
+    let Some((mut app, root)) = git_app("git-log-branch-filter", false) else {
+        return;
+    };
+    history_repo(&root, 10);
+    app.git_refresh();
+    show_all_log(&mut app);
+    paint(&mut app);
+    let selected = |app: &App| -> BranchRow {
+        let rows = app.picker.branch_rows.as_ref().unwrap();
+        rows[app.picker.selected].clone()
+    };
+    let label = |row: BranchRow| match row {
+        BranchRow::Branch { label, .. } => label,
+        other => panic!("{other:?}"),
+    };
+
+    // 有多个远程时按远程分组，组标题写远程名。
+    for remote in ["fork", "origin"] {
+        let name = format!("refs/remotes/{remote}/feature/login");
+        git_in(&root, &["update-ref", &name, "feature/login"]);
+    }
+    app.git_refresh();
+    app.press_log(LogTarget::Branch);
+    app.edit_field(|f| f.insert("login"));
+    let headings: Vec<_> = (app.picker.branch_rows.as_deref().unwrap().iter())
+        .filter_map(|row| match row {
+            BranchRow::Heading(section) => Some(section.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        headings,
+        [
+            BranchSection::Local,
+            BranchSection::Remote(Some("fork".to_owned())),
+            BranchSection::Remote(Some("origin".to_owned())),
+        ]
+    );
+    app.close_picker();
+    paint(&mut app);
+
+    // 字符分散命中：`ftlg` 按顺序出现在 feature/login 中。
+    app.press_log(LogTarget::Branch);
+    app.edit_field(|f| f.insert("ftlg"));
+    assert_eq!(label(selected(&app)), "feature/login");
+    app.picker_accept();
+    assert_eq!(app.log_branch_filter(), Some("feature/login"));
+
+    // 重新打开时选中已应用的筛选，只输入空白字符时同样如此。
+    paint(&mut app);
+    app.press_log(LogTarget::Branch);
+    assert_eq!(label(selected(&app)), "feature/login");
+    app.edit_field(|f| f.insert(" "));
+    assert_eq!(label(selected(&app)), "feature/login");
+
+    // 「全部」清除筛选。
+    app.edit_field(|f| {
+        f.set_text("");
+        true
+    });
+    for _ in 0..app.picker.hits.len() {
+        app.picker_move(false);
+    }
+    assert_eq!(selected(&app), BranchRow::All);
+    app.picker_accept();
+    assert_eq!(app.log_branch_filter(), None);
+
+    // 筛选的分支已删除：选中「全部」，回车清除筛选。
+    app.change_log_query(|q| q.branch = Some("deleted/branch".to_owned()));
+    paint(&mut app);
+    app.press_log(LogTarget::Branch);
+    assert_eq!(selected(&app), BranchRow::All);
+    app.picker_accept();
+    assert_eq!(app.log_branch_filter(), None);
     let _ = std::fs::remove_dir_all(&root);
 }
 

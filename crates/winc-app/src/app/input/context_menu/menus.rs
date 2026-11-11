@@ -233,26 +233,6 @@ pub fn log_file_menu(exists: bool, in_workspace: bool) -> Vec<MenuEntry> {
     ]
 }
 
-/// 日志「分支」下拉的菜单项：全部分支，然后是本地分支、远程分支两组（组标题不能点）。
-pub fn log_branch_menu(branches: &[winc_editor::git::Branch]) -> Vec<MenuEntry> {
-    use MenuCommand::*;
-    use MenuEntry::{Item, Separator};
-
-    let mut menu = vec![Item(LogBranch(0), true)];
-    for remote in [false, true] {
-        let group: Vec<usize> = (0..branches.len())
-            .filter(|&i| branches[i].remote == remote)
-            .collect();
-        if group.is_empty() {
-            continue;
-        }
-        menu.push(Separator);
-        menu.push(Item(GitHeading(remote), false));
-        menu.extend(group.into_iter().map(|i| Item(LogBranch(i + 1), true)));
-    }
-    menu
-}
-
 /// 新建工作树对话框「基于」的菜单项：当前分支，然后是其余的本地分支、远程分支两组。
 pub fn form_base_menu(branches: &[winc_editor::git::Branch]) -> Vec<MenuEntry> {
     use MenuCommand::*;

@@ -185,7 +185,8 @@ impl Frame<'_> {
     /// 在 `rect` 中绘制棋盘格（透明图片的底色），超出 `clip` 的部分不绘制。
     ///
     /// 方格边长 `cell`（逻辑像素），左上角的方格为 `first`，与其相邻的为 `second`。两种颜色都
-    /// 不透明时按行一次填色；有半透明（淡入淡出）时逐格绘制。
+    /// 不透明时按行一次填色；有半透明（淡入淡出）时逐格绘制。两种情况都只处理 `clip` 内的
+    /// 方格，耗时与 `rect` 超出 `clip` 的部分无关。
     pub fn checker(&mut self, rect: Rect, cell: f32, (first, second): (Color, Color), clip: Rect) {
         if self.opacity >= 1.0 && first.a >= 1.0 && second.a >= 1.0 {
             let area = rect.to_pixels(self.scale);
@@ -195,11 +196,22 @@ impl Frame<'_> {
                 .checker(area, cell, (first.argb(), second.argb()), clip);
             return;
         }
+        let seen = rect.intersect(clip).intersect(self.limit);
+        if seen.w <= 0.0 || seen.h <= 0.0 || cell <= 0.0 {
+            return;
+        }
         self.rect_clipped(rect, second, 0.0, clip);
-        let cols = (rect.w / cell).ceil() as usize;
-        let rows = (rect.h / cell).ceil() as usize;
-        for row in 0..rows {
-            for col in (row % 2..cols).step_by(2) {
+        // 与 `seen` 相交的方格的行、列范围；行号与列号之和为偶数的方格为 `first`。
+        let span = |from: f32, to: f32| {
+            (
+                (from / cell).floor().max(0.0) as usize,
+                (to / cell).ceil() as usize,
+            )
+        };
+        let (left, right) = span(seen.x - rect.x, seen.right() - rect.x);
+        let (top, bottom) = span(seen.y - rect.y, seen.bottom() - rect.y);
+        for row in top..bottom {
+            for col in (left + (left + row) % 2..right).step_by(2) {
                 let x = rect.x + col as f32 * cell;
                 let square = Rect::new(x, rect.y + row as f32 * cell, cell, cell);
                 self.rect_clipped(square.intersect(rect), first, 0.0, clip);

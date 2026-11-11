@@ -298,7 +298,7 @@ impl Document {
     /// 否则日志每追加一行、标准输入每读到一段，下一帧都要把整个文件重新断行。
     pub(crate) fn appended(&mut self, first: usize) {
         let last = self.text.line_count() - 1;
-        self.folds.edit_wrap(&self.text, first, first, last);
+        (self.folds).edit_wrap(&self.text, (first, first, last), &self.whole);
         self.refresh_folds();
     }
 

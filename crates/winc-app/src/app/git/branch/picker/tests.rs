@@ -60,6 +60,7 @@ fn rows(
 fn outline(rows: &[BranchRow]) -> Vec<String> {
     rows.iter()
         .map(|row| match row {
+            BranchRow::All => "All".to_owned(),
             BranchRow::Heading(section) => format!("{section:?}"),
             BranchRow::Remotes { count, open } => {
                 let mark = if *open { "v" } else { ">" };

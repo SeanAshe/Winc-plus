@@ -451,6 +451,55 @@ fn scaled_pixels_take_the_nearest_source_pixel() {
     assert_eq!((at(1, 2), at(10, 2), at(5, 9)), (0, 0, 0));
 }
 
+/// 放大到数万像素宽时，远离左端的源像素边界仍落在准确的位置：
+/// 横向步进的舍入误差不累积到可见的偏移。
+#[test]
+fn scaled_pixels_stay_aligned_far_from_the_left_edge() {
+    // 3 × 1 的位图：红、绿、蓝，放大到 90000 像素宽；绿与蓝的边界在第 60000 个像素处。
+    let rgba = [255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255];
+    let mut renderer =
+        Renderer::offscreen(8.0, 1.0, 1.0, Color::hex(0x000000), None, None).unwrap();
+    renderer.draw(|frame| {
+        let rect = Rect::new(-59_996.0, 0.0, 90_000.0, 1.0);
+        frame.pixels_scaled(rect, 3, 1, &rgba, Rect::new(0.0, 0.0, 8.0, 1.0));
+    });
+    let image = renderer.image().unwrap();
+    let row: Vec<u32> = image.pixels[..8].iter().map(|p| p & 0xff_ffff).collect();
+    assert_eq!(row[..4], [0x00ff00; 4]);
+    assert_eq!(row[4..], [0x0000ff; 4]);
+}
+
+/// 半透明的棋盘格只绘制裁剪范围内的方格：方格的颜色按其在整个矩形中的行列决定，与矩形超出
+/// 裁剪范围的部分无关。
+#[test]
+fn translucent_checkers_draw_only_the_visible_cells() {
+    let (first, second) = (Color::hex(0xff0000), Color::hex(0x0000ff));
+    let draw = |rect: Rect| {
+        let mut renderer =
+            Renderer::offscreen(8.0, 8.0, 1.0, Color::hex(0x000000), None, None).unwrap();
+        renderer.draw(|frame| {
+            let clip = Rect::new(2.0, 2.0, 4.0, 4.0);
+            frame.with_opacity(0.5, |frame| frame.checker(rect, 2.0, (first, second), clip));
+        });
+        renderer.image().unwrap().pixels.clone()
+    };
+    // 矩形的左上角在裁剪范围之外 2 格（4 像素）处：(2, 2) 位于第 3 行第 3 列，为 `first`。
+    let pixels = draw(Rect::new(-2.0, -2.0, 12.0, 12.0));
+    let at = |x: usize, y: usize| pixels[y * 8 + x] & 0xff_ffff;
+    // `second` 先铺满整个矩形，`first` 再叠在自己的方格上：只有 `first` 的方格带红色。
+    let (red, blue) = (at(2, 2), at(4, 2));
+    assert!(red >> 16 > 0, "{red:06x}");
+    assert!(blue & 0xff > 0 && blue >> 16 == 0, "{blue:06x}");
+    assert_eq!((at(4, 4), at(2, 4)), (red, blue));
+    // 裁剪范围之外保持底色。
+    assert_eq!((at(1, 2), at(6, 2), at(2, 6)), (0, 0, 0));
+    // 矩形向四周延伸到约一亿个方格时画面不变，且立即完成。
+    assert_eq!(
+        draw(Rect::new(-20_002.0, -20_002.0, 40_012.0, 40_012.0)),
+        pixels
+    );
+}
+
 /// 背景图在窗口背景、声明的底色和之后以这些颜色填充的矩形之下透出，颜色为「图片 × 不透明度 +
 /// 底色 × (1 − 不透明度)」；其余颜色照常绘制。底色声明与否画面相同。
 #[test]

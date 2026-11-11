@@ -60,7 +60,9 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>) {
     } else {
         draw_branch_rows(app, frame, &parts, &mut hits);
     }
-    draw_footer(app, frame, &parts, &mut hits);
+    if parts.footer.h > 0.0 {
+        draw_footer(app, frame, &parts, &mut hits);
+    }
     app.hits.picker_parts = hits;
 }
 
@@ -79,6 +81,8 @@ fn draw_search(app: &mut App, frame: &mut Frame<'_>, bar: Rect) {
     icons::magnifier(frame, icon, p.text_dim, field);
     let placeholder = if app.picker_lists_locations() {
         t!("git-location-picker-placeholder")
+    } else if app.picker_filters_log() {
+        t!("git-log-branch-picker-placeholder")
     } else {
         t!("git-branch-picker-placeholder")
     };
@@ -254,6 +258,11 @@ impl Line {
         icons::chevron_turned(frame, at, 6.0, turned * FRAC_PI_2, self.dim, self.clip);
     }
 
+    /// 在横坐标 `x`（[`Line::columns`] 的第一列）绘制对勾，标出当前项。
+    fn draw_check(&self, frame: &mut Frame<'_>, x: f32) {
+        icons::check(frame, (x, self.cy), 9.0, self.text, self.clip);
+    }
+
     /// 从 `x` 起绘制名字，到 `right` 为止，放不下时截短。查询命中的字用强调色标出；选中行的底色
     /// 就是强调色，截短了的名字下标对不上，都不标。
     fn draw_name(
@@ -425,7 +434,7 @@ fn draw_place_row(
 ) {
     let (check, text) = line.columns(place.depth);
     if place.current {
-        icons::check(frame, (check, line.cy), 9.0, line.text, line.clip);
+        line.draw_check(frame, check);
     }
     let mut right = line.right();
     let more = (place.worktree.is_some() || !place.missing)
@@ -479,7 +488,7 @@ fn draw_branch_rows(
         .map_or(0, |d| d.as_secs() as i64);
     for i in drawn_rows(app, parts, rows.len()) {
         if let BranchRow::Heading(section) = &rows[i] {
-            draw_heading(app, frame, parts, i, *section);
+            draw_heading(app, frame, parts, i, section);
             continue;
         }
         // 展开的远程分支一组和其他分组一样，上沿有分隔线；选中时底色盖住它。收起时只有这一行，
@@ -491,6 +500,9 @@ fn draw_branch_rows(
         let line = Line::begin(app, frame, parts, i);
         match &rows[i] {
             BranchRow::Heading(_) => {}
+            BranchRow::All => {
+                draw_log_branch_row(app, frame, &line, t!("menu-log-all-branches"), None);
+            }
             // 和提交视图的组标题一样：小一号的次要色字，右端一个写数量的小圆角徽标。
             BranchRow::Remotes { count, open } => {
                 line.draw_fold(app, frame, (i, 0, *open));
@@ -513,6 +525,10 @@ fn draw_branch_rows(
                 depth,
                 label,
             } => {
+                if app.picker_filters_log() {
+                    draw_log_branch_row(app, frame, &line, label, Some(label));
+                    continue;
+                }
                 let row = BranchLine {
                     index: *index,
                     depth: *depth,
@@ -532,6 +548,21 @@ fn draw_branch_rows(
     }
 }
 
+/// 日志筛选的行：对勾表示已应用的筛选，名字用整行宽度显示。
+fn draw_log_branch_row(
+    app: &App,
+    frame: &mut Frame<'_>,
+    line: &Line,
+    label: &str,
+    branch: Option<&str>,
+) {
+    let (check, text) = line.columns(0);
+    if app.log_branch_filter() == branch {
+        line.draw_check(frame, check);
+    }
+    line.draw_name(app, frame, (text, line.right()), label, line.text);
+}
+
 /// 在纵坐标 `y` 画一条分隔线，两端对着 `GUTTER`。
 fn draw_divider(frame: &mut Frame<'_>, p: &Palette, rect: Rect, y: f32, clip: Rect) {
     let line = Rect::new(rect.x + GUTTER, y, rect.w - 2.0 * GUTTER, 1.0);
@@ -544,12 +575,14 @@ fn draw_heading(
     frame: &mut Frame<'_>,
     parts: &PickerParts,
     i: usize,
-    section: BranchSection,
+    section: &BranchSection,
 ) {
     let (row, clip) = placed_row(app, parts, i);
     let title = match section {
         BranchSection::Recent => t!("git-branch-picker-recent"),
         BranchSection::Local => t!("menu-git-local-branches"),
+        BranchSection::Remote(None) => t!("menu-git-remote-branches"),
+        BranchSection::Remote(Some(remote)) => remote.as_str(),
         BranchSection::Other => t!("git-branch-picker-other"),
     };
     let band = if i > 0 {
@@ -587,7 +620,7 @@ fn draw_branch_row(
     let branch = app.git.branches.get(row.index);
     let current = branch.is_some_and(|b| b.current);
     if current {
-        icons::check(frame, (check, line.cy), 9.0, line.text, line.clip);
+        line.draw_check(frame, check);
     }
     let mut right = line.right();
     let more = line.draw_more(app, frame, i, hits);

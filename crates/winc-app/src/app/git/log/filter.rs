@@ -3,6 +3,11 @@
 use super::*;
 
 impl App {
+    /// 当前日志的分支筛选条件。
+    pub(crate) fn log_branch_filter(&self) -> Option<&str> {
+        self.editor.active()?.log.as_ref()?.query.branch.as_deref()
+    }
+
     /// 打开文件 `path` 的历史：一个只看改过这个文件的提交的日志标签（跟着改名往前找）；已经
     /// 开着就切过去。
     pub(in crate::app) fn git_file_history(&mut self, path: &Path) {

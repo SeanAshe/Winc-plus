@@ -12,7 +12,7 @@ use winc_render::{Color, FontKind, Frame, Rect, Stroke};
 
 use crate::app::Hover;
 use crate::app::preview::markdown::{ImageSlot, TableBar, TocTarget};
-use crate::app::{App, ScrollArea};
+use crate::app::{App, Focus, ScrollArea};
 use crate::icons;
 use crate::theme::Palette;
 
@@ -50,7 +50,8 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
     };
     let source = Arc::as_ptr(&parsed) as usize;
     let live = app.live_editing().then(|| app.live_leaf()).flatten();
-    let live_key = live.as_ref().map(|l| live_key(l, &app.preedit));
+    let live_key = (live.as_ref()).map(|l| live_key(l, app.preedit_at(Focus::Editor)));
+    let blank = live.as_ref().is_some_and(|l| l.blank);
     let loaded = std::mem::take(&mut app.markdown.loaded);
     let toggled = app.markdown.toggled_now.take();
     // 重排之前光标在旧排版里的高度：重排后据此保持光标在屏幕上不动（见 [`keep_caret_still`]）。
@@ -461,11 +462,19 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
         let point = (x, y + shift, h);
         // 正文中的组字文字已排入所在的行，不再在其上重复绘制。
         let inline = laid.blocks.iter().any(|(_, b)| b.preedit);
-        (point, (!inline).then(|| font_at(&laid, source)))
+        // 段落之后的空行上组字使用正文的字体，不沿用上方标题的字体。
+        let body = (winc_render::FontKind::Ui, Default::default(), key.base);
+        let font = match blank {
+            true => Some(body),
+            false => font_at(&laid, source),
+        };
+        (point, (!inline).then_some(font))
     });
     md.layout = Some(laid);
     md.motion = motion;
-    if let Some(((x, y, h), font)) = live_point {
+    // 与源代码的光标相同，只在编辑区持有焦点时绘制；焦点在终端、查找条等处时不显示，
+    // 也不占用输入法候选窗的位置。
+    if let Some(((x, y, h), font)) = live_point.filter(|_| app.focus == Focus::Editor) {
         let (x, y) = (left + x, area.y - scroll + y);
         app.ime.cursor = Some(draw_live_caret(app, frame, (x, y, h), font, area));
     }
@@ -797,8 +806,9 @@ fn draw_live_caret(
     clip: Rect,
 ) -> Rect {
     let p = app.palette;
-    let Some(font) = font.filter(|_| !app.preedit.is_empty()) else {
-        if !app.preedit.is_empty() {
+    let preedit = app.preedit_at(Focus::Editor);
+    let Some(font) = font.filter(|_| !preedit.is_empty()) else {
+        if !preedit.is_empty() {
             return Rect::new(x, y, 2.0, h);
         }
         if app.blink.visible {
@@ -814,13 +824,12 @@ fn draw_live_caret(
     ));
     // 光标的高度和基线均按 [`line_box`] 由字号计算。
     let baseline = y + size * 1.05;
-    let width: f32 = app
-        .preedit
+    let width: f32 = preedit
         .chars()
         .map(|c| frame.advance_faux(font, faux, size, c))
         .sum();
     frame.rect_clipped(Rect::new(x, y, width, h), p.editor_bg, 0.0, clip);
-    frame.text_faux(font, faux, size, x, baseline, &app.preedit, p.text, clip);
+    frame.text_faux(font, faux, size, x, baseline, preedit, p.text, clip);
     frame.rect_clipped(
         Rect::new(x, baseline + 3.0, width, 1.0),
         p.accent,

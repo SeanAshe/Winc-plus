@@ -25,6 +25,7 @@ mod git;
 mod input;
 #[cfg(target_os = "macos")]
 mod memory;
+mod pictures;
 mod preview;
 mod settings;
 mod shots;

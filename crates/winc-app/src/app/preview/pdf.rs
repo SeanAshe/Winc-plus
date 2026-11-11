@@ -35,8 +35,8 @@ pub(crate) const ZOOM_RANGE: (f32, f32) = (0.5, 2.0);
 ///
 /// 取 2 倍屏上最宽的 A4 页放大到 2 倍时的大小（3440 × 4866）。
 const MAX_PAGE_PIXELS: f64 = 17_000_000.0;
-/// 触控板捏合累计到该比例时缩放一档。
-const PINCH_STEP: f32 = 0.2;
+/// 触控板捏合累计到该比例时缩放一档；PDF 预览与图片预览共用。
+pub(in crate::app::preview) const PINCH_STEP: f32 = 0.2;
 
 /// 各页在内容中的位置（逻辑像素，相对内容左上角），以及内容的宽度和高度。
 ///

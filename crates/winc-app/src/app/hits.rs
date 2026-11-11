@@ -15,6 +15,8 @@ pub struct Hits {
     pub(crate) placeholder: Vec<(Rect, PlaceholderAction)>,
     /// 已折叠行末尾 `⋯` 的可点击区域和行号，绘制时记录，点击后展开。
     pub(crate) folded: Vec<(Rect, usize)>,
+    /// 超长行截断说明中「显示整行」的可点击区域和行号，绘制时记录。
+    pub(crate) long_lines: Vec<(Rect, usize)>,
     /// 提交视图中的可点击区域，绘制时更新。
     pub(crate) commit: Vec<(Rect, CommitTarget)>,
     /// 冲突卡片及其按钮的位置，绘制时记录；当前文档没有冲突时为 `None`。
@@ -100,6 +102,7 @@ impl Hits {
             start,
             placeholder,
             folded,
+            long_lines,
             commit,
             conflict_card,
             project,
@@ -135,6 +138,7 @@ impl Hits {
         start.clear();
         placeholder.clear();
         folded.clear();
+        long_lines.clear();
         commit.clear();
         *conflict_card = None;
         *project = Rect::default();

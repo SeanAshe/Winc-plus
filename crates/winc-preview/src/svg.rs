@@ -33,6 +33,7 @@ use masking::*;
 use paint::*;
 use syntax::*;
 
+pub use render::MAX_EDGE;
 pub use text::{FontMetrics, Glyph, Glyphs};
 
 /// 没写大小也没有 `viewBox` 时的默认大小（像素，宽 300、高 150）。

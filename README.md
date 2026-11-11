@@ -58,6 +58,10 @@ the current gesture; lift all fingers before starting another. On Windows, drag 
 move the window, double-tap it to maximize or restore, and drag the window edges to resize.
 Window dragging and edge snapping use the same native Windows behavior as mouse input.
 
+Image and SVG previews zoom like the PDF preview: hold Ctrl (⌘ on macOS) and scroll, pinch, or
+press Ctrl/⌘ with `+`, `-` or `0`; the point under the pointer stays in place. Scroll or drag a
+zoomed image to pan, and double-click to fit it again. This also works in the SVG split preview.
+
 ## Platforms
 
 | Platform | Requirements | Package |
