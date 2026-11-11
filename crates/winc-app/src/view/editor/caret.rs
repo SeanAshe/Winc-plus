@@ -1,6 +1,7 @@
 //! 选区、光标和配对的括号。
 
 use super::*;
+use crate::app::vim::CaretShape;
 
 /// 返回 `y` 处开始、共 `rows` 段的一行中与 `clip` 相交的段（左闭右开）；`lh` 是行高。
 ///
@@ -394,6 +395,58 @@ pub(in crate::view) fn draw_caret(
         clip,
     );
     Rect::new(px, y, 2.0, app.fonts.line_height)
+}
+
+/// 绘制 Vim 模式的光标：覆盖字符 `c` 的块、字符下方的横线，或空心的块。
+///
+/// `(x, y, width)` 是字符所占的位置与宽度，`baseline` 是所在行的基线。实心块之下的字符用背景色
+/// 重画；实心块与横线随光标闪烁，空心块不闪烁。
+pub(in crate::view) fn draw_modal_caret(
+    app: &App,
+    frame: &mut Frame<'_>,
+    (x, y, width): (f32, f32, f32),
+    c: Option<char>,
+    baseline: f32,
+    shape: CaretShape,
+    clip: Rect,
+) {
+    let p = app.palette;
+    let block = Rect::new(x.round(), y, width.round().max(1.0), app.fonts.line_height);
+    match shape {
+        CaretShape::Hollow => {
+            for edge in [
+                Rect::new(block.x, block.y, block.w, 1.0),
+                Rect::new(block.x, block.bottom() - 1.0, block.w, 1.0),
+                Rect::new(block.x, block.y, 1.0, block.h),
+                Rect::new(block.right() - 1.0, block.y, 1.0, block.h),
+            ] {
+                frame.rect_clipped(edge, p.caret, 0.0, clip);
+            }
+        }
+        CaretShape::Underline if app.blink.visible => {
+            let line = Rect::new(block.x, block.bottom() - 2.0, block.w, 2.0);
+            frame.rect_clipped(line, p.caret, 0.0, clip);
+        }
+        CaretShape::Block if app.blink.visible => {
+            frame.rect_clipped(block, p.caret, 1.0, clip);
+            if let Some(c) = c.filter(|c| !c.is_whitespace()) {
+                let cells = (width / app.cell).round().max(1.0) as usize;
+                let (font, cell) = (app.fonts.code, app.cell);
+                frame.cell_char(
+                    FontKind::Mono,
+                    font,
+                    x,
+                    baseline,
+                    cell,
+                    cells,
+                    c,
+                    p.editor_bg,
+                    clip,
+                );
+            }
+        }
+        CaretShape::Underline | CaretShape::Block => {}
+    }
 }
 
 /// 在一行的顶边 `y` 处、横坐标 `x` 绘制一道光标竖线；处于闪烁周期的熄灭阶段时不绘制。

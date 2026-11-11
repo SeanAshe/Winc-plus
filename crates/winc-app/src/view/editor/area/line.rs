@@ -4,6 +4,7 @@ use winc_config::RenderWhitespace;
 use winc_i18n::t;
 
 use super::*;
+use crate::app::vim::CaretShape;
 
 /// 查找光标所在词的其他出现时，在可见列两侧额外检查的字符数（字符）。
 ///
@@ -546,6 +547,15 @@ impl Screen<'_> {
             let pos = if row.ends { pos.min(end) } else { pos };
             (pos >= row.line_start && (pos < end || row.ends)).then_some(pos)
         };
+        // 空心的块状光标在编辑区没有焦点时仍然绘制。
+        let shown = self.focused || self.vim_caret == Some(CaretShape::Hollow);
+        if let Some(shape) = self.vim_caret
+            && let Some(pos) = caret_pos(self.caret_col).filter(|_| row.line == self.caret_line)
+            && shown
+        {
+            self.draw_vim_caret(frame, row, pos, shape);
+            return;
+        }
         if let Some(pos) =
             caret_pos(self.caret_col).filter(|_| row.line == self.caret_line && self.focused)
         {
@@ -568,6 +578,28 @@ impl Screen<'_> {
                 caret_bar(app, frame, x, row.y + part as f32 * lh, text_rect);
             }
         }
+    }
+}
+
+impl Screen<'_> {
+    /// 绘制 Vim 模式的光标：覆盖位置 `pos` 上字符的块、字符下方的横线，或空心的块。
+    ///
+    /// 块的宽度是字符的显示宽度（宽字符两格，行尾与空行一格）；实心块之下的字符用背景色重画。
+    /// 实心块与横线随光标闪烁，空心块不闪烁。
+    fn draw_vim_caret(&self, frame: &mut Frame<'_>, row: &Row<'_>, pos: usize, shape: CaretShape) {
+        let (app, lh, clip) = (self.app, self.lh, self.text_rect);
+        let (part, x) = self.place(row, pos);
+        let y = row.y + part as f32 * lh;
+        let c = row.chars.get(pos - row.line_start).copied();
+        let width = match c {
+            Some(_) => match self.place(row, pos + 1) {
+                (next, right) if next == part && right > x => right - x,
+                _ => self.cell,
+            },
+            None => self.cell,
+        };
+        let baseline = row.baseline + part as f32 * lh;
+        draw_modal_caret(app, frame, (x, y, width), c, baseline, shape, clip);
     }
 }
 

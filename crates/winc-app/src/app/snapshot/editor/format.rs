@@ -103,6 +103,33 @@ fn formatting_replaces_the_text_as_one_undo_step() {
 }
 
 #[test]
+fn the_vim_equals_operator_formats_the_lines_it_covers() {
+    let dir = format_folder("format-vim");
+    std::fs::write(dir.join("a.c"), "int a;\nint b;\nint c;\nint d;\n").unwrap();
+    let tool = fake_tool(&dir.join("bin"), "clang-format", "cat; echo \"// $*\"");
+    warm_up(&tool);
+    let mut app = app_with(&dir, false);
+    app.open_path(&dir.join("a.c"));
+    app.config
+        .format_commands
+        .insert("c".to_owned(), format!("'{}' --style=llvm", tool.display()));
+    app.config.vim_enabled = Some(true);
+    app.vim_apply_config();
+
+    // `=j` 覆盖光标所在的行与下一行；格式化之后选区仍是光标。
+    app.vim_feed("j=j");
+    app.wait_formatting();
+    assert!(
+        text(&app).ends_with("// --style=llvm --lines=2:3\n"),
+        "{}",
+        text(&app)
+    );
+    assert!(app.editor.active().unwrap().selection.is_empty());
+    assert_eq!(app.vim_mode(), Some(winc_vim::Mode::Normal));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn a_selection_can_be_formatted_on_its_own() {
     let dir = format_folder("format-selection");
     std::fs::write(dir.join("a.c"), "int a;\nint b;\nint c;\n").unwrap();

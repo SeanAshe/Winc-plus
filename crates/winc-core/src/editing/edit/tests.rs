@@ -510,3 +510,210 @@ fn undo_size_counts_each_small_allocation() {
         1000 * (size_of::<Change>() + 16 + 16)
     );
 }
+
+/// 在 `rope` 的 `at` 处把 `removed` 个字符替换为 `text`，应用后入栈。
+fn replaced(
+    history: &mut History,
+    rope: &mut Rope,
+    at: usize,
+    removed: usize,
+    text: &str,
+    kind: EditKind,
+) {
+    let t = replace_selection(&*rope, Selection::new(at, at + removed), text, kind);
+    t.apply(rope);
+    history.push(t);
+}
+
+#[test]
+fn a_group_is_one_undo_unit_whatever_the_kinds_and_intervals() {
+    let mut rope = Rope::from_str("one two three");
+    let mut history = History::default();
+
+    // 一次删除，之后在别处键入，再隔开超过合并间隔后换行：类别、位置、间隔都不满足键入的合并条件。
+    history.begin_group();
+    replaced(&mut history, &mut rope, 4, 4, "", EditKind::Other);
+    replaced(&mut history, &mut rope, 0, 0, "x", EditKind::Typing);
+    let mut late = replace_selection(&rope, Selection::point(1), "\n", EditKind::Other);
+    late.time += history::MERGE_WINDOW * 3;
+    late.apply(&mut rope);
+    history.push(late);
+    history.end_group();
+
+    assert_eq!(rope.to_string(), "x\none three");
+    assert_eq!(history.undo.len(), 1);
+    assert_eq!(history.undo_bytes, history.undo[0].bytes);
+    assert_eq!(
+        history.undo[0].bytes,
+        history::changes_size(&history.undo[0].changes)
+    );
+
+    // 撤销回到第一个事务之前的选区，重做回到最后一个事务之后的选区。
+    let restored = history.undo(&mut rope).unwrap();
+    assert_eq!(rope.to_string(), "one two three");
+    assert_eq!(restored.selection, Selection::new(4, 8));
+    assert_eq!(restored.first, 0);
+    assert!(!history.is_dirty());
+    assert!(history.undo(&mut rope).is_none());
+    let restored = history.redo(&mut rope).unwrap();
+    assert_eq!(rope.to_string(), "x\none three");
+    assert_eq!(restored.selection, Selection::point(2));
+    assert_eq!(history.undo_bytes, history.undo[0].bytes);
+}
+
+#[test]
+fn a_group_does_not_merge_with_typing_around_it() {
+    let mut rope = Rope::new();
+    let mut history = History::default();
+    let typed = |history: &mut History, rope: &mut Rope, text: &str| {
+        let at = rope.len_chars();
+        replaced(history, rope, at, 0, text, EditKind::Typing);
+    };
+
+    // 分组前后的键入都与分组内的键入首尾相接，且在合并间隔之内。
+    typed(&mut history, &mut rope, "a");
+    history.begin_group();
+    typed(&mut history, &mut rope, "b");
+    typed(&mut history, &mut rope, "c");
+    history.end_group();
+    typed(&mut history, &mut rope, "d");
+    typed(&mut history, &mut rope, "e");
+
+    let units: Vec<&str> = (history.undo.iter())
+        .map(|t| t.changes[0].inserted.as_str())
+        .collect();
+    assert_eq!(units, ["a", "bc", "de"]);
+    // 分组内紧邻的插入记为一处修改。
+    assert_eq!(history.undo[1].changes.len(), 1);
+
+    history.undo(&mut rope).unwrap();
+    history.undo(&mut rope).unwrap();
+    assert_eq!(rope.to_string(), "a");
+}
+
+#[test]
+fn an_empty_group_leaves_typing_merged() {
+    let mut rope = Rope::new();
+    let mut history = History::default();
+    replaced(&mut history, &mut rope, 0, 0, "a", EditKind::Typing);
+    history.begin_group();
+    history.end_group();
+    // 多出的一次结束不影响之后的分组。
+    history.end_group();
+    replaced(&mut history, &mut rope, 1, 0, "b", EditKind::Typing);
+    assert_eq!(history.undo.len(), 1);
+
+    history.begin_group();
+    replaced(&mut history, &mut rope, 0, 0, "x", EditKind::Other);
+    replaced(&mut history, &mut rope, 3, 0, "y", EditKind::Other);
+    history.end_group();
+    assert_eq!(history.undo.len(), 2);
+}
+
+#[test]
+fn nested_groups_end_with_the_outermost() {
+    let mut rope = Rope::from_str("abc");
+    let mut history = History::default();
+
+    history.begin_group();
+    replaced(&mut history, &mut rope, 0, 1, "", EditKind::Other);
+    history.begin_group();
+    replaced(&mut history, &mut rope, 1, 1, "", EditKind::Other);
+    history.end_group();
+    replaced(&mut history, &mut rope, 0, 0, "z", EditKind::Other);
+    history.end_group();
+    assert_eq!(rope.to_string(), "zb");
+    assert_eq!(history.undo.len(), 1);
+
+    replaced(&mut history, &mut rope, 2, 0, "!", EditKind::Other);
+    assert_eq!(history.undo.len(), 2);
+    history.undo(&mut rope).unwrap();
+    history.undo(&mut rope).unwrap();
+    assert_eq!(rope.to_string(), "abc");
+}
+
+#[test]
+fn sealing_inside_a_group_starts_a_new_unit() {
+    let mut rope = Rope::new();
+    let mut history = History::default();
+
+    // 一次插入的中途发起保存：保存之前、之后的输入各成一个撤销单元，撤销一次正好回到写出的内容。
+    history.begin_group();
+    replaced(&mut history, &mut rope, 0, 0, "ab", EditKind::Typing);
+    replaced(&mut history, &mut rope, 2, 0, "\n", EditKind::Other);
+    let version = history.seal();
+    replaced(&mut history, &mut rope, 3, 0, "c", EditKind::Typing);
+    replaced(&mut history, &mut rope, 4, 0, "\n", EditKind::Other);
+    history.end_group();
+    history.mark_saved_version(version);
+
+    assert_eq!(history.undo.len(), 2);
+    assert!(history.is_dirty());
+    history.undo(&mut rope).unwrap();
+    assert_eq!(rope.to_string(), "ab\n");
+    assert!(!history.is_dirty());
+    history.undo(&mut rope).unwrap();
+    assert_eq!(rope.to_string(), "");
+
+    // 分组期间撤销之后入栈的事务同样另起一个单元。
+    history.begin_group();
+    replaced(&mut history, &mut rope, 0, 0, "x", EditKind::Other);
+    history.undo(&mut rope).unwrap();
+    replaced(&mut history, &mut rope, 0, 0, "y", EditKind::Other);
+    replaced(&mut history, &mut rope, 1, 0, "z", EditKind::Other);
+    history.end_group();
+    assert_eq!(history.undo.len(), 1);
+    assert_eq!(rope.to_string(), "yz");
+}
+
+#[test]
+fn the_byte_limit_trims_whole_units_while_grouping() {
+    let mut rope = Rope::new();
+    let mut history = History::default();
+    let append = |history: &mut History, rope: &mut Rope, c: &str| {
+        let at = rope.len_chars();
+        replaced(history, rope, at, 0, c, EditKind::Other);
+    };
+
+    // 三个分组，各含两处不相邻的插入（文末与文首）；占用按单元累计。
+    for [last, first] in [["a", "b"], ["c", "d"], ["e", "f"]] {
+        history.begin_group();
+        append(&mut history, &mut rope, last);
+        replaced(&mut history, &mut rope, 0, 0, first, EditKind::Other);
+        history.end_group();
+    }
+    assert_eq!(rope.to_string(), "fdbace");
+    assert_eq!(history.undo.len(), 3);
+    let unit = history.undo[0].bytes;
+    assert_eq!(history.undo_bytes, unit * 3);
+
+    // 上限只容得下一个单元时丢弃较早的三个；分组期间栈顶的单元超过上限也保留。
+    history.begin_group();
+    append(&mut history, &mut rope, "g");
+    history.trim(unit);
+    assert_eq!(history.undo.len(), 1);
+    append(&mut history, &mut rope, "h");
+    history.trim(0);
+    history.end_group();
+    assert_eq!(history.undo.len(), 1);
+    assert_eq!(history.undo_bytes, history.undo[0].bytes);
+    history.undo(&mut rope).unwrap();
+    assert_eq!(rope.to_string(), "fdbace");
+    assert!(history.undo(&mut rope).is_none());
+    assert_eq!(history.undo_bytes, 0);
+}
+
+#[test]
+fn the_selection_before_the_next_redo_is_available() {
+    let mut rope = Rope::from_str("abc");
+    let mut history = History::default();
+    assert_eq!(history.redo_origin(), None);
+    let t = replace_selection(&rope, Selection::new(1, 2), "xy", EditKind::Other);
+    t.apply(&mut rope);
+    history.push(t);
+    assert_eq!(history.redo_origin(), None);
+    history.undo(&mut rope).unwrap();
+    assert_eq!(history.redo_origin(), Some(Selection::new(1, 2)));
+    history.redo(&mut rope).unwrap();
+    assert_eq!(history.redo_origin(), None);
+}

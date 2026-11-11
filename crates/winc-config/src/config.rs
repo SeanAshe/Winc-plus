@@ -115,6 +115,36 @@ pub struct Config {
     pub preview_on_click: Option<bool>,
     /// 「在外部终端中打开」使用的终端程序；未设置时使用系统默认的终端程序。
     pub external_terminal: Option<String>,
+    /// 是否开启 Vim 模式，默认为否。
+    pub vim_enabled: Option<bool>,
+    /// Vim 模式下无名寄存器与系统剪贴板的同步方式；未设置时只有 `"+`、`"*` 使用系统剪贴板。
+    pub vim_clipboard: Option<VimClipboard>,
+    /// Vim 模式下查找是否忽略大小写，默认为否。
+    pub vim_ignore_case: Option<bool>,
+    /// Vim 模式下忽略大小写时，模式中有大写字母是否改为区分大小写，默认为否。
+    pub vim_smart_case: Option<bool>,
+    /// Vim 模式下光标与窗口上下边缘之间保留的行数，默认为 0。
+    ///
+    /// 可用范围见 [`Config::VIM_SCROLL_OFF_RANGE`]。
+    pub vim_scroll_off: Option<usize>,
+    /// Vim 模式下按键归属的改写：按键的名字（小写，如 `ctrl+f`）与是否交给 Vim 层处理。
+    ///
+    /// 按名字排序；没有列出的按键按默认的规则决定归属。
+    pub vim_handle_keys: Vec<(String, bool)>,
+    /// Vim 模式下是否显示相对行号，默认为否。
+    pub vim_relative_number: Option<bool>,
+    /// Vim 模式下复制之后高亮被复制范围的毫秒数，默认为 150，0 表示不高亮。
+    ///
+    /// 可用范围见 [`Config::VIM_YANK_HIGHLIGHT_RANGE`]。
+    pub vim_yank_highlight: Option<u32>,
+    /// Vim 模式下映射等待后续按键的毫秒数，默认为 1000。
+    ///
+    /// 可用范围见 [`Config::VIM_TIMEOUT_LEN_RANGE`]。
+    pub vim_timeout_len: Option<u32>,
+    /// Vim 模式下映射中 `<Leader>` 代表的按键（按键记法），默认为反斜杠。
+    pub vim_leader: Option<String>,
+    /// Vim 模式下的映射，按配置文件中的顺序。
+    pub vim_keys: Vec<VimMapping>,
     /// 是否启用终端模块（编辑区下方的终端面板），默认为否。
     pub terminal_enabled: Option<bool>,
     /// 终端的等宽字体，写法同 [`Config::editor_font`]；未设置时与编辑区相同。
@@ -215,6 +245,57 @@ impl OptionAsMeta {
     }
 }
 
+/// Vim 模式下无名寄存器与系统剪贴板的同步方式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum VimClipboard {
+    /// 只有 `"+`、`"*` 使用系统剪贴板。
+    #[default]
+    Register,
+    /// 复制时同时写入系统剪贴板。
+    Yank,
+    /// 无名寄存器与系统剪贴板同步。
+    Always,
+}
+
+impl VimClipboard {
+    /// 全部取值，按设置菜单中的顺序排列。
+    pub const ALL: [Self; 3] = [Self::Register, Self::Yank, Self::Always];
+}
+
+/// Vim 模式下映射生效的模式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VimMapMode {
+    /// 普通模式。
+    Normal,
+    /// 可视模式。
+    Visual,
+    /// 插入模式。
+    Insert,
+    /// 已输入操作符、等待动作时。
+    Operator,
+}
+
+impl VimMapMode {
+    /// 各模式及其在配置文件中的写法。
+    pub const NAMES: [(Self, &'static str); 4] = [
+        (Self::Normal, "normal"),
+        (Self::Visual, "visual"),
+        (Self::Insert, "insert"),
+        (Self::Operator, "operator"),
+    ];
+}
+
+/// Vim 模式下的一条映射。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VimMapping {
+    /// 生效的模式。
+    pub mode: VimMapMode,
+    /// 左侧的按键，按键记法。
+    pub keys: String,
+    /// 右侧：按键记法，或命令的英文名。
+    pub to: String,
+}
+
 /// 何时显示空格和制表符。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RenderWhitespace {
@@ -302,6 +383,18 @@ impl Config {
     ///
     /// 超出范围的值在读入时忽略并报告；上下限为经验值。
     pub const TAB_WIDTH_RANGE: std::ops::RangeInclusive<f32> = 1.0..=16.0;
+    /// Vim 模式下光标与窗口上下边缘之间保留行数的可用范围（行）。
+    ///
+    /// 超出范围的值在读入时忽略并报告；上限取自调参，超过窗口高度一半的值效果相同。
+    pub const VIM_SCROLL_OFF_RANGE: std::ops::RangeInclusive<f32> = 0.0..=999.0;
+    /// Vim 模式下复制之后高亮时间的可用范围（毫秒）。
+    ///
+    /// 超出范围的值在读入时忽略并报告；上限取自调参，更长的高亮妨碍阅读。
+    pub const VIM_YANK_HIGHLIGHT_RANGE: std::ops::RangeInclusive<f32> = 0.0..=5_000.0;
+    /// Vim 模式下映射等待后续按键的时间的可用范围（毫秒）。
+    ///
+    /// 超出范围的值在读入时忽略并报告；上限取自调参，更长的等待与不超时无异。
+    pub const VIM_TIMEOUT_LEN_RANGE: std::ops::RangeInclusive<f32> = 0.0..=60_000.0;
     /// 查找仓库的默认层数：覆盖「目录 / 分组 / 项目」这样的常见结构；扫描在后台进行，有目录项总数
     /// 的上限，较深的层数不会拖慢界面。
     pub const REPOSITORY_SCAN_DEPTH: usize = 3;

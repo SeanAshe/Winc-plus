@@ -68,7 +68,19 @@ pub struct State {
     ///
     /// 仓库的配置变了（指纹不同）要重新确认。
     trusted_repos: Vec<(PathBuf, u64)>,
+    /// Vim 模式的大写标记：名字、文件路径、行号与列号（都从 0 起），按名字排序。
+    pub vim_marks: Vec<(char, PathBuf, usize, usize)>,
+    /// Vim 模式命令行的历史，从旧到新，最多 `MAX_VIM_HISTORY` 条。
+    pub vim_commands: Vec<String>,
+    /// Vim 模式的查找历史，从旧到新，最多 `MAX_VIM_HISTORY` 条。
+    pub vim_searches: Vec<String>,
 }
+
+/// Vim 模式的两种历史各自记录的条数上限（条）。
+///
+/// 取自调参：与输入框的历史同一量级。
+const MAX_VIM_HISTORY: usize = 100;
+
 /// 最多记录的项目自带工具选择数量（个）。
 ///
 /// 取 50（经验值），作用于工具选择和已信任仓库两项列表。
@@ -365,11 +377,18 @@ impl State {
             .take(MAX_TOOL_CHOICES)
             .collect();
 
+        let vim_marks = vim_marks(root);
+        let vim_commands = vim_history(root, "vimCommands");
+        let vim_searches = vim_history(root, "vimSearches");
+
         let mut state = State {
             recent,
             badges,
             tool_choices,
             trusted_repos,
+            vim_marks,
+            vim_commands,
+            vim_searches,
             ..State::default()
         };
         // 旧文件和手工修改过的文件里，颜色可能缺失、重复或越界；读入后统一理顺。
@@ -454,10 +473,27 @@ impl State {
         self.sessions.truncate(MAX_RECENT);
     }
 
+    /// 把 Vim 模式的大写标记与两种历史加入状态文件的字段 `fields`，为空的不加。
+    fn vim_fields(&self, fields: &mut Vec<(&'static str, Json)>) {
+        if !self.vim_marks.is_empty() {
+            fields.push(("vimMarks", vim_marks_json(&self.vim_marks)));
+        }
+        for (key, history) in [
+            ("vimCommands", &self.vim_commands),
+            ("vimSearches", &self.vim_searches),
+        ] {
+            if !history.is_empty() {
+                let entries = history.iter().map(|entry| Json::String(entry.clone()));
+                fields.push((key, Json::Array(entries.collect())));
+            }
+        }
+    }
+
     /// 序列化为 `state.json` 的内容，末尾带一个换行符。
     ///
-    /// `last`、`previewMode` 没有值，`otherWindows`、`toolChoices`、`trustedRepos` 为空，
-    /// `commitTree`、`pdfThumbnailsHidden`、`stayOutsideApplications` 为假时省略对应的键。
+    /// `last`、`previewMode` 没有值，`otherWindows`、`toolChoices`、`trustedRepos`、`vimMarks`、
+    /// `vimCommands`、`vimSearches` 为空，`commitTree`、`pdfThumbnailsHidden`、
+    /// `stayOutsideApplications` 为假时省略对应的键。
     pub fn to_json(&self) -> String {
         let path = |p: &PathBuf| Json::String(p.to_string_lossy().into_owned());
         let mut fields = vec![(
@@ -593,6 +629,7 @@ impl State {
             });
             fields.push(("trustedRepos", Json::Array(repos.collect())));
         }
+        self.vim_fields(&mut fields);
 
         let mut out = Json::object(fields).write(0);
         out.push('\n');
@@ -792,6 +829,56 @@ pub(crate) fn user_state_dir() -> Option<PathBuf> {
             .or_else(|| home().map(|home| home.join(".local").join("state")))
             .map(|dir| dir.join("winc"))
     }
+}
+
+/// 从状态文件的根对象读出 `key` 下 Vim 模式的历史：非空的字符串，只留最新的
+/// [`MAX_VIM_HISTORY`] 条。
+fn vim_history(root: &std::collections::BTreeMap<String, Json>, key: &str) -> Vec<String> {
+    let entries = root.get(key).and_then(Json::as_array).unwrap_or_default();
+    let mut history: Vec<String> = entries
+        .iter()
+        .filter_map(|entry| entry.as_str().filter(|text| !text.is_empty()))
+        .map(str::to_owned)
+        .collect();
+    history.split_off(history.len().saturating_sub(MAX_VIM_HISTORY))
+}
+
+/// 返回 Vim 模式的大写标记在状态文件中的写法。
+fn vim_marks_json(marks: &[(char, PathBuf, usize, usize)]) -> Json {
+    let items = marks.iter().map(|(name, path, line, col)| {
+        Json::object(vec![
+            ("name", Json::String(name.to_string())),
+            ("path", Json::String(path.to_string_lossy().into_owned())),
+            ("line", Json::Number(*line as f64)),
+            ("col", Json::Number(*col as f64)),
+        ])
+    });
+    Json::Array(items.collect())
+}
+
+/// 从状态文件的根对象读出 Vim 模式的大写标记：按名字排序，同名的只留一个。
+fn vim_marks(
+    root: &std::collections::BTreeMap<String, Json>,
+) -> Vec<(char, PathBuf, usize, usize)> {
+    let mut marks: Vec<(char, PathBuf, usize, usize)> = root
+        .get("vimMarks")
+        .and_then(Json::as_array)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|item| {
+            let item = item.as_object()?;
+            let mut name = item.get("name")?.as_str()?.chars();
+            let name = name
+                .next()
+                .filter(|c| c.is_ascii_uppercase() && name.next().is_none())?;
+            let path = item.get("path")?.as_str().filter(|p| !p.is_empty())?;
+            let number = |key: &str| Some(item.get(key)?.as_number()?.max(0.0) as usize);
+            Some((name, PathBuf::from(path), number("line")?, number("col")?))
+        })
+        .collect();
+    marks.sort();
+    marks.dedup_by_key(|mark| mark.0);
+    marks
 }
 
 /// 从 `state.json` 的 `window` 一节读出窗口的大小和位置；缺项或者数值不合理时为 `None`。

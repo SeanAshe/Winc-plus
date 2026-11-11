@@ -135,6 +135,13 @@ impl App {
                     self.set_render_whitespace(choice);
                 }
             }
+            MenuTarget::VimClipboard => {
+                if let MenuCommand::VimClipboard(i) = command
+                    && let Some(&choice) = winc_config::VimClipboard::ALL.get(i)
+                {
+                    self.set_vim_clipboard(choice);
+                }
+            }
             MenuTarget::DefaultShell => match command {
                 MenuCommand::DefaultShell(None) => self.set_terminal_shell(None),
                 MenuCommand::DefaultShell(Some(i)) => {

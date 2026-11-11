@@ -8,6 +8,7 @@
 //! 文档。在右侧点击放置光标后，按键与编辑命令转给该文档执行；文件未打开时先在后台打开一个
 //! 标签，执行后重新比较。左侧（`HEAD`）只读。
 
+mod caret;
 mod find;
 mod pointer;
 
@@ -683,6 +684,19 @@ impl App {
             .position(|h| h.new.contains(&line) || (h.new.is_empty() && h.new.start == line))
     }
 
+    /// 当前标签是差异、其右侧对应的文档被改动或光标移动之后调用：重新比较并滚动到光标处。
+    pub(in crate::app) fn diff_source_changed(&mut self) {
+        let Some(index) = self.editor.active else {
+            return;
+        };
+        if self.editor.documents[index].diff.is_none() {
+            return;
+        }
+        self.relayout();
+        self.sync_diff_source(index);
+        self.diff_caret_visible(index);
+    }
+
     /// 光标在差异右侧时由右侧文档执行 `f`（按键、编辑命令），执行后重新比较并滚动到光标处。
     ///
     /// 光标不在右侧时返回 `None`，不做任何改动。
@@ -762,8 +776,6 @@ impl App {
         let Some(line) = self.diff_caret_line(index) else {
             return;
         };
-        let visible = self.visible_lines().saturating_sub(2).max(1);
-        let cell = self.cell;
         let tab_width = self.editor.active_tab_width();
         let path = self.editor.documents[index]
             .diff
@@ -777,14 +789,28 @@ impl App {
                 (col, doc.col_to_cell(line, col, tab_width))
             })
             .unwrap_or((0, 0));
-        let sticky = self.diff_sticky_depth(index, RIGHT, line);
+        self.diff_scroll_to(index, RIGHT, (line, caret_col), caret_cell);
+    }
+
+    /// 滚动标签 `index` 中的差异，使第 `side` 侧（行，列）处的光标可见；所在行被折叠时先
+    /// 展开。`caret_cell` 是光标所在的显示列。
+    fn diff_scroll_to(
+        &mut self,
+        index: usize,
+        side: usize,
+        (line, caret_col): (usize, usize),
+        caret_cell: usize,
+    ) {
+        let visible = self.visible_lines().saturating_sub(2).max(1);
+        let cell = self.cell;
+        let sticky = self.diff_sticky_depth(index, side, line);
         let (width, pane_height) = {
             let Some(view) = self.editor.documents[index].diff.as_deref() else {
                 return;
             };
             let parts = diff_parts(self.layout.editor, view, cell);
             (
-                parts.panes[RIGHT].text.w - DIFF_TEXT_PAD,
+                parts.panes[side].text.w - DIFF_TEXT_PAD,
                 f64::from(parts.body.h / self.fonts.line_height),
             )
         };
@@ -792,22 +818,22 @@ impl App {
         let Some(view) = doc.diff.as_deref_mut() else {
             return;
         };
-        view.reveal_line(RIGHT, line);
-        // 按滚动位置比较：左侧较长的改动中右侧不前进，按右侧的行数比较会产生偏差。光标所在行
-        // 的外层块固定在顶部时，光标需要位于这些固定行之下。
-        let row = view.row_of_col(RIGHT, line, caret_col) as f64;
-        let at = view.pos_of(RIGHT, row);
+        view.reveal_line(side, line);
+        // 按滚动位置比较：另一侧较长的改动中本侧不前进，按本侧的行数比较会产生偏差。光标所在
+        // 行的外层块固定在顶部时，光标需要位于这些固定行之下。
+        let row = view.row_of_col(side, line, caret_col) as f64;
+        let at = view.pos_of(side, row);
         let covered = sticky > 0.0
             && if view.is_unified() {
                 at < doc.scroll_line + sticky
             } else {
-                row < view.side_scroll(RIGHT, doc.scroll_line, pane_height) + sticky
+                row < view.side_scroll(side, doc.scroll_line, pane_height) + sticky
             };
         if covered {
             doc.scroll_line = if view.is_unified() {
                 (at - sticky).max(0.0)
             } else {
-                view.pos_of_top(RIGHT, (row - sticky).max(0.0), pane_height)
+                view.pos_of_top(side, (row - sticky).max(0.0), pane_height)
             };
         } else if at < doc.scroll_line {
             doc.scroll_line = at;
@@ -1012,7 +1038,7 @@ impl App {
     ///
     /// 在输入文字、编辑按键和编辑命令之前调用：[`App::place_diff_caret`] 不打开文件，
     /// 用户开始编辑时才打开。光标不在可编辑的右侧或文件无法打开时不做任何操作。
-    fn edit_at_read_caret(&mut self) {
+    pub(in crate::app) fn edit_at_read_caret(&mut self) {
         let Some(view) = self.editor.active().and_then(|d| d.diff.as_deref()) else {
             return;
         };

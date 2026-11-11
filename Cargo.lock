@@ -3153,6 +3153,7 @@ dependencies = [
  "winc-syntax",
  "winc-typeset",
  "winc-version",
+ "winc-vim",
  "windows-sys 0.59.0",
  "winit",
  "zbus",
@@ -3274,6 +3275,16 @@ dependencies = [
 [[package]]
 name = "winc-version"
 version = "0.0.0"
+
+[[package]]
+name = "winc-vim"
+version = "0.0.0"
+dependencies = [
+ "fancy-regex",
+ "regex",
+ "ropey",
+ "winc-core",
+]
 
 [[package]]
 name = "winc-watch"
@@ -3708,6 +3719,7 @@ dependencies = [
  "winc-config",
  "winc-preview",
  "winc-version",
+ "winc-vim",
 ]
 
 [[package]]

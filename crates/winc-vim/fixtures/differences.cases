@@ -1,0 +1,16 @@
+# 行为有意与 vim 不同的用例：以 `= ` 开头的行是手写的期望结果，`> ` 开头的行是 vim 的结果。
+
+# 可视模式下以 `$` 选到行尾之后的修改，点重复同样作用到行尾。vim 在光标不在前两列时因列号
+# 溢出而改为作用于行首到光标之间的文本。
+case dot-after-visual-to-line-end
+text "ab cd"
+text "ef gh"
+text "ij kl"
+cursor 0 3
+keys v$dj.
+= text "ab ef gh"
+= text "ij "
+= cursor 1 2
+= reg " v "kl"
+= reg 1 v "cd" ""
+= reg - v "kl"

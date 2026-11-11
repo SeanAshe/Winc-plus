@@ -1,0 +1,1098 @@
+# 由 `cargo xtask vim-fixtures` 生成，不手工修改。按块的可视模式：操作符、插入、粘贴与点重复，以及可视模式下的 I 与 A。
+
+buffer b1
+text "abcdefgh"
+text "ij"
+text "klmnopqrst"
+text ""
+text "uvwxyz12"
+text "  indented line"
+text "last one here"
+
+buffer b2
+text "foo bar.baz  qux_1 (x) end"
+text "   lead, tail;  "
+text ""
+text "中文 text，全角。next"
+text "a-b a1b2 #$% éx"
+
+buffer b3
+text "fn main() {"
+text "    call(a, [b, c], \"s)\");"
+text "    if (x) { y('(') }"
+text "}"
+text ""
+text "{"
+text "  inner } {"
+text "}"
+text "tail"
+
+case b0001
+use b1
+cursor 0 6
+keys <C-v>jld
+
+case b0002
+use b1
+cursor 5 2
+keys <C-v>jld
+
+case b0003
+use b1
+cursor 1 1
+keys <C-v>jly
+
+case b0004
+use b1
+cursor 0 0
+keys <C-v>jjlld
+
+case b0005
+use b1
+cursor 2 4
+keys <C-v>jjlld
+
+case b0006
+use b1
+cursor 1 1
+keys <C-v>jjjly
+
+case b0007
+use b1
+cursor 0 0
+keys <C-v>jj$d
+
+case b0008
+use b1
+cursor 2 4
+keys <C-v>jj$d
+
+case b0009
+use b1
+cursor 0 2
+keys <C-v>jj$y
+
+case b0010
+use b1
+cursor 4 3
+keys <C-v>jj$y
+
+case b0011
+use b1
+cursor 0 6
+keys <C-v>j$hd
+
+case b0012
+use b1
+cursor 5 2
+keys <C-v>j$hd
+
+case b0013
+use b1
+cursor 0 0
+keys <C-v>ld
+
+case b0014
+use b1
+cursor 2 4
+keys <C-v>ld
+
+case b0015
+use b1
+cursor 0 0
+keys <C-v>d
+
+case b0016
+use b1
+cursor 2 4
+keys <C-v>d
+
+case b0017
+use b1
+cursor 0 2
+keys <C-v>y
+
+case b0018
+use b1
+cursor 4 3
+keys <C-v>y
+
+case b0019
+use b1
+cursor 0 0
+keys <C-v>3ly
+
+case b0020
+use b1
+cursor 2 4
+keys <C-v>3ly
+
+case b0021
+use b1
+cursor 1 1
+keys <C-v>kld
+
+case b0022
+use b1
+cursor 0 6
+keys <C-v>jhd
+
+case b0023
+use b1
+cursor 5 2
+keys <C-v>jhd
+
+case b0024
+use b1
+cursor 0 6
+keys <C-v>jlcX<Esc>
+
+case b0025
+use b1
+cursor 5 2
+keys <C-v>jlcX<Esc>
+
+case b0026
+use b1
+cursor 0 2
+keys <C-v>jjcXY<Esc>
+
+case b0027
+use b1
+cursor 4 3
+keys <C-v>jjcXY<Esc>
+
+case b0028
+use b1
+cursor 0 0
+keys <C-v>jj$cX<Esc>
+
+case b0029
+use b1
+cursor 2 4
+keys <C-v>jj$cX<Esc>
+
+case b0030
+use b1
+cursor 0 6
+keys <C-v>jlsX<Esc>
+
+case b0031
+use b1
+cursor 5 2
+keys <C-v>jlsX<Esc>
+
+case b0032
+use b1
+cursor 0 6
+keys <C-v>jjIX<Esc>
+
+case b0033
+use b1
+cursor 5 2
+keys <C-v>jjIX<Esc>
+
+case b0034
+use b1
+cursor 1 1
+keys <C-v>jjlIXY<Esc>
+
+case b0035
+use b1
+cursor 0 6
+keys <C-v>jjlAX<Esc>
+
+case b0036
+use b1
+cursor 5 2
+keys <C-v>jjlAX<Esc>
+
+case b0037
+use b1
+cursor 1 1
+keys <C-v>jjllAXY<Esc>
+
+case b0038
+use b1
+cursor 0 6
+keys <C-v>jj$AX<Esc>
+
+case b0039
+use b1
+cursor 5 2
+keys <C-v>jj$AX<Esc>
+
+case b0040
+use b1
+cursor 0 6
+keys <C-v>jjI<Esc>
+
+case b0041
+use b1
+cursor 5 2
+keys <C-v>jjI<Esc>
+
+case b0042
+use b1
+cursor 0 2
+keys <C-v>jlrQ
+
+case b0043
+use b1
+cursor 4 3
+keys <C-v>jlrQ
+
+case b0044
+use b1
+cursor 1 1
+keys <C-v>jj$rQ
+
+case b0045
+use b1
+cursor 0 0
+keys <C-v>jl~
+
+case b0046
+use b1
+cursor 2 4
+keys <C-v>jl~
+
+case b0047
+use b1
+cursor 1 1
+keys <C-v>jlU
+
+case b0048
+use b1
+cursor 1 1
+keys <C-v>jlu
+
+case b0049
+use b1
+cursor 0 0
+keys <C-v>jlg?
+
+case b0050
+use b1
+cursor 2 4
+keys <C-v>jlg?
+
+case b0051
+use b1
+cursor 0 0
+keys <C-v>jl>
+
+case b0052
+use b1
+cursor 2 4
+keys <C-v>jl>
+
+case b0053
+use b1
+cursor 0 6
+keys <C-v>jl2>
+
+case b0054
+use b1
+cursor 5 2
+keys <C-v>jl2>
+
+case b0055
+use b1
+cursor 0 6
+keys <C-v>jjl<lt>
+
+case b0056
+use b1
+cursor 5 2
+keys <C-v>jjl<lt>
+
+case b0057
+use b1
+cursor 0 6
+keys <C-v>jl>.
+
+case b0058
+use b1
+cursor 5 2
+keys <C-v>jl>.
+
+case b0059
+use b1
+cursor 0 0
+keys <C-v>jlJ
+
+case b0060
+use b1
+cursor 2 4
+keys <C-v>jlJ
+
+case b0061
+use b1
+cursor 1 1
+keys <C-v>jlgJ
+
+case b0062
+use b1
+cursor 0 6
+keys <C-v>jlD
+
+case b0063
+use b1
+cursor 5 2
+keys <C-v>jlD
+
+case b0064
+use b1
+cursor 0 6
+keys <C-v>jlX
+
+case b0065
+use b1
+cursor 5 2
+keys <C-v>jlX
+
+case b0066
+use b1
+cursor 1 1
+keys <C-v>jlY
+
+case b0067
+use b1
+cursor 1 1
+keys <C-v>jlCQ<Esc>
+
+case b0068
+use b1
+cursor 0 6
+keys <C-v>jlRQ<Esc>
+
+case b0069
+use b1
+cursor 5 2
+keys <C-v>jlRQ<Esc>
+
+case b0070
+use b1
+cursor 0 2
+keys <C-v>jlod
+
+case b0071
+use b1
+cursor 4 3
+keys <C-v>jlod
+
+case b0072
+use b1
+cursor 0 2
+keys <C-v>jlOd
+
+case b0073
+use b1
+cursor 4 3
+keys <C-v>jlOd
+
+case b0074
+use b1
+cursor 0 2
+keys <C-v>jlOhd
+
+case b0075
+use b1
+cursor 4 3
+keys <C-v>jlOhd
+
+case b0076
+use b1
+cursor 0 0
+keys <C-v>jlokd
+
+case b0077
+use b1
+cursor 2 4
+keys <C-v>jlokd
+
+case b0078
+use b1
+cursor 1 1
+keys <C-v>jl<Esc>x
+
+case b0079
+use b1
+cursor 0 6
+keys <C-v>jl<C-v>x
+
+case b0080
+use b1
+cursor 5 2
+keys <C-v>jl<C-v>x
+
+case b0081
+use b1
+cursor 1 1
+keys <C-v>jlyP
+
+case b0082
+use b1
+cursor 1 1
+keys <C-v>jlyp
+
+case b0083
+use b1
+cursor 1 1
+keys <C-v>jly$p
+
+case b0084
+use b1
+cursor 0 6
+keys <C-v>jlyGp
+
+case b0085
+use b1
+cursor 5 2
+keys <C-v>jlyGp
+
+case b0086
+use b1
+cursor 0 6
+keys <C-v>jlyG$p
+
+case b0087
+use b1
+cursor 5 2
+keys <C-v>jlyG$p
+
+case b0088
+use b1
+cursor 0 6
+keys <C-v>jly3p
+
+case b0089
+use b1
+cursor 5 2
+keys <C-v>jly3p
+
+case b0090
+use b1
+cursor 0 6
+keys <C-v>jlygP
+
+case b0091
+use b1
+cursor 5 2
+keys <C-v>jlygP
+
+case b0092
+use b1
+cursor 1 1
+keys <C-v>jlyjjp
+
+case b0093
+use b1
+cursor 0 6
+keys <C-v>jldp
+
+case b0094
+use b1
+cursor 5 2
+keys <C-v>jldp
+
+case b0095
+use b1
+cursor 0 0
+keys <C-v>jld.
+
+case b0096
+use b1
+cursor 2 4
+keys <C-v>jld.
+
+case b0097
+use b1
+cursor 0 6
+keys <C-v>jldj.
+
+case b0098
+use b1
+cursor 5 2
+keys <C-v>jldj.
+
+case b0099
+use b1
+cursor 0 0
+keys <C-v>jlIX<Esc>j.
+
+case b0100
+use b1
+cursor 2 4
+keys <C-v>jlIX<Esc>j.
+
+case b0101
+use b1
+cursor 0 0
+keys <C-v>jlAX<Esc>j.
+
+case b0102
+use b1
+cursor 2 4
+keys <C-v>jlAX<Esc>j.
+
+case b0103
+use b1
+cursor 0 6
+keys <C-v>jlcX<Esc>j.
+
+case b0104
+use b1
+cursor 5 2
+keys <C-v>jlcX<Esc>j.
+
+case b0105
+use b1
+cursor 0 2
+keys <C-v>jlrQj.
+
+case b0106
+use b1
+cursor 4 3
+keys <C-v>jlrQj.
+
+case b0107
+use b1
+cursor 0 0
+keys <C-v>jl~j.
+
+case b0108
+use b1
+cursor 2 4
+keys <C-v>jl~j.
+
+case b0109
+use b1
+cursor 1 1
+keys <C-v>jldu
+
+case b0110
+use b1
+cursor 0 2
+keys <C-v>jlIX<Esc>u
+
+case b0111
+use b1
+cursor 4 3
+keys <C-v>jlIX<Esc>u
+
+case b0112
+use b1
+cursor 1 1
+keys <C-v>jlcX<Esc>u
+
+case b0113
+use b1
+cursor 0 0
+keys <C-v>jl<Esc>gvd
+
+case b0114
+use b1
+cursor 2 4
+keys <C-v>jl<Esc>gvd
+
+case b0115
+use b1
+cursor 0 2
+keys <C-v>jl<Esc>ggjgvy
+
+case b0116
+use b1
+cursor 4 3
+keys <C-v>jl<Esc>ggjgvy
+
+case b0117
+use b1
+cursor 0 0
+keys <C-v>jlvd
+
+case b0118
+use b1
+cursor 2 4
+keys <C-v>jlvd
+
+case b0119
+use b1
+cursor 0 0
+keys <C-v>jlVd
+
+case b0120
+use b1
+cursor 2 4
+keys <C-v>jlVd
+
+case b0121
+use b1
+cursor 0 0
+keys vjl<C-v>d
+
+case b0122
+use b1
+cursor 2 4
+keys vjl<C-v>d
+
+case b0123
+use b1
+cursor 0 0
+keys Vj<C-v>d
+
+case b0124
+use b1
+cursor 2 4
+keys Vj<C-v>d
+
+case b0125
+use b1
+cursor 0 2
+keys <C-q>jld
+
+case b0126
+use b1
+cursor 4 3
+keys <C-q>jld
+
+case b0127
+use b1
+cursor 0 2
+keys <C-v>jl"ay"ap
+
+case b0128
+use b1
+cursor 4 3
+keys <C-v>jl"ay"ap
+
+case b0129
+use b1
+cursor 0 0
+keys <C-v>jl"ad"aP
+
+case b0130
+use b1
+cursor 2 4
+keys <C-v>jl"ad"aP
+
+case b0131
+use b1
+cursor 0 2
+keys <C-v>jly"0p
+
+case b0132
+use b1
+cursor 4 3
+keys <C-v>jly"0p
+
+case b0133
+use b1
+cursor 0 0
+keys <C-v>jleyp
+
+case b0134
+use b1
+cursor 2 4
+keys <C-v>jleyp
+
+case b0135
+use b1
+cursor 0 2
+keys <C-v>jwd
+
+case b0136
+use b1
+cursor 4 3
+keys <C-v>jwd
+
+case b0137
+use b1
+cursor 0 0
+keys <C-v>j$A<Esc>x
+
+case b0138
+use b1
+cursor 2 4
+keys <C-v>j$A<Esc>x
+
+case b0139
+use b1
+cursor 0 6
+keys <C-v>jliwd
+
+case b0140
+use b1
+cursor 5 2
+keys <C-v>jliwd
+
+case b0141
+use b1
+cursor 1 1
+keys <C-v>jl<Esc>gg`<lt>
+
+case b0142
+use b1
+cursor 0 2
+keys <C-v>jl<Esc>`>
+
+case b0143
+use b1
+cursor 4 3
+keys <C-v>jl<Esc>`>
+
+case b0144
+use b1
+cursor 0 6
+keys d<C-v>j
+
+case b0145
+use b1
+cursor 5 2
+keys d<C-v>j
+
+case b0146
+use b1
+cursor 0 0
+keys d<C-v>2j
+
+case b0147
+use b1
+cursor 2 4
+keys d<C-v>2j
+
+case b0148
+use b1
+cursor 0 0
+keys d<C-v>l
+
+case b0149
+use b1
+cursor 2 4
+keys d<C-v>l
+
+case b0150
+use b1
+cursor 1 1
+keys d<C-v>w
+
+case b0151
+use b1
+cursor 1 1
+keys y<C-v>jp
+
+case b0152
+use b1
+cursor 0 6
+keys c<C-v>jX<Esc>
+
+case b0153
+use b1
+cursor 5 2
+keys c<C-v>jX<Esc>
+
+case b0154
+use b1
+cursor 0 0
+keys d<C-v>j.
+
+case b0155
+use b1
+cursor 2 4
+keys d<C-v>j.
+
+case b0156
+use b1
+cursor 0 0
+keys vlIX<Esc>
+
+case b0157
+use b1
+cursor 2 4
+keys vlIX<Esc>
+
+case b0158
+use b1
+cursor 0 0
+keys vlAX<Esc>
+
+case b0159
+use b1
+cursor 2 4
+keys vlAX<Esc>
+
+case b0160
+use b1
+cursor 0 6
+keys vjIX<Esc>
+
+case b0161
+use b1
+cursor 5 2
+keys vjIX<Esc>
+
+case b0162
+use b1
+cursor 0 6
+keys vjAX<Esc>
+
+case b0163
+use b1
+cursor 5 2
+keys vjAX<Esc>
+
+case b0164
+use b1
+cursor 0 6
+keys VjIX<Esc>
+
+case b0165
+use b1
+cursor 5 2
+keys VjIX<Esc>
+
+case b0166
+use b1
+cursor 0 6
+keys VjAX<Esc>
+
+case b0167
+use b1
+cursor 5 2
+keys VjAX<Esc>
+
+case b0168
+use b1
+cursor 0 0
+keys v$AX<Esc>
+
+case b0169
+use b1
+cursor 2 4
+keys v$AX<Esc>
+
+case b0170
+use b1
+cursor 0 0
+keys vAX<Esc>
+
+case b0171
+use b1
+cursor 2 4
+keys vAX<Esc>
+
+case b0172
+use b1
+cursor 0 0
+keys v$hAX<Esc>
+
+case b0173
+use b1
+cursor 2 4
+keys v$hAX<Esc>
+
+case b0174
+use b1
+cursor 0 6
+keys vjhAX<Esc>
+
+case b0175
+use b1
+cursor 5 2
+keys vjhAX<Esc>
+
+case b0176
+use b1
+cursor 0 0
+keys vlIX<Esc>j.
+
+case b0177
+use b1
+cursor 2 4
+keys vlIX<Esc>j.
+
+case b0178
+use b1
+cursor 0 0
+keys vlAX<Esc>j.
+
+case b0179
+use b1
+cursor 2 4
+keys vlAX<Esc>j.
+
+case b0180
+use b1
+cursor 0 0
+keys vhAX<Esc>
+
+case b0181
+use b1
+cursor 2 4
+keys vhAX<Esc>
+
+case b0182
+use b1
+cursor 1 1
+keys vkAX<Esc>
+
+case b0183
+use b1
+cursor 1 1
+keys vkIX<Esc>
+
+case b0184
+use b1
+cursor 1 1
+keys vkhIX<Esc>
+
+case b0185
+use b1
+cursor 0 6
+keys vkk$IX<Esc>
+
+case b0186
+use b1
+cursor 5 2
+keys vkk$IX<Esc>
+
+case b0187
+use b1
+cursor 0 0
+keys vhIX<Esc>j.
+
+case b0188
+use b1
+cursor 2 4
+keys vhIX<Esc>j.
+
+case b0189
+use b1
+cursor 0 0
+keys vAX<Esc>j.
+
+case b0190
+use b1
+cursor 2 4
+keys vAX<Esc>j.
+
+case b0191
+use b1
+cursor 0 0
+keys v$AX<Esc>j0.
+
+case b0192
+use b1
+cursor 2 4
+keys v$AX<Esc>j0.
+
+case b0193
+use b1
+cursor 0 6
+keys vjAX<Esc>gg.
+
+case b0194
+use b1
+cursor 5 2
+keys vjAX<Esc>gg.
+
+case b0195
+use b1
+cursor 0 6
+keys vjIX<Esc>gg.
+
+case b0196
+use b1
+cursor 5 2
+keys vjIX<Esc>gg.
+
+case b0197
+use b1
+cursor 0 6
+keys VjAX<Esc>j.
+
+case b0198
+use b1
+cursor 5 2
+keys VjAX<Esc>j.
+
+case b0199
+use b2
+cursor 1 0
+keys <C-v>jld
+
+case b0200
+use b2
+cursor 0 11
+keys <C-v>jly
+
+case b0201
+use b2
+cursor 0 5
+keys <C-v>jj$y
+
+case b0202
+use b2
+cursor 4 13
+keys <C-v>jj$y
+
+case b0203
+use b2
+cursor 0 20
+keys <C-v>jlIX<Esc>
+
+case b0204
+use b2
+cursor 1 15
+keys <C-v>jlAX<Esc>
+
+case b0205
+use b2
+cursor 1 0
+keys <C-v>jlcX<Esc>
+
+case b0206
+use b2
+cursor 1 3
+keys <C-v>jlyp
+
+case b0207
+use b3
+cursor 1 21
+keys <C-v>jld
+
+case b0208
+use b3
+cursor 1 4
+keys <C-v>jly
+
+case b0209
+use b3
+cursor 0 7
+keys <C-v>jj$y
+
+case b0210
+use b3
+cursor 8 2
+keys <C-v>jj$y
+
+case b0211
+use b3
+cursor 1 8
+keys <C-v>jlIX<Esc>
+
+case b0212
+use b3
+cursor 2 16
+keys <C-v>jlAX<Esc>
+
+case b0213
+use b3
+cursor 1 21
+keys <C-v>jlcX<Esc>
+
+case b0214
+use b3
+cursor 2 7
+keys <C-v>jlyp

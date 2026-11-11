@@ -1,0 +1,623 @@
+# 由 `cargo xtask vim-fixtures` 录制，不手工修改；用例写在同名的 .cases 文件中。
+vim 9.1.1752
+
+buffer b1
+text "  line01 x"
+text "  line02 x"
+text "  line03 x"
+text "  line04 x"
+text "  line05 x"
+text "  line06 x"
+text "  line07 x"
+text "  line08 x"
+text "  line09 x"
+text "  line10 x"
+text "  line11 x"
+text "  line12 x"
+text "  line13 x"
+text "  line14 x"
+text "  line15 x"
+text "  line16 x"
+text "  line17 x"
+text "  line18 x"
+text "  line19 x"
+text "  line20 x"
+text "  line21 x"
+text "  line22 x"
+text "  line23 x"
+text "  line24 x"
+text "  line25 x"
+text "  line26 x"
+text "  line27 x"
+text "  line28 x"
+text "  line29 x"
+text "  line30 x"
+text "  line31 x"
+text "  line32 x"
+text "  line33 x"
+text "  line34 x"
+text "  line35 x"
+text "  line36 x"
+text "  line37 x"
+text "  line38 x"
+text "  line39 x"
+text "  line40 x"
+text "  line41 x"
+text "  line42 x"
+text "  line43 x"
+text "  line44 x"
+text "  line45 x"
+text "  line46 x"
+text "  line47 x"
+text "  line48 x"
+text "  line49 x"
+text "  line50 x"
+text "  line51 x"
+text "  line52 x"
+text "  line53 x"
+text "  line54 x"
+text "  line55 x"
+text "  line56 x"
+text "  line57 x"
+text "  line58 x"
+text "  line59 x"
+text "  line60 x"
+
+case w0001
+use b1
+cursor 29 0
+keys <C-d>
+> unchanged
+> cursor 40 2
+
+case w0002
+use b1
+cursor 40 9
+keys <C-u>
+> unchanged
+> cursor 29 2
+
+case w0003
+use b1
+cursor 0 0
+keys 2<C-d>
+> unchanged
+> cursor 2 2
+
+case w0004
+use b1
+cursor 57 5
+keys 2<C-d>
+> unchanged
+> cursor 59 2
+
+case w0005
+use b1
+cursor 4 3
+keys 2<C-u>
+> unchanged
+> cursor 2 2
+
+case w0006
+use b1
+cursor 59 0
+keys 2<C-u>
+> unchanged
+> cursor 57 2
+
+case w0007
+use b1
+cursor 0 0
+keys <C-d><C-d>
+> unchanged
+> cursor 22 2
+
+case w0008
+use b1
+cursor 57 5
+keys <C-d><C-d>
+> unchanged
+> cursor 59 2
+
+case w0009
+use b1
+cursor 4 3
+keys <C-d><C-u>
+> unchanged
+> cursor 4 2
+
+case w0010
+use b1
+cursor 59 0
+keys <C-d><C-u>
+> unchanged
+> cursor 48 2
+
+case w0011
+use b1
+cursor 4 3
+keys <C-u><C-d>
+> unchanged
+> cursor 11 2
+
+case w0012
+use b1
+cursor 59 0
+keys <C-u><C-d>
+> unchanged
+> cursor 59 2
+
+case w0013
+use b1
+cursor 4 3
+keys 5<C-d><C-d>
+> unchanged
+> cursor 14 2
+
+case w0014
+use b1
+cursor 59 0
+keys 5<C-d><C-d>
+> unchanged
+> cursor 59 0
+
+case w0015
+use b1
+cursor 4 3
+keys 30<C-d>
+> unchanged
+> cursor 27 2
+
+case w0016
+use b1
+cursor 59 0
+keys 30<C-d>
+> unchanged
+> cursor 59 0
+
+case w0017
+use b1
+cursor 0 0
+keys <C-f>
+> unchanged
+> cursor 21 2
+
+case w0018
+use b1
+cursor 57 5
+keys <C-f>
+> unchanged
+> cursor 59 2
+
+case w0019
+use b1
+cursor 29 0
+keys 2<C-f>
+> unchanged
+> cursor 59 2
+
+case w0020
+use b1
+cursor 0 0
+keys <C-f><C-f>
+> unchanged
+> cursor 42 2
+
+case w0021
+use b1
+cursor 57 5
+keys <C-f><C-f>
+> unchanged
+> cursor 59 2
+
+case w0022
+use b1
+cursor 40 9
+keys <PageDown>
+> unchanged
+> cursor 59 2
+
+case w0023
+use b1
+cursor 29 0
+keys <S-Down>
+> unchanged
+> cursor 50 2
+
+case w0024
+use b1
+cursor 40 9
+keys <C-e>
+> unchanged
+> cursor 41 9
+
+case w0025
+use b1
+cursor 29 0
+keys 3<C-e>
+> unchanged
+> cursor 32 0
+
+case w0026
+use b1
+cursor 40 9
+keys <C-y>
+> unchanged
+> cursor 40 9
+
+case w0027
+use b1
+cursor 4 3
+keys 2<C-y>
+> unchanged
+> cursor 4 3
+
+case w0028
+use b1
+cursor 59 0
+keys 2<C-y>
+> unchanged
+> cursor 59 0
+
+case w0029
+use b1
+cursor 0 0
+keys zz
+> unchanged
+> cursor 0 0
+
+case w0030
+use b1
+cursor 57 5
+keys zz
+> unchanged
+> cursor 57 5
+
+case w0031
+use b1
+cursor 29 0
+keys zt
+> unchanged
+> cursor 29 0
+
+case w0032
+use b1
+cursor 0 0
+keys zb
+> unchanged
+> cursor 0 0
+
+case w0033
+use b1
+cursor 57 5
+keys zb
+> unchanged
+> cursor 57 5
+
+case w0034
+use b1
+cursor 0 0
+keys z.
+> unchanged
+> cursor 0 2
+
+case w0035
+use b1
+cursor 57 5
+keys z.
+> unchanged
+> cursor 57 2
+
+case w0036
+use b1
+cursor 4 3
+keys z<CR>
+> unchanged
+> cursor 4 2
+
+case w0037
+use b1
+cursor 59 0
+keys z<CR>
+> unchanged
+> cursor 59 2
+
+case w0038
+use b1
+cursor 40 9
+keys z-
+> unchanged
+> cursor 40 2
+
+case w0039
+use b1
+cursor 40 9
+keys 5zt
+> unchanged
+> cursor 4 9
+
+case w0040
+use b1
+cursor 4 3
+keys 5z.
+> unchanged
+> cursor 4 2
+
+case w0041
+use b1
+cursor 59 0
+keys 5z.
+> unchanged
+> cursor 4 2
+
+case w0042
+use b1
+cursor 0 0
+keys 70z<CR>
+> unchanged
+> cursor 59 2
+
+case w0043
+use b1
+cursor 57 5
+keys 70z<CR>
+> unchanged
+> cursor 59 2
+
+case w0044
+use b1
+cursor 29 0
+keys zh
+> unchanged
+> cursor 29 0
+
+case w0045
+use b1
+cursor 29 0
+keys zl
+> unchanged
+> cursor 29 0
+
+case w0046
+use b1
+cursor 40 9
+keys z<Left>
+> unchanged
+> cursor 40 9
+
+case w0047
+use b1
+cursor 29 0
+keys z<Right>
+> unchanged
+> cursor 29 0
+
+case w0048
+use b1
+cursor 29 0
+keys zH
+> unchanged
+> cursor 29 0
+
+case w0049
+use b1
+cursor 29 0
+keys zL
+> unchanged
+> cursor 29 0
+
+case w0050
+use b1
+cursor 4 3
+keys zs
+> unchanged
+> cursor 4 3
+
+case w0051
+use b1
+cursor 59 0
+keys zs
+> unchanged
+> cursor 59 0
+
+case w0052
+use b1
+cursor 40 9
+keys ze
+> unchanged
+> cursor 40 9
+
+case w0053
+use b1
+cursor 4 3
+keys zo
+> unchanged
+> cursor 4 3
+
+case w0054
+use b1
+cursor 59 0
+keys zo
+> unchanged
+> cursor 59 0
+
+case w0055
+use b1
+cursor 4 3
+keys zc
+> unchanged
+> cursor 4 3
+
+case w0056
+use b1
+cursor 59 0
+keys zc
+> unchanged
+> cursor 59 0
+
+case w0057
+use b1
+cursor 40 9
+keys za
+> unchanged
+> cursor 40 9
+
+case w0058
+use b1
+cursor 4 3
+keys zO
+> unchanged
+> cursor 4 3
+
+case w0059
+use b1
+cursor 59 0
+keys zO
+> unchanged
+> cursor 59 0
+
+case w0060
+use b1
+cursor 4 3
+keys zC
+> unchanged
+> cursor 4 3
+
+case w0061
+use b1
+cursor 59 0
+keys zC
+> unchanged
+> cursor 59 0
+
+case w0062
+use b1
+cursor 40 9
+keys zA
+> unchanged
+> cursor 40 9
+
+case w0063
+use b1
+cursor 0 0
+keys zR
+> unchanged
+> cursor 0 0
+
+case w0064
+use b1
+cursor 57 5
+keys zR
+> unchanged
+> cursor 57 5
+
+case w0065
+use b1
+cursor 40 9
+keys zM
+> unchanged
+> cursor 40 9
+
+case w0066
+use b1
+cursor 0 0
+keys zv
+> unchanged
+> cursor 0 0
+
+case w0067
+use b1
+cursor 57 5
+keys zv
+> unchanged
+> cursor 57 5
+
+case w0068
+use b1
+cursor 0 0
+keys zj
+> unchanged
+> cursor 0 0
+
+case w0069
+use b1
+cursor 57 5
+keys zj
+> unchanged
+> cursor 57 5
+
+case w0070
+use b1
+cursor 4 3
+keys zk
+> unchanged
+> cursor 4 3
+
+case w0071
+use b1
+cursor 59 0
+keys zk
+> unchanged
+> cursor 59 0
+
+case w0072
+use b1
+cursor 4 3
+keys v<C-d>y
+> unchanged
+> cursor 4 3
+> reg " v "ine05 x" "  line06 x" "  line07 x" "  line08 x" "  line09 x" "  line10 x" "  line11 x" "  line12 x" "  line13 x" "  line14 x" "  line15 x" "  l"
+> reg 0 v "ine05 x" "  line06 x" "  line07 x" "  line08 x" "  line09 x" "  line10 x" "  line11 x" "  line12 x" "  line13 x" "  line14 x" "  line15 x" "  l"
+
+case w0073
+use b1
+cursor 59 0
+keys v<C-d>y
+> unchanged
+> cursor 59 0
+> reg " v " "
+> reg 0 v " "
+
+case w0074
+use b1
+cursor 40 9
+keys V<C-f>y
+> unchanged
+> cursor 40 0
+> reg " V "  line41 x" "  line42 x" "  line43 x" "  line44 x" "  line45 x" "  line46 x" "  line47 x" "  line48 x" "  line49 x" "  line50 x" "  line51 x" "  line52 x" "  line53 x" "  line54 x" "  line55 x" "  line56 x" "  line57 x" "  line58 x" "  line59 x" "  line60 x"
+> reg 0 V "  line41 x" "  line42 x" "  line43 x" "  line44 x" "  line45 x" "  line46 x" "  line47 x" "  line48 x" "  line49 x" "  line50 x" "  line51 x" "  line52 x" "  line53 x" "  line54 x" "  line55 x" "  line56 x" "  line57 x" "  line58 x" "  line59 x" "  line60 x"
+
+case w0075
+use b1
+cursor 29 0
+keys $<C-d>
+> unchanged
+> cursor 40 2
+
+case w0076
+use b1
+cursor 40 9
+keys $<C-e>
+> unchanged
+> cursor 41 9
+
+case w0077
+use b1
+cursor 0 0
+keys <C-b>
+> unchanged
+> cursor 0 0
+
+case w0078
+use b1
+cursor 0 0
+keys <PageUp>
+> unchanged
+> cursor 0 0
+
+case w0079
+use b1
+cursor 0 0
+keys <S-Up>
+> unchanged
+> cursor 0 0

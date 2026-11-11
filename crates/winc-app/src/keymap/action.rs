@@ -162,6 +162,8 @@ pub enum Action {
     ThemeLight,
     ThemeDark,
     ToggleStickyScroll,
+    /// 开启或关闭 Vim 模式。
+    ToggleVimMode,
     ToggleWordWrap,
     /// 显示或隐藏编辑区右侧的缩略图。
     ToggleMinimap,
@@ -405,6 +407,7 @@ impl Action {
             ThemeLight => t!("cmd-theme-light"),
             ThemeDark => t!("cmd-theme-dark"),
             ToggleStickyScroll => t!("cmd-toggle-sticky-scroll"),
+            ToggleVimMode => t!("cmd-toggle-vim-mode"),
             ToggleWordWrap => t!("cmd-toggle-word-wrap"),
             ToggleMinimap => t!("cmd-toggle-minimap"),
             ToggleLineNumbers => t!("cmd-toggle-line-numbers"),
@@ -609,6 +612,7 @@ impl Action {
             ThemeLight => "Theme: Light",
             ThemeDark => "Theme: Dark",
             ToggleStickyScroll => "Toggle Editor Sticky Scroll",
+            ToggleVimMode => "Toggle Vim Mode",
             ToggleWordWrap => "Toggle Word Wrap",
             ToggleMinimap => "Toggle Minimap",
             ToggleLineNumbers => "Toggle Line Numbers",
@@ -777,6 +781,7 @@ impl Action {
             | ThemeLight
             | ThemeDark
             | ToggleStickyScroll
+            | ToggleVimMode
             | ToggleWordWrap
             | ToggleMinimap
             | ToggleLineNumbers
@@ -1128,6 +1133,7 @@ pub const ACTIONS: &[Action] = {
         ThemeLight,
         ThemeDark,
         ToggleStickyScroll,
+        ToggleVimMode,
         ToggleWordWrap,
         ToggleMinimap,
         ToggleLineNumbers,

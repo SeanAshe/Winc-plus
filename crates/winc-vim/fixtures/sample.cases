@@ -1,0 +1,54 @@
+# 录制格式的样例：多行文本、制表符、宽字符、组合字符，以及按字符、按行、按块三种寄存器。
+
+case delete-word
+text "one two three"
+cursor 0 4
+keys dw
+
+case delete-words-with-two-counts
+text "a b c d e f g h"
+keys 2d3w
+
+case yank-line-and-paste
+text "first"
+text "second"
+keys yyjp
+
+case delete-last-line
+text "first"
+text "last"
+cursor 1 2
+keys dd
+
+case blockwise-yank
+text "abcd"
+text "efgh"
+cursor 0 1
+tag later
+keys <C-v>jly
+
+case named-register-inner-word
+text "foo(bar, baz)"
+cursor 0 5
+tag later
+keys "qyiw
+
+case change-word-and-insert
+text "one two"
+keys cwthree<Esc>
+
+case tab-and-wide-characters
+text "\t中文 mixed  "
+cursor 0 1
+keys xlx$
+
+case combining-character
+text "e\u{301}a"
+keys x
+
+case toggle-case-of-line
+text "Hello World"
+keys g~~
+
+case delete-in-empty-buffer
+keys x

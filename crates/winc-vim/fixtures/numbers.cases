@@ -1,0 +1,490 @@
+# 由 `cargo xtask vim-fixtures` 生成，不手工修改。数的增减。
+
+buffer b1
+text "x 7 -3 007 0x0f 0XFF 0b101 y"
+text "9 -1 abc08 1-2 99 0 -0x1 08"
+text "no digits here"
+text "18446744073709551615 0xfF 0x 0b2 -"
+
+buffer b2
+text "foo bar.baz  qux_1 (x) end"
+text "   lead, tail;  "
+text ""
+text "中文 text，全角。next"
+text "a-b a1b2 #$% éx"
+
+buffer b3
+text "fn main() {"
+text "    call(a, [b, c], \"s)\");"
+text "    if (x) { y('(') }"
+text "}"
+text ""
+text "{"
+text "  inner } {"
+text "}"
+text "tail"
+
+case n0001
+use b1
+cursor 0 5
+keys <C-a>
+
+case n0002
+use b1
+cursor 0 17
+keys <C-a>
+
+case n0003
+use b1
+cursor 1 2
+keys <C-a>
+
+case n0004
+use b1
+cursor 1 15
+keys <C-a>
+
+case n0005
+use b1
+cursor 2 3
+keys <C-a>
+
+case n0006
+use b1
+cursor 3 29
+keys <C-a>
+
+case n0007
+use b1
+cursor 0 4
+keys <C-x>
+
+case n0008
+use b1
+cursor 0 14
+keys <C-x>
+
+case n0009
+use b1
+cursor 1 0
+keys <C-x>
+
+case n0010
+use b1
+cursor 1 12
+keys <C-x>
+
+case n0011
+use b1
+cursor 1 25
+keys <C-x>
+
+case n0012
+use b1
+cursor 3 26
+keys <C-x>
+
+case n0013
+use b1
+cursor 0 0
+keys 5<C-a>
+
+case n0014
+use b1
+cursor 0 8
+keys 5<C-a>
+
+case n0015
+use b1
+cursor 0 23
+keys 5<C-a>
+
+case n0016
+use b1
+cursor 1 6
+keys 5<C-a>
+
+case n0017
+use b1
+cursor 1 18
+keys 5<C-a>
+
+case n0018
+use b1
+cursor 3 0
+keys 5<C-a>
+
+case n0019
+use b1
+cursor 3 33
+keys 5<C-a>
+
+case n0020
+use b1
+cursor 0 5
+keys 10<C-x>
+
+case n0021
+use b1
+cursor 0 17
+keys 10<C-x>
+
+case n0022
+use b1
+cursor 1 2
+keys 10<C-x>
+
+case n0023
+use b1
+cursor 1 15
+keys 10<C-x>
+
+case n0024
+use b1
+cursor 2 3
+keys 10<C-x>
+
+case n0025
+use b1
+cursor 3 29
+keys 10<C-x>
+
+case n0026
+use b1
+cursor 0 2
+keys <C-a>.
+
+case n0027
+use b1
+cursor 0 12
+keys <C-a>.
+
+case n0028
+use b1
+cursor 0 27
+keys <C-a>.
+
+case n0029
+use b1
+cursor 1 11
+keys <C-a>.
+
+case n0030
+use b1
+cursor 1 20
+keys <C-a>.
+
+case n0031
+use b1
+cursor 3 21
+keys <C-a>.
+
+case n0032
+use b1
+cursor 0 0
+keys <C-a>3.
+
+case n0033
+use b1
+cursor 0 8
+keys <C-a>3.
+
+case n0034
+use b1
+cursor 0 23
+keys <C-a>3.
+
+case n0035
+use b1
+cursor 1 6
+keys <C-a>3.
+
+case n0036
+use b1
+cursor 1 18
+keys <C-a>3.
+
+case n0037
+use b1
+cursor 3 0
+keys <C-a>3.
+
+case n0038
+use b1
+cursor 3 33
+keys <C-a>3.
+
+case n0039
+use b1
+cursor 0 0
+keys <C-a>u
+
+case n0040
+use b1
+cursor 0 8
+keys <C-a>u
+
+case n0041
+use b1
+cursor 0 23
+keys <C-a>u
+
+case n0042
+use b1
+cursor 1 6
+keys <C-a>u
+
+case n0043
+use b1
+cursor 1 18
+keys <C-a>u
+
+case n0044
+use b1
+cursor 3 0
+keys <C-a>u
+
+case n0045
+use b1
+cursor 3 33
+keys <C-a>u
+
+case n0046
+use b1
+cursor 0 0
+keys 100<C-a>
+
+case n0047
+use b1
+cursor 0 8
+keys 100<C-a>
+
+case n0048
+use b1
+cursor 0 23
+keys 100<C-a>
+
+case n0049
+use b1
+cursor 1 6
+keys 100<C-a>
+
+case n0050
+use b1
+cursor 1 18
+keys 100<C-a>
+
+case n0051
+use b1
+cursor 3 0
+keys 100<C-a>
+
+case n0052
+use b1
+cursor 3 33
+keys 100<C-a>
+
+case n0053
+use b1
+cursor 0 0
+keys <C-x><C-x>
+
+case n0054
+use b1
+cursor 0 8
+keys <C-x><C-x>
+
+case n0055
+use b1
+cursor 0 23
+keys <C-x><C-x>
+
+case n0056
+use b1
+cursor 1 6
+keys <C-x><C-x>
+
+case n0057
+use b1
+cursor 1 18
+keys <C-x><C-x>
+
+case n0058
+use b1
+cursor 3 0
+keys <C-x><C-x>
+
+case n0059
+use b1
+cursor 3 33
+keys <C-x><C-x>
+
+case n0060
+use b1
+cursor 0 0
+keys <C-a><C-a><C-x>
+
+case n0061
+use b1
+cursor 0 8
+keys <C-a><C-a><C-x>
+
+case n0062
+use b1
+cursor 0 23
+keys <C-a><C-a><C-x>
+
+case n0063
+use b1
+cursor 1 6
+keys <C-a><C-a><C-x>
+
+case n0064
+use b1
+cursor 1 18
+keys <C-a><C-a><C-x>
+
+case n0065
+use b1
+cursor 3 0
+keys <C-a><C-a><C-x>
+
+case n0066
+use b1
+cursor 3 33
+keys <C-a><C-a><C-x>
+
+case n0067
+use b1
+cursor 0 0
+keys 999999999<C-a>
+
+case n0068
+use b1
+cursor 0 8
+keys 999999999<C-a>
+
+case n0069
+use b1
+cursor 0 23
+keys 999999999<C-a>
+
+case n0070
+use b1
+cursor 1 6
+keys 999999999<C-a>
+
+case n0071
+use b1
+cursor 1 18
+keys 999999999<C-a>
+
+case n0072
+use b1
+cursor 3 0
+keys 999999999<C-a>
+
+case n0073
+use b1
+cursor 3 33
+keys 999999999<C-a>
+
+case n0074
+use b2
+cursor 0 11
+keys <C-a>
+
+case n0075
+use b2
+cursor 1 3
+keys <C-a>
+
+case n0076
+use b2
+cursor 3 9
+keys <C-a>
+
+case n0077
+use b2
+cursor 0 7
+keys <C-x>
+
+case n0078
+use b2
+cursor 1 0
+keys <C-x>
+
+case n0079
+use b2
+cursor 3 1
+keys <C-x>
+
+case n0080
+use b2
+cursor 4 15
+keys <C-x>
+
+case n0081
+use b2
+cursor 0 7
+keys 3<C-a>
+
+case n0082
+use b2
+cursor 1 0
+keys 3<C-a>
+
+case n0083
+use b2
+cursor 3 1
+keys 3<C-a>
+
+case n0084
+use b2
+cursor 4 15
+keys 3<C-a>
+
+case n0085
+use b3
+cursor 1 4
+keys <C-a>
+
+case n0086
+use b3
+cursor 2 7
+keys <C-a>
+
+case n0087
+use b3
+cursor 6 4
+keys <C-a>
+
+case n0088
+use b3
+cursor 0 10
+keys <C-x>
+
+case n0089
+use b3
+cursor 1 21
+keys <C-x>
+
+case n0090
+use b3
+cursor 4 0
+keys <C-x>
+
+case n0091
+use b3
+cursor 0 10
+keys 3<C-a>
+
+case n0092
+use b3
+cursor 1 21
+keys 3<C-a>
+
+case n0093
+use b3
+cursor 4 0
+keys 3<C-a>

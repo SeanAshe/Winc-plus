@@ -37,6 +37,7 @@ impl App {
         self.picker.branch_rows = None;
         self.picker.location_rows = None;
         self.picker.folders = false;
+        self.picker.vim_list = None;
         self.picker.open = true;
         self.picker.doc = self.editor.active().map(|d| d.id);
         self.picker.input.set_text("@");
@@ -54,6 +55,7 @@ impl App {
             && !self.picker_lists_branches()
             && !self.picker_lists_locations()
             && !self.picker.folders
+            && self.picker.vim_list.is_none()
             && self.picker.input.text().starts_with('@')
     }
 

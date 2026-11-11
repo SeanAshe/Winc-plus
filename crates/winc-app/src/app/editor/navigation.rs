@@ -46,6 +46,8 @@ pub struct Navigation {
     ///
     /// 每处理完一批事件（包括鼠标移动）都观察一次，三者都没变时不再换算行列、复制路径。
     last: Option<(DocumentId, usize, u64)>,
+    /// 下一次观察到光标移动时，无论远近都算作跳转。
+    forced: bool,
 }
 
 impl Navigation {
@@ -56,6 +58,11 @@ impl Navigation {
         } else {
             self.current > 0
         }
+    }
+
+    /// 下一次观察到光标移动时，无论远近都添加新项；模态编辑层的跳转命令执行之前调用。
+    pub(in crate::app) fn mark_jump(&mut self) {
+        self.forced = true;
     }
 
     /// 清空全部历史。
@@ -92,7 +99,10 @@ impl Navigation {
             self.current = 0;
             return;
         };
-        let jumped = current.id != here.id || (!edited && current.line.abs_diff(here.line) > FAR);
+        let moved = (current.line, current.col) != (here.line, here.col);
+        let forced = std::mem::take(&mut self.forced) && moved;
+        let jumped =
+            current.id != here.id || forced || (!edited && current.line.abs_diff(here.line) > FAR);
         if !jumped {
             self.spots[self.current] = here;
             return;
@@ -121,6 +131,8 @@ impl App {
         // 当前项仍是该文档、路径也没变（另存为不改版本号）：记下的就是现在的位置。
         let current = nav.spots.get(nav.current);
         if nav.last == Some(key) && current.is_some_and(|s| s.id == doc.id && s.path == doc.path) {
+            // 光标没有移动：已标记的跳转没有发生。
+            self.navigation.forced = false;
             return;
         }
         self.navigation.last = Some(key);

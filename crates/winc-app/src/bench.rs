@@ -1,7 +1,8 @@
 //! 测量钩子：设置环境变量 `WINC_BENCH` 后启用，供 `cargo xtask bench` 使用。
 //!
 //! 环境变量的值决定测量模式：`startup` 在首帧呈现后退出；`scroll`、`preview`、`terminal:<命令>`
-//! 分别在滚动文本、滚动预览、终端输出期间统计帧耗时；`wheel` 按固定间隔送出鼠标滚轮滚动并统计
+//! 分别在滚动文本、滚动预览、终端输出期间统计帧耗时；`vim`、`typing` 逐帧执行 Vim 模式的按键
+//! 或键入字符，统计按键处理加出帧的耗时；`wheel` 按固定间隔送出鼠标滚轮滚动并统计
 //! 帧间隔和画面的跟随情况；`search:<内容>`、`picker` 完成后保持运行；`find:<内容>`、`highlight`
 //! 输出耗时、帧数和 CPU 时间后退出；其他值只输出时间戳并保持运行。保持运行的模式由外部进程
 //! 采样内存；未设置时不测量。
@@ -40,6 +41,11 @@ enum Mode {
     Startup,
     /// 连续滚动并统计每帧耗时，采集 [`SCROLL_FRAMES`] 帧后退出。
     Scroll,
+    /// 开启 Vim 模式后每帧执行一个按键，统计按键处理与随后一帧的耗时之和，采集
+    /// [`SCROLL_FRAMES`] 帧后退出。
+    Vim,
+    /// 每帧键入一个字符（Vim 模式保持配置中的状态），统计方式同 [`Mode::Vim`]。
+    Typing,
     /// 首帧呈现后切换到只显示预览（Markdown、SVG），之后与 [`Mode::Scroll`] 相同。
     Preview,
     /// 首帧呈现后打开终端面板并运行给定的命令，统计此后 [`SCROLL_FRAMES`] 帧的耗时后退出。
@@ -64,6 +70,14 @@ pub enum Next {
     Continue,
     /// 滚动测量：调用方向下滚动一段并请求下一帧。
     Scroll,
+    /// 按键测量：调用方执行下一个按键并请求下一帧；`vim` 为真时是 Vim 模式的按键，否则键入
+    /// 一个字符。值是已采集的帧数，用于轮换按键。
+    Key {
+        /// 是否执行 Vim 模式的按键。
+        vim: bool,
+        /// 已采集的帧数。
+        step: usize,
+    },
     /// 把当前标签切换到只显示预览。
     Preview,
     /// 打开终端面板。
@@ -85,6 +99,8 @@ pub struct Bench {
     mode: Mode,
     /// 滚动测量中已采集的每帧耗时；只在 [`Mode::Scroll`] 下使用。
     frame_times: Vec<Duration>,
+    /// 按键测量中最近一次按键的处理耗时，计入随后一帧。
+    key_time: Duration,
     /// 查找、高亮测量开始的时刻，当时进程已用的 CPU 时间，以及此后绘制的帧数。
     progress: Option<(Instant, Duration, usize)>,
     /// 滚轮测量的进度；只在 [`Mode::Wheel`] 下、首帧呈现之后存在。
@@ -117,6 +133,7 @@ impl Bench {
         Self {
             mode: Mode::Off,
             frame_times: Vec::new(),
+            key_time: Duration::ZERO,
             progress: None,
             wheel: None,
             command: None,
@@ -129,6 +146,8 @@ impl Bench {
             Err(_) => Mode::Off,
             Ok("startup") => Mode::Startup,
             Ok("scroll") => Mode::Scroll,
+            Ok("vim") => Mode::Vim,
+            Ok("typing") => Mode::Typing,
             Ok("preview") => Mode::Preview,
             Ok("wheel") => Mode::Wheel,
             Ok("picker") => Mode::QuickOpen,
@@ -146,6 +165,7 @@ impl Bench {
         Self {
             mode,
             frame_times: Vec::new(),
+            key_time: Duration::ZERO,
             progress: None,
             wheel: None,
             command: None,
@@ -208,24 +228,31 @@ impl Bench {
                     self.command = Some(command.clone());
                     return Next::Terminal;
                 }
-                Mode::Off | Mode::Idle | Mode::Scroll => {}
+                Mode::Off | Mode::Idle | Mode::Scroll | Mode::Vim | Mode::Typing => {}
             }
         }
 
         let terminal = matches!(self.mode, Mode::Terminal(_));
-        let timed = terminal || matches!(self.mode, Mode::Scroll | Mode::Preview);
+        let keys = matches!(self.mode, Mode::Vim | Mode::Typing);
+        let timed = terminal || keys || matches!(self.mode, Mode::Scroll | Mode::Preview);
         // 终端测量只统计命令写入终端之后的帧。
         if !timed || presented < 2 || self.command.is_some() {
             return Next::Continue;
         }
 
         if presented > 2 {
-            self.frame_times.push(elapsed);
+            self.frame_times
+                .push(elapsed + std::mem::take(&mut self.key_time));
         }
 
         if self.frame_times.len() < SCROLL_FRAMES {
             return if terminal {
                 Next::Continue
+            } else if keys {
+                Next::Key {
+                    vim: self.mode == Mode::Vim,
+                    step: self.frame_times.len(),
+                }
             } else {
                 Next::Scroll
             };
@@ -248,6 +275,11 @@ impl Bench {
 }
 
 impl Bench {
+    /// 记录按键测量中一次按键的处理耗时 `elapsed`，计入随后一帧的耗时。
+    pub fn key_handled(&mut self, elapsed: Duration) {
+        self.key_time = elapsed;
+    }
+
     /// 返回终端测量中待写入终端的命令：终端可以写入（`ready`）后返回一次，其余情况返回 `None`。
     pub fn terminal_command(&mut self, ready: bool) -> Option<String> {
         self.command.take_if(|_| ready)

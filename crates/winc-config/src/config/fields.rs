@@ -52,6 +52,7 @@ pub(super) const SECTIONS: &[(&str, &[Field])] = &[
     ("markdown", MARKDOWN),
     ("update", UPDATE),
     ("terminal", TERMINAL),
+    ("vim", VIM),
     ("git", GIT),
     ("format", FORMAT),
 ];
@@ -260,6 +261,195 @@ const MARKDOWN: &[Field] = &[bool_field!("remoteImages", markdown_remote_images)
 
 /// `update` 一节。
 const UPDATE: &[Field] = &[bool_field!("autoCheck", update_auto_check)];
+
+/// `vim` 一节。
+const VIM: &[Field] = &[
+    bool_field!("enabled", vim_enabled),
+    Field {
+        key: "clipboard",
+        read: |config, value, name, problems| {
+            config.vim_clipboard = match value.as_str() {
+                Some("register") => Some(VimClipboard::Register),
+                Some("yank") => Some(VimClipboard::Yank),
+                Some("always") => Some(VimClipboard::Always),
+                _ => {
+                    problems.push(t!("config-vim-clipboard-invalid", name = name));
+                    None
+                }
+            }
+        },
+        write: |config| {
+            let value = match config.vim_clipboard? {
+                VimClipboard::Register => "register",
+                VimClipboard::Yank => "yank",
+                VimClipboard::Always => "always",
+            };
+            Some(Json::String(value.to_owned()))
+        },
+    },
+    bool_field!("ignoreCase", vim_ignore_case),
+    bool_field!("smartCase", vim_smart_case),
+    Field {
+        key: "scrollOff",
+        read: |config, value, name, problems| {
+            let label = t!("config-label-vim-scroll-off");
+            let range = Config::VIM_SCROLL_OFF_RANGE;
+            config.vim_scroll_off = read_number(value, name, range, label, problems)
+                .filter(|v| {
+                    let whole = v.fract() == 0.0;
+                    if !whole {
+                        let value = v.to_string();
+                        problems.push(t!("config-not-integer", name = name, value = value));
+                    }
+                    whole
+                })
+                .map(|v| v as usize)
+        },
+        write: |config| {
+            config
+                .vim_scroll_off
+                .map(|lines| Json::Number(lines as f64))
+        },
+    },
+    Field {
+        // 对象的每一项是按键的名字与 `vim` 或 `app`；写法有误的项逐个报告并忽略。
+        key: "handleKeys",
+        read: |config, value, name, problems| {
+            let Some(keys) = value.as_object() else {
+                problems.push(t!("config-vim-handle-keys-invalid", name = name));
+                return;
+            };
+            config.vim_handle_keys.clear();
+            for (key, owner) in keys {
+                let key = key.trim().to_lowercase();
+                let vim = match owner.as_str() {
+                    Some("vim") => true,
+                    Some("app") => false,
+                    _ => {
+                        let name = format!("{name}.{key}");
+                        problems.push(t!("config-vim-handle-keys-invalid", name = name));
+                        continue;
+                    }
+                };
+                config.vim_handle_keys.push((key, vim));
+            }
+            config.vim_handle_keys.sort();
+        },
+        write: |config| {
+            if config.vim_handle_keys.is_empty() {
+                return None;
+            }
+            let owner = |vim: &bool| Json::String(if *vim { "vim" } else { "app" }.to_owned());
+            let keys = config.vim_handle_keys.iter();
+            Some(Json::object(
+                keys.map(|(key, vim)| (key.clone(), owner(vim))),
+            ))
+        },
+    },
+    bool_field!("relativeNumber", vim_relative_number),
+    Field {
+        key: "yankHighlight",
+        read: |config, value, name, problems| {
+            let label = t!("config-label-vim-yank-highlight");
+            let range = Config::VIM_YANK_HIGHLIGHT_RANGE;
+            config.vim_yank_highlight = read_number(value, name, range, label, problems)
+                .filter(|v| {
+                    let whole = v.fract() == 0.0;
+                    if !whole {
+                        let value = v.to_string();
+                        problems.push(t!("config-not-integer", name = name, value = value));
+                    }
+                    whole
+                })
+                .map(|v| v as u32)
+        },
+        write: |config| {
+            config
+                .vim_yank_highlight
+                .map(|ms| Json::Number(f64::from(ms)))
+        },
+    },
+    Field {
+        key: "timeoutLen",
+        read: |config, value, name, problems| {
+            let label = t!("config-label-vim-timeout-len");
+            let range = Config::VIM_TIMEOUT_LEN_RANGE;
+            config.vim_timeout_len = read_number(value, name, range, label, problems)
+                .filter(|v| {
+                    let whole = v.fract() == 0.0;
+                    if !whole {
+                        let value = v.to_string();
+                        problems.push(t!("config-not-integer", name = name, value = value));
+                    }
+                    whole
+                })
+                .map(|v| v as u32)
+        },
+        write: |config| config.vim_timeout_len.map(|ms| Json::Number(f64::from(ms))),
+    },
+    Field {
+        key: "leader",
+        read: |config, value, name, problems| {
+            config.vim_leader = match value.as_str() {
+                Some(key) if !key.is_empty() => Some(key.to_owned()),
+                _ => {
+                    problems.push(t!("config-vim-leader-invalid", name = name));
+                    None
+                }
+            }
+        },
+        write: |config| config.vim_leader.clone().map(Json::String),
+    },
+    Field {
+        // 数组的每一项是一条映射；写法有误的项逐个报告并忽略。
+        key: "keys",
+        read: |config, value, name, problems| {
+            config.vim_keys.clear();
+            let Some(items) = value.as_array() else {
+                problems.push(t!("config-vim-keys-invalid", name = name));
+                return;
+            };
+            for (index, item) in items.iter().enumerate() {
+                let text = |key: &str| {
+                    let value = item.as_object()?.iter().find(|(name, _)| *name == key)?.1;
+                    value.as_str().filter(|text| !text.is_empty())
+                };
+                let mode = text("mode").and_then(|mode| {
+                    let mut names = VimMapMode::NAMES.iter();
+                    names.find(|(_, name)| *name == mode).map(|(mode, _)| *mode)
+                });
+                match (mode, text("keys"), text("to")) {
+                    (Some(mode), Some(keys), Some(to)) => config.vim_keys.push(VimMapping {
+                        mode,
+                        keys: keys.to_owned(),
+                        to: to.to_owned(),
+                    }),
+                    _ => {
+                        let name = format!("{name}[{index}]");
+                        problems.push(t!("config-vim-keys-invalid", name = name));
+                    }
+                }
+            }
+        },
+        write: |config| {
+            if config.vim_keys.is_empty() {
+                return None;
+            }
+            let item = |mapping: &VimMapping| {
+                let mut names = VimMapMode::NAMES.iter();
+                let mode = names
+                    .find(|(mode, _)| *mode == mapping.mode)
+                    .map_or("normal", |(_, name)| *name);
+                Json::object([
+                    ("mode".to_owned(), Json::String(mode.to_owned())),
+                    ("keys".to_owned(), Json::String(mapping.keys.clone())),
+                    ("to".to_owned(), Json::String(mapping.to.clone())),
+                ])
+            };
+            Some(Json::Array(config.vim_keys.iter().map(item).collect()))
+        },
+    },
+];
 
 /// `terminal` 一节。
 const TERMINAL: &[Field] = &[

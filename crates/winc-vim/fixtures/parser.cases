@@ -1,0 +1,168 @@
+# 解析器的探针：每个用例在单行文本上以 `x` 结尾，被删除的字符数与所在的寄存器反映次数、
+# 寄存器、取消与无效序列的解析结果。
+
+case delete-one
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys x
+
+case count
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys 3x
+
+case count-with-zero
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys 10x
+
+case count-past-the-line-end
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 30
+keys 99x
+
+case zero-without-count-is-a-motion
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+cursor 0 5
+keys 0x
+
+case delete-key
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys <Del>
+
+case del-after-one-digit-leaves-nothing-pending
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys 2<Del>
+
+case register
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys "ax
+
+case register-then-count
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys "a3x
+
+case count-then-register
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys 3"ax
+
+case counts-around-a-register-multiply
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys 2"a3x
+
+case counts-around-two-registers-multiply
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys 2"a3"b4x
+
+case last-register-wins
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys "a"bx
+
+case uppercase-register-appends
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys "a2x"A3x
+
+case del-removes-the-last-digit
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys 12<Del>x
+
+case del-removes-the-only-digit
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys 1<Del>x
+
+case del-twice
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys 10<Del><Del>x
+
+case del-after-a-register
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys "a25<Del>x
+
+case escape-after-count
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys 3<Esc>x
+
+case escape-instead-of-register-name
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys "<Esc>x
+
+case escape-after-register
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys "a<Esc>x
+
+case escape-after-operator
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys d<Esc>x
+
+case escape-after-prefix-key
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys g<Esc>x
+
+case escape-instead-of-argument
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys f<Esc>x
+
+case escape-after-operator-and-prefix-key
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys dg<Esc>x
+
+case escape-after-operator-and-counts
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys 2d3<Esc>x
+
+case invalid-register-name
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys "!x
+
+case second-operator-is-invalid
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys dyx
+
+case unknown-key-after-prefix-key
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys 3gZx
+
+case register-is-invalid-after-operator
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys d"x
+
+case delete-key-is-invalid-after-operator
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys d<Del>x
+
+case del-keeps-the-operator-pending
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys d2<Del>x
+
+case unsupported-command
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys Ux
+
+case unsupported-operator-reads-its-target
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys gqqgq$x
+
+case ctrl-c-alone-does-nothing
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys <C-c>x
+
+case ctrl-c-cancels-the-count
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys 3<C-c>x
+
+case ctrl-c-cancels-the-register
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys "a<C-c>x
+
+case ctrl-c-cancels-the-operator
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys d<C-c>x
+
+case ctrl-c-cancels-the-awaited-character
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys f<C-c>x
+
+case ctrl-c-leaves-visual-mode
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys vll<C-c>x
+
+case ctrl-c-leaves-visual-mode-with-a-count
+text "abcdefghijklmnopqrstuvwxyz0123456789"
+keys vll3<C-c>x

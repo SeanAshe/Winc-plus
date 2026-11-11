@@ -1,0 +1,2422 @@
+# 由 `cargo xtask vim-fixtures` 录制，不手工修改；用例写在同名的 .cases 文件中。
+vim 9.1.1752
+
+buffer b1
+text "foo bar.baz  qux_1 (x) end"
+text "   lead, tail;  "
+text ""
+text "中文 text，全角。next"
+text "a-b a1b2 #$% éx"
+
+buffer b2
+text "fn main() {"
+text "    call(a, [b, c], \"s)\");"
+text "    if (x) { y('(') }"
+text "}"
+text ""
+text "{"
+text "  inner } {"
+text "}"
+text "tail"
+
+buffer b3
+text "First one.  Second one! Third?  "
+text "Still (third.) Fourth."
+text ""
+text ""
+text "New para here. End"
+text "\tTabbed\tline here"
+text "   "
+text "last"
+
+case u0001
+use b1
+cursor 2 0
+keys xu
+> unchanged
+> cursor 2 0
+
+case u0002
+use b1
+cursor 0 0
+keys 3xu
+> unchanged
+> cursor 0 0
+> reg " v "foo"
+> reg - v "foo"
+
+case u0003
+use b1
+cursor 4 0
+keys 3xu
+> unchanged
+> cursor 4 0
+> reg " v "a-b"
+> reg - v "a-b"
+
+case u0004
+use b1
+cursor 2 0
+keys xu<C-r>
+> unchanged
+> cursor 2 0
+
+case u0005
+use b1
+cursor 2 0
+keys xxu
+> unchanged
+> cursor 2 0
+
+case u0006
+use b1
+cursor 1 0
+keys xxuu
+> unchanged
+> cursor 1 0
+> reg " v " "
+> reg - v " "
+
+case u0007
+use b1
+cursor 3 9
+keys xxx2u
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全。next"
+> text "a-b a1b2 #$% éx"
+> cursor 3 9
+> reg " v "n"
+> reg - v "n"
+
+case u0008
+use b1
+cursor 2 0
+keys xxxu<C-r><C-r>
+> unchanged
+> cursor 2 0
+
+case u0009
+use b1
+cursor 1 0
+keys xxuu<C-r>
+> text "foo bar.baz  qux_1 (x) end"
+> text "  lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 1 0
+> reg " v " "
+> reg - v " "
+
+case u0010
+use b1
+cursor 0 0
+keys dwu
+> unchanged
+> cursor 0 0
+> reg " v "foo "
+> reg - v "foo "
+
+case u0011
+use b1
+cursor 4 0
+keys dwu
+> unchanged
+> cursor 4 0
+> reg " v "a"
+> reg - v "a"
+
+case u0012
+use b1
+cursor 0 11
+keys dbu
+> unchanged
+> cursor 0 8
+> reg " v "baz"
+> reg - v "baz"
+
+case u0013
+use b1
+cursor 0 5
+keys d$u
+> unchanged
+> cursor 0 5
+> reg " v "ar.baz  qux_1 (x) end"
+> reg - v "ar.baz  qux_1 (x) end"
+
+case u0014
+use b1
+cursor 4 13
+keys d$u
+> unchanged
+> cursor 4 13
+> reg " v "éx"
+> reg - v "éx"
+
+case u0015
+use b1
+cursor 0 5
+keys d0u
+> unchanged
+> cursor 0 0
+> reg " v "foo b"
+> reg - v "foo b"
+
+case u0016
+use b1
+cursor 4 13
+keys d0u
+> unchanged
+> cursor 4 0
+> reg " v "a-b a1b2 #$% "
+> reg - v "a-b a1b2 #$% "
+
+case u0017
+use b1
+cursor 0 25
+keys ddu
+> unchanged
+> cursor 0 0
+> reg " V "foo bar.baz  qux_1 (x) end"
+> reg 1 V "foo bar.baz  qux_1 (x) end"
+
+case u0018
+use b1
+cursor 1 3
+keys 2ddu
+> unchanged
+> cursor 1 3
+> reg " V "   lead, tail;  " ""
+> reg 1 V "   lead, tail;  " ""
+
+case u0019
+use b1
+cursor 3 9
+keys dju
+> unchanged
+> cursor 3 9
+> reg " V "中文 text，全角。next" "a-b a1b2 #$% éx"
+> reg 1 V "中文 text，全角。next" "a-b a1b2 #$% éx"
+
+case u0020
+use b1
+cursor 0 0
+keys dku
+> unchanged
+> cursor 0 0
+
+case u0021
+use b1
+cursor 4 0
+keys dku
+> unchanged
+> cursor 3 0
+> reg " V "中文 text，全角。next" "a-b a1b2 #$% éx"
+> reg 1 V "中文 text，全角。next" "a-b a1b2 #$% éx"
+
+case u0022
+use b1
+cursor 0 0
+keys dGu
+> unchanged
+> cursor 0 0
+> reg " V "foo bar.baz  qux_1 (x) end" "   lead, tail;  " "" "中文 text，全角。next" "a-b a1b2 #$% éx"
+> reg 1 V "foo bar.baz  qux_1 (x) end" "   lead, tail;  " "" "中文 text，全角。next" "a-b a1b2 #$% éx"
+
+case u0023
+use b1
+cursor 4 0
+keys dGu
+> unchanged
+> cursor 4 0
+> reg " V "a-b a1b2 #$% éx"
+> reg 1 V "a-b a1b2 #$% éx"
+
+case u0024
+use b1
+cursor 0 11
+keys dggu
+> unchanged
+> cursor 0 0
+> reg " V "foo bar.baz  qux_1 (x) end"
+> reg 1 V "foo bar.baz  qux_1 (x) end"
+
+case u0025
+use b1
+cursor 1 0
+keys d}u
+> unchanged
+> cursor 1 0
+> reg " V "   lead, tail;  "
+> reg 1 V "   lead, tail;  "
+
+case u0026
+use b1
+cursor 0 20
+keys d{u
+> unchanged
+> cursor 0 0
+> reg " v "foo bar.baz  qux_1 ("
+> reg 1 v "foo bar.baz  qux_1 ("
+> reg - v "foo bar.baz  qux_1 ("
+
+case u0027
+use b1
+cursor 0 25
+keys ddu<C-r>
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 0 0
+> reg " V "foo bar.baz  qux_1 (x) end"
+> reg 1 V "foo bar.baz  qux_1 (x) end"
+
+case u0028
+use b1
+cursor 0 0
+keys dku<C-r>
+> unchanged
+> cursor 0 0
+
+case u0029
+use b1
+cursor 4 0
+keys dku<C-r>
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> cursor 2 0
+> reg " V "中文 text，全角。next" "a-b a1b2 #$% éx"
+> reg 1 V "中文 text，全角。next" "a-b a1b2 #$% éx"
+
+case u0030
+use b1
+cursor 0 0
+keys dwu<C-r>
+> text "bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 0 0
+> reg " v "foo "
+> reg - v "foo "
+
+case u0031
+use b1
+cursor 4 0
+keys dwu<C-r>
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "-b a1b2 #$% éx"
+> cursor 4 0
+> reg " v "a"
+> reg - v "a"
+
+case u0032
+use b1
+cursor 0 11
+keys dbu<C-r>
+> text "foo bar.  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 0 8
+> reg " v "baz"
+> reg - v "baz"
+
+case u0033
+use b1
+cursor 0 11
+keys yypu
+> unchanged
+> cursor 0 11
+> reg " V "foo bar.baz  qux_1 (x) end"
+> reg 0 V "foo bar.baz  qux_1 (x) end"
+
+case u0034
+use b1
+cursor 1 3
+keys yyPu
+> unchanged
+> cursor 1 3
+> reg " V "   lead, tail;  "
+> reg 0 V "   lead, tail;  "
+
+case u0035
+use b1
+cursor 0 5
+keys ywpu
+> unchanged
+> cursor 0 5
+> reg " v "ar"
+> reg 0 v "ar"
+
+case u0036
+use b1
+cursor 4 13
+keys ywpu
+> unchanged
+> cursor 4 13
+> reg " v "éx"
+> reg 0 v "éx"
+
+case u0037
+use b1
+cursor 0 25
+keys ywPu
+> unchanged
+> cursor 0 25
+> reg " v "d"
+> reg 0 v "d"
+
+case u0038
+use b1
+cursor 0 11
+keys yypu<C-r>
+> text "foo bar.baz  qux_1 (x) end"
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 0 11
+> reg " V "foo bar.baz  qux_1 (x) end"
+> reg 0 V "foo bar.baz  qux_1 (x) end"
+
+case u0039
+use b1
+cursor 1 3
+keys yyPu<C-r>
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 1 3
+> reg " V "   lead, tail;  "
+> reg 0 V "   lead, tail;  "
+
+case u0040
+use b1
+cursor 0 5
+keys ywpu<C-r>
+> text "foo baarr.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 0 5
+> reg " v "ar"
+> reg 0 v "ar"
+
+case u0041
+use b1
+cursor 4 13
+keys ywpu<C-r>
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% ééxx"
+> cursor 4 13
+> reg " v "éx"
+> reg 0 v "éx"
+
+case u0042
+use b1
+cursor 3 9
+keys Ju
+> unchanged
+> cursor 3 9
+
+case u0043
+use b1
+cursor 0 7
+keys 3Ju
+> unchanged
+> cursor 0 7
+
+case u0044
+use b1
+cursor 4 15
+tag known
+keys 3Ju
+> unchanged
+> cursor 4 15
+
+case u0045
+use b1
+cursor 3 9
+keys Ju<C-r>
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next a-b a1b2 #$% éx"
+> cursor 3 9
+
+case u0046
+use b1
+cursor 0 0
+keys rQu
+> unchanged
+> cursor 0 0
+> reg . v "Q"
+
+case u0047
+use b1
+cursor 4 0
+keys rQu
+> unchanged
+> cursor 4 0
+> reg . v "Q"
+
+case u0048
+use b1
+cursor 0 5
+keys >>u
+> unchanged
+> cursor 0 0
+
+case u0049
+use b1
+cursor 4 13
+keys >>u
+> unchanged
+> cursor 4 0
+
+case u0050
+use b1
+cursor 0 20
+keys g~~u
+> unchanged
+> cursor 0 0
+
+case u0051
+use b1
+cursor 2 0
+keys g~wu
+> unchanged
+> cursor 2 0
+
+case u0052
+use b1
+cursor 0 11
+keys gUju
+> unchanged
+> cursor 0 11
+
+case u0053
+use b1
+cursor 0 11
+keys Dju
+> unchanged
+> cursor 0 11
+> reg " v "  qux_1 (x) end"
+> reg - v "  qux_1 (x) end"
+
+case u0054
+use b1
+cursor 3 9
+keys ddjddu
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "a-b a1b2 #$% éx"
+> cursor 3 0
+> reg " V "a-b a1b2 #$% éx"
+> reg 1 V "a-b a1b2 #$% éx"
+> reg 2 V "中文 text，全角。next"
+
+case u0055
+use b1
+cursor 1 15
+keys ddjdduu
+> unchanged
+> cursor 1 3
+> reg " V "中文 text，全角。next"
+> reg 1 V "中文 text，全角。next"
+> reg 2 V "   lead, tail;  "
+
+case u0056
+use b1
+cursor 2 0
+keys u
+> unchanged
+> cursor 2 0
+
+case u0057
+use b1
+cursor 0 0
+keys <C-r>
+> unchanged
+> cursor 0 0
+
+case u0058
+use b1
+cursor 4 0
+keys <C-r>
+> unchanged
+> cursor 4 0
+
+case u0059
+use b1
+cursor 2 0
+keys xu<C-r>x
+> unchanged
+> cursor 2 0
+
+case u0060
+use b1
+cursor 0 7
+keys Aab<Esc>u
+> unchanged
+> cursor 0 25
+> reg . v "ab"
+
+case u0061
+use b1
+cursor 4 15
+keys Aab<Esc>u
+> unchanged
+> cursor 4 15
+> reg . v "ab"
+
+case u0062
+use b1
+cursor 3 1
+keys Iab<Esc>u
+> unchanged
+> cursor 3 0
+> reg . v "ab"
+
+case u0063
+use b1
+cursor 0 20
+keys Oab<Esc>u
+> unchanged
+> cursor 0 20
+> reg . v "ab"
+
+case u0064
+use b1
+cursor 0 0
+keys oab<Esc>u<C-r>
+> text "foo bar.baz  qux_1 (x) end"
+> text "ab"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 0 0
+> reg . v "ab"
+
+case u0065
+use b1
+cursor 4 0
+keys oab<Esc>u<C-r>
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> text "ab"
+> cursor 4 0
+> reg . v "ab"
+
+case u0066
+use b1
+cursor 1 0
+keys iab<Esc>u<C-r>
+> text "foo bar.baz  qux_1 (x) end"
+> text "ab   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 1 0
+> reg . v "ab"
+
+case u0067
+use b1
+cursor 3 9
+keys cwab<Esc>u<C-r>
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全ab。next"
+> text "a-b a1b2 #$% éx"
+> cursor 3 9
+> reg " v "角"
+> reg - v "角"
+> reg . v "ab"
+
+case u0068
+use b1
+cursor 2 0
+keys vjdu
+> unchanged
+> cursor 2 0
+> reg " v "" "中"
+> reg 1 v "" "中"
+
+case u0069
+use b1
+cursor 0 5
+keys Vjdu
+> unchanged
+> cursor 0 0
+> reg " V "foo bar.baz  qux_1 (x) end" "   lead, tail;  "
+> reg 1 V "foo bar.baz  qux_1 (x) end" "   lead, tail;  "
+
+case u0070
+use b1
+cursor 4 13
+keys Vjdu
+> unchanged
+> cursor 4 0
+> reg " V "a-b a1b2 #$% éx"
+> reg 1 V "a-b a1b2 #$% éx"
+
+case u0071
+use b1
+cursor 3 9
+keys vldu
+> unchanged
+> cursor 3 9
+> reg " v "角。"
+> reg - v "角。"
+
+case u0072
+use b1
+cursor 2 0
+keys vjdu<C-r>
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text "文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 2 0
+> reg " v "" "中"
+> reg 1 v "" "中"
+
+case u0073
+use b1
+cursor 0 0
+keys x3u
+> unchanged
+> cursor 0 0
+> reg " v "f"
+> reg - v "f"
+
+case u0074
+use b1
+cursor 4 0
+keys x3u
+> unchanged
+> cursor 4 0
+> reg " v "a"
+> reg - v "a"
+
+case u0075
+use b1
+cursor 0 0
+keys xxx3u<C-r>
+> text "oo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 0 0
+> reg " v "o"
+> reg - v "o"
+
+case u0076
+use b1
+cursor 4 0
+keys xxx3u<C-r>
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "-b a1b2 #$% éx"
+> cursor 4 0
+> reg " v "b"
+> reg - v "b"
+
+case u0077
+use b1
+cursor 0 7
+keys xxx3u2<C-r>
+> text "foo baraz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% éx"
+> cursor 0 7
+> reg " v "a"
+> reg - v "a"
+
+case u0078
+use b1
+cursor 4 15
+keys xxx3u2<C-r>
+> text "foo bar.baz  qux_1 (x) end"
+> text "   lead, tail;  "
+> text ""
+> text "中文 text，全角。next"
+> text "a-b a1b2 #$% "
+> cursor 4 12
+> reg " v " "
+> reg - v " "
+
+case u0079
+use b2
+cursor 3 0
+keys xu
+> unchanged
+> cursor 3 0
+> reg " v "}"
+> reg - v "}"
+
+case u0080
+use b2
+cursor 0 0
+keys 3xu
+> unchanged
+> cursor 0 0
+> reg " v "fn "
+> reg - v "fn "
+
+case u0081
+use b2
+cursor 6 10
+keys 3xu
+> unchanged
+> cursor 6 10
+> reg " v "{"
+> reg - v "{"
+
+case u0082
+use b2
+cursor 3 0
+keys xu<C-r>
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text ""
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 3 0
+> reg " v "}"
+> reg - v "}"
+
+case u0083
+use b2
+cursor 3 0
+tag known
+keys xxu
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text ""
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 3 0
+> reg " v "}"
+> reg - v "}"
+
+case u0084
+use b2
+cursor 1 21
+keys xxuu
+> unchanged
+> cursor 1 21
+> reg " v ")"
+> reg - v ")"
+
+case u0085
+use b2
+cursor 6 4
+keys xxx2u
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  iner } {"
+> text "}"
+> text "tail"
+> cursor 6 4
+> reg " v "r"
+> reg - v "r"
+
+case u0086
+use b2
+cursor 3 0
+keys xxxu<C-r><C-r>
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text ""
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 3 0
+> reg " v "}"
+> reg - v "}"
+
+case u0087
+use b2
+cursor 1 21
+keys xxuu<C-r>
+> text "fn main() {"
+> text "    call(a, [b, c], \")\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 1 21
+> reg " v ")"
+> reg - v ")"
+
+case u0088
+use b2
+cursor 0 0
+keys dwu
+> unchanged
+> cursor 0 0
+> reg " v "fn "
+> reg - v "fn "
+
+case u0089
+use b2
+cursor 6 10
+keys dwu
+> unchanged
+> cursor 6 10
+> reg " v "{"
+> reg - v "{"
+
+case u0090
+use b2
+cursor 1 4
+keys dbu
+> unchanged
+> cursor 0 10
+> reg " v "{" "    "
+> reg 1 v "{" "    "
+
+case u0091
+use b2
+cursor 0 7
+keys d$u
+> unchanged
+> cursor 0 7
+> reg " v "() {"
+> reg - v "() {"
+
+case u0092
+use b2
+cursor 8 2
+keys d$u
+> unchanged
+> cursor 8 2
+> reg " v "il"
+> reg - v "il"
+
+case u0093
+use b2
+cursor 0 7
+keys d0u
+> unchanged
+> cursor 0 0
+> reg " v "fn main"
+> reg - v "fn main"
+
+case u0094
+use b2
+cursor 8 2
+keys d0u
+> unchanged
+> cursor 8 0
+> reg " v "ta"
+> reg - v "ta"
+
+case u0095
+use b2
+cursor 1 13
+keys ddu
+> unchanged
+> cursor 1 4
+> reg " V "    call(a, [b, c], \"s)\");"
+> reg 1 V "    call(a, [b, c], \"s)\");"
+
+case u0096
+use b2
+cursor 2 7
+keys 2ddu
+> unchanged
+> cursor 2 7
+> reg " V "    if (x) { y('(') }" "}"
+> reg 1 V "    if (x) { y('(') }" "}"
+
+case u0097
+use b2
+cursor 6 4
+keys dju
+> unchanged
+> cursor 6 4
+> reg " V "  inner } {" "}"
+> reg 1 V "  inner } {" "}"
+
+case u0098
+use b2
+cursor 0 0
+keys dku
+> unchanged
+> cursor 0 0
+
+case u0099
+use b2
+cursor 6 10
+keys dku
+> unchanged
+> cursor 5 0
+> reg " V "{" "  inner } {"
+> reg 1 V "{" "  inner } {"
+
+case u0100
+use b2
+cursor 0 0
+keys dGu
+> unchanged
+> cursor 0 0
+> reg " V "fn main() {" "    call(a, [b, c], \"s)\");" "    if (x) { y('(') }" "}" "" "{" "  inner } {" "}" "tail"
+> reg 1 V "fn main() {" "    call(a, [b, c], \"s)\");" "    if (x) { y('(') }" "}" "" "{" "  inner } {" "}" "tail"
+
+case u0101
+use b2
+cursor 6 10
+keys dGu
+> unchanged
+> cursor 6 10
+> reg " V "  inner } {" "}" "tail"
+> reg 1 V "  inner } {" "}" "tail"
+
+case u0102
+use b2
+cursor 1 4
+keys dggu
+> unchanged
+> cursor 0 0
+> reg " V "fn main() {" "    call(a, [b, c], \"s)\");"
+> reg 1 V "fn main() {" "    call(a, [b, c], \"s)\");"
+
+case u0103
+use b2
+cursor 1 21
+keys d}u
+> unchanged
+> cursor 1 21
+> reg " v "s)\");" "    if (x) { y('(') }" "}"
+> reg 1 v "s)\");" "    if (x) { y('(') }" "}"
+
+case u0104
+use b2
+cursor 1 8
+keys d{u
+> unchanged
+> cursor 0 0
+> reg " v "fn main() {" "    call"
+> reg 1 v "fn main() {" "    call"
+
+case u0105
+use b2
+cursor 1 13
+keys ddu<C-r>
+> text "fn main() {"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 1 4
+> reg " V "    call(a, [b, c], \"s)\");"
+> reg 1 V "    call(a, [b, c], \"s)\");"
+
+case u0106
+use b2
+cursor 0 0
+keys dku<C-r>
+> unchanged
+> cursor 0 0
+
+case u0107
+use b2
+cursor 6 10
+keys dku<C-r>
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "}"
+> text "tail"
+> cursor 5 0
+> reg " V "{" "  inner } {"
+> reg 1 V "{" "  inner } {"
+
+case u0108
+use b2
+cursor 0 0
+keys dwu<C-r>
+> text "main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 0 0
+> reg " v "fn "
+> reg - v "fn "
+
+case u0109
+use b2
+cursor 6 10
+keys dwu<C-r>
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } "
+> text "}"
+> text "tail"
+> cursor 6 9
+> reg " v "{"
+> reg - v "{"
+
+case u0110
+use b2
+cursor 1 4
+keys dbu<C-r>
+> text "fn main() call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 0 10
+> reg " v "{" "    "
+> reg 1 v "{" "    "
+
+case u0111
+use b2
+cursor 1 4
+keys yypu
+> unchanged
+> cursor 1 4
+> reg " V "    call(a, [b, c], \"s)\");"
+> reg 0 V "    call(a, [b, c], \"s)\");"
+
+case u0112
+use b2
+cursor 2 7
+keys yyPu
+> unchanged
+> cursor 2 7
+> reg " V "    if (x) { y('(') }"
+> reg 0 V "    if (x) { y('(') }"
+
+case u0113
+use b2
+cursor 0 7
+keys ywpu
+> unchanged
+> cursor 0 7
+> reg " v "() "
+> reg 0 v "() "
+
+case u0114
+use b2
+cursor 8 2
+keys ywpu
+> unchanged
+> cursor 8 2
+> reg " v "il"
+> reg 0 v "il"
+
+case u0115
+use b2
+cursor 1 13
+keys ywPu
+> unchanged
+> cursor 1 13
+> reg " v "b"
+> reg 0 v "b"
+
+case u0116
+use b2
+cursor 1 4
+keys yypu<C-r>
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 1 4
+> reg " V "    call(a, [b, c], \"s)\");"
+> reg 0 V "    call(a, [b, c], \"s)\");"
+
+case u0117
+use b2
+cursor 2 7
+keys yyPu<C-r>
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 2 7
+> reg " V "    if (x) { y('(') }"
+> reg 0 V "    if (x) { y('(') }"
+
+case u0118
+use b2
+cursor 0 7
+keys ywpu<C-r>
+> text "fn main(() ) {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 0 7
+> reg " v "() "
+> reg 0 v "() "
+
+case u0119
+use b2
+cursor 8 2
+keys ywpu<C-r>
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "taiill"
+> cursor 8 2
+> reg " v "il"
+> reg 0 v "il"
+
+case u0120
+use b2
+cursor 6 4
+keys Ju
+> unchanged
+> cursor 6 4
+
+case u0121
+use b2
+cursor 0 10
+keys 3Ju
+> unchanged
+> cursor 0 10
+
+case u0122
+use b2
+cursor 6 4
+keys Ju<C-r>
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } { }"
+> text "tail"
+> cursor 6 4
+
+case u0123
+use b2
+cursor 0 0
+keys rQu
+> unchanged
+> cursor 0 0
+> reg . v "Q"
+
+case u0124
+use b2
+cursor 6 10
+keys rQu
+> unchanged
+> cursor 6 10
+> reg . v "Q"
+
+case u0125
+use b2
+cursor 0 7
+keys >>u
+> unchanged
+> cursor 0 0
+
+case u0126
+use b2
+cursor 8 2
+keys >>u
+> unchanged
+> cursor 8 0
+
+case u0127
+use b2
+cursor 1 8
+keys g~~u
+> unchanged
+> cursor 1 4
+
+case u0128
+use b2
+cursor 3 0
+keys g~wu
+> unchanged
+> cursor 3 0
+
+case u0129
+use b2
+cursor 1 4
+keys gUju
+> unchanged
+> cursor 1 4
+
+case u0130
+use b2
+cursor 1 4
+keys Dju
+> unchanged
+> cursor 1 4
+> reg " v "call(a, [b, c], \"s)\");"
+> reg - v "call(a, [b, c], \"s)\");"
+
+case u0131
+use b2
+cursor 6 4
+keys ddjddu
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "}"
+> text "tail"
+> cursor 7 0
+> reg " V "tail"
+> reg 1 V "tail"
+> reg 2 V "  inner } {"
+
+case u0132
+use b2
+cursor 2 16
+keys ddjdduu
+> unchanged
+> cursor 2 4
+> reg " V ""
+> reg 1 V ""
+> reg 2 V "    if (x) { y('(') }"
+
+case u0133
+use b2
+cursor 3 0
+keys u
+> unchanged
+> cursor 3 0
+
+case u0134
+use b2
+cursor 0 0
+keys <C-r>
+> unchanged
+> cursor 0 0
+
+case u0135
+use b2
+cursor 6 10
+keys <C-r>
+> unchanged
+> cursor 6 10
+
+case u0136
+use b2
+cursor 3 0
+keys xu<C-r>x
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text ""
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 3 0
+> reg " v "}"
+> reg - v "}"
+
+case u0137
+use b2
+cursor 0 10
+keys Aab<Esc>u
+> unchanged
+> cursor 0 10
+> reg . v "ab"
+
+case u0138
+use b2
+cursor 4 0
+keys Iab<Esc>u
+> unchanged
+> cursor 4 0
+> reg . v "ab"
+
+case u0139
+use b2
+cursor 1 8
+keys Oab<Esc>u
+> unchanged
+> cursor 1 8
+> reg . v "ab"
+
+case u0140
+use b2
+cursor 0 0
+keys oab<Esc>u<C-r>
+> text "fn main() {"
+> text "ab"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 0 0
+> reg . v "ab"
+
+case u0141
+use b2
+cursor 6 10
+keys oab<Esc>u<C-r>
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "ab"
+> text "}"
+> text "tail"
+> cursor 6 10
+> reg . v "ab"
+
+case u0142
+use b2
+cursor 1 21
+keys iab<Esc>u<C-r>
+> text "fn main() {"
+> text "    call(a, [b, c], \"abs)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 1 21
+> reg . v "ab"
+
+case u0143
+use b2
+cursor 6 4
+keys cwab<Esc>u<C-r>
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inab } {"
+> text "}"
+> text "tail"
+> cursor 6 4
+> reg " v "ner"
+> reg - v "ner"
+> reg . v "ab"
+
+case u0144
+use b2
+cursor 3 0
+keys vjdu
+> unchanged
+> cursor 3 0
+> reg " v "}" "" ""
+> reg 1 v "}" "" ""
+
+case u0145
+use b2
+cursor 0 7
+keys Vjdu
+> unchanged
+> cursor 0 0
+> reg " V "fn main() {" "    call(a, [b, c], \"s)\");"
+> reg 1 V "fn main() {" "    call(a, [b, c], \"s)\");"
+
+case u0146
+use b2
+cursor 8 2
+keys Vjdu
+> unchanged
+> cursor 8 0
+> reg " V "tail"
+> reg 1 V "tail"
+
+case u0147
+use b2
+cursor 6 4
+keys vldu
+> unchanged
+> cursor 6 4
+> reg " v "ne"
+> reg - v "ne"
+
+case u0148
+use b2
+cursor 3 0
+keys vjdu<C-r>
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 3 0
+> reg " v "}" "" ""
+> reg 1 v "}" "" ""
+
+case u0149
+use b2
+cursor 0 0
+keys x3u
+> unchanged
+> cursor 0 0
+> reg " v "f"
+> reg - v "f"
+
+case u0150
+use b2
+cursor 6 10
+keys x3u
+> unchanged
+> cursor 6 10
+> reg " v "{"
+> reg - v "{"
+
+case u0151
+use b2
+cursor 0 0
+keys xxx3u<C-r>
+> text "n main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 0 0
+> reg " v " "
+> reg - v " "
+
+case u0152
+use b2
+cursor 6 10
+keys xxx3u<C-r>
+> text "fn main() {"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } "
+> text "}"
+> text "tail"
+> cursor 6 9
+> reg " v "}"
+> reg - v "}"
+
+case u0153
+use b2
+cursor 0 10
+keys xxx3u2<C-r>
+> text "fn main()"
+> text "    call(a, [b, c], \"s)\");"
+> text "    if (x) { y('(') }"
+> text "}"
+> text ""
+> text "{"
+> text "  inner } {"
+> text "}"
+> text "tail"
+> cursor 0 8
+> reg " v ")"
+> reg - v ")"
+
+case u0154
+use b3
+cursor 5 0
+keys xu
+> unchanged
+> cursor 5 0
+> reg " v "\t"
+> reg - v "\t"
+
+case u0155
+use b3
+cursor 0 0
+keys 3xu
+> unchanged
+> cursor 0 0
+> reg " v "Fir"
+> reg - v "Fir"
+
+case u0156
+use b3
+cursor 6 1
+keys 3xu
+> unchanged
+> cursor 6 1
+> reg " v "  "
+> reg - v "  "
+
+case u0157
+use b3
+cursor 5 0
+keys xu<C-r>
+> text "First one.  Second one! Third?  "
+> text "Still (third.) Fourth."
+> text ""
+> text ""
+> text "New para here. End"
+> text "Tabbed\tline here"
+> text "   "
+> text "last"
+> cursor 5 0
+> reg " v "\t"
+> reg - v "\t"
+
+case u0158
+use b3
+cursor 5 0
+keys xxu
+> text "First one.  Second one! Third?  "
+> text "Still (third.) Fourth."
+> text ""
+> text ""
+> text "New para here. End"
+> text "Tabbed\tline here"
+> text "   "
+> text "last"
+> cursor 5 0
+> reg " v "T"
+> reg - v "T"
+
+case u0159
+use b3
+cursor 2 0
+keys xxuu
+> unchanged
+> cursor 2 0
+
+case u0160
+use b3
+cursor 5 7
+keys xxx2u
+> text "First one.  Second one! Third?  "
+> text "Still (third.) Fourth."
+> text ""
+> text ""
+> text "New para here. End"
+> text "\tTabbedline here"
+> text "   "
+> text "last"
+> cursor 5 7
+> reg " v "i"
+> reg - v "i"
+
+case u0161
+use b3
+cursor 5 0
+keys xxxu<C-r><C-r>
+> text "First one.  Second one! Third?  "
+> text "Still (third.) Fourth."
+> text ""
+> text ""
+> text "New para here. End"
+> text "bbed\tline here"
+> text "   "
+> text "last"
+> cursor 5 0
+> reg " v "a"
+> reg - v "a"
+
+case u0162
+use b3
+cursor 2 0
+keys xxuu<C-r>
+> unchanged
+> cursor 2 0
+
+case u0163
+use b3
+cursor 0 0
+keys dwu
+> unchanged
+> cursor 0 0
+> reg " v "First "
+> reg - v "First "
+
+case u0164
+use b3
+cursor 6 1
+keys dwu
+> unchanged
+> cursor 6 1
+> reg " v "  "
+> reg - v "  "
+
+case u0165
+use b3
+cursor 0 31
+keys dbu
+> unchanged
+> cursor 0 29
+> reg " v "? "
+> reg - v "? "
+
+case u0166
+use b3
+cursor 0 9
+keys d$u
+> unchanged
+> cursor 0 9
+> reg " v ".  Second one! Third?  "
+> reg - v ".  Second one! Third?  "
+
+case u0167
+use b3
+cursor 7 3
+keys d$u
+> unchanged
+> cursor 7 3
+> reg " v "t"
+> reg - v "t"
+
+case u0168
+use b3
+cursor 0 9
+keys d0u
+> unchanged
+> cursor 0 0
+> reg " v "First one"
+> reg - v "First one"
+
+case u0169
+use b3
+cursor 7 3
+keys d0u
+> unchanged
+> cursor 7 0
+> reg " v "las"
+> reg - v "las"
+
+case u0170
+use b3
+cursor 1 21
+keys ddu
+> unchanged
+> cursor 1 0
+> reg " V "Still (third.) Fourth."
+> reg 1 V "Still (third.) Fourth."
+
+case u0171
+use b3
+cursor 4 4
+keys 2ddu
+> unchanged
+> cursor 4 4
+> reg " V "New para here. End" "\tTabbed\tline here"
+> reg 1 V "New para here. End" "\tTabbed\tline here"
+
+case u0172
+use b3
+cursor 5 7
+keys dju
+> unchanged
+> cursor 5 7
+> reg " V "\tTabbed\tline here" "   "
+> reg 1 V "\tTabbed\tline here" "   "
+
+case u0173
+use b3
+cursor 0 0
+keys dku
+> unchanged
+> cursor 0 0
+
+case u0174
+use b3
+cursor 6 1
+keys dku
+> unchanged
+> cursor 5 0
+> reg " V "\tTabbed\tline here" "   "
+> reg 1 V "\tTabbed\tline here" "   "
+
+case u0175
+use b3
+cursor 0 0
+keys dGu
+> unchanged
+> cursor 0 0
+> reg " V "First one.  Second one! Third?  " "Still (third.) Fourth." "" "" "New para here. End" "\tTabbed\tline here" "   " "last"
+> reg 1 V "First one.  Second one! Third?  " "Still (third.) Fourth." "" "" "New para here. End" "\tTabbed\tline here" "   " "last"
+
+case u0176
+use b3
+cursor 6 1
+keys dGu
+> unchanged
+> cursor 6 1
+> reg " V "   " "last"
+> reg 1 V "   " "last"
+
+case u0177
+use b3
+cursor 0 31
+keys dggu
+> unchanged
+> cursor 0 0
+> reg " V "First one.  Second one! Third?  "
+> reg 1 V "First one.  Second one! Third?  "
+
+case u0178
+use b3
+cursor 2 0
+keys d}u
+> unchanged
+> cursor 2 0
+> reg " V "" "" "New para here. End" "\tTabbed\tline here" "   " "last"
+> reg 1 V "" "" "New para here. End" "\tTabbed\tline here" "   " "last"
+
+case u0179
+use b3
+cursor 1 8
+keys d{u
+> unchanged
+> cursor 0 0
+> reg " v "First one.  Second one! Third?  " "Still (t"
+> reg 1 v "First one.  Second one! Third?  " "Still (t"
+
+case u0180
+use b3
+cursor 1 21
+keys ddu<C-r>
+> text "First one.  Second one! Third?  "
+> text ""
+> text ""
+> text "New para here. End"
+> text "\tTabbed\tline here"
+> text "   "
+> text "last"
+> cursor 1 0
+> reg " V "Still (third.) Fourth."
+> reg 1 V "Still (third.) Fourth."
+
+case u0181
+use b3
+cursor 0 0
+keys dku<C-r>
+> unchanged
+> cursor 0 0
+
+case u0182
+use b3
+cursor 6 1
+keys dku<C-r>
+> text "First one.  Second one! Third?  "
+> text "Still (third.) Fourth."
+> text ""
+> text ""
+> text "New para here. End"
+> text "last"
+> cursor 5 0
+> reg " V "\tTabbed\tline here" "   "
+> reg 1 V "\tTabbed\tline here" "   "
+
+case u0183
+use b3
+cursor 0 0
+keys dwu<C-r>
+> text "one.  Second one! Third?  "
+> text "Still (third.) Fourth."
+> text ""
+> text ""
+> text "New para here. End"
+> text "\tTabbed\tline here"
+> text "   "
+> text "last"
+> cursor 0 0
+> reg " v "First "
+> reg - v "First "
+
+case u0184
+use b3
+cursor 6 1
+keys dwu<C-r>
+> text "First one.  Second one! Third?  "
+> text "Still (third.) Fourth."
+> text ""
+> text ""
+> text "New para here. End"
+> text "\tTabbed\tline here"
+> text " "
+> text "last"
+> cursor 6 0
+> reg " v "  "
+> reg - v "  "
+
+case u0185
+use b3
+cursor 0 31
+keys dbu<C-r>
+> text "First one.  Second one! Third "
+> text "Still (third.) Fourth."
+> text ""
+> text ""
+> text "New para here. End"
+> text "\tTabbed\tline here"
+> text "   "
+> text "last"
+> cursor 0 29
+> reg " v "? "
+> reg - v "? "
+
+case u0186
+use b3
+cursor 0 31
+keys yypu
+> unchanged
+> cursor 0 31
+> reg " V "First one.  Second one! Third?  "
+> reg 0 V "First one.  Second one! Third?  "
+
+case u0187
+use b3
+cursor 4 4
+keys yyPu
+> unchanged
+> cursor 4 4
+> reg " V "New para here. End"
+> reg 0 V "New para here. End"
+
+case u0188
+use b3
+cursor 0 9
+keys ywpu
+> unchanged
+> cursor 0 9
+> reg " v ".  "
+> reg 0 v ".  "
+
+case u0189
+use b3
+cursor 7 3
+keys ywpu
+> unchanged
+> cursor 7 3
+> reg " v "t"
+> reg 0 v "t"
+
+case u0190
+use b3
+cursor 1 21
+keys ywPu
+> unchanged
+> cursor 1 21
+> reg " v "."
+> reg 0 v "."
+
+case u0191
+use b3
+cursor 0 31
+keys yypu<C-r>
+> text "First one.  Second one! Third?  "
+> text "First one.  Second one! Third?  "
+> text "Still (third.) Fourth."
+> text ""
+> text ""
+> text "New para here. End"
+> text "\tTabbed\tline here"
+> text "   "
+> text "last"
+> cursor 0 31
+> reg " V "First one.  Second one! Third?  "
+> reg 0 V "First one.  Second one! Third?  "
+
+case u0192
+use b3
+cursor 4 4
+keys yyPu<C-r>
+> text "First one.  Second one! Third?  "
+> text "Still (third.) Fourth."
+> text ""
+> text ""
+> text "New para here. End"
+> text "New para here. End"
+> text "\tTabbed\tline here"
+> text "   "
+> text "last"
+> cursor 4 4
+> reg " V "New para here. End"
+> reg 0 V "New para here. End"
+
+case u0193
+use b3
+cursor 0 9
+keys ywpu<C-r>
+> text "First one..    Second one! Third?  "
+> text "Still (third.) Fourth."
+> text ""
+> text ""
+> text "New para here. End"
+> text "\tTabbed\tline here"
+> text "   "
+> text "last"
+> cursor 0 9
+> reg " v ".  "
+> reg 0 v ".  "
+
+case u0194
+use b3
+cursor 7 3
+keys ywpu<C-r>
+> text "First one.  Second one! Third?  "
+> text "Still (third.) Fourth."
+> text ""
+> text ""
+> text "New para here. End"
+> text "\tTabbed\tline here"
+> text "   "
+> text "lastt"
+> cursor 7 3
+> reg " v "t"
+> reg 0 v "t"
+
+case u0195
+use b3
+cursor 5 7
+keys Ju
+> unchanged
+> cursor 5 7
+
+case u0196
+use b3
+cursor 0 14
+keys 3Ju
+> unchanged
+> cursor 0 14
+
+case u0197
+use b3
+cursor 5 7
+keys Ju<C-r>
+> text "First one.  Second one! Third?  "
+> text "Still (third.) Fourth."
+> text ""
+> text ""
+> text "New para here. End"
+> text "\tTabbed\tline here"
+> text "last"
+> cursor 5 7
+
+case u0198
+use b3
+cursor 0 0
+keys rQu
+> unchanged
+> cursor 0 0
+> reg . v "Q"
+
+case u0199
+use b3
+cursor 6 1
+keys rQu
+> unchanged
+> cursor 6 1
+> reg . v "Q"
+
+case u0200
+use b3
+cursor 0 9
+keys >>u
+> unchanged
+> cursor 0 0
+
+case u0201
+use b3
+cursor 7 3
+keys >>u
+> unchanged
+> cursor 7 0
+
+case u0202
+use b3
+cursor 1 8
+keys g~~u
+> unchanged
+> cursor 1 0
+
+case u0203
+use b3
+cursor 5 0
+keys g~wu
+> unchanged
+> cursor 5 0
+
+case u0204
+use b3
+cursor 0 31
+keys gUju
+> unchanged
+> cursor 0 31
+
+case u0205
+use b3
+cursor 0 31
+keys Dju
+> unchanged
+> cursor 0 31
+> reg " v " "
+> reg - v " "
+
+case u0206
+use b3
+cursor 5 7
+keys ddjddu
+> text "First one.  Second one! Third?  "
+> text "Still (third.) Fourth."
+> text ""
+> text ""
+> text "New para here. End"
+> text "   "
+> text "last"
+> cursor 6 0
+> reg " V "last"
+> reg 1 V "last"
+> reg 2 V "\tTabbed\tline here"
+
+case u0207
+use b3
+cursor 4 17
+keys ddjdduu
+> unchanged
+> cursor 4 0
+> reg " V "   "
+> reg 1 V "   "
+> reg 2 V "New para here. End"
+
+case u0208
+use b3
+cursor 5 0
+keys u
+> unchanged
+> cursor 5 0
+
+case u0209
+use b3
+cursor 0 0
+keys <C-r>
+> unchanged
+> cursor 0 0
+
+case u0210
+use b3
+cursor 6 1
+keys <C-r>
+> unchanged
+> cursor 6 1
+
+case u0211
+use b3
+cursor 5 0
+keys xu<C-r>x
+> text "First one.  Second one! Third?  "
+> text "Still (third.) Fourth."
+> text ""
+> text ""
+> text "New para here. End"
+> text "abbed\tline here"
+> text "   "
+> text "last"
+> cursor 5 0
+> reg " v "T"
+> reg - v "T"
+
+case u0212
+use b3
+cursor 0 14
+keys Aab<Esc>u
+> unchanged
+> cursor 0 31
+> reg . v "ab"
+
+case u0213
+use b3
+cursor 5 3
+keys Iab<Esc>u
+> unchanged
+> cursor 5 1
+> reg . v "ab"
+
+case u0214
+use b3
+cursor 1 8
+keys Oab<Esc>u
+> unchanged
+> cursor 1 8
+> reg . v "ab"
+
+case u0215
+use b3
+cursor 0 0
+keys oab<Esc>u<C-r>
+> text "First one.  Second one! Third?  "
+> text "ab"
+> text "Still (third.) Fourth."
+> text ""
+> text ""
+> text "New para here. End"
+> text "\tTabbed\tline here"
+> text "   "
+> text "last"
+> cursor 0 0
+> reg . v "ab"
+
+case u0216
+use b3
+cursor 6 1
+keys oab<Esc>u<C-r>
+> text "First one.  Second one! Third?  "
+> text "Still (third.) Fourth."
+> text ""
+> text ""
+> text "New para here. End"
+> text "\tTabbed\tline here"
+> text "   "
+> text "ab"
+> text "last"
+> cursor 6 1
+> reg . v "ab"
+
+case u0217
+use b3
+cursor 2 0
+keys iab<Esc>u<C-r>
+> text "First one.  Second one! Third?  "
+> text "Still (third.) Fourth."
+> text "ab"
+> text ""
+> text "New para here. End"
+> text "\tTabbed\tline here"
+> text "   "
+> text "last"
+> cursor 2 0
+> reg . v "ab"
+
+case u0218
+use b3
+cursor 5 7
+keys cwab<Esc>u<C-r>
+> text "First one.  Second one! Third?  "
+> text "Still (third.) Fourth."
+> text ""
+> text ""
+> text "New para here. End"
+> text "\tTabbedabline here"
+> text "   "
+> text "last"
+> cursor 5 7
+> reg " v "\t"
+> reg - v "\t"
+> reg . v "ab"
+
+case u0219
+use b3
+cursor 5 0
+keys vjdu
+> unchanged
+> cursor 5 0
+> reg " v "\tTabbed\tline here" "   " ""
+> reg 1 v "\tTabbed\tline here" "   " ""
+
+case u0220
+use b3
+cursor 0 9
+keys Vjdu
+> unchanged
+> cursor 0 0
+> reg " V "First one.  Second one! Third?  " "Still (third.) Fourth."
+> reg 1 V "First one.  Second one! Third?  " "Still (third.) Fourth."
+
+case u0221
+use b3
+cursor 7 3
+keys Vjdu
+> unchanged
+> cursor 7 0
+> reg " V "last"
+> reg 1 V "last"
+
+case u0222
+use b3
+cursor 5 7
+keys vldu
+> unchanged
+> cursor 5 7
+> reg " v "\tl"
+> reg - v "\tl"
+
+case u0223
+use b3
+cursor 5 0
+keys vjdu<C-r>
+> text "First one.  Second one! Third?  "
+> text "Still (third.) Fourth."
+> text ""
+> text ""
+> text "New para here. End"
+> text "last"
+> cursor 5 0
+> reg " v "\tTabbed\tline here" "   " ""
+> reg 1 v "\tTabbed\tline here" "   " ""
+
+case u0224
+use b3
+cursor 0 0
+keys x3u
+> unchanged
+> cursor 0 0
+> reg " v "F"
+> reg - v "F"
+
+case u0225
+use b3
+cursor 6 1
+keys x3u
+> unchanged
+> cursor 6 1
+> reg " v " "
+> reg - v " "
+
+case u0226
+use b3
+cursor 0 0
+keys xxx3u<C-r>
+> text "irst one.  Second one! Third?  "
+> text "Still (third.) Fourth."
+> text ""
+> text ""
+> text "New para here. End"
+> text "\tTabbed\tline here"
+> text "   "
+> text "last"
+> cursor 0 0
+> reg " v "r"
+> reg - v "r"
+
+case u0227
+use b3
+cursor 6 1
+keys xxx3u<C-r>
+> text "First one.  Second one! Third?  "
+> text "Still (third.) Fourth."
+> text ""
+> text ""
+> text "New para here. End"
+> text "\tTabbed\tline here"
+> text "  "
+> text "last"
+> cursor 6 1
+> reg " v " "
+> reg - v " "
+
+case u0228
+use b3
+cursor 0 14
+keys xxx3u2<C-r>
+> text "First one.  Send one! Third?  "
+> text "Still (third.) Fourth."
+> text ""
+> text ""
+> text "New para here. End"
+> text "\tTabbed\tline here"
+> text "   "
+> text "last"
+> cursor 0 14
+> reg " v "n"
+> reg - v "n"

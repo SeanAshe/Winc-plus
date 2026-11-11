@@ -12,4 +12,5 @@ pub(super) mod navigation;
 pub(super) mod paste;
 pub(super) mod scrollbar;
 pub(super) mod scrolling;
+mod vim;
 pub(super) mod whitespace;

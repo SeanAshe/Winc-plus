@@ -24,19 +24,26 @@ impl App {
         if self.touch_intercepted() || self.settings.open || self.touch.active() {
             return Default::default();
         }
+        // 窗口过程只除以系统 DPI；布局区域需先乘应用缩放，与其输入坐标保持一致。
+        let zoom = self.zoom();
         crate::windows::WindowHitTest {
-            caption_height: TOP_BAR_END,
+            caption_height: TOP_BAR_END * zoom,
             resize_border: if self.window.controls {
-                crate::app::lifecycle::title_bar::RESIZE_EDGE
+                crate::app::lifecycle::title_bar::RESIZE_EDGE * zoom
             } else {
                 0.0
             },
-            client: self.caption_controls(),
+            client: self
+                .caption_controls()
+                .into_iter()
+                .map(|r| winc_render::Rect::new(r.x * zoom, r.y * zoom, r.w * zoom, r.h * zoom))
+                .collect(),
         }
     }
 
     /// 返回顶栏范围内按客户区处理的控件矩形（逻辑像素）。
     ///
+    /// 结果为布局坐标；交给窗口过程前由 `window_hit_test` 乘以界面缩放倍数。
     /// 顶栏中其余部分由系统按标题栏处理。结果必须覆盖 `target_at` 在顶栏内返回的全部
     /// 控件目标（顶栏空白与窗口边缘除外），由测试 `caption_controls_cover_top_bar_targets`
     /// 检查。
@@ -305,7 +312,7 @@ impl App {
             return Target::Panel(hover);
         }
         // 跳转条绘制在查找条之上（窄窗口中两者会重叠）；正在输入名称的行位于文件树中。
-        if (self.goto_input.is_some() && goto_bar(l.editor).contains(x, y))
+        if (self.goto_input.is_some() && self.prompt_bar().contains(x, y))
             || self.name_input_rect().is_some_and(|r| r.contains(x, y))
         {
             return Target::Prompt;

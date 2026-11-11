@@ -238,6 +238,21 @@ fn round_trips_through_json() {
         compact_folders: Some(false),
         preview_on_click: Some(true),
         external_terminal: Some("test-terminal".to_string()),
+        vim_enabled: Some(true),
+        vim_clipboard: Some(VimClipboard::Always),
+        vim_ignore_case: Some(true),
+        vim_smart_case: Some(false),
+        vim_scroll_off: Some(3),
+        vim_handle_keys: vec![("ctrl+f".to_owned(), true)],
+        vim_relative_number: Some(true),
+        vim_yank_highlight: Some(0),
+        vim_timeout_len: Some(500),
+        vim_leader: Some("<Space>".to_owned()),
+        vim_keys: vec![VimMapping {
+            mode: VimMapMode::Insert,
+            keys: "jk".to_owned(),
+            to: "<Esc>".to_owned(),
+        }],
         terminal_enabled: Some(true),
         terminal_font: Some("Menlo".to_owned()),
         terminal_size: Some(12.0),
@@ -505,4 +520,94 @@ fn config_path_lands_in_the_platform_directory() {
     if cfg!(target_os = "macos") {
         assert!(path.to_string_lossy().contains("Application Support"));
     }
+}
+
+#[test]
+fn the_vim_section_reads_writes_and_reports_bad_values() {
+    let (config, problems) = Config::parse(
+        r#"{ "vim": { "enabled": true, "clipboard": "yank",
+             "ignoreCase": true, "smartCase": true, "scrollOff": 5,
+             "handleKeys": { "Ctrl+F": "vim", "ctrl+d": "app" } } }"#,
+    );
+    assert!(problems.is_empty(), "{problems:?}");
+    assert_eq!(config.vim_enabled, Some(true));
+    assert_eq!(config.vim_clipboard, Some(VimClipboard::Yank));
+    assert_eq!(
+        (config.vim_ignore_case, config.vim_smart_case),
+        (Some(true), Some(true))
+    );
+    assert_eq!(config.vim_scroll_off, Some(5));
+    // 按键的名字统一为小写，按名字排序。
+    assert_eq!(
+        config.vim_handle_keys,
+        [("ctrl+d".to_owned(), false), ("ctrl+f".to_owned(), true)]
+    );
+    let (again, problems) = Config::parse(&config.to_json());
+    assert!(problems.is_empty(), "{problems:?}");
+    assert_eq!(again, config);
+
+    // 默认关闭；写法有误的项逐个报告并忽略。
+    assert_eq!(Config::default().vim_enabled, None);
+    let (config, problems) = Config::parse(
+        r#"{ "vim": { "enabled": "yes", "clipboard": "all",
+             "handleKeys": { "ctrl+f": "vim", "ctrl+d": 1 } } }"#,
+    );
+    assert_eq!(problems.len(), 3, "{problems:?}");
+    assert!(
+        problems[2].starts_with("vim.handleKeys.ctrl+d"),
+        "{problems:?}"
+    );
+    assert_eq!((config.vim_enabled, config.vim_clipboard), (None, None));
+    assert_eq!(config.vim_handle_keys, [("ctrl+f".to_owned(), true)]);
+    let (config, problems) = Config::parse(r#"{ "vim": { "handleKeys": [] } }"#);
+    assert_eq!((problems.len(), config.vim_handle_keys.len()), (1, 0));
+    // 保留的行数：非整数与超出范围的值各报告一次。
+    let (config, problems) = Config::parse(r#"{ "vim": { "scrollOff": 2.5 } }"#);
+    assert_eq!((problems.len(), config.vim_scroll_off), (1, None));
+    let (config, problems) = Config::parse(r#"{ "vim": { "scrollOff": 1000, "smartCase": 1 } }"#);
+    assert_eq!((problems.len(), config.vim_scroll_off), (2, None));
+    assert_eq!(config.vim_smart_case, None);
+}
+
+#[test]
+fn vim_mappings_are_read_in_order_and_bad_items_are_reported() {
+    let (config, problems) = Config::parse(
+        r#"{ "vim": { "timeoutLen": 300, "leader": ",", "relativeNumber": true,
+             "yankHighlight": 200,
+             "keys": [ { "mode": "insert", "keys": "jk", "to": "<Esc>" },
+                       { "mode": "normal", "keys": "<Leader>w", "to": "Save" },
+                       { "mode": "operator", "keys": "L", "to": "$" } ] } }"#,
+    );
+    assert!(problems.is_empty(), "{problems:?}");
+    assert_eq!(
+        (config.vim_timeout_len, config.vim_leader.as_deref()),
+        (Some(300), Some(","))
+    );
+    let modes: Vec<VimMapMode> = config.vim_keys.iter().map(|mapping| mapping.mode).collect();
+    assert_eq!(
+        modes,
+        [VimMapMode::Insert, VimMapMode::Normal, VimMapMode::Operator]
+    );
+    assert_eq!(config.vim_keys[1].to, "Save");
+    assert_eq!(
+        (config.vim_relative_number, config.vim_yank_highlight),
+        (Some(true), Some(200))
+    );
+    let (again, problems) = Config::parse(&config.to_json());
+    assert!(problems.is_empty(), "{problems:?}");
+    assert_eq!(again, config);
+
+    // 缺少字段或模式写错的项逐个报告，其余的项保留。
+    let (config, problems) = Config::parse(
+        r#"{ "vim": { "timeoutLen": 1.5, "leader": "",
+             "keys": [ { "mode": "select", "keys": "a", "to": "b" },
+                       { "mode": "visual", "keys": "Q", "to": "d" },
+                       { "mode": "normal", "keys": "x" } ] } }"#,
+    );
+    assert_eq!(problems.len(), 4, "{problems:?}");
+    assert!(problems[0].starts_with("vim.keys[0]"), "{problems:?}");
+    assert_eq!((config.vim_timeout_len, config.vim_leader), (None, None));
+    assert_eq!(config.vim_keys.len(), 1);
+    let (config, problems) = Config::parse(r#"{ "vim": { "keys": {} } }"#);
+    assert_eq!((problems.len(), config.vim_keys.len()), (1, 0));
 }

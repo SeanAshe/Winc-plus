@@ -1,0 +1,4009 @@
+# 由 `cargo xtask vim-fixtures` 生成，不手工修改。可视模式：选区的延伸、操作符、粘贴与点重复。
+
+buffer b1
+text "foo bar.baz  qux_1 (x) end"
+text "   lead, tail;  "
+text ""
+text "中文 text，全角。next"
+text "a-b a1b2 #$% éx"
+
+buffer b2
+text "fn main() {"
+text "    call(a, [b, c], \"s)\");"
+text "    if (x) { y('(') }"
+text "}"
+text ""
+text "{"
+text "  inner } {"
+text "}"
+text "tail"
+
+buffer b3
+text "First one.  Second one! Third?  "
+text "Still (third.) Fourth."
+text ""
+text ""
+text "New para here. End"
+text "\tTabbed\tline here"
+text "   "
+text "last"
+
+case v0001
+use b1
+cursor 0 7
+keys vld
+
+case v0002
+use b1
+cursor 4 15
+keys vld
+
+case v0003
+use b1
+cursor 0 7
+keys vly
+
+case v0004
+use b1
+cursor 2 0
+keys Vld
+
+case v0005
+use b1
+cursor 0 0
+keys Vly
+
+case v0006
+use b1
+cursor 3 1
+keys vhd
+
+case v0007
+use b1
+cursor 4 13
+keys vhy
+
+case v0008
+use b1
+cursor 0 25
+keys Vhd
+
+case v0009
+use b1
+cursor 3 9
+keys Vhy
+
+case v0010
+use b1
+cursor 0 0
+keys vjd
+
+case v0011
+use b1
+cursor 4 0
+keys vjd
+
+case v0012
+use b1
+cursor 0 0
+keys vjy
+
+case v0013
+use b1
+cursor 1 3
+keys Vjd
+
+case v0014
+use b1
+cursor 4 13
+keys Vjy
+
+case v0015
+use b1
+cursor 0 5
+keys vkd
+
+case v0016
+use b1
+cursor 4 13
+keys vkd
+
+case v0017
+use b1
+cursor 0 5
+keys vky
+
+case v0018
+use b1
+cursor 1 15
+keys Vkd
+
+case v0019
+use b1
+cursor 4 15
+keys Vky
+
+case v0020
+use b1
+cursor 0 5
+keys vwd
+
+case v0021
+use b1
+cursor 4 13
+keys vwd
+
+case v0022
+use b1
+cursor 4 13
+keys vwy
+
+case v0023
+use b1
+cursor 0 25
+keys Vwd
+
+case v0024
+use b1
+cursor 3 9
+keys Vwy
+
+case v0025
+use b1
+cursor 0 20
+keys vbd
+
+case v0026
+use b1
+cursor 1 3
+keys vby
+
+case v0027
+use b1
+cursor 4 15
+keys Vbd
+
+case v0028
+use b1
+cursor 0 25
+keys Vby
+
+case v0029
+use b1
+cursor 1 3
+keys ved
+
+case v0030
+use b1
+cursor 3 1
+keys vey
+
+case v0031
+use b1
+cursor 0 7
+keys Ved
+
+case v0032
+use b1
+cursor 1 15
+keys Vey
+
+case v0033
+use b1
+cursor 0 7
+keys v$d
+
+case v0034
+use b1
+cursor 4 15
+keys v$d
+
+case v0035
+use b1
+cursor 0 25
+keys v$y
+
+case v0036
+use b1
+cursor 4 0
+keys V$d
+
+case v0037
+use b1
+cursor 0 11
+keys V$y
+
+case v0038
+use b1
+cursor 0 7
+keys v0d
+
+case v0039
+use b1
+cursor 4 15
+keys v0d
+
+case v0040
+use b1
+cursor 0 7
+keys v0y
+
+case v0041
+use b1
+cursor 2 0
+keys V0d
+
+case v0042
+use b1
+cursor 0 0
+keys V0y
+
+case v0043
+use b1
+cursor 0 0
+keys v^d
+
+case v0044
+use b1
+cursor 4 0
+keys v^d
+
+case v0045
+use b1
+cursor 0 11
+keys v^y
+
+case v0046
+use b1
+cursor 3 1
+keys V^d
+
+case v0047
+use b1
+cursor 0 5
+keys V^y
+
+case v0048
+use b1
+cursor 0 5
+keys vGd
+
+case v0049
+use b1
+cursor 4 13
+keys vGd
+
+case v0050
+use b1
+cursor 3 1
+keys vGy
+
+case v0051
+use b1
+cursor 0 7
+keys VGd
+
+case v0052
+use b1
+cursor 1 15
+keys VGy
+
+case v0053
+use b1
+cursor 0 20
+keys vggd
+
+case v0054
+use b1
+cursor 3 1
+keys vggy
+
+case v0055
+use b1
+cursor 0 7
+keys Vggd
+
+case v0056
+use b1
+cursor 1 15
+keys Vggy
+
+case v0057
+use b1
+cursor 1 3
+keys v}d
+
+case v0058
+use b1
+cursor 0 20
+keys v}y
+
+case v0059
+use b1
+cursor 3 9
+keys V}d
+
+case v0060
+use b1
+cursor 0 7
+keys V}y
+
+case v0061
+use b1
+cursor 0 25
+keys v{d
+
+case v0062
+use b1
+cursor 0 7
+keys v{y
+
+case v0063
+use b1
+cursor 2 0
+keys V{d
+
+case v0064
+use b1
+cursor 0 0
+keys V{y
+
+case v0065
+use b1
+cursor 1 3
+keys v)d
+
+case v0066
+use b1
+cursor 3 1
+keys v)y
+
+case v0067
+use b1
+cursor 0 7
+keys V)d
+
+case v0068
+use b1
+cursor 1 15
+keys V)y
+
+case v0069
+use b1
+cursor 0 11
+keys v%d
+
+case v0070
+use b1
+cursor 1 0
+keys v%y
+
+case v0071
+use b1
+cursor 4 13
+keys V%d
+
+case v0072
+use b1
+cursor 0 20
+keys V%y
+
+case v0073
+use b1
+cursor 0 7
+keys v2jd
+
+case v0074
+use b1
+cursor 4 15
+keys v2jd
+
+case v0075
+use b1
+cursor 0 25
+keys v2jy
+
+case v0076
+use b1
+cursor 4 0
+keys V2jd
+
+case v0077
+use b1
+cursor 0 11
+keys V2jy
+
+case v0078
+use b1
+cursor 0 25
+keys v3ld
+
+case v0079
+use b1
+cursor 1 15
+keys v3ly
+
+case v0080
+use b1
+cursor 0 0
+keys V3ld
+
+case v0081
+use b1
+cursor 1 0
+keys V3ly
+
+case v0082
+use b1
+cursor 2 0
+keys vfad
+
+case v0083
+use b1
+cursor 0 11
+keys vfay
+
+case v0084
+use b1
+cursor 3 1
+keys Vfad
+
+case v0085
+use b1
+cursor 0 5
+keys Vfay
+
+case v0086
+use b1
+cursor 1 15
+keys vg_d
+
+case v0087
+use b1
+cursor 0 7
+keys vg_y
+
+case v0088
+use b1
+cursor 2 0
+keys Vg_d
+
+case v0089
+use b1
+cursor 0 0
+keys Vg_y
+
+case v0090
+use b1
+cursor 0 20
+keys v<Space>d
+
+case v0091
+use b1
+cursor 4 13
+keys v<Space>y
+
+case v0092
+use b1
+cursor 0 25
+keys V<Space>d
+
+case v0093
+use b1
+cursor 3 9
+keys V<Space>y
+
+case v0094
+use b1
+cursor 2 0
+keys v<BS>d
+
+case v0095
+use b1
+cursor 0 0
+keys v<BS>y
+
+case v0096
+use b1
+cursor 1 3
+keys V<BS>d
+
+case v0097
+use b1
+cursor 4 13
+keys V<BS>y
+
+case v0098
+use b1
+cursor 0 7
+keys vged
+
+case v0099
+use b1
+cursor 4 15
+keys vged
+
+case v0100
+use b1
+cursor 1 15
+keys vgey
+
+case v0101
+use b1
+cursor 0 0
+keys Vged
+
+case v0102
+use b1
+cursor 1 0
+keys Vgey
+
+case v0103
+use b1
+cursor 0 25
+keys vWd
+
+case v0104
+use b1
+cursor 3 9
+keys vWy
+
+case v0105
+use b1
+cursor 0 11
+keys VWd
+
+case v0106
+use b1
+cursor 2 0
+keys VWy
+
+case v0107
+use b1
+cursor 2 0
+keys v+d
+
+case v0108
+use b1
+cursor 4 0
+keys v+y
+
+case v0109
+use b1
+cursor 0 20
+keys V+d
+
+case v0110
+use b1
+cursor 3 1
+keys V+y
+
+case v0111
+use b1
+cursor 3 9
+keys v-d
+
+case v0112
+use b1
+cursor 4 15
+keys v-y
+
+case v0113
+use b1
+cursor 1 0
+keys V-d
+
+case v0114
+use b1
+cursor 4 0
+keys V-y
+
+case v0115
+use b1
+cursor 0 7
+keys vd
+
+case v0116
+use b1
+cursor 3 1
+keys vd
+
+case v0117
+use b1
+cursor 1 3
+keys vy
+
+case v0118
+use b1
+cursor 0 7
+keys Vd
+
+case v0119
+use b1
+cursor 3 1
+keys Vd
+
+case v0120
+use b1
+cursor 1 3
+keys Vy
+
+case v0121
+use b1
+cursor 1 0
+keys vld
+
+case v0122
+use b1
+cursor 4 15
+keys vld
+
+case v0123
+use b1
+cursor 1 3
+keys vlly
+
+case v0124
+use b1
+cursor 1 0
+keys v$d
+
+case v0125
+use b1
+cursor 4 15
+keys v$d
+
+case v0126
+use b1
+cursor 0 11
+keys v$y
+
+case v0127
+use b1
+cursor 3 9
+keys v$y
+
+case v0128
+use b1
+cursor 1 0
+keys v$hd
+
+case v0129
+use b1
+cursor 4 15
+keys v$hd
+
+case v0130
+use b1
+cursor 0 0
+keys vj$d
+
+case v0131
+use b1
+cursor 1 15
+keys vj$d
+
+case v0132
+use b1
+cursor 0 11
+keys vllly
+
+case v0133
+use b1
+cursor 3 9
+keys vllly
+
+case v0134
+use b1
+cursor 0 11
+keys vlcQ<Esc>
+
+case v0135
+use b1
+cursor 3 9
+keys vlcQ<Esc>
+
+case v0136
+use b1
+cursor 0 5
+keys vjcQ<Esc>
+
+case v0137
+use b1
+cursor 2 0
+keys vjcQ<Esc>
+
+case v0138
+use b1
+cursor 1 3
+keys VcQ<Esc>
+
+case v0139
+use b1
+cursor 0 5
+keys VjcQ<Esc>
+
+case v0140
+use b1
+cursor 2 0
+keys VjcQ<Esc>
+
+case v0141
+use b1
+cursor 0 11
+keys vlsQ<Esc>
+
+case v0142
+use b1
+cursor 3 9
+keys vlsQ<Esc>
+
+case v0143
+use b1
+cursor 0 11
+keys vlCQ<Esc>
+
+case v0144
+use b1
+cursor 3 9
+keys vlCQ<Esc>
+
+case v0145
+use b1
+cursor 0 7
+keys vlRQ<Esc>
+
+case v0146
+use b1
+cursor 3 1
+keys vlRQ<Esc>
+
+case v0147
+use b1
+cursor 0 7
+keys vjJ
+
+case v0148
+use b1
+cursor 3 1
+keys vjJ
+
+case v0149
+use b1
+cursor 0 5
+keys vjgJ
+
+case v0150
+use b1
+cursor 2 0
+keys vjgJ
+
+case v0151
+use b1
+cursor 0 7
+keys VjJ
+
+case v0152
+use b1
+cursor 3 1
+keys VjJ
+
+case v0153
+use b1
+cursor 0 20
+keys V2jJ
+
+case v0154
+use b1
+cursor 4 0
+keys V2jJ
+
+case v0155
+use b1
+cursor 0 0
+keys vJ
+
+case v0156
+use b1
+cursor 1 15
+keys vJ
+
+case v0157
+use b1
+cursor 1 3
+keys VgJ
+
+case v0158
+use b1
+cursor 0 0
+keys v3lrQ
+
+case v0159
+use b1
+cursor 1 15
+keys v3lrQ
+
+case v0160
+use b1
+cursor 0 5
+keys VrQ
+
+case v0161
+use b1
+cursor 2 0
+keys VrQ
+
+case v0162
+use b1
+cursor 0 11
+keys vjrQ
+
+case v0163
+use b1
+cursor 3 9
+keys vjrQ
+
+case v0164
+use b1
+cursor 1 3
+keys vlu
+
+case v0165
+use b1
+cursor 1 3
+keys vlU
+
+case v0166
+use b1
+cursor 0 0
+keys vl~
+
+case v0167
+use b1
+cursor 1 15
+keys vl~
+
+case v0168
+use b1
+cursor 0 11
+keys Vu
+
+case v0169
+use b1
+cursor 3 9
+keys Vu
+
+case v0170
+use b1
+cursor 0 11
+keys VU
+
+case v0171
+use b1
+cursor 3 9
+keys VU
+
+case v0172
+use b1
+cursor 0 20
+keys V~
+
+case v0173
+use b1
+cursor 4 0
+keys V~
+
+case v0174
+use b1
+cursor 0 25
+keys vjU
+
+case v0175
+use b1
+cursor 4 13
+keys vjU
+
+case v0176
+use b1
+cursor 0 0
+keys vlg?
+
+case v0177
+use b1
+cursor 1 15
+keys vlg?
+
+case v0178
+use b1
+cursor 0 20
+keys vjD
+
+case v0179
+use b1
+cursor 4 0
+keys vjD
+
+case v0180
+use b1
+cursor 0 7
+keys vlX
+
+case v0181
+use b1
+cursor 3 1
+keys vlX
+
+case v0182
+use b1
+cursor 0 5
+keys vjY
+
+case v0183
+use b1
+cursor 2 0
+keys vjY
+
+case v0184
+use b1
+cursor 0 7
+keys vlx
+
+case v0185
+use b1
+cursor 3 1
+keys vlx
+
+case v0186
+use b1
+cursor 0 5
+keys vl<Del>
+
+case v0187
+use b1
+cursor 2 0
+keys vl<Del>
+
+case v0188
+use b1
+cursor 0 20
+keys v>
+
+case v0189
+use b1
+cursor 4 0
+keys v>
+
+case v0190
+use b1
+cursor 1 0
+keys Vj>
+
+case v0191
+use b1
+cursor 4 15
+keys Vj>
+
+case v0192
+use b1
+cursor 0 0
+keys Vj2>
+
+case v0193
+use b1
+cursor 1 15
+keys Vj2>
+
+case v0194
+use b1
+cursor 0 7
+keys Vj<lt>
+
+case v0195
+use b1
+cursor 3 1
+keys Vj<lt>
+
+case v0196
+use b1
+cursor 0 25
+keys vj3<lt>
+
+case v0197
+use b1
+cursor 4 13
+keys vj3<lt>
+
+case v0198
+use b1
+cursor 0 7
+keys V>.
+
+case v0199
+use b1
+cursor 3 1
+keys V>.
+
+case v0200
+use b1
+cursor 0 25
+keys vlod
+
+case v0201
+use b1
+cursor 4 13
+keys vlod
+
+case v0202
+use b1
+cursor 0 0
+keys vjoy
+
+case v0203
+use b1
+cursor 1 15
+keys vjoy
+
+case v0204
+use b1
+cursor 1 0
+keys vjokd
+
+case v0205
+use b1
+cursor 4 15
+keys vjokd
+
+case v0206
+use b1
+cursor 1 0
+keys vlO<Esc>x
+
+case v0207
+use b1
+cursor 4 15
+keys vlO<Esc>x
+
+case v0208
+use b1
+cursor 0 11
+keys vjOd
+
+case v0209
+use b1
+cursor 3 9
+keys vjOd
+
+case v0210
+use b1
+cursor 1 3
+keys vl<Esc>x
+
+case v0211
+use b1
+cursor 0 25
+keys vj<Esc>x
+
+case v0212
+use b1
+cursor 4 13
+keys vj<Esc>x
+
+case v0213
+use b1
+cursor 1 3
+keys v$<Esc>x
+
+case v0214
+use b1
+cursor 0 25
+keys Vj<Esc>x
+
+case v0215
+use b1
+cursor 4 13
+keys Vj<Esc>x
+
+case v0216
+use b1
+cursor 0 0
+keys vlvx
+
+case v0217
+use b1
+cursor 1 15
+keys vlvx
+
+case v0218
+use b1
+cursor 0 20
+keys vlVd
+
+case v0219
+use b1
+cursor 4 0
+keys vlVd
+
+case v0220
+use b1
+cursor 0 7
+keys VjvD
+
+case v0221
+use b1
+cursor 3 1
+keys VjvD
+
+case v0222
+use b1
+cursor 0 20
+keys Vlvd
+
+case v0223
+use b1
+cursor 4 0
+keys Vlvd
+
+case v0224
+use b1
+cursor 0 0
+keys vl<Esc>gvd
+
+case v0225
+use b1
+cursor 1 15
+keys vl<Esc>gvd
+
+case v0226
+use b1
+cursor 0 0
+keys Vj<Esc>jgvd
+
+case v0227
+use b1
+cursor 1 15
+keys Vj<Esc>jgvd
+
+case v0228
+use b1
+cursor 1 3
+keys vl<Esc>jgvy
+
+case v0229
+use b1
+cursor 1 0
+keys vj<Esc>ggvlgvd
+
+case v0230
+use b1
+cursor 4 15
+keys vj<Esc>ggvlgvd
+
+case v0231
+use b1
+cursor 0 7
+keys v"ay
+
+case v0232
+use b1
+cursor 3 1
+keys v"ay
+
+case v0233
+use b1
+cursor 0 5
+keys vl"ad
+
+case v0234
+use b1
+cursor 2 0
+keys vl"ad
+
+case v0235
+use b1
+cursor 0 20
+keys Vj"ay
+
+case v0236
+use b1
+cursor 4 0
+keys Vj"ay
+
+case v0237
+use b1
+cursor 1 3
+keys vl"_d
+
+case v0238
+use b1
+cursor 0 25
+keys vly"0P
+
+case v0239
+use b1
+cursor 4 13
+keys vly"0P
+
+case v0240
+use b1
+cursor 0 0
+keys ywjvlp
+
+case v0241
+use b1
+cursor 4 0
+keys ywjvlp
+
+case v0242
+use b1
+cursor 0 20
+keys ywjvlP
+
+case v0243
+use b1
+cursor 0 7
+keys yyjvlp
+
+case v0244
+use b1
+cursor 4 15
+keys yyjvlp
+
+case v0245
+use b1
+cursor 1 0
+keys yyjVp
+
+case v0246
+use b1
+cursor 0 20
+keys ywjVp
+
+case v0247
+use b1
+cursor 0 7
+keys ywjVjp
+
+case v0248
+use b1
+cursor 4 15
+keys ywjVjp
+
+case v0249
+use b1
+cursor 0 7
+keys yyvjp
+
+case v0250
+use b1
+cursor 4 15
+keys yyvjp
+
+case v0251
+use b1
+cursor 1 3
+keys ywvep
+
+case v0252
+use b1
+cursor 2 0
+keys ywve2p
+
+case v0253
+use b1
+cursor 0 7
+keys yyjv$p
+
+case v0254
+use b1
+cursor 4 15
+keys yyjv$p
+
+case v0255
+use b1
+cursor 0 0
+keys ywjv$p
+
+case v0256
+use b1
+cursor 4 0
+keys ywjv$p
+
+case v0257
+use b1
+cursor 0 25
+keys dwvlp
+
+case v0258
+use b1
+cursor 0 7
+keys ddVp
+
+case v0259
+use b1
+cursor 4 15
+keys ddVp
+
+case v0260
+use b1
+cursor 1 0
+keys ywvlpp
+
+case v0261
+use b1
+cursor 0 25
+keys yyVpu
+
+case v0262
+use b1
+cursor 0 0
+keys vld.
+
+case v0263
+use b1
+cursor 4 0
+keys vld.
+
+case v0264
+use b1
+cursor 3 1
+keys vlldj.
+
+case v0265
+use b1
+cursor 3 1
+keys vjd.
+
+case v0266
+use b1
+cursor 0 20
+keys Vd.
+
+case v0267
+use b1
+cursor 0 7
+keys Vjd.
+
+case v0268
+use b1
+cursor 4 15
+keys Vjd.
+
+case v0269
+use b1
+cursor 2 0
+keys vly.
+
+case v0270
+use b1
+cursor 0 11
+keys vlcQ<Esc>j.
+
+case v0271
+use b1
+cursor 1 3
+keys VjcQ<Esc>.
+
+case v0272
+use b1
+cursor 0 7
+keys vl~l.
+
+case v0273
+use b1
+cursor 4 15
+keys vl~l.
+
+case v0274
+use b1
+cursor 0 0
+keys Vj>.
+
+case v0275
+use b1
+cursor 4 0
+keys Vj>.
+
+case v0276
+use b1
+cursor 2 0
+keys vllrQj.
+
+case v0277
+use b1
+cursor 1 15
+keys vjJ.
+
+case v0278
+use b1
+cursor 1 15
+keys vlUw.
+
+case v0279
+use b2
+cursor 0 10
+keys vld
+
+case v0280
+use b2
+cursor 6 4
+keys vly
+
+case v0281
+use b2
+cursor 0 0
+keys Vld
+
+case v0282
+use b2
+cursor 2 7
+keys Vly
+
+case v0283
+use b2
+cursor 4 0
+keys vhd
+
+case v0284
+use b2
+cursor 2 7
+keys vhy
+
+case v0285
+use b2
+cursor 4 0
+keys Vhd
+
+case v0286
+use b2
+cursor 1 4
+keys Vhy
+
+case v0287
+use b2
+cursor 0 0
+keys vjd
+
+case v0288
+use b2
+cursor 6 10
+keys vjd
+
+case v0289
+use b2
+cursor 3 0
+keys vjy
+
+case v0290
+use b2
+cursor 6 10
+keys Vjd
+
+case v0291
+use b2
+cursor 1 13
+keys Vjy
+
+case v0292
+use b2
+cursor 0 7
+keys vkd
+
+case v0293
+use b2
+cursor 8 2
+keys vkd
+
+case v0294
+use b2
+cursor 4 0
+keys vky
+
+case v0295
+use b2
+cursor 8 2
+keys Vkd
+
+case v0296
+use b2
+cursor 1 21
+keys Vky
+
+case v0297
+use b2
+cursor 0 7
+keys vwd
+
+case v0298
+use b2
+cursor 8 2
+keys vwd
+
+case v0299
+use b2
+cursor 2 16
+keys vwy
+
+case v0300
+use b2
+cursor 6 4
+keys Vwd
+
+case v0301
+use b2
+cursor 1 8
+keys Vwy
+
+case v0302
+use b2
+cursor 1 8
+keys vbd
+
+case v0303
+use b2
+cursor 0 7
+keys vby
+
+case v0304
+use b2
+cursor 1 8
+keys Vbd
+
+case v0305
+use b2
+cursor 6 4
+keys Vby
+
+case v0306
+use b2
+cursor 2 7
+keys ved
+
+case v0307
+use b2
+cursor 1 8
+keys vey
+
+case v0308
+use b2
+cursor 2 7
+keys Ved
+
+case v0309
+use b2
+cursor 0 0
+keys Vey
+
+case v0310
+use b2
+cursor 0 10
+keys v$d
+
+case v0311
+use b2
+cursor 3 0
+keys v$y
+
+case v0312
+use b2
+cursor 6 10
+keys V$d
+
+case v0313
+use b2
+cursor 1 13
+keys V$y
+
+case v0314
+use b2
+cursor 0 10
+keys v0d
+
+case v0315
+use b2
+cursor 2 7
+keys v0y
+
+case v0316
+use b2
+cursor 4 0
+keys V0d
+
+case v0317
+use b2
+cursor 1 4
+keys V0y
+
+case v0318
+use b2
+cursor 0 0
+keys v^d
+
+case v0319
+use b2
+cursor 6 10
+keys v^d
+
+case v0320
+use b2
+cursor 6 4
+keys v^y
+
+case v0321
+use b2
+cursor 0 0
+keys V^d
+
+case v0322
+use b2
+cursor 2 7
+keys V^y
+
+case v0323
+use b2
+cursor 0 7
+keys vGd
+
+case v0324
+use b2
+cursor 8 2
+keys vGd
+
+case v0325
+use b2
+cursor 0 10
+keys vGy
+
+case v0326
+use b2
+cursor 1 13
+keys VGd
+
+case v0327
+use b2
+cursor 6 10
+keys VGy
+
+case v0328
+use b2
+cursor 1 8
+keys vggd
+
+case v0329
+use b2
+cursor 6 4
+keys vggy
+
+case v0330
+use b2
+cursor 0 0
+keys Vggd
+
+case v0331
+use b2
+cursor 2 7
+keys Vggy
+
+case v0332
+use b2
+cursor 2 7
+keys v}d
+
+case v0333
+use b2
+cursor 0 0
+keys v}y
+
+case v0334
+use b2
+cursor 1 4
+keys V}d
+
+case v0335
+use b2
+cursor 4 0
+keys V}y
+
+case v0336
+use b2
+cursor 1 13
+keys v{d
+
+case v0337
+use b2
+cursor 6 10
+keys v{y
+
+case v0338
+use b2
+cursor 0 7
+keys V{d
+
+case v0339
+use b2
+cursor 2 16
+keys V{y
+
+case v0340
+use b2
+cursor 2 7
+keys v)d
+
+case v0341
+use b2
+cursor 0 0
+keys v)y
+
+case v0342
+use b2
+cursor 1 4
+keys V)d
+
+case v0343
+use b2
+cursor 4 0
+keys V)y
+
+case v0344
+use b2
+cursor 1 4
+keys v%d
+
+case v0345
+use b2
+cursor 4 0
+keys v%y
+
+case v0346
+use b2
+cursor 8 2
+keys V%d
+
+case v0347
+use b2
+cursor 1 21
+keys V%y
+
+case v0348
+use b2
+cursor 0 10
+keys v2jd
+
+case v0349
+use b2
+cursor 1 4
+keys v2jy
+
+case v0350
+use b2
+cursor 1 21
+keys V2jd
+
+case v0351
+use b2
+cursor 8 2
+keys V2jy
+
+case v0352
+use b2
+cursor 1 13
+keys v3ld
+
+case v0353
+use b2
+cursor 1 21
+keys v3ly
+
+case v0354
+use b2
+cursor 3 0
+keys V3ld
+
+case v0355
+use b2
+cursor 0 10
+keys V3ly
+
+case v0356
+use b2
+cursor 3 0
+keys vfad
+
+case v0357
+use b2
+cursor 1 8
+keys vfay
+
+case v0358
+use b2
+cursor 2 7
+keys Vfad
+
+case v0359
+use b2
+cursor 0 0
+keys Vfay
+
+case v0360
+use b2
+cursor 2 16
+keys vg_d
+
+case v0361
+use b2
+cursor 1 4
+keys vg_y
+
+case v0362
+use b2
+cursor 1 21
+keys Vg_d
+
+case v0363
+use b2
+cursor 8 2
+keys Vg_y
+
+case v0364
+use b2
+cursor 1 8
+keys v<Space>d
+
+case v0365
+use b2
+cursor 8 2
+keys v<Space>y
+
+case v0366
+use b2
+cursor 0 10
+keys V<Space>d
+
+case v0367
+use b2
+cursor 3 0
+keys V<Space>y
+
+case v0368
+use b2
+cursor 3 0
+keys v<BS>d
+
+case v0369
+use b2
+cursor 1 21
+keys v<BS>y
+
+case v0370
+use b2
+cursor 3 0
+keys V<BS>d
+
+case v0371
+use b2
+cursor 0 10
+keys V<BS>y
+
+case v0372
+use b2
+cursor 0 10
+keys vged
+
+case v0373
+use b2
+cursor 3 0
+keys vgey
+
+case v0374
+use b2
+cursor 6 10
+keys Vged
+
+case v0375
+use b2
+cursor 1 13
+keys Vgey
+
+case v0376
+use b2
+cursor 1 13
+keys vWd
+
+case v0377
+use b2
+cursor 1 8
+keys vWy
+
+case v0378
+use b2
+cursor 2 7
+keys VWd
+
+case v0379
+use b2
+cursor 0 0
+keys VWy
+
+case v0380
+use b2
+cursor 3 0
+keys v+d
+
+case v0381
+use b2
+cursor 0 10
+keys v+y
+
+case v0382
+use b2
+cursor 1 13
+keys V+d
+
+case v0383
+use b2
+cursor 6 10
+keys V+y
+
+case v0384
+use b2
+cursor 6 4
+keys v-d
+
+case v0385
+use b2
+cursor 1 8
+keys v-y
+
+case v0386
+use b2
+cursor 2 7
+keys V-d
+
+case v0387
+use b2
+cursor 0 0
+keys V-y
+
+case v0388
+use b2
+cursor 0 10
+keys vd
+
+case v0389
+use b2
+cursor 4 0
+keys vd
+
+case v0390
+use b2
+cursor 2 7
+keys vy
+
+case v0391
+use b2
+cursor 0 10
+keys Vd
+
+case v0392
+use b2
+cursor 4 0
+keys Vd
+
+case v0393
+use b2
+cursor 2 7
+keys Vy
+
+case v0394
+use b2
+cursor 1 21
+keys vld
+
+case v0395
+use b2
+cursor 2 7
+keys vlly
+
+case v0396
+use b2
+cursor 1 21
+keys v$d
+
+case v0397
+use b2
+cursor 1 4
+keys v$y
+
+case v0398
+use b2
+cursor 6 4
+keys v$y
+
+case v0399
+use b2
+cursor 1 21
+keys v$hd
+
+case v0400
+use b2
+cursor 0 0
+keys vj$d
+
+case v0401
+use b2
+cursor 2 16
+keys vj$d
+
+case v0402
+use b2
+cursor 1 4
+keys vllly
+
+case v0403
+use b2
+cursor 6 4
+keys vllly
+
+case v0404
+use b2
+cursor 1 4
+keys vlcQ<Esc>
+
+case v0405
+use b2
+cursor 6 4
+keys vlcQ<Esc>
+
+case v0406
+use b2
+cursor 0 7
+keys vjcQ<Esc>
+
+case v0407
+use b2
+cursor 3 0
+keys vjcQ<Esc>
+
+case v0408
+use b2
+cursor 2 7
+keys VcQ<Esc>
+
+case v0409
+use b2
+cursor 0 7
+keys VjcQ<Esc>
+
+case v0410
+use b2
+cursor 3 0
+keys VjcQ<Esc>
+
+case v0411
+use b2
+cursor 1 4
+keys vlsQ<Esc>
+
+case v0412
+use b2
+cursor 6 4
+keys vlsQ<Esc>
+
+case v0413
+use b2
+cursor 1 4
+keys vlCQ<Esc>
+
+case v0414
+use b2
+cursor 6 4
+keys vlCQ<Esc>
+
+case v0415
+use b2
+cursor 0 10
+keys vlRQ<Esc>
+
+case v0416
+use b2
+cursor 4 0
+keys vlRQ<Esc>
+
+case v0417
+use b2
+cursor 0 10
+keys vjJ
+
+case v0418
+use b2
+cursor 4 0
+keys vjJ
+
+case v0419
+use b2
+cursor 0 7
+keys vjgJ
+
+case v0420
+use b2
+cursor 3 0
+keys vjgJ
+
+case v0421
+use b2
+cursor 0 10
+keys VjJ
+
+case v0422
+use b2
+cursor 4 0
+keys VjJ
+
+case v0423
+use b2
+cursor 1 8
+keys V2jJ
+
+case v0424
+use b2
+cursor 6 10
+keys V2jJ
+
+case v0425
+use b2
+cursor 0 0
+keys vJ
+
+case v0426
+use b2
+cursor 2 16
+keys vJ
+
+case v0427
+use b2
+cursor 2 7
+keys VgJ
+
+case v0428
+use b2
+cursor 0 0
+keys v3lrQ
+
+case v0429
+use b2
+cursor 2 16
+keys v3lrQ
+
+case v0430
+use b2
+cursor 0 7
+keys VrQ
+
+case v0431
+use b2
+cursor 3 0
+keys VrQ
+
+case v0432
+use b2
+cursor 1 4
+keys vjrQ
+
+case v0433
+use b2
+cursor 6 4
+keys vjrQ
+
+case v0434
+use b2
+cursor 2 7
+keys vlu
+
+case v0435
+use b2
+cursor 2 7
+keys vlU
+
+case v0436
+use b2
+cursor 0 0
+keys vl~
+
+case v0437
+use b2
+cursor 2 16
+keys vl~
+
+case v0438
+use b2
+cursor 1 4
+keys Vu
+
+case v0439
+use b2
+cursor 6 4
+keys Vu
+
+case v0440
+use b2
+cursor 1 4
+keys VU
+
+case v0441
+use b2
+cursor 6 4
+keys VU
+
+case v0442
+use b2
+cursor 1 8
+keys V~
+
+case v0443
+use b2
+cursor 6 10
+keys V~
+
+case v0444
+use b2
+cursor 1 13
+keys vjU
+
+case v0445
+use b2
+cursor 8 2
+keys vjU
+
+case v0446
+use b2
+cursor 0 0
+keys vlg?
+
+case v0447
+use b2
+cursor 2 16
+keys vlg?
+
+case v0448
+use b2
+cursor 1 8
+keys vjD
+
+case v0449
+use b2
+cursor 6 10
+keys vjD
+
+case v0450
+use b2
+cursor 0 10
+keys vlX
+
+case v0451
+use b2
+cursor 4 0
+keys vlX
+
+case v0452
+use b2
+cursor 0 7
+keys vjY
+
+case v0453
+use b2
+cursor 3 0
+keys vjY
+
+case v0454
+use b2
+cursor 0 10
+keys vlx
+
+case v0455
+use b2
+cursor 4 0
+keys vlx
+
+case v0456
+use b2
+cursor 0 7
+keys vl<Del>
+
+case v0457
+use b2
+cursor 3 0
+keys vl<Del>
+
+case v0458
+use b2
+cursor 1 8
+keys v>
+
+case v0459
+use b2
+cursor 6 10
+keys v>
+
+case v0460
+use b2
+cursor 1 21
+keys Vj>
+
+case v0461
+use b2
+cursor 0 0
+keys Vj2>
+
+case v0462
+use b2
+cursor 2 16
+keys Vj2>
+
+case v0463
+use b2
+cursor 0 10
+keys Vj<lt>
+
+case v0464
+use b2
+cursor 4 0
+keys Vj<lt>
+
+case v0465
+use b2
+cursor 1 13
+keys vj3<lt>
+
+case v0466
+use b2
+cursor 8 2
+keys vj3<lt>
+
+case v0467
+use b2
+cursor 0 10
+keys V>.
+
+case v0468
+use b2
+cursor 4 0
+keys V>.
+
+case v0469
+use b2
+cursor 1 13
+keys vlod
+
+case v0470
+use b2
+cursor 8 2
+keys vlod
+
+case v0471
+use b2
+cursor 0 0
+keys vjoy
+
+case v0472
+use b2
+cursor 2 16
+keys vjoy
+
+case v0473
+use b2
+cursor 1 21
+keys vjokd
+
+case v0474
+use b2
+cursor 1 21
+keys vlO<Esc>x
+
+case v0475
+use b2
+cursor 1 4
+keys vjOd
+
+case v0476
+use b2
+cursor 6 4
+keys vjOd
+
+case v0477
+use b2
+cursor 2 7
+keys vl<Esc>x
+
+case v0478
+use b2
+cursor 1 13
+keys vj<Esc>x
+
+case v0479
+use b2
+cursor 8 2
+keys vj<Esc>x
+
+case v0480
+use b2
+cursor 2 7
+keys v$<Esc>x
+
+case v0481
+use b2
+cursor 1 13
+keys Vj<Esc>x
+
+case v0482
+use b2
+cursor 8 2
+keys Vj<Esc>x
+
+case v0483
+use b2
+cursor 0 0
+keys vlvx
+
+case v0484
+use b2
+cursor 2 16
+keys vlvx
+
+case v0485
+use b2
+cursor 1 8
+keys vlVd
+
+case v0486
+use b2
+cursor 6 10
+keys vlVd
+
+case v0487
+use b2
+cursor 0 10
+keys VjvD
+
+case v0488
+use b2
+cursor 4 0
+keys VjvD
+
+case v0489
+use b2
+cursor 1 8
+keys Vlvd
+
+case v0490
+use b2
+cursor 6 10
+keys Vlvd
+
+case v0491
+use b2
+cursor 0 0
+keys vl<Esc>gvd
+
+case v0492
+use b2
+cursor 2 16
+keys vl<Esc>gvd
+
+case v0493
+use b2
+cursor 0 0
+keys Vj<Esc>jgvd
+
+case v0494
+use b2
+cursor 2 16
+keys Vj<Esc>jgvd
+
+case v0495
+use b2
+cursor 2 7
+keys vl<Esc>jgvy
+
+case v0496
+use b2
+cursor 1 21
+keys vj<Esc>ggvlgvd
+
+case v0497
+use b2
+cursor 0 10
+keys v"ay
+
+case v0498
+use b2
+cursor 4 0
+keys v"ay
+
+case v0499
+use b2
+cursor 0 7
+keys vl"ad
+
+case v0500
+use b2
+cursor 3 0
+keys vl"ad
+
+case v0501
+use b2
+cursor 1 8
+keys Vj"ay
+
+case v0502
+use b2
+cursor 6 10
+keys Vj"ay
+
+case v0503
+use b2
+cursor 2 7
+keys vl"_d
+
+case v0504
+use b2
+cursor 1 13
+keys vly"0P
+
+case v0505
+use b2
+cursor 8 2
+keys vly"0P
+
+case v0506
+use b2
+cursor 0 0
+keys ywjvlp
+
+case v0507
+use b2
+cursor 6 10
+keys ywjvlp
+
+case v0508
+use b2
+cursor 1 8
+keys ywjvlP
+
+case v0509
+use b2
+cursor 0 10
+keys yyjvlp
+
+case v0510
+use b2
+cursor 1 21
+keys yyjVp
+
+case v0511
+use b2
+cursor 1 8
+keys ywjVp
+
+case v0512
+use b2
+cursor 0 10
+keys ywjVjp
+
+case v0513
+use b2
+cursor 0 10
+keys yyvjp
+
+case v0514
+use b2
+cursor 2 7
+keys ywvep
+
+case v0515
+use b2
+cursor 3 0
+keys ywve2p
+
+case v0516
+use b2
+cursor 0 10
+keys yyjv$p
+
+case v0517
+use b2
+cursor 0 0
+keys ywjv$p
+
+case v0518
+use b2
+cursor 6 10
+keys ywjv$p
+
+case v0519
+use b2
+cursor 1 13
+keys dwvlp
+
+case v0520
+use b2
+cursor 0 10
+keys ddVp
+
+case v0521
+use b2
+cursor 1 21
+keys ywvlpp
+
+case v0522
+use b2
+cursor 1 13
+keys yyVpu
+
+case v0523
+use b2
+cursor 0 0
+keys vld.
+
+case v0524
+use b2
+cursor 6 10
+keys vld.
+
+case v0525
+use b2
+cursor 4 0
+keys vlldj.
+
+case v0526
+use b2
+cursor 4 0
+keys vjd.
+
+case v0527
+use b2
+cursor 1 8
+keys Vd.
+
+case v0528
+use b2
+cursor 0 10
+keys Vjd.
+
+case v0529
+use b2
+cursor 3 0
+keys vly.
+
+case v0530
+use b2
+cursor 1 4
+keys vlcQ<Esc>j.
+
+case v0531
+use b2
+cursor 2 7
+keys VjcQ<Esc>.
+
+case v0532
+use b2
+cursor 0 10
+keys vl~l.
+
+case v0533
+use b2
+cursor 0 0
+keys Vj>.
+
+case v0534
+use b2
+cursor 6 10
+keys Vj>.
+
+case v0535
+use b2
+cursor 3 0
+keys vllrQj.
+
+case v0536
+use b2
+cursor 2 16
+keys vjJ.
+
+case v0537
+use b2
+cursor 2 16
+keys vlUw.
+
+case v0538
+use b3
+cursor 0 14
+keys vld
+
+case v0539
+use b3
+cursor 5 7
+keys vly
+
+case v0540
+use b3
+cursor 0 0
+keys Vld
+
+case v0541
+use b3
+cursor 4 4
+keys Vly
+
+case v0542
+use b3
+cursor 5 3
+keys vhd
+
+case v0543
+use b3
+cursor 4 4
+keys vhy
+
+case v0544
+use b3
+cursor 5 3
+keys Vhd
+
+case v0545
+use b3
+cursor 0 31
+keys Vhy
+
+case v0546
+use b3
+cursor 0 0
+keys vjd
+
+case v0547
+use b3
+cursor 6 1
+keys vjd
+
+case v0548
+use b3
+cursor 5 0
+keys vjy
+
+case v0549
+use b3
+cursor 6 1
+keys Vjd
+
+case v0550
+use b3
+cursor 1 21
+keys Vjy
+
+case v0551
+use b3
+cursor 0 9
+keys vkd
+
+case v0552
+use b3
+cursor 7 3
+keys vkd
+
+case v0553
+use b3
+cursor 5 3
+keys vky
+
+case v0554
+use b3
+cursor 7 3
+keys Vkd
+
+case v0555
+use b3
+cursor 2 0
+keys Vky
+
+case v0556
+use b3
+cursor 0 9
+keys vwd
+
+case v0557
+use b3
+cursor 7 3
+keys vwd
+
+case v0558
+use b3
+cursor 4 17
+keys vwy
+
+case v0559
+use b3
+cursor 5 7
+keys Vwd
+
+case v0560
+use b3
+cursor 1 8
+keys Vwy
+
+case v0561
+use b3
+cursor 1 8
+keys vbd
+
+case v0562
+use b3
+cursor 0 9
+keys vby
+
+case v0563
+use b3
+cursor 1 8
+keys Vbd
+
+case v0564
+use b3
+cursor 5 7
+keys Vby
+
+case v0565
+use b3
+cursor 4 4
+keys ved
+
+case v0566
+use b3
+cursor 1 8
+keys vey
+
+case v0567
+use b3
+cursor 4 4
+keys Ved
+
+case v0568
+use b3
+cursor 0 0
+keys Vey
+
+case v0569
+use b3
+cursor 0 14
+keys v$d
+
+case v0570
+use b3
+cursor 5 0
+keys v$y
+
+case v0571
+use b3
+cursor 6 1
+keys V$d
+
+case v0572
+use b3
+cursor 1 21
+keys V$y
+
+case v0573
+use b3
+cursor 0 14
+keys v0d
+
+case v0574
+use b3
+cursor 4 4
+keys v0y
+
+case v0575
+use b3
+cursor 5 3
+keys V0d
+
+case v0576
+use b3
+cursor 0 31
+keys V0y
+
+case v0577
+use b3
+cursor 0 0
+keys v^d
+
+case v0578
+use b3
+cursor 6 1
+keys v^d
+
+case v0579
+use b3
+cursor 5 7
+keys v^y
+
+case v0580
+use b3
+cursor 0 0
+keys V^d
+
+case v0581
+use b3
+cursor 4 4
+keys V^y
+
+case v0582
+use b3
+cursor 0 9
+keys vGd
+
+case v0583
+use b3
+cursor 7 3
+keys vGd
+
+case v0584
+use b3
+cursor 0 14
+keys vGy
+
+case v0585
+use b3
+cursor 1 21
+keys VGd
+
+case v0586
+use b3
+cursor 6 1
+keys VGy
+
+case v0587
+use b3
+cursor 1 8
+keys vggd
+
+case v0588
+use b3
+cursor 5 7
+keys vggy
+
+case v0589
+use b3
+cursor 0 0
+keys Vggd
+
+case v0590
+use b3
+cursor 4 4
+keys Vggy
+
+case v0591
+use b3
+cursor 4 4
+keys v}d
+
+case v0592
+use b3
+cursor 0 0
+keys v}y
+
+case v0593
+use b3
+cursor 0 31
+keys V}d
+
+case v0594
+use b3
+cursor 5 3
+keys V}y
+
+case v0595
+use b3
+cursor 1 21
+keys v{d
+
+case v0596
+use b3
+cursor 6 1
+keys v{y
+
+case v0597
+use b3
+cursor 0 9
+keys V{d
+
+case v0598
+use b3
+cursor 4 17
+keys V{y
+
+case v0599
+use b3
+cursor 4 4
+keys v)d
+
+case v0600
+use b3
+cursor 0 0
+keys v)y
+
+case v0601
+use b3
+cursor 0 31
+keys V)d
+
+case v0602
+use b3
+cursor 5 3
+keys V)y
+
+case v0603
+use b3
+cursor 0 31
+keys v%d
+
+case v0604
+use b3
+cursor 5 3
+keys v%y
+
+case v0605
+use b3
+cursor 7 3
+keys V%d
+
+case v0606
+use b3
+cursor 2 0
+keys V%y
+
+case v0607
+use b3
+cursor 0 14
+keys v2jd
+
+case v0608
+use b3
+cursor 0 31
+keys v2jy
+
+case v0609
+use b3
+cursor 2 0
+keys V2jd
+
+case v0610
+use b3
+cursor 7 3
+keys V2jy
+
+case v0611
+use b3
+cursor 1 21
+keys v3ld
+
+case v0612
+use b3
+cursor 2 0
+keys v3ly
+
+case v0613
+use b3
+cursor 5 0
+keys V3ld
+
+case v0614
+use b3
+cursor 0 14
+keys V3ly
+
+case v0615
+use b3
+cursor 5 0
+keys vfad
+
+case v0616
+use b3
+cursor 1 8
+keys vfay
+
+case v0617
+use b3
+cursor 4 4
+keys Vfad
+
+case v0618
+use b3
+cursor 0 0
+keys Vfay
+
+case v0619
+use b3
+cursor 4 17
+keys vg_d
+
+case v0620
+use b3
+cursor 0 31
+keys vg_y
+
+case v0621
+use b3
+cursor 2 0
+keys Vg_d
+
+case v0622
+use b3
+cursor 7 3
+keys Vg_y
+
+case v0623
+use b3
+cursor 1 8
+keys v<Space>d
+
+case v0624
+use b3
+cursor 7 3
+keys v<Space>y
+
+case v0625
+use b3
+cursor 0 14
+keys V<Space>d
+
+case v0626
+use b3
+cursor 5 0
+keys V<Space>y
+
+case v0627
+use b3
+cursor 5 0
+keys v<BS>d
+
+case v0628
+use b3
+cursor 2 0
+keys v<BS>y
+
+case v0629
+use b3
+cursor 5 0
+keys V<BS>d
+
+case v0630
+use b3
+cursor 0 14
+keys V<BS>y
+
+case v0631
+use b3
+cursor 0 14
+keys vged
+
+case v0632
+use b3
+cursor 5 0
+keys vgey
+
+case v0633
+use b3
+cursor 6 1
+keys Vged
+
+case v0634
+use b3
+cursor 1 21
+keys Vgey
+
+case v0635
+use b3
+cursor 1 21
+keys vWd
+
+case v0636
+use b3
+cursor 1 8
+keys vWy
+
+case v0637
+use b3
+cursor 4 4
+keys VWd
+
+case v0638
+use b3
+cursor 0 0
+keys VWy
+
+case v0639
+use b3
+cursor 5 0
+keys v+d
+
+case v0640
+use b3
+cursor 0 14
+keys v+y
+
+case v0641
+use b3
+cursor 1 21
+keys V+d
+
+case v0642
+use b3
+cursor 6 1
+keys V+y
+
+case v0643
+use b3
+cursor 5 7
+keys v-d
+
+case v0644
+use b3
+cursor 1 8
+keys v-y
+
+case v0645
+use b3
+cursor 4 4
+keys V-d
+
+case v0646
+use b3
+cursor 0 0
+keys V-y
+
+case v0647
+use b3
+cursor 0 14
+keys vd
+
+case v0648
+use b3
+cursor 5 3
+keys vd
+
+case v0649
+use b3
+cursor 4 4
+keys vy
+
+case v0650
+use b3
+cursor 0 14
+keys Vd
+
+case v0651
+use b3
+cursor 5 3
+keys Vd
+
+case v0652
+use b3
+cursor 4 4
+keys Vy
+
+case v0653
+use b3
+cursor 2 0
+keys vld
+
+case v0654
+use b3
+cursor 4 4
+keys vlly
+
+case v0655
+use b3
+cursor 2 0
+keys v$d
+
+case v0656
+use b3
+cursor 0 31
+keys v$y
+
+case v0657
+use b3
+cursor 5 7
+keys v$y
+
+case v0658
+use b3
+cursor 2 0
+keys v$hd
+
+case v0659
+use b3
+cursor 0 0
+keys vj$d
+
+case v0660
+use b3
+cursor 4 17
+keys vj$d
+
+case v0661
+use b3
+cursor 0 31
+keys vllly
+
+case v0662
+use b3
+cursor 5 7
+keys vllly
+
+case v0663
+use b3
+cursor 0 31
+keys vlcQ<Esc>
+
+case v0664
+use b3
+cursor 5 7
+keys vlcQ<Esc>
+
+case v0665
+use b3
+cursor 0 9
+keys vjcQ<Esc>
+
+case v0666
+use b3
+cursor 5 0
+keys vjcQ<Esc>
+
+case v0667
+use b3
+cursor 4 4
+keys VcQ<Esc>
+
+case v0668
+use b3
+cursor 0 9
+keys VjcQ<Esc>
+
+case v0669
+use b3
+cursor 5 0
+keys VjcQ<Esc>
+
+case v0670
+use b3
+cursor 0 31
+keys vlsQ<Esc>
+
+case v0671
+use b3
+cursor 5 7
+keys vlsQ<Esc>
+
+case v0672
+use b3
+cursor 0 31
+keys vlCQ<Esc>
+
+case v0673
+use b3
+cursor 5 7
+keys vlCQ<Esc>
+
+case v0674
+use b3
+cursor 0 14
+keys vlRQ<Esc>
+
+case v0675
+use b3
+cursor 5 3
+keys vlRQ<Esc>
+
+case v0676
+use b3
+cursor 0 14
+keys vjJ
+
+case v0677
+use b3
+cursor 5 3
+keys vjJ
+
+case v0678
+use b3
+cursor 0 9
+keys vjgJ
+
+case v0679
+use b3
+cursor 5 0
+keys vjgJ
+
+case v0680
+use b3
+cursor 0 14
+keys VjJ
+
+case v0681
+use b3
+cursor 5 3
+keys VjJ
+
+case v0682
+use b3
+cursor 1 8
+keys V2jJ
+
+case v0683
+use b3
+cursor 6 1
+keys V2jJ
+
+case v0684
+use b3
+cursor 0 0
+keys vJ
+
+case v0685
+use b3
+cursor 4 17
+keys vJ
+
+case v0686
+use b3
+cursor 4 4
+keys VgJ
+
+case v0687
+use b3
+cursor 0 0
+keys v3lrQ
+
+case v0688
+use b3
+cursor 4 17
+keys v3lrQ
+
+case v0689
+use b3
+cursor 0 9
+keys VrQ
+
+case v0690
+use b3
+cursor 5 0
+keys VrQ
+
+case v0691
+use b3
+cursor 0 31
+keys vjrQ
+
+case v0692
+use b3
+cursor 5 7
+keys vjrQ
+
+case v0693
+use b3
+cursor 4 4
+keys vlu
+
+case v0694
+use b3
+cursor 4 4
+keys vlU
+
+case v0695
+use b3
+cursor 0 0
+keys vl~
+
+case v0696
+use b3
+cursor 4 17
+keys vl~
+
+case v0697
+use b3
+cursor 0 31
+keys Vu
+
+case v0698
+use b3
+cursor 5 7
+keys Vu
+
+case v0699
+use b3
+cursor 0 31
+keys VU
+
+case v0700
+use b3
+cursor 5 7
+keys VU
+
+case v0701
+use b3
+cursor 1 8
+keys V~
+
+case v0702
+use b3
+cursor 6 1
+keys V~
+
+case v0703
+use b3
+cursor 1 21
+keys vjU
+
+case v0704
+use b3
+cursor 7 3
+keys vjU
+
+case v0705
+use b3
+cursor 0 0
+keys vlg?
+
+case v0706
+use b3
+cursor 4 17
+keys vlg?
+
+case v0707
+use b3
+cursor 1 8
+keys vjD
+
+case v0708
+use b3
+cursor 6 1
+keys vjD
+
+case v0709
+use b3
+cursor 0 14
+keys vlX
+
+case v0710
+use b3
+cursor 5 3
+keys vlX
+
+case v0711
+use b3
+cursor 0 9
+keys vjY
+
+case v0712
+use b3
+cursor 5 0
+keys vjY
+
+case v0713
+use b3
+cursor 0 14
+keys vlx
+
+case v0714
+use b3
+cursor 5 3
+keys vlx
+
+case v0715
+use b3
+cursor 0 9
+keys vl<Del>
+
+case v0716
+use b3
+cursor 5 0
+keys vl<Del>
+
+case v0717
+use b3
+cursor 1 8
+keys v>
+
+case v0718
+use b3
+cursor 6 1
+keys v>
+
+case v0719
+use b3
+cursor 2 0
+keys Vj>
+
+case v0720
+use b3
+cursor 0 0
+keys Vj2>
+
+case v0721
+use b3
+cursor 4 17
+keys Vj2>
+
+case v0722
+use b3
+cursor 0 14
+keys Vj<lt>
+
+case v0723
+use b3
+cursor 5 3
+keys Vj<lt>
+
+case v0724
+use b3
+cursor 1 21
+keys vj3<lt>
+
+case v0725
+use b3
+cursor 7 3
+keys vj3<lt>
+
+case v0726
+use b3
+cursor 0 14
+keys V>.
+
+case v0727
+use b3
+cursor 5 3
+keys V>.
+
+case v0728
+use b3
+cursor 1 21
+keys vlod
+
+case v0729
+use b3
+cursor 7 3
+keys vlod
+
+case v0730
+use b3
+cursor 0 0
+keys vjoy
+
+case v0731
+use b3
+cursor 4 17
+keys vjoy
+
+case v0732
+use b3
+cursor 2 0
+keys vjokd
+
+case v0733
+use b3
+cursor 2 0
+keys vlO<Esc>x
+
+case v0734
+use b3
+cursor 0 31
+keys vjOd
+
+case v0735
+use b3
+cursor 5 7
+keys vjOd
+
+case v0736
+use b3
+cursor 4 4
+keys vl<Esc>x
+
+case v0737
+use b3
+cursor 1 21
+keys vj<Esc>x
+
+case v0738
+use b3
+cursor 7 3
+keys vj<Esc>x
+
+case v0739
+use b3
+cursor 4 4
+keys v$<Esc>x
+
+case v0740
+use b3
+cursor 1 21
+keys Vj<Esc>x
+
+case v0741
+use b3
+cursor 7 3
+keys Vj<Esc>x
+
+case v0742
+use b3
+cursor 0 0
+keys vlvx
+
+case v0743
+use b3
+cursor 4 17
+keys vlvx
+
+case v0744
+use b3
+cursor 1 8
+keys vlVd
+
+case v0745
+use b3
+cursor 6 1
+keys vlVd
+
+case v0746
+use b3
+cursor 0 14
+keys VjvD
+
+case v0747
+use b3
+cursor 5 3
+keys VjvD
+
+case v0748
+use b3
+cursor 1 8
+keys Vlvd
+
+case v0749
+use b3
+cursor 6 1
+keys Vlvd
+
+case v0750
+use b3
+cursor 0 0
+keys vl<Esc>gvd
+
+case v0751
+use b3
+cursor 4 17
+keys vl<Esc>gvd
+
+case v0752
+use b3
+cursor 0 0
+keys Vj<Esc>jgvd
+
+case v0753
+use b3
+cursor 4 17
+keys Vj<Esc>jgvd
+
+case v0754
+use b3
+cursor 4 4
+keys vl<Esc>jgvy
+
+case v0755
+use b3
+cursor 2 0
+keys vj<Esc>ggvlgvd
+
+case v0756
+use b3
+cursor 0 14
+keys v"ay
+
+case v0757
+use b3
+cursor 5 3
+keys v"ay
+
+case v0758
+use b3
+cursor 0 9
+keys vl"ad
+
+case v0759
+use b3
+cursor 5 0
+keys vl"ad
+
+case v0760
+use b3
+cursor 1 8
+keys Vj"ay
+
+case v0761
+use b3
+cursor 6 1
+keys Vj"ay
+
+case v0762
+use b3
+cursor 4 4
+keys vl"_d
+
+case v0763
+use b3
+cursor 1 21
+keys vly"0P
+
+case v0764
+use b3
+cursor 7 3
+keys vly"0P
+
+case v0765
+use b3
+cursor 0 0
+keys ywjvlp
+
+case v0766
+use b3
+cursor 6 1
+keys ywjvlp
+
+case v0767
+use b3
+cursor 1 8
+keys ywjvlP
+
+case v0768
+use b3
+cursor 0 14
+keys yyjvlp
+
+case v0769
+use b3
+cursor 2 0
+keys yyjVp
+
+case v0770
+use b3
+cursor 1 8
+keys ywjVp
+
+case v0771
+use b3
+cursor 0 14
+keys ywjVjp
+
+case v0772
+use b3
+cursor 0 14
+keys yyvjp
+
+case v0773
+use b3
+cursor 4 4
+keys ywvep
+
+case v0774
+use b3
+cursor 5 0
+keys ywve2p
+
+case v0775
+use b3
+cursor 0 14
+keys yyjv$p
+
+case v0776
+use b3
+cursor 0 0
+keys ywjv$p
+
+case v0777
+use b3
+cursor 6 1
+keys ywjv$p
+
+case v0778
+use b3
+cursor 1 21
+keys dwvlp
+
+case v0779
+use b3
+cursor 0 14
+keys ddVp
+
+case v0780
+use b3
+cursor 2 0
+keys ywvlpp
+
+case v0781
+use b3
+cursor 1 21
+keys yyVpu
+
+case v0782
+use b3
+cursor 0 0
+keys vld.
+
+case v0783
+use b3
+cursor 6 1
+keys vld.
+
+case v0784
+use b3
+cursor 5 3
+keys vlldj.
+
+case v0785
+use b3
+cursor 5 3
+keys vjd.
+
+case v0786
+use b3
+cursor 1 8
+keys Vd.
+
+case v0787
+use b3
+cursor 0 14
+keys Vjd.
+
+case v0788
+use b3
+cursor 5 0
+keys vly.
+
+case v0789
+use b3
+cursor 0 31
+keys vlcQ<Esc>j.
+
+case v0790
+use b3
+cursor 4 4
+keys VjcQ<Esc>.
+
+case v0791
+use b3
+cursor 0 14
+keys vl~l.
+
+case v0792
+use b3
+cursor 0 0
+keys Vj>.
+
+case v0793
+use b3
+cursor 6 1
+keys Vj>.
+
+case v0794
+use b3
+cursor 5 0
+keys vllrQj.
+
+case v0795
+use b3
+cursor 4 17
+keys vjJ.
+
+case v0796
+use b3
+cursor 4 17
+keys vlUw.

@@ -20,11 +20,12 @@ use winc_editor::diff_view::{DiffSide, DiffView, LEFT, RIGHT, SideRow};
 use winc_i18n::t;
 
 use super::editor::{
-    HIGHLIGHT_BUDGET, caret_bar, draw_caret, draw_glyphs, draw_whitespace_mark,
+    HIGHLIGHT_BUDGET, caret_bar, draw_caret, draw_glyphs, draw_modal_caret, draw_whitespace_mark,
     trailing_whitespace, whitespace_shown,
 };
 use super::*;
 use crate::app::diff::DiffPane;
+use crate::app::vim::CaretShape;
 use crate::app::{DIFF_TEXT_PAD, DiffParts, DiffTarget, Focus, HunkKind, diff_parts};
 use crate::icons::Direction;
 use crate::layout::{GIT_LANE, Ruler, editor_content_height};
@@ -335,6 +336,8 @@ struct EditState {
     read: Option<(usize, Span)>,
     /// 只读一侧的光标：（所在侧，（行，列））。
     read_caret: Option<(usize, (usize, usize))>,
+    /// Vim 模式的光标：（所在侧，（行，列），形状）；有时该侧不画竖线光标。
+    modal: Option<(usize, (usize, usize), CaretShape)>,
     /// 查找条打开时需要标出匹配的一侧（`LEFT` 或 `RIGHT`）；无需标出时为 `None`。
     searched: Option<usize>,
 }
@@ -361,6 +364,7 @@ fn edit_state(app: &App, view: &DiffView, lines: Range<usize>) -> EditState {
         (a != b).then(|| (side, (at(side, a.min(b)), at(side, a.max(b)))))
     });
     let read_caret = view.read_caret().map(|(side, pos)| (side, at(side, pos)));
+    let modal = app.vim_diff_caret(view);
     let Some(source) = view.new.path.as_deref().and_then(|path| {
         app.editor
             .documents
@@ -370,11 +374,17 @@ fn edit_state(app: &App, view: &DiffView, lines: Range<usize>) -> EditState {
         return EditState {
             read,
             read_caret,
+            modal: modal.map(|(side, pos, shape)| (side, at(side, pos), shape)),
             searched: snapshot,
             ..EditState::default()
         };
     };
     let text = source.text();
+    // 可编辑一侧的光标按该侧对应的文档换算。
+    let modal = modal.map(|(side, pos, shape)| match view.editing {
+        true => (side, text.pos_to_line_col(pos.min(text.end_pos())), shape),
+        false => (side, at(side, pos), shape),
+    });
     // 光标可能有上万个，只取可见范围内的：其余选区按位置排序、互不重叠，二分查找第一个相交的选区。
     let count = text.line_count();
     let from = text.line_start(lines.start.min(count - 1));
@@ -404,6 +414,7 @@ fn edit_state(app: &App, view: &DiffView, lines: Range<usize>) -> EditState {
         selections,
         read,
         read_caret,
+        modal,
         searched: (app.layout.search.h > 0.0 && app.search.document() == Some(source.id))
             .then_some(RIGHT),
     }
@@ -554,7 +565,10 @@ fn draw_body(
     let tab_width = app.editor.tab_width;
     // 光标只在编辑区有焦点时绘制。
     let carets_shown = edit.editing && app.focus == Focus::Editor;
-    let read_caret = edit.read_caret.filter(|_| app.focus == Focus::Editor);
+    // Vim 模式的光标所在的一侧不画竖线光标；空心的光标在编辑区没有焦点时仍然绘制。
+    let modal = (edit.modal).filter(|m| app.focus == Focus::Editor || m.2 == CaretShape::Hollow);
+    let barred = |side: usize| edit.modal.is_none_or(|m| m.0 != side);
+    let read_caret = (edit.read_caret).filter(|c| app.focus == Focus::Editor && barred(c.0));
     let unified = view.is_unified();
     // 预先取出单栏时的换算表：绘制过程中需要修改差异两侧的着色状态。
     let map = view.unified_map();
@@ -905,10 +919,19 @@ fn draw_body(
                     caret_bar(app, frame, x, y, pane.text);
                 }
             }
-            if edit.caret.0 == line && breaks.row_of(edit.caret.1) == part {
+            if edit.caret.0 == line && breaks.row_of(edit.caret.1) == part && barred(RIGHT) {
                 let x = origin_x + at(edit.caret.1) * app.cell;
                 app.ime.cursor = Some(draw_caret(app, frame, x, y, baseline, pane.text));
             }
+        }
+        if let Some((caret_side, (caret_line, col), shape)) = modal
+            && (caret_side, caret_line, breaks.row_of(col)) == (side, line, part)
+        {
+            // 行尾与空行上的光标占一格。
+            let width = Some((at(col + 1) - at(col)) * app.cell).filter(|width| *width > 0.0);
+            let place = (origin_x + at(col) * app.cell, y, width.unwrap_or(app.cell));
+            let c = chars.get(col).copied();
+            draw_modal_caret(app, frame, place, c, baseline, shape, pane.text);
         }
         // 只读一侧不接受输入，输入法候选窗不跟随该侧的光标。
         if let Some((caret_side, (caret_line, col))) = read_caret
@@ -939,7 +962,7 @@ fn draw_body(
     }
 
     // 光标位于文件末尾换行符之后的空行时，该行没有对应的显示行，绘制在最后一行下方。
-    if carets_shown && view.row_of_new(edit.caret.0) == view.row_count() {
+    if carets_shown && barred(RIGHT) && view.row_of_new(edit.caret.0) == view.row_count() {
         let y = row_y(RIGHT, view.row_count());
         if y >= body.y && y < body.bottom() {
             let pane = parts.panes[RIGHT];

@@ -18,6 +18,9 @@
 //! cargo xtask test             只测和 HEAD 相比改动涉及的 crate，测完清理过时的目标文件
 //!     [--all] [--base 提交] [-- 测试名过滤等 cargo test 参数]
 //! cargo xtask tidy             删除 target/debug/deps 中没有程序引用的 .rcgu.o
+//! cargo xtask vim-fixtures     用本机的 vim 9.1 执行 Vim 模式的对照用例，写入录制文件
+//!     [--check] [--full]        --check 只比较不写入；--full 把全部组合录制到 target 下
+//!     [--vim 路径]              默认使用 /usr/bin/vim
 //! ```
 
 use std::path::{Path, PathBuf};
@@ -33,6 +36,7 @@ mod file_types;
 mod icons;
 mod samples;
 mod sparkle;
+mod vim;
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -59,6 +63,7 @@ fn main() -> ExitCode {
         Some("test") => dev::test(&args[1..]),
         #[cfg(unix)]
         Some("tidy") => dev::tidy().map(|()| true),
+        Some("vim-fixtures") => vim::fixtures(&args[1..]),
         Some("bench") => {
             // 至少测一次，否则没有样本可排序、无法取出中位数。
             let runs = args
@@ -70,7 +75,7 @@ fn main() -> ExitCode {
         }
         _ => {
             eprintln!(
-                "用法：cargo xtask samples | bench [次数] | app [--target 目标] [--no-build] | icons 目录 | sparkle | linux-appcast 目录 地址 AppImage… | windows-appcast 目录 地址 安装包… | dmg [--app 路径] [--output 路径] | test [--all] [--base 提交] [-- 参数] | tidy"
+                "用法：cargo xtask samples | bench [次数] | app [--target 目标] [--no-build] | icons 目录 | sparkle | linux-appcast 目录 地址 AppImage… | windows-appcast 目录 地址 安装包… | dmg [--app 路径] [--output 路径] | test [--all] [--base 提交] [-- 参数] | tidy | vim-fixtures [--check] [--full] [--vim 路径]"
             );
             return ExitCode::from(2);
         }

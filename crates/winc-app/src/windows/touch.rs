@@ -26,23 +26,24 @@ use winit::window::Window;
 #[cfg(test)]
 mod native_tests;
 
-/// 窗口的命中测试区域（逻辑像素，客户区坐标）。
+/// 窗口的命中测试区域（系统逻辑像素，客户区坐标）。
 ///
-/// 顶栏中的控件按客户区处理；顶栏其余部分和窗口边框交给系统处理。
+/// 系统逻辑像素由物理像素除以窗口的 DPI 缩放系数得到，不再除以界面缩放倍数；布局坐标乘以
+/// 界面缩放倍数后填入。顶栏中的控件按客户区处理；顶栏其余部分和窗口边框交给系统处理。
 #[derive(Default)]
 pub struct WindowHitTest {
-    /// 顶栏高度（逻辑像素），从客户区顶边量起。
+    /// 顶栏高度（系统逻辑像素），从客户区顶边量起。
     pub caption_height: f32,
-    /// 可拖动调整尺寸的边框宽度（逻辑像素）；为 0 或窗口最大化时不检测边框。
+    /// 可拖动调整尺寸的边框宽度（系统逻辑像素）；为 0 或窗口最大化时不检测边框。
     pub resize_border: f32,
-    /// 顶栏中按客户区接收输入的控件矩形（逻辑像素）。
+    /// 顶栏中按客户区接收输入的控件矩形（系统逻辑像素）。
     pub client: Vec<Rect>,
 }
 
 impl WindowHitTest {
     /// 返回点 (`x`, `y`) 的命中测试结果（`HT*` 常量）。
     ///
-    /// 坐标与窗口尺寸 `width`、`height` 均为逻辑像素；点位于窗口外时返回 `HTCLIENT`，
+    /// 坐标与窗口尺寸 `width`、`height` 均为系统逻辑像素；点位于窗口外时返回 `HTCLIENT`，
     /// 即保留系统的默认结果。
     pub fn hit(&self, x: f32, y: f32, width: f32, height: f32, maximized: bool) -> u32 {
         if !Rect::new(0.0, 0.0, width, height).contains(x, y) {
@@ -181,7 +182,7 @@ unsafe extern "system" fn window_proc(
         {
             return original;
         }
-        // 每次按窗口当前 DPI 换算为逻辑像素（96 DPI 对应缩放系数 1），系统拖动中跨屏、
+        // 每次按窗口当前 DPI 换算为系统逻辑像素（96 DPI 对应缩放系数 1），系统拖动中跨屏、
         // 最大化或调整尺寸后结果仍与布局一致。
         // SAFETY: `hwnd` 是当前回调所属的有效窗口，`GetDpiForWindow` 没有指针参数。
         let scale = unsafe { GetDpiForWindow(hwnd) }.max(96) as f32 / 96.0;

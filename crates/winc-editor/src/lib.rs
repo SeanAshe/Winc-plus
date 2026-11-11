@@ -34,6 +34,7 @@ pub use editing::command::Command;
 pub use editing::cursors::MAX_CURSORS;
 pub use editing::folding::{Fold, FoldCommand, Folds, LineWindow, WrapJob, WrapResult};
 pub use editing::long_lines::LineSpan;
+pub use editing::modal::ModalPattern;
 pub use editing::search::{MAX_MATCHES, Search, TextSearch};
 pub use editing::{paste, scopes};
 pub use navigation::bookmarks::{BookmarkMap, Bookmarks};

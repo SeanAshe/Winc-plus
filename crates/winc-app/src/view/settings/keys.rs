@@ -111,12 +111,18 @@ fn draw_list(app: &App, frame: &mut Frame<'_>, keys: &KeysLayout, look: ThumbLoo
         if rect.bottom() < list.y || rect.y > list.bottom() {
             continue;
         }
+        // 被 Vim 层占用的键在生效范围之后标注。
+        let taken = app.vim_takes_keys(&row.keys).then(|| t!("cmd-when-vim"));
+        let note = match (row.when.note(), taken) {
+            (Some(when), Some(taken)) => Some(format!("{when} · {taken}")),
+            (when, taken) => when.or(taken).map(str::to_owned),
+        };
         draw_row(
             app,
             frame,
             *rect,
             row.action,
-            row.when.note(),
+            note.as_deref(),
             &row.keys,
             list,
         );

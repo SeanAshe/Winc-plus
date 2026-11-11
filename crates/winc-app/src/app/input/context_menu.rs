@@ -18,7 +18,7 @@ use super::*;
 use crate::app::git::location_picker::Place;
 use crate::icons;
 use crate::keymap::{self, Action, Context, Stroke};
-use crate::layout::{goto_bar, hit};
+use crate::layout::hit;
 
 mod menus;
 mod popup;
@@ -156,6 +156,9 @@ pub enum MenuCommand {
     /// 设置中「空白符」菜单的一项，参数为
     /// [`RenderWhitespace::ALL`](winc_config::RenderWhitespace::ALL) 中的序号（从 0 起）。
     Whitespace(usize),
+    /// 设置中「Vim 剪贴板」菜单的一项，参数为
+    /// [`VimClipboard::ALL`](winc_config::VimClipboard::ALL) 中的序号（从 0 起）。
+    VimClipboard(usize),
     /// 设置中「默认 Shell」菜单的一项：`None` 为系统默认，`Some(i)` 为检测到的第 `i` 个 shell
     /// （从 0 起）。
     DefaultShell(Option<usize>),
@@ -477,6 +480,9 @@ impl MenuCommand {
             MenuCommand::Whitespace(i) => winc_config::RenderWhitespace::ALL
                 .get(i)
                 .map_or("", |&choice| crate::layout::whitespace_label(choice)),
+            MenuCommand::VimClipboard(i) => winc_config::VimClipboard::ALL
+                .get(i)
+                .map_or("", |&choice| crate::layout::vim_clipboard_label(choice)),
             MenuCommand::Locale(i) => winc_i18n::LocaleChoice::ALL
                 .get(i)
                 .map_or("", |&choice| crate::layout::locale_label(choice)),
@@ -618,6 +624,8 @@ pub enum MenuTarget {
     Locale,
     /// 设置的编辑器页中的「空白符」。
     Whitespace,
+    /// 设置的编辑器页中的「Vim 剪贴板」。
+    VimClipboard,
     /// 设置的外观页中的「界面缩放」。
     Zoom,
     /// 设置的外观页中的「背景图片」。
