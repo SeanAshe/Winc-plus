@@ -358,7 +358,7 @@ impl App {
         let icon = doc
             .diff
             .as_deref()
-            .and_then(|v| v.new.path.as_deref().or(v.old.path.as_deref()))
+            .and_then(|v| v.disk_path())
             .and_then(|p| p.file_name())
             .map_or_else(
                 || name.split(" · ").next().unwrap_or(&name).to_owned(),

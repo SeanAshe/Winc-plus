@@ -1017,3 +1017,58 @@ fn the_focus_ring_has_even_sides_at_any_scale() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn search_results_open_in_the_preview_tab_until_double_clicked() {
+    let dir = search_folder("global-preview");
+    let mut app = app_with(&dir, false);
+    app.config.preview_on_click = Some(true);
+    app.sidebar.view = SidebarView::Search;
+    app.relayout();
+    paint(&mut app);
+    app.focus = Focus::GlobalQuery;
+    app.edit_field(|f| f.insert("config"));
+    app.run_global_search();
+    finish_search(&mut app);
+    paint(&mut app);
+    let press = |app: &mut App, row: ResultRow| {
+        let index = app.global.rows().iter().position(|&r| r == row).unwrap();
+        let rect = app.result_row_rect(index);
+        app.on_mouse_move(rect.x + 60.0, rect.y + 10.0);
+        app.on_mouse_down(MouseButton::Left);
+        app.on_mouse_up(MouseButton::Left);
+        paint(app);
+    };
+    let name = |app: &App| app.editor.active().unwrap().name().to_string();
+    let tabs = app.editor.documents.len();
+
+    // 单击一处匹配：在预览标签中打开，焦点留在结果列表。
+    press(&mut app, ResultRow::Match(1, 0));
+    assert_eq!(name(&app), "config.rs");
+    assert_eq!(app.preview_index(), app.editor.active);
+    assert_eq!(app.focus, Focus::Results);
+    let opened = app.editor.documents.len();
+    assert!(opened <= tabs + 1);
+
+    // 单击另一个文件中的匹配：复用预览标签，标签数量不变。
+    press(&mut app, ResultRow::Match(2, 0));
+    assert_eq!(name(&app), "main.rs");
+    assert_eq!(app.editor.documents.len(), opened);
+    assert_eq!(app.preview_index(), app.editor.active);
+
+    // 双击：成为普通标签，焦点进入编辑区；此后单击其他结果新开预览标签。
+    app.on_mouse_down(MouseButton::Left);
+    app.on_mouse_up(MouseButton::Left);
+    assert_eq!(app.preview_index(), None);
+    assert_eq!(app.focus, Focus::Editor);
+    press(&mut app, ResultRow::Match(1, 0));
+    assert_eq!(app.editor.documents.len(), opened + 1);
+    assert_eq!(app.preview_index(), app.editor.active);
+
+    // 未启用预览标签时，单击在普通标签中打开。
+    app.config.preview_on_click = Some(false);
+    press(&mut app, ResultRow::Match(0, 0));
+    assert_eq!(app.preview_index(), None);
+    assert_eq!(name(&app), "Cargo.toml");
+    std::fs::remove_dir_all(&dir).unwrap();
+}

@@ -129,6 +129,42 @@ fn long_unchanged_runs_fold_and_expand() {
 }
 
 #[test]
+fn expanded_runs_fold_again_one_by_one_or_all_at_once() {
+    let old = numbered(40);
+    let new = old.replace("line 20\n", "line twenty\n");
+    let mut v = view(&old, &new);
+    let folded = v.row_count();
+    assert!(v.open_folds.is_empty());
+    assert_eq!(v.gap_of(RIGHT, 3), Some(0));
+    assert_eq!(v.gap_of(RIGHT, 20), None, "改动中的行不属于未改动的段");
+    assert_eq!(v.gap_of(LEFT, 30), Some(1));
+
+    // 展开第二段：收起标记位于重新折叠后第一个隐藏的行（第 25 行）。
+    v.expand(1);
+    assert!(v.is_open(1) && !v.is_open(0));
+    let (gap, row) = v.open_folds[0];
+    assert_eq!(gap, 1);
+    assert_eq!(v.rows[RIGHT][row], line(25, None));
+
+    // 重新折叠该段：显示行恢复原状，顶部的行保持不动。
+    assert_eq!(v.fold(1, 0), 0);
+    assert_eq!(v.row_count(), folded);
+    assert!(v.open_folds.is_empty());
+
+    // 全部展开后各段都可以重新折叠；全部折叠回到最初的状态。
+    v.unfold_all(0);
+    assert_eq!(v.row_count(), 40);
+    assert!(v.is_open(0) && v.is_open(1) && v.collapses());
+    v.fold_all(0);
+    assert_eq!(v.row_count(), folded);
+
+    // 关闭折叠时全部显示，没有可以重新折叠的段。
+    v.set_collapse(false, 0);
+    assert_eq!(v.row_count(), 40);
+    assert!(v.open_folds.is_empty());
+}
+
+#[test]
 fn navigation_walks_hunks_in_order() {
     let old = numbered(30);
     let new = old

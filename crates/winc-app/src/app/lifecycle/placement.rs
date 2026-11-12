@@ -32,6 +32,9 @@ pub(super) struct Screen {
     pub height: f64,
     /// 缩放比例。
     pub scale: f64,
+    /// 可用区域（显示器减去任务栏等系统保留区域）的宽度和高度（物理像素）；只在 Windows 上
+    /// 读取，其他系统为 `None`。
+    pub work: Option<(f64, f64)>,
 }
 
 /// 校验之后的窗口大小和位置。
@@ -49,6 +52,8 @@ pub(super) struct Placement {
 ///
 /// 显示器拔掉、分辨率变小以后，窗口的顶边或者足够宽的一段不在任何显示器上时不恢复位置；大小
 /// 不超过窗口所在的显示器（不恢复位置时是第一台），也不小于窗口的最小尺寸。
+///
+/// 记录的大小盖满所在显示器的可用区域（见 [`covers`]）时，大小和位置都不恢复，使用默认大小。
 pub(super) fn place(frame: &WindowFrame, screens: &[Screen]) -> Placement {
     let margin = VISIBLE_MARGIN * frame.scale;
     let right = |x: f64| x + frame.width * frame.scale;
@@ -59,16 +64,31 @@ pub(super) fn place(frame: &WindowFrame, screens: &[Screen]) -> Placement {
     let found = frame
         .position
         .and_then(|at| Some((screens.iter().find(|s| reachable(s, at))?, at)));
-    let (mut width, mut height) = (frame.width, frame.height);
-    if let Some(screen) = found.map(|(screen, _)| screen).or(screens.first()) {
+    let screen = found.map(|(screen, _)| screen).or(screens.first());
+    let size = (frame.width * frame.scale, frame.height * frame.scale);
+    let (mut width, mut height, position) = if covers(size, screen.and_then(|s| s.work)) {
+        (DEFAULT_WIDTH, DEFAULT_HEIGHT, None)
+    } else {
+        (frame.width, frame.height, found.map(|(_, at)| at))
+    };
+    if let Some(screen) = screen {
         width = width.min(screen.width / screen.scale);
         height = height.min(screen.height / screen.scale);
     }
     Placement {
         width: width.max(MIN_WIDTH),
         height: height.max(MIN_HEIGHT),
-        position: found.map(|(_, at)| at),
+        position,
     }
+}
+
+/// 是否盖满可用区域：宽 `width`、高 `height` 均不小于可用区域 `work` 的宽、高（物理像素）；
+/// 可用区域未知时为否。
+///
+/// 最大化的窗口占满可用区域。未最大化的窗口使用这样的大小时与最大化的窗口无法区分，超出可用
+/// 区域的部分被任务栏遮挡，因此这样的大小既不记录，也不恢复。
+fn covers((width, height): (f64, f64), work: Option<(f64, f64)>) -> bool {
+    work.is_some_and(|(w, h)| width >= w && height >= h)
 }
 
 /// 新窗口相对打开它的窗口往右下错开的距离（逻辑像素）：与 macOS 标题栏的高度接近，层叠的
@@ -93,6 +113,20 @@ pub(super) fn window_position((x, y): (f64, f64), scale: f64) -> Position {
     }
 }
 
+/// 返回显示器 `monitor` 可用区域的宽度和高度（物理像素）；只在 Windows 上读取。
+fn work_size(monitor: &winit::monitor::MonitorHandle) -> Option<(f64, f64)> {
+    #[cfg(windows)]
+    {
+        use winit::platform::windows::MonitorHandleExtWindows;
+        crate::windows::work_size(monitor.hmonitor())
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = monitor;
+        None
+    }
+}
+
 /// 当前连接的显示器。
 pub(super) fn screens(event_loop: &ActiveEventLoop) -> Vec<Screen> {
     event_loop
@@ -105,6 +139,7 @@ pub(super) fn screens(event_loop: &ActiveEventLoop) -> Vec<Screen> {
                 width: f64::from(size.width),
                 height: f64::from(size.height),
                 scale: monitor.scale_factor(),
+                work: work_size(&monitor),
             }
         })
         .collect()
@@ -112,6 +147,8 @@ pub(super) fn screens(event_loop: &ActiveEventLoop) -> Vec<Screen> {
 
 impl App {
     /// 窗口大小或位置变了：没有最大化、全屏、最小化时记下来，还原后回到这个大小。
+    ///
+    /// 盖满所在显示器可用区域的大小（见 [`covers`]）不记录，保留此前记录的大小。
     pub(super) fn note_window_frame(&mut self) {
         let Some(window) = &self.window.handle else {
             return;
@@ -123,8 +160,13 @@ impl App {
         {
             return;
         }
+        let inner = window.inner_size();
+        let work = window.current_monitor().and_then(|m| work_size(&m));
+        if covers((f64::from(inner.width), f64::from(inner.height)), work) {
+            return;
+        }
         let scale = window.scale_factor();
-        let size = window.inner_size().to_logical::<f64>(scale);
+        let size = inner.to_logical::<f64>(scale);
         if size.width <= 0.0 || size.height <= 0.0 {
             return;
         }

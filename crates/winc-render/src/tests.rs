@@ -1,6 +1,8 @@
 //! `Renderer` 的测试：整帧绘制的透明度与裁剪、模拟粗体和斜体、多个窗口共用的字形缓存，
 //! 以及由系统提供的字形轮廓。
 
+use std::path::PathBuf;
+
 use super::*;
 
 /// 用字体 `font` 的 `kind` 字形画字符 `c`，返回字形上半部分与下半部分墨迹的平均横坐标
@@ -666,4 +668,46 @@ fn the_wallpaper_is_placed_by_its_fit() {
         frame.rect(Rect::new(2.0, 0.0, 2.0, 2.0), bg);
     });
     assert_eq!((image[0], image[2], image[4]), (red, 0x202020, blue));
+}
+
+/// 当前平台上带微调指令的等宽字体：macOS 与 Linux 取随系统或 CI 安装的字体，Windows 取系统字体；
+/// 文件不存在时返回 `None`。
+fn hinted_font() -> Option<FontSpec> {
+    let path = if cfg!(target_os = "macos") {
+        PathBuf::from("/System/Library/Fonts/Supplemental/Andale Mono.ttf")
+    } else if cfg!(windows) {
+        text::font_path::windows_fonts().join("consola.ttf")
+    } else {
+        PathBuf::from("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf")
+    };
+    path.is_file().then_some(FontSpec::Path(path))
+}
+
+/// 微调把横画对齐到像素行：部分覆盖的像素减少，文字的宽度不变。
+#[test]
+fn hinting_sharpens_horizontal_stems_and_keeps_advances() {
+    let Some(font) = hinted_font() else {
+        return;
+    };
+    // 返回（文字末尾的横坐标，各像素距全覆盖或无覆盖的差之和）；后者越小，边缘越清晰。
+    let draw = |hinting: bool| {
+        let black = Color::hex(0x000000);
+        let mut renderer = Renderer::offscreen(120.0, 24.0, 1.0, black, Some(&font), None).unwrap();
+        renderer.set_hinting(hinting);
+        let mut end = 0.0;
+        renderer.draw(|frame| {
+            let (all, white) = (frame.bounds(), Color::hex(0xffffff));
+            end = frame.text(FontKind::Mono, 13.0, 4.0, 17.0, "EFHLTZ=_-+", white, all);
+        });
+        let image = renderer.image().unwrap();
+        let ink = |p: &u32| (p & 0xff).min(255 - (p & 0xff));
+        (end, image.pixels.iter().map(ink).sum::<u32>())
+    };
+    let (plain_end, plain) = draw(false);
+    let (hinted_end, hinted) = draw(true);
+    assert_eq!(hinted_end, plain_end);
+    assert!(
+        (hinted as f32) < plain as f32 * 0.9,
+        "未微调 {plain}，微调 {hinted}"
+    );
 }

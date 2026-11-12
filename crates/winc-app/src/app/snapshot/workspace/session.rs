@@ -375,7 +375,11 @@ pub(in crate::app::snapshot) fn backup_root(name: &str) -> PathBuf {
 }
 
 /// 模拟时间流逝，使所有待写的备份立即写入完成。
+///
+/// 先清除已排定的到期时刻：上一次调用未能写入（如备份锁被占用）时，重试排在模拟的时刻之后，
+/// 不清除则本次调用不会重试。
 pub(in crate::app::snapshot) fn back_up_now(app: &mut App) {
+    app.forget_backup_due();
     let later = Instant::now() + Duration::from_secs(5);
     app.backup_tick(Instant::now());
     app.backup_tick(later);
@@ -719,21 +723,32 @@ fn a_second_winc_on_the_same_folder_leaves_the_first_ones_backups_alone() {
     assert!(left[0].text().unwrap().starts_with("第一个 "));
     // 第一个退出、放开锁以后，第二个下次备份时接手，未保存的修改从此也有备份。
     drop(first);
-    // 其他测试启动外部程序时，子进程在 exec 之前短暂继承第一个实例的锁，等它释放。
-    drop(backups.lock_within(std::time::Duration::from_secs(1)));
     second.run(Command::Insert("接手 ".into()));
+    // 锁仍被占用的那一次备份不写，之后的备份重试：这里另开一个句柄占用锁文件，模拟其他测试启动
+    // 外部程序时，子进程在 exec 之前短暂继承的锁。
+    let inherited = backups.lock_within(Duration::from_secs(5));
+    assert!(inherited.is_some(), "第一个实例退出后锁仍被占用");
     back_up_now(&mut second);
+    assert!(!second.holds_backup_lock());
+    drop(inherited);
+    // 真实的子进程随时可能再次短暂占用锁，重试到取到为止；不另开句柄探测锁是否空闲，探测用的
+    // 句柄同样会被子进程继承。
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        back_up_now(&mut second);
+        if second.holds_backup_lock() || Instant::now() >= deadline {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
     // 同一个文件只有一个备份文件：以第二个实例中打开的内容为准。
     let left = backups.read_all();
     assert_eq!(left.len(), 1);
     let text = left[0].text().unwrap();
-    // 断言失败时一并输出第二个实例是否持有锁、此刻能否取到锁，便于分辨是没取到锁还是取到了锁
-    // 却没写。
     assert!(
         text.starts_with("第二个 接手 "),
-        "备份内容：{text:?}；第二个持有锁：{}；此刻能取到锁：{}",
+        "备份内容：{text:?}；第二个持有锁：{}",
         second.holds_backup_lock(),
-        backups.lock().is_some(),
     );
 
     let _ = std::fs::remove_dir_all(&dir);

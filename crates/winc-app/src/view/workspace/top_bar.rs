@@ -215,7 +215,8 @@ fn draw_tabs(app: &mut App, frame: &mut Frame<'_>) {
     tabs.list = list;
     tabs.content = content;
 
-    // 当前标签改变后，将该标签滚动到可见范围内，并在两侧留出渐隐区域的宽度。
+    // 当前标签改变后，将该标签滚动到可见范围内，并在两侧留出渐隐区域的宽度。刚打开的标签在
+    // 展开期间逐帧跟随其右边缘，展开完成后才记为已滚入，否则只有展开之初的窄条位于可见范围内。
     if let Some(active) = app.editor.active {
         let id = app.editor.documents[active].id;
 
@@ -230,7 +231,9 @@ fn draw_tabs(app: &mut App, frame: &mut Frame<'_>) {
                 tabs.scroll = end + margin - view.w;
             }
 
-            tabs.revealed = Some(id);
+            if grow[active] >= 1.0 {
+                tabs.revealed = Some(id);
+            }
         }
     }
 

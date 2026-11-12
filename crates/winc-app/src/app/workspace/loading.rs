@@ -151,8 +151,25 @@ impl App {
         path: &Path,
         then: impl FnOnce(&mut App) + 'static,
     ) {
+        self.open_then(path, false, then);
+    }
+
+    /// 同 [`Self::open_path_then`]，启用预览标签时在预览标签中打开（见 [`App::preview_path`]）。
+    pub(in crate::app) fn preview_path_then(
+        &mut self,
+        path: &Path,
+        then: impl FnOnce(&mut App) + 'static,
+    ) {
+        self.open_then(path, self.preview_on_click(), then);
+    }
+
+    fn open_then(&mut self, path: &Path, preview: bool, then: impl FnOnce(&mut App) + 'static) {
         let from = self.editor.active().map(|d| d.id);
-        self.open_path(path);
+        if preview {
+            self.preview_path(path);
+        } else {
+            self.open_path(path);
+        }
         let switched = self.editor.active().map(|d| d.id) != from;
         self.when_loaded(move |app| {
             then(app);

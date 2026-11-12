@@ -347,7 +347,10 @@ impl App {
         match self.panel_hover_at(x, y) {
             Some(Hover::Panel(button)) => self.press_panel_button(button),
             Some(Hover::RowAction(index, action)) => self.press_row_action(index, action),
-            Some(Hover::Result(index)) => self.click_result(index),
+            Some(Hover::Result(index)) => {
+                let double = self.click_count(x, y) == 2;
+                self.click_result(index, double);
+            }
             _ => {
                 if let Some(focus) = self.field_at(x, y) {
                     self.focus = focus;

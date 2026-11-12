@@ -27,9 +27,7 @@ use animation::{
     EXIT_FADE, FOLD_ANIMATION, PICKER_ANIMATION, POPUP_IN, POPUP_OUT, SIDEBAR_ANIMATION, TAB_SLIDE,
     TREE_ANIMATION,
 };
-pub(crate) use diff::{
-    DIFF_TEXT_PAD, DiffParts, DiffTarget, HunkKind, diff_max_scroll_x, diff_parts,
-};
+pub(crate) use diff::{DIFF_TEXT_PAD, DiffParts, DiffTarget, HunkKind, diff_parts};
 pub use editor::conflict::{ConflictAction, OverwriteChoice};
 pub use editor::editing::BraceKey;
 pub use editor::editing::ScrollGlide;
@@ -884,6 +882,8 @@ pub struct App {
     pub text_content_w: f32,
     /// 代码折叠、展开的动画。
     pub fold_motion: Option<FoldMotion>,
+    /// 差异标签中未改动内容折叠、展开的过渡。
+    pub(crate) diff_fold: Option<diff::DiffFoldMotion>,
     /// 编辑区跳转式滚动（翻页、跳到行、查找跳转）的平滑滚动状态。
     pub(crate) scroll_glide: Option<ScrollGlide>,
     /// 鼠标滚轮滚动的过渡状态。

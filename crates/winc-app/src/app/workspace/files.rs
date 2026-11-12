@@ -76,7 +76,7 @@ pub struct TabBar {
     pub scroll: f32,
     /// 上次滚入可见范围的标签。
     ///
-    /// 当前标签变化时才自动滚动，避免打断手动滚动。
+    /// 当前标签变化时才自动滚动，避免打断手动滚动；刚打开的标签展开完成后才记入。
     pub revealed: Option<DocumentId>,
     /// 按住的标签的拖动状态。
     pub drag: Option<TabDrag>,

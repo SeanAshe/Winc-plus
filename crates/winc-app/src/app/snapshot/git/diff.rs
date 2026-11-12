@@ -2047,40 +2047,6 @@ fn word_wrap_applies_to_the_diff_view() {
 }
 
 #[test]
-fn the_diff_view_scrolls_sideways_from_the_bottom_bar() {
-    let Some((dir, file)) = long_lines_repo("git-diff-hscroll") else {
-        return;
-    };
-    let mut app = app_with(&dir, false);
-    app.settings_toggle(Setting::GitModule);
-    if git_unusable(&app) {
-        let _ = std::fs::remove_dir_all(&dir);
-        return;
-    }
-    app.fetch_changes(&file, Target::Open);
-    paint(&mut app);
-
-    // 长行超出一侧的文字区：正文下沿有横向滚动条，拖到右端能看到行尾。
-    let track = app.hscroll_track();
-    assert!(app.text_content_w > track.w);
-    let y = track.bottom() - 4.0;
-    app.on_mouse_move(track.x + 8.0, y);
-    assert_eq!(app.hover, Hover::Scrollbar(Scrollbar::EditorHorizontal));
-    app.on_mouse_down(MouseButton::Left);
-    app.on_mouse_move(track.right(), y);
-    app.on_mouse_up(MouseButton::Left);
-    let max = app.text_content_w - track.w;
-    assert!((app.editor.active().unwrap().scroll_x - max).abs() < 1.0);
-
-    // 自动换行后一行放得下，横向滚动条消失。
-    app.settings_toggle(Setting::WordWrap);
-    paint(&mut app);
-    assert_eq!(app.editor.active().unwrap().scroll_x, 0.0);
-    assert_eq!(app.text_content_w, 0.0);
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[test]
 fn toggling_word_wrap_keeps_the_top_line_of_the_diff_in_place() {
     let Some((dir, file)) = uneven_lines_repo("git-diff-wrap-top") else {
         return;
@@ -2190,4 +2156,246 @@ fn shoot_diff_whitespace() {
         shoot(&mut app, &format!("whitespace-diff-{theme}"));
         let _ = std::fs::remove_dir_all(&dir);
     }
+}
+
+/// 回归：差异标签自身没有路径，文件树按它对应的工作区文件定位。切回文件视图、切换到该标签、
+/// 点击「定位当前文件」都展开并选中该文件。
+#[test]
+fn a_diff_tab_is_located_in_the_file_tree_by_its_worktree_file() {
+    let dir = search_folder("git-diff-locate");
+    if !long_repo(&dir) {
+        return;
+    }
+    let mut app = app_with(&dir.join("src/main.rs"), false);
+    app.settings_toggle(Setting::GitModule);
+    if git_unusable(&app) {
+        return;
+    }
+    app.run(winc_editor::Command::Insert("// 新的一行\n".into()));
+    assert!(app.run_action(Action::GitShowChanges));
+    let diff = app.editor.active.unwrap();
+    assert!(app.editor.documents[diff].path.is_none());
+    assert!(app.editor.documents[diff].diff.is_some());
+
+    // 每一步之前收起全部目录并清除选中，文件所在的目录需要重新展开。
+    let forget = |app: &mut App| {
+        let ws = app.editor.workspace.as_mut().unwrap();
+        ws.collapse_all();
+        ws.selected = None;
+    };
+    let located = |app: &App| {
+        let ws = app.editor.workspace.as_ref().unwrap();
+        ws.selected.map(|index| ws.rows()[index].name.to_string())
+    };
+
+    forget(&mut app);
+    app.set_sidebar_view(SidebarView::Search);
+    app.set_sidebar_view(SidebarView::Files);
+    assert_eq!(located(&app).as_deref(), Some("main.rs"));
+
+    forget(&mut app);
+    app.activate_tab(0);
+    app.activate_tab(diff);
+    assert_eq!(located(&app).as_deref(), Some("main.rs"));
+
+    forget(&mut app);
+    app.run_tree_tool(crate::app::TreeTool::Locate);
+    assert_eq!(located(&app).as_deref(), Some("main.rs"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 差异标签中折叠命令作用于未改动的长段：全部展开、全部折叠，展开的段可以用行号栏中的收起标记
+/// 单独折叠回去。
+#[test]
+fn fold_commands_and_the_gutter_mark_refold_unchanged_runs_in_a_diff() {
+    let dir = search_folder("git-diff-refold");
+    if !long_repo(&dir) {
+        return;
+    }
+    let mut app = app_with(&dir.join("src/main.rs"), false);
+    app.settings_toggle(Setting::GitModule);
+    if git_unusable(&app) {
+        return;
+    }
+    app.run(winc_editor::Command::Insert("// 新的一行\n".into()));
+    assert!(app.run_action(Action::GitShowChanges));
+    let folds = |app: &App| {
+        let view = app.editor.active().unwrap().diff.as_deref().unwrap();
+        let folded = view.rows[RIGHT]
+            .iter()
+            .filter(|r| matches!(r, SideRow::Fold { .. }));
+        (folded.count(), view.open_folds.len())
+    };
+    let (folded, open) = folds(&app);
+    assert!(folded > 0 && open == 0);
+
+    // 全部展开：没有折叠行，每一段都带收起标记。
+    assert!(app.run_action(Action::UnfoldAll));
+    assert_eq!(folds(&app), (0, folded));
+
+    // 点击一个收起标记：只有该段折叠回去。
+    paint(&mut app);
+    let mark = app.hits.diff.iter().find_map(|(rect, target)| {
+        matches!(target, DiffTarget::Refold(_)).then_some((*rect, *target))
+    });
+    let (rect, target) = mark.expect("展开的段有收起标记");
+    assert!(rect.w > 0.0 && rect.h > 0.0);
+    app.press_diff(target);
+    assert_eq!(folds(&app), (1, folded - 1));
+
+    // 全部折叠：回到打开时的状态。
+    assert!(app.run_action(Action::FoldAll));
+    assert_eq!(folds(&app), (folded, 0));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 未改动内容展开、折叠的过渡：过渡期间差异保持展开的排版，折叠在过渡结束时写入；其间修改折叠
+/// 状态或点击时先结束过渡。
+#[test]
+fn folding_an_unchanged_run_in_a_diff_is_applied_when_its_transition_ends() {
+    use crate::app::animation::{Clock, FOLD_ANIMATION};
+
+    let dir = search_folder("git-diff-fold-motion");
+    if !long_repo(&dir) {
+        return;
+    }
+    let mut app = app_with(&dir.join("src/main.rs"), false);
+    app.settings_toggle(Setting::GitModule);
+    if git_unusable(&app) {
+        return;
+    }
+    app.run(winc_editor::Command::Insert("// 新的一行\n".into()));
+    assert!(app.run_action(Action::GitShowChanges));
+    let open = |app: &App, gap| {
+        app.editor
+            .active()
+            .unwrap()
+            .diff
+            .as_deref()
+            .unwrap()
+            .is_open(gap)
+    };
+    // 取编辑区顶部之下的第一段折叠。
+    let gap = {
+        let doc = app.editor.active().unwrap();
+        let view = doc.diff.as_deref().unwrap();
+        let top = view.row_at(RIGHT, doc.scroll_line.max(0.0)) as usize;
+        let below = view.rows[RIGHT].iter().skip(top + 1);
+        let folds = below.filter_map(|row| match row {
+            SideRow::Fold { gap, .. } => Some(*gap),
+            SideRow::Line { .. } => None,
+        });
+        folds.into_iter().next().expect("顶部之下有折叠的段")
+    };
+    let (half, done) = (
+        Clock::stopped(FOLD_ANIMATION, FOLD_ANIMATION / 2),
+        Clock::stopped(FOLD_ANIMATION, FOLD_ANIMATION),
+    );
+
+    // 测试中没有窗口的时钟：展开立即生效，不留下过渡。
+    app.press_diff(DiffTarget::Fold(gap));
+    assert!(open(&app, gap) && app.diff_fold.is_none());
+
+    // 展开的过渡：差异已是展开状态，过渡期间可以正常绘制，结束后仍然展开。
+    assert!(app.begin_diff_fold(gap, true, half));
+    paint(&mut app);
+    assert!(app.diff_fold.is_some());
+    assert!(app.begin_diff_fold(gap, true, done));
+    app.settle_animations();
+    assert!(app.diff_fold.is_none() && open(&app, gap));
+
+    // 折叠的过渡：进行中仍为展开状态，时钟走完后才折叠。
+    assert!(app.begin_diff_fold(gap, false, half));
+    paint(&mut app);
+    app.settle_animations();
+    assert!(app.diff_fold.is_some() && open(&app, gap));
+    assert!(app.begin_diff_fold(gap, false, done));
+    app.settle_animations();
+    assert!(app.diff_fold.is_none() && !open(&app, gap));
+    // 已折叠的段不能开始过渡。
+    assert!(!app.begin_diff_fold(gap, false, half));
+
+    // 过渡期间执行其他折叠命令：先写入进行中的折叠，再执行该命令。
+    app.press_diff(DiffTarget::Fold(gap));
+    assert!(app.begin_diff_fold(gap, false, half));
+    assert!(app.run_action(Action::UnfoldAll));
+    assert!(app.diff_fold.is_none() && open(&app, gap));
+
+    // 过渡期间点击：先结束过渡。
+    assert!(app.begin_diff_fold(gap, false, half));
+    let (x, y) = (
+        app.layout.editor.right() - 40.0,
+        app.layout.editor.bottom() - 10.0,
+    );
+    app.click_diff(x, y);
+    assert!(app.diff_fold.is_none() && !open(&app, gap));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn each_side_of_a_diff_has_a_horizontal_scrollbar_and_the_two_move_together() {
+    use winc_editor::diff_view::{DiffSide, DiffView, LEFT, RIGHT};
+
+    let dir = sample_folder("diff-hscroll");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    // 每行宽 300 列，远超一侧文字区的宽度。
+    let old: String = (0..20)
+        .map(|i| format!("line {i} {}\n", "x".repeat(300)))
+        .collect();
+    let new = old.replacen("line 3 ", "line three ", 1);
+    let language = winc_syntax::detect("long.txt");
+    let view = DiffView::new(
+        DiffSide::new("old", &old, None, language),
+        DiffSide::new("new", &new, None, language),
+    );
+    app.editor.show_diff("long.txt", view);
+    paint(&mut app);
+    let bars = app.diff_hscroll().unwrap();
+    let [Some(left), Some(right)] = bars.tracks else {
+        panic!("并排时两侧各有一条轨道");
+    };
+    assert!(bars.max > 0.0 && left.right() < right.x);
+    let scroll_x = |app: &App| app.editor.active().unwrap().scroll_x;
+    let drag_to = |app: &mut App, x: f32, y: f32| {
+        app.on_mouse_down(MouseButton::Left);
+        app.on_mouse_move(x, y);
+        app.on_mouse_up(MouseButton::Left);
+        paint(app);
+    };
+
+    // 按住左侧的滑块拖到右端：滚动到最右边，两侧的滑块都显示，且都位于各自轨道的右端。
+    let y = left.bottom() - 4.0;
+    app.on_mouse_move(left.x + 8.0, y);
+    assert_eq!(app.hover, Hover::Scrollbar(Scrollbar::DiffLeftHorizontal));
+    drag_to(&mut app, left.right(), y);
+    assert!((scroll_x(&app) - bars.max).abs() < 1.0);
+    assert_eq!(app.scrollbar_shown(ScrollArea::DiffLeftHorizontal), 1.0);
+    assert_eq!(app.scrollbar_shown(ScrollArea::DiffRightHorizontal), 1.0);
+    let end = |side: usize, track: Rect| {
+        let (_, thumb) = bars.thumb(side, bars.max).unwrap();
+        track.right() - thumb.right()
+    };
+    assert_eq!(end(LEFT, left), end(RIGHT, right));
+
+    // 右侧的滑块拖回左端：两侧一起回到行首。
+    let y = right.bottom() - 4.0;
+    app.on_mouse_move(right.right() - 8.0, y);
+    assert_eq!(app.hover, Hover::Scrollbar(Scrollbar::DiffRightHorizontal));
+    drag_to(&mut app, right.x, y);
+    assert_eq!(scroll_x(&app), 0.0);
+
+    // 单栏时两侧显示在同一个文字区，只有一条；自动换行时没有横向滚动，也没有滑块。
+    fn diff(app: &mut App) -> &mut DiffView {
+        let doc = app.editor.active_mut().unwrap();
+        doc.diff.as_deref_mut().unwrap()
+    }
+    diff(&mut app).set_unified(true);
+    let bars = app.diff_hscroll().unwrap();
+    assert!(bars.tracks[LEFT].is_none() && bars.thumb(RIGHT, 0.0).is_some());
+    diff(&mut app).set_unified(false);
+    assert!(diff(&mut app).set_wrap(Some((40, 40))));
+    let bars = app.diff_hscroll().unwrap();
+    assert_eq!(bars.max, 0.0);
+    assert!(bars.thumb(LEFT, 0.0).is_none() && bars.thumb(RIGHT, 0.0).is_none());
+    std::fs::remove_dir_all(&dir).unwrap();
 }

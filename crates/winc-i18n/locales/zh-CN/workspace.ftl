@@ -283,6 +283,7 @@ workspace-picker-unavailable = 系统中没有可用的选择面板。请安装 
 workspace-picker-failed = 无法打开选择面板：{ $error }
 workspace-open-folder-failed = 无法打开目录「{ $name }」：{ $error }
 workspace-recent-missing = 未找到「{ $path }」，已从最近列表中移除
+workspace-jump-list-recent = 最近打开的文件夹
 workspace-reloaded = 已重新加载 { $names }
 workspace-disk-conflicts = { $names } 已被其他程序修改，与未保存的修改冲突，请切换到对应的标签页选择要保留的版本
 

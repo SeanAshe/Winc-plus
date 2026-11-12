@@ -1038,7 +1038,7 @@ impl App {
     }
 
     /// 处理对第 `index` 个结果行的单击：文件行折叠或展开，匹配行打开文件并选中该处。
-    pub(in crate::app) fn click_result(&mut self, index: usize) {
+    pub(in crate::app) fn click_result(&mut self, index: usize, double: bool) {
         self.focus = Focus::Results;
         self.global.select_row(index);
 
@@ -1048,7 +1048,7 @@ impl App {
                 let collapse = !self.global.collapsed.contains(path);
                 self.set_result_collapsed(f, collapse);
             }
-            Some(&ResultRow::Match(..)) => self.open_result(index, false),
+            Some(&ResultRow::Match(..)) => self.open_result(index, double, double),
             None => {}
         }
 
@@ -1057,8 +1057,9 @@ impl App {
 
     /// 打开第 `index` 个结果行所在的文件；是匹配行时选中该处并滚动到中间。
     ///
-    /// `focus_editor` 为 `false` 时焦点留在结果列表。
-    pub(in crate::app) fn open_result(&mut self, index: usize, focus_editor: bool) {
+    /// `focus_editor` 为 `false` 时焦点留在结果列表。`keep` 为 `false` 且启用了预览标签时在预览
+    /// 标签中打开：逐条查看结果时复用同一个标签；双击、回车和菜单命令在普通标签中打开。
+    pub(in crate::app) fn open_result(&mut self, index: usize, focus_editor: bool, keep: bool) {
         let Some(&row) = self.global.rows().get(index) else {
             return;
         };
@@ -1069,7 +1070,7 @@ impl App {
             ResultRow::File(_) => None,
         };
 
-        self.open_path_then(&path, move |app| {
+        let then = move |app: &mut App| {
             let Some((line, cols)) = target else {
                 return;
             };
@@ -1084,7 +1085,12 @@ impl App {
                 let end = (start + cols.end).min(text.end_pos());
                 app.select(start + cols.start.min(len), end);
             }
-        });
+        };
+        if keep {
+            self.open_path_then(&path, then);
+        } else {
+            self.preview_path_then(&path, then);
+        }
 
         self.focus = if focus_editor {
             Focus::Editor
@@ -1119,7 +1125,7 @@ impl App {
         self.scroll_result_into_view(index);
 
         if open && matches!(self.global.rows()[index], ResultRow::Match(..)) {
-            self.open_result(index, false);
+            self.open_result(index, false, false);
         }
 
         self.request_redraw();
@@ -1172,7 +1178,7 @@ impl App {
         }
 
         if let Some(index) = self.global.selected_row() {
-            self.open_result(index, false);
+            self.open_result(index, false, false);
         }
     }
 
@@ -1217,7 +1223,7 @@ impl App {
                 // 原位置可能是下一个文件的文件行。
                 match self.global.selected_row() {
                     Some(i) if matches!(self.global.rows()[i], ResultRow::Match(..)) => {
-                        self.open_result(i, false);
+                        self.open_result(i, false, false);
                     }
                     Some(_) => self.next_result(false),
                     None => {}
@@ -1244,7 +1250,7 @@ impl App {
             return;
         };
         match command {
-            MenuCommand::OpenFiles => self.open_result(index, true),
+            MenuCommand::OpenFiles => self.open_result(index, true, true),
             MenuCommand::CopyPath | MenuCommand::CopyRelativePath => {
                 self.copy_path(&path, command == MenuCommand::CopyRelativePath);
             }

@@ -122,6 +122,7 @@ impl App {
             module_fx: Default::default(),
             text_content_w: 0.0,
             fold_motion: None,
+            diff_fold: None,
             scroll_glide: None,
             wheel: Default::default(),
             preview_tab: None,
@@ -231,6 +232,9 @@ impl App {
                 },
             );
         }
+        // 系统中的最近目录（程序坞菜单、任务栏跳转列表）独立保存：启动时按当前的最近列表核对
+        // 一次，之后随列表变化重写。
+        self.sync_system_recents();
         #[cfg(target_os = "macos")]
         // 以下回调属于整个应用（菜单栏、程序坞、`⌘Q`），交由当前窗口处理。
         if let Some(proxy) = self.proxy.as_ref().map(crate::winc::WindowProxy::active) {

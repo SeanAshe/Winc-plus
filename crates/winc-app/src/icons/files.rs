@@ -49,7 +49,7 @@ pub enum FileGlyph {
     Table,
     /// 数据库和 SQL：一个圆柱。
     Database,
-    /// 编程语言的缩写，用线条画的两三个字母（TS、JS、PY、GO、RS、C、C++、C#、KT、RB、SW），
+    /// 编程语言的缩写，用线条画的两三个字母（TS、ETS、JS、PY、GO、RS、C、C++、C#、KT、RB、SW），
     /// 扫描一列文件时可直接分辨语言；没有缩写的语言画 `Code`。
     Letters(&'static str),
     /// Java：一杯冒着热气的咖啡。
@@ -62,7 +62,7 @@ impl FileGlyph {
     /// 全部记号（包括 `file_kind` 用到的每一个缩写）：目录菜单按它预先画好每种图标，漏掉的记号
     /// 在菜单里没有图标。
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-    pub const ALL: [FileGlyph; 35] = [
+    pub const ALL: [FileGlyph; 36] = [
         FileGlyph::Code,
         FileGlyph::Text,
         FileGlyph::Data,
@@ -86,6 +86,7 @@ impl FileGlyph {
         FileGlyph::Table,
         FileGlyph::Database,
         FileGlyph::Letters("TS"),
+        FileGlyph::Letters("ETS"),
         FileGlyph::Letters("JS"),
         FileGlyph::Letters("PY"),
         FileGlyph::Letters("GO"),
@@ -609,6 +610,10 @@ fn monogram(text: &str, (cx, cy): (f32, f32)) -> Strokes<MONOGRAM_STROKES> {
                 ],
             ],
             'W' => &[&[(0.0, 0.0), (1.0, 6.0), (2.0, 2.5), (3.0, 6.0), (4.0, 0.0)]],
+            'E' => &[
+                &[(4.0, 0.0), (0.0, 0.0), (0.0, 6.0), (4.0, 6.0)],
+                &[(0.0, 3.0), (3.0, 3.0)],
+            ],
             '+' => &[&[(0.0, 3.0), (2.5, 3.0)], &[(1.25, 1.75), (1.25, 4.25)]],
             '#' => &[
                 &[(1.0, 1.25), (0.6, 5.25)],
@@ -630,7 +635,7 @@ fn monogram(text: &str, (cx, cy): (f32, f32)) -> Strokes<MONOGRAM_STROKES> {
     let count = text.chars().count();
     let width: f32 =
         text.chars().map(|c| glyph(c).1).sum::<f32>() + GAP * count.saturating_sub(1) as f32;
-    // 两个字母时放大到约 11 像素宽；三个（C++）时宽度一样，字小一点。
+    // 两个字母时放大到约 11 像素宽；三个（C++、ETS）时宽度一样，字小一点。
     let scale = (11.0 / width).min(1.3);
     let (left, top) = (cx - width * scale / 2.0, cy - 3.0 * scale);
     let mut x = 0.0;

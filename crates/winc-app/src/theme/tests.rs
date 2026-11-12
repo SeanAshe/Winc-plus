@@ -56,6 +56,8 @@ fn file_kinds_follow_whole_names_then_extensions() {
     assert_eq!(glyph("app.ts"), Letters("TS"));
     assert_eq!(glyph("App.tsx"), Letters("TS"));
     assert_ne!(file_kind("app.ts").1, file_kind("App.tsx").1);
+    assert_eq!(glyph("Index.ets"), Letters("ETS"));
+    assert_eq!(file_kind("Index.ets").1, file_kind("app.ts").1);
     assert_eq!(glyph("index.mjs"), Letters("JS"));
     assert_eq!(glyph("main.py"), Letters("PY"));
     assert_eq!(glyph("main.go"), Letters("GO"));
@@ -67,6 +69,7 @@ fn file_kinds_follow_whole_names_then_extensions() {
     // `file_kind` 给出的每种记号都在 `FileGlyph::ALL` 里：目录菜单按它事先画图标。
     let samples = [
         "a.ts",
+        "a.ets",
         "a.js",
         "a.py",
         "a.go",
@@ -215,7 +218,13 @@ fn project_badges_take_the_initials_and_the_given_color() {
     assert_eq!(badge.initials, "GR");
     assert_eq!((badge.background, badge.text), LIGHT.badges[3]);
     assert_eq!(LIGHT.project_badge("DEEIX-Chat", 0).initials, "DE");
-    assert_eq!(LIGHT.project_badge("中文项目", 0).initials, "中文");
+    // 全角字符占两个显示列，只取一个；半角字符之后放不下全角字符时只取半角字符。
+    assert_eq!(LIGHT.project_badge("中文项目", 0).initials, "中");
+    assert_eq!(LIGHT.project_badge("한글", 0).initials, "한");
+    assert_eq!(LIGHT.project_badge("a中文", 0).initials, "A");
+    assert_eq!(LIGHT.project_badge("中a", 0).initials, "中");
+    assert_eq!(LIGHT.project_badge("straße", 0).initials, "ST");
+    assert_eq!(LIGHT.project_badge("ßeta", 0).initials, "SS");
     assert_eq!(LIGHT.project_badge("--", 0).initials, "W");
 
     // 十种颜色互不相同，深色、浅色两套配色都是如此。

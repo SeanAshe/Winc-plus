@@ -585,8 +585,17 @@ impl App {
     }
 
     /// 在文件树里展开并选中当前文件。
+    ///
+    /// 差异标签自身没有路径，取其对应的磁盘文件（[`DiffView::disk_path`]）；没有对应的磁盘
+    /// 文件时保持原有的选中。
+    ///
+    /// [`DiffView::disk_path`]: winc_editor::diff_view::DiffView::disk_path
     pub(super) fn reveal_active(&mut self) {
-        if let Some(path) = self.editor.active().and_then(|d| d.path.clone()) {
+        let path = self.editor.active().and_then(|d| {
+            let disk = || d.diff.as_deref().and_then(|v| v.disk_path());
+            d.path.as_deref().or_else(disk).map(Path::to_path_buf)
+        });
+        if let Some(path) = path {
             self.reveal_path(&path);
         }
     }

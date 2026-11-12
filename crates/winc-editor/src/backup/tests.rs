@@ -118,6 +118,50 @@ fn unsaved_files_come_back_as_they_were() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+/// 取不到锁时按占用者决定是否等待：另一个实例占用时立即放弃，本进程启动的外部程序在 exec 之前
+/// 继承的描述符占用时等到它关闭。
+#[test]
+fn waiting_for_the_lock_is_only_for_descriptors_inherited_by_child_processes() {
+    use std::time::Instant;
+
+    let dir = scratch("lock-wait");
+    let backups = Backups::new(&dir.join("backups"), Some(&dir));
+    let (wait, soon) = (Duration::from_secs(5), Duration::from_secs(1));
+
+    // 本进程中另一把锁占用（同一进程中的另一个实例）：不等待。
+    let first = backups.lock().unwrap();
+    let started = Instant::now();
+    assert!(backups.lock_within(wait).is_none());
+    assert!(started.elapsed() < soon);
+
+    // 只有 Unix 上子进程会继承建议锁；其他平台到此为止。
+    #[cfg(not(unix))]
+    drop(first);
+    #[cfg(unix)]
+    {
+        // 本进程放开锁以后，复制出的描述符仍然占用，与子进程继承的描述符相同：等到它关闭。
+        let inherited = first._file.try_clone().unwrap();
+        drop(first);
+        assert!(backups.lock().is_none());
+        let closer = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(100));
+            drop(inherited);
+        });
+        let lock = backups.lock_within(wait).expect("描述符关闭后取到锁");
+        closer.join().unwrap();
+
+        // 锁文件中记着其他进程的编号：占用者是另一个 winc 进程，不等待。
+        let other = lock._file.try_clone().unwrap();
+        drop(lock);
+        fs::write(backups.lock_path(), "1").unwrap();
+        let started = Instant::now();
+        assert!(backups.lock_within(wait).is_none());
+        assert!(started.elapsed() < soon);
+        drop(other);
+    }
+    let _ = fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn only_one_winc_owns_a_folders_backups() {
     let dir = scratch("lock");

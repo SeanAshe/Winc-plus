@@ -1,11 +1,14 @@
-//! Windows 上交由系统的操作，读取的系统设置，按屏幕刷新绘制动画的显示链接，以及文件类型图标。
+//! Windows 上交由系统的操作，读取的系统设置，任务栏的跳转列表，文件类型图标，以及按屏幕刷新绘制动画的
+//! 显示链接。
 
 mod assoc;
 mod display_link;
+mod jump_list;
 mod touch;
 
 pub use assoc::{register_file_icons, register_file_types, unregister_file_types};
 pub use display_link::DisplayLink;
+pub use jump_list::sync_jump_list;
 pub use touch::{WindowHitTest, WindowInput};
 
 use std::io;
@@ -141,4 +144,24 @@ pub fn attach_console() {
     use windows_sys::Win32::System::Console::{ATTACH_PARENT_PROCESS, AttachConsole};
     // SAFETY: 只接上父进程的控制台，失败（没有父控制台）时没有效果。
     unsafe { AttachConsole(ATTACH_PARENT_PROCESS) };
+}
+
+/// 返回显示器 `monitor`（`HMONITOR`）可用区域的宽度和高度（物理像素）；读取失败时返回 `None`。
+///
+/// 可用区域是显示器减去任务栏等系统保留区域后的部分，最大化的窗口占满可用区域。
+#[allow(unsafe_code)] // GetMonitorInfoW
+pub fn work_size(monitor: isize) -> Option<(f64, f64)> {
+    use windows_sys::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITORINFO};
+    // SAFETY: `MONITORINFO` 只含整数字段，全零是有效值。
+    let mut info: MONITORINFO = unsafe { std::mem::zeroed() };
+    info.cbSize = size_of::<MONITORINFO>() as u32;
+    // SAFETY: `info` 是可写的栈变量，`cbSize` 已按结构体大小填写；句柄无效时调用失败并返回 0。
+    if unsafe { GetMonitorInfoW(monitor as _, &mut info) } == 0 {
+        return None;
+    }
+    let work = info.rcWork;
+    Some((
+        f64::from(work.right - work.left),
+        f64::from(work.bottom - work.top),
+    ))
 }

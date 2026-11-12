@@ -7,6 +7,11 @@ impl App {
     pub(in crate::app) fn holds_backup_lock(&self) -> bool {
         self.backup.lock.as_ref().is_some_and(|l| l.1.is_some())
     }
+
+    /// 测试用：清除已排定的备份到期时刻，下一次 [`App::backup_tick`] 重新排定。
+    pub(in crate::app) fn forget_backup_due(&mut self) {
+        self.backup.due = None;
+    }
 }
 
 #[test]

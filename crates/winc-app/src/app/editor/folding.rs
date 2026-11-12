@@ -70,6 +70,10 @@ impl App {
     ///
     /// 屏幕最上方的行保持在原处；光标被折入块内时移到该块的首行。
     pub(in crate::app) fn run_fold(&mut self, command: FoldCommand) {
+        // 差异标签中折叠的是未改动的长段。
+        if self.fold_diff(command) {
+            return;
+        }
         let tab_width = self.editor.active_tab_width();
         let Some(doc) = self.editor.active() else {
             return;

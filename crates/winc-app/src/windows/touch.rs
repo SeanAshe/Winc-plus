@@ -14,11 +14,15 @@ use windows_sys::Win32::Graphics::Gdi::ScreenToClient;
 use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CS_DBLCLKS, DefWindowProcW, GCL_STYLE, GetClassLongW, GetClientRect, GetMessageExtraInfo,
-    HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT, HTCAPTION, HTCLIENT, HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT,
-    HTTOPRIGHT, IsZoomed, SetClassLongW, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_MBUTTONDBLCLK,
-    WM_MBUTTONDOWN, WM_NCDESTROY, WM_NCHITTEST, WM_NCLBUTTONDOWN, WM_RBUTTONDBLCLK, WM_RBUTTONDOWN,
-    WM_XBUTTONDBLCLK, WM_XBUTTONDOWN,
+    CS_DBLCLKS, DefWindowProcW, EnableMenuItem, GCL_STYLE, GetClassLongW, GetClientRect,
+    GetMessageExtraInfo, GetSystemMenu, GetSystemMetrics, HTBOTTOM, HTBOTTOMLEFT, HTBOTTOMRIGHT,
+    HTCAPTION, HTCLIENT, HTLEFT, HTRIGHT, HTTOP, HTTOPLEFT, HTTOPRIGHT, IsZoomed, MF_BYCOMMAND,
+    MF_ENABLED, MF_GRAYED, PostMessageW, SC_MAXIMIZE, SC_MINIMIZE, SC_MOVE, SC_RESTORE, SC_SIZE,
+    SM_MENUDROPALIGNMENT, SetClassLongW, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTALIGN,
+    TPM_RIGHTBUTTON, TrackPopupMenu, WM_LBUTTONDBLCLK, WM_LBUTTONDOWN, WM_MBUTTONDBLCLK,
+    WM_MBUTTONDOWN, WM_NCDESTROY, WM_NCHITTEST, WM_NCLBUTTONDBLCLK, WM_NCLBUTTONDOWN,
+    WM_NCRBUTTONUP, WM_RBUTTONDBLCLK, WM_RBUTTONDOWN, WM_SYSCOMMAND, WM_XBUTTONDBLCLK,
+    WM_XBUTTONDOWN,
 };
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::Window;
@@ -36,6 +40,8 @@ pub struct WindowHitTest {
     pub caption_height: f32,
     /// 可拖动调整尺寸的边框宽度（系统逻辑像素）；为 0 或窗口最大化时不检测边框。
     pub resize_border: f32,
+    /// 相邻控件之间的间距上限（系统逻辑像素），见 [`WindowHitTest::double_click_zooms`]。
+    pub control_gap: f32,
     /// 顶栏中按客户区接收输入的控件矩形（系统逻辑像素）。
     pub client: Vec<Rect>,
 }
@@ -72,6 +78,74 @@ impl WindowHitTest {
             HTCAPTION
         } else {
             HTCLIENT
+        }
+    }
+}
+
+impl WindowHitTest {
+    /// 是否由系统在双击顶栏空白处横坐标 `x`（系统逻辑像素）的位置时切换最大化。
+    ///
+    /// 位于某个控件所在的列时不切换，见 [`in_control_column`](crate::layout::in_control_column)。
+    pub fn double_click_zooms(&self, x: f32) -> bool {
+        !crate::layout::in_control_column(&self.client, self.control_gap, x)
+    }
+}
+
+/// 把消息 `lparam` 中的屏幕坐标换算为客户区坐标，返回 `[x, y, 宽, 高]`（系统逻辑像素），
+/// 宽、高为客户区的尺寸；换算失败时返回 `None`。
+///
+/// 每次按窗口当前 DPI 换算（96 DPI 对应缩放系数 1），系统拖动中跨屏、最大化或调整尺寸后
+/// 结果仍与布局一致。
+fn client_point(hwnd: HWND, lparam: LPARAM) -> Option<[f32; 4]> {
+    // `lparam` 的两个屏幕坐标（物理像素）是有符号 16 位值；副屏位于主屏左侧或上方时为负。
+    let mut point = POINT {
+        x: lparam as i16 as i32,
+        y: (lparam >> 16) as i16 as i32,
+    };
+    let mut bounds = RECT {
+        left: 0,
+        top: 0,
+        right: 0,
+        bottom: 0,
+    };
+    // SAFETY: `hwnd` 是调用方回调所属的有效窗口；两个输出参数都指向可写的栈变量。
+    if unsafe { ScreenToClient(hwnd, &mut point) == 0 || GetClientRect(hwnd, &mut bounds) == 0 } {
+        return None;
+    }
+    // SAFETY: `hwnd` 是调用方回调所属的有效窗口，`GetDpiForWindow` 没有指针参数。
+    let scale = unsafe { GetDpiForWindow(hwnd) }.max(96) as f32 / 96.0;
+    Some([point.x, point.y, bounds.right, bounds.bottom].map(|v| v as f32 / scale))
+}
+
+/// 在屏幕坐标 `lparam` 处弹出系统的窗口菜单，并执行选中的命令。
+///
+/// 菜单项的可用状态按窗口是否最大化设置：系统只在自行弹出该菜单时更新这些状态。
+fn show_window_menu(hwnd: HWND, lparam: LPARAM) {
+    // SAFETY: `hwnd` 是调用方回调所属的有效窗口。第二个参数为 0 时返回窗口菜单的句柄而不重置
+    // 菜单；句柄为空时不再使用。其余调用只传入该句柄、常量和空指针，弹出菜单期间不持有锁。
+    unsafe {
+        let menu = GetSystemMenu(hwnd, 0);
+        if menu.is_null() {
+            return;
+        }
+        let maximized = IsZoomed(hwnd) != 0;
+        let state = |enabled: bool| MF_BYCOMMAND | if enabled { MF_ENABLED } else { MF_GRAYED };
+        EnableMenuItem(menu, SC_RESTORE, state(maximized));
+        EnableMenuItem(menu, SC_MOVE, state(!maximized));
+        EnableMenuItem(menu, SC_SIZE, state(!maximized));
+        EnableMenuItem(menu, SC_MAXIMIZE, state(!maximized));
+        EnableMenuItem(menu, SC_MINIMIZE, state(true));
+        // 菜单的对齐方向跟随系统设置（从右向左的界面中菜单向左展开）。
+        let align = if GetSystemMetrics(SM_MENUDROPALIGNMENT) == 0 {
+            TPM_LEFTALIGN
+        } else {
+            TPM_RIGHTALIGN
+        };
+        let (x, y) = (lparam as i16 as i32, (lparam >> 16) as i16 as i32);
+        let flags = TPM_RETURNCMD | TPM_RIGHTBUTTON | align;
+        let command = TrackPopupMenu(menu, flags, x, y, 0, hwnd, std::ptr::null());
+        if command != 0 {
+            PostMessageW(hwnd, WM_SYSCOMMAND, command as usize, 0);
         }
     }
 }
@@ -145,10 +219,32 @@ unsafe extern "system" fn window_proc(
     id: usize,
     data: usize,
 ) -> LRESULT {
-    if message == WM_NCLBUTTONDOWN && wparam == HTCAPTION as usize && promoted_from_touch() {
-        // winit 处理此消息时补发一个坐标为 (0, 0) 的鼠标移动，用于消除鼠标拖动开始时的停顿；
-        // 由触摸提升的鼠标事件会把该移动当作真实位移，点按也可能触发吸附。因此这类消息直接
-        // 交给系统默认处理，保留原始输入序列；鼠标消息仍沿子类链处理。
+    let caption = wparam == HTCAPTION as usize;
+    // SAFETY: `WM_NCDESTROY` 之前窗口始终持有该 `Arc` 引用，指针有效。
+    let state = unsafe { &*(data as *const Mutex<WindowHitTest>) };
+    // 顶栏空白处的双击位于控件所在的列时还原为按下：仍可拖动窗口，不切换最大化。持锁期间不调用
+    // 可能重入回调的 Win32 函数。
+    let zooms = |x: f32| state.lock().is_ok_and(|hit| hit.double_click_zooms(x));
+    let beside_control = message == WM_NCLBUTTONDBLCLK
+        && caption
+        && client_point(hwnd, lparam).is_some_and(|[x, ..]| !zooms(x));
+    let message = if beside_control {
+        WM_NCLBUTTONDOWN
+    } else {
+        message
+    };
+    if message == WM_NCRBUTTONUP && caption {
+        show_window_menu(hwnd, lparam);
+        return 0;
+    }
+    // SAFETY: `hwnd` 是当前回调所属的有效窗口，`IsZoomed` 没有指针参数。
+    let maximized = || unsafe { IsZoomed(hwnd) } != 0;
+    if message == WM_NCLBUTTONDOWN && caption && (promoted_from_touch() || maximized()) {
+        // winit 处理此消息时补发一个客户区坐标为 (0, 0) 的鼠标移动，用于消除拖动开始时的停顿。
+        // 以下两种情况中系统把该移动当作真实位移，因此直接交给系统默认处理，保留原始输入序列；
+        // 其余鼠标消息仍沿子类链处理。
+        // - 由触摸提升的鼠标事件：点按也可能触发吸附。
+        // - 窗口已最大化：客户区原点与按下点的距离超过系统的拖动阈值，单击即还原窗口。
         // SAFETY: 参数原样来自系统传给当前回调的消息，`hwnd` 是当前回调所属的有效窗口。
         return unsafe { DefWindowProcW(hwnd, message, wparam, lparam) };
     }
@@ -166,39 +262,12 @@ unsafe extern "system" fn window_proc(
         if original != HTCLIENT as isize {
             return original;
         }
-        // `lparam` 的两个屏幕坐标（物理像素）是有符号 16 位值；副屏位于主屏左侧或上方时为负。
-        let mut point = POINT {
-            x: lparam as i16 as i32,
-            y: (lparam >> 16) as i16 as i32,
-        };
-        let mut bounds = RECT {
-            left: 0,
-            top: 0,
-            right: 0,
-            bottom: 0,
-        };
-        // SAFETY: `hwnd` 是当前回调所属的有效窗口；两个输出参数都指向可写的栈变量。
-        if unsafe { ScreenToClient(hwnd, &mut point) == 0 || GetClientRect(hwnd, &mut bounds) == 0 }
-        {
+        let Some([x, y, width, height]) = client_point(hwnd, lparam) else {
             return original;
-        }
-        // 每次按窗口当前 DPI 换算为系统逻辑像素（96 DPI 对应缩放系数 1），系统拖动中跨屏、
-        // 最大化或调整尺寸后结果仍与布局一致。
-        // SAFETY: `hwnd` 是当前回调所属的有效窗口，`GetDpiForWindow` 没有指针参数。
-        let scale = unsafe { GetDpiForWindow(hwnd) }.max(96) as f32 / 96.0;
-        // SAFETY: `hwnd` 是当前回调所属的有效窗口，`IsZoomed` 没有指针参数。
-        let maximized = unsafe { IsZoomed(hwnd) } != 0;
-        // SAFETY: `WM_NCDESTROY` 之前窗口始终持有该 `Arc` 引用，指针有效；持锁期间不调用
-        // 可能重入回调的 Win32 函数。
-        let state = unsafe { &*(data as *const Mutex<WindowHitTest>) };
+        };
+        // 持锁期间不调用可能重入回调的 Win32 函数。
         if let Ok(hit) = state.lock() {
-            return hit.hit(
-                point.x as f32 / scale,
-                point.y as f32 / scale,
-                bounds.right as f32 / scale,
-                bounds.bottom as f32 / scale,
-                maximized,
-            ) as isize;
+            return hit.hit(x, y, width, height, maximized()) as isize;
         }
         return original;
     }

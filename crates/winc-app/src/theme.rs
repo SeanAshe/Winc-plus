@@ -17,6 +17,7 @@ use std::borrow::Cow;
 use std::time::Duration;
 
 use winc_config::BADGE_COLORS;
+use winc_core::text;
 use winc_render::Color;
 use winc_syntax::TokenKind;
 
@@ -481,10 +482,17 @@ impl Palette {
     }
 }
 
-/// 项目徽章：项目名中的前两个字母或数字，以及最近列表为该目录选定的颜色。
+/// 徽章文字最多占用的显示列数（显示列）。
+///
+/// 徽章宽 20 逻辑像素，默认字号下两个半角字符两侧各留约 3 逻辑像素；全角字符占两列，
+/// 因此只显示一个。
+const BADGE_CELLS: usize = 2;
+
+/// 项目徽章：项目名开头的字母或数字，以及最近列表为该目录选定的颜色。
 #[derive(Debug, Clone, PartialEq)]
 pub struct ProjectBadge {
-    /// 徽章上显示的字符（字母转为大写）；项目名中没有字母或数字时为「W」。
+    /// 徽章上显示的字符（字母转为大写），不超过 [`BADGE_CELLS`] 个显示列；项目名中没有字母或
+    /// 数字时为「W」。
     pub initials: String,
     /// 徽章底色。
     pub background: Color,
@@ -495,13 +503,18 @@ pub struct ProjectBadge {
 impl Palette {
     /// 返回名为 `name`、颜色序号为 `color`（`State::badge_color`）的项目徽章。
     ///
-    /// 颜色序号对 `BADGE_COLORS` 取余后选色。
+    /// 颜色序号对 `BADGE_COLORS` 取余后选色。徽章文字从项目名的字母和数字中依次选取，
+    /// 至下一个字符超出 [`BADGE_CELLS`] 为止：半角字符取两个，全角字符取一个。
     pub fn project_badge(&self, name: &str, color: usize) -> ProjectBadge {
+        let mut cells = 0;
         let initials: String = name
             .chars()
             .filter(|c| c.is_alphanumeric())
-            .take(2)
             .flat_map(char::to_uppercase)
+            .take_while(|&c| {
+                cells += text::char_cells(c, 0, 1);
+                cells <= BADGE_CELLS
+            })
             .collect();
         let (background, text) = self.badges[color % BADGE_COLORS];
 

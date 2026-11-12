@@ -85,15 +85,19 @@ pub struct Symbol {
 /// 下面各条正则中的 `IDENT` 先替换为这段正则，[`regex`] 负责替换。
 const IDENT: &str = r"[\w$--\d][\w$]*";
 
-/// 编译 `pattern`，其中的 `IDENT` 先替换为 [`IDENT`] 的正则。
+/// 编译 `pattern`，其中的 `ANNOTATIONS`、`IDENT` 先替换为 [`ANNOTATIONS`]、[`IDENT`] 的正则。
 fn regex(pattern: &str) -> Regex {
+    let pattern = pattern.replace("ANNOTATIONS", ANNOTATIONS);
     Regex::new(&pattern.replace("IDENT", IDENT)).expect("符号的正则写错了")
 }
 
-/// 声明语句：关键字（`fn`、`def`、`class`、`struct` 等）后跟名字，关键字前可以有修饰词。
+/// 写在声明同一行、位于声明之前的注解或装饰器：`@Name`、`@Name(参数)`，可以连写多个。
+const ANNOTATIONS: &str = r"(?:@IDENT(?:\.IDENT)*(?:\([^()]*\))?\s+)*";
+
+/// 声明语句：关键字（`fn`、`def`、`class`、`struct` 等）后跟名字，关键字前可以有注解和修饰词。
 static DECLARATION: LazyLock<Regex> = LazyLock::new(|| {
     regex(
-        r#"^\s*(?:(?:pub(?:\s*\([^)]*\))?|export|default|declare|abstract|final|sealed|open|data|inline|value|private|public|protected|internal|static|async|unsafe|extern(?:\s+"[^"]*")?|const|override|suspend|partial|enum|annotation|companion)\s+)*(?P<kw>fn|def|func|function\*?|fun|class|struct|enum|trait|interface|type|union|mod|module|namespace|protocol|extension|object|record|macro_rules!)\s+(?:<[^>]*>\s*)?(?:IDENT\.)*(?P<name>IDENT)"#,
+        r#"^\s*ANNOTATIONS(?:(?:pub(?:\s*\([^)]*\))?|export|default|declare|abstract|final|sealed|open|data|inline|value|private|public|protected|internal|static|async|unsafe|extern(?:\s+"[^"]*")?|const|override|suspend|partial|enum|annotation|companion)\s+)*(?P<kw>fn|def|func|function\*?|fun|class|struct|enum|trait|interface|type|union|mod|module|namespace|protocol|extension|object|record|macro_rules!)\s+(?:<[^>]*>\s*)?(?:IDENT\.)*(?P<name>IDENT)"#,
     )
 });
 
@@ -122,7 +126,7 @@ static ARROW: LazyLock<Regex> = LazyLock::new(|| {
 /// 参数中不能出现引号，以排除 `it("works", function () {` 这类调用。
 static METHOD: LazyLock<Regex> = LazyLock::new(|| {
     regex(
-        r#"^\s+(?:(?:public|private|protected|static|async|override|abstract|final|synchronized|virtual|internal|open|readonly|get|set)\s+)*(?:[\w<>\[\],.?*&:]+\s+)?(?P<name>IDENT)\s*(?:<[^>]*>)?\s*\([^;()"'`]*\)\s*(?::\s*[^{;=]+)?(?:throws\s+[\w., ]+)?(?:const\s*)?\{\s*$"#,
+        r#"^\s+ANNOTATIONS(?:(?:public|private|protected|static|async|override|abstract|final|synchronized|virtual|internal|open|readonly|get|set)\s+)*(?:[\w<>\[\],.?*&:]+\s+)?(?P<name>IDENT)\s*(?:<[^>]*>)?\s*\([^;()"'`]*\)\s*(?::\s*[^{;=]+)?(?:throws\s+[\w., ]+)?(?:const\s*)?\{\s*$"#,
     )
 });
 
@@ -223,6 +227,18 @@ pub fn symbols(text: &Rope, language: &Language) -> Vec<Symbol> {
             parents.pop();
         }
         let parent = parents.last();
+        // ArkTS 的函数体内，行末带 `{` 的调用是带尾随闭包的组件（`Column() {`），不是声明。
+        if language.id == "arkts"
+            && kind == SymbolKind::Function
+            && matches!(
+                parent,
+                Some((_, _, SymbolKind::Function | SymbolKind::Method))
+            )
+            && !DECLARATION.is_match(content)
+            && !ARROW.is_match(content)
+        {
+            continue;
+        }
         let kind = match (kind, parent) {
             (SymbolKind::Function, Some((_, _, SymbolKind::Type | SymbolKind::Module))) => {
                 SymbolKind::Method
@@ -401,7 +417,7 @@ fn recognize(
     let braces = c_family
         || matches!(
             language.id,
-            "javascript" | "typescript" | "vue" | "java" | "groovy" | "scala" | "kotlin"
+            "javascript" | "typescript" | "arkts" | "vue" | "java" | "groovy" | "scala" | "kotlin"
         );
     if braces
         && let Some(caps) = METHOD.captures(content)
