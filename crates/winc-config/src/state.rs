@@ -118,6 +118,10 @@ pub struct Session {
     pub outline: Vec<(PathBuf, Vec<String>)>,
     /// 各文件中折叠的块（开头行，末尾行；行号从 0 起），包括当前未打开的文件。
     pub folds: Vec<(PathBuf, Vec<(usize, usize)>)>,
+    /// 各 PDF 文件的阅读位置，包括当前未打开的文件；位于文档开头的文件不记录。
+    ///
+    /// 位置记为视口顶边所在的页（页号从 0 起），以及视口顶边到该页顶边的距离与页高之比。
+    pub pdf_places: Vec<(PathBuf, (usize, f32))>,
     /// 终端面板；终端里没有标签时为 `None`。
     pub terminal: Option<TerminalSession>,
     /// 选中的运行配置的名字。
@@ -290,6 +294,26 @@ impl State {
                         .collect()
                 })
                 .unwrap_or_default();
+            let pdf_places = s
+                .get("pdfPlaces")
+                .and_then(Json::as_object)
+                .map(|files| {
+                    let place = |place: &Json| match place.as_array()? {
+                        [page, at] => {
+                            let page = page.as_number()?;
+                            let at = at.as_number().filter(|n| n.is_finite())?;
+                            (page >= 0.0 && page.fract() == 0.0)
+                                .then_some((page as usize, at as f32))
+                        }
+                        _ => None,
+                    };
+                    files
+                        .iter()
+                        .filter(|(path, _)| !path.is_empty())
+                        .filter_map(|(path, at)| Some((PathBuf::from(path), place(at)?)))
+                        .collect()
+                })
+                .unwrap_or_default();
             let terminal = s.get("terminal").and_then(Json::as_object).and_then(|t| {
                 let number = |key| {
                     t.get(key)
@@ -328,6 +352,7 @@ impl State {
                 bookmarks,
                 outline,
                 folds,
+                pdf_places,
                 terminal,
                 run: s.get("run").and_then(Json::as_str).map(str::to_owned),
                 sidebar_hidden: (s.get("sidebarHidden").and_then(Json::as_bool)).unwrap_or(false),
@@ -581,6 +606,15 @@ impl State {
                     (file.to_string_lossy().into_owned(), Json::Array(symbols))
                 });
                 items.push(("outline", Json::Object(files.collect())));
+            }
+            if !session.pdf_places.is_empty() {
+                // 比例保留四位小数：一页高 10000 逻辑像素时误差为 1 逻辑像素。
+                let files = session.pdf_places.iter().map(|(file, (page, at))| {
+                    let at = (f64::from(*at) * 1e4).round() / 1e4;
+                    let place = vec![Json::Number(*page as f64), Json::Number(at)];
+                    (file.to_string_lossy().into_owned(), Json::Array(place))
+                });
+                items.push(("pdfPlaces", Json::Object(files.collect())));
             }
             if let Some(t) = &session.terminal {
                 let number = |n: f32| Json::Number(f64::from(n));

@@ -335,6 +335,7 @@ impl App {
         settle(&mut self.global.field_motion, |m| m.2);
         settle(&mut self.global.motion, |m| m.clock);
         settle(&mut self.fold_motion, |m| m.clock);
+        self.finish_diff_fold(false);
         settle(&mut self.scroll_glide, |g| g.clock);
         settle(&mut self.picker.motion, |m| m.clock);
         settle(&mut self.pdf.zoom_motion, |m| m.clock);
@@ -435,6 +436,7 @@ impl App {
             || self.drag_autoscrolling()
             || self.global.rows_moving()
             || self.fold_motion.is_some()
+            || self.diff_fold.is_some()
             || self.scroll_glide.is_some()
             || self.wheel.glide.is_some()
             || self.picker.motion.is_some()

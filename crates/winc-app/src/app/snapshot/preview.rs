@@ -5,6 +5,9 @@ use winc_editor::PreviewMode;
 
 use super::*;
 
+#[cfg(any(target_os = "macos", windows))]
+mod pdf_places;
+
 /// 覆盖常用 Markdown 写法的 README 样本。
 const SAMPLE: &str = r#"<p align="center"><img src="logo.svg" width="64" alt="logo"></p>
 

@@ -377,7 +377,7 @@ mod imp {
     use std::fs::File;
     use std::io::{BufRead, BufReader, Read, Write};
     use std::os::windows::ffi::OsStrExt;
-    use std::os::windows::io::FromRawHandle;
+    use std::os::windows::io::{AsRawHandle, FromRawHandle};
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -391,8 +391,8 @@ mod imp {
         FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_ACCESS_DUPLEX,
     };
     use windows_sys::Win32::System::Pipes::{
-        ConnectNamedPipe, CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS,
-        PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
+        ConnectNamedPipe, CreateNamedPipeW, GetNamedPipeServerProcessId, PIPE_READMODE_BYTE,
+        PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_UNLIMITED_INSTANCES, PIPE_WAIT,
     };
 
     use super::{Launch, app_pipe_name, decode, deliver};
@@ -421,12 +421,25 @@ mod imp {
     pub(super) fn forward_to(pipe: &Path, targets: &[Target], token: Option<&str>) -> bool {
         deliver(targets, token, |message| {
             let mut stream = File::options().read(true).write(true).open(pipe)?;
+            allow_server_foreground(&stream);
             stream.write_all(&(message.len() as u64).to_le_bytes())?;
             stream.write_all(message)?;
             let mut reply = String::new();
             BufReader::new(stream).read_line(&mut reply)?;
             Ok(reply)
         })
+    }
+
+    /// 允许管道 `pipe` 另一端的服务进程把自己的窗口切到前台；取不到对方的进程编号时没有效果。
+    ///
+    /// 系统只允许拥有前台权限的进程切换前台窗口。由用户启动的新进程拥有该权限，正在运行的
+    /// 进程没有；不转让时对方打开目标后窗口留在后台，只有任务栏按钮闪烁。
+    fn allow_server_foreground(pipe: &File) {
+        let mut pid = 0;
+        // SAFETY: 句柄来自仍然存活的 `pipe`，`pid` 是可写的栈变量；调用失败时返回 0。
+        if unsafe { GetNamedPipeServerProcessId(pipe.as_raw_handle() as _, &mut pid) } != 0 {
+            crate::windows::allow_foreground(pid);
+        }
     }
 
     /// 创建一个等待连接的管道实例；`first` 为真时要求它是该名字的第一个实例。

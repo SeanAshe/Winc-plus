@@ -235,6 +235,48 @@ fn swift_attributes_directives_and_multiline_strings() {
 }
 
 #[test]
+fn arkts_structs_decorators_and_components() {
+    assert_eq!(detect("Index.ets").name, "ArkTS");
+    let (tokens, _) = lex(
+        "Index.ets",
+        "@Entry @Component struct Index {",
+        LineState::Normal,
+    );
+    assert_eq!(tokens[0], ("@Entry".into(), TokenKind::Decorator));
+    assert!(tokens.contains(&("@Component".into(), TokenKind::Decorator)));
+
+    // 状态管理装饰器沿用 `@` 装饰器的着色，`struct` 按关键字着色。
+    let (tokens, _) = lex(
+        "Index.ets",
+        "@ComponentV2 struct Counter { @Local @Trace count: number = 0",
+        LineState::Normal,
+    );
+    assert!(tokens.contains(&("@ComponentV2".into(), TokenKind::Decorator)));
+    assert!(tokens.contains(&("@Local".into(), TokenKind::Decorator)));
+    assert!(tokens.contains(&("@Trace".into(), TokenKind::Decorator)));
+    assert!(tokens.contains(&("struct".into(), TokenKind::Keyword)));
+    assert!(tokens.contains(&("number".into(), TokenKind::Builtin)));
+
+    // `constructor` 在 ArkTS 里是硬关键字；TypeScript 中它是普通标识符。
+    let (tokens, _) = lex("Index.ets", "  constructor() {}", LineState::Normal);
+    assert!(tokens.contains(&("constructor".into(), TokenKind::Keyword)));
+    let (tokens, _) = lex("a.ts", "  constructor() {}", LineState::Normal);
+    assert!(!tokens.contains(&("constructor".into(), TokenKind::Keyword)));
+
+    // 声明式界面：`build` 和属性方法按函数名着色，`Text` 这类大写开头的组件按命名习惯算类型。
+    let (tokens, next) = lex(
+        "Index.ets",
+        "  build() { Text(this.message).fontSize(50) }",
+        LineState::Normal,
+    );
+    assert!(tokens.contains(&("build".into(), TokenKind::Function)));
+    assert!(tokens.contains(&("Text".into(), TokenKind::Type)));
+    assert!(tokens.contains(&("fontSize".into(), TokenKind::Function)));
+    assert!(tokens.contains(&("this".into(), TokenKind::Keyword)));
+    assert_eq!(next, LineState::Normal);
+}
+
+#[test]
 fn raw_strings_have_no_escapes_and_close_on_their_hashes() {
     // 反斜杠不转义：`r"C:\"` 在第二个引号处结束，之后仍按代码处理。
     let (tokens, next) = lex("a.rs", r#"let p = r"C:\"; x"#, LineState::Normal);

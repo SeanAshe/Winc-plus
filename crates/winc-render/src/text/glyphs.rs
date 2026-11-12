@@ -43,9 +43,21 @@ pub(crate) struct Glyph {
     pub(crate) data: Box<[u8]>,
 }
 
+/// 是否按像素网格微调字形轮廓（见 [`GlyphCache::hinting`]）的平台默认值。
+///
+/// macOS 的系统文字渲染不做微调，此处保持一致；其余平台的系统文字渲染均做微调。实测 1 至 2 倍
+/// 缩放下微调后接近全覆盖的像素占比均高于未微调，1 倍时差别最大，因此不按缩放系数区分。
+const HINTING: bool = cfg!(not(target_os = "macos"));
+
 /// 字体、字形缓存和前进宽度缓存。
 pub(crate) struct GlyphCache {
     pub(crate) fonts: Fonts,
+    /// 光栅化时是否按像素网格微调字形轮廓。
+    ///
+    /// 微调只移动竖直方向的坐标：横画、x 字高和大写字高对齐到像素行，笔画不再跨两行像素。
+    /// 横向坐标和前进宽度不变，排版与横向亚像素定位不受影响。位图随该值不同，整个缓存只用
+    /// 一个值，因此不计入 [`GlyphKey`]。
+    pub(crate) hinting: bool,
     /// swash 的光栅化上下文，复用以避免重复分配。
     scaler: ScaleContext,
     /// 光栅化后的字形，每一代的上限为 [`GLYPH_CACHE_BYTES`] 字节。
@@ -74,6 +86,7 @@ impl GlyphCache {
     pub(crate) fn new(fonts: Fonts) -> Self {
         Self {
             fonts,
+            hinting: HINTING,
             scaler: ScaleContext::new(),
             glyphs: Generations::per_frame(GLYPH_CACHE_BYTES),
             advances: FastMap::default(),
@@ -191,13 +204,13 @@ impl GlyphCache {
     /// 单色字形的覆盖率已按 `gamma` 换算，绘制时不再换算；`gamma` 必须与 `key.dark` 对应
     /// （深色、浅色背景各有一张映射表），两种背景下的位图因此分开缓存。
     pub(crate) fn get(&mut self, key: GlyphKey, size_px: f32, gamma: &[u8; 256]) -> Option<&Glyph> {
-        let (fonts, scaler) = (&self.fonts, &mut self.scaler);
+        let (fonts, scaler, hinting) = (&self.fonts, &mut self.scaler, self.hinting);
         // 空字形同样占用表中的一项，按一项的大小计入。
         let cost = |g: &Glyph| g.data.len() + std::mem::size_of::<(GlyphKey, Glyph)>();
         // 光栅化失败的字形（如字体不含可渲染的轮廓或位图）同样记为空字形：同一个键下次仍会
         // 失败，避免每帧重试。
         let make = || {
-            let mut glyph = rasterize(fonts, scaler, key, size_px).unwrap_or(Glyph {
+            let mut glyph = rasterize(fonts, scaler, key, size_px, hinting).unwrap_or(Glyph {
                 width: 0,
                 height: 0,
                 left: 0,
@@ -243,11 +256,14 @@ pub(crate) fn heights(font: FontRef<'_>, coords: &[i16], size: f32) -> (f32, f32
 }
 
 /// 用 `fonts` 中的字体光栅化 `key` 对应的字形；字体里没有可用的轮廓或位图时返回 `None`。
+///
+/// `hinting` 为是否按像素网格微调轮廓；由系统提供轮廓的字体不做微调。
 fn rasterize(
     fonts: &Fonts,
     scaler: &mut ScaleContext,
     key: GlyphKey,
     size_px: f32,
+    hinting: bool,
 ) -> Option<Glyph> {
     let face = fonts.face(key.slot)?;
     let dx = key.subpixel as f32 / 4.0;
@@ -273,7 +289,7 @@ fn rasterize(
     let mut scaler = scaler
         .builder(face.font())
         .size(size_px)
-        .hint(false)
+        .hint(hinting)
         .normalized_coords(&face.coords)
         .build();
     if widen > 0.0

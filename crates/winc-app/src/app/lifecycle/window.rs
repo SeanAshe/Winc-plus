@@ -8,6 +8,32 @@ use super::*;
 const BENCH_PREVIEW_STEP: f32 = 60.0;
 
 impl App {
+    /// 是否为光标所在位置最上层的窗口。
+    ///
+    /// 只在 macOS 上查询，见 [`under_cursor`](crate::macos::under_cursor)；其他系统只把鼠标移动
+    /// 发给光标下最上层的窗口，恒为是。
+    pub(crate) fn under_cursor(&self) -> bool {
+        #[cfg(target_os = "macos")]
+        if let Some(window) = &self.window.handle {
+            return crate::macos::under_cursor(window);
+        }
+        true
+    }
+
+    /// 是否认为光标位于窗口内：收到过鼠标移动，且此后没有按光标离开处理。
+    pub(crate) fn cursor_inside(&self) -> bool {
+        self.cursor_inside
+    }
+
+    /// 处理光标离开窗口：清除悬停状态，并解除标签宽度的锁定。
+    pub(crate) fn cursor_left(&mut self) {
+        self.cursor_inside = false;
+        if self.tabs.width_lock.take().is_some() {
+            self.request_redraw();
+        }
+        self.set_hover(Hover::None);
+    }
+
     /// 处理双击顶栏空白处。
     ///
     /// macOS 上执行系统偏好中的标题栏双击动作（缩放或最小化），其他平台切换最大化。

@@ -274,6 +274,22 @@ pub(super) static TYPESCRIPT: Language = Language {
     ..JAVASCRIPT
 };
 
+/// `ArkTS` 的关键字：TypeScript 关键字加上 `struct` 和 `constructor`。
+static ARKTS_KEYWORDS: [&str; TYPESCRIPT.keywords.len() + 2] =
+    concat_keywords(TYPESCRIPT.keywords, &["struct", "constructor"]);
+
+/// `ArkTS` 的规则，其余字段沿用 TypeScript。
+///
+/// 声明式界面的装饰器、组件调用、字符串和注释沿用 TypeScript 的词法规则。
+pub(super) static ARKTS: Language = Language {
+    id: "arkts",
+    name: "ArkTS",
+    extensions: &["ets"],
+    interpreters: &[],
+    keywords: &ARKTS_KEYWORDS,
+    ..TYPESCRIPT
+};
+
 /// Go 的规则。
 ///
 /// 内置名是 Go 规范中预先声明的全部标识符：类型、常量、零值和内置函数。

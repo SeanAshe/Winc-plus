@@ -312,7 +312,7 @@ impl App {
     /// 记录当前目录的现场。
     ///
     /// 内容包括：有路径且仍在磁盘上的标签、有备份的未保存内容、书签、折叠的块、大纲里收起的
-    /// 符号，以及当前标签。
+    /// 符号、各 PDF 文件的阅读位置，以及当前标签。
     pub(in crate::app) fn remember_session(&mut self) {
         let Some(folder) = self.editor.root().map(Path::to_path_buf) else {
             return;
@@ -341,6 +341,7 @@ impl App {
             .collect();
         let outline = self.outline_session(&folder);
         let folds = self.editor.all_folds().into_iter().collect();
+        let pdf_places = self.pdf_session(&folder);
         self.update_state(|state| {
             state.set_session(Session {
                 folder,
@@ -349,6 +350,7 @@ impl App {
                 bookmarks,
                 outline,
                 folds,
+                pdf_places,
                 terminal,
                 run,
                 sidebar_hidden,
@@ -378,6 +380,20 @@ impl App {
         self.state = state;
         if let Err(e) = result {
             eprintln!("winc: 无法记下最近打开的目录：{e}");
+        }
+        self.sync_system_recents();
+    }
+
+    /// 把最近打开的目录交给系统：macOS 的最近文档列表（程序坞菜单）、Windows 的任务栏跳转
+    /// 列表。没有状态文件（测试、测量）时不做任何事，其他平台没有对应的入口。
+    pub(in crate::app) fn sync_system_recents(&self) {
+        #[cfg(target_os = "macos")]
+        if self.state_path.is_some() {
+            crate::macos::sync_recent_documents(&self.state.recent);
+        }
+        #[cfg(windows)]
+        if let Some(path) = &self.state_path {
+            crate::windows::sync_jump_list(&self.state.recent, path);
         }
     }
 

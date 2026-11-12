@@ -27,6 +27,10 @@ pub(crate) enum ScrollArea {
     Editor,
     /// 编辑区的水平滚动条。
     EditorHorizontal,
+    /// 差异标签左侧的水平滚动条。
+    DiffLeftHorizontal,
+    /// 差异标签右侧的水平滚动条；单栏时只有这一条。
+    DiffRightHorizontal,
     /// 文件树的竖直滚动条。
     Tree,
     /// 文件树的水平滚动条。
@@ -53,9 +57,11 @@ pub(crate) enum ScrollArea {
 
 impl ScrollArea {
     /// 全部区域，遍历时用。
-    const ALL: [ScrollArea; 13] = [
+    const ALL: [ScrollArea; 15] = [
         ScrollArea::Editor,
         ScrollArea::EditorHorizontal,
+        ScrollArea::DiffLeftHorizontal,
+        ScrollArea::DiffRightHorizontal,
         ScrollArea::Tree,
         ScrollArea::TreeHorizontal,
         ScrollArea::Panel,
@@ -74,6 +80,8 @@ impl ScrollArea {
         match self {
             ScrollArea::Editor => Some(Scrollbar::Editor),
             ScrollArea::EditorHorizontal => Some(Scrollbar::EditorHorizontal),
+            ScrollArea::DiffLeftHorizontal => Some(Scrollbar::DiffLeftHorizontal),
+            ScrollArea::DiffRightHorizontal => Some(Scrollbar::DiffRightHorizontal),
             ScrollArea::Tree => Some(Scrollbar::Tree),
             ScrollArea::TreeHorizontal => Some(Scrollbar::TreeHorizontal),
             ScrollArea::Panel => Some(Scrollbar::Panel),
@@ -91,7 +99,11 @@ impl ScrollArea {
     fn horizontal(self) -> bool {
         matches!(
             self,
-            ScrollArea::EditorHorizontal | ScrollArea::TreeHorizontal | ScrollArea::MarkdownTable
+            ScrollArea::EditorHorizontal
+                | ScrollArea::DiffLeftHorizontal
+                | ScrollArea::DiffRightHorizontal
+                | ScrollArea::TreeHorizontal
+                | ScrollArea::MarkdownTable
         )
     }
 }

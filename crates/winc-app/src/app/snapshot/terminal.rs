@@ -1084,6 +1084,30 @@ fn block_elements_leave_no_gap_between_rows() {
     }
 }
 
+/// 回归：对比度保护不改变以颜色拼接图形的字符。字色与底色接近的方块按程序指定的字色绘制，
+/// 与前一段的底色衔接。
+#[test]
+fn contrast_protection_keeps_shape_characters_seamless() {
+    let mut app = blank_app(false);
+    assert!(app.terminal_contrast() > 1.0);
+    // 第一格是黄底的空格，第二格是黄字绿底的方块：方块应与第一格的底色相同。
+    let (yellow, green) = ("215;153;33", "104;157;106");
+    let bytes = format!("\x1b[?25l\x1b[48;2;{yellow}m \x1b[38;2;{yellow};48;2;{green}m█");
+    show_terminal(&mut app, &bytes);
+    let mut scale = 1.0;
+    let renderer = app.renderer.as_mut().unwrap();
+    renderer.draw(|frame| scale = frame.scale());
+    paint(&mut app);
+    let image = app.renderer.as_ref().unwrap().image().unwrap();
+    let pixel = |col: usize| {
+        let (x, y) = cell_center(&app, 0, col);
+        let (x, y) = ((x * scale) as usize, (y * scale) as usize);
+        image.pixels[y * image.width as usize + x] & 0x00ff_ffff
+    };
+    assert_eq!(pixel(0), 0x00d7_9921);
+    assert_eq!(pixel(1), pixel(0));
+}
+
 /// 查找条关掉前都能点回去，按钮可用，点击不落到下面的终端。
 #[test]
 fn the_find_bar_takes_clicks_and_closes() {

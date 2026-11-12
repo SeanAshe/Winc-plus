@@ -499,6 +499,49 @@ fn a_newly_opened_tab_grows_in_and_pushes_the_rest_aside() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 回归：标签栏放不下全部标签时，新打开的标签展开完成后整个位于可见范围内，而不是只露出展开
+/// 之初的窄条。
+#[test]
+fn a_newly_opened_tab_is_scrolled_into_view_once_it_has_grown() {
+    use crate::app::animation::{Clock, TAB_SLIDE};
+
+    let dir = sample_folder("tab-open-reveal");
+    let mut app = app_with(&dir, false);
+    for i in 0..24 {
+        let path = dir.join(format!("file-with-a-long-name-{i}.txt"));
+        std::fs::write(&path, "x\n").unwrap();
+        app.open_path(&path);
+    }
+    paint(&mut app);
+    assert!(app.tabs.max_scroll() > 0.0);
+
+    // 展开之初的一帧：标签只有窄条，此时滚动到的位置不足以显示完整的标签。
+    app.open_path(&dir.join("a.txt"));
+    let id = app.editor.active().unwrap().id;
+    let index = app.editor.active.unwrap();
+    assert_eq!(index, app.editor.documents.len() - 1);
+    let start = Clock::frozen(TAB_SLIDE / 20, TAB_SLIDE);
+    app.tabs.opening.push((id, start));
+    paint(&mut app);
+    let narrow = app.tabs.scroll;
+
+    // 展开完成后的一帧：滚动位置跟到标签的右边缘，标签完整可见。
+    app.tabs.opening.clear();
+    paint(&mut app);
+    let left: f32 = app.tabs.widths[..index].iter().map(|w| w + TAB_GAP).sum();
+    let right = left + app.tabs.widths[index];
+    assert!(app.tabs.scroll > narrow);
+    assert!(left >= app.tabs.scroll, "{left} {}", app.tabs.scroll);
+    assert!(right <= app.tabs.scroll + app.tabs.view.w + 0.5, "{right}");
+    assert_eq!(app.tabs.revealed, Some(id));
+
+    // 展开完成后不再自动滚动：手动滚动的位置保持不变。
+    app.tabs.scroll = 0.0;
+    paint(&mut app);
+    assert_eq!(app.tabs.scroll, 0.0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// 截图：新打开的标签长到三分之一（`tab-open-light`、`tab-open-dark`）。
 #[test]
 #[ignore = "截图，手动运行"]

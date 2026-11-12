@@ -355,6 +355,7 @@ workspace-picker-unavailable = No file chooser is available. Install xdg-desktop
 workspace-picker-failed = Couldn’t open the file chooser: { $error }
 workspace-open-folder-failed = Couldn’t open folder “{ $name }”: { $error }
 workspace-recent-missing = Couldn’t find “{ $path }”; removed it from the recent list
+workspace-jump-list-recent = Recent Folders
 workspace-reloaded = Reloaded { $names }
 workspace-disk-conflicts = { $names } changed on disk and conflict with unsaved changes; switch to each tab to choose which version to keep
 

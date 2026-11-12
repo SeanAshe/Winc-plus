@@ -134,6 +134,8 @@ impl App {
     /// 右侧是工作区文件时可以编辑，之后输入的文字写入右侧文件；`⌥` 单击添加或移除光标，
     /// `⌥` 拖动添加一个选区，`⇧⌥` 拖动进行列选择。点在选区外时收起选区。
     pub(in crate::app) fn click_diff(&mut self, x: f32, y: f32) -> bool {
+        // 过渡期间行的位置逐帧变化：先结束过渡，点击按最终的排版判定。
+        self.finish_diff_fold(true);
         let Some(index) = self.editor.active else {
             return false;
         };

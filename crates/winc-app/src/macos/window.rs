@@ -30,6 +30,35 @@ pub fn mouse_location(window: &Window) -> Option<(f32, f32)> {
     }
 }
 
+/// 是否为光标所在位置最上层的窗口；按住鼠标按键期间、取不到窗口时为是。
+///
+/// 鼠标移动事件不保证只发给光标下最上层的窗口：窗口在被其他窗口遮挡的位置仍可能收到。
+/// 按住按键拖动时光标可以移到其他窗口上方，移动事件仍属于按下时的窗口。
+pub fn under_cursor(window: &Window) -> bool {
+    let Some(ns_window) = ns_window(window) else {
+        return true;
+    };
+
+    // SAFETY: `ns_window` 来自仍然存活的 winit 窗口，调用方在主线程调用。`pressedMouseButtons`、
+    // `mouseLocation` 和 `windowNumberAtPoint:belowWindowWithWindowNumber:` 是公开的类方法，
+    // `windowNumber` 是公开的只读属性；参数和返回值都是整数或值类型的点，不涉及指针所有权。
+    unsafe {
+        let pressed: usize = msg_send![class!(NSEvent), pressedMouseButtons];
+        if pressed != 0 {
+            return true;
+        }
+        let point: CGPoint = msg_send![class!(NSEvent), mouseLocation];
+        // 第二个参数为 0 时从最上层的窗口开始查找，范围包括其他应用的窗口。
+        let top: isize = msg_send![
+            class!(NSWindow),
+            windowNumberAtPoint: point,
+            belowWindowWithWindowNumber: 0isize
+        ];
+        let own: isize = msg_send![ns_window, windowNumber];
+        top == own
+    }
+}
+
 /// 把窗口设为全透明、不画阴影、鼠标点击穿透到下方的窗口，用于测量。
 ///
 /// 窗口仍然上屏并呈现（隐藏的窗口收不到重画事件，无法测量首帧），只是不可见、不可点击。

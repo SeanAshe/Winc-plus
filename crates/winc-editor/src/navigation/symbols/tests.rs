@@ -177,3 +177,74 @@ fn headings_sections_and_others() {
     );
     assert!(names("json", "{\"a\": 1}").is_empty());
 }
+
+#[test]
+fn arkts_components_list_their_members_but_not_the_components_they_build() {
+    let text = "\
+@Entry
+@Component
+struct Index {
+  @State message: string = 'Hello';
+
+  aboutToAppear(): void {
+    this.load();
+  }
+
+  @Builder header(title: string) {
+    Text(title)
+  }
+
+  build() {
+    Column({ space: 8 }) {
+      Row() {
+        Text(this.message)
+          .fontSize(50)
+      }
+      if (this.message) {
+        this.header('x')
+      }
+    }
+  }
+}
+
+@Component export struct Badge {
+  build() {
+  }
+}
+
+@Builder function footer() {
+  Row() {
+  }
+}
+class Store {
+  constructor(name: string) {
+  }
+}
+";
+    assert_eq!(
+        outline("ets", text),
+        [
+            ("Index".into(), "类型", None),
+            ("aboutToAppear".into(), "方法", Some("Index".into())),
+            ("header".into(), "方法", Some("Index".into())),
+            ("build".into(), "方法", Some("Index".into())),
+            ("Badge".into(), "类型", None),
+            ("build".into(), "方法", Some("Badge".into())),
+            ("footer".into(), "函数", None),
+            ("Store".into(), "类型", None),
+            ("constructor".into(), "方法", Some("Store".into())),
+        ]
+    );
+    // 其他语言中写在声明同一行的注解同样不妨碍识别。
+    assert_eq!(
+        names(
+            "java",
+            "class A {\n  @Override public void run() {\n  }\n}\n"
+        ),
+        ["A", "run"]
+    );
+    assert_eq!(
+        names("kt", "@Serializable data class User(val id: Int)\n"),
+        ["User"]
+    );
+}

@@ -257,7 +257,10 @@ impl App {
     }
 
     fn start_touch_window(&mut self, (x, y): Point, operation: WindowTouch) {
-        if operation == WindowTouch::Move && self.title_bar_pressed(x, y) {
+        if operation == WindowTouch::Move
+            && self.title_bar_pressed(x, y)
+            && self.title_bar_zooms_at(x)
+        {
             self.title_bar_double_click();
             return;
         }

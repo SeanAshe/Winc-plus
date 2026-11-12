@@ -89,6 +89,47 @@ fn stale_touch_contact_stops_blocking_the_mouse() {
 }
 
 #[test]
+fn double_clicks_beside_top_bar_controls_do_not_zoom_the_window() {
+    let mut app = document();
+    app.window.controls = true;
+    app.relayout();
+    app.new_file();
+    paint(&mut app);
+    // 标签页、窗口按钮所在的列（正上方、正下方的空白同属这一列）以及相邻按钮之间的间隙。
+    let tab = app.hits.tabs[0].tab;
+    assert!(!app.title_bar_double_click_zooms(tab.x + tab.w / 2.0));
+    let [(minimize, _), (maximize, _), _] = app.window_control_rects();
+    assert!(!app.title_bar_double_click_zooms(maximize.x + 1.0));
+    assert!(!app.title_bar_double_click_zooms((minimize.right() + maximize.x) / 2.0));
+    // 标签页与窗口按钮之间的空白列仍然切换最大化。
+    let blank = (app.tabs.new_tab.right() + app.layout.controls.x) / 2.0;
+    assert!(app.over_title_bar(blank, TOP_BAR_END / 2.0));
+    assert!(app.title_bar_double_click_zooms(blank));
+    // 界面缩放后规则不变：窗口过程使用乘过缩放倍数的区域，结论与布局坐标下一致。
+    app.set_zoom(150);
+    paint(&mut app);
+    let blank = (app.tabs.new_tab.right() + app.layout.controls.x) / 2.0;
+    assert!(app.title_bar_double_click_zooms(blank));
+    assert!(!app.title_bar_double_click_zooms(app.layout.controls.x + 1.0));
+}
+
+#[test]
+fn the_system_title_bar_leaves_no_window_button_regions_in_the_top_bar() {
+    let mut app = document();
+    app.window.controls = false;
+    app.relayout();
+    paint(&mut app);
+    // 没有窗口按钮时，左上角控件上方的空白不属于任何控件。
+    assert_eq!(app.layout.controls, Rect::default());
+    for x in [10.0, 44.0, 74.0] {
+        assert!(
+            !app.caption_controls().iter().any(|r| r.contains(x, 3.0)),
+            "({x}, 3) 处不应有控件"
+        );
+    }
+}
+
+#[test]
 fn caption_controls_cover_top_bar_targets() {
     use crate::app::input::touch::WindowTouch;
     let verify = |app: &App| {

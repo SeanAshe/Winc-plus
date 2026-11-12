@@ -901,6 +901,14 @@ impl Renderer {
     }
 }
 
+#[cfg(test)]
+impl Renderer {
+    /// 设置光栅化时是否按像素网格微调字形轮廓；须在绘制任何文字之前调用，已缓存的位图不重画。
+    fn set_hinting(&mut self, hinting: bool) {
+        self.glyphs.borrow_mut().hinting = hinting;
+    }
+}
+
 /// 创建字体和字形缓存。
 fn new_glyphs(fonts: Fonts) -> Rc<RefCell<GlyphCache>> {
     Rc::new(RefCell::new(GlyphCache::new(fonts)))

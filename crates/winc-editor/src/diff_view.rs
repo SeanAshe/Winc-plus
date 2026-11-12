@@ -283,6 +283,10 @@ pub struct DiffView {
     pub hunk_rows: [Vec<Range<usize>>; 2],
     /// 各折叠行在两侧的显示行：（左侧，右侧），按位置排列。
     pub fold_rows: Vec<(usize, usize)>,
+    /// 已展开、可以重新折叠的各段未改动内容：（段号，重新折叠后第一个隐藏的行在右侧的显示行）。
+    ///
+    /// 界面在该显示行上绘制收起标记。
+    pub open_folds: Vec<(usize, usize)>,
     /// 滚动位置的分段点：每段改动的开头和结尾各一个，（滚动位置，[左侧显示行，右侧显示行]），
     /// 见 [`DiffView::row_at`]。
     knots: Vec<(f64, [f64; 2])>,
@@ -351,6 +355,7 @@ impl DiffView {
             rows: [Vec::new(), Vec::new()],
             hunk_rows: [Vec::new(), Vec::new()],
             fold_rows: Vec::new(),
+            open_folds: Vec::new(),
             knots: Vec::new(),
             collapse: true,
             unified: false,
@@ -803,6 +808,13 @@ impl DiffView {
             .or(self.old.path.as_deref())
     }
 
+    /// 返回差异所对应的磁盘文件：右侧的文件，右侧的内容不来自磁盘时取左侧的文件。
+    ///
+    /// 两侧的内容都不来自磁盘时（历史版本之间的差异、已删除的文件）返回 `None`。
+    pub fn disk_path(&self) -> Option<&std::path::Path> {
+        self.new.path.as_deref().or(self.old.path.as_deref())
+    }
+
     /// 两侧是否没有改动；逐行比较时不区分换行符的写法，只有换行符不同时同样为 `true`。
     pub fn is_identical(&self) -> bool {
         self.hunks.is_empty()
@@ -823,17 +835,28 @@ impl DiffView {
     /// 设置是否折叠长段未改动的内容，返回切换前右侧显示行 `row` 的内容
     /// 在切换后所在的显示行，使视图保持在原处。
     pub fn set_collapse(&mut self, on: bool, row: usize) -> usize {
-        let anchor = match self.rows[RIGHT].get(row) {
-            Some(SideRow::Line { line, .. }) => *line,
-            Some(SideRow::Fold { lines, .. }) => lines.start,
-            None => usize::MAX,
-        };
-        self.collapse = on;
-        self.expanded.clear();
-        self.pinned = None;
-        self.layout();
-        self.row_of_new(anchor)
-            .min(self.row_count().saturating_sub(1))
+        self.refold(row, |view| {
+            view.collapse = on;
+            view.expanded.clear();
+        })
+    }
+
+    /// 折叠全部未改动的长段，包括已逐段展开的；返回值同 [`Self::set_collapse`]。
+    pub fn fold_all(&mut self, row: usize) -> usize {
+        self.set_collapse(true, row)
+    }
+
+    /// 展开全部未改动的长段，各段仍可逐段重新折叠；返回值同 [`Self::set_collapse`]。
+    pub fn unfold_all(&mut self, row: usize) -> usize {
+        self.refold(row, |view| {
+            view.collapse = true;
+            view.expanded = (0..=view.hunks.len()).collect();
+        })
+    }
+
+    /// 重新折叠已展开的第 `gap` 段未改动内容；返回值同 [`Self::set_collapse`]。
+    pub fn fold(&mut self, gap: usize, row: usize) -> usize {
+        self.refold(row, |view| view.expanded.retain(|g| *g != gap))
     }
 
     /// 展开第 `gap` 段未改动内容的折叠。
@@ -842,6 +865,62 @@ impl DiffView {
             self.expanded.push(gap);
             self.layout();
         }
+    }
+
+    /// 返回折叠第 `gap` 段未改动内容时两侧被隐藏的行：`[左侧, 右侧]`，两侧行数相同。
+    ///
+    /// 该段不存在或长度不足以折叠时返回 `None`。不计固定显示的行。
+    pub fn fold_lines(&self, gap: usize) -> Option<[Range<usize>; 2]> {
+        if gap > self.hunks.len() {
+            return None;
+        }
+        let (a, b) = match gap.checked_sub(1).map(|i| &self.hunks[i]) {
+            Some(h) => (h.old.end, h.new.end),
+            None => (0, 0),
+        };
+        let a_end = match self.hunks.get(gap) {
+            Some(h) => h.old.start,
+            None => line_total(&self.old.text),
+        };
+        let len = a_end - a;
+        let head = if gap == 0 { 0 } else { CONTEXT };
+        let tail = if gap == self.hunks.len() { 0 } else { CONTEXT };
+        (len > head + tail + 1).then(|| [a + head..a + len - tail, b + head..b + len - tail])
+    }
+
+    /// 第 `gap` 段未改动内容是否已展开且可以重新折叠。
+    pub fn is_open(&self, gap: usize) -> bool {
+        self.open_folds.iter().any(|(g, _)| *g == gap)
+    }
+
+    /// 返回第 `side` 侧第 `line` 行所在的未改动内容的段号；该行位于某段改动中时返回 `None`。
+    pub fn gap_of(&self, side: usize, line: usize) -> Option<usize> {
+        let lines = |h: &LineHunk| {
+            if side == LEFT {
+                h.old.clone()
+            } else {
+                h.new.clone()
+            }
+        };
+        let gap = self.hunks.partition_point(|h| lines(h).end <= line);
+        (self.hunks.get(gap))
+            .is_none_or(|h| line < lines(h).start)
+            .then_some(gap)
+    }
+
+    /// 以 `change` 修改折叠状态并重新排列显示行，返回修改前右侧显示行 `row` 的内容在修改后所在的
+    /// 显示行，使视图保持在原处。固定显示的行随之取消。
+    fn refold(&mut self, row: usize, change: impl FnOnce(&mut Self)) -> usize {
+        let anchor = match self.rows[RIGHT].get(row) {
+            Some(SideRow::Line { line, .. }) => *line,
+            Some(SideRow::Fold { lines, .. }) => lines.start,
+            None => usize::MAX,
+        };
+        change(self);
+        self.pinned = None;
+        self.layout();
+        self.row_of_new(anchor)
+            .min(self.row_count().saturating_sub(1))
     }
 
     /// 返回右侧显示行 `row` 之后（不含）下一段改动的起始显示行；之后没有改动时返回 `None`。
@@ -944,6 +1023,7 @@ impl DiffView {
         ];
         let (old_len, new_len) = (line_total(&self.old.text), line_total(&self.new.text));
         let (mut a, mut b) = (0, 0);
+        let mut open_folds = Vec::new();
 
         for gap in 0..=self.hunks.len() {
             // 当前一段未改动的内容：从上一段改动之后到下一段改动之前，两侧行数相同。
@@ -1009,6 +1089,11 @@ impl DiffView {
                         lines: b + at..b_end,
                     });
                 }
+            } else if self.collapse && !self.hunks.is_empty() && len > head + tail + 1 {
+                // 已展开的一段：记下重新折叠后第一个隐藏的行，界面在该行绘制收起标记。
+                same(&mut rows, 0..head);
+                open_folds.push((gap, rows[RIGHT].len()));
+                same(&mut rows, head..len);
             } else {
                 same(&mut rows, 0..len);
             }
@@ -1035,6 +1120,7 @@ impl DiffView {
             .zip(folds(&rows[RIGHT]))
             .collect();
         self.rows = rows;
+        self.open_folds = open_folds;
         // 滚动位置：未改动的内容两侧逐行对应，每段改动占行数较多一侧的行数。
         let mut knots = Vec::with_capacity(2 * self.hunks.len());
         let (mut pos, mut prev) = (0usize, [0usize; 2]);

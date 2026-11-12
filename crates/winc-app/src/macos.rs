@@ -14,6 +14,7 @@ mod files;
 mod folder_menu;
 pub mod install;
 mod pasteboard;
+mod recent_documents;
 mod text_input;
 mod updates;
 mod window;
@@ -33,18 +34,19 @@ pub use folder_menu::{FolderItem, on_folder_menu, popup_folder_menu};
 // 测试中由 `App` 上的字段代替剪贴板，不使用这两个函数。
 #[cfg_attr(test, allow(unused_imports))]
 pub use pasteboard::{pasteboard_has_image, pasteboard_png};
+pub use recent_documents::sync_recent_documents;
 pub use text_input::{capture_inserted_text, with_inserted_text};
 pub use updates::{check as check_for_updates, start as start_updates};
 pub use window::{
     TrafficLights, has_sheet, keep_title_bar_drags, make_invisible, mouse_location,
-    preferred_language, reduce_motion, show_without_focus, title_bar_double_click,
+    preferred_language, reduce_motion, show_without_focus, title_bar_double_click, under_cursor,
 };
 pub use window_menu::add_window_menus;
 
 use std::ffi::{CStr, CString, OsStr, c_char};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 use block2::RcBlock;
 use objc2::ffi;

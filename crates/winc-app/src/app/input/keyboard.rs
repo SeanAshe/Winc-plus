@@ -463,10 +463,11 @@ impl App {
                 }
             }
             Key::Named(NamedKey::Enter | NamedKey::Space) => match (row, selected) {
-                (Some(ResultRow::File(_)), Some(i)) => self.click_result(i),
+                (Some(ResultRow::File(_)), Some(i)) => self.click_result(i, false),
                 (Some(ResultRow::Match(..)), Some(i)) => {
-                    let to_editor = matches!(key, Key::Named(NamedKey::Enter));
-                    self.open_result(i, to_editor);
+                    // 回车在普通标签中打开并进入编辑区；空格留在结果列表，按预览标签的设置打开。
+                    let enter = matches!(key, Key::Named(NamedKey::Enter));
+                    self.open_result(i, enter, enter);
                 }
                 _ => {}
             },

@@ -3154,6 +3154,7 @@ dependencies = [
  "winc-typeset",
  "winc-version",
  "winc-vim",
+ "windows",
  "windows-sys 0.59.0",
  "winit",
  "zbus",

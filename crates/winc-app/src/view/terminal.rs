@@ -4,7 +4,8 @@
 //!
 //! 网格按终端字体等宽排版（每格宽 `app.terminal_cell`、每行高 `terminal_line_height`，字形缓存
 //! 与编辑区共用）：一行先画所有样式段的底色，再画选区和查找的底色，最后画字和下划线，宽字符不会
-//! 被后一段的底色盖住；对比度不够时按 `terminal.minimumContrast` 调整。
+//! 被后一段的底色盖住；对比度不够时按 `terminal.minimumContrast` 调整文字的颜色，以颜色拼接
+//! 图形的字符（制表符、方块元素、Powerline 分隔符）除外。
 
 mod grid;
 

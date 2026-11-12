@@ -86,6 +86,13 @@ fn related_languages_keep_separate_keywords() {
     for word in ["def", "in", "as", "trait"] {
         assert!(has("build.gradle", word), "Groovy: {word}");
     }
+    // ArkTS 在 TypeScript 之上补充 `struct` 和 `constructor`，不影响 TypeScript 的词表。
+    for word in ["struct", "constructor"] {
+        assert!(
+            has("Index.ets", word) && !has("a.ts", word),
+            "ArkTS: {word}"
+        );
+    }
 }
 
 // 各语言的常用词抽样：扩充或调整关键字、内置名表后，这些词要仍然认得出来。同时检查相近语言的
@@ -152,6 +159,8 @@ fn detects_common_languages_and_names() {
         ("schema.graphql", "GraphQL"),
         ("flake.nix", "Nix"),
         ("App.svelte", "Svelte"),
+        ("Index.ets", "ArkTS"),
+        ("Index.ETS", "ArkTS"),
         ("paper.tex", "LaTeX"),
         ("Dockerfile.dev", "Dockerfile"),
         (".env.staging", "Dotenv"),
@@ -172,6 +181,8 @@ fn detects_scripts_by_shebang() {
     assert_eq!(by_shebang("#!/bin/bash"), "Shell");
     assert_eq!(by_shebang("#!/usr/bin/env python3.12"), "Python");
     assert_eq!(by_shebang("#!/usr/bin/env -S node --flag"), "JavaScript");
+    assert_eq!(by_shebang("#!/usr/bin/env ts-node"), "TypeScript");
+    assert_eq!(by_shebang("#!/usr/bin/env tsx"), "TypeScript");
     assert_eq!(by_shebang("#!/usr/bin/ruby -w"), "Ruby");
     assert_eq!(by_shebang("#!/usr/bin/env pwsh"), "PowerShell");
     assert_eq!(by_shebang("not a shebang"), "Plain Text");
@@ -204,6 +215,9 @@ fn names_and_related_languages() {
 
     assert!(detect("a.c").is_related(detect("b.hpp")));
     assert!(detect("a.ts").is_related(detect("App.vue")));
+    assert!(detect("Index.ets").is_related(detect("a.ts")));
+    assert!(detect("a.ts").is_related(detect("Index.ets")));
+    assert!(!detect("Index.ets").is_related(detect("a.rs")));
     assert!(detect("a.css").is_related(detect("index.html")));
     assert!(!detect("a.rs").is_related(detect("README.md")));
 }

@@ -71,6 +71,7 @@ fn native_touch_uses_system_move_resize_and_snap() {
             WindowInput::new(&window).unwrap().update(WindowHitTest {
                 caption_height: 48.0,
                 resize_border: 4.0,
+                control_gap: 0.0,
                 client: vec![Rect::new(10.0, 8.0, 50.0, 32.0)],
             });
             let RawWindowHandle::Win32(handle) = window.window_handle().unwrap().as_raw() else {

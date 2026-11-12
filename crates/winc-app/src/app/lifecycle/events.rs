@@ -390,18 +390,14 @@ impl ApplicationHandler<UserEvent> for App {
             | WindowEvent::MouseInput { .. }
             | WindowEvent::MouseWheel { .. }
                 if self.touch_blocks_mouse() => {}
+            // 窗口在光标所在位置被其他窗口遮挡时不响应移动，悬停状态按光标离开处理。
+            WindowEvent::CursorMoved { .. } if !self.under_cursor() => self.cursor_left(),
             WindowEvent::CursorMoved { position, .. } => {
                 self.cursor_inside = true;
                 let scale = self.renderer.as_ref().map_or(1.0, Renderer::scale_factor);
                 self.on_mouse_move(position.x as f32 / scale, position.y as f32 / scale);
             }
-            WindowEvent::CursorLeft { .. } => {
-                self.cursor_inside = false;
-                if self.tabs.width_lock.take().is_some() {
-                    self.request_redraw();
-                }
-                self.set_hover(Hover::None);
-            }
+            WindowEvent::CursorLeft { .. } => self.cursor_left(),
             WindowEvent::MouseInput {
                 state: ElementState::Pressed,
                 button,

@@ -863,6 +863,17 @@ impl ApplicationHandler<Envelope> for Winc {
         ) {
             self.active = Some(key);
         }
+        // 光标同一时刻只位于一个窗口上：某个窗口在光标处位于最上层并收到移动时，其余仍认为光标
+        // 在内的窗口按光标离开处理。被遮挡的窗口不一定再收到移动或离开事件。
+        if matches!(event, WindowEvent::CursorMoved { .. })
+            && self.by_key(key).is_some_and(|app| app.under_cursor())
+        {
+            for slot in &mut self.windows {
+                if slot.key != key && slot.app.cursor_inside() {
+                    slot.app.cursor_left();
+                }
+            }
+        }
         if let Some(app) = self.by_key(key) {
             app.window_event(event_loop, id, event);
         }

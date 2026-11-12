@@ -105,6 +105,7 @@ pub fn file_kind(name: &str) -> (FileGlyph, [u32; 2]) {
         "jsx" => (Letters("JS"), REACT),
         "ts" | "mts" | "cts" => (Letters("TS"), [0x6C9FE0, 0x2D62B0]),
         "tsx" => (Letters("TS"), REACT),
+        "ets" => (Letters("ETS"), [0x6C9FE0, 0x2D62B0]),
         "go" => (Letters("GO"), GO),
         "java" => (Java, [0xE08C5A, 0xA9521D]),
         "kt" | "kts" => (Letters("KT"), PURPLE),

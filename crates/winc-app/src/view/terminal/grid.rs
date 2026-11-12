@@ -4,6 +4,26 @@ use super::*;
 use winc_pty::width::{char_width, is_emoji_tail};
 use winc_render::Stroke;
 
+/// 一段文字绘制用的颜色（见 [`Colors::style`]）。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Paint {
+    /// 文字的颜色：已按最低对比度调整。
+    pub(super) fg: Color,
+    /// 以颜色拼接图形的字符（见 [`is_shape`]）的颜色：程序指定的字色，不按对比度调整。
+    pub(super) shape: Color,
+    /// 底色；是默认底色时为 `None`，不必绘制。
+    pub(super) bg: Option<Color>,
+}
+
+/// 字符 `c` 是否以颜色拼接图形：制表符与方块元素（U+2500–259F）、Powerline 分隔符
+/// （U+E0B0–E0D7）。
+///
+/// 这类字符的字色须与相邻格子的底色完全一致，图形才能与相邻的色块衔接；提高对比度会改变字色，
+/// 衔接处出现颜色不同的色块，因此不做对比度调整。
+pub(super) fn is_shape(c: char) -> bool {
+    matches!(c, '\u{2500}'..='\u{259f}' | '\u{e0b0}'..='\u{e0d7}')
+}
+
 /// 把终端的颜色换成界面颜色。
 pub(super) struct Colors {
     /// 绘制用的配色。
@@ -45,10 +65,8 @@ impl Colors {
         }
     }
 
-    /// 一段文字的（字色，底色）：反色、淡色、隐藏都算进去。
-    ///
-    /// 底色是默认底色时返回 `None`，不必绘制。
-    pub(super) fn style(&self, style: &Style) -> (Color, Option<Color>) {
+    /// 一段文字绘制用的颜色：反色、淡色、隐藏都算进去。
+    pub(super) fn style(&self, style: &Style) -> Paint {
         let attrs = style.attrs;
         let fg = match style.fg {
             TermColor::Indexed(i @ 0..=7) if self.bright && attrs.has(Attrs::BOLD) => {
@@ -83,11 +101,13 @@ impl Colors {
         }
         if attrs.has(Attrs::HIDDEN) {
             fg = under;
-        } else if !attrs.has(Attrs::DIM) {
+        }
+        let shape = fg;
+        if !attrs.has(Attrs::HIDDEN) && !attrs.has(Attrs::DIM) {
             // 淡色是程序有意压低的亮度，不再提高对比度。
             fg = readable(fg, under, self.min);
         }
-        (fg, bg)
+        Paint { fg, shape, bg }
     }
 }
 
@@ -181,12 +201,11 @@ pub(super) fn draw_line(
 ) {
     let (cell, size) = (app.terminal_cell, app.fonts.terminal);
     let parts = segments(line);
-    let styles: Vec<(Color, Option<Color>)> =
-        parts.iter().map(|p| colors.style(&p.style)).collect();
+    let styles: Vec<Paint> = parts.iter().map(|p| colors.style(&p.style)).collect();
     let x_of = |col: usize| row.x + col as f32 * cell;
 
-    for (part, &(_, bg)) in parts.iter().zip(&styles) {
-        if let Some(bg) = bg
+    for (part, paint) in parts.iter().zip(&styles) {
+        if let Some(bg) = paint.bg
             && part.end > part.start
         {
             let rect = Rect::new(
@@ -207,7 +226,7 @@ pub(super) fn draw_line(
     }
 
     let nudge = 1.0 / frame.scale().max(1.0);
-    for (part, &(fg, _)) in parts.iter().zip(&styles) {
+    for (part, &Paint { fg, shape, .. }) in parts.iter().zip(&styles) {
         let attrs = part.style.attrs;
         let bold = attrs.has(Attrs::BOLD);
         let kind = if attrs.has(Attrs::ITALIC) {
@@ -236,6 +255,7 @@ pub(super) fn draw_line(
                 }
                 base = Some((col, w));
                 let at = Rect::new(x_of(col), row.y, w as f32 * cell, row.h);
+                let fg = if is_shape(c) { shape } else { fg };
                 if c != ' ' && !draw_block_element(frame, c, at, fg, clip) {
                     frame.cell_char(kind, size, x_of(col), baseline, cell, w, c, fg, clip);
                     // 粗体：往右错开一个物理像素再绘制一次，笔画加粗、字宽不变（等宽的格子不乱）。

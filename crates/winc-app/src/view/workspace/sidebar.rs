@@ -271,7 +271,7 @@ pub(super) fn draw_context_bar(app: &mut App, frame: &mut Frame<'_>, bar: &Conte
     app.hits.project = hit.intersect(clip);
 }
 
-/// 绘制项目名前面的徽章：圆角方块内是项目名的前两个字母或数字（大写），没有时用「W」。
+/// 绘制项目名前面的徽章：圆角方块内是 [`crate::theme::ProjectBadge::initials`]。
 ///
 /// 打开的是附属工作树时，徽章用主工作树的颜色（同一个仓库的工作树颜色相同），右下角加一个工作树
 /// 记号。
