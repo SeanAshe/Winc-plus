@@ -94,7 +94,7 @@ fn a_folder_of_repositories_can_switch_between_them() {
 
     // 正在看提交视图时不跟随，新仓库只加入列表。
     app.git_switch_repository(0);
-    app.sidebar.view = SidebarView::Commit;
+    app.panels.sidebar.view = SidebarView::Commit;
     let shallow = dir.join("group/other");
     std::fs::create_dir_all(shallow.join("src")).unwrap();
     std::fs::write(shallow.join("src/main.rs"), "fn main() {}\n").unwrap();
@@ -105,7 +105,7 @@ fn a_folder_of_repositories_can_switch_between_them() {
     app.git_follow_active();
     assert_eq!(app.git.root.as_ref(), Some(&a));
     assert!(app.git.repositories.contains(&shallow));
-    app.sidebar.view = SidebarView::Files;
+    app.panels.sidebar.view = SidebarView::Files;
     app.git_switch_repository(2);
 
     // 每个位置都能看到分支和改动数：另一个仓库改一个文件，后台读到以后显示。
@@ -124,11 +124,11 @@ fn a_folder_of_repositories_can_switch_between_them() {
 
     // 提交信息写了字时不跟随，文字不会丢。
     let root_before = app.git.root.clone();
-    app.commit.message.insert("draft");
+    app.git.commit.message.insert("draft");
     app.open_path(&b.join("src/main.rs"));
     app.git_follow_active();
     assert_eq!(app.git.root.as_ref(), root_before.as_ref());
-    assert_eq!(app.commit.message.text(), "draft");
+    assert_eq!(app.git.commit.message.text(), "draft");
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -336,10 +336,12 @@ fn shoot_themes() {
             // 在右侧双击选中一个词，光标位于右侧。
             paint(&mut app);
             let view = app.editor.active().unwrap().diff.as_deref().unwrap();
-            let parts = crate::app::diff_parts(app.layout.editor, view, app.cell);
+            let parts = crate::app::diff_parts(app.layout.editor, view, app.metrics.cell);
             let lh = app.fonts.line_height;
             let at = (
-                parts.panes[RIGHT].text.x + crate::app::diff::DIFF_TEXT_PAD + app.cell * 13.3,
+                parts.panes[RIGHT].text.x
+                    + crate::app::diff::DIFF_TEXT_PAD
+                    + app.metrics.cell * 13.3,
                 parts.body.y + lh * 12.5,
             );
             click(&mut app, at);
@@ -378,7 +380,7 @@ fn shoot_context_bar() {
         // 悬停提示：「名字 … 快捷键」两栏，快捷键是右边的淡色字。
         let commit = app.sidebar_tabs()[2].0;
         app.on_mouse_move(commit.x + 4.0, commit.y + 4.0);
-        app.tooltip.since = Some(std::time::Instant::now() - crate::theme::TOOLTIP_DELAY);
+        app.overlays.tooltip.since = Some(std::time::Instant::now() - crate::theme::TOOLTIP_DELAY);
         shoot(&mut app, &format!("{name}-tip"));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -401,7 +403,7 @@ fn shoot_search_header() {
         git_in(&dir, &["checkout", "-q", "-b", "grok_build_1.0.40"]);
         let mut app = app_with(&dir, dark);
         app.settings_toggle(Setting::GitModule);
-        app.sidebar.width = 270.0;
+        app.panels.sidebar.width = 270.0;
         app.run_action(Action::FindInFiles);
         shoot(&mut app, name);
         let _ = std::fs::remove_dir_all(&dir);
@@ -532,7 +534,7 @@ fn the_project_leads_the_second_row_and_git_context_sits_below_it() {
         return;
     };
     // 顶栏是侧栏开关和视图切换图标，第二行左边是项目名，三个视图里位置不变。
-    app.sidebar.width = 400.0;
+    app.panels.sidebar.width = 400.0;
     paint(&mut app);
     let project = app.hits.project;
     assert!(project.y >= app.layout.sidebar_header.y);
@@ -544,11 +546,11 @@ fn the_project_leads_the_second_row_and_git_context_sits_below_it() {
     assert_eq!(app.hits.project, project);
 
     app.run_action(Action::ShowCommit);
-    app.sidebar.width = 400.0;
+    app.panels.sidebar.width = 400.0;
     paint(&mut app);
     assert_eq!(app.hits.project, project);
     app.on_mouse_move(project.x + 4.0, project.y + 4.0);
-    assert_eq!(app.hover, Hover::ProjectName);
+    assert_eq!(app.pointer.hover, Hover::ProjectName);
     let parts = app.commit_parts();
     assert_eq!(
         parts.tools.map(|(_, t)| t),
@@ -569,7 +571,7 @@ fn the_project_leads_the_second_row_and_git_context_sits_below_it() {
     };
     let branch = hit(&app, CommitTarget::Branch).unwrap();
     app.on_mouse_move(branch.x + 4.0, branch.y + 4.0);
-    assert_eq!(app.hover, Hover::Commit(CommitTarget::Branch));
+    assert_eq!(app.pointer.hover, Hover::Commit(CommitTarget::Branch));
 
     // 分支名很长时在行内截短，右端的按钮还在，不碰到它们。
     git_in(
@@ -591,7 +593,7 @@ fn the_project_leads_the_second_row_and_git_context_sits_below_it() {
         ],
     );
     app.git_refresh();
-    app.sidebar.width = crate::theme::MIN_PANEL_WIDTH;
+    app.panels.sidebar.width = crate::theme::MIN_PANEL_WIDTH;
     paint(&mut app);
     let branch = hit(&app, CommitTarget::Branch).unwrap();
     let sync = hit(&app, CommitTarget::Sync).unwrap();
@@ -610,21 +612,21 @@ fn switching_views_slides_the_raised_segment() {
     };
     // 没有窗口（测试中）时不做动画，直接到终点。
     app.set_sidebar_view(SidebarView::Search);
-    assert!(app.sidebar.view_slide.is_none());
+    assert!(app.panels.sidebar.view_slide.is_none());
     // 半路：动画进行中、下一帧继续绘制；到时间以后清掉。
-    app.sidebar.view_slide = Some((
+    app.panels.sidebar.view_slide = Some((
         SidebarView::Files,
         Clock::frozen(VIEW_SLIDE / 2, VIEW_SLIDE),
     ));
     assert!(app.animating());
     app.settle_animations();
-    assert!(app.sidebar.view_slide.is_some());
-    app.sidebar.view_slide = Some((
+    assert!(app.panels.sidebar.view_slide.is_some());
+    app.panels.sidebar.view_slide = Some((
         SidebarView::Files,
         Clock::frozen(VIEW_SLIDE + Duration::from_millis(1), VIEW_SLIDE),
     ));
     app.settle_animations();
-    assert!(app.sidebar.view_slide.is_none());
+    assert!(app.panels.sidebar.view_slide.is_none());
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -640,7 +642,7 @@ fn shoot_view_slide() {
             return;
         };
         app.set_sidebar_view(SidebarView::Commit);
-        app.sidebar.view_slide = Some((
+        app.panels.sidebar.view_slide = Some((
             SidebarView::Files,
             Clock::frozen(VIEW_SLIDE / 3, VIEW_SLIDE),
         ));
@@ -656,21 +658,21 @@ fn switching_folders_leaves_the_old_repos_work_behind() {
     let Some((mut app, root)) = git_app("git-switch-away", false) else {
         return;
     };
-    app.commit.message.set_text("写了一半");
-    app.commit.amend = true;
-    app.branch.running = Some("拉取".into());
+    app.git.commit.message.set_text("写了一半");
+    app.git.commit.amend = true;
+    app.git.branch.running = Some("拉取".into());
 
     let other = search_folder("git-switch-target");
     app.open_path(&other);
     assert_ne!(app.git.root.as_deref(), Some(root.as_path()));
-    assert!(app.branch.running.is_none());
-    assert_eq!(app.commit.message.text(), "");
-    assert!(!app.commit.amend);
+    assert!(app.git.branch.running.is_none());
+    assert_eq!(app.git.commit.message.text(), "");
+    assert!(!app.git.commit.amend);
 
     // 旧仓库的拉取完成：在状态栏说明在哪个目录完成；当前目录正在进行的操作不受影响。
-    app.branch.running = Some("推送".into());
+    app.git.branch.running = Some("推送".into());
     app.pulled_in(&root);
-    assert_eq!(app.branch.running.as_deref(), Some("推送"));
+    assert_eq!(app.git.branch.running.as_deref(), Some("推送"));
     let name = winc_editor::display_name(&root).into_owned();
     assert_eq!(
         app.status.message.as_deref(),
@@ -695,7 +697,7 @@ fn freeze_modules(app: &mut App, on: bool, at: std::time::Duration) {
 
     // 消失时宽度在内容淡出结束后才开始收起，`at` 从收起开始计时。
     let at = if on { at } else { at + EXIT_FADE };
-    let fx = &mut app.module_fx;
+    let fx = &mut app.motion.module_fx;
     for p in [&mut fx.commit_tab, &mut fx.terminal, &mut fx.branch] {
         p.track(!on, None);
         p.track(on, Some(Clock::frozen(at, MODULE_FADE)));
@@ -714,7 +716,7 @@ fn switching_modules_off_fades_their_chrome_out() {
     };
     app.settings_toggle(Setting::TerminalModule);
     paint(&mut app);
-    assert!(app.module_fx.branch_label.is_some());
+    assert!(app.motion.module_fx.branch_label.is_some());
     let full = app.sidebar_tabs()[2].0;
     let hit = |app: &App, item| app.hits.status.iter().any(|h| h.1 == item);
     assert!(hit(&app, StatusItem::Branch) && hit(&app, StatusItem::Terminal));
@@ -728,13 +730,13 @@ fn switching_modules_off_fades_their_chrome_out() {
     assert_eq!(tabs.len(), 3);
     assert!(tabs[2].0.w > 0.0 && tabs[2].0.w < full.w);
     assert_eq!(tabs[2].0.right(), full.right());
-    assert!(app.module_fx.branch_label.is_some());
+    assert!(app.motion.module_fx.branch_label.is_some());
     assert!(!hit(&app, StatusItem::Branch) && !hit(&app, StatusItem::Terminal));
 
     freeze_modules(&mut app, false, MODULE_FADE);
     app.track_modules();
-    assert!(!app.module_fx.moving());
-    assert!(app.module_fx.branch_label.is_none());
+    assert!(!app.motion.module_fx.moving());
+    assert!(app.motion.module_fx.branch_label.is_none());
     assert_eq!(app.sidebar_tabs().len(), 2);
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -816,8 +818,8 @@ fn the_location_picker_searches_and_switches() {
     paint(&mut app);
     app.open_project_menu();
     assert!(!app.picker_lists_locations());
-    assert!(app.context_menu.is_some());
-    app.context_menu = None;
+    assert!(app.overlays.context_menu.is_some());
+    app.overlays.context_menu = None;
 
     // 位置行展开位置选择器，选中的是当前位置，面板就在这一行下方。
     let row = app.commit_parts().location.unwrap();
@@ -827,19 +829,19 @@ fn the_location_picker_searches_and_switches() {
         LocationRow::Place(place) => place.clone(),
         other => panic!("{other:?}"),
     };
-    let rows = |app: &App| app.picker.location_rows.clone().unwrap();
+    let rows = |app: &App| app.overlays.picker.location_rows.clone().unwrap();
     assert_eq!(rows(&app).len(), 3);
-    assert!(place(&rows(&app)[app.picker.selected]).current);
+    assert!(place(&rows(&app)[app.overlays.picker.selected]).current);
     paint(&mut app);
     assert_eq!(app.layout.picker.x, row.x);
     assert!(app.layout.picker.y >= row.bottom());
 
     // 搜索只留下匹配的位置；回车切换并关闭。
-    app.picker.input.set_text("deep");
+    app.overlays.picker.input.set_text("deep");
     app.picker_refresh();
     assert_eq!(rows(&app).len(), 1);
     app.picker_accept();
-    assert!(!app.picker.open);
+    assert!(!app.overlays.picker.open);
     assert_eq!(app.git.root.as_ref(), app.git.repositories.get(2));
 
     std::fs::remove_dir_all(&dir).unwrap();
@@ -869,7 +871,7 @@ fn a_repository_with_worktrees_is_a_group_and_expanding_it_does_not_switch() {
     app.git_refresh();
     app.run_action(Action::ShowCommit);
     app.open_location_picker();
-    let rows = |app: &App| app.picker.location_rows.clone().unwrap();
+    let rows = |app: &App| app.overlays.picker.location_rows.clone().unwrap();
     // 当前仓库默认展开，工作树排在它下面。
     let labels = |app: &App| -> Vec<String> {
         rows(app)
@@ -891,7 +893,7 @@ fn a_repository_with_worktrees_is_a_group_and_expanding_it_does_not_switch() {
 
     // 点仓库只是展开收起，当前仓库不变。
     let root = app.git.root.clone();
-    app.picker.selected = 0;
+    app.overlays.picker.selected = 0;
     app.picker_accept();
     assert!(app.picker_lists_locations());
     assert_eq!(app.git.root, root);
@@ -911,14 +913,14 @@ fn drafts_stay_with_their_location() {
         return;
     };
     app.run_action(Action::ShowCommit);
-    app.commit.message.set_text("a 的草稿");
+    app.git.commit.message.set_text("a 的草稿");
     app.git_switch_repository(1);
-    assert_eq!(app.commit.message.text(), "");
-    app.commit.message.set_text("b 的草稿");
+    assert_eq!(app.git.commit.message.text(), "");
+    app.git.commit.message.set_text("b 的草稿");
     app.git_switch_repository(0);
-    assert_eq!(app.commit.message.text(), "a 的草稿");
+    assert_eq!(app.git.commit.message.text(), "a 的草稿");
     app.git_switch_repository(1);
-    assert_eq!(app.commit.message.text(), "b 的草稿");
+    assert_eq!(app.git.commit.message.text(), "b 的草稿");
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

@@ -223,7 +223,7 @@ impl App {
         }
         // ⇧PageUp、⇧PageDown 翻回滚缓冲（备用屏上没有回滚缓冲，交给程序）。
         let page = tab.grid_rows().saturating_sub(1).max(1) as isize;
-        if self.modifiers.shift_key() && !tab.modes.has(Modes::ALT_SCREEN) {
+        if self.pointer.modifiers.shift_key() && !tab.modes.has(Modes::ALT_SCREEN) {
             match event.logical_key {
                 Key::Named(NamedKey::PageUp) => return self.scroll_terminal(page),
                 Key::Named(NamedKey::PageDown) => return self.scroll_terminal(-page),
@@ -246,7 +246,7 @@ impl App {
                 !text.chars().any(char::is_control)
                     && !mods.ctrl
                     && !mods.alt
-                    && !self.modifiers.super_key()
+                    && !self.pointer.modifiers.super_key()
             });
             if typed {
                 self.clear_terminal_selection();
@@ -263,12 +263,12 @@ impl App {
     /// - 其他平台：Alt 不参与输入字符，一律视为 Meta；winit 在这些平台上不报告左右 Alt 的状态。
     ///   `AltGr` 不计入 Alt，按其输入的字符发送。
     pub(super) fn terminal_mods(&self) -> Mods {
-        let m = self.modifiers;
+        let m = self.pointer.modifiers;
         let meta = m.alt_key()
             && (!cfg!(target_os = "macos")
                 || match self.config.option_as_meta.unwrap_or(OptionAsMeta::Left) {
-                    OptionAsMeta::Left => self.option_side.0,
-                    OptionAsMeta::Right => self.option_side.1,
+                    OptionAsMeta::Left => self.pointer.option_side.0,
+                    OptionAsMeta::Right => self.pointer.option_side.1,
                     OptionAsMeta::Both => true,
                     OptionAsMeta::None => false,
                 });
@@ -281,7 +281,7 @@ impl App {
 
     /// Ctrl+V，没有 Shift、Alt、⌘。macOS 上粘贴是 ⌘V，已经由快捷键处理。
     fn image_paste_key(&self, event: &KeyEvent) -> bool {
-        let m = self.modifiers;
+        let m = self.pointer.modifiers;
         m.control_key()
             && !m.shift_key()
             && !m.alt_key()
@@ -294,7 +294,7 @@ impl App {
 
     /// 把一次按键编码成写给终端的字节；这个键在终端里没有意义时返回 `None`。
     fn encode_terminal_key(&self, event: &KeyEvent, modes: Modes, keyboard: u8) -> Option<Vec<u8>> {
-        let m = self.modifiers;
+        let m = self.pointer.modifiers;
         let option = m.alt_key();
         let mods = self.terminal_mods();
 

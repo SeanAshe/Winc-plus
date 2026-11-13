@@ -49,10 +49,11 @@ fn view_area(app: &App) -> Rect {
 
 /// 绘制全屏查看的图；不再显示该文档的预览（切换标签、切回源代码）时关闭全屏查看。
 pub(in crate::view) fn draw_diagram_view(app: &mut App, frame: &mut Frame<'_>) {
-    let Some(view) = app.markdown.diagram.as_ref() else {
+    let Some(view) = app.preview.markdown.diagram.as_ref() else {
         return;
     };
-    let shown = app.markdown.area.w > 0.0 && app.editor.active().is_some_and(|d| d.id == view.doc);
+    let shown =
+        app.preview.markdown.area.w > 0.0 && app.editor.active().is_some_and(|d| d.id == view.doc);
     if !shown {
         app.close_diagram_view();
         return;
@@ -62,7 +63,7 @@ pub(in crate::view) fn draw_diagram_view(app: &mut App, frame: &mut Frame<'_>) {
     frame.rect(area, p.editor_bg);
 
     let base = (app.fonts.code * BASE_RATIO).round();
-    let Some(view) = app.markdown.diagram.take() else {
+    let Some(view) = app.preview.markdown.diagram.take() else {
         return;
     };
     let mut view = lay_out(app, frame, view, base, area);
@@ -74,7 +75,7 @@ pub(in crate::view) fn draw_diagram_view(app: &mut App, frame: &mut Frame<'_>) {
         draw_items(frame, &laid.items, (left, top), area);
     }
     draw_toolbar(app, frame, p, &mut view, area);
-    app.markdown.diagram = Some(view);
+    app.preview.markdown.diagram = Some(view);
 }
 
 /// 计算适应查看区域的倍数，并按当前倍数排版图；倍数、字号、配色和查看区域都未改变时沿用

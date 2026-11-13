@@ -269,7 +269,7 @@ fn format_settings_add_a_language_and_pick_a_tool() {
             removable,
             "{id}"
         );
-        app.context_menu = None;
+        app.overlays.context_menu = None;
     }
 
     // 没有预设工具的语言只能自定义命令：直接进入输入框。
@@ -327,7 +327,7 @@ fn format_settings_add_a_language_and_pick_a_tool() {
     // 「无」。要给它指定修复工具，用修复工具一组自己的「添加语言…」：有修复预设的排在前面，
     // 选了以后弹出这一行的菜单，同样能移除，移除时只删修复命令。
     app.settings_add_language(Task::Format, winc_syntax::find("javascript").unwrap());
-    app.context_menu = None;
+    app.overlays.context_menu = None;
     assert_eq!(app.settings.languages.fix, ["python"]);
     app.settings_open_menu(Setting::AddFixLanguage);
     let menu = commands(&app);
@@ -364,7 +364,7 @@ fn format_settings_add_a_language_and_pick_a_tool() {
     // 项目在用的 Python 不能移除。
     app.settings_open_menu(Setting::FixCommand("python"));
     assert!(!commands(&app).contains(&MenuCommand::ToolRemove));
-    app.context_menu = None;
+    app.overlays.context_menu = None;
 
     // 再次打开：写过命令的 Shell 仍在，没写命令的 Makefile、移除了的 XML 不再列出。
     app.close_settings();

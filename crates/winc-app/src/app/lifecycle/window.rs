@@ -24,12 +24,12 @@ impl App {
 
     /// 是否认为光标位于窗口内：收到过鼠标移动，且此后没有按光标离开处理。
     pub(crate) fn cursor_inside(&self) -> bool {
-        self.cursor_inside
+        self.pointer.cursor_inside
     }
 
     /// 处理光标离开窗口：清除悬停状态，并解除标签宽度的锁定。
     pub(crate) fn cursor_left(&mut self) {
-        self.cursor_inside = false;
+        self.pointer.cursor_inside = false;
         if self.tabs.width_lock.take().is_some() {
             self.request_redraw();
         }
@@ -59,8 +59,8 @@ impl App {
     /// 测量模式下窗口不激活、完全透明，系统把它当作在后台；仍按前台处理，测得的内存与平时
     /// 使用时可比。
     pub(super) fn update_foreground(&mut self, foreground: bool) {
-        if let Some(renderer) = &mut self.renderer {
-            renderer.set_foreground(foreground || self.bench.silent());
+        if let Some(renderer) = &mut self.frame.renderer {
+            renderer.set_foreground(foreground || self.frame.bench.silent());
         }
     }
 
@@ -102,14 +102,14 @@ impl App {
     /// 窗口是否完全看不见（见 `occluded`）；看得见时，或者测量时（窗口透明，系统当它看不见）
     /// 为假。
     pub(in crate::app) fn unseen(&self) -> bool {
-        self.window.occluded && !self.bench.silent()
+        self.window.occluded && !self.frame.bench.silent()
     }
 
     /// 窗口变得完全看不见或又看得见（`WindowEvent::Occluded`）。
     pub(super) fn set_occluded(&mut self, occluded: bool) {
         self.window.occluded = occluded;
         let unseen = self.unseen();
-        if let Some(renderer) = &mut self.renderer {
+        if let Some(renderer) = &mut self.frame.renderer {
             renderer.set_occluded(unseen);
         }
         if !occluded {
@@ -119,7 +119,7 @@ impl App {
 
     /// 本窗口的字体和字形缓存，给之后新开的窗口共用；还没有渲染器时为 `None`。
     pub(crate) fn shared_glyphs(&self) -> Option<winc_render::SharedGlyphs> {
-        self.renderer.as_ref().map(Renderer::shared_glyphs)
+        self.frame.renderer.as_ref().map(Renderer::shared_glyphs)
     }
 
     /// 把窗口切到前台：关着的重新显示，最小化的还原。
@@ -131,7 +131,7 @@ impl App {
         if let Some(window) = &self.window.handle {
             window.set_minimized(false);
             #[cfg(all(unix, not(target_os = "macos")))]
-            let activated = (self.activation.take())
+            let activated = (self.opening.activation.take())
                 .is_some_and(|token| crate::wayland::activate(window, token));
             #[cfg(not(all(unix, not(target_os = "macos"))))]
             let activated = false;
@@ -147,7 +147,7 @@ impl App {
     pub(crate) fn set_activation(&mut self, token: Option<String>) {
         #[cfg(all(unix, not(target_os = "macos")))]
         {
-            self.activation = token.map(winit::window::ActivationToken::from_raw);
+            self.opening.activation = token.map(winit::window::ActivationToken::from_raw);
         }
         #[cfg(not(all(unix, not(target_os = "macos"))))]
         let _ = token;
@@ -182,7 +182,7 @@ impl App {
     /// 窗口建不起来（系统窗口或渲染器）：还有别的窗口时只放弃这一个（标成关掉，应用层去掉它），
     /// 否则结束。
     pub(super) fn give_up_window(&mut self, event_loop: &ActiveEventLoop) {
-        if self.shared.others() {
+        if self.link.shared.others() {
             self.window.handle = None;
             self.window.hidden = true;
         } else {
@@ -229,7 +229,7 @@ impl App {
     /// 摆放。
     pub(super) fn place_traffic_lights(&self) {
         #[cfg(target_os = "macos")]
-        if let (Some(window), Some(lights)) = (&self.window.handle, &self.traffic_lights)
+        if let (Some(window), Some(lights)) = (&self.window.handle, &self.link.traffic_lights)
             && let Some(end) = lights.place()
             && crate::layout::set_traffic_lights_end(end as f32)
         {
@@ -245,27 +245,29 @@ impl App {
         // 面板打开以后换了标签（⌘W、切换标签、后退前进、新建文件）：面板里的符号、书签、用法
         // 都属于原来的文档，回车会在新标签里跳到错误的位置，所以关掉。`close_picker` 会再次
         // 调用本函数，那时面板已经关了。
-        if self.picker.open && self.editor.active().map(|d| d.id) != self.picker.doc {
+        if self.overlays.picker.open
+            && self.editor.active().map(|d| d.id) != self.overlays.picker.doc
+        {
             self.close_picker();
             return;
         }
         // 浮层和焦点不分家：快捷键、点击把焦点挪到了其他位置（⌘F、⇧⌘F、⌃G、⌃Tab、点编辑区……）
         // 时面板、输入条跟着关掉。否则 Esc 和回车都到不了面板，面板会一直留在屏幕上。
-        if self.picker.open && self.focus != Focus::Picker {
+        if self.overlays.picker.open && self.focus != Focus::Picker {
             self.close_picker();
             return;
         }
-        if self.goto_input.is_some() && self.focus != Focus::Prompt {
-            self.goto_input = None;
+        if self.bars.goto_input.is_some() && self.focus != Focus::Prompt {
+            self.bars.goto_input = None;
         }
         // 切换到不能替换的标签时收起替换。
-        if self.find.replace_open && !self.can_replace() {
-            self.find.replace_open = false;
+        if self.bars.find.replace_open && !self.can_replace() {
+            self.bars.find.replace_open = false;
             if self.focus == Focus::Replace {
                 self.focus = Focus::Search;
             }
         }
-        let Some(renderer) = &self.renderer else {
+        let Some(renderer) = &self.frame.renderer else {
             return;
         };
         let (w, h) = renderer.logical_size();
@@ -278,8 +280,8 @@ impl App {
             ISLAND_MARGIN
         };
         let rows = match (
-            self.find.open && self.editor.active.is_some(),
-            self.find.replace_open,
+            self.bars.find.open && self.editor.active.is_some(),
+            self.bars.find.replace_open,
         ) {
             (false, _) => 0,
             (true, false) => 1,
@@ -287,15 +289,15 @@ impl App {
         };
         // ⌘P 面板高度随结果数变化：至少一行（显示「正在整理文件…」「没有匹配」），最多
         // `PICKER_MAX_ROWS` 行，且不能延伸到状态栏。
-        let picker_rows = if self.picker.open {
+        let picker_rows = if self.overlays.picker.open {
             let room =
                 (h - status_height - TOP_BAR_END - BAR_HEIGHT - 2.0 * PICKER_PAD - 16.0).max(0.0);
             let most = ((room / PICKER_ROW).floor() as usize).clamp(1, PICKER_MAX_ROWS);
-            self.picker.hits.len().clamp(1, most)
+            self.overlays.picker.hits.len().clamp(1, most)
         } else {
             0
         };
-        let (panel, shown) = (self.sidebar.width, self.sidebar_shown());
+        let (panel, shown) = (self.panels.sidebar.width, self.sidebar_shown());
         self.layout = Layout::compute(
             w,
             h,
@@ -309,7 +311,7 @@ impl App {
         self.place_places();
         self.place_git_picker();
         self.animate_picker((w, h));
-        if let Some(bottom) = self.picker.places_bottom {
+        if let Some(bottom) = self.overlays.picker.places_bottom {
             self.layout.picker.y = bottom - self.layout.picker.h;
         }
 
@@ -328,7 +330,7 @@ impl App {
 
         self.place_outline();
         // 搜索和历史差异各有自己的列表，不能命中工作区文件树原来的区域。
-        if self.sidebar.view == SidebarView::Search || self.log_diff_tree().is_some() {
+        if self.panels.sidebar.view == SidebarView::Search || self.log_diff_tree().is_some() {
             let tree = self.layout.tree;
             self.layout.tree = Rect::new(tree.x, tree.y, 0.0, 0.0);
         }
@@ -343,7 +345,7 @@ impl App {
     /// 收回空间。
     fn place_preview_button(&mut self) {
         let present = self.editor.active().is_some_and(|d| d.can_preview());
-        let share = self.module_fx.preview.share(present);
+        let share = self.motion.module_fx.preview.share(present);
         let l = &mut self.layout;
         l.preview = Rect::default();
         let full = crate::layout::PREVIEW_GROUP_W;
@@ -363,7 +365,11 @@ impl App {
     /// 当前文件是网页（`App::browser_page`）时，在标签栏右端留出「在浏览器中打开」按钮，标签栏
     /// 让出该处；出现、消失的动画同预览切换。
     fn place_browser_button(&mut self) {
-        let share = self.module_fx.browser.share(self.browser_page().is_some());
+        let share = self
+            .motion
+            .module_fx
+            .browser
+            .share(self.browser_page().is_some());
         let l = &mut self.layout;
         l.browser = Rect::default();
         if share <= 0.0 || l.tabs.w < BUTTON * 4.0 {
@@ -381,7 +387,8 @@ impl App {
 
     /// 分栏预览中间的分隔线是否正被悬停或拖动。
     pub(crate) fn split_divider_active(&self) -> bool {
-        self.hover == Hover::SplitDivider || matches!(self.drag, Drag::SplitDivider { .. })
+        self.pointer.hover == Hover::SplitDivider
+            || matches!(self.pointer.drag, Drag::SplitDivider { .. })
     }
 
     /// 分栏预览：编辑区左右分开，左边是行号栏和文字，右边画预览，中间一道分隔线。
@@ -418,7 +425,7 @@ impl App {
         const SPLIT_MIN: f32 = 240.0;
         // 分隔线两侧各放宽的可拖动范围（逻辑像素，经验值）。
         const GRIP: f32 = 4.0;
-        let share = self.split_share.unwrap_or(0.5);
+        let share = self.preview.split_share.unwrap_or(0.5);
         let l = &mut self.layout;
         l.split = Rect::default();
         l.split_divider = Rect::default();
@@ -543,8 +550,8 @@ impl App {
         self.load_active_in_background();
         // 当前标签在读：先不画，屏幕上留着上一帧，读好了或到时再画（见 `App::holding_frame`）。
         if self.holding_frame(Instant::now()).is_some() {
-            self.loads.held = true;
-            self.dirty = false;
+            self.disk.loads.held = true;
+            self.frame.dirty = false;
             return;
         }
         self.vim_sync();
@@ -561,12 +568,12 @@ impl App {
         self.advance_search();
         self.advance_images();
 
-        self.highlight_pending = false;
+        self.caches.highlight_pending = false;
         self.ime.cursor = None;
         // 此前的重画请求由这一帧满足；绘制之后（例如 `refresh_hover`）再提出的请求留到下一帧。
-        self.dirty = false;
+        self.frame.dirty = false;
 
-        let Some(mut renderer) = self.renderer.take() else {
+        let Some(mut renderer) = self.frame.renderer.take() else {
             return;
         };
         let started = Instant::now();
@@ -581,17 +588,17 @@ impl App {
         let drawn = renderer.draw(|frame| view::draw(self, frame));
         self.end_scroll_frame(scrolled);
         let elapsed = started.elapsed();
-        self.renderer = Some(renderer);
+        self.frame.renderer = Some(renderer);
         if !drawn {
             self.retry_frame(started);
             return;
         }
-        if self.frame_log.enabled()
+        if self.frame.frame_log.enabled()
             && let Some(window) = &self.window.handle
         {
             let size = window.inner_size();
             let refresh = frame_interval(window);
-            (self.frame_log).record(elapsed, refresh, (size.width, size.height));
+            (self.frame.frame_log).record(elapsed, refresh, (size.width, size.height));
         }
         self.refresh_hover();
         // 命中测试区域随本帧的布局更新；两帧之间的落指与抬手由 `on_touch` 另行同步。
@@ -601,26 +608,28 @@ impl App {
         // 高亮状态尚未推算完、大文件尚未搜完时，马上绘制下一帧，不按刷新率等：每帧本身有预算
         // （高亮 `HIGHLIGHT_BUDGET` 行、查找一个 8 ms 的时间片），已经不比刷新间隔短，按刷新率
         // 等反而常常错过一次刷新。
-        let searching = self.find.open || self.find.pending_jump.is_some() || self.vim_highlights();
-        self.dirty |= self.highlight_pending || (searching && !self.search.is_complete());
+        let searching =
+            self.bars.find.open || self.bars.find.pending_jump.is_some() || self.vim_highlights();
+        self.frame.dirty |=
+            self.caches.highlight_pending || (searching && !self.bars.search.is_complete());
         // 终端查找同样按时间片进行：这一帧之后再找一个时间片，没找完就马上绘制下一帧。
-        self.dirty |= self.terminal_find_tick();
+        self.frame.dirty |= self.terminal_find_tick();
         // 动画帧按显示器的刷新率安排。winit 在 macOS 上请求重画后立即绘制，不等待屏幕刷新，
         // 因此不能直接置 `dirty`，否则绘制频率会远高于刷新率。
         self.schedule_frame(started);
         self.update_ime_area();
         self.after_terminal_frame();
-        self.presented += 1;
+        self.frame.presented += 1;
 
-        match self.bench.on_present(self.presented, elapsed) {
+        match self.frame.bench.on_present(self.frame.presented, elapsed) {
             Next::Continue => {}
             // 应用层看到以后结束事件循环（测量时只有一个窗口）。
             Next::Exit => self.closing.quit_requested = true,
             // 当前显示 Markdown 预览时滚动预览，到达末尾后回到开头。
-            Next::Scroll if self.markdown.area.h > 0.0 => {
-                let before = self.markdown.scroll();
+            Next::Scroll if self.preview.markdown.area.h > 0.0 => {
+                let before = self.preview.markdown.scroll();
                 self.scroll_markdown(-BENCH_PREVIEW_STEP);
-                if self.markdown.scroll() == before {
+                if self.preview.markdown.scroll() == before {
                     self.scroll_markdown_to(0.0);
                 }
                 self.request_redraw();
@@ -648,7 +657,7 @@ impl App {
                 } else {
                     self.run(Command::Insert("x".into()));
                 }
-                self.bench.key_handled(started.elapsed());
+                self.frame.bench.key_handled(started.elapsed());
                 self.request_redraw();
             }
             Next::Preview => {
@@ -658,14 +667,14 @@ impl App {
             Next::Terminal => self.toggle_terminal(),
             Next::Search(query) => {
                 self.open_global_search(false);
-                self.global.query.set_text(&query);
+                self.panels.global.query.set_text(&query);
                 self.global_changed(true);
             }
             Next::QuickOpen => self.open_picker(),
             Next::Find(query) => {
                 self.open_search(false);
-                self.find.input.set_text(&query);
-                self.search.query = query;
+                self.bars.find.input.set_text(&query);
+                self.bars.search.query = query;
                 self.search_changed();
             }
             Next::Highlight => {
@@ -677,16 +686,16 @@ impl App {
             }
         }
         let ready = self.terminal_ready();
-        if let Some(command) = self.bench.terminal_command(ready) {
+        if let Some(command) = self.frame.bench.terminal_command(ready) {
             self.terminal_input(format!("{command}\n").into_bytes());
         }
-        let searching = self.find.open || self.find.pending_jump.is_some();
-        let done = !self.highlight_pending && (!searching || self.search.is_complete());
-        if self.bench.on_progress(done) {
+        let searching = self.bars.find.open || self.bars.find.pending_jump.is_some();
+        let done = !self.caches.highlight_pending && (!searching || self.bars.search.is_complete());
+        if self.frame.bench.on_progress(done) {
             self.closing.quit_requested = true;
         }
         let scroll = self.editor.active().map_or(0.0, |doc| doc.scroll_line);
-        if self.bench.on_wheel_frame(scroll) {
+        if self.frame.bench.on_wheel_frame(scroll) {
             self.closing.quit_requested = true;
         }
     }
@@ -695,13 +704,13 @@ impl App {
     ///
     /// 文件尚未读完时不送出：总行数未定，滚动会停在已读到的末尾。
     pub(in crate::app) fn bench_wheel_tick(&mut self, now: Instant) -> Option<Instant> {
-        let (send, next) = self.bench.wheel_due(now);
+        let (send, next) = self.frame.bench.wheel_due(now);
         let loading = self.editor.active().is_some_and(|doc| doc.is_pending());
         if send && !loading {
             let text = self.layout.text;
-            self.mouse = (text.x + text.w / 2.0, text.y + text.h / 2.0);
+            self.pointer.mouse = (text.x + text.w / 2.0, text.y + text.h / 2.0);
             let lines = self.wheel_step().1 / self.fonts.line_height;
-            self.bench.wheel_sent(lines);
+            self.frame.bench.wheel_sent(lines);
             self.on_wheel(winit::event::MouseScrollDelta::LineDelta(0.0, -1.0));
         }
         next

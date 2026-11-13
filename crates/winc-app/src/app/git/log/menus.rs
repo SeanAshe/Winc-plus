@@ -126,6 +126,7 @@ impl App {
                 self.flash(t!("git-log-copied-short-oid", commit = tag.as_str()));
                 self.set_clipboard(tag, false);
             }
+            MenuCommand::LogGoTo => self.open_go_to_revision(),
             MenuCommand::LogCopyMessage => {
                 let message = self
                     .editor

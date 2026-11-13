@@ -85,7 +85,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>) {
         draw_setup(app, frame);
         return;
     }
-    let Some(t) = app.setup_outro.map(|clock| clock.linear()) else {
+    let Some(t) = app.motion.setup_outro.map(|clock| clock.linear()) else {
         draw_start(app, frame, 0.0);
         return;
     };
@@ -163,7 +163,7 @@ fn draw_start(app: &mut App, frame: &mut Frame<'_>, rise: f32) {
         let row = Rect::new(x, y, w, ROW);
         let open = StartAction::Recent(index);
         let forget = StartAction::Forget(index);
-        let hovered = matches!(app.hover, Hover::Start(a) if a == open || a == forget);
+        let hovered = matches!(app.pointer.hover, Hover::Start(a) if a == open || a == forget);
         draw_row_bg(app, frame, row, open);
 
         let folder = app.state.recent[index].clone();
@@ -200,7 +200,7 @@ fn draw_start(app: &mut App, frame: &mut Frame<'_>, rise: f32) {
                 p,
                 close,
                 editor,
-                app.hover == Hover::Start(forget),
+                app.pointer.hover == Hover::Start(forget),
                 false,
             );
             icons::close(frame, center(close), 6.5, p.text_muted, editor);
@@ -239,7 +239,7 @@ fn draw_setup(app: &mut App, frame: &mut Frame<'_>) {
     let w = WIDTH.min(clip.w - 48.0).max(0.0);
     let x = (clip.x + (clip.w - w) / 2.0).round();
     let top = (clip.y + ((clip.h - total) / 2.0 - 24.0).max(16.0)).round();
-    let intro = app.setup_intro.map(|clock| clock.linear());
+    let intro = app.motion.setup_intro.map(|clock| clock.linear());
 
     if let Some(splash) = intro.and_then(crate::app::setup::splash) {
         let size = (SPLASH_LOGO * frame.scale()).round() as u32;
@@ -351,7 +351,7 @@ fn draw_setup(app: &mut App, frame: &mut Frame<'_>) {
     let top = y + rows + GAP + rise;
     let button = Rect::new(x + w - 6.0 - width, top, width, SETUP_BUTTON_H);
     let action = StartAction::FinishSetup;
-    let hovered = app.hover == Hover::Start(action);
+    let hovered = app.pointer.hover == Hover::Start(action);
     frame.with_opacity(alpha, |frame| {
         draw_action_button(
             app,
@@ -386,7 +386,7 @@ fn draw_dropdown(app: &mut App, frame: &mut Frame<'_>, row: Rect, text: &str, ac
         width,
         DROPDOWN_H,
     );
-    let hovered = app.hover == Hover::Start(action);
+    let hovered = app.pointer.hover == Hover::Start(action);
     crate::view::controls::popup_value(app, frame, control, text, false, hovered, clip);
     app.hits.start.push((control, action));
 }
@@ -432,7 +432,7 @@ fn draw_segments(
     crate::view::controls::segment_track(frame, p, track, p.editor_bg, slot, clip);
     for (index, &(label, selected, action)) in options.iter().enumerate() {
         let segment = segment(index);
-        let hovered = app.hover == Hover::Start(action);
+        let hovered = app.pointer.hover == Hover::Start(action);
         if hovered && !selected {
             frame.rect_clipped(segment, p.hover, RADIUS_ROW, clip);
         }
@@ -503,7 +503,7 @@ fn section_title(app: &App, frame: &mut Frame<'_>, text: &str, x: f32, y: f32, w
 
 /// 绘制悬停时的圆角底色，样式与文件树的行相同。
 fn draw_row_bg(app: &App, frame: &mut Frame<'_>, row: Rect, action: StartAction) {
-    let hovered = match app.hover {
+    let hovered = match app.pointer.hover {
         Hover::Start(StartAction::Forget(i)) => action == StartAction::Recent(i),
         Hover::Start(a) => a == action,
         _ => false,

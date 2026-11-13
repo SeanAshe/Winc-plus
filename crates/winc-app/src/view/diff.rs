@@ -181,7 +181,7 @@ pub(super) fn draw_diff(app: &mut App, frame: &mut Frame<'_>, index: usize) {
     let Some(mut view) = app.editor.documents[index].diff.take() else {
         return;
     };
-    let parts = diff_parts(app.layout.editor, &view, app.cell);
+    let parts = diff_parts(app.layout.editor, &view, app.metrics.cell);
     let doc = &app.editor.documents[index];
     let visible = f64::from(parts.body.h / app.fonts.line_height);
     // 滚动位置由两侧共用，各侧分别换算为自己的显示行（见 `DiffView::row_at`）。
@@ -197,7 +197,7 @@ pub(super) fn draw_diff(app: &mut App, frame: &mut Frame<'_>, index: usize) {
     let edit = edit_state(app, &view, new_lines(&view, rows));
     let mut hits = Vec::new();
     // 展开或折叠的过渡：滚动位置改变、该段已不处于展开状态时不再绘制过渡。
-    let shift = (app.diff_fold.as_ref())
+    let shift = (app.motion.diff_fold.as_ref())
         .filter(|m| m.doc == doc.id && m.scroll == doc.scroll_line && view.is_open(m.gap))
         .map(|m| FoldShift {
             rows: m.rows.clone(),
@@ -250,7 +250,7 @@ fn draw_header(
             p,
             rect,
             header,
-            app.hover == Hover::Diff(target),
+            app.pointer.hover == Hover::Diff(target),
             false,
         );
         let c = center(rect);
@@ -397,10 +397,10 @@ fn edit_state(app: &App, view: &DiffView, lines: Range<usize>) -> EditState {
         .editor
         .active()
         .filter(|_| app.layout.search.h > 0.0)
-        .and_then(|doc| app.search.snapshot_side(doc));
+        .and_then(|doc| app.bars.search.snapshot_side(doc));
     let read = view.read_selection.and_then(|selection| {
         let (side, (a, b)) = (selection.side, selection.range);
-        if snapshot == Some(side) && app.search.current_match() == Some((a, b)) {
+        if snapshot == Some(side) && app.bars.search.current_match() == Some((a, b)) {
             return None;
         }
         (a != b).then(|| (side, (at(side, a.min(b)), at(side, a.max(b)))))
@@ -457,7 +457,7 @@ fn edit_state(app: &App, view: &DiffView, lines: Range<usize>) -> EditState {
         read,
         read_caret,
         modal,
-        searched: (app.layout.search.h > 0.0 && app.search.document() == Some(source.id))
+        searched: (app.layout.search.h > 0.0 && app.bars.search.document() == Some(source.id))
             .then_some(RIGHT),
     }
 }
@@ -584,7 +584,7 @@ fn draw_line_number(
 ) {
     number.clear();
     let _ = write!(number, "{}", line + 1);
-    let x = pane.number_end - number.chars().count() as f32 * app.cell;
+    let x = pane.number_end - number.chars().count() as f32 * app.metrics.cell;
     let p = app.palette;
     frame.text(
         FontKind::Mono,
@@ -612,7 +612,7 @@ fn draw_body(
     let p = app.palette;
     let lh = app.fonts.line_height;
     let body = parts.body;
-    let (ascent, descent) = (app.mono_metrics.ascent, app.mono_metrics.descent);
+    let (ascent, descent) = (app.metrics.mono.ascent, app.metrics.mono.descent);
     let tab_width = app.editor.tab_width;
     // 光标只在编辑区有焦点时绘制。
     let carets_shown = edit.editing && app.focus == Focus::Editor;
@@ -641,7 +641,7 @@ fn draw_body(
         let all: Vec<(u64, std::ops::Range<usize>)> = (view.keys.iter().zip(&view.hunks))
             .map(|(&key, hunk)| (key, hunk.old.clone()))
             .collect();
-        (app.commit).hunk_inclusions(entry, &all)
+        (app.git.commit).hunk_inclusions(entry, &all)
     });
     let mut chars: Vec<char> = Vec::with_capacity(256);
     let mut tokens = Vec::with_capacity(32);
@@ -673,14 +673,14 @@ fn draw_body(
             SideRow::Fold { gap, ref lines } => {
                 // 折叠的一段：绘制一条淡色底（不绘制上下边线，边线在中间一栏处会断开），行号栏中
                 // 一对朝外的小箭头表示可以展开；悬停时底色加深。
-                let hovered = app.hover == Hover::Diff(DiffTarget::Fold(gap));
+                let hovered = app.pointer.hover == Hover::Diff(DiffTarget::Fold(gap));
                 let fill = if hovered {
                     p.hover
                 } else {
                     p.hover.alpha(p.hover.a * 0.6)
                 };
                 frame.rect_clipped(band, fill, 0.0, body);
-                let icon = (pane.number_end - app.cell / 2.0, y + lh / 2.0);
+                let icon = (pane.number_end - app.metrics.cell / 2.0, y + lh / 2.0);
                 let color = if hovered { p.text_muted } else { p.text_dim };
                 icons::up_down(frame, icon, color, pane.gutter);
                 let label = t!("editor-diff-unchanged-lines", count = lines.len());
@@ -730,7 +730,7 @@ fn draw_body(
                 .and_then(|h| inclusions.get(h))
                 .is_some_and(|inclusion| {
                     matches!(inclusion, Pick::Lines(_))
-                        || app.hover == Hover::Diff(DiffTarget::IncludeLine(side, line))
+                        || app.pointer.hover == Hover::Diff(DiffTarget::IncludeLine(side, line))
                 });
             if unified && part == 0 && !line_check {
                 let sign = if side == LEFT { "−" } else { "+" };
@@ -761,7 +761,7 @@ fn draw_body(
             let target = DiffTarget::Refold(view.open_folds[index].0);
             let pad = crate::app::diff::DIFF_GUTTER_PAD;
             let mark = Rect::new(pane.gutter.x, y, pad, lh);
-            let hovered = app.hover == Hover::Diff(target);
+            let hovered = app.pointer.hover == Hover::Diff(target);
             let color = if hovered { p.text_muted } else { p.text_dim };
             // 标记略小于留白并偏向左侧，与行号之间留出间隙。
             let center = (mark.x + mark.w / 2.0 - 1.0, y + lh / 2.0);
@@ -773,7 +773,7 @@ fn draw_body(
         if let (0, Some(inclusion)) = (part, hunk.and_then(|h| inclusions.get(h))) {
             let cell = parts.line_checks[side];
             let rect = Rect::new(cell.x, y, cell.w, lh);
-            let hovered = app.hover == Hover::Diff(DiffTarget::IncludeLine(side, line));
+            let hovered = app.pointer.hover == Hover::Diff(DiffTarget::IncludeLine(side, line));
             if hovered || matches!(inclusion, Pick::Lines(_)) {
                 let on = !line_skipped && !matches!(inclusion, Pick::Skip);
                 icons::line_checkbox(
@@ -806,7 +806,7 @@ fn draw_body(
             let state = text_side
                 .highlighter
                 .state_at(&text_side.text, line, HIGHLIGHT_BUDGET);
-            app.highlight_pending |= state.is_none();
+            app.caches.highlight_pending |= state.is_none();
             let language = text_side.highlighter.language();
             tokens.clear();
             let _ = winc_syntax::highlight_line(
@@ -856,8 +856,8 @@ fn draw_body(
                 if from >= to || to <= range.start || from >= range.end {
                     continue;
                 }
-                let x0 = origin_x + at(from) * app.cell;
-                let x1 = origin_x + at(to) * app.cell;
+                let x0 = origin_x + at(from) * app.metrics.cell;
+                let x1 = origin_x + at(to) * app.metrics.cell;
                 let rect = Rect::new(x0, y + 2.0, (x1 - x0).max(2.0), lh - 4.0);
                 frame.rect_clipped(rect, word, 3.0, pane.text);
             }
@@ -871,14 +871,14 @@ fn draw_body(
         };
         if let Some(start) = search_start {
             let end = start + chars.len();
-            let current = app.search.current_match();
-            for &(from, to) in app.search.matches_in(start, end.max(start + 1)) {
+            let current = app.bars.search.current_match();
+            for &(from, to) in app.bars.search.matches_in(start, end.max(start + 1)) {
                 let (a, b) = (from.max(start) - start, to.min(end).max(from) - start);
                 if b <= range.start || a >= range.end {
                     continue;
                 }
-                let x0 = origin_x + at(a) * app.cell;
-                let x1 = origin_x + at(b) * app.cell;
+                let x0 = origin_x + at(a) * app.metrics.cell;
+                let x1 = origin_x + at(b) * app.metrics.cell;
                 let color = if current == Some((from, to)) {
                     p.search_current
                 } else {
@@ -901,11 +901,11 @@ fn draw_body(
         for &((l0, c0), (l1, c1)) in selections[skip..].iter().take_while(|s| s.0.0 <= line) {
             let from = if line == l0 { c0 } else { 0 };
             let to = if line == l1 { c1 } else { chars.len() + 1 };
-            let x0 = origin_x + at(from) * app.cell;
+            let x0 = origin_x + at(from) * app.metrics.cell;
             let x1 = origin_x
-                + at(to) * app.cell
+                + at(to) * app.metrics.cell
                 + if to > chars.len() && last {
-                    app.cell * 0.5
+                    app.metrics.cell * 0.5
                 } else {
                     0.0
                 };
@@ -921,15 +921,15 @@ fn draw_body(
             0..0
         } else {
             let prefix = prefix.get_or_init(|| text::prefix_cells(&chars, tab_width));
-            let cell_at = |x: f32| ((x - origin_x) / app.cell - lead).max(0.0) as usize;
+            let cell_at = |x: f32| ((x - origin_x) / app.metrics.cell - lead).max(0.0) as usize;
             let (left, right) = (cell_at(pane.text.x), cell_at(pane.text.right()) + 1);
             let first = prefix.partition_point(|&c| c <= left).saturating_sub(1);
             let last = prefix.partition_point(|&c| c <= right);
             first.max(range.start)..last.min(range.end).max(first.max(range.start))
         };
         for (from, to, color) in marked_occurrences(app, &chars, shown) {
-            let x0 = origin_x + at(from) * app.cell;
-            let x1 = origin_x + at(to) * app.cell;
+            let x0 = origin_x + at(from) * app.metrics.cell;
+            let x1 = origin_x + at(to) * app.metrics.cell;
             let rect = Rect::new(x0, y + 1.0, (x1 - x0).max(2.0), lh - 2.0);
             frame.rect_clipped(rect, color, 3.0, pane.text);
         }
@@ -938,8 +938,8 @@ fn draw_body(
         let clip = if breaks.starts.is_empty() {
             pane.text
         } else {
-            let from = origin_x + at(range.start) * app.cell;
-            let to = origin_x + at(range.end) * app.cell;
+            let from = origin_x + at(range.start) * app.metrics.cell;
+            let to = origin_x + at(range.end) * app.metrics.cell;
             Rect::new(from, pane.text.y, (to - from).max(0.0), pane.text.h).intersect(pane.text)
         };
 
@@ -956,11 +956,11 @@ fn draw_body(
                     near.any(|&(start, end)| start <= (line, col) && (line, col) < end)
                 };
                 if whitespace_shown(whitespace, col, trailing, in_selection) {
-                    let x = origin_x + at(col) * app.cell;
+                    let x = origin_x + at(col) * app.metrics.cell;
                     if x > clip.right() {
                         break;
                     }
-                    let width = (at(col + 1) - at(col)) * app.cell;
+                    let width = (at(col + 1) - at(col)) * app.metrics.cell;
                     draw_whitespace_mark(app, frame, c, (x, y), width, clip);
                 }
             }
@@ -971,7 +971,7 @@ fn draw_body(
             frame,
             &chars,
             &tokens,
-            origin_x + lead * app.cell,
+            origin_x + lead * app.metrics.cell,
             baseline,
             tab_width,
             clip,
@@ -983,12 +983,12 @@ fn draw_body(
             let skip = edit.carets.partition_point(|c| c.0 < line);
             for &(_, col) in edit.carets[skip..].iter().take_while(|c| c.0 == line) {
                 if breaks.row_of(col) == part {
-                    let x = origin_x + at(col) * app.cell;
+                    let x = origin_x + at(col) * app.metrics.cell;
                     caret_bar(app, frame, x, y, pane.text);
                 }
             }
             if edit.caret.0 == line && breaks.row_of(edit.caret.1) == part && barred(RIGHT) {
-                let x = origin_x + at(edit.caret.1) * app.cell;
+                let x = origin_x + at(edit.caret.1) * app.metrics.cell;
                 app.ime.cursor = Some(draw_caret(app, frame, x, y, baseline, pane.text));
             }
         }
@@ -996,8 +996,13 @@ fn draw_body(
             && (caret_side, caret_line, breaks.row_of(col)) == (side, line, part)
         {
             // 行尾与空行上的光标占一格。
-            let width = Some((at(col + 1) - at(col)) * app.cell).filter(|width| *width > 0.0);
-            let place = (origin_x + at(col) * app.cell, y, width.unwrap_or(app.cell));
+            let width =
+                Some((at(col + 1) - at(col)) * app.metrics.cell).filter(|width| *width > 0.0);
+            let place = (
+                origin_x + at(col) * app.metrics.cell,
+                y,
+                width.unwrap_or(app.metrics.cell),
+            );
             let c = chars.get(col).copied();
             draw_modal_caret(app, frame, place, c, baseline, shape, pane.text);
         }
@@ -1007,7 +1012,7 @@ fn draw_body(
             && caret_line == line
             && breaks.row_of(col) == part
         {
-            let x = origin_x + at(col) * app.cell;
+            let x = origin_x + at(col) * app.metrics.cell;
             caret_bar(app, frame, x, y, pane.text);
         }
     }
@@ -1130,7 +1135,7 @@ fn draw_body(
             let mid = mid.max(body.y + 10.0);
             let c = (parts.include_x, mid);
             // 与左侧的「»」使用同一套线条图标（`icons::line_checkbox`），仅悬停时显示底色。
-            let hovered = app.hover == Hover::Diff(DiffTarget::Include(h));
+            let hovered = app.pointer.hover == Hover::Diff(DiffTarget::Include(h));
             match inclusions.get(h) {
                 Some(Pick::Lines(_)) => icons::line_checkbox_mixed(
                     frame,
@@ -1175,7 +1180,7 @@ fn draw_body(
             // 紧贴顶边的按钮（文件开头的插入）下移半个按钮高度，避免被标题栏裁切。
             let mid = mid.max(body.y + 10.0);
             let c = (parts.revert_x, mid);
-            let hovered = app.hover == Hover::Diff(DiffTarget::Revert(h));
+            let hovered = app.pointer.hover == Hover::Diff(DiffTarget::Revert(h));
             icons::line_replace(frame, c, hovered.then_some(p.hover), p.accent, body);
             let rect = Rect::new(c.0 - 10.0, c.1 - 10.0, 20.0, 20.0);
             hits.push((rect.intersect(body), DiffTarget::Revert(h)));
@@ -1269,7 +1274,7 @@ fn draw_overview(
     // 两侧各一条水平滚动条，共用一个滚动位置。
     let scroll_x = app.editor.documents[index].scroll_x;
     let tab_width = app.editor.active_tab_width();
-    let bars = DiffHScroll::of(parts, view, app.cell, tab_width);
+    let bars = DiffHScroll::of(parts, view, app.metrics.cell, tab_width);
     for (side, (area, _)) in DIFF_HSCROLL.into_iter().enumerate() {
         let bar = bars.thumb(side, scroll_x);
         let look = app.scrollbar_look(area, owner, scroll_x, bar.map(|(track, _)| track));

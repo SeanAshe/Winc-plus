@@ -168,8 +168,12 @@ fn draw_nav(app: &App, frame: &mut Frame<'_>, layout: &SettingsLayout) {
         // 「Git」「终端」两项随各自的模块淡入淡出（`App::track_modules`），高度在布局中按显示比例收放；
         // 图标和文字仍按整行的高度居中，不随高度挤压。
         let opacity = match page {
-            SettingsPage::Terminal => app.module_fx.terminal.opacity(app.terminal_enabled()),
-            SettingsPage::Git => app.module_fx.git.opacity(app.git_enabled()),
+            SettingsPage::Terminal => app
+                .motion
+                .module_fx
+                .terminal
+                .opacity(app.terminal_enabled()),
+            SettingsPage::Git => app.motion.module_fx.git.opacity(app.git_enabled()),
             _ => 1.0,
         };
         let full = Rect::new(row.x, row.y, row.w, SETTINGS_NAV_ROW);
@@ -575,7 +579,7 @@ fn draw_product(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Re
 fn update_button(app: &App) -> (String, ButtonRole, bool) {
     use crate::app::UpdateClick;
     use crate::winc::UpdateState;
-    let state = app.shared.update_state.borrow();
+    let state = app.link.shared.update_state.borrow();
     let enabled = UpdateClick::from_state(&state) != UpdateClick::None;
     let (label, role) = match &*state {
         UpdateState::Downloading(_, percent) => (format!("{percent}%"), ButtonRole::Normal),
@@ -600,7 +604,7 @@ fn update_button(app: &App) -> (String, ButtonRole, bool) {
 pub(in crate::view) fn update_status(app: &App) -> (String, Color) {
     use crate::winc::UpdateState;
     let p = app.palette;
-    match &*app.shared.update_state.borrow() {
+    match &*app.link.shared.update_state.borrow() {
         UpdateState::Off => (t!("settings-updates-off").to_owned(), p.text_muted),
         UpdateState::Idle => (t!("settings-updates-idle").to_owned(), p.text_muted),
         UpdateState::Checking => (t!("settings-updates-checking").to_owned(), p.text_muted),

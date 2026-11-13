@@ -324,7 +324,7 @@ impl App {
 
     /// 返回搜索面板各部分的布局。
     pub(crate) fn panel_parts(&self) -> PanelParts {
-        let g = &self.global;
+        let g = &self.panels.global;
         // 搜完了没有结果时不写统计行，结果列表里居中写「没有找到结果」（`draw_empty_state`）。
         let summary =
             (!g.query.text().is_empty() && !self.no_search_results()) || g.engine.error().is_some();
@@ -340,18 +340,18 @@ impl App {
 
     /// 记下查找、替换输入框折成的行数；变化时框高从当前高度过渡到新高度。
     pub(crate) fn set_search_field_lines(&mut self, lines: (usize, usize)) {
-        if lines == self.global.field_lines {
+        if lines == self.panels.global.field_lines {
             return;
         }
-        let settled = self.global.settled_field_heights();
-        let (from_q, from_r) = self.global.field_heights();
-        self.global.field_lines = lines;
+        let settled = self.panels.global.settled_field_heights();
+        let (from_q, from_r) = self.panels.global.field_heights();
+        self.panels.global.field_lines = lines;
         // 行数变了、高度不变（超过最多行数之后）时不用过渡。
-        if self.global.settled_field_heights() == settled {
+        if self.panels.global.settled_field_heights() == settled {
             return;
         }
         let clock = self.clock(crate::app::animation::TREE_ANIMATION);
-        self.global.field_motion = clock.map(|c| (from_q, from_r, c));
+        self.panels.global.field_motion = clock.map(|c| (from_q, from_r, c));
         self.clamp_results_scroll();
     }
 
@@ -359,15 +359,15 @@ impl App {
     ///
     /// 与 [`App::track_modules`] 相同，按上一帧的状态比较，切换开关的代码无需各自记录。
     pub(in crate::app) fn track_search_rows(&mut self) {
-        let g = &self.global;
+        let g = &self.panels.global;
         let changed = g.replace_fx.changed(g.replace_open) || g.details_fx.changed(g.details_open);
-        let primed = std::mem::replace(&mut self.global.fx_primed, true);
+        let primed = std::mem::replace(&mut self.panels.global.fx_primed, true);
         let clock = if primed && changed {
             self.clock(TREE_ANIMATION)
         } else {
             None
         };
-        let g = &mut self.global;
+        let g = &mut self.panels.global;
         g.replace_fx.track(g.replace_open, clock);
         g.details_fx.track(g.details_open, clock);
     }
@@ -376,7 +376,7 @@ impl App {
     ///
     /// 匹配行从文件行下方逐渐露出或收回，其下方的行随之移动。
     pub(in crate::app) fn set_result_collapsed(&mut self, f: usize, collapse: bool) {
-        let g = &mut self.global;
+        let g = &mut self.panels.global;
         let Some(file) = g.engine.results.get(f) else {
             return;
         };
@@ -394,7 +394,7 @@ impl App {
         g.rebuild_rows();
         let parent = g.rows.iter().position(|&r| r == ResultRow::File(f));
         let clock = self.clock(TREE_ANIMATION);
-        let g = &mut self.global;
+        let g = &mut self.panels.global;
         // 动画期间按行数较多的状态绘制：展开时绘制展开后的行，折叠时绘制折叠前的行。
         let rows = if collapse { before } else { g.rows.clone() };
         g.motion = match (parent, clock) {
@@ -412,7 +412,7 @@ impl App {
 
     /// 是否已搜索完成但没有任何结果，且没有出错。
     pub(crate) fn no_search_results(&self) -> bool {
-        let g = &self.global;
+        let g = &self.panels.global;
         !g.query.text().is_empty()
             && g.engine.total() == 0
             && !g.engine.is_running()
@@ -422,17 +422,17 @@ impl App {
 
     /// 搜索面板是否正在显示：侧栏当前是搜索视图，且侧栏可见。
     pub(in crate::app) fn panel_shown(&self) -> bool {
-        self.sidebar.view == SidebarView::Search && self.layout.sidebar.right() > 0.0
+        self.panels.sidebar.view == SidebarView::Search && self.layout.sidebar.right() > 0.0
     }
 
     /// 把侧栏切换到视图 `view`（文件树或搜索）。
     pub(in crate::app) fn set_sidebar_view(&mut self, view: SidebarView) {
-        if self.sidebar.view == view {
+        if self.panels.sidebar.view == view {
             return;
         }
 
-        let from = std::mem::replace(&mut self.sidebar.view, view);
-        self.sidebar.view_slide = self
+        let from = std::mem::replace(&mut self.panels.sidebar.view, view);
+        self.panels.sidebar.view_slide = self
             .clock(crate::app::animation::VIEW_SLIDE)
             .map(|clock| (from, clock));
         self.finish_name_input();
@@ -455,7 +455,7 @@ impl App {
     pub(in crate::app) fn show_files(&mut self) {
         self.set_sidebar_view(SidebarView::Files);
 
-        if !self.sidebar.visible {
+        if !self.panels.sidebar.visible {
             self.set_sidebar(true);
         }
 
@@ -475,31 +475,31 @@ impl App {
 
         self.set_sidebar_view(SidebarView::Search);
 
-        if !self.sidebar.visible {
+        if !self.panels.sidebar.visible {
             self.set_sidebar(true);
         }
 
         if let Some(seed) = self.search_seed()
-            && seed != self.global.query.text()
+            && seed != self.panels.global.query.text()
         {
-            self.global.query.remember();
-            self.global.query.set_text(&seed);
+            self.panels.global.query.remember();
+            self.panels.global.query.set_text(&seed);
             self.global_changed(true);
         } else {
-            self.global.query.select_all();
+            self.panels.global.query.select_all();
         }
 
         if replace {
-            self.global.replace_open = true;
+            self.panels.global.replace_open = true;
         }
 
-        self.focus = if replace && !self.global.query.text().is_empty() {
-            self.global.replace.select_all();
+        self.focus = if replace && !self.panels.global.query.text().is_empty() {
+            self.panels.global.replace.select_all();
             Focus::GlobalReplace
         } else {
             Focus::GlobalQuery
         };
-        self.field_preedit.clear();
+        self.ime.field_preedit.clear();
         self.relayout();
         self.reset_blink();
         self.request_redraw();
@@ -510,10 +510,10 @@ impl App {
     /// 查找内容删空时立即搜索：统计行随输入框清空而消失，结果列表须在同一帧清除，
     /// 避免延迟期间仍显示旧结果。
     pub(in crate::app) fn global_changed(&mut self, now: bool) {
-        if now || self.global.query.text().is_empty() {
+        if now || self.panels.global.query.text().is_empty() {
             self.run_global_search();
         } else {
-            self.global.due = Some(Instant::now() + SEARCH_DELAY);
+            self.panels.global.due = Some(Instant::now() + SEARCH_DELAY);
         }
 
         self.request_redraw();
@@ -521,27 +521,27 @@ impl App {
 
     /// 按输入框中的条件从头搜索整个目录。
     pub(in crate::app) fn run_global_search(&mut self) {
-        self.global.due = None;
+        self.panels.global.due = None;
 
         let Some(root) = self.editor.root().map(Path::to_path_buf) else {
             return;
         };
-        let query = self.global.current_query();
+        let query = self.panels.global.current_query();
 
         // 有未保存修改的文档按内存中的内容搜索。
         let dirty = self.dirty_ropes();
 
-        let proxy = self.proxy.clone();
+        let proxy = self.link.proxy.clone();
         let wake = move || {
             if let Some(proxy) = &proxy {
                 let _ = proxy.send_event(UserEvent::Searched);
             }
         };
 
-        self.global.engine.start(&root, &query, dirty, wake);
-        self.global.scroll = 0.0;
-        self.global.selected = None;
-        self.global.rebuild_rows();
+        self.panels.global.engine.start(&root, &query, dirty, wake);
+        self.panels.global.scroll = 0.0;
+        self.panels.global.selected = None;
+        self.panels.global.rebuild_rows();
         self.request_redraw();
     }
 
@@ -549,7 +549,7 @@ impl App {
     ///
     /// 结果中仍记录着旧路径：点击会打开不存在的文件，替换也会作用到旧路径上。
     pub(in crate::app) fn files_changed_under_results(&mut self) {
-        if self.global.engine.query().is_some() {
+        if self.panels.global.engine.query().is_some() {
             self.run_global_search();
         }
     }
@@ -559,11 +559,11 @@ impl App {
     /// 后台重新搜索一批文件后，选中的那一处可能已经不在结果中：改为选中原位置上的行，与替换、
     /// 移除结果之后相同（见 [`Self::after_results_changed`]）。
     pub(in crate::app) fn poll_global(&mut self) {
-        let selected = self.global.selected_row();
-        if self.global.engine.poll() {
-            self.global.sync_rows();
+        let selected = self.panels.global.selected_row();
+        if self.panels.global.engine.poll() {
+            self.panels.global.sync_rows();
             if let Some(index) = selected
-                && self.global.selected_row().is_none()
+                && self.panels.global.selected_row().is_none()
             {
                 self.after_results_changed(index);
             }
@@ -574,25 +574,30 @@ impl App {
 
     /// 返回结果列表的最大滚动位置（逻辑像素）；末尾多留一行（`TREE_ROW`）空白。
     pub(in crate::app) fn results_max_scroll(&self) -> f32 {
-        let rows = self.global.rows().len() as f32;
+        let rows = self.panels.global.rows().len() as f32;
         ((rows + 1.0) * TREE_ROW - self.panel_parts().results.h).max(0.0)
     }
 
     fn clamp_results_scroll(&mut self) {
-        self.global.scroll = self.global.scroll.clamp(0.0, self.results_max_scroll());
+        self.panels.global.scroll = self
+            .panels
+            .global
+            .scroll
+            .clamp(0.0, self.results_max_scroll());
     }
 
     /// 返回窗口纵坐标 `y`（逻辑像素）处的结果行序号；没有对应的行时返回 `None`。
     pub(in crate::app) fn result_row_at(&self, y: f32) -> Option<usize> {
         let results = self.panel_parts().results;
-        let index = ((y - results.y + self.global.scroll) / TREE_ROW).floor();
-        (index >= 0.0 && (index as usize) < self.global.rows().len()).then_some(index as usize)
+        let index = ((y - results.y + self.panels.global.scroll) / TREE_ROW).floor();
+        (index >= 0.0 && (index as usize) < self.panels.global.rows().len())
+            .then_some(index as usize)
     }
 
     /// 返回第 `index` 个结果行在窗口中的矩形。
     pub(crate) fn result_row_rect(&self, index: usize) -> Rect {
         let results = self.panel_parts().results;
-        let y = results.y + index as f32 * TREE_ROW - self.global.scroll;
+        let y = results.y + index as f32 * TREE_ROW - self.panels.global.scroll;
         Rect::new(results.x, y, results.w, TREE_ROW)
     }
 
@@ -600,15 +605,15 @@ impl App {
     fn scroll_result_into_view(&mut self, index: usize) {
         let h = self.panel_parts().results.h;
         let y = index as f32 * TREE_ROW;
-        let before = self.global.scroll;
-        self.global.scroll = scroll_to_show(self.global.scroll, y, y + TREE_ROW, h);
+        let before = self.panels.global.scroll;
+        self.panels.global.scroll = scroll_to_show(self.panels.global.scroll, y, y + TREE_ROW, h);
         self.clamp_results_scroll();
         self.glide_pane(ScrollTarget::Results, before);
     }
 
     /// 处理搜索面板上按钮 `button` 的点击。
     pub(in crate::app) fn press_panel_button(&mut self, button: PanelButton) {
-        let g = &mut self.global;
+        let g = &mut self.panels.global;
 
         match button {
             PanelButton::Tool(PanelTool::Refresh) => self.run_global_search(),
@@ -681,7 +686,7 @@ impl App {
     /// [`App::replace_all_confirmed`]。搜索未完成、结果被截断或不全、没有结果时不弹出确认框，
     /// 改为在状态栏提示原因。
     pub(in crate::app) fn ask_replace_all(&mut self) {
-        let g = &self.global;
+        let g = &self.panels.global;
 
         if g.replacing.is_some() {
             self.flash(t!("workspace-replace-all-busy"));
@@ -708,11 +713,11 @@ impl App {
     /// 主文本写明文件数、匹配数和替换文字，说明文本提示操作无法撤销。
     /// 「替换」为默认按钮（`↩`），「取消」对应 `Esc`。
     fn confirm_replace_all(&mut self) {
-        let total = self.global.engine.total();
+        let total = self.panels.global.engine.total();
         if self.window.handle.is_some() {
             use crate::app::AlertButton;
-            let files = self.global.engine.results.len();
-            let replacement = self.global.replace.text();
+            let files = self.panels.global.engine.results.len();
+            let replacement = self.panels.global.replace.text();
             let message = if replacement.is_empty() {
                 t!(
                     "workspace-replace-all-confirm-delete",
@@ -748,7 +753,7 @@ impl App {
     /// 仅当结果与弹出确认框时相同（期间没有重新搜索、总处数不变）时替换；
     /// 否则在状态栏说明原因，不替换用户未确认的结果。
     pub(in crate::app) fn replace_all_confirmed(&mut self, total: usize) {
-        let g = &self.global;
+        let g = &self.panels.global;
         if g.due.is_some() || g.engine.is_running() || g.engine.total() != total {
             self.flash(t!("workspace-replace-all-changed"));
             return;
@@ -761,18 +766,18 @@ impl App {
     /// 已打开的文件在文档中替换，在界面线程完成；没有打开的文件需要逐个读取、写回磁盘，文件数可达
     /// 数千个，在后台完成，结束后由 [`App::poll_replace_all`] 提示结果。
     pub(in crate::app) fn replace_all_global(&mut self) {
-        let Some(query) = self.global.engine.query().cloned() else {
+        let Some(query) = self.panels.global.engine.query().cloned() else {
             return;
         };
         // 只替换结果列表中剩余的匹配；用户已从结果中移除的不替换。结果替换完就作废（最后重新
         // 搜索），直接取走，不复制；引擎随即清空，结果行跟着重排，即使之后没能重新搜索也不会
         // 指向已取走的结果。
-        let expected = self.global.engine.total();
-        let files_left = std::mem::take(&mut self.global.engine.results);
-        self.global.engine.clear();
-        self.global.rebuild_rows();
-        let replacement = self.global.replace.text().to_owned();
-        self.global.replace.remember();
+        let expected = self.panels.global.engine.total();
+        let files_left = std::mem::take(&mut self.panels.global.engine.results);
+        self.panels.global.engine.clear();
+        self.panels.global.rebuild_rows();
+        let replacement = self.panels.global.replace.text().to_owned();
+        self.panels.global.replace.remember();
 
         let mut tally = ReplaceTally::default();
         let mut closed = Vec::new();
@@ -792,7 +797,7 @@ impl App {
         }
 
         let (sender, receiver) = mpsc::channel();
-        self.global.replacing = Some((receiver, expected));
+        self.panels.global.replacing = Some((receiver, expected));
         self.spawn_then(UserEvent::Replaced, move || {
             for file in &closed {
                 let result = replace_in_file(&file.path, &query, &replacement, &file.matches);
@@ -805,7 +810,8 @@ impl App {
     /// 收取后台完成的替换，提示结果：单个文件的替换（[`App::replace_row`]）和跨文件替换。
     pub(in crate::app) fn poll_replace_all(&mut self) {
         let mut rows = Vec::new();
-        self.global
+        self.panels
+            .global
             .row_replacing
             .retain(|receiver| match receiver.try_recv() {
                 Ok(done) => {
@@ -819,14 +825,14 @@ impl App {
             self.row_replaced(path, result);
         }
 
-        let Some((receiver, expected)) = &self.global.replacing else {
+        let Some((receiver, expected)) = &self.panels.global.replacing else {
             return;
         };
         let Ok(tally) = receiver.try_recv() else {
             return;
         };
         let expected = *expected;
-        self.global.replacing = None;
+        self.panels.global.replacing = None;
         self.finish_replace_all(tally, expected);
     }
 
@@ -920,28 +926,28 @@ impl App {
     /// 在后台进行：这些匹配先从结果中移除，完成后由 [`App::row_replaced`] 提示结果，
     /// 并在后台重新搜索该文件。
     fn replace_row(&mut self, index: usize) {
-        let Some(&row) = self.global.rows().get(index) else {
+        let Some(&row) = self.panels.global.rows().get(index) else {
             return;
         };
-        let Some(query) = self.global.engine.query().cloned() else {
+        let Some(query) = self.panels.global.engine.query().cloned() else {
             return;
         };
-        let file = &self.global.engine.results[row.file()];
+        let file = &self.panels.global.engine.results[row.file()];
         let path = file.path.clone();
         let matches = match row {
             ResultRow::File(_) => file.matches.clone(),
             ResultRow::Match(_, m) => vec![file.matches[m].clone()],
         };
-        let replacement = self.global.replace.text().to_owned();
+        let replacement = self.panels.global.replace.text().to_owned();
 
         if self.document_at(&path).is_none() {
             match row {
-                ResultRow::File(_) => self.global.engine.remove_file(&path),
-                ResultRow::Match(_, m) => self.global.engine.remove_match(&path, m),
+                ResultRow::File(_) => self.panels.global.engine.remove_file(&path),
+                ResultRow::Match(_, m) => self.panels.global.engine.remove_match(&path, m),
             }
             self.after_results_changed(index);
             let (sender, receiver) = mpsc::channel();
-            self.global.row_replacing.push(receiver);
+            self.panels.global.row_replacing.push(receiver);
             self.spawn_then(UserEvent::Replaced, move || {
                 let result = replace_in_file(&path, &query, &replacement, &matches);
                 let _ = sender.send((path, result));
@@ -960,7 +966,7 @@ impl App {
 
         // 只重新搜索这一个文件，避免结果列表被整个清空再重建。
         let rope = self.dirty_rope(&path);
-        self.global.engine.refresh_file(&path, rope.as_ref());
+        self.panels.global.engine.refresh_file(&path, rope.as_ref());
         self.after_results_changed(index);
     }
 
@@ -971,20 +977,20 @@ impl App {
             Ok(_) => {}
             Err(e) => self.notify(t!("workspace-replace-failed", error = e)),
         }
-        self.global.engine.refresh_files([(path, None)]);
+        self.panels.global.engine.refresh_files([(path, None)]);
         self.request_redraw();
     }
 
     /// 把第 `index` 个结果行从结果中移除（不改文件），用于全部替换前排除不想修改的位置。
     pub(in crate::app) fn dismiss_row(&mut self, index: usize) {
-        let Some(&row) = self.global.rows().get(index) else {
+        let Some(&row) = self.panels.global.rows().get(index) else {
             return;
         };
-        let path = self.global.engine.results[row.file()].path.clone();
+        let path = self.panels.global.engine.results[row.file()].path.clone();
 
         match row {
-            ResultRow::File(_) => self.global.engine.remove_file(&path),
-            ResultRow::Match(_, m) => self.global.engine.remove_match(&path, m),
+            ResultRow::File(_) => self.panels.global.engine.remove_file(&path),
+            ResultRow::Match(_, m) => self.panels.global.engine.remove_match(&path, m),
         }
 
         self.after_results_changed(index);
@@ -999,6 +1005,7 @@ impl App {
     pub(super) fn results_touched(&mut self, paths: &[PathBuf]) {
         // 切换分支时一次可能变化上千个文件，结果中也可能有上千个文件：用集合查找，避免逐对比较。
         let in_results: HashSet<&Path> = self
+            .panels
             .global
             .engine
             .results
@@ -1020,19 +1027,19 @@ impl App {
                 (path, rope)
             })
             .collect();
-        self.global.engine.refresh_files(files);
+        self.panels.global.engine.refresh_files(files);
         self.request_redraw();
     }
 
     /// 结果行数变化之后：重新生成结果行，并选中原位置（序号 `index`，超出时取最后一行）上的行。
     fn after_results_changed(&mut self, index: usize) {
-        self.global.rebuild_rows();
-        let rows = self.global.rows().len();
+        self.panels.global.rebuild_rows();
+        let rows = self.panels.global.rows().len();
 
         if rows == 0 {
-            self.global.selected = None;
+            self.panels.global.selected = None;
         } else {
-            self.global.select_row(index.min(rows - 1));
+            self.panels.global.select_row(index.min(rows - 1));
         }
 
         self.clamp_results_scroll();
@@ -1042,12 +1049,12 @@ impl App {
     /// 处理对第 `index` 个结果行的单击：文件行折叠或展开，匹配行打开文件并选中该处。
     pub(in crate::app) fn click_result(&mut self, index: usize, double: bool) {
         self.focus = Focus::Results;
-        self.global.select_row(index);
+        self.panels.global.select_row(index);
 
-        match self.global.rows().get(index) {
+        match self.panels.global.rows().get(index) {
             Some(&ResultRow::File(f)) => {
-                let path = &self.global.engine.results[f].path;
-                let collapse = !self.global.collapsed.contains(path);
+                let path = &self.panels.global.engine.results[f].path;
+                let collapse = !self.panels.global.collapsed.contains(path);
                 self.set_result_collapsed(f, collapse);
             }
             Some(&ResultRow::Match(..)) => self.open_result(index, double, double),
@@ -1062,10 +1069,10 @@ impl App {
     /// `focus_editor` 为 `false` 时焦点留在结果列表。`keep` 为 `false` 且启用了预览标签时在预览
     /// 标签中打开：逐条查看结果时复用同一个标签；双击、回车和菜单命令在普通标签中打开。
     pub(in crate::app) fn open_result(&mut self, index: usize, focus_editor: bool, keep: bool) {
-        let Some(&row) = self.global.rows().get(index) else {
+        let Some(&row) = self.panels.global.rows().get(index) else {
             return;
         };
-        let file = &self.global.engine.results[row.file()];
+        let file = &self.panels.global.engine.results[row.file()];
         let path = file.path.clone();
         let target = match row {
             ResultRow::Match(_, m) => file.matches.get(m).map(|m| (m.line, m.cols.clone())),
@@ -1111,22 +1118,22 @@ impl App {
     ///
     /// `open` 为 `true` 时同时打开选中的匹配。
     pub(in crate::app) fn step_result(&mut self, delta: isize, open: bool) {
-        let rows = self.global.rows().len();
+        let rows = self.panels.global.rows().len();
 
         if rows == 0 {
             return;
         }
 
-        let index = match self.global.selected_row() {
+        let index = match self.panels.global.selected_row() {
             Some(i) => (i as isize + delta).rem_euclid(rows as isize) as usize,
             None if delta < 0 => rows - 1,
             None => 0,
         };
 
-        self.global.select_row(index);
+        self.panels.global.select_row(index);
         self.scroll_result_into_view(index);
 
-        if open && matches!(self.global.rows()[index], ResultRow::Match(..)) {
+        if open && matches!(self.panels.global.rows()[index], ResultRow::Match(..)) {
             self.open_result(index, false, false);
         }
 
@@ -1137,12 +1144,12 @@ impl App {
     ///
     /// 供 `Home`、`End`、`PageUp`、`PageDown` 使用，行为与文件树相同。
     pub(in crate::app) fn jump_result(&mut self, index: usize) {
-        let rows = self.global.rows().len();
+        let rows = self.panels.global.rows().len();
         if rows == 0 {
             return;
         }
         let index = index.min(rows - 1);
-        self.global.select_row(index);
+        self.panels.global.select_row(index);
         self.scroll_result_into_view(index);
         self.request_redraw();
     }
@@ -1159,34 +1166,37 @@ impl App {
     ///
     /// 已折叠的文件会先全部展开。
     pub(in crate::app) fn next_result(&mut self, backwards: bool) {
-        if self.global.engine.results.is_empty() {
+        if self.panels.global.engine.results.is_empty() {
             return;
         }
 
         // 已折叠的文件中的匹配也必须能跳到，因此先全部展开。
-        if !self.global.collapsed.is_empty() {
-            self.global.collapsed.clear();
-            self.global.rebuild_rows();
+        if !self.panels.global.collapsed.is_empty() {
+            self.panels.global.collapsed.clear();
+            self.panels.global.rebuild_rows();
         }
 
         let delta = if backwards { -1 } else { 1 };
         self.step_result(delta, false);
 
         if matches!(
-            self.global.selected_row().map(|i| self.global.rows()[i]),
+            self.panels
+                .global
+                .selected_row()
+                .map(|i| self.panels.global.rows()[i]),
             Some(ResultRow::File(_))
         ) {
             self.step_result(delta, false);
         }
 
-        if let Some(index) = self.global.selected_row() {
+        if let Some(index) = self.panels.global.selected_row() {
             self.open_result(index, false, false);
         }
     }
 
     /// 输入框中的条件是否与当前结果不一致（条件已修改但尚未搜索）。
     fn global_stale(&self) -> bool {
-        let g = &self.global;
+        let g = &self.panels.global;
         g.due.is_some() || g.engine.query() != Some(&g.current_query())
     }
 
@@ -1215,16 +1225,16 @@ impl App {
         }
 
         let focus = self.focus;
-        let selected = self.global.selected_row();
+        let selected = self.panels.global.selected_row();
 
-        match selected.map(|i| (i, self.global.rows()[i])) {
+        match selected.map(|i| (i, self.panels.global.rows()[i])) {
             Some((index, ResultRow::Match(..))) => {
                 self.replace_row(index);
 
                 // 替换后原位置上是下一处匹配；该文件的匹配都已替换时，
                 // 原位置可能是下一个文件的文件行。
-                match self.global.selected_row() {
-                    Some(i) if matches!(self.global.rows()[i], ResultRow::Match(..)) => {
+                match self.panels.global.selected_row() {
+                    Some(i) if matches!(self.panels.global.rows()[i], ResultRow::Match(..)) => {
                         self.open_result(i, false, false);
                     }
                     Some(_) => self.next_result(false),
@@ -1247,8 +1257,8 @@ impl App {
         path: PathBuf,
         m: Option<usize>,
     ) {
-        self.global.selected = Some((path.clone(), m));
-        let Some(index) = self.global.selected_row() else {
+        self.panels.global.selected = Some((path.clone(), m));
+        let Some(index) = self.panels.global.selected_row() else {
             return;
         };
         match command {
@@ -1272,10 +1282,10 @@ impl App {
     /// 预览去掉了行首空白、可能截去两端，所以取原文：文件打开着时取文档里的（可能还没保存），
     /// 否则读磁盘上的文件；都取不到（超大文件、刚被删掉）时才用预览。
     fn copy_result_line(&mut self, index: usize) {
-        let Some(&ResultRow::Match(f, m)) = self.global.rows().get(index) else {
+        let Some(&ResultRow::Match(f, m)) = self.panels.global.rows().get(index) else {
             return;
         };
-        let file = &self.global.engine.results[f];
+        let file = &self.panels.global.engine.results[f];
         let found = &file.matches[m];
         let text = self
             .line_text(&file.path, found.line)
@@ -1309,7 +1319,7 @@ impl App {
 
     /// 返回侧栏中可依次用 `Tab` 切换的焦点：输入框，以及有结果时的结果列表。
     fn panel_fields(&self) -> Vec<Focus> {
-        let g = &self.global;
+        let g = &self.panels.global;
         let mut fields = vec![Focus::GlobalQuery];
 
         if g.replace_open {
@@ -1335,11 +1345,11 @@ impl App {
         let next = (at as isize + if backwards { -1 } else { 1 }).rem_euclid(n);
         self.focus = fields[next as usize];
 
-        if self.focus == Focus::Results && self.global.selected.is_none() {
-            self.global.select_row(0);
+        if self.focus == Focus::Results && self.panels.global.selected.is_none() {
+            self.panels.global.select_row(0);
         }
 
-        self.field_preedit.clear();
+        self.ime.field_preedit.clear();
         self.reset_blink();
         self.request_redraw();
     }

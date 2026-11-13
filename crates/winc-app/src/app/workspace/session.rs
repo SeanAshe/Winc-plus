@@ -151,7 +151,7 @@ impl App {
         self.apply_compact_folders();
         self.finish_folder_open(sidebar);
         self.focus = if sidebar {
-            match self.sidebar.view {
+            match self.panels.sidebar.view {
                 SidebarView::Files => Focus::Tree,
                 SidebarView::Search => Focus::GlobalQuery,
                 SidebarView::Commit => self.commit_view_focus(),
@@ -205,7 +205,9 @@ impl App {
         self.reset_folder_views();
         self.watch_folder();
         self.set_sidebar(sidebar);
-        if self.sidebar.view == SidebarView::Search && !self.global.query.text().is_empty() {
+        if self.panels.sidebar.view == SidebarView::Search
+            && !self.panels.global.query.text().is_empty()
+        {
             self.run_global_search();
         }
         self.update_window_title();
@@ -242,29 +244,29 @@ impl App {
     /// 已关闭标签的记录（`⇧⌘T`）以及后退前进历史。
     fn reset_folder_views(&mut self) {
         // 输入框和浮层中保存的行号、路径属于旧目录，在新目录中无效。
-        self.name_input = None;
-        self.goto_input = None;
-        self.tree.drag = None;
-        self.global.engine.clear();
-        self.global.collapsed.clear();
-        self.global.selected = None;
-        self.global.due = None;
-        self.global.rebuild_rows();
+        self.panels.name_input = None;
+        self.bars.goto_input = None;
+        self.panels.tree.drag = None;
+        self.panels.global.engine.clear();
+        self.panels.global.collapsed.clear();
+        self.panels.global.selected = None;
+        self.panels.global.due = None;
+        self.panels.global.rebuild_rows();
         // 提交视图的滚动位置、选中的文件、收起的目录是旧仓库的。
-        self.commit.scroll = 0.0;
-        self.commit.clear_selection();
-        self.commit.forget_dirs();
-        self.picker.index.cancel();
-        self.picker.index = FileIndex::default();
-        self.definitions = None;
-        if self.picker.open {
+        self.git.commit.scroll = 0.0;
+        self.git.commit.clear_selection();
+        self.git.commit.forget_dirs();
+        self.overlays.picker.index.cancel();
+        self.overlays.picker.index = FileIndex::default();
+        self.jumps.definitions = None;
+        if self.overlays.picker.open {
             self.close_picker();
         }
-        self.tree.motion = None;
-        self.tree.scroll = 0.0;
-        self.tree.scroll_x = 0.0;
-        self.closed.clear();
-        self.navigation.clear();
+        self.panels.tree.motion = None;
+        self.panels.tree.scroll = 0.0;
+        self.panels.tree.scroll_x = 0.0;
+        self.history.closed.clear();
+        self.jumps.navigation.clear();
     }
 
     /// 把当前目录移到最近列表的最前面并立即写入状态文件，避免进程异常中止后丢失。
@@ -289,9 +291,9 @@ impl App {
 
     /// 目录 `folder` 开在另一个窗口里时请应用层切到该窗口，返回是否存在已打开 `folder` 的窗口。
     pub(in crate::app) fn focus_window_with(&self, folder: &Path) -> bool {
-        let key = self.shared.window_with(folder, self.key);
+        let key = self.link.shared.window_with(folder, self.link.key);
         if let Some(key) = key {
-            self.shared.request(crate::winc::Request::Focus(key));
+            self.link.shared.request(crate::winc::Request::Focus(key));
         }
         key.is_some()
     }
@@ -304,7 +306,7 @@ impl App {
     pub(in crate::app) fn save_session(&mut self) {
         let reopen = self.config.restore_folder != Some(false);
         let root = self.editor.root().map(Path::to_path_buf);
-        let shared = self.shared.clone();
+        let shared = self.link.shared.clone();
         self.update_state(|state| match root {
             Some(root) if reopen => state.last = Some(root),
             _ if !reopen => state.last = None,
@@ -344,7 +346,7 @@ impl App {
 
         let terminal = self.terminal_session();
         let run = self.run.selected.clone();
-        let sidebar_hidden = !self.sidebar.visible;
+        let sidebar_hidden = !self.panels.sidebar.visible;
         let bookmarks = self
             .editor
             .all_bookmarks()
@@ -384,7 +386,7 @@ impl App {
     /// 先重新读出状态文件，在其上修改再写回（见 [`State::update`]），不会盖掉别的 winc 进程
     /// 刚写入的内容；内存中的状态随之换成最新的。测试和测量时没有状态文件，只改内存。
     pub(in crate::app) fn update_state(&mut self, change: impl FnOnce(&mut State)) {
-        let Some(path) = self.state_path.clone() else {
+        let Some(path) = self.store.state_path.clone() else {
             change(&mut self.state);
             return;
         };
@@ -406,18 +408,20 @@ impl App {
             .cloned()
             .collect();
         #[cfg(target_os = "macos")]
-        if self.state_path.is_some() {
+        if self.store.state_path.is_some() {
             crate::macos::sync_recent_documents(&local);
         }
         #[cfg(windows)]
-        if let Some(path) = &self.state_path {
+        if let Some(path) = &self.store.state_path {
             crate::windows::sync_jump_list(&local, path);
         }
     }
 
     /// 新建窗口（`⇧⌘N`）；带 `folder` 时在新窗口中打开它（已经开在某个窗口里就切到该窗口）。
     pub(in crate::app) fn new_window(&mut self, folder: Option<PathBuf>) {
-        self.shared.request(crate::winc::Request::NewWindow(folder));
+        self.link
+            .shared
+            .request(crate::winc::Request::NewWindow(folder));
     }
 
     /// 在新窗口中打开最近列表中的第 `index` 个目录（项目菜单里按住 `⌥`、开始页上按住 `⌥` 单击）。

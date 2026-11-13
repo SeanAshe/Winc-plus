@@ -37,6 +37,8 @@ pub(crate) enum FormKind {
     Clone,
     /// 添加远程仓库，或修改 `editing` 的地址。
     Remote { editing: Option<String> },
+    /// 在 Git 日志中转到一个提交：输入提交号、分支名或标签名。
+    GoToRevision,
     /// 交互式变基。
     Rebase(Box<RebaseForm>),
     /// 连接远端主机：主机、端口，见 [`crate::app::remote`]。
@@ -50,6 +52,7 @@ impl FormKind {
             FormKind::Question(prompt, origin) => Some(QuestionView::of(prompt, origin.as_deref())),
             FormKind::Remote { editing } => Some(QuestionView::remote(editing.as_deref())),
             FormKind::Connect => Some(QuestionView::connect()),
+            FormKind::GoToRevision => Some(QuestionView::go_to_revision()),
             FormKind::Worktree
             | FormKind::Branch { .. }
             | FormKind::Clone
@@ -132,11 +135,11 @@ impl App {
             self.flash(t!("git-not-a-repository"));
             return;
         }
-        if self.form_dialog.is_some() {
+        if self.overlays.form_dialog.is_some() {
             return;
         }
         self.show_form_dialog(kind, ref_name_field(), DialogPart::Branch);
-        if let Some(dialog) = &mut self.form_dialog {
+        if let Some(dialog) = &mut self.overlays.form_dialog {
             dialog.base = base;
         }
     }
@@ -148,10 +151,10 @@ impl App {
         name: TextField,
         focus: DialogPart,
     ) {
-        if self.picker.open {
+        if self.overlays.picker.open {
             self.close_picker();
         }
-        if self.goto_input.is_some() {
+        if self.bars.goto_input.is_some() {
             self.close_prompt();
         }
         self.finish_name_input();
@@ -161,7 +164,7 @@ impl App {
             focus @ (Focus::Editor | Focus::Tree | Focus::CommitList | Focus::Terminal) => focus,
             _ => Focus::Editor,
         };
-        self.form_dialog = Some(FormDialog {
+        self.overlays.form_dialog = Some(FormDialog {
             kind,
             name,
             second: TextField::masked(),
@@ -184,7 +187,7 @@ impl App {
 
     /// 关闭表单对话框，焦点还给打开之前的地方。
     pub(in crate::app) fn close_form_dialog(&mut self) {
-        let Some(dialog) = self.form_dialog.take() else {
+        let Some(dialog) = self.overlays.form_dialog.take() else {
             return;
         };
         if matches!(dialog.kind, FormKind::Question(..)) {
@@ -193,7 +196,7 @@ impl App {
         if matches!(dialog.kind, FormKind::Connect) {
             self.connect_dialog_closed();
         }
-        self.field_preedit.clear();
+        self.ime.field_preedit.clear();
         if self.focus == Focus::Dialog {
             self.focus = dialog.back;
         }
@@ -204,7 +207,7 @@ impl App {
     /// 对话框的几何；窗口太小时卡片缩到窗口以内。
     pub(crate) fn dialog_layout(&self) -> DialogLayout {
         let window = self.layout.window;
-        match self.form_dialog.as_ref().map(|d| &d.kind) {
+        match self.overlays.form_dialog.as_ref().map(|d| &d.kind) {
             Some(FormKind::Clone) => DialogLayout::clone_form(window),
             Some(FormKind::Connect) => DialogLayout::connect_form(window),
             Some(FormKind::Rebase(form)) => {
@@ -247,6 +250,19 @@ impl App {
                 self.remote_plan(editing.as_deref(), dialog.name.text(), dialog.second.text())
             }
             FormKind::Connect => self.connect_plan(dialog),
+            FormKind::GoToRevision => {
+                let revision = dialog.name.text().trim();
+                // 提交号、分支名和标签名都不含空白，也不以 `-` 开头。
+                let problem = revision.starts_with('-') || revision.contains(char::is_whitespace);
+                FormPlan {
+                    problem: problem.then(|| t!("git-go-to-invalid").to_owned()),
+                    confirm: t!("git-go-to-button"),
+                    enabled: !revision.is_empty() && !problem,
+                    base: String::new(),
+                    base_enabled: false,
+                    dir: None,
+                }
+            }
             FormKind::Question(prompt, _) => FormPlan {
                 problem: None,
                 confirm: QuestionView::of(prompt, None).confirm,
@@ -373,7 +389,7 @@ impl App {
     ///
     /// 不能做时什么都不做，原因已经写在输入框里。
     pub(in crate::app) fn submit_form_dialog(&mut self) {
-        let Some(dialog) = &self.form_dialog else {
+        let Some(dialog) = &self.overlays.form_dialog else {
             return;
         };
         if dialog.running.is_some() || !self.form_plan(dialog).enabled {
@@ -387,14 +403,20 @@ impl App {
             self.submit_connect();
             return;
         }
+        if matches!(dialog.kind, FormKind::GoToRevision) {
+            let revision = dialog.name.text().trim().to_owned();
+            self.close_form_dialog();
+            self.go_to_log_revision(revision);
+            return;
+        }
         // 须在发起操作前记录编号：没有窗口时（测试中）后台操作会同步完成。
-        let next = self.branch.started + 1;
+        let next = self.git.branch.started + 1;
         let kind = dialog.kind.clone();
-        if let Some(dialog) = &mut self.form_dialog {
+        if let Some(dialog) = &mut self.overlays.form_dialog {
             dialog.running = Some(next);
             dialog.error = None;
         }
-        let Some(dialog) = &self.form_dialog else {
+        let Some(dialog) = &self.overlays.form_dialog else {
             return;
         };
         match kind {
@@ -405,15 +427,15 @@ impl App {
                 let checkout = dialog.checkout;
                 self.git_new_branch(name, from, checkout);
             }
-            FormKind::Question(..) | FormKind::Connect => {}
+            FormKind::Question(..) | FormKind::Connect | FormKind::GoToRevision => {}
             FormKind::Clone => self.submit_clone(),
             FormKind::Rebase(_) => self.submit_rebase(),
             FormKind::Remote { editing } => self.submit_remote(editing),
         }
         // 已发起 git 操作时，待其完成后再关闭（[`App::form_operation_done`]），期间按钮显示
         // 「正在创建…」；未发起操作（上一个操作未完成、直接打开已有的工作树）时不等待。
-        if let Some(dialog) = &mut self.form_dialog
-            && self.branch.started != next
+        if let Some(dialog) = &mut self.overlays.form_dialog
+            && self.git.branch.started != next
         {
             dialog.running = None;
         }
@@ -425,7 +447,12 @@ impl App {
     /// 由对话框发起的操作成功时关闭对话框，失败时保留对话框并在按钮左侧显示原因，
     /// 不再另行通知。
     pub(in crate::app) fn form_operation_done(&mut self, id: u64, error: Option<&str>) -> bool {
-        let Some(dialog) = self.form_dialog.as_mut().filter(|d| d.running == Some(id)) else {
+        let Some(dialog) = self
+            .overlays
+            .form_dialog
+            .as_mut()
+            .filter(|d| d.running == Some(id))
+        else {
             return false;
         };
         dialog.running = None;
@@ -444,7 +471,7 @@ impl App {
     ///
     /// 跳过不可用的部件：不可选的起点、不可按的主按钮。
     fn form_focus_order(&self) -> Vec<DialogPart> {
-        let Some(dialog) = &self.form_dialog else {
+        let Some(dialog) = &self.overlays.form_dialog else {
             return Vec::new();
         };
         let plan = self.form_plan(dialog);
@@ -488,7 +515,7 @@ impl App {
     /// 将键盘焦点移到下一个部件（`back` 时为上一个，对应 `⇧Tab`），到达末尾时从头循环。
     pub(in crate::app) fn form_focus_move(&mut self, back: bool) {
         let order = self.form_focus_order();
-        let Some(dialog) = &mut self.form_dialog else {
+        let Some(dialog) = &mut self.overlays.form_dialog else {
             return;
         };
         let n = order.len();
@@ -500,13 +527,13 @@ impl App {
             None => 0,
         };
         dialog.focus = order[next];
-        self.field_preedit.clear();
+        self.ime.field_preedit.clear();
         self.request_redraw();
     }
 
     /// 以空格、回车激活键盘焦点所在的部件（名称除外）。
     pub(in crate::app) fn form_activate(&mut self) {
-        let Some(part) = self.form_dialog.as_ref().map(|d| d.focus) else {
+        let Some(part) = self.overlays.form_dialog.as_ref().map(|d| d.focus) else {
             return;
         };
         self.press_form_part(part);
@@ -514,7 +541,7 @@ impl App {
 
     /// 新建工作树：新建分支、签出已有的，或者打开已经签出着的工作树。
     fn submit_worktree(&mut self) {
-        let Some(dialog) = &self.form_dialog else {
+        let Some(dialog) = &self.overlays.form_dialog else {
             return;
         };
         let name = dialog.name.text().trim().to_owned();
@@ -569,7 +596,7 @@ impl App {
 
     /// 对话框中窗口坐标 (`x`, `y`) 处的部件；主按钮不能按、起点不能选时不算。
     pub(in crate::app) fn dialog_part_at(&self, x: f32, y: f32) -> Option<DialogPart> {
-        let dialog = self.form_dialog.as_ref()?;
+        let dialog = self.overlays.form_dialog.as_ref()?;
         let layout = self.dialog_layout();
         if let FormKind::Rebase(form) = &dialog.kind
             && let Some(part) = self.rebase_part_at(&layout, form, x, y)
@@ -593,7 +620,7 @@ impl App {
         let layout = self.dialog_layout();
         if !layout.card.contains(x, y) {
             // 点击卡片外部不关闭询问对话框：关闭表示取消，会使正在进行的操作失败。
-            let asking = (self.form_dialog.as_ref())
+            let asking = (self.overlays.form_dialog.as_ref())
                 .is_some_and(|d| matches!(d.kind, FormKind::Question(..)));
             if !asking {
                 self.close_form_dialog();
@@ -603,7 +630,7 @@ impl App {
         match self.dialog_part_at(x, y) {
             Some(part @ (DialogPart::Branch | DialogPart::Second | DialogPart::Third)) => {
                 self.focus = Focus::Dialog;
-                if let Some(dialog) = &mut self.form_dialog {
+                if let Some(dialog) = &mut self.overlays.form_dialog {
                     dialog.focus = part;
                 }
                 self.click_field(x, y);
@@ -616,7 +643,11 @@ impl App {
 
     /// 执行点击（或以键盘激活）对话框中 `part` 的操作。
     fn press_form_part(&mut self, part: DialogPart) {
-        let shown = self.form_dialog.as_ref().map(|dialog| &dialog.kind);
+        let shown = self
+            .overlays
+            .form_dialog
+            .as_ref()
+            .map(|dialog| &dialog.kind);
         let connecting = matches!(shown, Some(FormKind::Connect));
         match part {
             DialogPart::Close | DialogPart::Cancel => self.close_form_dialog(),
@@ -637,7 +668,7 @@ impl App {
             | DialogPart::RebaseUp
             | DialogPart::RebaseDown) => self.press_rebase_part(part),
             DialogPart::Copy | DialogPart::NewWindow | DialogPart::Checkout => {
-                if let Some(dialog) = &mut self.form_dialog {
+                if let Some(dialog) = &mut self.overlays.form_dialog {
                     let option = match part {
                         DialogPart::Copy => &mut dialog.copy,
                         DialogPart::NewWindow => &mut dialog.new_window,
@@ -653,14 +684,14 @@ impl App {
     /// 对话框打开时移动鼠标：只认对话框里的部件；在输入框里拖动时选择文字。
     pub(in crate::app) fn hover_form_dialog(&mut self, x: f32, y: f32) {
         let part = self.dialog_part_at(x, y);
-        if let Some(dialog) = &mut self.form_dialog
+        if let Some(dialog) = &mut self.overlays.form_dialog
             && dialog.hover != part
         {
             dialog.hover = part;
             self.request_redraw();
         }
         self.update_cursor_icon();
-        if self.drag == crate::app::Drag::Field
+        if self.pointer.drag == crate::app::Drag::Field
             && let Some(field) = self.focused_field()
         {
             let pos = field.view.position_at_point(x, y);
@@ -671,7 +702,7 @@ impl App {
 
     /// 把对话框的起点设为「基于」菜单中选的分支 `base`；`None` 是当前分支。
     pub(in crate::app) fn choose_form_base(&mut self, base: Option<String>) {
-        if let Some(dialog) = &mut self.form_dialog {
+        if let Some(dialog) = &mut self.overlays.form_dialog {
             dialog.base = base;
         }
         self.request_redraw();
@@ -679,7 +710,7 @@ impl App {
 
     /// 「基于」菜单里第 `i` 项是不是现在选的起点。
     pub(in crate::app) fn form_base_chosen(&self, i: usize) -> bool {
-        let Some(dialog) = &self.form_dialog else {
+        let Some(dialog) = &self.overlays.form_dialog else {
             return false;
         };
         match i.checked_sub(1) {
@@ -694,7 +725,7 @@ impl App {
 
     /// 目录按钮选好了目录：工作树建在它下面。
     pub(in crate::app) fn worktree_folder_picked(&mut self, folder: PathBuf) {
-        if let Some(dialog) = &mut self.form_dialog {
+        if let Some(dialog) = &mut self.overlays.form_dialog {
             dialog.folder = Some(folder);
         }
         self.request_redraw();

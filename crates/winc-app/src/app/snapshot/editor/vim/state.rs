@@ -28,12 +28,12 @@ fn histories_are_read_at_start_and_written_on_exit() {
     let up = Key::Named(NamedKey::ArrowUp);
     keys(&mut app, ":");
     assert!(app.vim_prompt_key(&up, ""));
-    assert_eq!(app.goto_input.as_ref().unwrap().text(), "3");
+    assert_eq!(app.bars.goto_input.as_ref().unwrap().text(), "3");
     app.submit_prompt();
     assert_eq!(line(&app), 2);
     keys(&mut app, "/");
     assert!(app.vim_prompt_key(&up, ""));
-    assert_eq!(app.goto_input.as_ref().unwrap().text(), "one");
+    assert_eq!(app.bars.goto_input.as_ref().unwrap().text(), "one");
     app.submit_prompt();
     assert_eq!(line(&app), 0);
 

@@ -20,9 +20,9 @@ const LINE: f32 = 20.0;
 
 /// 绘制窗口内的提示框（打开着时），并把各部分的位置记回提示框；关闭后淡出期间绘制最后一帧。
 pub(super) fn draw(app: &mut App, frame: &mut Frame<'_>) {
-    app.track_card(Card::Alert, app.alert.is_some());
-    let Some(alert) = app.alert.as_ref() else {
-        if let Some((clock, _, _)) = app.alert_card.closing() {
+    app.track_card(Card::Alert, app.overlays.alert.is_some());
+    let Some(alert) = app.overlays.alert.as_ref() else {
+        if let Some((clock, _, _)) = app.motion.alert_card.closing() {
             let fade = dialog_curve(false, clock).0;
             let scrim = app.palette.scrim;
             frame.rect(app.layout.window, scrim.alpha(scrim.a * fade));
@@ -56,7 +56,7 @@ pub(super) fn draw(app: &mut App, frame: &mut Frame<'_>) {
         height,
     );
 
-    let fade = match app.alert_card.motion {
+    let fade = match app.motion.alert_card.motion {
         Some((true, clock)) => dialog_curve(true, clock).0,
         _ => 1.0,
     };
@@ -73,7 +73,7 @@ fn draw_contents(
     card: Rect,
     (message, detail): (&[String], &[String]),
 ) {
-    let Some(alert) = app.alert.as_ref() else {
+    let Some(alert) = app.overlays.alert.as_ref() else {
         return;
     };
     let p = app.palette;
@@ -131,7 +131,7 @@ fn draw_contents(
         row
     });
 
-    if let Some(alert) = app.alert.as_mut() {
+    if let Some(alert) = app.overlays.alert.as_mut() {
         alert.parts = AlertParts { buttons, checkbox };
     }
 }

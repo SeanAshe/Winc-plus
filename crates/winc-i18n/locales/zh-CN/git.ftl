@@ -195,6 +195,13 @@ git-log-details-parents = { $count ->
 }
 git-log-details-loading-files = 正在读取更改的文件…
 git-compare-title = 比较两个版本
+git-go-to-title = 转到提交号、分支或标签
+git-go-to-label = 目标
+git-go-to-placeholder = 提交号、分支或标签，如 a1b2c3d 或 main
+git-go-to-button = 转到
+git-go-to-invalid = 提交号、分支名和标签名不含空白，也不以「-」开头
+git-go-to-unresolved = 找不到该提交、分支或标签
+git-go-to-failed = 无法转到「{ $revision }」：{ $error }
 git-compare-old = 旧
 git-compare-new = 新
 git-compare-no-differences = 两个版本无差异

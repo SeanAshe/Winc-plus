@@ -151,11 +151,11 @@ impl App {
     /// 鼠标动了或者修饰键变了：按住 ⌘（别的系统上是 Ctrl）、鼠标在网格上时认鼠标下的链接。
     pub(in crate::app) fn update_terminal_link(&mut self) {
         let held = if cfg!(target_os = "macos") {
-            self.modifiers.super_key()
+            self.pointer.modifiers.super_key()
         } else {
-            self.modifiers.control_key()
+            self.pointer.modifiers.control_key()
         };
-        let (x, y) = self.mouse;
+        let (x, y) = self.pointer.mouse;
         let view = self.terminal_view();
         let root = self.editor.root().map(Path::to_path_buf);
         // 吸顶的命令行、折起的那一行底下的字看不见，不认链接。

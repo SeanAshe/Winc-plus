@@ -108,7 +108,7 @@ fn dragging_a_tab_reorders_the_tabs() {
     app.on_mouse_move(x + config.w / 2.0 + 10.0, y);
     assert_eq!(names(&app), ["config.rs", "main.rs", "Cargo.toml"]);
     assert_eq!(app.editor.active().unwrap().name(), "main.rs");
-    assert_eq!(app.hover, Hover::None);
+    assert_eq!(app.pointer.hover, Hover::None);
     // 在中线附近稍微往回移动，不会换回原位。
     app.on_mouse_move(x + config.w / 2.0 + 5.0, y);
     assert_eq!(names(&app), ["config.rs", "main.rs", "Cargo.toml"]);
@@ -251,12 +251,12 @@ fn images_open_as_previews_decoded_in_the_background() {
     // 图片没有文本，不能编辑，也不能查找。
     assert!(doc.readonly);
     app.run_action(crate::keymap::Action::Find);
-    assert!(!app.find.open);
+    assert!(!app.bars.find.open);
     // 小图按原大小显示，占 8 个逻辑像素；显示大小不小于解码后的像素，直接绘制，不另存位图。
     let (picture, area) = app.shown_picture().unwrap();
-    let rect = app.picture_view.rect(picture, area).unwrap();
+    let rect = app.preview.picture_view.rect(picture, area).unwrap();
     assert_eq!((rect.w, rect.h), (8.0, 8.0));
-    assert!(app.picture_cache.is_none());
+    assert!(app.preview.picture_cache.is_none());
 
     // 其他程序替换了图片文件：重新解码。
     std::fs::write(&path, image_bytes_16()).unwrap();
@@ -291,7 +291,7 @@ fn images_open_as_previews_decoded_in_the_background() {
     // 切换到其他标签：缩放后的缓存图不保留。
     app.new_file();
     paint(&mut app);
-    assert!(app.picture_cache.is_none());
+    assert!(app.preview.picture_cache.is_none());
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -335,7 +335,7 @@ fn svg_opens_as_source_and_toggles_to_a_preview() {
         "预览时三段切换还在，点「源代码」回去"
     );
     // 小图标按长边 256 逻辑像素放大显示。
-    let cache = app.picture_cache.as_ref().unwrap();
+    let cache = app.preview.picture_cache.as_ref().unwrap();
     assert_eq!(cache.width(), (256.0 * SCALE) as u32);
     app.run(winc_editor::Command::Insert("x".into()));
     assert!(!app.editor.active().unwrap().is_dirty());
@@ -593,7 +593,7 @@ fn freeze_preview_buttons(app: &mut App, on: bool, at: std::time::Duration) {
     use crate::app::animation::{Clock, EXIT_FADE, MODULE_FADE};
     // 消失时宽度在内容淡出结束后才开始收起，`at` 从收起开始计时。
     let at = if on { at } else { at + EXIT_FADE };
-    let fx = &mut app.module_fx.preview;
+    let fx = &mut app.motion.module_fx.preview;
     fx.track(!on, None);
     fx.track(on, Some(Clock::frozen(at, MODULE_FADE)));
 }
@@ -627,11 +627,11 @@ fn preview_buttons_grow_and_shrink_with_the_tab() {
     assert_eq!(now.right(), group.right());
     assert!(app.layout.tabs.w > tabs.w);
     app.on_mouse_move(now.x + 2.0, now.y + 4.0);
-    assert!(!matches!(app.hover, crate::app::Hover::Preview(_)));
+    assert!(!matches!(app.pointer.hover, crate::app::Hover::Preview(_)));
     freeze_preview_buttons(&mut app, false, MODULE_FADE);
     app.track_modules();
     paint(&mut app);
-    assert!(app.module_fx.preview_mode.is_none());
+    assert!(app.motion.module_fx.preview_mode.is_none());
     assert_eq!(app.layout.preview.w, 0.0);
 
     app.open_path(&dir.join("dot.svg"));
@@ -688,18 +688,18 @@ fn svg_split_preview_follows_the_text() {
     let pane = app.layout.split;
     assert!(pane.w > 0.0 && app.layout.text.right() <= pane.x);
     app.wait_for_split();
-    assert_eq!(app.split.picture.as_ref().unwrap().width, 20);
+    assert_eq!(app.preview.split.picture.as_ref().unwrap().width, 20);
 
     // 改文字：右边跟着重画。
     app.run_action(crate::keymap::Action::SelectAll);
     app.run(winc_editor::Command::Insert(svg(30)));
     app.wait_for_split();
-    assert_eq!(app.split.picture.as_ref().unwrap().width, 30);
+    assert_eq!(app.preview.split.picture.as_ref().unwrap().width, 30);
     // 写到一半：还是上一张，另外记下原因。
     app.run(winc_editor::Command::Insert("<".into()));
     app.wait_for_split();
-    assert_eq!(app.split.picture.as_ref().unwrap().width, 30);
-    assert!(app.split.error.is_some());
+    assert_eq!(app.preview.split.picture.as_ref().unwrap().width, 30);
+    assert!(app.preview.split.error.is_some());
     paint(&mut app);
 
     crate::app::snapshot::click(&mut app, (preview.x + 4.0, preview.y + 4.0));
@@ -738,7 +738,7 @@ fn switching_between_split_and_preview_reuses_the_parsed_svg() {
 
     app.set_preview_mode(PreviewMode::Split);
     app.wait_for_split();
-    let parsed = Arc::clone(app.split.picture.as_ref().unwrap());
+    let parsed = Arc::clone(app.preview.split.picture.as_ref().unwrap());
 
     // 分栏 → 预览：马上就有图，是同一张。
     app.set_preview_mode(PreviewMode::Preview);
@@ -748,11 +748,14 @@ fn switching_between_split_and_preview_reuses_the_parsed_svg() {
     // 换一张已解析好的预览图再切回分栏：右侧直接复用它，不在后台重新解析。
     let fresh = Arc::new(winc_preview::svg::load(svg, None, None).unwrap());
     app.editor.active_mut().unwrap().picture = Some(PictureState::Ready(Arc::clone(&fresh)));
-    app.split = crate::app::preview::images::SplitPreview::default();
+    app.preview.split = crate::app::preview::images::SplitPreview::default();
     app.set_preview_mode(PreviewMode::Split);
     app.advance_images();
-    assert!(Arc::ptr_eq(app.split.picture.as_ref().unwrap(), &fresh));
-    assert!(!app.split.is_pending());
+    assert!(Arc::ptr_eq(
+        app.preview.split.picture.as_ref().unwrap(),
+        &fresh
+    ));
+    assert!(!app.preview.split.is_pending());
 
     // 文字改动后切到预览：按新文字重新解析。
     app.run(winc_editor::Command::Insert(" ".into()));
@@ -819,10 +822,10 @@ fn command_and_shift_clicks_select_tabs_to_close_together() {
     }
     paint(&mut app);
     let click_tab = |app: &mut App, index: usize, modifiers: ModifiersState| {
-        app.modifiers = modifiers;
+        app.pointer.modifiers = modifiers;
         let at = tab_point(app, index);
         click(app, at);
-        app.modifiers = ModifiersState::empty();
+        app.pointer.modifiers = ModifiersState::empty();
         paint(app);
     };
     let selected = |app: &App| -> Vec<String> {
@@ -916,7 +919,7 @@ fn hovering_a_tab_shows_its_path_and_the_close_shortcut() {
 
     let (x, y) = tab_point(&app, 0);
     app.on_mouse_move(x, y);
-    assert!(app.hover.has_tooltip());
+    assert!(app.pointer.hover.has_tooltip());
     let (rect, text) = crate::view::tests::tooltip(&app).unwrap();
     assert_eq!(rect, tab_rect(&app, 0));
     let path = app.editor.documents[0].path.clone().unwrap();
@@ -951,7 +954,7 @@ fn tabs_without_a_file_show_a_tooltip_only_when_the_name_is_shortened() {
     let index = app.editor.active.unwrap();
     let (x, y) = tab_point(&app, index);
     app.on_mouse_move(x, y);
-    assert_eq!(app.hover, Hover::Tab(index, false));
+    assert_eq!(app.pointer.hover, Hover::Tab(index, false));
     assert_eq!(
         crate::view::tests::tooltip(&app),
         None,
@@ -1000,7 +1003,7 @@ fn the_tab_list_lists_every_tab_when_they_overflow() {
 
     let (x, y) = (list.x + list.w / 2.0, list.y + list.h / 2.0);
     app.on_mouse_move(x, y);
-    assert_eq!(app.hover, Hover::TabList);
+    assert_eq!(app.pointer.hover, Hover::TabList);
     assert_eq!(
         crate::view::tests::tooltip(&app)
             .map(|(_, text)| text)
@@ -1012,8 +1015,16 @@ fn the_tab_list_lists_every_tab_when_they_overflow() {
     // 两个同名文件的副标题为标签上标注的上级目录。
     app.on_mouse_down(MouseButton::Left);
     app.on_mouse_up(MouseButton::Left);
-    assert_eq!(app.menu_button, Some(crate::app::MenuButton::TabList));
-    let entries = &app.context_menu.as_ref().expect("弹出了标签列表").entries;
+    assert_eq!(
+        app.overlays.menu_button,
+        Some(crate::app::MenuButton::TabList)
+    );
+    let entries = &app
+        .overlays
+        .context_menu
+        .as_ref()
+        .expect("弹出了标签列表")
+        .entries;
     let count = app.editor.documents.len();
     assert_eq!(entries.len(), count);
     let active = app.editor.active.unwrap();
@@ -1058,7 +1069,7 @@ fn web_pages_get_an_open_in_browser_button() {
     assert_eq!(app.layout.preview.w, 0.0);
     let at = (button.x + button.w / 2.0, button.y + button.h / 2.0);
     app.on_mouse_move(at.0, at.1);
-    assert_eq!(app.hover, crate::app::Hover::Browser);
+    assert_eq!(app.pointer.hover, crate::app::Hover::Browser);
     shoot(&mut app, "browser-button");
 
     // 没有未保存的修改：直接打开，不提示；有修改时提示浏览器中是上次保存的内容。
@@ -1075,7 +1086,7 @@ fn web_pages_get_an_open_in_browser_button() {
     // 换到不是网页的文件：按钮向右收起，收起途中也不响应。
     use crate::app::animation::{Clock, EXIT_FADE, MODULE_FADE};
     app.open_path(&dir.join("a.txt"));
-    let fx = &mut app.module_fx.browser;
+    let fx = &mut app.motion.module_fx.browser;
     fx.track(true, None);
     let at = EXIT_FADE + MODULE_FADE / 3;
     fx.track(false, Some(Clock::frozen(at, MODULE_FADE)));
@@ -1085,7 +1096,7 @@ fn web_pages_get_an_open_in_browser_button() {
     assert!(now.w > 0.0 && now.w < button.w, "{now:?}");
     assert_eq!(now.right(), button.right());
     app.on_mouse_move(now.x + 2.0, now.y + 4.0);
-    assert_ne!(app.hover, crate::app::Hover::Browser);
+    assert_ne!(app.pointer.hover, crate::app::Hover::Browser);
 
     let _ = std::fs::remove_dir_all(&dir);
 }

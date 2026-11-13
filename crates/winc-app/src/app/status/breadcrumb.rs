@@ -299,7 +299,7 @@ impl App {
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     fn folder_icons(&mut self) -> Option<FolderIcons> {
         let (dark, folder_color) = (self.palette.dark, self.palette.folder);
-        let renderer = self.renderer.as_mut()?;
+        let renderer = self.frame.renderer.as_mut()?;
         let s = FOLDER_ICON;
         let clip = Rect::new(0.0, 0.0, s, s);
         let white = Color::hex(0xFFFFFF);
@@ -348,14 +348,14 @@ impl App {
             let at = (rect.x - POPUP_TEXT_X, rect.y + rect.h / 2.0);
             let mut popup = PopupMenu::new(folder_rows(dir, &current), at, (true, false));
             popup.current = Some(current);
-            self.context_menu = Some(ContextMenu {
+            self.overlays.context_menu = Some(ContextMenu {
                 target: crate::app::input::context_menu::MenuTarget::Folder,
                 entries: Vec::new(),
                 branches: Vec::new(),
                 stashes: Vec::new(),
                 popup: Some(popup),
             });
-            self.menu_button = Some(MenuButton::Crumb(index));
+            self.overlays.menu_button = Some(MenuButton::Crumb(index));
             self.set_hover(Hover::None);
             self.request_redraw();
             return;
@@ -363,7 +363,7 @@ impl App {
 
         // 菜单弹出期间系统在跟踪菜单事件，窗口不会重绘，因此先同步绘制一次，
         // 把这一段显示为按下状态。
-        self.menu_button = Some(MenuButton::Crumb(index));
+        self.overlays.menu_button = Some(MenuButton::Crumb(index));
         self.paint_now();
 
         #[cfg(target_os = "macos")]
@@ -377,7 +377,7 @@ impl App {
         #[cfg(not(target_os = "macos"))]
         let _ = (dir, rect);
 
-        self.menu_button = None;
+        self.overlays.menu_button = None;
         self.request_redraw();
     }
 }

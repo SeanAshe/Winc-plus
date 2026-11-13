@@ -41,15 +41,15 @@ impl App {
     /// 且该列表没有被切换为工作区改动时才有。
     pub(crate) fn log_diff_tree(&self) -> Option<&LogDiffTree> {
         let id = self.editor.active()?.id;
-        (self.sidebar.view == SidebarView::Commit && self.steps_log_files(id))
-            .then_some(self.log.tree.as_ref())
+        (self.panels.sidebar.view == SidebarView::Commit && self.steps_log_files(id))
+            .then_some(self.git.log.tree.as_ref())
             .flatten()
             .filter(|tree| tree.shown)
     }
 
     /// 返回历史差异文件列表的浏览状态。
     pub(crate) fn log_list(&self) -> &CommitState {
-        &self.log.list
+        &self.git.log.list
     }
 
     /// 显示历史差异文件列表时，借用提交视图执行 `f`：期间提交视图的状态换成该列表的浏览
@@ -58,7 +58,7 @@ impl App {
     ///
     /// 提交视图的绘制、悬停、点击、滚动和键盘处理由此直接用于历史差异的文件列表。
     pub(crate) fn with_log_list<R>(&mut self, f: impl FnOnce(&mut App) -> R) -> Option<R> {
-        if self.commit.browse || self.log_diff_tree().is_none() {
+        if self.git.commit.browse || self.log_diff_tree().is_none() {
             return None;
         }
         self.swap_log_list();
@@ -71,25 +71,26 @@ impl App {
     ///
     /// 换入的仓库状态沿用真实状态的 `HEAD`、上游差距和进行中的操作：状态栏等处读取这些信息。
     fn swap_log_list(&mut self) {
-        if let (Some(real), Some(browse)) = (&self.git.status, &mut self.log.status) {
+        if let (Some(real), Some(browse)) = (&self.git.status, &mut self.git.log.status) {
             browse.head = real.head.clone();
             browse.oid = real.oid.clone();
             (browse.ahead, browse.behind) = (real.ahead, real.behind);
             browse.operation = real.operation;
         }
-        std::mem::swap(&mut self.commit, &mut self.log.list);
-        std::mem::swap(&mut self.git.status, &mut self.log.status);
+        std::mem::swap(&mut self.git.commit, &mut self.git.log.list);
+        std::mem::swap(&mut self.git.status, &mut self.git.log.status);
     }
 
     /// 在提交视图中切换显示历史差异文件列表与工作区改动：提交视图已经可见时切换，
     /// 否则显示文件列表。当前标签不是从日志打开的差异时不做处理。
     pub(in crate::app) fn toggle_log_diff_tree(&mut self) {
-        let visible = self.sidebar.visible && self.sidebar.view == SidebarView::Commit;
+        let visible =
+            self.panels.sidebar.visible && self.panels.sidebar.view == SidebarView::Commit;
         let Some(id) = self.editor.active().map(|doc| doc.id) else {
             return;
         };
         if self.steps_log_files(id)
-            && let Some(tree) = &mut self.log.tree
+            && let Some(tree) = &mut self.git.log.tree
         {
             tree.shown = !visible || !tree.shown;
         }
@@ -109,14 +110,14 @@ impl App {
 
     /// 按设置合并或逐级显示文件列表中连续的单子目录。
     pub(in crate::app) fn set_log_list_compact(&mut self, compact: bool) {
-        self.log.list.set_compact(compact);
+        self.git.log.list.set_compact(compact);
     }
 
     /// 按提交视图当前的显示方式重排文件列表，并使当前文件保持可见。
     pub(in crate::app) fn sync_log_diff_layout(&mut self) {
-        let flat = self.commit.flat();
-        if self.log.list.flat() != flat {
-            self.log.list.set_flat(flat);
+        let flat = self.git.commit.flat();
+        if self.git.log.list.flat() != flat {
+            self.git.log.list.set_flat(flat);
             self.reveal_log_diff_file();
             self.request_redraw();
         }
@@ -124,7 +125,7 @@ impl App {
 
     /// 在差异标签中打开当前文件列表中的第 `file` 个文件（在后台读取）。
     pub(in crate::app::git) fn open_log_diff_file(&mut self, file: usize) {
-        if let Some(tree) = &self.log.tree {
+        if let Some(tree) = &self.git.log.tree {
             self.load_log_diff(Arc::clone(&tree.source), file);
         }
     }
@@ -133,39 +134,39 @@ impl App {
     ///
     /// `source` 与当前文件列表相同时保留展开状态和滚动位置，否则换成新的文件列表。
     pub(super) fn select_log_diff(&mut self, source: Arc<LogDiffSource>, file: usize) {
-        let keep = (self.log.tree.as_ref())
+        let keep = (self.git.log.tree.as_ref())
             .is_some_and(|tree| Arc::ptr_eq(&tree.source, &source) || tree.source == source);
         if keep {
-            if let Some(tree) = &mut self.log.tree {
+            if let Some(tree) = &mut self.git.log.tree {
                 tree.selected = file;
                 tree.shown = true;
             }
         } else {
-            self.log.list = CommitState::browsing(&self.commit);
-            self.log.status = Some(browse_status(&source.files));
-            self.log.tree = Some(LogDiffTree {
+            self.git.log.list = CommitState::browsing(&self.git.commit);
+            self.git.log.status = Some(browse_status(&source.files));
+            self.git.log.tree = Some(LogDiffTree {
                 source,
                 selected: file,
                 shown: true,
             });
         }
-        let Some(tree) = &self.log.tree else {
+        let Some(tree) = &self.git.log.tree else {
             return;
         };
         let path = tree.source.files[file].path.clone();
         if let Some(dir) = (path.parent()).and_then(|dir| dir.strip_prefix(&tree.source.root).ok())
         {
-            self.log.list.expand_to(dir);
+            self.git.log.list.expand_to(dir);
         }
-        self.log.list.select_only(path);
+        self.git.log.list.select_only(path);
     }
 
     /// 返回按文件列表的显示顺序（目录全部展开时），与当前文件相邻的文件：（下标，在显示顺序中
     /// 的位置）；`forward` 为 `true` 时取下一个，没有时返回 `None`。
     pub(super) fn log_diff_neighbor(&self, forward: bool) -> Option<(usize, usize)> {
-        let tree = self.log.tree.as_ref()?;
-        let status = self.log.status.as_ref()?;
-        let all = CommitState::browsing(&self.log.list);
+        let tree = self.git.log.tree.as_ref()?;
+        let status = self.git.log.status.as_ref()?;
+        let all = CommitState::browsing(&self.git.log.list);
         let order: Vec<usize> = (all.build_rows(status, &tree.source.root).iter())
             .filter_map(|row| match row {
                 CommitRow::File { index, .. } => Some(*index),
@@ -180,12 +181,13 @@ impl App {
     /// 返回历史差异文件列表的最大滚动距离，规则同 [`App::commit_max_scroll`]。
     pub(in crate::app) fn log_list_max_scroll(&self) -> f32 {
         let root = self
+            .git
             .log
             .tree
             .as_ref()
             .map(|tree| tree.source.root.as_path());
-        let status = self.log.status.as_ref();
-        let rows = rows_of(&self.log.list, status, root, self.git.generation).len() as f32;
+        let status = self.git.log.status.as_ref();
+        let rows = rows_of(&self.git.log.list, status, root, self.git.generation).len() as f32;
         let list = self.commit_parts().list.h;
         if rows * crate::app::git::commit::COMMIT_ROW <= list {
             return 0.0;
@@ -195,7 +197,7 @@ impl App {
 
     /// 清除历史差异文件列表中已经结束的过渡；每帧绘制之前调用。
     pub(in crate::app) fn settle_log_tree(&mut self) {
-        let list = &mut self.log.list;
+        let list = &mut self.git.log.list;
         list.names.settle();
         let done = |clock: crate::app::Clock| clock.done();
         if list.shift.as_ref().is_some_and(|s| done(s.clock)) {
@@ -207,19 +209,19 @@ impl App {
         if list.motion.as_ref().is_some_and(|m| done(m.clock)) {
             list.motion = None;
         }
-        if self.log.header.2.is_some_and(|clock| clock.done()) {
-            self.log.header.2 = None;
+        if self.git.log.header.2.is_some_and(|clock| clock.done()) {
+            self.git.log.header.2 = None;
         }
     }
 
     /// 历史差异文件列表是否有进行中的过渡（展开收起、名字展开收回、与提交视图之间的切换）。
     pub(in crate::app) fn log_tree_animating(&self) -> bool {
-        let list = &self.log.list;
+        let list = &self.git.log.list;
         list.names.moving()
             || list.shift.is_some()
             || list.actions_slide.is_some()
             || list.motion.is_some()
-            || self.log.header.2.is_some()
+            || self.git.log.header.2.is_some()
     }
 
     /// 记录提交视图与文件列表之间的切换；每帧绘制之前调用。
@@ -229,28 +231,30 @@ impl App {
     /// 视图或刚打开时不过渡，由侧栏自己的过渡处理。
     pub(crate) fn track_log_tree(&mut self) {
         let shown = self.log_diff_tree().is_some();
-        let commit_view = self.sidebar.visible && self.sidebar.view == SidebarView::Commit;
-        let (was_shown, was_commit, _) = self.log.header;
+        let commit_view =
+            self.panels.sidebar.visible && self.panels.sidebar.view == SidebarView::Commit;
+        let (was_shown, was_commit, _) = self.git.log.header;
         if shown != was_shown {
             let clock = (commit_view && was_commit)
                 .then(|| self.clock(crate::app::animation::TREE_ANIMATION))
                 .flatten();
-            self.log.header = (shown, commit_view, clock);
+            self.git.log.header = (shown, commit_view, clock);
         } else {
-            self.log.header.1 = commit_view;
+            self.git.log.header.1 = commit_view;
         }
     }
 
     /// 返回文件列表在提交视图中的露出比例：0 为工作区改动，1 为文件列表，过渡中介于两者之间。
     pub(crate) fn log_tree_share(&self) -> f32 {
-        let (shown, _, clock) = self.log.header;
+        let (shown, _, clock) = self.git.log.header;
         let progress = clock.map_or(1.0, |clock| clock.progress());
         if shown { progress } else { 1.0 - progress }
     }
 
     /// 返回文件列表标题行中的版本（提交号）；没有文件列表时返回 `None`。
     pub(crate) fn log_tree_version(&self) -> Option<&str> {
-        self.log
+        self.git
+            .log
             .tree
             .as_ref()
             .map(|tree| tree.source.version.as_str())
@@ -265,6 +269,7 @@ impl App {
         f: impl FnOnce(&mut App) -> R,
     ) -> R {
         let Some(saved) = self
+            .git
             .log
             .tree
             .as_mut()
@@ -273,7 +278,7 @@ impl App {
             return f(self);
         };
         let result = f(self);
-        if let Some(tree) = &mut self.log.tree {
+        if let Some(tree) = &mut self.git.log.tree {
             tree.shown = saved;
         }
         result

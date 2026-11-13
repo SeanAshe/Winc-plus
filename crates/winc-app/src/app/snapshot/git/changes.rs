@@ -13,15 +13,15 @@ fn closing_a_tab_lets_go_of_its_blame_and_change_marks() {
     paint(&mut app);
     let doc = app.editor.active().unwrap();
     let (id, path) = (doc.id, doc.path.clone().unwrap());
-    assert!(app.blame.is_on(id) && app.blame_of(id).is_some());
-    assert!(!app.changes.hunks(id).is_empty());
-    assert!(app.changes.base(&path).is_some());
+    assert!(app.git.blame.is_on(id) && app.blame_of(id).is_some());
+    assert!(!app.git.changes.hunks(id).is_empty());
+    assert!(app.git.changes.base(&path).is_some());
 
     // 关闭标签后逐行追溯、改动标记和 `HEAD` 中的内容都要释放，不保留到会话结束。
     app.remove_tabs(&[id]);
-    assert!(!app.blame.is_on(id) && app.blame_of(id).is_none());
-    assert!(app.changes.hunks(id).is_empty());
-    assert!(app.changes.base(&path).is_none());
+    assert!(!app.git.blame.is_on(id) && app.blame_of(id).is_none());
+    assert!(app.git.changes.hunks(id).is_empty());
+    assert!(app.git.changes.base(&path).is_none());
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -34,7 +34,7 @@ fn gutter_marks_show_changes_and_revert_them() {
     app.open_path(&root.join("src/main.rs"));
     paint(&mut app);
     let id = app.editor.active().unwrap().id;
-    let hunks = app.changes.hunks(id).to_vec();
+    let hunks = app.git.changes.hunks(id).to_vec();
     assert_eq!(hunks.len(), 2, "{hunks:?}");
     assert_eq!(hunks[0].new, 5..6);
     assert!(hunks[1].new.is_empty());
@@ -44,7 +44,7 @@ fn gutter_marks_show_changes_and_revert_them() {
     app.select(end, end);
     app.run(winc_editor::Command::Insert("let added = 1;\n".into()));
     paint(&mut app);
-    let hunks = app.changes.hunks(id).to_vec();
+    let hunks = app.git.changes.hunks(id).to_vec();
     assert_eq!(hunks.len(), 3);
     assert!(hunks[2].old.is_empty());
 
@@ -69,7 +69,7 @@ fn gutter_marks_show_changes_and_revert_them() {
     let x = crate::app::mark_x(l.gutter) + 1.0;
     assert_eq!(app.hover_at(x, y), Hover::ChangeMark(0));
     click(&mut app, (x, y));
-    assert!(app.changes.popup.is_some());
+    assert!(app.git.changes.popup.is_some());
     paint(&mut app);
     // 卡片贴在第 6 行下面，上边落在行与行的分界上，高度是行高的整数倍。
     let lh = app.fonts.line_height;
@@ -84,7 +84,7 @@ fn gutter_marks_show_changes_and_revert_them() {
         .unwrap()
         .0;
     click(&mut app, (revert.x + 4.0, revert.y + 4.0));
-    assert!(app.changes.popup.is_none());
+    assert!(app.git.changes.popup.is_none());
     let text = app
         .editor
         .active()
@@ -93,12 +93,12 @@ fn gutter_marks_show_changes_and_revert_them() {
         .unwrap();
     assert!(text.contains("let value_5 = 5;\n"), "{text}");
     paint(&mut app);
-    assert_eq!(app.changes.hunks(id).len(), 2);
+    assert_eq!(app.git.changes.hunks(id).len(), 2);
 
     // 是一次普通的修改：⌘Z 撤销。
     app.run(winc_editor::Command::Undo);
     paint(&mut app);
-    assert_eq!(app.changes.hunks(id).len(), 3);
+    assert_eq!(app.git.changes.hunks(id).len(), 3);
 
     // 命令「回滚光标所在的改动」：光标放在新加的那一行。
     let last = app.editor.active().unwrap().text().line_count() - 2;
@@ -106,7 +106,7 @@ fn gutter_marks_show_changes_and_revert_them() {
     app.select(pos, pos);
     assert!(app.run_action(Action::GitRevertChange));
     paint(&mut app);
-    assert_eq!(app.changes.hunks(id).len(), 2);
+    assert_eq!(app.git.changes.hunks(id).len(), 2);
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -124,7 +124,7 @@ fn ruler_marks_point_at_changes_and_jump_there() {
     let ruler = crate::layout::Ruler::new(app.layout.editor, doc.row_count());
     let rect = ruler.rect(
         crate::layout::GIT_LANE,
-        crate::app::ruler_rows(doc, &app.changes.hunks(id)[1]),
+        crate::app::ruler_rows(doc, &app.git.changes.hunks(id)[1]),
     );
     let label = app.ruler_tip(1).expect("第二处更改有标记").1;
     assert_eq!(label, "删除 1 行 · 第 50 行之后");
@@ -146,7 +146,7 @@ fn ruler_marks_point_at_changes_and_jump_there() {
         "{}",
         doc.scroll_line
     );
-    assert!(app.changes.popup.is_none());
+    assert!(app.git.changes.popup.is_none());
     assert_eq!(app.focus, Focus::Editor);
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -186,7 +186,7 @@ fn shoot_gutter_marks() {
             .unwrap()
             .0;
         app.on_mouse_move(revert.x + 4.0, revert.y + 4.0);
-        app.tooltip.since = Some(std::time::Instant::now() - crate::theme::TOOLTIP_DELAY);
+        app.overlays.tooltip.since = Some(std::time::Instant::now() - crate::theme::TOOLTIP_DELAY);
         shoot(&mut app, &format!("gutter-tip-{theme}"));
         app.on_mouse_move(0.0, 0.0);
         app.open_change_popup(2);
@@ -200,7 +200,7 @@ fn shoot_gutter_marks() {
         app.select(pos, pos);
         let long: String = (0..80).map(|i| format!("let added_{i} = {i};\n")).collect();
         app.run(winc_editor::Command::Insert(long));
-        app.changes.popup = None;
+        app.git.changes.popup = None;
         app.editor.active_mut().unwrap().scroll_line = 30.0;
         paint(&mut app);
         let l = app.layout;
@@ -213,7 +213,7 @@ fn shoot_gutter_marks() {
         shoot(&mut app, &format!("gutter-long-{theme}"));
 
         // 概览标尺：光标放在出现两次的 `value_2` 上，第 30 行有书签；左边一道是 Git 改动。
-        app.changes.popup = None;
+        app.git.changes.popup = None;
         let doc = app.editor.active().unwrap();
         let pos = doc.text().line_start(29);
         app.select(pos, pos);
@@ -225,7 +225,7 @@ fn shoot_gutter_marks() {
         // 鼠标停在标尺上那一长段新增上，提示已显示。
         let (rect, _) = app.ruler_tip(3).unwrap();
         app.on_mouse_move(rect.x + 1.0, rect.y + 60.0);
-        app.tooltip.since = Some(std::time::Instant::now() - crate::theme::TOOLTIP_DELAY);
+        app.overlays.tooltip.since = Some(std::time::Instant::now() - crate::theme::TOOLTIP_DELAY);
         shoot(&mut app, &format!("gutter-ruler-tip-{theme}"));
         let _ = std::fs::remove_dir_all(&root);
     }

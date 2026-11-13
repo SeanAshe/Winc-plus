@@ -86,7 +86,7 @@ impl App {
     /// 当前窗口。开着目录的窗口与退出一样不逐个询问，未保存的内容写入备份；没开目录的窗口逐个
     /// 询问。窗口关闭后其中的终端随之结束，有程序在运行时先确认；macOS 上终端继续运行，不确认。
     pub(in crate::app) fn request_close_window(&mut self) {
-        if self.shared.others() {
+        if self.link.shared.others() {
             if !self.confirm_terminal_quit(CloseRequest::CloseWindow) {
                 self.request_close(CloseRequest::CloseWindow);
             }
@@ -377,7 +377,7 @@ impl App {
         if let Some(doc) = self.editor.close(index) {
             self.forget_git_document(doc.id, doc.path.as_deref());
         }
-        self.search.current = None;
+        self.bars.search.current = None;
         self.check_waiting();
     }
 
@@ -395,15 +395,15 @@ impl App {
         if let Some(doc) = self.editor.close(index) {
             self.forget_git_document(doc.id, doc.path.as_deref());
         }
-        self.search.current = None;
+        self.bars.search.current = None;
         self.check_waiting();
 
         if self.editor.documents.is_empty() {
             // 最后一个标签关闭后，查找条和跳转条随之关闭。「只显示匹配的行」也必须关闭，
             // 否则之后打开其他文件并查找下一个时，该文件会因残留的筛选状态而被隐藏一部分行。
-            self.find.open = false;
-            self.find.filter_lines = false;
-            let goto_open = self.goto_input.take().is_some();
+            self.bars.find.open = false;
+            self.bars.find.filter_lines = false;
+            let goto_open = self.bars.goto_input.take().is_some();
 
             // 文件树中输入名字同样使用 `Focus::Prompt`；只有跳转条打开时，该焦点才属于跳转条。
             if matches!(self.focus, Focus::Search | Focus::Replace)
@@ -424,10 +424,10 @@ impl App {
         let Some(path) = path else {
             return;
         };
-        self.closed.retain(|(p, _)| *p != path);
-        self.closed.push((path, caret));
-        if self.closed.len() > MAX_CLOSED {
-            self.closed.remove(0);
+        self.history.closed.retain(|(p, _)| *p != path);
+        self.history.closed.push((path, caret));
+        if self.history.closed.len() > MAX_CLOSED {
+            self.history.closed.remove(0);
         }
     }
 
@@ -436,7 +436,7 @@ impl App {
     /// 文件已不存在时跳过该项，继续向更早的记录查找；文件已经打开时直接切换到该标签。
     /// 没有可重新打开的标签时在状态栏提示。
     pub(in crate::app) fn reopen_closed(&mut self) {
-        while let Some((path, caret)) = self.closed.pop() {
+        while let Some((path, caret)) = self.history.closed.pop() {
             if !winc_backend::fs::is_file(&path) {
                 continue;
             }

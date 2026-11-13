@@ -26,7 +26,7 @@ fn fill_dialog(app: &mut App, name: &str) {
     app.close_form_dialog();
     app.open_worktree_dialog();
     // 留在当前目录，接着检查仓库里的变化。
-    app.form_dialog.as_mut().unwrap().new_window = true;
+    app.overlays.form_dialog.as_mut().unwrap().new_window = true;
     app.edit_field(|f| f.insert(name));
 }
 
@@ -39,7 +39,7 @@ fn create(app: &mut App, name: &str) {
 /// 返回对话框输入 `name` 后按「创建」会生成的计划。
 fn plan(app: &mut App, name: &str) -> crate::app::git::form::FormPlan {
     fill_dialog(app, name);
-    let plan = app.form_plan(app.form_dialog.as_ref().unwrap());
+    let plan = app.form_plan(app.overlays.form_dialog.as_ref().unwrap());
     app.close_form_dialog();
     plan
 }
@@ -64,7 +64,7 @@ fn worktrees_show_in_the_location_picker_and_the_branch_menu() {
     assert!(app.git_has_locations());
     app.run_action(Action::ShowCommit);
     app.open_location_picker();
-    let rows = app.picker.location_rows.clone().unwrap();
+    let rows = app.overlays.picker.location_rows.clone().unwrap();
     let places: Vec<_> = rows
         .iter()
         .filter_map(|row| match row {
@@ -93,7 +93,7 @@ fn worktrees_show_in_the_location_picker_and_the_branch_menu() {
             .iter()
             .any(|(c, _)| *c == MenuCommand::LocationRemove)
     );
-    app.context_menu = None;
+    app.overlays.context_menu = None;
     app.close_picker();
 
     // 分支菜单：`feat` 已被其他工作树签出，「签出」表示切换过去，且不能删除。
@@ -110,7 +110,7 @@ fn worktrees_show_in_the_location_picker_and_the_branch_menu() {
     assert!(commands.contains(&(MenuCommand::GitBranch(BranchOp::Delete, feat), false)));
     assert!(app.menu_label(checkout).title.starts_with("切换到工作树「"));
     // 切换在当前窗口完成，和位置选择器、分支选择器一样。
-    app.context_menu = None;
+    app.overlays.context_menu = None;
     choose_in_branch_menu(&mut app, checkout);
     assert_eq!(app.editor.root(), Some(linked.as_path()));
     app.switch_folder(&root);
@@ -119,7 +119,7 @@ fn worktrees_show_in_the_location_picker_and_the_branch_menu() {
 
     // 新建工作树默认也在当前窗口打开，要新窗口时再勾选。
     app.open_worktree_dialog();
-    assert!(!app.form_dialog.as_ref().unwrap().new_window);
+    assert!(!app.overlays.form_dialog.as_ref().unwrap().new_window);
     app.close_form_dialog();
 
     // 在当前窗口打开：工作区切换到该目录；在该工作树中查看，主工作树是另一项，`main` 被占用。
@@ -163,7 +163,7 @@ fn worktrees_are_created_removed_and_pruned() {
         format!("{}/feat-x", winc_editor::display_name(&trees))
     );
     create(&mut app, "feat/x");
-    assert!(app.form_dialog.is_none());
+    assert!(app.overlays.form_dialog.is_none());
     let feat = trees.join("feat-x");
     assert_eq!(std::fs::read_to_string(feat.join(".env")).unwrap(), "KEY=1");
     assert_eq!(app.git.worktrees.len(), 2);
@@ -216,7 +216,7 @@ fn worktrees_are_created_removed_and_pruned() {
     create(&mut app, "--unset-upstream");
     assert_eq!(app.git.worktrees.len(), 3);
     // 建不了时对话框保留，原因写在输入框里。
-    assert!(app.form_dialog.is_some());
+    assert!(app.overlays.form_dialog.is_some());
     create(&mut app, "main");
     assert_eq!(app.git.worktrees.len(), 3);
     create(&mut app, "spare");
@@ -249,7 +249,7 @@ fn worktrees_are_created_removed_and_pruned() {
     let target = MenuTarget::Location(feat.clone(), Some(i));
     app.open_context_menu(target, (0.0, 0.0));
     assert!(menu_commands(&app).contains(&(MenuCommand::LocationRemove, true)));
-    app.context_menu = None;
+    app.overlays.context_menu = None;
     app.remove_worktree(i);
     assert!(!feat.exists());
     assert_eq!(app.git.worktrees.len(), 2);
@@ -350,19 +350,19 @@ fn a_missing_worktree_is_cleaned_up_from_its_menu() {
     app.git_refresh();
     app.run_action(Action::ShowCommit);
     app.open_location_picker();
-    let rows = app.picker.location_rows.clone().unwrap();
-    app.picker.selected = rows
+    let rows = app.overlays.picker.location_rows.clone().unwrap();
+    app.overlays.picker.selected = rows
         .iter()
         .position(|row| matches!(row, LocationRow::Place(place) if place.missing))
         .unwrap();
     paint(&mut app);
-    let more = PickerPart::More(app.picker.selected);
+    let more = PickerPart::More(app.overlays.picker.selected);
     assert!(app.hits.picker_parts.iter().any(|(_, part)| *part == more));
 
     app.location_picker_accept();
     assert_eq!(menu_commands(&app), [(MenuCommand::LocationPrune, true)]);
     assert!(app.picker_lists_locations());
-    app.context_menu = None;
+    app.overlays.context_menu = None;
     app.close_picker();
     app.prune_worktrees();
     assert!(app.git.worktrees.iter().all(|w| !w.prunable));
@@ -438,7 +438,7 @@ fn a_single_repository_lists_its_worktrees_flat() {
     app.git_refresh();
     app.run_action(Action::ShowCommit);
     app.open_location_picker();
-    let rows = app.picker.location_rows.clone().unwrap();
+    let rows = app.overlays.picker.location_rows.clone().unwrap();
     assert_eq!(rows.len(), 2);
     assert!(rows.iter().all(|row| match row {
         LocationRow::Place(place) => place.depth == 0,
@@ -477,8 +477,8 @@ fn the_status_bar_switches_worktrees_and_branches_from_menus() {
     // 文件视图里也能从状态栏打开：面板的底边在分支名上面，右边和它对齐。
     app.open_status_menu(StatusItem::Branch);
     assert!(app.popup().is_none());
-    assert!(app.picker.open && app.picker_lists_branches());
-    assert_eq!(app.picker.anchor, GitAnchor::Status);
+    assert!(app.overlays.picker.open && app.picker_lists_branches());
+    assert_eq!(app.overlays.picker.anchor, GitAnchor::Status);
     paint(&mut app);
     let (item, _) = *(app.hits.status.iter())
         .find(|(_, i)| *i == StatusItem::Branch)
@@ -495,16 +495,16 @@ fn the_status_bar_switches_worktrees_and_branches_from_menus() {
         );
     }
     let index = |app: &App, name: &str| {
-        let rows = app.picker.branch_rows.as_deref().unwrap();
+        let rows = app.overlays.picker.branch_rows.as_deref().unwrap();
         rows.iter().position(|row| {
             matches!(row, crate::app::git::branch::picker::BranchRow::Branch { index, .. }
                 if app.git.branches[*index].name == name)
         })
     };
     // 「feature」目录收着：搜一下，选中切过去。
-    app.picker.input.set_text("feature/a");
+    app.overlays.picker.input.set_text("feature/a");
     app.picker_refresh();
-    app.picker.selected = index(&app, "feature/a").unwrap();
+    app.overlays.picker.selected = index(&app, "feature/a").unwrap();
     app.branch_picker_accept();
     assert_eq!(
         app.git.status.as_ref().unwrap().head,
@@ -537,7 +537,7 @@ fn the_status_bar_switches_worktrees_and_branches_from_menus() {
     assert_eq!(current.upstream.as_deref(), Some("origin/feature/a"));
     app.press_picker_part(PickerPart::Push);
     press_alert(&mut app, 0);
-    assert!(!app.picker.open);
+    assert!(!app.overlays.picker.open);
     assert_eq!(app.git_sync_state(), crate::app::SyncState::InSync);
     let _ = std::fs::remove_dir_all(&remote);
 
@@ -593,7 +593,7 @@ fn the_location_shares_the_row_with_the_project() {
         assert!((gap - 4.0).abs() < 1.0, "{name}: {gap}");
     }
 
-    app.sidebar.width = crate::theme::MIN_PANEL_WIDTH;
+    app.panels.sidebar.width = crate::theme::MIN_PANEL_WIDTH;
     paint(&mut app);
     let location = (app.hits.commit.iter())
         .find(|(_, t)| *t == CommitTarget::Location)
@@ -629,7 +629,7 @@ fn the_location_row_tells_when_other_worktrees_have_changes() {
             .0;
         app.on_mouse_move(900.0, 500.0);
         app.on_mouse_move(rect.x + 4.0, rect.y + 4.0);
-        assert!(app.tooltip.since.is_some());
+        assert!(app.overlays.tooltip.since.is_some());
         crate::view::tests::tooltip(app).map(|(_, text)| text)
     };
     assert_eq!(tip(&mut app), None);
@@ -704,14 +704,14 @@ fn the_new_worktree_dialog_builds_what_it_shows() {
     assert_eq!(app.focus, Focus::Dialog);
     app.close_form_dialog();
     assert_eq!(app.focus, before);
-    assert!(app.form_dialog.is_none());
+    assert!(app.overlays.form_dialog.is_none());
 
     // 点击卡片外面关闭对话框。
     fill_dialog(&mut app, "x");
     let card = app.dialog_layout().card;
-    app.mouse = (card.x - 10.0, card.y - 10.0);
+    app.pointer.mouse = (card.x - 10.0, card.y - 10.0);
     app.click_form_dialog(card.x - 10.0, card.y - 10.0);
-    assert!(app.form_dialog.is_none());
+    assert!(app.overlays.form_dialog.is_none());
 
     // 「基于」菜单：当前分支打勾，其余分支都在；选了「base」。
     fill_dialog(&mut app, "from-base");
@@ -733,10 +733,10 @@ fn the_new_worktree_dialog_builds_what_it_shows() {
     app.run_menu_command(MenuCommand::FormBase(base + 1));
     assert!(app.menu_checked(MenuCommand::FormBase(base + 1)));
     app.worktree_folder_picked(folder.clone());
-    let dialog = app.form_dialog.as_mut().unwrap();
+    let dialog = app.overlays.form_dialog.as_mut().unwrap();
     dialog.copy = false;
     dialog.new_window = false;
-    let shown = app.form_plan(app.form_dialog.as_ref().unwrap());
+    let shown = app.form_plan(app.overlays.form_dialog.as_ref().unwrap());
     assert_eq!(shown.base, "base");
     assert_eq!(shown.dir, Some(folder.join("from-base")));
     app.submit_form_dialog();
@@ -782,7 +782,7 @@ fn form_dialog_moves_focus_with_tab_and_keeps_failures_in_the_card() {
     };
     app.open_worktree_dialog();
     app.edit_field(|f| f.insert("feat/keys"));
-    let focus = |app: &App| app.form_dialog.as_ref().unwrap().focus;
+    let focus = |app: &App| app.overlays.form_dialog.as_ref().unwrap().focus;
     // `Tab` 的顺序：名称 → 基于 → 选择目录 → 在新窗口中打开 → 取消 → 创建 → 名称；`⇧Tab` 逆序。
     let mut order = Vec::new();
     for _ in 0..6 {
@@ -801,15 +801,23 @@ fn form_dialog_moves_focus_with_tab_and_keeps_failures_in_the_card() {
         ]
     );
     // 空格切换焦点所在的勾选项；焦点不在名称上时，键入的文字不进入输入框。
-    app.modifiers = ModifiersState::SHIFT;
+    app.pointer.modifiers = ModifiersState::SHIFT;
     key(&mut app, NamedKey::Tab);
     key(&mut app, NamedKey::Tab);
     key(&mut app, NamedKey::Tab);
-    app.modifiers = ModifiersState::empty();
+    app.pointer.modifiers = ModifiersState::empty();
     assert_eq!(focus(&app), DialogPart::NewWindow);
     key(&mut app, NamedKey::Space);
-    assert!(app.form_dialog.as_ref().unwrap().new_window);
-    let name = |app: &App| app.form_dialog.as_ref().unwrap().name.text().to_owned();
+    assert!(app.overlays.form_dialog.as_ref().unwrap().new_window);
+    let name = |app: &App| {
+        app.overlays
+            .form_dialog
+            .as_ref()
+            .unwrap()
+            .name
+            .text()
+            .to_owned()
+    };
     assert!(app.dialog_key(&Key::Character("x".into()), "x", false));
     assert_eq!(name(&app), "feat/keys");
     paint(&mut app);
@@ -819,13 +827,13 @@ fn form_dialog_moves_focus_with_tab_and_keeps_failures_in_the_card() {
     app.open_branch_dialog(None, None);
     app.edit_field(|f| f.insert("bad..name"));
     app.submit_form_dialog();
-    let dialog = app.form_dialog.as_ref().expect("stays open");
+    let dialog = app.overlays.form_dialog.as_ref().expect("stays open");
     assert!(dialog.running.is_none());
     assert!(dialog.error.is_some());
     assert_eq!(dialog.focus, DialogPart::Branch);
     paint(&mut app);
     assert!(!app.dialog_key(&Key::Named(NamedKey::Backspace), "", false));
-    assert!(app.form_dialog.as_ref().unwrap().error.is_none());
+    assert!(app.overlays.form_dialog.as_ref().unwrap().error.is_none());
 
     // 操作成功后才关闭对话框。
     app.edit_field(|f| {
@@ -833,7 +841,7 @@ fn form_dialog_moves_focus_with_tab_and_keeps_failures_in_the_card() {
         true
     });
     app.submit_form_dialog();
-    assert!(app.form_dialog.is_none());
+    assert!(app.overlays.form_dialog.is_none());
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -859,14 +867,14 @@ fn snapshot_worktree_dialog() {
             f.set_text("main");
             true
         });
-        app.form_dialog.as_mut().unwrap().new_window = false;
+        app.overlays.form_dialog.as_mut().unwrap().new_window = false;
         shoot(&mut app, &format!("worktree-dialog-error-{theme}"));
         // 键盘焦点位于「在新窗口中打开」时，勾选框外绘制一圈强调色细线。
         app.edit_field(|f| {
             f.set_text("feat/login-page");
             true
         });
-        app.form_dialog.as_mut().unwrap().focus = crate::layout::DialogPart::NewWindow;
+        app.overlays.form_dialog.as_mut().unwrap().focus = crate::layout::DialogPart::NewWindow;
         shoot(&mut app, &format!("worktree-dialog-focus-{theme}"));
         // git 拒绝名称时保留对话框，并在按钮左侧显示原因。
         app.close_form_dialog();

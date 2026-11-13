@@ -291,19 +291,19 @@ impl App {
 
     /// 窗口内的菜单。
     pub(crate) fn popup(&self) -> Option<&PopupMenu> {
-        self.context_menu.as_ref()?.popup.as_ref()
+        self.overlays.context_menu.as_ref()?.popup.as_ref()
     }
 
     fn popup_mut(&mut self) -> Option<&mut PopupMenu> {
-        self.context_menu.as_mut()?.popup.as_mut()
+        self.overlays.context_menu.as_mut()?.popup.as_mut()
     }
 
     /// 关掉窗口内的菜单，不执行任何命令。
     pub(in crate::app) fn dismiss_popup(&mut self) {
         if self.popup().is_some() {
-            self.context_menu = None;
-            self.menu_button = None;
-            self.set_hover(self.hover_at(self.mouse.0, self.mouse.1));
+            self.overlays.context_menu = None;
+            self.overlays.menu_button = None;
+            self.set_hover(self.hover_at(self.pointer.mouse.0, self.pointer.mouse.1));
             self.request_redraw();
         }
     }
@@ -311,17 +311,18 @@ impl App {
     /// 选中编号为 `tag` 的命令：关掉菜单，执行它。
     fn choose_popup(&mut self, tag: isize) {
         let command = self
+            .overlays
             .context_menu
             .as_ref()
             .and_then(|menu| MenuEntry::command_at(&menu.entries, tag));
-        if let Some(menu) = &mut self.context_menu {
+        if let Some(menu) = &mut self.overlays.context_menu {
             menu.popup = None;
         }
         if let Some(command) = command {
             self.run_menu_command(command);
         }
-        self.context_menu = None;
-        self.menu_button = None;
+        self.overlays.context_menu = None;
+        self.overlays.menu_button = None;
         self.request_redraw();
     }
 
@@ -351,7 +352,7 @@ impl App {
     /// 点在可用的命令上执行它，点在子菜单上展开它；左键点在菜单外面关掉菜单，这次按下不再
     /// 交给下面；右键点在菜单外面时先关掉菜单，再把事件交给下面，在新的位置弹出那里的菜单。
     pub(in crate::app) fn popup_mouse_down(&mut self, button: MouseButton) -> bool {
-        let (x, y) = self.mouse;
+        let (x, y) = self.pointer.mouse;
         let Some(popup) = self.popup_mut() else {
             return false;
         };
@@ -395,7 +396,7 @@ impl App {
 
     /// 滚轮：窗口内的菜单打开时返回 `true`，滚动鼠标下的那一级菜单。
     pub(in crate::app) fn popup_wheel(&mut self, dy: f32) -> bool {
-        let (x, y) = self.mouse;
+        let (x, y) = self.pointer.mouse;
         let Some(popup) = self.popup_mut() else {
             return false;
         };

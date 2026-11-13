@@ -49,7 +49,7 @@ fn rebasing(name: &str) -> Option<(App, PathBuf)> {
 }
 
 fn form(app: &App) -> &crate::app::git::rebase::RebaseForm {
-    match &app.form_dialog.as_ref().unwrap().kind {
+    match &app.overlays.form_dialog.as_ref().unwrap().kind {
         FormKind::Rebase(form) => form,
         _ => panic!("应当是交互式变基对话框"),
     }
@@ -84,7 +84,7 @@ fn the_dialog_lists_the_range_oldest_first_and_starts_unchanged() {
         .collect();
     assert_eq!(names, ["b", "c", "d"]);
     // 没有更改时不能开始。
-    let dialog = app.form_dialog.as_ref().unwrap();
+    let dialog = app.overlays.form_dialog.as_ref().unwrap();
     assert!(!app.form_plan(dialog).enabled);
 }
 
@@ -95,7 +95,7 @@ fn keys_select_move_and_set_actions() {
     };
     // 第一个提交不能压缩。
     letter(&mut app, "s");
-    let dialog = app.form_dialog.as_ref().unwrap();
+    let dialog = app.overlays.form_dialog.as_ref().unwrap();
     assert!(app.form_plan(dialog).problem.is_some());
     letter(&mut app, "p");
 
@@ -108,7 +108,7 @@ fn keys_select_move_and_set_actions() {
     assert_eq!(form(&app).rows[2].action, RebaseAction::Drop);
 
     key(&mut app, NamedKey::Enter);
-    assert!(app.form_dialog.is_none());
+    assert!(app.overlays.form_dialog.is_none());
     assert_eq!(subjects(&dir), ["b", "a"]);
     assert!(dir.join("c.txt").exists() && !dir.join("d.txt").exists());
 }
@@ -119,18 +119,31 @@ fn rewording_edits_the_message_and_enter_adds_a_line() {
         return;
     };
     letter(&mut app, "r");
-    let dialog = app.form_dialog.as_ref().unwrap();
+    let dialog = app.overlays.form_dialog.as_ref().unwrap();
     assert_eq!(dialog.focus, DialogPart::Branch);
     assert_eq!(dialog.name.text(), "b");
     paint(&mut app);
-    app.form_dialog.as_mut().unwrap().name.insert(" new");
+    app.overlays
+        .form_dialog
+        .as_mut()
+        .unwrap()
+        .name
+        .insert(" new");
     assert!(app.dialog_key(&Key::Named(NamedKey::Enter), "", false));
-    assert_eq!(app.form_dialog.as_ref().unwrap().name.text(), "b new\n");
-    app.form_dialog.as_mut().unwrap().name.insert("body");
+    assert_eq!(
+        app.overlays.form_dialog.as_ref().unwrap().name.text(),
+        "b new\n"
+    );
+    app.overlays
+        .form_dialog
+        .as_mut()
+        .unwrap()
+        .name
+        .insert("body");
 
     // ⌘回车开始变基。
     assert!(app.dialog_key(&Key::Named(NamedKey::Enter), "", true));
-    assert!(app.form_dialog.is_none());
+    assert!(app.overlays.form_dialog.is_none());
     let message = Command::new("git")
         .arg("-C")
         .arg(&dir)

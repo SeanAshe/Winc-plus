@@ -134,11 +134,11 @@ pub(in crate::view) fn draw_whitespace_mark(
             1.0,
         );
         frame.rect_clipped(shaft, color, 0.0, clip);
-        let head = (shaft.right() - app.cell / 4.0, mid);
+        let head = (shaft.right() - app.metrics.cell / 4.0, mid);
         crate::icons::chevron(
             frame,
             head,
-            app.cell / 2.0,
+            app.metrics.cell / 2.0,
             crate::icons::Direction::Right,
             color,
             clip,
@@ -206,7 +206,7 @@ fn paint_chars(
     clip: Rect,
     splits: &[usize],
 ) -> usize {
-    let (cell, size) = (app.cell, app.fonts.code);
+    let (cell, size) = (app.metrics.cell, app.fonts.code);
     let limit = range.end.min(chars.len());
     let mut col = range.start.min(limit);
     let mut cells = start_cells;
@@ -336,7 +336,7 @@ fn paint_run(
     baseline: f32,
     clip: Rect,
 ) {
-    let (cell, size) = (app.cell, app.fonts.code);
+    let (cell, size) = (app.metrics.cell, app.fonts.code);
     let color = app.palette.token(kind);
     let count = frame.shape_ligatures(font, size, run);
     let mut index = 0;
@@ -403,7 +403,7 @@ pub(super) fn draw_columns(
         TokenKind::Builtin,
     ];
     let p = app.palette;
-    let cell = app.cell;
+    let cell = app.metrics.cell;
     for (col, &c) in chars.iter().enumerate() {
         let (start, end) = (positions[col], positions[col + 1]);
         let x = origin_x + start as f32 * cell;
@@ -457,7 +457,7 @@ impl App {
             return winc_syntax::highlight_line(language, chars, state, tokens);
         }
         let key = (doc.id, doc.revision, line, chars.len(), state, language.id);
-        let mut cache = self.line_tokens.borrow_mut();
+        let mut cache = self.caches.line_tokens.borrow_mut();
         if let Some(i) = cache.entries.iter().position(|(k, ..)| *k == key) {
             let entry = cache.entries.remove(i);
             tokens.clear();

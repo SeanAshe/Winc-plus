@@ -65,7 +65,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, index: usize, 
     };
 
     let p = app.palette;
-    app.table_layout.area = area;
+    app.preview.table_layout.area = area;
     frame.rect(area, p.editor_bg);
     let bar = (table.sheets.len() > 1 || sheet.truncated)
         .then(|| Rect::new(area.x, area.bottom() - BAR, area.w, BAR));
@@ -107,7 +107,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, index: usize, 
         scroll.0.clamp(0.0, max_scroll.0),
         scroll.1.clamp(0.0, max_scroll.1),
     );
-    let layout = &mut app.table_layout;
+    let layout = &mut app.preview.table_layout;
     layout.max_scroll = max_scroll;
     layout.body = body;
     layout.header = header;
@@ -272,7 +272,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, index: usize, 
 
     // 当前格的卡片：只选了一格（或一个合并区域）、文字没有显示全时浮在格子旁边；拖着选的
     // 时候、按 Esc 收起以后不显示。
-    app.table_layout.card = Rect::default();
+    app.preview.table_layout.card = Rect::default();
     let text = if has_cells {
         sheet.cell(current.top, current.left)
     } else {
@@ -295,8 +295,8 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, index: usize, 
         draw_cell_card(app, frame, (body, cell), (id, key), text, card_scroll);
     }
 
-    app.table_layout.edges = edges;
-    app.table_layout.sheets.clear();
+    app.preview.table_layout.edges = edges;
+    app.preview.table_layout.sheets.clear();
     if let Some(bar) = bar {
         draw_bar(app, frame, bar, &table, sheet_index);
     }
@@ -355,7 +355,7 @@ fn draw_cell_card(
         return;
     }
     let key = (id, table, sheet, at, w.to_bits(), size.to_bits());
-    let lines = match app.table_layout.card_lines.take() {
+    let lines = match app.preview.table_layout.card_lines.take() {
         Some((cached, lines)) if cached == key => lines,
         _ => wrap(frame, text, size, w - 2.0 * CARD_PAD),
     };
@@ -375,8 +375,8 @@ fn draw_cell_card(
     let card = Rect::new(x.round(), y.round(), w.round(), h);
     let max_scroll = (content - (h - 2.0 * CARD_PAD)).max(0.0);
     let scroll = scroll.clamp(0.0, max_scroll);
-    app.table_layout.card = card;
-    app.table_layout.card_max = max_scroll;
+    app.preview.table_layout.card = card;
+    app.preview.table_layout.card_max = max_scroll;
 
     let covered = frame.covered(card, RADIUS_POPUP);
     frame.shadow(card, RADIUS_POPUP, 12.0, 4.0, p.shadow, Some(covered));
@@ -400,7 +400,7 @@ fn draw_cell_card(
         let thumb = Rect::new(track.right() - 3.0, y, 3.0, thumb_h);
         frame.rect_clipped(thumb, p.scrollbar, 1.5, card);
     }
-    app.table_layout.card_lines = Some((key, lines));
+    app.preview.table_layout.card_lines = Some((key, lines));
 }
 
 /// 单元格 `cell` 中的文字 `text` 是否没有显示全：有多行，或者第一行放不下。
@@ -544,7 +544,7 @@ fn draw_bar(app: &mut App, frame: &mut Frame<'_>, bar: Rect, table: &Table, curr
         tabs.push(tab);
         x += w + 4.0;
     }
-    app.table_layout.sheets = tabs;
+    app.preview.table_layout.sheets = tabs;
 }
 
 /// 返回各列的宽度（逻辑像素），按前 [`MEASURED_ROWS`] 行中最宽的文字确定。
@@ -557,7 +557,7 @@ fn column_widths(
     key: (DocumentId, usize, usize),
     sheet: &Sheet,
 ) -> Vec<f32> {
-    if let Some((cached, widths)) = &app.table_layout.widths
+    if let Some((cached, widths)) = &app.preview.table_layout.widths
         && *cached == key
     {
         return widths.clone();
@@ -575,7 +575,7 @@ fn column_widths(
             widths[column] = widths[column].max(w.min(COLUMN_MAX).ceil());
         }
     }
-    app.table_layout.widths = Some((key, widths.clone()));
+    app.preview.table_layout.widths = Some((key, widths.clone()));
     widths
 }
 

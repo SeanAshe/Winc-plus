@@ -8,16 +8,17 @@ impl App {
         let wait = std::time::Duration::from_secs(10);
         loop {
             self.advance_tables();
-            if self.tables.pending.is_empty() {
+            if self.preview.tables.pending.is_empty() {
                 break;
             }
             let done = self
+                .preview
                 .tables
                 .receiver
                 .recv_timeout(wait)
                 .expect("表格一直没读好");
             // 放回通道，按正常路径收下。
-            let _ = self.tables.sender.send(done);
+            let _ = self.preview.tables.sender.send(done);
             self.poll_tables();
         }
         crate::app::snapshot::paint(self);

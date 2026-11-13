@@ -121,7 +121,7 @@ fn choose_in_branch_menu(app: &mut App, command: crate::app::MenuCommand) {
 /// 按窗口内提示框的第 `button` 个按钮：第一个是默认按钮，最后一个是「取消」。
 fn press_alert(app: &mut App, button: usize) {
     paint(app);
-    let rect = app.alert.as_ref().unwrap().parts.buttons[button];
+    let rect = app.overlays.alert.as_ref().unwrap().parts.buttons[button];
     app.on_mouse_move(rect.x + 4.0, rect.y + 4.0);
     app.alert_mouse_down();
 }

@@ -92,13 +92,13 @@ impl App {
     /// 没有事件循环（测试中）时不监视，测试直接把变化传给 [`App::apply_changes`]。
     pub(in crate::app) fn watch_folder(&mut self) {
         let root = self.editor.root().map(Path::to_path_buf);
-        if self.watcher.as_ref().map(Watcher::root) == root.as_deref() {
+        if self.disk.watcher.as_ref().map(Watcher::root) == root.as_deref() {
             return;
         }
-        self.watcher = None;
-        self.changes_due = None;
+        self.disk.watcher = None;
+        self.disk.changes_due = None;
         self.git_folder_changed();
-        let (Some(root), Some(proxy)) = (root, self.proxy.clone()) else {
+        let (Some(root), Some(proxy)) = (root, self.link.proxy.clone()) else {
             return;
         };
         // 远端主机上的目录由服务进程在那台主机上监视；启动要发出请求，在后台进行。
@@ -109,7 +109,7 @@ impl App {
         }
         // 监视启动失败（例如超出系统允许的监视数量）时 `watcher` 为 `None`，
         // 由 `check_disk` 在窗口重新获得焦点时检查文档并重读文件树。
-        self.watcher = Watcher::start(&root, move || {
+        self.disk.watcher = Watcher::start(&root, move || {
             let _ = proxy.send_event(UserEvent::FilesChanged);
         })
         .ok();
@@ -118,16 +118,16 @@ impl App {
 
     /// 发行版内的监视程序监视过后退出了、发行版已恢复时重新启动监视；开始监视后程序要求重新扫描。
     pub(in crate::app) fn restart_exited_watcher(&mut self) {
-        let root = (self.watcher.as_ref())
+        let root = (self.disk.watcher.as_ref())
             .filter(|watcher| watcher.exited())
             .map(|watcher| watcher.root().to_path_buf());
-        let (Some(root), Some(proxy)) = (root, self.proxy.clone()) else {
+        let (Some(root), Some(proxy)) = (root, self.link.proxy.clone()) else {
             return;
         };
         // 远端的监视随连接中断而结束：连接恢复后重新启动。
         if let Some(at) = winc_backend::locate(&root) {
             if winc_backend::remote::is_connected(&at.target) {
-                self.watcher = None;
+                self.disk.watcher = None;
                 self.start_remote_watcher(root);
             }
             return;
@@ -139,7 +139,7 @@ impl App {
             let _ = proxy.send_event(UserEvent::FilesChanged);
         };
         if let Ok(watcher) = Watcher::start(&root, wake) {
-            self.watcher = Some(watcher);
+            self.disk.watcher = Some(watcher);
         }
     }
 
@@ -148,7 +148,7 @@ impl App {
     /// 启动失败（服务进程无法监视、连接中断）时没有监视，变化由 `check_disk` 在窗口重新获得
     /// 焦点时检查。
     fn start_remote_watcher(&mut self, root: PathBuf) {
-        let Some(proxy) = self.proxy.clone() else {
+        let Some(proxy) = self.link.proxy.clone() else {
             return;
         };
         let slot = Arc::clone(&self.remote.watching);
@@ -170,7 +170,7 @@ impl App {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .take();
         if let Some(watcher) = started.filter(|w| Some(w.root()) == self.editor.root()) {
-            self.watcher = Some(watcher);
+            self.disk.watcher = Some(watcher);
         }
     }
 
@@ -178,24 +178,24 @@ impl App {
     ///
     /// 已有等待中的批次时不重新计时。
     pub(in crate::app) fn files_changed(&mut self) {
-        if self.changes_due.is_none() {
-            self.changes_due = Some(Instant::now() + SETTLE);
+        if self.disk.changes_due.is_none() {
+            self.disk.changes_due = Some(Instant::now() + SETTLE);
         }
     }
 
     /// 到达处理时间后处理已累积的变化，返回下一次需要检查的时刻；没有待处理的批次时返回 `None`。
     pub(in crate::app) fn changes_tick(&mut self, now: Instant) -> Option<Instant> {
-        let due = self.changes_due?;
+        let due = self.disk.changes_due?;
         if now < due {
             return Some(due);
         }
-        self.changes_due = None;
-        if self.watcher.as_ref().is_some_and(Watcher::take_limit) {
+        self.disk.changes_due = None;
+        if self.disk.watcher.as_ref().is_some_and(Watcher::take_limit) {
             let name = self.editor.root().map(winc_editor::display_name);
             let name = name.as_deref().unwrap_or_default();
             self.notify(winc_i18n::t!("workspace-watch-limit", name = name));
         }
-        if let Some(changes) = self.watcher.as_ref().map(Watcher::take) {
+        if let Some(changes) = self.disk.watcher.as_ref().map(Watcher::take) {
             self.apply_changes(changes);
         }
         None
@@ -218,9 +218,9 @@ impl App {
                 let tickets = scan
                     .dirs()
                     .iter()
-                    .map(|dir| self.tree.scans.tickets.issue(dir.clone()))
+                    .map(|dir| self.panels.tree.scans.tickets.issue(dir.clone()))
                     .collect();
-                let sender = self.tree.scans.results.0.clone();
+                let sender = self.panels.tree.scans.results.0.clone();
                 self.spawn_then(UserEvent::TreeScanned, move || {
                     let _ = sender.send((tickets, scan.run()));
                 });
@@ -237,7 +237,7 @@ impl App {
             self.results_touched(&changes.paths);
         }
         self.git_paths_changed(&changes.paths, changes.rescan, changes.git);
-        self.picker.index.apply(changes);
+        self.overlays.picker.index.apply(changes);
 
         self.relayout();
         self.clamp_scroll();
@@ -258,15 +258,15 @@ impl App {
             let Some(path) = doc.path.as_deref().filter(|p| touched(p)) else {
                 continue;
             };
-            if !self.saves.running.contains(&doc.id) {
-                let ticket = self.rereads.tickets.issue(doc.id);
+            if !self.disk.saves.running.contains(&doc.id) {
+                let ticket = self.disk.rereads.tickets.issue(doc.id);
                 checks.push((doc.id, ticket, path.to_path_buf()));
             }
         }
         if checks.is_empty() {
             return;
         }
-        let sender = self.rereads.results.0.clone();
+        let sender = self.disk.rereads.results.0.clone();
         self.spawn_then(UserEvent::Reread, move || {
             // 各文档的文件信息一次取回：远端路径由一次请求完成。
             let paths: Vec<&Path> = checks.iter().map(|(_, _, path)| path.as_path()).collect();
@@ -280,16 +280,16 @@ impl App {
     /// 收取后台重读完成的目录（见 [`TreeScans`]）并换进文件树；之后又发出过重读的目录不换。
     pub(in crate::app) fn poll_tree_scans(&mut self) {
         let mut changed = false;
-        while let Ok((tickets, mut listing)) = self.tree.scans.results.1.try_recv() {
+        while let Ok((tickets, mut listing)) = self.panels.tree.scans.results.1.try_recv() {
             let mut tickets = tickets.into_iter();
-            let scans = &mut self.tree.scans.tickets;
+            let scans = &mut self.panels.tree.scans.tickets;
             listing.retain(|dir| tickets.next().is_some_and(|t| scans.redeem(dir, t)));
             if let Some(ws) = &mut self.editor.workspace {
                 changed |= ws.apply_scan(listing);
             }
         }
         if changed {
-            self.tree.motion = None;
+            self.panels.tree.motion = None;
             self.clamp_tree_scroll();
             // 换入的目录中可能又露出尚未读取的目录，随重绘的请求一并读取。
             self.request_redraw();
@@ -303,9 +303,9 @@ impl App {
             return;
         };
         let tickets = (scan.dirs().iter())
-            .map(|dir| self.tree.scans.tickets.issue(dir.clone()))
+            .map(|dir| self.panels.tree.scans.tickets.issue(dir.clone()))
             .collect();
-        let sender = self.tree.scans.results.0.clone();
+        let sender = self.panels.tree.scans.results.0.clone();
         self.spawn_then(UserEvent::TreeScanned, move || {
             let _ = sender.send((tickets, scan.run()));
         });
@@ -324,12 +324,12 @@ impl App {
         let mut taken = Vec::new();
         let active = self.editor.active().map(|d| d.id);
 
-        while let Ok((id, ticket, back)) = self.rereads.results.1.try_recv() {
+        while let Ok((id, ticket, back)) = self.disk.rereads.results.1.try_recv() {
             let tickets = match back {
-                DiskBack::Reencoded(_) | DiskBack::Taken(_) => &mut self.rereads.reencodes,
-                _ => &mut self.rereads.tickets,
+                DiskBack::Reencoded(_) | DiskBack::Taken(_) => &mut self.disk.rereads.reencodes,
+                _ => &mut self.disk.rereads.tickets,
             };
-            if !tickets.redeem(&id, ticket) || self.saves.running.contains(&id) {
+            if !tickets.redeem(&id, ticket) || self.disk.saves.running.contains(&id) {
                 continue;
             }
             let Some(doc) = self.editor.document_mut(id) else {
@@ -384,8 +384,8 @@ impl App {
         }
 
         for (id, reread) in rereads {
-            let ticket = self.rereads.tickets.issue(id);
-            let sender = self.rereads.results.0.clone();
+            let ticket = self.disk.rereads.tickets.issue(id);
+            let sender = self.disk.rereads.results.0.clone();
             self.spawn_then(UserEvent::Reread, move || {
                 let _ = sender.send((id, ticket, DiskBack::Read(reread.read())));
             });
@@ -406,7 +406,7 @@ impl App {
     fn report_disk(&mut self, report: DiskReport) {
         if !report.reloaded.is_empty() || report.marked || report.changed || report.follow {
             self.request_redraw();
-            self.sticky_cache = None;
+            self.caches.sticky_cache = None;
         }
         if report.follow {
             self.relayout();

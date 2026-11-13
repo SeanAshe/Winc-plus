@@ -28,7 +28,7 @@ impl App {
     fn shell_command_outcome(&mut self, placement: Placement, outcome: Outcome, installing: bool) {
         #[cfg(target_os = "macos")]
         if outcome == Outcome::Denied
-            && let Some(proxy) = self.proxy.clone()
+            && let Some(proxy) = self.link.proxy.clone()
         {
             std::thread::spawn(move || {
                 let outcome = shell_command::run_authorized(&placement, installing);

@@ -68,7 +68,10 @@ fn the_editor_scrolls_sideways_by_its_scrollbar_and_by_dragging_past_the_edge() 
     // 按住滑块拖到右端：滚动到最右边。
     let y = track.bottom() - 4.0;
     app.on_mouse_move(track.x + 8.0, y);
-    assert_eq!(app.hover, Hover::Scrollbar(Scrollbar::EditorHorizontal));
+    assert_eq!(
+        app.pointer.hover,
+        Hover::Scrollbar(Scrollbar::EditorHorizontal)
+    );
     app.on_mouse_down(MouseButton::Left);
     app.on_mouse_move(track.right(), y);
     app.on_mouse_up(MouseButton::Left);
@@ -85,12 +88,14 @@ fn the_editor_scrolls_sideways_by_its_scrollbar_and_by_dragging_past_the_edge() 
     assert!(app.drag_autoscrolling());
     let first = app.editor.active().unwrap().scroll_x;
     assert!(first > 0.0);
-    app.drag_scrolled_at = Some(std::time::Instant::now() - std::time::Duration::from_millis(50));
+    app.pointer.drag_scrolled_at =
+        Some(std::time::Instant::now() - std::time::Duration::from_millis(50));
     app.continue_drag_scroll();
     let doc = app.editor.active().unwrap();
     assert!(doc.scroll_x > first, "{first} → {}", doc.scroll_x);
     let head = doc.selection.head;
-    app.drag_scrolled_at = Some(std::time::Instant::now() - std::time::Duration::from_millis(50));
+    app.pointer.drag_scrolled_at =
+        Some(std::time::Instant::now() - std::time::Duration::from_millis(50));
     app.continue_drag_scroll();
     assert!(app.editor.active().unwrap().selection.head > head);
 
@@ -125,7 +130,7 @@ fn the_minimap_takes_room_from_the_text_and_scrolls_the_editor() {
     // 点击滑块之外：滑块移到指针下方，靠近底边时滚动到文档末尾。
     let scroll = |app: &App| app.editor.active().unwrap().scroll_line;
     app.on_mouse_move(map.x + 8.0, map.bottom() - 1.0);
-    assert_eq!(app.hover, Hover::Minimap);
+    assert_eq!(app.pointer.hover, Hover::Minimap);
     app.on_mouse_down(MouseButton::Left);
     app.on_mouse_up(MouseButton::Left);
     assert_eq!(scroll(&app), app.max_scroll_line());
@@ -255,7 +260,7 @@ fn wrapped_lines_fill_their_rows_in_the_minimap() {
     let mut filled = 0;
     let map = app.layout.minimap;
     paint(&mut app);
-    let renderer = app.renderer.take().unwrap();
+    let renderer = app.frame.renderer.take().unwrap();
     let scale = renderer.scale_factor();
     let image = renderer.image().unwrap();
     let pixel = |x: f32, y: f32| {
@@ -268,7 +273,7 @@ fn wrapped_lines_fill_their_rows_in_the_minimap() {
         let y = map.y + row as f32 * crate::theme::MINIMAP_ROW + 0.5;
         filled += usize::from(pixel(x, y) != background);
     }
-    app.renderer = Some(renderer);
+    app.frame.renderer = Some(renderer);
     assert!(filled >= 6, "{filled}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -297,7 +302,7 @@ fn the_minimap_shows_the_later_rows_of_long_wrapped_lines() {
     paint(&mut app);
 
     let map = app.layout.minimap;
-    let renderer = app.renderer.take().unwrap();
+    let renderer = app.frame.renderer.take().unwrap();
     let scale = renderer.scale_factor();
     let image = renderer.image().unwrap();
     let pixel = |x: f32, y: f32| {
@@ -312,7 +317,7 @@ fn the_minimap_shows_the_later_rows_of_long_wrapped_lines() {
             pixel(map.x + 6.0, y) != pixel(map.x + 1.0, y)
         })
         .count();
-    app.renderer = Some(renderer);
+    app.frame.renderer = Some(renderer);
     assert!(filled >= 8, "{filled}");
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -410,7 +415,7 @@ fn shift_turns_only_mouse_wheel_scrolling_sideways() {
     let mut app = app_with(&path, false);
     let editor = app.layout.editor;
     app.on_mouse_move(editor.x + editor.w / 2.0, editor.y + editor.h / 2.0);
-    app.modifiers = winit::keyboard::ModifiersState::SHIFT;
+    app.pointer.modifiers = winit::keyboard::ModifiersState::SHIFT;
 
     // 触控板（含手指离开后的惯性滚动）：按住 `Shift` 仍然竖直滚动，不会横向移动。
     app.on_wheel(MouseScrollDelta::PixelDelta(PhysicalPosition::new(

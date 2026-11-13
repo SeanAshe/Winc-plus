@@ -474,7 +474,7 @@ impl App {
         let (first, origin) = self.terminal_origin();
         let lh = self.fonts.terminal_line_height;
         let y = origin + display.saturating_sub(first) as f32 * lh;
-        let right = self.terminal_grid().x + end.col as f32 * self.terminal_cell;
+        let right = self.terminal_grid().x + end.col as f32 * self.metrics.terminal_cell;
         if display >= first && y < bar.bottom() && right > bar.x {
             self.scroll_terminal(((bar.bottom() - y) / lh).ceil() as isize);
         }
@@ -485,7 +485,7 @@ impl App {
         match &event.logical_key {
             Key::Named(NamedKey::Escape) => self.close_terminal_find(),
             Key::Named(NamedKey::Enter) => {
-                let older = !self.modifiers.shift_key();
+                let older = !self.pointer.modifiers.shift_key();
                 self.terminal_find_step(older);
             }
             _ => self.on_key_field(event, base, cmd),

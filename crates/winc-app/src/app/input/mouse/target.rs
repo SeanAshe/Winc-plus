@@ -102,7 +102,7 @@ impl App {
             .into_iter()
             .flatten(),
         );
-        if self.sidebar.visible {
+        if self.panels.sidebar.visible {
             client.push(l.splitter);
         }
         if self.editor.active().is_some_and(|d| d.can_preview()) {
@@ -117,11 +117,11 @@ impl App {
 
     /// 是否有对话框、弹出菜单等浮层打开；此时触摸由浮层接收，不开始窗口操作或控件拖动。
     fn touch_intercepted(&self) -> bool {
-        self.alert.is_some()
+        self.overlays.alert.is_some()
             || self.popup().is_some()
-            || self.form_dialog.is_some()
-            || self.picker.open
-            || self.name_input.is_some()
+            || self.overlays.form_dialog.is_some()
+            || self.overlays.picker.open
+            || self.panels.name_input.is_some()
     }
 
     /// 返回在 (`x`, `y`) 落指时立即开始的窗口操作：顶栏空白处移动窗口，窗口边缘调整大小。
@@ -155,6 +155,7 @@ impl App {
                 && self.settings_scrollbar_at(x, y).is_some();
         }
         if self
+            .preview
             .markdown
             .diagram
             .as_ref()
@@ -184,7 +185,7 @@ impl App {
 
         // 拖动滚动条时鼠标会经过文件树的行和编辑区，悬停保持在这根滚动条上，下方的内容不高亮。
         // 拖动文件树中的项或标签时没有悬停目标；文件树中高亮的是放置目标目录，而不是鼠标所在的行。
-        match self.drag {
+        match self.pointer.drag {
             Drag::Scrollbar { bar, .. } => return Hover::Scrollbar(bar),
             _ if self.tree_dragging().is_some() || self.dragged_tab().is_some() => {
                 return Hover::None;
@@ -206,8 +207,8 @@ impl App {
                 Hover::PickerPart(part)
             }
             Target::Picker => crate::app::workspace::picker::picker_parts(self, l.picker)
-                .row_at(y, self.picker.scroll)
-                .filter(|&i| i < self.picker.hits.len())
+                .row_at(y, self.overlays.picker.scroll)
+                .filter(|&i| i < self.overlays.picker.hits.len())
                 .map_or(Hover::None, Hover::PickerRow),
             Target::TreeMore => Hover::TreeMore,
             Target::Scrollbar(bar, _) => Hover::Scrollbar(bar),
@@ -306,7 +307,7 @@ impl App {
                 .map_or(Target::Blocked, |&(_, action)| Target::Conflict(action));
         }
         // 快速打开面板位于编辑区和侧栏之上。
-        if self.picker.open && l.picker.contains(x, y) {
+        if self.overlays.picker.open && l.picker.contains(x, y) {
             return Target::Picker;
         }
         if self.hits.tree_more.is_some_and(|more| more.contains(x, y)) {
@@ -329,7 +330,7 @@ impl App {
             return Target::Panel(hover);
         }
         // 跳转条绘制在查找条之上（窄窗口中两者会重叠）；正在输入名称的行位于文件树中。
-        if (self.goto_input.is_some() && self.prompt_bar().contains(x, y))
+        if (self.bars.goto_input.is_some() && self.prompt_bar().contains(x, y))
             || self.name_input_rect().is_some_and(|r| r.contains(x, y))
         {
             return Target::Prompt;
@@ -340,7 +341,8 @@ impl App {
         // 名称显示不全而展开的行（文件树、改动列表）覆盖在分隔条上，该行优先；
         // 其余各行仍可拖动分隔条。
         let over_row = self.over_tree_overflow_row(y);
-        if self.sidebar.visible && !over_row && !over_commit_row && l.splitter.contains(x, y) {
+        if self.panels.sidebar.visible && !over_row && !over_commit_row && l.splitter.contains(x, y)
+        {
             return Target::Splitter;
         }
         if let Some(tool) = hit(&self.hits.tree_tools, x, y) {
@@ -381,9 +383,16 @@ impl App {
         if let Some((hunk, _)) = self.ruler_change_at(x, y) {
             return Target::RulerChange(hunk);
         }
-        // 展开的行同样覆盖文件树的滚动条，鼠标进入滚动条时该行不会立即收起。
+        // 展开的行覆盖文件树的滚动条，鼠标进入滚动条时该行不收起；展开的标题列表覆盖宽表格的
+        // 水平滚动条，鼠标经过该滚动条时列表同样不收起。下方判定标题列表时沿用此处的命中结果。
+        let toc = (self.preview.markdown.area.contains(x, y))
+            .then(|| hit(&self.hits.markdown_toc, x, y))
+            .flatten();
+        let over_toc = toc.is_some();
         if let Some((bar, grab)) = self.scrollbar_at(x, y).filter(|(bar, _)| {
-            !(over_row && *bar == Scrollbar::Tree || over_commit_row && *bar == Scrollbar::Commit)
+            !(over_row && *bar == Scrollbar::Tree
+                || over_commit_row && *bar == Scrollbar::Commit
+                || over_toc && *bar == Scrollbar::MarkdownTable)
         }) {
             return Target::Scrollbar(bar, grab);
         }
@@ -456,9 +465,7 @@ impl App {
             return Target::LogText;
         }
         // 标题指示条和展开的标题列表覆盖在预览文字之上，先于文字判断。
-        if self.markdown.area.contains(x, y)
-            && let Some(target) = hit(&self.hits.markdown_toc, x, y)
-        {
+        if let Some(target) = toc {
             return Target::MarkdownToc(target);
         }
         // 可编辑的预览中单击文字用于放置光标，便于编辑链接文本；按住 `⌘`（其他平台为 `Ctrl`）
@@ -467,9 +474,9 @@ impl App {
             && (!self.markdown_live()
                 || self.markdown_link_is_control(link)
                 || if cfg!(target_os = "macos") {
-                    self.modifiers.super_key()
+                    self.pointer.modifiers.super_key()
                 } else {
-                    self.modifiers.control_key()
+                    self.pointer.modifiers.control_key()
                 })
         {
             return Target::MarkdownLink(link);
@@ -477,7 +484,7 @@ impl App {
         if let Some(tool) = hit(&self.hits.pdf_tools, x, y) {
             return Target::PdfTool(tool);
         }
-        if self.pdf.strip.contains(x, y) {
+        if self.preview.pdf.strip.contains(x, y) {
             let thumb = self
                 .hits
                 .pdf_thumbs
@@ -486,7 +493,7 @@ impl App {
             return thumb.map_or(Target::Blocked, |&(_, to)| Target::PdfThumb(to));
         }
         // 在预览上按下时选择文字并获得焦点，以便用键盘滚动和复制。
-        if self.markdown.area.contains(x, y) {
+        if self.preview.markdown.area.contains(x, y) {
             return Target::MarkdownText;
         }
         if self.picture_at(x, y) {
@@ -517,8 +524,8 @@ impl App {
         if self.panel_shown() {
             let results = self.panel_parts().results;
             if results.contains(x, y) && x >= results.right() - SCROLLBAR_HIT {
-                let content = (self.global.rows().len() as f32 + 1.0) * TREE_ROW;
-                let thumb = scrollbar_thumb(results, self.global.scroll, content)?;
+                let content = (self.panels.global.rows().len() as f32 + 1.0) * TREE_ROW;
+                let thumb = scrollbar_thumb(results, self.panels.global.scroll, content)?;
                 return Some((Scrollbar::Panel, grab(y, thumb.y, thumb.h)));
             }
         }
@@ -527,7 +534,7 @@ impl App {
             let list = self.outline_list();
             if list.contains(x, y) && x >= list.right() - SCROLLBAR_HIT {
                 let content = self.outline_max_scroll() + list.h;
-                let thumb = scrollbar_thumb(list, self.outline.scroll, content)?;
+                let thumb = scrollbar_thumb(list, self.panels.outline.scroll, content)?;
                 return Some((Scrollbar::Outline, grab(y, thumb.y, thumb.h)));
             }
         }
@@ -543,23 +550,24 @@ impl App {
             let list = self.commit_parts().list;
             if list.contains(x, y) && x >= list.right() - SCROLLBAR_HIT {
                 let content = self.commit_max_scroll() + list.h;
-                let thumb = scrollbar_thumb(list, self.commit.scroll, content)?;
+                let thumb = scrollbar_thumb(list, self.git.commit.scroll, content)?;
                 return Some((Scrollbar::Commit, grab(y, thumb.y, thumb.h)));
             }
         }
 
         let tree = self.layout.tree;
-        if self.sidebar.visible && tree.contains(x, y) {
+        if self.panels.sidebar.visible && tree.contains(x, y) {
             let rows = self.editor.workspace.as_ref().map_or(0, |w| w.rows().len());
             let content = (rows as f32 + 1.0) * TREE_ROW;
 
             if x >= tree.right() - SCROLLBAR_HIT
-                && let Some(thumb) = scrollbar_thumb(tree, self.tree.scroll, content)
+                && let Some(thumb) = scrollbar_thumb(tree, self.panels.tree.scroll, content)
             {
                 return Some((Scrollbar::Tree, grab(y, thumb.y, thumb.h)));
             }
             if y >= tree.bottom() - SCROLLBAR_HIT
-                && let Some(thumb) = hscrollbar_thumb(tree, self.tree.scroll_x, self.tree.content_w)
+                && let Some(thumb) =
+                    hscrollbar_thumb(tree, self.panels.tree.scroll_x, self.panels.tree.content_w)
             {
                 return Some((Scrollbar::TreeHorizontal, grab(x, thumb.x, thumb.w)));
             }
@@ -575,7 +583,7 @@ impl App {
         }
 
         // 预览（分栏时位于右侧，仅预览时占满编辑区）先于编辑区判断，仅预览时两者重叠。
-        let preview = self.markdown.area;
+        let preview = self.preview.markdown.area;
         if preview.contains(x, y) {
             // 比正文宽的表格的水平滚动条：位于表格显示区域的底边。
             if let Some(bar) = self.hits.markdown_table_bar
@@ -589,26 +597,26 @@ impl App {
             if x < preview.right() - SCROLLBAR_HIT {
                 return None;
             }
-            let scroll = self.markdown.scroll();
-            let thumb = scrollbar_thumb(preview, scroll, self.markdown.height)?;
+            let scroll = self.preview.markdown.scroll();
+            let thumb = scrollbar_thumb(preview, scroll, self.preview.markdown.height)?;
             return Some((Scrollbar::Markdown, grab(y, thumb.y, thumb.h)));
         }
 
-        let strip = self.pdf.strip;
+        let strip = self.preview.pdf.strip;
         if strip.contains(x, y) {
             if x < strip.right() - SCROLLBAR_HIT {
                 return None;
             }
-            let (scroll, content) = (self.pdf.strip_scroll, self.pdf.strip_height);
+            let (scroll, content) = (self.preview.pdf.strip_scroll, self.preview.pdf.strip_height);
             let thumb = scrollbar_thumb(strip, scroll, content)?;
             return Some((Scrollbar::PdfStrip, grab(y, thumb.y, thumb.h)));
         }
-        let pdf = self.pdf.area;
+        let pdf = self.preview.pdf.area;
         if pdf.contains(x, y) {
             if x < pdf.right() - SCROLLBAR_HIT {
                 return None;
             }
-            let thumb = scrollbar_thumb(pdf, self.pdf.scroll, self.pdf.height)?;
+            let thumb = scrollbar_thumb(pdf, self.preview.pdf.scroll, self.preview.pdf.height)?;
             return Some((Scrollbar::Pdf, grab(y, thumb.y, thumb.h)));
         }
 
@@ -644,15 +652,16 @@ impl App {
 
     /// 滚动条滑块是否以加深的颜色绘制：鼠标位于滑块上，或正在拖动滑块。
     pub(crate) fn scrollbar_active(&self, bar: Scrollbar) -> bool {
-        self.hover == Hover::Scrollbar(bar)
-            || matches!(self.drag, Drag::Scrollbar { bar: dragged, .. } if dragged == bar)
+        self.pointer.hover == Hover::Scrollbar(bar)
+            || matches!(self.pointer.drag, Drag::Scrollbar { bar: dragged, .. } if dragged == bar)
     }
 
     /// 纵坐标 `y` 是否位于正在显示完整名称的行上；该行位于最上层，覆盖分隔条和文件树的滚动条。
     ///
     /// 只有已展开的行优先。沿边缘上下移动到其他行时，该行尚未展开，滚动条正常响应。
     pub(in crate::app) fn over_tree_overflow_row(&self, y: f32) -> bool {
-        self.tree
+        self.panels
+            .tree
             .overflow
             .is_some_and(|(rect, _)| (rect.y..rect.bottom()).contains(&y))
     }
@@ -660,7 +669,8 @@ impl App {
     /// 窗口坐标 (`x`, `y`)（逻辑像素）是否位于文件树中显示不全的文件名
     /// 向右展开、覆盖到编辑区上方的区域内。
     pub(in crate::app) fn in_tree_overflow(&self, x: f32, y: f32) -> bool {
-        self.tree
+        self.panels
+            .tree
             .overflow
             .is_some_and(|(rect, _)| rect.contains(x, y))
     }
@@ -671,12 +681,13 @@ impl App {
     /// 文字滚动）而鼠标未动时，原悬停目标可能已不存在或已换成其他部件；不重新判断时，下次打开
     /// 面板会高亮上次的行。判断依据刚绘制完的一帧记录的各矩形；悬停变化时再绘制一帧后即稳定。
     pub(in crate::app) fn refresh_hover(&mut self) {
-        if !self.cursor_inside || self.settings.open || self.form_dialog.is_some() {
+        if !self.pointer.cursor_inside || self.settings.open || self.overlays.form_dialog.is_some()
+        {
             return;
         }
-        let (x, y) = self.mouse;
+        let (x, y) = self.pointer.mouse;
         let hover = self.hover_at(x, y);
-        if hover != self.hover {
+        if hover != self.pointer.hover {
             self.set_hover(hover);
             self.update_cursor_icon();
         }
@@ -700,10 +711,10 @@ impl App {
 
     /// 根据鼠标位置和拖动状态更新鼠标指针的样式。
     pub(in crate::app) fn update_cursor_icon(&mut self) {
-        let (x, y) = self.mouse;
+        let (x, y) = self.pointer.mouse;
         // 新建工作树对话框打开时只判断对话框自身：
         // 名称输入框上显示文本光标（I 形），其余位置显示箭头。
-        if self.form_dialog.is_some() {
+        if self.overlays.form_dialog.is_some() {
             let icon = if self.dialog_part_at(x, y) == Some(crate::layout::DialogPart::Branch) {
                 CursorIcon::Text
             } else {
@@ -713,10 +724,10 @@ impl App {
             return;
         }
         // 位于全屏查看的图片上时，工具栏按钮处显示手形指针，其余位置显示表示可拖动的抓手指针。
-        if let Some(view) = &self.markdown.diagram
+        if let Some(view) = &self.preview.markdown.diagram
             && (view.area.contains(x, y) || view.grab.is_some())
             && !self.settings.open
-            && self.form_dialog.is_none()
+            && self.overlays.form_dialog.is_none()
         {
             let icon = if view.grab.is_some() {
                 CursorIcon::Grabbing
@@ -749,24 +760,24 @@ impl App {
         let in_text = self.editor.active.is_some()
             && self.active_shows_text()
             && !matches!(
-                self.hover,
+                self.pointer.hover,
                 Hover::TreeRow(_) | Hover::Sticky(_) | Hover::Folded(_) | Hover::LongLine(_)
             )
             && self.layout.text.contains(x, y)
             && !self.layout.search.contains(x, y)
-            && !(self.picker.open && self.layout.picker.contains(x, y))
+            && !(self.overlays.picker.open && self.layout.picker.contains(x, y))
             && !self.over_corner_card(x, y)
             && x < self.layout.editor.right() - SCROLLBAR_HIT
             || self.over_diff_text(x, y) && x < self.layout.editor.right() - SCROLLBAR_HIT;
         // 日志详情中可选择的文字上（不含可点击的提交号和文件）显示文本光标。
         let in_field = self.field_at(x, y).is_some()
-            || matches!(self.drag, Drag::LogText | Drag::MarkdownText)
-            || (self.markdown.area.contains(x, y) && self.markdown_link_at(x, y).is_none())
+            || matches!(self.pointer.drag, Drag::LogText | Drag::MarkdownText)
+            || (self.preview.markdown.area.contains(x, y) && self.markdown_link_at(x, y).is_none())
             || (self.log_active()
                 && crate::layout::hit(&self.hits.log, x, y).is_none()
                 && self.log_text_at(x, y, false).is_some());
 
-        let icon = if let Hover::ResizeEdge(direction) = self.hover {
+        let icon = if let Hover::ResizeEdge(direction) = self.pointer.hover {
             resize_cursor(direction)
         } else if let Some(drag) = self.tree_dragging() {
             // 鼠标在文件树内但放置没有效果（目标在被拖项自身之内，或被拖项已在该目录中）时显示
@@ -776,12 +787,12 @@ impl App {
             } else {
                 CursorIcon::Default
             }
-        } else if matches!(self.drag, Drag::OutlineDivider { .. })
-            || self.hover == Hover::OutlineDivider
+        } else if matches!(self.pointer.drag, Drag::OutlineDivider { .. })
+            || self.pointer.hover == Hover::OutlineDivider
         {
             CursorIcon::RowResize
-        } else if matches!(self.drag, Drag::TerminalDivider { .. })
-            || self.hover == Hover::TerminalDivider
+        } else if matches!(self.pointer.drag, Drag::TerminalDivider { .. })
+            || self.pointer.hover == Hover::TerminalDivider
         {
             // 面板位于下方时上下拖动，位于右侧时左右拖动。
             if self.terminal_right() {
@@ -790,17 +801,17 @@ impl App {
                 CursorIcon::RowResize
             }
         } else if matches!(
-            self.drag,
+            self.pointer.drag,
             Drag::Splitter { .. } | Drag::LogDivider { .. } | Drag::SplitDivider { .. }
         ) || matches!(
-            self.hover,
+            self.pointer.hover,
             Hover::Splitter
                 | Hover::SplitDivider
                 | Hover::Log(crate::app::git::log::LogTarget::Divider)
         ) {
             CursorIcon::ColResize
         } else if matches!(
-            self.hover,
+            self.pointer.hover,
             Hover::Log(crate::app::git::log::LogTarget::Line(..))
                 | Hover::TerminalBlock(_)
                 | Hover::Diff(crate::app::DiffTarget::Sticky(..))
@@ -810,7 +821,7 @@ impl App {
         {
             // 提交图中的线可点击（沿线跳转）；终端中命令块的色带和吸顶的命令行同样可点击。
             CursorIcon::Pointer
-        } else if matches!(self.drag, Drag::Picture { .. }) {
+        } else if matches!(self.pointer.drag, Drag::Picture { .. }) {
             CursorIcon::Grabbing
         } else if self.picture_pannable() && matches!(self.target_at(x, y), Target::Picture) {
             // 图片超出预览区域时可以按住拖动。
@@ -825,8 +836,8 @@ impl App {
     }
 
     fn set_cursor_icon(&mut self, icon: CursorIcon) {
-        if icon != self.cursor_icon {
-            self.cursor_icon = icon;
+        if icon != self.pointer.cursor_icon {
+            self.pointer.cursor_icon = icon;
 
             if let Some(window) = &self.window.handle {
                 window.set_cursor(icon);

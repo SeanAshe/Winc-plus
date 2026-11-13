@@ -24,12 +24,12 @@ fn point(app: &App, line: usize, col: usize) -> (f32, f32) {
     let t = app.layout.text;
     let doc = app.editor.active().unwrap();
     (
-        t.x + TEXT_PAD - doc.scroll_x + col as f32 * app.cell,
+        t.x + TEXT_PAD - doc.scroll_x + col as f32 * app.metrics.cell,
         t.y + ((line as f64 - doc.scroll_line) as f32 + 0.5) * app.fonts.line_height,
     )
 }
 
-/// 单击第 `line` 行第 `col` 列；修饰键取 `app.modifiers`。
+/// 单击第 `line` 行第 `col` 列；修饰键取 `app.pointer.modifiers`。
 fn click_at(app: &mut App, line: usize, col: usize) {
     let at = point(app, line, col);
     click(app, at);
@@ -124,7 +124,7 @@ fn alt_click_adds_cursors_and_shift_alt_drag_selects_a_column() {
 
     // 普通单击放置一个光标，⌥ 单击再添加一个；⌥ 单击已有的光标则移除该光标。
     click_at(&mut app, 1, 4);
-    app.modifiers = ModifiersState::ALT;
+    app.pointer.modifiers = ModifiersState::ALT;
     click_at(&mut app, 3, 4);
     assert_eq!(carets(&app), [caret((1, 4)), caret((3, 4))]);
     click_at(&mut app, 1, 4);
@@ -133,19 +133,19 @@ fn alt_click_adds_cursors_and_shift_alt_drag_selects_a_column() {
     assert_eq!(carets(&app).len(), 2);
 
     // 普通单击回到单光标。
-    app.modifiers = ModifiersState::empty();
+    app.pointer.modifiers = ModifiersState::empty();
     click_at(&mut app, 0, 0);
     assert_eq!(carets(&app), [caret((0, 0))]);
 
     // ⇧⌥ 拖动框选一列，指针最终所在的行为主选区。
-    app.modifiers = ModifiersState::SHIFT | ModifiersState::ALT;
+    app.pointer.modifiers = ModifiersState::SHIFT | ModifiersState::ALT;
     let (x, y) = point(&app, 1, 12);
     app.on_mouse_move(x, y);
     app.on_mouse_down(MouseButton::Left);
     let (x, y) = point(&app, 3, 8);
     app.on_mouse_move(x, y);
     app.on_mouse_up(MouseButton::Left);
-    app.modifiers = ModifiersState::empty();
+    app.pointer.modifiers = ModifiersState::empty();
     assert_eq!(
         carets(&app),
         [((1, 12), (1, 8)), ((2, 12), (2, 8)), ((3, 12), (3, 8))]
@@ -156,14 +156,14 @@ fn alt_click_adds_cursors_and_shift_alt_drag_selects_a_column() {
     assert!(text(&app).contains("let va = 1;\n    let v = 2;\n    let va = 3;"));
 
     // 短于框左边界的行（只有「}」的一行）不生成选区；指针最终所在的行即使为空也生成光标。
-    app.modifiers = ModifiersState::SHIFT | ModifiersState::ALT;
+    app.pointer.modifiers = ModifiersState::SHIFT | ModifiersState::ALT;
     let (x, y) = point(&app, 4, 30);
     app.on_mouse_move(x, y);
     app.on_mouse_down(MouseButton::Left);
     let (x, y) = point(&app, 6, 30);
     app.on_mouse_move(x, y);
     app.on_mouse_up(MouseButton::Left);
-    app.modifiers = ModifiersState::empty();
+    app.pointer.modifiers = ModifiersState::empty();
     assert_eq!(carets(&app), [caret((4, 30)), caret((6, 0))]);
 
     // 中键拖动同样框选一列；框超出行尾时，选区止于行尾。
@@ -192,7 +192,7 @@ fn copy_and_paste_with_several_cursors() {
 
     // 复制：各选区的文字以换行符连接。粘贴到三个光标处时，每个光标各得一行。
     app.copy(false);
-    assert_eq!(app.copied.as_deref(), Some("alpha\nbeta\ngamma"));
+    assert_eq!(app.clipboard.copied.as_deref(), Some("alpha\nbeta\ngamma"));
     app.run(Command::LineEnd { extend: false });
     app.paste();
     assert!(
@@ -204,7 +204,7 @@ fn copy_and_paste_with_several_cursors() {
     app.run(Command::LineStart { extend: true });
     app.copy(true);
     assert_eq!(
-        app.copied.as_deref(),
+        app.clipboard.copied.as_deref(),
         Some("let alpha = 1;\nlet beta = 2;\nlet gamma = 3;")
     );
     assert!(text(&app).contains("{\n    \n    \n    \n    println!"));
@@ -212,7 +212,7 @@ fn copy_and_paste_with_several_cursors() {
     app.run(Command::LineEnd { extend: false });
     app.copy(false);
     assert_eq!(
-        app.copied.as_deref(),
+        app.clipboard.copied.as_deref(),
         Some("    let alpha = 1;\n    let beta = 2;\n    let gamma = 3;\n")
     );
     // 整行粘贴：剪贴板的行数与光标数相同，每个光标所在行的上方各插入一行。
@@ -272,20 +272,20 @@ fn line_ends_cursor_undo_and_keyboard_columns() {
 
     // ⌥ 拖动：在已有选区之外再添加一个选区。
     app.select(start(&app, 1) + 8, start(&app, 1) + 13);
-    app.modifiers = ModifiersState::ALT;
+    app.pointer.modifiers = ModifiersState::ALT;
     let (x, y) = point(&app, 3, 8);
     app.on_mouse_move(x, y);
     app.on_mouse_down(MouseButton::Left);
     let (x, y) = point(&app, 3, 13);
     app.on_mouse_move(x, y);
     app.on_mouse_up(MouseButton::Left);
-    app.modifiers = ModifiersState::empty();
+    app.pointer.modifiers = ModifiersState::empty();
     assert_eq!(carets(&app), [((1, 8), (1, 13)), ((3, 8), (3, 13))]);
 
     // 查找条打开时 ⌥↩ 把全部查找结果变成选区，焦点回到编辑区。
     app.run_action(Action::Find);
-    app.find.input.set_text("let");
-    app.search.query = "let".into();
+    app.bars.find.input.set_text("let");
+    app.bars.search.query = "let".into();
     app.search_changed();
     assert!(press(&mut app, &["alt"], KeyCode::Enter));
     assert_eq!(app.focus, Focus::Editor);
@@ -323,14 +323,14 @@ fn snapshot_cursors() {
         shoot(&mut app, &format!("cursors-multiple-{theme}"));
 
         // 列选择：从第 1 行第 4 列框到第 4 行第 12 列。
-        app.modifiers = ModifiersState::SHIFT | ModifiersState::ALT;
+        app.pointer.modifiers = ModifiersState::SHIFT | ModifiersState::ALT;
         let (x, y) = point(&app, 1, 4);
         app.on_mouse_move(x, y);
         app.on_mouse_down(MouseButton::Left);
         let (x, y) = point(&app, 4, 12);
         app.on_mouse_move(x, y);
         app.on_mouse_up(MouseButton::Left);
-        app.modifiers = ModifiersState::empty();
+        app.pointer.modifiers = ModifiersState::empty();
         app.blink.visible = true;
         shoot(&mut app, &format!("cursors-column-{theme}"));
 

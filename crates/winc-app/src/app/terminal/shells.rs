@@ -246,7 +246,7 @@ impl App {
         if std::mem::replace(&mut self.terminal.shells_detected, true) {
             return;
         }
-        let Some(proxy) = self.proxy.clone() else {
+        let Some(proxy) = self.link.proxy.clone() else {
             return;
         };
         std::thread::spawn(move || {

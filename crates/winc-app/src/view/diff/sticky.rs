@@ -95,7 +95,7 @@ fn pinned_rows(
     let (scopes, settled) = view
         .side_mut(side)
         .sticky_scopes(&lines, partial, max, tab_width);
-    app.highlight_pending |= !settled;
+    app.caches.highlight_pending |= !settled;
     let lh = app.fonts.line_height;
     place_sticky_rows(&scopes, lh, |last| {
         ((first + last) as f64 - top) as f32 * lh
@@ -150,7 +150,8 @@ fn draw_side(
     let tab_width = app.editor.tab_width;
     let origin_x = pane.text.x + DIFF_TEXT_PAD - scroll_x;
     let (mut chars, mut tokens, mut number) = (Vec::new(), Vec::new(), String::new());
-    let hovered = |row: &StickyRow| app.hover == Hover::Diff(DiffTarget::Sticky(side, row.line));
+    let hovered =
+        |row: &StickyRow| app.pointer.hover == Hover::Diff(DiffTarget::Sticky(side, row.line));
     draw_pinned_rows(
         app,
         frame,

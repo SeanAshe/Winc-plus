@@ -42,7 +42,7 @@ fn refreshing_the_log_keeps_the_selection_and_its_details() {
     paint(&mut app);
     assert_eq!(view(&app), (Some(4), Some("记号".into()), 9));
     // 折好的说明行被缓存：再画一帧直接复用，不重新折行。
-    let wrapped = |app: &App| app.log.wrapped.borrow().clone().unwrap();
+    let wrapped = |app: &App| app.git.log.wrapped.borrow().clone().unwrap();
     let first = wrapped(&app);
     assert_eq!(first.key.0, "记号");
     paint(&mut app);
@@ -62,10 +62,10 @@ fn refreshing_the_log_keeps_the_selection_and_its_details() {
             ..Default::default()
         });
     }
-    app.log.waiting = Some(std::time::Instant::now() + std::time::Duration::from_secs(5));
+    app.git.log.waiting = Some(std::time::Instant::now() + std::time::Duration::from_secs(5));
     paint(&mut app);
     assert!(!copy(&app));
-    app.log.waiting = None;
+    app.git.log.waiting = None;
     paint(&mut app);
     assert!(copy(&app));
 
@@ -80,13 +80,13 @@ fn refreshing_the_log_keeps_the_selection_and_its_details() {
     assert_eq!(oid(&app), first);
 
     // 刚开始取详情时不写「正在读取」，超过等待时长还没返回才显示。
-    app.log.waiting = Some(std::time::Instant::now() + std::time::Duration::from_secs(5));
+    app.git.log.waiting = Some(std::time::Instant::now() + std::time::Duration::from_secs(5));
     assert!(app.log_quiet());
-    app.log.waiting = Some(std::time::Instant::now());
+    app.git.log.waiting = Some(std::time::Instant::now());
     assert!(!app.log_quiet());
-    app.log.list_waiting = None;
+    app.git.log.list_waiting = None;
     assert_eq!(app.log_tick(std::time::Instant::now()), None);
-    assert_eq!(app.log.waiting, None);
+    assert_eq!(app.git.log.waiting, None);
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -108,8 +108,8 @@ fn the_log_shows_who_wrote_each_commit_and_copies_its_hash() {
         .find(|(_, t)| *t == LogTarget::Avatar(0))
         .expect("第一行的头像");
     app.on_mouse_move(avatar.x + 4.0, avatar.y + avatar.h / 2.0);
-    assert_eq!(app.hover, Hover::Log(LogTarget::Avatar(0)));
-    assert!(app.hover.has_tooltip());
+    assert_eq!(app.pointer.hover, Hover::Log(LogTarget::Avatar(0)));
+    assert!(app.pointer.hover.has_tooltip());
     // 点头像和点这一行一样：选中该提交。
     click(&mut app, (avatar.x + 4.0, avatar.y + avatar.h / 2.0));
     let oid = {
@@ -119,7 +119,7 @@ fn the_log_shows_who_wrote_each_commit_and_copies_its_hash() {
     };
     // ⌘C 复制选中提交的完整提交号。
     app.run_action(Action::Copy);
-    assert_eq!(app.copied.as_deref(), Some(oid.as_str()));
+    assert_eq!(app.clipboard.copied.as_deref(), Some(oid.as_str()));
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -151,22 +151,22 @@ fn the_log_files_can_be_walked_with_the_keyboard_and_commits_opened_by_double_cl
         .len()
         - 1;
     app.press_log(LogTarget::Row(0));
-    app.modifiers = command_modifiers();
+    app.pointer.modifiers = command_modifiers();
     app.press_log(LogTarget::Row(last));
-    app.modifiers = ModifiersState::empty();
+    app.pointer.modifiers = ModifiersState::empty();
     paint(&mut app);
     let files = app.log_files_len();
     assert!(files >= 2, "{files}");
 
     // → 进到文件列表，↓ 选下一个，End 到最后，← 回到提交列表。
     key(&mut app, NamedKey::ArrowRight);
-    assert_eq!(app.log.file, Some(0));
+    assert_eq!(app.git.log.file, Some(0));
     key(&mut app, NamedKey::ArrowDown);
-    assert_eq!(app.log.file, Some(1));
+    assert_eq!(app.git.log.file, Some(1));
     key(&mut app, NamedKey::End);
-    assert_eq!(app.log.file, Some(files - 1));
+    assert_eq!(app.git.log.file, Some(files - 1));
     key(&mut app, NamedKey::ArrowLeft);
-    assert_eq!(app.log.file, None);
+    assert_eq!(app.git.log.file, None);
 
     // 再进去，回车打开选中文件的差异。
     key(&mut app, NamedKey::ArrowRight);
@@ -218,9 +218,9 @@ fn shoot_git_log_file_keys() {
         .len()
         - 1;
     app.press_log(LogTarget::Row(0));
-    app.modifiers = command_modifiers();
+    app.pointer.modifiers = command_modifiers();
     app.press_log(LogTarget::Row(last));
-    app.modifiers = ModifiersState::empty();
+    app.pointer.modifiers = ModifiersState::empty();
     paint(&mut app);
     app.log_key(&Key::Named(NamedKey::ArrowRight));
     app.log_key(&Key::Named(NamedKey::ArrowDown));
@@ -260,7 +260,7 @@ fn a_file_in_the_log_details_has_a_menu_and_a_full_path_tip() {
     paint(&mut app);
     let full = format!("{deep}/retry.rs");
     assert_eq!(app.log_file_tip(0).as_deref(), Some(full.as_str()));
-    assert_eq!(app.log.long_files, [0]);
+    assert_eq!(app.git.log.long_files, [0]);
     assert!(Hover::Log(LogTarget::File(0)).has_tooltip());
 
     // 右键文件：菜单作用于该文件，键盘焦点也移到该文件。
@@ -272,10 +272,10 @@ fn a_file_in_the_log_details_has_a_menu_and_a_full_path_tip() {
         .unwrap();
     right_click(&mut app, (file.x + 40.0, file.y + file.h / 2.0));
     assert!(matches!(
-        app.context_menu.as_ref().map(|m| &m.target),
+        app.overlays.context_menu.as_ref().map(|m| &m.target),
         Some(MenuTarget::LogFile(0, path)) if path.ends_with("retry.rs")
     ));
-    assert_eq!(app.log.file, Some(0));
+    assert_eq!(app.git.log.file, Some(0));
     let commands: Vec<MenuCommand> = menu_commands(&app).into_iter().map(|(c, _)| c).collect();
     assert_eq!(
         &commands[..3],
@@ -311,7 +311,7 @@ fn text_in_the_log_details_can_be_selected_and_copied() {
     };
     app.select_log_row(row);
     paint(&mut app);
-    let runs = app.log.runs.clone();
+    let runs = app.git.log.runs.clone();
     assert!(runs.len() >= 4, "说明、正文、作者、邮箱、时间都能选");
     assert_eq!(runs[0].text, "登录：失败三次后锁定");
 
@@ -319,7 +319,7 @@ fn text_in_the_log_details_can_be_selected_and_copied() {
     let (start, body) = (&runs[0], &runs[1]);
     let y0 = start.row.y + start.row.h / 2.0;
     app.on_mouse_move(start.x + 1.0, y0);
-    assert_eq!(app.cursor_icon, CursorIcon::Text);
+    assert_eq!(app.pointer.cursor_icon, CursorIcon::Text);
     app.on_mouse_down(MouseButton::Left);
     let end = *body.edges.last().unwrap();
     app.on_mouse_move(end + 30.0, body.row.y + body.row.h / 2.0);
@@ -327,11 +327,12 @@ fn text_in_the_log_details_can_be_selected_and_copied() {
     let want = format!("{}\n{}", start.text, body.text);
     assert_eq!(app.log_selected_text().as_deref(), Some(want.as_str()));
     app.run_action(Action::Copy);
-    assert_eq!(app.copied.as_deref(), Some(want.as_str()));
+    assert_eq!(app.clipboard.copied.as_deref(), Some(want.as_str()));
     paint(&mut app);
 
     // 双击一行选中整行（邮箱）；点空白处清掉，⌘C 回到复制提交号。
     let email = app
+        .git
         .log
         .runs
         .iter()
@@ -353,7 +354,7 @@ fn text_in_the_log_details_can_be_selected_and_copied() {
         let v = app.editor.active().unwrap().log.as_deref().unwrap();
         v.commits[row].oid.clone()
     };
-    assert_eq!(app.copied.as_deref(), Some(oid.as_str()));
+    assert_eq!(app.clipboard.copied.as_deref(), Some(oid.as_str()));
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -386,11 +387,11 @@ fn the_log_details_stop_scrolling_at_their_end() {
             .details_scroll
     };
     assert_eq!(scroll(&app), 0.0);
-    assert!(!app.log.runs.is_empty());
-    assert!(app.log.runs[0].row.y >= details.y);
+    assert!(!app.git.log.runs.is_empty());
+    assert!(app.git.log.runs[0].row.y >= details.y);
 
     // 窗口矮、详情放不下：最多滚到最后一行可见为止。
-    app.renderer =
+    app.frame.renderer =
         Some(Renderer::offscreen(1280.0, 260.0, SCALE, app.palette.frame_bg, None, None).unwrap());
     app.relayout();
     paint(&mut app);
@@ -401,7 +402,7 @@ fn the_log_details_stop_scrolling_at_their_end() {
     )));
     paint(&mut app);
     assert!(scroll(&app) > 0.0);
-    assert_eq!(scroll(&app), app.log.details_max);
+    assert_eq!(scroll(&app), app.git.log.details_max);
     let last = app
         .hits
         .log
@@ -430,7 +431,7 @@ fn the_details_footer_does_not_fade_with_the_commit() {
     let footer = Rect::new(details.x, details.bottom() - 30.0, details.w, 30.0);
     let content = Rect::new(details.x, details.y, details.w, 120.0);
     let pixels = |app: &App, area: Rect| -> Vec<u32> {
-        let image = app.renderer.as_ref().unwrap().image().unwrap();
+        let image = app.frame.renderer.as_ref().unwrap().image().unwrap();
         let w = image.width as usize;
         let (x0, x1) = ((area.x * SCALE) as usize, (area.right() * SCALE) as usize);
         let (y0, y1) = ((area.y * SCALE) as usize, (area.bottom() * SCALE) as usize);
@@ -441,7 +442,7 @@ fn the_details_footer_does_not_fade_with_the_commit() {
     let (still_footer, still_content) = (pixels(&app, footer), pixels(&app, content));
 
     // 换了提交、刚开始淡入的那一帧：内容是淡的，提示一个像素都不变。
-    app.log.fade = Some(Clock::frozen(Duration::ZERO, DETAILS_FADE));
+    app.git.log.fade = Some(Clock::frozen(Duration::ZERO, DETAILS_FADE));
     paint(&mut app);
     assert_ne!(pixels(&app, content), still_content, "内容在淡入");
     assert!(pixels(&app, footer) == still_footer, "提示不跟着淡入");
@@ -483,5 +484,5 @@ fn refreshing_the_log_updates_the_repository_state_and_reports_it() {
         app.status.message.as_deref(),
         Some(winc_i18n::t!("git-log-refreshed"))
     );
-    assert_eq!(app.log.refreshing, None);
+    assert_eq!(app.git.log.refreshing, None);
 }

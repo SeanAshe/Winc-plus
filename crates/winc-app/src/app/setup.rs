@@ -58,7 +58,7 @@ impl App {
     /// 动态效果关闭时没有时钟，页面直接显示最终的样子。
     pub(in crate::app) fn start_setup_intro(&mut self) {
         if self.setup_shown() {
-            self.setup_intro = self.clock(INTRO);
+            self.motion.setup_intro = self.clock(INTRO);
         }
     }
 
@@ -68,7 +68,7 @@ impl App {
     /// 产生的重复按键由调用方排除。
     pub(in crate::app) fn setup_key(&mut self, key: &winit::keyboard::Key) -> bool {
         use winit::keyboard::{Key, NamedKey};
-        let shown = self.setup_shown() && self.setup_intro.is_none();
+        let shown = self.setup_shown() && self.motion.setup_intro.is_none();
         let finish = shown && *key == Key::Named(NamedKey::Enter);
         if finish {
             self.finish_setup();
@@ -80,8 +80,8 @@ impl App {
     ///
     /// 「首次设置」先淡出，开始页随后淡入（见 [`OUTRO`]）；动态效果关闭时直接换过去。
     pub(in crate::app) fn finish_setup(&mut self) {
-        self.setup_intro = None;
-        self.setup_outro = self.clock(OUTRO);
+        self.motion.setup_intro = None;
+        self.motion.setup_outro = self.clock(OUTRO);
         self.update_state(|state| state.setup_pending = false);
         self.request_redraw();
     }

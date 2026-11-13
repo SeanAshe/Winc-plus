@@ -213,6 +213,13 @@ git-log-details-parents = { $count ->
 }
 git-log-details-loading-files = Loading changed files…
 git-compare-title = Compare Two Versions
+git-go-to-title = Go to Hash, Branch or Tag
+git-go-to-label = Target
+git-go-to-placeholder = Hash, branch or tag, such as a1b2c3d or main
+git-go-to-button = Go
+git-go-to-invalid = Hashes, branch names and tag names contain no spaces and don’t start with “-”
+git-go-to-unresolved = No matching commit, branch or tag
+git-go-to-failed = Couldn’t go to “{ $revision }”: { $error }
 git-compare-old = Old
 git-compare-new = New
 git-compare-no-differences = No differences between the two versions

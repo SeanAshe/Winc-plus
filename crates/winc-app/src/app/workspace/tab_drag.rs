@@ -76,7 +76,7 @@ impl App {
             self.toggle_tab_selected(index);
             return;
         }
-        if self.modifiers.shift_key() {
+        if self.pointer.modifiers.shift_key() {
             self.select_tab_range(index);
             return;
         }
@@ -169,7 +169,7 @@ impl App {
     pub(in crate::app) fn tab_drag_tick(&mut self, now: Instant) -> Option<Instant> {
         self.tabs.drag.filter(|d| d.moving)?;
         let view = self.tabs.view;
-        let x = self.mouse.0;
+        let x = self.pointer.mouse.0;
         let push = if x < view.x + EDGE {
             x - (view.x + EDGE)
         } else if x > view.right() - EDGE {
@@ -187,7 +187,7 @@ impl App {
         // 标签栏滚动后，鼠标位置对应的内容位置改变，拖动的标签可能越过其他标签，需要重新排序。
         self.reorder_dragged_tab();
         self.request_redraw();
-        Some(now + self.frame_interval)
+        Some(now + self.frame.frame_interval)
     }
 
     fn tab_index(&self, id: DocumentId) -> Option<usize> {
@@ -205,7 +205,7 @@ impl App {
     fn dragged_tab_left(&self, index: usize, grab: f32) -> f32 {
         let tabs = &self.tabs;
         let width = tabs.widths.get(index).copied().unwrap_or(0.0);
-        let left = self.mouse.0 - grab - tabs.view.x + tabs.scroll;
+        let left = self.pointer.mouse.0 - grab - tabs.view.x + tabs.scroll;
         let low = tabs.scroll;
         let high = (tabs.content - TAB_GAP - width).min(tabs.scroll + tabs.view.w - width);
         left.min(high).max(low)

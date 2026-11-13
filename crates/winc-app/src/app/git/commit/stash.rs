@@ -102,7 +102,7 @@ impl App {
 
     /// 储藏的预览标签还开着、文件没有收起时，在里面看的储藏：它的文件列在储藏一组里。
     pub(crate) fn listed_stash_view(&self) -> Option<&StashView> {
-        if self.commit.stash_files_folded {
+        if self.git.commit.stash_files_folded {
             return None;
         }
         self.previewed_stash()
@@ -110,8 +110,8 @@ impl App {
 
     /// 储藏的预览标签还开着时，在里面看的储藏。
     fn previewed_stash(&self) -> Option<&StashView> {
-        let view = self.commit.stash_view.as_ref()?;
-        let id = self.commit.stash_preview?;
+        let view = self.git.commit.stash_view.as_ref()?;
+        let id = self.git.commit.stash_preview?;
         self.editor
             .documents
             .iter()
@@ -125,20 +125,21 @@ impl App {
     /// 整个一组出现或消失（新增第一条储藏、删除最后一条）时不过渡。
     pub(crate) fn track_stash_height(&mut self) {
         let settled = self.stash_settled_height();
-        let old = std::mem::replace(&mut self.commit.stash_settled, settled);
+        let old = std::mem::replace(&mut self.git.commit.stash_settled, settled);
         if (settled - old).abs() < 0.5 || old == 0.0 || settled == 0.0 {
             return;
         }
-        let from = (self.commit.stash_motion).map_or(old, |(from, clock)| clock.between(from, old));
+        let from =
+            (self.git.commit.stash_motion).map_or(old, |(from, clock)| clock.between(from, old));
         let clock = self.clock(crate::app::animation::TREE_ANIMATION);
-        self.commit.stash_motion = clock.map(|clock| (from, clock));
+        self.git.commit.stash_motion = clock.map(|clock| (from, clock));
     }
 
     /// 储藏一组占的高度（逻辑像素）：收着时是 [`STASH_CLOSED`]，展开时再加上
     /// [`App::stash_open_rows`] 行；展开、收起的途中按时钟过渡。没有储藏时为 0。
     pub(crate) fn stash_section_height(&self) -> f32 {
         let settled = self.stash_settled_height();
-        (self.commit.stash_motion).map_or(settled, |(from, clock)| clock.between(from, settled))
+        (self.git.commit.stash_motion).map_or(settled, |(from, clock)| clock.between(from, settled))
     }
 
     /// 储藏一组不在过渡中时的高度（逻辑像素），见 [`App::stash_section_height`]。
@@ -146,7 +147,7 @@ impl App {
         if self.git.stashes.is_empty() {
             return 0.0;
         }
-        if self.commit.stash_open {
+        if self.git.commit.stash_open {
             STASH_CLOSED + self.stash_open_rows() as f32 * COMMIT_ROW
         } else {
             STASH_CLOSED
@@ -167,12 +168,12 @@ impl App {
     /// 点了储藏一组的标题：收起或展开，从现在的高度过渡过去。
     pub(super) fn toggle_stashes(&mut self) {
         let from = self.stash_section_height();
-        self.commit.stash_open = !self.commit.stash_open;
+        self.git.commit.stash_open = !self.git.commit.stash_open;
         let clock = self.clock(crate::app::animation::TREE_ANIMATION);
-        self.commit.stash_motion = clock.map(|clock| (from, clock));
+        self.git.commit.stash_motion = clock.map(|clock| (from, clock));
         // 过渡已经从现在的高度开始，`track_stash_height` 不必再开始一次。
-        self.commit.stash_settled = self.stash_settled_height();
-        self.commit.scroll = self.commit.scroll.min(self.commit_max_scroll());
+        self.git.commit.stash_settled = self.stash_settled_height();
+        self.git.commit.scroll = self.git.commit.scroll.min(self.commit_max_scroll());
     }
 
     /// 在预览标签里打开第 `i` 条储藏：先在后台取它改动的文件，取回来以后打开第一个。
@@ -186,10 +187,10 @@ impl App {
             .previewed_stash()
             .is_some_and(|view| view.oid == stash.oid)
         {
-            self.commit.stash_files_folded = !self.commit.stash_files_folded;
+            self.git.commit.stash_files_folded = !self.git.commit.stash_files_folded;
             return;
         }
-        let sender = self.commit.results.0.clone();
+        let sender = self.git.commit.results.0.clone();
         self.run_git_job(move |git, root| {
             let files = git.and_then(|git| stash_files(git, root, &stash));
             let _ = sender.send(Outcome::StashFiles(stash.oid, stash.name, files));
@@ -205,8 +206,8 @@ impl App {
         if files.is_empty() {
             return self.flash(t!("git-stash-no-files"));
         }
-        self.commit.stash_files_folded = false;
-        self.commit.stash_view = Some(StashView {
+        self.git.commit.stash_files_folded = false;
+        self.git.commit.stash_view = Some(StashView {
             oid,
             name,
             files,
@@ -217,7 +218,7 @@ impl App {
 
     /// 在储藏的预览标签里打开正在看的储藏的第 `at` 个文件。
     pub(super) fn open_stash_file(&mut self, at: usize) {
-        let Some(view) = self.commit.stash_view.as_mut() else {
+        let Some(view) = self.git.commit.stash_view.as_mut() else {
             return;
         };
         let Some((file, old, new)) = view.files.get(at).cloned() else {
@@ -226,7 +227,7 @@ impl App {
         view.at = at;
         let name = winc_editor::display_name(&file.path).into_owned();
         let title = format!("{name} · {}", view.name);
-        let sender = self.commit.results.0.clone();
+        let sender = self.git.commit.results.0.clone();
         self.run_git_job(move |git, root| {
             let diff = git.and_then(|git| {
                 crate::app::git::log::commit_diff(git, root, old.as_deref(), &new, &file)
@@ -245,8 +246,8 @@ impl App {
             Ok(view) => {
                 let index = self
                     .editor
-                    .show_diff_in(self.commit.stash_preview, &title, *view);
-                self.commit.stash_preview = Some(self.editor.documents[index].id);
+                    .show_diff_in(self.git.commit.stash_preview, &title, *view);
+                self.git.commit.stash_preview = Some(self.editor.documents[index].id);
                 self.relayout();
                 self.clamp_scroll();
                 self.land_diff_file();
@@ -261,8 +262,8 @@ impl App {
     /// 当前标签是不是储藏的预览标签，而且还在看那条储藏。
     fn viewing_stash(&self) -> Option<&StashView> {
         let active: Option<DocumentId> = self.editor.active().map(|d| d.id);
-        let view = self.commit.stash_view.as_ref()?;
-        (active.is_some() && active == self.commit.stash_preview).then_some(view)
+        let view = self.git.commit.stash_view.as_ref()?;
+        (active.is_some() && active == self.git.commit.stash_preview).then_some(view)
     }
 
     /// 储藏的预览标签里，同一条储藏中的下一个（`forward`）或上一个文件：（从 0 起的序号，文件名，

@@ -252,7 +252,11 @@ impl TouchState {
 impl App {
     /// 处理一个触摸事件：坐标换算为逻辑像素后识别手势，转换为鼠标点击、滚动或拖动。
     pub(in crate::app) fn on_touch(&mut self, touch: Touch) {
-        let scale = self.renderer.as_ref().map_or(1.0, Renderer::scale_factor);
+        let scale = self
+            .frame
+            .renderer
+            .as_ref()
+            .map_or(1.0, Renderer::scale_factor);
         let point = (
             touch.location.x as f32 / scale,
             touch.location.y as f32 / scale,
@@ -261,10 +265,10 @@ impl App {
             self.drop_drags();
             // 落指即接管滚动：过渡停在屏幕上显示的位置，惯性滚动停止。
             self.settle_glides();
-            self.wheel.glide = None;
-            self.fling = None;
+            self.scroll.wheel.glide = None;
+            self.scroll.fling = None;
             self.dismiss_hint();
-            self.cursor_inside = true;
+            self.pointer.cursor_inside = true;
             self.on_mouse_move(point.0, point.1);
             if let Some(operation) = self.touch_window_at(point.0, point.1) {
                 // 登记接触点并置为 `Held`：此后的移动和抬手只结束本次接触，不产生点击或滚动。
@@ -281,7 +285,7 @@ impl App {
         if touch.phase == TouchPhase::Cancelled
             || (touch.phase == TouchPhase::Started && self.touch.active())
         {
-            self.last_click = None;
+            self.pointer.last_click = None;
         }
         let direct = touch.phase == TouchPhase::Started
             && !self.touch.active()
@@ -291,7 +295,7 @@ impl App {
             self.apply_touch(action);
         }
         if !self.touch.active() {
-            self.cursor_inside = false;
+            self.pointer.cursor_inside = false;
             self.set_hover(Hover::None);
         }
         // 命中测试的结果取决于是否有接触点（见 `App::window_hit_test`），落指和抬手后需要同步。
@@ -353,8 +357,8 @@ impl App {
         }
         self.touch.contacts.clear();
         if active {
-            self.last_click = None;
-            self.cursor_inside = false;
+            self.pointer.last_click = None;
+            self.pointer.cursor_inside = false;
             self.set_hover(Hover::None);
             #[cfg(windows)]
             self.sync_window_input();
@@ -371,22 +375,26 @@ impl App {
                 self.touch.tapping = false;
             }
             Action::Context((x, y)) => {
-                self.last_click = None;
+                self.pointer.last_click = None;
                 self.on_mouse_move(x, y);
                 self.on_mouse_down(MouseButton::Right);
                 self.on_mouse_up(MouseButton::Right);
             }
             Action::Scroll { origin, delta } => {
-                self.last_click = None;
+                self.pointer.last_click = None;
                 // 始终滚动落指处的区域：手指越过侧栏、终端等区域的边界时不切换滚动对象。
-                let mouse = self.mouse;
-                self.mouse = origin;
-                let scale = self.renderer.as_ref().map_or(1.0, Renderer::scale_factor);
+                let mouse = self.pointer.mouse;
+                self.pointer.mouse = origin;
+                let scale = self
+                    .frame
+                    .renderer
+                    .as_ref()
+                    .map_or(1.0, Renderer::scale_factor);
                 self.on_wheel(MouseScrollDelta::PixelDelta(PhysicalPosition::new(
                     f64::from(delta.0 * scale),
                     f64::from(delta.1 * scale),
                 )));
-                self.mouse = mouse;
+                self.pointer.mouse = mouse;
             }
             Action::Fling {
                 origin,
@@ -399,7 +407,7 @@ impl App {
                 self.start_fling(origin, velocity);
             }
             Action::Press((x, y)) => {
-                self.last_click = None;
+                self.pointer.last_click = None;
                 self.on_mouse_move(x, y);
                 self.on_mouse_down(MouseButton::Left);
             }

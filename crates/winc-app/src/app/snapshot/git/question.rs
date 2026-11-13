@@ -40,7 +40,7 @@ fn host_key() -> Prompt {
 /// 向 `app` 发送属于当前操作的请求，返回接收答复的通道。
 fn ask(app: &mut App, prompt: Prompt) -> Receiver<String> {
     let (reply, answers) = channel();
-    let id = app.branch.started;
+    let id = app.git.branch.started;
     app.open_git_question(id, Question { prompt, reply });
     answers
 }
@@ -50,7 +50,7 @@ fn asking(name: &str, prompt: Prompt) -> (App, Receiver<String>) {
     let dir = sample_folder(name);
     let mut app = app_with(&dir.join("short.rs"), false);
     paint(&mut app);
-    app.branch.running = Some("推送".into());
+    app.git.branch.running = Some("推送".into());
     let answers = ask(&mut app, prompt);
     paint(&mut app);
     (app, answers)
@@ -65,7 +65,7 @@ fn enter(app: &mut App) {
 }
 
 fn focus(app: &App) -> DialogPart {
-    app.form_dialog.as_ref().unwrap().focus
+    app.overlays.form_dialog.as_ref().unwrap().focus
 }
 
 /// `git` 先请求用户名、后请求密码，用户只需要填写一个对话框。
@@ -79,12 +79,12 @@ fn signing_in_collects_both_fields_and_answers_the_password_request() {
     typed(&mut app, "s3cret");
     enter(&mut app);
     assert_eq!(usernames.try_recv().unwrap(), "me");
-    assert!(app.form_dialog.is_none());
+    assert!(app.overlays.form_dialog.is_none());
 
     let passwords = ask(&mut app, password());
     assert_eq!(passwords.try_recv().unwrap(), "s3cret");
-    assert!(app.form_dialog.is_none());
-    assert_eq!(app.branch.password, None);
+    assert!(app.overlays.form_dialog.is_none());
+    assert_eq!(app.git.branch.password, None);
 }
 
 #[test]
@@ -93,7 +93,7 @@ fn an_empty_username_cannot_be_submitted() {
     enter(&mut app);
     assert_eq!(focus(&app), DialogPart::Branch);
     assert!(answers.try_recv().is_err());
-    assert!(app.form_dialog.is_some());
+    assert!(app.overlays.form_dialog.is_some());
 }
 
 /// 已填写的密码只答复同一地址，不能发送给其他服务器。
@@ -110,42 +110,42 @@ fn a_collected_password_is_not_sent_to_another_server() {
     };
     let answers = ask(&mut app, other);
     assert!(answers.try_recv().is_err());
-    assert!(app.form_dialog.is_some());
+    assert!(app.overlays.form_dialog.is_some());
 }
 
 #[test]
 fn the_end_of_the_operation_forgets_the_password_and_closes_the_dialog() {
     let (mut app, _answers) = asking("question-end", username());
-    let id = app.branch.started;
+    let id = app.git.branch.started;
     app.end_git_questions(id + 1);
-    assert!(app.form_dialog.is_some());
-    app.branch.password = Some(("s".into(), "p".into()));
+    assert!(app.overlays.form_dialog.is_some());
+    app.git.branch.password = Some(("s".into(), "p".into()));
     app.end_git_questions(id);
-    assert!(app.form_dialog.is_none());
-    assert_eq!(app.branch.password, None);
-    assert!(!app.branch.declined);
+    assert!(app.overlays.form_dialog.is_none());
+    assert_eq!(app.git.branch.password, None);
+    assert!(!app.git.branch.declined);
 }
 
 #[test]
 fn escape_cancels_and_the_failure_is_not_reported_as_an_error() {
     let (mut app, answers) = asking("question-cancel", passphrase());
     assert!(app.dialog_key(&Key::Named(NamedKey::Escape), "", false));
-    assert!(app.form_dialog.is_none());
+    assert!(app.overlays.form_dialog.is_none());
     assert!(answers.try_recv().is_err());
-    assert!(app.branch.declined);
+    assert!(app.git.branch.declined);
     // 取消一次即取消整个操作：`ssh` 再问口令时不再弹出，同样按取消答复。
     let again = ask(&mut app, passphrase());
-    assert!(app.form_dialog.is_none());
+    assert!(app.overlays.form_dialog.is_none());
     assert!(again.recv().is_err());
     app.report_git_failure("推送", "无法推送：could not read Password".into());
     assert!(app.notice.text.is_none());
-    assert!(!app.branch.declined);
+    assert!(!app.git.branch.declined);
 }
 
 #[test]
 fn a_real_failure_offers_the_full_output() {
     let (mut app, _answers) = asking("question-failure", passphrase());
-    app.end_git_questions(app.branch.started);
+    app.end_git_questions(app.git.branch.started);
     app.report_git_failure("推送", "无法推送：denied".into());
     assert_eq!(app.notice.text.as_deref(), Some("无法推送：denied"));
     assert_eq!(app.notice.action, Some(NoticeAction::GitOutput));
@@ -174,7 +174,7 @@ fn accepting_a_host_key_takes_a_deliberate_choice() {
     assert_eq!(focus(&app), DialogPart::Close);
     assert_eq!(app.dialog_layout().branch.w, 0.0);
     enter(&mut app);
-    assert!(app.form_dialog.is_none());
+    assert!(app.overlays.form_dialog.is_none());
     assert!(answers.try_recv().is_err());
 
     let (mut app, answers) = asking("question-accept", host_key());
@@ -190,7 +190,7 @@ fn accepting_a_host_key_takes_a_deliberate_choice() {
 fn clicking_outside_does_not_cancel_the_operation() {
     let (mut app, answers) = asking("question-outside", passphrase());
     app.click_form_dialog(0.0, 0.0);
-    assert!(app.form_dialog.is_some());
+    assert!(app.overlays.form_dialog.is_some());
     assert!(matches!(
         answers.try_recv(),
         Err(std::sync::mpsc::TryRecvError::Empty)
@@ -204,7 +204,7 @@ fn clicking_the_password_field_moves_the_typing_there() {
     app.click_form_dialog(rect.x + 5.0, rect.y + 5.0);
     assert_eq!(focus(&app), DialogPart::Second);
     typed(&mut app, "s");
-    let dialog = app.form_dialog.as_ref().unwrap();
+    let dialog = app.overlays.form_dialog.as_ref().unwrap();
     assert_eq!(dialog.second.text(), "s");
     assert_eq!(dialog.name.text(), "");
 }
@@ -212,11 +212,11 @@ fn clicking_the_password_field_moves_the_typing_there() {
 #[test]
 fn a_question_replaces_a_form_being_filled_in() {
     let (mut app, _answers) = asking("question-form", passphrase());
-    app.end_git_questions(app.branch.started);
+    app.end_git_questions(app.git.branch.started);
     app.git.status = Some(Default::default());
     app.open_worktree_dialog();
     let _answers = ask(&mut app, passphrase());
-    let dialog = app.form_dialog.as_ref().unwrap();
+    let dialog = app.overlays.form_dialog.as_ref().unwrap();
     assert!(matches!(dialog.kind, FormKind::Question(..)));
     paint(&mut app);
 }
@@ -251,7 +251,15 @@ fn snapshot_question_dialogs() {
 #[test]
 fn a_question_from_a_remote_repository_names_the_host() {
     let (mut app, _answers) = asking("git-question-origin", password());
-    let view = |app: &App| app.form_dialog.as_ref().unwrap().kind.view().unwrap();
+    let view = |app: &App| {
+        app.overlays
+            .form_dialog
+            .as_ref()
+            .unwrap()
+            .kind
+            .view()
+            .unwrap()
+    };
     // 本机仓库的请求不带来源。
     assert_eq!(view(&app).values[0].text, "me");
 
@@ -282,7 +290,7 @@ fn cancelling_a_question_from_ssh_ends_the_connection_at_once() {
         crate::app::git::question::Asker::Remote,
         Question { prompt, reply },
     );
-    assert!(app.form_dialog.is_some() && !abort.is_aborted());
+    assert!(app.overlays.form_dialog.is_some() && !abort.is_aborted());
     // 取消口令的询问：连接随即中止，`ssh` 没有机会再问第二次、第三次。
     assert!(app.dialog_key(&Key::Named(NamedKey::Escape), "", false));
     assert!(abort.is_aborted());

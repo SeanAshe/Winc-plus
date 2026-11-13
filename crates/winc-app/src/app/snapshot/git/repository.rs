@@ -65,10 +65,10 @@ fn a_branch_can_be_renamed_including_the_current_one() {
     app.run_branch_op(BranchOp::Rename, branch.clone());
     assert_eq!(app.focus, Focus::Prompt);
     assert_eq!(
-        app.goto_input.as_ref().unwrap().selected_text(),
+        app.bars.goto_input.as_ref().unwrap().selected_text(),
         branch.name
     );
-    app.goto_input.as_mut().unwrap().set_text("renamed");
+    app.bars.goto_input.as_mut().unwrap().set_text("renamed");
     app.submit_prompt();
     let head = output_of(&root, &["symbolic-ref", "--short", "HEAD"]);
     assert_eq!(head.trim(), "renamed");
@@ -76,7 +76,7 @@ fn a_branch_can_be_renamed_including_the_current_one() {
     // 名字不变和名字为空时不做任何操作。
     app.git_rename_branch("renamed".into(), "renamed");
     app.git_rename_branch("renamed".into(), " ");
-    assert!(app.branch.running.is_none());
+    assert!(app.git.branch.running.is_none());
     assert_eq!(
         output_of(&root, &["symbolic-ref", "--short", "HEAD"]).trim(),
         "renamed"
@@ -173,7 +173,7 @@ fn initializing_makes_the_open_folder_a_repository() {
     assert!(dir.join(".git").is_dir());
     assert!(app.git.root.is_some());
     assert!(!app.action_available(Action::GitInit));
-    assert!(app.branch.running.is_none());
+    assert!(app.git.branch.running.is_none());
 }
 
 #[test]
@@ -190,18 +190,23 @@ fn cloning_checks_the_target_and_creates_the_repository() {
     };
     app.open_clone_dialog();
     paint(&mut app);
-    let plan = |app: &App| app.form_plan(app.form_dialog.as_ref().unwrap());
+    let plan = |app: &App| app.form_plan(app.overlays.form_dialog.as_ref().unwrap());
     assert!(!plan(&app).enabled);
 
     // 地址无法得到目录名、目标目录不为空时不能克隆。
     let url = bare.to_str().unwrap().to_owned();
-    let form = app.form_dialog.as_mut().unwrap();
+    let form = app.overlays.form_dialog.as_mut().unwrap();
     form.folder = Some(target.clone());
     form.name.set_text("--upload-pack=x");
     assert!(plan(&app).problem.is_some());
     std::fs::create_dir(target.join("bare")).unwrap();
     std::fs::write(target.join("bare/file"), "").unwrap();
-    app.form_dialog.as_mut().unwrap().name.set_text(&url);
+    app.overlays
+        .form_dialog
+        .as_mut()
+        .unwrap()
+        .name
+        .set_text(&url);
     assert!(plan(&app).problem.is_some());
     std::fs::remove_dir_all(target.join("bare")).unwrap();
 
@@ -210,7 +215,7 @@ fn cloning_checks_the_target_and_creates_the_repository() {
     paint(&mut app);
     app.submit_form_dialog();
     assert!(target.join("bare/.git").is_dir());
-    assert!(app.form_dialog.is_none());
+    assert!(app.overlays.form_dialog.is_none());
 }
 
 #[test]
@@ -220,12 +225,12 @@ fn a_failed_clone_stays_in_the_dialog_with_the_reason() {
         return;
     };
     app.open_clone_dialog();
-    let form = app.form_dialog.as_mut().unwrap();
+    let form = app.overlays.form_dialog.as_mut().unwrap();
     form.folder = Some(dir.clone());
     form.name
         .set_text(dir.join("missing.git").to_str().unwrap());
     app.submit_form_dialog();
-    let form = app.form_dialog.as_ref().unwrap();
+    let form = app.overlays.form_dialog.as_ref().unwrap();
     assert!(form.error.is_some());
     assert!(form.running.is_none());
     paint(&mut app);
@@ -246,25 +251,37 @@ fn remotes_can_be_added_changed_and_removed() {
     // 添加：名称和地址都要填，名称不能重复。
     app.run_branch_command(MenuCommand::GitAddRemote);
     paint(&mut app);
-    let plan = |app: &App| app.form_plan(app.form_dialog.as_ref().unwrap());
+    let plan = |app: &App| app.form_plan(app.overlays.form_dialog.as_ref().unwrap());
     assert!(!plan(&app).enabled);
-    let form = app.form_dialog.as_mut().unwrap();
+    let form = app.overlays.form_dialog.as_mut().unwrap();
     form.name.set_text("origin");
     form.second.set_text("https://example.com/a.git");
     assert!(plan(&app).problem.is_some());
-    app.form_dialog.as_mut().unwrap().name.set_text("up");
+    app.overlays
+        .form_dialog
+        .as_mut()
+        .unwrap()
+        .name
+        .set_text("up");
     assert!(plan(&app).enabled);
-    assert!(!app.form_dialog.as_ref().unwrap().second.is_masked());
+    assert!(
+        !app.overlays
+            .form_dialog
+            .as_ref()
+            .unwrap()
+            .second
+            .is_masked()
+    );
     paint(&mut app);
     app.submit_form_dialog();
-    assert!(app.form_dialog.is_none());
+    assert!(app.overlays.form_dialog.is_none());
     let list = names(&app);
     assert!(list.iter().any(|r| r.name == "up"), "{list:?}");
 
     // 修改地址：输入框里是现在的地址。
     let index = list.iter().position(|r| r.name == "up").unwrap();
     app.run_branch_command(MenuCommand::GitRemote(RemoteOp::Edit, index));
-    let form = app.form_dialog.as_mut().unwrap();
+    let form = app.overlays.form_dialog.as_mut().unwrap();
     assert!(matches!(form.kind, FormKind::Remote { .. }));
     assert_eq!(form.focus, DialogPart::Branch);
     assert_eq!(form.name.text(), "https://example.com/a.git");
@@ -294,13 +311,13 @@ fn snapshot_repository_dialogs() {
         return;
     };
     app.open_clone_dialog();
-    let form = app.form_dialog.as_mut().unwrap();
+    let form = app.overlays.form_dialog.as_mut().unwrap();
     form.name.set_text("https://github.com/DEEIX-AI/Winc.git");
     std::thread::sleep(std::time::Duration::from_millis(400));
     shoot(&mut app, "git-clone");
     app.close_form_dialog();
     app.run_branch_command(MenuCommand::GitAddRemote);
-    let form = app.form_dialog.as_mut().unwrap();
+    let form = app.overlays.form_dialog.as_mut().unwrap();
     form.name.set_text("upstream");
     form.second.set_text("https://github.com/DEEIX-AI/Winc.git");
     std::thread::sleep(std::time::Duration::from_millis(400));

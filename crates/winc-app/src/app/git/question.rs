@@ -60,6 +60,21 @@ const OTHER_CONFIRM_LINES: usize = 8;
 const HOST_KEY_LINES: usize = 1;
 
 impl QuestionView {
+    /// 返回「转到提交号、分支或标签」对话框的内容：一个输入框。
+    pub(super) fn go_to_revision() -> Self {
+        Self {
+            title: t!("git-go-to-title").to_owned(),
+            message: None,
+            message_lines: 0,
+            values: Vec::new(),
+            inputs: vec![QuestionInput {
+                label: t!("git-go-to-label"),
+                placeholder: t!("git-go-to-placeholder"),
+            }],
+            confirm: t!("git-go-to-button"),
+        }
+    }
+
     /// 返回添加远程仓库（`editing` 为 `None`）或修改其地址的对话框内容。
     pub(crate) fn remote(editing: Option<&str>) -> QuestionView {
         let input = |label, placeholder| QuestionInput { label, placeholder };
@@ -254,8 +269,8 @@ pub(super) fn listen(
 impl App {
     /// 处理后台送达的输入请求；所属操作已结束的请求被丢弃，askpass 程序按取消处理。
     pub(in crate::app) fn poll_git_questions(&mut self) {
-        while let Ok((id, question)) = self.branch.questions.1.try_recv() {
-            if self.branch.running.is_some() && self.branch.started == id {
+        while let Ok((id, question)) = self.git.branch.questions.1.try_recv() {
+            if self.git.branch.running.is_some() && self.git.branch.started == id {
                 self.open_git_question(id, question);
             }
         }
@@ -268,7 +283,7 @@ impl App {
     /// 接受主机密钥必须由用户明确选择。
     pub(in crate::app) fn open_git_question(&mut self, id: u64, question: Question) {
         // 用户已取消过这个操作的询问：之后的询问同样按取消答复，不再弹出。
-        if self.branch.declined {
+        if self.git.branch.declined {
             return;
         }
         self.open_question(Asker::Git(id), question);
@@ -278,7 +293,7 @@ impl App {
     pub(in crate::app) fn open_question(&mut self, asker: Asker, question: Question) {
         let Question { prompt, reply } = question;
         if let Prompt::Password { server, .. } = &prompt
-            && let Some((known, password)) = self.branch.password.take()
+            && let Some((known, password)) = self.git.branch.password.take()
             && known == *server
         {
             let _ = reply.send(password);
@@ -304,7 +319,7 @@ impl App {
             | Prompt::Other { .. }
             | Prompt::HostKey { .. } => (TextField::masked(), DialogPart::Branch),
         };
-        self.branch.asking = Some((asker, reply));
+        self.git.branch.asking = Some((asker, reply));
         // 远端仓库的操作提出的请求：答复会发到那台主机上，对话框标明它。
         let origin = match asker {
             Asker::Git(_) => (self.git.root.as_deref())
@@ -319,7 +334,7 @@ impl App {
     ///
     /// 登录对话框在密码为空时先把键盘焦点移到密码框，密码可能确实为空，再次提交时按空密码答复。
     pub(super) fn answer_git_question(&mut self) {
-        let Some(dialog) = &mut self.form_dialog else {
+        let Some(dialog) = &mut self.overlays.form_dialog else {
             return;
         };
         let FormKind::Question(prompt, _) = &dialog.kind else {
@@ -337,9 +352,9 @@ impl App {
                 return;
             }
             let password = dialog.second.text().replace(['\r', '\n'], "");
-            self.branch.password = Some((server.clone(), password));
+            self.git.branch.password = Some((server.clone(), password));
         }
-        let asker = self.branch.asking.take().map(|(asker, reply)| {
+        let asker = self.git.branch.asking.take().map(|(asker, reply)| {
             let _ = reply.send(answer);
             asker
         });
@@ -355,8 +370,8 @@ impl App {
     /// 取消一次即取消整件事：`ssh` 在一次询问没有答复后会再问（口令默认问三次）。连接远端
     /// 主机时直接中止连接；Git 操作此后的询问不再弹出（见 [`App::open_git_question`]）。
     pub(super) fn decline_git_question(&mut self) {
-        match self.branch.asking.take() {
-            Some((Asker::Git(_), _)) => self.branch.declined = true,
+        match self.git.branch.asking.take() {
+            Some((Asker::Git(_), _)) => self.git.branch.declined = true,
             Some((Asker::Remote, _)) => self.cancel_remote(),
             None => {}
         }
@@ -364,8 +379,8 @@ impl App {
 
     /// 第 `id` 个操作结束时调用：清除已填写的密码，关闭未答复的对话框，不按用户取消处理。
     pub(in crate::app) fn end_git_questions(&mut self, id: u64) {
-        if self.branch.started == id {
-            self.branch.password = None;
+        if self.git.branch.started == id {
+            self.git.branch.password = None;
         }
         self.end_questions(Asker::Git(id));
     }
@@ -377,19 +392,20 @@ impl App {
 
     fn end_questions(&mut self, asker: Asker) {
         if self
+            .git
             .branch
             .asking
             .as_ref()
             .is_some_and(|(at, _)| *at == asker)
         {
-            self.branch.asking = None;
+            self.git.branch.asking = None;
             self.close_form_dialog();
         }
     }
 
     /// 报告操作失败：用户取消输入时提示已取消，否则显示 `message` 并提供查看完整输出的按钮。
     pub(in crate::app) fn report_git_failure(&mut self, what: &str, message: String) {
-        if mem::take(&mut self.branch.declined) {
+        if mem::take(&mut self.git.branch.declined) {
             self.flash(t!("git-op-canceled", what = what));
         } else {
             self.notify_with(message, NoticeAction::GitOutput);

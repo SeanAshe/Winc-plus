@@ -88,9 +88,9 @@ fn draw_search(app: &mut App, frame: &mut Frame<'_>, bar: Rect) {
     };
     let x = bar.x + TEXT_LEFT;
     let area = Rect::new(x, field.y, (bar.right() - CONTENT - x).max(0.0), field.h);
-    let mut input = std::mem::take(&mut app.picker.input);
+    let mut input = std::mem::take(&mut app.overlays.picker.input);
     let caret = draw_bar_field(app, frame, area, &mut input, placeholder, focused);
-    app.picker.input = input;
+    app.overlays.picker.input = input;
     if caret.is_some() {
         app.ime.cursor = caret;
     }
@@ -119,7 +119,7 @@ fn draw_actions(
         let x = area.x + GUTTER + i as f32 * (w + TAB_GAP);
         let rect = Rect::new(x, area.y + GIT_PICKER_ACTIONS_TOP, w, BUTTON_SMALL);
         let enabled = app.picker_action_enabled(part);
-        let hovered = enabled && app.hover == Hover::PickerPart(part);
+        let hovered = enabled && app.pointer.hover == Hover::PickerPart(part);
         let fill = if hovered {
             p.selected_inactive
         } else {
@@ -145,7 +145,12 @@ fn draw_actions(
 /// 这一帧要画的行：展开、收起的动画期间下面的行往上收，视口里能多露出几行。
 fn drawn_rows(app: &App, parts: &PickerParts, count: usize) -> Range<usize> {
     let scroll = app.picker_drawn_scroll();
-    let hidden = app.picker.fold.as_ref().map_or(0.0, |fold| fold.hidden());
+    let hidden = app
+        .overlays
+        .picker
+        .fold
+        .as_ref()
+        .map_or(0.0, |fold| fold.hidden());
     let first = ((scroll / PICKER_ROW).floor().max(0.0) as usize).min(count);
     let last = (((scroll + parts.list.h + hidden) / PICKER_ROW).ceil() as usize).min(count);
     first..last.max(first)
@@ -157,7 +162,13 @@ fn placed_row(app: &App, parts: &PickerParts, i: usize) -> (Rect, Rect) {
     let scroll = app.picker_drawn_scroll();
     let mut row = parts.row(i, scroll);
     let mut clip = parts.list;
-    if let Some(fold) = app.picker.fold.as_ref().filter(|f| i > f.before.parent) {
+    if let Some(fold) = app
+        .overlays
+        .picker
+        .fold
+        .as_ref()
+        .filter(|f| i > f.before.parent)
+    {
         row.y -= fold.hidden();
         if i <= fold.before.parent + fold.count {
             let top = parts.row(fold.before.parent, scroll).bottom();
@@ -195,14 +206,15 @@ impl Line {
     fn begin(app: &App, frame: &mut Frame<'_>, parts: &PickerParts, i: usize) -> Line {
         let p = app.palette;
         let (row, clip) = placed_row(app, parts, i);
-        let chosen = (app.picker.fold.as_ref()).map_or(app.picker.selected, |fold| {
-            fold.drawn_index(app.picker.selected)
-        }) == i;
-        let default = chosen && app.picker.default == Some(app.picker.selected);
+        let chosen =
+            (app.overlays.picker.fold.as_ref()).map_or(app.overlays.picker.selected, |fold| {
+                fold.drawn_index(app.overlays.picker.selected)
+            }) == i;
+        let default = chosen && app.overlays.picker.default == Some(app.overlays.picker.selected);
         let selected = chosen && !default;
         // 展开、收起的动画期间各行的位置在变化，悬停记录的行号与绘制位置不对应，因此不画悬停。
-        let hovered = app.picker.fold.is_none()
-            && matches!(app.hover,
+        let hovered = app.overlays.picker.fold.is_none()
+            && matches!(app.pointer.hover,
                 Hover::PickerRow(r) | Hover::PickerPart(PickerPart::More(r)) if r == i);
         let band = row.inset(GUTTER, 1.0);
         let (text, dim) = if selected {
@@ -250,7 +262,7 @@ impl Line {
 
     /// 在图标一列画第 `i` 行展开、收起的箭头：这一行正在展开或收起时跟着动画转到对应角度。
     fn draw_fold(&self, app: &App, frame: &mut Frame<'_>, (i, depth, open): (usize, usize, bool)) {
-        let turned = match &app.picker.fold {
+        let turned = match &app.overlays.picker.fold {
             Some(fold) if fold.before.parent == i => fold.turned(),
             _ => f32::from(u8::from(open)),
         };
@@ -365,7 +377,7 @@ impl Line {
     /// 绘制行内按钮悬停时的底色。
     fn draw_row_button(&self, app: &App, frame: &mut Frame<'_>, button: Rect, part: PickerPart) {
         let p = app.palette;
-        let hovered = app.hover == Hover::PickerPart(part);
+        let hovered = app.pointer.hover == Hover::PickerPart(part);
         if hovered && self.selected {
             let fill = p.text_on_accent.alpha(ON_BAND);
             frame.rect_clipped(button, fill, RADIUS_ROW, self.clip);
@@ -389,9 +401,14 @@ fn draw_location_rows(
     parts: &PickerParts,
     hits: &mut Vec<(Rect, PickerPart)>,
 ) {
-    let rows = match &app.picker.fold {
+    let rows = match &app.overlays.picker.fold {
         Some(fold) if !fold.expanding => fold.before.locations.as_slice(),
-        _ => app.picker.location_rows.as_deref().unwrap_or_default(),
+        _ => app
+            .overlays
+            .picker
+            .location_rows
+            .as_deref()
+            .unwrap_or_default(),
     };
     if rows.is_empty() {
         draw_empty(app, frame, parts.list, t!("git-location-picker-empty"));
@@ -475,9 +492,14 @@ fn draw_branch_rows(
     parts: &PickerParts,
     hits: &mut Vec<(Rect, PickerPart)>,
 ) {
-    let rows = match &app.picker.fold {
+    let rows = match &app.overlays.picker.fold {
         Some(fold) if !fold.expanding => fold.before.branches.as_slice(),
-        _ => app.picker.branch_rows.as_deref().unwrap_or_default(),
+        _ => app
+            .overlays
+            .picker
+            .branch_rows
+            .as_deref()
+            .unwrap_or_default(),
     };
     if rows.is_empty() {
         draw_empty(app, frame, parts.list, t!("git-branch-picker-empty"));
@@ -676,7 +698,7 @@ fn draw_footer(
         let text = fit(frame, text, size, room, false);
         let w = TEXT_LEFT - GUTTER + frame.measure(FontKind::Ui, size, &text) + 8.0;
         let button = Rect::new(x, y, w, BUTTON_SMALL);
-        let hovered = app.hover == Hover::PickerPart(part);
+        let hovered = app.pointer.hover == Hover::PickerPart(part);
         draw_button(frame, p, button, foot, hovered, false);
         let color = if hovered { p.text } else { p.text_muted };
         // 图标与文字按同一字号垂直居中。

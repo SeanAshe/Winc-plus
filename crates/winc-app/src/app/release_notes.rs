@@ -78,7 +78,7 @@ impl App {
         self.focus = Focus::Editor;
         self.relayout();
         self.request_redraw();
-        let Some(proxy) = self.proxy.clone() else {
+        let Some(proxy) = self.link.proxy.clone() else {
             return;
         };
         let locale = winc_i18n::locale();

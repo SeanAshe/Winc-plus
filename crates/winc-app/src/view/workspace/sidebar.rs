@@ -32,7 +32,7 @@ use crate::theme::SCROLLBAR_HIT;
 pub(in crate::view) fn draw_sidebar(app: &mut App, frame: &mut Frame<'_>) {
     panel::draw_view_tabs(app, frame);
 
-    if app.sidebar.view == SidebarView::Search {
+    if app.panels.sidebar.view == SidebarView::Search {
         let right = app.panel_parts().tools[0].0.x - 4.0;
         let bar = ContextBar::new(app, frame);
         draw_context_bar(app, frame, &bar, right);
@@ -43,7 +43,7 @@ pub(in crate::view) fn draw_sidebar(app: &mut App, frame: &mut Frame<'_>) {
         return;
     }
 
-    if app.sidebar.view == SidebarView::Commit {
+    if app.panels.sidebar.view == SidebarView::Commit {
         draw_commit_view(app, frame);
         return;
     }
@@ -121,7 +121,7 @@ fn draw_log_diff_version(app: &mut App, frame: &mut Frame<'_>, reveal: f32) -> f
     let p = app.palette;
     let header = app.layout.sidebar_header;
     let button = app.log_diff_layout_button();
-    let hovered = app.hover == Hover::LogDiffLayout;
+    let hovered = app.pointer.hover == Hover::LogDiffLayout;
     draw_button(frame, p, button, header, hovered, false);
     let color = if hovered { p.text } else { p.text_muted };
     if app.log_list().flat() {
@@ -259,8 +259,15 @@ pub(super) fn draw_context_bar(app: &mut App, frame: &mut Frame<'_>, bar: &Conte
         name_end + 18.0 - bar.left,
         BUTTON_SMALL,
     );
-    let open = app.menu_button == Some(MenuButton::Project);
-    draw_button(frame, p, hit, clip, app.hover == Hover::ProjectName, open);
+    let open = app.overlays.menu_button == Some(MenuButton::Project);
+    draw_button(
+        frame,
+        p,
+        hit,
+        clip,
+        app.pointer.hover == Hover::ProjectName,
+        open,
+    );
     if bar.opened {
         draw_badge(app, frame, badge_rect, &bar.project, clip);
     }
@@ -318,12 +325,12 @@ fn draw_tree_tools(app: &App, frame: &mut Frame<'_>) {
     let header = app.layout.sidebar_header;
     let left = app.hits.project.right() + BUTTON_GAP;
     let clip = Rect::new(left, header.y, (header.right() - left).max(0.0), header.h);
-    let (shown, more_shown) = app.tool_fold.eased();
+    let (shown, more_shown) = app.motion.tool_fold.eased();
     let (tools, more) = folding_tools(header, &shown, more_shown);
 
     for (button, tool, shown) in tools {
         let kept = app.hits.tree_tools.iter().any(|&(_, t)| t == tool);
-        let hovered = kept && app.hover == Hover::TreeTool(tool);
+        let hovered = kept && app.pointer.hover == Hover::TreeTool(tool);
         let color = if hovered { p.text } else { p.text_muted };
         // 透明度比位置变化得快：滑到「⋯」上时已经接近透明，几个图标叠在一起也不会混成一片。
         frame.with_opacity(shown * shown, |frame| {
@@ -334,8 +341,8 @@ fn draw_tree_tools(app: &App, frame: &mut Frame<'_>) {
 
     if let Some(more) = more {
         // 菜单打开时按钮显示为按下状态。
-        let open = app.menu_button == Some(MenuButton::TreeMore);
-        let hovered = app.hits.tree_more.is_some() && app.hover == Hover::TreeMore;
+        let open = app.overlays.menu_button == Some(MenuButton::TreeMore);
+        let hovered = app.hits.tree_more.is_some() && app.pointer.hover == Hover::TreeMore;
         let color = if hovered || open {
             p.text
         } else {
@@ -368,7 +375,7 @@ fn draw_tree_tool_icon(
 /// 绘制文件树：选中行和悬停行是内缩的圆角块。
 fn draw_tree(app: &mut App, frame: &mut Frame<'_>) {
     let animate = app.animate_tree_labels();
-    app.tree.labels.begin_frame(animate);
+    app.panels.tree.labels.begin_frame(animate);
     let p = app.palette;
     let tree = app.layout.tree;
 
@@ -396,7 +403,11 @@ fn draw_tree(app: &mut App, frame: &mut Frame<'_>) {
 
     // 目录为空时居中显示一句提示，说明新建文件的方式，与搜索、提交视图的空列表相同；
     // 双击空白处即在根目录新建文件（见 `click_tree`）。正在输入新建的名称时不显示提示。
-    let creating = app.name_input.as_ref().is_some_and(|e| e.rename.is_none());
+    let creating = app
+        .panels
+        .name_input
+        .as_ref()
+        .is_some_and(|e| e.rename.is_none());
     if rows.is_empty() && !creating {
         let span = (tree, sidebar_span(app));
         let (title, hint) = (t!("workspace-tree-empty"), t!("workspace-tree-empty-hint"));
@@ -406,7 +417,7 @@ fn draw_tree(app: &mut App, frame: &mut Frame<'_>) {
     // 新建文件、目录时，在目标目录子树的第一行插入一行输入名称的输入行；重命名时输入框
     // 绘制在原条目所在的行上，不另插一行。输入框先从 `app` 中取出，绘制后放回，
     // 这样循环中读取 `app` 时不需要复制整棵文件树。
-    let mut name_input = app.name_input.take();
+    let mut name_input = app.panels.name_input.take();
     let editing = name_input.as_ref().map(|e| e.index);
     let inserted = name_input
         .as_ref()
@@ -416,7 +427,12 @@ fn draw_tree(app: &mut App, frame: &mut Frame<'_>) {
 
     // 目录展开或收起的动画中，按展开后的行序排布：收起时把正在收起的子行插回原位。子行区域
     // 停在原位，只露出 `reveal` 所示比例的部分；其下的行向上移动 `hidden`（逻辑像素）的高度。
-    let motion = app.tree.motion.as_ref().filter(|m| m.parent < rows.len());
+    let motion = app
+        .panels
+        .tree
+        .motion
+        .as_ref()
+        .filter(|m| m.parent < rows.len());
     let block = motion.map(TreeMotion::block);
     let removed: &[Entry] = motion.map_or(&[], |m| m.removed.as_slice());
     let reveal = motion.map_or(1.0, TreeMotion::reveal);
@@ -427,9 +443,13 @@ fn draw_tree(app: &mut App, frame: &mut Frame<'_>) {
     // 尚未露出的高度。行数变少之后（收起目录、外部删除了文件），滚动位置在这里夹回有效范围；
     // 收起动画中，滚动位置随露出的高度平滑回收。
     let content = (total + 1) as f32 * TREE_ROW - hidden;
-    let scroll = app.tree.scroll.clamp(0.0, (content - tree.h).max(0.0));
-    // 固定在顶部的目录按该滚动位置计算，因此先写回 `app.tree.scroll`。
-    app.tree.scroll = scroll;
+    let scroll = app
+        .panels
+        .tree
+        .scroll
+        .clamp(0.0, (content - tree.h).max(0.0));
+    // 固定在顶部的目录按该滚动位置计算，因此先写回 `app.panels.tree.scroll`。
+    app.panels.tree.scroll = scroll;
 
     // 返回按展开后的行序数的第 `v` 行对应的条目，以及该条目在文件树数据中的行号；正在收起的子行
     // 已不在文件树数据中，行号为 `None`。
@@ -486,7 +506,7 @@ fn draw_tree(app: &mut App, frame: &mut Frame<'_>) {
     let first = (scroll / TREE_ROW).floor().max(0.0) as usize;
     let visible = (tree.h / TREE_ROW).ceil() as usize + 1 + (hidden / TREE_ROW).ceil() as usize;
     // 横向滚动使缩进、图标和名称一起左移；底色的圆角矩形不动。
-    let shift = -app.tree.scroll_x;
+    let shift = -app.panels.tree.scroll_x;
     let mut segments = Vec::new();
     let mut widest: f32 = 0.0;
 
@@ -525,22 +545,22 @@ fn draw_tree(app: &mut App, frame: &mut Frame<'_>) {
 
     draw_sticky(app, frame, rows, &mut segments);
     app.hits.tree_segments = segments;
-    app.tree.labels.end_frame();
+    app.panels.tree.labels.end_frame();
 
     draw_scrollbar(app, frame, ScrollArea::Tree, 0, tree, scroll, content);
 
     // 最宽的一行决定横向能滚多远，只统计当前屏幕上的可见行。末尾留出 20 逻辑像素，使滚到头时
     // 名称不贴着侧栏边缘。收起目录、刷新之后该宽度会变小，横向滚动位置随之回收。
-    app.tree.content_w = widest + 20.0;
+    app.panels.tree.content_w = widest + 20.0;
     app.clamp_tree_scroll_x();
-    app.name_input = name_input;
+    app.panels.name_input = name_input;
     app.ime.cursor = ime;
 
-    let thumb = hscrollbar_thumb(tree, app.tree.scroll_x, app.tree.content_w);
+    let thumb = hscrollbar_thumb(tree, app.panels.tree.scroll_x, app.panels.tree.content_w);
     let look = app.scrollbar_look(
         ScrollArea::TreeHorizontal,
         0,
-        app.tree.scroll_x,
+        app.panels.tree.scroll_x,
         thumb.map(|_| tree),
     );
     if let Some(thumb) = thumb {
@@ -562,11 +582,12 @@ fn draw_tree_entry(
 ) -> f32 {
     let p = app.palette;
     let tree = app.layout.tree;
-    let shift = -app.tree.scroll_x;
+    let shift = -app.panels.tree.scroll_x;
     let ws = app.editor.workspace.as_ref();
     let selected = index.is_some_and(|i| ws.is_some_and(|w| w.is_selected(i)));
     let hovered = index.is_some_and(|i| {
-        app.hover == Hover::TreeRow(i) || app.tree.overflow.is_some_and(|(_, o)| o == i)
+        app.pointer.hover == Hover::TreeRow(i)
+            || app.panels.tree.overflow.is_some_and(|(_, o)| o == i)
     });
 
     // 名称放不下时，底色一直铺到侧栏边缘、右侧不留圆角，看起来像被侧栏边缘截断；
@@ -602,6 +623,7 @@ fn draw_tree_entry(
         current: chain_current(app, entry),
     };
     let view = app
+        .panels
         .tree
         .labels
         .sync(label_key(entry), cause, &shown, target);
@@ -931,7 +953,7 @@ fn tree_entry_color(app: &App, entry: &Entry, selected: bool) -> Color {
         _ => p.text,
     };
     // 剪切了、还没粘贴的项绘制得更淡；合并显示的目录逐级判断（见 `draw_chain`）。
-    if entry.chain().is_empty() && app.shared.cut_files.borrow().contains(&entry.path) {
+    if entry.chain().is_empty() && app.link.shared.cut_files.borrow().contains(&entry.path) {
         color.alpha(color.a * 0.5)
     } else {
         color
@@ -948,9 +970,18 @@ pub(in crate::view) fn tree_overflow(app: &App, frame: &mut Frame<'_>) -> Option
     // 固定在顶部的目录在固定的位置继续绘制。
     let row = match app.tree_sticky().into_iter().find(|s| s.index == index) {
         Some(sticky) => sticky.rect,
-        None => tree_row_slot(tree, app.tree.scroll, app.tree_slot_of(index), None, 0.0).0,
+        None => {
+            tree_row_slot(
+                tree,
+                app.panels.tree.scroll,
+                app.tree_slot_of(index),
+                None,
+                0.0,
+            )
+            .0
+        }
     };
-    let shift = -app.tree.scroll_x;
+    let shift = -app.panels.tree.scroll_x;
     let end = tree_label_x(row, entry.depth, shift) + label_width(app, frame, entry);
 
     if !label_overflows(tree, end) {
@@ -964,34 +995,34 @@ pub(in crate::view) fn tree_overflow(app: &App, frame: &mut Frame<'_>) -> Option
 
 /// 在编辑区上方继续绘制放不下的文件名：底色和文本都与文件树中的那一行连成一体。
 pub(in crate::view) fn draw_tree_overflow(app: &App, frame: &mut Frame<'_>) {
-    let (Some((rect, index)), Some(ws)) = (app.tree.overflow, &app.editor.workspace) else {
+    let (Some((rect, index)), Some(ws)) = (app.panels.tree.overflow, &app.editor.workspace) else {
         return;
     };
     let Some(entry) = ws.rows().get(index) else {
         return;
     };
-    let view = app.tree.labels.peek(label_key(entry));
+    let view = app.panels.tree.labels.peek(label_key(entry));
     draw_overflow_band(app, frame, (entry, index), rect, view.as_ref(), false);
 }
 
 /// 绘制鼠标移开后正在收回的名字：不响应点击，收回到侧栏边缘时消失。
 pub(in crate::view) fn draw_tree_overflow_closing(app: &App, frame: &mut Frame<'_>) {
     // 文件树不在显示时不画：动画途中隐藏了侧栏或切换到其他视图。
-    if !app.sidebar_open() || app.sidebar.view != SidebarView::Files {
+    if !app.sidebar_open() || app.panels.sidebar.view != SidebarView::Files {
         return;
     }
     let Some(ws) = &app.editor.workspace else {
         return;
     };
-    let open = app.tree.overflow.map(|(_, index)| index);
+    let open = app.panels.tree.overflow.map(|(_, index)| index);
     let tree = app.layout.tree;
-    for (key, view) in app.tree.labels.moving_rows() {
+    for (key, view) in app.panels.tree.labels.moving_rows() {
         let Some(index) = ws.row_of(&key).filter(|&index| Some(index) != open) else {
             continue;
         };
         let entry = &ws.rows()[index];
         let row = overflow_row(app, index);
-        let end = tree_label_x(row, entry.depth, -app.tree.scroll_x) + view.width;
+        let end = tree_label_x(row, entry.depth, -app.panels.tree.scroll_x) + view.width;
         let right = (end + 8.0).min(app.layout.window.right() - 8.0);
         let rect = Rect::new(tree.right(), row.y + 1.0, right - tree.right(), row.h - 2.0);
         if rect.w > 0.0 {
@@ -1005,7 +1036,16 @@ fn overflow_row(app: &App, index: usize) -> Rect {
     let tree = app.layout.tree;
     match app.tree_sticky().into_iter().find(|s| s.index == index) {
         Some(sticky) => sticky.rect,
-        None => tree_row_slot(tree, app.tree.scroll, app.tree_slot_of(index), None, 0.0).0,
+        None => {
+            tree_row_slot(
+                tree,
+                app.panels.tree.scroll,
+                app.tree_slot_of(index),
+                None,
+                0.0,
+            )
+            .0
+        }
     }
 }
 
@@ -1026,7 +1066,7 @@ fn draw_overflow_band(
     let p = app.palette;
     let tree = app.layout.tree;
     let row = Rect::new(tree.x, rect.y - 1.0, tree.w, rect.h + 2.0);
-    let x = tree_label_x(row, entry.depth, -app.tree.scroll_x);
+    let x = tree_label_x(row, entry.depth, -app.panels.tree.scroll_x);
     // 命中范围按完整宽度计算，绘制时才按当前宽度露出：过渡途中鼠标移过去不会落空。
     let right = view.map_or(rect.right(), |v| rect.right().min(x + v.width + 8.0));
     if right <= rect.x {
@@ -1229,8 +1269,8 @@ fn draw_chain(
                 let name = winc_editor::segment_name(path);
                 let width = frame.measure(FontKind::Ui, app.fonts.ui, &name);
                 let hovered = dropping.is_none()
-                    && matches!(app.hover, Hover::TreeRow(_))
-                    && app.tree.hover_segment.as_ref() == Some(path);
+                    && matches!(app.pointer.hover, Hover::TreeRow(_))
+                    && app.panels.tree.hover_segment.as_ref() == Some(path);
                 if hovered || dropping == Some(path.as_path()) {
                     let area = Rect::new(
                         x - CHAIN_GAP,
@@ -1245,7 +1285,7 @@ fn draw_chain(
                 } else {
                     color
                 };
-                let text = if app.shared.cut_files.borrow().contains(path) {
+                let text = if app.link.shared.cut_files.borrow().contains(path) {
                     text.alpha(text.a * 0.5)
                 } else {
                     text
@@ -1361,7 +1401,7 @@ pub(in crate::view) fn draw_sidebar_button(app: &App, frame: &mut Frame<'_>) {
     let button = app.layout.sidebar_button;
     let open = app.sidebar_open();
 
-    let hovered = app.hover == Hover::SidebarButton;
+    let hovered = app.pointer.hover == Hover::SidebarButton;
     draw_button(frame, p, button, app.layout.window, hovered, false);
     icons::sidebar(frame, center(button), open, p.text_muted, button);
 }

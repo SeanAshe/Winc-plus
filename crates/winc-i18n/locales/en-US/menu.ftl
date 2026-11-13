@@ -132,6 +132,7 @@ menu-log-interactive-rebase = Interactively Rebase from Here…
 menu-log-copy-oid = Copy Commit Hash
 menu-log-copy-short-oid = Copy Short Commit Hash
 menu-log-copy-message = Copy Commit Message
+menu-log-go-to = Go to Hash, Branch or Tag…
 menu-log-all-branches = All Branches
 menu-log-all-authors = All Authors
 menu-commit-check = Check

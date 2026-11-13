@@ -7,8 +7,8 @@ use winit::keyboard::{Key, NamedKey};
 
 fn opened(app: &App, which: Action) -> bool {
     match which {
-        Action::GoToLine => app.goto_input.is_some(),
-        _ => app.picker.open,
+        Action::GoToLine => app.bars.goto_input.is_some(),
+        _ => app.overlays.picker.open,
     }
 }
 
@@ -64,12 +64,12 @@ fn clicking_the_editor_closes_the_go_to_bar() {
     crate::app::snapshot::click(&mut app, (e.x + e.w / 2.0, e.y + e.h / 2.0));
     paint(&mut app);
     assert_eq!(app.focus, Focus::Editor);
-    assert!(app.goto_input.is_none());
+    assert!(app.bars.goto_input.is_none());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 fn pixel(app: &App, (x, y): (f32, f32)) -> u32 {
-    let image = app.renderer.as_ref().unwrap().image().unwrap();
+    let image = app.frame.renderer.as_ref().unwrap().image().unwrap();
     let (x, y) = ((x * SCALE) as usize, (y * SCALE) as usize);
     image.pixels[y * image.width as usize + x]
 }
@@ -105,7 +105,7 @@ fn dialogs_fade_in_and_out_like_settings() {
             Card::Picker => app.layout.picker,
             Card::Bar => crate::layout::goto_bar(app.layout.editor),
             Card::Dialog => app.dialog_layout().card,
-            Card::Alert => app.alert.as_ref().unwrap().parts.buttons[0],
+            Card::Alert => app.overlays.alert.as_ref().unwrap().parts.buttons[0],
         };
         // 卡片左上角内侧的一点：底色与下方的编辑区不同。
         let probe = (r.x + 6.0, r.y + 6.0);
@@ -149,16 +149,16 @@ fn shoot_dialog_motion() {
     let mut app = app_with(&dir.join("short.rs"), true);
     app.open_picker();
     paint(&mut app);
-    app.picker.card.motion = Some((true, Clock::frozen(DIALOG_IN / 3, DIALOG_IN)));
+    app.overlays.picker.card.motion = Some((true, Clock::frozen(DIALOG_IN / 3, DIALOG_IN)));
     shoot(&mut app, "dialog-picker-in");
-    app.picker.card.motion = None;
+    app.overlays.picker.card.motion = None;
     app.close_picker();
     paint(&mut app);
-    app.picker.card.motion = Some((false, Clock::frozen(DIALOG_OUT / 2, DIALOG_OUT)));
+    app.overlays.picker.card.motion = Some((false, Clock::frozen(DIALOG_OUT / 2, DIALOG_OUT)));
     app.open_goto();
     paint(&mut app);
-    app.bar_card.motion = Some((true, Clock::frozen(DIALOG_IN / 3, DIALOG_IN)));
-    app.picker.card.motion = Some((false, Clock::frozen(DIALOG_OUT / 2, DIALOG_OUT)));
+    app.motion.bar_card.motion = Some((true, Clock::frozen(DIALOG_IN / 3, DIALOG_IN)));
+    app.overlays.picker.card.motion = Some((false, Clock::frozen(DIALOG_OUT / 2, DIALOG_OUT)));
     shoot(&mut app, "dialog-bar-in-picker-out");
     let _ = std::fs::remove_dir_all(&dir);
 }

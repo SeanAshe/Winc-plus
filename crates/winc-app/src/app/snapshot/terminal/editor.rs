@@ -13,7 +13,7 @@ fn cwd(dir: &std::path::Path) -> String {
 
 /// 第 0 行第 `col` 格，按住 ⌘ 移过去，返回认出的链接。
 fn hover_link(app: &mut App, row: usize, col: usize) -> Option<TermLink> {
-    app.modifiers = command_modifiers();
+    app.pointer.modifiers = command_modifiers();
     let (x, y) = cell_center(app, row, col);
     app.on_mouse_move(x, y);
     app.terminal.link.clone()
@@ -60,7 +60,7 @@ fn command_hover_finds_urls_osc8_links_and_files() {
     assert!(hover_link(&mut app, 0, 66).is_none());
 
     // 松开 ⌘，链接没了。
-    app.modifiers = winit::keyboard::ModifiersState::empty();
+    app.pointer.modifiers = winit::keyboard::ModifiersState::empty();
     app.update_terminal_link();
     assert!(app.terminal.link.is_none());
 
@@ -75,7 +75,7 @@ fn command_hover_finds_urls_osc8_links_and_files() {
     // ⌘⇧ 单击：在文件树里定位。
     app.focus = Focus::Terminal;
     hover_link(&mut app, 0, 55);
-    app.modifiers = command_modifiers() | winit::keyboard::ModifiersState::SHIFT;
+    app.pointer.modifiers = command_modifiers() | winit::keyboard::ModifiersState::SHIFT;
     let at = cell_center(&app, 0, 55);
     click(&mut app, at);
     let ws = app.editor.workspace.as_ref().unwrap();
@@ -359,7 +359,7 @@ fn terminal_tabs_are_renamed_in_place() {
     app.on_mouse_down(MouseButton::Right);
     app.on_mouse_up(MouseButton::Right);
     assert_eq!(app.terminal.active, 0);
-    let menu = app.context_menu.as_ref().unwrap();
+    let menu = app.overlays.context_menu.as_ref().unwrap();
     assert_eq!(menu.target, MenuTarget::TerminalTab(id));
     app.run_menu_command(MenuCommand::RenameTerminal);
 
@@ -675,7 +675,7 @@ fn the_terminal_menu_maximizes_and_the_options_apply() {
         app.on_mouse_move(x, y);
         app.on_mouse_down(MouseButton::Right);
         app.on_mouse_up(MouseButton::Right);
-        let menu = app.context_menu.as_ref().unwrap();
+        let menu = app.overlays.context_menu.as_ref().unwrap();
         assert_eq!(menu.target, MenuTarget::Terminal(None));
         menu.entries
             .iter()
@@ -702,7 +702,12 @@ fn the_terminal_menu_maximizes_and_the_options_apply() {
     app.run_menu_command(MenuCommand::SelectAll);
     assert!(right_click(&mut app).contains(&(MenuCommand::Copy, true)));
     app.run_menu_command(MenuCommand::Copy);
-    assert!(app.copied.as_deref().is_some_and(|t| t.contains("echo hi")));
+    assert!(
+        app.clipboard
+            .copied
+            .as_deref()
+            .is_some_and(|t| t.contains("echo hi"))
+    );
 
     // 菜单里切换停靠位置，文字说的是切换后的位置。
     assert_eq!(
@@ -742,14 +747,14 @@ fn the_terminal_menu_maximizes_and_the_options_apply() {
     assert_eq!(app.layout.editor.h, EDITOR_MIN + 50.0);
 
     // 选中松开就复制（`copyOnSelect`）。
-    app.copied = None;
+    app.clipboard.copied = None;
     app.config.terminal_copy_on_select = Some(true);
     let (from, to) = (cell_center(&app, 1, 0), cell_center(&app, 1, 1));
-    app.on_mouse_move(from.0 - app.terminal_cell / 2.0 + 0.5, from.1);
+    app.on_mouse_move(from.0 - app.metrics.terminal_cell / 2.0 + 0.5, from.1);
     app.on_mouse_down(MouseButton::Left);
-    app.on_mouse_move(to.0 + app.terminal_cell / 2.0 - 0.5, to.1);
+    app.on_mouse_move(to.0 + app.metrics.terminal_cell / 2.0 - 0.5, to.1);
     app.on_mouse_up(MouseButton::Left);
-    assert_eq!(app.copied.as_deref(), Some("hi"));
+    assert_eq!(app.clipboard.copied.as_deref(), Some("hi"));
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -1193,7 +1198,7 @@ fn the_panel_position_survives_a_restart() {
     let dir = sample_folder("terminal-position");
     let path = dir.join("config.json");
     let mut app = app_with(&dir.join("short.rs"), false);
-    app.config_path = Some(path.clone());
+    app.store.config_path = Some(path.clone());
     show_terminal(&mut app, "$ ");
     app.toggle_terminal_position();
     let (config, _) = winc_config::Config::load_from(&path);

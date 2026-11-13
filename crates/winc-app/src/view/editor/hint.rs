@@ -20,7 +20,7 @@ const SLIDE: f32 = 3.0;
 
 /// 绘制名字旁的提示气泡；没有气泡、它挂的文档不是当前文档，或名字不在屏幕上时不绘制。
 pub(in crate::view) fn draw_name_hint(app: &App, frame: &mut Frame<'_>) {
-    let Some(hint) = &app.name_hint else {
+    let Some(hint) = &app.jumps.name_hint else {
         return;
     };
     if app.editor.active().map(|d| d.id) != Some(hint.doc) {

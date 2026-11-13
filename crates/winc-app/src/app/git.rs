@@ -240,6 +240,22 @@ pub(crate) struct GitState {
     sender: Sender<Outcome>,
     receiver: Receiver<Outcome>,
     prepared: (Sender<Prepared>, Receiver<Prepared>),
+    /// 提交视图：勾选、提交信息。
+    pub commit: commit::CommitState,
+    /// 行号栏的改动标记和已展开的改动卡片。
+    pub changes: changes::LineChanges,
+    /// 日志标签的后台通道和点击区域。
+    pub log: log::LogState,
+    /// 逐行追溯（`git blame`）的状态。
+    pub blame: blame::BlameState,
+    /// 正在进行的分支操作。
+    pub branch: branch::BranchState,
+    /// 文件内合并冲突的解决状态：识别出的冲突与可点击区域。
+    pub merge: merge::MergeState,
+    /// 位置选择器里改变过默认展开状态的仓库（主工作树的目录）。
+    pub location_toggled: HashSet<PathBuf>,
+    /// 分支选择器里改变过默认展开状态的目录：（是否远程，目录路径）。
+    pub branch_folders: HashSet<(bool, String)>,
 }
 
 impl Default for GitState {
@@ -277,6 +293,14 @@ impl Default for GitState {
             asked_trust: Vec::new(),
             sender,
             receiver,
+            commit: Default::default(),
+            changes: Default::default(),
+            log: Default::default(),
+            blame: Default::default(),
+            branch: Default::default(),
+            merge: Default::default(),
+            location_toggled: HashSet::new(),
+            branch_folders: HashSet::new(),
             prepared: channel(),
         }
     }
@@ -651,10 +675,10 @@ impl App {
             self.git.repositories.push(root.clone());
             self.git_read_summaries();
         }
-        let stay = self.sidebar.view == SidebarView::Commit
-            || self.commit.busy
-            || self.branch.running.is_some()
-            || !self.commit.message.text().is_empty();
+        let stay = self.panels.sidebar.view == SidebarView::Commit
+            || self.git.commit.busy
+            || self.git.branch.running.is_some()
+            || !self.git.commit.message.text().is_empty();
         if !stay {
             self.git_set_root(Some(root));
         }
@@ -667,7 +691,7 @@ impl App {
         }
         // 未完成的提交信息按位置保存，切换回来时恢复。
         if let Some(old) = self.git.root.clone() {
-            self.commit.keep_draft(old);
+            self.git.commit.keep_draft(old);
         }
         // 保存即将离开的仓库的状态，切换回来时可立即显示。
         if let (Some(old), Some(status)) = (self.git.root.clone(), self.git.status.take()) {
@@ -683,16 +707,16 @@ impl App {
         if let Some(tool) = tool {
             self.git.tool.keep(tool);
         }
-        self.changes.forget();
-        self.blame.clear();
+        self.git.changes.forget();
+        self.git.blame.clear();
         // 旧仓库中进行的分支操作与提交属于旧仓库：此处不再显示「正在拉取…」，不阻止新仓库的操作，
         // 也不沿用「修改上一次提交」。操作完成时只显示提示（见 `poll_branch_ops`、`poll_commit`）。
-        self.branch.running = None;
-        self.branch.finished = None;
+        self.git.branch.running = None;
+        self.git.branch.finished = None;
         self.reset_commit_view();
         self.git.root = root;
         if let Some(root) = self.git.root.clone() {
-            self.commit.restore_draft(&root);
+            self.git.commit.restore_draft(&root);
         }
         // 先显示上次读取的状态，后台读取完成后再更新，避免提交视图短暂显示「正在读取」。
         let known = self.git.root.as_ref().and_then(|root| {
@@ -703,8 +727,8 @@ impl App {
                 .remove(root)
         });
         if let (Some(status), Some(root)) = (known, self.git.root.as_deref()) {
-            self.commit.head_is(status.oid.as_deref());
-            self.changes.head_is(status.oid.as_deref());
+            self.git.commit.head_is(status.oid.as_deref());
+            self.git.changes.head_is(status.oid.as_deref());
             self.git.decorations = status.decorations(root);
             self.git.ignored_paths = status.ignored.iter().cloned().collect();
             self.git.status = Some(status);
@@ -713,7 +737,7 @@ impl App {
         // 不再位于仓库中时提交视图不可用，切换回文件树；焦点位于提交视图时同样移出，
         // 否则键入的文字会进入不可见的输入框。
         if self.git.root.is_none() {
-            if self.sidebar.view == SidebarView::Commit {
+            if self.panels.sidebar.view == SidebarView::Commit {
                 self.set_sidebar_view(SidebarView::Files);
             }
             if matches!(self.focus, Focus::CommitMessage | Focus::CommitList) {
@@ -860,8 +884,8 @@ impl App {
                                 .as_ref()
                                 .is_some_and(|refs| self.git.branches != refs.branches)
                     });
-                    self.changes.head_is(status.oid.as_deref());
-                    self.commit.head_is(status.oid.as_deref());
+                    self.git.changes.head_is(status.oid.as_deref());
+                    self.git.commit.head_is(status.oid.as_deref());
                     self.git.decorations = status.decorations(&outcome.root);
                     self.git.ignored_paths = status.ignored.iter().cloned().collect();
                     // 有变化的文件数超过上限时，只在首次超过时提示，之后的刷新不再重复提示。
@@ -881,7 +905,7 @@ impl App {
                         self.git.remote_list = refs.remote_list;
                         self.git.publish_remote = refs.publish_remote;
                         self.git.home = refs.home;
-                        if let Some(watcher) = &mut self.watcher {
+                        if let Some(watcher) = &mut self.disk.watcher {
                             watcher.watch_git_dir(refs.common_dir.as_deref());
                         }
                         self.branch_picker_refreshed(&before);
@@ -1009,18 +1033,18 @@ impl App {
             operation,
             Some(Operation::Merge | Operation::CherryPick | Operation::Revert)
         ) {
-            self.commit.prefilled = false;
+            self.git.commit.prefilled = false;
             return;
         }
-        if self.commit.prefilled || !self.commit.message.text().trim().is_empty() {
+        if self.git.commit.prefilled || !self.git.commit.message.text().trim().is_empty() {
             return;
         }
         let (Some(root), Some(git)) = (self.git.root.as_deref(), self.git.tool.get()) else {
             return;
         };
         if let Some(message) = git.merge_message(root) {
-            self.commit.message.set_text(&message);
-            self.commit.prefilled = true;
+            self.git.commit.message.set_text(&message);
+            self.git.commit.prefilled = true;
         }
     }
 
@@ -1078,7 +1102,7 @@ impl App {
             return false;
         };
         let name = winc_editor::display_name(&path).into_owned();
-        self.commit.preview = Some(id);
+        self.git.commit.preview = Some(id);
         self.git.stepped = Some((id, path.clone()));
         self.select_commit_file(path);
         let (index, name) = (next + 1, name.as_str());
@@ -1134,9 +1158,9 @@ impl App {
     ///
     /// 没有其他标签打开同一文件时，同时释放该文件在 `HEAD` 中的内容（基准）。
     pub(super) fn forget_git_document(&mut self, id: DocumentId, path: Option<&Path>) {
-        self.blame.forget(id);
-        self.log.forget(id);
-        self.changes.forget_document(id);
+        self.git.blame.forget(id);
+        self.git.log.forget(id);
+        self.git.changes.forget_document(id);
         self.git.diff_tabs.remove(&id);
         if let Some(path) = path
             && !self
@@ -1145,7 +1169,7 @@ impl App {
                 .iter()
                 .any(|d| d.path.as_deref() == Some(path))
         {
-            self.changes.forget_base(path);
+            self.git.changes.forget_base(path);
         }
     }
 
@@ -1265,8 +1289,10 @@ impl App {
                     continue;
                 }
                 Target::Preview(_) => {
-                    let index = self.editor.show_diff_in(self.commit.preview, &title, view);
-                    self.commit.preview = Some(self.editor.documents[index].id);
+                    let index = self
+                        .editor
+                        .show_diff_in(self.git.commit.preview, &title, view);
+                    self.git.commit.preview = Some(self.editor.documents[index].id);
                     index
                 }
                 Target::Open => self.editor.show_diff(&title, view),

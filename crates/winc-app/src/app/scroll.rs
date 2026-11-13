@@ -19,3 +19,17 @@ pub(crate) use fling::Fling;
 pub(crate) use glide::PaneGlide;
 pub(crate) use target::ScrollTarget;
 pub use wheel::Wheel;
+
+/// 滚动的状态：滚轮与触控板的输入、平滑滚动的过渡、惯性滚动和滚动条的显示。
+pub(crate) struct ScrollState {
+    /// 各区域滚动条的显示状态：平时隐藏，滚动后或鼠标移到滚动条上时显示。
+    pub(in crate::app) bars: Scrollbars,
+    /// 编辑区跳转式滚动（翻页、跳到行、查找跳转）的平滑滚动状态。
+    pub(in crate::app) glide: Option<ScrollGlide>,
+    /// 各区域（文件树、列表、预览）跳转式滚动的过渡，每个区域至多一项。
+    pub(in crate::app) pane_glides: Vec<scroll::PaneGlide>,
+    /// 触摸滚动抬手后的惯性滚动；没有时为 `None`。
+    pub(in crate::app) fling: Option<scroll::Fling>,
+    /// 滚轮与触控板滚动的状态。
+    pub(in crate::app) wheel: scroll::Wheel,
+}

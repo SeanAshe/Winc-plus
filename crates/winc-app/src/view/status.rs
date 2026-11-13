@@ -125,7 +125,8 @@ fn draw_group(
         if row.key == StatusKey::Update
             && let Some(button) = update_button(app)
         {
-            let hovered = row.item.is_some() && app.hover == Hover::Status(StatusItem::Update);
+            let hovered =
+                row.item.is_some() && app.pointer.hover == Hover::Status(StatusItem::Update);
             let (fill, ink) = button.colors(p, hovered);
             let alpha = row.alpha.max(row.previous.as_ref().map_or(0.0, |f| f.2)) * opacity;
             frame.rect_clipped(pill, fill.alpha(fill.a * alpha), RADIUS_ROW, bar);
@@ -142,8 +143,8 @@ fn draw_group(
                 p,
                 pill,
                 bar,
-                app.hover == Hover::Status(item),
-                app.menu_button == Some(MenuButton::Status(item))
+                app.pointer.hover == Hover::Status(item),
+                app.overlays.menu_button == Some(MenuButton::Status(item))
                     || (item == StatusItem::Branch
                         && app.branch_picker_from(crate::app::GitAnchor::Status)),
             );
@@ -197,7 +198,7 @@ fn draw_content(
     }
     let p = app.palette;
     let fade = |c: Color| c.alpha(c.a * alpha);
-    let hovered = app.hover == Hover::Status(StatusItem::Update);
+    let hovered = app.pointer.hover == Hover::Status(StatusItem::Update);
     let ink = match update_button(app).filter(|_| key == StatusKey::Update) {
         Some(button) => button.colors(p, hovered).1,
         None => p.text_muted,
@@ -280,8 +281,8 @@ impl UpdateButton {
 /// macOS 上下载、安装和重新启动都在 Sparkle 的窗口里进行，按钮一直是「更新」。
 fn update_button(app: &App) -> Option<UpdateButton> {
     use crate::winc::UpdateState;
-    app.shared.update.borrow().as_ref()?;
-    let (icon, label) = match &*app.shared.update_state.borrow() {
+    app.link.shared.update.borrow().as_ref()?;
+    let (icon, label) = match &*app.link.shared.update_state.borrow() {
         UpdateState::Downloading(_, percent) => {
             (UpdateIcon::Progress(*percent), format!("{percent}%"))
         }
@@ -306,8 +307,8 @@ fn update_button(app: &App) -> Option<UpdateButton> {
 /// 找到新版本后再次检查失败时，按钮仍是「更新」，提示仍写找到的版本。
 pub(in crate::view) fn update_tooltip(app: &App) -> Option<String> {
     use crate::winc::UpdateState;
-    let version = app.shared.update.borrow().clone()?;
-    let tip = match &*app.shared.update_state.borrow() {
+    let version = app.link.shared.update.borrow().clone()?;
+    let tip = match &*app.link.shared.update_state.borrow() {
         UpdateState::Downloading(..) | UpdateState::Ready(_) | UpdateState::InstallFailed(_) => {
             return Some(super::settings::update_status(app).0);
         }
@@ -353,7 +354,7 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
         icons::SIDEBAR_WIDTH + 2.0 * CRUMB_PAD,
         bar.h - 8.0,
     );
-    let hovered = app.hover == Hover::Status(item);
+    let hovered = app.pointer.hover == Hover::Status(item);
     draw_button(frame, p, pill, bar, hovered, false);
     let center = (slot + icons::SIDEBAR_WIDTH / 2.0, bar.y + bar.h / 2.0);
     let color = if hovered { p.text } else { p.text_muted };
@@ -365,8 +366,8 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
     // 一样。
     // 开关模块时淡入淡出，左边的几项跟着滑过去（`App::track_modules`）；消失途中点不到。
     let enabled = app.terminal_enabled();
-    let share = app.module_fx.terminal.share(enabled);
-    let opacity = app.module_fx.terminal.opacity(enabled);
+    let share = app.motion.module_fx.terminal.share(enabled);
+    let opacity = app.motion.module_fx.terminal.opacity(enabled);
     if share > 0.0 {
         let item = StatusItem::Terminal;
         let slot = right - icons::SIDEBAR_WIDTH;
@@ -378,7 +379,7 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
             bar.h - 8.0,
         );
         let open = app.terminal.open;
-        let hovered = enabled && app.hover == Hover::Status(item);
+        let hovered = enabled && app.pointer.hover == Hover::Status(item);
         frame.with_opacity(opacity, |frame| {
             draw_button(frame, p, pill, bar, hovered, false);
         });
@@ -403,8 +404,8 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
     // 远程模块开着时终端开关左边是连接远端主机的按钮：点了打开主机面板。打开的目录在远端
     // 主机上时图标亮，否则灰。出现、消失的方式与终端开关相同。
     let enabled = app.remote_enabled();
-    let share = app.module_fx.remote.share(enabled);
-    let opacity = app.module_fx.remote.opacity(enabled);
+    let share = app.motion.module_fx.remote.share(enabled);
+    let opacity = app.motion.module_fx.remote.opacity(enabled);
     if share > 0.0 {
         let item = StatusItem::Remote;
         let slot = right - icons::SIDEBAR_WIDTH;
@@ -416,7 +417,7 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
             bar.h - 8.0,
         );
         let connected = app.editor.root().is_some_and(winc_backend::is_remote);
-        let hovered = enabled && app.hover == Hover::Status(item);
+        let hovered = enabled && app.pointer.hover == Hover::Status(item);
         frame.with_opacity(opacity, |frame| {
             draw_button(frame, p, pill, bar, hovered, false);
         });
@@ -583,7 +584,7 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
         .as_ref()
         .and_then(branch_label)
         .map(|mut label| {
-            if let Some(running) = &app.branch.running {
+            if let Some(running) = &app.git.branch.running {
                 label.push_str(" · ");
                 label.push_str(&t!(
                     "workspace-status-branch-running",
@@ -599,12 +600,12 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
             }
             label
         });
-    let share = app.module_fx.branch.share(live.is_some());
-    let opacity = app.module_fx.branch.opacity(live.is_some());
+    let share = app.motion.module_fx.branch.share(live.is_some());
+    let opacity = app.motion.module_fx.branch.opacity(live.is_some());
     if live.is_some() {
-        app.module_fx.branch_label.clone_from(&live);
+        app.motion.module_fx.branch_label.clone_from(&live);
     }
-    if let Some(label) = live.or_else(|| app.module_fx.branch_label.clone())
+    if let Some(label) = live.or_else(|| app.motion.module_fx.branch_label.clone())
         && share > 0.0
     {
         let start = right;
@@ -659,14 +660,14 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
             if crumb.path.is_some() {
                 let w = frame.measure(FontKind::Ui, app.fonts.ui_small, &name);
                 let pill = Rect::new(x - CRUMB_PAD, bar.y + 4.0, w + 2.0 * CRUMB_PAD, bar.h - 8.0);
-                let hovered = app.hover == Hover::Crumb(i);
+                let hovered = app.pointer.hover == Hover::Crumb(i);
                 draw_button(
                     frame,
                     p,
                     pill,
                     left,
                     hovered,
-                    app.menu_button == Some(MenuButton::Crumb(i)),
+                    app.overlays.menu_button == Some(MenuButton::Crumb(i)),
                 );
                 if pill.x < left.right() {
                     let visible = pill.w.min(left.right() - pill.x);
@@ -724,12 +725,12 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
 
 /// 在状态栏所在的一行绘制 Vim 模式的命令行或查找：开头是 `:`、`/` 或 `?`，其后是输入框。
 fn draw_command_line(app: &mut App, frame: &mut Frame<'_>) {
-    let Some(mut field) = app.goto_input.take() else {
+    let Some(mut field) = app.bars.goto_input.take() else {
         return;
     };
     let p = app.palette;
     let bar = app.layout.status;
-    let title = match app.prompt_kind {
+    let title = match app.bars.prompt_kind {
         crate::app::PromptKind::VimSearch { forward: true } => "/",
         crate::app::PromptKind::VimSearch { forward: false } => "?",
         _ => ":",
@@ -738,7 +739,7 @@ fn draw_command_line(app: &mut App, frame: &mut Frame<'_>) {
     let area = Rect::new(start, bar.y, (bar.right() - 14.0 - start).max(0.0), bar.h);
     let focused = app.focus == crate::app::Focus::Prompt;
     let caret = super::fields::draw_bar_field(app, frame, area, &mut field, "", focused);
-    app.goto_input = Some(field);
+    app.bars.goto_input = Some(field);
     if caret.is_some() {
         app.ime.cursor = caret;
     }

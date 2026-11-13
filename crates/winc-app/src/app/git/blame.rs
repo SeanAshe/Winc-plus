@@ -107,7 +107,7 @@ impl App {
     /// 行号栏的宽度随之增加。
     pub(crate) fn blame_width(&self) -> f32 {
         match self.editor.active() {
-            Some(doc) if self.blame.is_on(doc.id) && doc.shows_text() => BLAME_W,
+            Some(doc) if self.git.blame.is_on(doc.id) && doc.shows_text() => BLAME_W,
             _ => 0.0,
         }
     }
@@ -118,9 +118,9 @@ impl App {
             return;
         };
         let id = doc.id;
-        if self.blame.on.remove(&id) {
-            self.blame.data.remove(&id);
-            self.blame.due.remove(&id);
+        if self.git.blame.on.remove(&id) {
+            self.git.blame.data.remove(&id);
+            self.git.blame.due.remove(&id);
             self.relayout();
             self.request_redraw();
             return;
@@ -129,7 +129,7 @@ impl App {
             self.flash(t!("git-blame-not-in-repository"));
             return;
         }
-        self.blame.on.insert(id);
+        self.git.blame.on.insert(id);
         self.relayout();
         self.update_blame(id);
         self.request_redraw();
@@ -158,39 +158,39 @@ impl App {
     /// 尚无结果或到达重新计算的时刻时，在后台运行 `git blame`（同一文档同一时刻只计算一次）。
     /// 文本刚变化时先按改动平移上一次的结果，停止输入 [`BLAME_IDLE`] 后再重新计算。
     pub(crate) fn update_blame(&mut self, id: DocumentId) {
-        if !self.blame.is_on(id) {
+        if !self.git.blame.is_on(id) {
             return;
         }
         let Some(doc) = self.editor.document(id) else {
-            self.blame.on.remove(&id);
+            self.git.blame.on.remove(&id);
             return;
         };
         let revision = doc.revision;
         let Some(rope) = doc.text().rope() else {
             return;
         };
-        if let Some(entry) = self.blame.data.get_mut(&id)
+        if let Some(entry) = self.git.blame.data.get_mut(&id)
             && entry.revision != revision
         {
             entry.blame = Arc::new(shifted(&entry.blame, &entry.text, rope));
             entry.text = rope.clone();
             entry.revision = revision;
-            self.blame.due.insert(id, Instant::now() + BLAME_IDLE);
+            self.git.blame.due.insert(id, Instant::now() + BLAME_IDLE);
         }
-        let due = match self.blame.due.get(&id) {
+        let due = match self.git.blame.due.get(&id) {
             Some(at) => Instant::now() >= *at,
-            None => !self.blame.data.contains_key(&id),
+            None => !self.git.blame.data.contains_key(&id),
         };
-        if !due || self.blame.computing.contains_key(&id) {
+        if !due || self.git.blame.computing.contains_key(&id) {
             return;
         }
         let rope = rope.clone();
         let Some((root, path)) = self.blame_path(id) else {
             return;
         };
-        self.blame.due.remove(&id);
-        self.blame.computing.insert(id, revision);
-        let sender = self.blame.results.0.clone();
+        self.git.blame.due.remove(&id);
+        self.git.blame.computing.insert(id, revision);
+        let sender = self.git.blame.results.0.clone();
         self.spawn_git(UserEvent::GitBlame, move |tool| {
             let contents = rope.to_string();
             let result = match tool {
@@ -208,31 +208,31 @@ impl App {
 
     /// 在文档 `id` 保存后立即重新计算逐行追溯，不等待停止输入；未开启时不做处理。
     pub(in crate::app) fn blame_saved(&mut self, id: DocumentId) {
-        if self.blame.is_on(id) {
-            self.blame.due.insert(id, Instant::now());
+        if self.git.blame.is_on(id) {
+            self.git.blame.due.insert(id, Instant::now());
             self.update_blame(id);
         }
     }
 
     /// 在后台重新计算已到时刻的文档，返回下一个重新计算的时刻；事件循环每一轮调用。
     pub(in crate::app) fn blame_tick(&mut self, now: Instant) -> Option<Instant> {
-        let ready: Vec<_> = (self.blame.due.iter())
+        let ready: Vec<_> = (self.git.blame.due.iter())
             .filter(|&(_, &at)| now >= at)
             .map(|(&id, _)| id)
             .collect();
         for id in ready {
             self.update_blame(id);
         }
-        self.blame.due.values().min().copied()
+        self.git.blame.due.values().min().copied()
     }
 
     /// 接收后台计算完成的逐行追溯。
     ///
     /// 失败时（文件尚未被跟踪）提示原因并关闭逐行追溯。
     pub(in crate::app) fn poll_blame(&mut self) {
-        while let Ok(done) = self.blame.results.1.try_recv() {
-            self.blame.computing.remove(&done.doc);
-            if !self.blame.is_on(done.doc) {
+        while let Ok(done) = self.git.blame.results.1.try_recv() {
+            self.git.blame.computing.remove(&done.doc);
+            if !self.git.blame.is_on(done.doc) {
                 continue;
             }
             match done.result {
@@ -242,10 +242,10 @@ impl App {
                         blame: Arc::new(blame),
                         text: done.text,
                     };
-                    self.blame.data.insert(done.doc, entry);
+                    self.git.blame.data.insert(done.doc, entry);
                 }
                 Err(e) => {
-                    self.blame.forget(done.doc);
+                    self.git.blame.forget(done.doc);
                     self.relayout();
                     self.flash(t!("git-blame-failed", error = e));
                 }
@@ -256,7 +256,7 @@ impl App {
 
     /// 返回文档 `id` 最近一次计算的逐行追溯；可能落后于当前文本。
     pub(crate) fn blame_of(&self, id: DocumentId) -> Option<Arc<Blame>> {
-        self.blame.data.get(&id).map(|e| e.blame.clone())
+        self.git.blame.data.get(&id).map(|e| e.blame.clone())
     }
 
     /// 返回窗口坐标 `(x, y)`（逻辑像素）处逐行追溯一栏对应的行号（从 0 起）。

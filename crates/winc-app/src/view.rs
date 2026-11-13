@@ -76,23 +76,23 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     app.hits.clear();
     frame.base(&base(app));
     let layout = app.layout;
-    app.tree.overflow = tree_overflow(app, frame);
+    app.panels.tree.overflow = tree_overflow(app, frame);
     app.track_log_tree();
-    let before = app.commit.overflow.map(|o| o.row);
-    app.commit.overflow = git::commit::commit_overflow(app, frame);
+    let before = app.git.commit.overflow.map(|o| o.row);
+    app.git.commit.overflow = git::commit::commit_overflow(app, frame);
     app.track_commit_actions(before);
     // 历史提交的文件列表借用提交视图的列表，同样计算写全名的那一行。
     app.with_log_list(|app| {
-        let before = app.commit.overflow.map(|o| o.row);
-        app.commit.overflow = git::commit::commit_overflow(app, frame);
+        let before = app.git.commit.overflow.map(|o| o.row);
+        app.git.commit.overflow = git::commit::commit_overflow(app, frame);
         app.track_commit_actions(before);
     });
 
     // 鼠标停在名称展开的行上并滚动文件树后，该位置对应的行可能不再展开名称；鼠标位于文件树
     // 范围之外时需要清除悬停状态。
     let (x, y) = app.mouse();
-    if app.tree.overflow.is_none()
-        && matches!(app.hover, Hover::TreeRow(_))
+    if app.panels.tree.overflow.is_none()
+        && matches!(app.pointer.hover, Hover::TreeRow(_))
         && !layout.tree.contains(x, y)
     {
         app.set_hover(Hover::None);
@@ -105,7 +105,7 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     }
     // 本帧没有绘制工具栏（侧栏收起或处于搜索视图）时，收起动画直接结束，不需要额外一帧。
     if app.hits.tree_tools.is_empty() && app.hits.tree_more.is_none() {
-        app.tool_fold.settle();
+        app.motion.tool_fold.settle();
     }
 
     draw_top_bar(app, frame);
@@ -137,8 +137,8 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     }
 
     // 位置浮窗显示在名称旁边，有独立的动画（滑出、淡出）。
-    let bar_open = app.goto_input.is_some() && !app.prompt_kind.is_vim();
-    let picker_open = app.picker.open && app.picker.places.is_none();
+    let bar_open = app.bars.goto_input.is_some() && !app.bars.prompt_kind.is_vim();
+    let picker_open = app.overlays.picker.open && app.overlays.picker.places.is_none();
     app.track_card(Card::Bar, bar_open);
     app.track_card(Card::Picker, picker_open);
     // 先绘制正在淡出的卡片：在 ⌘P 面板中按 ⌃G 时，跳转条绘制在淡出的面板之上。
@@ -151,9 +151,9 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     if picker_open {
         let rect = app.layout.picker;
         draw_moving_card(app, frame, Card::Picker, rect, draw_picker);
-    } else if app.picker.open {
+    } else if app.overlays.picker.open {
         draw_picker(app, frame);
-    } else if let Some(ghost) = &app.picker.places_out {
+    } else if let Some(ghost) = &app.overlays.picker.places_out {
         editor::places::draw_ghost(app, frame, ghost);
     }
 
@@ -183,7 +183,7 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     draw_tree_drag(app, frame);
 
     // 新建工作树对话框覆盖整个窗口，打开时同样不绘制悬停提示。
-    let dialog_open = app.form_dialog.is_some();
+    let dialog_open = app.overlays.form_dialog.is_some();
     app.track_card(Card::Dialog, dialog_open);
     dialog::draw_ghost(app, frame);
     if dialog_open {
@@ -205,7 +205,7 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
 
     // 窗口内的菜单、提示框绘制在所有内容之上；打开期间不显示悬停提示。提示框关闭后仍需要
     // 若干帧完成淡出，因此每帧都调用绘制。
-    let modal = app.popup().is_some() || app.alert.is_some();
+    let modal = app.popup().is_some() || app.overlays.alert.is_some();
     draw_modal(app, frame);
     if modal {
         return;
@@ -279,7 +279,7 @@ fn draw_tree_drag(app: &App, frame: &mut Frame<'_>) {
         n => Cow::Owned(t!("workspace-tree-drag-items", count = n)),
     };
     // 按住 ⌥ 松开时执行复制。
-    let name = if app.modifiers.alt_key() {
+    let name = if app.pointer.modifiers.alt_key() {
         Cow::Owned(t!("workspace-tree-drag-copy", name = name.as_ref()))
     } else {
         name
@@ -310,6 +310,7 @@ fn draw_tree_drag(app: &App, frame: &mut Frame<'_>) {
 fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
     // 停留时间不足时直接返回，不拼接提示文字，也不查找命中框。
     let rested = app
+        .overlays
         .tooltip
         .since
         .is_some_and(|since| since.elapsed() >= TOOLTIP_DELAY);
@@ -318,7 +319,7 @@ fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
     }
     let (button, label): (Rect, String) = match workspace::panel::tooltip(app) {
         Some(tip) => tip,
-        None => match app.hover {
+        None => match app.pointer.hover {
             Hover::Search(button) => (
                 SearchParts::new(app.layout.search).rect(button),
                 button.label(),
@@ -396,7 +397,7 @@ fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
             }
             // 日志详情中目录被截短或文件被改名的条目：显示完整路径。
             Hover::Log(crate::app::git::log::LogTarget::File(i))
-                if app.log.long_files.contains(&i) =>
+                if app.git.log.long_files.contains(&i) =>
             {
                 let hit = app
                     .hits
@@ -409,7 +410,9 @@ fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
                 }
             }
             // 日志列表中延伸到右端仍放不下的提交说明：提示整句。
-            Hover::Log(crate::app::git::log::LogTarget::Row(i)) if app.log.clipped == Some(i) => {
+            Hover::Log(crate::app::git::log::LogTarget::Row(i))
+                if app.git.log.clipped == Some(i) =>
+            {
                 let hit = app
                     .hits
                     .log
@@ -454,7 +457,7 @@ fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
     // 单行高 26 逻辑像素，每多一行增加 18。
     const LINE: f32 = 18.0;
     let height = 8.0 + LINE * lines.len() as f32;
-    let rect = if matches!(app.hover, Hover::RulerChange(_)) {
+    let rect = if matches!(app.pointer.hover, Hover::RulerChange(_)) {
         // 概览标尺紧靠窗口右边缘：提示放在标尺左侧、与鼠标同高，不遮挡鼠标所指的标记。
         Rect::new(
             button.x - 8.0 - width,
@@ -529,7 +532,7 @@ fn baseline_in(rect: Rect, ascent: f32, descent: f32) -> f32 {
 /// 关闭按钮、行底色不对齐；按视觉中心居中后，文字、图标和按钮的垂直位置一致。
 fn optical_center(app: &App, size: f32) -> f32 {
     let k = size / app.fonts.ui;
-    (app.ui_metrics.x_height + app.ui_metrics.cap_height) * k / 4.0
+    (app.metrics.ui.x_height + app.metrics.ui.cap_height) * k / 4.0
 }
 
 /// 返回字号为 `size` 的界面文本在 `row` 内垂直居中时的基线 y 坐标（逻辑像素，取整）。
@@ -697,7 +700,7 @@ fn caps_label(
     color: Color,
     clip: Rect,
 ) -> f32 {
-    let cap = app.ui_metrics.cap_height * size / app.fonts.ui;
+    let cap = app.metrics.ui.cap_height * size / app.fonts.ui;
     let baseline = (rect.y + rect.h / 2.0 + cap / 2.0).round();
     frame.text(FontKind::Ui, size, x, baseline, text, color, clip)
 }

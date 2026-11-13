@@ -46,13 +46,13 @@ pub(in crate::view) fn draw_split(app: &mut App, frame: &mut Frame<'_>) {
         }
         return;
     }
-    if app.split.doc != Some(id) {
+    if app.preview.split.doc != Some(id) {
         return;
     }
-    if let Some(picture) = app.split.picture.clone() {
+    if let Some(picture) = app.preview.split.picture.clone() {
         draw_picture(app, frame, id, &picture, area);
     }
-    let Some(reason) = app.split.error.clone() else {
+    let Some(reason) = app.preview.split.error.clone() else {
         return;
     };
     let message = t!("editor-preview-failed", reason = reason);
@@ -74,7 +74,7 @@ pub(super) fn draw_picture(
     picture: &Arc<winc_preview::image::Picture>,
     editor: Rect,
 ) {
-    let view = &app.picture_view;
+    let view = &app.preview.picture_view;
     let (Some(shown), Some(goal)) = (view.rect(picture, editor), view.settled(picture, editor))
     else {
         return;
@@ -213,7 +213,7 @@ fn draw_raster(
 ) {
     let (size, clip) = (goal.size, shown.clip);
     let rect = shown.whole();
-    let cached = (app.picture_cache.as_ref())
+    let cached = (app.preview.picture_cache.as_ref())
         .filter(|c| c.doc == id && Arc::ptr_eq(&c.picture, picture))
         .and_then(|c| c.sharp.as_ref())
         .map(|sharp| sharp.size);
@@ -222,14 +222,14 @@ fn draw_raster(
     if direct(shown.size) || (direct(size) && cached.is_none()) {
         // 过渡结束后也直接绘制时释放缩小后的缓存；向缩小过渡时留给之后的各帧。
         if direct(size) {
-            app.picture_cache = None;
+            app.preview.picture_cache = None;
         }
         return blit(frame, rect, shown.size, pixels, clip);
     }
     // 这一帧小于保留的像素：绘制按面积平均缩小后的缓存，直接缩小原图会出现锯齿。向放大过渡
     // 时沿用过渡开始前的缓存，不为中间的大小重新缩小。
     if !direct(size) && cached != Some(size) {
-        app.picture_cache = Some(PictureCache {
+        app.preview.picture_cache = Some(PictureCache {
             doc: id,
             picture: Arc::clone(picture),
             sharp: Some(Raster {
@@ -240,7 +240,12 @@ fn draw_raster(
             base: None,
         });
     }
-    if let Some(sharp) = app.picture_cache.as_ref().and_then(|c| c.sharp.as_ref()) {
+    if let Some(sharp) = app
+        .preview
+        .picture_cache
+        .as_ref()
+        .and_then(|c| c.sharp.as_ref())
+    {
         blit(frame, rect, shown.size, &sharp.pixels, clip);
     }
 }
@@ -286,6 +291,7 @@ fn draw_vector(
         ]
     };
     let same = app
+        .preview
         .picture_cache
         .as_ref()
         .filter(|c| c.doc == id && Arc::ptr_eq(&c.picture, picture));
@@ -295,7 +301,7 @@ fn draw_vector(
     });
     let based = small || same.is_some_and(|c| c.base.is_some());
     if same.is_none() {
-        app.picture_cache = None;
+        app.preview.picture_cache = None;
     }
     // 低分辨率位图先于可见的部分绘制：它的像素少，完成得早，等待期间不留空白。
     if !based {
@@ -313,7 +319,7 @@ fn draw_vector(
         app.render_picture(id, picture, raster, region, false);
     }
 
-    let Some(cache) = &app.picture_cache else {
+    let Some(cache) = &app.preview.picture_cache else {
         return;
     };
     let visible = shown.whole().intersect(shown.clip);

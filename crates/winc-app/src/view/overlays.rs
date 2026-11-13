@@ -17,11 +17,11 @@ use crate::layout::{PickerParts, SearchButton};
 /// 绘制查找条（⌘F、⌥⌘F）：浮在编辑区右上角，内含查找输入框，展开后含替换输入框。
 pub(super) fn draw_search(app: &mut App, frame: &mut Frame<'_>) {
     // 绘制时需要更新输入框中记录的几何信息：先将输入框从 `app` 中取出，绘制后放回。
-    let mut find = std::mem::take(&mut app.find.input);
-    let mut replace = std::mem::take(&mut app.find.replace_input);
+    let mut find = std::mem::take(&mut app.bars.find.input);
+    let mut replace = std::mem::take(&mut app.bars.find.replace_input);
     let caret = draw_search_bar(app, frame, &mut find, &mut replace);
-    app.find.input = find;
-    app.find.replace_input = replace;
+    app.bars.find.input = find;
+    app.bars.find.replace_input = replace;
 
     if caret.is_some() {
         app.ime.cursor = caret;
@@ -42,8 +42,8 @@ fn draw_search_bar(
     let p = app.palette;
     let bar = app.layout.search;
     let parts = SearchParts::new(bar);
-    let search = &app.search;
-    let hovered = |button| app.hover == Hover::Search(button);
+    let search = &app.bars.search;
+    let hovered = |button| app.pointer.hover == Hover::Search(button);
     let expanded = parts.replace_field.w > 0.0;
     let can_replace = app.can_replace();
     draw_card(frame, p, bar, RADIUS_BAR, p.popup_bg);
@@ -150,7 +150,7 @@ fn draw_search_bar(
     }
     // 「只显示匹配的行」开关：开启时与三个选项开关一样铺强调色底色。差异标签里用不了（两侧
     // 按改动对齐），预览上也用不了（没有「行」），置灰。
-    let on = app.find.filter_lines;
+    let on = app.bars.find.filter_lines;
     let filter_usable = app.editor.active().is_none_or(|d| d.diff.is_none())
         && !app.markdown_focused()
         && !app.markdown_live();
@@ -215,7 +215,7 @@ fn draw_search_bar(
 
 /// 绘制跳转条（⌃G）：样式与查找条相同，浮在编辑区顶部居中，右端显示总行数。
 pub(super) fn draw_goto(app: &mut App, frame: &mut Frame<'_>) {
-    let Some(mut field) = app.goto_input.take() else {
+    let Some(mut field) = app.bars.goto_input.take() else {
         return;
     };
 
@@ -226,7 +226,7 @@ pub(super) fn draw_goto(app: &mut App, frame: &mut Frame<'_>) {
         draw_card(frame, p, bar, RADIUS_BAR, p.popup_bg);
 
         // 跳转到行、储藏说明，或者输入新标签的名字。
-        let (title, placeholder, hint) = match &app.prompt_kind {
+        let (title, placeholder, hint) = match &app.bars.prompt_kind {
             crate::app::PromptKind::GoTo => {
                 let total = app.editor.active().map_or(0, |d| d.text().line_count());
                 (
@@ -270,7 +270,7 @@ pub(super) fn draw_goto(app: &mut App, frame: &mut Frame<'_>) {
         draw_bar_field(app, frame, area, &mut field, placeholder, focused)
     };
 
-    app.goto_input = Some(field);
+    app.bars.goto_input = Some(field);
 
     if caret.is_some() {
         app.ime.cursor = caret;
@@ -281,9 +281,9 @@ pub(super) fn draw_goto(app: &mut App, frame: &mut Frame<'_>) {
 /// 悬停色。
 fn draw_pick_row(app: &App, frame: &mut Frame<'_>, row: Rect, i: usize, clip: Rect) {
     let p = app.palette;
-    let color = if i == app.picker.selected {
+    let color = if i == app.overlays.picker.selected {
         p.selected_inactive
-    } else if app.hover == Hover::PickerRow(i) {
+    } else if app.pointer.hover == Hover::PickerRow(i) {
         p.hover
     } else {
         return;
@@ -309,7 +309,7 @@ pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
         return;
     }
 
-    if app.picker.places.is_some() {
+    if app.overlays.picker.places.is_some() {
         if let Some(caret) = super::editor::places::draw_live(app, frame, rect) {
             app.ime.cursor = Some(caret);
         }
@@ -331,27 +331,27 @@ pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
         let cy = bar.y + bar.h / 2.0;
         icons::magnifier(frame, (x, cy), p.text_dim, bar);
 
-        let total = if app_mut.picker.folders {
+        let total = if app_mut.overlays.picker.folders {
             t!("workspace-picker-folders-new-window").to_owned()
-        } else if app_mut.picker.remote.is_some() {
+        } else if app_mut.overlays.picker.remote.is_some() {
             // 目录阶段在右端显示正在浏览的主机。
             app_mut.remote_picker_host().unwrap_or_default().to_owned()
-        } else if app_mut.picker.vim_list.is_some() {
+        } else if app_mut.overlays.picker.vim_list.is_some() {
             String::new()
         } else if app_mut.picker_lists_commands() {
             t!(
                 "workspace-picker-commands",
-                count = app_mut.picker.hits.len()
+                count = app_mut.overlays.picker.hits.len()
             )
         } else if app_mut.picker_lists_symbols() {
             t!(
                 "workspace-picker-symbols",
-                count = app_mut.picker.hits.len()
+                count = app_mut.overlays.picker.hits.len()
             )
         } else {
             // 有查询时写成「命中数 / 总数」，否则只显示总数，无法看出筛选后的数量。
-            let total = app_mut.picker.index.len();
-            match app_mut.picker.index.matches() {
+            let total = app_mut.overlays.picker.index.len();
+            match app_mut.overlays.picker.index.matches() {
                 Some(n) => t!("workspace-picker-files-matched", matched = n, total = total),
                 None => t!("workspace-picker-files", count = total),
             }
@@ -367,14 +367,14 @@ pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
     let text_w = (hint_x - 12.0 - text_x).min(bar.w - PICKER_TEXT_X - 100.0);
     let text_area = Rect::new(text_x, bar.y, text_w.max(0.0), bar.h);
 
-    let placeholder = if app.picker.folders {
+    let placeholder = if app.overlays.picker.folders {
         t!("workspace-picker-folders-placeholder")
-    } else if app.picker.remote.is_some() {
+    } else if app.overlays.picker.remote.is_some() {
         match app.remote_picker_host() {
             Some(_) => t!("workspace-picker-remote-folders-placeholder"),
             None => t!("workspace-picker-remote-hosts-placeholder"),
         }
-    } else if let Some(list) = &app.picker.vim_list {
+    } else if let Some(list) = &app.overlays.picker.vim_list {
         match list.kind {
             winc_vim::Listing::Registers => t!("workspace-picker-vim-registers"),
             winc_vim::Listing::Marks => t!("workspace-picker-vim-marks"),
@@ -386,9 +386,9 @@ pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
     let caret = {
         let app_mut = &mut *app;
         let focused = app_mut.focus == Focus::Picker;
-        let mut field = std::mem::take(&mut app_mut.picker.input);
+        let mut field = std::mem::take(&mut app_mut.overlays.picker.input);
         let caret = draw_bar_field(app_mut, frame, text_area, &mut field, placeholder, focused);
-        app_mut.picker.input = field;
+        app_mut.overlays.picker.input = field;
         caret
     };
 
@@ -408,15 +408,15 @@ pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
         rect,
     );
 
-    if app.picker.folders {
+    if app.overlays.picker.folders {
         app.hits.picker_parts = draw_folder_rows(app, frame, &parts);
         return;
     }
-    if app.picker.remote.is_some() {
+    if app.overlays.picker.remote.is_some() {
         app.hits.picker_parts = draw_remote_rows(app, frame, &parts);
         return;
     }
-    if app.picker.vim_list.is_some() {
+    if app.overlays.picker.vim_list.is_some() {
         draw_vim_rows(app, frame, &parts);
         return;
     }
@@ -456,19 +456,26 @@ pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
         return;
     }
 
-    if app.picker.hits.is_empty() {
+    if app.overlays.picker.hits.is_empty() {
         let row = Rect::new(list.x, list.y, list.w, list.h.min(PICKER_ROW));
-        let goto = app.picker.goto.as_deref().map(|g| match g.split_once(':') {
-            Some((line, col)) => t!(
-                "workspace-picker-goto-line-column",
-                line = line,
-                column = col
-            ),
-            None => t!("workspace-picker-goto-line", line = g),
-        });
+        let goto = app
+            .overlays
+            .picker
+            .goto
+            .as_deref()
+            .map(|g| match g.split_once(':') {
+                Some((line, col)) => t!(
+                    "workspace-picker-goto-line-column",
+                    line = line,
+                    column = col
+                ),
+                None => t!("workspace-picker-goto-line", line = g),
+            });
         let message = match goto {
             Some(goto) if app.editor.active.is_some() => goto,
-            _ if app.picker.index.is_empty() => t!("workspace-picker-folder-empty").to_owned(),
+            _ if app.overlays.picker.index.is_empty() => {
+                t!("workspace-picker-folder-empty").to_owned()
+            }
             _ => t!("workspace-picker-no-matching-files").to_owned(),
         };
         ui_text(
@@ -483,15 +490,15 @@ pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
         return;
     }
 
-    let scroll = app.picker.scroll;
+    let scroll = app.overlays.picker.scroll;
 
-    for i in parts.visible(scroll, app.picker.hits.len()) {
-        let index = app.picker.hits[i];
+    for i in parts.visible(scroll, app.overlays.picker.hits.len()) {
+        let index = app.overlays.picker.hits[i];
         let row = parts.row(i, scroll);
         // 滚动时列表上下两端的行只露出一部分，绘制时裁剪到列表区域内。
         let clip = row.intersect(list);
 
-        let Some(file) = app.picker.index.file(index) else {
+        let Some(file) = app.overlays.picker.index.file(index) else {
             continue;
         };
 
@@ -517,7 +524,7 @@ pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
 
         // 在「最近打开」分组的第一行右侧显示「最近打开」标注。
         let mut right = row.right() - 12.0;
-        if i == 0 && app.picker.recent > 0 {
+        if i == 0 && app.overlays.picker.recent > 0 {
             let label = t!("workspace-picker-recently-opened");
             right -= frame.measure(FontKind::Ui, app.fonts.ui_small, label);
             ui_text_small(frame, app, right, row, label, p.text_dim, clip);
@@ -556,21 +563,21 @@ fn draw_remote_rows(
     let p = app.palette;
     let list = parts.list;
     let mut hits = Vec::new();
-    let Some(rows) = app.picker.remote.as_ref().map(|shown| &shown.rows) else {
+    let Some(rows) = app.overlays.picker.remote.as_ref().map(|shown| &shown.rows) else {
         return hits;
     };
-    let scroll = app.picker.scroll;
-    let count = app.picker.hits.len();
+    let scroll = app.overlays.picker.scroll;
+    let count = app.overlays.picker.hits.len();
     for i in parts.visible(scroll, count) {
-        let Some(item) = rows.get(app.picker.hits[i]) else {
+        let Some(item) = rows.get(app.overlays.picker.hits[i]) else {
             continue;
         };
         let row = parts.row(i, scroll);
         let clip = row.intersect(list);
         let forget = PickerPart::ForgetRemote(i);
-        let selected = i == app.picker.selected;
+        let selected = i == app.overlays.picker.selected;
         draw_pick_row(app, frame, row, i, clip);
-        if !selected && app.hover == Hover::PickerPart(forget) {
+        if !selected && app.pointer.hover == Hover::PickerPart(forget) {
             frame.rect_clipped(row.inset(6.0, 1.0), p.hover, RADIUS_ROW, clip);
         }
         let cy = icon_center_y(app, row, app.fonts.ui);
@@ -603,10 +610,10 @@ fn draw_remote_rows(
                 BUTTON_SMALL,
                 row.h - 4.0,
             );
-            let hovered = matches!(app.hover,
+            let hovered = matches!(app.pointer.hover,
                 Hover::PickerRow(r) | Hover::PickerPart(PickerPart::ForgetRemote(r)) if r == i);
             if selected || hovered {
-                let over = app.hover == Hover::PickerPart(forget);
+                let over = app.pointer.hover == Hover::PickerPart(forget);
                 draw_button(frame, p, close, clip, over, false);
                 icons::close(frame, center(close), 6.5, p.text_muted, clip);
                 hits.push((close, forget));
@@ -647,10 +654,16 @@ fn draw_remote_rows(
 fn draw_vim_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts) {
     let p = app.palette;
     let list = parts.list;
-    let Some(rows) = app.picker.vim_list.as_ref().map(|shown| &shown.rows) else {
+    let Some(rows) = app
+        .overlays
+        .picker
+        .vim_list
+        .as_ref()
+        .map(|shown| &shown.rows)
+    else {
         return;
     };
-    if app.picker.hits.is_empty() {
+    if app.overlays.picker.hits.is_empty() {
         let row = Rect::new(list.x, list.y, list.w, list.h.min(PICKER_ROW));
         let message = t!("workspace-picker-vim-empty");
         ui_text(
@@ -664,9 +677,9 @@ fn draw_vim_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts) {
         );
         return;
     }
-    let scroll = app.picker.scroll;
-    for i in parts.visible(scroll, app.picker.hits.len()) {
-        let Some(item) = rows.get(app.picker.hits[i]) else {
+    let scroll = app.overlays.picker.scroll;
+    for i in parts.visible(scroll, app.overlays.picker.hits.len()) {
+        let Some(item) = rows.get(app.overlays.picker.hits[i]) else {
             continue;
         };
         let row = parts.row(i, scroll);
@@ -694,7 +707,7 @@ fn draw_vim_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts) {
 fn draw_palette_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts) {
     let p = app.palette;
     let list = parts.list;
-    if app.picker.hits.is_empty() {
+    if app.overlays.picker.hits.is_empty() {
         let row = Rect::new(list.x, list.y, list.w, list.h.min(PICKER_ROW));
         ui_text(
             frame,
@@ -708,9 +721,9 @@ fn draw_palette_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts) {
         return;
     }
 
-    let scroll = app.picker.scroll;
-    for i in parts.visible(scroll, app.picker.hits.len()) {
-        let Some(&action) = crate::app::palette().get(app.picker.hits[i]) else {
+    let scroll = app.overlays.picker.scroll;
+    for i in parts.visible(scroll, app.overlays.picker.hits.len()) {
+        let Some(&action) = crate::app::palette().get(app.overlays.picker.hits[i]) else {
             continue;
         };
         let row = parts.row(i, scroll);
@@ -723,7 +736,7 @@ fn draw_palette_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts) {
             ui_text_small(frame, app, right, row, &shortcut, p.text_dim, clip);
             right -= 16.0;
         }
-        if i == 0 && app.picker.recent > 0 {
+        if i == 0 && app.overlays.picker.recent > 0 {
             let label = t!("workspace-picker-recently-used");
             right -= frame.measure(FontKind::Ui, app.fonts.ui_small, label);
             ui_text_small(frame, app, right, row, label, p.text_dim, clip);
@@ -753,11 +766,13 @@ fn draw_palette_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts) {
 fn draw_symbol_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts) {
     let p = app.palette;
     let list = parts.list;
-    let empty = match &app.picker.symbols {
+    let empty = match &app.overlays.picker.symbols {
         None => Some(t!("workspace-no-open-file")),
         Some(s) if s.too_large => Some(t!("workspace-picker-symbols-too-large")),
         Some(s) if s.items.is_empty() => Some(t!("workspace-picker-no-symbols")),
-        Some(_) if app.picker.hits.is_empty() => Some(t!("workspace-picker-no-matching-symbols")),
+        Some(_) if app.overlays.picker.hits.is_empty() => {
+            Some(t!("workspace-picker-no-matching-symbols"))
+        }
         Some(_) => None,
     };
     if let Some(message) = empty {
@@ -773,13 +788,13 @@ fn draw_symbol_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts) {
         );
         return;
     }
-    let Some(symbols) = app.picker.symbols.as_ref() else {
+    let Some(symbols) = app.overlays.picker.symbols.as_ref() else {
         return;
     };
 
-    let scroll = app.picker.scroll;
-    for i in parts.visible(scroll, app.picker.hits.len()) {
-        let Some(symbol) = symbols.items.get(app.picker.hits[i]) else {
+    let scroll = app.overlays.picker.scroll;
+    for i in parts.visible(scroll, app.overlays.picker.hits.len()) {
+        let Some(symbol) = symbols.items.get(app.overlays.picker.hits[i]) else {
             continue;
         };
         let row = parts.row(i, scroll);
@@ -812,7 +827,7 @@ fn draw_folder_rows(
 ) -> Vec<(Rect, PickerPart)> {
     let p = app.palette;
     let list = parts.list;
-    if app.picker.hits.is_empty() {
+    if app.overlays.picker.hits.is_empty() {
         let root = app.editor.root();
         let message = if app.state.recent.iter().any(|f| Some(f.as_path()) != root) {
             t!("workspace-picker-no-matching-folders")
@@ -826,19 +841,19 @@ fn draw_folder_rows(
     }
 
     let mut hits = Vec::new();
-    let scroll = app.picker.scroll;
-    for i in parts.visible(scroll, app.picker.hits.len()) {
-        let Some(folder) = app.state.recent.get(app.picker.hits[i]) else {
+    let scroll = app.overlays.picker.scroll;
+    for i in parts.visible(scroll, app.overlays.picker.hits.len()) {
+        let Some(folder) = app.state.recent.get(app.overlays.picker.hits[i]) else {
             continue;
         };
         let row = parts.row(i, scroll);
         let clip = row.intersect(list);
         let forget = PickerPart::ForgetFolder(i);
-        let selected = i == app.picker.selected;
-        let hovered = matches!(app.hover,
+        let selected = i == app.overlays.picker.selected;
+        let hovered = matches!(app.pointer.hover,
             Hover::PickerRow(r) | Hover::PickerPart(PickerPart::ForgetFolder(r)) if r == i);
         draw_pick_row(app, frame, row, i, clip);
-        if !selected && app.hover == Hover::PickerPart(forget) {
+        if !selected && app.pointer.hover == Hover::PickerPart(forget) {
             frame.rect_clipped(row.inset(6.0, 1.0), p.hover, RADIUS_ROW, clip);
         }
 
@@ -855,7 +870,7 @@ fn draw_folder_rows(
             row.h - 4.0,
         );
         if selected || hovered {
-            let over = app.hover == Hover::PickerPart(forget);
+            let over = app.pointer.hover == Hover::PickerPart(forget);
             draw_button(frame, p, close, clip, over, false);
             icons::close(frame, center(close), 6.5, p.text_muted, clip);
             hits.push((close, forget));
@@ -965,7 +980,7 @@ pub(super) fn draw_conflict(
     let mut buttons = Vec::new();
     for (&action, w) in ConflictAction::ALL.iter().zip(labels) {
         let button = Rect::new(x, y, w, BUTTON_SMALL);
-        let hovered = app.hover == Hover::ConflictButton(action);
+        let hovered = app.pointer.hover == Hover::ConflictButton(action);
         draw_button(frame, p, button, card, hovered, false);
         ui_text(
             frame,
@@ -1044,7 +1059,7 @@ fn draw_notice(
         button_w - 8.0,
         BUTTON_SMALL,
     );
-    let hovered = app.hover == Hover::NoticeButton;
+    let hovered = app.pointer.hover == Hover::NoticeButton;
     draw_button(frame, p, button, rect, hovered, false);
     ui_text(frame, app, button.x + 8.0, button, label, p.accent, rect);
     (rect, Some(button))

@@ -51,168 +51,182 @@ impl App {
             editor,
             terminal: terminal::TerminalPanel::default(),
             run: terminal::run::RunConfigs::default(),
-            saved_config: config.clone(),
+            store: crate::app::settings::Store {
+                saved_config: config.clone(),
+                config_path: None,
+                state_path: None,
+                config_rev: 0,
+            },
             config,
-            config_path: None,
             theme_choice,
             state: State::default(),
-            state_path: None,
             backup: backup::BackupState::default(),
             opened_terminal: None,
             one_off: Default::default(),
             palette: DARK_THEMES[0].palette,
             fonts,
-            ui_metrics: placeholder,
-            mono_metrics: placeholder,
-            cell: placeholder.cell,
-            terminal_metrics: placeholder,
-            terminal_cell: placeholder.cell,
+            metrics: crate::app::lifecycle::TextMetrics {
+                ui: placeholder,
+                mono: placeholder,
+                cell: placeholder.cell,
+                terminal: placeholder,
+                terminal_cell: placeholder.cell,
+            },
             focus: Focus::Editor,
-            hover: Hover::None,
-            modifiers: ModifiersState::empty(),
-            option_side: (false, false),
-            mouse: (0.0, 0.0),
+            pointer: crate::app::input::Pointer {
+                hover: Hover::None,
+                modifiers: ModifiersState::empty(),
+                option_side: (false, false),
+                mouse: (0.0, 0.0),
+                drag: Drag::None,
+                last_click: None,
+                title_click: None,
+                close_pressed: None,
+                control_pressed: None,
+                cursor_icon: CursorIcon::Default,
+                drag_scrolled_at: None,
+                cursor_inside: false,
+            },
             touch: Default::default(),
-            drag: Drag::None,
-            last_click: None,
-            title_click: None,
             window: Default::default(),
-            close_pressed: None,
-            cursor_icon: CursorIcon::Default,
-            drag_scrolled_at: None,
             blink: Default::default(),
-            preedit: String::new(),
-            field_preedit: String::new(),
             ime: Default::default(),
             layout: Layout::default(),
             tabs: TabBar::default(),
             diff: Default::default(),
             status: Default::default(),
-            sticky_cache: None,
-            wraps: Arc::default(),
-            line_tokens: Default::default(),
-            minimap_rows: Default::default(),
-            max_scroll_x: None,
-            line_widths: ((winc_editor::DocumentId(0), 0, 0), Default::default()),
-            ruler_cache: None,
-            picture_cache: None,
-            picture_view: Default::default(),
-            images: preview::images::ImageJobs::default(),
-            tables: preview::tables::TableJobs::default(),
-            table_layout: Default::default(),
-            split: preview::images::SplitPreview::default(),
-            markdown: preview::markdown::MarkdownPreview::default(),
-            setup_intro: None,
-            setup_outro: None,
+            caches: crate::app::editor::EditorCaches {
+                sticky_cache: None,
+                wraps: Arc::default(),
+                line_tokens: Default::default(),
+                minimap_rows: Default::default(),
+                max_scroll_x: None,
+                line_widths: ((winc_editor::DocumentId(0), 0, 0), Default::default()),
+                ruler_cache: None,
+                highlight_pending: false,
+                brace_cache: None,
+            },
+            preview: crate::app::preview::PreviewState {
+                picture_cache: None,
+                picture_view: Default::default(),
+                images: preview::images::ImageJobs::default(),
+                tables: preview::tables::TableJobs::default(),
+                table_layout: Default::default(),
+                split: preview::images::SplitPreview::default(),
+                markdown: preview::markdown::MarkdownPreview::default(),
+                pdf: preview::pdf::PdfPreview::default(),
+                split_share: None,
+            },
+            motion: crate::app::animation::Motions {
+                setup_intro: None,
+                setup_outro: None,
+                tool_fold: ToolFold::default(),
+                bar_card: Default::default(),
+                dialog_card: Default::default(),
+                alert_card: Default::default(),
+                module_fx: Default::default(),
+                fold_motion: None,
+                diff_fold: None,
+            },
             release_notes: Default::default(),
-            pdf: preview::pdf::PdfPreview::default(),
             wallpaper: Default::default(),
             key_path: Default::default(),
-            tree: Default::default(),
-            tool_fold: ToolFold::default(),
-            scrollbars: Scrollbars::default(),
-            sidebar: workspace::Sidebar {
-                visible: panel_visible,
-                ..Default::default()
+            panels: crate::app::workspace::Panels {
+                tree: Default::default(),
+                sidebar: workspace::Sidebar {
+                    visible: panel_visible,
+                    ..Default::default()
+                },
+                file_hover: None,
+                name_input: None,
+                global: GlobalSearch::default(),
+                outline: OutlineState::default(),
             },
-            split_share: None,
-            name_hint: None,
-            bar_card: Default::default(),
-            form_dialog: None,
-            alert: None,
-            dialog_card: Default::default(),
-            alert_card: Default::default(),
-            module_fx: Default::default(),
+            scroll: crate::app::scroll::ScrollState {
+                bars: Scrollbars::default(),
+                glide: None,
+                pane_glides: Vec::new(),
+                fling: None,
+                wheel: Default::default(),
+            },
+            jumps: crate::app::editor::Jumps {
+                name_hint: None,
+                navigation: Default::default(),
+                definitions: None,
+            },
+            overlays: crate::app::input::Overlays {
+                form_dialog: None,
+                alert: None,
+                picker: Default::default(),
+                context_menu: None,
+                menu_button: None,
+                tooltip: Default::default(),
+            },
             text_content_w: 0.0,
-            fold_motion: None,
-            diff_fold: None,
-            scroll_glide: None,
-            pane_glides: Vec::new(),
-            fling: None,
-            wheel: Default::default(),
             preview_tab: None,
-            file_hover: None,
-            name_input: None,
-            highlight_pending: false,
-            brace_cache: None,
-            #[cfg(not(test))]
-            clipboard: None,
-            #[cfg(test)]
-            copied: None,
-            #[cfg(test)]
-            copied_files: Vec::new(),
-            #[cfg(test)]
-            copied_image: None,
-            line_clipboard: None,
+            clipboard: Default::default(),
             vim,
-            search: Search::default(),
-            find: Default::default(),
+            bars: crate::app::editor::InputBars {
+                search: Search::default(),
+                find: Default::default(),
+                goto_input: None,
+                prompt_kind: PromptKind::GoTo,
+            },
             word_highlights: Vec::new(),
-            goto_input: None,
-            global: GlobalSearch::default(),
-            outline: OutlineState::default(),
             hits: Default::default(),
-            picker: Default::default(),
-            watcher: None,
-            changes_due: None,
-            rereads: Default::default(),
-            saves: Default::default(),
-            loads: Default::default(),
-            recent_files,
-            recent_commands: Vec::new(),
-            navigation: Default::default(),
+            disk: crate::app::workspace::DiskState {
+                watcher: None,
+                changes_due: None,
+                rereads: Default::default(),
+                saves: Default::default(),
+                loads: Default::default(),
+                file_work: Default::default(),
+                ordered: None,
+            },
+            history: crate::app::workspace::History {
+                files: recent_files,
+                commands: Vec::new(),
+                closed: Vec::new(),
+            },
             pending_chord: None,
-            location_toggled: Default::default(),
-            branch_folders: Default::default(),
-            definitions: None,
             settings: SettingsState::default(),
             format: FormatState::new(formatter()),
-            git: git::GitState::default(),
-            commit: {
-                let mut commit = git::commit::CommitState::default();
-                commit.set_compact(compact);
-                commit
+            git: {
+                let mut git = git::GitState::default();
+                git.commit.set_compact(compact);
+                git
             },
-            changes: git::changes::LineChanges::default(),
-            log: git::log::LogState::default(),
-            blame: git::blame::BlameState::default(),
-            branch: git::branch::BranchState::default(),
             remote: Default::default(),
-            file_work: Default::default(),
-            ordered: None,
-            merge: git::merge::MergeState::default(),
-            rediff: diff::RediffState::default(),
-            prompt_kind: PromptKind::GoTo,
-            context_menu: None,
-            menu_button: None,
             trash: crate::system::move_to_trash,
             closing: Default::default(),
-            closed: Vec::new(),
             ask_on_quit: Arc::new(AtomicBool::new(false)),
             deleted_told: HashSet::new(),
             notice: Default::default(),
-            cursor_inside: false,
-            tooltip: Default::default(),
-            renderer: None,
-            proxy,
-            #[cfg(target_os = "macos")]
-            traffic_lights: None,
-            key: None,
-            shared: Default::default(),
-            config_rev: 0,
-            cascade: None,
-            open_fullscreen: false,
-            glyphs_from: None,
-            #[cfg(all(unix, not(target_os = "macos")))]
-            activation: None,
-            next_frame: None,
-            #[cfg(any(target_os = "macos", windows))]
-            display_link: None,
-            frame_interval: Duration::from_micros(16_667),
-            bench,
-            frame_log: crate::frame_log::FrameLog::from_env(),
-            presented: 0,
-            dirty: true,
+            frame: crate::app::lifecycle::FrameState {
+                renderer: None,
+                next_frame: None,
+                #[cfg(any(target_os = "macos", windows))]
+                display_link: None,
+                frame_interval: Duration::from_micros(16_667),
+                bench,
+                frame_log: crate::frame_log::FrameLog::from_env(),
+                presented: 0,
+                dirty: true,
+            },
+            link: crate::app::lifecycle::AppLink {
+                proxy,
+                #[cfg(target_os = "macos")]
+                traffic_lights: None,
+                key: None,
+                shared: Default::default(),
+            },
+            opening: crate::app::lifecycle::Opening {
+                cascade: None,
+                fullscreen: false,
+                glyphs_from: None,
+                #[cfg(all(unix, not(target_os = "macos")))]
+                activation: None,
+            },
         }
     }
 
@@ -226,7 +240,12 @@ impl App {
         // 其他平台：以 AppImage 运行或由安装包安装时由应用自行更新（`updates.rs`），
         // 结果同样交给应用层。
         #[cfg(not(target_os = "macos"))]
-        if let Some(proxy) = self.proxy.as_ref().map(crate::winc::WindowProxy::active) {
+        if let Some(proxy) = self
+            .link
+            .proxy
+            .as_ref()
+            .map(crate::winc::WindowProxy::active)
+        {
             let (found, state, tick) = (proxy.clone(), proxy.clone(), proxy);
             crate::updates::start(
                 move |version| {
@@ -245,7 +264,12 @@ impl App {
         self.sync_system_recents();
         #[cfg(target_os = "macos")]
         // 以下回调属于整个应用（菜单栏、程序坞、`⌘Q`），交由当前窗口处理。
-        if let Some(proxy) = self.proxy.as_ref().map(crate::winc::WindowProxy::active) {
+        if let Some(proxy) = self
+            .link
+            .proxy
+            .as_ref()
+            .map(crate::winc::WindowProxy::active)
+        {
             let settings = proxy.clone();
             crate::macos::add_settings_menu(move || {
                 let _ = settings.send_event(UserEvent::OpenSettings);

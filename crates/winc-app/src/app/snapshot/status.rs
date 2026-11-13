@@ -27,8 +27,8 @@ fn the_settings_button_stays_at_the_right_end_of_the_status_bar() {
     // 悬停时提示命令名，点击打开设置。
     let at = (settings.x + settings.w / 2.0, settings.y + settings.h / 2.0);
     app.on_mouse_move(at.0, at.1);
-    assert_eq!(app.hover, Hover::Status(StatusItem::Settings));
-    assert!(app.hover.has_tooltip());
+    assert_eq!(app.pointer.hover, Hover::Status(StatusItem::Settings));
+    assert!(app.pointer.hover.has_tooltip());
     app.on_mouse_down(MouseButton::Left);
     app.on_mouse_up(MouseButton::Left);
     assert!(app.settings.open);
@@ -67,20 +67,23 @@ fn every_crumb_opens_the_folder_it_names() {
     let (src, _) = app.hits.crumbs[1];
     let y = src.y + src.h / 2.0;
     app.on_mouse_move(src.x + 4.0, y);
-    assert_eq!(app.hover, Hover::Crumb(1));
+    assert_eq!(app.pointer.hover, Hover::Crumb(1));
     app.on_mouse_move(src.x - 4.0, y);
-    assert_eq!(app.hover, Hover::None);
+    assert_eq!(app.pointer.hover, Hover::None);
 
     // 测试中没有窗口（等同没有系统菜单）：点击后菜单画在窗口中，该段保持按下的样子，Esc 关掉。
     app.on_mouse_move(src.x + 4.0, y);
     app.on_mouse_down(MouseButton::Left);
     app.on_mouse_up(MouseButton::Left);
     assert!(app.popup().is_some());
-    assert_eq!(app.menu_button, Some(crate::app::MenuButton::Crumb(1)));
+    assert_eq!(
+        app.overlays.menu_button,
+        Some(crate::app::MenuButton::Crumb(1))
+    );
     app.popup_logical_key(&winit::keyboard::Key::Named(
         winit::keyboard::NamedKey::Escape,
     ));
-    assert_eq!(app.menu_button, None);
+    assert_eq!(app.overlays.menu_button, None);
     assert_eq!(
         app.editor.active().unwrap().path.as_deref(),
         Some(main.as_path())
@@ -162,7 +165,7 @@ fn config_files_show_and_copy_the_key_under_the_caret() {
     paint(&mut app);
     assert_eq!(app.key_path().as_deref(), Some("scripts.build"));
     app.run_action(crate::keymap::Action::CopyKeyPath);
-    assert_eq!(app.copied.as_deref(), Some("scripts.build"));
+    assert_eq!(app.clipboard.copied.as_deref(), Some("scripts.build"));
 
     // 光标移出键所在的位置后，没有可显示的键路径。
     app.select(0, 0);
@@ -261,12 +264,12 @@ fn a_found_update_shows_in_the_status_bar_and_the_setting_turns_checks_off() {
     assert!(!has_update(&app));
 
     // 后台检查找到了新版本：状态栏上有可以点的提示；收起后不再显示。
-    *app.shared.update.borrow_mut() = Some("0.1.400".into());
+    *app.link.shared.update.borrow_mut() = Some("0.1.400".into());
     paint(&mut app);
     assert!(has_update(&app));
     app.open_status_menu(StatusItem::Update);
-    assert!(app.context_menu.is_none());
-    *app.shared.update.borrow_mut() = None;
+    assert!(app.overlays.context_menu.is_none());
+    *app.link.shared.update.borrow_mut() = None;
     paint(&mut app);
     assert!(!has_update(&app));
 
@@ -282,7 +285,7 @@ fn the_update_button_shows_each_step_of_the_update() {
     use crate::winc::UpdateState;
     let dir = sample_folder("status-update-steps");
     let mut app = app_with(&dir.join("short.rs"), false);
-    *app.shared.update.borrow_mut() = Some("0.1.560".into());
+    *app.link.shared.update.borrow_mut() = Some("0.1.560".into());
     let button = |app: &mut App| {
         paint(app);
         let rect = (app.hits.status.iter())
@@ -293,7 +296,7 @@ fn the_update_button_shows_each_step_of_the_update() {
         let tip = crate::view::tests::tooltip(app).unwrap().1;
         (rect.w, tip)
     };
-    let set = |app: &mut App, state| *app.shared.update_state.borrow_mut() = state;
+    let set = |app: &mut App, state| *app.link.shared.update_state.borrow_mut() = state;
 
     // 找到新版本：按钮上只写「更新」，版本号在悬停提示里。
     let (found, tip) = button(&mut app);
@@ -330,9 +333,9 @@ fn shoot_update_button() {
         let dir = sample_folder("status-update-shot");
         let mut app = app_with(&dir.join("short.rs"), dark);
         let tag = if dark { "dark" } else { "light" };
-        *app.shared.update.borrow_mut() = Some("0.1.560".into());
+        *app.link.shared.update.borrow_mut() = Some("0.1.560".into());
         shoot(&mut app, &format!("update-{tag}-found"));
-        let set = |app: &mut App, state| *app.shared.update_state.borrow_mut() = state;
+        let set = |app: &mut App, state| *app.link.shared.update_state.borrow_mut() = state;
         set(&mut app, UpdateState::Downloading("0.1.560".into(), 42));
         shoot(&mut app, &format!("update-{tag}-downloading"));
         if !dark {

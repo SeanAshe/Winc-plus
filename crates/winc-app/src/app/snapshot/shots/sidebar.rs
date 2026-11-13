@@ -13,7 +13,7 @@ fn snapshot_sticky_folders() {
         let (_, core) = crate::app::snapshot::workspace::tree::expand_nested(&mut app);
 
         // 滚动到 `core` 内部，鼠标停在固定在顶部的 `core` 上。
-        app.tree.scroll = (core + 5) as f32 * TREE_ROW + 9.0;
+        app.panels.tree.scroll = (core + 5) as f32 * TREE_ROW + 9.0;
         paint(&mut app);
         let tree = app.layout.tree;
         app.on_mouse_move(tree.x + 80.0, tree.y + TREE_ROW + 5.0);
@@ -21,7 +21,7 @@ fn snapshot_sticky_folders() {
 
         // `core` 的最后一行即将滚出，`core` 被向上推出一半。
         app.on_mouse_move(900.0, 500.0);
-        app.tree.scroll = (core + 29) as f32 * TREE_ROW + 13.0;
+        app.panels.tree.scroll = (core + 29) as f32 * TREE_ROW + 13.0;
         shoot(&mut app, &format!("tree-sticky-pushed-{theme}"));
     }
 
@@ -41,7 +41,7 @@ fn snapshot_tree_tools_folding() {
         let mut app = app_with(&dir.join("a.txt"), dark);
         app.on_mouse_move(900.0, 500.0);
         for t in [1.0, 0.75, 0.5, 0.25, 0.0] {
-            app.tool_fold = ToolFold::frozen([1.0, 1.0, 1.0, t, t], 1.0 - t);
+            app.motion.tool_fold = ToolFold::frozen([1.0, 1.0, 1.0, t, t], 1.0 - t);
             shoot(
                 &mut app,
                 &format!("tree-tools-fold-{}-{theme}", (t * 100.0) as u32),
@@ -74,7 +74,7 @@ fn snapshot_tree_tools() {
         let (cx, cy) = (refresh.x + refresh.w / 2.0, refresh.y + refresh.h / 2.0);
         app.on_mouse_move(cx, cy);
         // 将悬停起始时间前移 `TOOLTIP_DELAY`（500 毫秒），模拟悬停已满该时长。
-        app.tooltip.since = Some(Instant::now() - TOOLTIP_DELAY);
+        app.overlays.tooltip.since = Some(Instant::now() - TOOLTIP_DELAY);
         shoot(&mut app, &format!("tree-tools-tip-{theme}"));
 
         // 新建文件的输入条。
@@ -85,25 +85,26 @@ fn snapshot_tree_tools() {
         // 侧栏较窄、名称较长时：名称截短，放不下的工具栏按钮从右向左收进「⋯」菜单。
         app.close_prompt();
         app.focus = Focus::Editor;
-        app.sidebar.width = 200.0;
+        app.panels.sidebar.width = 200.0;
         app.relayout();
         app.on_mouse_move(900.0, 500.0);
         shoot(&mut app, &format!("tree-tools-narrow-{theme}"));
 
         // 最窄时：放不下的按钮收进「⋯」（点了弹系统菜单，截不到图）。
-        app.tree.scroll_x = 0.0;
-        app.sidebar.width = MIN_PANEL_WIDTH;
+        app.panels.tree.scroll_x = 0.0;
+        app.panels.sidebar.width = MIN_PANEL_WIDTH;
         paint(&mut app);
         shoot(&mut app, &format!("tree-more-{theme}"));
-        app.sidebar.width = 200.0;
+        app.panels.sidebar.width = 200.0;
 
         // 横向滚动到底：缩进、图标、名称一起左移，底色不动，底部显示横向滑块。
-        app.tree.scroll_x = app.tree_max_scroll_x();
+        app.panels.tree.scroll_x = app.tree_max_scroll_x();
         shoot(&mut app, &format!("tree-hscroll-{theme}"));
 
         // 鼠标停在横向滚动条所在区域：滑块颜色加深，宽度不变。
         let tree = app.layout.tree;
-        let thumb = hscrollbar_thumb(tree, app.tree.scroll_x, app.tree.content_w).unwrap();
+        let thumb =
+            hscrollbar_thumb(tree, app.panels.tree.scroll_x, app.panels.tree.content_w).unwrap();
         app.on_mouse_move(thumb.x + thumb.w / 2.0, thumb.y + 3.0);
         shoot(&mut app, &format!("tree-hscroll-hover-{theme}"));
     }
@@ -118,7 +119,7 @@ fn snapshot_refresh() {
     let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     for (tag, dark) in [("light", false), ("dark", true)] {
         let mut app = app_with(&repo, dark);
-        app.sidebar.width = 230.0;
+        app.panels.sidebar.width = 230.0;
         // 展开 crates，再点刷新。
         let i = row_of(&app, "crates");
         app.editor.workspace.as_mut().unwrap().toggle(i);

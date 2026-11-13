@@ -11,11 +11,11 @@ impl App {
     /// 把界面缩放倍数交给渲染器和红绿灯；新窗口建好时与缩放改变时调用。
     pub(in crate::app) fn sync_zoom(&mut self) {
         let zoom = self.zoom();
-        if let Some(renderer) = &mut self.renderer {
+        if let Some(renderer) = &mut self.frame.renderer {
             renderer.set_zoom(zoom);
         }
         #[cfg(target_os = "macos")]
-        if let Some(lights) = &self.traffic_lights {
+        if let Some(lights) = &self.link.traffic_lights {
             lights.set_zoom(f64::from(zoom));
         }
         self.ime.last_area = None;
@@ -35,14 +35,14 @@ impl App {
 
     /// 按当前字号重新测量字体度量；字号或字体变化后调用。
     pub(in crate::app) fn measure_fonts(&mut self) {
-        let Some(renderer) = &self.renderer else {
+        let Some(renderer) = &self.frame.renderer else {
             return;
         };
-        self.ui_metrics = renderer.metrics(FontKind::Ui, self.fonts.ui);
-        self.mono_metrics = renderer.metrics(FontKind::Mono, self.fonts.code);
-        self.cell = self.mono_metrics.cell;
-        self.terminal_metrics = renderer.metrics(FontKind::Terminal, self.fonts.terminal);
-        self.terminal_cell = self.terminal_metrics.cell;
+        self.metrics.ui = renderer.metrics(FontKind::Ui, self.fonts.ui);
+        self.metrics.mono = renderer.metrics(FontKind::Mono, self.fonts.code);
+        self.metrics.cell = self.metrics.mono.cell;
+        self.metrics.terminal = renderer.metrics(FontKind::Terminal, self.fonts.terminal);
+        self.metrics.terminal_cell = self.metrics.terminal.cell;
     }
 
     /// 按配置应用新的字号（逻辑像素）。
@@ -119,7 +119,7 @@ impl App {
         self.palette = self.theme_palette(theme == Theme::Dark);
         self.terminal_theme_changed();
 
-        if let Some(renderer) = &mut self.renderer {
+        if let Some(renderer) = &mut self.frame.renderer {
             renderer.set_background(self.palette.frame_bg);
         }
 
@@ -136,7 +136,7 @@ impl App {
         let [mono, ui, terminal] = self.font_specs();
         let weight = self.font_weight();
 
-        if let Some(renderer) = &mut self.renderer
+        if let Some(renderer) = &mut self.frame.renderer
             && renderer
                 .set_fonts(mono.as_ref(), ui.as_ref(), terminal.as_ref(), weight)
                 .is_err()

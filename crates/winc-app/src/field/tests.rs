@@ -241,7 +241,15 @@ fn multiline_fields_keep_newlines_and_move_by_rows() {
     assert_eq!(field.caret(), second + "第二".len());
     assert!(field.move_vertical(true, false));
     assert_eq!(&field.text()[field.caret() - 2..field.caret()], "th");
+    // 已在最后一行：到文字的末尾，再按不再移动。第一行向上同理，到文字的开头。
+    assert!(field.move_vertical(true, false));
+    assert_eq!(field.caret(), field.text().len());
     assert!(!field.move_vertical(true, false));
+    field.set_caret(second + "第二".len(), false);
+    assert!(field.move_vertical(false, false));
+    assert!(field.move_vertical(false, false));
+    assert_eq!(field.caret(), 0);
+    assert!(!field.move_vertical(false, false));
     // 点在第二行中间。
     assert_eq!(
         field.view.position_at_point(11.0, 25.0),
@@ -286,4 +294,109 @@ fn undo_keeps_a_bounded_amount_of_text() {
     f.insert("b");
     assert!(f.undo());
     assert_eq!(f.text().len(), UNDO_BYTES * 2);
+}
+
+/// 三个显示行、每个字素宽 10 的多行输入框：`aaaa ` 之后因宽度不足折行，`bb` 之后是换行符。
+fn wrapped() -> TextField {
+    let mut field = TextField::multiline();
+    field.insert("aaaa bb\ncccccc");
+    let stops = [
+        (0, 0.0),
+        (1, 10.0),
+        (2, 20.0),
+        (3, 30.0),
+        (4, 40.0),
+        (5, 0.0),
+        (6, 10.0),
+        (7, 20.0),
+        (8, 0.0),
+        (9, 10.0),
+        (10, 20.0),
+        (11, 30.0),
+        (12, 40.0),
+        (13, 50.0),
+        (14, 60.0),
+    ];
+    field.view = FieldView {
+        area: Rect::new(0.0, 0.0, 60.0, 40.0),
+        stops: stops.to_vec(),
+        rows: vec![0, 0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2],
+        ends: vec![(0, 5, 50.0)],
+        line_height: 20.0,
+        ..FieldView::default()
+    };
+    field
+}
+
+#[test]
+fn vertical_moves_keep_the_column_across_shorter_rows() {
+    let mut f = wrapped();
+    // 从第三行 x = 50 处向上：第二行只到 x = 20，第一行回到 x = 50 处的行尾。
+    f.set_caret(13, false);
+    assert!(f.move_vertical(false, false));
+    assert_eq!(f.caret(), 7);
+    assert!(f.move_vertical(false, false));
+    assert_eq!((f.caret(), f.caret_upstream()), (5, true));
+    assert_eq!(f.caret_place(), Some((0, 50.0)));
+    // 再向下两行回到出发的位置。
+    assert!(f.move_vertical(true, false));
+    assert_eq!(f.caret_place(), Some((1, 20.0)));
+    assert!(f.move_vertical(true, false));
+    assert_eq!(f.caret(), 13);
+
+    // 左右移动之后改为保持新的列：从 x = 40 处出发，回来时仍在 x = 40 处。
+    f.move_caret(Unit::Char, false, false);
+    assert!(f.move_vertical(false, false));
+    assert_eq!(f.caret(), 7);
+    assert!(f.move_vertical(true, false));
+    assert_eq!(f.caret(), 12);
+
+    // 一页是可见的整行数：区域高 40、行高 20，一次移动两行。
+    f.set_caret(2, false);
+    assert!(f.move_page(true, false));
+    assert_eq!(f.caret_place(), Some((2, 20.0)));
+    assert!(f.move_page(true, false));
+    assert_eq!(f.caret(), f.text().len());
+}
+
+#[test]
+fn line_moves_follow_display_rows_and_paragraph_moves_follow_newlines() {
+    let mut f = wrapped();
+    // 第二个显示行的行首是折行处，光标显示在这一行的开头。
+    f.set_caret(6, false);
+    f.move_caret(Unit::Line, false, false);
+    assert_eq!((f.caret(), f.caret_upstream()), (5, false));
+    assert_eq!(f.caret_place(), Some((1, 0.0)));
+    f.move_caret(Unit::Line, true, false);
+    assert_eq!(f.caret(), 7);
+    // 第一个显示行的行尾是同一个位置，光标显示在这一行的末尾。
+    f.set_caret(2, false);
+    f.move_caret(Unit::Line, true, false);
+    assert_eq!((f.caret(), f.caret_upstream()), (5, true));
+    assert_eq!(f.caret_place(), Some((0, 50.0)));
+    f.move_caret(Unit::Line, false, false);
+    assert_eq!(f.caret(), 0);
+    // 键入之后光标不再显示在上一行的末尾。
+    f.move_caret(Unit::Line, true, false);
+    f.insert("x");
+    assert!(!f.caret_upstream());
+
+    // 段以换行符划分：第二个显示行与第一个显示行同属一段。
+    let mut f = wrapped();
+    f.set_caret(6, false);
+    f.move_caret(Unit::Paragraph, false, false);
+    assert_eq!(f.caret(), 0);
+    f.move_caret(Unit::Paragraph, true, false);
+    assert_eq!(f.caret(), 7);
+    f.move_to_edge(true, true);
+    assert_eq!(f.selection(), (7, f.text().len()));
+
+    // 删除到行首按显示行，删除到段尾按换行符。
+    let mut f = wrapped();
+    f.set_caret(6, false);
+    assert!(f.delete(Unit::Line, false));
+    assert_eq!(f.text(), "aaaa b\ncccccc");
+    f.set_caret(2, false);
+    assert!(f.delete(Unit::Paragraph, true));
+    assert_eq!(f.text(), "aa\ncccccc");
 }

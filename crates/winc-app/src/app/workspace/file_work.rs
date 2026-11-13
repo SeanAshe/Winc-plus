@@ -64,16 +64,16 @@ impl App {
             then(self, outcome);
             return;
         }
-        let id = self.file_work.next;
-        self.file_work.next += 1;
+        let id = self.disk.file_work.next;
+        self.disk.file_work.next += 1;
         let then: Then = Box::new(move |app, outcome| {
             // 结果的类型就是 `work` 的返回类型，两者在同一次调用中给出。
             if let Ok(outcome) = outcome.downcast::<T>() {
                 then(app, *outcome);
             }
         });
-        self.file_work.pending.insert(id, then);
-        let sender = self.file_work.results.0.clone();
+        self.disk.file_work.pending.insert(id, then);
+        let sender = self.disk.file_work.results.0.clone();
         self.spawn_ordered_then(UserEvent::FileWorked, move || {
             let outcome: Outcome = Box::new(work());
             let _ = sender.send((id, outcome));
@@ -82,13 +82,13 @@ impl App {
 
     /// 处理后台完成的文件操作。
     pub(in crate::app) fn poll_file_work(&mut self) {
-        while let Ok((id, outcome)) = self.file_work.results.1.try_recv() {
-            if let Some(then) = self.file_work.pending.remove(&id) {
+        while let Ok((id, outcome)) = self.disk.file_work.results.1.try_recv() {
+            if let Some(then) = self.disk.file_work.pending.remove(&id) {
                 then(self, outcome);
             }
         }
-        if self.file_work.pending.is_empty() {
-            for (id, quiet) in std::mem::take(&mut self.file_work.deferred) {
+        if self.disk.file_work.pending.is_empty() {
+            for (id, quiet) in std::mem::take(&mut self.disk.file_work.deferred) {
                 self.write_document_with(id, None, quiet, true);
             }
         }
@@ -96,6 +96,6 @@ impl App {
 
     /// 是否有尚未完成的远端文件操作。
     pub(in crate::app) fn file_work_pending(&self) -> bool {
-        !self.file_work.pending.is_empty()
+        !self.disk.file_work.pending.is_empty()
     }
 }

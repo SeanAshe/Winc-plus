@@ -709,19 +709,19 @@ impl App {
         what: String,
         work: impl FnOnce(&Git, &Path) -> Result<(String, Then), String> + Send + 'static,
     ) {
-        if self.branch.running.is_some() {
+        if self.git.branch.running.is_some() {
             self.flash(t!("git-op-busy"));
             return;
         }
         let root = self.git.root.clone();
-        let sender = self.branch.results.0.clone();
-        self.branch.running = Some(what.clone());
-        self.branch.finished = None;
-        self.branch.declined = false;
-        self.branch.started += 1;
-        let id = self.branch.started;
-        let wake = self.proxy.clone();
-        let questions = self.branch.questions.0.clone();
+        let sender = self.git.branch.results.0.clone();
+        self.git.branch.running = Some(what.clone());
+        self.git.branch.finished = None;
+        self.git.branch.declined = false;
+        self.git.branch.started += 1;
+        let id = self.git.branch.started;
+        let wake = self.link.proxy.clone();
+        let questions = self.git.branch.questions.0.clone();
         self.spawn_git(UserEvent::GitOperated, move |tool| {
             let result = match tool {
                 Ok(git) => {
@@ -744,19 +744,20 @@ impl App {
 
     /// 同步控件上对勾的不透明度：过渡和侧栏里展开、收起的时长相同，没有对勾时为 0。
     pub(crate) fn sync_check(&self) -> f32 {
-        self.branch
+        self.git
+            .branch
             .finished
             .map_or(0.0, |clock| clock.pulse(TREE_ANIMATION))
     }
 
     /// 收下后台做完的分支操作。
     pub(in crate::app) fn poll_branch_ops(&mut self) {
-        while let Ok(done) = self.branch.results.1.try_recv() {
+        while let Ok(done) = self.git.branch.results.1.try_recv() {
             self.end_git_questions(done.id);
             // 做的时候换了目录（换的时候 `running` 已经清掉，见 `git_folder_changed`）：只说一声在
             // 哪个仓库里做完了；新建的工作树仍然打开，检查完的不再移除。换回原来的目录、又起了新
             // 操作时根目录对得上但不是正在做的这个，同样按旧结果处理，不清掉新操作的 `running`。
-            let stale = self.branch.running.is_none() || self.branch.started != done.id;
+            let stale = self.git.branch.running.is_none() || self.git.branch.started != done.id;
             if stale || self.git.root != done.root {
                 let root = done.root.unwrap_or_default();
                 let name = winc_editor::display_name(&root);
@@ -784,7 +785,7 @@ impl App {
                 }
                 continue;
             }
-            self.branch.running = None;
+            self.git.branch.running = None;
             // 操作由表单对话框发起时：成功则关闭对话框，失败则在对话框中显示原因。
             let error = done.result.as_ref().err().map(String::as_str);
             if self.form_operation_done(done.id, error) && error.is_some() {
@@ -806,7 +807,7 @@ impl App {
                     self.worktree_done(then);
                     // 只更新帧间隔：对勾是操作结果，动态效果关闭时也要显示。
                     let _ = self.clock(COMMITTED_SHOWN);
-                    self.branch.finished = Some(Clock::new(COMMITTED_SHOWN));
+                    self.git.branch.finished = Some(Clock::new(COMMITTED_SHOWN));
                 }
                 Err(e) => {
                     let what = done.what;

@@ -98,7 +98,7 @@ fn copying_without_a_selection_copies_and_pastes_whole_lines() {
     app.select(15, 15);
     app.copy(false);
     assert_eq!(
-        app.copied.as_deref(),
+        app.clipboard.copied.as_deref(),
         Some("    let config = load_config();\n")
     );
 
@@ -111,7 +111,7 @@ fn copying_without_a_selection_copies_and_pastes_whole_lines() {
     // 有选区时复制选区内容，粘贴时按普通文本在光标处插入。
     app.select(4, 7);
     app.copy(false);
-    assert_eq!(app.copied.as_deref(), Some("let"));
+    assert_eq!(app.clipboard.copied.as_deref(), Some("let"));
     app.select(0, 0);
     app.paste();
     assert!(line(&app, 0).starts_with("let    let"));
@@ -133,7 +133,7 @@ fn right_clicking_the_text_offers_format_cut_copy_paste() {
     // 在第 `line` 行第 `col` 列（均从 0 起）处按右键。
     let right_click_text = |app: &mut App, line: usize, col: usize| {
         let t = app.layout.text;
-        let x = t.x + TEXT_PAD + col as f32 * app.cell;
+        let x = t.x + TEXT_PAD + col as f32 * app.metrics.cell;
         right_click(app, (x, t.y + (line as f32 + 0.5) * app.fonts.line_height));
     };
     let selection = |app: &App| {
@@ -148,7 +148,7 @@ fn right_clicking_the_text_offers_format_cut_copy_paste() {
     // 在选区内右键：保留选区，菜单命令作用于该选区。
     app.select(20, 26);
     right_click_text(&mut app, 1, 10);
-    let menu = app.context_menu.as_ref().unwrap();
+    let menu = app.overlays.context_menu.as_ref().unwrap();
     assert!(matches!(menu.target, MenuTarget::Editor(_)));
     assert_eq!(
         menu_commands(&app),
@@ -169,7 +169,7 @@ fn right_clicking_the_text_offers_format_cut_copy_paste() {
     );
     assert_eq!(selection(&app), (20, 26));
     app.run_menu_command(Copy);
-    assert_eq!(app.copied.as_deref(), Some("config"));
+    assert_eq!(app.clipboard.copied.as_deref(), Some("config"));
 
     // 该行添加书签后，菜单项变为「删除书签」。
     right_click_text(&mut app, 1, 10);
@@ -191,7 +191,7 @@ fn right_clicking_the_text_offers_format_cut_copy_paste() {
     right_click_text(&mut app, 0, 3);
     assert_eq!(selection(&app), (3, 3));
     app.run_menu_command(Cut);
-    assert_eq!(app.copied.as_deref(), Some("fn main() {\n"));
+    assert_eq!(app.clipboard.copied.as_deref(), Some("fn main() {\n"));
     assert_eq!(line(&app, 0), "    let config = load_config();");
 
     // 粘贴整行：插入到光标所在行的上方。
@@ -205,7 +205,7 @@ fn right_clicking_the_text_offers_format_cut_copy_paste() {
     paint(&mut app);
     let bar = app.layout.search;
     right_click(&mut app, (bar.x + bar.w / 2.0, bar.y + bar.h / 2.0));
-    assert!(app.context_menu.is_none());
+    assert!(app.overlays.context_menu.is_none());
 
     // 只读文档：格式化、修复、剪切、粘贴不可用，转到定义、查找引用和复制仍可用。
     app.editor.active_mut().unwrap().readonly = true;
@@ -386,7 +386,7 @@ fn status_bar_changes_indentation_and_line_endings() {
     // 宽度选项在子菜单中。
     let at = status_point(&app, StatusItem::Indent);
     app.on_mouse_move(at.0, at.1);
-    assert_eq!(app.hover, Hover::Status(StatusItem::Indent));
+    assert_eq!(app.pointer.hover, Hover::Status(StatusItem::Indent));
     click(&mut app, at);
     assert_eq!(
         menu_commands(&app)[..2],
@@ -445,10 +445,10 @@ fn status_bar_changes_indentation_and_line_endings() {
     assert!(doc(&app).is_dirty());
     app.run_action(crate::keymap::Action::ChangeEndOfLine);
     assert!(matches!(
-        app.context_menu.as_ref().map(|m| &m.target),
+        app.overlays.context_menu.as_ref().map(|m| &m.target),
         Some(crate::app::input::context_menu::MenuTarget::LineEnding(_))
     ));
-    app.context_menu = None;
+    app.overlays.context_menu = None;
 
     // 仅供查看的输出标签（格式化输出）的状态栏上，可点击的项只有设置按钮。
     app.editor.show_output("格式化输出", "x\n");
@@ -477,7 +477,8 @@ fn the_scrollbar_marks_other_occurrences_of_the_selection() {
     std::fs::write(&file, &text).unwrap();
     let mut app = app_with(&file, false);
     let marks = |app: &App| {
-        app.ruler_cache
+        app.caches
+            .ruler_cache
             .as_ref()
             .and_then(|(_, l)| l.as_deref().map(<[usize]>::to_vec))
     };
@@ -492,12 +493,12 @@ fn the_scrollbar_marks_other_occurrences_of_the_selection() {
     app.select(at, at + 5);
     paint(&mut app);
     assert_eq!(marks(&app), Some(vec![10, 200, 300, 390]));
-    let key = app.ruler_cache.as_ref().unwrap().0.clone();
+    let key = app.caches.ruler_cache.as_ref().unwrap().0.clone();
 
     // 选区不变、滚动：不重新计算。
     app.editor.active_mut().unwrap().scroll_line = 100.0;
     paint(&mut app);
-    assert_eq!(app.ruler_cache.as_ref().unwrap().0, key);
+    assert_eq!(app.caches.ruler_cache.as_ref().unwrap().0, key);
 
     // 选中的文字只出现一次（第 300 行的 `totally`）：不标记。
     let at = app.editor.active().unwrap().text().line_start(300) + 4;
@@ -557,12 +558,12 @@ fn bookmarks_jump_list_and_survive_closing_and_restarting() {
 
     // 列出书签：卡片中有两行，回车跳转到选中的书签。
     app.run_action(Action::ListBookmarks);
-    assert!(app.picker.open);
-    assert_eq!(app.picker.hits.len(), 2);
+    assert!(app.overlays.picker.open);
+    assert_eq!(app.overlays.picker.hits.len(), 2);
     paint(&mut app);
-    app.picker.selected = 0;
+    app.overlays.picker.selected = 0;
     app.places_accept();
-    assert!(!app.picker.open);
+    assert!(!app.overlays.picker.open);
     assert_eq!(line_of(&app), 1);
 
     // 关闭标签后重新打开：书签仍在。
@@ -680,7 +681,7 @@ fn csv_columns_line_up_for_clicks_and_moving_up_and_down() {
     // 点击落在对齐产生的空白中时，光标停在距离更近的字符边界上。
     let t = app.layout.text;
     let doc = app.editor.active().unwrap();
-    let x = t.x + TEXT_PAD - doc.scroll_x + 8.5 * app.cell;
+    let x = t.x + TEXT_PAD - doc.scroll_x + 8.5 * app.metrics.cell;
     let y = t.y + 0.5 * app.fonts.line_height;
     assert_eq!(
         app.pos_at(x, y),
@@ -740,7 +741,7 @@ fn word_wrap_folds_long_lines_to_the_editor_width() {
     // 编辑区变窄（侧栏变宽）：长行断为更多段；滚动位置顶部的文本行保持不变。宽度减少文本区的
     // 一半：减少固定宽度时，某些字体下断出的段数恰好不变。
     app.editor.active_mut().unwrap().scroll_line = 2.0;
-    app.sidebar.width += app.layout.text.w / 2.0;
+    app.panels.sidebar.width += app.layout.text.w / 2.0;
     paint(&mut app);
     let doc = app.editor.active().unwrap();
     assert!(doc.rows_of(1) > rows);
@@ -886,7 +887,7 @@ fn lines_read_up_to_the_right_edge_keep_the_highlight_state() {
         paint(&mut app);
         assert!(app.editor.active().unwrap().is_large());
         let (text, lh) = (app.layout.text, app.fonts.line_height);
-        let renderer = app.renderer.take().unwrap();
+        let renderer = app.frame.renderer.take().unwrap();
         let scale = renderer.scale_factor();
         let image = renderer.image().unwrap();
         let (x0, x1) = (
@@ -901,7 +902,7 @@ fn lines_read_up_to_the_right_edge_keep_the_highlight_state() {
         let pixels: Vec<u32> = (y0..y1)
             .flat_map(|y| image.pixels[y * width + x0..y * width + x1].to_vec())
             .collect();
-        app.renderer = Some(renderer);
+        app.frame.renderer = Some(renderer);
         pixels
     };
     let far = second_row(
@@ -934,8 +935,8 @@ fn finding_a_match_beyond_the_shown_part_of_a_line_keeps_text_on_screen() {
 
     let find = |app: &mut App| {
         app.open_search(false);
-        app.find.input.set_text("needle");
-        app.search.query = "needle".into();
+        app.bars.find.input.set_text("needle");
+        app.bars.search.query = "needle".into();
         app.search_changed();
         app.status.message = None;
         app.find_next(false);
@@ -948,7 +949,7 @@ fn finding_a_match_beyond_the_shown_part_of_a_line_keeps_text_on_screen() {
     assert_eq!(col, 60_008);
     assert!(doc.shows_whole_line(line) && !doc.shows_whole_line(line + 1));
     // 匹配在文本区内：滚动位置在匹配的左侧不到一屏处。
-    let x = 60_008.0 * app.cell;
+    let x = 60_008.0 * app.metrics.cell;
     let scroll = doc.scroll_x;
     assert!(
         scroll < x && scroll > x - app.layout.text.w && scroll <= max_x,
@@ -956,7 +957,7 @@ fn finding_a_match_beyond_the_shown_part_of_a_line_keeps_text_on_screen() {
     );
     // 匹配处画有文字，点击该处落在匹配上。
     let t = app.layout.text;
-    let at = t.x + TEXT_PAD + x - scroll + 0.4 * app.cell;
+    let at = t.x + TEXT_PAD + x - scroll + 0.4 * app.metrics.cell;
     let row = (doc.row_of(line) as f64 - doc.scroll_line) as f32 + 0.5;
     let pos = app.pos_at(at, t.y + row * app.fonts.line_height).unwrap();
     assert_eq!(pos, app.editor.active().unwrap().selection.from());
@@ -1008,7 +1009,7 @@ fn lines_past_sixteen_million_rows_each_take_their_own_row() {
     paint(&mut app);
 
     let (gutter, text, lh) = (app.layout.gutter, app.layout.text, app.fonts.line_height);
-    let image = app.renderer.as_ref().unwrap().image().unwrap();
+    let image = app.frame.renderer.as_ref().unwrap().image().unwrap();
     let width = image.width as usize;
     let px = |v: f32| (v * SCALE) as usize;
     // 行号栏中每一行都画有行号。
@@ -1042,7 +1043,7 @@ fn long_lines_expand_by_clicking_or_by_the_setting() {
     // 文本区第 `row` 行右半边是否画有内容。
     let inked = |app: &App, row: usize| {
         let (t, lh) = (app.layout.text, app.fonts.line_height);
-        let image = app.renderer.as_ref().unwrap().image().unwrap();
+        let image = app.frame.renderer.as_ref().unwrap().image().unwrap();
         let px = |v: f32| (v * SCALE) as usize;
         let (y0, y1) = (
             px(t.y + row as f32 * lh + 2.0),
@@ -1075,12 +1076,15 @@ fn long_lines_expand_by_clicking_or_by_the_setting() {
 
     // 展开的行可以滚动到行尾：行尾画有文字，点击处与字符对应；未展开的行在该处没有内容。
     let wide = app.text_max_scroll_x();
-    assert!(wide > narrow + 19_000.0 * app.cell, "{narrow} {wide}");
-    let near_end = wide - 20.0 * app.cell;
+    assert!(
+        wide > narrow + 19_000.0 * app.metrics.cell,
+        "{narrow} {wide}"
+    );
+    let near_end = wide - 20.0 * app.metrics.cell;
     scroll_to(&mut app, near_end);
     assert!(inked(&app, 0) && !inked(&app, 2));
     let (t, lh) = (app.layout.text, app.fonts.line_height);
-    let x = t.x + TEXT_PAD + 29_990.0 * app.cell - app.editor.active().unwrap().scroll_x;
+    let x = t.x + TEXT_PAD + 29_990.0 * app.metrics.cell - app.editor.active().unwrap().scroll_x;
     assert_eq!(app.pos_at(x, t.y + 0.5 * lh), Some(29_990));
 
     // 设置打开后所有的行都显示整行，不再有截断说明。
@@ -1116,13 +1120,13 @@ fn the_far_end_of_a_whole_line_is_drawn_in_place() {
     let mut app = app_with(&path, false);
     app.config.whole_lines = Some(true);
     paint(&mut app);
-    app.editor.active_mut().unwrap().scroll_x = (col - 20) as f32 * app.cell;
+    app.editor.active_mut().unwrap().scroll_x = (col - 20) as f32 * app.metrics.cell;
     paint(&mut app);
 
-    let (t, lh, cell) = (app.layout.text, app.fonts.line_height, app.cell);
+    let (t, lh, cell) = (app.layout.text, app.fonts.line_height, app.metrics.cell);
     let scroll = f64::from(app.editor.active().unwrap().scroll_x);
     let expected = f64::from(t.x + TEXT_PAD) + col as f64 * f64::from(cell) - scroll;
-    let image = app.renderer.as_ref().unwrap().image().unwrap();
+    let image = app.frame.renderer.as_ref().unwrap().image().unwrap();
     let px = |v: f32| (v * SCALE) as usize;
     let (y0, y1) = (px(t.y + 2.0), px(t.y + lh - 2.0));
     let width = image.width as usize;

@@ -44,7 +44,7 @@ fn outline_app(name: &str, dark: bool) -> (App, PathBuf) {
 fn row_names(app: &App) -> Vec<String> {
     let rows = app.outline_rows();
     rows.iter()
-        .map(|&i| app.outline.items[i].name.clone())
+        .map(|&i| app.panels.outline.items[i].name.clone())
         .collect()
 }
 
@@ -64,7 +64,7 @@ fn the_outline_opens_below_the_file_tree_and_resizes() {
 
     app.run_action(Action::ShowOutline);
     paint(&mut app);
-    assert_eq!(app.sidebar.view, SidebarView::Files);
+    assert_eq!(app.panels.sidebar.view, SidebarView::Files);
     assert_eq!(app.focus, Focus::Outline);
     assert_eq!(app.outline_list().h, 10.0 * TREE_ROW);
     assert_eq!(
@@ -128,7 +128,7 @@ fn the_outline_can_be_turned_off_in_settings() {
 fn the_outline_lists_symbols_as_a_tree_and_follows_the_caret() {
     let (mut app, dir) = outline_app("outline-tree", false);
     assert_eq!(app.focus, Focus::Outline);
-    let tree: Vec<(&str, usize)> = (app.outline.items.iter())
+    let tree: Vec<(&str, usize)> = (app.panels.outline.items.iter())
         .map(|s| (s.name.as_str(), s.depth))
         .collect();
     assert_eq!(
@@ -151,7 +151,7 @@ fn the_outline_lists_symbols_as_a_tree_and_follows_the_caret() {
     // 收起 `Path` 后，光标所在的方法被挡住，高亮落在 `Path` 上。
     app.press_outline(OutlineTarget::Arrow(0));
     assert_eq!(row_names(&app), ["Path", "load_config", "main"]);
-    app.outline.selected = None;
+    app.panels.outline.selected = None;
     let rows = app.outline_rows();
     assert_eq!(app.outline_highlight(&rows), Some(0));
     let _ = std::fs::remove_dir_all(&dir);
@@ -248,16 +248,27 @@ fn a_file_read_in_the_background_lists_its_symbols_once_read() {
     let index = app.editor.open_tab(&notes);
     let job = app.editor.begin_load(index).unwrap();
     let id = job.id();
-    let ticket = app.loads.tickets.issue(id);
+    let ticket = app.disk.loads.tickets.issue(id);
     paint(&mut app);
     assert!(app.editor.active().unwrap().is_pending());
-    assert_ne!(app.outline.empty, Some(OutlineEmpty::NoSymbols));
+    assert_ne!(app.panels.outline.empty, Some(OutlineEmpty::NoSymbols));
 
-    app.loads.results.0.send((id, ticket, job.run())).unwrap();
+    app.disk
+        .loads
+        .results
+        .0
+        .send((id, ticket, job.run()))
+        .unwrap();
     app.poll_loads();
     paint(&mut app);
     assert!(!app.editor.active().unwrap().is_pending());
-    let names: Vec<&str> = app.outline.items.iter().map(|s| s.name.as_str()).collect();
+    let names: Vec<&str> = app
+        .panels
+        .outline
+        .items
+        .iter()
+        .map(|s| s.name.as_str())
+        .collect();
     assert_eq!(names, ["Title", "Usage"]);
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -274,7 +285,7 @@ fn folding_a_symbol_animates_like_a_folder() {
     assert_eq!(row_names(&app), ["Path", "load_config", "main"]);
     // 收起到一半：`Path` 的两个方法仍在绘制的行里，只露出一半高度，箭头转到一半。
     let half = Clock::frozen(TREE_ANIMATION / 2, TREE_ANIMATION);
-    app.outline.fold = Some(OutlineFold {
+    app.panels.outline.fold = Some(OutlineFold {
         symbol: 0,
         expanding: false,
         clock: half,
@@ -282,7 +293,7 @@ fn folding_a_symbol_animates_like_a_folder() {
     let layout = app.outline_layout();
     assert_eq!(layout.rows, [0, 1, 2, 3, 4]);
     assert_eq!(layout.block, Some((1, 3)));
-    let reveal = app.outline.fold.unwrap().reveal();
+    let reveal = app.panels.outline.fold.unwrap().reveal();
     assert!(reveal > 0.0 && reveal < 1.0);
     assert_eq!(layout.hidden, (1.0 - reveal) * 2.0 * TREE_ROW);
     assert_eq!(layout.turning, Some((0, reveal)));
@@ -337,10 +348,10 @@ fn edits_refresh_the_outline_after_a_pause() {
     let now = Instant::now();
     let due = app.sync_outline(now);
     assert!(due.is_some_and(|due| due > now));
-    assert_eq!(app.outline.items.len(), 5);
+    assert_eq!(app.panels.outline.items.len(), 5);
     assert_eq!(app.sync_outline(now + OUTLINE_DELAY), None);
-    assert_eq!(app.outline.items.len(), 6);
-    assert_eq!(app.outline.items[0].name, "first");
+    assert_eq!(app.panels.outline.items.len(), 6);
+    assert_eq!(app.panels.outline.items[0].name, "first");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -352,20 +363,20 @@ fn the_outline_explains_why_it_is_empty() {
     let mut app = app_with(&dir, false);
     app.run_action(Action::ShowOutline);
     paint(&mut app);
-    assert_eq!(app.outline.empty, Some(OutlineEmpty::NoFile));
+    assert_eq!(app.panels.outline.empty, Some(OutlineEmpty::NoFile));
 
     let text = dir.join("a.txt");
     std::fs::write(&text, "plain words\n").unwrap();
     app.open_path(&text);
     paint(&mut app);
-    assert_eq!(app.outline.empty, Some(OutlineEmpty::NoSymbols));
+    assert_eq!(app.panels.outline.empty, Some(OutlineEmpty::NoSymbols));
 
     let notes = dir.join("notes.md");
     std::fs::write(&notes, "# Title\n\n## Usage\n\ntext\n\n## Build\n").unwrap();
     app.open_path(&notes);
     paint(&mut app);
-    assert_eq!(app.outline.empty, None);
-    let tree: Vec<(&str, usize)> = (app.outline.items.iter())
+    assert_eq!(app.panels.outline.empty, None);
+    let tree: Vec<(&str, usize)> = (app.panels.outline.items.iter())
         .map(|s| (s.name.as_str(), s.depth))
         .collect();
     assert_eq!(tree, [("Title", 0), ("Usage", 1), ("Build", 1)]);
@@ -379,13 +390,13 @@ fn the_outline_explains_why_it_is_empty() {
     app.open_path(&notes);
     paint(&mut app);
     assert!(!app.editor.active().unwrap().shows_text());
-    assert_eq!(app.outline.empty, None);
-    assert_eq!(app.outline.items.len(), 3);
+    assert_eq!(app.panels.outline.empty, None);
+    assert_eq!(app.panels.outline.items.len(), 3);
 
     // 二进制文件没有大纲。
     app.open_path(&dir.join("data.bin"));
     paint(&mut app);
-    assert_eq!(app.outline.empty, Some(OutlineEmpty::NotText));
+    assert_eq!(app.panels.outline.empty, Some(OutlineEmpty::NotText));
     let _ = std::fs::remove_dir_all(&dir);
 }
 

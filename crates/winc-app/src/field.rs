@@ -34,8 +34,10 @@ pub enum Unit {
     Char,
     /// 一个词：连续的同类字素算一个词。
     Word,
-    /// 到行首或行尾；单行输入框中即到文字开头或末尾，多行输入框中到当前行（按换行符划分）的两端。
+    /// 到行首或行尾；单行输入框中即到文字开头或末尾，多行输入框中到光标所在的显示行的两端。
     Line,
+    /// 到段首或段尾：按换行符划分的一段的两端；单行输入框中即到文字开头或末尾。
+    Paragraph,
 }
 
 /// 输入框的状态：文字、光标、选区、撤销栈和输入历史。
@@ -59,6 +61,15 @@ pub struct TextField {
     /// 上一次修改是否为键入单个字素；为 `true` 时，下一次键入的字符合并进同一步撤销。
     typing: bool,
     history: History,
+    /// 光标位于折行处时是否显示在上一行的末尾；为 `false` 时显示在下一行的开头。
+    ///
+    /// 折行处是同一个字节偏移，在两个显示行上各有一个位置。移到行尾时置位，光标以其他方式
+    /// 移动或文字变化时清除。
+    upstream: bool,
+    /// 连续上下移动时保持的 x 坐标（逻辑像素，相对文字起点）；经过较短的行之后仍回到该列。
+    ///
+    /// 光标以其他方式移动或文字变化时清除。
+    goal_x: Option<f32>,
     /// 上一次绘制时记录的几何，供鼠标点击和拖选使用。
     pub view: FieldView,
 }
@@ -149,6 +160,12 @@ pub struct FieldView {
     pub stops: Vec<(usize, f32)>,
     /// 多行输入框：每个边界在第几个显示行（与 `stops` 一一对应）；单行输入框为空。
     pub rows: Vec<u32>,
+    /// 多行输入框：因宽度不足而折行的各显示行的末尾，每项是（显示行号，折行处的字节偏移，
+    /// 该行末尾的 x 坐标）。
+    ///
+    /// 折行处的边界在 `stops` 中归入下一行的开头；光标位于上一行末尾时按本表定位
+    /// （见 [`TextField::move_caret`]）。
+    pub ends: Vec<(u32, usize, f32)>,
     /// 多行输入框：第 0 个显示行的顶边（已减去纵向滚动量）。
     pub top: f32,
     /// 多行输入框：行高。
@@ -198,6 +215,38 @@ impl FieldView {
             .filter(|(_, r)| **r == row)
             .min_by(|a, b| (a.0.1 - x).abs().total_cmp(&(b.0.1 - x).abs()))
             .map(|(&(pos, _), _)| pos)
+    }
+
+    /// 返回第 `row` 个显示行内距 `x` 最近的光标位置：（字节偏移，是否位于该行因折行而成的末尾）。
+    ///
+    /// 与 [`Self::nearest_in_row`] 相比多一个候选位置：该行因宽度不足而折行时的行尾。
+    fn nearest_place(&self, row: u32, x: f32) -> Option<(usize, bool)> {
+        let inner = (self.stops.iter().zip(&self.rows))
+            .filter(|(_, r)| **r == row)
+            .map(|(&(pos, at), _)| (pos, at, false));
+        let end = (self.ends.iter())
+            .filter(|(r, ..)| *r == row)
+            .map(|&(_, pos, at)| (pos, at, true));
+        inner
+            .chain(end)
+            .min_by(|a, b| (a.1 - x).abs().total_cmp(&(b.1 - x).abs()))
+            .map(|(pos, _, end)| (pos, end))
+    }
+
+    /// 返回第 `row` 个显示行两端的光标位置：`forward` 为 `true` 时取行尾，否则取行首。
+    ///
+    /// 返回（字节偏移，是否位于该行因折行而成的末尾）；`row` 不存在时返回 `None`。
+    fn row_edge(&self, row: u32, forward: bool) -> Option<(usize, bool)> {
+        if forward && let Some(&(_, pos, _)) = self.ends.iter().find(|(r, ..)| *r == row) {
+            return Some((pos, true));
+        }
+        let mut inner = (self.stops.iter().zip(&self.rows)).filter(|(_, r)| **r == row);
+        let stop = if forward {
+            inner.next_back()
+        } else {
+            inner.next()
+        };
+        stop.map(|(&(pos, _), _)| (pos, false))
     }
 
     /// 返回多行输入框中 `pos` 所在的显示行号和该处的 x 坐标（逻辑像素，相对文字起点）。
@@ -259,6 +308,8 @@ impl TextField {
             redo: Vec::new(),
             typing: false,
             history: History::default(),
+            upstream: false,
+            goal_x: None,
             view: FieldView::default(),
             multiline: false,
             masked: false,
@@ -286,27 +337,83 @@ impl TextField {
         }
     }
 
-    /// 在多行输入框中把光标上移或下移一个显示行。
+    /// 是否为多行输入框。
+    pub fn is_multiline(&self) -> bool {
+        self.multiline
+    }
+
+    /// 返回光标所在的显示行号和 x 坐标（逻辑像素，相对文字起点），按上一次绘制时的几何计算。
     ///
-    /// `extend` 为 `true` 时扩展选区。光标已经在第一行（或最后一行）时位置不变，返回 `false`。
-    /// 折行位置按上一次绘制时记录的几何计算。
+    /// 光标位于折行处并显示在上一行末尾时，返回上一行的行号和行尾的坐标。输入框尚未绘制过、
+    /// 或不是多行输入框时返回 `None`。
+    pub fn caret_place(&self) -> Option<(u32, f32)> {
+        let end = (self.view.ends.iter()).find(|&&(_, pos, _)| self.upstream && pos == self.caret);
+        match end {
+            Some(&(row, _, x)) => Some((row, x)),
+            None => self.view.row_and_x(self.caret),
+        }
+    }
+
+    /// 光标位于折行处时是否显示在上一行的末尾。
+    pub fn caret_upstream(&self) -> bool {
+        self.upstream
+    }
+
+    /// 在多行输入框中把光标上移或下移一个显示行，见 [`Self::move_rows`]。
     pub fn move_vertical(&mut self, down: bool, extend: bool) -> bool {
-        let Some((row, x)) = self.view.row_and_x(self.caret) else {
-            return false;
-        };
-        let target = if down {
-            row + 1
+        self.move_rows(if down { 1 } else { -1 }, extend)
+    }
+
+    /// 在多行输入框中把光标上移或下移一页：一页的行数为可见的整行数，至少一行。
+    pub fn move_page(&mut self, down: bool, extend: bool) -> bool {
+        let visible = if self.view.line_height > 0.0 {
+            (self.view.area.h / self.view.line_height).floor().max(1.0) as i64
         } else {
-            match row.checked_sub(1) {
-                Some(r) => r,
-                None => return false,
-            }
+            1
         };
-        let Some(pos) = self.view.nearest_in_row(target, x) else {
+        self.move_rows(if down { visible } else { -visible }, extend)
+    }
+
+    /// 在多行输入框中把光标移动 `delta` 个显示行：正数向下，负数向上。
+    ///
+    /// 连续移动时保持最初的 x 坐标。目标行超出第一行时光标移到文字开头，超出最后一行时移到
+    /// 文字末尾。`extend` 为 `true` 时扩展选区。折行位置按上一次绘制时记录的几何计算。
+    ///
+    /// 返回光标是否移动。
+    pub fn move_rows(&mut self, delta: i64, extend: bool) -> bool {
+        let Some((row, x)) = self.caret_place() else {
             return false;
         };
+        let before = (self.caret, self.upstream);
+        let x = self.goal_x.unwrap_or(x);
+        let last = self.view.rows.last().copied().unwrap_or(0);
+        let target = i64::from(row) + delta;
+        if target < 0 {
+            self.set_caret(0, extend);
+        } else if target > i64::from(last) {
+            self.set_caret(self.text.len(), extend);
+        } else if let Some((pos, end)) = self.view.nearest_place(target as u32, x) {
+            self.set_caret(pos, extend);
+            self.upstream = end;
+        }
+        self.goal_x = Some(x);
+        before != (self.caret, self.upstream)
+    }
+
+    /// 把光标移到文字开头（`forward` 为 `false`）或末尾；`extend` 为 `true` 时扩展选区。
+    pub fn move_to_edge(&mut self, forward: bool, extend: bool) {
+        let pos = if forward { self.text.len() } else { 0 };
         self.set_caret(pos, extend);
-        true
+    }
+
+    /// 返回光标所在行的行首（`forward` 为 `false`）或行尾：（字节偏移，是否位于折行而成的行尾）。
+    ///
+    /// 多行输入框绘制过之后按显示行计算；尚未绘制、或是单行输入框时按换行符划分的行计算。
+    fn line_edge(&self, forward: bool) -> (usize, bool) {
+        let place = self.caret_place().filter(|_| self.multiline);
+        place
+            .and_then(|(row, _)| self.view.row_edge(row, forward))
+            .unwrap_or_else(|| (self.boundary(self.caret, Unit::Line, forward), false))
     }
 
     /// 返回输入框的文字。
@@ -347,6 +454,8 @@ impl TextField {
         self.anchor = 0;
         self.caret = self.text.len();
         self.typing = false;
+        self.upstream = false;
+        self.goal_x = None;
     }
 
     /// 选中 `pos` 所在的词（或一段连续的空白、标点）。
@@ -368,6 +477,8 @@ impl TextField {
         self.anchor = graphemes[first].0;
         self.caret = graphemes[last].0 + graphemes[last].1.len();
         self.typing = false;
+        self.upstream = false;
+        self.goal_x = None;
     }
 
     /// 把光标移到 `pos`（字节偏移，来自鼠标点击）；`extend` 为 `true` 时保留选区的另一端。
@@ -387,13 +498,22 @@ impl TextField {
         }
 
         self.typing = false;
+        self.upstream = false;
+        self.goal_x = None;
     }
 
     /// 按 `unit` 移动光标：`forward` 为 `true` 时朝文字末尾方向，否则朝开头方向。
     ///
     /// `extend` 为 `true` 时扩展选区。存在选区且不扩展选区时，按字符移动先把光标放到选区的
-    /// 相应一端。
+    /// 相应一端。多行输入框中按行移动以显示行为准：移到因折行而成的行尾时，光标显示在该行
+    /// 末尾，不显示在下一行开头。
     pub fn move_caret(&mut self, unit: Unit, forward: bool, extend: bool) {
+        if unit == Unit::Line {
+            let (pos, end) = self.line_edge(forward);
+            self.set_caret(pos, extend);
+            self.upstream = end;
+            return;
+        }
         let (from, to) = self.selection();
 
         let target = if !extend && from != to && unit == Unit::Char {
@@ -445,7 +565,10 @@ impl TextField {
     /// 返回文字是否发生变化。
     pub fn delete(&mut self, unit: Unit, forward: bool) -> bool {
         if self.caret == self.anchor {
-            self.anchor = self.boundary(self.caret, unit, forward);
+            self.anchor = match unit {
+                Unit::Line => self.line_edge(forward).0,
+                _ => self.boundary(self.caret, unit, forward),
+            };
         }
 
         self.replace_selection("", false)
@@ -514,6 +637,8 @@ impl TextField {
         self.caret = snapshot.caret;
         self.anchor = snapshot.anchor;
         self.typing = false;
+        self.upstream = false;
+        self.goal_x = None;
         true
     }
 
@@ -546,6 +671,8 @@ impl TextField {
         self.caret = from + text.len();
         self.anchor = self.caret;
         self.typing = typing;
+        self.upstream = false;
+        self.goal_x = None;
         true
     }
 
@@ -557,14 +684,14 @@ impl TextField {
         let graphemes = self.text.grapheme_indices(true);
 
         match (unit, forward) {
-            (Unit::Line, true) if self.multiline => self.text[pos..]
+            (Unit::Line | Unit::Paragraph, true) if self.multiline => self.text[pos..]
                 .find('\n')
                 .map_or(self.text.len(), |i| pos + i),
-            (Unit::Line, false) if self.multiline => {
+            (Unit::Line | Unit::Paragraph, false) if self.multiline => {
                 self.text[..pos].rfind('\n').map_or(0, |i| i + 1)
             }
-            (Unit::Line, true) => self.text.len(),
-            (Unit::Line, false) => 0,
+            (Unit::Line | Unit::Paragraph, true) => self.text.len(),
+            (Unit::Line | Unit::Paragraph, false) => 0,
             (Unit::Char, true) => graphemes
                 .map(|(start, g)| start + g.len())
                 .find(|&end| end > pos)

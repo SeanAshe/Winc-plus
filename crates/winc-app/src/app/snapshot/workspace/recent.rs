@@ -25,48 +25,48 @@ fn recent_folders_are_listed_filtered_and_opened_from_the_keyboard() {
 
     // 列出当前目录以外的目录，按最近列表的顺序；第一条是上一次打开的目录，回车即可切回。
     app.run_action(Action::OpenRecent);
-    assert!(app.picker.open && app.picker.folders);
+    assert!(app.overlays.picker.open && app.overlays.picker.folders);
     assert_eq!(app.focus, Focus::Picker);
-    assert_eq!(app.picker.hits, [1, 2]);
-    assert_eq!(app.picker.selected, 0);
+    assert_eq!(app.overlays.picker.hits, [1, 2]);
+    assert_eq!(app.overlays.picker.selected, 0);
 
     // 列表打开时再按一次：选中下一条。
     app.run_action(Action::OpenRecent);
-    assert_eq!(app.picker.selected, 1);
+    assert_eq!(app.overlays.picker.selected, 1);
 
     // 按目录名筛选，命中的字标在目录名上。
-    app.picker.input.set_text("bravo");
+    app.overlays.picker.input.set_text("bravo");
     app.picker_refresh();
-    assert_eq!(app.picker.hits.first(), Some(&2));
+    assert_eq!(app.overlays.picker.hits.first(), Some(&2));
     let (in_name, in_parent) = app.folder_matched(0);
     assert_eq!(in_name, [7, 8, 9, 10, 11]);
     assert!(in_parent.is_empty());
 
     // 也按上级目录筛选；目录名命中的排在上级目录命中的前面，与最近列表中的先后无关。
-    app.picker.input.set_text("recent");
+    app.overlays.picker.input.set_text("recent");
     app.picker_refresh();
-    assert_eq!(app.picker.hits, [2, 1]);
+    assert_eq!(app.overlays.picker.hits, [2, 1]);
     let (in_name, in_parent) = app.folder_matched(1);
     assert!(in_name.is_empty() && !in_parent.is_empty());
 
     // 输入 `>`、`@` 不会换成命令或符号列表。
-    app.picker.input.set_text(">");
+    app.overlays.picker.input.set_text(">");
     app.picker_refresh();
-    assert!(app.picker.folders && !app.picker_lists_commands());
-    app.picker.input.set_text("@");
+    assert!(app.overlays.picker.folders && !app.picker_lists_commands());
+    app.overlays.picker.input.set_text("@");
     app.picker_refresh();
-    assert!(app.picker.folders && !app.picker_lists_symbols());
+    assert!(app.overlays.picker.folders && !app.picker_lists_symbols());
 
     // `⌘P` 换成文件列表，`⌃R` 再换回来。
     app.run_action(Action::QuickOpen);
-    assert!(app.picker.open && !app.picker.folders);
+    assert!(app.overlays.picker.open && !app.overlays.picker.folders);
     app.run_action(Action::OpenRecent);
-    assert!(app.picker.folders);
-    assert!(app.picker.input.text().is_empty());
+    assert!(app.overlays.picker.folders);
+    assert!(app.overlays.picker.input.text().is_empty());
 
     // 回车在此窗口打开选中的目录，面板关闭。
     app.picker_accept();
-    assert!(!app.picker.open && !app.picker.folders);
+    assert!(!app.overlays.picker.open && !app.overlays.picker.folders);
     assert_eq!(app.editor.root(), Some(canonical(&charlie).as_path()));
 
     let _ = std::fs::remove_dir_all(&alpha);
@@ -86,15 +86,15 @@ fn recent_folders_can_be_removed_and_opened_in_a_new_window() {
 
     // 没有打开目录时同样可用，列出全部。
     app.run_action(Action::OpenRecent);
-    assert_eq!(app.picker.hits, [0, 1, 2]);
+    assert_eq!(app.overlays.picker.hits, [0, 1, 2]);
     assert_eq!(app.layout.picker.h, card_height(3));
 
     // 悬停在一行上时右端出现「✕」；点击「✕」只从列表中移除该目录，面板保持打开。
     paint(app);
     let row = crate::app::workspace::picker::picker_parts(app, app.layout.picker)
-        .row(0, app.picker.scroll);
+        .row(0, app.overlays.picker.scroll);
     app.on_mouse_move(row.x + 60.0, row.y + row.h / 2.0);
-    assert_eq!(app.hover, Hover::PickerRow(0));
+    assert_eq!(app.pointer.hover, Hover::PickerRow(0));
     paint(app);
     let forget = crate::app::PickerPart::ForgetFolder(0);
     let close = app
@@ -105,15 +105,15 @@ fn recent_folders_can_be_removed_and_opened_in_a_new_window() {
         .unwrap()
         .0;
     app.on_mouse_move(close.x + close.w / 2.0, close.y + close.h / 2.0);
-    assert_eq!(app.hover, Hover::PickerPart(forget));
+    assert_eq!(app.pointer.hover, Hover::PickerPart(forget));
     app.on_mouse_down(MouseButton::Left);
-    assert!(app.picker.open && app.picker.folders);
+    assert!(app.overlays.picker.open && app.overlays.picker.folders);
     assert_eq!(app.state.recent, [missing.clone(), canonical(&charlie)]);
-    assert_eq!(app.picker.hits, [0, 1]);
+    assert_eq!(app.overlays.picker.hits, [0, 1]);
 
     // 打开已不存在的目录：从列表中移除并提示，不打开任何目录。
     app.picker_accept();
-    assert!(!app.picker.open);
+    assert!(!app.overlays.picker.open);
     assert!(app.editor.root().is_none());
     assert_eq!(app.state.recent, [canonical(&charlie)]);
     assert!(
@@ -125,9 +125,9 @@ fn recent_folders_can_be_removed_and_opened_in_a_new_window() {
 
     // 按住 `⌥` 回车：请应用层在新窗口打开，此窗口不变。
     app.run_action(Action::OpenRecent);
-    app.modifiers = winit::keyboard::ModifiersState::ALT;
+    app.pointer.modifiers = winit::keyboard::ModifiersState::ALT;
     app.picker_accept();
-    app.modifiers = winit::keyboard::ModifiersState::empty();
+    app.pointer.modifiers = winit::keyboard::ModifiersState::empty();
     assert!(app.editor.root().is_none());
     let (requests, _) = winc.settle_for_test();
     assert_eq!(requests, [Request::NewWindow(Some(canonical(&charlie)))]);
@@ -136,7 +136,7 @@ fn recent_folders_can_be_removed_and_opened_in_a_new_window() {
     let app = winc.app(key);
     app.state.recent.clear();
     app.run_action(Action::OpenRecent);
-    assert!(app.picker.open && app.picker.hits.is_empty());
+    assert!(app.overlays.picker.open && app.overlays.picker.hits.is_empty());
     assert_eq!(app.layout.picker.h, card_height(1));
 
     let _ = std::fs::remove_dir_all(&bravo);
@@ -156,7 +156,7 @@ fn snapshot_recent_folders() {
         .collect();
     app.run_action(Action::OpenRecent);
     shoot(&mut app, "recent-folders");
-    app.picker.input.set_text("winc");
+    app.overlays.picker.input.set_text("winc");
     app.picker_refresh();
     shoot(&mut app, "recent-folders-filtered");
 

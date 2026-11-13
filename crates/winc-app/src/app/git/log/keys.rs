@@ -10,13 +10,13 @@ impl App {
     /// `↑` `↓` 选择提交，`PageUp` `PageDown` 翻页，`Home` `End` 移到首尾，回车打开第一个改动文件
     /// 的差异，`→` 进入详情中的文件列表（见 [`App::log_file_key`]）。
     pub(in crate::app) fn log_key(&mut self, key: &Key) {
-        if self.log.file.is_some() {
+        if self.git.log.file.is_some() {
             self.log_file_key(key);
             return;
         }
         if *key == Key::Named(NamedKey::ArrowRight) {
             if self.log_files_len() > 0 {
-                self.log.file = Some(0);
+                self.git.log.file = Some(0);
                 self.reveal_log_file(0);
                 self.request_redraw();
             }
@@ -60,8 +60,8 @@ impl App {
     /// `↑` `↓` `Home` `End` 选择文件，回车打开该文件的差异，`←`、`Esc` 返回提交列表。
     fn log_file_key(&mut self, key: &Key) {
         let count = self.log_files_len();
-        let Some(at) = self.log.file.filter(|_| count > 0) else {
-            self.log.file = None;
+        let Some(at) = self.git.log.file.filter(|_| count > 0) else {
+            self.git.log.file = None;
             return;
         };
         let at = at.min(count - 1);
@@ -75,13 +75,13 @@ impl App {
                 return;
             }
             Key::Named(NamedKey::ArrowLeft | NamedKey::Escape) => {
-                self.log.file = None;
+                self.git.log.file = None;
                 self.request_redraw();
                 return;
             }
             _ => return,
         };
-        self.log.file = Some(file);
+        self.git.log.file = Some(file);
         self.reveal_log_file(file);
         self.request_redraw();
     }
@@ -110,11 +110,11 @@ impl App {
         if let Some(from) = from
             && to.as_deref() != Some(from.as_str())
         {
-            self.log.back.push(from);
-            if self.log.back.len() > LOG_HISTORY {
-                self.log.back.remove(0);
+            self.git.log.back.push(from);
+            if self.git.log.back.len() > LOG_HISTORY {
+                self.git.log.back.remove(0);
             }
-            self.log.forward.clear();
+            self.git.log.forward.clear();
         }
         if !shown && let Some(doc) = self.editor.active_mut() {
             set_scroll_line(doc, (row as f64 - (visible / 3.0).floor()).max(0.0));
@@ -133,9 +133,9 @@ impl App {
         }
         loop {
             let popped = if forward {
-                self.log.forward.pop()
+                self.git.log.forward.pop()
             } else {
-                self.log.back.pop()
+                self.git.log.back.pop()
             };
             let Some(oid) = popped else {
                 return false;
@@ -149,9 +149,9 @@ impl App {
             };
             if let Some(current) = current {
                 if forward {
-                    self.log.back.push(current);
+                    self.git.log.back.push(current);
                 } else {
-                    self.log.forward.push(current);
+                    self.git.log.forward.push(current);
                 }
             }
             self.clear_log_compare();

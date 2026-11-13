@@ -14,8 +14,9 @@ impl App {
     pub(crate) fn wait_for_split(&mut self) {
         let wait = std::time::Duration::from_secs(10);
         self.advance_split();
-        while self.split.pending.is_some() {
+        while self.preview.split.pending.is_some() {
             let done = self
+                .preview
                 .images
                 .split_done
                 .recv_timeout(wait)
@@ -36,15 +37,15 @@ impl App {
     pub(crate) fn wait_for_images(&mut self) {
         let wait = std::time::Duration::from_secs(10);
         self.advance_images();
-        while !self.images.pending.is_empty() {
-            match self.images.receiver.recv_timeout(wait) {
+        while !self.preview.images.pending.is_empty() {
+            match self.preview.images.receiver.recv_timeout(wait) {
                 Ok(done) => self.accept_image(done),
                 Err(_) => panic!("图片一直没解好"),
             }
         }
         crate::app::snapshot::paint(self);
-        while self.images.drawing.is_some() {
-            match self.images.rendered.recv_timeout(wait) {
+        while self.preview.images.drawing.is_some() {
+            match self.preview.images.rendered.recv_timeout(wait) {
                 Ok(rendered) => self.accept_rendered(rendered),
                 Err(_) => panic!("SVG 一直没画好"),
             }

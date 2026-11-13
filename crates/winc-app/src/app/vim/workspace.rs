@@ -29,7 +29,7 @@ impl App {
     /// `j` `k` 上下移动，`gg` `G` 到首尾，`h` `l` 收起展开，`o` 打开；`Ctrl-W` 之后的 `h` `l`
     /// `j` `k` `w` 移动焦点。其余的按键不处理。
     pub(in crate::app) fn vim_list_key(&mut self, key: &Key, base: &str) -> bool {
-        let (focus, modifiers) = (self.focus, self.modifiers);
+        let (focus, modifiers) = (self.focus, self.pointer.modifiers);
         let mac = cfg!(target_os = "macos");
         let ctrl_w = winc_vim::Key::ctrl('w');
         let takes_ctrl_w = super::claims(ctrl_w, mac, &self.config.vim_handle_keys);
@@ -263,7 +263,7 @@ impl App {
             None if winc_backend::fs::is_file(&path) => self.open_path(&path),
             None => return self.flash(t!("editor-vim-no-file")),
         }
-        self.navigation.mark_jump();
+        self.jumps.navigation.mark_jump();
         self.focus = Focus::Editor;
         self.when_loaded(move |app| {
             let Some(doc) = app.editor.active_mut() else {

@@ -129,7 +129,7 @@ pub(in crate::view) fn draw_log(app: &mut App, frame: &mut Frame<'_>, index: usi
         draw_list(app, frame, view, &parts, scroll, &mut hits, &mut clipped);
         // 切换到另一个提交时内容淡入（`App::note_log_details_shown`）。
         draw_details_footer(app, frame, view, &parts);
-        let opacity = app.log.fade.map_or(1.0, |c| 0.4 + 0.6 * c.progress());
+        let opacity = app.git.log.fade.map_or(1.0, |c| 0.4 + 0.6 * c.progress());
         details_bottom = frame.with_opacity(opacity, |frame| {
             draw_details(
                 app,
@@ -146,13 +146,13 @@ pub(in crate::view) fn draw_log(app: &mut App, frame: &mut Frame<'_>, index: usi
     if let Some(view) = app.editor.documents[index].log.as_deref_mut() {
         let content = details_bottom + view.details_scroll - details.y + 16.0;
         let max = (content - (details.h - 30.0)).max(0.0);
-        app.log.details_max = max;
+        app.git.log.details_max = max;
         view.details_scroll = view.details_scroll.min(max);
     }
     app.hits.log = hits;
-    app.log.clipped = clipped;
-    app.log.long_files = long_files;
-    app.log.runs = runs;
+    app.git.log.clipped = clipped;
+    app.git.log.long_files = long_files;
+    app.git.log.runs = runs;
 
     // 列表的滚动条紧贴列表右边缘。
     let top = {
@@ -191,9 +191,9 @@ fn draw_search(app: &mut App, frame: &mut Frame<'_>, parts: &LogParts) -> Rect {
         Some(key) => t!("git-log-filter-placeholder-key", key = key),
         None => t!("git-log-filter-placeholder").to_owned(),
     };
-    let mut field = std::mem::take(&mut app.log.filter);
+    let mut field = std::mem::take(&mut app.git.log.filter);
     let caret = draw_bar_field(app, frame, area, &mut field, &placeholder, focused);
-    app.log.filter = field;
+    app.git.log.filter = field;
     if focused {
         app.ime.cursor = caret;
     }
@@ -243,7 +243,7 @@ fn draw_header(
             .measure(FontKind::Ui, app.fonts.ui_small, value)
             .min(160.0);
         let rect = Rect::new(x, y, 10.0 + name_w + 6.0 + value_w + 20.0, pill_h);
-        let hovered = app.hover == Hover::Log(target);
+        let hovered = app.pointer.hover == Hover::Log(target);
         if on {
             frame.rounded(rect, p.accent.alpha(p.accent.a * 0.14), RADIUS_ROW);
         } else if hovered || (target == LogTarget::Branch && app.picker_filters_log()) {
@@ -288,7 +288,7 @@ fn draw_header(
         size,
         size,
     );
-    let hovered = app.hover == Hover::Log(LogTarget::Refresh);
+    let hovered = app.pointer.hover == Hover::Log(LogTarget::Refresh);
     draw_button(frame, p, refresh, header, hovered, false);
     icons::refresh(frame, center(refresh), p.text_muted, refresh);
     hits.push((refresh, LogTarget::Refresh));
@@ -318,7 +318,7 @@ fn draw_header(
         let w = frame.measure(FontKind::Ui, app.fonts.ui_small, text) + 20.0;
         let rect = Rect::new(x + 4.0, y, w, pill_h);
         if rect.right() < note_x - 8.0 {
-            let hovered = app.hover == Hover::Log(LogTarget::ClearFilters);
+            let hovered = app.pointer.hover == Hover::Log(LogTarget::ClearFilters);
             if hovered {
                 frame.rounded(rect, p.hover, RADIUS_ROW);
             }
@@ -354,7 +354,7 @@ fn draw_uncommitted(
         return;
     }
     let band = Rect::new(list.x + 4.0, y, list.w - 8.0, lh);
-    let hovered = app.hover == Hover::Log(LogTarget::Uncommitted);
+    let hovered = app.pointer.hover == Hover::Log(LogTarget::Uncommitted);
     if let Some(color) = row_color(p, false, false, hovered) {
         frame.rect_clipped(band, color, RADIUS_ROW, list);
     }
@@ -458,10 +458,10 @@ fn draw_list(
         .duration_since(UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64);
     // 键盘焦点位于详情的文件列表时，选中的提交铺无焦点时的底色。
-    let focused = app.focus == Focus::Editor && app.log.file.is_none();
+    let focused = app.focus == Focus::Editor && app.git.log.file.is_none();
     // 高亮选中提交所在的线，其他线淡化。比较两个版本时两端不在同一条线上，不高亮。鼠标指向
     // 一条线时高亮该线：点击后沿该线跳转，高亮用于提示跳转目标。
-    let line = match app.hover {
+    let line = match app.pointer.hover {
         Hover::Log(LogTarget::Line(_, l)) => Some(l),
         _ => view
             .selected
@@ -493,8 +493,7 @@ fn draw_list(
             Some(c) => rev_matches(commit, &c.from) || rev_matches(commit, &c.to),
             None => view.selected == Some(i),
         };
-        let hovered =
-            matches!(app.hover, Hover::Log(LogTarget::Row(r) | LogTarget::Avatar(r)) if r == i);
+        let hovered = matches!(app.pointer.hover, Hover::Log(LogTarget::Row(r) | LogTarget::Avatar(r)) if r == i);
         let fill = row_color(p, selected, focused, hovered);
         if let Some(color) = fill {
             frame.rect_clipped(band, color, RADIUS_ROW, list);
@@ -568,7 +567,7 @@ fn draw_list(
     // 列表和详情之间的分隔线可以左右拖动，悬停或拖动时改为较粗的强调色线条。可拖动范围向详情
     // 一侧扩展 4 逻辑像素：分隔线左侧紧邻列表的滚动条。
     let divider = Rect::new(list.right() - 1.0, list.y, 5.0, list.h);
-    let active = app.log_dividing() || app.hover == Hover::Log(LogTarget::Divider);
+    let active = app.log_dividing() || app.pointer.hover == Hover::Log(LogTarget::Divider);
     if active {
         frame.rect(Rect::new(list.right() - 1.5, list.y, 2.0, list.h), p.accent);
     } else {
@@ -637,7 +636,7 @@ pub(in crate::view) fn mono(
     color: Color,
     clip: Rect,
 ) -> f32 {
-    let (ascent, descent) = (app.mono_metrics.ascent, app.mono_metrics.descent);
+    let (ascent, descent) = (app.metrics.mono.ascent, app.metrics.mono.descent);
     let size = app.fonts.ui_small;
     let scale = size / app.fonts.code;
     let baseline = baseline_in(row, ascent * scale, descent * scale);

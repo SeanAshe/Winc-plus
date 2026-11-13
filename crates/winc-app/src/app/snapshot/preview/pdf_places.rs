@@ -39,36 +39,48 @@ fn the_pdf_preview_returns_to_where_it_was_left() {
 
     app.scroll_pdf(-4321.0);
     settle(&mut app);
-    let (scroll, left) = (app.pdf.scroll, place(&app, &first));
+    let (scroll, left) = (app.preview.pdf.scroll, place(&app, &first));
     assert!(left.is_some_and(|(page, _)| page > 0), "{left:?}");
 
     // 切换到文本标签：预览关闭，位置仍在现场中。
     app.open_path(&dir.join("a.txt"));
     settle(&mut app);
-    assert!(app.pdf.pages.is_none());
+    assert!(app.preview.pdf.pages.is_none());
     assert!(same(place(&app, &first), left));
 
     // 另一个 PDF 从开头显示，不沿用前一个文件的位置。
     app.open_path(&second);
     settle(&mut app);
-    assert_eq!(app.pdf.scroll, 0.0);
+    assert_eq!(app.preview.pdf.scroll, 0.0);
     app.scroll_pdf(-700.0);
     settle(&mut app);
-    let other = app.pdf.scroll;
+    let other = app.preview.pdf.scroll;
 
     app.open_path(&first);
     settle(&mut app);
-    assert!((app.pdf.scroll - scroll).abs() < 0.5, "{}", app.pdf.scroll);
+    assert!(
+        (app.preview.pdf.scroll - scroll).abs() < 0.5,
+        "{}",
+        app.preview.pdf.scroll
+    );
 
     // 关闭标签后重新打开，仍回到原处。
     app.close_tab(app.editor.active.unwrap());
     settle(&mut app);
     app.open_path(&first);
     settle(&mut app);
-    assert!((app.pdf.scroll - scroll).abs() < 0.5, "{}", app.pdf.scroll);
+    assert!(
+        (app.preview.pdf.scroll - scroll).abs() < 0.5,
+        "{}",
+        app.preview.pdf.scroll
+    );
     app.open_path(&second);
     settle(&mut app);
-    assert!((app.pdf.scroll - other).abs() < 0.5, "{}", app.pdf.scroll);
+    assert!(
+        (app.preview.pdf.scroll - other).abs() < 0.5,
+        "{}",
+        app.preview.pdf.scroll
+    );
 
     // 回到开头后记录从现场中移除。
     app.open_path(&first);
@@ -97,12 +109,12 @@ fn the_pdf_place_is_restored_with_the_session() {
 
     let mut next = blank_app(false);
     next.state = app.state.clone();
-    next.pdf.zoom = 1.5;
+    next.preview.pdf.zoom = 1.5;
     next.open_path(&dir);
     next.open_path(&path);
     settle(&mut next);
     assert!(
-        next.pdf.scroll > app.pdf.scroll,
+        next.preview.pdf.scroll > app.preview.pdf.scroll,
         "放大后同一处的滚动位置更大"
     );
     assert!(same(place(&next, &path), left), "{left:?}");
@@ -120,6 +132,6 @@ fn the_pdf_place_is_restored_with_the_session() {
     short.open_path(&dir);
     short.open_path(&path);
     settle(&mut short);
-    assert_eq!(short.pdf.scroll, 0.0);
+    assert_eq!(short.preview.pdf.scroll, 0.0);
     let _ = std::fs::remove_dir_all(&dir);
 }

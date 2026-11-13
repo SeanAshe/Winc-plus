@@ -60,7 +60,7 @@ impl App {
     /// 在后台线程中读取标准输入，分段通过返回的通道送回；每送出一段，唤醒界面线程。
     fn read_stdin(&self) -> mpsc::Receiver<Piece> {
         let (send, receive) = mpsc::channel();
-        let wake = self.proxy.clone();
+        let wake = self.link.proxy.clone();
         std::thread::spawn(move || {
             let mut stdin = std::io::stdin().lock();
             let mut buf = vec![0u8; 64 << 10];

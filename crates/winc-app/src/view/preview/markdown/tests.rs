@@ -7,7 +7,7 @@ pub(crate) use winc_preview::markdown::slug;
 
 /// 绘制的框和线超出内容宽度的量（逻辑像素，未超出时不大于 0），供测试检查图是否完整显示。
 pub(crate) fn overflow(app: &App) -> f32 {
-    let Some(laid) = app.markdown.layout.as_ref() else {
+    let Some(laid) = app.preview.markdown.layout.as_ref() else {
         return 0.0;
     };
     let right = laid
@@ -26,10 +26,10 @@ pub(crate) fn overflow(app: &App) -> f32 {
 
 /// 第一张表格各单元格在窗口中的范围，按行排列，供测试点击单元格。
 pub(crate) fn table_cells(app: &App) -> Vec<Vec<Rect>> {
-    let Some(laid) = app.markdown.layout.as_ref() else {
+    let Some(laid) = app.preview.markdown.layout.as_ref() else {
         return Vec::new();
     };
-    let origin = app.markdown.area.y + laid.pad - app.markdown.scroll();
+    let origin = app.preview.markdown.area.y + laid.pad - app.preview.markdown.scroll();
     for (block, top) in laid.blocks.iter().zip(&laid.tops) {
         for item in block.1.items.iter() {
             if let Item::Table {

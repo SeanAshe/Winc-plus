@@ -39,9 +39,9 @@ fn command_and_shift_clicks_select_several_changes_for_one_check_and_rollback() 
             .find(|(_, t)| *t == CommitTarget::File(index))
             .unwrap()
             .0;
-        app.modifiers = modifiers;
+        app.pointer.modifiers = modifiers;
         click(app, (row.x + row.w / 2.0, row.y + 4.0));
-        app.modifiers = ModifiersState::empty();
+        app.pointer.modifiers = ModifiersState::empty();
         paint(app);
     };
 
@@ -59,7 +59,8 @@ fn command_and_shift_clicks_select_several_changes_for_one_check_and_rollback() 
     // 空格：选中的文件一起切换勾选（新文件默认也勾着）：都勾着时一起取消，再按一起勾上。
     let checked = |app: &App, path: &Path| {
         let status = app.git.status.as_ref().unwrap();
-        app.commit
+        app.git
+            .commit
             .checked(status.entries.iter().find(|e| e.path == path).unwrap())
     };
     assert!(checked(&app, &files[2]) && checked(&app, &files[3]));
@@ -118,7 +119,10 @@ fn command_and_shift_clicks_select_several_changes_for_one_check_and_rollback() 
                 .to_string()
         })
         .collect();
-    assert_eq!(app.copied.as_deref(), Some(relative.join("\n").as_str()));
+    assert_eq!(
+        app.clipboard.copied.as_deref(),
+        Some(relative.join("\n").as_str())
+    );
 
     // 回滚后已跟踪的文件恢复原内容，未跟踪的文件被移除；未选中的两个文件保持不变。
     let edited: Vec<(PathBuf, Option<String>)> = files
@@ -156,7 +160,7 @@ fn command_click_on_a_folder_row_selects_every_change_under_it() {
     std::fs::write(dir.join("src/config.rs"), "\n").unwrap();
     let mut app = app_with(&dir, false);
     // 默认显示为列表；本测试检查按目录排列的树形视图。
-    app.commit.set_flat(false);
+    app.git.commit.set_flat(false);
     app.settings_toggle(Setting::GitModule);
     if git_unusable(&app) {
         return;
@@ -177,9 +181,9 @@ fn command_click_on_a_folder_row_selects_every_change_under_it() {
     // ⌘ 单击目录：该目录下的文件都加入选区（`Cargo.toml` 是原来选中的），目录不收起。
     let cargo = root.join("Cargo.toml");
     app.select_commit_files(vec![cargo.clone()]);
-    app.modifiers = command_modifiers();
+    app.pointer.modifiers = command_modifiers();
     app.press_commit(CommitTarget::Dir(src_row(&app)));
-    app.modifiers = ModifiersState::empty();
+    app.pointer.modifiers = ModifiersState::empty();
     let selection = app.commit_selection();
     assert!(selection.contains(&cargo));
     assert!(under_src.iter().all(|p| selection.contains(p)));
@@ -196,9 +200,9 @@ fn command_click_on_a_folder_row_selects_every_change_under_it() {
     assert!(under_src.iter().all(|p| selection.contains(p)));
 
     // 再次 ⌘ 单击同一目录：一起移出选区。
-    app.modifiers = command_modifiers();
+    app.pointer.modifiers = command_modifiers();
     app.press_commit(CommitTarget::Dir(src_row(&app)));
-    app.modifiers = ModifiersState::empty();
+    app.pointer.modifiers = ModifiersState::empty();
     assert_eq!(app.commit_selection(), [cargo]);
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -213,7 +217,7 @@ fn arrow_keys_fold_the_selected_changes_folders_and_backspace_reverts_it() {
     git_in(&dir, &["add", "src/new.rs"]);
     let mut app = app_with(&dir, false);
     // 默认显示为列表；本测试检查按目录排列的树形视图。
-    app.commit.set_flat(false);
+    app.git.commit.set_flat(false);
     app.trash = delete_for_test;
     app.settings_toggle(Setting::GitModule);
     if git_unusable(&app) {
@@ -231,7 +235,7 @@ fn arrow_keys_fold_the_selected_changes_folders_and_backspace_reverts_it() {
     assert_eq!(app.focus, Focus::CommitMessage);
     app.commit_message_key(&Key::Named(NamedKey::Tab), false, false);
     assert_eq!(app.focus, Focus::CommitList);
-    assert_eq!(app.commit.selected.as_deref(), Some(main.as_path()));
+    assert_eq!(app.git.commit.selected.as_deref(), Some(main.as_path()));
 
     // `←` 收起选中文件所在的 `src`，再次按下时收起整个组；`→` 逐级展开恢复。
     let key = |app: &mut App, key: NamedKey| app.commit_list_key(&Key::Named(key));
@@ -240,16 +244,16 @@ fn arrow_keys_fold_the_selected_changes_folders_and_backspace_reverts_it() {
     let rows = app.commit_rows().len();
     key(&mut app, NamedKey::ArrowLeft);
     assert_eq!(app.commit_rows().len(), rows - 1);
-    assert!(app.commit.group_collapsed(CommitGroup::Changes));
+    assert!(app.git.commit.group_collapsed(CommitGroup::Changes));
     key(&mut app, NamedKey::ArrowRight);
-    assert!(!app.commit.group_collapsed(CommitGroup::Changes));
+    assert!(!app.git.commit.group_collapsed(CommitGroup::Changes));
     assert!(shown(&app).is_empty());
     key(&mut app, NamedKey::ArrowRight);
     assert_eq!(shown(&app), [main.clone(), new.clone()]);
 
     // `↓` 选中 `src/new.rs`，`⌫` 回滚该文件（测试中不确认）。
     key(&mut app, NamedKey::ArrowDown);
-    assert_eq!(app.commit.selected.as_deref(), Some(new.as_path()));
+    assert_eq!(app.git.commit.selected.as_deref(), Some(new.as_path()));
     key(&mut app, NamedKey::Backspace);
     assert!(!new.exists());
 
@@ -263,7 +267,7 @@ fn arrow_keys_fold_the_selected_changes_folders_and_backspace_reverts_it() {
         .unwrap()
         .0;
     right_click(&mut app, (header.x + 120.0, header.y + header.h / 2.0));
-    assert!(app.context_menu.is_some());
+    assert!(app.overlays.context_menu.is_some());
     assert_eq!(app.commit_selection(), std::slice::from_ref(&main));
     let _ = std::fs::remove_dir_all(&dir);
 }

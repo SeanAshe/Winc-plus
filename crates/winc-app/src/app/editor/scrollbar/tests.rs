@@ -5,7 +5,7 @@ use super::*;
 impl App {
     /// 返回区域 `area` 的滚动条此刻的不透明度，不改变记下的状态；仅用于测试。
     pub(crate) fn scrollbar_shown(&self, area: ScrollArea) -> f32 {
-        let reveal = &self.scrollbars.reveals[area as usize];
+        let reveal = &self.scroll.bars.reveals[area as usize];
         if reveal.area.is_some() {
             reveal.opacity.value()
         } else {

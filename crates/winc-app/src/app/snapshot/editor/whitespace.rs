@@ -9,7 +9,8 @@ use crate::keymap::Action;
 pub(in crate::app::snapshot) fn pixels_with(app: &mut App, mode: RenderWhitespace) -> Vec<u32> {
     app.config.render_whitespace = Some(mode);
     paint(app);
-    app.renderer
+    app.frame
+        .renderer
         .as_ref()
         .unwrap()
         .image()

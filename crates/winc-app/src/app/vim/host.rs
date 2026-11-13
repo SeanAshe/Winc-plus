@@ -59,46 +59,17 @@ pub(super) enum Deferred {
     GlobalMark(char, usize),
 }
 
-/// 系统剪贴板的访问；测试中以 `App::copied` 代替。
-pub(super) struct Clip<'a> {
-    #[cfg(not(test))]
-    pub(super) system: &'a mut Option<arboard::Clipboard>,
-    #[cfg(test)]
-    pub(super) copied: &'a mut Option<String>,
-    /// 最近一次整行复制的文本：应用的粘贴据此把整行插到当前行的上方。
-    pub(super) whole_line: &'a mut Option<String>,
-}
+/// Vim 层对剪贴板的访问。
+pub(super) struct Clip<'a>(pub(super) &'a mut crate::app::editor::clipboard::Clipboard);
 
 impl Clip<'_> {
     fn get(&mut self) -> Option<String> {
-        #[cfg(test)]
-        {
-            self.copied.clone()
-        }
-        #[cfg(not(test))]
-        {
-            if self.system.is_none() {
-                *self.system = arboard::Clipboard::new().ok();
-            }
-            self.system.as_mut()?.get_text().ok()
-        }
+        self.0.text()
     }
 
+    /// 把 `text` 写入剪贴板；以换行结尾的文本按整行记录。
     fn set(&mut self, text: &str) {
-        *self.whole_line = text.ends_with('\n').then(|| text.to_owned());
-        #[cfg(test)]
-        {
-            *self.copied = Some(text.to_owned());
-        }
-        #[cfg(not(test))]
-        {
-            if self.system.is_none() {
-                *self.system = arboard::Clipboard::new().ok();
-            }
-            if let Some(clipboard) = self.system.as_mut() {
-                let _ = clipboard.set_text(text.to_owned());
-            }
-        }
+        self.0.set_text(text.to_owned(), text.ends_with('\n'));
     }
 }
 

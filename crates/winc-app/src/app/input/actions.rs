@@ -77,12 +77,12 @@ impl App {
         match action {
             ShowCommands => self.toggle_palette(),
             QuickOpen => {
-                if self.picker.open
+                if self.overlays.picker.open
                     && !self.picker_lists_commands()
                     && !self.picker_lists_symbols()
-                    && !self.picker.folders
-                    && self.picker.vim_list.is_none()
-                    && self.picker.remote.is_none()
+                    && !self.overlays.picker.folders
+                    && self.overlays.picker.vim_list.is_none()
+                    && self.overlays.picker.remote.is_none()
                 {
                     self.close_picker();
                 } else {
@@ -90,7 +90,9 @@ impl App {
                 }
             }
             // 和 `⌘P` 一样，已经在列符号时再按一次关掉。
-            GoToSymbol if self.picker.open && self.picker_lists_symbols() => self.close_picker(),
+            GoToSymbol if self.overlays.picker.open && self.picker_lists_symbols() => {
+                self.close_picker()
+            }
             GoToSymbol => self.open_symbols(),
             GoToLine => self.open_goto(),
             GoToDefinition => self.go_to_definition(),
@@ -283,7 +285,7 @@ impl App {
             // 日志标签里 `⌘F` 是筛选输入框。
             Find if self.log_active() => {
                 self.focus = Focus::LogFilter;
-                self.log.filter.select_all();
+                self.git.log.filter.select_all();
                 self.request_redraw();
             }
             Find => self.open_search(false),
@@ -297,8 +299,8 @@ impl App {
                 self.word_highlights.clear();
                 self.request_redraw();
             }
-            ReplaceOne if self.find.open => self.replace_current(),
-            ReplaceAll if self.find.open => self.replace_all(),
+            ReplaceOne if self.bars.find.open => self.replace_current(),
+            ReplaceAll if self.bars.find.open => self.replace_all(),
             ReplaceOne | ReplaceAll => return false,
             ToggleCase | ToggleWord | ToggleRegex if panel => {
                 self.press_panel_button(match action {
@@ -307,16 +309,15 @@ impl App {
                     _ => PanelButton::Regex,
                 })
             }
-            ToggleCase | ToggleWord | ToggleRegex if self.find.open => {
-                self.press_search_button(match action {
+            ToggleCase | ToggleWord | ToggleRegex if self.bars.find.open => self
+                .press_search_button(match action {
                     ToggleCase => SearchButton::Case,
                     ToggleWord => SearchButton::Word,
                     _ => SearchButton::Regex,
-                })
-            }
+                }),
             ToggleCase | ToggleWord | ToggleRegex => return false,
             FilterLines => {
-                if !self.find.open {
+                if !self.bars.find.open {
                     self.open_search(false);
                 }
                 self.press_search_button(SearchButton::Filter);
@@ -394,6 +395,7 @@ impl App {
             }
             GitShowChanges => self.git_show_changes(),
             GitShowLog => self.git_show_log(),
+            GitGoToRevision => self.open_go_to_revision(),
             GitShowOutput => self.show_git_output(),
             GitClone => self.open_clone_dialog(),
             GitInit => self.git_init(),
@@ -529,10 +531,10 @@ impl App {
 
     /// 将焦点移到侧栏（`⌘0`）：侧栏已收起时先展开，焦点落在当前显示的视图上。
     fn focus_sidebar(&mut self) {
-        if !self.sidebar.visible {
+        if !self.panels.sidebar.visible {
             self.set_sidebar(true);
         }
-        self.focus = match self.sidebar.view {
+        self.focus = match self.panels.sidebar.view {
             SidebarView::Files => Focus::Tree,
             SidebarView::Search => Focus::GlobalQuery,
             SidebarView::Commit => self.commit_view_focus(),

@@ -19,10 +19,10 @@ impl App {
         let index = self.editor.active?;
         let id = self.editor.documents[index].id;
         self.focus = Focus::Editor;
-        self.preedit.clear();
+        self.ime.preedit.clear();
         if !self.over_diff_editable(x, y) {
             let view = self.editor.documents[index].diff.as_deref()?;
-            let parts = diff_parts(self.layout.editor, view, self.cell);
+            let parts = diff_parts(self.layout.editor, view, self.metrics.cell);
             let side = match self.diff_unified_side_at(y) {
                 Some(side) => side,
                 None if parts.panes[RIGHT].text.contains(x, y) => RIGHT,
@@ -89,7 +89,7 @@ impl App {
         let doc = self.editor.documents.get(index)?;
         let view = doc.diff.as_deref()?;
         let path = view.new.path.clone()?;
-        let parts = diff_parts(self.layout.editor, view, self.cell);
+        let parts = diff_parts(self.layout.editor, view, self.metrics.cell);
         if y < parts.body.y {
             return None;
         }
@@ -144,7 +144,7 @@ impl App {
         let Some(view) = self.editor.documents[index].diff.as_deref() else {
             return false;
         };
-        let parts = diff_parts(self.layout.editor, view, self.cell);
+        let parts = diff_parts(self.layout.editor, view, self.metrics.cell);
         let editable = view.new.path.is_some();
         self.focus = Focus::Editor;
         // 点击后光标不再停在跳转到的那一段，因此清除当前段标记。
@@ -152,7 +152,10 @@ impl App {
             view.focus = None;
         }
         let count = self.click_count(x, y);
-        let (shift, alt) = (self.modifiers.shift_key(), self.modifiers.alt_key());
+        let (shift, alt) = (
+            self.pointer.modifiers.shift_key(),
+            self.pointer.modifiers.alt_key(),
+        );
 
         let right = parts.panes[RIGHT];
         let on_pane = |pane: &DiffPane| pane.text.contains(x, y) || pane.gutter.contains(x, y);
@@ -187,7 +190,7 @@ impl App {
                     };
                     let range = unit.extend(&view.side(side).text, origin, pos);
                     view.read_selection = Some(ReadSelection { side, range });
-                    self.drag = crate::app::Drag::DiffSelectRead { side, unit, origin };
+                    self.pointer.drag = crate::app::Drag::DiffSelectRead { side, unit, origin };
                 }
             }
             self.reset_blink();
@@ -247,9 +250,9 @@ impl App {
         if let Some(view) = self.editor.documents[index].diff.as_deref_mut() {
             view.editing = true;
         }
-        self.preedit.clear();
+        self.ime.preedit.clear();
         if drag {
-            self.drag = crate::app::Drag::DiffSelect { unit, origin, add };
+            self.pointer.drag = crate::app::Drag::DiffSelect { unit, origin, add };
         }
         self.reset_blink();
         self.request_redraw();
@@ -297,7 +300,7 @@ impl App {
     /// 在右侧开始列选择（`⇧⌥` 拖动、中键拖动）：先在按下处放置一个光标，拖动时选择一列。
     pub(in crate::app) fn start_diff_columns(&mut self, x: f32, y: f32) {
         self.focus = Focus::Editor;
-        self.preedit.clear();
+        self.ime.preedit.clear();
         let Some(spot) = self.diff_line_cell_at(x, y, true) else {
             return;
         };
@@ -307,7 +310,7 @@ impl App {
             view.read_selection = None;
         }
         let anchor = (spot.line, spot.cell);
-        self.drag = crate::app::Drag::DiffColumns { anchor };
+        self.pointer.drag = crate::app::Drag::DiffColumns { anchor };
         self.drag_diff_columns(x, y, anchor);
     }
 
@@ -332,7 +335,7 @@ impl App {
     fn diff_read_pos_at(&self, side: usize, x: f32, y: f32) -> Option<usize> {
         let doc = self.editor.active()?;
         let view = doc.diff.as_deref()?;
-        let parts = diff_parts(self.layout.editor, view, self.cell);
+        let parts = diff_parts(self.layout.editor, view, self.metrics.cell);
         let lh = self.fonts.line_height;
         let below = f64::from((y - parts.body.y) / lh);
         let visible = f64::from(parts.body.h / lh);
@@ -350,8 +353,8 @@ impl App {
     /// 开头算起）。
     pub(super) fn diff_cell_at(&self, view: &DiffView, side: usize, row: usize, x: f32) -> usize {
         let scroll_x = self.editor.active().map_or(0.0, |doc| doc.scroll_x);
-        let pane = diff_parts(self.layout.editor, view, self.cell).panes[side];
-        let cell = ((x - pane.text.x - DIFF_TEXT_PAD + scroll_x) / self.cell)
+        let pane = diff_parts(self.layout.editor, view, self.metrics.cell).panes[side];
+        let cell = ((x - pane.text.x - DIFF_TEXT_PAD + scroll_x) / self.metrics.cell)
             .round()
             .max(0.0) as usize;
         view.cell_in_row(side, row, cell)
@@ -397,7 +400,7 @@ impl App {
         let Some(view) = self.editor.active().and_then(|d| d.diff.as_deref()) else {
             return false;
         };
-        let parts = diff_parts(self.layout.editor, view, self.cell);
+        let parts = diff_parts(self.layout.editor, view, self.metrics.cell);
         parts.panes[LEFT].text.contains(x, y) || parts.panes[RIGHT].text.contains(x, y)
     }
 
@@ -407,7 +410,7 @@ impl App {
             return false;
         };
         view.new.path.is_some()
-            && diff_parts(self.layout.editor, view, self.cell).panes[RIGHT]
+            && diff_parts(self.layout.editor, view, self.metrics.cell).panes[RIGHT]
                 .text
                 .contains(x, y)
             && self.diff_unified_side_at(y) != Some(LEFT)
@@ -417,7 +420,7 @@ impl App {
     fn diff_unified_side_at(&self, y: f32) -> Option<usize> {
         let doc = self.editor.active()?;
         let view = doc.diff.as_deref().filter(|v| v.is_unified())?;
-        let body = diff_parts(self.layout.editor, view, self.cell).body;
+        let body = diff_parts(self.layout.editor, view, self.metrics.cell).body;
         let index = doc.scroll_line.max(0.0) + f64::from((y - body.y) / self.fonts.line_height);
         view.unified_row(index.floor().max(0.0) as usize)
             .map(|(side, _)| side)

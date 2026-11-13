@@ -46,3 +46,27 @@ impl App {
         }
     }
 }
+
+/// 各类预览的状态：图片、表格、分栏、Markdown 与 PDF。
+pub(crate) struct PreviewState {
+    /// 图片预览缩放后的图片缓存。
+    pub(crate) picture_cache: Option<images::PictureCache>,
+    /// 当前图片预览的缩放倍数与滚动位置。
+    pub(crate) picture_view: images::PictureView,
+    /// 后台的图片解码和 SVG 绘制任务。
+    pub(in crate::app) images: images::ImageJobs,
+    /// 后台的表格读取任务。
+    pub(in crate::app) tables: tables::TableJobs,
+    /// 表格预览上次绘制的几何：工作表标签、最大滚动距离和列宽缓存。
+    pub(crate) table_layout: tables::TableLayout,
+    /// 分栏预览右侧的图片。
+    pub(crate) split: images::SplitPreview,
+    /// Markdown 预览（分栏右侧或仅预览模式）。
+    pub(crate) markdown: markdown::MarkdownPreview,
+    /// 当前标签的 PDF 预览。
+    pub(crate) pdf: pdf::PdfPreview,
+    /// 分栏预览时源代码一侧占编辑区宽度的比例，取值 0 到 1；`None` 表示各占一半。
+    ///
+    /// 拖动中间的分隔线时改变，所有分栏预览的标签共用该值。
+    pub(in crate::app) split_share: Option<f32>,
+}

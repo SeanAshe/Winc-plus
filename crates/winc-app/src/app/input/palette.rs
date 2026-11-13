@@ -117,7 +117,7 @@ impl App {
     /// 命令面板里查询（去掉开头的 `>`）在命令名 `text` 里命中的字符下标：画的时候标出来。
     pub(crate) fn palette_matched(&self, text: &str) -> Vec<usize> {
         matched(
-            &needle(self.picker.input.text().trim_start_matches('>')),
+            &needle(self.overlays.picker.input.text().trim_start_matches('>')),
             text,
         )
     }
@@ -127,19 +127,19 @@ impl App {
     /// 命令面板即预填 `>` 的快速打开；删除 `>` 后回到文件列表。
     pub(in crate::app) fn open_palette(&mut self) {
         self.finish_name_input();
-        self.picker.places = None;
-        self.picker.branch_rows = None;
-        self.picker.location_rows = None;
-        self.picker.folders = false;
-        self.picker.vim_list = None;
-        self.picker.remote = None;
-        self.picker.open = true;
-        self.picker.doc = self.editor.active().map(|d| d.id);
-        self.picker.input.set_text(">");
+        self.overlays.picker.places = None;
+        self.overlays.picker.branch_rows = None;
+        self.overlays.picker.location_rows = None;
+        self.overlays.picker.folders = false;
+        self.overlays.picker.vim_list = None;
+        self.overlays.picker.remote = None;
+        self.overlays.picker.open = true;
+        self.overlays.picker.doc = self.editor.active().map(|d| d.id);
+        self.overlays.picker.input.set_text(">");
         // 光标放在 `>` 之后，输入的字符作为命令查询，而不是替换 `>`。
-        self.picker.input.set_caret(1, false);
-        self.picker.selected = 0;
-        self.picker.scroll = 0.0;
+        self.overlays.picker.input.set_caret(1, false);
+        self.overlays.picker.selected = 0;
+        self.overlays.picker.scroll = 0.0;
         self.focus = Focus::Picker;
         self.picker_refresh();
         self.relayout();
@@ -149,7 +149,7 @@ impl App {
 
     /// 切换命令面板（`⇧⌘P`、F1）：已显示命令列表时关闭，否则打开。
     pub(super) fn toggle_palette(&mut self) {
-        if self.picker.open && self.picker_lists_commands() {
+        if self.overlays.picker.open && self.picker_lists_commands() {
             self.close_picker();
         } else {
             self.open_palette();
@@ -158,50 +158,58 @@ impl App {
 
     /// 是否正在列出命令，即输入框以 `>` 开头且不在「位置」、分支、最近目录等列表中。
     pub(crate) fn picker_lists_commands(&self) -> bool {
-        self.picker.places.is_none()
+        self.overlays.picker.places.is_none()
             && !self.picker_lists_branches()
             && !self.picker_lists_locations()
-            && !self.picker.folders
-            && self.picker.vim_list.is_none()
-            && self.picker.remote.is_none()
-            && self.picker.input.text().starts_with('>')
+            && !self.overlays.picker.folders
+            && self.overlays.picker.vim_list.is_none()
+            && self.overlays.picker.remote.is_none()
+            && self.overlays.picker.input.text().starts_with('>')
     }
 
     /// 按当前查询刷新命令列表；查询为空时，最近执行过的命令排在最前。
     pub(in crate::app) fn palette_refresh(&mut self) {
-        let query = self.picker.input.text().trim_start_matches('>').to_owned();
+        let query = self
+            .overlays
+            .picker
+            .input
+            .text()
+            .trim_start_matches('>')
+            .to_owned();
         let mut hits = search_palette(&query);
         // 关着的模块的命令不列出来。
         hits.retain(|&i| self.action_available(palette()[i]));
-        self.picker.recent = 0;
+        self.overlays.picker.recent = 0;
         if query.trim().is_empty() {
             let recent: Vec<usize> = self
-                .recent_commands
+                .history
+                .commands
                 .iter()
                 .filter(|&&a| self.action_available(a))
                 .filter_map(|&a| palette().iter().position(|&e| e == a))
                 .collect();
             hits.retain(|i| !recent.contains(i));
-            self.picker.recent = recent.len();
+            self.overlays.picker.recent = recent.len();
             hits.splice(0..0, recent);
         }
-        self.picker.hits = hits;
+        self.overlays.picker.hits = hits;
     }
 
     /// 执行选中的命令：关闭面板，并将该命令记为最近执行（最多保留 5 条）。
     pub(in crate::app) fn palette_accept(&mut self) {
         let Some(&action) = self
+            .overlays
             .picker
             .hits
-            .get(self.picker.selected)
+            .get(self.overlays.picker.selected)
             .and_then(|&i| palette().get(i))
         else {
             return;
         };
         self.close_picker();
-        self.recent_commands.retain(|&a| a != action);
-        self.recent_commands.insert(0, action);
-        self.recent_commands.truncate(5);
+        self.history.commands.retain(|&a| a != action);
+        self.history.commands.insert(0, action);
+        self.history.commands.truncate(5);
         self.run_action(action);
         self.request_redraw();
     }

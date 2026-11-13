@@ -2,6 +2,8 @@
 
 use super::*;
 
+mod menu;
+
 /// 在列表中无法完整显示的长说明，用于检查截短与悬停提示。
 const LONG_SUBJECT: &str = "重构：把登录、注册、找回密码三处各写一遍的表单校验收拢到一个模块里，错误提示统一走本地化表，顺带删掉早就不用的旧接口和它们的测试";
 
@@ -217,7 +219,7 @@ fn commit_diff_sidebar_lists_only_that_commits_changed_files() {
     let log_index = app.editor.active.unwrap();
     app.set_sidebar(false);
     // 显示方式与提交视图共用，默认平铺；该测试检查树形。
-    app.commit.set_flat(false);
+    app.git.commit.set_flat(false);
     app.press_log(LogTarget::File(0));
     paint(&mut app);
 
@@ -271,7 +273,7 @@ fn commit_diff_tree_follows_its_order_and_the_users_sidebar() {
     app.git_refresh();
     show_all_log(&mut app);
     let log_index = app.editor.active.unwrap();
-    app.commit.set_flat(false);
+    app.git.commit.set_flat(false);
     app.press_log(LogTarget::File(0));
     paint(&mut app);
     let title = |app: &App| app.editor.active().unwrap().title.clone().unwrap();
@@ -303,7 +305,7 @@ fn commit_diff_tree_follows_its_order_and_the_users_sidebar() {
     app.activate_tab(log_index);
     app.press_log(LogTarget::File(1));
     paint(&mut app);
-    assert_eq!(app.sidebar.view, SidebarView::Files);
+    assert_eq!(app.panels.sidebar.view, SidebarView::Files);
 
     // 关闭差异标签后文件列表作废。
     app.activate_tab(diff_index);
@@ -332,7 +334,7 @@ fn commit_diff_tree_switches_between_tree_and_list() {
     git_in(&root, &["commit", "-q", "-m", "Two files"]);
     app.git_refresh();
     show_all_log(&mut app);
-    app.commit.set_flat(false);
+    app.git.commit.set_flat(false);
     app.press_log(LogTarget::File(0));
     paint(&mut app);
     let press = |app: &mut App| {
@@ -354,14 +356,14 @@ fn commit_diff_tree_switches_between_tree_and_list() {
     app.apply_compact_folders();
 
     press(&mut app);
-    assert!(app.commit.flat());
+    assert!(app.git.commit.flat());
     assert_eq!(log_rows(&mut app).len(), 3);
 
     // 悬停按钮时提示点击后切换成哪一种显示方式。
     let button = app.log_diff_layout_button();
     app.on_mouse_move(button.x + 4.0, button.y + 4.0);
     paint(&mut app);
-    assert!(app.hover.has_tooltip(), "停留满提示延迟后显示提示");
+    assert!(app.pointer.hover.has_tooltip(), "停留满提示延迟后显示提示");
     let tip = crate::view::tests::tooltip(&app).map(|(_, text)| text);
     assert_eq!(
         tip.as_deref(),
@@ -370,7 +372,7 @@ fn commit_diff_tree_switches_between_tree_and_list() {
 
     // 在提交视图中切换显示方式，文件列表随之重排。
     app.toggle_commit_layout();
-    assert!(!app.commit.flat());
+    assert!(!app.git.commit.flat());
     assert_eq!(log_rows(&mut app).len(), 4);
 
     let _ = std::fs::remove_dir_all(&root);
@@ -456,11 +458,11 @@ fn shoot_git_log() {
 
         // 在详情中选中正文的一段（可以选中并复制）。
         paint(&mut app);
-        let body = app.log.runs[1].clone();
+        let body = app.git.log.runs[1].clone();
         let point = |ch| crate::app::git::log::TextPoint { run: 1, ch };
-        app.log.text_sel = Some((point(2), point(body.edges.len() - 3)));
+        app.git.log.text_sel = Some((point(2), point(body.edges.len() - 3)));
         shoot(&mut app, &format!("log-select-{theme}"));
-        app.log.text_sel = None;
+        app.git.log.text_sel = None;
 
         // ⌘ 点击另一个提交：比较两者。
         let newer = app
@@ -474,9 +476,9 @@ fn shoot_git_log() {
             .iter()
             .position(|c| c.subject == "启动日志写到文件里")
             .unwrap();
-        app.modifiers = command_modifiers();
+        app.pointer.modifiers = command_modifiers();
         app.press_log(crate::app::git::log::LogTarget::Row(newer));
-        app.modifiers = ModifiersState::empty();
+        app.pointer.modifiers = ModifiersState::empty();
         shoot(&mut app, &format!("log-compare-{theme}"));
         app.clear_log_compare();
 
@@ -494,7 +496,7 @@ fn shoot_git_log() {
         app.change_log_query(|q| q.text = "登录".into());
 
         // 工作区有改动时，最上方增加一行「未提交的更改」，并在 `HEAD` 的车道上绘制空心圆。
-        app.log.filter.set_text("");
+        app.git.log.filter.set_text("");
         app.change_log_query(|q| {
             q.text.clear();
             q.author = None;
@@ -525,7 +527,7 @@ fn log_spills_long_subjects_on_hover_and_drags_the_divider() {
     // 悬停在说明无法完整显示的行上：作者、时间两列让出位置，说明向右展开后仍显示不全时记入
     // `clipped`，悬停提示显示整句。
     hover_log_row(&mut app, long);
-    assert_eq!(app.log.clipped, Some(long));
+    assert_eq!(app.git.log.clipped, Some(long));
     assert!(
         !app.hits
             .log
@@ -535,7 +537,7 @@ fn log_spills_long_subjects_on_hover_and_drags_the_divider() {
     assert!(Hover::Log(LogTarget::Row(long)).has_tooltip());
     // 能完整显示的行不提示。
     hover_log_row(&mut app, long + 1);
-    assert_eq!(app.log.clipped, None);
+    assert_eq!(app.git.log.clipped, None);
 
     // 向左拖动分隔线：详情一栏随之变宽；双击恢复默认宽度。
     let before = app.log_parts().details.w;
@@ -547,12 +549,12 @@ fn log_spills_long_subjects_on_hover_and_drags_the_divider() {
         .unwrap();
     let (x, y) = (divider.x + divider.w / 2.0, divider.y + 200.0);
     app.on_mouse_move(x, y);
-    assert_eq!(app.hover, Hover::Log(LogTarget::Divider));
+    assert_eq!(app.pointer.hover, Hover::Log(LogTarget::Divider));
     app.on_mouse_down(MouseButton::Left);
     app.on_mouse_move(x - 100.0, y);
     app.on_mouse_up(MouseButton::Left);
     assert_eq!(app.log_parts().details.w, before + 100.0);
-    assert_eq!(app.log.details_w, Some(before + 100.0));
+    assert_eq!(app.git.log.details_w, Some(before + 100.0));
     // 拖动距离再大，列表也保留最小宽度。
     app.on_mouse_move(x - 100.0, y);
     app.on_mouse_down(MouseButton::Left);
@@ -573,7 +575,7 @@ fn log_spills_long_subjects_on_hover_and_drags_the_divider() {
     app.on_mouse_up(MouseButton::Left);
     app.on_mouse_down(MouseButton::Left);
     app.on_mouse_up(MouseButton::Left);
-    assert_eq!(app.log.details_w, None);
+    assert_eq!(app.git.log.details_w, None);
     assert_eq!(app.log_parts().details.w, before);
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -593,9 +595,9 @@ fn shoot_log_graph() {
         history_repo(&root, 40);
         let long = long_subject_row(&mut app, &root);
         hover_log_row(&mut app, long);
-        app.tooltip.since = Some(std::time::Instant::now() - crate::theme::TOOLTIP_DELAY);
+        app.overlays.tooltip.since = Some(std::time::Instant::now() - crate::theme::TOOLTIP_DELAY);
         shoot(&mut app, &format!("log-graph-{theme}"));
-        app.tooltip.since = None;
+        app.overlays.tooltip.since = None;
 
         // 指针位于合并提交分出的那段线上：这条线高亮并显示手形指针，提示点击后跳转到的提交。
         let (merge, line) = {
@@ -616,11 +618,11 @@ fn shoot_log_graph() {
             .unwrap();
         app.on_mouse_move(rect.x + rect.w / 2.0, rect.y + rect.h / 2.0);
         paint(&mut app);
-        app.tooltip.since = Some(std::time::Instant::now() - crate::theme::TOOLTIP_DELAY);
+        app.overlays.tooltip.since = Some(std::time::Instant::now() - crate::theme::TOOLTIP_DELAY);
         shoot(&mut app, &format!("log-line-{theme}"));
-        app.tooltip.since = None;
+        app.overlays.tooltip.since = None;
         app.set_hover(Hover::Log(LogTarget::Divider));
-        app.log.details_w = Some(460.0);
+        app.git.log.details_w = Some(460.0);
         shoot(&mut app, &format!("log-divider-{theme}"));
         let _ = std::fs::remove_dir_all(&root);
     }
@@ -685,9 +687,9 @@ fn log_filters_by_text_branch_and_author_and_shows_a_files_history() {
     click(&mut app, (button.x + 5.0, button.y + button.h / 2.0));
     assert_eq!(app.focus, Focus::Picker);
     app.edit_field(|f| f.insert("no-such-branch"));
-    assert!(app.picker.hits.is_empty());
+    assert!(app.overlays.picker.hits.is_empty());
     app.picker_accept();
-    assert!(app.picker.open);
+    assert!(app.overlays.picker.open);
     assert_eq!(app.log_branch_filter(), None);
     app.edit_field(|f| {
         f.set_text("LOGIN");
@@ -705,7 +707,7 @@ fn log_filters_by_text_branch_and_author_and_shows_a_files_history() {
         label: "feature/login".to_owned(),
     };
     assert_eq!(
-        app.picker.branch_rows.as_deref().unwrap(),
+        app.overlays.picker.branch_rows.as_deref().unwrap(),
         [
             BranchRow::Heading(BranchSection::Local),
             label("feature/login"),
@@ -717,7 +719,7 @@ fn log_filters_by_text_branch_and_author_and_shows_a_files_history() {
     assert!(app.hits.picker_parts.is_empty());
     app.picker_move(true);
     app.picker_accept();
-    assert!(!app.picker.open);
+    assert!(!app.overlays.picker.open);
     assert_eq!(app.log_branch_filter(), Some("origin/feature/login"));
     assert!(
         app.git
@@ -732,7 +734,7 @@ fn log_filters_by_text_branch_and_author_and_shows_a_files_history() {
     app.edit_field(|f| f.insert("feature/login"));
     paint(&mut app);
     let parts = crate::app::workspace::picker::picker_parts(&app, app.layout.picker);
-    let row = parts.row(app.picker.selected, app.picker.scroll);
+    let row = parts.row(app.overlays.picker.selected, app.overlays.picker.scroll);
     click(&mut app, (row.x + 40.0, row.y + row.h / 2.0));
     assert_eq!(app.log_branch_filter(), Some("feature/login"));
     assert_eq!(subjects(&app).len(), 5);
@@ -751,6 +753,7 @@ fn log_filters_by_text_branch_and_author_and_shows_a_files_history() {
     paint(&mut app);
     app.press_log(LogTarget::Author);
     let alice = app
+        .git
         .log
         .authors
         .iter()
@@ -795,8 +798,8 @@ fn log_branch_filter_selects_the_applied_branch_or_all() {
     show_all_log(&mut app);
     paint(&mut app);
     let selected = |app: &App| -> BranchRow {
-        let rows = app.picker.branch_rows.as_ref().unwrap();
-        rows[app.picker.selected].clone()
+        let rows = app.overlays.picker.branch_rows.as_ref().unwrap();
+        rows[app.overlays.picker.selected].clone()
     };
     let label = |row: BranchRow| match row {
         BranchRow::Branch { label, .. } => label,
@@ -811,7 +814,7 @@ fn log_branch_filter_selects_the_applied_branch_or_all() {
     app.git_refresh();
     app.press_log(LogTarget::Branch);
     app.edit_field(|f| f.insert("login"));
-    let headings: Vec<_> = (app.picker.branch_rows.as_deref().unwrap().iter())
+    let headings: Vec<_> = (app.overlays.picker.branch_rows.as_deref().unwrap().iter())
         .filter_map(|row| match row {
             BranchRow::Heading(section) => Some(section.clone()),
             _ => None,
@@ -847,7 +850,7 @@ fn log_branch_filter_selects_the_applied_branch_or_all() {
         f.set_text("");
         true
     });
-    for _ in 0..app.picker.hits.len() {
+    for _ in 0..app.overlays.picker.hits.len() {
         app.picker_move(false);
     }
     assert_eq!(selected(&app), BranchRow::All);
@@ -861,284 +864,6 @@ fn log_branch_filter_selects_the_applied_branch_or_all() {
     assert_eq!(selected(&app), BranchRow::All);
     app.picker_accept();
     assert_eq!(app.log_branch_filter(), None);
-    let _ = std::fs::remove_dir_all(&root);
-}
-
-#[test]
-fn log_commit_menu_checks_out_branches_picks_reverts_and_resets() {
-    use crate::app::git::log::LogTarget;
-    use crate::app::input::context_menu::{MenuCommand, MenuEntry, MenuTarget};
-
-    let Some((mut app, root)) = git_app("git-log-ops", false) else {
-        return;
-    };
-    history_repo(&root, 10);
-    app.git_refresh();
-    show_all_log(&mut app);
-    paint(&mut app);
-    let row_of = |app: &App, subject: &str| {
-        let view = app.editor.active().unwrap().log.as_deref().unwrap();
-        view.commits
-            .iter()
-            .position(|c| c.subject == subject)
-            .unwrap()
-    };
-    let oid_of = |app: &App, subject: &str| {
-        let view = app.editor.active().unwrap().log.as_deref().unwrap();
-        view.commits[row_of(app, subject)].oid.clone()
-    };
-    let head = |root: &Path| {
-        let out = Command::new("git")
-            .arg("-C")
-            .arg(root)
-            .args(["log", "-1", "--format=%H %s"])
-            .output()
-            .unwrap();
-        String::from_utf8_lossy(&out.stdout).trim().to_owned()
-    };
-    let right_click_row = |app: &mut App, subject: &str| {
-        let row = row_of(app, subject);
-        let rect = app
-            .hits
-            .log
-            .iter()
-            .find(|(_, t)| *t == LogTarget::Row(row))
-            .unwrap()
-            .0;
-        right_click(app, (rect.x + 200.0, rect.y + rect.h / 2.0));
-    };
-    let refresh = |app: &mut App| {
-        app.git_refresh();
-        paint(app);
-    };
-
-    // 右键一个提交：菜单中的命令作用于该提交，
-    // 包括签出、新建分支、拣选、还原、重置（子菜单）与复制。
-    right_click_row(&mut app, "补充使用说明");
-    let readme = oid_of(&app, "补充使用说明");
-    assert_eq!(
-        app.context_menu.as_ref().map(|m| m.target.clone()),
-        Some(MenuTarget::LogCommit(readme.clone()))
-    );
-    let view = app.editor.active().unwrap().log.as_deref().unwrap();
-    assert_eq!(view.selected_oid(), Some(readme.as_str()));
-    let menu = &app.context_menu.as_ref().unwrap().entries;
-    assert!(
-        menu.iter().any(
-            |e| matches!(e, MenuEntry::Submenu(title, _) if title == "将「main」重置到此提交")
-        )
-    );
-    assert!(menu_commands(&app).contains(&(MenuCommand::LogResetHard, true)));
-
-    // 还原：新建一次逆向改动的提交，`README.md` 被删除；日志随之刷新。
-    app.run_menu_command(MenuCommand::LogRevert);
-    assert!(head(&root).contains("Revert"), "{}", head(&root));
-    assert!(!root.join("README.md").exists());
-    refresh(&mut app);
-    let view = app.editor.active().unwrap().log.as_deref().unwrap();
-    assert!(view.commits[0].subject.starts_with("Revert"));
-
-    // 拣选 `dev` 上的提交到 `main`。
-    right_click_row(&mut app, "配置：加入调试开关");
-    app.run_menu_command(MenuCommand::LogCherryPick);
-    assert!(
-        head(&root).ends_with("配置：加入调试开关"),
-        "{}",
-        head(&root)
-    );
-    refresh(&mut app);
-
-    // 硬重置回「启动日志写到文件里」（没有窗口时不弹确认框）。
-    let tip = oid_of(&app, "启动日志写到文件里");
-    right_click_row(&mut app, "启动日志写到文件里");
-    app.run_menu_command(MenuCommand::LogResetHard);
-    assert!(head(&root).starts_with(&tip));
-    assert!(root.join("README.md").exists());
-    refresh(&mut app);
-
-    // 有本地分支指向的提交：签出该分支，不进入分离的 HEAD。
-    right_click_row(&mut app, "配置：加入调试开关");
-    app.run_menu_command(MenuCommand::LogCheckout);
-    refresh(&mut app);
-    let current = app
-        .git
-        .branches
-        .iter()
-        .find(|b| b.current)
-        .map(|b| b.name.clone());
-    assert_eq!(current.as_deref(), Some("dev"));
-
-    // 从提交新建分支：对话框里「基于」固定为该提交且不能修改，输入名称后基于该提交创建并签出。
-    right_click_row(&mut app, "启动时先加载配置");
-    let base = oid_of(&app, "启动时先加载配置");
-    app.run_menu_command(MenuCommand::LogNewBranch);
-    assert_eq!(app.focus, Focus::Dialog);
-    app.edit_field(|f| f.insert("hotfix"));
-    let plan = app.form_plan(app.form_dialog.as_ref().unwrap());
-    assert_eq!(plan.base, format!("提交 {}", &base[..7]));
-    assert!(!plan.base_enabled);
-    app.submit_form_dialog();
-    refresh(&mut app);
-    let current = app
-        .git
-        .branches
-        .iter()
-        .find(|b| b.current)
-        .map(|b| b.name.clone());
-    assert_eq!(current.as_deref(), Some("hotfix"));
-    assert!(head(&root).starts_with(&base));
-    let _ = std::fs::remove_dir_all(&root);
-}
-
-#[test]
-fn log_compares_two_commits_or_a_branch_and_the_branch_menu_stashes() {
-    use crate::app::git::branch::StashOp;
-    use crate::app::git::log::LogTarget;
-    use crate::app::input::context_menu::MenuCommand;
-    use winc_editor::git::Change;
-
-    let Some((mut app, root)) = git_app("git-compare", false) else {
-        return;
-    };
-    history_repo(&root, 10);
-    app.git_refresh();
-    app.run_action(Action::GitShowLog);
-    paint(&mut app);
-    let row_of = |app: &App, subject: &str| {
-        let view = app.editor.active().unwrap().log.as_deref().unwrap();
-        view.commits
-            .iter()
-            .position(|c| c.subject == subject)
-            .unwrap()
-    };
-    let compare = |app: &App| {
-        app.editor
-            .active()
-            .unwrap()
-            .log
-            .as_deref()
-            .unwrap()
-            .compare
-            .clone()
-    };
-
-    // 选中「补充使用说明」，⌘ 点击「登录：账号密码表单」：较旧的提交（登录）在左，较新的在右。
-    let readme = row_of(&app, "补充使用说明");
-    let login = row_of(&app, "登录：账号密码表单");
-    app.press_log(LogTarget::Row(readme));
-    app.modifiers = command_modifiers();
-    app.press_log(LogTarget::Row(login));
-    app.modifiers = ModifiersState::empty();
-    let c = compare(&app).expect("在比较");
-    let view = app.editor.active().unwrap().log.as_deref().unwrap();
-    assert_eq!(c.from, view.commits[login].oid);
-    assert_eq!(c.to, view.commits[readme].oid);
-    let files = c.files.unwrap();
-    let change = |name: &str| {
-        files
-            .iter()
-            .find(|f| f.path.ends_with(name))
-            .map(|f| f.change)
-    };
-    assert_eq!(change("README.md"), Some(Change::Added));
-    assert_eq!(change("src/login.rs"), Some(Change::Deleted));
-
-    // 点击文件打开两次提交之间的差异；回到日志按 Esc 退出比较。
-    paint(&mut app);
-    let i = files
-        .iter()
-        .position(|f| f.path.ends_with("README.md"))
-        .unwrap();
-    app.press_log(LogTarget::File(i));
-    let doc = app.editor.active().unwrap();
-    assert!(doc.title.as_deref().unwrap().contains('…'));
-    assert!(doc.diff.is_some());
-    app.run_action(Action::GitShowLog);
-    app.log_key(&Key::Named(NamedKey::Escape));
-    assert!(compare(&app).is_none());
-
-    // 分支菜单「与当前分支比较」：从 `main` 到 `feature/login`。
-    let feature = app
-        .git
-        .branches
-        .iter()
-        .position(|b| b.name == "feature/login")
-        .unwrap();
-    let compare_feature =
-        MenuCommand::GitBranch(crate::app::git::branch::BranchOp::Compare, feature);
-    choose_in_branch_menu(&mut app, compare_feature);
-    let c = compare(&app).expect("在比较分支");
-    assert_eq!((c.from.as_str(), c.to.as_str()), ("main", "feature/login"));
-    assert!(!c.files.unwrap().is_empty());
-
-    // 储藏：修改一个文件、新增一个文件后储藏（附说明），工作区恢复干净；菜单中列出该储藏。
-    std::fs::write(root.join("src/main.rs"), "fn main() { changed(); }\n").unwrap();
-    std::fs::write(root.join("notes.txt"), "draft\n").unwrap();
-    app.git_refresh();
-    app.run_branch_command(MenuCommand::GitStash);
-    assert_eq!(app.focus, Focus::Prompt);
-    app.edit_field(|f| f.insert("试一下新写法"));
-    app.submit_prompt();
-    app.git_refresh();
-    assert_eq!(app.git.stashes.len(), 1);
-    assert!(app.git.stashes[0].message.ends_with("试一下新写法"));
-    assert!(!root.join("notes.txt").exists());
-    assert_ne!(
-        std::fs::read_to_string(root.join("src/main.rs")).unwrap(),
-        "fn main() { changed(); }\n"
-    );
-    // 改动列表下方新增储藏分组，展开后列出该储藏。
-    app.run_action(Action::ShowCommit);
-    paint(&mut app);
-    assert!(app.commit_parts().stashes.is_some());
-    app.press_commit(CommitTarget::Stashes);
-    paint(&mut app);
-    assert!((app.hits.commit.iter()).any(|(_, t)| *t == CommitTarget::Stash(0)));
-
-    // 应用并删除：改动恢复，储藏被移除。
-    choose_in_branch_menu(&mut app, MenuCommand::GitStashOp(StashOp::Pop, 0));
-    app.git_refresh();
-    assert!(app.git.stashes.is_empty());
-    assert!(root.join("notes.txt").exists());
-
-    // 再储藏一次（不附说明），之后删除（没有窗口时不弹确认框）。
-    app.run_branch_command(MenuCommand::GitStash);
-    app.submit_prompt();
-    app.git_refresh();
-    assert_eq!(app.git.stashes.len(), 1);
-    choose_in_branch_menu(&mut app, MenuCommand::GitStashOp(StashOp::Drop, 0));
-    app.git_refresh();
-    assert!(app.git.stashes.is_empty());
-    let _ = std::fs::remove_dir_all(&root);
-}
-
-#[test]
-fn the_log_opens_from_the_commit_view_button_and_the_branch_menu_starts_with_fetch() {
-    use crate::app::git::branch::branch_menu;
-    use crate::app::input::context_menu::{MenuCommand, MenuEntry};
-
-    let Some((mut app, root)) = git_app("git-log-entry", false) else {
-        return;
-    };
-    // 提交视图标题行最左边的工具按钮是「Git 日志」，悬停提示带 ⌘9。
-    app.run_action(Action::ShowCommit);
-    paint(&mut app);
-    let (rect, target) = app.commit_parts().tools[0];
-    assert_eq!(target, CommitTarget::Log);
-    click(&mut app, (rect.x + 4.0, rect.y + 4.0));
-    assert!(app.log_active());
-
-    // 「⋯」不重复列出日志入口和同步，最上方是储藏；获取在分支选择器里，悬停提示写明作用。
-    let menu = branch_menu(&[], None, false);
-    assert_eq!(
-        menu.first(),
-        Some(&MenuEntry::Item(MenuCommand::GitStash, true))
-    );
-    let label = app.menu_label(MenuCommand::GitFetch);
-    assert_eq!(
-        label.subtitle.as_deref(),
-        Some("下载远程更新，不修改本地分支")
-    );
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -1199,14 +924,14 @@ fn a_tag_can_be_created_on_a_commit_from_the_log() {
         );
     }
     app.run_log_commit_command(MenuCommand::LogCopyShortOid, &oid);
-    assert_eq!(app.copied.as_deref(), Some(&oid[..7]));
+    assert_eq!(app.clipboard.copied.as_deref(), Some(&oid[..7]));
 
     // 输入标签名后回车：标签创建在该提交上。
     app.run_log_commit_command(MenuCommand::LogNewTag, &oid);
     assert_eq!(app.focus, Focus::Prompt);
     paint(&mut app);
     app.edit_field(|f| f.insert("v9 .0"));
-    assert_eq!(app.goto_input.as_ref().unwrap().text(), "v9.0");
+    assert_eq!(app.bars.goto_input.as_ref().unwrap().text(), "v9.0");
     app.submit_prompt();
     let out = Command::new("git")
         .arg("-C")
@@ -1281,9 +1006,12 @@ fn graph_lines_and_dots_can_be_clicked() {
         .expect("合并提交那一行有 feature/login 的线");
     let at = (rect.x + rect.w / 2.0, rect.y + rect.h / 2.0);
     app.on_mouse_move(at.0, at.1);
-    assert_eq!(app.hover, Hover::Log(LogTarget::Line(merge, feature)));
-    assert_eq!(app.cursor_icon, CursorIcon::Pointer);
-    assert!(app.hover.has_tooltip());
+    assert_eq!(
+        app.pointer.hover,
+        Hover::Log(LogTarget::Line(merge, feature))
+    );
+    assert_eq!(app.pointer.cursor_icon, CursorIcon::Pointer);
+    assert!(app.pointer.hover.has_tooltip());
     assert_eq!(app.log_line_target(merge, feature), Some(tip));
     click(&mut app, at);
     let selected = |app: &App| {
@@ -1346,7 +1074,7 @@ fn the_log_list_has_room_on_top_and_the_author_column_eases_in() {
         .unwrap();
     assert_eq!(first.y, list.y + LOG_LIST_PAD);
     // 详情的第一行（说明）和列表的第一行在同一条线上：两边垂直居中对齐。
-    let subject = &app.log.runs[0].row;
+    let subject = &app.git.log.runs[0].row;
     let center = |r: &Rect| r.y + r.h / 2.0;
     assert!((center(subject) - center(&first)).abs() < 0.01);
 
@@ -1361,7 +1089,7 @@ fn the_log_list_has_room_on_top_and_the_author_column_eases_in() {
     };
     let mut last: Option<(f32, f32)> = None;
     for details in (300..=900).step_by(20) {
-        app.log.details_w = Some(details as f32);
+        app.git.log.details_w = Some(details as f32);
         paint(&mut app);
         let list = app.log_parts().list;
         let gap = list.right() - avatar_x(&app);
@@ -1421,5 +1149,109 @@ fn an_open_log_follows_new_commits_and_moved_remote_branches() {
     paint(&mut app);
     let remote = Ref::Remote("origin/main".into());
     assert!(first(&app).refs.contains(&remote), "{:?}", first(&app).refs);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// 修改上次提交之后，原来的提交不在日志中：按缩写的提交号转到它时固定在最前面并选中，再
+/// `⌘` 单击修改后的提交即可比较两者，固定的提交作为旧的一侧。转到已列出的提交时直接选中；
+/// 无法解析时提示原因，格式不对时无法提交。
+#[test]
+fn going_to_an_amended_away_commit_pins_it_for_comparison() {
+    use crate::app::git::log::LogTarget;
+
+    let Some((mut app, root)) = git_app("git-go-to-amended", false) else {
+        return;
+    };
+    let rev = |args: &[&str]| {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    };
+    let file = root.join("src/main.rs");
+    std::fs::write(&file, "fn main() { before(); }\n").unwrap();
+    git_in(&root, &["add", "src/main.rs"]);
+    git_in(&root, &["commit", "-m", "before amend"]);
+    let old = rev(&["rev-parse", "HEAD"]);
+    std::fs::write(&file, "fn main() { after(); }\n").unwrap();
+    git_in(&root, &["commit", "--amend", "-am", "after amend"]);
+    let new = rev(&["rev-parse", "HEAD"]);
+    let branch = rev(&["rev-parse", "--abbrev-ref", "HEAD"]);
+
+    app.git_refresh();
+    app.run_action(Action::GitShowLog);
+    paint(&mut app);
+    fn log(app: &App) -> &winc_editor::git::log::LogView {
+        app.editor.active().unwrap().log.as_deref().unwrap()
+    }
+    assert!(log(&app).commits.iter().all(|c| c.oid != old));
+
+    let go_to = |app: &mut App, text: &str| {
+        app.run_action(Action::GitGoToRevision);
+        assert_eq!(app.focus, Focus::Dialog);
+        app.edit_field(|f| f.insert(text));
+        assert!(app.dialog_key(&Key::Named(NamedKey::Enter), "", false));
+        paint(app);
+    };
+    // 以 `-` 开头的文字不能提交。
+    app.run_action(Action::GitGoToRevision);
+    app.edit_field(|f| f.insert("--all"));
+    assert!(app.dialog_key(&Key::Named(NamedKey::Enter), "", false));
+    assert!(app.overlays.form_dialog.is_some());
+    app.close_form_dialog();
+
+    // 不存在的提交：提示原因，日志不变。
+    go_to(&mut app, &"0".repeat(12));
+    assert!(
+        app.notice
+            .text
+            .as_deref()
+            .unwrap()
+            .contains(&"0".repeat(12))
+    );
+    assert_eq!(log(&app).query.pin, None);
+
+    // 修改之前的提交：固定在最前面并选中。
+    go_to(&mut app, &old[..10].to_ascii_uppercase());
+    let view = log(&app);
+    assert_eq!(view.query.pin.as_deref(), Some(old.as_str()));
+    assert_eq!(view.commits[0].oid, old);
+    assert_eq!(view.selected, Some(0));
+    assert!(view.query.filtered());
+
+    // `⌘` 单击修改后的提交：比较两者，旧的在左。
+    let row = view.commits.iter().position(|c| c.oid == new).unwrap();
+    app.pointer.modifiers = command_modifiers();
+    app.press_log(LogTarget::Row(row));
+    app.pointer.modifiers = Default::default();
+    paint(&mut app);
+    let view = log(&app);
+    let compare = view.compare.as_ref().unwrap();
+    assert_eq!(
+        (compare.from.as_str(), compare.to.as_str()),
+        (old.as_str(), new.as_str())
+    );
+    let files = compare.files.as_ref().unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].path, file);
+
+    // 转到分支：分支所指的提交已列出，直接选中，固定的提交保留。
+    go_to(&mut app, &branch);
+    let view = log(&app);
+    assert_eq!(view.commits[view.selected.unwrap()].oid, new);
+    assert_eq!(view.query.pin.as_deref(), Some(old.as_str()));
+
+    // 清除筛选时取消固定；之后转到分支不固定。
+    app.press_log(LogTarget::ClearFilters);
+    paint(&mut app);
+    assert_eq!(log(&app).query.pin, None);
+    go_to(&mut app, &branch);
+    let view = log(&app);
+    assert_eq!(view.query.pin, None);
+    assert_eq!(view.commits[view.selected.unwrap()].oid, new);
     let _ = std::fs::remove_dir_all(&root);
 }

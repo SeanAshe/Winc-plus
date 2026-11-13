@@ -2,7 +2,7 @@
 //! 光标、输入法组字、查找条；有 shell 集成时还有命令块：色带、时长和退出码、折起的输出、
 //! 吸顶的命令行。
 //!
-//! 网格按终端字体等宽排版（每格宽 `app.terminal_cell`、每行高 `terminal_line_height`，字形缓存
+//! 网格按终端字体等宽排版（每格宽 `app.metrics.terminal_cell`、每行高 `terminal_line_height`，字形缓存
 //! 与编辑区共用）：一行先画所有样式段的底色，再画选区和查找的底色，最后画字和下划线，宽字符不会
 //! 被后一段的底色盖住；对比度不够时按 `terminal.minimumContrast` 调整文字的颜色，以颜色拼接
 //! 图形的字符（制表符、方块元素、Powerline 分隔符）除外。
@@ -75,8 +75,8 @@ fn draw_panel(app: &mut App, frame: &mut Frame<'_>) {
         return;
     };
 
-    let (cell, lh) = (app.terminal_cell, app.fonts.terminal_line_height);
-    let (ascent, descent) = (app.terminal_metrics.ascent, app.terminal_metrics.descent);
+    let (cell, lh) = (app.metrics.terminal_cell, app.fonts.terminal_line_height);
+    let (ascent, descent) = (app.metrics.terminal.ascent, app.metrics.terminal.descent);
     let colors = Colors {
         p,
         reverse: tab.modes.has(Modes::REVERSE),
@@ -261,7 +261,7 @@ fn draw_band(app: &App, frame: &mut Frame<'_>, tab: &TermTab, row: ViewRow, at: 
     };
     let top = if line == block.prompt { 2.0 } else { 0.0 };
     let bottom = if last { 2.0 } else { 0.0 };
-    let lit = index.is_some_and(|i| app.hover == Hover::TerminalBlock(BlockHit::Band(i)));
+    let lit = index.is_some_and(|i| app.pointer.hover == Hover::TerminalBlock(BlockHit::Band(i)));
     let (w, color) = if lit {
         (MARK_W + 1.0, color.alpha(1.0))
     } else {
@@ -282,7 +282,7 @@ fn draw_fold(
     clip: Rect,
 ) {
     let p = app.palette;
-    let lit = app.hover == Hover::TerminalBlock(BlockHit::Band(block));
+    let lit = app.pointer.hover == Hover::TerminalBlock(BlockHit::Band(block));
     let (fill, color) = if lit {
         (p.selected, p.text)
     } else {
@@ -347,8 +347,9 @@ fn draw_outcome(
     let time_w = duration.as_deref().map_or(0.0, |d| measure(frame, d) + 8.0);
     let w = icon + code_w + time_w;
     let x = row.right() - w - 4.0;
-    let used = cells(line.trimmed()).map(|(_, w)| w).sum::<usize>() as f32 * app.terminal_cell;
-    if row.x + used + 2.0 * app.terminal_cell > x {
+    let used =
+        cells(line.trimmed()).map(|(_, w)| w).sum::<usize>() as f32 * app.metrics.terminal_cell;
+    if row.x + used + 2.0 * app.metrics.terminal_cell > x {
         return;
     }
     let center = (x + icon / 2.0, row.y + row.h / 2.0);
@@ -394,7 +395,7 @@ fn draw_sticky(
     frame.rect_clipped(band, colors.default_bg(), 0.0, card);
     let row = Rect::new(grid.x, band.bottom() - lh, grid.w, lh);
     let clip = Rect::new(grid.x, band.y, grid.w, band.h);
-    if app.hover == Hover::TerminalBlock(BlockHit::Sticky) {
+    if app.pointer.hover == Hover::TerminalBlock(BlockHit::Sticky) {
         let hover = Rect::new(grid.x - 4.0, row.y, grid.w + 4.0, lh);
         frame.rect_clipped(hover, p.hover, RADIUS_ROW, band);
     }
@@ -404,8 +405,8 @@ fn draw_sticky(
     }
     let baseline = baseline_in(
         row,
-        app.terminal_metrics.ascent,
-        app.terminal_metrics.descent,
+        app.metrics.terminal.ascent,
+        app.metrics.terminal.descent,
     );
     match tab.sticky_line(index) {
         Some(line) => {
@@ -496,7 +497,7 @@ fn draw_header(app: &mut App, frame: &mut Frame<'_>, card: Rect) {
     let mut x = left - scroll;
     let mut lifted = None;
     // 正在看的、悬停的、拖着的标签有自己的底色，两边不绘制竖线。
-    let hovered = match app.hover {
+    let hovered = match app.pointer.hover {
         Hover::TerminalHeader(HeaderHit::Tab(i) | HeaderHit::Close(i)) => Some(i),
         _ => None,
     };
@@ -580,7 +581,7 @@ fn draw_header(app: &mut App, frame: &mut Frame<'_>, card: Rect) {
         x.min(end)
     };
     let new = Rect::new(new_x, button_y, BUTTON, BUTTON);
-    if app.hover == Hover::TerminalHeader(HeaderHit::New) {
+    if app.pointer.hover == Hover::TerminalHeader(HeaderHit::New) {
         frame.rect_clipped(new, p.hover, RADIUS_ROW, header);
     }
     icons::plus(
@@ -594,8 +595,8 @@ fn draw_header(app: &mut App, frame: &mut Frame<'_>, card: Rect) {
     if shell_menu {
         use crate::app::MenuButton;
         let menu = Rect::new(new.right() + TAB_GAP, button_y, BUTTON, BUTTON);
-        let on = app.hover == Hover::TerminalHeader(HeaderHit::ShellMenu);
-        let open = app.menu_button == Some(MenuButton::TerminalShells);
+        let on = app.pointer.hover == Hover::TerminalHeader(HeaderHit::ShellMenu);
+        let open = app.overlays.menu_button == Some(MenuButton::TerminalShells);
         draw_button(frame, p, menu, header, on, open);
         let direction = icons::Direction::Down;
         icons::chevron(frame, center(menu), 8.0, direction, p.text_muted, header);
@@ -603,7 +604,7 @@ fn draw_header(app: &mut App, frame: &mut Frame<'_>, card: Rect) {
     }
 
     // 右端：切换面板的位置（编辑区右边或下面），图标绘制的是点下去以后的位置。
-    if app.hover == Hover::TerminalHeader(HeaderHit::Position) {
+    if app.pointer.hover == Hover::TerminalHeader(HeaderHit::Position) {
         frame.rect_clipped(position, p.hover, RADIUS_ROW, header);
     }
     let center = (position.x + BUTTON / 2.0, position.y + BUTTON / 2.0);
@@ -611,7 +612,7 @@ fn draw_header(app: &mut App, frame: &mut Frame<'_>, card: Rect) {
     hits.push((position, HeaderHit::Position));
 
     // 最右端：收起面板，箭头朝面板收进去的那一边。
-    if app.hover == Hover::TerminalHeader(HeaderHit::Hide) {
+    if app.pointer.hover == Hover::TerminalHeader(HeaderHit::Hide) {
         frame.rect_clipped(hide, p.hover, RADIUS_ROW, header);
     }
     let toward = if app.terminal_right() {
@@ -681,7 +682,7 @@ fn draw_run_buttons(
     use crate::app::MenuButton;
     use crate::app::terminal::run::RunButton;
     let p = app.palette;
-    let hovered = |button| app.hover == Hover::TerminalHeader(HeaderHit::Run(button));
+    let hovered = |button| app.pointer.hover == Hover::TerminalHeader(HeaderHit::Run(button));
     let center = |rect: Rect| (rect.x + BUTTON / 2.0, rect.y + BUTTON / 2.0);
     let Some(config) = app.run.current() else {
         let on = hovered(RunButton::Start);
@@ -692,7 +693,7 @@ fn draw_run_buttons(
         return;
     };
     let running = app.run_config_running();
-    let open = app.menu_button == Some(MenuButton::RunConfigs);
+    let open = app.overlays.menu_button == Some(MenuButton::RunConfigs);
 
     draw_button(frame, p, menu, header, hovered(RunButton::Menu), open);
     let color = if open || hovered(RunButton::Menu) {
@@ -755,7 +756,7 @@ fn draw_terminal_tab(
         return draw_bar_field(app, frame, area, field, "", focused).filter(|_| focused);
     }
     let active = i == app.terminal.active;
-    let hovered = matches!(app.hover, Hover::TerminalHeader(HeaderHit::Tab(j) | HeaderHit::Close(j)) if j == i);
+    let hovered = matches!(app.pointer.hover, Hover::TerminalHeader(HeaderHit::Tab(j) | HeaderHit::Close(j)) if j == i);
     // 字色和编辑区的标签一样：正在看的用正文色，不管焦点在不在面板上。
     let color = match (active, tab.ended.is_some()) {
         (_, true) => p.text_dim,
@@ -776,7 +777,7 @@ fn draw_terminal_tab(
     }
     let close = workspace::top_bar::tab_close(rect);
     if active || hovered {
-        let on = app.hover == Hover::TerminalHeader(HeaderHit::Close(i));
+        let on = app.pointer.hover == Hover::TerminalHeader(HeaderHit::Close(i));
         workspace::top_bar::draw_tab_close(frame, p, close, on, clip);
     }
     // 移出标签栏、被裁掉的部分无法点击。
@@ -850,7 +851,7 @@ fn draw_end_notice(app: &mut App, frame: &mut Frame<'_>, row: Rect, clip: Rect) 
         label_w + RESTART_ICON + 12.0,
         row.h,
     );
-    let hovered = app.hover == Hover::TerminalHeader(HeaderHit::Restart);
+    let hovered = app.pointer.hover == Hover::TerminalHeader(HeaderHit::Restart);
     let fill = if hovered { p.hover } else { p.tab_fill };
     frame.rect_clipped(button, fill, RADIUS_ROW, clip);
     let icon = (
@@ -923,7 +924,7 @@ fn draw_find(app: &mut App, frame: &mut Frame<'_>) {
         Rect::new(x, bar.y + inset, BUTTON_SMALL, BUTTON_SMALL)
     };
     let (close, next, previous) = (button(0.0), button(1.0), button(2.0));
-    let hovered = |part| app.hover == Hover::TerminalHeader(HeaderHit::Find(part));
+    let hovered = |part| app.pointer.hover == Hover::TerminalHeader(HeaderHit::Find(part));
     let can_step = !find.matches.is_empty();
     let step = if can_step { p.text_muted } else { p.text_dim };
     for (rect, part) in [(previous, FindPart::Previous), (next, FindPart::Next)] {

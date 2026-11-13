@@ -38,18 +38,18 @@ impl App {
 
         if let Some(seed) = self.search_seed() {
             // 被替换的旧查找内容记入历史，按 `↑` 可以恢复。
-            self.find.input.remember();
-            self.find.input.set_text(&seed);
-            self.search.query = seed;
+            self.bars.find.input.remember();
+            self.bars.find.input.set_text(&seed);
+            self.bars.search.query = seed;
         } else {
             // 全选已有的查找内容，后续键入会直接替换该内容。
-            self.find.input.select_all();
+            self.bars.find.input.select_all();
         }
 
-        self.find.open = true;
+        self.bars.find.open = true;
         // 预览只读，不能替换。
-        self.find.replace_open = replace && !preview;
-        self.focus = if replace && !self.search.query.is_empty() {
+        self.bars.find.replace_open = replace && !preview;
+        self.focus = if replace && !self.bars.search.query.is_empty() {
             Focus::Replace
         } else {
             Focus::Search
@@ -87,7 +87,7 @@ impl App {
 
     /// 固定或取消光标下的词；查找条、选区和滚动位置保持原样。
     pub(in crate::app) fn toggle_word_highlight(&mut self) -> bool {
-        if !self.preedit.is_empty() {
+        if !self.ime.preedit.is_empty() {
             return false;
         }
         let Some(doc) = self.editor.active() else {
@@ -136,28 +136,28 @@ impl App {
             self.in_diff_search(|app| app.find_again(backwards));
             return;
         }
-        if self.search.query.is_empty()
+        if self.bars.search.query.is_empty()
             && let Some(seed) = self.search_seed()
         {
-            self.find.input.set_text(&seed);
-            self.search.query = seed;
+            self.bars.find.input.set_text(&seed);
+            self.bars.search.query = seed;
         }
 
         self.find_next(backwards);
     }
 
     fn remember_search(&mut self) {
-        self.find.input.remember();
-        self.find.replace_input.remember();
+        self.bars.find.input.remember();
+        self.bars.find.replace_input.remember();
     }
 
     /// 关闭查找条，并把焦点还给编辑区。
     pub(in crate::app) fn close_search(&mut self) {
         self.remember_search();
         self.stop_line_filter();
-        self.find.open = false;
-        self.find.pending_jump = None;
-        self.field_preedit.clear();
+        self.bars.find.open = false;
+        self.bars.find.pending_jump = None;
+        self.ime.field_preedit.clear();
         self.focus = Focus::Editor;
         self.relayout();
         self.request_redraw();
@@ -174,7 +174,7 @@ impl App {
         if self.diff_active() || self.markdown_focused() || self.markdown_live() {
             return;
         }
-        if self.find.filter_lines {
+        if self.bars.find.filter_lines {
             self.stop_line_filter();
             return;
         }
@@ -188,7 +188,7 @@ impl App {
             }
             return;
         }
-        self.find.filter_lines = true;
+        self.bars.find.filter_lines = true;
         self.apply_line_filter();
         self.request_redraw();
     }
@@ -197,7 +197,7 @@ impl App {
     ///
     /// 光标所在行已经不可见时，滚动到使它位于可见区域顶部起约 1/3 处。
     fn stop_line_filter(&mut self) {
-        if !std::mem::take(&mut self.find.filter_lines) {
+        if !std::mem::take(&mut self.bars.find.filter_lines) {
             return;
         }
         let top = self
@@ -207,8 +207,8 @@ impl App {
         if let Some(doc) = self.editor.active_mut() {
             doc.filter_lines(None, 0);
         }
-        self.find.filter_key = None;
-        self.sticky_cache = None;
+        self.bars.find.filter_key = None;
+        self.caches.sticky_cache = None;
         if let Some(line) = top {
             self.scroll_to_line(line, 1.0 / 3.0, true);
         }
@@ -219,7 +219,7 @@ impl App {
     ///
     /// 搜索结果没有变化时不处理。
     pub(in crate::app) fn apply_line_filter(&mut self) {
-        if !self.find.filter_lines {
+        if !self.bars.find.filter_lines {
             return;
         }
         // 切换标签后，其他文档取消筛选，只筛选当前文档。
@@ -233,37 +233,38 @@ impl App {
         let Some(doc) = self.editor.active().filter(|d| d.can_fold()) else {
             return;
         };
-        if !self.search.is_for(doc) {
+        if !self.bars.search.is_for(doc) {
             return;
         }
         // 查询为空（尚未输入）时显示全部行。
-        let shown = (!self.search.query.is_empty()).then(|| self.search.lines());
+        let shown = (!self.bars.search.query.is_empty()).then(|| self.bars.search.lines());
         let key = (
             doc.id,
             doc.revision,
-            self.search.lines().len(),
-            self.search.searched_lines(),
+            self.bars.search.lines().len(),
+            self.bars.search.searched_lines(),
             shown.is_some(),
         );
         // 搜索结果未变，且文档仍保持上次筛选后的状态（没有被替换或重新读取）时不处理。
         // 状态要与 `is_filtered` 的实际结果比较，不能只判断是否有查询：每一行都匹配时筛选不会
         // 隐藏任何行，若只判断是否有查询，每一帧都会重新筛选并把光标滚回可见范围，导致无法滚动。
         if self
+            .bars
             .find
             .filter_key
             .is_some_and(|(k, filtered)| k == key && filtered == doc.folds().is_filtered())
         {
             return;
         }
-        let searched = self.search.searched_lines();
+        let searched = self.bars.search.searched_lines();
         let shown = shown.map(<[usize]>::to_vec);
         let mut filtered = false;
         if let Some(doc) = self.editor.active_mut() {
             doc.filter_lines(shown.as_deref(), searched);
             filtered = doc.folds().is_filtered();
         }
-        self.find.filter_key = Some((key, filtered));
-        self.sticky_cache = None;
+        self.bars.find.filter_key = Some((key, filtered));
+        self.caches.sticky_cache = None;
         self.clamp_scroll();
         self.ensure_caret_visible();
     }
@@ -275,17 +276,19 @@ impl App {
                 if !self.can_replace() {
                     return;
                 }
-                self.find.replace_open = !self.find.replace_open;
+                self.bars.find.replace_open = !self.bars.find.replace_open;
 
-                if !self.find.replace_open && self.focus == Focus::Replace {
+                if !self.bars.find.replace_open && self.focus == Focus::Replace {
                     self.focus = Focus::Search;
                 }
 
                 self.relayout();
             }
-            SearchButton::Case => self.search.case_sensitive = !self.search.case_sensitive,
-            SearchButton::Word => self.search.whole_word = !self.search.whole_word,
-            SearchButton::Regex => self.search.regex = !self.search.regex,
+            SearchButton::Case => {
+                self.bars.search.case_sensitive = !self.bars.search.case_sensitive
+            }
+            SearchButton::Word => self.bars.search.whole_word = !self.bars.search.whole_word,
+            SearchButton::Regex => self.bars.search.regex = !self.bars.search.regex,
             SearchButton::Prev => self.find_next(true),
             SearchButton::Next => self.find_next(false),
             SearchButton::Filter => self.toggle_line_filter(),
@@ -324,7 +327,7 @@ impl App {
             return;
         };
 
-        match self.search.replace_current(doc) {
+        match self.bars.search.replace_current(doc) {
             Ok(true) => self.search_changed(),
             Ok(false) => self.find_next(false),
             Err(reason) => self.flash(reason),
@@ -350,7 +353,7 @@ impl App {
             return;
         };
 
-        match self.search.replace_all(doc) {
+        match self.bars.search.replace_all(doc) {
             Ok(0) => self.flash(t!("editor-replace-none")),
             Ok(count) => self.flash(t!("editor-replaced", count = count)),
             Err(reason) => self.flash(reason),
@@ -380,11 +383,11 @@ impl App {
         }
         if self.markdown_focused() {
             if self.markdown_find_doc().is_some()
-                && let Some(doc) = &self.markdown.find_doc
+                && let Some(doc) = &self.preview.markdown.find_doc
             {
-                self.search.update(doc);
+                self.bars.search.update(doc);
             }
-            let from = self.markdown.selection.map_or(0, |(a, b)| a.min(b));
+            let from = self.preview.markdown.selection.map_or(0, |(a, b)| a.min(b));
             self.jump_to_match(from, false);
             self.request_redraw();
             return;
@@ -392,7 +395,7 @@ impl App {
         let Some(doc) = self.editor.active() else {
             return;
         };
-        self.search.update(doc);
+        self.bars.search.update(doc);
         self.jump_to_match(doc.selection.from(), false);
         self.request_redraw();
     }
@@ -401,19 +404,20 @@ impl App {
     ///
     /// 大文件尚未搜索到匹配时，把请求记入 `FindBar::pending_jump`，搜索到后再跳转。
     pub(in crate::app) fn jump_to_match(&mut self, pos: usize, backwards: bool) {
-        self.find.pending_jump = None;
+        self.bars.find.pending_jump = None;
 
         let preview = self.markdown_focused();
         let side = self
             .editor
             .active()
-            .and_then(|doc| self.search.snapshot_side(doc));
-        match self.search.next_from(pos, backwards) {
+            .and_then(|doc| self.bars.search.snapshot_side(doc));
+        match self.bars.search.next_from(pos, backwards) {
             Some((start, end)) if preview => self.select_in_markdown(start, end),
             Some((start, end)) if let Some(side) = side => self.reveal_diff_match(side, start, end),
             Some((start, end)) => self.reveal_match(start, end),
-            None if !self.search.is_complete() => {
-                self.find.pending_jump = self.search.document().map(|id| (id, pos, backwards));
+            None if !self.bars.search.is_complete() => {
+                self.bars.find.pending_jump =
+                    self.bars.search.document().map(|id| (id, pos, backwards));
             }
             None => {}
         }
@@ -449,7 +453,7 @@ impl App {
 
         let visible = self.visible_lines() as f64;
         let (bar, text, lh) = (self.layout.search, self.layout.text, self.fonts.line_height);
-        let (tab_width, cell) = (self.editor.active_tab_width(), self.cell);
+        let (tab_width, cell) = (self.editor.active_tab_width(), self.metrics.cell);
         let Some(doc) = self.editor.active_mut() else {
             return;
         };
@@ -486,9 +490,9 @@ impl App {
             self.in_diff_search(|app| app.find_next(backwards));
             return;
         }
-        self.find.input.remember();
+        self.bars.find.input.remember();
 
-        if self.search.query.is_empty() {
+        if self.bars.search.query.is_empty() {
             return;
         }
         if let Some((_, selection)) = self.update_diff_find() {
@@ -506,11 +510,12 @@ impl App {
 
         if self.markdown_focused() {
             if self.markdown_find_doc().is_some()
-                && let Some(doc) = &self.markdown.find_doc
+                && let Some(doc) = &self.preview.markdown.find_doc
             {
-                self.search.update(doc);
+                self.bars.search.update(doc);
             }
             let (from, to) = self
+                .preview
                 .markdown
                 .selection
                 .map_or((0, 0), |(a, b)| (a.min(b), a.max(b)));
@@ -518,7 +523,7 @@ impl App {
             return;
         }
 
-        self.search.update(doc);
+        self.bars.search.update(doc);
         let pos = if backwards {
             doc.selection.from()
         } else {
@@ -531,7 +536,7 @@ impl App {
     ///
     /// 没有可显示文本的文档时不处理。
     pub(in crate::app) fn open_goto(&mut self) {
-        if self.goto_input.is_some() && self.prompt_kind == PromptKind::GoTo {
+        if self.bars.goto_input.is_some() && self.bars.prompt_kind == PromptKind::GoTo {
             self.close_prompt();
             self.focus = Focus::Editor;
             return;
@@ -564,9 +569,9 @@ impl App {
     /// 打开 `kind` 的输入条，输入框为 `field`，焦点移到输入条上；文件树中正在进行的名称输入先结束。
     pub(in crate::app) fn open_prompt(&mut self, kind: PromptKind, field: TextField) {
         self.finish_name_input();
-        self.goto_input = Some(field);
-        self.prompt_kind = kind;
-        self.field_preedit.clear();
+        self.bars.goto_input = Some(field);
+        self.bars.prompt_kind = kind;
+        self.ime.field_preedit.clear();
         self.focus = Focus::Prompt;
         self.relayout();
         self.request_redraw();
@@ -574,26 +579,26 @@ impl App {
 
     /// 关闭跳转条以及文件树中的名称输入行。
     pub(in crate::app) fn close_prompt(&mut self) {
-        self.goto_input = None;
-        self.name_input = None;
-        self.field_preedit.clear();
+        self.bars.goto_input = None;
+        self.panels.name_input = None;
+        self.ime.field_preedit.clear();
         self.relayout();
         self.request_redraw();
     }
 
     /// 处理跳转条或文件树名称输入行中的回车。
     pub(in crate::app) fn submit_prompt(&mut self) {
-        if self.name_input.is_some() {
+        if self.panels.name_input.is_some() {
             self.submit_name_input();
             return;
         }
 
-        let Some(field) = self.goto_input.take() else {
+        let Some(field) = self.bars.goto_input.take() else {
             return;
         };
         let input = field.text().to_owned();
         self.focus = Focus::Editor;
-        match std::mem::replace(&mut self.prompt_kind, PromptKind::GoTo) {
+        match std::mem::replace(&mut self.bars.prompt_kind, PromptKind::GoTo) {
             PromptKind::GoTo => self.goto_line(&input),
             PromptKind::Stash => self.git_stash(&input),
             PromptKind::NewTag { at } => self.git_new_tag(&input, at),

@@ -13,13 +13,18 @@ fn open_unloaded(app: &mut App, path: &Path) -> (DocumentId, u64, LoadJob) {
     let index = app.editor.open_tab(path);
     let job = app.editor.begin_load(index).unwrap();
     let id = job.id();
-    let ticket = app.loads.tickets.issue(id);
-    app.loads.since = Some((id, Instant::now()));
+    let ticket = app.disk.loads.tickets.issue(id);
+    app.disk.loads.since = Some((id, Instant::now()));
     (id, ticket, job)
 }
 
 fn deliver(app: &mut App, (id, ticket, job): (DocumentId, u64, LoadJob)) {
-    app.loads.results.0.send((id, ticket, job.run())).unwrap();
+    app.disk
+        .loads
+        .results
+        .0
+        .send((id, ticket, job.run()))
+        .unwrap();
     app.poll_loads();
 }
 
@@ -50,14 +55,14 @@ fn jumps_wait_until_the_file_is_read() {
     assert!(app.editor.active().unwrap().is_pending());
     assert!(app.holding_frame(Instant::now()).is_some());
     app.jump_to(42, 2, 0);
-    assert_eq!(app.loads.then.len(), 1);
+    assert_eq!(app.disk.loads.then.len(), 1);
 
     deliver(&mut app, load);
     let doc = app.editor.active().unwrap();
     assert_eq!(doc.id, id);
     assert!(!doc.is_pending());
     assert_eq!(doc.text().pos_to_line_col(doc.selection.head), (42, 2));
-    assert!(app.loads.then.is_empty());
+    assert!(app.disk.loads.then.is_empty());
     assert!(app.holding_frame(Instant::now()).is_none());
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -83,12 +88,12 @@ fn a_jump_waits_for_its_tab_and_is_dropped_when_the_tab_closes() {
     assert_eq!(app.editor.documents[index].selection.head, 0);
     assert_eq!(app.editor.active, Some(other));
     assert_eq!(app.editor.active().unwrap().selection.head, 0);
-    assert_eq!(app.loads.then.len(), 1);
+    assert_eq!(app.disk.loads.then.len(), 1);
     app.activate_tab(index);
     app.run_when_loaded();
     let doc = app.editor.active().unwrap();
     assert_eq!(doc.text().pos_to_line_col(doc.selection.head), (30, 0));
-    assert!(app.loads.then.is_empty());
+    assert!(app.disk.loads.then.is_empty());
 
     // 关掉以后读好：什么也不做。
     app.close_tab(index);
@@ -100,7 +105,7 @@ fn a_jump_waits_for_its_tab_and_is_dropped_when_the_tab_closes() {
     app.close_tab(index);
     deliver(&mut app, load);
     assert!(tab_of(&app, &third).is_none());
-    assert!(app.loads.then.is_empty());
+    assert!(app.disk.loads.then.is_empty());
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -120,7 +125,7 @@ fn changes_on_disk_while_reading_are_picked_up() {
     let file = std::fs::File::options().write(true).open(&path).unwrap();
     file.set_modified(SystemTime::now() + Duration::from_secs(1))
         .unwrap();
-    app.loads.results.0.send((id, ticket, read)).unwrap();
+    app.disk.loads.results.0.send((id, ticket, read)).unwrap();
     app.poll_loads();
     let text = app
         .editor
@@ -144,7 +149,7 @@ fn a_slow_read_shows_what_is_being_read() {
 
     // 超过留帧的时间还没读好：画出「正在读取」，不画空白的编辑区。
     let load = open_unloaded(&mut app, &path);
-    app.loads.since = Some((load.0, Instant::now() - Duration::from_secs(1)));
+    app.disk.loads.since = Some((load.0, Instant::now() - Duration::from_secs(1)));
     assert!(app.holding_frame(Instant::now()).is_none());
     shoot(&mut app, "loading-slow");
     assert!(app.hits.placeholder.is_empty());
