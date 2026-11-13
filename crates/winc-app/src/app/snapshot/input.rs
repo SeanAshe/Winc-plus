@@ -13,7 +13,7 @@ fn a_key_taken_by_the_input_method_is_no_shortcut_while_composing() {
 
     let dir = sample_folder("ime-shortcut");
     let mut app = app_with(&dir, false);
-    app.modifiers = ModifiersState::CONTROL;
+    app.pointer.modifiers = ModifiersState::CONTROL;
     let stroke = |app: &App| {
         app.stroke_of(
             &Key::Named(NamedKey::Process),
@@ -28,12 +28,12 @@ fn a_key_taken_by_the_input_method_is_no_shortcut_while_composing() {
     };
 
     assert_eq!(stroke(&app), Some(comma));
-    app.preedit = "ni".to_owned();
+    app.ime.preedit = "ni".to_owned();
     assert_eq!(stroke(&app), None);
-    app.preedit.clear();
-    app.field_preedit = "ni".to_owned();
+    app.ime.preedit.clear();
+    app.ime.field_preedit = "ni".to_owned();
     assert_eq!(stroke(&app), None);
-    app.field_preedit.clear();
+    app.ime.field_preedit.clear();
     assert_eq!(stroke(&app), Some(comma));
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -57,13 +57,13 @@ fn composition_follows_the_focus() {
     assert!(app.focus.is_field() && app.takes_text());
     app.on_ime(Ime::Preedit("nih".into(), None));
     assert_eq!(
-        (app.preedit.as_str(), app.field_preedit.as_str()),
+        (app.ime.preedit.as_str(), app.ime.field_preedit.as_str()),
         ("", "nih")
     );
     app.focus = Focus::Editor;
     app.on_ime(Ime::Preedit("niha".into(), None));
     assert_eq!(
-        (app.preedit.as_str(), app.field_preedit.as_str()),
+        (app.ime.preedit.as_str(), app.ime.field_preedit.as_str()),
         ("niha", "")
     );
 
@@ -71,7 +71,7 @@ fn composition_follows_the_focus() {
     app.focus = Focus::Tree;
     assert!(!app.takes_text());
     app.update_ime_area();
-    assert!(app.preedit.is_empty() && app.field_preedit.is_empty());
+    assert!(app.ime.preedit.is_empty() && app.ime.field_preedit.is_empty());
     // 没有运行中的终端时，终端面板同样不能输入文字。
     app.focus = Focus::Terminal;
     assert!(!app.takes_text());

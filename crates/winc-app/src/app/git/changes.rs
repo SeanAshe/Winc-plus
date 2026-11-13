@@ -253,33 +253,34 @@ impl App {
             return;
         };
         let doc = &self.editor.documents[index];
-        let (revision, epoch) = (doc.revision, self.changes.epoch);
-        let base = match self.changes.bases.get(&path) {
+        let (revision, epoch) = (doc.revision, self.git.changes.epoch);
+        let base = match self.git.changes.bases.get(&path) {
             None => {
-                if self.changes.pending.insert(path.clone()) {
+                if self.git.changes.pending.insert(path.clone()) {
                     self.fetch_base(path, doc.encoding);
                 }
                 return;
             }
             Some(None) => {
-                self.changes.marks.remove(&id);
+                self.git.changes.marks.remove(&id);
                 return;
             }
             Some(Some(base)) => base.clone(),
         };
         let fresh = self
+            .git
             .changes
             .marks
             .get(&id)
             .is_some_and(|m| m.revision == revision && m.epoch == epoch);
-        if fresh || self.changes.computing.contains_key(&id) {
+        if fresh || self.git.changes.computing.contains_key(&id) {
             return;
         }
         let Some(rope) = doc.text().rope().cloned() else {
             return;
         };
-        self.changes.computing.insert(id, revision);
-        let sender = self.changes.computed.0.clone();
+        self.git.changes.computing.insert(id, revision);
+        let sender = self.git.changes.computed.0.clone();
         self.spawn_then(UserEvent::GitBase, move || {
             let hunks = compare(&base, &rope);
             let _ = sender.send(Computed {
@@ -293,28 +294,28 @@ impl App {
 
     /// 返回已打开的卡片中绘制的原内容；缓存仍然有效时直接使用缓存。
     pub(crate) fn change_preview(&mut self) -> Option<Rc<Preview>> {
-        let popup = self.changes.popup?;
+        let popup = self.git.changes.popup?;
         let index = self
             .editor
             .documents
             .iter()
             .position(|d| d.id == popup.doc)?;
         let doc = &self.editor.documents[index];
-        let hunk = self.changes.hunks(doc.id).get(popup.hunk)?.clone();
+        let hunk = self.git.changes.hunks(doc.id).get(popup.hunk)?.clone();
         let key = PreviewKey {
             doc: doc.id,
             revision: doc.revision,
-            epoch: self.changes.epoch,
+            epoch: self.git.changes.epoch,
             hunk: hunk.clone(),
             language: doc.highlighter.language(),
         };
-        if let Some(preview) = &self.changes.preview
+        if let Some(preview) = &self.git.changes.preview
             && preview.key == key
             && preview.settled
         {
             return Some(preview.clone());
         }
-        let base = self.changes.base(doc.path.as_deref()?)?;
+        let base = self.git.changes.base(doc.path.as_deref()?)?;
         let old = lines_of(base, hunk.old.clone());
         let new = current_lines(doc, &hunk);
         let language = doc.highlighter.language();
@@ -353,7 +354,7 @@ impl App {
             more: hunk.old.len().saturating_sub(lines.len()),
             lines,
         });
-        self.changes.preview = Some(preview.clone());
+        self.git.changes.preview = Some(preview.clone());
         Some(preview)
     }
 
@@ -365,12 +366,13 @@ impl App {
         let Some((id, path)) = self.line_change_inputs(index) else {
             return;
         };
-        let Some(Some(base)) = self.changes.bases.get(&path).cloned() else {
+        let Some(Some(base)) = self.git.changes.bases.get(&path).cloned() else {
             return;
         };
         let doc = &self.editor.documents[index];
-        let (revision, epoch) = (doc.revision, self.changes.epoch);
+        let (revision, epoch) = (doc.revision, self.git.changes.epoch);
         if self
+            .git
             .changes
             .marks
             .get(&id)
@@ -382,7 +384,7 @@ impl App {
             return;
         };
         let hunks = compare(&base, rope);
-        self.changes.marks.insert(
+        self.git.changes.marks.insert(
             id,
             Marks {
                 revision,
@@ -396,8 +398,8 @@ impl App {
         let Some(root) = self.git.root.clone() else {
             return;
         };
-        let sender = self.changes.results.0.clone();
-        let epoch = self.changes.epoch;
+        let sender = self.git.changes.results.0.clone();
+        let epoch = self.git.changes.epoch;
         self.spawn_git(UserEvent::GitBase, move |tool| {
             let text = tool
                 .ok()
@@ -411,33 +413,34 @@ impl App {
 
     /// 接收后台读取的基准与计算完成的改动。
     pub(in crate::app) fn poll_bases(&mut self) {
-        while let Ok(fetched) = self.changes.results.1.try_recv() {
-            if fetched.epoch != self.changes.epoch {
+        while let Ok(fetched) = self.git.changes.results.1.try_recv() {
+            if fetched.epoch != self.git.changes.epoch {
                 continue;
             }
-            if self.changes.pending.remove(&fetched.path) {
-                self.changes.bases.insert(fetched.path, fetched.text);
+            if self.git.changes.pending.remove(&fetched.path) {
+                self.git.changes.bases.insert(fetched.path, fetched.text);
             }
         }
-        while let Ok(computed) = self.changes.computed.1.try_recv() {
+        while let Ok(computed) = self.git.changes.computed.1.try_recv() {
             // 作废前发出的结果直接丢弃，且不从 `computing` 中移除：作废时 `computing` 已清空，
             // 其中再出现的该文档属于作废后新发出的请求。
-            if computed.epoch != self.changes.epoch {
+            if computed.epoch != self.git.changes.epoch {
                 continue;
             }
-            self.changes.computing.remove(&computed.id);
+            self.git.changes.computing.remove(&computed.id);
             // 等待结果期间文档已关闭。
             if self.editor.document(computed.id).is_none() {
                 continue;
             }
             // 只丢弃比已有结果更旧的结果；比文档当前版本旧的结果仍先使用，下一帧继续重新计算。
             let newer = self
+                .git
                 .changes
                 .marks
                 .get(&computed.id)
                 .is_none_or(|m| m.epoch != computed.epoch || m.revision <= computed.revision);
             if newer {
-                self.changes.marks.insert(
+                self.git.changes.marks.insert(
                     computed.id,
                     Marks {
                         revision: computed.revision,
@@ -447,11 +450,11 @@ impl App {
                 );
             }
             // 卡片指向的改动可能已不存在。
-            if let Some(popup) = self.changes.popup
+            if let Some(popup) = self.git.changes.popup
                 && popup.doc == computed.id
-                && popup.hunk >= self.changes.hunks(computed.id).len()
+                && popup.hunk >= self.git.changes.hunks(computed.id).len()
             {
-                self.changes.popup = None;
+                self.git.changes.popup = None;
             }
         }
         self.request_redraw();
@@ -474,7 +477,7 @@ impl App {
             return None;
         }
         let doc = self.editor.active()?;
-        let hunks = self.changes.hunks(doc.id);
+        let hunks = self.git.changes.hunks(doc.id);
         if hunks.is_empty() {
             return None;
         }
@@ -502,7 +505,7 @@ impl App {
             return None;
         }
         let doc = self.editor.active().filter(|d| d.shows_text())?;
-        let hunks = self.changes.hunks(doc.id);
+        let hunks = self.git.changes.hunks(doc.id);
         let track = self.layout.editor;
         let left = track.right() - GIT_LANE.0;
         if hunks.is_empty()
@@ -526,11 +529,11 @@ impl App {
     /// 返回锚点矩形（标记上鼠标所在的高度）与「修改 · 第 3–4 行」形式的说明（按当前行号）。
     pub(crate) fn ruler_tip(&self, hunk: usize) -> Option<(Rect, String)> {
         let doc = self.editor.active()?;
-        let h = self.changes.hunks(doc.id).get(hunk)?;
+        let h = self.git.changes.hunks(doc.id).get(hunk)?;
         let ruler = Ruler::new(self.layout.editor, doc.row_count());
         let mark = ruler.rect(GIT_LANE, ruler_rows(doc, h));
         // 提示跟随鼠标高度：数十行的改动在标尺上较长，锚定在下沿时会远离鼠标。
-        let y = self.mouse.1.clamp(mark.y, mark.bottom());
+        let y = self.pointer.mouse.1.clamp(mark.y, mark.bottom());
         let rect = Rect::new(mark.x, y, mark.w, 10.0);
         let lines = |r: &std::ops::Range<usize>| match r.len() {
             1 => t!("git-change-line", line = r.start + 1),
@@ -557,13 +560,13 @@ impl App {
         let Some(doc) = self.editor.active() else {
             return;
         };
-        let Some(h) = self.changes.hunks(doc.id).get(hunk).cloned() else {
+        let Some(h) = self.git.changes.hunks(doc.id).get(hunk).cloned() else {
             return;
         };
         let line = h.new.start.min(doc.text().line_count() - 1);
         let pos = doc.text().line_start(line);
         let visible = self.visible_lines() as f64;
-        self.changes.popup = None;
+        self.git.changes.popup = None;
         self.focus = crate::app::Focus::Editor;
         if let Some(doc) = self.editor.active_mut() {
             let rows = ruler_rows(doc, &h);
@@ -593,13 +596,13 @@ impl App {
             return true;
         };
         let id = doc.id;
-        let h = &self.changes.hunks(id)[hunk];
+        let h = &self.git.changes.hunks(id)[hunk];
         let anchor = if h.new.is_empty() {
             (h.new.start, h.new.start)
         } else {
             (line, line + 1)
         };
-        self.changes.popup = Some(ChangePopup {
+        self.git.changes.popup = Some(ChangePopup {
             doc: id,
             hunk,
             anchor,
@@ -617,7 +620,7 @@ impl App {
             return;
         };
         let id = doc.id;
-        let Some(h) = self.changes.hunks(id).get(hunk).cloned() else {
+        let Some(h) = self.git.changes.hunks(id).get(hunk).cloned() else {
             return;
         };
         self.reveal_line(h.new.start);
@@ -636,7 +639,7 @@ impl App {
                 (h.new.start, h.new.start + 1)
             }
         };
-        self.changes.popup = Some(ChangePopup {
+        self.git.changes.popup = Some(ChangePopup {
             doc: id,
             hunk,
             anchor,
@@ -646,20 +649,20 @@ impl App {
 
     /// 处理对卡片上 `target` 的点击。
     pub(in crate::app) fn press_change(&mut self, target: ChangeTarget) {
-        let Some(popup) = self.changes.popup else {
+        let Some(popup) = self.git.changes.popup else {
             return;
         };
-        let count = self.changes.hunks(popup.doc).len();
+        let count = self.git.changes.hunks(popup.doc).len();
         match target {
             ChangeTarget::Previous if popup.hunk > 0 => self.open_change_popup(popup.hunk - 1),
             ChangeTarget::Next if popup.hunk + 1 < count => self.open_change_popup(popup.hunk + 1),
             ChangeTarget::Previous | ChangeTarget::Next => {}
             ChangeTarget::Revert => self.revert_change(popup.hunk),
             ChangeTarget::ShowDiff => {
-                self.changes.popup = None;
+                self.git.changes.popup = None;
                 self.git_show_changes();
             }
-            ChangeTarget::Close => self.changes.popup = None,
+            ChangeTarget::Close => self.git.changes.popup = None,
         }
         self.request_redraw();
     }
@@ -673,13 +676,13 @@ impl App {
             return;
         };
         let doc = &self.editor.documents[index];
-        let Some(h) = self.changes.hunks(doc.id).get(hunk).cloned() else {
+        let Some(h) = self.git.changes.hunks(doc.id).get(hunk).cloned() else {
             return;
         };
         let Some(path) = doc.path.clone() else {
             return;
         };
-        let Some(Some(base)) = self.changes.bases.get(&path).cloned() else {
+        let Some(Some(base)) = self.git.changes.bases.get(&path).cloned() else {
             return;
         };
         let inserted = lines_of(&base, h.old.clone());
@@ -687,7 +690,7 @@ impl App {
             self.flash(reason);
             return;
         }
-        self.changes.popup = None;
+        self.git.changes.popup = None;
         self.flash(t!("git-change-reverted"));
         self.request_redraw();
     }
@@ -700,7 +703,7 @@ impl App {
         let Some(doc) = self.editor.active() else {
             return false;
         };
-        let hunks = self.changes.hunks(doc.id);
+        let hunks = self.git.changes.hunks(doc.id);
         if hunks.is_empty() {
             return false;
         }
@@ -713,7 +716,7 @@ impl App {
         match target.map(|h| h.new.start) {
             Some(line) => {
                 let pos = doc.text().line_start(line.min(doc.text().line_count() - 1));
-                self.changes.popup = None;
+                self.git.changes.popup = None;
                 self.select(pos, pos);
             }
             None if forward => self.flash(t!("git-change-no-next")),
@@ -730,6 +733,7 @@ impl App {
         };
         let caret = doc.text().line_of(doc.selection.head);
         let hit = self
+            .git
             .changes
             .hunks(doc.id)
             .iter()

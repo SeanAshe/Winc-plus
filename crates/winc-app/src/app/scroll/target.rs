@@ -82,13 +82,13 @@ impl App {
     /// 处理。
     pub(crate) fn scroll_target_at(&self, x: f32, y: f32) -> ScrollTarget {
         let l = self.layout;
-        if self.alert.is_some() {
+        if self.overlays.alert.is_some() {
             return ScrollTarget::Blocked;
         }
         if self.popup().is_some() {
             return ScrollTarget::Popup;
         }
-        if self.form_dialog.is_some() {
+        if self.overlays.form_dialog.is_some() {
             return ScrollTarget::Dialog;
         }
         let x = if self.in_merge_pane(x, y) {
@@ -99,7 +99,7 @@ impl App {
         if self.settings.open {
             return ScrollTarget::Settings(self.settings_layout().body.contains(x, y));
         }
-        if !self.picker.open
+        if !self.overlays.picker.open
             && self
                 .terminal_find_bar()
                 .is_some_and(|bar| bar.contains(x, y))
@@ -109,7 +109,7 @@ impl App {
         let in_list =
             |app: &App| app.commit_parts().list.contains(x, y) || app.in_commit_overflow(x, y);
         let terminal_header = l.terminal.y + crate::app::terminal::header_height(l.terminal);
-        if self.picker.open && l.picker.contains(x, y) {
+        if self.overlays.picker.open && l.picker.contains(x, y) {
             ScrollTarget::Picker
         } else if l.tabs.contains(x, y) {
             ScrollTarget::Tabs
@@ -131,11 +131,11 @@ impl App {
             ScrollTarget::TerminalStrip
         } else if l.terminal.contains(x, y) {
             ScrollTarget::Terminal
-        } else if self.markdown.area.contains(x, y) {
+        } else if self.preview.markdown.area.contains(x, y) {
             ScrollTarget::Markdown
-        } else if self.pdf.strip.contains(x, y) {
+        } else if self.preview.pdf.strip.contains(x, y) {
             ScrollTarget::PdfStrip
-        } else if self.pdf.area.contains(x, y) {
+        } else if self.preview.pdf.area.contains(x, y) {
             ScrollTarget::Pdf
         } else if self.picture_at(x, y) {
             ScrollTarget::Picture
@@ -173,9 +173,9 @@ impl App {
             }
             ScrollTarget::Popup => {
                 // 菜单按鼠标位置选择滚动的层级。
-                let mouse = std::mem::replace(&mut self.mouse, origin);
+                let mouse = std::mem::replace(&mut self.pointer.mouse, origin);
                 self.popup_wheel(dy);
-                self.mouse = mouse;
+                self.pointer.mouse = mouse;
             }
             ScrollTarget::Dialog => self.rebase_wheel(dy),
             ScrollTarget::Settings(true) => self.settings_scroll_by(dy),
@@ -184,14 +184,14 @@ impl App {
                     find.field.wheel_scroll(-along);
                 }
             }
-            ScrollTarget::Picker if self.picker.places.is_some() => self.step_places(dy),
+            ScrollTarget::Picker if self.overlays.picker.places.is_some() => self.step_places(dy),
             ScrollTarget::Tabs => self.scroll_pane_by(target, along),
             ScrollTarget::LogList => {
                 self.with_log_list(|app| app.scroll_pane_by(ScrollTarget::Commit, dy));
             }
             ScrollTarget::CommitMessage => {
                 // 上限在绘制时按文字的行数收紧。
-                let view = &mut self.commit.message.view;
+                let view = &mut self.git.commit.message.view;
                 view.scroll = (view.scroll - dy).max(0.0);
             }
             ScrollTarget::Tree => {
@@ -199,7 +199,7 @@ impl App {
                 // 斜向滚动只取主方向，竖直滚动时不同时产生左右位移。
                 if sx != 0.0 && (sy == 0.0 || sx.abs() > sy.abs()) {
                     let max_x = self.tree_max_scroll_x();
-                    self.tree.scroll_x = (self.tree.scroll_x - sx).clamp(0.0, max_x);
+                    self.panels.tree.scroll_x = (self.panels.tree.scroll_x - sx).clamp(0.0, max_x);
                 }
             }
             ScrollTarget::TerminalStrip => self.terminal.strip.wheel(along),
@@ -224,7 +224,7 @@ impl App {
             | ScrollTarget::LogDetails => self.scroll_pane_by(target, dy),
         }
         if target.moves_rows() {
-            self.set_hover(self.hover_at(self.mouse.0, self.mouse.1));
+            self.set_hover(self.hover_at(self.pointer.mouse.0, self.pointer.mouse.1));
         }
         self.request_redraw();
     }
@@ -233,11 +233,12 @@ impl App {
     ///
     /// 滚动量累计满一行才滚动一行，触控板的小幅滑动不会使行只显示一部分。
     fn step_places(&mut self, dy: f32) {
-        self.picker.places_wheel += dy;
-        let steps = (self.picker.places_wheel / PICKER_ROW).trunc();
-        self.picker.places_wheel -= steps * PICKER_ROW;
+        self.overlays.picker.places_wheel += dy;
+        let steps = (self.overlays.picker.places_wheel / PICKER_ROW).trunc();
+        self.overlays.picker.places_wheel -= steps * PICKER_ROW;
         let max = (self.pane_max(ScrollTarget::Picker) / PICKER_ROW).ceil() * PICKER_ROW;
-        self.picker.scroll = (self.picker.scroll - steps * PICKER_ROW).clamp(0.0, max);
+        self.overlays.picker.scroll =
+            (self.overlays.picker.scroll - steps * PICKER_ROW).clamp(0.0, max);
     }
 
     /// 把区域 `target` 的滚动位置减少 `delta`（逻辑像素），限制在有效范围内。
@@ -251,18 +252,22 @@ impl App {
     /// （列表、文件树、标签栏、预览），或该区域当前没有内容时返回 `None`。
     pub(crate) fn pane_scroll(&self, target: ScrollTarget) -> Option<f32> {
         match target {
-            ScrollTarget::Picker => Some(self.picker.scroll),
+            ScrollTarget::Picker => Some(self.overlays.picker.scroll),
             ScrollTarget::Tabs => Some(self.tabs.scroll),
-            ScrollTarget::Commit => Some(self.commit.scroll),
-            ScrollTarget::Outline => Some(self.outline.scroll),
-            ScrollTarget::Results => Some(self.global.scroll),
-            ScrollTarget::Tree => Some(self.tree.scroll),
+            ScrollTarget::Commit => Some(self.git.commit.scroll),
+            ScrollTarget::Outline => Some(self.panels.outline.scroll),
+            ScrollTarget::Results => Some(self.panels.global.scroll),
+            ScrollTarget::Tree => Some(self.panels.tree.scroll),
             ScrollTarget::LogDetails => {
                 let view = self.editor.active().and_then(|d| d.log.as_deref());
                 view.map(|view| view.details_scroll)
             }
-            ScrollTarget::Markdown => self.markdown.doc.map(|_| self.markdown.scroll()),
-            ScrollTarget::Pdf => Some(self.pdf.scroll),
+            ScrollTarget::Markdown => self
+                .preview
+                .markdown
+                .doc
+                .map(|_| self.preview.markdown.scroll()),
+            ScrollTarget::Pdf => Some(self.preview.pdf.scroll),
             _ => None,
         }
     }
@@ -271,7 +276,7 @@ impl App {
     pub(crate) fn pane_max(&self, target: ScrollTarget) -> f32 {
         let max = match target {
             ScrollTarget::Picker => {
-                let rows = self.picker.hits.len() as f32;
+                let rows = self.overlays.picker.hits.len() as f32;
                 rows * PICKER_ROW - picker_span(self)
             }
             ScrollTarget::Tabs => self.tabs.max_scroll(),
@@ -282,9 +287,9 @@ impl App {
                 let rows = self.editor.workspace.as_ref().map_or(0, |w| w.rows().len());
                 tree_max_scroll(self.layout.tree, rows)
             }
-            ScrollTarget::LogDetails => self.log.details_max,
-            ScrollTarget::Markdown => self.markdown.max_scroll(),
-            ScrollTarget::Pdf => self.pdf.max_scroll(),
+            ScrollTarget::LogDetails => self.git.log.details_max,
+            ScrollTarget::Markdown => self.preview.markdown.max_scroll(),
+            ScrollTarget::Pdf => self.preview.pdf.max_scroll(),
             _ => 0.0,
         };
         max.max(0.0)
@@ -307,20 +312,20 @@ impl App {
     /// 供绘制前换入过渡中的位置、绘制后恢复目标位置使用（见 [`glide`](super::glide)）。
     pub(crate) fn set_pane_raw(&mut self, target: ScrollTarget, scroll: f32) {
         match target {
-            ScrollTarget::Picker => self.picker.scroll = scroll,
+            ScrollTarget::Picker => self.overlays.picker.scroll = scroll,
             ScrollTarget::Tabs => self.tabs.scroll = scroll,
-            ScrollTarget::Commit => self.commit.scroll = scroll,
-            ScrollTarget::Outline => self.outline.scroll = scroll,
-            ScrollTarget::Results => self.global.scroll = scroll,
-            ScrollTarget::Tree => self.tree.scroll = scroll,
+            ScrollTarget::Commit => self.git.commit.scroll = scroll,
+            ScrollTarget::Outline => self.panels.outline.scroll = scroll,
+            ScrollTarget::Results => self.panels.global.scroll = scroll,
+            ScrollTarget::Tree => self.panels.tree.scroll = scroll,
             ScrollTarget::LogDetails => {
                 let view = self.editor.active_mut().and_then(|d| d.log.as_deref_mut());
                 if let Some(view) = view {
                     view.details_scroll = scroll;
                 }
             }
-            ScrollTarget::Markdown => self.markdown.set_scroll(scroll),
-            ScrollTarget::Pdf => self.pdf.scroll = scroll,
+            ScrollTarget::Markdown => self.preview.markdown.set_scroll(scroll),
+            ScrollTarget::Pdf => self.preview.pdf.scroll = scroll,
             _ => {}
         }
     }

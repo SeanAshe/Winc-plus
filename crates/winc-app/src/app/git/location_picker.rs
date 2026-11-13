@@ -85,7 +85,7 @@ impl PlaceState {
 impl App {
     /// 面板是否正在列出位置。
     pub(crate) fn picker_lists_locations(&self) -> bool {
-        self.picker.location_rows.is_some()
+        self.overlays.picker.location_rows.is_some()
     }
 
     /// 目录下有不止一个可以工作的位置时才需要位置行：一个仓库、一个工作树时没有可选的。
@@ -100,17 +100,17 @@ impl App {
         self.git_discover();
         self.git_scan_repositories();
         self.finish_name_input();
-        self.picker.places = None;
-        self.picker.branch_rows = None;
-        self.picker.folders = false;
-        self.picker.vim_list = None;
-        self.picker.remote = None;
-        self.picker.anchor = GitAnchor::Location;
-        self.picker.open = true;
-        self.picker.doc = self.editor.active().map(|d| d.id);
-        self.picker.input.set_text("");
-        self.location_toggled.clear();
-        self.picker.location_rows = Some(Vec::new());
+        self.overlays.picker.places = None;
+        self.overlays.picker.branch_rows = None;
+        self.overlays.picker.folders = false;
+        self.overlays.picker.vim_list = None;
+        self.overlays.picker.remote = None;
+        self.overlays.picker.anchor = GitAnchor::Location;
+        self.overlays.picker.open = true;
+        self.overlays.picker.doc = self.editor.active().map(|d| d.id);
+        self.overlays.picker.input.set_text("");
+        self.git.location_toggled.clear();
+        self.overlays.picker.location_rows = Some(Vec::new());
         self.focus = Focus::Picker;
         self.picker_refresh();
         self.relayout();
@@ -138,9 +138,9 @@ impl App {
         let first = rows
             .iter()
             .position(|row| matches!(row, LocationRow::Place(_)));
-        self.picker.selected = current.or(first).unwrap_or(0);
-        self.picker.hits = (0..rows.len()).collect();
-        self.picker.location_rows = Some(rows);
+        self.overlays.picker.selected = current.or(first).unwrap_or(0);
+        self.overlays.picker.hits = (0..rows.len()).collect();
+        self.overlays.picker.location_rows = Some(rows);
     }
 
     /// 后台找到了新的仓库、工作树：重新排列。
@@ -231,7 +231,7 @@ impl App {
 
     /// 排出位置选择器的各行。
     fn current_location_rows(&self) -> Vec<LocationRow> {
-        let query = needle(self.picker.input.text());
+        let query = needle(self.overlays.picker.input.text());
         let searching = !query.is_empty();
         let mut rows = Vec::new();
         let groups = self.location_groups();
@@ -263,7 +263,7 @@ impl App {
                 continue;
             }
             let contains_current = places.iter().any(|p| p.current);
-            let flipped = self.location_toggled.contains(&path);
+            let flipped = self.git.location_toggled.contains(&path);
             let open = searching || contains_current != flipped;
             rows.push(LocationRow::Repository {
                 changes: places
@@ -399,8 +399,8 @@ impl App {
 
     /// 确认选中的行：组展开或收起，位置切换过去。
     pub(in crate::app) fn location_picker_accept(&mut self) {
-        let row = (self.picker.location_rows.as_ref())
-            .and_then(|rows| rows.get(self.picker.selected))
+        let row = (self.overlays.picker.location_rows.as_ref())
+            .and_then(|rows| rows.get(self.overlays.picker.selected))
             .cloned();
         match row {
             Some(LocationRow::Repository { path, .. }) => self.toggle_location_group(path),
@@ -416,7 +416,7 @@ impl App {
         // 和失效的分支一样：点了弹出它能做的事。
         if place.missing {
             if place.worktree.is_some() {
-                self.open_location_row_menu(self.picker.selected, place);
+                self.open_location_row_menu(self.overlays.picker.selected, place);
             } else {
                 self.flash(t!("git-worktree-missing"));
             }
@@ -435,23 +435,29 @@ impl App {
 
     fn toggle_location_group(&mut self, path: PathBuf) {
         let before = self.picker_fold_before();
-        if !self.location_toggled.remove(&path) {
-            self.location_toggled.insert(path);
+        if !self.git.location_toggled.remove(&path) {
+            self.git.location_toggled.insert(path);
         }
-        let selected = self.picker.selected;
+        let selected = self.overlays.picker.selected;
         self.location_picker_refresh();
-        self.picker.selected = selected.min(self.picker.hits.len().saturating_sub(1));
+        self.overlays.picker.selected =
+            selected.min(self.overlays.picker.hits.len().saturating_sub(1));
         self.start_picker_fold(before);
     }
 
     /// 处理没有查询时的左右键：左键收起组、回到所在的组，右键展开组、打开位置的操作菜单。返回
     /// 是否已处理；有查询时左右键移动输入框的光标。
     pub(in crate::app) fn location_picker_side(&mut self, right: bool) -> bool {
-        if !self.picker_lists_locations() || !self.picker.input.text().is_empty() {
+        if !self.picker_lists_locations() || !self.overlays.picker.input.text().is_empty() {
             return false;
         }
-        let rows = self.picker.location_rows.as_deref().unwrap_or_default();
-        let Some(row) = rows.get(self.picker.selected).cloned() else {
+        let rows = self
+            .overlays
+            .picker
+            .location_rows
+            .as_deref()
+            .unwrap_or_default();
+        let Some(row) = rows.get(self.overlays.picker.selected).cloned() else {
             return false;
         };
         match (row, right) {
@@ -459,14 +465,14 @@ impl App {
                 self.toggle_location_group(path);
             }
             (LocationRow::Place(place), true) => {
-                self.open_location_row_menu(self.picker.selected, &place)
+                self.open_location_row_menu(self.overlays.picker.selected, &place)
             }
             (LocationRow::Place(place), false) if place.depth > 0 => {
-                let group = (0..self.picker.selected)
+                let group = (0..self.overlays.picker.selected)
                     .rev()
                     .find(|&i| matches!(rows[i], LocationRow::Repository { .. }));
                 if let Some(group) = group {
-                    self.picker.selected = group;
+                    self.overlays.picker.selected = group;
                     self.picker_reveal();
                 }
             }
@@ -479,7 +485,7 @@ impl App {
     /// 在第 `row` 行的右端弹出位置 `place` 的操作菜单。
     pub(in crate::app) fn open_location_row_menu(&mut self, row: usize, place: &Place) {
         let parts = crate::app::workspace::picker::picker_parts(self, self.layout.picker);
-        let rect = parts.row(row, self.picker.scroll);
+        let rect = parts.row(row, self.overlays.picker.scroll);
         let target = MenuTarget::Location(place.path.clone(), place.worktree);
         self.open_context_menu(target, (rect.right() - 14.0, rect.bottom()));
     }

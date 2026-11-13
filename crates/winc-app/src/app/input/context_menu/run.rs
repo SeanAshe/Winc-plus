@@ -7,11 +7,11 @@ use super::*;
 impl App {
     /// 处理菜单中选中的命令 `command`：作用于弹出菜单时记录的目标。
     pub(in crate::app) fn run_menu_command(&mut self, command: MenuCommand) {
-        let Some(menu) = self.context_menu.take() else {
+        let Some(menu) = self.overlays.context_menu.take() else {
             return;
         };
         // 弹出菜单的按钮在菜单关掉以后放开。
-        self.menu_button = None;
+        self.overlays.menu_button = None;
 
         // 菜单中灰显的项本来点不到，这里再校验一次（例如菜单打开期间按了它的快捷键）。
         if !MenuEntry::offers(&menu.entries, command) {
@@ -55,7 +55,7 @@ impl App {
                 if let MenuCommand::LogAuthor(i) = command {
                     let author = i
                         .checked_sub(1)
-                        .and_then(|i| self.log.authors.get(i))
+                        .and_then(|i| self.git.log.authors.get(i))
                         .cloned();
                     self.change_log_query(|q| q.author = author);
                 }
@@ -587,13 +587,13 @@ impl App {
             .map(|relative| format!("./{relative}"))
             .unwrap_or_default();
 
-        if include != self.global.include.text() {
-            self.global.include.set_text(&include);
+        if include != self.panels.global.include.text() {
+            self.panels.global.include.set_text(&include);
         }
-        self.global.details_open |= !include.is_empty();
+        self.panels.global.details_open |= !include.is_empty();
         self.open_global_search(false);
 
-        if !self.global.query.text().is_empty() {
+        if !self.panels.global.query.text().is_empty() {
             self.global_changed(true);
         }
     }
@@ -601,7 +601,7 @@ impl App {
     /// 在文件树中就地改名：那一行变成输入框，填入原来的名字，并选中扩展名之前的部分；`↩` 确认，
     /// `Esc` 放弃。
     pub(in crate::app) fn start_rename(&mut self, path: &Path) {
-        self.goto_input = None;
+        self.bars.goto_input = None;
         let Some(ws) = &mut self.editor.workspace else {
             return;
         };
@@ -622,7 +622,7 @@ impl App {
         field.set_caret(0, false);
         field.set_caret(stem, true);
 
-        self.name_input = Some(NameInput {
+        self.panels.name_input = Some(NameInput {
             dir: path.parent().map(Path::to_path_buf).unwrap_or_default(),
             kind,
             index,
@@ -633,7 +633,7 @@ impl App {
             contents: None,
         });
         self.focus = Focus::Prompt;
-        self.field_preedit.clear();
+        self.ime.field_preedit.clear();
         self.scroll_tree_to(index, false);
         self.relayout();
         self.request_redraw();
@@ -686,7 +686,7 @@ impl App {
             }
             Err(e) => {
                 entry.error = Some(e.to_string());
-                self.name_input = Some(entry);
+                self.panels.name_input = Some(entry);
                 self.focus = Focus::Prompt;
             }
         }
@@ -821,7 +821,7 @@ impl App {
             ws.refresh();
             let count = ws.rows().len();
             ws.select(was.filter(|_| count > 0).map(|i| i.min(count - 1)));
-            self.tree.motion = None;
+            self.panels.tree.motion = None;
             self.clamp_tree_scroll();
         }
 
@@ -859,7 +859,12 @@ impl App {
     /// 没有目标时返回 `None`。
     pub(in crate::app) fn shortcut_target(&self) -> Option<PathBuf> {
         if self.focus == Focus::Results {
-            return self.global.selected.as_ref().map(|(path, _)| path.clone());
+            return self
+                .panels
+                .global
+                .selected
+                .as_ref()
+                .map(|(path, _)| path.clone());
         }
         if self.focus == Focus::Tree {
             return self

@@ -193,8 +193,9 @@ impl App {
         if let Some(picture) = doc.picture() {
             return Some((picture, self.layout.editor));
         }
-        let split = doc.preview_mode() == PreviewMode::Split && self.split.doc == Some(doc.id);
-        let picture = self.split.picture.as_ref().filter(|_| split)?;
+        let split =
+            doc.preview_mode() == PreviewMode::Split && self.preview.split.doc == Some(doc.id);
+        let picture = self.preview.split.picture.as_ref().filter(|_| split)?;
         Some((picture, self.layout.split))
     }
 
@@ -214,7 +215,11 @@ impl App {
         if !vector {
             return f32::INFINITY;
         }
-        let scale = self.renderer.as_ref().map_or(1.0, Renderer::scale_factor);
+        let scale = self
+            .frame
+            .renderer
+            .as_ref()
+            .map_or(1.0, Renderer::scale_factor);
         svg::MAX_EDGE as f32 / scale
     }
 
@@ -227,18 +232,19 @@ impl App {
             .active()
             .filter(|d| {
                 d.picture.is_some()
-                    || (d.preview_mode() == PreviewMode::Split && self.split.doc == Some(d.id))
+                    || (d.preview_mode() == PreviewMode::Split
+                        && self.preview.split.doc == Some(d.id))
             })
             .map(|d| d.id);
-        if self.picture_view.doc == doc {
+        if self.preview.picture_view.doc == doc {
             return;
         }
-        self.picture_view = PictureView {
+        self.preview.picture_view = PictureView {
             doc,
             ..PictureView::default()
         };
-        if matches!(self.drag, Drag::Picture { .. }) {
-            self.drag = Drag::None;
+        if matches!(self.pointer.drag, Drag::Picture { .. }) {
+            self.pointer.drag = Drag::None;
             self.update_cursor_icon();
         }
     }
@@ -252,7 +258,7 @@ impl App {
     /// 图片是否超出预览区域，可以滚动或拖动。
     pub(in crate::app) fn picture_pannable(&self) -> bool {
         self.picture_fit().is_some_and(|(fit, area)| {
-            let (across, down) = range(self.picture_view.zoom, fit, area);
+            let (across, down) = range(self.preview.picture_view.zoom, fit, area);
             across > 0.0 || down > 0.0
         })
     }
@@ -260,7 +266,7 @@ impl App {
     /// 把图片横向滚动 `dx`、竖直滚动 `dy`（逻辑像素，向右、向下滚动为负）。
     pub(crate) fn scroll_picture_by(&mut self, dx: f32, dy: f32) {
         if let Some((fit, area)) = self.picture_fit() {
-            self.picture_view.scroll_by((dx, dy), fit, area);
+            self.preview.picture_view.scroll_by((dx, dy), fit, area);
             self.request_redraw();
         }
     }
@@ -276,9 +282,9 @@ impl App {
         anchor: Option<(f32, f32)>,
     ) -> bool {
         let Some((fit, area)) = self.picture_fit() else {
-            return self.picture_view.doc.is_some();
+            return self.preview.picture_view.doc.is_some();
         };
-        let old = self.picture_view.zoom;
+        let old = self.preview.picture_view.zoom;
         let limit = self.picture_edge_limit();
         let fits = |zoom: &f32| *zoom <= 1.0 || fit.0.max(fit.1) * zoom <= limit;
         let next = match up {
@@ -291,7 +297,9 @@ impl App {
             let anchor = anchor.unwrap_or((area.x + area.w / 2.0, area.y + area.h / 2.0));
             // 有过渡时由每帧的绘制推进；没有时立即到位。
             let clock = self.clock(PDF_MOTION);
-            self.picture_view.zoom_to(zoom, anchor, (fit, area), clock);
+            self.preview
+                .picture_view
+                .zoom_to(zoom, anchor, (fit, area), clock);
         }
         let percent = (zoom * 100.0).round().to_string();
         self.flash(t!("preview-picture-zoom", zoom = percent));
@@ -302,15 +310,15 @@ impl App {
 
     /// 处理触控板捏合 `delta`（放大为正）：鼠标在图片预览上时，累计满一档缩放一次。
     pub(crate) fn picture_pinch(&mut self, delta: f32) {
-        let (x, y) = self.mouse;
+        let (x, y) = self.pointer.mouse;
         if !self.picture_at(x, y) {
             return;
         }
-        self.picture_view.pinch += delta;
-        if self.picture_view.pinch.abs() >= PINCH_STEP {
-            let up = self.picture_view.pinch > 0.0;
-            self.picture_view.pinch = 0.0;
-            self.zoom_picture(Some(up), Some(self.mouse));
+        self.preview.picture_view.pinch += delta;
+        if self.preview.picture_view.pinch.abs() >= PINCH_STEP {
+            let up = self.preview.picture_view.pinch > 0.0;
+            self.preview.picture_view.pinch = 0.0;
+            self.zoom_picture(Some(up), Some(self.pointer.mouse));
         }
     }
 
@@ -321,7 +329,7 @@ impl App {
         if self.click_count(x, y) == 2 {
             self.zoom_picture(None, None);
         } else if self.picture_pannable() {
-            self.drag = Drag::Picture { at: (x, y) };
+            self.pointer.drag = Drag::Picture { at: (x, y) };
             self.update_cursor_icon();
         }
     }
@@ -330,7 +338,7 @@ impl App {
     /// 内容的边缘后不再移动。
     pub(in crate::app) fn drag_picture(&mut self, x: f32, y: f32, at: (f32, f32)) {
         self.scroll_picture_by(x - at.0, y - at.1);
-        self.drag = Drag::Picture { at: (x, y) };
+        self.pointer.drag = Drag::Picture { at: (x, y) };
     }
 }
 

@@ -125,7 +125,7 @@ impl App {
         let branch = self.git.status.as_ref().is_some_and(|s| s.head.is_some());
         let preview = self.editor.active().is_some_and(|d| d.can_preview());
         let browser = self.browser_page().is_some();
-        let fx = &self.module_fx;
+        let fx = &self.motion.module_fx;
         let changed = fx.commit_tab.shown != commit
             || fx.terminal.shown != terminal
             || fx.remote.shown != remote
@@ -134,13 +134,13 @@ impl App {
             || fx.preview.shown != preview
             || fx.browser.shown != browser;
         // 同一帧变了的几样（开关 Git 模块时「提交」一段和分支名）共用一个时钟。
-        let primed = std::mem::replace(&mut self.module_fx.primed, true);
+        let primed = std::mem::replace(&mut self.motion.module_fx.primed, true);
         let clock = if primed && changed {
             self.clock(MODULE_FADE)
         } else {
             None
         };
-        let fx = &mut self.module_fx;
+        let fx = &mut self.motion.module_fx;
         fx.commit_tab.track(commit, clock);
         fx.terminal.track(terminal, clock);
         fx.remote.track(remote, clock);

@@ -30,7 +30,12 @@ pub(super) fn band_ink(p: &Palette) -> (Color, Color) {
 
 /// 绘制窗口内的菜单（打开着时），并把各级菜单的位置记回菜单。
 pub(super) fn draw(app: &mut App, frame: &mut Frame<'_>) {
-    let Some(mut popup) = app.context_menu.as_mut().and_then(|menu| menu.popup.take()) else {
+    let Some(mut popup) = app
+        .overlays
+        .context_menu
+        .as_mut()
+        .and_then(|menu| menu.popup.take())
+    else {
         return;
     };
     let window = app.layout.window;
@@ -92,7 +97,7 @@ pub(super) fn draw(app: &mut App, frame: &mut Frame<'_>) {
             .collect();
         draw_level(app, frame, level);
     }
-    if let Some(menu) = app.context_menu.as_mut() {
+    if let Some(menu) = app.overlays.context_menu.as_mut() {
         menu.popup = Some(popup);
     }
 }

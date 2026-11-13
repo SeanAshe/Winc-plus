@@ -75,7 +75,7 @@ fn bands_fold_and_unfold_a_command_output() {
     // 色带上的悬停、点击：折起 ls 的三行输出，网格上只剩一行「⋯ 3 行」。
     let at = band_at(&app, 2);
     app.on_mouse_move(at.0, at.1);
-    assert_eq!(app.hover, Hover::TerminalBlock(BlockHit::Band(0)));
+    assert_eq!(app.pointer.hover, Hover::TerminalBlock(BlockHit::Band(0)));
     let before = tab(&app).display_len();
     click(&mut app, at);
     let t = tab(&app);
@@ -107,10 +107,10 @@ fn bands_fold_and_unfold_a_command_output() {
     assert!(tab(&app).folded.is_empty());
 
     // ⇧ 点色带选中整块输出。
-    app.modifiers = winit::keyboard::ModifiersState::SHIFT;
+    app.pointer.modifiers = winit::keyboard::ModifiersState::SHIFT;
     let at = band_at(&app, 1);
     click(&mut app, at);
-    app.modifiers = winit::keyboard::ModifiersState::empty();
+    app.pointer.modifiers = winit::keyboard::ModifiersState::empty();
     assert_eq!(
         tab(&app).selected_text().unwrap().as_deref(),
         Some("a\nb\nc")
@@ -141,7 +141,7 @@ fn the_menu_on_a_command_copies_it_and_its_output() {
         app.on_mouse_move(x, y);
         app.on_mouse_down(MouseButton::Right);
         app.on_mouse_up(MouseButton::Right);
-        let menu = app.context_menu.as_ref().unwrap();
+        let menu = app.overlays.context_menu.as_ref().unwrap();
         let items = menu
             .entries
             .iter()
@@ -164,16 +164,16 @@ fn the_menu_on_a_command_copies_it_and_its_output() {
         ]
     );
     app.run_menu_command(MenuCommand::CopyCommand);
-    assert_eq!(app.copied.as_deref(), Some("echo hi"));
+    assert_eq!(app.clipboard.copied.as_deref(), Some("echo hi"));
     right_click(&mut app, 2);
     app.run_menu_command(MenuCommand::CopyOutput);
-    assert_eq!(app.copied.as_deref(), Some("hi\nthere"));
+    assert_eq!(app.clipboard.copied.as_deref(), Some("hi\nthere"));
 
     // 提示符那一行的块还没运行：没有块的几项。
     let (target, items) = right_click(&mut app, 3);
     assert_eq!(target, MenuTarget::Terminal(None));
     assert_eq!(items[0].0, MenuCommand::Copy);
-    app.context_menu = None;
+    app.overlays.context_menu = None;
 
     // 有命令正在执行时不能重新运行。
     app.terminal.tab_mut().unwrap().blocks[1].output = Some(4);
@@ -276,7 +276,7 @@ fn command_jumps_walk_the_history_and_the_command_sticks_on_top() {
     paint(&mut app);
     let (x, y) = cell_center(&app, 0, 4);
     app.on_mouse_move(x, y);
-    assert_eq!(app.hover, Hover::TerminalBlock(BlockHit::Sticky));
+    assert_eq!(app.pointer.hover, Hover::TerminalBlock(BlockHit::Sticky));
     click(&mut app, (x, y));
     assert_eq!(tab(&app).top(), tab(&app).blocks[2].prompt);
     assert_eq!(tab(&app).sticky(), None);
@@ -628,7 +628,7 @@ fn rows_hidden_under_the_sticky_command_or_a_fold_are_not_shown() {
     assert!(app.terminal_shows_line(cell_center(&app, 1, 0).1));
 
     // ⌘ 悬停在吸顶的命令行上：底下那一行的网址看不见，不认。
-    app.modifiers = command_modifiers();
+    app.pointer.modifiers = command_modifiers();
     let (x, y) = cell_center(&app, 0, 3);
     app.on_mouse_move(x, y);
     app.update_terminal_link();
@@ -637,7 +637,7 @@ fn rows_hidden_under_the_sticky_command_or_a_fold_are_not_shown() {
     app.on_mouse_move(x, y);
     app.update_terminal_link();
     assert_eq!(app.terminal.link.as_ref().map(|l| l.line), Some(output + 5));
-    app.modifiers = winit::keyboard::ModifiersState::empty();
+    app.pointer.modifiers = winit::keyboard::ModifiersState::empty();
 
     // 要露出的正是被盖着的那一行：翻过去。
     app.terminal.tab_mut().unwrap().reveal(output + 4);
@@ -716,7 +716,7 @@ fn a_single_line_of_output_is_not_folded() {
     assert!(tab(&app).folded.is_empty());
 
     // 按住 ⇧ 选中输出不受影响。
-    app.modifiers = winit::keyboard::ModifiersState::SHIFT;
+    app.pointer.modifiers = winit::keyboard::ModifiersState::SHIFT;
     app.click_terminal_band(0);
     assert!(tab(&app).selection.is_some());
     std::fs::remove_dir_all(&dir).unwrap();

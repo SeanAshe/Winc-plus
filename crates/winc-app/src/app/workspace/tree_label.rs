@@ -252,7 +252,7 @@ impl App {
     /// 文件树名字本帧是否播放过渡；没有窗口、动态效果关闭时为假。
     pub(crate) fn animate_tree_labels(&mut self) -> bool {
         #[cfg(test)]
-        if self.tree.labels.animate_without_window {
+        if self.panels.tree.labels.animate_without_window {
             return true;
         }
         self.clock(STATUS_SLIDE).is_some()
@@ -261,7 +261,7 @@ impl App {
     /// 改动列表的名字本帧是否播放过渡，条件同 [`App::animate_tree_labels`]。
     pub(crate) fn animate_commit_names(&mut self) -> bool {
         #[cfg(test)]
-        if self.commit.names.animate_without_window {
+        if self.git.commit.names.animate_without_window {
             return true;
         }
         self.clock(STATUS_SLIDE).is_some()

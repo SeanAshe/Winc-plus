@@ -8,7 +8,7 @@ impl App {
     pub(in crate::app) fn pulled_in(&mut self, root: &Path) {
         let what = "拉取".to_owned();
         // 换目录之前起的操作：编号比后来起的都小。
-        let _ = self.branch.results.0.send(Done {
+        let _ = self.git.branch.results.0.send(Done {
             id: 0,
             root: Some(root.into()),
             what,

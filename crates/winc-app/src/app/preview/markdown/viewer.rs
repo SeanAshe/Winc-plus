@@ -91,7 +91,7 @@ impl App {
         ) else {
             return;
         };
-        self.markdown.diagram = Some(DiagramView {
+        self.preview.markdown.diagram = Some(DiagramView {
             doc,
             source,
             zoom: None,
@@ -108,7 +108,7 @@ impl App {
 
     /// 关闭全屏查看。
     pub(crate) fn close_diagram_view(&mut self) {
-        if self.markdown.diagram.take().is_some() {
+        if self.preview.markdown.diagram.take().is_some() {
             self.request_redraw();
             self.update_cursor_icon();
         }
@@ -118,7 +118,7 @@ impl App {
     ///
     /// 缩放中心为 `around`（窗口坐标），为 `None` 时取查看区域的中心；缩放中心处的内容位置不变。
     pub(crate) fn zoom_diagram(&mut self, factor: f32, around: Option<(f32, f32)>) {
-        let Some(view) = self.markdown.diagram.as_mut() else {
+        let Some(view) = self.preview.markdown.diagram.as_mut() else {
             return;
         };
         let from = view.scale();
@@ -137,7 +137,7 @@ impl App {
 
     /// 恢复适应查看区域的倍数，图居中。
     fn fit_diagram(&mut self) {
-        if let Some(view) = self.markdown.diagram.as_mut() {
+        if let Some(view) = self.preview.markdown.diagram.as_mut() {
             view.zoom = None;
             view.pan = (0.0, 0.0);
             self.request_redraw();
@@ -149,7 +149,7 @@ impl App {
     ///
     /// 返回是否已处理；按在查看区域以外（标签栏、侧栏）时返回 `false`，由调用方按常规处理。
     pub(crate) fn diagram_view_mouse_down(&mut self, x: f32, y: f32) -> bool {
-        let Some(view) = self.markdown.diagram.as_mut() else {
+        let Some(view) = self.preview.markdown.diagram.as_mut() else {
             return false;
         };
         if !view.area.contains(x, y) {
@@ -172,7 +172,7 @@ impl App {
     ///
     /// 鼠标位于查看区域内或正在拖动时返回 `true`。
     pub(crate) fn diagram_view_mouse_move(&mut self, x: f32, y: f32) -> bool {
-        let Some(view) = self.markdown.diagram.as_mut() else {
+        let Some(view) = self.preview.markdown.diagram.as_mut() else {
             return false;
         };
         if let Some(((x0, y0), (px, py))) = view.grab {
@@ -195,6 +195,7 @@ impl App {
     /// 松开左键时结束拖动平移；返回松开前是否在拖动。
     pub(crate) fn diagram_view_mouse_up(&mut self) -> bool {
         let grabbed = self
+            .preview
             .markdown
             .diagram
             .as_mut()
@@ -210,17 +211,17 @@ impl App {
     ///
     /// 鼠标位于查看区域内时返回 `true`。
     pub(crate) fn diagram_view_wheel(&mut self, dx: f32, dy: f32) -> bool {
-        let (x, y) = self.mouse;
-        let Some(view) = self.markdown.diagram.as_mut() else {
+        let (x, y) = self.pointer.mouse;
+        let Some(view) = self.preview.markdown.diagram.as_mut() else {
             return false;
         };
         if !view.area.contains(x, y) {
             return false;
         }
         let zooming = if cfg!(target_os = "macos") {
-            self.modifiers.super_key()
+            self.pointer.modifiers.super_key()
         } else {
-            self.modifiers.control_key()
+            self.pointer.modifiers.control_key()
         };
         if zooming {
             self.zoom_diagram((dy * WHEEL_ZOOM).exp(), Some((x, y)));
@@ -233,8 +234,9 @@ impl App {
 
     /// 处理触控板捏合 `delta`（放大为正）：鼠标位于查看区域内时以鼠标处为中心缩放。
     pub(crate) fn diagram_view_pinch(&mut self, delta: f32) {
-        let (x, y) = self.mouse;
+        let (x, y) = self.pointer.mouse;
         if self
+            .preview
             .markdown
             .diagram
             .as_ref()
@@ -250,7 +252,7 @@ impl App {
     /// 返回是否已处理。焦点在编辑区时，其余不带 `cmd` 的按键同样视为已处理：图遮住了文字，
     /// 输入不应写入不可见的文档。带 `cmd` 的快捷键返回 `false`，按常规处理。
     pub(crate) fn diagram_view_key(&mut self, key: &Key, base: &str, cmd: bool) -> bool {
-        if self.markdown.diagram.is_none() {
+        if self.preview.markdown.diagram.is_none() {
             return false;
         }
         match (key, base) {

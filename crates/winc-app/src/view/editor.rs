@@ -58,13 +58,13 @@ const BRACE_SCAN_LIMIT: usize = 20_000;
 /// 没有标签时绘制开始页或欢迎页。
 pub(super) fn draw_editor(app: &mut App, frame: &mut Frame<'_>) {
     // Markdown、PDF 预览绘制时重新填充；预览不显示时若仍保留，滚轮和点击事件会被预览接收。
-    app.markdown.area = Rect::default();
-    app.pdf.area = Rect::default();
-    app.pdf.strip = Rect::default();
+    app.preview.markdown.area = Rect::default();
+    app.preview.pdf.area = Rect::default();
+    app.preview.pdf.strip = Rect::default();
 
     let Some(index) = app.editor.active else {
         // 没有标签：释放缩放后的预览缓存，避免继续占用内存。
-        app.picture_cache = None;
+        app.preview.picture_cache = None;
         // 没有打开目录时显示开始页（打开、新建、最近目录）；打开了目录但没有标签时显示
         // 欢迎页（常用操作及其快捷键）。
         if app.editor.workspace.is_none() {
@@ -85,7 +85,7 @@ pub(super) fn draw_editor(app: &mut App, frame: &mut Frame<'_>) {
         // 仍在后台解码时留空，解码完成后重新绘制。
         Some(PictureState::Loading) => return,
         Some(PictureState::Failed(reason)) => {
-            app.picture_cache = None;
+            app.preview.picture_cache = None;
             let message = t!("editor-preview-failed", reason = reason);
             draw_placeholder(
                 app,
@@ -99,7 +99,7 @@ pub(super) fn draw_editor(app: &mut App, frame: &mut Frame<'_>) {
     }
     // docx：显示转换成 Markdown 后排版的阅读视图；读取或转换失败时说明原因。
     if app.editor.documents[index].unsupported == Some(Unsupported::Docx) {
-        match app.markdown.failed.clone() {
+        match app.preview.markdown.failed.clone() {
             Some(reason) => {
                 use PlaceholderAction::*;
                 let message = t!("editor-preview-failed", reason = reason);
@@ -147,7 +147,7 @@ pub(super) fn draw_editor(app: &mut App, frame: &mut Frame<'_>) {
     }
     // PDF：逐页显示；打开失败时说明原因。
     if app.editor.documents[index].unsupported == Some(Unsupported::Pdf) {
-        match app.pdf.pages.clone() {
+        match app.preview.pdf.pages.clone() {
             Some(Err(reason)) => {
                 use PlaceholderAction::*;
                 let message = t!("editor-preview-failed", reason = reason);
@@ -200,7 +200,7 @@ pub(super) fn draw_editor(app: &mut App, frame: &mut Frame<'_>) {
     }
     // 分栏预览时缓存中保存的是右半部分的图片（`draw_split`），不清除。
     if app.layout.split.w <= 0.0 {
-        app.picture_cache = None;
+        app.preview.picture_cache = None;
     }
     if app.editor.documents[index].diff.is_some() {
         diff::draw_diff(app, frame, index);

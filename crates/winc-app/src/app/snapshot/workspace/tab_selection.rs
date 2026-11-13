@@ -21,10 +21,10 @@ fn tab_point(app: &App, index: usize) -> (f32, f32) {
 }
 
 fn click_tab(app: &mut App, index: usize, modifiers: ModifiersState) {
-    app.modifiers = modifiers;
+    app.pointer.modifiers = modifiers;
     let at = tab_point(app, index);
     click(app, at);
-    app.modifiers = ModifiersState::empty();
+    app.pointer.modifiers = ModifiersState::empty();
     paint(app);
 }
 

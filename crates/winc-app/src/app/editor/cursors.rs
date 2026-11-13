@@ -85,7 +85,7 @@ impl App {
     ///
     /// 查找条未打开或查找内容为空时返回 `false`，按键交给编辑区。
     pub(in crate::app) fn select_all_matches(&mut self) -> bool {
-        if !self.find.open || self.search.query.is_empty() || self.diff_active() {
+        if !self.bars.find.open || self.bars.search.query.is_empty() || self.diff_active() {
             return false;
         }
         let Some(doc) = self
@@ -99,11 +99,11 @@ impl App {
             return false;
         }
         // 通常按时间片分段查找；此处需要全部结果，因此一次查找完毕。
-        self.search.update(doc);
-        while !self.search.is_complete() {
-            self.search.update(doc);
+        self.bars.search.update(doc);
+        while !self.bars.search.is_complete() {
+            self.bars.search.update(doc);
         }
-        let matches = self.search.matches();
+        let matches = self.bars.search.matches();
         if matches.is_empty() {
             self.flash(t!("editor-no-match"));
             return true;
@@ -113,7 +113,7 @@ impl App {
         let all = matches.iter().map(|&(a, b)| Selection::new(a, b)).collect();
         doc.record_cursors();
         doc.set_selections(all, primary);
-        if self.search.is_truncated() {
+        if self.bars.search.is_truncated() {
             let count = winc_editor::MAX_MATCHES;
             self.flash(t!("editor-too-many-matches", count = count));
         }
@@ -140,7 +140,7 @@ impl App {
 
     /// 只保留主光标（`Esc`）；只有一个光标或改动卡片打开时不处理，返回 `false`，按键交给编辑区。
     pub(in crate::app) fn remove_secondary_cursors(&mut self) -> bool {
-        if self.changes.popup.is_some() {
+        if self.git.changes.popup.is_some() {
             return false;
         }
         let removed = self
@@ -179,7 +179,7 @@ impl App {
             .floor()
             .max(0.0) as usize;
         let line = doc.line_of_row(row.min(doc.row_count().saturating_sub(1)));
-        let cell = ((x - (t.x + TEXT_PAD - doc.scroll_x)) / self.cell)
+        let cell = ((x - (t.x + TEXT_PAD - doc.scroll_x)) / self.metrics.cell)
             .round()
             .max(0.0) as usize;
         Some((line, cell))

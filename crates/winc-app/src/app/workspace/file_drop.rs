@@ -36,7 +36,8 @@ impl App {
         if self.terminal_takes_drop(x, y) {
             return DropZone::Terminal;
         }
-        let on_tree = self.sidebar.view == SidebarView::Files && self.layout.sidebar.right() > 0.0;
+        let on_tree =
+            self.panels.sidebar.view == SidebarView::Files && self.layout.sidebar.right() > 0.0;
         match on_tree.then(|| self.tree_dir_at(x, y)).flatten() {
             Some(dir) => DropZone::Tree(dir),
             None => DropZone::Open,
@@ -45,7 +46,7 @@ impl App {
 
     /// 拖动中的落点（见 [`DropZone`]），绘制时据此铺底色；没有拖动时为 `None`。
     pub(crate) fn file_hover(&self) -> Option<&DropZone> {
-        self.file_hover.as_ref()
+        self.panels.file_hover.as_ref()
     }
 
     /// 文件或目录拖入了窗口（`HoveredFile`；同时拖动多项时每项触发一次）：开始跟踪落点。
@@ -55,7 +56,7 @@ impl App {
 
     /// 拖出了窗口或松了手：不再标出落点。
     pub(in crate::app) fn end_file_hover(&mut self) {
-        if self.file_hover.take().is_some() {
+        if self.panels.file_hover.take().is_some() {
             self.request_redraw();
         }
     }
@@ -63,7 +64,7 @@ impl App {
     /// 拖动文件经过窗口时，按 [`POLL`] 的间隔查询鼠标位置并更新落点，返回下一次查询的时刻；
     /// 没有拖动时返回 `None`。
     pub(in crate::app) fn file_hover_tick(&mut self, now: Instant) -> Option<Instant> {
-        self.file_hover.as_ref()?;
+        self.panels.file_hover.as_ref()?;
         self.update_file_hover();
         Some(now + POLL)
     }
@@ -72,8 +73,8 @@ impl App {
     fn update_file_hover(&mut self) {
         let (x, y) = self.drop_point();
         let zone = Some(self.drop_zone(x, y));
-        if zone != self.file_hover {
-            self.file_hover = zone;
+        if zone != self.panels.file_hover {
+            self.panels.file_hover = zone;
             self.request_redraw();
         }
     }
@@ -100,10 +101,14 @@ impl App {
             .as_ref()
             .and_then(|w| crate::windows::mouse_location(w))
         {
-            let scale = self.renderer.as_ref().map_or(1.0, |r| r.scale_factor());
+            let scale = self
+                .frame
+                .renderer
+                .as_ref()
+                .map_or(1.0, |r| r.scale_factor());
             return (x / scale, y / scale);
         }
-        self.mouse
+        self.pointer.mouse
     }
 
     /// 处理拖进窗口松手的文件或目录 `path`，规则见 [`Self::drop_file_at`]。
@@ -139,7 +144,7 @@ impl App {
             return;
         }
         ws.reveal(path);
-        self.tree.motion = None;
+        self.panels.tree.motion = None;
         self.focus = Focus::Tree;
         if let Some(index) = ws.selected {
             self.scroll_tree_to(index, false);

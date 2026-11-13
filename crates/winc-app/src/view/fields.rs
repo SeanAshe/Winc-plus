@@ -20,6 +20,8 @@ pub(super) struct AreaWrap {
     stops: Vec<(usize, f32)>,
     /// 每个边界在第几个显示行，见 [`FieldView::rows`]。
     rows: Vec<u32>,
+    /// 因宽度不足而折行的各显示行的末尾，见 [`FieldView::ends`]。
+    ends: Vec<(u32, usize, f32)>,
 }
 
 impl AreaWrap {
@@ -29,10 +31,39 @@ impl AreaWrap {
     }
 }
 
-/// 把多行输入框 `field` 的文字按 `width` 折行：每个字素量出宽度，放不下就换到下一行，换行符
-/// 开始新的一行；记下每个字素边界在哪一行、哪个位置（供点击、拖选和上下移动）。
+/// 一个字素之后是否可以折行：空白之后，以及中日韩文字、假名、谚文和全角符号之后。
+fn breaks_after(grapheme: &str) -> bool {
+    grapheme.chars().all(char::is_whitespace) || is_ideographic(grapheme)
+}
+
+/// 字素是否属于可以在任意两字之间折行的文字：中日韩文字、假名、谚文和全角符号。
 ///
-/// 有焦点时输入法组字中的文字插在光标处一起折行，后面的字跟着往后排。
+/// 范围取 Unicode 的区块：CJK 部首补充至 CJK 统一表意文字（U+2E80–U+9FFF）、谚文音节
+/// （U+AC00–U+D7AF）、CJK 兼容表意文字（U+F900–U+FAFF）、半角及全角形式（U+FF00–U+FFEF）。
+fn is_ideographic(grapheme: &str) -> bool {
+    grapheme.chars().next().is_some_and(|c| {
+        matches!(
+            c,
+            '\u{2E80}'..='\u{9FFF}'
+                | '\u{AC00}'..='\u{D7AF}'
+                | '\u{F900}'..='\u{FAFF}'
+                | '\u{FF00}'..='\u{FFEF}'
+        )
+    })
+}
+
+/// 折行过程中的一个字素边界：`display` 中的字节偏移、x 坐标和所在的显示行。
+struct Boundary {
+    pos: usize,
+    x: f32,
+    row: u32,
+}
+
+/// 把多行输入框 `field` 的文字按 `width` 折行，换行符开始新的一行；记下每个字素边界在哪一行、
+/// 哪个位置（供点击、拖选和上下移动）。
+///
+/// 一行放不下时在最近的可折行处（见 [`breaks_after`]）折行，整个词移到下一行；一个词比一行
+/// 还宽时从放不下的字素处折行。有焦点时输入法组字中的文字插在光标处一起折行。
 pub(crate) fn wrap_area_field(
     app: &App,
     frame: &mut Frame<'_>,
@@ -41,7 +72,7 @@ pub(crate) fn wrap_area_field(
     focused: bool,
 ) -> AreaWrap {
     let preedit = if focused {
-        app.field_preedit.as_str()
+        app.ime.field_preedit.as_str()
     } else {
         ""
     };
@@ -55,61 +86,73 @@ pub(crate) fn wrap_area_field(
     let to_field = |pos: usize| if pos <= caret { pos } else { pos - pl };
     let in_preedit = |pos: usize| pos > caret && pos <= caret + pl;
 
-    // 复用上一帧的两张表，不必每帧重新分配。
+    // 复用上一帧的三张表，不必每帧重新分配。
     let mut stops = std::mem::take(&mut field.view.stops);
     let mut rows = std::mem::take(&mut field.view.rows);
+    let mut ends = std::mem::take(&mut field.view.ends);
     stops.clear();
     rows.clear();
+    ends.clear();
     let (mut x, mut row) = (0.0, 0u32);
+    let mut all = vec![Boundary { pos: 0, x, row }];
     // 每个显示行的起点（排版文字里的字节偏移）。
     let mut row_starts = vec![0];
-    // 组字文字的起点和终点：（行，x）。
-    let (mut pre_start, mut pre_end) = ((0u32, 0.0f32), (0u32, 0.0f32));
-    stops.push((0, 0.0));
-    rows.push(0);
+    // 当前行中最近一个可折行的边界在 `all` 中的下标。
+    let mut opportunity: Option<usize> = None;
     for (start, grapheme) in display.grapheme_indices(true) {
         let end = start + grapheme.len();
-        if start == caret {
-            pre_start = (row, x);
-        }
         if grapheme == "\n" {
             row += 1;
             x = 0.0;
             row_starts.push(end);
-        } else {
-            let w = frame.measure(FontKind::Ui, app.fonts.ui, grapheme);
-            if x > 0.0 && x + w > width {
-                // 放不下：该字素换到下一行，它前面的边界也算到下一行的开头。
-                row += 1;
-                x = 0.0;
-                row_starts.push(start);
-                if !in_preedit(start)
-                    && let (Some(last), Some(r)) = (stops.last_mut(), rows.last_mut())
-                {
-                    *last = (to_field(start), 0.0);
-                    *r = row;
-                }
-                if start == caret {
-                    pre_start = (row, 0.0);
-                }
+            opportunity = None;
+            all.push(Boundary { pos: end, x, row });
+            continue;
+        }
+        if is_ideographic(grapheme) {
+            opportunity = Some(all.len() - 1);
+        }
+        let w = frame.measure(FontKind::Ui, app.fonts.ui, grapheme);
+        // 放不下：从最近的可折行处起换到下一行；该行没有可折行处时只把这个字素换到下一行。
+        // 折行处的边界归入下一行的开头，上一行末尾的位置另记在 `ends` 中。
+        while x > 0.0 && x + w > width {
+            let last = all.len() - 1;
+            let at = opportunity.filter(|&i| all[i].x > 0.0).unwrap_or(last);
+            let shift = all[at].x;
+            if !in_preedit(all[at].pos) {
+                ends.push((row, to_field(all[at].pos), shift));
             }
-            x += w;
+            row += 1;
+            row_starts.push(all[at].pos);
+            for boundary in &mut all[at..] {
+                boundary.x -= shift;
+                boundary.row = row;
+            }
+            x -= shift;
+            opportunity = None;
         }
-        if end == caret + pl {
-            pre_end = (row, x);
-        }
-        if !in_preedit(end) {
-            stops.push((to_field(end), x));
-            rows.push(row);
+        x += w;
+        all.push(Boundary { pos: end, x, row });
+        if breaks_after(grapheme) {
+            opportunity = Some(all.len() - 1);
         }
     }
-    if pl == 0 {
-        pre_start = stops
-            .iter()
-            .zip(&rows)
-            .find(|((pos, _), _)| *pos >= caret)
-            .map_or((0, 0.0), |((_, x), r)| (*r, *x));
-        pre_end = pre_start;
+    // 组字文字的起点和终点；没有组字时两者都是光标的位置。
+    let place = |pos: usize| {
+        let found = all.iter().find(|b| b.pos >= pos).or(all.last());
+        found.map_or((0, 0.0), |b| (b.row, b.x))
+    };
+    let (mut pre_start, mut pre_end) = (place(caret), place(caret + pl));
+    // 光标位于折行处并显示在上一行末尾。
+    if pl == 0
+        && field.caret_upstream()
+        && let Some(&(row, _, x)) = ends.iter().find(|&&(_, pos, _)| pos == caret)
+    {
+        (pre_start, pre_end) = ((row, x), (row, x));
+    }
+    for boundary in all.iter().filter(|b| !in_preedit(b.pos)) {
+        stops.push((to_field(boundary.pos), boundary.x));
+        rows.push(boundary.row);
     }
     AreaWrap {
         display,
@@ -118,6 +161,7 @@ pub(crate) fn wrap_area_field(
         preedit_span: (pre_start, pre_end),
         stops,
         rows,
+        ends,
     }
 }
 
@@ -144,6 +188,7 @@ pub(crate) fn draw_area_field(
         preedit_span: (pre_start, pre_end),
         stops,
         rows,
+        ends,
     } = wrap;
 
     // 纵向滚动：光标或文字变了，光标（组字文字的末尾）所在的行露在区域里；都没变时保持
@@ -172,6 +217,7 @@ pub(crate) fn draw_area_field(
         scroll,
         stops,
         rows,
+        ends,
         top,
         line_height: AREA_LINE,
         measured: None,
@@ -251,11 +297,16 @@ pub(crate) fn draw_area_field(
     focused.then(|| Rect::new(x, line.y + 2.0, 2.0, 16.0))
 }
 
+/// 输入光标的宽度（逻辑像素）。
+const CARET_W: f32 = 1.5;
+
 /// 绘制输入光标：在 `row` 内垂直居中，不超出 `clip`。
+///
+/// `x` 是字素边界的横坐标，光标以该边界为中线：两侧的字形都不被光标遮住。
 fn draw_field_caret(frame: &mut Frame<'_>, p: &Palette, x: f32, row: Rect, clip: Rect) {
-    let x = x.min(clip.right() - 2.0);
+    let x = (x - CARET_W / 2.0).min(clip.right() - CARET_W);
     frame.rect_clipped(
-        Rect::new(x + 1.0, row.y + (row.h - 16.0) / 2.0, 1.5, 16.0),
+        Rect::new(x, row.y + (row.h - 16.0) / 2.0, CARET_W, 16.0),
         p.caret,
         0.0,
         clip,
@@ -294,7 +345,7 @@ pub(super) fn draw_bar_field(
 ) -> Option<Rect> {
     let p = app.palette;
     let preedit = if focused {
-        app.field_preedit.as_str()
+        app.ime.field_preedit.as_str()
     } else {
         ""
     };

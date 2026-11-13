@@ -73,9 +73,13 @@ impl App {
         let Some(to) = self.pane_scroll(target) else {
             return;
         };
-        let existing = self.pane_glides.iter().position(|g| g.target == target);
+        let existing = self
+            .scroll
+            .pane_glides
+            .iter()
+            .position(|g| g.target == target);
         let shown = existing.map_or(from, |i| {
-            let glide = &self.pane_glides[i];
+            let glide = &self.scroll.pane_glides[i];
             glide.clock.between(glide.from, from)
         });
         if (to - shown).abs() < GLIDE_MIN_ROWS as f32 * self.pane_row(target) {
@@ -86,9 +90,9 @@ impl App {
             return;
         };
         if let Some(i) = existing {
-            self.pane_glides.swap_remove(i);
+            self.scroll.pane_glides.swap_remove(i);
         }
-        self.pane_glides.push(PaneGlide {
+        self.scroll.pane_glides.push(PaneGlide {
             target,
             from: shown,
             clock,
@@ -126,10 +130,15 @@ impl App {
             self.settle_editor_glide();
             return;
         }
-        let Some(i) = self.pane_glides.iter().position(|g| g.target == target) else {
+        let Some(i) = self
+            .scroll
+            .pane_glides
+            .iter()
+            .position(|g| g.target == target)
+        else {
             return;
         };
-        let glide = self.pane_glides.swap_remove(i);
+        let glide = self.scroll.pane_glides.swap_remove(i);
         if let Some(to) = self.pane_scroll(target) {
             self.set_pane_raw(target, glide.clock.between(glide.from, to));
         }
@@ -140,7 +149,7 @@ impl App {
     /// 在按下鼠标、开始触摸、拖动滚动条时调用，使命中测试与屏幕上看到的内容一致。
     pub(in crate::app) fn settle_glides(&mut self) {
         self.settle_editor_glide();
-        while let Some(glide) = self.pane_glides.first().map(|g| g.target) {
+        while let Some(glide) = self.scroll.pane_glides.first().map(|g| g.target) {
             self.settle_glide_of(glide);
         }
     }
@@ -150,11 +159,11 @@ impl App {
     /// 绘制后由 [`Self::end_scroll_frame`] 换回目标位置。正在折叠或展开时取消编辑区的平滑滚动，
     /// 因为折叠动画假定滚动位置不变。
     pub(in crate::app) fn begin_scroll_frame(&mut self) -> ScrollFrame {
-        if self.fold_motion.is_some() {
-            self.scroll_glide = None;
+        if self.motion.fold_motion.is_some() {
+            self.scroll.glide = None;
         }
         let lh = self.fonts.line_height;
-        let glide = self.scroll_glide.clone();
+        let glide = self.scroll.glide.clone();
         let editor = self.editor.active_mut().map(|doc| {
             let target = doc.scroll_line;
             let shown = match &glide {
@@ -177,7 +186,7 @@ impl App {
             let Some(to) = self.pane_scroll(target) else {
                 continue;
             };
-            let glide = self.pane_glides.iter().find(|g| g.target == target);
+            let glide = self.scroll.pane_glides.iter().find(|g| g.target == target);
             let shown = glide.map_or(to, |g| g.clock.between(g.from, to)).round();
             if shown != to {
                 self.set_pane_raw(target, shown);
@@ -201,7 +210,7 @@ impl App {
             if doc.scroll_line == row {
                 set_scroll_line(doc, target);
             } else {
-                self.scroll_glide = None;
+                self.scroll.glide = None;
             }
             if let Some(doc) = self.editor.active_mut()
                 && doc.scroll_x == shown_x
@@ -216,7 +225,7 @@ impl App {
             if self.pane_scroll(target) == Some(shown) {
                 self.set_pane_raw(target, to);
             } else {
-                self.pane_glides.retain(|g| g.target != target);
+                self.scroll.pane_glides.retain(|g| g.target != target);
             }
         }
     }

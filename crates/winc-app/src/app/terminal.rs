@@ -459,7 +459,7 @@ impl App {
     ///
     /// 面板直接到位，没有打开动画；测量启动时间时不恢复。
     pub(in crate::app) fn restore_terminal_for_window(&mut self) {
-        if self.bench.silent() {
+        if self.frame.bench.silent() {
             return;
         }
         let session = self

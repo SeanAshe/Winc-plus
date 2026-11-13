@@ -23,7 +23,7 @@ const BUTTON: f32 = 24.0;
 
 /// 绘制已打开的改动卡片，并把按钮的可点击范围记录到 `app.hits.changes`。
 pub(in crate::view) fn draw_change_popup(app: &mut App, frame: &mut Frame<'_>) {
-    let Some(popup) = app.changes.popup else {
+    let Some(popup) = app.git.changes.popup else {
         return;
     };
     if app.editor.active().map(|d| d.id) != Some(popup.doc) {
@@ -36,7 +36,7 @@ pub(in crate::view) fn draw_change_popup(app: &mut App, frame: &mut Frame<'_>) {
     let Some(doc) = app.editor.active() else {
         return;
     };
-    let hunks = app.changes.hunks(doc.id);
+    let hunks = app.git.changes.hunks(doc.id);
     let Some(hunk) = hunks.get(popup.hunk).cloned() else {
         return;
     };
@@ -45,7 +45,7 @@ pub(in crate::view) fn draw_change_popup(app: &mut App, frame: &mut Frame<'_>) {
     let p = app.palette;
     let shade = hunk_shade(p, &hunk);
     let lh = app.fonts.line_height;
-    let cell = app.cell;
+    let cell = app.metrics.cell;
     let (text_rect, gutter) = (app.layout.text, app.layout.gutter);
     // 卡片中的行号、文字分别与编辑区的行号和文字对齐；「−」位于行号左侧。
     let code_x = text_rect.x + TEXT_PAD;
@@ -64,7 +64,7 @@ pub(in crate::view) fn draw_change_popup(app: &mut App, frame: &mut Frame<'_>) {
         _ => t!("git-change-popup-modified", count = lines),
     };
     // 说明下方内容所属的版本；新增的块没有原内容，说明该内容不在 `HEAD` 中。
-    let note = match (hunk.old.is_empty(), app.changes.short_head()) {
+    let note = match (hunk.old.is_empty(), app.git.changes.short_head()) {
         (true, _) => t!("git-change-popup-not-in-head").to_owned(),
         (false, Some(oid)) => format!("HEAD · {oid}"),
         (false, None) => "HEAD".to_owned(),
@@ -148,7 +148,7 @@ pub(in crate::view) fn draw_change_popup(app: &mut App, frame: &mut Frame<'_>) {
             ChangeTarget::Next => popup.hunk + 1 < count,
             _ => true,
         };
-        let hovered = enabled && app.hover == Hover::Change(target);
+        let hovered = enabled && app.pointer.hover == Hover::Change(target);
         draw_button(frame, p, rect, card, hovered, false);
         let color = match (enabled, hovered) {
             (false, _) => p.text_dim.alpha(0.5),
@@ -190,7 +190,7 @@ pub(in crate::view) fn draw_change_popup(app: &mut App, frame: &mut Frame<'_>) {
     );
 
     let body = Rect::new(card.x, header.bottom(), card.w, body_rows as f32 * lh);
-    let (ascent, descent) = (app.mono_metrics.ascent, app.mono_metrics.descent);
+    let (ascent, descent) = (app.metrics.mono.ascent, app.metrics.mono.descent);
     if !hunk.old.is_empty() {
         // 底色延伸到卡片底边时，下方两角随卡片绘制为圆角。
         let tint = Rect::new(body.x, body.y, body.w, shown as f32 * lh);

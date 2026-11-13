@@ -244,6 +244,11 @@ pub(crate) fn history_title(path: &Path) -> String {
 
 /// 后台返回的结果。
 enum Loaded {
+    /// 「转到提交号、分支或标签」的解析结果：完整的提交号，以及它是否在不筛选的日志中。
+    GoTo {
+        revision: String,
+        result: Result<(String, bool), String>,
+    },
     /// 一批提交，以及用于继续读取的 `git log`（未出错时）。
     Commits {
         doc: DocumentId,
@@ -470,6 +475,15 @@ impl App {
     /// 该提交尚未读取时（被筛选掉或位于后续批次），清除筛选并从头读取，逐批读取直至读到该提交
     /// 后选中（见 `LogState::seek`）。
     pub(super) fn git_show_log_at(&mut self, oid: &str) {
+        self.show_log_commit(oid, false);
+    }
+
+    /// 打开日志标签并选中提交 `oid`（完整的提交号）：已列出时直接选中，否则清除筛选条件从头
+    /// 读取，读取到后选中。
+    ///
+    /// `pin` 为真时把该提交固定在列表最前面（见 `LogQuery::pin`），用于任何分支都走不到、
+    /// 因而不在日志中的提交。
+    fn show_log_commit(&mut self, oid: &str, pin: bool) {
         if self.git.root.is_none() {
             return;
         }
@@ -486,7 +500,10 @@ impl App {
             Some(row) if !new => self.select_log_row(row),
             _ => {
                 if let Some(view) = self.editor.documents[index].log.as_deref_mut() {
-                    view.query = LogQuery::default();
+                    view.query = LogQuery {
+                        pin: pin.then(|| oid.to_owned()),
+                        ..LogQuery::default()
+                    };
                     view.selected = None;
                     view.reset();
                     view.details = Some(Details {
@@ -494,14 +511,46 @@ impl App {
                         ..Details::default()
                     });
                 }
-                self.log.filter.set_text("");
-                self.log.seek = Some((id, oid.to_owned()));
+                self.git.log.filter.set_text("");
+                self.git.log.seek = Some((id, oid.to_owned()));
                 set_scroll_line(&mut self.editor.documents[index], 0.0);
                 self.load_log(id);
             }
         }
         self.relayout();
         self.request_redraw();
+    }
+
+    /// 打开「转到提交号、分支或标签」对话框。
+    pub(in crate::app) fn open_go_to_revision(&mut self) {
+        if self.git.root.is_none() {
+            self.flash(t!("git-not-a-repository"));
+            return;
+        }
+        use crate::app::git::form::FormKind;
+        self.show_form_dialog(
+            FormKind::GoToRevision,
+            TextField::default(),
+            crate::layout::DialogPart::Branch,
+        );
+    }
+
+    /// 在日志中转到 `revision`（提交号、分支名或标签名）：在后台解析成提交，之后选中它（见
+    /// [`Self::show_log_commit`]）；任何分支都走不到的提交固定在最前面。无法解析时提示原因。
+    pub(in crate::app) fn go_to_log_revision(&mut self, revision: String) {
+        let Some(root) = self.git.root.clone() else {
+            return;
+        };
+        let sender = self.git.log.results.0.clone();
+        self.spawn_git(UserEvent::GitLog, move |tool| {
+            let result = tool.map_err(|e| unusable(&e)).and_then(|git| {
+                let cancel = Cancel::default();
+                let oid = git.resolve_revision(&root, &revision, &cancel)?;
+                let listed = git.in_log(&root, &oid, &cancel).unwrap_or(false);
+                Ok((oid, listed))
+            });
+            let _ = sender.send(Loaded::GoTo { revision, result });
+        });
     }
 
     /// 当前标签是否为日志。
@@ -528,16 +577,17 @@ impl App {
         }
         // 从头读取（刚打开、刷新、修改筛选）时，`LOADING_DELAY` 内不显示「正在读取」「正在刷新」。
         if view.stale || view.commits.is_empty() {
-            self.log.list_waiting = Some(Instant::now() + LOADING_DELAY);
+            self.git.log.list_waiting = Some(Instant::now() + LOADING_DELAY);
         }
         // 后台仍有重新读取之前发出的请求在运行时暂不发出，待其返回后再读取（同一时刻只运行一个）。
         let Some(request) = view.begin() else {
             return;
         };
         let query = view.query.clone();
-        let sender = self.log.results.0.clone();
+        let sender = self.git.log.results.0.clone();
         // 从上一批的流继续读取；从头读取（`skip` 为 0）或已重新读取时新建流，旧的流随之结束。
         let held = self
+            .git
             .log
             .streams
             .remove(&id)
@@ -648,10 +698,10 @@ impl App {
             return;
         };
         let (oid, parent) = (commit.oid.clone(), commit.parents.first().cloned());
-        self.log.file = None;
+        self.git.log.file = None;
         view.selected = Some(row);
         // 已选中的文字属于上一个提交的详情，因此清除。
-        self.log.text_sel = None;
+        self.git.log.text_sel = None;
         let same = view.details.as_ref().is_some_and(|d| d.oid == oid);
         if !same {
             view.details_scroll = 0.0;
@@ -671,7 +721,7 @@ impl App {
                         oid: oid.clone(),
                         ..Details::default()
                     });
-                    self.log.waiting = Some(Instant::now() + LOADING_DELAY);
+                    self.git.log.waiting = Some(Instant::now() + LOADING_DELAY);
                     self.fetch_log_details(id, oid, parent);
                 }
             }
@@ -701,7 +751,7 @@ impl App {
             .into_iter()
             .flatten()
             .filter_map(|i| view.commits.get(i))
-            .filter(|c| view.cached(&c.oid).is_none() && !self.log.fetching.contains(&c.oid))
+            .filter(|c| view.cached(&c.oid).is_none() && !self.git.log.fetching.contains(&c.oid))
             .map(|c| (c.oid.clone(), c.parents.first().cloned()))
             .collect();
         for (oid, parent) in wanted {
@@ -713,10 +763,10 @@ impl App {
         let Some(root) = self.git.root.clone() else {
             return;
         };
-        if !self.log.fetching.insert(oid.clone()) {
+        if !self.git.log.fetching.insert(oid.clone()) {
             return;
         }
-        let sender = self.log.results.0.clone();
+        let sender = self.git.log.results.0.clone();
         self.spawn_git(UserEvent::GitLog, move |tool| {
             let cancel = Cancel::default();
             let (message, files) = match tool {
@@ -792,7 +842,7 @@ impl App {
             }
             LogTarget::Refresh => {
                 if let Some(id) = self.editor.active().map(|d| d.id) {
-                    self.log.refreshing = Some(id);
+                    self.git.log.refreshing = Some(id);
                     self.reload_log(id);
                 }
                 // 列表上方的未提交更改和分支筛选来自仓库状态，因此同时刷新仓库状态。
@@ -800,7 +850,7 @@ impl App {
             }
             LogTarget::Search => {
                 self.focus = Focus::LogFilter;
-                let (x, y) = self.mouse;
+                let (x, y) = self.pointer.mouse;
                 self.click_field(x, y);
             }
             LogTarget::Branch => self.open_branch_picker(crate::app::GitAnchor::Log),
@@ -814,15 +864,16 @@ impl App {
                 else {
                     return;
                 };
-                self.log.authors = self.log_authors();
+                self.git.log.authors = self.log_authors();
                 self.open_context_menu(MenuTarget::LogAuthor, (rect.x, rect.bottom() + 4.0));
             }
             LogTarget::ClearFilters => {
-                self.log.filter.set_text("");
+                self.git.log.filter.set_text("");
                 self.change_log_query(|q| {
                     q.text.clear();
                     q.branch = None;
                     q.author = None;
+                    q.pin = None;
                 });
             }
         }
@@ -882,9 +933,9 @@ impl App {
         };
         let name = winc_editor::display_name(&file.path);
         let title = format!("{name} · {}", source.version);
-        self.log.diff_request += 1;
-        let request = self.log.diff_request;
-        let sender = self.log.results.0.clone();
+        self.git.log.diff_request += 1;
+        let request = self.git.log.diff_request;
+        let sender = self.git.log.results.0.clone();
         self.spawn_git(UserEvent::GitLog, move |tool| {
             let view = match tool {
                 Ok(git) => commit_diff(
@@ -909,8 +960,9 @@ impl App {
 
     /// 标签 `id` 是否为当前仓库从日志打开的差异。
     pub(in crate::app) fn steps_log_files(&self, id: DocumentId) -> bool {
-        self.log.preview == Some(id)
+        self.git.log.preview == Some(id)
             && self
+                .git
                 .log
                 .tree
                 .as_ref()
@@ -927,6 +979,7 @@ impl App {
     ) -> Option<(usize, usize, String, usize)> {
         let id = self.editor.active()?.id;
         let tree = self
+            .git
             .log
             .tree
             .as_ref()
@@ -959,8 +1012,14 @@ impl App {
 
     /// 接收后台返回的结果。
     pub(in crate::app) fn poll_log(&mut self) {
-        while let Ok(loaded) = self.log.results.1.try_recv() {
+        while let Ok(loaded) = self.git.log.results.1.try_recv() {
             match loaded {
+                Loaded::GoTo { revision, result } => match result {
+                    Ok((oid, listed)) => self.show_log_commit(&oid, !listed),
+                    Err(error) => {
+                        self.notify(t!("git-go-to-failed", revision = revision, error = error));
+                    }
+                },
                 Loaded::Commits {
                     doc,
                     generation,
@@ -973,7 +1032,7 @@ impl App {
                     message,
                     files,
                 } => {
-                    self.log.fetching.remove(&oid);
+                    self.git.log.fetching.remove(&oid);
                     let Some(view) = self
                         .editor
                         .document_mut(doc)
@@ -1010,9 +1069,9 @@ impl App {
                         continue;
                     };
                     *shown = details;
-                    self.log.waiting = None;
-                    if self.log.open_first.as_deref() == Some(oid.as_str()) {
-                        self.log.open_first = None;
+                    self.git.log.waiting = None;
+                    if self.git.log.open_first.as_deref() == Some(oid.as_str()) {
+                        self.git.log.open_first = None;
                         self.open_log_file(0);
                     }
                 }
@@ -1030,7 +1089,7 @@ impl App {
                     else {
                         continue;
                     };
-                    self.log.waiting = None;
+                    self.git.log.waiting = None;
                     match files {
                         Ok(files) => compare.files = Some(files),
                         Err(e) => {
@@ -1039,7 +1098,7 @@ impl App {
                         }
                     }
                 }
-                Loaded::Diff { request, .. } if request != self.log.diff_request => {}
+                Loaded::Diff { request, .. } if request != self.git.log.diff_request => {}
                 // 等待结果期间更换了目录：结果属于旧仓库，不在此处打开标签。
                 Loaded::Diff { source, .. } if self.git.root.as_ref() != Some(&source.root) => {}
                 Loaded::Diff {
@@ -1051,11 +1110,13 @@ impl App {
                 } => match view {
                     Ok(view) => {
                         // 只在新建差异标签时打开侧栏的文件树，之后保留用户对侧栏的选择。
-                        let new_tab = (self.log.preview)
+                        let new_tab = (self.git.log.preview)
                             .and_then(|id| self.editor.document(id))
                             .is_none();
-                        let index = self.editor.show_diff_in(self.log.preview, &title, *view);
-                        self.log.preview = Some(self.editor.documents[index].id);
+                        let index = self
+                            .editor
+                            .show_diff_in(self.git.log.preview, &title, *view);
+                        self.git.log.preview = Some(self.editor.documents[index].id);
                         self.select_log_diff(source, file);
                         if new_tab {
                             self.set_sidebar_view(crate::layout::SidebarView::Commit);
@@ -1093,7 +1154,7 @@ impl App {
         let arrival = view.finish(generation, result);
         // 结果已应用且尚未读取完毕时保留流，用于读取下一批；其余情况（作废、读取完毕、出错）移除。
         if let (Arrival::Applied { .. }, false, Some(stream)) = (arrival, view.complete, stream) {
-            self.log.streams.insert(doc, (generation, stream));
+            self.git.log.streams.insert(doc, (generation, stream));
         }
         let first = match arrival {
             Arrival::Applied { first } => first,
@@ -1105,12 +1166,12 @@ impl App {
         };
         // 查找逐行追溯点击的提交：已改选其他提交时不再查找；尚未读取到时继续读取下一批，
         // 读取到后选中，读取完仍未找到时按第一批处理（选中 `HEAD`）。
-        let seek = match self.log.seek.take() {
+        let seek = match self.git.log.seek.take() {
             Some((id, oid)) if id == doc => {
                 Some(oid).filter(|oid| view.details.as_ref().is_some_and(|d| d.oid == *oid))
             }
             other => {
-                self.log.seek = other;
+                self.git.log.seek = other;
                 None
             }
         };
@@ -1122,7 +1183,7 @@ impl App {
                 return;
             }
             if !view.complete {
-                self.log.seek = Some((doc, oid.clone()));
+                self.git.log.seek = Some((doc, oid.clone()));
                 self.load_log(doc);
                 return;
             }
@@ -1152,8 +1213,8 @@ impl App {
         {
             self.select_log_row(row);
         }
-        if self.log.refreshing == Some(doc) {
-            self.log.refreshing = None;
+        if self.git.log.refreshing == Some(doc) {
+            self.git.log.refreshing = None;
             if !failed {
                 self.flash(t!("git-log-refreshed"));
             }
@@ -1162,7 +1223,7 @@ impl App {
 
     /// 返回当前日志标签的几何。
     pub(crate) fn log_parts(&self) -> LogParts {
-        log_parts(self.layout.editor, self.log.details_w)
+        log_parts(self.layout.editor, self.git.log.details_w)
     }
 
     /// 等待详情超过 `LOADING_DELAY` 仍未返回时重绘，显示「正在读取…」。
@@ -1170,7 +1231,7 @@ impl App {
     /// 返回下一次唤醒的时刻。
     pub(in crate::app) fn log_tick(&mut self, now: Instant) -> Option<Instant> {
         let (mut wake, mut due) = (None, false);
-        for slot in [&mut self.log.waiting, &mut self.log.list_waiting] {
+        for slot in [&mut self.git.log.waiting, &mut self.git.log.list_waiting] {
             match *slot {
                 Some(at) if now < at => wake = Some(wake.map_or(at, |w: Instant| w.min(at))),
                 Some(_) => {
@@ -1188,17 +1249,20 @@ impl App {
 
     /// 详情一栏是否暂不显示「正在读取…」「正在比较…」（刚开始读取，结果通常很快返回）。
     pub(crate) fn log_quiet(&self) -> bool {
-        self.log.waiting.is_some_and(|at| Instant::now() < at)
+        self.git.log.waiting.is_some_and(|at| Instant::now() < at)
     }
 
     /// 提交列表是否暂不显示「正在读取提交…」，标题栏是否暂不显示「正在刷新…」。
     pub(crate) fn log_list_quiet(&self) -> bool {
-        self.log.list_waiting.is_some_and(|at| Instant::now() < at)
+        self.git
+            .log
+            .list_waiting
+            .is_some_and(|at| Instant::now() < at)
     }
 
     /// 是否正在拖动列表与详情之间的分隔线。
     pub(crate) fn log_dividing(&self) -> bool {
-        matches!(self.drag, crate::app::Drag::LogDivider { .. })
+        matches!(self.pointer.drag, crate::app::Drag::LogDivider { .. })
     }
 }
 

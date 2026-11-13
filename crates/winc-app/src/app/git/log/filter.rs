@@ -49,8 +49,12 @@ impl App {
 
     /// 筛选输入框里的文字变了：当前日志按新的文字从头再取。
     pub(in crate::app) fn log_filter_changed(&mut self) {
-        let text = self.log.filter.text().to_owned();
-        self.change_log_query(|q| q.text = text);
+        let text = self.git.log.filter.text().to_owned();
+        // 改了筛选文字即离开转到的提交，不再固定它。
+        self.change_log_query(|q| {
+            q.text = text;
+            q.pin = None;
+        });
     }
 
     /// 改当前日志的筛选条件，从头再取。
@@ -86,9 +90,9 @@ impl App {
             .and_then(|d| d.log.as_deref())
             .map(|v| v.query.text.clone());
         if let Some(text) = text
-            && self.log.filter.text() != text
+            && self.git.log.filter.text() != text
         {
-            self.log.filter.set_text(&text);
+            self.git.log.filter.set_text(&text);
         }
     }
 
@@ -101,7 +105,7 @@ impl App {
         cmd: bool,
     ) {
         match &event.logical_key {
-            Key::Named(NamedKey::Escape) if !self.log.filter.text().is_empty() => {
+            Key::Named(NamedKey::Escape) if !self.git.log.filter.text().is_empty() => {
                 self.edit_field(|f| {
                     f.set_text("");
                     true

@@ -47,7 +47,7 @@ fn large_image(name: &str) -> (App, PathBuf) {
 /// 返回图片当前的位置和预览区域。
 fn placed(app: &App) -> (Rect, Rect) {
     let (picture, area) = app.shown_picture().expect("正在显示图片");
-    (app.picture_view.rect(picture, area).unwrap(), area)
+    (app.preview.picture_view.rect(picture, area).unwrap(), area)
 }
 
 /// 以一次新的触控板手势滚动 (`dx`, `dy`) 逻辑像素并重绘。
@@ -59,10 +59,10 @@ fn scroll(app: &mut App, dx: f32, dy: f32) {
 
 /// 按住主修饰键把滚轮滚动一格：放大（`up`）或缩小一档，之后等待 SVG 按新的大小绘制完成。
 fn zoom(app: &mut App, up: bool) {
-    app.modifiers = command_modifiers();
+    app.pointer.modifiers = command_modifiers();
     let y = if up { 1.0 } else { -1.0 };
     app.on_wheel_event(MouseScrollDelta::LineDelta(0.0, y), TouchPhase::Moved);
-    app.modifiers = Default::default();
+    app.pointer.modifiers = Default::default();
     app.wait_for_images();
     paint(app);
 }
@@ -77,8 +77,8 @@ fn point_at(app: &mut App, at: (f32, f32)) {
 fn pointed(app: &App) -> (f32, f32) {
     let (rect, _) = placed(app);
     (
-        (app.mouse.0 - rect.x) / rect.w,
-        (app.mouse.1 - rect.y) / rect.h,
+        (app.pointer.mouse.0 - rect.x) / rect.w,
+        (app.pointer.mouse.1 - rect.y) / rect.h,
     )
 }
 
@@ -113,10 +113,10 @@ fn command_wheel_zooms_an_image_around_the_pointer() {
     near((placed(&app).0.w / fit.w, 0.0), (3.0, 0.0));
     near(pointed(&app), at);
     // 触控板按住主修饰键滚动满一格同样缩放一档；状态栏显示倍数。
-    app.modifiers = command_modifiers();
+    app.pointer.modifiers = command_modifiers();
     let notch = PhysicalPosition::new(0.0, 48.0 * f64::from(SCALE));
     app.on_wheel_event(MouseScrollDelta::PixelDelta(notch), TouchPhase::Started);
-    app.modifiers = Default::default();
+    app.pointer.modifiers = Default::default();
     near((placed(&app).0.w / fit.w, 0.0), (4.0, 0.0));
     near(pointed(&app), at);
     assert_eq!(app.status.message.as_deref(), Some("图片缩放 400%"));
@@ -159,13 +159,13 @@ fn zoom_stops_at_the_first_and_last_steps() {
     );
     scroll(&mut app, 40.0, 40.0);
     assert_eq!(placed(&app).0, rect);
-    assert_eq!(app.cursor_icon, CursorIcon::Default);
+    assert_eq!(app.pointer.cursor_icon, CursorIcon::Default);
     app.on_mouse_down(MouseButton::Left);
-    assert_eq!(app.drag, Drag::None);
+    assert_eq!(app.pointer.drag, Drag::None);
     app.on_mouse_up(MouseButton::Left);
     // 放大的位图直接取最近的像素绘制，不另存放大后的位图。
-    assert!(app.picture_cache.is_none());
-    let image = app.renderer.as_ref().unwrap().image().unwrap();
+    assert!(app.preview.picture_cache.is_none());
+    let image = app.frame.renderer.as_ref().unwrap().image().unwrap();
     let center = (
         ((area.x + area.w / 2.0) * SCALE) as usize,
         ((area.y + area.h / 2.0) * SCALE) as usize,
@@ -191,13 +191,13 @@ fn scrolling_pans_a_zoomed_image_within_its_content() {
     // 适应预览区域时内容不超出区域，滚动不改变位置。
     scroll(&mut app, 0.0, -60.0);
     assert_eq!(placed(&app).0, fit);
-    assert_eq!(app.cursor_icon, CursorIcon::Default);
+    assert_eq!(app.pointer.cursor_icon, CursorIcon::Default);
 
     for _ in 0..3 {
         zoom(&mut app, true);
     }
     let (rect, _) = placed(&app);
-    assert_eq!(app.cursor_icon, CursorIcon::Grab);
+    assert_eq!(app.pointer.cursor_icon, CursorIcon::Grab);
     // 滚动只平移，不缩放；与其他内容相同，只按位移较大的方向滚动。
     scroll(&mut app, 0.0, -60.0);
     near(
@@ -233,16 +233,16 @@ fn dragging_pans_a_zoomed_image_and_double_click_restores_fit() {
     app.on_mouse_move(center.0, center.1);
     // 图片没有超出预览区域时不能拖动。
     app.on_mouse_down(MouseButton::Left);
-    assert_eq!(app.drag, Drag::None);
+    assert_eq!(app.pointer.drag, Drag::None);
     app.on_mouse_up(MouseButton::Left);
 
     for _ in 0..3 {
         zoom(&mut app, true);
     }
     let (rect, _) = placed(&app);
-    app.last_click = None;
+    app.pointer.last_click = None;
     app.on_mouse_down(MouseButton::Left);
-    assert_eq!(app.cursor_icon, CursorIcon::Grabbing);
+    assert_eq!(app.pointer.cursor_icon, CursorIcon::Grabbing);
     app.on_mouse_move(center.0 + 70.0, center.1 - 30.0);
     near(
         (placed(&app).0.x, placed(&app).0.y),
@@ -251,31 +251,34 @@ fn dragging_pans_a_zoomed_image_and_double_click_restores_fit() {
     // 拖动中缩放后继续拖动，图片仍随鼠标移动相同的距离。
     zoom(&mut app, true);
     let (rect, _) = placed(&app);
-    app.on_mouse_move(app.mouse.0 + 10.0, app.mouse.1 + 20.0);
+    app.on_mouse_move(app.pointer.mouse.0 + 10.0, app.pointer.mouse.1 + 20.0);
     near(
         (placed(&app).0.x, placed(&app).0.y),
         (rect.x + 10.0, rect.y + 20.0),
     );
     // 拖过内容的边缘后停在留白处。
-    app.on_mouse_move(app.mouse.0 + 100_000.0, app.mouse.1 + 100_000.0);
+    app.on_mouse_move(
+        app.pointer.mouse.0 + 100_000.0,
+        app.pointer.mouse.1 + 100_000.0,
+    );
     near(
         (placed(&app).0.x, placed(&app).0.y),
         (area.x + MARGIN, area.y + MARGIN),
     );
     app.on_mouse_up(MouseButton::Left);
-    assert_eq!(app.drag, Drag::None);
+    assert_eq!(app.pointer.drag, Drag::None);
     // 松开后移动鼠标不再平移。
     let (rect, _) = placed(&app);
     app.on_mouse_move(center.0, center.1);
     assert_eq!(placed(&app).0, rect);
-    assert_eq!(app.cursor_icon, CursorIcon::Grab);
+    assert_eq!(app.pointer.cursor_icon, CursorIcon::Grab);
 
     // 双击还原为适应预览区域。
-    app.last_click = None;
+    app.pointer.last_click = None;
     click(&mut app, center);
     click(&mut app, center);
     assert_eq!(placed(&app).0, fit);
-    assert_eq!(app.cursor_icon, CursorIcon::Default);
+    assert_eq!(app.pointer.cursor_icon, CursorIcon::Default);
     std::fs::remove_dir_all(dir).unwrap();
 }
 
@@ -303,10 +306,10 @@ fn the_view_resets_for_another_document_and_survives_a_reload() {
 
     // 换到其他标签时结束拖动；回到图片时还原为适应预览区域。
     app.on_mouse_down(MouseButton::Left);
-    assert!(matches!(app.drag, Drag::Picture { .. }));
+    assert!(matches!(app.pointer.drag, Drag::Picture { .. }));
     app.new_file();
     app.advance_images();
-    assert_eq!(app.drag, Drag::None);
+    assert_eq!(app.pointer.drag, Drag::None);
     assert!(app.shown_picture().is_none());
     // 没有显示图片时 `⌘+` 调整字号。
     assert!(!app.zoom_picture(Some(true), None));
@@ -322,13 +325,13 @@ fn a_zoomed_svg_is_rasterized_only_where_it_is_seen() {
     let (mut app, dir) = large_image("picture-region");
     let (_, area) = placed(&app);
     point_at(&mut app, (0.5, 0.5));
-    let before = (app.renderer.as_ref().unwrap().image().unwrap().pixels).clone();
+    let before = (app.frame.renderer.as_ref().unwrap().image().unwrap().pixels).clone();
     for _ in 0..5 {
         zoom(&mut app, true);
     }
     // 4 倍时整张图约 7300 × 4900 物理像素；位图只有预览区域加四周多绘制的部分。
     let (rect, _) = placed(&app);
-    let cache = app.picture_cache.as_ref().unwrap();
+    let cache = app.preview.picture_cache.as_ref().unwrap();
     let sharp = cache.sharp();
     assert_eq!(sharp.size.0, (rect.w * SCALE).round() as u32);
     assert!(sharp.size.0 > 7000, "{:?}", sharp.size);
@@ -343,12 +346,12 @@ fn a_zoomed_svg_is_rasterized_only_where_it_is_seen() {
     let (origin, pixels) = (sharp.origin, sharp.pixels.rgba.as_ptr());
     scroll(&mut app, -40.0, 0.0);
     app.wait_for_images();
-    let sharp = app.picture_cache.as_ref().unwrap().sharp();
+    let sharp = app.preview.picture_cache.as_ref().unwrap().sharp();
     assert_eq!((sharp.origin, sharp.pixels.rgba.as_ptr()), (origin, pixels));
 
     // 超过后先显示低分辨率的位图，不留空白：右端新露出的部分已有图片的颜色。
     scroll(&mut app, -400.0, 0.0);
-    let image = app.renderer.as_ref().unwrap().image().unwrap();
+    let image = app.frame.renderer.as_ref().unwrap().image().unwrap();
     let edge = (
         ((area.right() - 8.0) * SCALE) as usize,
         ((area.y + area.h / 2.0) * SCALE) as usize,
@@ -357,11 +360,11 @@ fn a_zoomed_svg_is_rasterized_only_where_it_is_seen() {
     assert_eq!(pixel, 0xec704a, "{pixel:06x}");
     // 之后重新光栅化可见的部分。
     app.wait_for_images();
-    let sharp = app.picture_cache.as_ref().unwrap().sharp();
+    let sharp = app.preview.picture_cache.as_ref().unwrap().sharp();
     assert_eq!(sharp.origin.0, origin.0 + 440 * SCALE as u32);
 
     // 图片只绘制在预览区域内：侧栏的像素与放大之前相同（底部的状态栏显示倍数，不比较）。
-    let after = app.renderer.as_ref().unwrap().image().unwrap();
+    let after = app.frame.renderer.as_ref().unwrap().image().unwrap();
     let width = after.width as usize;
     let sidebar = (app.layout.sidebar.w * SCALE) as usize;
     let rows = (TOP_BAR_END * SCALE) as usize..((SIZE.1 - 50.0) * SCALE) as usize;
@@ -381,7 +384,7 @@ fn a_zoom_transition_rasterizes_only_the_final_size() {
     for _ in 0..3 {
         zoom(&mut app, true);
     }
-    let two = app.picture_cache.as_ref().unwrap().sharp().size;
+    let two = app.preview.picture_cache.as_ref().unwrap().sharp().size;
     assert_eq!(two.0, (fit.w * 2.0 * SCALE).round() as u32);
 
     // 从 2 倍放大到 3 倍，过渡进行到一半：这一帧的大小介于两者之间，仍绘制 2 倍时的位图。
@@ -394,17 +397,23 @@ fn a_zoom_transition_rasterizes_only_the_final_size() {
         "{}",
         shown.w
     );
-    assert_eq!(app.picture_cache.as_ref().unwrap().sharp().size, two);
+    assert_eq!(
+        app.preview.picture_cache.as_ref().unwrap().sharp().size,
+        two
+    );
     // 后台只按过渡结束后的大小光栅化，不为中间的各帧光栅化。
     app.wait_for_images();
-    let three = app.picture_cache.as_ref().unwrap().sharp().size;
+    let three = app.preview.picture_cache.as_ref().unwrap().sharp().size;
     assert_eq!(three.0, (fit.w * 3.0 * SCALE).round() as u32);
     assert_eq!(placed(&app).0, shown);
 
-    app.picture_view.zoom_motion = None;
+    app.preview.picture_view.zoom_motion = None;
     paint(&mut app);
     assert_eq!(placed(&app).0.w, fit.w * 3.0);
-    assert_eq!(app.picture_cache.as_ref().unwrap().sharp().size, three);
+    assert_eq!(
+        app.preview.picture_cache.as_ref().unwrap().sharp().size,
+        three
+    );
     std::fs::remove_dir_all(dir).unwrap();
 }
 
@@ -423,18 +432,18 @@ fn a_shrunk_bitmap_is_resampled_once_per_size() {
     paint(&mut app);
     // 2000 像素宽的图片缩小到预览区域内：使用缩小后的位图，大小不超过解码后保留的像素。
     let (rect, _) = placed(&app);
-    let cache = app.picture_cache.as_ref().unwrap();
+    let cache = app.preview.picture_cache.as_ref().unwrap();
     assert_eq!(cache.width(), (rect.w * SCALE).round() as u32);
     assert!(cache.width() < 2000);
     let pixels = cache.sharp().pixels.rgba.as_ptr();
     paint(&mut app);
-    let cache = app.picture_cache.as_ref().unwrap();
+    let cache = app.preview.picture_cache.as_ref().unwrap();
     assert_eq!(cache.sharp().pixels.rgba.as_ptr(), pixels);
     // 放大到不小于保留的像素后直接绘制，释放缩小后的位图。
     point_at(&mut app, (0.5, 0.5));
     zoom(&mut app, true);
     assert!(placed(&app).0.w * SCALE >= 2000.0);
-    assert!(app.picture_cache.is_none());
+    assert!(app.preview.picture_cache.is_none());
     std::fs::remove_dir_all(dir).unwrap();
 }
 

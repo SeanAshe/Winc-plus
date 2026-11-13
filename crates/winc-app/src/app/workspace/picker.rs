@@ -108,11 +108,14 @@ impl App {
     /// 返回文件列表第 `i` 行（`Picker::hits` 中的下标）路径里命中查询的字符下标，绘制时标出
     /// 这些字符；末尾的 `:行:列` 不参与匹配。
     pub(crate) fn picker_matched(&self, i: usize) -> Vec<usize> {
-        let (query, _) = split_goto(self.picker.input.text());
-        self.picker
+        let (query, _) = split_goto(self.overlays.picker.input.text());
+        self.overlays
+            .picker
             .hits
             .get(i)
-            .map_or_else(Vec::new, |&index| self.picker.index.matched(query, index))
+            .map_or_else(Vec::new, |&index| {
+                self.overlays.picker.index.matched(query, index)
+            })
     }
 
     /// 打开面板；没有打开目录时在状态栏提示。
@@ -125,17 +128,17 @@ impl App {
         }
 
         self.finish_name_input();
-        self.picker.places = None;
-        self.picker.branch_rows = None;
-        self.picker.location_rows = None;
-        self.picker.folders = false;
-        self.picker.vim_list = None;
-        self.picker.remote = None;
-        self.picker.open = true;
-        self.picker.doc = self.editor.active().map(|d| d.id);
-        self.picker.input.set_text("");
-        self.picker.selected = 0;
-        self.picker.scroll = 0.0;
+        self.overlays.picker.places = None;
+        self.overlays.picker.branch_rows = None;
+        self.overlays.picker.location_rows = None;
+        self.overlays.picker.folders = false;
+        self.overlays.picker.vim_list = None;
+        self.overlays.picker.remote = None;
+        self.overlays.picker.open = true;
+        self.overlays.picker.doc = self.editor.active().map(|d| d.id);
+        self.overlays.picker.input.set_text("");
+        self.overlays.picker.selected = 0;
+        self.overlays.picker.scroll = 0.0;
         self.focus = Focus::Picker;
         self.picker_refresh();
         self.relayout();
@@ -148,30 +151,30 @@ impl App {
     /// 位置浮窗关闭后淡出：按关闭时的状态再绘制 100 ms（见 [`PlacesGhost`]）。
     pub(in crate::app) fn close_picker(&mut self) {
         self.drop_symbols();
-        self.picker.index.forget_query();
-        self.picker.open = false;
-        self.picker.branch_rows = None;
-        self.picker.location_rows = None;
-        self.picker.folders = false;
-        self.picker.vim_list = None;
-        self.picker.remote = None;
+        self.overlays.picker.index.forget_query();
+        self.overlays.picker.open = false;
+        self.overlays.picker.branch_rows = None;
+        self.overlays.picker.location_rows = None;
+        self.overlays.picker.folders = false;
+        self.overlays.picker.vim_list = None;
+        self.overlays.picker.remote = None;
         self.hits.picker_parts.clear();
-        self.picker.fold = None;
-        self.picker.places_in = None;
-        if let Some(places) = self.picker.places.take()
+        self.overlays.picker.fold = None;
+        self.overlays.picker.places_in = None;
+        if let Some(places) = self.overlays.picker.places.take()
             && let Some(clock) = self.clock(POPUP_OUT)
         {
-            self.picker.places_out = Some(PlacesGhost {
+            self.overlays.picker.places_out = Some(PlacesGhost {
                 places,
-                hits: self.picker.hits.clone(),
-                selected: self.picker.selected,
-                scroll: self.picker.scroll,
-                filter: self.picker.input.text().to_owned(),
+                hits: self.overlays.picker.hits.clone(),
+                selected: self.overlays.picker.selected,
+                scroll: self.overlays.picker.scroll,
+                filter: self.overlays.picker.input.text().to_owned(),
                 rect: self.layout.picker,
                 clock,
             });
         }
-        self.field_preedit.clear();
+        self.ime.field_preedit.clear();
 
         if self.focus == Focus::Picker {
             self.focus = Focus::Editor;
@@ -188,33 +191,33 @@ impl App {
     ///
     /// 刚打开面板、窗口大小变化时直接到位：拖动窗口时每帧尺寸都在变，动画无法跟随。
     pub(in crate::app) fn animate_picker(&mut self, size: (f32, f32)) {
-        if !self.picker.open {
-            self.picker.height = None;
-            self.picker.motion = None;
+        if !self.overlays.picker.open {
+            self.overlays.picker.height = None;
+            self.overlays.picker.motion = None;
             return;
         }
 
         let target = self.layout.picker.h;
         // 位置浮窗和分支、位置选择器都依附于触发位置，筛选时高度直接到位：卡片边沿的滑动会使
         // 列表看起来在滚动。
-        if self.picker.places.is_some() || self.picker_is_git() {
-            self.picker.motion = None;
-            self.picker.height = Some((target, size));
+        if self.overlays.picker.places.is_some() || self.picker_is_git() {
+            self.overlays.picker.motion = None;
+            self.overlays.picker.height = Some((target, size));
             return;
         }
-        match self.picker.height {
+        match self.overlays.picker.height {
             Some((last, at)) if at == size && last != target => {
-                let motion = self.picker.motion;
-                self.picker.motion = self
+                let motion = self.overlays.picker.motion;
+                self.overlays.picker.motion = self
                     .clock(PICKER_ANIMATION)
                     .map(|clock| PickerMotion::toward(motion, last, target, clock));
             }
-            Some((_, at)) if at != size => self.picker.motion = None,
+            Some((_, at)) if at != size => self.overlays.picker.motion = None,
             _ => {}
         }
-        self.picker.height = Some((target, size));
+        self.overlays.picker.height = Some((target, size));
 
-        if let Some(motion) = self.picker.motion {
+        if let Some(motion) = self.overlays.picker.motion {
             self.layout.picker.h = motion.height();
         }
     }
@@ -225,15 +228,21 @@ impl App {
     ///
     /// 左右不超出编辑区，名字不在屏幕上时贴着编辑区顶部居中。
     pub(in crate::app) fn place_places(&mut self) {
-        self.picker.places_bottom = None;
-        let Some(places) = self.picker.places.as_ref().filter(|_| self.picker.open) else {
+        self.overlays.picker.places_bottom = None;
+        let Some(places) = self
+            .overlays
+            .picker
+            .places
+            .as_ref()
+            .filter(|_| self.overlays.picker.open)
+        else {
             return;
         };
         let editor = self.layout.editor;
         let w = PLACES_WIDTH.min(editor.w - 24.0).max(0.0);
         let chrome = BAR_HEIGHT + 2.0 * PICKER_PAD + PLACES_FOOTER;
         let fit = |space: f32| ((space - chrome) / PICKER_ROW).floor().max(0.0) as usize;
-        let wanted = self.picker.hits.len().clamp(1, PICKER_MAX_ROWS);
+        let wanted = self.overlays.picker.hits.len().clamp(1, PICKER_MAX_ROWS);
         let line_h = self.fonts.line_height;
 
         let (x, top) = self
@@ -251,7 +260,7 @@ impl App {
         let right = editor.right() - SCROLLBAR_HIT - 8.0;
         let x = (x - 12.0).min(right - w).max(editor.x + 8.0).round();
         let y = if up {
-            self.picker.places_bottom = Some(top - PLACES_GAP);
+            self.overlays.picker.places_bottom = Some(top - PLACES_GAP);
             top - PLACES_GAP - h
         } else {
             top + line_h + PLACES_GAP
@@ -266,7 +275,7 @@ impl App {
 
     /// 位置浮窗是否在名字上方。
     pub(crate) fn places_above(&self) -> bool {
-        self.picker.places_bottom.is_some()
+        self.overlays.picker.places_bottom.is_some()
     }
 
     /// 返回当前文档中位置 `pos` 在窗口中的横坐标，以及它所在显示行的顶边纵坐标（逻辑像素）。
@@ -277,7 +286,7 @@ impl App {
         let y = text.y + (row - doc.scroll_line) as f32 * self.fonts.line_height;
         let (line, col) = doc.text().pos_to_line_col(pos);
         let cell = doc.col_to_cell(line, col, self.editor.active_tab_width());
-        let x = text.x + TEXT_PAD - doc.scroll_x + cell as f32 * self.cell;
+        let x = text.x + TEXT_PAD - doc.scroll_x + cell as f32 * self.metrics.cell;
         Some((x, y))
     }
 
@@ -286,7 +295,7 @@ impl App {
     /// 滚动范围按该位置计算，不随动画逐帧变化。
     pub(crate) fn picker_rect(&self) -> Rect {
         let mut rect = self.layout.picker;
-        if let Some((height, _)) = self.picker.height {
+        if let Some((height, _)) = self.overlays.picker.height {
             rect.h = height;
         }
         rect
@@ -294,91 +303,95 @@ impl App {
 
     /// 按输入框中的文字重新生成结果列表，每次键入都调用。
     pub(in crate::app) fn picker_refresh(&mut self) {
-        self.picker.selected = 0;
-        self.picker.scroll = 0.0;
-        self.picker.recent = 0;
-        if self.picker.places.is_some() {
-            self.picker.goto = None;
+        self.overlays.picker.selected = 0;
+        self.overlays.picker.scroll = 0.0;
+        self.overlays.picker.recent = 0;
+        if self.overlays.picker.places.is_some() {
+            self.overlays.picker.goto = None;
             self.places_refresh();
             return;
         }
-        self.picker.fold = None;
+        self.overlays.picker.fold = None;
         if self.picker_lists_branches() {
-            self.picker.goto = None;
+            self.overlays.picker.goto = None;
             self.drop_symbols();
             self.branch_picker_refresh();
             return;
         }
         if self.picker_lists_locations() {
-            self.picker.goto = None;
+            self.overlays.picker.goto = None;
             self.drop_symbols();
             self.location_picker_refresh();
             return;
         }
-        if self.picker.folders {
-            self.picker.goto = None;
+        if self.overlays.picker.folders {
+            self.overlays.picker.goto = None;
             self.drop_symbols();
             self.folder_picker_refresh();
             return;
         }
-        if self.picker.remote.is_some() {
-            self.picker.goto = None;
+        if self.overlays.picker.remote.is_some() {
+            self.overlays.picker.goto = None;
             self.drop_symbols();
             self.remote_picker_refresh();
             return;
         }
-        if self.picker.vim_list.is_some() {
-            self.picker.goto = None;
+        if self.overlays.picker.vim_list.is_some() {
+            self.overlays.picker.goto = None;
             self.drop_symbols();
             self.vim_list_refresh();
             return;
         }
         if self.picker_lists_symbols() {
-            self.picker.goto = None;
+            self.overlays.picker.goto = None;
             self.symbols_refresh();
             return;
         }
         self.drop_symbols();
         if self.picker_lists_commands() {
-            self.picker.goto = None;
+            self.overlays.picker.goto = None;
             self.palette_refresh();
             return;
         }
 
         // 没有打开目录（已关闭）时，文件表仍属于旧目录，不能列出。
         if self.editor.root().is_none() {
-            self.picker.goto = None;
-            self.picker.hits.clear();
+            self.overlays.picker.goto = None;
+            self.overlays.picker.hits.clear();
             return;
         }
         self.prepare_index();
-        let (query, goto) = split_goto(self.picker.input.text());
-        self.picker.goto = goto.map(str::to_owned);
+        let (query, goto) = split_goto(self.overlays.picker.input.text());
+        self.overlays.picker.goto = goto.map(str::to_owned);
 
         // 只写了 `:行` 时在当前文件内跳转，不列出文件。
-        if query.trim().is_empty() && self.picker.goto.is_some() {
-            self.picker.hits.clear();
+        if query.trim().is_empty() && self.overlays.picker.goto.is_some() {
+            self.overlays.picker.hits.clear();
             // 计数行不再显示上一次查询的命中数。
-            self.picker.index.forget_query();
+            self.overlays.picker.index.forget_query();
             return;
         }
 
-        self.picker.hits = self.picker.index.search(query);
+        self.overlays.picker.hits = self.overlays.picker.index.search(query);
 
         // 没有输入时，最近打开的文件排在最前面；第一条是上一个文件，因此 `⌘P` 加回车即可切回。
         if query.trim().is_empty() {
             let active = self.editor.active().and_then(|d| d.path.as_deref());
             let recent: Vec<usize> = self
-                .recent_files
+                .history
+                .files
                 .iter()
                 .filter(|p| Some(p.as_path()) != active)
-                .filter_map(|p| self.picker.index.position_of(p))
+                .filter_map(|p| self.overlays.picker.index.position_of(p))
                 .collect();
 
-            self.picker.hits.retain(|i| !recent.contains(i));
-            self.picker.recent = recent.len();
-            self.picker.hits.splice(0..0, recent);
-            self.picker.hits.truncate(winc_editor::PICKER_MAX_RESULTS);
+            self.overlays.picker.hits.retain(|i| !recent.contains(i));
+            self.overlays.picker.recent = recent.len();
+            self.overlays.picker.hits.splice(0..0, recent);
+            self.overlays
+                .picker
+                .hits
+                .truncate(winc_editor::PICKER_MAX_RESULTS);
         }
     }
 
@@ -387,7 +400,7 @@ impl App {
     /// 重新遍历目录时旧表仍然存在，继续列出旧表中的结果（面板高度也按这些结果计算），
     /// 避免只显示一行文字而下方留出大片空白。
     pub(crate) fn picker_indexing(&self) -> bool {
-        !self.picker.index.is_ready() && self.picker.index.is_empty()
+        !self.overlays.picker.index.is_ready() && self.overlays.picker.index.is_empty()
     }
 
     /// 打开目录之后，在后台建立 `⌘P` 面板的文件表，使第一次按 `⌘P` 时即可列出文件。
@@ -396,7 +409,7 @@ impl App {
     /// 1 至 2 秒，整个主目录约 3 秒以上。基准测试模式和没有事件循环时不建立，
     /// 避免干扰启动耗时和内存的测量。
     pub(super) fn index_folder(&mut self) {
-        if !self.bench.silent() && self.proxy.is_some() {
+        if !self.frame.bench.silent() && self.link.proxy.is_some() {
             self.prepare_index();
         }
     }
@@ -410,12 +423,12 @@ impl App {
             return;
         };
 
-        if self.picker.stale && self.picker.index.root() == Some(root.as_path()) {
+        if self.overlays.picker.stale && self.overlays.picker.index.root() == Some(root.as_path()) {
             self.picker_invalidate();
         }
 
-        if self.picker.index.root() != Some(root.as_path()) {
-            self.picker.index.cancel();
+        if self.overlays.picker.index.root() != Some(root.as_path()) {
+            self.overlays.picker.index.cancel();
             self.build_index(&root);
         }
     }
@@ -427,12 +440,13 @@ impl App {
     pub(in crate::app) fn picker_indexed(&mut self) {
         // 结果下标只对旧表有效，换表之前先按旧表取出选中项的路径。
         let selected = self
+            .overlays
             .picker
             .hits
-            .get(self.picker.selected)
-            .and_then(|&i| self.picker.index.absolute(i));
+            .get(self.overlays.picker.selected)
+            .and_then(|&i| self.overlays.picker.index.absolute(i));
 
-        if !self.picker.index.poll() {
+        if !self.overlays.picker.index.poll() {
             return;
         }
 
@@ -440,19 +454,25 @@ impl App {
             && !self.picker_lists_symbols()
             && !self.picker_lists_branches()
             && !self.picker_lists_locations()
-            && !self.picker.folders
-            && self.picker.remote.is_none()
-            && self.picker.vim_list.is_none();
-        if self.picker.open && files && self.picker.places.is_none() {
-            let scroll = self.picker.scroll;
+            && !self.overlays.picker.folders
+            && self.overlays.picker.remote.is_none()
+            && self.overlays.picker.vim_list.is_none();
+        if self.overlays.picker.open && files && self.overlays.picker.places.is_none() {
+            let scroll = self.overlays.picker.scroll;
             self.picker_refresh();
 
             let at = selected
-                .and_then(|path| self.picker.index.position_of(&path))
-                .and_then(|position| self.picker.hits.iter().position(|&i| i == position));
+                .and_then(|path| self.overlays.picker.index.position_of(&path))
+                .and_then(|position| {
+                    self.overlays
+                        .picker
+                        .hits
+                        .iter()
+                        .position(|&i| i == position)
+                });
             if let Some(at) = at {
-                self.picker.selected = at;
-                self.picker.scroll = scroll;
+                self.overlays.picker.selected = at;
+                self.overlays.picker.scroll = scroll;
                 self.picker_reveal();
             }
         }
@@ -467,25 +487,25 @@ impl App {
         let Some(path) = self.editor.active().and_then(|d| d.path.clone()) else {
             return;
         };
-        self.recent_files.retain(|p| *p != path);
-        self.recent_files.insert(0, path);
-        self.recent_files.truncate(MAX_RECENT_FILES);
+        self.history.files.retain(|p| *p != path);
+        self.history.files.insert(0, path);
+        self.history.files.truncate(MAX_RECENT_FILES);
     }
 
     /// 上下移动选中项，`down` 为 `true` 时向下；到达两端后停止，不绕回。
     pub(in crate::app) fn picker_move(&mut self, down: bool) {
-        if self.picker.hits.is_empty() {
+        if self.overlays.picker.hits.is_empty() {
             return;
         }
 
-        let last = self.picker.hits.len() - 1;
-        self.picker.default = None;
-        self.picker.selected = if self.picker_lists_branches() {
+        let last = self.overlays.picker.hits.len() - 1;
+        self.overlays.picker.default = None;
+        self.overlays.picker.selected = if self.picker_lists_branches() {
             self.branch_picker_step(down)
         } else if down {
-            (self.picker.selected + 1).min(last)
+            (self.overlays.picker.selected + 1).min(last)
         } else {
-            self.picker.selected.saturating_sub(1)
+            self.overlays.picker.selected.saturating_sub(1)
         };
 
         self.picker_reveal();
@@ -504,8 +524,9 @@ impl App {
             return;
         }
 
-        let top = self.picker.selected as f32 * PICKER_ROW;
-        self.picker.scroll = scroll_to_show(self.picker.scroll, top, top + PICKER_ROW, height);
+        let top = self.overlays.picker.selected as f32 * PICKER_ROW;
+        self.overlays.picker.scroll =
+            scroll_to_show(self.overlays.picker.scroll, top, top + PICKER_ROW, height);
     }
 
     /// 确认选中项。
@@ -513,7 +534,7 @@ impl App {
     /// 文件列表中打开选中的文件（已有标签则切换过去，否则新开一个）；命令面板中执行选中的命令；
     /// 符号列表和位置列表中跳转到选中的位置；最近目录列表中打开选中的目录。
     pub(in crate::app) fn picker_accept(&mut self) {
-        if self.picker.places.is_some() {
+        if self.overlays.picker.places.is_some() {
             self.places_accept();
             return;
         }
@@ -525,15 +546,15 @@ impl App {
             self.location_picker_accept();
             return;
         }
-        if self.picker.folders {
+        if self.overlays.picker.folders {
             self.folder_picker_accept();
             return;
         }
-        if self.picker.remote.is_some() {
+        if self.overlays.picker.remote.is_some() {
             self.remote_picker_accept();
             return;
         }
-        if self.picker.vim_list.is_some() {
+        if self.overlays.picker.vim_list.is_some() {
             self.vim_list_accept();
             return;
         }
@@ -545,12 +566,13 @@ impl App {
             self.symbols_accept();
             return;
         }
-        let goto = self.picker.goto.take();
+        let goto = self.overlays.picker.goto.take();
         let path = self
+            .overlays
             .picker
             .hits
-            .get(self.picker.selected)
-            .and_then(|&index| self.picker.index.absolute(index));
+            .get(self.overlays.picker.selected)
+            .and_then(|&index| self.overlays.picker.index.absolute(index));
 
         match (path, goto) {
             (Some(path), goto) => {
@@ -577,7 +599,7 @@ impl App {
     ///
     /// 文件表在后台只更新这几项，不等待目录监视的通知，也不重新遍历整个目录。
     pub(in crate::app) fn picker_touched(&mut self, paths: Vec<PathBuf>) {
-        self.picker.index.apply(winc_editor::Changes {
+        self.overlays.picker.index.apply(winc_editor::Changes {
             paths,
             rescan: false,
             git: false,
@@ -588,14 +610,14 @@ impl App {
     ///
     /// 用户点击刷新目录，或没有监视目录时需要使用 `⌘P`，都会调用。
     pub(super) fn picker_invalidate(&mut self) {
-        self.picker.stale = false;
-        let Some(root) = self.picker.index.root().map(Path::to_path_buf) else {
+        self.overlays.picker.stale = false;
+        let Some(root) = self.overlays.picker.index.root().map(Path::to_path_buf) else {
             return;
         };
 
         self.build_index(&root);
 
-        if self.picker.open {
+        if self.overlays.picker.open {
             self.picker_refresh();
         }
     }
@@ -604,14 +626,14 @@ impl App {
     ///
     /// 已有旧表时保留旧表，新表建好之前面板仍可使用，不会变空。测试中没有事件循环，同步建立。
     fn build_index(&mut self, root: &Path) {
-        let Some(proxy) = self.proxy.clone() else {
-            self.picker.index = FileIndex::collect_now(root);
+        let Some(proxy) = self.link.proxy.clone() else {
+            self.overlays.picker.index = FileIndex::collect_now(root);
             return;
         };
-        if self.picker.index.root() == Some(root) {
-            self.picker.index.refresh();
+        if self.overlays.picker.index.root() == Some(root) {
+            self.overlays.picker.index.refresh();
         } else {
-            self.picker.index = FileIndex::spawn(root, move || {
+            self.overlays.picker.index = FileIndex::spawn(root, move || {
                 let _ = proxy.send_event(UserEvent::Indexed);
             });
         }
@@ -630,7 +652,7 @@ pub(crate) fn picker_span(app: &App) -> f32 {
 ///
 /// 绘制、点击和滚动都用这里的几何。
 pub(crate) fn picker_parts(app: &App, card: Rect) -> PickerParts {
-    if app.picker.places.is_some() {
+    if app.overlays.picker.places.is_some() {
         PickerParts::places(card)
     } else if app.picker_is_git() {
         use crate::app::git::branch::picker::GIT_PICKER_ACTIONS;

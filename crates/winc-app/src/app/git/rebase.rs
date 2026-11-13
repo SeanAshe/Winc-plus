@@ -154,7 +154,7 @@ impl RebaseForm {
 impl App {
     /// 打开交互式变基对话框。
     pub(super) fn open_rebase_dialog(&mut self, plan: RebasePlan) {
-        if self.form_dialog.is_some() {
+        if self.overlays.form_dialog.is_some() {
             return;
         }
         let kind = FormKind::Rebase(Box::new(RebaseForm::new(plan)));
@@ -174,7 +174,7 @@ impl App {
         &mut self,
         f: impl FnOnce(&mut RebaseForm, &mut TextField) -> T,
     ) -> Option<T> {
-        let dialog = self.form_dialog.as_mut()?;
+        let dialog = self.overlays.form_dialog.as_mut()?;
         let FormKind::Rebase(form) = &mut dialog.kind else {
             return None;
         };
@@ -233,7 +233,7 @@ impl App {
             });
             load_message(form, field);
         });
-        if let Some(dialog) = &mut self.form_dialog {
+        if let Some(dialog) = &mut self.overlays.form_dialog {
             dialog.focus = if action == RebaseAction::Reword {
                 DialogPart::Branch
             } else {
@@ -269,7 +269,7 @@ impl App {
         base: &str,
     ) -> bool {
         use winit::keyboard::{Key, NamedKey};
-        let Some(dialog) = &self.form_dialog else {
+        let Some(dialog) = &self.overlays.form_dialog else {
             return false;
         };
         let FormKind::Rebase(form) = &dialog.kind else {
@@ -279,7 +279,7 @@ impl App {
             return false;
         }
         let selected = form.selected;
-        let alt = self.modifiers.alt_key();
+        let alt = self.pointer.modifiers.alt_key();
         match key {
             Key::Named(NamedKey::ArrowUp) if alt => self.move_rebase_row(true),
             Key::Named(NamedKey::ArrowDown) if alt => self.move_rebase_row(false),
@@ -323,7 +323,7 @@ impl App {
     pub(in crate::app) fn press_rebase_part(&mut self, part: DialogPart) {
         match part {
             DialogPart::RebaseRow(row) => {
-                if let Some(dialog) = &mut self.form_dialog {
+                if let Some(dialog) = &mut self.overlays.form_dialog {
                     dialog.focus = DialogPart::RebaseList;
                 }
                 self.select_rebase_row(row);

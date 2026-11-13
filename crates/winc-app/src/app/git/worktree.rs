@@ -355,7 +355,12 @@ impl App {
             return;
         }
         let name = worktree_name(&worktree);
-        if self.shared.window_with(&worktree.path, self.key).is_some() {
+        if self
+            .link
+            .shared
+            .window_with(&worktree.path, self.link.key)
+            .is_some()
+        {
             self.ask_close_worktree_window(&name, &worktree.path);
             return;
         }
@@ -471,13 +476,13 @@ impl App {
         let Some(i) = i.filter(|&i| i > 0 && self.git.current_worktree() != Some(i)) else {
             return;
         };
-        if self.branch.running.is_some() {
+        if self.git.branch.running.is_some() {
             self.flash(t!("git-op-busy"));
             return;
         }
         let name = worktree_name(&self.git.worktrees[i]);
         // 确认框弹着的时候在另一个窗口里打开了它。
-        if self.shared.window_with(path, self.key).is_some() {
+        if self.link.shared.window_with(path, self.link.key).is_some() {
             self.ask_close_worktree_window(&name, path);
             return;
         }

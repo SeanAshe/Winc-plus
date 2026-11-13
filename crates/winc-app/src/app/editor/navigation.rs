@@ -127,15 +127,15 @@ impl App {
             return;
         }
         let key = (doc.id, doc.selection.head, doc.revision);
-        let nav = &self.navigation;
+        let nav = &self.jumps.navigation;
         // 当前项仍是该文档、路径也没变（另存为不改版本号）：记下的就是现在的位置。
         let current = nav.spots.get(nav.current);
         if nav.last == Some(key) && current.is_some_and(|s| s.id == doc.id && s.path == doc.path) {
             // 光标没有移动：已标记的跳转没有发生。
-            self.navigation.forced = false;
+            self.jumps.navigation.forced = false;
             return;
         }
-        self.navigation.last = Some(key);
+        self.jumps.navigation.last = Some(key);
         let (line, col) = doc.text().pos_to_line_col(doc.selection.head);
         let here = Spot {
             id: doc.id,
@@ -144,7 +144,7 @@ impl App {
             col,
         };
         let revision = doc.revision;
-        self.navigation.observe(here, revision);
+        self.jumps.navigation.observe(here, revision);
     }
 
     /// 后退或前进一项（`forward` 为 `true` 时前进；macOS 上后退为 `⌃-`，前进为 `⌃⇧-`）。
@@ -153,26 +153,26 @@ impl App {
     pub(in crate::app) fn navigate(&mut self, forward: bool) {
         self.track_navigation();
 
-        while self.navigation.can_go(forward) {
+        while self.jumps.navigation.can_go(forward) {
             let target = if forward {
-                self.navigation.current + 1
+                self.jumps.navigation.current + 1
             } else {
-                self.navigation.current - 1
+                self.jumps.navigation.current - 1
             };
-            let spot = self.navigation.spots[target].clone();
+            let spot = self.jumps.navigation.spots[target].clone();
 
             if !self.show_spot(&spot) {
-                self.navigation.spots.remove(target);
-                if target < self.navigation.current {
-                    self.navigation.current -= 1;
+                self.jumps.navigation.spots.remove(target);
+                if target < self.jumps.navigation.current {
+                    self.jumps.navigation.current -= 1;
                 }
                 continue;
             }
 
-            self.navigation.current = target;
+            self.jumps.navigation.current = target;
             if let Some(doc) = self.editor.active() {
-                self.navigation.spots[target].id = doc.id;
-                self.navigation.seen = Some((doc.id, doc.revision));
+                self.jumps.navigation.spots[target].id = doc.id;
+                self.jumps.navigation.seen = Some((doc.id, doc.revision));
             }
             return;
         }

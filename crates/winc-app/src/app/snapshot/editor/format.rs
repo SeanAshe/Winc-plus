@@ -256,7 +256,7 @@ fn failures_explain_themselves_and_leave_the_text_alone() {
     paint(&mut app);
     let button = app.hits.notice_button.expect("提示条上有按钮");
     app.on_mouse_move(button.x + 4.0, button.y + 4.0);
-    assert_eq!(app.hover, Hover::NoticeButton);
+    assert_eq!(app.pointer.hover, Hover::NoticeButton);
     app.on_mouse_down(MouseButton::Left);
     app.on_mouse_up(MouseButton::Left);
     assert!(app.notice.text.is_none());

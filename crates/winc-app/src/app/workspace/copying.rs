@@ -81,12 +81,12 @@ impl App {
         done: impl FnOnce(R, Arc<Copying>) -> UserEvent + Send + 'static,
     ) -> Option<R> {
         let copying = Arc::new(Copying::default());
-        let Some(proxy) = self.proxy.clone() else {
+        let Some(proxy) = self.link.proxy.clone() else {
             return Some(winc_backend::remote::allow_blocking(|| work(&copying)));
         };
-        self.tree.copies.running.push(Arc::clone(&copying));
-        if self.tree.copies.due.is_none() {
-            self.tree.copies.due = Some(Instant::now() + PROGRESS_DELAY);
+        self.panels.tree.copies.running.push(Arc::clone(&copying));
+        if self.panels.tree.copies.due.is_none() {
+            self.panels.tree.copies.due = Some(Instant::now() + PROGRESS_DELAY);
         }
         let task = move || {
             let result = work(&copying);
@@ -102,7 +102,7 @@ impl App {
 
     /// 复制 `copying` 结束：不再显示它的进度，返回它是否是被取消的。
     pub(in crate::app) fn copy_finished(&mut self, copying: &Arc<Copying>) -> bool {
-        let copies = &mut self.tree.copies;
+        let copies = &mut self.panels.tree.copies;
         copies.running.retain(|other| !Arc::ptr_eq(other, copying));
         if copies.running.iter().all(|other| other.is_cancelled()) {
             copies.due = None;
@@ -118,22 +118,23 @@ impl App {
 
     /// 取消正在进行的各次复制：各自正在复制的一项停止，已复制完的各项保留。
     pub(in crate::app) fn cancel_copies(&mut self) {
-        for copying in &self.tree.copies.running {
+        for copying in &self.panels.tree.copies.running {
             copying.cancel();
         }
-        self.tree.copies.due = None;
+        self.panels.tree.copies.due = None;
     }
 
     /// 到时刻时显示或更新复制的进度，返回下一次的时刻；没有复制在进行时返回 `None`。
     ///
     /// 显示最早开始的一次。右上角正显示着别的提示时不替换它，等它消失之后再显示。
     pub(in crate::app) fn copy_tick(&mut self, now: Instant) -> Option<Instant> {
-        let due = self.tree.copies.due?;
+        let due = self.panels.tree.copies.due?;
         if now < due {
             return Some(due);
         }
         let ours = self.notice.action == Some(NoticeAction::CancelCopy);
-        let running = (self.tree.copies.running.iter()).find(|copying| !copying.is_cancelled());
+        let running =
+            (self.panels.tree.copies.running.iter()).find(|copying| !copying.is_cancelled());
         if let Some(message) = running.map(|copying| progress_label(copying)) {
             if ours {
                 // 只换文字：提示条留在原处，不重新播放入场动画。
@@ -146,7 +147,7 @@ impl App {
             }
         }
         let next = now + PROGRESS_REFRESH;
-        self.tree.copies.due = Some(next);
+        self.panels.tree.copies.due = Some(next);
         Some(next)
     }
 }

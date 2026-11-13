@@ -293,6 +293,8 @@ pub enum MenuCommand {
     LogCopyShortOid,
     /// 日志里的提交：复制完整的说明。
     LogCopyMessage,
+    /// 日志：转到提交号、分支或标签。
+    LogGoTo,
     /// 编辑区：开关逐行追溯（开着时打勾）。
     ToggleBlame,
     /// 提交视图「⋯」：储藏改动（输入说明）。
@@ -435,6 +437,7 @@ impl MenuCommand {
             MenuCommand::RebaseAction(action) => crate::app::git::rebase::action_label(action),
             MenuCommand::LogCopyOid => t!("menu-log-copy-oid"),
             MenuCommand::LogCopyShortOid => t!("menu-log-copy-short-oid"),
+            MenuCommand::LogGoTo => t!("menu-log-go-to"),
             MenuCommand::LogCopyMessage => t!("menu-log-copy-message"),
             MenuCommand::ToggleBlame => t!("menu-git-blame"),
             MenuCommand::GitStash => t!("menu-git-stash"),

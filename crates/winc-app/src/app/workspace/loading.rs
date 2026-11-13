@@ -60,12 +60,12 @@ impl App {
             return;
         };
         let id = job.id();
-        if self.loads.tickets.is_waiting(&id) {
+        if self.disk.loads.tickets.is_waiting(&id) {
             return;
         }
-        let ticket = self.loads.tickets.issue(id);
-        self.loads.since = Some((id, Instant::now()));
-        let sender = self.loads.results.0.clone();
+        let ticket = self.disk.loads.tickets.issue(id);
+        self.disk.loads.since = Some((id, Instant::now()));
+        let sender = self.disk.loads.results.0.clone();
         self.spawn_then(UserEvent::Loaded, move || {
             let _ = sender.send((id, ticket, job.run()));
         });
@@ -73,12 +73,12 @@ impl App {
 
     /// 收取后台读取完成的文件（见 [`Loads`]）并换入标签；结果属于当前标签时执行记录的动作。
     pub(in crate::app) fn poll_loads(&mut self) {
-        while let Ok((id, ticket, loaded)) = self.loads.results.1.try_recv() {
-            if !self.loads.tickets.redeem(&id, ticket) {
+        while let Ok((id, ticket, loaded)) = self.disk.loads.results.1.try_recv() {
+            if !self.disk.loads.tickets.redeem(&id, ticket) {
                 continue;
             }
-            if self.loads.since.is_some_and(|(s, _)| s == id) {
-                self.loads.since = None;
+            if self.disk.loads.since.is_some_and(|(s, _)| s == id) {
+                self.disk.loads.since = None;
             }
             let Some(index) = self.editor.finish_load(loaded) else {
                 continue;
@@ -95,14 +95,15 @@ impl App {
         }
         // 已关闭的标签不再等待读取结果。
         let editor = &self.editor;
-        self.loads
+        self.disk
+            .loads
             .then
             .retain(|(id, _)| editor.index_of(*id).is_some());
     }
 
     /// 当前标签刚读取完成：重新布局、提示只读的原因、保证光标可见并请求重绘。
     fn loaded_active(&mut self) {
-        self.sticky_cache = None;
+        self.caches.sticky_cache = None;
         self.relayout();
         self.announce_readonly();
         self.ensure_caret_visible();
@@ -120,7 +121,7 @@ impl App {
             .filter(|d| d.is_pending())
             .map(|d| d.id)
         {
-            Some(id) => self.loads.then.push((id, Box::new(then))),
+            Some(id) => self.disk.loads.then.push((id, Box::new(then))),
             None => then(self),
         }
     }
@@ -137,7 +138,7 @@ impl App {
         else {
             return;
         };
-        for (_, then) in extract(&mut self.loads.then, |(i, _)| *i == id) {
+        for (_, then) in extract(&mut self.disk.loads.then, |(i, _)| *i == id) {
             then(self);
         }
     }
@@ -174,14 +175,14 @@ impl App {
         self.when_loaded(move |app| {
             then(app);
             if switched {
-                app.scroll_glide = None;
+                app.scroll.glide = None;
             }
         });
     }
 
     /// 当前标签正在读取、且尚未到 [`HOLD`] 时，返回可以跳过绘制的截止时刻。
     pub(in crate::app) fn holding_frame(&self, now: Instant) -> Option<Instant> {
-        let (id, since) = self.loads.since?;
+        let (id, since) = self.disk.loads.since?;
         let active = self.editor.active()?;
         let until = since + HOLD;
         (active.id == id && active.is_pending() && now < until).then_some(until)

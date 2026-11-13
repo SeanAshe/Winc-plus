@@ -26,10 +26,10 @@ impl App {
     /// 任务，调用方再次调用）。
     pub(crate) fn wait_for_markdown(&mut self) {
         self.advance_markdown();
-        while self.markdown.is_busy() {
-            let done = self.markdown.wait().expect("Markdown 预览超时");
+        while self.preview.markdown.is_busy() {
+            let done = self.preview.markdown.wait().expect("Markdown 预览超时");
             // 放回通道，按正常路径收下。
-            let _ = self.markdown.sender.send(done);
+            let _ = self.preview.markdown.sender.send(done);
             self.poll_markdown();
         }
     }

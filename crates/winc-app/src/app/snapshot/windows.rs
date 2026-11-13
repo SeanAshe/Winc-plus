@@ -225,7 +225,7 @@ fn settings_written_back_keep_what_was_edited_in_the_file_meanwhile() {
     let (mut winc, a, b, dir) = two_windows("windows-config-edits");
     let path = dir.join("config.json");
     for key in [a, b] {
-        winc.app(key).config_path = Some(path.clone());
+        winc.app(key).store.config_path = Some(path.clone());
     }
     // 程序运行期间，用户在 winc 之外手动修改了配置文件，之后在设置页中修改了另一项。
     std::fs::write(&path, r#"{"editor": {"size": 16}}"#).unwrap();
@@ -250,7 +250,7 @@ fn files_cut_in_one_window_are_moved_when_pasted_in_another() {
     let (mut winc, a, b, dir) = two_windows("windows-cut");
     let file = dir.join("a.txt");
     winc.app(a).cut_entries(std::slice::from_ref(&file));
-    assert_eq!(*winc.app(b).shared.cut_files.borrow(), [file]);
+    assert_eq!(*winc.app(b).link.shared.cut_files.borrow(), [file]);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -259,7 +259,7 @@ fn files_go_to_the_innermost_window_that_contains_them() {
     let (mut winc, a, b, dir) = two_windows("windows-containing");
     winc.app(b).open_path(&dir);
     winc.settle_for_test();
-    let shared = std::rc::Rc::clone(&winc.app(a).shared);
+    let shared = std::rc::Rc::clone(&winc.app(a).link.shared);
     let src = winc_config::files::canonicalize(dir.join("src")).unwrap();
     assert_eq!(
         shared.window_containing(&src.join("main.rs")),
@@ -337,7 +337,7 @@ fn files_cut_in_one_window_move_into_another_windows_folder() {
     let b = winc.add_detached(app_with(&b_dir.join("src/main.rs"), false));
 
     winc.app(a).cut_entries(std::slice::from_ref(&notes));
-    winc.app(b).copied_files = vec![notes.clone()];
+    winc.app(b).clipboard.copied_files = vec![notes.clone()];
     let target = winc.app(b).editor.workspace.as_ref().unwrap().target_dir();
     winc.app(b).paste_into_tree();
     winc.settle_for_test();
@@ -346,7 +346,10 @@ fn files_cut_in_one_window_move_into_another_windows_folder() {
     assert!(moved.exists() && !notes.exists());
     let doc = winc.app(a).editor.active().unwrap();
     assert_eq!(doc.path.as_deref(), Some(moved.as_path()));
-    assert!(winc.app(b).shared.cut_files.borrow().is_empty(), "只移一次");
+    assert!(
+        winc.app(b).link.shared.cut_files.borrow().is_empty(),
+        "只移一次"
+    );
     let _ = std::fs::remove_dir_all(&a_dir);
     let _ = std::fs::remove_dir_all(&b_dir);
 }
@@ -450,11 +453,21 @@ fn a_drawn_title_bar_has_window_buttons_and_resize_edges() {
     }
     assert!(!matches!(app.hover_at(w / 2.0, 12.0), Hover::ResizeEdge(_)));
     app.on_mouse_move(w - 1.0, h / 2.0);
-    assert_eq!(app.cursor_icon, CursorIcon::EResize);
+    assert_eq!(app.pointer.cursor_icon, CursorIcon::EResize);
+
+    // 关闭按钮在松开时才生效：按下时就关掉窗口，松开会落到下层窗口的同一位置。按下后移开再
+    // 松开不算点击，窗口保留。
+    let (close, _) = app.window_control_rects()[2];
+    let center = (close.x + close.w / 2.0, close.y + close.h / 2.0);
+    app.on_mouse_move(center.0, center.1);
+    app.on_mouse_down(MouseButton::Left);
+    assert!(!app.window.hidden, "按下时窗口还在");
+    app.on_mouse_move(w / 2.0, h / 2.0);
+    app.on_mouse_up(MouseButton::Left);
+    assert!(!app.window.hidden, "移开后松开不关闭窗口");
 
     // 关闭按钮：和系统标题栏上的一样关掉该窗口。
-    let (close, _) = app.window_control_rects()[2];
-    click(app, (close.x + close.w / 2.0, close.y + close.h / 2.0));
+    click(app, center);
     winc.settle_for_test();
     assert_eq!(winc.keys(), [b]);
     let _ = std::fs::remove_dir_all(&dir);
@@ -498,7 +511,7 @@ fn windows_share_one_background_layer() {
     paint(winc.app(a));
     winc.app(a).wait_for_wallpaper();
     paint(winc.app(a));
-    let layer = |app: &App| app.renderer.as_ref().unwrap().wallpaper().cloned();
+    let layer = |app: &App| app.frame.renderer.as_ref().unwrap().wallpaper().cloned();
     let first = layer(winc.app(a)).expect("第一个窗口的图层");
 
     paint(winc.app(b));

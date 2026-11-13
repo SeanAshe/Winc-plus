@@ -90,8 +90,8 @@ pub(crate) struct Before {
 
 impl Before {
     pub(crate) fn of(app: &App, laid: &Laid) -> Before {
-        let scroll = app.markdown.scroll();
-        let motion = app.markdown.motion.as_ref();
+        let scroll = app.preview.markdown.scroll();
+        let motion = app.preview.markdown.motion.as_ref();
         let blocks = laid
             .blocks
             .iter()
@@ -256,8 +256,8 @@ pub(crate) fn keep_caret_still(app: &mut App, still: Option<(usize, f32)>, laid:
     };
     let dy = y - laid.pad - before;
     if dy.abs() >= 0.5 {
-        let scroll = app.markdown.scroll();
-        app.markdown.scroll_to(scroll + dy);
+        let scroll = app.preview.markdown.scroll();
+        app.preview.markdown.scroll_to(scroll + dy);
     }
 }
 
@@ -294,16 +294,19 @@ pub(crate) fn lay_out(
         ))
     });
     let p = app.palette;
-    app.markdown.memo.prepare(winc_typeset::memo_key(|h| {
-        use std::hash::Hash;
-        for v in [key.width, key.base] {
-            v.to_bits().hash(h);
-        }
-        for c in [key.text, key.background] {
-            [c.r, c.g, c.b, c.a].map(f32::to_bits).hash(h);
-        }
-        key.images.hash(h);
-    }));
+    app.preview
+        .markdown
+        .memo
+        .prepare(winc_typeset::memo_key(|h| {
+            use std::hash::Hash;
+            for v in [key.width, key.base] {
+                v.to_bits().hash(h);
+            }
+            for c in [key.text, key.background] {
+                [c.r, c.g, c.b, c.a].map(f32::to_bits).hash(h);
+            }
+            key.images.hash(h);
+        }));
     let doc = app.editor.active().and_then(|d| d.path.clone());
     let remote = app.config.markdown_remote_images != Some(false);
     let image_path =
@@ -317,11 +320,11 @@ pub(crate) fn lay_out(
         accent: p.accent,
         colors: Colors::new(p.text, p.text_muted, p.accent, p.dark),
         dark: p.dark,
-        images: &app.markdown.images,
+        images: &app.preview.markdown.images,
         image_path: &image_path,
         wanted: Vec::new(),
-        memo: &mut app.markdown.memo,
-        toggled: &app.markdown.toggled,
+        memo: &mut app.preview.markdown.memo,
+        toggled: &app.preview.markdown.toggled,
         text: String::new(),
         chars: 0,
         raw: None,
@@ -684,7 +687,7 @@ pub(crate) fn offset_at(app: &App, x: f32, y: f32) -> Option<usize> {
 ///
 /// 内容一栏两侧的空白不对应任何文字：在那里按下鼠标不放光标、不开始选字。
 pub(crate) fn in_content(app: &App, x: f32) -> bool {
-    app.markdown.layout.as_ref().is_none_or(|laid| {
+    app.preview.markdown.layout.as_ref().is_none_or(|laid| {
         let left = laid.left - CONTENT_SLACK;
         let right = laid.left + laid.key.width + CONTENT_SLACK;
         (left..=right).contains(&x)
@@ -700,7 +703,7 @@ pub(crate) const CONTENT_SLACK: f32 = 12.0;
 /// 由原文生成、没有对应原文的文字（提示块的标题）取所在顶层块的开头。
 pub(crate) fn source_at(app: &App, x: f32, y: f32) -> Option<usize> {
     let hit = hit(app, x, y)?;
-    let laid = app.markdown.layout.as_ref()?;
+    let laid = app.preview.markdown.layout.as_ref()?;
     let start = laid.ranges.get(hit.block)?.start;
     Some(start + hit.source.unwrap_or(0))
 }
@@ -708,8 +711,8 @@ pub(crate) fn source_at(app: &App, x: f32, y: f32) -> Option<usize> {
 /// 把窗口坐标 `(x, y)` 处可横向滚动的表格横向滚动 `dx`（逻辑像素，向右滚动为负），返回是否
 /// 滚动了；该处没有可滚动的表格时返回 `false`，由调用方按竖直方向滚动预览。
 pub(crate) fn scroll_table(app: &mut App, x: f32, y: f32, dx: f32) -> bool {
-    let (area, scroll) = (app.markdown.area, app.markdown.scroll());
-    let Some(laid) = app.markdown.layout.as_mut() else {
+    let (area, scroll) = (app.preview.markdown.area, app.preview.markdown.scroll());
+    let Some(laid) = app.preview.markdown.layout.as_mut() else {
         return false;
     };
     let (cx, cy) = (x - laid.left, y - (area.y + laid.pad - scroll));
@@ -718,7 +721,7 @@ pub(crate) fn scroll_table(app: &mut App, x: f32, y: f32, dx: f32) -> bool {
     };
     let now = laid.hscroll_of(block, s);
     laid.hscroll.insert((block, s), (now - dx).clamp(0.0, max));
-    app.markdown.last_table = Some((block, s));
+    app.preview.markdown.last_table = Some((block, s));
     app.request_redraw();
     true
 }
@@ -772,8 +775,8 @@ pub(crate) fn table_cell(
 }
 
 pub(crate) fn hit(app: &App, x: f32, y: f32) -> Option<Hit> {
-    let laid = app.markdown.layout.as_ref()?;
-    let origin = app.markdown.area.y + laid.pad - app.markdown.scroll();
+    let laid = app.preview.markdown.layout.as_ref()?;
+    let origin = app.preview.markdown.area.y + laid.pad - app.preview.markdown.scroll();
     let (x, y) = (x - laid.left, y - origin);
     let mut best: Option<((f32, f32), Hit)> = None;
     // 只看鼠标所在的块和上下各一块。
@@ -915,7 +918,7 @@ pub(crate) fn font_at(
 
 /// 整份文字里第 `offset` 个字符所在那一行的上边缘（和滚动位置同一个量法）。
 pub(crate) fn offset_top(app: &App, offset: usize) -> Option<f32> {
-    let laid = app.markdown.layout.as_ref()?;
+    let laid = app.preview.markdown.layout.as_ref()?;
     let i = laid
         .starts
         .partition_point(|&s| s <= offset)
@@ -927,7 +930,7 @@ pub(crate) fn offset_top(app: &App, offset: usize) -> Option<f32> {
 
 /// 整份文字（各块的文字连起来），预览里查找用。
 pub(crate) fn full_text(app: &App) -> Option<String> {
-    let laid = app.markdown.layout.as_ref()?;
+    let laid = app.preview.markdown.layout.as_ref()?;
     Some(laid.blocks.iter().map(|(_, b)| &*b.text).collect())
 }
 
@@ -955,7 +958,7 @@ pub(crate) fn anchor_top(app: &App, anchor: &str) -> Option<f32> {
 /// 锚点 `anchor` 的范围：上边缘（取法同 [`anchor_top`]）和高度。脚注引用是编号所在那一行，脚注是
 /// 整条脚注，标题是标题所在的块。
 pub(crate) fn anchor_box(app: &App, anchor: &str) -> Option<(f32, f32)> {
-    let laid = app.markdown.layout.as_ref()?;
+    let laid = app.preview.markdown.layout.as_ref()?;
     let anchor = crate::app::preview::markdown::percent_decode(anchor).to_lowercase();
     // 脚注末尾的 ↩ 跳回正文里第一次引用该脚注的位置，即链到脚注的编号。
     let reference = anchor.strip_prefix("fnref-").map(|n| format!("#fn-{n}"));

@@ -26,15 +26,15 @@ use crate::app::preview::markdown::laid::*;
 /// 在 `area`（窗口坐标，逻辑像素）里画当前文档的 Markdown 预览，分栏时是右半边，只看预览时
 /// 是整个编辑区。
 ///
-/// 排版结果和光标位置写回 `app.markdown`，可点击范围记入 `app.hits`；需要读取的图片记进请求，下一帧再画。
+/// 排版结果和光标位置写回 `app.preview.markdown`，可点击范围记入 `app.hits`；需要读取的图片记进请求，下一帧再画。
 pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
     let p = app.palette;
     frame.rect(area, p.editor_bg);
-    app.markdown.area = area;
+    app.preview.markdown.area = area;
     // 可编辑的预览在排版之前取得当前文字的解析结果，本帧即按最新的结构显示。
     app.parse_markdown_inline();
     // 第一次解析还没回来：先留空。
-    let Some(parsed) = app.markdown.parsed.clone() else {
+    let Some(parsed) = app.preview.markdown.parsed.clone() else {
         return;
     };
     let pad = if area.w >= 600.0 { PAD } else { PAD_NARROW };
@@ -46,19 +46,19 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
         base,
         text: p.text,
         background: p.editor_bg,
-        images: app.markdown.images_version,
+        images: app.preview.markdown.images_version,
     };
     let source = Arc::as_ptr(&parsed) as usize;
     let live = app.live_editing().then(|| app.live_leaf()).flatten();
     let live_key = (live.as_ref()).map(|l| live_key(l, app.preedit_at(Focus::Editor)));
     let blank = live.as_ref().is_some_and(|l| l.blank);
-    let loaded = std::mem::take(&mut app.markdown.loaded);
-    let toggled = app.markdown.toggled_now.take();
+    let loaded = std::mem::take(&mut app.preview.markdown.loaded);
+    let toggled = app.preview.markdown.toggled_now.take();
     // 重排之前光标在旧排版里的高度：重排后据此保持光标在屏幕上不动（见 [`keep_caret_still`]）。
     let mut still = None;
     // 记录重排之前各块的绘制位置，重排后各块从该位置滑动到新位置（见 `BlockMotion`）。
     let mut before = None;
-    let mut laid = match app.markdown.layout.take() {
+    let mut laid = match app.preview.markdown.layout.take() {
         Some(laid)
             if laid.key == key
                 && laid.source == source
@@ -72,11 +72,11 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
             let hscroll = old.as_ref().map(|l| l.hscroll.clone()).unwrap_or_default();
             // 文字变了：选区、查找用的文字作废。只是重排（宽度、图片变了）时选区留着。
             if old.as_ref().is_none_or(|l| l.source != source) {
-                app.markdown.selection = None;
+                app.preview.markdown.selection = None;
             }
-            app.markdown.find_doc = None;
+            app.preview.markdown.find_doc = None;
             still = old_caret(app, old.as_ref(), source, live_key.as_ref());
-            let slide = std::mem::take(&mut app.markdown.slide);
+            let slide = std::mem::take(&mut app.preview.markdown.slide);
             before = old
                 .as_ref()
                 .filter(|l| l.key == key && app.markdown_live())
@@ -108,13 +108,13 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
     laid.left = left;
     laid.pad = pad;
     laid.set_upstream(app.live_upstream());
-    app.markdown.height = laid.height + pad * 2.0;
+    app.preview.markdown.height = laid.height + pad * 2.0;
     // 可编辑的预览与编辑区相同：内容高于一屏时，最后一行下方可以滚出一段空白。
-    if app.markdown_live() && app.markdown.height > area.h {
-        app.markdown.height += area.h * crate::layout::OVERSCROLL;
+    if app.markdown_live() && app.preview.markdown.height > area.h {
+        app.preview.markdown.height += area.h * crate::layout::OVERSCROLL;
     }
     keep_caret_still(app, still, &laid);
-    app.markdown.layout = Some(laid);
+    app.preview.markdown.layout = Some(laid);
     app.follow_live_caret();
     // 分栏时右边跟着左边滚；刚换成只看预览时对齐一次。
     if area != app.layout.editor {
@@ -124,17 +124,17 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
     }
     app.scroll_to_pending_anchor();
     // `layout` 刚在上面放进去，取出时一定存在。
-    let mut laid = app.markdown.layout.take().expect("刚放进去");
+    let mut laid = app.preview.markdown.layout.take().expect("刚放进去");
 
-    let max = (app.markdown.height - area.h).max(0.0);
-    let scroll = app.markdown.scroll().min(max);
+    let max = (app.preview.markdown.height - area.h).max(0.0);
+    let scroll = app.preview.markdown.scroll().min(max);
     let origin_y = area.y + pad - scroll;
     if let Some((before, slide)) = before {
         let muted = p.text_muted;
         let (from, fading) = before.motion(&laid, scroll, muted, slide);
         app.start_markdown_motion(from, fading);
     }
-    let motion = app.markdown.motion.take();
+    let motion = app.preview.markdown.motion.take();
     // 拖着选文字时不出复制按钮。
     let mouse = if !app.dragging() {
         app.mouse()
@@ -142,7 +142,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
         (f32::NAN, f32::NAN)
     };
     // 分栏时标出编辑区光标所在的行，便于对照两侧的位置；键盘焦点在预览上时不标出。
-    let caret = (area != app.layout.editor && !app.markdown.focused)
+    let caret = (area != app.layout.editor && !app.preview.markdown.focused)
         .then(|| app.markdown_caret_source())
         .flatten()
         .and_then(|source| laid.caret_point(source));
@@ -166,13 +166,13 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
             Some((byte(a), byte(b)))
         })
         .filter(|(a, b)| a < b);
-    let md = &mut app.markdown;
+    let md = &mut app.preview.markdown;
     let selection = md
         .selection
         .map(|(a, b)| (a.min(b), a.max(b)))
         .filter(|(a, b)| a < b);
     // 查找条在查预览的文字时，标出匹配。
-    let search = &app.search;
+    let search = &app.bars.search;
     let matches = (app.layout.search.h > 0.0
         && md.find_doc.is_some()
         && search.document() == md.find_doc.as_ref().map(|d| d.id))
@@ -185,6 +185,8 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
         .and_then(|d| d.text().rope())
         .map(|rope| (rope, search.current_match()));
     let mut wanted = Vec::new();
+    // 这一帧绘制范围内的图片。
+    let mut images = Vec::new();
     let mut shown = Vec::new();
     let mut toolbar = None;
     // 可横向滚动的表格的滚动条，各块绘制完成后再绘制：（块，表格，显示区域，滚动位置）。
@@ -328,6 +330,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
                         Some(px) => frame.pixels((r.x, r.y), px.width, px.height, &px.rgba, area),
                         None => wanted.push((path.clone(), size)),
                     }
+                    images.push(path.clone());
                 }
                 Item::Link { rect, url } => {
                     let r = at(rect).intersect(area);
@@ -478,15 +481,17 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
         let (x, y) = (left + x, area.y - scroll + y);
         app.ime.cursor = Some(draw_live_caret(app, frame, (x, y, h), font, area));
     }
+    let missing: Vec<_> = wanted.iter().map(|(path, _)| path.clone()).collect();
     for (path, size) in wanted {
         app.request_markdown_pixels(&path, size);
     }
+    app.release_markdown_images(&images, &missing);
     draw_table_scrollbar(app, frame, chosen, area);
     draw_toc(app, frame, area, pad);
 
     // 和编辑区的滚动条一样：平时隐藏，滚动、悬停时显示，可以拖动。
     let owner = app.editor.active().map_or(0, |doc| doc.id.0);
-    let content = app.markdown.height;
+    let content = app.preview.markdown.height;
     crate::view::draw_scrollbar(
         app,
         frame,
@@ -548,7 +553,7 @@ fn draw_table_scrollbar(
         return;
     };
     if hovered {
-        app.markdown.last_table = Some(bar.key);
+        app.preview.markdown.last_table = Some(bar.key);
     }
     let thumb = crate::layout::hscrollbar_thumb(bar.track, off, bar.content);
     // 滚动条状态的所属对象按表格区分：换到另一个表格时立即隐藏上一个表格的滚动条。
@@ -607,9 +612,11 @@ fn toc_dash(p: &Palette, i: usize, current: Option<usize>) -> (Color, f32) {
 /// 左侧留白不小于 [`TOC_ROOM`] 时才画（分栏时预览较窄，通常不画）；标题少于两个时不画。可点击的
 /// 位置写入 `app.hits.markdown_toc`。
 fn draw_toc(app: &mut App, frame: &mut Frame<'_>, area: Rect, pad: f32) {
-    app.markdown.toc_current = None;
-    let (Some(parsed), Some(laid)) = (app.markdown.parsed.clone(), app.markdown.layout.as_ref())
-    else {
+    app.preview.markdown.toc_current = None;
+    let (Some(parsed), Some(laid)) = (
+        app.preview.markdown.parsed.clone(),
+        app.preview.markdown.layout.as_ref(),
+    ) else {
         return;
     };
     if laid.left - area.x < TOC_ROOM {
@@ -632,17 +639,18 @@ fn draw_toc(app: &mut App, frame: &mut Frame<'_>, area: Rect, pad: f32) {
         return;
     }
     let p = app.palette;
-    let scroll = app.markdown.scroll();
-    let max = (app.markdown.height - area.h).max(0.0);
+    let scroll = app.preview.markdown.scroll();
+    let max = (app.preview.markdown.height - area.h).max(0.0);
     // 当前所在的一节：顶边已经滚到预览顶上（或以上）的最后一个标题。滚到底时，文末几个标题
     // 滚不到顶上，取屏幕里看得到的最后一个；在标题列表里点过、之后没有再滚动时，取点的那一个。
     let picked = app
+        .preview
         .markdown
         .toc_picked
         .filter(|&(i, at)| i < headings.len() && (at - scroll).abs() < 0.5)
         .map(|(i, _)| i);
     if picked.is_none() {
-        app.markdown.toc_picked = None;
+        app.preview.markdown.toc_picked = None;
     }
     let current = picked.or_else(|| {
         if max > 0.0 && scroll >= max - 0.5 {
@@ -667,7 +675,7 @@ fn draw_toc(app: &mut App, frame: &mut Frame<'_>, area: Rect, pad: f32) {
 
     // 点过的标题在正文里铺一层强调色的底色，慢慢淡出。底色与正文同宽，左右与表格、代码块的
     // 边缘对齐。
-    if let Some((i, clock)) = app.markdown.toc_flash
+    if let Some((i, clock)) = app.preview.markdown.toc_flash
         && let Some(&(_, _, top, height)) = headings.get(i)
     {
         let alpha = 0.14 * (1.0 - clock.linear());
@@ -680,7 +688,7 @@ fn draw_toc(app: &mut App, frame: &mut Frame<'_>, area: Rect, pad: f32) {
         );
     }
     // 列表展开着时，指示条的各条由列表里的横线接替（从原位滑到各行），这里不再画。
-    let open = matches!(app.hover, Hover::MarkdownToc(_));
+    let open = matches!(app.pointer.hover, Hover::MarkdownToc(_));
     let bar_y = |i: usize| y0 + i as f32 * step + TOC_BAR / 2.0;
     for i in (0..shown).filter(|_| !open) {
         let (color, thick) = toc_dash(p, i, current);
@@ -732,7 +740,7 @@ fn draw_toc(app: &mut App, frame: &mut Frame<'_>, area: Rect, pad: f32) {
         let card = Rect::new(x, y, w.max(0.0), h);
         // 展开时卡片和文字原地淡入；各行的横线从指示条里同一条的位置滑到所在的行，像指示条
         // 展开成列表，不会一下子跳到别处。
-        let progress = app.markdown.toc_fade.map_or(1.0, |c| c.progress());
+        let progress = app.preview.markdown.toc_fade.map_or(1.0, |c| c.progress());
         let mut dashes = Vec::with_capacity(rows);
         frame.with_opacity(progress, |frame| {
             crate::view::draw_card(frame, p, card, crate::theme::RADIUS_POPUP, p.popup_bg);
@@ -744,7 +752,7 @@ fn draw_toc(app: &mut App, frame: &mut Frame<'_>, area: Rect, pad: f32) {
                     card.w - TOC_PAD * 2.0,
                     TOC_ROW,
                 );
-                if app.hover == Hover::MarkdownToc(TocTarget::Heading(i)) {
+                if app.pointer.hover == Hover::MarkdownToc(TocTarget::Heading(i)) {
                     frame.rect_clipped(band, p.hover, crate::theme::RADIUS_ROW, card);
                 }
                 let row_mid = band.y + band.h / 2.0;
@@ -780,7 +788,7 @@ fn draw_toc(app: &mut App, frame: &mut Frame<'_>, area: Rect, pad: f32) {
     hits.push((bars, TocTarget::Bars));
     app.hits.markdown_toc = hits;
     app.hits.markdown_toc_tops = headings.iter().map(|h| h.2).collect();
-    app.markdown.toc_current = current;
+    app.preview.markdown.toc_current = current;
 }
 
 /// 标题列表里显示的标题文字：硬换行换成空格，去掉图片占位符和控制字符，首尾不留空白。

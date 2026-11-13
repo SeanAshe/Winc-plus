@@ -97,7 +97,7 @@ fn blame_annotates_lines_and_jumps_to_the_commit_in_the_log() {
     let selected = view.selected.map(|i| view.commits[i].subject.clone());
     assert_eq!(selected.as_deref(), Some("服务器：对外网开放"));
     // 日志显示完整的历史，不按该提交筛选。
-    assert!(view.query.text.is_empty() && app.log.filter.text().is_empty());
+    assert!(view.query.text.is_empty() && app.git.log.filter.text().is_empty());
     assert!(view.commits.len() > 1);
 
     // 回到文件再关闭追溯：行号栏恢复原来的宽度。
@@ -178,7 +178,7 @@ fn blame_click_finds_a_commit_older_than_the_first_log_batch() {
     // 逐批读取到该提交后选中；日志仍是完整的历史，不按该提交筛选。
     let view = app.editor.active().unwrap().log.as_deref().unwrap();
     assert_eq!(view.selected_oid(), Some(target.oid.as_str()));
-    assert!(view.query.text.is_empty() && app.log.filter.text().is_empty());
+    assert!(view.query.text.is_empty() && app.git.log.filter.text().is_empty());
     assert!(view.commits.len() > BATCH);
     let details = view.details.as_ref().unwrap();
     assert_eq!(details.oid, target.oid);
@@ -210,7 +210,7 @@ fn shoot_blame() {
         let l = app.layout;
         let y = l.text.y + 6.5 * app.fonts.line_height;
         app.on_mouse_move(l.gutter.x + 40.0, y);
-        app.tooltip.since = Some(std::time::Instant::now() - crate::theme::TOOLTIP_DELAY);
+        app.overlays.tooltip.since = Some(std::time::Instant::now() - crate::theme::TOOLTIP_DELAY);
         shoot(&mut app, &format!("blame-{theme}"));
         let _ = std::fs::remove_dir_all(&root);
     }

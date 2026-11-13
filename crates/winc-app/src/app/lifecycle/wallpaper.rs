@@ -162,7 +162,8 @@ impl App {
     ///
     /// 测量时不显示背景图，测量结果不随用户的配置变化。
     fn wallpaper_source(&self) -> Option<Source> {
-        let path = (self.config.ui_background_image.as_deref()).filter(|_| !self.bench.silent())?;
+        let path =
+            (self.config.ui_background_image.as_deref()).filter(|_| !self.frame.bench.silent())?;
         let opacity = (self.config.ui_background_opacity).unwrap_or(Config::BACKGROUND_OPACITY);
         (opacity >= 0.5).then(|| Source {
             path: PathBuf::from(path.trim()),
@@ -174,7 +175,8 @@ impl App {
     /// 图层缓存文件的位置：与状态文件在同一个目录；没有状态文件（测量、测试）时不缓存。
     fn wallpaper_cache(&self) -> Option<PathBuf> {
         Some(
-            self.state_path
+            self.store
+                .state_path
                 .as_deref()?
                 .parent()?
                 .join("wallpaper.cache"),
@@ -198,7 +200,7 @@ impl App {
             return;
         }
         // 其他窗口已有合用的图层：共用，不再生成。
-        let shared = self.shared.wallpaper.borrow().upgrade();
+        let shared = self.link.shared.wallpaper.borrow().upgrade();
         if let Some(layer) = shared.filter(|layer| fits(layer)) {
             self.wallpaper.shown = Some(layer);
             self.request_redraw();
@@ -211,7 +213,7 @@ impl App {
         }
         state.failed = None;
         state.loading = Some(wanted.clone());
-        let (sender, proxy) = (state.sender.clone(), self.proxy.clone());
+        let (sender, proxy) = (state.sender.clone(), self.link.proxy.clone());
         let cache = self.wallpaper_cache();
         winc_editor::background::spawn(move || {
             let made = make(&wanted, window, cache.as_deref());
@@ -270,7 +272,7 @@ impl App {
                         wallpaper: Arc::new(wallpaper),
                         full,
                     });
-                    *self.shared.wallpaper.borrow_mut() = Rc::downgrade(&layer);
+                    *self.link.shared.wallpaper.borrow_mut() = Rc::downgrade(&layer);
                     self.wallpaper.shown = Some(layer);
                 }
                 Err(reason) => {

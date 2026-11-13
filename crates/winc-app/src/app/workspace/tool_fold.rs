@@ -58,7 +58,7 @@ impl App {
     /// 清空，下次打开时直接到位。
     pub(crate) fn step_tool_fold(&mut self) {
         if self.editor.workspace.is_none() {
-            self.tool_fold = ToolFold::default();
+            self.motion.tool_fold = ToolFold::default();
             return;
         }
 
@@ -71,7 +71,7 @@ impl App {
             0.0
         };
 
-        let fold = &mut self.tool_fold;
+        let fold = &mut self.motion.tool_fold;
         #[cfg(test)]
         if fold.frozen {
             return;
@@ -86,11 +86,11 @@ impl App {
 
         // 刚开始动时确认可以播放动画（有窗口、动态效果开启），否则直接到位。
         if fold.at.is_none() && self.clock(TOOL_FOLD).is_none() {
-            self.tool_fold.shown = target;
+            self.motion.tool_fold.shown = target;
             return;
         }
 
-        let fold = &mut self.tool_fold;
+        let fold = &mut self.motion.tool_fold;
         let now = Instant::now();
         let elapsed = fold.at.map_or(Duration::ZERO, |at| now - at);
         fold.advance(elapsed);

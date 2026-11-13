@@ -35,13 +35,14 @@ use crate::theme::*;
 pub(in crate::app) const ZOOM_WHEEL_PIXELS: f32 = 48.0;
 
 impl App {
-    /// 处理鼠标按键 `button` 松开：结束拖动，并在需要时关闭标签。
+    /// 处理鼠标按键 `button` 松开：结束拖动，并在需要时关闭标签或执行窗口按钮。
     ///
-    /// 左键按在关闭按钮上、或中键按在标签上之后，松开时鼠标仍在同一个标签上才关闭该标签。
+    /// 左键按在关闭按钮上、或中键按在标签上之后，松开时鼠标仍在同一个标签上才关闭该标签；
+    /// 左键按在窗口按钮上之后，松开时鼠标仍在同一个按钮上才执行该按钮。
     pub(in crate::app) fn on_mouse_up(&mut self, button: MouseButton) {
         // 拖动标签时悬停目标被清除，松开后重新判断鼠标下方的部件。
         let was_tab = self.dragged_tab().is_some();
-        self.drag_scrolled_at = None;
+        self.pointer.drag_scrolled_at = None;
         if button == MouseButton::Left {
             self.diagram_view_mouse_up();
         }
@@ -51,37 +52,44 @@ impl App {
         }
 
         if matches!(button, MouseButton::Left | MouseButton::Middle)
-            && let Some(id) = self.close_pressed.take()
-            && let Some((index, _)) = self.tab_at(self.mouse.0, self.mouse.1)
+            && let Some(id) = self.pointer.close_pressed.take()
+            && let Some((index, _)) = self.tab_at(self.pointer.mouse.0, self.pointer.mouse.1)
             && self.editor.documents.get(index).is_some_and(|d| d.id == id)
         {
             self.tabs.width_lock = self.tabs.widths.get(index).map(|&w| (index, w));
             self.close_tab(index);
         }
 
+        if button == MouseButton::Left
+            && let Some(control) = self.pointer.control_pressed.take()
+            && self.window_control_at(self.pointer.mouse.0, self.pointer.mouse.1) == Some(control)
+        {
+            self.press_window_control(control);
+        }
+
         self.terminal_mouse_up();
         self.release_terminal_tab();
-        let was_scrollbar = matches!(self.drag, Drag::Scrollbar { .. });
+        let was_scrollbar = matches!(self.pointer.drag, Drag::Scrollbar { .. });
         let was_divider = matches!(
-            self.drag,
+            self.pointer.drag,
             Drag::Splitter { .. }
                 | Drag::TerminalDivider { .. }
                 | Drag::SplitDivider { .. }
                 | Drag::OutlineDivider { .. }
         );
-        if matches!(self.drag, Drag::TerminalDivider { .. }) {
+        if matches!(self.pointer.drag, Drag::TerminalDivider { .. }) {
             self.terminal_dragging(false);
         }
-        if matches!(self.drag, Drag::Splitter { .. }) {
+        if matches!(self.pointer.drag, Drag::Splitter { .. }) {
             self.remember_panel_width();
         }
-        self.drag = Drag::None;
+        self.pointer.drag = Drag::None;
         // 拖动分隔条期间不重新断行（`sync_wrap`）；松开后重绘，重绘前的布局按最终宽度断行。
         if was_divider {
             self.request_redraw();
         }
         if was_scrollbar || was_tab {
-            self.set_hover(self.hover_at(self.mouse.0, self.mouse.1));
+            self.set_hover(self.hover_at(self.pointer.mouse.0, self.pointer.mouse.1));
         }
         self.update_cursor_icon();
     }
@@ -102,12 +110,12 @@ impl App {
     /// 触控板的一次手势是否调整字号在手势开始时确定：滚动途中按下修饰键仍是滚动，调整途中
     /// 松开修饰键后余下的滚动量丢弃。每个事件至多调整一档。`fresh` 表示触控板开始了新的手势。
     fn wheel_zoom(&mut self, delta: MouseScrollDelta, fresh: bool) -> bool {
-        let keys = self.modifiers;
+        let keys = self.pointer.modifiers;
         let held = self.command_held()
             && keys.control_key() != keys.super_key()
             && !keys.shift_key()
             && !keys.alt_key();
-        let zoomed = match self.target_at(self.mouse.0, self.mouse.1) {
+        let zoomed = match self.target_at(self.pointer.mouse.0, self.pointer.mouse.1) {
             Target::Editor if self.on_pdf_body() => Some(Zoomed::Pdf),
             Target::Picture => Some(Zoomed::Picture),
             Target::Editor | Target::Gutter => Some(Zoomed::Editor),
@@ -117,7 +125,7 @@ impl App {
         let amount = match delta {
             MouseScrollDelta::LineDelta(_, y) => {
                 if !held || zoomed.is_none() {
-                    self.wheel.zoom = 0.0;
+                    self.scroll.wheel.zoom = 0.0;
                     return false;
                 }
                 // macOS 按滚动速度给出不足一格的量，每个事件按一格计。
@@ -129,31 +137,35 @@ impl App {
             }
             MouseScrollDelta::PixelDelta(delta) => {
                 if fresh {
-                    self.wheel.zooming = held && zoomed.is_some();
-                    self.wheel.zoom = 0.0;
+                    self.scroll.wheel.zooming = held && zoomed.is_some();
+                    self.scroll.wheel.zoom = 0.0;
                 }
-                if !self.wheel.zooming {
+                if !self.scroll.wheel.zooming {
                     return false;
                 }
                 if !held {
                     return true;
                 }
-                let scale = self.renderer.as_ref().map_or(1.0, Renderer::scale_factor);
+                let scale = self
+                    .frame
+                    .renderer
+                    .as_ref()
+                    .map_or(1.0, Renderer::scale_factor);
                 delta.y as f32 / scale / ZOOM_WHEEL_PIXELS
             }
         };
         let Some(zoomed) = zoomed else {
             return true;
         };
-        self.wheel.zoom += amount;
-        if self.wheel.zoom.abs() >= 1.0 {
-            let up = self.wheel.zoom > 0.0;
-            self.wheel.zoom = 0.0;
+        self.scroll.wheel.zoom += amount;
+        if self.scroll.wheel.zoom.abs() >= 1.0 {
+            let up = self.scroll.wheel.zoom > 0.0;
+            self.scroll.wheel.zoom = 0.0;
             self.dismiss_hint();
             // PDF 和图片缩放时鼠标处的内容保持在原位。
             match zoomed {
-                Zoomed::Pdf => drop(self.zoom_pdf(Some(up), Some(self.mouse))),
-                Zoomed::Picture => drop(self.zoom_picture(Some(up), Some(self.mouse))),
+                Zoomed::Pdf => drop(self.zoom_pdf(Some(up), Some(self.pointer.mouse))),
+                Zoomed::Picture => drop(self.zoom_picture(Some(up), Some(self.pointer.mouse))),
                 Zoomed::Editor | Zoomed::Terminal => {}
             }
             if matches!(zoomed, Zoomed::Pdf | Zoomed::Picture) {

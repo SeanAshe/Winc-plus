@@ -72,7 +72,7 @@ pub(super) fn draw_placeholder(
         };
         frame.rect_clipped(rect, background, RADIUS_ROW, editor);
 
-        if app.hover == Hover::Placeholder(action) {
+        if app.pointer.hover == Hover::Placeholder(action) {
             frame.rect_clipped(rect, p.hover, RADIUS_ROW, editor);
         }
 

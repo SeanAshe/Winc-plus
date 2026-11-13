@@ -122,12 +122,12 @@ impl App {
             return;
         }
         set_scroll_line(doc, doc.row_of(top) as f64 + fraction);
-        self.sticky_cache = None;
+        self.caches.sticky_cache = None;
         self.clamp_scroll();
         if caret_shown {
             self.ensure_caret_visible();
         }
-        self.fold_motion = clock.and_then(|clock| self.fold_motion(before, clock));
+        self.motion.fold_motion = clock.and_then(|clock| self.fold_motion(before, clock));
         self.reset_blink();
         self.request_redraw();
     }

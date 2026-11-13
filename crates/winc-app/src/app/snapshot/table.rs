@@ -134,13 +134,13 @@ fn workbooks_open_as_tables_with_sheet_tabs() {
     assert_eq!(table.sheets.len(), 2);
     assert_eq!(table.sheets[0].rows[1][..2], ["城市 2", "20"]);
     // 两张工作表：底部有两个标签，表格画在编辑区中。
-    assert_eq!(app.table_layout.sheets.len(), 2);
-    assert_eq!(app.table_layout.area, app.layout.editor);
+    assert_eq!(app.preview.table_layout.sheets.len(), 2);
+    assert_eq!(app.preview.table_layout.area, app.layout.editor);
     shoot(&mut app, "table-workbook");
 
     // 滚轮往下滚；不会滚过底部。
     let area = app.layout.editor;
-    app.mouse = (area.x + 200.0, area.y + 200.0);
+    app.pointer.mouse = (area.x + 200.0, area.y + 200.0);
     app.on_wheel(MouseScrollDelta::PixelDelta(PhysicalPosition::new(
         0.0, -120.0,
     )));
@@ -150,11 +150,11 @@ fn workbooks_open_as_tables_with_sheet_tabs() {
         0.0,
         -1_000_000.0,
     )));
-    assert_eq!(scroll(&app).1, app.table_layout.max_scroll.1);
-    assert!(app.table_layout.max_scroll.1 > 0.0);
+    assert_eq!(scroll(&app).1, app.preview.table_layout.max_scroll.1);
+    assert!(app.preview.table_layout.max_scroll.1 > 0.0);
 
     // 点第二个标签：换到「备注」，回到顶上。
-    let tab = app.table_layout.sheets[1];
+    let tab = app.preview.table_layout.sheets[1];
     click(&mut app, (tab.x + tab.w / 2.0, tab.y + tab.h / 2.0));
     let view = app.editor.active().unwrap().table.as_deref().unwrap();
     assert_eq!((view.sheet, view.scroll), (1, (0.0, 0.0)));
@@ -209,14 +209,14 @@ fn csv_files_switch_between_text_and_table() {
     assert!(doc.readonly && !doc.shows_text());
     assert_eq!(shown_table(&app).sheets[0].rows[2], ["pear, green", "5"]);
     // 只有一张、也没截断：没有底部一栏。
-    assert!(app.table_layout.sheets.is_empty());
+    assert!(app.preview.table_layout.sheets.is_empty());
 
     // 分栏：左边仍可编辑，右边的表格跟着文字更新。
     app.set_preview_mode(PreviewMode::Split);
     app.wait_for_tables();
     let doc = app.editor.active().unwrap();
     assert!(!doc.readonly && doc.shows_text());
-    assert_eq!(app.table_layout.area, app.layout.split);
+    assert_eq!(app.preview.table_layout.area, app.layout.split);
     app.run(winc_editor::Command::Insert("plum,7\n".into()));
     app.wait_for_tables();
     assert_eq!(shown_table(&app).sheets[0].rows[0], ["plum", "7"]);
@@ -244,7 +244,7 @@ fn cards_show_cut_off_cells_and_follow_the_selected_cell() {
     app.set_preview_mode(PreviewMode::Preview);
     app.wait_for_tables();
     paint(&mut app);
-    let card = |app: &App| app.table_layout.card.h;
+    let card = |app: &App| app.preview.table_layout.card.h;
 
     // 换行之后只剩空白：显示得全，没有卡片；换行之后还有文字：有卡片。
     table_key(&mut app, ArrowRight, false);
@@ -269,13 +269,13 @@ fn cards_show_cut_off_cells_and_follow_the_selected_cell() {
 ///
 /// 表格不处理该键时 panic，用于断言按键被表格接住。
 fn table_key(app: &mut App, key: winit::keyboard::NamedKey, shift: bool) {
-    app.modifiers = if shift {
+    app.pointer.modifiers = if shift {
         winit::keyboard::ModifiersState::SHIFT
     } else {
         winit::keyboard::ModifiersState::empty()
     };
     assert!(app.table_key(&winit::keyboard::Key::Named(key), false));
-    app.modifiers = winit::keyboard::ModifiersState::empty();
+    app.pointer.modifiers = winit::keyboard::ModifiersState::empty();
     paint(app);
 }
 
@@ -292,7 +292,7 @@ fn selection(app: &App) -> ((usize, usize), (usize, usize)) {
 
 /// 窗口中第 `row` 行第 `column` 列的中心。
 fn cell_center(app: &App, row: usize, column: usize) -> (f32, f32) {
-    let layout = &app.table_layout;
+    let layout = &app.preview.table_layout;
     let x = layout.body.x + (layout.edges[column] + layout.edges[column + 1]) / 2.0;
     let y = layout.body.y + (row as f32 + 0.5) * layout.row_h;
     (x, y)
@@ -310,8 +310,8 @@ fn cells_are_selected_copied_and_merged_cells_read_in_full() {
     app.wait_for_tables();
     assert_eq!(selection(&app), ((0, 0), (0, 0)));
     // A1 的文字很短，放得下：没有卡片。
-    assert_eq!(app.table_layout.card.h, 0.0);
-    let body = app.table_layout.body;
+    assert_eq!(app.preview.table_layout.card.h, 0.0);
+    let body = app.preview.table_layout.body;
 
     // 点 B3，往右进入合并区域 C2:D3：选中区域左上角 C2，文字放不下，格子下方浮出卡片换行显示
     // 完整的长文字；表格本身不动。
@@ -320,50 +320,50 @@ fn cells_are_selected_copied_and_merged_cells_read_in_full() {
     assert_eq!(selection(&app), ((2, 1), (2, 1)));
     table_key(&mut app, ArrowRight, false);
     assert_eq!(selection(&app), ((1, 2), (1, 2)));
-    let card = app.table_layout.card;
+    let card = app.preview.table_layout.card;
     let merged = Rect::new(
-        body.x + app.table_layout.edges[2],
-        body.y + app.table_layout.row_h,
+        body.x + app.preview.table_layout.edges[2],
+        body.y + app.preview.table_layout.row_h,
         1.0,
         1.0,
     );
-    assert!(card.h > app.table_layout.row_h * 3.0, "{card:?}");
+    assert!(card.h > app.preview.table_layout.row_h * 3.0, "{card:?}");
     assert!(
-        card.y > merged.y + app.table_layout.row_h && card.x >= merged.x - 1.0,
+        card.y > merged.y + app.preview.table_layout.row_h && card.x >= merged.x - 1.0,
         "{card:?}"
     );
-    assert_eq!(app.table_layout.body, body);
+    assert_eq!(app.preview.table_layout.body, body);
     // 点在卡片上不改选区；滚轮在卡片上滚动卡片中的文字，不滚表格。
     click(&mut app, (card.x + 20.0, card.y + 20.0));
     assert_eq!(selection(&app), ((1, 2), (1, 2)));
     let table_scroll = app.editor.active().unwrap().table.as_ref().unwrap().scroll;
-    app.mouse = (card.x + 20.0, card.y + 20.0);
+    app.pointer.mouse = (card.x + 20.0, card.y + 20.0);
     app.on_wheel(MouseScrollDelta::PixelDelta(PhysicalPosition::new(
         0.0, -40.0,
     )));
     let view = app.editor.active().unwrap().table.as_ref().unwrap();
-    assert!(app.table_layout.card_max > 0.0 && view.card_scroll > 0.0);
+    assert!(app.preview.table_layout.card_max > 0.0 && view.card_scroll > 0.0);
     assert_eq!(view.scroll, table_scroll);
     // 按在格子上拖着选的时候不显示卡片，松开后再显示。
     let at = cell_center(&app, 1, 2);
     app.on_mouse_move(at.0, at.1);
     app.on_mouse_down(MouseButton::Left);
     paint(&mut app);
-    assert_eq!(app.table_layout.card.h, 0.0);
+    assert_eq!(app.preview.table_layout.card.h, 0.0);
     app.on_mouse_up(MouseButton::Left);
     paint(&mut app);
-    assert!(app.table_layout.card.h > 0.0);
+    assert!(app.preview.table_layout.card.h > 0.0);
     // Esc 收起卡片，选区不变；换到另一格再回来时重新显示。
     table_key(&mut app, Escape, false);
-    assert_eq!(app.table_layout.card.h, 0.0);
+    assert_eq!(app.preview.table_layout.card.h, 0.0);
     assert_eq!(selection(&app), ((1, 2), (1, 2)));
     table_key(&mut app, ArrowLeft, false);
     table_key(&mut app, ArrowRight, false);
-    assert!(app.table_layout.card.h > 0.0);
+    assert!(app.preview.table_layout.card.h > 0.0);
     shoot(&mut app, "table-merged");
     // 复制合并区域：左上角那一格的文字。
     app.copy(false);
-    let copied = app.copied.clone().unwrap();
+    let copied = app.clipboard.copied.clone().unwrap();
     assert!(
         copied.starts_with("第一段很长的说明文字") && copied.ends_with("第三段"),
         "{copied}"
@@ -375,13 +375,13 @@ fn cells_are_selected_copied_and_merged_cells_read_in_full() {
 
     // ⇧ 点 A2：选区 A2:C4 碰到合并区域，扩大到 A2:D4；复制得到制表符分隔的三行四列，带换行
     // 的格加引号，合并区域中其余格为空。
-    app.modifiers = winit::keyboard::ModifiersState::SHIFT;
+    app.pointer.modifiers = winit::keyboard::ModifiersState::SHIFT;
     let at = cell_center(&app, 1, 0);
     click(&mut app, at);
-    app.modifiers = winit::keyboard::ModifiersState::empty();
+    app.pointer.modifiers = winit::keyboard::ModifiersState::empty();
     assert_eq!(selection(&app), ((3, 2), (1, 0)));
     app.copy(false);
-    let copied = app.copied.clone().unwrap();
+    let copied = app.clipboard.copied.clone().unwrap();
     assert!(copied.starts_with("城市 2\t20\t\"第一段"), "{copied}");
     assert!(
         copied.ends_with("第三段\"\t\n城市 3\t30\t\t\n城市 4\t40\t\t\n"),
@@ -398,11 +398,11 @@ fn cells_are_selected_copied_and_merged_cells_read_in_full() {
     assert_eq!(selection(&app), ((9, 0), (11, 1)));
 
     // 点行号选整行，点列名选整列，全选。
-    let numbers = app.table_layout.numbers;
+    let numbers = app.preview.table_layout.numbers;
     let at = (numbers.x + 5.0, cell_center(&app, 4, 0).1);
     click(&mut app, at);
     assert_eq!(selection(&app), ((4, 0), (4, 3)));
-    let header = app.table_layout.header;
+    let header = app.preview.table_layout.header;
     let at = (cell_center(&app, 0, 1).0, header.y + 5.0);
     click(&mut app, at);
     assert_eq!(selection(&app), ((0, 1), (29, 1)));
@@ -413,7 +413,7 @@ fn cells_are_selected_copied_and_merged_cells_read_in_full() {
     assert_eq!(selection(&app), ((29, 3), (29, 3)));
 
     // ⌘↑ 到第一行，Home 到行首；回车往下、⇧回车往上；翻页往下滚到当前格可见。
-    app.modifiers = winit::keyboard::ModifiersState::empty();
+    app.pointer.modifiers = winit::keyboard::ModifiersState::empty();
     assert!(app.table_key(&winit::keyboard::Key::Named(ArrowUp), true));
     assert_eq!(selection(&app).1, (0, 3));
     table_key(&mut app, Home, false);
@@ -428,7 +428,7 @@ fn cells_are_selected_copied_and_merged_cells_read_in_full() {
     let view = app.editor.active().unwrap().table.as_ref().unwrap();
     assert!(head.0 > 10 && view.scroll.1 > 0.0);
     let (_, y) = cell_center(&app, head.0, head.1);
-    let body = app.table_layout.body;
+    let body = app.preview.table_layout.body;
     assert!(y - view.scroll.1 < body.bottom() && y - view.scroll.1 > body.y);
 
     std::fs::remove_dir_all(&dir).unwrap();

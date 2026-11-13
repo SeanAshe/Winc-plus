@@ -34,7 +34,7 @@ impl App {
         let Some((first, cut)) = self.terminal.tab().map(TermTab::viewport) else {
             return (0, top);
         };
-        let scale = (self.renderer.as_ref()).map_or(1.0, winc_render::Renderer::scale_factor);
+        let scale = (self.frame.renderer.as_ref()).map_or(1.0, winc_render::Renderer::scale_factor);
         let y = top - cut * self.fonts.terminal_line_height;
         (first, (y * scale).round() / scale)
     }
@@ -66,7 +66,7 @@ impl App {
             self.terminal.error = Some(winc_i18n::t!("terminal-helper-missing").into());
             return;
         };
-        let proxy = self.proxy.clone();
+        let proxy = self.link.proxy.clone();
         let wake = move || {
             if let Some(proxy) = &proxy {
                 let _ = proxy.send_event(UserEvent::Terminal);
@@ -262,16 +262,17 @@ impl App {
     /// 网格放得下几列几行，以及像素尺寸（物理像素，程序查询时回答它）。
     pub(in crate::app) fn terminal_size(&self) -> Size {
         let grid = grid_rect(self.layout.terminal, self.fonts.terminal_line_height);
-        let cols = (grid.w / self.terminal_cell).floor().max(2.0);
+        let cols = (grid.w / self.metrics.terminal_cell).floor().max(2.0);
         let rows = (grid.h / self.fonts.terminal_line_height).floor().max(1.0);
         let scale = self
+            .frame
             .renderer
             .as_ref()
             .map_or(1.0, winc_render::Renderer::scale_factor);
         Size {
             cols: cols.min(f32::from(u16::MAX)) as u16,
             rows: rows.min(f32::from(u16::MAX)) as u16,
-            width: (cols * self.terminal_cell * scale) as u16,
+            width: (cols * self.metrics.terminal_cell * scale) as u16,
             height: (rows * self.fonts.terminal_line_height * scale) as u16,
         }
     }

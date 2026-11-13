@@ -521,9 +521,14 @@ impl App {
     /// 记下选中的行展开或收起之前的状态，改完以后交给 [`App::start_picker_fold`]。
     pub(in crate::app) fn picker_fold_before(&self) -> FoldBefore {
         FoldBefore {
-            branches: self.picker.branch_rows.clone().unwrap_or_default(),
-            locations: self.picker.location_rows.clone().unwrap_or_default(),
-            parent: self.picker.selected,
+            branches: self.overlays.picker.branch_rows.clone().unwrap_or_default(),
+            locations: self
+                .overlays
+                .picker
+                .location_rows
+                .clone()
+                .unwrap_or_default(),
+            parent: self.overlays.picker.selected,
             height: self.layout.picker.h,
             scroll: self.picker_drawn_scroll(),
         }
@@ -534,22 +539,22 @@ impl App {
     /// 展开时让新露出的行尽量都看得见，展开的那一行不滚出去；收起以后不留空白。打开了「减弱动态
     /// 效果」时直接到位。
     pub(in crate::app) fn start_picker_fold(&mut self, before: FoldBefore) {
-        self.picker.fold = None;
+        self.overlays.picker.fold = None;
         self.relayout();
-        let rows = self.picker.hits.len();
+        let rows = self.overlays.picker.hits.len();
         let was = before.branches.len().max(before.locations.len());
         let (expanding, count) = (rows > was, rows.abs_diff(was));
         let span = crate::app::workspace::picker::picker_span(self);
-        let mut scroll = self.picker.scroll;
+        let mut scroll = self.overlays.picker.scroll;
         if expanding {
             let bottom = (before.parent + 1 + count) as f32 * PICKER_ROW;
             let top = before.parent as f32 * PICKER_ROW;
             scroll = scroll.max(bottom - span).min(top);
         }
         let most = (rows as f32 * PICKER_ROW - span).max(0.0);
-        self.picker.scroll = scroll.clamp(0.0, most);
+        self.overlays.picker.scroll = scroll.clamp(0.0, most);
         if count > 0 {
-            self.picker.fold = self.clock(TREE_ANIMATION).map(|clock| PickerFold {
+            self.overlays.picker.fold = self.clock(TREE_ANIMATION).map(|clock| PickerFold {
                 before,
                 count,
                 expanding,
@@ -562,20 +567,21 @@ impl App {
 
     /// 绘制用的滚动量：展开、收起的动画期间从原来的位置过渡到新的位置。
     pub(crate) fn picker_drawn_scroll(&self) -> f32 {
-        (self.picker.fold.as_ref()).map_or(self.picker.scroll, |fold| {
-            fold.clock.between(fold.before.scroll, self.picker.scroll)
+        (self.overlays.picker.fold.as_ref()).map_or(self.overlays.picker.scroll, |fold| {
+            fold.clock
+                .between(fold.before.scroll, self.overlays.picker.scroll)
         })
     }
 
     /// 把面板摆到触发它的按钮下方，左右和提交视图的行对齐。放不下全部行时滚动。
     pub(in crate::app) fn place_git_picker(&mut self) {
-        if !self.picker.open || !self.picker_is_git() {
+        if !self.overlays.picker.open || !self.picker_is_git() {
             return;
         }
         let window = self.layout.window;
         let most = (window.w - 16.0).max(0.0);
         let chrome = MENU_PICKER_BAR + MENU_PICKER_PAD + self.git_picker_footer();
-        let wanted = self.picker.hits.len().clamp(1, GIT_PICKER_ROWS);
+        let wanted = self.overlays.picker.hits.len().clamp(1, GIT_PICKER_ROWS);
         let chrome = chrome
             + if self.picker_has_actions() {
                 GIT_PICKER_ACTIONS
@@ -588,9 +594,10 @@ impl App {
         };
         // 展开、收起的动画期间高度跟着过渡。
         let height = |h: f32| {
-            (self.picker.fold.as_ref()).map_or(h, |fold| fold.clock.between(fold.before.height, h))
+            (self.overlays.picker.fold.as_ref())
+                .map_or(h, |fold| fold.clock.between(fold.before.height, h))
         };
-        if self.picker.anchor == GitAnchor::Status {
+        if self.overlays.picker.anchor == GitAnchor::Status {
             // 从状态栏往上展开：底边贴着分支名的上沿，右边和它对齐，放不下时往左挪。
             let Some(&(item, _)) =
                 (self.hits.status.iter()).find(|(_, i)| *i == crate::app::StatusItem::Branch)
@@ -616,7 +623,7 @@ impl App {
             (button, self.log_parts().list.bottom() - 8.0)
         } else {
             let parts = self.commit_parts();
-            let row = match self.picker.anchor {
+            let row = match self.overlays.picker.anchor {
                 GitAnchor::Location => parts.location.unwrap_or(parts.branch),
                 _ => parts.branch,
             };
@@ -664,19 +671,21 @@ impl App {
 
     /// 点了第 `row` 行行尾的「⋯」。
     fn press_picker_more(&mut self, row: usize) {
-        self.picker.selected = row;
-        let branch = (self.picker.branch_rows.as_ref()).and_then(|rows| match rows.get(row) {
-            Some(BranchRow::Branch { index, .. }) => Some(*index),
-            _ => None,
-        });
+        self.overlays.picker.selected = row;
+        let branch =
+            (self.overlays.picker.branch_rows.as_ref()).and_then(|rows| match rows.get(row) {
+                Some(BranchRow::Branch { index, .. }) => Some(*index),
+                _ => None,
+            });
         if let Some(index) = branch {
             self.open_branch_row_menu(MenuTarget::BranchOps(index));
             return;
         }
-        let place = (self.picker.location_rows.as_ref()).and_then(|rows| match rows.get(row) {
-            Some(LocationRow::Place(place)) => Some(place.clone()),
-            _ => None,
-        });
+        let place =
+            (self.overlays.picker.location_rows.as_ref()).and_then(|rows| match rows.get(row) {
+                Some(LocationRow::Place(place)) => Some(place.clone()),
+                _ => None,
+            });
         if let Some(place) = place {
             self.open_location_row_menu(row, &place);
         }
@@ -684,18 +693,18 @@ impl App {
 
     /// 选择面板的第 `row` 行能否选中：分组标题不能。
     pub(in crate::app) fn picker_row_selectable(&self, row: usize) -> bool {
-        (self.picker.branch_rows.as_ref())
+        (self.overlays.picker.branch_rows.as_ref())
             .is_none_or(|rows| rows.get(row).is_some_and(BranchRow::selectable))
     }
 
     /// 面板是否正在列出分支。
     pub(crate) fn picker_lists_branches(&self) -> bool {
-        self.picker.branch_rows.is_some()
+        self.overlays.picker.branch_rows.is_some()
     }
 
     /// 是否正从 `anchor` 展开着分支选择器：触发它的按钮据此保持按下的样式。
     pub(crate) fn branch_picker_from(&self, anchor: GitAnchor) -> bool {
-        self.picker_lists_branches() && self.picker.anchor == anchor
+        self.picker_lists_branches() && self.overlays.picker.anchor == anchor
     }
 
     /// 是否为日志的分支筛选：从日志标题栏展开，选中的分支只修改日志的筛选条件，不切换分支。
@@ -720,7 +729,7 @@ impl App {
     /// 拉取、推送、获取（`part`）对应的 Git 操作：按住 ⌥ 时拉取是拉取并变基。
     pub(crate) fn picker_action_command(&self, part: PickerPart) -> MenuCommand {
         match part {
-            PickerPart::Pull if self.modifiers.alt_key() => MenuCommand::GitPullRebase,
+            PickerPart::Pull if self.pointer.modifiers.alt_key() => MenuCommand::GitPullRebase,
             PickerPart::Pull => MenuCommand::GitPull,
             PickerPart::Push => MenuCommand::GitPush,
             _ => MenuCommand::GitFetch,
@@ -730,7 +739,7 @@ impl App {
     /// 拉取、推送、获取（`part`）现在能不能用：有 Git 操作在跑时都不能；没有远程时都不能；拉取要
     /// 当前分支有上游；推送要在分支上（没有上游时推上去并设为上游）。
     pub(crate) fn picker_action_enabled(&self, part: PickerPart) -> bool {
-        if self.branch.running.is_some() || self.git.remotes.is_empty() {
+        if self.git.branch.running.is_some() || self.git.remotes.is_empty() {
             return false;
         }
         let on_branch = (self.git.status.as_ref())
@@ -760,16 +769,16 @@ impl App {
     /// 从 `anchor` 展开分支选择器。
     pub(in crate::app) fn open_branch_picker(&mut self, anchor: crate::app::GitAnchor) {
         self.finish_name_input();
-        self.picker.places = None;
-        self.picker.location_rows = None;
-        self.picker.folders = false;
-        self.picker.vim_list = None;
-        self.picker.remote = None;
-        self.picker.anchor = anchor;
-        self.picker.open = true;
-        self.picker.doc = self.editor.active().map(|d| d.id);
-        self.picker.input.set_text("");
-        self.picker.branch_rows = Some(Vec::new());
+        self.overlays.picker.places = None;
+        self.overlays.picker.location_rows = None;
+        self.overlays.picker.folders = false;
+        self.overlays.picker.vim_list = None;
+        self.overlays.picker.remote = None;
+        self.overlays.picker.anchor = anchor;
+        self.overlays.picker.open = true;
+        self.overlays.picker.doc = self.editor.active().map(|d| d.id);
+        self.overlays.picker.input.set_text("");
+        self.overlays.picker.branch_rows = Some(Vec::new());
         self.focus = Focus::Picker;
         self.picker_refresh();
         self.relayout();
@@ -784,7 +793,7 @@ impl App {
     /// 分支，没有分支时选中第一个能选中的行。
     pub(in crate::app) fn branch_picker_refresh(&mut self) {
         let rows = self.current_branch_rows();
-        let plain = needle(self.picker.input.text()).is_empty();
+        let plain = needle(self.overlays.picker.input.text()).is_empty();
         let current = if !plain {
             None
         } else if self.picker_filters_log() {
@@ -797,14 +806,14 @@ impl App {
                     if self.git.branches.get(*index).is_some_and(|b| b.current))
             })
         };
-        self.picker.selected = current
+        self.overlays.picker.selected = current
             .or_else(|| {
                 rows.iter()
                     .position(|row| matches!(row, BranchRow::Branch { .. }))
             })
             .or_else(|| rows.iter().position(BranchRow::selectable))
             .unwrap_or(0);
-        self.picker.default = plain.then_some(self.picker.selected);
+        self.overlays.picker.default = plain.then_some(self.overlays.picker.selected);
         self.set_branch_rows(rows);
         self.picker_reveal();
     }
@@ -831,35 +840,35 @@ impl App {
 
     /// 查询在名字 `text` 里命中的字符下标：绘制时标出来。
     pub(crate) fn git_picker_matched(&self, text: &str) -> Vec<usize> {
-        matched(&needle(self.picker.input.text()), text)
+        matched(&needle(self.overlays.picker.input.text()), text)
     }
 
     /// 重新排列各行，留住 `before` 列表下选中的那一项；它不在了时选中第一个能选中的行。
     fn keep_branch_selection(&mut self, before: &[Branch]) {
-        let selected = (self.picker.branch_rows.as_ref())
-            .and_then(|rows| rows.get(self.picker.selected))
+        let selected = (self.overlays.picker.branch_rows.as_ref())
+            .and_then(|rows| rows.get(self.overlays.picker.selected))
             .cloned();
-        let default = self.picker.default == Some(self.picker.selected);
+        let default = self.overlays.picker.default == Some(self.overlays.picker.selected);
         let rows = self.current_branch_rows();
         let same = |row: &BranchRow| {
             selected
                 .as_ref()
                 .is_some_and(|s| s.same(row, before, &self.git.branches))
         };
-        self.picker.selected = rows
+        self.overlays.picker.selected = rows
             .iter()
             .position(same)
             .or_else(|| rows.iter().position(BranchRow::selectable))
             .unwrap_or(0);
         // 自动选中的行换了位置仍是自动选中的。
-        self.picker.default = default.then_some(self.picker.selected);
+        self.overlays.picker.default = default.then_some(self.overlays.picker.selected);
         self.set_branch_rows(rows);
         self.relayout();
         self.request_redraw();
     }
 
     fn current_branch_rows(&self) -> Vec<BranchRow> {
-        let query = needle(self.picker.input.text());
+        let query = needle(self.overlays.picker.input.text());
         if self.picker_filters_log() {
             return log_branch_rows(&self.git.branches, &query);
         }
@@ -867,20 +876,25 @@ impl App {
             branches: &self.git.branches,
             recent: &self.git.recent_branches,
             query: &query,
-            text: self.picker.input.text(),
-            toggled: &self.branch_folders,
+            text: self.overlays.picker.input.text(),
+            toggled: &self.git.branch_folders,
         })
     }
 
     fn set_branch_rows(&mut self, rows: Vec<BranchRow>) {
-        self.picker.hits = (0..rows.len()).collect();
-        self.picker.branch_rows = Some(rows);
+        self.overlays.picker.hits = (0..rows.len()).collect();
+        self.overlays.picker.branch_rows = Some(rows);
     }
 
     /// 返回向下（`down`）或向上移动一步后选中的行，跳过分组标题；到达两端后不动。
     pub(in crate::app) fn branch_picker_step(&self, down: bool) -> usize {
-        let rows = self.picker.branch_rows.as_deref().unwrap_or_default();
-        let at = self.picker.selected;
+        let rows = self
+            .overlays
+            .picker
+            .branch_rows
+            .as_deref()
+            .unwrap_or_default();
+        let at = self.overlays.picker.selected;
         let next = if down {
             (at + 1..rows.len()).find(|&i| rows[i].selectable())
         } else {
@@ -891,8 +905,8 @@ impl App {
 
     /// 确认选中的行。
     pub(in crate::app) fn branch_picker_accept(&mut self) {
-        let row = (self.picker.branch_rows.as_ref())
-            .and_then(|rows| rows.get(self.picker.selected))
+        let row = (self.overlays.picker.branch_rows.as_ref())
+            .and_then(|rows| rows.get(self.overlays.picker.selected))
             .cloned();
         if self.picker_filters_log() {
             let branch = match row {
@@ -972,8 +986,8 @@ impl App {
     fn toggle_branch_folder(&mut self, remote: bool, path: String) {
         let before = self.picker_fold_before();
         let key = (remote, path);
-        if !self.branch_folders.remove(&key) {
-            self.branch_folders.insert(key);
+        if !self.git.branch_folders.remove(&key) {
+            self.git.branch_folders.insert(key);
         }
         let branches = self.git.branches.clone();
         self.keep_branch_selection(&branches);
@@ -985,12 +999,12 @@ impl App {
     pub(in crate::app) fn branch_picker_side(&mut self, right: bool) -> bool {
         if !self.picker_lists_branches()
             || self.picker_filters_log()
-            || !self.picker.input.text().is_empty()
+            || !self.overlays.picker.input.text().is_empty()
         {
             return false;
         }
-        let Some(row) = (self.picker.branch_rows.as_ref())
-            .and_then(|rows| rows.get(self.picker.selected))
+        let Some(row) = (self.overlays.picker.branch_rows.as_ref())
+            .and_then(|rows| rows.get(self.overlays.picker.selected))
             .cloned()
         else {
             return false;
@@ -1009,8 +1023,8 @@ impl App {
                 self.open_branch_row_menu(MenuTarget::BranchOps(index));
             }
             (BranchRow::Folder { .. } | BranchRow::Remotes { .. }, true) => {
-                self.picker.selected = self.branch_picker_step(true);
-                self.picker.default = None;
+                self.overlays.picker.selected = self.branch_picker_step(true);
+                self.overlays.picker.default = None;
                 self.picker_reveal();
                 self.request_redraw();
             }
@@ -1022,24 +1036,29 @@ impl App {
 
     /// 选中当前行所在的目录；已经在最外层时不动。
     fn select_parent_branch_folder(&mut self) {
-        let rows = self.picker.branch_rows.as_deref().unwrap_or_default();
+        let rows = self
+            .overlays
+            .picker
+            .branch_rows
+            .as_deref()
+            .unwrap_or_default();
         let depth_of = |row: &BranchRow| match row {
             BranchRow::Folder { depth, .. } | BranchRow::Branch { depth, .. } => Some(*depth),
             _ => None,
         };
-        let Some(depth) = rows.get(self.picker.selected).and_then(depth_of) else {
+        let Some(depth) = rows.get(self.overlays.picker.selected).and_then(depth_of) else {
             return;
         };
         // 远程分支一组没有层数，`None` 比任何层数都小：最外层的远程分支回到这一组。
-        let parent = (0..self.picker.selected).rev().find(|&i| {
+        let parent = (0..self.overlays.picker.selected).rev().find(|&i| {
             matches!(
                 rows[i],
                 BranchRow::Folder { .. } | BranchRow::Remotes { .. }
             ) && depth_of(&rows[i]) < Some(depth)
         });
         if let Some(parent) = parent {
-            self.picker.selected = parent;
-            self.picker.default = None;
+            self.overlays.picker.selected = parent;
+            self.overlays.picker.default = None;
             self.picker_reveal();
             self.request_redraw();
         }
@@ -1048,7 +1067,7 @@ impl App {
     /// 在选中行的右端弹出菜单 `target`。
     pub(in crate::app) fn open_branch_row_menu(&mut self, target: MenuTarget) {
         let parts = crate::app::workspace::picker::picker_parts(self, self.layout.picker);
-        let row = parts.row(self.picker.selected, self.picker.scroll);
+        let row = parts.row(self.overlays.picker.selected, self.overlays.picker.scroll);
         self.open_context_menu(target, (row.right() - 14.0, row.bottom()));
     }
 

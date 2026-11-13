@@ -11,30 +11,30 @@ fn finished_animations_are_settled_before_the_last_frame() {
     let at = |ms, duration| Clock::frozen(Duration::from_millis(ms), duration);
 
     // 动画尚未结束：保留状态，并继续安排下一帧。
-    app.sidebar.motion = Some(SidebarMotion {
+    app.panels.sidebar.motion = Some(SidebarMotion {
         from: 0.0,
         clock: at(100, SIDEBAR_ANIMATION),
     });
-    app.picker.motion = Some(PickerMotion {
+    app.overlays.picker.motion = Some(PickerMotion {
         from: 100.0,
         to: 50.0,
         clock: at(159, PICKER_ANIMATION),
     });
     app.settle_animations();
-    assert!(app.sidebar.motion.is_some() && app.picker.motion.is_some());
+    assert!(app.panels.sidebar.motion.is_some() && app.overlays.picker.motion.is_some());
     assert!(app.animating());
 
     // 动画已结束：在绘制前清除状态，使最后一帧画在终点位置，而不是停在接近终点的中间帧。
-    app.sidebar.motion = Some(SidebarMotion {
+    app.panels.sidebar.motion = Some(SidebarMotion {
         from: 0.0,
         clock: at(200, SIDEBAR_ANIMATION),
     });
-    app.picker.motion = Some(PickerMotion {
+    app.overlays.picker.motion = Some(PickerMotion {
         from: 100.0,
         to: 50.0,
         clock: at(160, PICKER_ANIMATION),
     });
-    app.tree.motion = Some(TreeMotion {
+    app.panels.tree.motion = Some(TreeMotion {
         parent: 0,
         count: 1,
         expanding: true,
@@ -42,8 +42,8 @@ fn finished_animations_are_settled_before_the_last_frame() {
         clock: at(160, TREE_ANIMATION),
     });
     app.settle_animations();
-    assert!(app.sidebar.motion.is_none() && app.picker.motion.is_none());
-    assert!(app.tree.motion.is_none());
+    assert!(app.panels.sidebar.motion.is_none() && app.overlays.picker.motion.is_none());
+    assert!(app.panels.tree.motion.is_none());
     assert!(!app.animating());
 
     // 没有窗口（测试环境）时不启动动画，界面直接到达终点。
@@ -71,7 +71,7 @@ fn places_popup_slides_in_and_fades_out() {
     // 卡片里标题行右侧的一点：没有文字，只有卡片底色。
     let probe = (card.right() - 120.0, card.y + 4.0);
     let pixel = |app: &App, (x, y): (f32, f32)| {
-        let image = app.renderer.as_ref().unwrap().image().unwrap();
+        let image = app.frame.renderer.as_ref().unwrap().image().unwrap();
         let (x, y) = ((x * SCALE) as usize, (y * SCALE) as usize);
         image.pixels[y * image.width as usize + x]
     };
@@ -79,36 +79,36 @@ fn places_popup_slides_in_and_fades_out() {
 
     // 出现到一半：仍然半透明，并且从名字所在的一侧（上方）偏移了若干像素。
     let at = |ms, duration| Clock::frozen(Duration::from_millis(ms), duration);
-    app.picker.places_in = Some(at(20, POPUP_IN));
+    app.overlays.picker.places_in = Some(at(20, POPUP_IN));
     paint(&mut app);
     assert!(!near(pixel(&app, probe), popup_bg));
     assert!(app.animating());
 
     // 出现结束：清掉动画，完全不透明。
-    app.picker.places_in = Some(at(200, POPUP_IN));
+    app.overlays.picker.places_in = Some(at(200, POPUP_IN));
     app.settle_animations();
-    assert!(app.picker.places_in.is_none());
+    assert!(app.overlays.picker.places_in.is_none());
     paint(&mut app);
     assert!(near(pixel(&app, probe), popup_bg));
 
     // 关闭后按关闭时刻的状态淡出：淡出一半时仍然可见，结束后清除。
     let ghost = PlacesGhost {
-        places: app.picker.places.clone().unwrap(),
-        hits: app.picker.hits.clone(),
-        selected: app.picker.selected,
-        scroll: app.picker.scroll,
+        places: app.overlays.picker.places.clone().unwrap(),
+        hits: app.overlays.picker.hits.clone(),
+        selected: app.overlays.picker.selected,
+        scroll: app.overlays.picker.scroll,
         filter: String::new(),
         rect: app.layout.picker,
         clock: at(10, POPUP_OUT),
     };
     app.close_picker();
-    app.picker.places_out = Some(ghost);
+    app.overlays.picker.places_out = Some(ghost);
     paint(&mut app);
     assert!(!near(pixel(&app, probe), editor_bg));
     assert!(app.animating());
-    app.picker.places_out.as_mut().unwrap().clock = at(150, POPUP_OUT);
+    app.overlays.picker.places_out.as_mut().unwrap().clock = at(150, POPUP_OUT);
     app.settle_animations();
-    assert!(app.picker.places_out.is_none());
+    assert!(app.overlays.picker.places_out.is_none());
     paint(&mut app);
     assert!(near(pixel(&app, probe), editor_bg));
 
@@ -117,7 +117,7 @@ fn places_popup_slides_in_and_fades_out() {
     app.select(5, 5);
     app.go_to_definition();
     app.picker_accept();
-    assert!(app.picker.places_out.is_none());
+    assert!(app.overlays.picker.places_out.is_none());
 
     let _ = std::fs::remove_dir_all(&dir);
 }

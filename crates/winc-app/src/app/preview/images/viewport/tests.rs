@@ -137,7 +137,7 @@ impl App {
     pub(crate) fn replay_picture_zoom(&mut self, from: f32, clock: Clock) {
         let (fit, area) = self.picture_fit().expect("正在显示图片");
         let anchor = (area.x + area.w / 2.0, area.y + area.h / 2.0);
-        let view = &mut self.picture_view;
+        let view = &mut self.preview.picture_view;
         let settled = placed(view.zoom, view.scroll, fit, area);
         view.zoom_motion = Some(ZoomMotion {
             from,

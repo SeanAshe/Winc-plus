@@ -47,7 +47,13 @@ impl App {
             return;
         };
         let key = (doc.id, revision);
-        if self.tables.pending.iter().any(|&(id, _)| id == key.0) {
+        if self
+            .preview
+            .tables
+            .pending
+            .iter()
+            .any(|&(id, _)| id == key.0)
+        {
             return;
         }
         let path = doc.path.clone();
@@ -68,8 +74,8 @@ impl App {
                 })
             })
         };
-        self.tables.pending.insert(key);
-        let (sender, proxy) = (self.tables.sender.clone(), self.proxy.clone());
+        self.preview.tables.pending.insert(key);
+        let (sender, proxy) = (self.preview.tables.sender.clone(), self.link.proxy.clone());
         winc_editor::background::spawn(move || {
             let result = job();
             if sender.send((key.0, key.1, result)).is_ok()
@@ -82,8 +88,8 @@ impl App {
 
     /// 接收后台读好的表格，放入对应的文档。
     pub(crate) fn poll_tables(&mut self) {
-        while let Ok((id, revision, result)) = self.tables.receiver.try_recv() {
-            self.tables.pending.remove(&(id, revision));
+        while let Ok((id, revision, result)) = self.preview.tables.receiver.try_recv() {
+            self.preview.tables.pending.remove(&(id, revision));
             let doc = self.editor.documents.iter_mut().find(|d| d.id == id);
             if doc.is_some_and(|d| d.set_table(revision, result)) {
                 self.request_redraw();
@@ -98,7 +104,7 @@ impl App {
             .active()
             .and_then(|d| d.table.as_deref())
             .is_some_and(|v| v.table().is_some());
-        shown && self.table_layout.area.contains(x, y)
+        shown && self.preview.table_layout.area.contains(x, y)
     }
 
     /// 按滚轮位移滚动当前标签的表格。
@@ -106,7 +112,7 @@ impl App {
     /// `dx`、`dy` 为滚轮的横向、纵向位移（逻辑像素），(`x`, `y`) 为鼠标位置。在当前格的卡片
     /// 上时滚动卡片中的文字；只取主方向，触控板竖直滑动时不会同时左右移动。
     pub(crate) fn scroll_table(&mut self, dx: f32, dy: f32, (x, y): (f32, f32)) {
-        let layout = &self.table_layout;
+        let layout = &self.preview.table_layout;
         let (max_x, max_y) = layout.max_scroll;
         let (in_card, card_max) = (layout.card.contains(x, y), layout.card_max);
         let Some(view) = self.active_table_mut() else {
@@ -144,7 +150,7 @@ impl App {
 
     /// 是否正在表格中拖着选单元格。
     pub(crate) fn table_dragging(&self) -> bool {
-        self.drag == Drag::TableCells
+        self.pointer.drag == Drag::TableCells
     }
 
     /// 处理在表格上的单击，返回是否点中了表格。
@@ -152,10 +158,11 @@ impl App {
     /// 底部的工作表标签换工作表；单元格、行号、列名选中该格、整行、整列，按着 `⇧` 时从原来
     /// 的起点扩大到该处；按在单元格上可以拖着选。点在当前格的卡片上不改选区。
     pub(crate) fn click_table(&mut self, x: f32, y: f32) -> bool {
-        if self.table_layout.card.contains(x, y) {
+        if self.preview.table_layout.card.contains(x, y) {
             return true;
         }
         if let Some(sheet) = self
+            .preview
             .table_layout
             .sheets
             .iter()
@@ -176,12 +183,12 @@ impl App {
         let Some(view) = self.editor.active().and_then(|d| d.table.as_deref()) else {
             return false;
         };
-        let Some(hit) = self.table_layout.hit(x, y, view.scroll, false) else {
+        let Some(hit) = self.preview.table_layout.hit(x, y, view.scroll, false) else {
             return false;
         };
-        let (rows, columns) = self.table_layout.size;
+        let (rows, columns) = self.preview.table_layout.size;
         let (last_row, last_column) = (rows - 1, columns - 1);
-        let extend = self.modifiers.shift_key();
+        let extend = self.pointer.modifiers.shift_key();
         let (anchor, head) = match hit {
             TableHit::Cell(row, column) => ((row, column), (row, column)),
             TableHit::Row(row) => ((row, 0), (row, last_column)),
@@ -191,7 +198,7 @@ impl App {
         let start = view.selection.0;
         self.set_table_selection(if extend { start } else { anchor }, head, false);
         if matches!(hit, TableHit::Cell(..)) {
-            self.drag = Drag::TableCells;
+            self.pointer.drag = Drag::TableCells;
         }
         true
     }
@@ -202,7 +209,9 @@ impl App {
             return;
         };
         let anchor = view.selection.0;
-        if let Some(TableHit::Cell(row, column)) = self.table_layout.hit(x, y, view.scroll, true) {
+        if let Some(TableHit::Cell(row, column)) =
+            self.preview.table_layout.hit(x, y, view.scroll, true)
+        {
             self.set_table_selection(anchor, (row, column), false);
         }
     }
@@ -227,7 +236,7 @@ impl App {
             return;
         };
         let scroll = if reveal {
-            self.table_layout.reveal(head, scroll)
+            self.preview.table_layout.reveal(head, scroll)
         } else {
             scroll
         };
@@ -262,12 +271,13 @@ impl App {
             return false;
         };
         let (anchor, head) = view.selection;
-        let shift = self.modifiers.shift_key();
+        let shift = self.pointer.modifiers.shift_key();
         // 从合并区域中移出时从区域的边上走：向右从最右一列的下一列开始，依此类推。
         let merge = sheet
             .merge_at(head.0, head.1)
             .unwrap_or(Area::spanning(head, head));
-        let page = ((self.table_layout.body.h / self.table_layout.row_h.max(1.0)) as usize)
+        let page = ((self.preview.table_layout.body.h / self.preview.table_layout.row_h.max(1.0))
+            as usize)
             .saturating_sub(1)
             .max(1);
         let (row, column) = head;

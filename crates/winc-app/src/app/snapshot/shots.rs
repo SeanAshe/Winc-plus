@@ -36,7 +36,7 @@ fn snapshot_long_names() {
     for dark in [false, true] {
         let theme = if dark { "dark" } else { "light" };
         let mut app = app_with(&dir.join("img_CubLwUlc3Adg-NoCRm7Qz2Kp.txt"), dark);
-        app.sidebar.width = 230.0;
+        app.panels.sidebar.width = 230.0;
         app.relayout();
 
         // 选中的行放不下完整名称，鼠标不在文件树内。
@@ -151,12 +151,12 @@ fn snapshot_top_left() {
         app.run(Command::Insert("123".into()));
         for (state, visible) in [("open", true), ("closed", false)] {
             app.set_sidebar(visible);
-            app.renderer = Some(
+            app.frame.renderer = Some(
                 Renderer::offscreen(SIZE.0, SIZE.1, ZOOM, app.palette.frame_bg, None, None)
                     .unwrap(),
             );
             paint(&mut app);
-            let mut renderer = app.renderer.take().unwrap();
+            let mut renderer = app.frame.renderer.take().unwrap();
             renderer.draw(|frame| {
                 view::draw(&mut app, frame);
                 let lights = [0xFF5F57, 0xFEBC2E, 0x28C840];
@@ -186,7 +186,7 @@ fn snapshot_top_left() {
             );
             std::fs::create_dir_all(&out).unwrap();
             write_png(&out.join(format!("top-left-{state}-{tag}.png")), &crop).unwrap();
-            app.renderer = Some(renderer);
+            app.frame.renderer = Some(renderer);
         }
     }
 
@@ -264,10 +264,10 @@ fn snapshot_start_page() {
 
         // 没有打开目录时手动展开侧栏：不绘制项目徽章，避免看起来像已打开了一个名为 `winc` 的项目。
         app.toggle_sidebar();
-        app.sidebar.motion = None;
+        app.panels.sidebar.motion = None;
         shoot(&mut app, &format!("start-sidebar-{tag}"));
         app.toggle_sidebar();
-        app.sidebar.motion = None;
+        app.panels.sidebar.motion = None;
 
         // 有四个最近目录，鼠标停在第二个上。
         app.state.recent = vec![
@@ -302,13 +302,13 @@ fn snapshot_picker() {
         app.open_path(&dir.join("Cargo.toml"));
         app.open_path(&dir.join("src/main.rs"));
         app.open_picker();
-        app.picker.input.set_text("cfg");
+        app.overlays.picker.input.set_text("cfg");
         app.picker_refresh();
         app.on_mouse_move(400.0, 500.0);
         shoot(&mut app, &format!("picker-{tag}"));
 
         // 查询为空时，最近打开的文件在前，其后是按路径排序的文件列表。
-        app.picker.input.set_text("");
+        app.overlays.picker.input.set_text("");
         app.picker_refresh();
         shoot(&mut app, &format!("picker-empty-{tag}"));
     }
@@ -326,7 +326,7 @@ fn snapshot_palette_and_definitions() {
 
         // ⇧⌘P：列出命令，右侧显示快捷键。
         app.open_palette();
-        app.picker.input.set_text(">格式");
+        app.overlays.picker.input.set_text(">格式");
         app.picker_refresh();
         shoot(&mut app, &format!("palette-{tag}"));
         app.close_picker();
@@ -368,19 +368,19 @@ fn snapshot_global_search() {
         app.open_path(&dir.join("src/main.rs"));
         app.on_mouse_move(900.0, 500.0);
         app.open_global_search(false);
-        app.global.query.set_text("config");
+        app.panels.global.query.set_text("config");
         app.run_global_search();
-        app.global.engine.wait();
+        app.panels.global.engine.wait();
         app.poll_global();
         shoot(&mut app, &format!("global-{tag}"));
 
         // 展开替换和过滤条件，鼠标停在一处匹配上。
-        app.global.replace_open = true;
-        app.global.details_open = true;
-        app.global.replace.set_text("settings");
-        app.global.include.set_text("src");
+        app.panels.global.replace_open = true;
+        app.panels.global.details_open = true;
+        app.panels.global.replace.set_text("settings");
+        app.panels.global.include.set_text("src");
         app.run_global_search();
-        app.global.engine.wait();
+        app.panels.global.engine.wait();
         app.poll_global();
         paint(&mut app);
         let row = app.result_row_rect(2);
@@ -390,31 +390,31 @@ fn snapshot_global_search() {
         // 顶部：当前视图是搜索，鼠标停在「文件」上。
         let (files_tab, _) = app.sidebar_tabs()[0];
         app.on_mouse_move(files_tab.x + 4.0, files_tab.y + 4.0);
-        app.tooltip.since = None;
+        app.overlays.tooltip.since = None;
         shoot(&mut app, &format!("global-top-{tag}"));
 
         // 鼠标停在展开替换的箭头上：底色与输入框等高，二者之间留有间隔。
         let expand = app.panel_parts().expand;
         app.on_mouse_move(expand.x + 4.0, expand.y + 4.0);
-        app.tooltip.since = Some(Instant::now() - TOOLTIP_DELAY);
+        app.overlays.tooltip.since = Some(Instant::now() - TOOLTIP_DELAY);
         shoot(&mut app, &format!("global-expand-{tag}"));
 
         // 鼠标停在「全部替换」图标上，提示已显示。
         let all = app.panel_parts().replace_all;
         app.on_mouse_move(all.x + 4.0, all.y + 4.0);
-        app.tooltip.since = Some(Instant::now() - TOOLTIP_DELAY);
+        app.overlays.tooltip.since = Some(Instant::now() - TOOLTIP_DELAY);
         shoot(&mut app, &format!("global-tip-{tag}"));
 
         // 文件内查找条展开替换：「替换」「全部替换」是图标按钮，鼠标停在「替换」上。
         app.open_path(&dir.join("src/config.rs"));
         app.open_search(true);
-        app.search.query = "Config".into();
-        app.find.input.set_text("Config");
-        app.find.replace_input.set_text("Settings");
+        app.bars.search.query = "Config".into();
+        app.bars.find.input.set_text("Config");
+        app.bars.find.replace_input.set_text("Settings");
         paint(&mut app);
         let one = SearchParts::new(app.layout.search).replace_one;
         app.on_mouse_move(one.x + 4.0, one.y + 4.0);
-        app.tooltip.since = Some(Instant::now() - TOOLTIP_DELAY);
+        app.overlays.tooltip.since = Some(Instant::now() - TOOLTIP_DELAY);
         shoot(&mut app, &format!("find-replace-{tag}"));
     }
 
@@ -507,7 +507,7 @@ fn snapshot_editor_fold_motion() {
         let motion = app.fold_motion(before, Clock::new(FOLD_ANIMATION)).unwrap();
         // 收起 `load`：截取动画开始后 20、50、90 毫秒的画面（`FOLD_ANIMATION` 为 160 毫秒）。
         for ms in [20, 50, 90] {
-            app.fold_motion = Some(crate::app::FoldMotion {
+            app.motion.fold_motion = Some(crate::app::FoldMotion {
                 clock: Clock::frozen(Duration::from_millis(ms), FOLD_ANIMATION),
                 ..motion.clone()
             });

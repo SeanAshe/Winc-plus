@@ -19,10 +19,10 @@ fn selected_names(app: &App) -> Vec<String> {
 
 /// 按着 `modifiers` 单击文件树第 `index` 行。
 fn click_row_with(app: &mut App, index: usize, modifiers: ModifiersState) {
-    app.modifiers = modifiers;
+    app.pointer.modifiers = modifiers;
     let at = tree_row_center(app, index);
     click(app, at);
-    app.modifiers = ModifiersState::empty();
+    app.pointer.modifiers = ModifiersState::empty();
 }
 
 /// 返回文件树第 `from` 到第 `to` 行（含）的名字。
@@ -62,10 +62,10 @@ fn command_and_shift_clicks_build_a_selection_and_a_plain_click_resets_it() {
     assert_eq!(app.editor.active().unwrap().name(), "Dockerfile");
 
     // ⇧↓ 往下扩展，Esc 退回只选当前行，再按 Esc 才回到编辑区。
-    app.modifiers = ModifiersState::SHIFT;
+    app.pointer.modifiers = ModifiersState::SHIFT;
     app.on_key_tree(&Key::Named(NamedKey::ArrowDown));
     app.on_key_tree(&Key::Named(NamedKey::ArrowDown));
-    app.modifiers = ModifiersState::empty();
+    app.pointer.modifiers = ModifiersState::empty();
     assert_eq!(
         selected_names(&app),
         names_between(&app, docker, docker + 2)
@@ -124,14 +124,17 @@ fn the_menu_on_a_selection_copies_and_deletes_every_selected_item() {
 
     // 复制路径一行一个，复制的文件按显示顺序。
     app.run_menu_command(MenuCommand::CopyRelativePath);
-    assert_eq!(app.copied.as_deref(), Some("src\na.txt\nCargo.toml"));
+    assert_eq!(
+        app.clipboard.copied.as_deref(),
+        Some("src\na.txt\nCargo.toml")
+    );
     right_click(&mut app, at);
     app.run_menu_command(MenuCommand::Copy);
     let expected: Vec<PathBuf> = ["src", "a.txt", "Cargo.toml"]
         .iter()
         .map(|n| root.join(n))
         .collect();
-    assert_eq!(app.copied_files, expected);
+    assert_eq!(app.clipboard.copied_files, expected);
 
     // 删除一次删掉全部。
     right_click(&mut app, at);
@@ -239,10 +242,13 @@ fn cut_and_paste_in_the_tree_moves_the_selection_once() {
     app.focus = Focus::Tree;
     app.run_action(crate::keymap::Action::Cut);
     assert_eq!(
-        *app.shared.cut_files.borrow(),
+        *app.link.shared.cut_files.borrow(),
         [root.join("a.txt"), root.join("short.rs")]
     );
-    assert_eq!(app.copied_files, *app.shared.cut_files.borrow());
+    assert_eq!(
+        app.clipboard.copied_files,
+        *app.link.shared.cut_files.borrow()
+    );
     assert_eq!(app.status.message.as_deref(), Some("已剪切 2 项"));
 
     // 粘贴到 lib：两项移过去，剪切的记录清掉，移过去的两项选中。
@@ -253,7 +259,7 @@ fn cut_and_paste_in_the_tree_moves_the_selection_once() {
     assert!(root.join("lib/a.txt").is_file());
     assert!(root.join("lib/short.rs").is_file());
     assert!(!root.join("a.txt").exists() && !root.join("short.rs").exists());
-    assert!(app.shared.cut_files.borrow().is_empty());
+    assert!(app.link.shared.cut_files.borrow().is_empty());
     assert_eq!(selected_names(&app), ["a.txt", "short.rs"]);
 
     // 先前剪切过的文件不参与这次复制：按普通复制处理。
@@ -262,7 +268,7 @@ fn cut_and_paste_in_the_tree_moves_the_selection_once() {
     app.focus = Focus::Tree;
     app.run_action(crate::keymap::Action::Cut);
     app.run_action(crate::keymap::Action::Copy);
-    assert!(app.shared.cut_files.borrow().is_empty());
+    assert!(app.link.shared.cut_files.borrow().is_empty());
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -342,10 +348,10 @@ fn option_dragging_copies_the_selection_instead_of_moving_it() {
     app.on_mouse_move(x, y);
     app.on_mouse_down(MouseButton::Left);
     let (_, lib_y) = tree_row_center(&app, lib);
-    app.modifiers = ModifiersState::ALT;
+    app.pointer.modifiers = ModifiersState::ALT;
     app.on_mouse_move(x + 10.0, lib_y);
     app.on_mouse_up(MouseButton::Left);
-    app.modifiers = ModifiersState::empty();
+    app.pointer.modifiers = ModifiersState::empty();
     for name in ["a.txt", "short.rs"] {
         assert!(root.join(name).is_file(), "{name}");
         assert!(root.join("lib").join(name).is_file(), "{name}");
@@ -371,7 +377,7 @@ fn typing_jumps_to_names_and_home_end_page_keys_move() {
     };
     // 把上次键入的时刻提前到 `TYPE_RESET` 之前，使下一个字符开始新一轮查找。
     let pause = |app: &mut App| {
-        if let Some((_, at)) = &mut app.tree.typed {
+        if let Some((_, at)) = &mut app.panels.tree.typed {
             *at = Instant::now() - Duration::from_secs(1);
         }
     };
@@ -406,9 +412,9 @@ fn typing_jumps_to_names_and_home_end_page_keys_move() {
         Some(count - 1)
     );
     app.on_key_tree(&Key::Named(NamedKey::Home));
-    app.modifiers = ModifiersState::SHIFT;
+    app.pointer.modifiers = ModifiersState::SHIFT;
     app.on_key_tree(&Key::Named(NamedKey::End));
-    app.modifiers = ModifiersState::empty();
+    app.pointer.modifiers = ModifiersState::empty();
     assert_eq!(selected_names(&app).len(), count);
 
     // 文件树比一屏短时，翻页停在首行或末行。

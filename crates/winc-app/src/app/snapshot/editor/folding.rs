@@ -56,7 +56,7 @@ fn folding_from_keys_the_gutter_and_the_dots() {
     assert_eq!(line, 3);
     let (x, y) = (chip.x + chip.w / 2.0, chip.y + chip.h / 2.0);
     app.on_mouse_move(x, y);
-    assert_eq!(app.hover, Hover::Folded(3));
+    assert_eq!(app.pointer.hover, Hover::Folded(3));
     click(&mut app, (x, y));
     assert!(folded(&app).is_empty());
 
@@ -68,7 +68,7 @@ fn folding_from_keys_the_gutter_and_the_dots() {
     let arrow = column.x - app.layout.gutter.x + column.w / 2.0;
     let at = gutter_point(&app, 2, arrow);
     app.on_mouse_move(at.0, at.1);
-    assert_eq!(app.hover, Hover::Gutter);
+    assert_eq!(app.pointer.hover, Hover::Gutter);
     click(&mut app, at);
     assert_eq!(folded(&app), [(2, 66)]);
     click(&mut app, at);
@@ -175,12 +175,12 @@ fn folding_animates_like_the_file_tree() {
     assert_eq!(motion.reveal(), 1.0);
 
     // 动画进行中：绘制时临时切换为展开状态，绘制后恢复，文档的折叠状态保持不变。
-    app.fold_motion = Some(crate::app::FoldMotion {
+    app.motion.fold_motion = Some(crate::app::FoldMotion {
         clock: at(80),
         ..motion
     });
     paint(&mut app);
-    let m = app.fold_motion.as_ref().expect("动画还在");
+    let m = app.motion.fold_motion.as_ref().expect("动画还在");
     assert_eq!(m.reveal(), 0.125);
     assert_eq!(folded(&app), [(3, 63)]);
     assert_eq!(app.editor.active().unwrap().scroll_line, 0.0);
@@ -188,7 +188,7 @@ fn folding_animates_like_the_file_tree() {
     // 滚动位置改变时放弃动画，直接绘制最终状态。
     app.editor.active_mut().unwrap().scroll_line = 1.0;
     paint(&mut app);
-    assert!(app.fold_motion.is_none());
+    assert!(app.motion.fold_motion.is_none());
     app.editor.active_mut().unwrap().scroll_line = 0.0;
 
     // 再次展开：涉及同一范围，方向为展开。
@@ -227,11 +227,11 @@ fn folding_animates_like_the_file_tree() {
         .active_mut()
         .unwrap()
         .toggle_fold_at(3, tab_width);
-    app.fold_motion = app.fold_motion(before, at(80));
-    assert!(app.fold_motion.is_some());
+    app.motion.fold_motion = app.fold_motion(before, at(80));
+    assert!(app.motion.fold_motion.is_some());
     let at = (app.layout.text.x + 40.0, app.layout.text.y + 5.0);
     click(&mut app, at);
-    assert!(app.fold_motion.is_none());
+    assert!(app.motion.fold_motion.is_none());
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -263,7 +263,7 @@ fn the_arrow_of_a_wrapped_line_pinned_to_the_top_can_be_clicked() {
     );
     app.on_mouse_move(at.0, at.1);
     paint(&mut app);
-    assert_eq!(app.hover, Hover::Gutter);
+    assert_eq!(app.pointer.hover, Hover::Gutter);
     click(&mut app, at);
     assert_eq!(folded(&app), [(0, 30)]);
 

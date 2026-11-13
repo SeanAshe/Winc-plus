@@ -598,7 +598,7 @@ impl App {
         self.remote.form = Some((host.to_owned(), port.to_owned()));
         // 已有的对话框（例如上一次的）由这一个替换，不算用户取消。
         if matches!(
-            self.form_dialog.as_ref().map(|d| &d.kind),
+            self.overlays.form_dialog.as_ref().map(|d| &d.kind),
             Some(FormKind::Connect)
         ) {
             self.remote.stepping = true;
@@ -612,7 +612,7 @@ impl App {
             .and_then(|target| self.state.remote_key(target.as_str()))
             .unwrap_or_default()
             .to_owned();
-        if let Some(dialog) = &mut self.form_dialog {
+        if let Some(dialog) = &mut self.overlays.form_dialog {
             dialog.second = TextField::with_filter(|c| c.is_ascii_digit());
             dialog.second.insert(port);
             dialog.third.insert(&key);
@@ -653,7 +653,7 @@ impl App {
 
     /// 提交连接对话框：开始连接，对话框留着显示进度。
     pub(in crate::app) fn submit_connect(&mut self) {
-        let Some(dialog) = &mut self.form_dialog else {
+        let Some(dialog) = &mut self.overlays.form_dialog else {
             return;
         };
         let (host, port, key) = (
@@ -695,7 +695,8 @@ impl App {
     pub(in crate::app) fn key_file_picked(&mut self, path: &Path) {
         let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" });
         let text = key_text(path, home.as_deref().map(Path::new));
-        let dialog = (self.form_dialog.as_mut()).filter(|d| matches!(d.kind, FormKind::Connect));
+        let dialog =
+            (self.overlays.form_dialog.as_mut()).filter(|d| matches!(d.kind, FormKind::Connect));
         if let Some(dialog) = dialog {
             dialog.third.set_text("");
             dialog.third.insert(&text);
@@ -707,7 +708,11 @@ impl App {
 
     /// 连接对话框即将被程序关闭（进入下一步、让位给询问）：这次关闭不算用户取消。
     pub(in crate::app) fn connect_dialog_steps_aside(&mut self) {
-        let shown = self.form_dialog.as_ref().map(|dialog| &dialog.kind);
+        let shown = self
+            .overlays
+            .form_dialog
+            .as_ref()
+            .map(|dialog| &dialog.kind);
         self.remote.stepping = matches!(shown, Some(FormKind::Connect));
     }
 
@@ -731,7 +736,7 @@ impl App {
             return;
         }
         self.open_connect_dialog(&host, &port, false);
-        if let Some(dialog) = &mut self.form_dialog {
+        if let Some(dialog) = &mut self.overlays.form_dialog {
             dialog.running = Some(CONNECTING);
         }
         self.turn_card(Card::Dialog);
@@ -794,7 +799,7 @@ impl App {
         self.remote.after = after;
         self.remote.declined = false;
         let slot = Arc::clone(&self.remote.outcome);
-        let wake = self.proxy.clone();
+        let wake = self.link.proxy.clone();
         let staged = wake.clone();
         let questions = self.remote.questions.0.clone();
         self.spawn_blocking_then(UserEvent::RemoteConnected, move || {
@@ -875,7 +880,7 @@ impl App {
         if let (Err(error), Some((host, port))) = (&outcome, self.remote.form.clone()) {
             let declined = std::mem::take(&mut self.remote.declined);
             self.open_connect_dialog(&host, &port, false);
-            if let Some(dialog) = &mut self.form_dialog {
+            if let Some(dialog) = &mut self.overlays.form_dialog {
                 dialog.error = (!declined).then(|| error.clone());
             }
             return;

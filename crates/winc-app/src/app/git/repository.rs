@@ -36,7 +36,7 @@ impl App {
 
     /// 打开克隆仓库的对话框。
     pub(in crate::app) fn open_clone_dialog(&mut self) {
-        if self.form_dialog.is_none() {
+        if self.overlays.form_dialog.is_none() {
             let field = TextField::default();
             self.show_form_dialog(FormKind::Clone, field, DialogPart::Branch);
         }
@@ -81,7 +81,7 @@ impl App {
 
     /// 执行克隆，成功后打开新仓库：已打开目录时在新窗口中打开。
     pub(super) fn submit_clone(&mut self) {
-        let Some(dialog) = &self.form_dialog else {
+        let Some(dialog) = &self.overlays.form_dialog else {
             return;
         };
         let url = dialog.name.text().trim().to_owned();
@@ -111,7 +111,7 @@ impl App {
 
     /// 打开添加远程仓库（`remote` 为 `None`）或修改其地址的对话框。
     pub(in crate::app) fn open_remote_dialog(&mut self, remote: Option<Remote>) {
-        if self.form_dialog.is_some() {
+        if self.overlays.form_dialog.is_some() {
             return;
         }
         match remote {
@@ -126,7 +126,7 @@ impl App {
             None => {
                 let kind = FormKind::Remote { editing: None };
                 self.show_form_dialog(kind, ref_name_field(), DialogPart::Branch);
-                if let Some(dialog) = &mut self.form_dialog {
+                if let Some(dialog) = &mut self.overlays.form_dialog {
                     dialog.second = TextField::default();
                 }
             }
@@ -165,7 +165,7 @@ impl App {
 
     /// 提交远程仓库的对话框。
     pub(super) fn submit_remote(&mut self, editing: Option<String>) {
-        let Some(dialog) = &self.form_dialog else {
+        let Some(dialog) = &self.overlays.form_dialog else {
             return;
         };
         let first = dialog.name.text().trim().to_owned();

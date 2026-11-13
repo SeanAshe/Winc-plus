@@ -164,7 +164,8 @@ impl Counter {
         for theme in crate::theme::themes(dark) {
             let mut app = app_with(&file, dark);
             app.palette = theme.palette;
-            app.renderer
+            app.frame
+                .renderer
                 .as_mut()
                 .unwrap()
                 .set_background(theme.palette.frame_bg);

@@ -121,14 +121,14 @@ impl App {
         // `scroll_line` 带小数时，顶部第一行的上半部分已滚到固定区域之下。
         let partial = scroll.fract() > 0.0;
 
-        let fresh = self.sticky_cache.as_ref().is_some_and(|c| {
+        let fresh = self.caches.sticky_cache.as_ref().is_some_and(|c| {
             c.settled
                 && (c.id, c.revision, &c.rows, c.partial, c.max, c.tab_width)
                     == (doc.id, doc.revision, &rows, partial, max, tab_width)
         });
         if !fresh {
             let (scopes, settled) = doc.sticky_scopes(&rows, partial, max, tab_width);
-            self.sticky_cache = Some(StickyCache {
+            self.caches.sticky_cache = Some(StickyCache {
                 id: doc.id,
                 revision: doc.revision,
                 rows,
@@ -139,7 +139,7 @@ impl App {
                 scopes,
             });
         }
-        let Some(cache) = &self.sticky_cache else {
+        let Some(cache) = &self.caches.sticky_cache else {
             return Vec::new();
         };
 
@@ -196,7 +196,7 @@ impl App {
     pub(in crate::app) fn click_sticky(&mut self, row: StickyRow, x: f32) {
         let tab_width = self.editor.active_tab_width();
         let origin = self.layout.text.x + TEXT_PAD;
-        let cell = self.cell;
+        let cell = self.metrics.cell;
         let max = self.max_scroll_line();
         let Some(doc) = self.editor.active_mut() else {
             return;

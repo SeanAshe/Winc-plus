@@ -250,9 +250,12 @@ impl App {
                 };
             }
         };
-        self.recent_files.iter_mut().for_each(relocate);
-        self.closed.iter_mut().for_each(|(path, _)| relocate(path));
-        self.navigation.relocate(from, to);
+        self.history.files.iter_mut().for_each(relocate);
+        self.history
+            .closed
+            .iter_mut()
+            .for_each(|(path, _)| relocate(path));
+        self.jumps.navigation.relocate(from, to);
         self.picker_touched(vec![from.to_path_buf(), to.to_path_buf()]);
         self.files_changed_under_results();
     }
@@ -358,7 +361,7 @@ impl App {
         if self.open_in_builtin_terminal(&dir) {
             return;
         }
-        if self.bench.silent() || cfg!(test) {
+        if self.frame.bench.silent() || cfg!(test) {
             self.opened_terminal = Some(dir);
             return;
         }
@@ -614,7 +617,7 @@ impl App {
         // 两次写入不会先后颠倒。
         if self.saving(id) {
             if background && to.is_none() {
-                self.saves.again.insert(id, quiet);
+                self.disk.saves.again.insert(id, quiet);
                 return true;
             }
             self.wait_for_save(id);
@@ -663,12 +666,13 @@ impl App {
         // 远端的改名、移动或删除尚未完成：文档的路径可能即将改变，后台保存推迟到它完成之后。
         if remote && background && to.is_none() && self.file_work_pending() {
             if !self
+                .disk
                 .file_work
                 .deferred
                 .iter()
                 .any(|(known, _)| *known == id)
             {
-                self.file_work.deferred.push((id, quiet));
+                self.disk.file_work.deferred.push((id, quiet));
             }
             return true;
         }
@@ -738,7 +742,7 @@ impl App {
     /// macOS 上是系统的面板；Windows 上是系统的文件对话框；其他 Unix 平台通过 XDG 桌面门户由
     /// 桌面环境显示面板（`portal.rs`），门户不可用时说明原因（`App::pick_failed`）。
     pub(in crate::app) fn pick(&mut self, kind: Pick) {
-        let Some(proxy) = self.proxy.clone() else {
+        let Some(proxy) = self.link.proxy.clone() else {
             return;
         };
         // 另存为：默认使用原来的名字，从原来所在的目录开始；新文件从已打开的目录开始。
@@ -936,10 +940,11 @@ impl App {
         self.git_discover();
         self.restart_exited_watcher();
         let live = self
+            .disk
             .watcher
             .as_ref()
             .is_some_and(winc_editor::Watcher::reliable);
-        let watched = (self.watcher.as_ref().filter(|_| live)).zip(self.git.root.as_deref());
+        let watched = (self.disk.watcher.as_ref().filter(|_| live)).zip(self.git.root.as_deref());
         let git_dir = (self.git.status.as_ref()).and_then(|status| status.git_dir.as_deref());
         if !watched.is_some_and(|(w, root)| {
             root.starts_with(w.root()) && git_dir == Some(root.join(".git").as_path())
@@ -953,7 +958,7 @@ impl App {
             if let Some(ws) = (self.editor.workspace.as_mut()).filter(|_| reachable) {
                 ws.refresh();
             }
-            self.picker.stale = true;
+            self.overlays.picker.stale = true;
         }
 
         self.relayout();

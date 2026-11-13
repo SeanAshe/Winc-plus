@@ -118,7 +118,7 @@ pub(super) fn draw_wrapped_selection(
     let doc = app.editor.active().expect("调用方保证有当前文档");
     let text = doc.text();
     let (cell, tab_width, clip, lh) = (
-        app.cell,
+        app.metrics.cell,
         doc.tab_width(app.editor.tab_width),
         app.layout.text,
         app.fonts.line_height,
@@ -244,9 +244,9 @@ pub(super) fn draw_selection(
     let doc = app.editor.active().expect("调用方保证有当前文档");
     let text = doc.text();
     // 选区在文本区右边缘之外的部分不可见，各行只读取到右边缘（见 `line_read_cap`）。
-    let span = (origin_x, app.layout.text.right(), app.cell);
+    let span = (origin_x, app.layout.text.right(), app.metrics.cell);
     let (cell, tab_width, clip) = (
-        app.cell,
+        app.metrics.cell,
         doc.tab_width(app.editor.tab_width),
         app.layout.text,
     );
@@ -355,7 +355,7 @@ pub(in crate::view) fn draw_caret(
     clip: Rect,
 ) -> Rect {
     let p = app.palette;
-    let (cell, tab_width) = (app.cell, app.editor.active_tab_width());
+    let (cell, tab_width) = (app.metrics.cell, app.editor.active_tab_width());
     let preedit = app.preedit_at(Focus::Editor);
 
     if preedit.is_empty() {
@@ -430,8 +430,8 @@ pub(in crate::view) fn draw_modal_caret(
         CaretShape::Block if app.blink.visible => {
             frame.rect_clipped(block, p.caret, 1.0, clip);
             if let Some(c) = c.filter(|c| !c.is_whitespace()) {
-                let cells = (width / app.cell).round().max(1.0) as usize;
-                let (font, cell) = (app.fonts.code, app.cell);
+                let cells = (width / app.metrics.cell).round().max(1.0) as usize;
+                let (font, cell) = (app.fonts.code, app.metrics.cell);
                 frame.cell_char(
                     FontKind::Mono,
                     font,
@@ -468,13 +468,13 @@ pub(super) fn matching_brace(app: &mut App, index: usize) -> Option<(usize, usiz
         head: doc.selection.head,
     };
 
-    if let Some((cached, found)) = app.brace_cache
+    if let Some((cached, found)) = app.caches.brace_cache
         && cached == key
     {
         return found;
     }
 
     let found = movement::matching_bracket(doc.text(), doc.selection.head, BRACE_SCAN_LIMIT);
-    app.brace_cache = Some((key, found));
+    app.caches.brace_cache = Some((key, found));
     found
 }

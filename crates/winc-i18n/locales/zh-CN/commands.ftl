@@ -161,6 +161,7 @@ cmd-previous-diff-file = 上一个文件
 cmd-toggle-diff-layout = 切换差异单栏视图
 cmd-git-show-changes = Git：显示差异
 cmd-git-show-log = Git：显示日志
+cmd-git-go-to-revision = Git：转到提交号、分支或标签…
 cmd-git-show-output = Git：显示输出
 cmd-git-clone = Git：克隆仓库…
 cmd-git-init = Git：初始化仓库

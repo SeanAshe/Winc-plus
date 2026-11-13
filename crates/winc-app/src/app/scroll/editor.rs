@@ -100,9 +100,9 @@ impl App {
         set_scroll_line(doc, doc.scroll_line - f64::from(dy / lh));
         // 展开的超长行可达数千万像素宽，`f32` 在该处的间隔大于一次滚动的距离：没有体现在滚动
         // 位置上的部分留到下一次，不丢弃。
-        let x = f64::from(doc.scroll_x) - f64::from(dx) + self.wheel.carry_x;
+        let x = f64::from(doc.scroll_x) - f64::from(dx) + self.scroll.wheel.carry_x;
         doc.scroll_x = x as f32;
-        self.wheel.carry_x = x - f64::from(doc.scroll_x);
+        self.scroll.wheel.carry_x = x - f64::from(doc.scroll_x);
         let wanted = doc.scroll_x;
 
         self.clamp_scroll();
@@ -112,7 +112,7 @@ impl App {
             .active()
             .is_some_and(|doc| doc.scroll_x != wanted)
         {
-            self.wheel.carry_x = 0.0;
+            self.scroll.wheel.carry_x = 0.0;
         }
     }
 
@@ -126,18 +126,18 @@ impl App {
             return;
         };
         let (id, to) = (doc.id, doc.scroll_line);
-        let shown = match &self.scroll_glide {
+        let shown = match &self.scroll.glide {
             Some(g) if g.doc == id => g.shown(from),
             _ => from,
         };
         if (to - shown).abs() < GLIDE_MIN_ROWS {
             // 距离较近时直接到达；同一文档正在进行的平滑滚动保留，继续滚向新目标。
-            if self.scroll_glide.as_ref().is_some_and(|g| g.doc != id) {
-                self.scroll_glide = None;
+            if self.scroll.glide.as_ref().is_some_and(|g| g.doc != id) {
+                self.scroll.glide = None;
             }
             return;
         }
-        self.scroll_glide = self
+        self.scroll.glide = self
             .clock(crate::app::animation::SCROLL_GLIDE)
             .map(|clock| ScrollGlide {
                 doc: id,
@@ -151,7 +151,7 @@ impl App {
     /// 用于用户直接控制滚动（按下鼠标、滚轮、触摸、拖动滚动条或缩略图）时：此后的命中测试和
     /// 滚动都从屏幕上看到的位置开始，画面不跳到目标位置。
     pub(in crate::app) fn settle_editor_glide(&mut self) {
-        let Some(glide) = self.scroll_glide.take() else {
+        let Some(glide) = self.scroll.glide.take() else {
             return;
         };
         if let Some(doc) = self.editor.active_mut().filter(|d| d.id == glide.doc) {
@@ -186,7 +186,7 @@ impl App {
             .map_or(0, |d| d.text().line_of(d.selection.head));
         let top = (self.sticky_depth(caret_line) as f64).max(1.0);
         let width = self.layout.text.w;
-        let cell = self.cell;
+        let cell = self.metrics.cell;
         let tab_width = self.editor.active_tab_width();
         let max_scroll = self.max_scroll_line();
 

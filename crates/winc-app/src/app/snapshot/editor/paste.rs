@@ -36,7 +36,7 @@ fn files_pasted_into_markdown_become_links_and_outside_images_are_copied() {
     // 项目之外的图片复制到文档旁边再引用；项目里的文件按相对路径引用，多项之间用空格隔开。
     let outside = std::env::temp_dir().join(format!("winc-paste-{}.png", std::process::id()));
     std::fs::write(&outside, b"png").unwrap();
-    app.copied_files = vec![dir.join("a.txt"), outside.clone()];
+    app.clipboard.copied_files = vec![dir.join("a.txt"), outside.clone()];
     app.paste();
     let photo = outside.file_name().unwrap().to_string_lossy().into_owned();
     let stem = photo.trim_end_matches(".png");
@@ -50,7 +50,7 @@ fn files_pasted_into_markdown_become_links_and_outside_images_are_copied() {
     );
 
     // 只粘贴一项时选中链接文字，直接键入即可替换。
-    app.copied_files = vec![dir.join("src/main.rs")];
+    app.clipboard.copied_files = vec![dir.join("src/main.rs")];
     app.paste();
     assert_eq!(selected(&app), "main.rs");
     assert!(text(&app).ends_with("[main.rs](../src/main.rs)"));
@@ -65,7 +65,7 @@ fn an_image_pasted_into_markdown_is_saved_beside_the_document() {
     let mut app = app_with(&dir, false);
     open_markdown(&mut app, &dir, "");
 
-    app.copied_image = Some(b"first".to_vec());
+    app.clipboard.copied_image = Some(b"first".to_vec());
     app.paste();
     assert_eq!(text(&app), "![image](image.png)");
     assert_eq!(selected(&app), "image");
@@ -83,7 +83,7 @@ fn an_image_pasted_into_markdown_is_saved_beside_the_document() {
     // 剪贴板中同时有文本和图片时（例如从表格中复制）粘贴文本。
     let end = text(&app).chars().count();
     app.select(end, end);
-    app.copied = Some("单元格".into());
+    app.clipboard.copied = Some("单元格".into());
     app.paste();
     assert!(text(&app).ends_with("单元格"));
     assert!(!dir.join("docs/image-2.png").exists());
@@ -99,7 +99,7 @@ fn other_documents_get_paths_and_refuse_images() {
     app.select(0, 0);
 
     // 不是 Markdown：文件写成绝对路径，每行一个。
-    app.copied_files = vec![dir.join("a.txt"), dir.join("Cargo.toml")];
+    app.clipboard.copied_files = vec![dir.join("a.txt"), dir.join("Cargo.toml")];
     app.paste();
     let expected = format!(
         "{}\n{}fn main()",
@@ -109,8 +109,8 @@ fn other_documents_get_paths_and_refuse_images() {
     assert!(text(&app).starts_with(&expected), "{}", text(&app));
 
     // 图片不能粘贴到其他文档：提示原因，不在磁盘上留下文件。
-    app.copied_files.clear();
-    app.copied_image = Some(b"png".to_vec());
+    app.clipboard.copied_files.clear();
+    app.clipboard.copied_image = Some(b"png".to_vec());
     let before = text(&app);
     app.paste();
     assert_eq!(text(&app), before);
@@ -144,7 +144,7 @@ fn the_tree_copies_files_and_pastes_text_and_images_as_new_files() {
     // ⌘C 复制选中的文件本身，⌘V 粘贴到同一目录中，得到副本并选中该副本。
     select(&mut app, &dir.join("a.txt"));
     assert!(press(&mut app, &["cmd"], Char('c')));
-    assert_eq!(app.copied_files, [dir.join("a.txt")]);
+    assert_eq!(app.clipboard.copied_files, [dir.join("a.txt")]);
     assert!(press(&mut app, &["cmd"], Char('v')));
     let copy = dir.join("a 副本.txt");
     assert_eq!(
@@ -157,14 +157,14 @@ fn the_tree_copies_files_and_pastes_text_and_images_as_new_files() {
     // 在旁边复制出副本。
     std::fs::create_dir(dir.join("src/inner")).unwrap();
     select(&mut app, &dir.join("src"));
-    app.copied_files = vec![dir.join("Cargo.toml"), dir.join("src")];
+    app.clipboard.copied_files = vec![dir.join("Cargo.toml"), dir.join("src")];
     app.paste();
     assert!(dir.join("src/Cargo.toml").is_file());
     assert!(dir.join("src 副本/main.rs").is_file());
     assert_eq!(selected_path(&app), Some(dir.join("src 副本")));
     // 目录不能粘贴到该目录内部更深的位置：选中 `src/inner` 后再粘贴 `src`。
     select(&mut app, &dir.join("src/inner"));
-    app.copied_files = vec![dir.join("src")];
+    app.clipboard.copied_files = vec![dir.join("src")];
     app.paste();
     assert!(
         app.notice
@@ -176,17 +176,17 @@ fn the_tree_copies_files_and_pastes_text_and_images_as_new_files() {
     // 剪贴板中只有文本：粘贴为新文件。名字输入行里填好按内容猜的名字，选中主名，直接键入即
     // 替换；按 ↩ 新建并打开，内容就是剪贴板中的文本。
     select(&mut app, &dir.join("Cargo.toml"));
-    app.copied_files.clear();
-    app.copied = Some("{\"name\": \"winc\"}".into());
+    app.clipboard.copied_files.clear();
+    app.clipboard.copied = Some("{\"name\": \"winc\"}".into());
     app.paste();
-    let entry = app.name_input.as_ref().expect("打开名字输入行");
+    let entry = app.panels.name_input.as_ref().expect("打开名字输入行");
     assert_eq!(entry.dir, dir);
     assert_eq!(entry.field.text(), "untitled.json");
     assert_eq!(entry.field.selected_text(), "untitled");
     assert_eq!(app.focus, Focus::Prompt);
     app.edit_field(|f| f.insert("package"));
     app.submit_prompt();
-    assert!(app.name_input.is_none());
+    assert!(app.panels.name_input.is_none());
     assert_eq!(
         std::fs::read_to_string(dir.join("package.json")).unwrap(),
         "{\"name\": \"winc\"}"
@@ -198,11 +198,14 @@ fn the_tree_copies_files_and_pastes_text_and_images_as_new_files() {
     );
 
     // 剪贴板中只有图片：同样粘贴为新文件，建议的名字是 `image.png`。按 Esc 不新建。
-    app.copied = None;
-    app.copied_image = Some(b"png".to_vec());
+    app.clipboard.copied = None;
+    app.clipboard.copied_image = Some(b"png".to_vec());
     select(&mut app, &dir.join("Cargo.toml"));
     app.paste();
-    assert_eq!(app.name_input.as_ref().unwrap().field.text(), "image.png");
+    assert_eq!(
+        app.panels.name_input.as_ref().unwrap().field.text(),
+        "image.png"
+    );
     app.close_name_input();
     assert!(!dir.join("image.png").exists());
     select(&mut app, &dir.join("Cargo.toml"));
@@ -211,15 +214,18 @@ fn the_tree_copies_files_and_pastes_text_and_images_as_new_files() {
     assert_eq!(std::fs::read(dir.join("image.png")).unwrap(), b"png");
     select(&mut app, &dir.join("Cargo.toml"));
     app.paste();
-    assert_eq!(app.name_input.as_ref().unwrap().field.text(), "image-1.png");
+    assert_eq!(
+        app.panels.name_input.as_ref().unwrap().field.text(),
+        "image-1.png"
+    );
     app.close_name_input();
 
     // 右键菜单：剪贴板中有文件、文本或图片时可以粘贴，剪贴板为空时「粘贴」灰显。
     assert!(app.can_paste_into_tree());
-    app.copied_image = None;
-    app.copied = Some("文本".into());
+    app.clipboard.copied_image = None;
+    app.clipboard.copied = Some("文本".into());
     assert!(app.can_paste_into_tree());
-    app.copied = None;
+    app.clipboard.copied = None;
     assert!(!app.can_paste_into_tree());
 
     let _ = std::fs::remove_dir_all(&folder);

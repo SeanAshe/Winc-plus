@@ -477,7 +477,7 @@ impl App {
             timeout: if save { SAVE_TIMEOUT } else { TIMEOUT },
         };
         let (formatter, sender) = (self.format.formatter.clone(), self.format.sender.clone());
-        let proxy = self.proxy.clone();
+        let proxy = self.link.proxy.clone();
         // 格式化工具最长运行 `TIMEOUT`（30 秒），在单独的线程上等待，不占用共用的线程池。
         winc_editor::background::spawn_blocking(move || {
             let result = formatter.run(job, &cancel);

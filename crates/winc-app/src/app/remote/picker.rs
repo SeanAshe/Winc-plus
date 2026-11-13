@@ -212,25 +212,26 @@ impl App {
 
     fn show_remote_picker(&mut self, stage: Stage) {
         self.finish_name_input();
-        self.picker.places = None;
-        self.picker.branch_rows = None;
-        self.picker.location_rows = None;
-        self.picker.folders = false;
-        self.picker.vim_list = None;
+        self.overlays.picker.places = None;
+        self.overlays.picker.branch_rows = None;
+        self.overlays.picker.location_rows = None;
+        self.overlays.picker.folders = false;
+        self.overlays.picker.vim_list = None;
         // 面板开着换阶段（从目录回到主机）：按换页过渡。
-        if self.picker.open && self.picker.remote.is_some() {
+        if self.overlays.picker.open && self.overlays.picker.remote.is_some() {
             self.turn_card(Card::Picker);
         }
         // 已读过的目录留着：从目录阶段回到主机阶段再进来时不必重读。
-        let listings = (self.picker.remote.take()).map_or_else(HashMap::new, |list| list.listings);
-        self.picker.remote = Some(RemoteList {
+        let listings =
+            (self.overlays.picker.remote.take()).map_or_else(HashMap::new, |list| list.listings);
+        self.overlays.picker.remote = Some(RemoteList {
             stage,
             rows: Vec::new(),
             listings,
         });
-        self.picker.open = true;
-        self.picker.doc = self.editor.active().map(|doc| doc.id);
-        self.picker.input.set_text("");
+        self.overlays.picker.open = true;
+        self.overlays.picker.doc = self.editor.active().map(|doc| doc.id);
+        self.overlays.picker.input.set_text("");
         self.focus = Focus::Picker;
         self.picker_refresh();
         self.relayout();
@@ -240,8 +241,8 @@ impl App {
 
     /// 按当前的输入重新生成各行。
     pub(in crate::app) fn remote_picker_refresh(&mut self) {
-        let typed = self.picker.input.text().to_owned();
-        let Some(list) = self.picker.remote.as_mut() else {
+        let typed = self.overlays.picker.input.text().to_owned();
+        let Some(list) = self.overlays.picker.remote.as_mut() else {
             return;
         };
         // 目录阶段的输入中出现 `/`：最后一个 `/` 之前的部分是要进入的目录，之后的留作筛选。
@@ -252,8 +253,8 @@ impl App {
             let path = if path.is_empty() { "/" } else { path };
             *dir = walk(dir, home, path);
             let rest = rest.to_owned();
-            self.picker.input.set_text("");
-            self.picker.input.insert(&rest);
+            self.overlays.picker.input.set_text("");
+            self.overlays.picker.input.insert(&rest);
             return self.remote_picker_refresh();
         }
         let rows = match &list.stage {
@@ -264,8 +265,8 @@ impl App {
                 self.folder_rows(&target, &home, &dir, &typed)
             }
         };
-        self.picker.hits = (0..rows.len()).collect();
-        if let Some(list) = self.picker.remote.as_mut() {
+        self.overlays.picker.hits = (0..rows.len()).collect();
+        if let Some(list) = self.overlays.picker.remote.as_mut() {
             list.rows = rows;
         }
         self.prefetch_remote_listing();
@@ -399,7 +400,7 @@ impl App {
                 });
             }
         }
-        let listing = (self.picker.remote.as_ref())
+        let listing = (self.overlays.picker.remote.as_ref())
             .and_then(|list| list.listings.get(&(target.clone(), dir.to_owned())));
         if let Some(Listing::Ready(names)) = listing {
             rows.extend(matching(names, typed).into_iter().map(|name| Row {
@@ -415,8 +416,8 @@ impl App {
 
     /// 列表下方（或代替列表）显示的说明：正在读取、读取失败，或没有匹配的项。
     pub(crate) fn remote_picker_message(&self) -> Option<String> {
-        let list = self.picker.remote.as_ref()?;
-        let typed = self.picker.input.text();
+        let list = self.overlays.picker.remote.as_ref()?;
+        let typed = self.overlays.picker.input.text();
         match &list.stage {
             Stage::Hosts if list.rows.is_empty() && typed.trim().is_empty() => {
                 Some(t!("workspace-picker-remote-no-hosts").to_owned())
@@ -445,7 +446,7 @@ impl App {
 
     /// 正在浏览的主机；主机阶段和面板未打开时为 `None`。显示在输入框的右端。
     pub(crate) fn remote_picker_host(&self) -> Option<&str> {
-        match &self.picker.remote.as_ref()?.stage {
+        match &self.overlays.picker.remote.as_ref()?.stage {
             Stage::Browse { target, .. } => Some(target.as_str()),
             Stage::Hosts => None,
         }
@@ -453,17 +454,18 @@ impl App {
 
     /// 执行选中的一行。按住 `⌘`（其他系统是 `Ctrl`）时直接打开选中的目录，不进入。
     pub(in crate::app) fn remote_picker_accept(&mut self) {
-        let Some(list) = self.picker.remote.as_ref() else {
+        let Some(list) = self.overlays.picker.remote.as_ref() else {
             return;
         };
-        let row = (self.picker.hits.get(self.picker.selected)).and_then(|&i| list.rows.get(i));
+        let row = (self.overlays.picker.hits.get(self.overlays.picker.selected))
+            .and_then(|&i| list.rows.get(i));
         let Some(action) = row.map(|row| row.action.clone()) else {
             return;
         };
         let directly = if cfg!(target_os = "macos") {
-            self.modifiers.super_key()
+            self.pointer.modifiers.super_key()
         } else {
-            self.modifiers.control_key()
+            self.pointer.modifiers.control_key()
         };
         let browsing = match &list.stage {
             Stage::Browse { target, dir, .. } => Some((target.clone(), dir.clone())),
@@ -515,8 +517,8 @@ impl App {
     /// 点了第 `row` 行行尾的「✕」：从最近的记录中移除这个目录；移除主机时移除其上的所有
     /// 目录。选中的位置保持不变。
     pub(in crate::app) fn forget_remote_row(&mut self, row: usize) {
-        let list = self.picker.remote.as_ref();
-        let item = (self.picker.hits.get(row))
+        let list = self.overlays.picker.remote.as_ref();
+        let item = (self.overlays.picker.hits.get(row))
             .and_then(|&i| list?.rows.get(i))
             .filter(|item| item.removable);
         let folders: Vec<PathBuf> = match item.map(|item| &item.action) {
@@ -534,7 +536,7 @@ impl App {
             Some(RowAction::Host(target)) => Some(target.clone()),
             _ => None,
         };
-        let selected = self.picker.selected;
+        let selected = self.overlays.picker.selected;
         self.update_state(|state| {
             folders.iter().for_each(|folder| state.forget(folder));
             if let Some(host) = &host {
@@ -545,17 +547,20 @@ impl App {
             winc_backend::remote::set_identity(host, None);
         }
         self.picker_refresh();
-        self.picker.selected = selected.min(self.picker.hits.len().saturating_sub(1));
+        self.overlays.picker.selected =
+            selected.min(self.overlays.picker.hits.len().saturating_sub(1));
         self.relayout();
         self.request_redraw();
     }
 
     /// 目录阶段改为浏览 `dir`，清空输入。
     fn remote_picker_go(&mut self, to: String) {
-        if let Some(Stage::Browse { dir, .. }) = self.picker.remote.as_mut().map(|l| &mut l.stage) {
+        if let Some(Stage::Browse { dir, .. }) =
+            self.overlays.picker.remote.as_mut().map(|l| &mut l.stage)
+        {
             *dir = to;
         }
-        self.picker.input.set_text("");
+        self.overlays.picker.input.set_text("");
         self.picker_refresh();
         self.relayout();
         self.request_redraw();
@@ -563,7 +568,7 @@ impl App {
 
     /// 目录阶段按 `Esc`：回到主机面板（上一步），返回真；主机阶段返回假，由调用方关闭面板。
     pub(in crate::app) fn remote_picker_back(&mut self) -> bool {
-        let browsing = (self.picker.remote.as_ref())
+        let browsing = (self.overlays.picker.remote.as_ref())
             .is_some_and(|list| matches!(list.stage, Stage::Browse { .. }));
         if browsing {
             self.open_remote_picker();
@@ -574,10 +579,11 @@ impl App {
     /// 处理面板特有的按键，返回是否已处理。主机阶段 `⇥` 在连接对话框中修改选中的主机；目录
     /// 阶段 `⇥` 进入选中的目录，输入为空时 `⌫` 回到上级。
     pub(in crate::app) fn remote_picker_key(&mut self, key: &Key) -> bool {
-        let Some(list) = self.picker.remote.as_ref() else {
+        let Some(list) = self.overlays.picker.remote.as_ref() else {
             return false;
         };
-        let row = (self.picker.hits.get(self.picker.selected)).and_then(|&i| list.rows.get(i));
+        let row = (self.overlays.picker.hits.get(self.overlays.picker.selected))
+            .and_then(|&i| list.rows.get(i));
         let Stage::Browse { dir, .. } = &list.stage else {
             let edited = match (key, row.map(|row| &row.action)) {
                 (Key::Named(NamedKey::Tab), Some(RowAction::Host(target))) => target.clone(),
@@ -595,7 +601,7 @@ impl App {
                 }
                 true
             }
-            Key::Named(NamedKey::Backspace) if self.picker.input.text().is_empty() => {
+            Key::Named(NamedKey::Backspace) if self.overlays.picker.input.text().is_empty() => {
                 if dir != "/" {
                     self.remote_picker_go(parent(dir));
                 }
@@ -607,7 +613,7 @@ impl App {
 
     /// 在后台读取 `target` 上的目录 `dir`；已读过或正在读取时不重复。
     fn fetch_remote_listing(&mut self, target: &Target, dir: &str) {
-        let Some(list) = self.picker.remote.as_mut() else {
+        let Some(list) = self.overlays.picker.remote.as_mut() else {
             return;
         };
         let key = (target.clone(), dir.to_owned());
@@ -626,13 +632,14 @@ impl App {
 
     /// 提前读取选中的那个子目录：进入时通常已经读好。
     pub(in crate::app) fn prefetch_remote_listing(&mut self) {
-        let Some(list) = self.picker.remote.as_ref() else {
+        let Some(list) = self.overlays.picker.remote.as_ref() else {
             return;
         };
         let Stage::Browse { target, dir, .. } = &list.stage else {
             return;
         };
-        let row = (self.picker.hits.get(self.picker.selected)).and_then(|&i| list.rows.get(i));
+        let row = (self.overlays.picker.hits.get(self.overlays.picker.selected))
+            .and_then(|&i| list.rows.get(i));
         let next = match row.map(|row| &row.action) {
             Some(RowAction::Enter(name)) => child(dir, name),
             Some(RowAction::Up) => parent(dir),
@@ -648,7 +655,7 @@ impl App {
             let mut results = (self.remote.listed.0.lock()).unwrap_or_else(PoisonError::into_inner);
             std::mem::take(&mut *results)
         };
-        let Some(list) = self.picker.remote.as_mut() else {
+        let Some(list) = self.overlays.picker.remote.as_mut() else {
             return;
         };
         let mut shown = false;

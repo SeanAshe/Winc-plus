@@ -71,8 +71,8 @@ fn go_to_definition_tries_this_file_then_the_project() {
 
     // 光标已在定义处：改为列出用法（全字匹配，不含定义本身），可以筛选，回车跳转并选中名字。
     app.go_to_definition();
-    assert!(app.picker.open);
-    let places = app.picker.places.clone().unwrap();
+    assert!(app.overlays.picker.open);
+    let places = app.overlays.picker.places.clone().unwrap();
     assert_eq!(places.kind, PlacesKind::Usages);
     let listed: Vec<(&str, usize)> = places
         .items
@@ -80,9 +80,9 @@ fn go_to_definition_tries_this_file_then_the_project() {
         .map(|p| (p.relative.as_str(), p.line))
         .collect();
     assert_eq!(listed, [("main.py", 0), ("main.py", 4)]);
-    app.picker.input.set_text("return");
+    app.overlays.picker.input.set_text("return");
     app.picker_refresh();
-    assert_eq!(app.picker.hits, [1]);
+    assert_eq!(app.overlays.picker.hits, [1]);
     app.picker_accept();
     assert_eq!(active_name(&app), "main.py");
     let doc = app.editor.active().unwrap();
@@ -92,9 +92,9 @@ fn go_to_definition_tries_this_file_then_the_project() {
     // 已定义但没有其他用法：在名字上方弹出提示气泡，不写入状态栏。
     caret_on(&mut app, "run", 0);
     app.go_to_definition();
-    assert!(!app.picker.open);
+    assert!(!app.overlays.picker.open);
     assert_eq!(
-        app.name_hint.as_ref().map(|h| h.text.as_str()),
+        app.jumps.name_hint.as_ref().map(|h| h.text.as_str()),
         Some("未找到「run」的其他用法")
     );
 
@@ -102,15 +102,15 @@ fn go_to_definition_tries_this_file_then_the_project() {
     app.open_path(&dir.join("main.py"));
     caret_on(&mut app, "load", 0);
     app.go_to_definition();
-    assert!(app.picker.open);
-    let places = app.picker.places.clone().unwrap();
+    assert!(app.overlays.picker.open);
+    let places = app.overlays.picker.places.clone().unwrap();
     let listed: Vec<&str> = places.items.iter().map(|p| p.relative.as_str()).collect();
     assert_eq!(listed, ["lib/other.py", "lib/util.py"]);
-    app.picker.input.set_text("util");
+    app.overlays.picker.input.set_text("util");
     app.picker_refresh();
-    assert_eq!(app.picker.hits, [1]);
+    assert_eq!(app.overlays.picker.hits, [1]);
     app.picker_accept();
-    assert!(!app.picker.open && app.picker.places.is_none());
+    assert!(!app.overlays.picker.open && app.overlays.picker.places.is_none());
     assert_eq!(active_name(&app), "util.py");
     let doc = app.editor.active().unwrap();
     assert_eq!(doc.text().pos_to_line_col(doc.selection.from()), (3, 4));
@@ -120,7 +120,7 @@ fn go_to_definition_tries_this_file_then_the_project() {
     caret_on(&mut app, "import", 0);
     app.go_to_definition();
     assert_eq!(
-        app.name_hint.as_ref().map(|h| h.text.as_str()),
+        app.jumps.name_hint.as_ref().map(|h| h.text.as_str()),
         Some("未找到「import」的定义")
     );
     app.select(1, 1);
@@ -128,7 +128,7 @@ fn go_to_definition_tries_this_file_then_the_project() {
     caret_on(&mut app, "  ", 0);
     app.go_to_definition();
     assert_eq!(
-        app.name_hint.as_ref().map(|h| h.text.as_str()),
+        app.jumps.name_hint.as_ref().map(|h| h.text.as_str()),
         Some("光标处无可查找的名称")
     );
 
@@ -167,8 +167,8 @@ fn usages_skip_other_definitions_comments_and_unrelated_files() {
     // 同名定义、注释、字符串和 Markdown 中的 `Item0` 都不是用法。
     caret_on(&mut app, "Item0", 0);
     app.go_to_definition();
-    assert!(app.picker.open);
-    let places = app.picker.places.clone().unwrap();
+    assert!(app.overlays.picker.open);
+    let places = app.overlays.picker.places.clone().unwrap();
     assert_eq!(places.kind, PlacesKind::Usages);
     let listed: Vec<(&str, usize)> = places
         .items
@@ -182,7 +182,7 @@ fn usages_skip_other_definitions_comments_and_unrelated_files() {
     // 局部变量均不计入。
     caret_on(&mut app, "value_13", 0);
     app.go_to_definition();
-    assert!(!app.picker.open);
+    assert!(!app.overlays.picker.open);
     assert_eq!(active_name(&app), "large.rs");
     let doc = app.editor.active().unwrap();
     assert_eq!(doc.text().pos_to_line_col(doc.selection.from()), (10, 12));
@@ -205,12 +205,17 @@ fn find_references_is_a_whole_word_project_search() {
     caret_on(&mut app, "helper", 1);
 
     app.find_references();
-    assert_eq!(app.global.query.text(), "helper");
-    assert!(app.global.whole_word && app.global.case_sensitive && !app.global.regex);
+    assert_eq!(app.panels.global.query.text(), "helper");
+    assert!(
+        app.panels.global.whole_word
+            && app.panels.global.case_sensitive
+            && !app.panels.global.regex
+    );
     assert_eq!(app.focus, Focus::Results);
-    app.global.engine.wait();
+    app.panels.global.engine.wait();
     app.poll_global();
     let files: Vec<&str> = app
+        .panels
         .global
         .engine
         .results
@@ -218,7 +223,7 @@ fn find_references_is_a_whole_word_project_search() {
         .map(|f| f.relative.as_str())
         .collect();
     assert_eq!(files, ["lib/util.py", "main.py"]);
-    assert_eq!(app.global.engine.total(), 3);
+    assert_eq!(app.panels.global.engine.total(), 3);
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -231,13 +236,13 @@ fn command_palette_runs_commands_and_remembers_them() {
 
     // ⇧⌘P：复用快速打开的卡片，输入框预填 `>`，列出的是命令。
     app.open_palette();
-    assert!(app.picker.open && app.picker_lists_commands());
-    assert_eq!(app.picker.input.text(), ">");
+    assert!(app.overlays.picker.open && app.picker_lists_commands());
+    assert_eq!(app.overlays.picker.input.text(), ">");
     // 输入的字符接在 `>` 之后。
     app.edit_field(|f| f.insert("撤"));
-    assert_eq!(app.picker.input.text(), ">撤");
-    assert_eq!(palette()[app.picker.hits[0]].title(), "撤销");
-    app.picker.input.set_text(">");
+    assert_eq!(app.overlays.picker.input.text(), ">撤");
+    assert_eq!(palette()[app.overlays.picker.hits[0]].title(), "撤销");
+    app.overlays.picker.input.set_text(">");
     app.picker_refresh();
     // 模块关闭时（Git）其命令不列出；开发构建没有要安装的 `winc` 命令，同样不列出；Markdown 的
     // 行内格式只在可编辑的 Markdown 预览中列出。
@@ -260,14 +265,14 @@ fn command_palette_runs_commands_and_remembers_them() {
         .filter(|a| a.module().is_none())
         .filter(installable)
         .count();
-    assert_eq!(app.picker.hits.len(), always);
+    assert_eq!(app.overlays.picker.hits.len(), always);
 
     // 中文名和英文名都能搜索；回车执行选中的命令。
-    app.picker.input.set_text(">toggle comment");
+    app.overlays.picker.input.set_text(">toggle comment");
     app.picker_refresh();
-    assert_eq!(palette()[app.picker.hits[0]].title(), "切换行注释");
+    assert_eq!(palette()[app.overlays.picker.hits[0]].title(), "切换行注释");
     app.picker_accept();
-    assert!(!app.picker.open);
+    assert!(!app.overlays.picker.open);
     assert!(
         app.editor
             .active()
@@ -279,17 +284,18 @@ fn command_palette_runs_commands_and_remembers_them() {
 
     // 再次打开：最近执行过的命令排在最前面。
     app.open_palette();
-    assert_eq!(palette()[app.picker.hits[0]].title(), "切换行注释");
-    assert_eq!(app.picker.recent, 1);
+    assert_eq!(palette()[app.overlays.picker.hits[0]].title(), "切换行注释");
+    assert_eq!(app.overlays.picker.recent, 1);
 
     // 删除 `>`：回到文件列表。
-    app.picker.input.set_text("util");
+    app.overlays.picker.input.set_text("util");
     app.picker_refresh();
     assert!(!app.picker_lists_commands());
     let first = app
+        .overlays
         .picker
         .index
-        .file(app.picker.hits[0])
+        .file(app.overlays.picker.hits[0])
         .unwrap()
         .path
         .to_owned();
@@ -371,7 +377,7 @@ fn back_and_forward_retrace_jumps() {
     assert_eq!(active_name(&app), "util.py");
     app.navigate(true);
     assert_eq!(where_am_i(&app).0, "main.py");
-    assert!(!app.navigation.can_go(true));
+    assert!(!app.jumps.navigation.can_go(true));
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -391,8 +397,9 @@ pub(in crate::app::snapshot) fn long_python(dir: &Path) -> PathBuf {
 }
 
 fn symbol_names(app: &App) -> Vec<String> {
-    let list = app.picker.symbols.as_ref().unwrap();
-    app.picker
+    let list = app.overlays.picker.symbols.as_ref().unwrap();
+    app.overlays
+        .picker
         .hits
         .iter()
         .map(|&i| list.items[i].name.clone())
@@ -410,16 +417,16 @@ fn go_to_symbol_previews_filters_and_jumps() {
     caret_on(&mut app, "pass", 0);
 
     app.open_symbols();
-    assert!(app.picker.open && app.picker_lists_symbols());
-    assert_eq!(app.picker.input.text(), "@");
+    assert!(app.overlays.picker.open && app.picker_lists_symbols());
+    assert_eq!(app.overlays.picker.input.text(), "@");
     let names = symbol_names(&app);
     assert_eq!(&names[..3], ["Shop", "total", "x0"]);
     assert_eq!(&names[names.len() - 2..], ["render", "main"]);
     // 查询为空时选中光标所在的符号。
-    assert_eq!(names[app.picker.selected], "total");
+    assert_eq!(names[app.overlays.picker.selected], "total");
 
     // 筛选：选中靠后的函数时，编辑区同步滚动到该函数，光标位置不变。
-    app.picker.input.set_text("@ren");
+    app.overlays.picker.input.set_text("@ren");
     app.picker_refresh();
     assert_eq!(symbol_names(&app), ["render"]);
     let scrolled = app.editor.active().unwrap().scroll_line;
@@ -430,14 +437,14 @@ fn go_to_symbol_previews_filters_and_jumps() {
     app.close_picker();
     assert_eq!(app.editor.active().unwrap().scroll_line, 0.0);
     assert_eq!(where_am_i(&app).1, 2);
-    assert!(app.picker.symbols.is_none());
+    assert!(app.overlays.picker.symbols.is_none());
 
     // 在快速打开中手动输入 `@` 同样进入符号列表；回车跳转并选中名字。
     app.open_symbols();
-    app.picker.input.set_text("@main");
+    app.overlays.picker.input.set_text("@main");
     app.picker_refresh();
     app.picker_accept();
-    assert!(!app.picker.open);
+    assert!(!app.overlays.picker.open);
     assert_eq!(where_am_i(&app), ("shop.py".to_owned(), 206));
     assert_eq!(selected_text(&app), "main");
     let doc = app.editor.active().unwrap();
@@ -447,11 +454,11 @@ fn go_to_symbol_previews_filters_and_jumps() {
     app.select(0, 0);
     app.editor.active_mut().unwrap().scroll_line = 0.0;
     app.open_symbols();
-    app.picker.input.set_text("@ren");
+    app.overlays.picker.input.set_text("@ren");
     app.picker_refresh();
-    app.picker.input.set_text("ren");
+    app.overlays.picker.input.set_text("ren");
     app.picker_refresh();
-    assert!(app.picker.symbols.is_none());
+    assert!(app.overlays.picker.symbols.is_none());
     assert_eq!(app.editor.active().unwrap().scroll_line, 0.0);
 
     std::fs::remove_dir_all(&dir).unwrap();
@@ -555,7 +562,12 @@ fn shortcuts_come_from_the_keymap() {
         // 文件树中 ↩ 触发重命名。
         app.focus = Focus::Tree;
         assert!(press(&mut app, &[], KeyCode::Enter));
-        assert!(app.name_input.as_ref().is_some_and(|n| n.rename.is_some()));
+        assert!(
+            app.panels
+                .name_input
+                .as_ref()
+                .is_some_and(|n| n.rename.is_some())
+        );
     }
 
     std::fs::remove_dir_all(&dir).unwrap();
@@ -685,7 +697,7 @@ fn sticky_scroll_pins_the_enclosing_blocks() {
     let t = app.layout.text;
     let (x, y) = (t.x + 60.0, t.y + app.fonts.line_height * 1.5);
     app.on_mouse_move(x, y);
-    assert_eq!(app.hover, Hover::Sticky(1));
+    assert_eq!(app.pointer.hover, Hover::Sticky(1));
     app.on_mouse_down(MouseButton::Left);
     app.on_mouse_up(MouseButton::Left);
     let doc = app.editor.active().unwrap();
@@ -849,7 +861,7 @@ fn places_popup_hangs_next_to_the_name() {
     caret_on(&mut app, "load", 0);
     app.go_to_definition();
     paint(&mut app);
-    assert!(app.picker.places.is_some());
+    assert!(app.overlays.picker.places.is_some());
     let line_h = app.fonts.line_height;
     let doc = app.editor.active().unwrap();
     let (line, _) = doc.text().pos_to_line_col(doc.selection.head);
@@ -860,11 +872,12 @@ fn places_popup_hangs_next_to_the_name() {
     assert_eq!(card.x, (name_x - 12.0).round());
 
     // 鼠标悬停在浮窗的第二行上：这一行有悬停效果；移到浮窗外面即消失，也不会穿透到下方。
-    let row = crate::app::workspace::picker::picker_parts(&app, card).row(1, app.picker.scroll);
+    let row =
+        crate::app::workspace::picker::picker_parts(&app, card).row(1, app.overlays.picker.scroll);
     app.on_mouse_move(row.x + 100.0, row.y + row.h / 2.0);
-    assert_eq!(app.hover, Hover::PickerRow(1));
+    assert_eq!(app.pointer.hover, Hover::PickerRow(1));
     app.on_mouse_move(card.x + 100.0, card.y + 4.0);
-    assert_eq!(app.hover, Hover::None);
+    assert_eq!(app.pointer.hover, Hover::None);
     app.close_picker();
 
     // 名字位于编辑区底部：下方空间不足，浮窗改放在上方，底边与该行相距 4 逻辑像素。
@@ -910,18 +923,18 @@ fn places_popup_scrolls_by_whole_rows() {
     for _ in 0..4 {
         wheel(&mut app, -10.0);
     }
-    assert_eq!(app.picker.scroll, 0.0);
+    assert_eq!(app.overlays.picker.scroll, 0.0);
     wheel(&mut app, -10.0);
-    assert_eq!(app.picker.scroll, PICKER_ROW);
+    assert_eq!(app.overlays.picker.scroll, PICKER_ROW);
 
     // 滚动到底部：滚动量始终是整行，最后一行完整可见。
     for _ in 0..100 {
         wheel(&mut app, -37.0);
-        assert_eq!(app.picker.scroll % PICKER_ROW, 0.0);
+        assert_eq!(app.overlays.picker.scroll % PICKER_ROW, 0.0);
     }
     let span = crate::app::workspace::picker::picker_span(&app);
-    let rows = app.picker.hits.len() as f32;
-    assert_eq!(app.picker.scroll + span, rows * PICKER_ROW);
+    let rows = app.overlays.picker.hits.len() as f32;
+    assert_eq!(app.overlays.picker.scroll + span, rows * PICKER_ROW);
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -935,7 +948,7 @@ fn hints_hang_on_the_name_and_go_away() {
     // 没有其他用法：提示显示在名字旁边并对齐名字的开头，不写入状态栏。
     caret_on(&mut app, "run", 0);
     app.go_to_definition();
-    let hint = app.name_hint.as_ref().unwrap();
+    let hint = app.jumps.name_hint.as_ref().unwrap();
     assert_eq!(hint.text, "未找到「run」的其他用法");
     let doc = app.editor.active().unwrap();
     assert_eq!(
@@ -949,20 +962,20 @@ fn hints_hang_on_the_name_and_go_away() {
     // 点击、滚动时消失（测试中没有动画，直接清除）。
     app.on_mouse_down(MouseButton::Left);
     app.on_mouse_up(MouseButton::Left);
-    assert!(app.name_hint.is_none());
+    assert!(app.jumps.name_hint.is_none());
     caret_on(&mut app, "run", 0);
     app.go_to_definition();
     app.on_wheel(MouseScrollDelta::LineDelta(0.0, -1.0));
-    assert!(app.name_hint.is_none());
+    assert!(app.jumps.name_hint.is_none());
 
     // 停留时间结束后自动消失；未到时间时返回下次检查的时刻。
     caret_on(&mut app, "run", 0);
     app.go_to_definition();
     let now = std::time::Instant::now();
     assert!(app.hint_tick(now).is_some());
-    assert!(app.name_hint.is_some());
+    assert!(app.jumps.name_hint.is_some());
     app.hint_tick(now + std::time::Duration::from_secs(10));
-    assert!(app.name_hint.is_none());
+    assert!(app.jumps.name_hint.is_none());
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -980,43 +993,46 @@ fn switching_tabs_closes_lists_that_belong_to_the_old_file() {
 
     // 符号列表属于 `shop.py`：切到其他标签后关闭，回车不会在 `other.py` 中跳到 `shop.py` 的行号。
     app.open_symbols();
-    assert!(app.picker.open);
+    assert!(app.overlays.picker.open);
     app.activate_tab(1);
-    assert!(!app.picker.open);
+    assert!(!app.overlays.picker.open);
     assert_eq!(app.focus, Focus::Editor);
 
     // 由面板自身打开文件的操作（⌘P 选中文件）仍然生效：先关闭面板，再切换标签。
     app.open_symbols();
     app.picker_accept();
-    assert!(!app.picker.open);
+    assert!(!app.overlays.picker.open);
 }
 
 #[test]
 fn hover_is_checked_again_after_keyboard_changes() {
     let dir = sample_folder("hover-refresh");
     let mut app = app_with(&dir.join("a.txt"), false);
-    app.cursor_inside = true;
+    app.pointer.cursor_inside = true;
 
     // 鼠标停在 ⌘P 的第一行上。
     app.open_picker();
     paint(&mut app);
     let list = crate::app::workspace::picker::picker_parts(&app, app.layout.picker).list;
     app.on_mouse_move(list.x + 40.0, list.y + 6.0);
-    assert_eq!(app.hover, Hover::PickerRow(0));
+    assert_eq!(app.pointer.hover, Hover::PickerRow(0));
 
     // 鼠标不动，按 Esc 关闭面板：重绘一帧后按鼠标当前位置重新判定悬停，下次打开面板时
     // 打开时不会立即高亮第一行。
     app.close_picker();
     app.relayout();
-    app.dirty = false;
-    let mut renderer = app.renderer.take().unwrap();
+    app.frame.dirty = false;
+    let mut renderer = app.frame.renderer.take().unwrap();
     renderer.draw(|frame| view::draw(&mut app, frame));
-    app.renderer = Some(renderer);
+    app.frame.renderer = Some(renderer);
     app.refresh_hover();
-    assert_ne!(app.hover, Hover::PickerRow(0));
-    assert_eq!(app.hover, app.hover_at(app.mouse.0, app.mouse.1));
+    assert_ne!(app.pointer.hover, Hover::PickerRow(0));
+    assert_eq!(
+        app.pointer.hover,
+        app.hover_at(app.pointer.mouse.0, app.pointer.mouse.1)
+    );
     // 悬停项已改变，新的高亮需要在下一帧绘制：`redraw` 不能清除该重绘请求。
-    assert!(app.dirty);
+    assert!(app.frame.dirty);
 
     std::fs::remove_dir_all(&dir).unwrap();
 }

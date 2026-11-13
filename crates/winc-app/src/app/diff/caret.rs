@@ -44,7 +44,7 @@ impl App {
         let Some(view) = doc.diff.as_deref() else {
             return 0;
         };
-        let parts = diff_parts(self.layout.editor, view, self.cell);
+        let parts = diff_parts(self.layout.editor, view, self.metrics.cell);
         let visible = f64::from(parts.body.h / self.fonts.line_height);
         let rows = view.rows[side].len();
         let top = view.row_under(side, doc.scroll_line.max(0.0), visible, 0.0);

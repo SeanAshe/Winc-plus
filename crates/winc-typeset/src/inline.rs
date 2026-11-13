@@ -119,8 +119,8 @@ impl Cx<'_, '_> {
             _ => &image.url,
         };
         let path = (self.image_path)(url)?;
-        let picture = match self.images.get(&path) {
-            Some(ImageSlot::Ready { picture, .. }) => picture,
+        let (width, height) = match self.images.get(&path) {
+            Some(ImageSlot::Ready { width, height, .. }) => (*width, *height),
             Some(ImageSlot::Failed) => return None,
             Some(ImageSlot::Loading) => return Some((path, 0.0, 0.0)),
             None => {
@@ -128,7 +128,7 @@ impl Cx<'_, '_> {
                 return Some((path, 0.0, 0.0));
             }
         };
-        let (w, h) = (picture.width.max(1) as f32, picture.height.max(1) as f32);
+        let (w, h) = (width.max(1) as f32, height.max(1) as f32);
         // 百分比按一行的宽度算（README 里 `width="49.45%"` 的几张图并排）。
         // 只量宽度、不限行宽时（`room` 无穷大）按原图大小。
         let width = image.width.and_then(|width| match width {

@@ -28,7 +28,7 @@ fn document() -> App {
 #[test]
 fn touch_taps_position_the_caret_at_high_dpi_and_double_taps_select() {
     let mut app = document();
-    let x = app.layout.text.x + TEXT_PAD + app.cell * 3.0;
+    let x = app.layout.text.x + TEXT_PAD + app.metrics.cell * 3.0;
     let y = app.layout.text.y + app.fonts.line_height / 2.0;
     touch(&mut app, 1, TouchPhase::Started, x, y);
     assert_eq!(app.editor.active().unwrap().selection.head, 0);
@@ -42,18 +42,18 @@ fn touch_taps_position_the_caret_at_high_dpi_and_double_taps_select() {
         app.editor.active().unwrap().selection,
         winc_core::Selection::new(0, 5)
     );
-    assert_eq!(app.drag, Drag::None);
+    assert_eq!(app.pointer.drag, Drag::None);
 }
 
 #[test]
 fn double_tap_tolerates_finger_offset_but_mouse_keeps_tight_tolerance() {
     let mut app = document();
-    let x = app.layout.text.x + TEXT_PAD + app.cell * 2.0;
+    let x = app.layout.text.x + TEXT_PAD + app.metrics.cell * 2.0;
     let y = app.layout.text.y + app.fonts.line_height / 2.0;
     touch(&mut app, 1, TouchPhase::Started, x, y);
     touch(&mut app, 1, TouchPhase::Ended, x, y);
     // 第二次落指在两个方向上的偏移均超过鼠标的连击容差、小于 `TAP_SLOP`，且仍在同一个词内。
-    let second = x + app.cell.min(10.0);
+    let second = x + app.metrics.cell.min(10.0);
     touch(&mut app, 2, TouchPhase::Started, second, y + 6.0);
     touch(&mut app, 2, TouchPhase::Ended, second, y + 6.0);
     assert_eq!(
@@ -61,7 +61,7 @@ fn double_tap_tolerates_finger_offset_but_mouse_keeps_tight_tolerance() {
         winc_core::Selection::new(0, 5)
     );
     // 鼠标点击仍按 4 逻辑像素的容差判断连击。
-    app.last_click = None;
+    app.pointer.last_click = None;
     assert_eq!(app.click_count(x, y), 1);
     assert_eq!(app.click_count(x + 6.0, y), 1);
 }
@@ -155,7 +155,7 @@ fn caption_controls_cover_top_bar_targets() {
     app.relayout();
     paint(&mut app);
     verify(&app);
-    app.sidebar.visible = true;
+    app.panels.sidebar.visible = true;
     app.relayout();
     paint(&mut app);
     verify(&app);
@@ -187,8 +187,8 @@ fn touch_scrolls_by_logical_pixels_without_moving_the_selection() {
     let doc = app.editor.active().unwrap();
     assert!((doc.scroll_line * f64::from(app.fonts.line_height) - 100.0).abs() < 0.01);
     assert_eq!(doc.selection, selection);
-    assert_eq!(app.drag, Drag::None);
-    assert!(app.wheel.glide.is_none());
+    assert_eq!(app.pointer.drag, Drag::None);
+    assert!(app.scroll.wheel.glide.is_none());
 }
 
 #[test]
@@ -210,9 +210,9 @@ fn touch_scroll_stays_in_the_panel_where_it_started() {
     touch(&mut app, 1, TouchPhase::Started, x, y);
     touch(&mut app, 1, TouchPhase::Moved, editor_x, y - 100.0);
     touch(&mut app, 1, TouchPhase::Ended, x, y - 100.0);
-    assert_eq!(app.tree.scroll, 100.0);
+    assert_eq!(app.panels.tree.scroll, 100.0);
     assert!(app.editor.documents.is_empty());
-    assert!(app.tree.drag.is_none());
+    assert!(app.panels.tree.drag.is_none());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -228,7 +228,7 @@ fn touch_long_press_opens_a_menu_once_and_release_keeps_it_open() {
     assert!(app.popup().is_some());
     touch(&mut app, 1, TouchPhase::Ended, x, y);
     assert!(app.popup().is_some());
-    assert_eq!(app.drag, Drag::None);
+    assert_eq!(app.pointer.drag, Drag::None);
 }
 
 #[test]
@@ -245,7 +245,7 @@ fn cancelled_or_interrupted_touch_never_places_the_caret() {
         }
         touch(&mut app, 1, TouchPhase::Ended, x, y);
         assert_eq!(app.editor.active().unwrap().selection.head, 0);
-        assert_eq!(app.drag, Drag::None);
+        assert_eq!(app.pointer.drag, Drag::None);
         assert!(!app.touch.active());
     }
 }
@@ -257,20 +257,20 @@ fn touch_drags_the_scrollbar_and_cancellation_releases_it() {
     let x = editor.right() - 4.0;
     let y = editor.y + editor.h / 2.0;
     touch(&mut app, 1, TouchPhase::Started, x, y);
-    assert!(matches!(app.drag, Drag::Scrollbar { .. }));
+    assert!(matches!(app.pointer.drag, Drag::Scrollbar { .. }));
     let before = app.editor.active().unwrap().scroll_line;
     touch(&mut app, 1, TouchPhase::Moved, x, y + 50.0);
     assert!(app.editor.active().unwrap().scroll_line > before);
     touch(&mut app, 1, TouchPhase::Cancelled, x, y + 50.0);
-    assert_eq!(app.drag, Drag::None);
+    assert_eq!(app.pointer.drag, Drag::None);
     let after = app.editor.active().unwrap().scroll_line;
     app.on_mouse_move(x, y + 100.0);
     assert_eq!(app.editor.active().unwrap().scroll_line, after);
     touch(&mut app, 2, TouchPhase::Started, x, y);
-    assert!(matches!(app.drag, Drag::Scrollbar { .. }));
+    assert!(matches!(app.pointer.drag, Drag::Scrollbar { .. }));
     app.cancel_touch();
-    assert_eq!(app.drag, Drag::None);
-    assert_eq!(app.hover, Hover::None);
+    assert_eq!(app.pointer.drag, Drag::None);
+    assert_eq!(app.pointer.hover, Hover::None);
 }
 
 #[test]
@@ -288,7 +288,7 @@ fn touch_scrolls_settings_without_scrolling_the_document_below() {
     touch(&mut app, 1, TouchPhase::Ended, x, y - 60.0);
     assert_eq!(app.settings.scroll, 60.0);
     assert_eq!(app.editor.active().unwrap().scroll_line, 0.0);
-    assert_eq!(app.drag, Drag::None);
+    assert_eq!(app.pointer.drag, Drag::None);
 }
 
 #[test]
@@ -319,9 +319,9 @@ fn additional_fingers_end_a_scrollbar_drag_without_starting_a_new_action() {
     let x = editor.right() - 4.0;
     let y = editor.y + editor.h / 2.0;
     touch(&mut app, 1, TouchPhase::Started, x, y);
-    assert!(matches!(app.drag, Drag::Scrollbar { .. }));
+    assert!(matches!(app.pointer.drag, Drag::Scrollbar { .. }));
     touch(&mut app, 2, TouchPhase::Started, x - 100.0, y);
-    assert_eq!(app.drag, Drag::None);
+    assert_eq!(app.pointer.drag, Drag::None);
     let scroll = app.editor.active().unwrap().scroll_line;
     touch(&mut app, 1, TouchPhase::Ended, x, y);
     touch(&mut app, 2, TouchPhase::Moved, x - 100.0, y - 100.0);
@@ -345,7 +345,7 @@ fn touch_title_bar_starts_on_contact_without_scrolling_or_long_press() {
     );
     touch(&mut app, 1, TouchPhase::Started, x, y);
     assert!(
-        app.title_click.is_some(),
+        app.pointer.title_click.is_some(),
         "顶栏按下应在落指时记录，而非等到抬手"
     );
     assert!(
@@ -359,12 +359,15 @@ fn touch_title_bar_starts_on_contact_without_scrolling_or_long_press() {
     touch(&mut app, 1, TouchPhase::Moved, x, y - 100.0);
     touch(&mut app, 1, TouchPhase::Ended, x, y);
     assert!(!app.touch.active());
-    assert!(app.title_click.is_some(), "抬手不应再记录一次顶栏按下");
+    assert!(
+        app.pointer.title_click.is_some(),
+        "抬手不应再记录一次顶栏按下"
+    );
     assert_eq!(app.editor.active().unwrap().scroll_line, 0.0);
-    assert_eq!(app.drag, Drag::None);
+    assert_eq!(app.pointer.drag, Drag::None);
     // 第二次落指构成双击，并清除前一次按下的记录。
     touch(&mut app, 2, TouchPhase::Started, x, y);
-    assert!(app.title_click.is_none());
+    assert!(app.pointer.title_click.is_none());
 }
 
 #[test]
@@ -435,7 +438,7 @@ fn native_touch_caption_matches_application_targets() {
     app.relayout();
     paint(&mut app);
     verify(&app);
-    app.sidebar.visible = true;
+    app.panels.sidebar.visible = true;
     app.relayout();
     paint(&mut app);
     verify(&app);

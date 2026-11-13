@@ -39,7 +39,7 @@ fn outside_changes_reach_the_tree_the_index_and_open_files() {
     app.open_path(&dir.join("a.txt"));
     app.open_picker();
     app.close_picker();
-    let indexed = app.picker.index.len();
+    let indexed = app.overlays.picker.index.len();
 
     // 其他程序新建了一个文件；修改了已打开且没有未保存修改的 `short.rs`（直接重新读取）；
     // 修改了已打开且有未保存修改的 `a.txt`（提示冲突，不覆盖）。
@@ -72,19 +72,25 @@ fn outside_changes_reach_the_tree_the_index_and_open_files() {
 
     // ⌘P 的文件表在后台更新：测试中没有事件循环，需要等待更新完成后手动取回。
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
-    while !app.picker.index.is_ready() || app.picker.index.len() == indexed {
+    while !app.overlays.picker.index.is_ready() || app.overlays.picker.index.len() == indexed {
         assert!(std::time::Instant::now() < deadline, "⌘P 的文件表没改好");
         std::thread::sleep(Duration::from_millis(5));
         app.picker_indexed();
     }
-    assert_eq!(app.picker.index.len(), indexed + 1);
-    assert!(app.picker.index.position_of(&dir.join("new.rs")).is_some());
+    assert_eq!(app.overlays.picker.index.len(), indexed + 1);
+    assert!(
+        app.overlays
+            .picker
+            .index
+            .position_of(&dir.join("new.rs"))
+            .is_some()
+    );
 
     // 删除文件后：文件树和文件表中都不再有该文件。
     std::fs::remove_file(dir.join("new.rs")).unwrap();
     app.apply_changes(changes(&dir, &["new.rs"]));
     assert!(!tree_names(&app).contains(&"new.rs".to_owned()));
-    while !app.picker.index.is_ready() || app.picker.index.len() != indexed {
+    while !app.overlays.picker.index.is_ready() || app.overlays.picker.index.len() != indexed {
         assert!(std::time::Instant::now() < deadline, "⌘P 的文件表没改好");
         std::thread::sleep(Duration::from_millis(5));
         app.picker_indexed();
@@ -98,17 +104,17 @@ fn changes_are_handled_together_a_moment_after_the_first() {
     let dir = sample_folder("watch-settle");
     let mut app = app_with(&dir, false);
     // 测试中没有事件循环，不监视目录；但仍可验证收到通知与到期处理的时序。
-    assert!(app.watcher.is_none());
+    assert!(app.disk.watcher.is_none());
     let now = std::time::Instant::now();
     app.files_changed();
-    let due = app.changes_due.unwrap();
+    let due = app.disk.changes_due.unwrap();
     assert!(due > now);
     // 后续到达的通知不推迟到期时刻：持续有改动时也会按时处理。
     app.files_changed();
-    assert_eq!(app.changes_due, Some(due));
+    assert_eq!(app.disk.changes_due, Some(due));
     assert_eq!(app.changes_tick(now), Some(due));
     assert_eq!(app.changes_tick(due), None);
-    assert!(app.changes_due.is_none());
+    assert!(app.disk.changes_due.is_none());
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -118,11 +124,11 @@ fn search_results_follow_only_the_files_that_changed() {
     let dir = sample_folder("watch-search");
     let dir = winc_config::files::canonicalize(&dir).unwrap();
     let mut app = app_with(&dir, false);
-    app.global.query.set_text("println");
+    app.panels.global.query.set_text("println");
     app.run_global_search();
     finish_search(&mut app);
     let files = |app: &App| -> Vec<String> {
-        let results = &app.global.engine.results;
+        let results = &app.panels.global.engine.results;
         results.iter().map(|f| f.relative.clone()).collect()
     };
     let before = files(&app);
@@ -163,7 +169,7 @@ fn files_made_here_reach_quick_open_without_walking_again() {
     let mut app = app_with(&dir, false);
     app.open_picker();
     app.close_picker();
-    let before = app.picker.index.len();
+    let before = app.overlays.picker.index.len();
 
     // 在文件树中一次创建两级的目录和文件：`docs` → `guide` → `intro.md`。
     app.start_new_entry(false);
@@ -174,6 +180,7 @@ fn files_made_here_reach_quick_open_without_walking_again() {
     // 后台只更新新增的目录与文件（测试中没有事件循环，需要手动取回结果）。
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     while app
+        .overlays
         .picker
         .index
         .position_of(&dir.join("docs/guide/intro.md"))
@@ -183,7 +190,7 @@ fn files_made_here_reach_quick_open_without_walking_again() {
         std::thread::sleep(Duration::from_millis(5));
         app.picker_indexed();
     }
-    assert_eq!(app.picker.index.len(), before + 1);
+    assert_eq!(app.overlays.picker.index.len(), before + 1);
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -193,13 +200,13 @@ fn logs_written_by_others_are_followed_at_the_end() {
     use std::io::Write as _;
 
     let dir = sample_folder("watch-follow");
-    let log = dir.join("app.log");
+    let log = dir.join("app.git.log");
     let lines =
         |from: usize, to: usize| -> String { (from..to).map(|i| format!("line {i}\n")).collect() };
     std::fs::write(&log, lines(0, 200)).unwrap();
     let mut app = app_with(&log, false);
     let root = app.editor.root().unwrap().to_path_buf();
-    let log = root.join("app.log");
+    let log = root.join("app.git.log");
     let append = |from: usize, to: usize, n: u64| {
         let mut file = std::fs::File::options().append(true).open(&log).unwrap();
         file.write_all(lines(from, to).as_bytes()).unwrap();
@@ -216,7 +223,7 @@ fn logs_written_by_others_are_followed_at_the_end() {
     let end = app.editor.active().unwrap().text().end_pos();
     app.select(end, end);
     append(200, 300, 1);
-    app.apply_changes(changes(&root, &["app.log"]));
+    app.apply_changes(changes(&root, &["app.git.log"]));
     assert_eq!(caret_line(&app), 300);
     assert!(app.status.message.is_none());
     let doc = app.editor.active().unwrap();
@@ -228,7 +235,7 @@ fn logs_written_by_others_are_followed_at_the_end() {
     app.select(at, at);
     let scroll = app.editor.active().unwrap().scroll_line;
     append(300, 310, 2);
-    app.apply_changes(changes(&root, &["app.log"]));
+    app.apply_changes(changes(&root, &["app.git.log"]));
     assert_eq!(caret_line(&app), 10);
     assert_eq!(app.editor.active().unwrap().scroll_line, scroll);
     assert_eq!(app.editor.active().unwrap().text().line_count(), 311);
@@ -269,7 +276,7 @@ fn conflicts_wait_for_the_user_to_pick_a_side() {
     // 卡片遮挡下方的文字：悬停只识别按钮，点击卡片空白处不移动光标。
     let caret = app.editor.active().unwrap().selection;
     app.on_mouse_move(card.x + 20.0, card.y + card.h / 2.0);
-    assert_eq!(app.hover, Hover::None);
+    assert_eq!(app.pointer.hover, Hover::None);
     app.on_mouse_down(MouseButton::Left);
     app.on_mouse_up(MouseButton::Left);
     assert_eq!(app.editor.active().unwrap().selection, caret);
@@ -285,7 +292,10 @@ fn conflicts_wait_for_the_user_to_pick_a_side() {
     };
     let compare = button(&app, ConflictAction::Compare);
     app.on_mouse_move(compare.x + 4.0, compare.y + 4.0);
-    assert_eq!(app.hover, Hover::ConflictButton(ConflictAction::Compare));
+    assert_eq!(
+        app.pointer.hover,
+        Hover::ConflictButton(ConflictAction::Compare)
+    );
     app.on_mouse_down(MouseButton::Left);
     let diff = app.editor.active().unwrap();
     assert_eq!(diff.title.as_deref(), Some("比较：a.txt"));
@@ -369,7 +379,10 @@ fn background_rereads_keep_only_the_latest_and_skip_edited_documents() {
         let winc_editor::DiskSync::Reread(reread) = app.editor.documents[index].check_disk() else {
             panic!("干净的文档被改了应该要重读");
         };
-        (app.rereads.tickets.issue(id), DiskBack::Read(reread.read()))
+        (
+            app.disk.rereads.tickets.issue(id),
+            DiskBack::Read(reread.read()),
+        )
     };
     let text = |app: &App| {
         app.editor.documents[index]
@@ -382,7 +395,7 @@ fn background_rereads_keep_only_the_latest_and_skip_edited_documents() {
     // 文件连续修改两次，先发出的读取后到达：采用后发出的结果，后到达的旧内容不覆盖新内容。
     let (first, old) = reread(&mut app, "fn first() {}\n", 1);
     let (second, new) = reread(&mut app, "fn second() {}\n", 2);
-    let sender = app.rereads.results.0.clone();
+    let sender = app.disk.rereads.results.0.clone();
     sender.send((id, second, new)).unwrap();
     sender.send((id, first, old)).unwrap();
     app.poll_rereads();
@@ -411,7 +424,7 @@ fn background_tree_scans_keep_only_the_latest_per_folder() {
         let tickets: Vec<u64> = scan
             .dirs()
             .iter()
-            .map(|d| app.tree.scans.tickets.issue(d.clone()))
+            .map(|d| app.panels.tree.scans.tickets.issue(d.clone()))
             .collect();
         (tickets, scan.run())
     };
@@ -421,7 +434,7 @@ fn background_tree_scans_keep_only_the_latest_per_folder() {
     let old = scan(&mut app);
     std::fs::write(dir.join("second.rs"), "").unwrap();
     let new = scan(&mut app);
-    let sender = app.tree.scans.results.0.clone();
+    let sender = app.panels.tree.scans.results.0.clone();
     sender.send(new).unwrap();
     sender.send(old).unwrap();
     app.poll_tree_scans();
@@ -456,11 +469,11 @@ fn large_files_save_in_the_background_and_skip_their_own_write() {
 
     // 正在后台保存的文档不随磁盘同步：本程序写出的文件不会被视为外部修改而报告冲突。
     app.run(Command::Insert("B".into()));
-    app.saves.running.insert(id);
+    app.disk.saves.running.insert(id);
     touch_later(&path);
     app.apply_changes(changes(&dir, &["big.log"]));
     assert!(app.active_conflict().is_none());
-    app.saves.running.remove(&id);
+    app.disk.saves.running.remove(&id);
 
     let _ = std::fs::remove_dir_all(&dir);
 }

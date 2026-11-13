@@ -57,7 +57,7 @@ impl App {
             return SyncState::NoRemote;
         }
         let on_branch = matches!(status.head, Some(Head::Branch(_)));
-        if !on_branch || status.operation.is_some() || self.commit.amend {
+        if !on_branch || status.operation.is_some() || self.git.commit.amend {
             return SyncState::Hidden;
         }
         // 分支列表还没读到时不知道有没有上游。
@@ -210,9 +210,9 @@ impl App {
     /// 提交并推送：可以提交时用提示框询问，写明提交多少文件、推到哪个分支；不能提交时由提交的入口
     /// 说明原因。
     pub(in crate::app) fn confirm_commit_and_push(&mut self) {
-        let ready = !self.commit.busy
+        let ready = !self.git.commit.busy
             && (self.git.status.as_ref())
-                .is_some_and(|status| self.commit.blocker(status).is_none());
+                .is_some_and(|status| self.git.commit.blocker(status).is_none());
         if !ready {
             self.git_commit_and_push();
             return;
@@ -245,10 +245,10 @@ impl App {
     ///
     /// 没写提交信息、什么都没勾时在状态栏说明，不提交。
     pub(in crate::app) fn git_commit(&mut self) {
-        if self.commit.busy {
+        if self.git.commit.busy {
             return;
         }
-        let message = self.commit.message.text().trim().to_owned();
+        let message = self.git.commit.message.text().trim().to_owned();
         let rebasing = self
             .git
             .status
@@ -265,6 +265,7 @@ impl App {
             return;
         };
         let checked: Vec<PathBuf> = self
+            .git
             .commit
             .checked_entries(status)
             .map(|e| e.path.clone())
@@ -278,6 +279,7 @@ impl App {
         // 勾选的冲突文件中仍有冲突标记时拒绝提交，否则 `git add` 将其视为已解决，标记和两侧内容会
         // 一并进入提交；这里读取刚保存的磁盘内容，使编辑器刚移除标记、状态尚未刷新时的结果也正确。
         let unresolved = self
+            .git
             .commit
             .checked_entries(status)
             .filter(|e| e.conflicted() && winc_editor::git::merge::file_has_conflicts(&e.path))
@@ -288,7 +290,7 @@ impl App {
         }
         let mut paths = Vec::new();
         let mut add = Vec::new();
-        for entry in self.commit.checked_entries(status) {
+        for entry in self.git.commit.checked_entries(status) {
             paths.push(entry.path.clone());
             // 改名的文件，原来的路径也要一起提交，否则提交里会同时留着新旧两个文件。
             paths.extend(entry.from.clone());
@@ -296,16 +298,17 @@ impl App {
                 add.push(entry.path.clone());
             }
         }
-        if paths.is_empty() && !self.commit.amend && !rebasing {
+        if paths.is_empty() && !self.git.commit.amend && !rebasing {
             self.flash(t!("git-commit-nothing-checked"));
             return;
         }
         // 只提交一部分改动的文件：按磁盘上的内容拼出要提交的内容。
         let parts: Vec<(PathBuf, Vec<Skip>)> = self
+            .git
             .commit
             .checked_entries(status)
             .filter_map(|e| {
-                let skipped = self.commit.skipped.get(&e.path)?;
+                let skipped = self.git.commit.skipped.get(&e.path)?;
                 (!skipped.is_empty()).then(|| (e.path.clone(), skipped.clone()))
             })
             .collect();
@@ -319,9 +322,9 @@ impl App {
             });
             return;
         }
-        let amend = self.commit.amend;
-        let sender = self.commit.results.0.clone();
-        self.commit.busy = true;
+        let amend = self.git.commit.amend;
+        let sender = self.git.commit.results.0.clone();
+        self.git.commit.busy = true;
         self.run_git_job(move |git, root| {
             let result = git.and_then(|git| {
                 let partial = parts
@@ -382,6 +385,7 @@ impl App {
             return;
         };
         let paths: Vec<PathBuf> = self
+            .git
             .commit
             .checked_entries(status)
             .filter(|e| group.holds(e))
@@ -450,8 +454,8 @@ impl App {
             self.git_refresh();
             return;
         }
-        let sender = self.commit.results.0.clone();
-        self.commit.busy = true;
+        let sender = self.git.commit.results.0.clone();
+        self.git.commit.busy = true;
         self.run_git_job(move |git, root| {
             let result = git
                 .and_then(|git| git.rollback(root, &restore, &added))
@@ -462,15 +466,15 @@ impl App {
 
     /// 收下后台交回来的提交、回滚结果和上一次提交的信息。
     pub(in crate::app) fn poll_commit(&mut self) {
-        while let Ok(outcome) = self.commit.results.1.try_recv() {
+        while let Ok(outcome) = self.git.commit.results.1.try_recv() {
             match outcome {
                 Outcome::StashFiles(oid, name, files) => self.stash_files_arrived(oid, name, files),
                 Outcome::StashDiff(title, view) => self.stash_diff_arrived(title, view),
                 Outcome::LastMessage(message) => {
                     // 等结果的时候用户已经关闭了「修改上一次提交」，就不填。
-                    if self.commit.amend {
-                        self.commit.message.set_text(&message);
-                        self.commit.message.set_caret(message.len(), false);
+                    if self.git.commit.amend {
+                        self.git.commit.message.set_text(&message);
+                        self.git.commit.message.set_caret(message.len(), false);
                     }
                 }
                 Outcome::Committed(result, message, root) => {
@@ -487,32 +491,33 @@ impl App {
                         }
                         continue;
                     }
-                    self.commit.busy = false;
+                    self.git.commit.busy = false;
                     match result {
                         Ok(oid) => {
                             // 勾上的都提交了；按块勾掉的那些改动还在工作区里，下次重新勾。
-                            self.commit.skipped.clear();
+                            self.git.commit.skipped.clear();
                             // 提交期间用户又改了信息，就留着改过的，不清空。
-                            if self.commit.message.text().trim() == message {
-                                self.commit.message.remember();
-                                self.commit.message.set_text("");
+                            if self.git.commit.message.text().trim() == message {
+                                self.git.commit.message.remember();
+                                self.git.commit.message.set_text("");
                             }
                             let subject = message.lines().next().unwrap_or_default();
                             // 「提交并推送」已经确认过，推送不再询问。
-                            if std::mem::take(&mut self.commit.push_after)
+                            if std::mem::take(&mut self.git.commit.push_after)
                                 && let Some(intent) = self.push_intent()
                             {
                                 self.run_push(intent);
                             }
-                            self.commit.amend = false;
-                            self.commit.draft = None;
-                            self.commit.reset_checks();
+                            self.git.commit.amend = false;
+                            self.git.commit.draft = None;
+                            self.git.commit.reset_checks();
                             self.flash(t!("git-commit-done", oid = &oid, subject = subject));
                             let short: String = oid.chars().take(7).collect();
-                            self.commit.committed = Some((short, Instant::now() + COMMITTED_SHOWN));
+                            self.git.commit.committed =
+                                Some((short, Instant::now() + COMMITTED_SHOWN));
                         }
                         Err(e) => {
-                            self.commit.push_after = false;
+                            self.git.commit.push_after = false;
                             self.notify_with(
                                 t!("git-commit-failed", error = e),
                                 NoticeAction::GitOutput,
@@ -526,7 +531,7 @@ impl App {
                     if self.git.root.as_deref() == Some(root.as_path())
                         && last.as_ref().map(|l| &l.oid) == oid
                     {
-                        self.commit.last = last;
+                        self.git.commit.last = last;
                     }
                 }
                 Outcome::Undone(result, last, root) => {
@@ -535,16 +540,16 @@ impl App {
                     let tag: String = last.oid.chars().take(7).collect();
                     match result {
                         Ok(()) if here => {
-                            if self.commit.message.text().trim().is_empty() {
-                                self.commit.message.set_text(&last.message);
+                            if self.git.commit.message.text().trim().is_empty() {
+                                self.git.commit.message.set_text(&last.message);
                                 let end = last.message.len();
-                                self.commit.message.set_caret(end, false);
+                                self.git.commit.message.set_caret(end, false);
                             }
                             self.flash(t!("git-undo-commit-done", oid = tag));
                         }
                         Ok(()) => self.flash(t!("git-undo-commit-done-in", name = name, oid = tag)),
                         Err(e) => {
-                            self.commit.last_for = None;
+                            self.git.commit.last_for = None;
                             self.notify(t!("git-undo-commit-failed", error = e));
                         }
                     }
@@ -565,7 +570,7 @@ impl App {
                         }
                         continue;
                     }
-                    self.commit.busy = false;
+                    self.git.commit.busy = false;
                     match result {
                         Ok(count) => self.flash(t!("git-rollback-done", count = count)),
                         Err(e) => self.notify(t!("git-rollback-failed", error = e)),
@@ -581,11 +586,11 @@ impl App {
     /// 换了仓库：提交视图回到初始的样子（写了一半的信息、「修改上一次提交」、勾选、正在提交都是
     /// 旧仓库的）；列表的显示方式（平铺、收起的分组）保留，旧仓库尚未交回的结果仍然收下。
     pub(in crate::app::git) fn reset_commit_view(&mut self) {
-        let old = std::mem::take(&mut self.commit);
-        self.commit.results = old.results;
-        self.commit.flat = old.flat;
-        self.commit.collapsed = old.collapsed;
-        self.commit.drafts = old.drafts;
+        let old = std::mem::take(&mut self.git.commit);
+        self.git.commit.results = old.results;
+        self.git.commit.flat = old.flat;
+        self.git.commit.collapsed = old.collapsed;
+        self.git.commit.drafts = old.drafts;
     }
 
     /// 在后台对打开的仓库做一件提交视图的事（提交、回滚），做完以 [`UserEvent::GitCommit`] 收

@@ -256,9 +256,16 @@ fn the_menu_selects_and_the_file_is_watched() {
     app.relayout();
     let menu = run_button(&mut app, RunButton::Menu).unwrap();
     click(&mut app, menu);
-    assert_eq!(app.menu_button, Some(crate::app::MenuButton::RunConfigs));
     assert_eq!(
-        app.context_menu.as_ref().expect("弹出了菜单").entries,
+        app.overlays.menu_button,
+        Some(crate::app::MenuButton::RunConfigs)
+    );
+    assert_eq!(
+        app.overlays
+            .context_menu
+            .as_ref()
+            .expect("弹出了菜单")
+            .entries,
         [
             MenuEntry::Item(MenuCommand::RunSelect(0), true),
             MenuEntry::Item(MenuCommand::RunSelect(1), true),

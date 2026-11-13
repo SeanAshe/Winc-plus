@@ -199,7 +199,7 @@ pub(super) fn draw_line(
     marks: &[(usize, usize, Color)],
     clip: Rect,
 ) {
-    let (cell, size) = (app.terminal_cell, app.fonts.terminal);
+    let (cell, size) = (app.metrics.terminal_cell, app.fonts.terminal);
     let parts = segments(line);
     let styles: Vec<Paint> = parts.iter().map(|p| colors.style(&p.style)).collect();
     let x_of = |col: usize| row.x + col as f32 * cell;
@@ -285,7 +285,7 @@ pub(super) fn draw_line(
             draw_underline(frame, underline, (x0, x1), baseline + 2.0, color, clip);
         }
         if attrs.has(Attrs::STRIKE) && part.end > part.start {
-            let y = (baseline - app.terminal_metrics.x_height / 2.0).round();
+            let y = (baseline - app.metrics.terminal.x_height / 2.0).round();
             frame.rect_clipped(span(y, 1.0), fg, 0.0, clip);
         }
     }
@@ -542,7 +542,7 @@ fn draw_cluster(
     if attrs.has(Attrs::HIDDEN) || draw_block_element(frame, cluster.base, at, color, clip) {
         return;
     }
-    let (cell, size) = (app.terminal_cell, app.fonts.terminal);
+    let (cell, size) = (app.metrics.terminal_cell, app.fonts.terminal);
     let kind = if attrs.has(Attrs::ITALIC) {
         FontKind::TerminalItalic
     } else {
@@ -551,8 +551,8 @@ fn draw_cluster(
     let cells = ((at.w / cell).round() as usize).max(1);
     let baseline = baseline_in(
         at,
-        app.terminal_metrics.ascent,
-        app.terminal_metrics.descent,
+        app.metrics.terminal.ascent,
+        app.metrics.terminal.descent,
     );
     frame.cell_char(
         kind,
@@ -608,7 +608,7 @@ pub(super) fn draw_preedit(
     clip: Rect,
 ) {
     let p = app.palette;
-    let cell = app.terminal_cell;
+    let cell = app.metrics.terminal_cell;
     let cells = |c: char| char_width(c).max(1);
     let preedit = app.preedit_at(Focus::Terminal);
     let width = preedit.chars().map(cells).sum::<usize>() as f32 * cell;

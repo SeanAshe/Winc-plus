@@ -34,7 +34,7 @@ fn closing_unsaved_tabs_asks_save_discard_or_cancel() {
         Some(main.as_path())
     );
     assert_eq!(app.editor.active().unwrap().selection.head, 5);
-    assert!(app.closed.is_empty());
+    assert!(app.history.closed.is_empty());
 
     // 保存：先保存，再关闭。
     app.run(Command::Insert("// y\n".into()));
@@ -112,8 +112,8 @@ fn tree_context_menu_targets_the_clicked_row() {
     );
 
     app.run_menu_command(MenuCommand::CopyRelativePath);
-    assert_eq!(app.copied.as_deref(), Some("Cargo.toml"));
-    assert!(app.context_menu.is_none());
+    assert_eq!(app.clipboard.copied.as_deref(), Some("Cargo.toml"));
+    assert!(app.overlays.context_menu.is_none());
 
     // 在空白处右键：目标是根目录，不能重命名，也不能删除。
     let below = app.layout.tree.bottom() - 10.0;
@@ -123,7 +123,10 @@ fn tree_context_menu_targets_the_clicked_row() {
     let commands = menu_commands(&app);
     assert!(!commands.iter().any(|(c, _)| *c == MenuCommand::Delete));
     app.run_menu_command(MenuCommand::CopyPath);
-    assert_eq!(app.copied.as_deref(), Some(root.to_str().unwrap()));
+    assert_eq!(
+        app.clipboard.copied.as_deref(),
+        Some(root.to_str().unwrap())
+    );
     // 菜单已经使用过，再次执行菜单命令不产生任何效果。
     app.run_menu_command(MenuCommand::Delete);
     assert!(root.is_dir());
@@ -133,7 +136,7 @@ fn tree_context_menu_targets_the_clicked_row() {
     let at = tree_row_center(&app, src);
     right_click(&mut app, at);
     app.run_menu_command(MenuCommand::NewFile);
-    let entry = app.name_input.as_ref().unwrap();
+    let entry = app.panels.name_input.as_ref().unwrap();
     assert_eq!(entry.dir, root.join("src"));
     app.close_name_input();
 
@@ -142,9 +145,9 @@ fn tree_context_menu_targets_the_clicked_row() {
     let at = tree_row_center(&app, src);
     right_click(&mut app, at);
     app.run_menu_command(MenuCommand::FindInFolder);
-    assert_eq!(app.sidebar.view, SidebarView::Search);
-    assert_eq!(app.global.include.text(), "./src");
-    assert!(app.global.details_open);
+    assert_eq!(app.panels.sidebar.view, SidebarView::Search);
+    assert_eq!(app.panels.global.include.text(), "./src");
+    assert!(app.panels.global.details_open);
     assert_eq!(app.focus, Focus::GlobalQuery);
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -167,7 +170,7 @@ fn rename_in_the_tree_moves_open_documents() {
     let at = tree_row_center(&app, main);
     right_click(&mut app, at);
     app.run_menu_command(MenuCommand::Rename);
-    let entry = app.name_input.as_ref().unwrap();
+    let entry = app.panels.name_input.as_ref().unwrap();
     assert_eq!(entry.index, main);
     assert_eq!(entry.field.selected_text(), "main");
     assert_eq!(app.focus, Focus::Prompt);
@@ -190,7 +193,7 @@ fn rename_in_the_tree_moves_open_documents() {
     app.edit_field(|f| f.insert("config"));
     app.submit_prompt();
     assert_eq!(
-        app.name_input.as_ref().unwrap().error.as_deref(),
+        app.panels.name_input.as_ref().unwrap().error.as_deref(),
         Some("已存在同名项")
     );
 
@@ -200,7 +203,7 @@ fn rename_in_the_tree_moves_open_documents() {
         f.insert("app.rs")
     });
     app.submit_prompt();
-    assert!(app.name_input.is_none());
+    assert!(app.panels.name_input.is_none());
     assert!(root.join("src/app.rs").is_file() && !root.join("src/main.rs").exists());
     let doc = app.editor.active().unwrap();
     assert_eq!(doc.path.as_deref(), Some(root.join("src/app.rs").as_path()));
@@ -304,7 +307,7 @@ fn tab_context_menu_closes_others_right_and_saved() {
     assert!(commands.contains(&(MenuCommand::CopyPath, false)));
     assert!(commands.contains(&(MenuCommand::CloseRight, false)));
     app.run_menu_command(MenuCommand::CopyPath);
-    assert!(app.copied.is_none());
+    assert!(app.clipboard.copied.is_none());
 
     // 在 `config.rs` 上「关闭右侧」：右侧的两个标签关闭。
     let at = tab(&app, 1);
@@ -336,7 +339,7 @@ fn tab_context_menu_closes_others_right_and_saved() {
     let at = tab(&app, 0);
     right_click(&mut app, at);
     app.run_menu_command(MenuCommand::RevealInTree);
-    assert_eq!(app.sidebar.view, SidebarView::Files);
+    assert_eq!(app.panels.sidebar.view, SidebarView::Files);
     let ws = app.editor.workspace.as_ref().unwrap();
     assert_eq!(ws.selected_entry().unwrap().name, "main.rs");
 
@@ -358,16 +361,16 @@ fn bookmark_commands_are_available_in_the_editor_menu() {
         popup: None,
     };
 
-    app.context_menu = Some(menu(false));
+    app.overlays.context_menu = Some(menu(false));
     app.run_menu_command(crate::app::MenuCommand::AddBookmark);
     assert_eq!(app.editor.active().unwrap().bookmark_lines(), [0]);
 
-    app.context_menu = Some(menu(true));
+    app.overlays.context_menu = Some(menu(true));
     app.run_menu_command(crate::app::MenuCommand::ListBookmarks);
-    assert!(app.picker.open && app.picker.places.is_some());
+    assert!(app.overlays.picker.open && app.overlays.picker.places.is_some());
     app.close_picker();
 
-    app.context_menu = Some(menu(true));
+    app.overlays.context_menu = Some(menu(true));
     app.run_menu_command(crate::app::MenuCommand::RemoveBookmark);
     assert!(app.editor.active().unwrap().bookmark_lines().is_empty());
 
@@ -385,7 +388,7 @@ fn cmd_i_copies_a_reference_to_the_lines() {
     let copy = |app: &mut App, anchor, head| {
         app.editor.active_mut().unwrap().selection = Selection { anchor, head };
         assert!(press(app, &["cmd"], Char('i')));
-        app.copied.clone().unwrap()
+        app.clipboard.copied.clone().unwrap()
     };
     // `short.rs` 的第 0 行是 `fn main() {`，第 1 行从字符偏移 12 起，第 2 行从字符偏移 35 起。
     assert_eq!(copy(&mut app, 3, 3), "short.rs:1");
@@ -398,7 +401,7 @@ fn cmd_i_copies_a_reference_to_the_lines() {
     assert!(press(&mut app, &["cmd"], Char('l')));
     let file = app.editor.active().unwrap().path.clone().unwrap();
     let expected = format!("{}:1-3", file.display());
-    assert_eq!(app.copied.as_deref(), Some(expected.as_str()));
+    assert_eq!(app.clipboard.copied.as_deref(), Some(expected.as_str()));
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -453,8 +456,8 @@ fn menus_without_a_system_menu_are_drawn_in_the_window() {
     app.on_mouse_move(x, y);
     app.on_mouse_down(MouseButton::Left);
     app.on_mouse_up(MouseButton::Left);
-    assert!(app.context_menu.is_none());
-    assert_eq!(app.menu_button, None);
+    assert!(app.overlays.context_menu.is_none());
+    assert_eq!(app.overlays.menu_button, None);
 
     // 键盘：↓ 停在第一项，→ 展开子菜单并停在第一项，← 收起，Esc 关掉。
     app.open_status_menu(StatusItem::Encoding);
@@ -471,7 +474,7 @@ fn menus_without_a_system_menu_are_drawn_in_the_window() {
     key(&mut app, NamedKey::ArrowLeft);
     assert_eq!(app.popup().unwrap().levels.len(), 1);
     key(&mut app, NamedKey::Escape);
-    assert!(app.context_menu.is_none());
+    assert!(app.overlays.context_menu.is_none());
 
     // 左键点在菜单外面：只关掉菜单，这次点击不传给下层，光标不动。
     app.open_status_menu(StatusItem::Encoding);
@@ -481,7 +484,7 @@ fn menus_without_a_system_menu_are_drawn_in_the_window() {
     app.on_mouse_move(text.x + 200.0, text.y + 60.0);
     app.on_mouse_down(MouseButton::Left);
     app.on_mouse_up(MouseButton::Left);
-    assert!(app.context_menu.is_none());
+    assert!(app.overlays.context_menu.is_none());
     assert_eq!(app.editor.active().unwrap().selection, caret);
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -536,7 +539,7 @@ fn alerts_without_a_system_dialog_are_drawn_in_the_window() {
 
     // 没有系统提示框：画在窗口里；第一个按钮在最右边，其余依次向左。
     ask(&mut app);
-    let parts = app.alert.as_ref().unwrap().parts.clone();
+    let parts = app.overlays.alert.as_ref().unwrap().parts.clone();
     assert_eq!(parts.buttons.len(), 3);
     assert!(parts.buttons[0].x > parts.buttons[1].x && parts.buttons[1].x > parts.buttons[2].x);
     // 已经有提示框时不再弹第二个。
@@ -552,25 +555,28 @@ fn alerts_without_a_system_dialog_are_drawn_in_the_window() {
     let center = |r: Rect| (r.x + r.w / 2.0, r.y + r.h / 2.0);
     let (x, y) = center(parts.checkbox.unwrap());
     app.on_mouse_move(x, y);
-    assert_eq!(app.alert.as_ref().unwrap().hover, Some(AlertPart::Checkbox));
+    assert_eq!(
+        app.overlays.alert.as_ref().unwrap().hover,
+        Some(AlertPart::Checkbox)
+    );
     app.on_mouse_down(MouseButton::Left);
-    assert!(app.alert.as_ref().unwrap().checked);
+    assert!(app.overlays.alert.as_ref().unwrap().checked);
     let (x, y) = center(parts.buttons[0]);
     app.on_mouse_move(x, y);
     app.on_mouse_down(MouseButton::Left);
-    assert!(app.alert.is_none());
+    assert!(app.overlays.alert.is_none());
     assert!(app.settings.open);
     app.close_settings();
 
     // ↩ 选默认按钮，Esc 选「取消」，⌘D（其他平台 Ctrl+D）选绑了 D 的按钮。
     ask(&mut app);
     assert!(app.alert_key(&Key::Named(NamedKey::Escape), false));
-    assert!(app.alert.is_none() && !app.settings.open);
+    assert!(app.overlays.alert.is_none() && !app.settings.open);
     ask(&mut app);
     assert!(app.alert_key(&Key::Character("d".into()), false));
-    assert!(app.alert.is_some(), "没按着 ⌘ 时 D 不算");
+    assert!(app.overlays.alert.is_some(), "没按着 ⌘ 时 D 不算");
     assert!(app.alert_key(&Key::Character("d".into()), true));
-    assert!(app.alert.is_none() && !app.settings.open);
+    assert!(app.overlays.alert.is_none() && !app.settings.open);
     ask(&mut app);
     assert!(app.alert_key(&Key::Named(NamedKey::Enter), false));
     assert!(app.settings.open);
@@ -603,7 +609,7 @@ fn shoot_alert() {
             |_, _| None,
         );
         paint(&mut app);
-        let button = app.alert.as_ref().unwrap().parts.buttons[1];
+        let button = app.overlays.alert.as_ref().unwrap().parts.buttons[1];
         app.on_mouse_move(button.x + 10.0, button.y + 10.0);
         shoot(&mut app, &format!("alert-{theme}"));
         let _ = std::fs::remove_dir_all(&dir);

@@ -116,7 +116,7 @@ pub(super) fn draw_minimap(app: &mut App, frame: &mut Frame<'_>, index: usize) {
 
     // 不换行时每行一道，按行缓存。
     if !doc.is_wrapping() {
-        let mut cache = app.minimap_rows.borrow_mut();
+        let mut cache = app.caches.minimap_rows.borrow_mut();
         let key = (doc.id, doc.revision, columns, tab_width, language.id);
         if cache.key != Some(key) || cache.rows.len() > ROWS_MAX {
             cache.key = Some(key);

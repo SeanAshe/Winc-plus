@@ -61,7 +61,7 @@ impl App {
     fn terminal_cell(&self, x: f32, y: f32) -> Option<(u16, u16)> {
         let tab = self.terminal.tab()?;
         let grid = self.terminal_grid();
-        let col = ((x - grid.x) / self.terminal_cell).floor().max(0.0) as usize;
+        let col = ((x - grid.x) / self.metrics.terminal_cell).floor().max(0.0) as usize;
         let cols = usize::from(tab.size.cols).max(1);
         let line = match tab.row_at(self.terminal_display_row(y))? {
             ViewRow::Line(line) => line,
@@ -84,7 +84,7 @@ impl App {
         } else {
             y
         };
-        let cells = (x - grid.x) / self.terminal_cell;
+        let cells = (x - grid.x) / self.metrics.terminal_cell;
         let col = if between {
             cells.round()
         } else {
@@ -168,7 +168,7 @@ impl App {
 
     /// 程序当前是否需要鼠标：开了鼠标上报、没按住 ⇧。
     fn terminal_reports_mouse(&self) -> bool {
-        !self.modifiers.shift_key()
+        !self.pointer.modifiers.shift_key()
             && self
                 .terminal
                 .tab()
@@ -197,7 +197,9 @@ impl App {
         self.reset_blink();
         self.request_redraw();
         // ⌘ 单击链接（程序要了鼠标时也是）。
-        if button == MouseButton::Left && self.open_terminal_link(self.modifiers.shift_key()) {
+        if button == MouseButton::Left
+            && self.open_terminal_link(self.pointer.modifiers.shift_key())
+        {
             return;
         }
         if self.terminal_reports_mouse() {
@@ -208,22 +210,22 @@ impl App {
                 _ => return,
             };
             self.report_terminal_mouse(button, MouseAction::Press, (x, y));
-            self.drag = Drag::TerminalMouse(button);
+            self.pointer.drag = Drag::TerminalMouse(button);
             return;
         }
         if button != MouseButton::Left || self.terminal_block_click(x, y) {
             return;
         }
-        if self.modifiers.alt_key() && self.move_shell_cursor(x, y) {
+        if self.pointer.modifiers.alt_key() && self.move_shell_cursor(x, y) {
             return;
         }
         // ⇧ 单击：保留选区起点，把终点移到点击处，之后可以继续拖动。
-        if self.modifiers.shift_key()
+        if self.pointer.modifiers.shift_key()
             && let Some(head) = self.terminal_point(x, y, true)
             && let Some(selection) = self.terminal.tab_mut().and_then(|t| t.selection.as_mut())
         {
             selection.head = head;
-            self.drag = Drag::TerminalSelect;
+            self.pointer.drag = Drag::TerminalSelect;
             return;
         }
         let unit = match self.click_count(x, y) {
@@ -241,12 +243,12 @@ impl App {
                 unit,
             });
         }
-        self.drag = Drag::TerminalSelect;
+        self.pointer.drag = Drag::TerminalSelect;
     }
 
     /// 按着键拖动：选字时扩选区（拖出网格上下时一次翻一行），上报时报拖动。
     pub(in crate::app) fn terminal_mouse_drag(&mut self, x: f32, y: f32) {
-        match self.drag {
+        match self.pointer.drag {
             Drag::TerminalMouse(button) => {
                 if self.terminal_cell(x, y) != self.terminal.last_mouse_cell {
                     self.report_terminal_mouse(button, MouseAction::Motion, (x, y));
@@ -284,7 +286,7 @@ impl App {
             0.0
         };
         if outside == 0.0 {
-            self.drag_scrolled_at = None;
+            self.pointer.drag_scrolled_at = None;
             return;
         }
         let lines = self.drag_scroll_lines(outside.abs() / self.fonts.terminal_line_height);
@@ -347,9 +349,9 @@ impl App {
 
     /// 松开鼠标键：上报松开；选字时什么也没选上（单击）就清掉选区。
     pub(in crate::app) fn terminal_mouse_up(&mut self) {
-        match self.drag {
+        match self.pointer.drag {
             Drag::TerminalMouse(button) => {
-                self.report_terminal_mouse(button, MouseAction::Release, self.mouse);
+                self.report_terminal_mouse(button, MouseAction::Release, self.pointer.mouse);
             }
             Drag::TerminalSelect => {
                 if let Some(tab) = self.terminal.tab_mut()
@@ -396,7 +398,7 @@ impl App {
                 Button::WheelDown
             };
             for _ in 0..lines.unsigned_abs().min(10) {
-                self.report_terminal_mouse(button, MouseAction::Press, self.mouse);
+                self.report_terminal_mouse(button, MouseAction::Press, self.pointer.mouse);
             }
         } else if modes.has(Modes::ALT_SCROLL) {
             // 备用屏上没有回滚缓冲：分页器里滚轮换成方向键。

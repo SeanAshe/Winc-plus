@@ -346,7 +346,7 @@ impl App {
     /// 未保存的文档按内存中的内容搜索。
     fn start_place_search(&mut self, mut search: DefinitionSearch, root: &Path, query: &Query) {
         let dirty = self.dirty_ropes();
-        let proxy = self.proxy.clone();
+        let proxy = self.link.proxy.clone();
         let wake = move || {
             if let Some(proxy) = &proxy {
                 let _ = proxy.send_event(UserEvent::Definitions);
@@ -354,10 +354,10 @@ impl App {
         };
         search.engine.start(root, query, dirty, wake);
         search.origin = self.editor.active().map(|d| (d.id, d.selection.head));
-        self.definitions = Some(search);
+        self.jumps.definitions = Some(search);
         // 测试中没有事件循环，同步等待搜索结束。
-        if self.proxy.is_none()
-            && let Some(search) = &mut self.definitions
+        if self.link.proxy.is_none()
+            && let Some(search) = &mut self.jumps.definitions
         {
             search.engine.wait();
         }
@@ -369,14 +369,14 @@ impl App {
     /// 搜索结束后在后台线程中剔除不算数的命中（测试中没有事件循环，同步进行），全部完成后：只有
     /// 一处结果就跳转，有多处则列出供选择，没有则在状态栏提示。
     pub(in crate::app) fn poll_definitions(&mut self) {
-        let Some(mut search) = self.definitions.take() else {
+        let Some(mut search) = self.jumps.definitions.take() else {
             return;
         };
         if let Some(receiver) = &search.filtering {
             match receiver.try_recv() {
                 Ok(results) => search.engine.results = results,
                 Err(mpsc::TryRecvError::Empty) => {
-                    self.definitions = Some(search);
+                    self.jumps.definitions = Some(search);
                     return;
                 }
                 // 后台线程异常退出：结果已交给它，按没有结果处理。
@@ -385,14 +385,14 @@ impl App {
         } else {
             search.engine.poll();
             if search.engine.is_running() {
-                self.definitions = Some(search);
+                self.jumps.definitions = Some(search);
                 return;
             }
             let results = std::mem::take(&mut search.engine.results);
             let dirty: HashMap<PathBuf, Rope> = self.dirty_ropes().into_iter().collect();
             let filter = Arc::clone(&search.filter);
             let usages = search.usages_of.is_some();
-            match self.proxy.clone() {
+            match self.link.proxy.clone() {
                 None => search.engine.results = filter_results(&filter, usages, results, &dirty),
                 Some(proxy) => {
                     let (sender, receiver) = mpsc::channel();
@@ -401,7 +401,7 @@ impl App {
                         let _ = proxy.send_event(UserEvent::Definitions);
                     });
                     search.filtering = Some(receiver);
-                    self.definitions = Some(search);
+                    self.jumps.definitions = Some(search);
                     return;
                 }
             }
@@ -526,16 +526,16 @@ impl App {
         );
         let origin = self.relative_name();
         self.finish_name_input();
-        self.picker.places_out = None;
-        self.name_hint = None;
-        self.picker.places_wheel = 0.0;
-        self.picker.places_in = self.clock(POPUP_IN);
-        self.picker.branch_rows = None;
-        self.picker.location_rows = None;
-        self.picker.folders = false;
-        self.picker.vim_list = None;
-        self.picker.remote = None;
-        self.picker.places = Some(Places {
+        self.overlays.picker.places_out = None;
+        self.jumps.name_hint = None;
+        self.overlays.picker.places_wheel = 0.0;
+        self.overlays.picker.places_in = self.clock(POPUP_IN);
+        self.overlays.picker.branch_rows = None;
+        self.overlays.picker.location_rows = None;
+        self.overlays.picker.folders = false;
+        self.overlays.picker.vim_list = None;
+        self.overlays.picker.remote = None;
+        self.overlays.picker.places = Some(Places {
             kind,
             name,
             items,
@@ -543,9 +543,9 @@ impl App {
             anchor,
             widest_label: Default::default(),
         });
-        self.picker.open = true;
-        self.picker.doc = self.editor.active().map(|d| d.id);
-        self.picker.input.set_text("");
+        self.overlays.picker.open = true;
+        self.overlays.picker.doc = self.editor.active().map(|d| d.id);
+        self.overlays.picker.input.set_text("");
         self.focus = Focus::Picker;
         self.picker_refresh();
         self.relayout();
@@ -554,11 +554,11 @@ impl App {
 
     /// 按输入框的文字筛选列表：路径或所在行的内容包含输入的文字（不区分大小写）即保留。
     pub(in crate::app) fn places_refresh(&mut self) {
-        let query = self.picker.input.text().trim().to_lowercase();
-        let Some(places) = &self.picker.places else {
+        let query = self.overlays.picker.input.text().trim().to_lowercase();
+        let Some(places) = &self.overlays.picker.places else {
             return;
         };
-        self.picker.hits = places
+        self.overlays.picker.hits = places
             .items
             .iter()
             .enumerate()
@@ -573,11 +573,11 @@ impl App {
 
     /// 处理列表中的回车：关闭面板并跳转到所选的一处。
     pub(in crate::app) fn places_accept(&mut self) {
-        let Some(&i) = self.picker.hits.get(self.picker.selected) else {
+        let Some(&i) = self.overlays.picker.hits.get(self.overlays.picker.selected) else {
             return;
         };
         // 所选的一项不存在时面板保持打开，列表也留在原处。
-        let Some(mut places) = self.picker.places.take_if(|p| i < p.items.len()) else {
+        let Some(mut places) = self.overlays.picker.places.take_if(|p| i < p.items.len()) else {
             return;
         };
         let place = places.items.swap_remove(i);
@@ -604,13 +604,13 @@ impl App {
             return;
         };
 
-        self.global.case_sensitive = true;
-        self.global.whole_word = true;
-        self.global.regex = false;
-        self.global.query.remember();
-        self.global.query.set_text(&name);
+        self.panels.global.case_sensitive = true;
+        self.panels.global.whole_word = true;
+        self.panels.global.regex = false;
+        self.panels.global.query.remember();
+        self.panels.global.query.set_text(&name);
         self.set_sidebar_view(SidebarView::Search);
-        if !self.sidebar.visible {
+        if !self.panels.sidebar.visible {
             self.set_sidebar(true);
         }
         self.global_changed(true);

@@ -47,15 +47,15 @@ impl<'a> PlacesView<'a> {
     /// 打开中的浮窗。
     fn live(app: &'a App) -> Option<PlacesView<'a>> {
         Some(PlacesView {
-            places: app.picker.places.as_ref()?,
-            hits: &app.picker.hits,
-            selected: app.picker.selected,
-            hovered: match app.hover {
+            places: app.overlays.picker.places.as_ref()?,
+            hits: &app.overlays.picker.hits,
+            selected: app.overlays.picker.selected,
+            hovered: match app.pointer.hover {
                 Hover::PickerRow(i) => Some(i),
                 _ => None,
             },
-            scroll: app.picker.scroll,
-            filter: app.picker.input.text(),
+            scroll: app.overlays.picker.scroll,
+            filter: app.overlays.picker.input.text(),
             caret: app.focus == Focus::Picker && app.blink.visible,
         })
     }
@@ -80,7 +80,11 @@ impl<'a> PlacesView<'a> {
 /// 三次缓出（最后一段慢慢停稳）。
 pub(in crate::view) fn draw_live(app: &App, frame: &mut Frame<'_>, rect: Rect) -> Option<Rect> {
     let view = PlacesView::live(app)?;
-    let t = app.picker.places_in.map_or(1.0, |clock| clock.linear());
+    let t = app
+        .overlays
+        .picker
+        .places_in
+        .map_or(1.0, |clock| clock.linear());
     let opacity = 1.0 - (1.0 - t).powi(2);
     let rect = slid(rect, app.places_above(), (1.0 - t).powi(3));
     frame.with_opacity(opacity, |frame| draw_places(app, frame, rect, &view))
@@ -309,13 +313,13 @@ fn draw_code(app: &App, frame: &mut Frame<'_>, place: &Place, area: Rect) {
         &mut tokens,
     );
 
-    let cell = app.cell;
+    let cell = app.metrics.cell;
     let fit = (area.w / cell).floor() as usize;
     let skip = match place.marks.first() {
         Some(mark) if mark.end + 2 > fit => (mark.end + 4).saturating_sub(fit).min(mark.start),
         _ => 0,
     };
-    let (ascent, descent) = (app.mono_metrics.ascent, app.mono_metrics.descent);
+    let (ascent, descent) = (app.metrics.mono.ascent, app.metrics.mono.descent);
     let baseline = (area.y + (area.h - (ascent + descent)) / 2.0 + ascent).round();
     let size = app.fonts.code;
 

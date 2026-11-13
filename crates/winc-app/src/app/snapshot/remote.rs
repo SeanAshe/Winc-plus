@@ -31,8 +31,8 @@ fn typed(app: &mut App, text: &str) {
 
 /// 连接远端主机的面板中各行的文字。
 fn titles(app: &App) -> Vec<String> {
-    let list = app.picker.remote.as_ref().unwrap();
-    (app.picker.hits.iter())
+    let list = app.overlays.picker.remote.as_ref().unwrap();
+    (app.overlays.picker.hits.iter())
         .map(|&row| list.rows[row].title.clone())
         .collect()
 }
@@ -59,10 +59,10 @@ fn a_folder_on_a_connected_host_opens_as_the_workspace() {
     assert!(!listed(&app));
     assert!(!app.action_available(Action::RemoteConnect));
     assert!(!app.run_action(Action::RemoteConnect));
-    assert!(!app.picker.open);
+    assert!(!app.overlays.picker.open);
     app.config.remote_enabled = Some(true);
     assert!(app.run_action(Action::RemoteConnect));
-    assert!(app.picker.open && app.picker.remote.is_some());
+    assert!(app.overlays.picker.open && app.overlays.picker.remote.is_some());
     app.close_picker();
 
     // 模块开着时，状态栏上终端开关的左边有连接的按钮，点了打开面板。
@@ -75,20 +75,20 @@ fn a_folder_on_a_connected_host_opens_as_the_workspace() {
             .any(|(_, item)| *item == remote_button)
     );
     app.open_status_menu(remote_button);
-    assert!(app.picker.open && app.picker.remote.is_some());
+    assert!(app.overlays.picker.open && app.overlays.picker.remote.is_some());
     app.close_picker();
 
     // 开始页上也有连接的入口，打开的是同一个面板。
     paint(&mut app);
     assert!((app.hits.start.iter()).any(|(_, action)| *action == StartAction::Remote));
     app.run_start_action(StartAction::Remote);
-    assert!(app.picker.open && app.picker.remote.is_some());
+    assert!(app.overlays.picker.open && app.overlays.picker.remote.is_some());
     // 不能作为主机名的输入没有可选的行，回车什么也不做。（列出的主机取自用户的 `ssh` 配置，
     // 这里不对它们作断言。）
     typed(&mut app, "-oProxyCommand=touch /tmp/x:/");
     assert!(titles(&app).is_empty() && app.remote_picker_message().is_some());
     app.picker_accept();
-    assert!(app.picker.open && app.notice.text.is_none());
+    assert!(app.overlays.picker.open && app.notice.text.is_none());
     app.close_picker();
     {
         use crate::app::input::context_menu::{MenuCommand, MenuEntry, project_menu};
@@ -138,7 +138,7 @@ fn a_folder_on_a_connected_host_opens_as_the_workspace() {
     // 新主机：在对话框中填写主机和端口。填写的内容无效时不能连接，原因写在输入框里。
     app.picker_accept();
     let dialog = |app: &App| {
-        let dialog = app.form_dialog.as_ref().unwrap();
+        let dialog = app.overlays.form_dialog.as_ref().unwrap();
         assert_eq!(dialog.kind, FormKind::Connect);
         let plan = app.form_plan(dialog);
         (plan.enabled, plan.problem, dialog.error.clone())
@@ -154,13 +154,13 @@ fn a_folder_on_a_connected_host_opens_as_the_workspace() {
     assert!(app.notice.text.is_none(), "{:?}", app.notice.text);
     // 取消是上一步：回到主机面板。
     app.close_form_dialog();
-    assert!(app.form_dialog.is_none() && app.picker.open);
+    assert!(app.overlays.form_dialog.is_none() && app.overlays.picker.open);
     assert!(app.remote_picker_host().is_none());
 
     // 选中已连接的主机：经对话框连接，成功后进入选择目录的面板，从主目录开始。
     app.picker_move(true);
     app.picker_accept();
-    assert!(app.form_dialog.is_none());
+    assert!(app.overlays.form_dialog.is_none());
     assert_eq!(app.remote_picker_host(), Some("app-remote-open"));
     // `Esc` 回到上一步（主机面板），再选一次回来。
     assert!(app.remote_picker_back());
@@ -171,7 +171,7 @@ fn a_folder_on_a_connected_host_opens_as_the_workspace() {
     assert_eq!(titles(&app)[0], "打开此目录");
     // 输入路径：到 `/` 为止的部分是要进入的目录，之后的用来筛选。
     typed(&mut app, &format!("{}/", link.display()));
-    assert_eq!(app.picker.input.text(), "");
+    assert_eq!(app.overlays.picker.input.text(), "");
     assert_eq!(titles(&app), ["打开此目录", "..", "src"]);
     typed(&mut app, "sr");
     assert_eq!(titles(&app), ["src"]);
@@ -195,7 +195,7 @@ fn a_folder_on_a_connected_host_opens_as_the_workspace() {
     }
     // 回车执行选中的一行：第一行是打开此目录。经符号链接走到的目录按远端的真实路径打开。
     app.picker_accept();
-    assert!(!app.picker.open);
+    assert!(!app.overlays.picker.open);
     let root = winc_backend::virtual_path(&target, dir.as_os_str().as_bytes());
     assert_eq!(app.editor.root(), Some(root.as_path()));
     assert!(app.notice.text.is_none(), "{:?}", app.notice.text);
@@ -287,17 +287,18 @@ fn a_folder_on_a_connected_host_opens_as_the_workspace() {
         rename: None,
         contents: None,
     };
-    app.name_input = Some(new_input(&root.join("src"), "made.rs"));
+    app.panels.name_input = Some(new_input(&root.join("src"), "made.rs"));
     app.submit_name_input();
     assert!(dir.join("src/made.rs").is_file());
-    assert!(app.name_input.is_none());
+    assert!(app.panels.name_input.is_none());
     let made = row_of(&app, "made.rs");
     assert_eq!(app.editor.workspace.as_ref().unwrap().selected, Some(made));
     // 同名的再建一次：原因显示在输入行上。
-    app.name_input = Some(new_input(&root.join("src"), "made.rs"));
+    app.panels.name_input = Some(new_input(&root.join("src"), "made.rs"));
     app.submit_name_input();
     assert!(
-        app.name_input
+        app.panels
+            .name_input
             .as_ref()
             .is_some_and(|entry| entry.error.is_some())
     );
@@ -412,25 +413,25 @@ fn a_folder_on_a_connected_host_opens_as_the_workspace() {
     let host = (titles(&app).iter())
         .position(|title| title == "app-remote-open")
         .unwrap();
-    app.picker.selected = host;
+    app.overlays.picker.selected = host;
     assert!(app.remote_picker_key(&Key::Named(NamedKey::Tab)));
-    let dialog = app.form_dialog.as_ref().unwrap();
+    let dialog = app.overlays.form_dialog.as_ref().unwrap();
     assert_eq!(dialog.kind, FormKind::Connect);
     assert_eq!(
         (dialog.name.text(), dialog.running),
         ("app-remote-open", None)
     );
-    assert!(dialog.error.is_none() && !app.picker.open);
+    assert!(dialog.error.is_none() && !app.overlays.picker.open);
     // 密钥文件：不存在时不能连接并说明；存在时按主机记下，`ssh` 的命令带上它，再打开对话框
     // 时已经填好。（连接本身因为测试环境中没有服务程序而失败。）
     let key = dir.join("id_test");
     let fill = |app: &mut App, text: &str| {
-        let dialog = app.form_dialog.as_mut().unwrap();
+        let dialog = app.overlays.form_dialog.as_mut().unwrap();
         dialog.third.set_text("");
         dialog.third.insert(text);
     };
     fill(&mut app, "/winc/no/such/key");
-    let plan = app.form_plan(app.form_dialog.as_ref().unwrap());
+    let plan = app.form_plan(app.overlays.form_dialog.as_ref().unwrap());
     assert!(!plan.enabled);
     assert_eq!(plan.problem.as_deref(), Some("未找到密钥文件"));
     // 密钥一行的右端是选文件的按钮；在系统面板中选好的文件填进这一行。
@@ -443,21 +444,24 @@ fn a_folder_on_a_connected_host_opens_as_the_workspace() {
     assert!(layout.third.contains(choose.x, choose.y));
     std::fs::write(&key, "").unwrap();
     app.key_file_picked(&key);
-    let dialog = app.form_dialog.as_ref().unwrap();
+    let dialog = app.overlays.form_dialog.as_ref().unwrap();
     assert_eq!(dialog.third.text(), key.to_str().unwrap());
     assert_eq!(dialog.focus, crate::layout::DialogPart::Third);
-    assert!(app.form_plan(app.form_dialog.as_ref().unwrap()).enabled);
+    assert!(
+        app.form_plan(app.overlays.form_dialog.as_ref().unwrap())
+            .enabled
+    );
     app.submit_form_dialog();
     assert_eq!(app.state.remote_key("app-remote-open"), key.to_str());
     assert_eq!(remote::identity(&target).as_deref(), key.to_str());
-    let dialog = app.form_dialog.as_ref().unwrap();
+    let dialog = app.overlays.form_dialog.as_ref().unwrap();
     assert!(dialog.error.is_some());
     assert_eq!(dialog.third.text(), key.to_str().unwrap());
     app.close_form_dialog();
-    assert!(app.picker.open);
+    assert!(app.overlays.picker.open);
     // 最近的目录和只来自最近目录的主机在行尾有「✕」，「新主机」和配置文件两行没有。移除主机
     // 时连同其上的目录。
-    app.picker.selected = host;
+    app.overlays.picker.selected = host;
     paint(&mut app);
     let forget = crate::app::PickerPart::ForgetRemote(host);
     let closes: Vec<_> = app
@@ -525,7 +529,7 @@ fn shoot_remote_picker() {
     shoot(&mut app, "remote-hosts-forget");
     app.picker_move(true);
     shoot(&mut app, "remote-hosts-edit");
-    app.picker.selected = 0;
+    app.overlays.picker.selected = 0;
     typed(&mut app, "me@staging:~/app");
     shoot(&mut app, "remote-hosts-typed");
     app.close_picker();
@@ -550,7 +554,7 @@ fn a_long_copy_shows_its_progress_and_can_be_cancelled() {
     let mut app = blank_app(false);
     let copying = Arc::new(winc_editor::Copying::default());
     winc_editor::copy_entry(&dir, &dir.join("big.bin"), &dir, &copying).unwrap();
-    app.tree.copies.track(Arc::clone(&copying));
+    app.panels.tree.copies.track(Arc::clone(&copying));
 
     // 右上角正显示着别的提示：不替换它，等它消失之后再显示进度。
     app.notify("别的提示");
@@ -576,7 +580,7 @@ fn a_long_copy_shows_its_progress_and_can_be_cancelled() {
 
     // 没有被取消的复制结束时收起它的进度。
     let copying = Arc::new(winc_editor::Copying::default());
-    app.tree.copies.track(Arc::clone(&copying));
+    app.panels.tree.copies.track(Arc::clone(&copying));
     app.clear_flash();
     app.copy_tick(now + Duration::from_secs(9));
     assert_eq!(app.notice.action, Some(NoticeAction::CancelCopy));

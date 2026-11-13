@@ -44,7 +44,7 @@ impl App {
         );
         let id = doc.id;
         let fade_in = self.clock(POPUP_IN);
-        self.name_hint = Some(NameHint {
+        self.jumps.name_hint = Some(NameHint {
             text,
             doc: id,
             anchor,
@@ -57,7 +57,7 @@ impl App {
 
     /// 让提示气泡淡出；没有窗口（测试中）或动态效果关闭时直接去掉。
     pub(in crate::app) fn dismiss_hint(&mut self) {
-        let Some(hint) = &self.name_hint else {
+        let Some(hint) = &self.jumps.name_hint else {
             return;
         };
         if hint.fade_out.is_some() {
@@ -65,18 +65,18 @@ impl App {
         }
         match self.clock(POPUP_OUT) {
             Some(clock) => {
-                if let Some(hint) = &mut self.name_hint {
+                if let Some(hint) = &mut self.jumps.name_hint {
                     hint.fade_out = Some(clock);
                 }
             }
-            None => self.name_hint = None,
+            None => self.jumps.name_hint = None,
         }
         self.request_redraw();
     }
 
     /// 停留时间到了就开始淡出；返回下一次需要检查的时刻。
     pub(in crate::app) fn hint_tick(&mut self, now: Instant) -> Option<Instant> {
-        let hint = self.name_hint.as_ref()?;
+        let hint = self.jumps.name_hint.as_ref()?;
         if hint.fade_out.is_some() {
             return None;
         }
@@ -90,20 +90,21 @@ impl App {
 
     /// 清除已经结束的出现、消失动画；消失结束后去掉气泡。
     pub(in crate::app) fn settle_hint(&mut self) {
-        let Some(hint) = &mut self.name_hint else {
+        let Some(hint) = &mut self.jumps.name_hint else {
             return;
         };
         if hint.fade_in.is_some_and(|c| c.done()) {
             hint.fade_in = None;
         }
         if hint.fade_out.is_some_and(|c| c.done()) {
-            self.name_hint = None;
+            self.jumps.name_hint = None;
         }
     }
 
     /// 提示气泡是否在动画中。
     pub(in crate::app) fn hint_animating(&self) -> bool {
-        self.name_hint
+        self.jumps
+            .name_hint
             .as_ref()
             .is_some_and(|h| h.fade_in.is_some() || h.fade_out.is_some())
     }

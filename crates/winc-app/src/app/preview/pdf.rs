@@ -305,7 +305,7 @@ impl App {
             .active()
             .filter(|d| d.unsupported == Some(Unsupported::Pdf))
             .map(|d| (d.id, d.revision, d.path.clone()));
-        let pdf = &mut self.pdf;
+        let pdf = &mut self.preview.pdf;
         let Some((id, revision, Some(path))) = active else {
             if pdf.doc.is_some() {
                 pdf.reset();
@@ -322,7 +322,7 @@ impl App {
             Some(_) => None,
             None => (pdf.places.get(&path).copied()).or_else(|| self.saved_pdf_place(&path)),
         };
-        let pdf = &mut self.pdf;
+        let pdf = &mut self.preview.pdf;
         pdf.reset();
         pdf.scroll = scroll.unwrap_or(0.0);
         pdf.restore = saved;
@@ -334,7 +334,7 @@ impl App {
             pdf.generation,
             pdf.sender.clone(),
             Arc::clone(&pdf.wanted),
-            self.proxy.clone(),
+            self.link.proxy.clone(),
         );
         let notify = move || {
             if let Some(proxy) = &proxy {
@@ -410,7 +410,7 @@ impl App {
             .session_for(root)
             .map(|s| s.pdf_places.iter().cloned().collect())
             .unwrap_or_default();
-        let pdf = &self.pdf;
+        let pdf = &self.preview.pdf;
         let current = pdf.path.as_ref().zip(pdf.place.as_ref());
         for (path, place) in pdf.places.iter().chain(current) {
             if !path.starts_with(root) {
@@ -428,8 +428,8 @@ impl App {
     /// 收下渲染线程送回的结果。
     pub(crate) fn poll_pdf(&mut self) {
         let mut changed = false;
-        while let Ok(done) = self.pdf.receiver.try_recv() {
-            let pdf = &mut self.pdf;
+        while let Ok(done) = self.preview.pdf.receiver.try_recv() {
+            let pdf = &mut self.preview.pdf;
             match done {
                 Done::Opened(generation, opened) if generation == pdf.generation => {
                     pdf.pages = Some(opened.map(Arc::from));
@@ -474,7 +474,7 @@ impl App {
         pages: &[(usize, u32, u32)],
         thumbs: &[(usize, u32, u32)],
     ) {
-        let pdf = &mut self.pdf;
+        let pdf = &mut self.preview.pdf;
         let key = |&(page, width, _): &(usize, u32, u32)| (page, width);
         let small: HashSet<(usize, u32)> = thumbs.iter().map(key).collect();
         pdf.thumbs
@@ -518,12 +518,12 @@ impl App {
     /// 处理 PDF 预览中的按键：上下方向键滚动一小段，`PageUp`、`PageDown`、空格滚动一屏，
     /// `Home`、`End` 到开头、结尾。返回是否处理；当前标签不是 PDF 时返回 `false`。
     pub(in crate::app) fn pdf_key(&mut self, key: &Key) -> bool {
-        if self.pdf.doc.is_none() {
+        if self.preview.pdf.doc.is_none() {
             return false;
         }
         // 翻一屏时与上一屏重叠一段，翻页后仍能看到上一屏末尾的内容。
-        let page = (self.pdf.area.h - ARROW_STEP * 2.0).max(ARROW_STEP);
-        let y = self.pdf.scroll;
+        let page = (self.preview.pdf.area.h - ARROW_STEP * 2.0).max(ARROW_STEP);
+        let y = self.preview.pdf.scroll;
         // 方向键逐段滚动，直接到达；翻页和到两端的跳转平滑滚动。
         match key {
             Key::Named(NamedKey::ArrowUp) => self.scroll_pdf(ARROW_STEP),
@@ -547,7 +547,7 @@ impl App {
 
     /// 把 PDF 预览横向滚动 `dx`、竖直滚动 `dy`（逻辑像素，向右、向下滚动为负）。
     pub(crate) fn scroll_pdf_by(&mut self, dx: f32, dy: f32) {
-        let pdf = &mut self.pdf;
+        let pdf = &mut self.preview.pdf;
         pdf.scroll = (pdf.scroll - dy).clamp(0.0, pdf.max_scroll());
         let across = (pdf.width - pdf.body().w).max(0.0);
         pdf.scroll_x = (pdf.scroll_x - dx).clamp(0.0, across);
@@ -556,8 +556,8 @@ impl App {
 
     /// 鼠标是否位于 PDF 的正文上（不含缩略图栏）。
     pub(in crate::app) fn on_pdf_body(&self) -> bool {
-        let (x, y) = self.mouse;
-        self.pdf.doc.is_some() && self.pdf.body().contains(x, y)
+        let (x, y) = self.pointer.mouse;
+        self.preview.pdf.doc.is_some() && self.preview.pdf.body().contains(x, y)
     }
 
     /// 把 PDF 放大（`up` 为真）、缩小一档，或还原为适应宽度（`None`），返回当前是否在预览 PDF。
@@ -569,12 +569,16 @@ impl App {
         up: Option<bool>,
         anchor: Option<(f32, f32)>,
     ) -> bool {
-        let Some(Ok(pages)) = self.pdf.pages.clone() else {
-            return self.pdf.doc.is_some();
+        let Some(Ok(pages)) = self.preview.pdf.pages.clone() else {
+            return self.preview.pdf.doc.is_some();
         };
-        let body = self.pdf.body();
-        let scale = self.renderer.as_ref().map_or(1.0, Renderer::scale_factor);
-        let old = self.pdf.zoom;
+        let body = self.preview.pdf.body();
+        let scale = self
+            .frame
+            .renderer
+            .as_ref()
+            .map_or(1.0, Renderer::scale_factor);
+        let old = self.preview.pdf.zoom;
         let fits = |zoom: &f32| {
             let (rects, ..) = page_rects(&pages, body.w, *zoom);
             let pixels = |r: &Rect| f64::from(r.w * scale) * f64::from(r.h * scale);
@@ -590,29 +594,33 @@ impl App {
             // 记下锚点所在的页和它在页内的相对位置，缩放后（过渡期间逐帧）把同一处放回锚点。
             let (ax, ay) = anchor.unwrap_or((body.x + body.w / 2.0, body.y + body.h / 2.0));
             let anchor = (ax - body.x, ay - body.y);
-            let (before, ..) = self.pdf.lay_out(&pages, body.w);
-            let (cx, cy) = (self.pdf.scroll_x + anchor.0, self.pdf.scroll + anchor.1);
+            let (before, ..) = self.preview.pdf.lay_out(&pages, body.w);
+            let (cx, cy) = (
+                self.preview.pdf.scroll_x + anchor.0,
+                self.preview.pdf.scroll + anchor.1,
+            );
             let page = before.iter().rposition(|r| r.y <= cy).unwrap_or(0);
             if let Some(r) = before.get(page) {
                 let at = ((cx - r.x) / r.w.max(1.0), (cy - r.y) / r.h.max(1.0));
-                let from = (self.pdf.zoom_motion).map_or(old, |m| m.clock.between(m.from, old));
-                self.pdf.zoom = zoom;
+                let from =
+                    (self.preview.pdf.zoom_motion).map_or(old, |m| m.clock.between(m.from, old));
+                self.preview.pdf.zoom = zoom;
                 // 有过渡时由每帧的排版推进；没有时立即到位。
-                self.pdf.zoom_motion = self.clock(PDF_MOTION).map(|clock| ZoomMotion {
+                self.preview.pdf.zoom_motion = self.clock(PDF_MOTION).map(|clock| ZoomMotion {
                     from,
                     clock,
                     page,
                     at,
                     anchor,
                 });
-                if self.pdf.zoom_motion.is_none() {
+                if self.preview.pdf.zoom_motion.is_none() {
                     let (after, ..) = page_rects(&pages, body.w, zoom);
-                    self.pdf.hold(&after, page, at, anchor);
-                    self.pdf.lay_out(&pages, body.w);
+                    self.preview.pdf.hold(&after, page, at, anchor);
+                    self.preview.pdf.lay_out(&pages, body.w);
                 }
             }
         }
-        let percent = (self.pdf.zoom * 100.0).round().to_string();
+        let percent = (self.preview.pdf.zoom * 100.0).round().to_string();
         self.flash(winc_i18n::t!("preview-pdf-zoom", zoom = percent));
         self.request_redraw();
         true
@@ -623,17 +631,17 @@ impl App {
         if !self.on_pdf_body() {
             return;
         }
-        self.pdf.pinch += delta;
-        if self.pdf.pinch.abs() >= PINCH_STEP {
-            let up = self.pdf.pinch > 0.0;
-            self.pdf.pinch = 0.0;
-            self.zoom_pdf(Some(up), Some(self.mouse));
+        self.preview.pdf.pinch += delta;
+        if self.preview.pdf.pinch.abs() >= PINCH_STEP {
+            let up = self.preview.pdf.pinch > 0.0;
+            self.preview.pdf.pinch = 0.0;
+            self.zoom_pdf(Some(up), Some(self.pointer.mouse));
         }
     }
 
     /// 把缩略图栏滚动 `dy`（逻辑像素，向下滚动为负）。
     pub(crate) fn scroll_pdf_strip(&mut self, dy: f32) {
-        let pdf = &mut self.pdf;
+        let pdf = &mut self.preview.pdf;
         let max = (pdf.strip_height - pdf.strip.h).max(0.0);
         pdf.strip_scroll = (pdf.strip_scroll - dy).clamp(0.0, max);
         self.request_redraw();
@@ -649,7 +657,7 @@ impl App {
     pub(in crate::app) fn toggle_pdf_thumbnails(&mut self) {
         self.update_state(|state| state.pdf_thumbnails_hidden = !state.pdf_thumbnails_hidden);
         let shown = !self.state.pdf_thumbnails_hidden;
-        self.pdf.strip_motion = self.clock(PDF_MOTION).map(|clock| (shown, clock));
+        self.preview.pdf.strip_motion = self.clock(PDF_MOTION).map(|clock| (shown, clock));
         self.request_redraw();
     }
 
@@ -667,8 +675,8 @@ impl App {
     #[cfg(all(test, any(target_os = "macos", windows)))]
     pub(crate) fn fail_pdf_page(&mut self, page: usize, width: u32, reason: &str) {
         let failed = Err(reason.to_owned());
-        let done = Done::Rendered(self.pdf.generation, page, width, false, failed);
-        let _ = self.pdf.sender.send(done);
+        let done = Done::Rendered(self.preview.pdf.generation, page, width, false, failed);
+        let _ = self.preview.pdf.sender.send(done);
         self.poll_pdf();
     }
 
@@ -677,7 +685,7 @@ impl App {
     pub(crate) fn wait_for_pdf(&mut self) {
         self.advance_pdf();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        while self.pdf.is_busy() && std::time::Instant::now() < deadline {
+        while self.preview.pdf.is_busy() && std::time::Instant::now() < deadline {
             std::thread::sleep(std::time::Duration::from_millis(5));
             self.poll_pdf();
         }

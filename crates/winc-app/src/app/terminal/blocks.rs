@@ -289,7 +289,7 @@ impl App {
 
     /// 点了第 `block` 个块的色带：折起或展开它的输出；按住 ⇧ 时选中整块输出，之后可以 ⌘C 复制。
     pub(in crate::app) fn click_terminal_band(&mut self, block: usize) {
-        let shift = self.modifiers.shift_key();
+        let shift = self.pointer.modifiers.shift_key();
         let Some(tab) = self.terminal.tab_mut() else {
             return;
         };

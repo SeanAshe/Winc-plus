@@ -81,7 +81,7 @@ fn dragging_a_file_onto_a_folder_moves_it_and_its_tab_follows() {
     assert!(!app.tree_open_pending());
     let drag = app.tree_dragging().unwrap();
     assert_eq!(drag.target.as_deref(), Some(root.join("lib").as_path()));
-    assert_eq!(app.hover, Hover::None);
+    assert_eq!(app.pointer.hover, Hover::None);
     paint(&mut app);
 
     // 拖到文件上等于放入该文件所在的目录；拖回被拖文件原本所在的目录没有意义，因此没有放置目标。
@@ -113,7 +113,7 @@ fn dragging_a_file_onto_a_folder_moves_it_and_its_tab_follows() {
     assert!(doc.is_dirty());
     let ws = app.editor.workspace.as_ref().unwrap();
     assert_eq!(ws.selected_entry().unwrap().path, root.join("lib/notes.md"));
-    assert!(app.tree.drag.is_none());
+    assert!(app.panels.tree.drag.is_none());
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -134,7 +134,7 @@ fn never_asking_again_is_remembered_in_the_config() {
     app.confirm_move(&[root.join("lib/notes.md")], &root, true);
     assert!(root.join("notes.md").is_file());
     assert_eq!(app.config.confirm_drag_and_drop, Some(false));
-    assert!(app.config_path.is_none());
+    assert!(app.store.config_path.is_none());
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -212,14 +212,14 @@ fn resting_on_a_closed_folder_opens_it_and_the_edges_scroll() {
     // 鼠标贴着文件树下边缘：文件树自动向下滚动，放置目标随之重新计算。
     let tree = app.layout.tree;
     app.on_mouse_move(60.0, tree.bottom() - 2.0);
-    assert_eq!(app.tree.scroll, 0.0);
+    assert_eq!(app.panels.tree.scroll, 0.0);
     let wake = app.tree_drag_tick(Instant::now());
-    assert!(app.tree.scroll > 0.0 && wake.is_some());
+    assert!(app.panels.tree.scroll > 0.0 && wake.is_some());
     // 离开边缘后停止滚动，也不再需要唤醒事件循环。
     app.on_mouse_move(60.0, tree.y + tree.h / 2.0);
-    let scroll = app.tree.scroll;
+    let scroll = app.panels.tree.scroll;
     assert_eq!(app.tree_drag_tick(Instant::now()), None);
-    assert_eq!(app.tree.scroll, scroll);
+    assert_eq!(app.panels.tree.scroll, scroll);
 
     app.on_mouse_up(MouseButton::Left);
     std::fs::remove_dir_all(&dir).unwrap();

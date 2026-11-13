@@ -23,7 +23,7 @@ const COMMAND: &str = if cfg!(target_os = "macos") {
 fn wrapped(app: &App, frame: &mut Frame<'_>, message: &str, width: f32) -> Rc<Wrapped> {
     let (ui, small) = (app.fonts.ui, app.fonts.ui_small);
     let key = (width.to_bits(), ui.to_bits(), small.to_bits());
-    let mut cache = app.log.wrapped.borrow_mut();
+    let mut cache = app.git.log.wrapped.borrow_mut();
     if let Some(w) = cache.as_ref()
         && w.key.0 == message
         && (w.key.1, w.key.2, w.key.3) == key
@@ -202,7 +202,7 @@ pub(super) fn draw_details(
         area,
     );
     let oid_x = end + 8.0;
-    let hovered = app.hover == Hover::Log(LogTarget::CopyOid);
+    let hovered = app.pointer.hover == Hover::Log(LogTarget::CopyOid);
     let oid_end = mono(
         app,
         frame,
@@ -220,7 +220,7 @@ pub(super) fn draw_details(
         let label = t!("git-log-details-parents", count = commit.parents.len());
         px = ui_text_small(frame, app, px, row, &label, p.text_dim, area) + 8.0;
         for (i, parent) in commit.parents.iter().enumerate() {
-            let hovered = app.hover == Hover::Log(LogTarget::Parent(i));
+            let hovered = app.pointer.hover == Hover::Log(LogTarget::Parent(i));
             let end = mono(app, frame, (px, row), short(parent), link(p, hovered), area);
             hits.push((
                 Rect::new(px - 2.0, y, end - px + 4.0, 22.0).intersect(area),
@@ -282,7 +282,7 @@ fn draw_compare(
         let row = Rect::new(x, y, width, 22.0);
         let end = ui_text_small(frame, app, x, row, label, p.text_dim, area) + 10.0;
         let commit = view.commits.iter().find(|c| rev_matches(c, rev));
-        let is_oid = rev.len() == 40 && rev.bytes().all(|b| b.is_ascii_hexdigit());
+        let is_oid = matches!(rev.len(), 40 | 64) && rev.bytes().all(|b| b.is_ascii_hexdigit());
         let end = if is_oid {
             mono(app, frame, (end, row), short(rev), p.accent, area)
         } else {
@@ -306,7 +306,7 @@ fn draw_compare(
         y += 24.0;
     }
     let row = Rect::new(x, y, width, 20.0);
-    let items: [(String, &str); 3] = if app.log.file.is_some() {
+    let items: [(String, &str); 3] = if app.git.log.file.is_some() {
         [
             ("↑↓".into(), t!("git-log-hint-select-file")),
             (t!("common-key-enter").into(), t!("git-log-hint-open-diff")),
@@ -382,7 +382,7 @@ pub(super) fn draw_details_footer(
     }
     let row = Rect::new(area.x, area.bottom() - 30.0, area.w, 30.0);
     frame.rect(Rect::new(area.x, row.y, area.w, 1.0), p.separator);
-    let mut items: Vec<(String, &str)> = if app.log.file.is_some() {
+    let mut items: Vec<(String, &str)> = if app.git.log.file.is_some() {
         vec![
             ("↑↓".into(), t!("git-log-hint-select-file")),
             (t!("common-key-enter").into(), t!("git-log-hint-open-diff")),
@@ -402,7 +402,7 @@ pub(super) fn draw_details_footer(
         ]
     };
     // 顺着线、父提交跳过以后：显示如何返回。
-    if !app.log.back.is_empty()
+    if !app.git.log.back.is_empty()
         && let Some(key) = keymap::shortcut(Action::GoBack)
     {
         items.insert(0, (key, t!("git-log-hint-go-back")));

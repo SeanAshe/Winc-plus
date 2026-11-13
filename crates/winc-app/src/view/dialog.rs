@@ -18,9 +18,11 @@ use crate::layout::{DialogLayout, DialogPart, QUESTION_LINE_H, REBASE_PILL_W, RE
 pub(super) fn draw(app: &mut App, frame: &mut Frame<'_>) {
     let layout = app.dialog_layout();
     let p = app.palette;
-    match app.dialog_card.motion {
+    match app.motion.dialog_card.motion {
         // 换页时遮罩一直在，不随新的一页重新淡入。
-        Some(_) if app.dialog_card.turning.is_some() => frame.rect(app.layout.window, p.scrim),
+        Some(_) if app.motion.dialog_card.turning.is_some() => {
+            frame.rect(app.layout.window, p.scrim)
+        }
         Some((true, clock)) => {
             let fade = dialog_curve(true, clock).0;
             frame.rect(app.layout.window, p.scrim.alpha(p.scrim.a * fade));
@@ -41,7 +43,7 @@ pub(super) fn draw(app: &mut App, frame: &mut Frame<'_>) {
 /// 关闭后淡出期间绘制：遮罩和卡片一起淡出。
 pub(super) fn draw_ghost(app: &mut App, frame: &mut Frame<'_>) {
     let p = app.palette;
-    if let Some((clock, _, _)) = app.dialog_card.closing() {
+    if let Some((clock, _, _)) = app.motion.dialog_card.closing() {
         let fade = dialog_curve(false, clock).0;
         frame.rect(app.layout.window, p.scrim.alpha(p.scrim.a * fade));
     }
@@ -51,7 +53,7 @@ pub(super) fn draw_ghost(app: &mut App, frame: &mut Frame<'_>) {
 /// 绘制卡片内部：标题行、几行表单、选项和底部按钮。
 fn draw_card(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
     let p = app.palette;
-    let Some(dialog) = &app.form_dialog else {
+    let Some(dialog) = &app.overlays.form_dialog else {
         return;
     };
     let plan = app.form_plan(dialog);
@@ -74,7 +76,10 @@ fn draw_card(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
             [t!("common-dialog-name"), t!("common-dialog-base"), ""],
             t!("common-dialog-branch-placeholder"),
         ),
-        FormKind::Question(..) | FormKind::Remote { .. } | FormKind::Connect => {
+        FormKind::Question(..)
+        | FormKind::Remote { .. }
+        | FormKind::Connect
+        | FormKind::GoToRevision => {
             return draw_question(app, frame, layout);
         }
         FormKind::Clone => return draw_clone(app, frame, layout),
@@ -205,7 +210,7 @@ fn draw_card(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
 /// 绘制 `git`、`ssh` 的输入请求：标题行、说明文字、只读信息、输入框和底部按钮。
 fn draw_question(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
     let p = app.palette;
-    let Some(dialog) = &app.form_dialog else {
+    let Some(dialog) = &app.overlays.form_dialog else {
         return;
     };
     let Some(view) = dialog.kind.view() else {
@@ -326,7 +331,7 @@ fn draw_question(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
 /// 绘制交互式变基的对话框：标题行、已推送提交的提醒、提交列表、信息框和底部按钮。
 fn draw_rebase(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
     let p = app.palette;
-    let Some(dialog) = app.form_dialog.as_ref() else {
+    let Some(dialog) = app.overlays.form_dialog.as_ref() else {
         return;
     };
     let FormKind::Rebase(form) = &dialog.kind else {
@@ -429,7 +434,7 @@ fn draw_rebase(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
         false,
     );
     let area = rect.inset(DIALOG_FIELD_INSET, 6.0);
-    if let Some(mut dialog) = app.form_dialog.take() {
+    if let Some(mut dialog) = app.overlays.form_dialog.take() {
         let focused = field_focused && rewording;
         let wrap = super::fields::wrap_area_field(app, frame, area.w, &mut dialog.name, focused);
         let placeholder = t!("git-rebase-message-placeholder");
@@ -442,7 +447,7 @@ fn draw_rebase(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
             placeholder,
             focused,
         );
-        app.form_dialog = Some(dialog);
+        app.overlays.form_dialog = Some(dialog);
         if caret.is_some() {
             app.ime.cursor = caret;
         }
@@ -539,7 +544,7 @@ fn draw_rebase(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
 /// 绘制克隆仓库的对话框：标题行、地址、位置和底部按钮。
 fn draw_clone(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
     let p = app.palette;
-    let Some(dialog) = &app.form_dialog else {
+    let Some(dialog) = &app.overlays.form_dialog else {
         return;
     };
     let (hover, focus, plan) = (dialog.hover, dialog.focus, app.form_plan(dialog));
@@ -683,7 +688,11 @@ fn draw_field(
 ) {
     let p = app.palette;
     let focused = app.focus == crate::app::Focus::Dialog
-        && app.form_dialog.as_ref().is_some_and(|d| d.focus == part);
+        && app
+            .overlays
+            .form_dialog
+            .as_ref()
+            .is_some_and(|d| d.focus == part);
     field_box(
         app,
         frame,
@@ -694,7 +703,7 @@ fn draw_field(
     );
     // 右端有选择按钮的输入框，文字让出按钮的位置。
     let button = (app.dialog_layout().choose).filter(|_| part == DialogPart::Third);
-    let Some(mut dialog) = app.form_dialog.take() else {
+    let Some(mut dialog) = app.overlays.form_dialog.take() else {
         return;
     };
     let mut area = rect.inset(DIALOG_FIELD_INSET, 0.0);
@@ -715,7 +724,7 @@ fn draw_field(
         _ => &mut dialog.name,
     };
     let caret = draw_bar_field(app, frame, area, field, placeholder, focused);
-    app.form_dialog = Some(dialog);
+    app.overlays.form_dialog = Some(dialog);
     if caret.is_some() {
         app.ime.cursor = caret;
     }
@@ -759,6 +768,7 @@ fn draw_location(
     }
 
     let hovered = app
+        .overlays
         .form_dialog
         .as_ref()
         .is_some_and(|d| d.hover == Some(DialogPart::Change));

@@ -62,7 +62,7 @@ impl App {
         if matches!(target, ScrollTarget::Nothing | ScrollTarget::Blocked) {
             return;
         }
-        self.fling = Some(Fling {
+        self.scroll.fling = Some(Fling {
             target,
             origin,
             velocity,
@@ -76,12 +76,12 @@ impl App {
     /// 速度低于 [`MIN_FLING_SPEED`]、已滚动到边缘，或该区域已不可滚动（切换了标签页、关闭了
     /// 面板）时结束。
     pub(in crate::app) fn advance_fling(&mut self, now: Instant) {
-        let Some(fling) = self.fling.clone() else {
+        let Some(fling) = self.scroll.fling.clone() else {
             return;
         };
         let (target, origin) = (fling.target, fling.origin);
         if self.scroll_target_at(origin.0, origin.1) != target {
-            self.fling = None;
+            self.scroll.fling = None;
             return;
         }
         let (travel, velocity) = decay(fling.velocity, now.saturating_duration_since(fling.at));
@@ -89,7 +89,7 @@ impl App {
         self.scroll_target_by(target, origin, false, travel);
         let stuck = before.is_some() && self.scroll_probe(target) == before;
         let slow = velocity.0.hypot(velocity.1) < MIN_FLING_SPEED;
-        self.fling = (!stuck && !slow).then_some(Fling {
+        self.scroll.fling = (!stuck && !slow).then_some(Fling {
             velocity,
             at: now,
             ..fling
@@ -103,10 +103,14 @@ impl App {
                 let doc = self.editor.active()?;
                 Some((doc.scroll_line, f64::from(doc.scroll_x)))
             }
-            ScrollTarget::Tree => {
-                Some((f64::from(self.tree.scroll), f64::from(self.tree.scroll_x)))
-            }
-            ScrollTarget::Pdf => Some((f64::from(self.pdf.scroll), f64::from(self.pdf.scroll_x))),
+            ScrollTarget::Tree => Some((
+                f64::from(self.panels.tree.scroll),
+                f64::from(self.panels.tree.scroll_x),
+            )),
+            ScrollTarget::Pdf => Some((
+                f64::from(self.preview.pdf.scroll),
+                f64::from(self.preview.pdf.scroll_x),
+            )),
             _ => self.pane_scroll(target).map(|y| (f64::from(y), 0.0)),
         }
     }

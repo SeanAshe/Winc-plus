@@ -126,6 +126,7 @@ menu-log-interactive-rebase = 从此处交互式变基…
 menu-log-copy-oid = 复制提交号
 menu-log-copy-short-oid = 复制短提交号
 menu-log-copy-message = 复制提交说明
+menu-log-go-to = 转到提交号、分支或标签…
 menu-log-all-branches = 全部分支
 menu-log-all-authors = 全部作者
 menu-commit-check = 勾选

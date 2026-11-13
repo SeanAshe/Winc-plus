@@ -58,7 +58,7 @@ fn head(app: &App) -> usize {
 /// 绘制一帧并返回全部像素。
 fn pixels(app: &mut App) -> Vec<u32> {
     paint(app);
-    let renderer = app.renderer.as_ref().unwrap();
+    let renderer = app.frame.renderer.as_ref().unwrap();
     renderer.image().unwrap().pixels.clone()
 }
 
@@ -172,7 +172,7 @@ fn the_caret_is_drawn_as_a_block_a_bar_or_an_underline() {
 
     // 块覆盖一个字符格，竖线宽 2 逻辑像素，横线高 2 逻辑像素、宽一个字符格。
     let scale = (SCALE * SCALE) as usize;
-    let cell = app.cell.round() as usize;
+    let cell = app.metrics.cell.round() as usize;
     let line = app.fonts.line_height as usize;
     assert_eq!(bar, 2 * (line - 2) * scale);
     assert_eq!(underline, cell * 2 * scale);
@@ -269,7 +269,10 @@ fn keys_without_a_meaning_never_become_text() {
     keys(&mut app, "i");
     assert_eq!(app.vim_mode(), Some(Mode::Normal));
     keys(&mut app, "l\"+yl");
-    assert_eq!((head(&app), app.copied.as_deref()), (1, Some("b")));
+    assert_eq!(
+        (head(&app), app.clipboard.copied.as_deref()),
+        (1, Some("b"))
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -285,7 +288,7 @@ fn selections_and_commands_from_outside_keep_the_mode_in_step() {
     assert_eq!(app.vim_caret(), Some((6, CaretShape::Block)));
     // 应用的复制等同于复制到系统剪贴板，随后回到普通模式。
     assert!(app.run_action(Action::Copy));
-    assert_eq!(app.copied.as_deref(), Some("two"));
+    assert_eq!(app.clipboard.copied.as_deref(), Some("two"));
     assert_eq!((app.vim_mode(), head(&app)), (Some(Mode::Normal), 4));
 
     // 点击行尾之后：光标退到最后一个字符。
@@ -296,7 +299,7 @@ fn selections_and_commands_from_outside_keep_the_mode_in_step() {
     // 应用的剪切、粘贴、撤销、重做由 Vim 层执行。
     assert!(app.run_action(Action::Cut));
     assert_eq!(
-        (text(&app).as_str(), app.copied.as_deref()),
+        (text(&app).as_str(), app.clipboard.copied.as_deref()),
         ("three\n", Some("one two\n"))
     );
     assert!(app.run_action(Action::Paste));
@@ -367,7 +370,10 @@ fn searching_uses_the_prompt_previews_the_match_and_keeps_a_history() {
     let (mut app, dir) = vim_app("vim-search", "one two\nthree two\nfour\n");
     keys(&mut app, "/");
     assert_eq!(app.focus, Focus::Prompt);
-    assert_eq!(app.prompt_kind, PromptKind::VimSearch { forward: true });
+    assert_eq!(
+        app.bars.prompt_kind,
+        PromptKind::VimSearch { forward: true }
+    );
     assert_eq!(app.vim_mode(), None);
 
     // 输入过程中光标即时移到第一处匹配，匹配被高亮；回车之后停在该处。
@@ -384,9 +390,12 @@ fn searching_uses_the_prompt_previews_the_match_and_keeps_a_history() {
 
     // 再次打开时可以翻出上一次的模式；放弃输入时光标回到原处，高亮取消。
     keys(&mut app, "?");
-    assert_eq!(app.prompt_kind, PromptKind::VimSearch { forward: false });
+    assert_eq!(
+        app.bars.prompt_kind,
+        PromptKind::VimSearch { forward: false }
+    );
     assert!(app.vim_prompt_key(&Key::Named(NamedKey::ArrowUp), ""));
-    assert_eq!(app.goto_input.as_ref().unwrap().text(), "two");
+    assert_eq!(app.bars.goto_input.as_ref().unwrap().text(), "two");
     paint(&mut app);
     assert_eq!(head(&app), 14);
     app.close_prompt();
@@ -616,15 +625,15 @@ fn the_clipboard_setting_decides_what_reaches_the_system_clipboard() {
     let (mut app, dir) = vim_app("vim-clipboard", "one\ntwo\n");
     assert_eq!(Setting::VimClipboard.control(), SettingControl::Choice);
     keys(&mut app, "yy");
-    assert_eq!(app.copied, None);
+    assert_eq!(app.clipboard.copied, None);
     app.set_vim_clipboard(winc_config::VimClipboard::Yank);
     keys(&mut app, "yy");
-    assert_eq!(app.copied.as_deref(), Some("one\n"));
+    assert_eq!(app.clipboard.copied.as_deref(), Some("one\n"));
     keys(&mut app, "jdd");
-    assert_eq!(app.copied.as_deref(), Some("one\n"));
+    assert_eq!(app.clipboard.copied.as_deref(), Some("one\n"));
     app.set_vim_clipboard(winc_config::VimClipboard::Always);
     keys(&mut app, "x");
-    assert_eq!(app.copied.as_deref(), Some("o"));
+    assert_eq!(app.clipboard.copied.as_deref(), Some("o"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -640,7 +649,7 @@ fn the_command_line_sits_in_the_status_row_with_history_and_completion() {
     let (mut app, dir) = vim_app("vim-command", "one two\nthree\nfour\nfive\n");
     keys(&mut app, ":");
     assert_eq!(
-        (app.focus, app.prompt_kind.clone()),
+        (app.focus, app.bars.prompt_kind.clone()),
         (Focus::Prompt, PromptKind::VimCommand)
     );
     // 输入条占状态栏所在的一行；状态栏隐藏时临时显示。
@@ -667,7 +676,7 @@ fn the_command_line_sits_in_the_status_row_with_history_and_completion() {
 
     // 带次数与可视模式下预填范围。
     keys(&mut app, "gg2:");
-    assert_eq!(app.goto_input.as_ref().unwrap().text(), ".,.+1");
+    assert_eq!(app.bars.goto_input.as_ref().unwrap().text(), ".,.+1");
     app.edit_field(|field| field.insert(">"));
     app.submit_prompt();
     assert_eq!(text(&app), "    one two\n    four\nfive\n");
@@ -677,7 +686,7 @@ fn the_command_line_sits_in_the_status_row_with_history_and_completion() {
     keys(&mut app, ":");
     let up = Key::Named(NamedKey::ArrowUp);
     let down = Key::Named(NamedKey::ArrowDown);
-    let line = |app: &App| app.goto_input.as_ref().unwrap().text().to_owned();
+    let line = |app: &App| app.bars.goto_input.as_ref().unwrap().text().to_owned();
     assert!(app.vim_prompt_key(&up, ""));
     assert_eq!(line(&app), "set ic");
     assert!(app.vim_prompt_key(&up, ""));
@@ -693,26 +702,26 @@ fn the_command_line_sits_in_the_status_row_with_history_and_completion() {
 
     // `Tab` 补全命令名与选项名，连续按下时轮换。
     let tab = Key::Named(NamedKey::Tab);
-    app.goto_input.as_mut().unwrap().set_text("");
+    app.bars.goto_input.as_mut().unwrap().set_text("");
     assert!(!app.vim_prompt_key(&Key::Character("x".into()), "x"));
     app.edit_field(|field| field.insert("tabn"));
     assert!(app.vim_prompt_key(&tab, ""));
     assert_eq!(line(&app), "tabnew");
     assert!(app.vim_prompt_key(&tab, ""));
     assert_eq!(line(&app), "tabnext");
-    app.goto_input.as_mut().unwrap().set_text("");
+    app.bars.goto_input.as_mut().unwrap().set_text("");
     assert!(!app.vim_prompt_key(&Key::Character("x".into()), "x"));
     app.edit_field(|field| field.insert("set sm"));
     assert!(app.vim_prompt_key(&tab, ""));
     assert_eq!(line(&app), "set smartcase");
 
     // `Ctrl-R` 之后是寄存器名，`Ctrl-R Ctrl-W` 是光标处的词。
-    app.goto_input.as_mut().unwrap().set_text("");
+    app.bars.goto_input.as_mut().unwrap().set_text("");
     assert!(!app.vim_prompt_key(&Key::Character("x".into()), "x"));
-    app.modifiers = ModifiersState::CONTROL;
+    app.pointer.modifiers = ModifiersState::CONTROL;
     assert!(app.vim_prompt_key(&Key::Character("r".into()), "r"));
     assert!(app.vim_prompt_key(&Key::Character("w".into()), "w"));
-    app.modifiers = ModifiersState::empty();
+    app.pointer.modifiers = ModifiersState::empty();
     assert_eq!(line(&app), "four");
     app.close_prompt();
     app.focus = Focus::Editor;
@@ -766,24 +775,28 @@ fn lists_options_and_highlighting_follow_the_command_line() {
     let (mut app, dir) = vim_app("vim-lists", "one two\nthree two\n");
     keys(&mut app, "yiwjma");
     ex(&mut app, "reg");
-    assert!(app.picker.open && app.picker.vim_list.is_some());
+    assert!(app.overlays.picker.open && app.overlays.picker.vim_list.is_some());
     paint(&mut app);
     // 输入的文字筛选各行；回车粘贴选中的寄存器。
-    app.picker.input.set_text("\"0");
+    app.overlays.picker.input.set_text("\"0");
     app.picker_refresh();
-    assert_eq!(app.picker.hits.len(), 1);
+    assert_eq!(app.overlays.picker.hits.len(), 1);
     app.picker_accept();
-    assert!(!app.picker.open && app.picker.vim_list.is_none());
+    assert!(!app.overlays.picker.open && app.overlays.picker.vim_list.is_none());
     assert_eq!(text(&app), "one two\ntonehree two\n");
     keys(&mut app, "ugg");
     ex(&mut app, "marks");
-    app.picker.input.set_text("'a");
+    app.overlays.picker.input.set_text("'a");
     app.picker_refresh();
     app.picker_accept();
     assert_eq!(line(&app), 1);
     ex(&mut app, "ls");
     assert_eq!(
-        app.picker.vim_list.as_ref().map(|list| list.rows.len()),
+        app.overlays
+            .picker
+            .vim_list
+            .as_ref()
+            .map(|list| list.rows.len()),
         Some(1)
     );
     app.close_picker();
@@ -924,7 +937,7 @@ fn uppercase_marks_reach_other_files_and_are_kept_in_the_state() {
     ex(&mut app, "e other.txt");
     assert_eq!(text(&app), "other\n");
     ex(&mut app, "marks");
-    let rows = &app.picker.vim_list.as_ref().unwrap().rows;
+    let rows = &app.overlays.picker.vim_list.as_ref().unwrap().rows;
     assert!(
         rows.iter()
             .any(|row| row.label == "'A" && row.text.ends_with("vim.txt:2"))
@@ -952,7 +965,7 @@ fn uppercase_marks_reach_other_files_and_are_kept_in_the_state() {
     keys(&mut app, ":");
     app.edit_field(|field| field.insert("b ot"));
     assert!(app.vim_prompt_key(&Key::Named(NamedKey::Tab), ""));
-    assert_eq!(app.goto_input.as_ref().unwrap().text(), "b other.txt");
+    assert_eq!(app.bars.goto_input.as_ref().unwrap().text(), "b other.txt");
     app.submit_prompt();
     assert_eq!(text(&app), "other\n");
     let _ = std::fs::remove_dir_all(&dir);
@@ -983,9 +996,9 @@ fn lists_move_with_vim_keys_and_the_focus_follows_window_commands() {
     }
     // `Ctrl-W` 之后的方向把焦点移回编辑区。
     app.focus = Focus::Tree;
-    app.modifiers = ModifiersState::CONTROL;
+    app.pointer.modifiers = ModifiersState::CONTROL;
     assert!(app.vim_list_key(&key("w"), "w"));
-    app.modifiers = ModifiersState::empty();
+    app.pointer.modifiers = ModifiersState::empty();
     assert!(app.vim_list_key(&key("l"), "l"));
     assert_eq!(app.focus, Focus::Editor);
 

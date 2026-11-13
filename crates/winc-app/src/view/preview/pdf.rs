@@ -25,8 +25,8 @@ const STRIP_MIN_AREA: f32 = 560.0;
 pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
     let p = app.palette;
     frame.rect(area, p.editor_bg);
-    app.pdf.area = area;
-    let Some(Ok(pages)) = app.pdf.pages.clone() else {
+    app.preview.pdf.area = area;
+    let Some(Ok(pages)) = app.preview.pdf.pages.clone() else {
         return;
     };
     let scale = frame.scale();
@@ -37,7 +37,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
     // 的宽度排版，只随栏平移，页面的大小不在过渡中反复改变。
     let strip_fits = pages.len() > 1 && area.w >= STRIP_MIN_AREA;
     let open = strip_fits && !app.state.pdf_thumbnails_hidden;
-    let shown = match app.pdf.strip_motion.filter(|_| strip_fits) {
+    let shown = match app.preview.pdf.strip_motion.filter(|_| strip_fits) {
         Some((true, clock)) => clock.between(0.0, STRIP_WIDTH),
         Some((false, clock)) => clock.between(STRIP_WIDTH, 0.0),
         None if open => STRIP_WIDTH,
@@ -46,10 +46,14 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
     let shown = snap(shown);
     let body = Rect::new(area.x + shown, area.y, area.w - shown, area.h);
     let fixed = if open { STRIP_WIDTH } else { 0.0 };
-    let (rects, ratio) = app.pdf.lay_out(&pages, area.w - fixed);
-    let (scroll, scroll_x, height) = (app.pdf.scroll, app.pdf.scroll_x, app.pdf.height);
+    let (rects, ratio) = app.preview.pdf.lay_out(&pages, area.w - fixed);
+    let (scroll, scroll_x, height) = (
+        app.preview.pdf.scroll,
+        app.preview.pdf.scroll_x,
+        app.preview.pdf.height,
+    );
     // 放大后每页的位图更大，只请求视口内的页；否则视口上下各半屏范围内的页也提前请求。
-    let reach = if app.pdf.zoom > 1.0 {
+    let reach = if app.preview.pdf.zoom > 1.0 {
         0.0
     } else {
         body.h / 2.0
@@ -82,7 +86,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
         // 页面四周一圈细边框与背景区分，裁剪到正文区域内：滚出顶部的页不画到标签栏上。
         frame.rect_clipped(page.inset(-1.0, -1.0), p.border, 0.0, body);
         frame.rect_clipped(page, winc_render::Color::hex(0xffffff), 0.0, body);
-        match app.pdf.rendered.get(&i) {
+        match app.preview.pdf.rendered.get(&i) {
             Some(pixels) if (pixels.width, pixels.height) == (dw, dh) => {
                 frame.pixels((page.x, page.y), dw, dh, &pixels.rgba, body);
             }
@@ -90,7 +94,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
                 frame.pixels_scaled(page, pixels.width, pixels.height, &pixels.rgba, body);
             }
             None => {
-                if let Some(reason) = app.pdf.failed.get(&(i, w)) {
+                if let Some(reason) = app.preview.pdf.failed.get(&(i, w)) {
                     draw_failure(app, frame, page.intersect(body), reason);
                 }
             }
@@ -143,7 +147,7 @@ fn draw_strip(
             item
         })
         .collect();
-    let pdf = &mut app.pdf;
+    let pdf = &mut app.preview.pdf;
     (pdf.strip, pdf.strip_height) = (visible, y);
     if pdf.current != current
         && let Some(&(top, h)) = items.get(current)
@@ -184,7 +188,7 @@ fn draw_strip(
         frame.rect_clipped(thumb, winc_render::Color::hex(0xffffff), 0.0, visible);
         let ready =
             |px: &&std::sync::Arc<winc_preview::image::Pixels>| px.width == w && px.height == h;
-        if let Some(pixels) = app.pdf.thumbs.get(&i).filter(ready) {
+        if let Some(pixels) = app.preview.pdf.thumbs.get(&i).filter(ready) {
             frame.pixels((thumb.x, thumb.y), w, h, &pixels.rgba, visible);
         }
         let text = (i + 1).to_string();
@@ -279,7 +283,7 @@ fn draw_toolbar(
         );
         frame.rect_clipped(line, p.separator, 0.0, body);
     };
-    let zoom = app.pdf.zoom;
+    let zoom = app.preview.pdf.zoom;
     let tools = [
         (PdfTool::Thumbnails, BUTTON, strip.is_some()),
         (PdfTool::ZoomOut, BUTTON, true),
@@ -291,7 +295,7 @@ fn draw_toolbar(
             continue;
         }
         let r = Rect::new(x, bar.y + TOOL_PAD, w, BUTTON);
-        if app.hover == Hover::PdfTool(tool) {
+        if app.pointer.hover == Hover::PdfTool(tool) {
             frame.rect_clipped(r, p.hover, RADIUS_POPUP - TOOL_PAD, body);
         }
         let center = (r.x + r.w / 2.0, r.y + r.h / 2.0);

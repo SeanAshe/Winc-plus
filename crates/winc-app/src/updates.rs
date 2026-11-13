@@ -16,6 +16,33 @@ use ed25519_dalek::{Signature, VerifyingKey};
 
 use crate::web::{command, fetch};
 use crate::winc::UpdateState;
+
+/// 「关于」页更新按钮这次点击该做什么，与状态栏上的更新按钮一致。
+///
+/// 还没找到新版本时检查；找到之后下载安装；已经准备好时重新启动。正在检查或下载时不响应。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum UpdateClick {
+    /// 不支持更新，或正在检查、下载。
+    None,
+    /// 检查有没有新版本。
+    Check,
+    /// 下载并安装上次找到的版本；安装失败时也是再试一次。
+    Install,
+    /// 重新启动以完成更新。
+    Restart,
+}
+
+impl UpdateClick {
+    /// 由当前的更新状态 `state` 得出按钮该做的事。
+    pub(crate) fn from_state(state: &UpdateState) -> Self {
+        match state {
+            UpdateState::Off | UpdateState::Checking | UpdateState::Downloading(..) => Self::None,
+            UpdateState::Ready(_) => Self::Restart,
+            UpdateState::Found(_) | UpdateState::InstallFailed(_) => Self::Install,
+            UpdateState::Idle | UpdateState::Latest | UpdateState::Failed => Self::Check,
+        }
+    }
+}
 #[cfg(unix)]
 use appimage as platform;
 #[cfg(windows)]

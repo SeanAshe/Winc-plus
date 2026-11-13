@@ -132,8 +132,8 @@ impl App {
         else {
             return;
         };
-        let ticket = self.rereads.reencodes.issue(id);
-        let sender = self.rereads.results.0.clone();
+        let ticket = self.disk.rereads.reencodes.issue(id);
+        let sender = self.disk.rereads.results.0.clone();
         self.spawn_then(UserEvent::Reread, move || {
             let _ = sender.send((id, ticket, DiskBack::Taken(take.read())));
         });

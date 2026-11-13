@@ -168,7 +168,7 @@ impl App {
         done: impl Fn(usize, bool) -> Option<UserEvent> + 'static,
     ) -> bool {
         #[cfg(target_os = "macos")]
-        if let (Some(window), Some(proxy)) = (self.window.handle.clone(), self.proxy.clone()) {
+        if let (Some(window), Some(proxy)) = (self.window.handle.clone(), self.link.proxy.clone()) {
             use crate::macos::{MOD_COMMAND, alert};
             let keys: Vec<Option<String>> = buttons
                 .iter()
@@ -208,10 +208,10 @@ impl App {
             );
         }
 
-        if self.alert.is_some() {
+        if self.overlays.alert.is_some() {
             return false;
         }
-        self.alert = Some(InAppAlert {
+        self.overlays.alert = Some(InAppAlert {
             message: message.to_owned(),
             detail: detail.to_owned(),
             buttons,
@@ -246,10 +246,10 @@ impl App {
 
     /// 选中第 `index` 个按钮：关掉提示框，处理它的事件。
     fn press_alert(&mut self, index: usize) {
-        let Some(alert) = self.alert.take() else {
+        let Some(alert) = self.overlays.alert.take() else {
             return;
         };
-        self.set_hover(self.hover_at(self.mouse.0, self.mouse.1));
+        self.set_hover(self.hover_at(self.pointer.mouse.0, self.pointer.mouse.1));
         self.request_redraw();
         if let Some(event) = (alert.done)(index, alert.checked) {
             self.handle_event(event);
@@ -258,7 +258,7 @@ impl App {
 
     /// 鼠标移到 `(x, y)`：窗口内的提示框打开时返回 `true`，并只更新提示框的悬停状态。
     pub(in crate::app) fn alert_mouse_move(&mut self, x: f32, y: f32) -> bool {
-        let Some(alert) = &mut self.alert else {
+        let Some(alert) = &mut self.overlays.alert else {
             return false;
         };
         let part = alert.part_at(x, y);
@@ -273,8 +273,8 @@ impl App {
     ///
     /// 点在按钮上选中它，点在勾选框上切换；点在空白处不做什么（提示框要用按钮关掉）。
     pub(in crate::app) fn alert_mouse_down(&mut self) -> bool {
-        let (x, y) = self.mouse;
-        let Some(alert) = &mut self.alert else {
+        let (x, y) = self.pointer.mouse;
+        let Some(alert) = &mut self.overlays.alert else {
             return false;
         };
         match alert.part_at(x, y) {
@@ -293,7 +293,7 @@ impl App {
     /// ↩ 选中默认按钮，Esc 选中「取消」，⌘ 加字母（其他平台是 Ctrl）选中绑了该字母的按钮，
     /// 空格切换勾选框。
     pub(in crate::app) fn alert_key(&mut self, key: &Key, command: bool) -> bool {
-        let Some(alert) = &mut self.alert else {
+        let Some(alert) = &mut self.overlays.alert else {
             return false;
         };
         if let Some(i) = alert.button_for(key, command) {

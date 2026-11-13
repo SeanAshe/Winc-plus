@@ -7,7 +7,7 @@ use crate::app::scroll::set_scroll_line;
 impl App {
     /// 处理鼠标移动到窗口坐标 (`x`, `y`)（逻辑像素）：更新悬停、指针样式和进行中的拖动。
     pub(in crate::app) fn on_mouse_move(&mut self, x: f32, y: f32) {
-        self.mouse = (x, y);
+        self.pointer.mouse = (x, y);
         self.update_scrollbar_hover(x, y);
 
         // 鼠标离开顶栏时解除关闭标签期间锁定的宽度，标签重新排布。
@@ -20,13 +20,13 @@ impl App {
             return;
         }
         // 对话框和设置浮层覆盖整个窗口：下方的按钮和文件树不响应悬停，只判断浮层内的各部分。
-        if self.form_dialog.is_some() {
+        if self.overlays.form_dialog.is_some() {
             self.hover_form_dialog(x, y);
             return;
         }
         if self.settings.open {
             // 拖动滚动条时下方的设置项不高亮；滑块在拖动和悬停时加深颜色。
-            let dragging = match self.drag {
+            let dragging = match self.pointer.drag {
                 Drag::Scrollbar {
                     bar: Scrollbar::Settings,
                     grab,
@@ -50,7 +50,7 @@ impl App {
 
             self.update_cursor_icon();
 
-            if self.drag == Drag::Field
+            if self.pointer.drag == Drag::Field
                 && let Some(field) = self.focused_field()
             {
                 let pos = field.view.position_at_point(x, y);
@@ -66,7 +66,7 @@ impl App {
         }
 
         self.track_tree_segment();
-        if self.tree.drag.is_some() {
+        if self.panels.tree.drag.is_some() {
             self.drag_tree_item(x, y);
         }
         if self.tabs.drag.is_some() {
@@ -80,8 +80,8 @@ impl App {
             .markdown_codes
             .iter()
             .position(|r| r.contains(x, y));
-        if code != self.markdown.code_hover {
-            self.markdown.code_hover = code;
+        if code != self.preview.markdown.code_hover {
+            self.preview.markdown.code_hover = code;
             self.request_redraw();
         }
         if self.terminal.link.is_some() || self.layout.terminal.contains(x, y) {
@@ -89,7 +89,7 @@ impl App {
         }
         self.update_cursor_icon();
 
-        match self.drag {
+        match self.pointer.drag {
             Drag::Picture { at } => self.drag_picture(x, y, at),
             Drag::TerminalSelect | Drag::TerminalMouse(_) => self.terminal_mouse_drag(x, y),
             Drag::None if self.layout.terminal.contains(x, y) => self.terminal_mouse_hover(x, y),
@@ -112,8 +112,8 @@ impl App {
                 // 收起时宽度恢复为拖动前的值，之后用 `⌘B` 打开时仍为拖动前的宽度。
                 let width = start_width + x - start_x;
                 if width < MIN_PANEL_WIDTH / 2.0 {
-                    if self.sidebar.visible {
-                        self.sidebar.width = start_width;
+                    if self.panels.sidebar.visible {
+                        self.panels.sidebar.width = start_width;
                         self.set_sidebar(false);
                         if self.focus_in_sidebar() {
                             self.focus = Focus::Editor;
@@ -122,8 +122,8 @@ impl App {
                     return;
                 }
                 let max = (self.layout.window.w - 320.0).max(MIN_PANEL_WIDTH);
-                self.sidebar.width = width.clamp(MIN_PANEL_WIDTH, max);
-                if self.sidebar.visible {
+                self.panels.sidebar.width = width.clamp(MIN_PANEL_WIDTH, max);
+                if self.panels.sidebar.visible {
                     self.relayout();
                     self.request_redraw();
                 } else {
@@ -153,7 +153,7 @@ impl App {
                 let total = self.layout.editor.w + self.layout.split.w + 1.0;
                 if total > 0.0 {
                     let left = start_left + (x - start_x);
-                    self.split_share = Some((left / total).clamp(0.0, 1.0));
+                    self.preview.split_share = Some((left / total).clamp(0.0, 1.0));
                     self.relayout();
                     self.request_redraw();
                 }
@@ -163,8 +163,8 @@ impl App {
                 start_width,
             } => {
                 // 向左拖动使详情变宽；按排版允许的范围限制后再保存，使保存的宽度等于绘制的宽度。
-                self.log.details_w = Some(start_width - (x - start_x));
-                self.log.details_w = Some(self.log_parts().details.w);
+                self.git.log.details_w = Some(start_width - (x - start_x));
+                self.git.log.details_w = Some(self.log_parts().details.w);
                 self.request_redraw();
             }
             Drag::Scrollbar {
@@ -176,18 +176,20 @@ impl App {
                 if bar == Scrollbar::TreeHorizontal {
                     let max = self.tree_max_scroll_x();
 
-                    if let Some(thumb) =
-                        hscrollbar_thumb(tree, self.tree.scroll_x, self.tree.content_w)
-                    {
-                        self.tree.scroll_x =
+                    if let Some(thumb) = hscrollbar_thumb(
+                        tree,
+                        self.panels.tree.scroll_x,
+                        self.panels.tree.content_w,
+                    ) {
+                        self.panels.tree.scroll_x =
                             scroll_for_thumb(tree.x, tree.w, thumb.w, x, grab, max);
                     }
                 } else {
                     let rows = self.editor.workspace.as_ref().map_or(0, |w| w.rows().len());
                     let content = (rows as f32 + 1.0) * TREE_ROW;
 
-                    if let Some(thumb) = scrollbar_thumb(tree, self.tree.scroll, content) {
-                        self.tree.scroll = scroll_for_thumb(
+                    if let Some(thumb) = scrollbar_thumb(tree, self.panels.tree.scroll, content) {
+                        self.panels.tree.scroll = scroll_for_thumb(
                             tree.y,
                             tree.h,
                             thumb.h,
@@ -205,9 +207,9 @@ impl App {
                 grab,
             } => {
                 let results = self.panel_parts().results;
-                let content = (self.global.rows().len() as f32 + 1.0) * TREE_ROW;
+                let content = (self.panels.global.rows().len() as f32 + 1.0) * TREE_ROW;
                 if let Some(thumb) = scrollbar_thumb(results, 0.0, content) {
-                    self.global.scroll = scroll_for_thumb(
+                    self.panels.global.scroll = scroll_for_thumb(
                         results.y,
                         results.h,
                         thumb.h,
@@ -227,7 +229,8 @@ impl App {
                     let list = app.commit_parts().list;
                     let max = app.commit_max_scroll();
                     if let Some(thumb) = scrollbar_thumb(list, 0.0, max + list.h) {
-                        app.commit.scroll = scroll_for_thumb(list.y, list.h, thumb.h, y, grab, max);
+                        app.git.commit.scroll =
+                            scroll_for_thumb(list.y, list.h, thumb.h, y, grab, max);
                     }
                 };
                 if self.with_log_list(drag).is_none() && self.commit_shown() {
@@ -242,7 +245,8 @@ impl App {
                 let list = self.outline_list();
                 let max = self.outline_max_scroll();
                 if let Some(thumb) = scrollbar_thumb(list, 0.0, max + list.h) {
-                    self.outline.scroll = scroll_for_thumb(list.y, list.h, thumb.h, y, grab, max);
+                    self.panels.outline.scroll =
+                        scroll_for_thumb(list.y, list.h, thumb.h, y, grab, max);
                 }
                 self.request_redraw();
             }
@@ -254,8 +258,8 @@ impl App {
                 bar: Scrollbar::Markdown,
                 grab,
             } => {
-                let area = self.markdown.area;
-                let content = self.markdown.height;
+                let area = self.preview.markdown.area;
+                let content = self.preview.markdown.height;
                 if let Some(thumb) = scrollbar_thumb(area, 0.0, content) {
                     let max = content - area.h;
                     let to = scroll_for_thumb(area.y, area.h, thumb.h, y, grab, max);
@@ -270,10 +274,10 @@ impl App {
                 bar: Scrollbar::PdfStrip,
                 grab,
             } => {
-                let (strip, content) = (self.pdf.strip, self.pdf.strip_height);
+                let (strip, content) = (self.preview.pdf.strip, self.preview.pdf.strip_height);
                 if let Some(thumb) = scrollbar_thumb(strip, 0.0, content) {
                     let max = (content - strip.h).max(0.0);
-                    self.pdf.strip_scroll =
+                    self.preview.pdf.strip_scroll =
                         scroll_for_thumb(strip.y, strip.h, thumb.h, y, grab, max);
                     self.request_redraw();
                 }
@@ -282,10 +286,11 @@ impl App {
                 bar: Scrollbar::Pdf,
                 grab,
             } => {
-                let area = self.pdf.area;
-                if let Some(thumb) = scrollbar_thumb(area, 0.0, self.pdf.height) {
-                    let max = self.pdf.max_scroll();
-                    self.pdf.scroll = scroll_for_thumb(area.y, area.h, thumb.h, y, grab, max);
+                let area = self.preview.pdf.area;
+                if let Some(thumb) = scrollbar_thumb(area, 0.0, self.preview.pdf.height) {
+                    let max = self.preview.pdf.max_scroll();
+                    self.preview.pdf.scroll =
+                        scroll_for_thumb(area.y, area.h, thumb.h, y, grab, max);
                     self.request_redraw();
                 }
             }
@@ -407,18 +412,19 @@ impl App {
             }
         });
         if outside == 0.0 && outside_x == 0.0 {
-            self.drag_scrolled_at = None;
+            self.pointer.drag_scrolled_at = None;
             return false;
         }
         let now = Instant::now();
         // 刚拖出边缘时立即滚动一帧的量；距上次滚动的间隔（如主线程阻塞后）最多按 100 ms 计算。
         let elapsed = self
+            .pointer
             .drag_scrolled_at
-            .map_or(self.frame_interval, |at| now - at)
+            .map_or(self.frame.frame_interval, |at| now - at)
             .min(std::time::Duration::from_millis(100));
-        self.drag_scrolled_at = Some(now);
+        self.pointer.drag_scrolled_at = Some(now);
         let lh = self.fonts.line_height;
-        let cell = self.cell;
+        let cell = self.metrics.cell;
         let seconds = elapsed.as_secs_f32();
         let max = self.max_scroll_line();
         if let Some(doc) = self.editor.active_mut() {
@@ -438,34 +444,34 @@ impl App {
     /// 每帧绘制前调用：拖选停在编辑区边缘之外时，即使鼠标不动也按经过的时间滚动并扩展选区。
     pub(in crate::app) fn continue_drag_scroll(&mut self) {
         if self.drag_autoscrolling() {
-            let (x, y) = self.mouse;
+            let (x, y) = self.pointer.mouse;
             self.on_mouse_move(x, y);
         }
     }
 
     /// 是否需要逐帧自动滚动：正在拖选或列选择，鼠标位于编辑区边缘之外，且该方向仍可滚动。
     pub(in crate::app) fn drag_autoscrolling(&self) -> bool {
-        if self.drag == Drag::TerminalSelect {
+        if self.pointer.drag == Drag::TerminalSelect {
             let view = self.terminal_view();
-            let y = self.mouse.1;
+            let y = self.pointer.mouse.1;
             let Some((position, limit)) = self.terminal.tab().map(|t| t.scroll_position()) else {
                 return false;
             };
             return (y < view.y && position < limit) || (y >= view.bottom() && position > 0.0);
         }
         let selecting = matches!(
-            self.drag,
+            self.pointer.drag,
             Drag::Select { .. }
                 | Drag::SelectLine { .. }
                 | Drag::Columns { .. }
                 | Drag::AddSelect { .. }
         );
-        let (t, (x, y)) = (self.layout.text, self.mouse);
+        let (t, (x, y)) = (self.layout.text, self.pointer.mouse);
         let Some(doc) = self.editor.active() else {
             return false;
         };
         // 拖选整行与横向位置无关。
-        let sideways = !matches!(self.drag, Drag::SelectLine { .. });
+        let sideways = !matches!(self.pointer.drag, Drag::SelectLine { .. });
         let track = self.text_hscroll_track();
         selecting
             && ((y < t.y && doc.scroll_line > 0.0)
@@ -514,10 +520,11 @@ impl App {
     pub(in crate::app) fn drag_scroll_lines(&mut self, lines: f32) -> f32 {
         let now = Instant::now();
         let elapsed = self
+            .pointer
             .drag_scrolled_at
-            .map_or(self.frame_interval, |at| now - at)
+            .map_or(self.frame.frame_interval, |at| now - at)
             .min(std::time::Duration::from_millis(100));
-        self.drag_scrolled_at = Some(now);
+        self.pointer.drag_scrolled_at = Some(now);
         drag_scroll_speed(lines) * elapsed.as_secs_f32()
     }
 }
