@@ -178,6 +178,7 @@ impl ApplicationHandler<UserEvent> for App {
         self.renderer = Some(renderer);
         self.measure_fonts();
         self.window.handle = Some(window.clone());
+        self.start_setup_intro();
         #[cfg(windows)]
         {
             self.touch.window_input = crate::windows::WindowInput::new(&window);
@@ -435,11 +436,21 @@ impl App {
             UserEvent::Definitions => self.poll_definitions(),
             UserEvent::FilesChanged => self.files_changed(),
             UserEvent::GitQuestion => self.poll_git_questions(),
+            UserEvent::RemoteQuestion => self.poll_remote_questions(),
+            UserEvent::RemoteStage => self.remote_stage_changed(),
+            UserEvent::RemoteHealth => self.request_redraw(),
+            UserEvent::RemoteClosed(target) => self.remote_closed(&target),
+            UserEvent::ReleaseNotes(notes) => self.show_release_notes(notes),
             done @ (UserEvent::GitStatus
             | UserEvent::GitContent
             | UserEvent::GitCommit
             | UserEvent::GitBase
             | UserEvent::GitOperated
+            | UserEvent::RemoteConnected
+            | UserEvent::RemoteListed
+            | UserEvent::RemoteWatching
+            | UserEvent::FormatPlanned
+            | UserEvent::FileWorked
             | UserEvent::GitMergeSides
             | UserEvent::GitLog
             | UserEvent::GitBlame
@@ -500,8 +511,18 @@ impl App {
             UserEvent::OpenFolderIn(path, new_window, never_ask) => {
                 self.open_folder_in(&path, new_window, never_ask);
             }
-            UserEvent::Pasted(result) => self.pasted_into_tree(result),
-            UserEvent::Copied(copies, failures) => self.copied_into_tree(copies, failures),
+            UserEvent::Pasted(result, copying) => {
+                // 取消的那一项不算失败：不提示原因，之前粘贴好的各项照常显示。
+                let result = match self.copy_finished(&copying) {
+                    true => Ok(result.unwrap_or_default()),
+                    false => result,
+                };
+                self.pasted_into_tree(result);
+            }
+            UserEvent::Copied(copies, failures, copying) => {
+                self.copy_finished(&copying);
+                self.copied_into_tree(copies, failures);
+            }
             UserEvent::Reopen => self.show_window(),
             #[cfg(target_os = "macos")]
             UserEvent::OfferMoveToApplications => self.offer_move_to_applications(),
@@ -526,6 +547,9 @@ impl App {
                 self.open_settings();
             }
             UserEvent::InstallShellCommand => self.install_shell_command(),
+            UserEvent::OpenReleaseNotes => {
+                self.open_release_notes(crate::release_notes::Scope::All);
+            }
             // 编号为所弹出菜单中的序号，按记录的菜单查找对应的命令。
             UserEvent::MenuCommand(tag) => {
                 let command = self.context_menu.as_ref().and_then(|menu| {
@@ -615,6 +639,8 @@ impl App {
             }
         }
         earliest(&mut wake, self.terminal_settle_tick(now));
+        let copying = self.copy_tick(now);
+        earliest(&mut wake, copying);
 
         let tooltip_at = self.tooltip.since.map(|since| since + TOOLTIP_DELAY);
 

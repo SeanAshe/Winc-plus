@@ -14,6 +14,9 @@ impl App {
         let l = self.layout;
         // 折叠动画期间绘制的是展开状态，而点击按的是折叠后的布局：先取消动画，使显示直接到位。
         self.fold_motion = None;
+        // 跳转过渡期间绘制的是插值位置，而命中测试按滚动位置换算：过渡停在屏幕上显示的位置。
+        self.settle_glides();
+        self.fling = None;
         self.dismiss_hint();
 
         // 窗口内的提示框、菜单打开时，这次按下只交给它们：点在菜单外面即关掉菜单。
@@ -366,7 +369,7 @@ impl App {
     /// 按下滚动条 `bar`，抓住滑块 `grab` 处开始拖；点在轨道上时滑块立即跳到鼠标处，
     /// 无需等待鼠标移动。
     pub(super) fn grab_scrollbar(&mut self, bar: Scrollbar, grab: f32) {
-        self.scroll_glide = None;
+        self.settle_glides();
         self.drag = Drag::Scrollbar { bar, grab };
         let (x, y) = self.mouse;
         self.on_mouse_move(x, y);

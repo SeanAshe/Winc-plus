@@ -11,6 +11,8 @@ use winit::window::ResizeDirection;
 
 use super::*;
 
+use crate::app::scroll::fling::MIN_FLING_SPEED;
+
 #[cfg(test)]
 mod tests;
 
@@ -40,6 +42,15 @@ pub(in crate::app) const TAP_SLOP: f32 = 2.0 * SLOP;
 /// 由触摸提升的鼠标事件紧随对应的触摸事件到达，间隔远小于该时长；系统接管窗口拖动时
 /// 可能不再送达抬手事件，失效的接触点不再拦截鼠标事件（见 [`App::touch_blocks_mouse`]）。
 const STALE: Duration = Duration::from_secs(1);
+/// 估计抬手速度时使用的位置样本的时间范围。
+///
+/// 依据 Android `VelocityTracker` 的取样范围（100 毫秒）：只反映抬手前的滑动，不受更早的
+/// 加速或减速影响。
+const VELOCITY_WINDOW: Duration = Duration::from_millis(100);
+/// 抬手前手指静止超过该时长时视为已停下，不产生惯性。
+///
+/// 依据 Android `VelocityTracker` 的 `ASSUME_POINTER_STOPPED_TIME`（40 毫秒）。
+const STOPPED: Duration = Duration::from_millis(40);
 
 /// 单指手势的识别阶段。
 #[derive(Clone, Copy, PartialEq)]
@@ -63,6 +74,33 @@ struct Gesture {
     /// 落指时刻，用于判定长按。
     since: Instant,
     mode: Mode,
+    /// 最近 [`VELOCITY_WINDOW`] 内位置变化的（时刻，位置），用于估计抬手时的速度。
+    track: Vec<(Instant, Point)>,
+}
+
+impl Gesture {
+    /// 记下 `now` 时位于 `point`；位置未变时不记，并移除超出 [`VELOCITY_WINDOW`] 的样本。
+    fn sample(&mut self, now: Instant, point: Point) {
+        if self.track.last().is_some_and(|&(_, last)| last == point) {
+            return;
+        }
+        self.track
+            .retain(|&(at, _)| now.saturating_duration_since(at) <= VELOCITY_WINDOW);
+        self.track.push((now, point));
+    }
+
+    /// 返回 `now` 抬手时的速度（逻辑像素/秒）；手指已停下（见 [`STOPPED`]）或样本不足时返回
+    /// `None`。
+    fn velocity(&self, now: Instant) -> Option<Point> {
+        let &(last_at, last) = self.track.last()?;
+        if now.saturating_duration_since(last_at) > STOPPED {
+            return None;
+        }
+        let &(first_at, first) = (self.track.iter())
+            .find(|&&(at, _)| now.saturating_duration_since(at) <= VELOCITY_WINDOW)?;
+        let seconds = last_at.saturating_duration_since(first_at).as_secs_f32();
+        (seconds > 0.0).then(|| ((last.0 - first.0) / seconds, (last.1 - first.1) / seconds))
+    }
 }
 
 /// 单个窗口的触摸状态：未结束的接触点与正在识别的手势。
@@ -84,7 +122,16 @@ pub(in crate::app) struct TouchState {
 enum Action {
     Tap(Point),
     Context(Point),
-    Scroll { origin: Point, delta: Point },
+    Scroll {
+        origin: Point,
+        delta: Point,
+    },
+    /// 滑动中抬手：先滚动 `delta`，再以 `velocity`（逻辑像素/秒）开始惯性滚动。
+    Fling {
+        origin: Point,
+        delta: Point,
+        velocity: Point,
+    },
     Press(Point),
     Move(Point),
     Release(Point),
@@ -119,6 +166,7 @@ impl TouchState {
                 last: point,
                 since: now,
                 mode: if direct { Mode::Drag } else { Mode::Pending },
+                track: vec![(now, point)],
             });
             return direct.then_some(Action::Press(point));
         }
@@ -145,11 +193,21 @@ impl TouchState {
             }
         }
         gesture.last = point;
+        gesture.sample(now, point);
+        let fling = ended
+            .then(|| gesture.velocity(now))
+            .flatten()
+            .filter(|v| v.0.hypot(v.1) >= MIN_FLING_SPEED);
         let action = match gesture.mode {
             Mode::Pending if ended => Some(if now.duration_since(gesture.since) >= LONG_PRESS {
                 Action::Context(gesture.origin)
             } else {
                 Action::Tap(gesture.origin)
+            }),
+            Mode::Scroll if fling.is_some() => fling.map(|velocity| Action::Fling {
+                origin: gesture.origin,
+                delta,
+                velocity,
             }),
             Mode::Scroll if delta != (0.0, 0.0) => Some(Action::Scroll {
                 origin: gesture.origin,
@@ -201,8 +259,10 @@ impl App {
         );
         if touch.phase == TouchPhase::Started && !self.touch.active() {
             self.drop_drags();
-            self.scroll_glide = None;
+            // 落指即接管滚动：过渡停在屏幕上显示的位置，惯性滚动停止。
+            self.settle_glides();
             self.wheel.glide = None;
+            self.fling = None;
             self.dismiss_hint();
             self.cursor_inside = true;
             self.on_mouse_move(point.0, point.1);
@@ -327,6 +387,16 @@ impl App {
                     f64::from(delta.1 * scale),
                 )));
                 self.mouse = mouse;
+            }
+            Action::Fling {
+                origin,
+                delta,
+                velocity,
+            } => {
+                if delta != (0.0, 0.0) {
+                    self.apply_touch(Action::Scroll { origin, delta });
+                }
+                self.start_fling(origin, velocity);
             }
             Action::Press((x, y)) => {
                 self.last_click = None;

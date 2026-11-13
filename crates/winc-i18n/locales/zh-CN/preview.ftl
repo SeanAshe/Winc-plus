@@ -56,7 +56,7 @@ preview-svg-missing-text-path = 沿路径排列的文字
 
 preview-markdown-image-alt = 图片
 preview-markdown-code-copied = 已复制代码
-preview-markdown-heading-not-found = 文档中没有此标题
+preview-markdown-heading-not-found = 未在文档中找到此标题
 preview-markdown-link-file-not-found = 未找到链接指向的文件
 preview-markdown-link-open-failed = 无法打开链接：{ $error }
 preview-markdown-cache-folder-invalid = 缓存目录无效
@@ -75,14 +75,14 @@ preview-table-invalid = 不是有效的 xlsx 文件
 preview-table-unsupported = 不支持加密或 zip64 格式的 xlsx 文件
 preview-office-damaged = 文件已损坏（{ $part }）
 preview-table-too-large = 文件过大
-preview-table-no-sheets = 工作簿中没有可显示的工作表
+preview-table-no-sheets = 工作簿中无可显示的工作表
 preview-table-empty = 此工作表为空
-preview-table-truncated = 表格过大，只显示了前一部分
+preview-table-truncated = 表格过大，仅显示前一部分
 preview-table-sheet = 工作表 { $number }
 
 ## 在浏览器中打开
 preview-browser-open = 在浏览器中打开
-preview-browser-unsaved = 已在浏览器中打开；有未保存的修改，浏览器中显示的是上次保存的内容
+preview-browser-unsaved = 已在浏览器中打开；浏览器显示上次保存的内容，不含未保存的修改
 preview-browser-failed = 无法打开浏览器：{ $error }
 
 ## Word 文档预览
@@ -104,6 +104,6 @@ preview-pdf-invalid = 不是有效的 PDF 文件
 preview-pdf-zoom = PDF 缩放 { $zoom }%
 preview-picture-zoom = 图片缩放 { $zoom }%
 preview-pdf-encrypted = 不支持预览加密的 PDF
-preview-pdf-empty = PDF 中没有页面
-preview-pdf-render-failed = 无法渲染这一页
-preview-pdf-render-failed-code = 无法渲染这一页（错误代码 { $code }）
+preview-pdf-empty = PDF 中无页面
+preview-pdf-render-failed = 无法渲染此页
+preview-pdf-render-failed-code = 无法渲染此页（错误代码 { $code }）

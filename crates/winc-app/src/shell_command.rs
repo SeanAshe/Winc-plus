@@ -7,6 +7,11 @@
 //! 从终端启动时，窗口进程转到后台（[`detach`]），命令立即返回；macOS 的应用包由 `LaunchServices`
 //! 启动。转到后台之前报告读不了的目标（[`report_unreadable`]），错误仍然回到终端。
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "只访问本机：在本机安装命令行入口"
+)]
+
 #[cfg(any(target_os = "macos", all(test, unix)))]
 use crate::app::terminal::shell_quote;
 use crate::cli::Args;

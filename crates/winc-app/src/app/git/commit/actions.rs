@@ -615,7 +615,7 @@ fn partial_content(
     let head = git
         .head_content(root, path, &winc_editor::format::Cancel::default())?
         .unwrap_or_default();
-    let disk = std::fs::read(path)
+    let disk = winc_backend::fs::read(path)
         .map_err(|e| t!("git-read-file-failed", name = &name, error = e.to_string()))?;
     let (Ok(head), Ok(disk)) = (String::from_utf8(head), String::from_utf8(disk)) else {
         return Err(t!("git-commit-partial-not-utf8", name = name));

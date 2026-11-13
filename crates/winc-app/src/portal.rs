@@ -14,13 +14,24 @@ use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
 
 /// 面板的类型：打开或另存为。
 pub enum Choose<'a> {
-    /// 打开：`directory` 为真时只能选目录，否则只能选文件（门户不能同时选两种）。
-    Open { directory: bool },
+    /// 打开：`directory` 为真时只能选目录，否则只能选文件（门户不能同时选两种）；初始目录为
+    /// `dir`，`None` 时由门户决定。
+    Open {
+        directory: bool,
+        dir: Option<&'a Path>,
+    },
     /// 另存为：默认文件名 `name`，初始目录为 `dir`。
     Save {
         name: &'a str,
         dir: Option<&'a Path>,
     },
+}
+
+/// 把目录 `dir` 写成门户要求的以 NUL 结尾的字节串。
+fn folder_bytes(dir: &Path) -> Vec<u8> {
+    let mut bytes = dir.as_os_str().as_encoded_bytes().to_vec();
+    bytes.push(0);
+    bytes
 }
 
 /// 在后台显示门户的面板，用户选完后以结果调用 `done`。
@@ -62,24 +73,19 @@ struct Request {
 impl Request {
     fn from(choose: Choose<'_>, title: &str) -> Request {
         match choose {
-            Choose::Open { directory } => Request {
+            Choose::Open { directory, dir } => Request {
                 method: "OpenFile",
                 title: title.to_owned(),
                 directory,
                 name: None,
-                dir: None,
+                dir: dir.map(folder_bytes),
             },
             Choose::Save { name, dir } => Request {
                 method: "SaveFile",
                 title: title.to_owned(),
                 directory: false,
                 name: Some(name.to_owned()),
-                // 门户要以 NUL 结尾的字节串。
-                dir: dir.map(|d| {
-                    let mut bytes = d.as_os_str().as_encoded_bytes().to_vec();
-                    bytes.push(0);
-                    bytes
-                }),
+                dir: dir.map(folder_bytes),
             },
         }
     }

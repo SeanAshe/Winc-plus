@@ -30,22 +30,26 @@ pub(crate) enum FormKind {
     /// `at` 是日志里选的提交（完整的提交号），从它新建时「基于」不能改；`None` 时「基于」可以
     /// 选分支。
     Branch { at: Option<String> },
-    /// `git`、`ssh` 的输入请求，见 [`super::question`]。
-    Question(Prompt),
+    /// `git`、`ssh` 的输入请求，见 [`super::question`]；请求来自远端主机上的命令时，后一项是
+    /// 那台主机。
+    Question(Prompt, Option<String>),
     /// 克隆仓库：地址、位置。
     Clone,
     /// 添加远程仓库，或修改 `editing` 的地址。
     Remote { editing: Option<String> },
     /// 交互式变基。
     Rebase(Box<RebaseForm>),
+    /// 连接远端主机：主机、端口，见 [`crate::app::remote`]。
+    Connect,
 }
 
 impl FormKind {
     /// 返回使用询问对话框版式的表单的内容；其他表单返回 `None`。
     pub(crate) fn view(&self) -> Option<QuestionView> {
         match self {
-            FormKind::Question(prompt) => Some(QuestionView::of(prompt)),
+            FormKind::Question(prompt, origin) => Some(QuestionView::of(prompt, origin.as_deref())),
             FormKind::Remote { editing } => Some(QuestionView::remote(editing.as_deref())),
+            FormKind::Connect => Some(QuestionView::connect()),
             FormKind::Worktree
             | FormKind::Branch { .. }
             | FormKind::Clone
@@ -62,6 +66,8 @@ pub(crate) struct FormDialog {
     pub name: TextField,
     /// 询问对话框的第二个输入框：登录的密码（遮盖）、远程仓库的地址；其他表单不显示。
     pub second: TextField,
+    /// 连接对话框的第三个输入框：密钥文件；其他表单不显示。
+    pub third: TextField,
     /// 新分支从哪个分支开始；`None` 是当前分支（游离时是当前提交）。
     pub base: Option<String>,
     /// 用「位置」右端的目录按钮选的目录，工作树建在它下面；`None` 是默认位置（见
@@ -136,7 +142,12 @@ impl App {
     }
 
     /// 关闭其他浮层，显示表单对话框：`name` 是它的输入框，`focus` 是一开始的键盘焦点。
-    pub(super) fn show_form_dialog(&mut self, kind: FormKind, name: TextField, focus: DialogPart) {
+    pub(in crate::app) fn show_form_dialog(
+        &mut self,
+        kind: FormKind,
+        name: TextField,
+        focus: DialogPart,
+    ) {
         if self.picker.open {
             self.close_picker();
         }
@@ -154,6 +165,7 @@ impl App {
             kind,
             name,
             second: TextField::masked(),
+            third: TextField::default(),
             base: None,
             folder: None,
             copy: true,
@@ -175,8 +187,11 @@ impl App {
         let Some(dialog) = self.form_dialog.take() else {
             return;
         };
-        if matches!(dialog.kind, FormKind::Question(_)) {
+        if matches!(dialog.kind, FormKind::Question(..)) {
             self.decline_git_question();
+        }
+        if matches!(dialog.kind, FormKind::Connect) {
+            self.connect_dialog_closed();
         }
         self.field_preedit.clear();
         if self.focus == Focus::Dialog {
@@ -191,6 +206,7 @@ impl App {
         let window = self.layout.window;
         match self.form_dialog.as_ref().map(|d| &d.kind) {
             Some(FormKind::Clone) => DialogLayout::clone_form(window),
+            Some(FormKind::Connect) => DialogLayout::connect_form(window),
             Some(FormKind::Rebase(form)) => {
                 DialogLayout::rebase(window, form.rows.len(), form.pushed > 0)
             }
@@ -230,9 +246,10 @@ impl App {
             FormKind::Remote { editing } => {
                 self.remote_plan(editing.as_deref(), dialog.name.text(), dialog.second.text())
             }
-            FormKind::Question(prompt) => FormPlan {
+            FormKind::Connect => self.connect_plan(dialog),
+            FormKind::Question(prompt, _) => FormPlan {
                 problem: None,
-                confirm: QuestionView::of(prompt).confirm,
+                confirm: QuestionView::of(prompt, None).confirm,
                 // 用户名为空的登录请求必然失败；密码和口令允许为空。
                 enabled: !matches!(prompt, Prompt::Username { .. })
                     || !dialog.name.text().is_empty(),
@@ -362,8 +379,12 @@ impl App {
         if dialog.running.is_some() || !self.form_plan(dialog).enabled {
             return;
         }
-        if matches!(dialog.kind, FormKind::Question(_)) {
+        if matches!(dialog.kind, FormKind::Question(..)) {
             self.answer_git_question();
+            return;
+        }
+        if matches!(dialog.kind, FormKind::Connect) {
+            self.submit_connect();
             return;
         }
         // 须在发起操作前记录编号：没有窗口时（测试中）后台操作会同步完成。
@@ -384,7 +405,7 @@ impl App {
                 let checkout = dialog.checkout;
                 self.git_new_branch(name, from, checkout);
             }
-            FormKind::Question(_) => {}
+            FormKind::Question(..) | FormKind::Connect => {}
             FormKind::Clone => self.submit_clone(),
             FormKind::Rebase(_) => self.submit_rebase(),
             FormKind::Remote { editing } => self.submit_remote(editing),
@@ -447,10 +468,13 @@ impl App {
         if layout.second.w > 0.0 {
             order.push(DialogPart::Second);
         }
+        if layout.third.w > 0.0 {
+            order.push(DialogPart::Third);
+        }
         if plan.base_enabled {
             order.push(DialogPart::Base);
         }
-        if layout.location.is_some() {
+        if layout.change().is_some() {
             order.push(DialogPart::Change);
         }
         order.extend(layout.options.iter().map(|&(part, _)| part));
@@ -570,14 +594,14 @@ impl App {
         if !layout.card.contains(x, y) {
             // 点击卡片外部不关闭询问对话框：关闭表示取消，会使正在进行的操作失败。
             let asking = (self.form_dialog.as_ref())
-                .is_some_and(|d| matches!(d.kind, FormKind::Question(_)));
+                .is_some_and(|d| matches!(d.kind, FormKind::Question(..)));
             if !asking {
                 self.close_form_dialog();
             }
             return;
         }
         match self.dialog_part_at(x, y) {
-            Some(part @ (DialogPart::Branch | DialogPart::Second)) => {
+            Some(part @ (DialogPart::Branch | DialogPart::Second | DialogPart::Third)) => {
                 self.focus = Focus::Dialog;
                 if let Some(dialog) = &mut self.form_dialog {
                     dialog.focus = part;
@@ -592,15 +616,20 @@ impl App {
 
     /// 执行点击（或以键盘激活）对话框中 `part` 的操作。
     fn press_form_part(&mut self, part: DialogPart) {
+        let shown = self.form_dialog.as_ref().map(|dialog| &dialog.kind);
+        let connecting = matches!(shown, Some(FormKind::Connect));
         match part {
             DialogPart::Close | DialogPart::Cancel => self.close_form_dialog(),
             DialogPart::Confirm => self.submit_form_dialog(),
-            DialogPart::Branch | DialogPart::Second => self.submit_form_dialog(),
+            DialogPart::Branch | DialogPart::Second | DialogPart::Third => {
+                self.submit_form_dialog();
+            }
             DialogPart::Base => {
                 use crate::app::input::context_menu::{MenuTarget, menu_below};
                 let base = self.dialog_layout().base;
                 self.open_context_menu(MenuTarget::FormBase, menu_below(base));
             }
+            DialogPart::Change if connecting => self.pick(crate::app::Pick::KeyFile),
             DialogPart::Change => self.pick(crate::app::Pick::WorktreeFolder),
             DialogPart::RebaseList => self.submit_form_dialog(),
             part @ (DialogPart::RebaseRow(_)

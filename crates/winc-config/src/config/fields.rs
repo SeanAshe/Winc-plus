@@ -54,6 +54,7 @@ pub(super) const SECTIONS: &[(&str, &[Field])] = &[
     ("terminal", TERMINAL),
     ("vim", VIM),
     ("git", GIT),
+    ("remote", REMOTE),
     ("format", FORMAT),
 ];
 
@@ -586,6 +587,9 @@ const GIT: &[Field] = &[
         },
     },
 ];
+
+/// `remote` 一节。
+const REMOTE: &[Field] = &[bool_field!("enabled", remote_enabled)];
 
 /// `format` 一节，用户配置和项目配置共用。
 ///

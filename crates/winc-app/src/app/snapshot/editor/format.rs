@@ -297,7 +297,7 @@ fn failures_explain_themselves_and_leave_the_text_alone() {
     app.wait_formatting();
     assert_eq!(
         app.notice.text.as_deref(),
-        Some("无法格式化：Makefile 没有可自动使用的格式化工具，请在设置中指定命令")
+        Some("无法格式化：Makefile 无可自动使用的格式化工具，请在设置中指定命令")
     );
     assert_eq!(app.notice.action, Some(NoticeAction::FormatSettings));
     app.run_notice_action();
@@ -716,7 +716,7 @@ fn fixing_is_separate_and_runs_before_formatting_on_save() {
     );
     app.fix_active();
     app.wait_formatting();
-    assert_eq!(app.status.message.as_deref(), Some("没有需要修复的问题"));
+    assert_eq!(app.status.message.as_deref(), Some("无需修复"));
     app.run(Command::Undo);
     assert_eq!(text(&app), "import os\nx=1\n");
 

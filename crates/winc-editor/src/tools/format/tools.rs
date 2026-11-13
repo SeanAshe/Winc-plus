@@ -4,6 +4,7 @@
 //! `PATH` 和 macOS 开发者工具链中查找工具对应的可执行文件。
 
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -345,8 +346,17 @@ pub(super) fn detect(task: Task, language: &str, dir: &Path) -> Detected {
         return Detected::NoPreset;
     }
 
-    for level in dir.ancestors() {
-        let mut files = ProjectFiles::new(level);
+    // 远端的目录：只看那台主机上的各级，每级的内容先一起列出，查看迹象时不再逐个文件询问。
+    let remote = winc_backend::is_remote(dir);
+    let levels: Vec<&Path> = (dir.ancestors())
+        .take_while(|level| !remote || winc_backend::is_remote(level))
+        .collect();
+    let listed = match remote {
+        true => list_levels(&levels),
+        false => vec![None; levels.len()],
+    };
+    for (level, names) in levels.into_iter().zip(listed) {
+        let mut files = ProjectFiles::new(level, names);
         for &(preset, signs) in &candidates {
             if let Some(reason) = signs.iter().find_map(|&sign| files.shows(sign)) {
                 return Detected::Preset(preset, Some(reason));
@@ -371,9 +381,45 @@ pub(super) fn declares_dependency(package: &Json, name: &str) -> bool {
     })
 }
 
+/// 一级目录中各项的名字，以及它是不是目录。
+type Names = HashMap<std::ffi::OsString, bool>;
+
+/// 同时列出远端的各级目录 `levels`，每级一次往返；列不出来的（没有权限）为 `None`，查看迹象
+/// 时照常逐个文件询问。当前线程不能等待远端的应答时全部为 `None`。
+fn list_levels(levels: &[&Path]) -> Vec<Option<Names>> {
+    if !winc_backend::remote::may_block() {
+        return vec![None; levels.len()];
+    }
+    let list = |level: &Path| -> Option<Names> {
+        let entries = winc_backend::fs::read_dir(level).ok()?;
+        Some(
+            entries
+                .flatten()
+                .map(|entry| (entry.name, entry.kind.is_dir()))
+                .collect(),
+        )
+    };
+    std::thread::scope(|scope| {
+        let waiting: Vec<_> = levels
+            .iter()
+            .map(|level| scope.spawn(|| list(level)))
+            .collect();
+        waiting
+            .into_iter()
+            .map(|listed| {
+                listed
+                    .join()
+                    .unwrap_or_else(|e| std::panic::resume_unwind(e))
+            })
+            .collect()
+    })
+}
+
 /// 某一级目录中与迹象有关的文件；读过的内容缓存下来，同一级不重复读取。
 struct ProjectFiles<'a> {
     dir: &'a Path,
+    /// 这一级目录的内容，已经列出时有：其中没有的文件不必再向文件系统询问。
+    names: Option<Names>,
     /// `package.json` 的解析结果：外层 `None` 表示尚未读取，内层 `None` 表示文件不存在或无法解析。
     package: Option<Option<Json>>,
     /// `pyproject.toml` 的内容：外层 `None` 表示尚未读取，内层 `None` 表示文件不存在或无法读取。
@@ -381,9 +427,10 @@ struct ProjectFiles<'a> {
 }
 
 impl<'a> ProjectFiles<'a> {
-    fn new(dir: &'a Path) -> Self {
+    fn new(dir: &'a Path, names: Option<Names>) -> Self {
         ProjectFiles {
             dir,
+            names,
             package: None,
             pyproject: None,
         }
@@ -392,11 +439,21 @@ impl<'a> ProjectFiles<'a> {
     /// 判断该级目录是否有迹象 `sign`；有时返回展示给用户的依据（文件名），没有时返回 `None`。
     fn shows(&mut self, sign: Sign) -> Option<String> {
         let dir = self.dir;
+        // 目录的内容已经列出时，其中没有的一项肯定不存在。
+        let names = self.names.as_ref();
+        let absent = |name: &str| names.is_some_and(|names| !names.contains_key(OsStr::new(name)));
         match sign {
-            Sign::File(name) => dir.join(name).is_file().then(|| name.to_owned()),
+            Sign::File(name) => match names.and_then(|names| names.get(OsStr::new(name))) {
+                Some(is_dir) => (!is_dir).then(|| name.to_owned()),
+                None if names.is_some() => None,
+                None => winc_backend::fs::is_file(dir.join(name)).then(|| name.to_owned()),
+            },
+            Sign::Package(_) if absent("package.json") => None,
+            Sign::Pyproject(_) if absent("pyproject.toml") => None,
+            Sign::Venv(_) if absent(".venv") && absent("venv") => None,
             Sign::Package(name) => {
                 let package = self.package.get_or_insert_with(|| {
-                    let text = std::fs::read_to_string(dir.join("package.json")).ok()?;
+                    let text = winc_backend::fs::read_to_string(dir.join("package.json")).ok()?;
                     Json::parse(&text)
                 });
                 let package = package.as_ref()?;
@@ -407,7 +464,9 @@ impl<'a> ProjectFiles<'a> {
             Sign::Pyproject(section) => {
                 let text = self
                     .pyproject
-                    .get_or_insert_with(|| std::fs::read_to_string(dir.join("pyproject.toml")).ok())
+                    .get_or_insert_with(|| {
+                        winc_backend::fs::read_to_string(dir.join("pyproject.toml")).ok()
+                    })
                     .as_deref()?;
                 let header = format!("[{section}]");
                 let nested = format!("[{section}.");
@@ -467,6 +526,24 @@ fn project_bins(windows: bool) -> &'static [&'static str] {
 pub(super) fn find_in_project(name: &str, dir: &Path) -> Option<(PathBuf, PathBuf)> {
     let names = program_names(name, dir);
     let bins = project_bins(windows_programs(dir));
+    // 远端的目录：各级的候选位置一次问完（一次往返），只看那台主机上的各级。
+    if winc_backend::is_remote(dir) {
+        let mut candidates: Vec<(PathBuf, &Path)> = Vec::new();
+        for level in (dir.ancestors()).take_while(|level| winc_backend::is_remote(level)) {
+            for bin in bins {
+                let found = names.iter().map(|name| (level.join(bin).join(name), level));
+                candidates.extend(found);
+            }
+        }
+        let paths: Vec<&Path> = candidates.iter().map(|(path, _)| path.as_path()).collect();
+        let found = winc_backend::fs::metadata_many(&paths);
+        return (candidates.iter().zip(found)).find_map(|((path, level), metadata)| {
+            let metadata = metadata.ok()?;
+            let runs =
+                metadata.kind.is_file() && metadata.unix.is_some_and(|unix| unix.mode & 0o111 != 0);
+            runs.then(|| (path.clone(), level.to_path_buf()))
+        });
+    }
     dir.ancestors().find_map(|level| {
         bins.iter()
             .flat_map(|bin| names.iter().map(move |name| level.join(bin).join(name)))
@@ -521,7 +598,7 @@ pub(super) fn rust_edition(dir: &Path) -> Option<String> {
     let mut read = |path: PathBuf| {
         cache
             .entry(path.clone())
-            .or_insert_with(|| std::fs::read_to_string(path).ok())
+            .or_insert_with(|| winc_backend::fs::read_to_string(&path).ok())
             .clone()
     };
 

@@ -2,7 +2,6 @@
 //!
 //! macOS 向 CoreText 查询字族；其他平台读取字体目录下每个字体文件的名字表。
 
-use std::fs::File;
 use std::sync::OnceLock;
 
 use swash::FontRef;
@@ -75,7 +74,7 @@ fn list() -> Vec<FontFamily> {
 /// 返回 `file` 是否为等宽字体；无法读取时返回 `false`。
 #[cfg(target_os = "macos")]
 fn file_is_monospace(file: &FontFile) -> bool {
-    let Some(data) = File::open(&file.path).ok().and_then(|f| load(&f)) else {
+    let Some(data) = load(&file.path) else {
         return false;
     };
     select(&data, file.postscript.as_deref()).is_some_and(|selected| is_monospace(&selected.font))
@@ -105,7 +104,7 @@ fn scan<'a>(paths: impl Iterator<Item = &'a std::path::PathBuf>) -> Vec<FontFami
         if !is_font {
             continue;
         }
-        let Some(data) = File::open(path).ok().and_then(|f| load(&f)) else {
+        let Some(data) = load(path) else {
             continue;
         };
         let count = swash::FontDataRef::new(&data).map_or(0, |d| d.len());

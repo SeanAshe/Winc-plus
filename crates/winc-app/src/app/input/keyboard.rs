@@ -273,6 +273,9 @@ impl App {
     /// 处理焦点在编辑区时的按键：移动光标、翻页、换行、缩进、删除和键入。
     pub(in crate::app) fn on_key_editor(&mut self, event: &KeyEvent, cmd: bool) {
         if self.editor.active.is_none() {
+            if !event.repeat {
+                self.setup_key(&event.logical_key);
+            }
             return;
         }
         if self.log_active() {
@@ -620,7 +623,9 @@ impl App {
         let on_name = self.form_dialog.as_ref().is_none_or(|d| {
             matches!(
                 d.focus,
-                crate::layout::DialogPart::Branch | crate::layout::DialogPart::Second
+                crate::layout::DialogPart::Branch
+                    | crate::layout::DialogPart::Second
+                    | crate::layout::DialogPart::Third
             )
         });
         // 交互式变基的信息框是多行的：回车换行，⌘回车开始变基。
@@ -717,10 +722,17 @@ impl App {
     /// 其余按键交给输入框，因为面板的输入部分就是一个普通的单行输入框。
     fn on_key_picker(&mut self, event: &KeyEvent, base: &str, cmd: bool) {
         let ctrl = cfg!(target_os = "macos") && self.modifiers.control_key();
+        // 浏览远端目录时 `⇥` 进入选中的目录，输入为空时 `⌫` 回到上级。
+        if self.remote_picker_key(&event.logical_key) {
+            return;
+        }
 
         match &event.logical_key {
             Key::Named(NamedKey::Escape) => {
-                self.close_picker();
+                // 选择远端目录时先回到上一步（主机面板），再按一次才关闭。
+                if !self.remote_picker_back() {
+                    self.close_picker();
+                }
                 return;
             }
             Key::Named(NamedKey::Enter) => {

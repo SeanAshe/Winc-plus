@@ -3,3 +3,9 @@ contact_links:
   - name: Contribution guidelines
     url: https://github.com/DEEIX-AI/Winc/blob/HEAD/.github/CONTRIBUTING.md
     about: Read the contribution guidelines before opening an issue or pull request.
+  - name: Security vulnerabilities
+    url: https://github.com/DEEIX-AI/Winc/blob/HEAD/.github/SECURITY.md
+    about: Report vulnerabilities privately by email; do not open a public issue.
+  - name: Questions and discussion
+    url: https://t.me/deeix_chat
+    about: Ask usage questions and talk with other users in the Telegram group.

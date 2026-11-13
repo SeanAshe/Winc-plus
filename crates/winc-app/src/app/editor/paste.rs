@@ -281,8 +281,10 @@ impl App {
             return;
         }
         if !files.is_empty() {
-            let copy = move || {
-                paste::copy_into(&files, &dir).map_err(|CopyError { path, error }| {
+            let remote = winc_backend::is_remote(&dir)
+                || files.iter().any(|path| winc_backend::is_remote(path));
+            let copy = move |copying: &winc_editor::Copying| {
+                paste::copy_into(&files, &dir, copying).map_err(|CopyError { path, error }| {
                     t!(
                         "editor-paste-failed",
                         name = display_name(&path),
@@ -290,11 +292,8 @@ impl App {
                     )
                 })
             };
-            match self.proxy.clone() {
-                Some(proxy) => winc_editor::background::spawn(move || {
-                    let _ = proxy.send_event(UserEvent::Pasted(copy()));
-                }),
-                None => self.pasted_into_tree(copy()),
+            if let Some(result) = self.spawn_copy(remote, copy, UserEvent::Pasted) {
+                self.pasted_into_tree(result);
             }
             return;
         }

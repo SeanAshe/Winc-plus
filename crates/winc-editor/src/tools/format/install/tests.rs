@@ -46,7 +46,7 @@ fn paths_are_quoted_for_the_shell() {
 fn several_tools_are_listed_one_by_one() {
     let dir = scratch("install-several");
     let text = guide(&["black", "ruff"], &dir, |_| true).unwrap();
-    assert!(text.starts_with("未找到格式化工具。安装以下任一工具即可"));
+    assert!(text.starts_with("未找到格式化工具。安装以下任一工具后"));
     assert!(text.contains("\nblack\n") && text.contains("\nruff\n"));
     assert!(text.contains("    在终端中运行") && text.contains("        uv tool install ruff"));
 }

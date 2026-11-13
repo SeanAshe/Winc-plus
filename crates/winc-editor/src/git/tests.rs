@@ -1682,3 +1682,72 @@ fn publishing_a_branch_pushes_to_origin_before_other_remotes() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 远端主机上的仓库：`git` 在远端运行，输出中的路径换回该连接上的虚拟路径。
+#[cfg(unix)]
+#[test]
+fn a_repository_on_a_remote_host_is_read_through_its_connection() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let Ok(git) = Git::find(&Shell::with_vars(std::env::vars_os().collect())) else {
+        return;
+    };
+    let root = crate::test_util::scratch("git-remote");
+    let sh = |args: &[&str]| {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+            .args(["-c", "commit.gpgsign=false"])
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git {args:?}");
+    };
+    sh(&["init", "-q", "-b", "main"]);
+    std::fs::create_dir(root.join("src")).unwrap();
+    std::fs::write(root.join("src/a.txt"), "one\n").unwrap();
+    sh(&["add", "."]);
+    sh(&["commit", "-q", "-m", "first"]);
+    std::fs::write(root.join("src/a.txt"), "two\n").unwrap();
+    std::fs::write(root.join("new file.txt"), "x").unwrap();
+
+    let target = crate::test_util::loopback("git-remote");
+    let far = winc_backend::virtual_path(&target, root.as_os_str().as_bytes());
+    let cancel = Cancel::default();
+    assert_eq!(find_root(&far.join("src")), Some(far.clone()));
+
+    // 状态中的路径是该连接上的虚拟路径，可以直接用于打开文件。
+    let status = git.status(&far, &cancel).unwrap();
+    let paths: Vec<_> = status.entries.iter().map(|e| e.path.clone()).collect();
+    assert_eq!(paths, [far.join("src/a.txt"), far.join("new file.txt")]);
+    assert!(status.oid.is_some());
+    assert_eq!(
+        winc_backend::fs::read(&paths[0]).unwrap(),
+        b"two\n",
+        "工作区的内容经文件操作读取"
+    );
+    // `HEAD` 中的内容：路径换成相对于仓库的写法传给远端的 `git`。
+    let committed = git.head_content(&far, &far.join("src/a.txt"), &cancel);
+    assert_eq!(committed.unwrap().as_deref(), Some(b"one\n".as_slice()));
+    assert_eq!(
+        git.head_content(&far, &far.join("new file.txt"), &cancel),
+        Ok(None)
+    );
+    let branches = git.branches(&far, &cancel).unwrap();
+    assert!(branches.iter().any(|b| b.name == "main"), "{branches:?}");
+    // 提交列表经连接随到随读；仓库根的向上查找不越过远端的根目录。
+    let mut log = git.log_stream(&far, &LogQuery::default()).unwrap();
+    let commits = log.next(10).unwrap();
+    assert_eq!(commits.len(), 1, "{commits:?}");
+    let outside = winc_backend::virtual_path(&target, b"/");
+    assert_eq!(find_root(&outside), None);
+
+    // 已取消的操作不发往远端；连接断开后报错，不会转而在本机运行。
+    let stopped = Cancel::default();
+    stopped.cancel();
+    assert!(git.status(&far, &stopped).is_err());
+    winc_backend::remote::disconnect(&target);
+    assert!(git.status(&far, &cancel).is_err());
+    std::fs::remove_dir_all(&root).unwrap();
+}

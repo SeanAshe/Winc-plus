@@ -401,7 +401,7 @@ fn searching_uses_the_prompt_previews_the_match_and_keeps_a_history() {
     app.submit_prompt();
     assert_eq!(text(&app), "one \nfour\n");
     for (pattern, message) in [
-        ("zzz", "找不到模式"),
+        ("zzz", "未找到模式"),
         ("a\\%Vb", "模式的第 2 个字符处有无法识别的写法"),
     ] {
         keys(&mut app, "/");
@@ -432,7 +432,7 @@ fn marks_follow_edits_and_jumps_use_the_position_history() {
     keys(&mut app, "`a");
     assert_eq!(head(&app), marked + 4);
     keys(&mut app, "`z");
-    assert_eq!(app.status.message.as_deref(), Some("标记 z 没有设置"));
+    assert_eq!(app.status.message.as_deref(), Some("未设置标记 z"));
 
     // 跳转之前的位置记入位置历史：`Ctrl-O` 后退，`Tab` 前进；不远的跳转同样记入。每批事件
     // 处理完之后记录一次位置。
@@ -743,7 +743,7 @@ fn file_and_tab_commands_run_in_the_application() {
     ex(&mut app, "b 1");
     assert_eq!(text(&app), "ne\ntwo\n");
     ex(&mut app, "b 9");
-    assert_eq!(app.status.message.as_deref(), Some("没有这个文档"));
+    assert_eq!(app.status.message.as_deref(), Some("未找到该文档"));
 
     // `gf` 打开光标处的路径；`:q!` 丢弃未保存的修改，`ZZ` 保存并关闭。
     keys(&mut app, "ccsee other.txt<Esc>$gf");
@@ -822,7 +822,7 @@ fn lists_options_and_highlighting_follow_the_command_line() {
     keys(&mut app, "q");
     assert_eq!(app.vim_status(), None);
     ex(&mut app, "zzz");
-    assert_eq!(app.status.message.as_deref(), Some("没有这条命令"));
+    assert_eq!(app.status.message.as_deref(), Some("无法识别的命令"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -945,7 +945,7 @@ fn uppercase_marks_reach_other_files_and_are_kept_in_the_state() {
     assert_eq!(text(&app), "other\n");
     assert_eq!(app.state.vim_marks, [('A', first, 2, 2)]);
     keys(&mut app, "<C-^>`Z");
-    assert_eq!(app.status.message.as_deref(), Some("标记 Z 没有设置"));
+    assert_eq!(app.status.message.as_deref(), Some("未设置标记 Z"));
     assert_eq!(line(&app), 0);
 
     // `:b` 的参数按文档名补全。

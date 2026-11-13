@@ -1,6 +1,8 @@
 //! `backup` 模块的测试：备份文件的格式与往返恢复、按目录加锁、临时文件与损坏的头、
 //! 备份之后磁盘文件被修改或删除。
 
+use std::time::Duration;
+
 use super::*;
 use crate::document::content::Content;
 use crate::test_util::scratch;

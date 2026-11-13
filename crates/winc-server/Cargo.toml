@@ -1,0 +1,17 @@
+[package]
+name = "winc-server"
+description = "运行在远端主机上的服务进程：经标准输入输出为本机的 winc 执行文件操作。"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+winc-backend.workspace = true
+# 监视打开的目录：服务进程以 `watch <目录>` 为参数再次运行自身。
+winc-watch.workspace = true
+
+[lints]
+workspace = true

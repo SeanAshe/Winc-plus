@@ -2,6 +2,8 @@
 
 use super::*;
 
+use crate::app::scroll::set_scroll_line;
+
 impl App {
     /// 当前日志的分支筛选条件。
     pub(crate) fn log_branch_filter(&self) -> Option<&str> {
@@ -66,7 +68,7 @@ impl App {
             // 选着的提交留着：新的结果里还有它就继续选它，详情一栏不在每次输入时先清空。
             view.reset();
             if let Some(doc) = self.editor.active_mut() {
-                doc.scroll_line = 0.0;
+                set_scroll_line(doc, 0.0);
             }
             self.load_log(id);
         }

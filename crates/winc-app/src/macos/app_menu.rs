@@ -404,30 +404,90 @@ pub fn add_install_command_menu(install: impl Fn() + Send + Sync + 'static) {
     };
     add_method(delegate, INSTALL_COMMAND_ACTION, install_command);
 
-    // SAFETY: 用到的 `NSApplication`、`NSMenu` 是公开 API，只在主线程调用。指针先判空再使用；
-    // 取出的 `app`、`main_menu`、`app_item`、`app_menu` 和委托由 AppKit 持有，调用内有效，满足
-    // `insert_install_item` 的要求。
+    // SAFETY: 在主线程调用；`app_menu_and_delegate` 返回的菜单和委托由 AppKit 持有，调用内有效，
+    // 满足 `insert_install_item` 的要求。
     unsafe {
-        let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
-        let Some(app) = app.as_ref() else {
-            return;
-        };
-        let target: *mut AnyObject = msg_send![app, delegate];
-        let Some(target) = target.as_ref() else {
-            return;
-        };
-        let main_menu: *mut AnyObject = msg_send![app, mainMenu];
-        let Some(main_menu) = main_menu.as_ref() else {
-            return;
-        };
-        let app_item: *mut AnyObject = msg_send![main_menu, itemAtIndex: 0isize];
-        let Some(app_item) = app_item.as_ref() else {
-            return;
-        };
-        let app_menu: *mut AnyObject = msg_send![app_item, submenu];
-        if let Some(app_menu) = app_menu.as_ref() {
+        if let Some((app_menu, target)) = app_menu_and_delegate() {
             insert_install_item(app_menu, target);
         }
+    }
+}
+
+/// 返回应用菜单（菜单栏上第一项的子菜单）和应用委托；有一个取不到时返回 `None`。
+///
+/// # Safety
+///
+/// 只能在主线程调用；返回的引用由 `AppKit` 持有，只在本次调用所在的事件回调内使用。
+unsafe fn app_menu_and_delegate<'a>() -> Option<(&'a AnyObject, &'a AnyObject)> {
+    // SAFETY: 由调用方保证在主线程调用。`NSApplication`、`NSMenu`、`NSMenuItem` 是公开 API，
+    // 指针先判空再使用。
+    unsafe {
+        let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
+        let app = app.as_ref()?;
+        let delegate: *mut AnyObject = msg_send![app, delegate];
+        let main_menu: *mut AnyObject = msg_send![app, mainMenu];
+        let app_item: *mut AnyObject = msg_send![main_menu.as_ref()?, itemAtIndex: 0isize];
+        let app_menu: *mut AnyObject = msg_send![app_item.as_ref()?, submenu];
+        Some((app_menu.as_ref()?, delegate.as_ref()?))
+    }
+}
+
+/// 菜单栏「更新日志」被选中时调用的回调；只在主线程上设置和调用。
+type ReleaseNotesHandler = Box<dyn Fn() + Send + Sync>;
+
+static RELEASE_NOTES_HANDLER: OnceLock<ReleaseNotesHandler> = OnceLock::new();
+
+/// 菜单项「更新日志」的动作名，添加在 `winit` 的应用委托上。
+const RELEASE_NOTES_ACTION: &CStr = c"wincReleaseNotes:";
+
+/// 在应用菜单的「关于」下面添加一项「更新日志」，选中时调用 `open`。
+///
+/// 必须在事件循环开始之后调用；只有第一次调用生效。「检查更新」之后才加入，同样放在「关于」
+/// 下面，因此排在本项之前。
+pub fn add_release_notes_menu(open: impl Fn() + Send + Sync + 'static) {
+    if RELEASE_NOTES_HANDLER.set(Box::new(open)).is_err() {
+        return;
+    }
+
+    /// 实现 `- (void)wincReleaseNotes:(id)sender`：菜单项「更新日志」的动作。
+    extern "C-unwind" fn release_notes(_this: *mut AnyObject, _cmd: Sel, _sender: *mut AnyObject) {
+        if let Some(open) = RELEASE_NOTES_HANDLER.get() {
+            open();
+        }
+    }
+
+    let Some(delegate) = AnyClass::get(DELEGATE) else {
+        return;
+    };
+    add_method(delegate, RELEASE_NOTES_ACTION, release_notes);
+    let (Some(title), Some(key)) = (
+        ns_string(winc_i18n::t!("menu-release-notes")),
+        ns_string(""),
+    ) else {
+        return;
+    };
+    // SAFETY: 在主线程调用；`app_menu_and_delegate` 返回的菜单和委托由 AppKit 持有，调用内有效。
+    // `NSMenu`、`NSMenuItem` 是公开 API；标题和空的快捷键字符串由 `ns_string` 创建并持有到块
+    // 末尾。菜单项 `alloc` 后 +1，加入菜单后由菜单持有，`release` 抵消。插入下标不超过项数。
+    unsafe {
+        let Some((app_menu, target)) = app_menu_and_delegate() else {
+            return;
+        };
+        let item: *mut AnyObject = msg_send![class!(NSMenuItem), alloc];
+        let item: *mut AnyObject = msg_send![
+            item,
+            initWithTitle: &*title,
+            action: Sel::register(RELEASE_NOTES_ACTION),
+            keyEquivalent: &*key
+        ];
+        let Some(item) = item.as_ref() else {
+            return;
+        };
+        let () = msg_send![item, setTarget: target];
+        // 「关于」是第 0 项，本项紧跟在它后面。
+        let count: isize = msg_send![app_menu, numberOfItems];
+        let () = msg_send![app_menu, insertItem: item, atIndex: count.min(1)];
+        let () = msg_send![item, release];
     }
 }
 

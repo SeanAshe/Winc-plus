@@ -83,6 +83,16 @@ pub fn app(target: Option<&str>, prebuilt: bool) -> Result<(PathBuf, String), St
     .map_err(io)?;
     std::fs::write(contents.join("PkgInfo"), "APPL????").map_err(io)?;
     write_services_menu(&contents.join("Resources"))?;
+    // 远端的服务进程是 Linux 的程序，不是本应用的可执行代码：放在 Resources 中，由应用的签名
+    // 一并封存。没有构建过（`cargo xtask server`）时不带，这个应用包不能连接远端主机。
+    let mut servers = 0;
+    for (_, name) in crate::server::PROGRAMS {
+        let built = crate::server::dir().join(name);
+        if built.is_file() {
+            std::fs::copy(&built, contents.join("Resources").join(name)).map_err(io)?;
+            servers += 1;
+        }
+    }
     // 图标必须在签名之前放进去：签名会封存 Resources 里的全部文件。
     let icon = contents.join("Resources").join(format!("{ICON_NAME}.icns"));
     app_icon(&bundle, &icon)?;
@@ -98,6 +108,9 @@ pub fn app(target: Option<&str>, prebuilt: bool) -> Result<(PathBuf, String), St
     run(Command::new("codesign")
         .args(["--verify", "--strict"])
         .arg(&app))?;
+    if servers < crate::server::PROGRAMS.len() {
+        println!("没有构建远端的服务进程（cargo xtask server）：这个应用包不能连接远端主机");
+    }
     if !updates.enabled() {
         println!(
             "没有配置更新通道和公钥（WINC_UPDATE_CHANNELS、WINC_UPDATE_PUBLIC_KEY）：这个应用包不检查更新"

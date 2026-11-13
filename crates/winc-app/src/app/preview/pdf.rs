@@ -8,6 +8,7 @@
 //! 各文件的阅读位置（[`Place`]）在切换标签、关闭标签后保留，并随目录的现场
 //! （`Session::pdf_places`）保存，再次打开时回到原处。
 
+use crate::app::ScrollTarget;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc};
@@ -522,15 +523,20 @@ impl App {
         }
         // 翻一屏时与上一屏重叠一段，翻页后仍能看到上一屏末尾的内容。
         let page = (self.pdf.area.h - ARROW_STEP * 2.0).max(ARROW_STEP);
+        let y = self.pdf.scroll;
+        // 方向键逐段滚动，直接到达；翻页和到两端的跳转平滑滚动。
         match key {
             Key::Named(NamedKey::ArrowUp) => self.scroll_pdf(ARROW_STEP),
             Key::Named(NamedKey::ArrowDown) => self.scroll_pdf(-ARROW_STEP),
-            Key::Named(NamedKey::PageUp) => self.scroll_pdf(page),
-            Key::Named(NamedKey::PageDown | NamedKey::Space) => self.scroll_pdf(-page),
-            Key::Named(NamedKey::Home) => self.scroll_pdf(f32::MAX),
-            Key::Named(NamedKey::End) => self.scroll_pdf(-f32::MAX),
+            Key::Named(NamedKey::PageUp) => self.glide_pane_to(ScrollTarget::Pdf, y - page),
+            Key::Named(NamedKey::PageDown | NamedKey::Space) => {
+                self.glide_pane_to(ScrollTarget::Pdf, y + page);
+            }
+            Key::Named(NamedKey::Home) => self.glide_pane_to(ScrollTarget::Pdf, 0.0),
+            Key::Named(NamedKey::End) => self.glide_pane_to(ScrollTarget::Pdf, f32::MAX),
             _ => return false,
         }
+        self.request_redraw();
         true
     }
 
@@ -635,7 +641,7 @@ impl App {
 
     /// 把 PDF 预览滚动到位置 `to`（逻辑像素）；点击缩略图时调用。
     pub(in crate::app) fn scroll_pdf_to(&mut self, to: f32) {
-        self.pdf.scroll = to.clamp(0.0, self.pdf.max_scroll());
+        self.glide_pane_to(ScrollTarget::Pdf, to);
         self.request_redraw();
     }
 

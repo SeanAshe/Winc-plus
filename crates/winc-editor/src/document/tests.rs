@@ -6,6 +6,9 @@ use super::disk::write_atomic;
 use super::*;
 use crate::test_util::scratch;
 
+use std::fs;
+use std::time::SystemTime;
+
 #[cfg(unix)]
 #[test]
 fn atomic_writes_use_a_fresh_private_temporary_file() {
@@ -511,6 +514,7 @@ fn changes_within_the_same_timestamp_are_still_noticed() {
     fs::write(&path, "one\n").unwrap();
     let mut doc = Document::open(DocumentId(1), path.clone()).unwrap();
     let known = doc.disk_mtime().unwrap();
+    let known = std::time::UNIX_EPOCH + std::time::Duration::new(known.secs as u64, known.nanos);
 
     // 时间只精确到秒的文件系统：其他程序在同一秒内改写，修改时间没有变化而大小改变了。
     let rewrite = |text: &str| {
@@ -1142,4 +1146,112 @@ fn large_files_wrap_whole_lines_in_the_background() {
     // 关闭换行立即生效，不经后台任务。
     assert!(!doc.ensure_wrap(None, 4) && !doc.wrap_pending());
     fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 远端主机上的文档：打开、编辑、保存和外部修改的检测都经连接进行，行为与本机的文档相同。
+#[cfg(unix)]
+#[test]
+fn a_document_on_a_remote_host_opens_saves_and_notices_changes() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let dir = scratch("remote");
+    let local = dir.join("notes.py");
+    fs::write(&local, "\u{feff}x = 1\r\ny = 2\r\n").unwrap();
+    let target = crate::test_util::loopback("document-remote");
+    let far = winc_backend::virtual_path(&target, local.as_os_str().as_bytes());
+
+    let mut doc = Document::open(DocumentId(1), far.clone()).unwrap();
+    assert_eq!(doc.encoding, Encoding::Utf8Bom);
+    assert_eq!(doc.line_ending, LineEnding::CrLf);
+    assert_eq!(doc.highlighter.language().id, "python");
+    assert_eq!(doc.name(), "notes.py");
+    assert!(!doc.readonly && !doc.is_dirty());
+
+    // 编辑后保存：按原来的编码和换行写回远端，记录的磁盘状态是写入后的状态。
+    doc.apply(winc_core::edit::replace_selection(
+        doc.text.rope().unwrap(),
+        Selection::point(0),
+        "# 改\r\n",
+        winc_core::EditKind::Other,
+    ));
+    assert!(doc.is_dirty());
+    doc.save().unwrap();
+    assert_eq!(
+        fs::read_to_string(&local).unwrap(),
+        "\u{feff}# 改\r\nx = 1\r\ny = 2\r\n"
+    );
+    assert!(!doc.is_dirty() && !doc.check_overwrite());
+    assert_eq!(doc.sync_with_disk().unwrap(), DiskChange::Unchanged);
+
+    // 其他程序修改了远端的文件：没有未保存的修改时重新读取。
+    fs::write(&local, "print('agent')\n").unwrap();
+    let later = SystemTime::now() + std::time::Duration::from_secs(5);
+    fs::File::options()
+        .write(true)
+        .open(&local)
+        .unwrap()
+        .set_modified(later)
+        .unwrap();
+    assert_eq!(doc.sync_with_disk().unwrap(), DiskChange::Reloaded);
+    assert_eq!(doc.text.rope().unwrap().to_string(), "print('agent')\n");
+
+    // 后台保存：远端的文档总能发起，写出前确认远端的文件没有被其他程序修改。
+    doc.apply(winc_core::edit::replace_selection(
+        doc.text.rope().unwrap(),
+        Selection::point(0),
+        "# bg\n",
+        winc_core::EditKind::Other,
+    ));
+    let job = doc.begin_save().unwrap().unwrap();
+    doc.finish_save(job.run()).unwrap();
+    assert!(!doc.is_dirty() && !doc.in_conflict());
+    assert_eq!(
+        fs::read_to_string(&local).unwrap(),
+        "# bg\nprint('agent')\n"
+    );
+    doc.apply(winc_core::edit::replace_selection(
+        doc.text.rope().unwrap(),
+        Selection::point(0),
+        "# mine\n",
+        winc_core::EditKind::Other,
+    ));
+    fs::write(&local, "theirs, and longer than before\n").unwrap();
+    let job = doc.begin_save().unwrap().unwrap();
+    assert!(doc.finish_save(job.run()).is_err());
+    assert!(doc.is_dirty() && doc.in_conflict());
+    assert_eq!(
+        fs::read_to_string(&local).unwrap(),
+        "theirs, and longer than before\n"
+    );
+
+    // 连接断开：文件不算被删除，保存报错，文档的内容保留。
+    winc_backend::remote::disconnect(&target);
+    assert!(!doc.deleted_on_disk());
+    assert!(doc.save().is_err());
+    assert_eq!(
+        doc.text.rope().unwrap().to_string(),
+        "# mine\n# bg\nprint('agent')\n"
+    );
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 远距离跳转后精确的高亮状态尚未推算到时，近似状态按回看范围内的块注释着色。
+#[test]
+fn far_lines_get_an_approximate_highlight_state_before_the_exact_one() {
+    // 第 20000 行起是一段块注释，跳到其中的第 20005 行：每帧只推算 10 行时远未到达。
+    let mut text = "let a = 1;\n".repeat(20_000);
+    text.push_str("/*\n");
+    text.push_str(&" * note\n".repeat(10));
+    text.push_str("*/\n");
+    let mut doc = Document::from_text(DocumentId(1), &text);
+    doc.set_language("a.rs");
+    let line = 20_005;
+    assert_eq!(doc.highlight_state(line, 10), None);
+    let approx = doc.approx_highlight_state(line);
+    assert!(
+        matches!(approx, LineState::BlockComment { .. }),
+        "{approx:?}"
+    );
+    // 精确的状态推算完成后与近似状态一致。
+    assert_eq!(doc.highlight_state(line, usize::MAX), Some(approx));
 }

@@ -120,6 +120,14 @@ pub enum MenuCommand {
     OpenFolder,
     /// 项目菜单：打开 WSL 发行版中的目录。
     OpenWslFolder(usize),
+    /// 项目菜单：连接到 SSH 主机，输入主机和目录。
+    RemoteConnect,
+    /// 项目菜单的 SSH 子菜单：连接 `ssh` 配置中的第几个主机（见 `remote::hosts`）。
+    RemoteHost(usize),
+    /// 项目菜单的 SSH 子菜单：连接没有列出的主机。
+    RemoteOther,
+    /// 项目菜单：关闭打开的远端目录并断开到该主机的连接。
+    RemoteDisconnect,
     CloseFolder,
     /// 提交视图「⋯」：新建工作树（输入新分支的名字）。
     NewWorktree,
@@ -153,6 +161,8 @@ pub enum MenuCommand {
     /// 设置中「语言」菜单的一项，参数为 [`LocaleChoice::ALL`](winc_i18n::LocaleChoice::ALL)
     /// 中的序号（从 0 起）。
     Locale(usize),
+    /// 「首次设置」中「主题」菜单的一项：深色（`true`）或浅色主题列表中的序号（从 0 起）。
+    NamedTheme(bool, usize),
     /// 设置中「空白符」菜单的一项，参数为
     /// [`RenderWhitespace::ALL`](winc_config::RenderWhitespace::ALL) 中的序号（从 0 起）。
     Whitespace(usize),
@@ -486,6 +496,9 @@ impl MenuCommand {
             MenuCommand::Locale(i) => winc_i18n::LocaleChoice::ALL
                 .get(i)
                 .map_or("", |&choice| crate::layout::locale_label(choice)),
+            MenuCommand::NamedTheme(dark, i) => crate::theme::themes(dark)
+                .get(i)
+                .map_or("", |theme| theme.name()),
             MenuCommand::FontDefault => t!("settings-font-default"),
             MenuCommand::Font(i) => winc_render::installed_fonts()
                 .get(i)
@@ -500,6 +513,12 @@ impl MenuCommand {
             MenuCommand::OpenWslFolder(i) => crate::system::wsl_distributions()
                 .get(i)
                 .map_or("", String::as_str),
+            MenuCommand::RemoteConnect => t!("workspace-remote-menu"),
+            MenuCommand::RemoteHost(i) => (crate::app::remote::hosts().get(i))
+                .copied()
+                .unwrap_or_default(),
+            MenuCommand::RemoteOther => t!("workspace-remote-other"),
+            MenuCommand::RemoteDisconnect => t!("workspace-remote-disconnect"),
             MenuCommand::CloseFolder => t!("cmd-close-folder"),
             MenuCommand::Cut => t!("cmd-cut"),
             MenuCommand::Copy => t!("cmd-copy"),
@@ -622,6 +641,8 @@ pub enum MenuTarget {
     SkipOnSave,
     /// 设置的外观页中的「语言」。
     Locale,
+    /// 「首次设置」中的「主题」：深色（`true`）或浅色主题的列表。
+    NamedTheme(bool),
     /// 设置的编辑器页中的「空白符」。
     Whitespace,
     /// 设置的编辑器页中的「Vim 剪贴板」。

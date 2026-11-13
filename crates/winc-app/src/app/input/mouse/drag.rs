@@ -2,6 +2,8 @@
 
 use super::*;
 
+use crate::app::scroll::set_scroll_line;
+
 impl App {
     /// 处理鼠标移动到窗口坐标 (`x`, `y`)（逻辑像素）：更新悬停、指针样式和进行中的拖动。
     pub(in crate::app) fn on_mouse_move(&mut self, x: f32, y: f32) {
@@ -298,7 +300,7 @@ impl App {
                     && let Some(doc) = self.editor.active_mut()
                 {
                     let at = scroll_for_thumb(track.y, track.h, thumb.h, y, grab, 1.0);
-                    doc.scroll_line = f64::from(at) * max;
+                    set_scroll_line(doc, f64::from(at) * max);
                 }
 
                 self.request_redraw();
@@ -422,8 +424,8 @@ impl App {
         if let Some(doc) = self.editor.active_mut() {
             if outside != 0.0 {
                 let step = drag_scroll_speed(outside.abs() / lh) * seconds;
-                doc.scroll_line =
-                    (doc.scroll_line + f64::from(step.copysign(outside))).clamp(0.0, max);
+                let row = doc.scroll_line + f64::from(step.copysign(outside));
+                set_scroll_line(doc, row.clamp(0.0, max));
             }
             if outside_x != 0.0 {
                 let step = drag_scroll_speed(outside_x.abs() / cell) * cell * seconds;

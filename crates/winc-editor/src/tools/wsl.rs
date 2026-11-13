@@ -3,6 +3,11 @@
 //! 这些目录中的文件由 Windows 读写，Git 和终端在对应的发行版内运行。本模块负责两种路径写法之间的
 //! 换算。换算本身不依赖平台；仅在 Windows 上生效的入口在各自的文档中说明。
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "只访问本机：检查本机上的 WSL 路径"
+)]
+
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, PoisonError};

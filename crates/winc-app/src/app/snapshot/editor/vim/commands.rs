@@ -152,7 +152,10 @@ fn writing_to_a_path_leaves_the_document_where_it_is() {
     // 目标上已有文件时要加 `!`。
     keys(&mut app, "x");
     ex(&mut app, "w copy.txt");
-    assert_eq!(app.status.message.as_deref(), Some("文件已存在，加 ! 覆盖"));
+    assert_eq!(
+        app.status.message.as_deref(),
+        Some("文件已存在，加 ! 可覆盖")
+    );
     assert_eq!(std::fs::read_to_string(&copy).unwrap(), "ne\ntwo\n");
     ex(&mut app, "w! copy.txt");
     assert_eq!(std::fs::read_to_string(&copy).unwrap(), "e\ntwo\n");

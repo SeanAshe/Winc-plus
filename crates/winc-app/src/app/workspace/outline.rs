@@ -141,7 +141,7 @@ pub struct OutlineState {
 }
 
 impl Default for OutlineState {
-    /// 尚未提取符号的状态：与没有打开文档时相同，写「没有打开的文件」。
+    /// 尚未提取符号的状态：与没有打开文档时相同，写「未打开文件」。
     fn default() -> Self {
         OutlineState {
             open: false,
@@ -584,6 +584,7 @@ impl App {
         let list = self.outline_list();
         let max = self.outline_max_scroll();
         let top = row as f32 * TREE_ROW;
+        let before = self.outline.scroll;
         let o = &mut self.outline;
         if top < o.scroll {
             o.scroll = top;
@@ -591,6 +592,7 @@ impl App {
             o.scroll = top + TREE_ROW - list.h;
         }
         o.scroll = o.scroll.clamp(0.0, max);
+        self.glide_pane(ScrollTarget::Outline, before);
     }
 
     /// 收起或展开第 `i` 个符号。

@@ -1,6 +1,7 @@
 //! 差异视图中只读的一侧：Vim 层在该侧文本的只读副本上移动、选择、复制与查找，选区写回差异
 //! 视图；修改类命令因副本只读而被拒绝。
 
+use crate::app::scroll::set_scroll_line;
 use ropey::Rope;
 use winc_core::{Lines, Selection};
 use winc_editor::diff_view::{DiffView, RIGHT, ReadSelection};
@@ -116,7 +117,7 @@ impl App {
     pub(super) fn vim_side_top(&self, held: &mut Side) -> f64 {
         let index = self.editor.index_of(held.tab);
         let top = index.map_or(0, |index| self.diff_top_line(index, held.side)) as f64;
-        held.doc.scroll_line = top;
+        set_scroll_line(&mut held.doc, top);
         top
     }
 

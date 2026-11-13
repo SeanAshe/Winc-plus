@@ -16,7 +16,7 @@ use winc_i18n::t;
 use winc_pty::protocol::ToHelper;
 
 use super::HeaderHit;
-use super::helper::{Launch, environment, launch, os_bytes};
+use super::helper::{Integration, Launch, environment, launch, os_bytes};
 use crate::app::input::context_menu::menu_below;
 use crate::app::input::context_menu::{MenuButton, MenuTarget};
 use crate::app::lifecycle::alert::AlertButton;
@@ -153,7 +153,7 @@ fn run_launch(
         .cwd
         .as_ref()
         .map_or(root.to_path_buf(), |cwd| root.join(cwd));
-    let mut launch = launch(shell, os_bytes(dir.as_os_str()), windows);
+    let mut launch = launch(shell, os_bytes(dir.as_os_str()), windows, Integration::Off);
     let kind = launch_kind(&launch, windows);
     let mut line = command_line(config, kind);
     let args: Vec<String> = match kind {
@@ -196,7 +196,7 @@ impl App {
         let root = self.editor.root().filter(|_| self.terminal_enabled());
         let (mut list, problems) = root.map(load_run_configs).unwrap_or_default();
         // 配置文件优先；没有文件时列出识别到的命令。文件存在但为空时尊重用户的选择。
-        let detected = root.is_some_and(|root| !run_configs_path(root).exists());
+        let detected = root.is_some_and(|root| !winc_backend::fs::exists(run_configs_path(root)));
         if let Some(root) = root.filter(|_| detected) {
             list = detected_run_configs(root);
         }

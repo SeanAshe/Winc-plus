@@ -1,6 +1,11 @@
 //! 运行外部程序（格式化工具、`git`）所用的环境变量：从图形界面启动的应用只继承系统提供的最小
 //! 环境，因此要向用户的登录 shell 查询。
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "只访问本机：读取本机 shell 的环境"
+)]
+
 use std::ffi::{OsStr, OsString};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};

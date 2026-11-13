@@ -5,9 +5,13 @@
 # Pull requests into `main` come only from `dev`, so they are not built again: a required check is
 # matched on the pull request's head commit, and the push to `dev` already checked that commit.
 #
+# Clippy with the documentation build, and the tests, run as separate jobs, so that neither waits
+# for the other. This fork checks Windows only.
+#
 # Caches: a pull request can read caches saved by its own branch or by `dev`, but not by other pull
 # requests. Pushes to `dev` save the dependency cache and pull requests only restore it, so they
-# recompile little more than the workspace crates.
+# recompile little more than the workspace crates. Each job keeps its own cache: Clippy and the
+# documentation build need only the metadata of the dependencies, the tests need them compiled.
 #
 # "CI" collects the results. It is the check to require in the branch rules, because skipped jobs
 # do not report the names that a rule expects.
@@ -79,8 +83,8 @@ jobs:
       - name: rustfmt
         run: cargo fmt --all --check
 
-  check:
-    name: check (${{ matrix.name }})
+  lint:
+    name: lint (${{ matrix.name }})
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ matrix.os }}
@@ -110,6 +114,39 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+      - name: Docs
+        run: cargo doc --workspace --no-deps --locked
+        env:
+          RUSTDOCFLAGS: -D warnings
+
+  test:
+    name: test (${{ matrix.name }})
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-2022
+    steps:
+      # On Windows, Git converts line endings to CRLF by default, which changes the language
+      # bundles, shell scripts, and test samples; the tests compare LF.
+      - name: Keep LF line endings
+        run: git config --global core.autocrlf false
+
+      - uses: actions/checkout@v7
+
+      # Installs the version and components named in rust-toolchain.toml.
+      - name: Install Rust
+        run: rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/dev' }}
+
       - name: Test
         run: cargo test --workspace --locked --no-fail-fast
 
@@ -125,15 +162,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           Remove-Item target/debug/conpty.dll, target/debug/OpenConsole.exe
 
-      - name: Docs
-        run: cargo doc --workspace --no-deps --locked
-        env:
-          RUSTDOCFLAGS: -D warnings
-
   result:
     name: CI
     if: always()
-    needs: [changes, format, check]
+    needs: [changes, format, lint, test]
     runs-on: ubuntu-24.04
     steps:
       - name: All checks passed

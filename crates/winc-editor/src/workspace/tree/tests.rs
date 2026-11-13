@@ -1,6 +1,8 @@
 //! 文件树 [`Workspace`] 的测试：按变化只重读受影响的目录、改名与移动保持展开、复制不覆盖、
 //! 选中跟随行变化、自然排序与按需展开的缓存，以及连续单子目录的合并显示和递归展开。
 
+use std::fs;
+
 use super::*;
 
 #[test]
@@ -660,4 +662,70 @@ fn expanding_recursively_does_not_follow_symlinks() {
     assert!(!ws.expand_recursively(0));
     let link = ws.rows().iter().find(|e| e.name == "loop").unwrap();
     assert!(!link.expanded);
+}
+
+/// 不能等待读取的线程（界面线程）上的远端目录：文件树先按空目录显示，缺少的目录交给后台读取
+/// 后换入；重读时读不了的目录保持原样，同样交给后台。
+#[cfg(unix)]
+#[test]
+fn folders_that_cannot_be_read_on_this_thread_are_filled_in_later() {
+    use std::os::unix::ffi::OsStrExt;
+    use winc_backend::remote;
+
+    let local = crate::test_util::scratch("ws-remote");
+    fs::create_dir_all(local.join("only/inner")).unwrap();
+    fs::write(local.join("only/inner/a.rs"), "").unwrap();
+    fs::write(local.join("b.rs"), "").unwrap();
+    let target = crate::test_util::loopback("ws-remote");
+    let root = winc_backend::virtual_path(&target, local.as_os_str().as_bytes());
+
+    // 限制只作用于当前线程，放在单独的线程上，不影响其他测试。
+    std::thread::spawn(move || {
+        remote::forbid_blocking();
+        let names = |ws: &Workspace| -> Vec<String> {
+            ws.rows().iter().map(|e| e.label().into_owned()).collect()
+        };
+        // 交给「后台」：这里就地执行，执行期间允许等待。
+        let fetch = |ws: &mut Workspace| {
+            let mut rounds = 0;
+            while let Some(scan) = ws.take_missing() {
+                let listing = remote::allow_blocking(|| scan.run());
+                assert!(ws.apply_scan(listing));
+                rounds += 1;
+            }
+            rounds
+        };
+
+        let mut ws = Workspace::open(&root).unwrap();
+        assert!(names(&ws).is_empty());
+        assert_eq!(fetch(&mut ws), 1);
+        assert_eq!(names(&ws), ["only", "b.rs"]);
+        // 同一个目录在读好之前只交出一次。
+        ws.toggle(0);
+        let scan = ws.take_missing().unwrap();
+        ws.toggle(0);
+        ws.toggle(0);
+        assert!(ws.take_missing().is_none());
+        assert!(ws.apply_scan(remote::allow_blocking(|| scan.run())));
+        // 合并显示的下一级目录在换入后才知道需要，再读一轮。
+        assert_eq!(fetch(&mut ws), 1);
+        assert_eq!(names(&ws), ["only/inner", "a.rs", "b.rs"]);
+
+        // 重读：读不了不等于目录已不存在，文件树和展开状态保持，变化在后台读取后出现。
+        fs::write(local.join("only/inner/c.rs"), "").unwrap();
+        ws.refresh();
+        assert_eq!(names(&ws), ["only/inner", "a.rs", "b.rs"]);
+        assert_eq!(fetch(&mut ws), 1);
+        assert_eq!(names(&ws), ["only/inner", "a.rs", "c.rs", "b.rs"]);
+
+        // 连接断开后重读：同样保持原样。
+        remote::disconnect(&target);
+        ws.refresh();
+        while let Some(scan) = ws.take_missing() {
+            ws.apply_scan(remote::allow_blocking(|| scan.run()));
+        }
+        assert_eq!(names(&ws), ["only/inner", "a.rs", "c.rs", "b.rs"]);
+    })
+    .join()
+    .unwrap();
 }

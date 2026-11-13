@@ -129,7 +129,7 @@ fn go_to_definition_tries_this_file_then_the_project() {
     app.go_to_definition();
     assert_eq!(
         app.name_hint.as_ref().map(|h| h.text.as_str()),
-        Some("光标处没有可查找的名称")
+        Some("光标处无可查找的名称")
     );
 
     let _ = std::fs::remove_dir_all(&dir);

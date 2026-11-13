@@ -15,7 +15,7 @@ of releasing it again. To retry a failed build, rerun the Release workflow on th
 | `.github/workflows/release-tag.yml` | Tags each merge into `main` and starts the Release workflow |
 | `.github/workflows/release.yml` | Entry point: prepare, the Windows build, and publication |
 | `.github/workflows/release-{prepare,windows}.yml` | Reusable jobs called by `release.yml` |
-| `.github/actions/build-setup/` | Shared toolchain and cache setup; pins the release Rust version |
+| `.github/actions/build-setup/` | Shared source check and toolchain setup; pins the release Rust version |
 | `release/windows/` | `package.ps1` (NSIS, MSI, portable zip), `sign.ps1`, `verify.ps1`, installer templates |
 | `release/common/` | Version, build config, update signing, asset staging, and publication |
 
@@ -83,6 +83,11 @@ The app reads `<channel URL>/appcast-windows.xml`, and the appcast's download UR
 `<channel URL>/<file name>`. Publishing a GitHub Release that contains the appcast and the
 packages it lists ships the update. The appcast is signed, so those assets must be uploaded
 unchanged. The channel URL is defined once, in `channelBase` in `release/common/config.mjs`.
+
+The in-app release notes are not part of a channel. The app reads
+`https://winc.si/releases/notes/<language>.md` (`en.md`, `zh-cn.md`) when the user opens them;
+winc.si generates these files from its changelog. Each release starts with a `## <version> · <date>`
+line, which the app uses to pick the releases to show (`crates/winc-app/src/release_notes.rs`).
 
 Windows NSIS installations are per-user; MSI installations are per-machine and use the fixed
 UpgradeCode `00FDC6A5-D527-59AE-B4A5-E051B25222F3`. Do not change it between releases. Each installer

@@ -3,7 +3,8 @@
 //! 每个终端的 shell 放进一个作业对象，关掉时整个作业一起结束，不留孤儿进程；辅助进程意外退出时
 //! 句柄随之关闭，系统同样结束其中的进程（`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`）。ConPTY 的输出
 //! 管道和 stdin 都不能 `poll`：各由一个后台线程读进缓冲区并唤醒事件循环（[`wait`]），事件循环从
-//! 缓冲区取（[`Pty::read`]、[`read_stdin`]），没有数据时得到 `WouldBlock`。
+//! 缓冲区取（[`Pty::read`]、[`read_stdin`]），没有数据时得到 `WouldBlock`。关闭伪终端可能要等
+//! 控制台进程退出才返回，因此在后台线程上进行，事件循环不等它完成。
 
 // ConPTY、进程和作业对象只有 Win32 的接口。
 #![allow(unsafe_code)]
@@ -124,8 +125,8 @@ impl Pty {
             Ok(pty) => pty,
             Err(error) => {
                 // SAFETY: `console` 是上面的 `api` 刚建好、还没有交给任何线程或本结构体的伪终端，
-                // 这里只关闭一次。
-                unsafe { (api.close)(console) };
+                // 这里只关闭一次，之后不再使用。
+                unsafe { close_in_background(api, console) };
                 return Err(error);
             }
         };
@@ -162,6 +163,8 @@ impl Pty {
     }
 
     /// 挂断：关掉伪终端，其中的程序收到关闭控制台的通知。
+    ///
+    /// 关闭在后台线程上进行，本函数不等它完成；已经挂断过时什么也不做。
     pub fn hang_up(&self) {
         let console = self
             .console
@@ -169,9 +172,9 @@ impl Pty {
             .unwrap_or_else(PoisonError::into_inner)
             .take();
         if let Some(console) = console {
-            // SAFETY: 伪终端是本结构体建的，值已经从 `Mutex` 中取走，只关闭一次；读线程一直在
-            // 读输出，关闭时不会因为没有程序读输出管道而阻塞。
-            unsafe { (self.api.close)(console) };
+            // SAFETY: 伪终端由 `self.api` 创建；值已经从 `Mutex` 中取走，只关闭一次，
+            // `resize` 之后拿不到它。
+            unsafe { close_in_background(self.api, console) };
         }
     }
 
@@ -188,11 +191,24 @@ impl Pty {
         unsafe { TerminateJobObject(self.job.as_raw_handle() as HANDLE, 1) };
     }
 
-    /// 返回 shell 的退出码；还在运行时返回 `None`。
+    /// 返回 shell 的退出码；还在运行、或者它的输出尚未读到结尾时返回 `None`。
+    ///
+    /// shell 退出时，控制台可能尚未把它最后的输出写进管道。这时挂断伪终端并结束作业中剩下的
+    /// 进程：控制台写完剩余的输出后退出，管道随之关闭，读线程读到结尾并唤醒事件循环，此后才
+    /// 返回退出码。调用方因此能在报告退出之前取到全部输出。
     pub fn try_wait(&self) -> Option<i32> {
         let handle = self.process.as_raw_handle() as HANDLE;
         // SAFETY: 进程句柄有效；超时为 0，只查询不等待。
         if unsafe { WaitForSingleObject(handle, 0) } != WAIT_OBJECT_0 {
+            return None;
+        }
+        let closed = (self.output.lock())
+            .unwrap_or_else(PoisonError::into_inner)
+            .closed;
+        if !closed {
+            // 管道关闭之前每次查询都执行：两个操作在已经做过时都没有效果。
+            self.hang_up();
+            self.kill(true);
             return None;
         }
         let mut code = 0;
@@ -353,6 +369,26 @@ fn read_in_background(mut source: impl Read + Send + 'static, pending: Arc<Mutex
             wake();
         }
     });
+}
+
+/// 在后台线程上关闭伪终端 `console`，不等关闭完成；无法新建线程时在当前线程上关闭。
+///
+/// Windows 11 24H2 之前的系统接口要等控制台进程退出才返回，控制台进程又要等其中的程序响应关闭
+/// 通知。事件循环不能停在这里：否则所有终端的输出、输入和退出通知都被推迟，到期结束进程
+/// （[`Pty::kill`]）也无法执行。读线程一直读输出管道，控制台进程不会因管道写满而无法退出。
+///
+/// # Safety
+///
+/// `console` 必须是 `api` 创建、尚未关闭的伪终端，并且已经从保存它的位置取走：调用后任何线程
+/// 都不再使用它。
+unsafe fn close_in_background(api: &'static api::Api, console: HPCON) {
+    let close = move || {
+        // SAFETY: 调用方保证 `console` 由 `api` 创建、尚未关闭，并且不再有别的使用者。
+        unsafe { (api.close)(console) };
+    };
+    if std::thread::Builder::new().spawn(close).is_err() {
+        close();
+    }
 }
 
 /// 进程 `process` 退出时唤醒事件循环。

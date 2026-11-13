@@ -162,3 +162,48 @@ fn runaway_output_is_cut_off() {
     );
     assert!(matches!(result, Err(RunError::TooLarge)), "{result:?}");
 }
+
+#[cfg(unix)]
+#[test]
+fn remote_questions_are_answered_by_the_local_askpass_program() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = std::env::temp_dir().join(format!("winc-remote-askpass-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let program = dir.join("askpass");
+    let script = "#!/bin/sh\n[ \"$1\" = refuse ] && exit 1\n\
+                  printf '%s|%s|%s\\n' \"$WINC_GIT_ASKPASS\" \"$SSH_ASKPASS_PROMPT\" \"$1\"\n";
+    std::fs::write(&program, script).unwrap();
+    std::fs::set_permissions(&program, PermissionsExt::from_mode(0o755)).unwrap();
+
+    let mut command = Command::new("git");
+    command.arg("fetch").env("LC_ALL", "C");
+    assert!(Askpass::of(&command).is_none());
+    command
+        .env("GIT_ASKPASS", &program)
+        .env("SSH_ASKPASS", &program)
+        .env("SSH_ASKPASS_REQUIRE", "force")
+        .env(crate::git::ASKPASS_ENDPOINT, "the-endpoint");
+    let askpass = Askpass::of(&command).unwrap();
+    let ask = |mode: &str, prompt: &str| winc_backend::remote::Ask {
+        mode: mode.into(),
+        prompt: prompt.into(),
+    };
+    let answer = |mode, prompt| askpass.answer(&ask(mode, prompt));
+    assert_eq!(
+        answer("", "Password: ").as_deref(),
+        Some(&b"the-endpoint||Password: "[..])
+    );
+    assert_eq!(
+        answer("confirm", "Trust?").as_deref(),
+        Some(&b"the-endpoint|confirm|Trust?"[..])
+    );
+    assert_eq!(answer("", "refuse"), None);
+    // 本机的 askpass 程序和端点不发到远端，其余显式设置的变量照常传递。
+    let mut plain = Command::new("git");
+    plain.arg("fetch").env("LC_ALL", "C");
+    let sent = |command: &Command| format!("{:?}", remote_exec(command, Vec::new()));
+    assert_eq!(sent(&command), sent(&plain));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

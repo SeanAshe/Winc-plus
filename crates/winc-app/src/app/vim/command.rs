@@ -304,19 +304,23 @@ impl App {
             None => ("", partial),
         };
         let Ok(entries) =
-            std::fs::read_dir(self.vim_path(if folder.is_empty() { "." } else { folder }))
+            winc_backend::fs::read_dir(self.vim_path(if folder.is_empty() { "." } else { folder }))
         else {
             return Vec::new();
         };
         let mut found: Vec<String> = entries
             .filter_map(Result::ok)
             .filter_map(|entry| {
-                let name = entry.file_name().into_string().ok()?;
+                let name = entry.name.clone().into_string().ok()?;
                 let hidden = name.starts_with('.') && !prefix.starts_with('.');
                 if !name.starts_with(prefix) || hidden {
                     return None;
                 }
-                let slash = if entry.path().is_dir() { "/" } else { "" };
+                let slash = if winc_backend::fs::is_dir(entry.path()) {
+                    "/"
+                } else {
+                    ""
+                };
                 Some(format!("{folder}{name}{slash}"))
             })
             .collect();
@@ -432,7 +436,7 @@ impl App {
         if doc.path.as_ref() == Some(&to) {
             return self.vim_save();
         }
-        if to.exists() && !force {
+        if winc_backend::fs::exists(&to) && !force {
             return self.flash(t!("editor-vim-file-exists"));
         }
         if doc.path.is_none() {
@@ -510,7 +514,7 @@ impl App {
             Some(content[start..=end].iter().collect::<String>())
         });
         let path = word.map(|word| self.vim_path(&word));
-        match path.filter(|path| path.is_file()) {
+        match path.filter(|path| winc_backend::fs::is_file(path)) {
             Some(path) => self.open_path(&path),
             None => self.flash(t!("editor-vim-no-file")),
         }
@@ -663,6 +667,7 @@ impl App {
         self.picker.branch_rows = None;
         self.picker.location_rows = None;
         self.picker.folders = false;
+        self.picker.remote = None;
         self.picker.vim_list = Some(VimList {
             kind: listing,
             rows,

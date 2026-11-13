@@ -29,12 +29,10 @@ impl App {
             Focus::KeySearch => Some(&mut self.settings.keys_query),
             Focus::SettingsSearch => Some(&mut self.settings.search),
             Focus::LogFilter => Some(&mut self.log.filter),
-            Focus::Dialog => self.form_dialog.as_mut().map(|d| {
-                if d.focus == crate::layout::DialogPart::Second {
-                    &mut d.second
-                } else {
-                    &mut d.name
-                }
+            Focus::Dialog => self.form_dialog.as_mut().map(|d| match d.focus {
+                crate::layout::DialogPart::Second => &mut d.second,
+                crate::layout::DialogPart::Third => &mut d.third,
+                _ => &mut d.name,
             }),
             Focus::TerminalFind => self.terminal.find.as_mut().map(|f| &mut f.field),
             Focus::TerminalRename => self.terminal.rename.as_mut().map(|(_, field)| field),

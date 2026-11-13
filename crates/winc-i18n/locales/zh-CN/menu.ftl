@@ -2,6 +2,7 @@
 
 menu-settings = 设置…
 menu-install-command = 安装 winc 命令…
+menu-release-notes = 更新日志
 menu-check-updates = 检查更新
 menu-window = 窗口
 menu-window-minimize = 最小化
@@ -22,7 +23,7 @@ menu-open-recent-in-new-window = 在新窗口中打开「{ $name }」
 menu-copied-path = 已复制路径
 menu-copied-relative-path = 已复制相对路径
 menu-copied-reference = 已复制 { $reference }
-menu-copy-reference-unsaved = 文件尚未保存，没有路径
+menu-copy-reference-unsaved = 文件尚未保存，无路径可复制
 
 ## 格式化工具菜单
 
@@ -53,12 +54,12 @@ menu-git-abort-operation = 中止{ $operation }
 menu-git-continue-desc = 请先在文件中解决冲突，再标记为已解决
 menu-git-abort-desc = 恢复到操作开始前的状态
 menu-git-push-ahead = { $count } 个提交 → { $upstream }
-menu-git-push-up-to-date = 到 { $upstream }，没有待推送的提交
+menu-git-push-up-to-date = 到 { $upstream }，无待推送的提交
 menu-git-push-set-upstream = 推送「{ $branch }」并设为上游
 menu-git-pull-behind = { $count } 个提交 ← { $upstream }
 menu-git-pull-from = 从 { $upstream }
-menu-git-pull-no-upstream = 当前分支没有上游
-menu-git-fetch-desc = 下载远程更新，不改动本地分支
+menu-git-pull-no-upstream = 当前分支未设置上游
+menu-git-fetch-desc = 下载远程更新，不修改本地分支
 
 ## 右键菜单项
 

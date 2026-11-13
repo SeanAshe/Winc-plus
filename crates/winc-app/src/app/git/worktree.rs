@@ -101,7 +101,7 @@ impl App {
     /// 返回传给当前仓库 `git` 的目录参数：仓库位于 WSL 发行版中时使用发行版内的路径。
     pub(in crate::app) fn git_path_arg(&self, path: &Path) -> String {
         let root = self.git.root.as_deref().unwrap_or(path);
-        winc_editor::wsl::git_arg(root, path)
+        winc_editor::host::arg(root, path)
     }
 
     /// 上下文栏上的项目名：打开的目录就是附属工作树时写它所属的仓库，同一个仓库的工作树之间切换时

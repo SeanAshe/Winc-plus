@@ -13,7 +13,11 @@ pub(crate) mod hits;
 mod input;
 mod lifecycle;
 pub(crate) mod preview;
+mod release_notes;
+pub(crate) mod remote;
+pub(crate) mod scroll;
 mod settings;
+pub(crate) mod setup;
 #[cfg(test)]
 mod snapshot;
 mod status;
@@ -30,7 +34,6 @@ use animation::{
 pub(crate) use diff::{DIFF_TEXT_PAD, DiffParts, DiffTarget, HunkKind, diff_parts};
 pub use editor::conflict::{ConflictAction, OverwriteChoice};
 pub use editor::editing::BraceKey;
-pub use editor::editing::ScrollGlide;
 pub use editor::folding::FoldMotion;
 pub(crate) use editor::folding::fold_column;
 pub use editor::format::{FormatState, ToolAnswer};
@@ -60,6 +63,8 @@ pub use lifecycle::title_bar::WindowControl;
 pub(crate) use lifecycle::title_bar::resize_cursor;
 pub(crate) use lifecycle::wallpaper::Layer as WallpaperLayer;
 use lifecycle::window::frame_interval;
+pub use scroll::ScrollGlide;
+pub(crate) use scroll::ScrollTarget;
 pub(crate) use settings::UpdateClick;
 pub use settings::{DialogCache, SettingsState};
 pub use status::motion::{StatusEntry, StatusKey, StatusMotion};
@@ -86,7 +91,7 @@ pub use workspace::tree_label::{LabelCause, LabelView, TreeLabels};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 // 只在 macOS 的系统回调（⌘Q 前是否询问）中读写。
 #[cfg(target_os = "macos")]
 use std::sync::atomic::Ordering;
@@ -116,6 +121,9 @@ use crate::layout::{
 use crate::theme::*;
 use crate::view;
 
+/// 交给逐个执行的线程的一个任务（见 [`App::spawn_ordered_then`]）。
+type OrderedTask = Box<dyn FnOnce() + Send>;
+
 /// 后台线程和系统回调（面板、菜单、提示框）送回事件循环的事件。
 #[derive(Debug)]
 pub enum UserEvent {
@@ -133,6 +141,9 @@ pub enum UserEvent {
     /// 菜单栏的「设置…」（或 ⌘,）被触发；设置已打开时关闭设置。
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     OpenSettings,
+    /// 菜单栏的「更新日志」被触发。
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    OpenReleaseNotes,
     /// 菜单栏的「安装 winc 命令…」被触发。
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     InstallShellCommand,
@@ -152,6 +163,8 @@ pub enum UserEvent {
     /// 仅出现在通过桌面门户选择文件的平台上。
     #[cfg(all(unix, not(target_os = "macos")))]
     PickFailed(Pick, Option<String>),
+    /// 后台已取回更新日志（整理好的 Markdown）；请求失败或内容格式不符时为 `None`。
+    ReleaseNotes(Option<String>),
     /// 后台检查更新发现了新版本（参数为版本号），或状态栏上的更新提示需要收起（`None`）。
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     UpdateFound(Option<String>),
@@ -212,10 +225,10 @@ pub enum UserEvent {
     ReopenEncoding(DocumentId, winc_editor::Encoding),
     /// 后台完成了一张图片的解码，或一个 SVG 的绘制。
     ImageReady,
-    /// 粘贴到文件树中的文件已在后台复制完成：新路径，或失败的原因。
-    Pasted(Result<Vec<PathBuf>, String>),
-    /// 拖进文件树的文件和目录已在后台复制完成：各个副本的路径，以及复制失败的说明。
-    Copied(Vec<PathBuf>, Vec<String>),
+    /// 粘贴到文件树中的文件已在后台复制完成：新路径，或失败的原因；以及这次复制。
+    Pasted(Result<Vec<PathBuf>, String>, Arc<winc_editor::Copying>),
+    /// 拖进文件树的文件和目录已在后台复制完成：各个副本的路径、复制失败的说明，以及这次复制。
+    Copied(Vec<PathBuf>, Vec<String>, Arc<winc_editor::Copying>),
     /// 窗口已关闭时点击了程序坞中的图标（macOS）：重新显示窗口。
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     Reopen,
@@ -249,6 +262,24 @@ pub enum UserEvent {
     GitOperated,
     /// 后台的 Git 操作发来了输入请求。
     GitQuestion,
+    /// 后台到远端主机的连接已建立或已失败。
+    RemoteConnected,
+    /// 远程选择面板在后台读好了一个目录。
+    RemoteListed,
+    /// 后台对远端目录的监视已经启动。
+    RemoteWatching,
+    /// 到远端主机的连接意外中断。
+    RemoteClosed(winc_backend::Target),
+    /// 后台的文件操作（新建、改名、移动、删除）已完成。
+    FileWorked,
+    /// 后台为远端文件的格式化选好了工具。
+    FormatPlanned,
+    /// 连接远端主机的 `ssh` 发来了输入请求。
+    RemoteQuestion,
+    /// 后台到远端主机的连接到达了新的阶段。
+    RemoteStage,
+    /// 远端主机有无响应的状况变了：状态栏的连接按钮随之重绘。
+    RemoteHealth,
     /// 后台已读取三栏合并的两侧。
     GitMergeSides,
     /// 后台已取得日志的一批提交、一个提交的详情或一个文件的差异。
@@ -512,7 +543,7 @@ impl Hover {
                         | terminal::HeaderHit::Hide
                         | terminal::HeaderHit::Run(_),
                 )
-                | Hover::Status(StatusItem::Terminal | StatusItem::Settings)
+                | Hover::Status(StatusItem::Terminal | StatusItem::Remote | StatusItem::Settings)
                 | Hover::TreeMore
                 | Hover::SidebarButton
                 | Hover::LogDiffLayout
@@ -841,6 +872,12 @@ pub struct App {
     pub(crate) split: preview::images::SplitPreview,
     /// Markdown 预览（分栏右侧或仅预览模式）。
     pub(crate) markdown: preview::markdown::MarkdownPreview,
+    /// 首次设置开场动画的时钟；没有在播放时为 `None`。
+    pub(crate) setup_intro: Option<animation::Clock>,
+    /// 点击「完成」之后从「首次设置」换到开始页的过渡动画的时钟；没有在播放时为 `None`。
+    pub(crate) setup_outro: Option<animation::Clock>,
+    /// 更新日志的状态：待显示的更新提示、所在的标签和要显示的版本范围。
+    pub(crate) release_notes: release_notes::ReleaseNotes,
     /// 当前标签的 PDF 预览。
     pub(crate) pdf: preview::pdf::PdfPreview,
     /// 窗口背景图的状态。
@@ -886,8 +923,12 @@ pub struct App {
     pub(crate) diff_fold: Option<diff::DiffFoldMotion>,
     /// 编辑区跳转式滚动（翻页、跳到行、查找跳转）的平滑滚动状态。
     pub(crate) scroll_glide: Option<ScrollGlide>,
-    /// 鼠标滚轮滚动的过渡状态。
-    pub wheel: input::mouse::Wheel,
+    /// 各区域（文件树、列表、预览）跳转式滚动的过渡，每个区域至多一项。
+    pub(crate) pane_glides: Vec<scroll::PaneGlide>,
+    /// 触摸滚动抬手后的惯性滚动；没有时为 `None`。
+    pub(crate) fling: Option<scroll::Fling>,
+    /// 滚轮与触控板滚动的状态。
+    pub wheel: scroll::Wheel,
     /// 预览标签的文档；是否仍是预览标签见 [`App::preview_index`]。
     preview_tab: Option<winc_editor::DocumentId>,
     /// 文件树中正在重命名的项及其输入框；没有时为 `None`。
@@ -981,6 +1022,13 @@ pub struct App {
     pub blame: git::blame::BlameState,
     /// 正在进行的分支操作。
     pub branch: git::branch::BranchState,
+    /// 远程模块：正在进行的连接。
+    pub remote: remote::RemoteState,
+    /// 正在后台执行的文件操作。
+    pub(in crate::app) file_work: workspace::file_work::FileWork,
+    /// 逐个执行远端文件改动的线程的任务队列（见 [`App::spawn_ordered_then`]）；尚未创建时为
+    /// `None`。
+    ordered: Option<mpsc::Sender<OrderedTask>>,
     /// 文件内合并冲突的解决状态：识别出的冲突与可点击区域。
     pub merge: git::merge::MergeState,
     /// 大文件的差异在后台重新比较。
@@ -1057,21 +1105,30 @@ pub struct App {
 
 impl App {
     /// 请求在下一帧重绘本窗口。
+    ///
+    /// 文件树的可见行变化后都会请求重绘：其中尚未读取的目录在此交给后台（[`App::fetch_tree`]）。
     pub(crate) fn request_redraw(&mut self) {
         self.dirty = true;
+        self.fetch_tree();
     }
 
     /// 在后台线程上执行 `job`，完成后发送事件 `done` 唤醒界面线程处理结果（[`App::finished`]）。
     ///
     /// 测试中没有事件循环：在当前线程上执行 `job`，之后直接调用 [`App::finished`] 处理结果。
+    ///
+    /// 打开的目录在远端主机上时改用单独的线程（[`App::spawn_blocking_then`]）：这时的任务大多
+    /// 要等待网络，耗时没有上限，放进线程池会占住池中的线程，各窗口的本机任务只能排队。
     fn spawn_then(&mut self, done: UserEvent, job: impl FnOnce() + Send + 'static) {
+        if self.editor.root().is_some_and(winc_backend::is_remote) {
+            return self.spawn_blocking_then(done, job);
+        }
         match self.proxy.clone() {
             Some(proxy) => winc_editor::background::spawn(move || {
                 job();
                 let _ = proxy.send_event(done);
             }),
             None => {
-                job();
+                winc_backend::remote::allow_blocking(job);
                 self.finished(done);
             }
         }
@@ -1090,9 +1147,47 @@ impl App {
                 let _ = proxy.send_event(done);
             }),
             None => {
-                job();
+                winc_backend::remote::allow_blocking(job);
                 self.finished(done);
             }
+        }
+    }
+
+    /// 在本窗口改动远端文件的线程上执行 `job`，完成后发送事件 `done`；其余行为同
+    /// [`App::spawn_then`]。
+    ///
+    /// 这个线程按提交的顺序逐个执行：保存与改名、移动、删除不会交错，先发起的保存一定在随后
+    /// 的改名之前写完。线程在第一次使用时创建，窗口关闭时结束。
+    fn spawn_ordered_then(&mut self, done: UserEvent, job: impl FnOnce() + Send + 'static) {
+        let Some(proxy) = self.proxy.clone() else {
+            winc_backend::remote::allow_blocking(job);
+            self.finished(done);
+            return;
+        };
+        let task: OrderedTask = Box::new(move || {
+            job();
+            let _ = proxy.send_event(done);
+        });
+        let task = match &self.ordered {
+            Some(queue) => match queue.send(task) {
+                Ok(()) => return,
+                // 线程已经结束：重新创建。
+                Err(mpsc::SendError(task)) => task,
+            },
+            None => task,
+        };
+        let (queue, tasks) = mpsc::channel::<OrderedTask>();
+        let worker = std::thread::Builder::new()
+            .name("winc-remote".into())
+            .spawn(move || tasks.into_iter().for_each(|task| task()));
+        // 线程无法创建时退回单独的线程：任务仍然执行，只是不再保证先后。
+        self.ordered = None;
+        if worker.is_err() {
+            winc_editor::background::spawn_blocking(task);
+        } else if let Err(mpsc::SendError(task)) = queue.send(task) {
+            winc_editor::background::spawn_blocking(task);
+        } else {
+            self.ordered = Some(queue);
         }
     }
 
@@ -1106,6 +1201,11 @@ impl App {
             UserEvent::GitCommit => self.poll_commit(),
             UserEvent::GitBase => self.poll_bases(),
             UserEvent::GitOperated => self.poll_branch_ops(),
+            UserEvent::RemoteConnected => self.poll_remote(),
+            UserEvent::RemoteListed => self.poll_remote_listings(),
+            UserEvent::RemoteWatching => self.poll_remote_watcher(),
+            UserEvent::FormatPlanned => self.poll_formatting(),
+            UserEvent::FileWorked => self.poll_file_work(),
             UserEvent::GitMergeSides => self.poll_merge_sides(),
             UserEvent::GitLog => self.poll_log(),
             UserEvent::GitBlame => self.poll_blame(),

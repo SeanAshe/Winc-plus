@@ -133,6 +133,10 @@ fn escape_cancels_and_the_failure_is_not_reported_as_an_error() {
     assert!(app.form_dialog.is_none());
     assert!(answers.try_recv().is_err());
     assert!(app.branch.declined);
+    // 取消一次即取消整个操作：`ssh` 再问口令时不再弹出，同样按取消答复。
+    let again = ask(&mut app, passphrase());
+    assert!(app.form_dialog.is_none());
+    assert!(again.recv().is_err());
     app.report_git_failure("推送", "无法推送：could not read Password".into());
     assert!(app.notice.text.is_none());
     assert!(!app.branch.declined);
@@ -213,7 +217,7 @@ fn a_question_replaces_a_form_being_filled_in() {
     app.open_worktree_dialog();
     let _answers = ask(&mut app, passphrase());
     let dialog = app.form_dialog.as_ref().unwrap();
-    assert!(matches!(dialog.kind, FormKind::Question(_)));
+    assert!(matches!(dialog.kind, FormKind::Question(..)));
     paint(&mut app);
 }
 
@@ -242,4 +246,45 @@ fn snapshot_question_dialogs() {
         std::thread::sleep(std::time::Duration::from_millis(400));
         shoot(&mut app, &format!("question-{name}"));
     }
+}
+
+#[test]
+fn a_question_from_a_remote_repository_names_the_host() {
+    let (mut app, _answers) = asking("git-question-origin", password());
+    let view = |app: &App| app.form_dialog.as_ref().unwrap().kind.view().unwrap();
+    // 本机仓库的请求不带来源。
+    assert_eq!(view(&app).values[0].text, "me");
+
+    // 远端仓库的操作提出的请求：只读信息的第一行是那台主机。
+    let target = winc_backend::Target::new("me@devbox").unwrap();
+    app.git.root = Some(winc_backend::virtual_path(&target, b"/srv/app"));
+    let _answers = ask(&mut app, password());
+    paint(&mut app);
+    let view = view(&app);
+    assert_eq!(
+        (view.values[0].label, view.values[0].text.as_str()),
+        ("来自远端", "me@devbox")
+    );
+    assert_eq!(view.values.len(), 3);
+    shoot(&mut app, "git-question-origin");
+}
+
+#[test]
+fn cancelling_a_question_from_ssh_ends_the_connection_at_once() {
+    let mut app = app_with(&sample_folder("question-remote").join("short.rs"), false);
+    let abort = app.begin_connection_for_test();
+    let (reply, answers) = channel();
+    let prompt = Prompt::SshPassword {
+        account: "me".into(),
+        host: "devbox".into(),
+    };
+    app.open_question(
+        crate::app::git::question::Asker::Remote,
+        Question { prompt, reply },
+    );
+    assert!(app.form_dialog.is_some() && !abort.is_aborted());
+    // 取消口令的询问：连接随即中止，`ssh` 没有机会再问第二次、第三次。
+    assert!(app.dialog_key(&Key::Named(NamedKey::Escape), "", false));
+    assert!(abort.is_aborted());
+    assert!(answers.recv().is_err());
 }

@@ -194,7 +194,7 @@ fn draw_header(
         match target {
             CommitTarget::Log => icons::history(frame, c, color, header),
             CommitTarget::Refresh if app.commit_refreshing() => {
-                icons::refresh_turned(frame, c, spin_turn(), color, header);
+                icons::refresh_turned(frame, c, icons::spin_turn(), color, header);
             }
             CommitTarget::Refresh => icons::refresh(frame, c, color, header),
             _ => icons::more(frame, c, color, header),
@@ -445,7 +445,7 @@ fn draw_sync(
     let faded = ink.alpha(ink.a * (1.0 - check));
     // 同步与远程交换提交，图标与标题行只重读本地的「刷新」不同。
     if leaving {
-        icons::sync_turned(frame, icon, spin_turn(), faded, clip);
+        icons::sync_turned(frame, icon, icons::spin_turn(), faded, clip);
     } else if state == SyncState::Publish {
         icons::upload(frame, icon, faded, clip);
     } else {
@@ -792,7 +792,7 @@ fn draw_stash_file(
     }
 }
 
-/// 没有改动时列表区的空状态：「没有要提交的更改」，下面是当前分支与上游的
+/// 没有改动时列表区的空状态：「暂无待提交的更改」，下面是当前分支与上游的
 /// 关系（已同步、领先、落后、还没发布），有上游时再一行淡色写上游的名字（很长时截短，不和关系
 /// 挤在一行里折断）；有事可做时最下面是一个强调色的按钮（推送、拉取、同步或发布），只写动作。
 ///
@@ -1844,16 +1844,6 @@ fn commit_button_text(app: &App) -> (String, f32) {
     let text = scope.map_or(text, |count| t!("git-commit-button-files", count = count));
     let icon_w = if busy || clean { 0.0 } else { 16.0 };
     (text, icon_w)
-}
-
-/// 返回加载图标当前旋转到的圈数，按进程启动以来的时间计算，各处的加载图标转速一致。
-fn spin_turn() -> f32 {
-    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
-    START
-        .get_or_init(std::time::Instant::now)
-        .elapsed()
-        .as_secs_f32()
-        * SPIN_SPEED
 }
 
 /// 文件名的颜色：正文色，删掉的用次要色。

@@ -210,7 +210,7 @@ impl Git {
             }
             self.short_head(root)
         })();
-        let _ = std::fs::remove_file(&index);
+        let _ = winc_backend::fs::remove_file(&index);
         result
     }
 

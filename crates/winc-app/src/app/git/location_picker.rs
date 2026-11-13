@@ -104,6 +104,7 @@ impl App {
         self.picker.branch_rows = None;
         self.picker.folders = false;
         self.picker.vim_list = None;
+        self.picker.remote = None;
         self.picker.anchor = GitAnchor::Location;
         self.picker.open = true;
         self.picker.doc = self.editor.active().map(|d| d.id);

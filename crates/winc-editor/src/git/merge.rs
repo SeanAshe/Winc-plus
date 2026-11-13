@@ -80,8 +80,11 @@ impl Pick {
 /// 先按块读取查找 `<<<<<<<`，找到时才读成 rope 逐段确认，合法的 UTF-8 不保留整个文件的
 /// 字节副本。
 pub fn file_has_conflicts(path: &Path) -> bool {
-    use std::io::{Read, Seek};
-    let Ok(mut file) = std::fs::File::open(path) else {
+    use std::io::Read;
+    let Ok(mut opened) = winc_backend::fs::open(path, 0) else {
+        return false;
+    };
+    let Ok(mut file) = opened.reader() else {
         return false;
     };
     let finder = memchr::memmem::Finder::new(OPEN);
@@ -102,13 +105,18 @@ pub fn file_has_conflicts(path: &Path) -> bool {
         kept = filled.min(OPEN.len() - 1);
         block.copy_within(filled - kept..filled, 0);
     };
-    if !found || file.rewind().is_err() {
+    drop(file);
+    if !found {
         return false;
     }
-    let text = match Rope::from_reader(std::io::BufReader::new(&file)) {
+    // 重新取读取器，从文件开头再读一遍。
+    let Ok(file) = opened.reader() else {
+        return false;
+    };
+    let text = match Rope::from_reader(std::io::BufReader::new(file)) {
         Ok(text) => text,
         Err(_) => {
-            let Ok(bytes) = std::fs::read(path) else {
+            let Ok(bytes) = winc_backend::fs::read(path) else {
                 return false;
             };
             Rope::from_str(&String::from_utf8_lossy(&bytes))

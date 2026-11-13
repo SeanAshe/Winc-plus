@@ -8,6 +8,7 @@
 //! 冲突折叠为一行；两侧只读并随中间滚动，连接带上有采用该侧的按钮，底部为整个文件的操作。
 //! 绘制由 `view/git/merge.rs` 完成，可点击的区域在绘制时记入 `merge.hits`。
 
+use crate::app::scroll::set_scroll_line;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -376,7 +377,10 @@ impl App {
         if after == before && doc.row_count() == rows {
             return;
         }
-        doc.scroll_line = (doc.scroll_line + after as f64 - before as f64).max(0.0);
+        set_scroll_line(
+            doc,
+            (doc.scroll_line + after as f64 - before as f64).max(0.0),
+        );
         if self.editor.active == Some(index) {
             self.clamp_scroll();
         }
@@ -604,7 +608,7 @@ impl App {
                 self.select(pos, pos);
                 let doc = &mut self.editor.documents[index];
                 let row = doc.row_of(conflict.start);
-                doc.scroll_line = row.saturating_sub(3) as f64;
+                set_scroll_line(doc, row.saturating_sub(3) as f64);
                 self.clamp_scroll();
             }
             None if forward => self.flash(t!("git-merge-no-next")),
@@ -636,7 +640,7 @@ impl App {
         };
         match target {
             Some(target) => {
-                self.editor.documents[index].scroll_line = target;
+                set_scroll_line(&mut self.editor.documents[index], target);
                 self.clamp_scroll();
             }
             None if forward => self.flash(t!("git-merge-no-next")),

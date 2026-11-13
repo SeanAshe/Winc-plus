@@ -400,6 +400,45 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
         }
     }
 
+    // 远程模块开着时终端开关左边是连接远端主机的按钮：点了打开主机面板。打开的目录在远端
+    // 主机上时图标亮，否则灰。出现、消失的方式与终端开关相同。
+    let enabled = app.remote_enabled();
+    let share = app.module_fx.remote.share(enabled);
+    let opacity = app.module_fx.remote.opacity(enabled);
+    if share > 0.0 {
+        let item = StatusItem::Remote;
+        let slot = right - icons::SIDEBAR_WIDTH;
+        right -= (icons::SIDEBAR_WIDTH + STATUS_GAP) * share;
+        let pill = Rect::new(
+            slot - CRUMB_PAD,
+            bar.y + 4.0,
+            icons::SIDEBAR_WIDTH + 2.0 * CRUMB_PAD,
+            bar.h - 8.0,
+        );
+        let connected = app.editor.root().is_some_and(winc_backend::is_remote);
+        let hovered = enabled && app.hover == Hover::Status(item);
+        frame.with_opacity(opacity, |frame| {
+            draw_button(frame, p, pill, bar, hovered, false);
+        });
+        let center = (slot + icons::SIDEBAR_WIDTH / 2.0, bar.y + bar.h / 2.0);
+        // 打开着远端目录而连接已断开、或对端迟迟没有响应时用提醒色。
+        let troubled = (app.editor.root().and_then(winc_backend::locate)).is_some_and(|at| {
+            !winc_backend::remote::is_connected(&at.target)
+                || winc_backend::remote::is_stalled(&at.target)
+        });
+        let color = if troubled {
+            p.warning
+        } else if connected || hovered {
+            p.text
+        } else {
+            p.text_muted
+        };
+        icons::remote(frame, center, color.alpha(opacity), bar);
+        if enabled {
+            status_hits.push((pill, item));
+        }
+    }
+
     // 后台检查更新找到了新版本：在终端开关左边放一个更新按钮（见 [`update_button`]）。
     let mut items = Vec::new();
     if let Some(button) = update_button(app) {

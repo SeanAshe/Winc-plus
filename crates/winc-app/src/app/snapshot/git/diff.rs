@@ -1397,7 +1397,7 @@ fn stepping_through_changes_marks_each_one_and_walks_the_files() {
     // 没有更多文件时不提示再按一次。
     assert!(app.run_action(Action::NextDifference));
     assert!(app.run_action(Action::NextDifference));
-    assert_eq!(app.status.message.as_deref(), Some("没有下一处更改"));
+    assert_eq!(app.status.message.as_deref(), Some("已是最后一处更改"));
     // 该文件有两处改动：先回到第一处，再提示，第三次回到上一个文件。
     assert!(app.run_action(Action::PreviousDifference));
     assert_eq!(focus(&app), Some(0));
@@ -1409,7 +1409,7 @@ fn stepping_through_changes_marks_each_one_and_walks_the_files() {
 
     // `F8` 切换文件时总是从第一处开始；到达末端时提示，位置不变。
     assert!(app.run_action(Action::PreviousDiffFile));
-    assert_eq!(app.status.message.as_deref(), Some("没有上一个文件"));
+    assert_eq!(app.status.message.as_deref(), Some("已是第一个文件"));
     assert!(app.run_action(Action::NextDiffFile));
     assert!(title(&app).starts_with("zeta.rs"));
     assert!(app.run_action(Action::PreviousDiffFile));
@@ -1456,7 +1456,7 @@ fn moving_to_a_change_clears_the_message_about_having_none() {
 
     // 刚打开时向回没有改动；向下跳转到第一处后，该提示不再成立。
     assert!(app.run_action(Action::PreviousDifference));
-    assert_eq!(app.status.message.as_deref(), Some("没有上一处更改"));
+    assert_eq!(app.status.message.as_deref(), Some("已是第一处更改"));
     assert!(app.run_action(Action::NextDifference));
     assert_eq!(focus(&app), Some(0));
     assert_eq!(app.status.message, None);
@@ -1465,17 +1465,17 @@ fn moving_to_a_change_clears_the_message_about_having_none() {
     assert!(app.run_action(Action::NextDifference));
     assert_eq!(focus(&app), Some(1));
     assert!(app.run_action(Action::NextDifference));
-    assert_eq!(app.status.message.as_deref(), Some("没有下一处更改"));
+    assert_eq!(app.status.message.as_deref(), Some("已是最后一处更改"));
     assert!(app.run_action(Action::PreviousDifference));
     assert_eq!(focus(&app), Some(0));
     assert_eq!(app.status.message, None);
     assert!(app.run_action(Action::PreviousDifference));
-    assert_eq!(app.status.message.as_deref(), Some("没有上一处更改"));
+    assert_eq!(app.status.message.as_deref(), Some("已是第一处更改"));
 
     // 隐藏状态栏时消息在提示条上，同样清除。
     app.settings_toggle(Setting::StatusBar);
     assert!(app.run_action(Action::PreviousDifference));
-    assert_eq!(app.notice.text.as_deref(), Some("没有上一处更改"));
+    assert_eq!(app.notice.text.as_deref(), Some("已是第一处更改"));
     assert!(app.run_action(Action::NextDifference));
     assert_eq!(focus(&app), Some(1));
     assert_eq!(app.notice.text, None);

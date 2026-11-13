@@ -184,7 +184,7 @@ pub(crate) struct BranchState {
     /// 后台送达的输入请求及其所属操作的编号。
     pub(super) questions: QuestionChannel,
     /// 对话框正在处理的请求：所属操作的编号和答复通道；丢弃通道表示取消。
-    pub(in crate::app) asking: Option<(u64, Sender<String>)>,
+    pub(in crate::app) asking: Option<(super::question::Asker, Sender<String>)>,
     /// 用户是否取消了当前操作的输入请求；为真时该操作的失败不按错误提示。
     pub(in crate::app) declined: bool,
     /// 登录对话框中填写的密码及其远程地址，用于答复随后的密码请求，操作结束时清除。

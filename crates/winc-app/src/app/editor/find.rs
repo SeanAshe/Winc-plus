@@ -7,6 +7,8 @@ use winc_i18n::t;
 
 use super::*;
 
+use crate::app::scroll::set_scroll_line;
+
 /// 返回用于输入分支名、标签名的输入框。
 ///
 /// 依据 `git check-ref-format` 的规则，名称中不能含空白和 `~ ^ : ? * [ \`，输入框拒绝这些字符。
@@ -463,7 +465,7 @@ impl App {
         } else {
             0.0
         };
-        doc.scroll_line = before;
+        set_scroll_line(doc, before);
         let top = (self.sticky_depth(line) as f64).max(covered).max(1.0);
         let doc = self.editor.active().unwrap();
         let shown = row >= doc.scroll_line + top && row <= doc.scroll_line + visible - 2.0;
@@ -472,7 +474,7 @@ impl App {
             let max = self.max_scroll_line();
             if let Some(doc) = self.editor.active_mut() {
                 let before = doc.scroll_line;
-                doc.scroll_line = (row - visible * 0.5).clamp(0.0, max);
+                set_scroll_line(doc, (row - visible * 0.5).clamp(0.0, max));
                 self.glide_scroll(before);
             }
         }

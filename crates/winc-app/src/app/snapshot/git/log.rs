@@ -177,7 +177,7 @@ fn stepping_past_the_last_change_opens_the_commits_next_file() {
     app.run_action(Action::NextDifference);
     app.run_action(Action::NextDifference);
     assert!(title(&app).starts_with("b.txt · "));
-    assert_eq!(app.status.message.as_deref(), Some("没有下一处更改"));
+    assert_eq!(app.status.message.as_deref(), Some("已是最后一处更改"));
     app.run_action(Action::PreviousDifference);
     app.run_action(Action::PreviousDifference);
     assert!(title(&app).starts_with("a.txt · "));
@@ -316,7 +316,7 @@ fn commit_diff_tree_follows_its_order_and_the_users_sidebar() {
 }
 
 /// 历史差异侧栏标题行的按钮在树形与列表之间切换文件列表，与提交视图的更改列表共用同一个
-/// 设置；树形中只有一个子目录的各级按设置「紧凑文件夹」合成一行（「src/nested」）。
+/// 设置；树形中只有一个子目录的各级按设置「紧凑目录」合成一行（「src/nested」）。
 #[test]
 fn commit_diff_tree_switches_between_tree_and_list() {
     use crate::app::git::commit::CommitRow;
@@ -344,7 +344,7 @@ fn commit_diff_tree_switches_between_tree_and_list() {
     assert_eq!(rows.len(), 4);
     assert!(matches!(&rows[1], CommitRow::Dir { label, .. } if label == "src/nested"));
 
-    // 关闭设置「紧凑文件夹」后逐级显示：组标题、`src`、`nested`、`b.txt`、`a.txt`。
+    // 关闭设置「紧凑目录」后逐级显示：组标题、`src`、`nested`、`b.txt`、`a.txt`。
     app.config.compact_folders = Some(false);
     app.apply_compact_folders();
     let rows = log_rows(&mut app);
@@ -1137,7 +1137,7 @@ fn the_log_opens_from_the_commit_view_button_and_the_branch_menu_starts_with_fet
     let label = app.menu_label(MenuCommand::GitFetch);
     assert_eq!(
         label.subtitle.as_deref(),
-        Some("下载远程更新，不改动本地分支")
+        Some("下载远程更新，不修改本地分支")
     );
     let _ = std::fs::remove_dir_all(&root);
 }

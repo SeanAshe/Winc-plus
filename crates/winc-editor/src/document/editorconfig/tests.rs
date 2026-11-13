@@ -1,6 +1,8 @@
 //! `editorconfig` 的测试：通配模式的匹配规则、逐级向上查找与优先级、只写一半的缩进设置、
 //! 保存前的清理。
 
+use std::fs;
+
 use super::*;
 
 fn glob(pattern: &str, path: &str) -> bool {

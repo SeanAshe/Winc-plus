@@ -1,3 +1,5 @@
+# `winc-app`、`winc-editor`、`winc-preview` 各有一份自己的 clippy.toml（另外禁止直接访问文件系统），
+# 其中重复了本文件的设置：修改本文件时同步修改那三份。
 # 文档中可以不加反引号的专有名词；".." 保留 clippy 默认的那一组（macOS、GitHub……）。
 doc-valid-idents = ["AppImage", "ConPTY", "EdDSA", ".."]
 # Windows 上 `std::fs::canonicalize` 返回带 `\\?\` 前缀的路径；一律用去掉了前缀的版本。

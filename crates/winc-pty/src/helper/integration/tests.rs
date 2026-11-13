@@ -175,3 +175,33 @@ mod boot {
         let _ = fs::remove_dir_all(&dir);
     }
 }
+
+#[test]
+fn a_remote_shell_gets_a_fresh_nonce_in_its_command() {
+    let command = |text: &str| vec![b"-t".to_vec(), b"host".to_vec(), text.as_bytes().to_vec()];
+    // 只换最后一处：目录名里恰好有这个记号时不动它。
+    let mut args = command("cd '/a @WINC_NONCE@' && exec sh -c 'x' winc @WINC_NONCE@ 1");
+    let nonce = inject_remote(b"/usr/bin/ssh", &mut args).unwrap();
+    assert_eq!(nonce.len(), 32);
+    let expected = format!("cd '/a @WINC_NONCE@' && exec sh -c 'x' winc {nonce} 1");
+    assert_eq!(args[2], expected.as_bytes());
+    assert_eq!(args[..2], command("")[..2]);
+    let mut again = command("exec sh -c 'x' winc @WINC_NONCE@ 1");
+    assert_ne!(inject_remote(b"ssh", &mut again).unwrap(), nonce);
+
+    // 没有记号的命令、别的程序、没有参数：不注入，参数不变。
+    let mut plain = command("cd '/a' && exec $SHELL -l");
+    assert_eq!(inject_remote(b"ssh", &mut plain), None);
+    assert_eq!(plain, command("cd '/a' && exec $SHELL -l"));
+    let mut other = command("@WINC_NONCE@");
+    assert_eq!(inject_remote(b"/bin/zsh", &mut other), None);
+    assert_eq!(other, command("@WINC_NONCE@"));
+    assert_eq!(inject_remote(b"ssh", &mut []), None);
+    assert!(
+        inject_remote(
+            br"C:\Windows\System32\OpenSSH\ssh.exe",
+            &mut command("@WINC_NONCE@")
+        )
+        .is_some()
+    );
+}

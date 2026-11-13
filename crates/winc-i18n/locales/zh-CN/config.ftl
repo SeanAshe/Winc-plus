@@ -14,7 +14,7 @@ config-run-read-failed = 无法读取（{ $error }），已忽略
 config-run-invalid-json = 文件格式无效，应为包含 configurations 数组的 JSON 对象，已忽略
 config-run-unsupported-key = 不支持字段 { $key }，已忽略
 config-run-invalid-entry = 第 { $index } 项无效，已忽略：name 和 command 必须是非空字符串，args 必须是字符串数组，env 必须是值为字符串的对象
-config-run-duplicate-name = 配置名「{ $name }」重复，已忽略后面的一项
+config-run-duplicate-name = 配置名「{ $name }」重复，已忽略后一项
 config-run-template-note = 每项需要 name 和 command；args、cwd、env 为可选项。
 
 ## 各项设置的值不符合要求时。

@@ -575,6 +575,7 @@ impl App {
         let above = depth.min(self.tree_sticky_max()) as f32 * TREE_ROW;
         let visible = y >= self.tree.scroll + above && y + TREE_ROW <= self.tree.scroll + tree_h;
 
+        let before = self.tree.scroll;
         self.tree.scroll = match (visible, center) {
             (true, _) => self.tree.scroll,
             (false, true) => (y - tree_h / 2.0).max(0.0),
@@ -582,6 +583,7 @@ impl App {
                 scroll_to_show(self.tree.scroll, y - above, y + TREE_ROW, tree_h).max(0.0)
             }
         };
+        self.glide_pane(ScrollTarget::Tree, before);
     }
 
     /// 在文件树里展开并选中当前文件。
@@ -743,7 +745,7 @@ impl App {
     ///
     /// 失败时输入行保留，原因显示在名字右边。
     pub(in crate::app) fn submit_name_input(&mut self) {
-        let Some(mut entry) = self.name_input.take() else {
+        let Some(entry) = self.name_input.take() else {
             return;
         };
         if entry.rename.is_some() {
@@ -757,21 +759,40 @@ impl App {
             return;
         }
 
-        let created = self
-            .editor
-            .workspace
-            .as_mut()
-            .map(|ws| match &entry.contents {
-                Some(contents) => ws.create_file(&entry.dir, &input, contents),
-                None => ws.create(&entry.dir, &input, entry.kind),
-            });
+        let Some(root) = self.editor.root().map(Path::to_path_buf) else {
+            self.flash(winc_i18n::t!("workspace-open-folder-first"));
+            self.relayout();
+            self.request_redraw();
+            return;
+        };
+        let (dir, name, contents) = (entry.dir.clone(), input.clone(), entry.contents.clone());
+        let kind = match contents {
+            Some(_) => EntryKind::File,
+            None => entry.kind,
+        };
+        let create = move || {
+            winc_editor::create_at(&root, &dir, &name, kind, contents.as_deref().unwrap_or(&[]))
+        };
+        let at = entry.dir.clone();
+        self.file_work(&at, create, move |app, created| {
+            app.entry_created(entry, &input, created);
+        });
+    }
 
+    /// 新建完成：成功时更新文件树并打开新建的文件，失败时恢复输入行并显示原因。
+    fn entry_created(
+        &mut self,
+        mut entry: NameInput,
+        input: &str,
+        created: std::io::Result<PathBuf>,
+    ) {
         match created {
-            Some(Ok(path)) => {
-                if let Some(ws) = &self.editor.workspace
-                    && let Some(index) = ws.selected
-                {
-                    self.scroll_tree_to(index, false);
+            Ok(path) => {
+                if let Some(ws) = &mut self.editor.workspace {
+                    ws.created(&path);
+                    if let Some(index) = ws.selected {
+                        self.scroll_tree_to(index, false);
+                    }
                 }
 
                 self.focus = if entry.kind == EntryKind::Dir {
@@ -793,12 +814,11 @@ impl App {
                     .map(|first| entry.dir.join(first));
                 self.picker_touched(top.into_iter().collect());
             }
-            Some(Err(e)) => {
+            Err(e) => {
                 entry.error = Some(e.to_string());
                 self.name_input = Some(entry);
                 self.focus = Focus::Prompt;
             }
-            None => self.flash(winc_i18n::t!("workspace-open-folder-first")),
         }
 
         self.relayout();
@@ -903,6 +923,8 @@ pub struct TreeState {
     pub(crate) drag: Option<crate::app::workspace::tree_drag::TreeDrag>,
     /// 正在后台重读的、文件树中被其他程序修改的目录。
     pub(in crate::app) scans: crate::app::workspace::watch::TreeScans,
+    /// 正在后台进行的复制（拖入、粘贴）。
+    pub(in crate::app) copies: crate::app::workspace::copying::Copies,
 }
 
 impl Default for TreeState {
@@ -918,6 +940,7 @@ impl Default for TreeState {
             motion: None,
             drag: None,
             scans: Default::default(),
+            copies: Default::default(),
         }
     }
 }

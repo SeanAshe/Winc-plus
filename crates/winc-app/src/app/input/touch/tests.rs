@@ -203,3 +203,52 @@ fn duplicate_starts_do_not_reset_a_gesture() {
         Some(Action::Context((20.0, 30.0)))
     );
 }
+
+#[test]
+fn releasing_a_moving_finger_flings_with_its_recent_speed() {
+    let mut state = TouchState::default();
+    let start = Instant::now();
+    let at = |ms: u64| start + Duration::from_millis(ms);
+    state.update(&event(1, TouchPhase::Started), (100.0, 300.0), at(0), false);
+    // 每 10 毫秒上移 20 像素，即每秒 2000 像素。
+    for step in 1..=5 {
+        let y = 300.0 - 20.0 * step as f32;
+        state.update(
+            &event(1, TouchPhase::Moved),
+            (100.0, y),
+            at(10 * step),
+            false,
+        );
+    }
+    let action = state.update(&event(1, TouchPhase::Ended), (100.0, 200.0), at(55), false);
+    let Some(Action::Fling {
+        origin,
+        delta,
+        velocity,
+    }) = action
+    else {
+        panic!("{action:?}");
+    };
+    assert_eq!(origin, (100.0, 300.0));
+    assert_eq!(delta, (0.0, 0.0));
+    assert!((velocity.1 + 2000.0).abs() < 1.0, "{velocity:?}");
+}
+
+#[test]
+fn a_finger_that_stopped_before_release_does_not_fling() {
+    let mut state = TouchState::default();
+    let start = Instant::now();
+    let at = |ms: u64| start + Duration::from_millis(ms);
+    state.update(&event(1, TouchPhase::Started), (100.0, 300.0), at(0), false);
+    state.update(&event(1, TouchPhase::Moved), (100.0, 200.0), at(20), false);
+    // 停住超过 `STOPPED` 后才抬手。
+    assert_eq!(
+        state.update(
+            &event(1, TouchPhase::Ended),
+            (100.0, 200.0),
+            at(20) + STOPPED * 2,
+            false
+        ),
+        None
+    );
+}

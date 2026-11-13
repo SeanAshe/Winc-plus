@@ -192,7 +192,7 @@ impl App {
 
         match (index, &spot.path) {
             (Some(index), _) => self.activate_tab(index),
-            (None, Some(path)) if path.is_file() => self.open_path(path),
+            (None, Some(path)) if winc_backend::fs::is_file(path) => self.open_path(path),
             _ => return false,
         }
         if self.editor.active().is_none() {

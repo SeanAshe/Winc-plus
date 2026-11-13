@@ -189,8 +189,8 @@ impl Git {
             Ok(String::from_utf8_lossy(&out).trim().to_owned())
         };
         let todo_path = path_of("winc-rebase-todo")?;
-        let local = crate::wsl::resolve(root, &todo_path);
-        std::fs::write(&local, rebase_todo(steps)).map_err(|e| e.to_string())?;
+        let local = crate::host::resolve(root, &todo_path);
+        winc_backend::fs::write(&local, rebase_todo(steps)).map_err(|e| e.to_string())?;
         let editor = format!("cat '{}' >", todo_path.replace('\'', "'\\''"));
         let mut args = vec![
             "rebase",
@@ -203,10 +203,10 @@ impl Git {
         let result = self.run_prepared(root, &args, OPERATION_TIMEOUT, |command| {
             command.env("GIT_SEQUENCE_EDITOR", &editor);
         });
-        let _ = std::fs::remove_file(&local);
+        let _ = winc_backend::fs::remove_file(&local);
         result?;
         let state = path_of("rebase-merge")?;
-        Ok(crate::wsl::resolve(root, &state).exists())
+        Ok(winc_backend::fs::exists(crate::host::resolve(root, &state)))
     }
 }
 

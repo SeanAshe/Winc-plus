@@ -102,7 +102,7 @@ fn cursors_are_added_with_the_keymap_and_removed_with_escape() {
     press(&mut app, &["cmd"], KeyCode::Char('k'));
     assert!(press(&mut app, &["cmd"], KeyCode::Char('d')));
     assert_eq!(carets(&app), [((1, 8), (1, 13)), ((4, 15), (4, 20))]);
-    assert_eq!(app.status.message.as_deref(), Some("没有其他匹配项"));
+    assert_eq!(app.status.message.as_deref(), Some("无其他匹配项"));
 
     // ⇧⌘L：选中全部匹配，同时改名。
     let at = app.editor.active().unwrap().text().line_start(2) + 9;

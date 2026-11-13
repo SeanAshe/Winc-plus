@@ -3,6 +3,8 @@
 editor-preview-failed = Couldn’t show the preview: { $reason }
 editor-show-source = Show Source
 editor-reading = Reading “{ $name }”…
+editor-reading-failed = Couldn’t load “{ $name }”
+editor-open-in-browser = View in Browser
 editor-open-anyway = Open Anyway
 editor-open-with-default-app = Open with Default App
 editor-retry = Retry
@@ -122,8 +124,8 @@ editor-encoding-unencodable = “{ $char }” can’t be saved in { $encoding };
 ## Reading and writing files.
 
 editor-file-no-path = The file has no path yet
-editor-original-changed = The file on disk was changed by another program after it was opened; can’t save
-editor-large-identity = The file has multiple hard links or belongs to another user, and saving a large file replaces it, which would break the links or change the owner; can’t save
+editor-original-changed = The file on disk was changed by another program after it was opened
+editor-large-identity = The file has multiple hard links or belongs to another user, and saving a large file replaces it, which would break the links or change the owner
 editor-moved-while-saving = The file was moved while it was being saved
 editor-large-cannot-compare = The file is too large to compare
 editor-large-utf8-only = The file is too large; it can only be opened as UTF-8

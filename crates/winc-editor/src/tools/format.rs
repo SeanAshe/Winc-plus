@@ -632,8 +632,19 @@ impl Formatter {
     }
 
     /// 返回格式化 `file` 时要运行的程序：`file` 位于 WSL 发行版中时在发行版内查找，返回发行版内的
-    /// 路径；其余情况同 [`Formatter::locate`]。
+    /// 路径；位于远端主机上时在那台主机上查找，返回那里的路径；其余情况同 [`Formatter::locate`]。
     fn locate_for(&self, file: &Path, program: &Program) -> Option<PathBuf> {
+        if let Some(at) = winc_backend::locate(file) {
+            return match program {
+                // 命令里写的绝对路径是那台主机上的路径。
+                Program::Project { path, .. } | Program::Path(path) => {
+                    let native = winc_backend::native_lossy(path).into_owned();
+                    let on_host = winc_backend::virtual_path(&at.target, native.as_bytes());
+                    is_executable(&on_host).then(|| PathBuf::from(native))
+                }
+                Program::Search(name) => crate::remote_env::find_program(file, name),
+            };
+        }
         let Some(place) = crate::wsl::locate_here(file) else {
             return self.locate(program);
         };
@@ -706,11 +717,14 @@ impl Formatter {
             }
         })?;
 
-        // 发行版内的工具只接受发行版内的路径。
+        // 发行版内的工具只接受发行版内的路径，远端主机上的工具只接受那台主机上的路径。
+        let remote = winc_backend::is_remote(&plan.file);
         let place = crate::wsl::locate_here(&plan.file);
-        let file = place
-            .as_ref()
-            .map_or_else(|| plan.file.clone(), |place| PathBuf::from(&place.path));
+        let file = match &place {
+            Some(place) => PathBuf::from(&place.path),
+            None if remote => PathBuf::from(winc_backend::native_lossy(&plan.file).into_owned()),
+            None => plan.file.clone(),
+        };
         let dir = plan.file.parent().unwrap_or(Path::new("/"));
         let edition = plan
             .args
@@ -727,7 +741,7 @@ impl Formatter {
         // 仍存在的目录。
         let cwd = dir
             .ancestors()
-            .find(|d| d.is_dir())
+            .find(|d| winc_backend::fs::is_dir(d))
             .unwrap_or(Path::new("/"));
 
         let mut command = match place.zip(crate::wsl::locate_here(cwd)) {
@@ -736,6 +750,16 @@ impl Formatter {
                 let path = crate::wsl::login_path(&place.distro);
                 crate::wsl::enter_login(&mut command, &place.distro, &cwd.path, path.as_deref());
                 command.env("WSLENV", crate::wsl::FORMAT_ENV).arg(&program);
+                command
+            }
+            // 远端的工具在那台主机上运行（工作目录在远端时由 `process::run` 交给远端）：不带
+            // 本机的环境，`PATH` 用那台主机上登录 shell 的，工具由此找到它依赖的程序。
+            None if remote => {
+                let mut command = std::process::Command::new(&program);
+                command.current_dir(cwd);
+                if let Some(path) = crate::remote_env::login_path(cwd) {
+                    command.env("PATH", path);
+                }
                 command
             }
             None => {

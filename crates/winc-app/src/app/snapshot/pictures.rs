@@ -50,10 +50,10 @@ fn placed(app: &App) -> (Rect, Rect) {
     (app.picture_view.rect(picture, area).unwrap(), area)
 }
 
-/// 触控板滚动 (`dx`, `dy`) 逻辑像素并重绘。
+/// 以一次新的触控板手势滚动 (`dx`, `dy`) 逻辑像素并重绘。
 fn scroll(app: &mut App, dx: f32, dy: f32) {
     let delta = PhysicalPosition::new(f64::from(dx * SCALE), f64::from(dy * SCALE));
-    app.on_wheel_event(MouseScrollDelta::PixelDelta(delta), TouchPhase::Moved);
+    app.on_wheel_event(MouseScrollDelta::PixelDelta(delta), TouchPhase::Started);
     paint(app);
 }
 

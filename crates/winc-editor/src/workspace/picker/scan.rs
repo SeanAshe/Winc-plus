@@ -14,6 +14,9 @@ const MATCHER_DIRS: usize = 1024;
 /// （[`ignore::IncrementalIgnore`]），每列出 [`MATCHER_DIRS`] 个目录换一个匹配器以限制规则缓存
 /// （家目录能占一百多 MB）；只用一个线程，因为 macOS 的分配器不回收短命线程用过的内存。
 pub(super) fn collect(root: &Path, limit: usize, cancel: &AtomicBool) -> Files {
+    if winc_backend::is_remote(root) {
+        return collect_remote(root, limit, cancel);
+    }
     let fresh = || walker(root).build_matchers().into_iter().next();
     let mut matcher = fresh();
     let mut listed = 0;
@@ -80,21 +83,18 @@ fn list(
     files: &mut Packed,
     dirs: &mut Packed,
 ) {
-    let Ok(entries) = fs::read_dir(root.join(dir)) else {
+    let Ok(entries) = winc_backend::fs::read_dir(root.join(dir)) else {
         return;
     };
     let mut matcher = matcher;
     for entry in entries.flatten() {
-        let name = entry.file_name();
-        let Some(name) = name.to_str() else {
+        let Some(name) = entry.name.to_str() else {
             continue;
         };
         if HIDDEN.contains(&name) {
             continue;
         }
-        let Ok(kind) = entry.file_type() else {
-            continue;
-        };
+        let kind = entry.kind;
         // `entry.path()` 需要分配，只为符号链接计算。
         let file = kind.is_file() || kind.is_symlink() && is_listed_file(kind, &entry.path());
         if !file && !kind.is_dir() {
@@ -221,9 +221,9 @@ pub(super) fn patch(
             .or_insert_with(|| listing(root, parent))
             .contains(name);
         let kind = allowed
-            .then(|| fs::symlink_metadata(path).ok())
+            .then(|| winc_backend::fs::symlink_metadata(path).ok())
             .flatten()
-            .map(|m| m.file_type());
+            .map(|m| m.kind);
 
         match kind {
             Some(kind) if is_listed_file(kind, path) => {
@@ -379,4 +379,27 @@ pub(super) fn relative_path(relative: &Path) -> Option<String> {
     }
 
     (!out.is_empty()).then_some(out)
+}
+
+/// 收录远端主机上目录 `root` 中的文件：由远端的一条命令列出（见
+/// [`remote_files`](crate::workspace::remote_files)），一次往返。超过 `limit` 个时按路径的
+/// 顺序收录前 `limit` 个。
+fn collect_remote(root: &Path, limit: usize, cancel: &AtomicBool) -> Files {
+    let stop = || cancel.load(Ordering::Relaxed);
+    let listing = crate::workspace::remote_files::list(root, false, None, &stop);
+    let (mut files, mut dirs) = (Packed::default(), HashSet::new());
+    for path in &listing {
+        files.push(path);
+        // 文件所在的各级目录都算遍历过：其中的变化要更新文件表。
+        let mut dir = path.as_str();
+        while let Some((parent, _)) = dir.rsplit_once('/') {
+            if !dirs.insert(parent) {
+                break;
+            }
+            dir = parent;
+        }
+    }
+    let mut table = Files::sorted(&files, limit);
+    table.dirs = DirSet::new(dirs);
+    table
 }

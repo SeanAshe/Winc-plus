@@ -343,7 +343,12 @@ impl App {
                 let id = t.next_id;
                 let dir = if want.is_empty() { cwd.clone() } else { want };
                 let chosen = shells.get(i).cloned().flatten();
-                let launch = launch(chosen.as_deref().or(shell.as_deref()), dir, cfg!(windows));
+                let integrated = match &integration {
+                    Some(_) => Integration::On { prompt },
+                    None => Integration::Off,
+                };
+                let shell = chosen.as_deref().or(shell.as_deref());
+                let launch = launch(shell, dir, cfg!(windows), integrated);
                 client.send(&ToHelper::Spawn {
                     tab: id,
                     program: launch.program,
@@ -646,6 +651,10 @@ impl App {
 
 /// 辅助进程的路径：环境变量 `WINC_PTY` 指定的，否则是和主程序放在一起的 `winc-pty`（Windows 上
 /// 是 `winc-pty.exe`；安装包中是 `Contents/MacOS/winc-pty`，开发时是 `target/debug/winc-pty`）。
+#[allow(
+    clippy::disallowed_methods,
+    reason = "只访问本机：辅助进程与主程序在同一目录"
+)]
 fn helper_path() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("WINC_PTY") {
         return Some(path.into());
@@ -681,6 +690,15 @@ fn integration_dir(config: &winc_config::Config) -> Option<Vec<u8>> {
 /// 不必先向登录 shell 查询一次。
 ///
 /// `terminal.prompt` 关了时加上 `WINC_PROMPT=0`，集成脚本就不替换默认的提示符。
+/// 远端主机上的 shell 是否注入集成脚本；本机的 shell 由辅助进程按脚本目录决定。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Integration {
+    /// 不注入：设置里关了，或要运行的是一条命令。
+    Off,
+    /// 注入；`prompt` 为假时不换上 winc 的提示符（`terminal.prompt`）。
+    On { prompt: bool },
+}
+
 /// 新终端的启动方式：程序、参数和工作目录。
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct Launch {
@@ -693,10 +711,21 @@ pub(super) struct Launch {
 
 /// 返回在目录 `cwd` 新建终端时的启动方式。
 ///
+/// `cwd` 在远端主机上时运行 `ssh` 登录那台主机并进入该目录，见 [`remote_launch`]。
+///
 /// 设置了 `shell` 时运行该命令（分词见 [`super::shells::command_words`]）。在 Windows（`windows`）
 /// 上且 `cwd` 位于 WSL 发行版中时，进入对应的发行版和目录：目录由 `wsl.exe` 的参数指定，进程本身
 /// 从家目录启动。其余情况运行默认 shell。
-pub(super) fn launch(shell: Option<&str>, cwd: Vec<u8>, windows: bool) -> Launch {
+pub(super) fn launch(
+    shell: Option<&str>,
+    cwd: Vec<u8>,
+    windows: bool,
+    integration: Integration,
+) -> Launch {
+    if let Some(at) = winc_backend::locate(&bytes_path(&cwd)) {
+        let ready = crate::app::remote::shell_ready(&at.target);
+        return remote_launch(&at, integration, ready);
+    }
     // Windows 上 `/` 开头的目录来自 WSL 中的 shell，不是 Windows 程序可用的工作目录。
     let cwd = if windows && cwd.first() == Some(&b'/') {
         Vec::new()
@@ -731,6 +760,47 @@ pub(super) fn launch(shell: Option<&str>, cwd: Vec<u8>, windows: bool) -> Launch
     Launch {
         program: Some(b"wsl.exe".to_vec()),
         args: args.iter().map(|arg| arg.as_bytes().to_vec()).collect(),
+        login: false,
+        cwd: Vec::new(),
+    }
+}
+
+/// 返回在远端主机上的目录 `at` 新建终端时的启动方式：在本机的终端里运行 `ssh`，登录后进入该
+/// 目录并换成那台主机上用户的登录 shell；启用了 shell 集成时一并注入（命令块、当前目录）。
+///
+/// 编辑器的连接可以复用时（见 `winc_backend::remote::shared`），终端里的 `ssh` 经它开会话，
+/// 不再登录；否则是另一条连接，需要口令时在终端里输入，为该主机指定了密钥文件时也用它。`-t` 分配
+/// 终端；`RemoteCommand=none` 使配置中为该主机设置的登录命令不与这里的命令冲突。远端的命令
+/// 先经用户的登录 shell 解释，写法只用各种 shell 共有的部分；目录包在单引号内。设置中的
+/// `shell` 是本机的命令，对远端的目录不适用。
+fn remote_launch(at: &winc_backend::Location, integration: Integration, ready: bool) -> Launch {
+    // 集成脚本已写到那台主机上（`ready`）时由其中的启动脚本启动 shell（见
+    // `winc_pty::scripts`），否则直接启动登录 shell。
+    let start = match integration {
+        Integration::On { prompt } if ready => winc_pty::scripts::remote_command(prompt),
+        _ => "exec $SHELL -l".to_owned(),
+    };
+    let dir = String::from_utf8_lossy(&at.path).replace('\'', r"'\''");
+    let mut args: Vec<String> = ["-t", "-o", "RemoteCommand=none"].map(str::to_owned).into();
+    // 编辑器的连接可以复用时经它开会话，不再握手和认证；用不上时 `ssh` 自行单独登录。
+    if let Some(options) = winc_backend::remote::shared(&at.target) {
+        args.extend(options);
+    }
+    // 与编辑器的连接用同一个密钥文件。
+    if let Some(key) = winc_backend::remote::identity(&at.target) {
+        args.extend(["-i".to_owned(), key]);
+    }
+    if let Some(port) = at.target.port() {
+        args.extend(["-p".to_owned(), port.to_string()]);
+    }
+    args.extend([
+        at.target.host().to_owned(),
+        "--".to_owned(),
+        format!("cd '{dir}' && {start}"),
+    ]);
+    Launch {
+        program: Some(b"ssh".to_vec()),
+        args: args.into_iter().map(String::into_bytes).collect(),
         login: false,
         cwd: Vec::new(),
     }

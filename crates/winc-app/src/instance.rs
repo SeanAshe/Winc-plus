@@ -8,6 +8,11 @@
 //!
 //! 持有 [`AppLock`] 的进程正在退出时回 `busy`，连接失败时新进程自己打开目标。
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "只访问本机：本机的单实例通道和私有目录"
+)]
+
 use std::path::{Path, PathBuf};
 
 use crate::cli::Target;

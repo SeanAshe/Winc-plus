@@ -26,3 +26,24 @@ pub(crate) fn scratch(name: &str) -> PathBuf {
     std::fs::create_dir_all(&dir).unwrap();
     winc_config::files::canonicalize(&dir).unwrap()
 }
+
+/// 在本进程内启动服务端并登记为到 `name` 的连接，返回连接目标：之后该目标的虚拟路径指向本机的
+/// 同名路径，文件操作和命令都经连接执行。
+///
+/// # Panics
+///
+/// `name` 不是合法的连接目标、无法创建管道或握手失败时 panic。
+#[cfg(unix)]
+pub(crate) fn loopback(name: &str) -> winc_backend::Target {
+    use winc_backend::remote;
+
+    let (requests, to_server) = std::io::pipe().unwrap();
+    let (replies, from_server) = std::io::pipe().unwrap();
+    std::thread::spawn(move || {
+        let _ = remote::serve(requests, from_server);
+    });
+    let target = winc_backend::Target::new(name).unwrap();
+    let connection = remote::Connection::over(replies, to_server).unwrap();
+    remote::register(target.clone(), connection);
+    target
+}

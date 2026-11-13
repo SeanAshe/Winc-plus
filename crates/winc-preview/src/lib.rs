@@ -5,6 +5,9 @@
 //!
 //! 只认字节和文本，不知道文档、标签和界面；编辑器决定什么时候预览，界面负责排版和绘制。
 
+// 测试直接在本机的临时目录中准备和检查文件。
+#![cfg_attr(test, allow(clippy::disallowed_methods))]
+
 pub mod docx;
 pub mod image;
 pub mod markdown;

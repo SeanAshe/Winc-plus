@@ -196,11 +196,11 @@ fn extension(path: &Path) -> Option<String> {
 ///
 /// 文件无法读取、过大、不是 xlsx，或者内容损坏时返回给用户看的原因。
 pub fn load_workbook(path: &Path) -> Result<Table, String> {
-    let metadata = std::fs::metadata(path).map_err(|e| e.to_string())?;
-    if metadata.len() > MAX_FILE {
+    let metadata = winc_backend::fs::metadata(path).map_err(|e| e.to_string())?;
+    if metadata.len > MAX_FILE {
         return Err(winc_i18n::t!("preview-table-too-large").to_owned());
     }
-    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    let bytes = winc_backend::fs::read(path).map_err(|e| e.to_string())?;
     read_workbook(&bytes)
 }
 

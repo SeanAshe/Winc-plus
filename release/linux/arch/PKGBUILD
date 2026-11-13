@@ -12,6 +12,8 @@ options=('!strip' '!debug')
 package() {
   install -Dm755 "$startdir/winc" "$pkgdir/usr/bin/winc"
   install -Dm755 "$startdir/winc-pty" "$pkgdir/usr/bin/winc-pty"
+  # Uploaded to remote Linux hosts, never run from here: kept off the PATH.
+  install -Dm755 "$startdir"/winc-server-Linux-* -t "$pkgdir/usr/lib/winc"
   install -Dm644 "$startdir/winc.desktop" "$pkgdir/usr/share/applications/winc.desktop"
   install -Dm644 "$startdir/winc.png" "$pkgdir/usr/share/icons/hicolor/256x256/apps/winc.png"
   # Context menus of the Dolphin and Nemo file managers.

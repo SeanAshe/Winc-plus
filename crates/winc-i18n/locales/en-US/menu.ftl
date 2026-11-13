@@ -2,6 +2,7 @@
 
 menu-settings = Settings…
 menu-install-command = Install winc Command…
+menu-release-notes = Release Notes
 menu-check-updates = Check for Updates
 menu-window = Window
 menu-window-minimize = Minimize

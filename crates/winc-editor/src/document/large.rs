@@ -11,11 +11,10 @@ mod utf8;
 use original::*;
 pub(crate) use utf8::*;
 
-use std::fs::File;
 use std::io::{self, Write};
 use std::ops::ControlFlow;
 use std::sync::{Arc, Mutex, PoisonError};
-use std::time::SystemTime;
+use winc_backend::fs::{Handle, Stamp};
 
 use winc_core::text::{EditBuffer, Line, Lines};
 use winc_i18n::t;
@@ -118,12 +117,12 @@ impl LargeText {
     /// # Errors
     ///
     /// 读取文件失败时返回对应的 `std::io::Error`。
-    pub fn open(file: File) -> io::Result<Self> {
-        Self::open_with(file, LINE_CAP)
+    pub fn open(file: impl Into<Handle>) -> io::Result<Self> {
+        Self::open_with(file.into(), LINE_CAP)
     }
 
-    fn open_with(file: File, line_cap: usize) -> io::Result<Self> {
-        let size = file.metadata()?.len();
+    fn open_with(file: Handle, line_cap: usize) -> io::Result<Self> {
+        let size = file.metadata()?.len;
         let cores = std::thread::available_parallelism()
             .map_or(1, |n| n.get())
             .min(MAX_WORKERS);
@@ -186,8 +185,8 @@ impl LargeText {
         let Ok(metadata) = self.original.file.metadata() else {
             return true;
         };
-        let size = metadata.len();
-        if size == self.original.size && metadata.modified().ok() == self.original.mtime {
+        let size = metadata.len;
+        if size == self.original.size && metadata.modified == self.original.mtime {
             return false;
         }
         size <= self.original.size || !self.original.tail_intact()
@@ -211,7 +210,7 @@ impl LargeText {
             return None;
         }
         let metadata = self.original.file.metadata().ok()?;
-        let size = metadata.len();
+        let size = metadata.len;
         if size <= self.original.size {
             return None;
         }
@@ -225,7 +224,10 @@ impl LargeText {
         // 末尾尚未写完的多字节字符暂不接入，留到下一次。
         let mut tail = [0u8; 4];
         let tail_len = (size - o.base - o.len).min(4) as usize;
-        let n = read_full(&o.file, size - tail_len as u64, &mut tail[..tail_len]).ok()?;
+        let n = o
+            .file
+            .read_full(size - tail_len as u64, &mut tail[..tail_len])
+            .ok()?;
         let new_len = size - o.base - (n - complete_prefix(&tail[..n])) as u64;
         if new_len <= o.len {
             return None;
@@ -248,12 +250,10 @@ impl LargeText {
         // 接入新内容后内容末尾已经变化，重新记录末尾的 4 KiB。
         let check = new_len.min(4 << 10) as usize;
         let mut tail = vec![0; check];
-        if read_full(
-            &original.file,
-            original.base + new_len - check as u64,
-            &mut tail,
-        )
-        .is_ok()
+        if original
+            .file
+            .read_full(original.base + new_len - check as u64, &mut tail)
+            .is_ok()
         {
             original.tail = tail;
         }
@@ -283,7 +283,7 @@ impl LargeText {
         }
         // 记录的大小只到已接入的位置：尚未写完的字符留到下一次接入。
         original.size = original.base + segment.end;
-        original.mtime = metadata.modified().ok();
+        original.mtime = metadata.modified;
 
         self.pieces = vec![Piece {
             source: Source::Original,
@@ -336,7 +336,7 @@ impl LargeText {
     /// 写出过程中被其他程序截短）时返回 [`io::ErrorKind::UnexpectedEof`]：写出的内容不完整，
     /// 调用方不能用它替换原文件。写完时原文件已被其他程序修改（`LargeText::original_changed`）
     /// 同样返回错误：写出的内容可能混有修改前后的字节，替换原文件还会丢失该程序的修改。
-    pub fn write_to(&self, out: &mut impl Write) -> io::Result<()> {
+    pub fn write_to(&self, out: &mut (impl Write + ?Sized)) -> io::Result<()> {
         let mut result = Ok(());
         let mut written = 0u64;
 

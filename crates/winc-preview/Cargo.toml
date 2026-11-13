@@ -19,6 +19,7 @@ roxmltree.workspace = true
 miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
 pulldown-cmark.workspace = true
 zeno.workspace = true
+winc-backend.workspace = true
 winc-i18n.workspace = true
 
 # macOS：要缩小的 JPEG 交给 ImageIO 按目标大小解码（见 src/image/imageio.rs），PDF 由 CoreGraphics

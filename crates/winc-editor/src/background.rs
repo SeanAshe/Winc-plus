@@ -25,6 +25,29 @@ pub const KEEP_ALIVE: Duration = Duration::from_secs(10);
 
 type Task = Box<dyn FnOnce() + Send>;
 
+/// 执行互不依赖的 `first` 和 `second`，返回两者的结果。
+///
+/// `together` 为真时两者同时进行（`first` 在另一个线程上），用于各自要等远端应答的操作：
+/// 依次执行时总耗时是两次往返之和。为假时在当前线程上依次执行，不启动线程；当前线程不允许
+/// 等待远端的应答（界面线程）时也是如此，各操作照常立即返回，不借别的线程去等。
+pub(crate) fn both<A: Send, B>(
+    together: bool,
+    first: impl FnOnce() -> A + Send,
+    second: impl FnOnce() -> B,
+) -> (A, B) {
+    if !together || !winc_backend::remote::may_block() {
+        return (first(), second());
+    }
+    std::thread::scope(|scope| {
+        let first = scope.spawn(first);
+        let second = second();
+        let first = first
+            .join()
+            .unwrap_or_else(|e| std::panic::resume_unwind(e));
+        (first, second)
+    })
+}
+
 fn pool() -> &'static Pool {
     static POOL: OnceLock<Pool> = OnceLock::new();
     POOL.get_or_init(|| Pool::new(MAX_THREADS, KEEP_ALIVE))

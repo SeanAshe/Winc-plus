@@ -215,22 +215,70 @@ fn italic_comments_fall_back_to_the_regular_face() {
 fn only_files_users_cannot_change_are_mapped() {
     let path = std::env::temp_dir().join(format!("winc-font-{}.ttf", std::process::id()));
     std::fs::write(&path, b"not really a font").unwrap();
-    let data = load(&File::open(&path).unwrap()).unwrap();
-    assert_eq!(&*data, b"not really a font");
+    let data = load(&path).unwrap();
+    assert_eq!(&data[..], b"not really a font");
     // 以 root 运行时（例如在容器中运行测试）自己建的文件也属于 root，按系统字体映射，此时
     // 截断会使映射失效，因此不做检查。
     let root = std::os::unix::fs::MetadataExt::uid(&std::fs::metadata(&path).unwrap()) == 0;
-    assert_eq!(matches!(data, FontData::Owned(_)), !root);
+    assert_eq!(matches!(*data, FontData::Owned(_)), !root);
     if !root {
         // 截断文件不影响已经读进来的内容。
         std::fs::write(&path, b"").unwrap();
-        assert_eq!(&*data, b"not really a font");
+        assert_eq!(&data[..], b"not really a font");
     }
     drop(data);
     std::fs::remove_file(&path).unwrap();
     // 属于 root 的文件仍然映射。
-    let system = load(&File::open("/etc/hosts").unwrap()).unwrap();
-    assert!(matches!(system, FontData::Mapped(_)));
+    let system = load(Path::new("/etc/hosts")).unwrap();
+    assert!(matches!(*system, FontData::Mapped(_)));
+}
+
+/// 回归：系统按需下载的字体属于系统的服务账号而不是 root，只映射 root 的文件时，这些字体
+/// 整份读进内存。
+#[cfg(unix)]
+#[test]
+fn files_of_other_accounts_are_not_modifiable() {
+    let (user, service) = (501, 242);
+    // 当前用户自己的文件。
+    assert!(is_modifiable(user, 0o644, user));
+    // root 的文件、其他账号的文件。
+    assert!(!is_modifiable(0, 0o644, user));
+    assert!(!is_modifiable(service, 0o644, user));
+    // 组或其他用户有写权限时，属主是谁都可能被修改。
+    assert!(is_modifiable(service, 0o664, user));
+    assert!(is_modifiable(0, 0o646, user));
+    // 以 root 运行：root 的文件照常映射，其他账号的文件可能被其属主修改。
+    assert!(!is_modifiable(0, 0o644, 0));
+    assert!(is_modifiable(user, 0o644, 0));
+}
+
+/// 同一个文件的内容只保留一份；文件被替换后重新读取，不再使用时释放。
+///
+/// 只在 Unix 上运行：Windows 上映射中的文件无法改写。
+#[cfg(unix)]
+#[test]
+fn faces_of_one_file_share_its_content() {
+    let path = std::env::temp_dir().join(format!("winc-shared-{}.ttf", std::process::id()));
+    std::fs::write(&path, b"first").unwrap();
+    let first = load(&path).unwrap();
+    assert!(Arc::ptr_eq(&first, &load(&path).unwrap()));
+    // 长度不同的新内容：已经载入的那一份不变，新的载入得到新内容。
+    std::fs::write(&path, b"second, longer").unwrap();
+    let second = load(&path).unwrap();
+    assert_eq!(&second[..], b"second, longer");
+    assert!(!Arc::ptr_eq(&first, &second));
+    let in_use = || {
+        let loaded = LOADED.lock().unwrap();
+        let live = |(source, data): &(Source, Weak<FontData>)| {
+            source.path == path && data.strong_count() > 0
+        };
+        loaded.iter().filter(|entry| live(entry)).count()
+    };
+    drop(first);
+    assert_eq!(in_use(), 1);
+    drop(second);
+    assert_eq!(in_use(), 0);
+    std::fs::remove_file(&path).unwrap();
 }
 
 /// 回归：旧版 OS/2 表（版本 1）没有 x 字高和大写字高，按 0 处理时界面文字的视觉中心算成

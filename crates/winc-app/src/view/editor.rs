@@ -116,6 +116,35 @@ pub(super) fn draw_editor(app: &mut App, frame: &mut Frame<'_>) {
         }
         return;
     }
+    // 阅读标签：内容取回之前提示正在读取，未能取回时说明并给出重试和在浏览器中查看的按钮，
+    // 取回后显示排版后的 Markdown。
+    if let Some(reading) = app.editor.documents[index].reading.clone() {
+        match reading {
+            winc_editor::Reading::Loading => {
+                let name = app.editor.documents[index].name().into_owned();
+                draw_placeholder(app, frame, t!("editor-reading", name = name), &[]);
+            }
+            winc_editor::Reading::Failed => {
+                use PlaceholderAction::*;
+                let name = app.editor.documents[index].name().into_owned();
+                let actions = [
+                    (Retry, t!("editor-retry")),
+                    (OpenInBrowser, t!("editor-open-in-browser")),
+                ];
+                draw_placeholder(
+                    app,
+                    frame,
+                    t!("editor-reading-failed", name = name),
+                    &actions,
+                );
+            }
+            winc_editor::Reading::Ready(_) => {
+                let area = app.layout.editor;
+                super::preview::markdown::draw(app, frame, area);
+            }
+        }
+        return;
+    }
     // PDF：逐页显示；打开失败时说明原因。
     if app.editor.documents[index].unsupported == Some(Unsupported::Pdf) {
         match app.pdf.pages.clone() {

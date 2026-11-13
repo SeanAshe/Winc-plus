@@ -1441,7 +1441,7 @@ impl App {
                 }
                 // 双击打开文件本身，单击选中并预览差异。
                 let (x, y) = self.mouse;
-                if self.click_count(x, y) >= 2 && path.is_file() {
+                if self.click_count(x, y) >= 2 && winc_backend::fs::is_file(&path) {
                     self.open_path(&path);
                     self.focus = Focus::Editor;
                 } else {
@@ -1463,7 +1463,7 @@ impl App {
                 let Some(path) = self.commit_entry(i).map(|e| e.path.clone()) else {
                     return;
                 };
-                if path.is_file() {
+                if winc_backend::fs::is_file(&path) {
                     self.open_path(&path);
                     self.focus = Focus::Editor;
                 } else {
@@ -1632,7 +1632,7 @@ impl App {
             let paths = self.commit_selection();
             match command {
                 MenuCommand::GitOpenFile => {
-                    for path in paths.iter().filter(|p| p.is_file()) {
+                    for path in paths.iter().filter(|p| winc_backend::fs::is_file(p)) {
                         self.open_path(path);
                     }
                     self.focus = Focus::Editor;
@@ -1661,7 +1661,7 @@ impl App {
         match command {
             MenuCommand::GitShowDiff => self.select_commit_file(path),
             MenuCommand::GitOpenFile => {
-                if path.is_file() {
+                if winc_backend::fs::is_file(&path) {
                     self.open_path(&path);
                     self.focus = Focus::Editor;
                 }

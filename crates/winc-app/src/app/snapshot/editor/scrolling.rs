@@ -69,17 +69,25 @@ fn far_jumps_glide_and_near_ones_do_not() {
         from: 0.0,
         clock: Clock::frozen(SCROLL_GLIDE / 2, SCROLL_GLIDE),
     });
-    let glide = app.begin_glide_frame();
-    let shown = scroll(&app);
-    assert_eq!(glide, Some(target));
-    assert!(shown > 0.0 && shown < target, "{shown} / {target}");
-    app.end_glide_frame(glide);
+    let frame = app.begin_scroll_frame();
+    let drawn = scroll(&app);
+    assert!(drawn > 0.0 && drawn < target, "{drawn} / {target}");
+    app.end_scroll_frame(frame);
     assert_eq!(scroll(&app), target);
     assert!(app.animating());
 
-    // 滚轮事件中止平滑滚动，滚动位置停在目标上。
+    // 滚轮事件中止平滑滚动：滚动位置停在屏幕上显示的位置，再加上这一格的距离，不跳到目标。
+    let shown = app.scroll_glide.as_ref().unwrap().shown(target);
+    let text = app.layout.text;
+    app.on_mouse_move(text.x + 40.0, text.y + 40.0);
+    let notch = f64::from(app.wheel_step().1 / app.fonts.line_height);
     app.on_wheel(winit::event::MouseScrollDelta::LineDelta(0.0, -1.0));
     assert!(app.scroll_glide.is_none());
+    assert!(
+        (scroll(&app) - (shown + notch)).abs() < 1e-6,
+        "{} / {shown}",
+        scroll(&app)
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -252,7 +260,7 @@ fn a_mouse_wheel_notch_glides_and_a_trackpad_follows_directly() {
 
 #[test]
 fn quick_wheel_notches_shorten_the_glide() {
-    use crate::app::input::mouse::wheel_glide_length;
+    use crate::app::scroll::wheel::wheel_glide_length;
 
     let ms = Duration::from_millis;
     // 单独的一格和间隔较长的一格按完整时长过渡。
@@ -266,7 +274,7 @@ fn quick_wheel_notches_shorten_the_glide() {
 
 #[test]
 fn a_fast_spinning_wheel_keeps_the_view_close() {
-    use crate::app::input::mouse::wheel_glide_length;
+    use crate::app::scroll::wheel::wheel_glide_length;
 
     let (mut app, dir) = long_file("wheel-spin");
     let text = app.layout.text;
@@ -376,4 +384,221 @@ fn the_wheel_with_the_command_key_steps_the_font_size() {
     assert!(app.editor.active().unwrap().scroll_line > top);
 
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 回归：跳转的平滑滚动进行中点击编辑区，光标落在屏幕上指针下的行，而不是滚动结束后在该处的行。
+#[test]
+fn a_click_during_a_glide_lands_on_the_line_under_the_pointer() {
+    let (mut app, dir) = long_file("glide-click");
+    let target = 300.0;
+    app.set_active_scroll(target);
+    let glide = ScrollGlide {
+        doc: app.editor.active().unwrap().id,
+        from: 0.0,
+        clock: Clock::frozen(SCROLL_GLIDE / 2, SCROLL_GLIDE),
+    };
+    let shown = glide.shown(target);
+    app.scroll_glide = Some(glide);
+
+    // 点在文本区第 3 个显示行的中间。
+    let text = app.layout.text;
+    let lh = app.fonts.line_height;
+    app.on_mouse_move(text.x + 40.0, text.y + 2.5 * lh);
+    app.on_mouse_down(MouseButton::Left);
+    app.on_mouse_up(MouseButton::Left);
+
+    assert!(app.scroll_glide.is_none());
+    assert_eq!(scroll(&app), shown);
+    let doc = app.editor.active().unwrap();
+    let (line, _) = doc.text().pos_to_line_col(doc.selection.head);
+    assert_eq!(line, (shown + 2.5).floor() as usize);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 滚轮落在侧栏上时只滚动侧栏，编辑区的平滑滚动继续。
+#[test]
+fn wheeling_the_sidebar_leaves_the_editor_glide_running() {
+    let (mut app, dir) = long_file("glide-sidebar");
+    app.set_active_scroll(300.0);
+    app.scroll_glide = Some(ScrollGlide {
+        doc: app.editor.active().unwrap().id,
+        from: 0.0,
+        clock: Clock::frozen(SCROLL_GLIDE / 2, SCROLL_GLIDE),
+    });
+    let side = app.layout.sidebar;
+    app.on_mouse_move(side.x + 20.0, side.y + 80.0);
+    app.on_wheel(winit::event::MouseScrollDelta::LineDelta(0.0, -1.0));
+    assert!(app.scroll_glide.is_some());
+    assert_eq!(scroll(&app), 300.0);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 回归：鼠标滚轮的过渡在开始的区域内完成；过渡途中鼠标移到侧栏，余下的距离不滚动侧栏。
+#[test]
+fn a_wheel_glide_finishes_in_the_area_it_started_in() {
+    const LENGTH: Duration = Duration::from_millis(100);
+    let (mut app, dir) = long_file("wheel-target");
+    let text = app.layout.text;
+    let lh = app.fonts.line_height;
+    app.on_mouse_move(text.x + 40.0, text.y + 40.0);
+    app.start_wheel_glide((0.0, -10.0 * lh), Clock::stopped(LENGTH, LENGTH / 2));
+    app.advance_wheel_glide();
+    let halfway = scroll(&app);
+    assert!(halfway > 0.0 && halfway < 10.0);
+
+    let side = app.layout.sidebar;
+    app.on_mouse_move(side.x + 20.0, side.y + 80.0);
+    let tree = app.tree.scroll;
+    if let Some(glide) = app.wheel.glide.as_mut() {
+        glide.clock = Clock::stopped(LENGTH, LENGTH);
+    }
+    app.advance_wheel_glide();
+    assert!((scroll(&app) - 10.0).abs() < 0.01, "{}", scroll(&app));
+    assert_eq!(app.tree.scroll, tree);
+    assert!(app.wheel.glide.is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 触控板的一次手势只沿开始时的主方向滚动：斜向滑动时竖直与横向不交替；下一次手势重新判断。
+#[test]
+fn a_trackpad_gesture_keeps_the_axis_it_started_with() {
+    use winit::dpi::PhysicalPosition;
+    use winit::event::MouseScrollDelta::PixelDelta;
+    use winit::event::TouchPhase::{Moved, Started};
+
+    let dir = sample_folder("wheel-gesture-axis");
+    let code = format!("let x = \"{}\";\n", "long ".repeat(400)).repeat(300);
+    std::fs::write(dir.join("wide.rs"), code).unwrap();
+    let mut app = app_with(&dir.join("wide.rs"), false);
+    paint(&mut app);
+    let text = app.layout.text;
+    app.on_mouse_move(text.x + 100.0, text.y + 100.0);
+    let at = |app: &App| {
+        let doc = app.editor.active().unwrap();
+        (doc.scroll_x, doc.scroll_line)
+    };
+    let pixels = |x: f64, y: f64| PixelDelta(PhysicalPosition::new(x, y));
+
+    app.on_wheel_event(pixels(-9.0, -80.0), Started);
+    let (x, line) = at(&app);
+    assert!(x == 0.0 && line > 0.0, "{x} {line}");
+    // 同一手势中横向位移变大：仍只竖直滚动。
+    app.on_wheel_event(pixels(-80.0, -40.0), Moved);
+    let (x, next) = at(&app);
+    assert!(x == 0.0 && next > line, "{x} {next}");
+    // 新的手势以横向为主：横向滚动，竖直位置不变。
+    app.on_wheel_event(pixels(-80.0, -9.0), Started);
+    assert!(at(&app).0 > 0.0);
+    assert_eq!(at(&app).1, next);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 绘制期间滚动位置对齐到逻辑像素，文字与底色的相对位置在滚动中不变；绘制后恢复原值。
+#[test]
+fn drawing_aligns_the_scroll_position_to_logical_pixels() {
+    let (mut app, dir) = long_file("scroll-snap");
+    let lh = f64::from(app.fonts.line_height);
+    let fractional = 10.0 + 0.3 / lh;
+    app.set_active_scroll(fractional);
+    let frame = app.begin_scroll_frame();
+    let drawn = scroll(&app) * lh;
+    assert!((drawn - drawn.round()).abs() < 1e-9, "{drawn}");
+    app.end_scroll_frame(frame);
+    assert_eq!(scroll(&app), fractional);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 触控板滚动之后的一小段时间内保持逐帧绘制，显示链接不在两个事件之间暂停。
+#[test]
+fn trackpad_scrolling_keeps_frames_coming_between_events() {
+    use winit::dpi::PhysicalPosition;
+
+    let (mut app, dir) = long_file("scroll-input-hold");
+    let text = app.layout.text;
+    app.on_mouse_move(text.x + 40.0, text.y + 40.0);
+    assert!(!app.scroll_input_live());
+    app.on_wheel(winit::event::MouseScrollDelta::PixelDelta(
+        PhysicalPosition::new(0.0, -20.0),
+    ));
+    assert!(app.scroll_input_live());
+    assert!(app.animating());
+    app.wheel.input_at = Some(std::time::Instant::now() - Duration::from_millis(100));
+    assert!(!app.scroll_input_live());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 区域的跳转过渡：绘制时换入插值位置，绘制后恢复目标；按下鼠标时停在显示的位置；绘制期间
+/// 位置被改写时保留改写后的值并结束过渡。
+#[test]
+fn pane_glides_swap_in_for_drawing_and_settle_where_shown() {
+    use crate::app::scroll::PaneGlide;
+
+    let (mut app, dir) = long_file("pane-glide");
+    let glide = |from: f32| PaneGlide {
+        target: ScrollTarget::Tree,
+        from,
+        clock: Clock::frozen(SCROLL_GLIDE / 2, SCROLL_GLIDE),
+    };
+    app.tree.scroll = 400.0;
+    app.pane_glides = vec![glide(0.0)];
+    let frame = app.begin_scroll_frame();
+    let drawn = app.tree.scroll;
+    assert!(
+        drawn > 0.0 && drawn < 400.0 && drawn == drawn.round(),
+        "{drawn}"
+    );
+    app.end_scroll_frame(frame);
+    assert_eq!(app.tree.scroll, 400.0);
+    assert!(app.animating());
+
+    // 绘制时收紧了上限：保留绘制后的值，过渡结束。
+    let frame = app.begin_scroll_frame();
+    app.tree.scroll = 120.0;
+    app.end_scroll_frame(frame);
+    assert_eq!(app.tree.scroll, 120.0);
+    assert!(app.pane_glides.is_empty());
+
+    // 按下鼠标前停在屏幕上显示的位置。
+    app.tree.scroll = 400.0;
+    app.pane_glides = vec![glide(0.0)];
+    let shown = Clock::frozen(SCROLL_GLIDE / 2, SCROLL_GLIDE).between(0.0, 400.0);
+    app.settle_glides();
+    assert_eq!(app.tree.scroll, shown);
+    assert!(app.pane_glides.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 抬手后的惯性滚动按经过的时间推进并逐渐减速，低于最小速度或滚到边缘时结束。
+#[test]
+fn a_fling_decelerates_and_stops_at_the_edge() {
+    let (mut app, dir) = long_file("fling");
+    let text = app.layout.text;
+    let origin = (text.x + 40.0, text.y + 40.0);
+    let now = std::time::Instant::now();
+
+    // 向下抛：内容向上移动，滚动位置增大。
+    app.start_fling(origin, (0.0, -2000.0));
+    assert!(app.fling.is_some() && app.animating());
+    app.advance_fling(now + Duration::from_millis(50));
+    let first = scroll(&app);
+    assert!(first > 0.0);
+    app.advance_fling(now + Duration::from_millis(100));
+    let second = scroll(&app);
+    // 后 50 毫秒移动的距离短于前 50 毫秒。
+    assert!(second - first < first, "{first} {second}");
+    // 足够久之后速度降到最小速度以下，惯性结束。
+    app.advance_fling(now + Duration::from_secs(5));
+    assert!(app.fling.is_none());
+
+    // 已在顶部时向上抛：滚动位置不变，惯性立即结束。
+    app.set_active_scroll(0.0);
+    app.start_fling(origin, (0.0, 2000.0));
+    app.advance_fling(std::time::Instant::now() + Duration::from_millis(16));
+    assert_eq!(scroll(&app), 0.0);
+    assert!(app.fling.is_none());
+
+    // 慢于最小速度的抛掷不产生惯性。
+    app.start_fling(origin, (0.0, -10.0));
+    assert!(app.fling.is_none());
+    let _ = std::fs::remove_dir_all(&dir);
 }

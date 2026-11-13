@@ -115,6 +115,29 @@ impl Watcher {
     /// 系统无法创建监视器或无法监视该目录时返回 `notify::Error`。
     pub fn start(root: &Path, wake: impl Fn() + Send + Sync + 'static) -> notify::Result<Watcher> {
         let wake = Arc::new(wake);
+        // 远端主机上的目录由服务进程在那台主机上监视，经连接报告。须在后台线程上调用：
+        // 界面线程不发出远端的请求。
+        if let Some(at) = winc_backend::locate(root) {
+            let exec = winc_backend::remote::Exec::this_server()
+                .arg("watch")
+                .arg(&at.path);
+            let running = winc_backend::remote::spawn(root, &exec).map_err(notify::Error::io)?;
+            let target = at.target;
+            let to_local = move |path: &str| winc_backend::virtual_path(&target, path.as_bytes());
+            let pending = Arc::new(Mutex::new(Pending::default()));
+            let (shared, base) = (Arc::clone(&pending), root.to_path_buf());
+            let record = move |report| {
+                if distro::apply(&shared, &base, report) {
+                    wake();
+                }
+            };
+            let helper = distro::Helper::remote(running, to_local, record);
+            return Ok(Watcher {
+                root: root.to_path_buf(),
+                pending,
+                inner: Inner::Distro(helper.map_err(notify::Error::io)?),
+            });
+        }
         if let Some(place) = crate::wsl::locate_here(root)
             && let Some(helper) = crate::wsl::watch_helper()
         {

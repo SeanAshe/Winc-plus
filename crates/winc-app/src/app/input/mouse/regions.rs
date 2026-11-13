@@ -364,7 +364,7 @@ impl App {
     }
 
     /// 返回鼠标所在输入框对应的焦点；只考虑正在显示的输入框。
-    pub(super) fn field_at(&self, x: f32, y: f32) -> Option<Focus> {
+    pub(in crate::app) fn field_at(&self, x: f32, y: f32) -> Option<Focus> {
         let visible = [
             (Focus::Search, self.find.open, &self.find.input),
             (

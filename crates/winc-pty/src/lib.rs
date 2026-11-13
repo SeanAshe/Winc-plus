@@ -8,6 +8,7 @@
 
 mod host;
 pub mod protocol;
+pub mod scripts;
 pub mod term;
 
 pub use host::{client, input};

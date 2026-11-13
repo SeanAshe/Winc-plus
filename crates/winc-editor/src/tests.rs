@@ -114,6 +114,38 @@ fn moving_a_tab_keeps_the_active_document() {
 }
 
 #[test]
+fn reading_tabs_hold_markdown_without_editable_text() {
+    let mut editor = Editor::default();
+    let ready = |text: &str| Reading::Ready(text.into());
+    let first = editor.show_reading("更新日志", Reading::Loading);
+    let doc = &editor.documents[first];
+    assert_eq!(doc.name(), "更新日志");
+    assert_eq!(doc.reading, Some(Reading::Loading));
+    // 没有可以编辑、查找或切换到的文本。
+    assert!(doc.readonly_reason().is_some());
+    assert!(!doc.shows_text() && !doc.edits_text() && !doc.can_preview());
+    assert!(!doc.is_dirty());
+
+    // 内容到达：换入同一个标签，不切换标签，`revision` 递增，按它缓存的排版结果不再使用。
+    let revision = doc.revision;
+    editor.new_untitled();
+    let active = editor.active;
+    let id = editor.documents[first].id;
+    assert!(editor.update_reading(id, ready("## 1.0.0\n")));
+    assert_eq!((editor.documents.len(), editor.active), (2, active));
+    let doc = &editor.documents[first];
+    assert_eq!(doc.reading, Some(ready("## 1.0.0\n")));
+    assert!(doc.revision > revision);
+
+    // 再次显示同名的阅读标签：复用并切换到它。标签关闭之后到达的内容不再打开标签。
+    assert_eq!(editor.show_reading("更新日志", Reading::Failed), first);
+    assert_eq!(editor.active, Some(first));
+    editor.documents.remove(first);
+    assert!(!editor.update_reading(id, ready("## 1.0.1\n")));
+    assert_eq!(editor.documents.len(), 1);
+}
+
+#[test]
 fn output_tabs_are_read_only_and_reused() {
     let mut editor = Editor::default();
     editor.new_untitled();
@@ -259,4 +291,43 @@ fn pending_tabs_read_the_file_only_when_loaded() {
     assert!(!editor.documents[pending].is_pending());
 
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn remote_paths_are_shown_in_the_remote_spelling() {
+    let target = winc_backend::Target::new("alice@devbox").unwrap();
+    let root = winc_backend::virtual_path(&target, b"/home/alice/project");
+    let file = root.join("src").join("main.rs");
+
+    // 在已打开的目录之下：相对路径，以 `/` 分隔；不在其下：`目标:/路径`，不缩写主目录。
+    assert_eq!(display_path(&file, Some(&root)), "src/main.rs");
+    assert_eq!(
+        display_path(&file, None),
+        "alice@devbox:/home/alice/project/src/main.rs"
+    );
+    let elsewhere = winc_backend::virtual_path(&target, b"/etc/hosts");
+    assert_eq!(
+        display_path(&elsewhere, Some(&root)),
+        "alice@devbox:/etc/hosts"
+    );
+    // 本机已打开的目录与远端路径无关。
+    assert_eq!(
+        display_path(&file, Some(Path::new("/home/alice/project"))),
+        "alice@devbox:/home/alice/project/src/main.rs"
+    );
+
+    // 名字按远端的写法显示：虚拟路径中为表示 `\`、`%` 所做的换算不显示出来。
+    assert_eq!(display_name(&file), "main.rs");
+    let odd = winc_backend::virtual_path(&target, br"/tmp/a\b%.txt");
+    assert_eq!(display_name(&odd), r"a\b%.txt");
+    let top = winc_backend::virtual_path(&target, b"/");
+    assert_eq!(display_name(&top), "alice@devbox:/");
+
+    // 本机路径的显示不变。
+    assert_eq!(display_name(Path::new("dir/file.txt")), "file.txt");
+    let local = Path::new("project").join("src").join("lib.rs");
+    assert_eq!(
+        display_path(&local, Some(Path::new("project"))),
+        Path::new("src").join("lib.rs").to_string_lossy()
+    );
 }

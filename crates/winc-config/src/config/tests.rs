@@ -270,6 +270,7 @@ fn round_trips_through_json() {
         git_confirm_push: Some(false),
         repository_scan_depth: Some(4),
         git_worktree_root: Some("~/worktrees".to_string()),
+        remote_enabled: Some(true),
         git_worktree_copy: vec![".env*".to_string(), "config/local.toml".to_string()],
         format_on_save: Some(false),
         format_on_save_exclude: vec!["markdown".to_string(), "yaml".to_string()],

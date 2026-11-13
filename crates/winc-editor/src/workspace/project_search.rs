@@ -17,8 +17,7 @@ use walk::*;
 
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::io::{Read, Seek};
+use std::io::Read;
 use std::ops::{ControlFlow, Range};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize};

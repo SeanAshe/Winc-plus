@@ -8,8 +8,10 @@ body:
     id: location
     attributes:
       label: Location
-      description: Link to the page or file, or name the screen where the text appears.
-      placeholder: "README.md#building-from-source, Settings → Editor"
+      description: >-
+        Link to the page or file (README, winc.si, release notes), or name the screen where the
+        text appears.
+      placeholder: "README.md#building-from-source, Settings → Editor, Release Notes 0.1.688"
     validations:
       required: true
   - type: textarea

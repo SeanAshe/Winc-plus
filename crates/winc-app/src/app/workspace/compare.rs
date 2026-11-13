@@ -12,10 +12,12 @@ use winc_i18n::t;
 
 use super::*;
 
+use crate::app::scroll::set_scroll_line;
+
 /// 返回 `path` 的文本内容用于比较；文件过大、是二进制文件或读取失败时返回提示文字。
 fn read_for_compare(path: &Path) -> Result<String, String> {
     let name = display_name(path);
-    let bytes = std::fs::read(path).map_err(|e| {
+    let bytes = winc_backend::fs::read(path).map_err(|e| {
         t!(
             "workspace-compare-read-failed",
             name = &*name,
@@ -74,7 +76,7 @@ impl App {
                 .first()
                 .map(|r| r.start)
         }) {
-            doc.scroll_line = row.saturating_sub(3) as f64;
+            set_scroll_line(doc, row.saturating_sub(3) as f64);
         }
         self.focus = Focus::Editor;
         self.relayout();

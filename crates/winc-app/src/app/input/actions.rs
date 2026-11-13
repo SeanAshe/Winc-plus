@@ -82,7 +82,7 @@ impl App {
                     && !self.picker_lists_symbols()
                     && !self.picker.folders
                     && self.picker.vim_list.is_none()
-                    && self.picker.vim_list.is_none()
+                    && self.picker.remote.is_none()
                 {
                     self.close_picker();
                 } else {
@@ -102,6 +102,7 @@ impl App {
             GoBack => self.navigate(false),
             GoForward => self.navigate(true),
             Settings => self.open_settings(),
+            ReleaseNotes => self.open_release_notes(crate::release_notes::Scope::All),
             KeyboardShortcuts => {
                 self.open_settings();
                 self.settings_show_page(SettingsPage::Keys);
@@ -113,6 +114,8 @@ impl App {
             NewWindow => self.new_window(None),
             OpenFile => self.pick(Pick::Open),
             OpenFolder => self.pick(Pick::OpenFolder),
+            RemoteConnect => self.open_remote_picker(),
+            RemoteDisconnect => self.remote_disconnect(),
             OpenRecent => self.open_recent_folders(),
             Save => self.save_active(),
             SaveAs => {
@@ -475,6 +478,12 @@ impl App {
                 return false;
             }
             Action::EditRunConfigurations if self.editor.root().is_none() => return false,
+            // 只有打开的目录在远端主机上时才有连接可断开。
+            Action::RemoteDisconnect
+                if !self.editor.root().is_some_and(winc_backend::is_remote) =>
+            {
+                return false;
+            }
             // Windows 安装包、deb 包已经把 `winc` 放进 `PATH`，没有要安装的。
             Action::InstallShellCommand | Action::UninstallShellCommand
                 if crate::shell_command::placement().is_none() =>
@@ -486,6 +495,7 @@ impl App {
         match action.module() {
             Some(crate::keymap::Module::Git) => self.git_enabled(),
             Some(crate::keymap::Module::Terminal) => self.terminal_enabled(),
+            Some(crate::keymap::Module::Remote) => self.remote_enabled(),
             None => true,
         }
     }

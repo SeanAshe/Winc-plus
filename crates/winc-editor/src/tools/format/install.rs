@@ -310,9 +310,9 @@ fn project_install(package: Package, dir: &Path) -> Option<ProjectInstall> {
         Package::Node(name) => {
             let level = dir
                 .ancestors()
-                .find(|level| level.join("package.json").is_file())?;
+                .find(|level| winc_backend::fs::is_file(level.join("package.json")))?;
             let manager = node_manager(level);
-            let text = std::fs::read_to_string(level.join("package.json")).ok()?;
+            let text = winc_backend::fs::read_to_string(level.join("package.json")).ok()?;
             let json = Json::parse(&text)?;
             Some(if super::tools::declares_dependency(&json, name) {
                 ProjectInstall {
@@ -337,10 +337,10 @@ fn project_install(package: Package, dir: &Path) -> Option<ProjectInstall> {
         Package::Python(name) => {
             let level = dir
                 .ancestors()
-                .find(|level| level.join("pyproject.toml").is_file())?;
-            let command = if level.join("uv.lock").is_file() {
+                .find(|level| winc_backend::fs::is_file(level.join("pyproject.toml")))?;
+            let command = if winc_backend::fs::is_file(level.join("uv.lock")) {
                 format!("uv add --dev {name}")
-            } else if level.join("poetry.lock").is_file() {
+            } else if winc_backend::fs::is_file(level.join("poetry.lock")) {
                 format!("poetry add --group dev {name}")
             } else {
                 return None;
@@ -374,7 +374,7 @@ fn node_manager(dir: &Path) -> &'static str {
         ("bun.lock", "bun"),
     ]
     .into_iter()
-    .find(|(lock, _)| dir.join(lock).is_file())
+    .find(|(lock, _)| winc_backend::fs::is_file(dir.join(lock)))
     .map_or("npm", |(_, manager)| manager)
 }
 

@@ -1,0 +1,16 @@
+[package]
+name = "winc-backend"
+description = "文件系统的访问入口：区分本机路径与远端主机上的路径。"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+# 保存时判断属主（`geteuid`）、复制扩展属性（`fcopyfile`）和落盘（`F_BARRIERFSYNC`）。
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[lints]
+workspace = true

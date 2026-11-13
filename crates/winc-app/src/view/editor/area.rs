@@ -34,7 +34,7 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
     if let Some(m) = &mut motion {
         let doc = &mut app.editor.documents[index];
         doc.swap_folds(&mut m.open);
-        std::mem::swap(&mut doc.scroll_line, &mut m.scroll);
+        crate::app::scroll::swap_scroll_line(doc, &mut m.scroll);
     }
     let motion_ref = motion.as_ref();
     let hidden = motion_ref.map_or(0.0, |m| m.hidden(app.fonts.line_height));
@@ -55,6 +55,7 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
     let origin_x = layout.text.x + TEXT_PAD - doc.scroll_x;
     let span = (origin_x, layout.text.right(), app.cell);
     let read_cap = line_read_cap(doc, columns.is_some(), span, (layout.text.x, tab_width));
+    let mut pending = false;
     let states: Vec<Option<LineState>> = segments
         .iter()
         .map(|range| {
@@ -63,10 +64,12 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
             if read_cap < MAX_LINE_BYTES {
                 doc.highlight_state(range.end.saturating_sub(1), HIGHLIGHT_BUDGET);
             }
-            start
+            // 精确的状态尚未推算到时（远距离跳转之后），先按附近的内容推算的近似状态着色。
+            pending |= start.is_none();
+            start.or_else(|| Some(doc.approx_highlight_state(range.start)))
         })
         .collect();
-    app.highlight_pending |= states.iter().any(Option::is_none);
+    app.highlight_pending |= pending;
     // 鼠标在行号栏上时，所有可折叠的行都绘制箭头（已折叠的行始终绘制）。
     let foldable: Vec<usize> = if app.hover == Hover::Gutter {
         let tab_width = doc.tab_width(app.editor.tab_width);
@@ -215,7 +218,7 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
             let h = m.rows.len() as f32 * lh - hidden;
             Rect::new(layout.editor.x, top, layout.editor.w, h.max(0.0))
         });
-        // 每一段都从缓存的行首高亮状态开始绘制；状态尚未推算完时按普通文本处理。
+        // 每一段都从行首的高亮状态开始绘制：精确状态，或尚未推算到时的近似状态。
         for (range, start) in segments.iter().zip(&states) {
             let mut state = start.unwrap_or(LineState::Normal);
             text.visit_lines(range.start, read_cap, |line, line_start, content| {
@@ -250,7 +253,7 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
     if let Some(mut m) = motion {
         let doc = &mut app.editor.documents[index];
         doc.swap_folds(&mut m.open);
-        std::mem::swap(&mut doc.scroll_line, &mut m.scroll);
+        crate::app::scroll::swap_scroll_line(doc, &mut m.scroll);
         app.fold_motion = Some(m);
     }
 

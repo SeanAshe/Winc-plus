@@ -102,6 +102,9 @@ impl App {
             table_layout: Default::default(),
             split: preview::images::SplitPreview::default(),
             markdown: preview::markdown::MarkdownPreview::default(),
+            setup_intro: None,
+            setup_outro: None,
+            release_notes: Default::default(),
             pdf: preview::pdf::PdfPreview::default(),
             wallpaper: Default::default(),
             key_path: Default::default(),
@@ -124,6 +127,8 @@ impl App {
             fold_motion: None,
             diff_fold: None,
             scroll_glide: None,
+            pane_glides: Vec::new(),
+            fling: None,
             wheel: Default::default(),
             preview_tab: None,
             file_hover: None,
@@ -172,6 +177,9 @@ impl App {
             log: git::log::LogState::default(),
             blame: git::blame::BlameState::default(),
             branch: git::branch::BranchState::default(),
+            remote: Default::default(),
+            file_work: Default::default(),
+            ordered: None,
             merge: git::merge::MergeState::default(),
             rediff: diff::RediffState::default(),
             prompt_kind: PromptKind::GoTo,
@@ -208,8 +216,8 @@ impl App {
         }
     }
 
-    /// 注册 macOS 的系统回调：菜单栏的「设置…」、右键菜单和目录菜单的选中项、`⌘Q` 和应用内
-    /// 更新（菜单中的「检查更新」、定时检查）。
+    /// 注册 macOS 的系统回调：菜单栏的「设置…」「更新日志」、右键菜单和目录菜单的选中项、`⌘Q`
+    /// 和应用内更新（菜单中的「检查更新」、定时检查）。
     ///
     /// 回调只向事件循环发送一个事件，由事件循环处理。没有需要询问的内容（未保存的修改、终端中
     /// 运行的程序）时，`⌘Q` 的拦截回调返回 `true`，允许退出；否则返回 `false` 取消本次退出，并
@@ -249,6 +257,11 @@ impl App {
                     let _ = install.send_event(UserEvent::InstallShellCommand);
                 });
             }
+
+            let notes = proxy.clone();
+            crate::macos::add_release_notes_menu(move || {
+                let _ = notes.send_event(UserEvent::OpenReleaseNotes);
+            });
 
             // 菜单在事件回调中弹出，选中结果不能在该回调内直接处理，因此转成用户事件。
             let menu = proxy.clone();

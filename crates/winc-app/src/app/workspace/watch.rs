@@ -27,7 +27,7 @@ type ReadBack = (DocumentId, u64, DiskBack);
 /// 后台对一个文档完成的一步磁盘检查。
 pub(crate) enum DiskBack {
     /// 读到的文件元数据（文件不存在或无法访问时为 `None`），交给 `Document::check_disk_with`。
-    Checked(Option<std::fs::Metadata>),
+    Checked(Option<winc_backend::fs::Metadata>),
     /// 读到的文件内容（末尾追加的部分或整个文件），交给 `Document::apply_reread`。
     Read(DiskRead),
     /// 按用户选择的编码读到的文件内容，交给 `Document::finish_reopen_with_encoding`。
@@ -101,6 +101,12 @@ impl App {
         let (Some(root), Some(proxy)) = (root, self.proxy.clone()) else {
             return;
         };
+        // 远端主机上的目录由服务进程在那台主机上监视；启动要发出请求，在后台进行。
+        if winc_backend::is_remote(&root) {
+            self.start_remote_watcher(root);
+            self.index_folder();
+            return;
+        }
         // 监视启动失败（例如超出系统允许的监视数量）时 `watcher` 为 `None`，
         // 由 `check_disk` 在窗口重新获得焦点时检查文档并重读文件树。
         self.watcher = Watcher::start(&root, move || {
@@ -118,6 +124,14 @@ impl App {
         let (Some(root), Some(proxy)) = (root, self.proxy.clone()) else {
             return;
         };
+        // 远端的监视随连接中断而结束：连接恢复后重新启动。
+        if let Some(at) = winc_backend::locate(&root) {
+            if winc_backend::remote::is_connected(&at.target) {
+                self.watcher = None;
+                self.start_remote_watcher(root);
+            }
+            return;
+        }
         if !winc_editor::wsl::reachable(&root) {
             return;
         }
@@ -125,6 +139,37 @@ impl App {
             let _ = proxy.send_event(UserEvent::FilesChanged);
         };
         if let Ok(watcher) = Watcher::start(&root, wake) {
+            self.watcher = Some(watcher);
+        }
+    }
+
+    /// 在后台启动对远端目录 `root` 的监视，启动好后由 [`App::poll_remote_watcher`] 接收。
+    ///
+    /// 启动失败（服务进程无法监视、连接中断）时没有监视，变化由 `check_disk` 在窗口重新获得
+    /// 焦点时检查。
+    fn start_remote_watcher(&mut self, root: PathBuf) {
+        let Some(proxy) = self.proxy.clone() else {
+            return;
+        };
+        let slot = Arc::clone(&self.remote.watching);
+        self.spawn_blocking_then(UserEvent::RemoteWatching, move || {
+            let wake = move || {
+                let _ = proxy.send_event(UserEvent::FilesChanged);
+            };
+            if let Ok(watcher) = Watcher::start(&root, wake) {
+                *slot
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(watcher);
+            }
+        });
+    }
+
+    /// 接收后台启动好的远端目录的监视；期间换了目录时丢弃（监视随之结束）。
+    pub(in crate::app) fn poll_remote_watcher(&mut self) {
+        let started = (self.remote.watching.lock())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take();
+        if let Some(watcher) = started.filter(|w| Some(w.root()) == self.editor.root()) {
             self.watcher = Some(watcher);
         }
     }
@@ -223,9 +268,11 @@ impl App {
         }
         let sender = self.rereads.results.0.clone();
         self.spawn_then(UserEvent::Reread, move || {
-            for (id, ticket, path) in checks {
-                let metadata = std::fs::metadata(&path).ok();
-                let _ = sender.send((id, ticket, DiskBack::Checked(metadata)));
+            // 各文档的文件信息一次取回：远端路径由一次请求完成。
+            let paths: Vec<&Path> = checks.iter().map(|(_, _, path)| path.as_path()).collect();
+            let found = winc_backend::fs::metadata_many(&paths);
+            for ((id, ticket, _), metadata) in checks.iter().zip(found) {
+                let _ = sender.send((*id, *ticket, DiskBack::Checked(metadata.ok())));
             }
         });
     }
@@ -244,8 +291,24 @@ impl App {
         if changed {
             self.tree.motion = None;
             self.clamp_tree_scroll();
+            // 换入的目录中可能又露出尚未读取的目录，随重绘的请求一并读取。
             self.request_redraw();
         }
+    }
+
+    /// 在后台读取文件树中需要显示但尚未读取的目录（界面线程不等待远端的目录），读好后由
+    /// [`App::poll_tree_scans`] 换入。
+    pub(in crate::app) fn fetch_tree(&mut self) {
+        let Some(scan) = (self.editor.workspace.as_mut()).and_then(|ws| ws.take_missing()) else {
+            return;
+        };
+        let tickets = (scan.dirs().iter())
+            .map(|dir| self.tree.scans.tickets.issue(dir.clone()))
+            .collect();
+        let sender = self.tree.scans.results.0.clone();
+        self.spawn_then(UserEvent::TreeScanned, move || {
+            let _ = sender.send((tickets, scan.run()));
+        });
     }
 
     /// 收取后台检查、重读的结果（见 [`Rereads`]）。

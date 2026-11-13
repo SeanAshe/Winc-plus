@@ -6,13 +6,14 @@
 use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
-use std::fs;
-use std::io::{self, Write};
+use std::io;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use ignore::WalkBuilder;
 use winc_i18n::t;
+
+use super::copying::{self, Copying};
 
 /// 文件树里一项的类型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,6 +104,8 @@ pub struct DirEntry {
     pub name: String,
     /// 这一项的类别：目录或文件。
     pub kind: EntryKind,
+    /// 是否为符号链接；类别按它指向的对象给出。
+    pub symlink: bool,
 }
 
 /// 一个打开的工作区：目录树、展开状态和目录缓存。
@@ -132,8 +135,30 @@ pub struct Workspace {
     expanded: HashSet<PathBuf>,
     /// 读过的目录内容，已排序。
     children: HashMap<PathBuf, Rc<[DirEntry]>>,
+    /// 需要显示、但当前线程不能等待读取的目录（见 [`Workspace::take_missing`]）。
+    missing: Missing,
     /// 按展开状态拍平后的可见行。
     rows: Vec<Entry>,
+}
+
+/// 尚未读取的目录：拍平时遇到的记入 `wanted`，交给后台读取后移入 `requested`，读好后移除。
+#[derive(Default)]
+struct Missing {
+    wanted: Vec<PathBuf>,
+    requested: HashSet<PathBuf>,
+    /// 展开时未能读取的目录：读好后继续展开它下面连续的单子目录（见 `expand_chain`）。
+    chains: HashSet<PathBuf>,
+    /// 要选中、但所在目录尚未读好的路径（见 [`Workspace::reveal`]）。
+    reveal: Option<PathBuf>,
+}
+
+impl Missing {
+    /// 记下要交给后台读取的目录 `dir`；已记下或已交出的不重复。
+    fn want(&mut self, dir: PathBuf) {
+        if !self.requested.contains(&dir) && !self.wanted.contains(&dir) {
+            self.wanted.push(dir);
+        }
+    }
 }
 
 /// 递归展开最多展开的目录数（个，经验值）：再多的行也无法浏览，读取也会明显卡住界面。
@@ -192,16 +217,18 @@ pub(crate) fn walker_with_ignored(dir: &Path) -> WalkBuilder {
 
 /// `dir` 或它的某一级上级目录是否是版本库的根目录。
 fn in_repository(dir: &Path) -> bool {
-    dir.ancestors()
-        .any(|dir| dir.join(".git").exists() || dir.join(".jj").exists())
+    dir.ancestors().any(|dir| {
+        winc_backend::fs::exists(dir.join(".git")) || winc_backend::fs::exists(dir.join(".jj"))
+    })
 }
 
 /// 判断类型为 `kind` 的目录项 `path` 是否作为文件收录：普通文件，或指向普通文件的符号链接。
 ///
 /// 只有符号链接才多做一次 stat。指向目录的符号链接不收录、不进入，避免链接成环时无限遍历，
 /// 以及同一棵目录被重复收录。
-pub(crate) fn is_listed_file(kind: fs::FileType, path: &Path) -> bool {
-    kind.is_file() || kind.is_symlink() && fs::metadata(path).is_ok_and(|meta| meta.is_file())
+pub(crate) fn is_listed_file(kind: impl Into<winc_backend::fs::Kind>, path: &Path) -> bool {
+    let kind = kind.into();
+    kind.is_file() || kind.is_symlink() && winc_backend::fs::is_file(path)
 }
 
 impl Workspace {
@@ -216,6 +243,12 @@ impl Workspace {
             || root.display().to_string(),
             |n| n.to_string_lossy().into_owned(),
         );
+        // 远端主机上的目录在名称后标出主机：标题栏和状态栏上一眼能看出不是本机的目录。
+        let name = match winc_backend::locate(&root) {
+            None => name,
+            Some(at) if at.path == b"/" => format!("/ [SSH: {}]", at.target.as_str()),
+            Some(at) => format!("{name} [SSH: {}]", at.target.as_str()),
+        };
 
         let mut workspace = Workspace {
             root: root.clone(),
@@ -227,6 +260,7 @@ impl Workspace {
             compact: true,
             expanded: HashSet::from([root]),
             children: HashMap::new(),
+            missing: Missing::default(),
             rows: Vec::new(),
         };
         workspace.rebuild();
@@ -345,7 +379,10 @@ impl Workspace {
     /// 展开目录 `path`；合并显示时，连同它下面连续的单子目录一起展开，一次就能看到最下一级的内容。
     fn expand_chain(&mut self, mut path: PathBuf) {
         while self.compact {
-            let children = cached_children(&mut self.children, &path);
+            let children = cached_children(&mut self.children, &mut self.missing, &path);
+            if !self.children.contains_key(&path) {
+                self.missing.chains.insert(path.clone());
+            }
             let Some(only) = sole_folder(&children) else {
                 break;
             };
@@ -363,15 +400,27 @@ impl Workspace {
         };
         let mut current = self.root.clone();
 
+        // 远端的目录由后台读取：各级上级目录的路径已经知道，一起要，不必等上一级读好才发现
+        // 下一级。
+        let remote = winc_backend::is_remote(&self.root);
         for component in relative.parent().into_iter().flat_map(Path::components) {
             current.push(component);
             self.expanded.insert(current.clone());
+            if remote && !self.children.contains_key(&current) {
+                self.missing.want(current.clone());
+            }
         }
 
         self.rebuild();
         match self.row_of(path) {
             Some(index) => self.select_segment(index, Some(path)),
-            None => self.select(None),
+            None => {
+                self.select(None);
+                // 它所在的目录还在等待后台读取：读好后再选中。
+                if !self.missing.wanted.is_empty() || !self.missing.requested.is_empty() {
+                    self.missing.reveal = Some(path.to_path_buf());
+                }
+            }
         }
     }
 
@@ -609,48 +658,15 @@ impl Workspace {
         kind: EntryKind,
         contents: &[u8],
     ) -> io::Result<PathBuf> {
-        let name = name.trim().trim_matches('/');
-        let invalid = name.is_empty()
-            || name
-                .split('/')
-                .any(|part| part.is_empty() || part == "." || part == "..");
-
-        if invalid || !dir.starts_with(&self.root) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                t!("workspace-tree-invalid-name"),
-            ));
-        }
-
-        let path = dir.join(name);
-
-        if path.exists() {
-            return Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                t!("workspace-tree-name-taken"),
-            ));
-        }
-
-        match kind {
-            EntryKind::Dir => fs::create_dir_all(&path)?,
-            EntryKind::File => {
-                if let Some(parent) = path.parent() {
-                    fs::create_dir_all(parent)?;
-                }
-                let mut file = fs::OpenOptions::new()
-                    .write(true)
-                    .create_new(true)
-                    .open(&path)?;
-                if let Err(e) = file.write_all(contents) {
-                    let _ = fs::remove_file(&path);
-                    return Err(e);
-                }
-            }
-        }
-
-        self.refresh();
-        self.reveal(&path);
+        let path = create_at(&self.root, dir, name, kind, contents)?;
+        self.created(&path);
         Ok(path)
+    }
+
+    /// 在磁盘上新建了 `path` 之后更新文件树：重新读取，展开到它所在的位置并选中它。
+    pub fn created(&mut self, path: &Path) {
+        self.refresh();
+        self.reveal(path);
     }
 
     /// 把 `path` 改名为同一目录下的 `name`，返回新路径。
@@ -662,43 +678,10 @@ impl Workspace {
     ///
     /// 名称无效时返回 `InvalidInput`，目标已被其他项占用时返回 `AlreadyExists`。
     pub fn rename(&mut self, path: &Path, name: &str) -> io::Result<PathBuf> {
-        let name = name.trim();
-        let invalid = name.is_empty() || name == "." || name == ".." || name.contains('/');
-
-        if invalid {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                t!("workspace-tree-invalid-name"),
-            ));
+        let target = rename_at(&self.root, path, name)?;
+        if target != path {
+            self.relocated(path, &target);
         }
-        if path == self.root || !path.starts_with(&self.root) {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidInput,
-                t!("workspace-tree-cannot-rename"),
-            ));
-        }
-
-        let parent = path.parent().unwrap_or(&self.root);
-        let target = parent.join(name);
-
-        if target == path {
-            return Ok(target);
-        }
-
-        let case_only = occupied(&target) && same_entry(path, &target);
-        if occupied(&target) && !case_only {
-            return Err(io::Error::new(
-                io::ErrorKind::AlreadyExists,
-                t!("workspace-tree-name-taken"),
-            ));
-        }
-
-        if case_only {
-            rename_case(path, &target)?;
-        } else {
-            fs::rename(path, &target)?;
-        }
-        self.relocated(path, &target);
         Ok(target)
     }
 
@@ -711,29 +694,10 @@ impl Workspace {
     /// 移动工作区根目录、`dir` 不在工作区内、移入自身内部时返回 `InvalidInput`，目标已存在时返回
     /// `AlreadyExists`。
     pub fn move_into(&mut self, path: &Path, dir: &Path) -> io::Result<PathBuf> {
-        let invalid = |reason| Err(io::Error::new(io::ErrorKind::InvalidInput, reason));
-        if path == self.root || !dir.starts_with(&self.root) {
-            return invalid(t!("workspace-tree-cannot-move"));
+        let target = move_at(&self.root, path, dir)?;
+        if target != path {
+            self.relocated(path, &target);
         }
-        if dir.starts_with(path) {
-            return invalid(t!("workspace-tree-move-into-itself"));
-        }
-        let Some(name) = path.file_name() else {
-            return invalid(t!("workspace-tree-cannot-move"));
-        };
-
-        let target = dir.join(name);
-        if target == path {
-            return Ok(target);
-        }
-        if occupied(&target) {
-            let dir_name = dir.file_name().unwrap_or(dir.as_os_str()).to_string_lossy();
-            let message = t!("workspace-tree-name-taken-in", folder = dir_name);
-            return Err(io::Error::new(io::ErrorKind::AlreadyExists, message));
-        }
-
-        fs::rename(path, &target)?;
-        self.relocated(path, &target);
         Ok(target)
     }
 
@@ -744,15 +708,14 @@ impl Workspace {
     ///
     /// 同 [`copy_entry`]。
     pub fn copy_into(&mut self, source: &Path, dir: &Path) -> io::Result<PathBuf> {
-        let target = copy_entry(&self.root, source, dir)?;
-        self.refresh();
-        self.reveal(&target);
+        let target = copy_entry(&self.root, source, dir, &Copying::default())?;
+        self.created(&target);
         Ok(target)
     }
 
     /// 在 `from` 已于磁盘上移动到 `to` 之后更新文件树：展开状态随之迁移，重新读取树，
     /// 展开到新位置并选中它。
-    fn relocated(&mut self, from: &Path, to: &Path) {
+    pub fn relocated(&mut self, from: &Path, to: &Path) {
         let moved: Vec<PathBuf> = self
             .expanded
             .iter()
@@ -779,6 +742,7 @@ impl Workspace {
         let mut rows = Vec::with_capacity(self.rows.len());
         flatten(
             &mut self.children,
+            &mut self.missing,
             &self.expanded,
             self.compact,
             &self.root,
@@ -805,11 +769,25 @@ impl Workspace {
 }
 
 /// 返回目录 `dir` 的内容；未缓存时先读取并写入 `cache`，无法读取的目录按空目录处理。
-fn cached_children(cache: &mut HashMap<PathBuf, Rc<[DirEntry]>>, dir: &Path) -> Rc<[DirEntry]> {
+///
+/// 当前线程不能等待读取时（界面线程上的远端目录）不写入缓存，把目录记入 `missing`，这次按空
+/// 目录处理，读好后由 [`Workspace::apply_scan`] 换入。
+fn cached_children(
+    cache: &mut HashMap<PathBuf, Rc<[DirEntry]>>,
+    missing: &mut Missing,
+    dir: &Path,
+) -> Rc<[DirEntry]> {
     if let Some(children) = cache.get(dir) {
         return Rc::clone(children);
     }
-    let children: Rc<[DirEntry]> = list_dir(dir).unwrap_or_default().into();
+    let children: Rc<[DirEntry]> = match list_dir(dir) {
+        Ok(children) => children.into(),
+        Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+            missing.want(dir.to_path_buf());
+            return Rc::from([]);
+        }
+        Err(_) => Rc::from([]),
+    };
     cache.insert(dir.to_path_buf(), Rc::clone(&children));
     children
 }
@@ -819,7 +797,7 @@ fn cached_children(cache: &mut HashMap<PathBuf, Rc<[DirEntry]>>, dir: &Path) -> 
 /// 指向目录的符号链接不合并，避免链接成环时无限展开。
 fn sole_folder(children: &[DirEntry]) -> Option<&DirEntry> {
     match children {
-        [only] if only.kind == EntryKind::Dir && !only.path.is_symlink() => Some(only),
+        [only] if only.kind == EntryKind::Dir && !only.symlink => Some(only),
         _ => None,
     }
 }
@@ -830,6 +808,7 @@ fn sole_folder(children: &[DirEntry]) -> Option<&DirEntry> {
 /// 因此不会访问磁盘去判断能否合并。
 fn flatten(
     cache: &mut HashMap<PathBuf, Rc<[DirEntry]>>,
+    missing: &mut Missing,
     expanded: &HashSet<PathBuf>,
     compact: bool,
     dir: &Path,
@@ -837,7 +816,7 @@ fn flatten(
     rows: &mut Vec<Entry>,
 ) {
     let depth = parent.map_or(0, |p| rows[p].depth + 1);
-    let children = cached_children(cache, dir);
+    let children = cached_children(cache, missing, dir);
 
     for index in 0..children.len() {
         let (mut siblings, mut at) = (Rc::clone(&children), index);
@@ -846,7 +825,7 @@ fn flatten(
             && siblings[at].kind == EntryKind::Dir
             && expanded.contains(&siblings[at].path)
         {
-            let inner = cached_children(cache, &siblings[at].path);
+            let inner = cached_children(cache, missing, &siblings[at].path);
             if sole_folder(&inner).is_none() {
                 break;
             }
@@ -872,10 +851,142 @@ fn flatten(
         });
 
         if open {
-            flatten(cache, expanded, compact, &tail, Some(row), rows);
+            flatten(cache, missing, expanded, compact, &tail, Some(row), rows);
             rows[row].end = rows.len();
         }
     }
+}
+
+/// 在工作区 `root` 里的目录 `dir` 中新建文件（内容为 `contents`）或目录 `name`，返回其路径；规则见
+/// [`Workspace::create`]。
+///
+/// 只访问磁盘、不改文件树，可以在后台线程上调用；完成后把路径交给 [`Workspace::created`]。
+///
+/// # Errors
+///
+/// 同 [`Workspace::create`]。
+pub fn create_at(
+    root: &Path,
+    dir: &Path,
+    name: &str,
+    kind: EntryKind,
+    contents: &[u8],
+) -> io::Result<PathBuf> {
+    let name = name.trim().trim_matches('/');
+    let invalid = name.is_empty()
+        || name
+            .split('/')
+            .any(|part| part.is_empty() || part == "." || part == "..");
+
+    if invalid || !dir.starts_with(root) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            t!("workspace-tree-invalid-name"),
+        ));
+    }
+
+    // 名字是用户输入的：经 `join` 换成路径，远端的名字按需转义。
+    let path = winc_backend::join(dir, name);
+
+    if winc_backend::fs::exists(&path) {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            t!("workspace-tree-name-taken"),
+        ));
+    }
+
+    match kind {
+        EntryKind::Dir => winc_backend::fs::create_dir_all(&path)?,
+        EntryKind::File => {
+            if let Some(parent) = path.parent() {
+                winc_backend::fs::create_dir_all(parent)?;
+            }
+            winc_backend::fs::create_new(&path, contents)?;
+        }
+    }
+    Ok(path)
+}
+
+/// 把工作区 `root` 中的 `path` 改名为同一目录下的 `name`，返回新路径；规则见
+/// [`Workspace::rename`]。名字没有变化时不访问磁盘，返回原路径。
+///
+/// 只访问磁盘、不改文件树，可以在后台线程上调用；完成后把两个路径交给
+/// [`Workspace::relocated`]。
+///
+/// # Errors
+///
+/// 同 [`Workspace::rename`]。
+pub fn rename_at(root: &Path, path: &Path, name: &str) -> io::Result<PathBuf> {
+    let name = name.trim();
+    let invalid = name.is_empty() || name == "." || name == ".." || name.contains('/');
+
+    if invalid {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            t!("workspace-tree-invalid-name"),
+        ));
+    }
+    if path == root || !path.starts_with(root) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            t!("workspace-tree-cannot-rename"),
+        ));
+    }
+
+    let target = winc_backend::join(path.parent().unwrap_or(root), name);
+    if target == path {
+        return Ok(target);
+    }
+
+    let case_only = occupied(&target) && same_entry(path, &target);
+    if occupied(&target) && !case_only {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            t!("workspace-tree-name-taken"),
+        ));
+    }
+
+    if case_only {
+        rename_case(path, &target)?;
+    } else {
+        winc_backend::fs::rename(path, &target)?;
+    }
+    Ok(target)
+}
+
+/// 把 `path` 移动到工作区 `root` 里的目录 `dir` 中，名字不变，返回新路径；规则见
+/// [`Workspace::move_into`]。已在该目录中时不访问磁盘，返回原路径。
+///
+/// 只访问磁盘、不改文件树，可以在后台线程上调用；完成后把两个路径交给
+/// [`Workspace::relocated`]。
+///
+/// # Errors
+///
+/// 同 [`Workspace::move_into`]。
+pub fn move_at(root: &Path, path: &Path, dir: &Path) -> io::Result<PathBuf> {
+    let invalid = |reason| Err(io::Error::new(io::ErrorKind::InvalidInput, reason));
+    if path == root || !dir.starts_with(root) {
+        return invalid(t!("workspace-tree-cannot-move"));
+    }
+    if dir.starts_with(path) {
+        return invalid(t!("workspace-tree-move-into-itself"));
+    }
+    let Some(name) = path.file_name() else {
+        return invalid(t!("workspace-tree-cannot-move"));
+    };
+
+    let target = dir.join(name);
+    if target == path {
+        return Ok(target);
+    }
+    if occupied(&target) {
+        let dir_name = dir.file_name().unwrap_or(dir.as_os_str()).to_string_lossy();
+        let message = t!("workspace-tree-name-taken-in", folder = dir_name);
+        return Err(io::Error::new(io::ErrorKind::AlreadyExists, message));
+    }
+
+    winc_backend::fs::rename(path, &target)?;
+    Ok(target)
 }
 
 /// 只改大小写的改名：先改成同一目录下的临时名字，再改成 `target`。
@@ -888,9 +999,9 @@ fn rename_case(path: &Path, target: &Path) -> io::Result<()> {
         .map(|n| n.to_string_lossy())
         .unwrap_or_default();
     let temp = path.with_file_name(format!(".{name}.{}.rename", std::process::id()));
-    fs::rename(path, &temp)?;
-    if let Err(e) = fs::rename(&temp, target) {
-        let _ = fs::rename(&temp, path);
+    winc_backend::fs::rename(path, &temp)?;
+    if let Err(e) = winc_backend::fs::rename(&temp, target) {
+        let _ = winc_backend::fs::rename(&temp, path);
         return Err(e);
     }
     Ok(())
@@ -900,18 +1011,25 @@ fn rename_case(path: &Path, target: &Path) -> io::Result<()> {
 ///
 /// 失效的符号链接也算：`fs::rename` 会覆盖它。
 fn occupied(path: &Path) -> bool {
-    fs::symlink_metadata(path).is_ok()
+    winc_backend::fs::symlink_metadata(path).is_ok()
 }
 
 /// 把工作区 `root` 外（或内）的文件或目录 `source` 复制进 `root` 里的目录 `dir`，返回副本的路径。
 ///
 /// 目录连同其中的内容一起复制，符号链接复制为链接本身；`dir` 中已有同名项时不覆盖，副本改名为
-/// 「名字 2.扩展名」「名字 3.扩展名」等。只访问磁盘、不改文件树，可以在后台线程上调用。
+/// 「名字 2.扩展名」「名字 3.扩展名」等。进度记入 `copying`，经它可以取消。只访问磁盘、不改
+/// 文件树，可以在后台线程上调用。
 ///
 /// # Errors
 ///
-/// `dir` 不在工作区内或复制进 `source` 内时返回 `InvalidInput`，其余返回 `std::io::Error`。
-pub fn copy_entry(root: &Path, source: &Path, dir: &Path) -> io::Result<PathBuf> {
+/// `dir` 不在工作区内或复制进 `source` 内时返回 `InvalidInput`，被取消时返回 `Interrupted`
+/// （已复制出的部分随之删除），其余返回 `std::io::Error`。
+pub fn copy_entry(
+    root: &Path,
+    source: &Path,
+    dir: &Path,
+    copying: &Copying,
+) -> io::Result<PathBuf> {
     let invalid = |reason| Err(io::Error::new(io::ErrorKind::InvalidInput, reason));
     if !dir.starts_with(root) {
         return invalid(t!("workspace-tree-target-outside"));
@@ -923,7 +1041,8 @@ pub fn copy_entry(root: &Path, source: &Path, dir: &Path) -> io::Result<PathBuf>
         return invalid(t!("workspace-tree-cannot-copy"));
     };
     let target = free_name(dir, Path::new(name));
-    copy_recursive(source, &target)?;
+    let links: copying::Links = |from, to| winc_backend::fs::copy_symlink(from, to);
+    copying::copy_item(source, &target, links, copying)?;
     Ok(target)
 }
 
@@ -949,42 +1068,16 @@ fn free_name(dir: &Path, name: &Path) -> PathBuf {
         .expect("总能找到没被占用的名字")
 }
 
-/// 把 `from` 复制到 `to`：文件复制内容和权限，目录连同其中的内容一起复制，符号链接复制为链接本身。
-fn copy_recursive(from: &Path, to: &Path) -> io::Result<()> {
-    let meta = fs::symlink_metadata(from)?;
-    if meta.file_type().is_symlink() {
-        let link = fs::read_link(from)?;
-        #[cfg(unix)]
-        return std::os::unix::fs::symlink(link, to);
-        #[cfg(windows)]
-        return if fs::metadata(from).is_ok_and(|m| m.is_dir()) {
-            std::os::windows::fs::symlink_dir(link, to)
-        } else {
-            std::os::windows::fs::symlink_file(link, to)
-        };
-    }
-    if meta.is_dir() {
-        fs::create_dir(to)?;
-        for entry in fs::read_dir(from)? {
-            let entry = entry?;
-            copy_recursive(&entry.path(), &to.join(entry.file_name()))?;
-        }
-        return Ok(());
-    }
-    fs::copy(from, to).map(drop)
-}
-
 /// 是否两个路径指向磁盘上的同一项：不区分大小写的文件系统上，`a` 和 `A` 就是同一项。
 ///
 /// 区分大小写的文件系统上它们是两个文件，把其中一个改成另一个的名字会覆盖对方。
 #[cfg(unix)]
 fn same_entry(a: &Path, b: &Path) -> bool {
-    use std::os::unix::fs::MetadataExt;
-
-    match (fs::symlink_metadata(a), fs::symlink_metadata(b)) {
-        (Ok(a), Ok(b)) => (a.dev(), a.ino()) == (b.dev(), b.ino()),
-        _ => false,
-    }
+    let identity = |path: &Path| {
+        let unix = winc_backend::fs::symlink_metadata(path).ok()?.unix?;
+        Some((unix.dev, unix.ino))
+    };
+    identity(a).is_some_and(|a| Some(a) == identity(b))
 }
 
 /// 是否两个路径指向同一项：非 Unix 平台（即 Windows）按文件系统不区分大小写处理，
@@ -1002,29 +1095,34 @@ fn same_entry(a: &Path, b: &Path) -> bool {
 ///
 /// 目录不存在或没有读权限时返回对应的 `std::io::Error`。
 pub fn list_dir(dir: &Path) -> io::Result<Vec<DirEntry>> {
-    let mut children: Vec<DirEntry> = fs::read_dir(dir)?
+    let mut children: Vec<DirEntry> = winc_backend::fs::read_dir(dir)?
         .filter_map(Result::ok)
         .filter_map(|entry| {
-            let name = entry.file_name().to_string_lossy().into_owned();
+            let name = entry.name.to_string_lossy().into_owned();
 
             if HIDDEN.contains(&name.as_str()) {
                 return None;
             }
 
             let path = entry.path();
-            let file_type = entry.file_type().ok()?;
             // 只有符号链接需要再调用一次 `stat`，判断它指向的是否为目录。
-            let is_dir = if file_type.is_symlink() {
-                path.is_dir()
+            let symlink = entry.kind.is_symlink();
+            let is_dir = if symlink {
+                winc_backend::fs::is_dir(&path)
             } else {
-                file_type.is_dir()
+                entry.kind.is_dir()
             };
             let kind = if is_dir {
                 EntryKind::Dir
             } else {
                 EntryKind::File
             };
-            Some(DirEntry { path, name, kind })
+            Some(DirEntry {
+                path,
+                name,
+                kind,
+                symlink,
+            })
         })
         .collect();
 

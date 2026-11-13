@@ -136,7 +136,7 @@ fn link_at(
             .or_else(|| root.map(Path::to_path_buf))?;
         cwd.join(path)
     };
-    path.exists().then_some((
+    winc_backend::fs::exists(&path).then_some((
         found.start,
         found.end,
         Target::File {
@@ -198,7 +198,7 @@ impl App {
                     ));
                 }
             }
-            Target::File { path, .. } if reveal || path.is_dir() => {
+            Target::File { path, .. } if reveal || winc_backend::fs::is_dir(&path) => {
                 self.reveal_path(&path);
             }
             Target::File { path, line, col } => {

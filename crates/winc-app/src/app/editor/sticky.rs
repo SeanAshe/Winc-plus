@@ -9,6 +9,8 @@ use winc_editor::scopes::Scope;
 
 use super::*;
 
+use crate::app::scroll::set_scroll_line;
+
 /// 固定行数的上限（行）。
 ///
 /// 取自调参：限制深层嵌套时固定区域占用的高度。实际行数还受 [`sticky_limit`] 限制，
@@ -206,7 +208,10 @@ impl App {
         doc.selection = Selection::point(winc_core::movement::snap_to_grapheme(doc.text(), pos));
         doc.goal_cell = None;
         let before = doc.scroll_line;
-        doc.scroll_line = (doc.row_of(row.line) as f64 - row.depth as f64).clamp(0.0, max.max(0.0));
+        set_scroll_line(
+            doc,
+            (doc.row_of(row.line) as f64 - row.depth as f64).clamp(0.0, max.max(0.0)),
+        );
         self.glide_scroll(before);
         self.focus = Focus::Editor;
         self.reset_blink();

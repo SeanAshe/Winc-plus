@@ -115,6 +115,26 @@ pub fn console(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: 
     frame.stroke(shapes.as_slice(), RING_STROKE, color, clip);
 }
 
+/// 绘制「主机」图标，13×12：上下两个圆角的机箱，各有一道短线表示指示灯。
+///
+/// 用于连接远端主机的入口和主机列表。
+pub fn server(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let (w, h) = (13.0, 5.0);
+    let x = cx - w / 2.0;
+    // 两个机箱之间留 2 的空隙，整体在竖直方向居中。
+    let (top, bottom) = (cy - 6.0, cy + 1.0);
+    let lights = [
+        Stroke::Line(x + 3.0, top + 2.5, x + 5.0, top + 2.5),
+        Stroke::Line(x + 3.0, bottom + 2.5, x + 5.0, bottom + 2.5),
+    ];
+    let shapes: Strokes<18> = joined(&[
+        &rounded_outline(x, top, w, h, 1.5),
+        &rounded_outline(x, bottom, w, h, 1.5),
+        &lights,
+    ]);
+    frame.stroke(shapes.as_slice(), RING_STROKE, color, clip);
+}
+
 /// 绘制「模块」图标，13×13：四个圆角小方块排成两行两列，表示可以拼装的部件。
 ///
 /// 用于设置的分类栏。

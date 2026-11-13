@@ -9,12 +9,9 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+winc-backend.workspace = true
 winc-syntax.workspace = true
 winc-i18n.workspace = true
-
-[target.'cfg(target_vendor = "apple")'.dependencies]
-# 原子写入落盘用的 `F_BARRIERFSYNC`（files.rs）。
-libc.workspace = true
 
 [lints]
 workspace = true
