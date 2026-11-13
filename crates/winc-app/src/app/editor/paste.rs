@@ -33,7 +33,7 @@ impl App {
     pub(in crate::app) fn clipboard_image_file(&mut self) -> Option<std::io::Result<PathBuf>> {
         let png = self.clipboard_png()?;
         let dir = std::env::temp_dir().join("winc-paste");
-        if let Err(error) = std::fs::create_dir_all(&dir) {
+        if let Err(error) = winc_backend::fs::create_dir_all(&dir) {
             return Some(Err(error));
         }
         Some(paste::save_image(&dir, &png))

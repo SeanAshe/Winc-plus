@@ -62,7 +62,11 @@ impl Args {
         if self.targets.is_empty() {
             None
         } else {
-            Some(self.targets.iter().any(|target| target.path.is_dir()))
+            Some(
+                self.targets
+                    .iter()
+                    .any(|target| winc_backend::fs::is_dir(&target.path)),
+            )
         }
     }
 }
