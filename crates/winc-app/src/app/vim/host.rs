@@ -1,5 +1,6 @@
 //! 以文档为宿主：Vim 层在其上读取文本与视图、应用修改；需要应用配合的动作留到按键处理之后。
 
+use crate::app::scroll::set_scroll_line;
 use std::ops::Range;
 
 use winc_core::{Change, Indent, Selection};
@@ -333,7 +334,7 @@ impl Host for DocHost<'_> {
             Scroll::Lines(lines) => {
                 let before = self.doc.scroll_line;
                 let target = (before + lines as f64).clamp(0.0, self.view.max_scroll.max(0.0));
-                self.doc.scroll_line = target;
+                set_scroll_line(self.doc, target);
                 self.refresh_visible();
                 target != before
             }

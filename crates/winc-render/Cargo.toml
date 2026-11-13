@@ -13,6 +13,10 @@ winit.workspace = true
 swash.workspace = true
 memmap2.workspace = true
 
+# 判断字体文件的属主是否为当前用户（`geteuid`）。
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 softbuffer = "0.4"
 

@@ -18,6 +18,7 @@ pub enum Action {
     GoBack,
     GoForward,
     Settings,
+    ReleaseNotes,
     KeyboardShortcuts,
     RecordKeys,
 
@@ -25,6 +26,8 @@ pub enum Action {
     NewWindow,
     OpenFile,
     OpenFolder,
+    RemoteConnect,
+    RemoteDisconnect,
     OpenRecent,
     Save,
     SaveAs,
@@ -250,6 +253,8 @@ pub enum Module {
     Git,
     /// 终端模块。
     Terminal,
+    /// 远程模块。
+    Remote,
 }
 
 impl Action {
@@ -266,12 +271,15 @@ impl Action {
             GoBack => t!("cmd-go-back"),
             GoForward => t!("cmd-go-forward"),
             Settings => t!("cmd-settings"),
+            ReleaseNotes => t!("cmd-release-notes"),
             KeyboardShortcuts => t!("cmd-keyboard-shortcuts"),
             RecordKeys => t!("cmd-record-keys"),
             NewFile => t!("cmd-new-file"),
             NewWindow => t!("cmd-new-window"),
             OpenFile => t!("cmd-open-file"),
             OpenFolder => t!("cmd-open-folder"),
+            RemoteConnect => t!("cmd-remote-connect"),
+            RemoteDisconnect => t!("cmd-remote-disconnect"),
             OpenRecent => t!("cmd-open-recent"),
             Save => t!("cmd-save"),
             SaveAs => t!("cmd-save-as"),
@@ -477,12 +485,15 @@ impl Action {
             GoBack => "Go Back",
             GoForward => "Go Forward",
             Settings => "Settings",
+            ReleaseNotes => "Release Notes",
             KeyboardShortcuts => "Keyboard Shortcuts",
             RecordKeys => "Record Keys",
             NewFile => "New File",
             NewWindow => "New Window",
             OpenFile => "Open",
             OpenFolder => "Open Folder",
+            RemoteConnect => "Remote: Connect to SSH Host…",
+            RemoteDisconnect => "Remote: Disconnect",
             OpenRecent => "Open Recent Folder",
             Save => "Save",
             SaveAs => "Save As",
@@ -682,14 +693,17 @@ impl Action {
             | GoBack
             | GoForward
             | Settings
+            | ReleaseNotes
             | KeyboardShortcuts
             | RecordKeys
             | InstallShellCommand
             | UninstallShellCommand => Group::General,
-            NewFile | OpenFile | OpenFolder | Save | SaveAs | CloseTab | CloseOtherTabs
-            | CloseAllTabs | ReopenClosed | NextTab | PreviousTab | CloseFolder | CloseWindow
-            | CopyPath | CopyRelativePath | RevealInFinder | CopyActivePath | CopyKeyPath
-            | RevealActiveFile | OpenInTerminal | Quit => Group::File,
+            NewFile | OpenFile | OpenFolder | RemoteConnect | RemoteDisconnect | Save | SaveAs
+            | CloseTab | CloseOtherTabs | CloseAllTabs | ReopenClosed | NextTab | PreviousTab
+            | CloseFolder | CloseWindow | CopyPath | CopyRelativePath | RevealInFinder
+            | CopyActivePath | CopyKeyPath | RevealActiveFile | OpenInTerminal | Quit => {
+                Group::File
+            }
             NewWindow | OpenRecent | CopyReference | CopyAbsoluteReference => Group::File,
             Undo
             | Redo
@@ -940,6 +954,7 @@ impl Action {
             | Action::NextError
             | Action::PreviousError
             | Action::SendToTerminal => Some(Module::Terminal),
+            Action::RemoteConnect | Action::RemoteDisconnect => Some(Module::Remote),
             _ => None,
         }
     }
@@ -998,6 +1013,7 @@ pub const ACTIONS: &[Action] = {
         GoForward,
         ShowCommands,
         Settings,
+        ReleaseNotes,
         KeyboardShortcuts,
         RecordKeys,
         Format,
@@ -1025,6 +1041,8 @@ pub const ACTIONS: &[Action] = {
         NewWindow,
         OpenFile,
         OpenFolder,
+        RemoteConnect,
+        RemoteDisconnect,
         OpenRecent,
         Save,
         SaveAs,

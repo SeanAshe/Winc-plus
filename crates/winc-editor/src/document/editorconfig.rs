@@ -4,7 +4,6 @@
 //! 起逐级向上查找 `.editorconfig`，遇到 `root = true` 为止：离文件越近的优先级越高，同一个文件
 //! 内写在后面的小节优先。
 
-use std::fs;
 use std::ops::Range;
 use std::path::{Component, Path};
 
@@ -143,9 +142,21 @@ impl FileConfig {
 /// 从 `path` 所在目录起逐级向上读取 `.editorconfig`，遇到 `root = true` 为止。无法读取的
 /// `.editorconfig` 视为不存在，格式有误的行或小节被忽略。
 pub fn lookup(path: &Path) -> FileConfig {
+    // 远端的文件只在那台主机的根目录以内查找。各级目录中有没有 `.editorconfig` 一次查完，
+    // 只读取存在的：远端通常只需一两次往返，而不是每级目录一次。
+    let remote = winc_backend::is_remote(path);
+    let dirs: Vec<&Path> = (path.ancestors().skip(1))
+        .take_while(|dir| !remote || winc_backend::is_remote(dir))
+        .collect();
+    let candidates: Vec<std::path::PathBuf> =
+        dirs.iter().map(|dir| dir.join(".editorconfig")).collect();
+    let present = winc_backend::fs::metadata_many(&candidates);
     let mut files = Vec::new();
-    for dir in path.ancestors().skip(1) {
-        let Ok(text) = fs::read_to_string(dir.join(".editorconfig")) else {
+    for ((dir, file), present) in dirs.into_iter().zip(&candidates).zip(present) {
+        if present.is_err() {
+            continue;
+        }
+        let Ok(text) = winc_backend::fs::read_to_string(file) else {
             continue;
         };
         let parsed = parse(&text);

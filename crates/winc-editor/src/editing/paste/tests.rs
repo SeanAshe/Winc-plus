@@ -1,5 +1,7 @@
 //! 粘贴文件与图片的测试：重名规则、复制目录与符号链接、Markdown 链接、扩展名猜测与 PNG 编码。
 
+use std::fs;
+
 use super::*;
 use crate::test_util::scratch;
 
@@ -42,7 +44,7 @@ fn copies_files_and_folders_without_overwriting() {
     fs::create_dir(&dest).unwrap();
 
     let sources = [src.join("a.txt"), src.join("folder")];
-    let copied = copy_into(&sources, &dest).unwrap();
+    let copied = copy_into(&sources, &dest, &Copying::default()).unwrap();
     assert_eq!(copied, [dest.join("a.txt"), dest.join("folder")]);
     assert_eq!(
         fs::read_to_string(dest.join("folder/inner/b.txt")).unwrap(),
@@ -51,33 +53,38 @@ fn copies_files_and_folders_without_overwriting() {
 
     // 再粘贴一次：同名项已存在，按重名规则取名，原有内容不变。
     fs::write(dest.join("a.txt"), "changed").unwrap();
-    let again = copy_into(&sources, &dest).unwrap();
+    let again = copy_into(&sources, &dest, &Copying::default()).unwrap();
     assert_eq!(again, [dest.join("a 副本.txt"), dest.join("folder 副本")]);
     assert_eq!(fs::read_to_string(dest.join("a.txt")).unwrap(), "changed");
-    let third = copy_into(&sources[..1], &dest).unwrap();
+    let third = copy_into(&sources[..1], &dest, &Copying::default()).unwrap();
     assert_eq!(third, [dest.join("a 副本 2.txt")]);
 
     // 粘贴到源文件所在的目录：得到一个副本。
-    let beside = copy_into(&sources[..1], &src).unwrap();
+    let beside = copy_into(&sources[..1], &src, &Copying::default()).unwrap();
     assert_eq!(beside, [src.join("a 副本.txt")]);
 
     // 符号链接复制为链接本身。
     #[cfg(unix)]
     {
-        let link = copy_into(&[src.join("link")], &dest).unwrap();
+        let link = copy_into(&[src.join("link")], &dest, &Copying::default()).unwrap();
         assert_eq!(fs::read_link(&link[0]).unwrap(), Path::new("a.txt"));
     }
 
     // 目录粘贴到自身：在旁边得到副本；粘贴到自身之内更深的位置则被拒绝。
     let folder = src.join("folder");
-    let duplicate = copy_into(std::slice::from_ref(&folder), &folder).unwrap();
+    let duplicate = copy_into(std::slice::from_ref(&folder), &folder, &Copying::default()).unwrap();
     assert_eq!(duplicate, [src.join("folder 副本")]);
     assert!(src.join("folder 副本/inner/b.txt").is_file());
-    let err = copy_into(std::slice::from_ref(&src), &src.join("folder")).unwrap_err();
+    let err = copy_into(
+        std::slice::from_ref(&src),
+        &src.join("folder"),
+        &Copying::default(),
+    )
+    .unwrap_err();
     assert_eq!(err.error.kind(), io::ErrorKind::InvalidInput);
     // 不存在的源报告是哪一项。
     let missing = src.join("missing.txt");
-    let err = copy_into(std::slice::from_ref(&missing), &dest).unwrap_err();
+    let err = copy_into(std::slice::from_ref(&missing), &dest, &Copying::default()).unwrap_err();
     assert_eq!(err.path, missing);
 
     let _ = fs::remove_dir_all(&dir);

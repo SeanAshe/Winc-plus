@@ -7,13 +7,14 @@
 
 use std::io;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock, PoisonError, mpsc};
 use std::time::Duration;
 
 use ed25519_dalek::{Signature, VerifyingKey};
 
+use crate::web::{command, fetch};
 use crate::winc::UpdateState;
 #[cfg(unix)]
 use appimage as platform;
@@ -301,7 +302,7 @@ fn race(feeds: &[String], key: &VerifyingKey) -> Option<String> {
     for feed in feeds {
         let (tx, feed, key) = (tx.clone(), feed.clone(), *key);
         std::thread::spawn(move || {
-            let body = fetch(&feed)
+            let body = fetch(&feed, FEED_TIMEOUT, None)
                 .and_then(|bytes| signed_part(&bytes, &key).map(<[u8]>::to_vec))
                 .and_then(|bytes| String::from_utf8(bytes).ok())
                 .filter(|text| text.contains("<rss") && text.contains("</rss>"));
@@ -334,59 +335,6 @@ pub fn signed_part<'a>(feed: &'a [u8], key: &VerifyingKey) -> Option<&'a [u8]> {
     key.verify_strict(signed, &Signature::from_bytes(&signature))
         .ok()
         .map(|()| signed)
-}
-
-/// 构造运行 `program` 的命令。
-#[cfg(unix)]
-fn command(program: &str) -> Command {
-    Command::new(program)
-}
-
-/// 构造运行 `program` 的命令，不为它创建控制台窗口。
-#[cfg(windows)]
-fn command(program: &str) -> Command {
-    use std::os::windows::process::CommandExt;
-    /// `CREATE_NO_WINDOW`：不为控制台程序创建窗口。
-    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-    let mut command = Command::new(program);
-    command.creation_flags(CREATE_NO_WINDOW);
-    command
-}
-
-/// 取回 `url` 的内容：优先使用 `curl`，未安装时使用 `wget`。
-///
-/// 请求失败时返回 `None`。
-fn fetch(url: &str) -> Option<Vec<u8>> {
-    let timeout = FEED_TIMEOUT.to_string();
-    let curl = command("curl")
-        .args([
-            "--fail",
-            "--silent",
-            "--location",
-            "--max-time",
-            &timeout,
-            url,
-        ])
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output();
-    let output = match curl {
-        Err(e) if e.kind() == io::ErrorKind::NotFound => command("wget")
-            .args([
-                "--quiet",
-                "--timeout",
-                &timeout,
-                "--output-document",
-                "-",
-                url,
-            ])
-            .stdin(Stdio::null())
-            .stderr(Stdio::null())
-            .output()
-            .ok()?,
-        result => result.ok()?,
-    };
-    output.status.success().then_some(output.stdout)
 }
 
 /// 把 `url` 下载到 `path`：优先使用 `curl`，未安装时使用 `wget`。
@@ -435,6 +383,7 @@ fn download(url: &str, path: &Path, length: u64, progress: &dyn Fn(u8)) -> Resul
 /// 等下载命令 `child` 结束，期间按 `path` 的大小报告进度（见 [`download`]），返回命令的输出。
 ///
 /// 两个命令都只在出错时写标准错误，内容很少，结束前不读也不会写满管道。
+#[allow(clippy::disallowed_methods, reason = "只访问本机：更新包下载到本机")]
 fn watch(
     mut child: Child,
     path: &Path,

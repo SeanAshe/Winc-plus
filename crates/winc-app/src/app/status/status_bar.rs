@@ -30,6 +30,8 @@ pub enum StatusItem {
     Branch,
     /// 终端面板的开关（终端模块开着时在设置按钮左边）。
     Terminal,
+    /// 连接远端主机的按钮（远程模块开着时在终端开关左边）：点了打开主机面板。
+    Remote,
     /// 设置按钮（始终在最右边）：点了打开设置。
     Settings,
     /// 后台检查找到了新版本：点了打开更新窗口。
@@ -54,6 +56,9 @@ impl App {
     pub(in crate::app) fn open_status_menu(&mut self, item: StatusItem) {
         if item == StatusItem::Terminal {
             return self.click_terminal_button();
+        }
+        if item == StatusItem::Remote {
+            return self.open_remote_picker();
         }
         // 面板开着时点在面板外先关掉它（`click_picker`），再点一下才展开：点分支名就是开和关。
         if item == StatusItem::Branch {
@@ -83,6 +88,7 @@ impl App {
             (
                 StatusItem::Branch
                 | StatusItem::Terminal
+                | StatusItem::Remote
                 | StatusItem::Settings
                 | StatusItem::Update,
                 _,

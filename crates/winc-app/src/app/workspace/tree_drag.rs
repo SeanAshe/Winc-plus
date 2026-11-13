@@ -311,16 +311,20 @@ impl App {
     /// 在后台把 `paths` 中的各项复制进目录 `dir`，完成后选中各个副本（[`App::copied_into_tree`]）。
     ///
     /// 同名时副本改名（见 [`winc_editor::copy_entry`]）。目录可能很大，复制时间与内容大小成正比，
-    /// 因此不在界面线程上执行。某一项复制失败时提示原因，其余各项仍然复制。
+    /// 因此不在界面线程上执行（[`App::spawn_copy`]）。某一项复制失败时提示原因，其余各项仍然复制。
     pub(in crate::app) fn copy_entries_into(&mut self, paths: Vec<PathBuf>, dir: PathBuf) {
         let Some(root) = self.editor.root().map(Path::to_path_buf) else {
             return;
         };
-        let copy = move || {
+        let remote =
+            winc_backend::is_remote(&dir) || paths.iter().any(|path| winc_backend::is_remote(path));
+        let copy = move |copying: &winc_editor::Copying| {
             let (mut copies, mut failures) = (Vec::new(), Vec::new());
             for from in &paths {
-                match winc_editor::copy_entry(&root, from, &dir) {
+                match winc_editor::copy_entry(&root, from, &dir, copying) {
                     Ok(copy) => copies.push(copy),
+                    // 取消之后其余各项不再复制，也不算失败。
+                    Err(_) if copying.is_cancelled() => break,
                     Err(e) => failures.push(t!(
                         "workspace-tree-copy-failed",
                         name = winc_editor::display_name(from),
@@ -330,15 +334,9 @@ impl App {
             }
             (copies, failures)
         };
-        match self.proxy.clone() {
-            Some(proxy) => winc_editor::background::spawn(move || {
-                let (copies, failures) = copy();
-                let _ = proxy.send_event(UserEvent::Copied(copies, failures));
-            }),
-            None => {
-                let (copies, failures) = copy();
-                self.copied_into_tree(copies, failures);
-            }
+        let done = |(copies, failures), copying| UserEvent::Copied(copies, failures, copying);
+        if let Some((copies, failures)) = self.spawn_copy(remote, copy, done) {
+            self.copied_into_tree(copies, failures);
         }
     }
 
@@ -420,20 +418,37 @@ impl App {
     ///
     /// 文档的内容和修改状态不变。某一项移动失败时提示原因，其余各项仍然移动。
     pub(in crate::app) fn move_entries(&mut self, paths: &[PathBuf], dir: &Path) {
-        // 先等待后台保存完成，否则保存会在原位置重新写出文件。
-        self.wait_for_saves();
+        // 先等待后台保存完成，否则保存会在原位置重新写出文件。远端的保存与移动按顺序执行。
+        if !winc_backend::is_remote(dir) {
+            self.wait_for_saves();
+        }
+        let Some(root) = self.editor.root().map(Path::to_path_buf) else {
+            return;
+        };
+        let (paths, into) = (paths.to_vec(), dir.to_path_buf());
+        let relocate = move || {
+            let results: Vec<std::io::Result<PathBuf>> = (paths.iter())
+                .map(|from| winc_editor::move_at(&root, from, &into))
+                .collect();
+            (paths, results)
+        };
+        self.file_work(dir, relocate, |app, (paths, results)| {
+            app.entries_moved(&paths, results);
+        });
+    }
+
+    /// 移动完成：更新文件树和已打开文档的路径，选中移过去的各项；`results` 是 `paths` 中各项
+    /// 的结果。
+    fn entries_moved(&mut self, paths: &[PathBuf], results: Vec<std::io::Result<PathBuf>>) {
         let mut moved = Vec::new();
-        for from in paths {
-            let Some(result) = self
-                .editor
-                .workspace
-                .as_mut()
-                .map(|ws| ws.move_into(from, dir))
-            else {
-                return;
-            };
+        for (from, result) in paths.iter().zip(results) {
             match result {
                 Ok(target) => {
+                    if target != *from
+                        && let Some(ws) = &mut self.editor.workspace
+                    {
+                        ws.relocated(from, &target);
+                    }
                     self.paths_moved(from, &target);
                     // 从别的窗口剪切来的：原窗口打开的文件、文件树也要跟着改。
                     let elsewhere = self

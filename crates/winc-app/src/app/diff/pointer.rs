@@ -2,6 +2,8 @@
 
 use super::*;
 
+use crate::app::scroll::set_scroll_line;
+
 impl App {
     /// 处理差异文字上的右键点击，返回差异标签以及是否为右侧；不在文字上时返回 `None`。
     ///
@@ -260,9 +262,9 @@ impl App {
         let top = editor.y + DIFF_HEADER;
         if let Some(doc) = self.editor.active_mut() {
             if y < top {
-                doc.scroll_line -= 1.0;
+                set_scroll_line(doc, doc.scroll_line - 1.0);
             } else if y > editor.bottom() {
-                doc.scroll_line += 1.0;
+                set_scroll_line(doc, doc.scroll_line + 1.0);
             }
         }
         self.clamp_scroll();

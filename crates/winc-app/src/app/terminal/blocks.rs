@@ -495,7 +495,7 @@ impl App {
                 if spots
                     .iter()
                     .any(|s| s.path == path && s.line + 1 == line_no)
-                    || !path.is_file()
+                    || !winc_backend::fs::is_file(&path)
                 {
                     continue;
                 }

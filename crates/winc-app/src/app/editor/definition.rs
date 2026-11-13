@@ -534,6 +534,7 @@ impl App {
         self.picker.location_rows = None;
         self.picker.folders = false;
         self.picker.vim_list = None;
+        self.picker.remote = None;
         self.picker.places = Some(Places {
             kind,
             name,
@@ -665,7 +666,7 @@ fn filter_file(
 ) {
     let text = match dirty.get(&file.path) {
         Some(rope) => rope.clone(),
-        None => match std::fs::read(&file.path).map(String::from_utf8) {
+        None => match winc_backend::fs::read(&file.path).map(String::from_utf8) {
             Ok(Ok(text)) => Rope::from_str(&text),
             _ => return,
         },

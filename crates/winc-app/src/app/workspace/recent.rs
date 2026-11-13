@@ -42,6 +42,7 @@ impl App {
         self.picker.places = None;
         self.picker.branch_rows = None;
         self.picker.location_rows = None;
+        self.picker.remote = None;
         self.picker.folders = true;
         self.picker.open = true;
         self.picker.doc = self.editor.active().map(|d| d.id);

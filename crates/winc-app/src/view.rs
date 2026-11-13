@@ -24,6 +24,7 @@ use crate::layout::{SearchParts, scrollbar_thumb};
 use crate::theme::*;
 
 mod alert;
+mod controls;
 mod dialog;
 mod diff;
 mod editor;
@@ -963,7 +964,8 @@ fn blend_card(
 ///
 /// `draw` 绘制卡片内容，卡片位于 `rect`。淡入期间先绘制并保存卡片快照，再恢复卡片下方
 /// （含阴影范围）的画面，之后整张淡入并放大；其余时间每帧也保存一份快照，关闭后由
-/// [`draw_card_ghost`] 用最后一份快照淡出。
+/// [`draw_card_ghost`] 用最后一份快照淡出。开着换页（[`App::turn_card`]）时，换页之前的快照
+/// 先在原处淡出，新的一页叠在其上淡入。
 fn draw_moving_card(
     app: &mut App,
     frame: &mut Frame<'_>,
@@ -985,6 +987,16 @@ fn draw_moving_card(
         app.card_fx(card).shot = Some((rect, shot));
         return;
     };
+    // 换页时旧的一页在新的一页之下淡出。
+    let p = app.palette;
+    let scale = frame.scale();
+    if let Some((clock, at, old)) = &app.card_fx(card).turning
+        && !clock.done()
+        && old.covers(*at, scale)
+    {
+        let curve = dialog_curve(false, *clock);
+        blend_card(frame, p, (*at, old), card.radius(), curve);
+    }
     let mut base = app.card_fx(card).base.take().unwrap_or_default();
     frame.snapshot_into(rect.inset(-CARD_SHADOW, -CARD_SHADOW), &mut base);
     draw(app, frame);

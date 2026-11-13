@@ -1,0 +1,41 @@
+# 本 crate 访问的路径可能在远端主机上，文件操作一律经 `winc_backend::fs`，不直接调用标准库。
+# 本文件取代仓库根目录的 clippy.toml（clippy 只读取最近的一份），其中的其余设置在此重复；
+# 修改根目录的那份时同步修改各 crate 的这一份。
+# 文档中可以不加反引号的专有名词；".." 保留 clippy 默认的那一组（macOS、GitHub……）。
+doc-valid-idents = ["AppImage", "ConPTY", "EdDSA", ".."]
+# Windows 上 `std::fs::canonicalize` 返回带 `\\?\` 前缀的路径；一律用去掉了前缀的版本。
+disallowed-methods = [
+    { path = "std::fs::canonicalize", reason = "用 winc_config::files::canonicalize：Windows 上去掉 \\\\?\\ 前缀" },
+    { path = "std::path::Path::canonicalize", reason = "用 winc_config::files::canonicalize：Windows 上去掉 \\\\?\\ 前缀" },
+    { path = "std::fs::read", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::fs::read_to_string", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::fs::write", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::fs::metadata", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::fs::symlink_metadata", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::fs::read_dir", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::fs::read_link", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::fs::rename", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::fs::remove_file", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::fs::remove_dir", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::fs::remove_dir_all", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::fs::create_dir", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::fs::create_dir_all", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::fs::copy", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::fs::hard_link", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::fs::set_permissions", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::fs::exists", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::path::Path::exists", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::path::Path::try_exists", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::path::Path::is_file", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::path::Path::is_dir", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::path::Path::is_symlink", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::path::Path::metadata", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::path::Path::symlink_metadata", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::path::Path::read_dir", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::path::Path::read_link", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::fs::File::open", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::fs::File::create", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::fs::File::create_new", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::fs::File::options", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+    { path = "std::fs::OpenOptions::open", reason = "经 winc_backend::fs 访问，路径可能在远端主机上；只访问本机的模块用带 reason 的 allow 标注" },
+]

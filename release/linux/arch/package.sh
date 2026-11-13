@@ -13,7 +13,8 @@ fi
 release_dir="target/$target/release"
 workdir=$(mktemp -d)
 trap 'rm -rf -- "$workdir"' EXIT
-install -m755 "$release_dir/winc" "$release_dir/winc-pty" -t "$workdir"
+install -m755 "$release_dir/winc" "$release_dir/winc-pty" \
+  target/remote-server/winc-server-Linux-x86_64 target/remote-server/winc-server-Linux-aarch64 -t "$workdir"
 install -m644 release/linux/arch/PKGBUILD release/linux/winc.desktop \
   "$release_dir/bundle/icons/winc.png" LICENSE NOTICE -t "$workdir"
 install -m644 release/linux/file-manager/* -t "$workdir"
@@ -32,6 +33,8 @@ docker run --rm --volume "$workdir:/work:ro" "$image" bash -euc '
   test "$(pacman -Q winc)" = "winc $2-1"
   test "$(winc --version)" = "winc $2"
   test -x /usr/bin/winc-pty
+  test -f /usr/lib/winc/winc-server-Linux-x86_64
+  test -f /usr/lib/winc/winc-server-Linux-aarch64
   test -f /usr/share/kio/servicemenus/winc-open-folder.desktop
   test -f /usr/share/nemo/actions/winc-open-current-folder.nemo_action
 ' bash "$package" "$version"

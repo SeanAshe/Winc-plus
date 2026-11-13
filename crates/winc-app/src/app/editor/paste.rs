@@ -33,7 +33,7 @@ impl App {
     pub(in crate::app) fn clipboard_image_file(&mut self) -> Option<std::io::Result<PathBuf>> {
         let png = self.clipboard_png()?;
         let dir = std::env::temp_dir().join("winc-paste");
-        if let Err(error) = std::fs::create_dir_all(&dir) {
+        if let Err(error) = winc_backend::fs::create_dir_all(&dir) {
             return Some(Err(error));
         }
         Some(paste::save_image(&dir, &png))
@@ -281,8 +281,10 @@ impl App {
             return;
         }
         if !files.is_empty() {
-            let copy = move || {
-                paste::copy_into(&files, &dir).map_err(|CopyError { path, error }| {
+            let remote = winc_backend::is_remote(&dir)
+                || files.iter().any(|path| winc_backend::is_remote(path));
+            let copy = move |copying: &winc_editor::Copying| {
+                paste::copy_into(&files, &dir, copying).map_err(|CopyError { path, error }| {
                     t!(
                         "editor-paste-failed",
                         name = display_name(&path),
@@ -290,11 +292,8 @@ impl App {
                     )
                 })
             };
-            match self.proxy.clone() {
-                Some(proxy) => winc_editor::background::spawn(move || {
-                    let _ = proxy.send_event(UserEvent::Pasted(copy()));
-                }),
-                None => self.pasted_into_tree(copy()),
+            if let Some(result) = self.spawn_copy(remote, copy, UserEvent::Pasted) {
+                self.pasted_into_tree(result);
             }
             return;
         }

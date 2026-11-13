@@ -5,6 +5,9 @@
 //! `macos` 放直接调用 `AppKit` 的能力。Windows 上是图形界面程序：从命令行启动时接上该命令行的
 //! 控制台，`--help` 和错误信息输出到该控制台（`windows::attach_console`）。
 
+// 测试直接在本机的临时目录中准备和检查文件。
+#![cfg_attr(test, allow(clippy::disallowed_methods))]
+
 mod app;
 mod askpass;
 mod bench;
@@ -24,6 +27,7 @@ mod macos;
 mod portal;
 #[cfg(any(windows, test))]
 mod recents;
+mod release_notes;
 mod release_version;
 mod shell_command;
 #[cfg(any(windows, test))]
@@ -37,6 +41,7 @@ mod updates;
 mod view;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod wayland;
+mod web;
 mod winc;
 #[cfg(windows)]
 mod windows;
@@ -68,6 +73,18 @@ pub fn run() {
     }
     shell_command::enter_real_path();
     crash::install();
+    // 本线程是界面线程：不等待远端主机的应答，访问远端文件的操作都在后台线程上进行。
+    winc_backend::remote::forbid_blocking();
+    // 连接断开时各项操作失败的原因原样出现在提示里：用界面语言说明。
+    winc_backend::remote::describe_unavailable(|what| {
+        use winc_backend::remote::Unavailable;
+        match what {
+            Unavailable::Lost => winc_i18n::t!("workspace-remote-error-lost").to_owned(),
+            Unavailable::NotConnected => {
+                winc_i18n::t!("workspace-remote-error-not-connected").to_owned()
+            }
+        }
+    });
     #[cfg(windows)]
     windows::attach_console();
     // `--help` 和无法识别的选项不需要窗口，先处理参数；用法与错误信息按系统语言输出。
@@ -255,8 +272,16 @@ pub fn run() {
         app.state_path = state_path;
         app.backup.root = backup_root;
         app.adopt_restored(restored);
+        // 测量时没有状态文件：不记录版本，开始页也不显示「首次设置」。
+        if app.state_path.is_some() {
+            app.note_version();
+        }
         // 从命令行打开的目录同样记入「最近打开」。
         app.remember_workspace();
+        // 上次开着的是远端的目录：启动时没有连接，无法像本机目录那样直接打开，在后台重新连接。
+        if args.targets.is_empty() {
+            app.restore_remote_folder();
+        }
     }
 
     winc.add(key, app);
@@ -282,7 +307,7 @@ pub(crate) fn open_targets(editor: &mut Editor, args: &cli::Args) -> Vec<String>
     let mut problems = Vec::new();
     let mut first_file = None;
     for target in &args.targets {
-        if target.path.is_dir() {
+        if winc_backend::fs::is_dir(&target.path) {
             if args.one_off() {
                 let path = target.path.display().to_string();
                 problems.push(winc_i18n::t!("cmd-cli-wait-folder", path = path));
@@ -362,5 +387,5 @@ fn set_encoding_region() {
 /// 目录已不存在时不做任何事，开始页的最近列表仍保留该条目。标签由 `app::restore_tabs`
 /// 按现场恢复。
 pub(crate) fn open_session_folder(editor: &mut Editor, session: &Session) -> bool {
-    session.folder.is_dir() && editor.open_folder(&session.folder).is_ok()
+    winc_backend::fs::is_dir(&session.folder) && editor.open_folder(&session.folder).is_ok()
 }

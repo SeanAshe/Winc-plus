@@ -2,6 +2,8 @@
 
 use super::*;
 
+use crate::app::scroll::set_scroll_line;
+
 impl App {
     /// 返回当前标签中右侧没有对应工作区文件的差异，例如从 Git 日志打开的提交；
     /// 当前标签不是这类差异时返回 `None`。
@@ -97,16 +99,18 @@ impl App {
         } else {
             (row, view.side_scroll(side, doc.scroll_line, visible))
         };
+        let wrapping = view.is_wrapping();
         if row < top + covered.max(sticky) || row + 1.0 > top + visible {
             let top = (row - visible / 2.0).max(0.0);
-            doc.scroll_line = if view.is_unified() {
+            let row = if view.is_unified() {
                 top
             } else {
                 view.pos_of_top(side, top, visible)
             };
             view.focus = None;
+            set_scroll_line(doc, row);
         }
-        if !view.is_wrapping() {
+        if !wrapping {
             let width = (pane.w - 2.0 * DIFF_TEXT_PAD).max(self.cell);
             if x < doc.scroll_x || x_end > doc.scroll_x + width {
                 // 匹配的起点放在中间；匹配较长时右移到能显示其末端，但不越过起点。

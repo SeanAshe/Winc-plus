@@ -9,7 +9,9 @@ use super::*;
 
 pub(super) mod background_save;
 pub(super) mod compare;
+pub(super) mod copying;
 pub(super) mod file_drop;
+pub(super) mod file_work;
 pub(super) mod files;
 pub(super) mod global;
 pub(super) mod loading;

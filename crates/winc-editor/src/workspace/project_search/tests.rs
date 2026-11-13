@@ -1,6 +1,8 @@
 //! 全局搜索与跨文件替换的测试：忽略规则与 glob、大小写与全词、预览截断、结果上限、按块
 //! 读取与大文件、跨行匹配，以及替换后保持编码和换行符。
 
+use std::fs;
+
 use super::*;
 use crate::test_util::scratch;
 
@@ -947,4 +949,101 @@ fn required_text_does_not_change_the_results() {
         assert_eq!(total, hits, "{name}: {results:?}");
     }
     let _ = fs::remove_dir_all(&dir);
+}
+
+/// 远端主机上的目录：要搜索的文件由远端的一条命令给出，匹配和结果与本机相同。
+#[cfg(unix)]
+#[test]
+fn folders_on_a_remote_host_are_searched_through_the_connection() {
+    use std::os::unix::ffi::OsStrExt;
+    use winc_backend::remote;
+
+    let local = scratch("search-remote");
+    write(&local, "src/main.rs", b"let needle = 1;\nNEEDLE again\n");
+    write(&local, "src/other.rs", b"nothing here\n");
+    write(
+        &local,
+        "docs/guide.md",
+        "找 needle，也找 Ünïcode\n".as_bytes(),
+    );
+    write(&local, "dist/out.js", b"needle\n");
+    write(&local, "node_modules/pkg/index.js", b"needle\n");
+    let target = crate::test_util::loopback("search-remote");
+    let root = winc_backend::virtual_path(&target, local.as_os_str().as_bytes());
+    let names = |q: &Query| -> Vec<String> {
+        let mut found: Vec<String> = (files(&search(&root, q)).iter())
+            .map(ToString::to_string)
+            .collect();
+        found.sort();
+        found
+    };
+    let trips = |q: &Query| {
+        let before = remote::requests(&target);
+        let found = names(q);
+        (found, remote::requests(&target) - before)
+    };
+
+    // 不是仓库：没有忽略规则，只跳过文件树中不显示的名字。按字面查找时远端先筛出含有它的
+    // 文件，只读取这些文件：一次列出（`git` 不可用再加一次），每个候选文件一次。
+    let all = [
+        "dist/out.js",
+        "docs/guide.md",
+        "node_modules/pkg/index.js",
+        "src/main.rs",
+    ];
+    let (found, requests) = trips(&query("needle"));
+    assert_eq!(found, all);
+    assert_eq!(requests, 2 + 4);
+    // 匹配的位置与本机搜索的相同。
+    let here = search(&local, &query("needle"));
+    let there = search(&root, &query("needle"));
+    let matches = |found: &ProjectSearch| -> Vec<(String, Vec<LineMatch>)> {
+        let mut all: Vec<_> = (found.results.iter())
+            .map(|file| (file.relative.clone(), file.matches.clone()))
+            .collect();
+        all.sort_by(|a, b| a.0.cmp(&b.0));
+        all
+    };
+    assert_eq!(matches(&here), matches(&there));
+
+    // 区分大小写、全字、包含与排除照常生效。
+    let exact = Query {
+        case_sensitive: true,
+        ..query("NEEDLE")
+    };
+    assert_eq!(names(&exact), ["src/main.rs"]);
+    let filtered = Query {
+        include: "*.rs, *.md".to_owned(),
+        exclude: "docs".to_owned(),
+        ..query("needle")
+    };
+    assert_eq!(names(&filtered), ["src/main.rs"]);
+    // 正则、不区分大小写的非 ASCII 文字：远端不筛选，全部文件都读取后匹配。
+    let regex = Query {
+        regex: true,
+        ..query("n[e]+dle = \\d")
+    };
+    assert_eq!(names(&regex), ["src/main.rs"]);
+    assert_eq!(names(&query("ünïCODE")), ["docs/guide.md"]);
+    assert!(names(&query("no such text anywhere")).is_empty());
+
+    // 是仓库：遵守忽略规则，要求时也搜索被忽略的文件。
+    write(&local, ".gitignore", b"dist/\nnode_modules/\n");
+    let git = std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&local)
+        .status();
+    if git.is_ok_and(|status| status.success()) {
+        let (found, requests) = trips(&query("needle"));
+        assert_eq!(found, ["docs/guide.md", "src/main.rs"]);
+        assert_eq!(requests, 1 + 2);
+        let ignored = Query {
+            include_ignored: true,
+            ..query("needle")
+        };
+        assert_eq!(names(&ignored), all);
+        assert_eq!(names(&regex), ["src/main.rs"]);
+    }
+    remote::disconnect(&target);
+    let _ = std::fs::remove_dir_all(&local);
 }

@@ -104,24 +104,28 @@ pub(super) fn parse_risks(
 
     // 先只列出名字排好序，再逐个读内容喂进指纹：同一时刻只有一个 hook 的内容在内存里。
     let (dir, label) = hooks_dir(stdout, root, default, home).unzip();
-    let mut hooks: Vec<(String, PathBuf)> = dir
-        .and_then(|dir| std::fs::read_dir(dir).ok())
+    // 示例文件按名字就能排除；其余各项的文件信息一次取回（远端的仓库只需一次往返）。
+    let candidates: Vec<(String, PathBuf)> = dir
+        .and_then(|dir| winc_backend::fs::read_dir(dir).ok())
         .into_iter()
         .flatten()
         .flatten()
-        .filter_map(|entry| {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let path = entry.path();
-            let metadata = std::fs::metadata(&path).ok()?;
-            (!name.ends_with(".sample") && metadata.is_file() && executable(&metadata))
-                .then_some((name, path))
+        .map(|entry| (entry.name.to_string_lossy().into_owned(), entry.path()))
+        .filter(|(name, _)| !name.ends_with(".sample"))
+        .collect();
+    let paths: Vec<&Path> = candidates.iter().map(|(_, path)| path.as_path()).collect();
+    let found = winc_backend::fs::metadata_many(&paths);
+    let mut hooks: Vec<(String, PathBuf)> = (candidates.into_iter().zip(found))
+        .filter(|(_, metadata)| {
+            (metadata.as_ref()).is_ok_and(|metadata| metadata.is_file() && executable(metadata))
         })
+        .map(|(hook, _)| hook)
         .collect();
     hooks.sort();
     for (name, path) in hooks {
         fingerprint.write(name.as_bytes());
         fingerprint.push(0);
-        fingerprint.write(&std::fs::read(&path).unwrap_or_default());
+        fingerprint.write(&winc_backend::fs::read(&path).unwrap_or_default());
         fingerprint.push(0);
         let label = label.as_deref().unwrap_or("hooks");
         risks.items.push(format!("{label}/{name}"));
@@ -169,9 +173,8 @@ fn hooks_dir(
 }
 
 #[cfg(unix)]
-fn executable(metadata: &std::fs::Metadata) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    metadata.permissions().mode() & 0o111 != 0
+fn executable(metadata: &winc_backend::fs::Metadata) -> bool {
+    metadata.unix.is_some_and(|unix| unix.mode & 0o111 != 0)
 }
 
 /// Windows 上的 `git` 不检查可执行位，钩子目录中的文件都会运行。
@@ -179,7 +182,7 @@ fn executable(metadata: &std::fs::Metadata) -> bool {
 /// WSL 发行版中的仓库由发行版内的 `git` 运行钩子，不可执行的文件不会运行。Windows 无法读取
 /// 这类文件的可执行位，因此同样计入：结果最多多出一次信任确认，不会遗漏实际运行的钩子。
 #[cfg(not(unix))]
-fn executable(_: &std::fs::Metadata) -> bool {
+fn executable(_: &winc_backend::fs::Metadata) -> bool {
     true
 }
 
@@ -229,8 +232,12 @@ impl Git {
             "--show-scope",
             "-z",
         ]);
-        let stdout = self.run(&mut command, SHOW_TIMEOUT, &Cancel::default())?;
-        let hooks = git_common_dir(root).map(|d| d.join("hooks"));
+        // 配置和 hooks 目录的位置互不依赖：远端的仓库上同时读取。
+        let common = || git_common_dir(root);
+        let run = || self.run(&mut command, SHOW_TIMEOUT, &Cancel::default());
+        let (common, stdout) = crate::background::both(winc_backend::is_remote(root), common, run);
+        let stdout = stdout?;
+        let hooks = common.map(|d| d.join("hooks"));
         let home = crate::wsl::home_dir(root);
         let risks = Arc::new(parse_risks(
             &stdout,

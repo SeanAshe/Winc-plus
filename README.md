@@ -41,15 +41,17 @@ Measured on macOS; results vary with hardware and system load.
 
 | Area | Capabilities |
 | --- | --- |
-| Editing | Multiple cursors, find and replace, native input methods, and smooth scrolling in gigabyte-sized files |
+| Editing | Multiple cursors, find and replace, native input methods, smooth scrolling in gigabyte-sized files, and an experimental Vim mode |
 | Syntax | Highlighting for common programming, markup, data, and configuration languages, plus lightweight go-to-definition and usages without a language server |
 | Formatting | Whole-file formatting with external tools such as rustfmt, Prettier, Black, Ruff, and gofmt |
-| Preview | Markdown, images, SVG, and spreadsheets (xlsx, csv), with the source one click away |
+| Preview | Markdown with math and Mermaid diagrams, images, SVG, PDF (macOS and Windows), Word documents (docx), and spreadsheets (xlsx, csv), with the source one click away |
 | Git | Side-by-side diffs with word-level highlights, staging by hunk, commit and push, a commit graph, and blame |
 | Project | A file tree, quick open, and project search that follows `.gitignore` |
 | Terminal | An integrated terminal at the bottom of the window |
-| Interface | Light and dark themes, and a complete interface in English and Simplified Chinese |
-| Updates | Signed in-app updates on all three platforms |
+| Remote | Experimental SSH remote: open a folder on a Linux host and edit, search, format, use Git, and open terminals there. On Windows, open folders inside WSL distributions |
+| Interface | Sixteen built-in themes, light and dark, and a complete interface in English and Simplified Chinese |
+| Modules | Git, the terminal, and SSH remote can each be turned off. First-time setup on the start page offers the appearance, theme, language, and modules |
+| Updates | Signed in-app updates on all three platforms, with the release notes shown in the app after each update |
 
 Touchscreens support tapping buttons and placing the caret, double-tapping to select a word,
 swiping to scroll, and dragging scrollbars and panel dividers. Hold for 500 ms to open the context
@@ -67,7 +69,7 @@ zoomed image to pan, and double-click to fit it again. This also works in the SV
 | Platform | Requirements | Package |
 | --- | --- | --- |
 | macOS | macOS 11 or later, Apple silicon or Intel | Disk image |
-| Linux | x86_64, X11 or Wayland | AppImage, deb |
+| Linux | x86_64, X11 or Wayland | AppImage, deb, Arch repository |
 | Windows | Windows 10 1809 or later, x86_64 | NSIS, MSI, portable ZIP |
 
 The portable ZIP keeps settings and state in the `data` folder beside `winc.exe`; delete that
@@ -83,6 +85,7 @@ winc is developed and tested mainly on macOS. Download it from
 winc .                  # open the current folder
 winc file.rs:12:5       # open a file at a line and column
 winc --wait file        # wait until the tab closes, for example as the Git editor
+cargo build 2>&1 | winc -   # read standard input
 ```
 
 The Windows installers and the Linux deb and Arch packages add `winc` to `PATH`; the Windows portable ZIP leaves `PATH` unchanged. On macOS, choose **Winc → Install winc Command…** from the menu bar or run **Shell Command: Install winc Command** from the command palette; with the Linux AppImage, use the command palette.
@@ -120,8 +123,12 @@ The workspace is split into crates by responsibility:
 | `winc-core` | Text, editing, undo, and diffing, independent of the interface |
 | `winc-syntax` | Lexers for syntax highlighting |
 | `winc-editor` | Editor logic: documents, file tree, search, Git, and formatting |
+| `winc-vim` | Vim mode without the interface: key notation, the command table, parsing, and evaluation |
+| `winc-backend` | File system access for local paths and for paths on remote hosts |
+| `winc-server` | The server process that runs on a remote host and serves file operations over SSH |
+| `winc-watch` | Watches folders on the machine that holds them (WSL distributions, remote hosts) |
 | `winc-render` | Rendering: glyphs, rasterization, and presentation |
-| `winc-preview` | Previews for images, SVG, Markdown, and spreadsheets |
+| `winc-preview` | Previews for images, SVG, Markdown, PDF, Word documents, and spreadsheets |
 | `winc-typeset` | Layout for the Markdown preview |
 | `winc-pty` | Terminal emulation and the pseudo-terminal helper process |
 | `winc-config` | Configuration and state files |

@@ -109,10 +109,10 @@ impl<'a, 'input> Parser<'a, 'input> {
             };
             // 只读取普通文件，且大小不超过 `crate::image::FILE_MAX`：`href="/dev/zero"` 或管道的
             // 读取没有尽头。
-            let file = std::fs::metadata(&full)
+            let file = winc_backend::fs::metadata(&full)
                 .ok()
-                .filter(|m| m.is_file() && m.len() <= crate::image::FILE_MAX);
-            match file.and_then(|_| std::fs::read(&full).ok()) {
+                .filter(|m| m.is_file() && m.len <= crate::image::FILE_MAX);
+            match file.and_then(|_| winc_backend::fs::read(&full).ok()) {
                 Some(bytes) => bytes,
                 None => {
                     self.miss(winc_i18n::t!("preview-svg-missing-image-not-found"));

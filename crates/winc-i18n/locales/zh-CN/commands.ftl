@@ -9,12 +9,15 @@ cmd-find-references = 查找引用
 cmd-go-back = 后退
 cmd-go-forward = 前进
 cmd-settings = 设置
+cmd-release-notes = 更新日志
 cmd-keyboard-shortcuts = 快捷键
 cmd-record-keys = 录制按键
 cmd-new-file = 新建文件
 cmd-new-window = 新建窗口
 cmd-open-file = 打开…
 cmd-open-folder = 打开目录…
+cmd-remote-connect = 远程：连接到 SSH 主机…
+cmd-remote-disconnect = 远程：断开连接
 cmd-open-recent = 打开最近的目录…
 cmd-open-wsl-folder = 打开 WSL 目录
 cmd-save = 保存
@@ -59,8 +62,8 @@ cmd-copy-lines-down = 向下复制行
 cmd-join-lines = 合并行
 cmd-expand-selection = 扩大选区
 cmd-shrink-selection = 缩小选区
-cmd-add-cursor-above = 在上面添加光标
-cmd-add-cursor-below = 在下面添加光标
+cmd-add-cursor-above = 在上方添加光标
+cmd-add-cursor-below = 在下方添加光标
 cmd-add-next-occurrence = 将选择添加到下一个匹配项
 cmd-skip-to-next-occurrence = 将上次选择移动到下一个匹配项
 cmd-select-all-occurrences = 选择所有匹配项
@@ -190,10 +193,10 @@ cmd-toggle-terminal-position = 终端：切换面板位置
 cmd-install-shell-command = Shell 命令：安装 winc 命令
 cmd-uninstall-shell-command = Shell 命令：卸载 winc 命令
 shell-command-installed = 已安装 winc 命令：{ $path }
-shell-command-installed-hint = 已安装 winc 命令：{ $path }。如果终端找不到命令，请把 { $dir } 加入 PATH。
+shell-command-installed-hint = 已安装 winc 命令：{ $path }。终端找不到该命令时，请将 { $dir } 加入 PATH。
 shell-command-uninstalled = 已卸载 winc 命令
-shell-command-not-installed = 没有安装 winc 命令
-shell-command-occupied = { $path } 已被其他程序占用，未作改动
+shell-command-not-installed = 尚未安装 winc 命令
+shell-command-occupied = { $path } 已被其他程序占用，未做修改
 shell-command-failed = 无法修改 { $path }：{ $error }
 cmd-maximize-terminal = 终端：最大化面板
 cmd-rename-terminal = 终端：重命名
@@ -208,9 +211,9 @@ cmd-toggle-preview = 切换预览
 
 ## 执行命令时的提示
 
-cmd-no-selected-file = 没有选中的文件
-cmd-no-file-for-tab = 当前标签页没有对应的文件
-cmd-no-selection = 没有选中的内容
+cmd-no-selected-file = 未选中文件
+cmd-no-file-for-tab = 当前标签页未关联文件
+cmd-no-selection = 未选中任何内容
 cmd-chord-unassigned = { $keys } 未分配任何命令
 cmd-chord-pending = 已按下 { $key }，请按第二个键…
 cmd-one-off-no-new-window = 临时窗口无法新建窗口
@@ -222,19 +225,19 @@ cmd-cli-usage =
 
       winc                  恢复上次打开的目录
       winc .                打开当前目录
-      winc 文件:行[:列]     打开文件并跳到那一行
+      winc 文件:行[:列]     打开文件并转到指定行
       winc -                读取标准输入（例如 cargo build 2>&1 | winc -）
-      -w, --wait            等文件的标签都关闭后再退出（例如 git config core.editor "winc -w"）
-      -n, --new-instance    不交给正在运行的 Winc，另开一个进程（例如在 Winc 的终端里运行开发中的版本）
+      -w, --wait            文件的标签页全部关闭后再退出（例如 git config core.editor "winc -w"）
+      -n, --new-instance    不复用正在运行的 Winc，启动新进程（例如在 Winc 的终端中运行开发版本）
       --register-file-types 登记文件类型和图标后退出（安装程序使用）
       --unregister-file-types 去掉这些文件类型后退出（卸载程序使用）
-      -h, --help            显示这些说明
+      -h, --help            显示帮助
       -v, --version         显示版本号
 cmd-cli-unknown-option = 无法识别的选项「{ $flag }」
 cmd-file-type-name = { $name } 文件
 cmd-cli-wait-needs-file = --wait 需要指定文件
 cmd-cli-wsl-needs-name = --wsl 需要指定发行版名称
-cmd-cli-wait-needs-openable-file = --wait 需要至少一个可以打开的文件
+cmd-cli-wait-needs-openable-file = --wait 需要至少一个可打开的文件
 cmd-cli-wait-folder = 「{ $path }」是目录，--wait 只能打开文件
 cmd-cli-open-failed = 无法打开「{ $path }」：{ $error }
 cmd-cli-event-loop-failed = 无法创建事件循环：{ $error }

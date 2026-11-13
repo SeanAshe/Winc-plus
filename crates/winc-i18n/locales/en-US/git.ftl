@@ -1,19 +1,19 @@
 ## Git command line: locating, running and reading output
 
 git-unavailable-not-installed = Git not found
-git-unavailable-no-developer-tools = Command Line Developer Tools aren't installed
-git-status-unreadable = Couldn't read the output of git status
+git-unavailable-no-developer-tools = Command Line Developer Tools aren’t installed
+git-status-unreadable = Couldn’t read the output of git status
 git-status-truncated = Too many changed files in the repository; only the first { $count } are shown
 git-push-no-remote = This repository has no remote configured
-git-file-outside-repository = File isn't in a Git repository
+git-file-outside-repository = File isn’t in a Git repository
 git-run-failed = Git failed
-git-run-spawn-failed = Couldn't run Git ({ $error })
-git-commit-partial-during-operation = { $operation } in progress; can't commit only some changes
-git-trust-config-unreadable = Couldn't read the repository's configuration
+git-run-spawn-failed = Couldn’t run Git ({ $error })
+git-commit-partial-during-operation = { $operation } in progress; can’t commit only some changes
+git-trust-config-unreadable = Couldn’t read the repository’s configuration
 git-trust-required = This repository runs programs automatically during Git operations ({ $commands }). Trust the repository first
 git-list-separator = { ", " }
 git-worktree-copy-invalid-glob = Invalid pattern “{ $glob }” in git.worktreeCopy: { $error }
-git-worktree-copy-failed = Couldn't copy “{ $path }”: { $error }
+git-worktree-copy-failed = Couldn’t copy “{ $path }”: { $error }
 
 ## Operations in progress
 
@@ -37,9 +37,9 @@ git-branch-merge-into-current = Merge into Current Branch
 git-branch-rebase-current-onto = Rebase Current Branch onto This Branch
 git-branch-delete = Delete Branch
 git-branch-delete-confirm = Delete branch “{ $name }”?
-git-branch-delete-confirm-detail = Only the local branch is deleted. Remote branches aren't affected.
+git-branch-delete-confirm-detail = Only the local branch is deleted. Remote branches aren’t affected.
 git-branch-delete-confirm-button = Delete
-git-branch-force-delete-confirm = Branch “{ $name }” isn't fully merged. Delete it anyway?
+git-branch-force-delete-confirm = Branch “{ $name }” isn’t fully merged. Delete it anyway?
 git-branch-force-delete-confirm-detail = Commits that exist only on this branch may be lost.
 git-branch-force-delete-confirm-button = Delete Anyway
 git-branch-compare-with-current = Compare with Current Branch
@@ -58,7 +58,7 @@ git-stash-pop = Pop
 git-stash-drop = Drop
 git-stash-drop-confirm = Drop stash “{ $name }”?
 git-stash-gone = This stash no longer exists
-git-stash-drop-confirm-detail = The changes in this stash can't be recovered after it's dropped.
+git-stash-drop-confirm-detail = The changes in this stash can’t be recovered after it’s dropped.
 git-stash-drop-confirm-button = Drop
 
 ## Background Git operations: what is running, and messages when it finishes
@@ -100,9 +100,9 @@ git-tag-push = Push to Remote
 git-tag-delete = Delete Tag
 git-tag-delete-remote = Delete from Remote
 git-tag-delete-confirm = Delete tag “{ $name }”?
-git-tag-delete-confirm-detail = Only the local tag is deleted. The remote tag isn't affected.
+git-tag-delete-confirm-detail = Only the local tag is deleted. The remote tag isn’t affected.
 git-tag-delete-remote-confirm = Delete tag “{ $name }” from the remote?
-git-tag-delete-remote-confirm-detail = Collaborators can no longer fetch this tag from the remote. The local tag isn't affected.
+git-tag-delete-remote-confirm-detail = Collaborators can no longer fetch this tag from the remote. The local tag isn’t affected.
 git-tag-delete-confirm-button = Delete
 git-remotes-menu = Remotes
 git-remote-add = Add Remote…
@@ -118,7 +118,7 @@ git-remote-save-button = Save
 git-remote-name-exists = A remote with this name already exists
 git-remote-url-invalid = Invalid URL
 git-remote-remove-confirm = Remove remote “{ $name }”?
-git-remote-remove-confirm-detail = This remote's configuration and remote-tracking branches are deleted. Content on the server isn't affected.
+git-remote-remove-confirm-detail = This remote’s configuration and remote-tracking branches are deleted. Content on the server isn’t affected.
 git-remote-remove-confirm-button = Remove
 git-clone-title = Clone Repository
 git-clone-url = URL
@@ -127,7 +127,7 @@ git-clone-button = Clone
 git-clone-running = Cloning…
 git-clone-invalid-url = Invalid URL
 git-clone-no-parent = The selected location doesn’t exist
-git-clone-occupied = The target folder already exists and isn't empty
+git-clone-occupied = The target folder already exists and isn’t empty
 git-op-canceled = Canceled { $what }
 git-question-sign-in = Sign In to { $host }
 git-question-unlock-key = Unlock SSH Key
@@ -136,6 +136,7 @@ git-question-host-key-message = This is the first connection to this host. Verif
 git-question-input = Git Input Required
 git-question-confirm = Git Confirmation Required
 git-question-server = Server
+git-question-origin = Asked by
 git-question-account = Account
 git-question-username = Username
 git-question-password = Password
@@ -175,8 +176,8 @@ git-worktree-close-window-first = Close the window showing worktree “{ $name }
 git-worktree-remove-confirm = Remove worktree “{ $name }”?
 git-worktree-remove-confirm-detail = The worktree folder will be moved to the { common-trash }, where you can restore it.
 git-worktree-remove-unreachable = { $count ->
-    [one] { $count } commit on the detached HEAD doesn't belong to any branch and can't be recovered after removal. To keep it, create a branch for it in this worktree first.
-   *[other] { $count } commits on the detached HEAD don't belong to any branch and can't be recovered after removal. To keep them, create a branch for them in this worktree first.
+    [one] { $count } commit on the detached HEAD doesn’t belong to any branch and can’t be recovered after removal. To keep it, create a branch for it in this worktree first.
+   *[other] { $count } commits on the detached HEAD don’t belong to any branch and can’t be recovered after removal. To keep them, create a branch for them in this worktree first.
 }
 git-worktree-modified-files = { $count ->
     [one] { $count } modified file
@@ -191,10 +192,10 @@ git-worktree-remove-uncommitted = This worktree has uncommitted changes: { $file
 git-worktree-remove-button = Remove
 git-worktree-remove-delete-branch = Also delete branch “{ $branch }”
 git-worktree-close-dialog-first = Close the current dialog first, then remove the worktree
-git-worktree-trash-failed = Couldn't remove worktree “{ $name }”: { $error }
-git-worktree-remove-record-failed = The folder was moved to the { common-trash }, but the worktree record couldn't be removed from Git ({ $error }). Use “Prune Stale Worktrees” later
+git-worktree-trash-failed = Couldn’t remove worktree “{ $name }”: { $error }
+git-worktree-remove-record-failed = The folder was moved to the { common-trash }, but the worktree record couldn’t be removed from Git ({ $error }). Use “Prune Stale Worktrees” later
 git-worktree-branch-deleted = Deleted branch “{ $branch }”
-git-worktree-branch-delete-failed = The folder was moved to the { common-trash }, but branch “{ $branch }” couldn't be deleted: { $error }
+git-worktree-branch-delete-failed = The folder was moved to the { common-trash }, but branch “{ $branch }” couldn’t be deleted: { $error }
 git-op-checkout-new-worktree = checking out “{ $name }” in a new worktree
 git-op-checkout-commit-new-worktree = checking out { $commit } in a new worktree
 git-op-prune-worktrees = pruning stale worktrees
@@ -275,9 +276,9 @@ git-commit-unresolved-conflicts = { $count ->
 }
 git-commit-nothing-checked = Select the files to commit first
 git-commit-done = Committed { $oid }: { $subject }
-git-commit-failed = Couldn't commit: { $error }
+git-commit-failed = Couldn’t commit: { $error }
 git-commit-done-in = Committed { $oid } in “{ $name }”
-git-commit-failed-in = Couldn't commit in “{ $name }”: { $error }
+git-commit-failed-in = Couldn’t commit in “{ $name }”: { $error }
 git-undo-commit-confirm = Undo the last commit?
 git-undo-commit-confirm-detail = The changes in “{ $subject }” stay staged, and its message returns to the commit box.
 git-undo-commit-confirm-button = Undo Commit
@@ -308,8 +309,8 @@ git-commit-push-confirm-detail = The commit will be pushed to the upstream branc
 git-commit-push-confirm-button = Commit and Push
 git-undo-commit-done = Undid commit { $oid }; its changes are staged
 git-undo-commit-done-in = Undid commit { $oid } in “{ $name }”
-git-undo-commit-failed = Couldn't undo the commit: { $error }
-git-commit-partial-not-utf8 = “{ $name }” isn't UTF-8 text, so its changes can't be partially committed
+git-undo-commit-failed = Couldn’t undo the commit: { $error }
+git-commit-partial-not-utf8 = “{ $name }” isn’t UTF-8 text, so its changes can’t be partially committed
 git-abort-confirm = Abort { $operation }?
 git-abort-confirm-detail = The working tree returns to its state before the operation began, and resolved conflicts are discarded.
 git-abort-confirm-button = Abort { $operation }
@@ -318,23 +319,23 @@ git-rollback-confirm-one = Roll back changes to “{ $name }”?
 git-rollback-confirm-many = Roll back changes to { $count } files?
 git-rollback-confirm-detail = Tracked files are restored to the last commit, and untracked files are moved to the { common-trash }.
 git-rollback-confirm-button = Roll Back
-git-rollback-file-failed = Couldn't roll back “{ $name }”: { $error }
+git-rollback-file-failed = Couldn’t roll back “{ $name }”: { $error }
 git-rollback-done = { $count ->
     [one] Rolled back { $count } file
    *[other] Rolled back { $count } files
 }
-git-rollback-failed = Couldn't roll back: { $error }
+git-rollback-failed = Couldn’t roll back: { $error }
 git-rollback-done-in = { $count ->
     [one] Rolled back { $count } file in “{ $name }”
    *[other] Rolled back { $count } files in “{ $name }”
 }
-git-rollback-failed-in = Couldn't roll back in “{ $name }”: { $error }
-git-read-file-failed = Couldn't read “{ $name }”: { $error }
+git-rollback-failed-in = Couldn’t roll back in “{ $name }”: { $error }
+git-read-file-failed = Couldn’t read “{ $name }”: { $error }
 
 ## Repository status and file diffs
 
-git-unusable = Can't use Git: { $error }
-git-not-a-repository = The current folder isn't a Git repository
+git-unusable = Can’t use Git: { $error }
+git-not-a-repository = The current folder isn’t a Git repository
 git-no-file-in-tab = The current tab has no file
 git-diff-title = { $name } · Diff
 git-diff-submodule = “{ $name }” is a submodule; no diff is shown
@@ -344,17 +345,17 @@ git-diff-binary = “{ $name }” is a binary file; no diff is shown
 git-diff-identical = “{ $name }” is the same as in the last commit; no changes
 git-diff-line-endings-only = “{ $name }” differs from the last commit only in line endings
 git-diff-side-worktree-deleted = Working Tree · Deleted
-git-diff-side-head-missing = HEAD · File Doesn't Exist
+git-diff-side-head-missing = HEAD · File Doesn’t Exist
 
 ## Trusting repository configuration
 
 git-trust-confirm = Do you trust the repository “{ $name }”?
-git-trust-confirm-detail = This repository runs the programs below automatically during Git operations such as committing and pushing. Trust only repositories from sources you know. If you don't trust it, change status is still shown, but actions that run these programs, such as committing and switching branches, are unavailable.
+git-trust-confirm-detail = This repository runs the programs below automatically during Git operations such as committing and pushing. Trust only repositories from sources you know. If you don’t trust it, change status is still shown, but actions that run these programs, such as committing and switching branches, are unavailable.
 git-trust-more = { $count ->
     [one] …{ $count } item in total
    *[other] …{ $count } items in total
 }
-git-trust-deny = Don't Trust
+git-trust-deny = Don’t Trust
 git-trust-allow = Trust
 
 ## Commit view
@@ -428,9 +429,9 @@ git-switch-dirty-detail = { $count ->
 git-switch-carry = Migrate Changes
 git-switch-stash = Stash and Check Out
 git-switch-carry-conflict = Checked out “{ $branch }”; some changes conflict and are marked in the working tree. The original changes remain in the stash
-git-switch-carry-unapplied = Checked out “{ $branch }”, but the changes couldn't be applied and remain in the stash: { $error }
+git-switch-carry-unapplied = Checked out “{ $branch }”, but the changes couldn’t be applied and remain in the stash: { $error }
 git-carry-conflict = Finished { $what }; some uncommitted changes conflict with the pulled changes and are marked in the working tree. The original changes remain in the stash
-git-carry-kept = Finished { $what }, but the uncommitted changes couldn't be restored and remain in the stash
+git-carry-kept = Finished { $what }, but the uncommitted changes couldn’t be restored and remain in the stash
 git-switch-failed-restored = { $error } (your uncommitted changes were restored)
 git-switch-failed-stashed = { $error } (your uncommitted changes are stashed and can be restored from the stash list)
 git-switch-stash-message = Changes on “{ $branch }” before switching branches
@@ -479,7 +480,7 @@ git-log-uncommitted-files = { $count ->
     [one] { $count } file
    *[other] { $count } files
 }
-git-log-error = Couldn't Read Commits
+git-log-error = Couldn’t Read Commits
 git-log-loading-commits = Loading commits…
 git-log-no-matches = No Matching Commits
 git-log-no-matches-detail = Try a different branch, author, or keyword
@@ -511,11 +512,11 @@ git-form-base-current-commit = Current commit
 git-form-base-commit = Commit { $commit }
 git-form-base-existing-branch = Existing branch
 git-form-base-current = Current branch
-git-form-name-leading-dash = Branch names can't start with “-”
+git-form-name-leading-dash = Branch names can’t start with “-”
 git-form-name-exists = A branch with this name already exists
-git-form-current-branch-held = The current branch can't be checked out in another worktree
+git-form-current-branch-held = The current branch can’t be checked out in another worktree
 git-form-stale-worktree = Checked out by a stale worktree; prune it first
-git-form-other-system = The selected location isn't on the same system as the repository
+git-form-other-system = The selected location isn’t on the same system as the repository
 git-form-create = Create
 git-form-open = Open
 git-op-new-worktree = creating worktree “{ $name }”
@@ -532,23 +533,23 @@ git-log-copied-oid = Copied commit hash { $commit }
 git-log-copied-short-oid = Copied short commit hash { $commit }
 git-log-copied-message = Copied commit message
 git-log-detach-confirm = Check out commit { $commit }?
-git-log-detach-confirm-detail = You'll be in a detached HEAD state, not on any branch. To keep commits made in this state, create a branch for them.
+git-log-detach-confirm-detail = You’ll be in a detached HEAD state, not on any branch. To keep commits made in this state, create a branch for them.
 git-log-detach-confirm-button = Check Out
 git-log-reset-hard-confirm = Hard reset “{ $branch }” to { $commit }?
-git-log-reset-hard-confirm-detail = All uncommitted changes in the working tree and staging area will be discarded, and commits on “{ $branch }” after this commit will no longer belong to the branch. This can't be undone.
+git-log-reset-hard-confirm-detail = All uncommitted changes in the working tree and staging area will be discarded, and commits on “{ $branch }” after this commit will no longer belong to the branch. This can’t be undone.
 git-log-reset-hard-confirm-button = Hard Reset
 
 ## Log tab and file history
 
 git-log-title = Git Log
 git-history-title = { $name } · History
-git-log-target-not-loaded = The target commit hasn't loaded yet. Scroll down the list and try again
-git-log-parent-not-loaded = The parent commit hasn't loaded yet. Scroll down the list and try again
+git-log-target-not-loaded = The target commit hasn’t loaded yet. Scroll down the list and try again
+git-log-parent-not-loaded = The parent commit hasn’t loaded yet. Scroll down the list and try again
 git-next-file = Switched to the next file: { $name } ({ $index }/{ $total })
 git-previous-file = Switched to the previous file: { $name } ({ $index }/{ $total })
 git-press-again-next-file = This is the last change. Repeat to switch to the next file: { $name }
 git-press-again-previous-file = This is the first change. Repeat to switch to the previous file: { $name }
-git-diff-side-commit-missing = { $commit } · File Doesn't Exist
+git-diff-side-commit-missing = { $commit } · File Doesn’t Exist
 git-diff-side-before-root = Empty · Before Root Commit
 
 ## Resolving merge conflicts
@@ -593,8 +594,8 @@ git-merge-picked-all-both = { $count ->
     [one] Kept both in { $count } conflict
    *[other] Kept both in all { $count } conflicts
 }
-git-merge-no-next = No next conflict
-git-merge-no-previous = No previous conflict
+git-merge-no-next = Already at the last conflict
+git-merge-no-previous = Already at the first conflict
 git-merge-unresolved-left = There are still unresolved conflicts
 git-op-mark-resolved = marking “{ $name }” as resolved
 
@@ -613,10 +614,10 @@ git-change-deleted-after = { $count ->
    *[other] Deleted { $count } lines · After line { $line }
 }
 git-change-reverted = Rolled back the change
-git-change-no-next = No next change
-git-no-next-file = No next file
-git-no-previous-file = No previous file
-git-change-no-previous = No previous change
+git-change-no-next = Already at the last change
+git-no-next-file = Already at the last file
+git-no-previous-file = Already at the first file
+git-change-no-previous = Already at the first change
 git-change-none-at-caret = No change on the current line
 
 ## Diff view
@@ -625,7 +626,7 @@ git-diff-side-worktree = Working Tree
 git-diff-side-worktree-unsaved = Working Tree · Unsaved
 git-diff-identical-sides = Both sides are identical
 git-diff-none-at-caret = No change at the cursor
-git-diff-revert-failed = Couldn't roll back the change: { $error }
+git-diff-revert-failed = Couldn’t roll back the change: { $error }
 
 ## Change popup
 
@@ -652,7 +653,7 @@ git-change-popup-more-lines = { $count ->
 git-commit-group-changes = Changes
 git-commit-group-conflicts = Conflicts
 git-commit-group-untracked = Untracked Files
-git-commit-open-deleted = The file was deleted and can't be opened
+git-commit-open-deleted = The file was deleted and can’t be opened
 git-commit-blocker-conflicts = { $count ->
     [one] { $count } file still has unresolved conflicts
    *[other] { $count } files still have unresolved conflicts
@@ -665,12 +666,12 @@ git-log-file-binary = Binary
 
 ## Blame
 
-git-blame-not-in-repository = The current file isn't in a Git repository, so blame isn't available
-git-blame-failed = Couldn't load blame: { $error }
+git-blame-not-in-repository = The current file isn’t in a Git repository, so blame isn’t available
+git-blame-failed = Couldn’t load blame: { $error }
 git-blame-uncommitted = Uncommitted changes
-git-blame-line-uncommitted = This line hasn't been committed
-git-rebase-not-on-branch = This commit isn't on the current branch
-git-rebase-has-merges = The range contains merge commits, so it can't be rebased interactively
+git-blame-line-uncommitted = This line hasn’t been committed
+git-rebase-not-on-branch = This commit isn’t on the current branch
+git-rebase-has-merges = The range contains merge commits, so it can’t be rebased interactively
 git-op-rebase = rebasing interactively
 git-op-rebase-load = reading commits
 git-rebase-title = Interactive Rebase
@@ -681,17 +682,17 @@ git-rebase-squash = Squash
 git-rebase-fixup = Fixup
 git-rebase-drop = Drop
 git-rebase-button = Rebase
-git-rebase-first-squash = The first kept commit can't be squashed or fixed up
+git-rebase-first-squash = The first kept commit can’t be squashed or fixed up
 git-rebase-all-dropped = Keep at least one commit
 git-rebase-empty-message = A reworded commit needs a message
-git-rebase-stopped = Rebase paused. Click Continue Rebase when you're done
+git-rebase-stopped = Rebase paused. Click Continue Rebase when you’re done
 git-rebase-pushed-warning = { $count ->
-    [one] 1 of these commits is already pushed; you'll need to force push afterward
-   *[other] { $count } of these commits are already pushed; you'll need to force push afterward
+    [one] 1 of these commits is already pushed; you’ll need to force push afterward
+   *[other] { $count } of these commits are already pushed; you’ll need to force push afterward
 }
 git-rebase-message-placeholder = Set a commit to Reword to edit its message here
 git-merge-three-pane = Three-Way
-git-merge-panes-not-utf8 = Can't show a three-way merge for “{ $name }”: the file isn't UTF-8
+git-merge-panes-not-utf8 = Can’t show a three-way merge for “{ $name }”: the file isn’t UTF-8
 git-merge-close-three-pane = Exit Three-Way
 git-merge-side-result = Result
 git-rebase-hint = ↑↓ select · { $alt }↑↓ move · P R E S F D set action

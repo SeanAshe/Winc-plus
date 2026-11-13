@@ -600,8 +600,10 @@ impl App {
     fn scroll_result_into_view(&mut self, index: usize) {
         let h = self.panel_parts().results.h;
         let y = index as f32 * TREE_ROW;
+        let before = self.global.scroll;
         self.global.scroll = scroll_to_show(self.global.scroll, y, y + TREE_ROW, h);
         self.clamp_results_scroll();
+        self.glide_pane(ScrollTarget::Results, before);
     }
 
     /// 处理搜索面板上按钮 `button` 的点击。
@@ -1292,7 +1294,7 @@ impl App {
             let rope = doc.text().rope()?;
             return (line < rope.len_lines()).then(|| line_slice(rope, line).to_string());
         }
-        let bytes = std::fs::read(path).ok()?;
+        let bytes = winc_backend::fs::read(path).ok()?;
         let (text, _) = winc_editor::encoding::decode_unknown(&bytes);
         text.lines().nth(line).map(str::to_owned)
     }

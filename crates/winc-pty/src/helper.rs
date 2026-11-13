@@ -518,6 +518,8 @@ impl Helper {
             let _ = (integration, &mut login, &mut args, &mut env);
             None
         };
+        // 远端主机上的 shell：脚本已在那台主机上，这里只生成随机数。
+        let nonce = nonce.or_else(|| integration::inject_remote(&path, &mut args));
         #[cfg(windows)]
         if integration::is_wsl(&path) {
             integration::forward_to_wsl(&mut env);

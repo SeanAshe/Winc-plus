@@ -54,9 +54,10 @@ pub fn version_line() -> String {
 
 /// 返回「关于」页中链接的显示名（如「SeanAshe/Winc-plus」）；不是链接时返回 `None`。
 ///
-/// 仓库和许可证取自 `Cargo.toml` 的 `repository` 和 `license`。
+/// 仓库和许可证取自 `Cargo.toml` 的 `repository` 和 `license`；更新日志在应用内打开，显示「查看」。
 pub fn about_value(setting: Setting) -> Option<String> {
     let text = match setting {
+        Setting::ReleaseNotes => return Some(t!("settings-release-notes-view").to_owned()),
         Setting::Repository => env!("CARGO_PKG_REPOSITORY"),
         Setting::License => env!("CARGO_PKG_LICENSE"),
         _ => return None,

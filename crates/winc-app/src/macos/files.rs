@@ -7,6 +7,10 @@ use super::*;
 /// # Errors
 ///
 /// `path` 不是有效的 UTF-8、`NSFileManager` 不可用，或系统拒绝移动时返回 `io::Error`。
+#[allow(
+    clippy::disallowed_methods,
+    reason = "只访问本机：废纸篓只接收本机的文件"
+)]
 pub fn move_to_trash(path: &Path) -> std::io::Result<()> {
     // 按链接本身判断是否为目录：指向目录的符号链接不当作目录，URL 末尾不加 `/`，移走的是链接
     // 而不是它指向的目录。

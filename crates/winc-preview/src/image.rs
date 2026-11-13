@@ -5,7 +5,6 @@
 //! 一张 4000×3000 的照片按 RGBA8 原样保留要 48 MB，缩小后约 20 MB。PNG 边解码边缩小；macOS
 //! 上要缩小的 JPEG 由 `ImageIO` 按目标大小解码（见 `image/imageio.rs`）。
 
-use std::fs;
 use std::io::Cursor;
 use std::path::Path;
 use std::sync::Arc;
@@ -123,16 +122,16 @@ fn format_of(path: &Path) -> Option<&'static str> {
 /// 格式不支持、文件无法读取、不是普通文件、超过 `FILE_MAX`（256 MiB）或解码失败时返回原因。
 pub fn load(path: &Path) -> Result<Picture, String> {
     let named = format_of(path).ok_or(winc_i18n::t!("preview-image-format-unsupported"))?;
-    let metadata = fs::metadata(path).map_err(|e| e.to_string())?;
+    let metadata = winc_backend::fs::metadata(path).map_err(|e| e.to_string())?;
     // 管道、设备文件即使有图片扩展名也不能读取：读取没有终点，会使后台线程一直阻塞。
     if !metadata.is_file() {
         return Err(winc_i18n::t!("preview-image-not-regular-file").to_owned());
     }
-    let file_size = metadata.len();
+    let file_size = metadata.len;
     if file_size > FILE_MAX {
         return Err(winc_i18n::t!("preview-image-too-large").to_owned());
     }
-    let bytes = fs::read(path).map_err(|e| e.to_string())?;
+    let bytes = winc_backend::fs::read(path).map_err(|e| e.to_string())?;
     // 扩展名与内容不符（`.png` 实为 JPEG）时，以内容识别的格式为准。
     let format = sniff(&bytes).unwrap_or(named);
     let (pixels, (width, height)) = decode(format, &bytes)

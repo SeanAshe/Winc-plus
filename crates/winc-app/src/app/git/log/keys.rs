@@ -2,6 +2,8 @@
 
 use super::*;
 
+use crate::app::scroll::set_scroll_line;
+
 impl App {
     /// 处理日志标签有焦点时的按键。
     ///
@@ -115,7 +117,7 @@ impl App {
             self.log.forward.clear();
         }
         if !shown && let Some(doc) = self.editor.active_mut() {
-            doc.scroll_line = (row as f64 - (visible / 3.0).floor()).max(0.0);
+            set_scroll_line(doc, (row as f64 - (visible / 3.0).floor()).max(0.0));
             self.clamp_scroll();
         }
         self.request_redraw();

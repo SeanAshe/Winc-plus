@@ -15,6 +15,7 @@ mod tree;
 pub(crate) use time::*;
 pub(crate) use tree::LogDiffTree;
 
+use crate::app::scroll::set_scroll_line;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -495,7 +496,7 @@ impl App {
                 }
                 self.log.filter.set_text("");
                 self.log.seek = Some((id, oid.to_owned()));
-                self.editor.documents[index].scroll_line = 0.0;
+                set_scroll_line(&mut self.editor.documents[index], 0.0);
                 self.load_log(id);
             }
         }
@@ -680,9 +681,9 @@ impl App {
         let row = row as f64;
         if let Some(doc) = self.editor.active_mut() {
             if row < doc.scroll_line {
-                doc.scroll_line = row;
+                set_scroll_line(doc, row);
             } else if row + 1.0 > doc.scroll_line + visible {
-                doc.scroll_line = row + 1.0 - visible;
+                set_scroll_line(doc, row + 1.0 - visible);
             }
         }
         self.clamp_scroll();

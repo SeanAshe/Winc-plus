@@ -864,6 +864,24 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
             };
             Some((rect, with_key(label, Some(Action::ToggleTerminal))))
         }
+        Hover::Status(item @ crate::app::StatusItem::Remote) => {
+            let rect = app.hits.status.iter().find(|(_, i)| *i == item)?.0;
+            // 已打开远端目录时说明连着哪台主机。
+            let host = (app.editor.root())
+                .and_then(winc_backend::locate)
+                .map(|location| location.target);
+            let label = match host {
+                Some(host) if !winc_backend::remote::is_connected(&host) => {
+                    t!("workspace-remote-status-lost", host = host.as_str())
+                }
+                Some(host) if winc_backend::remote::is_stalled(&host) => {
+                    t!("workspace-remote-status-stalled", host = host.as_str())
+                }
+                Some(host) => t!("workspace-remote-status-connected", host = host.as_str()),
+                None => t!("workspace-start-remote").to_owned(),
+            };
+            Some((rect, with_key(&label, Some(Action::RemoteConnect))))
+        }
         Hover::Status(item @ crate::app::StatusItem::Update) => {
             let rect = app.hits.status.iter().find(|(_, i)| *i == item)?.0;
             Some((rect, crate::view::status::update_tooltip(app)?))

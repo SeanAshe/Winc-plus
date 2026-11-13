@@ -1,9 +1,9 @@
 name: Build setup
-description: Restore target-specific Rust toolchains and caches for the verified source.
+description: Verify the source commit and install the release toolchain for one target.
 
 inputs:
   target:
-    description: Rust target triple; also separates compilation caches.
+    description: Rust target triple.
     required: true
   source-sha:
     description: Immutable source commit used by this build.
@@ -33,6 +33,5 @@ runs:
       env:
         TOOLCHAIN: ${{ steps.rust.outputs.name }}
       run: echo "RUSTUP_TOOLCHAIN=${TOOLCHAIN}" >> "$GITHUB_ENV"
-    - uses: Swatinem/rust-cache@v2
-      with:
-        shared-key: release-${{ inputs.target }}
+    # No compilation cache: a cache saved by one tag cannot be read by another, so every release
+    # builds from scratch.

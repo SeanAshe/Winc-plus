@@ -212,7 +212,7 @@ fn worktrees_are_created_removed_and_pruned() {
     // 「-」开头的名字会被 `git branch` 当成选项：不建。
     let dash = plan(&mut app, "--unset-upstream");
     assert!(!dash.enabled);
-    assert_eq!(dash.problem.as_deref(), Some("分支名称不能以「-」开头"));
+    assert_eq!(dash.problem.as_deref(), Some("分支名称不得以「-」开头"));
     create(&mut app, "--unset-upstream");
     assert_eq!(app.git.worktrees.len(), 3);
     // 建不了时对话框保留，原因写在输入框里。
@@ -530,7 +530,7 @@ fn the_status_bar_switches_worktrees_and_branches_from_menus() {
     }
     assert_eq!(
         app.menu_label(MenuCommand::GitFetch).subtitle.as_deref(),
-        Some("下载远程更新，不改动本地分支")
+        Some("下载远程更新，不修改本地分支")
     );
     // 当前分支那一行写的是上游。
     let current = (app.git.branches.iter()).find(|b| b.current).unwrap();

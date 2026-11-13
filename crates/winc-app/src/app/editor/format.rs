@@ -12,6 +12,8 @@ use winc_i18n::t;
 
 use super::*;
 
+use crate::app::scroll::set_scroll_line;
+
 /// 手动格式化、修复的最长等待时间。
 ///
 /// 工具在后台运行，期间可以继续输入（输入后结果作废），因此上限放宽：新装的工具首次运行较慢
@@ -64,6 +66,11 @@ pub struct FormatState {
     /// 关闭标签或退出时选择了「保存」，正在为其中一个文件格式化：保存完成后继续处理其余文件。
     pub then_close: Option<SavePrompt>,
     running: Vec<Running>,
+    /// 正在后台查找工具的文档，以及完成后是否继续保存：远端的文件要读那台主机上的项目文件
+    /// 才知道用哪个工具，不能在界面线程上进行。
+    planning: Vec<(DocumentId, bool)>,
+    /// 后台查好的工具送回的通道。
+    planned: (Sender<Planned>, Receiver<Planned>),
     /// 保存前完成修复和格式化的文件，保存后在状态栏显示的提示（例如「使用 ruff 修复了 2 行」）。
     notes: Vec<(DocumentId, String)>,
     /// 后台线程送回结果的通道的发送端。
@@ -102,12 +109,35 @@ impl FormatState {
             formatter,
             then_close: None,
             running: Vec::new(),
+            planning: Vec::new(),
+            planned: mpsc::channel(),
             notes: Vec::new(),
             sender,
             receiver,
         }
     }
 }
+
+/// 一次格式化在选好工具之后要用到的内容。
+struct Launch {
+    task: Task,
+    id: DocumentId,
+    /// 完成后是否继续保存。
+    save: bool,
+    /// 只处理的区段；`None` 是整个文档。
+    range: Option<FormatRange>,
+    /// 送去格式化的内容。
+    sent: Rope,
+    line_ending: winc_core::LineEnding,
+    /// 文件是否在远端主机上。
+    remote: bool,
+    root: Option<PathBuf>,
+    /// 项目设置中为这种语言写的命令。
+    project: Option<String>,
+}
+
+/// 后台为一次格式化选好的工具，或选不出的原因。
+type Planned = (Launch, Result<Plan, FormatError>);
 
 /// 运行前需要用户确认的对象：项目设置（`.winc/config.json`）中写的命令，或项目自带的程序
 /// （`node_modules/.bin/prettier`）。
@@ -298,6 +328,10 @@ impl App {
             running.save |= save;
             return Ok(());
         }
+        if let Some(planning) = self.format.planning.iter_mut().find(|p| p.0 == id) {
+            planning.1 |= save;
+            return Ok(());
+        }
 
         let project = self.project_format();
         if save && let Some(folder) = self.project_on_save(project.as_ref(), task) {
@@ -350,19 +384,59 @@ impl App {
             }
             None => unsaved_path(language, root.as_deref()),
         };
-        let mut plan = Plan::for_task(
+        let launch = Launch {
             task,
-            language,
-            &path,
-            root.as_deref(),
-            configured.as_deref(),
-        )?;
+            id,
+            save,
+            range,
+            sent,
+            line_ending,
+            remote: winc_backend::is_remote(&path),
+            root,
+            project,
+        };
+        // 远端的文件：选工具要读那台主机上的项目文件，在后台进行，选好后由
+        // [`App::poll_formatting`] 接着处理。
+        if launch.remote {
+            self.format.planning.push((id, save));
+            let sender = self.format.planned.0.clone();
+            self.spawn_blocking_then(UserEvent::FormatPlanned, move || {
+                let root = launch.root.as_deref();
+                let plan = Plan::for_task(task, language, &path, root, configured.as_deref());
+                let _ = sender.send((launch, plan));
+            });
+            return Ok(());
+        }
+        let root = launch.root.as_deref();
+        let plan = Plan::for_task(task, language, &path, root, configured.as_deref())?;
+        self.launch(launch, plan)
+    }
+
+    /// 用选好的工具 `plan` 开始格式化：必要时先询问用户能否运行，再交给后台。
+    ///
+    /// # Errors
+    ///
+    /// 同 [`App::start`]。
+    fn launch(&mut self, launch: Launch, mut plan: Plan) -> Result<(), FormatError> {
+        let Launch {
+            task,
+            id,
+            save,
+            range,
+            sent,
+            line_ending,
+            remote,
+            root,
+            project,
+        } = launch;
         if let Some(range) = &range {
             plan.restrict(range)?;
         }
 
-        // 命令中写的相对路径指向不存在的程序时，无需询问能否运行，直接报错。
+        // 命令中写的相对路径指向不存在的程序时，无需询问能否运行，直接报错。远端的程序不能在
+        // 界面线程上查看，运行时找不到再报错。
         if matches!(plan.program, Program::Project { .. })
+            && !remote
             && self.format.formatter.installed(&plan.program) == Some(false)
         {
             return Err(FormatError::Missing {
@@ -513,6 +587,20 @@ impl App {
 
     /// 接收后台线程送回的格式化结果。
     pub(in crate::app) fn poll_formatting(&mut self) {
+        // 后台选好了工具：接着询问、运行；期间又要求保存的一并保存。
+        while let Ok((mut launch, plan)) = self.format.planned.1.try_recv() {
+            let (task, id) = (launch.task, launch.id);
+            let waiting = self.format.planning.iter().position(|p| p.0 == id);
+            launch.save |= waiting.is_some_and(|at| self.format.planning.swap_remove(at).1);
+            let save = launch.save;
+            if let Err(e) = plan.and_then(|plan| self.launch(launch, plan)) {
+                if save {
+                    self.save_step_done(task, id, note_for(task, e));
+                } else {
+                    self.task_failed(task, id, &e);
+                }
+            }
+        }
         while let Ok((id, result)) = self.format.receiver.try_recv() {
             self.formatting_done(id, result);
         }
@@ -698,7 +786,10 @@ impl App {
         } else {
             doc.row_at(top) as f64 + scroll.fract()
         };
-        doc.scroll_line = scroll.clamp(0.0, (doc.row_count() as f64 - 2.0).max(0.0));
+        set_scroll_line(
+            doc,
+            scroll.clamp(0.0, (doc.row_count() as f64 - 2.0).max(0.0)),
+        );
 
         if self.editor.active().map(|d| d.id) == Some(id) {
             self.relayout();

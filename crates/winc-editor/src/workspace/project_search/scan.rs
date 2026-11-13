@@ -1,5 +1,10 @@
 //! 读磁盘上的文件：按块读、解码并逐行匹配，不把整个文件读进内存。
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "搜索引擎运行在文件所在的机器上，直接读取文件"
+)]
+
 use super::*;
 
 /// 读磁盘文件并搜索，最多收 `limit` 处，`cancel` 置位时停止；二进制或无法读取的文件返回 `None`，
@@ -16,13 +21,15 @@ pub(super) fn search_disk(
     limit: usize,
     cancel: &AtomicBool,
 ) -> Option<(Vec<LineMatch>, bool)> {
-    let mut file = fs::File::open(path).ok()?;
-    let size = file.metadata().ok()?.len();
+    // 经后端打开：远端主机上的文件由连接读取，小文件连同文件信息一次往返取回。
+    let mut opened = winc_backend::fs::open(path, 0).ok()?;
+    let size = opened.metadata.len;
     if size > OPEN_LIMIT {
         return None;
     }
     let large = size > LARGE_FILE;
 
+    let mut file = opened.reader().ok()?;
     // 先读第一块，长度至少为 `BINARY_SNIFF`，用于判断是否为二进制。
     buffer.clear();
     let mut left = size;
@@ -69,6 +76,7 @@ pub(super) fn search_disk(
     } else {
         search.run(buffer, &mut file, left, large, cancel)
     };
+    drop(file);
     let result = match streamed {
         Some(()) => Some((search.matches, search.lossy)),
         // 不是 UTF-8：整个读入内存并识别编码，从头重新搜索。超过 `LARGE_FILE` 的只有
@@ -76,8 +84,8 @@ pub(super) fn search_disk(
         None if !large || inline_utf16 => {
             let mut bytes = Vec::new();
             bytes.try_reserve_exact(size as usize + 1).ok()?;
-            file.rewind().ok()?;
-            file.read_to_end(&mut bytes).ok()?;
+            // 从头再读一遍。
+            opened.reader().ok()?.read_to_end(&mut bytes).ok()?;
             let decoded = decode(&bytes);
             let mut matches = Vec::new();
             let _ = for_each_line(&decoded.text, 0, true, |index, line| {
@@ -114,7 +122,7 @@ impl Stream<'_> {
     fn run(
         &mut self,
         buffer: &mut Vec<u8>,
-        file: &mut fs::File,
+        file: &mut dyn Read,
         mut left: u64,
         large: bool,
         cancel: &AtomicBool,
@@ -299,7 +307,7 @@ impl Stream<'_> {
 ///
 /// 读取失败（被信号中断的情况除外，会重试）时返回 `std::io::Error`，`buffer` 恢复到调用前的长度。
 fn read_chunk(
-    file: &mut fs::File,
+    file: &mut dyn Read,
     buffer: &mut Vec<u8>,
     left: &mut u64,
     max: usize,

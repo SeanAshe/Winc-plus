@@ -18,6 +18,7 @@ pub(crate) mod rebase;
 mod repository;
 pub(crate) mod worktree;
 
+use crate::app::scroll::set_scroll_line;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -348,7 +349,7 @@ fn prepare(
     oid: Option<&str>,
 ) -> Result<DiffView, String> {
     let name = winc_editor::display_name(path).into_owned();
-    if path.is_dir() {
+    if winc_backend::fs::is_dir(path) {
         return Err(t!("git-diff-submodule", name = name));
     }
     let too_large = |len: usize| len as u64 > LARGE_FILE;
@@ -374,7 +375,7 @@ fn prepare(
         ),
         None => {
             let language = winc_syntax::detect(&name);
-            match std::fs::read(path) {
+            match winc_backend::fs::read(path) {
                 Ok(bytes) if too_large(bytes.len()) => {
                     return Err(t!("git-diff-too-large", name = name));
                 }
@@ -476,7 +477,14 @@ impl App {
         self.git.scan_running = Some(cancel.clone());
         let slot = Arc::clone(&self.git.scanned);
         self.spawn_blocking_then(UserEvent::GitStatus, move || {
-            let found = git::scan_repositories(&dir, depth, &cancel);
+            // 本机的目录已在界面线程上查过它所在的仓库和第一层子目录（`git_discover`）；远端的
+            // 目录在这里一并查找。
+            let mut found = if winc_backend::is_remote(&dir) {
+                git::find_repositories(&dir)
+            } else {
+                Vec::new()
+            };
+            found.extend(git::scan_repositories(&dir, depth, &cancel));
             if !cancel.is_cancelled() {
                 *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some((dir, found));
             }
@@ -523,12 +531,16 @@ impl App {
             self.git.repositories.clear();
             return;
         };
+        // 远端的目录不在界面线程上查找：仓库由后台的查找加入（`git_scan_repositories`），
+        // 已有的列表保留。
+        if winc_backend::is_remote(dir) {
+            return;
+        }
         let mut found = git::find_repositories(dir);
-        let kept = self
-            .git
-            .repositories
-            .iter()
-            .filter(|repo| !found.contains(repo) && repo.join(".git").exists());
+        let kept =
+            self.git.repositories.iter().filter(|repo| {
+                !found.contains(repo) && winc_backend::fs::exists(repo.join(".git"))
+            });
         let kept: Vec<PathBuf> = kept.cloned().collect();
         found.extend(kept);
         self.git.repositories = found;
@@ -764,23 +776,49 @@ impl App {
         let sender = self.git.sender.clone();
         // 上次未找到 `git` 时本次在后台重新查找（用户可能刚安装）。
         self.spawn_git(UserEvent::GitStatus, move |tool| {
-            let status = match &tool {
-                Ok(git) => git.status(&root, &cancel),
-                Err(e) => Err(e.to_string()),
-            };
-            let refs = match (&tool, &status) {
-                (Ok(git), Ok(_)) if refs => Some(Refs {
-                    branches: git.branches(&root, &cancel).unwrap_or_default(),
-                    remotes: git.remotes(&root, &cancel).unwrap_or_default(),
-                    remote_list: git.remote_list(&root, &cancel).unwrap_or_default(),
-                    publish_remote: git.publish_target(&root).ok(),
-                    common_dir: git.common_dir(&root, &cancel).ok(),
-                    stashes: git.stashes(&root, &cancel).unwrap_or_default(),
-                    recent_branches: git.recent_branches(&root, &cancel).unwrap_or_default(),
-                    worktrees: git.worktrees(&root, &cancel).ok(),
-                    home: winc_editor::wsl::home_dir(&root),
+            let (status, refs) = match &tool {
+                Err(e) => (Err(e.to_string()), None),
+                Ok(git) if !refs => (git.status(&root, &cancel), None),
+                // 各项互不依赖，同时读取：每一项是一条或几条 `git` 命令，远端的仓库上每条命令
+                // 要等一次网络往返，依次执行时总耗时是它们的和。
+                Ok(git) => std::thread::scope(|scope| {
+                    let (root, cancel) = (&root, &cancel);
+                    // 先读状态：其中对仓库配置的检查结果会被记住，随后同时进行的各项直接使用，
+                    // 不各自再检查一遍。
+                    let status = git.status(root, cancel);
+                    if status.is_err() {
+                        return (status, None);
+                    }
+                    let branches = scope.spawn(|| git.branches(root, cancel));
+                    let remotes = scope.spawn(|| git.remotes(root, cancel));
+                    let remote_list = scope.spawn(|| git.remote_list(root, cancel));
+                    let publish_remote = scope.spawn(|| git.publish_target(root));
+                    let common_dir = scope.spawn(|| git.common_dir(root, cancel));
+                    let stashes = scope.spawn(|| git.stashes(root, cancel));
+                    let recent_branches = scope.spawn(|| git.recent_branches(root, cancel));
+                    let worktrees = scope.spawn(|| git.worktrees(root, cancel));
+                    // 线程中的函数不会 panic；万一发生，该项按读取失败处理。
+                    let refs = Refs {
+                        branches: branches
+                            .join()
+                            .ok()
+                            .and_then(Result::ok)
+                            .unwrap_or_default(),
+                        remotes: remotes.join().ok().and_then(Result::ok).unwrap_or_default(),
+                        remote_list: (remote_list.join().ok())
+                            .and_then(Result::ok)
+                            .unwrap_or_default(),
+                        publish_remote: publish_remote.join().ok().and_then(Result::ok),
+                        common_dir: common_dir.join().ok().and_then(Result::ok),
+                        stashes: stashes.join().ok().and_then(Result::ok).unwrap_or_default(),
+                        recent_branches: (recent_branches.join().ok())
+                            .and_then(Result::ok)
+                            .unwrap_or_default(),
+                        worktrees: worktrees.join().ok().and_then(Result::ok),
+                        home: winc_editor::wsl::home_dir(root),
+                    };
+                    (status, Some(refs))
                 }),
-                _ => None,
             };
             let _ = sender.send(Outcome { root, status, refs });
         });
@@ -1242,7 +1280,7 @@ impl App {
                     .first()
                     .map(|r| r.start)
             }) {
-                doc.scroll_line = row.saturating_sub(3) as f64;
+                set_scroll_line(doc, row.saturating_sub(3) as f64);
             }
             self.relayout();
             self.clamp_scroll();

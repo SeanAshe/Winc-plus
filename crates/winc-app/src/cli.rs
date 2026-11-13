@@ -62,7 +62,11 @@ impl Args {
         if self.targets.is_empty() {
             None
         } else {
-            Some(self.targets.iter().any(|target| target.path.is_dir()))
+            Some(
+                self.targets
+                    .iter()
+                    .any(|target| winc_backend::fs::is_dir(&target.path)),
+            )
         }
     }
 }
@@ -178,6 +182,10 @@ pub fn usage() -> String {
 ///
 /// 仅当整个参数作为路径不存在、末尾一段或两段是正整数且前面的路径非空时才拆分，因此名字本身
 /// 带冒号和数字的已有文件仍按原名打开。
+#[allow(
+    clippy::disallowed_methods,
+    reason = "只访问本机：命令行参数是本机路径"
+)]
 fn target(arg: OsString) -> Target {
     let whole = Target {
         path: PathBuf::from(&arg),

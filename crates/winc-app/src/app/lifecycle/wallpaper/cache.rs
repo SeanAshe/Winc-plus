@@ -3,6 +3,11 @@
 //! 只保留最近一张图片的图层。文件开头是固定长度的头部（见 [`HEADER`]），其后是 RGBA 像素；
 //! 原图的路径、大小或修改时间与头部不符时缓存作废。
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "只访问本机：壁纸图层的缓存在本机"
+)]
+
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::Path;
 use std::time::UNIX_EPOCH;

@@ -6,6 +6,11 @@
 //! 不跨文件系统复制内容。每项内容存放于 `files/`，同名 `.trashinfo` 存放于 `info/`，
 //! 记录原路径与删除时间。
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "只访问本机：回收站只接收本机的文件"
+)]
+
 use std::fs;
 use std::io::{self, Write};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt};

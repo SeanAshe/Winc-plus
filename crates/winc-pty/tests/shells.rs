@@ -124,6 +124,7 @@ impl Shell {
         let text = command.trim_start();
         let new = |b: &Block| b.text.trim_start() == text && !seen.contains(&b.id);
         self.input(&format!("{command}\r"));
+        self.client.waiting = format!("命令「{command}」的块结束，结束行是提示符");
         // 块的消息不受额度限制，屏幕可能尚未更新：等到结束行在屏幕上是提示符。
         self.until(|c, blocks| {
             blocks
@@ -136,6 +137,7 @@ impl Shell {
                         .is_some_and(|l| l.marks.flags & Marks::PROMPT != 0)
                 })
         });
+        self.client.waiting.clear();
         self.blocks.iter().find(|b| new(b)).unwrap().clone()
     }
 
@@ -247,8 +249,12 @@ fn bash_as_a_login_shell_reads_the_profile() {
     sh.client.until_text("bb$");
     sh.check("none");
     // 用户自己的 `PROMPT_COMMAND` 照常运行，看到的是命令的退出码；`PS1` 里的 `$?` 同样如此。
-    sh.run("false");
-    sh.client.until_text("[1] bb$");
+    // 屏幕上更早的行也有 `[1] bb$`（`check` 运行过失败的命令），只看这条命令之后的提示符。
+    let failed = sh.run("false");
+    let prompt = failed.end.unwrap() as usize;
+    sh.client.waiting = format!("第 {prompt} 行的提示符以「[1] bb$」开头");
+    sh.until(|c, _| c.screen[prompt].text.starts_with("[1] bb$"));
+    sh.client.waiting.clear();
     let pc = sh.run("echo $USER_PC");
     assert_eq!(sh.output(&pc), "1");
     // 钩子不改变 `$_` 的值。

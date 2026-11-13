@@ -3143,6 +3143,7 @@ dependencies = [
  "wayland-backend",
  "wayland-client",
  "wayland-protocols",
+ "winc-backend",
  "winc-config",
  "winc-core",
  "winc-editor",
@@ -3161,10 +3162,17 @@ dependencies = [
 ]
 
 [[package]]
-name = "winc-config"
+name = "winc-backend"
 version = "0.0.0"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "winc-config"
+version = "0.0.0"
+dependencies = [
+ "winc-backend",
  "winc-i18n",
  "winc-syntax",
 ]
@@ -3191,7 +3199,9 @@ dependencies = [
  "notify",
  "png",
  "regex",
+ "regex-syntax",
  "ropey",
+ "winc-backend",
  "winc-config",
  "winc-core",
  "winc-i18n",
@@ -3222,6 +3232,7 @@ dependencies = [
  "png",
  "pulldown-cmark",
  "roxmltree",
+ "winc-backend",
  "winc-i18n",
  "windows",
  "zeno",
@@ -3243,6 +3254,7 @@ dependencies = [
 name = "winc-render"
 version = "0.0.0"
 dependencies = [
+ "libc",
  "memmap2",
  "objc2 0.6.5",
  "objc2-core-foundation",
@@ -3253,6 +3265,14 @@ dependencies = [
  "softbuffer",
  "swash",
  "winit",
+]
+
+[[package]]
+name = "winc-server"
+version = "0.0.0"
+dependencies = [
+ "winc-backend",
+ "winc-watch",
 ]
 
 [[package]]

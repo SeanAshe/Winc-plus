@@ -5,10 +5,17 @@
 //! 行尾），其后是文档的全部内容（UTF-8）。同一目录被两个 winc 实例打开时，只有先启动的实例读取、
 //! 写入、删除该目录的备份，即同一时刻只允许一个实例处理同一目录（[`Backups::lock`]）。
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "只访问本机：备份保存在本机的数据目录中"
+)]
+
 use std::fs;
 use std::io::{self, BufRead, Read, Seek, Write};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use winc_backend::fs::Stamp;
 
 use ropey::Rope;
 use winc_config::Json;
@@ -78,7 +85,7 @@ pub struct Backup {
     /// 正文在文件里从第几个字节开始（第一行之后）。
     body: u64,
     /// 写备份时磁盘文件的修改时间。
-    pub mtime: Option<SystemTime>,
+    pub mtime: Option<Stamp>,
     /// 备份时的选区，恢复后光标回到原处。
     pub selection: Selection,
     /// 备份时的标签序号（从 0 起）；备份头中缺失时为 `usize::MAX`。
@@ -221,13 +228,11 @@ impl Backups {
             let path = path.to_string_lossy().into_owned();
             fields.push(("path".to_owned(), Json::String(path)));
         }
-        if let Some(since) = doc
-            .disk_mtime()
-            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        {
+        // 纪元之前的修改时间不记录：读取时只接受非负的秒数。
+        if let Some(stamp) = doc.disk_mtime().filter(|stamp| stamp.secs >= 0) {
             let mtime = vec![
-                Json::Number(since.as_secs() as f64),
-                Json::Number(f64::from(since.subsec_nanos())),
+                Json::Number(stamp.secs as f64),
+                Json::Number(f64::from(stamp.nanos)),
             ];
             fields.push(("mtime".to_owned(), Json::Array(mtime)));
         }
@@ -457,10 +462,13 @@ fn read_header(file: &Path) -> Option<Backup> {
         let nanos = t.get(1)?.as_number()?;
         // 损坏的头（数值过大、为负或 NaN）不能引发 panic：备份在每次启动时读取，panic 会使
         // 程序一直无法启动。
-        if !(0.0..=u64::MAX as f64).contains(&secs) || !(0.0..1e9).contains(&nanos) {
+        if !(0.0..=i64::MAX as f64).contains(&secs) || !(0.0..1e9).contains(&nanos) {
             return None;
         }
-        UNIX_EPOCH.checked_add(Duration::new(secs as u64, nanos as u32))
+        Some(Stamp {
+            secs: secs as i64,
+            nanos: nanos as u32,
+        })
     });
 
     Some(Backup {

@@ -61,8 +61,12 @@ pub fn run_configs_path(root: &Path) -> PathBuf {
 
 /// 读取 `root` 的运行配置，返回可用的配置和遇到的问题。
 ///
-/// 文件不存在时两者都为空；单项无效时跳过该项，其余照常使用。
+/// 文件不存在时两者都为空；单项无效时跳过该项，其余照常使用。远端主机上的目录没有运行配置：
+/// 这里只读本机的文件，配置中的命令也只在本机的终端里运行。
 pub fn load_run_configs(root: &Path) -> (Vec<RunConfig>, Vec<String>) {
+    if winc_backend::is_remote(root) {
+        return (Vec::new(), Vec::new());
+    }
     match std::fs::read_to_string(run_configs_path(root)) {
         Ok(text) => parse(&text),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => (Vec::new(), Vec::new()),
@@ -80,6 +84,10 @@ pub fn affects_detected_configs(root: &Path, path: &Path) -> bool {
 
 /// 返回从项目文件识别出的配置：没有配置文件时直接提供，不往项目里写文件。
 pub fn detected_run_configs(root: &Path) -> Vec<RunConfig> {
+    // 识别到的命令在本机的终端里运行，远端主机上的目录没有。
+    if winc_backend::is_remote(root) {
+        return Vec::new();
+    }
     let commands = detect_commands(root).into_iter();
     commands
         .map(|(name, command)| RunConfig {

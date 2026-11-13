@@ -412,11 +412,17 @@ pub fn diff_menu(right: bool, on_hunk: bool) -> Vec<MenuEntry> {
 ///
 /// `recent` 为最近列表的长度，`current` 为当前目录在最近列表中的位置，`opened` 表示是否已经
 /// 打开目录（没有打开时「关闭目录」不可用）。
+///
+/// `hosts` 为 `ssh` 配置中的主机数，远程模块关闭时为 `None`：模块开着时有「连接到 SSH 主机」，
+/// 配置了主机时它是子菜单，按主机列出，末尾是「其他主机…」。`connected` 表示打开的目录在远端
+/// 主机上：这时「关闭目录」之前有「断开 SSH 连接」。
 pub fn project_menu(
     recent: usize,
     current: Option<usize>,
     opened: bool,
     distros: usize,
+    hosts: Option<usize>,
+    connected: bool,
 ) -> Vec<MenuEntry> {
     use MenuEntry::{Alternate, Item, Separator, Submenu};
 
@@ -440,6 +446,21 @@ pub fn project_menu(
             t!("cmd-open-wsl-folder").to_owned(),
             items.collect(),
         ));
+    }
+    match hosts {
+        None => {}
+        Some(0) => menu.push(Item(MenuCommand::RemoteConnect, true)),
+        Some(hosts) => {
+            let mut items: Vec<MenuEntry> = (0..hosts)
+                .map(|i| Item(MenuCommand::RemoteHost(i), true))
+                .collect();
+            items.push(Separator);
+            items.push(Item(MenuCommand::RemoteOther, true));
+            menu.push(Submenu(t!("workspace-remote-submenu").to_owned(), items));
+        }
+    }
+    if connected {
+        menu.push(Item(MenuCommand::RemoteDisconnect, true));
     }
     menu.push(Item(MenuCommand::CloseFolder, opened));
     menu

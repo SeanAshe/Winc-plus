@@ -26,6 +26,12 @@ $launcher = [IO.File]::ReadAllText("$PSScriptRoot/winc").Replace("`r`n", "`n")
 Copy-Item "$PSScriptRoot/winc.cmd" "$stage/bin/winc.cmd" -Force
 Copy-Item "$PSScriptRoot/path.ps1" $stage -Force
 Copy-Item "$root/target/x86_64-unknown-linux-musl/release/winc-watch" $stage -Force
+# The remote server for each Linux architecture, uploaded to hosts on connection.
+$servers = @('winc-server-Linux-x86_64', 'winc-server-Linux-aarch64')
+foreach ($name in $servers) {
+    if (-not (Test-Path "$root/target/remote-server/$name")) { throw "missing $name" }
+    Copy-Item "$root/target/remote-server/$name" $stage -Force
+}
 if ($Phase -eq 'portable') {
     $portable = "$bundle/portable"
     New-Item -ItemType Directory -Force $portable | Out-Null
@@ -34,7 +40,7 @@ if ($Phase -eq 'portable') {
     New-Item -ItemType Directory -Force "$stage/data" | Out-Null
     Copy-Item "$PSScriptRoot/portable-data-readme.txt" "$stage/data/README.txt" -Force
     # Enumerate the files: installer markers never enter a portable archive.
-    Compress-Archive -Path "$stage/winc.exe", "$stage/winc-pty.exe", "$stage/conpty.dll", "$stage/OpenConsole.exe", "$stage/winc-watch", "$stage/bin", "$stage/data", "$stage/LICENSE", "$stage/NOTICE", "$stage/winc.ico" -DestinationPath "$portable/$stem-portable.zip" -Force
+    Compress-Archive -Path "$stage/winc.exe", "$stage/winc-pty.exe", "$stage/conpty.dll", "$stage/OpenConsole.exe", "$stage/winc-watch", "$stage/winc-server-Linux-x86_64", "$stage/winc-server-Linux-aarch64", "$stage/bin", "$stage/data", "$stage/LICENSE", "$stage/NOTICE", "$stage/winc.ico" -DestinationPath "$portable/$stem-portable.zip" -Force
     return
 }
 

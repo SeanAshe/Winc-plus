@@ -437,7 +437,7 @@ impl App {
     /// 没有可重新打开的标签时在状态栏提示。
     pub(in crate::app) fn reopen_closed(&mut self) {
         while let Some((path, caret)) = self.closed.pop() {
-            if !path.is_file() {
+            if !winc_backend::fs::is_file(&path) {
                 continue;
             }
 

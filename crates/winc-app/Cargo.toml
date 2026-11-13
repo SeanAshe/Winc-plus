@@ -9,6 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+winc-backend.workspace = true
 winc-config.workspace = true
 winc-core.workspace = true
 winc-syntax.workspace = true

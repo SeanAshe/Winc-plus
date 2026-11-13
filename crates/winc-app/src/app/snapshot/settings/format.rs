@@ -285,7 +285,7 @@ fn format_settings_add_a_language_and_pick_a_tool() {
     let makefile = app.settings.format_row("makefile").unwrap();
     assert_eq!(
         (makefile.tool.as_str(), makefile.detail.as_str()),
-        ("未设置", "没有预设的工具，请选择「自定义命令…」")
+        ("未设置", "无预设的工具，请选择「自定义命令…」")
     );
     assert!(makefile.unset);
     // 菜单里没有「自动」（没有工具可选），只有自定义命令和移除。移除后这一行立刻消失，
@@ -314,7 +314,7 @@ fn format_settings_add_a_language_and_pick_a_tool() {
     );
     assert_eq!(
         app.settings.format_row("xml").unwrap().detail,
-        "不会自动选择工具，请选择要使用的工具"
+        "不自动选择工具，请选择要使用的工具"
     );
     app.run_menu_command(MenuCommand::ToolPreset(xmllint));
     assert!(app.config.format_commands.contains_key("xml"));

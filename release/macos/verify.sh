@@ -104,6 +104,11 @@ verify_app() {
     echo "  $(basename "$binary"): $archs, macOS $minos+"
   done
 
+  # The remote server for each Linux architecture, uploaded to hosts on connection.
+  for binary in winc-server-Linux-x86_64 winc-server-Linux-aarch64; do
+    [[ -f "$app/Contents/Resources/$binary" ]] || fail "$binary is missing from Resources"
+  done
+
   codesign --verify --deep --strict --verbose=2 "$app"
   if $signed; then
     check_team "$app"

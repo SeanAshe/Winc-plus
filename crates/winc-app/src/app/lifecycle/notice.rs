@@ -17,6 +17,14 @@ pub enum NoticeAction {
     FormatSettings,
     /// 「查看输出」：在只读标签中打开 Git 操作的输出。
     GitOutput,
+    /// 「重新连接」：重新连接远端主机并回到其上的目录。
+    Reconnect(PathBuf),
+    /// 「取消」：取消正在进行的到远端主机的连接。
+    CancelConnect,
+    /// 「取消」：取消文件树里正在进行的复制。
+    CancelCopy,
+    /// 「查看更新日志」：在阅读标签中打开上次运行的版本（没有记录时为 `None`）之后的各版。
+    ReleaseNotes(Option<String>),
 }
 
 /// 到期后正在淡出的提示条。
@@ -30,6 +38,11 @@ pub struct NoticeGhost {
 }
 
 impl NoticeAction {
+    /// 是否这条提示说明的事情正在进行：提示条上显示转动的图标，而不是提醒图标。
+    pub fn in_progress(&self) -> bool {
+        matches!(self, NoticeAction::CancelConnect | NoticeAction::CancelCopy)
+    }
+
     /// 按钮上显示的文字。
     pub fn label(&self) -> &'static str {
         match self {
@@ -38,6 +51,11 @@ impl NoticeAction {
             }
             NoticeAction::Install { .. } => t!("workspace-notice-install"),
             NoticeAction::FormatSettings => t!("workspace-notice-open-settings"),
+            NoticeAction::Reconnect(_) => t!("workspace-notice-reconnect"),
+            NoticeAction::CancelConnect | NoticeAction::CancelCopy => {
+                t!("workspace-notice-cancel")
+            }
+            NoticeAction::ReleaseNotes(_) => t!("workspace-notice-release-notes"),
         }
     }
 }
@@ -112,6 +130,23 @@ impl App {
         self.notice.action = Some(action);
     }
 
+    /// 显示带一个按钮的提示并一直保留：用于正在进行、不知道何时结束的事情，结束时由调用方
+    /// 用 [`App::dismiss_notice`] 收起。被别的提示替换后不再恢复。
+    pub(in crate::app) fn notify_pinned(
+        &mut self,
+        message: impl Into<String>,
+        action: NoticeAction,
+    ) {
+        self.notify_with(message, action);
+        self.notice.until = None;
+    }
+
+    /// 收起当前的提示。
+    pub(in crate::app) fn dismiss_notice(&mut self) {
+        self.clear_notice();
+        self.request_redraw();
+    }
+
     /// 收起提示条，返回它的文字和按钮操作；清除提示的各处都经过这里，避免漏掉某个字段。
     pub(super) fn clear_notice(&mut self) -> (Option<String>, Option<NoticeAction>) {
         self.notice.until = None;
@@ -141,6 +176,14 @@ impl App {
                 self.settings_show_page(SettingsPage::Format);
             }
             NoticeAction::GitOutput => self.show_git_output(),
+            NoticeAction::Reconnect(folder) => {
+                self.reopen_remote(&folder);
+            }
+            NoticeAction::CancelConnect => self.cancel_remote(),
+            NoticeAction::CancelCopy => self.cancel_copies(),
+            NoticeAction::ReleaseNotes(previous) => {
+                self.open_release_notes(crate::release_notes::Scope::Since(previous));
+            }
         }
         self.request_redraw();
     }

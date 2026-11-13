@@ -57,6 +57,8 @@ pub enum PickerPart {
     NewWorktree,
     /// 最近目录列表第几行行尾的「✕」：从最近列表中移除该目录。
     ForgetFolder(usize),
+    /// 连接远端主机的面板中第几行行尾的「✕」：从最近的记录中移除这个目录或主机。
+    ForgetRemote(usize),
 }
 
 /// 选择面板最小、最大的宽度（逻辑像素）：平时和 Git 上下文的行一样宽，两边对齐。最小宽度放得下
@@ -655,6 +657,7 @@ impl App {
                 self.open_worktree_dialog();
             }
             PickerPart::ForgetFolder(row) => self.forget_picker_folder(row),
+            PickerPart::ForgetRemote(row) => self.forget_remote_row(row),
         }
         self.request_redraw();
     }
@@ -761,6 +764,7 @@ impl App {
         self.picker.location_rows = None;
         self.picker.folders = false;
         self.picker.vim_list = None;
+        self.picker.remote = None;
         self.picker.anchor = anchor;
         self.picker.open = true;
         self.picker.doc = self.editor.active().map(|d| d.id);

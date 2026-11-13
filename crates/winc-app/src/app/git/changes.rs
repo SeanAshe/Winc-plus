@@ -5,6 +5,7 @@
 //! 作废并重新读取。改动按文档版本号缓存，文本变化时在后台重新计算，完成前继续绘制上一次的结果；
 //! 回滚、跳转和打开卡片需要准确的行号，标记不是最新时当场计算。绘制由 `view/git/changes.rs` 完成。
 
+use crate::app::scroll::set_scroll_line;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -568,7 +569,7 @@ impl App {
             let rows = ruler_rows(doc, &h);
             let (top, bottom) = (rows.start as f64, rows.end.max(rows.start + 1) as f64);
             if top < doc.scroll_line || bottom > doc.scroll_line + visible {
-                doc.scroll_line = (top - 3.0).max(0.0);
+                set_scroll_line(doc, (top - 3.0).max(0.0));
             }
         }
         self.clamp_scroll();
@@ -745,7 +746,7 @@ impl App {
         if let Some(doc) = self.editor.active_mut() {
             let row = doc.row_of(line) as f64;
             if row < doc.scroll_line + 1.0 || row > doc.scroll_line + visible - 6.0 {
-                doc.scroll_line = (row - 3.0).max(0.0);
+                set_scroll_line(doc, (row - 3.0).max(0.0));
             }
         }
         self.clamp_scroll();

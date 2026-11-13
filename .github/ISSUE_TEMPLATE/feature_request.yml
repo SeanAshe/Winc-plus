@@ -11,12 +11,18 @@ body:
       description: The part of winc this proposal affects.
       options:
         - Editor
+        - Vim mode
+        - Syntax highlighting / navigation
+        - Formatting
         - Search
         - File tree
         - Preview
         - Git
         - Terminal
-        - Settings
+        - SSH remote / WSL
+        - Interface / themes
+        - Settings / shortcuts
+        - Command line
         - Performance
         - Install / update
         - Other

@@ -4,6 +4,11 @@
 //! 从图形界面启动的应用只继承系统提供的最小环境，`PATH` 里缺少用户自己装的工具，因此第一次
 //! 用到时向用户的登录 shell 查询一次环境（见 `environment::resolve`），之后各处共用。
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "只访问本机：在本机的 PATH 中查找程序"
+)]
+
 pub(crate) mod environment;
 pub(crate) mod process;
 
@@ -247,7 +252,13 @@ fn windows_names(name: &str, pathext: &str) -> Vec<String> {
 }
 
 /// 是否为可执行文件：Unix 上要求是普通文件且设置了执行权限位，其他平台只要求是普通文件。
+/// 远端主机上的路径按那台主机上的权限位判断，要等远端应答。
 pub(crate) fn is_executable(path: &Path) -> bool {
+    if winc_backend::is_remote(path) {
+        return winc_backend::fs::metadata(path).is_ok_and(|metadata| {
+            metadata.kind.is_file() && metadata.unix.is_some_and(|unix| unix.mode & 0o111 != 0)
+        });
+    }
     let Ok(metadata) = std::fs::metadata(path) else {
         return false;
     };

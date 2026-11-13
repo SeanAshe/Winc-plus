@@ -8,6 +8,11 @@
 //! 一个字节开头（1 表示有内容，0 表示取消），有内容时再跟 `u32` 小端长度和文字。Unix 套接字位于仅
 //! 当前用户可访问的目录，命名管道使用默认安全描述符并拒绝来自其他主机的连接。
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "只访问本机：凭据询问程序的脚本和通道在本机"
+)]
+
 use std::ffi::{OsStr, OsString};
 use std::io::{self, Read, Write};
 use std::sync::Arc;

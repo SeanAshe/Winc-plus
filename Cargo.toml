@@ -21,9 +21,11 @@ winc-preview = { path = "crates/winc-preview" }
 winc-pty = { path = "crates/winc-pty" }
 winc-i18n = { path = "crates/winc-i18n" }
 winc-version = { path = "crates/winc-version" }
+winc-backend = { path = "crates/winc-backend" }
 winc-app = { path = "crates/winc-app" }
 winc-typeset = { path = "crates/winc-typeset" }
 winc-vim = { path = "crates/winc-vim" }
+winc-watch = { path = "crates/winc-watch" }
 
 # 只把 LF、CR、CRLF 当换行。默认的 `unicode_lines` 还认 VT、FF、U+0085、U+2028、U+2029，
 # 行号会和编译器、git、grep 报的对不上（C 和 Python 源码里常见分页符 FF）。
@@ -36,6 +38,9 @@ memmap2 = "0.9"
 memchr = "2"
 # 只开 Unicode 大小写和 \w \d \s，不带 \p{..} 的 Unicode 属性表，二进制小约 250 KB。
 regex = { version = "1", default-features = false, features = ["std", "perf", "unicode-case", "unicode-perl"] }
+# 从正则表达式里取出每处匹配都含有的一段文字（远端搜索先用它筛出候选文件）。已随 `regex`
+# 编译，这里不另开 Unicode 表。
+regex-syntax = { version = "0.8", default-features = false, features = ["std"] }
 # 查找里 `regex` 不支持的环视（`(?=…)`、`(?<=…)`）和反向引用（`\1`）由它匹配。
 # 它建立在 `regex` 的底层实现之上，Unicode 表与上面一样不带全。
 fancy-regex = { version = "0.19.2", default-features = false, features = ["std", "perf", "variable-lookbehinds"] }

@@ -399,6 +399,8 @@ pub struct Status {
     ///
     /// 提交这些文件会将冲突标记一并提交。读取状态时在后台同时读取这些文件。
     pub unresolved: Vec<PathBuf>,
+    /// 仓库的 `.git` 目录；工作树和子模块里是 `.git` 文件所指的目录。读不到时为 `None`。
+    pub git_dir: Option<PathBuf>,
 }
 
 /// 停下来等用户处理冲突的操作。
@@ -436,36 +438,44 @@ impl Operation {
 
     /// 从仓库目录 `git_dir` 里的标记文件看出正在进行的操作。
     fn detect(git_dir: &Path) -> Option<Operation> {
-        if git_dir.join("rebase-merge").is_dir() || git_dir.join("rebase-apply").is_dir() {
-            Some(Operation::Rebase)
-        } else if git_dir.join("MERGE_HEAD").is_file() {
-            Some(Operation::Merge)
-        } else if git_dir.join("CHERRY_PICK_HEAD").is_file() {
-            Some(Operation::CherryPick)
-        } else if git_dir.join("REVERT_HEAD").is_file() {
-            Some(Operation::Revert)
-        } else {
-            None
-        }
+        // 各标记的文件信息一次取回：远端的仓库只需一次往返。先列出的优先。
+        let markers = [
+            ("rebase-merge", true, Operation::Rebase),
+            ("rebase-apply", true, Operation::Rebase),
+            ("MERGE_HEAD", false, Operation::Merge),
+            ("CHERRY_PICK_HEAD", false, Operation::CherryPick),
+            ("REVERT_HEAD", false, Operation::Revert),
+        ];
+        let paths = markers.map(|(name, _, _)| git_dir.join(name));
+        let found = winc_backend::fs::metadata_many(&paths);
+        (markers.into_iter().zip(found)).find_map(|((_, dir, operation), metadata)| {
+            let metadata = metadata.ok()?;
+            let present = if dir {
+                metadata.is_dir()
+            } else {
+                metadata.is_file()
+            };
+            present.then_some(operation)
+        })
     }
 }
 
 /// 仓库 `root` 的 `.git` 目录：工作树和子模块里 `.git` 是一个写着 `gitdir: <路径>` 的文件。
 fn git_dir(root: &Path) -> Option<PathBuf> {
     let dot = root.join(".git");
-    if dot.is_dir() {
+    if winc_backend::fs::is_dir(&dot) {
         return Some(dot);
     }
-    let text = std::fs::read_to_string(&dot).ok()?;
+    let text = winc_backend::fs::read_to_string(&dot).ok()?;
     let target = text.trim().strip_prefix("gitdir:")?.trim();
-    Some(crate::wsl::resolve(root, target))
+    Some(crate::host::resolve(root, target))
 }
 
 /// 仓库共用的 `git` 目录：工作树（`git worktree`）的 `.git` 文件指向它自己的目录，hooks、
 /// 各工作树的记录（`worktrees/`）在那里的 `commondir` 所指的目录里。
 fn git_common_dir(root: &Path) -> Option<PathBuf> {
     let dir = git_dir(root)?;
-    match std::fs::read_to_string(dir.join("commondir")) {
+    match winc_backend::fs::read_to_string(dir.join("commondir")) {
         Ok(common) => Some(dir.join(common.trim())),
         Err(_) => Some(dir),
     }
@@ -609,10 +619,19 @@ impl Git {
             "--ignored=matching",
             "--ignore-submodules=dirty",
         ]);
-        let stdout = self.run(&mut command, STATUS_TIMEOUT, cancel)?;
-        let mut status = parse_status(&stdout, root)
+        // 正在进行的操作从 `.git` 里的标记文件看出，与 `git status` 互不依赖：远端的仓库上
+        // 同时进行。
+        let marks = || {
+            let dir = git_dir(root);
+            let operation = dir.as_deref().and_then(Operation::detect);
+            (dir, operation)
+        };
+        let run = || self.run(&mut command, STATUS_TIMEOUT, cancel);
+        let remote = winc_backend::is_remote(root);
+        let ((dir, operation), stdout) = crate::background::both(remote, marks, run);
+        let mut status = parse_status(&stdout?, root)
             .ok_or_else(|| winc_i18n::t!("git-status-unreadable").to_owned())?;
-        status.operation = git_dir(root).and_then(|d| Operation::detect(&d));
+        (status.git_dir, status.operation) = (dir, operation);
         status.unresolved = status
             .entries
             .iter()
@@ -644,7 +663,7 @@ impl Git {
 
     /// 合并的提交信息草稿（`.git/MERGE_MSG`，去掉 `#` 开头的说明行）；不在合并中时为 `None`。
     pub fn merge_message(&self, root: &Path) -> Option<String> {
-        let text = std::fs::read_to_string(git_dir(root)?.join("MERGE_MSG")).ok()?;
+        let text = winc_backend::fs::read_to_string(git_dir(root)?.join("MERGE_MSG")).ok()?;
         let kept: Vec<&str> = text.lines().filter(|l| !l.starts_with('#')).collect();
         Some(kept.join("\n").trim().to_owned())
     }
@@ -696,7 +715,7 @@ impl Git {
         command.args(["rev-parse", "--git-common-dir"]);
         let stdout = self.run(&mut command, STATUS_TIMEOUT, cancel)?;
         // 在主工作树里是相对路径，相对于运行的目录。
-        Ok(crate::wsl::resolve(
+        Ok(crate::host::resolve(
             root,
             String::from_utf8_lossy(&stdout).trim(),
         ))
@@ -807,6 +826,8 @@ impl Git {
         let Some(askpass) = &self.askpass else {
             return;
         };
+        // 远端的仓库：`git` 在那台主机上运行，它的输入请求由服务进程转回本机，再交给这里的
+        // askpass 程序（见 `process::run`），这些变量本身不发到远端。
         command
             .env("GIT_ASKPASS", &askpass.program)
             .env("SSH_ASKPASS", &askpass.program)
@@ -1225,6 +1246,14 @@ impl Git {
     /// 环境中的 [`REPOSITORY_ENV`] 不传给 `git`：仓库由 `root` 决定，调用方需要时（例如临时暂存区）
     /// 在返回的命令上另行设置。
     pub(super) fn at(&self, root: &Path) -> Command {
+        // 远端主机上的仓库：以仓库为工作目录运行远端的 `git`，按名字在远端的 `PATH` 中查找
+        // （本机 `git` 的路径和本机 shell 的环境在远端没有意义）。命令经 `process::run` 在该
+        // 目录所在的主机上运行。
+        if winc_backend::is_remote(root) {
+            let mut command = Command::new("git");
+            command.current_dir(root);
+            return command;
+        }
         let mut command = match crate::wsl::locate_here(root) {
             None => {
                 let mut command = self.shell.command(&self.program);
@@ -1263,8 +1292,9 @@ impl Git {
         }
         #[cfg(unix)]
         {
-            use std::os::unix::fs::PermissionsExt;
-            if std::fs::metadata(path).is_ok_and(|m| m.permissions().mode() & 0o111 != 0) {
+            let executable =
+                |m: winc_backend::fs::Metadata| m.unix.is_some_and(|u| u.mode & 0o111 != 0);
+            if winc_backend::fs::metadata(path).is_ok_and(executable) {
                 return Ok("100755");
             }
         }
@@ -1348,6 +1378,17 @@ impl LogStream {
 /// 各段按原样的字节拼接，不经有损转换：Unix 上文件名可以不是 UTF-8，替换成 U+FFFD 以后指向的
 /// 是另一个（通常不存在的）文件。
 fn slash_path(root: &Path, path: &Path) -> Result<OsString, String> {
+    // 远端主机上的仓库：按远端的原始字节计算，虚拟路径中为本机所做的换算不能传给远端的 `git`。
+    if let (Some(root), Some(path)) = (winc_backend::locate(root), winc_backend::locate(path)) {
+        let relative = path
+            .relative_to(&root)
+            .ok_or_else(|| winc_i18n::t!("git-file-outside-repository"))?;
+        #[cfg(unix)]
+        return Ok(std::os::unix::ffi::OsStringExt::from_vec(relative.to_vec()));
+        // Windows 的字符串无法表示不是有效 UTF-8 的文件名，这样的文件在远端的 `git` 中找不到。
+        #[cfg(not(unix))]
+        return Ok(String::from_utf8_lossy(relative).into_owned().into());
+    }
     let relative = path
         .strip_prefix(root)
         .map_err(|_| winc_i18n::t!("git-file-outside-repository"))?;
@@ -1418,9 +1459,18 @@ const SCAN_ENTRIES: usize = 4096;
 ///
 /// 只查文件系统，不运行 `git`。
 pub fn find_root(dir: &Path) -> Option<PathBuf> {
-    dir.ancestors()
-        .find(|d| d.join(".git").exists())
-        .map(Path::to_path_buf)
+    // 远端的目录只在那台主机的根目录以内向上查找：再往上就是本机的文件系统。
+    let remote = winc_backend::is_remote(dir);
+    let ancestors: Vec<&Path> = dir
+        .ancestors()
+        .take_while(|d| !remote || winc_backend::is_remote(d))
+        .collect();
+    // 各级的 `.git` 一次查完：远端的目录只需一次往返。
+    let markers: Vec<PathBuf> = ancestors.iter().map(|d| d.join(".git")).collect();
+    let found = winc_backend::fs::metadata_many(&markers);
+    (ancestors.into_iter().zip(found))
+        .find(|(_, metadata)| metadata.is_ok())
+        .map(|(dir, _)| dir.to_path_buf())
 }
 
 /// 返回打开目录 `dir` 时可用的仓库：`dir` 所在的仓库（如果有，排在最前面），之后是第一层子目录里的
@@ -1428,13 +1478,20 @@ pub fn find_root(dir: &Path) -> Option<PathBuf> {
 ///
 /// 只查文件系统，不运行 `git`。目录项很多时只看前一部分（`SCAN_ENTRIES`）。
 pub fn find_repositories(dir: &Path) -> Vec<PathBuf> {
-    let mut children: Vec<PathBuf> = std::fs::read_dir(dir)
+    // 只有目录（和可能指向目录的符号链接）才可能是仓库；各项的 `.git` 一次查完。
+    let candidates: Vec<PathBuf> = winc_backend::fs::read_dir(dir)
         .into_iter()
         .flatten()
         .flatten()
         .take(SCAN_ENTRIES)
+        .filter(|entry| entry.kind.is_dir() || entry.kind.is_symlink())
         .map(|entry| entry.path())
-        .filter(|path| path.join(".git").exists())
+        .collect();
+    let markers: Vec<PathBuf> = candidates.iter().map(|path| path.join(".git")).collect();
+    let found = winc_backend::fs::metadata_many(&markers);
+    let mut children: Vec<PathBuf> = (candidates.into_iter().zip(found))
+        .filter(|(_, metadata)| metadata.is_ok())
+        .map(|(path, _)| path)
         .collect();
     children.sort_by_cached_key(|path| {
         path.file_name()
@@ -1458,19 +1515,23 @@ pub fn scan_repositories(dir: &Path, depth: usize, cancel: &Cancel) -> Vec<PathB
                 found.sort();
                 return found;
             }
-            let Ok(entries) = std::fs::read_dir(parent) else {
+            let Ok(entries) = winc_backend::fs::read_dir(parent) else {
                 continue;
             };
+            let mut candidates = Vec::new();
             for entry in entries.flatten().take(budget) {
                 budget -= 1;
-                let name = entry.file_name();
-                let name = name.to_string_lossy();
+                let name = entry.name.to_string_lossy();
                 let skipped = name.starts_with('.') || SCAN_SKIPPED.contains(&name.as_ref());
-                if skipped || !entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-                    continue;
+                if !skipped && entry.kind.is_dir() {
+                    candidates.push(entry.path());
                 }
-                let path = entry.path();
-                if path.join(".git").exists() {
+            }
+            // 这一个目录下各项的 `.git` 一次查完。
+            let markers: Vec<PathBuf> = candidates.iter().map(|path| path.join(".git")).collect();
+            let repositories = winc_backend::fs::metadata_many(&markers);
+            for (path, repository) in candidates.into_iter().zip(repositories) {
+                if repository.is_ok() {
                     found.push(path);
                 } else {
                     next.push(path);

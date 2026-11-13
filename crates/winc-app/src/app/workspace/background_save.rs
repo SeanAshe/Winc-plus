@@ -44,9 +44,18 @@ impl App {
     pub(in crate::app) fn save_in_background(&mut self, id: DocumentId, job: SaveJob, quiet: bool) {
         self.saves.running.insert(id);
         let sender = self.saves.results.0.clone();
-        self.spawn_then(UserEvent::Saved, move || {
+        let save = move || {
             let _ = sender.send((id, quiet, job.run()));
-        });
+        };
+        // 远端的文件与改名、移动、删除在同一个线程上按顺序执行。
+        let remote = (self.editor.document(id))
+            .and_then(|doc| doc.path.as_deref())
+            .is_some_and(winc_backend::is_remote);
+        if remote {
+            self.spawn_ordered_then(UserEvent::Saved, save);
+        } else {
+            self.spawn_then(UserEvent::Saved, save);
+        }
     }
 
     /// 收取后台保存完成的文档。

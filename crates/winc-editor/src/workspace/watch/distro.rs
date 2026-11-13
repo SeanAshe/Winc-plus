@@ -1,6 +1,8 @@
-//! 发行版内的监视程序 `winc-watch`：启动、接收它报告的变化，以及另外监视公共 Git 目录。
+//! 在文件所在的机器上运行的监视程序：启动、接收它报告的变化，以及另外监视公共 Git 目录。
 //!
-//! 消息格式见 `winc-watch` 的说明。程序的标准输入结束时自行退出，因此 winc 异常退出时不会留下进程。
+//! WSL 发行版内是程序 `winc-watch`，标准输入结束时自行退出，因此 winc 异常退出时不会留下
+//! 进程。远端主机上由服务进程运行同样的监视，经连接读取它的输出，连接断开时由服务进程结束。
+//! 消息格式见 `winc_watch` 的说明。
 
 use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
@@ -35,6 +37,8 @@ const LIMITED: u8 = 4;
 pub(super) struct Helper {
     child: Option<Child>,
     stdin: Option<ChildStdin>,
+    /// 远端主机上的监视：释放时经它结束。
+    remote: Option<winc_backend::remote::Stopper>,
     state: Arc<AtomicU8>,
 }
 
@@ -63,44 +67,30 @@ impl Helper {
             .spawn()?;
         let stdin = child.stdin.take().expect("stdin 是管道");
         let stdout = child.stdout.take().expect("stdout 是管道");
-        let state = Arc::new(AtomicU8::new(STARTING));
-        let shared = Arc::clone(&state);
-        thread::Builder::new()
-            .name("winc-watch 读".into())
-            .spawn(move || {
-                for message in BufReader::new(stdout).split(0).map_while(Result::ok) {
-                    match parse(&message, &to_local) {
-                        Some(Report::Started) => {
-                            let _ = shared.compare_exchange(
-                                STARTING,
-                                LIVE,
-                                Ordering::Relaxed,
-                                Ordering::Relaxed,
-                            );
-                            record(Report::Rescan);
-                        }
-                        Some(Report::Limit) => {
-                            shared.store(LIMITED, Ordering::Relaxed);
-                            record(Report::Limit);
-                        }
-                        Some(report) => record(report),
-                        None => {}
-                    }
-                }
-                // 由 `Helper` 释放时状态已经是 `EXITED`，不再报告。
-                let exchange = |from, to| {
-                    shared.compare_exchange(from, to, Ordering::Relaxed, Ordering::Relaxed)
-                };
-                if exchange(LIVE, EXITED).is_ok() {
-                    record(Report::Rescan);
-                } else {
-                    let _ = exchange(STARTING, FAILED);
-                }
-            })?;
         Ok(Helper {
             child: Some(child),
             stdin: Some(stdin),
-            state,
+            remote: None,
+            state: read(stdout, to_local, record)?,
+        })
+    }
+
+    /// 读取远端主机上的监视 `running` 的输出，其余同 [`Helper::spawn`]。不能另外监视其他目录。
+    ///
+    /// # Errors
+    ///
+    /// 无法创建读取的线程时返回错误。
+    pub(super) fn remote(
+        running: winc_backend::remote::Running,
+        to_local: impl Fn(&str) -> PathBuf + Send + 'static,
+        record: impl Fn(Report) + Send + 'static,
+    ) -> io::Result<Helper> {
+        let stopper = running.stopper();
+        Ok(Helper {
+            child: None,
+            stdin: None,
+            remote: Some(stopper),
+            state: read(running, to_local, record)?,
         })
     }
 
@@ -146,8 +136,12 @@ impl Helper {
 
 impl Drop for Helper {
     /// 关闭标准输入让程序自行退出，超时后才强制结束：结束 `wsl.exe` 不一定能结束发行版内的进程。
+    /// 远端主机上的监视由服务进程结束。
     fn drop(&mut self) {
         self.state.store(EXITED, Ordering::Relaxed);
+        if let Some(remote) = self.remote.take() {
+            remote.stop();
+        }
         drop(self.stdin.take());
         let Some(mut child) = self.child.take() else {
             return;
@@ -164,6 +158,52 @@ impl Drop for Helper {
             let _ = child.wait();
         });
     }
+}
+
+/// 在后台线程上读取监视程序的输出 `stdout`，把报告的路径（经 `to_local` 转换）交给 `record`，
+/// 返回程序的状态。
+///
+/// 程序开始监视时要求重新扫描一次，弥补打开目录到开始监视之间的变化；监视之后意外结束时同样
+/// 要求一次。
+fn read(
+    stdout: impl io::Read + Send + 'static,
+    to_local: impl Fn(&str) -> PathBuf + Send + 'static,
+    record: impl Fn(Report) + Send + 'static,
+) -> io::Result<Arc<AtomicU8>> {
+    let state = Arc::new(AtomicU8::new(STARTING));
+    let shared = Arc::clone(&state);
+    thread::Builder::new()
+        .name("winc-watch 读".into())
+        .spawn(move || {
+            for message in BufReader::new(stdout).split(0).map_while(Result::ok) {
+                match parse(&message, &to_local) {
+                    Some(Report::Started) => {
+                        let _ = shared.compare_exchange(
+                            STARTING,
+                            LIVE,
+                            Ordering::Relaxed,
+                            Ordering::Relaxed,
+                        );
+                        record(Report::Rescan);
+                    }
+                    Some(Report::Limit) => {
+                        shared.store(LIMITED, Ordering::Relaxed);
+                        record(Report::Limit);
+                    }
+                    Some(report) => record(report),
+                    None => {}
+                }
+            }
+            // 由 `Helper` 释放时状态已经是 `EXITED`，不再报告。
+            let exchange =
+                |from, to| shared.compare_exchange(from, to, Ordering::Relaxed, Ordering::Relaxed);
+            if exchange(LIVE, EXITED).is_ok() {
+                record(Report::Rescan);
+            } else {
+                let _ = exchange(STARTING, FAILED);
+            }
+        })?;
+    Ok(state)
 }
 
 /// 监视程序报告的一项内容。

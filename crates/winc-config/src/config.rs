@@ -180,6 +180,8 @@ pub struct Config {
     /// 终端面板是否放在编辑区右边（配置里的 `"position": "right"`）；否则（`"bottom"` 或
     /// 没写）放在下面。
     pub terminal_right: Option<bool>,
+    /// 是否启用远程模块（经 `ssh` 打开其他主机上的目录），默认为否。
+    pub remote_enabled: Option<bool>,
     /// 是否启用 Git 模块（文件状态、分支、变更视图），默认为否。
     pub git_enabled: Option<bool>,
     /// 发布、推送或同步分支前是否先确认目标远程仓库，默认为是。
@@ -554,7 +556,11 @@ impl Config {
     /// 读取项目配置（`root` 下的 `.winc/config.json`），只认 `format` 一节，其他内容报告后忽略。
     ///
     /// 文件不存在时返回 `None`；无法读取或无法理解的部分与用户配置相同，退回默认值并报告。
+    /// 远端主机上的目录没有项目配置：这里只读本机的文件，项目配置管的格式化也只在本机运行。
     pub fn load_project(root: &Path) -> Option<(Config, Vec<String>)> {
+        if winc_backend::is_remote(root) {
+            return None;
+        }
         let text = match std::fs::read_to_string(project_config_path(root)) {
             Ok(text) => text,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,

@@ -94,7 +94,7 @@ pub fn unique_dir(parent: &Path, branch: &str) -> PathBuf {
     let name = branch.replace('/', "-");
     let mut dir = parent.join(&name);
     let mut n = 2;
-    while dir.symlink_metadata().is_ok() {
+    while winc_backend::fs::symlink_metadata(&dir).is_ok() {
         dir = parent.join(format!("{name}-{n}"));
         n += 1;
     }
@@ -113,7 +113,7 @@ impl Git {
     ///
     /// `git` 运行失败时返回原因。
     pub fn worktrees(&self, root: &Path, cancel: &Cancel) -> Result<Vec<Worktree>, String> {
-        if !git_common_dir(root).is_some_and(|d| d.join("worktrees").is_dir()) {
+        if !git_common_dir(root).is_some_and(|d| winc_backend::fs::is_dir(d.join("worktrees"))) {
             return Ok(Vec::new());
         }
         let mut command = self.command(root);
@@ -135,7 +135,7 @@ impl Git {
         // `git` 给出的路径没有解析符号链接（`/tmp` 和 `/private/tmp`），打开目录时记下的是
         // 解析过的路径。
         for worktree in &mut worktrees {
-            worktree.path = crate::wsl::resolve(root, &worktree.path.to_string_lossy());
+            worktree.path = crate::host::resolve(root, &worktree.path.to_string_lossy());
             if let Ok(real) = winc_config::files::canonicalize(&worktree.path) {
                 worktree.path = real;
             }
@@ -192,7 +192,7 @@ impl Git {
             // 新工作树放在仓库里面（`git.worktreeRoot` 写了相对路径）时，被忽略的那个目录里就有
             // 新工作树自身，复制它会无休止地嵌套下去。
             if !globs.matched(&source, is_dir).is_whitelist()
-                || target.symlink_metadata().is_ok()
+                || winc_backend::fs::symlink_metadata(&target).is_ok()
                 || to.starts_with(&source)
             {
                 continue;
@@ -214,7 +214,7 @@ impl Git {
             let (source, target) = (from.join(relative), to.join(relative));
             let copy = || {
                 if let Some(parent) = target.parent() {
-                    std::fs::create_dir_all(parent)?;
+                    winc_backend::fs::create_dir_all(parent)?;
                 }
                 crate::editing::paste::copy_entry(&source, &target)
             };

@@ -2,6 +2,11 @@
 //! 更新。更新包是新版的 AppImage，下载到原文件旁边，核对后改名替换原文件；重新启动时等本进程
 //! 结束后运行新文件。
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "只访问本机：更新包和程序本身在本机"
+)]
+
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};

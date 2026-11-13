@@ -170,7 +170,7 @@ fn failures_leave_the_text_alone_and_say_why() {
     );
     assert_eq!(
         message(error("quiet", "exit 3")),
-        "「quiet」运行出错（退出码 3）"
+        "「quiet」运行失败（退出码 3）"
     );
 
     // 完整记录：运行的命令、工作目录、退出码，以及原样的标准错误。
@@ -363,7 +363,7 @@ fn plans_explain_why_nothing_can_run() {
     };
     assert_eq!(
         unavailable("makefile"),
-        "Makefile 没有可自动使用的格式化工具，请在设置中指定命令"
+        "Makefile 无可自动使用的格式化工具，请在设置中指定命令"
     );
     let plain = winc_syntax::detect("README");
     assert!(matches!(
@@ -525,7 +525,7 @@ fn fixers_are_only_picked_when_the_project_uses_them() {
     else {
         panic!("Go 没有修复工具的预设");
     };
-    assert_eq!(message, "Go 没有可自动使用的修复工具，请在设置中指定命令");
+    assert_eq!(message, "Go 无可自动使用的修复工具，请在设置中指定命令");
 
     std::fs::write(dir.join("eslint.config.mjs"), "export default [];\n").unwrap();
     let plan = Plan::for_task(

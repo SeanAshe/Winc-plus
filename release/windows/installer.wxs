@@ -37,6 +37,12 @@
           <Component Id="WslWatcher" Guid="*" Win64="yes">
             <File Id="WincWatch" Source="$(var.Source)\winc-watch" KeyPath="yes"/>
           </Component>
+          <Component Id="RemoteServerX64" Guid="*" Win64="yes">
+            <File Id="WincServerX64" Source="$(var.Source)\winc-server-Linux-x86_64" KeyPath="yes"/>
+          </Component>
+          <Component Id="RemoteServerArm64" Guid="*" Win64="yes">
+            <File Id="WincServerArm64" Source="$(var.Source)\winc-server-Linux-aarch64" KeyPath="yes"/>
+          </Component>
           <Component Id="InstallationKind" Guid="*" Win64="yes">
             <File Source="$(var.Source)\msi\winc-installation" KeyPath="yes"/>
           </Component>
@@ -100,6 +106,7 @@
       <ComponentRef Id="ConptyLibrary"/><ComponentRef Id="ConsoleHost"/>
       <ComponentRef Id="FileAssociations"/><ComponentRef Id="ContextMenu"/>
       <ComponentRef Id="CommandLine"/><ComponentRef Id="CommandLineCmd"/><ComponentRef Id="WslWatcher"/>
+      <ComponentRef Id="RemoteServerX64"/><ComponentRef Id="RemoteServerArm64"/>
       <ComponentRef Id="License"/><ComponentRef Id="Notice"/><ComponentRef Id="StartMenu"/>
     </Feature>
     <!-- Register text file types after the executable is on disk; remove them before it is deleted. -->

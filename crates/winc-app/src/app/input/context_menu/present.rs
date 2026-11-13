@@ -337,6 +337,9 @@ impl App {
             }
             MenuTarget::SkipOnSave => skip_menu(&self.settings.languages.format),
             MenuTarget::Locale => locale_menu(),
+            MenuTarget::NamedTheme(dark) => (0..crate::theme::themes(*dark).len())
+                .map(|i| MenuEntry::Item(MenuCommand::NamedTheme(*dark, i), true))
+                .collect(),
             MenuTarget::Whitespace => whitespace_menu(),
             MenuTarget::VimClipboard => vim_clipboard_menu(),
             MenuTarget::DefaultShell => default_shell_menu(self.terminal.shells.len()),
@@ -361,6 +364,9 @@ impl App {
                     current,
                     root.is_some(),
                     crate::system::wsl_distributions().len(),
+                    // 每次打开菜单重新读取：用户可能刚修改了 `ssh` 配置。
+                    (self.remote_enabled()).then(crate::app::remote::refresh_hosts),
+                    root.is_some_and(winc_backend::is_remote),
                 ));
                 menu
             }
@@ -446,11 +452,11 @@ impl App {
                     MenuEntry::Item(MenuCommand::Copy, self.markdown_selected_text().is_some()),
                     MenuEntry::Item(MenuCommand::SelectAll, true),
                 ];
-                // docx 的阅读视图由转换得到，没有可以显示的源代码。
+                // docx 的阅读视图由转换得到，阅读标签只有排版后的内容：都没有可以显示的源代码。
                 let has_source = self
                     .editor
                     .active()
-                    .is_some_and(|d| d.unsupported.is_none());
+                    .is_some_and(|d| d.unsupported.is_none() && d.reading.is_none());
                 if has_source {
                     menu.extend([
                         MenuEntry::Separator,
@@ -545,12 +551,13 @@ impl App {
                 document_language_menu(doc.path.is_some())
             }
             MenuTarget::CommitFile(_) if self.commit_multi_selected() => {
-                let any_exists = self.commit_selection().iter().any(|p| p.exists());
+                let any_exists = self.commit_selection().iter().any(winc_backend::fs::exists);
                 commit_selection_menu(any_exists)
             }
-            MenuTarget::CommitFile(path) => {
-                commit_file_menu(path.exists(), self.relative_path(path).is_some())
-            }
+            MenuTarget::CommitFile(path) => commit_file_menu(
+                winc_backend::fs::exists(path),
+                self.relative_path(path).is_some(),
+            ),
             MenuTarget::SearchResult(_, m) => {
                 search_result_menu(m.is_none(), self.global.replace_open)
             }
@@ -583,9 +590,10 @@ impl App {
                 .map(|&action| MenuEntry::Item(MenuCommand::RebaseAction(action), true))
                 .collect(),
             MenuTarget::FormBase => form_base_menu(&self.git.branches),
-            MenuTarget::LogFile(_, path) => {
-                log_file_menu(path.exists(), self.relative_path(path).is_some())
-            }
+            MenuTarget::LogFile(_, path) => log_file_menu(
+                winc_backend::fs::exists(path),
+                self.relative_path(path).is_some(),
+            ),
             MenuTarget::LogCommit(oid) => {
                 let commit = self.log_commit(oid);
                 let tags: Vec<&str> = (commit.iter().flat_map(|c| &c.refs))
@@ -662,6 +670,7 @@ impl App {
             MenuTarget::CommitButton
                 | MenuTarget::TabList
                 | MenuTarget::Locale
+                | MenuTarget::NamedTheme(_)
                 | MenuTarget::Whitespace
                 | MenuTarget::VimClipboard
                 | MenuTarget::Zoom
@@ -1198,6 +1207,7 @@ impl App {
                 winc_i18n::LocaleChoice::ALL.get(i)
                     == Some(&self.config.language.unwrap_or_default())
             }
+            MenuCommand::NamedTheme(dark, i) => self.theme_slot(dark) == i,
             MenuCommand::Whitespace(i) => {
                 winc_config::RenderWhitespace::ALL.get(i)
                     == Some(&self.config.render_whitespace.unwrap_or_default())

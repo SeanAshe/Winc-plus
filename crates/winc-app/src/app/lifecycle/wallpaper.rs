@@ -318,6 +318,7 @@ impl App {
 /// 生成 `source` 的图层，供窗口 `window` 使用；在后台线程上调用。
 ///
 /// 缓存 `cache` 中有同一张图片、大小合用的图层时直接读取，否则解码原图并写入缓存。
+#[allow(clippy::disallowed_methods, reason = "只访问本机：壁纸是本机上的图片")]
 fn make(source: &Source, window: Window, cache: Option<&Path>) -> Made {
     let metadata = std::fs::metadata(&source.path).map_err(|e| e.to_string())?;
     if metadata.len() > MAX_FILE {

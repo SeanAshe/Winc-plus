@@ -404,7 +404,7 @@ fn status_bar_changes_indentation_and_line_endings() {
     assert_eq!(doc(&app).indent(), Indent::Spaces(2));
     assert_eq!(
         indent_label(doc(&app).indent(), 4),
-        "空格: 2",
+        "空格：2",
         "状态栏的缩进标签显示空格数"
     );
 
@@ -532,7 +532,7 @@ fn bookmarks_jump_list_and_survive_closing_and_restarting() {
 
     // 没有书签时无法跳转，状态栏给出提示。
     app.run_action(Action::NextBookmark);
-    assert_eq!(app.status.message.as_deref(), Some("此文件中没有书签"));
+    assert_eq!(app.status.message.as_deref(), Some("此文件中暂无书签"));
 
     // 在第 1、3 行（从 0 起）添加书签；第 2 行切换两次，即添加后又移除。
     go(&mut app, 3);

@@ -782,3 +782,80 @@ fn collect_returns_relative_slash_separated_paths() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 远端主机上的目录：文件表由远端的一条命令列出，是仓库时遵守其忽略规则，不是仓库时只跳过
+/// 文件树中不显示的名字。
+#[cfg(unix)]
+#[test]
+fn files_on_a_remote_host_are_listed_by_one_command_there() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let local = crate::test_util::scratch("index-remote");
+    for file in [
+        "src/main.rs",
+        "src/deep/lib.rs",
+        "target/out.o",
+        "README.md",
+        ".git-keep",
+    ] {
+        let path = local.join(file);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "").unwrap();
+    }
+    std::fs::create_dir_all(local.join("node_modules/pkg")).unwrap();
+    std::fs::write(local.join("node_modules/pkg/index.js"), "").unwrap();
+    let target = crate::test_util::loopback("index-remote");
+    let root = winc_backend::virtual_path(&target, local.as_os_str().as_bytes());
+    let listed = |index: &FileIndex| -> Vec<String> {
+        (0..index.len())
+            .map(|i| index.file(i).unwrap().path.to_owned())
+            .collect()
+    };
+
+    // 不是仓库：全部文件，一次往返。
+    let before = winc_backend::remote::requests(&target);
+    let index = FileIndex::collect_now(&root);
+    assert_eq!(winc_backend::remote::requests(&target) - before, 2);
+    let mut all = listed(&index);
+    all.sort();
+    assert_eq!(
+        all,
+        [
+            ".git-keep",
+            "README.md",
+            "node_modules/pkg/index.js",
+            "src/deep/lib.rs",
+            "src/main.rs",
+            "target/out.o"
+        ]
+    );
+    assert_eq!(
+        index.absolute(index.position_of(&root.join("src/main.rs")).unwrap()),
+        Some(root.join("src/main.rs"))
+    );
+
+    // 是仓库：被忽略的文件不收录，未跟踪的照常收录。
+    std::fs::write(local.join(".gitignore"), "target/\nnode_modules/\n").unwrap();
+    let git = std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&local)
+        .status();
+    if git.is_ok_and(|status| status.success()) {
+        let before = winc_backend::remote::requests(&target);
+        let index = FileIndex::collect_now(&root);
+        assert_eq!(winc_backend::remote::requests(&target) - before, 1);
+        let mut kept = listed(&index);
+        kept.sort();
+        assert_eq!(
+            kept,
+            [
+                ".git-keep",
+                ".gitignore",
+                "README.md",
+                "src/deep/lib.rs",
+                "src/main.rs"
+            ]
+        );
+    }
+    winc_backend::remote::disconnect(&target);
+}

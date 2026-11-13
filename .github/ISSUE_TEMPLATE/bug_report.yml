@@ -15,12 +15,18 @@ body:
       description: The part of winc where the problem appears.
       options:
         - Editor
+        - Vim mode
+        - Syntax highlighting / navigation
+        - Formatting
         - Search
         - File tree
         - Preview
         - Git
         - Terminal
-        - Settings
+        - SSH remote / WSL
+        - Interface / themes
+        - Settings / shortcuts
+        - Command line
         - Performance
         - Install / update
         - Other
@@ -38,13 +44,39 @@ body:
     validations:
       required: true
   - type: input
+    id: system
+    attributes:
+      label: System version
+      description: >-
+        The system version, and the desktop environment on Linux. For SSH remote or WSL problems,
+        also name the system of the remote host or the distribution.
+      placeholder: "macOS 15.1 / Ubuntu 24.04, GNOME on Wayland / Windows 11 23H2"
+    validations:
+      required: false
+  - type: input
     id: version
     attributes:
       label: Version
-      description: Shown in Settings → About.
-      placeholder: "0.1.413"
+      description: Shown in Settings → About, or by running `winc --version`.
+      placeholder: "0.1.688"
     validations:
       required: true
+  - type: dropdown
+    id: package
+    attributes:
+      label: Package
+      description: How winc was installed. Needed for install and update problems.
+      options:
+        - macOS disk image
+        - Linux AppImage
+        - Linux deb
+        - Arch repository
+        - Windows installer (NSIS)
+        - Windows installer (MSI)
+        - Windows portable ZIP
+        - Built from source
+    validations:
+      required: false
   - type: textarea
     id: description
     attributes:
@@ -65,8 +97,9 @@ body:
       label: Screenshots or logs
       description: >-
         Optional. Drag and drop files here. Remove private data. After a crash, please attach
-        crash.log from ~/Library/Application Support/winc on macOS, %LOCALAPPDATA%\winc on Windows,
-        or ~/.local/state/winc on Linux.
+        crash.log from ~/Library/Application Support/winc on macOS, %LOCALAPPDATA%\winc on Windows
+        (the data folder beside winc.exe for the portable ZIP), or ~/.local/state/winc on Linux
+        ($XDG_STATE_HOME/winc when that variable is set).
     validations:
       required: false
   - type: checkboxes

@@ -9,6 +9,11 @@
 //! 退出后从新位置重新启动，并推出磁盘映像或将下载位置的原件移到废纸篓。应用位于其他可写位置（例如
 //! 自行放置的文件夹、开发时的构建目录）时可以正常运行和更新，不询问。
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "只访问本机：应用程序在本机的安装位置"
+)]
+
 use std::path::{Path, PathBuf};
 use std::process::Command;
 

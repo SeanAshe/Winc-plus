@@ -12,6 +12,7 @@ mod caret;
 mod find;
 mod pointer;
 
+use crate::app::scroll::set_scroll_line;
 use std::path::Path;
 
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -424,7 +425,8 @@ impl App {
         if let Some(view) = doc.diff.as_deref_mut() {
             let row = view.row_at(RIGHT, doc.scroll_line.max(0.0)) as usize;
             let row = change(view, row);
-            doc.scroll_line = view.pos_of(RIGHT, row as f64);
+            let row = view.pos_of(RIGHT, row as f64);
+            set_scroll_line(doc, row);
         }
         self.clamp_scroll();
         self.request_redraw();
@@ -518,7 +520,7 @@ impl App {
             view.pos_of_top(side, (row - depth).max(0.0), visible)
         };
         let before = doc.scroll_line;
-        doc.scroll_line = top.clamp(0.0, max.max(0.0));
+        set_scroll_line(doc, top.clamp(0.0, max.max(0.0)));
         self.focus = Focus::Editor;
         self.glide_scroll(before);
         self.reset_blink();
@@ -801,7 +803,8 @@ impl App {
         {
             view.pin_new(fade.right.clone());
             let row = view.row_of_new(fade.right.start) as f64 - offset;
-            doc.scroll_line = view.pos_of(RIGHT, row.max(0.0));
+            let row = view.pos_of(RIGHT, row.max(0.0));
+            set_scroll_line(doc, row);
         }
         self.clamp_scroll();
         // 被替换的改动不立即失去颜色，而是在原处淡出；动态效果关闭时不显示淡出。
@@ -922,8 +925,10 @@ impl App {
         if view.set_wrap(wrap.then_some((cols, tab_width))) {
             let part = part.min(view.breaks(RIGHT, top).rows().saturating_sub(1));
             let first = view.row_of_new(top) + part;
-            doc.scroll_line = view.pos_of_top(RIGHT, first as f64 + row.fract(), visible);
-            if view.is_wrapping() {
+            let row = view.pos_of_top(RIGHT, first as f64 + row.fract(), visible);
+            let wrapping = view.is_wrapping();
+            set_scroll_line(doc, row);
+            if wrapping {
                 doc.scroll_x = 0.0;
             }
             self.clamp_scroll();
@@ -990,18 +995,20 @@ impl App {
             } else {
                 row < view.side_scroll(side, doc.scroll_line, pane_height) + sticky
             };
+        let wrapping = view.is_wrapping();
         if covered {
-            doc.scroll_line = if view.is_unified() {
+            let row = if view.is_unified() {
                 (at - sticky).max(0.0)
             } else {
                 view.pos_of_top(side, (row - sticky).max(0.0), pane_height)
             };
+            set_scroll_line(doc, row);
         } else if at < doc.scroll_line {
-            doc.scroll_line = at;
+            set_scroll_line(doc, at);
         } else if at >= doc.scroll_line + visible as f64 {
-            doc.scroll_line = at - visible as f64 + 1.0;
+            set_scroll_line(doc, at - visible as f64 + 1.0);
         }
-        let x = if view.is_wrapping() {
+        let x = if wrapping {
             doc.scroll_x
         } else {
             caret_cell as f32 * cell
@@ -1110,19 +1117,19 @@ impl App {
             return;
         };
         match key {
-            Key::Named(NamedKey::ArrowUp) if cmd => doc.scroll_line = 0.0,
-            Key::Named(NamedKey::ArrowDown) if cmd => doc.scroll_line = f64::MAX,
-            Key::Named(NamedKey::Home) => doc.scroll_line = 0.0,
-            Key::Named(NamedKey::End) => doc.scroll_line = f64::MAX,
-            Key::Named(NamedKey::ArrowUp) => doc.scroll_line -= 1.0,
-            Key::Named(NamedKey::ArrowDown) => doc.scroll_line += 1.0,
-            Key::Named(NamedKey::PageUp) => doc.scroll_line -= page,
-            Key::Named(NamedKey::PageDown) => doc.scroll_line += page,
+            Key::Named(NamedKey::ArrowUp) if cmd => set_scroll_line(doc, 0.0),
+            Key::Named(NamedKey::ArrowDown) if cmd => set_scroll_line(doc, f64::MAX),
+            Key::Named(NamedKey::Home) => set_scroll_line(doc, 0.0),
+            Key::Named(NamedKey::End) => set_scroll_line(doc, f64::MAX),
+            Key::Named(NamedKey::ArrowUp) => set_scroll_line(doc, doc.scroll_line - 1.0),
+            Key::Named(NamedKey::ArrowDown) => set_scroll_line(doc, doc.scroll_line + 1.0),
+            Key::Named(NamedKey::PageUp) => set_scroll_line(doc, doc.scroll_line - page),
+            Key::Named(NamedKey::PageDown) => set_scroll_line(doc, doc.scroll_line + page),
             Key::Named(NamedKey::ArrowLeft) => doc.scroll_x -= cell * 4.0,
             Key::Named(NamedKey::ArrowRight) => doc.scroll_x += cell * 4.0,
             _ => return,
         }
-        doc.scroll_line = doc.scroll_line.floor();
+        set_scroll_line(doc, doc.scroll_line.floor());
         self.clamp_scroll();
         self.request_redraw();
     }
@@ -1139,7 +1146,7 @@ impl App {
             return;
         };
         let before = doc.scroll_line;
-        doc.scroll_line = (view.hunk_pos(hunk) - 3.0).max(0.0);
+        set_scroll_line(doc, (view.hunk_pos(hunk) - 3.0).max(0.0));
         self.clamp_scroll();
         self.glide_scroll(before);
         self.place_diff_caret(hunk);
@@ -1238,11 +1245,11 @@ impl App {
             };
             let row = view.side_scroll(RIGHT, doc.scroll_line.max(0.0), visible);
             view.set_unified(on);
-            doc.scroll_line = view.pos_of_top(RIGHT, row, visible);
-            let scroll = doc.scroll_line;
+            let scroll = view.pos_of_top(RIGHT, row, visible);
             if let Some((hunk, _)) = view.focus {
                 view.focus = Some((hunk, scroll));
             }
+            set_scroll_line(doc, scroll);
         }
         self.relayout();
         self.clamp_scroll();

@@ -299,7 +299,7 @@ impl Winc {
         let root = slot.app.editor.root().map(Path::to_path_buf);
         let mut folders = folders
             .iter()
-            .filter(|f| f.is_dir() && Some(*f) != root.as_ref())
+            .filter(|f| winc_backend::fs::is_dir(f) && Some(*f) != root.as_ref())
             .peekable();
         if root.is_none()
             && let Some(folder) = folders.next()
@@ -644,11 +644,11 @@ impl Winc {
     fn window_for(&mut self, targets: &[Target]) -> Result<WindowKey, Option<PathBuf>> {
         let folder = targets
             .iter()
-            .find(|t| t.path.is_dir())
+            .find(|t| winc_backend::fs::is_dir(&t.path))
             .map(|t| t.path.clone());
         let file = targets
             .iter()
-            .find(|t| !t.path.is_dir())
+            .find(|t| !winc_backend::fs::is_dir(&t.path))
             .map(|t| t.path.clone());
         let key = match (&folder, &file) {
             (Some(folder), _) => self.shared.window_with(folder, None),

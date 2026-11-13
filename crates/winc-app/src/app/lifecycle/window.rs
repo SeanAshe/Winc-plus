@@ -2,6 +2,8 @@
 
 use super::*;
 
+use crate::app::scroll::set_scroll_line;
+
 /// 预览滚动测量中每帧滚动的距离（逻辑像素）。
 ///
 /// 取默认字号下约三行的高度：文本的滚动测量每帧滚动三行。
@@ -85,7 +87,10 @@ impl App {
     /// 打开 `targets` 里的文件（目录跳过：已经是本窗口的目录），`文件:行:列` 跳到该位置，再把
     /// 窗口切到前台。
     pub(crate) fn open_files(&mut self, targets: &[crate::cli::Target]) {
-        for target in targets.iter().filter(|t| !t.path.is_dir()) {
+        for target in targets
+            .iter()
+            .filter(|t| !winc_backend::fs::is_dir(&t.path))
+        {
             self.open_path(&target.path);
             if let Some(line) = target.line {
                 self.jump_to(line, target.col.unwrap_or(0), 0);
@@ -545,6 +550,7 @@ impl App {
         self.vim_sync();
         self.settle_animations();
         self.advance_wheel_glide();
+        self.advance_fling(Instant::now());
         self.continue_drag_scroll();
         self.track_modules();
         self.track_commit_bars();
@@ -571,9 +577,9 @@ impl App {
         if let Some(window) = &self.window.handle {
             window.pre_present_notify();
         }
-        let glide = self.begin_glide_frame();
+        let scrolled = self.begin_scroll_frame();
         let drawn = renderer.draw(|frame| view::draw(self, frame));
-        self.end_glide_frame(glide);
+        self.end_scroll_frame(scrolled);
         let elapsed = started.elapsed();
         self.renderer = Some(renderer);
         if !drawn {
@@ -623,11 +629,12 @@ impl App {
                 let max = self.max_scroll_line();
 
                 if let Some(doc) = self.editor.active_mut() {
-                    doc.scroll_line = if doc.scroll_line + 3.0 > max {
+                    let row = if doc.scroll_line + 3.0 > max {
                         0.0
                     } else {
                         doc.scroll_line + 3.0
                     };
+                    set_scroll_line(doc, row);
                 }
 
                 self.request_redraw();
@@ -664,7 +671,7 @@ impl App {
             Next::Highlight => {
                 let max = self.max_scroll_line();
                 if let Some(doc) = self.editor.active_mut() {
-                    doc.scroll_line = max;
+                    set_scroll_line(doc, max);
                 }
                 self.request_redraw();
             }

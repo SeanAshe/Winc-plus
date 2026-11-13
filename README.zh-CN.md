@@ -40,15 +40,17 @@ winc 以 Rust 与自研渲染引擎构建：0.1 秒启动，十万行代码仅�
 
 | 方面 | 能力 |
 | --- | --- |
-| 编辑 | 多光标、查找替换、系统输入法，GB 级文件中流畅滚动 |
+| 编辑 | 多光标、查找替换、系统输入法，GB 级文件中流畅滚动，以及实验性的 Vim 模式 |
 | 语法 | 常见编程语言、标记语言、数据和配置格式的高亮，不依赖语言服务器的轻量跳转定义和查找用法 |
 | 格式化 | 调用 rustfmt、Prettier、Black、Ruff、gofmt 等外部工具整理整个文件 |
-| 预览 | Markdown、图片、SVG、表格（xlsx、csv），随时切回源代码 |
+| 预览 | Markdown（含公式和 Mermaid 图）、图片、SVG、PDF（macOS 和 Windows）、Word 文档（docx）、表格（xlsx、csv），随时切回源代码 |
 | Git | 并排差异（词级高亮）、按块暂存、提交和推送、提交图、逐行追溯 |
 | 项目 | 文件树、快速打开、遵循 `.gitignore` 的项目搜索 |
 | 终端 | 窗口底部的内置终端 |
-| 界面 | 浅色和深色主题，完整的英文和简体中文界面 |
-| 更新 | 三个平台都有签名的应用内更新 |
+| 远程 | 实验性的 SSH 远程：打开 Linux 主机上的目录，在其中编辑、搜索、格式化、使用 Git 和终端；Windows 上可打开 WSL 发行版中的目录 |
+| 界面 | 十六套内置主题，浅色、深色均有；完整的英文和简体中文界面 |
+| 模块 | Git、终端和 SSH 远程均可单独关闭；首次运行时在开始页设置外观、主题、语言和模块 |
+| 更新 | 三个平台都有签名的应用内更新，更新后可在应用内查看更新日志 |
 
 触摸屏支持点按按钮和定位光标、双击选词、单指滑动滚动，以及拖动滚动条和面板分隔条。
 Windows 上还可拖动标题栏移动窗口、双击标题栏最大化或还原，以及拖动窗口边缘改变大小。
@@ -65,7 +67,7 @@ Ctrl/⌘ 加 `+`、`-`、`0`，缩放时鼠标所指的位置保持不动。放�
 | 平台 | 要求 | 安装包 |
 | --- | --- | --- |
 | macOS | macOS 11 及以上，Apple 芯片或 Intel | 磁盘映像 |
-| Linux | x86_64，X11 或 Wayland | AppImage、deb |
+| Linux | x86_64，X11 或 Wayland | AppImage、deb、Arch 软件源 |
 | Windows | Windows 10 1809 及以上，x86_64 | NSIS、MSI、便携 ZIP |
 
 便携 ZIP 将设置和状态保存在 `winc.exe` 旁边的 `data` 目录中；删除该目录后改为保存在用户目录中。
@@ -79,6 +81,7 @@ Ctrl/⌘ 加 `+`、`-`、`0`，缩放时鼠标所指的位置保持不动。放�
 winc .                  # 打开当前目录
 winc file.rs:12:5       # 打开文件并跳到指定的行和列
 winc --wait file        # 等标签关闭后再退出，例如作为 Git 的编辑器
+cargo build 2>&1 | winc -   # 读取标准输入
 ```
 
 Windows 安装包、Linux deb 包和 Arch 包会把 `winc` 加入 `PATH`；Windows 便携版不修改 `PATH`。macOS 请在菜单栏选择「Winc → 安装 winc 命令…」，或在命令面板中运行「Shell 命令：安装 winc 命令」；Linux AppImage 请使用命令面板。
@@ -115,8 +118,12 @@ cargo xtask bench                   # 测启动、内存、滚动，对照性能
 | `winc-core` | 文本、编辑、撤销、差异等与界面无关的基础 |
 | `winc-syntax` | 语法高亮的词法分析 |
 | `winc-editor` | 文档、文件树、查找、Git、格式化等编辑器逻辑 |
+| `winc-vim` | Vim 模式的无界面部分：按键记法、命令表、命令的解析与求值 |
+| `winc-backend` | 文件系统的访问入口，区分本机路径与远端主机上的路径 |
+| `winc-server` | 运行在远端主机上的服务进程，经 SSH 为本机执行文件操作 |
+| `winc-watch` | 在文件所在的机器上监视目录（WSL 发行版内、远端主机上） |
 | `winc-render` | 渲染层：字形、光栅化、呈现 |
-| `winc-preview` | 图片、SVG、Markdown、表格预览 |
+| `winc-preview` | 图片、SVG、Markdown、PDF、Word 文档、表格预览 |
 | `winc-typeset` | Markdown 预览的排版 |
 | `winc-pty` | 终端仿真和伪终端的辅助进程 |
 | `winc-config` | 配置和状态文件 |

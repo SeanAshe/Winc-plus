@@ -1,6 +1,7 @@
 //! 改动列表：行、勾选、选中、滚动、固定在顶部的行和键盘。
 
 use super::*;
+use crate::app::ScrollTarget;
 
 impl App {
     /// 提交视图列表现在的各行（见 [`CommitRows`]）。
@@ -288,6 +289,7 @@ impl App {
             .iter()
             .map(|s| s.rect.bottom() - list.y)
             .fold(0.0, f32::max);
+        let before = self.commit.scroll;
         if top - self.commit.scroll < covered {
             let pinned = rows[i].level().min(self.commit_sticky_max()) as f32 * COMMIT_ROW;
             self.commit.scroll = (top - pinned).max(0.0);
@@ -296,6 +298,7 @@ impl App {
         } else if bottom > self.commit.scroll + list.h {
             self.commit.scroll = bottom - list.h;
         }
+        self.glide_pane(ScrollTarget::Commit, before);
     }
 
     /// 第 `parent` 行的组或目录刚收起或展开时，开始展开或收起的动画。
@@ -563,7 +566,7 @@ impl App {
             }
             Key::Named(NamedKey::Enter) => {
                 if let Some(path) = target
-                    && path.is_file()
+                    && winc_backend::fs::is_file(&path)
                 {
                     self.open_path(&path);
                     self.focus = Focus::Editor;

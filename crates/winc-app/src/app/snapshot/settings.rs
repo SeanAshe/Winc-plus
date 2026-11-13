@@ -258,18 +258,20 @@ fn settings_keyboard_walks_every_item_and_adjusts() {
     );
     assert_eq!(app.settings.selected, Setting::License);
     assert_eq!(app.settings_layout().page, SettingsPage::About);
-    // 往回走过关于页的五行（版本、更新两行、仓库和许可证），回到快捷键页的搜索框。
-    for _ in 0..5 {
+    // 往回走过关于页的六行（版本、更新两行、更新日志、仓库和许可证），回到快捷键页的搜索框。
+    for _ in 0..6 {
         app.settings_move(false);
     }
     assert_eq!(app.settings.selected, Setting::KeySearch);
     assert_eq!(app.settings_layout().page, SettingsPage::Keys);
     assert_eq!(app.focus, Focus::KeySearch);
-    // 向回走一步，回到模块页最后的终端开关，焦点回到浮层；再一步是 Git 开关；再走一步，回到
-    // 终端页的最后一项（macOS 上是「Meta 键」，其他平台是「Shell 集成」）。
+    // 向回走一步，回到模块页最后的远程开关，焦点回到浮层；再往回是终端开关和 Git 开关；再走
+    // 一步，回到终端页的最后一项（macOS 上是「Meta 键」，其他平台是「Shell 集成」）。
+    app.settings_move(false);
+    assert_eq!(app.settings.selected, Setting::RemoteModule);
+    assert_eq!(app.focus, Focus::Settings);
     app.settings_move(false);
     assert_eq!(app.settings.selected, Setting::TerminalModule);
-    assert_eq!(app.focus, Focus::Settings);
     app.settings_move(false);
     assert_eq!(app.settings.selected, Setting::GitModule);
     app.settings_move(false);
@@ -1576,4 +1578,120 @@ fn scrolling_settings_over_a_background_image_looks_the_same() {
     assert_eq!(corner & 0xff_ffff, plain);
 
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 「关于」页的「更新日志」一行与是否支持应用内更新无关，点击后关闭设置。
+#[test]
+fn the_about_page_opens_the_release_notes() {
+    let mut app = blank_app(false);
+    app.open_settings();
+    app.settings_show_page(SettingsPage::About);
+    paint(&mut app);
+    assert!(!app.updates_supported());
+    click_part(&mut app, SettingsPart::Link(Setting::ReleaseNotes));
+    assert!(!app.settings.open);
+}
+
+/// 首次设置尚未完成时开始页只有「首次设置」：外观、主题和模块的修改立即生效并写入配置，语言
+/// 和主题从菜单中选。点击「完成」或按回车后换回开始操作，状态中记下已经完成。
+#[test]
+fn the_start_page_shows_only_first_time_setup_until_it_is_finished() {
+    use crate::app::StartAction;
+    use crate::app::input::context_menu::MenuTarget;
+    use crate::keymap::Module;
+    let has = |app: &App, wanted: StartAction| app.hits.start.iter().any(|(_, a)| *a == wanted);
+    let mut app = blank_app(false);
+    paint(&mut app);
+    assert!(has(&app, StartAction::Settings) && !has(&app, StartAction::FinishSetup));
+
+    app.state.setup_pending = true;
+    paint(&mut app);
+    let pick = |app: &mut App, wanted: StartAction| {
+        let (rect, _) = *(app.hits.start.iter())
+            .find(|(_, action)| *action == wanted)
+            .unwrap();
+        click(app, (rect.x + rect.w / 2.0, rect.y + rect.h / 2.0));
+        paint(app);
+    };
+    // 语言、外观三段、主题、三个模块的开关和「完成」，没有开始操作。
+    assert_eq!(app.hits.start.len(), 1 + 3 + 1 + 3 + 1);
+    assert!(!has(&app, StartAction::Settings));
+    // 各控件的右端对齐在同一条线上。
+    let right = |app: &App, wanted: StartAction| {
+        let (rect, _) = *app.hits.start.iter().find(|(_, a)| *a == wanted).unwrap();
+        rect.right()
+    };
+    // 下拉值的箭头与这条线对齐，悬停底色因此向右多出一段。
+    let edge = right(&app, StartAction::FinishSetup);
+    let past = crate::theme::SETTINGS_GLYPH_PAD - 1.0;
+    assert_eq!(right(&app, StartAction::Language), edge + past);
+    assert_eq!(right(&app, StartAction::Theme), edge + past);
+    assert_eq!(right(&app, StartAction::Module(Module::Git)) - 6.0, edge);
+    assert_eq!(
+        right(&app, StartAction::Appearance(ThemeChoice::Dark)),
+        edge - 2.0
+    );
+
+    pick(&mut app, StartAction::Appearance(ThemeChoice::Dark));
+    assert_eq!(app.config.theme, Some(ThemeChoice::Dark));
+    assert!(app.palette.dark);
+
+    // 主题：弹出当前外观（深色）的主题菜单，当前的一项打勾，选中的写入深色主题的设置。
+    pick(&mut app, StartAction::Theme);
+    let menu = app.context_menu.as_ref().unwrap();
+    assert_eq!(menu.target, MenuTarget::NamedTheme(true));
+    let themes = crate::theme::themes(true);
+    let listed: Vec<_> = menu_commands(&app).into_iter().map(|(c, _)| c).collect();
+    let all: Vec<_> = (0..themes.len())
+        .map(|i| MenuCommand::NamedTheme(true, i))
+        .collect();
+    assert_eq!(listed, all);
+    assert!(app.menu_checked(MenuCommand::NamedTheme(true, 0)));
+    app.run_menu_command(MenuCommand::NamedTheme(true, 2));
+    paint(&mut app);
+    assert_eq!(app.config.dark_theme.as_deref(), Some(themes[2].id));
+    assert_eq!(app.config.light_theme, None);
+    assert_eq!(app.palette.editor_bg, themes[2].palette.editor_bg);
+
+    // 语言：弹出设置中同一个「语言」菜单。
+    pick(&mut app, StartAction::Language);
+    assert_eq!(
+        app.context_menu.as_ref().unwrap().target,
+        MenuTarget::Locale
+    );
+    app.context_menu = None;
+    paint(&mut app);
+
+    assert!(!app.git_enabled());
+    pick(&mut app, StartAction::Module(Module::Git));
+    assert!(app.git_enabled());
+    pick(&mut app, StartAction::Module(Module::Git));
+    assert!(!app.git_enabled());
+
+    pick(&mut app, StartAction::FinishSetup);
+    assert!(!app.state.setup_pending);
+    assert!(has(&app, StartAction::Settings) && !has(&app, StartAction::FinishSetup));
+    assert!(!has(&app, StartAction::Appearance(ThemeChoice::Auto)));
+
+    // 回车等同于「完成」；启动动画期间各项尚未显示，回车不结束首次设置，点击也不响应。
+    use crate::app::animation::Clock;
+    use winit::keyboard::{Key, NamedKey};
+    let (enter, total) = (Key::Named(NamedKey::Enter), crate::app::setup::INTRO);
+    app.state.setup_pending = true;
+    app.setup_intro = Some(Clock::stopped(total, total.mul_f32(0.3)));
+    paint(&mut app);
+    assert!(app.hits.start.is_empty());
+    assert!(!app.setup_key(&enter) && app.state.setup_pending);
+    app.setup_intro = None;
+    paint(&mut app);
+    assert!(has(&app, StartAction::FinishSetup));
+    assert!(!app.setup_key(&Key::Named(NamedKey::Escape)) && app.state.setup_pending);
+    assert!(app.setup_key(&enter) && !app.state.setup_pending);
+    assert!(!app.setup_key(&enter));
+
+    // 有打开的标签时开始页不显示：不算正在显示首次设置。
+    app.state.setup_pending = true;
+    assert!(app.setup_shown());
+    app.editor.new_untitled();
+    assert!(!app.setup_shown());
 }

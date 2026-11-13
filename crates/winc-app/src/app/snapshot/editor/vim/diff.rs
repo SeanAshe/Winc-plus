@@ -95,11 +95,11 @@ fn a_read_only_side_takes_motions_selections_yanks_searches_and_marks() {
         app.status.message = None;
         keys(&mut app, change);
         let message = app.status.message.as_deref();
-        assert_eq!(message, Some("差异的这一侧是只读的"), "{change}");
+        assert_eq!(message, Some("差异的此侧为只读"), "{change}");
         assert_eq!(app.vim_mode(), Some(Mode::Normal), "{change}");
     }
     ex(&mut app, "s/four/4/");
-    assert_eq!(app.status.message.as_deref(), Some("差异的这一侧是只读的"));
+    assert_eq!(app.status.message.as_deref(), Some("差异的此侧为只读"));
     assert_eq!(view(&mut app).new.text.to_string(), NEW);
     assert_eq!(view(&mut app).old.text.to_string(), OLD);
     let _ = std::fs::remove_dir_all(&dir);
@@ -118,9 +118,9 @@ fn the_left_side_keeps_its_own_cursor_and_marks_and_follows_the_mouse() {
     keys(&mut app, "\"+yiw");
     assert_eq!(app.copied.as_deref(), Some("three"));
     keys(&mut app, "`b");
-    assert_eq!(app.status.message.as_deref(), Some("标记 b 没有设置"));
+    assert_eq!(app.status.message.as_deref(), Some("未设置标记 b"));
     keys(&mut app, "x");
-    assert_eq!(app.status.message.as_deref(), Some("差异的这一侧是只读的"));
+    assert_eq!(app.status.message.as_deref(), Some("差异的此侧为只读"));
     // 回到右侧时标记仍在。
     point(&mut app, RIGHT, (0, 0));
     keys(&mut app, "`b");
@@ -201,7 +201,7 @@ fn the_editable_side_shows_the_modal_caret_and_saves_its_document() {
     view(&mut app).editing = false;
     point(&mut app, LEFT, (0, 0));
     keys(&mut app, "x");
-    assert_eq!(app.status.message.as_deref(), Some("差异的这一侧是只读的"));
+    assert_eq!(app.status.message.as_deref(), Some("差异的此侧为只读"));
     assert_eq!(caret(&app), Some((LEFT, 0, CaretShape::Block)));
 
     // `:wq` 保存可编辑一侧对应的文档，关闭的是差异的标签。

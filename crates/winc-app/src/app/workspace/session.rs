@@ -13,10 +13,22 @@ pub enum StartAction {
     Open,
     /// 打开目录（`Ctrl+K Ctrl+O`）；只在选择器不能同时选文件和目录的平台上显示。
     OpenFolder,
+    /// 连接到 SSH 主机；只在远程模块开着时显示。
+    Remote,
     /// 打开最近列表中的目录，参数为列表下标（从 0 起）。
     Recent(usize),
     /// 从最近列表中移除一项（悬停时右端的 ✕），参数为列表下标（从 0 起）。
     Forget(usize),
+    /// 「首次设置」：弹出「语言」菜单。
+    Language,
+    /// 「首次设置」：改用外观（跟随系统、浅色或深色）。
+    Appearance(winc_config::ThemeChoice),
+    /// 「首次设置」：弹出当前外观的「主题」菜单。
+    Theme,
+    /// 「首次设置」：开启或关闭一个可选模块。
+    Module(crate::keymap::Module),
+    /// 「首次设置」底部的「完成」：结束首次设置。
+    FinishSetup,
 }
 
 impl App {
@@ -387,13 +399,19 @@ impl App {
     /// 把最近打开的目录交给系统：macOS 的最近文档列表（程序坞菜单）、Windows 的任务栏跳转
     /// 列表。没有状态文件（测试、测量）时不做任何事，其他平台没有对应的入口。
     pub(in crate::app) fn sync_system_recents(&self) {
+        // 远端主机上的目录不交给系统：系统的最近列表只能打开本机路径。
+        #[cfg(any(target_os = "macos", windows))]
+        let local: Vec<PathBuf> = (self.state.recent.iter())
+            .filter(|folder| !winc_backend::is_remote(folder))
+            .cloned()
+            .collect();
         #[cfg(target_os = "macos")]
         if self.state_path.is_some() {
-            crate::macos::sync_recent_documents(&self.state.recent);
+            crate::macos::sync_recent_documents(&local);
         }
         #[cfg(windows)]
         if let Some(path) = &self.state_path {
-            crate::windows::sync_jump_list(&self.state.recent, path);
+            crate::windows::sync_jump_list(&local, path);
         }
     }
 
@@ -407,7 +425,10 @@ impl App {
         let Some(folder) = self.state.recent.get(index).cloned() else {
             return;
         };
-        if folder.is_dir() {
+        if self.reopen_remote(&folder) {
+            return;
+        }
+        if winc_backend::fs::is_dir(&folder) {
             self.new_window(Some(folder));
         } else {
             self.forget_missing_recent(&folder);
@@ -421,12 +442,38 @@ impl App {
             StartAction::NewFile => self.new_file(),
             StartAction::Open => self.pick(Pick::Open),
             StartAction::OpenFolder => self.pick(Pick::OpenFolder),
+            StartAction::Remote => self.open_remote_picker(),
+            StartAction::Language | StartAction::Theme => {
+                use crate::app::input::context_menu::{MenuTarget, menu_below};
+                // 菜单从被点击的控件下方弹出，右端与控件对齐。
+                let Some(&(control, _)) = self.hits.start.iter().find(|(_, a)| *a == action) else {
+                    return;
+                };
+                let target = match action {
+                    StartAction::Language => MenuTarget::Locale,
+                    _ => MenuTarget::NamedTheme(self.palette.dark),
+                };
+                let (_, y) = menu_below(control);
+                self.open_context_menu(target, (control.right(), y));
+            }
+            StartAction::Appearance(choice) => self.set_theme_choice(choice),
+            StartAction::FinishSetup => self.finish_setup(),
+            StartAction::Module(module) => {
+                use crate::keymap::Module;
+                self.settings_toggle(match module {
+                    Module::Git => Setting::GitModule,
+                    Module::Terminal => Setting::TerminalModule,
+                    Module::Remote => Setting::RemoteModule,
+                });
+            }
             StartAction::Recent(index) => {
                 let Some(folder) = self.state.recent.get(index).cloned() else {
                     return;
                 };
-
-                if folder.is_dir() {
+                if self.reopen_remote(&folder) {
+                    return;
+                }
+                if winc_backend::fs::is_dir(&folder) {
                     self.open_path(&folder);
                 } else {
                     self.forget_missing_recent(&folder);

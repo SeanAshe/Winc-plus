@@ -62,11 +62,11 @@ pub fn is_docx(path: &Path) -> bool {
 /// 文件无法读取、超过大小上限（与 xlsx 预览相同，256 MiB），或内容不是有效的 docx 时返回
 /// 给用户看的原因。
 pub fn load(path: &Path) -> Result<Converted, String> {
-    let metadata = std::fs::metadata(path).map_err(|e| e.to_string())?;
-    if metadata.len() > MAX_FILE {
+    let metadata = winc_backend::fs::metadata(path).map_err(|e| e.to_string())?;
+    if metadata.len > MAX_FILE {
         return Err(t!("preview-docx-too-large").to_owned());
     }
-    let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+    let bytes = winc_backend::fs::read(path).map_err(|e| e.to_string())?;
     convert(&bytes)
 }
 

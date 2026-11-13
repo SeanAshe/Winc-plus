@@ -3,6 +3,11 @@
 //!
 //! 只写在本机，不上传。panic 信息可能含有路径或文字片段，发送给别人之前可以先查看。
 
+#![allow(
+    clippy::disallowed_methods,
+    reason = "只访问本机：崩溃记录写在本机的数据目录中"
+)]
+
 use std::fmt::Write as _;
 use std::io::Write as _;
 use std::panic::PanicHookInfo;

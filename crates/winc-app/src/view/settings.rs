@@ -425,7 +425,7 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
                 None => (t!("format-tool-auto").to_owned(), false),
             };
             let hovered = app.settings.hover == Some(SettingsPart::Field(row.setting));
-            draw_popup(app, frame, row.control, &text, dim, hovered, clip);
+            super::controls::popup_value(app, frame, row.control, &text, dim, hovered, clip);
             None
         }
         SettingControl::Choice => {
@@ -471,7 +471,7 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
                 let none = || t!("settings-skip-on-save-none").to_owned();
                 (app.skipped_on_save().unwrap_or_else(none), false)
             };
-            draw_popup(app, frame, row.control, &text, dim, hovered, clip);
+            super::controls::popup_value(app, frame, row.control, &text, dim, hovered, clip);
             None
         }
         SettingControl::Switch => {
@@ -510,7 +510,7 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
     }
 }
 
-/// 绘制「关于」页的链接：右对齐的显示名后跟外链箭头。
+/// 绘制「关于」页的链接：右对齐的显示名后跟外链箭头；在应用内打开的更新日志后跟朝右的箭头。
 ///
 /// 悬停时只在内容处铺悬停底色（[`crate::layout::value_area`]），点击范围与之相同。
 fn draw_link(app: &App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) {
@@ -524,7 +524,11 @@ fn draw_link(app: &App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) {
     }
     let right = area.right() - SETTINGS_GLYPH_PAD;
     let center = (right - 4.5, area.y + area.h / 2.0);
-    icons::external(frame, center, p.text_dim, clip);
+    if row.setting == Setting::ReleaseNotes {
+        icons::chevron(frame, center, 6.5, Direction::Right, p.text_dim, clip);
+    } else {
+        icons::external(frame, center, p.text_dim, clip);
+    }
     ui_text(
         frame,
         app,
@@ -686,39 +690,6 @@ fn draw_tool_detail(app: &mut App, frame: &mut Frame<'_>, setting: Setting, line
     }
 }
 
-/// 绘制点击后弹出菜单的值：平时是一段右对齐的淡色文本（未选择时 `dim` 为真，颜色更淡），
-/// 其后一对上下小箭头表示可选；悬停时铺悬停底色。
-///
-/// 不绘制边框，样式与字体名等其他设置项一致。
-fn draw_popup(
-    app: &App,
-    frame: &mut Frame<'_>,
-    rect: Rect,
-    text: &str,
-    dim: bool,
-    hovered: bool,
-    clip: Rect,
-) {
-    let p = app.palette;
-    if hovered {
-        frame.rect_clipped(rect, p.hover, RADIUS_ROW, clip);
-    }
-    let area = Rect::new(
-        rect.x + 10.0,
-        rect.y,
-        (rect.w - 10.0 - SETTINGS_GLYPH_PAD).max(0.0),
-        rect.h,
-    );
-    let arrows = (area.right() - 3.0, rect.y + rect.h / 2.0);
-    icons::up_down(frame, arrows, p.text_dim, clip);
-
-    let room = Rect::new(area.x, area.y, (area.w - 16.0).max(0.0), area.h);
-    let text = ellipsize(frame, text, app.fonts.ui, room.w);
-    let w = frame.measure(FontKind::Ui, app.fonts.ui, &text);
-    let color = if dim { p.text_dim } else { p.text_muted };
-    ui_text(frame, app, room.right() - w, room, &text, color, room);
-}
-
 /// 绘制字体名和正在输入的格式化命令：平时是右对齐的一段文本（未设置时显示「系统默认」），
 /// 悬停时铺输入框底色，点击后变成输入框，外圈为强调色（字体名无效时为错误色）。
 ///
@@ -815,20 +786,7 @@ fn draw_switch(app: &App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) {
         Some((setting, clock)) if setting == row.setting => clock.between(1.0 - on, on),
         _ => on,
     };
-    let radius = track.h / 2.0;
-    frame.rect_clipped(track, p.switch_off, radius, clip);
-    if t > 0.0 {
-        let accent = Color {
-            a: p.accent.a * t,
-            ..p.accent
-        };
-        frame.rect_clipped(track, accent, radius, clip);
-    }
-    let knob = track.h - 4.0;
-    let left = track.x + 2.0;
-    let x = left + (track.right() - 2.0 - knob - left) * t;
-    let knob = Rect::new(x, track.y + 2.0, knob, knob);
-    frame.rect_clipped(knob, p.switch_knob, knob.h / 2.0, clip);
+    super::controls::switch(frame, p, track, t, clip);
 }
 
 /// 绘制数值步进控件：「− 13 ＋」。
@@ -876,13 +834,11 @@ fn draw_stepper(app: &App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
 fn draw_mode(app: &App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) {
     let p = app.palette;
     let track = row.control;
-    frame.rect_clipped(track, p.hover, RADIUS_ROW + 2.0, clip);
-    let track_bg = super::workspace::panel::over(p.group_bg, p.hover);
-    let (raised, edge) = super::workspace::panel::segment_colors(p, track_bg);
     // 凸起的那一段：换了模式时从原来那一段滑过来（宽度也跟着变），先绘制，字压在上面。
     let index = |choice: ThemeChoice| THEME_CHOICES.iter().position(|c| c.0 == choice);
-    if let Some(to) = index(app.theme_choice).map(|i| theme_segment(track, i)) {
-        let slot = match app.settings.mode_slide {
+    let slot = index(app.theme_choice)
+        .map(|i| theme_segment(track, i))
+        .map(|to| match app.settings.mode_slide {
             Some((from, clock)) => match index(from).map(|i| theme_segment(track, i)) {
                 Some(from) => Rect::new(
                     clock.between(from.x, to.x),
@@ -893,10 +849,8 @@ fn draw_mode(app: &App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) {
                 None => to,
             },
             None => to,
-        };
-        frame.rect_clipped(slot, edge, RADIUS_ROW, clip);
-        frame.rect_clipped(slot.inset(0.5, 0.5), raised, RADIUS_ROW - 0.5, clip);
-    }
+        });
+    super::controls::segment_track(frame, p, track, p.group_bg, slot, clip);
     for (i, &(choice, label)) in THEME_CHOICES.iter().enumerate() {
         let label = label();
         let segment = theme_segment(track, i);

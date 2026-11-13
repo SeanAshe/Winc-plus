@@ -87,6 +87,8 @@ fn sample() -> State {
         stay_outside_applications: true,
         panel_width: Some(360.0),
         preview_mode: Some("split".into()),
+        version: Some("0.1.626".into()),
+        setup_pending: true,
         window: Some(WindowFrame {
             position: Some((-1280.0, 40.0)),
             width: 900.5,
@@ -97,9 +99,24 @@ fn sample() -> State {
         badges: Vec::new(),
         tool_choices: vec![(PathBuf::from("/a/项目"), true)],
         trusted_repos: vec![(PathBuf::from("/a/项目"), u64::MAX - 1)],
+        remote_keys: Vec::new(),
     };
+    state.set_remote_key("me@devbox:2200", "~/.ssh/工作 key");
+    state.set_remote_key("build", "/keys/build");
     state.assign_badges();
     state
+}
+
+#[test]
+fn a_key_file_is_kept_per_remote_host_until_cleared() {
+    let mut state = sample();
+    assert_eq!(state.remote_key("build"), Some("/keys/build"));
+    assert_eq!(state.remote_key("me@devbox"), None);
+    state.set_remote_key("build", "/keys/other");
+    assert_eq!(state.remote_key("build"), Some("/keys/other"));
+    state.set_remote_key("build", "");
+    assert_eq!(state.remote_key("build"), None);
+    assert_eq!(state.remote_key("me@devbox:2200"), Some("~/.ssh/工作 key"));
 }
 
 #[test]

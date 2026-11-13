@@ -5,13 +5,12 @@
 //! 换行风格、BOM）和检查外部修改。
 
 use std::borrow::Cow;
-use std::fs;
-use std::io::{self, BufReader, Read, Seek, Write};
+use std::io::{self, BufReader, Read, Write};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-use std::time::SystemTime;
+use winc_backend::fs::Stamp;
 
 use ropey::Rope;
 use winc_core::edit::{EditKind, Transaction};
@@ -148,6 +147,17 @@ impl TableView {
             _ => None,
         }
     }
+}
+
+/// 阅读标签的内容：由界面在后台取回，取回之前和未能取回时编辑区显示相应的说明。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Reading {
+    /// 正在取回。
+    Loading,
+    /// 已取回的 Markdown 原文，排版后显示。
+    Ready(Arc<str>),
+    /// 未能取回。
+    Failed,
 }
 
 /// 可预览文件的种类，见 `Document::preview_kind`。
@@ -468,6 +478,8 @@ pub struct Document {
     rendered: bool,
     /// 不对应文件的只读标签（格式化工具的输出、安装说明）的标题。
     pub title: Option<String>,
+    /// 阅读标签的内容：编辑区显示排版后的 Markdown，没有可切换的源代码，文本为空。
+    pub reading: Option<Reading>,
     /// 文本每变化一次加 1，搜索结果等缓存据此判断是否失效。
     pub revision: u64,
     /// 滚动位置的首行（行，从 0 起，可以是小数，用于平滑滚动）。
@@ -508,7 +520,7 @@ pub struct Document {
     /// 文档的文本：`rope`，或按需读取磁盘的大文件。
     pub(crate) text: Content,
     /// 最近一次读写时磁盘文件的修改时间。
-    disk_mtime: Option<SystemTime>,
+    disk_mtime: Option<Stamp>,
     /// 最近一次读写时磁盘文件的大小（字节，含 BOM），用于判断文件是否只在末尾追加了内容。
     disk_len: u64,
     /// 磁盘文件已被其他程序修改，而文档也有未保存的修改：任何一边的内容都不能被静默覆盖。
@@ -530,7 +542,7 @@ struct Loaded {
     /// 检测到的换行风格。
     line_ending: LineEnding,
     /// 读取时文件的修改时间。
-    mtime: Option<SystemTime>,
+    mtime: Option<Stamp>,
     /// 读取时文件的大小（字节）。
     len: u64,
 }
@@ -571,6 +583,7 @@ impl Document {
             split: false,
             rendered: false,
             title: None,
+            reading: None,
             revision: 0,
             scroll_line: 0.0,
             scroll_x: 0.0,
@@ -631,6 +644,15 @@ impl Document {
         let mut document = Document::from_text(id, text);
         document.title = Some(title.to_owned());
         document.readonly = true;
+        document
+    }
+
+    /// 创建只读、不对应文件的阅读标签，标签上显示 `title`，内容为 `reading`。
+    pub fn reading(id: DocumentId, title: &str, reading: Reading) -> Self {
+        let mut document = Document::from_text(id, "");
+        document.title = Some(title.to_owned());
+        document.readonly = true;
+        document.reading = Some(reading);
         document
     }
 
@@ -820,7 +842,7 @@ impl Document {
     ///
     /// `mtime` 是文件存在时的修改时间（记录在备份中）。有值时文件按已删除处理
     /// （[`Document::deleted_on_disk`]），自动保存不重建该文件，用户手动保存时才重新创建。
-    pub fn missing(id: DocumentId, path: PathBuf, mtime: Option<SystemTime>) -> Self {
+    pub fn missing(id: DocumentId, path: PathBuf, mtime: Option<Stamp>) -> Self {
         let mut document = Document::empty(id);
         document.set_path(path);
         document.disk_mtime = mtime;
@@ -933,6 +955,20 @@ impl Document {
         }
     }
 
+    /// 返回第 `line` 行（从 0 起）开头的近似高亮状态：从上方 `HIGHLIGHT_LOOKBACK` 行处推算。
+    ///
+    /// 供 [`Self::highlight_state`] 尚未推算到时绘制使用，远距离跳转后不先按普通文本着色；跨度
+    /// 超过回看行数的块注释和多行字符串仍可能着色错误，直到精确的状态推算完成。
+    pub fn approx_highlight_state(&mut self, line: usize) -> LineState {
+        match &self.text {
+            Content::Rope(rope) => self.highlighter.state_near(rope, line, HIGHLIGHT_LOOKBACK),
+            Content::Large(large) => {
+                self.highlighter
+                    .state_near(&**large, line, HIGHLIGHT_LOOKBACK)
+            }
+        }
+    }
+
     /// 返回已推算出的第 `line` 行（从 0 起）开头的高亮状态，不触发新的推算；尚未推算到时返回
     /// `None`。
     ///
@@ -1042,7 +1078,7 @@ impl Document {
     }
 
     /// 最近一次读写时磁盘文件的修改时间。
-    pub fn disk_mtime(&self) -> Option<SystemTime> {
+    pub fn disk_mtime(&self) -> Option<Stamp> {
         self.disk_mtime
     }
 
@@ -1055,7 +1091,7 @@ impl Document {
     pub fn restore_unsaved(
         &mut self,
         text: &str,
-        mtime: Option<SystemTime>,
+        mtime: Option<Stamp>,
         selection: Selection,
         conflict: bool,
     ) -> Option<bool> {

@@ -8,6 +8,7 @@ mod host;
 mod side;
 mod workspace;
 
+use crate::app::scroll::set_scroll_line;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use winc_config::VimClipboard;
@@ -953,7 +954,7 @@ impl App {
             Place::Center => row - (visible / 2.0).floor(),
             Place::Bottom => row - visible + 2.0,
         };
-        doc.scroll_line = target.clamp(0.0, max.max(0.0));
+        set_scroll_line(doc, target.clamp(0.0, max.max(0.0)));
         self.glide_scroll(before);
     }
 
@@ -973,7 +974,10 @@ impl App {
         let before = doc.scroll_line;
         let low = row - (visible as f64 - 1.0 - margin);
         let high = row - margin;
-        doc.scroll_line = before.clamp(low.min(high), high).clamp(0.0, max.max(0.0));
+        set_scroll_line(
+            doc,
+            before.clamp(low.min(high), high).clamp(0.0, max.max(0.0)),
+        );
         if doc.scroll_line != before {
             self.glide_scroll(before);
         }
