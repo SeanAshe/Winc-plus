@@ -148,6 +148,21 @@ fn snapshot_settings_format() {
     }
 }
 
+/// 截图：设置的 Git 一页（`settings-git-*`）。
+#[test]
+#[ignore = "截图，手动运行"]
+fn snapshot_settings_git() {
+    let dir = search_folder("settings-git-shot");
+    for (tag, dark) in [("light", false), ("dark", true)] {
+        let mut app = app_with(&dir.join("short.rs"), dark);
+        app.config.git_enabled = Some(true);
+        app.open_settings();
+        app.settings_show_page(SettingsPage::Git);
+        shoot(&mut app, &format!("settings-git-{tag}"));
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 #[ignore = "截图，手动运行"]
 fn snapshot_settings_terminal() {

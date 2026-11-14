@@ -271,7 +271,7 @@ fn head_name(app: &App) -> Option<String> {
 
 #[test]
 fn the_branch_row_opens_the_picker_below_it_and_enter_switches() {
-    use crate::app::git::branch::picker::{BranchRow, BranchSection};
+    use crate::app::git::branch::picker::BranchRow;
 
     let Some((mut app, root)) = picker_repo("pk", false) else {
         return;
@@ -298,11 +298,34 @@ fn the_branch_row_opens_the_picker_below_it_and_enter_switches() {
     // 分支不多：不单列最近使用，一开始选中当前分支；它所在的目录默认展开。
     app.open_branch_picker(GitAnchor::Branch);
     let rows = app.overlays.picker.branch_rows.clone().unwrap();
-    assert_eq!(rows[0], BranchRow::Heading(BranchSection::Local));
+    assert!(matches!(
+        rows[0],
+        BranchRow::Locals {
+            recent: false,
+            open: true,
+            ..
+        }
+    ));
     assert!(matches!(
         &rows[app.overlays.picker.selected],
         BranchRow::Branch { label, .. } if label == "search"
     ));
+    paint(&mut app);
+
+    // 「本地」一组可以收起：选中标题行按回车，下面的分支都收起来；再按一次展开。
+    let all = rows.len();
+    app.overlays.picker.selected = 0;
+    app.picker_accept();
+    let folded = app.overlays.picker.branch_rows.clone().unwrap();
+    assert!(matches!(folded[0], BranchRow::Locals { open: false, .. }));
+    assert!(folded.len() < all);
+    assert!(
+        !folded
+            .iter()
+            .any(|row| matches!(row, BranchRow::Branch { .. }))
+    );
+    app.picker_accept();
+    assert_eq!(app.overlays.picker.branch_rows.clone().unwrap().len(), all);
     paint(&mut app);
 
     // 再点分支行（面板之外）关闭。
@@ -995,6 +1018,9 @@ fn shoot_branch_picker() {
         git_in(&root, &["checkout", "-q", "fix/one"]);
         git_in(&root, &["checkout", "-q", "main"]);
         git_in(&root, &["update-ref", "refs/remotes/origin/main", "HEAD"]);
+        for tag in ["v1.0", "v1.1", "v2.0-beta"] {
+            git_in(&root, &["tag", tag]);
+        }
         std::fs::write(root.join("src/main.rs"), "fn changed() {}\n").unwrap();
         app.git_refresh();
         paint(&mut app);
@@ -1004,6 +1030,13 @@ fn shoot_branch_picker() {
         app.overlays.alert = None;
         app.open_branch_picker(GitAnchor::Branch);
         shoot(&mut app, &format!("branch-picker-{theme}"));
+        // 展开「标签」一组，选中其中一个标签：行尾是「⋯」。
+        let rows = app.overlays.picker.branch_rows.clone().unwrap();
+        app.overlays.picker.selected = rows.len() - 1;
+        app.branch_picker_accept();
+        app.overlays.picker.selected = app.overlays.picker.branch_rows.as_ref().unwrap().len() - 2;
+        app.picker_reveal();
+        shoot(&mut app, &format!("branch-picker-tags-{theme}"));
         app.overlays.picker.input.set_text("rel");
         app.picker_refresh();
         shoot(&mut app, &format!("branch-picker-search-{theme}"));
@@ -1093,7 +1126,7 @@ fn hovering_a_picker_row_leaves_the_selection_alone() {
 /// 当前分支混淆；回车仍切回它。移动选中项或输入查询后改为普通的选中样式，清空查询后恢复。
 #[test]
 fn the_default_branch_row_is_highlighted_softly() {
-    use crate::app::git::branch::picker::{BranchRow, BranchSection};
+    use crate::app::git::branch::picker::BranchRow;
 
     let Some((mut app, root)) = picker_repo("git-picker-default", false) else {
         return;
@@ -1107,7 +1140,7 @@ fn the_default_branch_row_is_highlighted_softly() {
     app.open_branch_picker(GitAnchor::Branch);
     paint(&mut app);
     let rows = app.overlays.picker.branch_rows.clone().unwrap();
-    assert_eq!(rows[0], BranchRow::Heading(BranchSection::Recent));
+    assert!(matches!(rows[0], BranchRow::Locals { recent: true, .. }));
     assert!(matches!(
         &rows[app.overlays.picker.selected],
         BranchRow::Branch { label, .. } if label == "topic-07"
@@ -1175,18 +1208,17 @@ fn publishing_asks_with_the_target_remote_until_told_not_to() {
     assert!(app.switch_on(Setting::GitConfirmPush));
 
     app.run_branch_command(MenuCommand::GitPush);
-    let alert = app.overlays.alert.as_ref().unwrap();
-    assert!(alert.message.contains("origin"), "{}", alert.message);
-    assert!(
-        alert.detail.contains(origin.to_str().unwrap()),
-        "{}",
-        alert.detail
-    );
-    assert!(alert.suppression.is_some() && !alert.checked);
+    // 推送对话框：远程先填选出的 `origin`，有两个远程时可以换；目标分支与当前分支同名。
+    let dialog = app.overlays.form_dialog.as_ref().unwrap();
+    assert_eq!(dialog.base.as_deref(), Some("origin"));
+    assert_eq!(dialog.name.text(), "main");
+    let plan = app.form_plan(dialog);
+    assert!(plan.base_enabled && plan.enabled && plan.confirm == "发布");
+    assert!(!dialog.new_window && !dialog.copy);
 
     // 勾选「不再询问」后确认：推到 `origin`，配置随之写入。测试中没有配置文件路径，不写入用户的
     // 配置。
-    app.overlays.alert.as_mut().unwrap().checked = true;
+    app.overlays.form_dialog.as_mut().unwrap().new_window = true;
     press_alert(&mut app, 0);
     app.git_refresh();
     let has = |bare: &Path| {

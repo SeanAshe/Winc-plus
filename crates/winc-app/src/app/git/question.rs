@@ -75,6 +75,21 @@ impl QuestionView {
         }
     }
 
+    /// 返回「按路径筛选」对话框的内容：一个输入框。
+    pub(super) fn log_path() -> Self {
+        Self {
+            title: t!("git-log-path-title").to_owned(),
+            message: None,
+            message_lines: 0,
+            values: Vec::new(),
+            inputs: vec![QuestionInput {
+                label: t!("git-log-path-label"),
+                placeholder: t!("git-log-path-placeholder"),
+            }],
+            confirm: t!("git-log-path-button"),
+        }
+    }
+
     /// 返回添加远程仓库（`editing` 为 `None`）或修改其地址的对话框内容。
     pub(crate) fn remote(editing: Option<&str>) -> QuestionView {
         let input = |label, placeholder| QuestionInput { label, placeholder };
@@ -412,18 +427,61 @@ impl App {
         }
     }
 
-    /// 在只读标签中打开 Git 操作的输出。
+    /// 在只读标签中显示 Git 的输出记录；标签开着时内容实时更新（[`App::refresh_git_output`]）。
     pub(in crate::app) fn show_git_output(&mut self) {
-        let text = winc_editor::git::output_text();
-        let text = if text.is_empty() {
+        let (text, written) = winc_editor::git::output_snapshot();
+        let shown = if text.is_empty() {
             t!("git-output-empty").to_owned()
         } else {
             text
         };
-        self.editor.show_output(t!("git-output-title"), &text);
+        self.editor.show_output(t!("git-output-title"), &shown);
+        self.git.output_shown = written;
         self.focus = Focus::Editor;
         self.relayout();
         self.ensure_caret_visible();
         self.request_redraw();
+    }
+
+    /// 让 Git 输出的新内容送到本窗口：记录每写入一次就向事件循环发一个事件，窗口关闭后不再发。
+    ///
+    /// 测试中没有事件循环，不登记；测试直接调用 [`App::refresh_git_output`]。
+    pub(crate) fn watch_git_output(&self) {
+        if let Some(proxy) = self.link.proxy.clone() {
+            winc_editor::git::on_output(move || proxy.send_event(UserEvent::GitOutput).is_ok());
+        }
+    }
+
+    /// Git 输出的标签开着时，把新写入的内容接在末尾：命令一开始、输出每到一行都看得到，不用关掉
+    /// 重开。
+    ///
+    /// 标签没开着时不做事；不抢焦点、不切换标签，正在看的位置不动。
+    pub(in crate::app) fn refresh_git_output(&mut self) {
+        let title = t!("git-output-title");
+        // 标签里是「暂无输出」的说明，或者接不上（最早的内容已被丢弃）：整篇换掉。
+        let (more, text, written) = match winc_editor::git::output_since(self.git.output_shown) {
+            Some((more, written)) => (Some(more), String::new(), written),
+            None => {
+                let (text, written) = winc_editor::git::output_snapshot();
+                (None, text, written)
+            }
+        };
+        if written == self.git.output_shown {
+            return;
+        }
+        if !self.editor.refresh_output(title, more.as_deref(), &text) {
+            return;
+        }
+        self.git.output_shown = written;
+        self.relayout();
+        self.request_redraw();
+    }
+
+    /// 打开的目录不是仓库：已经找过、没有找到，也没有读取失败。提交视图据此给出初始化和克隆。
+    pub(crate) fn git_no_repository(&self) -> bool {
+        self.editor.root().is_some()
+            && self.git.root.is_none()
+            && self.git.problem.is_none()
+            && !self.git_scanning()
     }
 }

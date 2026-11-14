@@ -50,11 +50,11 @@ pub enum StatusKey {
     Update,
 }
 
-/// 一项在本帧应显示的内容。
+/// 一项在本帧应显示的内容；`K` 是项的标识，状态栏用 [`StatusKey`]。
 #[derive(Debug, Clone)]
-pub struct StatusEntry {
+pub struct StatusEntry<K = StatusKey> {
     /// 项的标识。
-    pub key: StatusKey,
+    pub key: K,
     /// 显示的文字。
     pub text: String,
     /// 点击时打开的菜单；不可点击时为 `None`。
@@ -69,9 +69,9 @@ pub struct StatusEntry {
 
 /// 一项在本帧的绘制参数，由 [`StatusMotion::sync`] 返回。
 #[derive(Debug, Clone)]
-pub struct StatusRow {
+pub struct StatusRow<K = StatusKey> {
     /// 项的标识。
-    pub key: StatusKey,
+    pub key: K,
     /// 当前文字及其内容宽度（逻辑像素）。
     pub text: (String, f32),
     /// 淡出中的旧文字、其内容宽度（逻辑像素）与不透明度；没有时为 `None`。
@@ -86,10 +86,10 @@ pub struct StatusRow {
     pub item: Option<StatusItem>,
 }
 
-/// 状态栏右侧各项的过渡状态，按 [`StatusKey`] 排列。
-#[derive(Debug, Default)]
-pub struct StatusMotion {
-    rows: Vec<Row>,
+/// 一排宽度随内容变化的项的过渡状态，按标识 `K` 的顺序排列；状态栏右侧各项用 [`StatusKey`]。
+#[derive(Debug)]
+pub struct StatusMotion<K = StatusKey> {
+    rows: Vec<Row<K>>,
     /// 测试中没有窗口时仍播放过渡，用于截取过渡途中的画面。
     #[cfg(test)]
     pub(crate) animate_without_window: bool,
@@ -97,8 +97,8 @@ pub struct StatusMotion {
 
 /// 一项的过渡状态。
 #[derive(Debug)]
-struct Row {
-    key: StatusKey,
+struct Row<K> {
+    key: K,
     item: Option<StatusItem>,
     text: String,
     /// 当前文字的内容宽度（逻辑像素）。
@@ -168,17 +168,27 @@ impl Glide {
     }
 }
 
-impl StatusMotion {
+impl<K> Default for StatusMotion<K> {
+    fn default() -> Self {
+        Self {
+            rows: Vec::new(),
+            #[cfg(test)]
+            animate_without_window: false,
+        }
+    }
+}
+
+impl<K: Copy + Ord> StatusMotion<K> {
     /// 用本帧的 `entries` 更新 `group` 中各项的状态，返回该组从左到右的绘制参数。
     ///
     /// `group` 列出该组可能出现的全部项；其中不在 `entries` 里的项开始消失。`animate` 为假时
     /// （见 [`App::animate_status`]）各项直接显示为终态。
     pub fn sync(
         &mut self,
-        group: &[StatusKey],
-        entries: Vec<StatusEntry>,
+        group: &[K],
+        entries: Vec<StatusEntry<K>>,
         animate: bool,
-    ) -> Vec<StatusRow> {
+    ) -> Vec<StatusRow<K>> {
         let mut clock = || animate.then(|| Clock::new(STATUS_SLIDE));
         for row in self.rows.iter_mut().filter(|r| group.contains(&r.key)) {
             let listed = entries.iter().any(|e| e.key == row.key);
@@ -254,12 +264,12 @@ impl StatusMotion {
     }
 }
 
-impl Row {
+impl<K: Copy> Row<K> {
     /// 用本帧的 `entry` 更新已有的项。
     ///
     /// 宽度变化时启动宽度过渡，旧文字淡出、新文字淡入；宽度不变时直接换上新文字，光标移动时
     /// 数字变化不引起淡入淡出。消失途中再次出现时，从当前宽度恢复。
-    fn update(&mut self, entry: StatusEntry, clock: &mut impl FnMut() -> Option<Clock>) {
+    fn update(&mut self, entry: StatusEntry<K>, clock: &mut impl FnMut() -> Option<Clock>) {
         if let Presence::Leaving(c) = self.presence {
             let started = clock();
             self.width.from *= 1.0 - stage(c.linear(), FADE_OUT, 1.0);
@@ -291,7 +301,7 @@ impl Row {
         self.item = entry.item;
     }
 
-    fn view(&self) -> StatusRow {
+    fn view(&self) -> StatusRow<K> {
         let (share, width, alpha) = match self.presence {
             Presence::Shown => (1.0, self.width.current(), 1.0),
             Presence::Entering(c) => (c.progress(), self.width.current(), reveal(c.progress())),

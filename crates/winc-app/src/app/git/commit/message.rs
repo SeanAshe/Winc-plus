@@ -51,6 +51,7 @@ impl App {
                 let message = &self.git.commit.message;
                 let browse = !shift && (message.text().is_empty() || message.recalling());
                 if browse {
+                    self.seed_message_history();
                     self.edit_field(|f| f.recall(!down));
                 } else {
                     self.git.commit.message.move_vertical(down, shift);

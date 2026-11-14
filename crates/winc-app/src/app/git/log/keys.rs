@@ -15,9 +15,9 @@ impl App {
             return;
         }
         if *key == Key::Named(NamedKey::ArrowRight) {
-            if self.log_files_len() > 0 {
-                self.git.log.file = Some(0);
-                self.reveal_log_file(0);
+            if let Some(&first) = self.log_file_order().first() {
+                self.git.log.file = Some(first);
+                self.reveal_log_file(first);
                 self.request_redraw();
             }
             return;
@@ -47,7 +47,9 @@ impl App {
             }
             Key::Named(NamedKey::End) => count - 1,
             Key::Named(NamedKey::Enter) => {
-                self.open_log_file(0);
+                if let Some(&first) = self.log_file_order().first() {
+                    self.open_log_file(first);
+                }
                 return;
             }
             _ => return,
@@ -59,17 +61,20 @@ impl App {
     ///
     /// `↑` `↓` `Home` `End` 选择文件，回车打开该文件的差异，`←`、`Esc` 返回提交列表。
     fn log_file_key(&mut self, key: &Key) {
-        let count = self.log_files_len();
-        let Some(at) = self.git.log.file.filter(|_| count > 0) else {
+        // 按详情里从上到下的顺序移动（按目录分组时与文件列表的下标不同）。
+        let order = self.log_file_order();
+        let Some(at) = self.git.log.file.filter(|_| !order.is_empty()) else {
             self.git.log.file = None;
             return;
         };
-        let at = at.min(count - 1);
+        let last = order.len() - 1;
+        let pos = order.iter().position(|&i| i == at).unwrap_or(0);
+        let at = order[pos];
         let file = match key {
-            Key::Named(NamedKey::ArrowUp) => at.saturating_sub(1),
-            Key::Named(NamedKey::ArrowDown) => (at + 1).min(count - 1),
-            Key::Named(NamedKey::Home) => 0,
-            Key::Named(NamedKey::End) => count - 1,
+            Key::Named(NamedKey::ArrowUp) => order[pos.saturating_sub(1)],
+            Key::Named(NamedKey::ArrowDown) => order[(pos + 1).min(last)],
+            Key::Named(NamedKey::Home) => order[0],
+            Key::Named(NamedKey::End) => order[last],
             Key::Named(NamedKey::Enter) => {
                 self.open_log_file(at);
                 return;

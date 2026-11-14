@@ -1030,14 +1030,36 @@ fn the_git_page_is_listed_only_when_the_module_is_on() {
     assert_eq!(Setting::GitConfirmPush.page(), SettingsPage::Git);
     assert_eq!(Setting::DiffInline.page(), SettingsPage::Git);
 
-    // 在模块页开启后立即列出，「推送前确认」与「单栏差异视图」在该页。
+    // 在模块页开启后立即列出，「显示暂存区」「推送前确认」与「单栏差异视图」在该页。
     app.settings_toggle(Setting::GitModule);
     assert!(listed(&app));
     app.settings_show_page(SettingsPage::Git);
     let rows: Vec<Setting> = (app.settings_layout().rows.iter())
         .map(|row| row.setting)
         .collect();
-    assert_eq!(rows, [Setting::GitConfirmPush, Setting::DiffInline]);
+    let expected = [
+        Setting::GitStagingArea,
+        Setting::GitTree,
+        Setting::DiffInline,
+        Setting::GitInlineBlame,
+        Setting::GitConfirmPush,
+        Setting::GitAutoFetch,
+        Setting::GitSystemProxy,
+    ];
+    assert_eq!(rows, expected);
+    // 「树形显示更改」与提交视图「⋯」菜单里的是同一个开关，记在状态文件里。
+    assert!(app.git.commit.flat() && !app.switch_on(Setting::GitTree));
+    app.settings_toggle(Setting::GitTree);
+    assert!(!app.git.commit.flat() && app.state.commit_tree);
+    assert!(app.switch_on(Setting::GitTree));
+    app.settings_toggle(Setting::GitTree);
+    assert!(app.git.commit.flat() && !app.state.commit_tree);
+    // 配置文件中打开「显示暂存区」：提交视图随之换成暂存区视图。
+    assert!(!app.git.commit.staging());
+    let mut config = app.config.clone();
+    config.git_staging_area = Some(true);
+    app.adopt_config(config);
+    assert!(app.git.commit.staging());
 
     // 配置文件中关闭 Git 模块：不再列出该页，停在该页时改到模块页。
     let mut config = app.config.clone();

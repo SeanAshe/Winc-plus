@@ -395,6 +395,25 @@ fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
                 };
                 (rect, label)
             }
+            // 日志分支面板中截短了的分支名：提示全名。
+            Hover::Log(crate::app::git::log::LogTarget::BranchRow(i))
+                if app.git.log.long_branches.contains(&i) =>
+            {
+                use crate::app::git::log::{BranchRow, LogTarget};
+                let hit = app
+                    .hits
+                    .log
+                    .iter()
+                    .find(|(_, t)| *t == LogTarget::BranchRow(i));
+                let row = app.log_branch_rows().into_iter().nth(i);
+                match (hit, row) {
+                    (Some(&(rect, _)), Some(BranchRow::Branch { index, .. })) => {
+                        let branch = app.git.branches.get(index);
+                        (rect, branch.map_or_else(String::new, |b| b.name.clone()))
+                    }
+                    _ => return,
+                }
+            }
             // 日志详情中目录被截短或文件被改名的条目：显示完整路径。
             Hover::Log(crate::app::git::log::LogTarget::File(i))
                 if app.git.log.long_files.contains(&i) =>

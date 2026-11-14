@@ -186,6 +186,12 @@ pub enum Action {
     /// 切换差异的单栏显示和并排显示。
     ToggleDiffLayout,
     GitShowChanges,
+    /// 更改列表：显示选中文件的差异，焦点移到差异上。
+    ChangesShowDiff,
+    /// 更改列表：在编辑区打开选中的文件。
+    ChangesOpenSource,
+    /// 更改列表：回滚选中的文件（先确认）。
+    ChangesRollback,
     GitShowLog,
     GitGoToRevision,
     /// 在只读标签中打开 Git 操作的输出。
@@ -214,7 +220,15 @@ pub enum Action {
     GitSync,
     /// 储藏工作区里的更改（输入说明）。
     GitStash,
+    /// 把全部更改加入暂存区，未跟踪的文件除外。
+    GitStageAll,
+    /// 把暂存区中的全部内容移出暂存区。
+    GitUnstageAll,
+    /// 把当前文件的更改加入暂存区。
+    GitStageFile,
     GitFileHistory,
+    /// 当前文件中选中的几行的历史。
+    GitSelectionHistory,
     GitBlame,
     ShowCommit,
     GitRevertChange,
@@ -428,6 +442,9 @@ impl Action {
             PreviousDiffFile => t!("cmd-previous-diff-file"),
             ToggleDiffLayout => t!("cmd-toggle-diff-layout"),
             GitShowChanges => t!("cmd-git-show-changes"),
+            ChangesShowDiff => t!("cmd-changes-show-diff"),
+            ChangesOpenSource => t!("cmd-changes-open-source"),
+            ChangesRollback => t!("cmd-changes-rollback"),
             GitShowLog => t!("cmd-git-show-log"),
             GitGoToRevision => t!("cmd-git-go-to-revision"),
             GitShowOutput => t!("cmd-git-show-output"),
@@ -444,7 +461,11 @@ impl Action {
             GitPush => t!("cmd-git-push"),
             GitSync => t!("cmd-git-sync"),
             GitStash => t!("cmd-git-stash"),
+            GitStageAll => t!("cmd-git-stage-all"),
+            GitUnstageAll => t!("cmd-git-unstage-all"),
+            GitStageFile => t!("cmd-git-stage-file"),
             GitFileHistory => t!("cmd-git-file-history"),
+            GitSelectionHistory => t!("cmd-git-selection-history"),
             GitBlame => t!("cmd-git-blame"),
             ShowCommit => t!("cmd-show-commit"),
             GitRevertChange => t!("cmd-git-revert-change"),
@@ -637,6 +658,9 @@ impl Action {
             PreviousDiffFile => "Go to Previous File in Diff",
             ToggleDiffLayout => "Toggle Inline Diff",
             GitShowChanges => "Git: Open Changes",
+            ChangesShowDiff => "Git: Show Diff of Selected Change",
+            ChangesOpenSource => "Git: Open Selected Change",
+            ChangesRollback => "Git: Roll Back Selected Changes",
             GitShowLog => "Git: Show Log",
             GitGoToRevision => "Git: Go to Hash, Branch or Tag",
             GitShowOutput => "Git: Show Output",
@@ -653,7 +677,11 @@ impl Action {
             GitPush => "Git: Push",
             GitSync => "Git: Sync",
             GitStash => "Git: Stash Changes…",
+            GitStageAll => "Git: Stage All Changes",
+            GitUnstageAll => "Git: Unstage All Changes",
+            GitStageFile => "Git: Stage Current File",
             GitFileHistory => "Git: Show File History",
+            GitSelectionHistory => "Git: Show History for Selection",
             GitBlame => "Git: Toggle Blame",
             ShowCommit => "Git: Commit",
             GitRevertChange => "Git: Revert Change",
@@ -811,6 +839,9 @@ impl Action {
             | PreviousDiffFile
             | ToggleDiffLayout
             | GitShowChanges
+            | ChangesShowDiff
+            | ChangesOpenSource
+            | ChangesRollback
             | GitShowLog
             | GitGoToRevision
             | GitShowOutput
@@ -827,7 +858,11 @@ impl Action {
             | GitPush
             | GitSync
             | GitStash
+            | GitStageAll
+            | GitUnstageAll
+            | GitStageFile
             | GitFileHistory
+            | GitSelectionHistory
             | GitBlame
             | ShowCommit
             | GitRevertChange
@@ -919,6 +954,9 @@ impl Action {
     pub fn module(self) -> Option<Module> {
         match self {
             Action::GitShowChanges
+            | Action::ChangesShowDiff
+            | Action::ChangesOpenSource
+            | Action::ChangesRollback
             | Action::GitShowLog
             | Action::GitGoToRevision
             | Action::GitShowOutput
@@ -935,7 +973,11 @@ impl Action {
             | Action::GitPush
             | Action::GitSync
             | Action::GitStash
+            | Action::GitStageAll
+            | Action::GitUnstageAll
+            | Action::GitStageFile
             | Action::GitFileHistory
+            | Action::GitSelectionHistory
             | Action::GitBlame
             | Action::ShowCommit
             | Action::GitRevertChange => Some(Module::Git),
@@ -1165,6 +1207,9 @@ pub const ACTIONS: &[Action] = {
         TogglePreview,
         ShowCommit,
         GitShowChanges,
+        ChangesShowDiff,
+        ChangesOpenSource,
+        ChangesRollback,
         GitShowLog,
         GitGoToRevision,
         GitShowOutput,
@@ -1181,7 +1226,11 @@ pub const ACTIONS: &[Action] = {
         GitPush,
         GitSync,
         GitStash,
+        GitStageAll,
+        GitUnstageAll,
+        GitStageFile,
         GitFileHistory,
+        GitSelectionHistory,
         GitBlame,
         GitRevertChange,
         ToggleTerminal,

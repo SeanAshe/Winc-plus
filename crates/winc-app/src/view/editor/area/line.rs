@@ -520,6 +520,27 @@ impl Screen<'_> {
             }
         }
 
+        // 当前行追溯：行尾隔开两个字符宽，用小号淡色字写最后修改这一行的提交。截断、折叠的行
+        // 行尾另有内容，不写。
+        if let Some((line, text)) = &self.line_blame
+            && *line == row.line
+            && row.ends
+            && !row.truncated
+            && !row.collapsed
+        {
+            let x = origin_x + (cells + 2) as f32 * self.cell;
+            let size = app.fonts.ui_small;
+            frame.text(
+                FontKind::Ui,
+                size,
+                x,
+                tail_baseline,
+                text,
+                p.text_dim,
+                text_rect,
+            );
+        }
+
         // 折叠行之后绘制一个含三个点的圆角小块，点击后展开。
         if row.collapsed && row.ends {
             let x = (origin_x + (cells + 1) as f32 * self.cell).round();

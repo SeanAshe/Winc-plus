@@ -101,6 +101,8 @@ pub(in crate::view) fn draw_outline(app: &mut App, frame: &mut Frame<'_>) {
                 OutlineEmpty::NotText => t!("workspace-outline-unsupported"),
                 OutlineEmpty::TooLarge => t!("workspace-outline-too-large"),
                 OutlineEmpty::NoSymbols => t!("workspace-outline-no-symbols"),
+                OutlineEmpty::Reading => t!("workspace-outline-reading"),
+                OutlineEmpty::NoBookmarks => t!("workspace-outline-no-bookmarks"),
             };
             // 说明在列表里上下、左右居中：大纲高度可以拖动，居中参照列表本身。
             draw_empty_state(app, frame, (list, list), title, None);
@@ -147,6 +149,7 @@ fn draw_rows(
     let highlight = app.outline_highlight(&app.outline_rows());
     let focused = app.focus == Focus::Outline;
     let items = &app.panels.outline.items;
+    let pages = app.panels.outline.pages;
     let first = (scroll / TREE_ROW).floor().max(0.0) as usize;
     let shown =
         (list.h / TREE_ROW).ceil() as usize + 1 + (layout.hidden / TREE_ROW).ceil() as usize;
@@ -196,7 +199,16 @@ fn draw_rows(
         icons::symbol(frame, (x + 14.0 + 1.5, cy - 7.5), glyph, color, clip);
 
         let label_x = row.x + LABEL + symbol.depth as f32 * TREE_INDENT;
-        let room = (row.right() - 12.0 - label_x).max(0.0);
+        let mut right = row.right() - 12.0;
+        // PDF 的书签在行尾用小一号的次要色写出页码（从 1 起），名字让出这一段。
+        if pages && symbol.line != usize::MAX {
+            let number = (symbol.line + 1).to_string();
+            let size = app.fonts.ui_small;
+            let x = right - frame.measure(FontKind::Ui, size, &number);
+            label(frame, app, size, (x, row), &number, p.text_muted, clip);
+            right = x - 8.0;
+        }
+        let room = (right - label_x).max(0.0);
         // Markdown 标题照原文写出 `#`，一眼看出级别。
         let marks = "#".repeat(usize::from(symbol.heading));
         let label = if marks.is_empty() {

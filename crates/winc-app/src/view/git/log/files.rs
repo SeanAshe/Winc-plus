@@ -1,9 +1,10 @@
 //! 详情栏里改动的文件和增删的行数。
 //!
-//! 平时由 [`draw_files`] 在详情一栏里逐个文件画出，每个文件一行，点击打开差异；
-//! 截短的路径记进 `long_files`，鼠标悬停时提示完整路径。
+//! 平时由 [`draw_files`] 在详情一栏里逐个文件画出，每个文件一行，点击打开差异；可以按目录
+//! 分组（见 [`log_file_rows`]）。截短的路径记进 `long_files`，鼠标悬停时提示完整路径。
 
 use super::*;
+use crate::app::git::log::LogFileRow;
 
 /// 绘制改动的文件：标题行「N 个文件 +A −D」，下面一个文件一行（图标、按变化着色的名字、
 /// 淡色的目录、右端的增删统计），点击后打开差异。
@@ -52,15 +53,46 @@ pub(super) fn draw_files(
         p.git_deleted,
         area,
     );
+    // 标题行右端：平铺与按目录分组之间切换，图标是切换以后的样子（与提交视图一起切换）。
+    let flat = app.git.commit.flat();
+    let button = Rect::new(x + width - 24.0, y - 1.0, 24.0, 24.0);
+    let hovered = app.pointer.hover == Hover::Log(LogTarget::FilesLayout);
+    draw_button(frame, p, button, area, hovered, false);
+    let ink = if hovered { p.text } else { p.text_muted };
+    match flat {
+        true => icons::tree_view(frame, center(button), ink, area),
+        false => icons::list_view(frame, center(button), ink, area),
+    }
+    hits.push((button.intersect(area), LogTarget::FilesLayout));
     y += 26.0;
 
     let root = app.git.root.as_deref();
-    for (i, file) in files.iter().enumerate() {
+    for entry in app.log_file_rows_of(files) {
         let row = Rect::new(area.x + 6.0, y, area.w - 12.0, FILE_ROW);
         y += FILE_ROW;
         if row.bottom() < area.y || row.y > area.bottom() {
             continue;
         }
+        let i = match entry {
+            LogFileRow::File(i) => i,
+            LogFileRow::Dir(dir) => {
+                // 目录标题：文件夹图标和相对仓库根目录的路径，放不下时截短。
+                let cy = row.y + row.h / 2.0;
+                icons::folder(frame, (x, (cy - 6.0).round()), false, p.folder, area);
+                let room = (row.right() - x - icons::FOLDER_WIDTH - 12.0).max(0.0);
+                let dir = truncate_end(frame, &dir, app.fonts.ui_small, room);
+                let left = x + icons::FOLDER_WIDTH + 6.0;
+                ui_text_small(frame, app, left, row, &dir, p.text_muted, area);
+                continue;
+            }
+        };
+        let file = &files[i];
+        // 按目录分组时文件缩进一层，所在目录已经写在组的标题上。
+        let x = if flat {
+            x
+        } else {
+            x + crate::theme::TREE_INDENT
+        };
         let hovered = app.pointer.hover == Hover::Log(LogTarget::File(i));
         // 键盘选中的文件（按 `→` 进入文件列表以后）铺选中的底色。
         let chosen = app.git.log.file == Some(i);
@@ -83,6 +115,7 @@ pub(super) fn draw_files(
             .unwrap_or_default();
         let dir = match (&file.from, file.change) {
             (Some(from), Change::Renamed) => format!("← {}", winc_editor::display_name(from)),
+            _ if !flat => String::new(),
             _ => dir,
         };
         let room = (clip.right() - end - 12.0).max(0.0);

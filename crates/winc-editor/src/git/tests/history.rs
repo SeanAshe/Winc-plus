@@ -132,24 +132,9 @@ fn merge_conflicts_resolve_and_commit() {
     assert_eq!(both, "ours\ntheirs\n");
     std::fs::write(&m, format!("top\n{both}bottom\n")).unwrap();
 
-    // 合并中不能只提交一部分；整个提交以后合并完成。
-    let part = Partial {
-        path: m.clone(),
-        content: b"x\n".to_vec(),
-    };
-    assert!(
-        git.commit(&root, "m", std::slice::from_ref(&m), &[], &[part], false)
-            .is_err()
-    );
-    git.commit(
-        &root,
-        "merge other",
-        std::slice::from_ref(&m),
-        &[],
-        &[],
-        false,
-    )
-    .unwrap();
+    // 解决了的文件加入暂存区，提交以后合并完成。
+    git.stage(&root, std::slice::from_ref(&m)).unwrap();
+    git.commit(&root, "merge other", false, false).unwrap();
     let status = git.status(&root, &cancel).unwrap();
     assert_eq!(status.operation, None);
     assert!(status.entries.is_empty());
@@ -199,25 +184,19 @@ fn partial_commits_keep_other_staged_files_and_the_execute_bit() {
     sh(&["add", "run.sh"]);
     sh(&["commit", "-q", "-m", "first"]);
 
-    // `staged.txt` 已暂存；只提交 `run.sh` 的一部分。
+    // `staged.txt` 已暂存；再把 `run.sh` 的一部分登记到暂存区，其他文件的暂存状态不变。
     std::fs::write(root.join("staged.txt"), "s\n").unwrap();
     sh(&["add", "staged.txt"]);
     std::fs::write(&script, "1\n2\n3\n4\n").unwrap();
-    let part = Partial {
-        path: script.clone(),
-        content: b"1\n2\n3\n".to_vec(),
-    };
-    git.commit(
-        &root,
-        "part",
-        std::slice::from_ref(&script),
-        &[],
-        std::slice::from_ref(&part),
-        false,
-    )
-    .unwrap();
+    git.stage_content(&root, &script, b"1\n2\n3\n".to_vec())
+        .unwrap();
+    assert_eq!(
+        sh(&["diff", "--cached", "--name-only"]),
+        "run.sh\nstaged.txt"
+    );
+    git.commit(&root, "part", false, false).unwrap();
 
-    assert_eq!(sh(&["diff", "--cached", "--name-only"]), "staged.txt");
+    assert_eq!(sh(&["diff", "--cached", "--name-only"]), "");
     assert!(sh(&["ls-tree", "HEAD", "run.sh"]).starts_with("100755 "));
     assert_eq!(sh(&["show", "HEAD:run.sh"]), "1\n2\n3");
     let _ = std::fs::remove_dir_all(&dir);
@@ -257,23 +236,15 @@ fn partial_commits_failed_commits_and_missing_contents() {
     sh(&["init", "-q", "-b", "main"]);
     let cancel = Cancel::default();
 
-    // 还没有提交过：文件不在 `HEAD` 里，不算失败；只提交一部分时同样可以提交。
+    // 还没有提交过：文件不在 `HEAD` 里，不算失败；只暂存一部分时同样可以提交，也可以取消暂存。
     let a = root.join("a.txt");
     std::fs::write(&a, "1\n2\n").unwrap();
     assert_eq!(git.head_content(&root, &a, &cancel), Ok(None));
-    let part = Partial {
-        path: a.clone(),
-        content: b"1\n".to_vec(),
-    };
-    git.commit(
-        &root,
-        "first",
-        std::slice::from_ref(&a),
-        &[],
-        std::slice::from_ref(&part),
-        false,
-    )
-    .unwrap();
+    git.stage_content(&root, &a, b"1\n".to_vec()).unwrap();
+    git.unstage(&root, std::slice::from_ref(&a)).unwrap();
+    assert_eq!(git.index_content(&root, &a, &cancel), Ok(None));
+    git.stage_content(&root, &a, b"1\n".to_vec()).unwrap();
+    git.commit(&root, "first", false, false).unwrap();
     let head = git.head_content(&root, &a, &cancel).unwrap();
     assert_eq!(head.as_deref(), Some(&b"1\n"[..]));
     assert_eq!(std::fs::read_to_string(&a).unwrap(), "1\n2\n");
@@ -298,18 +269,31 @@ fn partial_commits_failed_commits_and_missing_contents() {
     git.trust(&root, risks.fingerprint);
     let b = root.join("b.txt");
     std::fs::write(&b, "new\n").unwrap();
-    let refused = git.commit(
-        &root,
-        "second",
-        std::slice::from_ref(&b),
-        std::slice::from_ref(&b),
-        &[],
-        false,
-    );
+    // 钩子拒绝「提交全部」时，暂存区保持原状：改过的文件仍是未暂存。
+    std::fs::write(&a, "1\n2\n3\n").unwrap();
+    let refused = git.commit(&root, "second", true, false);
     assert!(refused.unwrap_err().contains("不许提交"));
     let status = git.status(&root, &cancel).unwrap();
-    let entry = status.entries.iter().find(|e| e.path == b).unwrap();
-    assert!(entry.untracked(), "{entry:?}");
+    let entry = status.entries.iter().find(|e| e.path == a).unwrap();
+    assert_eq!(
+        (entry.staged, entry.unstaged),
+        (None, Some(Change::Modified)),
+        "{entry:?}"
+    );
+    assert!(status.entries.iter().any(|e| e.path == b && e.untracked()));
+    // 跳过钩子时可以提交；签署行附加在提交信息末尾。
+    let options = CommitOptions {
+        all: true,
+        sign_off: true,
+        no_verify: true,
+        ..CommitOptions::default()
+    };
+    git.commit_with(&root, "second", options).unwrap();
+    let message = git.last_message(&root);
+    assert!(
+        message.starts_with("second\n\nSigned-off-by: t <t@t>"),
+        "{message}"
+    );
 
     // 必需的过滤器失败：返回错误，不能当成文件不在 `HEAD` 里。
     std::fs::remove_file(&hook).unwrap();
@@ -510,7 +494,7 @@ fn log_streams_read_batches_from_one_git() {
 
     // `git` 自己报的错（分支不存在）在读第一批时返回。
     let missing = LogQuery {
-        branch: Some("no-such-branch".into()),
+        branches: vec!["no-such-branch".into()],
         ..LogQuery::default()
     };
     let mut stream = git.log_stream(&root, &missing).unwrap();

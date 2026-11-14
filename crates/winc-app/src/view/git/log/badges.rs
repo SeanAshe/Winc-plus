@@ -4,12 +4,43 @@
 //! 排不下的收成「+N」。头像按邮箱哈希取调色板里的颜色，同一个作者的颜色固定。
 
 use super::*;
+use crate::icons::RefMark;
 
-/// 一个提交的引用徽章：（文字，底色，字色）。
+/// 一个引用徽章。
+#[derive(Debug, Clone, PartialEq)]
+pub(super) struct Badge {
+    /// 徽章上的文字。
+    pub text: String,
+    /// 底色。
+    pub fill: Color,
+    /// 文字和图标的颜色。
+    pub ink: Color,
+    /// 文字前面的图标，表明引用的种类；收起的「+N」没有图标。
+    pub mark: Option<RefMark>,
+}
+
+impl Badge {
+    /// 返回徽章的宽度（逻辑像素）：文字宽 `text` 加两侧的留白，有图标时再加图标的位置。
+    fn width(&self, text: f32) -> f32 {
+        text + self.pad()
+    }
+
+    /// 返回徽章中文字以外的宽度（逻辑像素）。
+    pub(super) fn pad(&self) -> f32 {
+        BADGE_PAD + self.mark.map_or(0.0, |_| BADGE_MARK)
+    }
+}
+
+/// 徽章中文字两侧留白的总和（逻辑像素），两侧各一半。
+const BADGE_PAD: f32 = 12.0;
+/// 徽章中图标占的宽度（逻辑像素）：图标宽 9，与文字相隔 3。
+const BADGE_MARK: f32 = 12.0;
+
+/// 返回一个提交的各个引用徽章。
 ///
 /// 当前分支铺强调色；和远程分支在同一个提交上（已经同步）的本地分支只画一个，后面写
-/// 远程名；远程分支、标签各一种淡色。
-pub(super) fn badges(p: &Palette, commit: &Commit) -> Vec<(String, Color, Color)> {
+/// 远程名；远程分支、标签各一种淡色。每个徽章前面有表明种类的图标。
+pub(super) fn badges(p: &Palette, commit: &Commit) -> Vec<Badge> {
     let local: Vec<&str> = commit
         .refs
         .iter()
@@ -30,17 +61,22 @@ pub(super) fn badges(p: &Palette, commit: &Commit) -> Vec<(String, Color, Color)
     let soft = |c: Color| c.alpha(c.a * 0.16);
     let mut out = Vec::new();
     for r in &commit.refs {
-        let (text, fill, ink) = match r {
-            Ref::Detached => ("HEAD".to_owned(), p.accent_fill, p.text_on_accent),
+        let (text, fill, ink, mark) = match r {
+            Ref::Detached => (
+                "HEAD".to_owned(),
+                p.accent_fill,
+                p.text_on_accent,
+                RefMark::Commit,
+            ),
             Ref::Head(name) | Ref::Branch(name) => {
                 let text = match synced(name) {
                     Some(origin) => format!("{name} · {origin}"),
                     None => name.clone(),
                 };
                 if matches!(r, Ref::Head(_)) {
-                    (text, p.accent_fill, p.text_on_accent)
+                    (text, p.accent_fill, p.text_on_accent, RefMark::Branch)
                 } else {
-                    (text, soft(p.accent), p.accent)
+                    (text, soft(p.accent), p.accent, RefMark::Branch)
                 }
             }
             Ref::Remote(name) => {
@@ -48,33 +84,44 @@ pub(super) fn badges(p: &Palette, commit: &Commit) -> Vec<(String, Color, Color)
                 if local.contains(&branch) {
                     continue;
                 }
-                (name.clone(), soft(p.text_muted), p.text_muted)
+                (
+                    name.clone(),
+                    soft(p.text_muted),
+                    p.text_muted,
+                    RefMark::Remote,
+                )
             }
-            Ref::Tag(name) => (name.clone(), soft(p.warning), p.warning),
+            Ref::Tag(name) => (name.clone(), soft(p.warning), p.warning, RefMark::Tag),
         };
-        out.push((text, fill, ink));
+        let mark = Some(mark);
+        out.push(Badge {
+            text,
+            fill,
+            ink,
+            mark,
+        });
     }
     out
 }
 
-/// 把一行引用徽章排进宽度 `room`（逻辑像素），返回排好的（文字，底色，字色）。
+/// 把一行引用徽章排进宽度 `room`（逻辑像素），返回排好的徽章。
 ///
 /// 每个徽章最宽 [`BADGE_MAX`]，放不下的从末尾截短；余下的连截短到 [`BADGE_MIN`] 都放不下
 /// 时，收成一个淡色的「+N」。第一个徽章总要排上。
 pub(super) fn fit_badges(
     app: &App,
     frame: &mut Frame<'_>,
-    badges: &[(String, Color, Color)],
+    badges: &[Badge],
     room: f32,
-) -> Vec<(String, Color, Color)> {
+) -> Vec<Badge> {
     let p = app.palette;
     let size = app.fonts.ui_small;
     let more_w = |frame: &mut Frame<'_>, n: usize| {
-        frame.measure(FontKind::Ui, size, &format!("+{n}")) + 12.0
+        frame.measure(FontKind::Ui, size, &format!("+{n}")) + BADGE_PAD
     };
     let mut out = Vec::new();
     let mut used = 0.0;
-    for (i, (text, fill, ink)) in badges.iter().enumerate() {
+    for (i, badge) in badges.iter().enumerate() {
         let left = badges.len() - i - 1;
         // 后面还有徽章时给「+N」留出地方。
         let reserve = if left > 0 {
@@ -83,10 +130,15 @@ pub(super) fn fit_badges(
             0.0
         };
         let fits = (room - used - reserve).min(BADGE_MAX);
-        let full = frame.measure(FontKind::Ui, size, text) + 12.0;
+        let full = badge.width(frame.measure(FontKind::Ui, size, &badge.text));
         if i > 0 && full.min(BADGE_MAX) > fits && fits < BADGE_MIN {
             let soft = p.text_muted.alpha(p.text_muted.a * 0.16);
-            out.push((format!("+{}", badges.len() - i), soft, p.text_muted));
+            out.push(Badge {
+                text: format!("+{}", badges.len() - i),
+                fill: soft,
+                ink: p.text_muted,
+                mark: None,
+            });
             return out;
         }
         let fits = if i == 0 {
@@ -94,23 +146,23 @@ pub(super) fn fit_badges(
         } else {
             fits
         };
-        let text = truncate_end(frame, text, size, (fits - 12.0).max(0.0)).into_owned();
-        used += frame.measure(FontKind::Ui, size, &text) + 12.0 + BADGE_GAP;
-        out.push((text, *fill, *ink));
+        let room = (fits - badge.pad()).max(0.0);
+        let text = truncate_end(frame, &badge.text, size, room).into_owned();
+        used += badge.width(frame.measure(FontKind::Ui, size, &text)) + BADGE_GAP;
+        out.push(Badge {
+            text,
+            ..badge.clone()
+        });
     }
     out
 }
 
 /// [`fit_badges`] 排好的一行徽章的总宽（逻辑像素），不含最后一个后面的间隔。
-pub(super) fn badges_width(
-    app: &App,
-    frame: &mut Frame<'_>,
-    badges: &[(String, Color, Color)],
-) -> f32 {
+pub(super) fn badges_width(app: &App, frame: &mut Frame<'_>, badges: &[Badge]) -> f32 {
     let size = app.fonts.ui_small;
     let total: f32 = badges
         .iter()
-        .map(|(text, ..)| frame.measure(FontKind::Ui, size, text) + 12.0 + BADGE_GAP)
+        .map(|b| b.width(frame.measure(FontKind::Ui, size, &b.text)) + BADGE_GAP)
         .sum();
     (total - BADGE_GAP).max(0.0)
 }
@@ -120,12 +172,12 @@ pub(super) fn draw_badges(
     app: &App,
     frame: &mut Frame<'_>,
     (x, row): (f32, Rect),
-    badges: &[(String, Color, Color)],
+    badges: &[Badge],
     clip: Rect,
 ) {
     let mut x = x;
-    for (text, fill, ink) in badges {
-        x = draw_badge(app, frame, (x, row), text, *fill, *ink, clip) + BADGE_GAP;
+    for badge in badges {
+        x = draw_badge(app, frame, (x, row), badge, clip) + BADGE_GAP;
     }
 }
 
@@ -135,16 +187,20 @@ pub(super) fn draw_badge(
     app: &App,
     frame: &mut Frame<'_>,
     (x, row): (f32, Rect),
-    text: &str,
-    fill: Color,
-    ink: Color,
+    badge: &Badge,
     clip: Rect,
 ) -> f32 {
-    let w = frame.measure(FontKind::Ui, app.fonts.ui_small, text) + 12.0;
+    let w = badge.width(frame.measure(FontKind::Ui, app.fonts.ui_small, &badge.text));
     let h = (row.h - 6.0).min(18.0);
     let rect = Rect::new(x, (row.y + (row.h - h) / 2.0).round(), w, h);
-    frame.rect_clipped(rect, fill, 4.0, clip);
-    ui_text_small(frame, app, x + 6.0, rect, text, ink, clip);
+    frame.rect_clipped(rect, badge.fill, 4.0, clip);
+    let mut text_x = x + BADGE_PAD / 2.0;
+    if let Some(mark) = badge.mark {
+        let center = (text_x + 4.5, rect.y + rect.h / 2.0);
+        icons::ref_mark(frame, mark, center, badge.ink, clip);
+        text_x += BADGE_MARK;
+    }
+    ui_text_small(frame, app, text_x, rect, &badge.text, badge.ink, clip);
     rect.right()
 }
 

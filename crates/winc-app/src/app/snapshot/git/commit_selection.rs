@@ -95,6 +95,7 @@ fn command_and_shift_clicks_select_several_changes_for_one_check_and_rollback() 
             MenuCommand::CommitCheck(true),
             MenuCommand::CommitCheck(false),
             MenuCommand::GitRollbackFile,
+            MenuCommand::GitStashFiles,
             MenuCommand::CopyPath,
             MenuCommand::CopyRelativePath,
         ]

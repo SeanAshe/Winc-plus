@@ -188,6 +188,17 @@ pub struct Config {
     ///
     /// 提示框上勾选「不再询问」后写成 `false`，可在设置中重新打开。
     pub git_confirm_push: Option<bool>,
+    /// `git` 访问网络时是否跟随系统的代理设置，默认为是；`git` 自己配置了代理或环境里已有代理
+    /// 变量时以它们为准。
+    pub git_system_proxy: Option<bool>,
+    /// 是否在光标所在行的末尾淡淡地显示最后修改这一行的作者、时间和提交说明，默认为是。
+    pub git_inline_blame: Option<bool>,
+    /// 是否定时在后台获取远程仓库的更新，默认为否：获取会连接远程，需要认证的远程可能每次都
+    /// 要求操作。
+    pub git_auto_fetch: Option<bool>,
+    /// 提交视图是否显示暂存区：分出「已暂存的更改」一组，各项的状态取自暂存区；默认为否，
+    /// 用勾选决定提交的内容。
+    pub git_staging_area: Option<bool>,
     /// 在打开的目录下查找仓库的层数，默认见 [`Config::REPOSITORY_SCAN_DEPTH`]，可用范围见
     /// [`Config::REPOSITORY_SCAN_DEPTH_RANGE`]。
     pub repository_scan_depth: Option<usize>,

@@ -20,6 +20,7 @@ use std::path::Path;
 
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::Instant;
+use winc_core::diff::{Pick, StageLine};
 use winc_core::{Lines, Selection, movement};
 
 use winc_editor::background;
@@ -32,6 +33,7 @@ use winit::keyboard::{Key, NamedKey};
 
 use super::animation::{Clock, FOLD_ANIMATION};
 use super::git::changes::replace_lines;
+use super::git::commit::stages_by_hunk;
 use super::lifecycle::notice::FLASH_DURATION;
 use super::{App, Focus, ScrollArea, UserEvent, sticky_limit};
 use crate::keymap::Action;
@@ -452,17 +454,16 @@ impl App {
             .find(|e| e.path == path && !e.is_dir)
     }
 
-    /// 切换第 `hunk` 处改动的勾选状态；提交时只提交已勾选的改动。
+    /// 暂存或取消暂存第 `hunk` 处改动：已全部暂存时取消暂存，否则暂存其余的部分。
     fn toggle_diff_hunk(&mut self, hunk: usize) {
+        if self.git.commit.staging() {
+            return self.toggle_diff_part(hunk, None);
+        }
+        // 勾选式：记在界面中，提交时只提交勾上的改动。
         let Some(view) = self.editor.active().and_then(|d| d.diff.as_deref()) else {
             return;
         };
-        let all: Vec<(u64, std::ops::Range<usize>)> = view
-            .keys
-            .iter()
-            .zip(&view.hunks)
-            .map(|(&k, h)| (k, h.old.clone()))
-            .collect();
+        let all = hunk_ids(view);
         let Some(entry) = self.diff_entry(view).cloned() else {
             return;
         };
@@ -470,7 +471,7 @@ impl App {
         self.request_redraw();
     }
 
-    /// 切换 `side` 侧第 `line` 行的勾选状态；提交时只提交已勾选的行。
+    /// 暂存或取消暂存 `side` 侧第 `line` 行所在改动中的这一行。
     fn toggle_diff_line(&mut self, side: usize, line: usize) {
         let Some(view) = self.editor.active().and_then(|d| d.diff.as_deref()) else {
             return;
@@ -485,22 +486,76 @@ impl App {
         let Some(hunk) = view.hunks.iter().position(|h| range(h).contains(&line)) else {
             return;
         };
-        let target = &view.hunks[hunk];
-        let (new_len, start) = (target.new.len(), range(target).start);
-        let all: Vec<(u64, std::ops::Range<usize>)> = view
-            .keys
-            .iter()
-            .zip(&view.hunks)
-            .map(|(&k, h)| (k, h.old.clone()))
-            .collect();
-        let Some(entry) = self.diff_entry(view).cloned() else {
+        if !self.git.commit.staging() {
+            let target = &view.hunks[hunk];
+            let (new_len, offset) = (target.new.len(), line - range(target).start);
+            let all = hunk_ids(view);
+            let Some(entry) = self.diff_entry(view).cloned() else {
+                return;
+            };
+            let state = &mut self.git.commit;
+            state.toggle_line(&entry, (hunk, new_len), (side, offset), &all);
+            self.request_redraw();
+            return;
+        }
+        let line = if side == LEFT {
+            StageLine::Old(line)
+        } else {
+            StageLine::New(line)
+        };
+        self.toggle_diff_part(hunk, Some(line));
+    }
+
+    /// 暂存或取消暂存当前差异标签中的第 `hunk` 处改动；`line` 不为 `None` 时只操作其中这一行。
+    ///
+    /// 暂存区按磁盘上的内容写入：右侧的文档有未保存的修改时先保存。保存改动了文档（保存时
+    /// 格式化）时各处改动已经不同，不再继续。
+    fn toggle_diff_part(&mut self, hunk: usize, line: Option<StageLine>) {
+        let Some(doc) = self.editor.active() else {
             return;
         };
-        let offset = line - start;
-        self.git
-            .commit
-            .toggle_line(&entry, (hunk, new_len), (side, offset), &all);
-        self.request_redraw();
+        let Some(view) = doc.diff.as_deref() else {
+            return;
+        };
+        let (Some(entry), Some(target)) = (self.diff_entry(view).cloned(), view.hunks.get(hunk))
+        else {
+            return;
+        };
+        if !stages_by_hunk(&entry) {
+            return;
+        }
+        let (target, source) = (target.clone(), view.source);
+        if !self.save_dirty_documents(std::slice::from_ref(&entry.path)) {
+            return;
+        }
+        let Some(view) = self.editor.active().and_then(|d| d.diff.as_deref()) else {
+            return;
+        };
+        if view.source != source || view.hunks.get(hunk) != Some(&target) {
+            self.request_redraw();
+            return;
+        }
+        let (head, work) = (view.old.text.to_string(), view.new.text.to_string());
+        // 暂存区中没有内容时与上次提交相同；全部暂存、内容尚未读到时与工作区相同。
+        let index = match self.git.commit.index_text(&entry.path) {
+            _ if entry.staged.is_none() => head.clone(),
+            Some(text) => text.to_owned(),
+            None if entry.unstaged.is_none() => work.clone(),
+            None => return,
+        };
+        let pick =
+            winc_core::diff::staged_picks(&head, &index, &work, std::slice::from_ref(&target));
+        let staged = match (&pick[0], line) {
+            (Pick::Apply, _) => true,
+            (Pick::Skip, _) | (Pick::Lines(_), None) => false,
+            (Pick::Lines(left), Some(StageLine::Old(at))) => {
+                !left.old.contains(&(at - target.old.start))
+            }
+            (Pick::Lines(left), Some(StageLine::New(at))) => {
+                !left.new.contains(&(at - target.new.start))
+            }
+        };
+        self.stage_part(&entry, [&head, &index, &work], (target, line), !staged);
     }
 
     /// 返回右侧对应的文档下标；未打开且 `open` 为 `true` 时就地打开，但不切换当前标签。
@@ -1238,4 +1293,11 @@ pub struct DiffState {
     pub(crate) cross: Option<(Instant, crate::app::diff::DiffCross)>,
     /// 大文件的差异在后台重新比较。
     pub(crate) rediff: RediffState,
+}
+
+/// 返回差异 `view` 中各处改动的键和在左侧的行区间，按块勾选时据此识别各处改动。
+fn hunk_ids(view: &DiffView) -> Vec<(u64, std::ops::Range<usize>)> {
+    (view.keys.iter().zip(&view.hunks))
+        .map(|(&key, hunk)| (key, hunk.old.clone()))
+        .collect()
 }

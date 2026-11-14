@@ -255,12 +255,19 @@ pub fn run() {
     let mut winc = Winc::new(Some(event_loop.create_proxy()), template);
     let (key, proxy) = winc.reserve();
     let mut app = App::new(editor, proxy, bench, config);
+    app.watch_git_output();
+    winc_editor::git::follow_system_proxy(app.config.git_system_proxy != Some(false));
     // 只打开文件时收起侧栏；打开目录时展开。没有目标时沿用上面的判断（恢复目录则展开）。
     if let Some(show) = args.launch_sidebar() {
         app.set_initial_sidebar(show);
     }
     app.store.config_path = config_path;
     app.git.commit.set_flat(!state.commit_tree);
+    let sort = crate::app::CommitSort::from_key(&state.commit_sort);
+    app.git.commit.set_sort(sort);
+    app.git
+        .commit
+        .set_staging(app.config.git_staging_area == Some(true));
     app.editor.diff_unified = app.config.diff_inline == Some(true);
     app.state = state;
     app.restore_panel_width();

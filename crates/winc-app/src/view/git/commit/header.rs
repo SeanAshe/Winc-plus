@@ -2,8 +2,9 @@
 
 use super::*;
 
-/// 绘制第二行右端的三个按钮（左边是共用的项目和分支）：「Git 日志」「刷新」「⋯」。
+/// 绘制第二行右端的三个按钮（左边是共用的项目和分支）：「日志」「刷新」「⋯」。
 ///
+/// 三个按钮都只有图标，做什么写在悬停提示里。
 /// 读取期间「刷新」的图标旋转，至少转满一圈（见 `App::commit_refreshing`）。「⋯」的下拉菜单
 /// 里有同步、储藏、远程仓库和显示方式。
 pub(super) fn draw_header(
@@ -114,17 +115,12 @@ pub(super) fn draw_context_pick(
 ///
 /// 放得下时紧贴项目按钮；放不下时位置按钮最多让到一半，再由项目名截短。
 pub(in crate::view) fn location_span(app: &App, frame: &mut Frame<'_>) -> Option<(f32, f32)> {
-    if !app.git_has_locations() {
+    if !app.git_has_locations_button() {
         return None;
     }
     let bar = ContextBar::new(app, frame);
     let right = app.commit_parts().tools[0].0.x - 4.0;
-    let (repository, worktree) = app.git_location_label();
-    let mut text = frame.measure(FontKind::Ui, app.fonts.ui_small, &repository);
-    if let Some(worktree) = worktree.as_deref() {
-        text += frame.measure(FontKind::Ui, app.fonts.ui_small, &format!(" › {worktree}"));
-    }
-    let width = LOCATION_LEAD.1 + text + CONTEXT_PICK_TAIL;
+    let width = location_width(app, frame)?;
     let room = (right - bar.left() - LOCATION_GAP).max(0.0);
     let project = bar.project_full();
     if project + width <= room {
@@ -134,10 +130,46 @@ pub(in crate::view) fn location_span(app: &App, frame: &mut Frame<'_>) -> Option
     Some((right - width.min((room - project).max(room / 2.0)), right))
 }
 
-/// 绘制项目名后面的位置按钮：仓库，打开的是附属工作树时后面写工作树。
+/// 返回位置按钮完整显示时的宽度（逻辑像素）；只有一个位置、没有该按钮时为 `None`。
+pub(super) fn location_width(app: &App, frame: &mut Frame<'_>) -> Option<f32> {
+    if !app.git_has_locations_button() {
+        return None;
+    }
+    let label = worktree_button_label(app, frame);
+    let text = frame.measure(FontKind::Ui, app.fonts.ui_small, &label);
+    Some(LOCATION_LEAD.1 + text + CONTEXT_PICK_TAIL)
+}
+
+/// 位置按钮上写的名字：打开的目录中有多个仓库时写当前仓库；否则写工作树，主工作树写「主工作树」，
+/// 附属工作树写它自己的名字。
 ///
-/// 其他位置有未提交的更改时，文件夹图标右上角有一个强调色的小圆点，和视图标签上的圆点同一个
-/// 意思；几个写在悬停提示里，是哪几个在位置选择器里。
+/// 标题行放不下完整的项目名和「主工作树」时不写后者，按钮只有图标和下拉箭头：项目名优先，
+/// 是哪个工作树写在悬停提示里。仓库名、附属工作树的名字始终写出。
+fn worktree_button_label(app: &App, frame: &mut Frame<'_>) -> String {
+    if app.git.repositories.len() >= 2 {
+        return app.git_current_repository_name();
+    }
+    let label = app.git_worktree_label();
+    if label != t!("git-location-main-worktree") {
+        return label;
+    }
+    let bar = ContextBar::new(app, frame);
+    let right = app.commit_parts().tools[0].0.x - 4.0;
+    let room = (right - bar.left() - LOCATION_GAP).max(0.0);
+    let text = frame.measure(FontKind::Ui, app.fonts.ui_small, &label);
+    let full = LOCATION_LEAD.1 + text + CONTEXT_PICK_TAIL;
+    if bar.project_full() + full <= room {
+        label
+    } else {
+        String::new()
+    }
+}
+
+/// 绘制项目名后面的位置按钮：有多个仓库或多个工作树时才有，写着现在在哪个仓库或工作树。图标
+/// 在当前仓库有多个工作树时是工作树，否则是文件夹。
+///
+/// 当前仓库的其他工作树有未提交的更改时，图标右上角有一个强调色的小圆点，和视图标签上的圆点
+/// 同一个意思；几个写在悬停提示里，是哪几个在选择器里。
 pub(super) fn draw_location_row(
     app: &App,
     frame: &mut Frame<'_>,
@@ -147,12 +179,8 @@ pub(super) fn draw_location_row(
     hits: &mut Vec<(Rect, CommitTarget)>,
 ) {
     let p = app.palette;
-    let (repository, worktree) = app.git_location_label();
-    let mut names = vec![(repository.as_str(), p.text_muted)];
-    if let Some(worktree) = worktree.as_deref() {
-        names.push((" › ", p.text_dim));
-        names.push((worktree, p.text_muted));
-    }
+    let label = worktree_button_label(app, frame);
+    let names = [(label.as_str(), p.text_muted)];
     let open = app.picker_lists_locations();
     let lit = open || app.pointer.hover == Hover::Commit(CommitTarget::Location);
     let dotted = app.git_other_changes() > 0;
@@ -167,7 +195,11 @@ pub(super) fn draw_location_row(
         CommitTarget::Location,
         open,
         |frame, (x, y), color| {
-            icons::folder_small(frame, (x, y), color, clip);
+            if app.git_has_worktrees() {
+                icons::worktree_small(frame, (x, y), color, clip);
+            } else {
+                icons::folder_small(frame, (x, y), color, clip);
+            }
             if dotted {
                 let dot = Rect::new(x + 3.5, y - 7.0, 5.0, 5.0);
                 let ring = dot.inset(-1.0, -1.0);
@@ -192,23 +224,18 @@ pub(super) fn draw_branch_row(
     clip: Rect,
     hits: &mut Vec<(Rect, CommitTarget)>,
 ) {
+    // 不是仓库时没有分支可写：不画一个空的按钮。
+    if app.git.root.is_none() {
+        return;
+    }
     let p = app.palette;
     let mut right = row.right();
-    // 没有远程时没有东西可同步；但操作的进度和结果仍然显示在这里。
-    let active = app.git.branch.running.is_some() || app.git.branch.finished.is_some();
-    if app.git.status.is_some() && (active || app.git_sync_state() != SyncState::NoRemote) {
+    if sync_shown(app) {
         right = draw_sync(app, frame, row, clip, hits) - BUTTON_GAP;
     }
-    let head = app
-        .git
-        .status
-        .as_ref()
-        .and_then(|s| s.head.as_ref())
-        .map(|head| match head {
-            Head::Branch(name) => name.clone(),
-            Head::Detached(oid) => format!("({oid})"),
-        });
-    let head = head.unwrap_or_default();
+    let head = head_label(app);
+    // 当前是哪个仓库写在标题行的位置按钮上，这里只写分支。
+    let names = vec![(head.as_str(), p.text)];
     draw_context_pick(
         app,
         frame,
@@ -218,15 +245,67 @@ pub(super) fn draw_branch_row(
         CommitTarget::Branch,
         app.branch_picker_from(crate::app::GitAnchor::Branch),
         |frame, center, color| icons::branch_small(frame, center, color, clip),
-        &[(head.as_str(), p.text)],
+        &names,
         clip,
         hits,
     );
 }
 
-/// 绘制分支行右端的同步控件，返回它的左边缘。
+/// 分支按钮上写的名字：当前分支；游离时是括号里的提交号，还没有读到状态时为空。
+fn head_label(app: &App) -> String {
+    let head = app.git.status.as_ref().and_then(|s| s.head.as_ref());
+    head.map_or_else(String::new, |head| match head {
+        Head::Branch(name) => name.clone(),
+        Head::Detached(oid) => format!("({oid})"),
+    })
+}
+
+/// 有没有同步控件：没有远程时没有东西可同步，但操作的进度和结果仍然显示在这里。
+fn sync_shown(app: &App) -> bool {
+    let active = app.git.branch.running.is_some() || app.git.branch.finished.is_some();
+    app.git.status.is_some() && (active || app.git_sync_state() != SyncState::NoRemote)
+}
+
+/// 同步控件上写的文字：和上游差多少个提交，后面是点了会做的事（推送、拉取、同步、发布分支）；
+/// 没有事可做时为空。
 ///
-/// 图标和标题行的工具按钮在同一列，左边写和上游差多少个提交。有事可做时用强调色，其余时候用
+/// 没有待提交的更改时列表区的空状态已经写着同样的事并有一个按钮：这里只写提交数，不再写一遍。
+fn sync_counts(app: &App) -> String {
+    let clean = (app.git.status.as_ref()).is_some_and(|s| s.entries.is_empty())
+        && app.commit_other_rows().is_empty();
+    if clean {
+        return match app.git_sync_state() {
+            SyncState::Push(ahead) => format!("↑{ahead}"),
+            SyncState::Pull(behind) => format!("↓{behind}"),
+            SyncState::Both { ahead, behind } => format!("↓{behind} ↑{ahead}"),
+            _ => String::new(),
+        };
+    }
+    match app.git_sync_state() {
+        SyncState::Push(ahead) => format!("↑{ahead} {}", t!("git-commit-next-push")),
+        SyncState::Pull(behind) => format!("↓{behind} {}", t!("git-commit-next-pull")),
+        SyncState::Both { ahead, behind } => {
+            format!("↓{behind} ↑{ahead} {}", t!("git-commit-next-both"))
+        }
+        SyncState::Publish => t!("git-commit-next-publish").to_owned(),
+        SyncState::InSync | SyncState::NoRemote | SyncState::Hidden => String::new(),
+    }
+}
+
+/// 同步控件的宽度（逻辑像素）；没有同步控件时为 `None`。
+fn sync_width(app: &App, frame: &mut Frame<'_>) -> Option<f32> {
+    let counts = sync_counts(app);
+    let text = if counts.is_empty() {
+        0.0
+    } else {
+        SYNC_TEXT_LEFT + frame.measure(FontKind::Ui, app.fonts.ui_small, &counts)
+    };
+    sync_shown(app).then_some(text + BUTTON_SMALL)
+}
+
+/// 绘制 `row` 右端的同步控件，返回它的左边缘。
+///
+/// 图标在行的最右端，左边写和上游差多少个提交和要做的事。有事可做时用强调色，其余时候用
 /// 淡色；运行时图标在原位旋转，成功后过渡到对勾，再过渡到当前状态的图标。要做什么写在提示里。
 pub(super) fn draw_sync(
     app: &App,
@@ -236,21 +315,9 @@ pub(super) fn draw_sync(
     hits: &mut Vec<(Rect, CommitTarget)>,
 ) -> f32 {
     let p = app.palette;
-    let size = app.fonts.ui_small;
     let state = app.git_sync_state();
-    let counts = match state {
-        SyncState::Push(ahead) => format!("↑{ahead}"),
-        SyncState::Pull(behind) => format!("↓{behind}"),
-        SyncState::Both { ahead, behind } => format!("↓{behind} ↑{ahead}"),
-        SyncState::Publish | SyncState::InSync | SyncState::NoRemote | SyncState::Hidden => {
-            String::new()
-        }
-    };
-    let width = if counts.is_empty() {
-        BUTTON_SMALL
-    } else {
-        SYNC_TEXT_LEFT + frame.measure(FontKind::Ui, size, &counts) + BUTTON_SMALL
-    };
+    let counts = sync_counts(app);
+    let width = sync_width(app, frame).unwrap_or(BUTTON_SMALL);
     let button = Rect::new(row.right() - width, row.y, width, row.h);
     let running = app.git.branch.running.is_some();
     let hovered = !running && app.pointer.hover == Hover::Commit(CommitTarget::Sync);
@@ -277,13 +344,15 @@ pub(super) fn draw_sync(
         button.y + button.h / 2.0,
     );
     let faded = ink.alpha(ink.a * (1.0 - check));
-    // 同步与远程交换提交，图标与标题行只重读本地的「刷新」不同。
+    // 图标与要做的事一致：只推送时是上传，只拉取时是下载，两边都有或没有事可做时是同步。
     if leaving {
         icons::sync_turned(frame, icon, icons::spin_turn(), faded, clip);
-    } else if state == SyncState::Publish {
-        icons::upload(frame, icon, faded, clip);
     } else {
-        icons::sync(frame, icon, faded, clip);
+        match state {
+            SyncState::Publish | SyncState::Push(_) => icons::upload(frame, icon, faded, clip),
+            SyncState::Pull(_) => icons::download(frame, icon, faded, clip),
+            _ => icons::sync(frame, icon, faded, clip),
+        }
     }
     if check > 0.0 {
         icons::check(frame, icon, 11.0, p.git_added.alpha(check), clip);
@@ -291,6 +360,10 @@ pub(super) fn draw_sync(
     hits.push((button, CommitTarget::Sync));
     button.x
 }
+
+/// 「上一次提交」一栏中提交信息离行左边的距离（逻辑像素）：前面是 13 宽的提交记号，左右各留 2
+/// 和 6。
+const LAST_COMMIT_TEXT: f32 = 21.0;
 
 /// 绘制合并、变基等暂停时提交信息上方的说明条。
 ///
@@ -321,7 +394,12 @@ pub(super) fn draw_banner(
         p.accent
     };
     frame.rounded(rect, tint.alpha(0.12), RADIUS_ROW);
-    let op = operation.label();
+    // 变基时写明进度：正在处理第几个提交，共几个。
+    let op = match status.progress {
+        Some((at, total)) => format!("{} {at}/{total}", operation.label()),
+        None => operation.label().to_owned(),
+    };
+    let op = op.as_str();
     let text = match (unresolved, conflicted) {
         (0, true) => t!("git-operation-banner-resolved", operation = op),
         (0, false) => t!("git-operation-banner", operation = op),
@@ -387,25 +465,36 @@ pub(super) fn draw_undo(
     let time_x = (undo.x - 6.0 - time_w).max(row.x);
     ui_text_small(frame, app, time_x, row, &time, p.text_dim, clip);
     let room = Rect::new(row.x, row.y, (time_x - 8.0 - row.x).max(0.0), row.h);
-    let subject = fit(frame, &last.subject, size, room.w - 2.0, false);
+    // 前面一个提交的记号：这一行写的是上一次提交，不是一条普通的说明。
+    let mark = (row.x + 8.5, row.y + row.h / 2.0);
+    icons::ref_icon(
+        frame,
+        icons::RefMark::Commit,
+        mark,
+        p.text_dim,
+        clip.intersect(room),
+    );
+    let subject = fit(frame, &last.subject, size, room.w - LAST_COMMIT_TEXT, false);
     let subject_clip = clip.intersect(room);
     ui_text_small(
         frame,
         app,
-        row.x + 2.0,
+        row.x + LAST_COMMIT_TEXT,
         row,
         &subject,
         p.text_muted,
         subject_clip,
     );
 
-    // 「撤销」写成字：最常用的一项，放进菜单里看不出能撤销。
+    // 「撤销」写成字：最常用的一项，放进菜单里看不出能撤销。平时用次要色，不比提交按钮显眼，
+    // 悬停时才用强调色。
     let hovered = app.pointer.hover == Hover::Commit(CommitTarget::Undo);
     draw_button(frame, p, undo, clip, hovered, false);
     let text = t!("git-commit-undo");
     let w = frame.measure(FontKind::Ui, size, text);
     let x = (undo.x + (undo.w - w) / 2.0).round();
-    ui_text_small(frame, app, x, undo, text, p.accent, clip);
+    let ink = if hovered { p.accent } else { p.text_muted };
+    ui_text_small(frame, app, x, undo, text, ink, clip);
     hits.push((undo, CommitTarget::Undo));
 
     let hovered = app.pointer.hover == Hover::Commit(CommitTarget::LastCommit);

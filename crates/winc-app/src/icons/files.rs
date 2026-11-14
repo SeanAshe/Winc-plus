@@ -172,6 +172,27 @@ pub fn folder_small(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, c
     frame.stroke(&shapes, WIDTH, color, clip);
 }
 
+/// 绘制小号工作树图标，12×12，以 `(cx, cy)` 为中心：左上、右下各一个圆角方框，由一道折线
+/// 相连，表示从同一个仓库另外签出的目录。线条和小号分支图标一样细。
+pub fn worktree_small(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    const WIDTH: f32 = 1.25;
+    // 方框 5 见方，圆角 1.5；两个方框横竖各隔 0.75。
+    let (side, h) = (5.0, WIDTH / 2.0);
+    let (near, far) = (-6.0 + h, 6.0 - h - side);
+    let first = rounded_outline(cx + near, cy + near, side, side, 1.5);
+    let second = rounded_outline(cx + far, cy + far, side, side, 1.5);
+    // 折线：从第一个方框底边的中点往下，拐一个圆角，接到第二个方框左边的中点。
+    let (x, y, c) = (cx + near + side / 2.0, cy + far + side / 2.0, 1.5);
+    let link = [
+        Stroke::Line(x, cy + near + side, x, y - c),
+        Stroke::Arc(x + c, y - c, c, FRAC_PI_2, PI),
+        Stroke::Line(x + c, y, cx + far, y),
+    ];
+    frame.stroke(&first, WIDTH, color, clip);
+    frame.stroke(&second, WIDTH, color, clip);
+    frame.stroke(&link, WIDTH, color, clip);
+}
+
 /// 绘制「新建文件」图标，占 12×15 的位置（左上角 `(x, y)`）：和文件树工具栏的 [`add_file`] 是
 /// 同一个图标，居中放在这块位置。
 ///

@@ -1,4 +1,4 @@
-//! 提交的菜单，以及执行前要确认的操作。
+//! 提交和改动文件的菜单（含复制补丁、与本地版本比较），以及执行前要确认的操作。
 
 use winc_editor::git::TagTarget;
 use winc_i18n::t;
@@ -14,6 +14,51 @@ pub(in crate::app) fn tag_name(reference: &Ref) -> Option<&str> {
 }
 
 impl App {
+    /// 把文件 `path` 在详情里的版本（选中的提交；比较两个版本时是新的一边）和工作区里的版本
+    /// 并排比较，在后台读取，打开为新标签（见 [`Loaded::LocalDiff`]）。
+    pub(super) fn compare_log_file_with_local(&mut self, path: PathBuf) {
+        let Some(root) = self.git.root.clone() else {
+            return;
+        };
+        let view = self.editor.active().and_then(|d| d.log.as_deref());
+        let rev = view.and_then(|v| match &v.compare {
+            Some(c) => Some(c.to.clone()),
+            None => v.selected_oid().map(str::to_owned),
+        });
+        let Some(rev) = rev else {
+            return;
+        };
+        let name = winc_editor::display_name(&path).into_owned();
+        let title = t!(
+            "git-log-local-diff-title",
+            name = name.as_str(),
+            rev = short(&rev)
+        );
+        let sender = self.git.log.results.0.clone();
+        self.spawn_git(UserEvent::GitLog, move |tool| {
+            let view = tool
+                .map_err(|e| unusable(&e))
+                .and_then(|git| local_diff(&git, &root, &rev, &path))
+                .map(Box::new);
+            let _ = sender.send(Loaded::LocalDiff { title, view });
+        });
+    }
+
+    /// 在后台取提交 `oid` 的补丁，取到后复制到剪贴板（见 [`Loaded::Patch`]）。
+    pub(super) fn copy_log_patch(&mut self, oid: String) {
+        let Some(root) = self.git.root.clone() else {
+            return;
+        };
+        let sender = self.git.log.results.0.clone();
+        self.spawn_git(UserEvent::GitLog, move |tool| {
+            let result = match tool {
+                Ok(git) => git.commit_patch(&root, &oid, &Cancel::default()),
+                Err(e) => Err(unusable(&e)),
+            };
+            let _ = sender.send(Loaded::Patch { oid, result });
+        });
+    }
+
     /// 右键点在日志的一个提交上：选中它，返回它的提交号。
     pub(in crate::app) fn log_context_target(&mut self, x: f32, y: f32) -> Option<String> {
         if !self.log_active() {
@@ -127,6 +172,7 @@ impl App {
                 self.set_clipboard(tag, false);
             }
             MenuCommand::LogGoTo => self.open_go_to_revision(),
+            MenuCommand::LogCopyPatch => self.copy_log_patch(oid),
             MenuCommand::LogCopyMessage => {
                 let message = self
                     .editor
@@ -149,6 +195,11 @@ impl App {
         let (message, detail, action) = match &op {
             LogConfirmed::Detach(oid) => (
                 t!("git-log-detach-confirm", commit = short(oid)),
+                t!("git-log-detach-confirm-detail").to_owned(),
+                t!("git-log-detach-confirm-button"),
+            ),
+            LogConfirmed::CheckoutTag(name) => (
+                t!("git-tag-checkout-confirm", name = name.as_str()),
                 t!("git-log-detach-confirm-detail").to_owned(),
                 t!("git-log-detach-confirm-button"),
             ),
@@ -197,6 +248,16 @@ impl App {
     /// 确认框上确认了 `op`。
     pub(in crate::app) fn run_log_confirmed(&mut self, op: LogConfirmed) {
         match op {
+            LogConfirmed::CheckoutTag(name) => {
+                // 写全引用：标签与分支同名时不会签出成分支。
+                let target = format!("refs/tags/{name}");
+                self.git_operate(
+                    t!("git-op-checkout", name = name.as_str()),
+                    move |git, root| {
+                        git.operate(root, &["switch", "--detach", "--end-of-options", &target])
+                    },
+                );
+            }
             LogConfirmed::Detach(oid) => {
                 let tag = short(&oid).to_owned();
                 self.git_operate(
@@ -227,4 +288,42 @@ impl App {
             LogConfirmed::RemoveRemote(name) => self.remove_remote(name),
         }
     }
+}
+
+/// 文件 `path` 在版本 `rev` 里与工作区里的并排差异：左边是该版本，右边是磁盘上的内容。
+fn local_diff(git: &Git, root: &Path, rev: &str, path: &Path) -> Result<DiffView, String> {
+    let name = winc_editor::display_name(path).into_owned();
+    let failed = |e: String| t!("git-read-file-failed", name = name.as_str(), error = e);
+    let old = git
+        .content_at(root, rev, path, &Cancel::default())
+        .map_err(failed)?;
+    let new = winc_backend::fs::read(path).map_err(|e| failed(e.to_string()))?;
+    for bytes in old.iter().chain([&new]) {
+        if bytes.len() as u64 > LARGE_FILE {
+            return Err(t!("git-diff-too-large", name = name.as_str()));
+        }
+        if looks_binary(bytes) {
+            return Err(t!("git-diff-binary", name = name.as_str()));
+        }
+    }
+    let language = winc_syntax::detect(&name);
+    let old_title = match old {
+        Some(_) => short(rev).to_owned(),
+        None => t!("git-diff-side-commit-missing", commit = short(rev)),
+    };
+    let old_text = old
+        .as_deref()
+        .map(|b| decode_unknown(b).0)
+        .unwrap_or_default();
+    let mut view = DiffView::new(
+        DiffSide::new(old_title, &old_text, None, language).with_missing(old.is_none()),
+        DiffSide::new(
+            t!("git-diff-side-worktree"),
+            &decode_unknown(&new).0,
+            None,
+            language,
+        ),
+    );
+    view.snapshot_path = Some(path.to_path_buf());
+    Ok(view)
 }

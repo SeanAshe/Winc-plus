@@ -46,8 +46,8 @@ pub(crate) use git::branch::picker::{GitAnchor, PickerPart};
 pub(crate) use git::changes::{ChangeTarget, MARK_W, mark_x, ruler_rows};
 pub(crate) use git::commit::{
     COMMIT_ROW, CommitGroup, CommitLabels, CommitName, CommitOverflow, CommitParts, CommitRow,
-    CommitRows, CommitTarget, MESSAGE_LINE, MESSAGE_PAD, STASH_GAP, StashLine, StashView,
-    SyncState,
+    CommitRows, CommitScope, CommitSort, CommitTarget, MESSAGE_LINE, MESSAGE_PAD, OtherGroup,
+    OtherRow, STASH_GAP, StashLine, StashView, SyncState,
 };
 pub(crate) use input::context_menu::{
     CHECK_COLUMN, ICON_COLUMN, MenuIcon, POPUP_PAD, POPUP_TEXT_X, PopupLevel, PopupMenu, PopupRow,
@@ -66,7 +66,7 @@ pub(crate) use lifecycle::wallpaper::Layer as WallpaperLayer;
 use lifecycle::window::frame_interval;
 pub(crate) use scroll::ScrollTarget;
 pub use settings::{DialogCache, SettingsState};
-pub use status::motion::{StatusEntry, StatusKey, StatusMotion};
+pub use status::motion::{StatusEntry, StatusKey, StatusMotion, StatusRow};
 pub use status::status_bar::{StatusItem, indent_label};
 pub use workspace::file_drop::DropZone;
 pub use workspace::files::{Pick, PlaceholderAction, TabBar, TabHit};
@@ -245,14 +245,24 @@ pub enum UserEvent {
     GitRollback(Vec<PathBuf>),
     /// 确认框中确认中止进行中的合并、变基等操作。
     GitAbort,
+    /// 确认框里选了跳过：跳过变基、拣选等操作停着的这个提交。
+    GitSkip,
     /// 提示框中选择切换到参数中的分支；为 `true` 时先储藏未提交的更改，否则把更改带到新分支。
     GitSwitchBranch(winc_editor::git::Branch, bool),
     /// 确认框中确认强制推送当前分支。
     GitForcePush,
+    /// 新增 TODO 的确认框：仍然提交（`true`）或取消。
+    GitCommitTodo(bool),
     /// 提示框中确认发布、推送或同步当前分支；为 `true` 时勾选了「不再询问」。
     GitPushConfirmed(crate::app::git::commit::PushIntent, bool),
+    /// 推送的确认框里选了「查看提交」：打开 Git 日志。
+    GitShowLog,
+    /// Git 输出有了新的内容：开着的输出标签接着显示。
+    GitOutput,
     /// 提示框中确认提交已勾选的文件并推送。
     GitCommitAndPush,
+    /// 「提交并同步」的提示框确认了。
+    GitCommitAndSync,
     /// 提示框中确认撤销上一次提交。
     GitUndoCommit,
     /// 后台已取得某个文件在 `HEAD` 中的内容（行号栏改动标记的基准）。
@@ -329,6 +339,8 @@ pub enum PromptKind {
     GoTo,
     /// 储藏改动的说明（可为空）。
     Stash,
+    /// 储藏这些文件的更改时输入说明。
+    StashFiles(Vec<PathBuf>),
     /// 新 Git 标签的名称；`at` 为标签指向的提交（完整的提交号）。
     NewTag { at: String },
     /// 分支的新名称；`old` 为当前名称。
@@ -587,6 +599,8 @@ impl Hover {
                         | CommitTarget::RevertFile(_)
                         | CommitTarget::GroupRevert(_)
                         | CommitTarget::Check(_)
+                        | CommitTarget::StageFile(..)
+                        | CommitTarget::GroupStage(_)
                 )
                 | Hover::Diff(
                     DiffTarget::Previous
@@ -664,6 +678,11 @@ enum Drag {
     },
     /// 拖动日志标签中列表与详情之间的分隔线：按下时的横坐标、详情栏当时的宽度。
     LogDivider {
+        start_x: f32,
+        start_width: f32,
+    },
+    /// 拖动日志列表里作者一列的左边缘：按下时的横坐标、作者一列当时的宽度。
+    LogColumn {
         start_x: f32,
         start_width: f32,
     },

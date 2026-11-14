@@ -601,6 +601,7 @@ impl App {
         match std::mem::replace(&mut self.bars.prompt_kind, PromptKind::GoTo) {
             PromptKind::GoTo => self.goto_line(&input),
             PromptKind::Stash => self.git_stash(&input),
+            PromptKind::StashFiles(paths) => self.git_stash_files(&input, paths),
             PromptKind::NewTag { at } => self.git_new_tag(&input, at),
             PromptKind::RenameBranch { old } => self.git_rename_branch(old, &input),
             PromptKind::VimSearch { .. } | PromptKind::VimCommand => {

@@ -466,6 +466,8 @@ pub enum Scrollbar {
     Commit,
     /// 文件视图底部大纲符号列表的竖直滚动条。
     Outline,
+    /// Git 日志左侧的分支面板。
+    LogBranches,
     /// 终端面板的竖直滚动条（回滚缓冲）。
     Terminal,
     /// Markdown 预览的竖直滚动条。

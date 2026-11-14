@@ -37,19 +37,32 @@ pub(crate) fn display_time(commit: &Commit, now: i64) -> String {
     display_local(&commit.local, commit.time, now)
 }
 
-/// 日志列表里的时间：一种全是数字的写法，今年的「10-22 10:52」，更早的「2024-03-01」，用等宽
-/// 字体画、靠右对齐，一列竖下来数字一位对一位。
+/// 日志列表里的时间：今天、昨天的写「今天 10:52」「昨天 10:52」，今年更早的「10-22 10:52」，
+/// 更早的「2024-03-01」，用等宽字体画、靠右对齐，一列竖下来时、分一位对一位。
 ///
-/// 月、日补零、不加汉字，列宽才能对齐。相对时间的说法（今天、几分钟前）只在详情的
-/// [`display_time`] 里写。
+/// 月、日补零、不加汉字，列宽才能对齐。几分钟前这类更细的说法只在详情的 [`display_time`]
+/// 里写。
 pub(crate) fn list_time(commit: &Commit, now: i64) -> String {
     let local = commit.local.as_str();
     let (Some(date), Some(clock)) = (local.get(..10), local.get(11..16)) else {
         return local.to_owned();
     };
-    // 「今年」按这个提交自己的时区算（和 `display_local` 一样，不读时区数据库）。
-    let offset = naive_seconds(local).map_or(0, |l| l - commit.time);
-    let (this_year, ..) = civil_from_days((now + offset).div_euclid(86_400));
+    // 「今天」「今年」按这个提交自己的时区算（和 `display_local` 一样，不读时区数据库）。
+    let Some(seconds) = naive_seconds(local) else {
+        return local.to_owned();
+    };
+    let offset = seconds - commit.time;
+    let (day, today) = (
+        seconds.div_euclid(86_400),
+        (now + offset).div_euclid(86_400),
+    );
+    if day == today {
+        return t!("git-time-today", time = clock);
+    }
+    if day + 1 == today {
+        return t!("git-time-yesterday", time = clock);
+    }
+    let (this_year, ..) = civil_from_days(today);
     match date.get(..4).and_then(|y| y.parse::<i64>().ok()) {
         Some(year) if year == this_year => format!("{} {clock}", &date[5..]),
         _ => date.to_owned(),

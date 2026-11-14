@@ -161,6 +161,7 @@ impl App {
             Focus::Search => Context::Find,
             Focus::Replace => Context::Replace,
             Focus::Tree => Context::Tree,
+            Focus::CommitList => Context::Changes,
             // 终端的查找框、标签上改名字的输入框也按终端的键位：`⌘W` 关的是终端标签，`⌘F` 回到
             // 终端的查找，不进入编辑区（编辑用的快捷键见 `run_action`，留给输入框）。
             Focus::Terminal | Focus::TerminalFind | Focus::TerminalRename => Context::Terminal,

@@ -31,27 +31,6 @@ impl AreaWrap {
     }
 }
 
-/// 一个字素之后是否可以折行：空白之后，以及中日韩文字、假名、谚文和全角符号之后。
-fn breaks_after(grapheme: &str) -> bool {
-    grapheme.chars().all(char::is_whitespace) || is_ideographic(grapheme)
-}
-
-/// 字素是否属于可以在任意两字之间折行的文字：中日韩文字、假名、谚文和全角符号。
-///
-/// 范围取 Unicode 的区块：CJK 部首补充至 CJK 统一表意文字（U+2E80–U+9FFF）、谚文音节
-/// （U+AC00–U+D7AF）、CJK 兼容表意文字（U+F900–U+FAFF）、半角及全角形式（U+FF00–U+FFEF）。
-fn is_ideographic(grapheme: &str) -> bool {
-    grapheme.chars().next().is_some_and(|c| {
-        matches!(
-            c,
-            '\u{2E80}'..='\u{9FFF}'
-                | '\u{AC00}'..='\u{D7AF}'
-                | '\u{F900}'..='\u{FAFF}'
-                | '\u{FF00}'..='\u{FFEF}'
-        )
-    })
-}
-
 /// 折行过程中的一个字素边界：`display` 中的字节偏移、x 坐标和所在的显示行。
 struct Boundary {
     pos: usize,
@@ -62,8 +41,9 @@ struct Boundary {
 /// 把多行输入框 `field` 的文字按 `width` 折行，换行符开始新的一行；记下每个字素边界在哪一行、
 /// 哪个位置（供点击、拖选和上下移动）。
 ///
-/// 一行放不下时在最近的可折行处（见 [`breaks_after`]）折行，整个词移到下一行；一个词比一行
-/// 还宽时从放不下的字素处折行。有焦点时输入法组字中的文字插在光标处一起折行。
+/// 一行放不下时在最近的可折行处折行，整个词移到下一行；一个词比一行还宽时从放不下的字素处
+/// 折行。哪里可以折行与编辑区相同（[`winc_core::wrap::can_break`]）：`，。）` 不放在行首，`（`
+/// 不留在行末。有焦点时输入法组字中的文字插在光标处一起折行。
 pub(crate) fn wrap_area_field(
     app: &App,
     frame: &mut Frame<'_>,
@@ -97,8 +77,9 @@ pub(crate) fn wrap_area_field(
     let mut all = vec![Boundary { pos: 0, x, row }];
     // 每个显示行的起点（排版文字里的字节偏移）。
     let mut row_starts = vec![0];
-    // 当前行中最近一个可折行的边界在 `all` 中的下标。
+    // 当前行中最近一个可折行的边界在 `all` 中的下标，以及上一个字素的最后一个字符。
     let mut opportunity: Option<usize> = None;
+    let mut previous: Option<char> = None;
     for (start, grapheme) in display.grapheme_indices(true) {
         let end = start + grapheme.len();
         if grapheme == "\n" {
@@ -106,12 +87,15 @@ pub(crate) fn wrap_area_field(
             x = 0.0;
             row_starts.push(end);
             opportunity = None;
+            previous = None;
             all.push(Boundary { pos: end, x, row });
             continue;
         }
-        if is_ideographic(grapheme) {
+        let first = grapheme.chars().next().unwrap_or(' ');
+        if previous.is_some_and(|p| winc_core::wrap::can_break(p, first)) {
             opportunity = Some(all.len() - 1);
         }
+        previous = grapheme.chars().next_back();
         let w = frame.measure(FontKind::Ui, app.fonts.ui, grapheme);
         // 放不下：从最近的可折行处起换到下一行；该行没有可折行处时只把这个字素换到下一行。
         // 折行处的边界归入下一行的开头，上一行末尾的位置另记在 `ends` 中。
@@ -133,9 +117,6 @@ pub(crate) fn wrap_area_field(
         }
         x += w;
         all.push(Boundary { pos: end, x, row });
-        if breaks_after(grapheme) {
-            opportunity = Some(all.len() - 1);
-        }
     }
     // 组字文字的起点和终点；没有组字时两者都是光标的位置。
     let place = |pos: usize| {

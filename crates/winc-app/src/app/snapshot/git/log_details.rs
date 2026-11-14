@@ -85,7 +85,9 @@ fn refreshing_the_log_keeps_the_selection_and_its_details() {
     app.git.log.waiting = Some(std::time::Instant::now());
     assert!(!app.log_quiet());
     app.git.log.list_waiting = None;
-    assert_eq!(app.log_tick(std::time::Instant::now()), None);
+    // 选中以后要查的所在分支也在这里到时：之后没有要等的。
+    let later = std::time::Instant::now() + std::time::Duration::from_secs(1);
+    assert_eq!(app.log_tick(later), None);
     assert_eq!(app.git.log.waiting, None);
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -155,7 +157,7 @@ fn the_log_files_can_be_walked_with_the_keyboard_and_commits_opened_by_double_cl
     app.press_log(LogTarget::Row(last));
     app.pointer.modifiers = ModifiersState::empty();
     paint(&mut app);
-    let files = app.log_files_len();
+    let files = app.log_file_order().len();
     assert!(files >= 2, "{files}");
 
     // → 进到文件列表，↓ 选下一个，End 到最后，← 回到提交列表。
@@ -278,9 +280,10 @@ fn a_file_in_the_log_details_has_a_menu_and_a_full_path_tip() {
     assert_eq!(app.git.log.file, Some(0));
     let commands: Vec<MenuCommand> = menu_commands(&app).into_iter().map(|(c, _)| c).collect();
     assert_eq!(
-        &commands[..3],
+        &commands[..4],
         [
             MenuCommand::GitShowDiff,
+            MenuCommand::LogCompareWithLocal,
             MenuCommand::GitOpenFile,
             MenuCommand::FileHistory
         ]

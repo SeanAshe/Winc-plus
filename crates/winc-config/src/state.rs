@@ -22,6 +22,21 @@ const _: () = assert!(
     "最近列表中的每个目录必须使用不同的颜色"
 );
 
+/// 记住的提交信息的条数上限，与输入框的输入历史相同。
+pub const MAX_COMMIT_MESSAGES: usize = 50;
+
+impl State {
+    /// 把提交过的信息 `message` 记为最新的一条：相同的旧条目移到最前，超过上限时丢掉最旧的。
+    pub fn remember_commit_message(&mut self, message: &str) {
+        if message.is_empty() {
+            return;
+        }
+        self.commit_messages.retain(|m| m != message);
+        self.commit_messages.insert(0, message.to_owned());
+        self.commit_messages.truncate(MAX_COMMIT_MESSAGES);
+    }
+}
+
 /// 由程序维护的运行状态：最近目录、各目录的现场和项目工具选择。
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct State {
@@ -40,6 +55,30 @@ pub struct State {
     ///
     /// `false`（默认）时平铺，每个文件一行。所有窗口和仓库共用，下次启动沿用。
     pub commit_tree: bool,
+    /// 提交视图中各组里文件的排序方式：`name` 按文件名，`status` 按更改的类型；为空（默认）时按
+    /// 路径。所有窗口和仓库共用，下次启动沿用。
+    pub commit_sort: String,
+    /// 提交视图是否在当前仓库的更改之后列出打开的目录中其他仓库的更改。
+    ///
+    /// `None`（没有选过）时由提交视图的样式决定：勾选式列出，暂存区视图只显示当前仓库。所有
+    /// 窗口共用，下次启动沿用。
+    pub commit_all_repositories: Option<bool>,
+    /// Git 日志左侧是否显示分支面板；`None`（没有选过）时显示。所有窗口共用，下次启动沿用。
+    pub log_branches: Option<bool>,
+    /// Git 日志列表右边显示的列（`author`、`date`、`hash`）；`None`（没有选过）时显示作者和
+    /// 日期。所有窗口共用，下次启动沿用。
+    pub log_columns: Option<Vec<String>>,
+    /// 提交过的信息，最新的在前，最多 `MAX_COMMIT_MESSAGES` 条。提交信息框里按 `↑` 翻阅，
+    /// 提交按钮的菜单里列出最近的几条；所有窗口和仓库共用，下次启动沿用。
+    pub commit_messages: Vec<String>,
+    /// 提交前检查这次新增的内容里有没有 TODO、FIXME，有时先确认。所有窗口和仓库共用。
+    pub commit_check_todo: bool,
+    /// 提交前用格式化工具整理要提交的文件。所有窗口和仓库共用。
+    pub commit_reformat: bool,
+    /// 提交时附加签署行（`Signed-off-by`）的仓库，元素是仓库的根目录。
+    ///
+    /// 在提交按钮的菜单中逐个仓库打开；所有窗口共用，下次启动沿用。
+    pub sign_off_repos: Vec<PathBuf>,
     /// PDF 预览是否隐藏页面缩略图栏；默认显示。所有窗口共用，下次启动沿用。
     pub pdf_thumbnails_hidden: bool,
     /// 侧栏宽度（逻辑像素）；`None` 表示没有调整过。所有视图、窗口和仓库共用，下次启动沿用。
@@ -463,6 +502,27 @@ impl State {
             .get("commitTree")
             .and_then(Json::as_bool)
             .unwrap_or(false);
+        state.commit_sort = root
+            .get("commitSort")
+            .and_then(Json::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        state.commit_all_repositories = root.get("commitAllRepositories").and_then(Json::as_bool);
+        state.log_branches = root.get("logBranches").and_then(Json::as_bool);
+        state.log_columns = (root.get("logColumns").and_then(Json::as_array)).map(|columns| {
+            let names = columns.iter().filter_map(Json::as_str);
+            names.map(str::to_owned).collect()
+        });
+        state.commit_messages = (root.get("commitMessages").and_then(Json::as_array))
+            .unwrap_or_default()
+            .iter()
+            .filter_map(Json::as_str)
+            .filter(|m| !m.is_empty())
+            .take(MAX_COMMIT_MESSAGES)
+            .map(str::to_owned)
+            .collect();
+        state.commit_check_todo = root.get("commitCheckTodo").and_then(Json::as_bool) == Some(true);
+        state.commit_reformat = root.get("commitReformat").and_then(Json::as_bool) == Some(true);
         state.pdf_thumbnails_hidden = root
             .get("pdfThumbnailsHidden")
             .and_then(Json::as_bool)
@@ -493,6 +553,11 @@ impl State {
         for path in paths(root.get("otherWindows")) {
             if !state.others.contains(&path) && state.others.len() < MAX_RECENT {
                 state.others.push(path);
+            }
+        }
+        for path in paths(root.get("signOffRepos")) {
+            if !state.sign_off_repos.contains(&path) {
+                state.sign_off_repos.push(path);
             }
         }
 
@@ -544,9 +609,10 @@ impl State {
 
     /// 序列化为 `state.json` 的内容，末尾带一个换行符。
     ///
-    /// `last`、`previewMode` 没有值，`otherWindows`、`toolChoices`、`trustedRepos`、`vimMarks`、
-    /// `vimCommands`、`vimSearches` 为空，`commitTree`、`pdfThumbnailsHidden`、
-    /// `stayOutsideApplications` 为假时省略对应的键。
+    /// `last`、`previewMode` 没有值，`otherWindows`、`signOffRepos`、`toolChoices`、
+    /// `trustedRepos`、`vimMarks`、`vimCommands`、`vimSearches` 为空，`commitTree`、
+    /// `commitAllRepositories`、`pdfThumbnailsHidden`、`stayOutsideApplications` 为假时省略
+    /// 对应的键。
     pub fn to_json(&self) -> String {
         let path = |p: &PathBuf| Json::String(p.to_string_lossy().into_owned());
         let mut fields = vec![(
@@ -566,6 +632,35 @@ impl State {
 
         if self.commit_tree {
             fields.push(("commitTree", Json::Bool(true)));
+        }
+        if !self.commit_sort.is_empty() {
+            fields.push(("commitSort", Json::String(self.commit_sort.clone())));
+        }
+        if !self.sign_off_repos.is_empty() {
+            fields.push((
+                "signOffRepos",
+                Json::Array(self.sign_off_repos.iter().map(path).collect()),
+            ));
+        }
+        if let Some(all) = self.commit_all_repositories {
+            fields.push(("commitAllRepositories", Json::Bool(all)));
+        }
+        if let Some(shown) = self.log_branches {
+            fields.push(("logBranches", Json::Bool(shown)));
+        }
+        if let Some(columns) = &self.log_columns {
+            let names = columns.iter().map(|c| Json::String(c.clone()));
+            fields.push(("logColumns", Json::Array(names.collect())));
+        }
+        if !self.commit_messages.is_empty() {
+            let messages = self.commit_messages.iter().map(|m| Json::String(m.clone()));
+            fields.push(("commitMessages", Json::Array(messages.collect())));
+        }
+        if self.commit_check_todo {
+            fields.push(("commitCheckTodo", Json::Bool(true)));
+        }
+        if self.commit_reformat {
+            fields.push(("commitReformat", Json::Bool(true)));
         }
         if self.pdf_thumbnails_hidden {
             fields.push(("pdfThumbnailsHidden", Json::Bool(true)));

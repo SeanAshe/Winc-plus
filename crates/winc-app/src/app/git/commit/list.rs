@@ -22,28 +22,24 @@ impl App {
         self.git.status.as_ref()?.entries.get(i)
     }
 
-    /// 切换第 `i` 个文件的勾选；该文件在多选的选区里时，选中的各个文件一起勾上或取消。
+    /// 暂存或取消暂存第 `i` 个文件；该文件在多选的选区里时，选中的各个文件一起操作。
+    ///
+    /// 只暂存了一部分的文件按未暂存处理：点击后暂存其余的改动。
     pub(super) fn toggle_commit_check(&mut self, i: usize) {
         let Some(entry) = self.commit_entry(i).cloned() else {
             return;
         };
-        let on = !self.git.commit.checked(&entry);
-        if !(self.commit_multi_selected() && self.commit_is_selected(&entry.path)) {
-            self.git.commit.set_checked(&entry, on);
-            return;
-        }
-        let paths = self.commit_selection();
-        let Some(status) = self.git.status.as_ref() else {
-            return;
+        // 勾选式下只提交一部分的文件算勾上，再点取消；暂存区视图中再点是暂存其余的改动。
+        let on = if self.git.commit.staging() {
+            self.git.commit.file_state(&entry) != Some(true)
+        } else {
+            !self.git.commit.checked(&entry)
         };
-        let entries: Vec<Entry> = status
-            .entries
-            .iter()
-            .filter(|e| paths.contains(&e.path))
-            .cloned()
-            .collect();
-        for entry in &entries {
-            self.git.commit.set_checked(entry, on);
+        if self.commit_multi_selected() && self.commit_is_selected(&entry.path) {
+            let paths = self.commit_selection();
+            self.set_commit_checked(&paths, on);
+        } else {
+            self.set_commit_checked(&[entry.path], on);
         }
     }
 
@@ -94,10 +90,9 @@ impl App {
     pub(crate) fn commit_selection(&self) -> Vec<PathBuf> {
         let files = self.commit_files();
         if self.git.commit.marked.is_empty() {
-            return files
-                .into_iter()
-                .filter(|p| self.git.commit.selected.as_ref() == Some(p))
-                .collect();
+            let selected = self.git.commit.selected.as_ref();
+            let listed = files.iter().any(|p| Some(p) == selected);
+            return selected.filter(|_| listed).cloned().into_iter().collect();
         }
         let mut selection: Vec<PathBuf> = files
             .into_iter()
@@ -116,6 +111,9 @@ impl App {
                 .collect();
             selection.extend(hidden);
         }
+        // 暂存区视图中只暂存了一部分的文件有两行，在选区中只算一个。
+        let mut seen = HashSet::new();
+        selection.retain(|path| seen.insert(path.clone()));
         selection
     }
 
@@ -267,6 +265,11 @@ impl App {
 
     /// 让选中的文件露在列表里：盖在固定的组、目录下面、或者已滚出列表时，滚到它正好露出来。
     pub(in crate::app) fn reveal_commit_selection(&mut self) {
+        // 当前仓库一节收起着：选中的文件不在列表里，不滚动（键盘移动选中时先展开，见
+        // `App::unfold_current_section`）。
+        if self.current_section_folded() {
+            return;
+        }
         let Some(status) = self.git.status.as_ref() else {
             return;
         };
@@ -281,7 +284,12 @@ impl App {
             return;
         };
         let list = self.commit_parts().list;
-        let (top, bottom) = (i as f32 * COMMIT_ROW, (i + 1) as f32 * COMMIT_ROW);
+        // 多仓库时改动列表排在其他仓库的各行和当前仓库的标题行下面。
+        let before = self.commit_rows_before() as f32 * COMMIT_ROW;
+        let (top, bottom) = (
+            before + i as f32 * COMMIT_ROW,
+            before + (i + 1) as f32 * COMMIT_ROW,
+        );
         // 只在固定行盖住该行时才滚：滚到该行正好露在它所在的组、目录（层数对应的行数，不超过
         // 能固定的层数）下面。已经露着的不动，单击列表不会跳、顶上固定的行也不会变。
         let covered = self
@@ -315,6 +323,7 @@ impl App {
             return;
         }
         // 动画期间按行数较多的状态画：展开时画展开后的行，收起时画收起前的行（收回的行还在）。
+        self.git.commit.fold_motion = None;
         let rows = if expanding { after } else { before };
         self.git.commit.motion = self
             .clock(crate::app::animation::TREE_ANIMATION)
@@ -340,7 +349,7 @@ impl App {
     /// 固定它自己。这一层最后一行的下沿滚到固定的位置之下时，它被往上推，下面不再固定别的。
     pub(crate) fn commit_sticky(&self, rows: &[CommitRow]) -> Vec<CommitSticky> {
         let list = self.commit_parts().list;
-        let scroll = self.git.commit.scroll;
+        let scroll = self.commit_block_scroll();
         let max = self.commit_sticky_max();
         let mut stack: Vec<CommitSticky> = Vec::new();
         while stack.len() < max {
@@ -394,9 +403,10 @@ impl App {
         // 目录排在其子目录之前，因此最后一个包含该文件的行即最内层。
         rows.iter().rposition(|row| match row {
             CommitRow::File { index: i, .. } => *i == index,
-            CommitRow::Group(group) => group.holds(entry),
+            CommitRow::Group(group) => group.holds(entry, self.git.commit.staging()),
             CommitRow::Dir { group, dir, .. } => {
-                group.holds(entry) && entry.path.starts_with(root.join(dir))
+                group.holds(entry, self.git.commit.staging())
+                    && entry.path.starts_with(root.join(dir))
             }
         })
     }
@@ -432,6 +442,47 @@ impl App {
         }
         self.start_commit_motion(before, row);
         self.git.commit.scroll = self.git.commit.scroll.min(self.commit_max_scroll());
+    }
+
+    /// 对更改列表中选中的文件执行 `action`（显示差异、打开源文件、回滚），返回是否已处理。
+    ///
+    /// 焦点不在更改列表上、正在浏览历史提交的文件时不处理，按键继续交给其他绑定。
+    pub(in crate::app) fn run_changes_action(&mut self, action: crate::keymap::Action) -> bool {
+        use crate::keymap::Action;
+        if self.focus != Focus::CommitList || self.log_diff_tree().is_some() {
+            return false;
+        }
+        let Some(current) = self.git.commit.selected.clone() else {
+            return true;
+        };
+        let paths = self.commit_selection();
+        match action {
+            // 选中时差异已在预览标签中：焦点移过去；尚未打开时先打开。
+            Action::ChangesShowDiff => {
+                let shown = (self.editor.active())
+                    .and_then(|doc| doc.diff.as_deref())
+                    .is_some_and(|view| view.repo_path.as_deref() == Some(current.as_path()));
+                if shown {
+                    self.focus = Focus::Editor;
+                } else {
+                    self.select_commit_file(current);
+                }
+            }
+            Action::ChangesOpenSource => {
+                let files: Vec<&PathBuf> = (paths.iter())
+                    .filter(|path| winc_backend::fs::is_file(path))
+                    .collect();
+                for path in &files {
+                    self.open_path(path);
+                }
+                if !files.is_empty() {
+                    self.focus = Focus::Editor;
+                }
+            }
+            _ => self.confirm_rollback(paths),
+        }
+        self.request_redraw();
+        true
     }
 
     /// 处理改动列表中的按键。
@@ -475,9 +526,12 @@ impl App {
             })
             .collect();
         let selected = self.git.commit.selected.as_deref();
-        let at = files
-            .iter()
-            .position(|&(_, i)| Some(status.entries[i].path.as_path()) == selected);
+        // 暂存区视图中只暂存了一部分的文件有两行：按上次用键盘选中的行认，否则取第一行。
+        let holds = |i: usize| Some(status.entries[i].path.as_path()) == selected;
+        let cursor = self.git.commit.cursor;
+        let at = (files.iter())
+            .position(|&(r, i)| Some(r) == cursor && holds(i))
+            .or_else(|| files.iter().position(|&(_, i)| holds(i)));
         // 选中文件所在的行；文件被收起而不可见时为收起它的目录（或组）所在的行。
         let anchor = self.commit_anchor(&rows);
         // 要用到的那个文件的路径先取出来，下面改 `self` 时不再借着状态。
@@ -498,27 +552,31 @@ impl App {
                 files.iter().rposition(|&(r, _)| r <= goal).or(Some(0))
             }
         };
-        let target = match (key, at) {
+        let moved = match (key, at) {
             // 选中文件已被收起：从收起它的行开始向下或向上查找。
-            (Key::Named(NamedKey::ArrowDown), None) if anchor.is_some() => files
-                .iter()
-                .position(|&(r, _)| Some(r) > anchor)
-                .and_then(path),
-            (Key::Named(NamedKey::ArrowUp), None) if anchor.is_some() => files
-                .iter()
-                .rposition(|&(r, _)| Some(r) < anchor)
-                .and_then(path),
-            (Key::Named(NamedKey::ArrowUp | NamedKey::ArrowDown), None) => path(0),
-            (Key::Named(NamedKey::ArrowDown), Some(i)) => path(i + 1),
-            (Key::Named(NamedKey::ArrowUp), Some(i)) => i.checked_sub(1).and_then(path),
-            (Key::Named(NamedKey::Home), _) => path(0),
-            (Key::Named(NamedKey::End), _) => last.and_then(path),
-            (Key::Named(NamedKey::PageUp | NamedKey::PageDown), None) => path(0),
-            (Key::Named(NamedKey::PageDown), Some(i)) => paged(i, true).and_then(path),
-            (Key::Named(NamedKey::PageUp), Some(i)) => paged(i, false).and_then(path),
-            (Key::Named(NamedKey::Enter), Some(i)) => path(i),
+            (Key::Named(NamedKey::ArrowDown), None) if anchor.is_some() => {
+                files.iter().position(|&(r, _)| Some(r) > anchor)
+            }
+            (Key::Named(NamedKey::ArrowUp), None) if anchor.is_some() => {
+                files.iter().rposition(|&(r, _)| Some(r) < anchor)
+            }
+            (Key::Named(NamedKey::ArrowUp | NamedKey::ArrowDown), None) => Some(0),
+            (Key::Named(NamedKey::ArrowDown), Some(i)) => Some(i + 1),
+            (Key::Named(NamedKey::ArrowUp), Some(i)) => i.checked_sub(1),
+            (Key::Named(NamedKey::Home), _) => Some(0),
+            (Key::Named(NamedKey::End), _) => last,
+            (Key::Named(NamedKey::PageUp | NamedKey::PageDown), None) => Some(0),
+            (Key::Named(NamedKey::PageDown), Some(i)) => paged(i, true),
+            (Key::Named(NamedKey::PageUp), Some(i)) => paged(i, false),
+            (Key::Named(NamedKey::Enter), Some(i)) => Some(i),
             _ => None,
         };
+        let target = moved.and_then(path);
+        let row = moved.and_then(|i| files.get(i)).map(|&(row, _)| row);
+        if target.is_some() {
+            self.git.commit.cursor = row;
+            self.unfold_current_section();
+        }
 
         match key {
             Key::Named(

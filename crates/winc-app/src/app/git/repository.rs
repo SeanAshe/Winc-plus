@@ -30,7 +30,11 @@ impl App {
             return;
         };
         self.git_operate_in(root, t!("git-op-init").into(), |git, dir| {
-            git.init(dir).map(|summary| (summary, Then::Rescan))
+            let summary = git.init(dir)?;
+            // 新仓库顺带生成一份 `.gitignore`（已有时不动）：构建产物不会一上来就全是未跟踪的
+            // 文件。写不成不算初始化失败。
+            git.write_starter_ignore(dir);
+            Ok((summary, Then::Rescan))
         });
     }
 
@@ -207,6 +211,13 @@ impl App {
     /// 对标签 `name` 执行 `op`；删除前先确认。
     pub(in crate::app) fn run_tag_op(&mut self, op: TagOp, name: String) {
         match op {
+            TagOp::NewBranch => self.open_branch_dialog(Some(name), None),
+            TagOp::Merge => self.git_operate(
+                t!("git-op-merge", name = name.as_str()),
+                move |git, root| {
+                    git.operate(root, &["merge", "--no-edit", "--end-of-options", &name])
+                },
+            ),
             TagOp::Push => self.git_operate(
                 t!("git-op-tag-push", name = name.as_str()),
                 move |git, root| git.push_tag(root, &name),

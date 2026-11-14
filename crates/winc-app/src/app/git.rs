@@ -9,6 +9,7 @@ pub(crate) mod blame;
 pub(crate) mod branch;
 pub(super) mod changes;
 pub(super) mod commit;
+pub(super) mod fetch;
 pub(crate) mod form;
 pub(crate) mod location_picker;
 pub(crate) mod log;
@@ -98,6 +99,8 @@ struct Outcome {
 struct Refs {
     /// 本地和远程分支，本地的在前。
     branches: Vec<Branch>,
+    /// 各个标签的名字，最近创建的在前。
+    tags: Vec<String>,
     /// 仓库配置的远程名。
     remotes: Vec<String>,
     /// 仓库配置的远程仓库和地址。
@@ -116,6 +119,10 @@ struct Refs {
     worktrees: Option<Vec<Worktree>>,
     /// 仓库所在系统中用户的主目录（[`winc_editor::wsl::home_dir`]）。
     home: Option<PathBuf>,
+    /// 仓库所在系统中 `git` 的主、次版本号；读不出时为 `None`。
+    version: Option<(u32, u32)>,
+    /// 最近提交的作者和自己写的提交信息（见 [`Git::recent_history`]）；这次没有读时为 `None`。
+    history: Option<winc_editor::git::RecentHistory>,
 }
 
 /// 差异的打开方式。
@@ -172,6 +179,8 @@ const SUMMARY_REPOSITORIES: usize = 32;
 
 /// 后台深层查找的结果：（查找的目录，找到的仓库）。
 type ScannedRepositories = (PathBuf, Vec<PathBuf>);
+/// 等着确认的推送：要做的推送、会送出的提交的标题（最新的在前）和总数。
+pub type PushPreview = (commit::PushIntent, Vec<String>, usize);
 
 /// Git 模块的状态。
 pub(crate) struct GitState {
@@ -183,6 +192,9 @@ pub(crate) struct GitState {
     followed: Option<DocumentId>,
     /// 各仓库最近一次读取的状态；位置选择器据此显示分支和改动数，切换仓库时先显示该状态。
     summaries: Arc<Mutex<HashMap<PathBuf, Status>>>,
+    /// `summaries` 每改一次加 1（后台读到新状态、切换仓库时放进、取出）：按它缓存由这些状态
+    /// 排出来的东西（见 `App::commit_other_rows`）。
+    summaries_version: Arc<std::sync::atomic::AtomicU64>,
     /// 各仓库最近一次读取的工作树；位置选择器据此在仓库下列出工作树。
     summary_worktrees: Arc<Mutex<HashMap<PathBuf, Vec<Worktree>>>>,
     /// 正在运行的读取；重新读取时取消。
@@ -197,6 +209,8 @@ pub(crate) struct GitState {
     pub status: Option<Status>,
     /// 本地和远程分支（本地分支在前），与状态一起刷新。
     pub branches: Vec<Branch>,
+    /// 当前仓库的各个标签，最近创建的在前；分支选择器的「标签」一组列出它们。
+    pub tags: Vec<String>,
     /// 仓库配置的远程名，与状态一起刷新。
     pub remotes: Vec<String>,
     /// 仓库配置的远程仓库和地址，与状态一起刷新。
@@ -227,6 +241,10 @@ pub(crate) struct GitState {
     again: bool,
     /// 下一次刷新是否同时读取分支与储藏（由 [`App::git_refresh`] 设置，读取时清除）。
     refs_wanted: bool,
+    /// 刚完成的操作可能改动了引用（标签、远程分支）：下一次读到状态时重新读取已打开的日志。
+    ///
+    /// 状态中只能看出 `HEAD` 和分支的变化，标签的增删看不出。
+    logs_outdated: bool,
     /// 已打开的 Git 差异标签；状态刷新后按需原地更新，标签关闭时移除。
     diff_tabs: HashMap<DocumentId, DiffTab>,
     /// 最近一次切换文件时的（差异标签，切换到的文件）。
@@ -254,6 +272,32 @@ pub(crate) struct GitState {
     pub merge: merge::MergeState,
     /// 位置选择器里改变过默认展开状态的仓库（主工作树的目录）。
     pub location_toggled: HashSet<PathBuf>,
+    /// 位置选择器是否列出全部仓库和它们的工作树；否则只列当前仓库的工作树。
+    pub location_all: bool,
+    /// 后台读到的、等着确认的推送：要做的推送、会送出的提交的标题和总数（见
+    /// [`App::ask_push`]）。
+    pub push_preview: Arc<Mutex<Option<PushPreview>>>,
+    /// 推送对话框改了目标后在后台读到的提交（见 [`App::refresh_push_list`]）。
+    pub(super) push_outgoing: Arc<Mutex<Option<form::PushOutgoing>>>,
+    /// 已提示过 `git` 版本过低：每次运行只提示一次。
+    pub(super) old_git_warned: bool,
+    /// 定时获取的状态（见 [`fetch`]）。
+    pub(super) auto_fetch: fetch::AutoFetch,
+    /// 当前仓库最近提交的作者（`名字 <邮箱>`），提交按钮的菜单里用来添加共同作者。
+    pub(crate) authors: Vec<String>,
+    /// 当前仓库里自己最近写的提交信息，最近的在前：在别处（终端、其他工具）提交的也在其中，
+    /// 补在本程序记住的提交信息后面。
+    pub(crate) own_messages: Vec<String>,
+    /// 仓库配置的当前用户的邮箱（见 [`winc_editor::git::RecentHistory::me`]）；日志的作者筛选里
+    /// 「我」按它筛选。没有读到时为空。
+    pub(crate) my_email: String,
+    /// 读作者时的仓库和它的 `HEAD`：换了仓库或 `HEAD` 动过（提交、拉取、切换）时重读。
+    authors_for: Option<(PathBuf, Option<String>)>,
+    /// 已经读过 `git` 版本的仓库：每个仓库每次运行只读一次，不随每次刷新多运行一条命令。
+    version_read: HashSet<PathBuf>,
+    /// 开着的 Git 输出标签已经显示到记录的第几个字节（见 `winc_editor::git::output_snapshot`）；
+    /// 标签里是「暂无输出」的说明时为 0。
+    pub output_shown: u64,
     /// 分支选择器里改变过默认展开状态的目录：（是否远程，目录路径）。
     pub branch_folders: HashSet<(bool, String)>,
 }
@@ -266,6 +310,7 @@ impl Default for GitState {
             repositories: Vec::new(),
             followed: None,
             summaries: Arc::default(),
+            summaries_version: Arc::default(),
             summary_worktrees: Arc::default(),
             summaries_running: None,
             scanned: Arc::default(),
@@ -273,6 +318,7 @@ impl Default for GitState {
             tool: SharedGit::default(),
             status: None,
             branches: Vec::new(),
+            tags: Vec::new(),
             remotes: Vec::new(),
             remote_list: Vec::new(),
             publish_remote: None,
@@ -287,6 +333,7 @@ impl Default for GitState {
             running: None,
             again: false,
             refs_wanted: false,
+            logs_outdated: false,
             diff_tabs: HashMap::new(),
             stepped: None,
             preview_seq: 0,
@@ -300,6 +347,17 @@ impl Default for GitState {
             branch: Default::default(),
             merge: Default::default(),
             location_toggled: HashSet::new(),
+            location_all: false,
+            output_shown: 0,
+            push_preview: Arc::default(),
+            push_outgoing: Arc::default(),
+            old_git_warned: false,
+            version_read: HashSet::new(),
+            authors: Vec::new(),
+            own_messages: Vec::new(),
+            my_email: String::new(),
+            authors_for: None,
+            auto_fetch: fetch::AutoFetch::default(),
             branch_folders: HashSet::new(),
             prepared: channel(),
         }
@@ -307,6 +365,17 @@ impl Default for GitState {
 }
 
 impl GitState {
+    /// 记下各仓库的状态（`summaries`）改过了。
+    pub(crate) fn summaries_changed(&self) {
+        (self.summaries_version).fetch_add(1, std::sync::atomic::Ordering::Release);
+    }
+
+    /// 各仓库状态的版本，见 `summaries_version`。
+    pub(crate) fn summaries_version(&self) -> u64 {
+        self.summaries_version
+            .load(std::sync::atomic::Ordering::Acquire)
+    }
+
     /// 返回文件树中 `path` 显示的状态。
     pub fn change_of(&self, path: &Path) -> Option<Change> {
         self.decorations.get(path).copied()
@@ -351,12 +420,17 @@ impl GitState {
         self.tool.forget();
         self.status = None;
         self.branches.clear();
+        self.tags.clear();
         self.remotes.clear();
         self.remote_list.clear();
         self.publish_remote = None;
         self.stashes.clear();
         self.worktrees.clear();
         self.home = None;
+        self.authors.clear();
+        self.own_messages.clear();
+        self.my_email.clear();
+        self.authors_for = None;
         self.problem = None;
         self.generation += 1;
         self.decorations.clear();
@@ -468,6 +542,7 @@ impl App {
                 .lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .clear();
+            self.git.summaries_changed();
             self.git
                 .summary_worktrees
                 .lock()
@@ -515,6 +590,11 @@ impl App {
         });
     }
 
+    /// 是否正在查找目录里的仓库：从开始查找到 [`App::git_take_scan`] 收到这个目录的结果。
+    pub(in crate::app) fn git_scanning(&self) -> bool {
+        self.git.scan_running.is_some()
+    }
+
     /// 接收后台查找的结果，新的仓库加在列表末尾；尚无当前仓库时使用找到的第一个。
     ///
     /// 菜单与选择器按下标引用仓库，因此已有仓库的下标不能改变。
@@ -531,6 +611,9 @@ impl App {
         if self.editor.root() != Some(dir.as_path()) || !self.git_enabled() {
             return;
         }
+        // 这个目录的查找结束了：一个仓库都没找到时提交视图从「正在读取」换成不是仓库的说明。
+        self.git.scan_running = None;
+        self.request_redraw();
         let known = self.git.repositories.len();
         for repo in found {
             if !self.git.repositories.contains(&repo) {
@@ -587,6 +670,7 @@ impl App {
         self.git.summaries_running = Some(cancel.clone());
         let repositories = self.git.repositories.clone();
         let summaries = Arc::clone(&self.git.summaries);
+        let version = Arc::clone(&self.git.summaries_version);
         let worktrees = Arc::clone(&self.git.summary_worktrees);
         self.spawn_git(UserEvent::GitStatus, move |tool| {
             let Ok(git) = tool else {
@@ -615,6 +699,7 @@ impl App {
                             .lock()
                             .unwrap_or_else(PoisonError::into_inner)
                             .insert(path, status);
+                        version.fetch_add(1, std::sync::atomic::Ordering::Release);
                     }
                 }
             }
@@ -689,8 +774,14 @@ impl App {
         if root == self.git.root {
             return;
         }
-        // 未完成的提交信息按位置保存，切换回来时恢复。
-        if let Some(old) = self.git.root.clone() {
+        // 未完成的提交信息按位置保存，切换回来时恢复。多仓库时列表里的各个仓库共用一条提交信息、
+        // 各文件的勾选也照样留着：在列表里点另一个仓库只换当前仓库，不换要提交的内容。
+        let carried = self
+            .commit_shows_others()
+            .then(|| self.git.commit.draft_text());
+        let carrying = carried.is_some() && self.git.root.is_some();
+        self.carry_checks_out();
+        if let Some(old) = self.git.root.clone().filter(|_| carried.is_none()) {
             self.git.commit.keep_draft(old);
         }
         // 保存即将离开的仓库的状态，切换回来时可立即显示。
@@ -701,6 +792,7 @@ impl App {
                 .unwrap_or_else(PoisonError::into_inner)
                 .insert(old, status);
         }
+        self.git.summaries_changed();
         // 仅更换仓库时 `git` 不变，无需重新查找，也无需重新检查已检查过的仓库配置。
         let tool = root.as_ref().and(self.git.tool.get());
         self.git.clear_for(root.as_deref());
@@ -715,8 +807,15 @@ impl App {
         self.git.branch.finished = None;
         self.reset_commit_view();
         self.git.root = root;
-        if let Some(root) = self.git.root.clone() {
-            self.git.commit.restore_draft(&root);
+        // 换到的仓库的状态读到以后（下面已知的，或稍后刷新读到的），把它的勾选带回来。
+        self.git.commit.carry_in = carrying;
+        match carried {
+            Some(text) => self.git.commit.message.set_text(&text),
+            None => {
+                if let Some(root) = self.git.root.clone() {
+                    self.git.commit.restore_draft(&root);
+                }
+            }
         }
         // 先显示上次读取的状态，后台读取完成后再更新，避免提交视图短暂显示「正在读取」。
         let known = self.git.root.as_ref().and_then(|root| {
@@ -726,13 +825,15 @@ impl App {
                 .unwrap_or_else(PoisonError::into_inner)
                 .remove(root)
         });
+        self.git.summaries_changed();
         if let (Some(status), Some(root)) = (known, self.git.root.as_deref()) {
-            self.git.commit.head_is(status.oid.as_deref());
             self.git.changes.head_is(status.oid.as_deref());
+            self.git.commit.head_is(status.oid.as_deref());
             self.git.decorations = status.decorations(root);
             self.git.ignored_paths = status.ignored.iter().cloned().collect();
             self.git.status = Some(status);
             self.git.generation += 1;
+            self.carry_checks_in();
         }
         // 不再位于仓库中时提交视图不可用，切换回文件树；焦点位于提交视图时同样移出，
         // 否则键入的文字会进入不可见的输入框。
@@ -798,6 +899,13 @@ impl App {
         let cancel = Cancel::default();
         self.git.running = Some(cancel.clone());
         let sender = self.git.sender.clone();
+        let read_version = !self.git.old_git_warned && self.git.version_read.insert(root.clone());
+        let head = self.git.status.as_ref().and_then(|s| s.oid.clone());
+        let authors_key = (root.clone(), head);
+        let read_authors = self.git.authors_for.as_ref() != Some(&authors_key);
+        if read_authors {
+            self.git.authors_for = Some(authors_key);
+        }
         // 上次未找到 `git` 时本次在后台重新查找（用户可能刚安装）。
         self.spawn_git(UserEvent::GitStatus, move |tool| {
             let (status, refs) = match &tool {
@@ -814,6 +922,7 @@ impl App {
                         return (status, None);
                     }
                     let branches = scope.spawn(|| git.branches(root, cancel));
+                    let tags = scope.spawn(|| git.tags(root, cancel));
                     let remotes = scope.spawn(|| git.remotes(root, cancel));
                     let remote_list = scope.spawn(|| git.remote_list(root, cancel));
                     let publish_remote = scope.spawn(|| git.publish_target(root));
@@ -821,6 +930,13 @@ impl App {
                     let stashes = scope.spawn(|| git.stashes(root, cancel));
                     let recent_branches = scope.spawn(|| git.recent_branches(root, cancel));
                     let worktrees = scope.spawn(|| git.worktrees(root, cancel));
+                    let version = read_version.then(|| scope.spawn(|| git.version(root, cancel)));
+                    let history = read_authors.then(|| {
+                        scope.spawn(|| {
+                            let (commits, own) = (commit::AUTHOR_COMMITS, commit::OWN_MESSAGES);
+                            git.recent_history(root, commits, own)
+                        })
+                    });
                     // 线程中的函数不会 panic；万一发生，该项按读取失败处理。
                     let refs = Refs {
                         branches: branches
@@ -828,6 +944,7 @@ impl App {
                             .ok()
                             .and_then(Result::ok)
                             .unwrap_or_default(),
+                        tags: tags.join().ok().and_then(Result::ok).unwrap_or_default(),
                         remotes: remotes.join().ok().and_then(Result::ok).unwrap_or_default(),
                         remote_list: (remote_list.join().ok())
                             .and_then(Result::ok)
@@ -840,12 +957,33 @@ impl App {
                             .unwrap_or_default(),
                         worktrees: worktrees.join().ok().and_then(Result::ok),
                         home: winc_editor::wsl::home_dir(root),
+                        version: version.and_then(|v| v.join().ok().flatten()),
+                        history: history.and_then(|h| h.join().ok().and_then(Result::ok)),
                     };
                     (status, Some(refs))
                 }),
             };
             let _ = sender.send(Outcome { root, status, refs });
         });
+    }
+
+    /// `version` 低于 [`winc_editor::git::MINIMUM_VERSION`] 时提示一次：部分命令在旧版本上
+    /// 会因不认识的选项而失败。读不出版本时不提示。
+    pub(in crate::app) fn warn_old_git(&mut self, version: Option<(u32, u32)>) {
+        let minimum = winc_editor::git::MINIMUM_VERSION;
+        let Some(found) = version.filter(|v| *v < minimum && !self.git.old_git_warned) else {
+            return;
+        };
+        self.git.old_git_warned = true;
+        let (found, minimum) = (
+            format!("{}.{}", found.0, found.1),
+            format!("{}.{}", minimum.0, minimum.1),
+        );
+        self.notify(t!(
+            "git-version-too-old",
+            version = found.as_str(),
+            minimum = minimum.as_str()
+        ));
     }
 
     /// 在后台执行一项 Git 任务，完成后以 `done` 唤醒界面线程接收结果。
@@ -867,23 +1005,40 @@ impl App {
     /// 接收后台刷新的结果；成功时同时更新已打开的 Git 差异。
     pub(super) fn poll_git(&mut self) {
         self.git_take_scan();
+        self.take_push_preview();
+        self.take_push_outgoing();
+        self.take_auto_fetch();
+        // 其他仓库的状态由后台直接写入，读完时同样到达这里：列着其他仓库时重新绘制。
+        if self.commit_shows_others() && self.commit_shown() {
+            self.prune_other_checked();
+            self.request_redraw();
+        }
         let mut changed = false;
         let mut refreshed = false;
+        let mut reread = false;
+        let mut others = false;
         while let Ok(outcome) = self.git.receiver.try_recv() {
             if self.git.root.as_deref() != Some(outcome.root.as_path()) {
                 continue;
             }
             self.git.running = None;
+            // 这份状态读取于暂存的操作写完之前：不采用，随后重新读取。
+            if self.git.commit.outdates_status() {
+                self.git.refs_wanted |= outcome.refs.is_some();
+                reread = true;
+                continue;
+            }
+            let had_refs = outcome.refs.is_some();
             match outcome.status {
                 Ok(status) => {
-                    // `HEAD` 或分支变化（提交、切换、新建、删除）时，重新读取已打开的日志。
+                    // `HEAD`、分支或标签变化（提交、切换、新建、删除）时，重新读取已打开的日志。
                     let moved = self.git.status.as_ref().is_some_and(|old| {
                         old.oid != status.oid
-                            || outcome
-                                .refs
-                                .as_ref()
-                                .is_some_and(|refs| self.git.branches != refs.branches)
+                            || outcome.refs.as_ref().is_some_and(|refs| {
+                                self.git.branches != refs.branches || self.git.tags != refs.tags
+                            })
                     });
+                    let moved = std::mem::take(&mut self.git.logs_outdated) || moved;
                     self.git.changes.head_is(status.oid.as_deref());
                     self.git.commit.head_is(status.oid.as_deref());
                     self.git.decorations = status.decorations(&outcome.root);
@@ -896,15 +1051,24 @@ impl App {
                     }
                     let rows = self.commit_shown().then(|| self.commit_rows());
                     let old = self.git.status.replace(status);
+                    self.carry_checks_in();
                     self.begin_commit_shift(old, rows);
                     if let Some(refs) = outcome.refs {
                         let before = std::mem::replace(&mut self.git.branches, refs.branches);
                         self.git.stashes = refs.stashes;
+                        self.git.tags = refs.tags;
                         self.git.recent_branches = refs.recent_branches;
                         self.git.remotes = refs.remotes;
                         self.git.remote_list = refs.remote_list;
                         self.git.publish_remote = refs.publish_remote;
                         self.git.home = refs.home;
+                        self.warn_old_git(refs.version);
+                        if let Some(history) = refs.history {
+                            self.git.authors = history.authors;
+                            self.git.own_messages = history.own;
+                            self.git.my_email = history.me;
+                            self.git.commit.message_history_changed();
+                        }
                         if let Some(watcher) = &mut self.disk.watcher {
                             watcher.watch_git_dir(refs.common_dir.as_deref());
                         }
@@ -927,6 +1091,9 @@ impl App {
                     self.git.problem = None;
                     self.fetch_last_commit();
                     refreshed = true;
+                    // 只读了状态的这次刷新没有读其他仓库：列着其他仓库时补读，文件保存后各仓库的
+                    // 更改一起更新。
+                    others |= !had_refs;
                     if moved {
                         self.reload_logs();
                     }
@@ -940,13 +1107,21 @@ impl App {
             self.git.generation += 1;
             changed = true;
         }
+        // 暂存的操作仍在进行时由其结束后读取（见 `App::staging_finished`）。
+        if reread && !self.git.commit.staging_active() {
+            self.git_refresh_status();
+        }
         if changed {
             self.check_git_trust();
             if std::mem::take(&mut self.git.again) {
                 self.git_refresh_status();
             }
+            if others && self.commit_shows_others() && self.commit_shown() {
+                self.git_read_summaries();
+            }
             if refreshed {
                 self.refresh_git_diffs();
+                self.sync_index_texts();
                 self.prefill_merge_message();
             }
             // 改动全部提交后，提交卡片随之收起。
@@ -1311,6 +1486,7 @@ impl App {
             self.relayout();
             self.clamp_scroll();
             self.land_diff_file();
+            self.sync_index_texts();
             self.request_redraw();
         }
     }

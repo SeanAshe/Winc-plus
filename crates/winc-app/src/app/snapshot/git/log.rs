@@ -55,7 +55,7 @@ fn a_new_log_shows_only_the_current_branch() {
     app.run_action(Action::GitShowLog);
     paint(&mut app);
     let log = app.editor.active().unwrap().log.as_deref().unwrap();
-    assert_eq!(log.query.branch.as_deref(), Some("main"));
+    assert_eq!(log.query.branches, ["main"]);
     // 仅在 `dev` 上领先的提交不在列表中，最上方是 `main` 上最新的提交。
     assert_eq!(log.commits[0].subject, "启动日志写到文件里");
     assert!(
@@ -486,7 +486,7 @@ fn shoot_git_log() {
         // 末尾是「清除筛选」。
         app.press_log(crate::app::git::log::LogTarget::Search);
         app.edit_field(|f| f.insert("登录"));
-        app.change_log_query(|q| q.author = Some("Alice Chen".into()));
+        app.change_log_query(|q| q.authors = vec!["Alice Chen".into()]);
         app.select_log_row(0);
         shoot(&mut app, &format!("log-filter-{theme}"));
 
@@ -499,7 +499,7 @@ fn shoot_git_log() {
         app.git.log.filter.set_text("");
         app.change_log_query(|q| {
             q.text.clear();
-            q.author = None;
+            q.authors.clear();
         });
         std::fs::write(root.join("README.md"), "changed\n").unwrap();
         app.git_refresh();
@@ -630,7 +630,7 @@ fn shoot_log_graph() {
 
 #[test]
 fn log_filters_by_text_branch_and_author_and_shows_a_files_history() {
-    use crate::app::git::branch::picker::{BranchRow, BranchSection};
+    use crate::app::git::branch::picker::BranchRow;
     use crate::app::git::log::LogTarget;
     use crate::app::input::context_menu::{MenuCommand, MenuTarget};
 
@@ -695,29 +695,22 @@ fn log_filters_by_text_branch_and_author_and_shows_a_files_history() {
         f.set_text("LOGIN");
         true
     });
-    // 只有一个远程：远程分支一组的标题为「远程分支」，各行省去远程名。
-    let label = |name: &str| BranchRow::Branch {
-        index: app
-            .git
-            .branches
-            .iter()
-            .position(|b| b.name == name)
-            .unwrap(),
-        depth: 0,
-        label: "feature/login".to_owned(),
+    // 与分支选择器同样分组：本地、远程各一组，搜索时目录都展开；筛选不新建分支。
+    let rows = app.overlays.picker.branch_rows.clone().unwrap();
+    let at = |name: &str| {
+        rows.iter().position(|r| {
+            matches!(r, BranchRow::Branch { index, .. } if app.git.branches[*index].name == name)
+        })
     };
-    assert_eq!(
-        app.overlays.picker.branch_rows.as_deref().unwrap(),
-        [
-            BranchRow::Heading(BranchSection::Local),
-            label("feature/login"),
-            BranchRow::Heading(BranchSection::Remote(None)),
-            label("origin/feature/login"),
-        ]
+    assert!(at("feature/login").is_some());
+    assert!(matches!(rows[0], BranchRow::Locals { recent: false, .. }));
+    assert!(
+        rows.iter()
+            .any(|r| matches!(r, BranchRow::Remotes { open: true, .. }))
     );
+    assert!(!rows.iter().any(|r| matches!(r, BranchRow::Create(_))));
+    app.overlays.picker.selected = at("origin/feature/login").unwrap();
     paint(&mut app);
-    assert!(app.hits.picker_parts.is_empty());
-    app.picker_move(true);
     app.picker_accept();
     assert!(!app.overlays.picker.open);
     assert_eq!(app.log_branch_filter(), Some("origin/feature/login"));
@@ -787,7 +780,7 @@ fn log_filters_by_text_branch_and_author_and_shows_a_files_history() {
 /// 已应用的筛选，查询只有空白字符时视为没有查询；筛选的分支已不在列表中时选中「全部」。
 #[test]
 fn log_branch_filter_selects_the_applied_branch_or_all() {
-    use crate::app::git::branch::picker::{BranchRow, BranchSection};
+    use crate::app::git::branch::picker::BranchRow;
     use crate::app::git::log::LogTarget;
 
     let Some((mut app, root)) = git_app("git-log-branch-filter", false) else {
@@ -806,7 +799,7 @@ fn log_branch_filter_selects_the_applied_branch_or_all() {
         other => panic!("{other:?}"),
     };
 
-    // 有多个远程时按远程分组，组标题写远程名。
+    // 有多个远程时远程一组里按远程名分出目录，与分支选择器相同。
     for remote in ["fork", "origin"] {
         let name = format!("refs/remotes/{remote}/feature/login");
         git_in(&root, &["update-ref", &name, "feature/login"]);
@@ -814,36 +807,33 @@ fn log_branch_filter_selects_the_applied_branch_or_all() {
     app.git_refresh();
     app.press_log(LogTarget::Branch);
     app.edit_field(|f| f.insert("login"));
-    let headings: Vec<_> = (app.overlays.picker.branch_rows.as_deref().unwrap().iter())
-        .filter_map(|row| match row {
-            BranchRow::Heading(section) => Some(section.clone()),
-            _ => None,
-        })
-        .collect();
-    assert_eq!(
-        headings,
-        [
-            BranchSection::Local,
-            BranchSection::Remote(Some("fork".to_owned())),
-            BranchSection::Remote(Some("origin".to_owned())),
-        ]
-    );
+    let rows = app.overlays.picker.branch_rows.as_deref().unwrap();
+    for remote in ["fork", "origin"] {
+        // 只有一层子目录的目录合成一行写（`fork/feature`）。
+        let folder = |r: &BranchRow| match r {
+            BranchRow::Folder { label, .. } => label.starts_with(remote),
+            _ => false,
+        };
+        assert!(rows.iter().any(folder));
+    }
     app.close_picker();
     paint(&mut app);
 
     // 字符分散命中：`ftlg` 按顺序出现在 feature/login 中。
     app.press_log(LogTarget::Branch);
     app.edit_field(|f| f.insert("ftlg"));
-    assert_eq!(label(selected(&app)), "feature/login");
+    // 分支写在 `feature` 目录下，行里只写 `login`。
+    assert_eq!(label(selected(&app)), "login");
     app.picker_accept();
     assert_eq!(app.log_branch_filter(), Some("feature/login"));
 
-    // 重新打开时选中已应用的筛选，只输入空白字符时同样如此。
+    // 重新打开时：筛选的分支在收起的目录里看不见（默认只展开当前分支所在的目录），选中「全部」；
+    // 只输入空白字符时视为没有查询，同样如此。
     paint(&mut app);
     app.press_log(LogTarget::Branch);
-    assert_eq!(label(selected(&app)), "feature/login");
+    assert_eq!(selected(&app), BranchRow::All);
     app.edit_field(|f| f.insert(" "));
-    assert_eq!(label(selected(&app)), "feature/login");
+    assert_eq!(selected(&app), BranchRow::All);
 
     // 「全部」清除筛选。
     app.edit_field(|f| {
@@ -858,7 +848,7 @@ fn log_branch_filter_selects_the_applied_branch_or_all() {
     assert_eq!(app.log_branch_filter(), None);
 
     // 筛选的分支已删除：选中「全部」，回车清除筛选。
-    app.change_log_query(|q| q.branch = Some("deleted/branch".to_owned()));
+    app.change_log_query(|q| q.branches = vec!["deleted/branch".to_owned()]);
     paint(&mut app);
     app.press_log(LogTarget::Branch);
     assert_eq!(selected(&app), BranchRow::All);
@@ -940,6 +930,14 @@ fn a_tag_can_be_created_on_a_commit_from_the_log() {
         .output()
         .unwrap();
     assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), oid);
+    // 打开着的日志随之重新读取：该提交上出现这个标签。
+    let mut logs = app.editor.documents.iter().filter_map(|d| d.log.as_deref());
+    let commit = logs.next().unwrap().commits.iter().find(|c| c.oid == oid);
+    let refs = &commit.unwrap().refs;
+    assert!(
+        refs.contains(&winc_editor::git::Ref::Tag("v9.0".into())),
+        "{refs:?}"
+    );
     let _ = std::fs::remove_dir_all(&root);
 }
 

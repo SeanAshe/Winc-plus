@@ -255,6 +255,26 @@ impl Editor {
         self.show_readonly(title, |id| Document::output(id, title, text))
     }
 
+    /// 更新标题为 `title` 的输出标签，不切换标签：`more` 有值时接在末尾（光标和滚动位置不动），
+    /// 否则把内容换成 `text`。没有这个标签时不做事，返回是否有这个标签。
+    ///
+    /// 用于输出在标签开着的时候有了新内容：标签已经关闭时不再打开。
+    pub fn refresh_output(&mut self, title: &str, more: Option<&str>, text: &str) -> bool {
+        let found = (self.documents.iter_mut())
+            .find(|d| d.path.is_none() && d.title.as_deref() == Some(title));
+        let Some(slot) = found else {
+            return false;
+        };
+        match more {
+            Some(more) => slot.append_output(more),
+            None => {
+                let fresh = Document::output(slot.id, title, text);
+                replace_document(slot, fresh);
+            }
+        }
+        true
+    }
+
     /// 在只读的阅读标签中显示 `reading`，标签标题为 `title`，并切换到该标签。
     ///
     /// 已存在标题相同且没有对应文件的标签时，替换其内容而不新开标签。返回标签序号（从 0 起）。

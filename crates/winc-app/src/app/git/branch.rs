@@ -68,6 +68,10 @@ impl BranchOp {
 /// 对日志里一个标签做的事。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TagOp {
+    /// 从该标签新建分支（输入名字）。
+    NewBranch,
+    /// 把该标签指向的提交合并到当前分支。
+    Merge,
     /// 推送到远程仓库。
     Push,
     /// 删除本地标签（先确认）。
@@ -78,11 +82,19 @@ pub enum TagOp {
 
 impl TagOp {
     /// 全部操作，顺序就是子菜单里的顺序。
-    pub const ALL: [TagOp; 3] = [TagOp::Push, TagOp::Delete, TagOp::DeleteRemote];
+    pub const ALL: [TagOp; 5] = [
+        TagOp::NewBranch,
+        TagOp::Merge,
+        TagOp::Push,
+        TagOp::Delete,
+        TagOp::DeleteRemote,
+    ];
 
     /// 子菜单里的文字。
     pub fn label(self) -> &'static str {
         match self {
+            TagOp::NewBranch => t!("git-branch-new-from"),
+            TagOp::Merge => t!("git-branch-merge-into-current"),
             TagOp::Push => t!("git-tag-push"),
             TagOp::Delete => t!("git-tag-delete"),
             TagOp::DeleteRemote => t!("git-tag-delete-remote"),
@@ -206,7 +218,7 @@ impl Default for BranchState {
     }
 }
 
-/// 提交视图「⋯」里的 Git 操作：进行中的合并、变基的继续和中止，储藏更改，远程仓库。
+/// 提交视图「⋯」里的 Git 操作：进行中的合并、变基的继续、跳过和中止，储藏更改，远程仓库。
 ///
 /// 拉取、推送、获取和新建分支、工作树都在分支选择器里，各条储藏在改动列表下面的储藏一组里，回滚
 /// 勾选的文件在组标题上，这里不再列出。
@@ -218,8 +230,12 @@ pub(crate) fn branch_menu(
     use MenuCommand::*;
     let mut entries = Vec::new();
     // 合并、变基停下来等着处理冲突：最上面是继续和中止。
-    if operation.is_some() {
+    if let Some(operation) = operation {
         entries.push(MenuEntry::Item(GitContinue, !busy));
+        // 合并只有一个提交，没有可以跳过的。
+        if operation != Operation::Merge {
+            entries.push(MenuEntry::Item(GitSkip, !busy));
+        }
         entries.push(MenuEntry::Item(GitAbort, !busy));
         entries.push(MenuEntry::Separator);
     }
@@ -241,6 +257,23 @@ pub(crate) fn branch_menu(
     items.push(MenuEntry::Item(GitAddRemote, !busy));
     entries.push(MenuEntry::Submenu(t!("git-remotes-menu").to_owned(), items));
     entries
+}
+
+/// 分支选择器里第 `index` 个标签的操作菜单，和分支的菜单同样分组：签出和新建、合并到当前
+/// 分支、推送、删除，组之间有分隔线。
+pub(crate) fn tag_ops(index: usize, busy: bool) -> Vec<MenuEntry> {
+    let item = |op: Option<TagOp>| MenuEntry::Item(MenuCommand::PickerTag(op, index), !busy);
+    vec![
+        item(None),
+        item(Some(TagOp::NewBranch)),
+        MenuEntry::Separator,
+        item(Some(TagOp::Merge)),
+        MenuEntry::Separator,
+        item(Some(TagOp::Push)),
+        MenuEntry::Separator,
+        item(Some(TagOp::Delete)),
+        item(Some(TagOp::DeleteRemote)),
+    ]
 }
 
 /// 第 `index` 条储藏的菜单：应用、应用并删除，分隔线，删除（删除先确认）。
@@ -403,11 +436,14 @@ impl App {
                 }
             }
             GitStash => self.open_stash_prompt(),
-            GitContinue | GitAbort => {
+            GitContinue | GitSkip | GitAbort => {
                 let Some(operation) = self.git.status.as_ref().and_then(|s| s.operation) else {
                     return;
                 };
                 match command {
+                    GitSkip => self.git_operate(t!("git-op-skip").into(), move |git, root| {
+                        git.skip_operation(root, operation)
+                    }),
                     // 合并在提交视图里完成：写好（已经填上的）提交信息再提交。
                     GitContinue if operation == Operation::Merge => self.show_commit(),
                     GitContinue => self
@@ -786,6 +822,7 @@ impl App {
                 continue;
             }
             self.git.branch.running = None;
+            self.git.logs_outdated |= done.result.is_ok();
             // 操作由表单对话框发起时：成功则关闭对话框，失败则在对话框中显示原因。
             let error = done.result.as_ref().err().map(String::as_str);
             if self.form_operation_done(done.id, error) && error.is_some() {

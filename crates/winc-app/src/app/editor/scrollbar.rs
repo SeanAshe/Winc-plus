@@ -41,6 +41,8 @@ pub(crate) enum ScrollArea {
     Commit,
     /// 文件视图底部大纲的符号列表。
     Outline,
+    /// Git 日志左侧的分支面板。
+    LogBranches,
     /// 设置页的内容，包括快捷键列表。
     Settings,
     /// 终端面板的回滚缓冲。
@@ -57,7 +59,7 @@ pub(crate) enum ScrollArea {
 
 impl ScrollArea {
     /// 全部区域，遍历时用。
-    const ALL: [ScrollArea; 15] = [
+    const ALL: [ScrollArea; 16] = [
         ScrollArea::Editor,
         ScrollArea::EditorHorizontal,
         ScrollArea::DiffLeftHorizontal,
@@ -67,6 +69,7 @@ impl ScrollArea {
         ScrollArea::Panel,
         ScrollArea::Commit,
         ScrollArea::Outline,
+        ScrollArea::LogBranches,
         ScrollArea::Settings,
         ScrollArea::Terminal,
         ScrollArea::Markdown,
@@ -87,6 +90,7 @@ impl ScrollArea {
             ScrollArea::Panel => Some(Scrollbar::Panel),
             ScrollArea::Commit => Some(Scrollbar::Commit),
             ScrollArea::Outline => Some(Scrollbar::Outline),
+            ScrollArea::LogBranches => Some(Scrollbar::LogBranches),
             ScrollArea::Settings => Some(Scrollbar::Settings),
             ScrollArea::Terminal => Some(Scrollbar::Terminal),
             ScrollArea::Markdown => Some(Scrollbar::Markdown),

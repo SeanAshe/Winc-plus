@@ -978,6 +978,13 @@ fn sample_docx() -> Vec<u8> {
 /// 下方绘制一条长度随页号变化的红色横条。交叉引用表按各对象的实际偏移写出。
 #[cfg(any(target_os = "macos", windows))]
 fn sample_pdf(count: usize) -> Vec<u8> {
+    outlined_pdf(count, &[])
+}
+
+/// 与 [`sample_pdf`] 相同，另带目录：`outline` 的各项为标题、层级（顶层为 0）、指向的页
+/// （从 0 起）和页内的高度（页面坐标，792 为上沿）。
+#[cfg(any(target_os = "macos", windows))]
+fn outlined_pdf(count: usize, outline: &[(&str, usize, usize, u32)]) -> Vec<u8> {
     let mut objects: Vec<String> = vec![
         "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
         format!(
@@ -1004,6 +1011,33 @@ fn sample_pdf(count: usize) -> Vec<u8> {
             "<< /Length {} >>\nstream\n{content}\nendstream",
             content.len()
         ));
+    }
+    if !outline.is_empty() {
+        let root = objects.len() + 1;
+        objects[0] = format!("<< /Type /Catalog /Pages 2 0 R /Outlines {root} 0 R >>");
+        let id = |k: usize| root + 1 + k;
+        let parent = |k: usize| (0..k).rev().find(|&j| outline[j].1 < outline[k].1);
+        let next = |k: usize| {
+            let level = outline[k].1;
+            let after = outline[k + 1..].iter().position(|item| item.1 <= level);
+            after.map(|j| k + 1 + j).filter(|&j| outline[j].1 == level)
+        };
+        let first = |k: usize| (outline.get(k + 1)).filter(|item| item.1 > outline[k].1);
+        objects.push(format!("<< /Type /Outlines /First {} 0 R >>", id(0)));
+        for (k, &(title, _, page, y)) in outline.iter().enumerate() {
+            let mut body = format!(
+                "<< /Title ({title}) /Parent {} 0 R /Dest [{} 0 R /XYZ 0 {y} 0]",
+                parent(k).map_or(root, id),
+                3 + page * 2
+            );
+            if let Some(n) = next(k) {
+                body.push_str(&format!(" /Next {} 0 R", id(n)));
+            }
+            if first(k).is_some() {
+                body.push_str(&format!(" /First {} 0 R", id(k + 1)));
+            }
+            objects.push(body + " >>");
+        }
     }
     let mut out = b"%PDF-1.4\n".to_vec();
     let mut offsets = Vec::new();

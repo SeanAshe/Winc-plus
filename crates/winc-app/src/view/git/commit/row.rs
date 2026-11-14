@@ -29,12 +29,17 @@ struct RowBox<'a> {
     focused: bool,
     /// 是否在浏览历史提交的文件：此时没有勾选框，也没有回滚、打开文件等按钮。
     browse: bool,
+    /// 是否在暂存区视图中：此时没有勾选框，行尾是暂存、取消暂存的按钮。
+    staging: bool,
+    /// 整个改动列表多缩进的层数（见 [`App::commit_base_level`]）。
+    base: usize,
 }
 
 impl RowBox<'_> {
-    /// 返回第 `level` 层箭头的横坐标：每深一层向右缩进 `INDENT`。
+    /// 返回第 `level` 层箭头的横坐标：每深一层向右缩进 `INDENT`；多仓库时整个改动列表在当前
+    /// 仓库的标题下面，再多缩进 `base` 层。
     fn arrow_x(&self, level: usize) -> f32 {
-        self.band.x + ARROW + level as f32 * INDENT
+        self.band.x + ARROW + (level + self.base) as f32 * INDENT
     }
 
     /// 返回第 `level` 层勾选框中心的横坐标：目录的箭头在勾选框左边。
@@ -44,7 +49,7 @@ impl RowBox<'_> {
 
     /// 在 `(x, cy)` 画勾选框；浏览历史提交时不画。
     fn checkbox(&self, app: &App, frame: &mut Frame<'_>, x: f32, cy: f32, state: Option<bool>) {
-        if self.browse {
+        if self.browse || self.staging {
             return;
         }
         let p = app.palette;
@@ -63,7 +68,7 @@ impl RowBox<'_> {
 
     /// 记下勾选框的命中区域；浏览历史提交时没有勾选框，不记录。
     fn check_hit(&self, hits: &mut Vec<(Rect, CommitTarget)>, rect: Rect, target: CommitTarget) {
-        if !self.browse {
+        if !self.browse && !self.staging {
             hits.push((rect.intersect(self.cx.list), target));
         }
     }
@@ -113,6 +118,8 @@ pub(super) fn draw_row(
         },
         focused: app.focus == Focus::CommitList,
         browse: app.git.commit.browse,
+        staging: app.git.commit.staging(),
+        base: app.commit_base_level(),
     };
     let row = &cx.rows[i];
     // 缩进参考线：每一层上级目录一条，位于该目录的箭头正下方，相邻行连成一条竖线，
@@ -160,7 +167,10 @@ fn draw_group_row(
     let hovered = matches!(
         app.pointer.hover,
         Hover::Commit(
-            CommitTarget::Group(g) | CommitTarget::GroupCheck(g) | CommitTarget::GroupRevert(g)
+            CommitTarget::Group(g)
+                | CommitTarget::GroupCheck(g)
+                | CommitTarget::GroupRevert(g)
+                | CommitTarget::GroupStage(g)
         ) if g == group
     );
     if hovered {
@@ -187,15 +197,21 @@ fn draw_group_row(
     );
     // 悬停时右端的文件数换成「回滚」，回滚这一组里勾上的文件，位置和文件行悬停时的按钮
     // 相同。冲突组没有：回滚冲突的文件会丢掉解决到一半的内容。
-    let revert = (hovered && !browse && group != CommitGroup::Conflicts && state.is_some())
-        .then(|| file_actions(band).1);
+    // 暂存区视图中这个位置是「暂存全部」，「已暂存的更改」一组是「全部取消暂存」。
+    let staging = r.staging;
+    let acts = hovered && !browse && group != CommitGroup::Conflicts;
+    let revert = (acts && (staging || state.is_some())).then(|| file_actions(band).1);
     match revert {
         Some(rect) => {
-            let target = CommitTarget::GroupRevert(group);
+            let target = if staging {
+                CommitTarget::GroupStage(group)
+            } else {
+                CommitTarget::GroupRevert(group)
+            };
             let on = app.pointer.hover == Hover::Commit(target);
             draw_button(frame, p, rect, list, on, false);
             let color = if on { p.text } else { p.text_muted };
-            icons::rollback(frame, center(rect), color, list);
+            draw_action_icon(frame, target, center(rect), color, list);
             hits.push((rect.intersect(list), target));
         }
         None => draw_count_pill(app, frame, band, &members.len().to_string(), list),
@@ -349,8 +365,10 @@ fn draw_file_row(
                 | CommitTarget::Check(i)
                 | CommitTarget::OpenFile(i)
                 | CommitTarget::RevertFile(i)
+                | CommitTarget::StageFile(i, _)
         ) if i == index
     );
+    let targets = file_action_targets(app, r.cx.rows.group_of(i), index);
     // 悬停时右端的状态字母替换为「打开文件」「回滚」两个按钮；文件名放不下而显示全名时，
     // 按钮跟在全名之后（见 `commit_overflow`）。
     let actions = match full {
@@ -419,13 +437,10 @@ fn draw_file_row(
         draw_file_icon(frame, p, (icon_x + inset, cy), &name, list);
     }
     if let Some(actions) = actions {
-        draw_file_actions(app, frame, actions, index, list);
+        draw_file_actions(app, frame, actions, targets, list);
         // 伸出侧栏的按钮同样可以点击，命中区域不裁到列表内。
         let (open, revert) = actions;
-        for (rect, target) in [
-            (open, CommitTarget::OpenFile(index)),
-            (revert, CommitTarget::RevertFile(index)),
-        ] {
+        for (rect, target) in [(open, targets[0]), (revert, targets[1])] {
             let rect = if full.is_some() {
                 rect
             } else {

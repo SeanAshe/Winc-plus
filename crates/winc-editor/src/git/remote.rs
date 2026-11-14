@@ -60,6 +60,25 @@ impl Git {
         self.run_operation(dir, &["init"], OPERATION_TIMEOUT)
     }
 
+    /// 在刚初始化的目录 `dir` 里生成一份 `.gitignore`；已经有这个文件时不动它。
+    ///
+    /// 内容按目录里的项目文件定（见 `starter_ignore`）。返回是否写了文件。
+    pub fn write_starter_ignore(&self, dir: &Path) -> bool {
+        let file = dir.join(".gitignore");
+        let paths: Vec<_> = (std::iter::once(".gitignore").chain(IGNORE_MARKERS))
+            .map(|name| dir.join(name))
+            .collect();
+        let found = winc_backend::fs::metadata_many(&paths);
+        if found.first().is_some_and(Result::is_ok) {
+            return false;
+        }
+        let present = (IGNORE_MARKERS.into_iter().zip(found.iter().skip(1)))
+            .filter(|(_, metadata)| metadata.is_ok())
+            .map(|(name, _)| name);
+        let text = starter_ignore(&present.collect::<Vec<_>>());
+        winc_backend::fs::write(&file, text).is_ok()
+    }
+
     /// 把 `url` 克隆到目录 `parent` 下的 `dir`（相对路径），返回 `git` 的结论。
     ///
     /// 新仓库的配置由 `git clone` 生成，不含远端内容，因此不做信任检查；`ext` 协议能运行任意命令，
@@ -126,3 +145,42 @@ impl Git {
 
 #[cfg(test)]
 mod tests;
+
+/// 用来判断项目类型的文件，见 `starter_ignore`。
+const IGNORE_MARKERS: [&str; 7] = [
+    "Cargo.toml",
+    "package.json",
+    "pyproject.toml",
+    "requirements.txt",
+    "go.mod",
+    "pom.xml",
+    "build.gradle",
+];
+
+/// 返回新仓库的 `.gitignore` 的内容：系统生成的杂项文件，加上 `markers`（目录里存在的项目
+/// 文件）对应的构建产物和依赖目录。
+///
+/// 只列各类项目里公认不入库的目录，不替用户决定其余的文件。
+pub fn starter_ignore(markers: &[&str]) -> String {
+    let has = |name: &str| markers.contains(&name);
+    let mut lines = vec![".DS_Store", "Thumbs.db"];
+    if has("Cargo.toml") {
+        lines.push("/target/");
+    }
+    if has("package.json") {
+        lines.push("node_modules/");
+    }
+    if has("pyproject.toml") || has("requirements.txt") {
+        lines.extend(["__pycache__/", "*.pyc", ".venv/"]);
+    }
+    if has("pom.xml") {
+        lines.push("target/");
+    }
+    if has("build.gradle") {
+        lines.extend([".gradle/", "build/"]);
+    }
+    lines.dedup();
+    let mut text = lines.join("\n");
+    text.push('\n');
+    text
+}

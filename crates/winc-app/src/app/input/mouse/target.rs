@@ -172,6 +172,7 @@ impl App {
                 | Target::OutlineDivider
                 | Target::SplitDivider
                 | Target::Log(crate::app::git::log::LogTarget::Divider)
+                | Target::Log(crate::app::git::log::LogTarget::AuthorEdge)
         )
     }
 
@@ -316,8 +317,13 @@ impl App {
         // 搜索结果、改动列表的滚动条位于行的右端，先于行判断。显示全名的那一改动行覆盖在滚动条
         // 之上：鼠标移到这一行的右端时全名保持显示，按下作用于这一行。
         let over_commit_row = self.over_commit_overflow_row(y);
-        if let Some((bar @ (Scrollbar::Panel | Scrollbar::Commit | Scrollbar::Outline), grab)) =
-            self.scrollbar_at(x, y)
+        let side = |bar| {
+            matches!(
+                bar,
+                Scrollbar::Panel | Scrollbar::Commit | Scrollbar::Outline | Scrollbar::LogBranches
+            )
+        };
+        if let Some((bar, grab)) = self.scrollbar_at(x, y).filter(|(bar, _)| side(*bar))
             && !(over_commit_row && bar == Scrollbar::Commit)
         {
             return Target::Scrollbar(bar, grab);
@@ -527,6 +533,15 @@ impl App {
                 let content = (self.panels.global.rows().len() as f32 + 1.0) * TREE_ROW;
                 let thumb = scrollbar_thumb(results, self.panels.global.scroll, content)?;
                 return Some((Scrollbar::Panel, grab(y, thumb.y, thumb.h)));
+            }
+        }
+        // 日志左侧的分支面板。
+        if self.log_active() {
+            let list = self.log_parts().branches;
+            if list.w > 0.0 && list.contains(x, y) && x >= list.right() - SCROLLBAR_HIT {
+                let content = self.git.log.branches_max + list.h;
+                let thumb = scrollbar_thumb(list, self.git.log.branches_scroll, content)?;
+                return Some((Scrollbar::LogBranches, grab(y, thumb.y, thumb.h)));
             }
         }
         // 大纲的符号列表。
@@ -802,12 +817,16 @@ impl App {
             }
         } else if matches!(
             self.pointer.drag,
-            Drag::Splitter { .. } | Drag::LogDivider { .. } | Drag::SplitDivider { .. }
+            Drag::Splitter { .. }
+                | Drag::LogDivider { .. }
+                | Drag::LogColumn { .. }
+                | Drag::SplitDivider { .. }
         ) || matches!(
             self.pointer.hover,
             Hover::Splitter
                 | Hover::SplitDivider
                 | Hover::Log(crate::app::git::log::LogTarget::Divider)
+                | Hover::Log(crate::app::git::log::LogTarget::AuthorEdge)
         ) {
             CursorIcon::ColResize
         } else if matches!(

@@ -4,6 +4,8 @@
 //! 本机的 winc 经已有的连接写到那台主机上的 [`REMOTE_DIR`]，终端里的 `ssh` 运行
 //! [`remote_command`] 给出的命令，由其中的启动脚本按用户的登录 shell 注入。
 
+use std::borrow::Cow;
+
 /// zsh 的启动脚本：`.zshenv` 把 `ZDOTDIR` 恢复成用户原来的值，`winc.zsh` 安装钩子。
 pub const ZSH: &[(&str, &str)] = &[
     ("zsh/.zshenv", include_str!("../shell/zshenv.zsh")),
@@ -36,9 +38,25 @@ const REMOTE_START: &str = concat!(
     r#"exec "${SHELL:-/bin/sh}" -l"#,
 );
 
-/// 返回远端主机上各个集成脚本的相对路径和内容，写到那台主机的 [`REMOTE_DIR`] 之下。
-pub fn remote() -> impl Iterator<Item = (&'static str, &'static str)> {
-    [ZSH, BASH, FISH, LAUNCH].into_iter().flatten().copied()
+/// 返回脚本 `content` 写出去的内容：换行符统一为 LF，本来就是 LF 时不复制。
+///
+/// `include_str!` 内嵌的是检出时的字节，Windows 上 `core.autocrlf=true` 时检出为 CRLF，而读
+/// 这些脚本的 shell（WSL、远端主机上的 `sh`、dash）把回车当作词的一部分，`case … in` 会解析
+/// 失败。仓库的 `.gitattributes` 已让这些脚本总以 LF 检出，这里兜住规则之前的检出。
+pub fn unix_lines(content: &str) -> Cow<'_, str> {
+    match content.contains('\r') {
+        true => Cow::Owned(content.replace("\r\n", "\n")),
+        false => Cow::Borrowed(content),
+    }
+}
+
+/// 返回远端主机上各个集成脚本的相对路径和内容（换行符为 LF，见 [`unix_lines`]），写到那台
+/// 主机的 [`REMOTE_DIR`] 之下。
+pub fn remote() -> impl Iterator<Item = (&'static str, Cow<'static, str>)> {
+    [ZSH, BASH, FISH, LAUNCH]
+        .into_iter()
+        .flatten()
+        .map(|&(name, content)| (name, unix_lines(content)))
 }
 
 /// 返回在远端启动带集成的登录 shell 的命令，接在 `cd '目录' &&` 之后交给 `ssh`；`prompt` 为
@@ -51,6 +69,17 @@ pub fn remote_command(prompt: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scripts_are_written_with_unix_endings() {
+        // 以 CRLF 检出时内嵌的脚本：写出去的是 LF；本来就是 LF 的不复制。
+        let crlf = "case ${shell##*/} in\r\nzsh)\r\n";
+        assert_eq!(unix_lines(crlf), "case ${shell##*/} in\nzsh)\n");
+        assert!(matches!(unix_lines("a\nb\n"), Cow::Borrowed(_)));
+        for (_, content) in remote() {
+            assert!(!content.contains('\r'));
+        }
+    }
 
     #[test]
     fn the_remote_command_survives_any_login_shell() {

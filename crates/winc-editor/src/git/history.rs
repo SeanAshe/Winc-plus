@@ -19,6 +19,22 @@ impl Git {
         self.content_at(root, "HEAD", path, cancel)
     }
 
+    /// 返回 `path` 在暂存区中的内容，见 [`Git::content_at`]。
+    ///
+    /// 暂存区中没有该文件、文件处于冲突中时返回 `Ok(None)`。
+    ///
+    /// # Errors
+    ///
+    /// `git` 运行失败、超时或被取消时返回原因。
+    pub fn index_content(
+        &self,
+        root: &Path,
+        path: &Path,
+        cancel: &Cancel,
+    ) -> Result<Option<Vec<u8>>, String> {
+        self.content_at(root, "", path, cancel)
+    }
+
     /// 日志：按 `query` 筛过的提交，孩子在前，按时间排，用 [`LogStream::next`] 一批一批地读。
     ///
     /// 不指定分支时是所有分支、远程分支、标签（不含储藏）能走到的提交，文件历史只用当前分支。
@@ -36,34 +52,61 @@ impl Git {
         let mut command = self.command(root);
         command.args(["log", "--date-order", "--decorate=full", "--no-color"]);
         let text = query.text.trim();
-        if !text.is_empty() || query.author.is_some() {
+        if !text.is_empty() || !query.authors.is_empty() {
             command.args(["--regexp-ignore-case", "--fixed-strings"]);
         }
         if !text.is_empty() {
             command.arg(format!("--grep={text}"));
         }
-        if let Some(author) = &query.author {
+        // 几个 `--author` 之间是「或」：任一作者的提交都列出。
+        for author in &query.authors {
             command.arg(format!("--author={author}"));
         }
+        // 按路径筛选：父提交改写成往下最近一个也改过这些路径的提交，`%P` 写的是改写后的。
+        if query.rewrites_parents() {
+            command.arg("--parents");
+        }
+        if let Some(days) = query.since_days {
+            command.arg(format!("--since={days}.days.ago"));
+        }
         command.arg(LOG_DATE).arg(LOG_FORMAT);
-        if query.path.is_some() {
-            command.arg("--follow");
+        // 按行范围查找时文件写在 `-L` 里，不能再写路径；`-s` 不输出每个提交改了这段的哪些地方。
+        let range = match (&query.path, query.lines) {
+            (Some(path), Some((start, end))) => {
+                // 路径按原样接在后面：不是 UTF-8 的文件名也不受影响。
+                let mut range = std::ffi::OsString::from(format!("-L{start},{end}:"));
+                range.push(slash_path(root, path)?);
+                Some(range)
+            }
+            _ => None,
+        };
+        match &range {
+            Some(range) => {
+                command.arg("-s").arg(range);
+            }
+            None if query.path.is_some() => {
+                command.arg("--follow");
+            }
+            None => {}
         }
         // 选项都在前面，最后是从哪些提交往回走、看哪个文件。分支名前面加 `--end-of-options`：
         // 叫 `-x` 的分支也不会被当成选项。
-        match (&query.branch, &query.path) {
-            (Some(branch), _) => {
-                command.arg("--end-of-options").arg(branch);
-            }
-            (None, Some(_)) => {
+        match (query.branches.as_slice(), &query.path) {
+            ([], Some(_)) => {
                 command.arg("HEAD");
             }
-            (None, None) => {
+            ([], None) => {
                 command.args(["--exclude=refs/stash", "--all"]);
             }
+            (branches, _) => {
+                command.arg("--end-of-options").args(branches);
+            }
         }
-        if let Some(path) = &query.path {
+        if let Some(path) = query.path.as_ref().filter(|_| range.is_none()) {
             command.arg("--").arg(slash_path(root, path)?);
+        } else if query.path.is_none() && !query.paths.is_empty() {
+            // 路径规格写在 `--` 之后：以 `-` 开头的也不会被当成选项。
+            command.arg("--").args(&query.paths);
         }
         let stream = process::Stream::spawn(&mut command).map_err(|e| describe(&e))?;
         Ok(LogStream {
@@ -143,6 +186,61 @@ impl Git {
         } else {
             Err(unresolved())
         }
+    }
+
+    /// 返回提交 `oid` 的补丁（`git format-patch` 的格式，含作者、时间、说明和改动），可以用
+    /// `git am` 应用到别的仓库。
+    ///
+    /// # Errors
+    ///
+    /// Git 运行失败时返回原因；合并提交 `git` 不生成补丁，返回说明。
+    pub fn commit_patch(&self, root: &Path, oid: &str, cancel: &Cancel) -> Result<String, String> {
+        // `format-patch -1` 跳过合并提交：给它合并提交时生成的是更早的另一个提交的补丁，先认出
+        // 合并提交（有第二个父提交）。
+        if self
+            .resolve_revision(root, &format!("{oid}^2"), cancel)
+            .is_ok()
+        {
+            return Err(winc_i18n::t!("git-patch-merge").to_owned());
+        }
+        let mut command = self.command(root);
+        // 完整的十六进制提交号不以 `-` 开头，不会被当成选项。
+        command.args(["format-patch", "-1", "--stdout", "--no-color", oid]);
+        let stdout = self.run(&mut command, SHOW_TIMEOUT, cancel)?;
+        if stdout.is_empty() {
+            return Err(winc_i18n::t!("git-patch-merge").to_owned());
+        }
+        Ok(String::from_utf8_lossy(&stdout).into_owned())
+    }
+
+    /// 返回包含提交 `oid` 的本地分支和远程分支的短名，本地的在前，各自按名字排序；不含远程的
+    /// `HEAD`（如 `origin/HEAD`）。
+    ///
+    /// # Errors
+    ///
+    /// Git 查询失败时返回原因。
+    pub fn containing_branches(
+        &self,
+        root: &Path,
+        oid: &str,
+        cancel: &Cancel,
+    ) -> Result<Vec<String>, String> {
+        let mut command = self.command(root);
+        command.args(["for-each-ref", "--format=%(refname)", "--contains"]);
+        // 完整的十六进制提交号不以 `-` 开头，不会被当成选项。
+        command.args([oid, "refs/heads", "refs/remotes"]);
+        let stdout = self.run(&mut command, SHOW_TIMEOUT, cancel)?;
+        let text = String::from_utf8_lossy(&stdout);
+        fn short(name: &str) -> Option<(u8, &str)> {
+            let local = name.strip_prefix("refs/heads/").map(|n| (0, n));
+            local.or_else(|| name.strip_prefix("refs/remotes/").map(|n| (1, n)))
+        }
+        let mut names: Vec<(u8, &str)> = (text.lines())
+            .filter_map(short)
+            .filter(|(kind, name)| *kind == 0 || !name.ends_with("/HEAD"))
+            .collect();
+        names.sort();
+        Ok(names.into_iter().map(|(_, n)| n.to_owned()).collect())
     }
 
     /// 提交 `oid` 是否在不筛选的日志中：能从某个分支、远程分支、标签（不含储藏）或 `HEAD`

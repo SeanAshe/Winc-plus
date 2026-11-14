@@ -27,11 +27,44 @@ pub enum Carried {
     Kept,
 }
 
+/// 推送的目标，用来算出会送出哪些提交（见 [`Git::outgoing`]）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Outgoing<'a> {
+    /// 当前分支的上游。
+    Upstream,
+    /// 还没有上游的分支第一次推送：任何远程分支都没有的提交。
+    Publish,
+    /// 远程 `remote` 上的分支 `branch`；那里还没有这个分支时，是该远程的任何分支都没有的提交。
+    To {
+        /// 远程名。
+        remote: &'a str,
+        /// 远程上的分支名。
+        branch: &'a str,
+    },
+}
+
+/// 各项操作所需的最低 `git` 版本：`switch`、`restore` 与 `--end-of-options` 自该版本起齐备。
+pub const MINIMUM_VERSION: (u32, u32) = (2, 24);
+
+/// 支持 `push --force-if-includes` 的最低 `git` 版本。
+const FORCE_IF_INCLUDES: (u32, u32) = (2, 30);
+
+/// 从 `git version` 的输出（`git version 2.54.0 (Apple Git-157)`、
+/// `git version 2.47.1.windows.2`）读出主、次版本号。
+pub(super) fn parse_version(output: &str) -> Option<(u32, u32)> {
+    let number = output.trim().strip_prefix("git version ")?;
+    let mut parts = number.split(['.', ' ']);
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    Some((major, minor))
+}
+
 impl Git {
     /// 与当前分支的上游同步。
     ///
     /// 先获取上游的最新状态。只落后时拉取，只领先时推送。两边都有新提交时，上游多出的提交
-    /// 若都可由本分支引用日志中的某条记录到达，`force` 时用 `--force-with-lease` 推送本地版本，
+    /// 若都可由本分支引用日志中的某条记录到达，`force` 时用 `--force-with-lease`（`git` 够新时再加
+    /// `--force-if-includes`）推送本地版本，
     /// 否则返回 [`Synced::NeedsForce`]，不改动本地和上游。上游有本地从未有过的提交时先拉取再
     /// 推送，未配置 `pull.rebase` 时按合并拉取。
     ///
@@ -50,9 +83,13 @@ impl Git {
             if !force {
                 return Ok(Synced::NeedsForce(behind));
             }
-            return self
-                .operate(root, &["push", "--force-with-lease"])
-                .map(Synced::Done);
+            // 上面已经按引用日志确认过上游多出的提交本地都见过；`--force-if-includes` 让 `git` 在
+            // 推送的那一刻再查一遍，两次检查之间上游又变了也会被拒绝。该选项 2.30 才有。
+            let mut args = vec!["push", "--force-with-lease"];
+            if self.version(root, &cancel) >= Some(FORCE_IF_INCLUDES) {
+                args.push("--force-if-includes");
+            }
+            return self.operate(root, &args).map(Synced::Done);
         }
         let mut summary = String::new();
         if behind > 0 {
@@ -114,6 +151,58 @@ impl Git {
             return Carried::Kept;
         }
         Carried::Restored
+    }
+
+    /// 返回推送到 `target` 会送出的提交：最新的在前、最多 `limit` 个提交的标题，以及这样的提交
+    /// 一共多少个。
+    ///
+    /// # Errors
+    ///
+    /// 远程名、分支名以 `-` 开头，或 `git` 运行失败时返回原因。
+    pub fn outgoing(
+        &self,
+        root: &Path,
+        target: Outgoing<'_>,
+        limit: usize,
+    ) -> Result<(Vec<String>, usize), String> {
+        let cancel = Cancel::default();
+        let range: Vec<String> = match target {
+            Outgoing::Upstream => vec!["@{upstream}..HEAD".into()],
+            Outgoing::Publish => ["HEAD", "--not", "--remotes"].map(String::from).into(),
+            Outgoing::To { remote, branch } => {
+                if remote.starts_with('-') || branch.starts_with('-') {
+                    return Err(winc_i18n::t!("git-push-no-remote").to_owned());
+                }
+                let tracking = format!("refs/remotes/{remote}/{branch}");
+                let mut command = self.command(root);
+                command.args(["rev-parse", "--verify", "--quiet", &tracking]);
+                match self.run(&mut command, STATUS_TIMEOUT, &cancel) {
+                    Ok(_) => vec![format!("{tracking}..HEAD")],
+                    // `--remotes=<名字>` 匹配 `refs/remotes/<名字>/*`。
+                    Err(_) => vec!["HEAD".into(), "--not".into(), format!("--remotes={remote}")],
+                }
+            }
+        };
+        let mut command = self.command(root);
+        command.args(["rev-list", "--count"]).args(&range);
+        let stdout = self.run(&mut command, STATUS_TIMEOUT, &cancel)?;
+        let total = String::from_utf8_lossy(&stdout).trim().parse().unwrap_or(0);
+        let mut command = self.command(root);
+        let count = format!("--max-count={limit}");
+        // `log.showSignature` 等配置会在标题之间插入签名校验的输出，这里关掉。
+        let args = ["log", "--no-show-signature", "--format=%s", &count];
+        command.args(args).args(&range);
+        let stdout = self.run(&mut command, STATUS_TIMEOUT, &cancel)?;
+        let subjects = String::from_utf8_lossy(&stdout);
+        Ok((subjects.lines().map(str::to_owned).collect(), total))
+    }
+
+    /// 返回 `root` 所在系统中 `git` 的主、次版本号；读不出时为 `None`。
+    pub fn version(&self, root: &Path, cancel: &Cancel) -> Option<(u32, u32)> {
+        let mut command = self.command(root);
+        command.arg("version");
+        let stdout = self.run(&mut command, STATUS_TIMEOUT, cancel).ok()?;
+        parse_version(&String::from_utf8_lossy(&stdout))
     }
 
     /// 返回 `range` 中的提交数（`git rev-list --count`）。

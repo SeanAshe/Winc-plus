@@ -158,6 +158,10 @@ impl App {
                     self.request_redraw();
                 }
             }
+            Drag::LogColumn {
+                start_x,
+                start_width,
+            } => self.drag_log_author_edge(x, (start_x, start_width)),
             Drag::LogDivider {
                 start_x,
                 start_width,
@@ -235,6 +239,18 @@ impl App {
                 };
                 if self.with_log_list(drag).is_none() && self.commit_shown() {
                     drag(self);
+                }
+                self.request_redraw();
+            }
+            Drag::Scrollbar {
+                bar: Scrollbar::LogBranches,
+                grab,
+            } => {
+                let list = self.log_parts().branches;
+                let max = self.git.log.branches_max;
+                if let Some(thumb) = scrollbar_thumb(list, 0.0, max + list.h) {
+                    self.git.log.branches_scroll =
+                        scroll_for_thumb(list.y, list.h, thumb.h, y, grab, max);
                 }
                 self.request_redraw();
             }

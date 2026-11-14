@@ -342,8 +342,9 @@ fn row_cut<C: RowChars + ?Sized>(
     })
 }
 
-/// 是否可以在相邻字符 `a` 和 `b` 之间断开。
-fn can_break(a: char, b: char) -> bool {
+/// 是否可以在相邻字符 `a` 和 `b` 之间断开：空白之后、中日韩文字两侧、代码标点之后可以断开，
+/// 行首禁则的标点之前、行尾禁则的括号之后不断开。编辑区的折行和多行输入框的折行都用它。
+pub fn can_break(a: char, b: char) -> bool {
     if no_line_start(b) || no_line_end(a) {
         return false;
     }

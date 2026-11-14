@@ -60,7 +60,7 @@ fn install_shell_scripts(target: &Target) {
         .arg("winc")
         .arg(winc_pty::scripts::REMOTE_DIR);
     for (name, content) in winc_pty::scripts::remote() {
-        exec = exec.arg(name).arg(content);
+        exec = exec.arg(name).arg(content.as_ref());
     }
     let home = winc_backend::virtual_path(target, b"/");
     let written = remote::exec(&home, &exec, &|| false).is_ok_and(|output| output.code == Some(0));
