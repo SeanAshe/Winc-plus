@@ -331,6 +331,26 @@ fn windows_sharing_glyphs_draw_the_same_and_rasterize_once() {
     assert_eq!(first.glyphs.borrow().cached(), before);
 }
 
+/// 中日韩文字按整像素定位：同一个字画在不同的亚像素位置只光栅化一次，拉丁字母仍按档位
+/// 分别光栅化。
+#[test]
+fn cjk_glyphs_are_rasterized_once_across_subpixel_positions() {
+    let mut renderer = Renderer::offscreen(80.0, 30.0, 2.0, Color::hex(0), None, None).unwrap();
+    let mut cached_after = |text: &str| {
+        renderer.draw(|frame| {
+            let all = frame.bounds();
+            for k in 0..4 {
+                let x = 2.0 + k as f32 * 10.0 + k as f32 * 0.125;
+                frame.text(FontKind::Ui, 16.0, x, 20.0, text, Color::hex(0xffffff), all);
+            }
+        });
+        renderer.glyphs.borrow().cached()
+    };
+    let before = cached_after("");
+    assert_eq!(cached_after("中") - before, 1);
+    assert!(cached_after("W") - before > 2);
+}
+
 #[test]
 fn base_rects_look_the_same_declared_or_not() {
     let new = || Renderer::offscreen(20.0, 10.0, 2.0, Color::hex(0x101010), None, None).unwrap();

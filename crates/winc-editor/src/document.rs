@@ -193,6 +193,8 @@ pub enum Unsupported {
     Workbook,
     /// docx 文字文档：编辑区显示转换成 Markdown 后排版的阅读视图，由界面读取和转换。
     Docx,
+    /// EPUB 电子书：与 [`Unsupported::Docx`] 相同，显示转换成 Markdown 后排版的阅读视图。
+    Epub,
     /// PDF（只在能预览 PDF 的平台上，见 `winc_preview::pdf::supported`）：
     /// 编辑区逐页显示，由界面读取和渲染。
     Pdf,
@@ -202,6 +204,13 @@ pub enum Unsupported {
     TooLarge(u64),
     /// 无法读取，例如没有权限或文件不存在；内容是显示给用户的原因。
     Unreadable(String),
+}
+
+impl Unsupported {
+    /// 是否显示转换成 Markdown 后排版的阅读视图（docx、EPUB）。
+    pub fn reads_as_markdown(&self) -> bool {
+        matches!(self, Unsupported::Docx | Unsupported::Epub)
+    }
 }
 
 impl From<OpenError> for Unsupported {
@@ -224,6 +233,7 @@ impl std::fmt::Display for Unsupported {
             Unsupported::Image => f.write_str(t!("editor-unsupported-image")),
             Unsupported::Workbook => f.write_str(t!("editor-unsupported-workbook")),
             Unsupported::Docx => f.write_str(t!("editor-unsupported-docx")),
+            Unsupported::Epub => f.write_str(t!("editor-unsupported-epub")),
             Unsupported::Pdf => f.write_str(t!("editor-unsupported-pdf")),
             Unsupported::Binary(size) => {
                 f.write_str(&t!("editor-unsupported-binary", size = size_text(*size)))

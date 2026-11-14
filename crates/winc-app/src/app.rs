@@ -72,7 +72,7 @@ pub use workspace::file_drop::DropZone;
 pub use workspace::files::{Pick, PlaceholderAction, TabBar, TabHit};
 pub use workspace::global::{GlobalSearch, ResultRow};
 pub(crate) use workspace::outline::{OUTLINE_GAP, has_children as outline_has_children};
-pub use workspace::outline::{OutlineEmpty, OutlineState, OutlineTarget};
+pub use workspace::outline::{OutlineEmpty, OutlineKind, OutlineState, OutlineTarget};
 pub use workspace::picker::{
     PICKER_ICON_X, PICKER_MAX_ROWS, PICKER_PAD, PICKER_ROW, PICKER_TEXT_X, PLACES_FOOTER,
     PlacesGhost,

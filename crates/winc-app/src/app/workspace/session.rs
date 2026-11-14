@@ -356,6 +356,7 @@ impl App {
         let outline = self.outline_session(&folder);
         let folds = self.editor.all_folds().into_iter().collect();
         let pdf_places = self.pdf_session(&folder);
+        let book_places = self.book_session(&folder);
         self.update_state(|state| {
             state.set_session(Session {
                 folder,
@@ -365,6 +366,7 @@ impl App {
                 outline,
                 folds,
                 pdf_places,
+                book_places,
                 terminal,
                 run,
                 sidebar_hidden,

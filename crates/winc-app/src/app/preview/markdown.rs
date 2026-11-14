@@ -14,6 +14,7 @@ use std::sync::{Arc, mpsc};
 use winc_core::Lines;
 use winc_editor::{DocumentId, PreviewKind, PreviewMode};
 use winc_i18n::t;
+use winc_preview::epub::TocEntry;
 use winc_preview::image::{self, Picture, Pixels};
 use winc_preview::markdown::{self, Markdown};
 use winc_preview::svg;
@@ -24,6 +25,7 @@ use winit::keyboard::{Key, NamedKey};
 use crate::app::{App, Focus, UserEvent};
 use crate::system;
 
+mod book;
 mod images;
 pub(crate) mod laid;
 mod live;
@@ -32,15 +34,18 @@ mod scroll;
 mod viewer;
 pub(crate) use viewer::{DiagramLaid, DiagramTool, DiagramView, MAX_ZOOM, MIN_ZOOM};
 
-/// docx 包中的图片：Markdown 中引用的地址和图片文件的内容。
+/// docx、EPUB 包中的图片：Markdown 中引用的地址和图片文件的内容。
 type Media = Vec<(String, Arc<[u8]>)>;
+
+/// 转换 docx、EPUB 的结果：解析好的 Markdown、包中的图片和书的目录（docx 没有目录）。
+type Converted = (Markdown, Media, Option<Arc<[TocEntry]>>);
 
 /// 后台任务的结果。
 enum Done {
     /// 文档、所依据的文档版本、解析结果、解析所用的时间。
     Parsed(DocumentId, u64, Markdown, std::time::Duration),
-    /// docx 文档、所依据的文档版本、转换并解析的结果（含包中的图片）或失败的原因。
-    Converted(DocumentId, u64, Result<(Markdown, Media), String>),
+    /// docx、EPUB 文档、所依据的文档版本、转换并解析的结果或失败的原因。
+    Converted(DocumentId, u64, Result<Converted, String>),
     /// 图片（解析后的本地路径）、读取结果。
     Loaded(PathBuf, Result<Arc<Picture>, String>),
     /// 图片、按显示大小（物理像素）绘制的像素。
@@ -143,8 +148,12 @@ pub(crate) struct MarkdownPreview {
     /// docx 包中的图片：键与 `images` 相同（按文档所在目录解析后的路径），值是图片文件的
     /// 内容；读取这些图片时用这里的内容，不读磁盘。
     embedded: HashMap<PathBuf, Arc<[u8]>>,
-    /// docx 读取或转换失败的原因；没有失败时为 `None`。
+    /// docx、EPUB 读取或转换失败的原因；没有失败时为 `None`。
     pub failed: Option<String>,
+    /// EPUB 的目录，在侧栏的大纲中列出；不是 EPUB 或尚未转换完时为 `None`。
+    pub contents: Option<Arc<[TocEntry]>>,
+    /// 各本书的阅读位置。
+    book: book::BookPlaces,
     /// 图片全部作废的计数：联网设置改变时作废全部图片，整份重新排版。
     ///
     /// 每作废一次加 1。
@@ -288,6 +297,8 @@ impl Default for MarkdownPreview {
             urls: HashMap::new(),
             embedded: HashMap::new(),
             failed: None,
+            contents: None,
+            book: book::BookPlaces::default(),
             images_version: 0,
             loaded: Vec::new(),
             toggled: HashSet::new(),
@@ -365,6 +376,7 @@ impl MarkdownPreview {
     /// 文档，这些合计约 10 MB；单张解码后的图片最多约 26 MB（2560 × 2560 RGBA），
     /// 网络图片再次预览时从磁盘缓存读取。
     fn reset(&mut self, doc: Option<DocumentId>) {
+        self.leave_book();
         self.doc = doc;
         self.parsed = None;
         self.checked = None;
@@ -377,6 +389,7 @@ impl MarkdownPreview {
         self.forget_images();
         self.embedded.clear();
         self.failed = None;
+        self.contents = None;
         self.loaded.clear();
     }
 }
@@ -447,9 +460,11 @@ fn in_fence<'a>(lines: impl Iterator<Item = ropey::RopeSlice<'a>>) -> bool {
 /// 返回当前标签显示 Markdown 预览的区域（分栏的右半边或整个编辑区）；不显示时返回 `None`。
 pub(crate) fn shown_area(app: &App) -> Option<winc_render::Rect> {
     let doc = app.editor.active()?;
-    // docx 和内容已取回的阅读标签没有源代码可切换，总是以整个编辑区显示阅读视图。
+    // docx、EPUB 和内容已取回的阅读标签没有源代码可切换，总是以整个编辑区显示阅读视图。
     let reading = matches!(doc.reading, Some(winc_editor::Reading::Ready(_)));
-    if doc.unsupported == Some(winc_editor::Unsupported::Docx) || reading {
+    let converted =
+        (doc.unsupported.as_ref()).is_some_and(winc_editor::Unsupported::reads_as_markdown);
+    if converted || reading {
         return Some(app.layout.editor);
     }
     if doc.preview_kind() != Some(PreviewKind::Markdown) {
@@ -491,15 +506,21 @@ impl App {
             return;
         };
         let md = &mut self.preview.markdown;
-        if doc.unsupported == Some(winc_editor::Unsupported::Docx) {
+        if let Some(kind) = doc.unsupported.clone().filter(|u| u.reads_as_markdown()) {
             let Some(path) = doc.path.clone() else {
                 return;
             };
             md.pending = Some(revision);
             let (sender, proxy) = (md.sender.clone(), self.link.proxy.clone());
             winc_editor::background::spawn(move || {
-                let result = winc_preview::docx::load(&path)
-                    .map(|c| (markdown::parse(&c.markdown), c.media));
+                let result = match kind {
+                    winc_editor::Unsupported::Epub => winc_preview::epub::load(&path).map(|b| {
+                        let contents = Some(Arc::from(b.contents));
+                        (markdown::parse(&b.markdown), b.media, contents)
+                    }),
+                    _ => winc_preview::docx::load(&path)
+                        .map(|c| (markdown::parse(&c.markdown), c.media, None)),
+                };
                 if sender.send(Done::Converted(id, revision, result)).is_ok()
                     && let Some(proxy) = proxy
                 {
@@ -566,6 +587,8 @@ impl App {
     /// 接收后台完成的解析结果和图片。
     pub(crate) fn poll_markdown(&mut self) {
         let mut changed = false;
+        let mut converted = false;
+        let mut book = None;
         while let Ok(done) = self.preview.markdown.receiver.try_recv() {
             let md = &mut self.preview.markdown;
             match done {
@@ -584,10 +607,17 @@ impl App {
                     }
                     md.pending = None;
                     md.checked = Some(revision);
+                    converted = true;
                     md.forget_images();
                     md.embedded.clear();
                     match result {
-                        Ok((parsed, media)) => {
+                        Ok((parsed, media, contents)) => {
+                            // 本次打开后尚未滚动过的书，排版后回到记下的阅读位置。
+                            let path = self.editor.active().and_then(|d| d.path.clone());
+                            if contents.is_some() {
+                                book = path.map(|p| (p, !md.scrolls.contains_key(&id)));
+                            }
+                            md.contents = contents;
                             let doc = self.editor.active().and_then(|d| d.path.as_deref());
                             md.embedded = media
                                 .into_iter()
@@ -641,6 +671,13 @@ impl App {
                 }
             }
             changed = true;
+        }
+        // EPUB 的目录随转换结果送到，大纲重新列出。
+        if converted {
+            self.outline_source_changed();
+        }
+        if let Some((path, fresh)) = book {
+            self.begin_book(path, fresh);
         }
         if changed {
             self.request_redraw();

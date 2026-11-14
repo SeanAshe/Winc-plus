@@ -30,6 +30,14 @@ fn lines(text: &str, width: f32) -> Vec<String> {
 }
 
 #[test]
+fn fullwidth_stops_and_brackets_stay_off_the_line_ends() {
+    // 全角句点（U+FF0E）和右方括号不放在行首；左方括号不留在行尾。
+    assert_eq!(lines("一二三四．五", 4.0), ["一二三", "四．五"]);
+    assert_eq!(lines("一二三四］五", 4.0), ["一二三", "四］五"]);
+    assert_eq!(lines("一二三［四五", 4.0), ["一二三", "［四五"]);
+}
+
+#[test]
 fn middle_dots_stay_with_the_word_before_them() {
     assert_eq!(lines("规则表 · 规则包", 5.0), ["规则表 ·", "规则包"]);
 }

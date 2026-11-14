@@ -682,12 +682,12 @@ fn can_break(p: char, c: char) -> bool {
 ///
 /// 包括中点 `·`、`・`：用空格隔开的中点作为分隔符时，留在前一个词所在行的末尾。
 fn no_break_before(c: char) -> bool {
-    "，。、；：？！）」』】》〉…—”’,.;:?!)]}%·・".contains(c)
+    "，。．、；：？！）〕］｝」』】》〉〗〙〟…‥—”’»›,.;:?!)]}%·・".contains(c)
 }
 
 /// 标点 `c` 是否不能出现在行尾。
 fn no_break_after(c: char) -> bool {
-    "（「『【《〈“‘([{".contains(c)
+    "（〔［｛「『【《〈〖〘〝“‘«‹([{".contains(c)
 }
 
 #[cfg(test)]

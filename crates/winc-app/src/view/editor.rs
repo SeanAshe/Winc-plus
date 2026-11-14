@@ -97,8 +97,10 @@ pub(super) fn draw_editor(app: &mut App, frame: &mut Frame<'_>) {
         }
         None => {}
     }
-    // docx：显示转换成 Markdown 后排版的阅读视图；读取或转换失败时说明原因。
-    if app.editor.documents[index].unsupported == Some(Unsupported::Docx) {
+    // docx、EPUB：显示转换成 Markdown 后排版的阅读视图；读取或转换失败时说明原因。
+    if (app.editor.documents[index].unsupported.as_ref())
+        .is_some_and(Unsupported::reads_as_markdown)
+    {
         match app.preview.markdown.failed.clone() {
             Some(reason) => {
                 use PlaceholderAction::*;
@@ -232,6 +234,7 @@ pub(super) fn draw_editor(app: &mut App, frame: &mut Frame<'_>) {
             | Unsupported::Image
             | Unsupported::Workbook
             | Unsupported::Docx
+            | Unsupported::Epub
             | Unsupported::Pdf => &[
                 (Retry, t!("editor-retry")),
                 (Reveal, system::reveal_label()),
