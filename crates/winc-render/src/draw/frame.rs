@@ -514,7 +514,18 @@ impl Frame<'_> {
         if c.is_whitespace() || c.is_control() {
             return;
         }
-        self.paint_glyph(kind, faux, size, x, baseline, slot, glyph, color, clip);
+        self.paint_glyph(
+            kind,
+            faux,
+            size,
+            x,
+            baseline,
+            slot,
+            glyph,
+            Some(c),
+            color,
+            clip,
+        );
     }
 
     /// 字符 `c` 是否由等宽字体 `kind` 自己绘制（不是后备字体）。
@@ -542,6 +553,8 @@ impl Frame<'_> {
     ///
     /// `x` 是这一簇第一个字符的左边缘，`span` 是整簇所占的宽度（逻辑像素）。单个字形在
     /// `span` 里居中；一簇多个字形时从左边缘按整形结果排开。
+    ///
+    /// `c` 是这一簇只覆盖一个字符时的那个字符，用来按整像素定位中日韩文字。跨多个字符的连字传 `None`。
     #[allow(clippy::too_many_arguments)]
     pub fn draw_ligature(
         &mut self,
@@ -551,6 +564,7 @@ impl Frame<'_> {
         x: f32,
         baseline: f32,
         span: f32,
+        c: Option<char>,
         color: Color,
         clip: Rect,
     ) {
@@ -574,12 +588,15 @@ impl Frame<'_> {
             baseline - glyph.y,
             glyph.slot,
             glyph.id,
+            c,
             color,
             clip,
         );
     }
 
     /// 在笔位置 `(x, baseline)` 绘制已知槽位和字形 id 的一个字形。
+    ///
+    /// `c` 是这个字形对应的字符。中日韩文字按整像素定位；连字没有单个字符，仍按 ¼ 像素定位。
     #[allow(clippy::too_many_arguments)]
     fn paint_glyph(
         &mut self,
@@ -590,6 +607,7 @@ impl Frame<'_> {
         baseline: f32,
         slot: u8,
         glyph: u16,
+        c: Option<char>,
         color: Color,
         clip: Rect,
     ) {
@@ -599,8 +617,12 @@ impl Frame<'_> {
         }
         let s = self.scale;
         // 先取整到 ¼ 像素，再拆成整像素和档位（0 至 3）；取整后小数部分达到 1 时，
-        // 进位到下一个像素的第 0 档。
-        let quarters = (x * s * 4.0).round();
+        // 进位到下一个像素的第 0 档。中日韩文字按整像素定位，见 [`full_width`]。
+        let quarters = if c.is_some_and(full_width) {
+            (x * s).round() * 4.0
+        } else {
+            (x * s * 4.0).round()
+        };
         let snapped = (quarters / 4.0).floor();
         let subpixel = (quarters - snapped * 4.0) as u8;
         let baseline_px = (baseline * s).round() as i32;
@@ -635,4 +657,16 @@ impl Frame<'_> {
             self.canvas.coverage(area, &glyph.data, color.argb(), clip);
         }
     }
+}
+
+/// 是否为中日韩文字或全角标点：按整像素定位，只用亚像素第 0 档。
+///
+/// 这些字形是方块形，横向不到半个物理像素的偏移看不出来；按档位分别光栅化时，常用汉字有数千个，
+/// 每字最多四份位图，滚动中文时光栅化次数和字形缓存的占用都成倍增加。区间与 `winc-core` 折行
+/// 时的宽字符相同：谚文、CJK 符号与标点、假名、汉字、全角形式。
+fn full_width(c: char) -> bool {
+    matches!(c as u32,
+        0x1100..=0x115F | 0x2E80..=0x303E | 0x3041..=0x33FF | 0x3400..=0x4DBF
+        | 0x4E00..=0x9FFF | 0xA000..=0xA4CF | 0xAC00..=0xD7A3 | 0xF900..=0xFAFF
+        | 0xFE30..=0xFE4F | 0xFF00..=0xFF60 | 0xFFE0..=0xFFE6 | 0x20000..=0x3FFFD)
 }

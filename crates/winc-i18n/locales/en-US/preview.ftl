@@ -97,6 +97,14 @@ preview-docx-chart-series = { $count } series: { $names }
 preview-docx-chart-category = Category
 preview-docx-image-unsupported = The image “{ $name }” is in { $format } format and can’t be previewed
 
+## EPUB book preview
+
+preview-epub-invalid = Not a valid EPUB file
+preview-epub-unsupported = Encrypted and zip64 EPUB files aren’t supported
+preview-epub-drm = Books protected by DRM can’t be previewed
+preview-epub-too-large = The file is too large
+preview-epub-chapter-damaged = Can’t read “{ $name }”: the file is damaged
+
 ## PDF preview
 
 preview-pdf-unsupported = PDF preview isn’t supported on this system

@@ -52,6 +52,7 @@ fn sample() -> State {
                 )],
                 folds: vec![(PathBuf::from("/a/项目/README.md"), vec![(0, 12), (3, 7)])],
                 pdf_places: vec![(PathBuf::from("/a/项目/手册.pdf"), (12, 0.375))],
+                book_places: vec![(PathBuf::from("/a/项目/小说.epub"), (340, 0.5))],
                 terminal: Some(TerminalSession {
                     tabs: vec![PathBuf::from("/a/项目"), PathBuf::from("/a/项目/src")],
                     names: vec![String::new(), "服务".into()],
@@ -72,6 +73,7 @@ fn sample() -> State {
                 outline: Vec::new(),
                 folds: Vec::new(),
                 pdf_places: Vec::new(),
+                book_places: Vec::new(),
                 terminal: None,
                 run: None,
                 sidebar_hidden: false,
@@ -274,6 +276,7 @@ fn sessions_are_kept_per_folder() {
         outline: Vec::new(),
         folds: Vec::new(),
         pdf_places: Vec::new(),
+        book_places: Vec::new(),
         terminal: None,
         run: None,
         sidebar_hidden: false,

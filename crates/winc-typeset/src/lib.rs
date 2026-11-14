@@ -838,6 +838,10 @@ impl Cx<'_, '_> {
             RawState::Rule => return self.raw_rule(x, y, width, out),
         }
         let para = self.body_para(env);
+        if let Block::Paragraph(inline) | Block::Heading(_, inline) = block {
+            out.anchors
+                .extend(inline.ids.iter().map(|id| (id.clone(), y)));
+        }
         match block {
             Block::Paragraph(inline) => self.flow(inline, x, y, width, para, &mut out.items),
             Block::Heading(level, inline) => self.heading(*level, inline, x, y, width, env, out),
@@ -1101,7 +1105,7 @@ impl Cx<'_, '_> {
 pub struct Out {
     /// 要画的项，按绘制先后排列。
     pub items: Vec<Item>,
-    /// 标题锚点和所在高度（逻辑像素，相对块的左上角）。
+    /// 锚点（标题、脚注和 HTML 写的锚点）和所在高度（逻辑像素，相对块的左上角）。
     pub anchors: Vec<(String, f32)>,
     /// 比正文宽、可以横向滚动的表格。
     pub scrolls: Vec<Scroller>,

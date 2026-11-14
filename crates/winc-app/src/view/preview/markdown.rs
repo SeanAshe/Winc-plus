@@ -123,6 +123,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
         app.align_markdown_once();
     }
     app.scroll_to_pending_anchor();
+    app.hold_book_place();
     // `layout` 刚在上面放进去，取出时一定存在。
     let mut laid = app.preview.markdown.layout.take().expect("刚放进去");
 

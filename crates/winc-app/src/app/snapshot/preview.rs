@@ -5,6 +5,7 @@ use winc_editor::PreviewMode;
 
 use super::*;
 
+mod epub;
 mod images;
 mod live;
 mod markdown;
@@ -810,6 +811,7 @@ fn heap_breakdown(md: &winc_preview::markdown::Markdown) {
         s.anchors += i.map.anchors();
         s.links += i.links.iter().map(String::capacity).sum::<usize>() + i.links.capacity() * 24;
         s.other += i.images.capacity() * std::mem::size_of::<winc_preview::markdown::Image>();
+        s.other += i.ids.iter().map(String::capacity).sum::<usize>() + i.ids.capacity() * 24;
     }
     fn blocks(v: &Vec<Block>, s: &mut Sum) {
         s.blocks += v.capacity() * std::mem::size_of::<Block>();

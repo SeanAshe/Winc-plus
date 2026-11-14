@@ -161,6 +161,21 @@ fn readme_html_becomes_headings_images_and_text() {
     );
 }
 
+/// 没有地址的 `<a id>`、`<a name>` 是锚点：写在段落、标题中时记在其上，单独成块或所在段落
+/// 没有文字时记到下一个段落或标题上；`<a id="…"/>` 不影响后面文字的样式。
+#[test]
+fn html_anchors_land_on_the_next_paragraph_or_heading() {
+    let doc = parse(
+        "<a name=\"Top\"></a>\n\n# 标题\n\n正文 <a id=\"mid\"/>**粗**\n\n<a id=\"x\"></a>\n\n| a |\n|---|\n| <a id=\"cell\"></a>b |\n\n尾\n",
+    );
+    assert!(matches!(&doc.blocks[0], Block::Heading(1, h) if h.ids == ["top"]));
+    let body = paragraph(&doc.blocks[1]);
+    assert_eq!(body.ids, ["mid"]);
+    assert_eq!(spans(body), vec![("正文 ", 0), ("粗", Style::STRONG)]);
+    // 表格前单独成块的锚点和单元格里的锚点都落到表格之后的段落上。
+    assert_eq!(paragraph(&doc.blocks[3]).ids, ["x", "cell"]);
+}
+
 #[test]
 fn footnotes_are_numbered_and_moved_to_the_end() {
     let doc = parse("甲[^b] 乙[^a]\n\n[^a]: A\n\n[^b]: B\n\n尾\n");

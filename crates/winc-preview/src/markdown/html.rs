@@ -84,10 +84,17 @@ impl Builder<'_> {
                 };
                 self.push_image(image);
             }
-            ("a", false) => match attribute(tag, "href") {
-                Some(href) => self.start_link(href),
-                None => self.push_style(0, None),
-            },
+            ("a", false) => {
+                // 没有地址、带 `id` 或 `name` 的是锚点；`<a id="…"/>` 没有结束标签，不压样式。
+                if let Some(id) = attribute(tag, "id").or_else(|| attribute(tag, "name")) {
+                    self.anchor_id(id.to_lowercase());
+                }
+                match attribute(tag, "href") {
+                    Some(href) => self.start_link(href),
+                    None if tag.trim_end().ends_with('/') => {}
+                    None => self.push_style(0, None),
+                }
+            }
             ("source", false) => {
                 // `srcset` 可能写了多张（带宽度、倍数），取第一张。
                 let url = attribute(tag, "srcset").and_then(|s| {
@@ -344,6 +351,17 @@ impl Builder<'_> {
         }
     }
 
+    /// 记下锚点 `id`：正在收集的文字是段落或标题时记在上面，否则留给下一个段落或标题。
+    fn anchor_id(&mut self, id: String) {
+        if id.is_empty() {
+            return;
+        }
+        match &mut self.inline {
+            Some((Leaf::Paragraph | Leaf::Loose | Leaf::Heading(_), inline)) => inline.ids.push(id),
+            _ => self.ids.push(id),
+        }
+    }
+
     /// HTML 块里一段（段落、标题）结束：去掉首尾空白再收下。
     fn finish_html_leaf(&mut self) {
         if let Some((leaf, inline)) = self.inline.take() {
@@ -405,6 +423,69 @@ fn collapse(text: &str) -> String {
     out
 }
 
+/// 常见的 HTML 命名字符实体 `&name;` 表示的字符；不认识的名字返回 `None`。
+///
+/// 只收常用于正文排版的一部分（引号、破折号、空格、常用符号），名字依据 HTML 标准的命名
+/// 字符引用表。
+pub(crate) fn named_entity(name: &str) -> Option<char> {
+    Some(match name {
+        "amp" => '&',
+        "lt" => '<',
+        "gt" => '>',
+        "quot" => '"',
+        "apos" => '\'',
+        "nbsp" => '\u{a0}',
+        "ensp" => '\u{2002}',
+        "emsp" => '\u{2003}',
+        "thinsp" => '\u{2009}',
+        "shy" => '\u{ad}',
+        "zwnj" => '\u{200c}',
+        "zwj" => '\u{200d}',
+        "copy" => '©',
+        "reg" => '®',
+        "trade" => '™',
+        "mdash" => '—',
+        "ndash" => '–',
+        "hellip" => '…',
+        "lsquo" => '‘',
+        "rsquo" => '’',
+        "sbquo" => '‚',
+        "ldquo" => '“',
+        "rdquo" => '”',
+        "bdquo" => '„',
+        "laquo" => '«',
+        "raquo" => '»',
+        "lsaquo" => '‹',
+        "rsaquo" => '›',
+        "middot" => '·',
+        "bull" => '•',
+        "deg" => '°',
+        "times" => '×',
+        "divide" => '÷',
+        "plusmn" => '±',
+        "sect" => '§',
+        "para" => '¶',
+        "dagger" => '†',
+        "Dagger" => '‡',
+        "prime" => '′',
+        "Prime" => '″',
+        "euro" => '€',
+        "pound" => '£',
+        "yen" => '¥',
+        "cent" => '¢',
+        "iexcl" => '¡',
+        "iquest" => '¿',
+        "frac12" => '½',
+        "frac14" => '¼',
+        "frac34" => '¾',
+        "larr" => '←',
+        "rarr" => '→',
+        "uarr" => '↑',
+        "darr" => '↓',
+        _ => return None,
+    })
+}
+
 /// 换掉常见的 HTML 字符实体和数字实体。
 fn decode_entities(text: &str) -> String {
     if !text.contains('&') {
@@ -418,20 +499,9 @@ fn decode_entities(text: &str) -> String {
         let end = rest.find(';').filter(|&e| e <= 10);
         let decoded = end.and_then(|e| {
             let name = &rest[1..e];
-            let c = match name {
-                "amp" => '&',
-                "lt" => '<',
-                "gt" => '>',
-                "quot" => '"',
-                "apos" => '\'',
-                "nbsp" => '\u{a0}',
-                "copy" => '©',
-                "reg" => '®',
-                "mdash" => '—',
-                "ndash" => '–',
-                "hellip" => '…',
-                _ => {
-                    let number = name.strip_prefix('#')?;
+            let c = match name.strip_prefix('#') {
+                None => named_entity(name)?,
+                Some(number) => {
                     let code = match number.strip_prefix(['x', 'X']) {
                         Some(hex) => u32::from_str_radix(hex, 16).ok()?,
                         None => number.parse().ok()?,

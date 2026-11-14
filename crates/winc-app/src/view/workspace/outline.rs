@@ -103,6 +103,7 @@ pub(in crate::view) fn draw_outline(app: &mut App, frame: &mut Frame<'_>) {
                 OutlineEmpty::NoSymbols => t!("workspace-outline-no-symbols"),
                 OutlineEmpty::Reading => t!("workspace-outline-reading"),
                 OutlineEmpty::NoBookmarks => t!("workspace-outline-no-bookmarks"),
+                OutlineEmpty::NoContents => t!("workspace-outline-no-contents"),
             };
             // 说明在列表里上下、左右居中：大纲高度可以拖动，居中参照列表本身。
             draw_empty_state(app, frame, (list, list), title, None);
@@ -149,7 +150,7 @@ fn draw_rows(
     let highlight = app.outline_highlight(&app.outline_rows());
     let focused = app.focus == Focus::Outline;
     let items = &app.panels.outline.items;
-    let pages = app.panels.outline.pages;
+    let pages = matches!(app.panels.outline.kind, crate::app::OutlineKind::Pages(_));
     let first = (scroll / TREE_ROW).floor().max(0.0) as usize;
     let shown =
         (list.h / TREE_ROW).ceil() as usize + 1 + (layout.hidden / TREE_ROW).ceil() as usize;

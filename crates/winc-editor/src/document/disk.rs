@@ -162,6 +162,8 @@ enum OpenedContent {
     Workbook(Option<Stamp>),
     /// docx 文字文档：只有修改时间，读取和转换另外做。
     Docx(Option<Stamp>),
+    /// EPUB 电子书：只有修改时间，读取和转换另外做。
+    Epub(Option<Stamp>),
     /// PDF：只有修改时间，读取和渲染另外做。
     Pdf(Option<Stamp>),
     /// 文本，或者打不开的原因。
@@ -480,12 +482,18 @@ impl Document {
             return DiskSync::Done(DiskChange::Unchanged);
         };
 
-        // 图片、工作簿、docx、PDF 被其他程序修改：重新读取。递增 `revision` 使正在进行的那次
-        // 读取结果被丢弃（见 `set_picture`、`set_table`），工作簿随后按新版本重新读
-        // （`table_to_load`），docx、PDF 由界面按新版本重新转换、渲染。
+        // 图片、工作簿、docx、EPUB、PDF 被其他程序修改：重新读取。递增 `revision` 使正在进行的
+        // 那次读取结果被丢弃（见 `set_picture`、`set_table`），工作簿随后按新版本重新读
+        // （`table_to_load`），docx、EPUB、PDF 由界面按新版本重新转换、渲染。
         if matches!(
             self.unsupported,
-            Some(Unsupported::Image | Unsupported::Workbook | Unsupported::Docx | Unsupported::Pdf)
+            Some(
+                Unsupported::Image
+                    | Unsupported::Workbook
+                    | Unsupported::Docx
+                    | Unsupported::Epub
+                    | Unsupported::Pdf
+            )
         ) {
             let mtime = metadata.and_then(|m| m.modified);
             if mtime.is_none() || mtime == self.disk_mtime {
@@ -721,6 +729,8 @@ impl Document {
                 OpenedContent::Workbook(mtime())
             } else if !as_text && winc_preview::docx::is_docx(path) {
                 OpenedContent::Docx(mtime())
+            } else if !as_text && winc_preview::epub::is_epub(path) {
+                OpenedContent::Epub(mtime())
             } else if !as_text && winc_preview::pdf::supported() && winc_preview::pdf::is_pdf(path)
             {
                 OpenedContent::Pdf(mtime())
@@ -756,6 +766,11 @@ impl Document {
             OpenedContent::Docx(mtime) => {
                 document.readonly = true;
                 document.unsupported = Some(Unsupported::Docx);
+                document.disk_mtime = mtime;
+            }
+            OpenedContent::Epub(mtime) => {
+                document.readonly = true;
+                document.unsupported = Some(Unsupported::Epub);
                 document.disk_mtime = mtime;
             }
             OpenedContent::Pdf(mtime) => {

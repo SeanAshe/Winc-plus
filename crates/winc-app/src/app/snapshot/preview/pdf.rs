@@ -558,7 +558,7 @@ fn the_outline_lists_pdf_bookmarks_and_turns_to_their_pages() {
     app.run_action(Action::ShowOutline);
     paint(&mut app);
     let outline = &app.panels.outline;
-    assert!(outline.pages);
+    assert!(matches!(outline.kind, crate::app::OutlineKind::Pages(_)));
     assert_eq!(outline.empty, None);
     let tree: Vec<(&str, usize, usize)> = (outline.items.iter())
         .map(|s| (s.name.as_str(), s.depth, s.line))

@@ -349,8 +349,9 @@ fn paint_run(
             end = end.clamp(index + 1, run.len());
             let span = (columns[end] - start_cell) as f32 * cell;
             if x < clip.right() && x + span > clip.x {
+                let c = (end == index + 1).then_some(run[index]);
                 while glyph < count && frame.ligature_span(glyph).0 == index {
-                    frame.draw_ligature(glyph, font, size, x, baseline, span, color, clip);
+                    frame.draw_ligature(glyph, font, size, x, baseline, span, c, color, clip);
                     glyph += 1;
                 }
             } else {

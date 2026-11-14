@@ -461,7 +461,8 @@ impl App {
                     MenuEntry::Item(MenuCommand::Copy, self.markdown_selected_text().is_some()),
                     MenuEntry::Item(MenuCommand::SelectAll, true),
                 ];
-                // docx 的阅读视图由转换得到，阅读标签只有排版后的内容：都没有可以显示的源代码。
+                // docx、EPUB 的阅读视图由转换得到，阅读标签只有排版后的内容：都没有可以显示的
+                // 源代码。
                 let has_source = self
                     .editor
                     .active()

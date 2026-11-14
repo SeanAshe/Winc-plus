@@ -368,6 +368,9 @@ pub struct Inline {
     /// 文字与原文的对照，原文位置相对于 [`Inline::source`]；由原文生成的文字（列表、表格之外
     /// 自动加的标题、front matter 的表格）为空。
     pub map: SourceMap,
+    /// HTML 写的锚点（`<a id="…">`、`<a name="…">`，转成小写）：排版时记在这段文字所在块的
+    /// 上边缘，链接 `#…` 可以转到这里。
+    pub ids: Vec<String>,
     /// 这段文字最靠前的原文位置（字节偏移，相对所在顶层块的起点，见 [`Markdown::ranges`]）。
     ///
     /// 不计入哈希：排版缓存按内容取用，同样的文字挪了位置仍然命中，取出时再按记录的原文
@@ -383,6 +386,7 @@ impl Hash for Inline {
         self.images.hash(state);
         self.align.hash(state);
         self.map.hash(state);
+        self.ids.hash(state);
     }
 }
 
@@ -643,6 +647,9 @@ struct Builder<'s> {
     leaf: Option<Range<usize>>,
     /// 正在处理 HTML 块：块里排出的段落、表格不单独记为叶子块，整个 HTML 块是一个。
     in_html: bool,
+    /// 还没有落到段落或标题上的锚点（见 [`Inline::ids`]）：写在段落之外，或者所在的段落没有
+    /// 文字，记到下一个段落或标题上。
+    ids: Vec<String>,
 }
 
 impl Builder<'_> {
@@ -872,10 +879,19 @@ impl Builder<'_> {
         if leaf != Leaf::Cell && inline.align == Align::None {
             inline.align = self.aligns.last().copied().unwrap_or_default();
         }
+        // 段落、标题收下之前没有落下的锚点；其余位置的锚点留给下一个段落或标题。
+        if matches!(leaf, Leaf::Paragraph | Leaf::Loose | Leaf::Heading(_)) {
+            let waiting = std::mem::take(&mut self.ids);
+            inline.ids.splice(0..0, waiting);
+        } else {
+            self.ids.append(&mut inline.ids);
+        }
         match leaf {
             Leaf::Paragraph | Leaf::Loose => {
                 if !inline.is_blank() || !inline.images.is_empty() {
                     self.push_block(Block::Paragraph(inline));
+                } else {
+                    self.ids.append(&mut inline.ids);
                 }
             }
             // 只有 `#`、后面没有空格：按文字显示，输入空格后才成为标题。
@@ -1214,7 +1230,7 @@ impl Builder<'_> {
         for (block, range) in self.root.iter_mut().zip(&self.ranges) {
             rebase(block, range.start);
         }
-        shrink(&mut self.root);
+        shrink::shrink(&mut self.root);
         self.ranges.shrink_to_fit();
         let mut lines = Vec::with_capacity(self.root.len());
         let (mut line, mut counted) = (0, 0);
@@ -1276,56 +1292,6 @@ impl Builder<'_> {
         };
         self.end(tag);
     }
-}
-
-/// 把 `block` 里记下的原文位置改为相对于原文第 `start` 个字节（所在顶层块的起点）；
-/// 将解析结果中每个 `Vec`、`String` 的容量收缩到恰好容纳其内容。
-///
-/// 逐项追加时容量按倍数增长，结果保留到下一次解析，多余容量一直闲置。一段文字的样式段和原文
-/// 对照大多只有一两项，却按最少 4 项分配；收缩后约 1 MB 文档的解析结果由约 15 MB 降至约 6 MB。
-fn shrink(blocks: &mut Vec<Block>) {
-    blocks.shrink_to_fit();
-    for block in blocks {
-        match block {
-            Block::Paragraph(inline) | Block::Heading(_, inline) => shrink_inline(inline),
-            Block::Code { lang, text, map } => {
-                lang.shrink_to_fit();
-                text.shrink_to_fit();
-                map.0.shrink_to_fit();
-            }
-            Block::Quote(_, blocks) | Block::Footnote(_, blocks) => shrink(blocks),
-            Block::List(_, items) => {
-                items.shrink_to_fit();
-                for item in items {
-                    shrink(&mut item.blocks);
-                }
-            }
-            Block::Table(aligns, rows, _) => {
-                aligns.shrink_to_fit();
-                rows.shrink_to_fit();
-                for row in rows {
-                    row.shrink_to_fit();
-                    row.iter_mut().for_each(shrink_inline);
-                }
-            }
-            Block::Math(tex, _) => tex.shrink_to_fit(),
-            Block::Rule(_) => {}
-            Block::Details {
-                summary, blocks, ..
-            } => {
-                shrink_inline(summary);
-                shrink(blocks);
-            }
-        }
-    }
-}
-
-fn shrink_inline(inline: &mut Inline) {
-    inline.text.shrink_to_fit();
-    inline.runs.shrink_to_fit();
-    inline.links.shrink_to_fit();
-    inline.images.shrink_to_fit();
-    inline.map.0.shrink_to_fit();
 }
 
 /// 给标题生成锚点的规则：转成小写，空格换成 `-`，去掉其他标点（保留 `-`、`_`）。
@@ -1410,6 +1376,7 @@ fn contents_items(headings: &[(u8, String)]) -> Vec<Item> {
     items
 }
 
+/// 把 `block` 里记下的原文位置改为相对于原文第 `start` 个字节（所在顶层块的起点）；
 /// 行内文字的对照再改为相对于该段文字最靠前的位置（见 [`Inline::source`]）。
 fn rebase(block: &mut Block, start: usize) {
     let inline = |inline: &mut Inline| {
@@ -1455,7 +1422,7 @@ fn heading_level(level: HeadingLevel) -> u8 {
 }
 
 /// 中日韩文字和全角标点。
-fn is_cjk(c: char) -> bool {
+pub(crate) fn is_cjk(c: char) -> bool {
     matches!(c as u32,
         0x2E80..=0x9FFF | 0xAC00..=0xD7AF | 0xF900..=0xFAFF | 0xFE30..=0xFE4F | 0xFF00..=0xFFEF
         | 0x20000..=0x2FA1F)
@@ -1487,6 +1454,8 @@ pub mod enter;
 pub mod format;
 mod front;
 mod html;
+mod shrink;
+pub(crate) use html::named_entity;
 pub mod math;
 pub mod mermaid;
 pub mod reveal;

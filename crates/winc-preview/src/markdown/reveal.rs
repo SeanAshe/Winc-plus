@@ -82,6 +82,7 @@ pub fn reveal(text: &str, caret: Option<usize>, insert: Option<&str>) -> Block {
         images: inline.images.clone(),
         align: inline.align,
         map: out.map,
+        ids: inline.ids.clone(),
         source: 0,
     };
     match heading {
