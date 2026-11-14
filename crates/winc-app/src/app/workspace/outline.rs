@@ -25,9 +25,9 @@ use super::*;
 use crate::app::animation::{Clock, TREE_ANIMATION};
 use crate::layout::SidebarView;
 
-/// 大纲标题行上下各留的空隙（逻辑像素），与侧栏里列表和上下相邻部分的间隔相同
-/// （`SIDEBAR_LIST_GAP`）：上面是分隔线，下面是侧栏卡片的下沿或符号列表，悬停的底色不贴边。
-pub(crate) const OUTLINE_GAP: f32 = SIDEBAR_LIST_GAP;
+/// 大纲标题行上下各留的空隙（逻辑像素）：列表间隔（`SIDEBAR_LIST_GAP`）的一半，与提交视图中
+/// 储藏一组的标题相同，侧栏底部收着的各栏等高。上面是分隔线，下面是侧栏卡片的下沿或符号列表。
+pub(crate) const OUTLINE_GAP: f32 = SIDEBAR_LIST_GAP / 2.0;
 /// 大纲标题行的高度（逻辑像素）：一行 `TREE_ROW`，上下各留 [`OUTLINE_GAP`]。
 pub(crate) const OUTLINE_HEADER: f32 = TREE_ROW + 2.0 * OUTLINE_GAP;
 /// 第一次展开时符号列表的高度（逻辑像素）：十行。
@@ -97,6 +97,10 @@ pub enum OutlineEmpty {
     TooLarge,
     /// 文档里没有识别出符号。
     NoSymbols,
+    /// PDF 的目录还在读。
+    Reading,
+    /// PDF 没有目录（书签）。
+    NoBookmarks,
 }
 
 /// 大纲的状态。
@@ -121,6 +125,11 @@ pub struct OutlineState {
     due: Option<Instant>,
     /// 当前文档的符号，按在文件中出现的顺序排列。
     pub items: Vec<Symbol>,
+    /// 列出的是 PDF 的目录（书签）：各项的 `line` 是指向的页（从 0 起，没有页时为
+    /// `usize::MAX`），页内位置在 `tops`；点击时翻到那里，当前项按预览读到的位置定。
+    pub pages: bool,
+    /// PDF 书签各项在页内的位置：到页面上沿的距离与页高之比，只指向整页时为 0。
+    tops: Vec<f32>,
     /// 各符号的路径（见 [`symbol_paths`]），随 `items` 一起更新，绘制时不再逐帧拼接。
     paths: Vec<String>,
     /// 没有符号时的原因；有符号时为 `None`。
@@ -161,6 +170,8 @@ impl Default for OutlineState {
             scroll: 0.0,
             selected: None,
             revealed: None,
+            pages: false,
+            tops: Vec::new(),
         }
     }
 }
@@ -174,6 +185,28 @@ enum OutlineDoc {
     File(PathBuf),
     /// 未保存过的文档。
     Untitled(DocumentId),
+}
+
+/// 把 PDF 的目录换成大纲的各项：标题是名字，层级是嵌套深度，指向的页记在 `line`（没有页时为
+/// `usize::MAX`），上级是外一层最近的一条，收起状态按名字记录时与代码的符号相同。
+fn pdf_symbols(items: &[winc_preview::pdf::OutlineItem]) -> Vec<Symbol> {
+    let mut parents: Vec<String> = Vec::new();
+    (items.iter())
+        .map(|item| {
+            parents.truncate(item.level);
+            let symbol = Symbol {
+                name: item.title.clone(),
+                kind: symbols::SymbolKind::Heading,
+                line: item.page.unwrap_or(usize::MAX),
+                col: 0,
+                container: parents.last().cloned(),
+                depth: parents.len(),
+                heading: 0,
+            };
+            parents.push(item.title.clone());
+            symbol
+        })
+        .collect()
 }
 
 /// 返回各符号的路径：从最外层上级到自身的名字，以 `\u{1f}`（单元分隔符）连接。
@@ -319,8 +352,14 @@ impl App {
         None
     }
 
+    /// 列出的内容来源变了（PDF 的目录读完了）：下一帧重新提取。
+    pub(in crate::app) fn outline_source_changed(&mut self) {
+        self.panels.outline.source = None;
+        self.request_redraw();
+    }
+
     /// 重新提取当前文档的符号：文本在后台线程提取（没有事件循环的测试里直接提取），不是文本、
-    /// 文件过大时直接换上说明。
+    /// 文件过大时直接换上说明；预览的 PDF 列出它的目录。
     fn refresh_outline(&mut self) {
         let Some(doc) = self.editor.active() else {
             let o = &mut self.panels.outline;
@@ -337,6 +376,21 @@ impl App {
         o.seen = o.source;
         o.due = None;
         o.pending = None;
+        let pdf = doc.unsupported == Some(winc_editor::Unsupported::Pdf);
+        o.pages = pdf && winc_preview::pdf::supported();
+        if o.pages {
+            let path = doc.path.clone();
+            let outline = self.preview.pdf.outline_of(path.as_deref());
+            let empty = match outline.as_deref() {
+                Some([]) => Some(OutlineEmpty::NoBookmarks),
+                Some(_) => None,
+                None => Some(OutlineEmpty::Reading),
+            };
+            let items = outline.as_deref().unwrap_or_default();
+            self.panels.outline.tops = items.iter().map(|i| i.top.unwrap_or(0.0)).collect();
+            self.apply_outline(Some(id), pdf_symbols(items), empty);
+            return;
+        }
         // Markdown 的预览也是可以编辑的文本，同样列出标题。
         let empty = if !doc.edits_text() {
             Some(OutlineEmpty::NotText)
@@ -538,15 +592,17 @@ impl App {
     }
 
     /// 光标所在的符号：起始行不晚于光标所在行的最后一个符号；它被收起的上级挡住时为该上级。
+    /// PDF 的目录按预览读到的位置：指向的位置已经到了视口上沿的最后一项。
     pub(crate) fn outline_current(&self, rows: &[usize]) -> Option<usize> {
         let doc = self.editor.active()?;
-        let line = doc.text().pos_to_line_col(doc.selection.head).0;
-        let at = self
-            .panels
-            .outline
-            .items
-            .iter()
-            .rposition(|s| s.line <= line)?;
+        let o = &self.panels.outline;
+        let at = if o.pages {
+            let marks = (o.items.iter().zip(&o.tops)).map(|(s, &top)| (s.line, top));
+            self.pdf_reached(marks)?
+        } else {
+            let line = doc.text().pos_to_line_col(doc.selection.head).0;
+            o.items.iter().rposition(|s| s.line <= line)?
+        };
         // 被挡住的符号属于它前面最近的那个列出的符号（收起的上级）。
         rows.iter().rev().copied().find(|&i| i <= at)
     }
@@ -659,6 +715,15 @@ impl App {
         let (line, col, len) = (symbol.line, symbol.col, symbol.name.chars().count());
         self.panels.outline.selected = None;
         self.panels.outline.revealed = Some(i);
+        if self.panels.outline.pages {
+            // PDF 的书签：翻到它指向的位置；指向别处（网址、别的文件）的不动。
+            if line != usize::MAX {
+                let top = self.panels.outline.tops.get(i).copied().unwrap_or(0.0);
+                self.focus = Focus::Editor;
+                self.scroll_pdf_to_place(line, top);
+            }
+            return;
+        }
         self.jump_to(line, col, len);
     }
 

@@ -14,7 +14,7 @@ use winc_editor::git::{Branch, Status};
 use winc_i18n::t;
 use winc_render::Rect;
 
-use super::local_name;
+use super::{TagOp, local_name};
 use crate::app::animation::TREE_ANIMATION;
 use crate::app::git::location_picker::LocationRow;
 use crate::app::input::context_menu::{MenuCommand, MenuTarget};
@@ -71,35 +71,42 @@ const GIT_PICKER_GAP: f32 = 4.0;
 /// 选择面板底栏的高度（逻辑像素）：上面留 4，`BUTTON_SMALL` 高的按钮，下面留 6，和顶部的搜索行
 /// 对称。
 const GIT_PICKER_FOOT: f32 = 34.0;
-/// 分支选择器中拉取、推送、获取一行的高度（逻辑像素）：上下各留 4，中间是 `BUTTON_SMALL` 高的
-/// 按钮。加上搜索行下方的 4，按钮与搜索框相距 8，不贴近搜索框获得焦点时的外框。
-pub const GIT_PICKER_ACTIONS: f32 = 32.0;
-/// 拉取、推送、获取按钮上方的留白（逻辑像素）。
+/// 分支选择器搜索框下面的操作，自上而下各占一行。
+pub const GIT_PICKER_ACTION_LIST: [PickerPart; 5] = [
+    PickerPart::Pull,
+    PickerPart::Push,
+    PickerPart::Fetch,
+    PickerPart::NewBranch,
+    PickerPart::NewWorktree,
+];
+/// 分支选择器中操作一段的高度（逻辑像素）：上面留 `GIT_PICKER_ACTIONS_TOP`，各项一行，下面是
+/// 一条分隔线和它上下的留白。
+pub const GIT_PICKER_ACTIONS: f32 = GIT_PICKER_ACTIONS_TOP
+    + GIT_PICKER_ACTION_LIST.len() as f32 * PICKER_ROW
+    + GIT_PICKER_ACTIONS_END;
+/// 操作一段上方的留白（逻辑像素）。
 pub const GIT_PICKER_ACTIONS_TOP: f32 = 4.0;
+/// 操作一段下方分隔线占的高度（逻辑像素）：线在正中，上下各留 2；加上各行底色上下各缩的 1，
+/// 线到两边底色的距离相等。
+pub const GIT_PICKER_ACTIONS_END: f32 = 5.0;
 /// 从状态栏展开时面板的宽度（逻辑像素）：和默认宽度的侧栏里从分支行展开时一样宽（侧栏 300
 /// 减去两边各 8 的边距）。
 const STATUS_PICKER_W: f32 = crate::theme::DEFAULT_PANEL_WIDTH - 16.0;
-
-/// 分支选择器的分组标题。
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BranchSection {
-    /// 最近使用。
-    Recent,
-    /// 本地分支。
-    Local,
-    /// 日志分支筛选中的远程分支：有多个远程时按远程分组，带远程名；只有一个远程时为 `None`。
-    Remote(Option<String>),
-    /// 最近使用以外的本地分支。
-    Other,
-}
 
 /// 分支选择器的一行。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BranchRow {
     /// 清除日志的分支筛选。
     All,
-    /// 分组标题，不能选中。
-    Heading(BranchSection),
+    /// 可以收起的「最近」或「本地」一组，默认展开。
+    Locals {
+        /// 是否是「最近」一组。
+        recent: bool,
+        /// 这一组的分支数。
+        count: usize,
+        /// 是否展开。
+        open: bool,
+    },
     /// 可以展开的「远程分支」一组。
     Remotes {
         /// 这一组的分支数。
@@ -122,6 +129,15 @@ pub enum BranchRow {
         /// 是否展开。
         open: bool,
     },
+    /// 可以展开的「标签」一组，排在分支之后。
+    Tags {
+        /// 这一组的标签数。
+        count: usize,
+        /// 是否展开。
+        open: bool,
+    },
+    /// 一个标签：[`GitState::tags`](crate::app::git::GitState::tags) 的下标。
+    Tag(usize),
     /// 一个分支。
     Branch {
         /// [`GitState::branches`](crate::app::git::GitState::branches) 的下标。
@@ -136,11 +152,6 @@ pub enum BranchRow {
 }
 
 impl BranchRow {
-    /// 这一行能否选中。
-    pub fn selectable(&self) -> bool {
-        !matches!(self, BranchRow::Heading(_))
-    }
-
     /// 两行是否是同一项：展开状态变化、列表刷新以后据此留住选中项。
     ///
     /// 分支的下标按各自所在的列表解释：`self` 是 `old` 的，`other` 是 `new` 的。
@@ -148,6 +159,10 @@ impl BranchRow {
         match (self, other) {
             (BranchRow::All, BranchRow::All) => true,
             (BranchRow::Remotes { .. }, BranchRow::Remotes { .. }) => true,
+            (BranchRow::Locals { recent: a, .. }, BranchRow::Locals { recent: b, .. }) => a == b,
+            (BranchRow::Tags { .. }, BranchRow::Tags { .. }) => true,
+            // 标签只在列表末尾增减，名字不随刷新移动到别的下标的情况不多；下标相同即视为同一项。
+            (BranchRow::Tag(index), BranchRow::Tag(i)) => index == i,
             (
                 BranchRow::Folder { remote, path, .. },
                 BranchRow::Folder {
@@ -178,45 +193,26 @@ fn branch_hit<'a>(branches: &[Branch], query: &'a [char]) -> impl Fn(&Branch) ->
     move |branch| !searching || score(branch).is_some_and(|s| !contiguous || s < SCATTERED)
 }
 
-/// 排出日志分支筛选的各行：没有查询时最前面是「全部」，之后是本地分支和远程分支。
-///
-/// 命中规则与 [`branch_rows`] 相同。远程分支按远程分组，各行省去远程名，由组标题写明；只有
-/// 一个远程时只有一组，标题为「远程分支」。
-fn log_branch_rows(branches: &[Branch], query: &[char]) -> Vec<BranchRow> {
-    let hit = branch_hit(branches, query);
-    let mut rows = Vec::new();
-    if query.is_empty() {
-        rows.push(BranchRow::All);
-    }
-    let row = |index: usize, label: &str| BranchRow::Branch {
-        index,
-        depth: 0,
-        label: label.to_owned(),
-    };
-    let mut local = branches
-        .iter()
-        .enumerate()
-        .filter(|(_, b)| !b.remote && hit(b))
-        .peekable();
-    if local.peek().is_some() {
-        rows.push(BranchRow::Heading(BranchSection::Local));
-        rows.extend(local.map(|(index, b)| row(index, &b.name)));
-    }
-    let mut remotes: BTreeMap<&str, Vec<(usize, &str)>> = BTreeMap::new();
-    for (index, branch) in branches.iter().enumerate().filter(|(_, b)| b.remote) {
-        let (remote, name) = branch.name.split_once('/').unwrap_or(("", &branch.name));
-        let group = remotes.entry(remote).or_default();
-        if hit(branch) {
-            group.push((index, name));
+/// 去掉「最近」一组（标题和其中的分支）：日志里按分支筛选时用不上捷径，同一个分支列两遍、
+/// 筛选着的分支亮两处，反而看不清（日志左侧的分支面板和日志的分支筛选）。
+pub fn without_recent(rows: Vec<BranchRow>) -> Vec<BranchRow> {
+    let mut recent = false;
+    let kept = rows.into_iter().filter(|row| {
+        match row {
+            BranchRow::Locals { recent: r, .. } => recent = *r,
+            BranchRow::Remotes { .. } | BranchRow::Tags { .. } => recent = false,
+            _ => {}
         }
-    }
-    let single = remotes.len() == 1;
-    for (remote, group) in remotes.into_iter().filter(|(_, g)| !g.is_empty()) {
-        let title = (!single).then(|| remote.to_owned());
-        rows.push(BranchRow::Heading(BranchSection::Remote(title)));
-        rows.extend(group.into_iter().map(|(index, name)| row(index, name)));
-    }
-    rows
+        !recent
+    });
+    kept.collect()
+}
+
+/// 「最近」（`recent` 为真）或「本地」一组在 [`BranchList::toggled`] 中的记法：记作本地的一项，
+/// 路径以分支名中不会出现的空字符开头，不与目录的路径相同。
+pub fn locals_key(recent: bool) -> (bool, String) {
+    let name = if recent { "\0recent" } else { "\0local" };
+    (false, name.to_owned())
 }
 
 /// 排列分支选择器时用到的内容。
@@ -229,8 +225,11 @@ pub struct BranchList<'a> {
     pub query: &'a [char],
     /// 原样的查询文字，新建分支时用作名字。
     pub text: &'a str,
-    /// 改变过默认展开状态的目录：（是否远程，目录路径）；远程分支一组的路径是空的。
+    /// 改变过默认展开状态的目录：（是否远程，目录路径）；远程分支一组的路径是空的。标签一组
+    /// 记作本地、路径为空的一项：本地分支的目录路径不会为空。
     pub toggled: &'a HashSet<(bool, String)>,
+    /// 各个标签的名字，最近创建的在前。
+    pub tags: &'a [String],
 }
 
 /// 排出分支选择器的各行。
@@ -247,9 +246,17 @@ pub fn branch_rows(list: &BranchList<'_>) -> Vec<BranchRow> {
     } else {
         Vec::new()
     };
+    // 「最近」「本地」两组默认展开，点标题行收起；搜索时都展开。
+    let shown = |recent: bool| searching || !list.toggled.contains(&locals_key(recent));
     if !latest.is_empty() {
-        rows.push(BranchRow::Heading(BranchSection::Recent));
-        rows.extend(latest.iter().map(|&index| BranchRow::Branch {
+        let open = shown(true);
+        rows.push(BranchRow::Locals {
+            recent: true,
+            count: latest.len(),
+            open,
+        });
+        let latest = latest.iter().filter(|_| open);
+        rows.extend(latest.map(|&index| BranchRow::Branch {
             index,
             depth: 0,
             label: branches[index].name.clone(),
@@ -270,20 +277,21 @@ pub fn branch_rows(list: &BranchList<'_>) -> Vec<BranchRow> {
         current,
         toggled: list.toggled,
     };
-    let mut local = items(false);
-    local.retain(|(index, _)| !latest.contains(index));
+    // 各组都列全：「最近」只是捷径，其中的分支在「本地」里照样有；「远程」不因为已有本地分支
+    // 而少列，否则看起来像远程上没有这个分支。
+    let local = items(false);
     if !local.is_empty() {
-        let section = if latest.is_empty() {
-            BranchSection::Local
-        } else {
-            BranchSection::Other
-        };
-        rows.push(BranchRow::Heading(section));
-        tree(false).push(local, "", 0, &mut rows);
+        let open = shown(false);
+        rows.push(BranchRow::Locals {
+            recent: false,
+            count: local.len(),
+            open,
+        });
+        if open {
+            tree(false).push(local, "", 0, &mut rows);
+        }
     }
-    // 已有本地分支的远程分支只在搜索时列出：平时选本地那一行就是它，搜索时还能拿它比较、合并。
-    let mut remote = items(true);
-    remote.retain(|&(index, _)| searching || !has_local_branch(branches, &branches[index]));
+    let remote = items(true);
     if !remote.is_empty() {
         let flipped = list.toggled.contains(&(true, String::new()));
         let open = searching || flipped;
@@ -297,6 +305,21 @@ pub fn branch_rows(list: &BranchList<'_>) -> Vec<BranchRow> {
             tree(true).push(remote, "", 0, &mut rows);
         }
     }
+    // 标签一组平时收起：标签可以很多，展开或搜索时才列出。
+    let tags: Vec<usize> = (list.tags.iter().enumerate())
+        .filter(|(_, tag)| !searching || rate(query, tag).is_some_and(|s| s < SCATTERED))
+        .map(|(index, _)| index)
+        .collect();
+    if !tags.is_empty() {
+        let open = searching || list.toggled.contains(&(false, String::new()));
+        rows.push(BranchRow::Tags {
+            count: tags.len(),
+            open,
+        });
+        if open {
+            rows.extend(tags.into_iter().map(BranchRow::Tag));
+        }
+    }
     let name = list.text.trim();
     let exists = branches.iter().any(|b| !b.remote && b.name == name);
     if searching && !exists {
@@ -305,13 +328,6 @@ pub fn branch_rows(list: &BranchList<'_>) -> Vec<BranchRow> {
         ));
     }
     rows
-}
-
-/// 远程分支 `remote` 是否已有本地分支：同名，或者有本地分支跟踪它。
-pub(in crate::app) fn has_local_branch(branches: &[Branch], remote: &Branch) -> bool {
-    let name = local_name(remote);
-    (branches.iter().filter(|b| !b.remote))
-        .any(|b| b.name == name || b.upstream.as_deref() == Some(remote.name.as_str()))
 }
 
 /// 只有一个远程时去掉分支名里的远程名：少一层没有信息量的目录。
@@ -681,6 +697,15 @@ impl App {
             self.open_branch_row_menu(MenuTarget::BranchOps(index));
             return;
         }
+        let tag =
+            (self.overlays.picker.branch_rows.as_ref()).and_then(|rows| match rows.get(row) {
+                Some(BranchRow::Tag(index)) => Some(*index),
+                _ => None,
+            });
+        if let Some(index) = tag {
+            self.open_branch_row_menu(MenuTarget::TagOps(index));
+            return;
+        }
         let place =
             (self.overlays.picker.location_rows.as_ref()).and_then(|rows| match rows.get(row) {
                 Some(LocationRow::Place(place)) => Some(place.clone()),
@@ -691,10 +716,9 @@ impl App {
         }
     }
 
-    /// 选择面板的第 `row` 行能否选中：分组标题不能。
+    /// 选择面板的第 `row` 行能否选中：列出分支时每一行都能选，只要这一行存在。
     pub(in crate::app) fn picker_row_selectable(&self, row: usize) -> bool {
-        (self.overlays.picker.branch_rows.as_ref())
-            .is_none_or(|rows| rows.get(row).is_some_and(BranchRow::selectable))
+        (self.overlays.picker.branch_rows.as_ref()).is_none_or(|rows| row < rows.len())
     }
 
     /// 面板是否正在列出分支。
@@ -712,16 +736,17 @@ impl App {
         self.branch_picker_from(GitAnchor::Log)
     }
 
-    /// 返回选择面板底栏的高度（逻辑像素）：日志的分支筛选没有新建分支、工作树的入口，没有底栏。
+    /// 返回选择面板底栏的高度（逻辑像素）：列出位置时底栏里是新建工作树；列出分支时新建的入口
+    /// 在搜索框下面的操作里，没有底栏。
     pub(crate) fn git_picker_footer(&self) -> f32 {
-        if self.picker_filters_log() {
-            0.0
-        } else {
+        if self.picker_lists_locations() {
             GIT_PICKER_FOOT
+        } else {
+            0.0
         }
     }
 
-    /// 搜索框下面有没有拉取、推送、获取一行：列出分支时有。
+    /// 搜索框下面有没有操作一段（拉取、推送、获取、新建分支、新建工作树）：列出分支时有。
     pub(crate) fn picker_has_actions(&self) -> bool {
         self.picker_lists_branches() && !self.picker_filters_log()
     }
@@ -748,6 +773,15 @@ impl App {
             PickerPart::Pull => self.has_upstream(),
             PickerPart::Push => on_branch,
             _ => true,
+        }
+    }
+
+    /// 操作一段里的 `part` 现在能不能用：新建分支、新建工作树始终可用，其余见
+    /// [`Self::picker_action_enabled`]。
+    pub(crate) fn picker_part_enabled(&self, part: PickerPart) -> bool {
+        match part {
+            PickerPart::NewBranch | PickerPart::NewWorktree => true,
+            part => self.picker_action_enabled(part),
         }
     }
 
@@ -798,7 +832,7 @@ impl App {
             None
         } else if self.picker_filters_log() {
             self.applied_log_filter_row(&rows)
-        } else if rows.first() == Some(&BranchRow::Heading(BranchSection::Recent)) {
+        } else if matches!(rows.first(), Some(BranchRow::Locals { recent: true, .. })) {
             None
         } else {
             rows.iter().position(|row| {
@@ -811,7 +845,7 @@ impl App {
                 rows.iter()
                     .position(|row| matches!(row, BranchRow::Branch { .. }))
             })
-            .or_else(|| rows.iter().position(BranchRow::selectable))
+            .or_else(|| (!rows.is_empty()).then_some(0))
             .unwrap_or(0);
         self.overlays.picker.default = plain.then_some(self.overlays.picker.selected);
         self.set_branch_rows(rows);
@@ -858,7 +892,7 @@ impl App {
         self.overlays.picker.selected = rows
             .iter()
             .position(same)
-            .or_else(|| rows.iter().position(BranchRow::selectable))
+            .or_else(|| (!rows.is_empty()).then_some(0))
             .unwrap_or(0);
         // 自动选中的行换了位置仍是自动选中的。
         self.overlays.picker.default = default.then_some(self.overlays.picker.selected);
@@ -869,16 +903,24 @@ impl App {
 
     fn current_branch_rows(&self) -> Vec<BranchRow> {
         let query = needle(self.overlays.picker.input.text());
-        if self.picker_filters_log() {
-            return log_branch_rows(&self.git.branches, &query);
-        }
-        branch_rows(&BranchList {
+        let rows = branch_rows(&BranchList {
             branches: &self.git.branches,
             recent: &self.git.recent_branches,
             query: &query,
             text: self.overlays.picker.input.text(),
             toggled: &self.git.branch_folders,
-        })
+            tags: &self.git.tags,
+        });
+        if !self.picker_filters_log() {
+            return rows;
+        }
+        // 日志的分支筛选：与平时同样的分组、目录（日志左侧的分支面板也是这样），最上面是「全部
+        // 分支」；没有「最近」一组（见 `without_recent`），筛选不新建分支。
+        let all = query.is_empty().then_some(BranchRow::All);
+        let rows = rows
+            .into_iter()
+            .filter(|r| !matches!(r, BranchRow::Create(_)));
+        all.into_iter().chain(rows).collect()
     }
 
     fn set_branch_rows(&mut self, rows: Vec<BranchRow>) {
@@ -896,9 +938,9 @@ impl App {
             .unwrap_or_default();
         let at = self.overlays.picker.selected;
         let next = if down {
-            (at + 1..rows.len()).find(|&i| rows[i].selectable())
+            (at + 1 < rows.len()).then_some(at + 1)
         } else {
-            (0..at).rev().find(|&i| rows[i].selectable())
+            at.checked_sub(1)
         };
         next.unwrap_or(at)
     }
@@ -908,27 +950,37 @@ impl App {
         let row = (self.overlays.picker.branch_rows.as_ref())
             .and_then(|rows| rows.get(self.overlays.picker.selected))
             .cloned();
+        // 日志的分支筛选：选分支、标签只看它的提交，「全部分支」看全部；组、目录照常展开、收起。
         if self.picker_filters_log() {
-            let branch = match row {
-                Some(BranchRow::All) => None,
+            let chosen = match &row {
+                Some(BranchRow::All) => Some(None),
                 Some(BranchRow::Branch { index, .. }) => {
-                    let Some(branch) = self.git.branches.get(index) else {
-                        return;
-                    };
-                    Some(branch.name.clone())
+                    self.git.branches.get(*index).map(|b| Some(b.name.clone()))
                 }
-                _ => return,
+                Some(BranchRow::Tag(index)) => self.git.tags.get(*index).map(|t| Some(t.clone())),
+                _ => None,
             };
-            self.close_picker();
-            self.change_log_query(|q| q.branch = branch);
-            return;
+            if let Some(branch) = chosen {
+                self.close_picker();
+                self.change_log_query(|q| q.branches = branch.into_iter().collect());
+                return;
+            }
+            if matches!(row, Some(BranchRow::Create(_))) {
+                return;
+            }
         }
         match row {
+            Some(BranchRow::Locals { recent, .. }) => {
+                let (remote, path) = locals_key(recent);
+                self.toggle_branch_folder(remote, path);
+            }
             Some(BranchRow::Remotes { .. }) => self.toggle_branch_folder(true, String::new()),
+            Some(BranchRow::Tags { .. }) => self.toggle_branch_folder(false, String::new()),
+            Some(BranchRow::Tag(index)) => self.run_picker_tag(None, index),
             Some(BranchRow::Folder { remote, path, .. }) => self.toggle_branch_folder(remote, path),
             Some(BranchRow::Branch { index, .. }) => self.pick_branch(index),
             Some(BranchRow::Create(name)) => self.create_branch_from_picker(name, None),
-            Some(BranchRow::All | BranchRow::Heading(_)) | None => {}
+            Some(BranchRow::All) | None => {}
         }
     }
 
@@ -997,10 +1049,7 @@ impl App {
     /// 处理没有查询时的左右键：右键展开目录、打开分支的操作菜单，左键收起目录、回到上一级目录。
     /// 返回是否已处理；有查询时左右键移动输入框的光标。
     pub(in crate::app) fn branch_picker_side(&mut self, right: bool) -> bool {
-        if !self.picker_lists_branches()
-            || self.picker_filters_log()
-            || !self.overlays.picker.input.text().is_empty()
-        {
+        if !self.picker_lists_branches() || !self.overlays.picker.input.text().is_empty() {
             return false;
         }
         let Some(row) = (self.overlays.picker.branch_rows.as_ref())
@@ -1010,8 +1059,18 @@ impl App {
             return false;
         };
         match (row, right) {
+            (BranchRow::Locals { recent, open, .. }, _) if open != right => {
+                let (remote, path) = locals_key(recent);
+                self.toggle_branch_folder(remote, path);
+            }
             (BranchRow::Remotes { open, .. }, _) if open != right => {
                 self.toggle_branch_folder(true, String::new());
+            }
+            (BranchRow::Tags { open, .. }, _) if open != right => {
+                self.toggle_branch_folder(false, String::new());
+            }
+            (BranchRow::Tag(index), true) => {
+                self.open_branch_row_menu(MenuTarget::TagOps(index));
             }
             (
                 BranchRow::Folder {
@@ -1022,7 +1081,13 @@ impl App {
             (BranchRow::Branch { index, .. }, true) => {
                 self.open_branch_row_menu(MenuTarget::BranchOps(index));
             }
-            (BranchRow::Folder { .. } | BranchRow::Remotes { .. }, true) => {
+            (
+                BranchRow::Folder { .. }
+                | BranchRow::Locals { .. }
+                | BranchRow::Remotes { .. }
+                | BranchRow::Tags { .. },
+                true,
+            ) => {
                 self.overlays.picker.selected = self.branch_picker_step(true);
                 self.overlays.picker.default = None;
                 self.picker_reveal();
@@ -1053,7 +1118,7 @@ impl App {
         let parent = (0..self.overlays.picker.selected).rev().find(|&i| {
             matches!(
                 rows[i],
-                BranchRow::Folder { .. } | BranchRow::Remotes { .. }
+                BranchRow::Folder { .. } | BranchRow::Remotes { .. } | BranchRow::Locals { .. }
             ) && depth_of(&rows[i]) < Some(depth)
         });
         if let Some(parent) = parent {
@@ -1061,6 +1126,18 @@ impl App {
             self.overlays.picker.default = None;
             self.picker_reveal();
             self.request_redraw();
+        }
+    }
+
+    /// 对第 `index` 个标签执行 `op`：`None` 是签出它指向的提交（先确认），其余见 [`TagOp`]。
+    pub(in crate::app) fn run_picker_tag(&mut self, op: Option<TagOp>, index: usize) {
+        let Some(name) = self.git.tags.get(index).cloned() else {
+            return;
+        };
+        self.close_picker();
+        match op {
+            Some(op) => self.run_tag_op(op, name),
+            None => self.confirm_log(crate::app::git::log::LogConfirmed::CheckoutTag(name)),
         }
     }
 

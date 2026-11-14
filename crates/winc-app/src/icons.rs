@@ -469,7 +469,8 @@ pub fn refresh_turned(
     frame.stroke(&shapes, RING_STROKE, color, clip);
 }
 
-/// 绘制「同步」图标，约 13×13：同一个圆上相对的两段圆弧，各自顺时针画到直角箭头为止。
+/// 绘制「同步」图标，约 12×12：同一个圆上相对的两段圆弧，各从 9 点钟（3 点钟）顺时针画到
+/// 右上（左下）45° 处，再顺着切线接到一个横平竖直的直角箭头。
 ///
 /// 用于与远程交换提交的操作；只重读本地状态的操作用 [`refresh`]。
 pub fn sync(frame: &mut Frame<'_>, center: (f32, f32), color: Color, clip: Rect) {
@@ -484,36 +485,35 @@ pub fn sync_turned(
     color: Color,
     clip: Rect,
 ) {
-    let r = RING;
-    // 两段圆弧之间的空隙（弧度）。取 0.5：箭头落在空隙里，不碰到另一段圆弧。
-    let gap = 0.5;
-    // 箭头臂长（逻辑像素），与「刷新」图标相同。
-    let arm = 3.0;
+    // 圆弧半径（逻辑像素）。
+    let r = 5.4;
+    // 箭头的直角离圆心横向 `r`、纵向 `corner`；两臂沿横竖方向伸出 `arm`。
+    let (corner, arm) = (2.4, 3.0);
     let base = turn.rem_euclid(1.0) * 2.0 * PI;
-    // 从 `start` 起顺时针画半圈减去两个空隙的圆弧，末端加箭头。
-    let half = |start: f32| {
+    let (sin, cos) = base.sin_cos();
+    let at = |x: f32, y: f32| (cx + x * cos - y * sin, cy + x * sin + y * cos);
+    // 右上的一半；`flip` 为 -1 时是左下的一半（绕圆心转半圈）。
+    let half = |flip: f32| {
+        let mut from = -PI + base + if flip < 0.0 { PI } else { 0.0 };
         // 起点映射到 -π 至 π 之间，理由同 `refresh_turned`。
-        let mut from = start + base;
         while from >= PI {
             from -= 2.0 * PI;
         }
-        let to = from + PI - 2.0 * gap;
-        // 箭头两臂与切线各成 45°，分在圆弧内外两侧。
-        let (sin, cos) = to.sin_cos();
-        let (tx, ty) = (cx + r * cos, cy + r * sin);
-        let k = FRAC_1_SQRT_2 * arm;
-        let (bx, by) = (sin, -cos);
+        let end = r * FRAC_1_SQRT_2;
+        let (ex, ey) = at(flip * end, -flip * end);
+        let (tx, ty) = at(flip * r, -flip * corner);
+        let (ux, uy) = at(flip * r, -flip * (corner + arm));
+        let (lx, ly) = at(flip * (r - arm), -flip * corner);
         [
-            Stroke::Arc(cx, cy, r, from, to),
-            Stroke::Line(tx, ty, tx + (bx - cos) * k, ty + (by - sin) * k),
-            Stroke::Line(tx, ty, tx + (bx + cos) * k, ty + (by + sin) * k),
+            Stroke::Arc(cx, cy, r, from, from + 0.75 * PI),
+            Stroke::Line(ex, ey, tx, ty),
+            Stroke::Line(tx, ty, ux, uy),
+            Stroke::Line(tx, ty, lx, ly),
         ]
     };
-    // 上半段从 9 点钟附近开始，下半段从 3 点钟附近开始。
-    let [a, b, c] = half(-PI + gap);
-    let [d, e, f] = half(gap);
-    let shapes = [a, b, c, d, e, f];
-    frame.stroke(&shapes, RING_STROKE, color, clip);
+    let [a, b, c, d] = half(1.0);
+    let [e, f, g, h] = half(-1.0);
+    frame.stroke(&[a, b, c, d, e, f, g, h], RING_STROKE, color, clip);
 }
 
 /// 绘制「全部折叠」图标，11×12：圆角卡片内一道横线，卡片上方露出后面一张较窄卡片的上沿，表示
@@ -729,6 +729,139 @@ pub fn compare(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: 
 /// 底色，用于状态栏与侧栏分支名旁的小号文字。
 pub fn branch_small(frame: &mut Frame<'_>, center: (f32, f32), color: Color, clip: Rect) {
     branch_shape(frame, center, (0.56, 1.25), color, None, clip);
+}
+
+/// 日志中引用徽章上的图标，表明引用的种类。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefMark {
+    /// 本地分支。
+    Branch,
+    /// 远程分支。
+    Remote,
+    /// 标签。
+    Tag,
+    /// 直接指向提交的 `HEAD`。
+    Commit,
+}
+
+/// 绘制引用徽章上的图标，约 9×9，笔宽 1 逻辑像素：与徽章中 12 号的文字相称。
+///
+/// 本地分支用分支图形（`branch_shape`），远程分支是一朵云，标签是尖端朝左的吊牌，直接指向提交
+/// 的 `HEAD` 是提交图中的一个节点。
+pub fn ref_mark(
+    frame: &mut Frame<'_>,
+    mark: RefMark,
+    (cx, cy): (f32, f32),
+    color: Color,
+    clip: Rect,
+) {
+    const WIDTH: f32 = 1.0;
+    match mark {
+        RefMark::Branch => branch_shape(frame, (cx, cy), (0.5, WIDTH), color, None, clip),
+        RefMark::Remote => {
+            let base = cy + 3.0;
+            let shapes = [
+                Stroke::Arc(cx - 2.2, cy + 0.8, 2.2, FRAC_PI_2, 1.5 * PI),
+                Stroke::Arc(cx + 0.2, cy - 0.4, 2.8, -0.9 * PI, -0.1 * PI),
+                Stroke::Arc(cx + 2.7, cy + 1.2, 1.8, -FRAC_PI_2, FRAC_PI_2),
+                Stroke::Line(cx - 2.2, base, cx + 2.7, base),
+            ];
+            frame.stroke(&shapes, WIDTH, color, clip);
+        }
+        RefMark::Tag => {
+            let (tip, neck, end) = (cx - 4.5, cx - 1.5, cx + 4.0);
+            let (top, bottom) = (cy - 3.5, cy + 3.5);
+            let shapes = [
+                Stroke::Line(tip, cy, neck, top),
+                Stroke::Line(neck, top, end, top),
+                Stroke::Line(end, top, end, bottom),
+                Stroke::Line(end, bottom, neck, bottom),
+                Stroke::Line(neck, bottom, tip, cy),
+                Stroke::Circle(cx - 0.8, cy, 0.6),
+            ];
+            frame.stroke(&shapes, WIDTH, color, clip);
+        }
+        RefMark::Commit => {
+            let shapes = [
+                Stroke::Circle(cx, cy, 2.5),
+                Stroke::Line(cx - 4.5, cy, cx - 2.5, cy),
+                Stroke::Line(cx + 2.5, cy, cx + 4.5, cy),
+            ];
+            frame.stroke(&shapes, WIDTH, color, clip);
+        }
+    }
+}
+
+/// 绘制小号「拉取」图标，约 10×10，笔宽 1.25：指向左下的箭头，提交从远程落到本地。
+pub fn pull_small(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let (far, near, arm) = (4.5, -4.5, 5.0);
+    let (x, y) = (cx + near, cy - near);
+    let shapes = [
+        Stroke::Line(cx + far, cy - far, x, y),
+        Stroke::Line(x, y, x, y - arm),
+        Stroke::Line(x, y, x + arm, y),
+    ];
+    frame.stroke(&shapes, 1.25, color, clip);
+}
+
+/// 绘制小号「推送」图标，约 10×10，笔宽 1.25：指向右上的箭头，与 [`pull_small`] 方向相反。
+pub fn push_small(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let (far, arm) = (4.5, 5.0);
+    let (x, y) = (cx + far, cy - far);
+    let shapes = [
+        Stroke::Line(cx - far, cy + far, x, y),
+        Stroke::Line(x, y, x - arm, y),
+        Stroke::Line(x, y, x, y + arm),
+    ];
+    frame.stroke(&shapes, 1.25, color, clip);
+}
+
+/// 绘制列表各行名字前面的引用图标，约 12×10，笔宽 1.25 逻辑像素：与 [`branch_small`] 同样粗细，
+/// 用在小号文字旁。图形与 [`ref_mark`] 相同，按列表的行放大，横向不再压在 9 以内。
+pub fn ref_icon(
+    frame: &mut Frame<'_>,
+    mark: RefMark,
+    (cx, cy): (f32, f32),
+    color: Color,
+    clip: Rect,
+) {
+    const WIDTH: f32 = 1.25;
+    match mark {
+        RefMark::Branch => branch_small(frame, (cx, cy), color, clip),
+        RefMark::Remote => {
+            let base = cy + 4.0;
+            let shapes = [
+                Stroke::Arc(cx - 3.2, cy + 1.0, 3.0, FRAC_PI_2, 1.5 * PI),
+                Stroke::Arc(cx, cy - 0.6, 3.6, -0.9 * PI, -0.1 * PI),
+                Stroke::Arc(cx + 3.4, cy + 1.15, 2.85, -FRAC_PI_2, FRAC_PI_2),
+                Stroke::Line(cx - 3.2, base, cx + 3.4, base),
+            ];
+            frame.stroke(&shapes, WIDTH, color, clip);
+        }
+        RefMark::Tag => {
+            let (tip, neck, end) = (cx - 6.0, cx - 2.0, cx + 5.5);
+            let (top, bottom, c) = (cy - 4.5, cy + 4.5, 1.5);
+            let shapes = [
+                Stroke::Line(tip, cy, neck, top),
+                Stroke::Line(neck, top, end - c, top),
+                Stroke::Arc(end - c, top + c, c, -FRAC_PI_2, 0.0),
+                Stroke::Line(end, top + c, end, bottom - c),
+                Stroke::Arc(end - c, bottom - c, c, 0.0, FRAC_PI_2),
+                Stroke::Line(end - c, bottom, neck, bottom),
+                Stroke::Line(neck, bottom, tip, cy),
+                Stroke::Circle(cx - 1.5, cy, 0.9),
+            ];
+            frame.stroke(&shapes, WIDTH, color, clip);
+        }
+        RefMark::Commit => {
+            let shapes = [
+                Stroke::Circle(cx, cy, 3.0),
+                Stroke::Line(cx - 6.5, cy, cx - 3.0, cy),
+                Stroke::Line(cx + 3.0, cy, cx + 6.5, cy),
+            ];
+            frame.stroke(&shapes, WIDTH, color, clip);
+        }
+    }
 }
 
 /// 绘制项目徽章右下角的工作树记号，约 9×9：一个底色为 `fill` 的圆，外圈为 `ring`（与徽章底色

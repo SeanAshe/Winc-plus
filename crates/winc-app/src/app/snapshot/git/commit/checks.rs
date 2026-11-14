@@ -1,4 +1,4 @@
-//! 提交视图中勾选与暂存的测试。
+//! 勾选式的测试：勾选记在界面中，提交的是勾上的文件、改动和行在工作区里的内容。
 
 use super::*;
 
@@ -238,7 +238,7 @@ fn untracked_files_stay_out_of_the_commit_until_checked() {
         None
     );
     assert_eq!(app.commit_files(), [main.clone(), new.clone()]);
-    assert_eq!(app.commit_scope(), Some(1));
+    assert_eq!(app.commit_scope(), Some(CommitScope::Staged(1)));
 
     // 收起和展开不改变勾选；收起时切换文件跳过这一组。
     app.press_commit(CommitTarget::Group(CommitGroup::Untracked));
@@ -249,7 +249,7 @@ fn untracked_files_stay_out_of_the_commit_until_checked() {
 
     app.press_commit(CommitTarget::GroupCheck(CommitGroup::Untracked));
     assert!(app.git.commit.checked(entry));
-    assert_eq!(app.commit_scope(), Some(2));
+    assert_eq!(app.commit_scope(), Some(CommitScope::Staged(2)));
     app.press_commit(CommitTarget::GroupCheck(CommitGroup::Untracked));
     assert!(!app.git.commit.checked(entry));
 
@@ -369,7 +369,7 @@ fn line_checks_keep_their_state_until_the_change_is_edited() {
     let inclusion = |app: &App, key| {
         app.git
             .commit
-            .hunk_inclusions(&entry, &[(key, old.clone())])[0]
+            .pick_inclusions(&entry, &[(key, old.clone())])[0]
             .clone()
     };
     assert_eq!(inclusion(&app, key), Pick::Apply);
@@ -441,7 +441,7 @@ fn identical_changes_are_checked_one_by_one() {
         let all: Vec<_> = (view.keys.iter().zip(&view.hunks))
             .map(|(&k, h)| (k, h.old.clone()))
             .collect();
-        app.git.commit.hunk_inclusions(entry, &all)
+        app.git.commit.pick_inclusions(entry, &all)
     };
     let view = app.editor.active().unwrap().diff.as_deref().unwrap();
     let same: Vec<usize> = (0..view.hunks.len())
@@ -473,4 +473,171 @@ fn identical_changes_are_checked_one_by_one() {
     assert_eq!(head.matches("let same = 1;").count(), 1, "{head}");
     assert!(head.contains("let value_40 = 40;\nlet same = 1;"), "{head}");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 提交视图里文件的右键菜单：未跟踪的文件可以加入 `.gitignore`，任何文件都可以单独储藏。
+#[test]
+fn a_changed_file_can_be_ignored_or_stashed_from_its_menu() {
+    use crate::app::git::commit::IgnoreKind;
+    use crate::app::input::context_menu::MenuCommand::{GitIgnore, GitStashFiles};
+    use crate::app::input::context_menu::MenuTarget;
+    let Some((mut app, root)) = git_app("git-ignore-and-stash", false) else {
+        return;
+    };
+    let (main, new) = (root.join("src/main.rs"), root.join("src/new.rs"));
+    let commands = |app: &mut App, path: &Path| -> Vec<_> {
+        app.open_context_menu(MenuTarget::CommitFile(path.to_path_buf()), (0.0, 0.0));
+        menu_commands(app).into_iter().map(|(c, _)| c).collect()
+    };
+
+    // 已跟踪的文件没有「加入 .gitignore」；未跟踪的文件有三种范围。
+    let listed = commands(&mut app, &main);
+    assert!(listed.contains(&GitStashFiles));
+    assert!(
+        !listed.iter().any(|c| matches!(c, GitIgnore(_))),
+        "{listed:?}"
+    );
+    let listed = commands(&mut app, &new);
+    for kind in [IgnoreKind::File, IgnoreKind::Extension, IgnoreKind::Folder] {
+        assert!(listed.contains(&GitIgnore(kind)), "{kind:?} {listed:?}");
+    }
+
+    // 忽略这一个文件：写入仓库根目录的 `.gitignore`，它不再列在更改中；重复忽略不重复写入。
+    app.run_menu_command(GitIgnore(IgnoreKind::File));
+    let ignore = root.join(".gitignore");
+    assert_eq!(std::fs::read_to_string(&ignore).unwrap(), "/src/new.rs\n");
+    let listed_paths = |app: &App| -> Vec<PathBuf> {
+        let status = app.git.status.as_ref().unwrap();
+        status.entries.iter().map(|e| e.path.clone()).collect()
+    };
+    assert_eq!(listed_paths(&app), [main.clone(), ignore.clone()]);
+    app.git_ignore(&new, IgnoreKind::File);
+    assert_eq!(std::fs::read_to_string(&ignore).unwrap(), "/src/new.rs\n");
+
+    // 只储藏 `src/main.rs`：它恢复为上次提交的内容，`.gitignore` 仍在更改中。
+    let changed = std::fs::read_to_string(&main).unwrap();
+    let _ = commands(&mut app, &main);
+    app.run_menu_command(GitStashFiles);
+    assert_eq!(app.focus, Focus::Prompt);
+    app.edit_field(|f| f.insert("只有 main"));
+    app.submit_prompt();
+    assert_ne!(std::fs::read_to_string(&main).unwrap(), changed);
+    assert_eq!(listed_paths(&app), std::slice::from_ref(&ignore));
+    assert_eq!(app.git.stashes.len(), 1);
+    assert!(app.git.stashes[0].message.contains("只有 main"));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// 提交按钮的菜单：签署按仓库记住，跳过钩子只对下一次提交有效。
+#[test]
+fn the_commit_menu_signs_off_and_skips_hooks_once() {
+    use crate::app::input::context_menu::MenuCommand::{CommitNoVerify, CommitSignOff};
+    use crate::app::input::context_menu::MenuEntry;
+    let Some((mut app, root)) = git_app("git-commit-options", false) else {
+        return;
+    };
+    app.run_action(Action::ShowCommit);
+    let menu = app.commit_button_menu();
+    for command in [CommitSignOff, CommitNoVerify] {
+        assert!(
+            menu.contains(&MenuEntry::Item(command, true)),
+            "{command:?}"
+        );
+        assert!(!app.menu_checked(command));
+    }
+    app.run_commit_button_command(CommitSignOff);
+    app.run_commit_button_command(CommitNoVerify);
+    assert!(app.menu_checked(CommitSignOff) && app.menu_checked(CommitNoVerify));
+    assert_eq!(app.state.sign_off_repos, std::slice::from_ref(&root));
+
+    app.git.commit.message.set_text("带签署的提交");
+    app.git_commit();
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(&root)
+        .args(["log", "-1", "--format=%B"])
+        .output()
+        .unwrap();
+    let message = String::from_utf8_lossy(&out.stdout).into_owned();
+    assert!(message.contains("Signed-off-by: t <t@t>"), "{message}");
+    // 提交成功后「跳过钩子」关闭，签署仍然开着；再点一次关闭签署。
+    assert!(!app.menu_checked(CommitNoVerify) && app.menu_checked(CommitSignOff));
+    app.run_commit_button_command(CommitSignOff);
+    assert!(app.state.sign_off_repos.is_empty());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// 更改列表中的三个键：显示差异、打开源文件、回滚；它们只在焦点位于更改列表时生效，同一个键
+/// 在别处仍是原来的命令。右键菜单按这些键显示快捷键。
+#[test]
+fn the_changes_list_has_keys_for_diff_source_and_rollback() {
+    use crate::keymap::{self, Action, Context, Lookup};
+    let Some((mut app, root)) = git_app("git-changes-keys", false) else {
+        return;
+    };
+    let main = root.join("src/main.rs");
+    let before = std::fs::read_to_string(&main).unwrap();
+    app.run_action(Action::ShowCommit);
+    paint(&mut app);
+    let key = |action: Action| keymap::single_stroke(action, Context::Changes).unwrap();
+    let first = |context: Context, action: Action| match keymap::lookup(
+        keymap::current(),
+        key(action),
+        None,
+        context,
+    ) {
+        Lookup::Run(actions) => actions.first().copied(),
+        _ => None,
+    };
+    // 在更改列表中这三个键先执行列表的命令；在编辑区、文件树中不是。
+    let actions = [
+        Action::ChangesShowDiff,
+        Action::ChangesOpenSource,
+        Action::ChangesRollback,
+    ];
+    for action in actions {
+        assert_eq!(first(Context::Changes, action), Some(action), "{action:?}");
+        assert_ne!(first(Context::Editor, action), Some(action), "{action:?}");
+        assert_ne!(first(Context::Tree, action), Some(action), "{action:?}");
+    }
+
+    // 右键菜单中这三项写着各自的键；同样的菜单项在文件树的菜单中没有键。
+    use crate::app::input::context_menu::MenuCommand;
+    let items = [
+        MenuCommand::GitShowDiff,
+        MenuCommand::GitOpenFile,
+        MenuCommand::GitRollbackFile,
+    ];
+    for (item, action) in items.into_iter().zip(actions) {
+        assert_eq!(
+            item.shortcut(Context::Changes),
+            Some(key(action)),
+            "{item:?}"
+        );
+        assert_eq!(item.shortcut(Context::Tree), None, "{item:?}");
+    }
+
+    // 选中改过的文件：差异在预览标签中，焦点仍在列表上。
+    let status = app.git.status.as_ref().unwrap();
+    let index = status.entries.iter().position(|e| e.path == main);
+    app.press_commit(CommitTarget::File(index.unwrap()));
+    assert_eq!(app.focus, Focus::CommitList);
+    // 显示差异：焦点移到差异上。焦点不在列表时这个键不归列表处理。
+    assert!(app.on_shortcut(key(Action::ChangesShowDiff)));
+    assert_eq!(app.focus, Focus::Editor);
+    assert!(app.editor.active().unwrap().diff.is_some());
+    assert!(!app.run_changes_action(Action::ChangesShowDiff));
+
+    // 打开源文件：编辑区打开的是文件本身，不是差异。
+    app.focus = Focus::CommitList;
+    assert!(app.on_shortcut(key(Action::ChangesOpenSource)));
+    let doc = app.editor.active().unwrap();
+    assert!(doc.diff.is_none());
+    assert_eq!(doc.path.as_deref(), Some(main.as_path()));
+
+    // 回滚选中的文件（没有窗口时确认直接通过）。
+    app.focus = Focus::CommitList;
+    assert!(app.on_shortcut(key(Action::ChangesRollback)));
+    assert_ne!(std::fs::read_to_string(&main).unwrap(), before);
+    let _ = std::fs::remove_dir_all(&root);
 }

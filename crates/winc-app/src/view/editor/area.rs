@@ -100,6 +100,8 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64);
+    // 当前行追溯：光标所在行的末尾写一行说明。
+    let line_blame = app.inline_blame(now);
     let blame_hover = match app.pointer.hover {
         Hover::Blame(line) => blame.as_ref().and_then(|b| b.lines.get(line).copied()),
         _ => None,
@@ -206,6 +208,7 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
             ages,
             now,
             blame_hover,
+            line_blame,
         };
 
         screen.draw_conflict_tints(frame, &conflicts);
@@ -328,6 +331,8 @@ struct Screen<'a> {
     ages: Option<(i64, i64)>,
     now: i64,
     blame_hover: Option<u32>,
+    /// 当前行追溯：光标所在的行和要写在行尾的说明。
+    line_blame: Option<(usize, String)>,
 }
 
 /// 行尾可点击的区域及其所在的行。

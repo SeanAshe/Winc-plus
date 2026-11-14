@@ -636,12 +636,9 @@ fn draw_body(
     let hunk_y =
         |view: &DiffView, h: usize| unified.then(|| body.y + (view.hunk_pos(h) - pos) as f32 * lh);
     let drawn = drawn_rows(view, body, (scroll, shift), pos, lh);
-    // 各段改动的提交方式；文件不在提交视图里时为空，不绘制任何勾选框。
-    let inclusions: Vec<Pick> = app.diff_entry(view).map_or_else(Vec::new, |entry| {
-        let all: Vec<(u64, std::ops::Range<usize>)> = (view.keys.iter().zip(&view.hunks))
-            .map(|(&key, hunk)| (key, hunk.old.clone()))
-            .collect();
-        (app.git.commit).hunk_inclusions(entry, &all)
+    // 各段改动的暂存状态；文件不在提交视图里、只能按文件暂存时为空，不绘制任何勾选框。
+    let inclusions: Vec<Pick> = (app.diff_entry(view)).map_or_else(Vec::new, |entry| {
+        app.git.commit.hunk_inclusions(entry, view)
     });
     let mut chars: Vec<char> = Vec::with_capacity(256);
     let mut tokens = Vec::with_capacity(32);

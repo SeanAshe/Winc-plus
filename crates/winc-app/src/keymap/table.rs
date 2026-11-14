@@ -390,6 +390,10 @@ pub fn bindings(os: Os) -> Vec<Binding> {
     }
     t.one(FindInFiles, Global, c(cmd | shift, 'f'));
     t.one(ReplaceInFiles, Global, c(cmd | shift, 'h'));
+    // 更改列表中对选中文件的操作。登记在 `F4` 的全局绑定之前：同一个键在列表中先执行这里的。
+    t.one(ChangesShowDiff, Changes, c(cmd, 'd'));
+    t.one(ChangesOpenSource, Changes, key(none, F(4)));
+    t.one(ChangesRollback, Changes, c(cmd | alt, 'z'));
     t.one(NextResult, Global, key(none, F(4)));
     t.one(PreviousResult, Global, key(shift, F(4)));
     // 同一命令有两组绑定，提示中显示先登记的 `F7` / `⇧F7`。

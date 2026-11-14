@@ -142,6 +142,22 @@ pub(crate) fn run(
     timeout: Duration,
     cancel: &Cancel,
 ) -> Result<Output, RunError> {
+    run_watched(command, input, timeout, cancel, None)
+}
+
+/// 命令运行途中每读到一段输出（标准输出或标准错误）就调用一次，在读取的线程上。
+pub(crate) type Watch = Arc<dyn Fn(&[u8]) + Send + Sync>;
+
+/// 和 [`run`] 相同，另外把运行途中读到的输出随时交给 `watch`。
+///
+/// 在远端运行的命令结束后才取回输出，途中不调用 `watch`。
+pub(crate) fn run_watched(
+    command: &mut Command,
+    input: Vec<u8>,
+    timeout: Duration,
+    cancel: &Cancel,
+    watch: Option<Watch>,
+) -> Result<Output, RunError> {
     if let Some(dir) = command.get_current_dir()
         && winc_backend::is_remote(dir)
     {
@@ -202,9 +218,10 @@ pub(crate) fn run(
     .map(|pipe| {
         let (sender, receiver) = mpsc::channel();
         let too_large = too_large.clone();
+        let watch = watch.clone();
         if let Some(pipe) = pipe {
             thread::spawn(move || {
-                let _ = sender.send(read_capped(pipe, pid, &too_large));
+                let _ = sender.send(read_capped(pipe, pid, &too_large, watch.as_ref()));
             });
         } else {
             let _ = sender.send(Vec::new());
@@ -398,10 +415,15 @@ fn exit_status(code: Option<i32>) -> ExitStatus {
     }
 }
 
-/// 读取管道直到关闭，最多读 [`MAX_OUTPUT`] 字节，返回已读到的内容。
+/// 读取管道直到关闭，最多读 [`MAX_OUTPUT`] 字节，返回已读到的内容；每读到一段先交给 `watch`。
 ///
 /// 超过上限时设置 `too_large` 并终止进程组 `pid`。
-fn read_capped(mut pipe: impl Read, pid: u32, too_large: &AtomicBool) -> Vec<u8> {
+fn read_capped(
+    mut pipe: impl Read,
+    pid: u32,
+    too_large: &AtomicBool,
+    watch: Option<&Watch>,
+) -> Vec<u8> {
     let mut out = Vec::new();
     // 每次读 64 KiB（经验值），与常见的管道缓冲区大小相当，读满一次的等待即可返回。
     let mut buffer = vec![0; 64 << 10];
@@ -413,7 +435,12 @@ fn read_capped(mut pipe: impl Read, pid: u32, too_large: &AtomicBool) -> Vec<u8>
                 kill_group(pid);
                 break;
             }
-            Ok(n) => out.extend_from_slice(&buffer[..n]),
+            Ok(n) => {
+                if let Some(watch) = watch {
+                    watch(&buffer[..n]);
+                }
+                out.extend_from_slice(&buffer[..n]);
+            }
             Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
             Err(_) => break,
         }

@@ -1,9 +1,81 @@
 //! 提交图：每行的点和连线，连线可以点的范围。
 //!
 //! 车道位置、车道间距、线的粗细来自 `log` 模块的常量；颜色按车道序号从调色板里取，与徽章
-//! 同一组色。整行由 [`draw_graph_row`] 画出，可点击的范围一并写进 `hits`。
+//! 同一组色。整行由 [`draw_graph_row`] 画出，可点击的范围一并写进 `hits`；跨很多行直着穿过的
+//! 长连线只画两头（见 [`long_cuts`]）。
 
 use super::*;
+
+/// 直着穿过至少这么多行的一段线算长连线，中间不画（行）。
+///
+/// 约为一屏的行数：短于一屏的线两头同时看得见，整段照画；更长的线把提交图分得很碎，又很少
+/// 需要逐行看清。
+const LONG_EDGE: usize = 30;
+/// 长连线两头各画几行（行）：连着提交的那一截看得出线往哪去，末端画箭头。
+const LONG_STUB: usize = 2;
+
+/// 一行里一条车道上的长连线怎么画（见 [`long_cuts`]）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Cut {
+    /// 在中间：不画。
+    Hidden,
+    /// 上面那一截的最后一行：下半行画成朝下的箭头。
+    Down,
+    /// 下面那一截的第一行：上半行画成朝上的箭头。
+    Up,
+}
+
+/// 第 `row` 行里属于长连线、要截掉或画箭头的车道。
+///
+/// 一条线在某条车道上连续直着穿过的几行（不经过圆点、不换车道）是一段；一段至少
+/// [`LONG_EDGE`] 行时只画两头各 [`LONG_STUB`] 行。没取完的日志里，到已取回的最后一行仍在
+/// 穿过的当作还要继续往下。`shown` 所在的线（选中的提交那条）照常画全。只往上下各查
+/// `LONG_EDGE` 行，每帧的开销与可见的行数成正比。
+pub(super) fn long_cuts(view: &LogView, row: usize, shown: Option<u32>) -> Vec<(usize, Cut)> {
+    let Some(graph) = view.graph.get(row) else {
+        return Vec::new();
+    };
+    // 第 `r` 行在车道 `lane` 上有没有直着穿过的线 `line`。
+    let through = |r: usize, lane: usize, line: u32| {
+        view.graph.get(r).is_some_and(|g| {
+            let straight =
+                |s: &winc_core::graph::Segment| s.from == lane && s.to == lane && s.line == line;
+            g.lane != lane && g.up.iter().any(straight) && g.down.iter().any(straight)
+        })
+    };
+    let mut cuts = Vec::new();
+    for s in graph
+        .up
+        .iter()
+        .filter(|s| s.from == s.to && s.to != graph.lane)
+    {
+        if shown == Some(s.line) || !through(row, s.to, s.line) {
+            continue;
+        }
+        let (lane, line) = (s.to, s.line);
+        let above = (1..=LONG_EDGE)
+            .take_while(|&d| row >= d && through(row - d, lane, line))
+            .count();
+        let open = !view.complete;
+        let below = (1..=LONG_EDGE)
+            .take_while(|&d| {
+                let r = row + d;
+                through(r, lane, line) || (open && r >= view.graph.len())
+            })
+            .count();
+        if above + below + 1 < LONG_EDGE {
+            continue;
+        }
+        let cut = match (above, below) {
+            (a, _) if a == LONG_STUB - 1 => Cut::Down,
+            (_, b) if b == LONG_STUB - 1 => Cut::Up,
+            (a, b) if a >= LONG_STUB && b >= LONG_STUB => Cut::Hidden,
+            _ => continue,
+        };
+        cuts.push((lane, cut));
+    }
+    cuts
+}
 
 /// 一行的提交图：上半行、下半行的线，再在中间画圆点（普通提交实心、合并提交小一圈、`HEAD` 是圈）。
 ///
@@ -15,7 +87,7 @@ use super::*;
 pub(super) fn draw_graph_row(
     app: &App,
     frame: &mut Frame<'_>,
-    (graph, line): (&GraphRow, Option<u32>),
+    (graph, line, cuts): (&GraphRow, Option<u32>, &[(usize, Cut)]),
     (commit, row): (&Commit, usize),
     (x0, y, band): (f32, f32, Option<Color>),
     clip: Rect,
@@ -50,7 +122,26 @@ pub(super) fn draw_graph_row(
         for (segments, top, bottom) in halves {
             let this_pass = |s: &&winc_core::graph::Segment| faded(s.line) == pass_faded;
             for s in segments.iter().filter(|s| !beyond(s)).filter(this_pass) {
-                let edge = lane_edge((lane_x(s.from), top), (lane_x(s.to), bottom), top == y);
+                // 长连线：中间不画，两头的末端画箭头（箭头这半行的线短一截，不碰到箭尖）。
+                let cut = (s.from == s.to)
+                    .then(|| cuts.iter().find(|(lane, _)| *lane == s.to).map(|c| c.1))
+                    .flatten();
+                let upper = top == y;
+                let (top, bottom) = match cut {
+                    Some(Cut::Hidden) => continue,
+                    Some(Cut::Down) if !upper => {
+                        let tip = (lane_x(s.to), bottom - 2.0);
+                        arrow(frame, tip, true, color(s.color, s.line), clip);
+                        (top, bottom - 4.0)
+                    }
+                    Some(Cut::Up) if upper => {
+                        let tip = (lane_x(s.to), top + 2.0);
+                        arrow(frame, tip, false, color(s.color, s.line), clip);
+                        (top + 4.0, bottom)
+                    }
+                    _ => (top, bottom),
+                };
+                let edge = lane_edge((lane_x(s.from), top), (lane_x(s.to), bottom), upper);
                 frame.stroke(&edge, GRAPH_LINE, color(s.color, s.line), clip);
                 for rect in edge_hit_rects(&edge) {
                     line_hits.push((rect.intersect(row_rect), LogTarget::Line(row, s.line)));
@@ -90,6 +181,18 @@ pub(super) fn draw_graph_row(
             dot(frame, hole, band);
         }
     }
+}
+
+/// 在 `tip` 画长连线末端的箭头：朝下（`down`）或朝上，两笔与线同样粗细。
+fn arrow(frame: &mut Frame<'_>, tip: (f32, f32), down: bool, color: Color, clip: Rect) {
+    // 箭头两翼的横、竖跨度（逻辑像素，经验值）：比车道间距小，不碰到相邻车道。
+    let (w, h) = (3.5, 3.5);
+    let back = if down { tip.1 - h } else { tip.1 + h };
+    let wings = [
+        Stroke::Line(tip.0 - w, back, tip.0, tip.1),
+        Stroke::Line(tip.0 + w, back, tip.0, tip.1),
+    ];
+    frame.stroke(&wings, GRAPH_LINE, color, clip);
 }
 
 /// 从 `a` 连到 `b` 的一段提交图的线（半行高）。

@@ -541,6 +541,10 @@ const TERMINAL: &[Field] = &[
 const GIT: &[Field] = &[
     bool_field!("enabled", git_enabled),
     bool_field!("confirmPush", git_confirm_push),
+    bool_field!("systemProxy", git_system_proxy),
+    bool_field!("inlineBlame", git_inline_blame),
+    bool_field!("autoFetch", git_auto_fetch),
+    bool_field!("stagingArea", git_staging_area),
     Field {
         key: "repositoryScanDepth",
         read: |config, value, name, problems| {

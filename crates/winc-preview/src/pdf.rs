@@ -1,5 +1,6 @@
 //! PDF 的逐页渲染：用系统的 PDF 渲染器（macOS 的 CoreGraphics、Windows 的
-//! `Windows.Data.Pdf`）把一页画成指定大小的位图，只做预览，不解析文字和链接。
+//! `Windows.Data.Pdf`）把一页画成指定大小的位图，只做预览，不解析文字和链接；目录（书签）由
+//! [`outline`] 直接读文件得到。
 //!
 //! 打开文档时只读取页数和各页大小；渲染按页、按指定大小进行，调用方只渲染视口附近的页，内存只占
 //! 这几页的位图。系统的 PDF 对象不能跨线程使用：[`Document`] 只能在打开它的线程上使用，调用方
@@ -8,6 +9,10 @@
 use std::path::Path;
 
 use crate::image::Pixels;
+
+mod objects;
+mod outline;
+pub use outline::{OutlineItem, outline, read_outline};
 
 #[cfg(target_os = "macos")]
 mod mac;

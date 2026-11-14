@@ -21,7 +21,7 @@ impl App {
         // 选择器里的菜单选了一项：操作开始，选择器不再需要；取消时选择器留着。
         if matches!(
             menu.target,
-            MenuTarget::BranchOps(_) | MenuTarget::Location(..)
+            MenuTarget::BranchOps(_) | MenuTarget::TagOps(_) | MenuTarget::Location(..)
         ) {
             self.close_picker();
         }
@@ -42,6 +42,14 @@ impl App {
                     self.choose_form_base(base.map(|b| b.name.clone()));
                 }
             }
+            MenuTarget::FormRemote => {
+                if let MenuCommand::FormRemote(i) = command {
+                    let remote = self.git.remotes.get(i).cloned();
+                    if remote.is_some() {
+                        self.choose_form_base(remote);
+                    }
+                }
+            }
             MenuTarget::StatusPlaces(places) => match command {
                 MenuCommand::StatusPlace(i) => {
                     if let Some(place) = places.get(i) {
@@ -51,13 +59,37 @@ impl App {
                 MenuCommand::NewWorktree => self.open_worktree_dialog(),
                 _ => {}
             },
+            MenuTarget::LogColumns => {
+                if let MenuCommand::LogColumn(column) = command {
+                    self.toggle_log_column(column);
+                }
+            }
+            MenuTarget::LogDate => {
+                if let MenuCommand::LogSince(days) = command {
+                    self.change_log_query(|q| q.since_days = (days > 0).then_some(days));
+                }
+            }
+            MenuTarget::LogPath => match command {
+                MenuCommand::LogPath(0) => self.change_log_query(|q| q.paths.clear()),
+                MenuCommand::LogPath(i) => {
+                    if let Some(path) = self.git.log.paths.get(i - 1).cloned() {
+                        self.toggle_log_path(path);
+                    }
+                }
+                MenuCommand::LogPathOther => self.open_log_path_dialog(),
+                _ => {}
+            },
+            MenuTarget::LogAuthor if command == MenuCommand::LogAuthorMe => {
+                let me = self.git.my_email.clone();
+                self.toggle_log_author(me);
+            }
+            // 作者可以选几位：选一位加上或去掉它，「全部作者」清空。
             MenuTarget::LogAuthor => {
                 if let MenuCommand::LogAuthor(i) = command {
-                    let author = i
-                        .checked_sub(1)
-                        .and_then(|i| self.git.log.authors.get(i))
-                        .cloned();
-                    self.change_log_query(|q| q.author = author);
+                    match i.checked_sub(1).and_then(|i| self.git.log.authors.get(i)) {
+                        Some(author) => self.toggle_log_author(author.clone()),
+                        None => self.change_log_query(|q| q.authors.clear()),
+                    }
                 }
             }
             MenuTarget::Editor(id) => self.run_editor_command(command, id),
@@ -222,6 +254,11 @@ impl App {
                     self.run_branch_op(op, branch);
                 }
             }
+            MenuTarget::TagOps(_) => {
+                if let MenuCommand::PickerTag(op, i) = command {
+                    self.run_picker_tag(op, i);
+                }
+            }
             MenuTarget::Location(path, worktree) => match command {
                 MenuCommand::LocationNewWindow => self.open_in_new_window(&path),
                 MenuCommand::LocationReveal => self.reveal_in_file_manager(&path),
@@ -314,6 +351,8 @@ impl App {
                     self.git_file_history(path);
                 }
             }
+            MenuCommand::CommitCheck(on) => self.stage_paths(&[target], on),
+            MenuCommand::GitRollbackFile => self.confirm_rollback(vec![target]),
             MenuCommand::NewFile | MenuCommand::NewFolder => {
                 // 右键时已选中了那一行（空白处则取消选中），新建的位置由选中的行决定。
                 self.start_new_entry(command == MenuCommand::NewFolder);
@@ -360,6 +399,9 @@ impl App {
         }
         match command {
             MenuCommand::ToggleBlame => self.toggle_blame(),
+            MenuCommand::GitAction(action) => {
+                self.run_action(action);
+            }
             MenuCommand::Cut => self.copy(true),
             MenuCommand::Copy => self.copy(false),
             MenuCommand::Paste => self.paste(),
@@ -406,6 +448,16 @@ impl App {
             MenuCommand::FileHistory => {
                 if let Some(path) = path {
                     self.git_file_history(&path);
+                }
+            }
+            MenuCommand::CommitCheck(on) => {
+                if let Some(path) = path {
+                    self.stage_paths(&[path], on);
+                }
+            }
+            MenuCommand::GitRollbackFile => {
+                if let Some(path) = path {
+                    self.confirm_rollback(vec![path]);
                 }
             }
             MenuCommand::Close => self.close_tab(index),

@@ -259,26 +259,63 @@ fn showing_as_tree_switches_the_changes_between_a_tree_and_a_flat_list() {
         group
     );
 
-    // 「⋯」里的「以树形显示」：按目录排成树，排成树时打勾；记进状态，以后打开的窗口、下次启动
-    // 沿用。
-    let toggle = |app: &mut App| {
+    // 「⋯」里「显示与排序」的「以树形显示」「以列表显示」是一组单选：选中的打勾，再点已经选中
+    // 的一项不变；记进状态，以后打开的窗口、下次启动沿用。
+    let choose = |app: &mut App, command: MenuCommand| {
         app.open_context_menu(MenuTarget::CommitMore, (0.0, 0.0));
-        app.run_menu_command(MenuCommand::CommitTree);
+        app.run_menu_command(command);
     };
     assert!(!app.menu_checked(MenuCommand::CommitTree));
-    toggle(&mut app);
+    assert!(app.menu_checked(MenuCommand::CommitList));
+    choose(&mut app, MenuCommand::CommitTree);
+    choose(&mut app, MenuCommand::CommitTree);
     assert!(!app.git.commit.flat());
     assert!(app.menu_checked(MenuCommand::CommitTree));
+    assert!(!app.menu_checked(MenuCommand::CommitList));
     assert!(
         app.commit_rows()
             .iter()
             .any(|r| matches!(r, CommitRow::Dir { .. }))
     );
     assert!(app.state.commit_tree);
-    // 再点回到平铺。
-    toggle(&mut app);
+    // 选「以列表显示」回到平铺。
+    choose(&mut app, MenuCommand::CommitList);
     assert!(app.git.commit.flat());
     assert!(!app.state.commit_tree);
+
+    // 排序方式也是单选，默认按路径；按名称时同一组里的文件按文件名排，不看目录，记进状态。
+    use crate::app::CommitSort;
+    assert!(app.menu_checked(MenuCommand::CommitSortBy(CommitSort::Path)));
+    let names = |app: &App| -> Vec<String> {
+        let status = app.git.status.as_ref().unwrap();
+        let rows = app.commit_rows();
+        let files = rows.iter().filter_map(|row| match row {
+            CommitRow::File { index, .. } => status.entries.get(*index),
+            _ => None,
+        });
+        files
+            .map(|e| e.path.file_name().unwrap().to_string_lossy().into_owned())
+            .collect()
+    };
+    let by_path = names(&app);
+    choose(&mut app, MenuCommand::CommitSortBy(CommitSort::Name));
+    assert!(app.menu_checked(MenuCommand::CommitSortBy(CommitSort::Name)));
+    assert!(!app.menu_checked(MenuCommand::CommitSortBy(CommitSort::Path)));
+    assert_eq!(app.state.commit_sort, "name");
+    let by_name = names(&app);
+    assert_ne!(by_name, by_path);
+    assert_eq!(by_name.len(), by_path.len());
+    // 不同目录里同名的文件排在一起；数字按大小排，`2.png` 在 `10.png` 前面。
+    let at = |name: &str| {
+        let found = by_name.iter().position(|n| n.eq_ignore_ascii_case(name));
+        found.unwrap_or_else(|| panic!("{name}: {by_name:?}"))
+    };
+    assert_eq!(by_name[0], by_name[1]);
+    assert!(at("2.png") < at("10.png"));
+    assert!(at("11.png") < at("arm_l.png") && at("arm_r.png") < at("bg.png"));
+    choose(&mut app, MenuCommand::CommitSortBy(CommitSort::Path));
+    assert_eq!(names(&app), by_path);
+    assert_eq!(app.state.commit_sort, "");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -754,7 +791,7 @@ fn the_commit_button_names_its_scope_only_for_a_plain_commit() {
     };
     app.run_action(Action::ShowCommit);
     paint(&mut app);
-    assert_eq!(app.commit_scope(), Some(1));
+    assert_eq!(app.commit_scope(), Some(CommitScope::Staged(1)));
 
     // 没有勾选、修改上一次提交时都不写范围。
     app.press_commit(CommitTarget::GroupCheck(CommitGroup::Changes));
@@ -767,7 +804,7 @@ fn the_commit_button_names_its_scope_only_for_a_plain_commit() {
     // 游离 `HEAD` 时也写文件数，分支写在上方的分支行里。
     git_in(&root, &["checkout", "-q", "--detach"]);
     app.git_refresh();
-    assert_eq!(app.commit_scope(), Some(1));
+    assert_eq!(app.commit_scope(), Some(CommitScope::Staged(1)));
 
     let _ = std::fs::remove_dir_all(&root);
 }

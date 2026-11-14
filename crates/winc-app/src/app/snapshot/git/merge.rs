@@ -153,7 +153,7 @@ fn files_with_conflict_markers_are_not_committed() {
             .any(|(_, t)| *t == CommitTarget::Abort)
     );
     // 仍有冲突标记时按钮不可用，按下也不会提交。
-    let blocker = app.git.commit.blocker(&status);
+    let blocker = app.commit_blocker(&status);
     assert_eq!(blocker.as_deref(), Some("1 个文件仍有未解决的冲突"));
     app.git_commit();
     app.git_refresh();
@@ -644,4 +644,47 @@ fn an_older_alignment_never_replaces_a_newer_one() {
     panes.accept_alignment(at, align());
     assert_eq!(panes.aligned.as_ref().unwrap().0, at + 1);
     assert_eq!(panes.aligning, Some(at + 2));
+}
+
+/// 变基停在冲突处时写明进度，「⋯」菜单里可以跳过正在处理的提交；合并没有可以跳过的提交。
+#[test]
+fn a_stopped_rebase_shows_its_progress_and_can_skip_the_commit() {
+    use crate::app::input::context_menu::{MenuCommand, MenuEntry};
+    use winc_editor::git::Operation;
+    let dir = search_folder("git-rebase-skip");
+    if !conflicted_repo(&dir) {
+        return;
+    }
+    let mut app = app_with(&dir, false);
+    app.settings_toggle(Setting::GitModule);
+    if git_unusable(&app) {
+        return;
+    }
+    let skip = MenuEntry::Item(MenuCommand::GitSkip, true);
+    assert_eq!(app.git.status.as_ref().unwrap().progress, None);
+    assert!(!app.commit_more_menu().contains(&skip));
+
+    // 改成变基：`main` 上的一个提交在 `other` 之上重放时冲突。
+    git_in(&dir, &["merge", "--abort"]);
+    let rebase = Command::new("git")
+        .arg("-C")
+        .arg(&dir)
+        .args(["rebase", "other"])
+        .output()
+        .unwrap();
+    assert!(!rebase.status.success());
+    app.git_refresh();
+    let status = app.git.status.clone().unwrap();
+    assert_eq!(status.operation, Some(Operation::Rebase));
+    assert_eq!(status.progress, Some((1, 1)));
+    assert!(app.commit_more_menu().contains(&skip));
+
+    // 跳过这个提交：没有其他提交要处理，变基结束，分支停在 `other` 的内容上。
+    app.run_commit_more_command(MenuCommand::GitSkip);
+    let status = app.git.status.clone().unwrap();
+    assert_eq!(status.operation, None);
+    assert!(status.entries.is_empty());
+    let text = std::fs::read_to_string(dir.join("src/main.rs")).unwrap();
+    assert!(text.contains("let value_10 = 1000; // other"));
+    let _ = std::fs::remove_dir_all(&dir);
 }

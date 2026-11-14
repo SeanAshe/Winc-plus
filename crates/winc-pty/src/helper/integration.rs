@@ -247,12 +247,12 @@ fn random_bytes() -> io::Result<[u8; 16]> {
 
 /// 内容不同的脚本重写一遍。
 ///
-/// 先写入同目录的临时文件再改名，同时启动的 shell 不会读到未写完的脚本。换行符统一为 LF：源码在
-/// Windows 上可能以 CRLF 检出，而这些脚本由 Linux 上的 shell 读取。
+/// 先写入同目录的临时文件再改名，同时启动的 shell 不会读到未写完的脚本。换行符统一为 LF（见
+/// [`winc_pty::scripts::unix_lines`]），与写到远端主机上的相同。
 fn write_scripts(dir: &Path, scripts: &[(&str, &str)]) -> io::Result<()> {
     for (relative, content) in scripts {
         let path = dir.join(relative);
-        let content = content.replace("\r\n", "\n");
+        let content = winc_pty::scripts::unix_lines(content);
         if fs::read(&path).is_ok_and(|old| old == content.as_bytes()) {
             continue;
         }
@@ -260,7 +260,7 @@ fn write_scripts(dir: &Path, scripts: &[(&str, &str)]) -> io::Result<()> {
             fs::create_dir_all(parent)?;
         }
         let temp = path.with_extension(format!("tmp{}", std::process::id()));
-        fs::write(&temp, content)?;
+        fs::write(&temp, content.as_bytes())?;
         fs::rename(&temp, &path)?;
     }
     Ok(())

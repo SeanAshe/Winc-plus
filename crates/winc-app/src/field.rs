@@ -574,6 +574,17 @@ impl TextField {
         self.replace_selection("", false)
     }
 
+    /// 用 `entries`（最旧的在前）换掉输入历史，结束翻阅历史的状态；超过上限时只留最新的。
+    pub fn set_history(&mut self, entries: impl IntoIterator<Item = String>) {
+        let mut entries: Vec<String> = entries.into_iter().filter(|e| !e.is_empty()).collect();
+        let over = entries.len().saturating_sub(HISTORY_LIMIT);
+        entries.drain(..over);
+        self.history = History {
+            entries,
+            cursor: None,
+        };
+    }
+
     /// 把当前文字记入输入历史；查找、替换和关闭查找条时调用。
     pub fn remember(&mut self) {
         self.history.record(&self.text);

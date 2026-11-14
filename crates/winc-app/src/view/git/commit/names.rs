@@ -32,7 +32,7 @@ pub(super) fn full_parts(text: &RowText) -> Vec<Cow<'_, str>> {
 pub(super) fn row_top(app: &App, rows: &CommitRows, row: usize, list: Rect) -> f32 {
     match app.commit_sticky(rows).iter().find(|s| s.row == row) {
         Some(s) => s.rect.y,
-        None => list.y + row as f32 * COMMIT_ROW - app.git.commit.scroll,
+        None => list.y + row as f32 * COMMIT_ROW - app.commit_block_scroll(),
     }
 }
 

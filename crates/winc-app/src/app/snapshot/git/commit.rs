@@ -8,7 +8,10 @@ use crate::app::animation::{Clock, TREE_ANIMATION};
 use crate::app::git::commit::COMMITTED_SHOWN;
 
 mod checks;
+mod compose;
 mod names;
+mod others;
+mod staging;
 mod stash;
 mod sync;
 
@@ -84,6 +87,7 @@ fn right_clicking_a_changed_file_offers_diff_open_and_rollback() {
             MenuCommand::GitShowDiff,
             MenuCommand::GitOpenFile,
             MenuCommand::GitRollbackFile,
+            MenuCommand::GitStashFiles,
             MenuCommand::RevealInTree,
             MenuCommand::Reveal,
             MenuCommand::CopyPath,
@@ -217,9 +221,11 @@ fn shoot_commit_view() {
 #[test]
 #[ignore = "截图，手动运行"]
 fn shoot_commit_widths() {
+    // 第三个宽度放得下底行的全部内容：「修改上次提交」与两个并排的按钮。
     for width in [
         crate::theme::MIN_PANEL_WIDTH,
         crate::theme::DEFAULT_PANEL_WIDTH,
+        420.0,
     ] {
         let name = format!("commit-width-{width}");
         let Some((mut app, root)) = git_app(&name, false) else {
@@ -382,9 +388,13 @@ fn the_commit_more_menu_greys_out_what_does_not_apply() {
     app.git_refresh();
     app.run_action(Action::ShowCommit);
     paint(&mut app);
+    // 显示选项在「显示与排序」子菜单里：连子菜单一起找。
     let enabled = |app: &App, command| {
-        app.commit_more_menu()
-            .contains(&MenuEntry::Item(command, true))
+        let item = MenuEntry::Item(command, true);
+        app.commit_more_menu().iter().any(|entry| match entry {
+            MenuEntry::Submenu(_, items) => items.contains(&item),
+            entry => *entry == item,
+        })
     };
     // 先清空勾选：列表初始全部展开，且没有任何文件被勾选。
     for group in CommitGroup::ALL {
@@ -431,18 +441,21 @@ fn the_commit_message_grows_with_its_text_and_the_list_follows() {
     };
     app.run_action(Action::ShowCommit);
     paint(&mut app);
-    // 自上而下依次是改动列表和底部的提交卡片；卡片里提交信息在上，底行左边是「修改上次提交」，
-    // 右边是「提交 ⌄」。空信息时高度为两行。
+    // 自上而下依次是改动列表和底部的提交卡片；卡片里先是「修改上次提交」一行，再是提交信息，
+    // 底行靠左是「提交」「提交并推送…」，最右是下拉箭头。空信息时高度为两行。
     let one = app.commit_parts();
     let card = one.card.unwrap();
     assert_eq!(one.message.h, 2.0 * 20.0 + 4.0);
     assert_eq!(card.bottom(), app.layout.sidebar.bottom() - 8.0);
     assert!(one.list.bottom() <= card.y);
     assert!(one.commit.y >= one.message.bottom());
-    assert_eq!(one.commit_menu.x, one.commit.right());
+    let push = one.push.unwrap();
+    assert!(one.commit.right() < push.x && push.right() < one.commit_menu.x);
     assert!(one.commit_menu.right() <= card.right());
     let amend = one.amend.unwrap();
-    assert!(amend.right() < one.commit.x);
+    assert!(amend.y >= card.y && amend.bottom() <= one.message.y);
+    // 「修改上次提交」整段左移 1，里面勾选框（离左边 1）的左边与按钮的左边对齐。
+    assert_eq!(one.commit.x, amend.x + 1.0);
 
     // 写入三行时框高增加一行，卡片往上长，列表随之变短。
     app.edit_field(|f| f.insert("修复配置读取\n\n启动时不再报错"));
@@ -757,6 +770,10 @@ fn snapshot_partial_lines() {
     paint(&mut app);
     let text = std::fs::read_to_string(&file).unwrap();
     let line = text.lines().position(|l| l == "let added_b = 2;").unwrap();
+    // 先暂存这一处改动，再取消暂存其中一行：这处改动显示为部分暂存。
+    let view = app.editor.active().unwrap().diff.as_deref().unwrap();
+    let hunk = view.hunks.iter().position(|h| h.new.contains(&line));
+    app.press_diff(DiffTarget::Include(hunk.unwrap()));
     app.press_diff(DiffTarget::IncludeLine(RIGHT, line));
     shoot(&mut app, "diff-partial-lines");
     app.press_diff(DiffTarget::Layout);
@@ -810,7 +827,7 @@ fn a_shorter_list_is_visible_after_scrolling_far_down() {
     );
 }
 
-/// 「⋯」的分组：储藏，远程仓库，视图，输出；同步、新建分支和工作树只在分支选择器里。
+/// 「⋯」的分组：拉取、推送、获取；储藏、远程仓库和分支、工作树、仓库三个子菜单；视图；日志和输出。
 #[test]
 fn the_commit_more_menu_keeps_each_action_in_one_group() {
     use crate::app::input::context_menu::{MenuCommand, MenuEntry};
@@ -832,22 +849,158 @@ fn the_commit_more_menu_keeps_each_action_in_one_group() {
         })
         .collect();
     let at = |command| (groups.iter()).position(|group| group.contains(&Some(command)));
-    assert_eq!(at(MenuCommand::GitStash), Some(0));
-    assert_eq!(at(MenuCommand::CommitTree), Some(groups.len() - 2));
-    assert_eq!(at(MenuCommand::CommitExpandAll), Some(groups.len() - 2));
-    assert_eq!(at(MenuCommand::GitShowOutput), Some(groups.len() - 1));
-    // 刷新是标题行上的按钮，拉取、推送、获取和新建工作树在分支选择器里，这里都不重复。
     for command in [
-        MenuCommand::GitFetch,
+        MenuCommand::GitPull,
         MenuCommand::GitPush,
-        MenuCommand::NewWorktree,
+        MenuCommand::GitFetch,
     ] {
-        assert_eq!(at(command), None, "{command:?}");
+        assert_eq!(at(command), Some(0), "{command:?}");
     }
+    assert_eq!(at(MenuCommand::GitStash), Some(1));
+    // 显示选项收在倒数第二组的「显示与排序」子菜单里：列表与树形、变更列表与暂存区、三种排序
+    // 方式，以及全部展开、全部折叠。
+    let view = menu.iter().find_map(|entry| match entry {
+        MenuEntry::Submenu(_, items)
+            if items.contains(&MenuEntry::Item(MenuCommand::CommitTree, true)) =>
+        {
+            Some(items.clone())
+        }
+        _ => None,
+    });
+    let view = view.unwrap();
+    let position = menu
+        .split(|e| *e == MenuEntry::Separator)
+        .position(|group| {
+            group
+                .iter()
+                .any(|e| matches!(e, MenuEntry::Submenu(_, items) if *items == view))
+        });
+    assert_eq!(position, Some(groups.len() - 2));
+    for command in [
+        MenuCommand::CommitList,
+        MenuCommand::CommitChangeList,
+        MenuCommand::CommitStagingArea,
+        MenuCommand::CommitSortBy(crate::app::CommitSort::Path),
+        MenuCommand::CommitSortBy(crate::app::CommitSort::Name),
+        MenuCommand::CommitSortBy(crate::app::CommitSort::Status),
+    ] {
+        assert!(
+            view.contains(&MenuEntry::Item(command, true)),
+            "{command:?}"
+        );
+    }
+    assert!(
+        view.iter()
+            .any(|e| matches!(e, MenuEntry::Item(MenuCommand::CommitExpandAll, _)))
+    );
+    assert_eq!(at(MenuCommand::GitShowOutput), Some(groups.len() - 1));
+    assert_eq!(
+        at(MenuCommand::GitAction(Action::GitShowLog)),
+        Some(groups.len() - 1)
+    );
+    // 分支、工作树、仓库各是一个子菜单，里面是命令面板中已有的命令，标题不带「Git：」。
+    let inside = |action: Action| {
+        menu.iter().any(|entry| match entry {
+            MenuEntry::Submenu(_, items) => {
+                items.contains(&MenuEntry::Item(MenuCommand::GitAction(action), true))
+            }
+            _ => false,
+        })
+    };
+    for action in [
+        Action::GitSwitchBranch,
+        Action::GitNewBranch,
+        Action::GitNewWorktree,
+        Action::GitClone,
+    ] {
+        assert!(inside(action), "{action:?}");
+        assert!(!MenuCommand::GitAction(action).label().starts_with("Git"));
+    }
+    // 只有一个仓库、一个工作树时没有切换它们的两项。
+    assert!(!inside(Action::GitSwitchRepository) && !inside(Action::GitSwitchWorktree));
     // 没有上游时两种拉取都写明原因。
     for command in [MenuCommand::GitPull, MenuCommand::GitPullRebase] {
         assert!(app.menu_label(command).subtitle.is_some(), "{command:?}");
     }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// 「⋯」的「提交」「更改」「标签」子菜单：提交相关的各项两种视图都有；「更改」在变更列表中是
+/// 全部勾选、全部取消勾选，在暂存视图中是全部暂存、全部取消暂存，放弃所有更改两边都有。
+#[test]
+fn the_commit_more_menu_follows_the_chosen_view() {
+    use crate::app::input::context_menu::{MenuCommand, MenuEntry};
+
+    let Some((mut app, root)) = git_app("git-commit-more-views", false) else {
+        return;
+    };
+    app.run_action(Action::ShowCommit);
+    paint(&mut app);
+    let submenu = |app: &App, command: MenuCommand| -> Vec<MenuCommand> {
+        let menu = app.commit_more_menu();
+        let items = menu.iter().find_map(|entry| match entry {
+            MenuEntry::Submenu(_, items)
+                if items
+                    .iter()
+                    .any(|e| matches!(e, MenuEntry::Item(c, _) if *c == command)) =>
+            {
+                Some(items.clone())
+            }
+            _ => None,
+        });
+        let items = items.unwrap_or_else(|| panic!("{command:?}"));
+        (items.iter())
+            .filter_map(|entry| match entry {
+                MenuEntry::Item(command, _) => Some(*command),
+                _ => None,
+            })
+            .collect()
+    };
+    let stage_all = MenuCommand::GitAction(Action::GitStageAll);
+    let commits = submenu(&app, MenuCommand::CommitRun);
+    for command in [
+        MenuCommand::CommitPush,
+        MenuCommand::CommitAmend,
+        MenuCommand::CommitUndo,
+        MenuCommand::CommitSignOff,
+    ] {
+        assert!(commits.contains(&command), "{command:?}");
+    }
+    assert_eq!(
+        submenu(&app, MenuCommand::LogNewTag),
+        [MenuCommand::LogNewTag]
+    );
+
+    // 变更列表：全部取消勾选以后一个都不提交，全部勾选以后连未跟踪的文件也勾上。
+    let changes = submenu(&app, MenuCommand::CommitDiscardAll);
+    assert!(changes.contains(&MenuCommand::CommitCheckAll(true)));
+    assert!(!changes.contains(&stage_all));
+    app.run_commit_more_command(MenuCommand::CommitCheckAll(false));
+    assert_eq!(app.commit_scope(), None);
+    app.run_commit_more_command(MenuCommand::CommitCheckAll(true));
+    let all = app.git.status.as_ref().unwrap().entries.len();
+    assert_eq!(app.commit_scope(), Some(CommitScope::Staged(all)));
+
+    // 暂存视图：换成全部暂存、全部取消暂存。
+    app.git.commit.set_staging(true);
+    let changes = submenu(&app, MenuCommand::CommitDiscardAll);
+    assert!(changes.contains(&stage_all));
+    assert!(!changes.contains(&MenuCommand::CommitCheckAll(true)));
+    assert_eq!(submenu(&app, MenuCommand::CommitRun), commits);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// 截图：提交视图标题行「⋯」展开的菜单（`commit-more-menu`）。
+#[test]
+#[ignore = "截图，手动运行"]
+fn shoot_commit_more_menu() {
+    let Some((mut app, root)) = git_app("commit-more-menu", false) else {
+        return;
+    };
+    app.run_action(Action::ShowCommit);
+    paint(&mut app);
+    app.press_commit(CommitTarget::More);
+    shoot(&mut app, "commit-more-menu");
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -910,51 +1063,6 @@ fn the_commit_card_slides_away_once_nothing_is_left_to_commit() {
     app.settle_animations();
     assert!(app.git.commit.card.motion.is_none());
     assert_eq!(app.commit_parts().list, gone.list);
-    let _ = std::fs::remove_dir_all(&root);
-}
-
-/// 截图：侧栏宽度刚好放得下「修改上次提交」和按钮的一种写法、放不下另一种时按下或松开 ⌥，
-/// 按钮变宽：过渡前、过渡的四分之一处、过渡结束。
-#[test]
-#[ignore]
-fn shoot_commit_button_motion() {
-    use crate::app::animation::{Clock, TREE_ANIMATION};
-    use winit::keyboard::ModifiersState;
-
-    let Some((mut app, root)) = git_app("git-commit-button-motion-shot", false) else {
-        return;
-    };
-    app.run_action(Action::ShowCommit);
-    app.edit_field(|f| f.insert("修复"));
-    let fits = |app: &mut App, modifiers| {
-        app.pointer.modifiers = modifiers;
-        paint(app);
-        app.commit_parts().amend.is_some()
-    };
-    let [plain, alt] = [ModifiersState::empty(), ModifiersState::ALT];
-    let (from_keys, to_keys) = loop {
-        match (fits(&mut app, plain), fits(&mut app, alt)) {
-            (true, false) => break (plain, alt),
-            (false, true) => break (alt, plain),
-            _ => {}
-        }
-        assert!(app.panels.sidebar.width > crate::theme::MIN_PANEL_WIDTH);
-        app.panels.sidebar.width -= 2.0;
-    };
-    app.pointer.modifiers = from_keys;
-    shoot(&mut app, "commit-button-before");
-    let before = app.commit_parts();
-    let from = before.commit.w + before.commit_menu.w;
-    app.pointer.modifiers = to_keys;
-    paint(&mut app);
-    let quarter = Clock::frozen(TREE_ANIMATION / 4, TREE_ANIMATION);
-    app.git.commit.button_motion = Some((from, quarter));
-    app.git.commit.amend_motion = Some((false, quarter));
-    shoot(&mut app, "commit-button-quarter");
-    app.git.commit.button_motion = None;
-    app.git.commit.amend_motion = None;
-    shoot(&mut app, "commit-button-after");
-    app.pointer.modifiers = plain;
     let _ = std::fs::remove_dir_all(&root);
 }
 
@@ -1064,4 +1172,17 @@ fn the_commit_message_wraps_between_words() {
         "{lines:?}"
     );
     assert!(lines.iter().all(|l| !l.ends_with("config")), "{lines:?}");
+
+    // 标点禁则：句号、逗号不放在行首，左括号不留在行末；不论句子在哪里折行都成立。
+    for n in 1..30 {
+        let text = format!("{}。（说明），结束", "字".repeat(n));
+        let lines = rows(&mut app, &text);
+        assert_eq!(lines.concat(), text);
+        for line in &lines[1..] {
+            assert!(!line.starts_with(['。', '，', '）']), "{lines:?}");
+        }
+        for line in &lines[..lines.len() - 1] {
+            assert!(!line.ends_with('（'), "{lines:?}");
+        }
+    }
 }

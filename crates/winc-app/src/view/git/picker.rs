@@ -16,7 +16,7 @@ use winc_i18n::t;
 use super::super::popup_menu::band_ink;
 use super::commit::draw_count_pill_in;
 use crate::app::git::branch::local_name;
-use crate::app::git::branch::picker::{BranchRow, BranchSection, GIT_PICKER_ACTIONS_TOP};
+use crate::app::git::branch::picker::{BranchRow, GIT_PICKER_ACTION_LIST, GIT_PICKER_ACTIONS_TOP};
 use crate::app::git::location_picker::{LocationRow, Place};
 use crate::app::git::log::display_local;
 use crate::app::{Focus, PICKER_ROW, PickerPart};
@@ -40,6 +40,9 @@ const NAME_GAP: f32 = 8.0;
 const META_PAD: f32 = 6.0;
 /// 名字后面的小圆点占的宽度（逻辑像素）：6 的间距加 5 的直径。
 const NAME_DOT_ROOM: f32 = 11.0;
+/// 分组标题行的底色和内容从行的上沿往下让出的高度（逻辑像素）：分隔线画在这段的正中，它到
+/// 上一行底色的距离和到标题行底色的距离都是 3（各行的底色上下各缩 1）。
+const GROUP_GAP: f32 = 5.0;
 /// 选中行上徽标底色和按钮悬停底色的不透明度：比次要文字弱得多，只从实底上浮出一层。
 const ON_BAND: f32 = 0.2;
 
@@ -79,7 +82,9 @@ fn draw_search(app: &mut App, frame: &mut Frame<'_>, bar: Rect) {
     field_box(app, frame, field, p.popup_bg, focused, false);
     let icon = (bar.x + ICON_CENTER, field.y + field.h / 2.0);
     icons::magnifier(frame, icon, p.text_dim, field);
-    let placeholder = if app.picker_lists_locations() {
+    let placeholder = if app.picker_lists_locations() && !app.git.location_all {
+        t!("git-worktree-picker-placeholder")
+    } else if app.picker_lists_locations() {
         t!("git-location-picker-placeholder")
     } else if app.picker_filters_log() {
         t!("git-log-branch-picker-placeholder")
@@ -96,8 +101,11 @@ fn draw_search(app: &mut App, frame: &mut Frame<'_>, bar: Rect) {
     }
 }
 
-/// 绘制搜索框下面的拉取、推送、获取：三个一样宽的按钮，和上游差的提交数写在名字后面（「拉取
-/// ↓2」「推送 ↑1」）；按住 ⌥ 时拉取写成拉取并变基。不能用的灰掉，原因写在悬停提示里。
+/// 绘制搜索框下面的操作：拉取、推送、获取、新建分支、新建工作树，自上而下各占一行，图标和字的
+/// 位置与列表各行相同，最下面一条分隔线把它们和分支隔开。
+///
+/// 和上游差的提交数写在行的右端（「↓2」「↑1」）；按住 ⌥ 时拉取写成拉取并变基。不能用的灰掉，
+/// 原因写在悬停提示里。
 fn draw_actions(
     app: &App,
     frame: &mut Frame<'_>,
@@ -111,35 +119,63 @@ fn draw_actions(
     let p = app.palette;
     let (ahead, behind) = (app.git.status.as_ref()).map_or((0, 0), |s| (s.ahead, s.behind));
     let size = app.fonts.ui_small;
-    let inner = area.w - 2.0 * GUTTER;
-    // 按钮之间的间距与标签之间的相同（`TAB_GAP`）。
-    let w = ((inner - 2.0 * TAB_GAP) / 3.0).floor();
-    let actions = [PickerPart::Pull, PickerPart::Push, PickerPart::Fetch];
-    for (i, part) in actions.into_iter().enumerate() {
-        let x = area.x + GUTTER + i as f32 * (w + TAB_GAP);
-        let rect = Rect::new(x, area.y + GIT_PICKER_ACTIONS_TOP, w, BUTTON_SMALL);
-        let enabled = app.picker_action_enabled(part);
+    for (i, part) in GIT_PICKER_ACTION_LIST.into_iter().enumerate() {
+        let y = area.y + GIT_PICKER_ACTIONS_TOP + i as f32 * PICKER_ROW;
+        let band = Rect::new(area.x + GUTTER, y, area.w - 2.0 * GUTTER, PICKER_ROW);
+        let rect = Rect::new(band.x, band.y + 1.0, band.w, band.h - 2.0);
+        let enabled = app.picker_part_enabled(part);
         let hovered = enabled && app.pointer.hover == Hover::PickerPart(part);
-        let fill = if hovered {
-            p.selected_inactive
-        } else {
-            p.hover
+        if hovered {
+            frame.rect_clipped(rect, p.hover, RADIUS_ROW, area);
+        }
+        let color = match (enabled, hovered) {
+            (false, _) => p.text_dim,
+            (true, true) => p.text,
+            (true, false) => p.text_muted,
         };
-        frame.rounded(rect, fill, RADIUS_ROW);
-        let name = app.picker_action_command(part).label();
-        let text = match part {
-            PickerPart::Pull if behind > 0 => format!("{name} ↓{behind}"),
-            PickerPart::Push if ahead > 0 => format!("{name} ↑{ahead}"),
-            _ => name.to_owned(),
+        let icon = (area.x + ICON_CENTER, icon_center_y(app, band, size));
+        let (text, count) = match part {
+            PickerPart::Pull => {
+                icons::pull_small(frame, icon, color, area);
+                (app.picker_action_command(part).label(), behind)
+            }
+            PickerPart::Push => {
+                icons::push_small(frame, icon, color, area);
+                (app.picker_action_command(part).label(), ahead)
+            }
+            PickerPart::Fetch => {
+                // 与分支行同步控件空闲时（点击即获取）的图标相同。
+                icons::sync(frame, icon, color, area);
+                (app.picker_action_command(part).label(), 0)
+            }
+            PickerPart::NewBranch => {
+                icons::plus(frame, icon, 8.0, color, area);
+                (t!("git-branch-picker-new"), 0)
+            }
+            _ => {
+                icons::worktree_small(frame, icon, color, area);
+                (t!("git-branch-picker-new-worktree"), 0)
+            }
         };
-        let text = fit(frame, &text, size, (w - 8.0).max(0.0), false);
-        let text_w = frame.measure(FontKind::Ui, size, &text);
-        let text_x = (rect.x + (rect.w - text_w) / 2.0).round();
-        let color = if enabled { p.text } else { p.text_dim };
-        ui_text_small(frame, app, text_x, rect, &text, color, area);
+        let ink = if enabled { p.text } else { p.text_dim };
+        ui_text_small(frame, app, area.x + TEXT_LEFT, band, text, ink, area);
+        if count > 0 {
+            let arrow = if part == PickerPart::Pull {
+                '↓'
+            } else {
+                '↑'
+            };
+            let count = format!("{arrow}{count}");
+            let w = frame.measure(FontKind::Ui, size, &count);
+            let x = band.right() - NAME_GAP - w;
+            ui_text_small(frame, app, x, band, &count, p.accent, area);
+        }
         // 不能用时也记下：悬停提示写明原因，点了不做事。
         hits.push((rect, part));
     }
+    // 分隔线到上面最后一项的底色、到下面第一行的底色都是 3，和各组之间的分隔线一样。
+    let line = area.bottom() - 3.0;
+    draw_divider(frame, p, area, line, area);
 }
 
 /// 这一帧要画的行：展开、收起的动画期间下面的行往上收，视口里能多露出几行。
@@ -204,8 +240,21 @@ impl Line {
     /// 分支选择器打开时自动选中的行（`Picker::default`）铺比悬停稍深的浅色底，文字颜色不变：
     /// 回车仍作用在它上面，但不与行首对勾标出的当前分支混淆。移动选中项或输入查询后改为强调色底。
     fn begin(app: &App, frame: &mut Frame<'_>, parts: &PickerParts, i: usize) -> Line {
+        Self::begin_below(app, frame, parts, i, 0.0)
+    }
+
+    /// 同 [`Line::begin`]，但行的内容和底色从上沿往下让出 `gap`：分组标题行上方是分隔线，底色
+    /// 不盖住它，标题与上一组之间留出间隔。
+    fn begin_below(
+        app: &App,
+        frame: &mut Frame<'_>,
+        parts: &PickerParts,
+        i: usize,
+        gap: f32,
+    ) -> Line {
         let p = app.palette;
         let (row, clip) = placed_row(app, parts, i);
+        let row = Rect::new(row.x, row.y + gap, row.w, row.h - gap);
         let chosen =
             (app.overlays.picker.fold.as_ref()).map_or(app.overlays.picker.selected, |fold| {
                 fold.drawn_index(app.overlays.picker.selected)
@@ -262,11 +311,32 @@ impl Line {
 
     /// 在图标一列画第 `i` 行展开、收起的箭头：这一行正在展开或收起时跟着动画转到对应角度。
     fn draw_fold(&self, app: &App, frame: &mut Frame<'_>, (i, depth, open): (usize, usize, bool)) {
+        self.draw_fold_at(app, frame, (i, depth, open), self.cy);
+    }
+
+    /// 画分组标题行（最近、本地、远程、标签）的箭头，对着标题文字的中线。
+    ///
+    /// 标题是小一号的字，汉字和大写字母一样高，中线在基线上方半个大写高度处；[`Line::cy`] 对的
+    /// 是正文字号里大小写字母中线的中点，比它低，箭头会显得往下掉。
+    fn draw_group_fold(&self, app: &App, frame: &mut Frame<'_>, (i, open): (usize, bool)) {
+        let size = app.fonts.ui_small;
+        let cap = app.metrics.ui.cap_height * size / app.fonts.ui;
+        let cy = ui_baseline(app, self.row, size) - cap / 2.0;
+        self.draw_fold_at(app, frame, (i, 0, open), (cy * 2.0).round() / 2.0);
+    }
+
+    fn draw_fold_at(
+        &self,
+        app: &App,
+        frame: &mut Frame<'_>,
+        (i, depth, open): (usize, usize, bool),
+        cy: f32,
+    ) {
         let turned = match &app.overlays.picker.fold {
             Some(fold) if fold.before.parent == i => fold.turned(),
             _ => f32::from(u8::from(open)),
         };
-        let at = (self.columns(depth).0, self.cy);
+        let at = (self.columns(depth).0, cy);
         icons::chevron_turned(frame, at, 6.0, turned * FRAC_PI_2, self.dim, self.clip);
     }
 
@@ -411,7 +481,12 @@ fn draw_location_rows(
             .unwrap_or_default(),
     };
     if rows.is_empty() {
-        draw_empty(app, frame, parts.list, t!("git-location-picker-empty"));
+        let none = if app.git.location_all {
+            t!("git-location-picker-empty")
+        } else {
+            t!("git-worktree-picker-empty")
+        };
+        draw_empty(app, frame, parts.list, none);
         return;
     }
     for i in drawn_rows(app, parts, rows.len()) {
@@ -424,7 +499,7 @@ fn draw_location_rows(
                 open,
                 ..
             } => {
-                line.draw_fold(app, frame, (i, 0, *open));
+                line.draw_group_fold(app, frame, (i, *open));
                 let mut right = line.right();
                 let note = t!("git-location-count", count = *count);
                 line.draw_meta(app, frame, &mut right, &note);
@@ -509,51 +584,87 @@ fn draw_branch_rows(
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64);
     for i in drawn_rows(app, parts, rows.len()) {
-        if let BranchRow::Heading(section) = &rows[i] {
-            draw_heading(app, frame, parts, i, section);
-            continue;
-        }
         // 展开的远程分支一组和其他分组一样，上沿有分隔线；选中时底色盖住它。收起时只有这一行，
-        // 下面紧接着底栏的分隔线，再画一条就太密了。
-        if matches!(rows[i], BranchRow::Remotes { open: true, .. }) && i > 0 {
+        let group = matches!(
+            rows[i],
+            BranchRow::Remotes { .. } | BranchRow::Tags { .. } | BranchRow::Locals { .. }
+        );
+        // 四个分组的标题行排法相同：不是第一行时上沿一条分隔线，行的底色和内容往下让出
+        // `GROUP_GAP`，与上一组隔开。
+        let gap = if group && i > 0 { GROUP_GAP } else { 0.0 };
+        if gap > 0.0 {
             let (row, clip) = placed_row(app, parts, i);
-            draw_divider(frame, app.palette, row, row.y + 1.0, clip);
+            draw_divider(frame, app.palette, row, row.y + (gap - 1.0) / 2.0, clip);
         }
-        let line = Line::begin(app, frame, parts, i);
+        let line = Line::begin_below(app, frame, parts, i, gap);
+        // 分组里的各行比标题缩进一层（日志的分支筛选也分组，与平时相同）。
+        let inner = 1;
         match &rows[i] {
-            BranchRow::Heading(_) => {}
             BranchRow::All => {
                 draw_log_branch_row(app, frame, &line, t!("menu-log-all-branches"), None);
             }
             // 和提交视图的组标题一样：小一号的次要色字，右端一个写数量的小圆角徽标。
-            BranchRow::Remotes { count, open } => {
-                line.draw_fold(app, frame, (i, 0, *open));
-                let title = t!("menu-git-remote-branches");
+            BranchRow::Locals {
+                recent,
+                count,
+                open,
+            } => {
+                line.draw_group_fold(app, frame, (i, *open));
+                let title = if *recent {
+                    t!("git-branch-picker-recent")
+                } else {
+                    t!("git-branch-picker-other")
+                };
                 let x = line.columns(0).1;
                 ui_text_small(frame, app, x, line.row, title, line.dim, line.clip);
                 let mut right = line.right();
                 line.draw_pill(app, frame, &mut right, *count);
             }
+            BranchRow::Remotes { count, open } => {
+                line.draw_group_fold(app, frame, (i, *open));
+                let title = t!("git-branch-picker-remote");
+                let x = line.columns(0).1;
+                ui_text_small(frame, app, x, line.row, title, line.dim, line.clip);
+                let mut right = line.right();
+                line.draw_pill(app, frame, &mut right, *count);
+            }
+            BranchRow::Tags { count, open } => {
+                line.draw_group_fold(app, frame, (i, *open));
+                let title = t!("git-branch-picker-tags");
+                let x = line.columns(0).1;
+                ui_text_small(frame, app, x, line.row, title, line.dim, line.clip);
+                let mut right = line.right();
+                line.draw_pill(app, frame, &mut right, *count);
+            }
+            // 标签与分支同列：对勾的位置画标签图标，选中或悬停时行尾是「⋯」。
+            BranchRow::Tag(index) => {
+                let (icon, text) = line.columns(inner);
+                let mark = crate::icons::RefMark::Tag;
+                icons::ref_icon(frame, mark, (icon, line.cy), line.dim, line.clip);
+                let more = line.draw_more(app, frame, i, hits);
+                let name = app.git.tags.get(*index).map_or("", String::as_str);
+                let end = more.unwrap_or(line.right());
+                line.draw_name(app, frame, (text, end), name, line.text);
+            }
             // 目录不写分支数：展开就看得见，每层写一遍是重复信息。
             BranchRow::Folder {
                 label, depth, open, ..
             } => {
-                line.draw_fold(app, frame, (i, *depth, *open));
-                let at = (line.columns(*depth).1, line.right());
-                line.draw_name(app, frame, at, label, line.text);
+                // 分组里的目录行：文件夹图标和名字与同层的分支对齐，箭头在图标左边一层的位置。
+                let depth = *depth + inner;
+                line.draw_fold(app, frame, (i, depth - 1, *open));
+                let (icon, text) = line.columns(depth);
+                icons::folder_small(frame, (icon, line.cy), line.dim, line.clip);
+                line.draw_name(app, frame, (text, line.right()), label, line.text);
             }
             BranchRow::Branch {
                 index,
                 depth,
                 label,
             } => {
-                if app.picker_filters_log() {
-                    draw_log_branch_row(app, frame, &line, label, Some(label));
-                    continue;
-                }
                 let row = BranchLine {
                     index: *index,
-                    depth: *depth,
+                    depth: *depth + inner,
                     label,
                     now,
                 };
@@ -591,32 +702,6 @@ fn draw_divider(frame: &mut Frame<'_>, p: &Palette, rect: Rect, y: f32, clip: Re
     frame.rect_clipped(line, p.separator, 0.0, clip);
 }
 
-/// 绘制第 `i` 行的分组标题：不是第一行时上沿有一条分隔线，和菜单里分组的写法一样。
-fn draw_heading(
-    app: &App,
-    frame: &mut Frame<'_>,
-    parts: &PickerParts,
-    i: usize,
-    section: &BranchSection,
-) {
-    let (row, clip) = placed_row(app, parts, i);
-    let title = match section {
-        BranchSection::Recent => t!("git-branch-picker-recent"),
-        BranchSection::Local => t!("menu-git-local-branches"),
-        BranchSection::Remote(None) => t!("menu-git-remote-branches"),
-        BranchSection::Remote(Some(remote)) => remote.as_str(),
-        BranchSection::Other => t!("git-branch-picker-other"),
-    };
-    let band = if i > 0 {
-        draw_divider(frame, app.palette, row, row.y + 2.0, clip);
-        Rect::new(row.x, row.y + 4.0, row.w, row.h - 4.0)
-    } else {
-        row
-    };
-    let x = row.x + TEXT_LEFT;
-    ui_text_small(frame, app, x, band, title, app.palette.text_dim, clip);
-}
-
 /// 一个分支行的内容。
 struct BranchLine<'a> {
     /// [`GitState::branches`](crate::app::git::GitState::branches) 的下标。
@@ -641,8 +726,17 @@ fn draw_branch_row(
     let (check, text) = line.columns(row.depth);
     let branch = app.git.branches.get(row.index);
     let current = branch.is_some_and(|b| b.current);
+    // 名字前面一列：当前分支是对勾，其余是淡色的分支记号（远程分支用远程的记号），和标签一组
+    // 各行前面的标签记号同一个位置。
     if current {
         line.draw_check(frame, check);
+    } else if let Some(branch) = branch {
+        let mark = if branch.remote {
+            crate::icons::RefMark::Remote
+        } else {
+            crate::icons::RefMark::Branch
+        };
+        icons::ref_icon(frame, mark, (check, line.cy), line.dim, line.clip);
     }
     let mut right = line.right();
     let more = line.draw_more(app, frame, i, hits);
@@ -664,11 +758,30 @@ fn draw_branch_row(
         (None, Some(meta)) => line.draw_meta(app, frame, &mut right, &meta),
         (None, None) => {}
     }
+    // 和上游差的提交数写在右侧文字的左边，用强调色（选中行上用行内的字色）：哪个分支有提交
+    // 没推送、落后了多少，不用切过去就看得到。
+    let track = branch.map_or_else(String::new, |b| match (b.behind, b.ahead) {
+        (0, 0) => String::new(),
+        (0, ahead) => format!("↑{ahead}"),
+        (behind, 0) => format!("↓{behind}"),
+        (behind, ahead) => format!("↓{behind} ↑{ahead}"),
+    });
+    if !track.is_empty() {
+        let size = app.fonts.ui_small;
+        right -= NAME_GAP + frame.measure(FontKind::Ui, size, &track);
+        let ink = if line.selected {
+            line.text
+        } else {
+            app.palette.accent
+        };
+        ui_text_small(frame, app, right, line.row, &track, ink, line.clip);
+    }
     let at = (text, right - NAME_GAP);
     line.draw_name(app, frame, at, row.label, line.text);
 }
 
-/// 绘制列表下方的底栏：上沿一条分隔线，里面是新建的入口，图标和字的位置与各行相同。
+/// 绘制位置选择器列表下方的底栏：上沿一条分隔线，里面是新建工作树，图标和字的位置与各行相同。
+/// 分支选择器没有底栏：新建的入口在搜索框下面的操作里（见 [`draw_actions`]）。
 fn draw_footer(
     app: &App,
     frame: &mut Frame<'_>,
@@ -677,23 +790,17 @@ fn draw_footer(
 ) {
     let p = app.palette;
     let foot = parts.footer;
+    if foot.h <= 0.0 {
+        return;
+    }
     draw_divider(frame, p, foot, foot.y, foot);
 
     let size = app.fonts.ui_small;
-    let new_branch = (PickerPart::NewBranch, t!("git-branch-picker-new"));
-    let new_worktree = (
-        PickerPart::NewWorktree,
-        t!("git-branch-picker-new-worktree"),
-    );
     let in_repository = app.location_new_worktree_label();
-    let entries: &[(PickerPart, &str)] = if app.picker_lists_locations() {
-        &[(PickerPart::NewWorktree, in_repository.as_str())]
-    } else {
-        &[new_branch, new_worktree]
-    };
+    let entries = [(PickerPart::NewWorktree, in_repository.as_str())];
     let mut x = foot.x + GUTTER;
     let y = foot.bottom() - GUTTER - BUTTON_SMALL;
-    for &(part, text) in entries {
+    for (part, text) in entries {
         let room = foot.w - 2.0 * GUTTER - (TEXT_LEFT - GUTTER) - 8.0;
         let text = fit(frame, text, size, room, false);
         let w = TEXT_LEFT - GUTTER + frame.measure(FontKind::Ui, size, &text) + 8.0;

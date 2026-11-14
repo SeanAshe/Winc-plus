@@ -534,6 +534,104 @@ fn a_page_that_fails_to_render_shows_why_instead_of_staying_blank() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 第 1 页上有三条书签（一章和它的两节，各在页内不同高度），第 9 页一条（页从 0 起）。
+#[cfg(any(target_os = "macos", windows))]
+const BOOKMARKS: [(&str, usize, usize, u32); 4] = [
+    ("Introduction", 0, 1, 792),
+    ("Background", 1, 1, 500),
+    ("Method", 1, 1, 200),
+    ("Results", 0, 9, 792),
+];
+
+/// 大纲列出 PDF 的书签：层级与目录相同；点击一条滚到它指向的位置（同一页上的几条各到各处），
+/// 读到的书签高亮；行尾写出页码。没有书签的 PDF 给出说明。
+#[cfg(any(target_os = "macos", windows))]
+#[test]
+fn the_outline_lists_pdf_bookmarks_and_turns_to_their_pages() {
+    use crate::app::{OutlineEmpty, OutlineTarget};
+    use crate::keymap::Action;
+
+    let dir = sample_folder("pdf-outline");
+    let path = dir.join("论文.pdf");
+    std::fs::write(&path, outlined_pdf(12, &BOOKMARKS)).unwrap();
+    let mut app = open_pdf(&path, false);
+    app.run_action(Action::ShowOutline);
+    paint(&mut app);
+    let outline = &app.panels.outline;
+    assert!(outline.pages);
+    assert_eq!(outline.empty, None);
+    let tree: Vec<(&str, usize, usize)> = (outline.items.iter())
+        .map(|s| (s.name.as_str(), s.depth, s.line))
+        .collect();
+    let want: Vec<(&str, usize, usize)> = BOOKMARKS.iter().map(|b| (b.0, b.1, b.2)).collect();
+    assert_eq!(tree, want);
+    // 第 0 页在第一条书签之前：没有高亮。
+    assert_eq!(app.outline_current(&app.outline_rows()), None);
+
+    let row = |app: &App, i| {
+        let (rect, _) = *(app.hits.outline.iter())
+            .find(|(_, t)| *t == OutlineTarget::Row(i))
+            .unwrap();
+        (rect.x + rect.w / 2.0, rect.y + rect.h / 2.0)
+    };
+    let mut last = -1.0;
+    for i in 0..3 {
+        let at = row(&app, i);
+        click(&mut app, at);
+        paint(&mut app);
+        let scroll = app.preview.pdf.scroll;
+        assert!(scroll > last, "第 {i} 条：{scroll} 应在 {last} 之下");
+        last = scroll;
+        assert_eq!(app.outline_current(&app.outline_rows()), Some(i));
+    }
+    assert_eq!(app.focus, crate::app::Focus::Editor);
+    // 往回点同一页上靠前的一条，也滚回去。
+    let at = row(&app, 0);
+    click(&mut app, at);
+    paint(&mut app);
+    assert!(app.preview.pdf.scroll < last);
+    assert_eq!(app.outline_current(&app.outline_rows()), Some(0));
+    let at = row(&app, 3);
+    click(&mut app, at);
+    paint(&mut app);
+    assert_eq!(app.preview.pdf.current, 9);
+    assert_eq!(app.outline_current(&app.outline_rows()), Some(3));
+
+    let plain = dir.join("plain.pdf");
+    std::fs::write(&plain, sample_pdf(2)).unwrap();
+    app.open_path(&plain);
+    for _ in 0..3 {
+        paint(&mut app);
+        app.wait_for_pdf();
+    }
+    paint(&mut app);
+    assert_eq!(app.panels.outline.empty, Some(OutlineEmpty::NoBookmarks));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 截图：大纲列出 PDF 的书签，当前页的书签高亮。深浅两套配色。
+#[cfg(any(target_os = "macos", windows))]
+#[test]
+#[ignore = "截图，手动运行"]
+fn shoot_pdf_outline() {
+    for dark in [false, true] {
+        let dir = sample_folder("pdf-outline-shot");
+        let path = dir.join("论文.pdf");
+        std::fs::write(&path, outlined_pdf(12, &BOOKMARKS)).unwrap();
+        let mut app = open_pdf(&path, dark);
+        app.run_action(crate::keymap::Action::ShowOutline);
+        paint(&mut app);
+        app.scroll_pdf_to_place(1, 0.37);
+        for _ in 0..3 {
+            paint(&mut app);
+            app.wait_for_pdf();
+        }
+        let theme = if dark { "dark" } else { "light" };
+        shoot(&mut app, &format!("pdf-outline-{theme}"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
 #[cfg(any(target_os = "macos", windows))]
 #[test]
 #[ignore = "截图，手动运行"]

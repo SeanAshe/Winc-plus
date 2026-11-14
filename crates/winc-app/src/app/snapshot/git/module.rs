@@ -821,9 +821,11 @@ fn the_location_picker_searches_and_switches() {
     assert!(app.overlays.context_menu.is_some());
     app.overlays.context_menu = None;
 
-    // 位置行展开位置选择器，选中的是当前位置，面板就在这一行下方。
-    let row = app.commit_parts().location.unwrap();
-    app.open_location_picker();
+    // 命令「切换仓库」展开位置选择器，选中的是当前位置。打开的目录中有多个仓库，标题行有写着
+    // 当前仓库的位置按钮，面板在它下方。
+    let parts = app.commit_parts();
+    let row = parts.location.expect("多个仓库时标题行有位置按钮");
+    app.open_places(true);
     assert!(app.picker_lists_locations());
     let place = |row: &LocationRow| match row {
         LocationRow::Place(place) => place.clone(),
@@ -870,7 +872,7 @@ fn a_repository_with_worktrees_is_a_group_and_expanding_it_does_not_switch() {
     );
     app.git_refresh();
     app.run_action(Action::ShowCommit);
-    app.open_location_picker();
+    app.open_places(true);
     let rows = |app: &App| app.overlays.picker.location_rows.clone().unwrap();
     // 当前仓库默认展开，工作树排在它下面。
     let labels = |app: &App| -> Vec<String> {
@@ -900,7 +902,7 @@ fn a_repository_with_worktrees_is_a_group_and_expanding_it_does_not_switch() {
     assert!(!labels(&app).contains(&"主工作树".to_owned()));
     // 再打开时当前仓库重新展开。
     app.close_picker();
-    app.open_location_picker();
+    app.open_places(true);
     assert!(labels(&app).contains(&"主工作树".to_owned()));
 
     std::fs::remove_dir_all(&dir).unwrap();
@@ -913,6 +915,10 @@ fn drafts_stay_with_their_location() {
         return;
     };
     app.run_action(Action::ShowCommit);
+    // 只显示当前仓库时各位置各有一份草稿。
+    if app.commit_all_repositories() {
+        app.toggle_all_repositories();
+    }
     app.git.commit.message.set_text("a 的草稿");
     app.git_switch_repository(1);
     assert_eq!(app.git.commit.message.text(), "");
@@ -920,6 +926,10 @@ fn drafts_stay_with_their_location() {
     app.git_switch_repository(0);
     assert_eq!(app.git.commit.message.text(), "a 的草稿");
     app.git_switch_repository(1);
+    assert_eq!(app.git.commit.message.text(), "b 的草稿");
+    // 显示全部仓库时各仓库一起提交，共用一条提交信息：换仓库时照样留着。
+    app.toggle_all_repositories();
+    app.git_switch_repository(0);
     assert_eq!(app.git.commit.message.text(), "b 的草稿");
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -947,7 +957,7 @@ fn shoot_location_picker() {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
     shoot(&mut app, "git-context");
-    app.open_location_picker();
+    app.open_places(true);
     shoot(&mut app, "location-picker");
     std::fs::remove_dir_all(&dir).unwrap();
 }

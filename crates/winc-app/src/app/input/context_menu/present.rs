@@ -166,6 +166,8 @@ impl App {
             MenuTarget::CommitFile(path)
         } else if let Some((i, path)) = self.log_file_context_target(x, y) {
             MenuTarget::LogFile(i, path)
+        } else if let Some(index) = self.log_branch_context_target(x, y) {
+            MenuTarget::BranchOps(index)
         } else if let Some(oid) = self.log_context_target(x, y) {
             MenuTarget::LogCommit(oid)
         } else if let Some((id, right)) = self.diff_context_target(x, y) {
@@ -247,7 +249,7 @@ impl App {
                     .as_ref()?
                     .entries
                     .iter()
-                    .filter(|e| group.holds(e))
+                    .filter(|e| group.holds(e, self.git.commit.staging()))
                     .map(|e| e.path.clone())
                     .collect();
                 let first = files.first()?.clone();
@@ -388,13 +390,16 @@ impl App {
                 });
                 let can_paste = self.can_paste_into_tree();
                 let mut menu = tree_menu(kind, can_paste);
-                // Git 模块开着、文件在仓库里：最后加「显示文件历史」。
-                if kind == Some(EntryKind::File) && path.as_deref().is_some_and(|p| self.in_repo(p))
+                // Git 模块开着、文件在仓库里：最后加「显示文件历史」，有更改的文件再加暂存与回滚。
+                if let Some(path) = path.as_deref()
+                    && kind == Some(EntryKind::File)
+                    && self.in_repo(path)
                 {
                     menu.extend([
                         MenuEntry::Separator,
                         MenuEntry::Item(MenuCommand::FileHistory, true),
                     ]);
+                    menu.extend(self.git_change_items(path));
                 }
                 menu
             }
@@ -411,10 +416,12 @@ impl App {
                     !doc.selection.is_empty(),
                     bookmarked,
                 );
-                // Git 模块开着、文件在仓库里：最后是「逐行追溯」开关。
+                // Git 模块开着、文件在仓库里：最后是所选代码的历史和「逐行追溯」开关。
                 if doc.path.as_deref().is_some_and(|p| self.in_repo(p)) {
+                    let history = Action::GitSelectionHistory;
                     menu.extend([
                         MenuEntry::Separator,
+                        MenuEntry::Item(MenuCommand::GitAction(history), true),
                         MenuEntry::Item(MenuCommand::ToggleBlame, true),
                     ]);
                 }
@@ -513,11 +520,12 @@ impl App {
                     path.is_some_and(|p| self.relative_path(p).is_some()),
                     docs.iter().any(|d| !d.is_dirty()),
                 );
-                if path.is_some_and(|p| self.in_repo(p)) {
+                if let Some(path) = path.filter(|p| self.in_repo(p)) {
                     menu.extend([
                         MenuEntry::Separator,
                         MenuEntry::Item(MenuCommand::FileHistory, true),
                     ]);
+                    menu.extend(self.git_change_items(path));
                 }
                 menu
             }
@@ -556,10 +564,24 @@ impl App {
                 let any_exists = self.commit_selection().iter().any(winc_backend::fs::exists);
                 commit_selection_menu(any_exists)
             }
-            MenuTarget::CommitFile(path) => commit_file_menu(
-                winc_backend::fs::exists(path),
-                self.relative_path(path).is_some(),
-            ),
+            MenuTarget::CommitFile(path) => {
+                let mut menu = commit_file_menu(
+                    winc_backend::fs::exists(path),
+                    self.relative_path(path).is_some(),
+                    &self.ignore_kinds(path),
+                );
+                // 暂存区视图中在「回滚」之前加暂存、取消暂存，按该文件现在的状态列出。
+                let stage = self.git_change_items(path);
+                let stage = stage.into_iter().filter(|entry| {
+                    matches!(entry, MenuEntry::Item(MenuCommand::CommitCheck(_), _))
+                });
+                let at = (menu.iter())
+                    .position(|e| matches!(e, MenuEntry::Item(MenuCommand::GitRollbackFile, _)));
+                if let Some(at) = at {
+                    menu.splice(at..at, stage);
+                }
+                menu
+            }
             MenuTarget::SearchResult(_, m) => {
                 search_result_menu(m.is_none(), self.panels.global.replace_open)
             }
@@ -592,6 +614,11 @@ impl App {
                 .map(|&action| MenuEntry::Item(MenuCommand::RebaseAction(action), true))
                 .collect(),
             MenuTarget::FormBase => form_base_menu(&self.git.branches),
+            // 以 `-` 开头的远程名不能推送，不列出。
+            MenuTarget::FormRemote => (self.git.remotes.iter().enumerate())
+                .filter(|(_, remote)| !remote.starts_with('-'))
+                .map(|(i, _)| MenuEntry::Item(MenuCommand::FormRemote(i), true))
+                .collect(),
             MenuTarget::LogFile(_, path) => log_file_menu(
                 winc_backend::fs::exists(path),
                 self.relative_path(path).is_some(),
@@ -609,16 +636,9 @@ impl App {
                         .is_some_and(|s| s.operation.is_some());
                 log_commit_menu(!busy, &self.current_branch_label(), &tags)
             }
-            MenuTarget::LogAuthor => {
-                let mut menu = vec![
-                    MenuEntry::Item(MenuCommand::LogAuthor(0), true),
-                    MenuEntry::Separator,
-                ];
-                menu.extend(
-                    (0..self.git.log.authors.len())
-                        .map(|i| MenuEntry::Item(MenuCommand::LogAuthor(i + 1), true)),
-                );
-                menu
+            MenuTarget::LogColumns => self.log_columns_menu(),
+            MenuTarget::LogDate | MenuTarget::LogPath | MenuTarget::LogAuthor => {
+                self.log_filter_menu(&target)
             }
             // 目录菜单不经过这里（`App::open_crumb_menu`）。
             MenuTarget::Folder => return,
@@ -654,6 +674,9 @@ impl App {
                 &self.git.stale_branches(),
                 self.git.branch.running.is_some(),
             ),
+            MenuTarget::TagOps(index) => {
+                crate::app::git::branch::tag_ops(*index, self.git.branch.running.is_some())
+            }
         };
 
         // 菜单上显示的快捷键按菜单弹出的位置取：文件树中取文件树的键位，编辑区中取编辑区的键位。
@@ -662,6 +685,7 @@ impl App {
             MenuTarget::Editor(_) | MenuTarget::Diff(..) | MenuTarget::Markdown => Context::Editor,
             MenuTarget::Terminal(_) | MenuTarget::TerminalTab(_) => Context::Terminal,
             MenuTarget::SearchResult(..) => Context::Panel,
+            MenuTarget::CommitFile(_) => Context::Changes,
             _ => Context::Other,
         };
         // 状态栏的菜单行为类似弹出式按钮：当前选中的项显示在被点击的位置上。
@@ -833,6 +857,12 @@ impl App {
                     tooltip: None,
                 }
             }
+            // 暂存区视图中这两项是暂存、取消暂存；勾选式下是勾选、取消勾选。
+            MenuCommand::CommitCheck(on) if self.git.commit.staging() => MenuLabel::plain(if on {
+                t!("menu-git-stage")
+            } else {
+                t!("menu-git-unstage")
+            }),
             MenuCommand::TerminalDock => {
                 let title = if self.terminal_right() {
                     t!("terminal-dock-bottom")
@@ -907,6 +937,9 @@ impl App {
                 }
             }
             MenuCommand::StatusPlace(i) => self.location_menu_label(i),
+            MenuCommand::CommitMessage(_) | MenuCommand::CommitCoAuthor(_) => self
+                .compose_menu_label(command)
+                .unwrap_or_else(|| MenuLabel::plain("")),
             MenuCommand::FormBase(0) => match self.git.branches.iter().find(|b| b.current) {
                 Some(b) => MenuLabel::plain(&t!("menu-form-base-current-branch", branch = &b.name)),
                 None => MenuLabel::plain(t!("menu-form-base-current-commit")),
@@ -914,9 +947,12 @@ impl App {
             MenuCommand::FormBase(i) => {
                 MenuLabel::plain(self.git.branches.get(i - 1).map_or("", |b| b.name.as_str()))
             }
-            MenuCommand::LogAuthor(i @ 1..) => {
-                MenuLabel::plain(self.git.log.authors.get(i - 1).map_or("", String::as_str))
+            MenuCommand::FormRemote(i) => {
+                MenuLabel::plain(self.git.remotes.get(i).map_or("", String::as_str))
             }
+            MenuCommand::LogAuthor(1..)
+            | MenuCommand::LogSince(1..)
+            | MenuCommand::LogPath(1..) => MenuLabel::plain(&self.log_filter_label(command)),
             MenuCommand::GitBranch(..)
             | MenuCommand::GitFetch
             | MenuCommand::GitPush
@@ -1029,6 +1065,7 @@ impl App {
             }
             (MenuCommand::GitFetch, _) => Some(t!("menu-git-fetch-desc").to_owned()),
             (MenuCommand::GitContinue, _) => Some(t!("menu-git-continue-desc").to_owned()),
+            (MenuCommand::GitSkip, _) => Some(t!("menu-git-skip-desc").to_owned()),
             (MenuCommand::GitAbort, _) => Some(t!("menu-git-abort-desc").to_owned()),
             (MenuCommand::GitPush, Some(up)) if ahead > 0 => {
                 Some(t!("menu-git-push-ahead", count = ahead, upstream = up))
@@ -1133,11 +1170,44 @@ impl App {
                 .active()
                 .is_some_and(|d| self.git.blame.is_on(d.id));
         }
+        if let MenuCommand::LogColumn(column) = command {
+            return self.log_column_shown(column);
+        }
+        if let Some(on) = self.log_filter_checked(command) {
+            return on;
+        }
         if command == MenuCommand::CommitAmend {
             return self.git.commit.amend;
         }
         if command == MenuCommand::CommitTree {
             return !self.git.commit.flat();
+        }
+        if command == MenuCommand::CommitList {
+            return self.git.commit.flat();
+        }
+        if command == MenuCommand::CommitChangeList {
+            return !self.git.commit.staging();
+        }
+        if let MenuCommand::CommitSortBy(sort) = command {
+            return self.git.commit.sort() == sort;
+        }
+        if command == MenuCommand::CommitAllRepositories {
+            return self.commit_all_repositories();
+        }
+        if command == MenuCommand::CommitStagingArea {
+            return self.git.commit.staging();
+        }
+        if command == MenuCommand::CommitSignOff {
+            return self.commit_signs_off();
+        }
+        if command == MenuCommand::CommitNoVerify {
+            return self.git.commit.no_verify;
+        }
+        if command == MenuCommand::CommitCheckTodo {
+            return self.state.commit_check_todo;
+        }
+        if command == MenuCommand::CommitReformat {
+            return self.state.commit_reformat;
         }
         if command == MenuCommand::TerminalMaximize {
             return self.terminal.maximized;
@@ -1151,13 +1221,16 @@ impl App {
         if let MenuCommand::FormBase(i) = command {
             return self.form_base_chosen(i);
         }
+        if let MenuCommand::FormRemote(i) = command {
+            return self.form_remote_chosen(i);
+        }
         if let MenuCommand::StatusPlace(i) = command {
             return self.location_places().get(i).is_some_and(|p| p.current);
         }
         if let (MenuCommand::LogAuthor(i), Some(q)) = (command, query) {
             return match i.checked_sub(1) {
-                None => q.author.is_none(),
-                Some(i) => self.git.log.authors.get(i) == q.author.as_ref(),
+                None => q.authors.is_empty(),
+                Some(i) => (self.git.log.authors.get(i)).is_some_and(|a| q.authors.contains(a)),
             };
         }
 

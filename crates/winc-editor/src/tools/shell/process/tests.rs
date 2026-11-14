@@ -207,3 +207,41 @@ fn remote_questions_are_answered_by_the_local_askpass_program() {
     assert_eq!(sent(&command), sent(&plain));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// 运行途中读到的输出随时交给观察者：第一行在程序结束之前就到了，不用等它全部运行完。
+#[test]
+fn output_reaches_the_watcher_while_the_program_is_still_running() {
+    use std::sync::{Arc, Mutex};
+
+    let seen: Arc<Mutex<Vec<(String, Instant)>>> = Arc::default();
+    let watch: Watch = {
+        let seen = Arc::clone(&seen);
+        Arc::new(move |bytes: &[u8]| {
+            let text = String::from_utf8_lossy(bytes).into_owned();
+            seen.lock().unwrap().push((text, Instant::now()));
+        })
+    };
+    let mut command = sh("echo first; sleep 1; echo second >&2");
+    command.stderr(Stdio::piped());
+    let timeout = Duration::from_secs(20);
+    let output = run_watched(
+        &mut command,
+        Vec::new(),
+        timeout,
+        &Cancel::default(),
+        Some(watch),
+    );
+    let finished = Instant::now();
+    let output = output.unwrap();
+    // 返回的结果不受影响：两路输出都完整。
+    assert_eq!(output.stdout, b"first\n");
+    assert_eq!(output.stderr, b"second\n");
+    let seen = seen.lock().unwrap();
+    let first = seen
+        .iter()
+        .find(|(text, _)| text.contains("first"))
+        .unwrap();
+    assert!(seen.iter().any(|(text, _)| text.contains("second")));
+    // 第一行比程序结束至少早半秒（程序中间睡了一秒）。
+    assert!(finished.duration_since(first.1) > Duration::from_millis(500));
+}

@@ -12,6 +12,7 @@ impl App {
                 | CommitTarget::File(_)
                 | CommitTarget::OpenFile(_)
                 | CommitTarget::RevertFile(_)
+                | CommitTarget::StageFile(..)
                 | CommitTarget::Dir(_)
                 | CommitTarget::DirCheck(_)
                 | CommitTarget::Stash(_)
@@ -51,7 +52,39 @@ impl App {
             | CommitTarget::File(_)
             | CommitTarget::Sticky(..)
             | CommitTarget::OpenFile(_)
-            | CommitTarget::RevertFile(_) => self.press_commit_row(target),
+            | CommitTarget::RevertFile(_)
+            | CommitTarget::StageFile(..)
+            | CommitTarget::GroupStage(_) => self.press_commit_row(target),
+            CommitTarget::OtherRepository(_)
+            | CommitTarget::OtherFile(..)
+            | CommitTarget::OtherStagedFile(..) => self.press_other(target),
+            CommitTarget::OtherGroup(repo, group) => {
+                self.toggle_other_fold(Some(repo), Some(group))
+            }
+            CommitTarget::OtherFold(repo) => self.toggle_other_fold(Some(repo), None),
+            CommitTarget::CurrentRepository => self.toggle_other_fold(None, None),
+            CommitTarget::CurrentCheck => {
+                let entries = self.git.status.iter().flat_map(|s| &s.entries);
+                let paths: Vec<PathBuf> = entries.map(|e| e.path.clone()).collect();
+                let all =
+                    self.git.status.as_ref().is_some_and(|s| {
+                        self.git.commit.picked_entries(s).count() == s.entries.len()
+                    });
+                self.set_commit_checked(&paths, !all);
+            }
+            CommitTarget::OtherStage(..) | CommitTarget::OtherGroupStage(..) => {
+                self.press_other_stage(target);
+            }
+            CommitTarget::OtherBranch(repo) => {
+                self.press_other(CommitTarget::OtherRepository(repo));
+                self.paint_now();
+                self.open_branch_picker(GitAnchor::Branch);
+            }
+            CommitTarget::OtherGroupCheck(_)
+            | CommitTarget::OtherGroupFiles(..)
+            | CommitTarget::OtherCheck(..) => {
+                self.press_other_check(target);
+            }
             _ => self.press_commit_button(target),
         }
     }
@@ -72,7 +105,7 @@ impl App {
                     menu_below(rect),
                 );
             }
-            CommitTarget::Location => self.open_location_picker(),
+            CommitTarget::Location => self.open_worktree_picker(),
             CommitTarget::Branch => self.open_branch_picker(GitAnchor::Branch),
             CommitTarget::Sync => self.git_sync(),
             // 按住 ⌥ 时按钮写的是「提交并推送」（见 `App::commit_pushes`）。
@@ -80,6 +113,8 @@ impl App {
             CommitTarget::Commit => self.git_commit(),
             CommitTarget::Amend => self.toggle_amend(),
             CommitTarget::NextStep => self.git_sync(),
+            CommitTarget::InitRepository => self.git_init(),
+            CommitTarget::CloneRepository => self.open_clone_dialog(),
             CommitTarget::Abort => self.confirm_abort(),
             CommitTarget::Undo => {
                 if let Some(last) = self.commit_undoable().cloned() {
@@ -96,6 +131,7 @@ impl App {
                     menu_below(button),
                 );
             }
+            CommitTarget::CommitPush => self.confirm_commit_and_push(),
             CommitTarget::CommitMenu => {
                 // 菜单挂在「⌄」那一段下方，右端与按钮右端对齐、向左展开，不从整个按钮的左端弹出，
                 // 避免菜单看起来与「⌄」无关。
@@ -127,9 +163,10 @@ impl App {
                     return;
                 };
                 let on = self.git.commit.group_state(status, group) != Some(true);
-                for entry in status.entries.iter().filter(|e| group.holds(e)) {
-                    self.git.commit.set_checked(entry, on);
-                }
+                let staging = self.git.commit.staging();
+                let held = status.entries.iter().filter(|e| group.holds(e, staging));
+                let paths: Vec<PathBuf> = held.map(|e| e.path.clone()).collect();
+                self.set_commit_checked(&paths, on);
             }
             CommitTarget::GroupRevert(group) => self.ask_rollback(group),
             // ⌘ 单击目录把它下面的文件加入或移出选区，⇧ 单击选到它：只改选区，不收起展开。
@@ -155,9 +192,10 @@ impl App {
                 };
                 let members = rows.dir(*group, dir);
                 let on = self.git.commit.members_state(status, members) != Some(true);
-                for &i in members {
-                    self.git.commit.set_checked(&status.entries[i], on);
-                }
+                let paths: Vec<PathBuf> = (members.iter())
+                    .map(|&i| status.entries[i].path.clone())
+                    .collect();
+                self.set_commit_checked(&paths, on);
             }
             CommitTarget::Check(i) => self.toggle_commit_check(i),
             CommitTarget::File(i) => {
@@ -211,6 +249,19 @@ impl App {
                 if let Some(path) = self.commit_entry(i).map(|e| e.path.clone()) {
                     self.confirm_rollback(vec![path]);
                 }
+            }
+            CommitTarget::StageFile(i, on) => {
+                if let Some(path) = self.commit_entry(i).map(|e| e.path.clone()) {
+                    self.stage_paths(&[path], on);
+                }
+            }
+            CommitTarget::GroupStage(group) => {
+                let Some(status) = self.git.status.as_ref() else {
+                    return;
+                };
+                let held = status.entries.iter().filter(|e| group.holds(e, true));
+                let paths: Vec<PathBuf> = held.map(|e| e.path.clone()).collect();
+                self.stage_paths(&paths, group != CommitGroup::Staged);
             }
             // 其余目标由 [`Self::press_commit`] 交给别的函数。
             _ => {}

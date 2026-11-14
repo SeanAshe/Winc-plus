@@ -335,6 +335,8 @@ pub enum Context {
     Terminal,
     /// 可编辑的 Markdown 预览。编辑区的绑定在这里同样生效，另有行内格式的绑定。
     Markdown,
+    /// 提交视图的更改列表。
+    Changes,
 }
 
 impl Context {
@@ -352,6 +354,7 @@ impl Context {
             Context::Keys => 64,
             Context::Terminal => 128,
             Context::Markdown => 256,
+            Context::Changes => 512,
         }
     }
 }
@@ -373,6 +376,8 @@ pub enum When {
     Panel,
     /// 文件树。
     Tree,
+    /// 提交视图的更改列表。
+    Changes,
     /// 「快捷键」页的搜索框里。
     KeysPage,
     /// 焦点既不在编辑区也不在查找条的区域（文件树、搜索面板等）。
@@ -395,10 +400,12 @@ impl When {
         const FIND: u16 = Context::Find.bit();
         const PANEL: u16 = Context::Panel.bit();
         const TREE: u16 = Context::Tree.bit();
-        const OTHER: u16 = Context::Other.bit();
         const REPLACE: u16 = Context::Replace.bit();
         const KEYS: u16 = Context::Keys.bit();
         const TERMINAL: u16 = Context::Terminal.bit();
+        // 更改列表属于编辑区以外的区域：覆盖这些区域的范围都覆盖它。
+        const CHANGES: u16 = Context::Changes.bit();
+        const OTHER: u16 = Context::Other.bit() | CHANGES;
         match self {
             // 终端里只认带 ⌘ 的全局快捷键，其余按键交给终端里的程序；
             // 判断条件在 `lookup` 中。
@@ -409,6 +416,7 @@ impl When {
             When::ReplaceInput => REPLACE,
             When::Panel => PANEL,
             When::Tree => TREE,
+            When::Changes => CHANGES,
             When::KeysPage => KEYS,
             When::NotEditor => PANEL | TREE | OTHER,
             When::Terminal => TERMINAL,
@@ -433,6 +441,7 @@ impl When {
             When::ReplaceInput => Some(t!("cmd-when-replace-input")),
             When::Panel => Some(t!("cmd-when-panel")),
             When::Tree => Some(t!("cmd-when-tree")),
+            When::Changes => Some(t!("cmd-when-changes")),
             When::KeysPage => Some(t!("cmd-when-keys-page")),
             When::NotEditor => Some(t!("cmd-when-not-editor")),
             When::Terminal => Some(t!("cmd-when-terminal")),

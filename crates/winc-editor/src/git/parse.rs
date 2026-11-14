@@ -115,8 +115,19 @@ pub(super) fn parse_recent_branches(output: &str) -> Vec<String> {
     names
 }
 
+/// 解析 `%(upstream:track,nobracket)`（`ahead 3, behind 1`、`ahead 2`、`gone`、空）成领先、
+/// 落后上游的提交数。
+fn parse_track(track: &str) -> (u16, u16) {
+    let count = |word: &str| {
+        let part = track.split(", ").find_map(|part| part.strip_prefix(word));
+        let count: u64 = part.and_then(|n| n.trim().parse().ok()).unwrap_or(0);
+        u16::try_from(count).unwrap_or(u16::MAX)
+    };
+    (count("ahead "), count("behind "))
+}
+
 /// 解析 `git for-each-ref` 的输出（每行的引用名、`*` 或空格、上游、提交号、提交时间、本机时区的
-/// 提交时间之间用 NUL 隔开）。
+/// 提交时间、与上游的差异之间用 NUL 隔开）。
 ///
 /// 本地的分支在前，远程的在后，各自按名字排列；远程的 `HEAD` 指针不列。上游引用已不存在的（远程
 /// 分支被删除后获取时清掉了）算作没有上游：`--prune` 之后没有什么可以和它同步。
@@ -135,6 +146,7 @@ pub(super) fn parse_branches(output: &str) -> Vec<Branch> {
             .and_then(|t| t.parse().ok())
             .unwrap_or_default();
         let date = fields.next().unwrap_or_default().to_owned();
+        let (ahead, behind) = parse_track(fields.next().unwrap_or_default());
         if let Some(name) = name.strip_prefix("refs/heads/") {
             local.push(Branch {
                 name: name.to_owned(),
@@ -145,6 +157,8 @@ pub(super) fn parse_branches(output: &str) -> Vec<Branch> {
                 oid,
                 time,
                 local: date,
+                ahead,
+                behind,
             });
         } else if let Some(name) = name.strip_prefix("refs/remotes/") {
             if name.ends_with("/HEAD") {
@@ -159,6 +173,8 @@ pub(super) fn parse_branches(output: &str) -> Vec<Branch> {
                 oid,
                 time,
                 local: date,
+                ahead: 0,
+                behind: 0,
             });
         }
     }

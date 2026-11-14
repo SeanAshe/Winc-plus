@@ -38,6 +38,8 @@ pub(crate) enum ScrollTarget {
     Tree,
     /// 日志的详情一栏。
     LogDetails,
+    /// 日志左侧的分支面板。
+    LogBranches,
     /// 终端面板的标签条。
     TerminalStrip,
     /// 终端的回滚缓冲，或终端中接收滚轮的程序。
@@ -127,6 +129,8 @@ impl App {
             ScrollTarget::Tree
         } else if self.log_active() && self.log_parts().details.contains(x, y) {
             ScrollTarget::LogDetails
+        } else if self.log_active() && self.log_parts().branches.contains(x, y) {
+            ScrollTarget::LogBranches
         } else if l.terminal.contains(x, y) && y < terminal_header {
             ScrollTarget::TerminalStrip
         } else if l.terminal.contains(x, y) {
@@ -221,7 +225,8 @@ impl App {
             | ScrollTarget::Commit
             | ScrollTarget::Outline
             | ScrollTarget::Results
-            | ScrollTarget::LogDetails => self.scroll_pane_by(target, dy),
+            | ScrollTarget::LogDetails
+            | ScrollTarget::LogBranches => self.scroll_pane_by(target, dy),
         }
         if target.moves_rows() {
             self.set_hover(self.hover_at(self.pointer.mouse.0, self.pointer.mouse.1));
@@ -262,6 +267,7 @@ impl App {
                 let view = self.editor.active().and_then(|d| d.log.as_deref());
                 view.map(|view| view.details_scroll)
             }
+            ScrollTarget::LogBranches => Some(self.git.log.branches_scroll),
             ScrollTarget::Markdown => self
                 .preview
                 .markdown
@@ -288,6 +294,7 @@ impl App {
                 tree_max_scroll(self.layout.tree, rows)
             }
             ScrollTarget::LogDetails => self.git.log.details_max,
+            ScrollTarget::LogBranches => self.git.log.branches_max,
             ScrollTarget::Markdown => self.preview.markdown.max_scroll(),
             ScrollTarget::Pdf => self.preview.pdf.max_scroll(),
             _ => 0.0,
@@ -324,6 +331,7 @@ impl App {
                     view.details_scroll = scroll;
                 }
             }
+            ScrollTarget::LogBranches => self.git.log.branches_scroll = scroll,
             ScrollTarget::Markdown => self.preview.markdown.set_scroll(scroll),
             ScrollTarget::Pdf => self.preview.pdf.scroll = scroll,
             _ => {}

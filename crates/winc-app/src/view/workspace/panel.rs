@@ -922,7 +922,7 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
             if app.git.commit.busy {
                 return None;
             }
-            if let Some(reason) = app.git.commit.blocker(status) {
+            if let Some(reason) = app.commit_blocker(status) {
                 return Some((parts.commit, reason));
             }
             let name = match (status.operation, &status.head) {
@@ -956,6 +956,20 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
                 CommitTarget::OpenFile(_) => t!("workspace-tip-open-file"),
                 CommitTarget::GroupRevert(_) => t!("menu-commit-roll-back"),
                 _ => t!("workspace-tip-revert-change"),
+            };
+            Some((rect, label.to_owned()))
+        }
+        Hover::Commit(target @ (CommitTarget::StageFile(..) | CommitTarget::GroupStage(_))) => {
+            let rect = app.hits.commit.iter().find(|(_, t)| *t == target)?.0;
+            let unstage = matches!(
+                target,
+                CommitTarget::StageFile(_, false)
+                    | CommitTarget::GroupStage(crate::app::CommitGroup::Staged)
+            );
+            let label = if unstage {
+                t!("menu-git-unstage")
+            } else {
+                t!("menu-git-stage")
             };
             Some((rect, label.to_owned()))
         }
@@ -999,14 +1013,12 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
         Hover::Commit(target @ CommitTarget::Location) if !app.picker_lists_locations() => {
             let rect = app.hits.commit.iter().find(|(_, t)| *t == target)?.0;
             let count = app.git_other_changes();
-            (count > 0).then(|| {
-                let label = if app.git.repositories.len() >= 2 {
-                    t!("git-tip-other-locations", count = count)
-                } else {
-                    t!("git-tip-other-worktrees", count = count)
-                };
-                (rect, label)
-            })
+            // 按钮上写的是现在在哪个工作树（主工作树上只有图标）；其他工作树有更改时提示它。
+            let label = match count {
+                0 => app.git_worktree_label(),
+                count => t!("git-tip-other-worktrees", count = count),
+            };
+            Some((rect, label))
         }
         Hover::Commit(CommitTarget::Location) => None,
         // 历史差异文件列表的显示方式按钮：写明点击后切换成哪一种。

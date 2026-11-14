@@ -61,9 +61,24 @@ fn draw_card(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
     let (copy, new_window, checkout) = (dialog.copy, dialog.new_window, dialog.checkout);
     let (running, error, focus) = (dialog.running.is_some(), dialog.error.clone(), dialog.focus);
     let empty = dialog.name.text().trim().is_empty();
+    // 推送对话框：当前分支、待推送的提交的标题和提交数。
+    let push = match &dialog.kind {
+        FormKind::Push(form) => Some((form.branch.clone(), form.subjects.clone(), form.total)),
+        _ => None,
+    };
+    let branch = push.as_ref().map_or("", |(branch, ..)| branch.as_str());
     let (title, labels, placeholder) = match dialog.kind {
+        FormKind::Push(_) => (
+            t!("git-push-form-title", branch = branch),
+            [
+                t!("git-push-form-remote"),
+                t!("git-push-form-branch"),
+                t!("git-push-form-commits"),
+            ],
+            branch,
+        ),
         FormKind::Worktree => (
-            t!("common-dialog-new-worktree"),
+            t!("common-dialog-new-worktree").to_owned(),
             [
                 t!("common-dialog-branch"),
                 t!("common-dialog-base"),
@@ -72,14 +87,15 @@ fn draw_card(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
             t!("common-dialog-worktree-placeholder"),
         ),
         FormKind::Branch { .. } => (
-            t!("common-dialog-new-branch"),
+            t!("common-dialog-new-branch").to_owned(),
             [t!("common-dialog-name"), t!("common-dialog-base"), ""],
             t!("common-dialog-branch-placeholder"),
         ),
         FormKind::Question(..)
         | FormKind::Remote { .. }
         | FormKind::Connect
-        | FormKind::GoToRevision => {
+        | FormKind::GoToRevision
+        | FormKind::LogPath => {
             return draw_question(app, frame, layout);
         }
         FormKind::Clone => return draw_clone(app, frame, layout),
@@ -90,7 +106,7 @@ fn draw_card(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
 
     let header = layout.header;
     let x = header.x + SETTINGS_PAD;
-    ui_text(frame, app, x, header, title, p.text, card);
+    ui_text(frame, app, x, header, &title, p.text, card);
     let close = layout.close;
     draw_button(
         frame,
@@ -147,13 +163,20 @@ fn draw_card(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
     }
 
     for &(part, row) in &layout.options {
-        let (text, on) = match part {
-            DialogPart::Copy => (t!("common-dialog-copy-ignored"), copy),
-            DialogPart::NewWindow => (t!("common-dialog-open-in-new-window"), new_window),
+        let (text, on) = match (part, push.is_some()) {
+            (DialogPart::Copy, true) => (t!("git-push-form-tags"), copy),
+            (DialogPart::NewWindow, true) => (t!("common-dont-ask"), new_window),
+            (DialogPart::Copy, false) => (t!("common-dialog-copy-ignored"), copy),
+            (DialogPart::NewWindow, false) => (t!("common-dialog-open-in-new-window"), new_window),
             _ => (t!("common-dialog-checkout-after-create"), checkout),
         };
         let end = draw_check_option(app, frame, row, text, on);
-        if part == DialogPart::Copy {
+        if part == DialogPart::Copy && push.is_some() {
+            // 名称后面淡淡地说明范围：送出的是本地的全部标签。
+            let hint = t!("git-push-form-tags-hint");
+            ui_text_small(frame, app, end + 8.0, row, hint, p.text_dim, card);
+        }
+        if part == DialogPart::Copy && push.is_none() {
             // 名称后面淡淡地跟着要复制的（配置 `git.worktreeCopy`）。
             let globs = app
                 .config
@@ -175,7 +198,30 @@ fn draw_card(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
         true,
         hover,
     );
+    // 待推送的提交：每个标题一行，没有列出的写明个数。
+    if let Some((_, subjects, total)) = &push {
+        let block = layout.message;
+        let line = |i: usize| {
+            let y = block.y + i as f32 * crate::layout::QUESTION_LINE_H;
+            Rect::new(block.x, y, block.w, crate::layout::QUESTION_LINE_H)
+        };
+        for (i, subject) in subjects.iter().enumerate() {
+            let text = ellipsize(frame, subject, app.fonts.ui_small, block.w);
+            ui_text_small(frame, app, block.x, line(i), &text, p.text_muted, card);
+        }
+        let rest = match (subjects.is_empty(), total - subjects.len().min(*total)) {
+            (true, 0) => Some(t!("git-push-form-nothing").to_owned()),
+            (_, 0) => None,
+            (_, more) => Some(t!("git-push-confirm-more", count = more)),
+        };
+        if let Some(rest) = rest {
+            let row = line(subjects.len());
+            ui_text_small(frame, app, block.x, row, &rest, p.text_dim, card);
+        }
+    }
+
     let (confirm, enabled) = match running {
+        true if push.is_some() => (t!("git-push-form-pushing"), false),
         true => (t!("common-dialog-creating"), false),
         false => (plan.confirm, plan.enabled),
     };

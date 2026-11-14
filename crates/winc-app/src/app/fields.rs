@@ -69,6 +69,7 @@ impl App {
                 Focus::LogFilter => self.log_filter_changed(),
                 Focus::TerminalFind => self.terminal_find_changed(),
                 Focus::SettingsSearch => self.settings_search_changed(),
+                Focus::Dialog => self.refresh_push_list(),
                 // 筛选后列表变短，滚动位置回到顶部。
                 Focus::KeySearch => {
                     self.settings.scroll = 0.0;

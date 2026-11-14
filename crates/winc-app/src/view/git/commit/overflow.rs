@@ -24,7 +24,8 @@ pub(in crate::view) fn commit_overflow(app: &App, frame: &mut Frame<'_>) -> Opti
             CommitTarget::File(f)
             | CommitTarget::Check(f)
             | CommitTarget::OpenFile(f)
-            | CommitTarget::RevertFile(f),
+            | CommitTarget::RevertFile(f)
+            | CommitTarget::StageFile(f, _),
         ) => rows
             .iter()
             .position(|r| matches!(r, CommitRow::File { index, .. } if *index == f))?,
@@ -187,7 +188,8 @@ pub(in crate::view) fn draw_commit_overflow(app: &App, frame: &mut Frame<'_>) {
     let style = (x, band, text.folder, text.color);
     draw_name(app, frame, style, (&parts, &view), text_clip);
     if let (Some(actions), CommitRow::File { index, .. }) = (actions, &rows[row]) {
-        draw_file_actions(app, frame, actions, *index, clip);
+        let targets = file_action_targets(app, rows.group_of(row), *index);
+        draw_file_actions(app, frame, actions, targets, clip);
     }
 }
 

@@ -240,7 +240,12 @@ pub enum MenuCommand {
     /// Git：继续停下来的合并、变基……（合并是打开提交视图去完成）。
     GitContinue,
     /// 菜单项「Git：中止停下来的合并、变基……」。
+    /// 分支选择器中对第几个标签做的事：`None` 是签出，其余见
+    /// [`TagOp`](crate::app::git::branch::TagOp)。
+    PickerTag(Option<crate::app::git::branch::TagOp>, usize),
     GitAbort,
+    /// 跳过变基、拣选、还原正在处理的提交，继续处理其后的提交。
+    GitSkip,
     /// 菜单里分支一组的小标题（不能点）：`false` 本地分支，`true` 远程分支。
     GitHeading(bool),
     /// 对分支列表里第几个分支做的事。
@@ -251,6 +256,10 @@ pub enum MenuCommand {
     GitOpenFile,
     /// 提交视图里的文件：回滚这一个文件（先确认）。
     GitRollbackFile,
+    /// 提交视图：储藏选中的文件（先输入说明）。
+    GitStashFiles,
+    /// 提交视图：把未跟踪的文件按给定的范围加入 `.gitignore`。
+    GitIgnore(crate::app::git::commit::IgnoreKind),
     /// 提交视图里多选时：勾上（`true`）或勾掉选中的各个文件。
     CommitCheck(bool),
     /// 差异里的文字：把光标处的一处改动换回 `HEAD` 的样子。
@@ -261,8 +270,20 @@ pub enum MenuCommand {
     StatusPlace(usize),
     /// 新建工作树的起点：0 是当前分支，`i + 1` 是分支列表里第 `i` 个分支。
     FormBase(usize),
+    /// 推送对话框的远程：远程列表里第几个。
+    FormRemote(usize),
     /// 日志的作者筛选：0 是全部作者，`i + 1` 是作者菜单里第 `i` 个作者。
     LogAuthor(usize),
+    /// 日志列表显示、隐藏一列。
+    LogColumn(crate::app::git::log::LogColumn),
+    /// 日志的作者筛选：只看自己（仓库配置的 `user.email`）的提交。
+    LogAuthorMe,
+    /// 日志的日期筛选：只看最近几天的提交，0 是全部日期。
+    LogSince(u32),
+    /// 日志的路径筛选：0 是全部路径，`i + 1` 是路径菜单里第 `i` 个路径（勾上或取消）。
+    LogPath(usize),
+    /// 日志的路径筛选：输入其他路径。
+    LogPathOther,
     /// 日志里的提交：签出（有本地分支指着它就签出该分支，没有就签出提交本身，先确认）。
     LogCheckout,
     /// 日志里的提交：从这里新建分支（输入名字）。
@@ -293,6 +314,10 @@ pub enum MenuCommand {
     LogCopyShortOid,
     /// 日志里的提交：复制完整的说明。
     LogCopyMessage,
+    /// 日志里的提交：复制它的补丁（`git format-patch`）。
+    LogCopyPatch,
+    /// 日志里改动的一个文件：把它在这个提交里的版本和工作区里的版本并排比较。
+    LogCompareWithLocal,
     /// 日志：转到提交号、分支或标签。
     LogGoTo,
     /// 编辑区：开关逐行追溯（开着时打勾）。
@@ -301,8 +326,26 @@ pub enum MenuCommand {
     GitStash,
     /// 提交视图「⋯」：对第几条储藏做的事。
     GitStashOp(crate::app::git::branch::StashOp, usize),
-    /// 提交视图的「⋯」：在按目录排成树和平铺之间切换（排成树时打勾）。
+    /// 提交视图的「⋯」里的一条 Git 命令：与命令面板中的同名命令相同，标题去掉前面的「Git：」。
+    GitAction(Action),
+    /// 提交视图的「⋯」：提交，与提交按钮相同。
+    CommitRun,
+    /// 提交视图的「⋯」：放弃全部已跟踪文件的更改（先确认）。
+    CommitDiscardAll,
+    /// 提交视图的「⋯」：变更列表里勾上（为真）或取消勾选全部文件。
+    CommitCheckAll(bool),
+    /// 提交视图的「⋯」：按目录排成树（排成树时打勾）。
     CommitTree,
+    /// 提交视图的「⋯」：平铺成列表，每个文件一行（平铺时打勾）。
+    CommitList,
+    /// 提交视图的「⋯」：变更列表，用勾选框决定提交什么（是这种视图时打勾）。
+    CommitChangeList,
+    /// 提交视图的「⋯」：各组里文件的排序方式（是这种方式时打勾）。
+    CommitSortBy(crate::app::CommitSort),
+    /// 提交视图：在当前仓库的更改之后列出其他仓库的更改（开着时打勾）。
+    CommitAllRepositories,
+    /// 提交视图：显示暂存区，列表分出「已暂存的更改」一组（开着时打勾）。
+    CommitStagingArea,
     /// 提交视图的「⋯」：展开所有组和目录。
     CommitExpandAll,
     /// 提交视图的「⋯」：收起所有组。
@@ -315,9 +358,23 @@ pub enum MenuCommand {
     CommitCopyOid,
     /// 「提交 ⌄」：提交以后继续推送。
     CommitPush,
+    /// 「提交 ⌄」：提交以后与上游同步（先拉取再推送）。
+    CommitSync,
     /// 「提交 ⌄」（卡片太窄、底行放不下勾选框时）和「上一次提交」的「⋯」：开关「修改上一次
     /// 提交」（开着时打勾）。
     CommitAmend,
+    /// 提交按钮的菜单：这个仓库提交时附加签署行（开着时打勾）。
+    CommitSignOff,
+    /// 提交按钮的菜单：下一次提交不运行钩子（开着时打勾，提交成功后关闭）。
+    CommitNoVerify,
+    /// 提交按钮的菜单：提交前检查新增的 TODO（开着时打勾）。
+    CommitCheckTodo,
+    /// 提交按钮的菜单：提交前格式化要提交的文件（开着时打勾）。
+    CommitReformat,
+    /// 提交按钮的菜单：最近的第几条提交信息。
+    CommitMessage(usize),
+    /// 提交按钮的菜单：添加第几个共同作者。
+    CommitCoAuthor(usize),
     /// 文件树工具栏的「⋯」：刷新目录。
     TreeRefresh,
     /// 文件树工具栏的「⋯」：折叠所有目录。
@@ -368,6 +425,11 @@ impl MenuCommand {
     /// 返回菜单项的标题；带数据的项（最近的目录、工作树）由调用方给出标题，这里返回空串。
     pub fn label(self) -> &'static str {
         match self {
+            MenuCommand::GitAction(action) => {
+                let title = action.title();
+                let rest = title.split_once(['：', ':']).map(|(_, rest)| rest);
+                rest.map_or(title, str::trim_start)
+            }
             MenuCommand::NewFile => t!("menu-new-file"),
             MenuCommand::NewFolder => t!("menu-new-folder"),
             MenuCommand::Reveal | MenuCommand::LocationReveal => crate::system::reveal_label(),
@@ -417,10 +479,15 @@ impl MenuCommand {
             MenuCommand::GitPullRebase => t!("menu-git-pull-rebase"),
             MenuCommand::GitAddRemote => t!("git-remote-add"),
             MenuCommand::GitRemote(op, _) => op.label(),
+            MenuCommand::PickerTag(None, _) => t!("git-branch-checkout"),
+            MenuCommand::PickerTag(Some(op), _) => op.label(),
             MenuCommand::GitContinue => t!("menu-git-continue"),
+            MenuCommand::GitSkip => t!("menu-git-skip"),
             MenuCommand::GitShowDiff => t!("menu-git-show-diff"),
             MenuCommand::GitOpenFile => t!("menu-git-open-file"),
             MenuCommand::GitRollbackFile => t!("menu-git-roll-back"),
+            MenuCommand::GitStashFiles => t!("menu-git-stash-files"),
+            MenuCommand::GitIgnore(kind) => kind.label(),
             MenuCommand::GitRevertHunk => t!("menu-git-roll-back-change"),
             MenuCommand::FileHistory => t!("menu-git-file-history"),
             MenuCommand::LogCheckout => t!("menu-log-checkout"),
@@ -439,16 +506,37 @@ impl MenuCommand {
             MenuCommand::LogCopyShortOid => t!("menu-log-copy-short-oid"),
             MenuCommand::LogGoTo => t!("menu-log-go-to"),
             MenuCommand::LogCopyMessage => t!("menu-log-copy-message"),
+            MenuCommand::LogCopyPatch => t!("menu-log-copy-patch"),
+            MenuCommand::LogCompareWithLocal => t!("menu-log-compare-with-local"),
             MenuCommand::ToggleBlame => t!("menu-git-blame"),
             MenuCommand::GitStash => t!("menu-git-stash"),
+            MenuCommand::CommitRun => t!("git-commit-button"),
+            MenuCommand::CommitDiscardAll => t!("menu-commit-discard-all"),
+            MenuCommand::CommitCheckAll(true) => t!("menu-commit-check-all"),
+            MenuCommand::CommitCheckAll(false) => t!("menu-commit-uncheck-all"),
             MenuCommand::CommitTree => t!("menu-commit-tree"),
+            MenuCommand::CommitList => t!("menu-commit-list"),
+            MenuCommand::CommitChangeList => t!("menu-commit-change-list"),
+            MenuCommand::CommitSortBy(sort) => match sort {
+                crate::app::CommitSort::Path => t!("menu-commit-sort-path"),
+                crate::app::CommitSort::Name => t!("menu-commit-sort-name"),
+                crate::app::CommitSort::Status => t!("menu-commit-sort-status"),
+            },
+            MenuCommand::CommitAllRepositories => t!("menu-commit-all-repositories"),
+            MenuCommand::CommitStagingArea => t!("menu-commit-staging-area"),
             MenuCommand::CommitExpandAll => t!("menu-commit-expand-all"),
             MenuCommand::CommitCollapseAll => t!("menu-commit-collapse-all"),
             MenuCommand::GitShowOutput => t!("menu-git-show-output"),
             MenuCommand::CommitUndo => t!("menu-commit-undo"),
             MenuCommand::CommitCopyOid => t!("menu-log-copy-oid"),
             MenuCommand::CommitPush => t!("menu-commit-and-push"),
+            MenuCommand::CommitSync => t!("menu-commit-and-sync"),
             MenuCommand::CommitAmend => t!("menu-commit-amend"),
+            MenuCommand::CommitSignOff => t!("menu-commit-sign-off"),
+            MenuCommand::CommitCheckTodo => t!("menu-commit-check-todo"),
+            MenuCommand::CommitReformat => t!("menu-commit-reformat"),
+            MenuCommand::CommitMessage(_) | MenuCommand::CommitCoAuthor(_) => "",
+            MenuCommand::CommitNoVerify => t!("menu-commit-no-verify"),
             MenuCommand::TreeRefresh => t!("workspace-tree-tool-refresh"),
             MenuCommand::TreeCollapseAll => t!("menu-tree-collapse-all"),
             MenuCommand::TreeLocate => t!("menu-tree-locate"),
@@ -481,8 +569,14 @@ impl MenuCommand {
             },
             MenuCommand::GitStashOp(op, _) => op.label(),
             MenuCommand::LogAuthor(0) => t!("menu-log-all-authors"),
+            MenuCommand::LogSince(0) => t!("menu-log-all-dates"),
+            MenuCommand::LogPath(0) => t!("menu-log-all-paths"),
+            MenuCommand::LogPathOther => t!("menu-log-other-path"),
+            MenuCommand::LogAuthorMe => t!("menu-log-author-me"),
+            MenuCommand::LogColumn(column) => column.label(),
+            MenuCommand::LogSince(_) | MenuCommand::LogPath(_) => "",
             MenuCommand::FormBase(0) => t!("menu-git-current-branch"),
-            MenuCommand::LogAuthor(_) | MenuCommand::FormBase(_) => "",
+            MenuCommand::LogAuthor(_) | MenuCommand::FormBase(_) | MenuCommand::FormRemote(_) => "",
             MenuCommand::GitAbort => t!("git-operation-abort"),
             MenuCommand::GitHeading(false) => t!("menu-git-local-branches"),
             MenuCommand::GitHeading(true) => t!("menu-git-remote-branches"),
@@ -561,6 +655,7 @@ impl MenuCommand {
     /// 返回键位表中对应的命令，菜单右侧据此显示该命令的快捷键；没有对应命令时返回 `None`。
     pub fn action(self) -> Option<Action> {
         Some(match self {
+            MenuCommand::GitAction(action) => action,
             MenuCommand::Reveal => Action::RevealInFinder,
             MenuCommand::OpenInTerminal => Action::OpenInTerminal,
             MenuCommand::FindInFolder => Action::FindInFolder,
@@ -587,6 +682,9 @@ impl MenuCommand {
             MenuCommand::RenameTerminal => Action::RenameTerminal,
             MenuCommand::CloseTerminal => Action::CloseTerminal,
             MenuCommand::GitRevertHunk => Action::GitRevertChange,
+            MenuCommand::GitShowDiff => Action::ChangesShowDiff,
+            MenuCommand::GitOpenFile => Action::ChangesOpenSource,
+            MenuCommand::GitRollbackFile => Action::ChangesRollback,
             MenuCommand::GoToDefinition => Action::GoToDefinition,
             MenuCommand::FindReferences => Action::FindReferences,
             MenuCommand::AddBookmark | MenuCommand::RemoveBookmark => Action::ToggleBookmark,
@@ -676,6 +774,8 @@ pub enum MenuTarget {
     Language(DocumentId),
     /// 分支选择器里第几个分支（[`crate::app::git::GitState::branches`] 的下标）的操作。
     BranchOps(usize),
+    /// 分支选择器中第几个标签（`GitState::tags` 的下标）行尾的「⋯」。
+    TagOps(usize),
     /// 位置选择器里一个位置的操作：目录，以及它在当前仓库的工作树列表里的下标。
     Location(PathBuf, Option<usize>),
     /// 提交视图标题行的「⋯」。
@@ -696,6 +796,8 @@ pub enum MenuTarget {
     CommitFile(PathBuf),
     /// 新建工作树对话框的「基于」。
     FormBase,
+    /// 推送对话框的远程。
+    FormRemote,
     /// 交互式变基列表第几行的处理方式。
     RebaseAction(usize),
     /// 提交视图里第几条储藏的菜单：应用、应用并删除、删除。
@@ -706,6 +808,12 @@ pub enum MenuTarget {
     StatusPlaces(Vec<Place>),
     /// 日志标题栏的「作者」下拉。
     LogAuthor,
+    /// 日志标题栏的「⋯」：显示哪几列。
+    LogColumns,
+    /// 日志标题栏的「日期」下拉。
+    LogDate,
+    /// 日志标题栏的「路径」下拉。
+    LogPath,
     /// 日志里的一个提交（完整的提交号）。
     LogCommit(String),
     /// 日志详情（或比较）里改动的一个文件：文件列表里的下标和文件的路径。

@@ -471,13 +471,20 @@ impl App {
             UserEvent::Rediffed => self.poll_rediffs(),
             UserEvent::Outline => self.poll_outline(),
             UserEvent::GitRollback(paths) => self.git_rollback(paths),
+            UserEvent::GitSkip => {
+                self.run_branch_command(crate::app::input::context_menu::MenuCommand::GitSkip);
+            }
             UserEvent::GitAbort => {
                 self.run_branch_command(crate::app::input::context_menu::MenuCommand::GitAbort);
             }
             UserEvent::GitSwitchBranch(branch, stash) => self.switch_branch(branch, stash),
             UserEvent::GitForcePush => self.run_git_sync(true),
+            UserEvent::GitCommitTodo(ok) => self.todo_confirmed(ok),
             UserEvent::GitPushConfirmed(intent, never) => self.push_confirmed(intent, never),
+            UserEvent::GitShowLog => self.git_show_log(),
+            UserEvent::GitOutput => self.refresh_git_output(),
             UserEvent::GitCommitAndPush => self.git_commit_and_push(),
+            UserEvent::GitCommitAndSync => self.git_commit_and_sync(),
             UserEvent::GitUndoCommit => self.undo_last_commit(),
             UserEvent::ReplaceAllConfirmed(total) => self.replace_all_confirmed(total),
             UserEvent::RunApproved(config) => self.approved_run(*config),
@@ -730,6 +737,8 @@ impl App {
         earliest(&mut wake, self.sync_outline(now));
 
         earliest(&mut wake, self.blame_tick(now));
+
+        earliest(&mut wake, self.auto_fetch_tick(now));
 
         // 停止绘制后处理空闲的呈现缓冲（每块与窗口大小相同）：
         // 标记为可清除或释放，无需等到下一次绘制。

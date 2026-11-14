@@ -235,7 +235,7 @@ pub(super) fn draw_goto(app: &mut App, frame: &mut Frame<'_>) {
                     t!("workspace-goto-total", count = total),
                 )
             }
-            crate::app::PromptKind::Stash => (
+            crate::app::PromptKind::Stash | crate::app::PromptKind::StashFiles(_) => (
                 t!("workspace-stash-title"),
                 t!("workspace-stash-placeholder"),
                 t!("workspace-stash-hint").to_owned(),

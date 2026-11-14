@@ -3,10 +3,11 @@
 //! 按文档开关（命令「Git：逐行追溯」、编辑区右键菜单）。开启后在后台运行
 //! `git blame --porcelain --contents -`，将编辑器中的内容（含未保存的修改）交给 `git`，使行号与
 //! 编辑器一致，已修改但未提交的行记为「未提交」。输入时不每次运行 `git`，停止输入
-//! [`BLAME_IDLE`] 后或保存后在后台重新计算。该栏由 `view/editor.rs` 在行号栏中绘制。
+//! [`BLAME_IDLE`] 后或保存后在后台重新计算。该栏由 `view/editor.rs` 在行号栏中绘制。当前行
+//! 追溯（`git.inlineBlame`）用同一份结果，在光标所在行的末尾写出一行说明。
 
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
@@ -112,6 +113,36 @@ impl App {
         }
     }
 
+    /// 当前行追溯是否作用于文档 `id`：设置开着、Git 模块开着，并且它是当前文档。
+    fn inline_blame_on(&self, id: DocumentId) -> bool {
+        self.config.git_inline_blame != Some(false)
+            && self.git_enabled()
+            && self.editor.active().is_some_and(|doc| doc.id == id)
+    }
+
+    /// 文档 `id` 是否需要逐行追溯的结果：开着追溯一栏，或者用于当前行追溯。
+    fn blame_wanted(&self, id: DocumentId) -> bool {
+        self.git.blame.is_on(id) || self.inline_blame_on(id)
+    }
+
+    /// 当前行追溯的内容：光标所在的行和「作者, 时间 · 提交说明」。
+    ///
+    /// 有选区、有多个光标、这一行尚未提交或还没有追溯结果时为 `None`。
+    pub(crate) fn inline_blame(&self, now: i64) -> Option<(usize, String)> {
+        let doc = self.editor.active()?;
+        let single = doc.selection.is_empty() && doc.extra_selections().is_empty();
+        if !single || !self.inline_blame_on(doc.id) {
+            return None;
+        }
+        let line = doc.text().line_of(doc.selection.head);
+        let commit = self.blame_commit(line).filter(|c| !c.uncommitted)?;
+        let time = blame_time(&commit, now);
+        Some((
+            line,
+            format!("{}, {time} · {}", commit.author, commit.summary),
+        ))
+    }
+
     /// 切换当前文档的逐行追溯（命令「Git：逐行追溯」）。
     pub(in crate::app) fn toggle_blame(&mut self) {
         let Some(doc) = self.editor.active() else {
@@ -137,20 +168,39 @@ impl App {
 
     /// 返回文档 `id` 所在的仓库与文件路径；不是仓库中的文本文件时返回 `None`。
     fn blame_path(&self, id: DocumentId) -> Option<(PathBuf, PathBuf)> {
-        let root = self.git.root.clone()?;
         let doc = self.editor.document(id)?;
         if !doc.shows_text() || doc.is_large() {
             return None;
         }
-        let path = doc.path.clone()?;
-        let path = if path.starts_with(&root) {
-            path
-        } else {
-            winc_config::files::canonicalize(path)
-                .ok()
-                .filter(|p| p.starts_with(&root))?
+        // 文件所在的仓库：打开的目录里有几个仓库时不一定是当前仓库，取包含它的最里层那个。
+        let owner = |path: &Path| {
+            let repos = self.git.repositories.iter().chain(&self.git.root);
+            let inside = repos.filter(|r| path.starts_with(r));
+            inside.max_by_key(|r| r.as_os_str().len()).cloned()
         };
-        Some((root, path))
+        let path = doc.path.clone()?;
+        if let Some(root) = owner(&path) {
+            return Some((root, path));
+        }
+        let path = winc_config::files::canonicalize(path).ok()?;
+        Some((owner(&path)?, path))
+    }
+
+    /// 仓库 `root` 里的文件 `path` 是否未跟踪或被忽略：`git blame` 对它总是失败。仓库的状态还
+    /// 没读到时按已跟踪算。
+    fn blame_untracked(&self, root: &Path, path: &Path) -> bool {
+        let check = |status: &winc_editor::git::Status| {
+            let untracked = status.entries.iter();
+            let mut untracked = untracked.filter(|e| e.untracked());
+            untracked.any(|e| path.starts_with(&e.path))
+                || status.ignored.iter().any(|i| path.starts_with(i))
+        };
+        if self.git.root.as_deref() == Some(root) {
+            return self.git.status.as_ref().is_some_and(check);
+        }
+        let summaries = self.git.summaries.lock();
+        let summaries = summaries.unwrap_or_else(std::sync::PoisonError::into_inner);
+        summaries.get(root).is_some_and(check)
     }
 
     /// 在绘制前更新文档 `id` 的逐行追溯；未开启或结果已是最新时不做处理。
@@ -158,7 +208,7 @@ impl App {
     /// 尚无结果或到达重新计算的时刻时，在后台运行 `git blame`（同一文档同一时刻只计算一次）。
     /// 文本刚变化时先按改动平移上一次的结果，停止输入 [`BLAME_IDLE`] 后再重新计算。
     pub(crate) fn update_blame(&mut self, id: DocumentId) {
-        if !self.git.blame.is_on(id) {
+        if !self.blame_wanted(id) {
             return;
         }
         let Some(doc) = self.editor.document(id) else {
@@ -188,6 +238,11 @@ impl App {
         let Some((root, path)) = self.blame_path(id) else {
             return;
         };
+        // 只为当前行追溯时，未跟踪、被忽略的文件不跑：`git blame` 必然失败，停止输入后又跑一次。
+        // 开着追溯一栏时照样跑，失败了说明原因。
+        if !self.git.blame.is_on(id) && self.blame_untracked(&root, &path) {
+            return;
+        }
         self.git.blame.due.remove(&id);
         self.git.blame.computing.insert(id, revision);
         let sender = self.git.blame.results.0.clone();
@@ -208,7 +263,7 @@ impl App {
 
     /// 在文档 `id` 保存后立即重新计算逐行追溯，不等待停止输入；未开启时不做处理。
     pub(in crate::app) fn blame_saved(&mut self, id: DocumentId) {
-        if self.git.blame.is_on(id) {
+        if self.blame_wanted(id) {
             self.git.blame.due.insert(id, Instant::now());
             self.update_blame(id);
         }
@@ -228,13 +283,21 @@ impl App {
 
     /// 接收后台计算完成的逐行追溯。
     ///
-    /// 失败时（文件尚未被跟踪）提示原因并关闭逐行追溯。
+    /// 开着追溯一栏时，失败（文件尚未被跟踪）提示原因并关闭逐行追溯。只用于当前行追溯时不提示，
+    /// 记下一份空结果：这一行不显示说明，文本不变时也不反复运行 `git`。
     pub(in crate::app) fn poll_blame(&mut self) {
         while let Ok(done) = self.git.blame.results.1.try_recv() {
             self.git.blame.computing.remove(&done.doc);
-            if !self.git.blame.is_on(done.doc) {
+            if !self.blame_wanted(done.doc) {
                 continue;
             }
+            let done = match done.result {
+                Err(_) if !self.git.blame.is_on(done.doc) => Computed {
+                    result: Ok(Blame::default()),
+                    ..done
+                },
+                _ => done,
+            };
             match done.result {
                 Ok(blame) => {
                     let entry = Entry {
@@ -307,6 +370,8 @@ impl App {
     }
 
     /// 处理对逐行追溯第 `line` 行的点击：在日志标签中选中对应的提交。
+    ///
+    /// 文件在另一个仓库里时（打开的目录里有几个仓库）先切换到那个仓库：提交在它的日志里。
     pub(in crate::app) fn click_blame(&mut self, line: usize) {
         let Some(commit) = self.blame_commit(line) else {
             return;
@@ -314,6 +379,14 @@ impl App {
         if commit.uncommitted {
             self.flash(t!("git-blame-line-uncommitted"));
             return;
+        }
+        let owner = (self.editor.active())
+            .and_then(|doc| self.blame_path(doc.id))
+            .map(|(root, _)| root)
+            .filter(|root| self.git.root.as_ref() != Some(root));
+        let index = owner.and_then(|root| self.git.repositories.iter().position(|r| *r == root));
+        if let Some(index) = index {
+            self.git_switch_repository(index);
         }
         self.git_show_log_at(&commit.oid);
     }

@@ -63,7 +63,7 @@ fn worktrees_show_in_the_location_picker_and_the_branch_menu() {
     // 位置选择器：两个工作树排在仓库下面，当前的选中，另一个写着分支。
     assert!(app.git_has_locations());
     app.run_action(Action::ShowCommit);
-    app.open_location_picker();
+    app.open_places(true);
     let rows = app.overlays.picker.location_rows.clone().unwrap();
     let places: Vec<_> = rows
         .iter()
@@ -349,7 +349,7 @@ fn a_missing_worktree_is_cleaned_up_from_its_menu() {
     std::fs::remove_dir_all(&linked).unwrap();
     app.git_refresh();
     app.run_action(Action::ShowCommit);
-    app.open_location_picker();
+    app.open_places(true);
     let rows = app.overlays.picker.location_rows.clone().unwrap();
     app.overlays.picker.selected = rows
         .iter()
@@ -437,7 +437,7 @@ fn a_single_repository_lists_its_worktrees_flat() {
     let linked = add_worktree(&root);
     app.git_refresh();
     app.run_action(Action::ShowCommit);
-    app.open_location_picker();
+    app.open_places(true);
     let rows = app.overlays.picker.location_rows.clone().unwrap();
     assert_eq!(rows.len(), 2);
     assert!(rows.iter().all(|row| match row {
@@ -556,6 +556,41 @@ fn the_status_bar_switches_worktrees_and_branches_from_menus() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// 标题行的工作树按钮只在当前仓库有多个工作树时出现，写着现在在哪个工作树；点开只列这个仓库
+/// 的工作树，不分组。
+#[test]
+fn the_worktree_button_lists_only_the_worktrees_of_this_repository() {
+    use crate::app::git::location_picker::LocationRow;
+    let Some((mut app, root)) = git_app("git-worktree-button", false) else {
+        return;
+    };
+    app.run_action(Action::ShowCommit);
+    paint(&mut app);
+    let button = |app: &App| (app.hits.commit.iter()).any(|(_, t)| *t == CommitTarget::Location);
+    assert!(!app.git_has_worktrees() && !button(&app));
+
+    let linked = add_worktree(&root);
+    app.git_refresh();
+    paint(&mut app);
+    assert!(app.git_has_worktrees() && button(&app));
+    assert_eq!(
+        app.git_worktree_label(),
+        winc_i18n::t!("git-location-main-worktree")
+    );
+
+    app.press_commit(CommitTarget::Location);
+    assert!(app.picker_lists_locations() && !app.git.location_all);
+    let rows = app.overlays.picker.location_rows.clone().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert!(
+        rows.iter()
+            .all(|row| matches!(row, LocationRow::Place(p) if p.depth == 0))
+    );
+
+    let _ = std::fs::remove_dir_all(&linked);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// 位置按钮和项目名在同一行，分支行上移，放不下时项目名和位置都不压到工具按钮。
 #[test]
 fn the_location_shares_the_row_with_the_project() {
@@ -602,7 +637,7 @@ fn the_location_shares_the_row_with_the_project() {
     assert!(app.hits.project.right() <= location.x);
     assert!(location.right() <= app.commit_parts().tools[0].0.x);
 
-    app.open_location_picker();
+    app.open_places(true);
     paint(&mut app);
     assert!(app.layout.picker.y >= app.commit_parts().header.bottom());
 
@@ -610,7 +645,7 @@ fn the_location_shares_the_row_with_the_project() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// 其他工作树有更改时位置行有悬停提示；没有时不提示。
+/// 工作树按钮的悬停提示：其他工作树有更改时提示它，没有时写现在在哪个工作树。
 #[test]
 fn the_location_row_tells_when_other_worktrees_have_changes() {
     let Some((mut app, root)) = git_app("git-location-others", false) else {
@@ -632,7 +667,8 @@ fn the_location_row_tells_when_other_worktrees_have_changes() {
         assert!(app.overlays.tooltip.since.is_some());
         crate::view::tests::tooltip(app).map(|(_, text)| text)
     };
-    assert_eq!(tip(&mut app), None);
+    // 在主工作树上按钮只有图标：提示写明是哪个工作树。
+    assert_eq!(tip(&mut app).as_deref(), Some("主工作树"));
 
     // 刷新时其他位置的状态也重读，不用打开选择器。
     std::fs::write(linked.join("new.txt"), "x").unwrap();
@@ -642,7 +678,7 @@ fn the_location_row_tells_when_other_worktrees_have_changes() {
     assert_eq!(text.as_deref(), Some("其他 1 个工作树有未提交的更改"));
 
     // 选择器开着时每一行都写着。
-    app.open_location_picker();
+    app.open_places(true);
     paint(&mut app);
     assert_eq!(crate::view::tests::tooltip(&app), None);
 

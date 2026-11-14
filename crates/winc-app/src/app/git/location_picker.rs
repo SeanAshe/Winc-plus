@@ -95,8 +95,27 @@ impl App {
             || self.git.worktrees.iter().filter(|w| usable(w)).count() >= 2
     }
 
-    /// 从位置行展开位置选择器，选中当前位置，并在后台重新查找一次仓库。
-    pub(in crate::app) fn open_location_picker(&mut self) {
+    /// 当前仓库是否有不止一个可以工作的工作树：有时标题行才有工作树按钮。
+    pub(crate) fn git_has_worktrees(&self) -> bool {
+        let usable = self.git.worktrees.iter().filter(|w| w.head.is_some());
+        usable.count() >= 2
+    }
+
+    /// 标题行是否有位置按钮：打开的目录中有多个仓库，或者当前仓库有多个工作树。
+    pub(crate) fn git_has_locations_button(&self) -> bool {
+        self.git.repositories.len() >= 2 || self.git_has_worktrees()
+    }
+
+    /// 从标题行的位置按钮展开选择器：有多个仓库时列出全部仓库和工作树，否则只列当前仓库的
+    /// 工作树。
+    pub(in crate::app) fn open_worktree_picker(&mut self) {
+        self.open_places(self.git.repositories.len() >= 2);
+    }
+
+    /// 展开选择器并选中当前位置，同时在后台重新查找一次仓库；`all` 见
+    /// [`GitState::location_all`](crate::app::git::GitState::location_all)。
+    pub(in crate::app) fn open_places(&mut self, all: bool) {
+        self.git.location_all = all;
         self.git_discover();
         self.git_scan_repositories();
         self.finish_name_input();
@@ -118,15 +137,21 @@ impl App {
         self.request_redraw();
     }
 
-    /// 命令「切换仓库」「切换工作树」：打开提交视图，再展开位置选择器。
-    pub(in crate::app) fn switch_location(&mut self) {
-        if !self.git_has_locations() {
+    /// 命令「切换仓库」（`all` 为真，列出全部仓库和工作树）和「切换工作树」（只列当前仓库的
+    /// 工作树）：打开提交视图，再展开选择器。
+    pub(in crate::app) fn switch_location(&mut self, all: bool) {
+        let any = if all {
+            self.git_has_locations()
+        } else {
+            self.git_has_worktrees()
+        };
+        if !any {
             self.flash(t!("git-location-only-one"));
             return;
         }
         self.show_commit();
         self.paint_now();
-        self.open_location_picker();
+        self.open_places(all);
     }
 
     /// 按查询重新排列各行，选中当前位置（它不在结果里时是第一个位置）。
@@ -234,7 +259,10 @@ impl App {
         let query = needle(self.overlays.picker.input.text());
         let searching = !query.is_empty();
         let mut rows = Vec::new();
-        let groups = self.location_groups();
+        let mut groups = self.location_groups();
+        if !self.git.location_all {
+            groups.retain(|(_, _, places)| places.iter().any(|p| p.current));
+        }
         // 只有一个仓库时分组标题没有信息量，工作树直接列出来。
         let single = groups.len() == 1;
         for (label, path, mut places) in groups {
@@ -300,13 +328,21 @@ impl App {
             .unwrap_or_default()
     }
 
-    /// 当前位置以外有未提交的更改的位置数。
+    /// 当前仓库的其他工作树中有未提交的更改的个数。
     pub(crate) fn git_other_changes(&self) -> usize {
         let groups = self.location_groups();
-        let places = groups.iter().flat_map(|(_, _, places)| places);
+        let own = (groups.iter()).filter(|(_, _, places)| places.iter().any(|p| p.current));
+        let places = own.flat_map(|(_, _, places)| places);
         places
             .filter(|p| !p.current && !p.missing && self.place_state(&p.path).changes > 0)
             .count()
+    }
+
+    /// 标题行的工作树按钮上写的名字：主工作树写「主工作树」，附属工作树写它自己的名字。
+    pub(crate) fn git_worktree_label(&self) -> String {
+        let groups = self.location_groups();
+        let current = (groups.iter()).find_map(|(_, _, places)| places.iter().find(|p| p.current));
+        current.map(|place| place.label.clone()).unwrap_or_default()
     }
 
     /// 位置行上写的内容：仓库的名字，以及打开的是附属工作树时工作树的名字。

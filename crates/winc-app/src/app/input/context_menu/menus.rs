@@ -207,6 +207,7 @@ pub fn log_commit_menu(enabled: bool, branch: &str, tags: &[&str]) -> Vec<MenuEn
         Item(LogCopyOid, true),
         Item(LogCopyShortOid, true),
         Item(LogCopyMessage, true),
+        Item(LogCopyPatch, true),
         Separator,
         Item(LogGoTo, true),
     ]);
@@ -224,6 +225,7 @@ pub fn log_file_menu(exists: bool, in_workspace: bool) -> Vec<MenuEntry> {
 
     vec![
         Item(GitShowDiff, true),
+        Item(LogCompareWithLocal, exists),
         Item(GitOpenFile, exists),
         Item(FileHistory, true),
         Separator,
@@ -255,31 +257,44 @@ pub fn form_base_menu(branches: &[winc_editor::git::Branch]) -> Vec<MenuEntry> {
     menu
 }
 
-/// 返回提交视图里一个文件的菜单项：显示差异、打开文件，回滚，在文件树中显示、
-/// 在文件管理器中显示，复制路径。
+/// 返回提交视图里一个文件的菜单项：显示差异、打开文件，回滚、储藏、加入 `.gitignore`，在文件
+/// 树中显示、在文件管理器中显示，复制路径。
 ///
 /// `exists` 表示文件还在磁盘上，删掉的文件不能打开、不能在文件管理器中显示；`in_workspace`
-/// 表示它在打开的目录里。
-pub fn commit_file_menu(exists: bool, in_workspace: bool) -> Vec<MenuEntry> {
+/// 表示它在打开的目录里。`ignore` 是可以加入 `.gitignore` 的各种范围，只有未跟踪的文件才有；
+/// 为空时没有这个子菜单。
+pub fn commit_file_menu(
+    exists: bool,
+    in_workspace: bool,
+    ignore: &[crate::app::git::commit::IgnoreKind],
+) -> Vec<MenuEntry> {
     use MenuCommand::*;
-    use MenuEntry::{Item, Separator};
+    use MenuEntry::{Item, Separator, Submenu};
 
-    vec![
+    let mut changes = vec![Item(GitRollbackFile, true), Item(GitStashFiles, true)];
+    if !ignore.is_empty() {
+        let kinds = ignore.iter().map(|&kind| Item(GitIgnore(kind), true));
+        changes.push(Submenu(t!("menu-git-ignore").to_owned(), kinds.collect()));
+    }
+    let mut menu = vec![
         Item(GitShowDiff, true),
         Item(GitOpenFile, exists),
         Separator,
-        Item(GitRollbackFile, true),
+    ];
+    menu.extend(changes);
+    menu.extend([
         Separator,
         Item(RevealInTree, exists && in_workspace),
         Item(Reveal, exists),
         Separator,
         Item(CopyPath, true),
         Item(CopyRelativePath, in_workspace),
-    ]
+    ]);
+    menu
 }
 
 /// 返回提交视图里选中了多个文件、右键点在其中一个上时的菜单项：打开（`any_exists`：有还在
-/// 磁盘上的）、勾选、取消勾选、回滚、复制路径、复制相对路径，都作用于选中的各个文件。
+/// 磁盘上的）、暂存、取消暂存、回滚、储藏、复制路径、复制相对路径，都作用于选中的各个文件。
 pub fn commit_selection_menu(any_exists: bool) -> Vec<MenuEntry> {
     use MenuCommand::*;
     use MenuEntry::{Item, Separator};
@@ -291,6 +306,7 @@ pub fn commit_selection_menu(any_exists: bool) -> Vec<MenuEntry> {
         Item(CommitCheck(false), true),
         Separator,
         Item(GitRollbackFile, true),
+        Item(GitStashFiles, true),
         Separator,
         Item(CopyPath, true),
         Item(CopyRelativePath, true),

@@ -171,7 +171,10 @@ impl App {
             }
             _ if self.overlays.picker.open => self.close_picker(),
             Target::Scrollbar(
-                bar @ (Scrollbar::Panel | Scrollbar::Commit | Scrollbar::Outline),
+                bar @ (Scrollbar::Panel
+                | Scrollbar::Commit
+                | Scrollbar::Outline
+                | Scrollbar::LogBranches),
                 grab,
             ) => {
                 self.grab_scrollbar(bar, grab);
@@ -235,6 +238,10 @@ impl App {
             Target::Tree(_) => self.click_tree(x, y),
             Target::Placeholder(action) => self.run_placeholder_action(action),
             Target::Diff(target) => self.press_diff(target),
+            Target::Log(crate::app::git::log::LogTarget::AuthorEdge) => {
+                let double = self.click_count(x, y) == 2;
+                self.press_log_author_edge(x, double);
+            }
             Target::Log(crate::app::git::log::LogTarget::Divider) => {
                 // 双击回到默认宽度。
                 if self.click_count(x, y) == 2 {
@@ -245,6 +252,14 @@ impl App {
                         start_x: x,
                         start_width: self.log_parts().details.w,
                     };
+                }
+            }
+            // 分支面板里的分支：单击筛选，双击签出（第一下已经按它筛选了），再连着点不做别的。
+            Target::Log(target @ crate::app::git::log::LogTarget::BranchRow(i)) => {
+                match self.click_count(x, y) {
+                    1 => self.press_log(target),
+                    2 => self.checkout_log_branch_row(i),
+                    _ => {}
                 }
             }
             Target::Log(target) => {

@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex, mpsc};
 
 use winc_editor::{DocumentId, Unsupported};
 use winc_preview::image::Pixels;
-use winc_preview::pdf::{Document, PageSize};
+use winc_preview::pdf::{Document, OutlineItem, PageSize};
 use winc_render::{Rect, Renderer};
 use winit::keyboard::{Key, NamedKey};
 
@@ -121,6 +121,8 @@ enum Done {
     Opened(u64, Result<Vec<PageSize>, String>),
     /// 渲染完的一页：页号、请求的位图宽度、是否为缩略图，以及位图或失败的原因。
     Rendered(u64, usize, u32, bool, Result<Arc<Pixels>, String>),
+    /// 读出的目录（书签）；没有目录、读不出来时为空。
+    Outline(u64, Vec<OutlineItem>),
 }
 
 /// 当前标签的 PDF 预览。
@@ -149,6 +151,8 @@ pub(crate) struct PdfPreview {
     receiver: mpsc::Receiver<Done>,
     /// 打开的结果：各页大小（点），或失败的原因；尚未打开完时为 `None`。
     pub pages: Option<Result<Arc<[PageSize]>, String>>,
+    /// 目录（书签），在侧栏的大纲里列出；尚未读完时为 `None`，读完没有目录时为空。
+    pub outline: Option<Arc<[OutlineItem]>>,
     /// 渲染好的页：页号到位图，只保留当前需要的页。
     pub rendered: HashMap<usize, Arc<Pixels>>,
     /// 渲染失败的（页号，位图宽度）和原因：在页面上显示原因，不再重复请求；位图宽度改变（窗口
@@ -196,6 +200,7 @@ impl Default for PdfPreview {
             sender,
             receiver,
             pages: None,
+            outline: None,
             rendered: HashMap::new(),
             failed: HashMap::new(),
             scroll: 0.0,
@@ -231,6 +236,7 @@ impl PdfPreview {
             wanted.clear();
         }
         self.pages = None;
+        self.outline = None;
         self.rendered.clear();
         self.failed.clear();
         self.scroll = 0.0;
@@ -242,6 +248,21 @@ impl PdfPreview {
         self.strip_scroll = 0.0;
         self.strip_height = 0.0;
         self.current = 0;
+    }
+
+    /// 文件 `path` 的目录：正在预览的就是它、并且已经读完时才有。
+    pub(crate) fn outline_of(&self, path: Option<&Path>) -> Option<Arc<[OutlineItem]>> {
+        (self.path.as_deref() == path)
+            .then(|| self.outline.clone())
+            .flatten()
+    }
+
+    /// 各页在当前倍数下的位置；文档还没打开时为 `None`。
+    fn current_rects(&self) -> Option<Vec<Rect>> {
+        let Some(Ok(pages)) = self.pages.as_ref() else {
+            return None;
+        };
+        Some(page_rects(pages, self.body().w, self.zoom).0)
     }
 
     /// 最大滚动位置（逻辑像素）。
@@ -341,6 +362,20 @@ impl App {
                 let _ = proxy.send_event(UserEvent::ImageReady);
             }
         };
+        // 目录直接读文件，与系统的渲染器无关：另开一个线程，不耽误第一页的渲染。
+        let (outline_path, outline_sender, outline_notify) =
+            (path.clone(), pdf.sender.clone(), notify.clone());
+        let _ = std::thread::Builder::new()
+            .name("winc-pdf-outline".to_owned())
+            .spawn(move || {
+                let items = winc_preview::pdf::read_outline(&outline_path);
+                if outline_sender
+                    .send(Done::Outline(generation, items))
+                    .is_ok()
+                {
+                    outline_notify();
+                }
+            });
         // 系统的 PDF 对象只能在打开它的线程上使用：文档在线程里打开，请求通道关闭时线程结束。
         let spawned = std::thread::Builder::new()
             .name("winc-pdf".to_owned())
@@ -436,6 +471,11 @@ impl App {
                     if pdf.pages.as_ref().is_some_and(Result::is_err) {
                         pdf.requests = None;
                     }
+                    changed = true;
+                }
+                Done::Outline(generation, items) if generation == pdf.generation => {
+                    pdf.outline = Some(Arc::from(items));
+                    self.outline_source_changed();
                     changed = true;
                 }
                 Done::Rendered(generation, page, width, thumb, pixels)
@@ -647,6 +687,38 @@ impl App {
         self.request_redraw();
     }
 
+    /// 把 PDF 预览滚动到第 `page` 页（从 0 起）内比例 `top` 处（到页面上沿的距离与页高之比），
+    /// 上方留出页间距；点击大纲里的书签时调用。`top` 为 0 时与点击缩略图相同。
+    pub(in crate::app) fn scroll_pdf_to_place(&mut self, page: usize, top: f32) {
+        let Some(rects) = self.preview.pdf.current_rects() else {
+            return;
+        };
+        if let Some(rect) = rects.get(page) {
+            self.scroll_pdf_to((rect.y + top * rect.h - GAP).max(0.0));
+        }
+    }
+
+    /// 各位置 `marks`（页、页内比例；页为 `usize::MAX` 的不算）中已经读到的最后一项的序号：
+    /// 位置不低于视口上沿（留出跳转时的页间距）。滚到底时视口里露出的都算读到，末尾的几项
+    /// 滚不到上沿。
+    pub(in crate::app) fn pdf_reached(
+        &self,
+        marks: impl DoubleEndedIterator<Item = (usize, f32)> + ExactSizeIterator,
+    ) -> Option<usize> {
+        let pdf = &self.preview.pdf;
+        let rects = pdf.current_rects()?;
+        let max = pdf.max_scroll();
+        let probe = if max > 0.0 && pdf.scroll >= max - 1.0 {
+            pdf.scroll + pdf.body().h
+        } else {
+            pdf.scroll + GAP + 1.0
+        };
+        let mut marks = marks;
+        marks.rposition(|(page, top)| {
+            (rects.get(page)).is_some_and(|rect| rect.y + top * rect.h <= probe)
+        })
+    }
+
     /// 把 PDF 预览滚动到位置 `to`（逻辑像素）；点击缩略图时调用。
     pub(in crate::app) fn scroll_pdf_to(&mut self, to: f32) {
         self.glide_pane_to(ScrollTarget::Pdf, to);
@@ -680,12 +752,14 @@ impl App {
         self.poll_pdf();
     }
 
-    /// 测试中等渲染线程完成打开和已发出的渲染请求，并收下结果。
+    /// 测试中等渲染线程完成打开和已发出的渲染请求，并收下结果；目录也一并等到。
     #[cfg(all(test, any(target_os = "macos", windows)))]
     pub(crate) fn wait_for_pdf(&mut self) {
         self.advance_pdf();
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        while self.preview.pdf.is_busy() && std::time::Instant::now() < deadline {
+        let busy =
+            |pdf: &PdfPreview| pdf.is_busy() || (pdf.requests.is_some() && pdf.outline.is_none());
+        while busy(&self.preview.pdf) && std::time::Instant::now() < deadline {
             std::thread::sleep(std::time::Duration::from_millis(5));
             self.poll_pdf();
         }

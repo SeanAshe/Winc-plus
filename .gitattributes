@@ -1,2 +1,4 @@
 # 生成与录制的测试数据：差异中默认折叠，不计入语言统计。
 crates/winc-vim/fixtures/* linguist-generated=true
+# shell 集成脚本由 Linux、WSL 和远端主机上的 shell 读取：总以 LF 检出，Windows 上同样如此。
+crates/winc-pty/shell/* text eol=lf

@@ -28,6 +28,8 @@ fn branch(name: &str, remote: bool, current: bool, upstream: Option<&str>) -> Br
         oid: String::new(),
         time: 0,
         local: String::new(),
+        ahead: 0,
+        behind: 0,
     }
 }
 

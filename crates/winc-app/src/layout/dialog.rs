@@ -110,6 +110,23 @@ impl DialogLayout {
     /// 卡片宽 [`DIALOG_W`]，窗口太窄时缩到窗口以内；高度按内容算，水平居中。竖直方向偏上：
     /// 顶边距窗口上边缘为剩余空间高度的 42%，使视觉重心落在窗口中部。
     pub fn compute(window: Rect, location: bool, options: &[DialogPart]) -> Self {
+        Self::form(window, location, options, 0)
+    }
+
+    /// 计算推送对话框的几何：远程的菜单、目标分支的输入框，其下 `lines` 行待推送的提交，再往下
+    /// 是勾选项。
+    ///
+    /// 版式与 [`DialogLayout::compute`] 相同，只是菜单在上、输入框在下；提交列表在 `message`，
+    /// 它的名称是 `labels` 的最后一项。
+    pub fn push(window: Rect, lines: usize, options: &[DialogPart]) -> Self {
+        let mut layout = Self::form(window, false, options, lines);
+        std::mem::swap(&mut layout.branch, &mut layout.base);
+        layout
+    }
+
+    /// [`DialogLayout::compute`] 的实现；`lines` 不为 0 时各行之后多一块 `lines` 行高的只读
+    /// 文字（`message`），名称加在 `labels` 末尾。
+    fn form(window: Rect, location: bool, options: &[DialogPart], lines: usize) -> Self {
         let w = DIALOG_W.min(window.w - SETTINGS_MARGIN * 2.0).max(0.0);
         let inner = (w - SETTINGS_PAD * 2.0).max(0.0);
         // 先按卡片左上角在原点排好，最后整体平移到窗口里。
@@ -148,6 +165,15 @@ impl DialogLayout {
             (location, change)
         });
 
+        let message = if lines > 0 {
+            labels.push(Rect::new(x, y, DIALOG_LABEL_W, QUESTION_LINE_H));
+            let block = Rect::new(cx, y, cw, lines as f32 * QUESTION_LINE_H);
+            y = block.bottom() + DIALOG_GAP;
+            Some(block)
+        } else {
+            None
+        };
+
         // 勾选项排在框那一列，勾选框的左边和框的左边对齐。
         y += 2.0;
         let options: Vec<_> = (options.iter())
@@ -183,7 +209,7 @@ impl DialogLayout {
         DialogLayout {
             card: at(Rect::new(0.0, 0.0, w, h)),
             list: Rect::default(),
-            message: Rect::default(),
+            message: message.map(at).unwrap_or_default(),
             values: Vec::new(),
             second: Rect::default(),
             third: Rect::default(),
