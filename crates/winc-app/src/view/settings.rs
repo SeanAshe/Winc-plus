@@ -774,9 +774,33 @@ fn draw_field(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect
     // 未设置时显示的「系统默认」「跟随编辑器」是菜单中的一项，与其他取值同色。
     let text = configured.map_or(Cow::Borrowed(placeholder), Cow::Owned);
     let color = p.text_muted;
-    let text = ellipsize(frame, &text, app.fonts.ui, area.w);
-    let w = frame.measure(FontKind::Ui, app.fonts.ui, &text);
-    ui_text(frame, app, area.right() - w, area, &text, color, area);
+    let size = app.fonts.ui;
+    // 字体列表只写第一个字体，其后的后备字体以淡色的「+N」计数；字体名放不下时截去末尾，文件
+    // 路径从中间截短以保留文件名。
+    let list = if font {
+        winc_config::font_list(Some(&text))
+    } else {
+        Vec::new()
+    };
+    let (main, more) = match list.split_first() {
+        Some((first, rest)) if !rest.is_empty() => (*first, format!(" +{}", rest.len())),
+        Some((first, _)) => (*first, String::new()),
+        None => (text.as_ref(), String::new()),
+    };
+    let more_w = frame.measure(FontKind::Ui, size, &more);
+    let room = (area.w - more_w).max(0.0);
+    let path = main.contains(['/', '\\']);
+    let main = if font && !path {
+        truncate_end(frame, main, size, room)
+    } else {
+        ellipsize(frame, main, size, room)
+    };
+    let w = frame.measure(FontKind::Ui, size, &main) + more_w;
+    let x = area.right() - w;
+    let end = ui_text(frame, app, x, area, &main, color, area);
+    if !more.is_empty() {
+        ui_text(frame, app, end, area, &more, p.text_dim, area);
+    }
     draw_arrows(app, frame);
     None
 }

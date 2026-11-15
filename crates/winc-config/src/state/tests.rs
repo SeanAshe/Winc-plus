@@ -61,6 +61,7 @@ fn sample() -> State {
                     open: true,
                     height: 320.0,
                     width: 0.0,
+                    maximized: true,
                 }),
                 run: Some("后端".into()),
                 sidebar_hidden: true,

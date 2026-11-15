@@ -250,7 +250,12 @@ impl App {
                 MenuCommand::FontDefault => self.settings_choose_font(setting, None),
                 MenuCommand::Font(i) => {
                     if let Some(family) = winc_render::installed_fonts().get(i) {
-                        self.settings_choose_font(setting, Some(family.name.clone()));
+                        self.settings_choose_primary_font(setting, &family.name);
+                    }
+                }
+                MenuCommand::FallbackFont(i) => {
+                    if let Some(family) = winc_render::installed_fonts().get(i) {
+                        self.settings_toggle_fallback_font(setting, &family.name);
                     }
                 }
                 _ => {}

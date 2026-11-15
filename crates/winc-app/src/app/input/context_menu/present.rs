@@ -353,7 +353,7 @@ impl App {
             MenuTarget::TextWidth => text_width_menu(),
             MenuTarget::TerminalPosition => terminal_position_menu(),
             MenuTarget::OptionAsMeta => option_as_meta_menu(),
-            &MenuTarget::Font(setting) => font_menu(setting),
+            &MenuTarget::Font(setting) => font_menu(setting, self.font_value(setting).as_deref()),
             &MenuTarget::Tool(task, id) => {
                 let row = self.settings.tool_row(tool_setting(task, id));
                 let install = row.is_some_and(|r| !r.install.is_empty());
@@ -1335,7 +1335,7 @@ impl App {
                     (self.config.option_as_meta).unwrap_or(winc_config::OptionAsMeta::Left);
                 winc_config::OptionAsMeta::ALL.get(i) == Some(&current)
             }
-            MenuCommand::FontDefault | MenuCommand::Font(_) => {
+            MenuCommand::FontDefault | MenuCommand::Font(_) | MenuCommand::FallbackFont(_) => {
                 let Some(ContextMenu {
                     target: MenuTarget::Font(setting),
                     ..
@@ -1343,16 +1343,15 @@ impl App {
                 else {
                     return false;
                 };
-                let current = match setting {
-                    Setting::UiFont => &self.config.ui_font,
-                    Setting::TerminalFont => &self.config.terminal_font,
-                    _ => &self.config.editor_font,
-                };
+                // 字体菜单只看列表中的第一个字体，「后备字体」看其余的字体。
+                let list = winc_config::font_list(self.font_value(*setting).as_deref());
+                let name = |i: usize| winc_render::installed_fonts().get(i).map(|f| &*f.name);
                 match command {
-                    MenuCommand::Font(i) => winc_render::installed_fonts()
-                        .get(i)
-                        .is_some_and(|family| current.as_deref() == Some(family.name.as_str())),
-                    _ => current.is_none(),
+                    MenuCommand::Font(i) => name(i).is_some_and(|n| list.first() == Some(&n)),
+                    MenuCommand::FallbackFont(i) => {
+                        name(i).is_some_and(|n| list.iter().skip(1).any(|&m| m == n))
+                    }
+                    _ => list.is_empty(),
                 }
             }
             MenuCommand::ToolAuto => language.is_some() && configured.is_none(),

@@ -424,6 +424,15 @@ pub(super) static SVELTE: Language = Language {
     ..HTML
 };
 
+/// 微信小程序的 WXML 的规则，其余字段沿用 HTML；`<wxs>` 中的 WXS 按脚本着色。
+pub(super) static WXML: Language = Language {
+    id: "wxml",
+    name: "WXML",
+    extensions: &["wxml"],
+    script_tags: &["script", "wxs"],
+    ..HTML
+};
+
 /// CSS 的规则。
 ///
 /// CSS 没有 `//` 行注释：识别 `//` 会让 `url(http://…)` 中 `//` 之后的部分被当作注释。
@@ -473,6 +482,14 @@ pub(super) static LESS: Language = Language {
     extensions: &["less"],
     variables: Variables::None,
     ..SCSS
+};
+
+/// 微信小程序的 WXSS 的规则，其余字段沿用 CSS：在 CSS 之上多了 `rpx` 等写法，不影响着色。
+pub(super) static WXSS: Language = Language {
+    id: "wxss",
+    name: "WXSS",
+    extensions: &["wxss"],
+    ..CSS
 };
 
 /// SQL 的规则。

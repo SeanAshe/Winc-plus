@@ -661,13 +661,12 @@ fn the_status_bar_button_slides_the_panel_out_and_back() {
 #[test]
 fn the_terminal_menu_maximizes_and_the_options_apply() {
     use crate::app::input::context_menu::{MenuEntry, MenuTarget};
-    use crate::app::terminal::{DEFAULT_HEIGHT, EDITOR_MIN};
+    use crate::app::terminal::{DEFAULT_HEIGHT, EDITOR_MIN_WIDTH};
     use crate::keymap::Action;
 
     let dir = sample_folder("terminal-menu");
     let mut app = app_with(&dir.join("short.rs"), false);
     show_terminal(&mut app, "$ echo hi\r\nhi\r\n$ ");
-    let full = app.layout.editor.h + app.layout.terminal.h;
 
     // 右键点在网格上：终端的菜单，没有选区时「复制」灰着。
     let right_click = |app: &mut App| {
@@ -725,26 +724,46 @@ fn the_terminal_menu_maximizes_and_the_options_apply() {
     app.terminal.motion = None;
     app.relayout();
 
-    // 最大化：编辑区只留最小的高度；再来一次还原。
+    // 最大化：面板铺满编辑区一栏（连同顶栏那一行），编辑区和标签栏不占地方；焦点进面板，
+    // 随现场保存；再来一次还原。
+    let l = app.layout;
+    let column = Rect::new(
+        l.top_bar.x,
+        l.top_bar.y,
+        l.top_bar.w,
+        l.terminal.bottom() - l.top_bar.y,
+    );
+    app.focus = Focus::Editor;
     right_click(&mut app);
     app.run_menu_command(MenuCommand::TerminalMaximize);
     assert!(app.terminal.maximized);
-    assert_eq!(app.layout.editor.h, EDITOR_MIN);
-    assert_eq!(app.layout.editor.h + app.layout.terminal.h, full);
+    assert_eq!(app.layout.terminal, column);
+    assert_eq!((app.layout.editor.w, app.layout.tabs.w), (0.0, 0.0));
+    assert_eq!(app.layout.terminal_divider, Rect::default());
+    assert_eq!(app.focus, Focus::Terminal);
+    assert!(app.terminal_session().unwrap().maximized);
     app.run_action(Action::MaximizeTerminal);
     assert!(!app.terminal.maximized);
     assert_eq!(app.layout.terminal.h, DEFAULT_HEIGHT);
+    assert!(!app.terminal_session().unwrap().maximized);
 
-    // 最大化之后拖动分隔条：从当前大小继续拖动，不再是最大化状态。
+    // 面板在右边时最大化：同样铺满这一栏。
+    app.toggle_terminal_position();
+    app.terminal.motion = None;
     app.run_action(Action::MaximizeTerminal);
-    let gap = app.layout.terminal_divider;
-    let (x, y) = (gap.x + 200.0, gap.y + gap.h / 2.0);
-    app.on_mouse_move(x, y);
-    app.on_mouse_down(MouseButton::Left);
-    app.on_mouse_move(x, y + 50.0);
-    app.on_mouse_up(MouseButton::Left);
+    assert_eq!(app.layout.terminal, column);
+    app.run_action(Action::MaximizeTerminal);
+    assert!(app.layout.editor.w >= EDITOR_MIN_WIDTH);
+    app.toggle_terminal_position();
+    app.terminal.motion = None;
+    app.relayout();
+
+    // 最大化时切到某个文件：面板还原，让出编辑区。
+    app.run_action(Action::MaximizeTerminal);
+    app.activate_tab(0);
     assert!(!app.terminal.maximized);
-    assert_eq!(app.layout.editor.h, EDITOR_MIN + 50.0);
+    assert_eq!(app.focus, Focus::Editor);
+    assert_eq!(app.layout.terminal.h, DEFAULT_HEIGHT);
 
     // 选中松开就复制（`copyOnSelect`）。
     app.clipboard.copied = None;

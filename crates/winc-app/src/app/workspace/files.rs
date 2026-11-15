@@ -210,6 +210,7 @@ impl App {
         }
         self.load_active_in_background();
 
+        self.make_room_for_editor();
         self.focus = Focus::Editor;
         self.note_recent_file();
         self.relayout();
@@ -397,6 +398,7 @@ impl App {
         }
         self.editor.active = Some(index);
         self.load_active_in_background();
+        self.make_room_for_editor();
         self.focus = Focus::Editor;
         self.note_recent_file();
         self.relayout();

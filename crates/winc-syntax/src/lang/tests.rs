@@ -221,3 +221,17 @@ fn names_and_related_languages() {
     assert!(detect("a.css").is_related(detect("index.html")));
     assert!(!detect("a.rs").is_related(detect("README.md")));
 }
+
+/// 微信小程序的三种文件各是一种语言，分别沿用 HTML、CSS 和 JavaScript 的规则；与网页的语言
+/// 互相查找用法。
+#[test]
+fn detects_wechat_mini_program_files() {
+    let [wxml, wxss, wxs] = ["index.wxml", "app.wxss", "utils.wxs"].map(detect);
+    assert_eq!((wxml.name, wxss.name, wxs.name), ("WXML", "WXSS", "WXS"));
+    assert_eq!(wxml.markup, Markup::Html);
+    assert!(wxss.stylesheet);
+    assert!(wxs.keywords.contains(&"function"));
+    assert!(wxml.is_related(wxs) && wxml.is_related(wxss));
+    assert!(wxs.is_related(detect("a.js")) && wxss.is_related(detect("a.css")));
+    assert!(!wxss.is_related(wxs));
+}

@@ -126,7 +126,8 @@ impl Lexer<'_> {
 
         let opening = name == i + 1;
         let content = if opening && self.language.markup == Markup::Html {
-            if starts_with_ignore_case(chars, name, "script") && end - name == 6 {
+            let tag = |t: &str| end - name == t.len() && starts_with_ignore_case(chars, name, t);
+            if self.language.script_tags.iter().any(|t| tag(t)) {
                 SCRIPT
             } else if starts_with_ignore_case(chars, name, "style") && end - name == 5 {
                 STYLE
@@ -217,14 +218,25 @@ impl Lexer<'_> {
         Some(end + 1)
     }
 
-    /// 按内嵌语言分析从 `from` 起的脚本（`script` 为真）或样式，到 `</script`、`</style` 为止，
-    /// 返回结束标签的位置；本行内没有结束标签时返回下一行开头的状态。
+    /// 按内嵌语言分析从 `from` 起的脚本（`script` 为真）或样式，到脚本标签的结束标签
+    /// （`</script`，见 [`crate::lang::Language::script_tags`]）或 `</style` 为止，返回结束标签
+    /// 的位置；本行内没有结束标签时返回下一行开头的状态。
     ///
     /// `inner` 是内嵌语言的行首状态，编码方式见 [`compact`]。
     fn embedded(&mut self, from: usize, script: bool, inner: u8) -> Result<usize, LineState> {
         let chars = self.chars;
-        let closer = if script { "</script" } else { "</style" };
-        let end = (from..chars.len()).find(|&k| starts_with_ignore_case(chars, k, closer));
+        let tags: &[&str] = if script {
+            self.language.script_tags
+        } else {
+            &["style"]
+        };
+        let closes = |k: usize| {
+            starts_with_ignore_case(chars, k, "</")
+                && tags
+                    .iter()
+                    .any(|t| starts_with_ignore_case(chars, k + 2, t))
+        };
+        let end = (from..chars.len()).find(|&k| closes(k));
         let stop = end.unwrap_or(chars.len());
         let base = self.base + from;
         let next = Lexer::new(

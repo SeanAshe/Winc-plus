@@ -132,6 +132,7 @@ impl App {
         self.overlays.picker.branch_rows = None;
         self.overlays.picker.location_rows = None;
         self.overlays.picker.folders = false;
+        self.overlays.picker.languages = false;
         self.overlays.picker.vim_list = None;
         self.overlays.picker.remote = None;
         self.overlays.picker.open = true;
@@ -156,6 +157,7 @@ impl App {
         self.overlays.picker.branch_rows = None;
         self.overlays.picker.location_rows = None;
         self.overlays.picker.folders = false;
+        self.overlays.picker.languages = false;
         self.overlays.picker.vim_list = None;
         self.overlays.picker.remote = None;
         self.hits.picker_parts.clear();
@@ -330,6 +332,12 @@ impl App {
             self.folder_picker_refresh();
             return;
         }
+        if self.overlays.picker.languages {
+            self.overlays.picker.goto = None;
+            self.drop_symbols();
+            self.language_picker_refresh();
+            return;
+        }
         if self.overlays.picker.remote.is_some() {
             self.overlays.picker.goto = None;
             self.drop_symbols();
@@ -455,6 +463,7 @@ impl App {
             && !self.picker_lists_branches()
             && !self.picker_lists_locations()
             && !self.overlays.picker.folders
+            && !self.overlays.picker.languages
             && self.overlays.picker.remote.is_none()
             && self.overlays.picker.vim_list.is_none();
         if self.overlays.picker.open && files && self.overlays.picker.places.is_none() {
@@ -548,6 +557,10 @@ impl App {
         }
         if self.overlays.picker.folders {
             self.folder_picker_accept();
+            return;
+        }
+        if self.overlays.picker.languages {
+            self.language_picker_accept();
             return;
         }
         if self.overlays.picker.remote.is_some() {
@@ -706,6 +719,9 @@ pub struct Picker {
     pub(crate) location_rows: Option<Vec<crate::app::git::location_picker::LocationRow>>,
     /// 面板是否列出最近打开的目录（`⌃R`）；为真时 `Picker::hits` 是最近列表中的下标。
     pub(crate) folders: bool,
+    /// 面板是否列出语言（更改文件的语言）；为真时 `Picker::hits` 的含义见
+    /// `status::language_picker::LanguageRow::of`。
+    pub(crate) languages: bool,
     /// 面板用于连接远端主机（选主机、浏览目录）时的内容；`Picker::hits` 是其各行的下标。
     pub(crate) remote: Option<crate::app::remote::picker::RemoteList>,
     /// 面板列出 Vim 模式的寄存器、标记或文档时的各行；`Picker::hits` 是其中的下标。
@@ -750,6 +766,7 @@ impl Default for Picker {
             branch_rows: None,
             location_rows: None,
             folders: false,
+            languages: false,
             remote: None,
             vim_list: None,
             anchor: GitAnchor::Branch,

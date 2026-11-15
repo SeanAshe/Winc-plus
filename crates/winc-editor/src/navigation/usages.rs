@@ -190,23 +190,37 @@ impl Filter {
                     Some(TokenKind::String) => !strings_count,
                     _ => false,
                 };
-                let elsewhere_defined = self.finder.in_line(&line_text) == Some(col);
+                let defined = self.finder.definition_at(text, line, &line_text);
+                let elsewhere_defined = defined.is_some_and(|d| d.col == col);
                 self.is_name_at(&chars, col) && !in_text && !elsewhere_defined
             })
             .collect()
     }
 
-    /// 判断语言为 `language`、内容为 `text` 的文件中各处定义的命中（行号，列号）是否在代码中，
-    /// 返回与 `matches` 一一对应的结果：注释和字符串中的「定义」不算。
+    /// 判断各处定义的命中（行号，整个匹配起始的列号）是否算数，返回与 `matches` 一一对应的结果。
+    ///
+    /// 注释和字符串中的不算；项目搜索只逐行匹配正则，这里再按 [`Finder::definition_at`] 核对。
     pub fn definitions(
         &self,
         language: &'static Language,
         text: &Rope,
         matches: &[(usize, usize)],
     ) -> Vec<bool> {
+        let mut line_text = String::new();
         token_kinds(text, language, matches)
             .into_iter()
-            .map(|kind| !kind.is_some_and(is_text))
+            .zip(matches)
+            .map(|(kind, &(line, _))| {
+                if kind.is_some_and(is_text) {
+                    return false;
+                }
+                if line >= text.len_lines() {
+                    return true;
+                }
+                line_text.clear();
+                line_text.extend(text.line(line).chunks());
+                self.finder.definition_at(text, line, &line_text).is_some()
+            })
             .collect()
     }
 

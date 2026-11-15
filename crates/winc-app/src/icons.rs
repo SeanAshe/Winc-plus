@@ -1054,6 +1054,21 @@ pub fn expand(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: R
     frame.stroke(&arrow(-1.0), STROKE, color, clip);
 }
 
+/// 绘制「退出全屏」图标，与 [`expand`] 成对：两个箭头从右上角、左下角指向中心。
+pub fn shrink(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let (near, far, head) = (1.5, 5.0, 3.0);
+    let arrow = |s: f32| {
+        let (tx, ty) = (cx + s * near, cy - s * near);
+        [
+            Stroke::Line(cx + s * far, cy - s * far, tx, ty),
+            Stroke::Line(tx + s * head, ty, tx, ty),
+            Stroke::Line(tx, ty, tx, ty - s * head),
+        ]
+    };
+    frame.stroke(&arrow(1.0), STROKE, color, clip);
+    frame.stroke(&arrow(-1.0), STROKE, color, clip);
+}
+
 /// 绘制「复制」图标，约 12×12：两张错开叠放的圆角方块，前面一张完整，后面一张只露出左上角。
 pub fn copy(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
     let (size, r, shift) = (8.0, 1.5, 3.5);

@@ -37,6 +37,7 @@ impl App {
         self.overlays.picker.branch_rows = None;
         self.overlays.picker.location_rows = None;
         self.overlays.picker.folders = false;
+        self.overlays.picker.languages = false;
         self.overlays.picker.vim_list = None;
         self.overlays.picker.remote = None;
         self.overlays.picker.open = true;
@@ -56,6 +57,7 @@ impl App {
             && !self.picker_lists_branches()
             && !self.picker_lists_locations()
             && !self.overlays.picker.folders
+            && !self.overlays.picker.languages
             && self.overlays.picker.vim_list.is_none()
             && self.overlays.picker.remote.is_none()
             && self.overlays.picker.input.text().starts_with('@')

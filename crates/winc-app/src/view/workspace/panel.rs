@@ -12,6 +12,13 @@ use crate::layout::{
     SearchButton, SidebarView, row_actions,
 };
 
+mod overflow;
+
+use overflow::{actions_lag, draw_text, file_text, moved_back, sync_name, text_width};
+pub(in crate::view) use overflow::{
+    draw_result_overflow, draw_result_overflow_closing, result_overflow,
+};
+
 /// 视图切换里的图标比原大小略小（约占 13 逻辑像素，放在 22 逻辑像素的一段里四周留出 4.5）。
 const VIEW_ICON: f32 = 0.93;
 
@@ -465,6 +472,8 @@ fn draw_results(app: &mut App, frame: &mut Frame<'_>, parts: &PanelParts) {
         );
         return;
     }
+    let animate = app.animate_tree_labels();
+    app.panels.global.names.begin_frame(animate);
     let scroll = app.panels.global.scroll;
     let rows = app.panels.global.rows().len();
     let replace_open = app.panels.global.replace_open;
@@ -520,6 +529,8 @@ fn draw_results(app: &mut App, frame: &mut Frame<'_>, parts: &PanelParts) {
         }
     }
 
+    app.panels.global.names.end_frame();
+
     let content = (rows as f32 + 1.0) * TREE_ROW;
     draw_scrollbar(app, frame, ScrollArea::Panel, 0, area, scroll, content);
 }
@@ -567,6 +578,8 @@ fn draw_result_row(
         frame.rect_clipped(pill, color, RADIUS_ROW, area);
     }
 
+    // 写全名的那一行：按钮跟在全名之后，随名字展开滑出；名字在按钮之前截断，不用遮盖。
+    let overflow = index.and_then(|i| app.panels.global.overflow.filter(|o| o.index == i));
     let (replace_rect, dismiss_rect) = row_actions(row, cx.replace_open);
     let end = RowEnd {
         slot: dismiss_rect,
@@ -575,8 +588,12 @@ fn draw_result_row(
         covered: background.is_some(),
     };
 
+    let moved = match (overflow, kind) {
+        (Some(o), ResultRow::File(f)) => Some(moved_back(o.actions, actions_lag(app, frame, f))),
+        _ => None,
+    };
     match kind {
-        ResultRow::File(f) => draw_file_row(app, frame, row, area, f, &end),
+        ResultRow::File(f) => draw_file_row(app, frame, row, area, f, (&end, moved)),
         ResultRow::Match(f, m) => {
             draw_match_row(app, frame, row, area, (f, m), &end, cx.replacement);
         }
@@ -584,18 +601,21 @@ fn draw_result_row(
 
     // 悬停或选中时，按钮浮现在右端匹配数、行号所在的位置：先用该行底色遮盖下方文本，
     // 遮盖区左侧带一段渐隐，再绘制按钮。
+    let (replace_rect, dismiss_rect) = moved.unwrap_or((replace_rect, dismiss_rect));
     if let Some(background) = background {
         let left = replace_rect.map_or(dismiss_rect.x, |r| r.x) - 4.0;
-        let solid = over(p.sidebar_bg, background);
-        let cover = Rect::new(left, pill.y, pill.right() - left, pill.h);
-        let r = RADIUS_ROW;
-        frame.rect_corners(cover, solid, [0.0, r, r, 0.0], area);
-        fade(
-            frame,
-            Rect::new(left - COVER_FADE, pill.y, COVER_FADE, pill.h),
-            solid,
-            false,
-        );
+        if moved.is_none() {
+            let solid = over(p.sidebar_bg, background);
+            let cover = Rect::new(left, pill.y, pill.right() - left, pill.h);
+            let r = RADIUS_ROW;
+            frame.rect_corners(cover, solid, [0.0, r, r, 0.0], area);
+            fade(
+                frame,
+                Rect::new(left - COVER_FADE, pill.y, COVER_FADE, pill.h),
+                solid,
+                false,
+            );
+        }
 
         let hover_on =
             |action| index.is_some_and(|i| app.pointer.hover == Hover::RowAction(i, action));
@@ -634,7 +654,14 @@ struct RowEnd {
 
 /// 绘制第 `f` 个文件的结果行：箭头、文件图标、文件名、淡色的所在目录，右端是匹配数
 /// （悬停时换成按钮）。
-fn draw_file_row(app: &App, frame: &mut Frame<'_>, row: Rect, clip: Rect, f: usize, end: &RowEnd) {
+fn draw_file_row(
+    app: &App,
+    frame: &mut Frame<'_>,
+    row: Rect,
+    clip: Rect,
+    f: usize,
+    (end, moved): (&RowEnd, Option<(Option<Rect>, Rect)>),
+) {
     let p = app.palette;
     let file = &app.panels.global.engine.results[f];
     let collapsed = app.panels.global.collapsed.contains(&file.path);
@@ -648,11 +675,10 @@ fn draw_file_row(app: &App, frame: &mut Frame<'_>, row: Rect, clip: Rect, f: usi
     let chevron = (row.x + PANEL_CHEVRON, cy);
     icons::chevron_turned(frame, chevron, 6.0, angle, p.text_dim, clip);
 
-    let (dir, name) = match file.relative.rsplit_once('/') {
-        Some((dir, name)) => (dir, name),
-        None => ("", file.relative.as_str()),
+    let Some(text) = file_text(app, f) else {
+        return;
     };
-    draw_file_icon(frame, p, (row.x + PANEL_LEFT, cy), name, clip);
+    draw_file_icon(frame, p, (row.x + PANEL_LEFT, cy), text.name, clip);
     let x = row.x + PANEL_TEXT;
 
     // 右端的匹配数绘制为与按钮同高的胶囊，右边缘与按钮对齐；
@@ -668,25 +694,31 @@ fn draw_file_row(app: &App, frame: &mut Frame<'_>, row: Rect, clip: Rect, f: usi
         let x = badge.right() - end.pad - count_w;
         caps_label(frame, app, size, (x, badge), &count, p.text_muted, clip);
     }
-    let right = badge.x - end.pad;
 
+    // 写全名：完整绘制，按展开到的宽度露出，在跟过来的按钮之前截断。
+    if let Some((replace, dismiss)) = moved {
+        let full = text_width(app, frame, &text);
+        let shown = sync_name(app, f, &text, true, full).map_or(full, |v| v.width);
+        let first = replace.unwrap_or(dismiss);
+        let right = (x + shown).min(first.x - 4.0);
+        let reveal = Rect::new(clip.x, clip.y, (right - clip.x).max(0.0), clip.h).intersect(clip);
+        draw_text(app, frame, (x, row), &text, reveal);
+        return;
+    }
+
+    let right = badge.x - end.pad;
     let name_max = (right - x).max(0.0);
-    let name = ellipsize(frame, name, app.fonts.ui, name_max);
-    let x = ui_text(frame, app, x, row, &name, p.text, clip);
+    let name = ellipsize(frame, text.name, app.fonts.ui, name_max);
+    let mut end_x = ui_text(frame, app, x, row, &name, p.text, clip);
 
     // 所在目录跟在文件名之后，放不下时从中间截短，仍放不下则不绘制。非 UTF-8 的文件不能替换，
     // 此处改为显示说明。
-    let (note, color) = if file.lossy {
-        (t!("workspace-search-not-utf8"), p.error)
-    } else {
-        (dir, p.text_dim)
-    };
-    let note_max = right - x - 8.0;
-
-    if !note.is_empty() && note_max > 24.0 {
-        let note = ellipsize(frame, note, app.fonts.ui_small, note_max);
-        ui_text_small(frame, app, x + 8.0, row, &note, color, clip);
+    let note_max = right - end_x - 8.0;
+    if !text.note.is_empty() && note_max > 24.0 {
+        let note = ellipsize(frame, text.note, app.fonts.ui_small, note_max);
+        end_x = ui_text_small(frame, app, end_x + 8.0, row, &note, text.color, clip);
     }
+    sync_name(app, f, &text, false, end_x - x);
 }
 
 /// 绘制第 `f` 个文件的第 `m` 处匹配的结果行：一小段原文，其中匹配的文本带底色；
@@ -827,6 +859,15 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
             };
             let rect = app.hits.terminal.iter().find(|(_, h)| *h == hit)?.0;
             Some((rect, label.to_owned()))
+        }
+        Hover::TerminalHeader(hit @ crate::app::terminal::HeaderHit::Maximize) => {
+            let rect = app.hits.terminal.iter().find(|(_, h)| *h == hit)?.0;
+            let label = if app.terminal.maximized {
+                t!("terminal-restore-panel")
+            } else {
+                t!("terminal-maximize-panel")
+            };
+            Some((rect, with_key(label, Some(Action::MaximizeTerminal))))
         }
         Hover::TerminalHeader(hit @ crate::app::terminal::HeaderHit::Position) => {
             let rect = app.hits.terminal.iter().find(|(_, h)| *h == hit)?.0;
@@ -1228,8 +1269,7 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
             Some((app.panel_parts().details, label.to_owned()))
         }
         Hover::RowAction(index, action) => {
-            let row = app.result_row_rect(index);
-            let (replace, dismiss) = row_actions(row, app.panels.global.replace_open);
+            let (replace, dismiss) = app.result_actions(index);
             let is_file = matches!(
                 app.panels.global.rows().get(index),
                 Some(ResultRow::File(_))

@@ -1184,3 +1184,25 @@ fn the_start_page_shows_only_first_time_setup_until_it_is_finished() {
     app.editor.new_untitled();
     assert!(!app.setup_shown());
 }
+
+#[test]
+fn the_window_frame_is_noted_once_resizing_settles() {
+    use std::time::Instant;
+
+    use crate::app::lifecycle::placement::FRAME_SETTLE;
+
+    let dir = sample_folder("settings-window-settle");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    let now = Instant::now();
+    assert_eq!(app.window_frame_tick(now), None);
+
+    // 记录时刻为最后一次变化之后 `FRAME_SETTLE`；到达之前不记录，到达之后不再唤醒。
+    app.window_frame_changed();
+    let due = app.window.frame_due.unwrap();
+    assert!(due >= now + FRAME_SETTLE);
+    assert_eq!(app.window_frame_tick(now), Some(due));
+    assert_eq!(app.window_frame_tick(due), None);
+    assert_eq!(app.window.frame_due, None);
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}

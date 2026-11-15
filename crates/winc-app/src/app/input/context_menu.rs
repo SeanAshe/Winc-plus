@@ -195,6 +195,8 @@ pub enum MenuCommand {
     FontDefault,
     /// 设置中字体菜单的一项，参数为 [`winc_render::installed_fonts`] 中的序号（从 0 起）。
     Font(usize),
+    /// 设置中字体菜单「后备字体」中的一项，参数同 [`MenuCommand::Font`]：加入或移出字体列表。
+    FallbackFont(usize),
     /// 设置中某种语言的格式化（修复）工具：自动选择。
     ToolAuto,
     /// 设置中某种语言的格式化（修复）工具：预设，参数为 `PRESETS` 中的序号（从 0 起）。
@@ -602,7 +604,7 @@ impl MenuCommand {
                 .get(i)
                 .map_or("", |theme| theme.name()),
             MenuCommand::FontDefault => t!("settings-font-default"),
-            MenuCommand::Font(i) => winc_render::installed_fonts()
+            MenuCommand::Font(i) | MenuCommand::FallbackFont(i) => winc_render::installed_fonts()
                 .get(i)
                 .map_or("", |family| family.name.as_str()),
             MenuCommand::NewWindow => t!("cmd-new-window"),

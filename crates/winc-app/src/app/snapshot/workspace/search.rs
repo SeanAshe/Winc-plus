@@ -1095,3 +1095,112 @@ fn search_results_open_in_the_preview_tab_until_double_clicked() {
     assert_eq!(name(&app), "Cargo.toml");
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// 搜索结果中放不下的文件行：鼠标停着时从侧栏右边缘起继续写全名，按钮跟在全名之后；这一行
+/// 覆盖在滚动条之上，伸出的那一段同样属于这一行，鼠标移到编辑区后收起。
+#[test]
+fn long_result_files_unfold_under_the_mouse() {
+    let dir = search_folder("global-unfold");
+    let deep = dir.join("src/aaa/deeply/nested/module/directory");
+    std::fs::create_dir_all(&deep).unwrap();
+    std::fs::write(deep.join("a_rather_long_file_name.rs"), "let config = 1;\n").unwrap();
+    let many: String = (0..200).map(|i| format!("let config_{i} = 0;\n")).collect();
+    std::fs::write(dir.join("src/many.rs"), many).unwrap();
+    let mut app = app_with(&dir, false);
+    app.panels.sidebar.width = 260.0;
+    app.relayout();
+    paint(&mut app);
+    let (search_tab, _) = app.sidebar_tabs()[1];
+    app.on_mouse_move(search_tab.x + 4.0, search_tab.y + 4.0);
+    app.on_mouse_down(MouseButton::Left);
+    app.on_mouse_up(MouseButton::Left);
+    app.edit_field(|f| f.insert("config"));
+    app.run_global_search();
+    finish_search(&mut app);
+    paint(&mut app);
+    let results = app.panel_parts().results;
+    let file_row = |app: &App, name: &str| {
+        let rows = app.panels.global.rows();
+        let files = &app.panels.global.engine.results;
+        (rows.iter())
+            .position(|r| matches!(r, ResultRow::File(f) if files[*f].relative.ends_with(name)))
+            .unwrap()
+    };
+    let hover = |app: &mut App, index: usize| {
+        let row = app.result_row_rect(index);
+        app.on_mouse_move(row.x + 60.0, row.y + row.h / 2.0);
+        paint(app);
+        row
+    };
+
+    // 名字放得下的行不展开。
+    let short = file_row(&app, "Cargo.toml");
+    hover(&mut app, short);
+    assert_eq!(app.panels.global.overflow, None);
+
+    // 放不下的行从侧栏右边缘起写全名，按钮移到全名之后。
+    let long = file_row(&app, "a_rather_long_file_name.rs");
+    let row = hover(&mut app, long);
+    let overflow = app.panels.global.overflow.unwrap();
+    let spill = overflow.spill.unwrap();
+    assert_eq!((overflow.index, spill.x), (long, results.right()));
+    let (_, dismiss) = overflow.actions;
+    assert!(dismiss.x > results.right());
+    assert_eq!(app.result_actions(long), overflow.actions);
+
+    // 这一行右端的滚动条属于这一行；伸出的那一段同样是这一行，按钮照常响应。
+    let y = row.y + row.h / 2.0;
+    app.on_mouse_move(results.right() - 3.0, y);
+    assert_eq!(app.pointer.hover, Hover::Result(long));
+    app.on_mouse_move(spill.x + 10.0, y);
+    assert_eq!(app.pointer.hover, Hover::Result(long));
+    app.on_mouse_move(dismiss.x + dismiss.w / 2.0, y);
+    assert_eq!(
+        app.pointer.hover,
+        Hover::RowAction(long, RowAction::Dismiss)
+    );
+
+    // 鼠标移到伸出部分之外的编辑区：收起。
+    app.on_mouse_move(spill.right() + 20.0, y);
+    paint(&mut app);
+    assert!(!matches!(app.pointer.hover, Hover::Result(_)));
+    assert_eq!(app.panels.global.overflow, None);
+
+    // 按「从结果中移除」：该文件从结果中移除。
+    hover(&mut app, long);
+    let (_, dismiss) = app.panels.global.overflow.unwrap().actions;
+    click(&mut app, (dismiss.x + dismiss.w / 2.0, y));
+    let files = &app.panels.global.engine.results;
+    assert!(
+        !files
+            .iter()
+            .any(|f| f.relative.ends_with("a_rather_long_file_name.rs"))
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+#[ignore = "截图，手动运行"]
+fn shoot_long_result_file() {
+    let dir = search_folder("global-unfold-shot");
+    let deep = dir.join("src/aaa/deeply/nested/module/directory");
+    std::fs::create_dir_all(&deep).unwrap();
+    std::fs::write(deep.join("a_rather_long_file_name.rs"), "let config = 1;\n").unwrap();
+    let mut app = app_with(&dir, false);
+    app.panels.sidebar.width = 260.0;
+    app.relayout();
+    app.set_sidebar_view(SidebarView::Search);
+    app.panels.global.query.set_text("config");
+    app.run_global_search();
+    finish_search(&mut app);
+    paint(&mut app);
+    let files = &app.panels.global.engine.results;
+    let long = (app.panels.global.rows().iter())
+        .position(|r| matches!(r, ResultRow::File(f) if files[*f].relative.ends_with("name.rs")))
+        .unwrap();
+    let row = app.result_row_rect(long);
+    app.on_mouse_move(row.x + 60.0, row.y + row.h / 2.0);
+    paint(&mut app);
+    shoot(&mut app, "search-result-unfold");
+    let _ = std::fs::remove_dir_all(&dir);
+}

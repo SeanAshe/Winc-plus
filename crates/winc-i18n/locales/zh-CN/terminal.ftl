@@ -2,6 +2,8 @@
 
 terminal-dock-bottom = 停靠到底部
 terminal-dock-right = 停靠到右侧
+terminal-maximize-panel = 最大化面板
+terminal-restore-panel = 还原面板
 terminal-hide-panel = 隐藏终端面板
 terminal-show-panel = 显示终端面板
 terminal-tab-default-name = 终端

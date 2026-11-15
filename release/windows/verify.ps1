@@ -28,6 +28,12 @@ foreach ($kind in @('nsis', 'msi')) {
     $menu = if ($kind -eq 'nsis') { [Environment]::GetFolderPath('Programs') } else { Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'Winc' }
     if ($kind -eq 'nsis') {
         Set-Content -LiteralPath (Join-Path $menu 'winc.lnk') -Value ''
+        # An earlier NSIS version listed winc in each type's OpenWithProgids; installing must remove it.
+        # `New-Item -Force` also creates missing parent keys, but it would recreate an existing key and
+        # drop other programs' entries, so it runs only when the key is missing.
+        $listing = "$classes\.json\OpenWithProgids"
+        if (-not (Test-Path -LiteralPath $listing)) { New-Item -Force -Path $listing | Out-Null }
+        New-ItemProperty -Force -LiteralPath $listing -Name 'winc.JSON' -Value '' | Out-Null
     }
     try {
         if ($kind -eq 'nsis') {
@@ -60,7 +66,7 @@ foreach ($kind in @('nsis', 'msi')) {
         if ($kind -eq 'nsis' -and (Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\winc').DisplayName -cne 'Winc') { throw 'nsis: the installed app is not listed as Winc' }
         # A handler listed under a type makes Windows ask which program to use, and for types it runs
         # on double-click (BAT, CMD) the question replaces running the script.
-        foreach ($type in @('bat', 'cmd')) {
+        foreach ($type in @('json', 'txt', 'bat', 'cmd')) {
             $listed = Get-ItemProperty -LiteralPath "$classes\.$type\OpenWithProgids" -ErrorAction SilentlyContinue
             if ($null -ne $listed -and $null -ne $listed."winc.$type") { throw "${kind}: winc is listed under .$type" }
         }
@@ -69,8 +75,19 @@ foreach ($kind in @('nsis', 'msi')) {
         }
         # A short-lived parent exercises the updater's wait before reinstalling.
         $parent = Start-Process powershell.exe -ArgumentList '-NoProfile -Command "Start-Sleep -Seconds 2"' -PassThru -WindowStyle Hidden
-        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $update -ParentId $parent.Id -Setup $setup -Executable "$directory/winc.exe" -Installer $kind -Relaunch 0
-        if ($LASTEXITCODE -ne 0) { throw "$kind updater failed" }
+        # The updater is started the way the application starts it: `-Command` with the script
+        # inlined, and its parameters in `WINC_UPDATE_*` environment variables. Passing them as
+        # `-File` arguments would reach a script that no longer declares `param`, leaving every
+        # parameter empty.
+        $env:WINC_UPDATE_PARENT = "$($parent.Id)"
+        $env:WINC_UPDATE_SETUP = $setup
+        $env:WINC_UPDATE_EXE = "$directory/winc.exe"
+        $env:WINC_UPDATE_KIND = $kind
+        $env:WINC_UPDATE_RELAUNCH = '0'
+        & powershell.exe -NoProfile -NonInteractive -Command (Get-Content -LiteralPath $update -Raw)
+        $status = $LASTEXITCODE
+        Remove-Item Env:WINC_UPDATE_*
+        if ($status -ne 0) { throw "$kind updater failed" }
         foreach ($file in @('winc.exe', 'winc-pty.exe')) {
             if ((Get-FileHash "$directory/$file").Hash -ne (Get-FileHash "$root/target/$Target/release/$file").Hash) {
                 throw "$kind update changed $file"

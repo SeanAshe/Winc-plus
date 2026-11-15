@@ -203,3 +203,128 @@ fn names_ending_in_punctuation_are_searched_by_line() {
     assert_eq!(finds("valid?", "def valid? x"), Some(4));
     assert_eq!(finds("valid?", "def valid?x"), None);
 }
+
+/// 嵌入式 C 工程的常见声明：枚举成员、`typedef` 类型、结构体成员、函数指针、全局变量、形参与
+/// 局部变量。
+const EMBEDDED_C: &str = "\
+typedef enum
+{
+    STATE_IDLE = 0,
+    STATE_RUN,          // 运行
+    STATE_MAX
+} app_state_t;
+
+typedef struct {
+    uint8_t  buf[64];
+    uint16_t len;
+    void (*on_rx)(uint8_t byte);
+    unsigned ready : 1;
+} uart_ctx_t;
+
+typedef void (*uart_cb_t)(uint8_t);
+typedef unsigned char u8;
+uint32_t g_tick;
+extern volatile uint32_t g_ticks;
+uint8_t *p_buf;
+char **pp;
+static uart_ctx_t s_ctx;
+static const char *names[] = { \"a\" };
+struct node *next;
+
+static void uart_send(const uint8_t *data, uint16_t size)
+{
+    uart_ctx_t cfg = {0};
+    for (int k = 0; k < size; k++) {
+        cfg.buf[k] = data[k];
+    }
+    if (cfg.len > STATE_RUN) { }
+    configure(
+        STATE_IDLE,
+        size
+    );
+    return cfg;
+}
+";
+
+/// 返回 `name` 在 [`EMBEDDED_C`] 中各处定义的（行号，列号，类别）；`local` 见 [`Finder::new`]。
+fn c_definitions(name: &str, local: bool) -> Vec<(usize, usize, Kind)> {
+    let text = Rope::from_str(EMBEDDED_C);
+    let finder = Finder::new(name, local, false).unwrap();
+    finder
+        .in_text(&text, winc_syntax::detect("a.c"))
+        .into_iter()
+        .map(|(line, d)| (line, d.col, d.kind))
+        .collect()
+}
+
+#[test]
+fn c_declarations_are_definitions() {
+    use Kind::{Binding, Declaration, Parameter};
+    for (name, line, col, kind) in [
+        ("STATE_IDLE", 2, 4, Declaration),
+        ("STATE_RUN", 3, 4, Declaration),
+        ("STATE_MAX", 4, 4, Declaration),
+        ("app_state_t", 5, 2, Declaration),
+        ("buf", 8, 13, Declaration),
+        ("len", 9, 13, Declaration),
+        ("on_rx", 10, 11, Declaration),
+        ("ready", 11, 13, Declaration),
+        ("uart_ctx_t", 12, 2, Declaration),
+        ("uart_cb_t", 14, 15, Declaration),
+        ("u8", 15, 22, Declaration),
+        ("g_tick", 16, 9, Declaration),
+        ("g_ticks", 17, 25, Declaration),
+        ("p_buf", 18, 9, Declaration),
+        ("pp", 19, 7, Declaration),
+        ("s_ctx", 20, 18, Declaration),
+        ("names", 21, 19, Binding),
+        ("next", 22, 13, Declaration),
+    ] {
+        assert_eq!(c_definitions(name, false), [(line, col, kind)], "{name}");
+    }
+    // 只在当前文件内查找时，形参和局部变量也算定义，且是局部的。
+    for (name, line, col, kind) in [
+        ("data", 24, 37, Parameter),
+        ("size", 24, 52, Parameter),
+        ("cfg", 26, 15, Binding),
+        ("k", 27, 13, Binding),
+    ] {
+        let found = c_definitions(name, true);
+        assert_eq!(found, [(line, col, kind)], "{name}");
+        let definition = Definition {
+            col,
+            kind,
+            indented: line != 24,
+        };
+        assert!(definition.is_local(), "{name}");
+        assert!(c_definitions(name, false).is_empty(), "{name}");
+    }
+}
+
+#[test]
+fn c_type_uses_and_statements_are_not_definitions() {
+    // `static uart_ctx_t s_ctx;` 中的 `uart_ctx_t`、`struct node *next;` 中的 `node`。
+    assert_eq!(c_definitions("uart_ctx_t", true).len(), 1);
+    assert!(c_definitions("node", true).is_empty());
+    assert!(c_definitions("uint8_t", true).is_empty());
+    // `configure(` 之后逐行书写的实参不在 `enum` 块内。
+    assert_eq!(
+        c_definitions("STATE_IDLE", true),
+        [(2, 4, Kind::Declaration)]
+    );
+    for line in [
+        "    return cfg;",
+        "    goto out;",
+        "    a * b;",
+        "    x & y;",
+        "import foo;",
+    ] {
+        for name in ["cfg", "out", "b", "y", "foo"] {
+            assert_eq!(finds(name, line), None, "{line}");
+        }
+    }
+    // 只看一行时不检查上下文，单独一个名字的一行按枚举成员算。
+    assert_eq!(finds("STATE_RUN", "    STATE_RUN,"), Some(4));
+    assert_eq!(finds("A", "enum { A, B };"), Some(7));
+    assert_eq!(finds("B", "typedef enum { A = 1, B } ab_t;"), Some(22));
+}

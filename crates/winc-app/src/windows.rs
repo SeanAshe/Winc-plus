@@ -1,22 +1,21 @@
-//! Windows 上交由系统的操作，读取的系统设置，任务栏的跳转列表，文件类型图标，以及按屏幕刷新绘制动画的
-//! 显示链接。
+//! Windows 上交由系统的操作，读取的系统设置，任务栏的跳转列表，文件类型图标，按屏幕刷新绘制动画的
+//! 显示链接，以及拖文件进来时查询鼠标位置。
 
 mod assoc;
 mod display_link;
 mod jump_list;
+mod pointer;
 mod touch;
 
 pub use assoc::{register_file_icons, register_file_types, unregister_file_types};
 pub use display_link::DisplayLink;
 pub use jump_list::sync_jump_list;
+pub use pointer::mouse_location;
 pub use touch::{WindowHitTest, WindowInput};
 
 use std::io;
 use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
-
-use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
-use winit::window::Window;
 
 use windows_sys::Win32::UI::Shell::{
     FO_DELETE, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FOF_NOERRORUI, FOF_SILENT, FOF_WANTNUKEWARNING,
@@ -90,33 +89,6 @@ pub fn move_to_recycle_bin(path: &Path) -> io::Result<()> {
         )));
     }
     Ok(())
-}
-
-/// 返回鼠标此刻在窗口客户区中的位置（物理像素，原点在左上角）；取不到时返回 `None`。
-///
-/// 从资源管理器拖文件进来时，系统不发鼠标移动事件，松手后的 `DroppedFile` 也不带位置。
-/// 该事件在松手后立即处理，此时鼠标的位置就是落点。
-#[allow(unsafe_code)] // GetCursorPos、ScreenToClient
-pub fn mouse_location(window: &Window) -> Option<(f32, f32)> {
-    use windows_sys::Win32::Foundation::POINT;
-    use windows_sys::Win32::Graphics::Gdi::ScreenToClient;
-    use windows_sys::Win32::UI::WindowsAndMessaging::GetCursorPos;
-
-    let handle = window.window_handle().ok()?;
-    let RawWindowHandle::Win32(win32) = handle.as_raw() else {
-        return None;
-    };
-    // `HWND` 是 `*mut c_void`；winit 给出的是非零的 `isize`。
-    let hwnd = win32.hwnd.get() as *mut _;
-    let mut point = POINT { x: 0, y: 0 };
-    // SAFETY: `point` 在调用期间有效。`hwnd` 来自仍然存活的 winit 窗口，只用于把屏幕坐标
-    // 换成该窗口的客户区坐标，不保存这个指针。
-    unsafe {
-        if GetCursorPos(&mut point) == 0 || ScreenToClient(hwnd, &mut point) == 0 {
-            return None;
-        }
-    }
-    Some((point.x as f32, point.y as f32))
 }
 
 /// 离开当前接上的控制台；没有接上控制台时没有效果。

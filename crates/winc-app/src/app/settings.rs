@@ -154,9 +154,8 @@ fn tool_setting(setting: Setting) -> Option<(Task, &'static str)> {
 
 /// 返回字体设置值 `value` 不能用的原因；未设置或能用时返回 `None`。
 fn font_error(value: &Option<String>) -> Option<String> {
-    let spec = configured_font(value)?;
-    let error = spec.check().err()?;
-    let name = value.as_deref().unwrap_or_default().trim();
+    let (spec, name, error) = unusable_font(value)?;
+    let name = name.as_str();
     Some(match (error, spec) {
         (FontError::NotFound, FontSpec::Name(_)) => t!("settings-font-not-installed", name = name),
         (FontError::NotFound, FontSpec::Path(_)) => t!("settings-font-file-not-found", name = name),
@@ -931,14 +930,16 @@ impl App {
         [Setting::EditorFont, Setting::UiFont, Setting::TerminalFont]
             .into_iter()
             .filter(|setting| setting.page() == page)
-            .find_map(|setting| {
-                let value = match setting {
-                    Setting::UiFont => &self.config.ui_font,
-                    Setting::TerminalFont => &self.config.terminal_font,
-                    _ => &self.config.editor_font,
-                };
-                font_error(value).map(|error| (setting, error))
-            })
+            .find_map(|setting| font_error(self.font_value(setting)).map(|error| (setting, error)))
+    }
+
+    /// 字体设置项 `setting` 在配置中的值：以逗号分隔的字体列表，未设置时为 `None`。
+    pub(in crate::app) fn font_value(&self, setting: Setting) -> &Option<String> {
+        match setting {
+            Setting::UiFont => &self.config.ui_font,
+            Setting::TerminalFont => &self.config.terminal_font,
+            _ => &self.config.editor_font,
+        }
     }
 
     fn font_setting(&mut self, setting: Setting) -> &mut Option<String> {
@@ -1085,6 +1086,30 @@ impl App {
         self.settings.editing_original = self.font_setting(setting).clone();
         self.settings_commit_font(setting, value);
         self.settings.editing_original = None;
+    }
+
+    /// 字体菜单中选中字体 `name`：换掉列表中的第一个字体，其后的后备字体保留（`name` 原在其中
+    /// 时从中移去）。
+    pub(in crate::app) fn settings_choose_primary_font(&mut self, setting: Setting, name: &str) {
+        let current = self.font_value(setting).clone();
+        let list = winc_config::font_list(current.as_deref());
+        let rest = list.into_iter().skip(1).filter(|&n| n != name);
+        let list: Vec<&str> = std::iter::once(name).chain(rest).collect();
+        self.settings_choose_font(setting, Some(list.join(", ")));
+    }
+
+    /// 「后备字体」中点击字体 `name`：不在列表中时加到末尾，已在其中时移去。第一个字体不变。
+    pub(in crate::app) fn settings_toggle_fallback_font(&mut self, setting: Setting, name: &str) {
+        let current = self.font_value(setting).clone();
+        let mut list = winc_config::font_list(current.as_deref());
+        if list.first().is_none_or(|&first| first == name) {
+            return;
+        }
+        match list.iter().position(|&n| n == name) {
+            Some(at) => _ = list.remove(at),
+            None => list.push(name),
+        }
+        self.settings_choose_font(setting, Some(list.join(", ")));
     }
 
     /// 放大或缩小字号（`⌘+` `⌘−`），`⌘0` 还原（`up` 为 `None`）。

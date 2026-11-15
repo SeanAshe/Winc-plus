@@ -206,6 +206,8 @@ pub struct TerminalSession {
     pub height: f32,
     /// 面板在编辑区右边时的宽度（逻辑像素），0 表示默认值。
     pub width: f32,
+    /// 面板是否最大化（铺满编辑区）。
+    pub maximized: bool,
 }
 
 /// 现场里的一个标签：已保存的文件，或未保存文档的备份。
@@ -381,6 +383,7 @@ impl State {
                     open: t.get("open").and_then(Json::as_bool).unwrap_or(false),
                     height: number("height").unwrap_or(0.0) as f32,
                     width: number("width").unwrap_or(0.0) as f32,
+                    maximized: t.get("maximized").and_then(Json::as_bool).unwrap_or(false),
                 })
             });
             Some(Session {
@@ -746,6 +749,10 @@ impl State {
                     ("height", number(t.height)),
                     ("width", number(t.width)),
                 ];
+                // 没有最大化时不写。
+                if t.maximized {
+                    fields.push(("maximized", Json::Bool(true)));
+                }
                 // 都没起名字时不写。
                 if t.names.iter().any(|n| !n.is_empty()) {
                     let names = t.names.iter().map(|n| Json::String(n.clone()));

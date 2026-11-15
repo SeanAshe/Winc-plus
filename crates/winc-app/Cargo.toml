@@ -44,6 +44,8 @@ zbus = { version = "5.19", default-features = false, features = ["async-io", "bl
 wayland-backend = { version = "0.3", features = ["client_system"] }
 wayland-client = "0.31"
 wayland-protocols = { version = "0.32", features = ["client", "staging"] }
+# X11 上拖文件进来时查询鼠标位置（`XQueryPointer`，见 x11.rs）；winit 已引入，不增加依赖。
+x11-dl = "2.21"
 # Wayland 会话：通过 data-control 协议（ext 或 wlr）直接读写 Wayland 剪贴板。不开时 arboard 只走
 # XWayland 的 X11 剪贴板，而合成器只在 X11 窗口获得焦点时才把 Wayland 剪贴板同步过去，winc 是原生
 # Wayland 窗口，读不到其他应用复制的内容。合成器没有该协议时 arboard 自动退回 X11。

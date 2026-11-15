@@ -3,12 +3,15 @@
 //!
 //! 菜单项从 [`MenuEntry`] 生成，编号与系统菜单相同，选中后按编号找回命令，交给
 //! [`App::run_menu_command`]；状态栏路径的目录菜单例外，各行是文件和目录
-//! （[`PopupRow::Entry`]），目录停留时才读内容。
+//! （[`PopupRow::Entry`]），目录停留时才读内容。只有命令的菜单可以键入文字筛选（见
+//! [`PopupMenu::query`]），语言、编码这类长列表不必逐行移动。
 
 use std::path::{Path, PathBuf};
 
 use winit::event::{KeyEvent, MouseButton};
 use winit::keyboard::{Key, NamedKey};
+
+use winc_i18n::t;
 
 use super::*;
 
@@ -42,13 +45,15 @@ pub(crate) enum PopupRow {
         dir: bool,
         checked: bool,
     },
+    /// 筛选时第一行写出键入的文字，前面是搜索图标；不能选中。
+    Query(String),
 }
 
 impl PopupRow {
     /// 是否可以悬停和选中；分隔线和不可用的命令返回 `false`。
     pub(crate) fn selectable(&self) -> bool {
         match self {
-            PopupRow::Separator => false,
+            PopupRow::Separator | PopupRow::Query(_) => false,
             PopupRow::Item { enabled, .. } => *enabled,
             PopupRow::Submenu { .. } | PopupRow::Entry { .. } => true,
         }
@@ -97,6 +102,13 @@ pub(crate) struct PopupMenu {
     pub min_width: f32,
     /// 目录菜单：当前文件的路径，展开目录时据此给它的各级上层目录打勾；其他菜单为 `None`。
     pub current: Option<PathBuf>,
+    /// 键入的筛选文字；没有筛选时为空。
+    ///
+    /// 只在第一级各行全是命令（没有子菜单、目录项）时筛选：按名称不区分大小写地匹配，名称以
+    /// 键入的文字开头的排在前面，其余保持原来的顺序。
+    pub query: String,
+    /// 开始筛选前第一级的全部行；没有筛选时为 `None`。
+    all: Option<Vec<PopupRow>>,
 }
 
 impl PopupMenu {
@@ -114,9 +126,79 @@ impl PopupMenu {
             right_aligned: flags.1,
             min_width: 0.0,
             current: None,
+            query: String::new(),
+            all: None,
         }
     }
 
+    /// 是否可以键入文字筛选：只展开着第一级，且其中没有子菜单和目录项。
+    fn filterable(&self) -> bool {
+        let rows = self.all.as_ref().unwrap_or(&self.levels[0].rows);
+        self.levels.len() == 1
+            && !(rows.iter())
+                .any(|r| matches!(r, PopupRow::Submenu { .. } | PopupRow::Entry { .. }))
+    }
+
+    /// 把筛选文字换成 `query`，按它重新列出第一级的各行，停在第一个能选的行上。
+    ///
+    /// 第一次筛选时把菜单固定在当前的位置和宽度：列出的行变少时菜单不移动、不变窄。
+    fn set_query(&mut self, query: String) {
+        if self.all.is_none() {
+            let rect = self.levels[0].rect;
+            if rect.w > 0.0 {
+                (self.at, self.min_width) = ((rect.x, rect.y), rect.w);
+                (self.right_aligned, self.at_checked) = (false, false);
+            }
+            self.all = Some(self.levels[0].rows.clone());
+        }
+        let all = self.all.as_deref().unwrap_or_default();
+        let rows = if query.is_empty() {
+            let rows = all.to_vec();
+            self.all = None;
+            rows
+        } else {
+            filtered(all, &query)
+        };
+        self.query = query;
+        let level = &mut self.levels[0];
+        level.rows = rows;
+        level.scroll = 0.0;
+        level.hover = level.rows.iter().position(PopupRow::selectable);
+    }
+}
+
+/// `all` 中名称含有 `query`（不区分大小写）的命令，前面加一行写出键入的文字；名称以 `query`
+/// 开头的排在前面。没有匹配时在键入的文字下面写一行不可选的说明。
+fn filtered(all: &[PopupRow], typed: &str) -> Vec<PopupRow> {
+    let query = typed.to_lowercase();
+    let mut matched: Vec<(bool, &PopupRow)> = (all.iter())
+        .filter_map(|row| match row {
+            PopupRow::Item { label, .. } => {
+                let title = label.title.to_lowercase();
+                title
+                    .contains(&query)
+                    .then(|| (!title.starts_with(&query), row))
+            }
+            _ => None,
+        })
+        .collect();
+    matched.sort_by_key(|(later, _)| *later);
+    let mut rows = vec![PopupRow::Query(typed.to_owned())];
+    if matched.is_empty() {
+        rows.push(PopupRow::Item {
+            label: MenuLabel::plain(t!("menu-filter-no-match")),
+            icon: None,
+            key: String::new(),
+            enabled: false,
+            checked: false,
+            tag: 0,
+        });
+    }
+    rows.extend(matched.into_iter().map(|(_, row)| row.clone()));
+    rows
+}
+
+impl PopupMenu {
     /// 返回点 `(x, y)` 落在第几级菜单的第几行，行号是该级 `rows` 的下标。
     ///
     /// 落在菜单的空白处（上下边距）时行号为 `None`；不在任何一级菜单上时返回 `None`。
@@ -412,16 +494,39 @@ impl App {
     /// 按键：窗口内的菜单打开时返回 `true`，菜单之外的快捷键都不处理。
     ///
     /// `↑` `↓` 移动，`→` 展开子菜单，`←` 收起，`↩` 或空格选中，`Esc` 先收起子菜单、
-    /// 再关掉菜单。
+    /// 再关掉菜单。只有命令的菜单中键入文字筛选（见 [`PopupMenu::query`]）：筛选时空格是文字，
+    /// `⌫` 删去最后一个字，`Esc` 先清空筛选。
     pub(in crate::app) fn popup_key(&mut self, event: &KeyEvent) -> bool {
         self.popup_logical_key(&event.logical_key)
     }
 
     /// 同 [`App::popup_key`]，给的是按键的逻辑键。
     pub(in crate::app) fn popup_logical_key(&mut self, key: &Key) -> bool {
+        let mods = self.pointer.modifiers;
+        let shortcut = mods.control_key() || mods.super_key();
         let Some(popup) = self.popup_mut() else {
             return false;
         };
+        let typed = match key {
+            Key::Character(text) if !shortcut && popup.filterable() => {
+                Some(format!("{}{text}", popup.query))
+            }
+            Key::Named(NamedKey::Space) if !popup.query.is_empty() => {
+                Some(format!("{} ", popup.query))
+            }
+            Key::Named(NamedKey::Backspace) if !popup.query.is_empty() => {
+                let mut query = popup.query.clone();
+                query.pop();
+                Some(query)
+            }
+            Key::Named(NamedKey::Escape) if !popup.query.is_empty() => Some(String::new()),
+            _ => None,
+        };
+        if let Some(query) = typed.filter(|q| !q.chars().any(char::is_control)) {
+            popup.set_query(query);
+            self.request_redraw();
+            return true;
+        }
         let level = popup.levels.len() - 1;
         let hovered = popup.levels[level].hover;
         let row = hovered.map(|r| &popup.levels[level].rows[r]);

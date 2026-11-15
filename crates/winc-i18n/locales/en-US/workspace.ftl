@@ -271,6 +271,10 @@ workspace-tag-hint = From { $commit } · { common-key-enter } Create
 
 ## Quick open
 
+workspace-picker-languages = { $count ->
+        [one] { $count } language
+       *[other] { $count } languages
+    }
 workspace-picker-commands = { $count ->
         [one] { $count } command
        *[other] { $count } commands
@@ -296,11 +300,13 @@ workspace-picker-folder-empty = No files in this folder
 workspace-picker-no-matching-files = No matching files. Ignored files aren’t searched.
 workspace-picker-recently-opened = Recently opened
 workspace-picker-no-matching-commands = No matching commands
+workspace-picker-no-matching-languages = No matching languages
 workspace-picker-recently-used = Recently used
 workspace-picker-symbols-too-large = File too large to list symbols
 workspace-picker-no-symbols = No symbols found in this file
 workspace-picker-no-matching-symbols = No matching symbols
 workspace-picker-folders-placeholder = Search folders by name or path…
+workspace-picker-languages-placeholder = Select a language…
 workspace-picker-folders-new-window = { $platform ->
     [macos] ⌥↩
    *[other] Alt+Enter

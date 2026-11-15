@@ -124,3 +124,30 @@ fn locals_are_scoped_to_their_function() {
     // 不在函数中：整个文件。
     assert_eq!(scope("a.py", "total = 1\nprint(total)\n", 0), None);
 }
+
+/// C：`enum` 块中的成员是定义，逐行书写的实参和类型名是用法。
+#[test]
+fn c_enumerators_and_type_names() {
+    let text = "typedef enum {\n    STATE_RUN,\n} state_t;\nstatic state_t s;\nvoid f(void) {\n    g(\n        STATE_RUN,\n        s\n    );\n    return s;\n}\n";
+    assert_eq!(
+        judge("a.c", "b.c", "STATE_RUN", text),
+        [(1, 4, false), (6, 8, true)]
+    );
+    assert_eq!(
+        judge("a.c", "b.c", "state_t", text),
+        [(2, 2, false), (3, 7, true)]
+    );
+
+    let filter = Filter::new("STATE_RUN", winc_syntax::detect("a.c")).unwrap();
+    let rope = Rope::from_str(text);
+    let c = winc_syntax::detect("b.c");
+    assert_eq!(
+        filter.definitions(c, &rope, &[(1, 0), (6, 0)]),
+        [true, false]
+    );
+    let filter = Filter::new("s", winc_syntax::detect("a.c")).unwrap();
+    assert_eq!(
+        filter.definitions(c, &rope, &[(3, 0), (9, 0)]),
+        [true, false]
+    );
+}

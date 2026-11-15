@@ -489,6 +489,160 @@ fn menus_without_a_system_menu_are_drawn_in_the_window() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 窗口内绘制的语言菜单可以键入文字筛选：第一行写出键入的文字，名称以它开头的排在前面，停在
+/// 第一项，↩ 选中；`⌫` 删去最后一个字，没有匹配时写一行说明，`Esc` 先清空筛选、再关掉菜单。
+/// 按住 ⌘/Ctrl 的按键不筛选；有子菜单的菜单（编码）不筛选。
+#[test]
+fn typing_filters_the_language_menu() {
+    use crate::app::PopupRow;
+    use crate::app::status::status_bar::StatusItem;
+    use winit::keyboard::{Key, NamedKey};
+    let dir = sample_folder("popup-filter");
+    let mut app = app_with(&dir.join("a.txt"), false);
+    paint(&mut app);
+    let typed = |app: &mut App, text: &str| {
+        for c in text.chars() {
+            let key = match c {
+                ' ' => Key::Named(NamedKey::Space),
+                c => Key::Character(c.to_string().into()),
+            };
+            assert!(app.popup_logical_key(&key));
+        }
+    };
+    let named = |app: &mut App, key: NamedKey| assert!(app.popup_logical_key(&Key::Named(key)));
+    let titles = |app: &App| -> Vec<String> {
+        (app.popup().unwrap().levels[0].rows.iter())
+            .filter_map(|r| match r {
+                PopupRow::Item { label, .. } => Some(label.title.clone()),
+                PopupRow::Query(q) => Some(format!("[{q}]")),
+                _ => None,
+            })
+            .collect()
+    };
+
+    app.open_status_menu(StatusItem::Language);
+    paint(&mut app);
+    let all = app.popup().unwrap().levels[0].rows.len();
+    typed(&mut app, "Ru");
+    let found = titles(&app);
+    assert_eq!(found[0], "[Ru]");
+    assert_eq!(found[1], "Ruby");
+    assert!(found.contains(&"Rust".to_owned()));
+    // 名称以「ru」开头的都排在只是含有「ru」的之前。
+    let prefix: Vec<bool> = (found[1..].iter())
+        .map(|t| t.to_lowercase().starts_with("ru"))
+        .collect();
+    assert!(prefix.windows(2).all(|w| w[0] || !w[1]), "{found:?}");
+    assert_eq!(app.popup().unwrap().levels[0].hover, Some(1));
+    typed(&mut app, "s");
+    assert_eq!(&titles(&app)[1..], ["Rust"]);
+    named(&mut app, NamedKey::Enter);
+    assert!(app.overlays.context_menu.is_none());
+    assert_eq!(
+        app.editor.active().unwrap().highlighter.language().name,
+        "Rust"
+    );
+
+    // 没有匹配：一行说明，不能选中；⌫ 删字后恢复匹配。
+    app.open_status_menu(StatusItem::Language);
+    paint(&mut app);
+    typed(&mut app, "zzq");
+    assert_eq!(titles(&app), ["[zzq]", "无匹配项"]);
+    assert_eq!(app.popup().unwrap().levels[0].hover, None);
+    named(&mut app, NamedKey::Backspace);
+    assert_eq!(app.popup().unwrap().query, "zz");
+    // 按住 ⌘/Ctrl 的按键是快捷键，不写进筛选文字。
+    app.pointer.modifiers = if cfg!(target_os = "macos") {
+        winit::keyboard::ModifiersState::SUPER
+    } else {
+        winit::keyboard::ModifiersState::CONTROL
+    };
+    typed(&mut app, "c");
+    app.pointer.modifiers = winit::keyboard::ModifiersState::empty();
+    assert_eq!(app.popup().unwrap().query, "zz");
+    // Esc：先清空筛选，列出全部；再按一次关掉菜单。
+    named(&mut app, NamedKey::Escape);
+    assert_eq!(app.popup().unwrap().levels[0].rows.len(), all);
+    named(&mut app, NamedKey::Escape);
+    assert!(app.overlays.context_menu.is_none());
+
+    // 筛选时空格是文字：「Visual Basic」这类名字可以接着键入。
+    app.open_status_menu(StatusItem::Language);
+    paint(&mut app);
+    typed(&mut app, "a b");
+    assert_eq!(app.popup().unwrap().query, "a b");
+    named(&mut app, NamedKey::Escape);
+    named(&mut app, NamedKey::Escape);
+
+    // 编码菜单有子菜单：键入的文字不筛选。
+    app.open_status_menu(StatusItem::Encoding);
+    paint(&mut app);
+    typed(&mut app, "u");
+    assert!(app.popup().unwrap().query.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 截图：键入「ru」筛选语言菜单（`popup-filter-light`）。
+#[test]
+#[ignore = "截图，手动运行"]
+fn shoot_popup_filter() {
+    use crate::app::status::status_bar::StatusItem;
+    use winit::keyboard::Key;
+    let dir = sample_folder("popup-filter-shot");
+    let mut app = app_with(&dir.join("a.txt"), false);
+    paint(&mut app);
+    app.open_status_menu(StatusItem::Language);
+    paint(&mut app);
+    for c in ["r", "u"] {
+        app.popup_logical_key(&Key::Character(c.into()));
+    }
+    shoot(&mut app, "popup-filter-light");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 命令「更改文件的语言」在面板中列出语言，键入文字筛选：查询恰好是扩展名的语言排在最前，名字
+/// 中分散出现的也能找到；没有匹配时列表为空。
+#[test]
+fn the_language_picker_filters_by_name_and_extension() {
+    use crate::app::LanguageRow;
+    let dir = sample_folder("language-picker");
+    let mut app = app_with(&dir.join("a.txt"), false);
+    paint(&mut app);
+    app.run_action(crate::keymap::Action::ChangeLanguageMode);
+    let first = |app: &mut App, query: &str| {
+        app.overlays.picker.input.set_text(query);
+        app.picker_refresh();
+        (app.overlays.picker.hits.first())
+            .and_then(|&h| LanguageRow::of(h))
+            .map(LanguageRow::title)
+    };
+    assert_eq!(first(&mut app, "ts"), Some("TypeScript"));
+    assert_eq!(first(&mut app, "md"), Some("Markdown"));
+    assert_eq!(first(&mut app, "rust"), Some("Rust"));
+    assert!(first(&mut app, "rs").is_some());
+    assert_eq!(first(&mut app, "zzqq"), None);
+    // 命中的字标出：「rust」标出 Rust 的四个字。
+    first(&mut app, "rust");
+    assert_eq!(app.language_matched(0), [0, 1, 2, 3]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 截图：面板中的语言列表，键入「ru」筛选（`language-picker-light`）。
+#[test]
+#[ignore = "截图，手动运行"]
+fn shoot_language_picker() {
+    let dir = sample_folder("language-picker-shot");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    paint(&mut app);
+    app.run_action(crate::keymap::Action::ChangeLanguageMode);
+    paint(&mut app);
+    shoot(&mut app, "language-picker-open");
+    app.overlays.picker.input.set_text("ru");
+    app.picker_refresh();
+    shoot(&mut app, "language-picker-light");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// 截图：窗口内绘制的右键菜单（文件树的一行上），鼠标停在第四项（`popup-menu-light`、
 /// `popup-menu-dark`）。
 #[test]

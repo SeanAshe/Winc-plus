@@ -237,6 +237,23 @@ impl Clock {
         }
     }
 
+    /// 返回往回走的时钟：时长不变，从此刻接着当前的位置反向过渡，新时钟的进度等于 1 减去
+    /// 当前的进度，动画不会跳一下。
+    pub fn reversed(&self) -> Clock {
+        let back = 1.0 - self.progress();
+        // 缓出曲线的反函数：进度为 `back` 时经过的时间比例。
+        let linear = 1.0 - (1.0 - back).cbrt();
+        let elapsed = self.duration.mul_f32(linear);
+        Clock {
+            start: Instant::now()
+                .checked_sub(elapsed)
+                .unwrap_or_else(Instant::now),
+            duration: self.duration,
+            #[cfg(test)]
+            frozen: self.frozen.map(|_| elapsed),
+        }
+    }
+
     /// 返回时长。
     pub fn duration(&self) -> Duration {
         self.duration
@@ -342,6 +359,7 @@ impl App {
         self.settle_log_tree();
         self.panels.tree.labels.settle();
         self.git.commit.names.settle();
+        self.panels.global.names.settle();
         settle(&mut self.git.commit.shift, |s| s.clock);
         settle(&mut self.git.commit.actions_slide, |s| s.1);
         settle(&mut self.git.commit.motion, |m| m.clock);
@@ -407,7 +425,7 @@ impl App {
         self.tabs.opening.retain(|(_, c)| !c.done());
         self.terminal.strip.settle();
         settle(&mut self.terminal.motion, |m| m.clock);
-        settle(&mut self.terminal.grow, |g| g.1);
+        settle(&mut self.terminal.grow, |c| *c);
         settle(&mut self.preview.markdown.motion, |m| m.clock);
         self.status.motion.settle();
     }
@@ -449,6 +467,7 @@ impl App {
             || self.log_tree_animating()
             || self.panels.tree.labels.moving()
             || self.git.commit.names.moving()
+            || self.panels.global.names.moving()
             || self.git.commit.actions_slide.is_some()
             || self.git.commit.shift.is_some()
             || self.git.commit.motion.is_some()

@@ -533,6 +533,7 @@ impl App {
         self.overlays.picker.branch_rows = None;
         self.overlays.picker.location_rows = None;
         self.overlays.picker.folders = false;
+        self.overlays.picker.languages = false;
         self.overlays.picker.vim_list = None;
         self.overlays.picker.remote = None;
         self.overlays.picker.places = Some(Places {
@@ -656,8 +657,8 @@ fn filter_results(
 
 /// 剔除一个文件中不算数的命中。
 ///
-/// 有未保存修改的文件按 `dirty` 中的内容判断，其余从磁盘读。读不到或不是 UTF-8 的文件保留全部
-/// 命中：行列可能与搜索时的解码对不上，宁可多列也不误删。
+/// 有未保存修改的文件按 `dirty` 中的内容判断，其余从磁盘读取并识别编码，与项目搜索相同；读不到
+/// 的文件保留全部命中。
 fn filter_file(
     filter: &Filter,
     usages: bool,
@@ -666,9 +667,9 @@ fn filter_file(
 ) {
     let text = match dirty.get(&file.path) {
         Some(rope) => rope.clone(),
-        None => match winc_backend::fs::read(&file.path).map(String::from_utf8) {
-            Ok(Ok(text)) => Rope::from_str(&text),
-            _ => return,
+        None => match winc_backend::fs::read(&file.path) {
+            Ok(bytes) => Rope::from_str(&winc_editor::encoding::decode_unknown(&bytes).0),
+            Err(_) => return,
         },
     };
     let language = usages::language_of(&file.path, &text);

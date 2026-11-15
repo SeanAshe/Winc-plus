@@ -67,6 +67,21 @@ fn settings_font_name_is_checked_and_can_be_abandoned() {
         ))
     );
 
+    // 字体列表中逐个检查，写明第一个找不到的字体（第一项是系统中已安装的任一字族）。
+    if let Some(family) = winc_render::installed_fonts().first() {
+        let list = format!("{}, 绝对不存在的字体 ZZZ, 另一个 YYY", family.name);
+        app.edit_field(|f| {
+            f.select_all();
+            f.insert(&list)
+        });
+        app.settings_commit_field();
+        assert!(app.settings.editing.is_some());
+        assert_eq!(
+            app.settings.error.as_ref().map(|e| e.1.as_str()),
+            Some("未安装字体「绝对不存在的字体 ZZZ」")
+        );
+    }
+
     // 找得到但画不出字形的字体（例如字形只放在 `hvgl` 表中）同样不能提交：渲染层会静默改用
     // 默认字体，界面字体设成这种字体时所有文字都是空白。
     let font = dir.join("hvgl.ttf");
@@ -171,21 +186,30 @@ fn a_font_can_be_chosen_from_the_menu() {
     app.overlays.context_menu = None;
     paint(&mut app);
 
-    // 编辑器和终端字体把等宽字体排在前面，其余字体仍在同一级菜单里；界面字体按名字列出。
+    // 编辑器字体直接列出已安装的常用编程字体和当前的字体，界面字体直接列出常用界面字体，其余
+    // 字体在子菜单里。
+    use crate::app::input::context_menu::{COMMON_FONTS, COMMON_UI_FONTS, MenuEntry, font_menu};
     let fonts = winc_render::installed_fonts();
-    let listed = |setting| {
-        crate::app::input::context_menu::font_menu(setting)
-            .iter()
-            .filter(|entry| {
-                matches!(
-                    entry,
-                    crate::app::input::context_menu::MenuEntry::Item(MenuCommand::Font(_), _)
-                )
-            })
+    let listed = |setting, current| {
+        (font_menu(setting, current).iter())
+            .filter(|entry| matches!(entry, MenuEntry::Item(MenuCommand::Font(_), _)))
             .count()
     };
-    assert_eq!(listed(Setting::UiFont), fonts.len());
-    assert_eq!(listed(Setting::EditorFont), fonts.len());
+    let count = |list: &[&str]| {
+        (fonts.iter())
+            .filter(|family| list.contains(&family.name.as_str()))
+            .count()
+    };
+    let common = count(COMMON_FONTS);
+    assert_eq!(listed(Setting::UiFont, None), count(COMMON_UI_FONTS));
+    assert_eq!(listed(Setting::EditorFont, None), common);
+    if let Some(family) = fonts
+        .iter()
+        .find(|f| !COMMON_FONTS.contains(&f.name.as_str()))
+    {
+        let current = format!("{}, Menlo", family.name);
+        assert_eq!(listed(Setting::EditorFont, Some(&current)), common + 1);
+    }
 
     #[cfg(target_os = "macos")]
     {
@@ -198,8 +222,50 @@ fn a_font_can_be_chosen_from_the_menu() {
 
         app.settings_open_menu(Setting::EditorFont);
         assert!(app.menu_checked(MenuCommand::Font(menlo)));
+
+        // 「后备字体」中点击一项加到列表末尾并打勾；换第一个字体时保留后备字体；再点一次移去。
+        let index = |name: &str| fonts.iter().position(|f| f.name == name).unwrap();
+        let (monaco, hiragino) = (index("Monaco"), index("Hiragino Sans GB"));
+        app.run_menu_command(MenuCommand::FallbackFont(hiragino));
+        assert_eq!(
+            app.config.editor_font.as_deref(),
+            Some("Menlo, Hiragino Sans GB")
+        );
+        app.settings_open_menu(Setting::EditorFont);
+        assert!(app.menu_checked(MenuCommand::FallbackFont(hiragino)));
+        assert!(!app.menu_checked(MenuCommand::FallbackFont(menlo)));
+        app.run_menu_command(MenuCommand::Font(monaco));
+        assert_eq!(
+            app.config.editor_font.as_deref(),
+            Some("Monaco, Hiragino Sans GB")
+        );
+        // 再选一次同一个字体：后备字体不变。
+        app.settings_open_menu(Setting::EditorFont);
+        app.run_menu_command(MenuCommand::Font(monaco));
+        assert_eq!(
+            app.config.editor_font.as_deref(),
+            Some("Monaco, Hiragino Sans GB")
+        );
+        app.settings_open_menu(Setting::EditorFont);
+        app.run_menu_command(MenuCommand::FallbackFont(hiragino));
+        assert_eq!(app.config.editor_font.as_deref(), Some("Monaco"));
+
+        app.settings_open_menu(Setting::EditorFont);
         app.run_menu_command(MenuCommand::FontDefault);
         assert_eq!(app.config.editor_font, None);
+        // 系统默认字体时「后备字体」仍是最后一项，但要先选择字体，各项不可用。
+        use crate::app::input::context_menu::{MenuEntry, fallback_font_menu, font_menu};
+        assert!(matches!(
+            font_menu(Setting::EditorFont, None).last(),
+            Some(MenuEntry::Submenu(title, _)) if title == "后备字体"
+        ));
+        let entries = fallback_font_menu(None);
+        assert!(!entries.is_empty());
+        assert!(
+            entries
+                .iter()
+                .all(|e| matches!(e, MenuEntry::Item(_, false)))
+        );
     }
 
     let _ = std::fs::remove_dir_all(&dir);

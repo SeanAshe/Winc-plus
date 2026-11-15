@@ -16,7 +16,7 @@ pub use config::{
     BackgroundFit, Backup, Config, OptionAsMeta, RenderWhitespace, Saved, TextWidth, ThemeChoice,
     VimClipboard, VimMapMode, VimMapping, config_path,
 };
-pub use font::{FontRequest, resolve_font};
+pub use font::{FontRequest, font_list, resolve_font, resolve_font_list};
 pub use json::Json;
 pub use run::{
     RunConfig, affects_detected_configs, create_run_configs, detected_run_configs,

@@ -735,6 +735,20 @@ fn html_embeds_script_and_style() {
     assert!(tokens.contains(&("#fff".into(), TokenKind::Number)));
 }
 
+/// WXML 中 `<wxs>` 的内容与 `<script>` 一样按脚本着色；HTML 中的 `<wxs>` 只是普通标签。
+#[test]
+fn wxml_embeds_wxs_as_script() {
+    let (_, next) = lex("index.wxml", "<wxs module=\"m\">", LineState::Normal);
+    assert!(matches!(next, LineState::Embedded { script: true, .. }));
+    let (tokens, next) = lex("index.wxml", "var a = 1; </wxs><view>", next);
+    assert_eq!(tokens[0], ("var".into(), TokenKind::Keyword));
+    assert!(tokens.contains(&("wxs".into(), TokenKind::Tag)));
+    assert_eq!(next, LineState::Normal);
+
+    let (_, next) = lex("a.html", "<wxs module=\"m\">", LineState::Normal);
+    assert_eq!(next, LineState::Normal);
+}
+
 #[test]
 fn markdown_blocks_and_inlines() {
     let headings = |line: &str| texts("a.md", line, LineState::Normal, TokenKind::Heading);

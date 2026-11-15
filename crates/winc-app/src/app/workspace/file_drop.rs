@@ -82,31 +82,19 @@ impl App {
     /// 返回拖入中的文件此刻的位置（逻辑像素）。
     ///
     /// 系统在拖动期间不发送鼠标移动事件，需要向系统查询；查不到时（测试中没有窗口，或平台不
-    /// 支持）使用最后一次鼠标移动的位置。macOS 的坐标已经是点，再除以界面缩放；Windows 的
-    /// 坐标是物理像素，除以渲染器的缩放（系统缩放乘以界面缩放），与 `CursorMoved` 一致。
+    /// 支持）使用最后一次鼠标移动的位置。查询结果已经是系统逻辑像素（Windows 按窗口 DPI 换算，
+    /// macOS 和 X11 按各自的缩放换算），这里再除以界面缩放。Wayland 上 winit 不传递拖入的文件，
+    /// 不会走到这里。
     fn drop_point(&self) -> (f32, f32) {
         #[cfg(target_os = "macos")]
-        if let Some((x, y)) = self
-            .window
-            .handle
-            .as_ref()
-            .and_then(|w| crate::macos::mouse_location(w))
-        {
-            return (x / self.zoom(), y / self.zoom());
-        }
+        let query = crate::macos::mouse_location;
         #[cfg(windows)]
-        if let Some((x, y)) = self
-            .window
-            .handle
-            .as_ref()
-            .and_then(|w| crate::windows::mouse_location(w))
-        {
-            let scale = self
-                .frame
-                .renderer
-                .as_ref()
-                .map_or(1.0, |r| r.scale_factor());
-            return (x / scale, y / scale);
+        let query = crate::windows::mouse_location;
+        #[cfg(all(unix, not(target_os = "macos")))]
+        let query = crate::x11::mouse_location;
+        #[cfg(any(unix, windows))]
+        if let Some((x, y)) = self.window.handle.as_ref().and_then(|w| query(w)) {
+            return (x / self.zoom(), y / self.zoom());
         }
         self.pointer.mouse
     }

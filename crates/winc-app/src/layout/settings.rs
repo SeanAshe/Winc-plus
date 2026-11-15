@@ -596,7 +596,6 @@ impl Setting {
         }
         let text = match self {
             Setting::SystemTitleBar => Some(t!("settings-system-title-bar-desc")),
-            Setting::FontWeight => Some(t!("settings-font-weight-desc")),
             Setting::AutoSave => Some(t!("settings-auto-save-desc")),
             Setting::HotExit => Some(t!("settings-hot-exit-desc")),
             Setting::RestoreFolder => Some(t!("settings-restore-folder-desc")),
