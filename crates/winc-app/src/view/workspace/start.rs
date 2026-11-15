@@ -159,6 +159,7 @@ fn draw_start(app: &mut App, frame: &mut Frame<'_>, rise: f32) {
     y += GAP;
     y = section_title(app, frame, t!("workspace-start-section-recent"), x, y, w);
 
+    let parents = crate::app::parents(&app.state.recent);
     for index in 0..recent {
         let row = Rect::new(x, y, w, ROW);
         let open = StartAction::Recent(index);
@@ -183,14 +184,13 @@ fn draw_start(app: &mut App, frame: &mut Frame<'_>, rise: f32) {
         let name = ellipsize(frame, &name, app.fonts.ui, room);
         let end = ui_text(frame, app, row.x + 36.0, row, &name, p.text, editor);
 
-        // 名称之后是淡色的上级目录（用户主目录缩写为 `~`），放不下时从中间截短。
-        let parent = folder
-            .parent()
-            .map(|p| winc_editor::display_path(p, None))
-            .unwrap_or_default();
+        // 名称之后是淡色的上级目录（用户主目录缩写为 `~`），放不下时截短，同名目录保留区分
+        // 彼此的部分（见 `fit_parent`）。
         let room = close.x - 8.0 - (end + 10.0);
-        if !parent.is_empty() && room > 40.0 {
-            let parent = ellipsize(frame, &parent, app.fonts.ui_small, room);
+        if let Some(parent) = parents.get(index).filter(|p| !p.text.is_empty())
+            && room > 40.0
+        {
+            let parent = fit_parent(frame, parent, app.fonts.ui_small, room);
             ui_text_small(frame, app, end + 10.0, row, &parent, p.text_dim, editor);
         }
 

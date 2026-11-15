@@ -936,7 +936,9 @@ fn required_text_does_not_change_the_results() {
             .collect()
     };
 
-    for (name, ignore_case, hits) in [("load", false, 5), ("LOAD", true, 7), ("valid?", false, 1)] {
+    // 搜索只逐行匹配正则，单独一个名字的一行（`load`、`valid?`）和 `select load;` 也在其中，
+    // 之后由 `Filter::definitions` 剔除。
+    for (name, ignore_case, hits) in [("load", false, 7), ("LOAD", true, 9), ("valid?", false, 2)] {
         let fast = crate::definition::query(name, ignore_case);
         assert_eq!(fast.required, name);
         let plain = Query {

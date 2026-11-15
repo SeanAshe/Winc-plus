@@ -235,13 +235,36 @@ fn clicks_move_the_focus_and_the_gap_resizes_the_panel() {
     assert_eq!(app.layout.terminal.h, card.h + 50.0);
     assert_eq!(app.terminal.height, card.h + 50.0);
 
-    // 拖过头时停在给编辑区留的最小高度上，记下的也是这个高度。
+    // 拖过头不到编辑区最小高度的一半：停在最小高度上，记下的也是这个高度。
+    let column_bottom = app.layout.terminal.bottom();
+    let top = app.layout.editor.y;
+    let near = top + terminal::EDITOR_MIN - terminal::EDITOR_MIN / 4.0;
     app.on_mouse_move(x, y - 50.0);
     app.on_mouse_down(MouseButton::Left);
-    app.on_mouse_move(x, 0.0);
+    app.on_mouse_move(x, near);
     app.on_mouse_up(MouseButton::Left);
+    assert!(!app.terminal.maximized);
     assert_eq!(app.layout.editor.h, terminal::EDITOR_MIN);
     assert_eq!(app.terminal.height, app.layout.terminal.h);
+
+    // 再拖过一半：吸附为最大化，面板铺满编辑区一栏；记下的仍是最大的平常高度。
+    let gap = app.layout.terminal_divider;
+    let (x, y) = (gap.x + 200.0, gap.y + gap.h / 2.0);
+    app.on_mouse_move(x, y);
+    app.on_mouse_down(MouseButton::Left);
+    app.on_mouse_move(x, 0.0);
+    assert!(app.terminal.maximized);
+    assert_eq!(app.layout.editor.w, 0.0);
+    assert_eq!(
+        app.layout.terminal.y,
+        app.layout.window.y + crate::theme::ISLAND_MARGIN
+    );
+    assert_eq!(app.layout.terminal.bottom(), column_bottom);
+    // 同一次拖动中往回拖：松开吸附，从最小高度接着拖。
+    app.on_mouse_move(x, y + 100.0);
+    app.on_mouse_up(MouseButton::Left);
+    assert!(!app.terminal.maximized);
+    assert_eq!(app.layout.editor.h, terminal::EDITOR_MIN + 100.0);
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -601,16 +624,18 @@ fn the_tab_bar_keeps_even_gaps_around_tabs_and_buttons() {
     assert_eq!(tab.x - card.x, app.terminal_view().y - tab.bottom());
     assert_eq!(tab.x - card.x, 5.0);
 
-    // 「+」、运行、切换位置、收起四个按钮间距相同，尺寸和间距与编辑区标签栏一致。
+    // 「+」、运行、最大化、切换位置、收起五个按钮间距相同，尺寸和间距与编辑区标签栏一致。
     let new = hit(&app, terminal::HeaderHit::New);
     let run = hit(
         &app,
         terminal::HeaderHit::Run(terminal::run::RunButton::Start),
     );
+    let maximize = hit(&app, terminal::HeaderHit::Maximize);
     let position = hit(&app, terminal::HeaderHit::Position);
     let hide = hit(&app, terminal::HeaderHit::Hide);
     assert_eq!(run.x - new.right(), crate::theme::TAB_GAP);
-    assert_eq!(position.x - run.right(), crate::theme::TAB_GAP);
+    assert_eq!(maximize.x - run.right(), crate::theme::TAB_GAP);
+    assert_eq!(position.x - maximize.right(), crate::theme::TAB_GAP);
     assert_eq!(hide.x - position.right(), crate::theme::TAB_GAP);
     assert_eq!(new.w, crate::theme::BUTTON);
     assert_eq!(card.right() - hide.right(), 8.0);
@@ -1320,4 +1345,40 @@ fn combining_marks_and_underline_styles_are_drawn() {
         let styled = image(&format!("\x1b[4:{style}mtext\x1b[0m"));
         assert_ne!(styled, single, "下划线样式 {style}");
     }
+}
+
+/// 面板在右边、最大化且侧栏收起时铺到窗口左边：标签让开侧栏开关，开关仍画在上面、点得到；
+/// ⌘P 面板浮在面板上。
+#[test]
+fn a_maximized_terminal_on_the_right_leaves_the_sidebar_toggle_usable() {
+    let dir = sample_folder("term-max-right");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    show_terminal(&mut app, "$ ");
+    app.config.terminal_right = Some(true);
+    app.toggle_sidebar();
+    app.panels.sidebar.motion = None;
+    app.terminal.maximized = true;
+    app.relayout();
+    let (l, toggle) = (app.layout, app.layout.sidebar_button);
+    assert_eq!(l.editor.w, 0.0);
+    assert_eq!(l.terminal.x, l.editor.x);
+    assert!(l.terminal.x < toggle.x, "面板伸到开关下面");
+    paint(&mut app);
+    let tab = (app.hits.terminal.iter())
+        .find(|(_, hit)| matches!(hit, terminal::HeaderHit::Tab(..)))
+        .map(|(rect, _)| *rect)
+        .unwrap();
+    assert!(tab.x >= toggle.right(), "标签让开开关");
+    click(
+        &mut app,
+        (toggle.x + toggle.w / 2.0, toggle.y + toggle.h / 2.0),
+    );
+    assert!(app.panels.sidebar.visible, "点开关展开侧栏");
+
+    // ⌘P 面板没有编辑区可放，浮在整栏中间。
+    app.run_action(crate::keymap::Action::QuickOpen);
+    let (picker, terminal) = (app.layout.picker, app.layout.terminal);
+    assert!(picker.w > 0.0);
+    assert!(picker.x > terminal.x && picker.right() < terminal.right());
+    let _ = std::fs::remove_dir_all(&dir);
 }

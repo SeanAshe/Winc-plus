@@ -596,30 +596,114 @@ pub fn default_shell_menu(shells: usize) -> Vec<MenuEntry> {
     menu
 }
 
-/// 返回字体菜单的菜单项：第一项是默认（终端字体为「跟随编辑器」），然后是本机已安装的字族，
-/// 当前的选择打勾。
+/// 字体菜单中直接列出的常用编程字体：各平台自带的等宽字体和常见的开源编程字体，按字母顺序。
 ///
-/// 编辑器和终端字体把等宽字体排在前面，其余字体紧随其后，都在同一级菜单里，不用再进子菜单。
-/// 界面字体按名字排列。
-pub fn font_menu(setting: Setting) -> Vec<MenuEntry> {
-    use MenuEntry::{Item, Separator};
+/// 系统声明等宽的字体还包括泰文、日文字体和符号字体，全部直接列出时难以找到编程字体，因此只
+/// 直接列出这些，其余的等宽字体排在「其他字体」的最前面。Maple Mono 是本分支未配置编辑器字体时
+/// 的默认字体，因此也列在这里。
+pub(crate) const COMMON_FONTS: &[&str] = &[
+    "Cascadia Code",
+    "Cascadia Mono",
+    "Consolas",
+    "Courier New",
+    "DejaVu Sans Mono",
+    "Fira Code",
+    "Hack",
+    "IBM Plex Mono",
+    "Iosevka",
+    "JetBrains Mono",
+    "Liberation Mono",
+    "Maple Mono",
+    "Maple Mono NF CN",
+    "Menlo",
+    "Monaco",
+    "Roboto Mono",
+    "SF Mono",
+    "Source Code Pro",
+    "Ubuntu Mono",
+];
+
+/// 界面字体菜单中直接列出的常用界面字体：各平台的系统界面字体及其中文字体和常见的开源界面
+/// 字体，按字母顺序。
+pub(crate) const COMMON_UI_FONTS: &[&str] = &[
+    "Cantarell",
+    "DejaVu Sans",
+    "Helvetica Neue",
+    "Hiragino Sans GB",
+    "Inter",
+    "Microsoft YaHei",
+    "Noto Sans",
+    "Noto Sans SC",
+    "PingFang SC",
+    "Roboto",
+    "SF Pro",
+    "Segoe UI",
+    "Source Han Sans SC",
+    "Ubuntu",
+];
+
+/// 返回字体菜单的菜单项：第一项是「系统默认」（终端字体为「跟随编辑器」），其后是已安装的
+/// 字族，当前的选择打勾；最后一组是子菜单「其他字体」和「后备字体」（见 [`fallback_font_menu`]）。
+///
+/// 直接列出已安装的常用字体（编辑器和终端为 [`COMMON_FONTS`]，界面为 [`COMMON_UI_FONTS`]）和
+/// 当前的字体（`current` 中的第一个）。编辑器和终端的「其他字体」中先列其余的等宽字体，再列
+/// 非等宽字体。
+pub fn font_menu(setting: Setting, current: Option<&str>) -> Vec<MenuEntry> {
+    use MenuEntry::{Item, Separator, Submenu};
 
     let item = |(i, _)| Item(MenuCommand::Font(i), true);
     let fonts = winc_render::installed_fonts().iter().enumerate();
-    let (mono, rest): (Vec<_>, Vec<_>) = if setting != Setting::UiFont {
-        fonts.partition(|(_, family)| family.monospace)
-    } else {
-        (fonts.collect(), Vec::new())
-    };
+    let primary = winc_config::font_list(current).first().copied();
+    let ui = setting == Setting::UiFont;
+    let common = if ui { COMMON_UI_FONTS } else { COMMON_FONTS };
+    let (first, rest): (Vec<_>, Vec<_>) = fonts.partition(|(_, family)| {
+        common.contains(&family.name.as_str()) || primary == Some(family.name.as_str())
+    });
+    let (mono, other): (Vec<_>, Vec<_>) = rest.into_iter().partition(|(_, f)| !ui && f.monospace);
     let mut menu = vec![Item(MenuCommand::FontDefault, true)];
-    if !mono.is_empty() {
+    if !first.is_empty() {
         menu.push(Separator);
-        menu.extend(mono.into_iter().map(item));
+        menu.extend(first.into_iter().map(item));
     }
-    if !rest.is_empty() {
+    menu.push(Separator);
+    if !mono.is_empty() || !other.is_empty() {
+        let mut others: Vec<MenuEntry> = mono.into_iter().map(item).collect();
+        if !others.is_empty() && !other.is_empty() {
+            others.push(Separator);
+        }
+        others.extend(other.into_iter().map(item));
+        menu.push(Submenu(t!("settings-font-others").to_owned(), others));
+    }
+    menu.push(Submenu(
+        t!("settings-font-fallbacks").to_owned(),
+        fallback_font_menu(current),
+    ));
+    menu
+}
+
+/// 返回「后备字体」子菜单的菜单项：第一个字体缺字时依次使用的字体，点击一项即加入或移出字体
+/// 列表。
+///
+/// 已在列表中的字体按列表的顺序排在前面并打勾，其后是其余已安装的字族；第一个字体本身不列出。
+/// 没有设置字体时各项不可用：此时用的是平台默认字体，后备字体由系统决定，要先选择字体。
+pub fn fallback_font_menu(current: Option<&str>) -> Vec<MenuEntry> {
+    use MenuEntry::{Item, Separator};
+
+    let list = winc_config::font_list(current);
+    let (first, listed) = list
+        .split_first()
+        .map_or((None, &[][..]), |(f, l)| (Some(*f), l));
+    let fonts = winc_render::installed_fonts();
+    let index = |name: &str| fonts.iter().position(|family| family.name == name);
+    let chosen: Vec<usize> = listed.iter().filter_map(|&name| index(name)).collect();
+    let item = |i| Item(MenuCommand::FallbackFont(i), first.is_some());
+    let mut menu: Vec<MenuEntry> = chosen.iter().map(|&i| item(i)).collect();
+    let primary = first.and_then(index);
+    let rest = (0..fonts.len()).filter(|&i| !chosen.contains(&i) && Some(i) != primary);
+    if !menu.is_empty() {
         menu.push(Separator);
-        menu.extend(rest.into_iter().map(item));
     }
+    menu.extend(rest.map(item));
     menu
 }
 

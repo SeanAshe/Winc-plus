@@ -348,6 +348,7 @@ impl App {
                     HeaderHit::ShellMenu => self.open_terminal_shell_menu(),
                     HeaderHit::Restart => self.request_terminal_restart(),
                     HeaderHit::Position => self.toggle_terminal_position(),
+                    HeaderHit::Maximize => self.toggle_terminal_maximized(),
                     HeaderHit::Hide => self.click_terminal_button(),
                     HeaderHit::Run(_) | HeaderHit::Find(_) => {}
                 }
@@ -369,8 +370,7 @@ impl App {
                 self.pointer.drag = Drag::OutlineDivider { start: y, size };
             }
             Target::TerminalDivider => {
-                // 拖动分隔条时取消最大化，从当前大小开始拖。
-                self.terminal.maximized = false;
+                // 最大化、还原途中按下时停在终点，从当前大小开始拖。
                 self.terminal.grow = None;
                 let l = self.layout.terminal;
                 let (start, size) = if self.terminal_right() {

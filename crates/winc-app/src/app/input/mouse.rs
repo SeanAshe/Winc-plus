@@ -24,8 +24,7 @@ use crate::app::{
 };
 use crate::layout::{
     RowAction, Scrollbar, SearchParts, SettingControl, SettingsPart, SidebarView, hit,
-    hscrollbar_thumb, row_actions, scroll_for_thumb, scrollbar_thumb, settings_thumb,
-    settings_track,
+    hscrollbar_thumb, scroll_for_thumb, scrollbar_thumb, settings_thumb, settings_track,
 };
 use crate::theme::*;
 

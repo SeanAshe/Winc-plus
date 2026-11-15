@@ -168,6 +168,21 @@ pub struct GlobalSearch {
     rows_version: Option<u64>,
     /// 替换预览用的正则，按搜索条件和替换文字缓存。
     preview: Option<(Query, String, ReplacePreview)>,
+    /// 鼠标停着的文件行名字放不下时，这一行写全名（每帧绘制前计算）。
+    pub(crate) overflow: Option<ResultOverflow>,
+    /// 各文件行名字随鼠标展开、收回的过渡，与文件树相同，按文件路径区分。
+    pub(crate) names: crate::app::TreeLabels,
+}
+
+/// 搜索结果中写全名的文件行，见 [`GlobalSearch::overflow`]。
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ResultOverflow {
+    /// 第几个结果行（[`GlobalSearch::rows`] 的下标）。
+    pub index: usize,
+    /// 伸出侧栏的那一段；全名在侧栏里写得下、只需让开按钮时为 `None`。
+    pub spill: Option<Rect>,
+    /// 跟在全名之后的「替换」（替换行展开时才有）和「从结果中移除」按钮的终点位置。
+    pub actions: (Option<Rect>, Rect),
 }
 
 /// 查找、替换输入框最多显示的行数（经验值）；更长的文字在框内滚动。
@@ -421,7 +436,7 @@ impl App {
     }
 
     /// 搜索面板是否正在显示：侧栏当前是搜索视图，且侧栏可见。
-    pub(in crate::app) fn panel_shown(&self) -> bool {
+    pub(crate) fn panel_shown(&self) -> bool {
         self.panels.sidebar.view == SidebarView::Search && self.layout.sidebar.right() > 0.0
     }
 
@@ -592,6 +607,34 @@ impl App {
         let index = ((y - results.y + self.panels.global.scroll) / TREE_ROW).floor();
         (index >= 0.0 && (index as usize) < self.panels.global.rows().len())
             .then_some(index as usize)
+    }
+
+    /// 返回第 `index` 个结果行的「替换」（替换行展开时才有）和「从结果中移除」按钮：写全名的
+    /// 那一行在全名之后，其余在行的右端。
+    pub(crate) fn result_actions(&self, index: usize) -> (Option<Rect>, Rect) {
+        match self.panels.global.overflow {
+            Some(overflow) if overflow.index == index => overflow.actions,
+            _ => crate::layout::row_actions(
+                self.result_row_rect(index),
+                self.panels.global.replace_open,
+            ),
+        }
+    }
+
+    /// `y` 是否在写全名的结果行的高度内：该行覆盖在滚动条和分隔条之上。
+    pub(in crate::app) fn over_result_overflow_row(&self, y: f32) -> bool {
+        self.panel_shown()
+            && (self.panels.global.overflow)
+                .map(|o| self.result_row_rect(o.index))
+                .is_some_and(|row| (row.y..row.bottom()).contains(&y))
+    }
+
+    /// (`x`, `y`) 是否在写全名的结果行伸出侧栏的那一段内。
+    pub(in crate::app) fn in_result_overflow(&self, x: f32, y: f32) -> bool {
+        self.panel_shown()
+            && (self.panels.global.overflow)
+                .and_then(|o| o.spill)
+                .is_some_and(|r| r.contains(x, y))
     }
 
     /// 返回第 `index` 个结果行在窗口中的矩形。

@@ -1,10 +1,11 @@
 //! 字体：按需 mmap 字体文件，不扫描系统字体库。
 //!
 //! 槽位依次是等宽字体、界面字体、等宽字体的斜体、数学字体、终端字体及其斜体，其后是按优先级
-//! 排列的后备字体；斜体和后备字体在首次需要时才映射文件。候选路径按平台给出，用户配置的字体
-//! 排在最前面。
+//! 排列的后备字体，最后是用户在字体列表中写在主字体之后的字体；斜体和后备字体在首次需要时才
+//! 映射文件。候选路径按平台给出，用户配置的字体排在最前面。
 
 use std::fs::{File, Metadata};
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::time::SystemTime;
@@ -546,6 +547,10 @@ const TERMINAL_ITALIC: u8 = 5;
 /// 第一个后备字体的槽位。
 const FALLBACK: u8 = 6;
 
+/// 一项字体设置中最多使用的字体数（个）：槽位编号是 `u8`，三项设置的列表与平台后备字体合计
+/// 不能超过 256 个槽位；常见的写法只有两三个字体。
+const LISTED_FONTS: usize = 16;
+
 /// 槽位 `slot` 中是否为斜体字体：要斜体的字落到其他槽位时斜切。
 pub(crate) fn italic_slot(slot: u8) -> bool {
     matches!(slot, MONO_ITALIC | TERMINAL_ITALIC)
@@ -568,14 +573,18 @@ pub(crate) struct Fonts {
     ///
     /// 用于避免每个字符都查哈希表。
     ascii: [[Option<(u8, u16)>; 128]; FontKind::COUNT],
+    /// 平台后备字体的槽位范围。
+    fallbacks: Range<u8>,
+    /// 等宽字体、界面字体和终端字体的列表中写在主字体之后的字体所在的槽位范围，依次尝试。
+    listed: [Range<u8>; 3],
 }
 
 impl Fonts {
-    /// 加载字体；`mono`、`ui` 和 `terminal` 是用户配置里指定的字体，为 `None` 时等宽字体和界面
+    /// 加载字体；`mono`、`ui` 和 `terminal` 是用户配置里指定的字体列表，为空时等宽字体和界面
     /// 字体用内置候选，终端用等宽字体。
     ///
-    /// 指定的终端字体打不开时同样用等宽字体，不报错。`weight` 是全部文字的字重，超出 100 至
-    /// 900 时取最接近的值。
+    /// 列表中第一个能打开的字体是主字体，其余的字体在主字体缺字时依次尝试。指定的终端字体都打不
+    /// 开时同样用等宽字体，不报错。`weight` 是全部文字的字重，超出 100 至 900 时取最接近的值。
     ///
     /// # Errors
     ///
@@ -585,14 +594,15 @@ impl Fonts {
     ///
     /// 等宽字体成功打开后又立即无法打开时 panic。
     pub(crate) fn load(
-        mono: Option<&FontSpec>,
-        ui: Option<&FontSpec>,
-        terminal: Option<&FontSpec>,
+        mono: &[FontSpec],
+        ui: &[FontSpec],
+        terminal: &[FontSpec],
         weight: u16,
     ) -> Result<Fonts, String> {
         let shift = weight.clamp(WEIGHT_MIN, WEIGHT_MAX) as i16 - REGULAR as i16;
         // 指定的字体不可用时退回内置候选而不报错：字体配置有误时程序仍可启动。
-        let candidates = Candidates::for_platform(mono, ui);
+        let listed = [mono, ui, terminal].map(resolve_list);
+        let candidates = Candidates::for_platform(&listed[0], &listed[1]);
         let (mono, mono_file) = first_opened(&candidates.mono, shift).ok_or_else(|| {
             format!(
                 "找不到等宽字体，尝试过：{:?}。可以用 WINC_FONT 指定字体文件，\
@@ -602,20 +612,24 @@ impl Fonts {
         })?;
 
         // 没有界面字体时用等宽字体代替。
-        let ui = first_existing(&candidates.ui, shift)
-            .or_else(|| first_existing(&candidates.mono, shift))
+        let (ui, ui_file) = first_opened(&candidates.ui, shift)
+            .or_else(|| first_opened(&candidates.mono, shift))
             .expect("等宽字体刚刚成功打开过");
 
         let italic = italic_candidates(&mono_file, &mono);
         // 数学字体一开始就映射（只是映射文件，很快）：度量要用到它，`metrics` 不能再去加载。
         let math = first_existing(&candidates.math, shift).map_or(Slot::Missing, Slot::Ready);
         // 终端字体同样一开始就映射：度量要用到它。
-        let (terminal, terminal_italic) = match first_opened(&resolve_first(terminal), shift) {
+        let (terminal, terminal_italic, terminal_file) = match first_opened(&listed[2], shift) {
             Some((face, file)) => {
                 let italic = italic_candidates(&file, &face);
-                (Slot::Ready(face), Slot::Pending(Choices::files(italic)))
+                (
+                    Slot::Ready(face),
+                    Slot::Pending(Choices::files(italic)),
+                    Some(file),
+                )
             }
-            None => (Slot::Missing, Slot::Missing),
+            None => (Slot::Missing, Slot::Missing, None),
         };
         let mut slots = vec![
             Slot::Ready(mono),
@@ -626,12 +640,26 @@ impl Fonts {
             terminal_italic,
         ];
         slots.extend(candidates.fallbacks.into_iter().map(Slot::Pending));
+        let fallbacks = FALLBACK..slots.len() as u8;
+        // 列表中主字体之外的字体到第一次用到时才打开。排在主字体之前的字体刚才已打不开，到时
+        // 再试一次即成为 `Missing`。没有终端字体时终端用等宽字体，终端的列表不再使用。
+        let chosen = [Some(&mono_file), Some(&ui_file), terminal_file.as_ref()];
+        let listed = std::array::from_fn(|i| {
+            let start = slots.len() as u8;
+            if chosen[i].is_some() {
+                let rest = listed[i].iter().filter(|file| Some(*file) != chosen[i]);
+                slots.extend(rest.map(|file| Slot::Pending(Choices::files(vec![file.clone()]))));
+            }
+            start..slots.len() as u8
+        });
 
         let mut fonts = Fonts {
             slots,
             shift,
             resolved: FastMap::default(),
             ascii: [[None; 128]; FontKind::COUNT],
+            fallbacks,
+            listed,
         };
 
         for kind in [FontKind::Mono, FontKind::Ui, FontKind::Math] {
@@ -758,17 +786,26 @@ impl Fonts {
             return hit;
         }
 
-        // 先找主字体，再找其他主字体（斜体没有的字符用正体，终端字体没有的用等宽字体），最后是
-        // 后备字体。斜体、终端字体不作为其他字体的后备。
+        // 先找主字体及其列表中的字体，再找其他主字体及其列表（斜体没有的字符用正体，终端字体
+        // 没有的用等宽字体），最后是后备字体。斜体、终端字体不作为其他字体的后备。
+        let [mono, ui, terminal] = self.listed.clone();
+        let with = |slot: u8, listed: Range<u8>| std::iter::once(slot).chain(listed);
+        let mono = with(MONO, mono);
+        let ui = with(UI, ui);
         let mut order: Vec<u8> = match kind {
-            FontKind::Mono => vec![MONO, UI],
-            FontKind::Ui => vec![UI, MONO],
-            FontKind::MonoItalic => vec![MONO_ITALIC, MONO, UI],
-            FontKind::Math => vec![MATH, UI, MONO],
-            FontKind::Terminal => vec![TERMINAL, MONO, UI],
-            FontKind::TerminalItalic => vec![TERMINAL_ITALIC, TERMINAL, MONO, UI],
+            FontKind::Mono => mono.chain(ui).collect(),
+            FontKind::Ui => ui.chain(mono).collect(),
+            FontKind::MonoItalic => [MONO_ITALIC].into_iter().chain(mono).chain(ui).collect(),
+            FontKind::Math => [MATH].into_iter().chain(ui).chain(mono).collect(),
+            FontKind::Terminal => with(TERMINAL, terminal).chain(mono).chain(ui).collect(),
+            FontKind::TerminalItalic => [TERMINAL_ITALIC]
+                .into_iter()
+                .chain(with(TERMINAL, terminal))
+                .chain(mono)
+                .chain(ui)
+                .collect(),
         };
-        order.extend(FALLBACK..self.slots.len() as u8);
+        order.extend(self.fallbacks.clone());
 
         let mut result = (primary, 0);
         // 缓存项数随出现过的字符数增长（例如打开一个几乎每个字符都不同的文件），满了就整体清空；
@@ -809,9 +846,20 @@ impl Fonts {
     }
 }
 
-/// 返回用户配置的字体解析出的候选；解析不出来时为空列表，调用方会按平台默认字体处理。
-fn resolve_first(spec: Option<&FontSpec>) -> Vec<FontFile> {
-    spec.and_then(FontSpec::resolve).into_iter().collect()
+/// 返回用户配置的字体列表解析出的候选，按列表的顺序；解析不出来的字体略去，超过
+/// [`LISTED_FONTS`] 个的部分不用。都解析不出来时为空列表，调用方会按平台默认字体处理。
+fn resolve_list(specs: &[FontSpec]) -> Vec<FontFile> {
+    let mut files: Vec<FontFile> = Vec::new();
+    for file in specs
+        .iter()
+        .take(LISTED_FONTS)
+        .filter_map(FontSpec::resolve)
+    {
+        if !files.contains(&file) {
+            files.push(file);
+        }
+    }
+    files
 }
 /// 返回 `files` 中第一个能打开的字体；都打不开时返回 `None`。
 fn first_existing(files: &[FontFile], shift: i16) -> Option<Face> {
@@ -1012,23 +1060,24 @@ impl Choices {
 
 impl Candidates {
     /// 返回各槽位的候选字体：用户配置的字体排在最前面，其后是平台默认字体。
-    fn for_platform(mono: Option<&FontSpec>, ui: Option<&FontSpec>) -> Candidates {
+    fn for_platform(mono: &[FontFile], ui: &[FontFile]) -> Candidates {
         let home = std::env::var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or_default();
 
         // `WINC_FONT` 环境变量指定的字体排在最前面，其次是用户配置的字体，便于临时试用其他字体。
-        let mut mono = resolve_first(mono);
+        let mut mono = mono.to_vec();
         if let Some(font) = std::env::var_os("WINC_FONT") {
             mono.insert(0, FontFile::first(font));
         }
         // 没有指定编辑器字体时，优先用 Maple Mono NF CN；没安装则继续用后面的平台默认字体。
+        // 用户写了逗号分隔的字体列表时，`mono` 已是解析出的文件，这里不再插入默认字体。
         if mono.is_empty()
             && let Some(file) = FontSpec::Name(crate::DEFAULT_EDITOR_FONT.to_owned()).resolve()
         {
             mono.push(file);
         }
-        let mut ui_paths = resolve_first(ui);
+        let mut ui_paths = ui.to_vec();
 
         let user_fonts = |name: &str| -> Vec<FontFile> {
             vec![

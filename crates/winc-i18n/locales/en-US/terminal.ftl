@@ -2,6 +2,8 @@
 
 terminal-dock-bottom = Dock to bottom
 terminal-dock-right = Dock to right
+terminal-maximize-panel = Maximize panel
+terminal-restore-panel = Restore panel
 terminal-hide-panel = Hide terminal panel
 terminal-show-panel = Show terminal panel
 terminal-tab-default-name = Terminal

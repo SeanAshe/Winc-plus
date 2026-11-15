@@ -13,7 +13,7 @@ pub(super) mod events;
 mod install;
 pub(super) mod notice;
 pub(super) mod one_off;
-pub(super) mod placement;
+pub(in crate::app) mod placement;
 mod shell_command;
 pub(super) mod startup;
 pub(super) mod title_bar;

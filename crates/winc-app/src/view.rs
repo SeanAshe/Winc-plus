@@ -16,7 +16,9 @@ use winc_render::{Color, Faux, FontKind, Frame, Rect};
 use crate::app::animation::{Card, dialog_curve, reveal};
 use crate::app::workspace::picker::picker_parts;
 use crate::app::workspace::tab_names::{tab_folder, tab_icon_name};
-use crate::app::{App, DropZone, Hover, MenuButton, ScrollArea, ThumbLook, WORD_HIGHLIGHT_COUNT};
+use crate::app::{
+    App, DropZone, Hover, MenuButton, Parent, ScrollArea, ThumbLook, WORD_HIGHLIGHT_COUNT,
+};
 use crate::field::{FieldView, TextField};
 use crate::icons;
 use crate::keymap::{self, Action};
@@ -77,6 +79,7 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     frame.base(&base(app));
     let layout = app.layout;
     app.panels.tree.overflow = tree_overflow(app, frame);
+    app.panels.global.overflow = workspace::panel::result_overflow(app, frame);
     app.track_log_tree();
     let before = app.git.commit.overflow.map(|o| o.row);
     app.git.commit.overflow = git::commit::commit_overflow(app, frame);
@@ -109,16 +112,22 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     }
 
     draw_top_bar(app, frame);
-    draw_sidebar_button(app, frame);
     app.sync_merge_panes();
     draw_editor(app, frame);
     editor::draw_split(app, frame);
     preview::markdown::draw_diagram_view(app, frame);
     git::merge::draw_side_panes(app, frame);
+    // 最大化、还原途中面板盖在编辑区上面：编辑区的圆角先修整好，面板再画在上面。
+    let covered = app.terminal.grow.is_some();
+    if covered {
+        round_editor_corners(app, frame);
+    }
     terminal::draw_terminal(app, frame);
+    // 侧栏开关和窗口按钮画在终端之上：面板在右边、最大化且侧栏收起时伸到它们下面。
+    draw_sidebar_button(app, frame);
     draw_window_controls(app, frame);
     draw_status(app, frame);
-    draw_island_corners(app, frame);
+    draw_island_corners(app, frame, !covered);
     // 以下都是浮在内容之上的面板、菜单和提示，底色保持不透明。
     frame.end_wallpaper();
     draw_file_drop(app, frame);
@@ -126,6 +135,8 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     draw_tree_overflow(app, frame);
     git::commit::draw_commit_overflow_closing(app, frame);
     git::commit::draw_commit_overflow(app, frame);
+    workspace::panel::draw_result_overflow_closing(app, frame);
+    workspace::panel::draw_result_overflow(app, frame);
     app.with_log_list(|app| {
         git::commit::draw_commit_overflow_closing(app, frame);
         git::commit::draw_commit_overflow(app, frame);
@@ -222,24 +233,32 @@ fn draw_modal(app: &mut App, frame: &mut Frame<'_>) {
 /// 把侧栏、编辑区（以及终端面板）的四角改为圆角。
 ///
 /// 卡片内容按直角矩形绘制，最后用窗口底色覆盖四角圆弧外侧的部分；之后绘制的浮层不受影响。
-fn draw_island_corners(app: &App, frame: &mut Frame<'_>) {
+/// `editor` 为假时不修整编辑区：终端面板正盖在它上面，它的圆角已在面板之前修整过。
+fn draw_island_corners(app: &App, frame: &mut Frame<'_>, editor: bool) {
     let l = &app.layout;
     let p = app.palette;
 
     if l.sidebar.right() > 0.0 {
         frame.round_corners(l.sidebar, RADIUS_ISLAND, p.frame_bg);
     }
+    if editor {
+        round_editor_corners(app, frame);
+    }
+    if l.terminal.h > 0.0 {
+        frame.round_corners(l.terminal, RADIUS_ISLAND, p.frame_bg);
+    }
+}
 
+/// 修整编辑区卡片（顶栏那一行连同下面的编辑区）的四角，见 [`draw_island_corners`]。
+fn round_editor_corners(app: &App, frame: &mut Frame<'_>) {
+    let l = &app.layout;
     let editor = Rect::new(
         l.top_bar.x,
         l.top_bar.y,
         l.top_bar.w,
         l.editor.bottom() - l.top_bar.y,
     );
-    frame.round_corners(editor, RADIUS_ISLAND, p.frame_bg);
-    if l.terminal.h > 0.0 {
-        frame.round_corners(l.terminal, RADIUS_ISLAND, p.frame_bg);
-    }
+    frame.round_corners(editor, RADIUS_ISLAND, app.palette.frame_bg);
 }
 
 /// 拖动文件经过窗口时，为松手后接收该文件的终端面板或编辑区（含标签栏）绘制放置目标底色。
@@ -1088,6 +1107,29 @@ fn truncate_end<'a>(frame: &mut Frame<'_>, text: &'a str, size: f32, max: f32) -
 /// 结尾（例如文件扩展名）。
 fn ellipsize<'a>(frame: &mut Frame<'_>, text: &'a str, size: f32, max: f32) -> Cow<'a, str> {
     fit(frame, text, size, max, true)
+}
+
+/// 把最近目录的上级目录 `parent` 截短到 `max`（逻辑像素）宽以内，字号为 `size`。
+///
+/// 另有同名目录时从开头逐级截去，至少保留区分各同名目录的末尾一段（见 [`Parent::keep`]），
+/// 写成 `…/a/src`；这一段也放不下时截去它的末尾。其余情况从中间截短。
+fn fit_parent<'a>(frame: &mut Frame<'_>, parent: &'a Parent, size: f32, max: f32) -> Cow<'a, str> {
+    let text = parent.text.as_str();
+    if frame.measure(FontKind::Ui, size, text) <= max {
+        return Cow::Borrowed(text);
+    }
+    let Some(keep) = parent.keep.filter(|&keep| keep > 0) else {
+        return ellipsize(frame, text, size, max);
+    };
+    let cuts = text.match_indices(['/', '\\']).map(|(i, _)| i);
+    for cut in cuts.take_while(|&cut| cut < keep) {
+        let short = format!("…{}", &text[cut..]);
+        if frame.measure(FontKind::Ui, size, &short) <= max {
+            return Cow::Owned(short);
+        }
+    }
+    let short = format!("…{}", &text[keep - 1..]);
+    Cow::Owned(truncate_end(frame, &short, size, max).into_owned())
 }
 
 /// 把路径 `path` 截短到 `max`（逻辑像素）宽以内，返回截短后的文本。

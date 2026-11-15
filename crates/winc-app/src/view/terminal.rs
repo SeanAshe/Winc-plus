@@ -428,8 +428,14 @@ fn draw_header(app: &mut App, frame: &mut Frame<'_>, card: Rect) {
     let p = app.palette;
     let header = Rect::new(card.x, card.y, card.w, header_height(card));
     let y = card.y + (header.h - TAB_H) / 2.0;
-    let left = card.x + tab_inset(card);
-    // 面板在右边时标签栏在顶栏那一行，右端让给窗口按钮（由应用绘制标题栏时）。
+    // 面板在右边时标签栏在顶栏那一行，右端让给窗口按钮（由应用绘制标题栏时）；最大化、侧栏
+    // 收起时面板伸到窗口左边，左端让给侧栏开关（macOS 上还有它左边的红绿灯）。
+    let toggle = app.layout.sidebar_button;
+    let left = if toggle.y < header.bottom() && toggle.right() > card.x {
+        (card.x + tab_inset(card)).max(toggle.right() + TAB_GAP)
+    } else {
+        card.x + tab_inset(card)
+    };
     let controls = app.layout.controls;
     let end = if controls.w > 0.0 && controls.y < header.bottom() && controls.x < header.right() {
         controls.x - TAB_GAP
@@ -440,9 +446,10 @@ fn draw_header(app: &mut App, frame: &mut Frame<'_>, card: Rect) {
     let button_y = card.y + (header.h - BUTTON) / 2.0;
     let hide = Rect::new(end - BUTTONS_END - BUTTON, button_y, BUTTON, BUTTON);
     let position = Rect::new(hide.x - TAB_GAP - BUTTON, button_y, BUTTON, BUTTON);
-    let run = run_buttons(app, frame, left, position.x - TAB_GAP, button_y);
+    let maximize = Rect::new(position.x - TAB_GAP - BUTTON, button_y, BUTTON, BUTTON);
+    let run = run_buttons(app, frame, left, maximize.x - TAB_GAP, button_y);
     // 标签和「+」放得下的宽度。
-    let rest = run.map_or(position.x, |[menu, ..]| menu.x) - TAB_GAP;
+    let rest = run.map_or(maximize.x, |[menu, ..]| menu.x) - TAB_GAP;
     // 能选的 shell 不止一个时，「+」右边是选 shell 的按钮。
     let shell_menu = app.terminal_shell_list().len() > 1;
     let room = rest - left - TAB_GAP - BUTTON;
@@ -603,7 +610,19 @@ fn draw_header(app: &mut App, frame: &mut Frame<'_>, card: Rect) {
         hits.push((menu, HeaderHit::ShellMenu));
     }
 
-    // 右端：切换面板的位置（编辑区右边或下面），图标绘制的是点下去以后的位置。
+    // 右端：最大化或还原面板，图标绘制的是点下去以后的样子。
+    if app.pointer.hover == Hover::TerminalHeader(HeaderHit::Maximize) {
+        frame.rect_clipped(maximize, p.hover, RADIUS_ROW, header);
+    }
+    let center = (maximize.x + BUTTON / 2.0, maximize.y + BUTTON / 2.0);
+    if app.terminal.maximized {
+        icons::shrink(frame, center, p.text_muted, header);
+    } else {
+        icons::expand(frame, center, p.text_muted, header);
+    }
+    hits.push((maximize, HeaderHit::Maximize));
+
+    // 切换面板的位置（编辑区右边或下面），图标绘制的是点下去以后的位置。
     if app.pointer.hover == Hover::TerminalHeader(HeaderHit::Position) {
         frame.rect_clipped(position, p.hover, RADIUS_ROW, header);
     }

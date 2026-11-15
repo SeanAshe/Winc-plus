@@ -1,7 +1,8 @@
 //! 最近打开的目录（`⌃R`）：在快速打开的卡片里列出最近列表中的目录，按目录名或上级目录筛选。
 //!
 //! 回车在此窗口打开（窗口里开着别的目录时按 `editor.openFolderInNewWindow` 决定），按住 `⌥`
-//! 在新窗口打开，与开始页、项目名菜单中 `⌥` 的含义相同。
+//! 在新窗口打开，与开始页、项目名菜单中 `⌥` 的含义相同。开始页和此面板中的同名目录按
+//! [`parents`] 区分。
 
 use super::*;
 use crate::app::input::palette::{matched, needle, rate};
@@ -15,6 +16,68 @@ pub(crate) fn folder_label(folder: &Path) -> (String, String) {
         .map(|p| winc_editor::display_path(p, None))
         .unwrap_or_default();
     (name, parent)
+}
+
+/// 最近目录在列表中淡色显示的上级目录。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Parent {
+    /// 上级目录的显示写法（用户主目录缩写为 `~`，远端目录写成 `目标:/路径`）。
+    pub(crate) text: String,
+    /// 最近列表中另有同名目录时，[`Self::text`] 中区分各同名目录所需的末尾一段的起点（字节
+    /// 下标，见 [`distinct_start`]）；没有同名目录时为 `None`。
+    pub(crate) keep: Option<usize>,
+}
+
+/// 返回 `folders` 各目录在列表中显示的上级目录，顺序与 `folders` 相同。
+pub(crate) fn parents(folders: &[PathBuf]) -> Vec<Parent> {
+    let names: Vec<_> = folders
+        .iter()
+        .map(|f| winc_editor::display_name(f))
+        .collect();
+    let texts: Vec<String> = (folders.iter())
+        .map(|f| {
+            f.parent()
+                .map(|p| winc_editor::display_path(p, None))
+                .unwrap_or_default()
+        })
+        .collect();
+    (0..folders.len())
+        .map(|i| {
+            let others: Vec<&str> = (0..folders.len())
+                .filter(|&j| j != i && names[j] == names[i])
+                .map(|j| texts[j].as_str())
+                .collect();
+            let keep = (!others.is_empty()).then(|| distinct_start(&texts[i], &others));
+            Parent {
+                text: texts[i].clone(),
+                keep,
+            }
+        })
+        .collect()
+}
+
+/// 返回上级目录 `parent` 末尾能与 `others`（其他同名目录的上级目录）区分开的一段的起点（字节
+/// 下标）。
+///
+/// 从最后一级目录起，不足以区分时逐级向前添加，直到与每一个都不同，如 `a/src` 与 `b/src`
+/// 只需保留 `a/src`；无法区分时为 0，即整个路径。
+pub(crate) fn distinct_start(parent: &str, others: &[&str]) -> usize {
+    fn starts(p: &str) -> Vec<usize> {
+        std::iter::once(0)
+            .chain(p.match_indices(['/', '\\']).map(|(i, _)| i + 1))
+            .collect()
+    }
+    fn tail<'a>(p: &'a str, starts: &[usize], k: usize) -> Option<&'a str> {
+        starts.len().checked_sub(k).map(|j| &p[starts[j]..])
+    }
+    let mine = starts(parent);
+    let theirs: Vec<Vec<usize>> = others.iter().map(|other| starts(other)).collect();
+    (1..=mine.len())
+        .find(|&k| {
+            let own = tail(parent, &mine, k);
+            (others.iter().zip(&theirs)).all(|(other, starts)| tail(other, starts, k) != own)
+        })
+        .map_or(0, |k| mine[mine.len() - k])
 }
 
 /// 返回非空查询 `needle` 与目录的匹配等级，越小越靠前；不匹配时为 `None`。
@@ -43,6 +106,7 @@ impl App {
         self.overlays.picker.branch_rows = None;
         self.overlays.picker.location_rows = None;
         self.overlays.picker.remote = None;
+        self.overlays.picker.languages = false;
         self.overlays.picker.folders = true;
         self.overlays.picker.open = true;
         self.overlays.picker.doc = self.editor.active().map(|d| d.id);
@@ -121,3 +185,6 @@ impl App {
         self.request_redraw();
     }
 }
+
+#[cfg(test)]
+mod tests;

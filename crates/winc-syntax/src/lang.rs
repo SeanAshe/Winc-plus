@@ -171,6 +171,9 @@ pub struct Language {
     pub quoted_identifiers: bool,
     /// 标记语言的写法：标签、属性、实体，以及 HTML 中内嵌的脚本与样式。
     pub markup: Markup,
+    /// [`Markup::Html`] 中内容按脚本着色的标签名（不区分大小写），HTML 是 `<script>`；
+    /// 微信小程序的 WXML 另有 `<wxs>`。
+    pub script_tags: &'static [&'static str],
     /// 是否按样式表着色：选择器中的类名、id、伪类和元素名，声明中的属性名和十六进制颜色。
     pub stylesheet: bool,
     /// 是否把 `:name` 识别为符号（Ruby、Elixir 的符号，Clojure 的关键字）。
@@ -340,8 +343,19 @@ const fn concat_keywords<const N: usize>(
 /// 查找用法时只看与当前文件相关的语言，其他语言（文档、数据文件）中同名的文字不算用法。
 const RELATED: &[&[&str]] = &[
     &["c", "cpp", "objective-c", "objective-cpp"],
-    &["javascript", "typescript", "arkts", "html", "vue", "svelte"],
-    &["css", "scss", "sass", "less", "html", "vue", "svelte"],
+    &[
+        "javascript",
+        "typescript",
+        "arkts",
+        "html",
+        "vue",
+        "svelte",
+        "wxml",
+        "wxs",
+    ],
+    &[
+        "css", "scss", "sass", "less", "html", "vue", "svelte", "wxml", "wxss",
+    ],
     &["java", "kotlin", "scala", "groovy"],
     &["shell", "dockerfile", "makefile"],
     &["elixir", "erlang"],
@@ -480,6 +494,7 @@ const BASE: Language = Language {
     quoted_keys: false,
     quoted_identifiers: false,
     markup: Markup::None,
+    script_tags: &["script"],
     stylesheet: false,
     colon_symbols: false,
     percent_literals: false,
@@ -520,6 +535,7 @@ static ALL: &[&Language] = &[
     &TYPESCRIPT,
     &JAVASCRIPT,
     &ARKTS,
+    &WXS,
     &GO,
     &C,
     &CPP,
@@ -568,10 +584,12 @@ static ALL: &[&Language] = &[
     &SVG,
     &VUE,
     &SVELTE,
+    &WXML,
     &CSS,
     &SCSS,
     &SASS,
     &LESS,
+    &WXSS,
     &SQL,
     &MARKDOWN,
     &LATEX,

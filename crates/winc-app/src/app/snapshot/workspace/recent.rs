@@ -1,5 +1,5 @@
 //! 最近打开的目录（`⌃R`）的测试：列出与筛选、再按一次往下选、打开、移除、已不存在的目录，
-//! 以及按住 `⌥` 在新窗口打开。
+//! 按住 `⌥` 在新窗口打开，以及同名目录的区分。
 
 use super::*;
 use crate::keymap::Action;
@@ -164,4 +164,19 @@ fn snapshot_recent_folders() {
     let _ = std::fs::remove_dir_all(&others[0]);
     let _ = std::fs::remove_dir_all(&others[1]);
     let _ = std::fs::remove_dir_all(others[2].parent().unwrap());
+}
+
+#[test]
+#[ignore = "截图，手动运行"]
+fn shoot_same_named_recent_folders() {
+    let mut app = blank_app(false);
+    let deep = "/Volumes/archive/clients/very/long/path/to/the/workspaces";
+    app.state.recent = vec![
+        PathBuf::from(format!("{deep}/companyA/projects/winc")),
+        PathBuf::from("/Users/me/work/api"),
+        PathBuf::from(format!("{deep}/companyB/projects/winc")),
+    ];
+    shoot(&mut app, "recent-same-name-start");
+    app.open_recent_folders();
+    shoot(&mut app, "recent-same-name-picker");
 }

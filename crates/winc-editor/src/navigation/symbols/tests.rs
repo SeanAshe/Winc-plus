@@ -135,7 +135,7 @@ fn go_c_and_java() {
     );
 
     let c = "#define MAX 3\nstatic int count(const char *s)\n{\n    return strlen(s);\n}\nint x = foo(3);\n";
-    assert_eq!(names("c", c), ["MAX", "count"]);
+    assert_eq!(names("c", c), ["MAX", "count", "x"]);
 
     let java = "public class App {\n    public static void main(String[] args) {\n        while (true) {\n        }\n    }\n}\n";
     assert_eq!(
@@ -246,5 +246,72 @@ class Store {
     assert_eq!(
         names("kt", "@Serializable data class User(val id: Int)\n"),
         ["User"]
+    );
+}
+
+/// 微信小程序：WXS 按 JavaScript 列出函数和变量；WXSS 和样式表一样不列出符号。
+#[test]
+fn wechat_mini_program_files() {
+    let wxs = "var format = function (n) {\n  return n;\n};\nfunction pad(n) {}\nmodule.exports = { format: format };\n";
+    assert_eq!(names("wxs", wxs), ["format", "pad"]);
+    assert!(names("wxss", ".title {\n  font-size: 32rpx;\n}\n").is_empty());
+}
+
+/// 列出 `typedef` 别名、`} name_t;`、全局变量和各种写法的函数；不列出成员、局部变量和前置声明。
+#[test]
+fn c_typedefs_globals_and_functions() {
+    let c = "\
+typedef enum
+{
+    STATE_IDLE = 0,
+    STATE_RUN,
+} app_state_t;
+
+typedef struct {
+    uint8_t  buf[64];
+    struct node *next;
+} uart_ctx_t;
+
+static struct {
+    int count;
+} s_stats;
+
+struct node;
+struct node {
+    struct node *next;
+};
+typedef void (*uart_cb_t)(uint8_t);
+typedef unsigned char u8;
+uint32_t g_tick;
+extern volatile uint32_t g_ticks;
+uint8_t *p_buf;
+static const char *names[] = { \"a\" };
+__attribute__((weak)) void SysTick_Handler(void)
+{
+}
+static void
+uart_send(const uint8_t *data, uint16_t size)
+{
+    uart_ctx_t cfg = {0};
+    return;
+}
+void prototype(void);
+";
+    assert_eq!(
+        outline("c", c),
+        [
+            ("app_state_t".into(), "类型", None),
+            ("uart_ctx_t".into(), "类型", None),
+            ("s_stats".into(), "变量", None),
+            ("node".into(), "类型", None),
+            ("uart_cb_t".into(), "类型", None),
+            ("u8".into(), "类型", None),
+            ("g_tick".into(), "变量", None),
+            ("g_ticks".into(), "变量", None),
+            ("p_buf".into(), "变量", None),
+            ("names".into(), "变量", None),
+            ("SysTick_Handler".into(), "函数", None),
+            ("uart_send".into(), "函数", None),
+        ]
     );
 }

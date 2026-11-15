@@ -1,5 +1,7 @@
 //! 窗口的大小和位置：关闭时记下，建窗口时按当前的显示器校验以后沿用。
 
+use std::time::{Duration, Instant};
+
 use winc_config::WindowFrame;
 use winit::dpi::{LogicalPosition, PhysicalPosition, Position};
 use winit::event_loop::ActiveEventLoop;
@@ -18,6 +20,13 @@ pub(in crate::app) const MIN_HEIGHT: f64 = 420.0;
 ///
 /// 取 128，与主流编辑器恢复窗口时的边距一致。
 const VISIBLE_MARGIN: f64 = 128.0;
+
+/// 窗口大小或位置最后一次变化之后，等待多久再记录窗口的大小和位置。
+///
+/// macOS 的缩放和还原动画逐帧改变窗口大小，除最后几帧外 `isZoomed` 均为否，动画中的大小不能当作
+/// 正常大小记录。在 Apple M4 Pro、macOS 27.2 上实测，缩放和还原动画各约 340 ms；取 500 ms，
+/// 记录时动画已结束。
+pub(in crate::app) const FRAME_SETTLE: Duration = Duration::from_millis(500);
 
 /// 一台显示器。
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -146,7 +155,23 @@ pub(super) fn screens(event_loop: &ActiveEventLoop) -> Vec<Screen> {
 }
 
 impl App {
-    /// 窗口大小或位置变了：没有最大化、全屏、最小化时记下来，还原后回到这个大小。
+    /// 安排在 [`FRAME_SETTLE`] 之后记录窗口的大小和位置；在此之前再次调用时推迟到新的时刻。
+    pub(in crate::app) fn window_frame_changed(&mut self) {
+        self.window.frame_due = Some(Instant::now() + FRAME_SETTLE);
+    }
+
+    /// 到达安排的时刻时记录窗口的大小和位置，返回下一次唤醒的时刻；没有待记录的变化时返回 `None`。
+    pub(in crate::app) fn window_frame_tick(&mut self, now: Instant) -> Option<Instant> {
+        let due = self.window.frame_due?;
+        if now < due {
+            return Some(due);
+        }
+        self.window.frame_due = None;
+        self.note_window_frame();
+        None
+    }
+
+    /// 记录窗口当前的大小和位置；窗口最大化、全屏或最小化时不记录，还原后恢复到记录的大小。
     ///
     /// 盖满所在显示器可用区域的大小（见 [`covers`]）不记录，保留此前记录的大小。
     pub(super) fn note_window_frame(&mut self) {
@@ -184,6 +209,10 @@ impl App {
     pub(super) fn remember_window(&mut self) {
         if self.config.restore_window == Some(false) || self.window.hidden {
             return;
+        }
+        // 最后一次变化距今不足 `FRAME_SETTLE` 时尚未记录，在此立即记录。
+        if self.window.frame_due.take().is_some() {
+            self.note_window_frame();
         }
         let (Some(window), Some(frame)) = (&self.window.handle, self.window.frame) else {
             return;

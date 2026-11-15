@@ -293,16 +293,6 @@ impl App {
         self.request_redraw();
     }
 
-    /// 执行命令面板中的「更改文件的语言」：弹出状态栏上的语言菜单。
-    ///
-    /// 输出标签（格式化的结果）没有这一项，不弹出该菜单。
-    pub(in crate::app) fn open_language_menu(&mut self) {
-        if self.editor.active().is_none_or(|d| d.title.is_some()) {
-            return;
-        }
-        self.open_status_menu(StatusItem::Language);
-    }
-
     /// 执行命令面板中的「更改行尾序列」：弹出状态栏上的行尾菜单。
     pub(in crate::app) fn open_line_ending_menu(&mut self) {
         self.open_status_menu(StatusItem::LineEnding);

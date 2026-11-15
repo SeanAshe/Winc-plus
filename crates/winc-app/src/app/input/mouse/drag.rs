@@ -133,16 +133,47 @@ impl App {
             Drag::OutlineDivider { start, size } => self.drag_outline_divider(start, size, y),
             Drag::TerminalDivider { start, size } => {
                 // 向上（面板在右侧时向左）拖动使面板变大；按排版允许的范围限制后再记录，
-                // 使记录的尺寸等于绘制的尺寸。
-                if self.terminal_right() {
-                    self.terminal.width = size - (x - start);
-                    self.relayout();
-                    self.terminal.width = self.layout.terminal.w;
+                // 使记录的尺寸等于绘制的尺寸。拖过编辑区最小尺寸的一半时吸附为最大化，往回拖
+                // 又松开吸附，从最大的平常尺寸接着拖。
+                let right = self.terminal_right();
+                let wanted = if right {
+                    size - (x - start)
                 } else {
-                    self.terminal.height = size - (y - start);
-                    self.relayout();
-                    self.terminal.height = self.layout.terminal.h;
+                    size - (y - start)
+                };
+                let keep = if right {
+                    crate::app::terminal::EDITOR_MIN_WIDTH
+                } else {
+                    crate::app::terminal::EDITOR_MIN
+                };
+                // 按平常的大小量一次，量的时候不算正在进行的吸附过渡。
+                let was = self.terminal.maximized;
+                let grow = self.terminal.grow.take();
+                self.terminal.maximized = false;
+                if right {
+                    self.terminal.width = wanted;
+                } else {
+                    self.terminal.height = wanted;
                 }
+                self.relayout();
+                let drawn = if right {
+                    self.layout.terminal.w
+                } else {
+                    self.layout.terminal.h
+                };
+                if right {
+                    self.terminal.width = drawn;
+                } else {
+                    self.terminal.height = drawn;
+                }
+                // 吸附、松开吸附时和 ⌘⇧↩ 一样过渡；状态不变时接着原来的过渡。
+                let snap = drawn > 0.0 && wanted - drawn > keep / 2.0;
+                self.terminal.maximized = snap;
+                self.terminal.grow = grow;
+                if snap != was {
+                    self.start_terminal_grow();
+                }
+                self.relayout();
                 self.request_redraw();
             }
             Drag::SplitDivider {

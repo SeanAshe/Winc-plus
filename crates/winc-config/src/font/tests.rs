@@ -29,3 +29,24 @@ fn font_request_tells_names_from_paths() {
         FontRequest::Name("Menlo".to_string())
     );
 }
+
+/// 字体列表以逗号分隔，按书写顺序返回；空白、引号和空项略去，各项仍区分字体名与路径。
+#[test]
+fn font_lists_are_split_on_commas() {
+    let name = |n: &str| FontRequest::Name(n.to_string());
+    assert_eq!(
+        resolve_font_list(Some("JetBrains Mono, Noto Sans SC")),
+        [name("JetBrains Mono"), name("Noto Sans SC")]
+    );
+    assert_eq!(
+        resolve_font_list(Some(" 'Fira Code' ,, \"LXGW WenKai\", fonts/Emoji.ttf ,")),
+        [
+            name("Fira Code"),
+            name("LXGW WenKai"),
+            FontRequest::Path(PathBuf::from("fonts/Emoji.ttf"))
+        ]
+    );
+    assert_eq!(resolve_font_list(Some("Menlo")), [name("Menlo")]);
+    assert!(resolve_font_list(Some(" , ")).is_empty());
+    assert!(resolve_font_list(None).is_empty());
+}

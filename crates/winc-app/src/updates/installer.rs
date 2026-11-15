@@ -110,34 +110,22 @@ fn prepare_in(
 }
 
 /// 启动独立的更新进程，由它等待本进程退出后安装，并按 `relaunch` 决定是否重启。
+///
+/// 脚本以 `-Command` 传入，参数经环境变量传递：执行策略只限制脚本文件，不限制命令行输入，
+/// 因此不需要 `-ExecutionPolicy Bypass`。安全软件的行为规则会拦截由图形界面程序发起、带
+/// `-ExecutionPolicy Bypass` 的 PowerShell 进程。
 pub fn after_exit(setup: &Path, relaunch: bool) {
     let result = (|| -> Result<(), String> {
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
         let kind = kind_at(&exe).ok_or("无法识别安装类型")?;
-        let dir = setup.parent().ok_or("更新包没有所在目录")?;
-        let script = dir.join("install-update.ps1");
-        std::fs::write(&script, include_str!("installer/update.ps1")).map_err(|e| e.to_string())?;
         Command::new("powershell.exe")
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-File",
-            ])
-            .arg(script)
-            .arg("-ParentId")
-            .arg(std::process::id().to_string())
-            .arg("-Setup")
-            .arg(setup)
-            .arg("-Executable")
-            .arg(exe)
-            .args([
-                "-Installer",
-                kind.name(),
-                "-Relaunch",
-                if relaunch { "1" } else { "0" },
-            ])
+            .args(["-NoProfile", "-NonInteractive", "-Command"])
+            .arg(include_str!("installer/update.ps1"))
+            .env("WINC_UPDATE_PARENT", std::process::id().to_string())
+            .env("WINC_UPDATE_SETUP", setup)
+            .env("WINC_UPDATE_EXE", exe)
+            .env("WINC_UPDATE_KIND", kind.name())
+            .env("WINC_UPDATE_RELAUNCH", if relaunch { "1" } else { "0" })
             .creation_flags(0x0800_0000)
             .stdin(Stdio::null())
             .stdout(Stdio::null())

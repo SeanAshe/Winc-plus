@@ -459,13 +459,33 @@ impl App {
     /// 可以上下拖动改面板高度。
     ///
     /// 放在右边时（`terminal.position`）从编辑区右边切出整个一栏，间距里左右拖动改面板宽度；
-    /// 窗口放不下最小尺寸时面板不显示。动画里面板只露出一部分，这时间距不能拖。
+    /// 窗口放不下最小尺寸时面板不显示。动画里面板只露出一部分，这时间距不能拖。最大化时两种
+    /// 位置相同：面板铺满编辑区一栏（连同顶栏那一行），编辑区不占地方，见
+    /// [`Self::place_full_terminal`]。
     fn place_terminal(&mut self) {
         let (shown, right) = self.terminal_shown();
+        // 铺满的程度：0 是平常的大小，1 是铺满；最大化、还原时随时钟过渡。
+        let full = match self.terminal.grow {
+            Some(clock) if self.terminal.maximized => clock.progress(),
+            Some(clock) => 1.0 - clock.progress(),
+            None if self.terminal.maximized => 1.0,
+            None => 0.0,
+        };
         let l = &mut self.layout;
         l.terminal = Rect::default();
         l.terminal_divider = Rect::default();
         if shown <= 0.0 {
+            return;
+        }
+        // 编辑区一栏：顶栏那一行连同下面的编辑区。
+        let column = Rect::new(
+            l.top_bar.x,
+            l.top_bar.y,
+            l.top_bar.w,
+            l.editor.bottom() - l.top_bar.y,
+        );
+        if full >= 1.0 {
+            self.place_full_terminal(column, shown, right);
             return;
         }
         let gap = if shown < 1.0 { 0.0 } else { ISLAND_GAP };
@@ -475,16 +495,10 @@ impl App {
                 return;
             }
             let w = match self.terminal.width {
-                _ if self.terminal.maximized => room,
                 w if w > 0.0 => w,
                 _ => terminal::DEFAULT_WIDTH,
             };
             let w = w.clamp(terminal::MIN_WIDTH, room);
-            let w = self
-                .terminal
-                .grow
-                .map_or(w, |(from, c)| c.between(from, w))
-                .round();
             let shrink = ((w + ISLAND_GAP) * shown).round();
             for rect in [&mut l.top_bar, &mut l.tabs, &mut l.editor, &mut l.text] {
                 rect.w = (rect.w - shrink).max(0.0);
@@ -499,27 +513,62 @@ impl App {
             let h = l.editor.bottom() - top;
             l.terminal = Rect::new(l.editor.right() + ISLAND_GAP, top, w, h);
             l.terminal_divider = Rect::new(l.editor.right(), top, gap, h);
-            return;
+        } else {
+            let room = l.editor.h - terminal::EDITOR_MIN - ISLAND_GAP;
+            if room < terminal::MIN_HEIGHT {
+                return;
+            }
+            let h = self.terminal.height.clamp(terminal::MIN_HEIGHT, room);
+            let shrink = ((h + ISLAND_GAP) * shown).round();
+            for rect in [&mut l.editor, &mut l.gutter, &mut l.text] {
+                rect.h = (rect.h - shrink).max(0.0);
+            }
+            l.terminal = Rect::new(l.editor.x, l.editor.bottom() + ISLAND_GAP, l.editor.w, h);
+            l.terminal_divider = Rect::new(l.editor.x, l.editor.bottom(), l.editor.w, gap);
         }
-        let room = l.editor.h - terminal::EDITOR_MIN - ISLAND_GAP;
-        if room < terminal::MIN_HEIGHT {
-            return;
+        // 最大化、还原途中：编辑区按平常的大小排好不动，面板在平常的位置和整栏之间伸缩，
+        // 盖在编辑区上面；途中分隔条不能拖。
+        if full > 0.0 {
+            let from = l.terminal;
+            let mix = |a: f32, b: f32| (a + (b - a) * full).round();
+            l.terminal = Rect::new(
+                mix(from.x, column.x),
+                mix(from.y, column.y),
+                mix(from.w, column.w),
+                mix(from.h, column.h),
+            );
+            l.terminal_divider = Rect::default();
         }
-        let h = match self.terminal.maximized {
-            true => room,
-            false => self.terminal.height.clamp(terminal::MIN_HEIGHT, room),
+    }
+
+    /// 最大化的面板：铺满编辑区一栏 `column`，编辑区、标签栏都不占地方；⌘P 面板仍在这一栏
+    /// 中间，浮在面板上。
+    ///
+    /// 打开、收起的动画里面板整个从窗口边上滑进滑出（下面的滑到状态栏后面，右边的滑出窗口），
+    /// 这时编辑区照常显示在它后面。
+    fn place_full_terminal(&mut self, column: Rect, shown: f32, right: bool) {
+        let l = &mut self.layout;
+        let slide = 1.0 - shown;
+        l.terminal = if right {
+            let dx = ((column.w + ISLAND_GAP) * slide).round();
+            Rect::new(column.x + dx, column.y, column.w, column.h)
+        } else {
+            let dy = ((column.h + ISLAND_GAP) * slide).round();
+            Rect::new(column.x, column.y + dy, column.w, column.h)
         };
-        let h = self
-            .terminal
-            .grow
-            .map_or(h, |(from, c)| c.between(from, h))
-            .round();
-        let shrink = ((h + ISLAND_GAP) * shown).round();
-        for rect in [&mut l.editor, &mut l.gutter, &mut l.text] {
-            rect.h = (rect.h - shrink).max(0.0);
+        if shown < 1.0 {
+            return;
         }
-        l.terminal = Rect::new(l.editor.x, l.editor.bottom() + ISLAND_GAP, l.editor.w, h);
-        l.terminal_divider = Rect::new(l.editor.x, l.editor.bottom(), l.editor.w, gap);
+        for rect in [
+            &mut l.top_bar,
+            &mut l.tabs,
+            &mut l.editor,
+            &mut l.gutter,
+            &mut l.text,
+        ] {
+            rect.w = 0.0;
+        }
+        l.search = Rect::default();
     }
 
     /// 向渲染器声明下一帧的底色矩形（`view::base`），使其随窗口背景色一趟绘制。
@@ -743,6 +792,8 @@ pub struct WindowState {
     ///
     /// 最小化期间不更新；从最小化的窗口打开新窗口时按该位置错开（见 `App::cascade_from`）。
     pub(crate) frame: Option<winc_config::WindowFrame>,
+    /// 下一次记录 `frame` 的时刻（见 `App::window_frame_tick`）；没有待记录的变化时为 `None`。
+    pub(in crate::app) frame_due: Option<Instant>,
     /// 窗口是否完全不可见（被遮挡、最小化或位于其他桌面）；不可见时不绘制，窗口画面标记为可清除。
     pub(in crate::app) occluded: bool,
 }
@@ -755,6 +806,7 @@ impl Default for WindowState {
             focused: true,
             hidden: false,
             frame: None,
+            frame_due: None,
             occluded: false,
         }
     }

@@ -290,6 +290,15 @@ pub(super) static ARKTS: Language = Language {
     ..TYPESCRIPT
 };
 
+/// 微信小程序的 WXS 的规则，其余字段沿用 JavaScript：语法是 JavaScript 的子集。不按解释器识别。
+pub(super) static WXS: Language = Language {
+    id: "wxs",
+    name: "WXS",
+    interpreters: &[],
+    extensions: &["wxs"],
+    ..JAVASCRIPT
+};
+
 /// Go 的规则。
 ///
 /// 内置名是 Go 规范中预先声明的全部标识符：类型、常量、零值和内置函数。

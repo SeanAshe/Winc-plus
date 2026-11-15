@@ -81,6 +81,7 @@ impl App {
                     && !self.picker_lists_commands()
                     && !self.picker_lists_symbols()
                     && !self.overlays.picker.folders
+                    && !self.overlays.picker.languages
                     && self.overlays.picker.vim_list.is_none()
                     && self.overlays.picker.remote.is_none()
                 {

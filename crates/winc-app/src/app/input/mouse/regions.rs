@@ -7,7 +7,8 @@ impl App {
     pub(super) fn panel_hover_at(&self, x: f32, y: f32) -> Option<Hover> {
         let sidebar = self.layout.sidebar;
 
-        if sidebar.right() <= 0.0 || !(sidebar.contains(x, y) || self.in_commit_overflow(x, y)) {
+        let spilled = self.in_commit_overflow(x, y) || self.in_result_overflow(x, y);
+        if sidebar.right() <= 0.0 || !(sidebar.contains(x, y) || spilled) {
             return None;
         }
 
@@ -47,11 +48,15 @@ impl App {
             return Some(hit(&self.hits.commit, x, y).map_or(Hover::None, Hover::Commit));
         }
 
-        // 面板只负责顶栏以下、分隔条以左的区域；侧栏开关和分隔条由后面的判断处理。
+        // 面板只负责顶栏以下、分隔条以左的区域；侧栏开关和分隔条由后面的判断处理。写全名的结果行
+        // 覆盖在分隔条和滚动条之上，伸出侧栏的那一段同样属于这一行。
         let panel = self.panel_rect();
-        let on_splitter = self.panels.sidebar.visible && self.layout.splitter.contains(x, y);
+        let over_overflow = self.over_result_overflow_row(y);
+        let on_splitter =
+            self.panels.sidebar.visible && self.layout.splitter.contains(x, y) && !over_overflow;
+        let in_panel = panel.contains(x, y) || self.in_result_overflow(x, y);
 
-        if !self.panel_shown() || !panel.contains(x, y) || on_splitter {
+        if !self.panel_shown() || !in_panel || on_splitter {
             return None;
         }
 
@@ -62,10 +67,9 @@ impl App {
             return Some(Hover::Panel(button));
         }
 
-        if parts.results.contains(x, y) {
+        if parts.results.contains(x, y) || (over_overflow && self.in_result_overflow(x, y)) {
             let index = self.result_row_at(y)?;
-            let row = self.result_row_rect(index);
-            let (replace, dismiss) = row_actions(row, g.replace_open);
+            let (replace, dismiss) = self.result_actions(index);
 
             return Some(if dismiss.contains(x, y) {
                 Hover::RowAction(index, RowAction::Dismiss)
@@ -274,7 +278,8 @@ impl App {
     pub(super) fn click_panel(&mut self, x: f32, y: f32) -> bool {
         let sidebar = self.layout.sidebar;
 
-        if sidebar.right() <= 0.0 || !(sidebar.contains(x, y) || self.in_commit_overflow(x, y)) {
+        let spilled = self.in_commit_overflow(x, y) || self.in_result_overflow(x, y);
+        if sidebar.right() <= 0.0 || !(sidebar.contains(x, y) || spilled) {
             return false;
         }
 
@@ -339,8 +344,11 @@ impl App {
             return false;
         }
 
-        // 分隔条在侧栏右边缘，由后面的分支处理。
-        if self.panels.sidebar.visible && self.layout.splitter.contains(x, y) {
+        // 分隔条在侧栏右边缘，由后面的分支处理；写全名的结果行覆盖在分隔条之上。
+        if self.panels.sidebar.visible
+            && self.layout.splitter.contains(x, y)
+            && !self.over_result_overflow_row(y)
+        {
             return false;
         }
 

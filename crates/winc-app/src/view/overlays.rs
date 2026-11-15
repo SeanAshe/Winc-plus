@@ -338,6 +338,9 @@ pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
             app_mut.remote_picker_host().unwrap_or_default().to_owned()
         } else if app_mut.overlays.picker.vim_list.is_some() {
             String::new()
+        } else if app_mut.overlays.picker.languages {
+            let count = winc_syntax::languages().len();
+            t!("workspace-picker-languages", count = count)
         } else if app_mut.picker_lists_commands() {
             t!(
                 "workspace-picker-commands",
@@ -369,6 +372,8 @@ pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
 
     let placeholder = if app.overlays.picker.folders {
         t!("workspace-picker-folders-placeholder")
+    } else if app.overlays.picker.languages {
+        t!("workspace-picker-languages-placeholder")
     } else if app.overlays.picker.remote.is_some() {
         match app.remote_picker_host() {
             Some(_) => t!("workspace-picker-remote-folders-placeholder"),
@@ -418,6 +423,10 @@ pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
     }
     if app.overlays.picker.vim_list.is_some() {
         draw_vim_rows(app, frame, &parts);
+        return;
+    }
+    if app.overlays.picker.languages {
+        draw_language_rows(app, frame, &parts);
         return;
     }
     if app.picker_lists_commands() {
@@ -762,6 +771,58 @@ fn draw_palette_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts) {
     }
 }
 
+/// 绘制语言列表：当前文档的语言前面打勾，名字中命中查询的字标出，右侧淡色写出扩展名。
+fn draw_language_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts) {
+    use crate::app::LanguageRow;
+    let p = app.palette;
+    let list = parts.list;
+    if app.overlays.picker.hits.is_empty() {
+        let row = Rect::new(list.x, list.y, list.w, list.h.min(PICKER_ROW));
+        let message = t!("workspace-picker-no-matching-languages");
+        ui_text(
+            frame,
+            app,
+            list.x + PICKER_TEXT_X,
+            row,
+            message,
+            p.text_dim,
+            list,
+        );
+        return;
+    }
+    let current = app.editor.active().map(|d| d.highlighter.language().id);
+    let scroll = app.overlays.picker.scroll;
+    for i in parts.visible(scroll, app.overlays.picker.hits.len()) {
+        let Some(language) = LanguageRow::of(app.overlays.picker.hits[i]) else {
+            continue;
+        };
+        let row = parts.row(i, scroll);
+        let clip = row.intersect(list);
+        draw_pick_row(app, frame, row, i, clip);
+        let checked = match language {
+            LanguageRow::Language(k) => winc_syntax::languages().get(k).map(|l| l.id) == current,
+            _ => false,
+        };
+        if checked {
+            let cy = icon_center_y(app, row, app.fonts.ui);
+            let x = row.x + PICKER_ICON_X + icons::FILE_WIDTH / 2.0;
+            icons::check(frame, (x, cy), 9.0, p.accent, clip);
+        }
+        let mut right = row.right() - 14.0;
+        let extensions = language.extensions();
+        if !extensions.is_empty() {
+            right -= frame.measure(FontKind::Ui, app.fonts.ui_small, &extensions);
+            ui_text_small(frame, app, right, row, &extensions, p.text_dim, clip);
+            right -= 16.0;
+        }
+        let title = language.title();
+        let marked = app.language_matched(i);
+        let at = (row.x + PICKER_TEXT_X, row);
+        let clip = Rect::new(clip.x, clip.y, (right - clip.x).max(0.0), clip.h);
+        marked_label(frame, app, app.fonts.ui, at, title, &marked, p.text, clip);
+    }
+}
+
 /// 绘制当前文档的符号列表：名称，其后是淡色的上级符号（所属的类型或标题），右侧是淡色的符号种类。
 fn draw_symbol_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts) {
     let p = app.palette;
@@ -842,8 +903,10 @@ fn draw_folder_rows(
 
     let mut hits = Vec::new();
     let scroll = app.overlays.picker.scroll;
+    let parents = crate::app::parents(&app.state.recent);
     for i in parts.visible(scroll, app.overlays.picker.hits.len()) {
-        let Some(folder) = app.state.recent.get(app.overlays.picker.hits[i]) else {
+        let index = app.overlays.picker.hits[i];
+        let (Some(folder), Some(parent)) = (app.state.recent.get(index), parents.get(index)) else {
             continue;
         };
         let row = parts.row(i, scroll);
@@ -876,8 +939,9 @@ fn draw_folder_rows(
             hits.push((close, forget));
         }
 
-        // 查询命中的字用强调色标出；从中间截短了的文字下标对不上，不标。
-        let (name, parent) = folder_label(folder);
+        // 查询命中的字用强调色标出；截短了的文字下标对不上，不标。上级目录放不下时截短，同名
+        // 目录保留区分彼此的部分（见 `fit_parent`）。
+        let (name, _) = folder_label(folder);
         let (in_name, in_parent) = app.folder_matched(i);
         let room = (close.x - 8.0 - (row.x + PICKER_TEXT_X)).max(0.0);
         let shown = ellipsize(frame, &name, app.fonts.ui, room);
@@ -889,9 +953,9 @@ fn draw_folder_rows(
         let at = (row.x + PICKER_TEXT_X, row);
         let x = marked_label(frame, app, app.fonts.ui, at, &shown, &marks, p.text, clip);
         let room = close.x - 8.0 - (x + 8.0);
-        if !parent.is_empty() && room > 20.0 {
-            let shown = ellipsize(frame, &parent, app.fonts.ui_small, room);
-            let marks = if shown.len() == parent.len() {
+        if !parent.text.is_empty() && room > 20.0 {
+            let shown = fit_parent(frame, parent, app.fonts.ui_small, room);
+            let marks = if shown == parent.text {
                 in_parent
             } else {
                 Vec::new()

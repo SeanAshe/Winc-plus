@@ -3,6 +3,7 @@
 use super::*;
 
 pub(super) mod breadcrumb;
+pub(crate) mod language_picker;
 pub(super) mod motion;
 pub(super) mod status_bar;
 

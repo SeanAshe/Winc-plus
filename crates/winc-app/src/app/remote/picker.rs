@@ -216,6 +216,7 @@ impl App {
         self.overlays.picker.branch_rows = None;
         self.overlays.picker.location_rows = None;
         self.overlays.picker.folders = false;
+        self.overlays.picker.languages = false;
         self.overlays.picker.vim_list = None;
         // 面板开着换阶段（从目录回到主机）：按换页过渡。
         if self.overlays.picker.open && self.overlays.picker.remote.is_some() {

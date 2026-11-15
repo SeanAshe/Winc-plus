@@ -832,9 +832,9 @@ fn the_language_menu_can_go_back_to_detection() {
     app.open_path(&dir.join("src/main.rs"));
     let language = |app: &App| app.editor.active().unwrap().highlighter.language().id;
 
-    // 命令面板中的「更改文件的语言」弹出的是状态栏上的同一个菜单。
+    // 状态栏上的语言菜单：先是「自动检测」「纯文本」，当前的语言打勾。
     paint(&mut app);
-    app.run_action(crate::keymap::Action::ChangeLanguageMode);
+    app.open_status_menu(crate::app::StatusItem::Language);
     let commands = menu_commands(&app);
     assert_eq!(
         commands[..2],
@@ -847,13 +847,24 @@ fn the_language_menu_can_go_back_to_detection() {
         .position(|l| l.id == "rust")
         .unwrap();
     assert!(app.menu_checked(MenuCommand::UseLanguage(rust)));
-
     app.run_menu_command(MenuCommand::UsePlainText);
     assert_eq!(language(&app), "text");
-    paint(&mut app);
+
+    // 命令「更改文件的语言」在面板中列出同样的各项，停在当前的语言上。
     app.run_action(crate::keymap::Action::ChangeLanguageMode);
-    app.run_menu_command(MenuCommand::DetectLanguage);
+    assert!(app.overlays.picker.open && app.overlays.picker.languages);
+    use crate::app::LanguageRow;
+    let rows: Vec<_> = (app.overlays.picker.hits.iter())
+        .filter_map(|&h| LanguageRow::of(h))
+        .collect();
+    assert_eq!(rows[..2], [LanguageRow::Detect, LanguageRow::Plain]);
+    let selected = app.overlays.picker.hits[app.overlays.picker.selected];
+    assert_eq!(LanguageRow::of(selected), Some(LanguageRow::Plain));
+    // 回车：与菜单中选中同一项相同。
+    app.picker_move(false);
+    app.picker_accept();
     assert_eq!(language(&app), "rust");
+    assert!(!app.overlays.picker.open);
 
     let _ = std::fs::remove_dir_all(&dir);
 }
