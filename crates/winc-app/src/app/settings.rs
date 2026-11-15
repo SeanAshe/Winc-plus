@@ -753,6 +753,7 @@ impl App {
             Setting::CompactFolders => self.config.compact_folders != Some(false),
             Setting::PreviewOnClick => self.config.preview_on_click == Some(true),
             Setting::RemoteImages => self.config.markdown_remote_images != Some(false),
+            Setting::MarkdownLineNumbers => self.config.markdown_line_numbers != Some(false),
             Setting::CheckUpdates => self.config.update_auto_check != Some(false),
             Setting::SystemTitleBar => self.config.ui_native_title_bar == Some(true),
             Setting::GitModule => self.git_enabled(),
@@ -775,7 +776,7 @@ impl App {
     }
 
     /// 切换开关 `setting` 的状态。
-    pub(super) fn settings_toggle(&mut self, setting: Setting) {
+    pub(in crate::app) fn settings_toggle(&mut self, setting: Setting) {
         if setting == Setting::StickyScroll {
             self.caches.sticky_cache = None;
         }
@@ -813,6 +814,7 @@ impl App {
             Setting::CompactFolders => self.config.compact_folders = Some(on),
             Setting::PreviewOnClick => self.config.preview_on_click = Some(on),
             Setting::RemoteImages => self.config.markdown_remote_images = Some(on),
+            Setting::MarkdownLineNumbers => self.config.markdown_line_numbers = Some(on),
             Setting::CheckUpdates => self.config.update_auto_check = Some(on),
             Setting::SystemTitleBar => self.config.ui_native_title_bar = Some(on),
             Setting::GitModule => self.config.git_enabled = Some(on),

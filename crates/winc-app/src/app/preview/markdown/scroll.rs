@@ -49,6 +49,14 @@ impl App {
     /// 滚动后将其记为当前所在的一节（见 `MarkdownPreview::toc_picked`），并在正文中为其添加
     /// 逐渐淡出的底色，标示跳转的目标。
     pub(in crate::app) fn press_toc(&mut self, target: TocTarget) {
+        if target == TocTarget::Pin {
+            self.update_state(|state| state.markdown_toc_pinned = !state.markdown_toc_pinned);
+            let pinned = self.state.markdown_toc_pinned;
+            let clock = self.clock(crate::app::animation::TOC_PIN);
+            self.preview.markdown.toc_pin = clock.map(|clock| (pinned, clock));
+            self.request_redraw();
+            return;
+        }
         let TocTarget::Heading(i) = target else {
             return;
         };

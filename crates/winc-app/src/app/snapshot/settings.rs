@@ -134,22 +134,20 @@ fn long_descriptions_wrap_and_make_the_row_taller() {
     app.settings_show_page(SettingsPage::Format);
     let row = |app: &App, setting| app.settings_layout().row(setting).unwrap().row;
 
-    // 默认大小的窗口中「排除的语言」的说明放不下一行：折成两行，该行加高一行的行距；短说明
-    // 仍是一行。
-    assert_eq!(
-        row(&app, Setting::SkipOnSave).h,
-        SETTINGS_ROW_TALL + SETTINGS_DESC_LINE
-    );
+    // 默认大小的窗口中各项说明都放得下一行。
+    assert_eq!(row(&app, Setting::SkipOnSave).h, SETTINGS_ROW_TALL);
     assert_eq!(row(&app, Setting::FormatOnSave).h, SETTINGS_ROW_TALL);
 
-    // 放大界面后可用宽度变小，折成的行更多，但不超过上限。
+    // 放大界面后可用宽度变小：较长的说明折成两行，该行加高一行的行距，不超过上限；短说明仍是
+    // 一行。
     app.set_zoom(200);
     let h = row(&app, Setting::SkipOnSave).h;
     let most = SETTINGS_ROW_TALL + (SETTINGS_DESC_LINES - 1) as f32 * SETTINGS_DESC_LINE;
     assert!(
-        h > SETTINGS_ROW_TALL + SETTINGS_DESC_LINE && h <= most,
+        h >= SETTINGS_ROW_TALL + SETTINGS_DESC_LINE && h <= most,
         "{h}"
     );
+    assert_eq!(row(&app, Setting::FormatOnSave).h, SETTINGS_ROW_TALL);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -227,7 +225,7 @@ fn settings_keyboard_walks_every_item_and_adjusts() {
     assert_eq!(app.settings_layout().page, SettingsPage::Keys);
     assert_eq!(app.focus, Focus::KeySearch);
     // 向回走一步，回到模块页最后的远程开关，焦点回到浮层；再往回是终端开关和 Git 开关；再走
-    // 一步，回到终端页的最后一项（macOS 上是「Meta 键」，其他平台是「Shell 集成」）。
+    // 一步，回到终端页的最后一项（macOS 上是「Meta 键」，其他平台是「关闭前确认」）。
     app.settings_move(false);
     assert_eq!(app.settings.selected, Setting::RemoteModule);
     assert_eq!(app.focus, Focus::Settings);
@@ -239,7 +237,7 @@ fn settings_keyboard_walks_every_item_and_adjusts() {
     let last = if cfg!(target_os = "macos") {
         Setting::TerminalOptionAsMeta
     } else {
-        Setting::TerminalShellIntegration
+        Setting::TerminalConfirmClose
     };
     assert_eq!(app.settings.selected, last);
 

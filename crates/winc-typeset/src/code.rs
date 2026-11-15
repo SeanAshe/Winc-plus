@@ -18,7 +18,13 @@ impl Cx<'_, '_> {
         let size = self.base * 0.85;
         let line_h = (size * 1.45).round();
         let m = self.frame.metrics(FontKind::Mono, size);
-        let room = (width - pad * 2.0).max(size);
+        // 行号栏：容得下最大行号的位数，与代码之间隔一个字宽。
+        let count = text.split('\n').count();
+        let gutter = match self.line_numbers {
+            true => (count.to_string().len() + 1) as f32 * m.cell,
+            false => 0.0,
+        };
+        let room = (width - pad * 2.0 - gutter).max(size);
         let language = winc_syntax::find(lang);
         let mut state = winc_syntax::LineState::default();
         let bg_at = out.len();
@@ -32,13 +38,31 @@ impl Cx<'_, '_> {
             descent: m.descent,
         };
         let mut line_start = 0;
-        for line in text.split('\n') {
+        for (n, line) in text.split('\n').enumerate() {
             let source = map.source(line_start).and_then(|s| u32::try_from(s).ok());
             line_start += line.len() + 1;
             let source = source.unwrap_or(0);
             let piece = self.code_piece(line, source, lang, language, &mut state, row);
-            first_baseline.get_or_insert(top + piece.first_baseline.unwrap_or(0.0));
-            self.paste(&piece, x + pad, top, source, out);
+            let baseline = top + piece.first_baseline.unwrap_or(0.0);
+            first_baseline.get_or_insert(baseline);
+            if self.line_numbers {
+                // 行号右对齐，不属于块文字：不能选中，也不随复制带出。
+                let number = (n + 1).to_string();
+                let w = number.len() as f32 * m.cell;
+                out.push(Item::Text {
+                    x: x + pad + gutter - m.cell - w,
+                    baseline,
+                    text: number.into(),
+                    font: FontKind::Mono,
+                    faux: Faux::default(),
+                    size,
+                    // 行号只作定位参考：不透明度取次要色的 60%（取自调参：浅色、深色主题下都能
+                    // 看清，又明显淡于代码）。
+                    color: self.colors.muted.alpha(self.colors.muted.a * 0.6),
+                    span: None,
+                });
+            }
+            self.paste(&piece, x + pad + gutter, top, source, out);
             top += piece.height;
         }
         let height = top + pad - y;

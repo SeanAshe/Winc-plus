@@ -44,6 +44,10 @@ pub(super) const DETAILS_FADE: Duration = Duration::from_millis(120);
 ///
 /// 展开时卡片淡入，横线从指示条滑到各行。
 pub(super) const TOC_FADE: Duration = TREE_ANIMATION;
+/// Markdown 预览的标题列表钉住、取消钉住的过渡时长，取 [`TREE_ANIMATION`]。
+///
+/// 列表在指示条处与正文左侧之间滑动，卡片的底色和边框随之淡出、淡入。
+pub(super) const TOC_PIN: Duration = TREE_ANIMATION;
 /// 在 Markdown 预览的标题列表中点击标题后，正文中该标题底色淡出的时长。
 ///
 /// 取自调参：取 1.2 秒时，滚动结束后仍能看清被标出的标题，底色也不会长时间停留。
@@ -351,6 +355,7 @@ impl App {
         settle(&mut self.panels.outline.motion, |m| m.1);
         settle(&mut self.panels.outline.fold, |f| f.clock);
         settle(&mut self.preview.markdown.toc_fade, |c| *c);
+        settle(&mut self.preview.markdown.toc_pin, |p| p.1);
         settle(&mut self.preview.markdown.toc_flash, |f| f.1);
         settle(&mut self.preview.markdown.anchor_flash, |f| f.1);
         settle(&mut self.git.commit.card.motion, |m| m.1);
@@ -457,6 +462,7 @@ impl App {
             || self.panels.outline.motion.is_some()
             || self.panels.outline.fold.is_some()
             || self.preview.markdown.toc_fade.is_some()
+            || self.preview.markdown.toc_pin.is_some()
             || self.preview.markdown.toc_flash.is_some()
             || self.preview.markdown.anchor_flash.is_some()
             || self.git.commit.card.motion.is_some()

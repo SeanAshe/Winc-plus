@@ -81,6 +81,9 @@ pub struct State {
     pub sign_off_repos: Vec<PathBuf>,
     /// PDF 预览是否隐藏页面缩略图栏；默认显示。所有窗口共用，下次启动沿用。
     pub pdf_thumbnails_hidden: bool,
+    /// Markdown 预览左侧的标题列表是否钉住、一直展开；默认只在鼠标停留时展开。所有窗口共用，
+    /// 下次启动沿用。
+    pub markdown_toc_pinned: bool,
     /// 侧栏宽度（逻辑像素）；`None` 表示没有调整过。所有视图、窗口和仓库共用，下次启动沿用。
     pub panel_width: Option<f32>,
     /// 能预览的文件（SVG、Markdown、表格）打开时的显示方式：`"split"`（分栏）或 `"preview"`
@@ -514,6 +517,8 @@ impl State {
             .get("pdfThumbnailsHidden")
             .and_then(Json::as_bool)
             .unwrap_or(false);
+        state.markdown_toc_pinned =
+            root.get("markdownTocPinned").and_then(Json::as_bool) == Some(true);
         state.stay_outside_applications = root
             .get("stayOutsideApplications")
             .and_then(Json::as_bool)
@@ -651,6 +656,9 @@ impl State {
         }
         if self.pdf_thumbnails_hidden {
             fields.push(("pdfThumbnailsHidden", Json::Bool(true)));
+        }
+        if self.markdown_toc_pinned {
+            fields.push(("markdownTocPinned", Json::Bool(true)));
         }
         if self.stay_outside_applications {
             fields.push(("stayOutsideApplications", Json::Bool(true)));

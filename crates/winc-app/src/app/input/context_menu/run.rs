@@ -102,6 +102,14 @@ impl App {
                 }
                 MenuCommand::SelectAll => self.markdown_select_all(),
                 MenuCommand::RevealSource => self.reveal_markdown_source(),
+                MenuCommand::TextWidth(i) => {
+                    if let Some(&width) = winc_config::TextWidth::ALL.get(i) {
+                        self.set_text_width(width);
+                    }
+                }
+                MenuCommand::MarkdownLineNumbers => {
+                    self.settings_toggle(crate::layout::Setting::MarkdownLineNumbers);
+                }
                 MenuCommand::Table(op) => {
                     self.live_table_tool(op);
                 }
@@ -200,6 +208,13 @@ impl App {
                 }
                 _ => {}
             },
+            MenuTarget::TextWidth => {
+                if let MenuCommand::TextWidth(i) = command
+                    && let Some(&width) = winc_config::TextWidth::ALL.get(i)
+                {
+                    self.set_text_width(width);
+                }
+            }
             MenuTarget::BackgroundFit => {
                 if let MenuCommand::BackgroundFit(i) = command
                     && let Some(&fit) = winc_config::BackgroundFit::ALL.get(i)

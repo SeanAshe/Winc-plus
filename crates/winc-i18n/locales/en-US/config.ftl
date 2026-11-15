@@ -26,6 +26,7 @@ config-vim-handle-keys-invalid = { $name } should be an object whose values are 
 config-vim-leader-invalid = { $name } should be the notation of one key; ignored
 config-vim-keys-invalid = { $name } should be an array of mappings, each with mode (normal, visual, insert, or operator), keys, and to; ignored
 config-background-fit-invalid = { $name } must be fill, fit, stretch, or tile; ignored
+config-text-width-invalid = { $name } must be standard, wide, or full; ignored
 config-language-invalid = { $name } must be auto, zh-CN, or en-US; ignored
 config-not-integer = { $name } should be an integer (currently { $value }); ignored
 config-not-string = { $name } should be a string; ignored

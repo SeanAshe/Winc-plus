@@ -233,6 +233,8 @@ fn round_trips_through_json() {
         dark_theme: Some("ember".to_string()),
         language: Some(LocaleChoice::Fixed(winc_i18n::Locale::EnUs)),
         markdown_remote_images: Some(false),
+        markdown_text_width: Some(TextWidth::Wide),
+        markdown_line_numbers: Some(false),
         update_auto_check: Some(false),
         confirm_drag_and_drop: Some(false),
         compact_folders: Some(false),

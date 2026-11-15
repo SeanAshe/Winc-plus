@@ -350,6 +350,7 @@ impl App {
             MenuTarget::Zoom => zoom_menu(),
             MenuTarget::BackgroundImage => background_menu(),
             MenuTarget::BackgroundFit => background_fit_menu(),
+            MenuTarget::TextWidth => text_width_menu(),
             MenuTarget::TerminalPosition => terminal_position_menu(),
             MenuTarget::OptionAsMeta => option_as_meta_menu(),
             &MenuTarget::Font(setting) => font_menu(setting),
@@ -449,6 +450,9 @@ impl App {
                 }
                 menu.extend([
                     MenuEntry::Separator,
+                    MenuEntry::Submenu(t!("menu-text-width").into(), text_width_menu()),
+                    MenuEntry::Item(MenuCommand::MarkdownLineNumbers, true),
+                    MenuEntry::Separator,
                     MenuEntry::Item(
                         MenuCommand::RevealSource,
                         self.preview.markdown.menu_source.is_some(),
@@ -467,6 +471,11 @@ impl App {
                     .editor
                     .active()
                     .is_some_and(|d| d.unsupported.is_none() && d.reading.is_none());
+                menu.extend([
+                    MenuEntry::Separator,
+                    MenuEntry::Submenu(t!("menu-text-width").into(), text_width_menu()),
+                    MenuEntry::Item(MenuCommand::MarkdownLineNumbers, true),
+                ]);
                 if has_source {
                     menu.extend([
                         MenuEntry::Separator,
@@ -703,6 +712,7 @@ impl App {
                 | MenuTarget::Zoom
                 | MenuTarget::BackgroundImage
                 | MenuTarget::BackgroundFit
+                | MenuTarget::TextWidth
                 | MenuTarget::TerminalPosition
                 | MenuTarget::OptionAsMeta
                 | MenuTarget::Font(_)
@@ -715,6 +725,7 @@ impl App {
             MenuTarget::Zoom => Some(Setting::Zoom),
             MenuTarget::BackgroundImage => Some(Setting::BackgroundImage),
             MenuTarget::BackgroundFit => Some(Setting::BackgroundFit),
+            MenuTarget::TextWidth => Some(Setting::TextWidth),
             MenuTarget::TerminalPosition => Some(Setting::TerminalPosition),
             MenuTarget::OptionAsMeta => Some(Setting::TerminalOptionAsMeta),
             MenuTarget::Font(setting) => Some(setting),
@@ -1213,6 +1224,9 @@ impl App {
         if command == MenuCommand::TerminalMaximize {
             return self.terminal.maximized;
         }
+        if command == MenuCommand::MarkdownLineNumbers {
+            return self.markdown_line_numbers_on();
+        }
         // 日志的作者筛选：现在用着的那一项。
         let query = self
             .editor
@@ -1308,6 +1322,10 @@ impl App {
                 crate::app::settings::ZOOM_STEPS.get(i) == Some(&self.config.ui_zoom.unwrap_or(100))
             }
             MenuCommand::BackgroundNone => self.config.ui_background_image.is_none(),
+            MenuCommand::TextWidth(i) => {
+                winc_config::TextWidth::ALL.get(i)
+                    == Some(&self.config.markdown_text_width.unwrap_or_default())
+            }
             MenuCommand::BackgroundFit(i) => {
                 winc_config::BackgroundFit::ALL.get(i)
                     == Some(&self.config.ui_background_fit.unwrap_or_default())

@@ -175,6 +175,7 @@ fn lay_diagram(
         raw: None,
         cell: None,
         preedit: false,
+        line_numbers: false,
     };
     let env = Env {
         color: cx.colors.text,

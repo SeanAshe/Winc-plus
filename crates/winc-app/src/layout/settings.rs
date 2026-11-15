@@ -84,20 +84,19 @@ impl SettingsPage {
         let plain = |items: Vec<Setting>| Section { title: None, items };
         match self {
             SettingsPage::Appearance => {
-                let mut sections = vec![
-                    plain(vec![
-                        Setting::Theme,
-                        Setting::Language,
-                        Setting::Zoom,
-                        Setting::UiFont,
-                        Setting::UiSize,
-                        Setting::FontWeight,
-                    ]),
-                    plain(vec![
-                        Setting::StatusBar,
-                        Setting::RestoreWindow,
-                        Setting::Animations,
-                    ]),
+                // 系统标题栏只在其他平台列出：macOS 上标题栏总是和内容融为一体。
+                let mut window = vec![
+                    Setting::StatusBar,
+                    Setting::Animations,
+                    Setting::RestoreWindow,
+                ];
+                if !cfg!(target_os = "macos") {
+                    window.push(Setting::SystemTitleBar);
+                }
+                vec![
+                    plain(vec![Setting::Theme, Setting::Language, Setting::Zoom]),
+                    plain(vec![Setting::UiFont, Setting::UiSize, Setting::FontWeight]),
+                    plain(window),
                     plain(vec![
                         Setting::BackgroundImage,
                         Setting::BackgroundFit,
@@ -111,12 +110,7 @@ impl SettingsPage {
                         title: Some(t!("settings-dark-theme")),
                         items: vec![Setting::DarkTheme],
                     },
-                ];
-                // macOS 上标题栏总是和内容融为一体，没有该项。
-                if !cfg!(target_os = "macos") {
-                    sections.insert(1, plain(vec![Setting::SystemTitleBar]));
-                }
-                sections
+                ]
             }
             SettingsPage::Editor => vec![
                 plain(vec![
@@ -133,49 +127,54 @@ impl SettingsPage {
                     Setting::RenderWhitespace,
                 ]),
                 plain(vec![
+                    Setting::AutoSave,
+                    Setting::HotExit,
+                    Setting::RestoreFolder,
+                    Setting::PreviewOnClick,
+                ]),
+                plain(vec![Setting::Outline, Setting::CompactFolders]),
+                plain(vec![
+                    Setting::RemoteImages,
+                    Setting::TextWidth,
+                    Setting::MarkdownLineNumbers,
+                ]),
+                plain(vec![
                     Setting::VimMode,
                     Setting::VimClipboard,
                     Setting::VimRelativeNumber,
                     Setting::VimYankHighlight,
                 ]),
-                plain(vec![
-                    Setting::AutoSave,
-                    Setting::HotExit,
-                    Setting::RestoreFolder,
-                ]),
-                plain(vec![
-                    Setting::Outline,
-                    Setting::CompactFolders,
-                    Setting::PreviewOnClick,
-                    Setting::RemoteImages,
-                ]),
             ],
             SettingsPage::Terminal => {
-                let mut behavior = vec![
-                    Setting::TerminalCopyOnSelect,
-                    Setting::TerminalConfirmClose,
-                    Setting::TerminalPrompt,
-                    Setting::TerminalShellIntegration,
-                ];
+                let mut behavior =
+                    vec![Setting::TerminalCopyOnSelect, Setting::TerminalConfirmClose];
                 // 其他平台的 Alt 一律视为 Meta，不列出该项。
                 if cfg!(target_os = "macos") {
                     behavior.push(Setting::TerminalOptionAsMeta);
                 }
                 vec![
-                    plain(vec![Setting::TerminalShell, Setting::TerminalPosition]),
-                    plain(vec![Setting::TerminalFont, Setting::TerminalSize]),
+                    plain(vec![
+                        Setting::TerminalShell,
+                        Setting::TerminalPrompt,
+                        Setting::TerminalShellIntegration,
+                    ]),
+                    plain(vec![
+                        Setting::TerminalPosition,
+                        Setting::TerminalFont,
+                        Setting::TerminalSize,
+                    ]),
                     plain(behavior),
                 ]
             }
-            SettingsPage::Git => vec![plain(vec![
-                Setting::GitStagingArea,
-                Setting::GitTree,
-                Setting::DiffInline,
-                Setting::GitInlineBlame,
-                Setting::GitConfirmPush,
-                Setting::GitAutoFetch,
-                Setting::GitSystemProxy,
-            ])],
+            SettingsPage::Git => vec![
+                plain(vec![Setting::GitStagingArea, Setting::GitTree]),
+                plain(vec![Setting::DiffInline, Setting::GitInlineBlame]),
+                plain(vec![
+                    Setting::GitConfirmPush,
+                    Setting::GitAutoFetch,
+                    Setting::GitSystemProxy,
+                ]),
+            ],
             SettingsPage::Modules => vec![plain(vec![
                 Setting::GitModule,
                 Setting::TerminalModule,
@@ -316,6 +315,10 @@ pub enum Setting {
     PreviewOnClick,
     /// Markdown 预览联网加载网址的图片。
     RemoteImages,
+    /// Markdown 预览正文的最大宽度（`markdown.textWidth`）。
+    TextWidth,
+    /// Markdown 预览显示行号（`markdown.lineNumbers`）。
+    MarkdownLineNumbers,
     /// 定时检查更新。
     CheckUpdates,
     /// 「关于」页的版本号，只读。
@@ -464,7 +467,9 @@ impl Setting {
             | Setting::Outline
             | Setting::LineNumbers
             | Setting::RenderWhitespace
-            | Setting::RemoteImages => SettingsPage::Editor,
+            | Setting::RemoteImages
+            | Setting::TextWidth
+            | Setting::MarkdownLineNumbers => SettingsPage::Editor,
             Setting::Version
             | Setting::Updates
             | Setting::CheckUpdates
@@ -540,6 +545,8 @@ impl Setting {
             Setting::CompactFolders => t!("settings-compact-folders"),
             Setting::PreviewOnClick => t!("settings-preview-on-click"),
             Setting::RemoteImages => t!("settings-remote-images"),
+            Setting::TextWidth => t!("settings-text-width"),
+            Setting::MarkdownLineNumbers => t!("settings-markdown-line-numbers"),
             Setting::CheckUpdates => t!("settings-check-updates"),
             Setting::Version => t!("settings-version"),
             Setting::Repository => "GitHub",
@@ -589,6 +596,7 @@ impl Setting {
         }
         let text = match self {
             Setting::SystemTitleBar => Some(t!("settings-system-title-bar-desc")),
+            Setting::FontWeight => Some(t!("settings-font-weight-desc")),
             Setting::AutoSave => Some(t!("settings-auto-save-desc")),
             Setting::HotExit => Some(t!("settings-hot-exit-desc")),
             Setting::RestoreFolder => Some(t!("settings-restore-folder-desc")),
@@ -613,6 +621,8 @@ impl Setting {
             Setting::BackgroundFit => Some(t!("settings-background-fit-desc")),
             Setting::BackgroundOpacity => Some(t!("settings-background-opacity-desc")),
             Setting::RemoteImages => Some(t!("settings-remote-images-desc")),
+            Setting::TextWidth => Some(t!("settings-text-width-desc")),
+            Setting::MarkdownLineNumbers => Some(t!("settings-markdown-line-numbers-desc")),
             Setting::CheckUpdates => Some(t!("settings-check-updates-desc")),
             // 绘制时换成当前的更新状态（`UpdateState`）。
             Setting::Updates => Some(t!("settings-updates-off")),
@@ -671,6 +681,7 @@ impl Setting {
             | Setting::RestoreWindow
             | Setting::Animations
             | Setting::RemoteImages
+            | Setting::MarkdownLineNumbers
             | Setting::CheckUpdates
             | Setting::FormatOnSave
             | Setting::FixOnSave
@@ -694,6 +705,7 @@ impl Setting {
             | Setting::Language
             | Setting::BackgroundImage
             | Setting::BackgroundFit
+            | Setting::TextWidth
             | Setting::Zoom
             | Setting::RenderWhitespace
             | Setting::VimClipboard
@@ -749,6 +761,16 @@ pub fn background_fit_label(choice: winc_config::BackgroundFit) -> &'static str 
         Fit => t!("settings-background-fit-fit"),
         Stretch => t!("settings-background-fit-stretch"),
         Tile => t!("settings-background-fit-tile"),
+    }
+}
+
+/// 返回「Markdown 预览正文宽度」中选项 `choice` 的名字。
+pub fn text_width_label(choice: winc_config::TextWidth) -> &'static str {
+    use winc_config::TextWidth::{Full, Standard, Wide};
+    match choice {
+        Standard => t!("settings-text-width-standard"),
+        Wide => t!("settings-text-width-wide"),
+        Full => t!("settings-text-width-full"),
     }
 }
 
