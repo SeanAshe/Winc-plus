@@ -1000,6 +1000,14 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
             };
             Some((rect, label))
         }
+        Hover::MarkdownToc(target @ crate::app::preview::markdown::TocTarget::Pin) => {
+            let rect = app.hits.markdown_toc.iter().find(|(_, t)| *t == target)?.0;
+            let label = match app.state.markdown_toc_pinned {
+                true => t!("preview-markdown-toc-unpin"),
+                false => t!("preview-markdown-toc-pin"),
+            };
+            Some((rect, label.to_owned()))
+        }
         Hover::Outline(target @ OutlineTarget::FoldAll) => {
             let rect = app.hits.outline.iter().find(|(_, t)| *t == target)?.0;
             let label = if app.outline_any_expanded() {

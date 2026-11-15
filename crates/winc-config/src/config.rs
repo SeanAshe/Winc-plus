@@ -100,6 +100,11 @@ pub struct Config {
     pub language: Option<LocaleChoice>,
     /// Markdown 预览是否联网加载网址的图片（README 里的徽章、截图），默认为是。
     pub markdown_remote_images: Option<bool>,
+    /// Markdown 预览正文的最大宽度，默认为 [`TextWidth::Standard`]。
+    pub markdown_text_width: Option<TextWidth>,
+    /// Markdown 预览是否显示行号，默认为是：可编辑的预览在左侧写原文行号，其余预览在代码块中
+    /// 写从 1 起的行号。
+    pub markdown_line_numbers: Option<bool>,
     /// 是否定时检查更新（启动后 5 秒、之后每天一次），默认为是。
     ///
     /// 关闭后仍可从菜单「检查更新…」手动检查。
@@ -331,6 +336,23 @@ impl RenderWhitespace {
         RenderWhitespace::Trailing,
         RenderWhitespace::All,
     ];
+}
+
+/// Markdown 预览正文的最大宽度：更宽的预览中正文居中、两侧留白。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TextWidth {
+    /// 适合连续阅读的宽度。
+    #[default]
+    Standard,
+    /// 比标准宽，适合宽表格和代码较多的文档。
+    Wide,
+    /// 铺满预览区域。
+    Full,
+}
+
+impl TextWidth {
+    /// 全部选项，顺序与设置中菜单的顺序一致。
+    pub const ALL: [TextWidth; 3] = [TextWidth::Standard, TextWidth::Wide, TextWidth::Full];
 }
 
 /// 背景图在窗口中的显示方式。

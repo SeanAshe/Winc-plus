@@ -106,6 +106,8 @@ pub enum TocTarget {
     Bars,
     /// 标题列表里的一项，值为 [`MarkdownPreview::toc_tops`] 的序号：点击后滚动到该标题。
     Heading(usize),
+    /// 标题列表右上角的图钉：钉住后列表一直展开，再点一次取消。
+    Pin,
 }
 
 /// 当前标签的 Markdown 预览。
@@ -171,6 +173,8 @@ pub(crate) struct MarkdownPreview {
     pub last_table: Option<(usize, usize)>,
     /// 标题列表展开时淡入的时钟；不在淡入中时为 `None`。
     pub toc_fade: Option<crate::app::animation::Clock>,
+    /// 标题列表钉住（`true`）或取消钉住（`false`）的过渡时钟；不在过渡中时为 `None`。
+    pub toc_pin: Option<(bool, crate::app::animation::Clock)>,
     /// 在标题列表中点击过的标题（`toc_tops` 的序号）和点击后的滚动位置。
     ///
     /// 靠近文末的标题无法滚动到预览顶部，按滚动位置无法判定其为当前一节；点击之后、再次滚动
@@ -305,6 +309,7 @@ impl Default for MarkdownPreview {
             toggled_now: None,
             pending_anchor: None,
             toc_fade: None,
+            toc_pin: None,
             toc_picked: None,
             toc_current: None,
             toc_flash: None,
@@ -915,6 +920,11 @@ impl App {
                 self.preview.markdown.focused
             }
         })
+    }
+
+    /// Markdown 预览是否显示行号（`markdown.lineNumbers`，默认为是）。
+    pub(crate) fn markdown_line_numbers_on(&self) -> bool {
+        self.config.markdown_line_numbers != Some(false)
     }
 
     /// 当前标签是否为可直接编辑的 Markdown 预览（只看预览）。

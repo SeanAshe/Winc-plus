@@ -36,6 +36,7 @@ fn lay(markdown: &str, width: f32) -> Vec<(Out, f32)> {
             raw: None,
             cell: None,
             preedit: false,
+            line_numbers: false,
         };
         let env = Env {
             color: TEXT,

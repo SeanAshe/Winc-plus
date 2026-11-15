@@ -16,8 +16,12 @@ use crate::app::{App, Focus};
 
 /// 正文字号与编辑器字号之比：编辑器字号 13 逻辑像素时，正文为 16 逻辑像素。
 pub(crate) const BASE_RATIO: f32 = 16.0 / 13.0;
-/// 正文最大宽度（逻辑像素，经验值）：更宽时居中、两侧留白。
+/// 正文宽度为「标准」（`markdown.textWidth`）时正文的最大宽度（逻辑像素，经验值）：更宽时居中、
+/// 两侧留白。
 pub(crate) const MAX_WIDTH: f32 = 880.0;
+/// 正文宽度为「较宽」时正文的最大宽度（逻辑像素）：约为标准的 1.4 倍，1440 逻辑像素宽的屏幕上
+/// 隐藏侧栏后两侧仍各留约 100。
+pub(crate) const WIDE_WIDTH: f32 = 1240.0;
 /// 区域不窄于 600 逻辑像素时文档四周的留白（逻辑像素，经验值）。
 pub(crate) const PAD: f32 = 32.0;
 /// 窄的时候（分栏，区域宽不足 600 逻辑像素）两边的留白（逻辑像素，经验值）。
@@ -78,6 +82,8 @@ pub(crate) struct Key {
     pub(crate) background: Color,
     /// 图片的版本号，有图片读好后就加一。
     pub(crate) images: u64,
+    /// 代码块是否显示从 1 起的行号（见 `Cx::line_numbers`）。
+    pub(crate) numbers: bool,
 }
 
 /// 重排之前各顶层块的排版和绘制位置，重排后据此计算过渡动画（见 `BlockMotion`）。
@@ -306,6 +312,7 @@ pub(crate) fn lay_out(
                 [c.r, c.g, c.b, c.a].map(f32::to_bits).hash(h);
             }
             key.images.hash(h);
+            key.numbers.hash(h);
         }));
     let doc = app.editor.active().and_then(|d| d.path.clone());
     let remote = app.config.markdown_remote_images != Some(false);
@@ -330,6 +337,7 @@ pub(crate) fn lay_out(
         raw: None,
         cell: None,
         preedit: false,
+        line_numbers: key.numbers,
     };
     let env = Env {
         color: cx.colors.text,
@@ -842,6 +850,55 @@ pub(crate) fn hit(app: &App, x: f32, y: f32) -> Option<Hit> {
         }
     }
     best.map(|(_, hit)| hit)
+}
+
+/// 可编辑的预览左侧写行号的各显示行：原文行号（从 0 起）和显示行的基线（相对内容顶部）。
+///
+/// 只看上下范围与 `view`（相对内容顶部）相交的顶层块。显示行从原文一行的开头排起（之前只有
+/// `#`、`>`、列表记号、`|` 这类标记）时才写行号：段落里几行原文连成一段文字，折行和连上的
+/// 各行不对应显示行，只写段落第一行的行号。`rope` 是排版所依据的原文。
+pub(crate) fn source_lines(
+    laid: &Laid,
+    rope: &ropey::Rope,
+    view: std::ops::Range<f32>,
+) -> Vec<(usize, f32)> {
+    let first = laid
+        .tops
+        .partition_point(|&t| t <= view.start)
+        .saturating_sub(1);
+    let last = laid.tops.partition_point(|&t| t < view.end);
+    // 每个显示行最左边的一段：（基线，横坐标，在原文中的位置）。
+    let mut rows: Vec<(f32, f32, usize)> = Vec::new();
+    for (top, _, x, baseline, _, span, block, _) in laid.spans(first..last) {
+        let (Some(start), Some(range)) = (span.source, laid.ranges.get(block)) else {
+            continue;
+        };
+        let y = top + baseline;
+        if (view.start..=view.end).contains(&y) {
+            rows.push((y, x, (range.start + start as usize).min(rope.len_bytes())));
+        }
+    }
+    rows.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
+    rows.dedup_by(|b, a| (a.0 - b.0).abs() < 0.5);
+    rows.into_iter()
+        .filter_map(|(y, _, from)| {
+            // 解析之后又输入了文字时，记下的位置可能落在多字节字符中间：先对齐到字符边界。
+            let from = rope.char_to_byte(rope.byte_to_char(from));
+            let line = rope.byte_to_line(from);
+            let prefix = rope.byte_slice(rope.line_to_byte(line)..from);
+            prefix.chars().all(is_markup).then_some((line, y))
+        })
+        .collect()
+}
+
+/// `c` 是否可以出现在一行原文开头、正文之前的标记中：缩进、标题的 `#`、引用的 `>`、列表的
+/// 记号和序号、任务框、表格的 `|`。
+fn is_markup(c: char) -> bool {
+    c.is_ascii_digit()
+        || matches!(
+            c,
+            ' ' | '\t' | '#' | '>' | '-' | '*' | '+' | '.' | ')' | '|' | '[' | ']' | 'x' | 'X'
+        )
 }
 
 /// 原文第 `source` 个字节在预览上的位置：左边缘（相对内容左边）、所在那一行铺底色的上边缘

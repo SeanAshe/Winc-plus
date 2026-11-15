@@ -184,6 +184,8 @@ pub enum MenuCommand {
     /// 设置中「背景显示方式」菜单的一项，参数为
     /// [`BackgroundFit::ALL`](winc_config::BackgroundFit::ALL) 中的序号（从 0 起）。
     BackgroundFit(usize),
+    /// [`TextWidth::ALL`](winc_config::TextWidth::ALL) 中的序号（从 0 起）。
+    TextWidth(usize),
     /// 设置中终端「位置」菜单的一项：`true` 为右侧，`false` 为底部。
     TerminalPosition(bool),
     /// 设置中「Meta 键」菜单的一项，参数为
@@ -384,6 +386,8 @@ pub enum MenuCommand {
     SelectAll,
     /// Markdown 预览：把光标放到右键点中的字在原文中的位置，切回文字（只看预览时改为分栏）。
     RevealSource,
+    /// Markdown 预览：显示行号（显示时打勾）。
+    MarkdownLineNumbers,
     /// 终端：查找。
     TerminalFind,
     /// 终端：清屏和回滚缓冲。
@@ -542,6 +546,7 @@ impl MenuCommand {
             MenuCommand::TreeLocate => t!("menu-tree-locate"),
             MenuCommand::SelectAll => t!("cmd-select-all"),
             MenuCommand::RevealSource => t!("menu-reveal-source"),
+            MenuCommand::MarkdownLineNumbers => t!("menu-markdown-line-numbers"),
             MenuCommand::TerminalFind => t!("cmd-find"),
             MenuCommand::TerminalClear => t!("menu-terminal-clear"),
             MenuCommand::TerminalMaximize => t!("menu-terminal-maximize"),
@@ -603,6 +608,9 @@ impl MenuCommand {
             MenuCommand::NewWindow => t!("cmd-new-window"),
             MenuCommand::BackgroundChoose => t!("settings-background-choose"),
             MenuCommand::BackgroundNone => t!("settings-background-none"),
+            MenuCommand::TextWidth(i) => winc_config::TextWidth::ALL
+                .get(i)
+                .map_or("", |&choice| crate::layout::text_width_label(choice)),
             MenuCommand::BackgroundFit(i) => winc_config::BackgroundFit::ALL
                 .get(i)
                 .map_or("", |&choice| crate::layout::background_fit_label(choice)),
@@ -754,6 +762,8 @@ pub enum MenuTarget {
     BackgroundImage,
     /// 设置的外观页中的「背景显示方式」。
     BackgroundFit,
+    /// 设置中「Markdown 预览正文宽度」的选项菜单。
+    TextWidth,
     /// 设置的终端页中的「默认 Shell」。
     DefaultShell,
     /// 设置的终端页中的「位置」。

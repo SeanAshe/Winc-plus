@@ -835,7 +835,10 @@ impl App {
                 | Hover::TerminalBlock(_)
                 | Hover::Diff(crate::app::DiffTarget::Sticky(..))
                 | Hover::MarkdownLink(_)
-                | Hover::MarkdownToc(crate::app::preview::markdown::TocTarget::Heading(_))
+                | Hover::MarkdownToc(
+                    crate::app::preview::markdown::TocTarget::Heading(_)
+                        | crate::app::preview::markdown::TocTarget::Pin
+                )
         ) || self.terminal.link.is_some()
         {
             // 提交图中的线可点击（沿线跳转）；终端中命令块的色带和吸顶的命令行同样可点击。

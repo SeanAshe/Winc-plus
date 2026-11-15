@@ -1029,6 +1029,16 @@ pub fn bookmark(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip:
     );
 }
 
+/// 绘制图钉图标，9×12：圆头、横向的托和向下的针。
+///
+/// 用于钉住 Markdown 预览左侧的标题列表。
+pub fn pin(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let head = Rect::new(cx - 2.5, cy - 6.0, 5.0, 5.0);
+    frame.rect_corners(head, color, [1.5, 1.5, 0.0, 0.0], clip);
+    frame.rect_clipped(Rect::new(cx - 4.5, cy - 1.0, 9.0, 1.5), color, 0.75, clip);
+    frame.rect_clipped(Rect::new(cx - 0.6, cy + 0.5, 1.2, 5.5), color, 0.6, clip);
+}
+
 /// 绘制「全屏」图标，约 12×12 逻辑像素：从中心分别指向右上角和左下角的两个箭头。
 pub fn expand(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
     let (near, far, head) = (1.5, 5.0, 3.0);

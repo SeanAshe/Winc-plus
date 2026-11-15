@@ -547,6 +547,13 @@ pub fn zoom_menu() -> Vec<MenuEntry> {
         .collect()
 }
 
+/// 返回「正文宽度」菜单的菜单项，当前的选择打勾。
+pub fn text_width_menu() -> Vec<MenuEntry> {
+    (0..winc_config::TextWidth::ALL.len())
+        .map(|i| MenuEntry::Item(MenuCommand::TextWidth(i), true))
+        .collect()
+}
+
 /// 返回「背景显示方式」菜单的菜单项，当前的选择打勾。
 pub fn background_fit_menu() -> Vec<MenuEntry> {
     (0..winc_config::BackgroundFit::ALL.len())

@@ -305,6 +305,13 @@ impl App {
         self.request_redraw();
     }
 
+    /// 设置 Markdown 预览正文的最大宽度，并写回配置。
+    pub(in crate::app) fn set_text_width(&mut self, width: winc_config::TextWidth) {
+        self.config.markdown_text_width = Some(width);
+        self.save_config();
+        self.request_redraw();
+    }
+
     /// 测试中等后台生成完背景图。
     #[cfg(test)]
     pub(crate) fn wait_for_wallpaper(&mut self) {

@@ -47,6 +47,29 @@ fn search_finds_settings_on_every_page() {
     assert!(rows.contains(&Setting::LightTheme) && rows.contains(&Setting::DarkTheme));
     assert!(titles.contains(&"浅色主题") && titles.contains(&"深色主题"));
 
+    // Vim、Markdown 预览的设置项名称都带前缀：按前缀一次搜到同类的全部设置项。
+    search(&mut app, "vim");
+    let (rows, titles) = listed(&app);
+    assert_eq!(
+        rows,
+        [
+            Setting::VimMode,
+            Setting::VimClipboard,
+            Setting::VimRelativeNumber,
+            Setting::VimYankHighlight
+        ]
+    );
+    assert_eq!(titles, ["编辑器"]);
+    search(&mut app, "markdown");
+    assert_eq!(
+        listed(&app).0,
+        [
+            Setting::RemoteImages,
+            Setting::TextWidth,
+            Setting::MarkdownLineNumbers
+        ]
+    );
+
     // 没有匹配时正文为空，键盘移动不做任何事。
     search(&mut app, "没有这一项");
     assert!(listed(&app).0.is_empty());

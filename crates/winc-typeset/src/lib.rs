@@ -582,6 +582,8 @@ pub struct Cx<'a, 'f> {
     pub cell: Option<LiveCell>,
     /// 这一块中是否排入了输入法组字（[`Raw::preedit`]）；为真时，绘制光标时不再重复绘制组字文字。
     pub preedit: bool,
+    /// 代码块是否在左侧显示从 1 起的行号。
+    pub line_numbers: bool,
 }
 
 /// 可编辑的预览中光标所在的叶子块：不排版，显示原文。
