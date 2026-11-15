@@ -28,12 +28,6 @@ foreach ($kind in @('nsis', 'msi')) {
     $menu = if ($kind -eq 'nsis') { [Environment]::GetFolderPath('Programs') } else { Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'Winc' }
     if ($kind -eq 'nsis') {
         Set-Content -LiteralPath (Join-Path $menu 'winc.lnk') -Value ''
-        # An earlier NSIS version listed winc in each type's OpenWithProgids; installing must remove it.
-        # `New-Item -Force` also creates missing parent keys, but it would recreate an existing key and
-        # drop other programs' entries, so it runs only when the key is missing.
-        $listing = "$classes\.json\OpenWithProgids"
-        if (-not (Test-Path -LiteralPath $listing)) { New-Item -Force -Path $listing | Out-Null }
-        New-ItemProperty -Force -LiteralPath $listing -Name 'winc.JSON' -Value '' | Out-Null
     }
     try {
         if ($kind -eq 'nsis') {
@@ -65,8 +59,9 @@ foreach ($kind in @('nsis', 'msi')) {
         if ($kind -eq 'msi' -and (Get-Item -LiteralPath $menu).Name -cne 'Winc') { throw 'msi: the Start menu folder is not named Winc' }
         if ($kind -eq 'nsis' -and (Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\winc').DisplayName -cne 'Winc') { throw 'nsis: the installed app is not listed as Winc' }
         # A handler listed under a type makes Windows ask which program to use, and for types it runs
-        # on double-click (BAT, CMD) the question replaces running the script.
-        foreach ($type in @('json', 'txt', 'bat', 'cmd')) {
+        # on double-click (BAT, CMD) the question replaces running the script. JSON and TXT stay
+        # registered: this fork's installer adds them with --register-file-types.
+        foreach ($type in @('bat', 'cmd')) {
             $listed = Get-ItemProperty -LiteralPath "$classes\.$type\OpenWithProgids" -ErrorAction SilentlyContinue
             if ($null -ne $listed -and $null -ne $listed."winc.$type") { throw "${kind}: winc is listed under .$type" }
         }
