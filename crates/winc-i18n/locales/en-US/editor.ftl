@@ -193,6 +193,7 @@ editor-vim-fewer-lines = { $count } fewer lines
 editor-vim-no-buffer = No such document
 editor-vim-no-file = No file at that path under the cursor
 editor-vim-file-exists = File exists; add ! to overwrite
+editor-vim-file-unknown = Can’t tell whether the remote file exists; add ! to write
 editor-vim-written = Wrote { $name }
 editor-vim-diff-read-only = This side of the diff is read-only
 editor-vim-help-title = Vim Mode: Commands

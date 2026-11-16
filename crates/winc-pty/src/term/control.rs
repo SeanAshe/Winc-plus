@@ -168,18 +168,22 @@ impl Emulator {
         // 等待折行时把光标算在最后一个字符之后的一格，重排后随该字符移动。
         let at = (cursor.row, cursor.col + usize::from(cursor.pending_wrap));
         let (screen, moved) = if cols == old_cols {
-            reflow::resize_rows(&mut self.history, screen, at, cols, rows)
+            reflow::resize_rows(&mut self.history, screen, at, self.cleared, cols, rows)
         } else {
+            let (first, last) = self.history.range();
             let history = self.history.take_all();
             let result = reflow::reflow(
                 history,
                 screen,
                 at,
                 cursor.pending_wrap,
+                (self.cleared.clamp(first, last) - first) as usize,
                 old_cols,
                 cols,
                 rows,
             );
+            // 重排后行号从原来的起点继续排列。
+            self.cleared = first + result.cleared as u64;
             self.history.extend(result.history);
             (result.rows, result.cursor)
         };

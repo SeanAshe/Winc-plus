@@ -85,6 +85,7 @@ settings-terminal-module = 终端
 settings-remote-module = SSH 远程（实验性）
 settings-terminal-shell = 默认 Shell
 settings-terminal-position = 面板位置
+settings-terminal-tab-position = 标签位置
 settings-terminal-font = 字体
 settings-terminal-size = 字号
 settings-terminal-copy-on-select = 选中时复制
@@ -97,6 +98,7 @@ settings-git-confirm-push = 推送前确认
 settings-git-staging-area = 暂存区
 settings-terminal-prompt = Winc 提示符
 settings-terminal-shell-integration = Shell 集成
+settings-terminal-application-priority = 终端应用优先
 settings-terminal-option-as-meta = Meta 键
 settings-key-search = 搜索快捷键
 
@@ -171,9 +173,10 @@ settings-terminal-copy-on-select-desc = 选中文字后自动复制到剪贴板
 settings-terminal-confirm-close-desc = 关闭仍有程序运行的标签页前先确认
 settings-terminal-prompt-desc = 替换默认提示符，显示目录、Git 分支和退出状态
 settings-terminal-shell-integration-desc = { $platform ->
-    [windows] 将 WSL 中 zsh、bash、fish 的输出按命令分块，可折叠和跳转
-   *[other] 将 zsh、bash、fish 的输出按命令分块，可折叠和跳转
+    [windows] 按命令分块显示 WSL 输出，自动加载 Python 环境
+   *[other] 按命令分块显示输出，自动加载 Python 环境
 }
+settings-terminal-application-priority-desc = 将快捷键交给终端应用，保留终端管理和复制、粘贴
 settings-terminal-option-as-meta-desc = 按所选的 ⌥ 时发送 Esc 前缀，不输入特殊字符
 
 ## 设置项的值和提示。
@@ -191,6 +194,8 @@ settings-terminal-shell-custom = 自定义命令…
 settings-terminal-shell-placeholder = 输入命令，含空格的路径加双引号
 settings-terminal-position-bottom = 底部
 settings-terminal-position-right = 右侧
+settings-terminal-tab-position-top = 顶部
+settings-terminal-tab-position-right = 右侧
 settings-terminal-font-default = 跟随编辑器
 settings-terminal-option-as-meta-left = 左侧 ⌥
 settings-terminal-option-as-meta-right = 右侧 ⌥

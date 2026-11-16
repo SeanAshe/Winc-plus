@@ -68,6 +68,19 @@ fn parent_components_stop_at_the_remote_root() {
     assert_eq!(locate(&root.join("..")).unwrap().target, target());
 }
 
+/// 把目录当成文件、取它的上一级时落在哪里：打开的目录在远端主机的顶层时，上一级是那台
+/// 主机的根目录。类别须由调用方另行确定，不能靠取上一级兜底。
+#[test]
+fn the_parent_of_a_top_level_folder_is_the_remote_root() {
+    let folder = virtual_path(&target(), b"/srv");
+    assert_eq!(remote(folder.parent().unwrap()), "/");
+    let nested = virtual_path(&target(), b"/srv/project");
+    assert_eq!(remote(nested.parent().unwrap()), "/srv");
+    // 远端根目录的上一级不再是那台主机上的路径：Windows 上没有上一级，其他系统上是本机路径。
+    let root = virtual_path(&target(), b"/");
+    assert!(root.parent().is_none_or(|parent| !is_remote(parent)));
+}
+
 #[test]
 fn local_paths_are_not_virtual() {
     for path in [

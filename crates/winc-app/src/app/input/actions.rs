@@ -440,6 +440,8 @@ impl App {
             ShowCommit => self.show_commit(),
             ShowOutline => self.show_outline(),
             ToggleTerminal => self.toggle_terminal(),
+            ToggleTerminalPanel => self.click_terminal_button(),
+            EnableTerminal => self.settings_toggle(crate::layout::Setting::TerminalModule),
             RunConfiguration => self.run_current_config(),
             StopConfiguration => self.stop_current_config(),
             EditRunConfigurations => self.edit_run_configs(),
@@ -448,11 +450,19 @@ impl App {
             CloseTerminal => self.close_terminal_tab(self.terminal.active),
             NextTerminal => self.cycle_terminal_tab(true),
             PreviousTerminal => self.cycle_terminal_tab(false),
+            FocusTerminal1 | FocusTerminal2 | FocusTerminal3 | FocusTerminal4 | FocusTerminal5
+            | FocusTerminal6 | FocusTerminal7 | FocusTerminal8 | FocusTerminal9 => {
+                if let Some(index) = action.terminal_index() {
+                    self.focus_terminal_number(index);
+                }
+            }
             // 焦点在查找框里时关闭；否则打开，或者回到开着的查找框。
             FindInTerminal if self.focus == Focus::TerminalFind => self.close_terminal_find(),
             FindInTerminal if self.terminal.tab().is_some() => self.open_terminal_find(),
             FindInTerminal => return false,
             MaximizeTerminal => self.toggle_terminal_maximized(),
+            ScrollTerminalTop => self.scroll_terminal(isize::MAX),
+            ScrollTerminalBottom => self.scroll_terminal(isize::MIN),
             ToggleTerminalPosition => self.toggle_terminal_position(),
             InstallShellCommand => self.install_shell_command(),
             UninstallShellCommand => self.uninstall_shell_command(),
@@ -494,6 +504,8 @@ impl App {
             {
                 return false;
             }
+            // 模块已经启用时没有要启用的；启用后内置终端的各条命令列出。
+            Action::EnableTerminal if self.terminal_enabled() => return false,
             // Windows 安装包、deb 包已经把 `winc` 放进 `PATH`，没有要安装的。
             Action::InstallShellCommand | Action::UninstallShellCommand
                 if crate::shell_command::placement().is_none() =>

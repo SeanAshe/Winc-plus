@@ -19,7 +19,7 @@ pub const MAGIC: [u8; 8] = *b"winc-pty";
 /// 协议版本号。
 ///
 /// 消息的格式每变化一次加一。
-pub const VERSION: u32 = 6;
+pub const VERSION: u32 = 7;
 /// 一条消息的长度上限（字节，64 MiB）。
 ///
 /// 超过上限的消息视为对方出错并断开连接，避免一个错误的长度使对端分配数 GB 内存。
@@ -311,6 +311,8 @@ pub struct Frame {
     pub keyboard: u8,
     /// 回滚缓冲里现有的行：绝对行号 `history.0..history.1`，按 [`ToHelper::History`] 取。
     pub history: (u64, u64),
+    /// 最近一次清屏时回滚缓冲末尾的绝对行号：此前的行在改尺寸时不拉回屏幕。
+    pub cleared: u64,
 }
 
 /// 命令块某一段开始的位置（OSC 133）。

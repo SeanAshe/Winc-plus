@@ -470,7 +470,7 @@ impl App {
             }
             Action::ChangesOpenSource => {
                 let files: Vec<&PathBuf> = (paths.iter())
-                    .filter(|path| winc_backend::fs::is_file(path))
+                    .filter(|path| self.may_be_file(path))
                     .collect();
                 for path in &files {
                     self.open_path(path);
@@ -625,7 +625,7 @@ impl App {
             }
             Key::Named(NamedKey::Enter) => {
                 if let Some(path) = target
-                    && winc_backend::fs::is_file(&path)
+                    && self.may_be_file(&path)
                 {
                     self.open_path(&path);
                     self.focus = Focus::Editor;

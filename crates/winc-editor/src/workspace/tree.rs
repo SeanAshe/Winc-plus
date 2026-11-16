@@ -179,6 +179,12 @@ pub(crate) const HIDDEN: &[&str] = &[
     ".pytest_cache",
 ];
 
+/// 返回 WSL 发行版 `place` 中名为 `name` 的目录显示的名称：发行版的根目录显示为 `/`。
+fn in_distro(name: &str, place: &crate::wsl::Location) -> String {
+    let name = if place.path == "/" { "/" } else { name };
+    format!("{name} [WSL: {}]", place.distro)
+}
+
 /// 返回遍历工作区目录的配置，快速打开的文件索引和全局搜索共用，两者看到的文件相同。
 ///
 /// 遵守各级 `.gitignore`、`.ignore` 和全局的忽略规则，不进入指向目录的符号链接，跳过
@@ -243,9 +249,13 @@ impl Workspace {
             || root.display().to_string(),
             |n| n.to_string_lossy().into_owned(),
         );
-        // 远端主机上的目录在名称后标出主机：标题栏和状态栏上一眼能看出不是本机的目录。
+        // 远端主机上和 WSL 发行版中的目录在名称后标出所在的位置：标题栏和状态栏上可以看出
+        // 不是本机的目录。
         let name = match winc_backend::locate(&root) {
-            None => name,
+            None => match crate::wsl::locate_here(&root) {
+                Some(place) => in_distro(&name, &place),
+                None => name,
+            },
             Some(at) if at.path == b"/" => format!("/ [SSH: {}]", at.target.as_str()),
             Some(at) => format!("{name} [SSH: {}]", at.target.as_str()),
         };

@@ -427,6 +427,12 @@ impl App {
             return Target::TitleBar;
         }
         if l.terminal.contains(x, y) {
+            if self
+                .terminal_tab_list()
+                .is_some_and(|list| list.contains(x, y))
+            {
+                return Target::Blocked;
+            }
             return match self.terminal_block_hit(x, y) {
                 Some(hit) => Target::TerminalBlock(hit),
                 None => Target::Terminal,

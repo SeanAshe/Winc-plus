@@ -556,6 +556,8 @@ pub fn key_equivalent(stroke: crate::keymap::Stroke) -> Option<(String, usize)> 
         KeyCode::Right => '\u{F703}',
         KeyCode::PageUp => '\u{F72C}',
         KeyCode::PageDown => '\u{F72D}',
+        KeyCode::Home => '\u{F729}',
+        KeyCode::End => '\u{F72B}',
     };
     let mut mods = 0;
     for (bit, mask) in [

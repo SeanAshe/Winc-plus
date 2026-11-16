@@ -29,6 +29,39 @@ impl App {
                 Some((tool_setting_of(task, id), row))
             })
             .collect();
+        self.probe_wsl_tools(&file);
+    }
+
+    /// 打开的目录位于 WSL 发行版中时，在后台查询还不知道是否安装的工具，查完后重新计算各行。
+    ///
+    /// 查询发行版要启动进程，不能在界面线程上等待；同时只进行一轮。
+    fn probe_wsl_tools(&mut self, file: &Path) {
+        if self.settings.probing || winc_editor::wsl::locate_here(file).is_none() {
+            return;
+        }
+        let root = self.editor.root();
+        let formatter = &self.format.formatter;
+        let listed = &self.settings.languages;
+        let rows = (listed.format.iter().map(|&id| (Task::Format, id)))
+            .chain(listed.fix.iter().map(|&id| (Task::Fix, id)));
+        let unknown: Vec<Plan> = rows
+            .filter_map(|(task, id)| {
+                let language = winc_syntax::find(id)?;
+                let plan = Plan::for_task(task, language, file, root, None).ok()?;
+                (plan.is_guess() && formatter.peek(&plan).is_none()).then_some(plan)
+            })
+            .collect();
+        let Some(proxy) = self.link.proxy.clone().filter(|_| !unknown.is_empty()) else {
+            return;
+        };
+        self.settings.probing = true;
+        let formatter = formatter.clone();
+        std::thread::spawn(move || {
+            for plan in &unknown {
+                let _ = formatter.resolve(plan);
+            }
+            let _ = proxy.send_event(crate::app::UserEvent::FormatterReady);
+        });
     }
 
     /// 把应列出的新语言补到格式化页的列表中。
@@ -245,6 +278,7 @@ impl App {
     /// 用户 shell 的环境取到之后调用：此时才能确定能否找到工具，因此补上提醒，
     /// 并列出装了可用工具的语言（追加在后面，已经列出的不改变位置）。
     pub(in crate::app) fn formatter_ready(&mut self) {
+        self.settings.probing = false;
         if self.settings.open {
             self.refresh_format_rows(true);
             self.request_redraw();
@@ -277,6 +311,7 @@ impl App {
             | Setting::BackgroundFit
             | Setting::TextWidth
             | Setting::TerminalPosition
+            | Setting::TerminalTabPosition
             | Setting::TerminalOptionAsMeta
             | Setting::UiFont
             | Setting::EditorFont
@@ -290,6 +325,7 @@ impl App {
                     Setting::BackgroundFit => MenuTarget::BackgroundFit,
                     Setting::TextWidth => MenuTarget::TextWidth,
                     Setting::TerminalPosition => MenuTarget::TerminalPosition,
+                    Setting::TerminalTabPosition => MenuTarget::TerminalTabPosition,
                     Setting::TerminalOptionAsMeta => MenuTarget::OptionAsMeta,
                     _ => MenuTarget::Font(setting),
                 };

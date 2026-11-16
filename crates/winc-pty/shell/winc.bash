@@ -1,11 +1,16 @@
-# winc 的 shell 集成（docs/TERMINAL.md §6.2）。winc 用 `bash --rcfile` 指向这个文件：先照常读用户
-# 的启动文件，再挂上命令块的钩子。只发 OSC 133（提示符、命令、输出、结束）和 OSC 7（当前目录），
-# 不改提示符的样子，不改 shell 的行为。这个文件由 winc 生成，改了会被覆盖。
+# bash 的 shell 集成：读取用户启动文件，加载启动目录中的 Python 环境，报告命令块和当前目录。
+# 使用 OSC 133 和 OSC 7，按 `terminal.prompt` 处理默认提示符，环境加载可添加名称前缀。
+# winc 通过 `--rcfile` 读取本文件，启动前按需生成。
 
-# terminal.prompt 关了时 winc 传 WINC_PROMPT=0：不换默认的提示符（见 _winc_defaults）。
+# `WINC_PROMPT=0` 时保留默认提示符，由 `terminal.prompt` 控制。
 _winc_prompt_on=${WINC_PROMPT-1}
-builtin unset WINC_PROMPT
-# 报命令行时带上的随机数（docs/TERMINAL.md §6.3）：放在不导出的变量里，命令看不到。
+# 记录启动目录，用户配置中的 `cd` 不改变项目环境的选择。
+_winc_python_root=$PWD
+_winc_python_script=${BASH_SOURCE[0]%/*}/../python.sh
+# `WINC_PYTHON=0` 时不加载启动目录中的 Python 环境：用户没有允许这个目录。
+_winc_python=${WINC_PYTHON-1}
+builtin unset WINC_PROMPT WINC_PYTHON
+# 命令行报告附带的随机数，保存在未导出的变量中，供 OSC 133 验证。
 _winc_nonce=${WINC_NONCE-}
 builtin unset WINC_NONCE
 
@@ -52,7 +57,7 @@ if [[ -z $_winc_hooked ]]; then
 
   # 当前目录所在的 Git 仓库的分支：直接读 .git/HEAD，不启动 git。结果（连同颜色）放在 _winc_git。
   _winc_branch() {
-    builtin local dir=$PWD git head
+    builtin local dir="$PWD" git head
     _winc_git=
     while :; do
       if [[ -f $dir/.git/HEAD ]]; then
@@ -75,6 +80,8 @@ if [[ -z $_winc_hooked ]]; then
     else
       head=${head:0:7}
     fi
+    # 文件内容直接进入提示符：去掉控制字符，其中的转义序列不会被终端执行。
+    head=${head//[[:cntrl:]]/}
     # 变量里的颜色序列用 \001、\002 包起来，readline 才不把它们算进提示符的宽度。
     _winc_git=$' \001\e[35m\002'"$head"$'\001\e[0m\002'
   }
@@ -95,6 +102,8 @@ if [[ -z $_winc_hooked ]]; then
     PS1='\[\e[1;34m\]\w\[\e[0m\]${_winc_git} ${_winc_mark} '
     builtin export CLICOLOR=1
   fi
+  [[ $_winc_python == 0 ]] || builtin source "$_winc_python_script"
+  builtin unset _winc_python_script _winc_python
 
   # PROMPT_COMMAND 的第一条：记下命令的退出码，原样返回，后面用户自己的 PROMPT_COMMAND 看到的
   # 还是命令的退出码。
@@ -106,7 +115,8 @@ if [[ -z $_winc_hooked ]]; then
   # PROMPT_COMMAND 的最后一条：提示符主题（starship 之类）已经设好了 PS1。
   _winc_prompt() {
     if [[ -n $_winc_running ]]; then
-      builtin printf '\e]133;D;%s\a' "$_winc_last"
+      # 结束标记附带随机数：命令的输出中伪造的结束标记不会被采用。
+      builtin printf '\e]133;D;%s;nonce=%s\a' "$_winc_last" "$_winc_nonce"
       _winc_running=
     fi
     if [[ -n $_winc_defaults ]]; then
@@ -118,7 +128,7 @@ if [[ -z $_winc_hooked ]]; then
       fi
     fi
     _winc_urlencode "$PWD"
-    builtin printf '\e]7;file://%s%s\a\e]133;A\a' "$HOSTNAME" "$_winc_reply"
+    builtin printf '\e]7;file://%s%s\a\e]133;A;signed=1\a' "$HOSTNAME" "$_winc_reply"
     case $PS1 in
       *'\[\e]133;B\a\]'*) ;;
       *) PS1=$PS1'\[\e]133;B\a\]' ;;
@@ -132,16 +142,23 @@ if [[ -z $_winc_hooked ]]; then
   # 的 `$_` 原样作为最后一个参数，陷阱跑完 `$_` 还是用户的（`mkdir x && cd $_`）。
   _winc_preexec() {
     [[ -n $_winc_at_prompt ]] || builtin return 0
+    # 行编辑中由按键执行的命令（`bind -x`）和补全函数不是用户提交的命令，提示符仍在等待输入。
+    [[ -n ${READLINE_POINT+set} || -n ${COMP_LINE+set} ]] && builtin return 0
     _winc_at_prompt=
     # 空回车、⌃C：PROMPT_COMMAND 又开始跑了，没有用户的命令。
     [[ $BASH_COMMAND == _winc_status ]] && builtin return 0
     builtin local cmd
     cmd=$(HISTTIMEFORMAT= builtin history 1)
-    # 历史的编号没变（HISTCONTROL 没记下这一条、关了历史）时取的是上一条，改用 BASH_COMMAND。
-    if [[ $cmd =~ ^[[:space:]]*([0-9]+)[*[:space:]]+(.*)$ ]] &&
-      [[ ${BASH_REMATCH[1]} != "$_winc_histnum" ]]; then
-      _winc_histnum=${BASH_REMATCH[1]}
-      cmd=${BASH_REMATCH[2]}
+    # 历史的编号没变（HISTCONTROL 没记下这一条、关了历史）时取的是上一条。上一条以这条命令的
+    # 第一段开头时是同一条命令重复执行（`ignoredups`），仍取历史里的整行；否则改用 BASH_COMMAND。
+    if [[ $cmd =~ ^[[:space:]]*([0-9]+)[*[:space:]]+(.*)$ ]]; then
+      if [[ ${BASH_REMATCH[1]} != "$_winc_histnum" ||
+        ${BASH_REMATCH[2]} == "$BASH_COMMAND"* ]]; then
+        _winc_histnum=${BASH_REMATCH[1]}
+        cmd=${BASH_REMATCH[2]}
+      else
+        cmd=$BASH_COMMAND
+      fi
     else
       cmd=$BASH_COMMAND
     fi

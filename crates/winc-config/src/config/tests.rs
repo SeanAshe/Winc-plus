@@ -3,6 +3,21 @@
 use super::*;
 
 #[test]
+fn terminal_application_priority_is_optional_and_round_trips() {
+    assert_eq!(Config::default().terminal_application_priority, None);
+    for enabled in [true, false] {
+        let text = format!(r#"{{"terminal":{{"applicationPriority":{enabled}}}}}"#);
+        let (config, problems) = Config::parse(&text);
+        assert!(problems.is_empty());
+        assert_eq!(config.terminal_application_priority, Some(enabled));
+        assert_eq!(Config::parse(&config.to_json()).0, config);
+    }
+    let (config, problems) = Config::parse(r#"{"terminal":{"applicationPriority":"true"}}"#);
+    assert_eq!(config.terminal_application_priority, None);
+    assert!(!problems.is_empty());
+}
+
+#[test]
 fn empty_and_partial_configs_fall_back_to_defaults() {
     let (config, problems) = Config::parse("{}");
     assert_eq!(config, Config::default());
@@ -268,6 +283,8 @@ fn round_trips_through_json() {
         terminal_copy_on_select: Some(true),
         terminal_bold_is_bright: Some(true),
         terminal_right: Some(true),
+        terminal_vertical_tabs: Some(true),
+        terminal_application_priority: Some(true),
         git_enabled: Some(true),
         git_confirm_push: Some(false),
         git_system_proxy: Some(false),

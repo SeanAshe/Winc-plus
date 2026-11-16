@@ -104,12 +104,47 @@ pub(crate) fn locations(line: &Line, bare: bool) -> Vec<Location> {
 }
 
 /// 一行里的网址：（起始格，结束格，网址）。
-///
-/// 认 `http://`、`https://`、`file://` 开头的，到空白、
-/// 引号、尖括号为止；末尾的标点和没配对的右括号不算。
+#[cfg(test)]
 pub(crate) fn urls(line: &Line) -> Vec<(usize, usize, String)> {
     let (text, cols, cell_end) = cells(line);
     let col_of = |i: usize| cols.get(i).copied().unwrap_or(cell_end);
+    scan_urls(&text)
+        .into_iter()
+        .map(|(start, end, url)| (col_of(start), col_of(end), url))
+        .collect()
+}
+
+/// 折行连在一起的几个显示行中，第 `row` 行第 `col` 格上的网址。
+///
+/// 返回网址在第 `row` 行里占的格子范围和完整的网址。
+pub(crate) fn url_across(rows: &[&Line], row: usize, col: usize) -> Option<(usize, usize, String)> {
+    let mut text = Vec::new();
+    // 每个字所在的显示行、起始格和结束格。
+    let mut places = Vec::new();
+    for (index, line) in rows.iter().enumerate() {
+        let (chars, cols, cell_end) = cells(line);
+        for (i, c) in chars.into_iter().enumerate() {
+            text.push(c);
+            places.push((index, cols[i], cols.get(i + 1).copied().unwrap_or(cell_end)));
+        }
+    }
+    let inside =
+        |&(at, start, end): &(usize, usize, usize)| at == row && (start..end).contains(&col);
+    scan_urls(&text).into_iter().find_map(|(start, end, url)| {
+        places[start..end].iter().any(inside).then(|| {
+            let mut cells = places[start..end].iter().filter(|place| place.0 == row);
+            let first = cells.next().expect("网址覆盖这一行");
+            let last = cells.next_back().unwrap_or(first);
+            (first.1, last.2, url)
+        })
+    })
+}
+
+/// 一串字里的网址：（起始下标，结束下标，网址）。
+///
+/// 认 `http://`、`https://`、`file://` 开头的，到空白、
+/// 引号、尖括号为止；末尾的标点和没配对的右括号不算。
+fn scan_urls(text: &[char]) -> Vec<(usize, usize, String)> {
     let mut out = Vec::new();
     let mut i = 0;
     while i < text.len() {
@@ -145,7 +180,7 @@ pub(crate) fn urls(line: &Line) -> Vec<(usize, usize, String)> {
         }
         let url: String = text[i..end].iter().collect();
         if url.len() > 8 {
-            out.push((col_of(i), col_of(end), url));
+            out.push((i, end, url));
         }
         i = end.max(i + 1);
     }

@@ -212,13 +212,34 @@ impl Client {
         env: Vec<(Vec<u8>, Vec<u8>)>,
         integration: &std::path::Path,
     ) {
+        self.spawn_shell_in(
+            tab,
+            program,
+            login,
+            env,
+            integration,
+            std::path::Path::new("/"),
+        );
+    }
+
+    /// 在指定目录启动带集成的交互式 shell。
+    #[cfg(unix)]
+    pub fn spawn_shell_in(
+        &mut self,
+        tab: u16,
+        program: &str,
+        login: bool,
+        env: Vec<(Vec<u8>, Vec<u8>)>,
+        integration: &std::path::Path,
+        cwd: &std::path::Path,
+    ) {
         use std::os::unix::ffi::OsStrExt;
         self.send(ToHelper::Spawn {
             tab,
             program: Some(program.into()),
             args: vec![],
             login,
-            cwd: b"/".to_vec(),
+            cwd: cwd.as_os_str().as_bytes().to_vec(),
             env,
             scrollback: 1000,
             // 高到测试里的命令都不会滚出屏幕：屏幕上的行号就是绝对行号。

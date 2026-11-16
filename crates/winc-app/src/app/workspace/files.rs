@@ -182,9 +182,81 @@ impl App {
         }
     }
 
+    /// 返回 `path` 作为操作目标时的目录：目录取它自己，文件取所在的目录。
+    pub(in crate::app) fn folder_of(&self, path: &Path) -> PathBuf {
+        if self.is_folder(path) {
+            path.to_path_buf()
+        } else {
+            path.parent().unwrap_or(path).to_path_buf()
+        }
+    }
+
+    /// `path` 是否目录。
+    ///
+    /// 本机的路径以磁盘为准。远端的路径不能在界面线程上查询，查询的结果一律是「不是目录」：类别
+    /// 取自文件树和已打开的文档（[`Self::known_folder`]），其中没有的才查询磁盘。
+    pub(in crate::app) fn is_folder(&self, path: &Path) -> bool {
+        let known = winc_backend::is_remote(path)
+            .then(|| self.known_folder(path))
+            .flatten();
+        known.unwrap_or_else(|| winc_backend::fs::is_dir(path))
+    }
+
+    /// 不查询磁盘能确定时返回 `path` 是否目录：打开的目录、文件树上可见的行（合并显示的各级
+    /// 目录也算）和已打开的文档。
+    pub(in crate::app) fn known_folder(&self, path: &Path) -> Option<bool> {
+        if let Some(workspace) = &self.editor.workspace {
+            if path == workspace.root.as_path() {
+                return Some(true);
+            }
+            if let Some(row) = workspace.row_of(path) {
+                return Some(workspace.rows()[row].kind == winc_editor::EntryKind::Dir);
+            }
+        }
+        // 打开的文档都是文件。
+        let documents = &self.editor.documents;
+        let open = documents
+            .iter()
+            .any(|doc| doc.path.as_deref() == Some(path));
+        open.then_some(false)
+    }
+
+    /// `path` 是否可以当作文件打开。
+    ///
+    /// 本机的路径以磁盘为准。远端的路径在界面线程上查不到：文件树和已打开的文档知道的照实
+    /// 回答，其余按可以打开处理，文件不存在时由随后的读取在标签中报告，而不是把存在的文件当作
+    /// 不存在。
+    pub(in crate::app) fn may_be_file(&self, path: &Path) -> bool {
+        if !winc_backend::is_remote(path) {
+            return winc_backend::fs::is_file(path);
+        }
+        self.known_folder(path).is_none_or(|folder| !folder)
+    }
+
+    /// `path` 是否存在；远端的路径查不到时按存在处理，规则同 [`Self::may_be_file`]。
+    pub(in crate::app) fn may_exist(&self, path: &Path) -> bool {
+        winc_backend::is_remote(path) || winc_backend::fs::exists(path)
+    }
+
+    /// 终端输出中的路径 `path` 是否可以作为跳转的目标；`numbered` 表示它带有行号。
+    ///
+    /// 远端的路径查不到时不能把每个像路径的词都当作文件：只认打开的目录之内、带行号的位置
+    /// （编译器的报错）。
+    pub(in crate::app) fn terminal_target(&self, path: &Path, numbered: bool) -> bool {
+        if !winc_backend::is_remote(path) {
+            return winc_backend::fs::exists(path);
+        }
+        let inside = || {
+            self.editor
+                .root()
+                .is_some_and(|root| path.starts_with(root))
+        };
+        self.known_folder(path).is_some() || numbered && inside()
+    }
+
     /// 打开文件或目录 `path`；`preview` 为真时在预览标签中打开文件（见 [`Self::preview_path`]）。
     fn open_file(&mut self, path: &Path, preview: bool) {
-        if winc_backend::fs::is_dir(path) {
+        if self.is_folder(path) {
             self.open_folder(path);
             return;
         }
@@ -352,8 +424,7 @@ impl App {
     /// 终端程序由配置项 `terminal.external` 指定。基准测量和测试中不启动终端，只记录目录。
     pub(in crate::app) fn open_in_terminal(&mut self, path: Option<&Path>) {
         let dir = match path {
-            Some(path) if winc_backend::fs::is_dir(path) => path.to_path_buf(),
-            Some(path) => path.parent().unwrap_or(path).to_path_buf(),
+            Some(path) => self.folder_of(path),
             None => match self.editor.root() {
                 Some(root) => root.to_path_buf(),
                 None => std::env::var_os("HOME").map_or_else(|| PathBuf::from("/"), PathBuf::from),
@@ -862,9 +933,12 @@ impl App {
             }
             // 对话框有自己的消息循环，在后台线程上等待关闭，事件循环正常运行。
             std::thread::spawn(move || {
-                // 检查发行版的根目录可能要等发行版启动，不在界面线程上进行。
+                // 从发行版内用户的主目录开始，查不到时从根目录开始。查询可能要等发行版启动，
+                // 不在界面线程上进行。
                 if let Pick::WslFolder(distro) = &kind {
-                    dialog = dialog.set_directory(winc_editor::wsl::distro_root(distro));
+                    let root = winc_editor::wsl::distro_root(distro);
+                    let home = winc_editor::wsl::home_dir(&root);
+                    dialog = dialog.set_directory(home.unwrap_or(root));
                 }
                 let path = match &kind {
                     Pick::Open | Pick::BackgroundImage | Pick::KeyFile => dialog.pick_file(),

@@ -508,6 +508,8 @@ const TERMINAL: &[Field] = &[
     bool_field!("prompt", terminal_prompt),
     bool_field!("copyOnSelect", terminal_copy_on_select),
     bool_field!("boldIsBright", terminal_bold_is_bright),
+    bool_field!("verticalTabs", terminal_vertical_tabs),
+    bool_field!("applicationPriority", terminal_application_priority),
     Field {
         // `position` 在配置里是字符串，读入后只保留是否在右边。
         key: "position",

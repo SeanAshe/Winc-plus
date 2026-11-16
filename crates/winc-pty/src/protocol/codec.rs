@@ -247,6 +247,7 @@ impl Message for FromHelper {
                 w.u8(frame.keyboard);
                 w.u64(frame.history.0);
                 w.u64(frame.history.1);
+                w.u64(frame.cleared);
             }
             FromHelper::History {
                 tab,
@@ -342,6 +343,7 @@ impl Message for FromHelper {
                         modes: Modes(r.u32()?),
                         keyboard: r.u8()?,
                         history: (r.u64()?, r.u64()?),
+                        cleared: r.u64()?,
                     },
                 }
             }

@@ -71,6 +71,10 @@ impl ViewRow {
     }
 }
 
+/// 沿软换行向上、向下各查看的显示行数上限：1024 行在 80 列时约 8 万个字符，超过常见的单条
+/// 命令和路径；限制它避免在很长的单行输出上逐行回溯，选择范围每帧都会计算。
+const WRAP_ROWS: u64 = 1024;
+
 /// 一段折起来的行：`start..end`（绝对行号），属于第 `block` 个块。
 #[derive(Debug, Clone, Copy)]
 struct Fold {
@@ -178,6 +182,8 @@ pub(crate) struct TermTab {
     pub credit_due: bool,
     /// 回滚缓冲里的行号范围（帧里报的）。
     pub history: (u64, u64),
+    /// 最近一次清屏时回滚缓冲末尾的行号（帧里报的）：此前的行改尺寸时不拉回屏幕。
+    pub cleared: u64,
     /// 往上翻了几行；0 表示看着最新的输出。
     pub scroll: usize,
     /// 在 `scroll` 之外继续往上翻的不足一行的部分（行，`0.0..1.0`），滚轮和触控板按像素滚动时使用。
@@ -261,6 +267,7 @@ impl TermTab {
             size,
             credit_due: false,
             history: (0, 0),
+            cleared: 0,
             scroll: 0,
             scroll_frac: 0.0,
             scroll_rest: 0.0,
@@ -285,7 +292,8 @@ impl TermTab {
 
     /// 应用一帧。
     ///
-    /// 往上翻着的时候新输出进了回滚缓冲，翻的行数跟着加，看着的内容不动。
+    /// 往上翻着的时候新输出进了回滚缓冲，翻的行数跟着加，看着的内容不动；宽度变化引起重排时
+    /// 按比例保留位置。
     pub fn apply(&mut self, frame: Frame) {
         let rows = usize::from(frame.rows);
         if frame.full || self.rows.len() != rows {
@@ -295,7 +303,17 @@ impl TermTab {
             self.cache.clear();
             self.requested = None;
             self.selection = None;
-            self.scroll = 0;
+            // 重排后行号重新编排，重排前的位置无法逐行对应：按回滚缓冲行数的比例换算往上翻的
+            // 行数，看着的内容大致不动；回滚缓冲被清空时回到底部。
+            let old = self.history.1.saturating_sub(self.history.0).max(1);
+            let new = frame.history.1.saturating_sub(frame.history.0);
+            let same_screen =
+                frame.modes.has(Modes::ALT_SCREEN) == self.modes.has(Modes::ALT_SCREEN);
+            self.scroll = if same_screen {
+                (self.scroll as u128 * u128::from(new) / u128::from(old)) as usize
+            } else {
+                0
+            };
             self.scroll_frac = 0.0;
         } else if frame.modes.has(Modes::ALT_SCREEN) != self.modes.has(Modes::ALT_SCREEN) {
             // 换了一屏：往上翻的位置、选区都是另一屏的，回到底部。
@@ -330,6 +348,7 @@ impl TermTab {
         self.modes = frame.modes;
         self.keyboard = frame.keyboard;
         self.history = frame.history;
+        self.cleared = frame.cleared;
         self.clamp_scroll();
         self.prune();
         if !frame.full {
@@ -586,19 +605,28 @@ impl TermTab {
         if self.cache.is_empty() {
             return;
         }
-        let keep = self.wanted(CACHE_SCREENS as u64 + 1);
-        let (keep_from, keep_to) = match self.selection {
-            Some(s) => (
+        let mut keep = self.wanted(CACHE_SCREENS as u64 + 1);
+        if let Some(s) = self.selection {
+            let (from, to) = (
                 s.anchor.line.min(s.head.line),
                 s.anchor.line.max(s.head.line),
-            ),
-            None => (u64::MAX, 0),
-        };
-        self.cache.retain(|&line, _| {
-            keep.iter()
-                .any(|&(start, end)| (start..end).contains(&line))
-                || (keep_from..=keep_to).contains(&line)
-        });
+            );
+            keep.push((from, to.saturating_add(1)));
+        }
+        keep.sort_unstable();
+        // 只查看保留范围之间的空隙：每一帧都会运行到这里，选区很大时不逐行检查保留下来的行。
+        let mut stale = Vec::new();
+        let mut from = 0;
+        for (start, end) in keep {
+            if start > from {
+                stale.extend(self.cache.range(from..start).map(|(&line, _)| line));
+            }
+            from = from.max(end);
+        }
+        stale.extend(self.cache.range(from..).map(|(&line, _)| line));
+        for line in stale {
+            self.cache.remove(&line);
+        }
     }
 
     /// 当前折起来的各段，按位置排好。
@@ -639,7 +667,8 @@ impl TermTab {
     }
 
     /// 面板的行数和屏幕不一样时（新的尺寸还没换上，见 `shown`），按辅助进程重排的规则排：主屏
-    /// 下面没有内容的行去掉，从剩下的最后一行往上排，光标那一行不出网格；备用屏顶着上面排。
+    /// 下面没有内容的行去掉，从剩下的最后一行往上排，光标那一行不出网格，清屏前的行不拉回；
+    /// 备用屏顶着上面排。
     ///
     /// 重排好的屏幕回来时每一行都在原来的地方。
     fn preview_end(&self, layout: &Layout) -> u64 {
@@ -661,7 +690,9 @@ impl TermTab {
             .min(self.rows.len());
         let last = layout.display_of(self.history.1 + used as u64 - 1) + 1;
         let cursor = layout.display_of(self.history.1 + cursor as u64);
-        last.min(cursor + grid)
+        // 清屏前的行不拉回屏幕：网格第一行不早于清屏的分界，变高的部分在下方留空。
+        let floor = self.cleared.clamp(self.history.0, self.history.1);
+        last.max(layout.display_of(floor) + grid).min(cursor + grid)
     }
 
     /// 一共有几个显示行。
@@ -877,13 +908,14 @@ impl TermTab {
                 );
                 (start, end)
             }
+            // 按逻辑行选：折成几个显示行的一条命令整条选中。
             Unit::Line => (
                 Point {
-                    line: from.line,
+                    line: self.logical_rows(from.line).0,
                     col: 0,
                 },
                 Point {
-                    line: to.line,
+                    line: self.logical_rows(to.line).1,
                     col: usize::MAX,
                 },
             ),
@@ -1035,17 +1067,72 @@ impl TermTab {
         while end + 1 < cells.len() && is_word(cells[end + 1].2) {
             end += 1;
         }
+        let mut from = Point {
+            line: point.line,
+            col: cells[start].0,
+        };
         let (col, w, _) = cells[end];
-        Some((
-            Point {
-                line: point.line,
-                col: cells[start].0,
-            },
-            Point {
-                line: point.line,
+        let mut to = Point {
+            line: point.line,
+            col: col + w,
+        };
+        // 词折到了相邻的行：沿软换行向上、向下延伸，折行的路径和长参数一次选中。
+        let mut reached = start == 0;
+        while reached && from.line > self.history.0 && point.line - from.line < WRAP_ROWS {
+            let Some(above) = self.line(from.line - 1).filter(|line| line.wrapped) else {
+                break;
+            };
+            let cells = cell_chars(&above.text);
+            let word = cells
+                .iter()
+                .rev()
+                .take_while(|cell| is_word(cell.2))
+                .count();
+            if word == 0 {
+                break;
+            }
+            from = Point {
+                line: from.line - 1,
+                col: cells[cells.len() - word].0,
+            };
+            reached = word == cells.len();
+        }
+        let mut row = line;
+        let mut reached = end + 1 == cells.len();
+        while reached && row.wrapped && to.line - point.line < WRAP_ROWS {
+            let Some(below) = self.line(to.line + 1) else {
+                break;
+            };
+            let cells = cell_chars(&below.text);
+            let word = cells.iter().take_while(|cell| is_word(cell.2)).count();
+            if word == 0 {
+                break;
+            }
+            let (col, w, _) = cells[word - 1];
+            to = Point {
+                line: to.line + 1,
                 col: col + w,
-            },
-        ))
+            };
+            reached = word == cells.len();
+            row = below;
+        }
+        Some((from, to))
+    }
+
+    /// 第 `line` 行所在逻辑行的首行和末行：软换行连在一起的各显示行。
+    ///
+    /// 尚未取回的历史行截断逻辑行。
+    pub fn logical_rows(&self, line: u64) -> (u64, u64) {
+        let wraps = |l: u64| self.line(l).is_some_and(|row| row.wrapped);
+        let mut first = line;
+        while first > self.history.0 && line - first < WRAP_ROWS && wraps(first - 1) {
+            first -= 1;
+        }
+        let mut last = line;
+        while last - line < WRAP_ROWS && wraps(last) && self.line(last + 1).is_some() {
+            last += 1;
+        }
+        (first, last)
     }
 }
 

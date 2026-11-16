@@ -171,7 +171,7 @@ pub struct Config {
     /// 终端运行的程序和参数，以空白分隔（如 `wsl.exe -d Ubuntu`）。未设置时运行系统默认的 shell；
     /// 打开的目录位于 WSL 发行版中时进入对应的发行版。
     pub terminal_shell: Option<String>,
-    /// 终端是否自动注入 shell 集成（zsh、bash、fish 的命令块），默认为是。
+    /// 终端是否自动注入 shell 集成（命令块与项目内 Python 环境），默认为是。
     pub terminal_shell_integration: Option<bool>,
     /// 关闭还有程序在运行的终端标签前是否先确认，默认为是。
     pub terminal_confirm_close: Option<bool>,
@@ -185,6 +185,10 @@ pub struct Config {
     /// 终端面板是否放在编辑区右边（配置里的 `"position": "right"`）；否则（`"bottom"` 或
     /// 没写）放在下面。
     pub terminal_right: Option<bool>,
+    /// 是否在面板右侧使用竖向列表管理终端，默认为否。
+    pub terminal_vertical_tabs: Option<bool>,
+    /// 暂停终端内容增强的快捷键，保留终端管理和复制、粘贴；默认关闭。
+    pub terminal_application_priority: Option<bool>,
     /// 是否启用远程模块（经 `ssh` 打开其他主机上的目录），默认为否。
     pub remote_enabled: Option<bool>,
     /// 是否启用 Git 模块（文件状态、分支、变更视图），默认为否。

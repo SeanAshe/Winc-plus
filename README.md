@@ -47,7 +47,7 @@ Measured on macOS; results vary with hardware and system load.
 | Preview | Markdown with math and Mermaid diagrams, images, SVG, PDF (macOS and Windows), Word documents (docx), and spreadsheets (xlsx, csv), with the source one click away |
 | Git | Side-by-side diffs with word-level highlights, staging by hunk, commit and push, a commit graph, and blame |
 | Project | A file tree, quick open, and project search that follows `.gitignore` |
-| Terminal | An integrated terminal at the bottom of the window |
+| Terminal | An integrated terminal with automatic loading of project-local Python environments |
 | Remote | Experimental SSH remote: open a folder on a Linux host and edit, search, format, use Git, and open terminals there. On Windows, open folders inside WSL distributions |
 | Interface | Sixteen built-in themes, light and dark, and a complete interface in English and Simplified Chinese |
 | Modules | Git, the terminal, and SSH remote can each be turned off. First-time setup on the start page offers the appearance, theme, language, and modules |

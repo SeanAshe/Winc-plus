@@ -6,6 +6,8 @@ mod editor;
 mod find;
 mod input;
 mod run;
+mod shortcuts;
+mod tabs;
 
 use super::editor::navigation::press;
 use super::*;
@@ -325,19 +327,10 @@ fn tabs_switch_close_and_take_the_panel_with_the_last_one() {
     let _ = add_tab(&mut app, "vim", "three");
     assert_eq!(app.terminal.active, 2);
 
-    // ⌘⇧] 和 ⌘⇧[（其他系统 Ctrl+PageDown、Ctrl+PageUp）在终端里切终端的标签，到头绕回去；
+    // ⌘⇧] 和 ⌘⇧[（其他系统 Ctrl+Shift+]、Ctrl+Shift+[）在终端里切终端的标签，到头绕回去；
     // 编辑区的标签不动。
     let step = |app: &mut App, next: bool| {
-        if cfg!(target_os = "macos") {
-            press(app, &["cmd", "shift"], Char(if next { ']' } else { '[' }))
-        } else {
-            let key = if next {
-                crate::keymap::KeyCode::PageDown
-            } else {
-                crate::keymap::KeyCode::PageUp
-            };
-            press(app, &["ctrl"], key)
-        }
+        press(app, &["cmd", "shift"], Char(if next { ']' } else { '[' }))
     };
     let doc = app.editor.active;
     assert!(step(&mut app, true));
@@ -1105,9 +1098,9 @@ fn the_shell_menu_starts_the_chosen_shell_and_remembers_it() {
     let session = app.terminal_session().unwrap();
     assert_eq!(session.shells, ["", "/bin/bash"]);
 
-    // 退出后重新启动：还是这个 shell。
+    // 异常退出的标签留着，重新启动后还是这个 shell（正常退出的标签直接关闭）。
     let id = app.terminal.tab().unwrap().id;
-    app.terminal_message(FromHelper::Exited { tab: id, code: 0 });
+    app.terminal_message(FromHelper::Exited { tab: id, code: 1 });
     app.restart_terminal_tab();
     app.relayout();
     assert_eq!(started(&app, &log, b"/bin/bash"), 2);
@@ -1159,7 +1152,7 @@ fn the_new_button_stays_put_once_the_tabs_narrow() {
     for _ in 0..30 {
         let _ = add_tab(&mut app, "cargo", "");
         paint(&mut app);
-        let widths = &app.terminal.strip.widths;
+        let widths = &app.terminal.strip.sizes;
         if widths.iter().any(|&w| w < TAB_MIN) {
             narrowed += 1;
             let at = *pinned.get_or_insert(new(&app));
@@ -1167,7 +1160,7 @@ fn the_new_button_stays_put_once_the_tabs_narrow() {
         }
     }
     assert!(narrowed > 5, "覆盖了变窄的整个过程：{narrowed}");
-    let widths = &app.terminal.strip.widths;
+    let widths = &app.terminal.strip.sizes;
     assert!(widths.iter().all(|&w| w == TAB_SQUEEZED));
 }
 

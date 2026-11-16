@@ -87,10 +87,10 @@ impl App {
     /// 打开 `targets` 里的文件（目录跳过：已经是本窗口的目录），`文件:行:列` 跳到该位置，再把
     /// 窗口切到前台。
     pub(crate) fn open_files(&mut self, targets: &[crate::cli::Target]) {
-        for target in targets
-            .iter()
-            .filter(|t| !winc_backend::fs::is_dir(&t.path))
-        {
+        for target in targets {
+            if self.is_folder(&target.path) {
+                continue;
+            }
             self.open_path(&target.path);
             if let Some(line) = target.line {
                 self.jump_to(line, target.col.unwrap_or(0), 0);
@@ -242,6 +242,7 @@ impl App {
     ///
     /// 窗口尺寸、面板宽度、标签或预览状态变化后调用；面板跟着焦点关闭也在这一步完成。
     pub(crate) fn relayout(&mut self) {
+        self.note_terminal_tab_position();
         // 面板打开以后换了标签（⌘W、切换标签、后退前进、新建文件）：面板里的符号、书签、用法
         // 都属于原来的文档，回车会在新标签里跳到错误的位置，所以关掉。`close_picker` 会再次
         // 调用本函数，那时面板已经关了。

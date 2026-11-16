@@ -19,6 +19,12 @@ fn home_dir() -> Option<PathBuf> {
 }
 
 /// 目录 `dir` 是否已存在且不为空：`git clone` 只接受不存在或为空的目录。
+/// 是否可以把仓库克隆到目录 `parent` 之下。远端的目录在界面线程上查不到：按可用处理，不存在时
+/// 由克隆命令报告。
+fn clone_parent_usable(parent: &Path) -> bool {
+    winc_backend::is_remote(parent) || winc_backend::fs::is_dir(parent)
+}
+
 fn occupied(dir: &Path) -> bool {
     winc_backend::fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_some())
 }
@@ -66,7 +72,7 @@ impl App {
             None
         } else if name.is_none() || url.starts_with('-') {
             Some(t!("git-clone-invalid-url"))
-        } else if parent.as_ref().is_none_or(|p| !winc_backend::fs::is_dir(p)) {
+        } else if parent.as_ref().is_none_or(|p| !clone_parent_usable(p)) {
             Some(t!("git-clone-no-parent"))
         } else if dir.as_deref().is_some_and(occupied) {
             Some(t!("git-clone-occupied"))

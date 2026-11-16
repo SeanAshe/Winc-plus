@@ -129,6 +129,66 @@ fn input_reaches_the_shell() {
     assert_eq!(c.until_exit(), 5);
 }
 
+#[test]
+fn a_native_shell_receives_the_project_python_environment() {
+    if skip_under_wine() {
+        return;
+    }
+    let root = std::env::temp_dir().join(format!("winc-python-native-{}", std::process::id()));
+    let venv = root.join(".venv");
+    std::fs::create_dir_all(venv.join("Scripts")).unwrap();
+    std::fs::write(venv.join("pyvenv.cfg"), "home = C:\\Python\n").unwrap();
+    std::fs::write(venv.join("Scripts/python.exe"), []).unwrap();
+    std::fs::write(
+        venv.join("Scripts/Activate.ps1"),
+        "Write-Output PROJECT_SCRIPT_EXECUTED",
+    )
+    .unwrap();
+    let env = std::env::vars()
+        .filter(|(key, _)| {
+            !["VIRTUAL_ENV", "CONDA_PREFIX", "PYTHONHOME"]
+                .iter()
+                .any(|name| key.eq_ignore_ascii_case(name))
+        })
+        .map(|(key, value)| (key.into_bytes(), value.into_bytes()))
+        .collect();
+    let mut c = Client::start();
+    c.send(ToHelper::Spawn {
+        tab: 1,
+        program: Some(cmd().into_bytes()),
+        args: Vec::new(),
+        login: false,
+        cwd: root.to_str().unwrap().as_bytes().to_vec(),
+        env,
+        scrollback: 100,
+        size: winc_pty::protocol::Size {
+            cols: 240,
+            rows: 20,
+            width: 1920,
+            height: 320,
+        },
+        integration: Some(root.join("shell").to_str().unwrap().as_bytes().to_vec()),
+        banner: Vec::new(),
+    });
+    c.send(ToHelper::Input {
+        tab: 1,
+        bytes: b"echo env=%VIRTUAL_ENV%& where python& exit\r".to_vec(),
+        rest: 0,
+    });
+    let expected = format!("env={}", venv.display());
+    // 临时目录在环境变量中可以是 8.3 短名，`where` 输出的是长名：只比较与上级目录的写法无关的
+    // 末尾部分。
+    let folder = root.file_name().unwrap().to_str().unwrap();
+    let python = format!(r"{folder}\.venv\Scripts\python.exe");
+    assert_eq!(
+        c.until_exit_showing(|text| text.contains(&expected) && text.contains(&python)),
+        0
+    );
+    assert!(!c.text().contains("PROJECT_SCRIPT_EXECUTED"));
+    drop(c);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
 /// 结束辅助进程 `helper` 自己建的伪终端进程，返回结束了几个。
 ///
 /// 按父进程号和 `--headless` 筛选，不影响其他伪终端，也不影响辅助进程自己的控制台。

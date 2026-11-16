@@ -614,3 +614,28 @@ fn distribution_files_get_linux_install_commands() {
     assert!(!install::fits_this_system("xcode-select", true));
     assert!(install::fits_this_system("npm", true));
 }
+
+#[test]
+fn tools_found_in_a_wsl_distro_are_remembered_until_forgotten() {
+    let formatter = Formatter::default();
+    // 没有查过：设置页还不知道，等后台查询。
+    assert_eq!(formatter.wsl_asked("Ubuntu", "ruff"), None);
+    formatter.wsl_found("Ubuntu", "ruff", Some(Path::new("/usr/bin/ruff")));
+    formatter.wsl_found("Ubuntu", "black", None);
+    assert_eq!(
+        formatter.wsl_asked("Ubuntu", "ruff"),
+        Some(Some(PathBuf::from("/usr/bin/ruff")))
+    );
+    assert_eq!(formatter.wsl_asked("Ubuntu", "black"), Some(None));
+    // 各发行版分别记录；再次查到时替换。
+    assert_eq!(formatter.wsl_asked("Debian", "ruff"), None);
+    formatter.wsl_found(
+        "Ubuntu",
+        "black",
+        Some(Path::new("/home/me/.local/bin/black")),
+    );
+    assert!(formatter.wsl_asked("Ubuntu", "black").unwrap().is_some());
+    // 重新打开设置时丢弃，新安装的工具得以发现。
+    formatter.forget_wsl();
+    assert_eq!(formatter.wsl_asked("Ubuntu", "ruff"), None);
+}

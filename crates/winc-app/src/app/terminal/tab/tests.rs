@@ -343,3 +343,101 @@ fn a_running_command_selects_its_output_without_the_empty_rows_below() {
     assert!(tab.select_output(0));
     assert_eq!(tab.selected_text(), Ok(Some("building".into())));
 }
+
+#[test]
+fn a_reflow_keeps_a_scrolled_view_near_the_same_content() {
+    let history: Vec<String> = (0..40).map(|i| format!("h{i}")).collect();
+    let history: Vec<&str> = history.iter().map(String::as_str).collect();
+    let mut tab = tab_with(&["a", "b"], &history);
+    tab.scroll = 20;
+    // 变窄后回滚缓冲折成两倍的行：往上翻的行数按比例换算，不回到底部。
+    tab.apply(Frame {
+        cols: 10,
+        rows: 2,
+        full: true,
+        history: (0, 80),
+        ..Frame::default()
+    });
+    assert_eq!(tab.scroll, 40);
+
+    // 回滚缓冲被清空时回到底部。
+    tab.apply(Frame {
+        cols: 10,
+        rows: 2,
+        full: true,
+        history: (0, 0),
+        ..Frame::default()
+    });
+    assert_eq!(tab.scroll, 0);
+}
+
+#[test]
+fn a_taller_grid_does_not_preview_rows_from_before_a_clear() {
+    // 新尺寸还没换上时按辅助进程的规则预排：清屏前的行不拉回，回来的一帧不跳。
+    let mut tab = tab_with(&["$ ", ""], &["old 1", "old 2"]);
+    tab.shown = 4;
+    assert_eq!(tab.top(), 100, "没有清屏时拉回历史行");
+    tab.cleared = 102;
+    assert_eq!(tab.top(), 102);
+    tab.cleared = 101;
+    assert_eq!(tab.top(), 101, "清屏之后滚出去的行仍然拉回");
+}
+
+#[test]
+fn pruning_keeps_the_selection_and_the_rows_near_the_view() {
+    let lines = || -> Vec<Line> {
+        let line = |i| Line {
+            text: format!("h{i}"),
+            ..Line::default()
+        };
+        (0..400).map(line).collect()
+    };
+    // 没有选区：取回的行只留网格附近的，远处的都移除。
+    let mut tab = tab_with(&["a", "b"], &[]);
+    tab.history = (100, 500);
+    tab.store_history(100, lines());
+    tab.prune();
+    assert!(tab.cache.contains_key(&499) && !tab.cache.contains_key(&130));
+
+    // 选区用到的行不移除，选区之外远离网格的行同样移除。
+    let mut tab = tab_with(&["a", "b"], &[]);
+    tab.history = (100, 500);
+    let point = |line| Point { line, col: 0 };
+    tab.selection = Some(Selection {
+        anchor: point(150),
+        head: point(120),
+        unit: Unit::Char,
+    });
+    tab.store_history(100, lines());
+    tab.prune();
+    assert!((120..=150).all(|line| tab.cache.contains_key(&line)));
+    assert!(!tab.cache.contains_key(&119) && !tab.cache.contains_key(&151));
+    assert!(tab.cache.contains_key(&499));
+}
+
+#[test]
+fn words_and_lines_are_selected_across_soft_wraps() {
+    let mut tab = tab_with(&["see src/ver", "y/long/pa", "th.rs:3 ok", "next"], &[]);
+    tab.rows[0].wrapped = true;
+    tab.rows[1].wrapped = true;
+    let p = |line, col| Point { line, col };
+    // 双击折成三行的路径中间一行：整条路径选中。
+    assert_eq!(tab.word_at(p(101, 2)), Some((p(100, 4), p(102, 7))));
+    // 词在行内结束时不越过软换行。
+    assert_eq!(tab.word_at(p(100, 1)), Some((p(100, 0), p(100, 3))));
+    assert_eq!(tab.word_at(p(102, 8)), Some((p(102, 8), p(102, 10))));
+    assert_eq!(tab.word_at(p(103, 1)), Some((p(103, 0), p(103, 4))));
+
+    // 三击其中任意一行：折行连在一起的整条逻辑行选中，不带下一行。
+    assert_eq!(tab.logical_rows(101), (100, 102));
+    assert_eq!(tab.logical_rows(103), (103, 103));
+    tab.selection = Some(Selection {
+        anchor: p(101, 2),
+        head: p(101, 2),
+        unit: Unit::Line,
+    });
+    assert_eq!(
+        tab.selected_text().unwrap().unwrap(),
+        "see src/very/long/path.rs:3 ok"
+    );
+}

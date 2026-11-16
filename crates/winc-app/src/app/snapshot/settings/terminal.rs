@@ -129,6 +129,7 @@ fn the_terminal_font_size_and_switches_write_the_config() {
         (Setting::TerminalConfirmClose, true),
         (Setting::TerminalPrompt, true),
         (Setting::TerminalShellIntegration, true),
+        (Setting::TerminalApplicationPriority, false),
     ] {
         assert_eq!(app.switch_on(setting), on, "{setting:?}");
         app.settings_toggle(setting);
@@ -138,12 +139,17 @@ fn the_terminal_font_size_and_switches_write_the_config() {
     assert_eq!(app.config.terminal_confirm_close, Some(false));
     assert_eq!(app.config.terminal_prompt, Some(false));
     assert_eq!(app.config.terminal_shell_integration, Some(false));
+    assert_eq!(app.config.terminal_application_priority, Some(true));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
 fn the_position_and_meta_key_are_chosen_from_menus() {
     let (mut app, dir) = terminal_settings("settings-terminal-choices");
+    assert_eq!(
+        Setting::TerminalTabPosition.control(),
+        SettingControl::Choice
+    );
 
     app.settings_open_menu(Setting::TerminalPosition);
     assert_eq!(
@@ -153,6 +159,30 @@ fn the_position_and_meta_key_are_chosen_from_menus() {
     assert!(app.menu_checked(MenuCommand::TerminalPosition(false)));
     app.run_menu_command(MenuCommand::TerminalPosition(true));
     assert_eq!(app.config.terminal_right, Some(true));
+    assert!(app.terminal_right());
+
+    app.settings_open_menu(Setting::TerminalTabPosition);
+    assert_eq!(
+        app.overlays.context_menu.as_ref().map(|m| &m.target),
+        Some(&MenuTarget::TerminalTabPosition)
+    );
+    assert_eq!(
+        app.menu_label(MenuCommand::TerminalTabPosition(false))
+            .title,
+        "顶部"
+    );
+    assert_eq!(
+        app.menu_label(MenuCommand::TerminalTabPosition(true)).title,
+        "右侧"
+    );
+    assert!(app.menu_checked(MenuCommand::TerminalTabPosition(false)));
+    app.run_menu_command(MenuCommand::TerminalTabPosition(true));
+    assert_eq!(app.config.terminal_vertical_tabs, Some(true));
+    assert!(app.menu_checked(MenuCommand::TerminalTabPosition(true)));
+    assert!(app.terminal_right());
+    app.settings_open_menu(Setting::TerminalTabPosition);
+    app.run_menu_command(MenuCommand::TerminalTabPosition(false));
+    assert_eq!(app.config.terminal_vertical_tabs, Some(false));
     assert!(app.terminal_right());
 
     // 「Meta 键」只在 macOS 上列出。
@@ -166,6 +196,31 @@ fn the_position_and_meta_key_are_chosen_from_menus() {
             app.config.option_as_meta,
             Some(winc_config::OptionAsMeta::Both)
         );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 绘制终端标签位置菜单，覆盖顶部和右侧两种选择。
+///
+/// ```text
+/// cargo test -p winc-app snapshot_terminal_tab_position_menu -- --ignored
+/// ```
+#[test]
+#[ignore = "截图，手动运行"]
+fn snapshot_terminal_tab_position_menu() {
+    let (mut app, dir) = terminal_settings("settings-terminal-tab-position");
+    for right in [false, true] {
+        app.set_terminal_tab_position(right);
+        app.settings_open_menu(Setting::TerminalTabPosition);
+        shoot(
+            &mut app,
+            if right {
+                "settings-terminal-tabs-right"
+            } else {
+                "settings-terminal-tabs-top"
+            },
+        );
+        app.overlays.context_menu = None;
     }
     let _ = std::fs::remove_dir_all(&dir);
 }

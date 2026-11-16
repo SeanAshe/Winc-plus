@@ -382,14 +382,22 @@ fn find_covers_wrapped_lines_and_new_output() {
     assert_eq!(find.matches.len(), 2);
     assert_eq!(find.matches[find.current.unwrap()], (from, to));
 
-    // 间隔内再次输出：暂不查找，但继续请求绘制下一帧，以便间隔结束后查找。
+    // 间隔内再次输出：暂不查找，也不逐帧重绘，间隔到期时唤醒一次。
     term.feed(b"needle more\r\n");
     app.terminal_message(FromHelper::Frame {
         tab: id,
         frame: term.take_frame().unwrap(),
     });
-    assert!(app.terminal_find_tick());
+    assert!(!app.terminal_find_tick());
     assert_eq!(app.terminal.find.as_ref().unwrap().matches.len(), 2);
+    let now = std::time::Instant::now();
+    let due = app.terminal_find_wake(now).expect("等到间隔结束");
+    assert!(due > now && due <= now + std::time::Duration::from_millis(250));
+    assert_eq!(
+        app.terminal_find_wake(due),
+        None,
+        "到期后请求重绘，不再等待"
+    );
 }
 
 /// 当前匹配绘制在选区之上，可以与其他匹配区分。

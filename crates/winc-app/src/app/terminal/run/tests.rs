@@ -164,3 +164,22 @@ fn the_banner_shows_the_command() {
         "\x1b]133;A\x07\x1b]133;B\x07\x1b[2m▶ run [2J more\x1b[0m\r\n\x1b]133;C\x07"
     );
 }
+
+/// 默认 shell 是本机的命令：项目在 WSL 发行版中时，配置的命令仍在发行版内运行。
+#[test]
+fn a_project_in_a_wsl_distro_runs_inside_it_despite_the_default_shell() {
+    let config = RunConfig {
+        name: "test".into(),
+        command: "cargo".into(),
+        args: vec!["test".into()],
+        cwd: None,
+        env: Vec::new(),
+    };
+    let root = Path::new(r"\\wsl.localhost\Ubuntu\home\me\project");
+    let (launch, _) = run_launch(&config, root, Some("pwsh.exe"), true, Vec::new());
+    assert_eq!(launch.program.as_deref(), Some(&b"wsl.exe"[..]));
+    // 本机的项目按设置的 shell 运行。
+    let local = Path::new(r"C:\code\project");
+    let (launch, _) = run_launch(&config, local, Some("pwsh.exe"), true, Vec::new());
+    assert_eq!(launch.program.as_deref(), Some(&b"pwsh.exe"[..]));
+}

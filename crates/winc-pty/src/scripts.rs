@@ -18,6 +18,11 @@ pub const FISH: &[(&str, &str)] = &[(
     "fish/fish/vendor_conf.d/winc.fish",
     include_str!("../shell/winc.fish"),
 )];
+/// Python 环境的加载脚本：在用户配置读完后调整环境，并提供 `deactivate`。
+pub const PYTHON: &[(&str, &str)] = &[
+    ("python.sh", include_str!("../shell/python.sh")),
+    ("python.fish", include_str!("../shell/python.fish")),
+];
 /// 按用户的登录 shell 设置环境变量和参数、启动它并注入上面各脚本的脚本；第一个参数是脚本所在
 /// 的目录。用于 WSL 发行版和远端主机。
 pub const LAUNCH: &[(&str, &str)] = &[("wsl.sh", include_str!("../shell/wsl.sh"))];
@@ -30,11 +35,15 @@ pub const REMOTE_DIR: &str = ".winc-server/shell";
 pub const REMOTE_NONCE: &str = "@WINC_NONCE@";
 
 /// 在远端启动带集成的登录 shell 的脚本，由 `sh -c` 运行：第一个参数是随机数，第二个是是否
-/// 换上 winc 的提示符（`0` 为不换，与本机一样只在这时设置 `WINC_PROMPT`）。脚本不在（尚未写好、主目录不可写）时启动不带集成的 shell。
+/// 换上 winc 的提示符，第三个是是否加载 Python 环境（`0` 为否，与本机一样只在这时设置
+/// `WINC_PROMPT`、`WINC_PYTHON`），第四个是要启动的 shell（空的是用户的登录 shell）。脚本不在
+/// （尚未写好、主目录不可写）时启动不带集成的 shell。
 /// 不含单引号，可以整个包在单引号里交给各种登录 shell。
 const REMOTE_START: &str = concat!(
+    r#"[ -n "$4" ] && export SHELL=$4; "#,
     r#"d=$HOME/.winc-server/shell; [ -r "$d/wsl.sh" ] && "#,
-    r#"{ [ "$2" = 0 ] && export WINC_PROMPT=0; WINC_NONCE=$1 exec sh "$d/wsl.sh" "$d"; }; "#,
+    r#"{ [ "$2" = 0 ] && export WINC_PROMPT=0; [ "$3" = 0 ] && export WINC_PYTHON=0; "#,
+    r#"WINC_NONCE=$1 exec sh "$d/wsl.sh" "$d"; }; "#,
     r#"exec "${SHELL:-/bin/sh}" -l"#,
 );
 
@@ -53,17 +62,24 @@ pub fn unix_lines(content: &str) -> Cow<'_, str> {
 /// 返回远端主机上各个集成脚本的相对路径和内容（换行符为 LF，见 [`unix_lines`]），写到那台
 /// 主机的 [`REMOTE_DIR`] 之下。
 pub fn remote() -> impl Iterator<Item = (&'static str, Cow<'static, str>)> {
-    [ZSH, BASH, FISH, LAUNCH]
+    [ZSH, BASH, FISH, PYTHON, LAUNCH]
         .into_iter()
         .flatten()
         .map(|&(name, content)| (name, unix_lines(content)))
 }
 
 /// 返回在远端启动带集成的登录 shell 的命令，接在 `cd '目录' &&` 之后交给 `ssh`；`prompt` 为
-/// 假时不换提示符。其中的 [`REMOTE_NONCE`] 由辅助进程替换。
-pub fn remote_command(prompt: bool) -> String {
-    let prompt = u8::from(prompt);
-    format!("exec sh -c '{REMOTE_START}' winc {REMOTE_NONCE} {prompt}")
+/// 假时不换提示符，`python` 为假时不加载 Python 环境，`shell` 是要启动的 shell 在那台主机上
+/// 的路径（`None` 是用户的登录 shell）。其中的 [`REMOTE_NONCE`] 由辅助进程替换。
+pub fn remote_command(prompt: bool, python: bool, shell: Option<&str>) -> String {
+    let (prompt, python) = (u8::from(prompt), u8::from(python));
+    let shell = single_quoted(shell.unwrap_or_default());
+    format!("exec sh -c '{REMOTE_START}' winc {REMOTE_NONCE} {prompt} {python} {shell}")
+}
+
+/// 把 `text` 包在单引号里，其中的单引号写成 `'\''`：各种登录 shell 都按字面处理。
+pub fn single_quoted(text: &str) -> String {
+    format!("'{}'", text.replace('\'', r"'\''"))
 }
 
 #[cfg(test)]
@@ -85,12 +101,19 @@ mod tests {
     fn the_remote_command_survives_any_login_shell() {
         // 整个脚本包在单引号里：其中不能有单引号；`!` 在 tcsh 的单引号里仍然引出历史。
         assert!(!REMOTE_START.contains(['\'', '!', '\n']));
-        let command = remote_command(false);
-        assert!(command.starts_with("exec sh -c 'd=$HOME/.winc-server/shell;"));
-        assert!(command.ends_with("' winc @WINC_NONCE@ 0"));
+        let command = remote_command(false, true, None);
+        assert!(command.starts_with("exec sh -c '[ -n \"$4\" ] && export SHELL=$4; d=$HOME/"));
+        assert!(command.ends_with("' winc @WINC_NONCE@ 0 1 ''"));
+        assert!(remote_command(true, false, None).ends_with("' winc @WINC_NONCE@ 1 0 ''"));
+        // 选定的 shell 作为第四个参数，路径中的单引号不结束引号。
+        let chosen = remote_command(true, true, Some("/opt/it's/fish"));
+        assert!(
+            chosen.ends_with(r"' winc @WINC_NONCE@ 1 1 '/opt/it'\''s/fish'"),
+            "{chosen}"
+        );
         assert!(REMOTE_START.contains(REMOTE_DIR));
         let names: Vec<_> = remote().map(|(name, _)| name).collect();
         assert!(names.contains(&"wsl.sh") && names.contains(&"zsh/.zshenv"));
-        assert_eq!(names.len(), 5);
+        assert_eq!(names.len(), 7);
     }
 }

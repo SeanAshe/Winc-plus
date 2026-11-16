@@ -468,6 +468,13 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
                     t!("settings-terminal-position-bottom")
                 };
                 (text.to_owned(), false)
+            } else if row.setting == Setting::TerminalTabPosition {
+                let text = if app.config.terminal_vertical_tabs == Some(true) {
+                    t!("settings-terminal-tab-position-right")
+                } else {
+                    t!("settings-terminal-tab-position-top")
+                };
+                (text.to_owned(), false)
             } else if row.setting == Setting::TerminalOptionAsMeta {
                 let choice = (app.config.option_as_meta).unwrap_or(winc_config::OptionAsMeta::Left);
                 (

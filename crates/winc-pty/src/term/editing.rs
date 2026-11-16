@@ -299,6 +299,9 @@ impl Emulator {
             }
             2 => {
                 self.keep_screen_in_history();
+                if !self.alt {
+                    self.cleared = self.history.range().1;
+                }
                 let marks = self.prompt_marks();
                 for row in 0..self.rows {
                     self.erase_row(row);

@@ -576,6 +576,13 @@ pub fn terminal_position_menu() -> Vec<MenuEntry> {
         .into()
 }
 
+/// 返回终端「标签位置」菜单的菜单项：顶部、右侧，当前的选择打勾。
+pub fn terminal_tab_position_menu() -> Vec<MenuEntry> {
+    [false, true]
+        .map(|right| MenuEntry::Item(MenuCommand::TerminalTabPosition(right), true))
+        .into()
+}
+
 /// 返回「Meta 键」菜单的菜单项，当前的选择打勾。
 pub fn option_as_meta_menu() -> Vec<MenuEntry> {
     (0..winc_config::OptionAsMeta::ALL.len())

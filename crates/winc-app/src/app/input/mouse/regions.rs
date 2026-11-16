@@ -386,7 +386,14 @@ impl App {
             .goto_input
             .as_ref()
             .map(|f| (Focus::Prompt, true, f));
-        let rename = (self.terminal.rename.as_ref()).map(|(_, f)| (Focus::TerminalRename, true, f));
+        let rename = self.terminal.rename.as_ref().map(|(id, field)| {
+            let shown = self.hits.terminal.iter().any(|(rect, hit)| {
+                matches!(hit, crate::app::terminal::HeaderHit::Tab(index)
+                    if rect.contains(x, y)
+                        && self.terminal.tabs.get(*index).is_some_and(|tab| tab.id == *id))
+            });
+            (Focus::TerminalRename, shown, field)
+        });
         let terminal_find =
             (self.terminal.find.as_ref()).map(|f| (Focus::TerminalFind, true, &f.field));
         let shown = self.panel_shown();

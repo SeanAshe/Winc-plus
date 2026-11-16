@@ -263,7 +263,7 @@ impl App {
         match command {
             MenuCommand::GitShowDiff => self.open_log_file(i),
             MenuCommand::GitOpenFile => {
-                if winc_backend::fs::is_file(&path) {
+                if self.may_be_file(&path) {
                     self.open_path(&path);
                     self.focus = Focus::Editor;
                 }

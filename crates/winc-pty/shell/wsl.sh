@@ -24,7 +24,7 @@ fish)
     exec "$shell" -l
     ;;
 *)
-    unset WINC_NONCE
+    unset WINC_NONCE WINC_PYTHON
     exec "$shell" -l
     ;;
 esac

@@ -1,12 +1,17 @@
-# winc 的 shell 集成（docs/TERMINAL.md §6.2）。winc 启动 zsh 时把 ZDOTDIR 指到这个目录，zsh 先读
-# 这个文件：恢复用户原来的 ZDOTDIR，照常读用户自己的 .zshenv（之后的 .zprofile、.zshrc 也都按
-# 用户的 ZDOTDIR 读），交互式的 shell 再挂上命令块的钩子。这个文件由 winc 生成，改了会被覆盖。
+# zsh 的启动环境：记录启动目录，恢复用户的 `ZDOTDIR` 并读取用户的 `.zshenv`。
+# 交互式 shell 从 `winc.zsh` 安装命令块钩子，后续配置仍按用户的 `ZDOTDIR` 读取。
+# winc 通过 `ZDOTDIR` 指向本文件所在目录，启动前按需生成。
 
 builtin typeset -g _winc_dir=${${(%):-%x}:A:h}
-# terminal.prompt 关了时 winc 传 WINC_PROMPT=0：不换默认的提示符（见 winc.zsh）。
+# 记录启动目录，用户配置中的 `cd` 不改变项目环境的选择。
+builtin typeset -g _winc_python_root=$PWD
+# `WINC_PYTHON=0` 时不加载启动目录中的 Python 环境：用户没有允许这个目录。
+builtin typeset -g _winc_python=${WINC_PYTHON-1}
+builtin unset WINC_PYTHON
+# `WINC_PROMPT=0` 时保留默认提示符，由 `terminal.prompt` 控制。
 builtin typeset -g _winc_prompt=${WINC_PROMPT-1}
 builtin unset WINC_PROMPT
-# 报命令行时带上的随机数（docs/TERMINAL.md §6.3）：放在不导出的变量里，命令看不到。
+# 命令行报告附带的随机数，保存在未导出的变量中，供 OSC 133 验证。
 builtin typeset -g _winc_nonce=${WINC_NONCE-}
 builtin unset WINC_NONCE
 if [[ -n ${WINC_ZDOTDIR+x} ]]; then

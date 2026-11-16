@@ -113,6 +113,7 @@ fn from_helper() -> Vec<FromHelper> {
                 modes: Modes(Modes::APP_CURSOR | Modes::MOUSE_SGR),
                 keyboard: 1,
                 history: (5, 99),
+                cleared: 42,
             },
         },
         FromHelper::History {

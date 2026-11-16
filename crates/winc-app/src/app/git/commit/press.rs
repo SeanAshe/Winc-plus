@@ -216,7 +216,7 @@ impl App {
                 }
                 // 双击打开文件本身，单击选中并预览差异。
                 let (x, y) = self.pointer.mouse;
-                if self.click_count(x, y) >= 2 && winc_backend::fs::is_file(&path) {
+                if self.click_count(x, y) >= 2 && self.may_be_file(&path) {
                     self.open_path(&path);
                     self.focus = Focus::Editor;
                 } else {
@@ -238,7 +238,7 @@ impl App {
                 let Some(path) = self.commit_entry(i).map(|e| e.path.clone()) else {
                     return;
                 };
-                if winc_backend::fs::is_file(&path) {
+                if self.may_be_file(&path) {
                     self.open_path(&path);
                     self.focus = Focus::Editor;
                 } else {

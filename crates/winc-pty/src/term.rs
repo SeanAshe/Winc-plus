@@ -448,6 +448,8 @@ struct Emulator {
     history_erased: bool,
     /// 上一次清屏时移入回滚缓冲的行；之后有其他行滚入回滚缓冲时清除。
     last_kept: Option<Vec<Row>>,
+    /// 最近一次清屏时回滚缓冲末尾的绝对行号：此前的行已被清出屏幕，改尺寸时不拉回屏幕。
+    cleared: u64,
     /// 当前画笔，写入字符时使用。
     pen: Style,
     /// 滚动区域的首末行 `top..bottom`。
@@ -501,6 +503,14 @@ struct Emulator {
     blocks: Blocks,
     /// shell 集成脚本附带的随机数（OSC 133 `C` 的 `nonce=`）；为 `None` 时不记录命令行。
     nonce: Option<String>,
+    /// 集成脚本是否声明结束标记附带随机数（OSC 133 `A` 的 `signed=1`）。
+    signed_end: bool,
+    /// 正在运行的命令是否由附带有效随机数的 `C` 开始。
+    verified: bool,
+    /// 程序设置的窗口标题。
+    title: String,
+    /// 程序保存的窗口标题（`CSI 22 t`），供退出时恢复（`CSI 23 t`）。
+    titles: Vec<String>,
 }
 
 impl Emulator {
@@ -514,6 +524,7 @@ impl Emulator {
             history: History::new(scrollback),
             history_erased: false,
             last_kept: None,
+            cleared: 0,
             pen: Style::default(),
             top: 0,
             bottom: rows,
@@ -541,6 +552,10 @@ impl Emulator {
             responses: Vec::new(),
             blocks: Blocks::default(),
             nonce: None,
+            signed_end: false,
+            verified: false,
+            title: String::new(),
+            titles: Vec::new(),
         };
         emu.reset_tabs();
         emu.damage.clear(rows);
@@ -660,6 +675,7 @@ impl Emulator {
             modes: state.1,
             keyboard: state.2,
             history: state.3,
+            cleared: self.cleared,
         };
         self.damage.clear(self.rows);
         self.sent = Some(state);

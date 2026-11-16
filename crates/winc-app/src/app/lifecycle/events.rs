@@ -499,6 +499,9 @@ impl App {
             UserEvent::RunApproved(config) => self.approved_run(*config),
             UserEvent::TerminalClose(id) => self.confirmed_terminal_close(id),
             UserEvent::TerminalRestart(id) => self.confirmed_terminal_restart(id),
+            UserEvent::PythonEnvironment(venv, load) => {
+                self.answered_python_environment(venv, load)
+            }
             UserEvent::ShellCommandDone(done) => self.shell_command_done(done),
             UserEvent::TerminalShells(shells) => {
                 self.terminal.shells = shells;
@@ -650,6 +653,8 @@ impl App {
 
         let resize = self.terminal_resize_tick(now);
         earliest(&mut wake, resize);
+        let find = self.terminal_find_wake(now);
+        earliest(&mut wake, find);
         let mapping = self.vim_tick(now);
         earliest(&mut wake, mapping);
         // 当前标签正在读取且保留上一帧未绘制时，到期仍未读取完成则绘制「正在读取」。

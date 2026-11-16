@@ -72,7 +72,7 @@ impl App {
         if self.tabs.drag.is_some() {
             self.drag_tab(x);
         }
-        self.drag_terminal_tab(x);
+        self.drag_terminal_tab(self.terminal.strip.along((x, y)));
 
         self.set_hover(self.hover_at(x, y));
         let code = self

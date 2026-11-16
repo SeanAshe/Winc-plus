@@ -85,6 +85,7 @@ settings-terminal-module = Terminal
 settings-remote-module = SSH Remote (Experimental)
 settings-terminal-shell = Default Shell
 settings-terminal-position = Panel Position
+settings-terminal-tab-position = Tab Position
 settings-terminal-font = Font
 settings-terminal-size = Font Size
 settings-terminal-copy-on-select = Copy on Select
@@ -97,6 +98,7 @@ settings-git-confirm-push = Confirm Before Pushing
 settings-git-staging-area = Staging Area
 settings-terminal-prompt = Winc Prompt
 settings-terminal-shell-integration = Shell Integration
+settings-terminal-application-priority = Terminal Application Priority
 settings-terminal-option-as-meta = Meta Key
 settings-key-search = Search Shortcuts
 
@@ -171,9 +173,10 @@ settings-terminal-copy-on-select-desc = Copy selected text to the clipboard auto
 settings-terminal-confirm-close-desc = Ask before closing a tab that’s still running a program
 settings-terminal-prompt-desc = Replace the default prompt with the folder, Git branch and exit status
 settings-terminal-shell-integration-desc = { $platform ->
-    [windows] Split WSL zsh, bash and fish output into command blocks to fold and jump between
-   *[other] Split zsh, bash and fish output into command blocks to fold and jump between
+    [windows] Group WSL output by command and load Python environments automatically
+   *[other] Group output by command and load Python environments automatically
 }
+settings-terminal-application-priority-desc = Pass shortcuts to the terminal application, keeping terminal management, copy and paste
 settings-terminal-option-as-meta-desc = Send an Esc prefix instead of typing special characters with the chosen ⌥
 
 ## Setting values and hints.
@@ -191,6 +194,8 @@ settings-terminal-shell-custom = Custom Command…
 settings-terminal-shell-placeholder = Enter a command; quote paths that contain spaces
 settings-terminal-position-bottom = Bottom
 settings-terminal-position-right = Right
+settings-terminal-tab-position-top = Top
+settings-terminal-tab-position-right = Right
 settings-terminal-font-default = Match Editor
 settings-terminal-option-as-meta-left = Left ⌥
 settings-terminal-option-as-meta-right = Right ⌥

@@ -8,6 +8,8 @@
 //! 图形的字符（制表符、方块元素、Powerline 分隔符）除外。
 
 mod grid;
+mod list;
+mod tabs;
 
 use grid::*;
 
@@ -19,7 +21,7 @@ use winc_render::{Color, FontKind, Frame, Rect};
 use super::*;
 use crate::app::Focus;
 use crate::app::MARK_W;
-use crate::app::terminal::strip::{TAB_GAP, fit_named_tabs, tabs_narrowed};
+use crate::app::terminal::strip::TAB_GAP;
 use crate::app::terminal::{
     BAND_X, BlockHit, FIND_OPTIONS_MIN, FindPart, HeaderHit, TabEnd, TermTab, ViewRow,
     format_duration, header_height, tab_inset,
@@ -56,7 +58,17 @@ fn draw_panel(app: &mut App, frame: &mut Frame<'_>) {
     let p = app.palette;
     let focused = app.focus == Focus::Terminal;
     frame.rect(card, p.editor_bg);
+    app.note_terminal_tabs();
     draw_header(app, frame, card);
+    let opacity = app
+        .terminal
+        .strip
+        .position
+        .opacity(app.config.terminal_vertical_tabs == Some(true));
+    if opacity > 0.0 {
+        frame.with_opacity(opacity, |frame| list::draw_list(app, frame));
+    }
+    let card = app.terminal_content_card();
 
     let grid = app.terminal_grid();
     if let Some(error) = &app.terminal.error {
@@ -420,10 +432,8 @@ fn draw_sticky(
     }
 }
 
-/// 标签栏：各个标签（当前标签凸起，悬停或正在看时露出关闭按钮）、「+」；右边是运行配置的按钮，
-/// 最右端是切换面板位置、收起面板两个按钮。
+/// 终端工具栏：横向模式左侧为标签，竖向模式左侧为运行配置；面板操作固定在右侧。
 fn draw_header(app: &mut App, frame: &mut Frame<'_>, card: Rect) {
-    app.note_terminal_tabs();
     app.note_stop_button();
     let p = app.palette;
     let header = Rect::new(card.x, card.y, card.w, header_height(card));
@@ -448,166 +458,48 @@ fn draw_header(app: &mut App, frame: &mut Frame<'_>, card: Rect) {
     let position = Rect::new(hide.x - TAB_GAP - BUTTON, button_y, BUTTON, BUTTON);
     let maximize = Rect::new(position.x - TAB_GAP - BUTTON, button_y, BUTTON, BUTTON);
     let run = run_buttons(app, frame, left, maximize.x - TAB_GAP, button_y);
+    let vertical = app.terminal_tab_list().is_some();
     // 标签和「+」放得下的宽度。
-    let rest = run.map_or(maximize.x, |[menu, ..]| menu.x) - TAB_GAP;
+    let rest = if vertical {
+        maximize.x
+    } else {
+        run.map_or(maximize.x, |[menu, ..]| menu.x)
+    } - TAB_GAP;
     // 能选的 shell 不止一个时，「+」右边是选 shell 的按钮。
     let shell_menu = app.terminal_shell_list().len() > 1;
-    let room = rest - left - TAB_GAP - BUTTON;
-    let room = if shell_menu {
-        room - TAB_GAP - BUTTON
-    } else {
+    let room = rest - left;
+    let room = if vertical {
         room
-    };
-    let names: Vec<f32> = (app.terminal.tabs.iter())
-        .map(|tab| {
-            // 正在改名字的标签跟着输入的字变宽。
-            let label = match &app.terminal.rename {
-                Some((id, field)) if *id == tab.id => field.text(),
-                _ => tab.label(),
-            };
-            frame.measure(FontKind::Ui, app.fonts.ui, label) + 36.0
-        })
-        .collect();
-    let widths = fit_named_tabs(&names, room);
-    // 最窄时仍放不下：标签栏可以横向滚动，切换标签或增减标签时滚到正在看的标签；超出的部分裁剪，
-    // 「+」始终显示。还没有标签（刚打开、shell 尚未启动）时不滚动。
-    let span = |n: usize| {
-        let n = n.min(widths.len());
-        widths[..n].iter().sum::<f32>() + TAB_GAP * n.saturating_sub(1) as f32
-    };
-    let total = span(widths.len());
-    let max_scroll = (total - room).max(0.0);
-    let active = app.terminal.active;
-    let current = app
-        .terminal
-        .tabs
-        .get(active)
-        .map(|tab| (tab.id, widths.len()));
-    let strip = &mut app.terminal.strip;
-    let mut scroll = strip.scroll;
-    if strip.revealed != current {
-        strip.revealed = current;
-        let start = (span(active + 1) - widths.get(active).copied().unwrap_or(0.0)).max(0.0);
-        scroll = scroll.min(start).max(span(active + 1) - room);
-    }
-    let scroll = scroll.clamp(0.0, max_scroll);
-    strip.scroll = scroll;
-    strip.max_scroll = max_scroll;
-    let area = Rect::new(left, header.y, room.max(0.0), header.h).intersect(header);
-    app.terminal.strip.widths.clone_from(&widths);
-    app.terminal.strip.left = left - scroll;
-    let dragged = app.dragged_terminal_tab();
-    let mut rename = app.terminal.rename.take();
-    let mut caret = None;
-    let strip = &app.terminal.strip;
-    let mut hits = Vec::new();
-    let mut x = left - scroll;
-    let mut lifted = None;
-    // 正在看的、悬停的、拖着的标签有自己的底色，两边不绘制竖线。
-    let hovered = match app.pointer.hover {
-        Hover::TerminalHeader(HeaderHit::Tab(i) | HeaderHit::Close(i)) => Some(i),
-        _ => None,
-    };
-    let plain = |i: usize| {
-        i != app.terminal.active
-            && Some(i) != hovered
-            && dragged.is_none_or(|(id, _)| id != app.terminal.tabs[i].id)
-    };
-
-    // 每个位置先绘制在该处关闭的标签（内容淡出后宽度收起），再绘制该处的标签：新建的标签从零宽
-    // 展开，内容随后淡入；拖动中的标签最后绘制，位于其他标签之上。
-    for slot in 0..=widths.len() {
-        for ghost in strip.closing.iter().filter(|g| g.at == slot) {
-            let t = ghost.clock.progress();
-            let rect = Rect::new(x, y, ghost.width, TAB_H);
-            let clip = rect.intersect(area);
-            frame.with_opacity(ghost.fade.fade_out(), |frame| {
-                let color = if ghost.active { p.text } else { p.text_muted };
-                let state = (ghost.active, false);
-                draw_tab(app, frame, rect, clip, &ghost.label, state, color);
-            });
-            x += (ghost.width + TAB_GAP) * (1.0 - t);
-        }
-        let Some(&w) = widths.get(slot) else {
-            break;
-        };
-        let tab = &app.terminal.tabs[slot];
-        let grow = strip.grow(tab.id);
-        match dragged {
-            Some((id, at)) if id == tab.id => lifted = Some((slot, at)),
-            _ => {
-                let rect = Rect::new(x + strip.slide(tab.id), y, w, TAB_H);
-                let clip = Rect::new(rect.x, y, w * grow, TAB_H).intersect(area);
-                frame.with_opacity(reveal(grow), |frame| {
-                    // 竖线绘制在左边的间距正中，跟着标签一起滑。
-                    if slot > 0 && plain(slot) && plain(slot - 1) {
-                        let h = TAB_H / 2.0;
-                        let line = Rect::new(rect.x - TAB_GAP / 2.0 - 0.5, y + h / 2.0, 1.0, h);
-                        frame.rect_clipped(line, p.tab_divider, 0.0, area);
-                    }
-                    let field = rename.as_mut();
-                    caret = caret.or(draw_terminal_tab(
-                        app, frame, slot, rect, clip, &mut hits, field,
-                    ));
-                });
-            }
-        }
-        x += (w + TAB_GAP) * grow;
-    }
-    if let Some((slot, at)) = lifted {
-        let rect = Rect::new(at, y, widths[slot], TAB_H);
-        let field = rename.as_mut();
-        caret = caret.or(draw_terminal_tab(
-            app, frame, slot, rect, area, &mut hits, field,
-        ));
-    }
-    app.terminal.rename = rename;
-    if caret.is_some() {
-        app.ime.cursor = caret;
-    }
-    // 放不下时被裁掉的一端渐隐，强度随离两端的距离变化，与编辑区标签栏相同。
-    let edge = workspace::top_bar::TAB_FADE;
-    for (hidden, x, opaque_left) in [
-        (scroll, area.x, true),
-        (max_scroll - scroll, area.right() - edge, false),
-    ] {
-        if hidden > 0.0 {
-            let rect = Rect::new(x, y, edge, TAB_H);
-            frame.with_opacity((hidden / edge).min(1.0), |frame| {
-                super::fade(frame, rect, p.editor_bg, opaque_left);
-            });
-        }
-    }
-
-    // 标签已经收窄时「+」固定在最右端：新建标签时其他标签立即收窄、新标签从零宽展开，按当前宽度
-    // 计算会使「+」先左移，再随动画右移。
-    let end = area.right() + TAB_GAP;
-    let new_x = if tabs_narrowed(&names, &widths) {
-        end
+    } else if shell_menu {
+        room - 2.0 * (TAB_GAP + BUTTON)
     } else {
-        x.min(end)
+        room - TAB_GAP - BUTTON
     };
-    let new = Rect::new(new_x, button_y, BUTTON, BUTTON);
-    if app.pointer.hover == Hover::TerminalHeader(HeaderHit::New) {
-        frame.rect_clipped(new, p.hover, RADIUS_ROW, header);
-    }
-    icons::plus(
-        frame,
-        (new.x + BUTTON / 2.0, new.y + BUTTON / 2.0),
-        9.0,
-        p.text_muted,
-        header,
-    );
-    hits.push((new, HeaderHit::New));
-    if shell_menu {
-        use crate::app::MenuButton;
-        let menu = Rect::new(new.right() + TAB_GAP, button_y, BUTTON, BUTTON);
-        let on = app.pointer.hover == Hover::TerminalHeader(HeaderHit::ShellMenu);
-        let open = app.overlays.menu_button == Some(MenuButton::TerminalShells);
-        draw_button(frame, p, menu, header, on, open);
-        let direction = icons::Direction::Down;
-        icons::chevron(frame, center(menu), 8.0, direction, p.text_muted, header);
-        hits.push((menu, HeaderHit::ShellMenu));
+    let area = Rect::new(left, header.y, room.max(0.0), header.h).intersect(header);
+    let (new_x, mut hits) = tabs::draw_header_tabs(app, frame, area, y);
+    if !vertical {
+        let new = Rect::new(new_x, button_y, BUTTON, BUTTON);
+        if app.pointer.hover == Hover::TerminalHeader(HeaderHit::New) {
+            frame.rect_clipped(new, p.hover, RADIUS_ROW, header);
+        }
+        icons::plus(
+            frame,
+            (new.x + BUTTON / 2.0, new.y + BUTTON / 2.0),
+            9.0,
+            p.text_muted,
+            header,
+        );
+        hits.push((new, HeaderHit::New));
+        if shell_menu {
+            use crate::app::MenuButton;
+            let menu = Rect::new(new.right() + TAB_GAP, button_y, BUTTON, BUTTON);
+            let on = app.pointer.hover == Hover::TerminalHeader(HeaderHit::ShellMenu);
+            let open = app.overlays.menu_button == Some(MenuButton::TerminalShells);
+            draw_button(frame, p, menu, header, on, open);
+            let direction = icons::Direction::Down;
+            icons::chevron(frame, center(menu), 8.0, direction, p.text_muted, header);
+            hits.push((menu, HeaderHit::ShellMenu));
+        }
     }
 
     // 右端：最大化或还原面板，图标绘制的是点下去以后的样子。
@@ -661,28 +553,62 @@ const RUN_TABS_MIN: f32 = 240.0;
 ///
 /// 面板窄时只保留下拉箭头，配置名可在菜单中看到；再窄时返回 `None`，用命令面板运行。
 pub(super) fn run_menu_width(name: f32, room: f32) -> Option<f32> {
+    run_menu_space(name, room, RUN_TABS_MIN)
+}
+
+fn run_menu_space(name: f32, room: f32, title: f32) -> Option<f32> {
     let buttons = (BUTTON + TAB_GAP) * 2.0;
     // 向上取整：绘制时从按钮宽度减回文字宽度，浮点误差不能让放得下的名字被截短。
     let full = name.min(RUN_NAME_MAX).ceil() + RUN_NAME_CHROME;
     [full, BUTTON]
         .into_iter()
-        .find(|menu| room - menu - buttons >= RUN_TABS_MIN)
+        .find(|menu| room - menu - buttons >= title)
 }
 
 /// 运行配置的按钮在标签栏上的位置（配置名，运行，停止）。
 ///
 /// 还没有配置时只有运行按钮，点击后生成配置文件；没有打开目录或太窄时没有按钮。停止按钮只在运行时
-/// 出现，其余时候运行按钮贴着右边。
+/// 出现。竖向模式靠左排列，配置名和运行按钮位置固定；横向模式靠右排列，停止按钮出现时向左让位。
 fn run_buttons(app: &App, frame: &mut Frame<'_>, left: f32, end: f32, y: f32) -> Option<[Rect; 3]> {
     app.editor.root()?;
+    let vertical = app.terminal_tab_list().is_some();
+    let shown = app
+        .terminal
+        .strip
+        .position
+        .share(app.config.terminal_vertical_tabs == Some(true));
     let last = Rect::new(end - BUTTON, y, BUTTON, BUTTON);
     let Some(config) = app.run.current() else {
-        return (end - left - BUTTON >= RUN_TABS_MIN).then_some([last; 3]);
+        let (title, button) = if vertical {
+            (
+                0.0,
+                Rect::new(last.x + (left - last.x) * shown, y, BUTTON, BUTTON),
+            )
+        } else {
+            (RUN_TABS_MIN, last)
+        };
+        return (end - left - BUTTON >= title).then_some([button; 3]);
     };
+    let name = frame.measure(FontKind::Ui, app.fonts.ui, &config.name);
+    if vertical {
+        let full = run_menu_space(name, end - left, 0.0)?;
+        let stop_share = app.terminal.strip.stop_share(app.run_config_running());
+        let spare = (1.0 - stop_share) * (BUTTON + TAB_GAP);
+        let top = run_menu_width(name, end - left + spare).unwrap_or(BUTTON);
+        let width = top + (full - top) * shown;
+        let menu = Rect::new(left, y, width, BUTTON);
+        let start = Rect::new(menu.right() + TAB_GAP, y, BUTTON, BUTTON);
+        let stop = Rect::new(start.right() + TAB_GAP, y, BUTTON, BUTTON);
+        let end_x = start.right() + stop_share * (TAB_GAP + BUTTON);
+        let shift = (end - end_x).max(0.0) * (1.0 - shown);
+        return Some([menu, start, stop].map(|rect| Rect {
+            x: rect.x + shift,
+            ..rect
+        }));
+    }
     // 停止按钮出现、消失时，运行按钮、配置名和标签跟着滑动。
     let share = app.terminal.strip.stop_share(app.run_config_running());
     let start = Rect::new(last.x - share * (TAB_GAP + BUTTON), y, BUTTON, BUTTON);
-    let name = frame.measure(FontKind::Ui, app.fonts.ui, &config.name);
     // `run_menu_width` 按运行、停止两个按钮算：没有停止按钮时多出一个的位置。
     let spare = (1.0 - share) * (BUTTON + TAB_GAP);
     let menu = run_menu_width(name, end - left + spare)?;
@@ -769,10 +695,15 @@ fn draw_terminal_tab(
         workspace::top_bar::draw_tab_fill(frame, p, rect, true, false, clip);
         let focused = app.focus == Focus::TerminalRename;
         let field_rect = rect.inset(3.0, 3.0);
-        field_box(app, frame, field_rect, p.tab_fill, focused, false);
         let area = field_rect.inset(6.0, 0.0);
         hits.push((rect.intersect(clip), HeaderHit::Tab(i)));
-        return draw_bar_field(app, frame, area, field, "", focused).filter(|_| focused);
+        let caret = frame.within(clip, |frame| {
+            field_box(app, frame, field_rect, p.tab_fill, focused, false);
+            draw_bar_field(app, frame, area, field, "", focused)
+        });
+        return caret
+            .map(|caret| caret.intersect(clip))
+            .filter(|caret| caret.w > 0.0 && caret.h > 0.0);
     }
     let active = i == app.terminal.active;
     let hovered = matches!(app.pointer.hover, Hover::TerminalHeader(HeaderHit::Tab(j) | HeaderHit::Close(j)) if j == i);
