@@ -1,13 +1,12 @@
-//! 终端面板的标签栏：新建的标签从零宽长出来，关掉的在原位收窄、淡出，右边的跟着让开；按住
-//! 标签左右拖动调整顺序，越过相邻标签的中线时和它换位，被换的那个滑过去。
+//! 终端标签沿排列方向的滚动与拖动排序，及横向标签的新建、关闭和换位动画。
 //!
-//! 动画参数与编辑区的标签栏相同。放不下时标签栏可以用滚轮横向滚动，不显示滚动条；切换标签、
+//! 动画参数与编辑区的标签栏相同。放不下时标签栏沿排列方向滚动；切换标签、
 //! 新建或关闭标签时滚到正在看的标签。
 
 use winit::event::KeyEvent;
 use winit::keyboard::{Key, NamedKey};
 
-use super::super::animation::{Clock, EXIT_FADE, TAB_SLIDE};
+use super::super::animation::{Clock, EXIT_FADE, MODULE_FADE, Presence, TAB_SLIDE};
 use super::{App, Focus};
 use crate::field::TextField;
 
@@ -17,9 +16,13 @@ pub(crate) const TAB_MIN: f32 = 120.0;
 pub(crate) const TAB_MAX: f32 = 220.0;
 /// 标签多、面板窄时一起变窄，最窄多少：还看得见两三个字和关闭按钮。
 pub(crate) const TAB_SQUEEZED: f32 = 72.0;
-/// 标签之间的间距（逻辑像素）。
+/// 横向标签之间的间距（逻辑像素）。
 pub(crate) const TAB_GAP: f32 = 4.0;
-/// 按下以后横向移动超过多远才算拖动（逻辑像素，经验值），不足时仍按单击处理。
+/// 竖向终端条目之间的间距（逻辑像素）。
+///
+/// 取自调参：底部和右侧面板中，相邻条目可区分，列表仍保持紧凑。
+pub(crate) const LIST_GAP: f32 = 2.0;
+/// 拖动起始距离（逻辑像素），与编辑区标签的拖动阈值相同。
 const THRESHOLD: f32 = 4.0;
 
 /// 刚关闭的标签：内容在原位淡出，之后宽度收起。
@@ -28,8 +31,8 @@ pub(crate) struct Ghost {
     pub at: usize,
     /// 标签上的文字。
     pub label: String,
-    /// 收窄前的宽度（逻辑像素）。
-    pub width: f32,
+    /// 收起前沿排列方向的长度（逻辑像素）。
+    pub size: f32,
     /// 关掉时是否是正在看的标签。
     pub active: bool,
     /// 内容淡出的时钟。
@@ -43,27 +46,29 @@ pub(crate) struct Ghost {
 struct Drag {
     /// 标签编号。
     id: u16,
-    /// 按下点到标签左边的距离。
+    /// 按下点到标签起点的距离（沿排列方向，逻辑像素）。
     grab: f32,
-    /// 按下时的横坐标（逻辑像素），用来判断是否超过了拖动阈值。
-    start_x: f32,
-    /// 是否已经开始拖动（横向移动超过 [`THRESHOLD`]）。
+    /// 按下时沿排列方向的位置（窗口坐标，逻辑像素）。
+    pressed: f32,
+    /// 是否已经开始拖动（沿排列方向移动超过 [`THRESHOLD`]）。
     moving: bool,
 }
 
 /// 标签栏的动画和拖动。
 #[derive(Default)]
 pub(crate) struct Strip {
-    /// 上一帧各个标签到位以后的宽度，拖动时算位置用。
-    pub widths: Vec<f32>,
-    /// 上一帧第一个标签的左边。
-    pub left: f32,
-    /// 标签栏的横向滚动量（逻辑像素）。
+    /// 上一帧各标签沿排列方向的长度，横向为宽度，竖向为高度（逻辑像素）。
+    pub sizes: Vec<f32>,
+    /// 上一帧第一个标签沿排列方向的起点（窗口坐标，逻辑像素）。
+    pub start: f32,
+    /// 是否沿竖向排列，用于将鼠标坐标换算为排列方向上的位置。
+    vertical: bool,
+    /// 标签栏沿排列方向的滚动量（逻辑像素）。
     pub scroll: f32,
     /// 上一帧的最大滚动量（逻辑像素）；放得下时为 0。
     pub max_scroll: f32,
-    /// 上一帧正在看的标签和标签数：变了就滚到正在看的标签。
-    pub revealed: Option<(u16, usize)>,
+    /// 上一帧正在看的标签、标签数和可视长度：变化时显示当前标签。
+    pub revealed: Option<(u16, usize, f32)>,
     /// 上一帧见过的标签，和这一帧比认出新建的。
     known: Option<Vec<u16>>,
     /// 正在长出来的标签：（标签编号，进度时钟）。
@@ -78,20 +83,49 @@ pub(crate) struct Strip {
     stop_shown: Option<bool>,
     /// 停止按钮正在出现或消失的时钟。
     stop_motion: Option<Clock>,
+    /// 右侧标签列表的展开、收起；与其他侧栏元素共用显示比例和淡入、淡出曲线。
+    pub position: Presence,
     /// 测试里没有窗口、没有时钟：设置后动画都停在这一时刻。
     #[cfg(test)]
     pub frozen: Option<std::time::Duration>,
 }
 
 impl Strip {
-    /// 按滚轮的位移 `delta`（逻辑像素）横向滚动标签栏。
+    /// 设置排列方向；方向变化时结束旧方向上的动画和拖动。
+    pub fn orient(&mut self, vertical: bool) {
+        if self.vertical == vertical {
+            return;
+        }
+        self.vertical = vertical;
+        self.sizes.clear();
+        self.scroll = 0.0;
+        self.max_scroll = 0.0;
+        self.revealed = None;
+        self.known = None;
+        self.opening.clear();
+        self.closing.clear();
+        self.slides.clear();
+        self.drag = None;
+    }
+
+    /// 窗口坐标沿标签排列方向的位置（逻辑像素）。
+    pub fn along(&self, (x, y): (f32, f32)) -> f32 {
+        if self.vertical { y } else { x }
+    }
+
+    /// 按滚轮位移 `delta`（逻辑像素）沿排列方向滚动标签栏。
     pub fn wheel(&mut self, delta: f32) {
         self.scroll = (self.scroll - delta).clamp(0.0, self.max_scroll);
     }
 
-    /// 第 `index` 个标签左边相对第一个标签左边的距离（逻辑像素）。
+    /// 第 `index` 个标签起点相对第一个标签起点的距离（逻辑像素）。
     fn slot(&self, index: usize) -> f32 {
-        self.widths[..index].iter().map(|w| w + TAB_GAP).sum()
+        self.sizes[..index].iter().map(|w| w + self.gap()).sum()
+    }
+
+    /// 当前排列方向上标签之间的间距（逻辑像素）。
+    fn gap(&self) -> f32 {
+        if self.vertical { LIST_GAP } else { TAB_GAP }
     }
 
     /// 标签 `id` 长出来的程度（0 到 1）。
@@ -126,6 +160,7 @@ impl Strip {
             || !self.closing.is_empty()
             || !self.slides.is_empty()
             || self.stop_motion.is_some()
+            || self.position.moving()
     }
 
     /// 去掉结束了的动画。
@@ -138,6 +173,25 @@ impl Strip {
 }
 
 impl App {
+    /// 排版前记录标签位置变化：先按显示比例让出宽度，内容使用与侧栏相同的淡入、淡出曲线。
+    pub(crate) fn note_terminal_tab_position(&mut self) {
+        let vertical = self.config.terminal_vertical_tabs == Some(true);
+        let animate = self.animations_on();
+        let position = &self.terminal.strip.position;
+        let clock = if animate
+            && position.changed(vertical)
+            && (!self.terminal.strip.sizes.is_empty() || position.moving())
+        {
+            self.strip_clock().map(|clock| clock.lasting(MODULE_FADE))
+        } else {
+            None
+        };
+        if !animate {
+            self.terminal.strip.position = Presence::default();
+        }
+        self.terminal.strip.position.track(vertical, clock);
+    }
+
     fn strip_clock(&mut self) -> Option<Clock> {
         #[cfg(test)]
         if let Some(at) = self.terminal.strip.frozen {
@@ -160,10 +214,15 @@ impl App {
         self.terminal.strip.stop_shown = Some(running);
     }
 
-    /// 画标签栏前调用：比上一帧正好多出一个标签时，它从零宽长出来、淡入。
+    /// 绘制标签前记录增减：多出一个标签时沿排列方向展开、淡入。
     ///
     /// 一次多出多个（重新启动）、第一次画时直接到位。
     pub(crate) fn note_terminal_tabs(&mut self) {
+        let vertical = self.terminal_tab_list().is_some();
+        self.terminal.strip.orient(vertical);
+        if vertical {
+            return;
+        }
         let ids: Vec<u16> = self.terminal.tabs.iter().map(|t| t.id).collect();
         let new: Vec<u16> = match &self.terminal.strip.known {
             Some(known) => ids
@@ -184,12 +243,14 @@ impl App {
         strip.known = Some(ids);
     }
 
-    /// 即将关闭第 `index` 个标签：标签内容先在原位淡出，之后宽度收起，右侧的标签随收起的右边
-    /// 滑回。
+    /// 关闭第 `index` 个标签前记录动画：在原位淡出、收起，后续标签沿排列方向补位。
     ///
     /// 在从列表里删掉之前调用。
     pub(super) fn animate_terminal_close(&mut self, index: usize) {
-        let Some(width) = self.terminal.strip.widths.get(index).copied() else {
+        if self.terminal_tab_list().is_some() {
+            return;
+        }
+        let Some(size) = self.terminal.strip.sizes.get(index).copied() else {
             return;
         };
         let Some(fade) = self.strip_clock().map(|c| c.lasting(EXIT_FADE)) else {
@@ -206,32 +267,32 @@ impl App {
         t.strip.closing.push(Ghost {
             at: index,
             label,
-            width,
+            size,
             active: index == t.active,
             fade,
             clock,
         });
-        t.strip.widths.remove(index);
+        t.strip.sizes.remove(index);
     }
 
-    /// 在第 `index` 个标签上按下：切过去，记下按住的位置；横向移动超过一点才算拖动。
-    pub(crate) fn press_terminal_tab(&mut self, index: usize, x: f32) {
+    /// 切换到第 `index` 个标签并记录按下点 `at`（沿排列方向的窗口坐标，逻辑像素）。
+    pub(crate) fn press_terminal_tab(&mut self, index: usize, at: f32) {
         self.activate_terminal_tab(index);
         let strip = &self.terminal.strip;
-        if index >= strip.widths.len() {
+        if index >= strip.sizes.len() {
             return;
         }
         let Some(tab) = self.terminal.tabs.get(index) else {
             return;
         };
-        let left = strip.left + strip.slot(index) + strip.slide(tab.id);
+        let start = strip.start + strip.slot(index) + strip.slide(tab.id);
         let id = tab.id;
         let strip = &mut self.terminal.strip;
         strip.slides.retain(|s| s.0 != id);
         strip.drag = Some(Drag {
             id,
-            grab: x - left,
-            start_x: x,
+            grab: at - start,
+            pressed: at,
             moving: false,
         });
     }
@@ -260,8 +321,8 @@ impl App {
         self.request_redraw();
     }
 
-    /// 改完名字：`keep` 为真时（↩、点其他位置）用输入的名字，去掉首尾空白，空的恢复自动的名字；
-    /// Esc 不改。
+    /// 改完名字：`keep` 为真时（↩、点其他位置）用输入的名字，去掉首尾空白，空的恢复自动的名字，
+    /// 与自动的名字相同时仍按自动处理；Esc 不改。
     ///
     /// 焦点在输入框上时回到终端。
     pub(crate) fn finish_terminal_rename(&mut self, keep: bool) {
@@ -269,7 +330,11 @@ impl App {
             return;
         };
         if keep && let Some(tab) = self.terminal.tabs.iter_mut().find(|t| t.id == id) {
-            tab.name = field.text().trim().to_owned();
+            let name = field.text().trim();
+            // 没有自定名字、输入框里仍是自动的名字：不改，标签继续跟随标题和进程变化。
+            if !tab.name.is_empty() || name != tab.label() {
+                tab.name = name.to_owned();
+            }
         }
         if self.focus == Focus::TerminalRename {
             self.focus = Focus::Terminal;
@@ -295,11 +360,11 @@ impl App {
     /// 按住标签移动：跟着鼠标走，越过相邻标签的中线时换位。
     ///
     /// 返回是否在按住标签。
-    pub(crate) fn drag_terminal_tab(&mut self, x: f32) -> bool {
+    pub(crate) fn drag_terminal_tab(&mut self, at: f32) -> bool {
         let Some(drag) = &mut self.terminal.strip.drag else {
             return false;
         };
-        if !drag.moving && (x - drag.start_x).abs() < THRESHOLD {
+        if !drag.moving && (at - drag.pressed).abs() < THRESHOLD {
             return true;
         }
         drag.moving = true;
@@ -308,27 +373,27 @@ impl App {
             self.terminal.strip.drag = None;
             return true;
         };
-        if self.terminal.strip.widths.len() != self.terminal.tabs.len() {
+        if self.terminal.strip.sizes.len() != self.terminal.tabs.len() {
             return true;
         }
-        let left = self.dragged_left(index, drag.grab);
-        let width = self.terminal.strip.widths[index];
-        let center = |strip: &Strip, i: usize| strip.slot(i) + strip.widths[i] / 2.0;
+        let start = self.dragged_start(index, drag.grab);
+        let size = self.terminal.strip.sizes[index];
+        let center = |strip: &Strip, i: usize| strip.slot(i) + strip.sizes[i] / 2.0;
         loop {
             let strip = &self.terminal.strip;
-            let to = if index > 0 && left < center(strip, index - 1) {
+            let to = if index > 0 && start < center(strip, index - 1) {
                 index - 1
-            } else if index + 1 < strip.widths.len() && left + width > center(strip, index + 1) {
+            } else if index + 1 < strip.sizes.len() && start + size > center(strip, index + 1) {
                 index + 1
             } else {
                 break;
             };
             // 被换的标签从原来的一侧滑到新位置。
             let other = self.terminal.tabs[to].id;
-            let from = if to < index { -1.0 } else { 1.0 } * (width + TAB_GAP);
+            let from = if to < index { -1.0 } else { 1.0 } * (size + strip.gap());
             let t = &mut self.terminal;
             t.tabs.swap(index, to);
-            t.strip.widths.swap(index, to);
+            t.strip.sizes.swap(index, to);
             if t.active == index {
                 t.active = to;
             } else if t.active == to {
@@ -350,36 +415,39 @@ impl App {
             return;
         }
         if let Some(index) = self.terminal.tabs.iter().position(|t| t.id == drag.id)
-            && index < self.terminal.strip.widths.len()
+            && index < self.terminal.strip.sizes.len()
         {
-            let from = self.dragged_left(index, drag.grab) - self.terminal.strip.slot(index);
+            let from = self.dragged_start(index, drag.grab) - self.terminal.strip.slot(index);
             self.slide_terminal_tab(drag.id, from);
         }
         self.request_redraw();
     }
 
-    /// 拖着的标签（标签号，左边的横坐标）；没在拖时 `None`。
+    /// 正在拖动的标签（编号，沿排列方向的起点坐标）；没有拖动时为 `None`。
     pub(crate) fn dragged_terminal_tab(&self) -> Option<(u16, f32)> {
         let drag = self.terminal.strip.drag.filter(|d| d.moving)?;
         let index = self.terminal.tabs.iter().position(|t| t.id == drag.id)?;
-        (index < self.terminal.strip.widths.len()).then(|| {
+        (index < self.terminal.strip.sizes.len()).then(|| {
             (
                 drag.id,
-                self.terminal.strip.left + self.dragged_left(index, drag.grab),
+                self.terminal.strip.start + self.dragged_start(index, drag.grab),
             )
         })
     }
 
-    /// 拖着的第 `index` 个标签的左边（相对第一个标签左边），夹在全部标签占的范围里。
-    fn dragged_left(&self, index: usize, grab: f32) -> f32 {
+    /// 拖动标签的起点相对第一个标签起点的位置，限制在全部标签的范围中。
+    fn dragged_start(&self, index: usize, grab: f32) -> f32 {
         let strip = &self.terminal.strip;
-        let width = strip.widths[index];
-        let total = strip.slot(strip.widths.len()) - TAB_GAP;
-        (self.pointer.mouse.0 - grab - strip.left).clamp(0.0, (total - width).max(0.0))
+        let size = strip.sizes[index];
+        let total = strip.slot(strip.sizes.len()) - strip.gap();
+        (strip.along(self.pointer.mouse) - grab - strip.start).clamp(0.0, (total - size).max(0.0))
     }
 
     /// 让标签 `id` 从距新位置 `from` 处滑过去；还在滑时从当前的偏移继续滑动。
     fn slide_terminal_tab(&mut self, id: u16, from: f32) {
+        if self.terminal_tab_list().is_some() {
+            return;
+        }
         let from = from + self.terminal.strip.slide(id);
         let clock = self.strip_clock();
         let strip = &mut self.terminal.strip;

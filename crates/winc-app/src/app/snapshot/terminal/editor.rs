@@ -1022,7 +1022,7 @@ fn crowded_terminal_tabs_shrink_and_keep_the_active_one_in_view() {
     paint(&mut app);
 
     // 都窄到最窄还放不下：正在看的（最后一个）和「+」都在右边的按钮左边，看得见、点得到。
-    assert!(app.terminal.strip.widths.iter().all(|&w| w == TAB_SQUEEZED));
+    assert!(app.terminal.strip.sizes.iter().all(|&w| w == TAB_SQUEEZED));
     let active = header_hit(&app, HeaderHit::Tab(8));
     let plus = header_hit(&app, HeaderHit::New);
     assert_eq!(active.w, TAB_SQUEEZED);

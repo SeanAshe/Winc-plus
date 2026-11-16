@@ -7,6 +7,7 @@ terminal-restore-panel = 还原面板
 terminal-hide-panel = 隐藏终端面板
 terminal-show-panel = 显示终端面板
 terminal-tab-default-name = 终端
+terminal-new = 新建终端
 terminal-module-disabled = 终端模块未启用
 
 ## 终端组件
@@ -78,6 +79,10 @@ terminal-run-confirm-command = 命令：{ $command }
 terminal-run-confirm-cwd = 工作目录：{ $cwd }
 terminal-run-confirm-env = 环境变量：{ $variable }
 terminal-run-confirm-action = 运行
+terminal-python-confirm = 要为终端加载此项目的 Python 环境吗？
+terminal-python-confirm-detail = 环境位于 { $path }。加载后，其中的程序会先于系统中的同名命令运行。请仅在信任此项目时加载。
+terminal-python-confirm-action = 加载
+terminal-python-confirm-decline = 不加载
 terminal-run-config-problem = 运行配置（.winc/run.json）：{ $problem }
 terminal-run-create-failed = 无法创建运行配置：{ $error }
 terminal-run-add = 添加运行配置

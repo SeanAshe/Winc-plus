@@ -12,6 +12,8 @@ mod pty;
 #[cfg(windows)]
 #[path = "helper/conpty.rs"]
 mod pty;
+#[cfg(any(windows, test))]
+mod python;
 
 use std::collections::BTreeMap;
 use std::io::{self, Write};
@@ -506,6 +508,10 @@ impl Helper {
             });
             return;
         };
+        #[cfg(windows)]
+        if integration.is_some() && banner.is_empty() {
+            python::activate(cwd, &path, &args, &mut env);
+        }
         // 集成脚本只适用于 Unix shell。Windows 上仅注入 WSL 发行版内的 shell，其他 shell 不提供命令块。
         #[cfg(unix)]
         let nonce = integration
@@ -915,8 +921,39 @@ impl PendingInput {
 /// 返回终端里的环境变量：主程序给的用户环境去掉 winc 自己用的变量，再设上终端相关的变量。
 ///
 /// 设上 `TERM`、`COLORTERM`、`TERM_PROGRAM`、`TERM_PROGRAM_VERSION`；没有任何 `LANG`、
-/// `LC_ALL`、`LC_CTYPE` 时补 `LC_CTYPE=UTF-8`。`COLORFGBG` 由 [`set_colorfgbg`] 按当前底色另写。
+/// `LC_ALL`、`LC_CTYPE` 时补一个只声明 UTF-8 编码的 `LC_CTYPE`。`COLORFGBG` 由 [`set_colorfgbg`] 按当前底色另写。
+///
+/// winc 从其他终端或复用器中启动时，标识那个会话的变量不传给 shell。
 fn environment(env: Vec<(Vec<u8>, Vec<u8>)>) -> Vec<(Vec<u8>, Vec<u8>)> {
+    // 其他终端和复用器标识自身会话的变量：留下它们，shell 中的程序会去操作外层的会话，或按外层
+    // 终端的尺寸和能力工作。
+    const SESSION: &[&[u8]] = &[
+        b"TMUX",
+        b"TMUX_PANE",
+        b"STY",
+        b"WINDOW",
+        b"TERM_SESSION_ID",
+        b"TERMINAL_EMULATOR",
+        b"LC_TERMINAL",
+        b"LC_TERMINAL_VERSION",
+        b"VTE_VERSION",
+        b"WINDOWID",
+        b"COLORFGBG",
+        b"LINES",
+        b"COLUMNS",
+        b"SSH_TTY",
+        b"OLDPWD",
+    ];
+    const SESSION_PREFIXES: &[&[u8]] = &[
+        b"ITERM_",
+        b"KITTY_",
+        b"WEZTERM_",
+        b"ALACRITTY_",
+        b"GHOSTTY_",
+        b"KONSOLE_",
+        b"VSCODE_",
+        b"WT_",
+    ];
     const REPLACED: &[&[u8]] = &[
         b"TERM",
         b"COLORTERM",
@@ -925,19 +962,27 @@ fn environment(env: Vec<(Vec<u8>, Vec<u8>)>) -> Vec<(Vec<u8>, Vec<u8>)> {
     ];
     let mut env: Vec<_> = env
         .into_iter()
-        // winc 自己用的变量不给 shell；WINC_PROMPT 留给集成脚本，脚本读完即删除。
+        // winc 自己用的变量不给 shell；WINC_PROMPT、WINC_PYTHON 留给集成脚本，脚本读完即删除。
         .filter(|(key, _)| {
-            !REPLACED.contains(&&key[..]) && (!key.starts_with(b"WINC_") || key == b"WINC_PROMPT")
+            !REPLACED.contains(&&key[..])
+                && !SESSION.contains(&&key[..])
+                && !SESSION_PREFIXES.iter().any(|p| key.starts_with(p))
+                && (!key.starts_with(b"WINC_") || key == b"WINC_PROMPT" || key == b"WINC_PYTHON")
         })
         .collect();
     // 从图形界面启动的应用没有 `LANG`，shell 会把中文当成乱码、算错宽度。Windows 的程序不看这些
-    // 变量。
+    // 变量。只声明编码的区域名在 macOS 上是 `UTF-8`，其他系统上是 `C.UTF-8`。
     if cfg!(unix)
         && !env
             .iter()
             .any(|(k, _)| matches!(&k[..], b"LANG" | b"LC_ALL" | b"LC_CTYPE"))
     {
-        env.push((b"LC_CTYPE".to_vec(), b"UTF-8".to_vec()));
+        let utf8: &[u8] = if cfg!(target_os = "macos") {
+            b"UTF-8"
+        } else {
+            b"C.UTF-8"
+        };
+        env.push((b"LC_CTYPE".to_vec(), utf8.to_vec()));
     }
     env.extend([
         (b"TERM".to_vec(), b"xterm-256color".to_vec()),

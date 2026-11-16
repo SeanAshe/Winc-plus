@@ -66,6 +66,14 @@ impl Locale {
         }
     }
 
+    /// 返回系统首选语言的 POSIX 区域名（如 `zh_CN`）；系统给出的标签不含地区时返回 `None`。
+    pub fn system_posix() -> Option<String> {
+        let tag = sys_locale::get_locales().next()?;
+        let tag = tag.split('@').next().unwrap_or(&tag).replace('_', "-");
+        let langid: LanguageIdentifier = tag.parse().ok()?;
+        Some(format!("{}_{}", langid.language, langid.region?))
+    }
+
     /// 按系统的首选语言顺序，返回第一种受支持的语言；都不受支持时返回 [`Locale::FALLBACK`]。
     pub fn system() -> Locale {
         sys_locale::get_locales()

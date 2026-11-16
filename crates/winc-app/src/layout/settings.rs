@@ -157,9 +157,11 @@ impl SettingsPage {
                         Setting::TerminalShell,
                         Setting::TerminalPrompt,
                         Setting::TerminalShellIntegration,
+                        Setting::TerminalApplicationPriority,
                     ]),
                     plain(vec![
                         Setting::TerminalPosition,
+                        Setting::TerminalTabPosition,
                         Setting::TerminalFont,
                         Setting::TerminalSize,
                     ]),
@@ -359,6 +361,8 @@ pub enum Setting {
     TerminalShell,
     /// 终端面板的位置：编辑区下方或右侧。
     TerminalPosition,
+    /// 终端标签的位置：顶部或右侧。
+    TerminalTabPosition,
     /// 终端字体。
     TerminalFont,
     /// 终端字号。
@@ -371,6 +375,8 @@ pub enum Setting {
     TerminalPrompt,
     /// 注入 shell 集成，按命令分块。
     TerminalShellIntegration,
+    /// 暂停内容增强的快捷键，保留终端管理和复制、粘贴。
+    TerminalApplicationPriority,
     /// 终端中用作 Meta 键的 ⌥（只在 macOS 上列出）。
     TerminalOptionAsMeta,
     /// Git 模块的开关。
@@ -485,12 +491,14 @@ impl Setting {
             | Setting::AddFixLanguage => SettingsPage::Format,
             Setting::TerminalShell
             | Setting::TerminalPosition
+            | Setting::TerminalTabPosition
             | Setting::TerminalFont
             | Setting::TerminalSize
             | Setting::TerminalCopyOnSelect
             | Setting::TerminalConfirmClose
             | Setting::TerminalPrompt
             | Setting::TerminalShellIntegration
+            | Setting::TerminalApplicationPriority
             | Setting::TerminalOptionAsMeta => SettingsPage::Terminal,
             Setting::GitStagingArea
             | Setting::GitConfirmPush
@@ -562,12 +570,14 @@ impl Setting {
             Setting::AddLanguage | Setting::AddFixLanguage => t!("settings-add-language"),
             Setting::TerminalShell => t!("settings-terminal-shell"),
             Setting::TerminalPosition => t!("settings-terminal-position"),
+            Setting::TerminalTabPosition => t!("settings-terminal-tab-position"),
             Setting::TerminalFont => t!("settings-terminal-font"),
             Setting::TerminalSize => t!("settings-terminal-size"),
             Setting::TerminalCopyOnSelect => t!("settings-terminal-copy-on-select"),
             Setting::TerminalConfirmClose => t!("settings-terminal-confirm-close"),
             Setting::TerminalPrompt => t!("settings-terminal-prompt"),
             Setting::TerminalShellIntegration => t!("settings-terminal-shell-integration"),
+            Setting::TerminalApplicationPriority => t!("settings-terminal-application-priority"),
             Setting::TerminalOptionAsMeta => t!("settings-terminal-option-as-meta"),
             Setting::GitModule => "Git",
             Setting::GitConfirmPush => t!("settings-git-confirm-push"),
@@ -643,6 +653,9 @@ impl Setting {
                 Some(t!("settings-terminal-shell-integration-desc"))
             }
             Setting::TerminalOptionAsMeta => Some(t!("settings-terminal-option-as-meta-desc")),
+            Setting::TerminalApplicationPriority => {
+                Some(t!("settings-terminal-application-priority-desc"))
+            }
             _ => None,
         };
         text.map(Cow::Borrowed)
@@ -696,7 +709,8 @@ impl Setting {
             | Setting::TerminalCopyOnSelect
             | Setting::TerminalConfirmClose
             | Setting::TerminalPrompt
-            | Setting::TerminalShellIntegration => SettingControl::Switch,
+            | Setting::TerminalShellIntegration
+            | Setting::TerminalApplicationPriority => SettingControl::Switch,
             Setting::FormatCommand(_) | Setting::FixCommand(_) | Setting::TerminalShell => {
                 SettingControl::Command
             }
@@ -709,6 +723,7 @@ impl Setting {
             | Setting::RenderWhitespace
             | Setting::VimClipboard
             | Setting::TerminalPosition
+            | Setting::TerminalTabPosition
             | Setting::TerminalOptionAsMeta => SettingControl::Choice,
             Setting::AddLanguage | Setting::AddFixLanguage => SettingControl::Action,
             Setting::KeySearch => SettingControl::Search,

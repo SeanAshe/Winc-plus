@@ -59,6 +59,7 @@ fn control_and_meta_characters() {
     assert_eq!(bytes(Key::Char('c'), CTRL, modes), [3]);
     assert_eq!(bytes(Key::Char('['), CTRL, modes), [0x1b]);
     assert_eq!(bytes(Key::Char(' '), CTRL, modes), [0]);
+    assert_eq!(bytes(Key::Char('/'), CTRL, modes), [0x1f]);
     assert_eq!(bytes(Key::Char('b'), ALT, modes), b"\x1bb");
     assert_eq!(bytes(Key::Char('B'), ALT, modes), b"\x1bB");
     let both = Mods {

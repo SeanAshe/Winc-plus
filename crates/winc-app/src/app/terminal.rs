@@ -15,6 +15,7 @@ mod locate;
 mod pointer;
 pub(crate) mod run;
 pub(crate) mod shells;
+mod shortcuts;
 pub(crate) mod strip;
 mod tab;
 
@@ -181,6 +182,10 @@ pub(crate) struct TerminalPanel {
     pub pending_input: Option<Vec<u8>>,
     /// 辅助进程意外退出了：标签和最后一屏还留着，等用户重新启动。
     pub crashed: bool,
+    /// 正在询问是否加载的 Python 环境目录；回答之前等着建的标签不建。
+    pub python_asking: Option<PathBuf>,
+    /// 本次运行中回答了不加载的 Python 环境目录；不写入状态文件，下次启动时重新询问。
+    pub python_declined: Vec<PathBuf>,
     /// 按住 ⌘ 时鼠标下的链接。
     pub link: Option<TermLink>,
     /// 有标签在等新尺寸的一帧、面板又变了时：什么时候不再等（见 [`App::sync_terminal`]）。
@@ -431,18 +436,30 @@ impl App {
     ///
     /// 终端里已经有标签了不动；面板上次收着时等打开面板再建。
     pub(super) fn restore_terminal(&mut self, session: &TerminalSession) {
+        let root = self.editor.root().map(PathBuf::from);
         let t = &mut self.terminal;
         let enabled = self.config.terminal_enabled.unwrap_or(false);
         if !enabled || !t.tabs.is_empty() || !t.want.is_empty() {
             return;
         }
-        let tabs = session.tabs.iter();
-        t.want = tabs.map(|p| os_bytes(p.as_os_str())).collect();
+        // 目录按打开的目录所在的主机换算：现场中远端终端的目录可以只有那台主机上的路径，
+        // 不换算会在本机启动 shell。
+        let dirs: Vec<PathBuf> = (session.tabs.iter())
+            .map(|dir| match &root {
+                Some(root) => helper::terminal_path(root, dir.clone()),
+                None => dir.clone(),
+            })
+            .collect();
+        t.want = dirs.iter().map(|p| os_bytes(p.as_os_str())).collect();
         t.want_names.clone_from(&session.names);
-        let saved = session.shells.iter();
+        // 远端目录的 shell 是那台主机上的路径，无法在本机检查；建标签时按那台主机上检测到的
+        // shell 确认。
+        let saved = session.shells.iter().zip(&dirs);
         t.want_shells = saved
-            .map(|command| {
-                Some(command.clone()).filter(|c| !c.is_empty() && shells::still_usable(c))
+            .map(|(command, dir)| {
+                let usable =
+                    |c: &String| winc_backend::locate(dir).is_some() || shells::still_usable(c);
+                Some(command.clone()).filter(|c| !c.is_empty() && usable(c))
             })
             .collect();
         t.want_active = Some(session.active);
@@ -496,6 +513,7 @@ impl App {
         t.active = 0;
         t.client = None;
         t.ready = false;
+        t.crashed = false;
         for id in ids {
             self.forget_terminal_tab(id);
         }
@@ -642,7 +660,8 @@ impl App {
             });
     }
 
-    /// 状态栏上的终端按钮、标签栏右端的收起按钮：面板开着就收起，收着就打开（没有标签时开一个）。
+    /// 状态栏上的终端按钮、标签栏右端的收起按钮和 ⌘J：面板开着就收起，收着就打开（没有标签时
+    /// 开一个）。与焦点位置无关，收起时焦点在面板外的留在原处。
     pub(super) fn click_terminal_button(&mut self) {
         if self.terminal.open {
             self.set_terminal_open(false);
@@ -740,6 +759,10 @@ impl App {
 
     /// 在 `cwd` 用 `shell` 新建一个终端标签（`None` 是默认 shell）。
     pub(super) fn new_terminal_tab_with(&mut self, cwd: Vec<u8>, shell: Option<String>) {
+        // 辅助进程退出了：先恢复原有标签，否则新标签会被当作已退出的标签显示。
+        if self.terminal.crashed {
+            self.restart_terminal_tab();
+        }
         if !self.terminal.open {
             // 打开面板时没有标签、也没有恢复的标签要建，会先放一个默认的：换成这个默认标签。
             // 恢复的那些标签（面板收着时退出的）留着，这个默认标签加在后面。
@@ -761,6 +784,19 @@ impl App {
         self.start_terminal();
         self.relayout();
         self.request_redraw();
+    }
+
+    /// 关掉编号是 `keep` 的标签以外的各个标签；其中仍有程序在运行的同样先确认。
+    pub(in crate::app) fn close_other_terminal_tabs(&mut self, keep: u16) {
+        let others: Vec<u16> = (self.terminal.tabs.iter())
+            .map(|tab| tab.id)
+            .filter(|&id| id != keep)
+            .collect();
+        for id in others {
+            if let Some(index) = self.terminal.index_of(id) {
+                self.close_terminal_tab(index);
+            }
+        }
     }
 
     /// 关掉一个标签（⌘W、标签上的 ×）。
@@ -814,6 +850,7 @@ impl App {
         if last {
             t.client = None;
             t.ready = false;
+            t.crashed = false;
         }
         self.forget_terminal_tab(tab.id);
         let t = &mut self.terminal;
@@ -862,17 +899,6 @@ impl App {
             }
             self.terminal.active = index;
             self.terminal.tabs[index].unseen = None;
-            // F8 的跳转属于原来那个标签：如果保留，在这里按 ↩ 会去打开那边的报错，不交给 shell。
-            let id = self.terminal.tabs[index].id;
-            if self.terminal.errors.as_ref().is_some_and(|e| e.tab != id) {
-                self.terminal.errors = None;
-            }
-            self.terminal.link = None;
-            self.terminal.find = None;
-            self.terminal.requests.retain(|r| r.2 != Request::Find);
-            if self.focus == Focus::TerminalFind {
-                self.focus = Focus::Terminal;
-            }
             self.terminal_activated();
             self.request_redraw();
         }
@@ -891,8 +917,40 @@ impl App {
         }
     }
 
+    /// 正在看的标签变了：丢掉属于其他标签的查找、报错跳转和链接。
+    ///
+    /// 保留它们时查找条会显示在另一个标签上，↩ 会去打开原标签的报错，不交给 shell。
+    pub(in crate::app::terminal) fn drop_other_tab_state(&mut self) {
+        let id = self.terminal.tab().map(|tab| tab.id);
+        let t = &mut self.terminal;
+        if t.find.as_ref().is_some_and(|find| Some(find.tab) != id) {
+            t.find = None;
+            t.requests.retain(|r| r.2 != Request::Find);
+            if self.focus == Focus::TerminalFind {
+                self.focus = Focus::Terminal;
+            }
+        }
+        let t = &mut self.terminal;
+        if t.errors
+            .as_ref()
+            .is_some_and(|errors| Some(errors.tab) != id)
+        {
+            t.errors = None;
+        }
+        if t.link.as_ref().is_some_and(|link| Some(link.tab) != id) {
+            t.link = None;
+        }
+        // 面板开着时正在看的标签就在眼前，未读点不需要保留。
+        if t.open
+            && let Some(tab) = t.tabs.get_mut(t.active)
+        {
+            tab.unseen = None;
+        }
+    }
+
     /// 换了正在看的标签：把它攒着的额度发出去，马上拿到最新的一帧。
     fn terminal_activated(&mut self) {
+        self.drop_other_tab_state();
         let t = &mut self.terminal;
         let (Some(client), Some(tab)) = (&t.client, t.tabs.get_mut(t.active)) else {
             return;

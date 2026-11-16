@@ -757,7 +757,7 @@ impl App {
             .and_then(|d| d.path.as_deref())
             .and_then(|path| local_target(path, &url));
         match local {
-            Some(path) if winc_backend::fs::is_file(&path) => self.open_markdown_file(&path, &url),
+            Some(path) if self.may_be_file(&path) => self.open_markdown_file(&path, &url),
             Some(_) => self.flash(t!("preview-markdown-link-file-not-found")),
             None => {
                 if let Err(e) = system::open_url(&url) {

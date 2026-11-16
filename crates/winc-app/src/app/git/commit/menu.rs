@@ -320,8 +320,10 @@ impl App {
             let paths = self.commit_selection();
             match command {
                 MenuCommand::GitOpenFile => {
-                    for path in paths.iter().filter(|p| winc_backend::fs::is_file(p)) {
-                        self.open_path(path);
+                    for path in &paths {
+                        if self.may_be_file(path) {
+                            self.open_path(path);
+                        }
                     }
                     self.focus = Focus::Editor;
                 }
@@ -337,7 +339,7 @@ impl App {
         match command {
             MenuCommand::GitShowDiff => self.select_commit_file(path),
             MenuCommand::GitOpenFile => {
-                if winc_backend::fs::is_file(&path) {
+                if self.may_be_file(&path) {
                     self.open_path(&path);
                     self.focus = Focus::Editor;
                 }

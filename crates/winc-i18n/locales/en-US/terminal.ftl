@@ -7,6 +7,7 @@ terminal-restore-panel = Restore panel
 terminal-hide-panel = Hide terminal panel
 terminal-show-panel = Show terminal panel
 terminal-tab-default-name = Terminal
+terminal-new = New Terminal
 terminal-module-disabled = The terminal module isn’t enabled
 
 ## Terminal helper
@@ -94,6 +95,10 @@ terminal-run-confirm-command = Command: { $command }
 terminal-run-confirm-cwd = Working directory: { $cwd }
 terminal-run-confirm-env = Environment variable: { $variable }
 terminal-run-confirm-action = Run
+terminal-python-confirm = Load this project’s Python environment in terminals?
+terminal-python-confirm-detail = The environment is at { $path }. Once loaded, its programs run ahead of system commands with the same name. Load it only if you trust this project.
+terminal-python-confirm-action = Load
+terminal-python-confirm-decline = Don’t Load
 terminal-run-config-problem = Run configurations (.winc/run.json): { $problem }
 terminal-run-create-failed = Couldn’t create run configurations: { $error }
 terminal-run-add = Add Run Configuration

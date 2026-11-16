@@ -260,7 +260,7 @@ impl App {
         let open = (self.editor.documents.iter()).position(|doc| doc.path.as_ref() == Some(&path));
         match open {
             Some(index) => self.activate_tab(index),
-            None if winc_backend::fs::is_file(&path) => self.open_path(&path),
+            None if self.may_be_file(&path) => self.open_path(&path),
             None => return self.flash(t!("editor-vim-no-file")),
         }
         self.jumps.navigation.mark_jump();

@@ -148,7 +148,7 @@ impl App {
     pub(crate) fn terminal_scrollbar(&self) -> Option<(Rect, f32, f32)> {
         let tab = self.terminal.tab()?;
         let lh = self.fonts.terminal_line_height;
-        let card = self.layout.terminal;
+        let card = self.terminal_content_card();
         let view = self.terminal_view();
         let track = Rect::new(view.x, view.y, card.right() - view.x, view.h);
         let (position, limit) = tab.scroll_position();
@@ -221,9 +221,11 @@ impl App {
             }
             return;
         }
-        // ⇧PageUp、⇧PageDown 翻回滚缓冲（备用屏上没有回滚缓冲，交给程序）。
+        // Shift+PageUp/PageDown 翻回滚缓冲；备用屏上没有回滚缓冲，交给程序。
         let page = tab.grid_rows().saturating_sub(1).max(1) as isize;
-        if self.pointer.modifiers.shift_key() && !tab.modes.has(Modes::ALT_SCREEN) {
+        if self.pointer.modifiers == winit::keyboard::ModifiersState::SHIFT
+            && self.terminal_scroll_keys()
+        {
             match event.logical_key {
                 Key::Named(NamedKey::PageUp) => return self.scroll_terminal(page),
                 Key::Named(NamedKey::PageDown) => return self.scroll_terminal(-page),
@@ -298,17 +300,19 @@ impl App {
         let option = m.alt_key();
         let mods = self.terminal_mods();
 
-        // macOS 上文本框的按键约定：⌘← ⌘→ 到行首行尾，⌘⌫ 删到行首，⌥← ⌥→ 按词移动。
+        // 文本框的按键约定只用于主屏上的行编辑：⌘← ⌘→ 到行首行尾，⌘⌫ 删到行首，⌥← ⌥→ 按词
+        // 移动。备用屏上的程序和启用了键盘协议的程序自行解释这些键，按修饰键原样编码。
+        let editing = !modes.has(Modes::ALT_SCREEN) && keyboard == 0;
         // 其余带 ⌘ 的组合不是快捷键就不发。
         if cfg!(target_os = "macos") && m.super_key() {
             return match &event.logical_key {
-                Key::Named(NamedKey::ArrowLeft) => Some(vec![0x01]),
-                Key::Named(NamedKey::ArrowRight) => Some(vec![0x05]),
-                Key::Named(NamedKey::Backspace) => Some(vec![0x15]),
+                Key::Named(NamedKey::ArrowLeft) if editing => Some(vec![0x01]),
+                Key::Named(NamedKey::ArrowRight) if editing => Some(vec![0x05]),
+                Key::Named(NamedKey::Backspace) if editing => Some(vec![0x15]),
                 _ => None,
             };
         }
-        if option && !mods.ctrl {
+        if option && !mods.ctrl && editing {
             match &event.logical_key {
                 Key::Named(NamedKey::ArrowLeft) => return Some(b"\x1bb".to_vec()),
                 Key::Named(NamedKey::ArrowRight) => return Some(b"\x1bf".to_vec()),
@@ -356,7 +360,12 @@ impl App {
                     return None;
                 };
                 let c = latin(base.chars().next()?, event.physical_key);
-                let c = if mods.shift { shifted(c) } else { c };
+                // 键盘协议要求发送未加 ⇧ 的键码，⇧ 记在修饰位里。
+                let c = if mods.shift && keyboard == 0 {
+                    shifted(c)
+                } else {
+                    c
+                };
                 TermKey::Char(c)
             }
             _ => {

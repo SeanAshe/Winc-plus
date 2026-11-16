@@ -131,7 +131,11 @@ impl App {
             ScrollTarget::LogDetails
         } else if self.log_active() && self.log_parts().branches.contains(x, y) {
             ScrollTarget::LogBranches
-        } else if l.terminal.contains(x, y) && y < terminal_header {
+        } else if self
+            .terminal_tab_list()
+            .is_some_and(|list| list.contains(x, y))
+            || (l.terminal.contains(x, y) && y < terminal_header)
+        {
             ScrollTarget::TerminalStrip
         } else if l.terminal.contains(x, y) {
             ScrollTarget::Terminal
@@ -206,7 +210,14 @@ impl App {
                     self.panels.tree.scroll_x = (self.panels.tree.scroll_x - sx).clamp(0.0, max_x);
                 }
             }
-            ScrollTarget::TerminalStrip => self.terminal.strip.wheel(along),
+            ScrollTarget::TerminalStrip => {
+                let delta = if self.terminal_tab_list().is_some() {
+                    dy
+                } else {
+                    along
+                };
+                self.terminal.strip.wheel(delta);
+            }
             ScrollTarget::Terminal => self.terminal_wheel(dy),
             ScrollTarget::Markdown => {
                 // 横向滚动落在比正文宽的表格上时滚动该表格，其余按竖直方向滚动预览。

@@ -95,13 +95,17 @@ pub(crate) struct TermFind {
     fetching: bool,
     /// 因新输出重新查找时的中间结果：全部完成后才替换 `matches`，已有高亮不会闪烁。
     rescan: Option<Vec<(Point, Point)>>,
+    /// 这一轮查找向上找到哪一行为止；因新输出重新查找时只找上一轮之后变化的行。
+    floor: u64,
+    /// 上一轮查找开始时回滚缓冲的末尾：此前的行已经找过，内容不再变化。
+    scanned: u64,
 }
 
 impl App {
     /// 查找条的位置：和内容区第一行垂直居中，高度与标签相同；没有打开时为 `None`。
     pub(crate) fn terminal_find_bar(&self) -> Option<Rect> {
         self.terminal.find.as_ref()?;
-        let card = self.layout.terminal;
+        let card = self.terminal_content_card();
         if card.w <= 0.0 || card.h <= 0.0 {
             return None;
         }
@@ -265,6 +269,10 @@ impl App {
         find.current = None;
         find.rescan = None;
         find.stale = false;
+        find.floor = 0;
+        find.scanned = (t.tabs.iter())
+            .find(|tab| tab.id == find.tab)
+            .map_or(0, |tab| tab.history.1);
         find.scan = end.filter(|_| find.matcher.is_some());
         self.reveal_terminal_match();
     }
@@ -292,6 +300,9 @@ impl App {
             return;
         };
         let (id, history, end) = (tab.id, tab.history, tab.history.1 + tab.rows.len() as u64);
+        // 已滚出回滚缓冲的行不再保留文字，持续输出时占用的内存不超过回滚缓冲本身。
+        find.chunks
+            .retain(|(start, lines)| start + lines.len() as u64 > history.0);
         let fetched = (find.chunks.last())
             .map_or(history.0, |(start, lines)| start + lines.len() as u64)
             .max(history.0);
@@ -300,18 +311,38 @@ impl App {
             t.request(id, (fetched, history.1), Request::Find);
             return;
         }
+        // 回滚缓冲里的行不会再变：只重新找上一轮开始之后进入回滚缓冲的行和屏幕上的行。
+        find.floor = find.scanned;
+        find.scanned = history.1;
         find.scan = Some(end);
         find.rescan = Some(Vec::new());
+    }
+
+    /// 有新输出等着重新查找时返回下一次需要唤醒的时刻；间隔已到时请求重绘并返回 `None`。
+    ///
+    /// 等待期间不逐帧重绘：输出停止后由这里在间隔到期时唤醒一次。
+    pub(crate) fn terminal_find_wake(&mut self, now: Instant) -> Option<Instant> {
+        let find = self.terminal.find.as_ref()?;
+        if !find.stale || find.scan.is_some() || find.fetching {
+            return None;
+        }
+        let due = find.refreshed.map_or(now, |at| at + FIND_REFRESH);
+        if now < due {
+            return Some(due);
+        }
+        self.request_redraw();
+        None
     }
 
     /// 画完一帧以后再找一个时间片，返回是否还没找完。
     pub(in crate::app) fn terminal_find_tick(&mut self) -> bool {
         self.refresh_terminal_find();
         self.continue_terminal_find(SLICE);
+        // 等待重新查找的间隔由 [`App::terminal_find_wake`] 唤醒，这里只在还有行没找完时继续。
         self.terminal
             .find
             .as_ref()
-            .is_some_and(|f| f.scan.is_some() || f.stale)
+            .is_some_and(|f| f.scan.is_some())
     }
 
     /// 往上继续找，最多用 `budget`；第一次找到匹配时选中最下面的那一处。
@@ -359,7 +390,8 @@ impl App {
         let mut joined = String::new();
         // 同一逻辑行内各行的（行号，在 `joined` 中的字节偏移，文字）。
         let mut parts: Vec<(u64, usize, &str)> = Vec::new();
-        while next > tab.history.0 {
+        let floor = find.floor.max(tab.history.0);
+        while next > floor {
             // `next` 的上一行是逻辑行的最后一行：向上定位到行首，拼接后查找。
             let mut first = next - 1;
             while first > tab.history.0 && text(first - 1).is_some_and(|(_, wrapped)| wrapped) {
@@ -390,14 +422,19 @@ impl App {
                 break;
             }
         }
-        find.scan = (next > tab.history.0).then_some(next);
+        find.scan = (next > floor).then_some(next);
         found.reverse();
         // 因新输出重新查找：完成后才替换结果，当前匹配保持原位置，不滚动。
         if let Some(rescan) = &mut find.rescan {
             rescan.splice(0..0, found);
             if find.scan.is_none() {
                 let keep = find.current.and_then(|i| find.matches.get(i)).copied();
-                find.matches = find.rescan.take().unwrap_or_default();
+                // 没有重新查找的行沿用已有的匹配：终点在这一轮停下的行之前、仍在回滚缓冲里的。
+                let (first, stop) = (tab.history.0, next);
+                let mut matches = std::mem::take(&mut find.matches);
+                matches.retain(|m| m.0.line >= first && m.1.line < stop);
+                matches.append(&mut find.rescan.take().unwrap_or_default());
+                find.matches = matches;
                 find.current = match keep {
                     Some(keep) => {
                         let at = find.matches.partition_point(|m| *m < keep);

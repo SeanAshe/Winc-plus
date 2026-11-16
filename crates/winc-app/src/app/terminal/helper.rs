@@ -3,13 +3,56 @@
 use super::*;
 
 impl App {
+    /// 竖向终端列表的区域，包含新建入口和终端条目。
+    pub(crate) fn terminal_tab_list(&self) -> Option<Rect> {
+        let card = self.layout.terminal;
+        let shown = self
+            .terminal
+            .strip
+            .position
+            .share(self.config.terminal_vertical_tabs == Some(true));
+        if shown <= 0.0 {
+            return None;
+        }
+        let top = card.y + header_height(card);
+        // 约容纳 8 个汉字和关闭按钮，窄面板最多使用三分之一的宽度。
+        let width = (card.w / 3.0).min(144.0).floor();
+        (width > 0.0 && card.bottom() > top).then(|| {
+            Rect::new(
+                card.right() - width * shown,
+                top,
+                width,
+                card.bottom() - top,
+            )
+        })
+    }
+
+    /// 竖向列表中的终端条目区域，顶部留给新建入口。
+    pub(crate) fn terminal_tab_rows(&self) -> Option<Rect> {
+        let list = self.terminal_tab_list()?;
+        let top =
+            (list.y + crate::theme::TREE_ROW + strip::TAB_GAP + strip::LIST_GAP).min(list.bottom());
+        Some(Rect::new(list.x, top, list.w, list.bottom() - top))
+    }
+
+    /// 终端内容使用的面板范围，含顶部工具栏的高度，扣除竖向标签列表。
+    pub(crate) fn terminal_content_card(&self) -> Rect {
+        let card = self.layout.terminal;
+        Rect {
+            w: self
+                .terminal_tab_list()
+                .map_or(card.w, |list| list.x - card.x),
+            ..card
+        }
+    }
+
     /// 面板里放网格的区域。
     ///
     /// 网格上面还有内容时贴着面板下边（[`grid_rect`]）；没有内容时和备用屏贴着标签栏，零头留在
     /// 下面，此时增减行数不会有历史行进出网格，拖动分隔条时内容也不会跳。网格装满后切换到贴着下边
     /// 时，原来的第一行成为零头处的半行，位置不变。
     pub(crate) fn terminal_grid(&self) -> Rect {
-        let card = self.layout.terminal;
+        let card = self.terminal_content_card();
         let grid = grid_rect(card, self.fonts.terminal_line_height);
         let below = |tab: &TermTab| tab.view_top() > 0 && !tab.modes.has(Modes::ALT_SCREEN);
         if self.terminal.tab().is_some_and(below) {
@@ -41,7 +84,7 @@ impl App {
 
     /// 吸顶行露出的区域：紧贴标签栏，被下一条命令的提示符顶上去时变矮。
     pub(crate) fn terminal_sticky_band(&self) -> Rect {
-        let card = self.layout.terminal;
+        let card = self.terminal_content_card();
         let lh = self.fonts.terminal_line_height;
         let push = self.terminal.tab().map_or(0.0, TermTab::sticky_push);
         Rect::new(
@@ -261,7 +304,10 @@ impl App {
 
     /// 网格放得下几列几行，以及像素尺寸（物理像素，程序查询时回答它）。
     pub(in crate::app) fn terminal_size(&self) -> Size {
-        let grid = grid_rect(self.layout.terminal, self.fonts.terminal_line_height);
+        let grid = grid_rect(
+            self.terminal_content_card(),
+            self.fonts.terminal_line_height,
+        );
         let cols = (grid.w / self.metrics.terminal_cell).floor().max(2.0);
         let rows = (grid.h / self.fonts.terminal_line_height).floor().max(1.0);
         let scale = self
@@ -297,11 +343,16 @@ impl App {
             self.blur_terminal_tab();
         }
         // 只有新建标签时才用到；每次重绘都会运行到这里，不必每次都读取配置和拼接路径。
-        let spawn = (!self.terminal.want.is_empty()).then(|| {
+        // 待建标签的目录中有尚未询问过的 Python 环境时先询问，回答之后再建。
+        let python = (!self.terminal.want.is_empty())
+            .then(|| self.python_choices())
+            .flatten();
+        let spawn = python.map(|python| {
             (
                 self.terminal_cwd(),
                 self.config.terminal_shell.clone(),
                 integration_dir(&self.config),
+                python,
             )
         });
         let scrollback = self.config.terminal_scrollback.unwrap_or(SCROLLBACK);
@@ -332,7 +383,7 @@ impl App {
                 }
             }
         }
-        if let Some((cwd, shell, integration)) = spawn.filter(|_| t.error.is_none()) {
+        if let Some((cwd, shell, integration, python)) = spawn.filter(|_| t.error.is_none()) {
             let names = std::mem::take(&mut t.want_names);
             let shells = std::mem::take(&mut t.want_shells);
             // 等着送的输入给建好以后要看的那个标签：新建的（排在最后），或者重开时原来看的那个。
@@ -344,19 +395,36 @@ impl App {
                 let id = t.next_id;
                 let dir = if want.is_empty() { cwd.clone() } else { want };
                 let chosen = shells.get(i).cloned().flatten();
+                // 远端的目录只接受在那台主机上检测到的 shell：本机的命令（设置里的、恢复现场
+                // 时记下的）对远端不适用，不传过去，也不再记到标签上。
+                let host = winc_backend::locate(&bytes_path(&dir)).map(|at| at.target);
+                let chosen = match &host {
+                    Some(host) => chosen.filter(|command| {
+                        let known = crate::app::remote::shells(host);
+                        known.iter().any(|shell| shell.command == *command)
+                    }),
+                    None => chosen,
+                };
+                // 设置中的默认 shell 是本机的命令：目录在远端主机上或 WSL 发行版中时不适用，
+                // 新终端进入那台主机或发行版。
+                let shell = match default_shell_applies(&dir, cfg!(windows)) {
+                    true => shell.clone(),
+                    false => None,
+                };
+                let python = python.get(i).copied().unwrap_or(false);
                 let integrated = match &integration {
-                    Some(_) => Integration::On { prompt },
+                    Some(_) => Integration::On { prompt, python },
                     None => Integration::Off,
                 };
                 let shell = chosen.as_deref().or(shell.as_deref());
-                let launch = launch(shell, dir, cfg!(windows), integrated);
+                let launch = launch(shell, dir.clone(), cfg!(windows), integrated);
                 client.send(&ToHelper::Spawn {
                     tab: id,
                     program: launch.program,
                     args: launch.args,
                     login: launch.login,
                     cwd: launch.cwd,
-                    env: environment(prompt),
+                    env: environment(prompt, python),
                     scrollback,
                     size,
                     integration: integration.clone(),
@@ -375,6 +443,9 @@ impl App {
                 tab.slack = slack;
                 tab.name = names.get(i).cloned().unwrap_or_default();
                 tab.shell = chosen;
+                // shell 报告当前目录之前先记下启动目录：此时重启标签或保存现场仍回到这里，
+                // 远端的终端不会因目录为空而换成本机的 shell。
+                tab.cwd = dir;
                 t.tabs.push(tab);
                 t.active = t.tabs.len() - 1;
                 t.focus_sent = false;
@@ -411,6 +482,7 @@ impl App {
             }
         }
         self.retire_run_tabs(replaced);
+        self.drop_other_tab_state();
         self.fetch_terminal_history();
     }
 
@@ -437,6 +509,99 @@ impl App {
             .root()
             .map(|root| os_bytes(root.as_os_str()))
             .unwrap_or_default()
+    }
+
+    /// 返回各个待建标签是否加载启动目录中的 Python 环境；有环境尚未询问过时弹出提示并返回
+    /// `None`，回答之后再建。
+    ///
+    /// 环境里的程序排在 `PATH` 最前，会先于系统中的同名命令运行，因此每个环境只在用户同意后加载；
+    /// 回答按环境的目录记录（见 [`App::answered_python_environment`]）。没有窗口（测试）时无法
+    /// 询问，按同意处理。
+    pub(in crate::app) fn python_choices(&mut self) -> Option<Vec<bool>> {
+        let count = self.terminal.want.len();
+        if self.config.terminal_shell_integration == Some(false) {
+            return Some(vec![false; count]);
+        }
+        if self.terminal.python_asking.is_some() {
+            return None;
+        }
+        let root = self.terminal_cwd();
+        let mut choices = Vec::with_capacity(count);
+        for want in &self.terminal.want {
+            let dir = bytes_path(if want.is_empty() { &root } else { want });
+            // 没有打开目录时终端从用户的家目录启动，那里的环境是用户自己的，不询问。
+            if dir.as_os_str().is_empty() {
+                choices.push(true);
+                continue;
+            }
+            let candidates = [".venv", "venv"].map(|name| dir.join(name));
+            // 远端的目录不能在界面线程上查询：按文件树上看得到的目录判断，看不到时不加载，
+            // 不会在没有询问的情况下加载远端的环境。
+            let venv = if winc_backend::is_remote(&dir) {
+                let listed = |venv: &PathBuf| self.known_folder(venv) == Some(true);
+                match candidates.into_iter().find(listed) {
+                    Some(venv) => Some(venv),
+                    None => {
+                        choices.push(false);
+                        continue;
+                    }
+                }
+            } else {
+                let found = |venv: &PathBuf| winc_backend::fs::is_file(venv.join("pyvenv.cfg"));
+                candidates.into_iter().find(found)
+            };
+            let Some(venv) = venv else {
+                choices.push(true);
+                continue;
+            };
+            // 只有同意被长期记录（记为 1）；拒绝只在本次运行中有效，不会永久关闭这个环境的加载。
+            if self.terminal.python_declined.contains(&venv) {
+                choices.push(false);
+            } else if self.state.trusted_repo(&venv) == Some(1) || self.window.handle.is_none() {
+                choices.push(true);
+            } else {
+                self.ask_python_environment(venv);
+                return None;
+            }
+        }
+        Some(choices)
+    }
+
+    /// 询问是否为终端加载 Python 环境 `venv`。
+    fn ask_python_environment(&mut self, venv: PathBuf) {
+        let message = winc_i18n::t!("terminal-python-confirm");
+        let path = venv.display().to_string();
+        let detail = winc_i18n::t!("terminal-python-confirm-detail", path = path);
+        use crate::app::lifecycle::alert::AlertButton;
+        let buttons = vec![
+            AlertButton::new(winc_i18n::t!("terminal-python-confirm-action")),
+            AlertButton::cancel(winc_i18n::t!("terminal-python-confirm-decline")),
+        ];
+        let asked = venv.clone();
+        let shown = self.show_alert(message, &detail, buttons, None, move |index, _| {
+            Some(UserEvent::PythonEnvironment(asked.clone(), index == 0))
+        });
+        // 提示框暂时无法弹出（已有别的提示框）时不记录，下一次排版再问。
+        if shown {
+            self.terminal.python_asking = Some(venv);
+        }
+    }
+
+    /// 提示框中回答了是否加载 Python 环境 `venv`，然后建等着的标签。
+    ///
+    /// 同意长期记录，同一个环境不再询问；拒绝只记到本次运行结束。
+    pub(crate) fn answered_python_environment(&mut self, venv: PathBuf, load: bool) {
+        if load {
+            self.terminal
+                .python_declined
+                .retain(|declined| *declined != venv);
+            self.update_state(|state| state.trust_repo(&venv, 1));
+        } else if !self.terminal.python_declined.contains(&venv) {
+            self.terminal.python_declined.push(venv);
+        }
+        self.terminal.python_asking = None;
+        self.relayout();
+        self.request_redraw();
     }
 
     /// 读线程叫醒了事件循环：把收到的消息取完。
@@ -567,7 +732,12 @@ impl App {
                         tab.title = title;
                     }
                 }
-                Event::Clipboard(text) => self.set_clipboard(text, false),
+                // 只接受正在看的标签写剪贴板：看不见的标签里的输出不能在用户不知情时改写它。
+                Event::Clipboard(text) => {
+                    if t.open && t.index_of(id) == Some(t.active) {
+                        self.set_clipboard(text, false);
+                    }
+                }
                 Event::Link(link, uri) => {
                     if let Some(tab) = t.by_id(id) {
                         tab.set_link(link, uri);
@@ -615,6 +785,19 @@ impl App {
                 }
                 if let Some(config) = again {
                     self.start_run(config);
+                    return;
+                }
+                // shell 正常退出（`exit`、⌃D）时关掉标签，不留一个等回车的空标签；异常退出的
+                // 和运行配置的标签留着，用户要看退出码和输出。
+                let t = &self.terminal;
+                let shell = t
+                    .tabs
+                    .iter()
+                    .position(|tab| tab.id == id && tab.run.is_none());
+                if code == 0
+                    && let Some(index) = shell
+                {
+                    self.close_terminal_tab_now(index);
                 }
             }
             FromHelper::Disconnected { tab: id } => {
@@ -667,14 +850,37 @@ fn helper_path() -> Option<PathBuf> {
     path.exists().then_some(path)
 }
 
-/// 把 shell 报告的工作目录 `path` 转换为本机路径：打开的目录 `root` 位于 WSL 发行版中时，绝对路径
-/// 属于同一发行版。重启标签和恢复现场都使用该目录。
+/// 设置中的默认 shell 是否用于在目录 `dir` 新建的终端：目录在远端主机上，或在 Windows 上位于
+/// WSL 发行版中时不用。菜单中明确选择的 shell 不受此限制。
+pub(super) fn default_shell_applies(dir: &[u8], windows: bool) -> bool {
+    let dir = bytes_path(dir);
+    let in_distro = windows && winc_editor::wsl::locate(&dir).is_some();
+    !winc_backend::is_remote(&dir) && !in_distro
+}
+
+/// 把 shell 报告的工作目录 `path` 转换为编辑器使用的路径（见 [`terminal_path`]）。重启标签和
+/// 恢复现场都使用该目录。
 fn local_cwd(root: Option<&std::path::Path>, path: Vec<u8>) -> Vec<u8> {
     match root {
-        Some(root) => {
-            os_bytes(winc_editor::wsl::from_terminal(root, bytes_path(&path)).as_os_str())
-        }
+        Some(root) => os_bytes(terminal_path(root, bytes_path(&path)).as_os_str()),
         None => path,
+    }
+}
+
+/// 把终端中的路径 `path` 转换为编辑器使用的路径：打开的目录 `root` 在远端主机上时，`/` 开头的
+/// 路径是那台主机上的路径；位于 WSL 发行版中时属于同一发行版。其余路径原样返回。
+///
+/// 已经是远端主机上的路径时原样返回：标签记下的目录、恢复的现场都是换算过的，Unix 上这种路径
+/// 同样以 `/` 开头，再换算一次会指向错误的位置。
+pub(in crate::app) fn terminal_path(root: &std::path::Path, path: PathBuf) -> PathBuf {
+    if winc_backend::is_remote(&path) {
+        return path;
+    }
+    let bytes = os_bytes(path.as_os_str());
+    match winc_backend::locate(root) {
+        Some(at) if bytes.first() == Some(&b'/') => winc_backend::virtual_path(&at.target, &bytes),
+        Some(_) => path,
+        None => winc_editor::wsl::from_terminal(root, path),
     }
 }
 
@@ -696,8 +902,9 @@ fn integration_dir(config: &winc_config::Config) -> Option<Vec<u8>> {
 pub(super) enum Integration {
     /// 不注入：设置里关了，或要运行的是一条命令。
     Off,
-    /// 注入；`prompt` 为假时不换上 winc 的提示符（`terminal.prompt`）。
-    On { prompt: bool },
+    /// 注入；`prompt` 为假时不换上 winc 的提示符（`terminal.prompt`），`python` 为假时不加载
+    /// 启动目录中的 Python 环境。
+    On { prompt: bool, python: bool },
 }
 
 /// 新终端的启动方式：程序、参数和工作目录。
@@ -725,7 +932,11 @@ pub(super) fn launch(
 ) -> Launch {
     if let Some(at) = winc_backend::locate(&bytes_path(&cwd)) {
         let ready = crate::app::remote::shell_ready(&at.target);
-        return remote_launch(&at, integration, ready);
+        // 只接受那台主机上的绝对路径（由调用方按检测到的 shell 确认）；本机的命令不适用。
+        let shell = shell
+            .and_then(super::shells::program_path)
+            .filter(|path| path.starts_with('/'));
+        return remote_launch(&at, integration, ready, shell.as_deref());
     }
     // Windows 上 `/` 开头的目录来自 WSL 中的 shell，不是 Windows 程序可用的工作目录。
     let cwd = if windows && cwd.first() == Some(&b'/') {
@@ -774,12 +985,21 @@ pub(super) fn launch(
 /// 终端；`RemoteCommand=none` 使配置中为该主机设置的登录命令不与这里的命令冲突。远端的命令
 /// 先经用户的登录 shell 解释，写法只用各种 shell 共有的部分；目录包在单引号内。设置中的
 /// `shell` 是本机的命令，对远端的目录不适用。
-fn remote_launch(at: &winc_backend::Location, integration: Integration, ready: bool) -> Launch {
+fn remote_launch(
+    at: &winc_backend::Location,
+    integration: Integration,
+    ready: bool,
+    shell: Option<&str>,
+) -> Launch {
     // 集成脚本已写到那台主机上（`ready`）时由其中的启动脚本启动 shell（见
-    // `winc_pty::scripts`），否则直接启动登录 shell。
-    let start = match integration {
-        Integration::On { prompt } if ready => winc_pty::scripts::remote_command(prompt),
-        _ => "exec $SHELL -l".to_owned(),
+    // `winc_pty::scripts`），否则直接启动登录 shell。`shell` 是那台主机上的路径，由调用方
+    // 确认过在那台主机上存在。
+    let start = match (integration, shell) {
+        (Integration::On { prompt, python }, _) if ready => {
+            winc_pty::scripts::remote_command(prompt, python, shell)
+        }
+        (_, Some(shell)) => format!("exec {} -l", winc_pty::scripts::single_quoted(shell)),
+        (_, None) => "exec $SHELL -l".to_owned(),
     };
     let dir = String::from_utf8_lossy(&at.path).replace('\'', r"'\''");
     let mut args: Vec<String> = ["-t", "-o", "RemoteCommand=none"].map(str::to_owned).into();
@@ -807,13 +1027,31 @@ fn remote_launch(at: &winc_backend::Location, integration: Integration, ready: b
     }
 }
 
-pub(super) fn environment(prompt: bool) -> Vec<(Vec<u8>, Vec<u8>)> {
+/// 返回给终端的环境变量；`prompt`、`python` 为假时分别加上 `WINC_PROMPT=0`、`WINC_PYTHON=0`，
+/// 集成脚本据此不替换默认提示符、不加载启动目录中的 Python 环境。
+pub(super) fn environment(prompt: bool, python: bool) -> Vec<(Vec<u8>, Vec<u8>)> {
     let mut env: Vec<_> = std::env::vars_os()
-        .filter(|(k, _)| k != "WINC_PROMPT")
+        .filter(|(k, _)| k != "WINC_PROMPT" && k != "WINC_PYTHON")
         .map(|(k, v)| (os_bytes(&k), os_bytes(&v)))
         .collect();
     if !prompt {
         env.push((b"WINC_PROMPT".to_vec(), b"0".to_vec()));
+    }
+    if !python {
+        env.push((b"WINC_PYTHON".to_vec(), b"0".to_vec()));
+    }
+    // 从图形界面启动时没有区域设置：按系统的首选语言补上 `LANG`。系统没有对应的区域数据时
+    // 不补，由辅助进程只声明字符编码。
+    #[cfg(target_os = "macos")]
+    if !env
+        .iter()
+        .any(|(k, _)| matches!(&k[..], b"LANG" | b"LC_ALL" | b"LC_CTYPE"))
+        && let Some(name) = winc_i18n::Locale::system_posix()
+        && winc_backend::fs::is_dir(
+            std::path::Path::new("/usr/share/locale").join(format!("{name}.UTF-8")),
+        )
+    {
+        env.push((b"LANG".to_vec(), format!("{name}.UTF-8").into_bytes()));
     }
     env
 }

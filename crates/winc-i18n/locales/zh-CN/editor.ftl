@@ -172,6 +172,7 @@ editor-vim-fewer-lines = 减少 { $count } 行
 editor-vim-no-buffer = 未找到该文档
 editor-vim-no-file = 光标处不是已有文件的路径
 editor-vim-file-exists = 文件已存在，加 ! 可覆盖
+editor-vim-file-unknown = 无法确认远端是否已有该文件，加 ! 写入
 editor-vim-written = 已写出 { $name }
 editor-vim-diff-read-only = 差异的此侧为只读
 editor-vim-help-title = Vim 模式：命令一览

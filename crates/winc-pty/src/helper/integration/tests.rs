@@ -47,8 +47,10 @@ fn only_plain_entry_into_the_default_shell_is_injected() {
 fn environment_for_wsl_keeps_what_the_user_forwards() {
     let mut env = vec![(b"WSLENV".to_vec(), b"GOPATH/l".to_vec())];
     forward_to_wsl(&mut env);
-    let forwarded = b"GOPATH/l:WINC_NONCE:WINC_PROMPT:COLORTERM:TERM_PROGRAM:TERM_PROGRAM_VERSION";
+    let mut forwarded = b"GOPATH/l:".to_vec();
+    forwarded.extend_from_slice(WSL_ENV);
     assert_eq!(env[0].1, forwarded);
+    assert!(WSL_ENV.starts_with(b"WINC_NONCE:WINC_PROMPT:WINC_PYTHON:"));
 
     let mut env = Vec::new();
     forward_to_wsl(&mut env);

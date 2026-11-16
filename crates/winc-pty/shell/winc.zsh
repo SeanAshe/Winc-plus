@@ -1,6 +1,6 @@
-# winc 的命令块钩子（docs/TERMINAL.md §6）：发 OSC 133（提示符、命令、输出、结束）和 OSC 7
-# （当前目录），不改 shell 的行为。用户自己没设提示符（还是系统默认的那个）时换一个清楚点的，
-# 见 _winc_defaults。这个文件由 winc 生成，改了会被覆盖。
+# zsh 的 shell 集成：通过 OSC 133 和 OSC 7 报告命令块与当前目录。
+# 首次提示符前按设置处理默认提示符，加载启动目录中的 Python 环境并按需添加名称前缀。
+# winc 从 `.zshenv` 读取本文件，启动前按需生成。
 
 [[ -n $_winc_hooked ]] && builtin return
 builtin typeset -g _winc_hooked=1 _winc_running= _winc_home=${${(%):-%x}:A:h}
@@ -16,11 +16,12 @@ _winc_urlencode() {
 _winc_precmd() {
   builtin local ret=$?
   if [[ -n $_winc_running ]]; then
-    builtin print -n -- "\e]133;D;$ret\a"
+    # 结束标记附带随机数：命令的输出中伪造的结束标记不会被采用。
+    builtin print -n -- "\e]133;D;$ret;nonce=$_winc_nonce\a"
     _winc_running=
   fi
   _winc_urlencode "$PWD"
-  builtin print -n -- "\e]7;file://$HOST$REPLY\a\e]133;A;redraw=1\a"
+  builtin print -n -- "\e]7;file://$HOST$REPLY\a\e]133;A;redraw=1;signed=1\a"
   # 提示符在哪里结束（用户从哪里开始输入）：PS1 末尾加一个不占宽度的标记。提示符主题每次重设
   # PS1 时再加上。
   [[ $PS1 == *$'\e]133;B\a'* ]] || PS1=$PS1$'%{\e]133;B\a%}'
@@ -59,6 +60,8 @@ _winc_branch() {
   else
     head=${head[1,7]}
   fi
+  # 文件内容直接进入提示符：去掉控制字符，其中的转义序列不会被终端执行。
+  head=${head//[[:cntrl:]]/}
   _winc_git=" %F{5}${head//\%/%%}%f"
 }
 
@@ -87,6 +90,8 @@ _winc_install() {
   builtin local ret=$?
   precmd_functions=(${precmd_functions:#_winc_install} _winc_precmd)
   _winc_defaults
+  [[ $_winc_python == 0 ]] || builtin source -- "$_winc_home/../python.sh"
+  builtin unset _winc_python
   preexec_functions+=(_winc_preexec)
   () { builtin return $ret }
   _winc_precmd

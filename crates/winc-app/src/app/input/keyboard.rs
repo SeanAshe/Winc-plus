@@ -154,7 +154,7 @@ impl App {
     }
 
     /// 返回当前焦点对应的键位上下文，键位表按它划分适用范围。
-    pub(super) fn key_context(&self) -> Context {
+    pub(in crate::app) fn key_context(&self) -> Context {
         match self.focus {
             Focus::Editor if self.markdown_live() => Context::Markdown,
             Focus::Editor => Context::Editor,
@@ -198,7 +198,7 @@ impl App {
 
     /// 应用是否在当前的上下文中绑定了按键 `stroke`，含两步组合键的第一步。
     pub(in crate::app) fn binds(&self, stroke: Stroke) -> bool {
-        let lookup = keymap::lookup(keymap::current(), stroke, None, self.key_context());
+        let lookup = self.lookup_shortcut(stroke, None);
         !matches!(lookup, Lookup::None)
     }
 
@@ -208,14 +208,23 @@ impl App {
     /// 不是快捷键时返回 `false`，按键交给焦点所在的部件。
     pub(in crate::app) fn on_shortcut(&mut self, stroke: Stroke) -> bool {
         let table = keymap::current();
-        let context = self.key_context();
+
+        // 程序开始运行或输入策略改变后，旧的组合键等待不能继续截获程序输入。
+        if self.focus == Focus::Terminal
+            && self.pending_chord.is_some()
+            && (!self.terminal_at_prompt()
+                || self.config.terminal_application_priority == Some(true))
+        {
+            self.pending_chord = None;
+            self.status.message = None;
+        }
 
         if let Some(first) = self.pending_chord.take() {
             self.status.message = None;
             if stroke.key == keymap::KeyCode::Escape {
                 return true;
             }
-            match keymap::lookup(table, stroke, Some(first), context) {
+            match self.lookup_shortcut(stroke, Some(first)) {
                 Lookup::Run(actions)
                     if actions
                         .iter()
@@ -239,7 +248,7 @@ impl App {
             return self.run_action(action);
         }
 
-        match keymap::lookup(table, stroke, None, context) {
+        match self.lookup_shortcut(stroke, None) {
             Lookup::Run(actions) => actions
                 .into_iter()
                 .any(|a| self.run_action(self.keyboard_action(a))),

@@ -729,3 +729,16 @@ fn folders_that_cannot_be_read_on_this_thread_are_filled_in_later() {
     .join()
     .unwrap();
 }
+
+#[test]
+fn a_folder_in_a_wsl_distro_is_named_with_the_distro() {
+    let place = |path: &str| crate::wsl::locate(Path::new(path)).unwrap();
+    let project = place(r"\\wsl.localhost\Ubuntu-26.04\home\me\project");
+    assert_eq!(
+        in_distro("project", &project),
+        "project [WSL: Ubuntu-26.04]"
+    );
+    // 发行版的根目录没有名字，显示为 `/`。
+    let root = place(r"\\wsl$\Debian");
+    assert_eq!(in_distro("Debian", &root), "/ [WSL: Debian]");
+}

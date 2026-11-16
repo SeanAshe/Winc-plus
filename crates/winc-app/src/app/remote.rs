@@ -23,6 +23,7 @@ use crate::app::animation::Card;
 use crate::app::git::form::{FormDialog, FormKind, FormPlan};
 use crate::app::git::question::Asker;
 use crate::app::lifecycle::notice::NoticeAction;
+use crate::app::terminal::shells::ShellChoice;
 use crate::app::{App, TextField, UserEvent};
 use crate::askpass::{Listener, Question};
 use crate::layout::DialogPart;
@@ -44,6 +45,47 @@ const INSTALL_SHELL: &str = concat!(
 
 /// 集成脚本已经写好的主机：在这些主机上开的终端注入 shell 集成。
 static SHELL_READY: Mutex<Vec<Target>> = Mutex::new(Vec::new());
+
+/// 各台主机上检测到的 shell，供终端的 shell 菜单列出。
+static SHELLS: Mutex<Vec<(Target, Vec<ShellChoice>)>> = Mutex::new(Vec::new());
+
+/// 列出主机上的 shell 最长等待的时间：5 秒，与查询远端环境的时限相同，超时按没有检测到处理。
+const SHELLS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// 返回 `target` 上检测到的 shell，登录 shell 排在最前；尚未检测完或检测失败时为空。
+pub(crate) fn shells(target: &Target) -> Vec<ShellChoice> {
+    let known = SHELLS.lock().unwrap_or_else(PoisonError::into_inner);
+    let found = known.iter().find(|(host, _)| host == target);
+    found.map(|(_, shells)| shells.clone()).unwrap_or_default()
+}
+
+/// 测试中直接记下 `target` 上的 shell，代替经连接检测；用到它的测试只在 Unix 上编译。
+#[cfg(all(test, unix))]
+pub(crate) fn set_shells(target: &Target, shells: Vec<ShellChoice>) {
+    let mut known = SHELLS.lock().unwrap_or_else(PoisonError::into_inner);
+    known.retain(|(host, _)| host != target);
+    known.push((target.clone(), shells));
+}
+
+/// 列出 `target` 上的 shell 并记下来，一次往返；每次连接都重新检测。
+fn detect_shells(target: &Target) {
+    let mut exec = Exec::new("sh")
+        .arg("-c")
+        .arg(crate::app::terminal::shells::REMOTE_DETECT)
+        .arg("winc");
+    for path in crate::app::terminal::shells::remote_candidates() {
+        exec = exec.arg(path);
+    }
+    let home = winc_backend::virtual_path(target, b"/");
+    let deadline = std::time::Instant::now() + SHELLS_TIMEOUT;
+    let output = remote::exec(&home, &exec, &|| std::time::Instant::now() >= deadline);
+    let found = output.ok().map_or_else(Vec::new, |output| {
+        crate::app::terminal::shells::remote_shells(&String::from_utf8_lossy(&output.stdout))
+    });
+    let mut known = SHELLS.lock().unwrap_or_else(PoisonError::into_inner);
+    known.retain(|(host, _)| host != target);
+    known.push((target.clone(), found));
+}
 
 /// 是否 `target` 上的 shell 集成脚本已经写好。
 pub(crate) fn shell_ready(target: &Target) -> bool {
@@ -529,7 +571,10 @@ fn connect(
     remote::register(target.clone(), connection);
     // 写集成脚本不耽误打开目录：在另一个线程上进行，写好之后开的终端才带集成。
     let host = target.clone();
-    std::thread::spawn(move || install_shell_scripts(&host));
+    std::thread::spawn(move || {
+        install_shell_scripts(&host);
+        detect_shells(&host);
+    });
     Ok(())
 }
 
@@ -1220,6 +1265,13 @@ Host -oProxyCommand=x a;b
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
         assert!(shell_ready(&target));
+        // 那台主机上的 shell 随后列出，供终端的 shell 菜单使用。
+        while shells(&target).is_empty() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let found = shells(&target);
+        assert!(found.iter().all(|shell| shell.command.starts_with('/')));
+        assert!(!found.is_empty());
         for (name, content) in winc_pty::scripts::remote() {
             let file = home.join(winc_pty::scripts::REMOTE_DIR).join(name);
             assert_eq!(

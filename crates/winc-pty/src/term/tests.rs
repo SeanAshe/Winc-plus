@@ -451,6 +451,45 @@ fn shrinking_pushes_rows_into_the_history_and_growing_pulls_them_back() {
 }
 
 #[test]
+fn resizing_after_a_clear_does_not_bring_the_cleared_output_back() {
+    for (cols, rows) in [(10, 6), (10, 3), (12, 6), (8, 3)] {
+        let mut t = term(10, 4);
+        feed(&mut t, "1\r\n2\r\n3\r\n");
+        // 清屏把屏幕内容移入回滚缓冲，提示符回到第一行。
+        feed(&mut t, "\x1b[H\x1b[2J$ ");
+        let kept = history_text(&t);
+        assert_eq!(kept, ["1", "2", "3"]);
+        t.resize(size(cols, rows));
+        assert_eq!(t.screen_text(), "$", "{cols}x{rows}");
+        assert_eq!(t.cursor(), (0, 2), "{cols}x{rows}");
+        assert_eq!(history_text(&t), kept, "{cols}x{rows}");
+        assert_eq!(t.take_frame().unwrap().cleared, 3, "{cols}x{rows}");
+    }
+
+    // 清屏之后滚出屏幕的行仍然可以拉回，清屏之前的不拉回。
+    let mut t = term(10, 3);
+    feed(&mut t, "old\r\n\x1b[H\x1b[2Ja\r\nb\r\nc\r\nd");
+    assert_eq!(history_text(&t), ["old", "a"]);
+    t.resize(size(10, 6));
+    assert_eq!(t.screen_text(), "a\nb\nc\nd");
+    assert_eq!(history_text(&t), ["old"]);
+}
+
+#[test]
+fn a_program_restores_the_title_it_found() {
+    let mut t = term(20, 4);
+    feed(&mut t, "\x1b]2;~/winc\x07");
+    // 保存标题、换成自己的，退出时恢复。
+    feed(&mut t, "\x1b[22;2t\x1b]2;main.rs - VIM\x07");
+    t.take_events();
+    feed(&mut t, "\x1b[23;2t");
+    assert_eq!(t.take_events(), [Event::Title("~/winc".into())]);
+    // 没有保存过时恢复不改标题；只针对图标标题的请求忽略。
+    feed(&mut t, "\x1b[23;2t\x1b[22;1t\x1b[23;1t");
+    assert!(t.take_events().is_empty());
+}
+
+#[test]
 fn only_a_width_change_renumbers_the_history() {
     let mut t = term(10, 4);
     feed(&mut t, "1\r\n2\r\n3\r\n4\r\n5\r\n$ ");

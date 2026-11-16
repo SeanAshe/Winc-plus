@@ -301,6 +301,8 @@ pub enum UserEvent {
     TerminalClose(u16),
     /// 确认框中确认重新启动参数所指的终端标签（伪终端已断开，其中的程序可能仍在运行）。
     TerminalRestart(u16),
+    /// 提示框中回答了是否为终端加载第一个参数所指的 Python 环境。
+    PythonEnvironment(PathBuf, bool),
     /// 需要授权的 `winc` 命令安装或卸载已结束。
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     ShellCommandDone(crate::shell_command::Done),

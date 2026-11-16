@@ -316,11 +316,10 @@ impl App {
                 if !name.starts_with(prefix) || hidden {
                     return None;
                 }
-                let slash = if winc_backend::fs::is_dir(entry.path()) {
-                    "/"
-                } else {
-                    ""
-                };
+                // 类别取自目录项，指向目录的符号链接再查一次。
+                let is_dir = entry.kind.is_dir()
+                    || entry.kind.is_symlink() && winc_backend::fs::is_dir(entry.path());
+                let slash = if is_dir { "/" } else { "" };
                 Some(format!("{folder}{name}{slash}"))
             })
             .collect();
@@ -436,7 +435,12 @@ impl App {
         if doc.path.as_ref() == Some(&to) {
             return self.vim_save();
         }
-        if winc_backend::fs::exists(&to) && !force {
+        // 远端的路径在界面线程上查不到是否已有文件：不加 `!` 时不写入，不会不经确认就覆盖。
+        let unknown = winc_backend::is_remote(&to) && self.known_folder(&to).is_none();
+        if unknown && !force {
+            return self.flash(t!("editor-vim-file-unknown"));
+        }
+        if !unknown && self.may_exist(&to) && !force {
             return self.flash(t!("editor-vim-file-exists"));
         }
         if doc.path.is_none() {
@@ -514,7 +518,7 @@ impl App {
             Some(content[start..=end].iter().collect::<String>())
         });
         let path = word.map(|word| self.vim_path(&word));
-        match path.filter(|path| winc_backend::fs::is_file(path)) {
+        match path.filter(|path| self.may_be_file(path)) {
             Some(path) => self.open_path(&path),
             None => self.flash(t!("editor-vim-no-file")),
         }

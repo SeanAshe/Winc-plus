@@ -33,7 +33,28 @@ pub(crate) use popup::{
     folder_rows,
 };
 pub(crate) use present::MenuIcon;
-pub use present::MenuLabel;
+
+/// 菜单项上显示的文字：标题、标题下方的一行小字，以及悬停提示。
+#[derive(Debug, Clone, PartialEq)]
+pub struct MenuLabel {
+    /// 标题。
+    pub title: String,
+    /// 标题下方的小字。
+    pub subtitle: Option<String>,
+    /// 悬停提示。
+    pub tooltip: Option<String>,
+}
+
+impl MenuLabel {
+    /// 只有标题的文字。
+    pub(crate) fn plain(title: &str) -> MenuLabel {
+        MenuLabel {
+            title: title.to_owned(),
+            subtitle: None,
+            tooltip: None,
+        }
+    }
+}
 
 /// 菜单项左边图标的宽和高（逻辑像素），等于 `icons::folder` 绘制的目录图标的尺寸 15×12。
 const MENU_ICON: (f32, f32) = (15.0, 12.0);
@@ -188,6 +209,8 @@ pub enum MenuCommand {
     TextWidth(usize),
     /// 设置中终端「位置」菜单的一项：`true` 为右侧，`false` 为底部。
     TerminalPosition(bool),
+    /// 设置中终端「标签位置」菜单的一项：`true` 为右侧，`false` 为顶部。
+    TerminalTabPosition(bool),
     /// 设置中「Meta 键」菜单的一项，参数为
     /// [`OptionAsMeta::ALL`](winc_config::OptionAsMeta::ALL) 中的序号（从 0 起）。
     OptionAsMeta(usize),
@@ -402,6 +425,8 @@ pub enum MenuCommand {
     /// 终端标签：改名字。
     RenameTerminal,
     CloseTerminal,
+    /// 终端标签：关闭其他终端标签。
+    CloseOtherTerminals,
     /// 终端：右键点着的命令块的命令行。
     CopyCommand,
     /// 终端：右键点着的命令块的整段输出。
@@ -470,6 +495,8 @@ impl MenuCommand {
             MenuCommand::DefaultShellCustom => t!("settings-terminal-shell-custom"),
             MenuCommand::TerminalPosition(false) => t!("settings-terminal-position-bottom"),
             MenuCommand::TerminalPosition(true) => t!("settings-terminal-position-right"),
+            MenuCommand::TerminalTabPosition(false) => t!("settings-terminal-tab-position-top"),
+            MenuCommand::TerminalTabPosition(true) => t!("settings-terminal-tab-position-right"),
             MenuCommand::OptionAsMeta(i) => winc_config::OptionAsMeta::ALL
                 .get(i)
                 .map_or("", |&choice| crate::layout::option_as_meta_label(choice)),
@@ -555,6 +582,7 @@ impl MenuCommand {
             MenuCommand::NewTerminal => t!("cmd-new-terminal"),
             MenuCommand::RenameTerminal => t!("cmd-rename-file"),
             MenuCommand::CloseTerminal => t!("menu-terminal-close"),
+            MenuCommand::CloseOtherTerminals => t!("cmd-close-other-tabs"),
             MenuCommand::CopyCommand => t!("menu-terminal-copy-command"),
             MenuCommand::CopyOutput => t!("menu-terminal-copy-output"),
             MenuCommand::Rerun => t!("menu-terminal-rerun"),
@@ -770,6 +798,8 @@ pub enum MenuTarget {
     DefaultShell,
     /// 设置的终端页中的「位置」。
     TerminalPosition,
+    /// 设置的终端页中的「标签位置」。
+    TerminalTabPosition,
     /// 设置的终端页中的「Meta 键」。
     OptionAsMeta,
     /// 设置中字体一行的下拉按钮。

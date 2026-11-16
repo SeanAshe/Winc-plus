@@ -102,3 +102,25 @@ fn columns_count_cells_not_chars() {
     let l = &locations(&line, false)[0];
     assert_eq!((l.start, l.end), (5, 17));
 }
+
+#[test]
+fn a_url_wrapped_over_several_rows_is_taken_whole() {
+    let row = |text: &str, wrapped: bool| Line {
+        text: text.into(),
+        wrapped,
+        ..Line::default()
+    };
+    let rows = [
+        row("open https://exam", true),
+        row("ple.com/device?co", true),
+        row("de=AB-12 now", false),
+    ];
+    let rows: Vec<&Line> = rows.iter().collect();
+    let url = "https://example.com/device?code=AB-12";
+    // 鼠标在哪一行，返回的就是网址在那一行里占的格子。
+    assert_eq!(url_across(&rows, 0, 8), Some((5, 17, url.into())));
+    assert_eq!(url_across(&rows, 1, 0), Some((0, 17, url.into())));
+    assert_eq!(url_across(&rows, 2, 7), Some((0, 8, url.into())));
+    assert_eq!(url_across(&rows, 0, 2), None);
+    assert_eq!(url_across(&rows, 2, 9), None);
+}
