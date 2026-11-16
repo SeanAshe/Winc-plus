@@ -281,6 +281,10 @@ fn register_extension(exe: &Path, ext: &str) -> bool {
 }
 
 /// 安装程序已经把这条 `ProgID` 的图标指到旁边的 `icons\<分组>.ico` 时，保留那个路径。
+#[allow(
+    clippy::disallowed_methods,
+    reason = "只访问本机：安装目录里的文档图标，不经过工作区"
+)]
 fn keeps_installer_icon(exe: &Path, ext: &str) -> bool {
     let Some(name) = installer_icon_name(ext) else {
         return false;
