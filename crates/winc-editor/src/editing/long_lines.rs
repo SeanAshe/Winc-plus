@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use winc_core::Lines;
-use winc_core::text::{MAX_LINE_CHARS, char_cells};
+use winc_core::text::{Behind, MAX_LINE_CHARS};
 
 use crate::document::Document;
 use crate::navigation::bookmarks::Bookmarks;
@@ -132,6 +132,8 @@ struct LongCols {
     cells: usize,
     /// 第 `k` 项是前 `(k + 1) * COL_STRIDE` 个字符占用的显示列数。
     stops: Vec<usize>,
+    /// 已扫描部分末尾的两个字符，用于判断其后的字符是否属于 emoji 序列。
+    behind: Behind,
 }
 
 impl LongCols {
@@ -169,13 +171,17 @@ impl LongCols {
                 .unwrap_or(room);
             let step = match (plain, rest.chars().next()) {
                 (0, Some(c)) => {
-                    self.cells += char_cells(c, self.cells, tab_width);
+                    self.cells += self.behind.cells(c, self.cells, tab_width);
                     self.done += 1;
                     c.len_utf8()
                 }
                 _ => {
                     self.cells += plain;
                     self.done += plain;
+                    // 这串 ASCII 字符的末尾两个记入状态（键帽接在数字之后）。
+                    for &b in &rest.as_bytes()[plain.saturating_sub(2)..plain] {
+                        self.behind.pass(char::from(b));
+                    }
                     plain
                 }
             };
@@ -318,6 +324,7 @@ impl Document {
                     done,
                     cells,
                     stops,
+                    behind: Behind::default(),
                 };
                 cache.push((key, cols));
             }
@@ -410,10 +417,20 @@ impl Document {
             (cols.before_col(col), col.min(cols.len), start)
         })?;
         let (from, mut cells) = from;
+        let mut behind = self.behind_at(start, from);
         for c in self.text.substring(start + from, start + to).chars() {
-            cells += char_cells(c, cells, tab_width);
+            cells += behind.cells(c, cells, tab_width);
         }
         Some(cells)
+    }
+
+    /// 返回从行首位置 `start` 起第 `from` 个字符之前的状态，用于从列索引的记录处继续计算显示列。
+    fn behind_at(&self, start: usize, from: usize) -> Behind {
+        let back = from.min(2);
+        let text = self.text.substring(start + from - back, start + from);
+        let mut chars = text.chars().rev();
+        let (previous, earlier) = (chars.next(), chars.next());
+        Behind::after(earlier, previous)
     }
 
     /// 同 [`Document::cell_to_col`]，用于显示整行的超长行；其他行返回 `None`。
@@ -430,8 +447,9 @@ impl Document {
         })?;
         let (from, mut at) = from;
         let text = self.text.substring(start + from, start + to);
+        let mut behind = self.behind_at(start, from);
         for (i, c) in text.chars().enumerate() {
-            let width = char_cells(c, at, tab_width);
+            let width = behind.cells(c, at, tab_width);
             if at + width > cell {
                 return Some(from + i + usize::from(cell - at > width / 2));
             }

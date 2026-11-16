@@ -733,3 +733,28 @@ fn hinting_sharpens_horizontal_stems_and_keeps_advances() {
         "未微调 {plain}，微调 {hinted}"
     );
 }
+
+#[test]
+fn emoji_are_rasterized_once_whatever_the_pen_position() {
+    let mut renderer =
+        Renderer::offscreen(200.0, 60.0, 1.0, Color::hex(0xffffff), None, None).unwrap();
+    // 系统中没有彩色 emoji 字体时不做比较。
+    if renderer.glyphs.borrow_mut().fonts.emoji_face().is_none() {
+        return;
+    }
+    let draw = |renderer: &mut Renderer, text: &str| {
+        let before = renderer.glyphs.borrow().cached();
+        renderer.draw(|frame| {
+            let all = frame.bounds();
+            for step in 0..4 {
+                let x = 10.0 + 40.0 * step as f32 + 0.25 * step as f32;
+                frame.text(FontKind::Ui, 20.0, x, 30.0, text, Color::hex(0x000000), all);
+            }
+        });
+        renderer.glyphs.borrow().cached() - before
+    };
+    // 字母按 ¼ 像素的档位各有一份位图；emoji 和 emoji 序列按整像素定位，只有一份。
+    assert_eq!(draw(&mut renderer, "a"), 4);
+    assert_eq!(draw(&mut renderer, "😀"), 1);
+    assert_eq!(draw(&mut renderer, "👍\u{1f3fd}"), 1);
+}

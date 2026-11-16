@@ -5,6 +5,7 @@
 //! 在 `markdown`、`markup`、`style` 子模块中。
 
 mod data;
+mod log;
 mod markdown;
 mod markup;
 mod shell;
@@ -264,17 +265,37 @@ pub enum TokenKind {
     Attribute,
     /// 标题：Markdown 的标题行、TOML 的表头、INI 的节名。
     Heading,
-    /// Markdown 的强调（`*a*`）与删除线（`~~a~~`）。
+    /// Markdown 的强调（`*a*`）、删除线（`~~a~~`）与高亮（`==a==`）。
     Emphasis,
     /// Markdown 的加粗（`**a**`）。
     Strong,
     /// Markdown 的链接文字与自动链接。
     Link,
-    /// 差异文件中新增的行。
+    /// 差异文件中新增的行，以及日志中的信息级别。
     Inserted,
-    /// 差异文件中删除的行。
+    /// 差异文件中删除的行，以及日志中的错误级别。
     Deleted,
+    /// 日志中的警告级别。
+    Warning,
 }
+
+/// `#` 开头、其后按代码着色的指令：条件编译、宏定义和包含（见 `Lexer::directive`）。
+const CODE_DIRECTIVES: &[&str] = &[
+    "define",
+    "undef",
+    "if",
+    "ifdef",
+    "ifndef",
+    "elif",
+    "elifdef",
+    "elifndef",
+    "elseif",
+    "else",
+    "endif",
+    "include",
+    "include_next",
+    "import",
+];
 
 /// 行内需要着色的一段文本。
 ///
@@ -579,13 +600,22 @@ impl Lexer<'_> {
                 return self.diff_line();
             }
 
+            if self.language.log_lines {
+                return self.log_line();
+            }
+
             if self.language.hash_lines
                 && let Some(first) = self.chars.iter().position(|c| !c.is_whitespace())
                 && self.chars[first] == '#'
                 && !matches!(self.chars.get(first + 1), Some('"' | '#' | '['))
             {
-                self.push(first, n, TokenKind::Decorator);
-                return LineState::Normal;
+                match self.directive(first) {
+                    Some(end) => i = end,
+                    None => {
+                        self.push(first, n, TokenKind::Decorator);
+                        return LineState::Normal;
+                    }
+                }
             }
 
             if self.language.markdown {
@@ -705,6 +735,48 @@ impl Lexer<'_> {
         }
 
         Ok(self.token(i))
+    }
+
+    /// 为 `first` 处 `#` 开头的条件编译、宏定义或包含指令着色，返回指令之后按代码继续分析的位置。
+    ///
+    /// 指令本身（`#define`、`#ifndef`，`#` 与名字之间可以有空白）按装饰器着色；`#define`、
+    /// `#undef` 之后的宏名按函数名着色，`#include <…>` 的尖括号部分按字符串着色。其余指令
+    /// （`#pragma`、`#error`、`#region` 等）之后是自由文字，返回 `None`，由调用方整行着色。
+    fn directive(&mut self, first: usize) -> Option<usize> {
+        let chars = self.chars;
+        let blank = |from: usize| {
+            from + chars[from..]
+                .iter()
+                .take_while(|c| c.is_whitespace())
+                .count()
+        };
+        let word = |from: usize| {
+            from + chars[from..]
+                .iter()
+                .take_while(|c| c.is_alphanumeric() || **c == '_')
+                .count()
+        };
+        let start = blank(first + 1);
+        let end = word(start);
+        let name: String = chars[start..end].iter().collect();
+        if !CODE_DIRECTIVES.contains(&name.as_str()) {
+            return None;
+        }
+        self.push(first, end, TokenKind::Decorator);
+        let next = blank(end);
+        match name.as_str() {
+            "define" | "undef" => {
+                let name_end = word(next);
+                self.push(next, name_end, TokenKind::Function);
+                Some(name_end)
+            }
+            "include" | "include_next" | "import" if chars.get(next) == Some(&'<') => {
+                let close = chars[next..].iter().position(|&c| c == '>')?;
+                self.push(next, next + close + 1, TokenKind::String);
+                Some(next + close + 1)
+            }
+            _ => Some(end),
+        }
     }
 
     /// 按行首字符为差异文件的一行整行着色，返回下一行开头的状态。

@@ -54,6 +54,9 @@ impl App {
             let pinned = self.state.markdown_toc_pinned;
             let clock = self.clock(crate::app::animation::TOC_PIN);
             self.preview.markdown.toc_pin = clock.map(|clock| (pinned, clock));
+            // 钉住状态变化使正文左边缘移动时，从当前位置过渡到新位置。
+            let left = self.preview.markdown.layout.as_ref().map(|laid| laid.left);
+            self.preview.markdown.toc_slide = left.filter(|_| clock.is_some());
             self.request_redraw();
             return;
         }

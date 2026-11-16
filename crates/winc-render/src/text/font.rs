@@ -575,6 +575,8 @@ pub(crate) struct Fonts {
     ascii: [[Option<(u8, u16)>; 128]; FontKind::COUNT],
     /// 平台后备字体的槽位范围。
     fallbacks: Range<u8>,
+    /// 彩色 emoji 字体所在的后备槽位；默认按 emoji 显示的字符先在这里找。
+    emoji: u8,
     /// 等宽字体、界面字体和终端字体的列表中写在主字体之后的字体所在的槽位范围，依次尝试。
     listed: [Range<u8>; 3],
 }
@@ -639,6 +641,7 @@ impl Fonts {
             terminal,
             terminal_italic,
         ];
+        let emoji = FALLBACK + candidates.emoji as u8;
         slots.extend(candidates.fallbacks.into_iter().map(Slot::Pending));
         let fallbacks = FALLBACK..slots.len() as u8;
         // 列表中主字体之外的字体到第一次用到时才打开。排在主字体之前的字体刚才已打不开，到时
@@ -659,6 +662,7 @@ impl Fonts {
             resolved: FastMap::default(),
             ascii: [[None; 128]; FontKind::COUNT],
             fallbacks,
+            emoji,
             listed,
         };
 
@@ -765,6 +769,18 @@ impl Fonts {
         }
     }
 
+    /// 槽位 `slot` 是否是彩色 emoji 字体的槽位。
+    pub(crate) fn is_emoji_slot(&self, slot: u8) -> bool {
+        slot == self.emoji
+    }
+
+    /// 返回彩色 emoji 字体的槽位和字体，必要时才映射文件；系统中没有时返回 `None`。
+    pub(crate) fn emoji_face(&mut self) -> Option<(u8, &Face)> {
+        let slot = self.emoji;
+        self.ensure_loaded(slot);
+        Some((slot, self.face(slot)?))
+    }
+
     /// 返回能显示字符 `c` 的（槽位，字形 id）。
     ///
     /// 依次尝试 `kind` 对应的主字体、另一种主字体和各后备字体，必要时才映射文件。所有字体都没有
@@ -806,6 +822,11 @@ impl Fonts {
                 .collect(),
         };
         order.extend(self.fallbacks.clone());
+        // 默认按 emoji 显示的字符优先使用彩色 emoji 字体：顺序在前的符号字体、
+        // 中文字体和主字体常带有同一字符的单色字形。
+        if winc_emoji::presentation(c) {
+            order.insert(0, self.emoji);
+        }
 
         let mut result = (primary, 0);
         // 缓存项数随出现过的字符数增长（例如打开一个几乎每个字符都不同的文件），满了就整体清空；
@@ -1010,6 +1031,8 @@ struct Candidates {
     math: Vec<FontFile>,
     /// 每一项是一个后备槽位的候选。
     fallbacks: Vec<Choices>,
+    /// 彩色 emoji 字体在 `fallbacks` 中的下标（从 0 起）。
+    emoji: usize,
 }
 
 /// 一个后备槽位的候选：先按序尝试 fontconfig 的查询结果（有查询时），再按优先级尝试固定的字体
@@ -1128,6 +1151,7 @@ impl Candidates {
                 .into_iter()
                 .map(Choices::files)
                 .collect(),
+                emoji: 3,
             }
         } else if cfg!(target_os = "windows") {
             let fonts = crate::text::font_path::windows_fonts();
@@ -1156,6 +1180,7 @@ impl Candidates {
                 .into_iter()
                 .map(Choices::files)
                 .collect(),
+                emoji: 2,
             }
         } else {
             // Linux 先查询 fontconfig：它记录了发行版安装字体的位置，也按用户设置的偏好选择；没有
@@ -1208,6 +1233,7 @@ impl Candidates {
                         probe: Some('😀'),
                     },
                 ],
+                emoji: 1,
             }
         }
     }

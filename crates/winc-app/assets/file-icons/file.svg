@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <title>Winc file document</title>
+  <defs>
+    <linearGradient id="band" x1="48" y1="190" x2="208" y2="244" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2F8CFC"/><stop offset="1" stop-color="#0A4FF0"/>
+    </linearGradient>
+    <clipPath id="page"><path d="M62 12h102l44 44v174a14 14 0 0 1-14 14H62a14 14 0 0 1-14-14V26a14 14 0 0 1 14-14z"/></clipPath>
+  </defs>
+  <path d="M62 12h102l44 44v174a14 14 0 0 1-14 14H62a14 14 0 0 1-14-14V26a14 14 0 0 1 14-14z" fill="#FFFFFF"/>
+  <g clip-path="url(#page)"><rect x="48" y="190" width="160" height="54" fill="url(#band)"/></g>
+  <path d="M164 12v30a14 14 0 0 0 14 14h30z" fill="#E6EAF0"/>
+  <path d="M62 13.5h101.4l43.1 43.1V230a12.500 12.500 0 0 1-12.500 12.500H62A12.500 12.500 0 0 1 49.500 230V26A12.500 12.500 0 0 1 62 13.500zM164 13.500V42a14 14 0 0 0 14 14h28.500" fill="none" stroke="#B4BAC5" stroke-width="3" stroke-linejoin="round"/>
+  
+  <g transform="translate(128 217) scale(0.078) translate(-513.5 -511)" fill="#FFFFFF"><path d="M 178 448 C 174 425, 193 405, 219 400 C 253 391, 288 402, 301 429 C 316 464, 339 533, 357 579 L 424 447 C 440 413, 468 398, 504 397 C 547 395, 579 412, 595 445 C 612 481, 636 541, 655 586 L 710 467 C 722 440, 739 430, 759 433 C 790 435, 817 450, 825 474 C 830 487, 823 503, 817 517 L 754 658 C 737 700, 706 729, 664 730 C 618 733, 584 711, 565 671 C 546 628, 529 567, 513 523 L 455 654 C 435 703, 405 729, 364 730 C 318 733, 286 714, 267 679 C 246 640, 209 536, 182 464 C 179 457, 178 452, 178 448 Z"/><circle cx="790" cy="350" r="59"/></g>
+</svg>

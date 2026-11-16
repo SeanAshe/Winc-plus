@@ -235,3 +235,27 @@ fn detects_wechat_mini_program_files() {
     assert!(wxs.is_related(detect("a.js")) && wxss.is_related(detect("a.css")));
     assert!(!wxss.is_related(wxs));
 }
+
+#[test]
+fn log_files_are_detected_with_rotation_suffixes() {
+    for name in [
+        "server.log",
+        "SERVER.LOG",
+        "app.log.1",
+        "app.log.2026-11-16",
+    ] {
+        assert_eq!(detect(name).id, "log", "{name}");
+    }
+    for name in ["notes.1", "log", "catalog", "app.log.gz", "main.rs.1"] {
+        assert_ne!(detect(name).id, "log", "{name}");
+    }
+    assert_eq!(find("log").map(|l| l.name), Some("Log"));
+}
+
+#[test]
+fn every_markdown_extension_is_detected() {
+    // 扩展名与可预览的文件类型一致：能否预览取决于语言。
+    for name in ["a.md", "a.markdown", "a.mdown", "a.mkd", "a.mkdn", "A.MD"] {
+        assert_eq!(detect(name).id, "markdown", "{name}");
+    }
+}

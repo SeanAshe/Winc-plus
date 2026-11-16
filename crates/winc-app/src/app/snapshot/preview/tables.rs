@@ -276,7 +276,7 @@ fn the_heading_list_stays_open_over_a_table_scrollbar() {
         .find(|(_, t)| *t == TocTarget::Bars)
         .unwrap()
         .0;
-    app.on_mouse_move(bars.x + 4.0, bars.y + 10.0);
+    rest_on_toc(&mut app, bars.x + 4.0, bars.y + 10.0);
     settle(&mut app);
     assert!(matches!(app.pointer.hover, Hover::MarkdownToc(_)));
 

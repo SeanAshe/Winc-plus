@@ -209,6 +209,8 @@ pub fn log_commit_menu(enabled: bool, branch: &str, tags: &[&str]) -> Vec<MenuEn
         Item(LogCopyMessage, true),
         Item(LogCopyPatch, true),
         Separator,
+        Item(LogCompareRevision, true),
+        Separator,
         Item(LogGoTo, true),
     ]);
     menu

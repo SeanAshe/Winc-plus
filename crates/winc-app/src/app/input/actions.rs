@@ -206,6 +206,7 @@ impl App {
             MarkdownItalic => self.live_format("*"),
             MarkdownCode => self.live_format("`"),
             MarkdownStrikethrough => self.live_format("~~"),
+            MarkdownHighlight => self.live_format("=="),
             DeleteLine => editing(self, Command::DeleteLine),
             DeleteAllLeft => editing(self, Command::DeleteToLineStart),
             IndentLines => editing(self, Command::IndentLines),
@@ -493,6 +494,7 @@ impl App {
             | Action::MarkdownItalic
             | Action::MarkdownCode
             | Action::MarkdownStrikethrough
+            | Action::MarkdownHighlight
                 if !self.markdown_live() =>
             {
                 return false;

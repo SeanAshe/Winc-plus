@@ -1000,8 +1000,8 @@ fn draw_body(
                 y,
                 width.unwrap_or(app.metrics.cell),
             );
-            let c = chars.get(col).copied();
-            draw_modal_caret(app, frame, place, c, baseline, shape, pane.text);
+            let under = Some((&chars[..], col));
+            draw_modal_caret(app, frame, place, under, baseline, shape, pane.text);
         }
         // 只读一侧不接受输入，输入法候选窗不跟随该侧的光标。
         if let Some((caret_side, (caret_line, col))) = read_caret

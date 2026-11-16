@@ -5,6 +5,7 @@ use super::*;
 use swash::FontRef;
 use swash::shape::ShapeContext;
 use swash::zeno::{Fill, Join, Placement, Stroke, Style};
+use winc_emoji as sequence;
 
 /// 字形缓存的键：同一字体槽位、字形、字号和亚像素档位对应同一张位图。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -64,10 +65,45 @@ pub(crate) struct GlyphCache {
     glyphs: Generations<GlyphKey, Glyph>,
     /// （槽位，字形，字号×4）→ 前进宽度，逻辑像素。
     pub(crate) advances: FastMap<(u8, u16, u32), f32>,
-    /// 整形上下文，行与行之间复用，避免每次重新分配。
+    /// swash 的整形上下文，复用以避免重复分配。连字和 emoji 序列共用。
     pub(crate) shaper: ShapeContext,
-    /// 最近一次 [`Self::shape_run`] 的结果。下一次整形会清空。
-    pub(crate) shaped: Vec<Ligature>,
+    /// 最近一次 [`Self::shape_run`] 的连字结果。下一次整形会清空。
+    ///
+    /// 与 [`Self::shaped`] 分开：那个方法缓存 emoji 序列，这里是编辑区一行里的连字。
+    pub(crate) ligatures: Vec<Ligature>,
+    /// emoji 序列 → 整形结果，分新旧两代；序列无法由 emoji 字体合成时为 `None`。
+    ///
+    /// 新一代达到 [`SEQUENCE_ENTRIES`] 项时换代并释放旧一代；
+    /// 旧一代中被查到的项移入新一代，无需重新整形。
+    sequences: [FastMap<Box<str>, Option<Rc<Shaped>>>; 2],
+}
+
+/// 整形结果缓存一代的最大项数（项）：文档中不同的 emoji 序列通常只有几十种，远少于该值。
+const SEQUENCE_ENTRIES: usize = 1024;
+
+/// 一个 emoji 序列由 emoji 字体合成的结果，长度以字号为单位（乘以字号得到逻辑像素）。
+#[derive(Debug)]
+pub(crate) struct Shaped {
+    /// emoji 字体的槽位。
+    pub(crate) slot: u8,
+    /// 各字形：（字形 id，相对笔位置的横向偏移，纵向偏移，前进宽度）。
+    pub(crate) glyphs: Vec<(u16, f32, f32, f32)>,
+}
+
+impl Shaped {
+    /// 整个序列的前进宽度，以字号为单位：各字形右边缘中最靠右的位置。
+    ///
+    /// 部分字体把一个图形拆成重叠的几层，后一层的偏移回到前一层的位置，
+    /// 各层前进宽度之和大于图形的实际宽度。
+    pub(crate) fn advance(&self) -> f32 {
+        let mut pen = 0.0;
+        let mut right = 0.0f32;
+        for &(_, dx, _, advance) in &self.glyphs {
+            right = right.max(pen + dx + advance);
+            pen += advance;
+        }
+        right
+    }
 }
 
 /// 字符解析出的字体槽位、字形 id 和前进宽度，见 [`GlyphCache::lookup`]。
@@ -91,7 +127,144 @@ impl GlyphCache {
             glyphs: Generations::per_frame(GLYPH_CACHE_BYTES),
             advances: FastMap::default(),
             shaper: ShapeContext::new(),
-            shaped: Vec::new(),
+            ligatures: Vec::new(),
+            sequences: Default::default(),
+        }
+    }
+
+    /// 返回 emoji 序列 `unit` 由 emoji 字体合成的结果，带缓存。
+    ///
+    /// 序列按文字显示（见 [`sequence::presents_as_emoji`]）、系统中没有 emoji 字体或该字体没有
+    /// 序列的第一个字符时返回 `None`，调用方逐字符绘制。字体没有该序列的合成字形时结果是几个
+    /// 字形，依次排开。
+    pub(crate) fn shaped(&mut self, unit: &str) -> Option<Rc<Shaped>> {
+        if let Some(found) = self.sequences[0].get(unit) {
+            return found.clone();
+        }
+        if self.sequences[0].len() >= SEQUENCE_ENTRIES {
+            self.sequences.swap(0, 1);
+            self.sequences[0].clear();
+        }
+        let shaped = match self.sequences[1].remove(unit) {
+            Some(kept) => kept,
+            None => sequence::presents_as_emoji(unit)
+                .then(|| self.shape(unit))
+                .flatten()
+                .map(Rc::new),
+        };
+        self.sequences[0].insert(unit.into(), shaped.clone());
+        shaped
+    }
+
+    /// 用 emoji 字体为 `unit` 整形；见 [`Self::shaped`]。
+    fn shape(&mut self, unit: &str) -> Option<Shaped> {
+        let (slot, face) = self.fonts.emoji_face()?;
+        let font = face.font();
+        if font.charmap().map(unit.chars().next()?) == 0 {
+            return None;
+        }
+        let mut shape = |text: &str| {
+            // 按 1 个单位的字号整形，结果即以字号为单位。
+            let mut shaper = self
+                .shaper
+                .builder(font)
+                .size(1.0)
+                .normalized_coords(&face.coords)
+                .build();
+            shaper.add_str(text);
+            let mut glyphs = Vec::new();
+            shaper.shape_with(|cluster| {
+                glyphs.extend(cluster.glyphs.iter().map(|g| (g.id, g.x, g.y, g.advance)));
+            });
+            // 变体选择符、连接符在部分字体中留下没有宽度的空字形，不绘制。
+            glyphs.retain(|&(id, .., advance)| id != 0 || advance > 0.0);
+            glyphs
+        };
+        // 键帽的合成规则依字体而定：有的不含夹在数字和键帽之间的变体选择符，有的要求含有。
+        // 先去掉选择符整形，未合成一个字形时按原序列再整形一次，取字形较少的结果。
+        let mut glyphs = if unit.contains(sequence::KEYCAP) && unit.contains(sequence::VS16) {
+            let bare = shape(&unit.replace(sequence::VS16, ""));
+            let full = if bare.len() > 1 {
+                shape(unit)
+            } else {
+                Vec::new()
+            };
+            if full.is_empty() || bare.len() <= full.len() {
+                bare
+            } else {
+                full
+            }
+        } else {
+            shape(unit)
+        };
+        glyphs.shrink_to_fit();
+        (!glyphs.is_empty()).then_some(Shaped { slot, glyphs })
+    }
+
+    /// 返回一段文字的宽度（逻辑像素）；emoji 序列按合成后的宽度计。
+    pub(crate) fn measure(&mut self, kind: FontKind, faux: Faux, size: f32, text: &str) -> f32 {
+        let mut width = 0.0;
+        for unit in sequence::units(text) {
+            width += match unit {
+                sequence::Unit::Char(c) => self.lookup_faux(kind, faux, size, c).advance,
+                sequence::Unit::Sequence(unit) => self.sequence_advance(kind, faux, size, unit),
+            };
+        }
+        width
+    }
+
+    /// 把 `chars` 中各字符的前进宽度（逻辑像素）追加到 `out`，每个字符一项。
+    ///
+    /// emoji 序列的宽度记在第一个字符上，其余字符记 0：按字符排版和选区的调用方得到的总宽度与
+    /// [`Self::measure`] 相同。
+    pub(crate) fn advances(
+        &mut self,
+        kind: FontKind,
+        faux: Faux,
+        size: f32,
+        chars: &[char],
+        out: &mut Vec<f32>,
+    ) {
+        let mut at = 0;
+        let mut unit = String::new();
+        while at < chars.len() {
+            let c = chars[at];
+            let joined = chars
+                .get(at + 1)
+                .is_some_and(|&next| sequence::may_join(c, next));
+            let len = if joined {
+                sequence::sequence_len(chars[at..].iter().copied())
+            } else {
+                1
+            };
+            if len == 1 {
+                out.push(self.lookup_faux(kind, faux, size, c).advance);
+            } else {
+                unit.clear();
+                unit.extend(&chars[at..at + len]);
+                out.push(self.sequence_advance(kind, faux, size, &unit));
+                out.extend(std::iter::repeat_n(0.0, len - 1));
+            }
+            at += len;
+        }
+    }
+
+    /// 返回 emoji 序列 `unit` 的前进宽度（逻辑像素）：合成后的宽度；无法合成时是其中各个可见
+    /// 字符的宽度之和。
+    pub(crate) fn sequence_advance(
+        &mut self,
+        kind: FontKind,
+        faux: Faux,
+        size: f32,
+        unit: &str,
+    ) -> f32 {
+        match self.shaped(unit) {
+            Some(shaped) => shaped.advance() * size,
+            None => unit
+                .chars()
+                .filter(|&c| !sequence::ignorable(c))
+                .map(|c| self.lookup_faux(kind, faux, size, c).advance)
+                .sum(),
         }
     }
 
@@ -172,11 +345,6 @@ impl GlyphCache {
                 advance
             },
         }
-    }
-
-    /// 返回字符 `c` 在字体 `kind`、字号 `size`（逻辑像素）下的前进宽度（逻辑像素），结果带缓存。
-    pub(crate) fn advance(&mut self, kind: FontKind, size: f32, c: char) -> f32 {
-        self.lookup(kind, size, c).advance
     }
 
     /// 返回字形 `glyph`（槽位 `slot`）在字号 `size`（逻辑像素）下的前进宽度，结果带缓存。

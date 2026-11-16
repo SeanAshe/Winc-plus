@@ -3147,6 +3147,7 @@ dependencies = [
  "winc-config",
  "winc-core",
  "winc-editor",
+ "winc-emoji",
  "winc-i18n",
  "winc-preview",
  "winc-pty",
@@ -3185,6 +3186,7 @@ dependencies = [
  "ropey",
  "unicode-segmentation",
  "unicode-width",
+ "winc-emoji",
 ]
 
 [[package]]
@@ -3209,6 +3211,10 @@ dependencies = [
  "winc-preview",
  "winc-syntax",
 ]
+
+[[package]]
+name = "winc-emoji"
+version = "0.0.0"
 
 [[package]]
 name = "winc-i18n"
@@ -3247,6 +3253,7 @@ dependencies = [
  "libc",
  "unicode-width",
  "vte",
+ "winc-emoji",
  "winc-version",
  "windows-sys 0.59.0",
 ]
@@ -3265,6 +3272,7 @@ dependencies = [
  "objc2-quartz-core 0.3.2",
  "softbuffer",
  "swash",
+ "winc-emoji",
  "winit",
 ]
 
@@ -3288,6 +3296,7 @@ dependencies = [
 name = "winc-typeset"
 version = "0.0.0"
 dependencies = [
+ "winc-emoji",
  "winc-i18n",
  "winc-preview",
  "winc-render",

@@ -1,0 +1,12 @@
+[package]
+name = "winc-emoji"
+description = "emoji 序列的规则：哪些字符合成一个图形、默认按 emoji 显示的字符。无依赖。"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[lints]
+workspace = true

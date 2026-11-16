@@ -673,7 +673,7 @@ pub(super) static SQL: Language = Language {
 pub(super) static MARKDOWN: Language = Language {
     id: "markdown",
     name: "Markdown",
-    extensions: &["md", "markdown", "mdown", "mkd"],
+    extensions: &["md", "markdown", "mdown", "mkd", "mkdn"],
     block_comments: &[("<!--", "-->")],
     markdown: true,
     surround: &['*', '_', '~', '$'],
@@ -722,6 +722,15 @@ pub(super) static DIFF: Language = Language {
     name: "Diff",
     extensions: &["diff", "patch"],
     diff_lines: true,
+    ..BASE
+};
+
+/// 日志文件：只为时间戳、级别、地址等可识别的写法着色，其余文字不着色。
+pub(super) static LOG: Language = Language {
+    id: "log",
+    name: "Log",
+    extensions: &["log"],
+    log_lines: true,
     ..BASE
 };
 

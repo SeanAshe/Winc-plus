@@ -498,11 +498,14 @@ pub(super) fn extent_of<H: Host>(host: &H, visual: Visual, linewise: bool, to_en
     let end_cell = {
         let (line, col) = text.pos_to_line_col(high);
         let cell = text::cell_of(text, line, col, tab_width);
-        match text.char_at(high) {
-            Some(c) if high < text.line_end(line) => {
-                cell + winc_core::text::char_cells(c, cell, tab_width.max(1)).max(1) - 1
+        let end = text.line_end(line);
+        match high < end {
+            true => {
+                let rest = text.substring(high, end.min(high + text::SEQUENCE_CHARS));
+                let width = winc_core::text::sequence_cells(rest.chars(), cell, tab_width.max(1));
+                cell + width.max(1) - 1
             }
-            _ => cell,
+            false => cell,
         }
     };
     let cells = if to_end {

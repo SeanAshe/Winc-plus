@@ -41,8 +41,9 @@ pub(super) fn breaks_of<I: Iterator<Item = char>>(
     // 该上界偏保守（Tab 宽度越大，越容易判为不可容纳），而多数行实际可以容纳：因此遍历时累计
     // 宽度，确认不可容纳时才取出字符精确计算，避免为同一行建立两次字符表。
     let mut cells = 0;
+    let mut behind = winc_core::text::Behind::default();
     let fits = chars().take(limit).all(|c| {
-        cells += winc_core::text::char_cells(c, cells, tab_width);
+        cells += behind.cells(c, cells, tab_width);
         cells <= width.max(1)
     });
     if fits {
@@ -603,8 +604,9 @@ impl Document {
         let last = window.is_last(part);
         let mut at = indent;
         let mut col = range.start;
+        let mut behind = winc_core::text::Behind::before(chars, col);
         while col < range.end {
-            let w = winc_core::text::char_cells(chars[col], at, tab_width);
+            let w = behind.cells(chars[col], at, tab_width);
             if at + w > cell {
                 if cell - at.min(cell) > (at + w - cell) && (last || col + 1 < range.end) {
                     col += 1;

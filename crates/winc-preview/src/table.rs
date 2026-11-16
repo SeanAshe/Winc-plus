@@ -215,13 +215,10 @@ pub fn read_workbook(bytes: &[u8]) -> Result<Table, String> {
 
 /// 读以分隔符分列的文本 `text`。
 ///
-/// 分隔符取第一行中出现最多的逗号、制表符或分号；`path` 的扩展名为 tsv 时总是制表符。
+/// `tabs` 为真（TSV）时分隔符总是制表符，否则取第一行中出现最多的逗号、制表符或分号。
 /// 按 RFC 4180 处理引号：双引号括起的字段可以包含分隔符、换行，两个双引号表示一个双引号。
-pub fn read_delimited(text: &str, path: Option<&Path>) -> Sheet {
-    let tab = path
-        .and_then(extension)
-        .is_some_and(|e| e == "tsv" || e == "tab");
-    let delimiter = if tab { '\t' } else { sniff_delimiter(text) };
+pub fn read_delimited(text: &str, tabs: bool) -> Sheet {
+    let delimiter = if tabs { '\t' } else { sniff_delimiter(text) };
     let text = text.strip_prefix('\u{feff}').unwrap_or(text);
 
     let mut rows = Vec::new();

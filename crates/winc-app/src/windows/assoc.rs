@@ -15,7 +15,8 @@ use windows_sys::Win32::System::Registry::{
 use windows_sys::Win32::UI::Shell::{SHCNE_ASSOCCHANGED, SHCNF_IDLIST, SHChangeNotify};
 
 use crate::shell_icons::{
-    APP_ICON_ID, FILE_ICONS, claims_extension, command_path, command_targets_winc, id_for_extension,
+    APP_ICON_ID, FILE_ICONS, claims_extension, command_path, command_targets_winc,
+    id_for_extension, installer_icon_name,
 };
 
 /// 按当前可执行文件里的图标，刷新外壳里 winc 负责的那些扩展名。
@@ -200,10 +201,12 @@ fn register_type(exe: &Path, ext: &str, label: &str, launch: &str) -> bool {
     let progid = format!("Winc.{ext}");
     let class = format!(r"Software\Classes\{progid}");
     let mut changed = ensure(&class, &type_name(label, ext));
-    changed |= ensure(
-        &format!(r"{class}\DefaultIcon"),
-        &icon_of(exe, id_for_extension(ext)),
-    );
+    if !keeps_installer_icon(exe, ext) {
+        changed |= ensure(
+            &format!(r"{class}\DefaultIcon"),
+            &icon_of(exe, id_for_extension(ext)),
+        );
+    }
     changed |= ensure(&format!(r"{class}\shell\open\command"), launch);
     changed |= ensure_named(
         r"Software\DEEIX\winc\Capabilities\FileAssociations",
@@ -261,7 +264,9 @@ fn register_extension(exe: &Path, ext: &str) -> bool {
             &format!(r"Software\Classes\{own}\shell\open\command"),
             &launch,
         );
-        changed |= ensure(&format!(r"Software\Classes\{own}\DefaultIcon"), &icon);
+        if !keeps_installer_icon(exe, ext.trim_start_matches('.')) {
+            changed |= ensure(&format!(r"Software\Classes\{own}\DefaultIcon"), &icon);
+        }
         changed |= ensure(&format!(r"Software\Classes\{ext}"), &own);
         return changed;
     }
@@ -269,8 +274,45 @@ fn register_extension(exe: &Path, ext: &str) -> bool {
         &format!(r"Software\Classes\{progid}\shell\open\command"),
         &launch,
     );
-    changed |= ensure(&format!(r"Software\Classes\{progid}\DefaultIcon"), &icon);
+    if !keeps_installer_icon(exe, ext.trim_start_matches('.')) {
+        changed |= ensure(&format!(r"Software\Classes\{progid}\DefaultIcon"), &icon);
+    }
     changed
+}
+
+/// 安装程序已经把这条 `ProgID` 的图标指到旁边的 `icons\<分组>.ico` 时，保留那个路径。
+#[allow(
+    clippy::disallowed_methods,
+    reason = "只访问本机：安装目录里的文档图标，不经过工作区"
+)]
+fn keeps_installer_icon(exe: &Path, ext: &str) -> bool {
+    let Some(name) = installer_icon_name(ext) else {
+        return false;
+    };
+    let Some(dir) = exe.parent() else {
+        return false;
+    };
+    let progid = format!("Winc.{}", ext.trim_start_matches('.'));
+    let Some(current) = read_value(&format!(r"Software\Classes\{progid}\DefaultIcon"), None) else {
+        return false;
+    };
+    let current = current.trim_matches('"');
+    let suffix = format!(r"\icons\{name}.ico");
+    if !current
+        .get(current.len().saturating_sub(suffix.len())..)
+        .is_some_and(|tail| tail.eq_ignore_ascii_case(&suffix))
+    {
+        return false;
+    }
+    let path = Path::new(current);
+    if !path.is_file() {
+        return false;
+    }
+    let mut installed = exe_text(dir).to_ascii_lowercase();
+    if !installed.ends_with('\\') {
+        installed.push('\\');
+    }
+    exe_text(path).to_ascii_lowercase().starts_with(&installed)
 }
 
 /// 资源管理器里文件夹右键菜单的两项：点在文件夹上，以及点在文件夹空白处。

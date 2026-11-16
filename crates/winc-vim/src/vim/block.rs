@@ -3,7 +3,7 @@
 //! 块以显示列界定：左边界是两角字符起始列中较小的一个，右边界是两角字符末列中较大的一个；
 //! 起始列落在边界之内的字符属于块。宿主以每行一个选区显示块。
 
-use winc_core::text::char_cells;
+use winc_core::text::{Behind, sequence_cells};
 use winc_core::{Change, Lines, Selection, movement};
 
 use super::insert::After;
@@ -49,9 +49,14 @@ fn cells<H: Host>(host: &H, pos: usize) -> (usize, usize) {
     let tab_width = host.tab_width().max(1);
     let (line, col) = text.pos_to_line_col(pos);
     let start = text::cell_of(text, line, col, tab_width);
-    let width = match text.char_at(pos) {
-        Some(c) if pos < text.line_end(line) => char_cells(c, start, tab_width).max(1),
-        _ => 1,
+    // 光标停在字素簇的开头：emoji 序列按合成后的宽度计。
+    let end = text.line_end(line);
+    let width = match pos < end {
+        true => {
+            let rest = text.substring(pos, end.min(pos + text::SEQUENCE_CHARS));
+            sequence_cells(rest.chars(), start, tab_width).max(1)
+        }
+        false => 1,
     };
     (start, start + width - 1)
 }
@@ -91,6 +96,7 @@ pub(super) fn rows_of<H: Host>(host: &H, block: Block) -> Vec<Row> {
             let content = text.line_content(line);
             let (mut cell, mut col) = (0, 0);
             let (mut from, mut to) = (None, None);
+            let mut behind = Behind::default();
             for c in content.slice().chars() {
                 if cell >= block.left && from.is_none() {
                     from = Some(col);
@@ -99,7 +105,7 @@ pub(super) fn rows_of<H: Host>(host: &H, block: Block) -> Vec<Row> {
                     to = Some(col);
                     break;
                 }
-                cell += char_cells(c, cell, tab_width);
+                cell += behind.cells(c, cell, tab_width);
                 col += 1;
             }
             let short = cell < block.left;
@@ -145,9 +151,10 @@ pub(super) fn selections<H: Host>(
 
 /// 返回文本 `piece` 占用的显示列数；制表符按从第 0 列起计算。
 fn width_of(piece: &str, tab_width: usize) -> usize {
+    let mut behind = Behind::default();
     piece
         .chars()
-        .map(|c| char_cells(c, 0, tab_width.max(1)))
+        .map(|c| behind.cells(c, 0, tab_width.max(1)))
         .sum()
 }
 

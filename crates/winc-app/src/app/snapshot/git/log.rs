@@ -1253,3 +1253,113 @@ fn going_to_an_amended_away_commit_pins_it_for_comparison() {
     assert_eq!(view.commits[view.selected.unwrap()].oid, new);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn log_compares_with_a_revision_missing_from_the_list() {
+    use crate::app::git::log::LogTarget;
+    use crate::app::input::context_menu::{MenuCommand, MenuEntry, MenuTarget};
+
+    let Some((mut app, root)) = git_app("git-compare-revision", false) else {
+        return;
+    };
+    let head = || {
+        let output = Command::new("git")
+            .arg("-C")
+            .arg(&root)
+            .args(["rev-parse", "HEAD"])
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        String::from_utf8(output.stdout).unwrap().trim().to_owned()
+    };
+    let file = root.join("src/main.rs");
+    let before = "fn main() { before(); }\n";
+    let after = "fn main() { after(); }\n";
+    std::fs::write(&file, before).unwrap();
+    git_in(&root, &["add", "src/main.rs"]);
+    git_in(&root, &["commit", "-m", "before amend"]);
+    let old = head();
+    std::fs::write(&file, after).unwrap();
+    git_in(&root, &["commit", "--amend", "-am", "after amend"]);
+    let new = head();
+    git_in(&root, &["commit", "--amend", "-m", "amended again"]);
+    let tip = head();
+
+    app.git_refresh();
+    app.run_action(Action::GitShowLog);
+    paint(&mut app);
+    fn log(app: &App) -> &winc_editor::git::log::LogView {
+        app.editor.active().unwrap().log.as_deref().unwrap()
+    }
+    assert!(
+        log(&app)
+            .commits
+            .iter()
+            .all(|c| c.oid != old && c.oid != new)
+    );
+    let enter = |app: &mut App| assert!(app.dialog_key(&Key::Named(NamedKey::Enter), "", false));
+    app.run_action(Action::GitGoToRevision);
+    app.edit_field(|f| f.insert(&old[..12]));
+    enter(&mut app);
+    paint(&mut app);
+    assert_eq!(log(&app).query.pin.as_deref(), Some(old.as_str()));
+
+    let open_compare = |app: &mut App| {
+        let command = MenuCommand::LogCompareRevision;
+        app.open_context_menu(MenuTarget::LogCommit(old.clone()), (0.0, 0.0));
+        assert!(
+            app.overlays
+                .context_menu
+                .as_ref()
+                .unwrap()
+                .entries
+                .iter()
+                .any(|entry| matches!(entry, MenuEntry::Item(item, true) if *item == command))
+        );
+        app.run_menu_command(command);
+        assert_eq!(app.focus, Focus::Dialog);
+    };
+    open_compare(&mut app);
+    app.edit_field(|f| f.insert(&"0".repeat(12)));
+    enter(&mut app);
+    // 无法解析的版本：只提示原因，不进入比较。
+    paint(&mut app);
+    assert!(log(&app).compare.is_none());
+    let notice = app.notice.text.as_deref().unwrap_or_default();
+    assert!(notice.contains(&"0".repeat(12)), "{notice}");
+
+    open_compare(&mut app);
+    app.edit_field(|f| f.insert(&new[..12]));
+    enter(&mut app);
+    paint(&mut app);
+    let view = log(&app);
+    assert_eq!(view.query.pin.as_deref(), Some(old.as_str()));
+    assert!(view.commits.iter().all(|c| c.oid != new));
+    let compare = view.compare.as_ref().unwrap();
+    assert_eq!((&compare.from, &compare.to), (&old, &new));
+    let files = compare.files.as_ref().unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0].path, file);
+    app.press_log(LogTarget::File(0));
+    let diff = app.editor.active().unwrap().diff.as_deref().unwrap();
+    assert_eq!(diff.old.text, before);
+    assert_eq!(diff.new.text, after);
+    assert_eq!(head(), tip);
+
+    // 输入的标签是所选提交的祖先：排在旧的一侧，显示标签名，取数据用解析出的提交号。
+    git_in(&root, &["tag", "base", "HEAD~1"]);
+    git_in(&root, &["checkout", "--quiet", "HEAD~1"]);
+    let base = head();
+    git_in(&root, &["checkout", "--quiet", "-"]);
+    app.run_action(Action::GitShowLog);
+    open_compare(&mut app);
+    app.edit_field(|f| f.insert("base"));
+    enter(&mut app);
+    paint(&mut app);
+    let compare = log(&app).compare.as_ref().unwrap();
+    assert_eq!((&compare.from, &compare.to), (&base, &old));
+    assert_eq!(compare.from_name.as_deref(), Some("base"));
+    assert_eq!(compare.to_name, None);
+    assert_eq!(compare.files.as_ref().unwrap().len(), 1);
+    let _ = std::fs::remove_dir_all(&root);
+}

@@ -9,6 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+winc-emoji.workspace = true
 winit.workspace = true
 swash.workspace = true
 memmap2.workspace = true

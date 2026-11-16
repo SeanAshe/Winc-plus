@@ -337,6 +337,14 @@ enum Loaded {
         to: String,
         files: Result<Vec<CommitFile>, String>,
     },
+    /// 与输入的版本 `revision` 比较的结果：两侧已按先后排好，文件已取回。
+    CompareRevision {
+        doc: DocumentId,
+        /// 发起时的 `LogView::compare_request`。
+        request: u64,
+        revision: String,
+        result: Result<Compare, String>,
+    },
     /// 一个文件在一次提交中的差异，打开为标签。
     Diff {
         /// 发起读取时的请求序号，与 `LogState::diff_request` 不同时结果已过时。

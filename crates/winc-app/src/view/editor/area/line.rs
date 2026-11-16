@@ -49,10 +49,10 @@ impl Screen<'_> {
         let long = chars.len() > MAX_LINE_CHARS || cut_by(content, self.read_cap);
         chars.truncate(MAX_LINE_CHARS);
         let head = &chars[..];
-        // 按整行断开且 `content` 不是整行时，改取屏幕上可见的若干段（行内窗口）；
-        // 其余行绘制 `head`。
+        // 按整行断开且该行超出 `head` 时改取可见的行内窗口，否则绘制 `head`；读到了行尾但超过
+        // `MAX_LINE_CHARS` 个字符的行同样超出 `head`。
         let rows = self.doc.rows_of(line);
-        let window = (rows > 1 && reads_head_only(content))
+        let window = (rows > 1 && long)
             .then(|| {
                 let parts = visible_parts(y, rows, text_rect, lh);
                 self.doc.line_window(line, parts)
@@ -193,9 +193,10 @@ impl Screen<'_> {
                 // 制表符的宽度取决于所在的显示列，不从 0 起时逐个计算。
                 if row.base > 0 {
                     let mut at = row.base;
+                    let mut behind = text::Behind::default();
                     cells[0] = at;
                     for (cell, &c) in cells[1..].iter_mut().zip(row.chars) {
-                        at += text::char_cells(c, at, tab_width);
+                        at += behind.cells(c, at, tab_width);
                         *cell = at;
                     }
                 }
@@ -620,7 +621,8 @@ impl Screen<'_> {
             None => self.cell,
         };
         let baseline = row.baseline + part as f32 * lh;
-        draw_modal_caret(app, frame, (x, y, width), c, baseline, shape, clip);
+        let under = Some((row.chars, pos - row.line_start));
+        draw_modal_caret(app, frame, (x, y, width), under, baseline, shape, clip);
     }
 }
 

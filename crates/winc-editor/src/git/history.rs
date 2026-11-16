@@ -261,10 +261,22 @@ impl Git {
             return Ok(true);
         }
         // 分离的 `HEAD` 不是引用，单独判断。
+        Ok(self.is_ancestor(root, oid, "HEAD", cancel))
+    }
+
+    /// 提交 `ancestor` 是否为 `descendant` 的祖先（或同一个提交）；查询失败时视为不是。
+    ///
+    /// 两者须为完整的提交号或 `HEAD`：不以 `-` 开头，不会被当成选项。
+    pub fn is_ancestor(
+        &self,
+        root: &Path,
+        ancestor: &str,
+        descendant: &str,
+        cancel: &Cancel,
+    ) -> bool {
         let mut command = self.command(root);
-        // 完整的十六进制提交号不以 `-` 开头，不会被当成选项。
-        command.args(["merge-base", "--is-ancestor", oid, "HEAD"]);
-        Ok(self.run(&mut command, SHOW_TIMEOUT, cancel).is_ok())
+        command.args(["merge-base", "--is-ancestor", ancestor, descendant]);
+        self.run(&mut command, SHOW_TIMEOUT, cancel).is_ok()
     }
 
     /// 储藏列表，最新的在前。

@@ -372,6 +372,10 @@ fn revisions_resolve_to_commits_and_amended_ones_are_outside_the_log() {
     assert!(git.in_log(&root, &new, &cancel).unwrap());
     assert!(git.in_log(&root, &first, &cancel).unwrap());
     assert!(!git.in_log(&root, &old, &cancel).unwrap());
+    assert!(git.is_ancestor(&root, &first, &new, &cancel));
+    assert!(git.is_ancestor(&root, &new, &new, &cancel));
+    assert!(!git.is_ancestor(&root, &new, &first, &cancel));
+    assert!(!git.is_ancestor(&root, &old, &new, &cancel));
     let query = LogQuery {
         pin: Some(old.clone()),
         ..LogQuery::default()

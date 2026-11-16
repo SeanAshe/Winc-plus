@@ -315,3 +315,121 @@ void prototype(void);
         ]
     );
 }
+
+#[test]
+fn cpp_header_members_with_wrapped_signatures_and_inline_bodies() {
+    let text = r"namespace example {
+class Conversion {
+public:
+    void set_destination(int id) { destination = id; }
+    void add(const std::vector<Location>& rows,
+             const std::vector<unsigned>& limits) {
+        record(rows, limits);
+    }
+    const std::pair<int, int>& destination_at(
+            unsigned row)
+            const {
+        return lookup(row);
+    }
+    int count() const
+    {
+        return destination;
+    }
+    void declaration(const std::vector<Location>& rows,
+                     unsigned limit);
+};
+}
+";
+    for extension in ["h", "hpp"] {
+        assert_eq!(
+            outline(extension, text),
+            [
+                ("example".into(), "模块", None),
+                ("Conversion".into(), "类型", None),
+                ("set_destination".into(), "方法", Some("Conversion".into())),
+                ("add".into(), "方法", Some("Conversion".into())),
+                ("destination_at".into(), "方法", Some("Conversion".into())),
+                ("count".into(), "方法", Some("Conversion".into())),
+            ]
+        );
+    }
+    let found = symbols(&Rope::from_str(text), winc_syntax::detect("x.h"));
+    assert_eq!((found[3].line, found[3].col, found[3].depth), (4, 9, 1));
+}
+
+#[test]
+fn cpp_members_with_constructors_comments_defaults_and_trailing_parts() {
+    let text = r#"class Store {
+public:
+    explicit Store(int size,
+                   int limit) : size_(size), limit_{limit} {
+        Guard guard(size,
+                    limit);
+        if (size &&
+            limit) {
+        }
+    }
+    Store(const Store& other,
+          int limit) {
+        copy(other);
+    }
+    Store(Store&&) = delete;
+    Store(int size);
+    ~Store() { release(); }
+    void commented(int first,  // the first; isn't checked
+                   int second /* (unbalanced */) {
+    }
+    void defaulted(const std::string& name = "x;{",
+                   int limit = compute(1)) {
+    }
+    [[nodiscard]] int attributed(int first,
+                                 int second) const {
+    }
+    auto trailing(int first,
+                  int second) -> std::vector<int> {
+    }
+    void guarded(int first,
+                 int second) noexcept(true) override {
+    }
+    void optional(std::vector<int> values = {});
+    int field(1), other(2);
+};
+namespace tools {
+    void indented(int first,
+                  int second) {
+    }
+    helper(int first,
+           int second) {
+    }
+}
+"#;
+    for extension in ["h", "hpp"] {
+        assert_eq!(
+            names(extension, text),
+            [
+                "Store",
+                "Store",
+                "Store",
+                "~Store",
+                "commented",
+                "defaulted",
+                "attributed",
+                "trailing",
+                "guarded",
+                "tools",
+                "indented",
+            ]
+        );
+    }
+    let found = symbols(&Rope::from_str(text), winc_syntax::detect("x.hpp"));
+    assert!(found[1..9].iter().all(|s| s.kind == SymbolKind::Method));
+    assert_eq!((found[1].line, found[1].col), (2, 13));
+    assert_eq!((found[3].line, found[3].col), (16, 4));
+
+    // 超过行数上限的签名不列出。
+    let long = format!(
+        "class A {{\n    void f(int a,{}\n           int b) {{\n    }}\n}};\n",
+        "\n".repeat(20)
+    );
+    assert_eq!(names("hpp", &long), ["A"]);
+}

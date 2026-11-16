@@ -1,7 +1,7 @@
 //! 网格的绘制：终端颜色换算、按样式分段绘制一行、光标、输入法组字。
 
 use super::*;
-use winc_pty::width::{char_width, is_emoji_tail};
+use winc_pty::width::is_emoji_tail;
 use winc_render::Stroke;
 
 /// 一段文字绘制用的颜色（见 [`Colors::style`]）。
@@ -237,8 +237,17 @@ pub(super) fn draw_line(
         let mut col = part.start;
         // 前一个占格子的字：所在列和占几格，组合字符画在它上面。
         let mut base: Option<(usize, usize)> = None;
+        // 当前字符在 `part.text` 中的字节偏移。emoji 序列随首字符整体绘制；
+        // `joined` 之前的字符已经绘制。
+        let (mut offset, mut joined) = (0, 0);
         if !attrs.has(Attrs::HIDDEN) {
             for (c, w) in cells(part.text) {
+                let rest = &part.text[offset..];
+                offset += c.len_utf8();
+                if offset <= joined {
+                    col += w;
+                    continue;
+                }
                 if w == 0 {
                     if !is_emoji_tail(c) {
                         let at = base.map(|(at, cells)| (x_of(at), cells));
@@ -256,7 +265,15 @@ pub(super) fn draw_line(
                 base = Some((col, w));
                 let at = Rect::new(x_of(col), row.y, w as f32 * cell, row.h);
                 let fg = if is_shape(c) { shape } else { fg };
-                if c != ' ' && !draw_block_element(frame, c, at, fg, clip) {
+                // 序列占其中各字符的格数之和：国旗的两个区域指示符各占一格。
+                let whole = sequence_prefix(rest).filter(|unit| {
+                    let span = cells(unit).map(|(_, w)| w).sum();
+                    let x = x_of(col);
+                    frame.cell_sequence(kind, size, x, baseline, cell, span, unit, fg, clip)
+                });
+                if let Some(unit) = whole {
+                    joined = offset - c.len_utf8() + unit.len();
+                } else if c != ' ' && !draw_block_element(frame, c, at, fg, clip) {
                     frame.cell_char(kind, size, x_of(col), baseline, cell, w, c, fg, clip);
                     // 粗体：往右错开一个物理像素再绘制一次，笔画加粗、字宽不变（等宽的格子不乱）。
                     if bold {
@@ -289,6 +306,21 @@ pub(super) fn draw_line(
             frame.rect_clipped(span(y, 1.0), fg, 0.0, clip);
         }
     }
+}
+
+/// `text` 以多字符的 emoji 序列开头时返回该序列，否则返回 `None`。
+fn sequence_prefix(text: &str) -> Option<&str> {
+    let mut chars = text.chars();
+    let (first, next) = (chars.next()?, chars.next()?);
+    if !winc_emoji::may_join(first, next) {
+        return None;
+    }
+    let len = winc_emoji::sequence_len(text.chars());
+    let end = text
+        .char_indices()
+        .nth(len)
+        .map_or(text.len(), |(at, _)| at);
+    (len > 1).then(|| &text[..end])
 }
 
 /// 绘制组合字符（重音符号），它不占格子。
@@ -501,6 +533,8 @@ pub(super) struct Cluster {
     pub(super) base: char,
     /// 所附的组合字符。
     pub(super) marks: Vec<char>,
+    /// 基本字符和连入它的 emoji 序列的其余字符；不是序列时只有基本字符。
+    pub(super) text: String,
     /// 这一格的样式。
     pub(super) style: Style,
 }
@@ -514,12 +548,14 @@ pub(super) fn cluster_at(line: &Line, col: usize) -> Option<Cluster> {
     for (c, w) in cells(part.text) {
         match (&mut found, w) {
             (Some(cluster), 0) if !is_emoji_tail(c) => cluster.marks.push(c),
-            (Some(_), 0) | (None, 0) => {}
+            (Some(cluster), 0) => cluster.text.push(c),
+            (None, 0) => {}
             (Some(_), _) => break,
             (None, _) if at == col => {
                 found = Some(Cluster {
                     base: c,
                     marks: Vec::new(),
+                    text: c.to_string(),
                     style: part.style,
                 });
             }
@@ -554,6 +590,11 @@ fn draw_cluster(
         app.metrics.terminal.ascent,
         app.metrics.terminal.descent,
     );
+    if let Some(unit) = sequence_prefix(&cluster.text)
+        && frame.cell_sequence(kind, size, at.x, baseline, cell, cells, unit, color, clip)
+    {
+        return;
+    }
     frame.cell_char(
         kind,
         size,
@@ -595,8 +636,9 @@ fn draw_cluster(
 ///
 /// 超过可用宽度时左端移出可见范围，保留正在输入的结尾。
 pub(super) fn preedit_x(x: f32, text: &str, cell: f32, right: f32) -> f32 {
-    let width = text.chars().map(|c| char_width(c).max(1)).sum::<usize>() as f32 * cell;
-    x.min(right - width)
+    let chars: Vec<char> = text.chars().collect();
+    let cells = crate::view::editor::loose_cells(&chars, 1);
+    x.min(right - cells.iter().sum::<usize>() as f32 * cell)
 }
 
 /// 输入法组字中的文字：绘制在 [`preedit_x`] 处，带强调色的下划线，盖住下面的格子。
@@ -609,9 +651,10 @@ pub(super) fn draw_preedit(
 ) {
     let p = app.palette;
     let cell = app.metrics.terminal_cell;
-    let cells = |c: char| char_width(c).max(1);
     let preedit = app.preedit_at(Focus::Terminal);
-    let width = preedit.chars().map(cells).sum::<usize>() as f32 * cell;
+    let chars: Vec<char> = preedit.chars().collect();
+    let cells = crate::view::editor::loose_cells(&chars, 1);
+    let width = cells.iter().sum::<usize>() as f32 * cell;
     frame.rect_clipped(
         Rect::new(x, y, width, app.fonts.terminal_line_height),
         p.editor_bg,
@@ -619,19 +662,16 @@ pub(super) fn draw_preedit(
         clip,
     );
     let mut px = x;
-    for c in preedit.chars() {
-        frame.cell_char(
-            FontKind::Terminal,
-            app.fonts.terminal,
-            px,
-            baseline,
-            cell,
-            cells(c),
-            c,
-            p.text,
-            clip,
-        );
-        px += cells(c) as f32 * cell;
+    let font = (FontKind::Terminal, app.fonts.terminal, cell);
+    // emoji 序列随首字符整体绘制；`joined` 之前的字符已经绘制。
+    let mut joined = 0;
+    for (col, &width) in cells.iter().enumerate() {
+        if col >= joined {
+            let at = (px, baseline);
+            let drawn = crate::view::editor::draw_grid_char;
+            joined = col + drawn(frame, font, at, (&chars, col), p.text, clip);
+        }
+        px += width as f32 * cell;
     }
     frame.rect_clipped(
         Rect::new(x, baseline + 3.0, width, 1.0),

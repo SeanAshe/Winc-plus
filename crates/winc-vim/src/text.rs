@@ -3,7 +3,7 @@
 //! 位置都是 `char` 偏移。行内的位置分两种：字符上的位置，以及行尾（最后一个字符之后、换行符
 //! 之前）。普通模式的光标只在字符上，空行除外；动作的中间结果和操作符的范围可以落在行尾。
 
-use winc_core::text::char_cells;
+use winc_core::text::{Behind, text_cells};
 use winc_core::{Line, Lines, movement};
 
 /// 返回行数。文本以换行符结尾时，末尾的空行不算一行，与按行保存的文件一致。
@@ -83,14 +83,14 @@ pub(crate) fn first_non_blank(text: &impl Lines, line: usize) -> usize {
     (start + indent_chars(text, line)).min(last_char(text, line))
 }
 
+/// 取一个字连同接在它后面的 emoji 序列时读取的字符数上限（个）：Unicode 推荐的 emoji 序列
+/// 最长 10 个字符，取 16 留有余量，避免在超长行上读取整行。
+pub(crate) const SEQUENCE_CHARS: usize = 16;
+
 /// 返回第 `line` 行第 `col` 个字符起始处的显示列。
 pub(crate) fn cell_of(text: &impl Lines, line: usize, col: usize, tab_width: usize) -> usize {
     let content = text.line_content(line);
-    let mut cell = 0;
-    for c in content.slice().chars().take(col) {
-        cell += char_cells(c, cell, tab_width.max(1));
-    }
-    cell
+    text_cells(content.slice().chars().take(col), 0, tab_width.max(1))
 }
 
 /// 返回位置 `pos` 的期望显示列：制表符取所占显示列的最后一列，其余字符取起始的显示列。
@@ -110,8 +110,9 @@ pub(crate) fn pos_at_cell(text: &impl Lines, line: usize, cell: usize, tab_width
     let content = text.line_content(line);
     let mut at = 0;
     let mut col = 0;
+    let mut behind = Behind::default();
     for c in content.slice().chars() {
-        at += char_cells(c, at, tab_width.max(1));
+        at += behind.cells(c, at, tab_width.max(1));
         if at > cell {
             break;
         }

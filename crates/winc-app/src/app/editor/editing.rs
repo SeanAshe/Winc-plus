@@ -31,8 +31,7 @@ fn head_cells(line: ropey::RopeSlice<'_>, tab_width: usize) -> usize {
     if head.is_ascii() && !head.contains(&b'\t') {
         return head.len();
     }
-    (text.chars().take(MAX_LINE_CHARS))
-        .fold(0, |cell, c| cell + text::char_cells(c, cell, tab_width))
+    text::text_cells(text.chars().take(MAX_LINE_CHARS), 0, tab_width)
 }
 
 impl App {

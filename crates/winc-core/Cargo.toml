@@ -9,6 +9,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [dependencies]
+winc-emoji.workspace = true
 ropey.workspace = true
 unicode-segmentation.workspace = true
 unicode-width.workspace = true

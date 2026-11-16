@@ -216,3 +216,57 @@ fn prefix_cells_match_slice_cells_for_every_column() {
         }
     }
 }
+
+#[test]
+fn emoji_sequences_take_two_cells() {
+    let cells = |text: &str| text_cells(text.chars(), 0, 4);
+    for unit in [
+        "❤\u{fe0f}",
+        "⭐\u{fe0f}",
+        "👍\u{1f3fd}",
+        "✌\u{1f3fd}",
+        "1\u{fe0f}\u{20e3}",
+        "🇨🇳",
+        "👨\u{200d}👩\u{200d}👧",
+        "👩\u{200d}❤\u{fe0f}\u{200d}👨",
+        "🏳\u{fe0f}\u{200d}🌈",
+        "🧑\u{1f3ff}\u{200d}💻",
+    ] {
+        assert_eq!(cells(unit), 2, "{unit:?}");
+        // 前后的文字各占自己的列。
+        assert_eq!(cells(&format!("a{unit}中b")), 6, "{unit:?}");
+    }
+    // 不成序列的字符按各自的宽度：单独的符号、连接符、修饰符，文字之后的连接符。
+    assert_eq!((cells("❤"), cells("👍"), cells("\u{200d}")), (1, 2, 0));
+    assert_eq!(
+        (cells("\u{1f3fd}"), cells("a\u{fe0f}"), cells("😀😀")),
+        (2, 1, 4)
+    );
+    assert_eq!(cells("a\u{200d}😀"), 3);
+
+    // 逐列的表、列与显示列的换算和从中间算起的结果都与从行首算起一致。
+    let chars: Vec<char> = "a❤\u{fe0f}b👨\u{200d}👩c".chars().collect();
+    assert_eq!(prefix_cells(&chars, 4), [0, 1, 2, 3, 4, 6, 6, 6, 7]);
+    assert_eq!(slice_cells(&chars, 0, 4), 7);
+    for index in 0..chars.len() {
+        let mut behind = Behind::before(&chars, index);
+        let width = behind.cells(chars[index], 0, 4);
+        let table = prefix_cells(&chars, 4);
+        assert_eq!(width, table[index + 1] - table[index], "{index}");
+    }
+}
+
+#[test]
+fn one_sequence_is_measured_from_its_first_character() {
+    let cells = |text: &str| sequence_cells(text.chars(), 0, 4);
+    assert_eq!(cells("❤\u{fe0f}b"), 2);
+    assert_eq!(cells("👨\u{200d}👩\u{200d}👧b"), 2);
+    assert_eq!(cells("🇨🇳🇺🇸"), 2);
+    assert_eq!(cells("1\u{fe0f}\u{20e3}2"), 2);
+    // 不成序列时只算第一个字符；制表符按所在的显示列补齐。
+    assert_eq!(
+        (cells("ab"), cells("中a"), cells("😀😀"), cells("")),
+        (1, 2, 2, 0)
+    );
+    assert_eq!(sequence_cells("\tx".chars(), 1, 4), 3);
+}

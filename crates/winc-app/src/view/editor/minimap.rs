@@ -191,10 +191,10 @@ pub(super) fn draw_minimap(app: &mut App, frame: &mut Frame<'_>, index: usize) {
                 if !long {
                     state = next;
                 }
-                // 按整行断开且 `content` 不是整行时，只取缩略图范围内的若干段（行内窗口）；
-                // 着色只覆盖前 `MAX_LINE_CHARS` 个字符，窗口在其后时按普通文本绘制。
+                // 按整行断开且 `content` 超出默认显示的部分时，只取缩略图范围内的行内窗口；
+                // 着色只覆盖前 `MAX_LINE_CHARS` 个字符，其后按普通文本绘制。
                 let rows = doc.rows_of(line);
-                let window = (rows > 1 && reads_head_only(content))
+                let window = (rows > 1 && exceeds_head(content))
                     .then(|| {
                         let from = first.saturating_sub(top).min(rows - 1);
                         let to = (first + shown).saturating_sub(top).min(rows);

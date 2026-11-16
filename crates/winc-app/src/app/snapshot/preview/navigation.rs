@@ -106,7 +106,8 @@ fn the_preview_scrollbar_can_be_dragged() {
         assert!(app.preview.markdown.scroll() > 0.0, "{name}");
 
         // 滚动条左侧仍然是选择文字。
-        app.on_mouse_move(area.x + 50.0, area.y + 50.0);
+        let left = app.preview.markdown.layout.as_ref().unwrap().left;
+        app.on_mouse_move(left + 20.0, area.y + 50.0);
         app.on_mouse_down(MouseButton::Left);
         assert!(matches!(app.pointer.drag, crate::app::Drag::MarkdownText));
         app.on_mouse_up(MouseButton::Left);

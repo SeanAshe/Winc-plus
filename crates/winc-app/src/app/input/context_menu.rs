@@ -347,6 +347,8 @@ pub enum MenuCommand {
     LogCompareWithLocal,
     /// 日志：转到提交号、分支或标签。
     LogGoTo,
+    /// 日志里的提交：与输入的提交号、分支或标签比较。
+    LogCompareRevision,
     /// 编辑区：开关逐行追溯（开着时打勾）。
     ToggleBlame,
     /// 提交视图「⋯」：储藏改动（输入说明）。
@@ -538,6 +540,7 @@ impl MenuCommand {
             MenuCommand::LogCopyOid => t!("menu-log-copy-oid"),
             MenuCommand::LogCopyShortOid => t!("menu-log-copy-short-oid"),
             MenuCommand::LogGoTo => t!("menu-log-go-to"),
+            MenuCommand::LogCompareRevision => t!("menu-log-compare-revision"),
             MenuCommand::LogCopyMessage => t!("menu-log-copy-message"),
             MenuCommand::LogCopyPatch => t!("menu-log-copy-patch"),
             MenuCommand::LogCompareWithLocal => t!("menu-log-compare-with-local"),

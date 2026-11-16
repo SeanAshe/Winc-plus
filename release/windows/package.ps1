@@ -25,6 +25,9 @@ $launcher = [IO.File]::ReadAllText("$PSScriptRoot/winc").Replace("`r`n", "`n")
 [IO.File]::WriteAllText("$stage/bin/winc", $launcher, (New-Object Text.UTF8Encoding $false))
 Copy-Item "$PSScriptRoot/winc.cmd" "$stage/bin/winc.cmd" -Force
 Copy-Item "$PSScriptRoot/path.ps1" $stage -Force
+# Document icons for the file types, one per group of types (see installer.nsi).
+New-Item -ItemType Directory -Force "$stage/icons" | Out-Null
+Copy-Item "$PSScriptRoot/icons/*.ico" "$stage/icons" -Force
 Copy-Item "$root/target/x86_64-unknown-linux-musl/release/winc-watch" $stage -Force
 # The remote server for each Linux architecture, uploaded to hosts on connection.
 $servers = @('winc-server-Linux-x86_64', 'winc-server-Linux-aarch64')

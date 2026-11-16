@@ -680,6 +680,14 @@ fn format_commands_toggle_inline_marks_in_the_live_preview() {
     assert!(app.run_action(Action::MarkdownBold));
     settle(&mut app);
     assert!(doc_text(&app).starts_with("正文 粗体 字\n"));
+    // 高亮同样是行内格式：选中的文字加上 `==`，再来一次去掉。
+    select(&mut app, "字");
+    assert!(app.run_action(Action::MarkdownHighlight));
+    settle(&mut app);
+    assert!(doc_text(&app).starts_with("正文 粗体 ==字==\n"));
+    assert!(app.run_action(Action::MarkdownHighlight));
+    settle(&mut app);
+    assert!(doc_text(&app).starts_with("正文 粗体 字\n"));
     put_caret(&mut app, "字", true);
     assert!(app.run_action(Action::MarkdownCode));
     assert_eq!(with_caret(&app), "正文 粗体 字`|`\n\n```\ncode\n```\n");

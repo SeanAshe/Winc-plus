@@ -23,9 +23,9 @@ struct Member {
 
 /// 各 crate 允许依赖的 workspace 内的包；未列出的 crate 不允许依赖任何内部包。
 ///
-/// 依赖只能指向更底层的 crate：`winc-backend`、`winc-core`、`winc-render` 不依赖任何内部包，
-/// `winc-editor` 不依赖窗口与渲染，只有 `winc-app` 同时依赖编辑器与渲染层。新增内部依赖时
-/// 必须在此登记。
+/// 依赖只能指向更底层的 crate：`winc-backend` 不依赖任何内部包，`winc-core`、`winc-render`
+/// 只依赖两者共用的 `winc-emoji`，彼此不依赖；`winc-editor` 不依赖窗口与渲染，只有 `winc-app`
+/// 同时依赖编辑器与渲染层。新增内部依赖时必须在此登记。
 const LAYERS: &[(&str, &[&str])] = &[
     ("winc", &["winc-app"]),
     (
@@ -35,6 +35,7 @@ const LAYERS: &[(&str, &[&str])] = &[
             "winc-config",
             "winc-core",
             "winc-editor",
+            "winc-emoji",
             "winc-i18n",
             "winc-preview",
             "winc-pty",
@@ -58,13 +59,21 @@ const LAYERS: &[(&str, &[&str])] = &[
     ),
     (
         "winc-typeset",
-        &["winc-i18n", "winc-preview", "winc-render", "winc-syntax"],
+        &[
+            "winc-emoji",
+            "winc-i18n",
+            "winc-preview",
+            "winc-render",
+            "winc-syntax",
+        ],
     ),
     ("winc-config", &["winc-backend", "winc-i18n", "winc-syntax"]),
     ("winc-preview", &["winc-backend", "winc-i18n"]),
     ("winc-syntax", &["winc-core"]),
     ("winc-vim", &["winc-core"]),
-    ("winc-pty", &["winc-version"]),
+    ("winc-pty", &["winc-emoji", "winc-version"]),
+    ("winc-core", &["winc-emoji"]),
+    ("winc-render", &["winc-emoji"]),
     ("winc-server", &["winc-backend", "winc-watch"]),
     // 仅测试依赖。
     ("winc-watch", &["winc-config"]),

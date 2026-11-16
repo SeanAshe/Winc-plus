@@ -523,3 +523,31 @@ fn font_lists_fall_back_in_order() {
     let mut fonts = Fonts::load(&mono[1..], &[], &[], 400).expect("冬青黑体是 macOS 自带字体");
     assert_eq!(fonts.resolve(FontKind::Mono, '中').0, MONO);
 }
+
+#[test]
+fn emoji_use_the_color_font_before_symbol_fonts() {
+    let mut fonts = Fonts::load(&[], &[], &[], 400).expect("系统里有等宽字体");
+    let emoji = fonts.emoji;
+    assert!(fonts.fallbacks.contains(&emoji));
+    fonts.ensure_loaded(emoji);
+    // 系统中没有彩色 emoji 字体时不做比较。
+    let Some(face) = fonts.face(emoji) else {
+        return;
+    };
+    let covered: Vec<(char, u16)> = ['😀', '⭐', '✅', '❌', '⚡', '☕', '✔', 'a']
+        .into_iter()
+        .map(|c| (c, face.font().charmap().map(c)))
+        .filter(|&(_, glyph)| glyph != 0)
+        .collect();
+    for (c, glyph) in covered {
+        for kind in [FontKind::Mono, FontKind::Ui, FontKind::Terminal] {
+            let found = fonts.resolve(kind, c);
+            if winc_emoji::presentation(c) {
+                // 排在前面的符号字体、中文字体也有该字符时仍然用彩色字体。
+                assert_eq!(found, (emoji, glyph), "{c}");
+            } else if c == 'a' {
+                assert_ne!(found.0, emoji);
+            }
+        }
+    }
+}

@@ -138,6 +138,7 @@ menu-log-copy-short-oid = 复制短提交号
 menu-log-copy-patch = 复制为补丁
 menu-log-compare-with-local = 与本地版本比较
 menu-log-copy-message = 复制提交说明
+menu-log-compare-revision = 与指定版本比较…
 menu-log-go-to = 转到提交号、分支或标签…
 menu-log-all-branches = 全部分支
 menu-log-all-dates = 全部日期

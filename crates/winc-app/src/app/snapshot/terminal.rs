@@ -647,7 +647,9 @@ fn snapshot_terminal() {
         "\x1b[38;5;208m256 色\x1b[0m \x1b[38;2;120;200;255m真彩色\x1b[0m \x1b[7m 反色 \x1b[0m ",
         "\x1b[2m淡色\x1b[0m \x1b[3m斜体\x1b[0m \x1b[9m删除线\x1b[0m \x1b[4:3;58;5;1m波浪线\x1b[0m\r\n",
         "\x1b[42;30m 全部通过 \x1b[0m 731 passed\r\n",
-        "\x1b[1;32m➜\x1b[0m  \x1b[36mwinc\x1b[0m echo 中文和 emoji 😀",
+        "\x1b[1;32m➜\x1b[0m  \x1b[36mwinc\x1b[0m echo 中文和 emoji 😀 ",
+        // emoji 序列各占两格：变体选择符、肤色、连接符连起来的组合、国旗。
+        "❤\u{fe0f} 👍\u{1f3fd} 👨\u{200d}👩\u{200d}👧 🇨🇳|",
     );
     for dark in [false, true] {
         let mut app = app_with(&dir.join("short.rs"), dark);

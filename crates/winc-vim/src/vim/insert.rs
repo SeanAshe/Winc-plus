@@ -1,6 +1,6 @@
 //! 插入与替换模式：进入、按键、输入的记录、次数的重复与离开。
 
-use winc_core::text::char_cells;
+use winc_core::text::Behind;
 use winc_core::{Change, Lines, Selection, movement};
 
 use super::{Extent, Repeat, Shared, Vim};
@@ -282,8 +282,9 @@ impl Vim {
                 let copied = other.and_then(|other| {
                     let content = text.line_content(other);
                     let mut at = 0;
+                    let mut behind = Behind::default();
                     content.slice().chars().find(|c| {
-                        at += char_cells(*c, at, tab_width.max(1));
+                        at += behind.cells(*c, at, tab_width.max(1));
                         at > cell
                     })
                 });

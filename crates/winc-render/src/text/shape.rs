@@ -57,11 +57,11 @@ impl GlyphCache {
         glyph != 0 && got == slot
     }
 
-    /// 把 `chars` 按字体 `kind`、字号 `size`（逻辑像素）整形，结果留在 [`Self::shaped`]。
+    /// 把 `chars` 按字体 `kind`、字号 `size`（逻辑像素）整形，结果留在 [`Self::ligatures`]。
     ///
-    /// 没有可用的字体、或这段文字没有字形时，`shaped` 为空，调用方逐字绘制。
+    /// 没有可用的字体、或这段文字没有字形时，`ligatures` 为空，调用方逐字绘制。
     pub(crate) fn shape_run(&mut self, kind: FontKind, size: f32, chars: &[char]) {
-        self.shaped.clear();
+        self.ligatures.clear();
         if chars.is_empty() || size <= 0.0 {
             return;
         }
@@ -119,7 +119,7 @@ impl GlyphCache {
                 pen += glyph.advance;
             }
         });
-        self.shaped = shaped;
+        self.ligatures = shaped;
     }
 }
 
@@ -136,9 +136,9 @@ mod tests {
         cache.shape_run(FontKind::Mono, 16.0, &['A']);
         let face = cache.fonts.primary_face(FontKind::Mono).unwrap();
         let expected = face.font().charmap().map('A');
-        assert_eq!(cache.shaped.len(), 1);
-        assert_eq!(cache.shaped[0].id, expected);
-        assert_eq!((cache.shaped[0].start, cache.shaped[0].end), (0, 1));
+        assert_eq!(cache.ligatures.len(), 1);
+        assert_eq!(cache.ligatures[0].id, expected);
+        assert_eq!((cache.ligatures[0].start, cache.ligatures[0].end), (0, 1));
     }
 
     #[test]
@@ -164,13 +164,13 @@ mod tests {
         cache.shape_run(FontKind::Mono, 16.0, &['=', '>']);
         let face = cache.fonts.face(MONO).unwrap();
         let cmap = |c: char| face.font().charmap().map(c);
-        let separate = cache.shaped.len() == 2
-            && cache.shaped[0].id == cmap('=')
-            && cache.shaped[1].id == cmap('>');
+        let separate = cache.ligatures.len() == 2
+            && cache.ligatures[0].id == cmap('=')
+            && cache.ligatures[1].id == cmap('>');
         assert!(
             !separate,
             "字体应把 => 连成连字，实际 {:?}",
-            cache.shaped.iter().map(|g| g.id).collect::<Vec<_>>()
+            cache.ligatures.iter().map(|g| g.id).collect::<Vec<_>>()
         );
     }
 }

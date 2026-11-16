@@ -9,7 +9,6 @@
 
 use std::fmt::Write as _;
 
-use winc_core::text;
 use winc_i18n::t;
 use winc_syntax::{LineState, TokenKind, detect, highlight_line};
 
@@ -326,12 +325,13 @@ fn draw_code(app: &App, frame: &mut Frame<'_>, place: &Place, area: Rect) {
     // 先排好每个字符的位置（格），再绘制名字的底色，最后绘制字。
     let lead = usize::from(skip > 0);
     let mut cells = lead;
+    let widths = loose_cells(&chars, 4);
     let placed: Vec<(usize, char, usize, usize)> = chars
         .iter()
         .enumerate()
         .skip(skip)
         .map(|(col, &c)| {
-            let width = text::char_cells(c, cells, 4).max(1);
+            let width = widths[col];
             let at = cells;
             cells += width;
             (col, c, at, width)
@@ -368,8 +368,10 @@ fn draw_code(app: &App, frame: &mut Frame<'_>, place: &Place, area: Rect) {
         );
     }
     let mut token = 0;
-    for (col, c, at, width) in placed {
-        if c.is_whitespace() {
+    // emoji 序列随首字符整体绘制；`joined` 之前的字符已经绘制。
+    let mut joined = 0;
+    for (col, c, at, _) in placed {
+        if c.is_whitespace() || col < joined {
             continue;
         }
         while tokens.get(token).is_some_and(|t| t.end <= col) {
@@ -391,7 +393,9 @@ fn draw_code(app: &App, frame: &mut Frame<'_>, place: &Place, area: Rect) {
         } else {
             FontKind::Mono
         };
-        frame.cell_char(font, size, x_of(at), baseline, cell, width, c, color, area);
+        let at = (x_of(at), baseline);
+        let font = (font, size, cell);
+        joined = col + draw_grid_char(frame, font, at, (&chars, col), color, area);
     }
 }
 

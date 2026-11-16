@@ -876,6 +876,7 @@ impl Builder<'_> {
         };
         emoji::shortcodes(&mut inline);
         autolink::autolink(&mut inline);
+        mark::apply(&mut inline, self.source);
         if leaf != Leaf::Cell && inline.align == Align::None {
             inline.align = self.aligns.last().copied().unwrap_or_default();
         }
@@ -1454,6 +1455,7 @@ pub mod enter;
 pub mod format;
 mod front;
 mod html;
+mod mark;
 mod shrink;
 pub(crate) use html::named_entity;
 pub mod math;

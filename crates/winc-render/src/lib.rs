@@ -712,7 +712,7 @@ impl Renderer {
     /// [`Frame::measure`] 的结果相同；布局在绘制之前据此折行。
     pub fn measure(&self, kind: FontKind, size: f32, text: &str) -> f32 {
         let mut glyphs = self.glyphs.borrow_mut();
-        text.chars().map(|c| glyphs.advance(kind, size, c)).sum()
+        glyphs.measure(kind, Faux::default(), size, text)
     }
 
     /// 返回字体 `kind` 在字号 `size`（逻辑像素）下的度量。
