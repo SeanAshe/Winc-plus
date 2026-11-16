@@ -1143,3 +1143,66 @@ fn the_far_end_of_a_whole_line_is_drawn_in_place() {
     assert_eq!(pos, Some(col));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 自动换行时，超过 `MAX_LINE_CHARS` 个字符而不足 `MAX_LINE_BYTES` 字节的行可以通过点击「显示整行」
+/// 或设置展开：截断说明消失，行尾可以绘制，点击位置与字符对应。
+#[test]
+fn wrapped_long_lines_expand_by_clicking_or_by_the_setting() {
+    use winc_core::text::{MAX_LINE_BYTES, MAX_LINE_CHARS};
+    let dir = sample_folder("long-lines-wrapped");
+    // 两种样本都在两个上限之间：3 万个 ASCII 字符、1.2 万个汉字。
+    let ascii = format!("{}{}", "a".repeat(10_000), "b".repeat(20_000));
+    let cjk = format!("{}{}", "甲".repeat(10_000), "乙".repeat(2_000));
+    for (name, long, last) in [("a.txt", &ascii, 'b'), ("c.txt", &cjk, '乙')] {
+        assert!(long.chars().count() > MAX_LINE_CHARS && long.len() + 3 < MAX_LINE_BYTES);
+        for by_setting in [false, true] {
+            let path = dir.join(name);
+            std::fs::write(&path, format!("{long}\nshort\n")).unwrap();
+            let mut app = app_with(&path, false);
+            app.run_action(Action::ToggleWordWrap);
+            paint(&mut app);
+            let notices = |app: &App| app.hits.long_lines.iter().map(|h| h.1).collect::<Vec<_>>();
+            // 滚动到该行的最后几段。
+            let to_end = |app: &mut App| {
+                let doc = app.editor.active_mut().unwrap();
+                doc.scroll_line = (doc.rows_of(0) as f64 - 3.0).max(0.0);
+                paint(app);
+            };
+            to_end(&mut app);
+            assert_eq!(notices(&app), [0], "{name}");
+            let folded = app.editor.active().unwrap().rows_of(0);
+
+            if by_setting {
+                app.config.whole_lines = Some(true);
+                paint(&mut app);
+            } else {
+                let (rect, _) = app.hits.long_lines[0];
+                click(&mut app, (rect.x + rect.w / 2.0, rect.y + rect.h / 2.0));
+                paint(&mut app);
+            }
+            let doc = app.editor.active().unwrap();
+            assert!(doc.shows_whole_line(0) && doc.rows_of(0) > folded, "{name}");
+            to_end(&mut app);
+            assert!(notices(&app).is_empty(), "{name} {by_setting}");
+
+            // 最后一段的首字符位于行尾部分：点击后光标落在该字符之前。
+            let doc = app.editor.active().unwrap();
+            let rows = doc.rows_of(0);
+            let breaks = doc.line_breaks(0);
+            let start = breaks.start_of(rows - 1);
+            assert!(start > MAX_LINE_CHARS, "{name}: {start}");
+            let (t, lh) = (app.layout.text, app.fonts.line_height);
+            let top = app.editor.active().unwrap().scroll_line;
+            let y = t.y + ((rows - 1) as f64 - top) as f32 * lh + 0.5 * lh;
+            let pos = app.pos_at(t.x + TEXT_PAD + 1.0, y).unwrap();
+            assert_eq!(pos, start, "{name}");
+            let doc = app.editor.active().unwrap();
+            assert_eq!(doc.text().char_at(pos), Some(last), "{name}");
+            // 选中最后一段到行尾：选区按整行的内容测量。
+            let end = doc.text().line_end(0);
+            app.editor.active_mut().unwrap().selection = winc_core::Selection::new(pos, end);
+            paint(&mut app);
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

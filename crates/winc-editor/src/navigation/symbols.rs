@@ -130,6 +130,21 @@ static METHOD: LazyLock<Regex> = LazyLock::new(|| {
     )
 });
 
+/// 带缩进的 C++ 函数开头：可选的 `[[属性]]`、返回类型（可含空格，例如模板实参之间），其后是
+/// 名字和左括号。构造函数和析构函数没有返回类型，名字可以带 `~`。
+static C_MEMBER_START: LazyLock<Regex> = LazyLock::new(|| {
+    regex(
+        r"^\s+(?:\[\[[^\]]*\]\]\s*)*(?P<head>[A-Za-z_][\w:<>,*&\s]*[\s*&])?(?P<name>~?IDENT)\s*\(",
+    )
+});
+
+/// 向后读取函数签名的行数上限（行）：每个参数各占一行时可容纳十余个参数，超出时不列出该函数。
+const C_SIGNATURE_LINES: usize = 16;
+
+/// 向后读取函数签名的字节数上限（字节）：[`C_SIGNATURE_LINES`] 行、每行 256 字节，用于限制
+/// 单行极长的文件中每个候选行的读取量。
+const C_SIGNATURE_BYTES: usize = 4096;
+
 /// C、C++ 的函数定义：行首（无缩进）是返回类型，其后是名字和左括号，该行不含分号。
 static C_FUNCTION: LazyLock<Regex> = LazyLock::new(|| {
     regex(r"^(?P<head>[A-Za-z_][\w:<>,*&\s]*[\s*&])(?P<name>[A-Za-z_~][\w:~]*)\s*\([^;]*$")
@@ -267,7 +282,18 @@ pub fn symbols(text: &Rope, language: &Language) -> Vec<Symbol> {
         let recognized = if c_family {
             let recognized = recognize_c(content, &c);
             c.advance(content);
-            recognized.or_else(|| recognize(content, language))
+            recognized
+                .or_else(|| recognize(content, language))
+                .or_else(|| {
+                    let indent = indent_width(content);
+                    let parent = parents.iter().rev().find(|(level, ..)| *level < indent)?;
+                    let owner = match parent {
+                        (_, name, SymbolKind::Type) => Some(name.as_str()),
+                        (_, _, SymbolKind::Module) => None,
+                        _ => return None,
+                    };
+                    recognize_c_member(text, i, content, indent, owner)
+                })
         } else {
             recognize(content, language)
         };
@@ -460,6 +486,121 @@ fn recognize_c(
         }
     }
     None
+}
+
+/// 识别类型或命名空间内带缩进的 C++ 函数定义（包括按 C 高亮的 `.h`），返回值同 [`recognize`]。
+///
+/// 签名可以折成多行，函数体可以与左花括号同一行；只有声明没有函数体时不识别。`owner` 是所在
+/// 类型的名字：没有返回类型的只认与它同名的构造函数和析构函数。名字的行列是它原来的位置。
+fn recognize_c_member(
+    text: &Rope,
+    line: usize,
+    content: &str,
+    indent: usize,
+    owner: Option<&str>,
+) -> Option<(String, SymbolKind, usize, usize, Option<String>)> {
+    let caps = C_MEMBER_START.captures(content)?;
+    let name = caps.name("name")?;
+    let first = content.split_whitespace().next()?;
+    if NOT_NAMES.contains(&name.as_str())
+        || NOT_NAMES.contains(&first)
+        || C_STATEMENTS.contains(&first)
+    {
+        return None;
+    }
+    if caps.name("head").is_none() && owner != Some(name.as_str().trim_start_matches('~')) {
+        return None;
+    }
+    let mut signature = CSignature::default();
+    let mut bytes = content.len();
+    let mut body = signature.scan(&content[caps.get(0)?.end()..]);
+    let mut next = String::new();
+    for slice in text.lines_at(line + 1).take(C_SIGNATURE_LINES) {
+        bytes += slice.len_bytes();
+        if body.is_some() || bytes > C_SIGNATURE_BYTES {
+            break;
+        }
+        next.clear();
+        next.extend(slice.chunks());
+        body = signature.scan(&next);
+    }
+    if body != Some(true) {
+        return None;
+    }
+    let col = content[..name.start()].chars().count();
+    Some((
+        name.as_str().to_owned(),
+        SymbolKind::Function,
+        col,
+        indent,
+        None,
+    ))
+}
+
+/// 逐行读取函数左括号之后的内容，判断签名之后是函数体还是声明的结尾。
+struct CSignature {
+    /// 尚未闭合的圆括号层数；从参数列表内开始，为 0 时位于参数列表之后。
+    depth: usize,
+    /// 位于块注释内。
+    comment: bool,
+}
+
+impl Default for CSignature {
+    fn default() -> Self {
+        Self {
+            depth: 1,
+            comment: false,
+        }
+    }
+}
+
+impl CSignature {
+    /// 读入一行 `line`：读到函数体的左花括号或构造函数初始化列表的 `:` 时返回 `Some(true)`，
+    /// 读到声明的结尾或函数签名中不会出现的符号时返回 `Some(false)`，尚无结论时返回 `None`。
+    ///
+    /// 注释、字符串和字符字面量中的内容不参与判断；圆括号内（参数、默认值、`noexcept(…)`）
+    /// 只计括号层数。
+    fn scan(&mut self, line: &str) -> Option<bool> {
+        let bytes = line.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            let next = bytes.get(i + 1).copied();
+            if self.comment {
+                let closed = bytes[i] == b'*' && next == Some(b'/');
+                self.comment = !closed;
+                i += if closed { 2 } else { 1 };
+                continue;
+            }
+            match bytes[i] {
+                b'/' if next == Some(b'/') => return None,
+                b'/' if next == Some(b'*') => {
+                    self.comment = true;
+                    i += 1;
+                }
+                quote @ (b'"' | b'\'') => {
+                    i += 1;
+                    while i < bytes.len() && bytes[i] != quote {
+                        i += if bytes[i] == b'\\' { 2 } else { 1 };
+                    }
+                }
+                b'(' => self.depth += 1,
+                b')' if self.depth == 0 => return Some(false),
+                b')' => self.depth -= 1,
+                _ if self.depth > 0 => {}
+                b'{' => return Some(true),
+                // `::` 是尾置返回类型中的限定名；单个 `:` 之后是构造函数的初始化列表。
+                b':' if next == Some(b':') => i += 1,
+                b':' => return Some(true),
+                // `->` 之后是尾置返回类型。
+                b'-' if next == Some(b'>') => i += 1,
+                b';' | b'=' | b'}' | b',' | b'?' | b'.' | b'+' | b'-' | b'/' | b'|' | b'^'
+                | b'!' | b'%' => return Some(false),
+                _ => {}
+            }
+            i += 1;
+        }
+        None
+    }
 }
 
 /// 识别一行中的符号，返回（名字，种类，列，层级，行内写明的上级）。

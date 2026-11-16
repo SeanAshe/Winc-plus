@@ -13,6 +13,7 @@ name = "winc-pty"
 path = "src/main.rs"
 
 [dependencies]
+winc-emoji.workspace = true
 winc-version.workspace = true
 unicode-width.workspace = true
 vte.workspace = true

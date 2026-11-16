@@ -4,6 +4,7 @@
 
 use super::*;
 use crate::draw::canvas::{Tinted, Wall};
+use winc_emoji as sequence;
 
 /// 一帧的绘制上下文：画布、字形缓存、覆盖率表和裁剪区域。
 ///
@@ -435,16 +436,117 @@ impl Frame<'_> {
     ) -> f32 {
         let mut pen = x;
 
-        for c in text.chars() {
-            let resolved = self.glyphs.lookup_faux(kind, faux, size, c);
+        for unit in sequence::units(text) {
             // 超出裁剪框右边的部分只累加宽度，不光栅化。
-            if pen <= clip.right().min(self.limit.right()) {
-                self.draw_glyph(kind, faux, size, (pen, baseline), c, resolved, color, clip);
+            let visible = pen <= clip.right().min(self.limit.right());
+            match unit {
+                sequence::Unit::Char(c) => {
+                    let resolved = self.glyphs.lookup_faux(kind, faux, size, c);
+                    if visible {
+                        let at = (pen, baseline);
+                        self.draw_glyph(kind, faux, size, at, c, resolved, color, clip);
+                    }
+                    pen += resolved.advance;
+                }
+                sequence::Unit::Sequence(unit) if visible => {
+                    pen += self.draw_sequence(kind, faux, size, (pen, baseline), unit, color, clip);
+                }
+                sequence::Unit::Sequence(unit) => {
+                    pen += self.glyphs.sequence_advance(kind, faux, size, unit);
+                }
             }
-            pen += resolved.advance;
         }
 
         pen
+    }
+
+    /// 在笔位置 `(x, baseline)` 绘制 emoji 序列 `unit`，返回它的前进宽度（逻辑像素）。
+    ///
+    /// 序列由 emoji 字体合成；无法合成时逐个绘制其中的可见字符。
+    #[allow(clippy::too_many_arguments)]
+    fn draw_sequence(
+        &mut self,
+        kind: FontKind,
+        faux: Faux,
+        size: f32,
+        (x, baseline): (f32, f32),
+        unit: &str,
+        color: Color,
+        clip: Rect,
+    ) -> f32 {
+        if let Some(shaped) = self.glyphs.shaped(unit) {
+            let base = unit.chars().next().unwrap_or(' ');
+            self.draw_shaped(kind, size, (x, baseline), (&shaped, base), color, clip);
+            return shaped.advance() * size;
+        }
+        let mut pen = x;
+        for c in unit.chars().filter(|&c| !sequence::ignorable(c)) {
+            let resolved = self.glyphs.lookup_faux(kind, faux, size, c);
+            self.draw_glyph(kind, faux, size, (pen, baseline), c, resolved, color, clip);
+            pen += resolved.advance;
+        }
+        pen - x
+    }
+
+    /// 在笔位置 `(x, baseline)` 绘制整形好的序列 `shaped`；`base` 是序列的第一个字符。
+    fn draw_shaped(
+        &mut self,
+        kind: FontKind,
+        size: f32,
+        (x, baseline): (f32, f32),
+        (shaped, base): (&Shaped, char),
+        color: Color,
+        clip: Rect,
+    ) {
+        let mut pen = x;
+        for &(glyph, dx, dy, advance) in &shaped.glyphs {
+            let resolved = Resolved {
+                slot: shaped.slot,
+                glyph,
+                advance: advance * size,
+            };
+            let at = (pen + dx * size, baseline - dy * size);
+            self.draw_glyph(kind, Faux::default(), size, at, base, resolved, color, clip);
+            pen += advance * size;
+        }
+    }
+
+    /// 在等宽网格上绘制 emoji 序列 `unit`，它占 `cells` 个格子（每格宽 `cell`，逻辑像素）；
+    /// 返回是否已绘制。
+    ///
+    /// 序列由 emoji 字体合成：窄于所占的格子时在图形所需的几格内水平居中，
+    /// 宽于格子时缩小到恰好容纳。按文字显示的序列或系统中没有 emoji 字体时返回假，
+    /// 由调用方逐字符绘制。
+    #[allow(clippy::too_many_arguments)]
+    pub fn cell_sequence(
+        &mut self,
+        kind: FontKind,
+        size: f32,
+        x: f32,
+        baseline: f32,
+        cell: f32,
+        cells: usize,
+        unit: &str,
+        color: Color,
+        clip: Rect,
+    ) -> bool {
+        let Some(shaped) = self.glyphs.shaped(unit) else {
+            return false;
+        };
+        let room = cell * cells.max(1) as f32;
+        let advance = shaped.advance() * size;
+        let size = if advance > room {
+            size * room / advance
+        } else {
+            size
+        };
+        let advance = advance.min(room);
+        // 连接符序列占的格数可能多于图形的宽度：只在图形所需的几格内居中，其余的格留空。
+        let used = (advance / cell).ceil().max(1.0) * cell;
+        let at = (x + (used.min(room) - advance) / 2.0, baseline);
+        let base = unit.chars().next().unwrap_or(' ');
+        self.draw_shaped(kind, size, at, (&shaped, base), color, clip);
+        true
     }
 
     /// 在等宽网格上用等宽字体 `kind`（编辑区或终端的正体、斜体）绘制字符 `c`。
@@ -481,9 +583,27 @@ impl Frame<'_> {
 
     /// 返回一段文字的宽度（逻辑像素）。
     pub fn measure(&mut self, kind: FontKind, size: f32, text: &str) -> f32 {
-        text.chars()
-            .map(|c| self.glyphs.advance(kind, size, c))
-            .sum()
+        self.glyphs.measure(kind, Faux::default(), size, text)
+    }
+
+    /// 返回一段文字按 `faux` 绘制时的宽度（逻辑像素）。
+    pub fn measure_faux(&mut self, kind: FontKind, faux: Faux, size: f32, text: &str) -> f32 {
+        self.glyphs.measure(kind, faux, size, text)
+    }
+
+    /// 返回 `chars` 中各字符按 `faux` 绘制时的前进宽度（逻辑像素），每个字符一项。
+    ///
+    /// emoji 序列的宽度记在第一个字符上，其余字符为 0；各项之和与 [`Self::measure_faux`] 相同。
+    pub fn advances_faux(
+        &mut self,
+        kind: FontKind,
+        faux: Faux,
+        size: f32,
+        chars: &[char],
+    ) -> Vec<f32> {
+        let mut out = Vec::with_capacity(chars.len());
+        self.glyphs.advances(kind, faux, size, chars, &mut out);
+        out
     }
 
     /// 返回字符 `c` 按 `faux` 绘制时的前进宽度（逻辑像素）。
@@ -540,12 +660,12 @@ impl Frame<'_> {
     /// 返回字形个数。为 0 时这段文字应逐字绘制。
     pub fn shape_ligatures(&mut self, kind: FontKind, size: f32, chars: &[char]) -> usize {
         self.glyphs.shape_run(kind, size, chars);
-        self.glyphs.shaped.len()
+        self.glyphs.ligatures.len()
     }
 
     /// 返回第 `index` 个连字字形覆盖的字符范围（这段文字内的下标，含起点、不含终点）。
     pub fn ligature_span(&self, index: usize) -> (usize, usize) {
-        let glyph = &self.glyphs.shaped[index];
+        let glyph = &self.glyphs.ligatures[index];
         (glyph.start, glyph.end)
     }
 
@@ -568,7 +688,7 @@ impl Frame<'_> {
         color: Color,
         clip: Rect,
     ) {
-        let glyph = self.glyphs.shaped[index];
+        let glyph = self.glyphs.ligatures[index];
         let advance = self.glyphs.glyph_advance(glyph.slot, glyph.id, size);
         // 前进宽度和所占格子差不多时居中（普通字符、以及正好占满这几格的连字）。
         // 字形明显更窄时靠左，避免一个单格字形浮在两格正中。
@@ -617,8 +737,10 @@ impl Frame<'_> {
         }
         let s = self.scale;
         // 先取整到 ¼ 像素，再拆成整像素和档位（0 至 3）；取整后小数部分达到 1 时，
-        // 进位到下一个像素的第 0 档。中日韩文字按整像素定位，见 [`full_width`]。
-        let quarters = if c.is_some_and(full_width) {
+        // 进位到下一个像素的第 0 档。中日韩文字按整像素定位，见 [`full_width`]；
+        // 只覆盖一个字符的连字同样传入该字符。emoji 同样是方块形，彩色位图每像素 4 字节，
+        // 按档位各存一份的占用是单色字形的 4 倍。
+        let quarters = if c.is_some_and(full_width) || self.glyphs.fonts.is_emoji_slot(slot) {
             (x * s).round() * 4.0
         } else {
             (x * s * 4.0).round()

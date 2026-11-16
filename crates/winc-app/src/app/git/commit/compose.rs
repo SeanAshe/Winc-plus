@@ -70,10 +70,7 @@ impl App {
         let message = self.git.commit.message.text();
         let mut lines = message.lines();
         let subject = lines.next()?;
-        let mut length = 0;
-        for c in subject.chars() {
-            length += winc_core::text::char_cells(c, length, 4);
-        }
+        let length = winc_core::text::text_cells(subject.chars(), 0, 4);
         if length > SUBJECT_LIMIT {
             let (length, limit) = (length.to_string(), SUBJECT_LIMIT.to_string());
             return Some(t!("git-commit-hint-subject", count = length, limit = limit));

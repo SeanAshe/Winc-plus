@@ -1,11 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Types winc can open, listed under Applications\winc.exe\SupportedTypes: winc appears in
-     "Open with" > "Choose another app" for them. Nothing is written under the types themselves, so
-     Windows keeps their default program and icon and does not ask which program to use. Upgrading
-     removes the OpenWithProgids entries earlier versions added, which made Windows ask. Keep this
-     list the same as ForEachFileType in installer.nsi.
+     "Open with" > "Choose another app" for them. Nothing is written under the types themselves
+     unless the optional FileTypes feature is installed, so Windows keeps their default program and
+     icon and does not ask which program to use. Keep this
+     list the same as ForEachFileType in installer.nsi. The types are grouped by the document
+     icon they show (release/windows/icons); FileTypes is all of them.
      Registry keys ignore case; upper case gives the "JSON File" name the shell shows for a type. -->
-<?define FileTypes = ASTRO;BASH;C;CC;CFG;CJS;CLJ;CONF;CPP;CS;CSS;CSV;CXX;DART;ENV;ERL;EX;EXS;FISH;FS;GO;GQL;GRADLE;GRAPHQL;H;HH;HPP;HS;HTM;HTML;INI;JAVA;JS;JSON;JSON5;JSONC;JSX;KT;KTS;LESS;LOG;LUA;M;MD;MJS;MM;PHP;PL;PROTO;PS1;PSM1;PY;PYI;R;RB;RS;SASS;SCALA;SCSS;SH;SQL;SVELTE;SWIFT;TF;TOML;TS;TSV;TSX;TXT;VUE;XML;YAML;YML;ZIG;ZSH?>
+<?define MarkdownTypes = MD?>
+<?define JsonTypes = JSON;JSON5;JSONC?>
+<?define ConfigTypes = CFG;CONF;ENV;INI;TOML;YAML;YML?>
+<?define MarkupTypes = ASTRO;HTM;HTML;SVELTE;VUE;XML?>
+<?define StyleTypes = CSS;LESS;SASS;SCSS?>
+<?define ScriptTypes = BASH;FISH;PS1;PSM1;SH;ZSH?>
+<?define TableTypes = CSV;TSV?>
+<?define TextTypes = LOG;TXT?>
+<?define JavascriptTypes = CJS;JS;JSX;MJS?>
+<?define TypescriptTypes = TS;TSX?>
+<?define PythonTypes = PY;PYI?>
+<?define RustTypes = RS?>
+<?define GoTypes = GO?>
+<?define CTypes = C;CC;CPP;CXX;H;HH;HPP?>
+<?define CodeTypes = CLJ;CS;DART;ERL;EX;EXS;FS;GQL;GRADLE;GRAPHQL;HS;JAVA;KT;KTS;LUA;M;MM;PHP;PL;PROTO;R;RB;SCALA;SQL;SWIFT;TF;ZIG?>
+<?define IconNames = markdown;json;config;markup;style;script;table;text;javascript;typescript;python;rust;go;c;code;file?>
+<?define FileTypes = $(var.MarkdownTypes);$(var.JsonTypes);$(var.ConfigTypes);$(var.MarkupTypes);$(var.StyleTypes);$(var.ScriptTypes);$(var.TableTypes);$(var.TextTypes);$(var.JavascriptTypes);$(var.TypescriptTypes);$(var.PythonTypes);$(var.RustTypes);$(var.GoTypes);$(var.CTypes);$(var.CodeTypes)?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <!-- UUIDv5(DNS, com.deeix.winc); keep this product family stable across releases. -->
   <Product Id="*" Name="Winc" Language="1033" Version="$(var.Version)" Manufacturer="DEEIX"
@@ -56,11 +73,102 @@
                  earlier versions listed it, whose choice names this ProgID. -->
             <?foreach Type in $(var.FileTypes)?>
             <RegistryValue Root="HKLM" Key="Software\Classes\Applications\winc.exe\SupportedTypes" Name=".$(var.Type)" Value="winc" Type="string"/>
+            <?endforeach?>
+            <!-- Each ProgID carries its type's document icon. Explorer shows it for a type whose
+                 chosen program is this ProgID; a choice made through "Open with" names winc.exe
+                 instead and shows its icon. -->
+            <?foreach Type in $(var.MarkdownTypes)?>
             <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)" Value="$(var.Type) File" Type="string"/>
-            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\DefaultIcon" Value="[#WincExe],0" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\DefaultIcon" Value="[#Icon_markdown]" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\shell\open\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
+            <?endforeach?>
+            <?foreach Type in $(var.JsonTypes)?>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)" Value="$(var.Type) File" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\DefaultIcon" Value="[#Icon_json]" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\shell\open\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
+            <?endforeach?>
+            <?foreach Type in $(var.ConfigTypes)?>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)" Value="$(var.Type) File" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\DefaultIcon" Value="[#Icon_config]" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\shell\open\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
+            <?endforeach?>
+            <?foreach Type in $(var.MarkupTypes)?>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)" Value="$(var.Type) File" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\DefaultIcon" Value="[#Icon_markup]" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\shell\open\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
+            <?endforeach?>
+            <?foreach Type in $(var.StyleTypes)?>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)" Value="$(var.Type) File" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\DefaultIcon" Value="[#Icon_style]" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\shell\open\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
+            <?endforeach?>
+            <?foreach Type in $(var.ScriptTypes)?>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)" Value="$(var.Type) File" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\DefaultIcon" Value="[#Icon_script]" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\shell\open\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
+            <?endforeach?>
+            <?foreach Type in $(var.TableTypes)?>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)" Value="$(var.Type) File" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\DefaultIcon" Value="[#Icon_table]" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\shell\open\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
+            <?endforeach?>
+            <?foreach Type in $(var.TextTypes)?>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)" Value="$(var.Type) File" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\DefaultIcon" Value="[#Icon_text]" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\shell\open\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
+            <?endforeach?>
+            <?foreach Type in $(var.JavascriptTypes)?>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)" Value="$(var.Type) File" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\DefaultIcon" Value="[#Icon_javascript]" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\shell\open\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
+            <?endforeach?>
+            <?foreach Type in $(var.TypescriptTypes)?>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)" Value="$(var.Type) File" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\DefaultIcon" Value="[#Icon_typescript]" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\shell\open\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
+            <?endforeach?>
+            <?foreach Type in $(var.PythonTypes)?>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)" Value="$(var.Type) File" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\DefaultIcon" Value="[#Icon_python]" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\shell\open\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
+            <?endforeach?>
+            <?foreach Type in $(var.RustTypes)?>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)" Value="$(var.Type) File" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\DefaultIcon" Value="[#Icon_rust]" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\shell\open\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
+            <?endforeach?>
+            <?foreach Type in $(var.GoTypes)?>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)" Value="$(var.Type) File" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\DefaultIcon" Value="[#Icon_go]" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\shell\open\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
+            <?endforeach?>
+            <?foreach Type in $(var.CTypes)?>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)" Value="$(var.Type) File" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\DefaultIcon" Value="[#Icon_c]" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\shell\open\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
+            <?endforeach?>
+            <?foreach Type in $(var.CodeTypes)?>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)" Value="$(var.Type) File" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\DefaultIcon" Value="[#Icon_code]" Type="string"/>
             <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\shell\open\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
             <?endforeach?>
           </Component>
+          <!-- Optional, off by default: lists the ProgIDs under the types. A handler listed there
+               makes Windows ask which program to use. Install with ADDLOCAL=Main,FileTypes. -->
+          <Component Id="FileTypeListing" Guid="*" Win64="yes">
+            <RegistryValue Root="HKLM" Key="Software\DEEIX\winc\MSI" Name="File Types" Type="integer" Value="1" KeyPath="yes"/>
+            <!-- The shell reads only the value names; the data is a placeholder, as above. -->
+            <?foreach Type in $(var.FileTypes)?>
+            <RegistryValue Root="HKLM" Key="Software\Classes\.$(var.Type)\OpenWithProgids" Name="winc.$(var.Type)" Value="winc" Type="string"/>
+            <?endforeach?>
+          </Component>
+          <Directory Id="ICONSFOLDER" Name="icons">
+            <?foreach Icon in $(var.IconNames)?>
+            <Component Id="Icon_$(var.Icon)" Guid="*" Win64="yes">
+              <File Id="Icon_$(var.Icon)" Source="$(var.Source)\icons\$(var.Icon).ico" KeyPath="yes"/>
+            </Component>
+            <?endforeach?>
+          </Directory>
           <!-- Explorer context menu: "Open with Winc" on the supported types, added under
                SystemFileAssociations so their default program stays unchanged, and "Open in Winc" on
                a folder and on the empty space inside one (also the desktop), where %V is that folder.
@@ -108,6 +216,10 @@
       <ComponentRef Id="CommandLine"/><ComponentRef Id="CommandLineCmd"/><ComponentRef Id="WslWatcher"/>
       <ComponentRef Id="RemoteServerX64"/><ComponentRef Id="RemoteServerArm64"/>
       <ComponentRef Id="License"/><ComponentRef Id="Notice"/><ComponentRef Id="StartMenu"/>
+      <ComponentRef Id="Icon_markdown"/><ComponentRef Id="Icon_json"/><ComponentRef Id="Icon_config"/><ComponentRef Id="Icon_markup"/><ComponentRef Id="Icon_style"/><ComponentRef Id="Icon_script"/><ComponentRef Id="Icon_table"/><ComponentRef Id="Icon_text"/><ComponentRef Id="Icon_javascript"/><ComponentRef Id="Icon_typescript"/><ComponentRef Id="Icon_python"/><ComponentRef Id="Icon_rust"/><ComponentRef Id="Icon_go"/><ComponentRef Id="Icon_c"/><ComponentRef Id="Icon_code"/><ComponentRef Id="Icon_file"/>
+    </Feature>
+    <Feature Id="FileTypes" Title="Associate file types" Level="1000">
+      <ComponentRef Id="FileTypeListing"/>
     </Feature>
     <!-- Register text file types after the executable is on disk; remove them before it is deleted. -->
     <!-- Deferred and impersonated so per-machine setup still writes the installing user's HKCU. -->

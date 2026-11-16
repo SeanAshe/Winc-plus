@@ -173,6 +173,47 @@ pub fn id_for_extension(ext: &str) -> u16 {
     APP_ICON_ID + 1 + index as u16
 }
 
+/// 安装包 `icons` 目录里的文档图标名，与 `release/windows/installer.nsi` 的分组一致。
+///
+/// 安装程序把 `winc.<类型>` 的默认图标写成这个文件。`--register-file-types` 看到它已经
+/// 指向这份图标时不再改回可执行文件里的资源，两种登记才会显示同一张文档图标。
+pub fn installer_icon_name(ext: &str) -> Option<&'static str> {
+    let ext = ext.trim_start_matches('.');
+    const GROUPS: &[(&str, &[&str])] = &[
+        ("markdown", &["md"]),
+        ("json", &["json", "json5", "jsonc"]),
+        (
+            "config",
+            &["cfg", "conf", "env", "ini", "toml", "yaml", "yml"],
+        ),
+        ("markup", &["astro", "htm", "html", "svelte", "vue", "xml"]),
+        ("style", &["css", "less", "sass", "scss"]),
+        ("script", &["bash", "fish", "ps1", "psm1", "sh", "zsh"]),
+        ("table", &["csv", "tsv"]),
+        ("text", &["log", "txt"]),
+        ("javascript", &["cjs", "js", "jsx", "mjs"]),
+        ("typescript", &["ts", "tsx"]),
+        ("python", &["py", "pyi"]),
+        ("rust", &["rs"]),
+        ("go", &["go"]),
+        ("c", &["c", "cc", "cpp", "cxx", "h", "hh", "hpp"]),
+        (
+            "code",
+            &[
+                "clj", "cs", "dart", "erl", "ex", "exs", "fs", "gql", "gradle", "graphql", "hs",
+                "java", "kt", "kts", "lua", "m", "mm", "php", "pl", "proto", "r", "rb", "scala",
+                "sql", "swift", "tf", "zig",
+            ],
+        ),
+    ];
+    GROUPS.iter().find_map(|(icon, extensions)| {
+        extensions
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case(ext))
+            .then_some(*icon)
+    })
+}
+
 /// 安装时是否把扩展名的默认程序设成 `ours`。
 ///
 /// 还没有默认程序，或者已经是 winc（包括这条 `ProgID` 本身）时可以登记。别的程序占着时不抢。

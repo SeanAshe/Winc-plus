@@ -51,6 +51,7 @@ cmd-markdown-bold = Markdown：切换粗体
 cmd-markdown-italic = Markdown：切换斜体
 cmd-markdown-code = Markdown：切换行内代码
 cmd-markdown-strikethrough = Markdown：切换删除线
+cmd-markdown-highlight = Markdown：切换高亮
 cmd-delete-line = 删除行
 cmd-delete-all-left = 删除到行首
 cmd-indent-lines = 增加缩进

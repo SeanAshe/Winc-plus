@@ -169,3 +169,43 @@ fn links_cover_their_text() {
     assert_eq!(url, "https://example.com");
     assert!(rect.w > 0.0 && rect.h > 0.0);
 }
+
+#[test]
+fn emoji_sequences_are_laid_out_as_one_piece() {
+    let spans = |out: &Out| -> Vec<(String, Vec<f32>)> {
+        out.items
+            .iter()
+            .filter_map(|item| match item {
+                Item::Text { text, span, .. } => {
+                    Some((text.to_string(), span.as_ref()?.advances.to_vec()))
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    let family = "👨\u{200d}👩\u{200d}👧";
+    for (markdown, unit) in [
+        (format!("a {family} b"), family),
+        ("a 👍\u{1f3fd} b".to_owned(), "👍\u{1f3fd}"),
+        ("a ⚠\u{fe0f} b".to_owned(), "⚠\u{fe0f}"),
+        (format!("```\na {family} b\n```"), family),
+    ] {
+        let laid = lay(&markdown, 600.0);
+        let found = spans(&laid[0].0);
+        let (text, advances) = found.iter().find(|(text, _)| text.contains(unit)).unwrap();
+        assert_eq!(advances.len(), text.chars().count(), "{markdown:?}");
+        // 序列的宽度记在第一个字符上，其余字符为 0；没有 emoji 字体时各字符仍有自己的宽度，
+        // 不做比较。
+        let at = text[..text.find(unit).unwrap()].chars().count();
+        let members = &advances[at + 1..at + unit.chars().count()];
+        if members.iter().all(|&w| w == 0.0) {
+            assert!(advances[at] > 0.0, "{markdown:?}");
+        }
+    }
+    // 很窄时在序列前后折行，序列中间不折：每一行的文字要么含整个序列，要么不含其中的字符。
+    let laid = lay(&format!("word {family} word {family} word"), 40.0);
+    for (_, _, _, text) in texts(&laid[0].0) {
+        let inside = text.chars().filter(|c| family.contains(*c)).count();
+        assert!(inside % family.chars().count() == 0, "{text:?}");
+    }
+}

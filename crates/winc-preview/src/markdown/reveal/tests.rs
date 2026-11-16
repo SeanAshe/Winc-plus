@@ -65,3 +65,17 @@ fn continuation_lines_drop_container_markers() {
     };
     assert_eq!(inline.text, "- 一\n- 二");
 }
+
+#[test]
+fn highlight_markers_show_when_touched() {
+    // 光标在高亮里：两个 `==` 显示出来。
+    assert_eq!(shown("前面 ==高|亮== 后面"), "前面 ‹==›高亮‹==› 后面");
+    assert_eq!(shown("前面 =|=高亮== 后面"), "前面 ‹==›高亮‹==› 后面");
+    assert_eq!(shown("前面 ==高亮==| 后面"), "前面 ‹==›高亮‹==› 后面");
+    // 光标在别处：标记不显示。
+    assert_eq!(shown("前面| ==高亮== 后面"), "前面 高亮 后面");
+    // 不成对的 `==` 是文字。
+    assert_eq!(shown("前面 == 高|亮 后面"), "前面 == 高亮 后面");
+    // 转义的 `\==` 是文字，不随光标显示为标记。
+    assert_eq!(shown("前面 \\==高|亮== 后面"), "前面 ==高亮== 后面");
+}

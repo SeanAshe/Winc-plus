@@ -95,6 +95,7 @@ fn draw_card(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
         | FormKind::Remote { .. }
         | FormKind::Connect
         | FormKind::GoToRevision
+        | FormKind::CompareRevision { .. }
         | FormKind::LogPath => {
             return draw_question(app, frame, layout);
         }

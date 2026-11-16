@@ -183,3 +183,28 @@ fn code_breaks_after_punctuation_and_positions_map_back() {
     );
     assert_eq!(breaks(&['a', 'b'], 0, 4).rows(), 2);
 }
+
+#[test]
+fn emoji_sequences_are_never_split_across_rows() {
+    // 放不下的选择符、修饰符、连接符之后的字符与前面的字符一起折到下一段。
+    assert_eq!(split("aaa❤\u{fe0f}b", 4), ["aaa", "❤\u{fe0f}b"]);
+    assert_eq!(split("aa👍\u{1f3fd}b", 3), ["aa", "👍\u{1f3fd}b"]);
+    assert_eq!(split("aaa👨\u{200d}👩b", 4), ["aaa", "👨\u{200d}👩b"]);
+    assert_eq!(
+        split("ab1\u{fe0f}\u{20e3}c", 3),
+        ["ab", "1\u{fe0f}\u{20e3}c"]
+    );
+    assert_eq!(split("ab🇨🇳c", 3), ["ab", "🇨🇳c"]);
+    // 序列宽于行宽时独占一段，其后正常断开。
+    assert_eq!(
+        split("👨\u{200d}👩\u{200d}👧ab", 1),
+        ["👨\u{200d}👩\u{200d}👧", "a", "b"]
+    );
+    assert_eq!(
+        split("👨\u{200d}👩\u{200d}👧", 2),
+        ["👨\u{200d}👩\u{200d}👧"]
+    );
+    // 相邻的两个独立 emoji 之间可以断开。
+    assert_eq!(split("aa😀😀", 4), ["aa😀", "😀"]);
+    assert!(!can_break('❤', '\u{fe0f}') && !can_break('\u{200d}', '👩'));
+}

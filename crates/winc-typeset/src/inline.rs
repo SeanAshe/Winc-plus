@@ -14,6 +14,28 @@ use super::{Cx, Flow, Item, Para, Span};
 use crate::ImageSlot;
 
 /// 行内文字拆出的一个单位（一个字、图片、行内代码两边的留白）。
+/// 查找 emoji 序列的起点时向前看的字符数上限（个）：Unicode 推荐的 emoji 序列最长 10 个
+/// 字符（带肤色的多人组合），取 16 留有余量。
+const SEQUENCE_LOOKBACK: usize = 16;
+
+/// 字符 `c` 接在 `atoms` 末尾的若干字符之后组成 emoji 序列时，返回序列第一个字符在 `atoms`
+/// 中的下标；只看样式 `run` 相同的连续字符，取最长的一个序列。
+fn sequence_start(atoms: &[Atom], c: char, run: usize) -> Option<usize> {
+    let tail: Vec<char> = atoms
+        .iter()
+        .rev()
+        .take(SEQUENCE_LOOKBACK)
+        .map_while(|a| match a.kind {
+            AtomKind::Char(p) if a.run == run => Some(p),
+            _ => None,
+        })
+        .collect();
+    (1..=tail.len()).rev().find_map(|count| {
+        let unit = tail[..count].iter().rev().copied().chain([c]);
+        (winc_emoji::sequence_len(unit) == count + 1).then(|| atoms.len() - count)
+    })
+}
+
 struct Atom {
     kind: AtomKind,
     /// 宽度（逻辑像素）。
@@ -261,11 +283,40 @@ impl Cx<'_, '_> {
         source: Option<u32>,
     ) {
         let c = if c == '\t' { ' ' } else { c };
-        let width = self.frame.advance_faux(st.font, st.faux, st.size, c);
         let prev = atoms.last().and_then(|a| match a.kind {
             AtomKind::Char(p) => Some(p),
             _ => None,
         });
+        // 与前面的字符组成 emoji 序列：整个序列的宽度记在第一个字符上，其余为 0，中间不换行。
+        if prev.is_some_and(|p| winc_emoji::may_join(p, c))
+            && let Some(start) = sequence_start(atoms, c, run)
+        {
+            let chars: Vec<char> = atoms[start..]
+                .iter()
+                .filter_map(|a| match a.kind {
+                    AtomKind::Char(p) => Some(p),
+                    _ => None,
+                })
+                .chain([c])
+                .collect();
+            let widths = self.frame.advances_faux(st.font, st.faux, st.size, &chars);
+            for (atom, &width) in atoms[start..].iter_mut().zip(&widths) {
+                atom.width = width;
+            }
+            for atom in &mut atoms[start + 1..] {
+                atom.brk = false;
+            }
+            atoms.push(Atom {
+                kind: AtomKind::Char(c),
+                width: 0.0,
+                run,
+                brk: false,
+                space: false,
+                source,
+            });
+            return;
+        }
+        let width = self.frame.advance_faux(st.font, st.faux, st.size, c);
         let brk = match prev {
             Some(p) => can_break(p, c),
             None => !atoms.is_empty(),

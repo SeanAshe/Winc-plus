@@ -214,8 +214,9 @@ fn paint_chars(
     let left = clip.x - cell * LIGATURE_CONTEXT as f32;
     let mut win = col;
     let mut win_cells = cells;
+    let mut scan = text::Behind::before(chars, col);
     while win < limit {
-        let width = text::char_cells(chars[win], win_cells, tab_width);
+        let width = scan.cells(chars[win], win_cells, tab_width);
         let edge = origin_x + (win_cells + width) as f32 * cell;
         if edge >= left {
             break;
@@ -225,8 +226,9 @@ fn paint_chars(
     }
     let win = win.saturating_sub(LIGATURE_CONTEXT).max(range.start);
     cells = start_cells;
+    let mut behind = text::Behind::before(chars, range.start.min(limit));
     for ch in chars.iter().take(win).skip(range.start) {
-        cells += text::char_cells(*ch, cells, tab_width);
+        cells += behind.cells(*ch, cells, tab_width);
     }
     col = win;
 
@@ -240,13 +242,38 @@ fn paint_chars(
             break;
         }
         let c = chars[col];
-        let width = text::char_cells(c, cells, tab_width);
+        let width = behind.cells(c, cells, tab_width);
         if reported.is_none() && x > clip.right() {
             reported = Some(cells + width);
         }
         if c == ' ' || c == '\t' || c.is_control() {
             cells += width;
             col += 1;
+            continue;
+        }
+        // emoji 序列不进连字：由 emoji 字体合成，宽度记在首字符上。
+        let next = chars.get(col + 1).copied();
+        if next.is_some_and(|n| winc_emoji::may_join(c, n)) {
+            let len = winc_emoji::sequence_len(chars[col..].iter().copied())
+                .min(limit - col)
+                .max(1);
+            let mut span = width;
+            for extra in 1..len {
+                span += behind.cells(chars[col + extra], cells + span, tab_width);
+            }
+            if x < clip.right() && x + span as f32 * cell > clip.x {
+                let kind = kind_at(tokens, col);
+                draw_grid_char(
+                    frame,
+                    (token_font(kind), size, cell),
+                    (x, baseline),
+                    (chars, col),
+                    app.palette.token(kind),
+                    clip,
+                );
+            }
+            cells += span;
+            col += len;
             continue;
         }
         let kind = kind_at(tokens, col);
@@ -274,20 +301,11 @@ fn paint_chars(
         let run_cells = cells;
         columns.clear();
         columns.push(0u32);
-        let mut acc = 0u32;
-        loop {
-            let x = origin_x + cells as f32 * cell;
-            let width = text::char_cells(chars[col], cells, tab_width);
-            if reported.is_none() && x > clip.right() {
-                reported = Some(cells + width);
-            }
-            acc += width as u32;
-            columns.push(acc);
-            cells += width;
-            col += 1;
-            if col >= limit || origin_x + cells as f32 * cell >= right {
-                break;
-            }
+        let mut acc = width as u32;
+        columns.push(acc);
+        cells += width;
+        col += 1;
+        while col < limit && origin_x + cells as f32 * cell < right {
             if splits.binary_search(&col).is_ok() {
                 break;
             }
@@ -295,9 +313,24 @@ fn paint_chars(
             if next == ' ' || next == '\t' || next.is_control() {
                 break;
             }
+            if chars
+                .get(col + 1)
+                .is_some_and(|n| winc_emoji::may_join(next, *n))
+            {
+                break;
+            }
             if kind_at(tokens, col) != kind || !frame.in_mono_font(font, next) {
                 break;
             }
+            let x = origin_x + cells as f32 * cell;
+            let width = behind.cells(next, cells, tab_width);
+            if reported.is_none() && x > clip.right() {
+                reported = Some(cells + width);
+            }
+            acc += width as u32;
+            columns.push(acc);
+            cells += width;
+            col += 1;
         }
         paint_run(
             app,
@@ -316,7 +349,7 @@ fn paint_chars(
         return cells;
     }
     while col < limit {
-        cells += text::char_cells(chars[col], cells, tab_width);
+        cells += behind.cells(chars[col], cells, tab_width);
         col += 1;
     }
     cells
@@ -405,13 +438,14 @@ pub(super) fn draw_columns(
     ];
     let p = app.palette;
     let cell = app.metrics.cell;
+    let mut joined = 0;
     for (col, &c) in chars.iter().enumerate() {
         let (start, end) = (positions[col], positions[col + 1]);
         let x = origin_x + start as f32 * cell;
         if x > clip.right() {
             break;
         }
-        if c.is_whitespace() || x + (end - start) as f32 * cell < clip.x {
+        if c.is_whitespace() || x + (end - start) as f32 * cell < clip.x || col < joined {
             continue;
         }
         let field = fields[col];
@@ -422,21 +456,58 @@ pub(super) fn draw_columns(
         } else {
             p.token(COLORS[field % COLORS.len()])
         };
-        // 按字符自身的宽度绘制，不计入为对齐而留出的空白。
-        let width = text::char_cells(c, 0, 1).max(1);
-        frame.cell_char(
-            FontKind::Mono,
-            app.fonts.code,
-            x,
-            baseline,
-            cell,
-            width,
-            c,
-            color,
-            clip,
-        );
+        // 按字符自身的宽度绘制，不计入为对齐而留出的空白。emoji 序列随首字符整体绘制。
+        let font = (FontKind::Mono, app.fonts.code, cell);
+        joined = col + draw_grid_char(frame, font, (x, baseline), (chars, col), color, clip);
     }
     positions.last().copied().unwrap_or(0)
+}
+
+/// 在等宽网格上绘制 `chars[col]`，返回已处理的字符数：该字符及其后属于同一 emoji 序列的字符。
+///
+/// 序列由 emoji 字体合成一个图形，占 [`text::sequence_cells`] 给出的列数；无法合成时只绘制首字符。
+/// `(font, size, cell)` 是字体、字号和一格的宽度，`(x, baseline)` 是该字符所在格的左边缘和基线。
+pub(in crate::view) fn draw_grid_char(
+    frame: &mut Frame<'_>,
+    (font, size, cell): (FontKind, f32, f32),
+    (x, baseline): (f32, f32),
+    (chars, col): (&[char], usize),
+    color: Color,
+    clip: Rect,
+) -> usize {
+    let c = chars[col];
+    let next = chars.get(col + 1).copied();
+    if !next.is_some_and(|next| winc_emoji::may_join(c, next)) {
+        let cells = text::char_cells(c, 0, 1).max(1);
+        frame.cell_char(font, size, x, baseline, cell, cells, c, color, clip);
+        return 1;
+    }
+    let len = winc_emoji::sequence_len(chars[col..].iter().copied());
+    let span = text::sequence_cells(chars[col..col + len].iter().copied(), 0, 1).max(1);
+    let unit: String = chars[col..col + len].iter().collect();
+    if len == 1 || !frame.cell_sequence(font, size, x, baseline, cell, span, &unit, color, clip) {
+        frame.cell_char(font, size, x, baseline, cell, span, c, color, clip);
+    }
+    len
+}
+
+/// 返回 `chars` 中各字符在等宽网格上占的格数，制表符按 `tab_width` 计。
+///
+/// 与 [`text::Behind::cells`] 的区别：控制字符和孤立的组合符号占 1 格，
+/// 只有 emoji 序列的后续字符占 0 格。用于输入法组字和定义列表中的预览，其中每个字符都必须可见。
+pub(in crate::view) fn loose_cells(chars: &[char], tab_width: usize) -> Vec<usize> {
+    let mut behind = text::Behind::default();
+    let mut cells = 0;
+    (chars.iter().enumerate())
+        .map(|(col, &c)| {
+            let before = |back: usize| col.checked_sub(back).map(|k| chars[k]);
+            let member = winc_emoji::joined((before(2), before(1)), c);
+            let width = behind.cells(c, cells, tab_width);
+            let width = if member { width } else { width.max(1) };
+            cells += width;
+            width
+        })
+        .collect()
 }
 
 #[cfg(test)]

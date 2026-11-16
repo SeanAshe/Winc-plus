@@ -192,7 +192,7 @@ fn number_formats_follow_the_format_code() {
 fn delimited_text_handles_quotes_and_delimiters() {
     let sheet = read_delimited(
         "\u{feff}名称,备注\r\n\"a,b\",\"第一行\n第二行\"\n\"说\"\"好\"\"\",\n\n",
-        None,
+        false,
     );
     assert_eq!(sheet.rows.len(), 3);
     assert_eq!(sheet.rows[0], ["名称", "备注"]);
@@ -202,24 +202,24 @@ fn delimited_text_handles_quotes_and_delimiters() {
     assert_eq!(sheet.columns, 2);
 
     // 按第一行判断分隔符，逗号是小数点时用分号；扩展名为 tsv 时总是用制表符。
-    let semicolons = read_delimited("a;b;c\n1,5;2;3", None);
+    let semicolons = read_delimited("a;b;c\n1,5;2;3", false);
     assert_eq!(semicolons.rows[1], ["1,5", "2", "3"]);
-    let tabs = read_delimited("a,b\tc", Some(Path::new("x.tsv")));
+    let tabs = read_delimited("a,b\tc", true);
     assert_eq!(tabs.rows[0], ["a,b", "c"]);
-    assert_eq!(read_delimited("", None).rows.len(), 0);
+    assert_eq!(read_delimited("", false).rows.len(), 0);
 }
 
 #[test]
 fn rows_and_columns_beyond_the_limits_are_cut() {
     let wide = vec!["x"; MAX_COLUMNS + 5].join(",");
-    let sheet = read_delimited(&wide, None);
+    let sheet = read_delimited(&wide, false);
     assert_eq!((sheet.columns, sheet.truncated), (MAX_COLUMNS, true));
 
     let tall = "1\n".repeat(MAX_ROWS + 3);
-    let sheet = read_delimited(&tall, None);
+    let sheet = read_delimited(&tall, false);
     assert_eq!((sheet.rows.len(), sheet.truncated), (MAX_ROWS, true));
     let exact = "1\n".repeat(MAX_ROWS);
-    assert!(!read_delimited(&exact, None).truncated);
+    assert!(!read_delimited(&exact, false).truncated);
 }
 
 #[test]
@@ -234,7 +234,7 @@ fn file_kinds_follow_the_extension() {
 
 #[test]
 fn selections_cover_merges_and_copy_as_tab_separated_text() {
-    let mut sheet = read_delimited("a,b,c\nd,\"e\tf\",\"say \"\"hi\"\"\"\n,,x", None);
+    let mut sheet = read_delimited("a,b,c\nd,\"e\tf\",\"say \"\"hi\"\"\"\n,,x", false);
     sheet.merges = vec![Area::spanning((1, 1), (2, 2))];
     // 选到合并区域的一角：扩大到整个区域；连锁重叠的也包含进来。
     assert_eq!(

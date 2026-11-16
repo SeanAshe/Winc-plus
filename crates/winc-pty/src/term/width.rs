@@ -12,10 +12,7 @@ use std::str::Chars;
 
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
-/// 变体选择符 16：要求按 emoji 显示。
-const VS16: char = '\u{fe0f}';
-/// 零宽连接符：把前后的 emoji 连成一个字素簇。
-const ZWJ: char = '\u{200d}';
+use winc_emoji::{VS16, ZWJ};
 
 /// 返回字符 `c` 单独占的格数：0（组合字符、控制字符）、1 或 2。
 pub fn char_width(c: char) -> usize {
@@ -68,7 +65,7 @@ impl Cluster {
                 *self = Cluster::Emoji;
                 Step::Combine
             }
-            (Cluster::Emoji, '\u{1f3fb}'..='\u{1f3ff}') => Step::Combine,
+            (Cluster::Emoji, c) if winc_emoji::modifier(c) => Step::Combine,
             _ => match char_width(c) {
                 0 => Step::Combine,
                 1 => {
@@ -76,7 +73,7 @@ impl Cluster {
                     Step::Advance(1)
                 }
                 width => {
-                    *self = if is_emoji(c) {
+                    *self = if winc_emoji::pictographic(c) {
                         Cluster::Emoji
                     } else {
                         Cluster::None
@@ -96,16 +93,7 @@ fn widens(base: char) -> bool {
     std::str::from_utf8(&buf[..len + VS16.len_utf8()]).is_ok_and(|text| text.width() == 2)
 }
 
-/// 占两格的字 `c` 是否属于 emoji 所在的区段；汉字等宽字符后的 ZWJ 不连接下一个字。
-fn is_emoji(c: char) -> bool {
-    matches!(
-        c,
-        '\u{231a}'..='\u{23ff}' | '\u{25fd}'..='\u{27bf}' | '\u{2b00}'..='\u{2bff}'
-            | '\u{1f000}'..='\u{1faff}'
-    )
-}
-
-/// `c` 是否是字素簇里不单独绘制的部分：渲染器不合成 emoji 序列，连接符和连入的 emoji 不画。
+/// `c` 是否是字素簇中不单独绘制的部分：连接符和并入的 emoji 由渲染器与前面的字符合成一个图形。
 ///
 /// 只对 [`cells`] 给出宽度 0 的字符有意义；普通的组合字符（重音符号）单独宽度也是 0，仍然绘制。
 pub fn is_emoji_tail(c: char) -> bool {

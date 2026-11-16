@@ -328,3 +328,128 @@ fn c_type_uses_and_statements_are_not_definitions() {
     assert_eq!(finds("A", "enum { A, B };"), Some(7));
     assert_eq!(finds("B", "typedef enum { A = 1, B } ab_t;"), Some(22));
 }
+
+#[test]
+fn member_access_gives_the_receiver_type() {
+    let java = "class LoginController {
+    private final LoginService loginService;
+    @Autowired
+    private Map<String, Handler> handlers;
+    public Result loginVerify(AppToken appToken, String loginToken) {
+        validate(loginToken);
+        var cache = new TokenCache(appToken);
+        cache.put(loginToken);
+        this.loginVerify(appToken, loginToken);
+        handlers.get(loginToken);
+        return Help.ok(loginService.loginVerify(appToken, this.loginService.loginVerify()));
+    }
+}
+";
+    let text = Rope::from_str(java);
+    let at = |line: usize, word: &str, nth: usize| {
+        let content = text.line(line).to_string();
+        let byte = content.match_indices(word).nth(nth).unwrap().0;
+        let col = content[..byte].chars().count();
+        // 光标在名字开头、中间和末尾时结果相同。
+        let found = receiver_type(&text, line, col, word);
+        assert_eq!(receiver_type(&text, line, col + 1, word), found);
+        assert_eq!(
+            receiver_type(&text, line, col + word.chars().count(), word),
+            found
+        );
+        found
+    };
+    assert_eq!(at(10, "loginVerify", 0).as_deref(), Some("LoginService"));
+    assert_eq!(at(10, "loginVerify", 1).as_deref(), Some("LoginService"));
+    assert_eq!(at(7, "put", 0).as_deref(), Some("TokenCache"));
+    assert_eq!(at(9, "get", 0).as_deref(), Some("Map"));
+    assert_eq!(at(10, "ok", 0).as_deref(), Some("Help"));
+    // 指当前对象的接收者、不是成员访问的名字、声明处的名字。
+    assert_eq!(at(8, "loginVerify", 0), None);
+    assert_eq!(at(5, "validate", 0), None);
+    assert_eq!(at(4, "loginVerify", 0), None);
+
+    for (source, word, expected) in [
+        (
+            "let store: &mut Store = open();\nstore.save();\n",
+            "save",
+            Some("Store"),
+        ),
+        (
+            "let store = Store::open();\nstore.save();\n",
+            "save",
+            Some("Store"),
+        ),
+        ("Store::open();\n\n", "open", Some("Store")),
+        ("store = Store()\nstore.save()\n", "save", Some("Store")),
+        (
+            "val store: Store? = null\nstore?.save()\n",
+            "save",
+            Some("Store"),
+        ),
+        (
+            "Store *store = open();\nstore->save();\n",
+            "save",
+            Some("Store"),
+        ),
+        (
+            "store.save()\nconst store = new Store()\n",
+            "save",
+            Some("Store"),
+        ),
+        ("self.save()\nSelf::save()\n", "save", None),
+        ("store = make()\nstore.save()\n", "save", None),
+        ("make().save()\n\n", "save", None),
+    ] {
+        let text = Rope::from_str(source);
+        let line = source
+            .lines()
+            .position(|l| l.contains(&format!("{word}(")))
+            .unwrap();
+        let content = text.line(line).to_string();
+        let col = content.find(word).unwrap();
+        assert_eq!(
+            receiver_type(&text, line, col, word).as_deref(),
+            expected,
+            "{source:?}"
+        );
+    }
+
+    let stem = |name: &str| named_after(Path::new(name), "LoginService");
+    assert_eq!(stem("src/LoginService.java"), Some(true));
+    assert_eq!(stem("src/LoginServiceImpl.java"), Some(false));
+    assert_eq!(stem("src/DefaultLoginService.kt"), Some(false));
+    assert_eq!(stem("src/UserService.java"), None);
+}
+
+#[test]
+fn method_declarations_without_a_body_are_definitions() {
+    for (line, col) in [
+        ("    Token run(String token);", 10),
+        ("    Token run();", 10),
+        (
+            "    List<Token> run(@NotNull final String token, int limit) throws IOException;",
+            16,
+        ),
+        ("    Map<String, List<Token>> run(String... tokens);", 29),
+        ("    std::string run(const std::string& token) const;", 16),
+        ("    Token* run(Token *token);", 11),
+        ("    Token[] run(Token[] tokens);", 12),
+    ] {
+        assert_eq!(finds("run", line), Some(col), "{line}");
+    }
+    // 语句、带实参的对象构造和调用不算。
+    for line in [
+        "    return run(Token token);",
+        "    await run();",
+        "    co_await run();",
+        "    Guard run(mutex);",
+        "    Guard run(mutex, other);",
+        "    Token token = run(String);",
+        "    other.run(Token token);",
+        "    run(Token token);",
+        "Token run(String token);",
+    ] {
+        assert_eq!(finds("run", line), None, "{line}");
+    }
+}

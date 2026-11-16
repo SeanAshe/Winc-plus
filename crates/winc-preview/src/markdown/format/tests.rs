@@ -55,3 +55,12 @@ fn a_caret_inserts_leaves_or_removes_a_pair() {
     assert_eq!(run("**粗|**后", "**"), "**粗**|后");
     assert_eq!(run("|", "`"), "`|`");
 }
+
+#[test]
+fn highlight_marks_toggle() {
+    assert_eq!(run("甲[乙]丙", "=="), "甲==[乙]==丙");
+    assert_eq!(run("甲==[乙]==丙", "=="), "甲[乙]丙");
+    assert_eq!(run("甲[==乙==]丙", "=="), "甲[乙]丙");
+    assert_eq!(run("甲|乙", "=="), "甲==|==乙");
+    assert_eq!(run("甲==|==乙", "=="), "甲|乙");
+}

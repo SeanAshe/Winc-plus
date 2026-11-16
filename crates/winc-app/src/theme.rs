@@ -553,6 +553,7 @@ impl Palette {
             TokenKind::Link => self.syntax_function,
             TokenKind::Inserted => self.syntax_string,
             TokenKind::Deleted => self.error,
+            TokenKind::Warning => self.warning,
         }
     }
 
@@ -744,6 +745,11 @@ pub const SPIN_SPEED: f32 = 1.25;
 ///
 /// 与 macOS 的悬停提示一致：指针停留约 0.5 s 后出现，扫过按钮时不弹出。
 pub const TOOLTIP_DELAY: Duration = Duration::from_millis(500);
+/// 鼠标在 Markdown 预览的标题指示条上停留至标题列表展开的时长（毫秒）。
+///
+/// 取自调参：短于 [`TOOLTIP_DELAY`]，展开前的等待几乎不可察觉；长于鼠标横向移过指示条（宽约 34
+/// 逻辑像素）所需的时间，移过时列表不展开。
+pub const TOC_HOVER_DELAY: Duration = Duration::from_millis(200);
 /// 悬停提示的最大宽度（逻辑像素，含内边距）。
 ///
 /// 较长的路径和说明在此宽度内折行，提示保持易读的行长，也不会横跨整个窗口；窗口更窄时以窗口

@@ -67,8 +67,9 @@ impl App {
                 return;
             };
             let text = rope.to_string();
+            let tabs = doc.highlighter.language().id == "tsv";
             Box::new(move || {
-                let sheet = table::read_delimited(&text, path.as_deref());
+                let sheet = table::read_delimited(&text, tabs);
                 Ok(Table {
                     sheets: vec![sheet],
                 })

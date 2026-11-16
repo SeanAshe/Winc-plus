@@ -129,3 +129,32 @@ fn the_column_index_grows_as_needed_and_follows_edits() {
     assert_eq!(doc.whole_line_cells(3, 4), Some((400_003, true)));
     assert_eq!(doc.whole_line_cells(2, 4), None);
 }
+
+#[test]
+fn emoji_sequences_across_an_index_record_map_like_short_lines() {
+    // 列索引每 1024 个字符记录一次：序列跨在记录处时，其后的字符仍按序列计。第一处的修饰符、
+    // 第二处的键帽（前面是 ASCII 数字）、第三处连接符之后的字符都落在记录之后。
+    let long = format!(
+        "{}👍\u{1f3fd}{}1\u{fe0f}\u{20e3}{}👨\u{200d}👩{}",
+        "x".repeat(1023),
+        "y".repeat(1022),
+        "z".repeat(1019),
+        "w".repeat(40_000),
+    );
+    let mut doc = Document::from_text(DocumentId(1), &format!("short\n{long}\nlast\n"));
+    let cols = [
+        0, 1023, 1024, 1025, 2047, 2048, 2049, 2050, 3069, 3071, 3072, 3073, 9000,
+    ];
+    let naive: Vec<usize> = cols
+        .iter()
+        .map(|&col| winc_core::text::col_to_cell(doc.text().line_content(1).slice(), col, 4))
+        .collect();
+    // 三个序列各占 2 列：键帽和连接符组合各 3 个字符，合计比字符数少 2 列。
+    assert_eq!(naive[12], 9000 - 2);
+    doc.show_whole_line(1);
+    for (&col, &cells) in cols.iter().zip(&naive) {
+        assert_eq!(doc.col_to_cell(1, col, 4), cells, "{col}");
+    }
+    // 从显示列换回来时落在序列之后的字符上。
+    assert_eq!(doc.cell_to_col(1, naive[12], 4), 9000);
+}

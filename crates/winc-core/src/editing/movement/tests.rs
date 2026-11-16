@@ -54,14 +54,23 @@ fn vertical_keeps_goal_cell() {
 
 #[test]
 fn vertical_moves_never_stop_inside_a_grapheme_cluster() {
-    // `👍🏽` 由两个字符组成一个字素，每个字符占 2 个显示列；目标显示列 3 按字符换算会落在两个
-    // 字符之间，必须回到簇边界。
-    let text = Rope::from_str("abcd\na👍🏽b");
-    let (pos, _) = vertical(&text, 3, 1, None, 4);
-    assert_eq!(text.pos_to_line_col(pos), (1, 1));
+    // `é` 写成字母加组合符号时由两个字符组成一个字素；目标显示列换算出的位置落在两个字符
+    // 之间时回到簇边界。
+    let text = Rope::from_str("abcd\nae\u{301}b");
     assert_eq!(snap_to_grapheme(&text, 7), 6);
     assert_eq!(snap_to_grapheme(&text, 8), 8);
     assert_eq!(snap_to_grapheme(&text, 5), 5);
+    // emoji 序列占 2 个显示列，其中的修饰符、选择符、连接符及其后的字符不占列：目标显示列 3
+    // 落在序列之后的 `b` 上。
+    for unit in ["👍\u{1f3fd}", "❤\u{fe0f}", "👨\u{200d}👩"] {
+        let text = Rope::from_str(&format!("abcd\na{unit}b"));
+        let (pos, _) = vertical(&text, 3, 1, None, 4);
+        assert_eq!(
+            text.pos_to_line_col(pos),
+            (1, 1 + unit.chars().count()),
+            "{unit:?}"
+        );
+    }
 }
 
 #[test]

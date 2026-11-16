@@ -48,17 +48,24 @@ fn the_text_width_has_three_levels() {
     };
     choose(&mut app, 1);
     assert_eq!(app.config.markdown_text_width, Some(TextWidth::Wide));
-    assert_eq!(text_width(&app), WIDE_WIDTH.min(area.w - 64.0).floor());
+    // 文档有标题列表：正文左侧为标题指示条和原文行号留出位置，右侧留白仍为 32 逻辑像素。
+    let room = |app: &App| {
+        let left = app.preview.markdown.layout.as_ref().unwrap().left;
+        (area.right() - 32.0 - left).floor()
+    };
+    assert_eq!(text_width(&app), WIDE_WIDTH.min(room(&app)));
     assert!(app.menu_checked(MenuCommand::TextWidth(1)));
     choose(&mut app, 2);
-    assert_eq!(text_width(&app), (area.w - 64.0).floor());
+    assert_eq!(text_width(&app), room(&app));
+    assert!(room(&app) < (area.w - 64.0).floor());
     choose(&mut app, 0);
     assert_eq!(text_width(&app), MAX_WIDTH);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// 点标题列表右上角的图钉后，鼠标离开列表也一直展开，状态随窗口状态保存；再点一次取消。
-/// 左侧留白放不下列表时（正文铺满），钉住的列表仍收成指示条。
+/// 左侧留白不足以容纳钉住的列表时，正文右移并变窄，让出一列；
+/// 预览宽度不足以让出时（分栏），列表显示为指示条。
 #[test]
 fn the_heading_list_can_be_pinned_open() {
     let (mut app, dir) = notes("md-pin", PreviewMode::Preview);
@@ -70,7 +77,7 @@ fn the_heading_list_can_be_pinned_open() {
             .map(|h| h.0)
     };
     let bars = find(&app, TocTarget::Bars).unwrap();
-    app.on_mouse_move(bars.x + 10.0, bars.y + 10.0);
+    rest_on_toc(&mut app, bars.x + 10.0, bars.y + 10.0);
     paint(&mut app);
     let pin = find(&app, TocTarget::Pin).unwrap();
     click(&mut app, (pin.x + pin.w / 2.0, pin.y + pin.h / 2.0));
@@ -82,10 +89,29 @@ fn the_heading_list_can_be_pinned_open() {
     paint(&mut app);
     assert!(find(&app, TocTarget::Heading(0)).is_some());
 
-    // 正文铺满，左侧放不下列表：收成指示条。
-    app.set_text_width(winc_config::TextWidth::Full);
+    // 正文较宽或铺满时左侧留白不足：正文让出一列，列表保持展开，二者不重叠，正文右边缘不变。
+    for width in [winc_config::TextWidth::Wide, winc_config::TextWidth::Full] {
+        app.set_text_width(width);
+        settle(&mut app);
+        let laid = app.preview.markdown.layout.as_ref().unwrap();
+        let (left, body) = (laid.left, laid.key.width);
+        let row = find(&app, TocTarget::Heading(0)).expect("钉住的列表仍然展开");
+        assert!(row.right() <= left, "{width:?}: {row:?} {left}");
+        assert!(left - area.x >= 180.0 + 12.0, "{width:?}: {left}");
+        assert!(left + body <= area.right() - 32.0 + 0.5, "{width:?}");
+        // 取消钉住后正文恢复居中，宽于让出一列时。
+        app.state.markdown_toc_pinned = false;
+        settle(&mut app);
+        let laid = app.preview.markdown.layout.as_ref().unwrap();
+        assert!(laid.left < left && laid.key.width > body, "{width:?}");
+        app.state.markdown_toc_pinned = true;
+        settle(&mut app);
+    }
+    // 分栏时让出一列后正文宽度不足：不让出，列表显示为指示条。
+    app.set_preview_mode(PreviewMode::Split);
     settle(&mut app);
     assert!(find(&app, TocTarget::Heading(0)).is_none());
+    app.set_preview_mode(PreviewMode::Preview);
     app.set_text_width(winc_config::TextWidth::Standard);
     settle(&mut app);
 
@@ -159,5 +185,57 @@ fn shoot_preview_options() {
     app.set_text_width(winc_config::TextWidth::Full);
     settle(&mut app);
     shoot(&mut app, "md-options-full");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 能否预览取决于文档当前的语言：未保存的新文件和扩展名不符的文件在状态栏中选择语言后可以预览；
+/// 预览中换成不可预览的语言时回到源代码。
+#[test]
+fn the_preview_follows_the_chosen_language() {
+    use winc_editor::PreviewKind;
+    let language = |id: &str| winc_syntax::find(id).unwrap();
+    let dir = sample_folder("preview-by-language");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    let kind = |app: &App| app.editor.active().unwrap().preview_kind();
+    let mode = |app: &App| app.editor.active().unwrap().preview_mode();
+
+    // 新建的文件没有路径，语言为纯文本，不能预览；选择 Markdown 后可以预览并完成排版。
+    app.new_file();
+    assert!(app.editor.active().unwrap().path.is_none());
+    assert_eq!(kind(&app), None);
+    app.use_language(language("markdown"));
+    assert_eq!(kind(&app), Some(PreviewKind::Markdown));
+    app.run(Command::Insert(
+        "# 标题\n\n正文 ![图](a.png)\n\n## 小节\n".into(),
+    ));
+    app.set_preview_mode(PreviewMode::Preview);
+    settle(&mut app);
+    assert_eq!(mode(&app), PreviewMode::Preview);
+    let text = crate::app::preview::markdown::laid::full_text(&app).unwrap();
+    assert!(text.contains("标题") && text.contains("小节"), "{text}");
+
+    // 预览中换成不可预览的语言：回到源代码，文字正常显示。
+    app.use_language(winc_syntax::detect("plain.unknown"));
+    settle(&mut app);
+    assert_eq!((kind(&app), mode(&app)), (None, PreviewMode::Source));
+    assert!(app.editor.active().unwrap().shows_text());
+
+    // 分栏时换成另一种可预览的语言：先回到源代码，之后按新语言预览。
+    app.use_language(language("markdown"));
+    app.set_preview_mode(PreviewMode::Split);
+    settle(&mut app);
+    app.use_language(language("csv"));
+    assert_eq!(
+        (kind(&app), mode(&app)),
+        (Some(PreviewKind::Table), PreviewMode::Source)
+    );
+    app.use_language(language("svg"));
+    assert_eq!(kind(&app), Some(PreviewKind::Svg));
+
+    // 已保存的文件同理：`.txt` 选择 Markdown 后可以预览，`.md` 默认可以预览。
+    app.open_path(&dir.join("a.txt"));
+    assert_eq!(kind(&app), None);
+    app.use_language(language("markdown"));
+    assert_eq!(kind(&app), Some(PreviewKind::Markdown));
     let _ = std::fs::remove_dir_all(&dir);
 }

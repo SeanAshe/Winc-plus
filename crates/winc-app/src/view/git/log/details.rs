@@ -342,19 +342,21 @@ fn draw_compare(
     ui_text(frame, app, x, row, t!("git-compare-title"), p.text, area);
     y += 30.0;
     let sides = [
-        (t!("git-compare-old"), &compare.from),
-        (t!("git-compare-new"), &compare.to),
+        (t!("git-compare-old"), &compare.from, &compare.from_name),
+        (t!("git-compare-new"), &compare.to, &compare.to_name),
     ];
-    for (label, rev) in sides {
+    for (label, rev, name) in sides {
         let row = Rect::new(x, y, width, 22.0);
         let end = ui_text_small(frame, app, x, row, label, p.text_dim, area) + 10.0;
         let commit = view.commits.iter().find(|c| rev_matches(c, rev));
-        let is_oid = matches!(rev.len(), 40 | 64) && rev.bytes().all(|b| b.is_ascii_hexdigit());
+        // 输入的分支名或标签名代替解析出的提交号显示。
+        let shown = name.as_deref().unwrap_or(rev);
+        let is_oid = matches!(shown.len(), 40 | 64) && shown.bytes().all(|b| b.is_ascii_hexdigit());
         let end = if is_oid {
-            mono(app, frame, (end, row), short(rev), p.accent, area)
+            mono(app, frame, (end, row), short(shown), p.accent, area)
         } else {
             let badge = Badge {
-                text: rev.to_owned(),
+                text: shown.to_owned(),
                 fill: p.accent.alpha(p.accent.a * 0.16),
                 ink: p.accent,
                 mark: None,

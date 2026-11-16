@@ -75,6 +75,25 @@ impl QuestionView {
         }
     }
 
+    /// 返回「与指定版本比较」对话框的内容：提交 `commit` 的提交号和一个输入框。
+    pub(super) fn compare_revision(commit: &str) -> Self {
+        Self {
+            title: t!("git-compare-revision-title").to_owned(),
+            message: None,
+            message_lines: 0,
+            values: vec![QuestionValue {
+                label: t!("git-compare-commit"),
+                text: commit.to_owned(),
+                mono: true,
+            }],
+            inputs: vec![QuestionInput {
+                label: t!("git-compare-with"),
+                placeholder: t!("git-go-to-placeholder"),
+            }],
+            confirm: t!("git-compare-button"),
+        }
+    }
+
     /// 返回「按路径筛选」对话框的内容：一个输入框。
     pub(super) fn log_path() -> Self {
         Self {

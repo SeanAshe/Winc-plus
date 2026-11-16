@@ -93,28 +93,43 @@ pub fn reveal(text: &str, caret: Option<usize>, insert: Option<&str>) -> Block {
 
 /// 带标记的行内元素在 `plain` 中的字节范围。
 ///
-/// 包括强调、粗体、删除线、链接、图片、行内代码、公式、HTML 标签和脚注引用。
+/// 包括强调、粗体、删除线、高亮、链接、图片、行内代码、公式、HTML 标签和脚注引用。
 fn elements(plain: &str) -> Vec<Range<usize>> {
-    Parser::new_ext(plain, options())
-        .into_offset_iter()
-        .filter(|(event, _)| {
-            matches!(
-                event,
-                Event::Start(
-                    Tag::Emphasis
-                        | Tag::Strong
-                        | Tag::Strikethrough
-                        | Tag::Link { .. }
-                        | Tag::Image { .. }
-                ) | Event::Code(_)
-                    | Event::InlineMath(_)
-                    | Event::DisplayMath(_)
-                    | Event::InlineHtml(_)
-                    | Event::FootnoteReference(_)
-            )
+    let mut elements = Vec::new();
+    // 行内代码和公式里的 `==` 是文字，不高亮。
+    let mut code = Vec::new();
+    for (event, range) in Parser::new_ext(plain, options()).into_offset_iter() {
+        match &event {
+            Event::Code(_) | Event::InlineMath(_) | Event::DisplayMath(_) => {
+                code.push(range.clone());
+            }
+            _ => {}
+        }
+        if matches!(
+            &event,
+            Event::Start(
+                Tag::Emphasis
+                    | Tag::Strong
+                    | Tag::Strikethrough
+                    | Tag::Link { .. }
+                    | Tag::Image { .. }
+            ) | Event::Code(_)
+                | Event::InlineMath(_)
+                | Event::DisplayMath(_)
+                | Event::InlineHtml(_)
+                | Event::FootnoteReference(_)
+        ) {
+            elements.push(range);
+        }
+    }
+    elements.extend(
+        super::mark::pairs(plain, |at| {
+            code.iter().any(|range| range.contains(&at)) || super::mark::escaped(plain, at)
         })
-        .map(|(_, range)| range)
-        .collect()
+        .into_iter()
+        .map(|[open, close]| open.start..close.end),
+    );
+    elements
 }
 
 /// 返回包含位置 `at` 的最内层元素。

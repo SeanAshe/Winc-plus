@@ -127,6 +127,36 @@ impl App {
                         }
                     }
                 }
+                Loaded::CompareRevision {
+                    doc,
+                    request,
+                    revision,
+                    result,
+                } => {
+                    let Some(view) = self
+                        .editor
+                        .document_mut(doc)
+                        .and_then(|d| d.log.as_deref_mut())
+                        .filter(|view| view.compare_request == request)
+                    else {
+                        continue;
+                    };
+                    // 无法解析或读取失败时只提示原因，日志保持原样。
+                    match result {
+                        Ok(compare) => {
+                            view.compare_request += 1;
+                            view.compare = Some(compare);
+                            view.details_scroll = 0.0;
+                            self.git.log.file = None;
+                            self.git.log.waiting = None;
+                        }
+                        Err(error) => self.notify(t!(
+                            "git-compare-failed",
+                            revision = revision,
+                            error = error
+                        )),
+                    }
+                }
                 Loaded::Diff { request, .. } if request != self.git.log.diff_request => {}
                 // 等待结果期间更换了目录：结果属于旧仓库，不在此处打开标签。
                 Loaded::Diff { source, .. } if self.git.root.as_ref() != Some(&source.root) => {}

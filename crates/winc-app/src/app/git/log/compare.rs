@@ -40,6 +40,7 @@ impl App {
         let Some(view) = doc.log.as_deref_mut() else {
             return;
         };
+        view.compare_request += 1;
         view.compare = Some(Compare {
             from: from.clone(),
             to: to.clone(),
@@ -63,12 +64,76 @@ impl App {
         self.request_redraw();
     }
 
+    /// 打开「与指定版本比较」对话框：输入要与提交 `oid` 比较的提交号、分支名或标签名。
+    pub(super) fn open_compare_revision(&mut self, oid: String) {
+        use crate::app::git::form::FormKind;
+        self.show_form_dialog(
+            FormKind::CompareRevision { commit: oid },
+            TextField::default(),
+            crate::layout::DialogPart::Branch,
+        );
+    }
+
+    /// 在当前日志标签里比较提交 `commit` 与输入的 `revision`（提交号、分支名或标签名）。
+    ///
+    /// 在后台把 `revision` 解析成提交号并取回改了的文件，成功后才进入比较，文件列表和之后打开
+    /// 的差异因此指同一个提交；无法解析时提示原因，日志保持原样。`revision` 是 `commit` 的祖先
+    /// 时放在旧的一侧，否则 `commit` 在旧的一侧。
+    pub(in crate::app::git) fn compare_log_with_revision(
+        &mut self,
+        commit: String,
+        revision: String,
+    ) {
+        let Some(root) = self.git.root.clone() else {
+            return;
+        };
+        let Some((id, request)) = self.editor.active().and_then(|doc| {
+            let view = doc.log.as_deref()?;
+            Some((doc.id, view.compare_request))
+        }) else {
+            return;
+        };
+        let sender = self.git.log.results.0.clone();
+        self.spawn_git(UserEvent::GitLog, move |tool| {
+            let result = tool.map_err(|e| unusable(&e)).and_then(|git| {
+                let cancel = Cancel::default();
+                let oid = git.resolve_revision(&root, &revision, &cancel)?;
+                // 输入的不是提交号（或其缩写）时为分支名或标签名，显示时保留。
+                let typed = revision.to_ascii_lowercase();
+                let name = (!oid.starts_with(&typed)).then(|| revision.clone());
+                let older = oid != commit && git.is_ancestor(&root, &oid, &commit, &cancel);
+                let (from, to, from_name, to_name) = match older {
+                    true => (oid, commit, name, None),
+                    false => (commit, oid, None, name),
+                };
+                let files = git.commit_files(&root, Some(&from), &to, &cancel)?;
+                Ok(Compare {
+                    from,
+                    to,
+                    from_name,
+                    to_name,
+                    files: Some(files),
+                    error: None,
+                })
+            });
+            let _ = sender.send(Loaded::CompareRevision {
+                doc: id,
+                request,
+                revision,
+                result,
+            });
+        });
+    }
+
     /// 退出比较，详情一栏回到选着的提交。
     pub(in crate::app) fn clear_log_compare(&mut self) {
         self.git.log.file = None;
-        if let Some(view) = self.editor.active_mut().and_then(|d| d.log.as_deref_mut())
-            && view.compare.take().is_some()
-        {
+        if let Some(view) = self.editor.active_mut().and_then(|d| d.log.as_deref_mut()) {
+            // 尚未返回的「与指定版本比较」随之作废。
+            view.compare_request += 1;
+            if view.compare.take().is_none() {
+                return;
+            }
             view.details_scroll = 0.0;
             self.request_redraw();
         }

@@ -171,6 +171,18 @@ pub enum PreviewKind {
     Table,
 }
 
+impl PreviewKind {
+    /// 返回语言 `language` 的文本可以预览成哪一种；不能预览的语言返回 `None`。
+    pub fn of(language: &winc_syntax::Language) -> Option<PreviewKind> {
+        match language.id {
+            "svg" => Some(PreviewKind::Svg),
+            "markdown" => Some(PreviewKind::Markdown),
+            "csv" | "tsv" => Some(PreviewKind::Table),
+            _ => None,
+        }
+    }
+}
+
 /// 可预览文件（SVG、Markdown）的显示方式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PreviewMode {
@@ -1062,8 +1074,14 @@ impl Document {
     /// 改用状态栏中选择的语言 `language`：重建高亮状态，并使按内容缓存的结果失效，见
     /// [`Document::set_language`]。
     ///
-    /// 文件之后重命名或另存为时，按新的文件名重新识别。
+    /// 文件重命名或另存为之后按新文件名重新识别。
+    /// 预览或分栏中的文档换成预览方式不同的语言时先回到源代码。
     pub fn choose_language(&mut self, language: &'static winc_syntax::Language) {
+        if self.preview_mode() != PreviewMode::Source
+            && PreviewKind::of(language) != self.preview_kind()
+        {
+            self.set_preview_mode(PreviewMode::Source);
+        }
         self.highlighter = Highlighter::new(language);
         // 列对齐、折叠、粘滞滚动的结果取决于语言，而缓存的键只有（版本、Tab 宽度）。重命名改变
         // 扩展名（`a.txt` → `a.csv`）时文本不变，因此递增 `revision` 使缓存失效。

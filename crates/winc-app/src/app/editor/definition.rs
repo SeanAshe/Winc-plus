@@ -119,6 +119,11 @@ pub struct DefinitionSearch {
     at_caret: bool,
     /// 找的是用法而不是定义时，光标所在的那一行（行号从 0 起）：定义本身在这一行，结果中排除。
     usages_of: Option<usize>,
+    /// 成员访问的接收者类型名和当前文件中的同名定义；
+    /// 不是成员访问或接收者的类型定义在当前文件中时为 `None`。
+    ///
+    /// 结果中有以该类型命名的文件时只取这些文件，否则一并列出当前文件中的定义。
+    receiver: Option<(String, Option<Place>)>,
     /// 发起查找时的文档和光标位置（由 `start_place_search` 填入）。
     ///
     /// 搜索结束时用户已经换了标签或挪了光标，就不再弹浮窗、提示或跳转：
@@ -229,12 +234,33 @@ impl App {
             .max_by_key(|(line, _)| *line)
             .or_else(|| elsewhere.first())
             .copied();
-        if let Some((line, col)) = nearest {
+        let root = self.editor.root().map(Path::to_path_buf);
+        // `service.name(…)`：接收者的类型定义在其他文件中时，
+        // 当前文件中的同名方法不是目标，改为在项目中查找。
+        let foreign = root.as_ref().and(doc.text().rope()).and_then(|text| {
+            let type_name = definition::receiver_type(text, caret_line, caret_col, &name)?;
+            let own = path
+                .as_deref()
+                .and_then(|p| definition::named_after(p, &type_name))
+                == Some(true)
+                || Finder::new(&type_name, false, false)
+                    .is_some_and(|finder| !finder.in_text(text, language).is_empty());
+            (!own).then_some((type_name, text))
+        });
+        let receiver = foreign.map(|(type_name, text)| {
+            let file = path.clone().unwrap_or_default();
+            let relative = self.relative_name();
+            let local = nearest.map(|(at, col)| local_place(&file, &relative, text, at, col, len));
+            (type_name, local)
+        });
+        if let Some((line, col)) = nearest
+            && receiver.is_none()
+        {
             self.jump_to(line, col, len);
             return;
         }
 
-        let Some(root) = self.editor.root().map(Path::to_path_buf) else {
+        let Some(root) = root else {
             return self.no_definition(&name, !here.is_empty());
         };
         let query = definition::query(&name, ignore_case);
@@ -247,6 +273,7 @@ impl App {
             from: path.unwrap_or_default(),
             at_caret: !here.is_empty(),
             usages_of: None,
+            receiver,
             origin: None,
         };
         self.start_place_search(search, &root, &query);
@@ -336,6 +363,7 @@ impl App {
             from: doc.path.clone().unwrap_or_default(),
             at_caret: true,
             usages_of: Some(line),
+            receiver: None,
             origin: None,
         };
         self.start_place_search(search, &root, &query);
@@ -459,8 +487,25 @@ impl App {
             if items.iter().any(|p| search.filter.is_related(&p.path)) {
                 items.retain(|p| search.filter.is_related(&p.path));
             }
+            let exact = |p: &Place, type_name: &str| definition::named_after(&p.path, type_name);
+            let type_name = search.receiver.as_ref().map(|(name, _)| name.as_str());
+            if let Some(name) = type_name
+                && items.iter().any(|p| exact(p, name).is_some())
+            {
+                items.retain(|p| exact(p, name).is_some());
+            } else if let Some((_, Some(local))) = &search.receiver {
+                // 没有以接收者类型命名的文件时类型推断可能有误，一并列出当前文件中的定义。
+                items.push(local.clone());
+            }
             items.sort_by(|a, b| {
-                let key = |p: &Place| definition::rank(&p.path, search.language, &dir);
+                let key = |p: &Place| {
+                    let named = type_name.and_then(|name| exact(p, name)) != Some(true);
+                    (
+                        named,
+                        p.path != *from,
+                        definition::rank(&p.path, search.language, &dir),
+                    )
+                };
                 key(a)
                     .cmp(&key(b))
                     .then_with(|| a.relative.cmp(&b.relative))

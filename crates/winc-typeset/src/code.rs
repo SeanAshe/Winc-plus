@@ -179,10 +179,12 @@ impl Cx<'_, '_> {
         let (mut top, mut pen) = (0.0, 0.0);
         let mut run = (String::new(), Vec::new(), 0, 0.0, None, None);
         let mut byte = 0;
+        // emoji 序列的宽度记在第一个字符上，其余字符为 0，不会在序列中间折行。
+        let widths = self
+            .frame
+            .advances_faux(FontKind::Mono, Faux::default(), size, &chars);
         for (i, &c) in chars.iter().enumerate() {
-            let w = self
-                .frame
-                .advance_faux(FontKind::Mono, Faux::default(), size, c);
+            let w = widths[i];
             if pen + w > row.room && pen > 0.0 {
                 flush(out, &mut run, top);
                 top += row.line_h;

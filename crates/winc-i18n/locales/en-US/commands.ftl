@@ -51,6 +51,7 @@ cmd-markdown-bold = Markdown: Toggle Bold
 cmd-markdown-italic = Markdown: Toggle Italic
 cmd-markdown-code = Markdown: Toggle Inline Code
 cmd-markdown-strikethrough = Markdown: Toggle Strikethrough
+cmd-markdown-highlight = Markdown: Toggle Highlight
 cmd-delete-line = Delete Line
 cmd-delete-all-left = Delete to Line Start
 cmd-indent-lines = Indent Line

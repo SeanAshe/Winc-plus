@@ -1071,10 +1071,16 @@ impl App {
             return;
         }
 
-        // 鼠标移到预览的标题指示条上时，标题列表展开并淡入。
+        // 鼠标进入标题指示条时开始计时，满 `TOC_HOVER_DELAY` 后由 `tick` 展开标题列表；
+        // 在指示条与列表之间移动不重新计时。
         let toc = |h: Hover| matches!(h, Hover::MarkdownToc(_));
-        if toc(hover) && !toc(self.pointer.hover) {
-            self.preview.markdown.toc_fade = self.clock(animation::TOC_FADE);
+        if toc(hover) != toc(self.pointer.hover) {
+            // 鼠标离开时收起已展开的列表。
+            if self.preview.markdown.toc_shown {
+                self.preview.markdown.toc_close = self.clock(animation::TOC_FADE);
+            }
+            self.preview.markdown.toc_rest = toc(hover).then(Instant::now);
+            self.preview.markdown.toc_shown = false;
         }
         self.pointer.hover = hover;
         self.overlays.tooltip.since = hover.has_tooltip().then(Instant::now);

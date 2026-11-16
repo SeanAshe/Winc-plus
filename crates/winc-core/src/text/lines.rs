@@ -397,15 +397,124 @@ fn table_cells(c: char) -> usize {
     c.width().unwrap_or(0)
 }
 
+/// 计算显示列时保存的前两个字符，用于判断其后的字符是否属于 emoji 序列。
+///
+/// 一个 emoji 序列（见 [`winc_emoji::joined`]）占 2 列：序列的后续字符不占列；变体选择符 16、
+/// 肤色修饰符接在占 1 列的符号之后，或键帽接在数字之后时占 1 列，补足 2 列。从行中间开始计算时用
+/// [`Behind::after`] 给出该位置之前的两个字符，结果与从行首计算相同。
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Behind {
+    /// 前面第二个字符。
+    earlier: Option<char>,
+    /// 前一个字符。
+    previous: Option<char>,
+}
+
+impl Behind {
+    /// 返回位于 `earlier`、`previous` 两个字符之后的状态；行首或只有一个字符时为 `None`。
+    pub fn after(earlier: Option<char>, previous: Option<char>) -> Self {
+        Self { earlier, previous }
+    }
+
+    /// 返回 `chars` 中第 `index` 个字符之前的状态。
+    pub fn before(chars: &[char], index: usize) -> Self {
+        let at = |back: usize| index.checked_sub(back).and_then(|i| chars.get(i)).copied();
+        Self::after(at(2), at(1))
+    }
+
+    /// 记录字符 `c` 而不计算其列数，供自行计算 ASCII 字符宽度的调用方使用。
+    #[inline]
+    pub fn pass(&mut self, c: char) {
+        self.earlier = self.previous;
+        self.previous = Some(c);
+    }
+
+    /// 返回字符 `c` 从显示列 `cell` 起占用的显示列数，并记下 `c`。
+    ///
+    /// # Panics
+    ///
+    /// `c` 是制表符且 `tab_width` 为 0 时 panic。
+    #[inline(always)]
+    pub fn cells(&mut self, c: char, cell: usize, tab_width: usize) -> usize {
+        let width = match c {
+            '\t' => tab_width - cell % tab_width,
+            // 可打印 ASCII 字符占 1 个显示列，不属于任何序列。
+            ' '..='~' => 1,
+            _ => self.wide(c),
+        };
+        self.earlier = self.previous;
+        self.previous = Some(c);
+        width
+    }
+
+    /// 返回非 ASCII 字符 `c` 占的显示列数，见 [`Behind`]。
+    #[inline(never)]
+    fn wide(&self, c: char) -> usize {
+        if !winc_emoji::joined((self.earlier, self.previous), c) {
+            return table_cells(c);
+        }
+        // 选择符、修饰符接在占 1 列的符号之后时补 1 列；经连接符并入的符号不占列，不再补。ASCII
+        // 字符只在组成键帽时按 emoji 显示，由键帽补 1 列。
+        let narrow = |p: char| table_cells(p) == 1 && self.earlier != Some(winc_emoji::ZWJ);
+        let widens = match c {
+            winc_emoji::KEYCAP => true,
+            winc_emoji::VS16 => self.previous.is_some_and(|p| !p.is_ascii() && narrow(p)),
+            c => winc_emoji::modifier(c) && self.previous.is_some_and(narrow),
+        };
+        usize::from(widens)
+    }
+}
+
+/// 返回 `chars` 的首字符及其后属于同一 emoji 序列的字符从显示列 `cell` 起占的显示列数；
+/// `chars` 为空时返回 0。
+///
+/// 用于块状光标和按列选择：`❤` 加变体选择符占 2 列。
+///
+/// # Panics
+///
+/// 开头的字符是制表符且 `tab_width` 为 0 时 panic。
+pub fn sequence_cells(
+    chars: impl IntoIterator<Item = char>,
+    cell: usize,
+    tab_width: usize,
+) -> usize {
+    let mut chars = chars.into_iter();
+    let Some(base) = chars.next() else {
+        return 0;
+    };
+    let mut behind = Behind::default();
+    let mut width = behind.cells(base, cell, tab_width);
+    let mut previous = base;
+    for c in chars {
+        let pair = winc_emoji::regional(previous) && winc_emoji::regional(c) && width == 1;
+        if !pair && !winc_emoji::joined((behind.earlier, behind.previous), c) {
+            break;
+        }
+        width += behind.cells(c, cell + width, tab_width);
+        previous = c;
+    }
+    width
+}
+
+/// 返回 `chars` 从显示列 `start` 起依次排下之后到达的显示列，emoji 序列按合成后的宽度计。
+///
+/// # Panics
+///
+/// `chars` 中含制表符且 `tab_width` 为 0 时 panic。
+pub fn text_cells(chars: impl IntoIterator<Item = char>, start: usize, tab_width: usize) -> usize {
+    let mut behind = Behind::default();
+    chars
+        .into_iter()
+        .fold(start, |cell, c| cell + behind.cells(c, cell, tab_width))
+}
+
 /// 返回 `line` 前 `col` 个字符占用的显示宽度（显示列数）。
 ///
 /// # Panics
 ///
 /// `line` 的前 `col` 个字符中含制表符且 `tab_width` 为 0 时 panic。
 pub fn col_to_cell(line: RopeSlice<'_>, col: usize, tab_width: usize) -> usize {
-    line.chars()
-        .take(col)
-        .fold(0, |cell, c| cell + char_cells(c, cell, tab_width))
+    text_cells(line.chars().take(col), 0, tab_width)
 }
 
 /// 返回 `chars` 从显示列 `start` 起依次排下之后到达的显示列。
@@ -417,9 +526,7 @@ pub fn col_to_cell(line: RopeSlice<'_>, col: usize, tab_width: usize) -> usize {
 ///
 /// `chars` 中含制表符且 `tab_width` 为 0 时 panic。
 pub fn slice_cells(chars: &[char], start: usize, tab_width: usize) -> usize {
-    chars
-        .iter()
-        .fold(start, |cell, &c| cell + char_cells(c, cell, tab_width))
+    text_cells(chars.iter().copied(), start, tab_width)
 }
 
 /// 返回 `chars` 中每个字符起始处的显示列，共 `chars.len() + 1` 项。
@@ -435,10 +542,11 @@ pub fn prefix_cells(chars: &[char], tab_width: usize) -> Vec<usize> {
         return (0..=chars.len()).collect();
     }
     let mut cell = 0;
+    let mut behind = Behind::default();
     let mut out = Vec::with_capacity(chars.len() + 1);
     out.push(0);
     for &c in chars {
-        cell += char_cells(c, cell, tab_width);
+        cell += behind.cells(c, cell, tab_width);
         out.push(cell);
     }
     out
@@ -518,6 +626,7 @@ impl Columns {
             fields.clear();
         }
         let (mut cell, mut field, mut quoted) = (0, 0, false);
+        let mut behind = Behind::default();
         for c in line.chars().take(limit) {
             cells.push(cell);
             if let Some(fields) = fields.as_deref_mut() {
@@ -533,7 +642,7 @@ impl Columns {
                     cell = cell.max(start);
                 }
             } else {
-                cell += char_cells(c, cell, tab_width);
+                cell += behind.cells(c, cell, tab_width);
             }
         }
         cells.push(cell);
@@ -565,7 +674,10 @@ fn for_each_field<'a>(
                         field += 1;
                         width = 0;
                     } else {
-                        width += char_cells(c, width, tab_width);
+                        // 序列中的字符按它前面的两个字符计（键帽之前是 ASCII 数字）。
+                        let mut back = chunk[..i].chars().rev();
+                        let (previous, earlier) = (back.next(), back.next());
+                        width += Behind::after(earlier, previous).cells(c, width, tab_width);
                     }
                 }
                 continue;
@@ -739,9 +851,10 @@ pub(crate) fn nearest_col(positions: &[usize], cell: usize) -> usize {
 /// 在到达目标列之前遇到制表符且 `tab_width` 为 0 时 panic。
 pub fn cell_to_col(line: RopeSlice<'_>, target: usize, tab_width: usize) -> usize {
     let mut cell = 0;
+    let mut behind = Behind::default();
 
     for (col, c) in line.chars().enumerate() {
-        let width = char_cells(c, cell, tab_width);
+        let width = behind.cells(c, cell, tab_width);
 
         if cell + width > target {
             return if target - cell > width / 2 {
