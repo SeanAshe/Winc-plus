@@ -44,10 +44,12 @@ impl Document {
     ///
     /// 按文档当前的语言判断，与文件名无关：未保存的新文件和扩展名不符的文件选择语言后同样可以预览。
     pub fn preview_kind(&self) -> Option<PreviewKind> {
-        if self.unsupported.is_some() || self.title.is_some() || self.is_large() {
+        if self.unsupported.is_some() || self.title.is_some() {
             return None;
         }
-        PreviewKind::of(self.highlighter.language())
+        let kind = PreviewKind::of(self.highlighter.language())?;
+        // 大文件的原文不在内存中：只有表格可以预览，内容取自磁盘上的文件。
+        (!self.is_large() || kind == PreviewKind::Table).then_some(kind)
     }
 
     /// 是否正在只看预览（SVG 的图、排好版的 Markdown 或 csv 的表格）。

@@ -391,6 +391,7 @@ impl App {
         settle(&mut self.preview.pdf.zoom_motion, |m| m.clock);
         settle(&mut self.preview.picture_view.zoom_motion, |m| m.clock);
         settle(&mut self.preview.pdf.strip_motion, |m| m.1);
+        settle(&mut self.preview.pdf.tools.motion, |m| m.1);
         settle(&mut self.overlays.picker.fold, |f| f.clock);
         if self.overlays.picker.places_in.is_some_and(|c| c.done()) {
             self.overlays.picker.places_in = None;
@@ -487,6 +488,7 @@ impl App {
             || self.panels.outline.fold.is_some()
             || self.preview.markdown.toc_fade.is_some()
             || self.preview.markdown.toc_close.is_some()
+            || self.preview.markdown.catch_up.pending
             || self.preview.markdown.toc_pin.is_some()
             || self.preview.markdown.toc_flash.is_some()
             || self.preview.markdown.anchor_flash.is_some()
@@ -507,6 +509,7 @@ impl App {
             || self.preview.pdf.zoom_motion.is_some()
             || self.preview.picture_view.zoom_motion.is_some()
             || self.preview.pdf.strip_motion.is_some()
+            || self.preview.pdf.tools.motion.is_some()
             || self.overlays.picker.fold.is_some()
             || self.overlays.picker.places_in.is_some()
             || self.overlays.picker.places_out.is_some()

@@ -425,7 +425,7 @@ impl Document {
                 anchor: mapped[0],
                 head: mapped[1],
             };
-            // 预览中的 SVG 暂时只读，用户也可能设了只读，`apply` 会忽略修改：换内容时临时放开。
+            // 预览中的 SVG 暂时只读，`apply` 会忽略修改：替换内容时临时解除。
             let readonly = std::mem::replace(&mut self.readonly, false);
             self.apply_unlocked(Transaction::new(changes, before, after, EditKind::Other));
             self.readonly = readonly;

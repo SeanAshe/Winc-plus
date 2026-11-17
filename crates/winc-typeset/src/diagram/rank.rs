@@ -19,10 +19,24 @@ pub(crate) struct Plan {
     pub(crate) routes: Vec<Option<Route>>,
     /// 各子图的框（左、上、右、下），和 [`Flow::groups`] 一一对应。
     pub(crate) boxes: Vec<[f32; 4]>,
+    /// 各层占据的纵向范围和层间留给连线的范围（逻辑像素），从第 0 层起。
+    pub(crate) rows: Vec<Row>,
     /// 横向总宽（逻辑像素，同一层里各点的跨度）。
     pub(crate) cross: f32,
     /// 纵向总长（逻辑像素，各层叠起来的高度）。
     pub(crate) along: f32,
+}
+
+/// 一层在纵向上的位置（逻辑像素，坐标系同 [`Plan`]）。
+#[derive(Clone, Copy)]
+pub(crate) struct Row {
+    /// 层的中心，各点的纵坐标。
+    pub(crate) center: f32,
+    /// 层中最高的一项的上边和下边。
+    pub(crate) top: f32,
+    pub(crate) bottom: f32,
+    /// 层的上方、下方为子图的边距和标题留出的高度。
+    pub(crate) clear: (f32, f32),
 }
 
 /// 一条连线排好的路线：经过的点和文字的位置（逻辑像素，坐标系同 [`Plan`]）。
@@ -47,6 +61,9 @@ impl Plan {
         }
     }
 }
+
+/// 两个坐标相差不超过该值时视为相等（逻辑像素），远小于一个物理像素。
+const SETTLED: f32 = 0.01;
 
 /// 布局里的点是什么。
 #[derive(Clone, Copy, PartialEq)]
@@ -161,7 +178,16 @@ impl Tree {
 }
 
 /// 一层的顺序：按 `key` 排，同一个子图里的排在一起，左右是它的边框点。
-fn arrange(layer: &[usize], key: &[f32], vs: &[Vertex], tree: &Tree) -> Vec<usize> {
+///
+/// 给出 `rank_of`（各子图在同级子图中的先后）时，同级的子图之间按它排列，占据原先由子图
+/// 占据的位置：各层中同级子图的先后因此一致，子图的框才能互不相交。
+fn arrange(
+    layer: &[usize],
+    key: &[f32],
+    vs: &[Vertex],
+    tree: &Tree,
+    rank_of: Option<&[f32]>,
+) -> Vec<usize> {
     let root = tree.children.len() - 1;
     let mut direct = vec![Vec::new(); root + 1];
     let mut borders = vec![(None, None); root];
@@ -172,23 +198,37 @@ fn arrange(layer: &[usize], key: &[f32], vs: &[Vertex], tree: &Tree) -> Vec<usiz
             _ => direct[vs[v].group.unwrap_or(root)].push(v),
         }
     }
+    /// 一项：排序用的值、包含的点，以及它是哪个子图的块（单个点为 `None`）。
+    type Item = (f32, Vec<usize>, Option<usize>);
     fn block(
         g: usize,
         key: &[f32],
         tree: &Tree,
         direct: &[Vec<usize>],
         borders: &[(Option<usize>, Option<usize>)],
+        rank_of: Option<&[f32]>,
     ) -> Option<(f32, Vec<usize>)> {
-        let mut items: Vec<(f32, Vec<usize>)> =
-            direct[g].iter().map(|&v| (key[v], vec![v])).collect();
+        let mut items: Vec<Item> = (direct[g].iter())
+            .map(|&v| (key[v], vec![v], None))
+            .collect();
         for &h in &tree.children[g] {
-            items.extend(block(h, key, tree, direct, borders));
+            let inner = block(h, key, tree, direct, borders, rank_of);
+            items.extend(inner.map(|(k, points)| (k, points, Some(h))));
         }
         let (left, right) = borders.get(g).copied().unwrap_or((None, None));
         if items.is_empty() && left.is_none() {
             return None;
         }
         items.sort_by(|a, b| a.0.total_cmp(&b.0));
+        if let Some(rank_of) = rank_of {
+            let slots: Vec<usize> = (0..items.len()).filter(|&i| items[i].2.is_some()).collect();
+            let mut blocks: Vec<Item> = slots.iter().map(|&i| items[i].clone()).collect();
+            let at = |item: &Item| item.2.map_or(0.0, |h| rank_of[h]);
+            blocks.sort_by(|a, b| at(a).total_cmp(&at(b)).then(a.2.cmp(&b.2)));
+            for (slot, block) in slots.into_iter().zip(blocks) {
+                items[slot] = block;
+            }
+        }
         let k = if items.is_empty() {
             left.map_or(0.0, |v| key[v])
         } else {
@@ -199,13 +239,14 @@ fn arrange(layer: &[usize], key: &[f32], vs: &[Vertex], tree: &Tree) -> Vec<usiz
         out.extend(right);
         Some((k, out))
     }
-    block(root, key, tree, &direct, &borders).map_or_else(Vec::new, |b| b.1)
+    block(root, key, tree, &direct, &borders, rank_of).map_or_else(Vec::new, |b| b.1)
 }
 
 /// 排流程图的分层布局，返回各点的位置、连线的路线和子图的框。
 ///
 /// `sizes` 是各节点在屏幕上的宽高，`labels` 是各连线上排好的文字，`titles` 是各子图标题的
-/// 高度（都是逻辑像素）；`s` 是字号，`dir` 是图的方向。
+/// 高度（都是逻辑像素）；`s` 是字号，`dir` 是图的方向。`room` 是各层之后额外留出的高度，
+/// 比层数短时其余的层不加。
 pub(crate) fn layout(
     f: &Flow,
     sizes: &[(f32, f32)],
@@ -213,6 +254,7 @@ pub(crate) fn layout(
     titles: &[f32],
     s: f32,
     dir: Dir,
+    room: &[f32],
 ) -> Plan {
     let n = f.nodes.len();
     let vertical = matches!(dir, Dir::Down | Dir::Up);
@@ -435,7 +477,7 @@ pub(crate) fn layout(
     }
     let mut pos: Vec<f32> = (0..vs.len()).map(|v| v as f32).collect();
     for layer in &mut layers {
-        *layer = arrange(layer, &pos, &vs, &tree);
+        *layer = arrange(layer, &pos, &vs, &tree, None);
         for (k, &v) in layer.iter().enumerate() {
             pos[v] = k as f32;
         }
@@ -458,7 +500,7 @@ pub(crate) fn layout(
                     key[v] = near.iter().map(|&u| pos[u]).sum::<f32>() / near.len() as f32;
                 }
             }
-            layers[r] = arrange(&layers[r], &key, &vs, &tree);
+            layers[r] = arrange(&layers[r], &key, &vs, &tree, None);
             for (k, &v) in layers[r].iter().enumerate() {
                 pos[v] = k as f32;
             }
@@ -470,7 +512,33 @@ pub(crate) fn layout(
             best = layers.clone();
         }
     }
-    let layers = best;
+    let mut layers = best;
+    // 各层分别排序，同级的两个子图在不同的层中先后可能相反，此时二者的框无法分开。按各子图
+    // 在所跨各层中的平均位置（占该层宽度的比例）定出先后，各层都按它排列。
+    if groups > 0 {
+        let mut place = vec![(0f32, 0usize); groups];
+        for layer in &layers {
+            for (k, &v) in layer.iter().enumerate() {
+                if let Kind::Left(g) = vs[v].kind {
+                    place[g].0 += k as f32 / layer.len() as f32;
+                    place[g].1 += 1;
+                }
+            }
+        }
+        let rank_of: Vec<f32> = (place.iter())
+            .map(|&(sum, count)| sum / count.max(1) as f32)
+            .collect();
+        for layer in &mut layers {
+            let key: Vec<f32> = {
+                let mut key = vec![0f32; vs.len()];
+                for (k, &v) in layer.iter().enumerate() {
+                    key[v] = k as f32;
+                }
+                key
+            };
+            *layer = arrange(layer, &key, &vs, &tree, Some(&rank_of));
+        }
+    }
 
     // 5. 横坐标：先挨着排，再按邻居的平均位置迭代几轮，保持顺序和间距；最后把每个子图的
     // 边框点拉成一条竖线。
@@ -576,6 +644,32 @@ pub(crate) fn layout(
                 }
             }
         }
+        // 上面的推开不移动右边框左侧的点和左边框本身，一个子图的右边框紧邻另一个子图的左边框
+        // 时二者都不动，框仍可能相交。这里只向右移动：各层补足间距，同一子图的边框取各层中
+        // 最靠右的位置。各层中同级子图的先后一致，坐标只增不减，轮数不超过点数。
+        for _ in 0..vs.len() {
+            let mut moved = false;
+            for layer in &layers {
+                for k in 1..layer.len() {
+                    let (a, b) = (layer[k - 1], layer[k]);
+                    let least = x[a] + gap(&vs[a], &vs[b]);
+                    if x[b] < least - SETTLED {
+                        x[b] = least;
+                        moved = true;
+                    }
+                }
+            }
+            for side in sides.iter().flatten() {
+                let far = side.iter().map(|&v| x[v]).fold(f32::MIN, f32::max);
+                for &v in side {
+                    moved |= x[v] < far - SETTLED;
+                    x[v] = far;
+                }
+            }
+            if !moved {
+                break;
+            }
+        }
     }
 
     // 6. 竖坐标：每层按最高的项，层之间留相同的间距，子图开始、结束的地方再加上框的边距。
@@ -606,7 +700,8 @@ pub(crate) fn layout(
     let mut at = thick.first().copied().unwrap_or(0.0) / 2.0 + before[0];
     for r in 0..ranks {
         if r > 0 {
-            at += thick[r - 1] / 2.0 + after[r - 1] + rank_gap + before[r] + thick[r] / 2.0;
+            let more = room.get(r - 1).copied().unwrap_or(0.0).max(0.0);
+            at += thick[r - 1] / 2.0 + after[r - 1] + rank_gap + more + before[r] + thick[r] / 2.0;
         }
         y[r] = at;
     }
@@ -704,6 +799,14 @@ pub(crate) fn layout(
         centers: (0..n).map(center).collect(),
         routes,
         boxes,
+        rows: (0..ranks)
+            .map(|r| Row {
+                center: y[r],
+                top: y[r] - thick[r] / 2.0,
+                bottom: y[r] + thick[r] / 2.0,
+                clear: (before[r], after[r]),
+            })
+            .collect(),
         cross: (max - min).max(0.0),
         along,
     }

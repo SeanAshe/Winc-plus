@@ -60,6 +60,7 @@ pub(super) fn draw_editor(app: &mut App, frame: &mut Frame<'_>) {
     // Markdown、PDF 预览绘制时重新填充；预览不显示时若仍保留，滚轮和点击事件会被预览接收。
     app.preview.markdown.area = Rect::default();
     app.preview.pdf.area = Rect::default();
+    app.preview.pdf.page = None;
     app.preview.pdf.strip = Rect::default();
 
     let Some(index) = app.editor.active else {

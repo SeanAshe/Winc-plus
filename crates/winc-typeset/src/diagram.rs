@@ -20,8 +20,10 @@ mod mindmap;
 mod pie;
 mod rank;
 mod sequence;
+mod square;
 
 use rank::{Plan, Route, layout};
+use square::{Ports, square_routes};
 
 /// 流程图宽于可用宽度时，节点与连线文字的折行宽度相对原宽度的比例。
 ///
@@ -417,7 +419,13 @@ impl Cx<'_, '_> {
             .map(|g| self.label(&g.title, s * 0.85, look.title, s * 16.0))
             .collect();
         let heights: Vec<f32> = titles.iter().map(|t| t.h).collect();
-        let plan = layout(flow, sizes, &edge_labels, &heights, s, flow.dir);
+        // 横线段排不开的空隙加高后重新布局一次：各点的横坐标不变，轨道的分配也不变。
+        let mut plan = layout(flow, sizes, &edge_labels, &heights, s, flow.dir, &[]);
+        let (mut squared, room) = square_routes(&plan, flow, sizes, s, Ports::Spread);
+        if room.iter().any(|&more| more > 0.5) {
+            plan = layout(flow, sizes, &edge_labels, &heights, s, flow.dir, &room);
+            squared = square_routes(&plan, flow, sizes, s, Ports::Spread).0;
+        }
         let rects: Vec<Rect> = plan
             .centers
             .iter()
@@ -433,7 +441,10 @@ impl Cx<'_, '_> {
                 continue;
             };
             let ends = [edge.from, edge.to].map(|i| (Shape::Rect, rects[i]));
-            let (points, label_at) = curve(&plan, route, flow.dir, ends, edge.from == edge.to, s);
+            let (points, label_at) = match &squared[k] {
+                Some(squared) => squared.clone(),
+                None => curve(&plan, route, flow.dir, ends, edge.from == edge.to, s),
+            };
             if points.len() < 2 {
                 continue;
             }
@@ -485,7 +496,12 @@ impl Cx<'_, '_> {
             .map(|g| self.label(&g.title, s * 0.85, look.title, s * 16.0))
             .collect();
         let heights: Vec<f32> = titles.iter().map(|t| t.h).collect();
-        let plan = layout(f, &sizes, &edge_labels, &heights, s, f.dir);
+        let mut plan = layout(f, &sizes, &edge_labels, &heights, s, f.dir, &[]);
+        let (mut squared, room) = square_routes(&plan, f, &sizes, s, Ports::Shared);
+        if room.iter().any(|&more| more > 0.5) {
+            plan = layout(f, &sizes, &edge_labels, &heights, s, f.dir, &room);
+            squared = square_routes(&plan, f, &sizes, s, Ports::Shared).0;
+        }
         let place = |p: (f32, f32)| plan.place(p, f.dir);
         let (w, h) = if vertical {
             (plan.cross, plan.along)
@@ -505,7 +521,10 @@ impl Cx<'_, '_> {
                 continue;
             };
             let ends = [edge.from, edge.to].map(|i| (f.nodes[i].shape, rect_of(i)));
-            let (points, label_at) = curve(&plan, route, f.dir, ends, edge.from == edge.to, s);
+            let (points, label_at) = match &squared[k] {
+                Some(squared) => squared.clone(),
+                None => curve(&plan, route, f.dir, ends, edge.from == edge.to, s),
+            };
             self.edge(edge, &points, s, look, out);
             if !edge.label.is_empty() {
                 let at = label_at.unwrap_or(points[points.len() / 2]);

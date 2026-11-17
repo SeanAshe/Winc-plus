@@ -346,6 +346,110 @@ fn the_pdf_preview_lists_page_thumbnails() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// PDF 预览的工具栏在打开文档时显示，空闲后隐藏；指针移到工具栏附近时重新显示，停在附近期间
+/// 不隐藏。当前页和总页数显示在状态栏上，切换到其他标签后不再显示。
+#[cfg(any(target_os = "macos", windows))]
+#[test]
+fn the_pdf_toolbar_hides_when_idle_and_the_page_shows_in_the_status_bar() {
+    use crate::app::StatusKey;
+    use crate::app::preview::pdf::PdfTool;
+    use std::time::{Duration, Instant};
+
+    let dir = sample_folder("pdf-tools");
+    let path = dir.join("文档.pdf");
+    std::fs::write(&path, sample_pdf(3)).unwrap();
+    let mut app = open_pdf(&path, false);
+    app.pointer.cursor_inside = true;
+    assert!(app.preview.pdf.tools.shown);
+    let bar = app.preview.pdf.tools.rect;
+    let (zoom_in, _) = *app
+        .hits
+        .pdf_tools
+        .iter()
+        .find(|(_, t)| *t == PdfTool::ZoomIn)
+        .unwrap();
+    let zoom_in = (zoom_in.x + zoom_in.w / 2.0, zoom_in.y + zoom_in.h / 2.0);
+    let area = app.preview.pdf.area;
+    let middle = (area.x + area.w / 2.0, area.y + area.h / 2.0);
+    let later = || Instant::now() + Duration::from_secs(3);
+
+    // 指针在正文中间，到时隐藏：不画工具栏，没有可点击的按钮。
+    app.on_mouse_move(middle.0, middle.1);
+    assert!(app.pdf_tools_tick(Instant::now()).is_some());
+    assert_eq!(app.pdf_tools_tick(later()), None);
+    paint(&mut app);
+    assert!(!app.preview.pdf.tools.shown && app.hits.pdf_tools.is_empty());
+    assert_eq!(app.preview.pdf.tools.rect, bar);
+
+    // 指针移到工具栏左上方附近即显示，停在附近期间到时不隐藏，按钮可以点击。
+    app.on_mouse_move(bar.x - 40.0, bar.y - 40.0);
+    assert!(app.preview.pdf.tools.shown);
+    assert!(app.pdf_tools_tick(later()).is_some());
+    paint(&mut app);
+    assert!(app.preview.pdf.tools.shown && !app.hits.pdf_tools.is_empty());
+    click(&mut app, zoom_in);
+    assert_eq!(app.preview.pdf.zoom, 1.25);
+
+    // 离得更远时不显示；离开后到时隐藏。
+    app.on_mouse_move(bar.x - 120.0, bar.y - 120.0);
+    assert_eq!(app.pdf_tools_tick(later()), None);
+    app.on_mouse_move(bar.x - 120.0, bar.bottom());
+    assert!(!app.preview.pdf.tools.shown);
+
+    // 状态栏显示视口中线所在的页，滚到结尾后是最后一页。
+    let page = |app: &App| {
+        app.status
+            .motion
+            .text(StatusKey::PdfPage)
+            .map(str::to_owned)
+    };
+    assert_eq!(page(&app).as_deref(), Some("第 1 / 3 页"));
+    app.scroll_pdf(-f32::MAX);
+    for _ in 0..3 {
+        paint(&mut app);
+        app.wait_for_pdf();
+    }
+    assert_eq!(page(&app).as_deref(), Some("第 3 / 3 页"));
+    let text = dir.join("a.txt");
+    app.open_path(&text);
+    paint(&mut app);
+    assert_eq!(page(&app), None);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 深色主题下浮在白色页面上的工具栏，细边框与卡片底色相近，不透出下方的白色。
+#[cfg(any(target_os = "macos", windows))]
+#[test]
+fn the_pdf_toolbar_border_does_not_show_the_page_through() {
+    let dir = sample_folder("pdf-tools-dark");
+    let path = dir.join("文档.pdf");
+    std::fs::write(&path, sample_pdf(3)).unwrap();
+    let mut app = open_pdf(&path, true);
+    let mut scale = 1.0;
+    let renderer = app.frame.renderer.as_mut().unwrap();
+    renderer.draw(|frame| scale = frame.scale());
+    paint(&mut app);
+    let bar = app.preview.pdf.tools.rect;
+    let image = app.frame.renderer.as_ref().unwrap().image().unwrap();
+    let pixel = |x: f32| {
+        let (x, y) = (
+            (x * scale) as usize,
+            ((bar.y + bar.h / 2.0) * scale) as usize,
+        );
+        image.pixels[y * image.width as usize + x].to_be_bytes()
+    };
+    // 工具栏左侧是白色页面（落有阴影）。
+    assert!(pixel(bar.x - 8.0)[1..].iter().all(|&c| c >= 0xe0));
+    let (edge, inside) = (pixel(bar.x), pixel(bar.x + 4.0));
+    for channel in 1..4 {
+        let gap = i32::from(edge[channel]) - i32::from(inside[channel]);
+        assert!(gap.abs() <= 24, "边框 {edge:?}，卡片 {inside:?}");
+    }
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// PDF 可以缩放：快捷键和主修饰键加滚轮各缩放一档，鼠标处的内容保持在原位；放大后可以横向
 /// 滚动，位图过大的倍数不可选。
 #[cfg(any(target_os = "macos", windows))]

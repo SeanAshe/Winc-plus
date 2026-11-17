@@ -112,6 +112,7 @@ preview-epub-chapter-damaged = Can’t read “{ $name }”: the file is damaged
 preview-pdf-unsupported = PDF preview isn’t supported on this system
 preview-pdf-invalid = Not a valid PDF file
 preview-pdf-zoom = PDF zoom { $zoom }%
+preview-pdf-page = Page { $page } of { $total }
 preview-picture-zoom = Image zoom { $zoom }%
 preview-pdf-encrypted = Encrypted PDFs can’t be previewed
 preview-pdf-empty = The PDF has no pages

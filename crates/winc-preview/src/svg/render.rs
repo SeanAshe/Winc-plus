@@ -305,6 +305,9 @@ impl Layer {
 /// 返回 `src` 按 source-over 叠加到 `dst` 上的结果。
 /// `src` 为预乘颜色，且先按 `coverage`/255 缩放；结果是预乘颜色。
 fn over(dst: [u8; 4], src: [u8; 4], coverage: u32) -> [u8; 4] {
+    if coverage == 255 && src[3] == 255 {
+        return src;
+    }
     let s = |c: u8| (u32::from(c) * coverage + 127) / 255;
     let sa = s(src[3]);
     let keep = 255 - sa;
@@ -467,6 +470,8 @@ impl Drawing {
         for [r, g, b, a] in layer.px {
             if a == 0 {
                 rgba.extend_from_slice(&[0, 0, 0, 0]);
+            } else if a == 255 {
+                rgba.extend_from_slice(&[r, g, b, a]);
             } else {
                 let un =
                     |c: u8| ((u32::from(c) * 255 + u32::from(a) / 2) / u32::from(a)).min(255) as u8;
@@ -495,6 +500,9 @@ pub(super) fn draw_items(items: &[Item], layer: &mut Layer, viewport: Affine) {
 /// 绘制一个组：先画在单独的一层上，依次应用滤镜、裁剪和蒙版，再按不透明度和混合模式
 /// 叠加回 `layer`。
 fn draw_group(group: &Group, layer: &mut Layer, viewport: Affine) {
+    if group.filter.is_none() && !any_on_canvas(&group.items, layer, viewport) {
+        return;
+    }
     let mut inner = Layer::new(layer.width, layer.height);
     draw_items(&group.items, &mut inner, viewport);
     if let Some(filter) = &group.filter {
@@ -611,8 +619,72 @@ fn mask_coverage(mask: &MaskRef, viewport: Affine, width: usize, height: usize) 
 }
 
 /// 绘制一个形状：填充与描边分别光栅化，按 `paint-order` 决定的先后叠加。
+/// 外框 `rect` 经 `to_pixels` 变换、再向外扩 `grow` 像素后，是否与画布有交集。
+///
+/// 坐标不是有限数时按有交集处理。
+fn on_canvas(rect: [f32; 4], to_pixels: Affine, grow: f32, layer: &Layer) -> bool {
+    let [x, y, w, h] = rect;
+    let corners =
+        [(x, y), (x + w, y), (x, y + h), (x + w, y + h)].map(|(x, y)| to_pixels.apply(x, y));
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for (x, y) in corners {
+        if !x.is_finite() || !y.is_finite() {
+            return true;
+        }
+        (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
+    }
+    x1 + grow >= 0.0
+        && y1 + grow >= 0.0
+        && x0 - grow <= layer.width as f32
+        && y0 - grow <= layer.height as f32
+}
+
+/// 形状的描边超出路径外框的最大距离（画布像素），含 1 像素的抗锯齿边缘；没有描边时为 1。
+fn outset(shape: &Shape, to_pixels: Affine) -> f32 {
+    let Some((_, style)) = &shape.stroke else {
+        return 1.0;
+    };
+    let [a, b, c, d, ..] = to_pixels.0;
+    let scale = (a * a + b * b).sqrt().max((c * c + d * d).sqrt());
+    let factor = if style.non_scaling { 1.0 } else { scale };
+    // 尖角最远伸出半个线宽的 `miter` 倍，方形线帽伸出半个线宽的 √2 倍。
+    style.width * factor * 0.5 * style.miter.max(1.5) + 1.0
+}
+
+/// `items` 中是否有图元落在画布内；带滤镜的组按落在画布内处理。
+fn any_on_canvas(items: &[Item], layer: &Layer, viewport: Affine) -> bool {
+    items.iter().any(|item| match item {
+        Item::Shape(shape) => {
+            let to_pixels = shape.transform.then(viewport);
+            on_canvas(shape.bounds, to_pixels, outset(shape, to_pixels), layer)
+        }
+        Item::Image(image) => on_canvas(
+            image_rect(image),
+            image.transform.then(viewport),
+            1.0,
+            layer,
+        ),
+        Item::Group(group) => {
+            group.filter.is_some() || any_on_canvas(&group.items, layer, viewport)
+        }
+    })
+}
+
+/// 图片在自己坐标里的外框 `[x, y, w, h]`。
+fn image_rect(image: &ImageItem) -> [f32; 4] {
+    [
+        0.0,
+        0.0,
+        image.pixels.width as f32,
+        image.pixels.height as f32,
+    ]
+}
+
 fn draw_shape(shape: &Shape, layer: &mut Layer, viewport: Affine) {
     let to_pixels = shape.transform.then(viewport);
+    if !on_canvas(shape.bounds, to_pixels, outset(shape, to_pixels), layer) {
+        return;
+    }
     // 形状至少有填充或描边之一，两者共用变换到画布坐标的路径。
     let device = device_path(&shape.path, to_pixels);
     let fill = |layer: &mut Layer| {
@@ -661,6 +733,9 @@ fn draw_shape(shape: &Shape, layer: &mut Layer, viewport: Affine) {
 /// 稀疏的像素。
 fn draw_image(image: &ImageItem, layer: &mut Layer, viewport: Affine) {
     let mut to_pixels = image.transform.then(viewport);
+    if !on_canvas(image_rect(image), to_pixels, 1.0, layer) {
+        return;
+    }
     let (iw, ih) = (image.pixels.width as f32, image.pixels.height as f32);
     let [a, b, c, d, ..] = to_pixels.0;
     let (sx, sy) = ((a * a + b * b).sqrt(), (c * c + d * d).sqrt());

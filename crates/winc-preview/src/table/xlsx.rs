@@ -2,14 +2,17 @@
 //! 内容，样式表给出数字的格式。
 //!
 //! 只读显示的文字：公式取缓存的结果（`<v>`），不重新计算；隐藏的工作表和图表工作表不显示。
+//! 工作表和共享字符串表逐项读出（见 [`pull`](super::pull)），不建立整棵树。
 
-use std::collections::HashMap;
+use std::borrow::Cow;
+use std::collections::{BTreeMap, HashMap};
 
-use roxmltree::{Document, Node};
+use roxmltree::Document;
 use winc_i18n::t;
 
-use super::{Area, MAX_COLUMNS, MAX_ROWS, Sheet, Table};
-use crate::ooxml::{package_target, parse, part, relations};
+use super::pull::{Token, Tokens, attribute};
+use super::{Area, MAX_COLUMNS, MAX_ROWS, Rows, Sheet, Table};
+use crate::ooxml::{package_target, parse, part, relations, text};
 use crate::zip::{self, Archive};
 
 /// 工作簿文件不在包关系中时的默认位置。
@@ -45,7 +48,7 @@ pub(super) fn read(bytes: &[u8]) -> Result<Table, String> {
     };
     let shared = match related("/sharedStrings") {
         Some(path) => match part(&archive, &path)? {
-            Some(bytes) => shared_strings(&parse(&bytes, &path)?),
+            Some(bytes) => shared_strings(text(&bytes, &path)?).ok_or_else(|| damaged(&path))?,
             None => Vec::new(),
         },
         None => Vec::new(),
@@ -85,12 +88,18 @@ pub(super) fn read(bytes: &[u8]) -> Result<Table, String> {
             continue;
         };
         let name = node.attribute("name").unwrap_or_default().to_owned();
-        sheets.push(worksheet(&parse(&bytes, path)?, name, &context));
+        let sheet = worksheet(text(&bytes, path)?, name, &context);
+        sheets.push(sheet.ok_or_else(|| damaged(path))?);
     }
     if sheets.is_empty() {
         return Err(t!("preview-table-no-sheets").to_owned());
     }
     Ok(Table { sheets })
+}
+
+/// 包中的 `path` 损坏时给用户看的原因。
+fn damaged(path: &str) -> String {
+    t!("preview-office-damaged", part = path.to_owned())
 }
 
 /// 读工作表时用到的、工作簿级的公共数据。
@@ -119,24 +128,41 @@ pub(super) enum NumberFormat {
 }
 
 /// 共享字符串表：每项是一段文字，由 `<si>` 中各段 `<t>` 连成，不含注音 `<rPh>`。
-fn shared_strings(doc: &Document<'_>) -> Vec<String> {
-    doc.root_element()
-        .children()
-        .filter(|n| n.tag_name().name() == "si")
-        .map(|si| rich_text(si))
-        .collect()
-}
-
-/// `node` 中各段 `<t>` 文字连起来，跳过注音 `<rPh>`。
-fn rich_text(node: Node<'_, '_>) -> String {
-    let mut text = String::new();
-    for t in node.descendants().filter(|n| n.tag_name().name() == "t") {
-        if t.ancestors().any(|a| a.tag_name().name() == "rPh") {
-            continue;
+fn shared_strings(xml: &str) -> Option<Vec<String>> {
+    let mut strings = Vec::new();
+    let mut current: Option<String> = None;
+    let (mut reading, mut phonetic) = (false, 0usize);
+    let mut tokens = Tokens::new(xml);
+    for token in &mut tokens {
+        match token {
+            Token::Open {
+                name: "si", empty, ..
+            } => match empty {
+                true => strings.push(String::new()),
+                false => current = Some(String::new()),
+            },
+            Token::Open {
+                name: "rPh",
+                empty: false,
+                ..
+            } => phonetic += 1,
+            Token::Open {
+                name: "t",
+                empty: false,
+                ..
+            } => reading = phonetic == 0,
+            Token::Text(text) if reading => {
+                if let Some(current) = &mut current {
+                    current.push_str(&text);
+                }
+            }
+            Token::Close("t") => reading = false,
+            Token::Close("rPh") => phonetic = phonetic.saturating_sub(1),
+            Token::Close("si") => strings.extend(current.take()),
+            _ => {}
         }
-        text.push_str(t.text().unwrap_or_default());
     }
-    text
+    tokens.well_formed().then_some(strings)
 }
 
 /// 样式表中各单元格样式（`cellXfs` 中的 `xf`，按顺序）的数字格式。
@@ -235,80 +261,176 @@ pub(super) fn classify(code: &str) -> NumberFormat {
     }
 }
 
+/// 正在读的一个单元格。
+#[derive(Default)]
+struct Cell {
+    /// 列号（从 0 起）。
+    column: usize,
+    /// 类型（属性 `t`）；没有该属性时为空。
+    kind: String,
+    /// 样式序号（属性 `s`）。
+    style: Option<usize>,
+    /// `<v>` 中的文字。
+    value: String,
+    /// `<is>` 中各段 `<t>` 连成的文字。
+    inline: String,
+}
+
 /// 读一张工作表。
-fn worksheet(doc: &Document<'_>, name: String, context: &Context) -> Sheet {
-    let mut rows: Vec<Vec<String>> = Vec::new();
+///
+/// 行、单元格通常按行号、列号升序写出，逐行追加；行号小于已有行数的行先记下，读完后放回
+/// 所在的位置。
+fn worksheet(xml: &str, name: String, context: &Context) -> Option<Sheet> {
+    let mut rows = Rows::default();
     let mut truncated = false;
-    let Some(data) = doc
-        .descendants()
-        .find(|n| n.tag_name().name() == "sheetData")
-    else {
-        return Sheet::from_rows(name, rows, false);
+    let mut late: BTreeMap<usize, Vec<String>> = BTreeMap::new();
+    let mut merges: Vec<Area> = Vec::new();
+    // 当前行各列的文字，逐行重复使用；`used` 是当前行用到的列数。
+    let (mut cells, mut used): (Vec<String>, usize) = (Vec::new(), 0);
+    // 当前行的行号，不在行中或该行超出上限时为 `None`；`next` 是没有写行号、列号时的默认值。
+    let (mut row, mut next_row, mut next_column) = (None, 0usize, 0usize);
+    let mut cell: Option<Cell> = None;
+    let (mut in_value, mut in_inline, mut in_text, mut phonetic) = (false, false, false, 0usize);
+    let mut end_row = |index: usize, cells: &mut [String], rows: &mut Rows| {
+        if index < rows.len() {
+            late.insert(index, cells.to_vec());
+            return;
+        }
+        while rows.len() < index {
+            rows.end_row();
+        }
+        cells.iter().for_each(|cell| rows.push(cell));
+        rows.end_row();
     };
-    let mut next_row = 0;
-    for row in data.children().filter(|n| n.tag_name().name() == "row") {
-        let index = row
-            .attribute("r")
-            .and_then(|r| r.parse::<usize>().ok())
-            .and_then(|r| r.checked_sub(1))
-            .unwrap_or(next_row);
-        next_row = index + 1;
-        if index >= MAX_ROWS {
-            truncated = true;
-            break;
-        }
-        let mut cells = Vec::new();
-        let mut next_column = 0;
-        for cell in row.children().filter(|n| n.tag_name().name() == "c") {
-            let column = cell
-                .attribute("r")
-                .and_then(column_of)
-                .unwrap_or(next_column);
-            next_column = column + 1;
-            if column >= MAX_COLUMNS {
-                truncated = true;
-                break;
+    let mut tokens = Tokens::new(xml);
+    for token in &mut tokens {
+        match token {
+            Token::Open {
+                name: "row",
+                attributes,
+                empty,
+            } => {
+                let index = attribute(attributes, "r")
+                    .and_then(|r| r.parse::<usize>().ok())
+                    .and_then(|r| r.checked_sub(1))
+                    .unwrap_or(next_row);
+                next_row = index + 1;
+                cells[..used].iter_mut().for_each(String::clear);
+                (used, next_column) = (0, 0);
+                row = (index < MAX_ROWS).then_some(index);
+                truncated |= row.is_none();
+                if let Some(index) = row.filter(|_| empty) {
+                    end_row(index, &mut cells[..0], &mut rows);
+                    row = None;
+                }
             }
-            let value = cell_text(cell, context);
-            if value.is_empty() {
-                continue;
+            Token::Open {
+                name: "c",
+                attributes,
+                empty,
+            } if row.is_some() => {
+                let column = attribute(attributes, "r")
+                    .and_then(|r| column_of(&r))
+                    .unwrap_or(next_column);
+                next_column = column + 1;
+                if column >= MAX_COLUMNS {
+                    truncated = true;
+                    continue;
+                }
+                let style = attribute(attributes, "s").and_then(|s| s.parse().ok());
+                let kind = attribute(attributes, "t")
+                    .map(Cow::into_owned)
+                    .unwrap_or_default();
+                cell = (!empty).then(|| Cell {
+                    column,
+                    kind,
+                    style,
+                    ..Cell::default()
+                });
             }
-            if cells.len() <= column {
-                cells.resize(column + 1, String::new());
+            Token::Open {
+                name: "v",
+                empty: false,
+                ..
+            } => in_value = cell.is_some(),
+            Token::Open {
+                name: "is",
+                empty: false,
+                ..
+            } => in_inline = cell.is_some(),
+            Token::Open {
+                name: "rPh",
+                empty: false,
+                ..
+            } => phonetic += 1,
+            Token::Open {
+                name: "t",
+                empty: false,
+                ..
+            } => in_text = in_inline && phonetic == 0,
+            Token::Open {
+                name: "mergeCell",
+                attributes,
+                ..
+            } => {
+                let area = attribute(attributes, "ref").and_then(|range| {
+                    let (from, to) = range.split_once(':')?;
+                    let ((top, left), (bottom, right)) = (cell_of(from)?, cell_of(to)?);
+                    Some(Area {
+                        top: top.min(bottom),
+                        left: left.min(right),
+                        bottom: top.max(bottom),
+                        right: left.max(right),
+                    })
+                });
+                merges.extend(area);
             }
-            cells[column] = value;
+            Token::Text(text) => match &mut cell {
+                Some(cell) if in_value => cell.value.push_str(&text),
+                Some(cell) if in_text => cell.inline.push_str(&text),
+                _ => {}
+            },
+            Token::Close("v") => in_value = false,
+            Token::Close("t") => in_text = false,
+            Token::Close("is") => in_inline = false,
+            Token::Close("rPh") => phonetic = phonetic.saturating_sub(1),
+            Token::Close("c") => {
+                if let Some(cell) = cell.take() {
+                    if cells.len() <= cell.column {
+                        cells.resize(cell.column + 1, String::new());
+                    }
+                    used = used.max(cell.column + 1);
+                    cells[cell.column].clear();
+                    write_cell(&mut cells[cell.column], &cell, context);
+                }
+            }
+            Token::Close("row") => {
+                if let Some(index) = row.take() {
+                    end_row(index, &mut cells[..used], &mut rows);
+                }
+            }
+            _ => {}
         }
-        if rows.len() <= index {
-            rows.resize(index + 1, Vec::new());
-        }
-        rows[index] = cells;
     }
-    let mut sheet = Sheet::from_rows(name, rows, truncated);
-    sheet.merges = merges(doc, sheet.rows.len());
+    if !tokens.well_formed() {
+        return None;
+    }
+    let mut sheet = rows.finish(name, truncated);
+    if !late.is_empty() {
+        sheet = sheet.with_rows(&late);
+    }
+    // 合并区域只保留从已读的行开始、在列数上限以内的，伸到最后一行之外的截到最后一行。
+    let count = sheet.row_count();
+    merges.retain(|m| m.top < count && m.left < MAX_COLUMNS);
+    for merge in &mut merges {
+        merge.bottom = merge.bottom.min(count.saturating_sub(1));
+        merge.right = merge.right.min(MAX_COLUMNS - 1);
+    }
+    sheet.merges = merges;
     // 合并区域伸到有文字的列之外时，列数按合并区域算，区域完整显示。
     let widest = sheet.merges.iter().map(|m| m.right + 1).max().unwrap_or(0);
     sheet.columns = sheet.columns.max(widest);
-    sheet
-}
-
-/// 工作表中的合并区域（`<mergeCell ref="A1:C2"/>`）；只保留从前 `rows` 行开始的、在列数
-/// 上限以内的区域，伸到 `rows` 行之外的截到最后一行。
-fn merges(doc: &Document<'_>, rows: usize) -> Vec<Area> {
-    doc.descendants()
-        .filter(|n| n.tag_name().name() == "mergeCell")
-        .filter_map(|n| {
-            let (from, to) = n.attribute("ref")?.split_once(':')?;
-            let (top, left) = cell_of(from)?;
-            let (bottom, right) = cell_of(to)?;
-            let merge = Area {
-                top: top.min(bottom),
-                left: left.min(right),
-                bottom: top.max(bottom).min(rows.saturating_sub(1)),
-                right: left.max(right).min(MAX_COLUMNS - 1),
-            };
-            (merge.top < rows && merge.left < MAX_COLUMNS).then_some(merge)
-        })
-        .collect()
+    Some(sheet)
 }
 
 /// 单元格引用（如 `B3`）对应的（行号，列号），都从 0 起。
@@ -331,35 +453,31 @@ pub(super) fn column_of(reference: &str) -> Option<usize> {
     letters.checked_sub(1)
 }
 
-/// 单元格 `cell` 按 `context` 中的共享字符串和样式显示的文字。
-fn cell_text(cell: Node<'_, '_>, context: &Context) -> String {
-    let child = |name: &str| cell.children().find(|n| n.tag_name().name() == name);
-    let value = child("v").and_then(|v| v.text()).unwrap_or_default();
-    match cell.attribute("t") {
-        Some("s") => value
-            .trim()
-            .parse::<usize>()
-            .ok()
-            .and_then(|i| context.shared.get(i))
-            .cloned()
-            .unwrap_or_default(),
-        Some("inlineStr") => child("is").map(rich_text).unwrap_or_default(),
-        Some("b") => match value.trim() {
-            "1" => "TRUE".to_owned(),
-            "0" => "FALSE".to_owned(),
-            other => other.to_owned(),
-        },
-        Some("str" | "e" | "d") => value.to_owned(),
+/// 把单元格 `cell` 按 `context` 中的共享字符串和样式显示的文字写入 `out`。
+fn write_cell(out: &mut String, cell: &Cell, context: &Context) {
+    let value = cell.value.as_str();
+    match cell.kind.as_str() {
+        "s" => {
+            let shared = value.trim().parse::<usize>().ok();
+            out.push_str(
+                shared
+                    .and_then(|i| context.shared.get(i))
+                    .map_or("", String::as_str),
+            );
+        }
+        "inlineStr" => out.push_str(&cell.inline),
+        "b" => out.push_str(match value.trim() {
+            "1" => "TRUE",
+            "0" => "FALSE",
+            other => other,
+        }),
+        "str" | "e" | "d" => out.push_str(value),
         _ => {
-            let format = cell
-                .attribute("s")
-                .and_then(|s| s.parse::<usize>().ok())
-                .and_then(|s| context.formats.get(s))
-                .copied()
+            let format = (cell.style.and_then(|s| context.formats.get(s)).copied())
                 .unwrap_or(NumberFormat::General);
             match value.trim().parse::<f64>() {
-                Ok(number) => format_number(number, format, context.date1904),
-                Err(_) => value.to_owned(),
+                Ok(number) => out.push_str(&format_number(number, format, context.date1904)),
+                Err(_) => out.push_str(value),
             }
         }
     }

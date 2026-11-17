@@ -400,7 +400,7 @@ impl App {
     }
 
     /// 最近列表中的目录已不存在（删除、移动，或者外接磁盘未挂载）：从列表中移除并提示。
-    fn forget_missing_recent(&mut self, folder: &Path) {
+    pub(in crate::app) fn forget_missing_recent(&mut self, folder: &Path) {
         self.update_state(|state| state.forget(folder));
         self.notify(winc_i18n::t!(
             "workspace-recent-missing",

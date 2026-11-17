@@ -36,6 +36,8 @@ pub enum StatusKey {
     PictureFile,
     /// 图片格式。
     PictureFormat,
+    /// PDF 的当前页和总页数。
+    PdfPage,
     /// 光标位置、选中的字符数或多光标的选区个数。
     Position,
     /// 行尾。
@@ -235,6 +237,13 @@ impl<K: Copy + Ord> StatusMotion<K> {
             .filter(|r| group.contains(&r.key))
             .map(Row::view)
             .collect()
+    }
+
+    /// 返回项 `key` 显示的文字；没有该项或该项正在消失时为 `None`。只有 PDF 预览的测试使用。
+    #[cfg(all(test, any(target_os = "macos", windows)))]
+    pub(crate) fn text(&self, key: K) -> Option<&str> {
+        let row = self.rows.iter().find(|r| r.key == key)?;
+        (!matches!(row.presence, Presence::Leaving(_))).then_some(row.text.as_str())
     }
 
     /// 是否有项在过渡途中。

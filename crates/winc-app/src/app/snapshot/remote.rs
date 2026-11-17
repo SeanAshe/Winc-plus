@@ -342,17 +342,41 @@ fn a_folder_on_a_connected_host_opens_as_the_workspace() {
     .unwrap();
     assert_eq!(std::fs::read(back).unwrap(), b"from here");
 
-    // 目录不存在：说明原因，已打开的目录不变。
+    // 目录不存在：连接保留，提示找不到，从仍然存在的最近一级上级目录开始选择别的目录；已打开的
+    // 目录不变。
+    let browsing = |app: &App| match app.overlays.picker.remote.as_ref().map(|list| &list.stage) {
+        Some(crate::app::remote::picker::Stage::Browse { dir, .. }) => Some(dir.clone()),
+        _ => None,
+    };
+    let local = dir.display().to_string();
     app.open_remote_picker();
-    typed(&mut app, "app-remote-open:/winc/no/such/folder");
-    assert_eq!(
-        titles(&app)[0],
-        "连接到 app-remote-open:/winc/no/such/folder"
-    );
+    typed(&mut app, &format!("app-remote-open:{local}/gone/inner"));
     app.picker_accept();
     let notice = app.notice.text.take().unwrap();
-    assert!(notice.starts_with("无法连接 app-remote-open："), "{notice}");
+    assert!(
+        notice.starts_with("未找到「") && notice.contains("/gone/inner"),
+        "{notice}"
+    );
+    assert!(!notice.contains("最近列表"), "{notice}");
+    assert_eq!(browsing(&app), Some(local.clone()));
+    assert!(remote::is_connected(&target));
     assert_eq!(app.editor.root(), Some(root.as_path()));
+    app.close_picker();
+    // 相对于主目录的路径同样给出最近一级上级目录。
+    app.open_remote_picker();
+    typed(&mut app, "app-remote-open:~/winc-no-such-folder/inner");
+    app.picker_accept();
+    let home = std::env::var_os("HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap();
+    let home = home.canonicalize().unwrap().display().to_string();
+    let notice = app.notice.text.take().unwrap();
+    assert!(
+        notice.contains(&format!("{home}/winc-no-such-folder/inner")),
+        "{notice}"
+    );
+    assert_eq!(browsing(&app), Some(home));
+    app.close_picker();
 
     // 最近列表中远端的目录经同一流程打开，不在界面线程上判断它是否存在；本机的目录不经此处。
     assert!(app.state.recent.contains(&root));
@@ -360,6 +384,24 @@ fn a_folder_on_a_connected_host_opens_as_the_workspace() {
     assert!(app.notice.text.is_none(), "{:?}", app.notice.text);
     assert_eq!(app.editor.root(), Some(root.as_path()));
     assert!(!app.reopen_remote(&dir));
+
+    // 最近列表中的远端目录已被删除：移出最近列表，连接保留，从它的上级目录开始选择。
+    let old = dir.join("old");
+    std::fs::create_dir(&old).unwrap();
+    let old = winc_backend::virtual_path(&target, old.as_os_str().as_bytes());
+    assert!(app.reopen_remote(&old));
+    assert_eq!(app.editor.root(), Some(old.as_path()));
+    assert!(app.reopen_remote(&root));
+    assert!(app.state.recent.contains(&old));
+    std::fs::remove_dir(dir.join("old")).unwrap();
+    assert!(app.reopen_remote(&old));
+    let notice = app.notice.text.take().unwrap();
+    assert!(notice.contains("已从最近列表中移除"), "{notice}");
+    assert!(!app.state.recent.contains(&old));
+    assert_eq!(browsing(&app), Some(local.clone()));
+    assert!(remote::is_connected(&target));
+    assert_eq!(app.editor.root(), Some(root.as_path()));
+    app.close_picker();
 
     // 连接中断（这里由本程序断开来模拟）：窗口重新获得焦点时提示一次，按钮重新连接。
     remote::disconnect(&target);

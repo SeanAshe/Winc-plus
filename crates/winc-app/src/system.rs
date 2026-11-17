@@ -250,9 +250,13 @@ pub fn reveal_in_file_manager(path: &Path) -> io::Result<()> {
     if cfg!(target_os = "macos") {
         spawn(Command::new("open").arg("-R").arg(path))
     } else if cfg!(windows) {
-        let mut select = std::ffi::OsString::from("/select,");
-        select.push(path);
-        spawn(Command::new("explorer").arg(select))
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            spawn(Command::new("explorer").raw_arg(explorer_select(path)))
+        }
+        #[cfg(not(windows))]
+        Ok(())
     } else {
         #[cfg(all(unix, not(target_os = "macos")))]
         if !cfg!(test) {
@@ -270,6 +274,17 @@ pub fn reveal_in_file_manager(path: &Path) -> io::Result<()> {
         let folder = path.parent().unwrap_or(path);
         spawn(Command::new("xdg-open").arg(folder))
     }
+}
+
+/// 返回让资源管理器选中 `path` 的命令行参数，原样传给 `explorer`。
+///
+/// 引号只包含路径：整个参数加引号时 `explorer` 无法解析，会改为打开默认的目录。
+#[cfg_attr(not(any(windows, test)), allow(dead_code))]
+fn explorer_select(path: &Path) -> std::ffi::OsString {
+    let mut select = std::ffi::OsString::from("/select,\"");
+    select.push(path);
+    select.push("\"");
+    select
 }
 
 /// 请桌面的文件管理器打开 `path` 所在的目录并选中 `path`（接口方法 `ShowItems`）。

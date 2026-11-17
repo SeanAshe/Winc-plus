@@ -234,6 +234,52 @@ fn the_caret_line_names_its_last_commit() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// 保存 `git blame` 算不了的文件（未跟踪、被忽略、不在仓库里）后不留下过了时刻的重算；已跟踪
+/// 且已有追溯结果的文件保存后立即重算。
+#[test]
+fn saving_reblames_only_files_git_can_blame() {
+    let Some((mut app, root)) = git_app("git-blame-saved", false) else {
+        return;
+    };
+    blame_repo(&root);
+    std::fs::write(root.join(".gitignore"), "*.log\n").unwrap();
+    std::fs::write(root.join("run.log"), "x\n").unwrap();
+    std::fs::write(root.join("src/draft.rs"), "x\n").unwrap();
+    let outside = root.with_file_name("git-blame-saved-outside.rs");
+    std::fs::write(&outside, "x\n").unwrap();
+    app.git_refresh();
+    app.poll_git();
+    let edit_and_save = |app: &mut App, path: &Path| {
+        app.open_path(path);
+        paint(app);
+        app.select(0, 0);
+        app.run(winc_editor::Command::Insert("// 改\n".into()));
+        paint(app);
+        assert!(app.run_action(Action::Save));
+        app.poll_blame();
+        let now = Instant::now();
+        app.blame_tick(now).filter(|&at| at <= now)
+    };
+    let unblamed = [
+        root.join("src/draft.rs"),
+        root.join("run.log"),
+        outside.clone(),
+    ];
+    for path in unblamed {
+        assert_eq!(edit_and_save(&mut app, &path), None, "{path:?}");
+    }
+
+    // 已跟踪的文件：不等停止输入就按保存的内容重算，不再留着重算的时刻。
+    let server = root.join("src/server.rs");
+    assert_eq!(edit_and_save(&mut app, &server), None);
+    let id = app.editor.active().unwrap().id;
+    let blame = app.blame_of(id).expect("算好了");
+    assert!(blame.commits[blame.lines[0] as usize].uncommitted);
+    assert_eq!(app.blame_tick(Instant::now()), None);
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_file(&outside);
+}
+
 /// 所选代码的历史：只列出改过这几行的提交；前面有未提交的新增行时，行号先换算成 `HEAD`
 /// 中的行号再查。
 #[test]

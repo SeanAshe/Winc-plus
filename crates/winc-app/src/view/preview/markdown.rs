@@ -87,33 +87,69 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
     let mut still = None;
     // 记录重排之前各块的绘制位置，重排后各块从该位置滑动到新位置（见 `BlockMotion`）。
     let mut before = None;
+    // 很长的文档只保留这个范围内的块的排版结果：视口前后各两屏，以及光标、选区所在的块前后。
+    let near = {
+        let view = app.preview.markdown.scroll() - pad;
+        let around = |block: usize| block.saturating_sub(NEAR_BLOCKS)..block + NEAR_BLOCKS + 1;
+        let chosen = app.preview.markdown.selection;
+        let picked = (app.preview.markdown.layout.as_ref().zip(chosen)).map(|(laid, (a, b))| {
+            let block = |at: usize| laid.starts.partition_point(|&s| s <= at).saturating_sub(1);
+            block(a.min(b)).saturating_sub(1)..block(a.max(b)) + 2
+        });
+        let caret = live.as_ref().map(|live| around(live.block));
+        Near {
+            rows: (view - area.h * 2.0, view + area.h * 3.0),
+            blocks: caret.into_iter().chain(picked).collect(),
+        }
+    };
     let mut laid = match app.preview.markdown.layout.take() {
         Some(laid)
             if laid.key == key
                 && laid.source == source
                 && laid.live == live_key
                 && loaded.is_empty()
-                && toggled.is_none() =>
+                && toggled.is_none()
+                && !laid.pending()
+                && (laid.near.as_ref()).is_none_or(|kept| kept.covers(&near, area.h)) =>
         {
             laid
         }
         old => {
             let hscroll = old.as_ref().map(|l| l.hscroll.clone()).unwrap_or_default();
+            // 继续上一帧未完成的排版，或视口移到了保留的范围之外：排版条件和文字都未变，选区、
+            // 查找结果和光标位置保留。
+            let resumed = old.as_ref().is_some_and(|l| {
+                l.key == key
+                    && l.source == source
+                    && l.live == live_key
+                    && loaded.is_empty()
+                    && toggled.is_none()
+            });
             // 文字变了：选区、查找用的文字作废。只是重排（宽度、图片变了）时选区留着。
             if old.as_ref().is_none_or(|l| l.source != source) {
                 app.preview.markdown.selection = None;
             }
-            app.preview.markdown.find_doc = None;
-            still = old_caret(app, old.as_ref(), source, live_key.as_ref());
-            let slide = std::mem::take(&mut app.preview.markdown.slide);
-            before = old
-                .as_ref()
-                .filter(|l| l.key == key && app.markdown_live())
-                .map(|l| (Before::of(app, l), slide));
+            if !resumed {
+                app.preview.markdown.find_doc = None;
+                still = old_caret(app, old.as_ref(), source, live_key.as_ref());
+                let slide = std::mem::take(&mut app.preview.markdown.slide);
+                before = old
+                    .as_ref()
+                    .filter(|l| l.key == key && app.markdown_live())
+                    .map(|l| (Before::of(app, l), slide));
+            }
+            // 文字未变时保留旧的各块供沿用，并记录视口顶边所在的块，排版期间保持其屏幕位置。
+            let same = (old.as_ref())
+                .filter(|l| l.source == source && l.blocks.len() == parsed.blocks.len());
+            let top = app.preview.markdown.scroll();
+            let held = same.and_then(|l| l.place_at(top - l.pad));
+            let mut window = same.map(|l| l.blocks_in(top - l.pad - area.h, top + area.h * 2.0));
+            let mut kept = same.map(|l| l.blocks.clone());
+            let was_pending = same.is_some_and(Laid::pending);
             // 有图片刚读好时，用到它的块大小变了，需要重排；折叠块开合时，它所在的块需要
             // 重排；其余块沿用上次的结果。
-            let reuse = old.filter(|l| l.key == key).map(|l| {
-                l.blocks
+            let mut reuse = old.filter(|l| l.key == key).map(|l| {
+                l.fresh()
                     .into_iter()
                     .filter(|(_, block)| {
                         !block.uses_any(&loaded)
@@ -121,15 +157,49 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
                     })
                     .collect()
             });
-            let mut laid = lay_out(
-                app,
-                frame,
-                &parsed,
-                key,
-                source,
-                live.as_ref(),
-                reuse.unwrap_or_default(),
-            );
+            let deadline = app.preview.markdown.catch_up.deadline();
+            // 视口上方的块高度变化后，视口内的块可能与排版前估计的不同：仍有未排的块时再排一轮。
+            let mut laid = loop {
+                let later = (kept.as_deref().zip(window.clone())).map(|(old, window)| Later {
+                    old,
+                    window,
+                    deadline,
+                });
+                let fresh = reuse.take().unwrap_or_default();
+                let laid = lay_out(
+                    app,
+                    frame,
+                    &parsed,
+                    key,
+                    source,
+                    live.as_ref(),
+                    fresh,
+                    later,
+                    Some(near.clone()),
+                );
+                let y = held.map_or(top - pad, |(i, off)| {
+                    laid.tops[i] + off.min(laid.blocks[i].1.height)
+                });
+                let seen = laid.blocks_in(y, y + area.h);
+                let waits = |i: usize| laid.stale.get(i).copied().unwrap_or(false);
+                if window.as_ref() == Some(&seen) || !seen.clone().any(waits) {
+                    break laid;
+                }
+                (reuse, window) = (Some(laid.fresh()), Some(seen));
+                kept = Some(laid.blocks);
+            };
+            // 分帧排版期间保持视口顶边所在的块的屏幕位置，不受其上方的块高度变化的影响。
+            if let Some((i, off)) = held.filter(|_| was_pending || laid.pending()) {
+                let y = laid.tops[i] + off.min(laid.blocks[i].1.height) + pad;
+                app.preview.markdown.set_scroll(y);
+                still = None;
+            }
+            app.preview.markdown.catch_up.pending = laid.pending();
+            // 释放了要画的项的块不再使用排版缓存，缓存只保留其余的块用到的条目。
+            if laid.near.is_some() {
+                let used = laid.blocks.iter().map(|(_, block)| &*block.memo);
+                app.preview.markdown.memo.keep_only(used);
+            }
             laid.hscroll = hscroll;
             laid
         }
@@ -851,7 +921,8 @@ fn draw_toc(app: &mut App, frame: &mut Frame<'_>, area: Rect, pad: f32) {
     // 停留满 `TOC_HOVER_DELAY` 后展开；鼠标移过指示条时不展开。
     let rested = (app.preview.markdown.toc_rest)
         .is_some_and(|since| since.elapsed() >= crate::theme::TOC_HOVER_DELAY);
-    let hovered = rested && matches!(app.pointer.hover, Hover::MarkdownToc(_));
+    let on_bar = app.scrollbar_active(crate::layout::Scrollbar::MarkdownToc);
+    let hovered = rested && (on_bar || matches!(app.pointer.hover, Hover::MarkdownToc(_)));
     let pinned = app.state.markdown_toc_pinned;
     // 收起过渡中的列表仍然绘制，展开程度从 1 降到 0。
     let closing = (app.preview.markdown.toc_close).map(|clock| 1.0 - clock.progress());
@@ -896,6 +967,7 @@ fn draw_toc(app: &mut App, frame: &mut Frame<'_>, area: Rect, pad: f32) {
     let open = hovered || stays || closing.is_some();
     if !open {
         app.preview.markdown.toc_top = None;
+        app.preview.markdown.toc_list = Default::default();
     }
     let bar_y = |i: usize| y0 + i as f32 * step + TOC_BAR / 2.0;
     for i in (0..shown).filter(|_| !open) {
@@ -915,11 +987,13 @@ fn draw_toc(app: &mut App, frame: &mut Frame<'_>, area: Rect, pad: f32) {
     if let Some(w) = card_w.filter(|_| open) {
         let fit = ((area.h - 16.0 - TOC_PAD * 2.0) / TOC_ROW).floor().max(1.0) as usize;
         let rows = headings.len().min(fit);
-        // 放不下全部标题时，列出当前那一节附近的一段。
-        let start = current
+        // 标题超过可显示的行数时，列出当前所在一节附近的一段，可按行滚动。
+        let natural = current
             .unwrap_or(0)
             .saturating_sub(rows / 2)
             .min(headings.len() - rows);
+        let list = &mut app.preview.markdown.toc_list;
+        let start = list.start(natural, current, (rows, headings.len()));
         let h = rows as f32 * TOC_ROW + TOC_PAD * 2.0;
         // 列表展开时，当前所在一节那一行的横线落在指示条里同一条的位置上，其余各行向上下展开，
         // 横线看起来没有移动；没有当前所在的一节时以第一行对齐第一条。超出预览时再挪进来。
@@ -939,6 +1013,8 @@ fn draw_toc(app: &mut App, frame: &mut Frame<'_>, area: Rect, pad: f32) {
         let docked = bar_y(0) - (TOC_PAD + TOC_ROW / 2.0);
         let y = fit_in(floating + (docked - floating) * pinning);
         let card = Rect::new(x, y, w.max(0.0), h);
+        app.preview.markdown.toc_list.card = card;
+        app.preview.markdown.toc_list.row = TOC_ROW;
         // 展开时卡片从指示条处展开并淡入，各行的横线从指示条中对应的位置移到所在的行；收起时相反。
         // 钉住的列表始终显示，不参与悬停展开。
         let progress = match (stays, hovered, closing) {
@@ -1024,6 +1100,15 @@ fn draw_toc(app: &mut App, frame: &mut Frame<'_>, area: Rect, pad: f32) {
                 hits.insert(0, (pin, TocTarget::Pin));
             }
         });
+        // 标题没有全部列出时带滚动条。
+        let track = Rect::new(card.x, card.y + TOC_PAD, card.w, rows as f32 * TOC_ROW);
+        app.preview.markdown.toc_list.track = track;
+        if let Some((scroll, content)) = app.preview.markdown.toc_list.scrollbar().filter(|_| live)
+        {
+            let owner = app.editor.active().map_or(0, |doc| doc.id.0);
+            let area = ScrollArea::MarkdownToc;
+            crate::view::draw_scrollbar(app, frame, area, owner, track, scroll, content);
+        }
         // 横线不随卡片淡入，始终不透明：展开的第一帧与指示条完全重合。
         for (i, mid) in dashes {
             let (color, thick) = toc_dash(p, i, current);

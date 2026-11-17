@@ -2,7 +2,108 @@
 
 use super::*;
 
+/// 标题列表中列出的范围：标题超过可显示的行数时只列出连续的一段，可按行滚动。
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TocList {
+    /// 上一帧卡片的矩形；列表收起时为空。
+    pub card: winc_render::Rect,
+    /// 上一帧各行所占的矩形，即滚动条的轨道。
+    pub track: winc_render::Rect,
+    /// 列出的第一行、行数和标题的总数。
+    pub first: usize,
+    pub rows: usize,
+    pub total: usize,
+    /// 一行的高度（逻辑像素）。
+    pub row: f32,
+    /// 列出的第一行相对默认位置的偏移（行）；默认位置使当前所在的一节居中。
+    pub shift: isize,
+    /// 设置 `shift` 时当前所在的一节；该值变化时 `shift` 归零。
+    pub at: Option<usize>,
+    /// 滚轮位移中不足一行的部分（逻辑像素）。
+    pub wheel: f32,
+}
+
+/// 分帧排版的状态，见 [`Later`](super::laid::Later)。
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CatchUp {
+    /// 一帧中排版视口之外的块的时限；`None` 时取
+    /// [`LAYOUT_BUDGET`](super::laid::LAYOUT_BUDGET)，测试中不设时限。
+    pub budget: Option<std::time::Duration>,
+    /// 本帧绘制后是否仍有沿用旧结果的块；为真时逐帧重绘，直到全部排完。
+    pub pending: bool,
+}
+
+impl CatchUp {
+    /// 返回本帧排版视口之外的块的截止时刻。
+    pub fn deadline(&self) -> std::time::Instant {
+        let default = if cfg!(test) {
+            std::time::Duration::from_secs(3600)
+        } else {
+            super::laid::LAYOUT_BUDGET
+        };
+        std::time::Instant::now() + self.budget.unwrap_or(default)
+    }
+}
+
+impl TocList {
+    /// 返回本帧列出的第一行：默认位置 `natural` 加上偏移，并使 `rows` 行不超出 `total`。
+    pub fn start(
+        &mut self,
+        natural: usize,
+        current: Option<usize>,
+        (rows, total): (usize, usize),
+    ) -> usize {
+        if self.at != current {
+            (self.at, self.shift, self.wheel) = (current, 0, 0.0);
+        }
+        let start = natural.saturating_add_signed(self.shift).min(total - rows);
+        self.shift = start as isize - natural as isize;
+        (self.first, self.rows, self.total) = (start, rows, total);
+        start
+    }
+}
+
+impl TocList {
+    /// 返回滚动条的（滚动位置，内容高度），逻辑像素；全部标题都已列出时为 `None`。
+    pub fn scrollbar(&self) -> Option<(f32, f32)> {
+        (self.rows < self.total)
+            .then_some((self.first as f32 * self.row, self.total as f32 * self.row))
+    }
+}
+
 impl App {
+    /// 拖动标题列表的滚动条：鼠标的纵坐标为 `y`，按下处距滑块上边 `grab`（逻辑像素）。
+    pub(crate) fn drag_toc_scrollbar(&mut self, y: f32, grab: f32) {
+        let list = &mut self.preview.markdown.toc_list;
+        let Some((_, content)) = list.scrollbar() else {
+            return;
+        };
+        let track = list.track;
+        if let Some(thumb) = crate::layout::scrollbar_thumb(track, 0.0, content) {
+            let max = content - track.h;
+            let to = crate::layout::scroll_for_thumb(track.y, track.h, thumb.h, y, grab, max);
+            let first = (to / list.row).round() as isize;
+            list.shift += first - list.first as isize;
+            self.request_redraw();
+        }
+    }
+
+    /// 按滚轮位移 `dy` 滚动标题列表，返回是否已处理。
+    ///
+    /// 鼠标 (`x`, `y`) 不在列表上，或全部标题都已列出时不处理。
+    pub(crate) fn scroll_toc(&mut self, (x, y): (f32, f32), dy: f32) -> bool {
+        let list = &mut self.preview.markdown.toc_list;
+        if list.rows >= list.total || list.row <= 0.0 || !list.card.contains(x, y) {
+            return false;
+        }
+        list.wheel -= dy;
+        let steps = (list.wheel / list.row).trunc();
+        list.wheel -= steps * list.row;
+        list.shift += steps as isize;
+        self.request_redraw();
+        true
+    }
+
     /// 排版完成后，若有属于该文档的待跳转标题（见 [`App::open_markdown_file`]），滚动到该标题。
     pub(crate) fn scroll_to_pending_anchor(&mut self) {
         let md = &mut self.preview.markdown;

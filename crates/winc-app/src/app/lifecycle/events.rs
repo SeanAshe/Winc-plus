@@ -406,6 +406,7 @@ impl ApplicationHandler<UserEvent> for App {
             // 窗口在光标所在位置被其他窗口遮挡时不响应移动，悬停状态按光标离开处理。
             WindowEvent::CursorMoved { .. } if !self.under_cursor() => self.cursor_left(),
             WindowEvent::CursorMoved { position, .. } => {
+                self.frame.frame_log.pointer_moved();
                 self.pointer.cursor_inside = true;
                 let scale = self
                     .frame
@@ -664,6 +665,8 @@ impl App {
         earliest(&mut wake, find);
         let mapping = self.vim_tick(now);
         earliest(&mut wake, mapping);
+        let pdf_tools = self.pdf_tools_tick(now);
+        earliest(&mut wake, pdf_tools);
         // 当前标签正在读取且保留上一帧未绘制时，到期仍未读取完成则绘制「正在读取」。
         if self.disk.loads.held {
             match self.holding_frame(now) {

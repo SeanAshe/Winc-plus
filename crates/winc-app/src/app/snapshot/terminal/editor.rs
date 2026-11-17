@@ -979,6 +979,91 @@ fn bells_and_notifications_reach_the_user() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// 面板铺满编辑区一栏时，提示条和冲突卡片靠在面板内容区域的右上角，消息不被截成省略号；面板
+/// 的查找条打开时排在它下方，输入条在这一区域顶部居中。还原途中仍靠在面板上，还原后回到编辑区。
+#[test]
+fn notices_and_cards_stay_in_the_maximized_terminal() {
+    use crate::app::animation::{Clock, SIDEBAR_ANIMATION};
+    use std::time::{Duration, SystemTime};
+
+    let dir = sample_folder("terminal-max-notice");
+    let dir = winc_config::files::canonicalize(&dir).unwrap();
+    let file = dir.join("short.rs");
+    let mut app = app_with(&file, false);
+    show_terminal(&mut app, "$ ");
+    // 有未保存的修改时磁盘上的文件被其他程序修改：冲突卡片。
+    app.run(Command::Insert("// mine\n".into()));
+    std::fs::write(&file, "fn theirs() {}\n").unwrap();
+    let later = SystemTime::now() + Duration::from_secs(1);
+    (std::fs::File::options().write(true).open(&file).unwrap())
+        .set_modified(later)
+        .unwrap();
+    app.apply_changes(winc_editor::Changes {
+        paths: vec![file.clone()],
+        rescan: false,
+        git: false,
+    });
+    app.run_action(crate::keymap::Action::MaximizeTerminal);
+    assert_eq!(app.layout.editor.w, 0.0);
+    let message = "已复制路径：/tmp/winc/terminal-max-notice/short.rs";
+    app.notify(message);
+    paint(&mut app);
+
+    let area = app.overlay_area();
+    let content = app.terminal_content_card();
+    assert_eq!((area.x, area.right()), (content.x, content.right()));
+    assert!(area.y > content.y && area.bottom() == content.bottom());
+    let (card, buttons) = app.hits.conflict_card.clone().unwrap();
+    let notice = app.hits.notice_card.unwrap();
+    for rect in [card, notice] {
+        assert!(
+            rect.x > area.x && rect.right() < area.right() && rect.y > area.y,
+            "{rect:?}"
+        );
+    }
+    assert!(
+        buttons
+            .iter()
+            .all(|(button, _)| card.contains(button.x, button.y))
+    );
+    assert!(notice.y > card.bottom());
+    // 消息完整显示：提示条比图标和留白宽出整条消息。
+    let mut text = 0.0;
+    let renderer = app.frame.renderer.as_mut().unwrap();
+    renderer.draw(|frame| text = frame.measure(winc_render::FontKind::Ui, app.fonts.ui, message));
+    assert!(notice.w >= text + 34.0, "{} < {text}", notice.w);
+
+    // 面板的查找条打开时排在它下方。
+    app.open_terminal_find();
+    paint(&mut app);
+    let bar = app.terminal_find_bar().unwrap();
+    let (card, _) = app.hits.conflict_card.clone().unwrap();
+    assert!(card.y > bar.bottom());
+    app.close_terminal_find();
+
+    // 输入条在这一区域顶部居中。
+    let prompt = app.prompt_bar();
+    assert!(prompt.w > 0.0 && prompt.x > area.x && prompt.right() < area.right());
+
+    // 还原途中编辑区已排好，提示仍靠在面板上；还原后回到编辑区。
+    app.run_action(crate::keymap::Action::MaximizeTerminal);
+    app.terminal.grow = Some(Clock::stopped(SIDEBAR_ANIMATION, SIDEBAR_ANIMATION / 2));
+    app.relayout();
+    assert!(app.layout.editor.w > 0.0);
+    assert_eq!(
+        app.overlay_area().right(),
+        app.terminal_content_card().right()
+    );
+    app.terminal.grow = None;
+    app.relayout();
+    assert_eq!(app.overlay_area(), app.layout.editor);
+    paint(&mut app);
+    let (card, _) = app.hits.conflict_card.clone().unwrap();
+    assert!(card.right() < app.layout.editor.right());
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 #[ignore = "截图，手动运行"]
 fn snapshot_terminal_maximized() {

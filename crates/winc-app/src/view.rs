@@ -174,8 +174,7 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     // 合并冲突的卡片排在磁盘冲突卡片下面。
     let top = match &app.hits.conflict_card {
         Some((card, _)) => card.bottom(),
-        None if app.layout.search.h > 0.0 => app.layout.search.bottom(),
-        None => app.layout.editor.y,
+        None => app.overlay_top(),
     } + 8.0;
     let mut hits = std::mem::take(&mut app.hits.merge);
     app.hits.merge_card = git::merge::draw_merge_card(app, frame, top, &mut hits);
@@ -968,16 +967,25 @@ fn draw_card(frame: &mut Frame<'_>, p: &Palette, rect: Rect, radius: f32, backgr
     frame.rounded(rect, background, radius);
 }
 
-/// 绘制卡片外侧的阴影与细边框（`rect` 内部不绘制）。
+/// 绘制卡片外侧的阴影与细边框（`rect` 内部不绘制）；细边框画在一圈卡片底色上，不透出下方的
+/// 内容。
 fn draw_card_frame(frame: &mut Frame<'_>, p: &Palette, rect: Rect, radius: f32) {
     let covered = frame.covered(rect, radius);
     frame.shadow(rect, radius, 16.0, 4.0, p.shadow, Some(covered));
-    frame.rect_except(
-        rect.inset(-1.0, -1.0),
-        p.popup_border,
-        radius + 1.0,
-        covered,
-    );
+    let edge = rect.inset(-1.0, -1.0);
+    frame.rect_except(edge, p.popup_bg, radius + 1.0, covered);
+    frame.rect_except(edge, p.popup_border, radius + 1.0, covered);
+}
+
+/// 绘制浮在预览内容上的工具栏或卡片 `rect`（含细边框）：阴影、细边框和底色，裁剪到 `clip`；
+/// 细边框画在卡片底色上，不透出下方的内容。
+fn draw_floating_bar(frame: &mut Frame<'_>, p: &Palette, rect: Rect, clip: Rect) {
+    let covered = frame.covered(rect, RADIUS_POPUP);
+    frame.shadow(rect, RADIUS_POPUP, 12.0, 4.0, p.shadow, Some(covered));
+    frame.rect_clipped(rect, p.popup_bg, RADIUS_POPUP, clip);
+    frame.rect_clipped(rect, p.popup_border, RADIUS_POPUP, clip);
+    let inner = rect.inset(1.0, 1.0);
+    frame.rect_clipped(inner, p.popup_bg, RADIUS_POPUP - 1.0, clip);
 }
 
 /// 卡片阴影超出卡片矩形的范围（逻辑像素）。

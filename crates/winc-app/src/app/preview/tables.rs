@@ -11,6 +11,7 @@ use winc_render::Rect;
 use winit::keyboard::{Key, NamedKey};
 
 use crate::app::{App, Drag, Focus, UserEvent};
+use crate::layout::{hscrollbar_thumb, scroll_for_thumb, scrollbar_thumb};
 
 /// 后台读好的表格：文档、读取依据的文档版本号、读取结果。
 type Done = (DocumentId, u64, Result<Table, String>);
@@ -37,8 +38,9 @@ impl Default for TableJobs {
 impl App {
     /// 当前标签的表格需要读取时，提交后台任务；每次绘制前调用。
     ///
-    /// 工作簿按路径读磁盘上的文件；csv、tsv 读文档当前的文字，包含未保存的修改。同一文档同时
-    /// 只读一版：打字快过读取时，上一版回来以后直接读最新的，中间的版本跳过。
+    /// 工作簿按路径读磁盘上的文件；csv、tsv 读文档当前的文字，包含未保存的修改，大文件读磁盘上
+    /// 的文件。同一文档同时只读一版：打字快过读取时，上一版回来以后直接读最新的，中间的版本
+    /// 跳过。
     pub(crate) fn advance_tables(&mut self) {
         let Some(doc) = self.editor.active() else {
             return;
@@ -63,17 +65,21 @@ impl App {
             };
             Box::new(move || table::load_workbook(&path))
         } else {
-            let Some(rope) = doc.text().rope() else {
-                return;
-            };
-            let text = rope.to_string();
             let tabs = doc.highlighter.language().id == "tsv";
-            Box::new(move || {
-                let sheet = table::read_delimited(&text, tabs);
-                Ok(Table {
-                    sheets: vec![sheet],
-                })
-            })
+            match (doc.text().rope(), path) {
+                (Some(rope), _) => {
+                    let text = rope.to_string();
+                    Box::new(move || {
+                        let sheet = table::read_delimited(&text, tabs);
+                        Ok(Table {
+                            sheets: vec![sheet],
+                        })
+                    })
+                }
+                // 大文件的原文不在内存中，从磁盘读取。
+                (None, Some(path)) => Box::new(move || table::load_delimited(&path, tabs)),
+                (None, None) => return,
+            }
         };
         self.preview.tables.pending.insert(key);
         let (sender, proxy) = (self.preview.tables.sender.clone(), self.link.proxy.clone());
@@ -108,6 +114,43 @@ impl App {
         shown && self.preview.table_layout.area.contains(x, y)
     }
 
+    /// 返回当前标签中表格的滚动位置（逻辑像素），已限制在可滚动的范围内；没有表格时为零。
+    pub(crate) fn table_scroll(&self) -> (f32, f64) {
+        let (max_x, max_y) = self.preview.table_layout.max_scroll;
+        let view = self.editor.active().and_then(|doc| doc.table.as_deref());
+        view.map_or((0.0, 0.0), |view| {
+            (
+                view.scroll.0.clamp(0.0, max_x),
+                view.scroll.1.clamp(0.0, max_y),
+            )
+        })
+    }
+
+    /// 拖动表格的滚动条，`horizontal` 表示水平的一条。
+    ///
+    /// 鼠标位于 (`x`, `y`)，按下处距滑块起点 `grab`（逻辑像素）。
+    pub(crate) fn drag_table_scrollbar(&mut self, horizontal: bool, (x, y): (f32, f32), grab: f32) {
+        let layout = &self.preview.table_layout;
+        let (body, (max_x, max_y)) = (layout.body, layout.max_scroll);
+        // 滑块的位置先换算成 0 到 1 的比例，再乘以最大滚动距离。
+        let part = if horizontal {
+            hscrollbar_thumb(body, 0.0, body.w + max_x)
+                .map(|thumb| scroll_for_thumb(body.x, body.w, thumb.w, x, grab, 1.0))
+        } else {
+            scrollbar_thumb(body, 0.0, body.h + max_y as f32)
+                .map(|thumb| scroll_for_thumb(body.y, body.h, thumb.h, y, grab, 1.0))
+        };
+        let (Some(part), Some(view)) = (part, self.active_table_mut()) else {
+            return;
+        };
+        if horizontal {
+            view.scroll.0 = part * max_x;
+        } else {
+            view.scroll.1 = f64::from(part) * max_y;
+        }
+        self.request_redraw();
+    }
+
     /// 按滚轮位移滚动当前标签的表格。
     ///
     /// `dx`、`dy` 为滚轮的横向、纵向位移（逻辑像素），(`x`, `y`) 为鼠标位置。在当前格的卡片
@@ -124,7 +167,7 @@ impl App {
         } else if dx.abs() > dy.abs() {
             view.scroll.0 = (view.scroll.0 - dx).clamp(0.0, max_x);
         } else {
-            view.scroll.1 = (view.scroll.1 - dy).clamp(0.0, max_y);
+            view.scroll.1 = (view.scroll.1 - f64::from(dy)).clamp(0.0, max_y);
         }
         self.request_redraw();
     }
@@ -264,7 +307,7 @@ impl App {
             return false;
         };
         let sheet = &table.sheets[sheet];
-        let (rows, columns) = (sheet.rows.len(), sheet.columns);
+        let (rows, columns) = (sheet.row_count(), sheet.columns);
         if rows == 0 || columns == 0 {
             return false;
         }
@@ -336,7 +379,7 @@ impl App {
     pub(crate) fn table_select_all(&mut self) {
         let (rows, columns) = self
             .active_sheet()
-            .map(|(table, sheet)| (table.sheets[sheet].rows.len(), table.sheets[sheet].columns))
+            .map(|(table, sheet)| (table.sheets[sheet].row_count(), table.sheets[sheet].columns))
             .unwrap_or_default();
         if rows > 0 && columns > 0 {
             self.set_table_selection((0, 0), (rows - 1, columns - 1), false);
@@ -353,7 +396,7 @@ impl App {
             return;
         };
         let sheet = &table.sheets[sheet];
-        if sheet.rows.is_empty() || sheet.columns == 0 {
+        if sheet.row_count() == 0 || sheet.columns == 0 {
             return;
         }
         let area = sheet.cover_merges(Area::spanning(view.selection.0, view.selection.1));
@@ -371,7 +414,7 @@ pub(crate) struct TableLayout {
     /// 底部各张工作表标签的矩形，按工作表的顺序。
     pub(crate) sheets: Vec<Rect>,
     /// 横向、纵向的最大滚动距离（逻辑像素）。
-    pub(crate) max_scroll: (f32, f32),
+    pub(crate) max_scroll: (f32, f64),
     /// 表格所在的区域：编辑区，或分栏时的右边。
     pub(crate) area: Rect,
     /// 当前格的卡片；没有显示时宽高为 0。
@@ -418,7 +461,7 @@ impl TableLayout {
     ///
     /// `scroll` 是表格的滚动位置（逻辑像素）；点不在表格上时返回 `None`，`clamp` 时表格之外的
     /// 点算作最近的一格（拖选时鼠标移出表格）。
-    pub(crate) fn hit(&self, x: f32, y: f32, scroll: (f32, f32), clamp: bool) -> Option<TableHit> {
+    pub(crate) fn hit(&self, x: f32, y: f32, scroll: (f32, f64), clamp: bool) -> Option<TableHit> {
         let (rows, columns) = self.size;
         if rows == 0 || columns == 0 || self.row_h <= 0.0 {
             return None;
@@ -438,7 +481,8 @@ impl TableLayout {
             .partition_point(|&edge| edge <= cx)
             .saturating_sub(1)
             .min(columns - 1);
-        let row = (((y - self.body.y + scroll.1) / self.row_h).max(0.0) as usize).min(rows - 1);
+        let down = f64::from(y - self.body.y) + scroll.1;
+        let row = ((down / f64::from(self.row_h)).max(0.0) as usize).min(rows - 1);
         Some(match () {
             () if clamp => TableHit::Cell(row, column),
             () if in_header => TableHit::Column(column),
@@ -448,14 +492,14 @@ impl TableLayout {
     }
 
     /// 让第 `row` 行第 `column` 列完整显示时的滚动位置（从 `scroll` 出发，移动得最少）。
-    pub(crate) fn reveal(&self, (row, column): (usize, usize), scroll: (f32, f32)) -> (f32, f32) {
+    pub(crate) fn reveal(&self, (row, column): (usize, usize), scroll: (f32, f64)) -> (f32, f64) {
         let (Some(&left), Some(&right)) = (self.edges.get(column), self.edges.get(column + 1))
         else {
             return scroll;
         };
-        let top = row as f32 * self.row_h;
-        let bottom = top + self.row_h;
-        let fit = |start: f32, end: f32, at: f32, span: f32| {
+        let top = row as f64 * f64::from(self.row_h);
+        let bottom = top + f64::from(self.row_h);
+        let fit = |start: f64, end: f64, at: f64, span: f64| {
             if start < at {
                 start
             } else if end > at + span {
@@ -465,8 +509,14 @@ impl TableLayout {
             }
         };
         (
-            fit(left, right, scroll.0, self.body.w).clamp(0.0, self.max_scroll.0),
-            fit(top, bottom, scroll.1, self.body.h).clamp(0.0, self.max_scroll.1),
+            (fit(
+                left.into(),
+                right.into(),
+                scroll.0.into(),
+                self.body.w.into(),
+            ) as f32)
+                .clamp(0.0, self.max_scroll.0),
+            fit(top, bottom, scroll.1, self.body.h.into()).clamp(0.0, self.max_scroll.1),
         )
     }
 }
