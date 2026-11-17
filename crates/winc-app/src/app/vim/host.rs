@@ -206,7 +206,7 @@ impl Host for DocHost<'_> {
     }
 
     fn read_only(&self) -> bool {
-        self.doc.readonly
+        self.doc.readonly_reason().is_some()
     }
 
     fn fits(&self, from: usize, to: usize) -> bool {

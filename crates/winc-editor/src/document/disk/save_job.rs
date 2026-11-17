@@ -121,7 +121,7 @@ impl Document {
                 t!("editor-file-no-path"),
             ));
         };
-        if let Some(reason) = self.readonly_reason() {
+        if let Some(reason) = self.unwritable_reason() {
             return Err(io::Error::new(io::ErrorKind::PermissionDenied, reason));
         }
         let text = match &self.text {

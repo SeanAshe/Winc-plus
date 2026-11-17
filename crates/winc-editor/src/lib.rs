@@ -66,6 +66,8 @@ pub struct Editor {
     pub active: Option<usize>,
     /// 打开的工作区（目录）；没有打开目录时为 `None`。
     pub workspace: Option<Workspace>,
+    /// 是否把全部文档设为只读。
+    all_locked: bool,
     /// 默认的制表符显示宽度（列）。
     ///
     /// 只作用于未设置制表符宽度的文档；文档可经状态栏或 `.editorconfig` 覆盖，见
@@ -91,6 +93,7 @@ impl Default for Editor {
             documents: Vec::new(),
             active: None,
             workspace: None,
+            all_locked: false,
             tab_width: 4,
             diff_unified: false,
             bookmarks: BookmarkMap::new(),
@@ -175,7 +178,7 @@ impl Editor {
         }
         let id = self.allocate_id();
         self.documents.push(Document::pending(id, canonical));
-        self.documents.len() - 1
+        self.adopt_last()
     }
 
     /// 第 `index` 个标签尚未读取（[`Document::pending`]）时在当前线程读入文件，返回是否已读取。
@@ -375,7 +378,7 @@ impl Editor {
             None => {
                 let id = self.allocate_id();
                 self.documents.push(make(id));
-                self.documents.len() - 1
+                self.adopt_last()
             }
         };
         self.active = Some(index);
@@ -402,11 +405,31 @@ impl Editor {
         (index, true)
     }
 
+    /// 让刚加入的文档沿用窗口的只读状态，返回它的标签序号（从 0 起）。
+    fn adopt_last(&mut self) -> usize {
+        let index = self.documents.len() - 1;
+        self.documents[index].set_all_locked(self.all_locked);
+        index
+    }
+
+    /// 窗口是否把全部文档设为只读。
+    pub fn all_locked(&self) -> bool {
+        self.all_locked
+    }
+
+    /// 把全部文档设为只读或恢复，之后打开的文档也一样；各文档自己的只读不变。
+    pub fn set_all_locked(&mut self, locked: bool) {
+        self.all_locked = locked;
+        for document in &mut self.documents {
+            document.set_all_locked(locked);
+        }
+    }
+
     /// 新建一个未命名的空文档并切换到对应标签，返回标签序号（从 0 起）。
     pub fn new_untitled(&mut self) -> usize {
         let id = self.allocate_id();
         self.documents.push(Document::empty(id));
-        let index = self.documents.len() - 1;
+        let index = self.adopt_last();
         self.active = Some(index);
         index
     }
@@ -633,9 +656,11 @@ pub struct LoadedFile {
 ///
 /// `fresh` 与 `slot` 使用相同的 `DocumentId`。界面层按（`DocumentId`，`revision`）缓存查找
 /// 结果、粘滞滚动、括号配对和后台解码的图片，因此新文档的 `revision` 必须大于旧文档的，
-/// 否则新内容会命中旧内容的缓存。
+/// 否则新内容会命中旧内容的缓存。用户设置的只读随标签保留。
 fn replace_document(slot: &mut Document, mut fresh: Document) {
     fresh.revision += slot.revision + 1;
+    fresh.set_locked(slot.is_locked());
+    fresh.set_all_locked(slot.all_locked());
     *slot = fresh;
 }
 

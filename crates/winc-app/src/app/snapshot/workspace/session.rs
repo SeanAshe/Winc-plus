@@ -253,7 +253,7 @@ fn switching_folders_keeps_each_folders_tabs() {
     assert_eq!(names(&app), ["main.rs", "Cargo.toml"]);
     assert_eq!(app.editor.active().unwrap().name(), "Cargo.toml");
 
-    // 项目名菜单：最近的目录（不含当前目录）、新建窗口、打开目录、关闭目录。菜单开着时项目名
+    // 项目名菜单：最近的目录（不含当前目录）、新建窗口、打开目录、添加目录、关闭目录。菜单开着时项目名
     // 按钮处于按下状态，关掉菜单后放开。
     app.open_project_menu();
     assert_eq!(
@@ -276,6 +276,7 @@ fn switching_folders_keeps_each_folders_tabs() {
             MenuCommand::OpenRecent(b_index),
             MenuCommand::NewWindow,
             MenuCommand::OpenFolder,
+            MenuCommand::AddFolder,
             MenuCommand::CloseFolder
         ]
     );
@@ -309,7 +310,7 @@ fn switching_folders_keeps_each_folders_tabs() {
         })
         .collect();
     let folder_icon = crate::app::input::context_menu::MenuIcon::Folder;
-    assert_eq!(icons, [Some(folder_icon), None, None, None]);
+    assert_eq!(icons, [Some(folder_icon), None, None, None, None]);
     let row = popup.row_rects[0];
     let image = app.frame.renderer.as_ref().unwrap().image().unwrap();
     let scale = image.width as f32 / app.layout.window.w;
@@ -972,4 +973,108 @@ fn the_sidebar_state_is_remembered_per_folder() {
 
     std::fs::remove_dir_all(&first).unwrap();
     std::fs::remove_dir_all(&second).unwrap();
+}
+
+#[test]
+fn a_tab_set_to_read_only_refuses_edits_until_cleared() {
+    use crate::keymap::Action;
+    let dir = search_folder("session-read-only");
+    let mut app = app_with(&dir, false);
+    app.open_path(&dir.join("src/main.rs"));
+    let text = |app: &App| {
+        app.editor
+            .active()
+            .unwrap()
+            .text()
+            .rope()
+            .unwrap()
+            .to_string()
+    };
+    let before = text(&app);
+
+    // 设为只读：输入、粘贴、撤销都不改内容，状态栏有可以点按的只读标记。
+    app.run_action(Action::ToggleReadOnly);
+    assert!(app.editor.active().unwrap().is_locked());
+    app.run(Command::Insert("x".into()));
+    app.run(Command::Paste("y".into()));
+    assert_eq!(text(&app), before);
+    assert!(!app.editor.active().unwrap().is_dirty());
+    paint(&mut app);
+    let chip = |app: &App| {
+        let found = (app.hits.status.iter()).find(|(_, item)| *item == StatusItem::ReadOnly);
+        found.map(|(rect, _)| *rect).expect("状态栏有只读标记")
+    };
+    let listed = |app: &mut App| {
+        let rect = chip(app);
+        crate::app::snapshot::click(app, (rect.x + 4.0, rect.y + 4.0));
+        let menu = app
+            .overlays
+            .context_menu
+            .as_ref()
+            .expect("点按标记弹出菜单");
+        menu.entries.clone()
+    };
+    let item = crate::app::input::context_menu::MenuEntry::Item;
+
+    // 只读的标签记在会话里，下次启动时恢复。
+    app.save_session();
+    let session = app.state.last_session().cloned().unwrap();
+    assert_eq!((session.readonly.len(), session.readonly_all), (1, false));
+    let mut editor = Editor::default();
+    assert!(crate::open_session_folder(&mut editor, &session));
+    crate::app::restore_at_launch(&mut editor, Some(&session), None);
+    assert!(editor.active().unwrap().is_locked());
+
+    // 点按标记弹出菜单：取消此文件的只读，或把全部文件设为只读。
+    let menu = listed(&mut app);
+    let expected = [
+        item(MenuCommand::ReadOnly(false), true),
+        item(MenuCommand::ReadOnlyAll(true), true),
+    ];
+    assert_eq!(menu, expected);
+    app.run_menu_command(MenuCommand::ReadOnly(false));
+    assert!(!app.editor.active().unwrap().is_locked());
+    app.run(Command::Insert("x".into()));
+    assert!(app.editor.active().unwrap().is_dirty());
+
+    // 可以编辑时标记仍在。全部设为只读：已打开的和之后打开的标签都不能编辑，下次启动沿用。
+    paint(&mut app);
+    let menu = listed(&mut app);
+    assert_eq!(menu[0], item(MenuCommand::ReadOnly(true), true));
+    app.run_menu_command(MenuCommand::ReadOnlyAll(true));
+    let dirty = text(&app);
+    app.run(Command::Insert("z".into()));
+    assert_eq!(text(&app), dirty);
+    app.open_path(&dir.join("src/config.rs"));
+    let other = text(&app);
+    app.run(Command::Insert("z".into()));
+    assert_eq!(text(&app), other);
+    paint(&mut app);
+    assert_eq!(
+        listed(&mut app)[0],
+        item(MenuCommand::ReadOnly(true), false)
+    );
+    app.overlays.context_menu = None;
+    app.save_session();
+    let session = app.state.last_session().cloned().unwrap();
+    assert!(session.readonly.is_empty() && session.readonly_all);
+    let mut editor = Editor::default();
+    assert!(crate::open_session_folder(&mut editor, &session));
+    crate::app::restore_at_launch(&mut editor, Some(&session), None);
+    assert!(editor.all_locked() && editor.active().unwrap().readonly_reason().is_some());
+    app.run_action(Action::ToggleReadOnlyAll);
+    assert!(!app.editor.all_locked());
+    app.run_action(Action::PreviousTab);
+    assert_eq!(text(&app), dirty);
+
+    // 有未保存的修改时设为只读：不能再编辑，仍可以保存。
+    app.run_action(Action::ToggleReadOnly);
+    let dirty = text(&app);
+    app.run(Command::Insert("z".into()));
+    assert_eq!(text(&app), dirty);
+    app.run_action(Action::Save);
+    app.wait_for_saves();
+    assert!(!app.editor.active().unwrap().is_dirty());
+
+    let _ = std::fs::remove_dir_all(&dir);
 }

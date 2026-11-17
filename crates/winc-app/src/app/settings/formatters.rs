@@ -307,6 +307,7 @@ impl App {
             | Setting::RenderWhitespace
             | Setting::VimClipboard
             | Setting::GitOpenWorktree
+            | Setting::DropFolder
             | Setting::Zoom
             | Setting::BackgroundImage
             | Setting::BackgroundFit
@@ -322,6 +323,7 @@ impl App {
                     Setting::RenderWhitespace => MenuTarget::Whitespace,
                     Setting::VimClipboard => MenuTarget::VimClipboard,
                     Setting::GitOpenWorktree => MenuTarget::OpenWorktree,
+                    Setting::DropFolder => MenuTarget::DropFolder,
                     Setting::Zoom => MenuTarget::Zoom,
                     Setting::BackgroundImage => MenuTarget::BackgroundImage,
                     Setting::BackgroundFit => MenuTarget::BackgroundFit,

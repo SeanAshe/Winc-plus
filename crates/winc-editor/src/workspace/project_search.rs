@@ -185,6 +185,10 @@ pub struct ProjectSearch {
     /// 当前结果对应的条件和工作区根目录。
     query: Option<Query>,
     root: PathBuf,
+    /// 一并搜索的附加目录，见 [`Self::set_extra_folders`]。
+    extra: Vec<PathBuf>,
+    /// 各个附加目录在相对路径中的前缀和目录，每次 [`Self::start`] 时确定。
+    labelled: Arc<[(String, PathBuf)]>,
     /// 按 `query` 编译好的匹配器，重新搜索个别文件时复用；查询为空或无法编译时为 `None`。
     matcher: Option<Matcher>,
     /// [`Self::start`] 收到的唤醒回调，后台重新搜索一批文件时同样使用；与 `matcher` 同时设置。
@@ -198,6 +202,14 @@ pub struct ProjectSearch {
 }
 
 impl ProjectSearch {
+    /// 设置与工作区根目录一并搜索的附加目录，下一次 [`Self::start`] 起生效。
+    ///
+    /// 其中的文件的相对路径以该目录的前缀开头（与快速打开的文件表相同）。包含、排除的通配相对于工作区根目录，对附加的
+    /// 目录按文件名和完整路径匹配。
+    pub fn set_extra_folders(&mut self, folders: Vec<PathBuf>) {
+        self.extra = folders;
+    }
+
     /// 按新条件从头搜索，旧的搜索作废。
     ///
     /// `dirty` 是有未保存修改的文档：路径和当前内容。后台线程有新结果（最多每 50 ms 一次）和
@@ -212,6 +224,8 @@ impl ProjectSearch {
         self.clear();
         self.query = Some(query.clone());
         self.root = root.to_path_buf();
+        let labels = crate::workspace::tree::folder_prefixes(root, &self.extra);
+        self.labelled = labels.into_iter().zip(self.extra.iter().cloned()).collect();
 
         if query.text.is_empty() {
             return;
@@ -425,8 +439,9 @@ impl ProjectSearch {
                 &AtomicBool::new(false),
             ),
         };
-        let fresh =
-            found.and_then(|(matches, lossy)| file_result(&self.root, path, matches, lossy));
+        let fresh = found.and_then(|(matches, lossy)| {
+            file_result((&self.root, &self.labelled), path, matches, lossy)
+        });
 
         if let Some(refresh) = self.job.as_mut().and_then(|job| job.refresh.as_mut()) {
             refresh.files.remove(path);

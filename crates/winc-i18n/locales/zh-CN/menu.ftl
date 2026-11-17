@@ -67,6 +67,9 @@ menu-git-fetch-desc = 下载远程更新，不修改本地分支
 
 menu-new-file = 新建文件…
 menu-new-folder = 新建目录…
+menu-remove-folder = 从窗口中移除
+menu-rename-group = 重命名此目录组…
+menu-open-group = 打开此目录组
 menu-open-in-terminal = 在终端中打开
 menu-open-with-winc = 通过 Winc 打开
 menu-close-tabs-right = 关闭右侧标签页
@@ -189,3 +192,7 @@ menu-commit-check-todo = 检查 TODO
 menu-commit-recent-messages = 最近的提交信息
 menu-commit-co-author = 添加共同作者
 menu-commit-no-verify = 本次提交跳过钩子
+menu-set-read-only = 设为只读
+menu-clear-read-only = 取消只读
+menu-set-read-only-all = 全部设为只读
+menu-clear-read-only-all = 全部取消只读

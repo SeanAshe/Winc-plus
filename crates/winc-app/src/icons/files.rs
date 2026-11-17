@@ -148,6 +148,20 @@ pub fn folder(frame: &mut Frame<'_>, (x, y): (f32, f32), open: bool, color: Colo
     frame.stroke(shapes.as_slice(), STROKE, color, clip);
 }
 
+/// 绘制一组目录的图标，15×12，左上角在 `(x, y)`：下面一个圆角矩形，上面两道逐渐变短的横线，
+/// 表示叠在一起的多个目录。
+pub fn folders(frame: &mut Frame<'_>, (x, y): (f32, f32), color: Color, clip: Rect) {
+    let h = STROKE / 2.0;
+    // 矩形高 7.5，贴着下沿；两道横线各比下面一层每侧短 2，相隔 2。
+    let front = rounded_outline(x + h, y + 4.5 + h, 15.0 - STROKE, 7.5 - STROKE, 2.0);
+    let layers = [
+        Stroke::Line(x + 2.0 + h, y + 2.0 + h, x + 13.0 - h, y + 2.0 + h),
+        Stroke::Line(x + 4.0 + h, y + h, x + 11.0 - h, y + h),
+    ];
+    frame.stroke(&front, STROKE, color, clip);
+    frame.stroke(&layers, STROKE, color, clip);
+}
+
 /// 绘制小号目录图标，12×10，以 `(cx, cy)` 为中心：形状和合上的 [`folder`] 相同，线条和小号分支
 /// 图标一样细，用于侧栏小号文字旁。
 pub fn folder_small(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {

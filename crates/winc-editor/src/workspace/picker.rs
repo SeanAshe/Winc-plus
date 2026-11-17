@@ -17,7 +17,7 @@ use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::thread;
 
 use crate::background;
-use crate::workspace::tree::{HIDDEN, is_listed_file, walker};
+use crate::workspace::tree::{HIDDEN, folder_prefixes, is_listed_file, walker};
 use crate::workspace::watch::Changes;
 
 /// 索引收录的最大文件数（个，经验值）。
@@ -259,6 +259,8 @@ enum Job {
 #[derive(Default)]
 pub struct FileIndex {
     root: Option<PathBuf>,
+    /// 一并收录的附加目录：文件表中的路径前缀（其下的路径以它加 `/` 开头）和目录。
+    extra: Arc<[(String, PathBuf)]>,
     /// 后台更新时先取得可变引用再修改，改好后整张表替换。
     files: Arc<Files>,
     narrowing: Narrowing,
@@ -280,8 +282,20 @@ impl FileIndex {
     /// 索引先为空；后台遍历完目录后把文件表放进通道，界面线程在 [`FileIndex::poll`] 中取出。
     /// 后台每完成一项工作（建好、按变化更新好）调用一次 `wake`，唤醒事件循环。
     pub fn spawn(root: &Path, wake: impl Fn() + Send + Sync + 'static) -> FileIndex {
+        FileIndex::spawn_with(root, &[], wake)
+    }
+
+    /// 开始为 `root` 和附加的目录 `extra` 建索引，其余同 [`FileIndex::spawn`]。
+    ///
+    /// 附加的目录中的文件的路径以该目录的名字开头；与根目录下的同名项冲突时加上上级目录的名字。
+    pub fn spawn_with(
+        root: &Path,
+        extra: &[PathBuf],
+        wake: impl Fn() + Send + Sync + 'static,
+    ) -> FileIndex {
         let mut index = FileIndex {
             root: Some(root.to_path_buf()),
+            extra: extra_labels(root, extra),
             wake: Some(Arc::new(wake)),
             ..FileIndex::default()
         };
@@ -291,13 +305,25 @@ impl FileIndex {
 
     /// 在当前线程同步建索引（测试用）。
     pub fn collect_now(root: &Path) -> FileIndex {
+        FileIndex::collect_now_with(root, &[])
+    }
+
+    /// 在当前线程同步为 `root` 和附加的目录 `extra` 建索引（测试用）。
+    pub fn collect_now_with(root: &Path, extra: &[PathBuf]) -> FileIndex {
         let cancel = AtomicBool::new(false);
-        let files = collect(root, MAX_FILES, &cancel);
+        let extra = extra_labels(root, extra);
+        let files = collect_all(root, &extra, MAX_FILES, &cancel);
         FileIndex {
             root: Some(root.to_path_buf()),
+            extra,
             files: Arc::new(files),
             ..FileIndex::default()
         }
+    }
+
+    /// 文件表是否正是为 `root` 和附加的目录 `extra` 建的。
+    pub fn covers(&self, root: &Path, extra: &[PathBuf]) -> bool {
+        self.root.as_deref() == Some(root) && self.extra.iter().map(|(_, folder)| folder).eq(extra)
     }
 
     /// 把 `job` 交给后台线程执行，并取消正在进行的任务。
@@ -308,10 +334,16 @@ impl FileIndex {
             return;
         };
         self.cancel();
+        // 整个重新遍历时重新确定前缀：根目录下可能新出现了同名的项。
+        if matches!(job, Job::Walk) {
+            let folders: Vec<PathBuf> = self.extra.iter().map(|(_, f)| f.clone()).collect();
+            self.extra = extra_labels(&root, &folders);
+        }
         let cancel = Arc::new(AtomicBool::new(false));
         let (sender, receiver) = mpsc::channel();
         let worker_cancel = Arc::clone(&cancel);
         let base = Arc::clone(&self.files);
+        let extra = Arc::clone(&self.extra);
         let wake = self.wake.clone();
 
         // 远端的目录要等待网络，不占线程池中的线程。
@@ -322,7 +354,7 @@ impl FileIndex {
         };
         spawn(Box::new(move || {
             let files = match job {
-                Job::Walk => Some(collect(&root, MAX_FILES, &worker_cancel)),
+                Job::Walk => Some(collect_all(&root, &extra, MAX_FILES, &worker_cancel)),
                 Job::Patch(paths) => patch(&root, &base, &paths, &worker_cancel),
             };
             // 发送失败说明界面一侧已不再需要结果，直接退出。
@@ -398,7 +430,15 @@ impl FileIndex {
         if self.root.is_none() {
             return;
         }
-        if changes.rescan {
+        // 附加的目录中的变化不逐个更新，整个重新遍历。
+        // 根目录下与某个前缀同名的项变化时同样重新遍历，前缀随之重新确定。
+        let root = self.root.clone().unwrap_or_default();
+        let outside = |path: &PathBuf| {
+            (self.extra.iter()).any(|(label, folder)| {
+                path.starts_with(folder) || path.starts_with(root.join(label))
+            })
+        };
+        if changes.rescan || changes.paths.iter().any(outside) {
             // 后台正在遍历或更新时不打断它，完成后再整个重新遍历：编译、安装依赖持续写入时每批
             // 变化都可能要求重新扫描，每次都从头开始时遍历永远无法完成，文件表一直是旧的。
             if self.receiver.is_some() {
@@ -507,7 +547,14 @@ impl FileIndex {
 
     /// 返回绝对路径 `path` 在文件表中的下标；不在打开的目录里或不在表中时返回 `None`。
     pub fn position_of(&self, path: &Path) -> Option<usize> {
-        let relative = relative_path(path.strip_prefix(self.root.as_ref()?).ok()?)?;
+        let inside = |(label, folder): &(String, PathBuf)| {
+            let relative = relative_path(path.strip_prefix(folder).ok()?)?;
+            Some(format!("{label}/{relative}"))
+        };
+        let relative = match self.extra.iter().find_map(inside) {
+            Some(relative) => relative,
+            None => relative_path(path.strip_prefix(self.root.as_ref()?).ok()?)?,
+        };
         self.files.position(&relative)
     }
 
@@ -521,8 +568,19 @@ impl FileIndex {
     pub fn absolute(&self, index: usize) -> Option<PathBuf> {
         let root = self.root.as_ref()?;
         let file = self.files.get(index)?;
-        Some(root.join(file.path.replace('/', std::path::MAIN_SEPARATOR_STR)))
+        let native = |path: &str| path.replace('/', std::path::MAIN_SEPARATOR_STR);
+        let inside = |(label, folder): &(String, PathBuf)| {
+            let rest = file.path.strip_prefix(label.as_str())?.strip_prefix('/')?;
+            Some(folder.join(native(rest)))
+        };
+        Some((self.extra.iter().find_map(inside)).unwrap_or_else(|| root.join(native(file.path))))
     }
+}
+
+/// 返回各个附加目录在文件表中的路径前缀（见 [`folder_prefixes`]）和目录。
+fn extra_labels(root: &Path, extra: &[PathBuf]) -> Arc<[(String, PathBuf)]> {
+    let labels = folder_prefixes(root, extra);
+    labels.into_iter().zip(extra.iter().cloned()).collect()
 }
 
 #[cfg(test)]

@@ -21,6 +21,8 @@ pub enum Pick {
     SaveAs(DocumentId),
     /// 新建工作树对话框「位置」右端的目录按钮：选工作树放在哪个目录下面。
     WorktreeFolder,
+    /// 选择要加为附加目录的目录。
+    AddFolder,
     /// 设置中选择窗口的背景图片。
     BackgroundImage,
     /// 连接远端主机对话框中密钥文件右端的按钮：选密钥文件，从 `~/.ssh` 开始。
@@ -345,6 +347,34 @@ impl App {
         self.request_redraw();
     }
 
+    /// 把当前标签设为只读或恢复为可以编辑；因自身的状态而只读的标签给出原因。
+    pub(in crate::app) fn toggle_read_only(&mut self) {
+        let Some(doc) = self.editor.active() else {
+            return;
+        };
+        match doc.unwritable_reason() {
+            Some(reason) => self.flash(reason),
+            None => self.set_read_only(doc.id, !doc.is_locked()),
+        }
+    }
+
+    /// 把文档 `id` 设为只读（`on`）或恢复为可以编辑，并记入会话。
+    pub(in crate::app) fn set_read_only(&mut self, id: DocumentId, on: bool) {
+        let Some(doc) = self.editor.document_mut(id) else {
+            return;
+        };
+        doc.set_locked(on);
+        self.remember_session();
+        self.request_redraw();
+    }
+
+    /// 把窗口里的全部标签设为只读（`on`）或恢复，并记入会话。
+    pub(in crate::app) fn set_read_only_all(&mut self, on: bool) {
+        self.editor.set_all_locked(on);
+        self.remember_session();
+        self.request_redraw();
+    }
+
     /// 当前文档只读时，在状态栏说明原因；无法打开的文件已在编辑区说明，不重复提示。
     pub(in crate::app) fn announce_readonly(&mut self) {
         if let Some(reason) = self
@@ -352,7 +382,7 @@ impl App {
             .active()
             // 尚未读取完成的文档不提示：读取完成后再判断（`loading.rs`）。
             .filter(|d| d.shows_text() && !d.is_pending())
-            .and_then(|d| d.readonly_reason())
+            .and_then(|d| d.unwritable_reason())
         {
             self.flash(reason);
         }
@@ -599,7 +629,7 @@ impl App {
 
         if doc.title.is_some() {
             // 格式化工具的输出标签只用于查看，不可保存。
-            if let Some(reason) = doc.readonly_reason() {
+            if let Some(reason) = doc.unwritable_reason() {
                 self.flash(reason);
             }
         } else if doc.path.is_none() {
@@ -651,7 +681,7 @@ impl App {
                 continue;
             };
             let candidate =
-                doc.is_dirty() && doc.title.is_none() && doc.readonly_reason().is_none();
+                doc.is_dirty() && doc.title.is_none() && doc.unwritable_reason().is_none();
             // 文件已从磁盘上删除：不自动写回，改为提示一次重新创建的方法；文件恢复后被再次删除时
             // 重新提示。
             if candidate && doc.deleted_on_disk() {
@@ -848,6 +878,7 @@ impl App {
             | Pick::OpenFolder
             | Pick::WslFolder(_)
             | Pick::WorktreeFolder
+            | Pick::AddFolder
             | Pick::BackgroundImage => (String::new(), None),
         };
 
@@ -863,10 +894,12 @@ impl App {
                     files: true,
                     dir: dir.as_deref(),
                 },
-                Pick::OpenFolder | Pick::WslFolder(_) | Pick::WorktreeFolder => Panel::Open {
-                    files: false,
-                    dir: None,
-                },
+                Pick::OpenFolder | Pick::WslFolder(_) | Pick::WorktreeFolder | Pick::AddFolder => {
+                    Panel::Open {
+                        files: false,
+                        dir: None,
+                    }
+                }
                 Pick::SaveAs(_) => Panel::Save {
                     name: &name,
                     dir: dir.as_deref(),
@@ -902,7 +935,7 @@ impl App {
                     };
                     (choose, t!("workspace-remote-dialog-key-choose"))
                 }
-                Pick::OpenFolder | Pick::WslFolder(_) | Pick::WorktreeFolder => {
+                Pick::OpenFolder | Pick::WslFolder(_) | Pick::WorktreeFolder | Pick::AddFolder => {
                     let choose = Choose::Open {
                         directory: true,
                         dir: None,
@@ -935,6 +968,7 @@ impl App {
                 Pick::Open | Pick::BackgroundImage => t!("cmd-open-file"),
                 Pick::KeyFile => t!("workspace-remote-dialog-key-choose"),
                 Pick::OpenFolder | Pick::WorktreeFolder => t!("cmd-open-folder"),
+                Pick::AddFolder => t!("cmd-add-folder"),
                 Pick::WslFolder(_) => t!("cmd-open-wsl-folder"),
                 Pick::SaveAs(_) => t!("cmd-save-as"),
             };
@@ -957,9 +991,10 @@ impl App {
                 }
                 let path = match &kind {
                     Pick::Open | Pick::BackgroundImage | Pick::KeyFile => dialog.pick_file(),
-                    Pick::OpenFolder | Pick::WslFolder(_) | Pick::WorktreeFolder => {
-                        dialog.pick_folder()
-                    }
+                    Pick::OpenFolder
+                    | Pick::WslFolder(_)
+                    | Pick::WorktreeFolder
+                    | Pick::AddFolder => dialog.pick_folder(),
                     Pick::SaveAs(_) => dialog.set_file_name(&name).save_file(),
                 };
                 let _ = proxy.send_event(UserEvent::Picked(kind, path));
@@ -993,6 +1028,7 @@ impl App {
             | Pick::OpenFolder
             | Pick::WslFolder(_)
             | Pick::WorktreeFolder
+            | Pick::AddFolder
             | Pick::BackgroundImage
             | Pick::KeyFile => None,
         };
@@ -1002,6 +1038,7 @@ impl App {
         match kind {
             Pick::Open | Pick::OpenFolder | Pick::WslFolder(_) => self.open_path(&path),
             Pick::WorktreeFolder => self.worktree_folder_picked(path),
+            Pick::AddFolder => self.add_folder(&path),
             Pick::BackgroundImage => self.set_background_image(Some(path)),
             Pick::KeyFile => self.key_file_picked(&path),
             Pick::SaveAs(id) => {

@@ -954,7 +954,7 @@ impl App {
             && self
                 .editor
                 .active()
-                .is_some_and(|d| d.edits_text() && !d.readonly)
+                .is_some_and(|d| d.edits_text() && d.readonly_reason().is_none())
     }
 
     /// 重排后开始过渡动画（见 [`BlockMotion`]）。

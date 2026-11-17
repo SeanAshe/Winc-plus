@@ -94,6 +94,21 @@ impl QuestionView {
         }
     }
 
+    /// 返回给一组目录起名的对话框内容：一个输入框。
+    pub(super) fn rename_group() -> Self {
+        Self {
+            title: t!("workspace-group-rename-title").to_owned(),
+            message: None,
+            message_lines: 0,
+            values: Vec::new(),
+            inputs: vec![QuestionInput {
+                label: t!("workspace-group-rename-label"),
+                placeholder: t!("workspace-group-rename-placeholder"),
+            }],
+            confirm: t!("workspace-group-rename-button"),
+        }
+    }
+
     /// 返回「按路径筛选」对话框的内容：一个输入框。
     pub(super) fn log_path() -> Self {
         Self {

@@ -99,6 +99,16 @@ pub enum MenuButton {
 pub enum MenuCommand {
     NewFile,
     NewFolder,
+    /// 把一个目录加为窗口的附加目录。
+    AddFolder,
+    /// 从窗口中移除附加的目录，不改动磁盘上的内容。
+    RemoveFolder,
+    /// 给窗口中的这组目录起名。
+    RenameGroup,
+    /// 最近列表第几项是一组目录时，其子菜单的第一项：打开这一组。
+    OpenGroup(usize),
+    /// 最近列表第几项这一组中的第几个目录（0 为打开的目录）：单独打开它。
+    GroupFolder(usize, usize),
     /// 在系统文件管理器中显示。
     Reveal,
     OpenInTerminal,
@@ -122,6 +132,10 @@ pub enum MenuCommand {
     /// 关闭所有没有未保存修改的标签。
     CloseSaved,
     CloseAll,
+    /// 把标签设为只读（`true`）或恢复为可以编辑。
+    ReadOnly(bool),
+    /// 把窗口里的全部标签设为只读（`true`）或恢复。
+    ReadOnlyAll(bool),
     /// 在文件树中显示并选中该文件。
     RevealInTree,
     /// 标签列表：切换到指定标签，参数为 `documents` 的下标。
@@ -197,6 +211,9 @@ pub enum MenuCommand {
     /// 设置中「打开工作树」菜单的一项，参数为
     /// [`WorktreeOpen::ALL`](winc_config::WorktreeOpen::ALL) 中的序号（从 0 起）。
     OpenWorktree(usize),
+    /// 设置中「拖入目录」菜单的一项，参数为
+    /// [`FolderDrop::ALL`](winc_config::FolderDrop::ALL) 中的序号（从 0 起）。
+    DropFolder(usize),
     /// 设置中「默认 Shell」菜单的一项：`None` 为系统默认，`Some(i)` 为检测到的第 `i` 个 shell
     /// （从 0 起）。
     DefaultShell(Option<usize>),
@@ -472,6 +489,11 @@ impl MenuCommand {
             }
             MenuCommand::NewFile => t!("menu-new-file"),
             MenuCommand::NewFolder => t!("menu-new-folder"),
+            MenuCommand::AddFolder => t!("cmd-add-folder"),
+            MenuCommand::RemoveFolder => t!("menu-remove-folder"),
+            MenuCommand::RenameGroup => t!("menu-rename-group"),
+            MenuCommand::OpenGroup(_) => t!("menu-open-group"),
+            MenuCommand::GroupFolder(..) => "",
             MenuCommand::Reveal | MenuCommand::LocationReveal => crate::system::reveal_label(),
             MenuCommand::OpenInTerminal => t!("menu-open-in-terminal"),
             MenuCommand::FindInFolder => t!("cmd-find-in-folder"),
@@ -489,6 +511,10 @@ impl MenuCommand {
             MenuCommand::CommitCheck(true) => t!("menu-commit-check"),
             MenuCommand::CommitCheck(false) => t!("menu-commit-uncheck"),
             MenuCommand::CloseSaved => t!("menu-close-saved-tabs"),
+            MenuCommand::ReadOnly(true) => t!("menu-set-read-only"),
+            MenuCommand::ReadOnly(false) => t!("menu-clear-read-only"),
+            MenuCommand::ReadOnlyAll(true) => t!("menu-set-read-only-all"),
+            MenuCommand::ReadOnlyAll(false) => t!("menu-clear-read-only-all"),
             MenuCommand::CloseAll => t!("cmd-close-all-tabs"),
             MenuCommand::RevealInTree => t!("menu-reveal-in-tree"),
             MenuCommand::RunEdit => t!("cmd-edit-run-configurations"),
@@ -640,6 +666,9 @@ impl MenuCommand {
             MenuCommand::OpenWorktree(i) => winc_config::WorktreeOpen::ALL
                 .get(i)
                 .map_or("", |&choice| crate::layout::open_worktree_label(choice)),
+            MenuCommand::DropFolder(i) => winc_config::FolderDrop::ALL
+                .get(i)
+                .map_or("", |&choice| crate::layout::drop_folder_label(choice)),
             MenuCommand::Locale(i) => winc_i18n::LocaleChoice::ALL
                 .get(i)
                 .map_or("", |&choice| crate::layout::locale_label(choice)),
@@ -719,6 +748,8 @@ impl MenuCommand {
             MenuCommand::Delete => Action::DeleteFile,
             MenuCommand::Close => Action::CloseTab,
             MenuCommand::CloseOthers => Action::CloseOtherTabs,
+            MenuCommand::ReadOnly(_) => Action::ToggleReadOnly,
+            MenuCommand::ReadOnlyAll(_) => Action::ToggleReadOnlyAll,
             MenuCommand::CloseAll => Action::CloseAllTabs,
             MenuCommand::NewWindow => Action::NewWindow,
             MenuCommand::OpenFolder => Action::OpenFolder,
@@ -803,6 +834,8 @@ pub enum MenuTarget {
     VimClipboard,
     /// 设置的 Git 页中的「打开工作树」。
     OpenWorktree,
+    /// 设置的编辑器页中的「拖入目录」。
+    DropFolder,
     /// 设置的外观页中的「界面缩放」。
     Zoom,
     /// 设置的外观页中的「背景图片」。
@@ -829,6 +862,8 @@ pub enum MenuTarget {
     LineEnding(DocumentId),
     /// 状态栏中一个文档的编码。
     Encoding(DocumentId),
+    /// 状态栏中一个文档的只读标记。
+    ReadOnly(DocumentId),
     /// 状态栏中一个文档的语言。
     Language(DocumentId),
     /// 分支选择器里第几个分支（[`crate::app::git::GitState::branches`] 的下标）的操作。

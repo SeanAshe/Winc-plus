@@ -129,8 +129,12 @@ impl App {
                 if needle.is_empty() {
                     return Some((0, i));
                 }
+                // 按显示的名字（组名）查找，也可以按目录本身的名字查找。
                 let (name, parent) = folder_label(folder);
-                folder_rank(&needle, &name, &parent).map(|rank| (rank, i))
+                let title = self.recent_title(folder);
+                folder_rank(&needle, &title, &parent)
+                    .or_else(|| folder_rank(&needle, &name, &parent))
+                    .map(|rank| (rank, i))
             })
             .collect();
         ranked.sort_unstable();
@@ -145,8 +149,8 @@ impl App {
         let Some(folder) = folder.filter(|_| !needle.is_empty()) else {
             return (Vec::new(), Vec::new());
         };
-        let (name, parent) = folder_label(folder);
-        let in_name = matched(&needle, &name);
+        let (_, parent) = folder_label(folder);
+        let in_name = matched(&needle, &self.recent_title(folder));
         if in_name.is_empty() {
             (Vec::new(), matched(&needle, &parent))
         } else {

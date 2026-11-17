@@ -1,0 +1,433 @@
+//! 窗口的附加目录：在打开的目录之外再显示的目录，见 [`winc_editor::Workspace::add_folder`]。
+//!
+//! 打开的目录决定窗口的环境（终端的起始目录、运行配置、会话）；附加的目录只参与浏览和查找，
+//! 随打开的目录的会话保存。
+
+use std::path::{Path, PathBuf};
+
+use winc_i18n::t;
+
+use super::files::Pick;
+use crate::app::App;
+use crate::app::input::context_menu::{MenuCommand, MenuEntry, MenuLabel};
+
+impl App {
+    /// 是否可以添加附加的目录：打开了本机的目录。
+    ///
+    /// 远端主机上的目录不能用本机的面板选择。
+    pub(in crate::app) fn can_add_folder(&self) -> bool {
+        (self.editor.root()).is_some_and(|root| !winc_backend::is_remote(root))
+    }
+
+    /// 返回文件树菜单中管理附加目录的项；`folder` 是右键点中的目录行，空白处为 `None`。
+    pub(in crate::app) fn folder_items(&self, folder: Option<&Path>) -> Vec<MenuEntry> {
+        let mut items = Vec::new();
+        if self.can_add_folder() {
+            items.push(MenuEntry::Item(MenuCommand::AddFolder, true));
+        }
+        let extra = self.editor.workspace.as_ref().zip(folder);
+        if extra.is_some_and(|(ws, folder)| ws.extra_folders().iter().any(|f| f == folder)) {
+            items.push(MenuEntry::Item(MenuCommand::RemoveFolder, true));
+        }
+        if !items.is_empty() {
+            items.insert(0, MenuEntry::Separator);
+        }
+        items
+    }
+
+    /// 打开系统的面板选择要添加的目录。
+    pub(in crate::app) fn ask_add_folder(&mut self) {
+        if self.editor.root().is_none() {
+            self.flash(t!("workspace-add-folder-none"));
+        } else if self.can_add_folder() {
+            self.pick(Pick::AddFolder);
+        } else {
+            self.notify(t!("workspace-add-folder-remote"));
+        }
+    }
+
+    /// 把目录 `path` 加为附加的目录；不能添加时说明原因。
+    ///
+    /// 单独打开着一组中的打开的目录时，先恢复这一组，再加入新的目录。
+    pub(in crate::app) fn add_folder(&mut self, path: &Path) {
+        if self.disk.solo {
+            self.attach_group();
+        }
+        let Some(workspace) = &mut self.editor.workspace else {
+            return;
+        };
+        match workspace.add_folder(path) {
+            Ok(_) => self.folders_changed(),
+            Err(e) if e.kind() == std::io::ErrorKind::InvalidInput => {
+                self.notify(t!("workspace-add-folder-overlaps"));
+            }
+            Err(e) => {
+                let name = winc_editor::display_name(path);
+                self.notify(t!(
+                    "workspace-add-folder-failed",
+                    name = name,
+                    error = e.to_string()
+                ));
+            }
+        }
+    }
+
+    /// 从窗口中移除附加的目录 `path`。
+    pub(in crate::app) fn remove_folder(&mut self, path: &Path) {
+        let removed = (self.editor.workspace.as_mut()).is_some_and(|ws| ws.remove_folder(path));
+        if !removed {
+            return;
+        }
+        // 其中的仓库不再属于这个窗口；正在看的是其中之一时换到剩下的第一个。
+        self.git.repositories.retain(|repo| !repo.starts_with(path));
+        if (self.git.root.as_deref()).is_some_and(|root| root.starts_with(path)) {
+            let next = self.git.repositories.first().cloned();
+            self.git_set_root(next);
+        }
+        self.folders_changed();
+    }
+
+    /// 返回 `path` 所在的目录（打开的目录或附加的目录）；不在其中时返回打开的目录。
+    ///
+    /// 新建、改名、移动以它为界，不越出所在的目录。
+    pub(in crate::app) fn folder_root(&self, path: &Path) -> Option<PathBuf> {
+        let workspace = self.editor.workspace.as_ref()?;
+        let folder = workspace.folder_of(path).unwrap_or(&workspace.root);
+        Some(folder.to_path_buf())
+    }
+
+    /// 打开对话框给这组目录起名，输入框中是现在的名字。
+    pub(in crate::app) fn ask_rename_group(&mut self) {
+        let Some(workspace) = self.editor.workspace.as_ref() else {
+            return;
+        };
+        if workspace.extra_folders().is_empty() {
+            return;
+        }
+        let mut name = crate::app::TextField::default();
+        name.set_text(workspace.alias().unwrap_or_default());
+        let kind = crate::app::git::form::FormKind::RenameGroup;
+        self.show_form_dialog(kind, name, crate::layout::DialogPart::Branch);
+    }
+
+    /// 把这组目录的名字改为 `name`；空白时恢复为打开的目录的名字。
+    pub(in crate::app) fn rename_group(&mut self, name: &str) {
+        if let Some(workspace) = &mut self.editor.workspace {
+            workspace.set_alias(Some(name));
+            self.folders_changed();
+        }
+    }
+
+    /// 返回最近打开的目录 `folder` 上次附加的目录数和起的名字；没有附加过目录时返回 `None`。
+    pub(crate) fn recent_group(&self, folder: &Path) -> Option<(usize, Option<&str>)> {
+        let session = self.state.session_for(folder)?;
+        (!session.folders.is_empty()).then_some((session.folders.len(), session.name.as_deref()))
+    }
+
+    /// 返回最近打开的目录 `folder` 的显示名：起了名的用它，附加过目录的在目录名后注明个数。
+    pub(crate) fn recent_title(&self, folder: &Path) -> String {
+        let name = winc_editor::display_name(folder);
+        match self.recent_group(folder) {
+            Some((_, Some(alias))) => alias.to_owned(),
+            Some((count, None)) => t!("workspace-group-count", name = name, count = count),
+            None => name.into_owned(),
+        }
+    }
+
+    /// 返回附加的目录。
+    pub(in crate::app) fn extra_folders(&self) -> Vec<PathBuf> {
+        (self.editor.workspace.as_ref()).map_or_else(Vec::new, |ws| ws.extra_folders().to_vec())
+    }
+
+    /// 附加的目录或这一组的名字变化后：重新监视，记下会话，更新窗口标题，重新布局。
+    fn folders_changed(&mut self) {
+        self.watch_extra_folders();
+        self.git_discover();
+        self.git_scan_repositories();
+        self.index_folder();
+        self.remember_session();
+        self.update_window_title();
+        self.relayout();
+        self.request_redraw();
+    }
+
+    /// 恢复会话 `session` 中记下的附加目录和这一组的名字；已不可用的目录不恢复，并说明是哪些。
+    pub(in crate::app) fn restore_group(&mut self, session: Option<&winc_config::Session>) {
+        let Some(session) = session else {
+            return;
+        };
+        let mut skipped = Vec::new();
+        for folder in &session.folders {
+            if let Some(workspace) = &mut self.editor.workspace
+                && workspace.add_folder(folder).is_err()
+            {
+                skipped.push(winc_editor::display_name(folder).into_owned());
+            }
+        }
+        if !skipped.is_empty() {
+            let names = skipped.join(t!("common-list-separator"));
+            self.notify(t!("workspace-add-folder-skipped", names = names));
+        }
+        if let Some(workspace) = &mut self.editor.workspace
+            && !workspace.extra_folders().is_empty()
+        {
+            workspace.set_alias(session.name.as_deref());
+        }
+    }
+
+    /// 单独打开着一组中的打开的目录时，恢复这一组的其他目录。
+    pub(in crate::app) fn attach_group(&mut self) {
+        if !std::mem::take(&mut self.disk.solo) {
+            return;
+        }
+        let session = (self.editor.root()).and_then(|root| self.state.session_for(root).cloned());
+        self.restore_group(session.as_ref());
+        self.folders_changed();
+    }
+
+    /// 打开最近列表第 `i` 项这一组：正单独打开着其中打开的目录时就地恢复其他目录。
+    pub(in crate::app) fn open_group(&mut self, i: usize) {
+        let here =
+            (self.state.recent.get(i)).is_some_and(|f| Some(f.as_path()) == self.editor.root());
+        if here {
+            self.attach_group();
+        } else {
+            self.run_start_action(crate::app::StartAction::Recent(i));
+        }
+    }
+
+    /// 单独打开最近列表第 `i` 项这一组中的第 `j` 个目录，不带这一组的其他目录。
+    pub(in crate::app) fn open_group_folder(&mut self, i: usize, j: usize) {
+        let folders = self.group_folders(i);
+        let Some(folder) = folders.get(j).cloned() else {
+            return;
+        };
+        if j > 0 {
+            self.open_path(&folder);
+            return;
+        }
+        // 这一组正开在这个窗口里：移除其他目录，这一组仍记在会话里。
+        if Some(folder.as_path()) == self.editor.root() {
+            self.disk.solo = true;
+            for extra in self.extra_folders() {
+                self.remove_folder(&extra);
+            }
+            return;
+        }
+        self.disk.open_alone = Some(folder);
+        self.run_start_action(crate::app::StartAction::Recent(i));
+    }
+
+    /// 整理项目菜单 `menu` 中与附加目录有关的项。
+    ///
+    /// 最近列表中的一组目录换成子菜单：第一项打开这一组，其后列出其中的各个目录，点击单独
+    /// 打开。打开了本机的目录时，「打开目录…」之后加入「添加目录到窗口…」，已有附加的目录时
+    /// 再加入给这一组起名的一项。
+    pub(in crate::app) fn add_folder_entries(&self, menu: &mut Vec<MenuEntry>) {
+        let mut at = 0;
+        while at < menu.len() {
+            let MenuEntry::Item(MenuCommand::OpenRecent(i), _) = menu[at] else {
+                at += 1;
+                continue;
+            };
+            let folders = self.group_folders(i);
+            if folders.len() > 1 {
+                let mut items = vec![
+                    MenuEntry::Item(MenuCommand::OpenGroup(i), true),
+                    MenuEntry::Separator,
+                ];
+                items.extend(
+                    (0..folders.len())
+                        .map(|j| MenuEntry::Item(MenuCommand::GroupFolder(i, j), true)),
+                );
+                let title = self.recent_title(&folders[0]);
+                // 子菜单取代这一项和紧随其后的「在新窗口打开」。
+                let alternate = matches!(menu.get(at + 1), Some(MenuEntry::Alternate(..)));
+                menu.splice(
+                    at..at + 1 + usize::from(alternate),
+                    [MenuEntry::Submenu(title, items)],
+                );
+            }
+            at += 1;
+        }
+        let open = MenuEntry::Item(MenuCommand::OpenFolder, true);
+        let Some(at) = menu.iter().position(|entry| *entry == open) else {
+            return;
+        };
+        if !self.can_add_folder() {
+            return;
+        }
+        menu.insert(at + 1, MenuEntry::Item(MenuCommand::AddFolder, true));
+        if !self.extra_folders().is_empty() {
+            menu.insert(at + 2, MenuEntry::Item(MenuCommand::RenameGroup, true));
+        }
+        // 单独打开着一组中的打开的目录：可以就地恢复这一组。
+        let current = (self.editor.root())
+            .and_then(|root| self.state.recent.iter().position(|folder| folder == root));
+        if let Some(i) = current.filter(|_| self.disk.solo) {
+            menu.insert(at + 2, MenuEntry::Item(MenuCommand::OpenGroup(i), true));
+        }
+    }
+
+    /// 返回最近列表第 `i` 项这一组的各个目录：打开的目录在前，其后是上次附加的目录；该项不存在
+    /// 时为空。
+    pub(in crate::app) fn group_folders(&self, i: usize) -> Vec<PathBuf> {
+        let Some(folder) = self.state.recent.get(i) else {
+            return Vec::new();
+        };
+        let extra = (self.state.session_for(folder).into_iter()).flat_map(|s| s.folders.iter());
+        std::iter::once(folder).chain(extra).cloned().collect()
+    }
+
+    /// 返回最近列表第 `i` 项这一组中第 `j` 个目录的菜单文字：目录名，完整路径在悬停提示中。
+    pub(in crate::app) fn group_folder_label(&self, i: usize, j: usize) -> MenuLabel {
+        match self.group_folders(i).get(j) {
+            Some(folder) => MenuLabel {
+                title: winc_editor::display_name(folder).into_owned(),
+                subtitle: None,
+                tooltip: Some(winc_editor::display_path(folder, None)),
+            },
+            None => MenuLabel::plain(""),
+        }
+    }
+
+    /// 返回最近目录第 `i` 项的菜单文字：标题只写目录名，完整路径放在悬停提示中（主目录显示为
+    /// `~`）。
+    ///
+    /// 只有最近列表中另有同名目录时，才在标题下方用一行小字写明所在的上级目录；否则每一项
+    /// 都会多出一行相同的上级目录，既占空间又没有信息量。
+    pub(in crate::app) fn recent_label(&self, i: usize) -> MenuLabel {
+        let Some(folder) = self.state.recent.get(i) else {
+            return MenuLabel::plain("");
+        };
+        let name = winc_editor::display_name(folder);
+        let same_name = |other: &PathBuf| winc_editor::display_name(other) == name;
+        let ambiguous = self.state.recent.iter().filter(|p| same_name(p)).count() > 1;
+        let title = self.recent_title(folder);
+        MenuLabel {
+            subtitle: folder
+                .parent()
+                .filter(|_| ambiguous)
+                .map(|parent| winc_editor::display_path(parent, None)),
+            tooltip: Some(winc_editor::display_path(folder, None)),
+            title,
+        }
+    }
+
+    /// 返回第 `index` 个仓库在菜单中显示的名字：相对打开的目录的路径，目录本身使用目录名；
+    /// 附加的目录里的仓库是目录名加其中的相对路径。
+    pub(crate) fn git_repository_name(&self, index: usize) -> String {
+        let Some(repo) = self.git.repositories.get(index) else {
+            return String::new();
+        };
+        let relative = self
+            .editor
+            .root()
+            .and_then(|root| repo.strip_prefix(root).ok());
+        let own = || {
+            repo.file_name().map_or_else(
+                || repo.display().to_string(),
+                |name| name.to_string_lossy().into_owned(),
+            )
+        };
+        match relative {
+            Some(path) if !path.as_os_str().is_empty() => path.display().to_string(),
+            Some(_) => own(),
+            // 附加的目录里的仓库：目录名加其中的相对路径。
+            None => {
+                let folder = (self.editor.workspace.as_ref())
+                    .and_then(|ws| ws.folder_of(repo))
+                    .filter(|folder| *folder != repo.as_path());
+                match folder.and_then(|folder| Some((folder, repo.strip_prefix(folder).ok()?))) {
+                    Some((folder, inner)) => {
+                        format!("{}/{}", winc_editor::display_name(folder), inner.display())
+                    }
+                    None => own(),
+                }
+            }
+        }
+    }
+
+    /// 处理拖进窗口的 `path`：可以加为附加目录的目录按设置询问、添加或按落点处理，其余的按落点
+    /// 处理（见 [`App::drop_plain`]）。`into` 是文件树上的目标目录，落在编辑区时为 `None`。
+    ///
+    /// 询问推迟到拖放结束之后（[`UserEvent::FolderDropAsk`]）：系统的拖放回调中不弹出对话框。
+    pub(in crate::app) fn drop_folder(&mut self, path: &Path, into: Option<PathBuf>) {
+        use winc_config::FolderDrop;
+
+        let addable = self.can_add_folder()
+            && (self.editor.workspace.as_ref()).is_some_and(|ws| ws.can_add_folder(path));
+        let choice = self.config.drop_folder.unwrap_or_default();
+        match (addable, choice, self.link.proxy.clone()) {
+            (true, FolderDrop::Add, _) => self.add_folder(path),
+            // 没有窗口（测试中）时不询问，按落点处理。
+            (true, FolderDrop::Ask, Some(proxy)) if self.window.handle.is_some() => {
+                let ask = crate::app::UserEvent::FolderDropAsk(path.to_path_buf(), into);
+                let _ = proxy.send_event(ask);
+            }
+            _ => self.drop_plain(path, into),
+        }
+    }
+
+    /// 询问拖入的目录 `path` 是添加到窗口，还是按落点处理（打开，或复制进 `into`）。
+    pub(in crate::app) fn ask_folder_drop(&mut self, path: &Path, into: Option<PathBuf>) {
+        let name = winc_editor::display_name(path);
+        let (message, detail, other) = match &into {
+            Some(dir) => {
+                let dir = winc_editor::display_name(dir);
+                (
+                    t!("workspace-drop-folder-ask-copy", name = name, folder = dir),
+                    t!("workspace-drop-folder-copy-detail"),
+                    t!("workspace-drop-folder-copy"),
+                )
+            }
+            None => (
+                t!("workspace-drop-folder-ask", name = name),
+                t!("workspace-drop-folder-ask-detail"),
+                t!("workspace-drop-folder-open"),
+            ),
+        };
+        let buttons = vec![
+            crate::app::AlertButton::new(t!("workspace-drop-folder-add")),
+            crate::app::AlertButton::new(other),
+            crate::app::AlertButton::cancel(t!("common-cancel")),
+        ];
+        let remember = Some((t!("common-dont-ask"), false));
+        let target = path.to_path_buf();
+        self.present_alert(&message, detail, buttons, remember, move |i, kept| {
+            let (path, into) = (target.clone(), into.clone());
+            (i < 2).then(|| crate::app::UserEvent::FolderDropped(path, into, i == 0, kept))
+        });
+    }
+
+    /// 按询问中的选择处理拖入的目录 `path`；`remember` 时把该方式写入设置。
+    pub(in crate::app) fn folder_drop_chosen(
+        &mut self,
+        path: &Path,
+        into: Option<PathBuf>,
+        add: bool,
+        remember: bool,
+    ) {
+        use winc_config::FolderDrop;
+
+        if remember {
+            self.set_drop_folder(if add {
+                FolderDrop::Add
+            } else {
+                FolderDrop::Open
+            });
+        }
+        if add {
+            self.add_folder(path);
+        } else {
+            self.drop_plain(path, into);
+        }
+    }
+
+    /// 设置把目录拖进已打开目录的窗口时怎样处理。
+    pub(in crate::app) fn set_drop_folder(&mut self, choice: winc_config::FolderDrop) {
+        self.config.drop_folder = Some(choice);
+        self.save_config();
+        self.request_redraw();
+    }
+}

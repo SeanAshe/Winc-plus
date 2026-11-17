@@ -766,7 +766,7 @@ impl App {
             return;
         }
 
-        let Some(root) = self.editor.root().map(Path::to_path_buf) else {
+        let Some(root) = self.folder_root(&entry.dir) else {
             self.flash(winc_i18n::t!("workspace-open-folder-first"));
             self.relayout();
             self.request_redraw();

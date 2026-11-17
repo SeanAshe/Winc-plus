@@ -97,6 +97,8 @@ impl App {
         }
         self.disk.watcher = None;
         self.disk.changes_due = None;
+        // 换了目录或关闭了目录：原来附加的目录不再监视。
+        self.watch_extra_folders();
         self.git_folder_changed();
         let (Some(root), Some(proxy)) = (root, self.link.proxy.clone()) else {
             return;
@@ -198,7 +200,41 @@ impl App {
         if let Some(changes) = self.disk.watcher.as_ref().map(Watcher::take) {
             self.apply_changes(changes);
         }
+        let limited: Vec<PathBuf> = (self.disk.extra_watchers.iter())
+            .filter(|watcher| watcher.take_limit())
+            .map(|watcher| watcher.root().to_path_buf())
+            .collect();
+        for folder in limited {
+            let name = winc_editor::display_name(&folder);
+            self.notify(winc_i18n::t!("workspace-watch-limit", name = name));
+        }
+        let extra: Vec<Changes> = self.disk.extra_watchers.iter().map(Watcher::take).collect();
+        for changes in extra {
+            self.apply_changes(changes);
+        }
         None
+    }
+
+    /// 使附加目录的监视与工作区一致：新添加的开始监视，已移除的停止。
+    ///
+    /// 没有事件循环（测试中）时不监视。监视启动失败的目录在窗口重新获得焦点时由 `check_disk`
+    /// 检查。
+    pub(in crate::app) fn watch_extra_folders(&mut self) {
+        let folders = self.extra_folders();
+        (self.disk.extra_watchers).retain(|watcher| folders.iter().any(|f| f == watcher.root()));
+        let Some(proxy) = self.link.proxy.clone() else {
+            return;
+        };
+        for folder in folders {
+            if self.disk.extra_watchers.iter().any(|w| w.root() == folder) {
+                continue;
+            }
+            let proxy = proxy.clone();
+            let started = Watcher::start(&folder, move || {
+                let _ = proxy.send_event(UserEvent::FilesChanged);
+            });
+            self.disk.extra_watchers.extend(started);
+        }
     }
 
     /// 按 `changes` 更新界面。

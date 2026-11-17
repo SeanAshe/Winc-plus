@@ -129,6 +129,28 @@ const EDITOR: &[Field] = &[
     bool_field!("hotExit", hot_exit),
     bool_field!("restoreFolder", restore_folder),
     bool_field!("openFolderInNewWindow", open_folder_in_new_window),
+    Field {
+        key: "dropFolder",
+        read: |config, value, name, problems| {
+            config.drop_folder = match value.as_str() {
+                Some("ask") => Some(FolderDrop::Ask),
+                Some("add") => Some(FolderDrop::Add),
+                Some("open") => Some(FolderDrop::Open),
+                _ => {
+                    problems.push(t!("config-drop-folder-invalid", name = name));
+                    None
+                }
+            };
+        },
+        write: |config| {
+            let value = match config.drop_folder? {
+                FolderDrop::Ask => "ask",
+                FolderDrop::Add => "add",
+                FolderDrop::Open => "open",
+            };
+            Some(Json::String(value.into()))
+        },
+    },
     bool_field!("stickyScroll", sticky_scroll),
     bool_field!("wordWrap", word_wrap),
     bool_field!("wholeLines", whole_lines),

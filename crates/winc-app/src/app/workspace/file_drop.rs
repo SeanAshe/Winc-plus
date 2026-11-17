@@ -108,18 +108,27 @@ impl App {
 
     /// 处理在 (`x`, `y`) 处放下的外部文件或目录 `path`，按 [`Self::drop_zone`] 的结果选择处理方式。
     ///
-    /// 落在文件树上时，`path` 已在目标目录中时不复制，只在树中选中它。
+    /// 可以加为附加目录的目录先按设置询问或添加（见 [`App::drop_folder`]）。
     pub(in crate::app) fn drop_file_at(&mut self, path: &Path, x: f32, y: f32) {
-        let dir = match self.drop_zone(x, y) {
-            DropZone::Tree(dir) => dir,
+        let into = match self.drop_zone(x, y) {
+            DropZone::Tree(dir) => Some(dir),
             DropZone::Terminal => {
                 self.drop_path_on_terminal(path);
                 return;
             }
-            DropZone::Open => {
-                self.open_path(path);
-                return;
-            }
+            DropZone::Open => None,
+        };
+        self.drop_folder(path, into);
+    }
+
+    /// 按落点处理放下的 `path`：`into` 是文件树上的目标目录，为 `None` 时落在编辑区。
+    ///
+    /// 落在编辑区时打开它。落在文件树上时复制进目标目录；已在目标目录中时不复制，只在树中
+    /// 选中它。
+    pub(in crate::app) fn drop_plain(&mut self, path: &Path, into: Option<PathBuf>) {
+        let Some(dir) = into else {
+            self.open_path(path);
+            return;
         };
         // 文件树里的路径是规范化的（例如 `/private/var` 而不是 `/var`），比较之前先规范化。
         let path = &winc_config::files::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());

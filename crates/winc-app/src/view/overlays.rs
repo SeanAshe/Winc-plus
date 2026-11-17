@@ -9,7 +9,7 @@ use winc_i18n::t;
 use super::*;
 use crate::app::{
     ConflictAction, Focus, NoticeAction, NoticeGhost, PICKER_ICON_X, PICKER_ROW, PICKER_TEXT_X,
-    PickerPart, folder_label,
+    PickerPart,
 };
 use crate::icons::Direction;
 use crate::layout::{PickerParts, SearchButton};
@@ -923,7 +923,11 @@ fn draw_folder_rows(
         // 目录图标与文件列表的文件图标、输入框的放大镜在同一条竖直轴线上。
         let cy = icon_center_y(app, row, app.fonts.ui);
         let x = row.x + PICKER_ICON_X + (icons::FILE_WIDTH - icons::FOLDER_WIDTH) / 2.0;
-        icons::folder(frame, (x, cy - 6.0), false, p.folder, clip);
+        if app.recent_group(folder).is_some() {
+            icons::folders(frame, (x, cy - 6.0), p.folder, clip);
+        } else {
+            icons::folder(frame, (x, cy - 6.0), false, p.folder, clip);
+        }
 
         // 「✕」只在选中或悬停时显示，但位置始终预留，名称和上级目录不会因它出现而移动。
         let close = Rect::new(
@@ -941,7 +945,7 @@ fn draw_folder_rows(
 
         // 查询命中的字用强调色标出；截短了的文字下标对不上，不标。上级目录放不下时截短，同名
         // 目录保留区分彼此的部分（见 `fit_parent`）。
-        let (name, _) = folder_label(folder);
+        let name = app.recent_title(folder);
         let (in_name, in_parent) = app.folder_matched(i);
         let room = (close.x - 8.0 - (row.x + PICKER_TEXT_X)).max(0.0);
         let shown = ellipsize(frame, &name, app.fonts.ui, room);

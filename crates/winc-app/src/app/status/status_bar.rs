@@ -36,6 +36,8 @@ pub enum StatusItem {
     Settings,
     /// 后台检查找到了新版本：点了打开更新窗口。
     Update,
+    /// 只读标记：点了弹出菜单，把此文件或全部文件设为只读，或者恢复。
+    ReadOnly,
 }
 
 /// 返回状态栏上显示的缩进文案，例如「空格: 4」「制表符长度: 4」。
@@ -85,6 +87,7 @@ impl App {
             (StatusItem::LineEnding, Some(id)) => MenuTarget::LineEnding(id),
             (StatusItem::Encoding, Some(id)) => MenuTarget::Encoding(id),
             (StatusItem::Language, Some(id)) => MenuTarget::Language(id),
+            (StatusItem::ReadOnly, Some(id)) => MenuTarget::ReadOnly(id),
             (
                 StatusItem::Branch
                 | StatusItem::Terminal
@@ -107,6 +110,8 @@ impl App {
             return;
         }
         match command {
+            MenuCommand::ReadOnly(on) => self.set_read_only(id, on),
+            MenuCommand::ReadOnlyAll(on) => self.set_read_only_all(on),
             MenuCommand::IndentUsingSpaces => self.use_indent(false),
             MenuCommand::IndentUsingTabs => self.use_indent(true),
             MenuCommand::IndentSize(size) => {

@@ -204,7 +204,7 @@ impl Document {
             ));
         };
 
-        if let Some(reason) = self.readonly_reason() {
+        if let Some(reason) = self.unwritable_reason() {
             return Err(io::Error::new(io::ErrorKind::PermissionDenied, reason));
         }
 
@@ -425,9 +425,9 @@ impl Document {
                 anchor: mapped[0],
                 head: mapped[1],
             };
-            // 预览中的 SVG 暂时只读，`apply` 会忽略修改：换内容时临时放开。
+            // 预览中的 SVG 暂时只读，用户也可能设了只读，`apply` 会忽略修改：换内容时临时放开。
             let readonly = std::mem::replace(&mut self.readonly, false);
-            self.apply(Transaction::new(changes, before, after, EditKind::Other));
+            self.apply_unlocked(Transaction::new(changes, before, after, EditKind::Other));
             self.readonly = readonly;
             self.selection = after.clamped(self.text.end_pos());
         }

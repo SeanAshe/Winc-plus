@@ -440,6 +440,31 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
         }
     }
 
+    // 文档可以由用户设为只读时，远程按钮左边是一把锁：点了弹出菜单。设了只读时锁合上并铺底色。
+    if let Some(doc) = shown.filter(|doc| doc.can_lock()) {
+        let item = StatusItem::ReadOnly;
+        let slot = right - icons::SIDEBAR_WIDTH;
+        right -= icons::SIDEBAR_WIDTH + STATUS_GAP;
+        let pill = Rect::new(
+            slot - CRUMB_PAD,
+            bar.y + 4.0,
+            icons::SIDEBAR_WIDTH + 2.0 * CRUMB_PAD,
+            bar.h - 8.0,
+        );
+        let locked = doc.readonly_reason().is_some();
+        let hovered = app.pointer.hover == Hover::Status(item);
+        let pressed = app.overlays.menu_button == Some(MenuButton::Status(item));
+        draw_button(frame, p, pill, bar, hovered || locked, pressed);
+        let center = (slot + icons::SIDEBAR_WIDTH / 2.0, bar.y + bar.h / 2.0);
+        let color = if locked || hovered {
+            p.text
+        } else {
+            p.text_muted
+        };
+        icons::status_lock(frame, center, !locked, color, bar);
+        status_hits.push((pill, item));
+    }
+
     // 后台检查更新找到了新版本：在终端开关左边放一个更新按钮（见 [`update_button`]）。
     let mut items = Vec::new();
     if let Some(button) = update_button(app) {

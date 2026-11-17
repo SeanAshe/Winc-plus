@@ -65,6 +65,8 @@ pub struct Config {
     ///
     /// 关闭后每次启动都显示开始页；命令行指定了目录或文件时仍然打开。
     pub restore_folder: Option<bool>,
+    /// 把目录拖进已打开目录的窗口时怎样处理，默认每次询问。
+    pub drop_folder: Option<FolderDrop>,
     /// 已经打开了目录的窗口里再打开另一个目录时，`true` 在新窗口打开，`false` 在此窗口打开
     /// （替换当前目录）；没写时每次询问。
     ///
@@ -289,6 +291,23 @@ pub enum VimClipboard {
 impl VimClipboard {
     /// 全部取值，按设置菜单中的顺序排列。
     pub const ALL: [Self; 3] = [Self::Register, Self::Yank, Self::Always];
+}
+
+/// 把目录拖进已打开目录的窗口时怎样处理。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FolderDrop {
+    /// 每次询问。
+    #[default]
+    Ask,
+    /// 加为窗口的附加目录。
+    Add,
+    /// 不添加，按落点处理：落在编辑区时打开该目录，落在文件树上时复制进目标目录。
+    Open,
+}
+
+impl FolderDrop {
+    /// 全部取值，按设置菜单中的顺序排列。
+    pub const ALL: [Self; 3] = [Self::Ask, Self::Add, Self::Open];
 }
 
 /// 点击工作树时在哪个窗口打开它。

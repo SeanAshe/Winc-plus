@@ -520,6 +520,10 @@ impl App {
             UserEvent::GitOpenWorktree(path, new, remember) => {
                 self.open_worktree_chosen(&path, new, remember);
             }
+            UserEvent::FolderDropAsk(path, into) => self.ask_folder_drop(&path, into),
+            UserEvent::FolderDropped(path, into, add, remember) => {
+                self.folder_drop_chosen(&path, into, add, remember);
+            }
             UserEvent::Indexed => self.picker_indexed(),
             UserEvent::QuitRequested => self.request_quit(),
             UserEvent::SaveChoice(choice) => self.answer_save_prompt(choice),

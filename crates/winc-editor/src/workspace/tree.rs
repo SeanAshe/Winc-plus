@@ -114,8 +114,14 @@ pub struct DirEntry {
 pub struct Workspace {
     /// 根目录（规范化后的绝对路径）。
     pub root: PathBuf,
-    /// 根目录的显示名，标题栏和状态栏使用。
+    /// 显示名，标题栏和状态栏使用：根目录的名字，或用户起的名字（见 [`Workspace::set_alias`]）。
     pub name: String,
+    /// 根目录的名字，没有起名时的显示名。
+    own_name: String,
+    /// 用户给这组目录起的名字。
+    alias: Option<String>,
+    /// 附加的文件夹（规范化后的绝对路径），按添加的顺序；见 [`Workspace::add_folder`]。
+    extra: Vec<PathBuf>,
     /// 选中行在 [`Self::rows`] 中的下标（从 0 起）。
     ///
     /// 多选时是当前行：键盘从这里移动，新建项的位置由它决定；它本身可能不在选区里（⌘ 单击取消
@@ -262,7 +268,10 @@ impl Workspace {
 
         let mut workspace = Workspace {
             root: root.clone(),
+            own_name: name.clone(),
             name,
+            alias: None,
+            extra: Vec::new(),
             selected: None,
             marked: HashSet::new(),
             anchor: None,
@@ -405,10 +414,15 @@ impl Workspace {
 
     /// 展开 `path` 的所有上级目录并选中它，使其在树中可见；`path` 不在工作区内时不做任何事。
     pub fn reveal(&mut self, path: &Path) {
-        let Ok(relative) = path.strip_prefix(&self.root) else {
+        let Some(folder) = self.folder_of(path).map(Path::to_path_buf) else {
             return;
         };
-        let mut current = self.root.clone();
+        let Ok(relative) = path.strip_prefix(&folder) else {
+            return;
+        };
+        // 文件夹自己的一行收起着时先展开。
+        self.expanded.insert(folder.clone());
+        let mut current = folder;
 
         // 远端的目录由后台读取：各级上级目录的路径已经知道，一起要，不必等上一级读好才发现
         // 下一级。
@@ -452,9 +466,10 @@ impl Workspace {
         self.apply_scan(listing)
     }
 
-    /// 折叠全部目录，只保留根目录展开。
+    /// 折叠全部目录，只保留根目录和附加的文件夹展开。
     pub fn collapse_all(&mut self) {
-        self.expanded.retain(|p| *p == self.root);
+        let (root, extra) = (&self.root, &self.extra);
+        self.expanded.retain(|p| p == root || extra.contains(p));
         self.rebuild();
     }
 
@@ -668,7 +683,7 @@ impl Workspace {
         kind: EntryKind,
         contents: &[u8],
     ) -> io::Result<PathBuf> {
-        let path = create_at(&self.root, dir, name, kind, contents)?;
+        let path = create_at(self.folder_or_root(dir), dir, name, kind, contents)?;
         self.created(&path);
         Ok(path)
     }
@@ -688,7 +703,8 @@ impl Workspace {
     ///
     /// 名称无效时返回 `InvalidInput`，目标已被其他项占用时返回 `AlreadyExists`。
     pub fn rename(&mut self, path: &Path, name: &str) -> io::Result<PathBuf> {
-        let target = rename_at(&self.root, path, name)?;
+        self.refuse_folder(path)?;
+        let target = rename_at(self.folder_or_root(path), path, name)?;
         if target != path {
             self.relocated(path, &target);
         }
@@ -704,7 +720,8 @@ impl Workspace {
     /// 移动工作区根目录、`dir` 不在工作区内、移入自身内部时返回 `InvalidInput`，目标已存在时返回
     /// `AlreadyExists`。
     pub fn move_into(&mut self, path: &Path, dir: &Path) -> io::Result<PathBuf> {
-        let target = move_at(&self.root, path, dir)?;
+        self.refuse_folder(path)?;
+        let target = move_at(self.folder_or_root(dir), path, dir)?;
         if target != path {
             self.relocated(path, &target);
         }
@@ -718,7 +735,7 @@ impl Workspace {
     ///
     /// 同 [`copy_entry`]。
     pub fn copy_into(&mut self, source: &Path, dir: &Path) -> io::Result<PathBuf> {
-        let target = copy_entry(&self.root, source, dir, &Copying::default())?;
+        let target = copy_entry(self.folder_or_root(dir), source, dir, &Copying::default())?;
         self.created(&target);
         Ok(target)
     }
@@ -750,12 +767,20 @@ impl Workspace {
     fn rebuild(&mut self) {
         let selected = self.current_path().map(Path::to_path_buf);
         let mut rows = Vec::with_capacity(self.rows.len());
+        // 有附加的文件夹时最上一层是各个文件夹，否则直接是根目录的内容。
+        let top = match self.folder_rows() {
+            Some(folders) => (folders, false),
+            None => {
+                let children = cached_children(&mut self.children, &mut self.missing, &self.root);
+                (children, self.compact)
+            }
+        };
         flatten(
             &mut self.children,
             &mut self.missing,
             &self.expanded,
-            self.compact,
-            &self.root,
+            (self.compact, top.1),
+            top.0,
             None,
             &mut rows,
         );
@@ -812,28 +837,27 @@ fn sole_folder(children: &[DirEntry]) -> Option<&DirEntry> {
     }
 }
 
-/// 把 `dir` 下已展开的部分按显示顺序追加到 `rows`；未缓存的目录先读取并写入 `cache`。
+/// 把同一目录中的各项 `children` 和其中已展开的部分按显示顺序追加到 `rows`；未缓存的目录先读取
+/// 并写入 `cache`。
 ///
-/// `compact` 为真时，已展开的目录中唯一的一项也是目录时与它合并为一行。收起的目录不读取内容，
-/// 因此不会访问磁盘去判断能否合并。
+/// `compact` 的第一项为真时，已展开的目录中唯一的一项也是目录时与它合并为一行；第二项是这一层
+/// 是否合并（各个文件夹自己的行不与其内容合并）。收起的目录不读取内容，因此不会访问磁盘去
+/// 判断能否合并。
 fn flatten(
     cache: &mut HashMap<PathBuf, Rc<[DirEntry]>>,
     missing: &mut Missing,
     expanded: &HashSet<PathBuf>,
-    compact: bool,
-    dir: &Path,
+    (compact, merge): (bool, bool),
+    children: Rc<[DirEntry]>,
     parent: Option<usize>,
     rows: &mut Vec<Entry>,
 ) {
     let depth = parent.map_or(0, |p| rows[p].depth + 1);
-    let children = cached_children(cache, missing, dir);
 
     for index in 0..children.len() {
         let (mut siblings, mut at) = (Rc::clone(&children), index);
         let mut chain = vec![];
-        while compact
-            && siblings[at].kind == EntryKind::Dir
-            && expanded.contains(&siblings[at].path)
+        while merge && siblings[at].kind == EntryKind::Dir && expanded.contains(&siblings[at].path)
         {
             let inner = cached_children(cache, missing, &siblings[at].path);
             if sole_folder(&inner).is_none() {
@@ -861,7 +885,9 @@ fn flatten(
         });
 
         if open {
-            flatten(cache, missing, expanded, compact, &tail, Some(row), rows);
+            let inner = cached_children(cache, missing, &tail);
+            let compact = (compact, compact);
+            flatten(cache, missing, expanded, compact, inner, Some(row), rows);
             rows[row].end = rows.len();
         }
     }
@@ -1194,6 +1220,8 @@ fn take_number(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> (u128, u
     (n, len)
 }
 
+mod folders;
+pub(crate) use folders::folder_prefixes;
 mod scan;
 pub use scan::{DirListing, DirScan};
 

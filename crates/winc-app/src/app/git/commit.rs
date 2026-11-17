@@ -1426,3 +1426,46 @@ impl App {
         self.request_redraw();
     }
 }
+
+/// 上下文一行中仓库按钮和同步控件的宽度：切换仓库、分支或同步状态变化后从原来的宽度过渡到
+/// 新的宽度，两者之间的分支按钮随之移动。
+#[derive(Debug, Default)]
+pub(crate) struct ContextRow {
+    /// 上一次要求的宽度（仓库按钮，同步控件；逻辑像素）；还没有绘制过时为 `None`。
+    target: Option<(f32, f32)>,
+    /// 过渡的起始宽度和时钟；不在过渡中时为 `None`。
+    pub(crate) motion: Option<((f32, f32), crate::app::animation::Clock)>,
+}
+
+impl ContextRow {
+    /// 返回此刻显示的宽度：过渡中在起始宽度与 `target` 之间。
+    fn shown(&self, target: (f32, f32)) -> (f32, f32) {
+        match self.motion {
+            Some((from, clock)) => (
+                clock.between(from.0, target.0),
+                clock.between(from.1, target.1),
+            ),
+            None => target,
+        }
+    }
+}
+
+impl App {
+    /// 记下上下文一行这一帧要求的宽度 `target`（仓库按钮，同步控件），返回此刻显示的宽度。
+    ///
+    /// 与上一帧要求的不同时开始过渡；第一次绘制、提交视图不显示时不过渡。
+    pub(crate) fn track_context_row(&mut self, target: (f32, f32)) -> (f32, f32) {
+        let row = &self.git.context_row;
+        let Some(before) = row.target.filter(|before| *before != target) else {
+            self.git.context_row.target = Some(target);
+            return self.git.context_row.shown(target);
+        };
+        let from = row.shown(before);
+        let clock = self.clock(crate::app::animation::TREE_ANIMATION);
+        self.git.context_row = ContextRow {
+            target: Some(target),
+            motion: clock.map(|clock| (from, clock)),
+        };
+        self.git.context_row.shown(target)
+    }
+}
