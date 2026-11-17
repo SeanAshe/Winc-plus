@@ -22,6 +22,8 @@ use winit::keyboard::{Key, NamedKey};
 use crate::app::animation::{Clock, PDF_MOTION};
 use crate::app::{App, UserEvent};
 
+mod tools;
+
 /// 方向键每次滚动的距离（逻辑像素）：约为正文三行的高度。
 const ARROW_STEP: f32 = 48.0;
 
@@ -129,6 +131,8 @@ enum Done {
 pub(crate) struct PdfPreview {
     /// 上一帧绘制的区域（窗口坐标）；不显示时为空矩形。
     pub area: Rect,
+    /// 上一帧显示的（当前页，总页数），当前页从 0 起；不显示时为 `None`。
+    pub page: Option<(usize, usize)>,
     /// 预览的文档及其版本号（`revision`）；文档或版本改变时重新打开。
     doc: Option<(DocumentId, u64)>,
     /// 预览的文档的路径；没有文档时为 `None`。
@@ -182,6 +186,8 @@ pub(crate) struct PdfPreview {
     pub strip_height: f32,
     /// 上一帧的当前页（视口中线所在的页）；改变时缩略图栏滚动到该页。
     pub current: usize,
+    /// 右下角工具栏的显示状态。
+    pub(crate) tools: tools::Tools,
 }
 
 impl Default for PdfPreview {
@@ -205,6 +211,7 @@ impl Default for PdfPreview {
             failed: HashMap::new(),
             scroll: 0.0,
             area: Rect::default(),
+            page: None,
             height: 0.0,
             zoom: 1.0,
             scroll_x: 0.0,
@@ -217,6 +224,7 @@ impl Default for PdfPreview {
             strip_scroll: 0.0,
             strip_height: 0.0,
             current: 0,
+            tools: tools::Tools::default(),
         }
     }
 }
@@ -248,6 +256,7 @@ impl PdfPreview {
         self.strip_scroll = 0.0;
         self.strip_height = 0.0;
         self.current = 0;
+        self.tools = tools::Tools::default();
     }
 
     /// 文件 `path` 的目录：正在预览的就是它、并且已经读完时才有。
@@ -349,6 +358,10 @@ impl App {
         pdf.restore = saved;
         pdf.path = Some(path.clone());
         pdf.doc = Some((id, revision));
+        if scroll.is_none() {
+            self.reveal_pdf_tools();
+        }
+        let pdf = &mut self.preview.pdf;
         let (requests, queue) = mpsc::channel::<Request>();
         pdf.requests = Some(requests);
         let (generation, sender, wanted, proxy) = (

@@ -60,7 +60,7 @@ pub(crate) struct BlameState {
     data: HashMap<DocumentId, Entry>,
     /// 正在后台计算的文档及其版本号。
     computing: HashMap<DocumentId, u64>,
-    /// 已原地平移、需要在对应时刻重新运行 `git blame` 的文档。
+    /// 已原地平移、需要在对应时刻重新运行 `git blame` 的文档；过了时刻的等到再次需要结果时计算。
     due: HashMap<DocumentId, Instant>,
     results: (Sender<Computed>, Receiver<Computed>),
 }
@@ -275,10 +275,18 @@ impl App {
             .filter(|&(_, &at)| now >= at)
             .map(|(&id, _)| id)
             .collect();
-        for id in ready {
+        for &id in &ready {
             self.update_blame(id);
         }
-        self.git.blame.due.values().min().copied()
+        // 需要结果却没有开始计算的到期项不再保留，暂时不需要结果的留到再次需要时计算。
+        for id in ready {
+            let expired = self.git.blame.due.get(&id).is_some_and(|&at| at <= now);
+            if expired && self.blame_wanted(id) {
+                self.git.blame.due.remove(&id);
+            }
+        }
+        let due = self.git.blame.due.values();
+        due.filter(|&&at| at > now).min().copied()
     }
 
     /// 接收后台计算完成的逐行追溯。

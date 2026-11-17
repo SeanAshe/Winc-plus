@@ -679,6 +679,14 @@ impl Renderer {
         }
     }
 
+    /// 返回上次调用之后取用时内容已被系统收回的呈现缓冲的块数，并清零；仅 macOS 不为 0。
+    pub fn take_reclaimed(&mut self) -> u32 {
+        match &mut self.target {
+            Target::Window(_, presenter) => presenter.take_reclaimed(),
+            Target::Image(_) => 0,
+        }
+    }
+
     /// 设置窗口是否在前台（有焦点且没有被完全遮挡）。
     ///
     /// 转入后台时立即把当前显示的缓冲以外的呈现缓冲标记为可清除。

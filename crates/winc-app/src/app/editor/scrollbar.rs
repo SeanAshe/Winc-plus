@@ -55,11 +55,17 @@ pub(crate) enum ScrollArea {
     Pdf,
     /// PDF 预览的缩略图栏。
     PdfStrip,
+    /// Markdown 预览左侧展开的标题列表。
+    MarkdownToc,
+    /// 表格预览的竖直滚动条。
+    Table,
+    /// 表格预览的水平滚动条。
+    TableHorizontal,
 }
 
 impl ScrollArea {
     /// 全部区域，遍历时用。
-    const ALL: [ScrollArea; 16] = [
+    const ALL: [ScrollArea; 19] = [
         ScrollArea::Editor,
         ScrollArea::EditorHorizontal,
         ScrollArea::DiffLeftHorizontal,
@@ -76,6 +82,9 @@ impl ScrollArea {
         ScrollArea::MarkdownTable,
         ScrollArea::Pdf,
         ScrollArea::PdfStrip,
+        ScrollArea::MarkdownToc,
+        ScrollArea::Table,
+        ScrollArea::TableHorizontal,
     ];
 
     /// 该区域可以拖动的滚动条；不能拖动时为 `None`。
@@ -97,6 +106,9 @@ impl ScrollArea {
             ScrollArea::MarkdownTable => Some(Scrollbar::MarkdownTable),
             ScrollArea::Pdf => Some(Scrollbar::Pdf),
             ScrollArea::PdfStrip => Some(Scrollbar::PdfStrip),
+            ScrollArea::MarkdownToc => Some(Scrollbar::MarkdownToc),
+            ScrollArea::Table => Some(Scrollbar::Table),
+            ScrollArea::TableHorizontal => Some(Scrollbar::TableHorizontal),
         }
     }
 
@@ -108,6 +120,7 @@ impl ScrollArea {
                 | ScrollArea::DiffRightHorizontal
                 | ScrollArea::TreeHorizontal
                 | ScrollArea::MarkdownTable
+                | ScrollArea::TableHorizontal
         )
     }
 }
@@ -185,6 +198,7 @@ impl App {
     /// 开始绘制新的一帧：清除上一帧记下的可滚动区域，由本帧绘制的滚动条重新登记。
     pub(crate) fn begin_scrollbars(&mut self) {
         self.text_content_w = 0.0;
+        self.preview.markdown.catch_up.pending = false;
         for reveal in &mut self.scroll.bars.reveals {
             reveal.area = None;
         }

@@ -7,7 +7,7 @@ pub fn lock(frame: &mut Frame<'_>, center: (f32, f32), color: Color, clip: Rect)
     padlock(frame, center, color, clip, (1.0, false));
 }
 
-/// 绘制状态栏上的锁图标，约 11×13，与两旁的图标高度相近：`open` 时锁梁右边一脚不接锁身。
+/// 绘制状态栏的锁图标，约 11×13；`open` 时锁梁右端不与锁身相接。
 pub fn status_lock(
     frame: &mut Frame<'_>,
     (cx, cy): (f32, f32),
@@ -18,7 +18,7 @@ pub fn status_lock(
     padlock(frame, (cx, cy - 0.5), color, clip, (1.25, open));
 }
 
-/// 锁的笔画：各部分的尺寸是 9×12 的锁乘以 `scale`，笔宽不变；`open` 时锁梁右边一脚只留一小段。
+/// 绘制锁：各部分的尺寸为 9×12 的锁乘以 `scale`，笔宽不变；`open` 时锁梁右端不与锁身相接。
 fn padlock(
     frame: &mut Frame<'_>,
     (cx, cy): (f32, f32),

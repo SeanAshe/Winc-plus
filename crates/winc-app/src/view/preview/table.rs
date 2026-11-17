@@ -16,8 +16,8 @@ use winc_preview::table::{Area, Sheet, Table, column_name};
 use winc_render::{FontKind, Frame, Rect};
 
 use crate::app::App;
-use crate::theme::{RADIUS_POPUP, RADIUS_ROW};
-use crate::view::{fit, ui_baseline};
+use crate::theme::RADIUS_ROW;
+use crate::view::{ScrollArea, fit, ui_baseline};
 
 /// 单元格左右的留白（逻辑像素，经验值）。
 const PAD: f32 = 8.0;
@@ -76,7 +76,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, index: usize, 
     let size = app.fonts.ui;
     let row_h = (size * 2.0).round();
     let numbers_w =
-        frame.measure(FontKind::Ui, size, &sheet.rows.len().max(1).to_string()) + 2.0 * PAD;
+        frame.measure(FontKind::Ui, size, &sheet.row_count().max(1).to_string()) + 2.0 * PAD;
     let numbers_w = numbers_w.max(40.0).round();
     let widths = column_widths(
         app,
@@ -100,9 +100,13 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, index: usize, 
     let numbers = Rect::new(grid.x, body.y, numbers_w, body.h);
     let content = (
         edges.last().copied().unwrap_or(0.0),
-        sheet.rows.len() as f32 * row_h,
+        sheet.row_count() as f32 * row_h,
     );
-    let max_scroll = ((content.0 - body.w).max(0.0), (content.1 - body.h).max(0.0));
+    let tall = sheet.row_count() as f64 * f64::from(row_h);
+    let max_scroll = (
+        (content.0 - body.w).max(0.0),
+        (tall - f64::from(body.h)).max(0.0),
+    );
     let (sx, sy) = (
         scroll.0.clamp(0.0, max_scroll.0),
         scroll.1.clamp(0.0, max_scroll.1),
@@ -113,13 +117,16 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, index: usize, 
     layout.header = header;
     layout.numbers = numbers;
     layout.row_h = row_h;
-    layout.size = (sheet.rows.len(), sheet.columns);
+    layout.size = (sheet.row_count(), sheet.columns);
+    // 第 `row` 行上边缘的纵坐标（窗口坐标）：先用 `f64` 求出相对视口的位置，行数很多时不失精度。
+    let row_y = |row: usize| body.y + (row as f64 * f64::from(row_h) - sy) as f32;
     // 区域在窗口中的矩形（逻辑像素）：左上角的横纵坐标由列边界和行号换算。列号超出表格时取
     // 最右的边界，区域的宽度为 0。
     let edge = |column: usize| edges.get(column).or(edges.last()).copied().unwrap_or(0.0);
     let area_rect = |a: &Area| {
         let x = body.x + edge(a.left) - sx;
-        let y = body.y + a.top as f32 * row_h - sy;
+        // 行数很多时纵坐标超出 `f32` 能精确表示的范围，先用 `f64` 求出相对视口的位置。
+        let y = row_y(a.top);
         Rect::new(
             x,
             y,
@@ -136,8 +143,9 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, index: usize, 
         .skip_while(|&(_, x, w)| x + w <= body.x)
         .take_while(|&(_, x, _)| x < body.right())
         .collect();
-    let first = (sy / row_h).floor() as usize;
-    let last = (((sy + body.h) / row_h).ceil() as usize).min(sheet.rows.len());
+    let (top, row) = (sy, f64::from(row_h));
+    let first = (top / row).floor() as usize;
+    let last = (((top + f64::from(body.h)) / row).ceil() as usize).min(sheet.row_count());
     let visible = match (columns.first(), columns.last()) {
         (Some(l), Some(r)) if first < last => Some(Area {
             top: first,
@@ -161,10 +169,10 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, index: usize, 
     let current = sheet
         .merge_at(head.0, head.1)
         .unwrap_or(Area::spanning(head, head));
-    let has_cells = sheet.columns > 0 && !sheet.rows.is_empty();
+    let has_cells = sheet.columns > 0 && sheet.row_count() > 0;
     let selected_rect = has_cells.then(|| {
         area_rect(&Area {
-            bottom: selected.bottom.min(sheet.rows.len().saturating_sub(1)),
+            bottom: selected.bottom.min(sheet.row_count().saturating_sub(1)),
             right: selected.right.min(sheet.columns - 1),
             ..selected
         })
@@ -178,7 +186,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, index: usize, 
 
     // 单元格和格线；合并区域中的格之后整个画。
     for row in first..last {
-        let y = body.y + row as f32 * row_h - sy;
+        let y = row_y(row);
         for &(column, x, w) in &columns {
             let text = sheet.cell(row, column);
             if text.is_empty() || merges.iter().any(|m| m.contains(row, column)) {
@@ -195,7 +203,8 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, index: usize, 
         );
     }
     for &(_, x, w) in &columns {
-        let line = Rect::new(x + w - 1.0, grid.y, 1.0, row_h + body.h.min(content.1 - sy));
+        let below = (tall - sy).min(f64::from(body.h)) as f32;
+        let line = Rect::new(x + w - 1.0, grid.y, 1.0, row_h + below);
         frame.rect_clipped(
             line,
             p.separator,
@@ -238,7 +247,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, index: usize, 
     }
     frame.rect(numbers, p.sidebar_bg);
     for row in first..last {
-        let y = body.y + row as f32 * row_h - sy;
+        let y = row_y(row);
         let cell = Rect::new(grid.x, y, numbers_w, row_h);
         let picked = (selected.top..=selected.bottom).contains(&row);
         draw_label(
@@ -296,6 +305,16 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, index: usize, 
             (current.top, current.left),
         );
         draw_cell_card(app, frame, (body, cell), (id, key), text, card_scroll);
+    }
+
+    let content = (body.w + max_scroll.0, body.h + max_scroll.1 as f32);
+    let area = ScrollArea::Table;
+    crate::view::draw_scrollbar(app, frame, area, id.0, body, sy as f32, content.1);
+    let thumb = crate::layout::hscrollbar_thumb(body, sx, content.0);
+    let area = ScrollArea::TableHorizontal;
+    let look = app.scrollbar_look(area, id.0, sx, thumb.map(|_| body));
+    if let Some(thumb) = thumb {
+        crate::view::draw_thumb(frame, app.palette, thumb, look);
     }
 
     app.preview.table_layout.edges = edges;
@@ -381,10 +400,7 @@ fn draw_cell_card(
     app.preview.table_layout.card = card;
     app.preview.table_layout.card_max = max_scroll;
 
-    let covered = frame.covered(card, RADIUS_POPUP);
-    frame.shadow(card, RADIUS_POPUP, 12.0, 4.0, p.shadow, Some(covered));
-    frame.rect_clipped(card, p.popup_border, RADIUS_POPUP, body);
-    frame.rect_clipped(card.inset(1.0, 1.0), p.popup_bg, RADIUS_POPUP - 1.0, body);
+    crate::view::draw_floating_bar(frame, p, card, body);
     let clip = card.inset(1.0, CARD_PAD - 4.0).intersect(body);
     for (i, line) in lines.iter().enumerate() {
         let top = card.y + CARD_PAD + i as f32 * line_h - scroll;
@@ -567,8 +583,8 @@ fn column_widths(
     }
     let size = app.fonts.ui;
     let mut widths = vec![COLUMN_MIN; sheet.columns];
-    for (r, row) in sheet.rows.iter().take(MEASURED_ROWS).enumerate() {
-        for (column, text) in row.iter().enumerate() {
+    for r in 0..sheet.row_count().min(MEASURED_ROWS) {
+        for (column, text) in sheet.row(r).enumerate() {
             let first = text.lines().next().unwrap_or_default();
             let spans = sheet.merge_at(r, column).is_some_and(|m| m.right > m.left);
             if first.is_empty() || spans {

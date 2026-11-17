@@ -971,12 +971,12 @@ fn draw_folder_rows(
     hits
 }
 
-/// 提示条与编辑区右上角（查找条打开时为查找条下方）之间的距离（逻辑像素），上边和右边相同。
+/// 提示条与所在区域（[`App::overlay_area`]）右上角之间的距离（逻辑像素），上边和右边相同。
 const NOTICE_MARGIN: f32 = 8.0;
 /// 提示条出现时滑动的距离（逻辑像素）：从角上往下滑出来。
 const NOTICE_SLIDE: f32 = 6.0;
 
-/// 绘制编辑区右上角的提示条（出错、冲突、未保存等需要注意的消息），出现时从角上滑出并淡入；
+/// 绘制右上角的提示条（出错、冲突、未保存等需要注意的消息），出现时从角上滑出并淡入；
 /// 返回提示条和按钮的矩形，没有按钮时后者为 `None`。
 pub(super) fn draw_live_notice(
     app: &App,
@@ -994,17 +994,7 @@ pub(super) fn draw_live_notice(
     })
 }
 
-/// 编辑区右上角浮层的上边界（不含留白）：查找条打开时是查找条的下边。
-fn corner_top(app: &App) -> f32 {
-    let layout = app.layout;
-    if layout.search.h > 0.0 {
-        layout.search.bottom()
-    } else {
-        layout.editor.y
-    }
-}
-
-/// 绘制当前文档的冲突卡片：靠在编辑区右上角，左边是提醒图标和一句「已被其他程序修改」的说明，
+/// 绘制当前文档的冲突卡片：靠在右上角，左边是提醒图标和一句「已被其他程序修改」的说明，
 /// 右边依次是「比较」「使用磁盘版本」「保留当前修改」。
 ///
 /// 返回卡片和各按钮的矩形；当前文档没有冲突时不绘制，返回 `None`。卡片一直显示到用户选择
@@ -1015,7 +1005,7 @@ pub(super) fn draw_conflict(
 ) -> Option<(Rect, Vec<(Rect, ConflictAction)>)> {
     let name = app.active_conflict()?;
     let p = app.palette;
-    let editor = app.layout.editor;
+    let area = app.overlay_area();
     let font = app.fonts.ui;
 
     let labels: Vec<f32> = ConflictAction::ALL
@@ -1030,13 +1020,13 @@ pub(super) fn draw_conflict(
     );
     // 图标和文字占 34，文字与按钮之间留 16，按钮右边留 8。
     let room =
-        (editor.w - 2.0 * NOTICE_MARGIN - 20.0 - 34.0 - 16.0 - buttons_w - 8.0 - fixed).max(24.0);
+        (area.w - 2.0 * NOTICE_MARGIN - 20.0 - 34.0 - 16.0 - buttons_w - 8.0 - fixed).max(24.0);
     let name = ellipsize(frame, &name, font, room).into_owned();
     let message = t!("workspace-conflict-modified", name = name);
     let text_w = frame.measure(FontKind::Ui, font, &message);
     let width = 34.0 + text_w + 16.0 + buttons_w + 8.0;
-    let top = corner_top(app) + NOTICE_MARGIN;
-    let card = Rect::new(editor.right() - NOTICE_MARGIN - width, top, width, 36.0);
+    let top = app.overlay_top() + NOTICE_MARGIN;
+    let card = Rect::new(area.right() - NOTICE_MARGIN - width, top, width, 36.0);
 
     draw_card(frame, p, card, RADIUS_BAR, p.popup_bg);
     let icon = (card.x + 16.0, icon_center_y(app, card, font));
@@ -1074,12 +1064,13 @@ pub(super) fn draw_notice_ghost(app: &App, frame: &mut Frame<'_>, ghost: &Notice
     });
 }
 
-/// 绘制提示条：靠在编辑区右上角，上边和右边留同样的距离；查找条打开时排在查找条下方。
+/// 绘制提示条：靠在所在区域（[`App::overlay_area`]）的右上角，上边和右边留同样的距离；查找条
+/// 打开时排在查找条下方。
 ///
 /// `dy` 是动画中相对停靠位置的竖直偏移。`busy` 为真时左侧是转动的图标，表示事情正在进行；
 /// 否则是提醒图标。
 ///
-/// 消息放不下时从中间截短，使提示条不超出编辑区。带按钮的提示（如「查看输出」）把按钮放在右侧。
+/// 消息放不下时从中间截短，使提示条不超出所在区域。带按钮的提示（如「查看输出」）把按钮放在右侧。
 /// 返回提示条和按钮的矩形，没有按钮时后者为 `None`。
 fn draw_notice(
     app: &App,
@@ -1090,22 +1081,22 @@ fn draw_notice(
     dy: f32,
 ) -> (Rect, Option<Rect>) {
     let p = app.palette;
-    let layout = app.layout;
+    let area = app.overlay_area();
     let button_w = label.map_or(0.0, |label| {
         frame.measure(FontKind::Ui, app.fonts.ui, label) + 16.0 + 8.0
     });
     // 左侧留给图标：图标中心距左边 16，文字从 34 开始。
     let pad = 34.0 + 16.0;
-    let room = (layout.editor.w - 2.0 * NOTICE_MARGIN - 20.0 - pad - button_w).max(0.0);
+    let room = (area.w - 2.0 * NOTICE_MARGIN - 20.0 - pad - button_w).max(0.0);
     let message = ellipsize(frame, message, app.fonts.ui, room);
     let width = frame.measure(FontKind::Ui, app.fonts.ui, &message) + pad + button_w;
     // 冲突卡片、合并冲突卡片打开时排在其下方。
     let disk = app.hits.conflict_card.as_ref().map(|(card, _)| *card);
     let top = match app.hits.merge_card.or(disk) {
         Some(card) => card.bottom(),
-        None => corner_top(app),
+        None => app.overlay_top(),
     } + NOTICE_MARGIN;
-    let x = layout.editor.right() - NOTICE_MARGIN - width;
+    let x = area.right() - NOTICE_MARGIN - width;
     let rect = Rect::new(x, (top + dy).round(), width, 36.0);
 
     // 浮层统一用白底卡片，只用提醒图标的颜色表示需要注意，不整块铺底色。

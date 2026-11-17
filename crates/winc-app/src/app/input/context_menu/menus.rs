@@ -57,8 +57,9 @@ pub fn line_ending_menu(current: LineEnding, editable: bool) -> Vec<MenuEntry> {
         .collect()
 }
 
-/// 返回状态栏只读菜单的菜单项：`own` 是该文档自己设了只读，`all` 是窗口把全部文档设为只读，
-/// 此时单个文档的一项不可用。
+/// 返回状态栏只读菜单的菜单项。
+///
+/// `own` 表示文档自身已设为只读；`all` 表示窗口的全部文档已设为只读，此时文档自身的一项禁用。
 pub fn read_only_menu(own: bool, all: bool) -> Vec<MenuEntry> {
     vec![
         MenuEntry::Item(MenuCommand::ReadOnly(!own), !all),

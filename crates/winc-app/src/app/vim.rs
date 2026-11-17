@@ -263,12 +263,13 @@ impl App {
                 .is_some_and(|(query, _)| query.regex == self.bars.search.query)
     }
 
-    /// 返回输入条的位置：Vim 模式的命令行与查找占状态栏所在的一行，其余位于编辑区顶部居中。
+    /// 返回输入条的位置：Vim 模式的命令行与查找占状态栏所在的一行，其余位于右上角浮层所在区域
+    /// （[`App::overlay_area`]）的顶部居中。
     pub(crate) fn prompt_bar(&self) -> Rect {
         if self.bars.prompt_kind.is_vim() {
             self.layout.status
         } else {
-            crate::layout::goto_bar(self.layout.editor)
+            crate::layout::goto_bar(self.overlay_area())
         }
     }
 

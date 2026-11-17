@@ -132,7 +132,10 @@ fn workbooks_open_as_tables_with_sheet_tabs() {
     assert!(doc.readonly && !doc.shows_text());
     let table = shown_table(&app);
     assert_eq!(table.sheets.len(), 2);
-    assert_eq!(table.sheets[0].rows[1][..2], ["城市 2", "20"]);
+    assert_eq!(
+        table.sheets[0].row(1).take(2).collect::<Vec<_>>(),
+        ["城市 2", "20"]
+    );
     // 两张工作表：底部有两个标签，表格画在编辑区中。
     assert_eq!(app.preview.table_layout.sheets.len(), 2);
     assert_eq!(app.preview.table_layout.area, app.layout.editor);
@@ -170,7 +173,10 @@ fn workbooks_open_as_tables_with_sheet_tabs() {
         .unwrap();
     app.editor.active_mut().unwrap().check_disk();
     app.wait_for_tables();
-    assert_eq!(shown_table(&app).sheets[1].rows[0], ["第二版"]);
+    assert_eq!(
+        shown_table(&app).sheets[1].row(0).collect::<Vec<_>>(),
+        ["第二版"]
+    );
     assert_eq!(
         app.editor.active().unwrap().table.as_ref().unwrap().sheet,
         1
@@ -207,7 +213,10 @@ fn csv_files_switch_between_text_and_table() {
     app.wait_for_tables();
     let doc = app.editor.active().unwrap();
     assert!(doc.readonly && !doc.shows_text());
-    assert_eq!(shown_table(&app).sheets[0].rows[2], ["pear, green", "5"]);
+    assert_eq!(
+        shown_table(&app).sheets[0].row(2).collect::<Vec<_>>(),
+        ["pear, green", "5"]
+    );
     // 只有一张、也没截断：没有底部一栏。
     assert!(app.preview.table_layout.sheets.is_empty());
 
@@ -219,7 +228,10 @@ fn csv_files_switch_between_text_and_table() {
     assert_eq!(app.preview.table_layout.area, app.layout.split);
     app.run(winc_editor::Command::Insert("plum,7\n".into()));
     app.wait_for_tables();
-    assert_eq!(shown_table(&app).sheets[0].rows[0], ["plum", "7"]);
+    assert_eq!(
+        shown_table(&app).sheets[0].row(0).collect::<Vec<_>>(),
+        ["plum", "7"]
+    );
     shoot(&mut app, "table-csv-split");
 
     // 回到代码：不再有表格。
@@ -429,7 +441,8 @@ fn cells_are_selected_copied_and_merged_cells_read_in_full() {
     assert!(head.0 > 10 && view.scroll.1 > 0.0);
     let (_, y) = cell_center(&app, head.0, head.1);
     let body = app.preview.table_layout.body;
-    assert!(y - view.scroll.1 < body.bottom() && y - view.scroll.1 > body.y);
+    let shown = y - view.scroll.1 as f32;
+    assert!(shown < body.bottom() && shown > body.y);
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -510,5 +523,111 @@ fn tables_without_cells_are_previewed() {
     app.on_mouse_up(MouseButton::Left);
     app.table_key(&Key::Named(NamedKey::ArrowDown), false);
     paint(&mut app);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn tables_larger_than_the_view_scroll_by_their_scrollbars() {
+    use crate::app::ScrollArea;
+    let dir = search_folder("table-scrollbars");
+    let path = dir.join("wide.csv");
+    let row = |r: usize| {
+        let cells: Vec<String> = (0..40).map(|c| format!("row {r} column {c}")).collect();
+        cells.join(",") + "\n"
+    };
+    std::fs::write(&path, (0..300).map(row).collect::<String>()).unwrap();
+    let mut app = app_with(&path, false);
+    paint(&mut app);
+    app.set_preview_mode(PreviewMode::Preview);
+    app.wait_for_tables();
+    paint(&mut app);
+    let layout = &app.preview.table_layout;
+    let (body, max) = (layout.body, layout.max_scroll);
+    assert!(max.0 > 0.0 && max.1 > 0.0);
+
+    // 没有滚动过时不显示；滚动后显示。
+    app.on_mouse_move(body.x + body.w / 2.0, body.y + body.h / 2.0);
+    paint(&mut app);
+    assert_eq!(app.scrollbar_shown(ScrollArea::Table), 0.0);
+    app.on_wheel(MouseScrollDelta::PixelDelta(PhysicalPosition::new(
+        0.0, -200.0,
+    )));
+    paint(&mut app);
+    assert_eq!(app.scrollbar_shown(ScrollArea::Table), 1.0);
+    assert_eq!(app.scrollbar_shown(ScrollArea::TableHorizontal), 0.0);
+
+    // 按住竖直的滑块拖到底：滚动到最后一行。
+    let x = body.right() - 4.0;
+    app.on_mouse_move(x, body.y + 8.0);
+    assert_eq!(app.pointer.hover, Hover::Scrollbar(Scrollbar::Table));
+    app.on_mouse_down(MouseButton::Left);
+    app.on_mouse_move(x, body.bottom());
+    app.on_mouse_up(MouseButton::Left);
+    assert!((app.table_scroll().1 - max.1).abs() < 1.0);
+
+    // 按住水平的滑块拖到右端：滚动到最后一列。
+    paint(&mut app);
+    let y = body.bottom() - 4.0;
+    app.on_mouse_move(body.x + 8.0, y);
+    assert_eq!(
+        app.pointer.hover,
+        Hover::Scrollbar(Scrollbar::TableHorizontal)
+    );
+    paint(&mut app);
+    assert_eq!(app.scrollbar_shown(ScrollArea::TableHorizontal), 1.0);
+    app.on_mouse_down(MouseButton::Left);
+    app.on_mouse_move(body.right(), y);
+    app.on_mouse_up(MouseButton::Left);
+    assert!((app.table_scroll().0 - max.0).abs() < 1.0);
+    shoot(&mut app, "table-scrollbars");
+
+    // 放得下的表格没有滑块，右边缘的格子照常点选。
+    std::fs::write(dir.join("small.csv"), "a,b\n1,2\n").unwrap();
+    app.open_path(&dir.join("small.csv"));
+    app.set_preview_mode(PreviewMode::Preview);
+    app.wait_for_tables();
+    paint(&mut app);
+    let body = app.preview.table_layout.body;
+    app.on_mouse_move(body.right() - 4.0, body.y + 8.0);
+    assert_ne!(app.pointer.hover, Hover::Scrollbar(Scrollbar::Table));
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 超过大文件下限的 csv 仍按表格预览：内容取自磁盘上的文件，全部的行都能滚动到。
+#[test]
+fn large_csv_files_open_as_whole_tables() {
+    let dir = search_folder("table-large");
+    let path = dir.join("large.csv");
+    let row = |r: usize| format!("row {r},{}\n", "padding ".repeat(12));
+    let rows = winc_editor::LARGE_FILE as usize / row(0).len() + 1000;
+    assert!(rows > 150_000);
+    std::fs::write(&path, (0..rows).map(row).collect::<String>()).unwrap();
+    let mut app = app_with(&path, false);
+    paint(&mut app);
+    let doc = app.editor.active().unwrap();
+    assert!(doc.is_large());
+    assert_eq!(doc.preview_kind(), Some(winc_editor::PreviewKind::Table));
+
+    app.set_preview_mode(PreviewMode::Preview);
+    app.wait_for_tables();
+    paint(&mut app);
+    let table = shown_table(&app);
+    let sheet = &table.sheets[0];
+    assert_eq!((sheet.row_count(), sheet.truncated), (rows, false));
+    assert_eq!(sheet.cell(rows - 1, 0), format!("row {}", rows - 1));
+
+    // 滚到底：最后一行在视口内，行的位置与滚动位置一致。
+    let layout = &app.preview.table_layout;
+    let (body, max) = (layout.body, layout.max_scroll);
+    app.drag_table_scrollbar(false, (body.right(), body.bottom() + 1.0e6), 0.0);
+    paint(&mut app);
+    assert!((app.table_scroll().1 - max.1).abs() < 1.0);
+    let hit =
+        app.preview
+            .table_layout
+            .hit(body.x + 8.0, body.bottom() - 4.0, app.table_scroll(), false);
+    assert!(hit.is_some());
+
     std::fs::remove_dir_all(&dir).unwrap();
 }

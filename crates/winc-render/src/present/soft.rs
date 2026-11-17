@@ -128,6 +128,11 @@ impl Presenter {
         }
     }
 
+    /// 返回内容被系统收回的缓冲的块数，恒为 0。
+    pub(crate) fn take_reclaimed(&mut self) -> u32 {
+        0
+    }
+
     /// 设置窗口是否在前台；`softbuffer` 的缓冲不区分前后台，什么也不做。
     pub(crate) fn set_foreground(&mut self, _foreground: bool) {}
 

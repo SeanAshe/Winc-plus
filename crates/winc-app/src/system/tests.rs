@@ -68,3 +68,9 @@ fn folders_without_a_trash_are_deleted_for_good() {
         false
     ));
 }
+
+#[test]
+fn explorer_gets_the_path_quoted_on_its_own() {
+    let select = explorer_select(Path::new(r"C:\My Books\a b.epub"));
+    assert_eq!(select, r#"/select,"C:\My Books\a b.epub""#);
+}

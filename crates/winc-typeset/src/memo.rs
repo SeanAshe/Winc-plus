@@ -81,6 +81,11 @@ impl Memo {
         if self.len() <= count * 2 + SLACK {
             return;
         }
+        self.keep_only(live);
+    }
+
+    /// 只保留 `live` 中的条目，释放其余条目占用的内存。
+    pub fn keep_only<'a>(&mut self, live: impl Iterator<Item = &'a [u64]>) {
         let live: HashSet<u64> = live.flatten().copied().collect();
         self.flows.retain(|k, _| live.contains(k));
         self.lines.retain(|k, _| live.contains(k));

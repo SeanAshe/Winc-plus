@@ -265,10 +265,7 @@ fn draw_toolbar(app: &App, frame: &mut Frame<'_>, p: &Palette, view: &mut Diagra
         inner + PAD * 2.0,
         BUTTON + PAD * 2.0,
     );
-    let covered = frame.covered(bar, RADIUS_POPUP);
-    frame.shadow(bar, RADIUS_POPUP, 12.0, 4.0, p.shadow, Some(covered));
-    frame.rect_clipped(bar, p.popup_border, RADIUS_POPUP, area);
-    frame.rect_clipped(bar.inset(1.0, 1.0), p.popup_bg, RADIUS_POPUP - 1.0, area);
+    crate::view::draw_floating_bar(frame, p, bar, area);
 
     view.buttons.clear();
     let mut x = bar.x + PAD;

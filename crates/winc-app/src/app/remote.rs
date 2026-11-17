@@ -116,11 +116,32 @@ fn install_shell_scripts(target: &Target) {
 /// 取得目录在远端的真实路径的脚本，参数是用户输入的目录。
 ///
 /// 相对路径和以 `~/` 开头的路径相对于主目录，空的输入表示主目录；`pwd -P` 给出不经过符号
-/// 链接的路径。
+/// 链接的路径。目录不存在时依次给出主目录、该目录的绝对路径和仍然存在的最近一级上级目录
+/// （进不去时为主目录），各占一行，退出码为 [`MISSING`]。
 const RESOLVE: &str = concat!(
     r#"p=$1; case $p in ""|"~") p=. ;; "~/"*) p=${p#"~/"} ;; esac; "#,
-    r#"cd && cd -- "$p" && pwd -P"#,
+    r#"cd || exit 1; if [ -e "$p" ]; then cd -- "$p" && pwd -P; exit; fi; h=$(pwd -P); "#,
+    r#"case $p in /*) w=$p ;; *) w=$h/$p ;; esac; printf '%s\n%s\n' "$h" "$w"; "#,
+    r#"while [ ! -d "$p" ]; do p=$(dirname -- "$p"); done; "#,
+    r#"cd -- "$p" 2>/dev/null || cd; pwd -P; exit 3"#,
 );
+
+/// [`RESOLVE`] 在目录不存在时的退出码。
+const MISSING: i32 = 3;
+
+/// 在远端找到的目录（虚拟路径）。
+#[derive(Debug)]
+enum Reached {
+    /// 要打开的目录。
+    Folder(PathBuf),
+    /// 要打开的目录 `wanted` 已不存在：`home` 是主目录，`nearest` 是仍然存在的最近一级上级
+    /// 目录。
+    Missing {
+        wanted: PathBuf,
+        home: PathBuf,
+        nearest: PathBuf,
+    },
+}
 
 /// 连接成功之后做什么。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -133,8 +154,17 @@ pub(in crate::app) enum After {
     Restore,
 }
 
-/// 一次连接的结果：要打开的目录，或失败的原因（已是界面语言的文字）。
-type Outcome = Result<PathBuf, String>;
+impl Reached {
+    /// 返回找到的目录；要打开的目录已不存在时返回它本身，按打开的目录被删除处理。
+    fn into_folder(self) -> PathBuf {
+        match self {
+            Reached::Folder(folder) | Reached::Missing { wanted: folder, .. } => folder,
+        }
+    }
+}
+
+/// 一次连接的结果：找到的目录，或失败的原因（已是界面语言的文字）。
+type Outcome = Result<Reached, String>;
 
 /// 远程模块的状态。
 pub(crate) struct RemoteState {
@@ -578,12 +608,9 @@ fn connect(
     Ok(())
 }
 
-/// 返回 `folder` 在 `target` 上的真实路径所对应的虚拟路径；不是目录或无法进入时返回原因。
-fn resolve(
-    target: &Target,
-    folder: &str,
-    abort: &remote::Abort,
-) -> std::io::Result<Result<PathBuf, String>> {
+/// 返回 `folder` 在 `target` 上的真实路径所对应的虚拟路径；不存在时给出最近一级上级目录，
+/// 不是目录或无法进入时返回原因。
+fn resolve(target: &Target, folder: &str, abort: &remote::Abort) -> std::io::Result<Outcome> {
     let home = winc_backend::virtual_path(target, b"/");
     let exec = Exec::new("sh")
         .arg("-c")
@@ -591,12 +618,22 @@ fn resolve(
         .arg("winc")
         .arg(folder);
     let output = remote::exec(&home, &exec, &|| abort.is_aborted())?;
-    if output.code != Some(0) {
-        let reason = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-        return Ok(Err(reason));
-    }
-    let path = output.stdout.strip_suffix(b"\n").unwrap_or(&output.stdout);
-    Ok(Ok(winc_backend::virtual_path(target, path)))
+    let text = output.stdout.strip_suffix(b"\n").unwrap_or(&output.stdout);
+    let path = |bytes| winc_backend::virtual_path(target, bytes);
+    Ok(match output.code {
+        Some(0) => Ok(Reached::Folder(path(text))),
+        Some(MISSING) => {
+            let mut lines = text.splitn(3, |&b| b == b'\n');
+            let mut next = || path(lines.next().unwrap_or_default());
+            let (home, wanted, nearest) = (next(), next(), next());
+            Ok(Reached::Missing {
+                wanted,
+                home,
+                nearest,
+            })
+        }
+        _ => Err(String::from_utf8_lossy(&output.stderr).trim().to_owned()),
+    })
 }
 
 /// 连接 `target`（已有连接时沿用）并取得 `folder` 的虚拟路径。
@@ -931,7 +968,25 @@ impl App {
             return;
         }
         match outcome {
-            Ok(folder) if self.remote_enabled() && self.remote.after == After::Browse => {
+            Ok(Reached::Missing {
+                wanted,
+                home,
+                nearest,
+            }) if self.remote_enabled() && self.remote.after == After::Open => {
+                // 与本机最近列表中找不到的目录相同：移出最近列表；连接保留，从最近一级上级目录
+                // 开始选择别的目录。
+                self.remote.lost = false;
+                if self.state.recent.contains(&wanted) {
+                    self.forget_missing_recent(&wanted);
+                } else {
+                    let path = winc_editor::display_path(&wanted, None);
+                    self.notify(t!("workspace-folder-missing", path = path));
+                }
+                let native = |path: &Path| winc_backend::native_lossy(path).into_owned();
+                self.browse_remote_folder(target, native(&home), native(&nearest));
+            }
+            Ok(reached) if self.remote_enabled() && self.remote.after == After::Browse => {
+                let folder = reached.into_folder();
                 // 下一步：关闭连接对话框，在面板中选择目录。
                 self.remote.form = None;
                 self.connect_dialog_steps_aside();
@@ -941,7 +996,8 @@ impl App {
                 let home = winc_backend::native_lossy(&folder).into_owned();
                 self.open_remote_browser(target, home);
             }
-            Ok(folder) if self.remote_enabled() => {
+            Ok(reached) if self.remote_enabled() => {
+                let folder = reached.into_folder();
                 self.remote.lost = false;
                 if self.editor.root() == Some(folder.as_path()) {
                     // 重新连接到已打开的目录：按窗口重新获得焦点处理，重读文件树和文档。
@@ -1226,7 +1282,9 @@ Host -oProxyCommand=x a;b
     #[ignore = "需要一台可以免输入登录的主机"]
     fn over_ssh() {
         let target = Target::new(&std::env::var("WINC_TEST_SSH_TARGET").unwrap()).unwrap();
-        let home = open(&target, "~", None, None, &remote::Abort::default(), &|_| {}).unwrap();
+        let home = open(&target, "~", None, None, &remote::Abort::default(), &|_| {})
+            .unwrap()
+            .into_folder();
         assert!(winc_backend::fs::is_dir(&home), "{}", home.display());
         let sub = open(
             &target,
@@ -1236,8 +1294,10 @@ Host -oProxyCommand=x a;b
             &remote::Abort::default(),
             &|_| {},
         )
-        .unwrap();
+        .unwrap()
+        .into_folder();
         assert_eq!(sub, home.join(".ssh"));
+        // 不存在的目录：给出主目录和仍然存在的最近一级上级目录。
         let missing = open(
             &target,
             "/winc/no/such/folder",
@@ -1245,9 +1305,36 @@ Host -oProxyCommand=x a;b
             None,
             &remote::Abort::default(),
             &|_| {},
-        )
-        .unwrap_err();
-        assert!(missing.contains("/winc/no/such/folder"), "{missing}");
+        );
+        let Ok(Reached::Missing {
+            wanted,
+            home: found,
+            nearest,
+        }) = missing
+        else {
+            panic!("{missing:?}");
+        };
+        let root = winc_backend::virtual_path(&target, b"/");
+        assert_eq!(
+            wanted,
+            winc_backend::virtual_path(&target, b"/winc/no/such/folder")
+        );
+        assert_eq!((found, nearest), (home.clone(), root));
+        let gone = home.join(".ssh/winc-no-such-folder/inner");
+        let gone = winc_backend::locate(&gone).unwrap().path;
+        let gone = String::from_utf8_lossy(&gone).into_owned();
+        let missing = open(
+            &target,
+            &gone,
+            None,
+            None,
+            &remote::Abort::default(),
+            &|_| {},
+        );
+        assert!(
+            matches!(&missing, Ok(Reached::Missing { nearest, .. }) if *nearest == sub),
+            "{missing:?}"
+        );
 
         // 那台主机上登录 shell 的 `PATH` 和按名字查找程序：格式化工具由此找到。
         let path = winc_editor::remote_env::login_path(&home).unwrap();

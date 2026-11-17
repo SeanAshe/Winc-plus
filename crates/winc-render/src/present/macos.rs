@@ -50,6 +50,9 @@ const SURFACE_WAIT: Duration = Duration::from_millis(4);
 /// 中途不会来回切换；短于光标闪烁的间隔（530 ms）。
 const PURGEABLE_IDLE: Duration = Duration::from_millis(100);
 
+/// 停止绘制多久后把备用的 surface 标成可清除（2 s）：长于光标闪烁的间隔（530 ms）。
+const SPARE_IDLE: Duration = Duration::from_secs(2);
+
 /// 一块 `IOSurface` 及其行距。
 struct Surface {
     /// `IOSurface` 对象。
@@ -101,21 +104,21 @@ impl Surface {
         }
     }
 
-    /// 标成可清除或不可清除；已是该状态时什么也不做。
-    ///
-    /// 标回不可清除时内容可能已被系统收回，下一帧仍然整个重画。
-    fn set_purgeable(&mut self, purgeable: bool) {
+    /// 标成可清除或不可清除，返回标回不可清除时内容是否已被系统收回；已是该状态时不做处理。
+    fn set_purgeable(&mut self, purgeable: bool) -> bool {
         if self.purgeable == purgeable {
-            return;
+            return false;
         }
         let state = if purgeable {
             IOSurfacePurgeabilityState::PurgeableVolatile
         } else {
             IOSurfacePurgeabilityState::PurgeableNonVolatile
         };
-        // SAFETY: `surface` 是有效的 IOSurface；`old_state` 参数允许传 null。
-        unsafe { self.surface.set_purgeable(state.0, std::ptr::null_mut()) };
+        let mut old = 0u32;
+        // SAFETY: `surface` 是有效的 IOSurface；`old` 指向有效的 `u32`，调用返回后不再使用。
+        unsafe { self.surface.set_purgeable(state.0, &mut old) };
         self.purgeable = purgeable;
+        !purgeable && old == IOSurfacePurgeabilityState::PurgeableEmpty.0
     }
 
     /// 是否仍被合成器占用。
@@ -141,8 +144,12 @@ pub(crate) struct Presenter {
     height: u32,
     /// 屏幕上显示着的 surface 的下标，它一直被合成器占用，不标成可清除。
     shown: Option<usize>,
+    /// 备用的 surface（上一帧显示的那块）的下标，下一帧优先使用。
+    spare: Option<usize>,
     /// 从这时起没有再绘制（或者上次没能把空闲的都标成可清除），过 [`PURGEABLE_IDLE`] 再标。
     idle_since: Option<Instant>,
+    /// 取用时内容已被系统收回的 surface 的块数。
+    reclaimed: u32,
 }
 
 impl Presenter {
@@ -186,6 +193,8 @@ impl Presenter {
             height: 0,
             shown: None,
             idle_since: None,
+            spare: None,
+            reclaimed: 0,
         };
         let size = window.inner_size();
         presenter.resize(size.width, size.height, window.scale_factor());
@@ -216,7 +225,7 @@ impl Presenter {
             (self.width, self.height) = size;
             self.surfaces.clear();
             self.next = 0;
-            self.shown = None;
+            (self.shown, self.spare) = (None, None);
         }
     }
 
@@ -238,7 +247,7 @@ impl Presenter {
         let Some(index) = self.acquire() else {
             return false;
         };
-        self.surfaces[index].set_purgeable(false);
+        self.reclaimed += u32::from(self.surfaces[index].set_purgeable(false));
         let surface = &self.surfaces[index];
         // SAFETY: `surface` 是有效的 IOSurface；`seed` 参数允许传 null；上锁后直到本函数下面
         // 解锁之前，只有交给 `paint` 的画布会写入该 surface。
@@ -253,11 +262,12 @@ impl Presenter {
         // 画不出来；这一帧不画，下一次屏幕刷新时用新的一块再画。
         if locked != KERN_SUCCESS {
             self.surfaces.remove(index);
-            self.shown = match self.shown {
+            let after = |at: Option<usize>| match at {
                 Some(k) if k == index => None,
                 Some(k) if k > index => Some(k - 1),
-                shown => shown,
+                at => at,
             };
+            (self.shown, self.spare) = (after(self.shown), after(self.spare));
             self.next = 0;
             return false;
         }
@@ -291,6 +301,7 @@ impl Presenter {
             self.layer.setContents(Some(contents));
         }
         CATransaction::commit();
+        self.spare = self.shown.filter(|&k| k != index);
         self.shown = Some(index);
         self.idle_since = Some(Instant::now());
         true
@@ -308,9 +319,11 @@ impl Presenter {
         }
 
         let count = self.surfaces.len();
-        let index = (0..count)
-            .map(|k| (self.next + k) % count)
-            .find(|&k| !self.surfaces[k].in_use())?;
+        let spare = self
+            .spare
+            .filter(|&k| k < count && !self.surfaces[k].in_use());
+        let mut others = (0..count).map(|k| (self.next + k) % count);
+        let index = spare.or_else(|| others.find(|&k| !self.surfaces[k].in_use()))?;
         self.next = (index + 1) % count;
         Some(index)
     }
@@ -321,6 +334,11 @@ impl Presenter {
         while self.surfaces.iter().all(Surface::in_use) && Instant::now() < deadline {
             std::thread::sleep(Duration::from_micros(100));
         }
+    }
+
+    /// 返回上次调用之后取用时内容已被系统收回的 surface 的块数，并清零。
+    pub(crate) fn take_reclaimed(&mut self) -> u32 {
+        std::mem::take(&mut self.reclaimed)
     }
 
     /// 设置窗口是否在前台（有焦点且没有被完全遮住）；转入后台时马上把空闲的 surface 标成可清除，
@@ -352,39 +370,46 @@ impl Presenter {
     /// 动画结束后可能不再绘制新的一帧，所以由调用方按该时刻安排唤醒，到时调用
     /// [`Self::make_idle_purgeable`]，不必等到下一次绘制。
     pub(crate) fn purgeable_at(&self) -> Option<Instant> {
-        let pending = self
-            .surfaces
-            .iter()
-            .enumerate()
-            .any(|(k, surface)| Some(k) != self.shown && !surface.purgeable);
-        pending.then(|| {
-            self.idle_since
-                .map_or_else(Instant::now, |t| t + PURGEABLE_IDLE)
-        })
+        let pending = |k: usize| Some(k) != self.shown && !self.surfaces[k].purgeable;
+        let spare = self
+            .spare
+            .filter(|&k| k < self.surfaces.len() && pending(k));
+        let others = (0..self.surfaces.len()).any(|k| Some(k) != spare && pending(k));
+        let wait = match (others, spare) {
+            (true, _) => PURGEABLE_IDLE,
+            (false, Some(_)) => SPARE_IDLE,
+            (false, None) => return None,
+        };
+        Some(self.idle_since.map_or_else(Instant::now, |t| t + wait))
     }
 
-    /// 停止绘制超过 [`PURGEABLE_IDLE`] 后，把屏幕上显示着的那块以外的 surface 标成可清除。
+    /// 把空闲的 surface 标成可清除：备用的一块在停止绘制 [`SPARE_IDLE`] 后，其余的在
+    /// [`PURGEABLE_IDLE`] 后；没有记录停止绘制的时刻时全部立即标。
     ///
     /// 合成器尚未释放上一帧的那块先跳过，再过 [`PURGEABLE_IDLE`] 重试。
     pub(crate) fn make_idle_purgeable(&mut self) {
         let now = Instant::now();
-        if self
-            .idle_since
-            .is_some_and(|t| now.duration_since(t) < PURGEABLE_IDLE)
-        {
+        let idle = self.idle_since.map(|t| now.duration_since(t));
+        if idle.is_some_and(|idle| idle < PURGEABLE_IDLE) {
             return;
         }
-        let mut retry = false;
+        let (mut retry, mut kept) = (false, false);
         for (k, surface) in self.surfaces.iter_mut().enumerate() {
             if Some(k) == self.shown || surface.purgeable {
                 continue;
             }
-            if surface.in_use() {
+            if Some(k) == self.spare && idle.is_some_and(|idle| idle < SPARE_IDLE) {
+                kept = true;
+            } else if surface.in_use() {
                 retry = true;
             } else {
                 surface.set_purgeable(true);
             }
         }
-        self.idle_since = retry.then_some(now);
+        if retry {
+            self.idle_since = Some(now);
+        } else if !kept {
+            self.idle_since = None;
+        }
     }
 }

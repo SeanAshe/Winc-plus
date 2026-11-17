@@ -834,11 +834,21 @@ fn a_rendered_region_equals_the_same_part_of_the_whole() {
 <rect width="40" height="30" fill="url(#g)"/>
 <g clip-path="url(#c)" opacity="0.8"><rect width="40" height="30" fill="url(#p)"/></g>
 <path d="M2 28L38 2" stroke="#fc0" stroke-width="1.5"/>
+<path d="M30 29L34 20L38 29" fill="none" stroke="#08f" stroke-width="2" stroke-miterlimit="10"/>
+<g opacity="0.5"><path d="M4 6H12" stroke="#000" stroke-width="2" stroke-linecap="square"/></g>
 </svg>"##;
     let drawing = Drawing::parse(svg, None, None).unwrap();
     let size = (160, 120);
     let whole = drawing.render(size.0, size.1);
-    for region in [[0, 0, 160, 120], [37, 21, 64, 48], [150, 110, 10, 10]] {
+    // 后两个区域只含尖角和方形线帽伸出路径外框的部分。
+    let regions = [
+        [0, 0, 160, 120],
+        [37, 21, 64, 48],
+        [150, 110, 10, 10],
+        [120, 70, 30, 6],
+        [50, 18, 3, 12],
+    ];
+    for region in regions {
         let [x, y, w, h] = region;
         let part = drawing.render_region(size, region);
         assert_eq!((part.width, part.height), (w, h));
@@ -853,4 +863,135 @@ fn a_rendered_region_equals_the_same_part_of_the_whole() {
             );
         }
     }
+}
+
+#[test]
+fn unparsable_paints_keep_the_attribute_and_light_dark_takes_the_light_color() {
+    let pixel = |shape: &str| {
+        let svg = format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">{shape}</svg>"#
+        );
+        let drawing = Drawing::parse(&svg, None, None).unwrap();
+        let rgba = drawing.render(10, 10).rgba;
+        let at = (5 * 10 + 5) * 4;
+        [rgba[at], rgba[at + 1], rgba[at + 2], rgba[at + 3]]
+    };
+    let rect = |more: &str| format!(r#"<rect width="10" height="10" {more}/>"#);
+    // `style` 中的值无法解析：属性给出的颜色仍然有效。
+    assert_eq!(
+        pixel(&rect(r##"fill="#ff0000" style="fill: nonsense(1, 2)""##)),
+        [255, 0, 0, 255]
+    );
+    // `light-dark()` 取第一项，其中可以再有函数和 `var()` 的回退值。
+    let style = "fill: light-dark(rgb(0, 255, 0), rgb(0, 0, 255))";
+    assert_eq!(
+        pixel(&rect(&format!(r##"fill="#ff0000" style="{style}""##))),
+        [0, 255, 0, 255]
+    );
+    let style = "fill: light-dark(var(--paper, #0000ff), #000)";
+    assert_eq!(
+        pixel(&rect(&format!(r#"style="{style}""#))),
+        [0, 0, 255, 255]
+    );
+    // 描边同样：无法解析时保留属性的值，不变成没有描边。
+    let line =
+        r##"<path d="M0 5H10" stroke="#ff0000" stroke-width="4" style="stroke: nonsense()"/>"##;
+    assert_eq!(pixel(line), [255, 0, 0, 255]);
+}
+
+#[test]
+fn foreign_objects_draw_their_text_in_the_box_the_styles_give() {
+    let glyphs: Option<Arc<dyn Glyphs>> = Some(Arc::new(BoxGlyphs));
+    let parse = |body: &str| {
+        let svg = format!(
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200">{body}</svg>"#
+        );
+        Drawing::parse(&svg, None, glyphs.clone()).unwrap()
+    };
+    let bounds = |body: &str| {
+        let d = parse(body);
+        assert!(d.missing.is_empty(), "{:?}", d.missing);
+        bbox_of(&d.items, Affine::IDENTITY)
+    };
+    let html = "http://www.w3.org/1999/xhtml";
+    let extensible = r#"requiredFeatures="http://www.w3.org/TR/SVG11/feature#Extensibility""#;
+    let label = |outer: &str, inner: &str, text: &str| {
+        let leaf = "display: inline-block; font-size: 10px; line-height: 1.2; \
+                    color: light-dark(#000000, #ffffff);";
+        let inner = format!("<div style=\"font-size: 0; {inner}\"><div style=\"{leaf}\">");
+        format!(
+            "<foreignObject width=\"100%\" height=\"100%\" {extensible}>\
+             <div xmlns=\"{html}\" style=\"display: flex; {outer}\">{inner}{text}\
+             </div></div></div></foreignObject>"
+        )
+    };
+    // 盒子宽 20、左边在 40，高 1、上边在 50，横竖都居中：两个字（各宽 5、高 7）的中点在
+    // (50, 50.5)；行高 12，字的上下留白相等。
+    let centered = "align-items: unsafe center; justify-content: unsafe center; width: 20px; \
+                    height: 1px; padding-top: 50px; margin-left: 40px;";
+    let b = bounds(&label(centered, "text-align: center;", "ab")).unwrap();
+    assert_eq!(b, [45.0, 46.5, 10.0, 7.0]);
+    // 靠左、从上边开始。
+    let top_left = "align-items: unsafe flex-start; justify-content: unsafe flex-start; \
+                    width: 20px; height: 1px; padding-top: 50px; margin-left: 40px;";
+    let b = bounds(&label(top_left, "text-align: left;", "ab")).unwrap();
+    assert_eq!(b, [40.0, 52.0, 10.0, 7.0]);
+    // 超过盒子的宽度时在空格处折行；`<br>` 分行；`white-space: nowrap` 时不折行。
+    let b = bounds(&label(top_left, "text-align: left;", "ab cd ef")).unwrap();
+    assert_eq!((b[2], b[3]), (10.0, 2.0 * 12.0 + 7.0));
+    let b = bounds(&label(top_left, "text-align: left;", "ab<br/>cd")).unwrap();
+    assert_eq!((b[2], b[3]), (10.0, 12.0 + 7.0));
+    let b = bounds(&label(top_left, "white-space: nowrap;", "ab cd ef")).unwrap();
+    assert_eq!((b[2], b[3]), (40.0, 7.0));
+    // 粗体的字更宽。
+    let b = bounds(&label(top_left, "white-space: nowrap;", "a<b>b</b>")).unwrap();
+    assert_eq!(b[2], 5.0 + 6.0);
+
+    // `<switch>` 中 `foreignObject` 的内容都能排版时画它的文字；含有不能排版的元素（上标）而另有
+    // 不带条件的备用内容时画备用内容；只有带条件的空元素和提示时什么也不画。
+    let spare = r#"<text x="100" y="100" font-size="10">xyz</text>"#;
+    let b = bounds(&format!(
+        "<switch>{}{spare}</switch>",
+        label(centered, "", "ab")
+    ))
+    .unwrap();
+    assert_eq!(b, [45.0, 46.5, 10.0, 7.0]);
+    let rich = label(centered, "", "a<sup>b</sup>");
+    let b = bounds(&format!("<switch>{rich}{spare}</switch>")).unwrap();
+    assert_eq!(b, [100.0, 93.0, 15.0, 7.0]);
+    let b = bounds(&format!("<switch>{}</switch>", label(centered, "", "ab"))).unwrap();
+    assert_eq!(b, [45.0, 46.5, 10.0, 7.0]);
+    let notice = format!(
+        r#"<switch><g {extensible}/><a><text x="5" y="20" font-size="10">no</text></a></switch>"#
+    );
+    assert_eq!(bounds(&notice), None);
+
+    // 底色铺在文字的外框下：宽为最长的一行，高为各行的行高之和。
+    let filled = label(top_left, "background-color: #ff0000;", "ab<br/>c");
+    assert_eq!(bounds(&filled).unwrap(), [40.0, 50.0, 10.0, 24.0]);
+    // `max-width` 只限制折行的宽度；样式表里按类名写的规则同样生效。
+    let narrow = format!(
+        "<style>.big {{ font-size: 20px; }}</style>\
+         <foreignObject x=\"0\" y=\"0\" width=\"200\" height=\"50\">\
+         <div xmlns=\"{html}\" style=\"font-size: 10px; max-width: 20px;\">ab cd \
+         <span class=\"big\">e</span></div></foreignObject>"
+    );
+    let b = bounds(&narrow).unwrap();
+    assert_eq!((b[0], b[2]), (0.0, 10.0));
+    // 三行：前两行行高 12，第三行字号 20；首行的字从 2 开始，末行的基线在 42。
+    assert_eq!(b[3], 40.0);
+
+    // 没有写盒子的样式时用 `foreignObject` 自己的位置和宽高：文字在其中居中。
+    let own = format!(
+        "<foreignObject x=\"40\" y=\"50\" width=\"20\" height=\"12\">\
+         <div xmlns=\"{html}\" style=\"font-size: 10px; text-align: center;\">ab</div>\
+         </foreignObject>"
+    );
+    assert_eq!(bounds(&own).unwrap(), [45.0, 52.0, 10.0, 7.0]);
+
+    // 没有文字可画的 `foreignObject` 仍记为不支持的特性。
+    let empty = parse(&format!(
+        r#"<foreignObject width="10" height="10"><video xmlns="{html}"/></foreignObject>"#
+    ));
+    assert_eq!(empty.missing.len(), 1);
 }

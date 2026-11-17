@@ -207,6 +207,16 @@ impl App {
     /// 打开面板的目录阶段：浏览 `target` 上的目录，从主目录 `home` 开始。
     pub(in crate::app) fn open_remote_browser(&mut self, target: Target, home: String) {
         let dir = home.clone();
+        self.browse_remote_folder(target, home, dir);
+    }
+
+    /// 打开面板的目录阶段：浏览 `target` 上的目录，从 `dir` 开始；`home` 是主目录。
+    pub(in crate::app) fn browse_remote_folder(
+        &mut self,
+        target: Target,
+        home: String,
+        dir: String,
+    ) {
         self.show_remote_picker(Stage::Browse { target, home, dir });
     }
 

@@ -114,8 +114,9 @@ pub struct TableView {
     pub revision: u64,
     /// 显示的是第几张工作表（从 0 起）。
     pub sheet: usize,
-    /// 横向、纵向的滚动位置（逻辑像素）。
-    pub scroll: (f32, f32),
+    /// 横向、纵向的滚动位置（逻辑像素）。纵向用 `f64`：行数很多时总高度超出 `f32` 能精确
+    /// 表示的范围。
+    pub scroll: (f32, f64),
     /// 选中的单元格：起点（按下处，或按住 `⇧` 之前所在的单元格）和当前格，均为（行号，列号）。
     ///
     /// 选区是以两者为对角的区域，打开时选中 A1。
@@ -944,7 +945,7 @@ impl Document {
         self.unwritable_reason().or_else(locked).or_else(all)
     }
 
-    /// 应用不是由用户发起的事务（磁盘上的新内容、备份中的内容）：用户设置的只读不拦。
+    /// 应用不由用户发起的事务（磁盘上的新内容、备份中的内容），不受用户设置的只读限制。
     pub(crate) fn apply_unlocked(&mut self, transaction: Transaction) {
         let held = (self.locked, self.all_locked);
         (self.locked, self.all_locked) = (false, false);
@@ -952,7 +953,9 @@ impl Document {
         (self.locked, self.all_locked) = held;
     }
 
-    /// 返回文档因自身的状态而只读的原因（显示给用户），此时也不能保存；用户设置的只读不算。
+    /// 返回文档因自身的状态而只读的原因（显示给用户），此时也不能保存。
+    ///
+    /// 不包括用户设置的只读。
     pub fn unwritable_reason(&self) -> Option<&'static str> {
         match &self.text {
             _ if !self.readonly => None,

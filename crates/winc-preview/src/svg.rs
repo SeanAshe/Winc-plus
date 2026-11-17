@@ -558,9 +558,6 @@ impl<'a, 'input> Parser<'a, 'input> {
             "animate" | "animateTransform" | "animateMotion" | "animateColor" | "set" => {
                 return self.miss(winc_i18n::t!("preview-svg-missing-animation"));
             }
-            "foreignObject" => {
-                return self.miss(winc_i18n::t!("preview-svg-missing-foreign-object"));
-            }
             _ => {}
         }
         // 其他命名空间里的元素（绘图编辑器写入的私有数据）不绘制。
@@ -584,12 +581,28 @@ impl<'a, 'input> Parser<'a, 'input> {
         match tag {
             "g" | "a" => self.children(node, &props, ctm, &mut items, depth + 1),
             "switch" => {
-                // 只绘制第一个条件满足的子元素。
-                let chosen = node.children().filter(Node::is_element).find(|c| {
+                // 只绘制第一个条件满足的子元素。`foreignObject` 的内容不能都排版出来、而其后另有
+                // 不带条件的备用内容时，绘制备用内容。
+                let plain = |c: &Node| {
                     c.attribute("requiredExtensions").is_none_or(str::is_empty)
                         && c.attribute("requiredFeatures").is_none()
+                };
+                let met = |c: &Node| {
+                    let features = c.attribute("requiredFeatures");
+                    c.attribute("requiredExtensions").is_none_or(str::is_empty)
+                        && features.is_none_or(|f| f.ends_with("#Extensibility"))
+                };
+                let elements: Vec<Node> = node.children().filter(Node::is_element).collect();
+                let first = elements.iter().position(met);
+                let foreign = |i: &usize| {
+                    let node = elements[*i];
+                    node.tag_name().name() == "foreignObject" && !self.foreign_plain(node)
+                };
+                let spare = first.filter(foreign).and_then(|i| {
+                    let later = elements[i + 1..].iter().position(plain);
+                    later.map(|k| i + 1 + k)
                 });
-                if let Some(child) = chosen {
+                if let Some(&child) = spare.or(first).and_then(|i| elements.get(i)) {
                     self.element(child, &props, ctm, &mut items, depth + 1);
                 }
             }
@@ -613,6 +626,12 @@ impl<'a, 'input> Parser<'a, 'input> {
             "use" => self.use_element(node, &props, ctm, &mut items, depth),
             "image" => self.image(node, &props, ctm, &mut items),
             "text" => self.text(node, (&props, &own), ctm, &mut items, depth),
+            // 只画其中的文字；没有文字可画时记为不支持的特性。
+            "foreignObject" => {
+                if !self.foreign_text(node, (&props, &own), ctm, &mut items) {
+                    self.miss(winc_i18n::t!("preview-svg-missing-foreign-object"));
+                }
+            }
             _ => {
                 if let Some(path) = self.geometry(node) {
                     self.shape(node, path, &props, &own, ctm, &mut items);

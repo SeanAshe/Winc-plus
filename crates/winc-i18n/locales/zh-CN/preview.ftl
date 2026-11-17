@@ -112,6 +112,7 @@ preview-epub-chapter-damaged = 无法读取「{ $name }」：文件已损坏
 preview-pdf-unsupported = 当前系统不支持预览 PDF
 preview-pdf-invalid = 不是有效的 PDF 文件
 preview-pdf-zoom = PDF 缩放 { $zoom }%
+preview-pdf-page = 第 { $page } / { $total } 页
 preview-picture-zoom = 图片缩放 { $zoom }%
 preview-pdf-encrypted = 不支持预览加密的 PDF
 preview-pdf-empty = PDF 中无页面

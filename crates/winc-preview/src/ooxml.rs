@@ -21,9 +21,14 @@ pub(crate) fn part(archive: &Archive<'_>, path: &str) -> Result<Option<Vec<u8>>,
 /// 把 `bytes` 解析成 XML；`path` 用于报错，也是包中的路径。
 pub(crate) fn parse<'a>(bytes: &'a [u8], path: &str) -> Result<Document<'a>, String> {
     let damaged = || t!("preview-office-damaged", part = path.to_owned());
+    Document::parse(text(bytes, path)?).map_err(|_| damaged())
+}
+
+/// 返回 `bytes` 作为 UTF-8 文字的内容，不含字节顺序标记；`path` 用于报错，也是包中的路径。
+pub(crate) fn text<'a>(bytes: &'a [u8], path: &str) -> Result<&'a str, String> {
+    let damaged = || t!("preview-office-damaged", part = path.to_owned());
     let text = std::str::from_utf8(bytes).map_err(|_| damaged())?;
-    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-    Document::parse(text).map_err(|_| damaged())
+    Ok(text.strip_prefix('\u{feff}').unwrap_or(text))
 }
 
 /// 包关系（`_rels/.rels`）中主文档（工作簿、文字文档）在包中的路径。

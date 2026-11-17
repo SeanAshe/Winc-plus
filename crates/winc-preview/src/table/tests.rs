@@ -15,6 +15,33 @@ const NS: &str = "xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/m
 const REL: &str = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
 
 /// 构造一个工作簿：两张显示的工作表（「数据」「空表」）、一张隐藏的工作表，带共享字符串和样式。
+/// 只有一张工作表、内容为 `sheet` 的工作簿。
+fn single_sheet(sheet: &str) -> Vec<u8> {
+    let root = format!(
+        "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\
+         <Relationship Id=\"rId1\" Type=\"{REL}/officeDocument\" Target=\"xl/workbook.xml\"/>\
+         </Relationships>"
+    );
+    let workbook = format!(
+        "<workbook {NS}><sheets><sheet name=\"表\" sheetId=\"1\" r:id=\"rId1\"/></sheets>\
+         </workbook>"
+    );
+    let relations = format!(
+        "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\
+         <Relationship Id=\"rId1\" Type=\"{REL}/worksheet\" Target=\"worksheets/sheet1.xml\"/>\
+         </Relationships>"
+    );
+    zip(
+        &[
+            ("_rels/.rels", &root),
+            ("xl/workbook.xml", &workbook),
+            ("xl/_rels/workbook.xml.rels", &relations),
+            ("xl/worksheets/sheet1.xml", sheet),
+        ],
+        false,
+    )
+}
+
 fn workbook(deflate: bool) -> Vec<u8> {
     let root_rels = format!(
         "<Relationships xmlns=\"http://schemas.openxmlformats.org/package/2006/relationships\">\
@@ -92,7 +119,7 @@ fn workbooks_give_the_visible_sheets_with_formatted_cells() {
 
         let sheet = &table.sheets[0];
         // 合并区域伸到第 F 列：列数按合并区域算；伸到最后一行之外的截到最后一行。
-        assert_eq!((sheet.rows.len(), sheet.columns), (5, 6));
+        assert_eq!((sheet.row_count(), sheet.columns), (5, 6));
         let wide = Area {
             top: 4,
             left: 2,
@@ -105,11 +132,11 @@ fn workbooks_give_the_visible_sheets_with_formatted_cells() {
             Some((0, 1))
         );
         assert_eq!(sheet.merge_at(1, 1), None);
-        assert_eq!(sheet.rows[0], ["名称", "日期", "内联"]);
+        assert_eq!(sheet.row(0).collect::<Vec<_>>(), ["名称", "日期", "内联"]);
         // 共享字符串连起各段文字，不含注音；没有文字的单元格和整行都没有文字的行为空。
         assert_eq!(sheet.cell(4, 0), "富文本 ");
         assert_eq!(sheet.cell(1, 0), "");
-        assert!(sheet.rows[2].is_empty() && sheet.rows[3].is_empty());
+        assert!(sheet.row(2).next().is_none() && sheet.row(3).next().is_none());
         // 内置的日期格式和百分比格式，以及自定义的日期格式；带时刻的序列号按格式只写日期。
         assert_eq!(sheet.cell(1, 1), "2025-01-01");
         assert_eq!(sheet.cell(1, 2), "12.50%");
@@ -118,7 +145,7 @@ fn workbooks_give_the_visible_sheets_with_formatted_cells() {
         assert_eq!((sheet.cell(4, 2), sheet.cell(4, 3)), ("TRUE", "#DIV/0!"));
         assert!(!sheet.truncated);
 
-        assert_eq!(table.sheets[1].rows.len(), 0);
+        assert_eq!(table.sheets[1].row_count(), 0);
     }
 }
 
@@ -194,19 +221,19 @@ fn delimited_text_handles_quotes_and_delimiters() {
         "\u{feff}名称,备注\r\n\"a,b\",\"第一行\n第二行\"\n\"说\"\"好\"\"\",\n\n",
         false,
     );
-    assert_eq!(sheet.rows.len(), 3);
-    assert_eq!(sheet.rows[0], ["名称", "备注"]);
-    assert_eq!(sheet.rows[1], ["a,b", "第一行\n第二行"]);
+    assert_eq!(sheet.row_count(), 3);
+    assert_eq!(sheet.row(0).collect::<Vec<_>>(), ["名称", "备注"]);
+    assert_eq!(sheet.row(1).collect::<Vec<_>>(), ["a,b", "第一行\n第二行"]);
     // 行末的空单元格和文件末尾的空行不计入。
-    assert_eq!(sheet.rows[2], ["说\"好\""]);
+    assert_eq!(sheet.row(2).collect::<Vec<_>>(), ["说\"好\""]);
     assert_eq!(sheet.columns, 2);
 
     // 按第一行判断分隔符，逗号是小数点时用分号；扩展名为 tsv 时总是用制表符。
     let semicolons = read_delimited("a;b;c\n1,5;2;3", false);
-    assert_eq!(semicolons.rows[1], ["1,5", "2", "3"]);
+    assert_eq!(semicolons.row(1).collect::<Vec<_>>(), ["1,5", "2", "3"]);
     let tabs = read_delimited("a,b\tc", true);
-    assert_eq!(tabs.rows[0], ["a,b", "c"]);
-    assert_eq!(read_delimited("", false).rows.len(), 0);
+    assert_eq!(tabs.row(0).collect::<Vec<_>>(), ["a,b", "c"]);
+    assert_eq!(read_delimited("", false).row_count(), 0);
 }
 
 #[test]
@@ -217,7 +244,7 @@ fn rows_and_columns_beyond_the_limits_are_cut() {
 
     let tall = "1\n".repeat(MAX_ROWS + 3);
     let sheet = read_delimited(&tall, false);
-    assert_eq!((sheet.rows.len(), sheet.truncated), (MAX_ROWS, true));
+    assert_eq!((sheet.row_count(), sheet.truncated), (MAX_ROWS, true));
     let exact = "1\n".repeat(MAX_ROWS);
     assert!(!read_delimited(&exact, false).truncated);
 }
@@ -255,4 +282,82 @@ fn selections_cover_merges_and_copy_as_tab_separated_text() {
         "a\tb\tc\nd\t\"e\tf\"\t\"say \"\"hi\"\"\"\n"
     );
     assert_eq!(sheet.copy_text(Area::spanning((2, 0), (2, 2))), "\t\tx\n");
+}
+
+#[test]
+fn sheets_keep_empty_cells_and_rows_in_place() {
+    let sheet = read_delimited("a,,c,,\n\n,,\nlast\n\n\n", false);
+    assert_eq!((sheet.row_count(), sheet.columns), (4, 3));
+    assert_eq!(sheet.row(0).collect::<Vec<_>>(), ["a", "", "c"]);
+    assert!(sheet.row(1).next().is_none() && sheet.row(2).next().is_none());
+    assert_eq!(
+        (sheet.cell(0, 2), sheet.cell(0, 3), sheet.cell(3, 0)),
+        ("c", "", "last")
+    );
+    assert_eq!((sheet.cell(1, 0), sheet.cell(9, 0)), ("", ""));
+}
+
+#[test]
+fn delimited_files_are_read_from_disk_up_to_the_row_limit() {
+    let dir = std::env::temp_dir().join(format!("winc-table-disk-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("rows.csv");
+    std::fs::write(&path, "name,count\napple,3\n\"pear\npie\",5\n").unwrap();
+    let table = load_delimited(&path, false).unwrap();
+    let sheet = &table.sheets[0];
+    assert_eq!((sheet.row_count(), sheet.truncated), (3, false));
+    assert_eq!(sheet.row(2).collect::<Vec<_>>(), ["pear\npie", "5"]);
+
+    let (head, more) = head_lines(&path, 2).unwrap();
+    assert_eq!(
+        (head.as_slice(), more),
+        (b"name,count\napple,3\n".as_slice(), true)
+    );
+    assert!(load_delimited(&dir.join("missing.csv"), false).is_err());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 行号、列号不按升序写出的工作表：各行、各单元格仍在所写的位置上。
+#[test]
+fn rows_and_cells_written_out_of_order_keep_their_places() {
+    let sheet = format!(
+        "<worksheet {NS}><sheetData>\
+         <row r=\"3\"><c r=\"B3\" t=\"str\"><v>三乙</v></c><c r=\"A3\" t=\"str\"><v>三甲</v></c></row>\
+         <row r=\"1\"><c r=\"A1\" t=\"str\"><v>a &amp; b &#x4E2D;</v></c></row>\
+         <row r=\"5\"/><row><c t=\"inlineStr\"><is><t><![CDATA[<六>]]></t></is></c></row>\
+         </sheetData><mergeCells><mergeCell ref=\"A3:B3\"/></mergeCells></worksheet>"
+    );
+    let table = read_workbook(&single_sheet(&sheet)).unwrap();
+    let sheet = &table.sheets[0];
+    assert_eq!(sheet.row_count(), 6);
+    assert_eq!(sheet.row(0).collect::<Vec<_>>(), ["a & b 中"]);
+    assert!(sheet.row(1).next().is_none());
+    assert_eq!(sheet.row(2).collect::<Vec<_>>(), ["三甲", "三乙"]);
+    assert_eq!(sheet.cell(5, 0), "<六>");
+    assert_eq!(sheet.merges.len(), 1);
+}
+
+#[test]
+fn the_pull_reader_reports_malformed_xml() {
+    use super::pull::{Token, Tokens, attribute};
+    let xml = "<?xml version=\"1.0\"?><!-- c --><x:a k='1 > 0' r:id=\"&lt;\"><b/>t</x:a>";
+    let mut tokens = Tokens::new(xml);
+    let Some(Token::Open {
+        name: "a",
+        attributes,
+        empty: false,
+    }) = tokens.next()
+    else {
+        panic!("应为开始标签");
+    };
+    assert_eq!(attribute(attributes, "k").as_deref(), Some("1 > 0"));
+    assert_eq!(attribute(attributes, "id").as_deref(), Some("<"));
+    assert_eq!(attribute(attributes, "missing"), None);
+    assert_eq!(tokens.by_ref().count(), 3);
+    assert!(tokens.well_formed());
+    for broken in ["<a><b></a>", "<a>", "<a", "<a></b>", "</a>"] {
+        let mut tokens = Tokens::new(broken);
+        tokens.by_ref().for_each(drop);
+        assert!(!tokens.well_formed(), "{broken}");
+    }
 }

@@ -142,7 +142,7 @@ pub(in crate::view) fn draw_merge_card(
         return None;
     }
     let p = app.palette;
-    let editor = app.layout.editor;
+    let area = app.overlay_area();
     let font = app.fonts.ui;
     let (message, buttons): (String, Vec<MergeTarget>) = if count > 0 {
         (
@@ -172,7 +172,7 @@ pub(in crate::view) fn draw_merge_card(
     let text_w = frame.measure(FontKind::Ui, font, &message);
     let width = 34.0 + text_w + 16.0 + buttons_w + 8.0;
     // 卡片高 36 逻辑像素：高于一行文字，按钮上下各留出少量间隙。
-    let card = Rect::new(editor.right() - 8.0 - width, top, width, 36.0);
+    let card = Rect::new(area.right() - 8.0 - width, top, width, 36.0);
 
     draw_card(frame, p, card, RADIUS_BAR, p.popup_bg);
     let icon = (card.x + 16.0, icon_center_y(app, card, font));

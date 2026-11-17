@@ -551,9 +551,16 @@ pub(super) fn paint(text: &str) -> Option<PaintSpec> {
 /// 解析 CSS 颜色，返回非预乘的 `[r, g, b, a]`；无法解析时返回 `None`。
 ///
 /// 支持 `#rgb`、`#rgba`、`#rrggbb`、`#rrggbbaa`、`rgb()`、`rgba()`、`hsl()`、`hsla()`、
-/// `transparent` 和颜色名（见 [`NAMED`]）。
+/// `transparent` 和颜色名（见 [`NAMED`]）。`light-dark()` 取浅色的一项，`var()` 取回退值。
 pub(super) fn color(text: &str) -> Option<[u8; 4]> {
     let text = text.trim();
+    for (function, item) in [("light-dark(", 0), ("var(", 1)] {
+        let lower = text.get(..function.len()).map(str::to_ascii_lowercase);
+        if lower.as_deref() == Some(function) {
+            let inside = text[function.len()..].strip_suffix(')')?;
+            return color(arguments(inside).nth(item)?);
+        }
+    }
     if let Some(hex) = text.strip_prefix('#') {
         // 下面按字节切片：含非 ASCII 字符时，字节偏移可能落在字符中间，切片会 panic。
         if !hex.is_ascii() {
@@ -618,6 +625,19 @@ pub(super) fn color(text: &str) -> Option<[u8; 4]> {
         .ok()
         .map(|i| NAMED[i].1)?;
     Some([(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8, 255])
+}
+
+/// 按括号之外的逗号拆分函数的参数 `text`。
+fn arguments(text: &str) -> impl Iterator<Item = &str> {
+    let mut depth = 0usize;
+    text.split(move |c| {
+        match c {
+            '(' => depth += 1,
+            ')' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+        c == ',' && depth == 0
+    })
 }
 
 /// 把 HSL 颜色转换为 RGB。

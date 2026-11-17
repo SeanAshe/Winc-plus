@@ -65,8 +65,9 @@ impl<'a, 'input> Parser<'a, 'input> {
         }
         let diagonal = self.diagonal();
         match name {
-            "fill" => props.fill = paint(value).unwrap_or_else(|| parent.fill.clone()),
-            "stroke" => props.stroke = paint(value).unwrap_or_else(|| parent.stroke.clone()),
+            // 无法解析的声明不生效，保留优先级较低的声明给出的值。
+            "fill" => props.fill = paint(value).unwrap_or_else(|| props.fill.clone()),
+            "stroke" => props.stroke = paint(value).unwrap_or_else(|| props.stroke.clone()),
             "fill-opacity" => props.fill_opacity = opacity(value),
             "stroke-opacity" => props.stroke_opacity = opacity(value),
             "fill-rule" | "clip-rule" => {

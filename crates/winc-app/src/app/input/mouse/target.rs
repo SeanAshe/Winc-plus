@@ -607,6 +607,17 @@ impl App {
 
         // 预览（分栏时位于右侧，仅预览时占满编辑区）先于编辑区判断，仅预览时两者重叠。
         let preview = self.preview.markdown.area;
+        // 标题列表覆盖在预览之上，先于预览判断；图钉按钮所在的位置不属于滚动条。
+        let list = &self.preview.markdown.toc_list;
+        let pin = crate::app::preview::markdown::TocTarget::Pin;
+        if list.track.contains(x, y)
+            && x >= list.track.right() - SCROLLBAR_HIT
+            && hit(&self.hits.markdown_toc, x, y) != Some(pin)
+            && let Some((scroll, content)) = list.scrollbar()
+        {
+            let thumb = scrollbar_thumb(list.track, scroll, content)?;
+            return Some((Scrollbar::MarkdownToc, grab(y, thumb.y, thumb.h)));
+        }
         if preview.contains(x, y) {
             // 比正文宽的表格的水平滚动条：位于表格显示区域的底边。
             if let Some(bar) = self.hits.markdown_table_bar
@@ -623,6 +634,28 @@ impl App {
             let scroll = self.preview.markdown.scroll();
             let thumb = scrollbar_thumb(preview, scroll, self.preview.markdown.height)?;
             return Some((Scrollbar::Markdown, grab(y, thumb.y, thumb.h)));
+        }
+
+        // 表格预览的滚动条位于单元格区域的右边和下边。
+        if self.table_at(x, y) {
+            let layout = &self.preview.table_layout;
+            let (body, scroll) = (layout.body, self.table_scroll());
+            if !body.contains(x, y) {
+                return None;
+            }
+            let content = (
+                body.w + layout.max_scroll.0,
+                body.h + layout.max_scroll.1 as f32,
+            );
+            if x >= body.right() - SCROLLBAR_HIT {
+                let thumb = scrollbar_thumb(body, scroll.1 as f32, content.1)?;
+                return Some((Scrollbar::Table, grab(y, thumb.y, thumb.h)));
+            }
+            if y >= body.bottom() - SCROLLBAR_HIT {
+                let thumb = hscrollbar_thumb(body, scroll.0, content.0)?;
+                return Some((Scrollbar::TableHorizontal, grab(x, thumb.x, thumb.w)));
+            }
+            return None;
         }
 
         let strip = self.preview.pdf.strip;

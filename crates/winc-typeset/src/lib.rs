@@ -75,6 +75,17 @@ pub struct LaidBlock {
     pub preedit: bool,
     /// 比正文宽、可以横向滚动的表格，按项的先后排列。
     pub scrolls: Vec<Scroller>,
+    /// 要画的项已经释放时留下的内容（见 [`LaidBlock::shed`]）；项都在时为 `None`。
+    shed: Option<Box<Shed>>,
+}
+
+/// 释放了要画的项的块留下的内容：重排时判断是否受影响，以及按链接定位。
+#[derive(Default)]
+struct Shed {
+    /// 块里用到的图片。
+    images: Box<[PathBuf]>,
+    /// 块里各个链接的地址和范围的上边缘、高度（块里的坐标，逻辑像素）。
+    links: Box<[(Arc<str>, f32, f32)]>,
 }
 
 /// 比正文宽的表格：表格的各项按自然宽度排版，绘制时横向平移、裁剪到正文一栏内。
@@ -158,7 +169,51 @@ impl LaidBlock {
             memo,
             preedit: false,
             scrolls: Vec::new(),
+            shed: None,
         }
+    }
+
+    /// 返回释放了要画的项的同一块：高度、锚点、文字不变，另记下用到的图片和链接。
+    ///
+    /// 很长的文档中离视口远的块以这种形式保留，占用的内存只与文字的长度有关；回到视口附近时
+    /// 重新排版。
+    pub fn shed(&self) -> LaidBlock {
+        let images = self.items.iter().filter_map(|item| match item {
+            Item::Image { path, .. } => Some(path.clone()),
+            _ => None,
+        });
+        let links = self.items.iter().filter_map(|item| match item {
+            Item::Link { rect, url } => Some((Arc::clone(url), rect.y, rect.h)),
+            _ => None,
+        });
+        LaidBlock {
+            height: self.height,
+            anchors: self.anchors.clone(),
+            text: self.text.clone(),
+            chars: self.chars,
+            shed: Some(Box::new(Shed {
+                images: images.collect(),
+                links: links.collect(),
+            })),
+            ..LaidBlock::default()
+        }
+    }
+
+    /// 要画的项是否已经释放。
+    pub fn is_shed(&self) -> bool {
+        self.shed.is_some()
+    }
+
+    /// 返回块里第一个指向 `url` 的链接的上边缘和高度（块里的坐标，逻辑像素）。
+    pub fn link_box(&self, url: &str) -> Option<(f32, f32)> {
+        let kept = self.shed.iter().flat_map(|shed| shed.links.iter());
+        let kept = kept.map(|(u, y, h)| (&**u, *y, *h));
+        let drawn = self.items.iter().filter_map(|item| match item {
+            Item::Link { rect, url } => Some((&**url, rect.y, rect.h)),
+            _ => None,
+        });
+        let mut links = kept.chain(drawn);
+        links.find(|(u, ..)| *u == url).map(|(_, y, h)| (y, h))
     }
 
     /// 第 `item` 项所在的可横向滚动的表格的序号（[`LaidBlock::scrolls`]）；不在其中时为 `None`。
@@ -169,18 +224,17 @@ impl LaidBlock {
 
     /// 块里有没有用到 `paths` 里的图片（排版时还在读的也算）。
     pub fn uses_any(&self, paths: &[PathBuf]) -> bool {
-        !paths.is_empty()
-            && self
-                .items
-                .iter()
-                .any(|item| matches!(item, Item::Image { path, .. } if paths.contains(path)))
+        let kept = self.shed.iter().flat_map(|shed| shed.images.iter());
+        let drawn = self.items.iter().filter_map(|item| match item {
+            Item::Image { path, .. } => Some(path),
+            _ => None,
+        });
+        !paths.is_empty() && kept.chain(drawn).any(|path| paths.contains(path))
     }
 
     /// 块里有没有指向 `url` 的链接。
     pub fn links_to(&self, url: &str) -> bool {
-        self.items
-            .iter()
-            .any(|item| matches!(item, Item::Link { url: u, .. } if &**u == url))
+        self.link_box(url).is_some()
     }
 
     /// 和 `y0..y1`（块里的坐标）有交集的项的序号，按原来的先后（先画的底色在下面）。

@@ -13,6 +13,8 @@ use zeno::{Command, Fill};
 use super::syntax::*;
 use super::{Item, Own, Parser, Props, Shape};
 
+mod foreign;
+
 /// 一个字形。
 ///
 /// 轮廓和前进宽度均以 em 为单位；原点在基线左端，y 轴向下。
@@ -303,6 +305,18 @@ impl<'a, 'input> Parser<'a, 'input> {
         while chars.last().is_some_and(|c| c.c == ' ' && !preserve(node)) {
             chars.pop();
         }
+        self.place(glyphs.as_ref(), &chars, &styles, ctm, out);
+    }
+
+    /// 按 `chars` 中各字符的位置和 `styles` 中的样式排版，把字形轮廓按样式分组后追加到 `out`。
+    fn place(
+        &mut self,
+        glyphs: &dyn Glyphs,
+        chars: &[Char],
+        styles: &[(Props, Own)],
+        ctm: Affine,
+        out: &mut Vec<Item>,
+    ) {
         if chars.is_empty() {
             return;
         }
