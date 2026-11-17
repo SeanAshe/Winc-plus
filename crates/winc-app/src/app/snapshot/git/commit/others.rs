@@ -51,7 +51,7 @@ fn other_repositories_are_listed_after_the_current_one_and_a_click_switches() {
     app.run_commit_more_command(toggle);
     assert!(app.menu_checked(toggle));
 
-    // 按仓库列表的顺序每个仓库一节：当前仓库的标题行下面是它的改动列表，另一个仓库的标题行
+    // 有更改的仓库按仓库列表的顺序每个一节：当前仓库的标题行下面是它的改动列表，另一个仓库的标题行
     // 下面按组列出它的文件，一起滚动。
     use crate::app::OtherGroup::{Changes, Untracked};
     let listed = [
@@ -82,8 +82,14 @@ fn other_repositories_are_listed_after_the_current_one_and_a_click_switches() {
     app.press_commit(CommitTarget::OtherFold(1));
     assert_eq!(app.commit_other_rows(), listed[..2]);
     app.press_commit(CommitTarget::OtherFold(1));
-    app.press_commit(CommitTarget::CurrentRepository);
+    // 点当前仓库的标题行不折叠也不切换；折叠只由箭头负责。
+    click(&mut app, (current.x + 60.0, current.y + 4.0));
+    assert!(!app.current_section_folded());
+    assert_eq!(app.git.root.as_ref(), Some(&a));
+    let arrow = hit(&app, CommitTarget::CurrentFold);
+    click(&mut app, (arrow.x + 4.0, arrow.y + 4.0));
     assert!(app.current_section_folded() && app.commit_block_len() == 0);
+    app.git.commit.fold_motion = None;
     paint(&mut app);
     assert_eq!(
         hit(&app, CommitTarget::OtherRepository(1)).y,
@@ -109,14 +115,18 @@ fn other_repositories_are_listed_after_the_current_one_and_a_click_switches() {
     assert!(has(&app, CommitTarget::CurrentRepository));
     assert!(!has(&app, CommitTarget::OtherRepository(1)));
     app.git.commit.fold_motion = None;
-    app.press_commit(CommitTarget::CurrentRepository);
+    app.press_commit(CommitTarget::CurrentFold);
     assert!(!app.current_section_folded());
     paint(&mut app);
 
-    // 点另一个仓库的文件：切换到那个仓库，选中该文件并预览差异；列表的顺序不变，✓ 移过去。
+    // 点另一个仓库的文件：切换到该仓库并选中该文件；列表的顺序不变。
     let file = hit(&app, CommitTarget::OtherFile(1, 0));
+    let header = hit(&app, CommitTarget::OtherRepository(1));
     click(&mut app, (file.x + 60.0, file.y + 4.0));
     assert_eq!(app.git.root.as_ref(), Some(&b));
+    paint(&mut app);
+    assert_eq!(hit(&app, CommitTarget::CurrentRepository).y, header.y);
+    assert_eq!(hit(&app, CommitTarget::OtherRepository(0)).y, current.y);
     let main = b.join("src/main.rs");
     assert_eq!(app.git.commit.selected.as_deref(), Some(main.as_path()));
     assert_eq!(
@@ -126,23 +136,63 @@ fn other_repositories_are_listed_after_the_current_one_and_a_click_switches() {
     assert_eq!(app.commit_other_rows()[0], OtherRow::Repository(0));
     assert_eq!(app.commit_other_rows().last(), Some(&OtherRow::Current));
 
-    // 当前仓库没有更改时不画空状态：照样列出各个仓库，当前仓库的标题行下面没有行。
+    // 当前仓库没有更改时收在「没有更改的仓库」一组里；另一个仓库有更改，提交卡片仍然显示。
     git_in(&b, &["checkout", "-q", "--", "."]);
     std::fs::remove_file(b.join("src/new.rs")).unwrap();
     app.git_refresh();
+    app.poll_git();
     assert_eq!(app.commit_other_rows()[0], OtherRow::Repository(0));
-    assert_eq!(app.commit_other_rows().last(), Some(&OtherRow::Current));
+    assert_eq!(app.commit_other_rows().last(), Some(&OtherRow::QuietGroup));
+    assert_eq!(app.commit_rows_before(), 0);
+    assert!(app.commit_compose_shown());
+    paint(&mut app);
+    // 展开该组：当前仓库在其中占一行；再点一次收起。
+    app.press_commit(CommitTarget::QuietRepositories);
+    assert_eq!(
+        app.commit_other_rows()[5..],
+        [OtherRow::QuietGroup, OtherRow::Current]
+    );
+    app.git.commit.fold_motion = None;
+    app.press_commit(CommitTarget::QuietRepositories);
+    assert_eq!(app.commit_other_rows().last(), Some(&OtherRow::QuietGroup));
+    app.git.commit.fold_motion = None;
     paint(&mut app);
     let header = hit(&app, CommitTarget::OtherRepository(0));
     click(&mut app, (header.x + 60.0, header.y + 4.0));
     assert_eq!(app.git.root.as_ref(), Some(&a));
-    // 没有更改的仓库只有一行。
+    paint(&mut app);
+    assert_eq!(hit(&app, CommitTarget::CurrentRepository).y, header.y);
+    // 没有更改的仓库不单独占一节：收起时只有该组的标题行，展开后每个仓库一行。
     app.git_read_summaries();
     app.poll_git();
     assert_eq!(
         app.commit_other_rows(),
-        [OtherRow::Current, OtherRow::Quiet(1)]
+        [OtherRow::Current, OtherRow::QuietGroup]
     );
+    app.press_commit(CommitTarget::QuietRepositories);
+    app.git.commit.fold_motion = None;
+    assert_eq!(
+        app.commit_other_rows(),
+        [OtherRow::Current, OtherRow::QuietGroup, OtherRow::Quiet(1)]
+    );
+    // 点该组中的仓库同样切换；所有仓库都没有更改时该组默认展开。
+    paint(&mut app);
+    let quiet = hit(&app, CommitTarget::OtherRepository(1));
+    click(&mut app, (quiet.right() - 30.0, quiet.y + 4.0));
+    assert_eq!(app.git.root.as_ref(), Some(&b));
+    paint(&mut app);
+    click(&mut app, (header.x + 60.0, header.y + 4.0));
+    assert_eq!(app.git.root.as_ref(), Some(&a));
+    app.git.commit.quiet_open = None;
+    git_in(&a, &["checkout", "-q", "--", "."]);
+    std::fs::remove_file(a.join("src/new.rs")).unwrap();
+    app.git_refresh();
+    app.poll_git();
+    assert_eq!(
+        app.commit_other_rows(),
+        [OtherRow::QuietGroup, OtherRow::Current, OtherRow::Quiet(1)]
+    );
+    assert!(!app.commit_compose_shown());
 
     // 关闭后只剩当前仓库。
     app.run_commit_more_command(toggle);
@@ -356,6 +406,41 @@ fn staged_files_of_other_repositories_are_committed_alongside() {
     let _ = std::fs::remove_dir_all(a.parent().unwrap());
 }
 
+/// 当前仓库没有更改而另一个仓库有更改时提交卡片仍然显示，勾上另一个仓库的文件即可提交。
+#[test]
+fn a_clean_current_repository_commits_the_checked_files_of_others() {
+    let Some((mut app, a, b)) = two_repositories("git-clean-current-commit", false) else {
+        return;
+    };
+    git_in(&a, &["add", "-A"]);
+    git_in(&a, &["commit", "-q", "-m", "clean"]);
+    app.run_action(Action::ShowCommit);
+    app.git_refresh();
+    app.git_read_summaries();
+    app.poll_git();
+    paint(&mut app);
+    assert_eq!(app.git.root.as_ref(), Some(&a));
+    assert!(app.git.status.as_ref().unwrap().entries.is_empty());
+    assert!(app.commit_compose_shown() && app.commit_parts().card.is_some());
+    app.press_commit(CommitTarget::OtherCheck(1, 0));
+    app.git.commit.message.set_text("only the other repository");
+    let status = app.git.status.clone().unwrap();
+    assert_eq!(app.commit_blocker(&status), None);
+    app.git_commit();
+    app.poll_commit();
+    let subject = |repo: &Path| {
+        let log = std::process::Command::new("git")
+            .current_dir(repo)
+            .args(["log", "-1", "--format=%s"])
+            .output()
+            .unwrap();
+        String::from_utf8(log.stdout).unwrap().trim().to_owned()
+    };
+    assert_eq!(subject(&b), "only the other repository");
+    assert_eq!(subject(&a), "clean");
+    let _ = std::fs::remove_dir_all(a.parent().unwrap());
+}
+
 /// 其他仓库标题行上的分支可以直接点：切换到那个仓库，并展开它的分支选择面板。
 #[test]
 fn the_branch_on_another_repository_opens_its_branch_picker() {
@@ -466,5 +551,53 @@ fn inline_blame_follows_the_repository_of_the_file() {
     app.git_switch_repository(0);
     assert!(!blamed(&mut app, &b.join("src/new.rs")));
     assert!(app.status.message.is_none());
+    let _ = std::fs::remove_dir_all(a.parent().unwrap());
+}
+
+/// 列表滚动后点另一个仓库的标题行：列表不滚回顶部，该行的位置不变。
+#[test]
+fn switching_from_a_scrolled_list_keeps_the_clicked_row_in_place() {
+    let Some((mut app, a, b)) = two_repositories("git-switch-scrolled", false) else {
+        return;
+    };
+    for repo in [&a, &b] {
+        for n in 0..40 {
+            std::fs::write(repo.join(format!("src/new{n}.rs")), "fn x() {}\n").unwrap();
+        }
+    }
+    app.run_action(Action::ShowCommit);
+    app.git_refresh();
+    app.git_read_summaries();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while !app.others_changed() && std::time::Instant::now() < deadline {
+        app.poll_git();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    paint(&mut app);
+    let other = (app.git.repositories.iter()).position(|r| *r == b).unwrap();
+    let header = CommitTarget::OtherRepository(other);
+    let top = |app: &App, target: CommitTarget| {
+        let hit = app.hits.commit.iter().find(|(_, t)| *t == target);
+        hit.map(|(rect, _)| rect.y)
+    };
+    // 向下滚动，直到另一个仓库的标题行完整显示。
+    let list = app.commit_parts().list;
+    let shown = |app: &App| {
+        top(app, header).is_some_and(|y| y >= list.y + 48.0 && y + 24.0 <= list.bottom())
+    };
+    while !shown(&app) && app.git.commit.scroll < app.commit_max_scroll() {
+        app.git.commit.scroll += 24.0;
+        paint(&mut app);
+    }
+    let scroll = app.git.commit.scroll;
+    let before = top(&app, header).expect("另一个仓库的标题行在屏幕上");
+    assert!(scroll > 0.0);
+
+    app.press_commit(header);
+    assert_eq!(app.git.root.as_ref(), Some(&b));
+    assert!(app.git.commit.scroll > 0.0);
+    paint(&mut app);
+    assert_eq!(top(&app, CommitTarget::CurrentRepository), Some(before));
+
     let _ = std::fs::remove_dir_all(a.parent().unwrap());
 }

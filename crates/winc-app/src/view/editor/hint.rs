@@ -61,7 +61,7 @@ pub(in crate::view) fn draw_name_hint(app: &App, frame: &mut Frame<'_>) {
     let toward_name = if above { 1.0 } else { -1.0 };
     let card = Rect::new(x, (y + toward_name * SLIDE * away).round(), w, HEIGHT);
     let tip_x = (name_x + 6.0)
-        .clamp(card.x + 16.0, card.right() - 16.0)
+        .clamp(card.x + 16.0, (card.right() - 16.0).max(card.x + 16.0))
         .round();
 
     frame.with_opacity(opacity, |frame| {

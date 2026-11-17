@@ -324,6 +324,7 @@ impl App {
                 .collect(),
             MenuTarget::Whitespace => whitespace_menu(),
             MenuTarget::VimClipboard => vim_clipboard_menu(),
+            MenuTarget::OpenWorktree => open_worktree_menu(),
             MenuTarget::DefaultShell => default_shell_menu(self.terminal.shells.len()),
             MenuTarget::Zoom => zoom_menu(),
             MenuTarget::BackgroundImage => background_menu(),
@@ -634,31 +635,7 @@ impl App {
             }
             // 目录菜单不经过这里（`App::open_crumb_menu`）。
             MenuTarget::Folder => return,
-            MenuTarget::Location(_, worktree) => {
-                let missing = worktree
-                    .and_then(|i| self.git.worktrees.get(i))
-                    .is_some_and(|w| w.prunable);
-                let removable = worktree.is_some_and(|i| {
-                    i > 0
-                        && self.git.current_worktree() != Some(i)
-                        && self.git.worktrees.get(i).is_some_and(|w| !w.locked)
-                        && self.git.branch.running.is_none()
-                });
-                let idle = self.git.branch.running.is_none();
-                let mut menu = vec![
-                    MenuEntry::Item(MenuCommand::LocationNewWindow, true),
-                    MenuEntry::Item(MenuCommand::LocationReveal, true),
-                ];
-                if worktree.is_some_and(|i| i > 0) {
-                    menu.push(MenuEntry::Separator);
-                    menu.push(MenuEntry::Item(MenuCommand::LocationRemove, removable));
-                }
-                // 目录已不在：打不开，也没有东西可以移除，只能清理。
-                if missing {
-                    menu = vec![MenuEntry::Item(MenuCommand::LocationPrune, idle)];
-                }
-                menu
-            }
+            MenuTarget::Location(path, worktree) => self.location_row_menu(path, *worktree),
             MenuTarget::BranchOps(index) => crate::app::git::branch::branch_ops(
                 *index,
                 &self.git.branches,
@@ -669,6 +646,20 @@ impl App {
             MenuTarget::TagOps(index) => {
                 crate::app::git::branch::tag_ops(*index, self.git.branch.running.is_some())
             }
+        };
+
+        // 菜单所指的文件在远端主机上：不列出只能在本机执行的项。
+        let place = match &target {
+            MenuTarget::Tree(path) => path.as_deref().or(self.editor.root()),
+            MenuTarget::Tab(id) => (self.editor.document(*id)).and_then(|d| d.path.as_deref()),
+            MenuTarget::CommitFile(path) | MenuTarget::LogFile(_, path) => Some(path.as_path()),
+            _ => None,
+        };
+        let entries = match place {
+            Some(path) if winc_backend::is_remote(path) => {
+                without_local_only(entries, self.terminal_enabled())
+            }
+            _ => entries,
         };
 
         // 菜单上显示的快捷键按菜单弹出的位置取：文件树中取文件树的键位，编辑区中取编辑区的键位。
@@ -691,6 +682,7 @@ impl App {
                 | MenuTarget::NamedTheme(_)
                 | MenuTarget::Whitespace
                 | MenuTarget::VimClipboard
+                | MenuTarget::OpenWorktree
                 | MenuTarget::Zoom
                 | MenuTarget::BackgroundImage
                 | MenuTarget::BackgroundFit
@@ -705,6 +697,7 @@ impl App {
             MenuTarget::Locale => Some(Setting::Language),
             MenuTarget::Whitespace => Some(Setting::RenderWhitespace),
             MenuTarget::VimClipboard => Some(Setting::VimClipboard),
+            MenuTarget::OpenWorktree => Some(Setting::GitOpenWorktree),
             MenuTarget::Zoom => Some(Setting::Zoom),
             MenuTarget::BackgroundImage => Some(Setting::BackgroundImage),
             MenuTarget::BackgroundFit => Some(Setting::BackgroundFit),
@@ -1292,6 +1285,10 @@ impl App {
             MenuCommand::VimClipboard(i) => {
                 winc_config::VimClipboard::ALL.get(i)
                     == Some(&self.config.vim_clipboard.unwrap_or_default())
+            }
+            MenuCommand::OpenWorktree(i) => {
+                winc_config::WorktreeOpen::ALL.get(i)
+                    == Some(&self.config.git_open_worktree.unwrap_or_default())
             }
             MenuCommand::DefaultShell(i) => {
                 let configured = self.configured_shell().map(|shell| shell.command);

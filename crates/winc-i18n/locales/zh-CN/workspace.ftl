@@ -344,6 +344,8 @@ workspace-compare-identical = 「{ $left }」与「{ $right }」相同
 
 workspace-open-default-app-failed = 无法用默认应用打开：{ $error }
 workspace-reveal-failed = 无法{ $action }：{ $error }
+workspace-remote-local-only = 远端主机上的文件无法用本机程序打开
+workspace-remote-terminal = 远端主机上的目录只能在内置终端中打开，请先在设置中启用终端
 workspace-terminal-app-fallback = 终端
 workspace-open-app-failed = 无法打开「{ $app }」：{ $error }
 workspace-deleted-on-disk-key = 「{ $name }」已从磁盘上删除，未自动保存；按 { $key } 重新创建

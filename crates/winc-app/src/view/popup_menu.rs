@@ -42,6 +42,8 @@ pub(super) fn draw(app: &mut App, frame: &mut Frame<'_>) {
     for l in 0..popup.levels.len() {
         let (w, content) = measure(app, frame, &popup.levels[l].rows);
         let w = if l == 0 { w.max(popup.min_width) } else { w };
+        // 宽高不超过窗口减去两侧的边距；窗口比两侧边距还小时为 0。
+        let w = w.min(window.w - 2.0 * MARGIN).max(0.0);
         let h = content.min(window.h - 2.0 * MARGIN).max(0.0);
         let (x, y) = if l == 0 {
             let mut y = popup.at.1;
@@ -73,14 +75,10 @@ pub(super) fn draw(app: &mut App, frame: &mut Frame<'_>) {
             };
             (x, row.y - POPUP_PAD)
         };
-        let x = x.clamp(
-            window.x + MARGIN,
-            (window.right() - MARGIN - w).max(window.x),
-        );
-        let y = y.clamp(
-            window.y + MARGIN,
-            (window.bottom() - MARGIN - h).max(window.y),
-        );
+        // 上界不低于下界：窗口放不下时菜单贴着左上的边距。
+        let (left, top) = (window.x + MARGIN, window.y + MARGIN);
+        let x = x.clamp(left, (window.right() - MARGIN - w).max(left));
+        let y = y.clamp(top, (window.bottom() - MARGIN - h).max(top));
         let level = &mut popup.levels[l];
         level.rect = Rect::new(x, y, w, h);
         level.content = content;

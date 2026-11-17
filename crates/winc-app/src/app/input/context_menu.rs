@@ -152,10 +152,14 @@ pub enum MenuCommand {
     CloseFolder,
     /// 提交视图「⋯」：新建工作树（输入新分支的名字）。
     NewWorktree,
+    /// 位置选择器的操作菜单：在当前窗口打开这个位置。
+    LocationThisWindow,
     /// 位置选择器的操作菜单：在新窗口打开这个位置。
     LocationNewWindow,
     /// 位置选择器的操作菜单：在系统的文件管理器里显示。
     LocationReveal,
+    /// 位置选择器的操作菜单：把这个工作树的分支合并到当前分支。
+    LocationMerge,
     /// 位置选择器的操作菜单：移除这个工作树。
     LocationRemove,
     /// 位置选择器的操作菜单：清理目录已不存在的工作树。
@@ -190,6 +194,9 @@ pub enum MenuCommand {
     /// 设置中「Vim 剪贴板」菜单的一项，参数为
     /// [`VimClipboard::ALL`](winc_config::VimClipboard::ALL) 中的序号（从 0 起）。
     VimClipboard(usize),
+    /// 设置中「打开工作树」菜单的一项，参数为
+    /// [`WorktreeOpen::ALL`](winc_config::WorktreeOpen::ALL) 中的序号（从 0 起）。
+    OpenWorktree(usize),
     /// 设置中「默认 Shell」菜单的一项：`None` 为系统默认，`Some(i)` 为检测到的第 `i` 个 shell
     /// （从 0 起）。
     DefaultShell(Option<usize>),
@@ -503,7 +510,9 @@ impl MenuCommand {
                 .get(i)
                 .map_or("", |&choice| crate::layout::option_as_meta_label(choice)),
             MenuCommand::NewWorktree => t!("menu-new-worktree"),
+            MenuCommand::LocationThisWindow => t!("git-location-this-window"),
             MenuCommand::LocationNewWindow => t!("git-location-new-window"),
+            MenuCommand::LocationMerge => t!("git-branch-merge-into-current"),
             MenuCommand::LocationRemove => t!("git-location-remove"),
             // 文字来自当时的分支和位置（`App::menu_label`）。
             MenuCommand::StatusPlace(_) => "",
@@ -628,6 +637,9 @@ impl MenuCommand {
             MenuCommand::VimClipboard(i) => winc_config::VimClipboard::ALL
                 .get(i)
                 .map_or("", |&choice| crate::layout::vim_clipboard_label(choice)),
+            MenuCommand::OpenWorktree(i) => winc_config::WorktreeOpen::ALL
+                .get(i)
+                .map_or("", |&choice| crate::layout::open_worktree_label(choice)),
             MenuCommand::Locale(i) => winc_i18n::LocaleChoice::ALL
                 .get(i)
                 .map_or("", |&choice| crate::layout::locale_label(choice)),
@@ -789,6 +801,8 @@ pub enum MenuTarget {
     Whitespace,
     /// 设置的编辑器页中的「Vim 剪贴板」。
     VimClipboard,
+    /// 设置的 Git 页中的「打开工作树」。
+    OpenWorktree,
     /// 设置的外观页中的「界面缩放」。
     Zoom,
     /// 设置的外观页中的「背景图片」。

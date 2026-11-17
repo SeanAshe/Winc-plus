@@ -114,15 +114,17 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, index: usize, 
     layout.numbers = numbers;
     layout.row_h = row_h;
     layout.size = (sheet.rows.len(), sheet.columns);
-    // 区域在窗口中的矩形（逻辑像素）：左上角的横纵坐标由列边界和行号换算。
+    // 区域在窗口中的矩形（逻辑像素）：左上角的横纵坐标由列边界和行号换算。列号超出表格时取
+    // 最右的边界，区域的宽度为 0。
+    let edge = |column: usize| edges.get(column).or(edges.last()).copied().unwrap_or(0.0);
     let area_rect = |a: &Area| {
-        let x = body.x + edges[a.left] - sx;
+        let x = body.x + edge(a.left) - sx;
         let y = body.y + a.top as f32 * row_h - sy;
         Rect::new(
             x,
             y,
-            edges[a.right + 1] - edges[a.left],
-            (a.bottom - a.top + 1) as f32 * row_h,
+            edge(a.right + 1) - edge(a.left),
+            (a.bottom.saturating_sub(a.top) + 1) as f32 * row_h,
         )
     };
 
@@ -279,7 +281,8 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, index: usize, 
         ""
     };
     let cell = area_rect(&current);
-    let show_card = selected == current
+    let show_card = has_cells
+        && selected == current
         && !card_closed
         && !text.is_empty()
         && !app.table_dragging()

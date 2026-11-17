@@ -860,7 +860,7 @@ impl App {
                 Arc::new(notify) as Closed
             });
             let listener = wake.filter(|_| !quiet).and_then(|proxy| {
-                Listener::bind(move |question| {
+                Listener::bind(false, move |question| {
                     let _ = questions.send(question);
                     let _ = proxy.send_event(UserEvent::RemoteQuestion);
                 })

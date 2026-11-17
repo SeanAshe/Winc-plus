@@ -19,12 +19,12 @@ use crate::app::git::log::display_local;
 use crate::app::{
     COMMIT_ROW, CommitGroup, CommitLabels, CommitName, CommitOverflow, CommitParts, CommitRow,
     CommitRows, CommitScope, CommitTarget, Focus, LabelCause, LabelView, MESSAGE_LINE, MESSAGE_PAD,
-    StashLine, StashView, SyncState,
+    StashLine, StashView, SyncState, WorktreeLine,
 };
 use crate::icons::Direction;
 use crate::view::workspace::sidebar::{
-    BADGE_CENTER, BADGE_ROOM, CHAIN_FOLD, CHAIN_GAP, CHAIN_SEPARATOR, ContextBar, FADE_FROM,
-    NAME_FADE, fold_chain, git_color, retracting_color,
+    BADGE_CENTER, BADGE_ROOM, CHAIN_FOLD, CHAIN_GAP, CHAIN_SEPARATOR, FADE_FROM, NAME_FADE,
+    fold_chain, git_color, retracting_color,
 };
 use crate::view::*;
 
@@ -35,8 +35,8 @@ mod names;
 mod overflow;
 mod row;
 mod stash;
+mod worktrees;
 
-pub(in crate::view) use header::location_span;
 use header::*;
 use names::*;
 pub(in crate::view) use overflow::commit_overflow;
@@ -45,22 +45,21 @@ pub(in crate::view) use overflow::draw_commit_overflow_closing;
 use overflow::*;
 use row::*;
 use stash::*;
+use worktrees::*;
 
 /// Git 上下文按钮里文字右边到按钮右边的宽度（逻辑像素）：空隙加下拉箭头。
 const CONTEXT_PICK_TAIL: f32 = 18.0;
-/// 位置按钮里图标中心和文字左边离按钮左边的距离（逻辑像素）：图标 12 宽，左右各留 6。
+/// 上下文一行中跟在分隔符之后的按钮里，图标中心和文字左边离按钮左边的距离（逻辑像素）：
+/// 图标 12 宽，左右各留 6。
 const LOCATION_LEAD: (f32, f32) = (12.0, 24.0);
-/// 项目按钮和位置按钮之间的距离（逻辑像素）。
-const LOCATION_GAP: f32 = 4.0;
 /// 同步控件里提交数左边的留白（逻辑像素）。
 const SYNC_TEXT_LEFT: f32 = 8.0;
-/// 「修改上次提交」的勾选框中心离那一段左边的距离（逻辑像素）：边长 12 的勾选框左边留 1，和
-/// 悬停底色的边缘分开。
+/// 「修改上次提交」的勾选框中心离那一段左边的距离（逻辑像素）：边长 12 的勾选框左边留 1。
 const AMEND_CHECK: f32 = 7.0;
 /// 「修改上次提交」的文字离该区域左边的距离（逻辑像素）：勾选框右边再隔 8，与设置里勾选项中
 /// 勾选框与文字的间隔相同。
 const AMEND_TEXT: f32 = 21.0;
-/// 「修改上次提交」文字右边留到悬停底色边缘的距离（逻辑像素），与左边勾选框外的空隙相当。
+/// 「修改上次提交」文字右边可点击的宽度（逻辑像素）。
 const AMEND_END: f32 = 6.0;
 /// 没有更改时空状态和下面「推送」「拉取」按钮之间的距离（逻辑像素）：比说明的两行之间宽，
 /// 看得出按钮不是说明的一部分。
@@ -79,6 +78,8 @@ pub(in crate::view) fn draw_commit(
     // 提交信息框随内容长高：先按框的宽度折好行（框的宽度和高度无关，卡片和分支行同宽，卡片
     // 收起时也照样折），框的高度按行数定，绘制时继续使用折好的行。
     app.track_stash_height();
+    app.track_worktree_height();
+    app.sections_tracked();
     let row = app.commit_parts().branch;
     let width = message_area(app, Rect::new(row.x, 0.0, row.w, 0.0)).w;
     let focused = app.focus == Focus::CommitMessage;
@@ -123,6 +124,8 @@ pub(in crate::view) fn draw_commit(
             draw_other_rows(app, frame, parts.list, 0.0, &mut hits);
         }
         (Some(_), _) => draw_empty(app, frame, &parts, &mut hits),
+        // 没有可用的 `git` 时原因里已经写明处理办法，刷新不能解决。
+        (None, Some(problem)) if app.git.missing => draw_note(app, frame, &parts, problem, true),
         (None, Some(problem)) => {
             let text = t!("git-commit-view-problem", problem = problem.as_str());
             draw_note(app, frame, &parts, &text, true);
@@ -136,6 +139,7 @@ pub(in crate::view) fn draw_commit(
     // 列表的滚动条贴在列表右边，盖在固定的行上面；放得下时没有。
     let content = app.commit_max_scroll() + parts.list.h;
     let scroll = app.git.commit.scroll;
+    draw_list_fade(app, frame, parts.list, content - parts.list.h - scroll);
     draw_scrollbar(
         app,
         frame,
@@ -147,6 +151,7 @@ pub(in crate::view) fn draw_commit(
     );
     draw_context(app, frame, &parts, &mut hits);
     draw_banner(app, frame, &parts, &mut hits);
+    draw_worktrees(app, frame, &parts, &mut hits);
     draw_stashes(app, frame, &parts, &mut hits);
     draw_undo(app, frame, &parts, &mut hits);
     let caret = draw_compose(app, frame, &parts, wrap, &mut hits);
@@ -651,12 +656,7 @@ fn draw_sticky(
             // 多仓库时固定的行也在当前仓库一节里：盖住卡片以后补上卡片的底色。
             if app.commit_base_level() > 0 {
                 let band = Rect::new(list.x + 8.0, s.rect.y, list.w - 16.0, COMMIT_ROW);
-                frame.rect_clipped(
-                    band,
-                    others::section_fill(app, app.repository_color(None)),
-                    0.0,
-                    list,
-                );
+                frame.rect_clipped(band, others::current_fill(app), 0.0, list);
             }
             if app.pointer.hover == Hover::Commit(CommitTarget::Sticky(s.row, s.level)) {
                 let band = Rect::new(
@@ -690,6 +690,22 @@ fn draw_sticky(
         hits.retain(|(rect, _)| !covered.contains(rect.x + 1.0, rect.y + rect.h / 2.0));
     }
     hits.splice(0..0, pinned);
+}
+
+/// 列表下方还有内容时，列表的下端渐隐到侧栏的底色。`rest` 是还能向下滚动的距离（逻辑像素）。
+///
+/// 渐隐的高度与标签栏两端的渐隐（`TAB_FADE`）相同，强度随 `rest` 在该高度内线性变化。
+fn draw_list_fade(app: &App, frame: &mut Frame<'_>, list: Rect, rest: f32) {
+    use crate::view::workspace::top_bar::TAB_FADE;
+    let strength = (rest / TAB_FADE).min(1.0);
+    if strength <= 0.0 || list.h < 2.0 * TAB_FADE {
+        return;
+    }
+    let edge = Rect::new(list.x, list.bottom() - TAB_FADE, list.w, TAB_FADE);
+    let color = app.palette.sidebar_bg;
+    frame.within(list.intersect(app.layout.sidebar), |frame| {
+        frame.with_opacity(strength, |frame| fade_up(frame, edge, color));
+    });
 }
 
 /// 在行底色 `row` 右端用淡色写数字 `count`，右边和行右端的悬停按钮对齐。
@@ -898,13 +914,14 @@ fn draw_card(
     app.git.commit.message = field;
     let clip = panel.intersect(card);
 
-    // 「修改上次提交」：勾选框连同文字整段可点击，悬停时铺底色。
+    // 「修改上次提交」整段可点击。悬停时加深勾选框的边框和文字，不铺底色：勾选框与按钮左对齐，
+    // 底色的边缘会与它重合。
     if let Some(amend) = parts.amend {
         let hovered = app.pointer.hover == Hover::Commit(CommitTarget::Amend);
-        draw_button(frame, p, amend, clip, hovered, false);
         let cy = amend.y + amend.h / 2.0;
         let state = app.git.commit.amend.then_some(true);
-        let border = p.text_dim.alpha(0.55);
+        let border = p.text_dim.alpha(if hovered { 1.0 } else { 0.55 });
+        let ink = if hovered { p.text } else { p.text_muted };
         let check = (amend.x + AMEND_CHECK, cy);
         icons::checkbox(
             frame,
@@ -916,15 +933,7 @@ fn draw_card(
             clip,
         );
         let x = amend.x + AMEND_TEXT;
-        ui_text_small(
-            frame,
-            app,
-            x,
-            amend,
-            t!("git-commit-amend"),
-            p.text_muted,
-            clip,
-        );
+        ui_text_small(frame, app, x, amend, t!("git-commit-amend"), ink, clip);
         hits.push((amend, CommitTarget::Amend));
     }
 

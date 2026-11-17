@@ -73,6 +73,31 @@ pub fn document_language_menu(named: bool) -> Vec<MenuEntry> {
     menu
 }
 
+/// 去掉 `menu` 中只能在本机执行的项，并合并因此相邻的分隔线。
+///
+/// 远端主机上的文件无法交给本机的文件管理器；`terminal` 为 `false`（终端模块关闭）时
+/// 「在终端中打开」只能启动本机的终端程序，同样去掉。
+pub fn without_local_only(menu: Vec<MenuEntry>, terminal: bool) -> Vec<MenuEntry> {
+    use MenuCommand::{LocationReveal, OpenInTerminal, Reveal};
+
+    let mut kept: Vec<MenuEntry> = Vec::with_capacity(menu.len());
+    for entry in menu {
+        let dropped = match &entry {
+            MenuEntry::Item(Reveal | LocationReveal, _) => true,
+            MenuEntry::Item(OpenInTerminal, _) => !terminal,
+            MenuEntry::Separator => matches!(kept.last(), None | Some(MenuEntry::Separator)),
+            _ => false,
+        };
+        if !dropped {
+            kept.push(entry);
+        }
+    }
+    if matches!(kept.last(), Some(MenuEntry::Separator)) {
+        kept.pop();
+    }
+    kept
+}
+
 /// 返回文件树菜单的菜单项。
 ///
 /// `kind` 是右键点中的那一项的类型，`None` 表示空白处（根目录）：根目录不能改名、删除，
@@ -525,6 +550,13 @@ pub(in crate::app) fn menu_below(button: Rect) -> (f32, f32) {
 pub fn locale_menu() -> Vec<MenuEntry> {
     (0..winc_i18n::LocaleChoice::ALL.len())
         .map(|i| MenuEntry::Item(MenuCommand::Locale(i), true))
+        .collect()
+}
+
+/// 返回「打开工作树」菜单的菜单项，当前的选择打勾。
+pub fn open_worktree_menu() -> Vec<MenuEntry> {
+    (0..winc_config::WorktreeOpen::ALL.len())
+        .map(|i| MenuEntry::Item(MenuCommand::OpenWorktree(i), true))
         .collect()
 }
 

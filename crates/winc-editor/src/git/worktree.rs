@@ -14,6 +14,8 @@ pub struct Worktree {
     pub path: PathBuf,
     /// 签出的分支或游离的提交；裸仓库的主工作树没有签出，为 `None`。
     pub head: Option<Head>,
+    /// `HEAD` 指向的提交的完整提交号；裸仓库、还没有提交的分支为 `None`。
+    pub oid: Option<String>,
     /// 是否被锁定（`git worktree lock`）：不会被移除、移动、清理。
     pub locked: bool,
     /// 目录是否已经不存在，`git worktree prune` 会清掉这条记录。
@@ -308,6 +310,7 @@ pub(super) fn parse_worktrees(output: &[u8], terminator: u8) -> Vec<Worktree> {
                 let worktree = Worktree {
                     path: PathBuf::from(value),
                     head: None,
+                    oid: None,
                     locked: false,
                     prunable: false,
                 };
@@ -336,11 +339,14 @@ pub(super) fn parse_worktrees(output: &[u8], terminator: u8) -> Vec<Worktree> {
 
 /// 读完一个工作树的字段后补全它：没有分支、有提交号的是游离的 `HEAD`（裸仓库两者都没有）。
 fn finish((mut worktree, oid): (Worktree, Option<String>)) -> Worktree {
+    // 尚无提交的分支的提交号全为 0。
+    let oid = oid.filter(|o| !o.is_empty() && o.bytes().any(|b| b != b'0'));
     if worktree.head.is_none()
-        && let Some(oid) = oid.filter(|o| !o.is_empty())
+        && let Some(oid) = &oid
     {
         worktree.head = Some(Head::Detached(oid.chars().take(7).collect()));
     }
+    worktree.oid = oid;
     worktree
 }
 

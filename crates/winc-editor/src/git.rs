@@ -23,6 +23,8 @@ pub use rebase::{RebaseAction, RebaseCommit, RebasePlan, RebaseStep, rebase_todo
 pub use remote::{Remote, TagTarget, repository_dir_name};
 pub use sync::{Carried, MINIMUM_VERSION, Outgoing, Synced};
 mod history;
+mod locate;
+pub use locate::runs_here;
 mod trust;
 mod worktree;
 
@@ -578,6 +580,8 @@ impl Status {
 pub enum Unavailable {
     /// `PATH` 里没有 `git`。
     NotInstalled,
+    /// 设置的程序（`git.path`）不存在或不能运行，内容是设置的写法。
+    NotFound(String),
     /// macOS 上没有安装命令行开发者工具：`/usr/bin/git` 是占位程序，运行后只会弹出系统的
     /// 安装对话框。
     NoDeveloperTools,
@@ -588,6 +592,13 @@ impl std::fmt::Display for Unavailable {
         match self {
             Unavailable::NotInstalled => {
                 f.write_str(winc_i18n::t!("git-unavailable-not-installed"))
+            }
+            Unavailable::NotFound(program) => {
+                let program = program.as_str();
+                f.write_str(&winc_i18n::t!(
+                    "git-unavailable-not-found",
+                    program = program
+                ))
             }
             Unavailable::NoDeveloperTools => {
                 f.write_str(winc_i18n::t!("git-unavailable-no-developer-tools"))
@@ -610,6 +621,8 @@ pub enum BranchDeleted {
 pub struct Git {
     /// `git` 可执行文件的路径。
     program: PathBuf,
+    /// 本机是否有可用的 `git`；为否时只有发行版中的仓库可用（发行版内的 `git`）。
+    local: bool,
     /// 用户 shell 的环境：`git` 命令都在这个环境里运行。
     shell: Shell,
     /// 各仓库的配置检查结果和信任状态，[`Git`] 的各个副本共用。
@@ -617,6 +630,9 @@ pub struct Git {
     /// 处理输入请求的 askpass 程序，见 [`Git::with_askpass`]。
     askpass: Option<Askpass>,
 }
+
+/// askpass 程序作为凭据助手运行时的第一个参数，其后是 `git` 给出的动作。
+pub const CREDENTIAL_HELPER_ARG: &str = "git-credential";
 
 /// 传递 [`Askpass::endpoint`] 的环境变量名。
 pub const ASKPASS_ENDPOINT: &str = "WINC_GIT_ASKPASS";
@@ -628,34 +644,15 @@ pub struct Askpass {
     pub program: PathBuf,
     /// 程序连接的本地端点，由环境变量 [`ASKPASS_ENDPOINT`] 传递。
     pub endpoint: OsString,
+    /// 是否同时把该程序配置为排在最后的凭据助手（[`CREDENTIAL_HELPER_ARG`]）。
+    pub credential_helper: bool,
 }
 
 impl Git {
-    /// 在用户 shell 的 `PATH` 里找 `git`，确认它能用。
-    ///
-    /// 第一次调用要等取到环境。
-    ///
-    /// # Errors
-    ///
-    /// 找不到，或者 macOS 上找到的是没装开发者工具时的占位程序，返回 [`Unavailable`]。
-    pub fn find(shell: &Shell) -> Result<Git, Unavailable> {
-        // 仅在 WSL 中安装了 `git` 时仍然可用：发行版中的仓库使用发行版内的 `git`（`Git::at`）。
-        let program = shell
-            .find("git")
-            .or_else(|| crate::wsl::available().then(|| PathBuf::from("git.exe")))
-            .ok_or(Unavailable::NotInstalled)?;
-        if cfg!(target_os = "macos")
-            && program == Path::new("/usr/bin/git")
-            && !developer_tools_installed()
-        {
-            return Err(Unavailable::NoDeveloperTools);
-        }
-        Ok(Git {
-            program,
-            shell: shell.clone(),
-            trust: Arc::default(),
-            askpass: None,
-        })
+    /// 仓库 `root` 是否有可用的 `git`：本机的仓库需要本机的 `git`，发行版和远端主机上的仓库
+    /// 使用各自系统中的 `git`。
+    pub fn reaches(&self, root: &Path) -> bool {
+        self.local || winc_backend::is_remote(root) || crate::wsl::locate_here(root).is_some()
     }
 
     /// 在仓库 `root` 里运行 `git status`。
@@ -664,6 +661,9 @@ impl Git {
     ///
     /// `git` 运行失败、超时、被取消或者输出读不懂时返回原因。
     pub fn status(&self, root: &Path, cancel: &Cancel) -> Result<Status, String> {
+        if !self.reaches(root) {
+            return Err(Unavailable::NotInstalled.to_string());
+        }
         self.inspect(root)?;
         let mut command = self.command(root);
         command.args([
@@ -849,6 +849,7 @@ impl Git {
     ///
     /// `git` 自己的提示已经由 `GIT_TERMINAL_PROMPT` 关掉；`ssh` 还会从控制终端读口令（从终端
     /// 启动时），这里让它只用 askpass，而 askpass 程序是总是失败的 `false`（不存在时同样失败）。
+    /// [`Git::with_askpass`] 指定的程序此时只作为凭据助手提供已保存的凭据。
     ///
     /// # Errors
     ///
@@ -858,6 +859,7 @@ impl Git {
         let args = ["fetch", "--all", "--prune"];
         self.run_prepared(root, &args, OPERATION_TIMEOUT, |command| {
             command
+                .env("GIT_ASKPASS", "false")
                 .env("SSH_ASKPASS", "false")
                 .env("SSH_ASKPASS_REQUIRE", "force");
         })
@@ -981,6 +983,8 @@ impl Git {
         if crate::wsl::locate_here(root).is_some() {
             let list = format!("{}:{}", crate::wsl::GIT_ENV, crate::wsl::ASKPASS_ENV);
             command.env("WSLENV", list);
+        } else if askpass.credential_helper && locate::runs_here(root) {
+            locate::add_credential_helper(command, &askpass.program);
         }
     }
 
@@ -1445,16 +1449,6 @@ pub fn scan_repositories(dir: &Path, depth: usize, cancel: &Cancel) -> Vec<PathB
     }
     found.sort();
     found
-}
-
-/// macOS 上命令行开发者工具是否已安装（`xcode-select -p` 成功）。
-fn developer_tools_installed() -> bool {
-    let mut command = Command::new("/usr/bin/xcode-select");
-    command.arg("-p").stderr(Stdio::null());
-    matches!(
-        process::run(&mut command, Vec::new(), PROBE_TIMEOUT, &Cancel::default()),
-        Ok(output) if output.status.success()
-    )
 }
 
 /// 选出发布分支（第一次推送）的远程：先按 `preferred`（当前分支和仓库配置的推送目标，优先的在前），

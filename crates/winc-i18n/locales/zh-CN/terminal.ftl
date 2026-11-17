@@ -86,6 +86,7 @@ terminal-python-confirm-decline = 不加载
 terminal-run-config-problem = 运行配置（.winc/run.json）：{ $problem }
 terminal-run-create-failed = 无法创建运行配置：{ $error }
 terminal-run-add = 添加运行配置
+terminal-run-remote = 远端主机上的目录没有运行配置
 terminal-run-stopped = 已停止
 terminal-run-finished = 已完成
 terminal-run-failed = 「{ $name }」运行失败（退出码 { $code }）

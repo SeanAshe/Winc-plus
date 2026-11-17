@@ -14,7 +14,7 @@ mod version;
 
 pub use config::{
     BackgroundFit, Backup, Config, OptionAsMeta, RenderWhitespace, Saved, TextWidth, ThemeChoice,
-    VimClipboard, VimMapMode, VimMapping, config_path,
+    VimClipboard, VimMapMode, VimMapping, WorktreeOpen, config_path,
 };
 pub use font::{FontRequest, font_list, resolve_font, resolve_font_list};
 pub use json::Json;

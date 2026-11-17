@@ -2,11 +2,10 @@
 
 use super::*;
 
-/// 目录本身不是仓库、下面有几个仓库时：都能找到，可以切换，打开文件时跟过去。
-/// 有多个仓库时「新建工作树」写明建在当前仓库，切换仓库后跟着变；只有一个仓库时不写。
+/// 仓库选择器每个仓库一行，没有底栏；工作树选择器只列当前仓库的工作树，底栏里是新建工作树。
 #[test]
-fn the_new_worktree_button_names_the_repository_among_several() {
-    let dir = search_folder("git-new-worktree-label");
+fn repositories_and_worktrees_are_picked_separately() {
+    let dir = search_folder("git-separate-pickers");
     let (a, b) = (dir.join("a"), dir.join("b"));
     for repo in [&a, &b] {
         std::fs::create_dir_all(repo.join("src")).unwrap();
@@ -15,22 +14,67 @@ fn the_new_worktree_button_names_the_repository_among_several() {
             return;
         }
     }
+    let side = dir.join("a-side");
+    let side_arg = side.to_string_lossy().into_owned();
+    git_in(&a, &["worktree", "add", "-q", "-b", "side", &side_arg]);
     let mut app = app_with(&dir, false);
     app.config.repository_scan_depth = Some(1);
     app.settings_toggle(Setting::GitModule);
     if git_unusable(&app) {
         return;
     }
-    assert_eq!(app.location_new_worktree_label(), "在「a」中新建工作树");
-    app.git_switch_repository(1);
-    assert_eq!(app.location_new_worktree_label(), "在「b」中新建工作树");
-    let _ = std::fs::remove_dir_all(&dir);
-
-    let Some((app, root)) = git_app("git-new-worktree-one", false) else {
-        return;
+    app.run_action(Action::ShowCommit);
+    app.git_refresh();
+    app.git_read_summaries();
+    app.poll_git();
+    paint(&mut app);
+    let labels = |app: &App| -> Vec<(String, bool)> {
+        let rows = app
+            .overlays
+            .picker
+            .location_rows
+            .clone()
+            .unwrap_or_default();
+        let rows = rows.into_iter();
+        rows.map(|place| (place.label, place.current)).collect()
     };
-    assert_eq!(app.location_new_worktree_label(), "新建工作树");
-    let _ = std::fs::remove_dir_all(&root);
+    // 上下文一行从左到右是仓库、分支；工作树在视图底部单独一组。
+    let hit = |app: &App, target: CommitTarget| {
+        let found = app.hits.commit.iter().find(|(_, t)| *t == target);
+        found.unwrap().0
+    };
+    let repository = hit(&app, CommitTarget::Location);
+    let branch = hit(&app, CommitTarget::Branch);
+    assert!(repository.right() < branch.x);
+    let has = |app: &App, t: CommitTarget| app.hits.commit.iter().any(|(_, h)| *h == t);
+    assert!(has(&app, CommitTarget::Worktrees));
+
+    // 仓库选择器：每个仓库一行，有多个工作树的仓库同样只占一行；没有底栏。
+    click(&mut app, (repository.x + 4.0, repository.y + 4.0));
+    assert!(app.picker_lists_repositories());
+    assert_eq!(
+        labels(&app),
+        [("a".to_owned(), true), ("b".to_owned(), false)]
+    );
+    assert_eq!(app.git_picker_footer(), 0.0);
+    app.close_picker();
+
+    // 工作树选择器：只列当前仓库的工作树，底栏里是新建工作树。
+    app.open_places(false);
+    assert!(app.picker_lists_worktrees());
+    let main = "主工作树".to_owned();
+    assert_eq!(labels(&app), [(main, true), ("a-side".to_owned(), false)]);
+    assert!(app.git_picker_footer() > 0.0);
+    app.close_picker();
+
+    // 切换到只有一个工作树的仓库：没有工作树一组。
+    let other = (app.git.repositories.iter()).position(|r| r.ends_with("b"));
+    let other = other.unwrap();
+    app.git_switch_repository(other);
+    app.poll_git();
+    paint(&mut app);
+    assert!(has(&app, CommitTarget::Location) && !has(&app, CommitTarget::Worktrees));
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -808,8 +852,6 @@ fn nested_repositories_are_found_in_the_background_without_moving_earlier_ones()
 
 #[test]
 fn the_location_picker_searches_and_switches() {
-    use crate::app::git::location_picker::LocationRow;
-
     let Some((mut app, dir)) = nested_repositories("git-location-picker") else {
         return;
     };
@@ -827,10 +869,7 @@ fn the_location_picker_searches_and_switches() {
     let row = parts.location.expect("多个仓库时标题行有位置按钮");
     app.open_places(true);
     assert!(app.picker_lists_locations());
-    let place = |row: &LocationRow| match row {
-        LocationRow::Place(place) => place.clone(),
-        other => panic!("{other:?}"),
-    };
+    let place = |row: &crate::app::git::location_picker::Place| row.clone();
     let rows = |app: &App| app.overlays.picker.location_rows.clone().unwrap();
     assert_eq!(rows(&app).len(), 3);
     assert!(place(&rows(&app)[app.overlays.picker.selected]).current);
@@ -850,9 +889,7 @@ fn the_location_picker_searches_and_switches() {
 }
 
 #[test]
-fn a_repository_with_worktrees_is_a_group_and_expanding_it_does_not_switch() {
-    use crate::app::git::location_picker::LocationRow;
-
+fn a_repository_with_worktrees_is_one_row_among_repositories() {
     let Some((mut app, dir)) = nested_repositories("git-location-group") else {
         return;
     };
@@ -874,36 +911,27 @@ fn a_repository_with_worktrees_is_a_group_and_expanding_it_does_not_switch() {
     app.run_action(Action::ShowCommit);
     app.open_places(true);
     let rows = |app: &App| app.overlays.picker.location_rows.clone().unwrap();
-    // 当前仓库默认展开，工作树排在它下面。
-    let labels = |app: &App| -> Vec<String> {
-        rows(app)
-            .iter()
-            .map(|row| match row {
-                LocationRow::Repository { label, .. } => label.clone(),
-                LocationRow::Place(place) => place.label.clone(),
-            })
-            .collect()
-    };
+    let labels =
+        |app: &App| -> Vec<String> { rows(app).iter().map(|place| place.label.clone()).collect() };
+    // 仓库选择器中有多个工作树的仓库同样只占一行，不列出它的工作树。
+    assert_eq!(labels(&app)[0], "a");
+    assert!(!labels(&app).contains(&"主工作树".to_owned()));
+    assert!(rows(&app).iter().all(|place| place.depth == 0));
+    // 选中当前仓库只关闭面板，不改变所在的工作树。
+    let root = app.git.root.clone();
+    app.overlays.picker.selected = 0;
+    app.picker_accept();
+    assert_eq!(app.git.root, root);
+    // 工作树选择器只列当前仓库的工作树。
+    app.close_picker();
+    app.open_places(false);
     assert_eq!(
-        labels(&app)[..3],
+        labels(&app),
         [
-            "a".to_owned(),
             "主工作树".to_owned(),
             "git-location-group.linked".to_owned()
         ]
     );
-
-    // 点仓库只是展开收起，当前仓库不变。
-    let root = app.git.root.clone();
-    app.overlays.picker.selected = 0;
-    app.picker_accept();
-    assert!(app.picker_lists_locations());
-    assert_eq!(app.git.root, root);
-    assert!(!labels(&app).contains(&"主工作树".to_owned()));
-    // 再打开时当前仓库重新展开。
-    app.close_picker();
-    app.open_places(true);
-    assert!(labels(&app).contains(&"主工作树".to_owned()));
 
     std::fs::remove_dir_all(&dir).unwrap();
     let _ = std::fs::remove_dir_all(&linked);
@@ -959,5 +987,41 @@ fn shoot_location_picker() {
     shoot(&mut app, "git-context");
     app.open_places(true);
     shoot(&mut app, "location-picker");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 切换仓库再切换回来时，储藏在后台读取完成之前已经列出，底部各组的展开状态不变。
+#[test]
+fn switching_back_shows_the_kept_stashes_and_fold_states_at_once() {
+    let Some((mut app, dir)) = nested_repositories("git-kept-refs") else {
+        return;
+    };
+    let a = dir.join("a");
+    git_in(&a, &["add", "-A"]);
+    git_in(&a, &["commit", "-q", "-m", "base"]);
+    std::fs::write(a.join("src/main.rs"), "fn changed() {}\n").unwrap();
+    git_in(&a, &["stash", "-q"]);
+    app.run_action(Action::ShowCommit);
+    app.git_refresh();
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while app.git.stashes.is_empty() && std::time::Instant::now() < deadline {
+        app.poll_git();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(app.git.stashes.len(), 1);
+    app.git.commit.stashes.open = true;
+    app.git.commit.worktrees.open = false;
+    app.git.commit.quiet_open = Some(true);
+
+    app.git_switch_repository(1);
+    assert!(app.git.stashes.is_empty());
+    assert!(app.git.commit.stashes.open && !app.git.commit.worktrees.open);
+    assert_eq!(app.git.commit.quiet_open, Some(true));
+
+    // 不等后台读取：储藏已经列出。
+    app.git_switch_repository(0);
+    assert_eq!(app.git.stashes.len(), 1);
+    assert!(app.git.commit.stashes.open);
+
     std::fs::remove_dir_all(&dir).unwrap();
 }

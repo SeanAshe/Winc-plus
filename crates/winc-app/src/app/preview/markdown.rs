@@ -1171,7 +1171,7 @@ impl App {
         } else if y > area.bottom() {
             self.scroll_markdown(-(y - area.bottom()).min(60.0));
         }
-        let y = y.clamp(area.y, area.bottom() - 1.0);
+        let y = y.clamp(area.y, (area.bottom() - 1.0).max(area.y));
         if self.markdown_live() {
             self.drag_live(x, y);
             self.request_redraw();

@@ -62,12 +62,9 @@ fn draw_commit_view(app: &mut App, frame: &mut Frame<'_>) {
     let share = app.log_tree_share();
     let version = (2.0 * share - 1.0).clamp(0.0, 1.0);
     let tools = (1.0 - 2.0 * share).clamp(0.0, 1.0);
-    // 项目栏的右端：提交视图在工具按钮（或位置按钮）之前，文件列表在提交号之前；上下文栏
-    // 自己会在右边留出 4 的间距。
-    let commit_right = app.with_log_tree_shown(false, |app| {
-        let tools = app.commit_parts().tools[0].0.x - 4.0;
-        git::commit::location_span(app, frame).map_or(tools, |(left, _)| left)
-    });
+    // 项目栏的右端：提交视图在工具按钮之前，文件列表在提交号之前；上下文栏自己会在右边留出
+    // 4 的间距。
+    let commit_right = app.with_log_tree_shown(false, |app| app.commit_parts().tools[0].0.x - 4.0);
     let right = match log_version_left(app, frame) {
         Some(left) => commit_right + (left - 4.0 - commit_right) * share,
         None => commit_right,
@@ -214,11 +211,6 @@ impl ContextBar {
     /// 截名字，不省徽章），否则留 6。
     fn name_offset(&self) -> f32 {
         if self.opened { BADGE_ROOM } else { 6.0 }
-    }
-
-    /// 项目按钮的左边。
-    pub(in crate::view) fn left(&self) -> f32 {
-        self.left
     }
 
     /// 项目按钮完整显示时的宽度。

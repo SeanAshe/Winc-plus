@@ -27,7 +27,7 @@ impl App {
     fn terminal_display_row(&self, y: f32) -> u64 {
         let view = self.terminal_view();
         let (first, origin) = self.terminal_origin();
-        let y = y.clamp(view.y, view.bottom() - 0.5);
+        let y = y.clamp(view.y, (view.bottom() - 0.5).max(view.y));
         first
             + ((y - origin) / self.fonts.terminal_line_height)
                 .floor()

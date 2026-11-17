@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use crate::app::{App, UserEvent};
+use crate::askpass::Listener;
 
 /// 两次获取之间的间隔，与常见编辑器的默认周期相同。
 pub(in crate::app) const FETCH_PERIOD: Duration = Duration::from_secs(180);
@@ -50,9 +51,14 @@ impl App {
         }
         self.git.auto_fetch.running = true;
         let done = Arc::clone(&self.git.auto_fetch.done);
+        let remember = self.config.git_remember_credentials != Some(false)
+            && winc_editor::git::runs_here(&root);
         self.spawn_git(UserEvent::GitStatus, move |tool| {
             if let Ok(git) = tool {
-                let _ = git.fetch_unattended(&root);
+                // 端点只提供已保存的凭据，在获取结束时关闭。
+                let listener = super::question::listen_unattended(remember);
+                let askpass = listener.as_ref().and_then(Listener::askpass);
+                let _ = git.with_askpass(askpass).fetch_unattended(&root);
             }
             done.store(true, Ordering::Release);
         });

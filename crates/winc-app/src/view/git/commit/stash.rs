@@ -50,8 +50,8 @@ pub(super) fn draw_stashes(
     draw_count_pill(app, frame, head, &app.git.stashes.len().to_string(), clip);
     hits.push((head, CommitTarget::Stashes));
     // 展开、收起的途中各行跟着标题移动，露出多少由一组的范围裁掉；这时行还没停稳，不响应点击。
-    let moving = app.git.commit.stash_motion.is_some();
-    if !app.git.commit.stash_open && !moving {
+    let moving = app.git.commit.stashes.motion.is_some();
+    if !app.git.commit.stashes.open && !moving {
         return;
     }
     let mut still = Vec::new();

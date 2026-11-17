@@ -2,10 +2,13 @@
 //!
 //! askpass 程序以提示文字为参数启动，把答复写到标准输出。窗口进程在一次 Git 操作期间监听一个本地
 //! 端点（[`Listener`]），askpass 程序（[`helper`]）连接环境变量指定的端点，转发提示并等待答复。
-//! winc 不写入脚本，也不保存答复；凭据的保存由用户配置的凭据助手负责。
+//! winc 不写入脚本。用户配置的凭据助手优先；用户在对话框中勾选「记住密码」时，winc 作为排在最后
+//! 的凭据助手（`git-credential` 协议）把验证通过的 HTTP(S) 凭据写入系统的凭据存储
+//! （[`crate::credentials`]）。
 //!
-//! 请求依次为一个字节（`SSH_ASKPASS_PROMPT` 是否为 `confirm`）、`u32` 小端长度和提示文字。答复以
-//! 一个字节开头（1 表示有内容，0 表示取消），有内容时再跟 `u32` 小端长度和文字。Unix 套接字位于仅
+//! 请求依次为一个字节（0 为普通询问，1 为 `SSH_ASKPASS_PROMPT` 是 `confirm` 的询问，2 为凭据助手
+//! 的请求）、`u32` 小端长度和文字。答复以一个字节开头（1 表示有内容，0 表示取消或没有结果），
+//! 有内容时再跟 `u32` 小端长度和文字。Unix 套接字位于仅
 //! 当前用户可访问的目录，命名管道使用默认安全描述符并拒绝来自其他主机的连接。
 
 #![allow(
@@ -18,8 +21,11 @@ use std::io::{self, Read, Write};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Sender, channel};
+use std::sync::{Mutex, PoisonError};
 
-use winc_editor::git::{ASKPASS_ENDPOINT, Askpass};
+use winc_editor::git::{ASKPASS_ENDPOINT, Askpass, CREDENTIAL_HELPER_ARG};
+
+use crate::credentials::{self, Credential};
 
 /// 提示文字的长度上限（字节）。
 ///
@@ -28,6 +34,9 @@ use winc_editor::git::{ASKPASS_ENDPOINT, Askpass};
 const MESSAGE_LIMIT: u32 = 64 << 10;
 /// 答复的长度上限（字节）：访问令牌的长度远小于 1 MiB，超过上限的消息按格式错误处理。
 const ANSWER_LIMIT: u32 = 1 << 20;
+
+/// 请求的首字节：凭据助手的请求。
+const CREDENTIAL: u8 = 2;
 
 /// 同一进程内下一个端点的序号。
 static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -91,6 +100,17 @@ impl Prompt {
                 input,
             }
         })
+    }
+
+    /// 返回可以记住密码的登录请求的 `协议://主机`；其他请求返回 `None`。
+    ///
+    /// 只有 HTTP(S) 的凭据经凭据助手协议验证和保存。
+    pub fn origin(&self) -> Option<String> {
+        let (Prompt::Username { server } | Prompt::Password { server, .. }) = self else {
+            return None;
+        };
+        let (scheme, _) = server.split_once("://")?;
+        matches!(scheme, "http" | "https").then(|| format!("{scheme}://{}", host_of(server)))
     }
 
     /// 是否无需输入，只需确认。
@@ -180,20 +200,27 @@ pub struct Question {
     pub prompt: Prompt,
     /// 接收答复的通道；发送端被丢弃时视为取消。
     pub reply: Sender<String>,
+    /// 用户选择记住密码时在答复前置位；`None` 表示该请求不提供此选项。
+    pub remember: Option<Arc<AtomicBool>>,
 }
 
 /// 确认主机密钥时写给 `ssh` 的答复。
 pub const CONFIRMED: &str = "yes";
 
-/// 进程作为 askpass 程序启动时转发提示并返回退出码；普通启动时返回 `None`。
+/// 进程作为 askpass 程序或凭据助手启动时转发请求并返回退出码；普通启动时返回 `None`。
 ///
-/// 环境变量只在 Git 操作的命令上设置，但钩子会继承该变量，因此同时要求恰好一个参数：钩子中以其他
-/// 参数个数运行 `winc` 仍按普通启动处理。
+/// 环境变量只在 Git 操作的命令上设置，但钩子会继承该变量，因此同时要求参数的形式相符：恰好一个
+/// 参数（提示文字），或 [`CREDENTIAL_HELPER_ARG`] 加一个动作。钩子中以其他参数运行 `winc` 仍按
+/// 普通启动处理。
 pub fn helper() -> Option<i32> {
     let endpoint = std::env::var_os(ASKPASS_ENDPOINT)?;
     let mut args = std::env::args_os().skip(1);
-    let (Some(prompt), None) = (args.next(), args.next()) else {
-        return None;
+    let prompt = match (args.next()?, args.next(), args.next()) {
+        (prompt, None, _) => prompt,
+        (mark, Some(action), None) if mark == CREDENTIAL_HELPER_ARG => {
+            return Some(credential_helper(&endpoint, &action.to_string_lossy()));
+        }
+        _ => return None,
     };
     let mode = std::env::var("SSH_ASKPASS_PROMPT").unwrap_or_default();
     // `none` 表示通知（如请求触摸安全密钥），`ssh` 不读取答复，并在不再需要时结束该进程。
@@ -211,6 +238,88 @@ pub fn helper() -> Option<i32> {
     let mut stdout = io::stdout();
     let written = writeln!(stdout, "{answer}").and_then(|()| stdout.flush());
     Some(i32::from(written.is_err()))
+}
+
+/// 作为凭据助手处理 `git` 的一次请求：把标准输入中的属性转发给窗口进程，输出其答复。
+///
+/// 只处理 `get`、`store`、`erase`。助手失败时 `git` 继续使用其他方式，因此退出码恒为 0。
+fn credential_helper(endpoint: &OsStr, action: &str) -> i32 {
+    if !matches!(action, "get" | "store" | "erase") {
+        return 0;
+    }
+    let mut request = format!("{action}\n");
+    let limit = u64::from(ANSWER_LIMIT);
+    if io::stdin()
+        .take(limit)
+        .read_to_string(&mut request)
+        .is_err()
+    {
+        return 0;
+    }
+    let answer = imp::connect(endpoint).and_then(|mut stream| {
+        stream.write_all(&[CREDENTIAL])?;
+        write_text(&mut stream, &request)?;
+        stream.flush()?;
+        read_answer(&mut stream)
+    });
+    if let Ok(Some(answer)) = answer {
+        let mut stdout = io::stdout();
+        let _ = stdout
+            .write_all(answer.as_bytes())
+            .and_then(|()| stdout.flush());
+    }
+    0
+}
+
+/// 处理凭据助手的请求 `request`（动作一行，其后是 `git-credential` 的属性），返回写给 `git` 的
+/// 属性；没有结果时返回 `None`。
+///
+/// `kept` 是本次操作中用户选择记住的 `协议://主机`：`git` 把验证通过的凭据交给每一个助手保存，
+/// 包括其他助手提供的凭据，这里只保存用户选择记住的。
+fn credential(request: &str, kept: &Mutex<Vec<String>>) -> Option<String> {
+    let mut lines = request.lines();
+    let action = lines.next()?;
+    let attribute = |name: &str| {
+        (request.lines().skip(1))
+            .filter_map(|line| line.split_once('='))
+            .find_map(|(key, value)| (key == name).then_some(value))
+    };
+    let protocol = attribute("protocol")?;
+    if !matches!(protocol, "http" | "https") {
+        return None;
+    }
+    let origin = format!("{protocol}://{}", attribute("host")?);
+    let username = attribute("username");
+    match action {
+        "get" => {
+            let found = credentials::find(&origin, username)?;
+            Some(format!(
+                "username={}\npassword={}\n",
+                found.username, found.password
+            ))
+        }
+        "store" => {
+            let chosen = kept
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .contains(&origin);
+            if chosen {
+                credentials::save(
+                    &origin,
+                    &Credential {
+                        username: username?.to_owned(),
+                        password: attribute("password")?.to_owned(),
+                    },
+                );
+            }
+            None
+        }
+        "erase" => {
+            credentials::forget(&origin, username);
+            None
+        }
+        _ => None,
+    }
 }
 
 /// 写一段带长度前缀的文字。
@@ -249,17 +358,44 @@ fn read_answer(stream: &mut impl Read) -> io::Result<Option<String>> {
 }
 
 /// 处理一个连接：读取请求并交给 `ask`，收到答复或 [`Question::reply`] 被丢弃后写回结果。
-fn serve(stream: &mut (impl Read + Write), ask: &impl Fn(Question)) -> io::Result<()> {
-    let mut confirm = [0];
-    stream.read_exact(&mut confirm)?;
-    let prompt = read_text(stream, MESSAGE_LIMIT)?;
+///
+/// `kept` 不为 `None` 时处理凭据助手的请求，并为 HTTP(S) 的登录请求提供记住密码的选项。
+fn serve(
+    stream: &mut (impl Read + Write),
+    ask: &impl Fn(Question),
+    kept: Option<&Mutex<Vec<String>>>,
+) -> io::Result<()> {
+    let mut kind = [0];
+    stream.read_exact(&mut kind)?;
+    if kind[0] == CREDENTIAL {
+        let request = read_text(stream, ANSWER_LIMIT)?;
+        match kept.and_then(|kept| credential(&request, kept)) {
+            Some(answer) => {
+                stream.write_all(&[1])?;
+                write_text(stream, &answer)?;
+            }
+            None => stream.write_all(&[0])?,
+        }
+        return stream.flush();
+    }
+    let prompt = Prompt::parse(&read_text(stream, MESSAGE_LIMIT)?, kind[0] != 0);
+    let origin = kept.and(prompt.origin());
+    let remember = origin.as_ref().map(|_| Arc::new(AtomicBool::new(false)));
     let (reply, answered) = channel();
     ask(Question {
-        prompt: Prompt::parse(&prompt, confirm[0] != 0),
+        prompt,
         reply,
+        remember: remember.clone(),
     });
     match answered.recv() {
         Ok(answer) => {
+            if let (Some(kept), Some(origin)) = (kept, origin)
+                && remember.is_some_and(|flag| flag.load(Ordering::Relaxed))
+            {
+                kept.lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .push(origin);
+            }
             stream.write_all(&[1])?;
             write_text(stream, &answer)?;
         }
@@ -272,16 +408,24 @@ fn serve(stream: &mut (impl Read + Write), ask: &impl Fn(Question)) -> io::Resul
 pub struct Listener {
     endpoint: OsString,
     stop: Arc<AtomicBool>,
+    /// 是否作为凭据助手保存和提供凭据。
+    remember: bool,
 }
 
 impl Listener {
     /// 创建端点，每收到一个请求就在后台线程中调用 `ask`。
     ///
-    /// 无法创建端点时返回 `None`；操作仍然执行，需要输入时由 `git` 报错。
-    pub fn bind(ask: impl Fn(Question) + Send + 'static) -> Option<Listener> {
+    /// `remember` 表示是否作为凭据助手保存和提供凭据。无法创建端点时返回 `None`；操作仍然执行，
+    /// 需要输入时由 `git` 报错。
+    pub fn bind(remember: bool, ask: impl Fn(Question) + Send + 'static) -> Option<Listener> {
         let stop = Arc::new(AtomicBool::new(false));
-        let endpoint = imp::listen(stop.clone(), ask)?;
-        Some(Listener { endpoint, stop })
+        let kept = remember.then(Mutex::default);
+        let endpoint = imp::listen(stop.clone(), ask, kept)?;
+        Some(Listener {
+            endpoint,
+            stop,
+            remember,
+        })
     }
 
     /// 返回传给 `git` 的 askpass 配置；无法取得当前程序的路径时返回 `None`。
@@ -289,6 +433,7 @@ impl Listener {
         Some(Askpass {
             program: std::env::current_exe().ok()?,
             endpoint: self.endpoint.clone(),
+            credential_helper: self.remember,
         })
     }
 }
@@ -314,6 +459,7 @@ mod imp {
     pub(super) fn listen(
         stop: Arc<AtomicBool>,
         ask: impl Fn(Question) + Send + 'static,
+        kept: Option<Mutex<Vec<String>>>,
     ) -> Option<OsString> {
         let name = format!(
             "askpass-{}-{}",
@@ -332,7 +478,7 @@ mod imp {
                         break;
                     }
                     if let Ok(mut stream) = stream {
-                        let _ = serve(&mut stream, &ask);
+                        let _ = serve(&mut stream, &ask, kept.as_ref());
                     }
                 }
             })
@@ -362,6 +508,7 @@ mod imp {
     pub(super) fn listen(
         stop: Arc<AtomicBool>,
         ask: impl Fn(Question) + Send + 'static,
+        kept: Option<Mutex<Vec<String>>>,
     ) -> Option<OsString> {
         let user = std::env::var("USERNAME").unwrap_or_default();
         let endpoint = OsString::from(format!(
@@ -384,7 +531,7 @@ mod imp {
                     };
                     let mut stream = std::mem::replace(&mut next, waiting);
                     if connected {
-                        let _ = serve(&mut stream, &ask);
+                        let _ = serve(&mut stream, &ask, kept.as_ref());
                     }
                 }
             })
@@ -409,6 +556,7 @@ mod imp {
     pub(super) fn listen(
         _stop: Arc<AtomicBool>,
         _ask: impl Fn(Question) + Send + 'static,
+        _kept: Option<Mutex<Vec<String>>>,
     ) -> Option<OsString> {
         None
     }

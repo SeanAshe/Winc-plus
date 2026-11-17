@@ -227,11 +227,18 @@ impl DialogLayout {
     }
 
     /// 计算询问对话框的几何：`lines` 是说明文字的行数，`values` 是只读信息的行数，`inputs` 是输入框
-    /// 的个数（最多 3 个）。
+    /// 的个数（最多 3 个），`remember` 表示输入框下面有「记住密码」一项
+    /// （[`DialogPart::Checkout`]）。
     ///
     /// 窗口太窄时卡片缩到窗口以内，位置规则与 [`DialogLayout::compute`] 相同。标签在 `labels` 中
     /// 按只读信息、输入框的顺序排列。
-    pub fn question(window: Rect, lines: usize, values: usize, inputs: usize) -> Self {
+    pub fn question(
+        window: Rect,
+        lines: usize,
+        values: usize,
+        inputs: usize,
+        remember: bool,
+    ) -> Self {
         let w = QUESTION_W.min(window.w - SETTINGS_MARGIN * 2.0).max(0.0);
         let inner = (w - SETTINGS_PAD * 2.0).max(0.0);
         let x = SETTINGS_PAD;
@@ -258,6 +265,12 @@ impl DialogLayout {
         };
         let rows: Vec<Rect> = (0..values).map(|_| row(&mut y)).collect();
         let fields: Vec<Rect> = (0..inputs).map(|_| row(&mut y)).collect();
+        // 勾选框的左边与输入框的左边对齐，与上面一行的间隔同其他表单的勾选项。
+        let option = remember.then(|| {
+            let option = Rect::new(cx, y + 2.0, cw, DIALOG_FIELD_H);
+            y = option.bottom();
+            option
+        });
         y += 6.0;
         let confirm = Rect::new(
             x + inner - DIALOG_BUTTON_W,
@@ -289,6 +302,9 @@ impl DialogLayout {
             close: at(close),
             labels: labels.into_iter().map(at).collect(),
             branch: field(0),
+            options: (option.into_iter())
+                .map(|row| (DialogPart::Checkout, at(row)))
+                .collect(),
             cancel: at(cancel),
             confirm: at(confirm),
             ..DialogLayout::default()
@@ -357,7 +373,7 @@ impl DialogLayout {
 
     /// 计算克隆仓库对话框的几何：地址和位置两行，版式与询问对话框相同。
     pub fn clone_form(window: Rect) -> Self {
-        let mut layout = Self::question(window, 0, 0, 2);
+        let mut layout = Self::question(window, 0, 0, 2, false);
         let rect = std::mem::take(&mut layout.second);
         let change = Rect::new(
             rect.right() - 2.0 - DIALOG_CHANGE_W,
@@ -372,7 +388,7 @@ impl DialogLayout {
     /// 计算连接远端主机对话框的几何：主机、端口和密钥文件三行，版式与克隆仓库相同；密钥
     /// 文件一行的右端有选文件的按钮，位置同「位置」一行的目录按钮。
     pub fn connect_form(window: Rect) -> Self {
-        let mut layout = Self::question(window, 0, 0, 3);
+        let mut layout = Self::question(window, 0, 0, 3, false);
         let rect = layout.third;
         layout.choose = Some(Rect::new(
             rect.right() - 2.0 - DIALOG_CHANGE_W,

@@ -126,8 +126,10 @@ impl App {
     pub(in crate::app) fn drag_add_selection(&mut self, x: f32, y: f32, origin: usize) {
         let t = self.layout.text;
         let scrolled = self.scroll_while_dragging(Some(x), y);
-        if let Some(pos) = self.pos_at(x.clamp(t.x, t.right()), y.clamp(t.y, t.bottom() - 1.0))
-            && let Some(doc) = self.editor.active_mut()
+        if let Some(pos) = self.pos_at(
+            x.clamp(t.x, t.right()),
+            y.clamp(t.y, (t.bottom() - 1.0).max(t.y)),
+        ) && let Some(doc) = self.editor.active_mut()
         {
             doc.set_primary(Selection::new(origin, pos));
         }
@@ -190,9 +192,10 @@ impl App {
         let t = self.layout.text;
         let scrolled = self.scroll_while_dragging(Some(x), y);
         let tab_width = self.editor.active_tab_width();
-        if let Some(head) =
-            self.line_cell_at(x.clamp(t.x, t.right()), y.clamp(t.y, t.bottom() - 1.0))
-            && let Some(doc) = self.editor.active_mut()
+        if let Some(head) = self.line_cell_at(
+            x.clamp(t.x, t.right()),
+            y.clamp(t.y, (t.bottom() - 1.0).max(t.y)),
+        ) && let Some(doc) = self.editor.active_mut()
         {
             doc.select_columns(anchor, head, tab_width);
         }

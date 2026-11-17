@@ -287,10 +287,11 @@ fn shoot_commit_motion() {
     paint(&mut app);
     let closed = app.commit_parts().stashes.unwrap().h;
     app.press_commit(CommitTarget::Stashes);
-    app.git.commit.stash_motion = Some((closed, Clock::frozen(TREE_ANIMATION / 3, TREE_ANIMATION)));
+    app.git.commit.stashes.motion =
+        Some((closed, Clock::frozen(TREE_ANIMATION / 3, TREE_ANIMATION)));
     shoot(&mut app, "commit-stash-opening");
 
-    app.git.commit.stash_motion = None;
+    app.git.commit.stashes.motion = None;
     git_in(&root, &["commit", "-q", "-am", "now"]);
     app.git_refresh();
     app.git.commit.card.motion = Some((1.0, Clock::frozen(TREE_ANIMATION / 2, TREE_ANIMATION)));
@@ -441,12 +442,14 @@ fn the_commit_message_grows_with_its_text_and_the_list_follows() {
     };
     app.run_action(Action::ShowCommit);
     paint(&mut app);
-    // 自上而下依次是改动列表和底部的提交卡片；卡片里先是「修改上次提交」一行，再是提交信息，
-    // 底行靠左是「提交」「提交并推送…」，最右是下拉箭头。空信息时高度为两行。
+    // 自上而下依次是改动列表、提交卡片和「上一次提交」一栏；空信息时提交信息高两行。
     let one = app.commit_parts();
     let card = one.card.unwrap();
     assert_eq!(one.message.h, 2.0 * 20.0 + 4.0);
-    assert_eq!(card.bottom(), app.layout.sidebar.bottom() - 8.0);
+    // 卡片离视图底部 8；下面有「上一次提交」一栏时贴着栏的上沿。
+    let floor = app.layout.sidebar.bottom() - 8.0;
+    let floor = one.undo.map_or(floor, |(bar, ..)| bar.y);
+    assert_eq!(card.bottom(), floor);
     assert!(one.list.bottom() <= card.y);
     assert!(one.commit.y >= one.message.bottom());
     let push = one.push.unwrap();

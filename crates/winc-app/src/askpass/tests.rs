@@ -104,7 +104,7 @@ fn hosts_come_from_addresses() {
 /// 经真实端点发送一次请求；`answer` 为 `None` 时模拟关闭对话框。
 fn ask_through_a_listener(answer: Option<&'static str>) -> (Prompt, Option<String>) {
     let (asked, questions) = channel();
-    let listener = Listener::bind(move |question: Question| {
+    let listener = Listener::bind(false, move |question: Question| {
         let _ = asked.send(question.prompt.clone());
         if let Some(answer) = answer {
             let _ = question.reply.send(answer.to_owned());
@@ -134,7 +134,7 @@ fn a_closed_dialog_counts_as_canceled() {
 #[test]
 fn the_socket_is_private_and_removed_with_the_listener() {
     use std::os::unix::fs::PermissionsExt;
-    let listener = Listener::bind(|_| {}).unwrap();
+    let listener = Listener::bind(false, |_| {}).unwrap();
     let path = std::path::PathBuf::from(&listener.endpoint);
     let mode = std::fs::metadata(&path).unwrap().permissions().mode();
     assert_eq!(mode & 0o077, 0);
@@ -153,4 +153,170 @@ fn an_oversized_message_is_rejected() {
 fn a_message_cut_short_is_rejected() {
     let mut bytes: &[u8] = &[5, 0, 0, 0, b'a'];
     assert!(read_text(&mut bytes, MESSAGE_LIMIT).is_err());
+}
+
+/// 经端点 `listener` 发送一次凭据助手的请求，返回答复。
+fn credential_through(listener: &Listener, request: &str) -> Option<String> {
+    let mut stream = imp::connect(&listener.endpoint).unwrap();
+    stream.write_all(&[CREDENTIAL]).unwrap();
+    write_text(&mut stream, request).unwrap();
+    stream.flush().unwrap();
+    read_answer(&mut stream).unwrap()
+}
+
+/// 经端点 `listener` 询问 `prompt`，返回答复。
+fn ask(listener: &Listener, prompt: &str) -> Option<String> {
+    let mut stream = imp::connect(&listener.endpoint).unwrap();
+    write_question(&mut stream, prompt, false).unwrap();
+    read_answer(&mut stream).unwrap()
+}
+
+/// 只有用户选择记住的地址才保存：`git` 也会把其他助手提供的凭据交来保存。
+#[test]
+fn a_credential_is_stored_only_when_the_user_chose_to_remember() {
+    let listener = Listener::bind(true, |question: Question| {
+        let remember = question.remember.expect("HTTP(S) 的登录请求提供记住密码");
+        // 只记住 kept.askpass.test。
+        let chosen = question.prompt.origin().unwrap().contains("kept");
+        remember.store(chosen, Ordering::Relaxed);
+        let _ = question.reply.send("typed".to_owned());
+    })
+    .unwrap();
+    for host in ["kept.askpass.test", "other.askpass.test"] {
+        let attributes = format!("protocol=https\nhost={host}\n");
+        assert_eq!(
+            credential_through(&listener, &format!("get\n{attributes}")),
+            None
+        );
+        let prompt = format!("Password for 'https://alice@{host}': ");
+        assert_eq!(ask(&listener, &prompt).as_deref(), Some("typed"));
+        let stored = format!("store\n{attributes}username=alice\npassword=typed\n");
+        assert_eq!(credential_through(&listener, &stored), None);
+    }
+    let get =
+        |host: &str| credential_through(&listener, &format!("get\nprotocol=https\nhost={host}\n"));
+    assert_eq!(
+        get("kept.askpass.test").as_deref(),
+        Some("username=alice\npassword=typed\n")
+    );
+    assert_eq!(get("other.askpass.test"), None);
+
+    // 服务器拒绝后 `git` 要求删除：之后不再提供。
+    let erase = "erase\nprotocol=https\nhost=kept.askpass.test\nusername=alice\n";
+    assert_eq!(credential_through(&listener, erase), None);
+    assert_eq!(get("kept.askpass.test"), None);
+}
+
+/// 不记住密码的端点不处理凭据助手的请求，登录请求也不提供该选项。
+#[test]
+fn a_listener_that_does_not_remember_ignores_credential_requests() {
+    let listener = Listener::bind(false, |question: Question| {
+        assert!(question.remember.is_none());
+        let _ = question.reply.send("typed".to_owned());
+    })
+    .unwrap();
+    let prompt = "Password for 'https://alice@off.askpass.test': ";
+    assert_eq!(ask(&listener, prompt).as_deref(), Some("typed"));
+    let stored = "store\nprotocol=https\nhost=off.askpass.test\nusername=alice\npassword=x\n";
+    assert_eq!(credential_through(&listener, stored), None);
+    assert!(credentials::find("https://off.askpass.test", None).is_none());
+}
+
+/// 私钥口令、SSH 密码和非 HTTP(S) 的地址不提供记住密码。
+#[test]
+fn only_http_sign_ins_can_be_remembered() {
+    let origin = |text| Prompt::parse(text, false).origin();
+    assert_eq!(
+        origin("Username for 'https://github.com/a/b.git': ").as_deref(),
+        Some("https://github.com")
+    );
+    assert_eq!(
+        origin("Password for 'http://alice@example.com:8080': ").as_deref(),
+        Some("http://example.com:8080")
+    );
+    assert_eq!(origin("Enter passphrase for key '/k': "), None);
+    assert_eq!(origin("alice@example.com's password: "), None);
+    assert_eq!(origin("Password for 'ftp://example.com': "), None);
+}
+
+/// 用真实的 `git` 和已构建的 winc 程序走完凭据助手协议：没有保存时询问，验证通过后保存，再次
+/// 需要时直接提供，被拒绝后删除。
+///
+/// 使用测试程序同一构建目录中的 winc，需要先运行 `cargo build`；没有 `git` 或 winc 时跳过。
+#[test]
+#[ignore = "依赖已构建的 winc 程序，手动运行"]
+fn git_stores_and_reuses_a_credential_through_the_helper() {
+    use std::process::{Command, Stdio};
+
+    let name = format!("winc{}", std::env::consts::EXE_SUFFIX);
+    let Some(program) = std::env::current_exe()
+        .ok()
+        .and_then(|test| Some(test.parent()?.parent()?.join(name)))
+        .filter(|program| program.is_file())
+    else {
+        return;
+    };
+    if Command::new("git").arg("--version").output().is_err() {
+        return;
+    }
+    let asked = Arc::new(AtomicU64::new(0));
+    let listener = Listener::bind(true, {
+        let asked = asked.clone();
+        move |question: Question| {
+            asked.fetch_add(1, Ordering::Relaxed);
+            if let Some(remember) = &question.remember {
+                remember.store(true, Ordering::Relaxed);
+            }
+            let answer = match question.prompt {
+                Prompt::Username { .. } => "alice",
+                _ => "token-123",
+            };
+            let _ = question.reply.send(answer.to_owned());
+        }
+    })
+    .unwrap();
+    let helper = format!("!'{}' {CREDENTIAL_HELPER_ARG}", program.display());
+    let git = |action: &str, input: &str| {
+        let mut child = Command::new("git")
+            .args(["credential", action])
+            .env(
+                "GIT_CONFIG_GLOBAL",
+                if cfg!(windows) { "NUL" } else { "/dev/null" },
+            )
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_COUNT", "1")
+            .env("GIT_CONFIG_KEY_0", "credential.helper")
+            .env("GIT_CONFIG_VALUE_0", &helper)
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .env("GIT_ASKPASS", &program)
+            .env(ASKPASS_ENDPOINT, &listener.endpoint)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(input.as_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        String::from_utf8(output.stdout).unwrap()
+    };
+    let request = "protocol=https\nhost=e2e.askpass.test\n\n";
+
+    // 没有保存：依次询问用户名和密码。
+    let filled = git("fill", request);
+    assert!(filled.contains("username=alice") && filled.contains("password=token-123"));
+    assert_eq!(asked.load(Ordering::Relaxed), 2);
+    // 验证通过：保存；再次需要时由助手提供，不再询问。
+    git("approve", &filled);
+    let again = git("fill", request);
+    assert!(again.contains("username=alice") && again.contains("password=token-123"));
+    assert_eq!(asked.load(Ordering::Relaxed), 2);
+    // 被服务器拒绝：删除，下次重新询问。
+    git("reject", &again);
+    git("fill", request);
+    assert_eq!(asked.load(Ordering::Relaxed), 4);
 }

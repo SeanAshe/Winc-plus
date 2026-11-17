@@ -13,6 +13,7 @@ mod askpass;
 mod bench;
 mod cli;
 mod crash;
+mod credentials;
 mod field;
 mod frame_log;
 mod icons;

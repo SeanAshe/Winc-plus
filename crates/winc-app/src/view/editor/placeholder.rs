@@ -13,6 +13,21 @@ pub(super) fn draw_placeholder(
     message: String,
     actions: &[(PlaceholderAction, &str)],
 ) {
+    // 远端主机上的文件不提供交给本机程序的操作。
+    let remote = (app.editor.active())
+        .and_then(|doc| doc.path.as_deref())
+        .is_some_and(winc_backend::is_remote);
+    let local_only = |action: PlaceholderAction| {
+        matches!(
+            action,
+            PlaceholderAction::OpenWithDefaultApp | PlaceholderAction::Reveal
+        )
+    };
+    let kept: Vec<(PlaceholderAction, &str)> = (actions.iter().copied())
+        .filter(|&(action, _)| !(remote && local_only(action)))
+        .collect();
+    let actions = kept.as_slice();
+
     // 图标、原因与按钮的尺寸及间距（逻辑像素）。
     const ICON: (f32, f32) = (30.0, 38.0);
     const MESSAGE_H: f32 = 20.0;
