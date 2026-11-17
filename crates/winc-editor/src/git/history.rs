@@ -279,6 +279,25 @@ impl Git {
         self.run(&mut command, SHOW_TIMEOUT, cancel).is_ok()
     }
 
+    /// 返回 `tip` 相对 `base` 落后和领先的提交数；`git` 运行失败时返回 `None`。
+    ///
+    /// 两者须为完整的引用名、提交号或 `HEAD`：不以 `-` 开头，不会被当成选项。
+    pub fn divergence(
+        &self,
+        root: &Path,
+        base: &str,
+        tip: &str,
+        cancel: &Cancel,
+    ) -> Option<(u32, u32)> {
+        let mut command = self.command(root);
+        command.args(["rev-list", "--left-right", "--count"]);
+        command.arg(format!("{base}...{tip}"));
+        let stdout = self.run(&mut command, SHOW_TIMEOUT, cancel).ok()?;
+        let text = String::from_utf8_lossy(&stdout);
+        let mut counts = text.split_whitespace().map(str::parse::<u32>);
+        Some((counts.next()?.ok()?, counts.next()?.ok()?))
+    }
+
     /// 储藏列表，最新的在前。
     ///
     /// # Errors

@@ -5,9 +5,9 @@ use crate::app::{OtherGroup, OtherRow};
 
 /// 绘制多仓库时当前仓库改动列表以外的各行，记下可点击的位置。
 ///
-/// 各行按仓库列表的顺序排，随列表一起滚动。当前仓库标题行之后的各行让出当前仓库改动列表的高度
-/// `block`（逻辑像素）。仓库标题在最外一层，组、文件缩进一层，与当前仓库改动列表的组、平铺
-/// 的文件同列。
+/// 各行按 `App::commit_other_rows` 的顺序排，随列表一起滚动。当前仓库标题行之后的各行让出
+/// 当前仓库改动列表的高度 `block`（逻辑像素）。仓库标题在最外一层，组、文件缩进一层，与当前
+/// 仓库改动列表的组、平铺的文件同列。
 pub(super) fn draw_other_rows(
     app: &App,
     frame: &mut Frame<'_>,
@@ -37,6 +37,7 @@ pub(super) fn draw_other_rows(
                 OtherRow::Quiet(repo) => {
                     draw_repository_row(app, frame, (list, band), repo, true, hits)
                 }
+                OtherRow::QuietGroup => draw_quiet_group(app, frame, (list, band), hits),
                 OtherRow::Group(repo, group) => {
                     draw_other_group(app, frame, (list, band), (repo, group), hits);
                 }
@@ -152,36 +153,23 @@ impl OtherLayout {
     pub(super) fn block(&self) -> f32 {
         self.block
     }
-
-    /// 最后一行之下（含当前仓库排在最后时它的改动列表）的位置。
-    fn bottom(&self) -> f32 {
-        let last = self.rows.len().saturating_sub(1);
-        let mut y = self.top(last) + COMMIT_ROW;
-        if self.rows.get(last) == Some(&OtherRow::Current) {
-            y += self.block;
-        }
-        if let Some(f) = self.fold
-            && last == f.parent + f.count
-        {
-            y -= f.hidden;
-        }
-        y
-    }
 }
 
 /// 仓库标题行各部分的横坐标：折叠箭头的中心、勾选框的中心（勾选式下才有）、图标的左边、名字
 /// 的左边。与当前仓库改动列表最外一层（组标题）的箭头、勾选框同列。
-fn header_columns(app: &App, band: Rect) -> (f32, f32, f32, f32) {
+///
+/// `quiet` 时是「没有更改的仓库」一组里的一行：没有箭头和勾选框，图标缩进一层。
+fn header_columns(app: &App, band: Rect, quiet: bool) -> (f32, f32, f32, f32) {
     let arrow = band.x + ARROW;
     let check = arrow + check_gap(app);
-    let icon = check + ICON;
+    let icon = if quiet { arrow + ICON } else { check + ICON };
     (arrow, check, icon, icon + 6.0 + ICON)
 }
 
-/// 画当前仓库的标题行：折叠箭头、勾选框（勾选式下，勾上或取消它的全部文件）、✓、仓库名，
-/// 右端是更改数。当前仓库的分支写在上面的分支行里，这里不再写。点这一行收起或展开整个一节。
+/// 绘制当前仓库的标题行：折叠箭头、勾选框（勾选式下）、文件夹图标、仓库名和「当前」标记，
+/// 右端是更改数。点击箭头收起或展开整节，点击其余部分不做任何操作。底色由 [`draw_sections`] 绘制。
 ///
-/// 没有更改时和其他没有更改的仓库一样：没有箭头和勾选框，名字用淡色，右端写「无更改」。
+/// 没有更改时排在「没有更改的仓库」一组里：没有箭头和勾选框，右端不写更改数。
 fn draw_current_row(
     app: &App,
     frame: &mut Frame<'_>,
@@ -195,103 +183,74 @@ fn draw_current_row(
     let target = CommitTarget::CurrentRepository;
     let hovered = matches!(
         app.pointer.hover,
-        Hover::Commit(CommitTarget::CurrentRepository | CommitTarget::CurrentCheck)
+        Hover::Commit(CommitTarget::CurrentFold | CommitTarget::CurrentCheck)
     );
     if !quiet {
         draw_header_band(app, frame, (list, band), hovered);
     }
     let cy = band.y + COMMIT_ROW / 2.0;
-    let (arrow, check, icon, name_x) = header_columns(app, band);
+    let (arrow, check, icon, name_x) = header_columns(app, band, quiet);
     if !quiet {
         let open = !app.current_section_folded();
         let turn = app.other_fold_turn(OtherRow::Current, open) * std::f32::consts::FRAC_PI_2;
         icons::chevron_turned(frame, (arrow, cy), 6.0, turn, p.text_dim, list);
+        hits.push((fold_area(band).intersect(list), CommitTarget::CurrentFold));
         if check_gap(app) > 0.0 {
             draw_other_checkbox(app, frame, (check, cy), app.current_check_state(), list);
             let hit = Rect::new(check - 8.0, band.y + 4.0, 16.0, 16.0);
             hits.push((hit.intersect(list), CommitTarget::CurrentCheck));
         }
     }
-    // 当前仓库用 ✓ 标出，与分支、工作树选择器里当前的那一项相同。
-    icons::check(frame, (icon + 6.0, cy), 10.0, p.accent, list);
-    let count = match quiet {
-        true => t!("git-commit-repository-clean").to_owned(),
-        false => total.to_string(),
+    let count = if quiet {
+        String::new()
+    } else {
+        total.to_string()
     };
     let count_w = frame.measure(FontKind::Ui, app.fonts.ui_small, &count) + 2.0 * END_CENTER;
     let clip = Rect::new(list.x, band.y, band.right() - count_w - list.x, COMMIT_ROW);
+    let clip = clip.intersect(list);
+    icons::folder_small(frame, (icon + 6.0, cy), p.accent, clip);
     // 仓库名用正文字号，比下面小号淡色的组名高一级。
     let name = app.git_current_repository_name();
-    let ink = if quiet { p.text_muted } else { p.text };
-    ui_text(frame, app, name_x, band, &name, ink, clip.intersect(list));
-    draw_count_pill(app, frame, band, &count, list);
+    let end = ui_text(frame, app, name_x, band, &name, p.text, clip);
+    let mark = t!("git-commit-repository-current");
+    ui_text_small(frame, app, end + 8.0, band, mark, p.accent, clip);
+    if !quiet {
+        draw_count_pill(app, frame, band, &count, list);
+    }
     if !quiet {
         hits.push((band.intersect(list), target));
     }
 }
 
-/// 相邻两个仓库一节之间的空隙（逻辑像素）：每节上下各让出一半，行的位置不变。
-const SECTION_GAP: f32 = 4.0;
-
-/// 先于各行铺好多仓库时每个仓库一节的底：一张圆角的卡片，按序号依次取 [`SECTION_HUES`] 里
-/// 的项目徽章颜色，铺得很淡；相邻两节之间隔 [`SECTION_GAP`]。标题行下面的各行在仓库箭头正
-/// 下方有一条同色的竖线。行的悬停、选中底色画在它上面。
+/// 绘制多仓库时当前仓库一节的底色：一张圆角卡片，覆盖它的标题行和改动列表，先于各行绘制。
 ///
-/// 一节从仓库的标题行起，到下一个仓库的标题行之前为止；当前仓库那一节还包括它的改动列表，
-/// 高 `block`（逻辑像素）。只用来分开各个仓库，不表示状态。
+/// 当前仓库的改动列表高 `block`（逻辑像素）；它没有更改时卡片只有标题一行。
 pub(super) fn draw_sections(app: &App, frame: &mut Frame<'_>, list: Rect, block: f32) {
     let layout = OtherLayout::new(app, list, block);
-    if layout.rows.is_empty() {
+    let Some(at) = layout.rows.iter().position(|r| *r == OtherRow::Current) else {
+        return;
+    };
+    let clip = layout.clip(at);
+    let height = COMMIT_ROW + layout.block();
+    let card = Rect::new(
+        list.x + 8.0,
+        layout.top(at) + 1.0,
+        list.w - 16.0,
+        height - 2.0,
+    );
+    if card.bottom() < clip.y || card.y > clip.bottom() || clip.h <= 0.0 {
         return;
     }
-    let mut start: Option<(f32, usize)> = None;
-    let mut sections = Vec::new();
-    for (i, row) in layout.rows.iter().enumerate() {
-        let color = match row {
-            OtherRow::Current => Some(app.repository_color(None)),
-            OtherRow::Repository(r) | OtherRow::Quiet(r) => Some(app.repository_color(Some(*r))),
-            _ => None,
-        };
-        if let Some(color) = color {
-            let top = layout.top(i);
-            if let Some((y, c)) = start.take() {
-                sections.push((y, top, c));
-            }
-            start = Some((top, color));
-        }
-    }
-    if let Some((y, c)) = start {
-        sections.push((y, layout.bottom(), c));
-    }
-    let (x, w) = (list.x + 8.0, list.w - 16.0);
-    for (y0, y1, color) in sections {
-        if y1 < list.y || y0 > list.bottom() {
-            continue;
-        }
-        let card = Rect::new(x, y0 + SECTION_GAP / 2.0, w, y1 - y0 - SECTION_GAP);
-        frame.rect_clipped(card, section_fill(app, color), RADIUS_ROW, list);
-        // 标题行下面的组、文件：仓库箭头正下方一条仓库色的竖线，到卡片底边前收住。
-        let (from, to) = (y0 + COMMIT_ROW, card.bottom() - RADIUS_ROW);
-        if to > from {
-            let base = app.palette.badges[SECTION_HUES[color % SECTION_HUES.len()]].0;
-            let guide = Rect::new((x + ARROW).round(), from, 1.0, to - from);
-            frame.rect_clipped(guide, base.alpha(0.45), 0.0, list);
-        }
-    }
+    frame.rect_clipped(card, current_fill(app), RADIUS_ROW, clip);
 }
 
-/// 第 `color` 种仓库色的卡片底色。
-pub(super) fn section_fill(app: &App, color: usize) -> Color {
-    let base = app.palette.badges[SECTION_HUES[color % SECTION_HUES.len()]].0;
-    base.alpha(0.08)
+/// 当前仓库一节卡片的底色。
+pub(super) fn current_fill(app: &App) -> Color {
+    app.palette.accent.alpha(0.08)
 }
 
-/// 仓库一节可用的项目徽章颜色（徽章配色的下标）：青、紫、品红、靛蓝、绿、石板灰、蓝。不用红、
-/// 橙、黄：它们在 Git 视图里是删除、冲突、警告这类状态的颜色；蓝排在最后，和选中行的强调色
-/// 拉开。
-const SECTION_HUES: [usize; 7] = [4, 7, 8, 6, 3, 9, 5];
-
-/// 有更改的仓库的标题行悬停时铺悬停的底色（仓库色的底在 [`draw_sections`] 里铺好了）。
+/// 有更改的仓库的标题行悬停时铺悬停的底色。
 fn draw_header_band(app: &App, frame: &mut Frame<'_>, (list, band): (Rect, Rect), hovered: bool) {
     if hovered {
         let shade = Rect::new(band.x, band.y + 1.0, band.w, band.h - 2.0);
@@ -312,10 +271,15 @@ fn shade_hovered(
     }
 }
 
+/// 仓库标题行左端折叠箭头的点击区域：从行的左边到箭头右侧 8，与行同高。
+fn fold_area(band: Rect) -> Rect {
+    Rect::new(band.x, band.y, ARROW + 8.0, band.h)
+}
+
 /// 画另一个仓库的标题行：折叠箭头、勾选框（勾选式下）、文件夹图标、仓库名、所在的分支和与
 /// 上游的差异，右端是更改数。点这一行切换到该仓库，点箭头折叠或展开。
 ///
-/// `quiet` 时这个仓库没有更改：没有箭头和勾选框，名字用淡色，右端写「无更改」。
+/// `quiet` 时该仓库没有更改：没有箭头和勾选框，名字用淡色，右端不写更改数。
 fn draw_repository_row(
     app: &App,
     frame: &mut Frame<'_>,
@@ -336,21 +300,24 @@ fn draw_repository_row(
     let state = (app.git.repositories.get(repo)).map(|root| app.place_state(root));
     let state = state.unwrap_or_default();
     // 名字和分支截到右端的更改数之前，不与它重叠。
-    let count = match quiet {
-        true => t!("git-commit-repository-clean").to_owned(),
-        false => state.changes.to_string(),
+    let count = if quiet {
+        String::new()
+    } else {
+        state.changes.to_string()
     };
     let count_w = frame.measure(FontKind::Ui, app.fonts.ui_small, &count) + 2.0 * END_CENTER;
     let clip = Rect::new(list.x, band.y, band.right() - count_w - list.x, COMMIT_ROW);
     let clip = clip.intersect(list);
-    let (arrow, check, icon, name_x) = header_columns(app, band);
+    let (arrow, check, icon, name_x) = header_columns(app, band, quiet);
     if !quiet {
         let open = !app.other_folded(repo, None);
         let header = OtherRow::Repository(repo);
         let turn = app.other_fold_turn(header, open) * std::f32::consts::FRAC_PI_2;
         icons::chevron_turned(frame, (arrow, cy), 6.0, turn, p.text_dim, list);
-        let fold = Rect::new(arrow - 8.0, band.y + 4.0, 16.0, 16.0);
-        hits.push((fold.intersect(list), CommitTarget::OtherFold(repo)));
+        hits.push((
+            fold_area(band).intersect(list),
+            CommitTarget::OtherFold(repo),
+        ));
         // 勾选式下的勾选框和当前仓库各组标题的勾选框同列：勾上或取消这个仓库的全部文件。
         if check_gap(app) > 0.0 {
             let state = app.other_group_state(repo, None);
@@ -389,8 +356,32 @@ fn draw_repository_row(
     if !sync.is_empty() {
         ui_text_small(frame, app, x + 8.0, band, &sync, p.accent, clip);
     }
-    draw_count_pill(app, frame, band, &count, list);
+    if !quiet {
+        draw_count_pill(app, frame, band, &count, list);
+    }
     // 箭头、勾选框的点击区域先记，整行的后记：点在它们上面只折叠、勾选，不切换仓库。
+    hits.push((band.intersect(list), target));
+}
+
+/// 画「没有更改的仓库」一组的标题行：折叠箭头、组名，右端是仓库数。点这一行展开或收起。
+fn draw_quiet_group(
+    app: &App,
+    frame: &mut Frame<'_>,
+    (list, band): (Rect, Rect),
+    hits: &mut Vec<(Rect, CommitTarget)>,
+) {
+    let p = app.palette;
+    let target = CommitTarget::QuietRepositories;
+    shade_hovered(app, frame, (list, band), target);
+    let (count, any_changed) = app.quiet_repositories();
+    let cy = band.y + COMMIT_ROW / 2.0;
+    let arrow = band.x + ARROW;
+    let open = app.quiet_repositories_open(any_changed);
+    let turn = app.other_fold_turn(OtherRow::QuietGroup, open) * std::f32::consts::FRAC_PI_2;
+    icons::chevron_turned(frame, (arrow, cy), 6.0, turn, p.text_dim, list);
+    let title = t!("git-commit-group-quiet");
+    ui_text_small(frame, app, arrow + ICON, band, title, p.text_muted, list);
+    draw_count_pill(app, frame, band, &count.to_string(), list);
     hits.push((band.intersect(list), target));
 }
 

@@ -1,5 +1,7 @@
 //! Git 询问对话框的测试：登录、取消、遮盖文字、主机密钥确认、操作结束时的关闭和截图。
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, channel};
 
 use crate::app::Focus;
@@ -41,7 +43,14 @@ fn host_key() -> Prompt {
 fn ask(app: &mut App, prompt: Prompt) -> Receiver<String> {
     let (reply, answers) = channel();
     let id = app.git.branch.started;
-    app.open_git_question(id, Question { prompt, reply });
+    app.open_git_question(
+        id,
+        Question {
+            prompt,
+            reply,
+            remember: None,
+        },
+    );
     answers
 }
 
@@ -221,6 +230,65 @@ fn a_question_replaces_a_form_being_filled_in() {
     paint(&mut app);
 }
 
+/// 向 `app` 发送提供「记住密码」的请求，返回答复的通道和记住的标记。
+fn ask_remembering(app: &mut App, prompt: Prompt) -> (Receiver<String>, Arc<AtomicBool>) {
+    let (reply, answers) = channel();
+    let remember = Arc::new(AtomicBool::new(false));
+    let id = app.git.branch.started;
+    app.open_git_question(
+        id,
+        Question {
+            prompt,
+            reply,
+            remember: Some(remember.clone()),
+        },
+    );
+    paint(app);
+    (answers, remember)
+}
+
+/// 提供记住密码的登录对话框多一个默认勾选的选项，答复时把选择交回；取消勾选后不记住。
+#[test]
+fn a_sign_in_offers_to_remember_the_password() {
+    let (mut app, _first) = asking("question-remember", passphrase());
+    assert!(app.dialog_layout().options.is_empty(), "私钥口令不提供");
+    typed(&mut app, "phrase");
+    enter(&mut app);
+    for keep in [true, false] {
+        let (answers, remember) = ask_remembering(&mut app, password());
+        let layout = app.dialog_layout();
+        let &[(DialogPart::Checkout, row)] = layout.options.as_slice() else {
+            panic!("{:?}", layout.options);
+        };
+        assert!(row.y >= layout.branch.bottom() && row.bottom() <= layout.confirm.y);
+        assert!(app.overlays.form_dialog.as_ref().unwrap().checkout);
+        if !keep {
+            let (x, y) = (row.x + 6.0, row.y + row.h / 2.0);
+            assert_eq!(app.dialog_part_at(x, y), Some(DialogPart::Checkout));
+            app.click_form_dialog(x, y);
+            assert!(!app.overlays.form_dialog.as_ref().unwrap().checkout);
+        }
+        typed(&mut app, "s3cret");
+        enter(&mut app);
+        assert_eq!(answers.try_recv().unwrap(), "s3cret");
+        assert_eq!(remember.load(Ordering::Relaxed), keep);
+        assert!(app.git.branch.remember.is_none());
+    }
+}
+
+/// 关闭对话框按取消处理：不记住，之后的对话框不再带该选项。
+#[test]
+fn cancelling_a_sign_in_remembers_nothing() {
+    let (mut app, _first) = asking("question-remember-cancel", passphrase());
+    typed(&mut app, "phrase");
+    enter(&mut app);
+    let (answers, remember) = ask_remembering(&mut app, password());
+    assert!(app.dialog_key(&Key::Named(NamedKey::Escape), "", false));
+    assert!(answers.try_recv().is_err());
+    assert!(!remember.load(Ordering::Relaxed));
+    assert!(app.git.branch.remember.is_none());
+}
+
 #[test]
 #[ignore = "截图，手动运行"]
 fn snapshot_question_dialogs() {
@@ -236,7 +304,19 @@ fn snapshot_question_dialogs() {
         ("other", other),
     ];
     for (name, prompt) in cases {
-        let (mut app, _answers) = asking(&format!("question-shot-{name}"), prompt);
+        // 登录的两种对话框带「记住密码」。
+        let remembers = prompt.origin().is_some();
+        let first = if remembers {
+            passphrase()
+        } else {
+            prompt.clone()
+        };
+        let (mut app, _answers) = asking(&format!("question-shot-{name}"), first);
+        let _remembering = remembers.then(|| {
+            typed(&mut app, "phrase");
+            enter(&mut app);
+            ask_remembering(&mut app, prompt)
+        });
         if name == "sign-in" {
             typed(&mut app, "me-example");
             enter(&mut app);
@@ -288,7 +368,11 @@ fn cancelling_a_question_from_ssh_ends_the_connection_at_once() {
     };
     app.open_question(
         crate::app::git::question::Asker::Remote,
-        Question { prompt, reply },
+        Question {
+            prompt,
+            reply,
+            remember: None,
+        },
     );
     assert!(app.overlays.form_dialog.is_some() && !abort.is_aborted());
     // 取消口令的询问：连接随即中止，`ssh` 没有机会再问第二次、第三次。

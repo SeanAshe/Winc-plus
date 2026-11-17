@@ -169,10 +169,12 @@ impl SettingsPage {
                 ]
             }
             SettingsPage::Git => vec![
+                plain(vec![Setting::GitPath, Setting::GitOpenWorktree]),
                 plain(vec![Setting::GitStagingArea, Setting::GitTree]),
                 plain(vec![Setting::DiffInline, Setting::GitInlineBlame]),
                 plain(vec![
                     Setting::GitConfirmPush,
+                    Setting::GitRememberCredentials,
                     Setting::GitAutoFetch,
                     Setting::GitSystemProxy,
                 ]),
@@ -383,6 +385,8 @@ pub enum Setting {
     GitModule,
     /// 发布、推送或同步分支前确认（`git.confirmPush`）。
     GitConfirmPush,
+    /// 允许记住 HTTP(S) 密码（`git.rememberCredentials`）。
+    GitRememberCredentials,
     /// `git` 跟随系统的代理设置（`git.systemProxy`）。
     GitSystemProxy,
     /// 光标所在行末尾的追溯提示（`git.inlineBlame`）。
@@ -393,6 +397,10 @@ pub enum Setting {
     GitTree,
     /// 提交视图显示暂存区（`git.stagingArea`）；关闭时用勾选决定提交的内容。
     GitStagingArea,
+    /// 点击工作树时在哪个窗口打开它（`git.openWorktree`）。
+    GitOpenWorktree,
+    /// `git` 程序的路径（`git.path`）；未设置时在 `PATH` 里查找。
+    GitPath,
     /// 终端模块的开关。
     TerminalModule,
     /// 远程模块的开关。
@@ -501,7 +509,10 @@ impl Setting {
             | Setting::TerminalApplicationPriority
             | Setting::TerminalOptionAsMeta => SettingsPage::Terminal,
             Setting::GitStagingArea
+            | Setting::GitOpenWorktree
+            | Setting::GitPath
             | Setting::GitConfirmPush
+            | Setting::GitRememberCredentials
             | Setting::GitSystemProxy
             | Setting::GitInlineBlame
             | Setting::GitAutoFetch
@@ -581,11 +592,14 @@ impl Setting {
             Setting::TerminalOptionAsMeta => t!("settings-terminal-option-as-meta"),
             Setting::GitModule => "Git",
             Setting::GitConfirmPush => t!("settings-git-confirm-push"),
+            Setting::GitRememberCredentials => t!("settings-git-remember-credentials"),
             Setting::GitSystemProxy => t!("settings-git-system-proxy"),
             Setting::GitInlineBlame => t!("settings-git-inline-blame"),
             Setting::GitAutoFetch => t!("settings-git-auto-fetch"),
             Setting::GitTree => t!("settings-git-tree"),
             Setting::GitStagingArea => t!("settings-git-staging-area"),
+            Setting::GitOpenWorktree => t!("settings-git-open-worktree"),
+            Setting::GitPath => t!("settings-git-path"),
             Setting::TerminalModule => t!("settings-terminal-module"),
             Setting::RemoteModule => t!("settings-remote-module"),
             Setting::KeySearch => t!("settings-key-search"),
@@ -641,11 +655,15 @@ impl Setting {
             Setting::GitModule => Some(t!("settings-git-module-desc")),
             Setting::RemoteModule => Some(t!("settings-remote-module-desc")),
             Setting::GitConfirmPush => Some(t!("settings-git-confirm-push-desc")),
+            Setting::GitRememberCredentials => Some(t!("settings-git-remember-credentials-desc")),
             Setting::GitSystemProxy => Some(t!("settings-git-system-proxy-desc")),
             Setting::GitInlineBlame => Some(t!("settings-git-inline-blame-desc")),
             Setting::GitAutoFetch => Some(t!("settings-git-auto-fetch-desc")),
             Setting::GitTree => Some(t!("settings-git-tree-desc")),
             Setting::GitStagingArea => Some(t!("settings-git-staging-area-desc")),
+            Setting::GitOpenWorktree => Some(t!("settings-git-open-worktree-desc")),
+            Setting::GitPath => Some(t!("settings-git-path-desc")),
+            Setting::TerminalShell => Some(t!("settings-terminal-shell-desc")),
             Setting::TerminalCopyOnSelect => Some(t!("settings-terminal-copy-on-select-desc")),
             Setting::TerminalConfirmClose => Some(t!("settings-terminal-confirm-close-desc")),
             Setting::TerminalPrompt => Some(t!("settings-terminal-prompt-desc")),
@@ -699,6 +717,7 @@ impl Setting {
             | Setting::FixOnSave
             | Setting::GitModule
             | Setting::GitConfirmPush
+            | Setting::GitRememberCredentials
             | Setting::GitSystemProxy
             | Setting::GitInlineBlame
             | Setting::GitAutoFetch
@@ -711,9 +730,10 @@ impl Setting {
             | Setting::TerminalPrompt
             | Setting::TerminalShellIntegration
             | Setting::TerminalApplicationPriority => SettingControl::Switch,
-            Setting::FormatCommand(_) | Setting::FixCommand(_) | Setting::TerminalShell => {
-                SettingControl::Command
-            }
+            Setting::FormatCommand(_)
+            | Setting::FixCommand(_)
+            | Setting::TerminalShell
+            | Setting::GitPath => SettingControl::Command,
             Setting::SkipOnSave
             | Setting::Language
             | Setting::BackgroundImage
@@ -724,7 +744,8 @@ impl Setting {
             | Setting::VimClipboard
             | Setting::TerminalPosition
             | Setting::TerminalTabPosition
-            | Setting::TerminalOptionAsMeta => SettingControl::Choice,
+            | Setting::TerminalOptionAsMeta
+            | Setting::GitOpenWorktree => SettingControl::Choice,
             Setting::AddLanguage | Setting::AddFixLanguage => SettingControl::Action,
             Setting::KeySearch => SettingControl::Search,
             Setting::Version => SettingControl::Product,
@@ -785,6 +806,16 @@ pub fn text_width_label(choice: winc_config::TextWidth) -> &'static str {
         Standard => t!("settings-text-width-standard"),
         Wide => t!("settings-text-width-wide"),
         Full => t!("settings-text-width-full"),
+    }
+}
+
+/// 返回「打开工作树」设置中选项 `choice` 的名字。
+pub fn open_worktree_label(choice: winc_config::WorktreeOpen) -> &'static str {
+    use winc_config::WorktreeOpen::{Ask, CurrentWindow, NewWindow};
+    match choice {
+        Ask => t!("settings-git-open-worktree-ask"),
+        NewWindow => t!("settings-git-open-worktree-new"),
+        CurrentWindow => t!("settings-git-open-worktree-current"),
     }
 }
 
@@ -1336,7 +1367,11 @@ fn row_height(
             let tile = theme_tile_size((row.w - SETTINGS_INSET * 2.0).max(0.0));
             rows * tile.1 + (rows - 1.0) * THEME_GRID_GAP + THEME_GRID_PAD * 2.0
         }
-        SettingControl::Command if setting != Setting::TerminalShell => SETTINGS_ROW_TALL,
+        SettingControl::Command
+            if !matches!(setting, Setting::TerminalShell | Setting::GitPath) =>
+        {
+            SETTINGS_ROW_TALL
+        }
         SettingControl::Product => SETTINGS_PRODUCT_H,
         _ => match setting.description() {
             Some(text) => {

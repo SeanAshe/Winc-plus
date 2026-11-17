@@ -517,6 +517,9 @@ impl App {
             }
             UserEvent::GitLogConfirmed(op) => self.run_log_confirmed(op),
             UserEvent::GitRemoveWorktree(path, branch) => self.remove_worktree_now(&path, branch),
+            UserEvent::GitOpenWorktree(path, new, remember) => {
+                self.open_worktree_chosen(&path, new, remember);
+            }
             UserEvent::Indexed => self.picker_indexed(),
             UserEvent::QuitRequested => self.request_quit(),
             UserEvent::SaveChoice(choice) => self.answer_save_prompt(choice),

@@ -567,10 +567,12 @@ fn run_menu_space(name: f32, room: f32, title: f32) -> Option<f32> {
 
 /// 运行配置的按钮在标签栏上的位置（配置名，运行，停止）。
 ///
-/// 还没有配置时只有运行按钮，点击后生成配置文件；没有打开目录或太窄时没有按钮。停止按钮只在运行时
-/// 出现。竖向模式靠左排列，配置名和运行按钮位置固定；横向模式靠右排列，停止按钮出现时向左让位。
+/// 还没有配置时只有运行按钮，点击后生成配置文件；没有打开目录、目录在远端主机上或太窄时没有
+/// 按钮。停止按钮只在运行时出现。竖向模式靠左排列，配置名和运行按钮位置固定；横向模式靠右排列，停止按钮出现时向左让位。
 fn run_buttons(app: &App, frame: &mut Frame<'_>, left: f32, end: f32, y: f32) -> Option<[Rect; 3]> {
-    app.editor.root()?;
+    app.editor
+        .root()
+        .filter(|root| !winc_backend::is_remote(root))?;
     let vertical = app.terminal_tab_list().is_some();
     let shown = app
         .terminal

@@ -202,3 +202,13 @@ fn same_named_recent_folders_keep_the_part_that_tells_them_apart() {
         assert!(middle.starts_with("~/") && middle.contains('…'), "{middle}");
     });
 }
+
+/// 分支选择器中名字优先：右端的上游、时间使用剩余的宽度，不足时不显示。
+#[test]
+fn picker_meta_only_uses_what_the_name_leaves() {
+    use crate::view::git::picker::meta_room;
+    assert_eq!(meta_room(300.0, 120.0), Some(180.0));
+    assert_eq!(meta_room(300.0, 252.0), Some(48.0));
+    assert_eq!(meta_room(300.0, 256.0), None);
+    assert_eq!(meta_room(300.0, 420.0), None);
+}

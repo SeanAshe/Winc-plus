@@ -1,6 +1,7 @@
 ## Git command line: locating, running and reading output
 
-git-unavailable-not-installed = Git not found
+git-unavailable-not-installed = Git not found. Install Git, or set the Git program in Settings
+git-unavailable-not-found = The configured Git program “{ $program }” was not found. Check the Git program in Settings
 git-unavailable-no-developer-tools = Command Line Developer Tools aren’t installed
 git-version-too-old = Git { $version } is too old; some operations need { $minimum } or later
 git-status-unreadable = Couldn’t read the output of git status
@@ -141,6 +142,7 @@ git-question-origin = Asked by
 git-question-account = Account
 git-question-username = Username
 git-question-password = Password
+git-question-remember = Remember password
 git-question-password-placeholder = Password or access token
 git-question-key = Key
 git-question-passphrase = Passphrase
@@ -164,18 +166,30 @@ git-op-failed = Error { $what }: { $error }
 git-op-failed-in = Error { $what } in “{ $name }”: { $error }
 
 ## Worktrees
+git-worktree-group = Worktrees
+git-worktree-more = { $count ->
+    [one] 1 more worktree…
+   *[other] { $count } more worktrees…
+}
+git-worktree-merged = Merged
 git-worktree-detached = { $oid } (detached HEAD)
 git-worktree-missing = Folder no longer exists
 git-worktree-copied-ignored = { $count ->
     [one] Copied { $count } ignored file
    *[other] Copied { $count } ignored files
 }
+git-worktree-open-ask = Open worktree “{ $name }” in which window?
+git-worktree-open-ask-detail = Opening it in this window closes the current tabs and terminals and replaces them with the worktree’s.
+git-worktree-open-new-window = New Window
+git-worktree-open-this-window = This Window
+git-worktree-open-remember = Don’t ask again
 git-worktree-open-elsewhere = Worktree “{ $name }” is open in another window
 git-worktree-open-elsewhere-detail = Close that window first, then remove this worktree.
 git-worktree-switch-to-window = Switch to Window
 git-worktree-close-window-first = Close the window showing worktree “{ $name }” first, then remove the worktree
 git-worktree-remove-confirm = Remove worktree “{ $name }”?
 git-worktree-remove-confirm-detail = The worktree folder will be moved to the { common-trash }, where you can restore it.
+git-worktree-remove-confirm-detail-remote = The worktree folder on the remote host will be deleted and can’t be restored.
 git-worktree-remove-unreachable = { $count ->
     [one] { $count } commit on the detached HEAD doesn’t belong to any branch and can’t be recovered after removal. To keep it, create a branch for it in this worktree first.
    *[other] { $count } commits on the detached HEAD don’t belong to any branch and can’t be recovered after removal. To keep them, create a branch for them in this worktree first.
@@ -399,6 +413,7 @@ git-abort-confirm-button = Abort { $operation }
 git-rollback-confirm-one = Roll back changes to “{ $name }”?
 git-rollback-confirm-many = Roll back changes to { $count } files?
 git-rollback-confirm-detail = Tracked files are restored to the last commit, and untracked files are moved to the { common-trash }.
+git-rollback-confirm-detail-remote = Tracked files are restored to the last commit, and untracked files are deleted and can’t be restored.
 git-rollback-confirm-button = Roll Back
 git-rollback-file-failed = Couldn’t roll back “{ $name }”: { $error }
 git-rollback-done = { $count ->
@@ -446,7 +461,8 @@ git-trust-allow = Trust
 git-commit-view-problem = { $problem }. Click Refresh to try again
 git-commit-view-loading = Reading repository status…
 git-commit-view-empty = Nothing to Commit
-git-commit-repository-clean = No changes
+git-commit-repository-current = Current
+git-commit-group-quiet = Repositories Without Changes
 git-commit-empty-in-sync = Up to date with the upstream branch
 git-commit-empty-ahead = { $count ->
     [one] 1 commit ahead of the upstream branch
@@ -472,20 +488,16 @@ git-branch-picker-new = New Branch
 git-branch-picker-new-worktree = New Worktree
 git-branch-picker-create-row = Create branch “{ $name }”
 git-branch-picker-current = Current
-git-location-picker-placeholder = Search repositories and worktrees
-git-location-picker-empty = No matching repositories or worktrees
+git-location-picker-placeholder = Search repositories
+git-location-picker-empty = No matching repositories
 git-worktree-picker-placeholder = Search worktrees
 git-worktree-picker-empty = No matching worktrees
 git-location-main-worktree = Main worktree
 git-location-only-one = This folder has only one repository and worktree
+git-location-this-window = Open in This Window
 git-location-new-window = Open in New Window
 git-location-remove = Remove Worktree…
 git-location-prune = Prune Stale Worktrees
-git-location-new-worktree-in = New Worktree in “{ $repository }”
-git-location-count = { $count ->
-    [one] 1 worktree
-   *[other] { $count } worktrees
-}
 git-tip-other-worktrees = { $count ->
     [one] 1 other worktree has uncommitted changes
    *[other] { $count } other worktrees have uncommitted changes

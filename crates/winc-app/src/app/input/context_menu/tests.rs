@@ -191,3 +191,56 @@ fn menus_depend_on_what_was_clicked() {
     assert!(marked.contains(&(AddBookmark, false)));
     assert!(marked.contains(&(RemoveBookmark, true)));
 }
+
+/// 远端主机上的文件：各菜单不列出「在文件管理器中显示」，终端模块关闭时也不列出「在终端中
+/// 打开」，其余的项和顺序不变，不留下多余的分隔线。
+#[test]
+fn local_only_items_are_left_out_for_remote_files() {
+    use MenuCommand::*;
+
+    let items = |menu: &[MenuEntry]| -> Vec<MenuCommand> {
+        (menu.iter())
+            .filter_map(|entry| match entry {
+                MenuEntry::Item(command, _) => Some(*command),
+                _ => None,
+            })
+            .collect()
+    };
+    let tidy = |menu: &[MenuEntry]| {
+        let separator = |entry: &MenuEntry| matches!(entry, MenuEntry::Separator);
+        !menu.first().is_some_and(separator)
+            && !menu.last().is_some_and(separator)
+            && !menu
+                .windows(2)
+                .any(|pair| separator(&pair[0]) && separator(&pair[1]))
+    };
+    let menus = [
+        tree_menu(Some(EntryKind::File), true),
+        tree_menu(None, true),
+        tab_menu((0, 0), 1, 3, true, true, true),
+        commit_file_menu(true, true, &[]),
+        log_file_menu(true, true),
+    ];
+    for menu in menus {
+        let before = items(&menu);
+        for terminal in [false, true] {
+            let kept = without_local_only(menu.clone(), terminal);
+            let after = items(&kept);
+            assert!(!after.contains(&Reveal), "{after:?}");
+            assert_eq!(
+                after.contains(&OpenInTerminal),
+                terminal && before.contains(&OpenInTerminal)
+            );
+            let expected: Vec<_> = (before.iter())
+                .filter(|c| **c != Reveal && (terminal || **c != OpenInTerminal))
+                .cloned()
+                .collect();
+            assert_eq!(after, expected);
+            assert!(tidy(&kept), "{kept:?}");
+        }
+        // 应用内的定位不受影响。
+        if before.contains(&RevealInTree) {
+            assert!(items(&without_local_only(menu, false)).contains(&RevealInTree));
+        }
+    }
+}

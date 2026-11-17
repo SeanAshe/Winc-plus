@@ -105,8 +105,7 @@ impl App {
     }
 
     /// 上下文栏上的项目名：打开的目录就是附属工作树时写它所属的仓库，同一个仓库的工作树之间切换时
-    /// 不变；工作树的名字写在位置按钮上。打开的目录里有多个仓库时项目就是这个目录。没有打开目录时
-    /// 为 `None`。
+    /// 不变。打开的目录里有多个仓库时项目就是这个目录。没有打开目录时为 `None`。
     pub(crate) fn project_name(&self) -> Option<String> {
         let folder = self.editor.workspace.as_ref()?;
         let main = (self.editor.root() == self.git.root.as_deref())
@@ -128,6 +127,63 @@ impl App {
             self.open_in_new_window(&path);
         } else {
             self.switch_folder(&path);
+        }
+    }
+
+    /// 打开第 `i` 个工作树：已在另一个窗口中打开时切换到该窗口，否则按设置「打开工作树」
+    /// 在新窗口或当前窗口打开；设置为每次询问时弹出提示框。
+    ///
+    /// 没有窗口时（测试中）在当前窗口打开。
+    pub(in crate::app) fn open_worktree_asking(&mut self, i: usize) {
+        use winc_config::WorktreeOpen;
+        if self.git.current_worktree() == Some(i) {
+            return;
+        }
+        let Some(path) = self.git.worktrees.get(i).map(|w| w.path.clone()) else {
+            return;
+        };
+        if self.focus_window_with(&path) {
+            return;
+        }
+        let choice = self.config.git_open_worktree.unwrap_or_default();
+        if choice == WorktreeOpen::Ask && self.window.handle.is_some() {
+            let name = winc_editor::git::repo_name(&path);
+            let message = t!("git-worktree-open-ask", name = name.as_str());
+            let detail = t!("git-worktree-open-ask-detail");
+            let buttons = vec![
+                AlertButton::new(t!("git-worktree-open-new-window")),
+                AlertButton::new(t!("git-worktree-open-this-window")),
+                AlertButton::cancel(t!("common-cancel")),
+            ];
+            let remember = Some((t!("git-worktree-open-remember"), false));
+            let target = path.clone();
+            // 已有其他提示框时不弹出，也不代为选择。
+            self.present_alert(&message, detail, buttons, remember, move |i, kept| {
+                (i < 2).then(|| UserEvent::GitOpenWorktree(target.clone(), i == 0, kept))
+            });
+            return;
+        }
+        if choice == WorktreeOpen::NewWindow {
+            self.open_in_new_window(&path);
+        } else {
+            self.switch_folder(&path);
+        }
+    }
+
+    /// 按提示框中的选择打开工作树 `path`；`remember` 时把该方式写入设置。
+    pub(in crate::app) fn open_worktree_chosen(&mut self, path: &Path, new: bool, remember: bool) {
+        use winc_config::WorktreeOpen;
+        if remember {
+            let choice = match new {
+                true => WorktreeOpen::NewWindow,
+                false => WorktreeOpen::CurrentWindow,
+            };
+            self.set_open_worktree(choice);
+        }
+        if new {
+            self.open_in_new_window(path);
+        } else {
+            self.switch_folder(path);
         }
     }
 
@@ -415,7 +471,12 @@ impl App {
         let name = winc_editor::git::repo_name(&path);
         let message = t!("git-worktree-remove-confirm", name = name.as_str());
         if self.window.handle.is_some() {
-            let mut detail = t!("git-worktree-remove-confirm-detail").to_owned();
+            // 远端主机上没有废纸篓：目录由 `git worktree remove` 直接删除。
+            let mut detail = if winc_backend::is_remote(&path) {
+                t!("git-worktree-remove-confirm-detail-remote").to_owned()
+            } else {
+                t!("git-worktree-remove-confirm-detail").to_owned()
+            };
             // 有没提交的改动、游离的提交时没有默认按钮（↩ 不会误删）。
             let dirty = check.changed + check.untracked + check.unreachable > 0;
             if check.unreachable > 0 {
@@ -486,7 +547,10 @@ impl App {
             self.ask_close_worktree_window(&name, path);
             return;
         }
-        if let Err(e) = (self.trash)(path) {
+        // 远端主机上的目录留给下面的 `git worktree remove --force` 删除。
+        if !winc_backend::is_remote(path)
+            && let Err(e) = (self.trash)(path)
+        {
             let error = e.to_string();
             self.notify(t!("git-worktree-trash-failed", name = &name, error = error));
             return;

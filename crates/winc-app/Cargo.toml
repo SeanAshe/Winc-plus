@@ -36,6 +36,8 @@ objc2 = "0.6"
 # 打开、保存面板的完成回调是 Objective-C block。
 block2 = { version = "0.6", default-features = false, features = ["std"] }
 objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes", "objc2"] }
+# 钥匙串中保存 Git 凭据（credentials/macos.rs）。2.x 与 arboard、winit 共用 core-foundation 0.9。
+security-framework = { version = "2.11", default-features = false }
 
 # 其他 Unix 平台：选择文件的面板通过 XDG 桌面门户（D-Bus），见 portal.rs。
 # Wayland 上凭激活令牌把已有窗口切到前台（xdg-activation，见 wayland.rs），接入 winit 的
@@ -73,6 +75,7 @@ windows-sys = { version = "0.59", features = [
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",
     "Win32_Security",
+    "Win32_Security_Credentials",
     "Win32_Storage_FileSystem",
     "Win32_System_Console",
     "Win32_System_IO",

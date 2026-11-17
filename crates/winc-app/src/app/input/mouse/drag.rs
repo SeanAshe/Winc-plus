@@ -412,8 +412,10 @@ impl App {
         let t = self.layout.text;
         let scrolled = self.scroll_while_dragging(Some(x), y);
 
-        if let Some(pos) = self.pos_at(x.clamp(t.x, t.right()), y.clamp(t.y, t.bottom() - 1.0))
-            && let Some(doc) = self.editor.active_mut()
+        if let Some(pos) = self.pos_at(
+            x.clamp(t.x, t.right()),
+            y.clamp(t.y, (t.bottom() - 1.0).max(t.y)),
+        ) && let Some(doc) = self.editor.active_mut()
         {
             doc.selection = if !by_word {
                 Selection::new(origin.0, pos)
@@ -532,7 +534,7 @@ impl App {
         let t = self.layout.text;
         let scrolled = self.scroll_while_dragging(None, y);
 
-        if let Some(pos) = self.pos_at(x, y.clamp(t.y, t.bottom() - 1.0))
+        if let Some(pos) = self.pos_at(x, y.clamp(t.y, (t.bottom() - 1.0).max(t.y)))
             && let Some(doc) = self.editor.active_mut()
         {
             let line = doc.text().pos_to_line_col(pos).0;

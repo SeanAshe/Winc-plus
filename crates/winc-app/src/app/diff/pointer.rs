@@ -271,7 +271,7 @@ impl App {
             }
         }
         self.clamp_scroll();
-        y.clamp(top + 1.0, editor.bottom() - 1.0)
+        y.clamp(top + 1.0, (editor.bottom() - 1.0).max(top + 1.0))
     }
 
     /// 在右侧拖选：按按下时的单位从 `origin` 扩展到鼠标处；`add` 为 `true` 时只修改主选区。

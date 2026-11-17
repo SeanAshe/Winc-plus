@@ -306,6 +306,7 @@ impl App {
             Setting::Language
             | Setting::RenderWhitespace
             | Setting::VimClipboard
+            | Setting::GitOpenWorktree
             | Setting::Zoom
             | Setting::BackgroundImage
             | Setting::BackgroundFit
@@ -320,6 +321,7 @@ impl App {
                     Setting::Language => MenuTarget::Locale,
                     Setting::RenderWhitespace => MenuTarget::Whitespace,
                     Setting::VimClipboard => MenuTarget::VimClipboard,
+                    Setting::GitOpenWorktree => MenuTarget::OpenWorktree,
                     Setting::Zoom => MenuTarget::Zoom,
                     Setting::BackgroundImage => MenuTarget::BackgroundImage,
                     Setting::BackgroundFit => MenuTarget::BackgroundFit,
@@ -336,6 +338,7 @@ impl App {
             Setting::FormatCommand(id) => (MenuTarget::Tool(Task::Format, id), row.control),
             Setting::FixCommand(id) => (MenuTarget::Tool(Task::Fix, id), row.control),
             Setting::TerminalShell => (MenuTarget::DefaultShell, row.control),
+            Setting::GitPath => return self.settings_start_editing(setting),
             Setting::Updates => return self.settings_check_updates(),
             _ => return,
         };

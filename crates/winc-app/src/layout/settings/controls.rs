@@ -25,7 +25,12 @@ pub(super) fn control_rect(setting: Setting, row: Rect, editing: bool) -> Rect {
         SettingControl::Choice if setting == Setting::Language => {
             (segmented_width(), SETTINGS_CONTROL_H)
         }
-        SettingControl::Command if editing => (SETTINGS_COMMAND_W, SETTINGS_CONTROL_H),
+        // 格式化命令带参数，编辑时换成更宽的输入框；其余命令编辑时宽度不变。
+        SettingControl::Command
+            if editing && matches!(setting, Setting::FormatCommand(_) | Setting::FixCommand(_)) =>
+        {
+            (SETTINGS_COMMAND_W, SETTINGS_CONTROL_H)
+        }
         SettingControl::Command | SettingControl::Choice | SettingControl::Link => {
             (SETTINGS_CHOICE_W, SETTINGS_CONTROL_H)
         }

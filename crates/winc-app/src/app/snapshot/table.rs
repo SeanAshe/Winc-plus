@@ -433,3 +433,82 @@ fn cells_are_selected_copied_and_merged_cells_read_in_full() {
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// 回归：没有单元格的表格（空文件、只有空行、只有表头）照常预览并处理键盘、鼠标和滚轮。
+#[test]
+fn tables_without_cells_are_previewed() {
+    use winit::keyboard::{Key, NamedKey};
+
+    let dir = search_folder("table-empty");
+    let cases = [
+        ("empty.csv", "", 0),
+        ("blank.csv", "\n\n\n", 0),
+        ("header.csv", "name,count\n", 2),
+    ];
+    for (name, content, columns) in cases {
+        let path = dir.join(name);
+        std::fs::write(&path, content).unwrap();
+        let mut app = app_with(&path, false);
+        paint(&mut app);
+        for mode in [PreviewMode::Preview, PreviewMode::Split] {
+            app.set_preview_mode(mode);
+            app.wait_for_tables();
+            paint(&mut app);
+            let layout = &app.preview.table_layout;
+            assert_eq!(layout.size.1, columns, "{name}");
+            assert_eq!(layout.edges.len(), columns + 1, "{name}");
+            assert_eq!(layout.card, Rect::default(), "{name}");
+            let body = layout.body;
+            for key in [
+                NamedKey::ArrowDown,
+                NamedKey::ArrowRight,
+                NamedKey::ArrowUp,
+                NamedKey::ArrowLeft,
+                NamedKey::End,
+                NamedKey::Home,
+                NamedKey::PageDown,
+                NamedKey::Enter,
+            ] {
+                for shift in [false, true] {
+                    app.pointer.modifiers = if shift {
+                        winit::keyboard::ModifiersState::SHIFT
+                    } else {
+                        winit::keyboard::ModifiersState::empty()
+                    };
+                    app.table_key(&Key::Named(key), false);
+                    paint(&mut app);
+                }
+            }
+            app.pointer.modifiers = winit::keyboard::ModifiersState::empty();
+            app.run_action(crate::keymap::Action::Copy);
+            app.run_action(crate::keymap::Action::SelectAll);
+            let (x, y) = (body.x + body.w / 2.0, body.y + body.h / 2.0);
+            app.on_mouse_move(x, y);
+            app.on_wheel(MouseScrollDelta::LineDelta(2.0, -3.0));
+            app.on_mouse_down(MouseButton::Left);
+            app.on_mouse_move(x + 40.0, y + 40.0);
+            app.on_mouse_up(MouseButton::Left);
+            // 表头和行号栏。
+            app.on_mouse_move(x, body.y - 4.0);
+            app.on_mouse_down(MouseButton::Left);
+            app.on_mouse_up(MouseButton::Left);
+            app.on_mouse_move(body.x - 4.0, y);
+            app.on_mouse_down(MouseButton::Left);
+            app.on_mouse_up(MouseButton::Left);
+            paint(&mut app);
+        }
+    }
+    // 没有行的工作簿直接以表格打开。
+    let path = dir.join("empty.xlsx");
+    std::fs::write(&path, workbook(0, "")).unwrap();
+    let mut app = app_with(&path, false);
+    app.wait_for_tables();
+    paint(&mut app);
+    let body = app.preview.table_layout.body;
+    app.on_mouse_move(body.x + 20.0, body.y + 20.0);
+    app.on_mouse_down(MouseButton::Left);
+    app.on_mouse_up(MouseButton::Left);
+    app.table_key(&Key::Named(NamedKey::ArrowDown), false);
+    paint(&mut app);
+    std::fs::remove_dir_all(&dir).unwrap();
+}

@@ -21,6 +21,7 @@ config-run-template-note = Each entry requires name and command; args, cwd, and 
 
 config-theme-invalid = { $name } must be auto, dark, or light; ignored
 config-render-whitespace-invalid = { $name } must be none, selection, trailing, or all; ignored
+config-open-worktree-invalid = { $name } must be ask, newWindow, or currentWindow; ignored
 config-vim-clipboard-invalid = { $name } must be register, yank, or always; ignored
 config-vim-handle-keys-invalid = { $name } should be an object whose values are vim or app; ignored
 config-vim-leader-invalid = { $name } should be the notation of one key; ignored

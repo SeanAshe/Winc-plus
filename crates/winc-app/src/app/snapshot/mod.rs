@@ -35,6 +35,7 @@ mod status;
 mod table;
 #[cfg(unix)]
 mod terminal;
+mod tiny;
 mod windows;
 mod workspace;
 

@@ -1,9 +1,8 @@
-//! 「显示全部仓库」：打开的目录中有多个仓库时，按仓库列表的顺序每个仓库一节。
+//! 「显示全部仓库」：打开的目录中有多个仓库时，有更改的仓库按仓库列表的顺序每个一节。
 //!
-//! 每节一行标题，当前仓库也有，用 ✓ 标出；当前仓库的改动列表排在它的标题下面，缩进一层。
-//! 其他仓库的文件同样分组（勾选式下「更改」「未跟踪的文件」，暂存区视图中「已暂存的更改」
-//! 「更改」），可以折叠。没有更改的仓库只有一行。点击其他仓库的标题行或其中的文件即切换到
-//! 该仓库，列表的顺序不变。各行的内容取自后台读到的各仓库状态。
+//! 每节一行标题，当前仓库的改动列表排在它的标题下面。其他仓库的文件按组列出，可以折叠；
+//! 没有更改的仓库收在列表末尾的一组里。当前仓库与其他仓库按同一规则排列，切换仓库不改变各行的位置。
+//! 各行的内容取自后台读到的各仓库状态。
 
 use std::sync::PoisonError;
 
@@ -50,6 +49,8 @@ pub(crate) enum OtherRow {
     Repository(usize),
     /// 没有更改的另一个仓库：只有这一行，写着它的分支和与上游的差异。
     Quiet(usize),
+    /// 没有更改的各仓库一组的标题行；展开时其下每个仓库一行。
+    QuietGroup,
     /// 另一个仓库里的一组：仓库的下标和组。
     Group(usize, OtherGroup),
     /// 暂存区视图中另一个仓库已暂存的文件：仓库的下标，文件在该仓库状态各项中的下标。
@@ -72,6 +73,10 @@ pub(crate) struct OtherRowsKey {
     repositories: Vec<PathBuf>,
     /// 折叠着的仓库和组。
     folds: HashSet<(PathBuf, Option<OtherGroup>)>,
+    /// 当前仓库是否有更改。
+    current_changed: bool,
+    /// 用户选定的「没有更改的仓库」一组的展开状态；未选过时为 `None`。
+    quiet_open: Option<bool>,
 }
 
 /// `entry` 暂存的内容是否随提交写入：暂存区中有内容，并且不在冲突中。暂存区视图中据此把其他
@@ -113,6 +118,8 @@ impl App {
             staging: self.git.commit.staging(),
             repositories: self.git.repositories.clone(),
             folds: self.git.commit.other_folds.clone(),
+            current_changed: self.current_changed(),
+            quiet_open: self.git.commit.quiet_open,
         };
         let mut cache = self.git.commit.other_rows.borrow_mut();
         if let Some((cached, rows)) = cache.as_ref()
@@ -125,26 +132,40 @@ impl App {
         rows
     }
 
-    /// 排出 [`App::commit_other_rows`] 的各行。
+    /// 当前仓库是否有更改。
+    fn current_changed(&self) -> bool {
+        (self.git.status.as_ref()).is_some_and(|status| !status.entries.is_empty())
+    }
+
+    /// 「没有更改的仓库」一组是否展开：没有选过时，只在所有仓库都没有更改时展开。
+    pub(crate) fn quiet_repositories_open(&self, any_changed: bool) -> bool {
+        self.git.commit.quiet_open.unwrap_or(!any_changed)
+    }
+
+    /// 排出 [`App::commit_other_rows`] 的各行：先是有更改的仓库，之后是没有更改的仓库一组。
+    ///
+    /// 状态尚未读到的仓库暂时排在没有更改的一组里。
     fn build_other_rows(&self) -> Vec<OtherRow> {
         let root = self.git.root.as_deref();
         let staging = self.git.commit.staging();
         let summaries = (self.git.summaries.lock()).unwrap_or_else(PoisonError::into_inner);
         let folded = &self.git.commit.other_folds;
         let mut rows = Vec::new();
+        let mut quiet = Vec::new();
+        let mut listed = false;
         for (i, repo) in self.git.repositories.iter().enumerate() {
             if Some(repo.as_path()) == root {
-                rows.push(OtherRow::Current);
+                listed = true;
+                match self.current_changed() {
+                    true => rows.push(OtherRow::Current),
+                    false => quiet.push(OtherRow::Current),
+                }
                 continue;
             }
-            let Some(status) = summaries.get(repo) else {
-                rows.push(OtherRow::Repository(i));
+            let Some(status) = summaries.get(repo).filter(|s| !s.entries.is_empty()) else {
+                quiet.push(OtherRow::Quiet(i));
                 continue;
             };
-            if status.entries.is_empty() {
-                rows.push(OtherRow::Quiet(i));
-                continue;
-            }
             rows.push(OtherRow::Repository(i));
             if folded.contains(&(repo.clone(), None)) {
                 continue;
@@ -173,10 +194,92 @@ impl App {
             }
         }
         // 当前仓库不在仓库列表里（刚打开、还没查找完）时排在最前。
-        if !rows.contains(&OtherRow::Current) {
+        if !listed {
             rows.insert(0, OtherRow::Current);
         }
+        let others = rows.iter().any(|r| matches!(r, OtherRow::Repository(_)));
+        let any_changed = others || self.current_changed();
+        if !quiet.is_empty() {
+            rows.push(OtherRow::QuietGroup);
+            if self.quiet_repositories_open(any_changed) {
+                rows.extend(quiet);
+            }
+        }
         rows
+    }
+
+    /// 返回没有更改的仓库数，以及是否另有仓库有更改。
+    pub(crate) fn quiet_repositories(&self) -> (usize, bool) {
+        let root = self.git.root.as_deref();
+        let summaries = (self.git.summaries.lock()).unwrap_or_else(PoisonError::into_inner);
+        let changed = |repo: &PathBuf| match Some(repo.as_path()) == root {
+            true => self.current_changed(),
+            false => summaries.get(repo).is_some_and(|s| !s.entries.is_empty()),
+        };
+        let changed = self.git.repositories.iter().filter(|r| changed(r)).count();
+        (self.git.repositories.len() - changed, changed > 0)
+    }
+
+    /// 其他仓库中是否有仓库有更改。
+    pub(crate) fn others_changed(&self) -> bool {
+        let root = self.git.root.as_deref();
+        let summaries = (self.git.summaries.lock()).unwrap_or_else(PoisonError::into_inner);
+        (self.git.repositories.iter())
+            .filter(|repo| Some(repo.as_path()) != root)
+            .any(|repo| summaries.get(repo).is_some_and(|s| !s.entries.is_empty()))
+    }
+
+    /// 展开或收起「没有更改的仓库」一组，并开始过渡。
+    pub(super) fn toggle_quiet_repositories(&mut self) {
+        let before = self.commit_other_rows();
+        let open = before.last() != Some(&OtherRow::QuietGroup);
+        self.git.commit.quiet_open = Some(!open);
+        let after = self.commit_other_rows();
+        let count = after.len().abs_diff(before.len());
+        let expanding = !open;
+        let rows = if expanding { after } else { before };
+        self.git.commit.motion = None;
+        let parent = rows.iter().position(|r| *r == OtherRow::QuietGroup);
+        self.git.commit.fold_motion = match parent {
+            Some(parent) if count > 0 => {
+                self.clock(crate::app::animation::TREE_ANIMATION)
+                    .map(|clock| FoldMotion {
+                        rows,
+                        parent,
+                        count,
+                        height: count as f32 * COMMIT_ROW,
+                        expanding,
+                        clock,
+                    })
+            }
+            _ => None,
+        };
+        self.request_redraw();
+    }
+
+    /// 仓库标题行 `header` 在列表内容中的上沿（逻辑像素，未减去滚动量）；不在列表中时为 `None`。
+    fn other_row_offset(&self, header: OtherRow) -> Option<f32> {
+        let rows = self.commit_other_rows();
+        let at = rows.iter().position(|r| *r == header)?;
+        let current = rows.iter().position(|r| *r == OtherRow::Current);
+        let block = match current {
+            Some(current) if current < at => self.commit_block_len(),
+            _ => 0,
+        };
+        Some((at + block) as f32 * COMMIT_ROW)
+    }
+
+    /// 切换当前仓库后恢复滚动位置 `scroll`；当前仓库的标题行不可见时滚动到该行。
+    pub(in crate::app) fn keep_commit_scroll(&mut self, scroll: f32) {
+        if !self.commit_shows_others() {
+            return;
+        }
+        let list = self.commit_parts().list.h;
+        let scroll = match self.other_row_offset(OtherRow::Current) {
+            Some(at) if at < scroll || at + COMMIT_ROW > scroll + list => at,
+            _ => scroll,
+        };
+        self.git.commit.scroll = scroll.max(0.0);
     }
 
     /// 多仓库时当前仓库的改动列表上面有几行（其他仓库的各行和当前仓库的标题行）；不列出其他
@@ -197,19 +300,6 @@ impl App {
     /// 当前仓库的改动列表多缩进几层：多仓库时排在仓库标题下面，缩进一层。
     pub(crate) fn commit_base_level(&self) -> usize {
         usize::from(self.commit_shows_others())
-    }
-
-    /// 多仓库时第 `repo` 个仓库（仓库列表中的下标；`None` 是当前仓库）一节的颜色序号：按仓库
-    /// 列表的顺序依次取项目徽章的颜色，同一个目录里各仓库的颜色不变、前几个互不相同。
-    pub(crate) fn repository_color(&self, repo: Option<usize>) -> usize {
-        let root = self.git.root.as_deref();
-        let current = || {
-            self.git
-                .repositories
-                .iter()
-                .position(|r| Some(r.as_path()) == root)
-        };
-        repo.or_else(current).unwrap_or(0)
     }
 
     /// 当前仓库在列表中写的名字，与其他仓库的写法相同（相对打开的目录的路径）。
@@ -361,7 +451,16 @@ impl App {
             let path = |status: &Status| status.entries.get(entry).map(|e| e.path.clone());
             self.other_status(repo, |_, status| path(status)).flatten()
         });
+        // 切换仓库会重置滚动位置：按原位置和标题行移动的距离恢复，点击的标题行位置不变。
+        let header = [OtherRow::Repository(repo), OtherRow::Quiet(repo)];
+        let before = header.into_iter().find_map(|h| self.other_row_offset(h));
+        let scroll = self.git.commit.scroll;
         self.git_switch_repository(repo);
+        let moved = match (before, self.other_row_offset(OtherRow::Current)) {
+            (Some(before), Some(after)) => after - before,
+            _ => 0.0,
+        };
+        self.git.commit.scroll = (scroll + moved).max(0.0);
         self.focus = Focus::CommitList;
         if let Some(path) = path {
             self.select_commit_file(path);

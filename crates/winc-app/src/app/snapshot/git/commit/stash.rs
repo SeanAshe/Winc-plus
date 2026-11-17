@@ -152,7 +152,7 @@ fn the_stash_group_opens_like_a_drawer() {
     let open = app.commit_parts().stashes.unwrap();
     assert_eq!(open.h, closed.h + COMMIT_ROW);
 
-    app.git.commit.stash_motion =
+    app.git.commit.stashes.motion =
         Some((closed.h, Clock::frozen(TREE_ANIMATION / 2, TREE_ANIMATION)));
     let parts = app.commit_parts();
     let half = parts.stashes.unwrap();
@@ -166,9 +166,9 @@ fn the_stash_group_opens_like_a_drawer() {
     assert!(has(&app, CommitTarget::Stashes));
     assert!(!has(&app, CommitTarget::Stash(0)));
 
-    app.git.commit.stash_motion = Some((closed.h, Clock::frozen(TREE_ANIMATION, TREE_ANIMATION)));
+    app.git.commit.stashes.motion = Some((closed.h, Clock::frozen(TREE_ANIMATION, TREE_ANIMATION)));
     app.settle_animations();
-    assert!(app.git.commit.stash_motion.is_none());
+    assert!(app.git.commit.stashes.motion.is_none());
     paint(&mut app);
     assert!(has(&app, CommitTarget::Stash(0)));
     assert_eq!(app.stash_chevron(), 1.0);

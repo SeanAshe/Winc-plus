@@ -693,3 +693,31 @@ fn auto_fetch_brings_in_new_upstream_commits() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 设置的 Git 程序不存在时提交视图写明是哪个程序；清空设置后恢复正常。
+#[test]
+fn a_missing_git_program_is_named_and_clearing_it_recovers() {
+    let dir = search_folder("git-custom-program");
+    if !make_repo(&dir) {
+        return;
+    }
+    let Some(mut app) = git_app(&dir) else {
+        return;
+    };
+    app.git_refresh();
+    assert!(app.git.status.is_some() && app.git.problem.is_none());
+
+    app.set_git_path(Some("winc-no-such-git-program".to_owned()));
+    assert_eq!(
+        app.config.git_path.as_deref(),
+        Some("winc-no-such-git-program")
+    );
+    assert!(app.git.status.is_none());
+    let problem = app.git.problem.clone().unwrap_or_default();
+    assert!(problem.contains("winc-no-such-git-program"), "{problem}");
+    assert!(app.git.missing);
+
+    app.set_git_path(None);
+    assert!(app.git.status.is_some() && app.git.problem.is_none() && !app.git.missing);
+    let _ = std::fs::remove_dir_all(&dir);
+}

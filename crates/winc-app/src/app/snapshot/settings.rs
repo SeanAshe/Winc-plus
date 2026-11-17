@@ -1036,11 +1036,14 @@ fn the_git_page_is_listed_only_when_the_module_is_on() {
         .map(|row| row.setting)
         .collect();
     let expected = [
+        Setting::GitPath,
+        Setting::GitOpenWorktree,
         Setting::GitStagingArea,
         Setting::GitTree,
         Setting::DiffInline,
         Setting::GitInlineBlame,
         Setting::GitConfirmPush,
+        Setting::GitRememberCredentials,
         Setting::GitAutoFetch,
         Setting::GitSystemProxy,
     ];

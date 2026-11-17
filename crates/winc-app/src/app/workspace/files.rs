@@ -390,6 +390,9 @@ impl App {
                     self.load_active_in_background();
                 }
             }
+            PlaceholderAction::OpenWithDefaultApp if winc_backend::is_remote(&path) => {
+                self.notify(t!("workspace-remote-local-only"));
+            }
             PlaceholderAction::OpenWithDefaultApp => {
                 if let Err(e) = system::open_with_default_app(&path) {
                     self.notify(t!(
@@ -408,6 +411,10 @@ impl App {
 
     /// 在系统文件管理器中显示 `path`；失败时提示原因。
     pub(in crate::app) fn reveal_in_file_manager(&mut self, path: &Path) {
+        if winc_backend::is_remote(path) {
+            self.notify(t!("workspace-remote-local-only"));
+            return;
+        }
         if let Err(e) = system::reveal_in_file_manager(path) {
             self.notify(t!(
                 "workspace-reveal-failed",
@@ -433,8 +440,16 @@ impl App {
         if self.open_in_builtin_terminal(&dir) {
             return;
         }
+        let remote = winc_backend::is_remote(&dir);
         if self.frame.bench.silent() || cfg!(test) {
-            self.opened_terminal = Some(dir);
+            self.opened_terminal = Some(dir.clone());
+            if !remote {
+                return;
+            }
+        }
+        // 远端主机上的目录只能在内置终端中打开：本机的终端程序进不去。
+        if remote {
+            self.notify(t!("workspace-remote-terminal"));
             return;
         }
         if let Err(e) = system::open_terminal(&dir, self.config.external_terminal.as_deref()) {

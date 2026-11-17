@@ -18,6 +18,11 @@ mod list;
 pub(in crate::app::git) use list::rows_of;
 mod stash;
 pub(crate) use stash::{STASH_GAP, StashLine, StashView};
+mod drawer;
+use drawer::DRAWER_CLOSED;
+pub(crate) use drawer::Drawer;
+mod worktrees;
+pub(crate) use worktrees::WorktreeLine;
 mod last;
 mod menu;
 mod others;
@@ -61,8 +66,12 @@ use crate::theme::{BUTTON_GAP, SIDEBAR_GAP, SIDEBAR_HEADER, SIDEBAR_LIST_GAP, TO
 pub(crate) const COMMIT_ROW: f32 = 24.0;
 /// 标题行上工具按钮的边长（逻辑像素），与 `BUTTON_SMALL` 同高。
 const TOOL: f32 = 24.0;
-/// 提交卡片底行的高度（逻辑像素）：勾选框和提交按钮一行，与 `BUTTON_SMALL` 同高。
+/// 提交卡片底行的高度（逻辑像素）：提交按钮一行，与 `BUTTON_SMALL` 同高。
 const FOOTER_H: f32 = 24.0;
+/// 提交卡片里「修改上次提交」一行的高度（逻辑像素）：边长 12 的勾选框上下各留 3。
+const AMEND_H: f32 = 18.0;
+/// 「修改上次提交」一行离卡片上沿的距离（逻辑像素）：勾选框到上沿、左沿的距离同为 7。
+const AMEND_TOP: f32 = 4.0;
 /// 提交卡片里「修改上次提交」一行、按钮一行与卡片边缘的距离（逻辑像素）。
 ///
 /// 取 6：按钮、勾选框的左边与信息文字的左边（`MESSAGE_PAD` 加行高里字形左右的空白，约 5.5）
@@ -70,7 +79,7 @@ const FOOTER_H: f32 = 24.0;
 const CARD_INSET: f32 = 6.0;
 /// 提交信息与下面按钮一行之间的距离（逻辑像素）。
 ///
-/// 取 6：文字最后一行到按钮的空隙与上面勾选框到文字第一行的空隙（约 11）相等，按钮不贴着文字。
+/// 取 6：文字最后一行到按钮的空隙约 11，按钮不贴着文字。
 const FOOTER_GAP: f32 = 6.0;
 /// 提交按钮文字两侧的留白（逻辑像素）。
 ///
@@ -490,8 +499,12 @@ pub enum CommitTarget {
     OtherGroupFiles(usize, others::OtherGroup),
     /// 另一个仓库标题行左端的折叠箭头：折叠或展开这个仓库的一节。
     OtherFold(usize),
-    /// 多仓库时当前仓库的标题行：折叠或展开它的各组。
+    /// 多仓库时当前仓库的标题行：点击不做任何操作。
     CurrentRepository,
+    /// 多仓库时当前仓库标题行左端的折叠箭头：折叠或展开它的一节。
+    CurrentFold,
+    /// 多仓库时「没有更改的仓库」一组的标题行：展开或收起这一组。
+    QuietRepositories,
     /// 勾选式下当前仓库标题行的勾选框：勾上或取消当前仓库的全部文件。
     CurrentCheck,
     /// 暂存区视图中另一个仓库分组行行尾的「＋」（第二项为真）或「−」：暂存或取消暂存整组。
@@ -514,6 +527,16 @@ pub enum CommitTarget {
     StashMenu(usize),
     /// 储藏太多时最后一行的「还有 N 条」：弹出全部储藏的菜单。
     StashMore,
+    /// 工作树一组的标题：收起或展开。
+    Worktrees,
+    /// 悬停工作树一组的标题时右端的「新建工作树」。
+    WorktreeNew,
+    /// 第几个工作树（[`App::worktree_places`] 的下标）那一行：打开该工作树。
+    WorktreeRow(usize),
+    /// 悬停工作树一行时右端的「⋯」，参数同 [`CommitTarget::WorktreeRow`]。
+    WorktreeMenu(usize),
+    /// 工作树太多时最后一行的「另有 N 个工作树」：展开工作树选择器。
+    WorktreeMore,
     /// 目录那一行：收起或展开。
     ///
     /// 参数是它在绘制时的行号（[`App::commit_rows`] 的下标）。
@@ -530,7 +553,7 @@ pub enum CommitTarget {
     OpenFile(usize),
     /// 悬停文件行时右端的「回滚」按钮，参数同 [`CommitTarget::File`]。
     RevertFile(usize),
-    /// Git 上下文的位置行：展开位置选择器。
+    /// Git 上下文一行的仓库按钮（打开的目录中有多个仓库时才有）：展开仓库选择器。
     Location,
     /// Git 上下文的分支行：展开分支选择器。
     Branch,
@@ -629,6 +652,8 @@ pub(crate) struct CommitParts {
     pub undo: Option<(Rect, Rect, Rect)>,
     /// 储藏一组（整个侧栏宽，上沿一条分隔线），在改动列表下面；没有储藏时为 `None`。
     pub stashes: Option<Rect>,
+    /// 工作树一组，在改动列表和储藏之间；当前仓库只有一个工作树时为 `None`。
+    pub worktrees: Option<Rect>,
     /// 改动列表。
     pub list: Rect,
 }
@@ -759,6 +784,8 @@ pub(crate) struct CommitState {
     pub(in crate::app::git) carry_in: bool,
     /// 多仓库时折叠着的其他仓库（组为 `None`）和其中折叠着的组，按仓库的根目录记。
     other_folds: HashSet<(PathBuf, Option<others::OtherGroup>)>,
+    /// 「没有更改的仓库」一组是否展开；未选过时为 `None`，见 [`App::quiet_repositories_open`]。
+    pub(crate) quiet_open: Option<bool>,
     /// 其他仓库各行的缓存（见 [`App::commit_other_rows`]）。
     other_rows: std::cell::RefCell<Option<(others::OtherRowsKey, Vec<others::OtherRow>)>>,
     /// 勾选式下勾上的文件里取消勾选的各处改动：这些文件只提交其余的改动。
@@ -847,16 +874,16 @@ pub(crate) struct CommitState {
     pub(crate) refreshed: Option<Instant>,
     /// 绘制时量好的文字宽度，见 [`CommitLabels`]。
     pub(crate) labels: CommitLabels,
-    /// 储藏一组是否展开（默认收起：储藏是暂时放到一边的东西，平时不必占地方）。
-    pub(crate) stash_open: bool,
-    /// 储藏一组展开、收起的过渡：起始高度（逻辑像素）和时钟；不在过渡中时为 `None`。
-    pub(crate) stash_motion: Option<(f32, crate::app::animation::Clock)>,
+    /// 储藏一组的展开状态和高度的过渡，默认收起。
+    pub(crate) stashes: Drawer,
+    /// 工作树一组的展开状态和高度的过渡，默认展开。
+    pub(crate) worktrees: Drawer,
+    /// 上一帧绘制时是否已读到仓库的状态：读到之后底部各组的高度变化才过渡。
+    pub(crate) sections_known: bool,
     /// 正在储藏的预览标签里看的一条储藏。
     pub(crate) stash_view: Option<StashView>,
     /// 正在查看的储藏下面的文件是否已收起：再次点击该储藏时在收起与展开之间切换。
     pub(crate) stash_files_folded: bool,
-    /// 上一帧储藏一组的终点高度（逻辑像素），见 [`App::track_stash_height`]。
-    pub(crate) stash_settled: f32,
     /// 储藏的预览标签：和改动列表的预览标签分开，那个标签跟着工作区里的文件刷新。
     pub(crate) stash_preview: Option<DocumentId>,
     /// 是否为只读的浏览列表：列出历史提交中改动的文件（见 [`App::with_log_list`]），没有勾选框、
@@ -955,6 +982,7 @@ impl Default for CommitState {
             others_left: 0,
             carry_in: false,
             other_folds: HashSet::new(),
+            quiet_open: None,
             other_rows: Default::default(),
             skipped: HashMap::new(),
             head: None,
@@ -995,11 +1023,11 @@ impl Default for CommitState {
             committed: None,
             refreshed: None,
             labels: CommitLabels::default(),
-            stash_open: false,
-            stash_motion: None,
+            stashes: Drawer::new(false),
+            worktrees: Drawer::new(true),
+            sections_known: false,
             stash_view: None,
             stash_files_folded: false,
-            stash_settled: 0.0,
             stash_preview: None,
             browse: false,
             push_after: false,
@@ -1101,10 +1129,12 @@ impl App {
         let Some(status) = self.git.status.as_ref() else {
             return false;
         };
+        // 多仓库时其他仓库有更改即显示：其中勾选的文件随当前仓库一并提交。
         !status.entries.is_empty()
             || status.operation.is_some()
             || self.git.commit.amend
             || self.git.commit.busy
+            || (self.commit_shows_others() && self.others_changed())
     }
 
     /// 提交按钮现在是不是「提交并推送」：按住 ⌥ 时是（和项目菜单里 ⌥ 换出备选项一样），合并、变基

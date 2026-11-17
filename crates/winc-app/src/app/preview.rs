@@ -18,13 +18,18 @@ pub(crate) mod tables;
 const PAGE_EXTENSIONS: &[&str] = &["html", "htm", "xhtml"];
 
 impl App {
-    /// 当前标签是磁盘上的网页文件时返回它的路径（标签栏右端显示「在浏览器中打开」）。
+    /// 当前标签是本机磁盘上的网页文件时返回它的路径（标签栏右端显示「在浏览器中打开」）。
+    ///
+    /// 远端主机上的文件没有本机浏览器可以打开的地址。
     pub(crate) fn browser_page(&self) -> Option<&Path> {
         let doc = self.editor.active()?;
         if doc.unsupported.is_some() || doc.title.is_some() {
             return None;
         }
-        let path = doc.path.as_deref()?;
+        let path = doc
+            .path
+            .as_deref()
+            .filter(|p| !winc_backend::is_remote(p))?;
         let extension = path.extension()?.to_str()?.to_ascii_lowercase();
         PAGE_EXTENSIONS
             .contains(&extension.as_str())

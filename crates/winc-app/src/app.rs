@@ -47,7 +47,7 @@ pub(crate) use git::changes::{ChangeTarget, MARK_W, mark_x, ruler_rows};
 pub(crate) use git::commit::{
     COMMIT_ROW, CommitGroup, CommitLabels, CommitName, CommitOverflow, CommitParts, CommitRow,
     CommitRows, CommitScope, CommitSort, CommitTarget, MESSAGE_LINE, MESSAGE_PAD, OtherGroup,
-    OtherRow, STASH_GAP, StashLine, StashView, SyncState,
+    OtherRow, STASH_GAP, StashLine, StashView, SyncState, WorktreeLine,
 };
 pub(crate) use input::context_menu::{
     CHECK_COLUMN, ICON_COLUMN, MenuIcon, POPUP_PAD, POPUP_TEXT_X, PopupLevel, PopupMenu, PopupRow,
@@ -316,6 +316,8 @@ pub enum UserEvent {
     GitLogConfirmed(git::log::LogConfirmed),
     /// 确认框中确认移除参数所指的工作树；第二个参数是一并删除的分支（勾选「同时删除分支」时）。
     GitRemoveWorktree(PathBuf, Option<String>),
+    /// 提示框中选定了打开工作树的方式：目录、是否在新窗口、是否记住。
+    GitOpenWorktree(PathBuf, bool, bool),
     /// 后台已计算完一个文档的逐行追溯。
     GitBlame,
     /// 后台已检查或重读被其他程序修改的文件。
@@ -597,6 +599,8 @@ impl Hover {
                     CommitTarget::Log
                         | CommitTarget::Sync
                         | CommitTarget::Location
+                        | CommitTarget::WorktreeNew
+                        | CommitTarget::WorktreeMenu(_)
                         | CommitTarget::Refresh
                         | CommitTarget::More
                         | CommitTarget::Commit

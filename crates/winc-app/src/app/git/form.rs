@@ -309,6 +309,7 @@ impl App {
                 view.message_lines,
                 view.values.len(),
                 view.inputs.len(),
+                self.question_remembers(),
             ),
             Some(FormKind::Branch { .. }) => {
                 DialogLayout::compute(window, false, &[DialogPart::Checkout])

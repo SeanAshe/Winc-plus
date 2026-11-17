@@ -5,8 +5,8 @@ use super::*;
 impl App {
     /// 计算提交视图的布局。
     ///
-    /// 自上而下依次为标题行、分支行、说明条（有进行中的操作时）、改动列表、还没推送的上一次
-    /// 提交，最下面是提交卡片。先看改了什么、再写信息、最后提交，从上往下就是这个顺序。
+    /// 自上而下依次为标题行、分支行、说明条（有进行中的操作时）、改动列表、工作树、储藏、提交
+    /// 卡片和尚未推送的上一次提交。
     pub(crate) fn commit_parts(&self) -> CommitParts {
         let s = self.layout.sidebar;
         let panel = Rect::new(s.x, TOP_BAR_END, s.w, (s.bottom() - TOP_BAR_END).max(0.0));
@@ -39,6 +39,7 @@ impl App {
                 push: None,
                 undo: None,
                 stashes: None,
+                worktrees: None,
                 list,
             };
         }
@@ -48,9 +49,8 @@ impl App {
         // Git 上下文：写在哪、在哪个分支、和上游差多少，提交前一眼能看到。
         let context_y = header.bottom();
         let branch = Rect::new(inner_x, context_y, inner_w, CONTEXT_ROW);
-        // 工作树按钮在标题行上，选择面板从标题行下面展开，和各行同宽。
-        let location = (self.git_has_locations_button())
-            .then(|| Rect::new(inner_x, header.y, inner_w, header.h));
+        // 仓库按钮在上下文一行的左端，选择面板从这一行下面展开，和各行同宽。
+        let location = (self.git.repositories.len() >= 2).then_some(branch);
         let banner = (self.commit_banner_height() > 0.0).then(|| {
             let rect = Rect::new(inner_x, branch.bottom() + SIDEBAR_GAP, inner_w, BANNER_H);
             let w = BANNER_ABORT_W.min(rect.w);
@@ -58,22 +58,12 @@ impl App {
             (rect, abort)
         });
 
-        let share = self.commit_card_share();
-        let card_share = share;
-        let (card, message, message_settled, amend, buttons) = if share > 0.0 {
-            self.commit_card_parts(panel, inner_x, inner_w, share)
-        } else {
-            Default::default()
-        };
-        let (commit, commit_menu, push) = buttons;
-        // 「上一次提交」在视图底部，有提交卡片时紧接在卡片上沿：栏内上下各留 4，文字到上方分隔线
-        // 和到卡片的距离相等，两者之间没有 `SIDEBAR_LIST_GAP`。改动列表在它上面结束。提交以后
-        // 仍有未勾选的文件（未跟踪的文件默认不勾选）时卡片保持显示，栏同样显示。
-        // 拉开、收起的途中栏按露出的高度算，里面的东西贴着上沿，从下沿底下露出来。
-        let share = self.git.commit.undo.share(self.commit_undoable().is_some());
-        let undo = (share > 0.0).then(|| {
-            let bottom = card.map_or(panel.bottom(), |card| card.y);
-            let bar = Rect::new(panel.x, bottom - UNDO_H * share, panel.w, UNDO_H * share);
+        // 「上一次提交」在视图的最底部，栏内上下各留 4；显示、
+        // 隐藏的过渡中按露出的高度计算，卡片随之移动。
+        let undo_share = self.git.commit.undo.share(self.commit_undoable().is_some());
+        let undo = (undo_share > 0.0).then(|| {
+            let h = UNDO_H * undo_share;
+            let bar = Rect::new(panel.x, panel.bottom() - h, panel.w, h);
             // 「⋯」比标题行的工具按钮小，中心和它们对齐，从上到下是一列。
             let h = UNDO_H - 8.0;
             let more = Rect::new(inner_x + inner_w - (TOOL + h) / 2.0, bar.y + 4.0, h, h);
@@ -81,23 +71,35 @@ impl App {
             let undo = Rect::new(more.x - BUTTON_GAP - w, more.y, w, h);
             (bar, undo, more)
         });
+        let card_share = self.commit_card_share();
+        let (card, message, message_settled, amend, buttons) = if card_share > 0.0 {
+            // 卡片的下沿与「上一次提交」一栏的上沿重合：栏内文字上方已留 4。
+            // 没有该栏时卡片离视图底部一个 `MARGIN`。
+            let bottom = undo.map_or(panel.bottom(), |(bar, ..)| bar.y + MARGIN * undo_share);
+            let room = Rect::new(panel.x, panel.y, panel.w, (bottom - panel.y).max(0.0));
+            self.commit_card_parts(room, inner_x, inner_w, card_share)
+        } else {
+            Default::default()
+        };
+        let (commit, commit_menu, push) = buttons;
         let top = banner.map_or(branch.bottom(), |(rect, _)| rect.bottom());
         let list_y = top + SIDEBAR_LIST_GAP;
-        let above = match (undo, card) {
-            (Some((bar, ..)), _) => bar.y,
+        let above = match (card, undo) {
             // 卡片滑入、滑出时这段间隔按露出比例伸缩，卡片完全收起时列表的下沿与视图底部重合。
-            (None, Some(card)) => card.y - SIDEBAR_LIST_GAP * card_share,
+            (Some(card), _) => card.y - SIDEBAR_LIST_GAP * card_share,
+            (None, Some((bar, ..))) => bar.y,
             (None, None) => panel.bottom(),
         };
-        // 储藏一组在改动列表下面，标题和各条储藏各占一行，上下各留 `STASH_GAP`。一组的下沿紧贴
-        // 卡片：`SIDEBAR_LIST_GAP` 是改动列表和卡片之间的间隔，再加上它时下方空隙远大于上方。
+        // 储藏、工作树两组的下沿与卡片之间留一个 `STASH_GAP`：连同组内下方的留白，
+        // 等于改动列表与卡片的间隔（`SIDEBAR_LIST_GAP`）。
         let h = self.stash_section_height();
-        let stash_bottom = match (undo, card) {
-            (None, Some(card)) => card.y,
-            _ => above,
-        };
+        let stash_bottom = card.map_or(above, |card| card.y - STASH_GAP * card_share);
         let stashes = (h > 0.0).then(|| Rect::new(panel.x, stash_bottom - h, panel.w, h));
-        let list_end = stashes.map_or(above, |rect| rect.y);
+        // 工作树一组在储藏上面，两组之间没有间隔。
+        let h = self.worktree_section_height();
+        let bottom = stashes.map_or(stash_bottom, |rect| rect.y);
+        let worktrees = (h > 0.0).then(|| Rect::new(panel.x, bottom - h, panel.w, h));
+        let list_end = worktrees.or(stashes).map_or(above, |rect| rect.y);
         let list = Rect::new(panel.x, list_y, panel.w, (list_end - list_y).max(0.0));
         CommitParts {
             header,
@@ -114,6 +116,7 @@ impl App {
             push,
             undo,
             stashes,
+            worktrees,
             list,
         }
     }
@@ -142,11 +145,7 @@ impl App {
             .map_or(settled_h, |(from, clock)| clock.between(from, settled_h));
         // 「修改上次提交」单独占提交信息上方的一行，始终可见。
         let amendable = self.commit_amendable();
-        let top_row = if amendable {
-            CARD_INSET + FOOTER_H
-        } else {
-            0.0
-        };
+        let top_row = if amendable { AMEND_TOP + AMEND_H } else { 0.0 };
         let card_h = top_row + message_h + FOOTER_GAP + FOOTER_H + CARD_INSET;
         let sunk = (1.0 - share) * (card_h + MARGIN);
         let card = Rect::new(
@@ -169,7 +168,7 @@ impl App {
         // 的左边对齐。
         let amend_x = footer.x - 1.0;
         let amend =
-            amendable.then(|| Rect::new(amend_x, card.y + CARD_INSET, labels.amend, FOOTER_H));
+            amendable.then(|| Rect::new(amend_x, card.y + AMEND_TOP, labels.amend, AMEND_H));
         (Some(card), message, message_settled, amend, buttons)
     }
 

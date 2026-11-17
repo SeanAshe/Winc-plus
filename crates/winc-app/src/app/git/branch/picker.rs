@@ -16,7 +16,6 @@ use winc_render::Rect;
 
 use super::{TagOp, local_name};
 use crate::app::animation::TREE_ANIMATION;
-use crate::app::git::location_picker::LocationRow;
 use crate::app::input::context_menu::{MenuCommand, MenuTarget};
 use crate::app::input::palette::{matched, needle, rate};
 use crate::app::{AlertButton, App, Clock, Focus, PICKER_ROW, UserEvent};
@@ -484,10 +483,8 @@ fn tracked_changes(status: &Status) -> usize {
 /// 目录、组展开或收起之前的状态。
 #[derive(Debug, Clone)]
 pub(crate) struct FoldBefore {
-    /// 分支选择器的各行；位置选择器里是空的。
+    /// 分支选择器的各行。
     pub branches: Vec<BranchRow>,
-    /// 位置选择器的各行；分支选择器里是空的。
-    pub locations: Vec<LocationRow>,
     /// 展开或收起的那一行的下标。
     pub parent: usize,
     /// 面板的高度（逻辑像素）。
@@ -538,12 +535,6 @@ impl App {
     pub(in crate::app) fn picker_fold_before(&self) -> FoldBefore {
         FoldBefore {
             branches: self.overlays.picker.branch_rows.clone().unwrap_or_default(),
-            locations: self
-                .overlays
-                .picker
-                .location_rows
-                .clone()
-                .unwrap_or_default(),
             parent: self.overlays.picker.selected,
             height: self.layout.picker.h,
             scroll: self.picker_drawn_scroll(),
@@ -558,7 +549,7 @@ impl App {
         self.overlays.picker.fold = None;
         self.relayout();
         let rows = self.overlays.picker.hits.len();
-        let was = before.branches.len().max(before.locations.len());
+        let was = before.branches.len();
         let (expanding, count) = (rows > was, rows.abs_diff(was));
         let span = crate::app::workspace::picker::picker_span(self);
         let mut scroll = self.overlays.picker.scroll;
@@ -706,11 +697,8 @@ impl App {
             self.open_branch_row_menu(MenuTarget::TagOps(index));
             return;
         }
-        let place =
-            (self.overlays.picker.location_rows.as_ref()).and_then(|rows| match rows.get(row) {
-                Some(LocationRow::Place(place)) => Some(place.clone()),
-                _ => None,
-            });
+        let rows = self.overlays.picker.location_rows.as_ref();
+        let place = rows.and_then(|rows| rows.get(row)).cloned();
         if let Some(place) = place {
             self.open_location_row_menu(row, &place);
         }
@@ -736,10 +724,9 @@ impl App {
         self.branch_picker_from(GitAnchor::Log)
     }
 
-    /// 返回选择面板底栏的高度（逻辑像素）：列出位置时底栏里是新建工作树；列出分支时新建的入口
-    /// 在搜索框下面的操作里，没有底栏。
+    /// 返回选择面板底栏的高度（逻辑像素）：只有列出工作树时有底栏。
     pub(crate) fn git_picker_footer(&self) -> f32 {
-        if self.picker_lists_locations() {
+        if self.picker_lists_worktrees() {
             GIT_PICKER_FOOT
         } else {
             0.0
@@ -1002,7 +989,7 @@ impl App {
         }
         if let Some(i) = self.git.worktree_holding(local) {
             self.close_picker();
-            self.open_worktree(i, false);
+            self.open_worktree_asking(i);
             return;
         }
         let changes = self.git.status.as_ref().map_or(0, tracked_changes);

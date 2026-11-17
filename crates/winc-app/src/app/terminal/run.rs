@@ -265,6 +265,9 @@ impl App {
 
     /// 运行当前选中的配置，已在运行时结束后重新运行；还没有配置时打开配置文件。
     pub(in crate::app) fn run_current_config(&mut self) {
+        if self.remote_has_no_run_configs() {
+            return;
+        }
         self.reload_run_configs();
         let Some(config) = self.run.current().cloned() else {
             self.edit_run_configs();
@@ -419,8 +422,20 @@ impl App {
         }
     }
 
+    /// 打开的目录在远端主机上时提示没有运行配置并返回 `true`：配置中的命令只在本机的终端里运行。
+    fn remote_has_no_run_configs(&mut self) -> bool {
+        let remote = self.editor.root().is_some_and(winc_backend::is_remote);
+        if remote {
+            self.notify(t!("terminal-run-remote"));
+        }
+        remote
+    }
+
     /// 打开运行配置文件，不存在时先用示例新建：这是唯一往项目里写文件的地方，由用户的操作触发。
     pub(in crate::app) fn edit_run_configs(&mut self) {
+        if self.remote_has_no_run_configs() {
+            return;
+        }
         let Some(root) = self.editor.root().map(Path::to_path_buf) else {
             return;
         };

@@ -624,7 +624,13 @@ impl App {
             many => t!("git-rollback-confirm-many", count = many.len()),
         };
         if self.window.handle.is_some() {
-            let detail = t!("git-rollback-confirm-detail");
+            // 远端主机上没有废纸篓：未跟踪的文件直接删除。
+            let remote = paths.iter().any(|path| winc_backend::is_remote(path));
+            let detail = if remote {
+                t!("git-rollback-confirm-detail-remote")
+            } else {
+                t!("git-rollback-confirm-detail")
+            };
             let button = t!("git-rollback-confirm-button");
             self.show_confirm(&message, detail, button, move |ok| {
                 ok.then(|| UserEvent::GitRollback(paths.clone()))
@@ -658,12 +664,32 @@ impl App {
             }
         }
         let count = paths.len();
-        // 移到废纸篓在界面线程上做（和文件树的删除同一个入口），git 在后台。
-        for path in &trash {
-            if let Err(e) = (self.trash)(path) {
-                let (name, error) = (winc_editor::display_name(path), e.to_string());
-                self.notify(t!("git-rollback-file-failed", name = name, error = error));
-            }
+        // 本机的文件在界面线程上移到废纸篓（和文件树的删除同一个入口）；远端主机上的文件在后台
+        // 直接删除，删完后再刷新一次状态。git 在后台。
+        if let Some(first) = trash.first().cloned() {
+            let (to_trash, remote) = (self.trash, winc_backend::is_remote(&first));
+            let remove = move || -> Vec<(PathBuf, std::io::Result<()>)> {
+                (trash.into_iter())
+                    .map(|path| {
+                        let result = match winc_backend::is_remote(&path) {
+                            true => winc_backend::fs::remove_all(&path),
+                            false => to_trash(&path),
+                        };
+                        (path, result)
+                    })
+                    .collect()
+            };
+            self.file_work(&first, remove, move |app, results| {
+                for (path, result) in results {
+                    if let Err(e) = result {
+                        let (name, error) = (winc_editor::display_name(&path), e.to_string());
+                        app.notify(t!("git-rollback-file-failed", name = name, error = error));
+                    }
+                }
+                if remote {
+                    app.git_refresh();
+                }
+            });
         }
         if restore.is_empty() && added.is_empty() {
             self.flash(t!("git-rollback-done", count = count));
@@ -852,6 +878,20 @@ impl App {
         self.git.commit.other_stage_running = old.other_stage_running;
         self.git.commit.collapsed = old.collapsed;
         self.git.commit.drafts = old.drafts;
+        // 保留底部各组的展开状态和高度、卡片和「上一次提交」的显示比例：切换仓库后从原状态过渡。
+        self.git.commit.quiet_open = old.quiet_open;
+        self.git.commit.stashes = Drawer {
+            motion: None,
+            ..old.stashes
+        };
+        self.git.commit.worktrees = Drawer {
+            motion: None,
+            ..old.worktrees
+        };
+        self.git.commit.card = old.card;
+        self.git.commit.undo = old.undo;
+        self.git.commit.undo_drawn = old.undo_drawn;
+        self.git.commit.sections_known = old.sections_known;
     }
 
     /// 在后台对打开的仓库做一件提交视图的事（提交、回滚），做完以 [`UserEvent::GitCommit`] 收

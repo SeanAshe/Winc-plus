@@ -512,7 +512,7 @@ fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
         };
         Rect::new(
             (button.x + (button.w - width) / 2.0)
-                .clamp(4.0, app.layout.window.right() - width - 4.0),
+                .clamp(4.0, (app.layout.window.right() - width - 4.0).max(4.0)),
             y,
             width,
             height,
@@ -729,6 +729,9 @@ fn draw_empty_state(
 /// 用于独自放在小框里的快捷键（⌘⇧F）、项目首字母、数字：按大写字母的高度居中（数字与大写字母
 /// 等高）。[`label`] 的视觉中心计入了小写字母的中心，此类文本按其居中会偏高约半个像素。
 /// 在一行内与普通文字并列的文本（状态栏、查找条的计数）仍用 [`label`]，与普通文字共用基线。
+///
+/// 含中日韩文字的文本（「双击」、姓名首字）按 [`label`] 的视觉中心居中：这些字的中心低于大写
+/// 字母的中心，按大写字母高度居中会偏低约 1 像素。
 fn caps_label(
     frame: &mut Frame<'_>,
     app: &App,
@@ -738,8 +741,13 @@ fn caps_label(
     color: Color,
     clip: Rect,
 ) -> f32 {
-    let cap = app.metrics.ui.cap_height * size / app.fonts.ui;
-    let baseline = (rect.y + rect.h / 2.0 + cap / 2.0).round();
+    // U+2E80 起是中日韩部首、假名、表意文字和谚文；快捷键符号（⌘、⇧、→）都在它之前。
+    let baseline = if text.chars().any(|c| c >= '\u{2E80}') {
+        ui_baseline(app, rect, size)
+    } else {
+        let cap = app.metrics.ui.cap_height * size / app.fonts.ui;
+        (rect.y + rect.h / 2.0 + cap / 2.0).round()
+    };
     frame.text(FontKind::Ui, size, x, baseline, text, color, clip)
 }
 
@@ -1211,6 +1219,17 @@ fn fade(frame: &mut Frame<'_>, rect: Rect, color: Color, opaque_left: bool) {
         let a = if opaque_left { 1.0 - t } else { t };
         let strip = Rect::new(rect.x + i as f32, rect.y, 1.0, rect.h);
         frame.rect(strip, color.alpha(color.a * a * a));
+    }
+}
+
+/// 绘制纵向渐隐：从 `rect` 下端的 `color` 渐变到上端的透明，曲线与 [`fade`] 相同。
+fn fade_up(frame: &mut Frame<'_>, rect: Rect, color: Color) {
+    let steps = rect.h.round().max(1.0) as usize;
+
+    for i in 0..steps {
+        let t = (i as f32 + 0.5) / steps as f32;
+        let strip = Rect::new(rect.x, rect.y + i as f32, rect.w, 1.0);
+        frame.rect(strip, color.alpha(color.a * t * t));
     }
 }
 

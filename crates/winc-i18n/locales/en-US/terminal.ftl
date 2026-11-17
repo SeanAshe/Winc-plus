@@ -102,6 +102,7 @@ terminal-python-confirm-decline = Don’t Load
 terminal-run-config-problem = Run configurations (.winc/run.json): { $problem }
 terminal-run-create-failed = Couldn’t create run configurations: { $error }
 terminal-run-add = Add Run Configuration
+terminal-run-remote = Folders on a remote host have no run configurations
 terminal-run-stopped = Stopped
 terminal-run-finished = Completed
 terminal-run-failed = “{ $name }” failed (exit code { $code })

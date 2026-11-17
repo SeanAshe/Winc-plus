@@ -37,9 +37,6 @@ pub(crate) enum StashLine {
 /// 储藏一组上下各留的空隙（逻辑像素）：列表间隔（`SIDEBAR_LIST_GAP`）的一半。这一组上下都是
 /// 分隔线，分隔线本身已经隔开了相邻区域，留半个间隔即可。
 pub(crate) const STASH_GAP: f32 = SIDEBAR_LIST_GAP / 2.0;
-/// 储藏一组收着时的高度（逻辑像素）：标题一行，上下各留 [`STASH_GAP`]。
-const STASH_CLOSED: f32 = COMMIT_ROW + 2.0 * STASH_GAP;
-
 /// 正在预览标签里看的一条储藏。
 #[derive(Debug, Clone)]
 pub(crate) struct StashView {
@@ -122,24 +119,15 @@ impl App {
     /// 储藏一组的终点高度变化（展开、收起一条储藏的文件，或在别处关闭了预览标签，文件不再列出）
     /// 时，从当前显示的高度开始过渡。每帧绘制提交视图之前调用，预览标签无论在何处关闭都能察觉。
     ///
-    /// 整个一组出现或消失（新增第一条储藏、删除最后一条）时不过渡。
+    /// 整组出现或消失时同样过渡；仓库的状态刚读到时直接到位，见 [`App::section_clock`]。
     pub(crate) fn track_stash_height(&mut self) {
-        let settled = self.stash_settled_height();
-        let old = std::mem::replace(&mut self.git.commit.stash_settled, settled);
-        if (settled - old).abs() < 0.5 || old == 0.0 || settled == 0.0 {
-            return;
-        }
-        let from =
-            (self.git.commit.stash_motion).map_or(old, |(from, clock)| clock.between(from, old));
-        let clock = self.clock(crate::app::animation::TREE_ANIMATION);
-        self.git.commit.stash_motion = clock.map(|clock| (from, clock));
+        let (settled, clock) = (self.stash_settled_height(), self.section_clock());
+        self.git.commit.stashes.track(settled, clock);
     }
 
-    /// 储藏一组占的高度（逻辑像素）：收着时是 [`STASH_CLOSED`]，展开时再加上
-    /// [`App::stash_open_rows`] 行；展开、收起的途中按时钟过渡。没有储藏时为 0。
+    /// 返回储藏一组的高度（逻辑像素），过渡中按时钟插值；没有储藏时为 0。
     pub(crate) fn stash_section_height(&self) -> f32 {
-        let settled = self.stash_settled_height();
-        (self.git.commit.stash_motion).map_or(settled, |(from, clock)| clock.between(from, settled))
+        (self.git.commit.stashes).height(self.stash_settled_height())
     }
 
     /// 储藏一组不在过渡中时的高度（逻辑像素），见 [`App::stash_section_height`]。
@@ -147,32 +135,25 @@ impl App {
         if self.git.stashes.is_empty() {
             return 0.0;
         }
-        if self.git.commit.stash_open {
-            STASH_CLOSED + self.stash_open_rows() as f32 * COMMIT_ROW
+        if self.git.commit.stashes.open {
+            DRAWER_CLOSED + self.stash_open_rows() as f32 * COMMIT_ROW
         } else {
-            STASH_CLOSED
+            DRAWER_CLOSED
         }
     }
 
-    /// 储藏一组标题上的箭头转到哪儿：0 朝右（收着），1 朝下（展开）。
-    ///
-    /// 按一组现在拉开了多少算，途中再点一下往回收时箭头和高度一起从当时的位置往回走。
+    /// 返回储藏一组标题上箭头的角度比例，见 [`Drawer::chevron`]。
     pub(crate) fn stash_chevron(&self) -> f32 {
         let span = self.stash_open_rows() as f32 * COMMIT_ROW;
-        if span <= 0.0 {
-            return 0.0;
-        }
-        ((self.stash_section_height() - STASH_CLOSED) / span).clamp(0.0, 1.0)
+        (self.git.commit.stashes).chevron(self.stash_settled_height(), span)
     }
 
     /// 点了储藏一组的标题：收起或展开，从现在的高度过渡过去。
     pub(super) fn toggle_stashes(&mut self) {
         let from = self.stash_section_height();
-        self.git.commit.stash_open = !self.git.commit.stash_open;
         let clock = self.clock(crate::app::animation::TREE_ANIMATION);
-        self.git.commit.stash_motion = clock.map(|clock| (from, clock));
-        // 过渡已经从现在的高度开始，`track_stash_height` 不必再开始一次。
-        self.git.commit.stash_settled = self.stash_settled_height();
+        self.git.commit.stashes.toggle(from, clock);
+        self.git.commit.stashes.settled = self.stash_settled_height();
         self.git.commit.scroll = self.git.commit.scroll.min(self.commit_max_scroll());
     }
 

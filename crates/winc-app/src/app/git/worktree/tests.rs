@@ -10,6 +10,7 @@ fn worktree(path: &str, head: Option<Head>) -> Worktree {
     Worktree {
         path: PathBuf::from(path),
         head,
+        oid: None,
         locked: false,
         prunable: false,
     }

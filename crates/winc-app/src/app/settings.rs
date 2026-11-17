@@ -761,6 +761,7 @@ impl App {
             Setting::SystemTitleBar => self.config.ui_native_title_bar == Some(true),
             Setting::GitModule => self.git_enabled(),
             Setting::GitConfirmPush => self.config.git_confirm_push != Some(false),
+            Setting::GitRememberCredentials => self.config.git_remember_credentials != Some(false),
             Setting::GitSystemProxy => self.config.git_system_proxy != Some(false),
             Setting::GitInlineBlame => self.config.git_inline_blame != Some(false),
             Setting::GitAutoFetch => self.config.git_auto_fetch == Some(true),
@@ -825,6 +826,12 @@ impl App {
             Setting::SystemTitleBar => self.config.ui_native_title_bar = Some(on),
             Setting::GitModule => self.config.git_enabled = Some(on),
             Setting::GitConfirmPush => self.config.git_confirm_push = Some(on),
+            Setting::GitRememberCredentials => {
+                self.config.git_remember_credentials = Some(on);
+                if !on {
+                    crate::app::git::question::forget_credentials();
+                }
+            }
             Setting::GitTree if on == self.git.commit.flat() => self.toggle_commit_layout(),
             Setting::GitTree => {}
             Setting::GitSystemProxy => {
@@ -918,6 +925,7 @@ impl App {
         let current = match tool_setting(setting) {
             Some((task, id)) => task_commands(&self.config, task).get(id).cloned(),
             None if setting == Setting::TerminalShell => self.config.terminal_shell.clone(),
+            None if setting == Setting::GitPath => self.config.git_path.clone(),
             None => self.font_setting(setting).clone(),
         };
         let mut field = TextField::default();
@@ -1030,6 +1038,13 @@ impl App {
                 self.settings.error = None;
                 self.focus = Focus::Settings;
                 self.set_terminal_shell(value);
+            }
+            None if setting == Setting::GitPath => {
+                self.settings.editing = None;
+                self.settings.editing_original = None;
+                self.settings.error = None;
+                self.focus = Focus::Settings;
+                self.set_git_path(value);
             }
             None => self.settings_commit_font(setting, value),
         }
@@ -1333,6 +1348,24 @@ impl App {
             // 汉字改按新的语言选字形，字体要重新加载；新字体总能加载，失败时留着原来的字体。
             let _ = self.apply_fonts();
         }
+        self.save_config();
+        self.request_redraw();
+    }
+
+    /// 设置 `git` 程序的路径；`None` 表示在 `PATH` 里查找。随后重新查找 `git` 并刷新。
+    pub(in crate::app) fn set_git_path(&mut self, path: Option<String>) {
+        if self.config.git_path == path {
+            return;
+        }
+        self.config.git_path = path;
+        self.save_config();
+        self.git_program_changed();
+        self.request_redraw();
+    }
+
+    /// 设置点击工作树时在哪个窗口打开它。
+    pub(in crate::app) fn set_open_worktree(&mut self, choice: winc_config::WorktreeOpen) {
+        self.config.git_open_worktree = Some(choice);
         self.save_config();
         self.request_redraw();
     }
