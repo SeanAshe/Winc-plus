@@ -941,6 +941,11 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
             };
             Some((rect, with_key(&label, Some(Action::RemoteConnect))))
         }
+        Hover::Status(item @ crate::app::StatusItem::ReadOnly) => {
+            let rect = app.hits.status.iter().find(|(_, i)| *i == item)?.0;
+            let label = with_key(t!("cmd-toggle-read-only"), Some(Action::ToggleReadOnly));
+            Some((rect, label))
+        }
         Hover::Status(item @ crate::app::StatusItem::Update) => {
             let rect = app.hits.status.iter().find(|(_, i)| *i == item)?.0;
             Some((rect, crate::view::status::update_tooltip(app)?))

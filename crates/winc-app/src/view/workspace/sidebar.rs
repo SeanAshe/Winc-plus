@@ -270,7 +270,8 @@ pub(super) fn draw_context_bar(app: &mut App, frame: &mut Frame<'_>, bar: &Conte
     app.hits.project = hit.intersect(clip);
 }
 
-/// 绘制项目名前面的徽章：圆角方块内是 [`crate::theme::ProjectBadge::initials`]。
+/// 绘制项目名前面的徽章：圆角方块内是 [`crate::theme::ProjectBadge::initials`]；窗口中有附加的
+/// 目录时是一组目录的图标。
 ///
 /// 打开的是附属工作树时，徽章用主工作树的颜色（同一个仓库的工作树颜色相同），右下角加一个工作树
 /// 记号。
@@ -286,16 +287,26 @@ fn draw_badge(app: &App, frame: &mut Frame<'_>, rect: Rect, project: &str, heade
     let badge = app.palette.project_badge(project, color);
     frame.rect_clipped(rect, badge.background, 6.0, header);
 
-    let w = frame.measure(FontKind::Ui, app.fonts.initials, &badge.initials);
-    caps_label(
-        frame,
-        app,
-        app.fonts.initials,
-        (rect.x + (rect.w - w) / 2.0, rect),
-        &badge.initials,
-        badge.text,
-        header,
-    );
+    let group = (app.editor.workspace.as_ref()).is_some_and(|ws| !ws.extra_folders().is_empty());
+    if group {
+        // 图标 15×12，在徽章中居中。
+        let at = (
+            (rect.x + (rect.w - 15.0) / 2.0).round(),
+            (rect.y + (rect.h - 12.0) / 2.0).round(),
+        );
+        icons::folders(frame, at, badge.text, header);
+    } else {
+        let w = frame.measure(FontKind::Ui, app.fonts.initials, &badge.initials);
+        caps_label(
+            frame,
+            app,
+            app.fonts.initials,
+            (rect.x + (rect.w - w) / 2.0, rect),
+            &badge.initials,
+            badge.text,
+            header,
+        );
+    }
     if main.is_some() {
         let colors = (app.palette.sidebar_bg, badge.background, badge.text);
         icons::worktree_mark(

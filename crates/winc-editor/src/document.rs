@@ -474,6 +474,10 @@ pub struct Document {
     pub tab_width_override: Option<usize>,
     /// 是否只读：预览图、二进制文件、含无法解码字节的文件都是只读。
     pub readonly: bool,
+    /// 用户是否把文档设为只读：不接受编辑，已有的修改仍可保存。
+    locked: bool,
+    /// 所在的窗口是否把全部文档设为只读（见 [`Editor::set_all_locked`](crate::Editor)）。
+    all_locked: bool,
     /// 无法显示的文件：标签中只显示原因。
     ///
     /// 此时文本为空，文档只读。
@@ -596,6 +600,8 @@ impl Document {
             indent_override: None,
             tab_width_override: None,
             readonly: false,
+            locked: false,
+            all_locked: false,
             unsupported: None,
             picture: None,
             table: None,
@@ -906,8 +912,48 @@ impl Document {
         self.text.is_large()
     }
 
-    /// 返回文档只读的原因（显示给用户）；可以编辑时返回 `None`。
+    /// 用户是否把文档设为只读。
+    pub fn is_locked(&self) -> bool {
+        self.locked
+    }
+
+    /// 用户能否切换文档的只读状态：因自身的状态而只读的文档不能。
+    pub fn can_lock(&self) -> bool {
+        !self.readonly
+    }
+
+    /// 由用户把文档设为只读或恢复为可以编辑。
+    pub fn set_locked(&mut self, locked: bool) {
+        self.locked = locked;
+    }
+
+    /// 所在的窗口是否把全部文档设为只读。
+    pub(crate) fn all_locked(&self) -> bool {
+        self.all_locked
+    }
+
+    /// 随窗口把文档设为只读或恢复；与文档自己的只读（[`set_locked`](Self::set_locked)）各自独立。
+    pub(crate) fn set_all_locked(&mut self, locked: bool) {
+        self.all_locked = locked;
+    }
+
+    /// 返回文档不能编辑的原因（显示给用户）；可以编辑时返回 `None`。
     pub fn readonly_reason(&self) -> Option<&'static str> {
+        let locked = || self.locked.then(|| t!("editor-readonly-locked"));
+        let all = || self.all_locked.then(|| t!("editor-readonly-all"));
+        self.unwritable_reason().or_else(locked).or_else(all)
+    }
+
+    /// 应用不是由用户发起的事务（磁盘上的新内容、备份中的内容）：用户设置的只读不拦。
+    pub(crate) fn apply_unlocked(&mut self, transaction: Transaction) {
+        let held = (self.locked, self.all_locked);
+        (self.locked, self.all_locked) = (false, false);
+        self.apply(transaction);
+        (self.locked, self.all_locked) = held;
+    }
+
+    /// 返回文档因自身的状态而只读的原因（显示给用户），此时也不能保存；用户设置的只读不算。
+    pub fn unwritable_reason(&self) -> Option<&'static str> {
         match &self.text {
             _ if !self.readonly => None,
             _ if self.pending => Some(t!("editor-readonly-pending")),
@@ -1134,7 +1180,7 @@ impl Document {
         if old != text {
             let changes = diff::line_changes(&old, text);
             let before = self.selection;
-            self.apply(Transaction::new(changes, before, before, EditKind::Other));
+            self.apply_unlocked(Transaction::new(changes, before, before, EditKind::Other));
         }
         self.selection = selection.clamped(self.text.end_pos());
 
@@ -1149,7 +1195,7 @@ impl Document {
     ///
     /// 只读文档忽略。
     pub fn apply(&mut self, transaction: Transaction) {
-        if self.readonly {
+        if self.readonly || self.locked || self.all_locked {
             return;
         }
 

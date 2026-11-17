@@ -22,6 +22,7 @@ config-run-template-note = 每项需要 name 和 command；args、cwd、env 为�
 config-theme-invalid = { $name } 的值只能是 auto、dark 或 light，已忽略
 config-render-whitespace-invalid = { $name } 的值只能是 none、selection、trailing 或 all，已忽略
 config-open-worktree-invalid = { $name } 的值只能是 ask、newWindow 或 currentWindow，已忽略
+config-drop-folder-invalid = { $name } 的值只能是 ask、add 或 open，已忽略
 config-vim-clipboard-invalid = { $name } 的值只能是 register、yank 或 always，已忽略
 config-vim-handle-keys-invalid = { $name } 应为对象，各项的值只能是 vim 或 app，已忽略
 config-vim-leader-invalid = { $name } 应为一个按键的记法，已忽略

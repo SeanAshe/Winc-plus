@@ -1049,3 +1049,50 @@ fn folders_on_a_remote_host_are_searched_through_the_connection() {
     remote::disconnect(&target);
     let _ = std::fs::remove_dir_all(&local);
 }
+
+/// 附加的目录一并搜索：其中的文件的相对路径以目录名开头，各自按所在目录的忽略规则。
+#[test]
+fn extra_folders_are_searched_with_their_name_in_front() {
+    let base = scratch("search-extra");
+    let (main, other) = (base.join("main"), base.join("other"));
+    write(&main, "src/a.rs", b"needle\n");
+    write(&other, "lib/b.rs", b"needle\n");
+    write(&other, ".gitignore", b"out/\n");
+    write(&other, "out/c.js", b"needle\n");
+    fs::create_dir_all(other.join(".git")).unwrap();
+
+    assert_eq!(files(&search(&main, &query("needle"))), ["src/a.rs"]);
+
+    let mut both = ProjectSearch::default();
+    both.set_extra_folders(vec![other.clone()]);
+    both.start(&main, &query("needle"), Vec::new(), || {});
+    both.wait();
+    let mut found = files(&both);
+    found.sort_unstable();
+    assert_eq!(found, ["other/lib/b.rs", "src/a.rs"]);
+    let extra = both
+        .results
+        .iter()
+        .find(|f| f.relative.starts_with("other/"));
+    assert_eq!(extra.unwrap().path, other.join("lib/b.rs"));
+
+    // 根目录下有同名的项时前缀加上上级目录的名字，与快速打开的文件表一致。
+    write(&main, "other/d.rs", b"needle\n");
+    both.start(&main, &query("needle"), Vec::new(), || {});
+    both.wait();
+    let parent = base.file_name().unwrap().to_string_lossy();
+    let labelled = format!("other ({parent})/lib/b.rs");
+    assert!(
+        files(&both).contains(&labelled.as_str()),
+        "{:?}",
+        files(&both)
+    );
+    assert!(files(&both).contains(&"other/d.rs"));
+    fs::remove_dir_all(main.join("other")).unwrap();
+    both.start(&main, &query("needle"), Vec::new(), || {});
+    both.wait();
+
+    // 重新搜索单个文件时相对路径不变。
+    both.refresh_file(&other.join("lib/b.rs"), None);
+    assert!(files(&both).contains(&"other/lib/b.rs"));
+}

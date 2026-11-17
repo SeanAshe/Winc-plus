@@ -73,6 +73,9 @@ menu-git-fetch-desc = Download remote updates without changing local branches
 
 menu-new-file = New File…
 menu-new-folder = New Folder…
+menu-remove-folder = Remove from Window
+menu-rename-group = Rename This Folder Group…
+menu-open-group = Open This Folder Group
 menu-open-in-terminal = Open in Terminal
 menu-open-with-winc = Open with Winc
 menu-close-tabs-right = Close Tabs to the Right
@@ -195,3 +198,7 @@ menu-commit-check-todo = Check TODOs
 menu-commit-recent-messages = Recent Commit Messages
 menu-commit-co-author = Add Co-Author
 menu-commit-no-verify = Skip Hooks for This Commit
+menu-set-read-only = Set Read-Only
+menu-clear-read-only = Clear Read-Only
+menu-set-read-only-all = Set All Read-Only
+menu-clear-read-only-all = Clear Read-Only for All

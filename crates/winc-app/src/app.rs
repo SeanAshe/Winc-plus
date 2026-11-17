@@ -79,7 +79,7 @@ pub use workspace::picker::{
     PICKER_ICON_X, PICKER_MAX_ROWS, PICKER_PAD, PICKER_ROW, PICKER_TEXT_X, PLACES_FOOTER,
     PlacesGhost,
 };
-pub(crate) use workspace::recent::{Parent, folder_label, parents};
+pub(crate) use workspace::recent::{Parent, parents};
 pub use workspace::session::StartAction;
 pub use workspace::tab_drag::{TabDrag, TabSlide};
 pub use workspace::tool_fold::ToolFold;
@@ -318,6 +318,11 @@ pub enum UserEvent {
     GitRemoveWorktree(PathBuf, Option<String>),
     /// 提示框中选定了打开工作树的方式：目录、是否在新窗口、是否记住。
     GitOpenWorktree(PathBuf, bool, bool),
+    /// 拖放结束后询问拖入的目录怎样处理：目录，以及落在文件树上时的目标目录。
+    FolderDropAsk(PathBuf, Option<PathBuf>),
+    /// 对拖入目录的询问的答复：目录、文件树上的目标目录、是否加为附加目录（否则按落点处理）、
+    /// 是否记住这个选择。
+    FolderDropped(PathBuf, Option<PathBuf>, bool, bool),
     /// 后台已计算完一个文档的逐行追溯。
     GitBlame,
     /// 后台已检查或重读被其他程序修改的文件。

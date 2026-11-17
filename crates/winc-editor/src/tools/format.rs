@@ -1087,7 +1087,7 @@ impl Document {
         changes: Vec<Change>,
         top: usize,
     ) -> Option<usize> {
-        if self.text.rope() != Some(sent) || self.readonly {
+        if self.text.rope() != Some(sent) || self.readonly_reason().is_some() {
             return None;
         }
         if changes.is_empty() {

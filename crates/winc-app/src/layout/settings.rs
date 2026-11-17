@@ -130,6 +130,7 @@ impl SettingsPage {
                     Setting::AutoSave,
                     Setting::HotExit,
                     Setting::RestoreFolder,
+                    Setting::DropFolder,
                     Setting::PreviewOnClick,
                 ]),
                 plain(vec![Setting::Outline, Setting::CompactFolders]),
@@ -399,6 +400,8 @@ pub enum Setting {
     GitStagingArea,
     /// 点击工作树时在哪个窗口打开它（`git.openWorktree`）。
     GitOpenWorktree,
+    /// 把目录拖进已打开目录的窗口时怎样处理（`dropFolder`）。
+    DropFolder,
     /// `git` 程序的路径（`git.path`）；未设置时在 `PATH` 里查找。
     GitPath,
     /// 终端模块的开关。
@@ -468,6 +471,7 @@ impl Setting {
             | Setting::AutoSave
             | Setting::HotExit
             | Setting::RestoreFolder
+            | Setting::DropFolder
             | Setting::CompactFolders
             | Setting::PreviewOnClick
             | Setting::StickyScroll
@@ -543,6 +547,7 @@ impl Setting {
             Setting::AutoSave => t!("settings-auto-save"),
             Setting::HotExit => t!("settings-hot-exit"),
             Setting::RestoreFolder => t!("settings-restore-folder"),
+            Setting::DropFolder => t!("settings-drop-folder"),
             Setting::StickyScroll => t!("settings-sticky-scroll"),
             Setting::VimMode => t!("settings-vim-mode"),
             Setting::VimClipboard => t!("settings-vim-clipboard"),
@@ -623,6 +628,7 @@ impl Setting {
             Setting::AutoSave => Some(t!("settings-auto-save-desc")),
             Setting::HotExit => Some(t!("settings-hot-exit-desc")),
             Setting::RestoreFolder => Some(t!("settings-restore-folder-desc")),
+            Setting::DropFolder => Some(t!("settings-drop-folder-desc")),
             Setting::StickyScroll => Some(t!("settings-sticky-scroll-desc")),
             Setting::VimMode => Some(t!("settings-vim-mode-desc")),
             Setting::VimClipboard => Some(t!("settings-vim-clipboard-desc")),
@@ -745,6 +751,7 @@ impl Setting {
             | Setting::TerminalPosition
             | Setting::TerminalTabPosition
             | Setting::TerminalOptionAsMeta
+            | Setting::DropFolder
             | Setting::GitOpenWorktree => SettingControl::Choice,
             Setting::AddLanguage | Setting::AddFixLanguage => SettingControl::Action,
             Setting::KeySearch => SettingControl::Search,
@@ -810,6 +817,17 @@ pub fn text_width_label(choice: winc_config::TextWidth) -> &'static str {
 }
 
 /// 返回「打开工作树」设置中选项 `choice` 的名字。
+pub fn drop_folder_label(choice: winc_config::FolderDrop) -> &'static str {
+    use winc_config::FolderDrop::{Add, Ask, Open};
+
+    match choice {
+        Ask => t!("settings-git-open-worktree-ask"),
+        Add => t!("settings-drop-folder-add"),
+        Open => t!("settings-drop-folder-open"),
+    }
+}
+
+/// 返回打开工作树的方式 `choice` 在设置中显示的名称。
 pub fn open_worktree_label(choice: winc_config::WorktreeOpen) -> &'static str {
     use winc_config::WorktreeOpen::{Ask, CurrentWindow, NewWindow};
     match choice {

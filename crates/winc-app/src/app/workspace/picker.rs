@@ -435,7 +435,12 @@ impl App {
             self.picker_invalidate();
         }
 
-        if self.overlays.picker.index.root() != Some(root.as_path()) {
+        if !self
+            .overlays
+            .picker
+            .index
+            .covers(&root, &self.extra_folders())
+        {
             self.overlays.picker.index.cancel();
             self.build_index(&root);
         }
@@ -639,14 +644,15 @@ impl App {
     ///
     /// 已有旧表时保留旧表，新表建好之前面板仍可使用，不会变空。测试中没有事件循环，同步建立。
     fn build_index(&mut self, root: &Path) {
+        let extra = self.extra_folders();
         let Some(proxy) = self.link.proxy.clone() else {
-            self.overlays.picker.index = FileIndex::collect_now(root);
+            self.overlays.picker.index = FileIndex::collect_now_with(root, &extra);
             return;
         };
-        if self.overlays.picker.index.root() == Some(root) {
+        if self.overlays.picker.index.covers(root, &extra) {
             self.overlays.picker.index.refresh();
         } else {
-            self.overlays.picker.index = FileIndex::spawn(root, move || {
+            self.overlays.picker.index = FileIndex::spawn_with(root, &extra, move || {
                 let _ = proxy.send_event(UserEvent::Indexed);
             });
         }

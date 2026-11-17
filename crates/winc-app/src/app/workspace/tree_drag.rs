@@ -318,7 +318,7 @@ impl App {
     /// 同名时副本改名（见 [`winc_editor::copy_entry`]）。目录可能很大，复制时间与内容大小成正比，
     /// 因此不在界面线程上执行（[`App::spawn_copy`]）。某一项复制失败时提示原因，其余各项仍然复制。
     pub(in crate::app) fn copy_entries_into(&mut self, paths: Vec<PathBuf>, dir: PathBuf) {
-        let Some(root) = self.editor.root().map(Path::to_path_buf) else {
+        let Some(root) = self.folder_root(&dir) else {
             return;
         };
         let remote =
@@ -427,10 +427,17 @@ impl App {
         if !winc_backend::is_remote(dir) {
             self.wait_for_saves();
         }
-        let Some(root) = self.editor.root().map(Path::to_path_buf) else {
+        let Some(root) = self.folder_root(dir) else {
             return;
         };
-        let (paths, into) = (paths.to_vec(), dir.to_path_buf());
+        // 打开的目录和附加的目录本身不移动。
+        let folders: Vec<PathBuf> = (self.editor.workspace.iter())
+            .flat_map(|ws| ws.folders().map(Path::to_path_buf))
+            .collect();
+        let paths: Vec<PathBuf> = (paths.iter().filter(|p| !folders.contains(p)))
+            .cloned()
+            .collect();
+        let into = dir.to_path_buf();
         let relocate = move || {
             let results: Vec<std::io::Result<PathBuf>> = (paths.iter())
                 .map(|from| winc_editor::move_at(&root, from, &into))
@@ -460,7 +467,7 @@ impl App {
                         .editor
                         .workspace
                         .as_ref()
-                        .is_some_and(|ws| !from.starts_with(&ws.root));
+                        .is_some_and(|ws| ws.folder_of(from).is_none());
                     if elsewhere {
                         let request = crate::winc::Request::Moved(from.clone(), target.clone());
                         self.link.shared.request(request);

@@ -272,6 +272,8 @@ pub(crate) struct GitState {
     pub commit: commit::CommitState,
     /// 行号栏的改动标记和已展开的改动卡片。
     pub changes: changes::LineChanges,
+    /// 提交视图上下文一行中各控件宽度的过渡。
+    pub context_row: commit::ContextRow,
     /// 日志标签的后台通道和点击区域。
     pub log: log::LogState,
     /// 逐行追溯（`git blame`）的状态。
@@ -354,6 +356,7 @@ impl Default for GitState {
             receiver,
             commit: Default::default(),
             changes: Default::default(),
+            context_row: Default::default(),
             log: Default::default(),
             blame: Default::default(),
             branch: Default::default(),
@@ -594,6 +597,7 @@ impl App {
         let cancel = Cancel::default();
         self.git.scan_running = Some(cancel.clone());
         let slot = Arc::clone(&self.git.scanned);
+        let extra = self.extra_folders();
         self.spawn_blocking_then(UserEvent::GitStatus, move || {
             // 本机的目录已在界面线程上查过它所在的仓库和第一层子目录（`git_discover`）；远端的
             // 目录在这里一并查找。
@@ -603,6 +607,9 @@ impl App {
                 Vec::new()
             };
             found.extend(git::scan_repositories(&dir, depth, &cancel));
+            for folder in &extra {
+                found.extend(git::scan_repositories(folder, depth, &cancel));
+            }
             if !cancel.is_cancelled() {
                 *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some((dir, found));
             }
@@ -663,6 +670,14 @@ impl App {
             return;
         }
         let mut found = git::find_repositories(dir);
+        // 附加的目录里的仓库排在后面。
+        for folder in self.extra_folders() {
+            for repo in git::find_repositories(&folder) {
+                if !found.contains(&repo) {
+                    found.push(repo);
+                }
+            }
+        }
         let kept =
             self.git.repositories.iter().filter(|repo| {
                 !found.contains(repo) && winc_backend::fs::exists(repo.join(".git"))
@@ -671,24 +686,6 @@ impl App {
         found.extend(kept);
         self.git.repositories = found;
         self.git_read_summaries();
-    }
-
-    /// 返回第 `index` 个仓库在菜单中显示的名字：相对打开的目录的路径，目录本身使用目录名。
-    pub(crate) fn git_repository_name(&self, index: usize) -> String {
-        let Some(repo) = self.git.repositories.get(index) else {
-            return String::new();
-        };
-        let relative = self
-            .editor
-            .root()
-            .and_then(|root| repo.strip_prefix(root).ok());
-        match relative {
-            Some(path) if !path.as_os_str().is_empty() => path.display().to_string(),
-            _ => repo.file_name().map_or_else(
-                || repo.display().to_string(),
-                |name| name.to_string_lossy().into_owned(),
-            ),
-        }
     }
 
     /// 切换到第 `index` 个仓库。
@@ -737,7 +734,7 @@ impl App {
     }
 
     /// 将当前仓库切换为 `root`；没有变化时不做任何操作。
-    fn git_set_root(&mut self, root: Option<PathBuf>) {
+    pub(in crate::app) fn git_set_root(&mut self, root: Option<PathBuf>) {
         if root == self.git.root {
             return;
         }

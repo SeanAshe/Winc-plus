@@ -201,7 +201,7 @@ impl Document {
     /// [`EDIT_LIMIT`] 时不应用。其余选区（多光标）被收回。
     pub fn apply_changes(&mut self, changes: Vec<Change>, before: usize, after: usize) -> bool {
         let removed: usize = changes.iter().map(|change| change.removed.len()).sum();
-        if self.readonly || removed as u64 > EDIT_LIMIT {
+        if self.readonly_reason().is_some() || removed as u64 > EDIT_LIMIT {
             return false;
         }
         self.collapse_selections();
@@ -218,7 +218,7 @@ impl Document {
     /// 在位置 `at` 换行并把光标放在新行上，缩进规则与 [`Command::Newline`] 相同；撤销之后
     /// 选区回到调用之前的状态。
     pub fn open_line_at(&mut self, at: usize, tab_width: usize) {
-        if self.readonly {
+        if self.readonly_reason().is_some() {
             return;
         }
         let original = self.selection;
@@ -236,7 +236,7 @@ impl Document {
 
     /// 切换第 `first` 至 `last` 行的行注释，返回是否有修改；选区在修改之后收回为光标。
     pub fn toggle_comment_lines(&mut self, first: usize, last: usize, tab_width: usize) -> bool {
-        if self.readonly {
+        if self.readonly_reason().is_some() {
             return false;
         }
         let original = self.selection;

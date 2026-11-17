@@ -179,6 +179,13 @@ pub(crate) fn restore_tabs(
     for backup in saved {
         put_back(editor, backup);
     }
+    editor.set_all_locked(session.is_some_and(|session| session.readonly_all));
+    for path in session.iter().flat_map(|session| &session.readonly) {
+        let at = |doc: &&mut Document| doc.path.as_deref() == Some(path.as_path());
+        if let Some(doc) = editor.documents.iter_mut().find(at) {
+            doc.set_locked(true);
+        }
+    }
 
     // 当时的当前标签已不存在时，改为最后一个标签（它可能还没读）。
     editor.active = active

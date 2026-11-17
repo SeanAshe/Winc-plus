@@ -176,6 +176,9 @@ impl App {
             hits: Default::default(),
             disk: crate::app::workspace::DiskState {
                 watcher: None,
+                extra_watchers: Vec::new(),
+                solo: false,
+                open_alone: None,
                 changes_due: None,
                 rereads: Default::default(),
                 saves: Default::default(),

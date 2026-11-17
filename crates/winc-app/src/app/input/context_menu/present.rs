@@ -58,6 +58,8 @@ const TAB_LIST_ICON: f32 = 16.0;
 pub(crate) enum MenuIcon {
     /// 最近打开的目录：与文件树中的目录相同的图标和颜色。
     Folder,
+    /// 最近打开的一组目录：两个叠放的目录。
+    Folders,
     /// 标签列表的第几项：标签上的图标（文件类型图标，日志标签为 Git 图标）。
     Tab(usize),
     /// 目录菜单中的文件：文件类型的记号和它在深色、浅色配色下的颜色（同文件树）。
@@ -69,7 +71,7 @@ impl MenuIcon {
     pub(crate) fn size(self) -> (f32, f32) {
         match self {
             MenuIcon::Tab(_) | MenuIcon::File(..) => (TAB_LIST_ICON, TAB_LIST_ICON),
-            MenuIcon::Folder => MENU_ICON,
+            MenuIcon::Folder | MenuIcon::Folders => MENU_ICON,
         }
     }
 }
@@ -325,6 +327,9 @@ impl App {
             MenuTarget::Whitespace => whitespace_menu(),
             MenuTarget::VimClipboard => vim_clipboard_menu(),
             MenuTarget::OpenWorktree => open_worktree_menu(),
+            MenuTarget::DropFolder => (0..winc_config::FolderDrop::ALL.len())
+                .map(|i| MenuEntry::Item(MenuCommand::DropFolder(i), true))
+                .collect(),
             MenuTarget::DefaultShell => default_shell_menu(self.terminal.shells.len()),
             MenuTarget::Zoom => zoom_menu(),
             MenuTarget::BackgroundImage => background_menu(),
@@ -353,6 +358,7 @@ impl App {
                     (self.remote_enabled()).then(crate::app::remote::refresh_hosts),
                     root.is_some_and(winc_backend::is_remote),
                 ));
+                self.add_folder_entries(&mut menu);
                 menu
             }
             MenuTarget::Tree(Some(_))
@@ -365,12 +371,19 @@ impl App {
                 tree_selection_menu(self.tree_selected_files().len())
             }
             MenuTarget::Tree(path) => {
-                let kind = path.as_ref().and_then(|p| {
+                // 目录自己的一行和空白处一样：不能改名、剪切、删除。
+                let folder = path.as_deref().filter(|p| {
+                    (self.editor.workspace.as_ref()).is_some_and(|ws| ws.is_folder_row(p))
+                });
+                let kind = path.as_ref().filter(|_| folder.is_none()).and_then(|p| {
                     let ws = self.editor.workspace.as_ref()?;
                     ws.row_of(p).map(|i| ws.rows()[i].kind)
                 });
                 let can_paste = self.can_paste_into_tree();
                 let mut menu = tree_menu(kind, can_paste);
+                if kind.is_none() {
+                    menu.extend(self.folder_items(folder));
+                }
                 // Git 模块开着、文件在仓库里：最后加「显示文件历史」，有更改的文件再加暂存与回滚。
                 if let Some(path) = path.as_deref()
                     && kind == Some(EntryKind::File)
@@ -514,6 +527,11 @@ impl App {
                     path.is_some_and(|p| self.relative_path(p).is_some()),
                     docs.iter().any(|d| !d.is_dirty()),
                 );
+                let doc = &docs[index];
+                if doc.can_lock() && doc.shows_text() {
+                    let command = MenuCommand::ReadOnly(!doc.is_locked());
+                    menu.extend([MenuEntry::Separator, MenuEntry::Item(command, true)]);
+                }
                 if let Some(path) = path.filter(|p| self.in_repo(p)) {
                     menu.extend([
                         MenuEntry::Separator,
@@ -553,6 +571,10 @@ impl App {
                     return;
                 };
                 document_language_menu(doc.path.is_some())
+            }
+            MenuTarget::ReadOnly(id) => {
+                let own = self.editor.document(*id).is_some_and(|doc| doc.is_locked());
+                read_only_menu(own, self.editor.all_locked())
             }
             MenuTarget::CommitFile(_) if self.commit_multi_selected() => {
                 let any_exists = (self.commit_selection().iter()).any(|path| self.may_exist(path));
@@ -683,6 +705,7 @@ impl App {
                 | MenuTarget::Whitespace
                 | MenuTarget::VimClipboard
                 | MenuTarget::OpenWorktree
+                | MenuTarget::DropFolder
                 | MenuTarget::Zoom
                 | MenuTarget::BackgroundImage
                 | MenuTarget::BackgroundFit
@@ -698,6 +721,7 @@ impl App {
             MenuTarget::Whitespace => Some(Setting::RenderWhitespace),
             MenuTarget::VimClipboard => Some(Setting::VimClipboard),
             MenuTarget::OpenWorktree => Some(Setting::GitOpenWorktree),
+            MenuTarget::DropFolder => Some(Setting::DropFolder),
             MenuTarget::Zoom => Some(Setting::Zoom),
             MenuTarget::BackgroundImage => Some(Setting::BackgroundImage),
             MenuTarget::BackgroundFit => Some(Setting::BackgroundFit),
@@ -826,6 +850,7 @@ impl App {
     pub(crate) fn menu_label(&self, command: MenuCommand) -> MenuLabel {
         match command {
             MenuCommand::OpenRecent(i) => self.recent_label(i),
+            MenuCommand::GroupFolder(i, j) => self.group_folder_label(i, j),
             MenuCommand::ShowTab(i) => self.tab_list_label(i),
             MenuCommand::RunSelect(i) => {
                 let config = self.run.list.get(i);
@@ -1077,28 +1102,6 @@ impl App {
         }
     }
 
-    /// 返回最近目录第 `i` 项的菜单文字：标题只写目录名，完整路径放在悬停提示中（主目录显示为
-    /// `~`）。
-    ///
-    /// 只有最近列表中另有同名目录时，才在标题下方用一行小字写明所在的上级目录；否则每一项
-    /// 都会多出一行相同的上级目录，既占空间又没有信息量。
-    fn recent_label(&self, i: usize) -> MenuLabel {
-        let Some(folder) = self.state.recent.get(i) else {
-            return MenuLabel::plain("");
-        };
-        let name = winc_editor::display_name(folder);
-        let same_name = |other: &PathBuf| winc_editor::display_name(other) == name;
-        let ambiguous = self.state.recent.iter().filter(|p| same_name(p)).count() > 1;
-        MenuLabel {
-            subtitle: folder
-                .parent()
-                .filter(|_| ambiguous)
-                .map(|parent| winc_editor::display_path(parent, None)),
-            tooltip: Some(winc_editor::display_path(folder, None)),
-            title: name.into_owned(),
-        }
-    }
-
     /// 返回格式化（修复）工具菜单中一项的文字：「自动」下方写着当前自动选中的工具；
     /// 预设下方写着该预设的命令，没装的在名字后面注明「（未安装）」。
     fn tool_label(&self, command: MenuCommand) -> MenuLabel {
@@ -1290,6 +1293,10 @@ impl App {
                 winc_config::WorktreeOpen::ALL.get(i)
                     == Some(&self.config.git_open_worktree.unwrap_or_default())
             }
+            MenuCommand::DropFolder(i) => {
+                winc_config::FolderDrop::ALL.get(i)
+                    == Some(&self.config.drop_folder.unwrap_or_default())
+            }
             MenuCommand::DefaultShell(i) => {
                 let configured = self.configured_shell().map(|shell| shell.command);
                 let listed = i.and_then(|i| self.terminal.shells.get(i));
@@ -1353,9 +1360,17 @@ impl App {
     /// 其他命令没有图标。
     pub(in crate::app) fn menu_icon_kind(&self, command: MenuCommand) -> Option<MenuIcon> {
         match command {
-            MenuCommand::OpenRecent(_) | MenuCommand::OpenRecentInNewWindow(_) => {
-                Some(MenuIcon::Folder)
+            MenuCommand::OpenRecent(i) | MenuCommand::OpenRecentInNewWindow(i) => {
+                let group = (self.state.recent.get(i))
+                    .is_some_and(|folder| self.recent_group(folder).is_some());
+                Some(if group {
+                    MenuIcon::Folders
+                } else {
+                    MenuIcon::Folder
+                })
             }
+            MenuCommand::OpenGroup(_) => Some(MenuIcon::Folders),
+            MenuCommand::GroupFolder(..) => Some(MenuIcon::Folder),
             MenuCommand::ShowTab(i) => self.editor.documents.get(i).map(|_| MenuIcon::Tab(i)),
             _ => None,
         }
@@ -1375,6 +1390,7 @@ impl App {
         let (w, h) = icon.size();
         match icon {
             MenuIcon::Folder => icons::folder(frame, (x, y), false, self.palette.folder, clip),
+            MenuIcon::Folders => icons::folders(frame, (x, y), self.palette.folder, clip),
             MenuIcon::File(glyph, [dark, light]) => {
                 let color = winc_render::Color::hex(if self.palette.dark { dark } else { light });
                 // 文件图标 12 × 15。

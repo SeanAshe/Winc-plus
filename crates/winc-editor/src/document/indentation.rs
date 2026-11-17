@@ -141,7 +141,7 @@ impl Document {
         if to.is_none() {
             self.editorconfig = config.clone();
         }
-        if !config.tidies() || self.readonly {
+        if !config.tidies() || self.readonly_reason().is_some() {
             return false;
         }
         let Content::Rope(rope) = &self.text else {

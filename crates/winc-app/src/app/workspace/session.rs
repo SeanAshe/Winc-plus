@@ -164,6 +164,13 @@ impl App {
             return;
         };
         let session = self.state.session_for(&root).cloned();
+        // 单独打开一组中的打开的目录时不恢复附加的目录，这一组仍记在会话里。
+        let alone = self.disk.open_alone.take().is_some_and(|path| path == root);
+        self.disk.solo = alone && session.as_ref().is_some_and(|s| !s.folders.is_empty());
+        if !self.disk.solo {
+            self.restore_group(session.as_ref());
+        }
+        self.watch_extra_folders();
         let restored = restore_tabs(
             &mut self.editor,
             session.as_ref(),
@@ -346,7 +353,21 @@ impl App {
 
         let terminal = self.terminal_session();
         let run = self.run.selected.clone();
+        let mut folders = self.extra_folders();
+        let mut name = (self.editor.workspace.as_ref())
+            .and_then(|workspace| workspace.alias().map(str::to_owned));
+        // 单独打开着一组中的打开的目录：这一组保持原样。
+        if self.disk.solo
+            && folders.is_empty()
+            && let Some(session) = self.state.session_for(&folder)
+        {
+            folders = session.folders.clone();
+            name = session.name.clone();
+        }
         let sidebar_hidden = !self.panels.sidebar.visible;
+        let locked = (self.editor.documents.iter()).filter(|doc| doc.is_locked());
+        let readonly = locked.filter_map(|doc| doc.path.clone()).collect();
+        let readonly_all = self.editor.all_locked();
         let bookmarks = self
             .editor
             .all_bookmarks()
@@ -369,6 +390,10 @@ impl App {
                 book_places,
                 terminal,
                 run,
+                folders,
+                name,
+                readonly,
+                readonly_all,
                 sidebar_hidden,
             });
         });

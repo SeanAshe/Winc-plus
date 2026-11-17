@@ -3,21 +3,45 @@
 use super::*;
 
 /// 绘制锁图标，9×12：线条风格，锁梁加圆角的锁身，锁身中间一道短竖线是锁孔。
-pub fn lock(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
-    let (r, top) = (2.25, cy - 2.5);
+pub fn lock(frame: &mut Frame<'_>, center: (f32, f32), color: Color, clip: Rect) {
+    padlock(frame, center, color, clip, (1.0, false));
+}
+
+/// 绘制状态栏上的锁图标，约 11×13，与两旁的图标高度相近：`open` 时锁梁右边一脚不接锁身。
+pub fn status_lock(
+    frame: &mut Frame<'_>,
+    (cx, cy): (f32, f32),
+    open: bool,
+    color: Color,
+    clip: Rect,
+) {
+    padlock(frame, (cx, cy - 0.5), color, clip, (1.25, open));
+}
+
+/// 锁的笔画：各部分的尺寸是 9×12 的锁乘以 `scale`，笔宽不变；`open` 时锁梁右边一脚只留一小段。
+fn padlock(
+    frame: &mut Frame<'_>,
+    (cx, cy): (f32, f32),
+    color: Color,
+    clip: Rect,
+    (scale, open): (f32, bool),
+) {
+    let (r, top) = (2.25 * scale, cy - 2.5 * scale);
     let h = GLYPH_STROKE / 2.0;
+    let seat = cy - 0.5 * scale + h;
+    let free = if open { top + 0.5 * scale } else { seat };
     let shackle = [
         Stroke::Arc(cx, top, r, -PI, 0.0),
-        Stroke::Line(cx - r, top, cx - r, cy - 0.5 + h),
-        Stroke::Line(cx + r, top, cx + r, cy - 0.5 + h),
-        Stroke::Line(cx, cy + 1.75, cx, cy + 3.0),
+        Stroke::Line(cx - r, top, cx - r, seat),
+        Stroke::Line(cx + r, top, cx + r, free),
+        Stroke::Line(cx, cy + 1.75 * scale, cx, cy + 3.0 * scale),
     ];
     let body = rounded_outline(
-        cx - 4.5 + h,
-        cy - 0.5 + h,
-        9.0 - 2.0 * h,
-        6.0 - 2.0 * h,
-        1.5,
+        cx - 4.5 * scale + h,
+        seat,
+        9.0 * scale - 2.0 * h,
+        6.0 * scale - 2.0 * h,
+        1.5 * scale,
     );
     let shapes: Strokes<12> = joined(&[&shackle, &body]);
     frame.stroke(shapes.as_slice(), GLYPH_STROKE, color, clip);

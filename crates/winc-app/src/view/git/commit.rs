@@ -149,7 +149,9 @@ pub(in crate::view) fn draw_commit(
         scroll,
         content,
     );
-    draw_context(app, frame, &parts, &mut hits);
+    let widths = context_widths(app, frame, parts.branch);
+    let widths = app.track_context_row(widths);
+    draw_context(app, frame, &parts, widths, &mut hits);
     draw_banner(app, frame, &parts, &mut hits);
     draw_worktrees(app, frame, &parts, &mut hits);
     draw_stashes(app, frame, &parts, &mut hits);

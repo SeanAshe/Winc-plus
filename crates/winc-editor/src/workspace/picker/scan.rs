@@ -7,6 +7,40 @@ use super::*;
 /// 依据见 [`collect`] 的说明。
 const MATCHER_DIRS: usize = 1024;
 
+/// 遍历 `root` 和各个附加的目录 `extra`（路径前缀、目录），合成一张文件表。
+///
+/// 附加的目录中的路径以前缀加 `/` 开头；总数超过 `limit` 时先收根目录的。
+pub(super) fn collect_all(
+    root: &Path,
+    extra: &[(String, PathBuf)],
+    limit: usize,
+    cancel: &AtomicBool,
+) -> Files {
+    let main = collect(root, limit, cancel);
+    if extra.is_empty() {
+        return main;
+    }
+    let mut paths: Packed = main.paths.iter().collect();
+    let mut dirs: Vec<String> = main.dirs.iter().map(str::to_owned).collect();
+    let mut scratch = String::new();
+    for (label, folder) in extra {
+        let part = collect(folder, limit.saturating_sub(paths.len()), cancel);
+        dirs.push(label.clone());
+        dirs.extend(part.dirs.iter().map(|dir| format!("{label}/{dir}")));
+        for path in part.paths.iter() {
+            scratch.clear();
+            scratch.push_str(label);
+            scratch.push('/');
+            scratch.push_str(path);
+            paths.push(&scratch);
+        }
+    }
+    let mut table = Files::sorted(&paths, limit);
+    table.layers = main.layers;
+    table.dirs = DirSet::new(dirs.iter().map(String::as_str));
+    table
+}
+
 /// 遍历 `root`，收齐文件，排序后放进文件表。
 ///
 /// 按层（广度优先）遍历：文件超过 `limit` 个时只收录浅层，整层整层地收，收录结果只取决于目录

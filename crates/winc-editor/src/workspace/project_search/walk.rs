@@ -24,6 +24,7 @@ impl ProjectSearch {
         };
         let walk = Walk {
             root: self.root.clone(),
+            extra: Arc::clone(&self.labelled),
             literal: self.query.as_ref().and_then(literal),
             matcher: matcher.clone(),
             source,
@@ -102,6 +103,8 @@ pub(super) enum Source {
 /// 一次搜索的后台部分。
 pub(super) struct Walk {
     root: PathBuf,
+    /// 一并搜索的附加目录：相对路径中的前缀和目录。
+    extra: Arc<[(String, PathBuf)]>,
     /// 每处匹配都含有的一段文字及是否区分大小写（见 [`literal`]）；远端的目录用它先筛出
     /// 候选的文件。
     literal: Option<(String, bool)>,
@@ -163,21 +166,25 @@ impl Walk {
                         .filter(|path| !overrides.matched(path, false).is_ignore()),
                 )
             }
+            // 各个目录依次遍历，各自按所在的仓库判断忽略规则。
             Source::Tree(overrides, ignored) => Box::new(
-                if *ignored {
-                    walker_with_ignored(&self.root)
-                } else {
-                    walker(&self.root)
-                }
-                .overrides(overrides.clone())
-                .build()
-                .flatten()
-                .filter(|entry| {
-                    entry
-                        .file_type()
-                        .is_some_and(|t| is_listed_file(t, entry.path()))
-                })
-                .map(ignore::DirEntry::into_path),
+                (std::iter::once(&self.root).chain(self.extra.iter().map(|(_, dir)| dir)))
+                    .flat_map(move |dir| {
+                        if *ignored {
+                            walker_with_ignored(dir)
+                        } else {
+                            walker(dir)
+                        }
+                        .overrides(overrides.clone())
+                        .build()
+                        .flatten()
+                        .filter(|entry| {
+                            entry
+                                .file_type()
+                                .is_some_and(|t| is_listed_file(t, entry.path()))
+                        })
+                        .map(ignore::DirEntry::into_path)
+                    }),
             ),
             Source::Files(files) => Box::new(files.iter().cloned()),
         };
@@ -343,13 +350,13 @@ impl<'a> Worker<'a> {
             limit,
             &self.walk.cancel,
         )?;
-        file_result(&self.walk.root, path, matches, lossy)
+        file_result((&self.walk.root, &self.walk.extra), path, matches, lossy)
     }
 
     fn search_rope(&mut self, path: &Path, rope: &Rope) -> Option<FileResult> {
         let limit = self.remaining()?;
         let matches = search_lines(&self.matcher, rope, limit);
-        file_result(&self.walk.root, path, matches, false)
+        file_result((&self.walk.root, &self.walk.extra), path, matches, false)
     }
 
     /// 返回离 [`MAX_RESULTS`] 还差的匹配数（处）；已经达到上限时返回 `None`。

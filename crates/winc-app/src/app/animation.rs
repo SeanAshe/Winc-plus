@@ -362,6 +362,7 @@ impl App {
         self.panels.global.names.settle();
         settle(&mut self.git.commit.shift, |s| s.clock);
         settle(&mut self.git.commit.actions_slide, |s| s.1);
+        settle(&mut self.git.context_row.motion, |m| m.1);
         settle(&mut self.git.commit.motion, |m| m.clock);
         settle(&mut self.git.log.branches_motion, |m| m.1);
         settle(&mut self.git.log.branch_fold, |m| m.clock);
@@ -479,6 +480,7 @@ impl App {
             || self.git.commit.fold_motion.is_some()
             || self.git.commit.message_motion.is_some()
             || self.git.commit.button_motion.is_some()
+            || self.git.context_row.motion.is_some()
             || self.git.commit.stashes.motion.is_some()
             || self.git.commit.worktrees.motion.is_some()
             || self.panels.outline.motion.is_some()

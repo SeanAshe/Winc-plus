@@ -553,6 +553,7 @@ impl App {
             }
         };
 
+        (self.panels.global.engine).set_extra_folders(self.extra_folders());
         self.panels.global.engine.start(&root, &query, dirty, wake);
         self.panels.global.scroll = 0.0;
         self.panels.global.selected = None;

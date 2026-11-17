@@ -46,10 +46,42 @@ pub(super) fn draw_context(
     app: &App,
     frame: &mut Frame<'_>,
     parts: &CommitParts,
+    widths: (f32, f32),
     hits: &mut Vec<(Rect, CommitTarget)>,
 ) {
     let clip = app.layout.sidebar;
-    draw_branch_row(app, frame, parts.branch, clip, hits);
+    draw_branch_row(app, frame, parts.branch, widths, clip, hits);
+}
+
+/// 返回上下文一行 `row` 中仓库按钮和同步控件各自要求的宽度（逻辑像素）；没有该控件时为 0。
+///
+/// 放不下时仓库按钮让出宽度，但保留到整行的 [`LOCATION_SHARE`]（名字更短时到名字的宽度），
+/// 不少于 [`LOCATION_MIN_TEXT`]；其余由分支名截短。
+pub(super) fn context_widths(app: &App, frame: &mut Frame<'_>, row: Rect) -> (f32, f32) {
+    if app.git.root.is_none() {
+        return (0.0, 0.0);
+    }
+    let sync = if sync_shown(app) {
+        sync_width(app, frame).unwrap_or(BUTTON_SMALL)
+    } else {
+        0.0
+    };
+    if app.git.repositories.len() < 2 {
+        return (0.0, sync);
+    }
+    let size = app.fonts.ui_small;
+    let right = row.right() - if sync > 0.0 { sync + BUTTON_GAP } else { 0.0 };
+    let head = frame.measure(FontKind::Ui, size, &head_label(app));
+    let branch = LOCATION_LEAD.1 + head + CONTEXT_PICK_TAIL;
+    let button = |text: f32| LOCATION_PICK_LEAD.1 + text + CONTEXT_PICK_PAD;
+    let full = button(frame.measure(FontKind::Ui, size, &app.git_current_repository_name()));
+    let kept = full
+        .min((right - row.x) * LOCATION_SHARE)
+        .max(button(LOCATION_MIN_TEXT));
+    let room = (right - PATH_SEPARATOR - branch - row.x)
+        .max(kept)
+        .min(right - row.x);
+    (full.min(room).max(0.0), sync)
 }
 
 /// 绘制 Git 上下文一行左边的按钮：图标、名字，宽度贴合文字；`chevron` 为真时名字后面有下拉箭头。
@@ -117,16 +149,21 @@ const CONTEXT_PICK_PAD: f32 = 6.0;
 /// 仓库按钮里图标中心和文字左边离按钮左边的距离（逻辑像素）：图标与项目徽章的中心对齐，文字
 /// 紧跟图标，相隔 6。
 const LOCATION_PICK_LEAD: (f32, f32) = (BADGE_CENTER, BADGE_CENTER + 12.0);
-/// 上下文一行放不下时仓库名至少保留的宽度（逻辑像素）：约三个字符，其余宽度留给分支。
+/// 上下文一行放不下时仓库名至少保留的宽度（逻辑像素）：约三个字符。
 const LOCATION_MIN_TEXT: f32 = 24.0;
+/// 上下文一行放不下时仓库按钮最多占的份额（0 到 1），其余留给分支。
+///
+/// 取自调参：两个名字都要截短时各自仍能辨认；分支名是这一行的主体，占多数。
+const LOCATION_SHARE: f32 = 0.4;
 
 /// 绘制上下文一行：左边是仓库按钮（有多个仓库时）、分隔符和分支按钮，右端是同步控件。
 ///
-/// 放不下时先把仓库名截短到至少 [`LOCATION_MIN_TEXT`]，之后才截短分支名。
+/// `widths` 是仓库按钮和同步控件此刻的宽度（见 [`context_widths`]、`App::track_context_row`）。
 pub(super) fn draw_branch_row(
     app: &App,
     frame: &mut Frame<'_>,
     row: Rect,
+    (location, sync): (f32, f32),
     clip: Rect,
     hits: &mut Vec<(Rect, CommitTarget)>,
 ) {
@@ -137,27 +174,20 @@ pub(super) fn draw_branch_row(
     let p = app.palette;
     let mut right = row.right();
     if sync_shown(app) {
-        right = draw_sync(app, frame, row, clip, hits) - BUTTON_GAP;
+        right = draw_sync(app, frame, row, sync, clip, hits) - BUTTON_GAP;
     }
     let head = head_label(app);
     let names = vec![(head.as_str(), p.text)];
     let size = app.fonts.ui_small;
-    let repository = app.git.repositories.len() >= 2;
-    let branch = LOCATION_LEAD.1 + frame.measure(FontKind::Ui, size, &head) + CONTEXT_PICK_TAIL;
     let name = app.git_current_repository_name();
-    let lead = LOCATION_PICK_LEAD;
-    let pick = |text: f32| lead.1 + text + CONTEXT_PICK_PAD + PATH_SEPARATOR;
     let (mut row, mut lead) = (row, (BADGE_CENTER, BADGE_ROOM));
-    if repository {
-        let room = (right - PATH_SEPARATOR - branch)
-            .max(row.x + pick(LOCATION_MIN_TEXT) - PATH_SEPARATOR)
-            .min(right);
-        let end = draw_context_pick(
+    if app.git.repositories.len() >= 2 {
+        draw_context_pick(
             app,
             frame,
             row,
             LOCATION_PICK_LEAD,
-            (room, false),
+            ((row.x + location).min(right), false),
             CommitTarget::Location,
             app.picker_lists_repositories(),
             |frame, center, color| icons::folder_small(frame, center, color, clip),
@@ -165,6 +195,8 @@ pub(super) fn draw_branch_row(
             clip,
             hits,
         );
+        // 分隔符和分支按钮跟着过渡中的宽度走，名字比它短时也不提前靠拢。
+        let end = (row.x + location).min(right);
         let slash = frame.measure(FontKind::Ui, size, "/");
         let at = end + (PATH_SEPARATOR - slash) / 2.0;
         label(frame, app, size, (at, row), "/", p.text_dim, clip);
@@ -239,7 +271,7 @@ fn sync_width(app: &App, frame: &mut Frame<'_>) -> Option<f32> {
     sync_shown(app).then_some(text + BUTTON_SMALL)
 }
 
-/// 绘制 `row` 右端的同步控件，返回它的左边缘。
+/// 绘制 `row` 右端宽 `width` 的同步控件，返回它的左边缘。
 ///
 /// 图标在行的最右端，左边写和上游差多少个提交和要做的事。有事可做时用强调色，其余时候用
 /// 淡色；运行时图标在原位旋转，成功后过渡到对勾，再过渡到当前状态的图标。要做什么写在提示里。
@@ -247,13 +279,13 @@ pub(super) fn draw_sync(
     app: &App,
     frame: &mut Frame<'_>,
     row: Rect,
+    width: f32,
     clip: Rect,
     hits: &mut Vec<(Rect, CommitTarget)>,
 ) -> f32 {
     let p = app.palette;
     let state = app.git_sync_state();
     let counts = sync_counts(app);
-    let width = sync_width(app, frame).unwrap_or(BUTTON_SMALL);
     let button = Rect::new(row.right() - width, row.y, width, row.h);
     let running = app.git.branch.running.is_some();
     let hovered = !running && app.pointer.hover == Hover::Commit(CommitTarget::Sync);

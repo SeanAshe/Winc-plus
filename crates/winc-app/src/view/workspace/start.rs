@@ -168,10 +168,14 @@ fn draw_start(app: &mut App, frame: &mut Frame<'_>, rise: f32) {
         draw_row_bg(app, frame, row, open);
 
         let folder = app.state.recent[index].clone();
-        let name = winc_editor::display_name(&folder).into_owned();
+        let name = app.recent_title(&folder);
 
         let cy = icon_center_y(app, row, app.fonts.ui);
-        icons::folder(frame, (row.x + 11.0, cy - 6.0), false, p.folder, editor);
+        if app.recent_group(&folder).is_some() {
+            icons::folders(frame, (row.x + 11.0, cy - 6.0), p.folder, editor);
+        } else {
+            icons::folder(frame, (row.x + 11.0, cy - 6.0), false, p.folder, editor);
+        }
 
         // ✕ 只在悬停时显示，但其位置始终预留，名称和路径不会因 ✕ 出现而移动。
         let close = Rect::new(
