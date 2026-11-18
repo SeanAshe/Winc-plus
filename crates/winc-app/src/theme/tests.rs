@@ -46,6 +46,108 @@ fn file_kinds_follow_whole_names_then_extensions() {
     assert_eq!(glyph("NOTICE.txt"), Text);
     assert_eq!(glyph("NOTICE"), Text);
     assert_eq!(glyph("COPYING"), License);
+    assert_eq!(glyph("COPYING.LESSER"), License);
+    assert_eq!(glyph("LICENSE-MIT"), License);
+    assert_eq!(glyph("LICENSE_APACHE"), License);
+    // 扩展名说明了是什么时不按名字认：这些是代码。
+    assert_eq!(glyph("copying.rs"), Letters("RS"));
+    assert_eq!(glyph("notice.rs"), Letters("RS"));
+    assert_eq!(glyph("readme.py"), Letters("PY"));
+    assert_eq!(glyph("license.json"), Json);
+    // 扩展名表没有、编辑器能高亮的：按该语言的主扩展名配图标。
+    assert_eq!(glyph("BUILD.bzl"), Letters("PY"));
+    assert_eq!(file_kind("build.zon"), file_kind("build.zig"));
+    assert_eq!(file_kind("main.tftest"), file_kind("main.tf"));
+    assert_eq!(file_kind("index.php5"), file_kind("index.php"));
+    assert_eq!(glyph("data.tab"), Table);
+    assert_eq!(glyph("notes.mkd"), Markdown);
+    // 界面文字的翻译、私钥、direnv 的脚本。
+    assert_eq!(glyph("menu.ftl"), Data);
+    assert_eq!(glyph("zh_CN.po"), Data);
+    assert_eq!(glyph("Localizable.xcstrings"), Data);
+    assert_eq!(glyph("server.key"), Lock);
+    assert_eq!(glyph(".envrc"), Shell);
+    assert_eq!(glyph(".env"), Key);
+    assert_eq!(glyph("VERSION"), Plain);
+    assert_eq!(glyph("README-zh.md"), Info);
+}
+
+#[test]
+fn file_kinds_cover_each_ecosystem() {
+    use FileGlyph::*;
+    let glyph = |name: &str| file_kind(name).0;
+    // 各生态的锁文件按整个名字认，不当成 JSON、YAML、TOML、HCL。
+    for name in [
+        "npm-shrinkwrap.json",
+        "deno.lock",
+        "pdm.lock",
+        "Package.resolved",
+        "pubspec.lock",
+        "Manifest.toml",
+        "go.work.sum",
+        ".terraform.lock.hcl",
+        "gradle.lockfile",
+        "packages.lock.json",
+    ] {
+        assert_eq!(glyph(name), Lock, "{name}");
+    }
+    // 包的清单：整个名字或扩展名。
+    for name in [
+        "Package.swift",
+        "pubspec.yaml",
+        "mix.exs",
+        "build.sbt",
+        "Project.toml",
+        "deno.json",
+        "settings.gradle.kts",
+        "requirements-dev.txt",
+        "vcpkg.json",
+        "App.csproj",
+        "Winc.sln",
+        "demo.cabal",
+        "project.pbxproj",
+    ] {
+        assert_eq!(glyph(name), Package, "{name}");
+    }
+    // 构建脚本与 Makefile 同一个提示符；Bazel 的 BUILD 不当成 Python。
+    for name in [
+        "BUILD",
+        "BUILD.bazel",
+        "MODULE.bazel",
+        "meson.build",
+        "gradlew",
+        "Makefile.am",
+    ] {
+        assert_eq!(glyph(name), Shell, "{name}");
+    }
+    assert_eq!(glyph(".tool-versions"), Config);
+    assert_eq!(glyph(".python-version"), Config);
+    // 各种 ignore 文件、模板、用文字写的图。
+    for name in [".stylelintignore", ".vscodeignore", ".gcloudignore"] {
+        assert_eq!(glyph(name), Data, "{name}");
+    }
+    for name in ["page.hbs", "base.html.j2", "index.pug", "Index.cshtml"] {
+        assert_eq!(glyph(name), Code, "{name}");
+    }
+    assert_eq!(glyph("flow.mmd"), Code);
+    assert_eq!(glyph("arch.drawio"), Image);
+    // 其他语言、脚本、二进制和证书。
+    for name in [
+        "solver.f90",
+        "unit.pas",
+        "main.adb",
+        "top.vhd",
+        "player.gd",
+        "app.coffee",
+    ] {
+        assert_eq!(glyph(name), Code, "{name}");
+    }
+    assert_eq!(glyph("setup.vbs"), Shell);
+    assert_eq!(glyph("native.pyd"), Binary);
+    assert_eq!(glyph("vault.kdbx"), Lock);
+    assert_eq!(glyph("report.qmd"), Markdown);
+    // 轮转的日志按编辑器的识别仍是日志。
+    assert_eq!(glyph("app.log.1"), Text);
     // 锁文件按整个名字认，不当成 JSON、YAML。
     assert_eq!(glyph("pnpm-lock.yaml"), Lock);
     assert_eq!(glyph("package-lock.json"), Lock);

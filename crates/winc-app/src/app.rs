@@ -179,8 +179,8 @@ pub enum UserEvent {
     /// 右键菜单中选中一项，参数是 `AppKit` 菜单项的编号（`tag`）。
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     MenuCommand(isize),
-    /// 删除确认框中选择了「移到废纸篓」，参数是要删除的各个路径。
-    Delete(Vec<PathBuf>),
+    /// 删除确认框中确认了删除，参数是要删除的各个路径，以及是否不经废纸篓直接删除。
+    Delete(Vec<PathBuf>, bool),
     /// 「要保存修改吗」提示框中的一个按钮被点击。
     SaveChoice(SaveChoice),
     /// 状态栏路径的目录菜单中选中了一个文件。
@@ -228,8 +228,11 @@ pub enum UserEvent {
     ReopenEncoding(DocumentId, winc_editor::Encoding),
     /// 后台完成了一张图片的解码，或一个 SVG 的绘制。
     ImageReady,
-    /// 粘贴到文件树中的文件已在后台复制完成：新路径，或失败的原因；以及这次复制。
-    Pasted(Result<Vec<PathBuf>, String>, Arc<winc_editor::Copying>),
+    /// 粘贴到文件树中的文件已在后台复制完成：复制好的新路径、失败的原因（没有失败时为 `None`），
+    /// 以及这次复制。
+    Pasted(Vec<PathBuf>, Option<String>, Arc<winc_editor::Copying>),
+    /// 远端的各项已下载到本机：下载好的路径、失败的原因（没有失败时为 `None`），以及这次复制。
+    Downloaded(Vec<PathBuf>, Option<String>, Arc<winc_editor::Copying>),
     /// 拖进文件树的文件和目录已在后台复制完成：各个副本的路径、复制失败的说明，以及这次复制。
     Copied(Vec<PathBuf>, Vec<String>, Arc<winc_editor::Copying>),
     /// 窗口已关闭时点击了程序坞中的图标（macOS）：重新显示窗口。
@@ -643,6 +646,10 @@ impl Hover {
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum Drag {
     None,
+    /// 拖动设置卡片的标题行；`grab` 是按下处相对卡片左上角的位置。
+    SettingsCard {
+        grab: (f32, f32),
+    },
     /// 拖选文字。
     ///
     /// `by_word` 表示双击后按词扩展；`origin` 是起点（按词时是起始词的范围）。

@@ -151,6 +151,7 @@ pub enum Action {
 
     RenameFile,
     DeleteFile,
+    DeleteFilePermanently,
     OpenSelected,
     PreviewSelected,
     FindInFolder,
@@ -460,6 +461,7 @@ impl Action {
             PreviousResult => t!("cmd-previous-result"),
             RenameFile => t!("cmd-rename-file"),
             DeleteFile => t!("cmd-delete-file"),
+            DeleteFilePermanently => t!("cmd-delete-file-permanently"),
             OpenSelected => t!("cmd-open-selected"),
             PreviewSelected => t!("cmd-preview-selected"),
             FindInFolder => t!("cmd-find-in-folder"),
@@ -707,6 +709,7 @@ impl Action {
             PreviousResult => "Focus Previous Search Result",
             RenameFile => "Rename",
             DeleteFile => "Delete",
+            DeleteFilePermanently => "Delete Permanently",
             OpenSelected => "Open",
             PreviewSelected => "Open and Keep Focus",
             FindInFolder => "Find in Folder",
@@ -904,7 +907,12 @@ impl Action {
             | ReplaceOne | ReplaceAll | SelectAllMatches | ToggleCase | ToggleWord
             | ToggleRegex | FilterLines | FindInFiles | ReplaceInFiles | ReplaceAllInFiles
             | NextResult | PreviousResult => Group::Find,
-            RenameFile | DeleteFile | OpenSelected | PreviewSelected | FindInFolder => Group::Tree,
+            RenameFile
+            | DeleteFile
+            | DeleteFilePermanently
+            | OpenSelected
+            | PreviewSelected
+            | FindInFolder => Group::Tree,
             ToggleSidebar
             | FocusSidebar
             | ShowFiles
@@ -1158,6 +1166,7 @@ impl Action {
                 | PreviousResult
                 | RenameFile
                 | DeleteFile
+                | DeleteFilePermanently
                 | OpenSelected
                 | PreviewSelected
                 | FindInFolder
@@ -1304,6 +1313,7 @@ pub const ACTIONS: &[Action] = {
         ClearBookmarks,
         RenameFile,
         DeleteFile,
+        DeleteFilePermanently,
         OpenSelected,
         PreviewSelected,
         FindInFolder,

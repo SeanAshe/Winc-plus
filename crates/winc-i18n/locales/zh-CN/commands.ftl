@@ -133,6 +133,7 @@ cmd-next-result = 下一个搜索结果
 cmd-previous-result = 上一个搜索结果
 cmd-rename-file = 重命名…
 cmd-delete-file = 删除
+cmd-delete-file-permanently = 永久删除
 cmd-open-selected = 打开
 cmd-preview-selected = 打开（焦点保留在文件树）
 cmd-find-in-folder = 在目录中查找…

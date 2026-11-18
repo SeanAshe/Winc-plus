@@ -251,6 +251,30 @@ fn cancelled_or_interrupted_touch_never_places_the_caret() {
 }
 
 #[test]
+fn touch_drags_the_settings_card_by_its_top_strip() {
+    let mut app = document();
+    app.open_settings();
+    app.settings.motion = None;
+    paint(&mut app);
+    let before = app.settings_layout();
+    // 搜索框左侧的空白：落指即抓住卡片，滑动时卡片跟着走。
+    let (x, y) = (before.card.x + 4.0, before.header.y + before.header.h / 2.0);
+    touch(&mut app, 1, TouchPhase::Started, x, y);
+    assert!(app.settings_dragging());
+    touch(&mut app, 1, TouchPhase::Moved, x + 30.0, y + 20.0);
+    touch(&mut app, 1, TouchPhase::Ended, x + 30.0, y + 20.0);
+    let card = app.settings_layout().card;
+    assert_eq!(
+        (card.x, card.y),
+        (before.card.x + 30.0, before.card.y + 20.0)
+    );
+    assert!(!app.settings_dragging());
+    // 搜索框上落指不拖动卡片。
+    let search = before.search;
+    assert!(!app.touch_drag_at(search.x + 20.0 + 30.0, search.y + search.h / 2.0 + 20.0));
+}
+
+#[test]
 fn touch_drags_the_scrollbar_and_cancellation_releases_it() {
     let mut app = document();
     let editor = app.layout.editor;

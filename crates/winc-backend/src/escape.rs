@@ -50,6 +50,59 @@ pub(crate) fn decode(segment: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
+/// Windows 不允许作为文件名的设备名（不区分大小写，带扩展名也不行）。
+const DEVICES: [&str; 22] = [
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+];
+
+/// 本机与远端之间复制时换算 Windows 路径中的一段名字 `segment`：从远端到本机时还原为远端的
+/// 原名，再改写成本机可用的名字（[`windows_name`]）；从本机到远端时转义（[`encode`]）。两侧
+/// 相同，或 `segment` 不是转义的结果时返回 `None`。
+pub(crate) fn carry(segment: &str, from_remote: bool, to_remote: bool) -> Option<String> {
+    match (from_remote, to_remote) {
+        (true, false) => Some(windows_name(&decode(segment)?)),
+        (false, true) => Some(encode(segment.as_bytes())),
+        _ => None,
+    }
+}
+
+/// 把远端文件名 `name` 写成 Windows 上可用的文件名：Windows 不允许的字符、控制字符、不构成
+/// UTF-8 的字节、结尾的点和空格写成 `%XX`，设备名的第一个字母也写成 `%XX`；其余原样，`%` 不转义。
+fn windows_name(name: &[u8]) -> String {
+    let mut out = String::with_capacity(name.len());
+    for chunk in name.utf8_chunks() {
+        for c in chunk.valid().chars() {
+            if c < ' ' || matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|') {
+                push_escaped(&mut out, c as u8);
+            } else {
+                out.push(c);
+            }
+        }
+        for &byte in chunk.invalid() {
+            push_escaped(&mut out, byte);
+        }
+    }
+    // Windows 会去掉结尾的点和空格。
+    let kept = out.trim_end_matches(['.', ' ']).len();
+    let tail = out.split_off(kept);
+    for byte in tail.bytes() {
+        push_escaped(&mut out, byte);
+    }
+    let stem = out.split('.').next().unwrap_or_default();
+    if DEVICES
+        .iter()
+        .any(|device| stem.eq_ignore_ascii_case(device))
+    {
+        let rest = out.split_off(1);
+        let first = out.as_bytes()[0];
+        out.clear();
+        push_escaped(&mut out, first);
+        out.push_str(&rest);
+    }
+    out
+}
+
 fn push_escaped(out: &mut String, byte: u8) {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
     out.push('%');

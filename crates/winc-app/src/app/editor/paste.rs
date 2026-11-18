@@ -10,6 +10,7 @@ use winc_editor::{Workspace, display_name};
 use winc_i18n::t;
 
 use super::*;
+use crate::app::workspace::copying::copy_outcome;
 use crate::winc::RemoteCopy;
 
 impl App {
@@ -192,12 +193,14 @@ impl App {
         let targets = match &doc_dir {
             Some(dir) => match paste::bring_images(dir, root.as_deref(), files) {
                 Ok(targets) => targets,
-                Err(CopyError { path, error }) => {
+                Err(CopyError { path, error, done }) => {
                     self.notify(t!(
                         "editor-paste-copy-failed",
                         name = display_name(&path),
                         error = error.to_string()
                     ));
+                    // 失败之前复制过来的图片留在磁盘上，同样显示出来。
+                    self.files_created(done.into_iter().filter(|t| !files.contains(t)).collect());
                     return;
                 }
             },
@@ -298,16 +301,18 @@ impl App {
             let remote = winc_backend::is_remote(&dir)
                 || files.iter().any(|path| winc_backend::is_remote(path));
             let copy = move |copying: &winc_editor::Copying| {
-                paste::copy_into(&files, &dir, copying).map_err(|CopyError { path, error }| {
+                let copied = paste::copy_into(&files, &dir, copying);
+                copy_outcome(copied, copying, |path, error| {
                     t!(
                         "editor-paste-failed",
-                        name = display_name(&path),
+                        name = display_name(path),
                         error = error.to_string()
                     )
                 })
             };
-            if let Some(result) = self.spawn_copy(remote, copy, UserEvent::Pasted) {
-                self.pasted_into_tree(result);
+            let done = |(done, failure), copying| UserEvent::Pasted(done, failure, copying);
+            if let Some((done, failure)) = self.spawn_copy(remote, false, copy, done) {
+                self.pasted_into_tree(done, failure);
             }
             return;
         }
@@ -323,13 +328,16 @@ impl App {
         }
     }
 
-    /// 粘贴到文件树完成：刷新文件树，选中最后粘贴的一项；失败时提示原因（失败之前粘贴好的项
-    /// 保留，同样显示出来）。
-    pub(in crate::app) fn pasted_into_tree(&mut self, result: Result<Vec<PathBuf>, String>) {
-        let pasted = result.unwrap_or_else(|message| {
+    /// 粘贴到文件树完成：刷新文件树，选中最后粘贴的一项 `pasted`；失败时提示原因 `failure`
+    /// （失败之前粘贴好的项保留，同样显示出来）。
+    pub(in crate::app) fn pasted_into_tree(
+        &mut self,
+        pasted: Vec<PathBuf>,
+        failure: Option<String>,
+    ) {
+        if let Some(message) = failure {
             self.notify(message);
-            Vec::new()
-        });
+        }
         let Some(ws) = self.editor.workspace.as_mut() else {
             return;
         };

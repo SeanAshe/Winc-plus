@@ -23,6 +23,10 @@ pub enum NoticeAction {
     CancelConnect,
     /// 「取消」：取消文件树里正在进行的复制。
     CancelCopy,
+    /// 在系统文件管理器中显示这个路径，如刚下载到本机的文件。
+    Reveal(PathBuf),
+    /// 「以管理员身份重试…」：保存被系统拒绝的文档，经系统的授权对话框再保存一次。
+    SaveAsAdmin(DocumentId),
     /// 「查看更新日志」：在阅读标签中打开上次运行的版本（没有记录时为 `None`）之后的各版。
     ReleaseNotes(Option<String>),
 }
@@ -56,6 +60,8 @@ impl NoticeAction {
                 t!("workspace-notice-cancel")
             }
             NoticeAction::ReleaseNotes(_) => t!("workspace-notice-release-notes"),
+            NoticeAction::Reveal(_) => crate::system::reveal_label(),
+            NoticeAction::SaveAsAdmin(_) => t!("workspace-save-admin"),
         }
     }
 }
@@ -181,6 +187,8 @@ impl App {
             }
             NoticeAction::CancelConnect => self.cancel_remote(),
             NoticeAction::CancelCopy => self.cancel_copies(),
+            NoticeAction::Reveal(path) => self.reveal_in_file_manager(&path),
+            NoticeAction::SaveAsAdmin(id) => self.save_as_admin(id),
             NoticeAction::ReleaseNotes(previous) => {
                 self.open_release_notes(crate::release_notes::Scope::Since(previous));
             }

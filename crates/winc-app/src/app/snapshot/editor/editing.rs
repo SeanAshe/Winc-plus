@@ -360,6 +360,63 @@ fn auto_save_writes_when_the_editor_loses_focus_and_after_typing_stops() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 保存被系统拒绝（目录和文件都不可写）：提示条上有「以管理员身份重试…」，写成后文档算已保存。
+///
+/// 测试中写入进程不请求授权、直接写入，这里先放开文件的权限，代替管理员身份。
+#[cfg(unix)]
+#[test]
+fn a_save_the_system_refuses_can_be_retried_as_administrator() {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = |path: &Path, mode| {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    };
+    let dir = sample_folder("save-as-admin");
+    let locked = dir.join("locked");
+    std::fs::create_dir(&locked).unwrap();
+    let file = locked.join("hosts");
+    std::fs::write(&file, "old\n").unwrap();
+    let mut app = app_with(&file, false);
+    let id = app.editor.active().unwrap().id;
+    // 只有组可写：文件不算只读，但本人写不进；目录也写不进，不能新建再改名。
+    mode(&file, 0o464);
+    mode(&locked, 0o555);
+    // 以 root 运行时系统不拒绝，没有可测的。
+    if std::fs::OpenOptions::new().write(true).open(&file).is_err() {
+        app.run(Command::Insert("new ".into()));
+        assert!(!app.save_document(id, None));
+        assert_eq!(app.notice.action, Some(NoticeAction::SaveAsAdmin(id)));
+
+        mode(&file, 0o664);
+        app.run_notice_action();
+        assert!(!app.editor.document(id).unwrap().is_dirty());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "new old\n");
+        assert!(app.notice.text.is_none(), "{:?}", app.notice.text);
+    }
+    mode(&locked, 0o755);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 以管理员身份保存之前同样检查外部修改：文件已被其他程序改过时不写，提示冲突。
+#[test]
+fn saving_as_administrator_keeps_outside_changes() {
+    let dir = sample_folder("save-as-admin-conflict");
+    let file = dir.join("notes.txt");
+    std::fs::write(&file, "old\n").unwrap();
+    let mut app = app_with(&file, false);
+    let id = app.editor.active().unwrap().id;
+    app.run(Command::Insert("mine ".into()));
+    std::fs::write(&file, "theirs, and longer\n").unwrap();
+    app.save_as_admin(id);
+    assert_eq!(
+        std::fs::read_to_string(&file).unwrap(),
+        "theirs, and longer\n"
+    );
+    assert!(app.editor.document(id).unwrap().is_dirty());
+    let notice = app.notice.text.clone().unwrap_or_default();
+    assert!(notice.contains("文件已被其他程序修改"), "{notice}");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 fn editorconfig_sets_indentation_and_tidies_on_save() {
     let dir = winc_config::files::canonicalize(sample_folder("editorconfig")).unwrap();

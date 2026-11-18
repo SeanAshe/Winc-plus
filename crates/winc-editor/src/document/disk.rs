@@ -8,7 +8,7 @@ use winc_i18n::t;
 
 mod append;
 mod save_job;
-pub use save_job::{SaveJob, Saved};
+pub use save_job::{HandedSave, SaveJob, Saved};
 
 /// [`Document::check_disk`] 的结果。
 #[derive(Debug)]

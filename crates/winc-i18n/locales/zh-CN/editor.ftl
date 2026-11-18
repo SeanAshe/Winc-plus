@@ -108,6 +108,7 @@ editor-encoding-unencodable = 「{ $char }」无法以 { $encoding } 编码保�
 editor-file-no-path = 文件尚无路径
 editor-original-changed = 磁盘上的文件在打开后已被其他程序修改
 editor-large-identity = 文件有多个硬链接或属于其他用户，保存大文件需替换原文件，会断开链接或改变属主
+editor-large-handed-save = 大文件不能以管理员身份保存
 editor-moved-while-saving = 文件在保存期间被移走
 editor-large-cannot-compare = 文件过大，无法比较
 editor-large-utf8-only = 文件过大，只能按 UTF-8 打开

@@ -3181,6 +3181,7 @@ dependencies = [
  "winc-version",
  "winc-vim",
  "windows",
+ "windows-core",
  "windows-sys 0.59.0",
  "winit",
  "x11-dl",

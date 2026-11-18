@@ -14,6 +14,7 @@ mod bench;
 mod cli;
 mod crash;
 mod credentials;
+mod elevated;
 mod field;
 mod frame_log;
 mod icons;
@@ -72,6 +73,10 @@ use winc::{Envelope, Winc};
 pub fn run() {
     // 作为 `git`、`ssh` 的 askpass 程序启动时不创建窗口。
     if let Some(code) = askpass::helper() {
+        std::process::exit(code);
+    }
+    // 以管理员身份启动、只写一个文件的写入进程，同样不创建窗口。
+    if let Some(code) = elevated::helper() {
         std::process::exit(code);
     }
     shell_command::enter_real_path();

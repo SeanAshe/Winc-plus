@@ -143,7 +143,7 @@ impl App {
         }
     }
 
-    /// 是否在 (`x`, `y`) 落指后立即开始拖动，适用于滚动条、缩略图和分隔条。
+    /// 是否在 (`x`, `y`) 落指后立即开始拖动，适用于滚动条、缩略图、分隔条和设置卡片的顶部一条。
     ///
     /// 列表、按钮和文字需要先区分点按与滑动，不在落指时开始拖动。
     pub(in crate::app) fn touch_drag_at(&self, x: f32, y: f32) -> bool {
@@ -151,8 +151,10 @@ impl App {
             return false;
         }
         if self.settings.open {
+            let layout = self.settings_layout();
             return self.settings_part_at(x, y).is_none()
-                && self.settings_scrollbar_at(x, y).is_some();
+                && (self.settings_scrollbar_at(x, y).is_some()
+                    || layout.title_strip().contains(x, y));
         }
         if self
             .preview

@@ -92,7 +92,7 @@ fn menus_depend_on_what_was_clicked() {
     };
 
     // 根目录不能复制、改名、删除，没有相对路径，但可以粘贴；文件没有「在目录中查找」。
-    let root: Vec<_> = commands(tree_menu(None, true))
+    let root: Vec<_> = commands(tree_menu(None, true, false))
         .into_iter()
         .map(|(c, _)| c)
         .collect();
@@ -108,23 +108,31 @@ fn menus_depend_on_what_was_clicked() {
             CopyPath
         ]
     );
-    let file: Vec<_> = commands(tree_menu(Some(EntryKind::File), false))
+    let file: Vec<_> = commands(tree_menu(Some(EntryKind::File), false, false))
         .into_iter()
         .map(|(c, _)| c)
         .collect();
     assert!(!file.contains(&FindInFolder) && file.contains(&Delete) && file.contains(&Copy));
     assert!(file.contains(&Cut));
-    assert!(commands(tree_menu(Some(EntryKind::Dir), true)).contains(&(FindInFolder, true)));
+    assert!(commands(tree_menu(Some(EntryKind::Dir), true, false)).contains(&(FindInFolder, true)));
     // 多选：正好两个文件时才能比较，没有文件时「打开」灰显。
-    assert!(commands(tree_selection_menu(2)).contains(&(CompareFiles, true)));
+    assert!(commands(tree_selection_menu(2, false)).contains(&(CompareFiles, true)));
     assert!(
-        !commands(tree_selection_menu(3))
+        !commands(tree_selection_menu(3, false))
             .iter()
             .any(|(c, _)| *c == CompareFiles)
     );
-    assert!(commands(tree_selection_menu(0)).contains(&(OpenFiles, false)));
+    assert!(commands(tree_selection_menu(0, false)).contains(&(OpenFiles, false)));
     // 剪贴板中没有文件或图片时「粘贴」灰显。
-    assert!(commands(tree_menu(Some(EntryKind::File), false)).contains(&(Paste, false)));
+    assert!(commands(tree_menu(Some(EntryKind::File), false, false)).contains(&(Paste, false)));
+    // 「下载…」只在远端的文件、目录和多选上出现，本机的项和根目录没有。
+    let download = |menu: Vec<MenuEntry>| commands(menu).contains(&(Download, true));
+    assert!(download(tree_menu(Some(EntryKind::File), false, true)));
+    assert!(download(tree_menu(Some(EntryKind::Dir), false, true)));
+    assert!(download(tree_selection_menu(2, true)));
+    assert!(!download(tree_menu(Some(EntryKind::File), false, false)));
+    assert!(!download(tree_menu(None, false, true)));
+    assert!(!download(tree_selection_menu(2, false)));
 
     // 只有一个未命名的标签：关闭其他、关闭右侧、路径相关的命令都灰显。
     let only = commands(tab_menu((0, 0), 1, 1, false, false, false));
@@ -216,8 +224,9 @@ fn local_only_items_are_left_out_for_remote_files() {
                 .any(|pair| separator(&pair[0]) && separator(&pair[1]))
     };
     let menus = [
-        tree_menu(Some(EntryKind::File), true),
-        tree_menu(None, true),
+        tree_menu(Some(EntryKind::File), true, true),
+        tree_selection_menu(2, true),
+        tree_menu(None, true, false),
         tab_menu((0, 0), 1, 3, true, true, true),
         commit_file_menu(true, true, &[]),
         log_file_menu(true, true),

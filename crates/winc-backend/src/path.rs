@@ -214,6 +214,23 @@ fn leading_target(components: &mut std::path::Components<'_>) -> Option<Target> 
     Target::new(&device.to_str()?.strip_prefix(PREFIX)?.replace('+', ":"))
 }
 
+/// 返回 `from` 一项复制到目录 `to` 之下时用的名字 `name`。
+///
+/// 本机与远端之间换算一次（见 `escape::carry`）：Windows 上远端的文件名在虚拟路径中经过转义，
+/// 复制到本机时还原，本机不允许的部分写成 `%XX`（`50%25.txt` 为 `50%.txt`，`a?.md` 为
+/// `a%3F.md`）；本机的名字复制到远端时转义。同在本机、同在远端，以及其他系统上原样返回。
+pub fn carry_name(name: &std::ffi::OsStr, from: &Path, to: &Path) -> std::ffi::OsString {
+    #[cfg(windows)]
+    if let Some(carried) =
+        (name.to_str()).and_then(|text| crate::escape::carry(text, is_remote(from), is_remote(to)))
+    {
+        return carried.into();
+    }
+    #[cfg(not(windows))]
+    let _ = (from, to);
+    name.to_owned()
+}
+
 /// 把远端的文件名 `name` 换算为虚拟路径中的名字，与 [`virtual_path`] 对各段的换算相同。
 pub(crate) fn segment_name(name: &[u8]) -> std::ffi::OsString {
     segment_text(name).into()

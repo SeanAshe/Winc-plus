@@ -90,4 +90,7 @@ fn each_language_has_its_own_changelog_and_page() {
     assert_eq!(url(Locale::EnUs), "https://winc.si/releases/notes/en.md");
     assert!(page(Locale::ZhCn).contains("/zh-cn/"));
     assert!(!page(Locale::EnUs).contains("/zh-cn/"));
+    // 下载页与更新日志同一页，不带跳到更新日志的锚点。
+    assert_eq!(downloads(Locale::ZhCn), "https://winc.si/zh-cn/downloads");
+    assert_eq!(downloads(Locale::EnUs), "https://winc.si/downloads");
 }

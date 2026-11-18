@@ -51,6 +51,11 @@ impl App {
 
     /// 文件或目录拖入了窗口（`HoveredFile`；同时拖动多项时每项触发一次）：开始跟踪落点。
     pub(in crate::app) fn hover_file(&mut self) {
+        // 从 Winc 拖出的文件不放回 Winc 的窗口，不标出落点。
+        #[cfg(target_os = "macos")]
+        if crate::macos::dragging_out() {
+            return;
+        }
         self.update_file_hover();
     }
 

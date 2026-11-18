@@ -41,6 +41,15 @@ pub(crate) fn url(locale: Locale) -> String {
     format!("{NOTES}{file}")
 }
 
+/// 返回语言 `locale` 的下载页地址：不由应用自己更新的安装从这里取得新版本。
+#[cfg_attr(target_os = "macos", allow(dead_code))]
+pub(crate) fn downloads(locale: Locale) -> &'static str {
+    match locale {
+        Locale::ZhCn => "https://winc.si/zh-cn/downloads",
+        Locale::EnUs => "https://winc.si/downloads",
+    }
+}
+
 /// 返回语言 `locale` 的、在浏览器中查看完整更新日志的页面地址。
 pub(crate) fn page(locale: Locale) -> &'static str {
     match locale {

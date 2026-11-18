@@ -320,9 +320,10 @@ impl App {
 
 impl App {
     /// 点了状态栏上的更新提示（macOS 以外的平台）：新版本已经准备好时重新启动，正在下载时不
-    /// 处理，否则开始下载安装。
+    /// 处理，否则开始下载安装。不由应用自己更新的安装改为打开下载页，Arch 包提示用 pacman 更新。
     #[cfg(not(target_os = "macos"))]
     fn click_update(&mut self) {
+        use crate::updates::Delivery;
         use crate::winc::UpdateState;
         let state = self.link.shared.update_state.borrow().clone();
         match state {
@@ -331,7 +332,19 @@ impl App {
                 self.request_quit();
             }
             UpdateState::Downloading(..) => {}
-            _ => crate::updates::install(),
+            _ => match crate::updates::delivery() {
+                Some(Delivery::Download) => {
+                    let page = crate::release_notes::downloads(winc_i18n::locale());
+                    if let Err(e) = crate::system::open_url(page) {
+                        self.flash(t!(
+                            "preview-markdown-link-open-failed",
+                            error = e.to_string()
+                        ));
+                    }
+                }
+                Some(Delivery::Pacman) => self.flash(t!("workspace-status-update-pacman")),
+                _ => crate::updates::install(),
+            },
         }
     }
 }

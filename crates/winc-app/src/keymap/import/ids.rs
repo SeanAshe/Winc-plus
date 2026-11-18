@@ -384,7 +384,8 @@ const IDS: &[(Action, &[&str], &[&str])] = &[
         &["RenameElement", "RenameFile"],
         &["renameFile"],
     ),
-    (DeleteFile, &["$Delete"], &["deleteFile", "moveFileToTrash"]),
+    (DeleteFile, &["$Delete"], &["moveFileToTrash"]),
+    (DeleteFilePermanently, &[], &["deleteFile"]),
     (
         OpenSelected,
         &["EditSource"],

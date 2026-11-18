@@ -940,6 +940,9 @@ pub struct TreeState {
     pub(in crate::app) scans: crate::app::workspace::watch::TreeScans,
     /// 正在后台进行的复制（拖入、粘贴）。
     pub(in crate::app) copies: crate::app::workspace::copying::Copies,
+    /// 测试中代替系统拖放：最近一次拖出窗口的各项。
+    #[cfg(test)]
+    pub(crate) dragged_out: Vec<PathBuf>,
 }
 
 impl Default for TreeState {
@@ -956,6 +959,8 @@ impl Default for TreeState {
             drag: None,
             scans: Default::default(),
             copies: Default::default(),
+            #[cfg(test)]
+            dragged_out: Vec::new(),
         }
     }
 }
