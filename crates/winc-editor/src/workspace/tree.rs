@@ -1076,7 +1076,8 @@ pub fn copy_entry(
     let Some(name) = source.file_name() else {
         return invalid(t!("workspace-tree-cannot-copy"));
     };
-    let target = free_name(dir, Path::new(name));
+    let name = winc_backend::carry_name(name, source, dir);
+    let target = free_name(dir, Path::new(&name));
     let links: copying::Links = |from, to| winc_backend::fs::copy_symlink(from, to);
     copying::copy_item(source, &target, links, copying)?;
     Ok(target)

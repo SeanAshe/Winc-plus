@@ -378,7 +378,10 @@ impl App {
                     .as_ref()
                     .is_some_and(|w| w.multi_selected()) =>
             {
-                tree_selection_menu(self.tree_selected_files().len())
+                let targets = self.tree_targets();
+                let remote =
+                    !targets.is_empty() && targets.iter().all(|p| winc_backend::is_remote(p));
+                tree_selection_menu(self.tree_selected_files().len(), remote)
             }
             MenuTarget::Tree(path) => {
                 // 目录自己的一行和空白处一样：不能改名、剪切、删除。
@@ -390,7 +393,8 @@ impl App {
                     ws.row_of(p).map(|i| ws.rows()[i].kind)
                 });
                 let can_paste = self.can_paste_into_tree();
-                let mut menu = tree_menu(kind, can_paste);
+                let remote = path.as_deref().is_some_and(winc_backend::is_remote);
+                let mut menu = tree_menu(kind, can_paste, remote);
                 if kind.is_none() {
                     menu.extend(self.folder_items(folder));
                 }

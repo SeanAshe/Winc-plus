@@ -59,17 +59,21 @@ arboard = { workspace = true, features = ["wayland-data-control"] }
 # 一致，避免重复链接同一个库。
 [target.'cfg(windows)'.dependencies]
 rfd = { version = "0.15", default-features = false }
-# 任务栏的跳转列表（`ICustomDestinationList`，COM 接口）；版本与 winc-preview 保持一致。
+# 跳转列表、拖出文件等 COM 接口；版本与 winc-preview 保持一致。
 windows = { version = "0.62", default-features = false, features = [
     "std",
     "Win32_Foundation",
     "Win32_System_Com",
     "Win32_System_Com_StructuredStorage",
+    "Win32_System_Ole",
+    "Win32_System_SystemServices",
     "Win32_System_Variant",
     "Win32_UI_Shell",
     "Win32_UI_Shell_Common",
     "Win32_UI_Shell_PropertiesSystem",
 ] }
+# 实现拖放来源（`IDropSource`）的 `#[implement]` 宏引用此包；版本随 `windows`。
+windows-core = { version = "0.62", default-features = false }
 windows-sys = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_Graphics_Dwm",
@@ -81,6 +85,7 @@ windows-sys = { workspace = true, features = [
     "Win32_System_IO",
     "Win32_System_Pipes",
     "Win32_System_Registry",
+    "Win32_System_Threading",
     "Win32_UI_Input_Pointer",
     "Win32_UI_HiDpi",
     "Win32_UI_Shell",

@@ -331,18 +331,19 @@ impl App {
             NextResult => self.next_result(false),
             PreviousResult => self.next_result(true),
 
-            RenameFile | DeleteFile | FindInFolder => {
+            RenameFile | DeleteFile | DeleteFilePermanently | FindInFolder => {
                 let Some(path) = self.shortcut_target() else {
                     return false;
                 };
                 match action {
                     RenameFile => self.start_rename(&path),
+                    FindInFolder => self.find_in_folder(&path),
                     // 文件树里删除选中的各项。
-                    DeleteFile if self.focus == Focus::Tree => {
-                        self.ask_delete_all(self.tree_targets());
+                    _ if self.focus == Focus::Tree => {
+                        let paths = self.tree_targets();
+                        self.ask_delete_all(paths, action == DeleteFilePermanently);
                     }
-                    DeleteFile => self.ask_delete(&path),
-                    _ => self.find_in_folder(&path),
+                    _ => self.ask_delete_all(vec![path], action == DeleteFilePermanently),
                 }
             }
             OpenSelected => self.open_selected(false),

@@ -7,16 +7,24 @@ use crate::test_util::scratch;
 
 #[test]
 fn names_follow_the_numbered_and_copy_schemes() {
-    assert_eq!(split_name("a.tar.gz"), ("a.tar", ".gz"));
-    assert_eq!(split_name(".env"), (".env", ""));
-    assert_eq!(split_name("Makefile"), ("Makefile", ""));
-    assert_eq!(candidate("image", ".png", 0, Naming::Numbered), "image.png");
-    assert_eq!(
-        candidate("image", ".png", 2, Naming::Numbered),
-        "image-2.png"
-    );
-    assert_eq!(candidate("a", ".txt", 1, Naming::Copy), "a 副本.txt");
-    assert_eq!(candidate("a", ".txt", 2, Naming::Copy), "a 副本 2.txt");
+    let split = |name: &str| split_name(OsStr::new(name));
+    assert_eq!(split("a.tar.gz"), ("a.tar".into(), ".gz".into()));
+    assert_eq!(split(".env"), (".env".into(), "".into()));
+    assert_eq!(split("Makefile"), ("Makefile".into(), "".into()));
+    let name =
+        |stem: &str, ext: &str, n, naming| candidate(OsStr::new(stem), OsStr::new(ext), n, naming);
+    assert_eq!(name("image", ".png", 0, Naming::Numbered), "image.png");
+    assert_eq!(name("image", ".png", 2, Naming::Numbered), "image-2.png");
+    assert_eq!(name("a", ".txt", 1, Naming::Copy), "a 副本.txt");
+    assert_eq!(name("a", ".txt", 2, Naming::Copy), "a 副本 2.txt");
+    // 不是 UTF-8 的名字原样保留，副本只加上后缀。
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let stem = OsStr::from_bytes(b"caf\xE9");
+        let copy = candidate(stem, OsStr::new(".txt"), 1, Naming::Copy);
+        assert_eq!(copy.as_bytes(), b"caf\xE9 \xE5\x89\xAF\xE6\x9C\xAC.txt");
+    }
 }
 
 #[test]
@@ -58,6 +66,17 @@ fn copies_files_and_folders_without_overwriting() {
     assert_eq!(fs::read_to_string(dest.join("a.txt")).unwrap(), "changed");
     let third = copy_into(&sources[..1], &dest, &Copying::default()).unwrap();
     assert_eq!(third, [dest.join("a 副本 2.txt")]);
+
+    // 某一项失败时停止，错误中带上之前复制好的各项。
+    let missing = src.join("gone.txt");
+    let error = copy_into(
+        &[sources[0].clone(), missing.clone()],
+        &dest,
+        &Copying::default(),
+    )
+    .unwrap_err();
+    assert_eq!(error.path, missing);
+    assert_eq!(error.done, [dest.join("a 副本 3.txt")]);
 
     // 粘贴到源文件所在的目录：得到一个副本。
     let beside = copy_into(&sources[..1], &src, &Copying::default()).unwrap();

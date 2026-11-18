@@ -101,11 +101,7 @@ impl App {
                 self.run_file_saved(id);
                 self.request_redraw();
             }
-            Err(e) => self.notify(winc_i18n::t!(
-                "workspace-save-failed",
-                name = name,
-                error = e.to_string()
-            )),
+            Err(e) => self.save_failed(id, &name, &e),
         }
         // 后台保存期间没有同步磁盘：现在补一次，期间其他程序确实修改过就报冲突。
         if let Some(path) = path {
@@ -116,5 +112,74 @@ impl App {
         {
             self.write_document_with(id, None, quiet, true);
         }
+    }
+
+    /// 保存文档 `id`（名为 `name`）失败，原因为 `error`：提示原因；本机的文件被系统拒绝写入时，
+    /// 提示条上带「以管理员身份重试…」（[`App::save_as_admin`]）。大文件不带。
+    pub(in crate::app) fn save_failed(
+        &mut self,
+        id: DocumentId,
+        name: &str,
+        error: &std::io::Error,
+    ) {
+        let message = winc_i18n::t!(
+            "workspace-save-failed",
+            name = name,
+            error = error.to_string()
+        );
+        let doc = self.editor.document(id).filter(|doc| !doc.is_large());
+        let path = doc.and_then(|doc| doc.path.as_deref());
+        if path.is_some_and(|path| crate::elevated::can_retry(path, error)) {
+            self.notify_with(message, NoticeAction::SaveAsAdmin(id));
+        } else {
+            self.notify(message);
+        }
+    }
+
+    /// 以管理员身份保存文档 `id`：内容按文档的编码写进只有当前用户能访问的临时文件，再经系统的
+    /// 授权对话框由 winc 自身的写入进程写进原文件（见 `crate::elevated`）。授权和写入在单独的
+    /// 线程上等待，结果和普通的后台保存一样经 [`App::poll_saves`] 收取。
+    ///
+    /// 与普通保存一样，文件已被其他程序修改时不写，切到该标签由冲突卡片决定。
+    pub(in crate::app) fn save_as_admin(&mut self, id: DocumentId) {
+        if self.saving(id) {
+            return;
+        }
+        let Some(doc) = self.editor.document_mut(id) else {
+            return;
+        };
+        let name = doc.name().into_owned();
+        if doc.check_overwrite() {
+            if let Some(index) = self.editor.index_of(id) {
+                self.activate_tab(index);
+            }
+            self.notify(winc_i18n::t!("workspace-save-conflict", name = name));
+            return;
+        }
+        let Some(doc) = self.editor.document_mut(id) else {
+            return;
+        };
+        let started = crate::elevated::private_dir().and_then(|dir| {
+            let copy = dir.join("content");
+            match doc.begin_handed_save(&copy) {
+                Ok(handed) => Ok((dir, copy, handed)),
+                Err(e) => {
+                    let _ = winc_backend::fs::remove_all(&dir);
+                    Err(e)
+                }
+            }
+        });
+        let (dir, copy, handed) = match started {
+            Ok(started) => started,
+            Err(e) => return self.save_failed(id, &name, &e),
+        };
+        self.disk.saves.running.insert(id);
+        let sender = self.disk.saves.results.0.clone();
+        let owner = crate::elevated::Owner::of(self.window.handle.as_deref());
+        self.spawn_blocking_then(UserEvent::Saved, move || {
+            let result = crate::elevated::write(&copy, handed.target(), owner);
+            let _ = winc_backend::fs::remove_all(&dir);
+            let _ = sender.send((id, false, handed.finish(result)));
+        });
     }
 }

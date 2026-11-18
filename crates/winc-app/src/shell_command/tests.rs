@@ -134,8 +134,13 @@ fn the_authorized_script_quotes_paths() {
     );
     // AppleScript 字符串内的反斜杠和双引号要转义。
     assert_eq!(
-        authorized_script(r#"a "b" \c"#),
+        authorized_script(r#"a "b" \c"#, None),
         r#"do shell script "a \"b\" \\c" with administrator privileges"#
+    );
+    // 对话框中的说明同样转义。
+    assert_eq!(
+        authorized_script("cmd", Some(r#"save "hosts""#)),
+        r#"do shell script "cmd" with prompt "save \"hosts\"" with administrator privileges"#
     );
 }
 

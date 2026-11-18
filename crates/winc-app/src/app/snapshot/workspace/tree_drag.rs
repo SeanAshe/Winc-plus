@@ -1,5 +1,5 @@
 //! 文件树拖放的测试：拖动阈值、拖入目录移动文件、放回原处、悬停展开与边缘滚动，
-//! 以及从窗口外拖入文件。
+//! 拖出窗口，以及从窗口外拖入文件。
 
 use std::time::{Duration, Instant};
 
@@ -184,6 +184,38 @@ fn a_folder_cannot_go_into_itself_and_escape_cancels() {
             .unwrap()
             .starts_with("无法移动「main.rs」")
     );
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn dragging_out_of_the_window_hands_local_files_to_the_system() {
+    let dir = drag_folder("drag-out");
+    let mut app = app_with(&dir, false);
+    paint(&mut app);
+    let notes = row_of(&app, "notes.md");
+    let lib = row_of(&app, "lib");
+    let from = path_of(&app, notes);
+    let outside = (app.layout.window.x - 20.0, app.layout.window.y + 40.0);
+
+    // 拖出窗口：交给系统的拖放，窗口内的拖动随之结束，松开鼠标不再移动。
+    drag_row(&mut app, notes, lib);
+    app.on_mouse_move(outside.0, outside.1);
+    assert_eq!(app.panels.tree.dragged_out, std::slice::from_ref(&from));
+    assert!(app.tree_dragging().is_none());
+    app.on_mouse_up(MouseButton::Left);
+    assert!(from.is_file());
+
+    // 远程的项不交给系统，仍在窗口内拖动。
+    app.panels.tree.dragged_out.clear();
+    drag_row(&mut app, notes, lib);
+    let target = winc_backend::Target::new("drag-out").unwrap();
+    app.panels.tree.drag.as_mut().unwrap().paths =
+        vec![winc_backend::virtual_path(&target, b"/notes.md")];
+    app.on_mouse_move(outside.0, outside.1);
+    assert!(app.panels.tree.dragged_out.is_empty());
+    assert!(app.tree_dragging().is_some());
+    app.cancel_tree_drag();
 
     std::fs::remove_dir_all(&dir).unwrap();
 }

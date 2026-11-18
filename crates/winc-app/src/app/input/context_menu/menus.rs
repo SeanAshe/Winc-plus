@@ -138,8 +138,9 @@ pub fn without_local_only(menu: Vec<MenuEntry>, terminal: bool, mounted: bool) -
 /// 返回文件树菜单的菜单项。
 ///
 /// `kind` 是右键点中的那一项的类型，`None` 表示空白处（根目录）：根目录不能改名、删除，
-/// 也没有相对路径。「在目录中查找」只对目录和根目录出现。
-pub fn tree_menu(kind: Option<EntryKind>, can_paste: bool) -> Vec<MenuEntry> {
+/// 也没有相对路径。「在目录中查找」只对目录和根目录出现。`remote` 表示这一项在远端主机上，
+/// 此时可以下载到本机。
+pub fn tree_menu(kind: Option<EntryKind>, can_paste: bool, remote: bool) -> Vec<MenuEntry> {
     use MenuCommand::*;
     use MenuEntry::{Item, Separator};
 
@@ -154,6 +155,9 @@ pub fn tree_menu(kind: Option<EntryKind>, can_paste: bool) -> Vec<MenuEntry> {
         menu.extend([Item(Cut, true), Item(Copy, true)]);
     }
     menu.push(Item(Paste, can_paste));
+    if remote && kind.is_some() {
+        menu.push(Item(Download, true));
+    }
     menu.push(Separator);
     menu.push(Item(CopyPath, true));
     if kind.is_some() {
@@ -171,8 +175,9 @@ pub fn tree_menu(kind: Option<EntryKind>, can_paste: bool) -> Vec<MenuEntry> {
 /// 文件时灰显）、比较所选文件（正好两个文件时才有）、剪切、复制、复制路径、复制相对路径和删除，
 /// 都作用于选中的各项。
 ///
-/// 新建、改名等在多项选择下没有意义的项不出现。
-pub fn tree_selection_menu(files: usize) -> Vec<MenuEntry> {
+/// 新建、改名等在多项选择下没有意义的项不出现。`remote` 表示选中的各项在远端主机上，此时
+/// 可以下载到本机。
+pub fn tree_selection_menu(files: usize, remote: bool) -> Vec<MenuEntry> {
     use MenuCommand::*;
     use MenuEntry::{Item, Separator};
 
@@ -180,10 +185,11 @@ pub fn tree_selection_menu(files: usize) -> Vec<MenuEntry> {
     if files == 2 {
         menu.push(Item(CompareFiles, true));
     }
+    menu.extend([Separator, Item(Cut, true), Item(Copy, true)]);
+    if remote {
+        menu.push(Item(Download, true));
+    }
     menu.extend([
-        Separator,
-        Item(Cut, true),
-        Item(Copy, true),
         Separator,
         Item(CopyPath, true),
         Item(CopyRelativePath, true),

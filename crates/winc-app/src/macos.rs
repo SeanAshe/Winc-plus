@@ -1,8 +1,8 @@
 //! macOS 上 `winit` 没有提供、需要直接调用 `AppKit` 的能力。
 //!
-//! 包括窗口背后的 `NSWindow`、菜单（含「窗口」菜单和程序坞菜单）、文件对话框、目录菜单和帧同步
-//! （`CADisplayLink`）。所有 Objective-C 消息发送都集中在本模块；除特别说明外，函数只能在主线程
-//! 调用，各处的线程前提由紧贴 `unsafe` 块的 `// SAFETY:` 注释说明。
+//! 包括窗口背后的 `NSWindow`、菜单（含「窗口」菜单和程序坞菜单）、文件对话框、目录菜单、拖出
+//! 文件和帧同步（`CADisplayLink`）。所有 Objective-C 消息发送都集中在本模块；除特别说明外，函数
+//! 只能在主线程调用，各处的线程前提由紧贴 `unsafe` 块的 `// SAFETY:` 注释说明。
 
 // 范围：本模块及其全部子模块；每个 `unsafe` 块都有 `// SAFETY:` 说明。
 #![allow(unsafe_code)] // Objective-C 消息发送和运行时
@@ -10,6 +10,9 @@
 mod app_menu;
 mod dialogs;
 mod display_link;
+// 测试中以 `TreeState::dragged_out` 代替系统的拖放。
+#[cfg_attr(test, allow(dead_code))]
+mod drag;
 mod files;
 mod folder_menu;
 pub mod install;
@@ -29,6 +32,9 @@ pub use dialogs::{
     popup_menu, show_panel,
 };
 pub use display_link::DisplayLink;
+#[cfg_attr(test, allow(unused_imports))]
+pub use drag::drag_files;
+pub use drag::dragging_out;
 pub use files::{default_browser, move_to_trash};
 pub use folder_menu::{FolderItem, on_folder_menu, popup_folder_menu};
 // 测试中由 `App` 上的字段代替剪贴板，不使用这两个函数。

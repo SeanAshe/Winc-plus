@@ -1,4 +1,5 @@
-//! 在文件树中拖动文件或目录，移入其他目录（按着 `⌥` 松开时复制）。
+//! 在文件树中拖动文件或目录，移入其他目录（按着 `⌥` 松开时复制）；拖出窗口时交给系统的拖放，
+//! 放进其他程序时复制。
 //!
 //! 从系统文件管理器等来源拖入窗口的文件和目录见 `file_drop.rs`。
 
@@ -102,7 +103,8 @@ impl App {
 
     /// 处理按住文件树项时的鼠标移动，(`x`, `y`) 为鼠标的窗口坐标（逻辑像素）。
     ///
-    /// 移动距离超过 [`DRAG_THRESHOLD`] 后形成拖动，之后随鼠标位置重新计算放置目标。
+    /// 移动距离超过 [`DRAG_THRESHOLD`] 后形成拖动，之后随鼠标位置重新计算放置目标；拖出窗口时
+    /// 交给系统的拖放（见 [`Self::drag_out`]）。
     pub(in crate::app) fn drag_tree_item(&mut self, x: f32, y: f32) {
         let Some(drag) = &mut self.panels.tree.drag else {
             return;
@@ -116,6 +118,9 @@ impl App {
         }
 
         let paths = drag.paths.clone();
+        if !self.layout.window.contains(x, y) && self.drag_out(&paths) {
+            return;
+        }
         let target = self.drop_target(&paths, x, y, self.pointer.modifiers.alt_key());
         // 只有鼠标所在行是收起的目录、且该目录正是当前放置目标时才计时；停留的目录改变时重新计时。
         let collapsed = self
@@ -183,6 +188,37 @@ impl App {
         }
         self.set_hover(self.hover_at(self.pointer.mouse.0, self.pointer.mouse.1));
         self.request_redraw();
+    }
+
+    /// 把拖出窗口的 `paths` 交给系统的拖放，交出后结束窗口内的拖动；返回是否已交出。
+    ///
+    /// 只交出本机的文件，远程的项留在窗口内。系统只提供复制，拖回 Winc 的窗口时不放下。
+    /// Linux 上不交出。
+    fn drag_out(&mut self, paths: &[PathBuf]) -> bool {
+        if paths.iter().any(|path| winc_backend::is_remote(path)) || !self.start_drag_out(paths) {
+            return false;
+        }
+        self.cancel_tree_drag();
+        true
+    }
+
+    /// 测试中代替系统的拖放，记录拖出的各项。
+    #[cfg(test)]
+    fn start_drag_out(&mut self, paths: &[PathBuf]) -> bool {
+        self.panels.tree.dragged_out = paths.to_vec();
+        true
+    }
+
+    /// 把 `paths` 交给系统的拖放，返回系统是否开始拖放。
+    #[cfg(not(test))]
+    fn start_drag_out(&mut self, paths: &[PathBuf]) -> bool {
+        #[cfg(target_os = "macos")]
+        let start = crate::macos::drag_files;
+        #[cfg(windows)]
+        let start = crate::windows::drag_files;
+        #[cfg(not(any(target_os = "macos", windows)))]
+        let start = |_: &winit::window::Window, _: &[PathBuf]| false;
+        self.window.handle.as_ref().is_some_and(|w| start(w, paths))
     }
 
     /// 取消拖动（按下 Esc 或窗口失去焦点），不移动任何文件。
@@ -340,7 +376,7 @@ impl App {
             (copies, failures)
         };
         let done = |(copies, failures), copying| UserEvent::Copied(copies, failures, copying);
-        if let Some((copies, failures)) = self.spawn_copy(remote, copy, done) {
+        if let Some((copies, failures)) = self.spawn_copy(remote, false, copy, done) {
             self.copied_into_tree(copies, failures);
         }
     }

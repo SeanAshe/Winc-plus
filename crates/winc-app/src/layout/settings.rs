@@ -994,6 +994,28 @@ pub struct SettingsView<'a> {
     pub editing: Option<Setting>,
     /// 正文的滚动量（像素）。
     pub scroll: f32,
+    /// 卡片相对窗口中央的偏移（逻辑像素），见 [`settings_card`]。
+    pub offset: (f32, f32),
+}
+
+/// 返回设置卡片在窗口 `window` 中的位置：从中央移动 `offset`，四周至少留出 `SETTINGS_MARGIN`。
+pub fn settings_card(window: Rect, (dx, dy): (f32, f32)) -> Rect {
+    let w = SETTINGS_W.min(window.w - SETTINGS_MARGIN * 2.0).max(0.0);
+    let h = SETTINGS_H.min(window.h - SETTINGS_MARGIN * 2.0).max(0.0);
+    // 窗口过小时上下限颠倒，以下限为准，不用 `clamp`。
+    let place = |start: f32, span: f32, size: f32, d: f32| {
+        let centered = start + (span - size) / 2.0 + d;
+        centered
+            .min(start + span - SETTINGS_MARGIN - size)
+            .max(start + SETTINGS_MARGIN)
+            .round()
+    };
+    Rect::new(
+        place(window.x, window.w, w, dx),
+        place(window.y, window.h, h, dy),
+        w,
+        h,
+    )
 }
 
 /// 返回搜索 `query` 时正文列出的各组：各页中名称或说明含有 `query` 的设置项
@@ -1101,16 +1123,10 @@ impl SettingsLayout {
             git,
             editing,
             scroll,
+            offset,
         } = view;
         let searching = !query.trim().is_empty();
-        let w = SETTINGS_W.min(window.w - SETTINGS_MARGIN * 2.0).max(0.0);
-        let h = SETTINGS_H.min(window.h - SETTINGS_MARGIN * 2.0).max(0.0);
-        let card = Rect::new(
-            (window.x + (window.w - w) / 2.0).round(),
-            (window.y + (window.h - h) / 2.0).round(),
-            w,
-            h,
-        );
+        let card = settings_card(window, offset);
 
         let nav = Rect::new(card.x, card.y, SETTINGS_NAV_W.min(card.w), card.h);
         // 搜索框与右侧标题行垂直居中对齐，各页列在其下。「终端」一项的高度按显示比例收放，
@@ -1246,6 +1262,11 @@ impl SettingsLayout {
     /// 返回正文的最大滚动量（像素）。
     pub fn max_scroll(&self) -> f32 {
         (self.content_h - self.body.h).max(0.0)
+    }
+
+    /// 卡片顶部与标题行同高的一条，横跨两栏：其中没有部件的地方可以拖动卡片。
+    pub fn title_strip(&self) -> Rect {
+        Rect::new(self.card.x, self.card.y, self.card.w, self.header.h)
     }
 
     /// 返回 `(x, y)` 处可点击的部件；落在控件之外时返回 `None`。

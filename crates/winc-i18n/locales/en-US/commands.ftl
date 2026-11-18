@@ -133,6 +133,7 @@ cmd-next-result = Next Search Result
 cmd-previous-result = Previous Search Result
 cmd-rename-file = Rename…
 cmd-delete-file = Delete
+cmd-delete-file-permanently = Delete Permanently
 cmd-open-selected = Open
 cmd-preview-selected = Open (Keep Focus in File Tree)
 cmd-find-in-folder = Find in Folder…

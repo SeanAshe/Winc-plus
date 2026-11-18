@@ -96,11 +96,12 @@ pub enum Request {
 /// 应用内更新的状态，设置的「关于」页显示。
 ///
 /// macOS 上由 Sparkle 更新（`macos/updates.rs`），其他平台以 AppImage 运行或由安装包安装时由
-/// 应用自己更新（`updates.rs`），此外总是 [`UpdateState::Off`]。
+/// 应用自己更新（`updates.rs`），其他安装方式同样检查、只提醒；没有配置更新通道时总是
+/// [`UpdateState::Off`]。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum UpdateState {
-    /// 当前版本不检查更新：没有配置更新通道、应用包中没有 Sparkle（例如 `cargo run`）、不是以
-    /// AppImage 运行（由包管理器更新）、不是由安装包安装，或者平台不支持。
+    /// 当前版本不检查更新：没有配置更新通道、应用包中没有 Sparkle（例如 `cargo run`），或者
+    /// 平台不支持。
     #[default]
     Off,
     /// 可以检查，这次运行还没有检查过。

@@ -103,6 +103,7 @@ fn vscode_keybindings_add_and_remove_keys() {
   { "key": "[KeyA]", "command": "workbench.action.gotoLine" },
   { "key": "cmd+j", "command": "workbench.action.navigateBack" },
   { "key": "cmd+j", "command": "-workbench.action.navigateBack" },
+  { "key": "shift+cmd+backspace", "command": "deleteFile" },
 ]"#,
     );
     let imported = vscode::read(&dir, Os::Mac).unwrap();
@@ -118,6 +119,11 @@ fn vscode_keybindings_add_and_remove_keys() {
     assert_eq!(keys(custom, Action::GoToLine), None);
     // 增删之后与方案相同的命令不算改过。
     assert_eq!(keys(custom, Action::GoBack), None);
+    // `deleteFile` 不经废纸篓，对应永久删除；`moveFileToTrash` 才是删除。
+    assert_eq!(
+        keys(custom, Action::DeleteFilePermanently).unwrap(),
+        ["alt+cmd+backspace", "shift+cmd+backspace"]
+    );
 
     // 没有 `keybindings.json`：只换用 VS Code 方案；格式不对时说明原因。
     let empty = scratch("vscode-empty");

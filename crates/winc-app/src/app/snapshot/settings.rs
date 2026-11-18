@@ -1,4 +1,4 @@
-//! 设置浮层与字号缩放的测试：模态行为、键盘遍历、鼠标命中、字体名校验、滚动、动画。
+//! 设置浮层与字号缩放的测试：模态行为、键盘遍历、鼠标命中、字体名校验、滚动、拖动、动画。
 
 // 格式化设置页的测试用 sh 脚本冒充格式化工具。
 mod appearance;
@@ -11,6 +11,85 @@ mod terminal;
 use super::*;
 #[cfg(unix)]
 use winc_editor::format::{PRESETS, Task};
+
+#[test]
+fn dragging_the_title_row_moves_the_card_and_keeps_it_in_the_window() {
+    use std::time::{Duration, Instant};
+
+    let dir = sample_folder("settings-drag");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    app.open_settings();
+    app.settings.motion = None;
+    paint(&mut app);
+    let before = app.settings_layout();
+    let window = app.layout.window;
+
+    // 按住标题行的空白处拖动：卡片随鼠标移动，关闭按钮等部件跟着走。
+    let header = before.header;
+    let (x, y) = (header.x + header.w / 2.0, header.y + header.h / 2.0);
+    app.on_mouse_move(x, y);
+    app.on_mouse_down(MouseButton::Left);
+    app.on_mouse_move(x - 100.0, y + 40.0);
+    let moved = app.settings_layout();
+    assert_eq!(
+        (moved.card.x, moved.card.y),
+        (before.card.x - 100.0, before.card.y + 40.0)
+    );
+    let close = moved.close;
+    let at = (close.x + close.w / 2.0, close.y + close.h / 2.0);
+    assert_eq!(app.settings_part_at(at.0, at.1), Some(SettingsPart::Close));
+
+    // 拖动期间只重绘卡片，画面与完整绘制相同。
+    paint(&mut app);
+    assert!(app.settings.scroll_base.is_some());
+    app.on_mouse_move(x - 120.0, y + 60.0);
+    paint(&mut app);
+    let reused = app
+        .frame
+        .renderer
+        .as_ref()
+        .unwrap()
+        .image()
+        .unwrap()
+        .pixels
+        .clone();
+    assert!(
+        app.settings_scroll_tick(Instant::now() + Duration::from_secs(1))
+            .is_none()
+    );
+    paint(&mut app);
+    let full = &app.frame.renderer.as_ref().unwrap().image().unwrap().pixels;
+    let differ = (reused.iter().zip(full)).filter(|(a, b)| a != b).count();
+    assert_eq!(differ, 0, "拖动时使用快照的画面与完整绘制不同");
+
+    // 拖得再远，卡片也停在窗口四周的边距以内。
+    app.on_mouse_move(-5000.0, -5000.0);
+    app.on_mouse_up(MouseButton::Left);
+    let card = app.settings_layout().card;
+    assert_eq!(
+        (card.x, card.y),
+        (window.x + SETTINGS_MARGIN, window.y + SETTINGS_MARGIN)
+    );
+
+    // 按住时关闭设置，拖动随之结束。
+    let strip = app.settings_layout().title_strip();
+    app.on_mouse_move(strip.x + 4.0, strip.y + strip.h / 2.0);
+    app.on_mouse_down(MouseButton::Left);
+    assert!(app.settings_dragging());
+    app.close_settings();
+    assert!(!app.settings_dragging());
+    app.on_mouse_up(MouseButton::Left);
+
+    // 关闭后再打开，卡片仍在原处；点在卡片外照常关闭。
+    app.open_settings();
+    assert_eq!(app.settings_layout().card, card);
+    app.on_mouse_move(window.right() - 5.0, window.bottom() - 5.0);
+    app.on_mouse_down(MouseButton::Left);
+    app.on_mouse_up(MouseButton::Left);
+    assert!(!app.settings.open);
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
 
 #[test]
 fn scrolling_settings_reuses_the_window_below_and_looks_the_same() {
@@ -390,6 +469,7 @@ fn settings_pages_are_listed_on_the_left() {
             git: 1.0,
             editing: None,
             scroll: 0.0,
+            offset: (0.0, 0.0),
         };
         let layout = SettingsLayout::compute(app.layout.window, &view, &mut |_| 0.0);
         for row in &layout.rows {

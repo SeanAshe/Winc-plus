@@ -50,6 +50,42 @@ pub struct Saved {
     changed: Option<(Option<Stamp>, u64)>,
 }
 
+/// 交给另一个进程写出的保存（以管理员身份写入），由 [`Document::begin_handed_save`] 创建：内容已
+/// 按文档的编码写进一个临时文件，那个进程把它写进 [`HandedSave::target`]。
+pub struct HandedSave {
+    path: PathBuf,
+    target: PathBuf,
+    version: u64,
+    revision: u64,
+}
+
+impl HandedSave {
+    /// 要写入的文件：路径是符号链接时为链接指向的文件。
+    pub fn target(&self) -> &Path {
+        &self.target
+    }
+
+    /// 那个进程写完，结果为 `result`：读取文件此刻的状态，得到交给 [`Document::finish_save`] 的
+    /// 结果。在后台线程上调用。
+    pub fn finish(self, result: io::Result<()>) -> Saved {
+        let result = result.and_then(|()| {
+            let metadata = winc_backend::fs::metadata(&self.target)?;
+            Ok(Written {
+                fresh: None,
+                mtime: metadata.modified,
+                len: metadata.len,
+            })
+        });
+        Saved {
+            path: self.path,
+            version: self.version,
+            revision: self.revision,
+            result,
+            changed: None,
+        }
+    }
+}
+
 /// 写好的文件。
 struct Written {
     /// 重新打开的刚写好的文件；打不开时为 `None`，继续引用原来的原文件。
@@ -146,6 +182,34 @@ impl Document {
             version: self.history.seal(),
             revision: self.revision,
         }))
+    }
+
+    /// 发起交给另一个进程的保存：把内容按当前的编码写到 `copy`，返回之后用的 [`HandedSave`]。
+    ///
+    /// # Errors
+    ///
+    /// 与 [`Document::save`] 相同：没有路径、只读、内容无法按当前的编码写出，或写 `copy` 失败。
+    /// 大文件不交给其他进程：片段引用原文件的字节范围，那个进程原地写入后就对不上了。
+    pub fn begin_handed_save(&mut self, copy: &Path) -> io::Result<HandedSave> {
+        if self.is_large() {
+            return Err(io::Error::other(t!("editor-large-handed-save")));
+        }
+        let Some(path) = self.path.clone() else {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                t!("editor-file-no-path"),
+            ));
+        };
+        if let Some(reason) = self.unwritable_reason() {
+            return Err(io::Error::new(io::ErrorKind::PermissionDenied, reason));
+        }
+        self.write_copy(copy)?;
+        Ok(HandedSave {
+            target: winc_config::files::canonicalize(&path).unwrap_or_else(|_| path.clone()),
+            path,
+            version: self.history.seal(),
+            revision: self.revision,
+        })
     }
 
     /// 收下后台保存的结果：把发起时的版本记为已保存，记下磁盘文件的当前状态，清除冲突标记。

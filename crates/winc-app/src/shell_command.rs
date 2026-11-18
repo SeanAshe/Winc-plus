@@ -203,11 +203,16 @@ pub(crate) fn uninstall(_: &Placement) -> Outcome {
     Outcome::Failed(String::new())
 }
 
-/// 返回通过系统授权对话框执行 `command` 的 `AppleScript` 脚本。
+/// 返回通过系统授权对话框执行 `command` 的 `AppleScript` 脚本；`prompt` 是对话框中的说明，
+/// 没有时用系统的说法。
 #[cfg(any(target_os = "macos", all(test, unix)))]
-fn authorized_script(command: &str) -> String {
-    let escaped = command.replace('\\', r"\\").replace('"', "\\\"");
-    format!("do shell script \"{escaped}\" with administrator privileges")
+pub(crate) fn authorized_script(command: &str, prompt: Option<&str>) -> String {
+    let escape = |text: &str| text.replace('\\', r"\\").replace('"', "\\\"");
+    let prompt = prompt.map_or_else(String::new, |p| format!(" with prompt \"{}\"", escape(p)));
+    format!(
+        "do shell script \"{}\"{prompt} with administrator privileges",
+        escape(command)
+    )
 }
 
 /// 返回需要授权时执行的 shell 命令：`installing` 为真时创建链接，否则移除。
@@ -230,7 +235,7 @@ fn authorized_command(placement: &Placement, installing: bool) -> String {
 pub(crate) fn run_authorized(placement: &Placement, installing: bool) -> Option<Outcome> {
     /// `osascript` 报告的「用户已取消」错误码（`AppleScript` 的 `userCanceledErr`）。
     const USER_CANCELED: &str = "(-128)";
-    let script = authorized_script(&authorized_command(placement, installing));
+    let script = authorized_script(&authorized_command(placement, installing), None);
     let output = std::process::Command::new("/usr/bin/osascript")
         .args(["-e", &script])
         .output();

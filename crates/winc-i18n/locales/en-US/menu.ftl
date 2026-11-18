@@ -82,6 +82,7 @@ menu-close-tabs-right = Close Tabs to the Right
 menu-close-tabs-left = Close Tabs to the Left
 menu-close-saved-tabs = Close Saved Tabs
 menu-compare-selected = Compare Selected Files
+menu-download = Download…
 menu-reveal-in-tree = Reveal in File Tree
 menu-tree-collapse-all = Collapse All Folders
 menu-tree-locate = Reveal Active File

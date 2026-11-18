@@ -1,5 +1,6 @@
 //! 应用内更新（macOS 以外的平台）：以 AppImage 运行时（`appimage`）、由安装包安装时
-//! （`installer`）检查新版本，下载核对后安装；其他安装方式由包管理器更新。
+//! （`installer`）检查新版本，下载核对后安装。其他安装方式（deb、rpm、Arch 包、Windows 便携版）
+//! 同样检查，找到新版本时只提醒，由下载页或包管理器取得（[`Delivery`]）。
 //!
 //! 更新通道和 EdDSA 公钥在构建时由 `WINC_UPDATE_CHANNELS`、`WINC_UPDATE_PUBLIC_KEY` 给出，两者
 //! 都有才启用；应用在启动后 [`FIRST_CHECK`]、之后每隔 [`CHECK_INTERVAL`] 检查一次。用户选择
@@ -95,14 +96,28 @@ struct Hooks {
     state: Box<dyn Fn(UpdateState) + Send + Sync>,
 }
 
+/// 找到新版本以后怎样取得它。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Delivery {
+    /// 由应用下载、核对后安装：AppImage 和 Windows 的安装包。
+    Install,
+    /// 由 pacman 从 Winc 的软件源更新：Arch 包。
+    Pacman,
+    /// 只提醒，从下载页取得：deb、rpm 和 Windows 便携版。
+    Download,
+}
+
 /// 启用后的更新器。
 struct Updater {
     /// 各通道 appcast 的完整下载地址。
     feeds: Vec<String>,
     /// 核对签名用的公钥。
     key: VerifyingKey,
-    /// 由应用自己更新的安装路径：AppImage 文件，或安装包安装的 `winc.exe`。
-    target: PathBuf,
+    /// 由应用自己更新的安装路径：AppImage 文件，或安装包安装的 `winc.exe`；其他安装方式为
+    /// `None`，只提醒。
+    target: Option<PathBuf>,
+    /// 找到新版本以后怎样取得它。
+    delivery: Delivery,
     hooks: Hooks,
 }
 
@@ -126,9 +141,9 @@ static WORK: Mutex<Work> = Mutex::new(Work {
 /// 进程退出后是否启动新版本：由 [`restart`] 置位，由 [`cancel_restart`] 清除。
 static RELAUNCH: AtomicBool = AtomicBool::new(false);
 
-/// 返回是否启用了应用内更新。
+/// 返回是否启用了更新检查。
 ///
-/// 构建时同时给出了更新通道和公钥、且当前安装由应用自己更新时才启用。
+/// 构建时同时给出了更新通道和公钥时启用；当前安装不由应用自己更新时只提醒（[`Delivery`]）。
 ///
 /// `tick` 在启动后 [`FIRST_CHECK`]、之后每隔 [`CHECK_INTERVAL`] 在后台线程上调用。
 /// 是否调用 [`check`] 由应用按设置决定。
@@ -138,13 +153,18 @@ pub fn start(
     tick: impl Fn() + Send + 'static,
 ) -> bool {
     let feeds = feeds(option_env!("WINC_UPDATE_CHANNELS").unwrap_or_default());
-    let key = option_env!("WINC_UPDATE_PUBLIC_KEY").and_then(public_key);
-    let (Some(key), Some(target)) = (key, platform::locate()) else {
+    let Some(key) = option_env!("WINC_UPDATE_PUBLIC_KEY").and_then(public_key) else {
         return false;
     };
     if feeds.is_empty() {
         return false;
     }
+    let target = platform::locate();
+    let delivery = match &target {
+        Some(_) => Delivery::Install,
+        None if from_pacman() => Delivery::Pacman,
+        None => Delivery::Download,
+    };
     let hooks = Hooks {
         found: Box::new(found),
         state: Box::new(state),
@@ -153,6 +173,7 @@ pub fn start(
         feeds,
         key,
         target,
+        delivery,
         hooks,
     };
     if UPDATER.set(updater).is_err() {
@@ -167,6 +188,26 @@ pub fn start(
         }
     });
     true
+}
+
+/// 找到新版本以后怎样取得它；没有启用更新检查时返回 `None`。
+pub fn delivery() -> Option<Delivery> {
+    UPDATER.get().map(|updater| updater.delivery)
+}
+
+/// 是否由 Arch 的 pacman 安装：程序是 `/usr/bin/winc`，pacman 的本地数据库里有 winc 包。
+#[allow(
+    clippy::disallowed_methods,
+    reason = "只访问本机：程序自身和 pacman 的数据库在本机"
+)]
+fn from_pacman() -> bool {
+    cfg!(unix)
+        && std::env::current_exe().is_ok_and(|exe| exe == Path::new("/usr/bin/winc"))
+        && std::fs::read_dir("/var/lib/pacman/local").is_ok_and(|entries| {
+            entries
+                .flatten()
+                .any(|entry| entry.file_name().to_string_lossy().starts_with("winc-"))
+        })
 }
 
 /// 在后台检查更新。
@@ -206,9 +247,13 @@ pub fn check() {
 
 /// 在后台下载上次检查找到的更新包，核对后准备安装。
 ///
-/// 成功后状态为 [`UpdateState::Ready`]。没有找到过更新包、已有检查或下载在进行时不执行任何操作。
+/// 成功后状态为 [`UpdateState::Ready`]。没有找到过更新包、已有检查或下载在进行、当前安装不由
+/// 应用自己更新时不执行任何操作。
 pub fn install() {
     let Some(updater) = UPDATER.get() else {
+        return;
+    };
+    let Some(target) = &updater.target else {
         return;
     };
     let Some(item) = work(|w| w.item.clone()) else {
@@ -226,7 +271,7 @@ pub fn install() {
                 report(UpdateState::Downloading(item.version.clone(), percent));
             }
         };
-        let result = platform::prepare(&item, &updater.target, &updater.key, &progress);
+        let result = platform::prepare(&item, target, &updater.key, &progress);
         work(|w| {
             w.busy = false;
             if let Ok(program) = &result {

@@ -44,6 +44,8 @@ pub enum Pick {
     BackgroundImage,
     /// 连接远端主机对话框中密钥文件右端的按钮：选密钥文件，从 `~/.ssh` 开始。
     KeyFile,
+    /// 远端文件树的「下载…」：选本机的目录，把参数中的各项下载到那里。
+    Download(Vec<PathBuf>),
 }
 
 /// 无法打开的文件在编辑区中给出的操作。
@@ -931,12 +933,17 @@ impl App {
                 }
                 true
             }
-            Err(e) => {
+            // 另存为的新位置不以管理员身份重试：那是用户刚选的地方，可以换一个。
+            Err(e) if saved_as => {
                 self.notify(t!(
                     "workspace-save-failed",
                     name = name,
                     error = e.to_string()
                 ));
+                false
+            }
+            Err(e) => {
+                self.save_failed(id, &name, &e);
                 false
             }
         }
@@ -966,7 +973,8 @@ impl App {
             | Pick::WslFolder(_)
             | Pick::WorktreeFolder
             | Pick::AddFolder
-            | Pick::BackgroundImage => (String::new(), None),
+            | Pick::BackgroundImage
+            | Pick::Download(_) => (String::new(), None),
         };
 
         #[cfg(target_os = "macos")]
@@ -981,12 +989,14 @@ impl App {
                     files: true,
                     dir: dir.as_deref(),
                 },
-                Pick::OpenFolder | Pick::WslFolder(_) | Pick::WorktreeFolder | Pick::AddFolder => {
-                    Panel::Open {
-                        files: false,
-                        dir: None,
-                    }
-                }
+                Pick::OpenFolder
+                | Pick::WslFolder(_)
+                | Pick::WorktreeFolder
+                | Pick::AddFolder
+                | Pick::Download(_) => Panel::Open {
+                    files: false,
+                    dir: None,
+                },
                 Pick::SaveAs(_) => Panel::Save {
                     name: &name,
                     dir: dir.as_deref(),
@@ -1029,6 +1039,13 @@ impl App {
                     };
                     (choose, t!("cmd-open-folder"))
                 }
+                Pick::Download(_) => {
+                    let choose = Choose::Open {
+                        directory: true,
+                        dir: None,
+                    };
+                    (choose, t!("menu-download"))
+                }
                 Pick::SaveAs(_) => (
                     Choose::Save {
                         name: &name,
@@ -1058,6 +1075,7 @@ impl App {
                 Pick::AddFolder => t!("cmd-add-folder"),
                 Pick::WslFolder(_) => t!("cmd-open-wsl-folder"),
                 Pick::SaveAs(_) => t!("cmd-save-as"),
+                Pick::Download(_) => t!("menu-download"),
             };
             // 对话框的标题不带省略号；挂在窗口上，打开期间窗口不响应。
             let mut dialog = rfd::FileDialog::new().set_title(title.trim_end_matches('…'));
@@ -1081,7 +1099,8 @@ impl App {
                     Pick::OpenFolder
                     | Pick::WslFolder(_)
                     | Pick::WorktreeFolder
-                    | Pick::AddFolder => dialog.pick_folder(),
+                    | Pick::AddFolder
+                    | Pick::Download(_) => dialog.pick_folder(),
                     Pick::SaveAs(_) => dialog.set_file_name(&name).save_file(),
                 };
                 let _ = proxy.send_event(UserEvent::Picked(kind, path));
@@ -1117,7 +1136,8 @@ impl App {
             | Pick::WorktreeFolder
             | Pick::AddFolder
             | Pick::BackgroundImage
-            | Pick::KeyFile => None,
+            | Pick::KeyFile
+            | Pick::Download(_) => None,
         };
 
         let Some(path) = path else { return };
@@ -1128,6 +1148,7 @@ impl App {
             Pick::AddFolder => self.add_folder(&path),
             Pick::BackgroundImage => self.set_background_image(Some(path)),
             Pick::KeyFile => self.key_file_picked(&path),
+            Pick::Download(paths) => self.download(paths, path),
             Pick::SaveAs(id) => {
                 if self.save_document(id, Some(path))
                     && let Some(prompt) = continuation

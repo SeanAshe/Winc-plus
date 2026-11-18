@@ -323,7 +323,7 @@ fn a_folder_on_a_connected_host_opens_as_the_workspace() {
     row_of(&app, "renamed.rs");
     std::fs::create_dir_all(dir.join("old/deep")).unwrap();
     std::fs::write(dir.join("old/deep/x"), "").unwrap();
-    app.delete_entries(&[root.join("renamed.rs"), root.join("old")]);
+    app.delete_entries(&[root.join("renamed.rs"), root.join("old")], true);
     assert!(!dir.join("renamed.rs").exists() && !dir.join("old").exists());
     assert!(app.notice.text.is_none(), "{:?}", app.notice.text);
 
@@ -526,6 +526,7 @@ fn a_folder_on_a_connected_host_opens_as_the_workspace() {
     app.close_picker();
     local_only_actions_are_not_offered_on_a_remote_host();
     files_copied_in_a_remote_tree_are_pasted_there();
+    remote_items_download_to_this_computer();
 }
 
 /// 截图：开始页、主机面板、目录面板（浏览与筛选）和打开远端目录后的窗口。
@@ -603,7 +604,7 @@ fn a_long_copy_shows_its_progress_and_can_be_cancelled() {
     let mut app = blank_app(false);
     let copying = Arc::new(winc_editor::Copying::default());
     winc_editor::copy_entry(&dir, &dir.join("big.bin"), &dir, &copying).unwrap();
-    app.panels.tree.copies.track(Arc::clone(&copying));
+    app.panels.tree.copies.track(Arc::clone(&copying), false);
 
     // 右上角正显示着别的提示：不替换它，等它消失之后再显示进度。
     app.notify("别的提示");
@@ -629,12 +630,25 @@ fn a_long_copy_shows_its_progress_and_can_be_cancelled() {
 
     // 没有被取消的复制结束时收起它的进度。
     let copying = Arc::new(winc_editor::Copying::default());
-    app.panels.tree.copies.track(Arc::clone(&copying));
+    app.panels.tree.copies.track(Arc::clone(&copying), false);
     app.clear_flash();
     app.copy_tick(now + Duration::from_secs(9));
     assert_eq!(app.notice.action, Some(NoticeAction::CancelCopy));
     assert!(!app.copy_finished(&copying));
     assert!(app.notice.text.is_none() && app.status.message.is_none());
+
+    // 下载的进度和取消说下载。
+    let copying = Arc::new(winc_editor::Copying::default());
+    winc_editor::copy_entry(&dir, &dir.join("big.bin"), &dir, &copying).unwrap();
+    app.panels.tree.copies.track(Arc::clone(&copying), true);
+    app.copy_tick(now + Duration::from_secs(20));
+    assert_eq!(
+        app.notice.text.as_deref(),
+        Some("正在下载「big.bin」… 3.0 MB / 3.0 MB")
+    );
+    app.run_notice_action();
+    assert!(app.copy_finished(&copying));
+    assert_eq!(app.status.message.as_deref(), Some("已取消下载"));
 }
 
 /// 写入的内容延迟 `delay` 之后才到达 `inner`，各次写入互不等待：模拟网络的延迟。
@@ -1261,6 +1275,42 @@ fn local_only_actions_are_not_offered_on_a_remote_host() {
 /// [`a_folder_on_a_connected_host_opens_as_the_workspace`] 调用，原因同
 /// [`folders_on_a_remote_host_are_not_taken_for_files`]。
 ///
+/// 远端文件树的「下载…」：文件和目录复制到本机选定的目录，重名时不覆盖，完成后可以在文件管理器
+/// 中显示。由 [`a_folder_on_a_connected_host_opens_as_the_workspace`] 调用，原因同
+/// [`folders_on_a_remote_host_are_not_taken_for_files`]。
+fn remote_items_download_to_this_computer() {
+    let dir = search_folder("remote-download").canonicalize().unwrap();
+    std::fs::write(dir.join("notes.txt"), "note\n").unwrap();
+    std::fs::write(dir.join("50%.txt"), "half\n").unwrap();
+    std::fs::create_dir_all(dir.join("kit/inner")).unwrap();
+    std::fs::write(dir.join("kit/inner/tool.txt"), "tool\n").unwrap();
+    let here = sample_folder("remote-download-here")
+        .canonicalize()
+        .unwrap();
+    std::fs::write(here.join("notes.txt"), "mine\n").unwrap();
+    let target = loopback("app-remote-download");
+    let root = winc_backend::virtual_path(&target, dir.as_os_str().as_bytes());
+    let mut app = blank_app(false);
+    app.config.remote_enabled = Some(true);
+    app.open_folder(&root);
+
+    let items = ["notes.txt", "kit", "50%.txt"].map(|name| root.join(name));
+    app.download(items.to_vec(), here.clone());
+    let read = |name: &str| std::fs::read_to_string(here.join(name)).unwrap();
+    assert_eq!(read("notes.txt"), "mine\n");
+    assert_eq!(read("notes 副本.txt"), "note\n");
+    assert_eq!(read("kit/inner/tool.txt"), "tool\n");
+    assert_eq!(read("50%.txt"), "half\n");
+    assert_eq!(app.notice.text.as_deref(), Some("已下载 3 项"));
+    assert_eq!(
+        app.notice.action,
+        Some(NoticeAction::Reveal(here.join("50%.txt")))
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&here);
+}
+
 /// 回归（#272）：系统剪贴板的文件列表放不下远端的文件，写入失败被忽略，粘贴时用的是剪贴板里
 /// 原有的内容：旧文字写成 `untitled.txt`，旧的本机文件被复制到远端，剪切永远不移动。
 fn files_copied_in_a_remote_tree_are_pasted_there() {

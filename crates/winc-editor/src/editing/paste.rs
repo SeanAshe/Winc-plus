@@ -1,5 +1,6 @@
 //! 粘贴文件和图片：复制到目录中时取不重名的名字，粘贴到 Markdown 中时写成图片或链接。
 
+use std::ffi::{OsStr, OsString};
 use std::io;
 use std::ops::Range;
 use std::path::{Component, Path, PathBuf};
@@ -40,35 +41,54 @@ enum Naming {
 
 /// 把文件名分成主名和扩展名（含 `.`）。
 ///
-/// 以 `.` 开头且没有其他 `.` 的名字（如 `.env`、`..`）整个是主名。
-fn split_name(name: &str) -> (&str, &str) {
-    match name.rfind('.') {
-        Some(dot) if dot > 0 => name.split_at(dot),
-        _ => (name, ""),
+/// 以 `.` 开头且没有其他 `.` 的名字（如 `.env`）整个是主名。名字不必是 UTF-8。
+fn split_name(name: &OsStr) -> (OsString, OsString) {
+    let path = Path::new(name);
+    match (path.file_stem(), path.extension()) {
+        (Some(stem), Some(ext)) => {
+            let mut dotted = OsString::from(".");
+            dotted.push(ext);
+            (stem.to_owned(), dotted)
+        }
+        _ => (name.to_owned(), OsString::new()),
     }
 }
 
-/// 返回第 `n` 个候选名字（`n` 为 0 时是原名）。
-fn candidate(stem: &str, ext: &str, n: u32, naming: Naming) -> String {
-    match (naming, n) {
-        (_, 0) => format!("{stem}{ext}"),
-        (Naming::Numbered, n) => format!("{stem}-{n}{ext}"),
-        (Naming::Copy, 1) => t!("editor-paste-copy-name", stem = stem, ext = ext),
+/// 返回第 `n` 个候选名字（`n` 为 0 时是原名）；主名 `stem` 和扩展名 `ext` 原样保留。
+fn candidate(stem: &OsStr, ext: &OsStr, n: u32, naming: Naming) -> OsString {
+    // 模板用文件名中不会出现的 NUL 和 `/` 占位，再换回原样的主名和扩展名：它们可以不是 UTF-8。
+    let (s, e) = ("\0", "/");
+    let template = match (naming, n) {
+        (_, 0) => format!("{s}{e}"),
+        (Naming::Numbered, n) => format!("{s}-{n}{e}"),
+        (Naming::Copy, 1) => t!("editor-paste-copy-name", stem = s, ext = e),
         (Naming::Copy, n) => t!(
             "editor-paste-copy-name-numbered",
-            stem = stem,
+            stem = s,
             number = n,
-            ext = ext
+            ext = e
         ),
+    };
+    let mut name = OsString::new();
+    for c in template.chars() {
+        match c {
+            '\0' => name.push(stem),
+            '/' => name.push(ext),
+            c => name.push(c.encode_utf8(&mut [0; 4])),
+        }
     }
+    name
 }
 
 /// 返回目录 `dir` 中以 `name` 为基础、不与已有项重名的、可以直接使用的路径。
 /// `is_dir` 为真时名字不分扩展名，`naming` 决定重名时怎么取名。
-fn free_path(dir: &Path, name: &str, is_dir: bool, naming: Naming) -> PathBuf {
-    let (stem, ext) = if is_dir { (name, "") } else { split_name(name) };
+fn free_path(dir: &Path, name: &OsStr, is_dir: bool, naming: Naming) -> PathBuf {
+    let (stem, ext) = match is_dir {
+        true => (name.to_owned(), OsString::new()),
+        false => split_name(name),
+    };
     (0u32..)
-        .map(|n| dir.join(candidate(stem, ext, n, naming)))
+        .map(|n| dir.join(candidate(&stem, &ext, n, naming)))
         .find(|path| winc_backend::fs::symlink_metadata(path).is_err())
         .expect("候选名字无穷多，总有一个未被占用")
 }
@@ -82,7 +102,7 @@ fn free_path(dir: &Path, name: &str, is_dir: bool, naming: Naming) -> PathBuf {
 /// 创建或写入文件失败时返回对应的 `std::io::Error`；写到一半失败时删除写了一半的文件。
 pub fn save_image(dir: &Path, png: &[u8]) -> io::Result<PathBuf> {
     loop {
-        let path = free_path(dir, IMAGE_NAME, false, Naming::Numbered);
+        let path = free_path(dir, OsStr::new(IMAGE_NAME), false, Naming::Numbered);
         match winc_backend::fs::create_new(&path, png) {
             Ok(()) => return Ok(path),
             // 取名与创建之间文件名可能已被其他程序占用：此时换下一个名字。
@@ -98,14 +118,19 @@ pub fn save_image(dir: &Path, png: &[u8]) -> io::Result<PathBuf> {
 /// `untitled-1.txt`……）。
 pub fn text_file_name(dir: &Path, text: &str) -> String {
     let name = format!("untitled.{}", guess_extension(text));
-    file_name_of(&free_path(dir, &name, false, Naming::Numbered))
+    file_name_of(&free_path(dir, OsStr::new(&name), false, Naming::Numbered))
 }
 
 /// 把图片粘贴为新文件时建议的文件名（不含目录）。
 ///
 /// 文件名为 `image.png`，在目录 `dir` 中重名时依次加 `-1`、`-2` 等。
 pub fn image_file_name(dir: &Path) -> String {
-    file_name_of(&free_path(dir, IMAGE_NAME, false, Naming::Numbered))
+    file_name_of(&free_path(
+        dir,
+        OsStr::new(IMAGE_NAME),
+        false,
+        Naming::Numbered,
+    ))
 }
 
 fn file_name_of(path: &Path) -> String {
@@ -181,6 +206,27 @@ pub struct CopyError {
     pub path: PathBuf,
     /// 失败的原因。
     pub error: io::Error,
+    /// 失败之前已经完成的各项的结果，顺序与输入相同。
+    pub done: Vec<PathBuf>,
+}
+
+/// 依次对 `sources` 中的各项执行 `each`，返回各项的结果；某一项失败时停止，错误中带上失败的
+/// 那一项和之前各项的结果。
+fn each_until_error(
+    sources: &[PathBuf],
+    mut each: impl FnMut(&Path) -> io::Result<PathBuf>,
+) -> Result<Vec<PathBuf>, CopyError> {
+    let mut done = Vec::with_capacity(sources.len());
+    for source in sources {
+        match each(source) {
+            Ok(result) => done.push(result),
+            Err(error) => {
+                let path = source.clone();
+                return Err(CopyError { path, error, done });
+            }
+        }
+    }
+    Ok(done)
 }
 
 /// 把 `sources` 逐个复制到目录 `dir` 中（目录连同其中的内容），返回新路径，顺序与 `sources` 相同。
@@ -190,36 +236,30 @@ pub struct CopyError {
 ///
 /// # Errors
 ///
-/// `sources` 中的项复制失败时停止，返回失败的那一项和原因，先前复制好的项保留；复制到自身
-/// 之内时返回 `InvalidInput`，被取消时返回 `Interrupted`（正在复制的一项已复制出的部分随之
-/// 删除）。
+/// `sources` 中的项复制失败时停止，返回失败的那一项、原因和先前复制好的项（留在磁盘上）；
+/// 复制到自身之内时返回 `InvalidInput`，被取消时返回 `Interrupted`（正在复制的一项已复制出的
+/// 部分随之删除）。
 pub fn copy_into(
     sources: &[PathBuf],
     dir: &Path,
     copying: &Copying,
 ) -> Result<Vec<PathBuf>, CopyError> {
-    sources
-        .iter()
-        .map(|source| {
-            let dir = match source.parent() {
-                Some(parent) if same(source, dir) => parent,
-                _ => dir,
-            };
-            copy_one(source, dir, Naming::Copy, copying).map_err(|error| CopyError {
-                path: source.clone(),
-                error,
-            })
-        })
-        .collect()
+    each_until_error(sources, |source| {
+        let dir = match source.parent() {
+            Some(parent) if same(source, dir) => parent,
+            _ => dir,
+        };
+        copy_one(source, dir, Naming::Copy, copying)
+    })
 }
 
 /// 把 `source` 复制到目录 `dir` 中，重名时按 `naming` 取名，返回新路径。
 fn copy_one(source: &Path, dir: &Path, naming: Naming, copying: &Copying) -> io::Result<PathBuf> {
     let meta = winc_backend::fs::symlink_metadata(source)?;
-    let name = source
-        .file_name()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, t!("editor-paste-cannot-copy")))?
-        .to_string_lossy();
+    let name = source.file_name().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, t!("editor-paste-cannot-copy"))
+    })?;
+    let name = winc_backend::carry_name(name, source, dir);
 
     if meta.is_dir() && inside(dir, source) {
         return Err(io::Error::new(
@@ -289,20 +329,12 @@ pub fn bring_images(
     files: &[PathBuf],
 ) -> Result<Vec<PathBuf>, CopyError> {
     let home = root.unwrap_or(doc_dir);
-    files
-        .iter()
-        .map(|file| {
-            if !is_markdown_image(file) || inside(file, home) {
-                return Ok(file.clone());
-            }
-            copy_one(file, doc_dir, Naming::Numbered, &Copying::default()).map_err(|error| {
-                CopyError {
-                    path: file.clone(),
-                    error,
-                }
-            })
-        })
-        .collect()
+    each_until_error(files, |file| {
+        if !is_markdown_image(file) || inside(file, home) {
+            return Ok(file.to_path_buf());
+        }
+        copy_one(file, doc_dir, Naming::Numbered, &Copying::default())
+    })
 }
 
 /// 粘贴到 Markdown 文档中的一段文本。

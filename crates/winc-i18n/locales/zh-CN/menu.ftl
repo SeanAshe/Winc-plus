@@ -76,6 +76,7 @@ menu-close-tabs-right = 关闭右侧标签页
 menu-close-tabs-left = 关闭左侧标签页
 menu-close-saved-tabs = 关闭已保存的标签页
 menu-compare-selected = 比较所选文件
+menu-download = 下载…
 menu-reveal-in-tree = 在文件树中显示
 menu-tree-collapse-all = 折叠所有目录
 menu-tree-locate = 定位当前文件

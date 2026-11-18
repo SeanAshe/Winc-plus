@@ -415,7 +415,8 @@ impl App {
                 MenuCommand::Copy => {
                     self.copy_entries(&self.tree_targets());
                 }
-                MenuCommand::Delete => self.ask_delete_all(self.tree_targets()),
+                MenuCommand::Delete => self.ask_delete_all(self.tree_targets(), false),
+                MenuCommand::Download => self.pick(Pick::Download(self.tree_targets())),
                 MenuCommand::CopyPath => self.copy_paths(&selection, false),
                 MenuCommand::CopyRelativePath => self.copy_paths(&selection, true),
                 _ => {}
@@ -448,6 +449,7 @@ impl App {
             MenuCommand::Copy => self.copy_entry(&target),
             // 右键时已选中了那一行（空白处则取消选中），粘贴到的目录由选中的行决定。
             MenuCommand::Paste => self.paste_into_tree(),
+            MenuCommand::Download => self.pick(Pick::Download(vec![target])),
             _ => {}
         }
     }
@@ -829,13 +831,13 @@ impl App {
 
     /// 删除前先确认（[`App::show_confirm`]），确认后移到废纸篓。
     pub(in crate::app) fn ask_delete(&mut self, path: &Path) {
-        self.ask_delete_all(vec![path.to_path_buf()]);
+        self.ask_delete_all(vec![path.to_path_buf()], false);
     }
 
-    /// 一次删除 `paths` 里的各项（文件树里多选时）。
+    /// 一次删除 `paths` 里的各项（文件树里多选时）；`permanent` 时不经废纸篓，确认时说明无法恢复。
     ///
     /// 打开的目录、附加的目录本身和它们以外的路径不删；一项都不剩时什么也不做。
-    pub(in crate::app) fn ask_delete_all(&mut self, mut paths: Vec<PathBuf>) {
+    pub(in crate::app) fn ask_delete_all(&mut self, mut paths: Vec<PathBuf>, permanent: bool) {
         let Some(workspace) = &self.editor.workspace else {
             return;
         };
@@ -844,47 +846,58 @@ impl App {
             return;
         }
 
+        // 远端主机上和 WSL 发行版中的文件同样不经过废纸篓。
+        let permanent = permanent || crate::system::has_no_trash(&paths[0], cfg!(windows));
         if self.window.handle.is_some() {
-            // 远端主机上和 WSL 发行版中的文件不经过废纸篓，直接删除：确认时说明无法恢复。
-            let permanent = crate::system::has_no_trash(&paths[0], cfg!(windows));
-            let message = match paths.as_slice() {
-                [path] => {
-                    let name = winc_editor::display_name(path);
-                    // 类别取自文件树：远端的路径不能在界面线程上查询。
-                    let folder = self.is_folder(path);
-                    match (folder, permanent) {
-                        (true, false) => t!("common-trash-confirm-folder", name = name),
-                        (false, false) => t!("common-trash-confirm-item", name = name),
-                        (true, true) => t!("common-delete-confirm-folder", name = name),
-                        (false, true) => t!("common-delete-confirm-item", name = name),
-                    }
-                }
-                many if permanent => t!("common-delete-confirm-items", count = many.len()),
-                many => t!("common-trash-confirm-items", count = many.len()),
-            };
-            let (detail, button) = if permanent {
-                (
-                    t!("common-delete-confirm-detail"),
-                    t!("common-delete-button"),
-                )
-            } else {
-                (t!("common-trash-confirm-detail"), t!("common-trash-move"))
-            };
-            self.show_confirm(&message, detail, button, move |ok| {
-                ok.then(|| UserEvent::Delete(paths.clone()))
+            let (message, detail, button) = self.delete_prompt(&paths, permanent);
+            self.show_confirm(&message, &detail, &button, move |ok| {
+                ok.then(|| UserEvent::Delete(paths.clone(), permanent))
             });
             return;
         }
 
         // 没有窗口（测试中）时直接删除。
-        self.delete_entries(&paths);
+        self.delete_entries(&paths, permanent);
     }
 
-    /// 把 `paths` 里的各项移到废纸篓。
+    /// 返回删除 `paths` 前确认框的问题、说明和按钮；`permanent` 时说明无法恢复。
+    pub(in crate::app) fn delete_prompt(
+        &self,
+        paths: &[PathBuf],
+        permanent: bool,
+    ) -> (String, String, String) {
+        let message = match paths {
+            [path] => {
+                let name = winc_editor::display_name(path);
+                // 类别取自文件树：远端的路径不能在界面线程上查询。
+                let folder = self.is_folder(path);
+                match (folder, permanent) {
+                    (true, false) => t!("common-trash-confirm-folder", name = name),
+                    (false, false) => t!("common-trash-confirm-item", name = name),
+                    (true, true) => t!("common-delete-confirm-folder", name = name),
+                    (false, true) => t!("common-delete-confirm-item", name = name),
+                }
+            }
+            many if permanent => t!("common-delete-confirm-items", count = many.len()),
+            many => t!("common-trash-confirm-items", count = many.len()),
+        };
+        let (detail, button) = if permanent {
+            (
+                t!("common-delete-confirm-detail"),
+                t!("common-delete-button"),
+            )
+        } else {
+            (t!("common-trash-confirm-detail"), t!("common-trash-move"))
+        };
+        (message, detail.to_string(), button.to_string())
+    }
+
+    /// 把 `paths` 里的各项删除：`permanent` 时直接删除，否则移到废纸篓（远端的路径总是直接
+    /// 删除）。
     ///
     /// 其中文件对应的标签：没有修改的关闭，有修改的保留，内容仍在，保存时会重新创建文件。
     /// 某一项删除失败时提示原因，其余各项仍然删除。
-    pub(in crate::app) fn delete_entries(&mut self, paths: &[PathBuf]) {
+    pub(in crate::app) fn delete_entries(&mut self, paths: &[PathBuf], permanent: bool) {
         // 先等待后台保存完成，否则已删除的文件会被保存重新写出。远端的保存与删除按顺序执行。
         if !paths.iter().any(|path| winc_backend::is_remote(path)) {
             self.wait_for_saves();
@@ -894,23 +907,26 @@ impl App {
         };
         let (trash, paths) = (self.trash, paths.to_vec());
         let delete = move || {
-            let remove = |path: &PathBuf| match winc_backend::is_remote(path) {
+            let remove = |path: &PathBuf| match permanent || winc_backend::is_remote(path) {
                 true => winc_backend::fs::remove_all(path),
                 false => trash(path),
             };
             let results: Vec<std::io::Result<()>> = paths.iter().map(remove).collect();
             (paths, results)
         };
-        self.file_work(&first, delete, |app, (paths, results)| {
-            app.entries_deleted(paths, results);
+        self.file_work(&first, delete, move |app, (paths, results)| {
+            app.entries_deleted(paths, results, permanent);
         });
     }
 
-    /// 删除完成：关闭对应的标签，更新文件树并提示；`results` 是 `paths` 中各项的结果。
-    fn entries_deleted(&mut self, paths: Vec<PathBuf>, results: Vec<std::io::Result<()>>) {
-        let permanent = paths
-            .first()
-            .is_some_and(|path| crate::system::has_no_trash(path, cfg!(windows)));
+    /// 删除完成：关闭对应的标签，更新文件树并提示；`results` 是 `paths` 中各项的结果，
+    /// `permanent` 表示没有经过废纸篓。
+    fn entries_deleted(
+        &mut self,
+        paths: Vec<PathBuf>,
+        results: Vec<std::io::Result<()>>,
+        permanent: bool,
+    ) {
         let mut deleted = Vec::new();
         for (path, result) in paths.into_iter().zip(results) {
             match result {

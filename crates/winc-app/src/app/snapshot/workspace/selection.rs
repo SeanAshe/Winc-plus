@@ -191,6 +191,35 @@ fn delete_key_trashes_the_selection_and_a_selected_folder_covers_its_children() 
 }
 
 #[test]
+fn permanent_delete_skips_the_trash() {
+    let dir = sample_folder("tree-permanent-delete");
+    let mut app = app_with(&dir, false);
+    // 用到废纸篓就失败。
+    app.trash = |_| Err(std::io::Error::other("trash"));
+    paint(&mut app);
+    let root = app.editor.workspace.as_ref().unwrap().root.clone();
+
+    // 确认框说明无法恢复，按钮是「永久删除」；平常的删除是移到废纸篓。
+    let file = [root.join("a.txt")];
+    let (message, _, button) = app.delete_prompt(&file, true);
+    assert_eq!(message, "要永久删除「a.txt」吗？");
+    assert_eq!(button, "永久删除");
+    let (_, _, button) = app.delete_prompt(&file, false);
+    assert_eq!(
+        button,
+        format!("移到{}", crate::app::snapshot::trash_name())
+    );
+
+    let a = row_of(&app, "a.txt");
+    click_row_with(&mut app, a, ModifiersState::empty());
+    app.run_action(crate::keymap::Action::DeleteFilePermanently);
+    assert!(!root.join("a.txt").exists());
+    assert_eq!(app.status.message.as_deref(), Some("已删除：a.txt"));
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn dragging_a_selected_row_moves_the_whole_selection() {
     let dir = sample_folder("tree-multi-drag");
     std::fs::create_dir_all(dir.join("lib")).unwrap();

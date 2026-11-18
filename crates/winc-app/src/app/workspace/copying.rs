@@ -1,10 +1,11 @@
-//! 文件树里在后台进行的复制（拖入、粘贴）：超过一定时间还没有结束时在右上角显示进度，
-//! 可以取消。
+//! 文件树里在后台进行的复制（拖入、粘贴、从远端下载）：超过一定时间还没有结束时在右上角显示
+//! 进度，可以取消。
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use winc_editor::Copying;
+use winc_editor::paste::CopyError;
 use winc_i18n::t;
 
 use super::*;
@@ -22,8 +23,8 @@ const PROGRESS_REFRESH: Duration = Duration::from_secs(1);
 /// 文件树里正在后台进行的各次复制。
 #[derive(Default)]
 pub struct Copies {
-    /// 尚未结束的各次复制，按开始的先后。
-    running: Vec<Arc<Copying>>,
+    /// 尚未结束的各次复制，按开始的先后；以及是否是从远端下载。
+    running: Vec<(Arc<Copying>, bool)>,
     /// 下一次显示或更新进度的时刻；没有复制在进行时为 `None`。
     due: Option<Instant>,
 }
@@ -31,9 +32,9 @@ pub struct Copies {
 // 用到它的测试只在 Unix 上编译。
 #[cfg(all(test, unix))]
 impl Copies {
-    /// 把 `copying` 记为正在进行、已到显示进度的时刻的一次复制。
-    pub(in crate::app) fn track(&mut self, copying: Arc<Copying>) {
-        self.running.push(copying);
+    /// 把 `copying` 记为正在进行、已到显示进度的时刻的一次复制；`download` 表示是下载。
+    pub(in crate::app) fn track(&mut self, copying: Arc<Copying>, download: bool) {
+        self.running.push((copying, download));
         self.due = Some(Instant::now());
     }
 }
@@ -54,29 +55,53 @@ fn size_label(bytes: u64) -> String {
     format!("{size:.1} {}", UNITS[unit])
 }
 
-/// 复制 `copying` 的进度说明：正在复制的一项的名字和已复制的大小，单个文件时还有总大小。
-fn progress_label(copying: &Copying) -> String {
+/// 复制 `copying` 的进度说明：正在复制的一项的名字和已复制的大小，单个文件时还有总大小；
+/// `download` 时说下载。
+fn progress_label(copying: &Copying, download: bool) -> String {
     let (name, total) = copying.item();
     let done = size_label(copying.copied());
-    match total {
-        Some(total) => t!(
+    match (total, download) {
+        (Some(total), false) => t!(
             "workspace-tree-copying-file",
             name = name,
             done = done,
             total = size_label(total)
         ),
-        None => t!("workspace-tree-copying-folder", name = name, done = done),
+        (Some(total), true) => t!(
+            "workspace-download-file",
+            name = name,
+            done = done,
+            total = size_label(total)
+        ),
+        (None, false) => t!("workspace-tree-copying-folder", name = name, done = done),
+        (None, true) => t!("workspace-download-folder", name = name, done = done),
+    }
+}
+
+/// 把一次复制的结果 `result` 分成复制好的各项和失败的原因（由 `failed` 写出）；`copying` 被取消时
+/// 不算失败，取消之前复制好的各项照常列出。
+pub(in crate::app) fn copy_outcome(
+    result: Result<Vec<PathBuf>, CopyError>,
+    copying: &Copying,
+    failed: impl FnOnce(&Path, &std::io::Error) -> String,
+) -> (Vec<PathBuf>, Option<String>) {
+    match result {
+        Ok(done) => (done, None),
+        Err(CopyError { done, .. }) if copying.is_cancelled() => (done, None),
+        Err(CopyError { path, error, done }) => (done, Some(failed(&path, &error))),
     }
 }
 
 impl App {
     /// 在后台执行一次复制 `work`，完成后把它的结果经 `done` 包成事件送回界面线程；`remote` 表示
-    /// 有一侧在远端主机上。没有事件循环（测试中）时就地执行，返回结果。
+    /// 有一侧在远端主机上，`download` 表示是从远端下载（进度和取消时这样说）。没有事件循环
+    /// （测试中）时就地执行，返回结果。
     ///
     /// 内容经网络传输时可能很久，不占用共用的线程池。
     pub(in crate::app) fn spawn_copy<R: Send + 'static>(
         &mut self,
         remote: bool,
+        download: bool,
         work: impl FnOnce(&Copying) -> R + Send + 'static,
         done: impl FnOnce(R, Arc<Copying>) -> UserEvent + Send + 'static,
     ) -> Option<R> {
@@ -84,7 +109,7 @@ impl App {
         let Some(proxy) = self.link.proxy.clone() else {
             return Some(winc_backend::remote::allow_blocking(|| work(&copying)));
         };
-        self.panels.tree.copies.running.push(Arc::clone(&copying));
+        (self.panels.tree.copies.running).push((Arc::clone(&copying), download));
         if self.panels.tree.copies.due.is_none() {
             self.panels.tree.copies.due = Some(Instant::now() + PROGRESS_DELAY);
         }
@@ -103,22 +128,66 @@ impl App {
     /// 复制 `copying` 结束：不再显示它的进度，返回它是否是被取消的。
     pub(in crate::app) fn copy_finished(&mut self, copying: &Arc<Copying>) -> bool {
         let copies = &mut self.panels.tree.copies;
-        copies.running.retain(|other| !Arc::ptr_eq(other, copying));
-        if copies.running.iter().all(|other| other.is_cancelled()) {
+        let download = (copies.running.iter()).any(|(other, d)| Arc::ptr_eq(other, copying) && *d);
+        copies
+            .running
+            .retain(|(other, _)| !Arc::ptr_eq(other, copying));
+        if copies.running.iter().all(|(other, _)| other.is_cancelled()) {
             copies.due = None;
             if self.notice.action == Some(NoticeAction::CancelCopy) {
                 self.dismiss_notice();
             }
         }
         if copying.is_cancelled() {
-            self.flash(t!("workspace-tree-copy-canceled"));
+            self.flash(match download {
+                true => t!("workspace-download-canceled"),
+                false => t!("workspace-tree-copy-canceled"),
+            });
         }
         copying.is_cancelled()
     }
 
+    /// 把远端的各项 `paths` 下载到本机的目录 `dir`（文件树的「下载…」），在后台进行。
+    ///
+    /// 目录连同其中的内容一起下载；重名时不覆盖，副本改名（见 `winc_editor::paste::copy_into`）。
+    pub(in crate::app) fn download(&mut self, paths: Vec<PathBuf>, dir: PathBuf) {
+        let copy = move |copying: &Copying| {
+            let copied = winc_editor::paste::copy_into(&paths, &dir, copying);
+            copy_outcome(copied, copying, |path, error| {
+                t!(
+                    "workspace-download-failed",
+                    name = winc_editor::display_name(path),
+                    error = error.to_string()
+                )
+            })
+        };
+        let done = |(done, failure), copying| UserEvent::Downloaded(done, failure, copying);
+        if let Some((done, failure)) = self.spawn_copy(true, true, copy, done) {
+            self.downloaded(done, failure);
+        }
+    }
+
+    /// 下载结束：失败时提示原因，否则提示下载了什么，按钮在文件管理器中显示下载到的地方；
+    /// `done` 是下载好的各项（失败或取消之前下载好的也在内）。
+    pub(in crate::app) fn downloaded(&mut self, done: Vec<PathBuf>, failure: Option<String>) {
+        if let Some(message) = failure {
+            self.notify(message);
+        } else if let Some(last) = done.last().cloned() {
+            let message = match done.as_slice() {
+                [one] => t!(
+                    "workspace-download-done-one",
+                    name = winc_editor::display_name(one)
+                ),
+                many => t!("workspace-download-done-many", count = many.len()),
+            };
+            self.notify_with(message, NoticeAction::Reveal(last));
+        }
+        self.request_redraw();
+    }
+
     /// 取消正在进行的各次复制：各自正在复制的一项停止，已复制完的各项保留。
     pub(in crate::app) fn cancel_copies(&mut self) {
-        for copying in &self.panels.tree.copies.running {
+        for (copying, _) in &self.panels.tree.copies.running {
             copying.cancel();
         }
         self.panels.tree.copies.due = None;
@@ -134,8 +203,9 @@ impl App {
         }
         let ours = self.notice.action == Some(NoticeAction::CancelCopy);
         let running =
-            (self.panels.tree.copies.running.iter()).find(|copying| !copying.is_cancelled());
-        if let Some(message) = running.map(|copying| progress_label(copying)) {
+            (self.panels.tree.copies.running.iter()).find(|(copying, _)| !copying.is_cancelled());
+        if let Some(message) = running.map(|(copying, download)| progress_label(copying, *download))
+        {
             if ours {
                 // 只换文字：提示条留在原处，不重新播放入场动画。
                 if self.notice.text.as_deref() != Some(message.as_str()) {

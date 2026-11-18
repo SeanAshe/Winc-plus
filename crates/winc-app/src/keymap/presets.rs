@@ -200,6 +200,8 @@ pub(super) const IDEA: &[PresetRow] = &[
         &["delete", "backspace", "cmd+backspace"],
         &["delete"],
     ),
+    // 与系统的文件管理器相同；其他系统上的 Shift+Delete 在 IDEA 中是剪切，不绑定。
+    row(DeleteFilePermanently, Tree, &["alt+cmd+backspace"], &[]),
     row(
         OpenSelected,
         Tree,
@@ -416,6 +418,13 @@ pub(super) const VSCODE: &[PresetRow] = &[
     row(PreviousError, Terminal, &["shift+f8"], &["shift+f8"]),
     row(RenameFile, Tree, &["enter"], &["f2"]),
     row(DeleteFile, Tree, &["cmd+backspace", "delete"], &["delete"]),
+    // 与系统的文件管理器相同。
+    row(
+        DeleteFilePermanently,
+        Tree,
+        &["alt+cmd+backspace"],
+        &["shift+delete"],
+    ),
     row(OpenSelected, Tree, &["cmd+down"], &["enter"]),
     row(FindInFolder, Tree, &["shift+alt+f"], &["shift+alt+f"]),
     row(FindNext, EditorOrFind, &["cmd+g", "f3"], &["f3"]),
