@@ -308,6 +308,7 @@ impl App {
             | Setting::VimClipboard
             | Setting::GitOpenWorktree
             | Setting::DropFolder
+            | Setting::AutoSave
             | Setting::Zoom
             | Setting::BackgroundImage
             | Setting::BackgroundFit
@@ -324,6 +325,7 @@ impl App {
                     Setting::VimClipboard => MenuTarget::VimClipboard,
                     Setting::GitOpenWorktree => MenuTarget::OpenWorktree,
                     Setting::DropFolder => MenuTarget::DropFolder,
+                    Setting::AutoSave => MenuTarget::AutoSave,
                     Setting::Zoom => MenuTarget::Zoom,
                     Setting::BackgroundImage => MenuTarget::BackgroundImage,
                     Setting::BackgroundFit => MenuTarget::BackgroundFit,

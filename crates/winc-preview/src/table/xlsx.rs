@@ -10,9 +10,9 @@ use std::collections::{BTreeMap, HashMap};
 use roxmltree::Document;
 use winc_i18n::t;
 
-use super::pull::{Token, Tokens, attribute};
 use super::{Area, MAX_COLUMNS, MAX_ROWS, Rows, Sheet, Table};
 use crate::ooxml::{package_target, parse, part, relations, text};
+use crate::xml::{Token, Tokens, attribute};
 use crate::zip::{self, Archive};
 
 /// 工作簿文件不在包关系中时的默认位置。

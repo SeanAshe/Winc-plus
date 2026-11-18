@@ -15,6 +15,28 @@ fn card_height(rows: usize) -> f32 {
     crate::theme::BAR_HEIGHT + rows as f32 * PICKER_ROW + 2.0 * crate::app::PICKER_PAD
 }
 
+/// 「打开最近的目录」列出整个最近列表；项目名菜单只列前面的几个，开始页更少。
+#[test]
+fn only_open_recent_lists_the_whole_history() {
+    use crate::app::input::context_menu::MenuCommand;
+    use winc_config::{MAX_RECENT, RECENT_IN_MENU};
+    let mut app = blank_app(false);
+    for n in 0..MAX_RECENT + 5 {
+        app.state.remember(&PathBuf::from(format!("/project/{n}")));
+    }
+    assert_eq!(app.state.recent.len(), MAX_RECENT);
+
+    app.run_action(Action::OpenRecent);
+    assert_eq!(app.overlays.picker.hits.len(), MAX_RECENT);
+    app.close_picker();
+
+    app.open_project_menu();
+    let recent = (menu_commands(&app).into_iter())
+        .filter(|(command, _)| matches!(command, MenuCommand::OpenRecent(_)))
+        .count();
+    assert_eq!(recent, RECENT_IN_MENU);
+}
+
 #[test]
 fn recent_folders_are_listed_filtered_and_opened_from_the_keyboard() {
     let alpha = search_folder("recent-alpha");

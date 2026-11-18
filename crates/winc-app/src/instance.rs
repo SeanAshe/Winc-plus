@@ -636,6 +636,10 @@ impl AppLock {
 /// 路径不存在时（例如 `winc 新目录/新文件.txt`）解析最近一个存在的上级目录，再拼上其余部分；
 /// 只解析文件所在的那一层不够：该层也可能不存在，而当前目录本身可能经由符号链接进入。
 pub fn absolute(path: &Path) -> PathBuf {
+    // 远端的路径（虚拟路径）本身就是绝对路径，不在本机上解析。
+    if winc_backend::is_remote(path) {
+        return path.to_path_buf();
+    }
     if let Ok(path) = winc_config::files::canonicalize(path) {
         return path;
     }

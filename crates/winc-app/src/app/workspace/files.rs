@@ -3,10 +3,27 @@
 //! 系统文件面板由 [`Pick`] 描述用途，[`App::pick`] 弹出，选择结果经事件循环回到
 //! [`App::on_picked`]。保存有界面线程与后台两条路径，后台保存见 `background_save.rs`。
 
+use std::time::{Duration, Instant};
+
+use winc_config::AutoSave;
 use winc_i18n::t;
 
 use super::*;
 use crate::system;
+
+/// 「停止输入后」自动保存时，最后一次修改之后等待的时间。
+const AUTO_SAVE_DELAY: Duration = Duration::from_secs(1);
+
+/// 自动保存的时机（见 [`App::auto_save_tick`]）。
+#[derive(Debug, Default)]
+pub(crate) struct AutoSaveWatch {
+    /// 上次检查时的焦点。
+    focus: Option<Focus>,
+    /// 等待保存的文档（标识和版本号）和到期时刻；文档再被修改时重新计时。
+    due: Option<(Vec<(DocumentId, u64)>, Instant)>,
+    /// 上次保存时的文档和版本号。
+    tried: Vec<(DocumentId, u64)>,
+}
 
 /// 系统文件对话框的用途。
 #[derive(Debug, Clone)]
@@ -420,15 +437,23 @@ impl App {
                     self.load_active_in_background();
                 }
             }
-            PlaceholderAction::OpenWithDefaultApp if winc_backend::is_remote(&path) => {
-                self.notify(t!("workspace-remote-local-only"));
-            }
             PlaceholderAction::OpenWithDefaultApp => {
-                if let Err(e) = system::open_with_default_app(&path) {
-                    self.notify(t!(
-                        "workspace-open-default-app-failed",
-                        error = e.to_string()
-                    ));
+                // 远端的文件：挂载在本机时（`remote.localFolders`）打开本机上的那一份。
+                let local = if winc_backend::is_remote(&path) {
+                    self.local_folder(&path)
+                } else {
+                    Some(path)
+                };
+                match local {
+                    None => self.notify(t!("workspace-remote-local-only")),
+                    Some(path) => {
+                        if let Err(e) = system::open_with_default_app(&path) {
+                            self.notify(t!(
+                                "workspace-open-default-app-failed",
+                                error = e.to_string()
+                            ));
+                        }
+                    }
                 }
             }
             PlaceholderAction::Reveal => self.reveal_in_file_manager(&path),
@@ -440,11 +465,21 @@ impl App {
     }
 
     /// 在系统文件管理器中显示 `path`；失败时提示原因。
+    ///
+    /// 远端的文件在挂载到本机的目录之内时（配置项 `remote.localFolders`）显示本机上的那一份；
+    /// 没有挂载时说明可以怎样设置。
     pub(in crate::app) fn reveal_in_file_manager(&mut self, path: &Path) {
-        if winc_backend::is_remote(path) {
-            self.notify(t!("workspace-remote-local-only"));
-            return;
-        }
+        let local;
+        let path = if winc_backend::is_remote(path) {
+            let Some(mapped) = self.local_folder(path) else {
+                self.notify(t!("workspace-remote-reveal-unmapped"));
+                return;
+            };
+            local = mapped;
+            local.as_path()
+        } else {
+            path
+        };
         if let Err(e) = system::reveal_in_file_manager(path) {
             self.notify(t!(
                 "workspace-reveal-failed",
@@ -650,6 +685,58 @@ impl App {
         }
     }
 
+    /// 设置什么时候自动保存。
+    pub(in crate::app) fn set_auto_save(&mut self, choice: AutoSave) {
+        self.config.auto_save = Some(choice);
+        self.save_config();
+        self.request_redraw();
+    }
+
+    /// 事件循环空闲时调用：焦点离开编辑区（例如切到终端）时保存当前文档；「停止输入后」时，有
+    /// 修改的文档在最后一次修改 [`AUTO_SAVE_DELAY`] 之后保存。返回下一次需要调用的时刻。
+    pub(in crate::app) fn auto_save_tick(&mut self, now: Instant) -> Option<Instant> {
+        // 查找条和跳转条在编辑区之内，不算离开。
+        let left = self.auto_save_watch.focus == Some(Focus::Editor)
+            && !matches!(
+                self.focus,
+                Focus::Editor | Focus::Search | Focus::Replace | Focus::Prompt
+            );
+        self.auto_save_watch.focus = Some(self.focus);
+        if left {
+            self.auto_save_active();
+        }
+
+        let watch = &mut self.auto_save_watch;
+        if self.config.auto_save != Some(AutoSave::AfterDelay) {
+            watch.due = None;
+            return None;
+        }
+        let dirty: Vec<(DocumentId, u64)> = (self.editor.documents.iter())
+            .filter(|doc| doc.is_dirty() && !doc.in_conflict())
+            .map(|doc| (doc.id, doc.revision))
+            .collect();
+        // 保存过而没有保存成功的（只读、已删除、没有路径）不每隔一段时间重试，再修改后再保存。
+        if dirty.is_empty() || dirty == watch.tried {
+            watch.due = None;
+            return None;
+        }
+        match &watch.due {
+            Some((seen, at)) if *seen == dirty && now < *at => Some(*at),
+            Some((seen, _)) if *seen == dirty => {
+                let ids: Vec<DocumentId> = dirty.iter().map(|&(id, _)| id).collect();
+                watch.due = None;
+                watch.tried = dirty;
+                self.auto_save(&ids);
+                None
+            }
+            _ => {
+                let at = now + AUTO_SAVE_DELAY;
+                watch.due = Some((dirty, at));
+                Some(at)
+            }
+        }
+    }
+
     /// 开启「自动保存」时，在切换离开之前保存当前文档。
     fn auto_save_active(&mut self) {
         if let Some(id) = self.editor.active().map(|d| d.id) {
@@ -664,7 +751,7 @@ impl App {
     /// 窗口上有提示框时也不保存，提示框会使窗口失去焦点，用户随后点「不保存」就不再有效。保存成功
     /// 时不提示，失败时仍然提示。
     pub(in crate::app) fn auto_save(&mut self, ids: &[DocumentId]) {
-        if self.config.auto_save != Some(true) {
+        if self.config.auto_save.unwrap_or_default() == AutoSave::Off {
             return;
         }
         #[cfg(target_os = "macos")]

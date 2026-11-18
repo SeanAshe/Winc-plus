@@ -10,6 +10,13 @@ impl App {
     pub(crate) fn adopt_config(&mut self, config: Config) {
         let old = std::mem::replace(&mut self.config, config);
         let new = &self.config;
+        if old.keymap != new.keymap || old.shortcuts != new.shortcuts {
+            for problem in crate::keymap::install_from(new) {
+                eprintln!("winc: {problem}");
+            }
+            self.keymap_changed();
+        }
+        let new = &self.config;
         let zoom = old.ui_zoom != new.ui_zoom;
         let fonts = (old.editor_font != new.editor_font || old.ui_font != new.ui_font)
             || (old.editor_size != new.editor_size || old.ui_size != new.ui_size)

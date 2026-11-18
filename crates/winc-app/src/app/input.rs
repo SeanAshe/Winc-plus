@@ -9,6 +9,7 @@ pub(super) mod context_menu;
 pub(super) mod keyboard;
 pub(super) mod mouse;
 pub(super) mod palette;
+pub(super) mod tap;
 pub(super) mod touch;
 
 /// 鼠标与修饰键的状态：位置、悬停与拖动的目标、按下时所在的控件。

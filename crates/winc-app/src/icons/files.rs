@@ -162,6 +162,25 @@ pub fn folders(frame: &mut Frame<'_>, (x, y): (f32, f32), color: Color, clip: Re
     frame.stroke(&layers, STROKE, color, clip);
 }
 
+/// 绘制符号链接的角标，以 `(cx, cy)` 为中心：底色 `bg` 的圆片上一个指向右上的箭头。
+pub fn link_badge(
+    frame: &mut Frame<'_>,
+    (cx, cy): (f32, f32),
+    bg: Color,
+    color: Color,
+    clip: Rect,
+) {
+    let r = 4.5;
+    frame.rect_clipped(Rect::new(cx - r, cy - r, r * 2.0, r * 2.0), bg, r, clip);
+    let (a, head) = (2.0, 2.75);
+    let shapes = [
+        Stroke::Line(cx - a, cy + a, cx + a, cy - a),
+        Stroke::Line(cx + a, cy - a, cx + a - head, cy - a),
+        Stroke::Line(cx + a, cy - a, cx + a, cy - a + head),
+    ];
+    frame.stroke(&shapes, STROKE, color, clip);
+}
+
 /// 绘制小号目录图标，12×10，以 `(cx, cy)` 为中心：形状和合上的 [`folder`] 相同，线条和小号分支
 /// 图标一样细，用于侧栏小号文字旁。
 pub fn folder_small(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {

@@ -923,3 +923,41 @@ fn a_retracting_name_is_not_drawn_once_the_tree_is_hidden() {
     let below = pixel(app.layout.tree.right() + 40.0, top + 4.0 + TREE_ROW * 3.0);
     assert_eq!(band, below);
 }
+
+/// 符号链接的图标左下角有箭头角标，名称和行尾与普通文件相同。
+#[cfg(unix)]
+#[test]
+fn symbolic_links_carry_a_badge_on_the_icon() {
+    let dir = sample_folder("symlink-badge");
+    std::os::unix::fs::symlink(dir.join("a.txt"), dir.join("b.txt")).unwrap();
+    let mut app = app_with(&dir, false);
+    paint(&mut app);
+    let (plain, link) = (row_of(&app, "a.txt"), row_of(&app, "b.txt"));
+    assert!(app.editor.workspace.as_ref().unwrap().rows()[link].symlink);
+    let image = app.frame.renderer.as_ref().unwrap().image().unwrap();
+    let pixel = |x: f32, y: f32| {
+        let (x, y) = ((x * SCALE) as usize, (y * SCALE) as usize);
+        image.pixels[y * image.width as usize + x]
+    };
+    // 两行的图标一段不同，行尾相同。
+    let tree = app.layout.tree;
+    let row = |index: usize, from: f32, to: f32| {
+        let top = app.tree_row_top(index);
+        let mut x = from;
+        let mut pixels = Vec::new();
+        while x < to {
+            for dy in 0..TREE_ROW as usize {
+                pixels.push(pixel(x, top + dy as f32));
+            }
+            x += 0.5;
+        }
+        pixels
+    };
+    assert_ne!(
+        row(plain, tree.x, tree.x + 48.0),
+        row(link, tree.x, tree.x + 48.0)
+    );
+    let end = (tree.right() - 40.0, tree.right() - 2.0);
+    assert_eq!(row(plain, end.0, end.1), row(link, end.0, end.1));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

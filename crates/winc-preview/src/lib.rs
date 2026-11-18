@@ -18,4 +18,5 @@ mod ooxml;
 pub mod pdf;
 pub mod svg;
 pub mod table;
+pub mod xml;
 mod zip;

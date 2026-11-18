@@ -78,3 +78,5 @@ app-move-trash-failed = 无法将「{ $path }」移到废纸篓
 app-move-copy-failed = 复制失败（{ $status }）
 app-move-relaunch-failed = 无法重新启动 Winc：{ $error }
 app-move-unknown-location = 无法确定 Winc 的位置
+close-confirm-quit = 要退出吗？
+close-confirm-window = 要关闭此窗口吗？

@@ -1,11 +1,13 @@
-//! 首次设置：第一次运行时开始页只显示语言、外观、主题和模块几项，点击「完成」后换回开始操作
-//! 和最近目录。页面出现之前播放一段启动动画：应用图标在窗口中央逐层出现（底板、丝带、圆点），
-//! 停留片刻后淡出，之后标题和各行逐个淡入。
+//! 首次设置：第一次运行时开始页只显示语言、外观、主题和模块几项，点击「继续」后是快捷键一页
+//! （选用键位方案，或从本机的其他编辑器导入），点击「完成」后换回开始操作和最近目录。页面出现
+//! 之前播放一段启动动画：应用图标在窗口中央逐层出现（底板、丝带、圆点），停留片刻后淡出，
+//! 之后标题和各行逐个淡入。
 
 use std::time::Duration;
 
 use super::animation::stage;
 use super::*;
+use crate::keymap::Preset;
 
 /// 启动动画的时长（毫秒）：图标逐层出现、停留、淡出，之后内容淡入，各阶段占的比例见
 /// [`BUILD_END`]、[`FADE`] 和 [`CONTENT_START`]。
@@ -45,6 +47,19 @@ const RIBBON_SPAN: (f32, f32) = (150.0, 860.0);
 /// 圆点落下之前在最终位置上方的距离（SVG 用户单位），约为圆点直径。
 const DOT_DROP: f32 = 120.0;
 
+/// 「首次设置」中快捷键一页的状态。
+#[derive(Debug, Default)]
+pub(crate) struct SetupKeys {
+    /// 是否在显示这一页。
+    pub shown: bool,
+    /// 本机可以导入快捷键的来源，进入这一页时查找。
+    pub sources: Vec<crate::keymap::import::Source>,
+    /// 选中的一项：0 和 1 依次是 [`Preset::ALL`] 中的方案，其后依次是各来源。
+    pub choice: usize,
+    /// 是否在这一页点击了「完成」：「首次设置」淡出时绘制的是这一页。
+    pub leaving: bool,
+}
+
 impl App {
     /// 开始页是否正在显示「首次设置」：首次设置尚未完成，且没有打开目录，也没有打开的标签。
     ///
@@ -62,25 +77,86 @@ impl App {
         }
     }
 
-    /// 处理开始页显示「首次设置」时的按键 `key`：回车等同于点击「完成」。返回是否已处理。
+    /// 处理开始页显示「首次设置」时的按键 `key`，返回是否已处理：回车等同于点击「继续」或
+    /// 「完成」；在快捷键一页，上下键换选中的一项，`Esc` 回到上一页。
     ///
     /// 启动动画期间不处理：此时各项尚未显示，启动应用时仍按着的回车不应结束首次设置。按住不放
     /// 产生的重复按键由调用方排除。
     pub(in crate::app) fn setup_key(&mut self, key: &winit::keyboard::Key) -> bool {
         use winit::keyboard::{Key, NamedKey};
-        let shown = self.setup_shown() && self.motion.setup_intro.is_none();
-        let finish = shown && *key == Key::Named(NamedKey::Enter);
-        if finish {
-            self.finish_setup();
+        if !self.setup_shown() || self.motion.setup_intro.is_some() {
+            return false;
         }
-        finish
+        let Key::Named(named) = key else {
+            return false;
+        };
+        let last = Preset::ALL.len() + self.setup.sources.len() - 1;
+        match (named, self.setup.shown) {
+            (NamedKey::Enter, false) => self.setup_next(),
+            (NamedKey::Enter, true) => self.finish_setup(),
+            (NamedKey::Escape, true) => self.setup_back(),
+            (NamedKey::ArrowUp, true) => self.setup_choose(self.setup.choice.saturating_sub(1)),
+            (NamedKey::ArrowDown, true) => self.setup_choose((self.setup.choice + 1).min(last)),
+            _ => return false,
+        }
+        true
+    }
+
+    /// 进入快捷键一页：查找本机可以导入快捷键的来源。
+    pub(in crate::app) fn setup_next(&mut self) {
+        self.setup.sources = crate::keymap::import::find_sources();
+        self.setup.choice = self
+            .setup
+            .choice
+            .min(Preset::ALL.len() + self.setup.sources.len() - 1);
+        self.turn_setup_page(true);
+    }
+
+    /// 从快捷键一页回到上一页。
+    pub(in crate::app) fn setup_back(&mut self) {
+        self.turn_setup_page(false);
+    }
+
+    /// 换到「首次设置」的第一页或快捷键一页（`keys`）：当前一页先淡出，另一页随后淡入，与
+    /// 结束首次设置的过渡相同（见 [`OUTRO`]）。
+    fn turn_setup_page(&mut self, keys: bool) {
+        if self.setup.shown != keys {
+            self.setup.shown = keys;
+            self.motion.setup_page = self.clock(OUTRO);
+        }
+        self.request_redraw();
+    }
+
+    /// 在快捷键一页选中第 `choice` 项（见 [`SetupKeys::choice`]）。
+    pub(in crate::app) fn setup_choose(&mut self, choice: usize) {
+        self.setup.choice = choice;
+        self.request_redraw();
+    }
+
+    /// 采用快捷键一页选中的一项：选用方案，或从来源导入（结果用提示说明）。
+    fn apply_setup_keys(&mut self) {
+        let choice = self.setup.choice;
+        match Preset::ALL.get(choice) {
+            Some(&preset) => self.set_keymap_preset(preset),
+            None => {
+                let index = choice - Preset::ALL.len();
+                if let Some(source) = self.setup.sources.get(index).cloned() {
+                    self.import_keymap_from(&source);
+                }
+            }
+        }
     }
 
     /// 结束首次设置：开始页换回开始操作和最近目录，之后的启动不再显示。
     ///
     /// 「首次设置」先淡出，开始页随后淡入（见 [`OUTRO`]）；动态效果关闭时直接换过去。
     pub(in crate::app) fn finish_setup(&mut self) {
+        self.setup.leaving = std::mem::take(&mut self.setup.shown);
+        if self.setup.leaving {
+            self.apply_setup_keys();
+        }
         self.motion.setup_intro = None;
+        self.motion.setup_page = None;
         self.motion.setup_outro = self.clock(OUTRO);
         self.update_state(|state| state.setup_pending = false);
         self.request_redraw();

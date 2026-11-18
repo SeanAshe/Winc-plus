@@ -92,6 +92,12 @@ pub(crate) fn user_config_dir() -> Option<PathBuf> {
     }
 }
 
+/// 返回用户目录中各程序存放配置的目录，即 winc 的配置目录的上一级（如 macOS 上的
+/// `~/Library/Application Support`）；无法确定用户目录时返回 `None`。
+pub fn user_config_root() -> Option<PathBuf> {
+    user_config_dir().and_then(|dir| dir.parent().map(Path::to_path_buf))
+}
+
 /// 规范化路径：解开符号链接、`.` 和 `..`，规则同 [`std::fs::canonicalize`]。
 ///
 /// Windows 上 [`std::fs::canonicalize`] 返回带 `\\?\` 前缀的路径：该前缀显示出来不直观，其他程序

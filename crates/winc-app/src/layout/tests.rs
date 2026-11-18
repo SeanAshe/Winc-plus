@@ -371,14 +371,21 @@ fn search_floats_inside_editor() {
 fn keys_header_matches_the_full_keys_layout() {
     // 悬停只算搜索框和「录制按键」，位置必须与整页布局一致，与列表内容和滚动无关。
     let body = Rect::new(200.0, 60.0, 640.0, 500.0);
-    let groups = keymap::current_rows()
-        .iter()
-        .map(|(group, rows)| (*group, rows.iter().collect()))
-        .collect();
-    let keys = KeysLayout::compute(body, groups, 120.0);
+    let keys = KeysLayout::compute(
+        body,
+        keymap::current_rows(),
+        |_| true,
+        KeyRows::default(),
+        120.0,
+    );
     assert!(!keys.rows.is_empty());
-    assert_eq!(KeysLayout::header(body), (keys.search, keys.record));
-    assert!(keys.search.contains(keys.record.x, keys.record.y));
+    let header = keys.header;
+    assert_eq!(KeysLayout::header(body), header);
+    assert!(header.search.contains(header.record.x, header.record.y));
+    // 搜索框在标题行中，键位方案一行在标题下方，它的值靠右，在这一行之内。
+    assert!(header.search.bottom() <= body.y && header.keymap.y >= body.y);
+    assert!(header.value.x > header.keymap.x + header.keymap.w / 2.0);
+    assert!(header.value.y >= header.keymap.y && header.value.bottom() <= header.keymap.bottom());
 }
 
 #[test]

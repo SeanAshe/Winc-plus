@@ -167,7 +167,7 @@ impl App {
                     None => self.flash(winc_i18n::t!("cmd-no-file-for-tab")),
                 }
             }
-            Quit => self.request_quit(),
+            Quit => self.ask_quit(),
 
             Undo | Redo | Cut | Copy | Paste if vim_keys.is_some() => {
                 self.vim_feed(vim_keys.unwrap_or_default());

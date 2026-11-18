@@ -27,7 +27,13 @@ pub enum StartAction {
     Theme,
     /// 「首次设置」：开启或关闭一个可选模块。
     Module(crate::keymap::Module),
-    /// 「首次设置」底部的「完成」：结束首次设置。
+    /// 「首次设置」第一页底部的「继续」：进入快捷键一页。
+    SetupNext,
+    /// 「首次设置」快捷键一页底部的「返回」。
+    SetupBack,
+    /// 「首次设置」快捷键一页中的一项，参数见 `SetupKeys::choice`。
+    SetupKeymap(usize),
+    /// 「首次设置」快捷键一页底部的「完成」：结束首次设置。
     FinishSetup,
 }
 
@@ -488,6 +494,9 @@ impl App {
                 self.open_context_menu(target, (control.right(), y));
             }
             StartAction::Appearance(choice) => self.set_theme_choice(choice),
+            StartAction::SetupNext => self.setup_next(),
+            StartAction::SetupBack => self.setup_back(),
+            StartAction::SetupKeymap(choice) => self.setup_choose(choice),
             StartAction::FinishSetup => self.finish_setup(),
             StartAction::Module(module) => {
                 use crate::keymap::Module;

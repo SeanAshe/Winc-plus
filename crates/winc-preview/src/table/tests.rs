@@ -339,7 +339,7 @@ fn rows_and_cells_written_out_of_order_keep_their_places() {
 
 #[test]
 fn the_pull_reader_reports_malformed_xml() {
-    use super::pull::{Token, Tokens, attribute};
+    use crate::xml::{Token, Tokens, attribute};
     let xml = "<?xml version=\"1.0\"?><!-- c --><x:a k='1 > 0' r:id=\"&lt;\"><b/>t</x:a>";
     let mut tokens = Tokens::new(xml);
     let Some(Token::Open {

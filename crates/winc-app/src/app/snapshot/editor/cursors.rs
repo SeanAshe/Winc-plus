@@ -67,6 +67,7 @@ fn caret(pos: (usize, usize)) -> ((usize, usize), (usize, usize)) {
 
 #[test]
 fn cursors_are_added_with_the_keymap_and_removed_with_escape() {
+    crate::app::snapshot::use_vscode_keys();
     let (mut app, dir) = cursors_app("cursor-keys", false);
     let line = app.editor.active().unwrap().text().line_start(1);
     app.select(line + 8, line + 8);
@@ -228,6 +229,7 @@ fn copy_and_paste_with_several_cursors() {
 
 #[test]
 fn line_ends_cursor_undo_and_keyboard_columns() {
+    crate::app::snapshot::use_vscode_keys();
     let (mut app, dir) = cursors_app("cursor-more", false);
     let start = |app: &App, line| app.editor.active().unwrap().text().line_start(line);
 
@@ -240,10 +242,10 @@ fn line_ends_cursor_undo_and_keyboard_columns() {
         [caret((1, 18)), caret((2, 17)), caret((3, 18))]
     );
 
-    // ⌘U 恢复添加光标之前的选区，⇧⌘U 重做该操作。
+    // ⌘U 恢复添加光标之前的选区，「光标重做」重做该操作。
     assert!(press(&mut app, &["cmd"], KeyCode::Char('u')));
     assert_eq!(carets(&app), [((1, 0), (3, 18))]);
-    assert!(press(&mut app, &["cmd", "shift"], KeyCode::Char('u')));
+    assert!(app.run_action(crate::keymap::Action::CursorRedo));
     assert_eq!(carets(&app).len(), 3);
     app.run(Command::Insert(" //".into()));
     assert!(text(&app).contains("let alpha = 1; //\n    let beta = 2; //\n    let gamma = 3; //"));

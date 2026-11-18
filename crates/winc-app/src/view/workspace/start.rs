@@ -78,11 +78,22 @@ fn action_label(action: StartAction) -> &'static str {
 
 /// 绘制开始页，并登记各行的点击区域（`start_hits`）。
 ///
-/// 首次设置尚未完成时只显示「首次设置」；刚点击「完成」时「首次设置」淡出，开始页随后自下而上
-/// 淡入，过渡期间「首次设置」不响应点击。
+/// 首次设置尚未完成时只显示「首次设置」；在它的两页之间切换，以及刚点击「完成」时，原来的一页
+/// 淡出，新的一页随后自下而上淡入，过渡期间淡出的一页不响应点击。
 pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>) {
     if app.state.setup_pending {
-        draw_setup(app, frame);
+        let keys = app.setup.shown;
+        let Some(t) = app.motion.setup_page.map(|clock| clock.linear()) else {
+            draw_setup_page(app, frame, keys, 0.0);
+            return;
+        };
+        let (leaving, entering) = crate::app::setup::outro_opacity(t);
+        if leaving > 0.0 {
+            frame.with_opacity(leaving, |frame| draw_setup_page(app, frame, !keys, 0.0));
+        }
+        app.hits.start.clear();
+        let rise = (1.0 - entering) * OUTRO_RISE;
+        frame.with_opacity(entering, |frame| draw_setup_page(app, frame, keys, rise));
         return;
     }
     let Some(t) = app.motion.setup_outro.map(|clock| clock.linear()) else {
@@ -91,7 +102,8 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>) {
     };
     let (leaving, entering) = crate::app::setup::outro_opacity(t);
     if leaving > 0.0 {
-        frame.with_opacity(leaving, |frame| draw_setup(app, frame));
+        let keys = app.setup.leaving;
+        frame.with_opacity(leaving, |frame| draw_setup_page(app, frame, keys, 0.0));
     }
     app.hits.start.clear();
     let rise = (1.0 - entering) * OUTRO_RISE;
@@ -224,13 +236,22 @@ fn staging(intro: Option<f32>, index: usize) -> (f32, f32) {
     (alpha, (1.0 - alpha) * SETUP_RISE)
 }
 
-/// 绘制只有「首次设置」的开始页，并登记各控件的点击区域。
+/// 绘制「首次设置」的第一页或快捷键一页（`keys`），整体下移 `rise`（逻辑像素）。
+fn draw_setup_page(app: &mut App, frame: &mut Frame<'_>, keys: bool, rise: f32) {
+    if keys {
+        draw_setup_keys(app, frame, rise);
+    } else {
+        draw_setup(app, frame, rise);
+    }
+}
+
+/// 绘制只有「首次设置」的开始页，整体下移 `rise`，并登记各控件的点击区域。
 ///
 /// 自上而下是应用名称、一句说明、六行设置（外观、主题、语言和三个模块）和右对齐的「完成」
 /// 按钮。每行左边是图标和名称，右边是一个控件，各控件的右端对齐：外观是分段控件，主题和语言
 /// 是点击后弹出菜单的值，三个模块各是一个开关。启动动画期间先是应用图标在编辑区中央逐层出现、停留、淡出，各项随后逐个
 /// 淡入；内容开始淡入之前各控件不响应点击。
-fn draw_setup(app: &mut App, frame: &mut Frame<'_>) {
+fn draw_setup(app: &mut App, frame: &mut Frame<'_>, rise: f32) {
     use crate::keymap::Module;
     use winc_config::ThemeChoice;
 
@@ -242,7 +263,7 @@ fn draw_setup(app: &mut App, frame: &mut Frame<'_>) {
     let total = title_h + GAP + rows + GAP + SETUP_BUTTON_H;
     let w = WIDTH.min(clip.w - 48.0).max(0.0);
     let x = (clip.x + (clip.w - w) / 2.0).round();
-    let top = (clip.y + ((clip.h - total) / 2.0 - 24.0).max(16.0)).round();
+    let top = (clip.y + ((clip.h - total) / 2.0 - 24.0).max(16.0) + rise).round();
     let intro = app.motion.setup_intro.map(|clock| clock.linear());
 
     if let Some(splash) = intro.and_then(crate::app::setup::splash) {
@@ -350,11 +371,11 @@ fn draw_setup(app: &mut App, frame: &mut Frame<'_>) {
     });
 
     let (alpha, rise) = staging(intro, 8);
-    let label = t!("workspace-start-setup-done");
+    let label = t!("workspace-start-setup-next");
     let width = (frame.measure(FontKind::Ui, app.fonts.ui, label) + 32.0).round();
     let top = y + rows + GAP + rise;
     let button = Rect::new(x + w - 6.0 - width, top, width, SETUP_BUTTON_H);
-    let action = StartAction::FinishSetup;
+    let action = StartAction::SetupNext;
     let hovered = app.pointer.hover == Hover::Start(action);
     frame.with_opacity(alpha, |frame| {
         draw_action_button(
@@ -371,6 +392,92 @@ fn draw_setup(app: &mut App, frame: &mut Frame<'_>) {
     // 内容开始淡入之前页面上只有图标：看不见的控件不响应点击。
     if intro.is_some_and(|t| t < crate::app::setup::CONTENT_START) {
         app.hits.start.clear();
+    }
+}
+
+/// 绘制「首次设置」的快捷键一页：标题、一句说明、各键位方案、小标题下从本机找到的编辑器，以及
+/// 右对齐的「返回」「完成」按钮，整体下移 `rise`。选中的一项右端有对勾，默认方案的名称后注明
+/// 「默认」。
+fn draw_setup_keys(app: &mut App, frame: &mut Frame<'_>, rise: f32) {
+    use crate::keymap::Preset;
+
+    let p = app.palette;
+    let clip = app.layout.editor;
+    let sources: Vec<String> = (app.setup.sources.iter()).map(|s| s.name.clone()).collect();
+    let title_h = 56.0;
+    let heading_h = if sources.is_empty() { 0.0 } else { 32.0 };
+    let count = Preset::ALL.len() + sources.len();
+    let rows = count as f32 * SETUP_ROW + heading_h;
+    let total = title_h + GAP + rows + GAP + SETUP_BUTTON_H;
+    let w = WIDTH.min(clip.w - 48.0).max(0.0);
+    let x = (clip.x + (clip.w - w) / 2.0).round();
+    let mut y = (clip.y + ((clip.h - total) / 2.0 - 24.0).max(16.0) + rise).round();
+
+    let title = Rect::new(x + 10.0, y, w, 34.0);
+    let size = app.fonts.ui + 13.0;
+    let heading = t!("workspace-start-keymap-title");
+    crate::view::label(frame, app, size, (title.x, title), heading, p.text, clip);
+    let about = Rect::new(x + 10.0, y + 34.0, w, 20.0);
+    let text = t!("workspace-start-keymap-intro");
+    ui_text_small(frame, app, about.x, about, text, p.text_dim, clip);
+    y += title_h + GAP;
+    let list = y;
+
+    // 先是各方案，其后在小标题下列出本机找到的编辑器。
+    for i in 0..count {
+        let imported = i >= Preset::ALL.len();
+        if i == Preset::ALL.len() {
+            let line = Rect::new(x + 10.0, y + 8.0, w, heading_h - 8.0);
+            let text = t!("workspace-start-keymap-import");
+            ui_text_small(frame, app, line.x, line, text, p.text_dim, clip);
+            y += heading_h;
+        }
+        let row = Rect::new(x, y, w, SETUP_ROW);
+        y += SETUP_ROW;
+        let action = StartAction::SetupKeymap(i);
+        draw_row_bg(app, frame, row, action);
+        let cy = icon_center_y(app, row, app.fonts.ui);
+        if imported {
+            icons::download(frame, (row.x + 18.0, cy), p.text_muted, clip);
+        } else {
+            icons::keyboard(frame, (row.x + 18.0, cy), p.text_muted, clip);
+        }
+        let name = match Preset::ALL.get(i) {
+            Some(preset) => preset.title(),
+            None => sources[i - Preset::ALL.len()].as_str(),
+        };
+        let end = ui_text(frame, app, row.x + 36.0, row, name, p.text, clip);
+        if Preset::ALL.get(i) == Some(&Preset::default()) {
+            let note = t!("workspace-start-keymap-default");
+            ui_text_small(frame, app, end + 8.0, row, note, p.text_dim, clip);
+        }
+        if app.setup.choice == i {
+            icons::check(frame, (row.right() - 18.0, cy), 10.0, p.accent, clip);
+        }
+        app.hits.start.push((row, action));
+    }
+    let y = list;
+
+    let top = y + rows + GAP;
+    let mut right = x + w - 6.0;
+    for (label, role, action) in [
+        (
+            t!("workspace-start-setup-done"),
+            ButtonRole::Primary,
+            StartAction::FinishSetup,
+        ),
+        (
+            t!("workspace-start-setup-back"),
+            ButtonRole::Normal,
+            StartAction::SetupBack,
+        ),
+    ] {
+        let width = (frame.measure(FontKind::Ui, app.fonts.ui, label) + 32.0).round();
+        let button = Rect::new(right - width, top, width, SETUP_BUTTON_H);
+        let hovered = app.pointer.hover == Hover::Start(action);
+        draw_action_button(app, frame, button, label, role, true, hovered);
+        app.hits.start.push((button, action));
+        right = button.x - 8.0;
     }
 }
 
@@ -541,6 +648,9 @@ fn action_icon(app: &App, frame: &mut Frame<'_>, action: StartAction, row: Rect)
         | StartAction::Appearance(_)
         | StartAction::Theme
         | StartAction::Module(_)
+        | StartAction::SetupNext
+        | StartAction::SetupBack
+        | StartAction::SetupKeymap(_)
         | StartAction::FinishSetup => {}
     }
 }

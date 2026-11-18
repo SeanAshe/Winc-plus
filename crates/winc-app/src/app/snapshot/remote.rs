@@ -10,6 +10,7 @@ use winc_backend::remote;
 use super::*;
 use crate::app::git::form::FormKind;
 use crate::keymap::Action;
+use winc_pty::protocol::Modes;
 
 /// 在本进程内启动服务端并登记为到 `name` 的连接：该目标的虚拟路径指向本机的同名路径。
 fn loopback(name: &str) -> winc_backend::Target {
@@ -52,6 +53,8 @@ fn a_folder_on_a_connected_host_opens_as_the_workspace() {
     remote::forbid_blocking();
     folders_on_a_remote_host_are_not_taken_for_files();
     features_work_in_a_remote_workspace();
+    clipboard_images_pasted_into_a_remote_terminal_are_sent_there_first();
+    ssh_arguments_open_the_project_and_file();
 
     // 模块默认关闭：状态栏上没有连接的按钮，命令不可用，按下也不打开面板。
     paint(&mut app);
@@ -522,6 +525,7 @@ fn a_folder_on_a_connected_host_opens_as_the_workspace() {
     assert_eq!(remote::identity(&target), None);
     app.close_picker();
     local_only_actions_are_not_offered_on_a_remote_host();
+    files_copied_in_a_remote_tree_are_pasted_there();
 }
 
 /// 截图：开始页、主机面板、目录面板（浏览与筛选）和打开远端目录后的窗口。
@@ -737,6 +741,47 @@ fn measure_remote_round_trips() {
     step("保存");
     app.check_disk();
     step("窗口重新获得焦点");
+    remote::disconnect(&target);
+}
+
+/// 命令行上的 `ssh://` 参数：模块关闭时提示原因；开启时连接、打开项目目录，再打开文件并跳到
+/// 指定位置。目录已经开着时不再连接，直接打开文件。
+///
+/// 由 [`a_folder_on_a_connected_host_opens_as_the_workspace`] 调用，原因同
+/// [`folders_on_a_remote_host_are_not_taken_for_files`]。
+fn ssh_arguments_open_the_project_and_file() {
+    let dir = search_folder("remote-cli").canonicalize().unwrap();
+    let target = loopback("app-remote-cli");
+    let url = |path: &Path, suffix: &str| {
+        let path = path.to_str().unwrap().replace(' ', "%20");
+        std::ffi::OsString::from(format!("ssh://app-remote-cli{path}{suffix}"))
+    };
+    let main = dir.join("src/main.rs");
+    let parsed = crate::cli::parse([url(&dir, ""), url(&main, ":2:5")]).unwrap();
+    let open = crate::cli::remote_open(&parsed.targets).unwrap();
+    let root = winc_backend::virtual_path(&target, dir.as_os_str().as_bytes());
+
+    let mut app = blank_app(false);
+    app.open_remote(open.clone());
+    let notice = app.notice.text.take().unwrap();
+    assert!(notice.contains("远程模块未启用"), "{notice}");
+    assert!(app.editor.root().is_none());
+
+    app.config.remote_enabled = Some(true);
+    remote::forbid_blocking();
+    app.open_remote(open);
+    assert_eq!(app.editor.root(), Some(root.as_path()));
+    let caret = |app: &App| {
+        let doc = app.editor.active().unwrap();
+        let head = doc.selection.head;
+        (doc.path.clone().unwrap(), doc.text().pos_to_line_col(head))
+    };
+    assert_eq!(caret(&app), (root.join("src/main.rs"), (1, 4)));
+
+    let config = dir.join("src/config.rs");
+    let parsed = crate::cli::parse([url(&dir, ""), url(&config, ":3")]).unwrap();
+    app.open_remote(crate::cli::remote_open(&parsed.targets).unwrap());
+    assert_eq!(caret(&app), (root.join("src/config.rs"), (2, 0)));
     remote::disconnect(&target);
 }
 
@@ -989,6 +1034,130 @@ fn features_work_in_a_remote_workspace() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 远端主机上的终端里粘贴剪贴板中的图片或本机文件：先传到那台主机上的缓存目录，再粘贴那里的
+/// 路径（那里的程序读不到本机的剪贴板）。本机的终端不变。由
+/// [`a_folder_on_a_connected_host_opens_as_the_workspace`] 调用，原因同
+/// [`folders_on_a_remote_host_are_not_taken_for_files`]。
+fn clipboard_images_pasted_into_a_remote_terminal_are_sent_there_first() {
+    let dir = sample_folder("remote-terminal-paste")
+        .canonicalize()
+        .unwrap();
+    let cache = dir.join("cache");
+    *crate::app::terminal::upload::CACHE.lock().unwrap() = Some(cache.clone());
+    let target = loopback("app-remote-terminal-paste");
+    let root = winc_backend::virtual_path(&target, dir.as_os_str().as_bytes());
+    let mut app = blank_app(false);
+    app.config.remote_enabled = Some(true);
+    app.open_folder(&root);
+    super::terminal::show_terminal(&mut app, "\x1b[?2004h");
+    let id = app.terminal.tab().unwrap().id;
+    app.terminal.tab_mut().unwrap().cwd = root.as_os_str().as_bytes().to_vec();
+    let log = app.attach_recording_helper(&dir);
+    let pasted = |app: &App, from: usize| -> String {
+        let sent = app.input_sent_to(&log, id);
+        let text = String::from_utf8(sent[from..].to_vec()).unwrap();
+        let inner = text
+            .strip_prefix("\x1b[200~")
+            .and_then(|t| t.strip_suffix("\x1b[201~"));
+        inner.unwrap_or_else(|| panic!("{text:?}")).to_owned()
+    };
+    let folder = cache.join("winc/paste");
+
+    // 剪贴板里只有图片：存为缓存目录中的 PNG，粘贴它在那台主机上的路径。
+    let png = winc_editor::paste::encode_png(1, 1, &[255, 0, 0, 255]).unwrap();
+    app.clipboard.copied = None;
+    app.clipboard.copied_image = Some(png.clone());
+    app.terminal_paste();
+    let path = pasted(&app, 0);
+    assert!(path.starts_with(folder.to_str().unwrap()), "{path}");
+    assert!(path.ends_with(".png"), "{path}");
+    assert_eq!(std::fs::read(&path).unwrap(), png);
+    assert!(app.notice.text.is_none(), "{:?}", app.notice.text);
+
+    // 从文件管理器复制的本机文件：传过去，名字里的空白换掉，粘贴的路径不需要引号。剪贴板里
+    // 同时有文件名的文字（访达复制文件时如此），仍然传文件。
+    let shot = dir.join("my shot.png");
+    std::fs::write(&shot, &png).unwrap();
+    app.clipboard.copied_image = None;
+    app.clipboard.copied = Some("my shot.png".into());
+    app.clipboard.copied_files = vec![shot];
+    let before = app.input_sent_to(&log, id).len();
+    app.terminal_paste();
+    let path = pasted(&app, before);
+    assert!(
+        path.starts_with(folder.to_str().unwrap()) && path.ends_with("-my_shot.png"),
+        "{path}"
+    );
+    assert_eq!(std::fs::read(&path).unwrap(), png);
+
+    // ⌃V：有程序运行、在主屏上、开启了括号粘贴时同样先传再粘贴路径。shell 的提示符下（⌃V 是
+    // 逐字输入）、备用屏上的程序（vim 的 ⌃V 是列选择）和剪贴板里只有文字时照常发给程序。
+    app.clipboard.copied = None;
+    app.clipboard.copied_files.clear();
+    app.clipboard.copied_image = Some(png.clone());
+    app.terminal.tab_mut().unwrap().process = "bash".into();
+    assert!(!app.ctrl_v_uploads());
+    app.terminal.tab_mut().unwrap().process = "claude".into();
+    let before = app.input_sent_to(&log, id).len();
+    assert!(app.ctrl_v_uploads());
+    assert!(pasted(&app, before).starts_with(folder.to_str().unwrap()));
+    app.terminal
+        .tab_mut()
+        .unwrap()
+        .modes
+        .set(Modes::ALT_SCREEN, true);
+    assert!(!app.ctrl_v_uploads());
+    app.terminal
+        .tab_mut()
+        .unwrap()
+        .modes
+        .set(Modes::ALT_SCREEN, false);
+    app.clipboard.copied = Some("text".into());
+    assert!(!app.ctrl_v_uploads());
+    app.clipboard.copied = None;
+    app.terminal
+        .tab_mut()
+        .unwrap()
+        .modes
+        .set(Modes::BRACKETED_PASTE, false);
+    assert!(!app.ctrl_v_uploads());
+    app.terminal
+        .tab_mut()
+        .unwrap()
+        .modes
+        .set(Modes::BRACKETED_PASTE, true);
+
+    // 目录和超过上限的文件不传：说明原因，什么也不粘贴。
+    app.clipboard.copied_files = vec![dir.join("cache")];
+    let before = app.input_sent_to(&log, id).len();
+    app.terminal_paste();
+    assert_eq!(app.input_sent_to(&log, id).len(), before);
+    let notice = app.notice.text.take().unwrap();
+    assert!(notice.contains("不能把文件夹粘贴到远端终端"), "{notice}");
+    let large = dir.join("large.bin");
+    let file = std::fs::File::create(&large).unwrap();
+    file.set_len(crate::app::terminal::upload::MAX_UPLOAD + 1)
+        .unwrap();
+    app.clipboard.copied_files = vec![large];
+    app.terminal_paste();
+    assert_eq!(app.input_sent_to(&log, id).len(), before);
+    let notice = app.notice.text.take().unwrap();
+    assert!(notice.contains("太大"), "{notice}");
+
+    // 本机的终端不变：仍是一次空的括号粘贴，由程序自己读剪贴板；⌃V 也照常发给程序。
+    app.clipboard.copied_files.clear();
+    app.clipboard.copied_image = Some(png);
+    app.terminal.tab_mut().unwrap().cwd = dir.as_os_str().as_bytes().to_vec();
+    let before = app.input_sent_to(&log, id).len();
+    app.terminal_paste();
+    assert_eq!(pasted(&app, before), "");
+    assert!(!app.ctrl_v_uploads());
+
+    *crate::app::terminal::upload::CACHE.lock().unwrap() = None;
+    remote::disconnect(&target);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// 远端工作区不提供只能在本机执行的动作：菜单中不列出，浏览器按钮不出现；从快捷键、命令面板
 /// 执行时说明原因，不显示系统的错误码。由 [`a_folder_on_a_connected_host_opens_as_the_workspace`]
 /// 调用，原因同 [`folders_on_a_remote_host_are_not_taken_for_files`]。
@@ -1037,13 +1206,27 @@ fn local_only_actions_are_not_offered_on_a_remote_host() {
     let places = app.location_row_menu(&dir, None);
     assert!(places.contains(&MenuEntry::Item(MenuCommand::LocationReveal, true)));
 
-    // 快捷键和命令面板仍能到达这些动作：说明原因。
+    // 快捷键和命令面板仍能到达这些动作：说明原因（以及可以怎样把挂载在本机的目录对应起来）。
     app.reveal_in_file_manager(&file);
     let notice = app.notice.text.take();
     assert_eq!(
         notice.as_deref(),
-        Some(winc_i18n::t!("workspace-remote-local-only"))
+        Some(winc_i18n::t!("workspace-remote-reveal-unmapped"))
     );
+
+    // 远端的目录挂载在本机（`remote.localFolders`，这里用同一个目录代替挂载点）：「在文件管理器
+    // 中显示」重新列出，作用于本机上的那一份，不再提示；挂载点之外的文件仍不列出。
+    let mount = format!("app-remote-local-only:{}/src", dir.display());
+    let local = dir.join("src").display().to_string();
+    app.config.remote_local_folders.insert(mount, local);
+    assert_eq!(app.local_folder(&file), Some(dir.join("src/main.rs")));
+    let tree = listed(&mut app, MenuTarget::Tree(Some(file.clone())));
+    assert!(tree.contains(&MenuCommand::Reveal), "{tree:?}");
+    let outside = listed(&mut app, MenuTarget::Tree(Some(root.join("page.html"))));
+    assert!(!outside.contains(&MenuCommand::Reveal), "{outside:?}");
+    app.reveal_in_file_manager(&file);
+    assert!(app.notice.text.is_none(), "{:?}", app.notice.text);
+    app.config.remote_local_folders.clear();
     app.open_in_terminal(Some(&file));
     let notice = app.notice.text.take();
     assert_eq!(
@@ -1072,4 +1255,116 @@ fn local_only_actions_are_not_offered_on_a_remote_host() {
     app.open_path(&dir.join("page.html"));
     assert!(app.browser_page().is_some());
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 远端工作区的文件树里复制、剪切文件，再粘贴到同一工作区。由
+/// [`a_folder_on_a_connected_host_opens_as_the_workspace`] 调用，原因同
+/// [`folders_on_a_remote_host_are_not_taken_for_files`]。
+///
+/// 回归（#272）：系统剪贴板的文件列表放不下远端的文件，写入失败被忽略，粘贴时用的是剪贴板里
+/// 原有的内容：旧文字写成 `untitled.txt`，旧的本机文件被复制到远端，剪切永远不移动。
+fn files_copied_in_a_remote_tree_are_pasted_there() {
+    let dir = search_folder("remote-tree-copy").canonicalize().unwrap();
+    std::fs::write(dir.join("notes.txt"), "note\n").unwrap();
+    std::fs::create_dir(dir.join("into-copy")).unwrap();
+    std::fs::create_dir(dir.join("into-cut")).unwrap();
+    let stale = sample_folder("remote-tree-stale").join("a.txt");
+    let target = loopback("app-remote-tree-copy");
+    let root = winc_backend::virtual_path(&target, dir.as_os_str().as_bytes());
+    let mut app = blank_app(false);
+    app.config.remote_enabled = Some(true);
+    app.open_folder(&root);
+    let select = |app: &mut App, name: &str| {
+        let row = row_of(app, name);
+        app.editor.workspace.as_mut().unwrap().selected = Some(row);
+    };
+    let notes = root.join("notes.txt");
+
+    // 剪贴板里原有本机的文件：复制远端的文件以后，粘贴的是远端的文件。系统剪贴板里写的是它在
+    // 那台主机上的路径，粘贴到终端、聊天窗口里可以直接用。
+    app.clipboard.copied_files = vec![stale.clone()];
+    app.copy_entry(&notes);
+    let native = dir.join("notes.txt").to_string_lossy().into_owned();
+    assert_eq!(app.clipboard_text(), Some(native.clone()));
+    assert_eq!(app.clipboard_files(), std::slice::from_ref(&notes));
+    select(&mut app, "into-copy");
+    app.paste_into_tree();
+    assert_eq!(
+        std::fs::read_to_string(dir.join("into-copy/notes.txt")).unwrap(),
+        "note\n"
+    );
+    assert!(!dir.join("into-copy/a.txt").exists() && dir.join("notes.txt").exists());
+    assert!(app.notice.text.is_none(), "{:?}", app.notice.text);
+
+    // 剪切：粘贴时移过去，只移一次。
+    app.cut_entries(std::slice::from_ref(&notes));
+    assert_eq!(
+        *app.link.shared.cut_files.borrow(),
+        std::slice::from_ref(&notes)
+    );
+    select(&mut app, "into-cut");
+    app.paste_into_tree();
+    assert!(dir.join("into-cut/notes.txt").exists() && !dir.join("notes.txt").exists());
+    assert!(app.link.shared.cut_files.borrow().is_empty());
+
+    // 粘贴到编辑区：非 Markdown 文档中写那台主机上的路径，不写本机的虚拟路径。
+    let moved = root.join("into-cut/notes.txt");
+    app.copy_entry(&moved);
+    app.open_path(&root.join("src/main.rs"));
+    app.focus = Focus::Editor;
+    app.select(0, 0);
+    app.paste();
+    let text = app
+        .editor
+        .active()
+        .unwrap()
+        .text_range(0, usize::MAX)
+        .unwrap();
+    let native = dir
+        .join("into-cut/notes.txt")
+        .to_string_lossy()
+        .into_owned();
+    assert!(text.starts_with(&native), "{text}");
+
+    // 复制以后剪贴板被别的内容替换（这里由本程序写入一段文字）：不再当作复制的文件。
+    app.copy_entry(&moved);
+    app.set_clipboard("other".into(), false);
+    assert!(app.clipboard_files().is_empty());
+    assert!(app.link.shared.remote_copy.borrow().is_none());
+
+    // 本程序写入的文字与复制时写入的路径相同（例如「复制路径」）：同样不再当作复制的文件。
+    app.copy_entry(&moved);
+    let path = app.clipboard_text().unwrap();
+    app.set_clipboard(path, false);
+    assert!(app.clipboard_files().is_empty());
+
+    // 写不进剪贴板：说明原因，上一次的剪切仍然有效。
+    app.cut_entries(std::slice::from_ref(&moved));
+    app.clipboard.unavailable = true;
+    app.copy_entry(&root.join("src/main.rs"));
+    let notice = app.notice.text.take().unwrap();
+    assert!(notice.contains("无法写入系统剪贴板"), "{notice}");
+    app.clipboard.unavailable = false;
+    assert_eq!(app.clipboard_files(), std::slice::from_ref(&moved));
+    assert_eq!(
+        *app.link.shared.cut_files.borrow(),
+        std::slice::from_ref(&moved)
+    );
+
+    // 剪切的远端文件粘贴到另一个窗口里本机的目录：不同主机之间不能移动，改为复制，原处的保留。
+    // 两个窗口共用各窗口间的状态和系统剪贴板。
+    let local = sample_folder("remote-tree-local").canonicalize().unwrap();
+    let mut other = app_with(&local, false);
+    other.link.shared = std::rc::Rc::clone(&app.link.shared);
+    other.clipboard.copied = app.clipboard.copied.clone();
+    other.paste_into_tree();
+    let notice = other.notice.text.take().unwrap();
+    assert!(notice.contains("不同主机之间不能移动"), "{notice}");
+    assert!(local.join("notes.txt").exists() && dir.join("into-cut/notes.txt").exists());
+    assert!(app.link.shared.cut_files.borrow().is_empty());
+    let _ = std::fs::remove_dir_all(&local);
+
+    remote::disconnect(&target);
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(stale.parent().unwrap());
 }

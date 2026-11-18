@@ -1078,3 +1078,42 @@ fn a_tab_set_to_read_only_refuses_edits_until_cleared() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 开了关闭前确认时，退出和关闭窗口先询问；取消不做任何改动，确认后照常退出。没开时直接退出。
+#[test]
+fn confirm_close_asks_before_quitting_or_closing_the_window() {
+    use winit::keyboard::{Key, NamedKey};
+    let dir = search_folder("confirm-close");
+    let message = |app: &App| app.overlays.alert.as_ref().map(|a| a.message.clone());
+
+    let mut app = app_with(&dir.join("src/main.rs"), false);
+    app.ask_quit();
+    assert!(app.overlays.alert.is_none() && app.closing.quit_requested);
+
+    let mut app = app_with(&dir.join("src/main.rs"), false);
+    app.config.confirm_close = Some(true);
+    assert!(app.asks_before_quit());
+    app.ask_quit();
+    assert_eq!(
+        message(&app).as_deref(),
+        Some(winc_i18n::t!("close-confirm-quit"))
+    );
+    assert!(app.closing_pending() && !app.closing.quit_requested);
+    assert!(app.alert_key(&Key::Named(NamedKey::Escape), false));
+    assert!(!app.closing_pending() && !app.closing.quit_requested);
+
+    // 只有一个窗口时，关闭窗口在 macOS 上隐藏窗口，在其他平台上就是退出。
+    app.request_close_window();
+    let expected = if cfg!(target_os = "macos") {
+        winc_i18n::t!("close-confirm-window")
+    } else {
+        winc_i18n::t!("close-confirm-quit")
+    };
+    assert_eq!(message(&app).as_deref(), Some(expected));
+    assert!(app.alert_key(&Key::Named(NamedKey::Escape), false));
+    assert!(!app.window.hidden && app.editor.workspace.is_some());
+
+    app.ask_quit();
+    assert!(app.alert_key(&Key::Named(NamedKey::Enter), false));
+    assert!(app.closing.quit_requested);
+}

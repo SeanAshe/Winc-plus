@@ -845,12 +845,20 @@ pub const DIALOG_BUTTON_W: f32 = 72.0;
 /// 「位置」右端选目录按钮（一个目录图标）的宽度。
 pub const DIALOG_CHANGE_W: f32 = 28.0;
 
-/// 「快捷键」页顶部搜索框的高度（逻辑像素），与分类栏顶部的搜索框相同。
-pub const KEYS_SEARCH_H: f32 = SETTINGS_CONTROL_H;
+/// 「快捷键」页标题行中搜索框的宽度（逻辑像素）。
+pub const KEYS_SEARCH_W: f32 = 240.0;
 /// 搜索框右端「录制按键」按钮的边长（逻辑像素）：上下各离搜索框边缘 3。
-pub const KEYS_RECORD: f32 = KEYS_SEARCH_H - 6.0;
+pub const KEYS_RECORD: f32 = SETTINGS_CONTROL_H - 6.0;
 /// 「快捷键」页列表一行的高度（逻辑像素）。
 pub const KEYS_ROW: f32 = 34.0;
+/// 「快捷键」页「键位方案」下拉值的宽度（逻辑像素），放得下界面字号的「IntelliJ IDEA」和箭头。
+pub const KEYS_KEYMAP_W: f32 = 170.0;
+/// 「快捷键」页修改快捷键时录入框的最小宽度（逻辑像素），与设置页中字体输入框相同。
+pub const KEYS_FIELD_W: f32 = 160.0;
+/// 「快捷键」页修改快捷键时录入框和键帽的高度（逻辑像素）。
+pub const KEYS_FIELD_H: f32 = 26.0;
+/// 「快捷键」页中正在修改快捷键的一行展开后的高度（逻辑像素）：名称、键帽和按钮、说明各一行。
+pub const KEYS_EDIT_H: f32 = 108.0;
 
 /// 快速打开面板的宽度（逻辑像素）；列表中要放下「路径 + 文件名」，比查找条宽。
 pub const PICKER_WIDTH: f32 = 560.0;

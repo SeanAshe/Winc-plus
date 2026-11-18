@@ -1,18 +1,21 @@
 //! 逐个读出 XML 中的标签和文字，不建立整棵树：工作表和共享字符串表可以有几百 MB，建树占用的
 //! 内存是原文的数倍。
 //!
-//! 只支持读 xlsx 所需的部分：标签名和属性名取冒号之后的本地名，不处理命名空间和 DTD。格式错误
+//! 只支持常见的部分：标签名和属性名取冒号之后的本地名，不处理命名空间和 DTD。格式错误
 //! （标签没有结束、开始与结束标签不配对）时读到出错处为止，并由 [`Tokens::well_formed`] 报告。
 
 use std::borrow::Cow;
 
 /// XML 中的一项。
 #[derive(Debug, PartialEq)]
-pub(super) enum Token<'a> {
-    /// 开始标签：本地名、属性部分的原文，以及是否为空元素（`<a/>`）。
+pub enum Token<'a> {
+    /// 开始标签。
     Open {
+        /// 本地名。
         name: &'a str,
+        /// 属性部分的原文，用 [`attribute`] 取值。
         attributes: &'a str,
+        /// 是否为空元素（`<a/>`）。
         empty: bool,
     },
     /// 结束标签的本地名。
@@ -22,7 +25,7 @@ pub(super) enum Token<'a> {
 }
 
 /// 依次读出 `text` 中的各项；注释、处理指令和文档类型声明跳过。
-pub(super) struct Tokens<'a> {
+pub struct Tokens<'a> {
     rest: &'a str,
     /// 尚未结束的各层标签的名字（带前缀）。
     open: Vec<&'a str>,
@@ -32,7 +35,7 @@ pub(super) struct Tokens<'a> {
 
 impl<'a> Tokens<'a> {
     /// 创建读 `text` 的迭代器。
-    pub(super) fn new(text: &'a str) -> Self {
+    pub fn new(text: &'a str) -> Self {
         Self {
             rest: text,
             open: Vec::new(),
@@ -41,7 +44,7 @@ impl<'a> Tokens<'a> {
     }
 
     /// 读完之后，文档的格式是否正确：没有遇到错误，各层标签都已结束。
-    pub(super) fn well_formed(&self) -> bool {
+    pub fn well_formed(&self) -> bool {
         !self.broken && self.rest.is_empty() && self.open.is_empty()
     }
 
@@ -140,7 +143,7 @@ fn local(name: &str) -> &str {
 }
 
 /// 返回开始标签的属性部分 `attributes` 中本地名为 `key` 的属性值，实体已还原。
-pub(super) fn attribute<'a>(attributes: &'a str, key: &str) -> Option<Cow<'a, str>> {
+pub fn attribute<'a>(attributes: &'a str, key: &str) -> Option<Cow<'a, str>> {
     let mut rest = attributes;
     loop {
         let (name, after) = rest.split_once('=')?;

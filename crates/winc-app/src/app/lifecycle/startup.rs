@@ -120,6 +120,7 @@ impl App {
             motion: crate::app::animation::Motions {
                 setup_intro: None,
                 setup_outro: None,
+                setup_page: None,
                 tool_fold: ToolFold::default(),
                 bar_card: Default::default(),
                 dialog_card: Default::default(),
@@ -192,6 +193,8 @@ impl App {
                 closed: Vec::new(),
             },
             pending_chord: None,
+            taps: Default::default(),
+            setup: Default::default(),
             settings: SettingsState::default(),
             format: FormatState::new(formatter()),
             git: {
@@ -204,6 +207,7 @@ impl App {
             closing: Default::default(),
             ask_on_quit: Arc::new(AtomicBool::new(false)),
             deleted_told: HashSet::new(),
+            auto_save_watch: Default::default(),
             notice: Default::default(),
             frame: crate::app::lifecycle::FrameState {
                 renderer: None,

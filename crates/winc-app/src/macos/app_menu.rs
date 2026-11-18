@@ -9,6 +9,7 @@ use objc2::runtime::Bool;
 
 use super::files::{ns_string, rust_string};
 use super::*;
+use crate::cli::Target;
 
 /// ⌘Q 时调用的回调，返回是否允许立即退出；只在主线程上设置和调用。
 type QuitHandler = Box<dyn Fn() -> bool + Send + Sync>;
@@ -116,17 +117,17 @@ fn add_should_reopen(class: &AnyClass, imp: ShouldReopen) -> bool {
 }
 
 /// 系统交来要打开的文件和目录时调用的回调；只在主线程上设置和调用。
-type OpenHandler = Box<dyn Fn(Vec<PathBuf>) + Send + Sync>;
+type OpenHandler = Box<dyn Fn(Vec<Target>) + Send + Sync>;
 
 static OPEN_HANDLER: OnceLock<OpenHandler> = OnceLock::new();
 
 /// 文件或目录拖到程序坞的图标上、在文件管理器里用「打开方式 → winc」或「服务 → 在 Winc 中
-/// 打开」打开时，以它们的路径调用 `open`（`application:openURLs:`、`openInWinc:userData:error:`）；
-/// winc 还没运行时，系统先启动它再交来。
+/// 打开」打开，或打开 `winc://file/…` 链接时，以要打开的目标调用 `open`
+/// （`application:openURLs:`、`openInWinc:userData:error:`）；winc 还没运行时，系统先启动它再交来。
 ///
 /// 必须在 `winit` 建好事件循环（已设置应用委托）之后、开始运行之前调用：启动时交来的那一批在
 /// `applicationDidFinishLaunching:` 之前就到了。只有第一次调用生效。
-pub fn on_open_files(open: impl Fn(Vec<PathBuf>) + Send + Sync + 'static) {
+pub fn on_open_files(open: impl Fn(Vec<Target>) + Send + Sync + 'static) {
     if OPEN_HANDLER.set(Box::new(open)).is_err() {
         return;
     }
@@ -140,7 +141,7 @@ pub fn on_open_files(open: impl Fn(Vec<PathBuf>) + Send + Sync + 'static) {
 }
 
 /// 实现 `- (void)application:(NSApplication *)app openURLs:(NSArray<NSURL *> *)urls`：系统交来
-/// 要打开的文件和网址。
+/// 要打开的文件和 `winc://` 链接（见 [`crate::cli::link`]），其他网址跳过。
 extern "C-unwind" fn open_urls(
     _this: *mut AnyObject,
     _cmd: Sel,
@@ -148,19 +149,53 @@ extern "C-unwind" fn open_urls(
     urls: *mut AnyObject,
 ) {
     // SAFETY: `urls` 由 AppKit 传入，在整个调用期间有效（所有权归自动释放池），可为空；不为空时
-    // 是元素均为 NSURL 的 NSArray，满足 `file_paths` 的要求。
-    let paths = unsafe {
+    // 是元素均为 NSURL 的 NSArray，满足 `url_targets` 的要求。
+    let targets = unsafe {
         urls.as_ref()
-            .map(|urls| file_paths(urls))
+            .map(|urls| url_targets(urls))
             .unwrap_or_default()
     };
-    open_paths(paths);
+    open_targets(targets);
 }
 
-/// 把要打开的路径交给 [`on_open_files`] 登记的回调；没有路径时不调用。
-fn open_paths(paths: Vec<PathBuf>) {
-    if let Some(open) = OPEN_HANDLER.get().filter(|_| !paths.is_empty()) {
-        open(paths);
+/// 把要打开的目标交给 [`on_open_files`] 登记的回调；没有目标时不调用。
+fn open_targets(targets: Vec<Target>) {
+    if let Some(open) = OPEN_HANDLER.get().filter(|_| !targets.is_empty()) {
+        open(targets);
+    }
+}
+
+/// 不带行号的一项目标。
+fn whole(path: PathBuf) -> Target {
+    Target {
+        path,
+        line: None,
+        col: None,
+    }
+}
+
+/// 取出 NSURL 数组中的文件和 `winc://` 链接，跳过其他网址。
+///
+/// # Safety
+///
+/// `urls` 必须是元素均为 NSURL 的有效 NSArray，且在调用期间有效。
+unsafe fn url_targets(urls: &AnyObject) -> Vec<Target> {
+    // SAFETY: 由调用方保证 `urls` 是有效的 NSArray；`count` 与 `objectAtIndex:` 是 NSArray 的
+    // 公开方法，下标小于 `count`；元素是 NSURL，由数组持有，在本次调用内有效，判空后使用；
+    // `absoluteString` 返回 NSURL 持有的 NSString 或 nil，判空后立即拷贝。
+    unsafe {
+        let count: usize = msg_send![urls, count];
+        (0..count)
+            .filter_map(|i| {
+                let url: *mut AnyObject = msg_send![urls, objectAtIndex: i];
+                let url = url.as_ref()?;
+                if let Some(path) = super::files::url_path(url) {
+                    return Some(whole(path));
+                }
+                let text: *mut AnyObject = msg_send![url, absoluteString];
+                crate::cli::link(&rust_string(text.as_ref()?)?)
+            })
+            .collect()
     }
 }
 
@@ -202,7 +237,7 @@ extern "C-unwind" fn open_service(
             .map(|p| service_paths(p))
             .unwrap_or_default()
     };
-    open_paths(paths);
+    open_targets(paths.into_iter().map(whole).collect());
 }
 
 /// 读出服务剪贴板中的文件路径。

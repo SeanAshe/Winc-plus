@@ -133,8 +133,9 @@ pub fn run() {
 
     // 配置必须在加载字体之前读出，第一帧即使用用户指定的字体和字号。读入配置时的问题按系统语言
     // 描述（语言已在处理参数之前设定），界面语言随后按配置设定。
-    let (config, problems) = Config::load();
+    let (config, mut problems) = Config::load();
     set_locale(config.language.unwrap_or_default().resolve());
+    problems.extend(keymap::install_from(&config));
     for problem in &problems {
         eprintln!("winc: {problem}");
     }
@@ -239,10 +240,10 @@ pub fn run() {
     #[cfg(target_os = "macos")]
     if !silent {
         let proxy = event_loop.create_proxy();
-        macos::on_open_files(move |paths| {
+        macos::on_open_files(move |targets| {
             let _ = proxy.send_event(Envelope {
                 to: winc::Recipient::Active,
-                event: app::UserEvent::Opened(paths),
+                event: app::UserEvent::Opened(targets),
             });
         });
     }
@@ -288,9 +289,12 @@ pub fn run() {
         }
         // 从命令行打开的目录同样记入「最近打开」。
         app.remember_workspace();
-        // 上次开着的是远端的目录：启动时没有连接，无法像本机目录那样直接打开，在后台重新连接。
-        if args.targets.is_empty() {
-            app.restore_remote_folder();
+        // 远端的目录启动时没有连接，无法像本机目录那样直接打开，在后台连接：命令行上的
+        // `ssh://` 参数，或者上次开着的远端目录。
+        match cli::remote_open(&args.targets) {
+            Some(open) => app.open_remote(open),
+            None if args.targets.is_empty() => app.restore_remote_folder(),
+            None => {}
         }
     }
 
@@ -312,11 +316,13 @@ pub fn run() {
 /// 按命令行参数打开目录和文件，返回需要提示用户的 `Vec<String>`。
 ///
 /// 只给出文件时不打开其所在的目录；`文件:行` 形式的目标会跳到对应行（行号和列号从 0 起）。
-/// 临时打开（`--wait`、`-`）时不接受目录。
+/// 临时打开（`--wait`、`-`）时不接受目录。远端的目标（`ssh://`）跳过：连接之后才能打开，见
+/// [`cli::remote_open`]。
 pub(crate) fn open_targets(editor: &mut Editor, args: &cli::Args) -> Vec<String> {
     let mut problems = Vec::new();
     let mut first_file = None;
-    for target in &args.targets {
+    let local = args.targets.iter();
+    for target in local.filter(|t| !winc_backend::is_remote(&t.path)) {
         if winc_backend::fs::is_dir(&target.path) {
             if args.one_off() {
                 let path = target.path.display().to_string();

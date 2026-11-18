@@ -378,7 +378,7 @@ fn bookmark_commands_are_available_in_the_editor_menu() {
 }
 
 #[test]
-fn cmd_i_copies_a_reference_to_the_lines() {
+fn copy_reference_copies_the_lines() {
     use crate::app::snapshot::editor::navigation::press;
     use crate::keymap::KeyCode::Char;
     use winc_core::Selection;
@@ -387,7 +387,7 @@ fn cmd_i_copies_a_reference_to_the_lines() {
     let mut app = app_with(&dir.join("short.rs"), false);
     let copy = |app: &mut App, anchor, head| {
         app.editor.active_mut().unwrap().selection = Selection { anchor, head };
-        assert!(press(app, &["cmd"], Char('i')));
+        assert!(press(app, &["cmd", "shift", "alt"], Char('c')));
         app.clipboard.copied.clone().unwrap()
     };
     // `short.rs` 的第 0 行是 `fn main() {`，第 1 行从字符偏移 12 起，第 2 行从字符偏移 35 起。
@@ -397,8 +397,8 @@ fn cmd_i_copies_a_reference_to_the_lines() {
     assert_eq!(copy(&mut app, 0, 35), "short.rs:1-2");
     assert_eq!(copy(&mut app, 0, 36), "short.rs:1-3");
 
-    // ⌘L：完整路径。
-    assert!(press(&mut app, &["cmd"], Char('l')));
+    // 完整路径。
+    assert!(app.run_action(crate::keymap::Action::CopyAbsoluteReference));
     let file = app.editor.active().unwrap().path.clone().unwrap();
     let expected = format!("{}:1-3", file.display());
     assert_eq!(app.clipboard.copied.as_deref(), Some(expected.as_str()));
@@ -738,7 +738,7 @@ fn alerts_without_a_system_dialog_are_drawn_in_the_window() {
 }
 
 /// 截图：窗口内绘制的提示框（关闭有未保存修改的标签时那样的三个按钮和「不再询问」）
-/// （`alert-light`、`alert-dark`）。
+/// （`alert-light`、`alert-dark`），以及只有一句的关闭前确认（`alert-short-*`）。
 #[test]
 #[ignore = "截图，手动运行"]
 fn shoot_alert() {
@@ -766,6 +766,13 @@ fn shoot_alert() {
         let button = app.overlays.alert.as_ref().unwrap().parts.buttons[1];
         app.on_mouse_move(button.x + 10.0, button.y + 10.0);
         shoot(&mut app, &format!("alert-{theme}"));
+
+        // 只有一句的提示框按内容收窄。
+        let mut app = app_with(&dir.join("short.rs"), dark);
+        app.config.confirm_close = Some(true);
+        app.ask_quit();
+        paint(&mut app);
+        shoot(&mut app, &format!("alert-short-{theme}"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

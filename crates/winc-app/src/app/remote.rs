@@ -7,6 +7,7 @@
 //!
 //! 模块关闭时命令不可用，不启动 `ssh`；关闭模块会断开已有的连接。
 
+pub(crate) mod mounts;
 pub(crate) mod picker;
 
 use std::path::{Path, PathBuf};
@@ -195,6 +196,9 @@ pub(crate) struct RemoteState {
     pub(in crate::app) listed: picker::Listings,
     /// 后台启动好的对远端目录的监视，由 `App::poll_remote_watcher` 取走。
     pub(in crate::app) watching: Arc<Mutex<Option<winc_editor::Watcher>>>,
+    /// 正在进行的连接成功、打开目录之后要打开的文件，及参数中写的目录（见
+    /// [`App::open_remote`]）；没有时为 `None`。
+    files: Option<(PathBuf, Vec<crate::cli::Target>)>,
 }
 
 impl Default for RemoteState {
@@ -213,6 +217,7 @@ impl Default for RemoteState {
             stepping: false,
             listed: picker::Listings::default(),
             watching: Arc::default(),
+            files: None,
         }
     }
 }
@@ -636,6 +641,22 @@ fn resolve(target: &Target, folder: &str, abort: &remote::Abort) -> std::io::Res
     })
 }
 
+/// 把 `files` 中位于参数中写的目录 `wanted` 之下的路径换到远端取得的目录 `folder` 之下：
+/// `folder` 是不经过符号链接的真实路径，可能与参数的写法不同。
+fn rebase(files: &[crate::cli::Target], wanted: &Path, folder: &Path) -> Vec<crate::cli::Target> {
+    let moved = |file: &crate::cli::Target| {
+        let rest = file.path.strip_prefix(wanted).ok()?;
+        Some(crate::cli::Target {
+            path: folder.join(rest),
+            ..file.clone()
+        })
+    };
+    files
+        .iter()
+        .map(|f| moved(f).unwrap_or_else(|| f.clone()))
+        .collect()
+}
+
 /// 连接 `target`（已有连接时沿用）并取得 `folder` 的虚拟路径。
 fn open(
     target: &Target,
@@ -841,6 +862,29 @@ impl App {
         true
     }
 
+    /// 打开 `ssh://` 参数指定的远端项目 `open` 并切到前台：本窗口开着该目录时直接打开其中的
+    /// 文件；否则在后台连接（已有连接时沿用），打开目录之后再打开文件，带行号的跳到该位置。
+    pub(crate) fn open_remote(&mut self, open: crate::cli::RemoteOpen) {
+        self.raise();
+        if self.editor.root() == Some(open.folder.as_path()) {
+            self.open_files(&open.files);
+            return;
+        }
+        if !self.remote_enabled() {
+            self.notify(t!("workspace-remote-disabled"));
+            return;
+        }
+        let Some(at) = winc_backend::locate(&open.folder) else {
+            return;
+        };
+        // 已有连接在进行时 `remote_open` 只提示，这次的文件不记下。
+        if self.remote.connecting.is_none() {
+            self.remote.files = Some((open.folder, open.files));
+        }
+        let path = String::from_utf8_lossy(&at.path).into_owned();
+        self.remote_open(at.target, path, After::Open);
+    }
+
     /// 启动时调用：上次退出时开着的目录在远端主机上时，重新连接并打开它，标签按那个目录的
     /// 现场恢复。连接在后台进行，窗口先显示开始页；需要口令时照常询问。
     pub(crate) fn restore_remote_folder(&mut self) {
@@ -947,6 +991,7 @@ impl App {
         let (Some(outcome), Some(target)) = (outcome, self.remote.connecting.take()) else {
             return;
         };
+        let files = self.remote.files.take();
         self.end_remote_questions();
         // 取消与完成同时发生时以取消为准：不打开用户已经放弃的目录。
         let aborted = (self.remote.abort.take()).is_some_and(|abort| abort.is_aborted());
@@ -1004,6 +1049,9 @@ impl App {
                     self.check_disk();
                 } else {
                     self.open_folder(&folder);
+                }
+                if let Some((wanted, files)) = files {
+                    self.open_files(&rebase(&files, &wanted, &folder));
                 }
             }
             // 连接期间模块被关闭：关闭时这条连接尚未登记，在这里断开。

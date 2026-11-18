@@ -228,6 +228,7 @@ fn terminal_focus_commands_reveal_an_existing_tab_in_a_hidden_panel() {
 
 #[test]
 fn the_panel_toggle_closes_in_one_press_wherever_the_focus_is() {
+    crate::app::snapshot::use_vscode_keys();
     let mut app = blank_app(false);
     show_terminal(&mut app, "one");
     let toggle = key(cmd(), KeyCode::Char('j'));

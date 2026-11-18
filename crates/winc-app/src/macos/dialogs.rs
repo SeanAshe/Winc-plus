@@ -542,7 +542,7 @@ pub fn key_equivalent(stroke: crate::keymap::Stroke) -> Option<(String, usize)> 
     // 功能键使用 AppKit 定义在 Unicode 私有区的字符（如 `NSUpArrowFunctionKey` 为 U+F700）。
     let key: char = match stroke.key {
         KeyCode::Char(c) => c,
-        KeyCode::Numpad(_) => return None,
+        KeyCode::Numpad(_) | KeyCode::Tap => return None,
         KeyCode::F(n) => char::from_u32(0xF704 + u32::from(n) - 1)?,
         KeyCode::Enter => '\r',
         KeyCode::Backspace => '\u{8}',
@@ -558,6 +558,7 @@ pub fn key_equivalent(stroke: crate::keymap::Stroke) -> Option<(String, usize)> 
         KeyCode::PageDown => '\u{F72D}',
         KeyCode::Home => '\u{F729}',
         KeyCode::End => '\u{F72B}',
+        KeyCode::Insert => '\u{F727}',
     };
     let mut mods = 0;
     for (bit, mask) in [

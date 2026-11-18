@@ -89,42 +89,55 @@ fn settings_action_is_added_once_and_runs() {
 }
 
 #[test]
-fn opened_urls_reach_the_handler_as_paths() {
+fn opened_urls_reach_the_handler_as_targets() {
+    use crate::cli::Target;
     use std::sync::Mutex;
-    static OPENED: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+    static OPENED: Mutex<Vec<Target>> = Mutex::new(Vec::new());
 
     // 测试中没有 `winit` 的委托：只登记回调，方法加在另一个公开的 `NSObject` 子类上。
-    on_open_files(|paths| OPENED.lock().unwrap().extend(paths));
+    on_open_files(|targets| OPENED.lock().unwrap().extend(targets));
     let class = AnyClass::get(c"NSByteCountFormatter").unwrap();
     let selector = sel!(application:openURLs:);
     assert!(class.instance_method(selector).is_none());
     assert!(add_open_urls(class, open_urls));
     assert!(!add_open_urls(class, open_urls));
 
-    // 一个文件、一个带空格的目录、一个不是文件的网址（跳过）。
+    // 一个文件、一个带空格的目录、一个 `winc://` 链接、一个其他网址（跳过）。
     let file = super::super::files::file_url(Path::new("/tmp/a.txt"), false).unwrap();
     let dir = super::super::files::file_url(Path::new("/tmp/b c"), true).unwrap();
     // SAFETY: `class` 的实例已有刚添加的方法，按其类型编码 `v@:@@` 调用，NSApplication 传 nil；
     // 网址和数组由 `URLWithString:`、`arrayWithObjects:count:` 返回自动释放的对象，在本块内
-    // 有效；`objects` 的指针和长度描述三个有效的对象。`new` 创建的对象用完后 `release`。
+    // 有效；`objects` 的指针和长度描述四个有效的对象。`new` 创建的对象用完后 `release`。
     unsafe {
-        let web = super::super::files::ns_string("https://example.com").unwrap();
-        let web: *mut AnyObject = msg_send![class!(NSURL), URLWithString: &*web];
-        let objects: [*mut AnyObject; 3] = [
+        let url = |text: &str| -> *mut AnyObject {
+            let text = super::super::files::ns_string(text).unwrap();
+            msg_send![class!(NSURL), URLWithString: &*text]
+        };
+        let objects: [*mut AnyObject; 4] = [
             Retained::as_ptr(&file).cast_mut(),
             Retained::as_ptr(&dir).cast_mut(),
-            web,
+            url("winc://file/tmp/c%20d.rs:3:2"),
+            url("https://example.com"),
         ];
         let urls: *mut AnyObject =
-            msg_send![class!(NSArray), arrayWithObjects: objects.as_ptr(), count: 3usize];
+            msg_send![class!(NSArray), arrayWithObjects: objects.as_ptr(), count: 4usize];
         let object: *mut AnyObject = msg_send![class, new];
         let null = std::ptr::null_mut::<AnyObject>();
         let () = msg_send![object, application: null, openURLs: urls];
         let () = msg_send![object, release];
     }
+    let at = |path: &str, line, col| Target {
+        path: PathBuf::from(path),
+        line,
+        col,
+    };
     assert_eq!(
         *OPENED.lock().unwrap(),
-        [PathBuf::from("/tmp/a.txt"), PathBuf::from("/tmp/b c")]
+        [
+            at("/tmp/a.txt", None, None),
+            at("/tmp/b c", None, None),
+            at("/tmp/c d.rs", Some(2), Some(1)),
+        ]
     );
 }
 

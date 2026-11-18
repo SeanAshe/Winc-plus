@@ -84,3 +84,5 @@ app-move-trash-failed = Couldn’t move “{ $path }” to the Trash
 app-move-copy-failed = Copying failed ({ $status })
 app-move-relaunch-failed = Couldn’t relaunch Winc: { $error }
 app-move-unknown-location = Couldn’t determine where Winc is
+close-confirm-quit = Quit?
+close-confirm-window = Close this window?

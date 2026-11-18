@@ -33,7 +33,7 @@ impl Json {
     ///
     /// JSONC 在 JSON 之外允许开头的 BOM、`//` 行注释和块注释，以及对象和数组最后一项后面的逗号。
     /// 用户手写的配置按 JSONC 解析。序列化不保留注释，调用方据第二个返回值决定写回前是否另存。
-    pub(crate) fn parse_jsonc(text: &str) -> Option<(Json, bool)> {
+    pub fn parse_jsonc(text: &str) -> Option<(Json, bool)> {
         let text = text.strip_prefix('\u{feff}').unwrap_or(text);
         let mut parser = Parser::new(text, true);
         let value = parser.document()?;

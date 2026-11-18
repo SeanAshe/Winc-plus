@@ -5,6 +5,34 @@
 
 use std::path::PathBuf;
 
+/// 剪贴板中的图片。大图编码为 PNG 需要时间，可以留到后台线程上再编码（[`Self::into_png`]）。
+pub(crate) enum ClipImage {
+    /// 已经是 PNG。
+    #[cfg_attr(not(any(test, target_os = "macos")), allow(dead_code))]
+    Png(Vec<u8>),
+    /// RGBA 像素，每像素 4 字节，逐行排列。
+    #[cfg_attr(any(test, target_os = "macos"), allow(dead_code))]
+    Rgba {
+        width: usize,
+        height: usize,
+        bytes: Vec<u8>,
+    },
+}
+
+impl ClipImage {
+    /// 返回 PNG 编码；像素数据与尺寸不符时返回 `None`。
+    pub(crate) fn into_png(self) -> Option<Vec<u8>> {
+        match self {
+            ClipImage::Png(png) => Some(png),
+            ClipImage::Rgba {
+                width,
+                height,
+                bytes,
+            } => winc_editor::paste::encode_png(width, height, &bytes),
+        }
+    }
+}
+
 /// 一个窗口使用的剪贴板。
 #[derive(Default)]
 pub(crate) struct Clipboard {
@@ -20,6 +48,9 @@ pub(crate) struct Clipboard {
     /// 测试中代替系统剪贴板的图片（PNG）。
     #[cfg(test)]
     pub copied_image: Option<Vec<u8>>,
+    /// 测试中让写入失败，原有内容不变，如同无法访问系统剪贴板。
+    #[cfg(test)]
+    pub unavailable: bool,
     /// 最近一次整行复制的文本；写入的不是整行或写入文件时为 `None`。
     whole_line: Option<String>,
 }
@@ -37,20 +68,26 @@ impl Clipboard {
         }
     }
 
-    /// 把 `text` 写入剪贴板，替换其中的文件和图片。
+    /// 把 `text` 写入剪贴板，替换其中的文件和图片；返回是否写入了。
     ///
     /// `whole_line` 为 `true` 表示 `text` 是整行，见 [`Self::holds_line`]。
-    pub(in crate::app) fn set_text(&mut self, text: String, whole_line: bool) {
+    pub(in crate::app) fn set_text(&mut self, text: String, whole_line: bool) -> bool {
+        #[cfg(test)]
+        if self.unavailable {
+            return false;
+        }
         self.whole_line = whole_line.then(|| text.clone());
         #[cfg(test)]
         {
             self.copied = Some(text);
             self.copied_files.clear();
             self.copied_image = None;
+            true
         }
         #[cfg(not(test))]
-        if let Some(system) = self.system() {
-            let _ = system.set_text(text);
+        {
+            self.system()
+                .is_some_and(|system| system.set_text(text).is_ok())
         }
     }
 
@@ -75,38 +112,61 @@ impl Clipboard {
         }
     }
 
-    /// 把文件或目录 `paths` 写入剪贴板，替换其中的文本和图片。
-    pub(in crate::app) fn set_files(&mut self, paths: &[PathBuf]) {
+    /// 把本机的文件或目录 `paths` 写入剪贴板，替换其中的文本和图片；返回是否写入了。
+    ///
+    /// 系统剪贴板的文件列表只能放本机上存在的文件：arboard 写入前逐项打开或规范化，打不开的项
+    /// 被丢掉，全都打不开时什么也不写（macOS 上会先清空剪贴板）。远端的文件不经过这里，见
+    /// `App::copy_entries`。
+    pub(in crate::app) fn set_files(&mut self, paths: &[PathBuf]) -> bool {
+        #[cfg(test)]
+        if self.unavailable {
+            return false;
+        }
         self.whole_line = None;
         #[cfg(test)]
         {
+            // 与系统剪贴板一样放不下远端的文件（见上）：写入失败，原有内容不变。
+            if paths.iter().any(|path| winc_backend::is_remote(path)) {
+                return false;
+            }
             self.copied = None;
             self.copied_image = None;
             self.copied_files = paths.to_vec();
+            true
         }
         #[cfg(not(test))]
-        if let Some(system) = self.system() {
-            let _ = system.set().file_list(paths);
+        {
+            self.system()
+                .is_some_and(|system| system.set().file_list(paths).is_ok())
         }
     }
 
     /// 返回剪贴板中的图片，编码为 PNG；没有时返回 `None`。
+    pub(in crate::app) fn png(&mut self) -> Option<Vec<u8>> {
+        self.image()?.into_png()
+    }
+
+    /// 返回剪贴板中的图片，还没有编码时不编码（见 [`ClipImage`]）；没有时返回 `None`。
     ///
     /// macOS 上直接取出剪贴板中的 PNG（只有 TIFF 时由系统转换）；其他平台上 arboard 给出 RGBA
-    /// 像素，再编码为 PNG。
-    pub(in crate::app) fn png(&mut self) -> Option<Vec<u8>> {
+    /// 像素。
+    pub(in crate::app) fn image(&mut self) -> Option<ClipImage> {
         #[cfg(test)]
         {
-            self.copied_image.clone()
+            self.copied_image.clone().map(ClipImage::Png)
         }
         #[cfg(all(not(test), target_os = "macos"))]
         {
-            crate::macos::pasteboard_png()
+            crate::macos::pasteboard_png().map(ClipImage::Png)
         }
         #[cfg(all(not(test), not(target_os = "macos")))]
         {
             let image = self.system()?.get_image().ok()?;
-            winc_editor::paste::encode_png(image.width, image.height, &image.bytes)
+            Some(ClipImage::Rgba {
+                width: image.width,
+                height: image.height,
+                bytes: image.bytes.into_owned(),
+            })
         }
     }
 

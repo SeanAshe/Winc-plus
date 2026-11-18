@@ -598,6 +598,8 @@ fn typing_shows_the_final_layout_in_the_same_frame() {
         (text, app.preview.markdown.height, caret_screen_y(app))
     };
     let step = |app: &mut App, name: &str, act: &dyn Fn(&mut App)| {
+        // 固定在界面线程上解析：按上一次解析的耗时选择，机器繁忙时会改到后台。
+        app.preview.markdown.cost = Some(std::time::Duration::ZERO);
         act(app);
         paint(app);
         let first = shown(app);

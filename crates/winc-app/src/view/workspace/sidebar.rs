@@ -672,6 +672,10 @@ fn draw_tree_entry(
     } else {
         draw_file_icon(frame, p, (x + 1.5, cy), &entry.name, clip);
     }
+    if entry.symlink {
+        let bg = background.map_or(p.sidebar_bg, |c| panel::over(p.sidebar_bg, c));
+        icons::link_badge(frame, (x + 2.5, cy + 4.0), bg, p.text_muted, clip);
+    }
 
     // 右端的 Git 状态与提交视图相同：文件显示带颜色的字母（M、U、A……），目录中有改动时
     // 显示圆点。名称会被状态截断的行在悬停时不绘制状态，以完整显示名称；

@@ -57,10 +57,12 @@ pub struct Config {
     ///
     /// 可用范围见 [`Config::TAB_WIDTH_RANGE`]。
     pub tab_width: Option<usize>,
-    /// 是否在切换标签或窗口失去焦点时保存修改，默认为否。
-    pub auto_save: Option<bool>,
+    /// 什么时候自动保存修改，默认不保存。
+    pub auto_save: Option<AutoSave>,
     /// 热退出：退出时不逐个询问是否保存，未保存的内容在下次启动时恢复，默认为开。
     pub hot_exit: Option<bool>,
+    /// 关闭窗口或退出前是否先确认，默认为否。
+    pub confirm_close: Option<bool>,
     /// 启动时打开上次退出时打开的目录和标签，默认为开。
     ///
     /// 关闭后每次启动都显示开始页；命令行指定了目录或文件时仍然打开。
@@ -193,6 +195,16 @@ pub struct Config {
     pub terminal_application_priority: Option<bool>,
     /// 是否启用远程模块（经 `ssh` 打开其他主机上的目录），默认为否。
     pub remote_enabled: Option<bool>,
+    /// 远端目录挂载在本机的位置（SSHFS、Samba 映射的盘符等）：键是远端目录的显示写法
+    /// `目标:/路径`（如 `devbox:/home/me`），值是本机上对应的目录（如 `Z:\`）。
+    ///
+    /// 远端的文件在这些目录之内时，「在文件管理器中显示」「用默认应用打开」改为对本机上
+    /// 对应的位置执行；默认没有。键已规范：路径中没有空段、`.` 和 `..`。
+    pub remote_local_folders: BTreeMap<String, String>,
+    /// 键位方案：`idea` 或 `vscode`；没写时用 `idea`。
+    pub keymap: Option<String>,
+    /// 改过的快捷键：命令名 → 按键写法的数组，空数组表示不设快捷键。
+    pub shortcuts: BTreeMap<String, Vec<String>>,
     /// 是否启用 Git 模块（文件状态、分支、变更视图），默认为否。
     pub git_enabled: Option<bool>,
     /// 发布、推送或同步分支前是否先确认目标远程仓库，默认为是。
@@ -291,6 +303,23 @@ pub enum VimClipboard {
 impl VimClipboard {
     /// 全部取值，按设置菜单中的顺序排列。
     pub const ALL: [Self; 3] = [Self::Register, Self::Yank, Self::Always];
+}
+
+/// 什么时候自动保存有修改的文档。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AutoSave {
+    /// 不自动保存。
+    #[default]
+    Off,
+    /// 切换标签、编辑区失去焦点（例如切到终端）或窗口失去焦点时保存。
+    OnFocusChange,
+    /// 停止输入一段时间后保存，切换焦点时也保存。
+    AfterDelay,
+}
+
+impl AutoSave {
+    /// 全部取值，按设置菜单中的顺序排列。
+    pub const ALL: [Self; 3] = [Self::Off, Self::OnFocusChange, Self::AfterDelay];
 }
 
 /// 把目录拖进已打开目录的窗口时怎样处理。
