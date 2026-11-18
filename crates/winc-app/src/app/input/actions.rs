@@ -202,6 +202,19 @@ impl App {
                 }
             }
             SelectAll => editing(self, Command::SelectAll),
+            // 语言没有任何注释写法（纯文本、日志、CSV）：说明一声，不是没反应。
+            ToggleComment
+                if (self.editor.active()).is_some_and(|doc| {
+                    let language = doc.highlighter.language();
+                    language.line_comments.is_empty() && language.block_comments.is_empty()
+                }) =>
+            {
+                let name = self.editor.active().map(|d| d.highlighter.language().name);
+                self.flash(winc_i18n::t!(
+                    "editor-no-comment",
+                    language = name.unwrap_or_default()
+                ));
+            }
             ToggleComment => editing(self, Command::ToggleComment),
             MarkdownBold => self.live_format("**"),
             MarkdownItalic => self.live_format("*"),

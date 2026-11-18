@@ -1,34 +1,34 @@
-//! 让 `git` 跟随系统的代理设置。
+//! 联网的命令（`git`、`curl`、`wget`）跟随系统的代理设置。
 //!
-//! `git` 自己只认 `http.proxy` 配置和代理的环境变量，不读系统设置里的代理；从图形界面启动的应用
-//! 也常常没有这些环境变量。这里在运行会访问网络的 `git` 命令前读出系统的代理，命令的环境里没有
-//! 代理变量时替它设上。`git` 的配置优先于环境变量，用户配置过 `http.proxy` 的仓库不受影响。
+//! 这些命令只认代理的环境变量（`git` 还认 `http.proxy` 配置），不读系统设置里的代理；从图形界面
+//! 启动的应用也常常没有这些环境变量。运行前读出系统的代理，命令的环境和本进程的环境里都没有代理
+//! 变量时替它设上。
 
 #![allow(
     clippy::disallowed_methods,
     reason = "只访问本机：读取本机的系统代理设置"
 )]
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use super::STATUS_TIMEOUT;
+use crate::git::STATUS_TIMEOUT;
 use crate::tools::shell::process;
 
 /// 是否跟随系统代理，见 [`follow_system_proxy`]。
 static FOLLOW: AtomicBool = AtomicBool::new(true);
 
-/// 设定 `git` 是否跟随系统的代理设置（默认跟随）。
+/// 设定联网的命令是否跟随系统的代理设置（默认跟随）。
 pub fn follow_system_proxy(follow: bool) {
     FOLLOW.store(follow, Ordering::Relaxed);
 }
 
-/// 系统的代理设置中 `git` 用得上的部分。
+/// 系统的代理设置中联网的命令用得上的部分。
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub(super) struct SystemProxy {
+struct SystemProxy {
     /// 访问 `http://` 地址用的代理，写作 `主机:端口`。
     pub http: Option<String>,
     /// 访问 `https://` 地址用的代理，写作 `主机:端口`。
@@ -40,7 +40,7 @@ pub(super) struct SystemProxy {
 }
 
 impl SystemProxy {
-    /// 返回要为 `git` 设上的环境变量；没有可用的代理时为空。
+    /// 返回要为命令设上的环境变量；没有可用的代理时为空。
     ///
     /// 系统里的 HTTP、HTTPS 代理都是 HTTP 代理（只是分别用于两种地址），地址写 `http://`。只有
     /// SOCKS 代理时用 `socks5h://`，域名交给代理解析。
@@ -104,7 +104,7 @@ fn network(entry: &str) -> Option<String> {
 }
 
 /// 解析 macOS `scutil --proxy` 的输出。
-pub(super) fn parse_scutil(text: &str) -> SystemProxy {
+fn parse_scutil(text: &str) -> SystemProxy {
     let mut proxy = SystemProxy::default();
     let mut values = std::collections::HashMap::new();
     for line in text.lines() {
@@ -133,7 +133,7 @@ pub(super) fn parse_scutil(text: &str) -> SystemProxy {
 /// 解析 Windows 注册表「Internet Settings」一项的 `reg query` 输出。
 ///
 /// `ProxyServer` 写作 `主机:端口`（各种地址都用它），或者 `http=主机:端口;https=…;socks=…`。
-pub(super) fn parse_registry(text: &str) -> SystemProxy {
+fn parse_registry(text: &str) -> SystemProxy {
     let value = |name: &str| {
         text.lines().find_map(|line| {
             let mut parts = line.split_whitespace();
@@ -191,27 +191,6 @@ fn system_proxy() -> Option<SystemProxy> {
     })
 }
 
-/// 代理的环境变量；`git` 用的库大小写两种写法都认。
-/// 会访问网络、需要代理的 `git` 子命令。
-const ONLINE: [&str; 6] = ["fetch", "pull", "push", "clone", "ls-remote", "remote"];
-
-/// `git args` 的子命令是否会访问网络（见 [`ONLINE`]）：跳过前面的 `-c 键=值` 和其他选项，看第一个
-/// 子命令。
-pub(super) fn online<'a>(args: impl IntoIterator<Item = &'a OsStr>) -> bool {
-    let mut args = args.into_iter();
-    while let Some(arg) = args.next() {
-        if arg == "-c" {
-            args.next();
-            continue;
-        }
-        if arg.to_string_lossy().starts_with('-') {
-            continue;
-        }
-        return ONLINE.iter().any(|command| arg == *command);
-    }
-    false
-}
-
 /// 读到的系统代理保留多久：几个仓库依次推送、获取时只读一次；改了系统设置以后很快就用上。
 const PROXY_FRESH: Duration = Duration::from_secs(10);
 
@@ -231,6 +210,7 @@ fn cached_proxy() -> SystemProxy {
     proxy
 }
 
+/// 代理的环境变量；这些命令大小写两种写法都认。
 const PROXY_VARS: [&str; 6] = [
     "http_proxy",
     "https_proxy",
@@ -240,18 +220,32 @@ const PROXY_VARS: [&str; 6] = [
     "ALL_PROXY",
 ];
 
-/// 给 `command` 设上系统的代理：开着跟随、命令的环境里还没有代理变量时才设。
+/// 给 `command` 设上系统的代理：开着跟随、命令要用的环境里还没有代理变量时才设。
 ///
-/// 每次运行前现读一遍：系统的代理随时会开关，不能记住上一次的结果。
-pub(super) fn apply(command: &mut Command) {
-    if !FOLLOW.load(Ordering::Relaxed) {
-        return;
-    }
-    let configured = command.get_envs().any(|(name, value)| {
-        let named = PROXY_VARS.iter().any(|var| name == *var);
-        named && value.is_some_and(|value| !value.is_empty())
-    });
-    if configured {
+/// 命令上设过的变量优先于本进程的；用户自己设的代理（可能带着认证）不被系统的覆盖。
+pub fn apply(command: &mut Command) {
+    apply_with(command, |var| std::env::var_os(var));
+}
+
+/// `command` 运行时是否带着代理变量：命令上设过的优先于本进程的。
+pub fn configured(command: &Command) -> bool {
+    configured_with(command, |var| std::env::var_os(var))
+}
+
+/// 同 [`configured`]，本进程的环境变量由 `inherited` 给出。
+fn configured_with(command: &Command, inherited: impl Fn(&str) -> Option<OsString>) -> bool {
+    let set = |value: Option<&OsStr>| value.is_some_and(|value| !value.is_empty());
+    PROXY_VARS.iter().any(
+        |var| match command.get_envs().find(|(name, _)| name == var) {
+            Some((_, value)) => set(value),
+            None => set(inherited(var).as_deref()),
+        },
+    )
+}
+
+/// 同 [`apply`]，本进程的环境变量由 `inherited` 给出。
+fn apply_with(command: &mut Command, inherited: impl Fn(&str) -> Option<OsString>) {
+    if !FOLLOW.load(Ordering::Relaxed) || configured_with(command, inherited) {
         return;
     }
     for (name, value) in cached_proxy().vars() {

@@ -100,6 +100,12 @@ fn a_proxy_already_in_the_environment_is_left_alone() {
     let vars: Vec<_> = command.get_envs().collect();
     assert_eq!(vars.len(), 1, "{vars:?}");
 
+    // 本进程继承来的也算，带着认证的代理不被系统的覆盖。
+    let mut command = Command::new("curl");
+    let inherited = |var: &str| (var == "HTTPS_PROXY").then(|| "http://u:p@corp:8080".into());
+    apply_with(&mut command, inherited);
+    assert_eq!(command.get_envs().count(), 0);
+
     // 关掉跟随以后什么都不设。
     follow_system_proxy(false);
     let mut command = Command::new("git");
@@ -122,23 +128,4 @@ fn address_prefixes_become_networks_and_odd_patterns_are_dropped() {
     // 写不成网段的前缀、Windows 的 `<local>` 略去。
     assert_eq!(list(&["172.2*", "<local>", "*"]), "");
     assert_eq!(list(&["host.example"]), "host.example");
-}
-
-#[test]
-fn only_online_commands_follow_the_proxy() {
-    use std::ffi::OsStr;
-    let online = |args: &[&str]| super::online(args.iter().map(OsStr::new));
-    assert!(online(&["fetch", "--all"]));
-    assert!(online(&["push", "--set-upstream", "origin", "HEAD"]));
-    assert!(online(&[
-        "-c",
-        "protocol.ext.allow=never",
-        "clone",
-        "--",
-        "url",
-        "dir"
-    ]));
-    assert!(!online(&["add", "--all", "--", "a.rs"]));
-    assert!(!online(&["commit", "-m", "x"]));
-    assert!(!online(&["-c", "core.fsmonitor=false", "stash", "push"]));
 }

@@ -86,6 +86,8 @@ impl WindowProxy {
 pub enum Request {
     /// 新建一个窗口；带目录时在里面打开它，目录已经开在某个窗口里时切到那个窗口。
     NewWindow(Option<PathBuf>),
+    /// 启动时为上次开着的目录新建窗口：用该目录记下的大小和位置，不相对当前窗口错开。
+    RestoreWindow(PathBuf),
     /// 把这个窗口切到前台（它开着要打开的目录）。
     Focus(WindowKey),
     /// 文件或目录从 `.0` 移到了 `.1`（在一个窗口剪切、到另一个窗口粘贴）：各窗口里打开的
@@ -112,8 +114,8 @@ pub enum UpdateState {
     Latest,
     /// 上次检查找到了新版本（版本号）。
     Found(String),
-    /// 上次检查失败（各通道都连不上、appcast 签名不对……）。
-    Failed,
+    /// 上次检查失败（各通道都连不上、appcast 签名不对……），带着知道的原因。
+    Failed(Option<crate::web::Failure>),
     /// 正在下载找到的新版本（版本号，已下载的百分比 0 到 100）；macOS 上这一段交给 Sparkle，由它
     /// 显示进度。
     #[cfg_attr(target_os = "macos", allow(dead_code))]
@@ -336,8 +338,7 @@ impl Winc {
             return;
         }
         for folder in folders {
-            self.shared
-                .request(Request::NewWindow(Some(folder.clone())));
+            self.shared.request(Request::RestoreWindow(folder.clone()));
         }
         self.shared.request(Request::Focus(first));
     }
@@ -581,7 +582,12 @@ impl Winc {
             }
             for request in requests {
                 match request {
-                    Request::NewWindow(folder) => self.new_window(event_loop, folder, None),
+                    Request::NewWindow(folder) => {
+                        self.new_window(event_loop, folder, None, true);
+                    }
+                    Request::RestoreWindow(folder) => {
+                        self.new_window(event_loop, Some(folder), None, false);
+                    }
                     Request::Focus(key) => {
                         if let Some(app) = self.by_key(key) {
                             app.raise();
@@ -611,7 +617,7 @@ impl Winc {
         }
         // 不带目标再次启动：macOS 上切到当前窗口，与点击程序坞图标相同；其他系统上新建窗口。
         if launch.targets.is_empty() && !cfg!(target_os = "macos") {
-            self.new_window(event_loop, None, launch.token);
+            self.new_window(event_loop, None, launch.token, true);
             if let Some(app) = self.active_key().and_then(|key| self.by_key(key)) {
                 app.raise();
             }
@@ -651,7 +657,7 @@ impl Winc {
         let key = match self.window_for(targets) {
             Ok(key) => key,
             Err(folder) => {
-                self.new_window(event_loop, folder, token.take());
+                self.new_window(event_loop, folder, token.take(), true);
                 let Some(key) = self.active_key() else {
                     return;
                 };
@@ -679,7 +685,7 @@ impl Winc {
         let key = match found.or_else(|| self.blank_window()) {
             Some(key) => key,
             None => {
-                self.new_window(event_loop, None, token.take());
+                self.new_window(event_loop, None, token.take(), true);
                 let Some(key) = self.active_key() else {
                     return;
                 };
@@ -738,13 +744,14 @@ impl Winc {
     /// 新建一个窗口；带 `folder` 时在里面打开它。
     ///
     /// 目录已经开在某个窗口里时切到那个窗口；关着的窗口（macOS 上关掉了最后一个窗口）先拿来用。
-    /// 当前窗口处于全屏时，新窗口同样进入全屏。
-    /// `token` 同 [`Self::open_targets`]。
+    /// 当前窗口处于全屏时，新窗口同样进入全屏。`cascade` 为真时新窗口相对当前窗口往右下错开，
+    /// 否则用目录记下的大小和位置。`token` 同 [`Self::open_targets`]。
     fn new_window(
         &mut self,
         event_loop: &ActiveEventLoop,
         folder: Option<PathBuf>,
         token: Option<String>,
+        cascade: bool,
     ) {
         let folder = folder.map(|f| winc_config::files::canonicalize(&f).unwrap_or(f));
         if let Some(key) = folder
@@ -793,7 +800,8 @@ impl Winc {
         let from = self.active_key().and_then(|key| {
             let slot = self.windows.iter().find(|s| s.key == key)?;
             let app = &slot.app;
-            Some((app.config.clone(), app.cascade_from(), app.shared_glyphs()))
+            let from = app.cascade_from().filter(|_| cascade);
+            Some((app.config.clone(), from, app.shared_glyphs()))
         });
         let (config, cascade, glyphs) = from.unwrap_or_default();
         let mut editor = Editor::default();

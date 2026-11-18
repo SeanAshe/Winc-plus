@@ -1345,7 +1345,7 @@ fn download(url: &str, path: &Path) -> Result<(), String> {
     }
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let part = path.with_extension(format!("part{}", std::process::id()));
-    let mut command = std::process::Command::new("curl");
+    let mut command = crate::web::curl();
     command
         .args([
             "-fsSL",
@@ -1359,9 +1359,6 @@ fn download(url: &str, path: &Path) -> Result<(), String> {
         .arg(url)
         .stdin(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
-    // Windows 上 `curl.exe` 是命令行程序：不弹出控制台窗口。
-    #[cfg(windows)]
-    std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000);
     let status = command.status().map_err(|e| e.to_string())?;
     if !status.success() {
         let _ = std::fs::remove_file(&part);

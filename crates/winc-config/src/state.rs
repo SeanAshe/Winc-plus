@@ -190,6 +190,8 @@ pub struct Session {
     pub readonly_all: bool,
     /// 侧栏是否收起；没有记录过的目录为 `false`，打开时显示文件树。
     pub sidebar_hidden: bool,
+    /// 开着这个目录的窗口关闭时的大小和位置；没有记录时用 [`State::window`]。
+    pub window: Option<WindowFrame>,
 }
 
 /// 现场里的终端面板：各标签的工作目录（按标签栏中的顺序）、正在看的标签、面板开着没有、大小。
@@ -424,6 +426,7 @@ impl State {
                 readonly_all: s.get("readOnlyAll").and_then(Json::as_bool) == Some(true),
                 name: s.get("name").and_then(Json::as_str).map(str::to_owned),
                 sidebar_hidden: (s.get("sidebarHidden").and_then(Json::as_bool)).unwrap_or(false),
+                window: (s.get("window").and_then(Json::as_object)).and_then(window_frame),
             })
         };
 
@@ -705,17 +708,7 @@ impl State {
             fields.push(("setupPending", Json::Bool(true)));
         }
         if let Some(frame) = &self.window {
-            let mut window = vec![
-                ("width", Json::Number(frame.width)),
-                ("height", Json::Number(frame.height)),
-                ("scale", Json::Number(frame.scale)),
-                ("maximized", Json::Bool(frame.maximized)),
-            ];
-            if let Some((x, y)) = frame.position {
-                window.push(("x", Json::Number(x)));
-                window.push(("y", Json::Number(y)));
-            }
-            fields.push(("window", Json::object(window)));
+            fields.push(("window", window_json(frame)));
         }
 
         let badges = self.badges.iter().map(|(folder, color)| {
@@ -811,6 +804,9 @@ impl State {
             // 展开是默认状态，不写。
             if session.sidebar_hidden {
                 items.push(("sidebarHidden", Json::Bool(true)));
+            }
+            if let Some(frame) = &session.window {
+                items.push(("window", window_json(frame)));
             }
             Json::object(items)
         });
@@ -1102,6 +1098,21 @@ fn vim_marks(
     marks.sort();
     marks.dedup_by_key(|mark| mark.0);
     marks
+}
+
+/// 返回写进 `state.json` 的窗口大小和位置，格式见 [`window_frame`]。
+fn window_json(frame: &WindowFrame) -> Json {
+    let mut window = vec![
+        ("width", Json::Number(frame.width)),
+        ("height", Json::Number(frame.height)),
+        ("scale", Json::Number(frame.scale)),
+        ("maximized", Json::Bool(frame.maximized)),
+    ];
+    if let Some((x, y)) = frame.position {
+        window.push(("x", Json::Number(x)));
+        window.push(("y", Json::Number(y)));
+    }
+    Json::object(window)
 }
 
 /// 从 `state.json` 的 `window` 一节读出窗口的大小和位置；缺项或者数值不合理时为 `None`。

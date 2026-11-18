@@ -112,7 +112,7 @@ impl Pty {
             )
         };
         drop((input_read, output_write));
-        let (api, console) = created.map_err(io::Error::from_raw_os_error)?;
+        let (api, console) = created?;
         let pty = start(command, console).map(|(process, job)| Pty {
             api,
             console: Mutex::new(Some(console)),

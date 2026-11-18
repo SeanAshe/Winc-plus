@@ -384,6 +384,7 @@ impl Document {
             indent_after: language.indent_after,
             tag_indent: language.tag_indent,
             line_comment: language.comment_prefix(),
+            block_comment: language.block_comments.first().copied(),
             single_quote_string: language.single_quote_string,
         };
 

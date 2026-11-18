@@ -13,6 +13,7 @@ const OPTIONS: EditOptions<'static> = EditOptions {
     indent_after: &[':', '{'],
     tag_indent: false,
     line_comment: Some("# "),
+    block_comment: None,
     single_quote_string: true,
 };
 
@@ -248,6 +249,51 @@ fn comment_toggle_round_trip() {
         toggle_comment(t, s, &OPTIONS)
     });
     assert_eq!(out, "  a\n    b");
+}
+
+#[test]
+fn languages_without_line_comments_toggle_a_block_comment() {
+    let css = EditOptions {
+        line_comment: None,
+        block_comment: Some(("/*", "*/")),
+        ..OPTIONS
+    };
+    let toggle = |text: &str, selection| run(text, selection, |t, s| toggle_comment(t, s, &css)).0;
+    // 整行包起来，两端隔一个空格；再切换一次还原。
+    assert_eq!(
+        toggle("a { color: red; }", Selection::point(3)),
+        "/* a { color: red; } */"
+    );
+    assert_eq!(
+        toggle("/* a { color: red; } */", Selection::point(3)),
+        "a { color: red; }"
+    );
+    // 多行：从第一行的缩进之后包到最后一个非空行的末尾，缩进、行尾空白和末尾的空行不动。
+    let lines = "  a {\n    b: 1;  \n\n";
+    assert_eq!(
+        toggle(lines, Selection::new(0, lines.len())),
+        "  /* a {\n    b: 1; */  \n\n"
+    );
+    assert_eq!(
+        toggle("  /* a {\n    b: 1; */  \n\n", Selection::new(0, 23)),
+        "  a {\n    b: 1;  \n\n"
+    );
+    // 没有空格的注释同样能去掉；只有空行时不做任何事。
+    let html = EditOptions {
+        block_comment: Some(("<!--", "-->")),
+        ..css
+    };
+    let (out, _, _) = run("<!--x-->", Selection::point(0), |t, s| {
+        toggle_comment(t, s, &html)
+    });
+    assert_eq!(out, "x");
+    let blank = Rope::from_str("   \n");
+    assert!(toggle_comment(&blank, Selection::point(0), &css).is_none());
+    let none = EditOptions {
+        block_comment: None,
+        ..css
+    };
+    assert!(toggle_comment(&Rope::from_str("a"), Selection::point(0), &none).is_none());
 }
 
 #[test]

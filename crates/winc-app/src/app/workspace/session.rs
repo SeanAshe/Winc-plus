@@ -384,6 +384,8 @@ impl App {
         let folds = self.editor.all_folds().into_iter().collect();
         let pdf_places = self.pdf_session(&folder);
         let book_places = self.book_session(&folder);
+        let earlier = self.state.session_for(&folder).and_then(|s| s.window);
+        let window = self.window_frame_now().or(earlier);
         self.update_state(|state| {
             state.set_session(Session {
                 folder,
@@ -401,6 +403,7 @@ impl App {
                 readonly,
                 readonly_all,
                 sidebar_hidden,
+                window,
             });
         });
     }

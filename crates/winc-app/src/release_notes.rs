@@ -64,7 +64,7 @@ pub(crate) fn page(locale: Locale) -> &'static str {
 /// 等待网络应答，在后台线程调用。请求失败、应答超过 [`MAX_LENGTH`] 或内容不是更新日志时返回
 /// `None`。
 pub(crate) fn load(locale: Locale, scope: &Scope, missing: &str) -> Option<String> {
-    let bytes = crate::web::fetch(&url(locale), TIMEOUT, Some(MAX_LENGTH as u64))?;
+    let bytes = crate::web::fetch(&url(locale), TIMEOUT, Some(MAX_LENGTH as u64)).ok()?;
     let text = std::str::from_utf8(&bytes).ok()?;
     select(text, scope, winc_version::VERSION, missing)
 }

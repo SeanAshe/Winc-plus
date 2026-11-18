@@ -472,8 +472,30 @@ impl Git {
             Ok(output) if output.status.code() == Some(128) && absent(&output.stderr, rev) => {
                 Ok(None)
             }
+            Ok(output)
+                if output.status.code() == Some(128)
+                    && unnamed(&output.stderr, rev)
+                    && self.has_version(root, rev, cancel) =>
+            {
+                Ok(None)
+            }
             Ok(output) => Err(failure(&output.stderr)),
             Err(e) => Err(describe(&e)),
         }
+    }
+
+    /// 版本 `rev` 是否存在；暂存区（空字符串）和还没有提交过的 `HEAD` 也算存在。
+    pub(super) fn has_version(&self, root: &Path, rev: &str, cancel: &Cancel) -> bool {
+        if rev.is_empty() || rev == "HEAD" {
+            return true;
+        }
+        // 较早的 `git` 没有 `--end-of-options`：以 `-` 开头的不当作版本。
+        if rev.starts_with('-') {
+            return false;
+        }
+        let mut command = self.command(root);
+        command.args(["rev-parse", "--verify", "--quiet"]);
+        command.arg(format!("{rev}^{{tree}}"));
+        self.run(&mut command, SHOW_TIMEOUT, cancel).is_ok()
     }
 }

@@ -86,7 +86,7 @@ impl App {
         if staging_view {
             self.apply_staging_view();
         }
-        winc_editor::git::follow_system_proxy(self.config.git_system_proxy != Some(false));
+        winc_editor::proxy::follow_system_proxy(self.config.system_proxy != Some(false));
         if images {
             self.preview.markdown.forget_images();
         }

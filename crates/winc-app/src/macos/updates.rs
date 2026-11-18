@@ -491,7 +491,7 @@ extern "C-unwind" fn aborted(
     // SAFETY: `error` 为空或是回调期间有效的 NSError，`code` 是它的公开属性。
     let code = unsafe { error.as_ref().map(|e| -> isize { msg_send![e, code] }) };
     if !matches!(code, Some(1001 | 4007)) {
-        report(UpdateState::Failed);
+        report(UpdateState::Failed(None));
     }
 }
 
@@ -574,7 +574,7 @@ extern "C-unwind" fn raced(_this: *mut AnyObject, _cmd: Sel, feed: *mut AnyObjec
     };
     // 后台检查时各通道都没回应：就此作罢，记为失败。
     if !user && feed.is_none() {
-        report(UpdateState::Failed);
+        report(UpdateState::Failed(None));
     }
     // 不在借用 `UPDATER` 时调用 Sparkle：它会同步回调 `feedURLStringForUpdater:`。
     // SAFETY: `controller` 是有效的 `SPUStandardUpdaterController`，在主线程调用它的公开方法。

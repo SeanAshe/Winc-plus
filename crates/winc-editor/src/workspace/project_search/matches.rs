@@ -86,18 +86,9 @@ pub(super) fn file_result(
         return None;
     }
 
-    // 附加的目录中的文件：相对于所在的目录，前面加上该目录的名字。
-    let folder = extra.iter().find(|(_, folder)| path.starts_with(folder));
-    let relative = path.strip_prefix(folder.map_or(root, |(_, folder)| folder.as_path()));
-    let label = folder.map(|(label, _)| std::borrow::Cow::Borrowed(label.as_str()));
-    let relative = (label.into_iter())
-        .chain((relative.unwrap_or(path).components()).map(|c| c.as_os_str().to_string_lossy()))
-        .collect::<Vec<_>>()
-        .join("/");
-
     Some(FileResult {
         path: path.to_path_buf(),
-        relative,
+        relative: crate::workspace::tree::labelled_path(root, extra, path),
         matches,
         lossy,
     })

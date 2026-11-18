@@ -15,6 +15,7 @@ mod document;
 mod editing;
 pub mod git;
 mod navigation;
+pub mod proxy;
 mod tools;
 mod workspace;
 

@@ -135,6 +135,52 @@ fn go_to_definition_tries_this_file_then_the_project() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 转到定义和查找用法一并搜索附加的目录，其中的文件和快速打开一样以目录名开头。
+#[test]
+fn definitions_and_usages_reach_added_folders() {
+    let main = winc_config::files::canonicalize(sample_folder("definition-main")).unwrap();
+    let vendor = winc_config::files::canonicalize(sample_folder("definition-vendor")).unwrap();
+    std::fs::write(main.join("app.py"), "w = Widget()\n").unwrap();
+    std::fs::write(
+        vendor.join("lib.py"),
+        "class Widget:\n    pass\n\ndef build():\n    count = 1\n    count += 1\n    return count\n",
+    )
+    .unwrap();
+    std::fs::write(vendor.join("use.py"), "x = Widget()\n").unwrap();
+    let mut app = app_with(&main, false);
+    app.add_folder(&vendor);
+    app.open_path(&main.join("app.py"));
+
+    // 定义只在附加目录中：直接跳过去。
+    caret_on(&mut app, "Widget", 0);
+    app.go_to_definition();
+    assert_eq!(
+        app.editor.active().unwrap().path,
+        Some(vendor.join("lib.py"))
+    );
+
+    // 在定义处列出用法：根目录和附加目录中的都在。
+    app.go_to_definition();
+    let places = app.overlays.picker.places.clone().unwrap();
+    assert_eq!(places.kind, PlacesKind::Usages);
+    let mut listed: Vec<&str> = places.items.iter().map(|p| p.relative.as_str()).collect();
+    listed.sort_unstable();
+    assert_eq!(listed, ["app.py", "definition-vendor/use.py"]);
+    app.close_picker();
+
+    // 当前文件在附加目录中时，它里面的位置也以目录名开头。
+    caret_on(&mut app, "count", 0);
+    app.go_to_definition();
+    let places = app.overlays.picker.places.clone().unwrap();
+    assert!(
+        (places.items.iter()).all(|p| p.relative == "definition-vendor/lib.py"),
+        "{:?}",
+        places.items.iter().map(|p| &p.relative).collect::<Vec<_>>()
+    );
+    let _ = std::fs::remove_dir_all(&main);
+    let _ = std::fs::remove_dir_all(&vendor);
+}
+
 /// 回归：光标在 `struct Item0` 上列出用法时，其他文件中各自定义的同名 `struct Item0` 被当成
 /// 用法；注释、字符串和文档中的同名文字也被列出；局部变量在整个项目中查找。
 #[test]

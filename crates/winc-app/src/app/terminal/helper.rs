@@ -104,6 +104,11 @@ impl App {
         if self.terminal.client.is_some() {
             return;
         }
+        #[cfg(windows)]
+        if !crate::windows::has_conpty() {
+            self.terminal.error = Some(winc_i18n::t!("terminal-needs-conpty").into());
+            return;
+        }
         let Some(path) = helper_path() else {
             eprintln!("winc: 未找到 winc-pty（开发环境下请先运行 cargo build -p winc-pty）");
             self.terminal.error = Some(winc_i18n::t!("terminal-helper-missing").into());

@@ -1,4 +1,4 @@
-//! `api` 的测试：覆盖发布的 `conpty.dll` 的使用条件。
+//! `api` 的测试：发布的 `conpty.dll` 的使用条件，以及运行时取系统接口。
 
 use super::*;
 
@@ -20,4 +20,10 @@ fn the_bundled_library_needs_both_files() {
     std::fs::remove_file(&library).unwrap();
     assert_eq!(bundled_library(&dir), None);
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 系统的伪终端接口在运行时取到；测试机都是 Windows 10 1809 以后的系统。
+#[test]
+fn the_system_interface_is_found_at_run_time() {
+    assert!(system().is_some());
 }

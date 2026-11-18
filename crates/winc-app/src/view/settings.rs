@@ -653,7 +653,14 @@ pub(in crate::view) fn update_status(app: &App) -> (String, Color) {
             let version = crate::release_version::present_version(version);
             (found_text(&version), p.accent)
         }
-        UpdateState::Failed => (t!("settings-updates-failed").to_owned(), p.text_muted),
+        UpdateState::Failed(None) => (t!("settings-updates-failed").to_owned(), p.text_muted),
+        UpdateState::Failed(Some(failure)) => (
+            t!(
+                "settings-updates-failed-because",
+                reason = failure.message()
+            ),
+            p.text_muted,
+        ),
         UpdateState::Downloading(version, percent) => {
             let version = crate::release_version::present_version(version);
             (

@@ -69,6 +69,13 @@ fn sample() -> State {
                 readonly: vec![PathBuf::from("/a/项目/main.rs")],
                 readonly_all: true,
                 sidebar_hidden: true,
+                window: Some(WindowFrame {
+                    position: Some((0.0, 25.0)),
+                    width: 1440.0,
+                    height: 875.0,
+                    scale: 2.0,
+                    maximized: true,
+                }),
             },
             Session {
                 folder: PathBuf::from("/b"),
@@ -86,6 +93,7 @@ fn sample() -> State {
                 readonly: Vec::new(),
                 readonly_all: false,
                 sidebar_hidden: false,
+                window: None,
             },
         ],
         last: Some(PathBuf::from("/a/项目")),
@@ -300,6 +308,7 @@ fn sessions_are_kept_per_folder() {
         readonly: Vec::new(),
         readonly_all: false,
         sidebar_hidden: false,
+        window: None,
     });
     assert_eq!(state.sessions.len(), 2);
     assert_eq!(state.sessions[0].folder, PathBuf::from("/b"));

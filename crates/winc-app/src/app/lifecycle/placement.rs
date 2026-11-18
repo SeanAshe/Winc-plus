@@ -205,23 +205,37 @@ impl App {
         });
     }
 
-    /// 窗口要关了：记下它的大小和位置；有多个窗口时最后关闭的算数。
-    pub(super) fn remember_window(&mut self) {
+    /// 返回窗口此刻要记下的大小和位置，含是否最大化；不记录窗口位置或窗口隐藏时为 `None`。
+    pub(in crate::app) fn window_frame_now(&mut self) -> Option<WindowFrame> {
         if self.config.restore_window == Some(false) || self.window.hidden {
-            return;
+            return None;
         }
         // 最后一次变化距今不足 `FRAME_SETTLE` 时尚未记录，在此立即记录。
         if self.window.frame_due.take().is_some() {
             self.note_window_frame();
         }
-        let (Some(window), Some(frame)) = (&self.window.handle, self.window.frame) else {
-            return;
-        };
-        let frame = WindowFrame {
+        let (window, frame) = (self.window.handle.as_ref()?, self.window.frame?);
+        Some(WindowFrame {
             maximized: window.is_maximized(),
             ..frame
-        };
-        self.update_state(|state| state.window = Some(frame));
+        })
+    }
+
+    /// 窗口要关了：记下它的大小和位置；有多个窗口时最后关闭的算数。
+    pub(super) fn remember_window(&mut self) {
+        if let Some(frame) = self.window_frame_now() {
+            self.update_state(|state| state.window = Some(frame));
+        }
+    }
+
+    /// 建窗口时沿用的大小和位置：开着目录时先用该目录记下的，再用最后关闭的窗口的。
+    pub(in crate::app) fn saved_window_frame(&self) -> Option<WindowFrame> {
+        // 测量时窗口大小必须固定，测量结果才可比较。
+        if self.config.restore_window == Some(false) || self.frame.bench.silent() {
+            return None;
+        }
+        let own = (self.editor.root()).and_then(|root| self.state.session_for(root)?.window);
+        own.or(self.state.window)
     }
 }
 

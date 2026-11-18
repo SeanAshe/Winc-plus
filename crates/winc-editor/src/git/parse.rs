@@ -84,6 +84,15 @@ pub(super) fn absent(stderr: &[u8], rev: &str) -> bool {
     path || (rev == "HEAD" && text.contains("fatal: invalid object name 'HEAD'"))
 }
 
+/// 返回 `git cat-file --filters <rev>:<路径>` 以 128 退出时，`stderr` 是否为较早的 `git` 不分
+/// 原因的「Not a valid object name」：版本不存在时也是这一句，要另外确认版本存在。
+pub(super) fn unnamed(stderr: &[u8], rev: &str) -> bool {
+    let prefix = format!("fatal: Not a valid object name {rev}:");
+    String::from_utf8_lossy(stderr)
+        .lines()
+        .any(|line| line.starts_with(&prefix))
+}
+
 /// 返回成功时 `git` 给出的结论，即输出中最后一行非空的内容（例如「Already up to date.」
 /// 「Fast-forward」）。
 pub(super) fn summary(output: &[u8]) -> String {
