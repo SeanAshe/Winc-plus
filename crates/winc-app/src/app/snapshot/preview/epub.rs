@@ -145,7 +145,7 @@ fn the_reading_place_is_kept_across_tabs_and_sessions() {
     settle(&mut app);
     app.open_path(&path);
     settle(&mut app);
-    assert_eq!(app.preview.markdown.scroll(), scroll);
+    assert!((app.preview.markdown.scroll() - scroll).abs() < 0.5);
 
     app.close_tab(app.editor.active.unwrap());
     settle(&mut app);
@@ -167,6 +167,42 @@ fn the_reading_place_is_kept_across_tabs_and_sessions() {
     next.remember_session();
     let root = next.editor.root().unwrap();
     assert!(next.state.session_for(root).unwrap().book_places.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 转到目录中的一节、切换标签后切回，排版变化（调大字号）后仍停在那一节。
+#[test]
+fn contents_jumps_and_tab_switches_stay_put_when_the_layout_changes() {
+    let dir = sample_folder("epub-hold");
+    let path = dir.join("旅行记.epub");
+    let mut app = open_book(&path, false);
+    let anchor = match &app.panels.outline.kind {
+        OutlineKind::Anchors(anchors) => anchors[2].clone().unwrap(),
+        _ => panic!("EPUB 的大纲是目录"),
+    };
+    let top = |app: &App| {
+        crate::app::preview::markdown::laid::anchor_box(app, &anchor)
+            .unwrap()
+            .0
+    };
+
+    // 目录：转到「歇脚」，排版变高之后仍对齐到那里。
+    click_row(&mut app, 2);
+    let before = app.preview.markdown.scroll();
+    assert!((before - top(&app)).abs() < 0.5);
+    app.run_action(Action::IncreaseFontSize);
+    settle(&mut app);
+    assert!(top(&app) > before + 1.0, "调大字号后「歇脚」应下移");
+    assert!((app.preview.markdown.scroll() - top(&app)).abs() < 0.5);
+
+    // 切到别的标签，排版又变了，切回来仍在「歇脚」。
+    app.open_path(&dir.join("a.txt"));
+    settle(&mut app);
+    app.run_action(Action::IncreaseFontSize);
+    app.open_path(&path);
+    settle(&mut app);
+    assert!((app.preview.markdown.scroll() - top(&app)).abs() < 0.5);
+    assert_eq!(app.outline_current(&app.outline_rows()), Some(2));
     let _ = std::fs::remove_dir_all(&dir);
 }
 

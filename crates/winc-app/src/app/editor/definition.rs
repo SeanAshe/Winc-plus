@@ -321,17 +321,13 @@ impl App {
         self.request_redraw();
     }
 
-    /// 返回当前文档相对于已打开目录的路径；没有路径或不在目录中时返回文档名。
+    /// 返回当前文档与项目搜索结果同样写法的相对路径；没有路径或没有打开目录时返回文档名。
     fn relative_name(&self) -> String {
         let Some(doc) = self.editor.active() else {
             return String::new();
         };
-        match (doc.path.as_deref(), self.editor.root()) {
-            (Some(path), Some(root)) => path
-                .strip_prefix(root)
-                .unwrap_or(path)
-                .display()
-                .to_string(),
+        match (doc.path.as_deref(), self.editor.workspace.as_ref()) {
+            (Some(path), Some(workspace)) => workspace.labelled_path(path),
             _ => doc.name().into_owned(),
         }
     }
@@ -369,10 +365,11 @@ impl App {
         self.start_place_search(search, &root, &query);
     }
 
-    /// 在 `root` 下后台开始搜索 `query`，搜索进展由 [`Self::poll_definitions`] 处理。
+    /// 在 `root` 和附加目录下后台开始搜索 `query`，搜索进展由 [`Self::poll_definitions`] 处理。
     ///
     /// 未保存的文档按内存中的内容搜索。
     fn start_place_search(&mut self, mut search: DefinitionSearch, root: &Path, query: &Query) {
+        search.engine.set_extra_folders(self.extra_folders());
         let dirty = self.dirty_ropes();
         let proxy = self.link.proxy.clone();
         let wake = move || {

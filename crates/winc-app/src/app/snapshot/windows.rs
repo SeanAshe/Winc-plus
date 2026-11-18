@@ -312,14 +312,48 @@ fn other_windows_are_remembered_at_quit_and_reopened_at_launch() {
     let (requests, _) = winc.settle_for_test();
     assert_eq!(
         requests,
-        [
-            Request::NewWindow(Some(others[0].clone())),
-            Request::Focus(a)
-        ]
+        [Request::RestoreWindow(others[0].clone()), Request::Focus(a)]
     );
     let _ = std::fs::remove_dir_all(&first);
     let _ = std::fs::remove_dir_all(&second);
     let _ = std::fs::remove_file(&state_path);
+}
+
+#[test]
+fn each_folder_reopens_at_the_window_frame_it_was_closed_with() {
+    let first = search_folder("windows-frame-a");
+    let second = search_folder("windows-frame-b");
+    let frame = |width| winc_config::WindowFrame {
+        position: Some((40.0, 60.0)),
+        width,
+        height: 700.0,
+        scale: 2.0,
+        maximized: false,
+    };
+    let mut app = app_with(&first, false);
+    app.state.window = Some(frame(1000.0));
+    app.save_session();
+    let root = app.editor.root().unwrap().to_path_buf();
+    let mut session = app.state.session_for(&root).cloned().unwrap();
+    assert_eq!(session.window, None, "没有窗口时不记");
+    assert_eq!(app.saved_window_frame(), Some(frame(1000.0)));
+
+    session.window = Some(frame(1600.0));
+    app.state.set_session(session);
+    app.save_session();
+    assert_eq!(
+        app.saved_window_frame(),
+        Some(frame(1600.0)),
+        "目录自己记下的优先，没有窗口时再记一次也不丢"
+    );
+
+    let mut other = app_with(&second, false);
+    other.state = app.state.clone();
+    assert_eq!(other.saved_window_frame(), Some(frame(1000.0)));
+    other.config.restore_window = Some(false);
+    assert_eq!(other.saved_window_frame(), None);
+    let _ = std::fs::remove_dir_all(&first);
+    let _ = std::fs::remove_dir_all(&second);
 }
 
 /// 在一个窗口剪切、到另一个窗口的目录里粘贴。

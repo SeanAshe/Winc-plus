@@ -2,6 +2,7 @@
 
 editor-preview-failed = 无法显示预览：{ $reason }
 editor-show-source = 显示源代码
+editor-no-comment = { $language } 没有注释写法
 editor-reading = 正在读取「{ $name }」…
 editor-reading-failed = 无法读取「{ $name }」
 editor-open-in-browser = 在浏览器中查看

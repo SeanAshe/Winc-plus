@@ -51,7 +51,10 @@ pub(super) fn file_url(path: &Path) -> String {
 
 /// 有没有 `curl`：下载类的测试要用它，没有时跳过这些测试。
 pub(super) fn has_curl() -> bool {
-    command("curl").arg("--version").output().is_ok()
+    crate::web::command("curl")
+        .arg("--version")
+        .output()
+        .is_ok()
 }
 
 /// 整个 appcast。
@@ -330,7 +333,7 @@ fn the_first_verified_feed_wins() {
     ];
     let verifying = key.verifying_key();
     assert!(race(&feeds, &verifying).unwrap().contains("<channel>"));
-    assert_eq!(race(&feeds[..3], &verifying), None);
+    assert!(race(&feeds[..3], &verifying).is_err());
     let _ = std::fs::remove_dir_all(&dir);
 }
 

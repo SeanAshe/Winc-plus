@@ -3,17 +3,19 @@
 //! 系统接口的行为随 Windows 版本变化。发布的版本由 `release/windows/conpty.ps1` 固定，控制台在
 //! 同目录的 `OpenConsole.exe` 中运行，各系统上行为一致。文件缺失、无法加载或创建失败时使用系统
 //! 接口；环境变量 `WINC_SYSTEM_CONPTY=1` 强制使用系统接口，用于排查问题。
+//!
+//! 系统接口在运行时取：Windows 10 1809 以前没有，本程序照样能启动，新建终端时报错。
 
+use std::io;
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use windows_sys::Win32::Foundation::HANDLE;
-use windows_sys::Win32::System::Console::{
-    COORD, ClosePseudoConsole, CreatePseudoConsole, HPCON, ResizePseudoConsole,
-};
+use windows_sys::Win32::System::Console::{COORD, HPCON};
 use windows_sys::Win32::System::LibraryLoader::{
-    GetProcAddress, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR, LOAD_LIBRARY_SEARCH_SYSTEM32, LoadLibraryExW,
+    GetModuleHandleW, GetProcAddress, LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR,
+    LOAD_LIBRARY_SEARCH_SYSTEM32, LoadLibraryExW,
 };
 use windows_sys::core::HRESULT;
 
@@ -34,13 +36,6 @@ pub(super) struct Api {
     flags: u32,
 }
 
-static SYSTEM: Api = Api {
-    create: CreatePseudoConsole,
-    resize: ResizePseudoConsole,
-    close: ClosePseudoConsole,
-    flags: 0,
-};
-
 /// 新建伪终端，返回它和创建它的接口；发布的版本创建失败时改用系统接口。
 ///
 /// # Safety
@@ -49,13 +44,21 @@ static SYSTEM: Api = Api {
 ///
 /// # Errors
 ///
-/// 系统接口也创建失败时返回它的 `HRESULT`。
+/// 系统没有伪终端接口时返回 [`io::ErrorKind::Unsupported`]；系统接口也创建失败时返回它的
+/// `HRESULT`。
 pub(super) unsafe fn create(
     size: COORD,
     input: HANDLE,
     output: HANDLE,
-) -> Result<(&'static Api, HPCON), HRESULT> {
+) -> io::Result<(&'static Api, HPCON)> {
     static BUNDLED: OnceLock<Option<Api>> = OnceLock::new();
+    static SYSTEM: OnceLock<Option<Api>> = OnceLock::new();
+    let Some(system) = SYSTEM.get_or_init(system) else {
+        return Err(io::Error::new(
+            io::ErrorKind::Unsupported,
+            "终端需要 Windows 10 1809 或更高版本",
+        ));
+    };
     if let Some(api) = BUNDLED.get_or_init(load)
         // SAFETY: 调用方保证两个句柄有效。
         && let Ok(console) = unsafe { api.attempt(size, input, output) }
@@ -63,7 +66,32 @@ pub(super) unsafe fn create(
         return Ok((api, console));
     }
     // SAFETY: 调用方保证两个句柄有效；上一次失败的尝试不占用它们。
-    unsafe { SYSTEM.attempt(size, input, output) }.map(|console| (&SYSTEM, console))
+    let console = unsafe { system.attempt(size, input, output) };
+    console
+        .map(|console| (system, console))
+        .map_err(io::Error::from_raw_os_error)
+}
+
+/// 取系统的伪终端接口；Windows 10 1809 以前没有，返回 `None`。
+fn system() -> Option<Api> {
+    // SAFETY: `kernel32.dll` 在每个进程中都已加载且不会卸载；两个名字都以 NUL 结尾，三个函数的
+    // 签名见 `CreatePseudoConsole` 等的文档。
+    unsafe {
+        let name: Vec<u16> = "kernel32.dll\0".encode_utf16().collect();
+        let module = GetModuleHandleW(name.as_ptr());
+        if module.is_null() {
+            return None;
+        }
+        let create = GetProcAddress(module, c"CreatePseudoConsole".as_ptr().cast())?;
+        let resize = GetProcAddress(module, c"ResizePseudoConsole".as_ptr().cast())?;
+        let close = GetProcAddress(module, c"ClosePseudoConsole".as_ptr().cast())?;
+        Some(Api {
+            create: std::mem::transmute::<unsafe extern "system" fn() -> isize, Create>(create),
+            resize: std::mem::transmute::<unsafe extern "system" fn() -> isize, Resize>(resize),
+            close: std::mem::transmute::<unsafe extern "system" fn() -> isize, Close>(close),
+            flags: 0,
+        })
+    }
 }
 
 impl Api {

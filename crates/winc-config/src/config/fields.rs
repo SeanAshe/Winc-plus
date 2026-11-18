@@ -54,6 +54,7 @@ pub(super) const SECTIONS: &[(&str, &[Field])] = &[
     ("terminal", TERMINAL),
     ("vim", VIM),
     ("git", GIT),
+    ("network", NETWORK),
     ("remote", REMOTE),
     ("keyboard", KEYBOARD),
     ("format", FORMAT),
@@ -615,7 +616,6 @@ const GIT: &[Field] = &[
     bool_field!("enabled", git_enabled),
     bool_field!("confirmPush", git_confirm_push),
     bool_field!("rememberCredentials", git_remember_credentials),
-    bool_field!("systemProxy", git_system_proxy),
     bool_field!("inlineBlame", git_inline_blame),
     bool_field!("autoFetch", git_auto_fetch),
     bool_field!("stagingArea", git_staging_area),
@@ -688,6 +688,34 @@ const GIT: &[Field] = &[
         },
     },
 ];
+
+/// `network` 一节。
+const NETWORK: &[Field] = &[bool_field!("systemProxy", system_proxy)];
+
+/// 挪过位置的设置：（旧的节，旧的键，新的节，新的键）。旧的位置照样读入，写回时只写新的位置。
+const MOVED: &[(&str, &str, &str, &str)] = &[("git", "systemProxy", "network", "systemProxy")];
+
+/// 节 `name` 中的 `key` 挪去的位置的那一项。
+fn moved_to(name: &str, key: &str) -> Option<&'static Field> {
+    let &(_, _, section, key) = MOVED.iter().find(|m| (m.0, m.1) == (name, key))?;
+    let &(_, fields) = SECTIONS.iter().find(|&&(n, _)| n == section)?;
+    find(fields, key)
+}
+
+/// 原文件 `root` 中，挪到节 `name` 的 `key` 那一项在旧位置上的值。
+pub(super) fn moved_from<'a>(
+    root: &'a BTreeMap<String, Json>,
+    name: &str,
+    key: &str,
+) -> Option<&'a Json> {
+    let &(section, old, ..) = MOVED.iter().find(|m| (m.2, m.3) == (name, key))?;
+    root.get(section)?.as_object()?.get(old)
+}
+
+/// 节 `name` 中的 `key` 是否已经挪走（见 [`MOVED`]）。
+pub(super) fn is_moved(name: &str, key: &str) -> bool {
+    MOVED.iter().any(|m| (m.0, m.1) == (name, key))
+}
 
 /// `remote` 一节。
 const REMOTE: &[Field] = &[
@@ -877,7 +905,7 @@ pub(super) fn read_section(
         return;
     };
     for (key, value) in values {
-        match find(fields, key) {
+        match find(fields, key).or_else(|| moved_to(name, key)) {
             Some(field) => (field.read)(config, value, &format!("{name}.{key}"), problems),
             None => problems.push(t!("config-unknown-key", key = format!("{name}.{key}"))),
         }

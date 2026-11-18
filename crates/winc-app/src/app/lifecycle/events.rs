@@ -31,11 +31,7 @@ impl ApplicationHandler<UserEvent> for App {
             .workspace
             .as_ref()
             .map_or(crate::layout::PRODUCT_NAME, |w| w.name.as_str());
-        // 测量时窗口大小必须固定，测量结果才可比较。
-        let saved = self
-            .state
-            .window
-            .filter(|_| self.config.restore_window != Some(false) && !self.frame.bench.silent());
+        let saved = self.saved_window_frame();
         // 从已有窗口打开的新窗口使用记录的大小（没有记录时使用默认大小），位置相对来源窗口向
         // 右下方偏移。偏移后的位置与记录的位置都按当前显示器校验，不在任何显示器上时由系统决定。
         let cascade = self.opening.cascade.take().map(|(at, scale)| WindowFrame {

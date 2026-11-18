@@ -11,14 +11,12 @@ pub mod merge;
 mod commit;
 mod output;
 mod parse;
-mod proxy;
 mod rebase;
 mod remote;
 mod sync;
 
 pub use commit::RecentHistory;
 pub use output::{on_output, output_since, output_snapshot, output_text};
-pub use proxy::follow_system_proxy;
 pub use rebase::{RebaseAction, RebaseCommit, RebasePlan, RebaseStep, rebase_todo};
 pub use remote::{Remote, TagTarget, repository_dir_name};
 pub use sync::{Carried, MINIMUM_VERSION, Outgoing, Synced};
@@ -47,7 +45,7 @@ use crate::tools::shell::process::{self, Cancel, RunError};
 /// `git status` 最长的运行时间（30 秒）。
 ///
 /// 几十万个文件的仓库第一次运行需要数秒；超过该时间视为 `git` 失去响应。
-const STATUS_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const STATUS_TIMEOUT: Duration = Duration::from_secs(30);
 /// 日志中日期的格式参数。
 ///
 /// 本机时区的换算由 `git` 完成（`format-local`），不需要读取时区数据库。
@@ -925,9 +923,9 @@ impl Git {
         self.ask_through(root, &mut command);
         // 本机的 `git`（不是远端主机和 WSL 里的）在联网的命令上跟随系统的代理设置；暂存、提交
         // 这些不联网的命令不读系统设置，不为它们多跑一个进程。
-        let online = proxy::online(args.iter().map(AsRef::as_ref));
+        let online = online(args.iter().map(AsRef::as_ref));
         if online && !winc_backend::is_remote(root) && crate::wsl::locate_here(root).is_none() {
-            proxy::apply(&mut command);
+            crate::proxy::apply(&mut command);
         }
         prepare(&mut command);
         command.args(args).stderr(Stdio::piped());
@@ -1449,6 +1447,26 @@ pub fn scan_repositories(dir: &Path, depth: usize, cancel: &Cancel) -> Vec<PathB
     }
     found.sort();
     found
+}
+
+/// 会访问网络、需要代理的 `git` 子命令。
+const ONLINE: [&str; 6] = ["fetch", "pull", "push", "clone", "ls-remote", "remote"];
+
+/// `git args` 的子命令是否会访问网络（见 [`ONLINE`]）：跳过前面的 `-c 键=值` 和其他选项，看第一个
+/// 子命令。
+fn online<'a>(args: impl IntoIterator<Item = &'a OsStr>) -> bool {
+    let mut args = args.into_iter();
+    while let Some(arg) = args.next() {
+        if arg == "-c" {
+            args.next();
+            continue;
+        }
+        if arg.to_string_lossy().starts_with('-') {
+            continue;
+        }
+        return ONLINE.iter().any(|command| arg == *command);
+    }
+    false
 }
 
 /// 选出发布分支（第一次推送）的远程：先按 `preferred`（当前分支和仓库配置的推送目标，优先的在前），

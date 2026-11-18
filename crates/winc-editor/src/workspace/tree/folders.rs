@@ -21,6 +21,17 @@ impl Workspace {
         self.folders().find(|folder| path.starts_with(folder))
     }
 
+    /// 返回 `path` 在快速打开和全局搜索中显示的相对路径：以 `/` 分隔，附加的文件夹中的以它的
+    /// 前缀开头；不在任何一个文件夹内时返回完整路径。
+    pub fn labelled_path(&self, path: &Path) -> String {
+        let prefixes = folder_prefixes(&self.root, &self.extra);
+        let extra: Vec<_> = prefixes
+            .into_iter()
+            .zip(self.extra.iter().cloned())
+            .collect();
+        labelled_path(&self.root, &extra, path)
+    }
+
     /// 返回 `path` 所在的文件夹，不在任何一个文件夹内时返回根目录。
     pub(super) fn folder_or_root(&self, path: &Path) -> &Path {
         self.folder_of(path).unwrap_or(&self.root)
@@ -140,6 +151,18 @@ impl Workspace {
         });
         Some(rows.collect())
     }
+}
+
+/// 返回 `path` 相对于根目录 `root` 的路径，以 `/` 分隔；在附加目录中时相对于该目录，前面加上
+/// 它的前缀（`extra` 是各个附加目录的前缀和目录）。不在任何一个目录中时返回完整路径。
+pub(crate) fn labelled_path(root: &Path, extra: &[(String, PathBuf)], path: &Path) -> String {
+    let folder = extra.iter().find(|(_, folder)| path.starts_with(folder));
+    let relative = path.strip_prefix(folder.map_or(root, |(_, folder)| folder.as_path()));
+    let label = folder.map(|(label, _)| Cow::Borrowed(label.as_str()));
+    (label.into_iter())
+        .chain((relative.unwrap_or(path).components()).map(|c| c.as_os_str().to_string_lossy()))
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// 返回各个附加目录 `extra` 在相对路径中使用的前缀，与 `extra` 一一对应：快速打开的文件表和全局

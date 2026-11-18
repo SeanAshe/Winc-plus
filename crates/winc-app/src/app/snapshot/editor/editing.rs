@@ -417,6 +417,37 @@ fn saving_as_administrator_keeps_outside_changes() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// 回归（#277）：`Ctrl+/` 在只有块注释的语言里没有反应。CSS 改为包成块注释；纯文本没有注释
+/// 写法，在状态栏说明。
+#[test]
+fn the_comment_shortcut_wraps_css_and_explains_plain_text() {
+    let dir = sample_folder("comment-fallback");
+    std::fs::write(dir.join("style.css"), "a { color: red; }\n").unwrap();
+    std::fs::write(dir.join("notes.txt"), "hello\n").unwrap();
+    let text = |app: &App| {
+        app.editor
+            .active()
+            .unwrap()
+            .text_range(0, usize::MAX)
+            .unwrap()
+    };
+
+    let mut app = app_with(&dir.join("style.css"), false);
+    app.run_action(Action::ToggleComment);
+    assert_eq!(text(&app), "/* a { color: red; } */\n");
+    app.run_action(Action::ToggleComment);
+    assert_eq!(text(&app), "a { color: red; }\n");
+
+    app.open_path(&dir.join("notes.txt"));
+    app.run_action(Action::ToggleComment);
+    assert_eq!(text(&app), "hello\n");
+    assert_eq!(
+        app.status.message.as_deref(),
+        Some("Plain Text 没有注释写法")
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 fn editorconfig_sets_indentation_and_tidies_on_save() {
     let dir = winc_config::files::canonicalize(sample_folder("editorconfig")).unwrap();

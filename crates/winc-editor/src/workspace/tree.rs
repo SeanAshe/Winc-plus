@@ -1222,7 +1222,7 @@ fn take_number(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> (u128, u
 }
 
 mod folders;
-pub(crate) use folders::folder_prefixes;
+pub(crate) use folders::{folder_prefixes, labelled_path};
 mod scan;
 pub use scan::{DirListing, DirScan};
 

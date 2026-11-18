@@ -2,6 +2,7 @@
 
 editor-preview-failed = Couldn’t show the preview: { $reason }
 editor-show-source = Show Source
+editor-no-comment = { $language } has no comment syntax
 editor-reading = Reading “{ $name }”…
 editor-reading-failed = Couldn’t load “{ $name }”
 editor-open-in-browser = View in Browser

@@ -126,6 +126,9 @@ pub struct EditOptions<'a> {
     pub tag_indent: bool,
     /// 行注释前缀（不含缩进，例如 `//`、`#`）；语言没有行注释时为 `None`。
     pub line_comment: Option<&'a str>,
+    /// 块注释的开始和结束（例如 `/*` 和 `*/`）；没有行注释时切换注释改用它，语言也没有块注释时
+    /// 为 `None`。
+    pub block_comment: Option<(&'a str, &'a str)>,
     /// 单引号是否界定字符串（Python、JS 为真）。
     ///
     /// Rust 的单引号多用于生命周期，为假。
@@ -532,15 +535,18 @@ pub fn outdent(
     Some(Transaction::new(changes, selection, after, EditKind::Other))
 }
 
-/// 返回切换行注释的事务；语言没有行注释，或覆盖的行都是空行时返回 `None`。
+/// 返回切换行注释的事务；语言没有注释，或覆盖的行都是空行时返回 `None`。
 ///
-/// 所有非空行都已注释时取消注释，否则在这些行的最小缩进处加上注释前缀。
+/// 所有非空行都已注释时取消注释，否则在这些行的最小缩进处加上注释前缀。语言没有行注释、只有
+/// 块注释（CSS、HTML）时改为切换块注释：选中的各行整体包进块注释，已经整体包着时去掉。
 pub fn toggle_comment(
     text: &impl Lines,
     selection: Selection,
     options: &EditOptions<'_>,
 ) -> Option<Transaction> {
-    let prefix = options.line_comment?;
+    let Some(prefix) = options.line_comment else {
+        return toggle_block_comment(text, selection, options.block_comment?);
+    };
     let (first, last) = selected_lines(text, selection);
     let trimmed = prefix.trim_end();
 
@@ -598,6 +604,72 @@ pub fn toggle_comment(
         }
     }
 
+    let after = shift_selection(selection, &changes);
+    Some(Transaction::new(changes, selection, after, EditKind::Other))
+}
+
+/// 返回切换块注释 `(open, close)` 的事务：选中的各行从第一行的缩进之后到最后一个非空行的末尾
+/// （不含行尾空白）整体包进块注释，两端各隔一个空格；已经整体包着时去掉。覆盖的行都是空行时返回
+/// `None`。
+fn toggle_block_comment(
+    text: &impl Lines,
+    selection: Selection,
+    (open, close): (&str, &str),
+) -> Option<Transaction> {
+    let (first, last) = selected_lines(text, selection);
+    let filled = |l: usize| !text::is_blank(text.line_content(l).slice());
+    let top = (first..=last).find(|&l| filled(l))?;
+    let bottom = (first..=last).rev().find(|&l| filled(l))?;
+    let start = text.line_start(top) + text::leading_whitespace(text.line_content(top).slice());
+    let tail = text.line_content(bottom);
+    let tail = tail.slice();
+    let trailing = (0..tail.len_chars())
+        .rev()
+        .take_while(|&i| tail.char(i).is_whitespace())
+        .count();
+    let end = text.line_start(bottom) + tail.len_chars() - trailing;
+    let inner = text.substring(start, end);
+    let length = |s: &str| s.chars().count();
+
+    let changes = if inner.starts_with(open)
+        && inner.ends_with(close)
+        && length(&inner) >= length(open) + length(close)
+    {
+        // 去掉注释符，以及紧挨着的一个空格（两个空格不重叠时）。
+        let body = &inner[open.len()..inner.len() - close.len()];
+        let spaced = body.len() >= 2 && body.starts_with(' ') && body.ends_with(' ');
+        let (head, foot) = if spaced {
+            (format!("{open} "), format!(" {close}"))
+        } else {
+            (open.to_owned(), close.to_owned())
+        };
+        vec![
+            Change {
+                start,
+                removed: head.clone(),
+                inserted: String::new(),
+            },
+            Change {
+                start: end - length(&head) - length(&foot),
+                removed: foot,
+                inserted: String::new(),
+            },
+        ]
+    } else {
+        let head = format!("{open} ");
+        vec![
+            Change {
+                start,
+                removed: String::new(),
+                inserted: head.clone(),
+            },
+            Change {
+                start: end + length(&head),
+                removed: String::new(),
+                inserted: format!(" {close}"),
+            },
+        ]
+    };
     let after = shift_selection(selection, &changes);
     Some(Transaction::new(changes, selection, after, EditKind::Other))
 }

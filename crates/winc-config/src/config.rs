@@ -213,9 +213,9 @@ pub struct Config {
     pub git_confirm_push: Option<bool>,
     /// 是否允许把通过验证的 HTTP(S) 密码保存在系统的凭据存储中，默认为是；关闭时清除已保存的。
     pub git_remember_credentials: Option<bool>,
-    /// `git` 访问网络时是否跟随系统的代理设置，默认为是；`git` 自己配置了代理或环境里已有代理
-    /// 变量时以它们为准。
-    pub git_system_proxy: Option<bool>,
+    /// 联网的命令（`git`、检查更新、网络图片）是否跟随系统的代理设置，默认为是；环境里已有代理
+    /// 变量或 `git` 自己配置了代理时以它们为准。
+    pub system_proxy: Option<bool>,
     /// 是否在光标所在行的末尾淡淡地显示最后修改这一行的作者、时间和提交说明，默认为是。
     pub git_inline_blame: Option<bool>,
     /// 是否定时在后台获取远程仓库的更新，默认为否：获取会连接远程，需要认证的远程可能每次都
@@ -626,12 +626,19 @@ impl Config {
                 continue;
             }
             let old = old.and_then(Json::as_object);
+            // 没有修改、新位置上也没有的项沿用旧位置上的值。
+            let moved = |field: &Field| {
+                let root = root.filter(|_| !changed(field))?;
+                moved_from(root, name, field.key).cloned()
+            };
             let mut items: Vec<(&str, Json)> = fields
                 .iter()
-                .filter_map(|field| Some((field.key, value(field, old)?)))
+                .filter_map(|field| Some((field.key, value(field, old).or_else(|| moved(field))?)))
                 .collect();
             if let Some(old) = old {
-                let unknown = old.iter().filter(|(key, _)| find(fields, key).is_none());
+                let unknown = old
+                    .iter()
+                    .filter(|(key, _)| find(fields, key).is_none() && !is_moved(name, key));
                 items.extend(unknown.map(|(key, value)| (key.as_str(), value.clone())));
             }
             if !items.is_empty() {

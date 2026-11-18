@@ -265,7 +265,7 @@ pub fn run() {
     let (key, proxy) = winc.reserve();
     let mut app = App::new(editor, proxy, bench, config);
     app.watch_git_output();
-    winc_editor::git::follow_system_proxy(app.config.git_system_proxy != Some(false));
+    winc_editor::proxy::follow_system_proxy(app.config.system_proxy != Some(false));
     // 只打开文件时收起侧栏；打开目录时展开。没有目标时沿用上面的判断（恢复目录则展开）。
     if let Some(show) = args.launch_sidebar() {
         app.set_initial_sidebar(show);

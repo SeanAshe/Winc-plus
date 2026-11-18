@@ -759,7 +759,7 @@ impl App {
             Setting::GitModule => self.git_enabled(),
             Setting::GitConfirmPush => self.config.git_confirm_push != Some(false),
             Setting::GitRememberCredentials => self.config.git_remember_credentials != Some(false),
-            Setting::GitSystemProxy => self.config.git_system_proxy != Some(false),
+            Setting::SystemProxy => self.config.system_proxy != Some(false),
             Setting::GitInlineBlame => self.config.git_inline_blame != Some(false),
             Setting::GitAutoFetch => self.config.git_auto_fetch == Some(true),
             Setting::GitTree => !self.git.commit.flat(),
@@ -831,9 +831,9 @@ impl App {
             }
             Setting::GitTree if on == self.git.commit.flat() => self.toggle_commit_layout(),
             Setting::GitTree => {}
-            Setting::GitSystemProxy => {
-                self.config.git_system_proxy = Some(on);
-                winc_editor::git::follow_system_proxy(on);
+            Setting::SystemProxy => {
+                self.config.system_proxy = Some(on);
+                winc_editor::proxy::follow_system_proxy(on);
             }
             Setting::GitStagingArea => self.config.git_staging_area = Some(on),
             Setting::GitInlineBlame => self.config.git_inline_blame = Some(on),

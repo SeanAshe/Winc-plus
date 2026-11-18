@@ -354,7 +354,7 @@ fn round_trips_through_json() {
         git_confirm_push: Some(false),
         drop_folder: Some(FolderDrop::Add),
         git_remember_credentials: Some(false),
-        git_system_proxy: Some(false),
+        system_proxy: Some(false),
         git_inline_blame: Some(false),
         git_auto_fetch: Some(true),
         git_staging_area: Some(true),
@@ -458,6 +458,48 @@ fn to_json_writes_sections_in_a_fixed_order() {
              \"jq .\"\n    }\n  },\n  \"theme\": \"auto\"\n}\n"
     );
     assert_eq!(Config::default().to_json(), "{}\n");
+}
+
+/// 挪过位置的设置：旧的位置照样读入，写回时只写新的位置。
+#[test]
+fn moved_settings_are_read_from_the_old_place_and_written_to_the_new_one() {
+    let (config, problems) = Config::parse(r#"{"git":{"systemProxy":false,"enabled":true}}"#);
+    assert!(problems.is_empty(), "{problems:?}");
+    assert_eq!(config.system_proxy, Some(false));
+    // 两处都写了时以新的位置为准。
+    let both = r#"{"git":{"systemProxy":false},"network":{"systemProxy":true}}"#;
+    assert_eq!(Config::parse(both).0.system_proxy, Some(true));
+
+    let dir = std::env::temp_dir().join(format!("winc-config-moved-{}", std::process::id()));
+    let path = dir.join("config.json");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let old = r#"{"git":{"systemProxy":false,"enabled":true}}"#;
+    std::fs::write(&path, old).unwrap();
+    // 改了别的项：这一项搬到新的位置，值不变。
+    let edited = Config {
+        tab_width: Some(2),
+        ..config.clone()
+    };
+    edited.save_to(&path, &config).unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(
+        Json::parse_jsonc(&text).unwrap().0,
+        Json::parse_jsonc(
+            r#"{"editor":{"tabWidth":2},"git":{"enabled":true},"network":{"systemProxy":false}}"#
+        )
+        .unwrap()
+        .0
+    );
+    // 改了这一项本身。
+    let base = Config::load_from(&path).0;
+    let on = Config {
+        system_proxy: Some(true),
+        ..base.clone()
+    };
+    on.save_to(&path, &base).unwrap();
+    assert_eq!(Config::load_from(&path).0.system_proxy, Some(true));
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

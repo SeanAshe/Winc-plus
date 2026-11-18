@@ -186,6 +186,12 @@ impl App {
         };
         let lower = anchor.to_lowercase();
         if !(lower.starts_with("fn-") || lower.starts_with("fnref-")) {
+            // 书中不用过渡：过渡中的滚动会被当成用户滚动，不再对齐。
+            if self.hold_book_at(top) {
+                self.settle_glide_of(ScrollTarget::Markdown);
+                self.scroll_markdown_to(top);
+                return;
+            }
             self.glide_pane_to(ScrollTarget::Markdown, top);
             return;
         }

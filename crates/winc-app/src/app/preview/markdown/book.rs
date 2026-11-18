@@ -2,7 +2,7 @@
 //! 保存，再次打开时排版完成后回到原处。
 //!
 //! 位置按顶层块记录（[`Place`]），窗口宽度、字号改变后仍对应同一处内容。书中的图片在排版之后
-//! 才读完，读完后上方的块变高：恢复之后、用户滚动之前，每次重排都按记下的位置重新对齐。
+//! 才读完，读完后上方的块变高：回到书中或转到一处之后、用户滚动之前，每次重排都重新对齐。
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
@@ -48,24 +48,27 @@ fn at_start((block, at): Place) -> bool {
 }
 
 impl App {
-    /// 转换好 EPUB 文件 `path` 时调用；`fresh` 为真（本次打开后尚未滚动过）时，排版完成后回到
-    /// 记下的阅读位置。
+    /// 转换好 EPUB 文件 `path` 时调用：排版完成后回到本次运行中离开时的阅读位置，本次没有离开过
+    /// 且 `fresh`（打开后尚未滚动过）时回到现场中记下的位置。
     pub(in crate::app) fn begin_book(&mut self, path: PathBuf, fresh: bool) {
-        let saved = || self.saved_book_place(&path);
-        let place = fresh
-            .then(|| {
-                self.preview
-                    .markdown
-                    .book
-                    .places
-                    .get(&path)
-                    .copied()
-                    .or_else(saved)
-            })
-            .flatten();
+        let left = self.preview.markdown.book.places.get(&path).copied();
+        let place = left.or_else(|| fresh.then(|| self.saved_book_place(&path)).flatten());
         let book = &mut self.preview.markdown.book;
         book.hold = place.map(|place| (place, None));
         book.path = Some(path);
+    }
+
+    /// 正在预览一本书时，保持对齐到滚动位置 `y` 处的内容，直到用户滚动；返回是否在预览书。
+    pub(in crate::app) fn hold_book_at(&mut self, y: f32) -> bool {
+        let md = &mut self.preview.markdown;
+        let Some(place) = md.layout.as_ref().and_then(|laid| place_at(laid, y)) else {
+            return false;
+        };
+        if md.book.path.is_none() {
+            return false;
+        }
+        md.book.hold = Some((place, None));
+        true
     }
 
     /// 排版完成后按待对齐的位置滚动（见 [`BookPlaces::hold`]）。绘制预览时调用。

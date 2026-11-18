@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use ed25519_dalek::{Signature, VerifyingKey};
 
-use crate::web::{command, fetch};
+use crate::web::{Failure, curl, fetch, wget};
 use crate::winc::UpdateState;
 
 /// 「关于」页更新按钮这次点击该做什么，与状态栏上的更新按钮一致。
@@ -40,7 +40,7 @@ impl UpdateClick {
             UpdateState::Off | UpdateState::Checking | UpdateState::Downloading(..) => Self::None,
             UpdateState::Ready(_) => Self::Restart,
             UpdateState::Found(_) | UpdateState::InstallFailed(_) => Self::Install,
-            UpdateState::Idle | UpdateState::Latest | UpdateState::Failed => Self::Check,
+            UpdateState::Idle | UpdateState::Latest | UpdateState::Failed(_) => Self::Check,
         }
     }
 }
@@ -220,24 +220,24 @@ pub fn check() {
     }
     report(UpdateState::Checking);
     std::thread::spawn(move || {
-        // 外层 `None` 表示各通道都没有回应；内层 `None` 表示没有更新的版本。
+        // `Err` 是各通道都失败的原因；`Ok(None)` 表示没有更新的版本。
         let newer = race(&updater.feeds, &updater.key).map(|xml| {
             newest(&xml, std::env::consts::ARCH)
                 .filter(|item| newer(&item.version, &crate::release_version::update_version()))
         });
         work(|w| {
             w.busy = false;
-            if let Some(found) = &newer {
+            if let Ok(found) = &newer {
                 w.item.clone_from(found);
             }
         });
         match newer {
-            None => report(UpdateState::Failed),
-            Some(None) => {
+            Err(failure) => report(UpdateState::Failed(Some(failure))),
+            Ok(None) => {
                 (updater.hooks.found)(None);
                 report(UpdateState::Latest);
             }
-            Some(Some(item)) => {
+            Ok(Some(item)) => {
                 (updater.hooks.found)(Some(item.version.clone()));
                 report(UpdateState::Found(item.version));
             }
@@ -368,21 +368,32 @@ fn decode_base64(text: &str) -> Option<Vec<u8>> {
 
 /// 并发请求各通道的 appcast，返回最先取到的、签名核对通过的内容中签名覆盖的部分。
 ///
-/// 内容须以 `<rss>` 为根元素；所有通道都失败时返回 `None`。
-fn race(feeds: &[String], key: &VerifyingKey) -> Option<String> {
+/// 内容须以 `<rss>` 为根元素；所有通道都失败时返回最先失败的原因。
+fn race(feeds: &[String], key: &VerifyingKey) -> Result<String, Failure> {
     let (tx, rx) = mpsc::channel();
     for feed in feeds {
         let (tx, feed, key) = (tx.clone(), feed.clone(), *key);
         std::thread::spawn(move || {
-            let body = fetch(&feed, FEED_TIMEOUT, None)
-                .and_then(|bytes| signed_part(&bytes, &key).map(<[u8]>::to_vec))
-                .and_then(|bytes| String::from_utf8(bytes).ok())
-                .filter(|text| text.contains("<rss") && text.contains("</rss>"));
+            let body = fetch(&feed, FEED_TIMEOUT, None).and_then(|bytes| {
+                (signed_part(&bytes, &key).map(<[u8]>::to_vec))
+                    .and_then(|bytes| String::from_utf8(bytes).ok())
+                    .filter(|text| text.contains("<rss") && text.contains("</rss>"))
+                    .ok_or(Failure::Invalid)
+            });
             let _ = tx.send(body);
         });
     }
     drop(tx);
-    rx.iter().flatten().next()
+    let mut first = None;
+    for body in rx {
+        match body {
+            Ok(text) => return Ok(text),
+            Err(failure) => {
+                first.get_or_insert(failure);
+            }
+        }
+    }
+    Err(first.unwrap_or(Failure::Invalid))
 }
 
 /// appcast 末尾 Sparkle 格式的签名注释所签的内容。
@@ -416,10 +427,12 @@ pub fn signed_part<'a>(feed: &'a [u8], key: &VerifyingKey) -> Option<&'a [u8]> {
 ///
 /// # Errors
 ///
-/// 命令无法运行时返回错误信息；下载失败时返回命令的错误输出或退出状态。
+/// 命令无法运行或下载失败时返回给用户看的原因。
 fn download(url: &str, path: &Path, length: u64, progress: &dyn Fn(u8)) -> Result<(), String> {
     let timeout = DOWNLOAD_TIMEOUT.to_string();
-    let curl = command("curl")
+    let mut curl = curl();
+    let proxied = winc_editor::proxy::configured(&curl);
+    let curl = curl
         .args(["--fail", "--silent", "--show-error", "--location"])
         .args(["--max-time", &timeout, "--output"])
         .arg(path)
@@ -428,28 +441,26 @@ fn download(url: &str, path: &Path, length: u64, progress: &dyn Fn(u8)) -> Resul
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn();
-    let child = match curl {
-        Err(e) if e.kind() == io::ErrorKind::NotFound => command("wget")
-            .args(["--quiet", "--timeout", &timeout, "--output-document"])
-            .arg(path)
-            .arg(url)
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|e| format!("curl、wget 都无法运行：{e}"))?,
-        result => result.map_err(|e| format!("无法运行 curl：{e}"))?,
+    let (child, wget) = match curl {
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            let child = wget()
+                .args(["--quiet", "--timeout", &timeout, "--output-document"])
+                .arg(path)
+                .arg(url)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped())
+                .spawn()
+                .map_err(|e| format!("curl、wget 都无法运行：{e}"))?;
+            (child, true)
+        }
+        result => (result.map_err(|e| format!("无法运行 curl：{e}"))?, false),
     };
     let output = watch(child, path, length, progress).map_err(|e| e.to_string())?;
     if output.status.success() {
         return Ok(());
     }
-    let message = String::from_utf8_lossy(&output.stderr).trim().to_owned();
-    Err(if message.is_empty() {
-        format!("下载失败（{}）", output.status)
-    } else {
-        message
-    })
+    Err(crate::web::failure(&output, wget, proxied).message())
 }
 
 /// 等下载命令 `child` 结束，期间按 `path` 的大小报告进度（见 [`download`]），返回命令的输出。
