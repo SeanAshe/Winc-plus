@@ -91,6 +91,9 @@ pub struct Hits {
     ///
     /// 文字宽度要到绘制时才知道，悬停和点击使用这里记录的位置。
     pub(crate) install_links: Vec<(crate::layout::Setting, Rect)>,
+    /// 当前帧「快捷键」页中绘制出的按钮、链接和键帽上的 ×；位置随文字宽度而定，悬停和点击用
+    /// 这里的。
+    pub(crate) keys_parts: Vec<(Rect, crate::layout::SettingsPart)>,
 }
 
 impl Hits {
@@ -134,6 +137,7 @@ impl Hits {
             pdf_thumbs,
             pdf_tools,
             install_links,
+            keys_parts,
         } = self;
         start.clear();
         placeholder.clear();
@@ -170,5 +174,6 @@ impl Hits {
         pdf_thumbs.clear();
         pdf_tools.clear();
         install_links.clear();
+        keys_parts.clear();
     }
 }

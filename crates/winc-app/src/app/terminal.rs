@@ -18,6 +18,7 @@ pub(crate) mod shells;
 mod shortcuts;
 pub(crate) mod strip;
 mod tab;
+pub(crate) mod upload;
 
 use helper::*;
 

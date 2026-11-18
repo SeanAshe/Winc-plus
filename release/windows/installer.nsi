@@ -188,6 +188,15 @@ LangString OpenFolderVerb ${LANG_SIMPCHINESE} "在 Winc 中打开"
   DeleteRegKey HKCU "Software\Classes\${Key}\shell\winc"
 !macroend
 
+; The winc: URL scheme: winc://file/<absolute path>[:line[:column]] opens a file or folder in winc,
+; which receives the whole link as its argument.
+!macro RegisterUrlScheme
+  WriteRegStr HKCU "Software\Classes\winc" "" "URL:Winc"
+  WriteRegStr HKCU "Software\Classes\winc" "URL Protocol" ""
+  WriteRegStr HKCU "Software\Classes\winc\DefaultIcon" "" "$INSTDIR\winc.exe,0"
+  WriteRegStr HKCU "Software\Classes\winc\shell\open\command" "" '"$INSTDIR\winc.exe" "%1"'
+!macroend
+
 ; SHCNE_ASSOCCHANGED: the shell refreshes its icons and "Open with" lists.
 !macro NotifyAssociationsChanged
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
@@ -277,6 +286,7 @@ Section "Winc" SEC_MAIN
   !insertmacro ForEachFileType RegisterFileType
   !insertmacro RegisterFolderVerb "Directory"
   !insertmacro RegisterFolderVerb "Directory\Background"
+  !insertmacro RegisterUrlScheme
   ; The optional section below records the choice again when it is selected.
   DeleteRegValue HKCU "Software\DEEIX\winc" "FileTypes"
   !insertmacro NotifyAssociationsChanged
@@ -347,5 +357,6 @@ uninstall_files:
   !insertmacro UnregisterFolderVerb "Directory"
   !insertmacro UnregisterFolderVerb "Directory\Background"
   DeleteRegKey HKCU "Software\Classes\Applications\winc.exe"
+  DeleteRegKey HKCU "Software\Classes\winc"
   !insertmacro NotifyAssociationsChanged
 SectionEnd

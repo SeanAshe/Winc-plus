@@ -251,6 +251,8 @@ cmd-cli-usage =
       winc                  恢复上次打开的目录
       winc .                打开当前目录
       winc 文件:行[:列]     打开文件并转到指定行
+      winc ssh://主机/目录 [ssh://主机/文件:行[:列]]
+                            打开远端主机上的目录和其中的文件（需要启用远程模块）
       winc -                读取标准输入（例如 cargo build 2>&1 | winc -）
       -w, --wait            文件的标签页全部关闭后再退出（例如 git config core.editor "winc -w"）
       -n, --new-instance    不复用正在运行的 Winc，启动新进程（例如在 Winc 的终端中运行开发版本）
@@ -260,6 +262,11 @@ cmd-cli-usage =
       -v, --version         显示版本号
 cmd-cli-unknown-option = 无法识别的选项「{ $flag }」
 cmd-file-type-name = { $name } 文件
+cmd-cli-bad-link = 无法打开链接「{ $link }」：应为 winc://file/ 加绝对路径
+cmd-cli-bad-ssh = 无法打开「{ $link }」：应为 ssh://[用户@]主机[:端口]/绝对路径
+cmd-cli-ssh-mixed = ssh:// 参数必须指向同一台主机，且不能与本机路径一起使用
+cmd-cli-ssh-one-off = --wait 和 - 不能用于 ssh:// 参数
+cmd-cli-ssh-folders = ssh:// 参数中只能有一个目录，其余应为其中的文件
 cmd-cli-wait-needs-file = --wait 需要指定文件
 cmd-cli-wsl-needs-name = --wsl 需要指定发行版名称
 cmd-cli-wait-needs-openable-file = --wait 需要至少一个可打开的文件

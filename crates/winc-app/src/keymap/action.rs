@@ -557,6 +557,20 @@ impl Action {
         }
     }
 
+    /// 返回命令在配置文件中的名字：变体名，首字母小写（如 `quickOpen`）。
+    pub fn id(self) -> String {
+        let name = format!("{self:?}");
+        let mut chars = name.chars();
+        chars.next().map_or_else(String::new, |first| {
+            first.to_ascii_lowercase().to_string() + chars.as_str()
+        })
+    }
+
+    /// 按配置文件中的名字 `id` 返回命令；不认识时返回 `None`。
+    pub fn from_id(id: &str) -> Option<Action> {
+        ACTIONS.iter().copied().find(|action| action.id() == id)
+    }
+
     /// 返回命令的英文名；在命令面板中输入英文也能搜到该命令。
     pub fn english(self) -> &'static str {
         use Action::*;

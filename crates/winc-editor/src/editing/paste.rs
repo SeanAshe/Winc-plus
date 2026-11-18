@@ -353,10 +353,15 @@ pub fn markdown_links(doc_dir: Option<&Path>, root: Option<&Path>, files: &[Path
 }
 
 /// 返回链接中写的路径：在 `root` 或 `doc_dir` 之内时相对 `doc_dir`，否则为绝对路径。
+///
+/// 远端主机上的文件（虚拟路径）的绝对路径写成那台主机上的路径，不写本机上的虚拟路径。
 fn link_path(doc_dir: Option<&Path>, root: Option<&Path>, file: &Path) -> String {
     let relative = doc_dir
         .filter(|dir| inside(file, dir) || root.is_some_and(|root| inside(file, root)))
         .and_then(|dir| relative(dir, file));
+    if relative.is_none() && winc_backend::is_remote(file) {
+        return winc_backend::native_lossy(file).into_owned();
+    }
     let mut out = String::new();
     for part in relative.as_deref().unwrap_or(file).components() {
         match part {

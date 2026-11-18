@@ -250,7 +250,7 @@ fn auto_save_writes_on_switching_tabs_and_leaving_the_window() {
         .position(|d| d.path.as_deref() == Some(&*a));
 
     // 开启自动保存：切换离开时保存，且不在状态栏提示。
-    app.config.auto_save = Some(true);
+    app.config.auto_save = Some(winc_config::AutoSave::OnFocusChange);
     app.status.message = None;
     app.activate_tab(a_index.unwrap());
     app.run(Command::Insert("y".into()));
@@ -311,6 +311,55 @@ fn auto_save_writes_on_switching_tabs_and_leaving_the_window() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 焦点离开编辑区（切到终端）时保存当前文档，查找条不算离开；「停止输入后」在最后一次修改
+/// 一秒后保存，再修改时重新计时，没有保存成功的文档不反复重试。
+#[test]
+fn auto_save_writes_when_the_editor_loses_focus_and_after_typing_stops() {
+    use std::time::{Duration, Instant};
+    use winc_config::AutoSave;
+    let dir = winc_config::files::canonicalize(sample_folder("auto-save-focus")).unwrap();
+    let mut app = app_with(&dir, false);
+    let a = dir.join("a.txt");
+    let read = |path: &Path| std::fs::read_to_string(path).unwrap();
+    let now = Instant::now();
+
+    app.config.auto_save = Some(AutoSave::OnFocusChange);
+    app.open_path(&a);
+    app.focus = Focus::Editor;
+    app.run(Command::Insert("x".into()));
+    assert_eq!(app.auto_save_tick(now), None);
+    app.focus = Focus::Search;
+    app.auto_save_tick(now);
+    assert!(!read(&a).starts_with('x'));
+    app.focus = Focus::Editor;
+    app.auto_save_tick(now);
+    app.focus = Focus::Terminal;
+    app.auto_save_tick(now);
+    assert!(read(&a).starts_with('x'));
+
+    app.config.auto_save = Some(AutoSave::AfterDelay);
+    app.focus = Focus::Editor;
+    app.run(Command::Insert("y".into()));
+    let second = Duration::from_secs(1);
+    assert_eq!(app.auto_save_tick(now), Some(now + second));
+    let later = now + second / 2;
+    app.run(Command::Insert("z".into()));
+    assert_eq!(app.auto_save_tick(later), Some(later + second));
+    assert_eq!(app.auto_save_tick(now + second), Some(later + second));
+    assert!(read(&a).starts_with('x'));
+    assert_eq!(app.auto_save_tick(later + second), None);
+    assert!(read(&a).starts_with("xyz"), "{}", read(&a));
+
+    // 没有路径的新文档保存不了：到期一次以后不再计时。
+    app.new_file();
+    app.run(Command::Insert("new".into()));
+    assert!(app.auto_save_tick(now).is_some());
+    assert_eq!(app.auto_save_tick(now + 2 * second), None);
+    assert_eq!(app.auto_save_tick(now + 3 * second), None);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn editorconfig_sets_indentation_and_tidies_on_save() {
     let dir = winc_config::files::canonicalize(sample_folder("editorconfig")).unwrap();
@@ -349,7 +398,7 @@ fn editorconfig_sets_indentation_and_tidies_on_save() {
     );
 
     // 自动保存：光标所在行可能正在输入，不删除该行的行尾空白。
-    app.config.auto_save = Some(true);
+    app.config.auto_save = Some(winc_config::AutoSave::OnFocusChange);
     let ids: Vec<DocumentId> = app.editor.documents.iter().map(|d| d.id).collect();
     app.auto_save(&ids);
     assert_eq!(read(), "def run():\n    return 1\nx = 2  \n");

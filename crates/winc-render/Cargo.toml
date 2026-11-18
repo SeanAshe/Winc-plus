@@ -21,6 +21,10 @@ libc.workspace = true
 [target.'cfg(not(target_os = "macos"))'.dependencies]
 softbuffer = "0.4"
 
+# Windows：呈现后调用 `GdiFlush`，等窗口缓冲复制到窗口。
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Graphics_Gdi"] }
+
 # macOS：自己往 IOSurface 里画，再用 CALayer 显示。比 GPU 路径省 100–200 MB 常驻内存。
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

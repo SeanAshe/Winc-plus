@@ -546,13 +546,14 @@ fn the_menu_shows_commands_and_what_is_running() {
     clean(&dir);
 }
 
-/// F5 在编辑区运行，⇧F5 停止；焦点在终端时按键交给其中的程序。
+/// VS Code 方案中 ⌃F5 在编辑区运行，⇧F5 停止；焦点在终端时按键交给其中的程序。
 #[test]
-fn f5_runs_except_inside_the_terminal() {
+fn ctrl_f5_runs_except_inside_the_terminal() {
+    crate::app::snapshot::use_vscode_keys();
     use crate::keymap::KeyCode::F;
     let (mut app, dir, _log) = app_with_configs("run-keys");
     app.focus = Focus::Editor;
-    assert!(press(&mut app, &[], F(5)));
+    assert!(press(&mut app, &["ctrl"], F(5)));
     app.relayout();
     assert!(app.run_config_running());
     let id = app.terminal.tabs[0].id;
@@ -561,7 +562,7 @@ fn f5_runs_except_inside_the_terminal() {
 
     app.terminal_message(FromHelper::Exited { tab: id, code: 129 });
     app.focus = Focus::Terminal;
-    assert!(!press(&mut app, &[], F(5)), "终端里的程序收到这个键");
+    assert!(!press(&mut app, &["ctrl"], F(5)), "终端里的程序收到这个键");
     app.relayout();
     assert_eq!(app.terminal.tabs[0].id, id);
     clean(&dir);

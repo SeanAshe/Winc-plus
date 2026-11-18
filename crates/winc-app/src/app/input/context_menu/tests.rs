@@ -33,6 +33,7 @@ fn menu_items_are_numbered_in_display_order() {
 
 #[test]
 fn menus_show_the_key_for_where_they_open() {
+    crate::keymap::install(crate::keymap::Preset::VsCode, &Default::default());
     let text = |c: MenuCommand, context| {
         c.shortcut(context)
             .map(|s| s.label(crate::keymap::Os::CURRENT))
@@ -224,7 +225,7 @@ fn local_only_items_are_left_out_for_remote_files() {
     for menu in menus {
         let before = items(&menu);
         for terminal in [false, true] {
-            let kept = without_local_only(menu.clone(), terminal);
+            let kept = without_local_only(menu.clone(), terminal, false);
             let after = items(&kept);
             assert!(!after.contains(&Reveal), "{after:?}");
             assert_eq!(
@@ -238,9 +239,12 @@ fn local_only_items_are_left_out_for_remote_files() {
             assert_eq!(after, expected);
             assert!(tidy(&kept), "{kept:?}");
         }
+        // 挂载在本机的目录（`remote.localFolders`）之内：「在文件管理器中显示」保留。
+        let mounted = items(&without_local_only(menu.clone(), true, true));
+        assert_eq!(mounted.contains(&Reveal), before.contains(&Reveal));
         // 应用内的定位不受影响。
         if before.contains(&RevealInTree) {
-            assert!(items(&without_local_only(menu, false)).contains(&RevealInTree));
+            assert!(items(&without_local_only(menu, false, false)).contains(&RevealInTree));
         }
     }
 }

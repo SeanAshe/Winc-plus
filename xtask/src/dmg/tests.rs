@@ -1,4 +1,4 @@
-//! `dmg` 的测试：`Info.plist` 中的「在 Winc 中打开」服务声明，以及各语言的服务名。
+//! `dmg` 的测试：`Info.plist` 中的「在 Winc 中打开」服务和 `winc` 协议的声明，以及各语言的服务名。
 
 use super::*;
 
@@ -37,6 +37,22 @@ fn info_plist_declares_the_open_service_for_text_files_and_folders() {
             String::from_utf8_lossy(&lint.stdout)
         );
     }
+}
+
+/// `Info.plist` 声明 `winc` 协议，`winc://` 链接交给 Winc 打开。
+#[test]
+fn info_plist_declares_the_winc_url_scheme() {
+    let plist = info_plist("1.2.3", &sparkle::UpdateConfig::default(), "arm64");
+    let start = plist
+        .find("<key>CFBundleURLTypes</key>")
+        .expect("声明了协议");
+    let types = &plist[start..];
+    let types = &types[..types.find("</array>\n\t<key>").unwrap()];
+    assert!(types.contains("<string>winc</string>"), "{types}");
+    assert!(
+        types.contains(&format!("<string>{BUNDLE_ID}</string>")),
+        "{types}"
+    );
 }
 
 #[test]

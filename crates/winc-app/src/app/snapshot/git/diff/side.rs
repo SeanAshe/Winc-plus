@@ -402,7 +402,7 @@ fn word_highlights_keep_distinct_colors_in_the_editor_and_both_diff_panes() {
     };
     let clear = Stroke {
         key: KeyCode::Escape,
-        mods: Mods::SHIFT,
+        mods: Mods::NONE,
     };
     let pixel = |app: &App, x: f32, y: f32| {
         let renderer = app.frame.renderer.as_ref().unwrap();
@@ -429,7 +429,7 @@ fn word_highlights_keep_distinct_colors_in_the_editor_and_both_diff_panes() {
         app.select(a, b);
         assert!(!app.on_shortcut(star), "{a}..{b}");
     }
-    // 没有高亮时 `⇧Esc` 不作为快捷键处理。
+    // 没有高亮时 `Esc` 不作为快捷键处理。
     assert!(!app.on_shortcut(clear));
     app.select(1, 1);
     paint(&mut app);

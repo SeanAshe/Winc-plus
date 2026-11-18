@@ -35,8 +35,9 @@ impl App {
 
     /// 粘贴到终端（括号粘贴见 [`input::paste`]）。
     ///
-    /// 有文字时粘贴文字（同时有图片也取文字）。没有文字、有图片时，把图片存成临时文件，把路径
-    /// 粘进去：终端里的程序读不到剪贴板图片，路径是它能打开的内容。
+    /// 有文字时粘贴文字（同时有图片也取文字）。没有文字、有图片时：远端主机上的标签先把图片
+    /// 传到那台主机，再粘贴那里的路径（[`App::upload_paste`]）；本机标签把图片存成临时文件，
+    /// 把路径粘进去。终端里的程序读不到剪贴板图片，路径是它能打开的内容。
     ///
     /// 程序没有开启括号粘贴、要粘贴的文字不止一行时先确认（[`input::paste_needs_confirm`]）：
     /// 弹出确认框（macOS 上是系统的，其他平台画在窗口里）。
@@ -44,36 +45,26 @@ impl App {
     /// 剪贴板里既没有文字也没有图片时按空文字粘贴：程序开启了括号粘贴时收到一次空的括号粘贴；
     /// 未开启时不发送任何内容。
     pub(in crate::app) fn terminal_paste(&mut self) {
-        if let Some(text) = self.clipboard_text().filter(|text| !text.is_empty()) {
-            self.queue_terminal_paste(text);
+        let text = self.clipboard_text().unwrap_or_default();
+        let Some(tab) = self.terminal.tab().map(|t| (t.id, t.modes, t.cwd.clone())) else {
             return;
-        }
-        if self.paste_terminal_image() {
-            return;
-        }
-        self.queue_terminal_paste(String::new());
-    }
-
-    /// 把剪贴板图片存成临时文件，把路径粘贴给终端里的程序。没有图片时返回 `false`。
-    fn paste_terminal_image(&mut self) -> bool {
-        let Some(saved) = self.clipboard_image_file() else {
-            return false;
         };
-        match saved {
-            Ok(path) => self.queue_terminal_paste(path.display().to_string()),
-            Err(error) => {
-                self.flash(t!("terminal-paste-image-failed", error = error.to_string()));
+        let (id, modes, cwd) = tab;
+        if self.upload_paste(id, &cwd, text.is_empty()) {
+            return;
+        }
+        let text = if text.is_empty() {
+            match self.clipboard_image_file() {
+                Some(Ok(path)) => path.display().to_string(),
+                Some(Err(error)) => {
+                    self.flash(t!("terminal-paste-image-failed", error = error.to_string()));
+                    return;
+                }
+                None => text,
             }
-        }
-        true
-    }
-
-    /// 把 `text` 交给当前标签；需要确认时先弹出确认框。
-    fn queue_terminal_paste(&mut self, text: String) {
-        let Some(tab) = self.terminal.tab().map(|t| (t.id, t.modes)) else {
-            return;
+        } else {
+            text
         };
-        let (id, modes) = tab;
         if input::paste_needs_confirm(&text, modes) {
             let message = t!("terminal-paste-confirm", count = text.lines().count());
             if self.window.handle.is_some() {
@@ -233,8 +224,15 @@ impl App {
             }
         }
         let (modes, keyboard) = (tab.modes, tab.keyboard);
+        let ctrl_v = self.pointer.modifiers == winit::keyboard::ModifiersState::CONTROL
+            && matches!(event.key_without_modifiers(), Key::Character(c)
+                if c.chars().next().is_some_and(|c| latin(c, event.physical_key) == 'v'));
+        if ctrl_v && self.ctrl_v_uploads() {
+            return;
+        }
         // 剪贴板里只有图片时，Ctrl+V 粘贴图片路径。这个键平时交给终端里的程序（Windows、Linux
-        // 上的粘贴是 Ctrl+Shift+V），程序读不到剪贴板图片。有文字时仍把按键发给程序。
+        // 上的粘贴是 Ctrl+Shift+V），程序读不到剪贴板图片。有文字时仍把按键发给程序。远端主机
+        // 上满足条件的 Ctrl+V 已由上面的上传处理。
         if self.image_paste_key(event)
             && self.clipboard_text().is_none_or(|text| text.is_empty())
             && self.paste_terminal_image()
@@ -255,6 +253,28 @@ impl App {
             }
             self.terminal_input(bytes);
         }
+    }
+
+    /// 在正在看的标签里按了 ⌃V：标签在远端主机上、本机剪贴板里有复制的文件或只有图片时，传到
+    /// 那台主机再粘贴路径（见 [`App::upload_paste`]），返回 `true`，不再把 ⌃V 发给程序。
+    ///
+    /// 用 ⌃V 粘贴图片的程序读的是远端的剪贴板，按了也读不到本机的截图；这里让这个习惯的键照样
+    /// 可用。只在有程序运行（[`TermTab::busy`]）、在主屏上、开启了括号粘贴时这样做：shell 的
+    /// 提示符下 ⌃V 是逐字输入下一个键，备用屏上的 vim 是列选择，这些时候照常发给程序。
+    pub(in crate::app) fn ctrl_v_uploads(&mut self) -> bool {
+        let Some(tab) = self.terminal.tab() else {
+            return false;
+        };
+        let (id, cwd, modes) = (tab.id, tab.cwd.clone(), tab.modes);
+        let ready = tab.busy().is_some()
+            && modes.has(Modes::BRACKETED_PASTE)
+            && !modes.has(Modes::ALT_SCREEN)
+            && winc_backend::is_remote(&bytes_path(&cwd));
+        if !ready {
+            return false;
+        }
+        let empty = self.clipboard_text().is_none_or(|text| text.is_empty());
+        self.upload_paste(id, &cwd, empty)
     }
 
     /// 返回编码终端按键和鼠标上报时使用的修饰键。
@@ -279,6 +299,23 @@ impl App {
             alt: meta,
             ctrl: m.control_key(),
         }
+    }
+
+    /// 把剪贴板图片存成临时文件，把路径粘贴给终端里的程序。没有图片时返回 `false`。
+    fn paste_terminal_image(&mut self) -> bool {
+        let Some(saved) = self.clipboard_image_file() else {
+            return false;
+        };
+        let Some(id) = self.terminal.tab().map(|tab| tab.id) else {
+            return false;
+        };
+        match saved {
+            Ok(path) => self.confirmed_terminal_paste(id, path.display().to_string()),
+            Err(error) => {
+                self.flash(t!("terminal-paste-image-failed", error = error.to_string()));
+            }
+        }
+        true
     }
 
     /// Ctrl+V，没有 Shift、Alt、⌘。macOS 上粘贴是 ⌘V，已经由快捷键处理。

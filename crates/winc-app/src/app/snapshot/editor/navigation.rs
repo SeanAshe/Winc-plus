@@ -495,6 +495,7 @@ pub(in crate::app::snapshot) fn press(
 
 #[test]
 fn shortcuts_come_from_the_keymap() {
+    crate::app::snapshot::use_vscode_keys();
     use crate::keymap::KeyCode::{self, Char};
 
     let dir = navigation_folder("keymap");
@@ -576,6 +577,7 @@ fn shortcuts_come_from_the_keymap() {
 
 #[test]
 fn editing_commands_from_keys_and_the_palette() {
+    crate::app::snapshot::use_vscode_keys();
     use crate::keymap::KeyCode::{Char, Right};
 
     let dir = navigation_folder("edit-commands");

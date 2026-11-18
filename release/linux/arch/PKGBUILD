@@ -15,6 +15,8 @@ package() {
   # Uploaded to remote Linux hosts, never run from here: kept off the PATH.
   install -Dm755 "$startdir"/winc-server-Linux-* -t "$pkgdir/usr/lib/winc"
   install -Dm644 "$startdir/winc.desktop" "$pkgdir/usr/share/applications/winc.desktop"
+  # Opens winc:// links; hidden from application menus.
+  install -Dm644 "$startdir/winc-url-handler.desktop" "$pkgdir/usr/share/applications/winc-url-handler.desktop"
   install -Dm644 "$startdir/winc.png" "$pkgdir/usr/share/icons/hicolor/256x256/apps/winc.png"
   # Context menus of the Dolphin and Nemo file managers.
   install -Dm644 "$startdir/winc-open-file.desktop" "$startdir/winc-open-folder.desktop" \

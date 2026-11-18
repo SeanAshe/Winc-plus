@@ -55,6 +55,7 @@ pub(super) const SECTIONS: &[(&str, &[Field])] = &[
     ("vim", VIM),
     ("git", GIT),
     ("remote", REMOTE),
+    ("keyboard", KEYBOARD),
     ("format", FORMAT),
 ];
 
@@ -125,8 +126,31 @@ const EDITOR: &[Field] = &[
         },
         write: |config| config.tab_width.map(|width| Json::Number(width as f64)),
     },
-    bool_field!("autoSave", auto_save),
+    Field {
+        key: "autoSave",
+        // 早先的版本是开关：`true` 即切换焦点时保存。
+        read: |config, value, name, problems| {
+            config.auto_save = match (value, value.as_str()) {
+                (Json::Bool(false), _) | (_, Some("off")) => Some(AutoSave::Off),
+                (Json::Bool(true), _) | (_, Some("onFocusChange")) => Some(AutoSave::OnFocusChange),
+                (_, Some("afterDelay")) => Some(AutoSave::AfterDelay),
+                _ => {
+                    problems.push(t!("config-auto-save-invalid", name = name));
+                    None
+                }
+            };
+        },
+        write: |config| {
+            let value = match config.auto_save? {
+                AutoSave::Off => "off",
+                AutoSave::OnFocusChange => "onFocusChange",
+                AutoSave::AfterDelay => "afterDelay",
+            };
+            Some(Json::String(value.into()))
+        },
+    },
     bool_field!("hotExit", hot_exit),
+    bool_field!("confirmClose", confirm_close),
     bool_field!("restoreFolder", restore_folder),
     bool_field!("openFolderInNewWindow", open_folder_in_new_window),
     Field {
@@ -666,7 +690,123 @@ const GIT: &[Field] = &[
 ];
 
 /// `remote` 一节。
-const REMOTE: &[Field] = &[bool_field!("enabled", remote_enabled)];
+const REMOTE: &[Field] = &[
+    bool_field!("enabled", remote_enabled),
+    Field {
+        key: "localFolders",
+        read: |config, value, name, problems| {
+            read_local_folders(value, name, &mut config.remote_local_folders, problems)
+        },
+        write: |config| {
+            let folders = &config.remote_local_folders;
+            let pairs = (folders.iter())
+                .map(|(remote, local)| (remote.as_str(), Json::String(local.clone())));
+            (!folders.is_empty()).then(|| Json::object(pairs))
+        },
+    },
+];
+
+/// 把「远端目录 → 本机目录」的对象（`remote.localFolders`）读入 `out`，无法理解的地方记入
+/// `problems`，文案中用 `name` 指代这一项。
+///
+/// 键要写成 `目标:/路径`（远端目录的显示写法），按 [`remote_folder_key`] 规范；值去掉首尾
+/// 空白，空字符串视为没写。规范后相同的两个键只取第一个，其余记为问题。
+fn read_local_folders(
+    value: &Json,
+    name: &str,
+    out: &mut BTreeMap<String, String>,
+    problems: &mut Vec<String>,
+) {
+    let Some(folders) = value.as_object() else {
+        problems.push(t!("config-not-object", name = name));
+        return;
+    };
+    for (remote, local) in folders {
+        let entry = format!("{name}.{remote}");
+        let local = match local.as_str().map(str::trim) {
+            Some("") => continue,
+            Some(local) => local.to_owned(),
+            None => {
+                problems.push(t!("config-not-string", name = entry));
+                continue;
+            }
+        };
+        let Some(remote) = remote_folder_key(remote) else {
+            problems.push(t!("config-remote-folder-invalid", name = entry));
+            continue;
+        };
+        if out.contains_key(&remote) {
+            problems.push(t!("config-remote-folder-duplicate", name = entry));
+            continue;
+        }
+        out.insert(remote, local);
+    }
+}
+
+/// 把 `remote.localFolders` 的键规范为 `目标:/路径`：路径中的空段和 `.` 去掉、`..` 上移一级，
+/// 与远端位置的比较方式相同（根目录是 `/`）。不是这种写法、目标不是有效的连接目标时返回
+/// `None`。目标不含 `/`，第一个 `:/` 就是目标与路径的分界（目标可以带 `:端口`）。
+fn remote_folder_key(key: &str) -> Option<String> {
+    let key = key.trim();
+    let at = key.find(":/")?;
+    let target = winc_backend::Target::new(&key[..at])?;
+    let mut segments: Vec<&str> = Vec::new();
+    for segment in key[at + 1..].split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => _ = segments.pop(),
+            name => segments.push(name),
+        }
+    }
+    Some(format!("{}:/{}", target.as_str(), segments.join("/")))
+}
+
+/// `keyboard` 一节：键位方案和改过的快捷键；命令名和按键写法由应用检查。
+const KEYBOARD: &[Field] = &[
+    Field {
+        key: "keymap",
+        read: |config, value, name, problems| {
+            config.keymap = match value.as_str() {
+                Some(key @ ("idea" | "vscode")) => Some(key.to_owned()),
+                _ => {
+                    problems.push(t!("config-keymap-invalid", name = name));
+                    None
+                }
+            }
+        },
+        write: |config| config.keymap.clone().map(Json::String),
+    },
+    Field {
+        key: "shortcuts",
+        read: |config, value, name, problems| {
+            let entries = value.as_object().and_then(|object| {
+                (object.iter())
+                    .map(|(command, keys)| {
+                        let keys = keys.as_array()?.iter().map(|key| key.as_str());
+                        let keys: Option<Vec<&str>> = keys.collect();
+                        Some((
+                            command.clone(),
+                            keys?.into_iter().map(str::to_owned).collect(),
+                        ))
+                    })
+                    .collect::<Option<BTreeMap<String, Vec<String>>>>()
+            });
+            match entries {
+                Some(entries) => config.shortcuts = entries,
+                None => problems.push(t!("config-shortcuts-invalid", name = name)),
+            }
+        },
+        write: |config| {
+            (!config.shortcuts.is_empty()).then(|| {
+                let keys = |keys: &Vec<String>| {
+                    Json::Array(keys.iter().cloned().map(Json::String).collect())
+                };
+                let object = config.shortcuts.iter().map(|(k, v)| (k.clone(), keys(v)));
+                Json::Object(object.collect())
+            })
+        },
+    },
+];
 
 /// `format` 一节，用户配置和项目配置共用。
 ///

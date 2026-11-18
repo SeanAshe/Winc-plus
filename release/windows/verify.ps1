@@ -60,6 +60,10 @@ foreach ($kind in @('nsis', 'msi')) {
             $command = (Get-ItemProperty -LiteralPath "$key\command").'(default)'
             if ($command -ne "`"$directory\winc.exe`" `"$($verb[1])`"") { throw "${kind}: wrong context menu command under $($verb[0]): $command" }
         }
+        # The winc: URL scheme hands the whole link to winc.exe.
+        if ($null -eq (Get-ItemProperty -LiteralPath "$classes\winc").'URL Protocol') { throw "${kind}: winc is not a URL scheme" }
+        $command = (Get-ItemProperty -LiteralPath "$classes\winc\shell\open\command").'(default)'
+        if ($command -ne "`"$directory\winc.exe`" `"%1`"") { throw "${kind}: wrong URL scheme command: $command" }
         $link = Get-ChildItem -LiteralPath $menu -Filter 'winc.lnk'
         if (@($link).Count -ne 1 -or $link.Name -cne 'Winc.lnk') { throw "${kind}: the Start menu shortcut is not named Winc" }
         if ($kind -eq 'msi' -and (Get-Item -LiteralPath $menu).Name -cne 'Winc') { throw 'msi: the Start menu folder is not named Winc' }
@@ -125,6 +129,7 @@ foreach ($kind in @('nsis', 'msi')) {
     foreach ($key in @('SystemFileAssociations\.json', 'Directory', 'Directory\Background')) {
         if (Test-Path -LiteralPath "$classes\$key\shell\winc") { throw "${kind}: uninstall left the context menu under $key" }
     }
+    if (Test-Path -LiteralPath "$classes\winc") { throw "${kind}: uninstall left the URL scheme behind" }
     if (Test-Path -LiteralPath (Join-Path $menu 'Winc.lnk')) { throw "${kind}: uninstall left the Start menu shortcut behind" }
 }
 Expand-Archive "$bundle/portable/Winc-$version-windows-x64-portable.zip" "$work/portable" -Force

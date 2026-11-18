@@ -33,7 +33,11 @@ settings-editor-font = Editor Font
 settings-editor-size = Editor Font Size
 settings-tab-width = Tab Width
 settings-auto-save = Auto Save
+settings-auto-save-off = Off
+settings-auto-save-focus = On Focus Change
+settings-auto-save-delay = 1 Second After Typing
 settings-hot-exit = Hot Exit
+settings-confirm-close = Confirm Before Closing
 settings-restore-folder = Restore Last Folder
 settings-sticky-scroll = Sticky Scroll
 settings-vim-mode = Vim Mode (Experimental)
@@ -105,8 +109,9 @@ settings-key-search = Search Shortcuts
 
 ## Setting descriptions.
 
-settings-auto-save-desc = Save changes when switching tabs or apps
+settings-auto-save-desc = Save changes when switching tabs, the terminal, or apps
 settings-hot-exit-desc = Quit without confirming each file and restore unsaved changes on next launch
+settings-confirm-close-desc = Ask before closing a window or quitting
 settings-restore-folder-desc = Reopen the last folder and its tabs on launch
 settings-sticky-scroll-desc = Pin the current function, class or heading to the top while scrolling
 settings-vim-mode-desc = Use Vim modes and keys in the editor
@@ -245,11 +250,29 @@ settings-theme-name-veil-umber = Umber Veil
 
 ## Shortcuts page.
 
-settings-keys-recording = Press the shortcut to look up; press Esc to stop
-settings-keys-search-record = Type a command name to search, or press { $key } to record keys
-settings-keys-search = Type a command name to search
+settings-keys-recording = Press a shortcut to find its command
+settings-keys-search = Search commands
 settings-keys-no-command = No command uses this shortcut
 settings-keys-no-match = No matching commands
+settings-keys-keymap = Keymap
+settings-keys-imported = Imported shortcuts from { $name }
+settings-keys-imported-skipped = Imported shortcuts from { $name }, skipping { $count } with no match
+settings-keys-keymap-description = The default shortcuts, or import them from another editor on this computer
+settings-keys-keymap-changed = Shortcuts changed for { $count } commands
+settings-keys-edit = Edit
+settings-keys-reset = Reset
+settings-keys-save = Save
+settings-keys-cancel = Cancel
+settings-keys-edit-hint = New shortcuts are added after the existing ones
+settings-keys-conflict = Saving moves { $key } here from { $names }
+settings-keys-takes-typing = { $key } without a modifier replaces typing in the editor and input fields
+settings-keys-modified = Modified
+settings-keys-press = Press keys
+settings-keys-import-from = Import from { $name }…
+keymap-import-read-failed = Couldn’t read “{ $path }”: { $error }
+keymap-import-invalid = “{ $path }” isn’t valid
+keymap-import-unsupported = The “{ $name }” keymap can’t be imported
+keymap-import-missing = Couldn’t find the “{ $name }” keymap
 
 ## Font size and the configuration file.
 

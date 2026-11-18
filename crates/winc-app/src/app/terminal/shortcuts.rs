@@ -56,7 +56,7 @@ impl App {
         let prompt = !terminal || self.terminal_at_prompt();
         let alternate = self.terminal_alternate_screen();
         keymap::lookup_allowed(
-            keymap::current(),
+            &keymap::current(),
             stroke,
             pending,
             self.key_context(),

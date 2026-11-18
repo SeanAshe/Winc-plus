@@ -21,7 +21,7 @@ libc.workspace = true
 
 # Windows 上的伪终端（ConPTY）、进程和作业对象。
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = [
+windows-sys = { workspace = true, features = [
     "Win32_Foundation",
     "Win32_Security",
     "Win32_Security_Cryptography",

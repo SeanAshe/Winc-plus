@@ -28,7 +28,10 @@ cp -a "$appdir/usr" "$deb/"
 # not on the PATH. Both architectures ship in every package.
 servers=("$root/target/remote-server/winc-server-Linux-x86_64" "$root/target/remote-server/winc-server-Linux-aarch64")
 install -Dm755 "${servers[@]}" -t "$deb/usr/lib/winc"
-# File manager context menus belong to the installed package only: the AppImage installs nothing.
+# File manager context menus and the winc:// link handler belong to the installed package only: the
+# AppImage installs nothing.
+install -m644 release/linux/winc-url-handler.desktop "$deb/usr/share/applications/"
+desktop-file-validate "$deb/usr/share/applications/winc-url-handler.desktop"
 install -Dm644 release/linux/file-manager/winc-open-file.desktop release/linux/file-manager/winc-open-folder.desktop \
   -t "$deb/usr/share/kio/servicemenus"
 install -Dm644 release/linux/file-manager/*.nemo_action -t "$deb/usr/share/nemo/actions"

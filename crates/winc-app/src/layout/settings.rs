@@ -8,9 +8,11 @@ use winc_i18n::t;
 
 mod about;
 mod controls;
+mod keys;
 
 pub use about::*;
 pub use controls::*;
+pub use keys::*;
 
 /// 设置的一个分类，对应左侧分类栏中的一项和右侧的一页。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -129,6 +131,7 @@ impl SettingsPage {
                 plain(vec![
                     Setting::AutoSave,
                     Setting::HotExit,
+                    Setting::ConfirmClose,
                     Setting::RestoreFolder,
                     Setting::DropFolder,
                     Setting::PreviewOnClick,
@@ -276,6 +279,8 @@ pub enum Setting {
     AutoSave,
     /// 热退出：退出时不逐个询问是否保存，下次打开时恢复未保存的修改。
     HotExit,
+    /// 关闭窗口或退出前先确认。
+    ConfirmClose,
     /// 启动时打开上次退出时打开的目录和标签。
     RestoreFolder,
     /// 粘滞滚动：滚动时在编辑区顶部钉住当前所在的函数、类和标题。
@@ -470,6 +475,7 @@ impl Setting {
             | Setting::TabWidth
             | Setting::AutoSave
             | Setting::HotExit
+            | Setting::ConfirmClose
             | Setting::RestoreFolder
             | Setting::DropFolder
             | Setting::CompactFolders
@@ -546,6 +552,7 @@ impl Setting {
             Setting::TabWidth => t!("settings-tab-width"),
             Setting::AutoSave => t!("settings-auto-save"),
             Setting::HotExit => t!("settings-hot-exit"),
+            Setting::ConfirmClose => t!("settings-confirm-close"),
             Setting::RestoreFolder => t!("settings-restore-folder"),
             Setting::DropFolder => t!("settings-drop-folder"),
             Setting::StickyScroll => t!("settings-sticky-scroll"),
@@ -627,6 +634,7 @@ impl Setting {
             Setting::SystemTitleBar => Some(t!("settings-system-title-bar-desc")),
             Setting::AutoSave => Some(t!("settings-auto-save-desc")),
             Setting::HotExit => Some(t!("settings-hot-exit-desc")),
+            Setting::ConfirmClose => Some(t!("settings-confirm-close-desc")),
             Setting::RestoreFolder => Some(t!("settings-restore-folder-desc")),
             Setting::DropFolder => Some(t!("settings-drop-folder-desc")),
             Setting::StickyScroll => Some(t!("settings-sticky-scroll-desc")),
@@ -698,8 +706,8 @@ impl Setting {
             Setting::Theme => SettingControl::Themes,
             Setting::LightTheme | Setting::DarkTheme => SettingControl::ThemeList,
             Setting::SystemTitleBar
-            | Setting::AutoSave
             | Setting::HotExit
+            | Setting::ConfirmClose
             | Setting::RestoreFolder
             | Setting::CompactFolders
             | Setting::PreviewOnClick
@@ -752,6 +760,7 @@ impl Setting {
             | Setting::TerminalTabPosition
             | Setting::TerminalOptionAsMeta
             | Setting::DropFolder
+            | Setting::AutoSave
             | Setting::GitOpenWorktree => SettingControl::Choice,
             Setting::AddLanguage | Setting::AddFixLanguage => SettingControl::Action,
             Setting::KeySearch => SettingControl::Search,
@@ -816,7 +825,18 @@ pub fn text_width_label(choice: winc_config::TextWidth) -> &'static str {
     }
 }
 
-/// 返回「打开工作树」设置中选项 `choice` 的名字。
+/// 返回「自动保存」设置中选项 `choice` 的名字。
+pub fn auto_save_label(choice: winc_config::AutoSave) -> &'static str {
+    use winc_config::AutoSave::{AfterDelay, Off, OnFocusChange};
+
+    match choice {
+        Off => t!("settings-auto-save-off"),
+        OnFocusChange => t!("settings-auto-save-focus"),
+        AfterDelay => t!("settings-auto-save-delay"),
+    }
+}
+
+/// 返回「拖入目录」设置中选项 `choice` 的名字。
 pub fn drop_folder_label(choice: winc_config::FolderDrop) -> &'static str {
     use winc_config::FolderDrop::{Add, Ask, Open};
 
@@ -932,6 +952,20 @@ pub enum SettingsPart {
     KeySearch,
     /// 搜索框右端的「录制按键」。
     Record,
+    /// 「快捷键」页「键位方案」一行的值：点击后弹出方案和导入的菜单。
+    Keymap,
+    /// 「快捷键」页列表中的一行，参数是该行的命令：点击后修改该命令的快捷键。
+    KeyRow(keymap::Action),
+    /// 悬停在一行上时出现的「编辑」。
+    KeyEdit(keymap::Action),
+    /// 悬停在改过的一行上时出现的「恢复默认」。
+    KeyReset(keymap::Action),
+    /// 修改快捷键时第几个已有的键上的 ×。
+    KeyRemove(usize),
+    /// 修改快捷键时的「保存」。
+    KeySave,
+    /// 修改快捷键时的「取消」。
+    KeyCancel,
     /// 数值的减号。
     Decrease(Setting),
     /// 数值的加号。
@@ -1268,101 +1302,6 @@ impl SettingsLayout {
             SettingControl::Link => Some(SettingsPart::Link(row.setting)),
             SettingControl::Search => None,
         }
-    }
-}
-
-/// 「快捷键」页的几何：顶部固定的搜索框（右端是「录制按键」），下方按分组列出命令和键位，可以滚动。
-///
-/// 页面布局相同：组上方是小标题，组内每行一个命令，行与行之间有一条细线。
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct KeysLayout {
-    /// 搜索框。
-    pub search: Rect,
-    /// 搜索框右端的「录制按键」按钮。
-    pub record: Rect,
-    /// 搜索框下方可以滚动的区域。
-    pub list: Rect,
-    /// 各组的标题：标题所在行的位置和标题文字。
-    pub headings: Vec<(Rect, &'static str)>,
-    /// 各组的底色区域。
-    pub groups: Vec<Rect>,
-    /// 组内行与行之间的细线。
-    pub separators: Vec<Rect>,
-    /// 各命令行的位置和对应的键位行。
-    pub rows: Vec<(Rect, &'static keymap::Row)>,
-    /// 内容的总高度（像素），用于计算最大滚动量。
-    pub content_h: f32,
-}
-
-impl KeysLayout {
-    /// 计算「快捷键」页的几何。
-    ///
-    /// `body` 是设置标题下方的区域，`groups` 是筛选后的各组，`scroll` 是列表的滚动量（像素）。
-    pub fn compute(
-        body: Rect,
-        groups: Vec<(keymap::Group, Vec<&'static keymap::Row>)>,
-        scroll: f32,
-    ) -> Self {
-        let x = body.x + SETTINGS_PAD;
-        let w = (body.w - SETTINGS_PAD * 2.0).max(0.0);
-        let (search, record) = Self::header(body);
-        let top = search.bottom() + 12.0;
-        let list = Rect::new(body.x, top, body.w, (body.bottom() - top).max(0.0));
-
-        let mut layout = KeysLayout {
-            search,
-            record,
-            list,
-            ..KeysLayout::default()
-        };
-        let mut y = list.y - scroll;
-        for (i, (group, rows)) in groups
-            .into_iter()
-            .filter(|(_, r)| !r.is_empty())
-            .enumerate()
-        {
-            if i > 0 {
-                y += SETTINGS_GROUP_GAP;
-            }
-            let title = Rect::new(x + SETTINGS_INSET, y, w, SETTINGS_TITLE);
-            layout.headings.push((title, group.title()));
-            y += SETTINGS_TITLE;
-            let block = y;
-            for (n, row) in rows.into_iter().enumerate() {
-                if n > 0 {
-                    let inner = (w - SETTINGS_INSET * 2.0).max(0.0);
-                    layout
-                        .separators
-                        .push(Rect::new(x + SETTINGS_INSET, y, inner, 1.0));
-                }
-                layout.rows.push((Rect::new(x, y, w, KEYS_ROW), row));
-                y += KEYS_ROW;
-            }
-            layout.groups.push(Rect::new(x, block, w, y - block));
-        }
-        layout.content_h = y + scroll - list.y + SETTINGS_BOTTOM;
-        layout
-    }
-
-    /// 返回 `body` 中搜索框和其右端「录制按键」按钮的位置。
-    ///
-    /// 两者固定在页面顶部，与列表内容和滚动无关；悬停、点击只需这两个矩形，不必筛选整张键位表。
-    pub fn header(body: Rect) -> (Rect, Rect) {
-        let x = body.x + SETTINGS_PAD;
-        let w = (body.w - SETTINGS_PAD * 2.0).max(0.0);
-        let search = Rect::new(x, body.y + 4.0, w, KEYS_SEARCH_H);
-        let record = Rect::new(
-            search.right() - 4.0 - KEYS_RECORD,
-            search.y + (search.h - KEYS_RECORD) / 2.0,
-            KEYS_RECORD,
-            KEYS_RECORD,
-        );
-        (search, record)
-    }
-
-    /// 返回列表的最大滚动量（像素）。
-    pub fn max_scroll(&self) -> f32 {
-        (self.content_h - self.list.h).max(0.0)
     }
 }
 

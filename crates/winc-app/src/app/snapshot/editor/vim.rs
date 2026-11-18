@@ -227,14 +227,14 @@ fn a_change_and_its_typed_text_undo_together_and_repeat() {
 fn alt_shortcuts_of_the_application_stay_with_it() {
     use crate::keymap::{KeyCode, Mods, Stroke};
     let (app, dir) = vim_app("vim-alt", "abc\n");
-    // `Alt`+上（上移一行）是应用的快捷键；`Alt`+`J` 没有绑定，仍交给 Vim 层。
-    let (up, j) = (KeyCode::Up, KeyCode::Char('j'));
+    // `Alt`+`Shift`+上（上移一行）是应用的快捷键；`Alt`+`Y` 没有绑定，仍交给 Vim 层。
+    let (up, y) = (KeyCode::Up, KeyCode::Char('y'));
     assert!(app.binds(Stroke {
         key: up,
-        mods: Mods::ALT
+        mods: Mods::ALT | Mods::SHIFT
     }));
     assert!(!app.binds(Stroke {
-        key: j,
+        key: y,
         mods: Mods::ALT
     }));
     let _ = std::fs::remove_dir_all(&dir);

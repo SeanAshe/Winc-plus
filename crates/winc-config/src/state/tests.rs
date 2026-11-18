@@ -198,11 +198,14 @@ fn bad_input_means_no_history() {
 #[test]
 fn recent_list_moves_to_front_and_is_capped() {
     let mut state = State::default();
-    for i in 0..15 {
+    for i in 0..MAX_RECENT + 5 {
         state.remember(Path::new(&format!("/p{i}")));
     }
     assert_eq!(state.recent.len(), MAX_RECENT);
-    assert_eq!(state.recent[0], PathBuf::from("/p14"));
+    assert_eq!(
+        state.recent[0],
+        PathBuf::from(format!("/p{}", MAX_RECENT + 4))
+    );
 
     state.remember(Path::new("/p10"));
     assert_eq!(state.recent[0], PathBuf::from("/p10"));
@@ -228,7 +231,7 @@ fn recent_list_moves_to_front_and_is_capped() {
 #[test]
 fn recent_folders_keep_their_own_badge_colors() {
     let mut state = State::default();
-    for i in 0..MAX_RECENT {
+    for i in 0..BADGE_COLORS {
         state.remember(Path::new(&format!("/projects/p{i}")));
     }
 
@@ -239,7 +242,7 @@ fn recent_folders_keep_their_own_badge_colors() {
     let mut all = colors(&state);
     all.sort_unstable();
     all.dedup();
-    assert_eq!(all.len(), MAX_RECENT);
+    assert_eq!(all.len(), BADGE_COLORS);
 
     // 重新打开已有目录：移到最前面，该目录与其他目录的颜色都不变。
     let before = state.badge_color(Path::new("/projects/p3"));
@@ -254,11 +257,14 @@ fn recent_folders_keep_their_own_badge_colors() {
         assert_eq!(state.badge_color(&folder), color);
     }
 
-    // 新目录替换最旧的目录并获得其释放的颜色；序列化后再读回，颜色保持不变。
+    // 新目录把第十个目录挤出前十并获得它让出的颜色；该目录仍在列表中，按名字取色。序列化
+    // 后再读回，颜色保持不变。
     let oldest = state.recent.last().cloned().unwrap();
     let freed = state.badge_color(&oldest);
     state.remember(Path::new("/projects/new"));
     assert_eq!(state.badge_color(Path::new("/projects/new")), freed);
+    assert_eq!(state.recent.get(BADGE_COLORS), Some(&oldest));
+    assert_eq!(state.badge_color(&oldest), preferred_color(&oldest));
     assert_eq!(colors(&State::parse(&state.to_json())), colors(&state));
 
     // 旧文件缺少颜色、手工改成重复或越界时，读入后颜色被理顺为互不相同。
@@ -305,7 +311,7 @@ fn sessions_are_kept_per_folder() {
             ..Session::default()
         });
     }
-    assert_eq!(state.sessions.len(), MAX_RECENT);
+    assert_eq!(state.sessions.len(), MAX_SESSIONS);
 
     // 旧格式只记单个 `session`，读入后作为上次退出时的现场。
     let old = "{\"recent\": [\"/a\"], \"session\": {\"folder\": \"/a\", \"files\": [\"/a/x\"]}}";

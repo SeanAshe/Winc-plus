@@ -16,14 +16,6 @@ pub struct Row {
     pub keys: Vec<String>,
 }
 
-/// 返回当前系统按分组列出的全部命令的快捷键（见 [`rows`]），由 [`current`] 首次使用时构建并缓存。
-///
-/// 键位表运行期间不变，「快捷键」页每帧绘制、每次滚动都只筛选已有结果，不再重建。
-pub fn current_rows() -> &'static [(Group, Vec<Row>)] {
-    static ROWS: std::sync::OnceLock<Vec<(Group, Vec<Row>)>> = std::sync::OnceLock::new();
-    ROWS.get_or_init(|| rows(current(), Os::CURRENT))
-}
-
 /// 把 `os` 上的绑定表 `table` 按分组列出全部命令的快捷键，没有键的命令也列出。
 pub(super) fn rows(table: &[Binding], os: Os) -> Vec<(Group, Vec<Row>)> {
     Group::ALL

@@ -509,6 +509,7 @@ impl App {
                 self.request_redraw();
             }
             UserEvent::TerminalPaste(id, text) => self.confirmed_terminal_paste(id, text),
+            UserEvent::TerminalUploaded(id, result) => self.terminal_uploaded(id, result),
             UserEvent::TerminalQuit(ok) => {
                 if let Some(request) = self.closing.confirming.take()
                     && ok
@@ -516,6 +517,7 @@ impl App {
                     self.request_close(request);
                 }
             }
+            UserEvent::CloseConfirmed(ok) => self.close_confirmed(ok),
             UserEvent::GitLogConfirmed(op) => self.run_log_confirmed(op),
             UserEvent::GitRemoveWorktree(path, branch) => self.remove_worktree_now(&path, branch),
             UserEvent::GitOpenWorktree(path, new, remember) => {
@@ -526,7 +528,7 @@ impl App {
                 self.folder_drop_chosen(&path, into, add, remember);
             }
             UserEvent::Indexed => self.picker_indexed(),
-            UserEvent::QuitRequested => self.request_quit(),
+            UserEvent::QuitRequested => self.ask_quit(),
             UserEvent::SaveChoice(choice) => self.answer_save_prompt(choice),
             UserEvent::Overwrite(id, choice) => self.answer_overwrite(id, choice),
             UserEvent::FolderItem(path) => self.open_path(&path),
@@ -678,6 +680,7 @@ impl App {
             }
         }
         earliest(&mut wake, self.terminal_settle_tick(now));
+        earliest(&mut wake, self.auto_save_tick(now));
         let copying = self.copy_tick(now);
         earliest(&mut wake, copying);
 
@@ -838,13 +841,14 @@ impl App {
         self.save_session();
     }
 
-    /// 退出前是否需要询问用户：存在退出时不会写入备份的未保存文档（[`App::kept_on_quit`]），
-    /// 或终端中有程序在运行（[`App::terminal_busy`]）。
+    /// 退出前是否需要询问用户：开了关闭前确认，存在退出时不会写入备份的未保存文档
+    /// （[`App::kept_on_quit`]），或终端中有程序在运行（[`App::terminal_busy`]）。
     ///
     /// macOS 上为假时 `⌘Q`、注销和关机直接退出，退出前在 [`App::prepare_exit`] 中写入备份；为真时
     /// 取消本次退出，回到事件循环询问，注销和关机也随之中断。
     pub(crate) fn asks_before_quit(&self) -> bool {
-        self.terminal_busy()
+        self.config.confirm_close == Some(true)
+            || self.terminal_busy()
             || (self.editor.documents.iter()).any(|d| d.is_dirty() && !self.kept_on_quit(d))
     }
 }

@@ -7,7 +7,6 @@
 
 use std::path::Path;
 
-mod pull;
 mod xlsx;
 
 /// 每张工作表最多读的行数（行）：xlsx 格式规定的行数上限，csv、tsv 取同一个值。

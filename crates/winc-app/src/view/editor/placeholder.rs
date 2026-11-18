@@ -13,10 +13,11 @@ pub(super) fn draw_placeholder(
     message: String,
     actions: &[(PlaceholderAction, &str)],
 ) {
-    // 远端主机上的文件不提供交给本机程序的操作。
+    // 远端主机上的文件不提供交给本机程序的操作，除非它所在的目录挂载在本机
+    // （`remote.localFolders`）：此时这些操作作用于本机上的那一份。
     let remote = (app.editor.active())
         .and_then(|doc| doc.path.as_deref())
-        .is_some_and(winc_backend::is_remote);
+        .is_some_and(|path| winc_backend::is_remote(path) && app.local_folder(path).is_none());
     let local_only = |action: PlaceholderAction| {
         matches!(
             action,

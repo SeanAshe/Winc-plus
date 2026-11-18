@@ -5,6 +5,7 @@
 
 mod adopt;
 mod formatters;
+pub(super) mod shortcuts;
 
 use std::ops::RangeInclusive;
 
@@ -18,7 +19,7 @@ use super::editor::format::{task_commands, task_commands_mut};
 use super::input::context_menu::{MenuTarget, menu_below, tool_setting as tool_setting_of};
 use super::*;
 use crate::keymap::{self, Os, Stroke};
-use crate::layout::{KeysLayout, SettingsView, ToolLanguages};
+use crate::layout::{KeyRows, KeysLayout, SettingsView, ToolLanguages};
 use crate::updates::UpdateClick;
 
 /// 设置浮层的状态。
@@ -66,6 +67,12 @@ pub struct SettingsState {
     pub recording: bool,
     /// 搜索框中的内容是否为录制的按键（按键搜索，而不是按名称搜索）。
     pub keys_recorded: bool,
+    /// 「快捷键」页中正在修改的一行。
+    pub(crate) key_edit: Option<shortcuts::KeyEdit>,
+    /// 「快捷键」页中一行展开、收起的过渡：同时收起的另一行和时钟；展开的是 `key_edit` 的一行。
+    pub key_slide: Option<(Option<keymap::Action>, super::animation::Clock)>,
+    /// 「导入…」菜单列出的来源，打开菜单时查找。
+    pub(crate) import_sources: Vec<crate::keymap::import::Source>,
     /// 浮层正在出现（`true`）或消失（`false`）的动画：出现时遮罩淡入，卡片整张淡入、从 95%
     /// 放大到原大；消失时整张淡出、略微缩小。
     ///
@@ -237,6 +244,7 @@ impl App {
         }
 
         self.settings_cancel_field();
+        self.cancel_key_edit();
         self.settings.open = false;
         self.settings.motion = self
             .clock(super::animation::DIALOG_OUT)
@@ -268,14 +276,11 @@ impl App {
     /// 链接不可点击。
     pub(super) fn settings_part_at(&self, x: f32, y: f32) -> Option<SettingsPart> {
         let layout = self.settings_layout();
-        if layout.page == SettingsPage::Keys && !layout.searching {
-            let (search, record) = KeysLayout::header(layout.body);
-            if record.contains(x, y) {
-                return Some(SettingsPart::Record);
-            }
-            if search.contains(x, y) {
-                return Some(SettingsPart::KeySearch);
-            }
+        if layout.page == SettingsPage::Keys
+            && !layout.searching
+            && let Some(part) = self.keys_part_at(layout.body, x, y)
+        {
+            return Some(part);
         }
         let link = self
             .hits
@@ -475,19 +480,28 @@ impl App {
 
     /// 返回快捷键页当前帧的几何布局，内容按搜索框中的文字筛选。
     pub(crate) fn keys_layout(&self) -> KeysLayout {
+        let open = self.settings.key_edit.as_ref().map(|edit| edit.action);
+        let (closing, t) = match self.settings.key_slide {
+            Some((closing, clock)) => (closing, clock.progress()),
+            None => (None, 1.0),
+        };
+        self.keys_layout_with(KeyRows { open, closing, t })
+    }
+
+    /// 返回快捷键页各行高度按 `rows` 计算时的几何布局。
+    pub(crate) fn keys_layout_with(&self, rows: KeyRows) -> KeysLayout {
         let query = self.settings.keys_query.text();
         let recorded = self.settings.keys_recorded;
-        let groups = keymap::current_rows()
-            .iter()
-            .map(|(group, rows)| {
-                let rows = rows
-                    .iter()
-                    .filter(|row| keymap::row_matches(row, query, Os::CURRENT, recorded))
-                    .collect();
-                (*group, rows)
-            })
-            .collect();
-        KeysLayout::compute(self.settings_layout().body, groups, self.settings.scroll)
+        let keep = |row: &keymap::Row| keymap::row_matches(row, query, Os::CURRENT, recorded);
+        let body = self.settings_layout().body;
+        let scroll = self.settings.scroll;
+        let layout = KeysLayout::compute(body, keymap::current_rows(), keep, rows, scroll);
+        // 收起一行后列表变短，滚动量超出范围时内容贴住底部。
+        let max = layout.max_scroll();
+        if scroll <= max {
+            return layout;
+        }
+        KeysLayout::compute(body, keymap::current_rows(), keep, rows, max)
     }
 
     /// 录制按键时处理一次按键 `stroke`：写入搜索框。
@@ -593,7 +607,8 @@ impl App {
     /// 按滚轮增量 `dy`（逻辑像素）滚动当前页，滚动位置限制在有效范围内。
     pub(in crate::app) fn settings_scroll_by(&mut self, dy: f32) {
         let (_, max) = self.settings_scroll_area();
-        self.settings.scroll = (self.settings.scroll - dy).clamp(0.0, max);
+        // 列表收短后（如快捷键页收起一行）滚动量可能超出范围，从有效范围内的位置起算。
+        self.settings.scroll = (self.settings.scroll.min(max) - dy).clamp(0.0, max);
         self.settings.scrolled_at = Some(Instant::now());
         self.request_redraw();
     }
@@ -737,8 +752,8 @@ impl App {
         match setting {
             Setting::FormatOnSave => self.config.format_on_save == Some(true),
             Setting::FixOnSave => self.config.fix_on_save == Some(true),
-            Setting::AutoSave => self.config.auto_save == Some(true),
             Setting::HotExit => self.config.hot_exit != Some(false),
+            Setting::ConfirmClose => self.config.confirm_close == Some(true),
             Setting::RestoreFolder => self.config.restore_folder != Some(false),
             Setting::StickyScroll => self.config.sticky_scroll != Some(false),
             Setting::VimMode => self.config.vim_enabled == Some(true),
@@ -798,8 +813,8 @@ impl App {
         match setting {
             Setting::FormatOnSave => self.config.format_on_save = Some(on),
             Setting::FixOnSave => self.config.fix_on_save = Some(on),
-            Setting::AutoSave => self.config.auto_save = Some(on),
             Setting::HotExit => self.config.hot_exit = Some(on),
+            Setting::ConfirmClose => self.config.confirm_close = Some(on),
             Setting::RestoreFolder => self.config.restore_folder = Some(on),
             Setting::StickyScroll => self.config.sticky_scroll = Some(on),
             Setting::VimMode => {

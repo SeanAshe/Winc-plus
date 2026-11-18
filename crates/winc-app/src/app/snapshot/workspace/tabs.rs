@@ -431,9 +431,14 @@ fn close_tab_key_closes_the_window_once_no_tab_is_left_without_quitting() {
     let dir = search_folder("close-tab-key");
     let mut app = app_with(&dir.join("Cargo.toml"), false);
     assert_eq!(app.editor.documents.len(), 1);
+    // macOS 上关闭标签页是 ⌘W，其他系统上是 Ctrl+F4。
+    let close = |app: &mut App| match cfg!(target_os = "macos") {
+        true => press(app, &["cmd"], Char('w')),
+        false => press(app, &["ctrl"], crate::keymap::KeyCode::F(4)),
+    };
 
-    // 有标签时 ⌘W 关闭标签，窗口不关。
-    assert!(press(&mut app, &["cmd"], Char('w')));
+    // 有标签时关闭标签，窗口不关。
+    assert!(close(&mut app));
     assert!(app.editor.documents.is_empty());
     assert!(!app.window.hidden && !app.closing.quit_requested);
 
@@ -441,8 +446,8 @@ fn close_tab_key_closes_the_window_once_no_tab_is_left_without_quitting() {
     app.run_action(crate::keymap::Action::CloseTab);
     assert!(!app.window.hidden && !app.closing.quit_requested);
 
-    // 没有标签时再按 ⌘W：macOS 上关闭窗口，应用不退出（留在程序坞中）；其他系统上什么也不做。
-    press(&mut app, &["cmd"], Char('w'));
+    // 没有标签时再按一次：macOS 上关闭窗口，应用不退出（留在程序坞中）；其他系统上什么也不做。
+    close(&mut app);
     assert_eq!(app.window.hidden, cfg!(target_os = "macos"));
     assert!(!app.closing.quit_requested);
 
@@ -932,8 +937,8 @@ fn hovering_a_tab_shows_its_path_and_the_close_shortcut() {
     let (rect, text) = crate::view::tests::tooltip(&app).unwrap();
     assert_eq!(rect, close);
     assert!(text.starts_with("关闭"), "{text}");
-    // Windows 上关闭标签页的快捷键写作 Ctrl+F4，与系统约定的做法一致。
-    let key = if cfg!(windows) { "F4" } else { "W" };
+    // macOS 上关闭标签页是 ⌘W，其他系统上是 Ctrl+F4。
+    let key = if cfg!(target_os = "macos") { "W" } else { "F4" };
     assert!(text.contains(key), "{text}");
 
     // 按住标签拖动时不显示提示。

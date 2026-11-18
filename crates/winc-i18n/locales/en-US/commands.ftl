@@ -251,6 +251,8 @@ cmd-cli-usage =
       winc                  Restore the last opened folder
       winc .                Open the current folder
       winc file:line[:col]  Open a file and go to that line
+      winc ssh://host/folder [ssh://host/file:line[:col]]
+                            Open a folder on a remote host and files in it (needs the Remote module)
       winc -                Read standard input (e.g. cargo build 2>&1 | winc -)
       -w, --wait            Exit after all of the files’ tabs are closed (e.g. git config core.editor "winc -w")
       -n, --new-instance    Start a separate process instead of handing off to the running Winc
@@ -260,6 +262,11 @@ cmd-cli-usage =
       -v, --version         Show the version
 cmd-cli-unknown-option = Unrecognized option “{ $flag }”
 cmd-file-type-name = { $name } file
+cmd-cli-bad-link = Can’t open the link “{ $link }”: expected winc://file/ followed by an absolute path
+cmd-cli-bad-ssh = Can’t open “{ $link }”: expected ssh://[user@]host[:port]/absolute-path
+cmd-cli-ssh-mixed = ssh:// arguments must all name the same host and can’t be mixed with local paths
+cmd-cli-ssh-one-off = --wait and - can’t be used with ssh:// arguments
+cmd-cli-ssh-folders = Only one ssh:// argument can be a folder; the others must be files in it
 cmd-cli-wait-needs-file = --wait requires a file
 cmd-cli-wsl-needs-name = --wsl requires a distribution name
 cmd-cli-wait-needs-openable-file = --wait requires at least one file that can be opened

@@ -685,6 +685,7 @@ fn moving_to_a_change_clears_the_message_about_having_none() {
 
 #[test]
 fn diff_navigation_keys_work_with_focus_in_the_commit_list() {
+    crate::app::snapshot::use_vscode_keys();
     use crate::keymap::{KeyCode, Mods, Stroke};
 
     let dir = search_folder("git-diff-list-keys");
@@ -723,9 +724,19 @@ fn diff_navigation_keys_work_with_focus_in_the_commit_list() {
     assert_eq!(focus(&app), Some(0));
     assert!(app.on_shortcut(f(5, Mods::ALT | Mods::SHIFT)));
     assert_eq!(app.focus, Focus::CommitList);
-    assert!(app.on_shortcut(f(8, Mods::NONE)));
+    // 切换差异中的文件取 IntelliJ IDEA 方案的键：macOS 上 ⌃⇧→，其他系统上 Shift+Alt+→。
+    crate::keymap::install(crate::keymap::Preset::Idea, &Default::default());
+    let file = |key| Stroke {
+        key,
+        mods: if cfg!(target_os = "macos") {
+            Mods::CTRL | Mods::SHIFT
+        } else {
+            Mods::SHIFT | Mods::ALT
+        },
+    };
+    assert!(app.on_shortcut(file(KeyCode::Right)));
     assert!(title(&app).starts_with("zeta.rs"), "{}", title(&app));
-    assert!(app.on_shortcut(f(8, Mods::SHIFT)));
+    assert!(app.on_shortcut(file(KeyCode::Left)));
     assert!(title(&app).starts_with("main.rs"), "{}", title(&app));
     assert_eq!(app.focus, Focus::CommitList);
 

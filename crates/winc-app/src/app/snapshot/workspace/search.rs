@@ -626,6 +626,7 @@ fn shoot_search_no_results() {
 
 #[test]
 fn right_clicking_a_search_result_offers_its_menu() {
+    crate::app::snapshot::use_vscode_keys();
     use MenuCommand::{
         Copy, CopyPath, CopyRelativePath, DismissResult, OpenFiles, ReplaceResult, RevealInTree,
     };

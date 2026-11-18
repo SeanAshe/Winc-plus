@@ -581,7 +581,7 @@ fn the_changes_list_has_keys_for_diff_source_and_rollback() {
     paint(&mut app);
     let key = |action: Action| keymap::single_stroke(action, Context::Changes).unwrap();
     let first = |context: Context, action: Action| match keymap::lookup(
-        keymap::current(),
+        &keymap::current(),
         key(action),
         None,
         context,

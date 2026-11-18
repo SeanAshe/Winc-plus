@@ -30,6 +30,7 @@ fn gutter_point(app: &App, line: usize, x: f32) -> (f32, f32) {
 
 #[test]
 fn folding_from_keys_the_gutter_and_the_dots() {
+    crate::app::snapshot::use_vscode_keys();
     let dir = navigation_folder("folding");
     let mut app = app_with(&dir, false);
     app.open_path(&sticky_file(&dir));

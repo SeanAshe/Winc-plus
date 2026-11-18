@@ -9,17 +9,20 @@ use winc_pty::protocol::Modes;
 
 use super::{App, Focus, os_bytes};
 
-/// 给 shell 用的路径：只有安全的字符时原样，否则用单引号包起来（里面的单引号写成 `'\''`）。
+/// 字符 `c` 在 shell 中是否不需要引号。
+pub(crate) fn shell_safe(c: char) -> bool {
+    c.is_alphanumeric()
+        || matches!(
+            c,
+            '/' | '.' | '_' | '-' | '+' | ',' | ':' | '@' | '%' | '=' | '~'
+        )
+}
+
+/// 给 shell 用的路径：只有安全的字符（[`shell_safe`]）时原样，否则用单引号包起来（里面的
+/// 单引号写成 `'\''`）。
 pub(crate) fn shell_quote(path: &Path) -> String {
     let text = path.to_string_lossy();
-    let safe = |c: char| {
-        c.is_alphanumeric()
-            || matches!(
-                c,
-                '/' | '.' | '_' | '-' | '+' | ',' | ':' | '@' | '%' | '=' | '~'
-            )
-    };
-    if !text.is_empty() && text.chars().all(safe) {
+    if !text.is_empty() && text.chars().all(shell_safe) {
         return text.into_owned();
     }
     let mut out = String::with_capacity(text.len() + 2);

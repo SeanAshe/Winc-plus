@@ -79,13 +79,66 @@ impl App {
         }
     }
 
-    /// 处理关闭窗口：标题栏左侧的关闭按钮、`⇧⌘W`，以及没有标签时的 `⌘W`。
+    /// 处理用户发起的退出：开了关闭前确认（`confirm_close`）时先询问，之后同
+    /// [`App::request_quit`]。
+    pub(crate) fn ask_quit(&mut self) {
+        if !self.ask_before_close(CloseRequest::Quit) {
+            self.request_quit();
+        }
+    }
+
+    /// 处理关闭窗口：标题栏左侧的关闭按钮、`⇧⌘W`，以及没有标签时的 `⌘W`；开了关闭前确认
+    /// 时先询问。
+    pub(in crate::app) fn request_close_window(&mut self) {
+        if !self.ask_before_close(CloseRequest::CloseWindow) {
+            self.close_window_confirmed();
+        }
+    }
+
+    /// 开了关闭前确认时弹出确认框并返回真，确认后由 [`UserEvent::CloseConfirmed`] 继续
+    /// `request`；没开、窗口已隐藏时返回假。
+    fn ask_before_close(&mut self, request: CloseRequest) -> bool {
+        if self.closing.confirming.is_some() {
+            return true;
+        }
+        if self.config.confirm_close != Some(true) || self.window.hidden {
+            return false;
+        }
+        // 关闭最后一个窗口在 macOS 以外的平台上就是退出。
+        let quits = request == CloseRequest::Quit
+            || !self.link.shared.others() && !cfg!(target_os = "macos");
+        let (message, button) = if quits {
+            (t!("close-confirm-quit"), t!("cmd-quit"))
+        } else {
+            (t!("close-confirm-window"), t!("cmd-close-window"))
+        };
+        let buttons = vec![
+            AlertButton::new(button),
+            AlertButton::cancel(t!("common-cancel")),
+        ];
+        let done = |i, _| Some(UserEvent::CloseConfirmed(i == 0));
+        if self.show_alert(message, "", buttons, None, done) {
+            self.closing.confirming = Some(request);
+        }
+        true
+    }
+
+    /// 关闭前确认的结果：确认时继续退出或关闭窗口。
+    pub(in crate::app) fn close_confirmed(&mut self, ok: bool) {
+        match self.closing.confirming.take() {
+            Some(CloseRequest::Quit) if ok => self.request_quit(),
+            Some(_) if ok => self.close_window_confirmed(),
+            _ => {}
+        }
+    }
+
+    /// 关闭窗口，不再询问是否关闭。
     ///
     /// macOS 上关闭窗口不退出应用：关闭目录和所有标签，隐藏窗口，应用留在程序坞中，点击
     /// 图标时窗口带着开始页回来，退出用 ⌘Q；其他平台上关闭窗口就是退出，还有别的窗口时只关闭
     /// 当前窗口。开着目录的窗口与退出一样不逐个询问，未保存的内容写入备份；没开目录的窗口逐个
     /// 询问。窗口关闭后其中的终端随之结束，有程序在运行时先确认；macOS 上终端继续运行，不确认。
-    pub(in crate::app) fn request_close_window(&mut self) {
+    fn close_window_confirmed(&mut self) {
         if self.link.shared.others() {
             if !self.confirm_terminal_quit(CloseRequest::CloseWindow) {
                 self.request_close(CloseRequest::CloseWindow);
@@ -466,7 +519,8 @@ pub struct Closing {
     pub(crate) prompt: Option<SavePrompt>,
     /// 已选择「保存」、正在等待另存为面板：保存完成后继续处理余下的步骤。
     pub(crate) continuation: Option<SavePrompt>,
-    /// 正在确认是否结束终端中运行的程序时，确认后要执行的关闭（退出或关闭窗口）。
+    /// 正在确认关闭（关闭前确认，或结束终端中运行的程序）时，确认后要执行的关闭（退出或
+    /// 关闭窗口）。
     ///
     /// 为 `Some` 期间，退出流程尚未得出结果（见 [`crate::winc`]）。
     pub(crate) confirming: Option<CloseRequest>,

@@ -33,7 +33,11 @@ settings-editor-font = 编辑器字体
 settings-editor-size = 编辑器字号
 settings-tab-width = 制表符长度
 settings-auto-save = 自动保存
+settings-auto-save-off = 关闭
+settings-auto-save-focus = 切换时
+settings-auto-save-delay = 停止输入 1 秒后
 settings-hot-exit = 热退出
+settings-confirm-close = 关闭前确认
 settings-restore-folder = 恢复上次的目录
 settings-sticky-scroll = 粘滞滚动
 settings-vim-mode = Vim 模式（实验性）
@@ -105,8 +109,9 @@ settings-key-search = 搜索快捷键
 
 ## 设置项的说明。
 
-settings-auto-save-desc = 切换标签页或应用时自动保存修改
+settings-auto-save-desc = 切换标签页、终端或应用时保存修改
 settings-hot-exit-desc = 退出时不逐个确认保存，下次启动时恢复未保存的修改
+settings-confirm-close-desc = 关闭窗口或退出前先确认
 settings-restore-folder-desc = 启动时重新打开上次的目录和标签页
 settings-sticky-scroll-desc = 滚动时将当前所在的函数、类和标题固定在顶部
 settings-vim-mode-desc = 在编辑区使用 Vim 的模式与按键
@@ -245,11 +250,29 @@ settings-theme-name-veil-umber = 檀幕
 
 ## 快捷键页。
 
-settings-keys-recording = 请按下要查找的快捷键，按 Esc 停止
-settings-keys-search-record = 输入命令名查找，按 { $key } 录制按键
-settings-keys-search = 输入命令名查找
+settings-keys-recording = 按下快捷键查找对应的命令
+settings-keys-search = 搜索命令
 settings-keys-no-command = 无命令使用此快捷键
 settings-keys-no-match = 无匹配的命令
+settings-keys-keymap = 键位方案
+settings-keys-imported = 已导入 { $name } 的快捷键
+settings-keys-imported-skipped = 已导入 { $name } 的快捷键，{ $count } 项无法对应，已跳过
+settings-keys-keymap-description = 快捷键的默认方案，也可以从本机的其他编辑器导入
+settings-keys-keymap-changed = 已修改 { $count } 个命令的快捷键
+settings-keys-edit = 编辑
+settings-keys-reset = 恢复默认
+settings-keys-save = 保存
+settings-keys-cancel = 取消
+settings-keys-edit-hint = 新的快捷键会加在已有的键之后
+settings-keys-conflict = 保存后 { $key } 将从{ $names }改给此命令
+settings-keys-takes-typing = 不带修饰键的 { $key } 会取代编辑区和输入框中的文字输入
+settings-keys-modified = 已修改
+settings-keys-press = 按下快捷键
+settings-keys-import-from = 从 { $name } 导入…
+keymap-import-read-failed = 无法读取「{ $path }」：{ $error }
+keymap-import-invalid = 「{ $path }」的格式不对
+keymap-import-unsupported = 不支持导入「{ $name }」键位方案
+keymap-import-missing = 找不到「{ $name }」键位方案
 
 ## 字号与配置文件。
 

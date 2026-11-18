@@ -643,6 +643,9 @@ fn write_services_menu(resources: &Path) -> Result<(), String> {
 /// 有了这一项，文件和文件夹才能拖到程序坞的图标上，「打开方式」里也才列出 Winc。等级是
 /// `Alternate`，不占用其他应用的默认打开方式。
 ///
+/// `CFBundleURLTypes` 声明 `winc` 协议：打开 `winc://file/<绝对路径>[:行[:列]]` 链接时系统交给
+/// Winc（应用委托的 `application:openURLs:`）。
+///
 /// `NSServices` 声明一项服务「在 Winc 中打开」（见 [`SERVICE_TITLE`]），出现在访达右键菜单的
 /// 「服务」中，只针对文本文件（`public.text`）和文件夹。声明了 `NSRequiredContext`，安装后即
 /// 启用；用户可在「系统设置 → 键盘 → 键盘快捷键 → 服务」中关闭。服务由应用委托处理（消息名
@@ -678,6 +681,17 @@ fn info_plist(version: &str, updates: &sparkle::UpdateConfig, arch: &str) -> Str
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>public.folder</string>
+			</array>
+		</dict>
+	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>{BUNDLE_ID}</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>winc</string>
 			</array>
 		</dict>
 	</array>

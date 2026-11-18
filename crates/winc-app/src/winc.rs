@@ -125,6 +125,26 @@ pub enum UpdateState {
     InstallFailed(String),
 }
 
+/// 文件树里复制的远端文件（[`Shared::remote_copy`]）。
+///
+/// 复制时系统剪贴板里写入 `text`；粘贴时剪贴板里仍是这段文字才取 `paths`，被其他程序或别的
+/// 复制替换后不再取，也就不会把替换后的内容当成这次复制的文件。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteCopy {
+    /// 复制的各项（虚拟路径）。
+    pub paths: Vec<PathBuf>,
+    /// 复制时写进系统剪贴板的文字：各项在远端主机上的路径，每行一个。粘贴到终端、聊天窗口时
+    /// 得到的就是这些路径。
+    pub text: String,
+}
+
+impl RemoteCopy {
+    /// 剪贴板里读到的文字 `text` 是否还是复制时写入的那段（Windows 上换行可能读回为 `\r\n`）。
+    pub fn holds(&self, text: &str) -> bool {
+        text == self.text || text.replace("\r\n", "\n") == self.text
+    }
+}
+
 /// 各窗口共用的一点状态：窗口通过它知道别的窗口开着什么、请本层做事、共用剪切的文件。
 ///
 /// 只在界面线程上用。配置、主题、最近列表不在这里：每个窗口各存一个副本，由 [`Winc`]
@@ -140,6 +160,11 @@ pub struct Shared {
     ///
     /// 在一个窗口里剪切、到另一个窗口里粘贴也是移动，所以各窗口共用。
     pub cut_files: RefCell<Vec<PathBuf>>,
+    /// 文件树里复制或剪切的远端文件。系统剪贴板的文件列表只能放本机文件，这些文件记在这里，
+    /// 系统剪贴板里写的是它们在远端主机上的路径（见 [`RemoteCopy`]）。
+    ///
+    /// 在一个窗口里复制、到另一个窗口里粘贴也要认得，所以各窗口共用。
+    pub remote_copy: RefCell<Option<RemoteCopy>>,
     /// 退出前是否需要询问用户：有窗口存在未保存的文档，或者终端中有程序在运行。
     ///
     /// `AppKit` 的 `⌘Q` 回调读取该值，决定直接退出还是回到事件
@@ -594,18 +619,17 @@ impl Winc {
         self.open_targets(event_loop, &launch.targets, launch.token);
     }
 
-    /// 系统交来了要打开的 `paths`（拖到程序坞的图标上、文件管理器里的「打开方式」），和之后启动的
-    /// `winc` 交来的一样按 [`Self::open_targets`] 打开。
+    /// 系统交来了要打开的 `targets`（拖到程序坞的图标上、文件管理器里的「打开方式」、`winc://`
+    /// 链接），和之后启动的 `winc` 交来的一样按 [`Self::open_targets`] 打开。
     ///
     /// 正在退出时不理会。
-    fn opened(&mut self, event_loop: &ActiveEventLoop, paths: &[PathBuf]) {
+    fn opened(&mut self, event_loop: &ActiveEventLoop, targets: &[Target]) {
         if self.quitting.is_some() {
             return;
         }
-        let targets = paths.iter().map(|path| Target {
-            path: crate::instance::absolute(path),
-            line: None,
-            col: None,
+        let targets = targets.iter().map(|target| Target {
+            path: crate::instance::absolute(&target.path),
+            ..target.clone()
         });
         self.open_targets(event_loop, &targets.collect::<Vec<_>>(), None);
     }
@@ -619,6 +643,10 @@ impl Winc {
         targets: &[Target],
         mut token: Option<String>,
     ) {
+        if let Some(open) = crate::cli::remote_open(targets) {
+            self.open_remote(event_loop, open, token);
+            return;
+        }
         let key = match self.window_for(targets) {
             Ok(key) => key,
             Err(folder) => {
@@ -633,6 +661,34 @@ impl Winc {
         if let Some(app) = self.by_key(key) {
             app.set_activation(token);
             app.open_files(targets);
+        }
+    }
+
+    /// 打开 `ssh://` 参数指定的远端项目 `open`：开着该目录的窗口、停在开始页上的空窗口或新建的
+    /// 窗口在后台连接并打开它（见 [`App::open_remote`]）。远端的路径在界面线程上不查询。
+    ///
+    /// `token` 同 [`Self::open_targets`]。
+    fn open_remote(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        open: crate::cli::RemoteOpen,
+        mut token: Option<String>,
+    ) {
+        let found = self.shared.window_with(&open.folder, None);
+        let key = match found.or_else(|| self.blank_window()) {
+            Some(key) => key,
+            None => {
+                self.new_window(event_loop, None, token.take());
+                let Some(key) = self.active_key() else {
+                    return;
+                };
+                key
+            }
+        };
+        self.active = Some(key);
+        if let Some(app) = self.by_key(key) {
+            app.set_activation(token);
+            app.open_remote(open);
         }
     }
 
@@ -815,7 +871,7 @@ impl ApplicationHandler<Envelope> for Winc {
     fn user_event(&mut self, event_loop: &ActiveEventLoop, envelope: Envelope) {
         match envelope.event {
             UserEvent::Launched(launch, answer) => self.launched(event_loop, launch, answer),
-            UserEvent::Opened(paths) => self.opened(event_loop, &paths),
+            UserEvent::Opened(targets) => self.opened(event_loop, &targets),
             UserEvent::UpdateFound(version) => {
                 *self.shared.update.borrow_mut() = version;
                 for slot in &mut self.windows {

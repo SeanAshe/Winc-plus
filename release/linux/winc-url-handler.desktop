@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Winc
+Comment=Open winc:// links in Winc
+Exec=winc %u
+Icon=winc
+Type=Application
+NoDisplay=true
+Terminal=false
+MimeType=x-scheme-handler/winc;

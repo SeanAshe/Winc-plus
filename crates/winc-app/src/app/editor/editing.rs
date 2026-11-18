@@ -452,7 +452,9 @@ impl App {
     ///
     /// `whole_line` 为 `true` 表示复制的是整行，粘贴到编辑区时插入当前行上方。
     pub(in crate::app) fn set_clipboard(&mut self, text: String, whole_line: bool) {
-        self.clipboard.set_text(text, whole_line);
+        if self.clipboard.set_text(text, whole_line) {
+            self.forget_remote_copy();
+        }
     }
 
     /// 返回剪贴板中的文本；没有时返回 `None`。

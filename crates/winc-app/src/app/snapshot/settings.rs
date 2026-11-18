@@ -5,6 +5,7 @@ mod appearance;
 #[cfg(unix)]
 mod format;
 mod search;
+mod shortcuts;
 mod terminal;
 
 use super::*;
@@ -650,6 +651,7 @@ fn the_settings_scrollbar_can_be_dragged() {
 
 #[test]
 fn the_keys_page_lists_searches_and_records() {
+    crate::app::snapshot::use_vscode_keys();
     use crate::keymap::{Action, KeyCode, Mods, Stroke};
 
     let mut app = blank_app(false);
@@ -661,11 +663,8 @@ fn the_keys_page_lists_searches_and_records() {
     let all = app.keys_layout().rows.len();
     assert!(all > 50, "{all}");
     let actions = |app: &App| {
-        app.keys_layout()
-            .rows
-            .iter()
-            .map(|(_, r)| r.action)
-            .collect::<Vec<_>>()
+        let keys = app.keys_layout();
+        keys.rows().map(|(_, r)| r.action).collect::<Vec<_>>()
     };
 
     // 按名称搜索，中文名和英文名都可以。
@@ -1085,7 +1084,8 @@ fn the_about_page_opens_the_release_notes() {
 }
 
 /// 首次设置尚未完成时开始页只有「首次设置」：外观、主题和模块的修改立即生效并写入配置，语言
-/// 和主题从菜单中选。点击「完成」或按回车后换回开始操作，状态中记下已经完成。
+/// 和主题从菜单中选。点击「继续」或按回车进入快捷键一页，选好方案后点击「完成」或按回车换回
+/// 开始操作，状态中记下已经完成。
 #[test]
 fn the_start_page_shows_only_first_time_setup_until_it_is_finished() {
     use crate::app::StartAction;
@@ -1094,7 +1094,7 @@ fn the_start_page_shows_only_first_time_setup_until_it_is_finished() {
     let has = |app: &App, wanted: StartAction| app.hits.start.iter().any(|(_, a)| *a == wanted);
     let mut app = blank_app(false);
     paint(&mut app);
-    assert!(has(&app, StartAction::Settings) && !has(&app, StartAction::FinishSetup));
+    assert!(has(&app, StartAction::Settings) && !has(&app, StartAction::SetupNext));
 
     app.state.setup_pending = true;
     paint(&mut app);
@@ -1105,7 +1105,7 @@ fn the_start_page_shows_only_first_time_setup_until_it_is_finished() {
         click(app, (rect.x + rect.w / 2.0, rect.y + rect.h / 2.0));
         paint(app);
     };
-    // 语言、外观三段、主题、三个模块的开关和「完成」，没有开始操作。
+    // 语言、外观三段、主题、三个模块的开关和「继续」，没有开始操作。
     assert_eq!(app.hits.start.len(), 1 + 3 + 1 + 3 + 1);
     assert!(!has(&app, StartAction::Settings));
     // 各控件的右端对齐在同一条线上。
@@ -1114,7 +1114,7 @@ fn the_start_page_shows_only_first_time_setup_until_it_is_finished() {
         rect.right()
     };
     // 下拉值的箭头与这条线对齐，悬停底色因此向右多出一段。
-    let edge = right(&app, StartAction::FinishSetup);
+    let edge = right(&app, StartAction::SetupNext);
     let past = crate::theme::SETTINGS_GLYPH_PAD - 1.0;
     assert_eq!(right(&app, StartAction::Language), edge + past);
     assert_eq!(right(&app, StartAction::Theme), edge + past);
@@ -1160,12 +1160,35 @@ fn the_start_page_shows_only_first_time_setup_until_it_is_finished() {
     pick(&mut app, StartAction::Module(Module::Git));
     assert!(!app.git_enabled());
 
+    // 快捷键一页：各方案在前，默认选中 IDEA 方案；选 VS Code 后完成，写入配置。「返回」回到
+    // 上一页，选择保留。
+    pick(&mut app, StartAction::SetupNext);
+    assert!(app.setup.shown && app.setup.choice == 0);
+    assert!(has(&app, StartAction::SetupKeymap(1)) && has(&app, StartAction::SetupBack));
+    assert_eq!(right(&app, StartAction::FinishSetup), edge);
+    pick(&mut app, StartAction::SetupKeymap(1));
+    pick(&mut app, StartAction::SetupBack);
+    assert!(!app.setup.shown && has(&app, StartAction::SetupNext));
+    // 两页之间切换途中只有淡入的一页响应点击。
+    let total = crate::app::setup::OUTRO;
+    let clock = crate::app::animation::Clock::stopped(total, total.mul_f32(0.2));
+    app.motion.setup_page = Some(clock);
+    paint(&mut app);
+    assert!(has(&app, StartAction::SetupNext) && !has(&app, StartAction::SetupBack));
+    app.motion.setup_page = None;
+    pick(&mut app, StartAction::SetupNext);
+    assert_eq!(app.setup.choice, 1);
     pick(&mut app, StartAction::FinishSetup);
     assert!(!app.state.setup_pending);
+    assert_eq!(app.config.keymap.as_deref(), Some("vscode"));
+    assert_eq!(
+        crate::keymap::current_preset(),
+        crate::keymap::Preset::VsCode
+    );
     assert!(has(&app, StartAction::Settings) && !has(&app, StartAction::FinishSetup));
     assert!(!has(&app, StartAction::Appearance(ThemeChoice::Auto)));
 
-    // 回车等同于「完成」；启动动画期间各项尚未显示，回车不结束首次设置，点击也不响应。
+    // 回车等同于「继续」「完成」；启动动画期间各项尚未显示，回车不结束首次设置，点击也不响应。
     use crate::app::animation::Clock;
     use winit::keyboard::{Key, NamedKey};
     let (enter, total) = (Key::Named(NamedKey::Enter), crate::app::setup::INTRO);
@@ -1175,9 +1198,18 @@ fn the_start_page_shows_only_first_time_setup_until_it_is_finished() {
     assert!(app.hits.start.is_empty());
     assert!(!app.setup_key(&enter) && app.state.setup_pending);
     app.motion.setup_intro = None;
+    app.setup.shown = false;
     paint(&mut app);
-    assert!(has(&app, StartAction::FinishSetup));
+    assert!(has(&app, StartAction::SetupNext));
     assert!(!app.setup_key(&Key::Named(NamedKey::Escape)) && app.state.setup_pending);
+    assert!(app.setup_key(&enter) && app.setup.shown && app.state.setup_pending);
+    // 快捷键一页：上下键换选中的一项，`Esc` 回到上一页。
+    let named = |key| Key::Named(key);
+    app.setup_choose(0);
+    assert!(app.setup_key(&named(NamedKey::ArrowDown)) && app.setup.choice == 1);
+    assert!(app.setup_key(&named(NamedKey::ArrowUp)) && app.setup.choice == 0);
+    assert!(app.setup_key(&named(NamedKey::Escape)) && !app.setup.shown);
+    assert!(app.setup_key(&enter) && app.setup.shown);
     assert!(app.setup_key(&enter) && !app.state.setup_pending);
     assert!(!app.setup_key(&enter));
 

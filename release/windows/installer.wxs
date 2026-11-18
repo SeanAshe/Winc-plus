@@ -186,6 +186,16 @@
             <RegistryValue Root="HKLM" Key="Software\Classes\SystemFileAssociations\.$(var.Type)\shell\winc\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
             <?endforeach?>
           </Component>
+          <!-- The winc: URL scheme: winc://file/<absolute path>[:line[:column]] opens a file or
+               folder in winc, which receives the whole link as its argument. The shell checks only
+               that "URL Protocol" exists; an empty value means Null to Windows Installer, so it
+               holds a placeholder. -->
+          <Component Id="UrlScheme" Guid="*" Win64="yes">
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc" Value="URL:Winc" Type="string" KeyPath="yes"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc" Name="URL Protocol" Value="winc" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc\DefaultIcon" Value="[#WincExe],0" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc\shell\open\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
+          </Component>
           <Directory Id="BINFOLDER" Name="bin">
             <Component Id="CommandLine" Guid="*" Win64="yes">
               <File Id="WincLauncher" Source="$(var.Source)\bin\winc" KeyPath="yes"/>
@@ -212,7 +222,7 @@
     <Feature Id="Main" Title="winc" Level="1">
       <ComponentRef Id="Application"/><ComponentRef Id="TerminalHelper"/><ComponentRef Id="InstallationKind"/>
       <ComponentRef Id="ConptyLibrary"/><ComponentRef Id="ConsoleHost"/>
-      <ComponentRef Id="FileAssociations"/><ComponentRef Id="ContextMenu"/>
+      <ComponentRef Id="FileAssociations"/><ComponentRef Id="ContextMenu"/><ComponentRef Id="UrlScheme"/>
       <ComponentRef Id="CommandLine"/><ComponentRef Id="CommandLineCmd"/><ComponentRef Id="WslWatcher"/>
       <ComponentRef Id="RemoteServerX64"/><ComponentRef Id="RemoteServerArm64"/>
       <ComponentRef Id="License"/><ComponentRef Id="Notice"/><ComponentRef Id="StartMenu"/>

@@ -273,6 +273,7 @@ fn clicks_move_the_focus_and_the_gap_resizes_the_panel() {
 
 #[test]
 fn only_command_shortcuts_reach_past_the_terminal() {
+    crate::app::snapshot::use_vscode_keys();
     let dir = sample_folder("terminal-keys");
     let mut app = app_with(&dir.join("short.rs"), false);
     show_terminal(&mut app, "$ ");

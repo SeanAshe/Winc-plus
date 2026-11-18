@@ -55,7 +55,7 @@ pub(crate) use input::context_menu::{
 };
 pub use input::context_menu::{ContextMenu, MenuButton, MenuCommand};
 pub use input::palette::palette;
-pub(crate) use lifecycle::alert::{AlertButton, AlertKey, AlertPart, AlertParts};
+pub(crate) use lifecycle::alert::{AlertButton, AlertKey, AlertPart, AlertParts, InAppAlert};
 use lifecycle::appearance::{forced_theme, unusable_font};
 pub(crate) use lifecycle::backup::{restore_at_launch, restore_tabs};
 pub use lifecycle::closing::{CloseRequest, SaveChoice, SavePrompt};
@@ -65,6 +65,7 @@ pub(crate) use lifecycle::title_bar::resize_cursor;
 pub(crate) use lifecycle::wallpaper::Layer as WallpaperLayer;
 use lifecycle::window::frame_interval;
 pub(crate) use scroll::ScrollTarget;
+pub(crate) use settings::shortcuts::KeyEdit;
 pub use settings::{DialogCache, SettingsState};
 pub(crate) use status::language_picker::LanguageRow;
 pub use status::motion::{StatusEntry, StatusKey, StatusMotion, StatusRow};
@@ -210,11 +211,12 @@ pub enum UserEvent {
     ///
     /// 由应用层决定切换到哪个窗口或新建窗口，并经通道答复是否接收；该事件不会分发到窗口。
     Launched(crate::instance::Launch, std::sync::mpsc::Sender<bool>),
-    /// 系统交来要打开的文件和目录（拖到程序坞图标上、文件管理器中的「打开方式」）。
+    /// 系统交来要打开的文件和目录（拖到程序坞图标上、文件管理器中的「打开方式」、
+    /// `winc://` 链接）。
     ///
     /// 处理方式同 [`UserEvent::Launched`]：由应用层决定在哪个窗口打开。
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-    Opened(Vec<PathBuf>),
+    Opened(Vec<crate::cli::Target>),
     /// 程序坞菜单中选择了「新建窗口」。
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     NewWindow,
@@ -310,8 +312,12 @@ pub enum UserEvent {
     TerminalShells(Vec<terminal::shells::ShellChoice>),
     /// 退出或关闭窗口前的确认结果（终端中有程序在运行）：用户确认时为真，取消时为假。
     TerminalQuit(bool),
+    /// 关闭前确认（`confirm_close`）的结果：用户确认时为真，取消时为假。
+    CloseConfirmed(bool),
     /// 确认框中确认把文字粘贴到指定的终端标签（多行文字，且程序未开启括号粘贴）。
     TerminalPaste(u16, String),
+    /// 要粘贴到远端终端标签的图片或文件已在后台传到那台主机：标签，那里的路径或失败的原因。
+    TerminalUploaded(u16, Result<Vec<String>, String>),
     /// 确认框中确认日志中对一个提交的操作（签出该提交、硬重置）。
     GitLogConfirmed(git::log::LogConfirmed),
     /// 确认框中确认移除参数所指的工作树；第二个参数是一并删除的分支（勾选「同时删除分支」时）。
@@ -889,6 +895,10 @@ pub struct App {
     pub(crate) history: workspace::History,
     /// 两段组合键（如 `⌘K ⌘S`）的第一段，正在等待第二段。
     pub(crate) pending_chord: Option<crate::keymap::Stroke>,
+    /// 单按修饰键的状态，用于连按两下修饰键的快捷键。
+    pub(crate) taps: input::tap::Taps,
+    /// 「首次设置」中快捷键一页的状态。
+    pub(crate) setup: setup::SetupKeys,
 
     /// 设置浮层：当前页、分类和各输入框。
     pub settings: SettingsState,
@@ -913,6 +923,8 @@ pub struct App {
     // 状态栏消息和悬停提示
     /// 文件已从磁盘删除、自动保存因此未写入且已提示过用户的文档；失去焦点时不再重复提示。
     deleted_told: HashSet<DocumentId>,
+    /// 自动保存的时机：焦点是否离开编辑区，停止输入后何时保存。
+    auto_save_watch: workspace::files::AutoSaveWatch,
     /// 右上角提示条的状态。
     pub notice: lifecycle::notice::Notice,
 

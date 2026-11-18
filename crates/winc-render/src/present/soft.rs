@@ -1,8 +1,9 @@
 //! 其他平台的呈现：直接画进 `softbuffer` 的窗口缓冲并呈现。
 //!
 //! 窗口缓冲与画面一样大（4K 画面约 32 MB）。停止绘制 [`RELEASE_IDLE`] 后释放，下一帧重建：
-//! 呈现时窗口系统已复制画面，释放后窗口仍显示最后一帧，需要重画时再重建。Wayland 上不释放：
-//! 合成器在发出 `wl_buffer.release` 之前仍可能读取已提交的缓冲。
+//! 呈现后窗口系统已复制画面（Windows 上等 GDI 执行完复制，见 `flush_copies`），释放后窗口仍
+//! 显示最后一帧，需要重画时再重建。Wayland 上不释放：合成器在发出 `wl_buffer.release` 之前
+//! 仍可能读取已提交的缓冲。
 
 use std::num::NonZeroU32;
 use std::sync::Arc;
@@ -109,6 +110,7 @@ impl Presenter {
             stride: width,
         });
         let _ = buffer.present();
+        flush_copies();
         self.presented = Some(Instant::now());
         true
     }
@@ -139,6 +141,21 @@ impl Presenter {
     /// 设置窗口是否完全看不见；空闲的缓冲由 [`Self::make_idle_purgeable`] 释放，此处不做处理。
     pub(crate) fn set_occluded(&mut self, _occluded: bool) {}
 }
+
+/// 执行当前线程排队的 GDI 调用，使呈现时的 `BitBlt` 在改写或释放窗口缓冲之前复制完。
+///
+/// GDI 按线程攒批执行返回 `BOOL` 的绘制调用；窗口缓冲是 DIB 区块，直接读写其像素之前须调用
+/// `GdiFlush`（见 `CreateDIBSection` 的说明）。
+#[cfg(windows)]
+// 本函数只有对 `GdiFlush` 的一次调用需要 `unsafe`，因此只在此处放开 `unsafe_code`。
+#[allow(unsafe_code)]
+fn flush_copies() {
+    // SAFETY: `GdiFlush` 没有参数和前置条件，只作用于调用线程排队的 GDI 调用。
+    unsafe { windows_sys::Win32::Graphics::Gdi::GdiFlush() };
+}
+
+#[cfg(not(windows))]
+fn flush_copies() {}
 
 /// 把不小于 1 的尺寸转为 `NonZeroU32`。
 fn nonzero(value: u32) -> NonZeroU32 {

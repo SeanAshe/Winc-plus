@@ -37,6 +37,8 @@ winit = "0.30"
 swash = "0.2"
 memmap2 = "0.9"
 memchr = "2"
+# Windows API，各 crate 共用一个版本（与 `softbuffer` 相同）。
+windows-sys = "0.59"
 # 只开 Unicode 大小写和 \w \d \s，不带 \p{..} 的 Unicode 属性表，二进制小约 250 KB。
 regex = { version = "1", default-features = false, features = ["std", "perf", "unicode-case", "unicode-perl"] }
 # 从正则表达式里取出每处匹配都含有的一段文字（远端搜索先用它筛出候选文件）。已随 `regex`

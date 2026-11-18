@@ -125,6 +125,9 @@ impl App {
             return;
         }
 
+        if !self.keeps_key_edit(part) {
+            self.cancel_key_edit();
+        }
         let editing = self.settings.editing.as_ref().map(|(s, _)| *s);
         if editing.is_some() && part != editing.map(SettingsPart::Field) {
             self.settings_leave_field();
@@ -183,6 +186,15 @@ impl App {
             }
             Some(SettingsPart::Action(setting)) => self.settings_open_menu(setting),
             Some(SettingsPart::Record) => self.toggle_recording(),
+            Some(SettingsPart::Keymap) => self.open_keymap_menu(),
+            Some(
+                part @ (SettingsPart::KeyRow(_)
+                | SettingsPart::KeyEdit(_)
+                | SettingsPart::KeyReset(_)
+                | SettingsPart::KeyRemove(_)
+                | SettingsPart::KeySave
+                | SettingsPart::KeyCancel),
+            ) => self.click_keys_part(part),
             Some(SettingsPart::KeySearch) => {
                 self.set_recording(false);
                 self.focus = Focus::KeySearch;

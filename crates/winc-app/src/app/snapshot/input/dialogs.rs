@@ -31,7 +31,7 @@ fn a_dialog_closes_when_a_shortcut_takes_its_focus() {
         Action::GoToSymbol,
         Action::GoToLine,
     ] {
-        for b in crate::keymap::current() {
+        for b in crate::keymap::current().iter() {
             if b.second.is_some() || matches!(b.action, Action::Quit | Action::CloseWindow) {
                 continue;
             }
