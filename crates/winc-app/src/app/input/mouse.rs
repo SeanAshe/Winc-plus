@@ -40,7 +40,7 @@ impl App {
     /// 左键按在窗口按钮上之后，松开时鼠标仍在同一个按钮上才执行该按钮。
     pub(in crate::app) fn on_mouse_up(&mut self, button: MouseButton) {
         // 拖动标签时悬停目标被清除，松开后重新判断鼠标下方的部件。
-        let was_tab = self.dragged_tab().is_some();
+        let was_tab = self.tab_dragging();
         self.pointer.drag_scrolled_at = None;
         if button == MouseButton::Left {
             self.diagram_view_mouse_up();
@@ -74,6 +74,7 @@ impl App {
             Drag::Splitter { .. }
                 | Drag::TerminalDivider { .. }
                 | Drag::SplitDivider { .. }
+                | Drag::PaneDivider { .. }
                 | Drag::OutlineDivider { .. }
         );
         if matches!(self.pointer.drag, Drag::TerminalDivider { .. }) {
@@ -88,7 +89,7 @@ impl App {
             self.request_redraw();
         }
         if was_scrollbar || was_tab {
-            self.set_hover(self.hover_at(self.pointer.mouse.0, self.pointer.mouse.1));
+            self.refresh_pointer_hover();
         }
         self.update_cursor_icon();
     }
@@ -98,8 +99,22 @@ impl App {
     /// 触控板的手势阶段 `phase` 用于区分两次手势：调整字号与滚动的方向都在手势开始时确定。
     pub(in crate::app) fn on_wheel_event(&mut self, delta: MouseScrollDelta, phase: TouchPhase) {
         let fresh = self.note_wheel_gesture(delta, phase);
-        if !self.wheel_zoom(delta, fresh) {
-            self.scroll_by_wheel(delta, true);
+        let wheel = move |app: &mut App| {
+            if !app.wheel_zoom(delta, fresh) {
+                app.scroll_by_wheel(delta, true);
+            }
+        };
+        // 在前台以外的窗格上滚动：滚动或缩放那个窗格，前台不变。
+        let (x, y) = self.pointer.mouse;
+        if let Some(pane) = self.background_pane_at(x, y) {
+            self.with_pane(pane, wheel);
+            self.refresh_pointer_hover();
+            self.request_redraw();
+        } else if let Some(at) = self.terminal_pane_at(x, y) {
+            self.with_terminal_pane(at, wheel);
+            self.request_redraw();
+        } else {
+            wheel(self);
         }
     }
 

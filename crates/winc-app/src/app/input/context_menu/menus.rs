@@ -224,6 +224,11 @@ pub fn tab_menu(
         Item(CloseSaved, any_saved),
         Item(CloseAll, true),
         Separator,
+        Item(SplitRight, true),
+        Item(SplitDown, true),
+        Item(MoveToSplitRight, count > 1),
+        Item(MoveToSplitDown, count > 1),
+        Separator,
         Item(CopyPath, has_path),
         Item(CopyRelativePath, in_workspace),
         Separator,
@@ -472,6 +477,7 @@ pub fn terminal_menu(selected: bool, running: bool, block: Option<(bool, bool)>)
         Item(TerminalDock, true),
         Separator,
         Item(NewTerminal, true),
+        Item(SplitTerminal, running),
         Item(CloseTerminal, true),
     ]);
     menu

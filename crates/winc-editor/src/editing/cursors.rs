@@ -672,6 +672,7 @@ impl Document {
                 bookmarks: &mut self.bookmarks,
                 whole: &mut self.whole,
                 marks: &mut self.marks,
+                parked: &mut self.parked,
             });
             typing &= transaction.kind == EditKind::Typing;
             first = first.min(transaction.first_offset());

@@ -15,6 +15,7 @@ mod document;
 mod editing;
 pub mod git;
 mod navigation;
+pub mod panes;
 pub mod proxy;
 mod tools;
 mod workspace;
@@ -61,10 +62,13 @@ use std::path::{Path, PathBuf};
 
 /// 编辑器状态：打开的文档（每个对应一个标签）和工作区。
 pub struct Editor {
-    /// 已打开的文档，按标签栏中的顺序排列。
+    /// 已打开的文档：前一段是前台窗格的标签，按标签栏中的顺序排列（见 [`Self::tabs`]）；其后是
+    /// 只在其他窗格里打开的文档。
     pub documents: Vec<Document>,
-    /// 活动标签在 `documents` 中的下标（从 0 起）。
+    /// 活动标签在 `documents` 中的下标（从 0 起），在前台窗格的标签之内。
     pub active: Option<usize>,
+    /// 编辑区的窗格。
+    pub panes: panes::Panes,
     /// 打开的工作区（目录）；没有打开目录时为 `None`。
     pub workspace: Option<Workspace>,
     /// 是否把全部文档设为只读。
@@ -93,6 +97,7 @@ impl Default for Editor {
         Self {
             documents: Vec::new(),
             active: None,
+            panes: panes::Panes::default(),
             workspace: None,
             all_locked: false,
             tab_width: 4,
@@ -175,11 +180,10 @@ impl Editor {
             .iter()
             .position(|d| d.path.as_deref() == Some(canonical.as_path()))
         {
-            return index;
+            return self.bring(index);
         }
         let id = self.allocate_id();
-        self.documents.push(Document::pending(id, canonical));
-        self.adopt_last()
+        self.insert_tab(Document::pending(id, canonical))
     }
 
     /// 第 `index` 个标签尚未读取（[`Document::pending`]）时在当前线程读入文件，返回是否已读取。
@@ -374,12 +378,11 @@ impl Editor {
                 let slot = &mut self.documents[index];
                 let fresh = make(slot.id);
                 replace_document(slot, fresh);
-                index
+                self.bring(index)
             }
             None => {
                 let id = self.allocate_id();
-                self.documents.push(make(id));
-                self.adopt_last()
+                self.insert_tab(make(id))
             }
         };
         self.active = Some(index);
@@ -395,21 +398,26 @@ impl Editor {
             .iter()
             .position(|d| d.log.is_some() && d.title.as_deref() == Some(title))
         {
+            let index = self.bring(index);
             self.active = Some(index);
             return (index, false);
         }
         let id = self.allocate_id();
-        self.documents
-            .push(Document::log(id, title, git::log::LogView::new()));
-        let index = self.documents.len() - 1;
+        let index = self.insert_tab(Document::log(id, title, git::log::LogView::new()));
         self.active = Some(index);
         (index, true)
     }
 
-    /// 让刚加入的文档沿用窗口的只读状态，返回它的标签序号（从 0 起）。
-    fn adopt_last(&mut self) -> usize {
-        let index = self.documents.len() - 1;
-        self.documents[index].set_all_locked(self.all_locked);
+    /// 把新文档作为前台窗格的最后一个标签，沿用窗口的只读状态，返回它的标签序号（从 0 起）。
+    fn insert_tab(&mut self, mut document: Document) -> usize {
+        document.set_all_locked(self.all_locked);
+        document.claim_view(self.panes.focused);
+        let index = self.panes.shown;
+        self.documents.insert(index, document);
+        self.panes.shown += 1;
+        if let Some(active) = self.active.as_mut().filter(|a| **a >= index) {
+            *active += 1;
+        }
         index
     }
 
@@ -429,8 +437,7 @@ impl Editor {
     /// 新建一个未命名的空文档并切换到对应标签，返回标签序号（从 0 起）。
     pub fn new_untitled(&mut self) -> usize {
         let id = self.allocate_id();
-        self.documents.push(Document::empty(id));
-        let index = self.adopt_last();
+        let index = self.insert_tab(Document::empty(id));
         self.active = Some(index);
         index
     }
@@ -440,10 +447,44 @@ impl Editor {
     /// 关闭活动标签后，活动标签切换到右侧相邻的标签；右侧没有标签时切换到左侧。文档的书签
     /// 存入 [`Self::bookmarks`]，折叠的块存入 [`Self::folds`]。
     pub fn close(&mut self, index: usize) -> Option<Document> {
-        if index >= self.documents.len() {
+        if index >= self.panes.shown {
+            return None;
+        }
+        self.panes.shown -= 1;
+        // 其他窗格里还开着：只从前台窗格去掉，文档留着。
+        if self.panes.elsewhere(self.documents[index].id) {
+            let mut document = self.documents.remove(index);
+            document.forget_view(self.panes.focused);
+            self.documents.push(document);
+            self.after_close(index);
             return None;
         }
 
+        let document = self.forget(index);
+        self.after_close(index);
+        Some(document)
+    }
+
+    /// 关闭文档 `id`，不管它是哪些窗格的标签。其他窗格因此没有标签时连窗格一起去掉；前台窗格
+    /// 没有标签时由调用方处理（见 [`Self::drop_empty_pane`]）。文档不存在时返回 `None`。
+    pub fn close_everywhere(&mut self, id: DocumentId) -> Option<Document> {
+        let panes: Vec<panes::PaneId> = (self.panes.others.iter())
+            .filter(|p| p.tabs.contains(&id))
+            .map(|p| p.id)
+            .collect();
+        for pane in panes {
+            self.remove_from_pane(pane, id);
+        }
+        let index = self.index_of(id)?;
+        if index < self.panes.shown {
+            return self.close(index);
+        }
+        Some(self.forget(index))
+    }
+
+    /// 从 `documents` 去掉第 `index` 个文档，书签存入 [`Self::bookmarks`]，折叠的块存入
+    /// [`Self::folds`]。
+    fn forget(&mut self, index: usize) -> Document {
         let document = self.documents.remove(index);
         if let Some(path) = &document.path
             && !document.bookmarks().is_empty()
@@ -456,22 +497,26 @@ impl Editor {
         {
             keep_folds(&mut self.folds, path, document.folded());
         }
+        document
+    }
 
+    /// 前台窗格的第 `index` 个标签去掉以后，活动标签换到右侧相邻的，右侧没有时换到左侧。
+    fn after_close(&mut self, index: usize) {
+        let shown = self.panes.shown;
         self.active = match self.active {
-            _ if self.documents.is_empty() => None,
+            _ if shown == 0 => None,
             Some(active) if active > index => Some(active - 1),
-            Some(active) if active == index => Some(index.min(self.documents.len() - 1)),
+            Some(active) if active == index => Some(index.min(shown - 1)),
             other => other,
         };
-
-        Some(document)
     }
 
     /// 把第 `from` 个标签移动到第 `to` 个的位置，活动标签仍然指向同一个文档。
     ///
     /// `from` 或 `to` 越界，或二者相等时不做任何改动。
     pub fn move_document(&mut self, from: usize, to: usize) {
-        if from >= self.documents.len() || to >= self.documents.len() || from == to {
+        let shown = self.panes.shown;
+        if from >= shown || to >= shown || from == to {
             return;
         }
 
@@ -662,6 +707,7 @@ fn replace_document(slot: &mut Document, mut fresh: Document) {
     fresh.revision += slot.revision + 1;
     fresh.set_locked(slot.is_locked());
     fresh.set_all_locked(slot.all_locked());
+    fresh.adopt_parked(slot);
     *slot = fresh;
 }
 

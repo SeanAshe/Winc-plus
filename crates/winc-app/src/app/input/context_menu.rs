@@ -133,6 +133,12 @@ pub enum MenuCommand {
     /// 关闭所有没有未保存修改的标签。
     CloseSaved,
     CloseAll,
+    /// 在右边、下边拆出新窗格打开这个标签。
+    SplitRight,
+    SplitDown,
+    /// 把这个标签移到右边、下边新拆出的窗格。
+    MoveToSplitRight,
+    MoveToSplitDown,
     /// 把标签设为只读（`true`）或恢复为可以编辑。
     ReadOnly(bool),
     /// 把窗口里的全部标签设为只读（`true`）或恢复。
@@ -468,6 +474,8 @@ pub enum MenuCommand {
     /// 把终端面板停靠到另一边。
     TerminalDock,
     NewTerminal,
+    /// 终端：拆分标签，新终端在当前终端的目录里启动。
+    SplitTerminal,
     /// 终端标签：改名字。
     RenameTerminal,
     CloseTerminal,
@@ -525,6 +533,10 @@ impl MenuCommand {
             MenuCommand::Download => t!("menu-download"),
             MenuCommand::Close => t!("common-close"),
             MenuCommand::CloseOthers => t!("cmd-close-other-tabs"),
+            MenuCommand::SplitRight => t!("cmd-split-right"),
+            MenuCommand::SplitDown => t!("cmd-split-down"),
+            MenuCommand::MoveToSplitRight => t!("cmd-move-to-split-right"),
+            MenuCommand::MoveToSplitDown => t!("cmd-move-to-split-down"),
             MenuCommand::CloseRight => t!("menu-close-tabs-right"),
             MenuCommand::CloseLeft => t!("menu-close-tabs-left"),
             MenuCommand::OpenFiles => t!("cmd-open-selected"),
@@ -646,6 +658,7 @@ impl MenuCommand {
             MenuCommand::TerminalClear => t!("menu-terminal-clear"),
             MenuCommand::TerminalMaximize => t!("menu-terminal-maximize"),
             MenuCommand::NewTerminal => t!("cmd-new-terminal"),
+            MenuCommand::SplitTerminal => t!("cmd-split-terminal"),
             MenuCommand::RenameTerminal => t!("cmd-rename-file"),
             MenuCommand::CloseTerminal => t!("menu-terminal-close"),
             MenuCommand::CloseOtherTerminals => t!("cmd-close-other-tabs"),
@@ -779,6 +792,10 @@ impl MenuCommand {
             MenuCommand::Delete => Action::DeleteFile,
             MenuCommand::Close => Action::CloseTab,
             MenuCommand::CloseOthers => Action::CloseOtherTabs,
+            MenuCommand::SplitRight => Action::SplitRight,
+            MenuCommand::SplitDown => Action::SplitDown,
+            MenuCommand::MoveToSplitRight => Action::MoveToSplitRight,
+            MenuCommand::MoveToSplitDown => Action::MoveToSplitDown,
             MenuCommand::ReadOnly(_) => Action::ToggleReadOnly,
             MenuCommand::ReadOnlyAll(_) => Action::ToggleReadOnlyAll,
             MenuCommand::CloseAll => Action::CloseAllTabs,
@@ -794,6 +811,7 @@ impl MenuCommand {
             MenuCommand::TerminalMaximize => Action::MaximizeTerminal,
             MenuCommand::TerminalDock => Action::ToggleTerminalPosition,
             MenuCommand::NewTerminal => Action::NewTerminal,
+            MenuCommand::SplitTerminal => Action::SplitTerminal,
             MenuCommand::RenameTerminal => Action::RenameTerminal,
             MenuCommand::CloseTerminal => Action::CloseTerminal,
             MenuCommand::GitRevertHunk => Action::GitRevertChange,

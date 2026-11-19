@@ -64,7 +64,10 @@ impl App {
             || self.terminal.grow.is_some()
             || matches!(
                 self.pointer.drag,
-                Drag::Splitter { .. } | Drag::TerminalDivider { .. } | Drag::SplitDivider { .. }
+                Drag::Splitter { .. }
+                    | Drag::TerminalDivider { .. }
+                    | Drag::SplitDivider { .. }
+                    | Drag::PaneDivider { .. }
             )
     }
 

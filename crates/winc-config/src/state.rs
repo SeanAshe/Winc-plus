@@ -192,6 +192,8 @@ pub struct Session {
     pub sidebar_hidden: bool,
     /// 开着这个目录的窗口关闭时的大小和位置；没有记录时用 [`State::window`]。
     pub window: Option<WindowFrame>,
+    /// 编辑区拆分成的窗格；没有拆分时为 `None`。
+    pub panes: Option<SessionPanes>,
 }
 
 /// 现场里的终端面板：各标签的工作目录（按标签栏中的顺序）、正在看的标签、面板开着没有、大小。
@@ -427,6 +429,7 @@ impl State {
                 name: s.get("name").and_then(Json::as_str).map(str::to_owned),
                 sidebar_hidden: (s.get("sidebarHidden").and_then(Json::as_bool)).unwrap_or(false),
                 window: (s.get("window").and_then(Json::as_object)).and_then(window_frame),
+                panes: s.get("panes").and_then(read_panes),
             })
         };
 
@@ -808,6 +811,9 @@ impl State {
             if let Some(frame) = &session.window {
                 items.push(("window", window_json(frame)));
             }
+            if let Some(panes) = &session.panes {
+                items.push(("panes", panes_json(panes)));
+            }
             Json::object(items)
         });
         fields.push(("sessions", Json::Array(sessions.collect())));
@@ -1098,6 +1104,132 @@ fn vim_marks(
     marks.sort();
     marks.dedup_by_key(|mark| mark.0);
     marks
+}
+
+/// 编辑区拆分成的窗格：排列、各窗格的标签和前台的窗格。
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionPanes {
+    /// 窗格的排列，叶子是 `panes` 中的序号。
+    pub tree: PaneNode,
+    /// 各窗格的标签。
+    pub panes: Vec<SessionPane>,
+    /// 前台的窗格（`panes` 中的序号）。
+    pub focused: usize,
+}
+
+/// 窗格排列的节点。
+#[derive(Debug, Clone, PartialEq)]
+pub enum PaneNode {
+    /// 一个窗格（`SessionPanes::panes` 中的序号）。
+    Pane(usize),
+    /// 拆成两半：`column` 为真时上下排，`share` 是前一半所占的比例。
+    Split {
+        /// 是否上下排。
+        column: bool,
+        /// 前一半所占的比例。
+        share: f32,
+        /// 前一半。
+        first: Box<PaneNode>,
+        /// 后一半。
+        second: Box<PaneNode>,
+    },
+}
+
+/// 一个窗格的标签：`Session::tabs` 中的序号，以及其中的当前标签。
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct SessionPane {
+    /// 标签，按标签栏中的顺序。
+    pub tabs: Vec<usize>,
+    /// 当前标签。
+    pub active: Option<usize>,
+}
+
+/// 读取 `"panes"`：格式不对时返回 `None`，只是不恢复拆分。
+fn read_panes(value: &Json) -> Option<SessionPanes> {
+    let object = value.as_object()?;
+    let index = |v: &Json| {
+        v.as_number()
+            .filter(|n| n.is_finite() && *n >= 0.0)
+            .map(|n| n as usize)
+    };
+    let panes = (object.get("panes")?.as_array()?.iter())
+        .map(|pane| {
+            let pane = pane.as_object()?;
+            let tabs = pane
+                .get("tabs")?
+                .as_array()?
+                .iter()
+                .filter_map(index)
+                .collect();
+            Some(SessionPane {
+                tabs,
+                active: pane.get("active").and_then(index),
+            })
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let tree = read_node(object.get("tree")?, 0)?;
+    let focused = object.get("focused").and_then(index).unwrap_or(0);
+    Some(SessionPanes {
+        tree,
+        panes,
+        focused,
+    })
+}
+
+/// 读取窗格排列的一个节点；嵌套过深时放弃。
+fn read_node(value: &Json, depth: usize) -> Option<PaneNode> {
+    if depth > 32 {
+        return None;
+    }
+    let object = value.as_object()?;
+    if let Some(pane) = object.get("pane") {
+        let at = pane.as_number().filter(|n| n.is_finite() && *n >= 0.0)?;
+        return Some(PaneNode::Pane(at as usize));
+    }
+    let share = object.get("share")?.as_number()?.clamp(0.05, 0.95) as f32;
+    Some(PaneNode::Split {
+        column: object.get("split")?.as_str()? == "column",
+        share,
+        first: Box::new(read_node(object.get("first")?, depth + 1)?),
+        second: Box::new(read_node(object.get("second")?, depth + 1)?),
+    })
+}
+
+/// 返回写进 `state.json` 的窗格，格式见 [`read_panes`]。
+fn panes_json(panes: &SessionPanes) -> Json {
+    let pane = |p: &SessionPane| {
+        let tabs = p.tabs.iter().map(|&t| Json::Number(t as f64)).collect();
+        let mut items = vec![("tabs", Json::Array(tabs))];
+        if let Some(active) = p.active {
+            items.push(("active", Json::Number(active as f64)));
+        }
+        Json::object(items)
+    };
+    Json::object(vec![
+        ("tree", node_json(&panes.tree)),
+        ("panes", Json::Array(panes.panes.iter().map(pane).collect())),
+        ("focused", Json::Number(panes.focused as f64)),
+    ])
+}
+
+fn node_json(node: &PaneNode) -> Json {
+    match node {
+        PaneNode::Pane(at) => Json::object(vec![("pane", Json::Number(*at as f64))]),
+        PaneNode::Split {
+            column,
+            share,
+            first,
+            second,
+        } => Json::object(vec![
+            (
+                "split",
+                Json::String(if *column { "column" } else { "row" }.into()),
+            ),
+            ("share", Json::Number(f64::from(*share))),
+            ("first", node_json(first)),
+            ("second", node_json(second)),
+        ]),
+    }
 }
 
 /// 返回写进 `state.json` 的窗口大小和位置，格式见 [`window_frame`]。

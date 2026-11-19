@@ -186,7 +186,7 @@ impl App {
         } else if let Some(dir) = drag.target {
             self.ask_move(drag.paths, dir);
         }
-        self.set_hover(self.hover_at(self.pointer.mouse.0, self.pointer.mouse.1));
+        self.refresh_pointer_hover();
         self.request_redraw();
     }
 
@@ -224,7 +224,7 @@ impl App {
     /// 取消拖动（按下 Esc 或窗口失去焦点），不移动任何文件。
     pub(in crate::app) fn cancel_tree_drag(&mut self) {
         if self.panels.tree.drag.take().is_some_and(|d| d.active) {
-            self.set_hover(self.hover_at(self.pointer.mouse.0, self.pointer.mouse.1));
+            self.refresh_pointer_hover();
             self.request_redraw();
         }
     }

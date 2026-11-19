@@ -37,6 +37,16 @@ impl App {
 
     /// 终端内容使用的面板范围，含顶部工具栏的高度，扣除竖向标签列表。
     pub(crate) fn terminal_content_card(&self) -> Rect {
+        let card = self.terminal_whole_card();
+        let Some(tab) = self.terminal.tab().filter(|t| t.pane_count() > 1) else {
+            return card;
+        };
+        let cards = super::split::pane_cards(card, tab.pane_count(), self.terminal_right());
+        cards.get(tab.pane_at()).copied().unwrap_or(card)
+    }
+
+    /// 面板中除去竖排标签列表的部分，拆分前的整块。
+    pub(crate) fn terminal_whole_card(&self) -> Rect {
         let card = self.layout.terminal;
         Rect {
             w: self
@@ -242,6 +252,7 @@ impl App {
             t.tabs.retain(|tab| tab.run.is_none());
             t.want_names = t.tabs.iter().map(|tab| tab.name.clone()).collect();
             t.want_shells = t.tabs.iter().map(|tab| tab.shell.clone()).collect();
+            t.want_into.clear();
             t.want = t.tabs.drain(..).map(|tab| tab.cwd).collect();
             if t.want.is_empty() {
                 t.want.push(Vec::new());
@@ -266,9 +277,7 @@ impl App {
         // 先建新的再关旧的：关掉最后一个标签时辅助进程跟着退出（见 `close_terminal_tab_now`），
         // 只有这一个标签时不必为了重开换一个辅助进程。
         self.new_terminal_tab_with(cwd, shell);
-        if let Some(index) = self.terminal.tabs.iter().position(|tab| tab.id == old) {
-            self.close_terminal_tab_now(index);
-        }
+        self.close_terminal_now(old);
         let t = &mut self.terminal;
         // 新标签排在最后，挪回原来的位置，名字不变（辅助进程还没准备好、标签还没建出来时名字
         // 跟着等着建的标签走，位置不挪）。
@@ -362,6 +371,16 @@ impl App {
         });
         let scrollback = self.config.terminal_scrollback.unwrap_or(SCROLLBACK);
         let prompt = self.config.terminal_prompt != Some(false);
+        // 拆分过的标签：各终端按自己那一块的大小。
+        let count = self.terminal.tab().map_or(1, TermTab::pane_count);
+        let sizes: Vec<(u16, Size)> = (0..count)
+            .filter_map(|at| {
+                self.with_terminal_pane(at, |app| {
+                    let id = app.terminal.tab()?.id;
+                    Some((id, app.terminal_size()))
+                })
+            })
+            .collect();
         let t = &mut self.terminal;
         let Some(client) = &t.client else {
             return;
@@ -372,25 +391,38 @@ impl App {
         let now = Instant::now();
         t.resize_due = None;
         let active = t.active;
-        for (i, tab) in t.tabs.iter_mut().enumerate() {
-            if i != active || tab.size == size || tab.ended.is_some() {
-                continue;
-            }
-            match tab.resizing {
-                Some(sent) if now < sent + RESIZE_WAIT => {
-                    let due = sent + RESIZE_WAIT;
-                    t.resize_due = Some(t.resize_due.map_or(due, |d| d.min(due)));
+        let mut due = None;
+        if let Some(tab) = t.tabs.get_mut(active) {
+            let mut resize = |tab: &mut TermTab| {
+                let size = (sizes.iter())
+                    .find(|(id, _)| *id == tab.id)
+                    .map_or(size, |(_, size)| *size);
+                tab.shown = usize::from(size.rows);
+                if tab.size == size || tab.ended.is_some() {
+                    return;
                 }
-                _ => {
-                    tab.size = size;
-                    tab.resizing = Some(now);
-                    client.send(&ToHelper::Resize { tab: tab.id, size });
+                match tab.resizing {
+                    Some(sent) if now < sent + RESIZE_WAIT => {
+                        let at = sent + RESIZE_WAIT;
+                        due = Some(due.map_or(at, |d: Instant| d.min(at)));
+                    }
+                    _ => {
+                        tab.size = size;
+                        tab.resizing = Some(now);
+                        client.send(&ToHelper::Resize { tab: tab.id, size });
+                    }
                 }
+            };
+            resize(tab);
+            if let Some(split) = &mut tab.split {
+                split.others.iter_mut().for_each(&mut resize);
             }
         }
+        t.resize_due = due;
         if let Some((cwd, shell, integration, python)) = spawn.filter(|_| t.error.is_none()) {
             let names = std::mem::take(&mut t.want_names);
             let shells = std::mem::take(&mut t.want_shells);
+            let intos = std::mem::take(&mut t.want_into);
             // 等着送的输入给建好以后要看的那个标签：新建的（排在最后），或者重开时原来看的那个。
             let target = t
                 .want_active
@@ -451,8 +483,20 @@ impl App {
                 // shell 报告当前目录之前先记下启动目录：此时重启标签或保存现场仍回到这里，
                 // 远端的终端不会因目录为空而换成本机的 shell。
                 tab.cwd = dir;
-                t.tabs.push(tab);
-                t.active = t.tabs.len() - 1;
+                // 拆分出的终端加进原来的标签，排在前台终端的后面并成为前台。
+                let into = (intos.get(i).copied().flatten()).and_then(|into| t.index_of(into));
+                match into {
+                    Some(index) => {
+                        let (mut all, at) = super::take_group(&mut t.tabs, index);
+                        all.insert(at + 1, tab);
+                        super::put_group(&mut t.tabs, index, all, at + 1);
+                        t.active = index;
+                    }
+                    None => {
+                        t.tabs.push(tab);
+                        t.active = t.tabs.len() - 1;
+                    }
+                }
                 t.focus_sent = false;
             }
             if let Some(active) = t.want_active.take() {
@@ -794,15 +838,11 @@ impl App {
                 }
                 // shell 正常退出（`exit`、⌃D）时关掉标签，不留一个等回车的空标签；异常退出的
                 // 和运行配置的标签留着，用户要看退出码和输出。
-                let t = &self.terminal;
-                let shell = t
-                    .tabs
-                    .iter()
-                    .position(|tab| tab.id == id && tab.run.is_none());
-                if code == 0
-                    && let Some(index) = shell
-                {
-                    self.close_terminal_tab_now(index);
+                // 拆分出的终端也一样，只关它自己。
+                let shell = (self.terminal.tabs.iter().flat_map(TermTab::panes))
+                    .any(|tab| tab.id == id && tab.run.is_none());
+                if code == 0 && shell {
+                    self.close_terminal_now(id);
                 }
             }
             FromHelper::Disconnected { tab: id } => {
@@ -819,11 +859,10 @@ impl App {
             }
             FromHelper::Failed { tab: id, message } => {
                 // 只是这个终端起不来（shell 不存在等）：说一声，其他标签和新开的终端不受影响。
-                if let Some(index) = t.index_of(id) {
-                    t.tabs.remove(index);
+                if let Some((index, gone)) = t.remove_terminal(id) {
                     self.forget_terminal_tab(id);
                     let t = &mut self.terminal;
-                    if t.active > index || t.active >= t.tabs.len() {
+                    if gone && (t.active > index || t.active >= t.tabs.len()) {
                         t.active = t.active.saturating_sub(1);
                     }
                     if t.tabs.is_empty() {

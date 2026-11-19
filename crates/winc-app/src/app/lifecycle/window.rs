@@ -324,11 +324,8 @@ impl App {
 
         self.place_terminal();
         self.place_window_controls();
-        self.place_preview_button();
-        self.place_browser_button();
-        self.place_split();
-        self.place_merge_panes();
-        self.place_minimap();
+        self.place_panes();
+        self.place_editor_parts();
 
         self.place_outline();
         // 搜索和历史差异各有自己的列表，不能命中工作区文件树原来的区域。
@@ -338,6 +335,15 @@ impl App {
         }
         self.sync_wrap();
         self.sync_terminal();
+    }
+
+    /// 在编辑区里放置随当前标签变化的部分：标签栏右端的按钮、分栏预览、合并的两侧、缩略图。
+    pub(in crate::app) fn place_editor_parts(&mut self) {
+        self.place_preview_button();
+        self.place_browser_button();
+        self.place_split();
+        self.place_merge_panes();
+        self.place_minimap();
     }
 
     /// 当前文件能预览（SVG）时，在标签栏右端留出「源代码 / 分栏 / 预览」三个按钮，标签栏

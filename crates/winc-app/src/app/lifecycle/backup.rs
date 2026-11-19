@@ -112,6 +112,37 @@ pub(crate) struct Restored {
     lock: Option<(PathBuf, Option<backup::Lock>)>,
 }
 
+/// 按现场恢复窗格：`opened` 是现场中各标签打开成的文档。
+fn restore_panes(
+    editor: &mut Editor,
+    panes: &winc_config::SessionPanes,
+    opened: &[Option<DocumentId>],
+) {
+    use winc_editor::panes::{PaneId, PaneTabs};
+    let tabs = (panes.panes.iter().enumerate())
+        .map(|(i, pane)| {
+            let mut ids: Vec<DocumentId> = Vec::new();
+            for id in pane
+                .tabs
+                .iter()
+                .filter_map(|&t| opened.get(t).copied().flatten())
+            {
+                if !ids.contains(&id) {
+                    ids.push(id);
+                }
+            }
+            PaneTabs {
+                id: PaneId(i as u32),
+                tabs: ids,
+                active: pane.active.and_then(|t| opened.get(t).copied().flatten()),
+            }
+        })
+        .collect();
+    let tree = crate::app::workspace::panes::pane_tree(&panes.tree);
+    editor.restore_panes(tree, tabs);
+    editor.focus_pane(PaneId(panes.focused as u32));
+}
+
 /// 按上次的现场恢复标签，并把备份中未保存的内容放回文档。
 ///
 /// 标签按原来的顺序重新打开，激活当时的标签，文件树展开到该文件所在的层级；现场中没有记录
@@ -158,6 +189,7 @@ pub(crate) fn restore_tabs(
     };
 
     let active_tab = session.and_then(|s| s.active);
+    let mut opened = Vec::new();
     for (i, tab) in session.map_or(&[][..], |s| &s.tabs).iter().enumerate() {
         let index = match tab {
             Tab::File(path) => take(&mut saved, |b| b.path.as_deref() == Some(path.as_path()))
@@ -175,6 +207,7 @@ pub(crate) fn restore_tabs(
         if active_tab == Some(i) {
             active = index.map(|i| editor.documents[i].id);
         }
+        opened.push(index.map(|i| editor.documents[i].id));
     }
     for backup in saved {
         put_back(editor, backup);
@@ -191,6 +224,9 @@ pub(crate) fn restore_tabs(
     editor.active = active
         .and_then(|id| editor.index_of(id))
         .or(editor.documents.len().checked_sub(1));
+    if let Some(panes) = session.and_then(|s| s.panes.as_ref()) {
+        restore_panes(editor, panes, &opened);
+    }
     let current = editor.active().and_then(|d| d.path.clone());
     if let (Some(file), Some(workspace)) = (current, &mut editor.workspace) {
         workspace.reveal(&file);

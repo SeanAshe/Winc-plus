@@ -758,3 +758,70 @@ fn the_palette_offers_the_terminal_module_while_it_is_off() {
     assert!(!app.action_available(Action::EnableTerminal));
     assert!(app.action_available(Action::NewTerminal));
 }
+
+/// 拆分过的终端标签：各终端并排，点哪个哪个到前台，关掉前台的由相邻的补上，现场里各记成一个标签。
+#[test]
+fn a_split_terminal_tab_shows_its_terminals_side_by_side() {
+    let dir = sample_folder("terminal-split");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    let _term = show_terminal(&mut app, "left\r\n");
+    let whole = app.terminal_content_card();
+    let first = app.terminal.tab().unwrap().id;
+
+    // 标签和终端里的右键菜单都能拆分：新终端排进这个标签。
+    for target in [MenuTarget::TerminalTab(first), MenuTarget::Terminal(None)] {
+        app.open_context_menu(target, (whole.x + 20.0, whole.y + 20.0));
+        assert!(menu_commands(&app).contains(&(MenuCommand::SplitTerminal, true)));
+        app.overlays.context_menu = None;
+    }
+    app.open_context_menu(MenuTarget::TerminalTab(first), (whole.x, whole.y));
+    let wanted = app.terminal.want.len();
+    app.run_menu_command(MenuCommand::SplitTerminal);
+    // 再拆一次：两个请求各记着要加进的标签。
+    app.split_terminal();
+    assert_eq!(app.terminal.want.len(), wanted + 2);
+    assert_eq!(app.terminal.want_into[wanted..], [Some(first), Some(first)]);
+    // 测试里没有辅助进程建它们：撤掉这两个请求，下面自己放一个终端。
+    app.terminal.want.truncate(wanted);
+    app.terminal.want_shells.truncate(wanted);
+    app.terminal.want_into.truncate(wanted);
+
+    let size = app.terminal_size();
+    let (mut all, at) = app.terminal.take_group(0);
+    all.push(TermTab::new(99, size));
+    app.terminal.put_group(0, all, at + 1);
+    app.relayout();
+    paint(&mut app);
+    assert_eq!(app.terminal.tabs.len(), 1);
+    let card = app.terminal_content_card();
+    assert!(
+        card.x > whole.x && card.w <= whole.w / 2.0 + 1.0,
+        "{card:?} {whole:?}"
+    );
+    assert_eq!(app.terminal_pane_dividers().len(), 1);
+    // 各终端按自己的宽度：前台那个的列数是整块的一半左右。
+    assert!(app.terminal_size().cols <= size.cols / 2 + 1);
+
+    click(&mut app, (whole.x + 30.0, card.bottom() - 30.0));
+    assert_eq!(app.terminal.tab().unwrap().id, first);
+    app.run_action(crate::keymap::Action::NextTerminalPane);
+    assert_eq!(app.terminal.tab().unwrap().id, 99);
+
+    app.save_session();
+    let root = app.editor.root().unwrap().to_path_buf();
+    let session = app.state.session_for(&root).cloned().unwrap();
+    assert_eq!(session.terminal.unwrap().tabs.len(), 2);
+
+    // ⌘W 只关前台的那个终端，标签留着。
+    app.run_action(crate::keymap::Action::CloseTerminal);
+    let tab = app.terminal.tab().unwrap();
+    assert_eq!((tab.id, tab.pane_count()), (first, 1));
+
+    // 标签上的 × 关掉标签里的全部终端。
+    let (mut all, at) = app.terminal.take_group(0);
+    all.push(TermTab::new(98, size));
+    app.terminal.put_group(0, all, at);
+    app.close_terminal_tab(0);
+    assert!(app.terminal.tabs.is_empty());
+    let _ = std::fs::remove_dir_all(&dir);
+}

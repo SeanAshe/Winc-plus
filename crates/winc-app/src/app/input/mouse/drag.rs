@@ -5,6 +5,15 @@ use super::*;
 use crate::app::scroll::set_scroll_line;
 
 impl App {
+    /// 记下鼠标所在的 Markdown 预览代码块（显示复制按钮）。
+    pub(in crate::app) fn track_code_hover(&mut self, x: f32, y: f32) {
+        let code = (self.hits.markdown_codes.iter()).position(|r| r.contains(x, y));
+        if code != self.preview.markdown.code_hover {
+            self.preview.markdown.code_hover = code;
+            self.request_redraw();
+        }
+    }
+
     /// 处理鼠标移动到窗口坐标 (`x`, `y`)（逻辑像素）：更新悬停、指针样式和进行中的拖动。
     pub(in crate::app) fn on_mouse_move(&mut self, x: f32, y: f32) {
         self.pointer.mouse = (x, y);
@@ -75,20 +84,12 @@ impl App {
             self.drag_tree_item(x, y);
         }
         if self.tabs.drag.is_some() {
-            self.drag_tab(x);
+            self.drag_tab((x, y));
         }
         self.drag_terminal_tab(self.terminal.strip.along((x, y)));
 
-        self.set_hover(self.hover_at(x, y));
-        let code = self
-            .hits
-            .markdown_codes
-            .iter()
-            .position(|r| r.contains(x, y));
-        if code != self.preview.markdown.code_hover {
-            self.preview.markdown.code_hover = code;
-            self.request_redraw();
-        }
+        let hover = self.hover_here(x, y);
+        self.set_hover(hover);
         if self.terminal.link.is_some() || self.layout.terminal.contains(x, y) {
             self.update_terminal_link();
         }
@@ -181,6 +182,7 @@ impl App {
                 self.relayout();
                 self.request_redraw();
             }
+            Drag::PaneDivider { index } => self.drag_pane_divider(index, (x, y)),
             Drag::SplitDivider {
                 start_x,
                 start_left,

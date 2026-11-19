@@ -17,6 +17,7 @@ pub(super) mod folders;
 pub(super) mod global;
 pub(super) mod loading;
 pub(super) mod outline;
+pub(crate) mod panes;
 pub(crate) mod picker;
 pub(super) mod recent;
 pub(super) mod session;

@@ -68,6 +68,21 @@ fn draw_panel(app: &mut App, frame: &mut Frame<'_>) {
     if opacity > 0.0 {
         frame.with_opacity(opacity, |frame| list::draw_list(app, frame));
     }
+    // 拆分过的标签：先画不在前台的终端，最后画前台的。
+    let count = app.terminal.tab().map_or(1, |t| t.pane_count());
+    let at = app.terminal.tab().map_or(0, |t| t.pane_at());
+    for k in (0..count).filter(|&k| k != at) {
+        app.with_terminal_pane(k, |app| draw_content(app, frame, false));
+    }
+    for line in app.terminal_pane_dividers() {
+        frame.rect(line, p.border);
+    }
+    draw_content(app, frame, focused);
+}
+
+/// 绘制前台终端的内容：网格、命令块、选区、光标和滚动条。
+fn draw_content(app: &mut App, frame: &mut Frame<'_>, focused: bool) {
+    let p = app.palette;
     let card = app.terminal_content_card();
 
     let grid = app.terminal_grid();

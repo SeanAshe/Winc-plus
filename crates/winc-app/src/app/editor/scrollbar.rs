@@ -164,12 +164,37 @@ struct Reveal {
     heat: Tween,
 }
 
+/// 编辑区窗格里的滚动条：拆分后每个窗格各有一份显示状态。
+pub(crate) const PANE_AREAS: [ScrollArea; 11] = [
+    ScrollArea::Editor,
+    ScrollArea::EditorHorizontal,
+    ScrollArea::DiffLeftHorizontal,
+    ScrollArea::DiffRightHorizontal,
+    ScrollArea::Markdown,
+    ScrollArea::MarkdownTable,
+    ScrollArea::Pdf,
+    ScrollArea::PdfStrip,
+    ScrollArea::MarkdownToc,
+    ScrollArea::Table,
+    ScrollArea::TableHorizontal,
+];
+
 /// 各区域滚动条的显示状态，以及鼠标所在的滚动条。
 #[derive(Debug, Default)]
 pub(crate) struct Scrollbars {
     reveals: [Reveal; ScrollArea::ALL.len()],
     /// 鼠标所在的滚动条：位于某个区域靠右边缘（水平滚动条为下边缘）[`SCROLLBAR_HIT`] 的范围内。
     hovered: Option<ScrollArea>,
+}
+
+impl Scrollbars {
+    /// 和 `other` 交换 `areas` 的显示状态。
+    pub(crate) fn exchange(&mut self, other: &mut Scrollbars, areas: &[ScrollArea]) {
+        for &area in areas {
+            let at = area as usize;
+            std::mem::swap(&mut self.reveals[at], &mut other.reveals[at]);
+        }
+    }
 }
 
 /// 滚动条滑块此刻的样子。

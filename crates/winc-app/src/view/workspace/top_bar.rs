@@ -78,7 +78,7 @@ const TAB_DIVIDER: f32 = 14.0;
 /// 宽度贴合文本，介于 [`TAB_WIDTH_MIN`] 和 [`TAB_WIDTH_MAX`] 之间，取整到整像素，文本更长时
 /// 截短；用鼠标关闭标签后，移到关掉的位置上的标签暂用锁定的宽度（见 `TabBar::width_lock`）。
 fn tab_labels(app: &App, frame: &mut Frame<'_>) -> Vec<TabLabel> {
-    let docs = &app.editor.documents;
+    let docs = app.editor.tabs();
     // 只有同名的标签需要标注上级目录：先数出各名字的标签数，名字唯一的标签不再与其余全部标签
     // 逐一比较（每帧都要计算，标签多时是标签数的平方）。
     let names: Vec<_> = docs.iter().map(|d| d.name()).collect();
@@ -159,7 +159,7 @@ fn draw_tabs(app: &mut App, frame: &mut Frame<'_>) {
     // （`App::note_opened_tabs`）。
     let grow: Vec<f32> = app
         .editor
-        .documents
+        .tabs()
         .iter()
         .map(|d| app.tab_grow(d.id))
         .collect();
@@ -194,7 +194,7 @@ fn draw_tabs(app: &mut App, frame: &mut Frame<'_>) {
     let trailing = {
         let last = app
             .editor
-            .documents
+            .tabs()
             .last()
             .map_or(0.0, |d| app.tab_slide(d.id));
         let ghosts = app.tabs.closing.iter().map(|g| {
@@ -287,7 +287,7 @@ fn draw_tabs(app: &mut App, frame: &mut Frame<'_>) {
         });
     }
 
-    for (index, (doc, label)) in app.editor.documents.iter().zip(&labels).enumerate() {
+    for (index, (doc, label)) in app.editor.tabs().iter().zip(&labels).enumerate() {
         let slot = x;
         x += label.width + TAB_GAP;
 
@@ -457,9 +457,11 @@ fn draw_tab(
     let hovered = matches!(app.pointer.hover, Hover::Tab(i, _) if i == index);
     // 多选里不是当前的标签：底色是当前标签的一半深，文字用当前标签的颜色。
     let marked = !active && app.tabs_multi_selected() && app.tab_selection().contains(&doc.id);
+    // 不在前台的窗格的当前标签：底色同样一半深，文字淡一些，看得出哪个窗格在前台。
+    let behind = active && app.panes.drawing_background;
 
     // 当前的是一块带细边的底（颜色由主题定：带一点强调色，其余是凸起的一块灰），悬停只铺浅色。
-    if marked {
+    if marked || behind {
         frame.rect_clipped(tab, p.tab_fill.alpha(p.tab_fill.a * 0.5), RADIUS_TAB, view);
     } else {
         draw_tab_fill(frame, p, tab, active, hovered, view);
@@ -476,7 +478,7 @@ fn draw_tab(
     } else {
         draw_file_icon(frame, p, icon, &icon_name, view) + 7.0
     };
-    let color = if active || marked {
+    let color = if (active && !behind) || marked {
         p.text
     } else {
         p.text_muted

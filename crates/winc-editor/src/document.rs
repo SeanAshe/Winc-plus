@@ -40,6 +40,8 @@ pub(crate) mod disk;
 pub mod editorconfig;
 pub mod encoding;
 mod indentation;
+mod parked;
+pub(crate) use parked::Parked;
 pub(crate) mod large;
 mod preview;
 #[cfg(test)]
@@ -525,6 +527,8 @@ pub struct Document {
     pub(crate) bookmarks: Bookmarks,
     /// 模态编辑层的标记与修改列表；文本变化时随之移动。
     pub(crate) marks: Marks,
+    /// 其他窗格里这个文档的视图状态；文本变化时随之移动。
+    pub(crate) parked: Parked,
     /// CSV、TSV 按列对齐时每一列的起始位置，按（版本、Tab 宽度）缓存。
     columns: Option<ColumnsCache>,
     /// 上一次测量列宽时的文字和各列宽度；文字变化时只重新测量改动的行。
@@ -622,6 +626,7 @@ impl Document {
             folds: Folds::default(),
             bookmarks: Bookmarks::default(),
             marks: Marks::default(),
+            parked: Parked::default(),
             columns: None,
             column_widths: None,
             fold_cache: None,
@@ -1208,6 +1213,7 @@ impl Document {
             bookmarks: &mut self.bookmarks,
             whole: &mut self.whole,
             marks: &mut self.marks,
+            parked: &mut self.parked,
         });
         self.selection = transaction.after.clamped(self.text.end_pos());
         let extra = transaction.extra_after.clone();

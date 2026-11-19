@@ -210,7 +210,10 @@ impl App {
             .iter()
             .filter(|d| d.is_dirty() && !backed_up.contains(&d.id))
             .filter(|d| match &request {
-                CloseRequest::Tabs(ids) => ids.contains(&d.id),
+                // 其他窗格里还开着的文档只是去掉这里的标签，不用询问。
+                CloseRequest::Tabs(ids) => {
+                    ids.contains(&d.id) && !self.editor.panes.elsewhere(d.id)
+                }
                 CloseRequest::Quit
                 | CloseRequest::CloseWindow
                 | CloseRequest::Switch(_)
@@ -396,8 +399,24 @@ impl App {
     }
 
     fn remove_all_tabs(&mut self) {
+        // 各窗格的文档都关掉：先合并成一个窗格。
+        self.unsplit_editor();
         let ids: Vec<DocumentId> = self.editor.documents.iter().map(|d| d.id).collect();
         self.remove_tabs(&ids);
+    }
+
+    /// 直接关闭文档 `ids`，各窗格里的标签都去掉，不询问；用于文件删掉了、另存为覆盖了它。
+    pub(in crate::app) fn close_documents(&mut self, ids: &[DocumentId]) {
+        for &id in ids {
+            let panes: Vec<_> = (self.editor.panes.others.iter())
+                .filter(|p| p.tabs.contains(&id))
+                .map(|p| p.id)
+                .collect();
+            for pane in panes {
+                self.editor.remove_from_pane(pane, id);
+            }
+        }
+        self.remove_tabs(ids);
     }
 
     /// 直接关闭 `ids` 对应的标签，不询问。
@@ -413,6 +432,9 @@ impl App {
             }
         }
         if closed {
+            // 前台窗格的标签都关掉了：窗格跟着去掉。
+            self.drop_empty_pane();
+            self.forget_closed_panes();
             self.relayout();
             self.request_redraw();
         }
@@ -445,7 +467,12 @@ impl App {
             }
         }
         self.animate_tab_close(index);
-        if let Some(doc) = self.editor.close(index) {
+        // 不是前台窗格的标签：已经从各窗格去掉了，文档直接关掉。
+        let closed = match self.editor.documents.get(index) {
+            Some(doc) if index >= self.editor.tab_count() => self.editor.close_everywhere(doc.id),
+            _ => self.editor.close(index),
+        };
+        if let Some(doc) = closed {
             self.forget_git_document(doc.id, doc.path.as_deref());
         }
         self.bars.search.current = None;

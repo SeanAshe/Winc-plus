@@ -4,6 +4,8 @@
 use std::time::{Duration, Instant};
 
 use super::*;
+use crate::app::workspace::file_drop::PaneDrop;
+use winc_editor::panes::Axis;
 
 /// 创建拖放测试用的目录并返回其路径。
 ///
@@ -324,12 +326,19 @@ fn files_dragged_over_the_window_mark_where_they_will_land() {
     assert_eq!(app.file_hover(), Some(&DropZone::Tree(path_of(&app, lib))));
     shoot(&mut app, "drop-hover-tree");
 
-    // 拖到编辑区：松手是打开，整个编辑区连同标签栏铺底色。
+    // 拖到编辑区中部：松手是打开，整个编辑区连同标签栏铺底色。
     let editor = app.layout.editor;
-    app.on_mouse_move(editor.x + 200.0, editor.y + 200.0);
+    let pane = app.editor.panes.focused;
+    app.on_mouse_move(editor.x + editor.w / 2.0, editor.y + editor.h / 2.0);
     assert!(app.file_hover_tick(Instant::now()).is_some());
-    assert_eq!(app.file_hover(), Some(&DropZone::Open));
+    let open = |edge| Some(DropZone::Open(Some(PaneDrop { pane, edge })));
+    assert_eq!(app.file_hover().cloned(), open(None));
     shoot(&mut app, "drop-hover-editor");
+
+    // 贴近编辑区的右边：松手是在右边拆出的窗格里打开，底色铺在右半边。
+    app.on_mouse_move(editor.right() - 20.0, editor.y + editor.h / 2.0);
+    app.file_hover_tick(Instant::now());
+    assert_eq!(app.file_hover().cloned(), open(Some((Axis::Row, false))));
 
     // 拖出窗口，或者松了手：不再标出。
     app.end_file_hover();

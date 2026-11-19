@@ -3,7 +3,7 @@
 //!
 //! 各种预览都在后台线程完成解码、解析和绘制，界面只收结果；排版与绘制在 `view` 模块中完成。
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use winc_i18n::t;
 
@@ -74,4 +74,42 @@ pub(crate) struct PreviewState {
     ///
     /// 拖动中间的分隔线时改变，所有分栏预览的标签共用该值。
     pub(in crate::app) split_share: Option<f32>,
+}
+
+/// 随窗格走的预览状态：拆分后每个窗格各有一份，见 [`PreviewState::exchange`]。
+#[derive(Default)]
+pub(crate) struct PanePreview {
+    picture_cache: Option<images::PictureCache>,
+    picture_view: images::PictureView,
+    table_layout: tables::TableLayout,
+    split: images::SplitPreview,
+    markdown: markdown::MarkdownPreview,
+    pdf: pdf::PdfPreview,
+}
+
+impl std::fmt::Debug for PanePreview {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("PanePreview")
+    }
+}
+
+impl PanePreview {
+    /// 这个窗格正在预览的 PDF 文件和它此刻的阅读位置。
+    pub(crate) fn pdf_place(&self) -> Option<(&PathBuf, &pdf::Place)> {
+        self.pdf.current_place()
+    }
+}
+
+impl PreviewState {
+    /// 和 `other` 交换随窗格走的预览状态；PDF 和书的阅读位置不随窗格走。
+    pub(crate) fn exchange(&mut self, other: &mut PanePreview) {
+        std::mem::swap(&mut self.picture_cache, &mut other.picture_cache);
+        std::mem::swap(&mut self.picture_view, &mut other.picture_view);
+        std::mem::swap(&mut self.table_layout, &mut other.table_layout);
+        std::mem::swap(&mut self.split, &mut other.split);
+        std::mem::swap(&mut self.markdown, &mut other.markdown);
+        std::mem::swap(&mut self.pdf, &mut other.pdf);
+        self.markdown.trade_places(&mut other.markdown);
+        self.pdf.trade_places(&mut other.pdf);
+    }
 }

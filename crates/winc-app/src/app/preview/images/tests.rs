@@ -46,7 +46,9 @@ impl App {
         crate::app::snapshot::paint(self);
         while self.preview.images.drawing.is_some() {
             match self.preview.images.rendered.recv_timeout(wait) {
-                Ok(rendered) => self.accept_rendered(rendered),
+                Ok(rendered) => {
+                    self.accept_rendered(rendered);
+                }
                 Err(_) => panic!("SVG 一直没画好"),
             }
             crate::app::snapshot::paint(self);

@@ -230,6 +230,16 @@ impl Default for PdfPreview {
 }
 
 impl PdfPreview {
+    /// 正在预览的文件和它此刻的阅读位置。
+    pub(super) fn current_place(&self) -> Option<(&PathBuf, &Place)> {
+        self.path.as_ref().zip(self.place.as_ref())
+    }
+
+    /// 和 `other` 交换各文件的阅读位置。
+    pub(super) fn trade_places(&mut self, other: &mut PdfPreview) {
+        std::mem::swap(&mut self.places, &mut other.places);
+    }
+
     /// 结束渲染线程，释放各页的位图，回到没有文档的状态；当前文档的阅读位置记入 `places`。
     fn reset(&mut self) {
         if let (Some(path), Some(place)) = (self.path.take(), self.place.take()) {
@@ -459,7 +469,9 @@ impl App {
             .map(|s| s.pdf_places.iter().cloned().collect())
             .unwrap_or_default();
         let pdf = &self.preview.pdf;
-        let current = pdf.path.as_ref().zip(pdf.place.as_ref());
+        // 其他窗格里正在预览的文件同样记它此刻的位置。
+        let others = self.parked_previews().filter_map(|p| p.pdf_place());
+        let current = pdf.current_place().into_iter().chain(others);
         for (path, place) in pdf.places.iter().chain(current) {
             if !path.starts_with(root) {
                 continue;

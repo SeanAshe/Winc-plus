@@ -235,6 +235,7 @@ impl Document {
                     bookmarks: &mut self.bookmarks,
                     whole: &mut self.whole,
                     marks: &mut self.marks,
+                    parked: &mut self.parked,
                 };
                 let result = if command == Command::Undo {
                     self.history.undo(&mut text)

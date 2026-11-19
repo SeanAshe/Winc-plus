@@ -494,7 +494,7 @@ impl App {
             UserEvent::GitUndoCommit => self.undo_last_commit(),
             UserEvent::ReplaceAllConfirmed(total) => self.replace_all_confirmed(total),
             UserEvent::RunApproved(config) => self.approved_run(*config),
-            UserEvent::TerminalClose(id) => self.confirmed_terminal_close(id),
+            UserEvent::TerminalClose(id, whole) => self.confirmed_terminal_close(id, whole),
             UserEvent::TerminalRestart(id) => self.confirmed_terminal_restart(id),
             UserEvent::PythonEnvironment(venv, load) => {
                 self.answered_python_environment(venv, load)

@@ -295,8 +295,10 @@ fn command_palette_runs_commands_and_remembers_them() {
     let installable = |a: &&crate::keymap::Action| {
         use crate::keymap::Action::{
             InstallShellCommand, MarkdownBold, MarkdownCode, MarkdownHighlight, MarkdownItalic,
-            MarkdownStrikethrough, UninstallShellCommand,
+            MarkdownStrikethrough, MoveToSplitDown, MoveToSplitRight, NextPane, PreviousPane,
+            UninstallShellCommand, Unsplit,
         };
+        // 窗格的命令只在拆分过、或有不止一个标签时列出。
         !matches!(
             a,
             InstallShellCommand
@@ -306,6 +308,11 @@ fn command_palette_runs_commands_and_remembers_them() {
                 | MarkdownCode
                 | MarkdownStrikethrough
                 | MarkdownHighlight
+                | Unsplit
+                | NextPane
+                | PreviousPane
+                | MoveToSplitRight
+                | MoveToSplitDown
         )
     };
     let always = (palette().iter())
