@@ -58,6 +58,7 @@ impl App {
             return;
         };
         self.notify_with(
+            NoticeKind::Done,
             t!(
                 "workspace-release-notes-updated",
                 version = winc_version::VERSION

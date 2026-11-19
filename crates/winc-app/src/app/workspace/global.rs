@@ -1005,7 +1005,10 @@ impl App {
         match result {
             Ok(true) => {}
             Ok(false) => self.flash(t!("workspace-replace-stale")),
-            Err(e) => self.notify(t!("workspace-replace-failed", error = e.to_string())),
+            Err(e) => self.notify(
+                NoticeKind::Error,
+                t!("workspace-replace-failed", error = e.to_string()),
+            ),
         }
 
         // 只重新搜索这一个文件，避免结果列表被整个清空再重建。
@@ -1019,7 +1022,7 @@ impl App {
         match result {
             Ok(0) => self.flash(t!("workspace-replace-stale")),
             Ok(_) => {}
-            Err(e) => self.notify(t!("workspace-replace-failed", error = e)),
+            Err(e) => self.notify(NoticeKind::Error, t!("workspace-replace-failed", error = e)),
         }
         self.panels.global.engine.refresh_files([(path, None)]);
         self.request_redraw();

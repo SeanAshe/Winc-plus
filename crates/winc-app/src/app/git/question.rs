@@ -10,6 +10,7 @@ use std::sync::mpsc::Sender;
 use winc_i18n::t;
 
 use super::form::FormKind;
+use crate::app::NoticeKind;
 use crate::app::lifecycle::notice::NoticeAction;
 use crate::app::{App, Focus, TextField, UserEvent};
 use crate::askpass::{CONFIRMED, InputKind, Listener, Prompt, Question, host_of};
@@ -503,7 +504,7 @@ impl App {
         if mem::take(&mut self.git.branch.declined) {
             self.flash(t!("git-op-canceled", what = what));
         } else {
-            self.notify_with(message, NoticeAction::GitOutput);
+            self.notify_with(NoticeKind::Error, message, NoticeAction::GitOutput);
         }
     }
 

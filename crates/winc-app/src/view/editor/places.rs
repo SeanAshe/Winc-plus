@@ -222,7 +222,7 @@ fn draw_header(
 
 /// 绘制列表中可见的几行：文件图标、文件名与行号、那一行的代码。
 fn draw_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts, view: &PlacesView) {
-    let (p, list, scroll) = (app.palette, parts.list, view.scroll);
+    let (p, list, scroll) = (app.palette, parts.list, drawn_scroll(view.scroll));
     let rows: Vec<(usize, &Place)> = parts
         .visible(scroll, view.hits.len())
         .filter_map(|i| Some((i, view.places.items.get(*view.hits.get(i)?)?)))

@@ -30,7 +30,7 @@ use crate::editing::scopes::{self, FoldRange, Scope, ScopeMemo};
 use crate::navigation::bookmarks::Bookmarks;
 use content::Content;
 use editorconfig::FileConfig;
-use encoding::{self as charset, Encoding, UTF8_BOM, utf16_bom};
+use encoding::{self as charset, Encoding, UTF8_BOM, utf16_text, utf16_unmarked};
 use large::LargeText;
 use winc_preview::image::Picture;
 use winc_preview::table::Table;
@@ -44,6 +44,7 @@ mod parked;
 pub(crate) use parked::Parked;
 pub(crate) mod large;
 mod preview;
+pub(crate) mod progress;
 #[cfg(test)]
 mod tests;
 
@@ -266,7 +267,7 @@ impl std::fmt::Display for Unsupported {
 }
 
 /// 把文件大小格式化为「2.4 MB」形式的文字：不足 1 KB 时写字节数，否则按 1000 进位并保留一位小数。
-fn size_text(bytes: u64) -> String {
+pub fn size_text(bytes: u64) -> String {
     const UNITS: [&str; 4] = ["KB", "MB", "GB", "TB"];
     if bytes < 1000 {
         return t!("editor-size-bytes", count = bytes);
@@ -436,10 +437,10 @@ pub(crate) const BINARY_SNIFF: usize = 8 << 10;
 
 /// 是否为二进制文件：开头 `BINARY_SNIFF` 字节内含 NUL。
 ///
-/// UTF-16 文件含大量 NUL，因此开头有 BOM 时不算二进制。`bytes` 应从文件开头起，超出
-/// `BINARY_SNIFF` 的部分不检查。
+/// UTF-16 文件含大量 NUL，因此是 UTF-16 的文字（带 BOM，或认得出的不带 BOM 的）时不算
+/// 二进制。`bytes` 应从文件开头起，超出 `BINARY_SNIFF` 的部分不检查。
 pub fn looks_binary(bytes: &[u8]) -> bool {
-    !utf16_bom(bytes) && memchr::memchr(0, &bytes[..bytes.len().min(BINARY_SNIFF)]).is_some()
+    !utf16_text(bytes) && memchr::memchr(0, &bytes[..bytes.len().min(BINARY_SNIFF)]).is_some()
 }
 
 /// 一个打开的文档：文本、选区、撤销历史、高亮状态，以及对应的磁盘文件。
@@ -497,6 +498,8 @@ pub struct Document {
     ///
     /// 只读、没有对应的文件。
     pub log: Option<Box<crate::git::log::LogView>>,
+    /// 编辑区按十六进制显示文件的字节，而不是文本；只读，文本为空。
+    pub hex: Option<Box<crate::hex::HexView>>,
     /// 切换到预览之前的 `readonly`：SVG 的预览期间强制只读，切回源代码时恢复该值。
     readonly_before_preview: bool,
     /// 分栏预览（`PreviewMode::Split`）：文本仍然显示，右侧的预览由界面管理。
@@ -563,6 +566,11 @@ pub struct Document {
     pending: bool,
     /// 尚未读取的文档在读取时是否把二进制内容也按文本读入（「以文本方式打开」）。
     pending_as_text: bool,
+    /// 尚未读取的文档读取时是否打开成十六进制视图。
+    pending_hex: bool,
+    /// 用户通过「通过编码重新打开」选的编码：之后从磁盘重新读取时按它解码，不再识别编码，也不
+    /// 再判断是否二进制。
+    chosen: Option<Encoding>,
 }
 
 /// 从磁盘读出的内容。
@@ -612,6 +620,7 @@ impl Document {
             table: None,
             diff: None,
             log: None,
+            hex: None,
             readonly_before_preview: false,
             split: false,
             rendered: false,
@@ -642,6 +651,8 @@ impl Document {
             conflict: false,
             pending: false,
             pending_as_text: false,
+            pending_hex: false,
+            chosen: None,
         }
     }
 
@@ -968,6 +979,7 @@ impl Document {
             _ if self.unsupported.is_some() => Some(t!("editor-readonly-unsupported")),
             _ if self.previewing() => Some(t!("editor-readonly-previewing")),
             _ if self.title.is_some() => Some(t!("editor-readonly-tab")),
+            _ if self.hex.is_some() => Some(t!("editor-readonly-hex")),
             _ if self.encoding == Encoding::Binary => Some(t!("editor-readonly-binary")),
             Content::Large(large) if large.has_overlong_lines() => {
                 Some(t!("editor-readonly-long-lines"))

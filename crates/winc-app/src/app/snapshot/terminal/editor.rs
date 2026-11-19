@@ -1007,7 +1007,7 @@ fn notices_and_cards_stay_in_the_maximized_terminal() {
     app.run_action(crate::keymap::Action::MaximizeTerminal);
     assert_eq!(app.layout.editor.w, 0.0);
     let message = "已复制路径：/tmp/winc/terminal-max-notice/short.rs";
-    app.notify(message);
+    app.notify(crate::app::NoticeKind::Done, message);
     paint(&mut app);
 
     let area = app.overlay_area();
@@ -1032,7 +1032,8 @@ fn notices_and_cards_stay_in_the_maximized_terminal() {
     let mut text = 0.0;
     let renderer = app.frame.renderer.as_mut().unwrap();
     renderer.draw(|frame| text = frame.measure(winc_render::FontKind::Ui, app.fonts.ui, message));
-    assert!(notice.w >= text + 34.0, "{} < {text}", notice.w);
+    let pad = crate::view::NOTICE_TEXT_X;
+    assert!(notice.w >= text + pad, "{} < {text}", notice.w);
 
     // 面板的查找条打开时排在它下方。
     app.open_terminal_find();
@@ -1046,15 +1047,18 @@ fn notices_and_cards_stay_in_the_maximized_terminal() {
     let prompt = app.prompt_bar();
     assert!(prompt.w > 0.0 && prompt.x > area.x && prompt.right() < area.right());
 
-    // 还原途中编辑区已排好，提示仍靠在面板上；还原后回到编辑区。
+    // 还原途中提示不随面板的上边往下走：上边和右边停在原处，还原后回到编辑区。
+    let before = app.overlay_area();
     app.run_action(crate::keymap::Action::MaximizeTerminal);
-    app.terminal.grow = Some(Clock::stopped(SIDEBAR_ANIMATION, SIDEBAR_ANIMATION / 2));
-    app.relayout();
-    assert!(app.layout.editor.w > 0.0);
-    assert_eq!(
-        app.overlay_area().right(),
-        app.terminal_content_card().right()
-    );
+    for at in [1, 2, 3] {
+        let elapsed = SIDEBAR_ANIMATION * at / 4;
+        app.terminal.grow = Some(Clock::stopped(SIDEBAR_ANIMATION, elapsed));
+        app.relayout();
+        assert!(app.layout.editor.w > 0.0);
+        let area = app.overlay_area();
+        assert_eq!((area.y, area.right()), (before.y, before.right()), "{at}");
+    }
+    assert_eq!(app.layout.editor.y, before.y);
     app.terminal.grow = None;
     app.relayout();
     assert_eq!(app.overlay_area(), app.layout.editor);

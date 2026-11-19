@@ -13,6 +13,7 @@ use winc_vim::{AppCommand, HostOption, Listing, Mapped, Mapping, Mode, Prompt, V
 use winit::keyboard::{Key, NamedKey};
 
 use super::shared;
+use crate::app::NoticeKind;
 use crate::app::{App, CloseRequest, Focus, PromptKind, SavePrompt};
 use crate::field::TextField;
 use crate::keymap::Action;
@@ -456,11 +457,14 @@ impl App {
                 self.picker_touched(vec![to]);
                 self.flash(t!("editor-vim-written", name = name));
             }
-            Err(error) => self.notify(t!(
-                "workspace-save-failed",
-                name = name,
-                error = error.to_string()
-            )),
+            Err(error) => self.notify(
+                NoticeKind::Error,
+                t!(
+                    "workspace-save-failed",
+                    name = name,
+                    error = error.to_string()
+                ),
+            ),
         }
     }
 

@@ -583,6 +583,19 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
                 clickable(StatusItem::Language),
             ),
         ];
+    } else if let Some(view) = doc.and_then(|d| d.hex.as_deref()) {
+        // 十六进制视图：光标所在的偏移和选中的字节数；编码一项可以切回文本。
+        let range = view.selection();
+        let offset = format!("0x{:X}", view.head);
+        let position = match range.end - range.start {
+            0 | 1 => t!("hex-status-offset", offset = offset),
+            n => t!("hex-status-selected", offset = offset, count = n),
+        };
+        let hex = t!("editor-encoding-hex").to_owned();
+        items = vec![
+            (StatusKey::Position, position, None),
+            (StatusKey::Encoding, hex, Some(StatusItem::Encoding)),
+        ];
     }
     draw_group(
         frame,

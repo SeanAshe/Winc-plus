@@ -750,3 +750,17 @@ fn highlight_leaves_addresses_shown_as_link_text_alone() {
         .collect();
     assert_eq!(marked, ["a", "b"]);
 }
+
+#[test]
+fn html_blocks_holding_only_a_line_break_are_dropped() {
+    let doc = parse(
+        "<details open>\n<summary>桌面</summary>\n<br>\n<p align=\"center\">\n  <img src=\"a.png\" alt=\"A\">\n</p>\n</details>\n",
+    );
+    let Block::Details { blocks, .. } = &doc.blocks[0] else {
+        panic!("{:?}", doc.blocks[0]);
+    };
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(paragraph(&blocks[0]).images.len(), 1);
+    assert!(parse("<p>\n<br>\n</p>\n").blocks.is_empty());
+    assert!(parse("<div>  <br>  </div>\n").blocks.is_empty());
+}

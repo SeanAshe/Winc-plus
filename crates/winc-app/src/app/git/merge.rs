@@ -22,6 +22,7 @@ use winc_i18n::t;
 use winc_render::Rect;
 
 use super::changes::replace_lines;
+use crate::app::NoticeKind;
 use crate::app::{App, UserEvent};
 
 /// 三栏合并的标题行高度（逻辑像素），等于差异视图的标题栏高度。
@@ -249,7 +250,7 @@ impl App {
     fn open_merge_panes(&mut self, loaded: SidesLoaded) {
         let sides = match loaded.sides {
             Ok(sides) => sides,
-            Err(reason) => return self.notify(reason),
+            Err(reason) => return self.notify(NoticeKind::Error, reason),
         };
         let Some(doc) = self.editor.document(loaded.doc) else {
             return;
@@ -260,7 +261,10 @@ impl App {
         let text = |bytes: Option<Vec<u8>>| String::from_utf8(bytes.unwrap_or_default());
         let (Ok(ours), Ok(theirs)) = (text(ours), text(theirs)) else {
             let name = winc_editor::display_name(&loaded.path);
-            return self.notify(t!("git-merge-panes-not-utf8", name = name));
+            return self.notify(
+                NoticeKind::Error,
+                t!("git-merge-panes-not-utf8", name = name),
+            );
         };
         let [ours_title, theirs_title] = labels;
         self.git.merge.panes = Some(MergePanes {

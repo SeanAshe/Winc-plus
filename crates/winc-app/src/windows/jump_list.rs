@@ -1,7 +1,7 @@
-//! 任务栏的跳转列表：右键任务栏图标时列出最近打开的目录和「新建窗口」。
+//! 任务栏的跳转列表：右键任务栏图标时列出最近打开的目录、文件和「新建窗口」。
 //!
-//! 列表中的每一项是一个指向本程序的快捷方式：目录项以该目录为参数启动 winc，「新建窗口」不带
-//! 参数启动；新进程把目标交给正在运行的 winc（见 `crate::instance`）。列表保存在系统中，winc
+//! 列表中的每一项是一个指向本程序的快捷方式：目录、文件项以它的路径为参数启动 winc，「新建窗口」
+//! 不带参数启动；新进程把目标交给正在运行的 winc（见 `crate::instance`）。列表保存在系统中，winc
 //! 未运行时同样可用，因此只在最近列表变化时重写。
 //!
 //! 用户可以在跳转列表中移除某一项。系统要求应用不再提供被移除的项，否则整个分类写入失败：
@@ -36,24 +36,25 @@ const TITLE: PROPERTYKEY = PROPERTYKEY {
 /// 结尾的 NUL。
 const ARGUMENTS: usize = 32_770;
 
-/// 最近一次写入跳转列表的目录；与当前的最近列表相同时不重写。
-static WRITTEN: Mutex<Option<Vec<PathBuf>>> = Mutex::new(None);
+/// 最近一次写入跳转列表的目录和文件；与当前的最近列表相同时不重写。
+static WRITTEN: Mutex<Option<(Vec<PathBuf>, Vec<PathBuf>)>> = Mutex::new(None);
 
 /// 把最近打开的目录 `recent`（最近的在前）写入任务栏的跳转列表，在后台线程中完成。
 ///
-/// 与上一次写入的目录相同时不做任何事。用户在跳转列表中移除的目录同时从状态文件 `state` 的
-/// 最近列表中移除。写入失败（如系统设置中关闭了跳转列表）时不提示。
-pub fn sync_jump_list(recent: &[PathBuf], state: &Path) {
+/// 与上一次写入的相同时不做任何事。用户在跳转列表中移除的项同时从状态文件 `state` 的最近列表
+/// 中移除。写入失败（如系统设置中关闭了跳转列表）时不提示。
+pub fn sync_jump_list(recent: &[PathBuf], files: &[PathBuf], state: &Path) {
     let Ok(mut written) = WRITTEN.lock() else {
         return;
     };
-    if written.as_deref() == Some(recent) {
+    let wanted = (recent.to_vec(), files.to_vec());
+    if written.as_ref() == Some(&wanted) {
         return;
     }
-    *written = Some(recent.to_vec());
+    *written = Some(wanted);
     drop(written);
 
-    let (recent, state) = (recent.to_vec(), state.to_path_buf());
+    let (recent, files, state) = (recent.to_vec(), files.to_vec(), state.to_path_buf());
     let spawned = std::thread::Builder::new()
         .name("winc-jump-list".to_owned())
         .spawn(move || {
@@ -61,13 +62,14 @@ pub fn sync_jump_list(recent: &[PathBuf], state: &Path) {
             if unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) }.is_err() {
                 return;
             }
-            let removed = write(&recent).unwrap_or_default();
+            let removed = write(&recent, &files).unwrap_or_default();
             // SAFETY: 与上面成功的 `CoInitializeEx` 配对；`write` 中的 COM 对象此时均已释放。
             unsafe { CoUninitialize() };
             if !removed.is_empty() {
                 let forget = |state: &mut winc_config::State| {
-                    for folder in &removed {
-                        state.forget(folder);
+                    for path in &removed {
+                        state.forget(path);
+                        state.forget_file(path);
                     }
                 };
                 let _ = winc_config::State::update(&state, forget);
@@ -81,10 +83,11 @@ pub fn sync_jump_list(recent: &[PathBuf], state: &Path) {
     }
 }
 
-/// 重写跳转列表：`recent` 中未被用户移除的目录，以及「新建窗口」。返回用户移除的目录。
+/// 重写跳转列表：`recent` 中的目录、`files` 中的文件里未被用户移除的，以及「新建窗口」。返回
+/// 用户移除的目录和文件。
 ///
 /// 必须在已初始化 COM 的线程上调用。
-fn write(recent: &[PathBuf]) -> Result<Vec<PathBuf>> {
+fn write(recent: &[PathBuf], files: &[PathBuf]) -> Result<Vec<PathBuf>> {
     let exe = std::env::current_exe().map_err(|_| windows::core::Error::empty())?;
     // SAFETY: 以下均为已初始化 COM 的线程上的接口调用；传入的字符串、属性值和接口引用在各次
     // 调用期间有效，接口对象由各自的智能指针持有并在离开作用域时释放。
@@ -106,28 +109,31 @@ fn write(recent: &[PathBuf]) -> Result<Vec<PathBuf>> {
             let end = arguments.iter().position(|&c| c == 0).unwrap_or(0);
             let arguments = String::from_utf16_lossy(&arguments[..end]);
             removed.extend(
-                recent
-                    .iter()
+                (recent.iter().chain(files))
                     .filter(|f| crate::recents::argument(f) == arguments)
                     .cloned(),
             );
         }
 
-        let folders: IObjectCollection =
-            CoCreateInstance(&EnumerableObjectCollection, None, CLSCTX_INPROC_SERVER)?;
-        let kept: Vec<PathBuf> = (recent.iter())
-            .filter(|folder| !removed.contains(folder))
-            .cloned()
-            .collect();
-        let labels = crate::recents::labels(&kept);
-        for (folder, label) in kept.iter().zip(&labels).take(slots as usize) {
-            let tip = folder.to_string_lossy();
-            folders.AddObject(&link(&exe, &crate::recents::argument(folder), label, &tip)?)?;
-        }
         // 分类写入失败（如用户关闭了「显示最近打开的项」）时仍然写入任务。
-        if folders.GetCount()? > 0 {
-            let name = HSTRING::from(winc_i18n::t!("workspace-jump-list-recent"));
-            let _ = list.AppendCategory(&name, &folders);
+        for (paths, name) in [
+            (recent, winc_i18n::t!("workspace-jump-list-recent")),
+            (files, winc_i18n::t!("workspace-jump-list-recent-files")),
+        ] {
+            let items: IObjectCollection =
+                CoCreateInstance(&EnumerableObjectCollection, None, CLSCTX_INPROC_SERVER)?;
+            let kept: Vec<PathBuf> = (paths.iter())
+                .filter(|path| !removed.contains(path))
+                .cloned()
+                .collect();
+            let labels = crate::recents::labels(&kept);
+            for (path, label) in kept.iter().zip(&labels).take(slots as usize) {
+                let tip = path.to_string_lossy();
+                items.AddObject(&link(&exe, &crate::recents::argument(path), label, &tip)?)?;
+            }
+            if items.GetCount()? > 0 {
+                let _ = list.AppendCategory(&HSTRING::from(name), &items);
+            }
         }
 
         let tasks: IObjectCollection =

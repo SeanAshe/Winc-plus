@@ -1,10 +1,13 @@
 //! 文档与磁盘文件的同步：保存、另存为、磁盘文件被其他程序修改后的冲突与同步、按指定编码
 //! 重新打开、恢复现场时尚未读取的文档，以及读文件和原子写入。
 
+use super::encoding::utf16_bom;
 use super::*;
 
 use winc_backend::fs::{Metadata, SaveError, SaveOptions, Stamp};
 use winc_i18n::t;
+
+use super::progress::{Counted, ReadProgress};
 
 mod append;
 mod save_job;
@@ -27,6 +30,8 @@ pub struct Reread {
     path: PathBuf,
     allow_binary: bool,
     encoding: Encoding,
+    /// 用户选的编码（见 `Document::chosen`）：有时按它解码。
+    chosen: Option<Encoding>,
     revision: u64,
     append: Option<append::Append>,
 }
@@ -40,12 +45,13 @@ impl Reread {
             path,
             allow_binary,
             encoding,
+            chosen,
             revision,
             append,
         } = self;
         let outcome = match append.and_then(|a| a.read(&path)) {
             Some(appended) => Outcome::Appended(appended),
-            None => Outcome::Loaded(load_with(&path, allow_binary, encoding)),
+            None => Outcome::Loaded(load_chosen(&path, chosen, allow_binary, encoding)),
         };
         DiskRead {
             path,
@@ -103,6 +109,8 @@ pub struct DiskTake {
     path: PathBuf,
     /// 发起时文档的编码：非 UTF-8 的文件按该编码重新解码。
     encoding: Encoding,
+    /// 用户选的编码（见 `Document::chosen`）：有时按它解码。
+    chosen: Option<Encoding>,
     /// 发起时文档的内容；可以逐行比较、按一次编辑换上新内容时为 `Some`。
     current: Option<Rope>,
     revision: u64,
@@ -111,7 +119,8 @@ pub struct DiskTake {
 impl DiskTake {
     /// 读取文件，可以逐行比较时算出改动（耗时与文件大小成正比，在后台线程上调用）。
     pub fn read(self) -> DiskTaken {
-        let loaded = load_with(&self.path, self.encoding == Encoding::Binary, self.encoding);
+        let binary = self.encoding == Encoding::Binary;
+        let loaded = load_chosen(&self.path, self.chosen, binary, self.encoding);
         let changes = match (&loaded, &self.current) {
             (Ok(fresh), Some(current))
                 if !matches!(fresh.encoding, Encoding::Lossy | Encoding::Binary) =>
@@ -166,6 +175,8 @@ enum OpenedContent {
     Epub(Option<Stamp>),
     /// PDF：只有修改时间，读取和渲染另外做。
     Pdf(Option<Stamp>),
+    /// 十六进制视图：打开的文件，字节按需读取。
+    Hex(Box<crate::hex::HexView>),
     /// 文本，或者打不开的原因。
     Text(Result<Loaded, OpenError>),
 }
@@ -358,7 +369,7 @@ impl Document {
         if winc_backend::fs::metadata(path)?.len > LARGE_FILE {
             return Err(too_large());
         }
-        match load_with(path, false, self.encoding)?.text {
+        match load_with(path, false, self.encoding, None)?.text {
             Content::Rope(rope) => Ok(rope.to_string()),
             Content::Large(_) => Err(too_large()),
         }
@@ -391,6 +402,7 @@ impl Document {
         Some(DiskTake {
             path,
             encoding: self.encoding,
+            chosen: self.chosen,
             current,
             revision: self.revision,
         })
@@ -482,6 +494,16 @@ impl Document {
             return DiskSync::Done(DiskChange::Unchanged);
         };
 
+        // 十六进制视图被其他程序修改：读过的字节作废，下次读取时重新打开文件。
+        if let Some(view) = &mut self.hex {
+            let Some(metadata) = metadata.filter(|m| view.outdated(m)) else {
+                return DiskSync::Done(DiskChange::Unchanged);
+            };
+            view.refresh(metadata);
+            self.revision += 1;
+            return DiskSync::Done(DiskChange::Reloaded);
+        }
+
         // 图片、工作簿、docx、EPUB、PDF 被其他程序修改：重新读取。递增 `revision` 使正在进行的
         // 那次读取结果被丢弃（见 `set_picture`、`set_table`），工作簿随后按新版本重新读
         // （`table_to_load`），docx、EPUB、PDF 由界面按新版本重新转换、渲染。
@@ -531,6 +553,7 @@ impl Document {
             path,
             allow_binary: self.encoding == Encoding::Binary,
             encoding: self.encoding,
+            chosen: self.chosen,
             revision: self.revision,
             append: self.append_source(),
         })
@@ -587,16 +610,13 @@ impl Document {
     ///
     /// # Errors
     ///
-    /// 文档没有路径、是大文件或二进制文件时返回原因（显示给用户的文字）。
+    /// 文档没有路径或是大文件时返回原因（显示给用户的文字）。二进制文件也可以按选的编码读。
     pub fn begin_reopen_with_encoding(&self, encoding: Encoding) -> Result<EncodingReread, String> {
         let Some(path) = &self.path else {
             return Err(t!("editor-file-no-path").to_owned());
         };
         if self.is_large() {
             return Err(t!("editor-large-utf8-only").to_owned());
-        }
-        if self.encoding == Encoding::Binary {
-            return Err(t!("editor-file-is-binary").to_owned());
         }
         Ok(EncodingReread {
             path: path.clone(),
@@ -618,6 +638,7 @@ impl Document {
         }
         let loaded = read.loaded.map_err(|e| e.to_string())?;
         self.replace_content(loaded);
+        self.chosen = Some(read.encoding);
         Ok(true)
     }
 
@@ -629,6 +650,7 @@ impl Document {
             return false;
         }
         self.encoding = encoding;
+        self.chosen = self.chosen.map(|_| encoding);
         true
     }
 
@@ -677,6 +699,33 @@ impl Document {
         document
     }
 
+    /// 创建尚未读取的文档（见 [`Document::pending`]），读取时打开成十六进制视图。
+    pub(crate) fn pending_hex(id: DocumentId, path: PathBuf) -> Self {
+        let mut document = Self::pending(id, path);
+        document.pending_hex = true;
+        document
+    }
+
+    /// 尚未读取的文档读取时是否打开成十六进制视图（见 [`Document::pending_hex`]）。
+    pub(crate) fn reads_as_hex(&self) -> bool {
+        self.pending_hex
+    }
+
+    /// 文本是否就是文件的内容：已经读取，不是十六进制视图，也不是打不开的文件的占位标签。
+    pub fn holds_file_text(&self) -> bool {
+        !self.pending && self.hex.is_none() && self.unsupported.is_none()
+    }
+
+    /// 尚未读取的文档读取时用的编码：用户选的（见 `Document::chosen`），没有选时为 `None`。
+    pub(crate) fn reads_with(&self) -> Option<Encoding> {
+        self.chosen
+    }
+
+    /// 读好以后按 `encoding` 解码时记下它，之后从磁盘重新读取仍按它解码。
+    pub(crate) fn keep_chosen(&mut self, encoding: Option<Encoding>) {
+        self.chosen = encoding.or(self.chosen);
+    }
+
     /// 尚未读取的文档在读取时是否把二进制内容也按文本读入（见 [`Document::pending_as_text`]）。
     pub(crate) fn reads_as_text(&self) -> bool {
         self.pending_as_text
@@ -711,12 +760,25 @@ impl Document {
     /// 调用）：图片、xlsx 工作簿、docx 和 PDF 只读修改时间（解码、读取另由界面交给后台），其余按
     /// 文本读；同时读适用的 `.editorconfig`。
     pub fn read_any(path: &Path) -> Opened {
-        Self::read(path, false)
+        Self::read(path, false, None, None)
+    }
+
+    /// 打开文件 `path` 的十六进制视图（会访问磁盘，在后台线程上调用）。
+    pub(crate) fn read_hex(path: &Path) -> Opened {
+        Opened {
+            config: FileConfig::default(),
+            content: OpenedContent::Hex(Box::new(crate::hex::HexView::open(path))),
+        }
     }
 
     /// 与 [`Document::read_any`] 相同；`as_text` 为 `true` 时图片和二进制文件也按文本读入
-    /// （「以文本方式打开」）。
-    pub(crate) fn read(path: &Path, as_text: bool) -> Opened {
+    /// （「以文本方式打开」），读过的字节计入 `progress`。
+    pub(crate) fn read(
+        path: &Path,
+        as_text: bool,
+        encoding: Option<Encoding>,
+        progress: Option<&ReadProgress>,
+    ) -> Opened {
         let mtime = || {
             winc_backend::fs::metadata(path)
                 .ok()
@@ -734,8 +796,10 @@ impl Document {
             } else if !as_text && winc_preview::pdf::supported() && winc_preview::pdf::is_pdf(path)
             {
                 OpenedContent::Pdf(mtime())
+            } else if let Some(encoding) = encoding.filter(|e| *e != Encoding::Utf8) {
+                OpenedContent::Text(load_as(path, encoding))
             } else {
-                OpenedContent::Text(load(path, as_text))
+                OpenedContent::Text(load_with(path, as_text, Encoding::Utf8, progress))
             }
         };
         // 远端的文件：内容和 `.editorconfig` 各要一次往返，互不依赖，同时进行。
@@ -777,6 +841,10 @@ impl Document {
                 document.readonly = true;
                 document.unsupported = Some(Unsupported::Pdf);
                 document.disk_mtime = mtime;
+            }
+            OpenedContent::Hex(view) => {
+                document.readonly = true;
+                document.hex = Some(view);
             }
             OpenedContent::Text(Ok(loaded)) => document.set_content(loaded),
             OpenedContent::Text(Err(e)) => {
@@ -860,20 +928,43 @@ fn load_as(path: &Path, encoding: Encoding) -> Result<Loaded, OpenError> {
     })
 }
 
+/// 按用户选的编码 `chosen` 重新读文件：选的是 UTF-8 时照常读（大文件也能读），不再判断是否
+/// 二进制；选的是其他编码时按它解码；没有选时同 [`load_with`]。
+fn load_chosen(
+    path: &Path,
+    chosen: Option<Encoding>,
+    allow_binary: bool,
+    encoding: Encoding,
+) -> Result<Loaded, OpenError> {
+    match chosen {
+        Some(Encoding::Utf8) => load_with(path, true, Encoding::Utf8, None),
+        Some(chosen) => load_as(path, chosen),
+        None => load_with(path, allow_binary, encoding, None),
+    }
+}
+
 /// 读入文件；开头 `BINARY_SNIFF` 字节内含 NUL 时视为二进制文件，`allow_binary` 为 `true` 时
 /// 仍然读入，编码记为 `Binary`。
 pub(super) fn load(path: &Path, allow_binary: bool) -> Result<Loaded, OpenError> {
-    load_with(path, allow_binary, Encoding::Utf8)
+    load_with(path, allow_binary, Encoding::Utf8, None)
 }
 
 /// 与 [`load`] 相同，但非 UTF-8 的文件优先按 `prefer`（用户通过「通过编码重新打开」选择的编码）
-/// 解码。
+/// 解码；已读的字节计入 `progress`。
 ///
 /// 按文档当前的编码重新读取时传入它，避免自动猜测的编码一旦错误，每次重读都得到乱码。
-fn load_with(path: &Path, allow_binary: bool, prefer: Encoding) -> Result<Loaded, OpenError> {
+fn load_with(
+    path: &Path,
+    allow_binary: bool,
+    prefer: Encoding,
+    progress: Option<&ReadProgress>,
+) -> Result<Loaded, OpenError> {
     let mut opened = winc_backend::fs::open(path, BINARY_SNIFF)?;
     let size = opened.metadata.len;
     let mtime = opened.metadata.modified;
+    if let Some(progress) = progress {
+        progress.begin(size);
+    }
 
     if size > OPEN_LIMIT {
         return Err(OpenError::TooLarge(size));
@@ -881,14 +972,15 @@ fn load_with(path: &Path, allow_binary: bool, prefer: Encoding) -> Result<Loaded
     let head = std::mem::take(&mut opened.head);
 
     // 带 BOM 的 UTF-16 含 NUL，但不是二进制。大文件读取器只认 UTF-8，因此在
-    // `UTF16_INLINE` 以内整篇解码；再大的无法按 UTF-16 打开。
+    // `UTF16_INLINE` 以内整篇解码；再大的无法按 UTF-16 打开。不带 BOM、认得出的
+    // UTF-16 大文件无法按需读取，按二进制文件处理。
     let utf16 = utf16_bom(&head);
     if utf16 && size > UTF16_INLINE {
         return Err(OpenError::Io(io::Error::other(t!(
             "editor-large-utf8-only"
         ))));
     }
-    let binary = looks_binary(&head);
+    let binary = looks_binary(&head) || (size > LARGE_FILE && utf16_unmarked(&head).is_some());
 
     if binary && !allow_binary {
         return Err(OpenError::Binary(size));
@@ -899,7 +991,7 @@ fn load_with(path: &Path, allow_binary: bool, prefer: Encoding) -> Result<Loaded
     }
 
     if size > LARGE_FILE {
-        let large = LargeText::open(opened.into_handle())?;
+        let large = LargeText::open_counting(opened.into_handle(), progress)?;
         let encoding = match (large.is_utf8(), large.has_bom()) {
             _ if binary => Encoding::Binary,
             (false, _) => Encoding::Lossy,
@@ -922,7 +1014,17 @@ fn load_with(path: &Path, allow_binary: bool, prefer: Encoding) -> Result<Loaded
 
     // 合法的 UTF-8 边读边建 rope，内存中不会同时存在整个文件的另一份副本；BOM 的处理与
     // `decode` 相同。只有非 UTF-8（GBK、UTF-16 等）才把整个文件读入内存，交给 `decode` 识别编码。
-    let read = Rope::from_reader(BufReader::with_capacity(64 << 10, opened.reader()?));
+    // 不带 BOM 的 UTF-16 也可能是合法的 UTF-8（夹着 NUL）：直接整个读入识别编码。
+    let read = match utf16_unmarked(&head) {
+        Some(_) => Err(io::ErrorKind::InvalidData.into()),
+        None => {
+            let inner = opened.reader()?;
+            Rope::from_reader(BufReader::with_capacity(
+                64 << 10,
+                Counted { inner, progress },
+            ))
+        }
+    };
     let (rope, encoding) = match read {
         Ok(mut rope) => {
             let bom = head.starts_with(&UTF8_BOM);

@@ -414,3 +414,18 @@ fn setting_descriptions_wrap_up_to_a_limit() {
     let lines = description_lines(Setting::Updates, "一二三四五六", 30.0, &mut measure);
     assert_eq!(lines, ["一二三四五六"]);
 }
+
+/// 绘制用的滚动位置取整到整像素：与原位置相差不到半个像素，按行计的换成像素后也是整数。
+#[test]
+fn drawn_scroll_positions_are_whole_pixels() {
+    assert_eq!(
+        (drawn_scroll(12.4), drawn_scroll(12.6), drawn_scroll(0.0)),
+        (12.0, 13.0, 0.0)
+    );
+    for line in [0.0, 3.37, 3.5, 12.999, 1234.01] {
+        let lh = 20.0;
+        let px = drawn_scroll_line(line, lh) * f64::from(lh);
+        assert_eq!(px.fract(), 0.0, "{line}");
+        assert!((px - line * f64::from(lh)).abs() <= 0.5, "{line}");
+    }
+}

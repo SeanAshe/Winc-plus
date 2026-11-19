@@ -487,8 +487,9 @@ fn reads_files_exactly_like_opening_them() {
     near_end.push(0);
     let mut past_end = vec![b'a'; 8192];
     past_end.extend_from_slice(b"\0x\n");
-    let samples: [(&str, Vec<u8>); 8] = [
+    let samples: [(&str, Vec<u8>); 9] = [
         ("plain", b"one\ntwo\n".to_vec()),
+        ("utf16-no-bom", b"o\0n\0e\0\n\0t\0w\0o\0\n\0".to_vec()),
         ("bom-crlf", b"\xEF\xBB\xBFone\r\ntwo\r\n".to_vec()),
         ("lone-cr", b"one\rtwo\rthree".to_vec()),
         ("lossy", b"caf\xE9\nok\n".to_vec()),
@@ -1095,4 +1096,25 @@ fn extra_folders_are_searched_with_their_name_in_front() {
     // 重新搜索单个文件时相对路径不变。
     both.refresh_file(&other.join("lib/b.rs"), None);
     assert!(files(&both).contains(&"other/lib/b.rs"));
+}
+
+/// 依赖目录往下找两层，更深的不找；隐藏目录和依赖目录里面不再找。
+#[test]
+fn dependency_folders_are_found_two_levels_down() {
+    let dir = winc_config::files::canonicalize(scratch("dependency-folders")).unwrap();
+    for sub in [
+        "node_modules/react/node_modules",
+        "packages/app/node_modules",
+        "packages/app/src",
+        ".venv/lib",
+        ".git/node_modules",
+        "a/b/node_modules",
+    ] {
+        fs::create_dir_all(dir.join(sub)).unwrap();
+    }
+    let found = walk::dependency_folders(&dir);
+    assert_eq!(found, [dir.join(".venv"), dir.join("node_modules")]);
+    let nested = walk::dependency_folders(&dir.join("packages"));
+    assert_eq!(nested, [dir.join("packages/app/node_modules")]);
+    let _ = fs::remove_dir_all(&dir);
 }

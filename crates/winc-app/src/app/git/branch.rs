@@ -17,6 +17,7 @@ use super::commit::{COMMITTED_SHOWN, PushIntent};
 use super::question;
 use super::unusable;
 use super::worktree::RemoveCheck;
+use crate::app::NoticeKind;
 use crate::app::animation::{Clock, TREE_ANIMATION};
 use crate::app::input::context_menu::{MenuCommand, MenuEntry};
 use crate::app::{App, UserEvent};
@@ -397,7 +398,7 @@ impl App {
             .or(self.git.remotes.first());
         let remote = self.git.publish_remote.clone().or(fallback.cloned());
         if remote.is_none() {
-            self.notify(t!("git-push-no-remote"));
+            self.notify(NoticeKind::Warning, t!("git-push-no-remote"));
         }
         remote.map(PushIntent::Publish)
     }
@@ -817,7 +818,7 @@ impl App {
                         | Then::ConfirmForceDelete(_)
                         | Then::RebasePlan(_),
                     )) => {}
-                    Ok((_, Then::Warn(warning))) => self.notify(warning),
+                    Ok((_, Then::Warn(warning))) => self.notify(NoticeKind::Warning, warning),
                     Ok((_, then)) => {
                         self.flash(t!("git-op-done-in", name = name, what = done.what));
                         // 已经换了目录：当前窗口不再换过去，在新窗口打开。
@@ -843,7 +844,7 @@ impl App {
             match done.result {
                 Ok((_, Then::ConfirmRemove(check))) => self.confirm_remove_worktree(check),
                 Ok((_, Then::ConfirmForcePush(count))) => self.confirm_force_push(count),
-                Ok((_, Then::Warn(warning))) => self.notify(warning),
+                Ok((_, Then::Warn(warning))) => self.notify(NoticeKind::Warning, warning),
                 Ok((_, Then::RebasePlan(plan))) => self.open_rebase_dialog(*plan),
                 Ok((_, Then::ConfirmForceDelete(name))) => self.confirm_force_delete_branch(name),
                 Ok((summary, then)) => {

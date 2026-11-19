@@ -82,6 +82,8 @@ pub struct Config {
     pub whole_lines: Option<bool>,
     /// 在编辑区右侧显示缩略图，默认为否。
     pub minimap: Option<bool>,
+    /// 鼠标滚轮每滚一格平滑地滑到位，而不是立即跳到，默认为是。
+    pub smooth_scrolling: Option<bool>,
     /// 在侧栏文件视图的底部显示大纲（当前文件的函数、类型、标题），默认为是。
     pub outline: Option<bool>,
     /// 何时显示空格和制表符，默认为选中时。

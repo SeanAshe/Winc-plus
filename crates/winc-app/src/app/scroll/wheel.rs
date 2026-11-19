@@ -272,8 +272,9 @@ impl App {
     /// 返回本格鼠标滚轮滚动的过渡时长（见 [`wheel_glide_length`]），并记录本格的时刻；不使用
     /// 过渡时返回 `None`，直接滚动。
     ///
-    /// 只有 macOS 上存在显示链接时使用过渡。Windows 上每格立即滚动；其他系统上按计时器绘制，
-    /// 帧与屏幕刷新不同步，过渡只增加绘制量而不会更平滑。
+    /// 只有 macOS 上存在显示链接、并且开着平滑滚动（`editor.smoothScrolling`）时使用过渡。
+    /// Windows 上每格立即滚动；其他系统上按计时器绘制，帧与屏幕刷新不同步，过渡只增加绘制量
+    /// 而不会更平滑。
     fn next_wheel_glide(&mut self) -> Option<Duration> {
         let now = Instant::now();
         let interval = self
@@ -286,7 +287,12 @@ impl App {
         let follows_refresh = self.frame.display_link.is_some();
         #[cfg(not(target_os = "macos"))]
         let follows_refresh = false;
-        follows_refresh.then(|| wheel_glide_length(interval))
+        (follows_refresh && self.smooth_scrolling()).then(|| wheel_glide_length(interval))
+    }
+
+    /// 鼠标滚轮是否平滑滚动（`editor.smoothScrolling`，没写时为是）。
+    pub(in crate::app) fn smooth_scrolling(&self) -> bool {
+        self.config.smooth_scrolling != Some(false)
     }
 
     /// 在鼠标所在的区域追加滚动距离 `delta`（逻辑像素），按 `clock` 重新计时。

@@ -220,7 +220,7 @@ impl App {
     /// 详情里文件悬停提示的完整路径（相对仓库根目录）；改过名的写「旧路径 → 新路径」。
     pub(crate) fn log_file_tip(&self, i: usize) -> Option<String> {
         let file = self.log_file(i)?;
-        let root = self.git.root.as_deref()?;
+        let root = self.active_log_root()?;
         let rel = |p: &Path| {
             p.strip_prefix(root)
                 .unwrap_or(p)
@@ -305,7 +305,7 @@ impl App {
         let view = self.editor.active().and_then(|d| d.log.as_deref());
         let pinned = view.is_some_and(|v| v.query.path.is_some() && v.compare.is_none());
         let flat = self.git.commit.flat();
-        log_file_rows(self.git.root.as_deref(), files, (flat, pinned))
+        log_file_rows(self.active_log_root(), files, (flat, pinned))
     }
 
     /// 详情里各文件从上到下的顺序（文件列表里的下标）：键盘上下移动、打开第一个文件都按它。

@@ -20,6 +20,7 @@ use winc_backend::remote::{self, ConnectError, Connection, Deploy, Exec, Program
 use winc_editor::git::ASKPASS_ENDPOINT;
 use winc_i18n::t;
 
+use crate::app::NoticeKind;
 use crate::app::animation::Card;
 use crate::app::git::form::{FormDialog, FormKind, FormPlan};
 use crate::app::git::question::Asker;
@@ -787,10 +788,10 @@ impl App {
         };
         match ensure_config(&path) {
             Ok(()) => self.open_path(&path),
-            Err(error) => self.notify(t!(
-                "workspace-remote-config-failed",
-                error = error.to_string()
-            )),
+            Err(error) => self.notify(
+                NoticeKind::Error,
+                t!("workspace-remote-config-failed", error = error.to_string()),
+            ),
         }
     }
 
@@ -857,7 +858,7 @@ impl App {
             let path = String::from_utf8_lossy(&location.path).into_owned();
             self.remote_open(location.target, path, After::Open);
         } else {
-            self.notify(t!("workspace-remote-disabled"));
+            self.notify(NoticeKind::Warning, t!("workspace-remote-disabled"));
         }
         true
     }
@@ -871,7 +872,7 @@ impl App {
             return;
         }
         if !self.remote_enabled() {
-            self.notify(t!("workspace-remote-disabled"));
+            self.notify(NoticeKind::Warning, t!("workspace-remote-disabled"));
             return;
         }
         let Some(at) = winc_backend::locate(&open.folder) else {
@@ -1025,7 +1026,10 @@ impl App {
                     self.forget_missing_recent(&wanted);
                 } else {
                     let path = winc_editor::display_path(&wanted, None);
-                    self.notify(t!("workspace-folder-missing", path = path));
+                    self.notify(
+                        NoticeKind::Error,
+                        t!("workspace-folder-missing", path = path),
+                    );
                 }
                 let native = |path: &Path| winc_backend::native_lossy(path).into_owned();
                 self.browse_remote_folder(target, native(&home), native(&nearest));
@@ -1067,6 +1071,7 @@ impl App {
                 if let Some(root) = root.filter(|_| !self.remote.lost) {
                     self.remote.lost = true;
                     self.notify_with(
+                        NoticeKind::Error,
                         t!("workspace-remote-lost", host = target.as_str()),
                         NoticeAction::Reconnect(root),
                     );
@@ -1075,11 +1080,14 @@ impl App {
             Err(error) => {
                 // 重新连接失败后仍是断开的状态：下次获得焦点时再次提示。
                 self.remote.lost = false;
-                self.notify(t!(
-                    "workspace-remote-failed",
-                    host = target.as_str(),
-                    error = error
-                ));
+                self.notify(
+                    NoticeKind::Error,
+                    t!(
+                        "workspace-remote-failed",
+                        host = target.as_str(),
+                        error = error
+                    ),
+                );
             }
         }
     }

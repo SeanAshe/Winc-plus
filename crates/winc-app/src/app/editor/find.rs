@@ -536,10 +536,18 @@ impl App {
     ///
     /// 没有可显示文本的文档时不处理。
     pub(in crate::app) fn open_goto(&mut self) {
-        if self.bars.goto_input.is_some() && self.bars.prompt_kind == PromptKind::GoTo {
+        let goto = matches!(
+            self.bars.prompt_kind,
+            PromptKind::GoTo | PromptKind::GoToOffset
+        );
+        if self.bars.goto_input.is_some() && goto {
             self.close_prompt();
             self.focus = Focus::Editor;
             return;
+        }
+        if self.hex_active() {
+            self.finish_name_input();
+            return self.open_goto_offset();
         }
         if self.editor.active.is_none() || !self.active_shows_text() {
             return;
@@ -600,6 +608,7 @@ impl App {
         self.focus = Focus::Editor;
         match std::mem::replace(&mut self.bars.prompt_kind, PromptKind::GoTo) {
             PromptKind::GoTo => self.goto_line(&input),
+            PromptKind::GoToOffset => self.go_to_offset(&input),
             PromptKind::Stash => self.git_stash(&input),
             PromptKind::StashFiles(paths) => self.git_stash_files(&input, paths),
             PromptKind::NewTag { at } => self.git_new_tag(&input, at),

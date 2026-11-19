@@ -12,6 +12,7 @@ mod details;
 mod filter;
 mod keys;
 pub(crate) mod menus;
+mod repository;
 mod time;
 mod tree;
 
@@ -492,6 +493,8 @@ pub(crate) struct LogState {
     /// 读取期间由后台任务持有，返回后再放回此处；重新读取、读取完毕或关闭标签时移除，
     /// `git` 进程随之结束。
     streams: HashMap<DocumentId, (u64, LogStream)>,
+    /// 换了仓库、还没读到它的分支：日志等读到以后按当前分支读取。
+    waiting_branches: bool,
     /// 详情栏中已折行的提交说明，绘制时填入（见 [`Wrapped`]）。
     pub(crate) wrapped: std::cell::RefCell<Option<std::rc::Rc<Wrapped>>>,
 }
@@ -570,6 +573,7 @@ impl Default for LogState {
             branches_failed: HashSet::new(),
             branches_due: None,
             streams: HashMap::new(),
+            waiting_branches: false,
             wrapped: Default::default(),
         }
     }
@@ -586,10 +590,9 @@ impl App {
         let id = self.editor.documents[index].id;
         if new {
             // 新打开的日志默认只显示当前分支的提交；分离 `HEAD` 时显示全部分支。
-            let current = self.git.branches.iter().find(|b| b.current);
-            let branches = current.map(|b| b.name.clone()).into_iter().collect();
+            let (root, branches) = (self.git.root.clone(), self.current_branches());
             if let Some(view) = self.editor.documents[index].log.as_deref_mut() {
-                view.query.branches = branches;
+                view.restart(root, branches);
             }
             self.load_log(id);
         }
@@ -627,7 +630,9 @@ impl App {
         match row {
             Some(row) if !new => self.select_log_row(row),
             _ => {
+                let root = self.git.root.clone();
                 if let Some(view) = self.editor.documents[index].log.as_deref_mut() {
+                    view.root = root;
                     view.query = LogQuery {
                         pin: pin.then(|| oid.to_owned()),
                         ..LogQuery::default()
@@ -666,7 +671,7 @@ impl App {
     /// 在日志中转到 `revision`（提交号、分支名或标签名）：在后台解析成提交，之后选中它（见
     /// [`Self::show_log_commit`]）；任何分支都走不到的提交固定在最前面。无法解析时提示原因。
     pub(in crate::app) fn go_to_log_revision(&mut self, revision: String) {
-        let Some(root) = self.git.root.clone() else {
+        let Some(root) = self.active_log_root().map(Path::to_path_buf) else {
             return;
         };
         let sender = self.git.log.results.0.clone();
@@ -690,7 +695,7 @@ impl App {
     ///
     /// 正在读取或已全部读取时不做任何操作。
     pub(crate) fn load_log(&mut self, id: DocumentId) {
-        let Some(root) = self.git.root.clone() else {
+        let Some(root) = self.log_root(id) else {
             return;
         };
         let Some(view) = self
@@ -761,13 +766,14 @@ impl App {
         }
     }
 
-    /// 在 `HEAD` 或分支变化后重新读取所有已打开的日志标签。
+    /// 在当前仓库的 `HEAD` 或分支变化后重新读取它已打开的日志标签。
     pub(super) fn reload_logs(&mut self) {
+        let root = self.git.root.clone();
         let ids: Vec<DocumentId> = self
             .editor
             .documents
             .iter()
-            .filter(|d| d.log.is_some())
+            .filter(|d| d.log.as_deref().is_some_and(|v| v.root == root))
             .map(|d| d.id)
             .collect();
         for id in ids {
@@ -889,7 +895,7 @@ impl App {
     }
 
     fn fetch_log_details(&mut self, id: DocumentId, oid: String, parent: Option<String>) {
-        let Some(root) = self.git.root.clone() else {
+        let Some(root) = self.log_root(id) else {
             return;
         };
         if !self.git.log.fetching.insert(oid.clone()) {
@@ -1060,7 +1066,7 @@ impl App {
 
     /// 打开日志标签 `log` 中选中提交（或比较）的第 `i` 个改动文件的差异。
     fn open_log_file_of(&mut self, log: DocumentId, i: usize) {
-        let Some(root) = self.git.root.clone() else {
+        let Some(root) = self.log_root(log) else {
             return;
         };
         // 比较两个版本时左侧为旧版本、右侧为新版本；否则左侧为第一个父提交（根提交没有父提交）。
@@ -1131,15 +1137,10 @@ impl App {
         });
     }
 
-    /// 标签 `id` 是否为当前仓库从日志打开的差异。
+    /// 标签 `id` 是否为从仍打开着的日志打开的差异。
     pub(in crate::app) fn steps_log_files(&self, id: DocumentId) -> bool {
         self.git.log.preview == Some(id)
-            && self
-                .git
-                .log
-                .tree
-                .as_ref()
-                .is_some_and(|tree| self.git.root.as_ref() == Some(&tree.source.root))
+            && (self.git.log.tree.as_ref()).is_some_and(|tree| self.log_open_in(&tree.source.root))
     }
 
     /// 返回按文件树显示顺序排列时，同一提交中的下一个（`forward`）或上一个文件。

@@ -276,7 +276,7 @@ impl App {
         if fresh || self.git.changes.computing.contains_key(&id) {
             return;
         }
-        let Some(rope) = doc.text().rope().cloned() else {
+        let Some(rope) = doc.text().rope().filter(|_| doc.holds_file_text()).cloned() else {
             return;
         };
         self.git.changes.computing.insert(id, revision);
@@ -380,7 +380,7 @@ impl App {
         {
             return;
         }
-        let Some(rope) = doc.text().rope() else {
+        let Some(rope) = doc.text().rope().filter(|_| doc.holds_file_text()) else {
             return;
         };
         let hunks = compare(&base, rope);

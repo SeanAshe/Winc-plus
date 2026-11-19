@@ -253,6 +253,33 @@ pub(crate) fn utf16_bom(bytes: &[u8]) -> bool {
     bytes.starts_with(&UTF16LE_BOM) || bytes.starts_with(&UTF16BE_BOM)
 }
 
+/// 识别不带 BOM 的 UTF-16 时看的文件前缀长度（字节）。
+const UNMARKED_SNIFF: usize = 512;
+
+/// 不带 BOM 的 UTF-16 的字节序：开头 [`UNMARKED_SNIFF`] 字节里有 NUL，并且每两个字节中恰好
+/// 高位那个是 NUL（小端在后、大端在前）。只认得出以 ASCII 字符为主的文字；不足这么长、字节数
+/// 又是奇数的不是 UTF-16。
+pub(crate) fn utf16_unmarked(bytes: &[u8]) -> Option<Encoding> {
+    let head = &bytes[..bytes.len().min(UNMARKED_SNIFF)];
+    if !head.contains(&0) || head.len() % 2 == 1 {
+        return None;
+    }
+    let fits =
+        |odd: bool| (head.iter().enumerate()).all(|(i, &b)| (b == 0) == ((i % 2 == 1) == odd));
+    if fits(true) {
+        Some(Encoding::Utf16Le)
+    } else if fits(false) {
+        Some(Encoding::Utf16Be)
+    } else {
+        None
+    }
+}
+
+/// 是否是 UTF-16 的文字（带 BOM，或 [`utf16_unmarked`]）：含大量 NUL，但不是二进制文件。
+pub(crate) fn utf16_text(bytes: &[u8]) -> bool {
+    utf16_bom(bytes) || utf16_unmarked(bytes).is_some()
+}
+
 /// 整个文件的字节解码得到的文字。
 pub(crate) struct Decoded<'a> {
     /// 去掉了开头 BOM 的文字。
@@ -309,6 +336,14 @@ fn decode_in<'a>(bytes: &'a [u8], region: Option<&str>) -> Decoded<'a> {
                 }
             };
         }
+    }
+    // 以 ASCII 为主的 UTF-16 夹着 NUL，也是合法的 UTF-8，要在那之前认出来。
+    if let Some(encoding) = utf16_unmarked(bytes) {
+        let (text, damaged) = decode_as(bytes, encoding);
+        return Decoded {
+            text: Cow::Owned(text),
+            encoding: if damaged { Encoding::Lossy } else { encoding },
+        };
     }
     if let Ok(text) = std::str::from_utf8(bytes) {
         return Decoded {

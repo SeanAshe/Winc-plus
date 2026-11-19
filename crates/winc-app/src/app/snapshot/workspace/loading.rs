@@ -154,7 +154,29 @@ fn a_slow_read_shows_what_is_being_read() {
     shoot(&mut app, "loading-slow");
     assert!(app.hits.placeholder.is_empty());
 
+    // 知道读了多少时带上百分数和进度条；读到新的位置才重画。
+    let id = load.0;
+    let progress = load.2.progress();
+    app.disk.loads.progress.insert(id, progress.clone());
+    progress.begin(200);
+    progress.add(84);
+    assert_eq!(app.reading_progress(id), Some(0.42));
+    let now = Instant::now();
+    app.frame.dirty = false;
+    assert_eq!(app.reading_bar(id), Some(0.0));
+    assert!(app.reading_tick(now).is_some());
+    assert!(app.frame.dirty);
+    // 测试中没有窗口，不播放过渡：进度条直接到位。
+    assert_eq!(app.reading_bar(id), Some(0.42));
+    app.frame.dirty = false;
+    app.reading_tick(now);
+    assert!(!app.frame.dirty);
+    shoot(&mut app, "loading-progress");
+
     deliver(&mut app, load);
     assert!(!app.editor.active().unwrap().is_pending());
+    assert_eq!(app.reading_progress(id), None);
+    assert!(app.disk.loads.bar.is_none());
+    assert_eq!(app.reading_tick(Instant::now()), None);
     let _ = std::fs::remove_dir_all(&dir);
 }

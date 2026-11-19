@@ -300,6 +300,9 @@ impl App {
         if self.log_active() {
             return self.log_parts().list;
         }
+        if self.hex_active() {
+            return self.hex_parts().body;
+        }
         if self.editor.active().is_some_and(|d| d.diff.is_some()) {
             let header = crate::app::diff::DIFF_HEADER;
             Rect::new(
@@ -467,6 +470,13 @@ impl App {
 
     /// 复制选区（`cut` 为 `true` 时剪切）；没有选区时操作光标所在的整行。
     pub(in crate::app) fn copy(&mut self, cut: bool) {
+        // 十六进制视图：复制选中的字节，写成十六进制；只读，不能剪切。
+        if self.hex_active() {
+            if !cut {
+                self.copy_hex(false);
+            }
+            return;
+        }
         // 日志标签：详情中有选中文字时复制选中的文字，否则复制选中提交的完整提交号，
         // 效果同点击详情中的提交号。
         if self.log_active() {

@@ -17,7 +17,7 @@ impl App {
     /// 把文件 `path` 在详情里的版本（选中的提交；比较两个版本时是新的一边）和工作区里的版本
     /// 并排比较，在后台读取，打开为新标签（见 [`Loaded::LocalDiff`]）。
     pub(super) fn compare_log_file_with_local(&mut self, path: PathBuf) {
-        let Some(root) = self.git.root.clone() else {
+        let Some(root) = self.active_log_root().map(Path::to_path_buf) else {
             return;
         };
         let view = self.editor.active().and_then(|d| d.log.as_deref());
@@ -46,7 +46,7 @@ impl App {
 
     /// 在后台取提交 `oid` 的补丁，取到后复制到剪贴板（见 [`Loaded::Patch`]）。
     pub(super) fn copy_log_patch(&mut self, oid: String) {
-        let Some(root) = self.git.root.clone() else {
+        let Some(root) = self.active_log_root().map(Path::to_path_buf) else {
             return;
         };
         let sender = self.git.log.results.0.clone();
@@ -103,6 +103,18 @@ impl App {
         let Some(commit) = self.log_commit(oid) else {
             return;
         };
+        let reads = matches!(
+            command,
+            MenuCommand::LogCopyOid
+                | MenuCommand::LogCopyShortOid
+                | MenuCommand::LogCopyMessage
+                | MenuCommand::LogCopyPatch
+                | MenuCommand::LogGoTo
+                | MenuCommand::LogCompareRevision
+        );
+        if !reads {
+            self.follow_log_root();
+        }
         let oid = oid.to_owned();
         let tag = short(&oid).to_owned();
         // 合并提交拣选、撤销时按第一个父提交算（`-m 1`）。
@@ -248,6 +260,7 @@ impl App {
 
     /// 确认框上确认了 `op`。
     pub(in crate::app) fn run_log_confirmed(&mut self, op: LogConfirmed) {
+        self.follow_log_root();
         match op {
             LogConfirmed::CheckoutTag(name) => {
                 // 写全引用：标签与分支同名时不会签出成分支。

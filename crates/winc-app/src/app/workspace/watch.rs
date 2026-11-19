@@ -195,7 +195,10 @@ impl App {
         if self.disk.watcher.as_ref().is_some_and(Watcher::take_limit) {
             let name = self.editor.root().map(winc_editor::display_name);
             let name = name.as_deref().unwrap_or_default();
-            self.notify(winc_i18n::t!("workspace-watch-limit", name = name));
+            self.notify(
+                NoticeKind::Warning,
+                winc_i18n::t!("workspace-watch-limit", name = name),
+            );
         }
         if let Some(changes) = self.disk.watcher.as_ref().map(Watcher::take) {
             self.apply_changes(changes);
@@ -206,7 +209,10 @@ impl App {
             .collect();
         for folder in limited {
             let name = winc_editor::display_name(&folder);
-            self.notify(winc_i18n::t!("workspace-watch-limit", name = name));
+            self.notify(
+                NoticeKind::Warning,
+                winc_i18n::t!("workspace-watch-limit", name = name),
+            );
         }
         let extra: Vec<Changes> = self.disk.extra_watchers.iter().map(Watcher::take).collect();
         for changes in extra {
@@ -455,7 +461,10 @@ impl App {
                 .map(|n| winc_i18n::t!("workspace-quoted-name", name = n.as_str()))
                 .collect();
             let names = names.join(winc_i18n::t!("workspace-list-separator"));
-            self.notify(winc_i18n::t!("workspace-disk-conflicts", names = names));
+            self.notify(
+                NoticeKind::Warning,
+                winc_i18n::t!("workspace-disk-conflicts", names = names),
+            );
         } else if !report.reloaded.is_empty() {
             let names = report
                 .reloaded

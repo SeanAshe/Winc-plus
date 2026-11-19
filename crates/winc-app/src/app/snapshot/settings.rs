@@ -342,12 +342,11 @@ fn settings_keyboard_walks_every_item_and_adjusts() {
     app.settings_step(true);
     assert_eq!(app.config.language, None);
 
-    // 浅色主题（语言下面是界面缩放、界面字体、字号、字重，macOS 以外的平台还有「使用系统标题栏」，
-    // 然后是状态栏、记住窗口、动态效果三个开关和背景的图片、显示方式、不透明度，再下面是两组
-    // 主题）：外观为深色时选一个浅色主题，外观随之切换。深色主题：→ 换到下一个，外观回到深色；
-    // 到头后不再变化。
-    let title_bar = usize::from(!cfg!(target_os = "macos"));
-    for _ in 0..11 + title_bar {
+    // 浅色主题（语言下面是界面缩放、界面字体、字号、字重，然后是状态栏、动态效果、记住窗口三个
+    // 开关和各平台多出的一个（macOS 上是平滑滚动，其他平台上是使用系统标题栏），以及背景的图片、
+    // 显示方式、不透明度，再下面是两组主题）：外观为深色时选一个浅色主题，外观随之切换。深色主题：
+    // → 换到下一个，外观回到深色；到头后不再变化。
+    for _ in 0..12 {
         app.settings_move(true);
     }
     assert_eq!(app.settings.selected, Setting::LightTheme);
@@ -1091,6 +1090,27 @@ fn the_animations_switch_overrides_the_system_setting() {
     assert_eq!(app.config.ui_animations, Some(true));
     assert!(app.animations_on());
 
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 平滑滚动默认开着，可以单独关掉，不影响其他动态效果；只在 macOS 上列出。
+#[test]
+fn smooth_scrolling_switches_off_on_its_own() {
+    let dir = sample_folder("settings-smooth-scrolling");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    assert_eq!(app.config.smooth_scrolling, None);
+    assert!(app.smooth_scrolling() && app.switch_on(Setting::SmoothScrolling));
+    assert_eq!(Setting::SmoothScrolling.page(), SettingsPage::Appearance);
+
+    app.settings_toggle(Setting::SmoothScrolling);
+    assert_eq!(app.config.smooth_scrolling, Some(false));
+    assert!(!app.smooth_scrolling() && app.animations_on());
+
+    app.open_settings();
+    app.settings_show_page(SettingsPage::Appearance);
+    let listed =
+        (app.settings_layout().rows.iter()).any(|row| row.setting == Setting::SmoothScrolling);
+    assert_eq!(listed, cfg!(target_os = "macos"));
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

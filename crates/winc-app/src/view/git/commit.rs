@@ -138,7 +138,7 @@ pub(in crate::view) fn draw_commit(
     app.git.commit.names.end_frame();
     // 列表的滚动条贴在列表右边，盖在固定的行上面；放得下时没有。
     let content = app.commit_max_scroll() + parts.list.h;
-    let scroll = app.git.commit.scroll;
+    let scroll = drawn_scroll(app.git.commit.scroll);
     draw_list_fade(app, frame, parts.list, content - parts.list.h - scroll);
     draw_scrollbar(
         app,
@@ -182,7 +182,7 @@ pub(in crate::view) fn draw_commit_browse(app: &mut App, frame: &mut Frame<'_>) 
     }
     app.git.commit.names.end_frame();
     let content = app.commit_max_scroll() + parts.list.h;
-    let scroll = app.git.commit.scroll;
+    let scroll = drawn_scroll(app.git.commit.scroll);
     let owner = app.editor.active().map_or(0, |doc| doc.id.0);
     draw_scrollbar(
         app,
@@ -432,7 +432,7 @@ fn draw_list(
         };
         let (block, hidden) = (motion.block(), motion.hidden());
         // 当前仓库的改动列表在动画中的高度：各个仓库一节的底按它先铺好。
-        let scroll = app.commit_block_scroll();
+        let scroll = drawn_scroll(app.commit_block_scroll());
         let (after, _) =
             crate::layout::tree_row_slot(list, scroll, motion.rows.len(), Some(block), hidden);
         let height = after.y - (list.y - scroll);
@@ -494,7 +494,7 @@ fn draw_list(
         draw_other_rows(app, frame, list, block, hits);
         return;
     }
-    let scroll = app.commit_block_scroll();
+    let scroll = drawn_scroll(app.commit_block_scroll());
     let first = (scroll / COMMIT_ROW).floor().max(0.0) as usize;
     let visible = (list.h / COMMIT_ROW).ceil() as usize + 1;
 

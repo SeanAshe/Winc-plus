@@ -124,11 +124,12 @@ impl App {
             MenuCommand::ConvertToTabs => self.convert_indentation(true),
             MenuCommand::DetectIndentation => self.detect_indentation(),
             MenuCommand::LineEnding(eol) => self.change_line_ending(eol),
-            MenuCommand::ReopenEncoding(i) => {
-                if let Some(&(encoding, _)) = CHOICES.get(i) {
-                    self.ask_reopen_with_encoding(id, encoding);
-                }
-            }
+            MenuCommand::ReopenEncoding(i) => match CHOICES.get(i) {
+                Some(&(encoding, _)) if self.hex_active() => self.show_hex_as_text(encoding),
+                Some(&(encoding, _)) => self.ask_reopen_with_encoding(id, encoding),
+                None => {}
+            },
+            MenuCommand::ReopenHex => self.show_hex(),
             MenuCommand::SaveEncoding(i) => {
                 if let Some(&(encoding, _)) = CHOICES.get(i) {
                     self.save_with_encoding(encoding);
@@ -194,7 +195,10 @@ impl App {
                 });
             }
             Err(reason) => {
-                self.notify(t!("workspace-reopen-failed", error = reason.to_string()));
+                self.notify(
+                    NoticeKind::Error,
+                    t!("workspace-reopen-failed", error = reason.to_string()),
+                );
                 self.request_redraw();
             }
         }
@@ -227,7 +231,10 @@ impl App {
                 }
             }
             Ok(false) => {}
-            Err(reason) => self.notify(t!("workspace-reopen-failed", error = reason.to_string())),
+            Err(reason) => self.notify(
+                NoticeKind::Error,
+                t!("workspace-reopen-failed", error = reason.to_string()),
+            ),
         }
         self.request_redraw();
     }

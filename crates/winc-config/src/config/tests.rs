@@ -288,6 +288,7 @@ fn round_trips_through_json() {
         ui_zoom: Some(150),
         ui_native_title_bar: Some(true),
         ui_animations: Some(false),
+        smooth_scrolling: Some(false),
         ui_font_weight: Some(500),
         ui_background_image: Some("/图片/壁纸.jpg".to_string()),
         ui_background_opacity: Some(20.0),

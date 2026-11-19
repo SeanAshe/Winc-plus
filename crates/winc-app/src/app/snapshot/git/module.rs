@@ -177,6 +177,98 @@ fn a_folder_of_repositories_can_switch_between_them() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// 唯一的日志标签（`path` 为真时是文件历史）。
+fn log(app: &App, path: bool) -> &winc_editor::git::log::LogView {
+    let docs = app.editor.documents.iter();
+    let mut views = docs.filter_map(|d| d.log.as_deref());
+    views.find(|v| v.query.path.is_some() == path).unwrap()
+}
+
+/// 换仓库时日志跟着换、从头读取，筛选清空、选中新仓库的 `HEAD`；文件历史留在它的仓库，
+/// 切到它时跟回去。
+#[test]
+fn the_log_follows_the_repository_and_file_histories_stay() {
+    let dir = search_folder("git-log-repositories");
+    let (a, b) = (dir.join("a"), dir.join("b"));
+    for repo in [&a, &b] {
+        std::fs::create_dir_all(repo.join("src")).unwrap();
+        std::fs::write(repo.join("src/main.rs"), "fn main() {}\n").unwrap();
+        if !make_repo(repo) {
+            return;
+        }
+    }
+    for (repo, subject) in [(&a, "in a"), (&b, "in b")] {
+        git_in(repo, &["commit", "-q", "--allow-empty", "-m", subject]);
+    }
+    let mut app = app_with(&dir, false);
+    app.config.repository_scan_depth = Some(1);
+    app.settings_toggle(Setting::GitModule);
+    if git_unusable(&app) {
+        return;
+    }
+    let dir = app.editor.root().unwrap().to_path_buf();
+    let (a, b) = (dir.join("a"), dir.join("b"));
+    assert_eq!(app.git.root.as_ref(), Some(&a));
+
+    let settle = |app: &mut App, done: &dyn Fn(&App) -> bool| {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while std::time::Instant::now() < deadline && !done(app) {
+            paint(app);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    };
+    let top = |app: &App, path: bool| log(app, path).commits.first().map(|c| c.subject.clone());
+
+    app.git_file_history(&a.join("src/main.rs"));
+    settle(&mut app, &|app| top(app, true).is_some());
+    app.run_action(Action::GitShowLog);
+    settle(&mut app, &|app| top(app, false).is_some());
+    assert_eq!(top(&app, false).as_deref(), Some("in a"));
+    app.git.log.filter.set_text("in");
+    if let Some(view) = app.editor.active_mut().and_then(|d| d.log.as_deref_mut()) {
+        view.query.text = "in".into();
+    }
+
+    // 在项目列表里换到 b：日志换成 b 的当前分支，筛选和选中项清空。
+    app.git_switch_repository(1);
+    settle(&mut app, &|app| top(app, false).as_deref() == Some("in b"));
+    let main = log(&app, false);
+    assert_eq!(main.root.as_ref(), Some(&b));
+    assert_eq!(top(&app, false).as_deref(), Some("in b"));
+    assert_eq!(main.query.branches, ["main"]);
+    assert!(main.query.text.is_empty());
+    // 选中的是 b 的 `HEAD`，不是之前在 a 里选中的。
+    let head = main.details.as_ref().map(|d| d.oid.as_str());
+    assert_eq!(head, main.commits.first().map(|c| c.oid.as_str()));
+    assert_eq!(app.git.log.filter.text(), "");
+
+    // 文件历史仍是 a 的，切到它时当前仓库跟回 a，日志也跟着换回来。
+    assert_eq!(log(&app, true).root.as_ref(), Some(&a));
+    let mut docs = app.editor.documents.iter();
+    let history = docs.position(|d| d.log.as_deref().is_some_and(|v| v.query.path.is_some()));
+    app.editor.active = history;
+    app.git_follow_active();
+    assert_eq!(app.git.root.as_ref(), Some(&a));
+    settle(&mut app, &|app| top(app, false).as_deref() == Some("in a"));
+    assert_eq!(log(&app, false).root.as_ref(), Some(&a));
+    assert_eq!(top(&app, true).as_deref(), Some("first"));
+
+    // 另一个仓库里同名文件的历史占用同一个标签时，换成那个文件的。
+    app.git_switch_repository(1);
+    app.git_file_history(&b.join("src/main.rs"));
+    settle(&mut app, &|app| top(app, true).is_some());
+    assert_eq!(log(&app, true).root.as_ref(), Some(&b));
+    let count = app
+        .editor
+        .documents
+        .iter()
+        .filter(|d| d.log.is_some())
+        .count();
+    assert_eq!(count, 2);
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 /// 目录本身就是仓库时只用它，子目录没有仓库时不显示仓库一组。
 #[test]
 fn a_single_repository_lists_only_itself() {

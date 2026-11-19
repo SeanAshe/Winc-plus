@@ -53,6 +53,8 @@ pub enum Pick {
 pub enum PlaceholderAction {
     /// 以文本方式打开二进制文件，只读。
     OpenAsText,
+    /// 按十六进制查看文件的字节。
+    ShowHex,
     /// 读取失败时重试。
     Retry,
     /// 用系统默认应用打开。
@@ -171,6 +173,16 @@ impl App {
     /// 文件在预览标签中时，该标签成为普通标签。
     pub(in crate::app) fn open_path(&mut self, path: &Path) {
         self.open_file(path, false);
+    }
+
+    /// 从窗口外打开了文件 `path`（命令行、文件管理器、程序坞、拖入、「打开」面板）：记入最近
+    /// 打开的文件；目录不记。
+    pub(in crate::app) fn note_opened_file(&mut self, path: &Path) {
+        let path = winc_config::files::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        if self.is_folder(&path) || !self.may_be_file(&path) {
+            return;
+        }
+        self.update_state(|state| state.remember_file(&path));
     }
 
     /// 在预览标签中打开文件 `path`。
@@ -432,6 +444,7 @@ impl App {
 
         match action {
             PlaceholderAction::ShowSource => self.toggle_preview(),
+            PlaceholderAction::ShowHex => self.show_hex(),
             PlaceholderAction::OpenAsText | PlaceholderAction::Retry => {
                 let as_text = action == PlaceholderAction::OpenAsText;
                 // 读好后由 `poll_loads` 换入标签并提示只读的原因。
@@ -447,13 +460,13 @@ impl App {
                     Some(path)
                 };
                 match local {
-                    None => self.notify(t!("workspace-remote-local-only")),
+                    None => self.notify(NoticeKind::Warning, t!("workspace-remote-local-only")),
                     Some(path) => {
                         if let Err(e) = system::open_with_default_app(&path) {
-                            self.notify(t!(
-                                "workspace-open-default-app-failed",
-                                error = e.to_string()
-                            ));
+                            self.notify(
+                                NoticeKind::Error,
+                                t!("workspace-open-default-app-failed", error = e.to_string()),
+                            );
                         }
                     }
                 }
@@ -474,7 +487,7 @@ impl App {
         let local;
         let path = if winc_backend::is_remote(path) {
             let Some(mapped) = self.local_folder(path) else {
-                self.notify(t!("workspace-remote-reveal-unmapped"));
+                self.notify(NoticeKind::Warning, t!("workspace-remote-reveal-unmapped"));
                 return;
             };
             local = mapped;
@@ -483,11 +496,14 @@ impl App {
             path
         };
         if let Err(e) = system::reveal_in_file_manager(path) {
-            self.notify(t!(
-                "workspace-reveal-failed",
-                action = system::reveal_label(),
-                error = e.to_string()
-            ));
+            self.notify(
+                NoticeKind::Error,
+                t!(
+                    "workspace-reveal-failed",
+                    action = system::reveal_label(),
+                    error = e.to_string()
+                ),
+            );
         }
     }
 
@@ -516,17 +532,20 @@ impl App {
         }
         // 远端主机上的目录只能在内置终端中打开：本机的终端程序进不去。
         if remote {
-            self.notify(t!("workspace-remote-terminal"));
+            self.notify(NoticeKind::Warning, t!("workspace-remote-terminal"));
             return;
         }
         if let Err(e) = system::open_terminal(&dir, self.config.external_terminal.as_deref()) {
             let app = self.config.external_terminal.as_deref();
             let app = app.unwrap_or(t!("workspace-terminal-app-fallback"));
-            self.notify(t!(
-                "workspace-open-app-failed",
-                app = app,
-                error = e.to_string()
-            ));
+            self.notify(
+                NoticeKind::Error,
+                t!(
+                    "workspace-open-app-failed",
+                    app = app,
+                    error = e.to_string()
+                ),
+            );
         }
     }
 
@@ -782,7 +801,7 @@ impl App {
                         Some(key) => t!("workspace-deleted-on-disk-key", name = name, key = key),
                         None => t!("workspace-deleted-on-disk", name = name),
                     };
-                    self.notify(message);
+                    self.notify(NoticeKind::Warning, message);
                 }
                 continue;
             }
@@ -847,7 +866,10 @@ impl App {
                 .as_deref()
                 .map(winc_editor::display_name)
                 .unwrap_or_default();
-            self.notify(t!("workspace-save-as-dirty-elsewhere", name = name));
+            self.notify(
+                NoticeKind::Error,
+                t!("workspace-save-as-dirty-elsewhere", name = name),
+            );
             return false;
         }
 
@@ -862,7 +884,10 @@ impl App {
             if let Some(index) = self.editor.index_of(id) {
                 self.activate_tab(index);
             }
-            self.notify(t!("workspace-save-conflict", name = name));
+            self.notify(
+                NoticeKind::Error,
+                t!("workspace-save-conflict", name = name),
+            );
             return false;
         }
         let Some(doc) = self.editor.document_mut(id) else {
@@ -901,11 +926,10 @@ impl App {
                 Ok(None) => {}
                 Err(e) => {
                     let name = doc.name().into_owned();
-                    self.notify(t!(
-                        "workspace-save-failed",
-                        name = name,
-                        error = e.to_string()
-                    ));
+                    self.notify(
+                        NoticeKind::Error,
+                        t!("workspace-save-failed", name = name, error = e.to_string()),
+                    );
                     return false;
                 }
             }
@@ -937,11 +961,10 @@ impl App {
             }
             // 另存为的新位置不以管理员身份重试：那是用户刚选的地方，可以换一个。
             Err(e) if saved_as => {
-                self.notify(t!(
-                    "workspace-save-failed",
-                    name = name,
-                    error = e.to_string()
-                ));
+                self.notify(
+                    NoticeKind::Error,
+                    t!("workspace-save-failed", name = name, error = e.to_string()),
+                );
                 false
             }
             Err(e) => {
@@ -1120,10 +1143,13 @@ impl App {
     #[cfg(all(unix, not(target_os = "macos")))]
     pub(in crate::app) fn pick_failed(&mut self, kind: Pick, error: Option<&str>) {
         self.on_picked(kind, None);
-        self.notify(match error {
-            Some(error) => t!("workspace-picker-failed", error = error),
-            None => t!("workspace-picker-unavailable").to_owned(),
-        });
+        self.notify(
+            NoticeKind::Error,
+            match error {
+                Some(error) => t!("workspace-picker-failed", error = error),
+                None => t!("workspace-picker-unavailable").to_owned(),
+            },
+        );
     }
 
     /// 处理系统面板的选择结果：`path` 为选中的路径，用户取消时为 `None`。
@@ -1145,7 +1171,11 @@ impl App {
         let Some(path) = path else { return };
 
         match kind {
-            Pick::Open | Pick::OpenFolder | Pick::WslFolder(_) => self.open_path(&path),
+            Pick::Open => {
+                self.open_path(&path);
+                self.note_opened_file(&path);
+            }
+            Pick::OpenFolder | Pick::WslFolder(_) => self.open_path(&path),
             Pick::WorktreeFolder => self.worktree_folder_picked(path),
             Pick::AddFolder => self.add_folder(&path),
             Pick::BackgroundImage => self.set_background_image(Some(path)),

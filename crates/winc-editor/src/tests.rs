@@ -331,3 +331,33 @@ fn remote_paths_are_shown_in_the_remote_spelling() {
         Path::new("src").join("lib.rs").to_string_lossy()
     );
 }
+
+/// 大文件从十六进制视图按 UTF-8 切回文本后，文件变化时照常重新读取，不因为「选过 UTF-8」而按
+/// 只能整个读入内存的方式读。
+#[test]
+fn a_large_file_chosen_as_utf8_still_rereads() {
+    let dir = crate::test_util::scratch("hex-large-utf8");
+    let path = dir.join("big.log");
+    std::fs::write(&path, "a\n".repeat(LARGE_FILE as usize / 2 + 1)).unwrap();
+    let mut editor = Editor::default();
+    let index = editor.open(&path);
+    assert!(editor.show_hex(index) && editor.load(index));
+    assert!(editor.documents[index].hex.is_some());
+    assert!(editor.show_text(index, Encoding::Utf8) && editor.load(index));
+    let doc = &mut editor.documents[index];
+    assert!(doc.hex.is_none() && doc.is_large());
+
+    std::fs::write(&path, "b\n".repeat(LARGE_FILE as usize / 2 + 2)).unwrap();
+    let crate::DiskSync::Reread(reread) = doc.check_disk() else {
+        panic!("应当重新读取");
+    };
+    doc.apply_reread(reread.read()).unwrap();
+    assert!(doc.is_large());
+    assert_eq!(
+        winc_core::Lines::line_content(doc.text(), 0)
+            .slice()
+            .to_string(),
+        "b"
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}

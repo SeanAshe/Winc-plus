@@ -185,7 +185,7 @@ pub(super) fn draw_diff(app: &mut App, frame: &mut Frame<'_>, index: usize) {
     let doc = &app.editor.documents[index];
     let visible = f64::from(parts.body.h / app.fonts.line_height);
     // 滚动位置由两侧共用，各侧分别换算为自己的显示行（见 `DiffView::row_at`）。
-    let pos = doc.scroll_line.max(0.0);
+    let pos = drawn_scroll_line(doc.scroll_line, app.fonts.line_height).max(0.0);
     let scroll = Scroll {
         rows: [
             view.side_scroll(LEFT, pos, visible),

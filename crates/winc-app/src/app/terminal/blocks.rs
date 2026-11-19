@@ -14,6 +14,7 @@ use winc_pty::protocol::{Block, Line, Modes};
 use super::locate::locations;
 use super::tab::{Point, Selection, Unit};
 use super::{App, Focus, Request};
+use crate::app::NoticeKind;
 
 /// 运行超过该时长的命令结束时提醒（毫秒，经验值）：更短的命令提醒过于频繁，反而打断操作。
 const LONG_COMMAND: u32 = 10_000;
@@ -190,7 +191,7 @@ impl App {
         }
         if self.window.focused {
             if let Some(message) = message {
-                self.notify(message);
+                self.notify(NoticeKind::Info, message);
             }
         } else {
             if message.is_some() {
@@ -207,7 +208,7 @@ impl App {
     /// 窗口回到前台：把不在时结束的长命令的结果提示出来。
     pub(crate) fn terminal_window_focused(&mut self) {
         if let Some(message) = self.terminal.pending_notice.take() {
-            self.notify(message);
+            self.notify(NoticeKind::Info, message);
         }
         let t = &mut self.terminal;
         if t.open

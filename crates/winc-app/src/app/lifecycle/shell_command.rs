@@ -5,6 +5,7 @@
 use winc_i18n::t;
 
 use super::App;
+use crate::app::NoticeKind;
 use crate::shell_command::{self, Done, Outcome, Placement};
 
 impl App {
@@ -50,6 +51,11 @@ impl App {
             return;
         };
         let path = done.placement.link.display().to_string();
+        let kind = match outcome {
+            Outcome::Installed | Outcome::Uninstalled => NoticeKind::Done,
+            Outcome::NotInstalled | Outcome::Occupied => NoticeKind::Warning,
+            Outcome::Denied | Outcome::Failed(_) => NoticeKind::Error,
+        };
         let message = match outcome {
             Outcome::Installed => match done.placement.link.parent() {
                 // 图形程序的 `PATH` 与用户 shell 的不同，无法判断目录是否在其中：不属于系统默认
@@ -76,7 +82,7 @@ impl App {
                 t!("shell-command-failed", path = path.as_str(), error = error)
             }
         };
-        self.notify(message);
+        self.notify(kind, message);
         self.request_redraw();
     }
 }

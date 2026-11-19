@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError, mpsc};
+use std::time::{Duration, Instant};
 
 use ropey::Rope;
 use winc_core::movement;
@@ -96,6 +97,9 @@ impl Places {
     }
 }
 
+/// 在依赖目录里找定义时，过了这么久还没找完才提示正在查找，与其他「正在读取」的提示相同。
+const DEPENDENCY_HINT_DELAY: Duration = Duration::from_millis(300);
+
 /// 正在后台搜索整个项目的定义或用法。
 ///
 /// 分两个阶段：先全字或按定义写法搜索整个项目，再在后台线程中逐个文件做词法分析，剔除不算数的
@@ -124,6 +128,15 @@ pub struct DefinitionSearch {
     ///
     /// 结果中有以该类型命名的文件时只取这些文件，否则一并列出当前文件中的定义。
     receiver: Option<(String, Option<Place>)>,
+    /// 搜索的根目录和条件（由 `start_place_search` 填入）；在项目里找不到定义时用它们再到依赖
+    /// 目录里找一遍。
+    scope: Option<(PathBuf, Query)>,
+    /// 是否已经在依赖目录里找过（见 [`App::search_dependencies`]）。
+    in_dependencies: bool,
+    /// 在依赖目录里找到这一刻还没找完时，提示正在查找；提示过以后为 `None`。
+    hint_due: Option<Instant>,
+    /// 是否提示过正在依赖目录中查找：找完时收起这条提示。
+    hinted: bool,
     /// 发起查找时的文档和光标位置（由 `start_place_search` 填入）。
     ///
     /// 搜索结束时用户已经换了标签或挪了光标，就不再弹浮窗、提示或跳转：
@@ -275,6 +288,10 @@ impl App {
             usages_of: None,
             receiver,
             origin: None,
+            scope: None,
+            in_dependencies: false,
+            hint_due: None,
+            hinted: false,
         };
         self.start_place_search(search, &root, &query);
     }
@@ -361,6 +378,10 @@ impl App {
             usages_of: Some(line),
             receiver: None,
             origin: None,
+            scope: None,
+            in_dependencies: false,
+            hint_due: None,
+            hinted: false,
         };
         self.start_place_search(search, &root, &query);
     }
@@ -377,7 +398,13 @@ impl App {
                 let _ = proxy.send_event(UserEvent::Definitions);
             }
         };
-        search.engine.start(root, query, dirty, wake);
+        match search.in_dependencies {
+            true => search
+                .engine
+                .start_in_dependencies(root, query, dirty, wake),
+            false => search.engine.start(root, query, dirty, wake),
+        }
+        search.scope = Some((root.to_path_buf(), query.clone()));
         search.origin = self.editor.active().map(|d| (d.id, d.selection.head));
         self.jumps.definitions = Some(search);
         // 测试中没有事件循环，同步等待搜索结束。
@@ -509,14 +536,50 @@ impl App {
             });
         }
 
+        // 正在查找的提示到此为止。
+        if search.hinted {
+            self.jumps.name_hint = None;
+        }
         match (items.len(), usages) {
             (0, Some(_)) => self.hint_at_name(t!("editor-usages-not-found", name = name.as_str())),
+            (0, None) if !search.in_dependencies && !search.at_caret => {
+                return self.search_dependencies(search);
+            }
             (0, None) => self.no_definition(&name, search.at_caret),
             (1, _) => self.open_place(&items[0], &name),
             (_, Some(_)) => self.show_places(PlacesKind::Usages, name, items),
             (_, None) => self.show_places(PlacesKind::Definitions, name, items),
         }
         self.request_redraw();
+    }
+
+    /// 项目里没有找到定义：到依赖目录（`node_modules`、`.venv` 等，通常被 `.gitignore` 忽略）
+    /// 里再找一遍；找了 [`DEPENDENCY_HINT_DELAY`] 还没找完时在名字旁提示正在查找。
+    fn search_dependencies(&mut self, mut search: DefinitionSearch) {
+        let Some((root, query)) = search.scope.take() else {
+            return self.no_definition(&search.name, search.at_caret);
+        };
+        search.hint_due = Some(Instant::now() + DEPENDENCY_HINT_DELAY);
+        search.in_dependencies = true;
+        search.filtering = None;
+        search.engine.results.clear();
+        self.start_place_search(search, &root, &query);
+    }
+
+    /// 在依赖目录里找定义找到现在还没找完：在名字旁提示一次正在查找；返回下次要检查的时刻。
+    pub(in crate::app) fn definition_tick(&mut self, now: Instant) -> Option<Instant> {
+        let search = self.jumps.definitions.as_mut()?;
+        let due = search.hint_due?;
+        if now < due {
+            return Some(due);
+        }
+        (search.hint_due, search.hinted) = (None, true);
+        let name = search.name.clone();
+        self.hint_at_name(t!(
+            "editor-definition-in-dependencies",
+            name = name.as_str()
+        ));
+        None
     }
 
     /// 在状态栏提示没有找到 `name` 的定义。

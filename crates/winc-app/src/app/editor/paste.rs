@@ -104,7 +104,7 @@ impl App {
             (self.clipboard.set_files(paths), None)
         };
         if !written {
-            self.notify(t!("editor-paste-clipboard-unavailable"));
+            self.notify(NoticeKind::Error, t!("editor-paste-clipboard-unavailable"));
             return false;
         }
         // 写入成功后才替换：写不进时剪贴板里还是上一次的内容，上一次的剪切和远端文件仍然有效。
@@ -194,11 +194,14 @@ impl App {
             Some(dir) => match paste::bring_images(dir, root.as_deref(), files) {
                 Ok(targets) => targets,
                 Err(CopyError { path, error, done }) => {
-                    self.notify(t!(
-                        "editor-paste-copy-failed",
-                        name = display_name(&path),
-                        error = error.to_string()
-                    ));
+                    self.notify(
+                        NoticeKind::Error,
+                        t!(
+                            "editor-paste-copy-failed",
+                            name = display_name(&path),
+                            error = error.to_string()
+                        ),
+                    );
                     // 失败之前复制过来的图片留在磁盘上，同样显示出来。
                     self.files_created(done.into_iter().filter(|t| !files.contains(t)).collect());
                     return;
@@ -244,7 +247,10 @@ impl App {
                 self.insert_snippet(snippet);
                 self.files_created(vec![path]);
             }
-            Err(e) => self.notify(t!("editor-paste-image-save-failed", error = e.to_string())),
+            Err(e) => self.notify(
+                NoticeKind::Error,
+                t!("editor-paste-image-save-failed", error = e.to_string()),
+            ),
         }
     }
 
@@ -295,7 +301,7 @@ impl App {
                 self.move_entries(&moving, &dir);
                 return;
             }
-            self.notify(t!("editor-paste-cut-copied-across-hosts"));
+            self.notify(NoticeKind::Info, t!("editor-paste-cut-copied-across-hosts"));
         }
         if !files.is_empty() {
             let remote = winc_backend::is_remote(&dir)
@@ -336,7 +342,7 @@ impl App {
         failure: Option<String>,
     ) {
         if let Some(message) = failure {
-            self.notify(message);
+            self.notify(NoticeKind::Error, message);
         }
         let Some(ws) = self.editor.workspace.as_mut() else {
             return;

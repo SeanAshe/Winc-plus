@@ -9,6 +9,7 @@ use winc_i18n::t;
 
 use super::files::Pick;
 use crate::app::App;
+use crate::app::NoticeKind;
 use crate::app::input::context_menu::{MenuCommand, MenuEntry, MenuLabel};
 
 impl App {
@@ -42,7 +43,7 @@ impl App {
         } else if self.can_add_folder() {
             self.pick(Pick::AddFolder);
         } else {
-            self.notify(t!("workspace-add-folder-remote"));
+            self.notify(NoticeKind::Warning, t!("workspace-add-folder-remote"));
         }
     }
 
@@ -59,15 +60,18 @@ impl App {
         match workspace.add_folder(path) {
             Ok(_) => self.folders_changed(),
             Err(e) if e.kind() == std::io::ErrorKind::InvalidInput => {
-                self.notify(t!("workspace-add-folder-overlaps"));
+                self.notify(NoticeKind::Warning, t!("workspace-add-folder-overlaps"));
             }
             Err(e) => {
                 let name = winc_editor::display_name(path);
-                self.notify(t!(
-                    "workspace-add-folder-failed",
-                    name = name,
-                    error = e.to_string()
-                ));
+                self.notify(
+                    NoticeKind::Error,
+                    t!(
+                        "workspace-add-folder-failed",
+                        name = name,
+                        error = e.to_string()
+                    ),
+                );
             }
         }
     }
@@ -166,7 +170,10 @@ impl App {
         }
         if !skipped.is_empty() {
             let names = skipped.join(t!("common-list-separator"));
-            self.notify(t!("workspace-add-folder-skipped", names = names));
+            self.notify(
+                NoticeKind::Warning,
+                t!("workspace-add-folder-skipped", names = names),
+            );
         }
         if let Some(workspace) = &mut self.editor.workspace
             && !workspace.extra_folders().is_empty()

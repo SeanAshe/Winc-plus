@@ -171,7 +171,7 @@ impl App {
     /// `done` 是下载好的各项（失败或取消之前下载好的也在内）。
     pub(in crate::app) fn downloaded(&mut self, done: Vec<PathBuf>, failure: Option<String>) {
         if let Some(message) = failure {
-            self.notify(message);
+            self.notify(NoticeKind::Error, message);
         } else if let Some(last) = done.last().cloned() {
             let message = match done.as_slice() {
                 [one] => t!(
@@ -180,7 +180,7 @@ impl App {
                 ),
                 many => t!("workspace-download-done-many", count = many.len()),
             };
-            self.notify_with(message, NoticeAction::Reveal(last));
+            self.notify_with(NoticeKind::Done, message, NoticeAction::Reveal(last));
         }
         self.request_redraw();
     }

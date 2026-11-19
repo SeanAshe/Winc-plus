@@ -7,6 +7,7 @@
 use std::sync::PoisonError;
 
 use super::*;
+use crate::app::NoticeKind;
 
 /// 多仓库时其他仓库一节里的一组。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -861,7 +862,7 @@ impl App {
             // 界面已按成功的结果显示：放弃其余的操作，按各仓库的实际状态重新显示。
             self.git.commit.other_stage_queue.clear();
             self.git.commit.commit_queued = false;
-            self.notify(t!("git-stage-failed", error = e));
+            self.notify(NoticeKind::Error, t!("git-stage-failed", error = e));
         }
         if !self.git.commit.other_stage_queue.is_empty() {
             self.pump_other_staging();

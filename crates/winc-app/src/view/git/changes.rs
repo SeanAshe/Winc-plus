@@ -107,8 +107,9 @@ pub(in crate::view) fn draw_change_popup(app: &mut App, frame: &mut Frame<'_>) {
     } else {
         top_row
     };
-    let first = doc.scroll_line.ceil();
-    let last = (doc.scroll_line + f64::from(text_rect.h / lh)).floor();
+    let scroll = drawn_scroll_line(doc.scroll_line, lh);
+    let first = scroll.ceil();
+    let last = (scroll + f64::from(text_rect.h / lh)).floor();
     let span = rows as f64;
     let start = if bottom_row + span <= last {
         bottom_row
@@ -117,7 +118,7 @@ pub(in crate::view) fn draw_change_popup(app: &mut App, frame: &mut Frame<'_>) {
     } else {
         bottom_row.min(last - span).max(first)
     };
-    let top = text_rect.y + (start - doc.scroll_line) as f32 * lh;
+    let top = text_rect.y + (start - scroll) as f32 * lh;
     let card = Rect::new(x, top + 1.0, w, rows as f32 * lh - 2.0);
     draw_card(frame, p, card, RADIUS_POPUP, p.popup_bg);
 

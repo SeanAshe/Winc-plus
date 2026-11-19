@@ -12,6 +12,7 @@ use super::App;
 use super::blocks::path_from_bytes;
 use super::locate::{locations, url_across};
 use super::tab::TermTab;
+use crate::app::NoticeKind;
 use crate::system;
 use winc_pty::protocol::Line;
 
@@ -224,10 +225,10 @@ impl App {
         match link.target {
             Target::Url(url) => {
                 if let Err(e) = system::open_url(&url) {
-                    self.notify(winc_i18n::t!(
-                        "terminal-link-open-failed",
-                        error = e.to_string()
-                    ));
+                    self.notify(
+                        NoticeKind::Error,
+                        winc_i18n::t!("terminal-link-open-failed", error = e.to_string()),
+                    );
                 }
             }
             Target::File { path, .. } if reveal || self.is_folder(&path) => {

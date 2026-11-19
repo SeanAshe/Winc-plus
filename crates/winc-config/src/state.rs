@@ -7,8 +7,11 @@ use std::path::{Path, PathBuf};
 
 use crate::json::Json;
 
-/// 最近打开的目录的最大数量（个），全部列在「打开最近的目录」中。
+/// 最近打开的目录的最大数量（个），全部列在「打开最近的项目」中。
 pub const MAX_RECENT: usize = 50;
+
+/// 最近打开的文件的最大数量（个），与最近目录相同，列在「打开最近的项目」的目录之后。
+pub const MAX_RECENT_FILES: usize = MAX_RECENT;
 
 /// 项目名菜单列出的最近目录数（个），与徽章颜色数相同：菜单中的目录颜色互不相同。
 pub const RECENT_IN_MENU: usize = BADGE_COLORS;
@@ -39,6 +42,8 @@ impl State {
 pub struct State {
     /// 最近打开的目录，最新的在前，不重复。
     pub recent: Vec<PathBuf>,
+    /// 最近打开的文件，最新的在前，不重复；所有窗口共用。
+    pub recent_files: Vec<PathBuf>,
     /// 每个目录上次的现场，最近的在前，每个目录一条，最多 [`MAX_SESSIONS`] 条。
     pub sessions: Vec<Session>,
     /// 上次退出时开着的目录；退出时没有打开目录则为 `None`，下次启动显示开始页。
@@ -269,6 +274,12 @@ impl State {
                 recent.push(path);
             }
         }
+        let mut recent_files = Vec::new();
+        for path in paths(root.get("recentFiles")) {
+            if !recent_files.contains(&path) && recent_files.len() < MAX_RECENT_FILES {
+                recent_files.push(path);
+            }
+        }
 
         // 已保存的文件写成路径字符串，未保存过的新文件写成 `{"untitled": 备份文件名}`。
         let tab = |value: &Json| -> Option<Tab> {
@@ -493,6 +504,7 @@ impl State {
 
         let mut state = State {
             recent,
+            recent_files,
             badges,
             tool_choices,
             trusted_repos,
@@ -636,7 +648,7 @@ impl State {
 
     /// 序列化为 `state.json` 的内容，末尾带一个换行符。
     ///
-    /// `last`、`previewMode` 没有值，`otherWindows`、`signOffRepos`、`toolChoices`、
+    /// `last`、`previewMode` 没有值，`recentFiles`、`otherWindows`、`signOffRepos`、`toolChoices`、
     /// `trustedRepos`、`vimMarks`、`vimCommands`、`vimSearches` 为空，`commitTree`、
     /// `commitAllRepositories`、`pdfThumbnailsHidden`、`stayOutsideApplications` 为假时省略
     /// 对应的键。
@@ -647,6 +659,10 @@ impl State {
             Json::Array(self.recent.iter().map(path).collect()),
         )];
 
+        if !self.recent_files.is_empty() {
+            let files = self.recent_files.iter().map(path).collect();
+            fields.push(("recentFiles", Json::Array(files)));
+        }
         if let Some(last) = &self.last {
             fields.push(("last", path(last)));
         }
@@ -893,6 +909,18 @@ impl State {
         self.recent.insert(0, folder.to_path_buf());
         self.recent.truncate(MAX_RECENT);
         self.assign_badges();
+    }
+
+    /// 记录打开了一个文件：移到最前面，超出 [`MAX_RECENT_FILES`] 的从末尾移除。
+    pub fn remember_file(&mut self, file: &Path) {
+        self.recent_files.retain(|p| p != file);
+        self.recent_files.insert(0, file.to_path_buf());
+        self.recent_files.truncate(MAX_RECENT_FILES);
+    }
+
+    /// 从最近列表中移除文件 `file`（文件已不存在）。
+    pub fn forget_file(&mut self, file: &Path) {
+        self.recent_files.retain(|p| p != file);
     }
 
     /// 从最近列表中移除目录 `folder`（目录已不存在，或用户选择移除）。

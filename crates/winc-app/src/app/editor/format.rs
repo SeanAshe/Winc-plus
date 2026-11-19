@@ -740,7 +740,11 @@ impl App {
         };
         match error {
             FormatError::Tool { output, .. } => {
-                self.notify_with(message, NoticeAction::ShowOutput(output.clone()));
+                self.notify_with(
+                    NoticeKind::Error,
+                    message,
+                    NoticeAction::ShowOutput(output.clone()),
+                );
             }
             _ if !error.tools_to_install().is_empty() => {
                 let dir = self
@@ -749,10 +753,16 @@ impl App {
                     .and_then(|d| d.path.as_deref()?.parent().map(Path::to_path_buf))
                     .unwrap_or_default();
                 let tools = error.tools_to_install().to_vec();
-                self.notify_with(message, NoticeAction::Install { tools, dir });
+                self.notify_with(
+                    NoticeKind::Error,
+                    message,
+                    NoticeAction::Install { tools, dir },
+                );
             }
-            FormatError::Unset(_) => self.notify_with(message, NoticeAction::FormatSettings),
-            _ => self.notify(message),
+            FormatError::Unset(_) => {
+                self.notify_with(NoticeKind::Error, message, NoticeAction::FormatSettings)
+            }
+            _ => self.notify(NoticeKind::Error, message),
         }
     }
 

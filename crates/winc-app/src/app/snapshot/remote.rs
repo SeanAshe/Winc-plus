@@ -607,7 +607,7 @@ fn a_long_copy_shows_its_progress_and_can_be_cancelled() {
     app.panels.tree.copies.track(Arc::clone(&copying), false);
 
     // 右上角正显示着别的提示：不替换它，等它消失之后再显示进度。
-    app.notify("别的提示");
+    app.notify(crate::app::NoticeKind::Info, "别的提示");
     let now = Instant::now() + Duration::from_secs(1);
     assert!(app.copy_tick(now).is_some_and(|next| next > now));
     assert_eq!(app.notice.text.as_deref(), Some("别的提示"));

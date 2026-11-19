@@ -953,6 +953,45 @@ fn sizes_read_like_finder() {
     assert_eq!(size_text(3_200_000_000), "3.2 GB");
 }
 
+/// 不带 BOM、以 ASCII 为主的 UTF-16 直接按 UTF-16 打开；认不出的（含中文）是二进制，可以按选的
+/// 编码重新打开，之后从磁盘重新读取仍按这个编码，不再变回二进制。
+#[test]
+fn binary_files_reopen_with_a_chosen_encoding_and_keep_it() {
+    let dir = scratch("reopen-binary");
+    let path = dir.join("wide.txt");
+    let unmarked = |text: &str| charset::encode(text, Encoding::Utf16Le).unwrap()[2..].to_vec();
+    fs::write(&path, unmarked("plain ok\n")).unwrap();
+    let doc = Document::open(DocumentId(1), path.clone()).unwrap();
+    assert_eq!(doc.encoding, Encoding::Utf16Le);
+    assert_eq!(doc.text_range(0, usize::MAX).unwrap(), "plain ok\n");
+
+    fs::write(&path, unmarked("中文 ok\n")).unwrap();
+    assert!(matches!(
+        Document::open(DocumentId(1), path.clone()),
+        Err(OpenError::Binary(_))
+    ));
+    let mut doc = Document::open_binary(DocumentId(1), path.clone()).unwrap();
+    assert_eq!(doc.encoding, Encoding::Binary);
+    doc.reopen_with_encoding(Encoding::Utf16Le).unwrap();
+    assert_eq!(doc.encoding, Encoding::Utf16Le);
+    assert_eq!(doc.text_range(0, usize::MAX).unwrap(), "中文 ok\n");
+    assert!(doc.readonly_reason().is_none());
+
+    fs::write(&path, unmarked("改过 ok\n")).unwrap();
+    assert!(doc.take_disk_version().unwrap());
+    assert_eq!(doc.encoding, Encoding::Utf16Le);
+    assert_eq!(doc.text_range(0, usize::MAX).unwrap(), "改过 ok\n");
+
+    fs::write(&path, unmarked("又改了一次 ok\n")).unwrap();
+    let super::disk::DiskSync::Reread(reread) = doc.check_disk() else {
+        panic!("应当重新读取");
+    };
+    doc.apply_reread(reread.read()).unwrap();
+    assert_eq!(doc.encoding, Encoding::Utf16Le);
+    assert_eq!(doc.text_range(0, usize::MAX).unwrap(), "又改了一次 ok\n");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
 /// 回归：「按编码重新打开」把整个文件读进内存再解码。打开以后变大、超过
 /// [`UTF16_INLINE`] 的文件仍然拒绝，文档保持打开时的内容。
 #[test]

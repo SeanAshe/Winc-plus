@@ -449,7 +449,8 @@ impl App {
         }
         let block = motion.map(TreeMotion::block);
         let hidden = motion.map_or(0.0, TreeMotion::hidden);
-        tree_row_slot(self.layout.tree, self.panels.tree.scroll, v, block, hidden)
+        let scroll = crate::layout::drawn_scroll(self.panels.tree.scroll);
+        tree_row_slot(self.layout.tree, scroll, v, block, hidden)
             .0
             .y
     }
@@ -743,7 +744,8 @@ impl App {
     pub(in crate::app) fn name_input_rect(&self) -> Option<Rect> {
         let entry = self.panels.name_input.as_ref()?;
         let tree = self.layout.tree;
-        let y = tree.y + entry.index as f32 * TREE_ROW - self.panels.tree.scroll;
+        let scroll = crate::layout::drawn_scroll(self.panels.tree.scroll);
+        let y = tree.y + entry.index as f32 * TREE_ROW - scroll;
         let rect = Rect::new(tree.x, y, tree.w, TREE_ROW);
         (rect.bottom() > tree.y && rect.y < tree.bottom()).then_some(rect)
     }

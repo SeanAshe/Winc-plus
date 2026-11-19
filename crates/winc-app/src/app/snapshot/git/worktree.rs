@@ -989,3 +989,117 @@ fn snapshot_worktree_dialog() {
         let _ = std::fs::remove_dir_all(&root);
     }
 }
+
+/// 子模块的主工作树是它的目录，不是 `git` 写的 Git 目录：工作树能列出、切换，主分支不算被别的
+/// 工作树签出；新工作树放在最外层仓库旁边，不放进主仓库的工作目录里。
+#[test]
+fn submodule_worktrees_are_listed_and_placed_beside_the_superproject() {
+    let base = search_folder("git-submodule-worktrees");
+    let (source, main) = (base.join("sub-src"), base.join("main"));
+    for repo in [&source, &main] {
+        std::fs::create_dir_all(repo.join("src")).unwrap();
+        std::fs::write(repo.join("src/main.rs"), "fn main() {}\n").unwrap();
+        if !make_repo(repo) {
+            return;
+        }
+    }
+    let add = ["-c", "protocol.file.allow=always", "submodule", "add", "-q"];
+    git_in(
+        &main,
+        &[&add[..], &[source.to_str().unwrap(), "s1"]].concat(),
+    );
+    git_in(&main, &["commit", "-qam", "sub"]);
+    let mut app = app_with(&main, false);
+    app.config.repository_scan_depth = Some(1);
+    app.settings_toggle(Setting::GitModule);
+    if git_unusable(&app) {
+        return;
+    }
+    let main = app.git.repositories[0].clone();
+    let sub = (app.git.repositories.iter())
+        .position(|r| r.ends_with("s1"))
+        .unwrap();
+    let s1 = app.git.repositories[sub].clone();
+    let trees = main.with_file_name("main.worktrees");
+    app.git_switch_repository(sub);
+    app.git_refresh();
+    assert_eq!(app.worktree_dir_hint("feat"), "main.worktrees/s1-feat");
+
+    create(&mut app, "feat");
+    app.git_refresh();
+    let paths: Vec<&Path> = app.git.worktrees.iter().map(|w| w.path.as_path()).collect();
+    assert_eq!(paths, [s1.as_path(), trees.join("s1-feat").as_path()]);
+    assert_eq!(app.git.current_worktree(), Some(0));
+    assert_eq!(app.git.held_branches(), ["feat"]);
+    assert_eq!(app.new_worktree_dir("next"), Some(trees.join("s1-next")));
+
+    // 工作树选择器列出两个，当前的是子模块的目录；仓库选择器里子模块一行也指向它。
+    app.run_action(Action::ShowCommit);
+    app.open_places(false);
+    let rows = app.overlays.picker.location_rows.clone().unwrap();
+    let current: Vec<&Path> = (rows.iter().filter(|r| r.current))
+        .map(|r| r.path.as_path())
+        .collect();
+    assert_eq!((rows.len(), current), (2, vec![s1.as_path()]));
+    app.close_picker();
+    app.open_places(true);
+    let rows = app.overlays.picker.location_rows.clone().unwrap();
+    assert!(rows.iter().any(|r| r.current && r.path == s1));
+    assert!(
+        rows.iter()
+            .all(|r| !r.path.components().any(|c| c.as_os_str() == ".git"))
+    );
+    let _ = std::fs::remove_dir_all(&base);
+}
+
+/// 侧栏底部各栏的标题行（工作树、储藏、大纲）上沿是分隔线：标题行离线下和离一栏下沿一样远。
+#[test]
+fn section_headers_sit_midway_below_their_separator() {
+    let Some((mut app, root)) = git_app("git-section-gaps", false) else {
+        return;
+    };
+    git_in(&root, &["add", "-A"]);
+    git_in(&root, &["commit", "-q", "-m", "base"]);
+    std::fs::write(root.join("src/main.rs"), "fn main() { 1; }\n").unwrap();
+    git_in(&root, &["stash", "push", "-q", "-m", "s"]);
+    std::fs::write(root.join("src/main.rs"), "fn main() { now(); }\n").unwrap();
+    let linked = add_worktree(&root);
+    app.git_refresh();
+    app.run_action(Action::ShowCommit);
+    paint(&mut app);
+    if app.git.commit.worktrees.open {
+        app.press_commit(CommitTarget::Worktrees);
+        app.git.commit.worktrees.motion = None;
+        paint(&mut app);
+    }
+    let band = |app: &App, target: CommitTarget| {
+        (app.hits.commit.iter())
+            .find(|(_, t)| *t == target)
+            .map(|(rect, _)| *rect)
+            .unwrap()
+    };
+    let parts = app.commit_parts();
+    for (area, target) in [
+        (parts.worktrees.unwrap(), CommitTarget::Worktrees),
+        (parts.stashes.unwrap(), CommitTarget::Stashes),
+    ] {
+        let band = band(&app, target);
+        assert_eq!(
+            band.y - (area.y + 1.0),
+            area.bottom() - band.bottom(),
+            "{target:?}"
+        );
+    }
+    // 储藏一组紧贴提交卡片，卡片与标题行之间也只有组内的留白。
+    assert_eq!(parts.stashes.unwrap().bottom(), parts.card.unwrap().y);
+
+    app.run_action(Action::ShowFiles);
+    paint(&mut app);
+    let header = app.outline_header();
+    let (band, _) = *(app.hits.outline.iter())
+        .find(|(_, t)| *t == OutlineTarget::Header)
+        .unwrap();
+    assert_eq!(band.y - (header.y + 1.0), header.bottom() - band.bottom());
+    let _ = std::fs::remove_dir_all(&linked);
+    let _ = std::fs::remove_dir_all(&root);
+}

@@ -8,8 +8,8 @@ use winc_i18n::t;
 
 use super::*;
 use crate::app::{
-    ConflictAction, Focus, NoticeAction, NoticeGhost, PICKER_ICON_X, PICKER_ROW, PICKER_TEXT_X,
-    PickerPart,
+    ConflictAction, Focus, NoticeAction, NoticeGhost, NoticeKind, PICKER_ICON_X, PICKER_ROW,
+    PICKER_TEXT_X, PickerPart, Recent,
 };
 use crate::icons::Direction;
 use crate::layout::{PickerParts, SearchButton};
@@ -233,6 +233,15 @@ pub(super) fn draw_goto(app: &mut App, frame: &mut Frame<'_>) {
                     t!("workspace-goto-title"),
                     t!("workspace-goto-placeholder"),
                     t!("workspace-goto-total", count = total),
+                )
+            }
+            crate::app::PromptKind::GoToOffset => {
+                let view = app.editor.active().and_then(|d| d.hex.as_deref());
+                let size = winc_editor::size_text(view.map_or(0, |v| v.size()));
+                (
+                    t!("hex-goto-title"),
+                    t!("hex-goto-placeholder"),
+                    t!("hex-goto-total", size = size),
                 )
             }
             crate::app::PromptKind::Stash | crate::app::PromptKind::StashFiles(_) => (
@@ -499,7 +508,7 @@ pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
         return;
     }
 
-    let scroll = app.overlays.picker.scroll;
+    let scroll = drawn_scroll(app.overlays.picker.scroll);
 
     for i in parts.visible(scroll, app.overlays.picker.hits.len()) {
         let index = app.overlays.picker.hits[i];
@@ -575,7 +584,7 @@ fn draw_remote_rows(
     let Some(rows) = app.overlays.picker.remote.as_ref().map(|shown| &shown.rows) else {
         return hits;
     };
-    let scroll = app.overlays.picker.scroll;
+    let scroll = drawn_scroll(app.overlays.picker.scroll);
     let count = app.overlays.picker.hits.len();
     for i in parts.visible(scroll, count) {
         let Some(item) = rows.get(app.overlays.picker.hits[i]) else {
@@ -686,7 +695,7 @@ fn draw_vim_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts) {
         );
         return;
     }
-    let scroll = app.overlays.picker.scroll;
+    let scroll = drawn_scroll(app.overlays.picker.scroll);
     for i in parts.visible(scroll, app.overlays.picker.hits.len()) {
         let Some(item) = rows.get(app.overlays.picker.hits[i]) else {
             continue;
@@ -730,7 +739,7 @@ fn draw_palette_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts) {
         return;
     }
 
-    let scroll = app.overlays.picker.scroll;
+    let scroll = drawn_scroll(app.overlays.picker.scroll);
     for i in parts.visible(scroll, app.overlays.picker.hits.len()) {
         let Some(&action) = crate::app::palette().get(app.overlays.picker.hits[i]) else {
             continue;
@@ -791,7 +800,7 @@ fn draw_language_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts) {
         return;
     }
     let current = app.editor.active().map(|d| d.highlighter.language().id);
-    let scroll = app.overlays.picker.scroll;
+    let scroll = drawn_scroll(app.overlays.picker.scroll);
     for i in parts.visible(scroll, app.overlays.picker.hits.len()) {
         let Some(language) = LanguageRow::of(app.overlays.picker.hits[i]) else {
             continue;
@@ -853,7 +862,7 @@ fn draw_symbol_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts) {
         return;
     };
 
-    let scroll = app.overlays.picker.scroll;
+    let scroll = drawn_scroll(app.overlays.picker.scroll);
     for i in parts.visible(scroll, app.overlays.picker.hits.len()) {
         let Some(symbol) = symbols.items.get(app.overlays.picker.hits[i]) else {
             continue;
@@ -879,8 +888,8 @@ fn draw_symbol_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts) {
     }
 }
 
-/// 绘制最近打开的目录：目录图标、目录名，其后是淡色的上级目录；选中或悬停的那一行右端有
-/// 「✕」，点击后从最近列表中移除该目录。返回画出的「✕」，点击和悬停按它们判断。
+/// 绘制最近打开的目录和文件：图标、名字，其后是淡色的上级目录；选中或悬停的那一行右端有
+/// 「✕」，点击后从最近列表中移除这一项。返回画出的「✕」，点击和悬停按它们判断。
 fn draw_folder_rows(
     app: &App,
     frame: &mut Frame<'_>,
@@ -890,7 +899,8 @@ fn draw_folder_rows(
     let list = parts.list;
     if app.overlays.picker.hits.is_empty() {
         let root = app.editor.root();
-        let message = if app.state.recent.iter().any(|f| Some(f.as_path()) != root) {
+        let other = app.state.recent.iter().any(|f| Some(f.as_path()) != root);
+        let message = if other || !app.state.recent_files.is_empty() {
             t!("workspace-picker-no-matching-folders")
         } else {
             t!("workspace-picker-no-recent-folders")
@@ -902,11 +912,17 @@ fn draw_folder_rows(
     }
 
     let mut hits = Vec::new();
-    let scroll = app.overlays.picker.scroll;
+    let scroll = drawn_scroll(app.overlays.picker.scroll);
     let parents = crate::app::parents(&app.state.recent);
+    let file_parents = crate::app::parents(&app.state.recent_files);
     for i in parts.visible(scroll, app.overlays.picker.hits.len()) {
         let index = app.overlays.picker.hits[i];
-        let (Some(folder), Some(parent)) = (app.state.recent.get(index), parents.get(index)) else {
+        let entry = app.recent_entry(index);
+        let parent = match entry {
+            Some(Recent::Folder(_)) => parents.get(index),
+            _ => file_parents.get(index - app.state.recent.len()),
+        };
+        let (Some(entry), Some(parent)) = (entry, parent) else {
             continue;
         };
         let row = parts.row(i, scroll);
@@ -923,11 +939,21 @@ fn draw_folder_rows(
         // 目录图标与文件列表的文件图标、输入框的放大镜在同一条竖直轴线上。
         let cy = icon_center_y(app, row, app.fonts.ui);
         let x = row.x + PICKER_ICON_X + (icons::FILE_WIDTH - icons::FOLDER_WIDTH) / 2.0;
-        if app.recent_group(folder).is_some() {
-            icons::folders(frame, (x, cy - 6.0), p.folder, clip);
-        } else {
-            icons::folder(frame, (x, cy - 6.0), false, p.folder, clip);
-        }
+        let name = match entry {
+            Recent::Folder(folder) => {
+                if app.recent_group(folder).is_some() {
+                    icons::folders(frame, (x, cy - 6.0), p.folder, clip);
+                } else {
+                    icons::folder(frame, (x, cy - 6.0), false, p.folder, clip);
+                }
+                app.recent_title(folder)
+            }
+            Recent::File(file) => {
+                let name = winc_editor::display_name(file).into_owned();
+                draw_file_icon(frame, p, (row.x + PICKER_ICON_X, cy), &name, clip);
+                name
+            }
+        };
 
         // 「✕」只在选中或悬停时显示，但位置始终预留，名称和上级目录不会因它出现而移动。
         let close = Rect::new(
@@ -945,7 +971,6 @@ fn draw_folder_rows(
 
         // 查询命中的字用强调色标出；截短了的文字下标对不上，不标。上级目录放不下时截短，同名
         // 目录保留区分彼此的部分（见 `fit_parent`）。
-        let name = app.recent_title(folder);
         let (in_name, in_parent) = app.folder_matched(i);
         let room = (close.x - 8.0 - (row.x + PICKER_TEXT_X)).max(0.0);
         let shown = ellipsize(frame, &name, app.fonts.ui, room);
@@ -973,6 +998,10 @@ fn draw_folder_rows(
 
 /// 提示条与所在区域（[`App::overlay_area`]）右上角之间的距离（逻辑像素），上边和右边相同。
 const NOTICE_MARGIN: f32 = 8.0;
+/// 提示条、冲突卡片左侧图标的中心离卡片左边的距离（逻辑像素）。
+const NOTICE_ICON_X: f32 = 16.0;
+/// 提示条、冲突卡片中文字离卡片左边的距离（逻辑像素）。
+pub(crate) const NOTICE_TEXT_X: f32 = 30.0;
 /// 提示条出现时滑动的距离（逻辑像素）：从角上往下滑出来。
 const NOTICE_SLIDE: f32 = 6.0;
 
@@ -985,12 +1014,13 @@ pub(super) fn draw_live_notice(
 ) -> (Rect, Option<Rect>) {
     let label = app.notice.action.as_ref().map(NoticeAction::label);
     let busy = (app.notice.action.as_ref()).is_some_and(NoticeAction::in_progress);
+    let mark = if busy { None } else { Some(app.notice.kind) };
     let (opacity, away) = app.notice.entering.map_or((1.0, 0.0), |clock| {
         let t = clock.linear();
         (1.0 - (1.0 - t).powi(2), (1.0 - t).powi(3))
     });
     frame.with_opacity(opacity, |frame| {
-        draw_notice(app, frame, message, label, busy, -NOTICE_SLIDE * away)
+        draw_notice(app, frame, message, label, mark, -NOTICE_SLIDE * away)
     })
 }
 
@@ -1018,20 +1048,32 @@ pub(super) fn draw_conflict(
         font,
         &t!("workspace-conflict-modified", name = ""),
     );
-    // 图标和文字占 34，文字与按钮之间留 16，按钮右边留 8。
+    // 文字与按钮之间留 16，按钮右边留 8。
     let room =
-        (area.w - 2.0 * NOTICE_MARGIN - 20.0 - 34.0 - 16.0 - buttons_w - 8.0 - fixed).max(24.0);
+        (area.w - 2.0 * NOTICE_MARGIN - 20.0 - NOTICE_TEXT_X - 16.0 - buttons_w - 8.0 - fixed)
+            .max(24.0);
     let name = ellipsize(frame, &name, font, room).into_owned();
     let message = t!("workspace-conflict-modified", name = name);
     let text_w = frame.measure(FontKind::Ui, font, &message);
-    let width = 34.0 + text_w + 16.0 + buttons_w + 8.0;
+    let width = NOTICE_TEXT_X + text_w + 16.0 + buttons_w + 8.0;
     let top = app.overlay_top() + NOTICE_MARGIN;
     let card = Rect::new(area.right() - NOTICE_MARGIN - width, top, width, 36.0);
 
     draw_card(frame, p, card, RADIUS_BAR, p.popup_bg);
-    let icon = (card.x + 16.0, icon_center_y(app, card, font));
+    let icon = (
+        card.x + NOTICE_ICON_X,
+        text_icon_center_y(app, card, font, &message),
+    );
     icons::warning(frame, icon, p.warning, card);
-    ui_text(frame, app, card.x + 34.0, card, &message, p.text, card);
+    ui_text(
+        frame,
+        app,
+        card.x + NOTICE_TEXT_X,
+        card,
+        &message,
+        p.text,
+        card,
+    );
 
     let mut x = card.right() - 8.0 - buttons_w;
     let y = card.y + (card.h - BUTTON_SMALL) / 2.0;
@@ -1058,17 +1100,24 @@ pub(super) fn draw_conflict(
 /// 绘制到期后正在原地淡出的提示条。
 pub(super) fn draw_notice_ghost(app: &App, frame: &mut Frame<'_>, ghost: &NoticeGhost) {
     let t = ghost.clock.linear();
-    // 进行中的提示不会到期，淡出的总是带提醒图标的提示。
+    // 进行中的提示不会到期，淡出的总是带种类图标的提示。
     frame.with_opacity(1.0 - t * t, |frame| {
-        draw_notice(app, frame, &ghost.message, ghost.label, false, 0.0)
+        draw_notice(
+            app,
+            frame,
+            &ghost.message,
+            ghost.label,
+            Some(ghost.kind),
+            0.0,
+        )
     });
 }
 
 /// 绘制提示条：靠在所在区域（[`App::overlay_area`]）的右上角，上边和右边留同样的距离；查找条
 /// 打开时排在查找条下方。
 ///
-/// `dy` 是动画中相对停靠位置的竖直偏移。`busy` 为真时左侧是转动的图标，表示事情正在进行；
-/// 否则是提醒图标。
+/// `dy` 是动画中相对停靠位置的竖直偏移。左侧是提示种类 `mark` 的图标；为 `None` 时是转动的
+/// 图标，表示事情正在进行。
 ///
 /// 消息放不下时从中间截短，使提示条不超出所在区域。带按钮的提示（如「查看输出」）把按钮放在右侧。
 /// 返回提示条和按钮的矩形，没有按钮时后者为 `None`。
@@ -1077,7 +1126,7 @@ fn draw_notice(
     frame: &mut Frame<'_>,
     message: &str,
     label: Option<&str>,
-    busy: bool,
+    mark: Option<NoticeKind>,
     dy: f32,
 ) -> (Rect, Option<Rect>) {
     let p = app.palette;
@@ -1085,8 +1134,8 @@ fn draw_notice(
     let button_w = label.map_or(0.0, |label| {
         frame.measure(FontKind::Ui, app.fonts.ui, label) + 16.0 + 8.0
     });
-    // 左侧留给图标：图标中心距左边 16，文字从 34 开始。
-    let pad = 34.0 + 16.0;
+    // 左侧留给图标，文字右边留 16。
+    let pad = NOTICE_TEXT_X + 16.0;
     let room = (area.w - 2.0 * NOTICE_MARGIN - 20.0 - pad - button_w).max(0.0);
     let message = ellipsize(frame, message, app.fonts.ui, room);
     let width = frame.measure(FontKind::Ui, app.fonts.ui, &message) + pad + button_w;
@@ -1099,15 +1148,29 @@ fn draw_notice(
     let x = area.right() - NOTICE_MARGIN - width;
     let rect = Rect::new(x, (top + dy).round(), width, 36.0);
 
-    // 浮层统一用白底卡片，只用提醒图标的颜色表示需要注意，不整块铺底色。
+    // 浮层统一用白底卡片，只用图标的颜色区分提示的种类，不整块铺底色。
     draw_card(frame, p, rect, RADIUS_BAR, p.popup_bg);
-    let icon = (rect.x + 16.0, icon_center_y(app, rect, app.fonts.ui));
-    if busy {
-        icons::refresh_turned(frame, icon, icons::spin_turn(), p.text_muted, rect);
-    } else {
-        icons::warning(frame, icon, p.warning, rect);
+    let size = app.fonts.ui;
+    let icon = (
+        rect.x + NOTICE_ICON_X,
+        text_icon_center_y(app, rect, size, &message),
+    );
+    match mark {
+        None => icons::refresh_turned(frame, icon, icons::spin_turn(), p.text_muted, rect),
+        Some(NoticeKind::Info) => icons::info(frame, icon, p.accent, rect),
+        Some(NoticeKind::Done) => icons::done(frame, icon, p.git_added, rect),
+        Some(NoticeKind::Warning) => icons::warning(frame, icon, p.warning, rect),
+        Some(NoticeKind::Error) => icons::error(frame, icon, p.error, rect),
     }
-    ui_text(frame, app, rect.x + 34.0, rect, &message, p.text, rect);
+    ui_text(
+        frame,
+        app,
+        rect.x + NOTICE_TEXT_X,
+        rect,
+        &message,
+        p.text,
+        rect,
+    );
 
     let Some(label) = label else {
         return (rect, None);

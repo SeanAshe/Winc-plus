@@ -57,6 +57,9 @@ pub fn repo_name(main: &Path) -> String {
 /// 返回新建工作树的目录：`folder` 下的 `<仓库名>/<分支名>`；没有 `folder` 时放在主工作树
 /// `main` 旁边的 `<仓库名>.worktrees/<分支名>`，同名目录已存在时加后缀。
 ///
+/// `main` 是子模块时按最外层的仓库算（[`worktree_anchor`]），目录名前面加上子模块的相对路径
+/// （`app.worktrees/libs-core-feat`）。
+///
 /// `folder` 对应配置项 `git.worktreeRoot`，开头的 `~/` 展开为 `home`，相对路径相对于 `main`。
 /// `home` 是 `main` 所在系统中用户的主目录（[`crate::wsl::home_dir`]）。
 pub fn worktree_dir(
@@ -65,7 +68,29 @@ pub fn worktree_dir(
     home: Option<&Path>,
     branch: &str,
 ) -> PathBuf {
-    unique_dir(&worktree_parent(main, folder, home), branch)
+    let anchor = worktree_anchor(main);
+    let inner = main.strip_prefix(&anchor).unwrap_or(Path::new(""));
+    let mut name: Vec<String> = (inner.components())
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    name.push(branch.to_owned());
+    unique_dir(&worktree_parent(&anchor, folder, home), &name.join("-"))
+}
+
+/// 返回新建工作树放在哪个仓库旁边：主工作树 `main`；它是子模块（Git 目录在外层仓库的 `.git`
+/// 里）时是最外层的那个仓库，新工作树不放进其他仓库的工作目录里。
+pub fn worktree_anchor(main: &Path) -> PathBuf {
+    let real = |p: PathBuf| winc_config::files::canonicalize(&p).unwrap_or(p);
+    let mut anchor = main.to_path_buf();
+    while let Some(outer) = anchor.parent().and_then(find_root) {
+        let own = git_common_dir(&anchor).map(real);
+        let store = real(outer.join(".git"));
+        if !own.is_some_and(|dir| dir.starts_with(&store)) {
+            break;
+        }
+        anchor = outer;
+    }
+    anchor
 }
 
 /// 返回新建工作树所在的上层目录：`folder` 下的 `<仓库名>`；没有 `folder` 时是主工作树
@@ -142,7 +167,25 @@ impl Git {
                 worktree.path = real;
             }
         }
+        self.main_checkout(root, &mut worktrees, cancel);
         Ok(worktrees)
+    }
+
+    /// 子模块的主工作树 `git` 写成它的 Git 目录（工作目录记在 `core.worktree`）：换成工作目录。
+    fn main_checkout(&self, root: &Path, worktrees: &mut [Worktree], cancel: &Cancel) {
+        let common = git_common_dir(root).and_then(|d| winc_config::files::canonicalize(d).ok());
+        let Some(main) = (worktrees.first_mut())
+            .filter(|w| w.head.is_some() && common.as_ref() == Some(&w.path))
+        else {
+            return;
+        };
+        let mut command = self.command(&main.path);
+        command.args(["rev-parse", "--show-toplevel"]);
+        let Ok(top) = self.run(&mut command, STATUS_TIMEOUT, cancel) else {
+            return;
+        };
+        let top = crate::host::resolve(root, String::from_utf8_lossy(&top).trim());
+        main.path = winc_config::files::canonicalize(&top).unwrap_or(top);
     }
 
     /// 把仓库 `from` 里被忽略、匹配 `globs` 的文件复制到新建的工作树 `to` 的同一位置。

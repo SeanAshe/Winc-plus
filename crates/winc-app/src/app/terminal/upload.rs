@@ -17,6 +17,7 @@ use winc_i18n::t;
 
 use super::editor::{shell_quote, shell_safe};
 use super::*;
+use crate::app::NoticeKind;
 use crate::app::editor::clipboard::ClipImage;
 
 /// 在远端准备存放目录的脚本：`$XDG_CACHE_HOME/winc/paste`（没有设置时为 `~/.cache/winc/paste`），
@@ -171,7 +172,10 @@ impl App {
         let payload = if !files.is_empty() {
             if let Some(folder) = files.iter().find(|file| winc_backend::fs::is_dir(file)) {
                 let name = winc_editor::display_name(folder);
-                self.notify(t!("terminal-upload-folder", name = name));
+                self.notify(
+                    NoticeKind::Warning,
+                    t!("terminal-upload-folder", name = name),
+                );
                 return true;
             }
             let size = (files.iter())
@@ -179,7 +183,7 @@ impl App {
                 .map(|meta| meta.len)
                 .sum::<u64>();
             if size > MAX_UPLOAD {
-                self.notify(too_large(size));
+                self.notify(NoticeKind::Warning, too_large(size));
                 return true;
             }
             Payload::Files(files)
@@ -211,7 +215,10 @@ impl App {
         let paths = match result {
             Ok(paths) => paths,
             Err(error) => {
-                self.notify(t!("terminal-upload-failed", error = error));
+                self.notify(
+                    NoticeKind::Error,
+                    t!("terminal-upload-failed", error = error),
+                );
                 return;
             }
         };
@@ -219,7 +226,10 @@ impl App {
         if self.terminal.tab().is_some_and(|tab| tab.id == id) {
             self.confirmed_terminal_paste(id, text);
         } else {
-            self.notify(t!("terminal-upload-elsewhere", path = text));
+            self.notify(
+                NoticeKind::Done,
+                t!("terminal-upload-elsewhere", path = text),
+            );
         }
     }
 }

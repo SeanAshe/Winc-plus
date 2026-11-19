@@ -130,9 +130,9 @@ impl App {
         let doc = self.editor.document(id).filter(|doc| !doc.is_large());
         let path = doc.and_then(|doc| doc.path.as_deref());
         if path.is_some_and(|path| crate::elevated::can_retry(path, error)) {
-            self.notify_with(message, NoticeAction::SaveAsAdmin(id));
+            self.notify_with(NoticeKind::Error, message, NoticeAction::SaveAsAdmin(id));
         } else {
-            self.notify(message);
+            self.notify(NoticeKind::Error, message);
         }
     }
 
@@ -153,7 +153,10 @@ impl App {
             if let Some(index) = self.editor.index_of(id) {
                 self.activate_tab(index);
             }
-            self.notify(winc_i18n::t!("workspace-save-conflict", name = name));
+            self.notify(
+                NoticeKind::Error,
+                winc_i18n::t!("workspace-save-conflict", name = name),
+            );
             return;
         }
         let Some(doc) = self.editor.document_mut(id) else {

@@ -68,7 +68,7 @@ pub(super) fn draw_details(
     let p = app.palette;
     let area = parts.details;
     // 内容的上沿（随滚动往上走）：没有内容时返回它，内容高度就是 0。
-    let top = area.y - view.details_scroll;
+    let top = area.y - drawn_scroll(view.details_scroll);
     // 列表空着（筛完没有、还在读、出错）：提示在 `draw_list` 里整个标签居中写，这里不画。
     if view.commits.is_empty() {
         return top;
@@ -101,7 +101,7 @@ pub(super) fn draw_details(
     };
     let x = area.x + PAD;
     let width = area.w - 2.0 * PAD;
-    let mut y = area.y + details_top(app.fonts.line_height) - view.details_scroll;
+    let mut y = area.y + details_top(app.fonts.line_height) - drawn_scroll(view.details_scroll);
 
     // 说明：第一行用正文字号，其余淡色小字，按宽度折行。
     let message = details
@@ -337,7 +337,7 @@ fn draw_compare(
     let p = app.palette;
     let x = area.x + PAD;
     let width = area.w - 2.0 * PAD;
-    let mut y = area.y + details_top(app.fonts.line_height) - view.details_scroll;
+    let mut y = area.y + details_top(app.fonts.line_height) - drawn_scroll(view.details_scroll);
     let row = Rect::new(x, y, width, 24.0);
     ui_text(frame, app, x, row, t!("git-compare-title"), p.text, area);
     y += 30.0;

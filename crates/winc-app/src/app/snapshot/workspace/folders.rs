@@ -4,6 +4,7 @@ use winit::keyboard::{Key, NamedKey};
 
 use super::*;
 use crate::app::input::context_menu::{MenuCommand, MenuEntry, MenuTarget};
+use crate::app::{MenuIcon, PopupRow};
 
 /// 文件树各行的名字和缩进层级。
 fn rows(app: &App) -> Vec<(String, usize)> {
@@ -179,6 +180,13 @@ fn a_folder_can_be_added_to_the_window_and_removed() {
         elsewhere.group_folders(index),
         [main.clone(), other.clone()]
     );
+    // 这一行和单个目录一样带图标，用的是目录组的图标。
+    let popup = elsewhere.popup().unwrap();
+    let icon = (popup.levels[0].rows.iter()).find_map(|row| match row {
+        PopupRow::Submenu { label, icon, .. } if label.title == "数据平台" => Some(*icon),
+        _ => None,
+    });
+    assert_eq!(icon, Some(Some(MenuIcon::Folders)));
     // 展开子菜单再截图。
     paint(&mut elsewhere);
     let row = elsewhere

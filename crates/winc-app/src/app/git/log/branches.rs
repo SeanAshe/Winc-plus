@@ -46,7 +46,7 @@ impl App {
     /// 在后台查找包含日志标签 `id` 选中的提交的分支（已经查到或正在查时不再查）；只查选中的，
     /// 不随详情预取：分支多、历史长时较慢，键盘连续移动时只查停下的那个。
     pub(super) fn fetch_log_branches(&mut self, id: DocumentId) {
-        let Some(root) = self.git.root.clone() else {
+        let Some(root) = self.log_root(id) else {
             return;
         };
         let view = self.editor.document(id).and_then(|d| d.log.as_deref());

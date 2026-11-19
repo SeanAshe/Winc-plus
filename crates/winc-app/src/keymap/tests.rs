@@ -284,7 +284,7 @@ fn vscode_key_labels_per_system() {
         None
     );
 
-    // ⌃R（其他系统上 Ctrl+R）打开最近的目录；终端里交给 shell，用于反向搜索历史。
+    // ⌃R（其他系统上 Ctrl+R）打开最近的项目；终端里交给 shell，用于反向搜索历史。
     for os in ALL_OS {
         let ctrl_r = |context| runs(os, Mods::CTRL, KeyCode::Char('r'), context);
         assert_eq!(ctrl_r(Context::Editor), Some(Action::OpenRecent));

@@ -616,7 +616,7 @@ impl Action {
             AddFolder => "Add Folder to Window",
             RemoteConnect => "Remote: Connect to SSH Host…",
             RemoteDisconnect => "Remote: Disconnect",
-            OpenRecent => "Open Recent Folder",
+            OpenRecent => "Open Recent",
             Save => "Save",
             SaveAs => "Save As",
             CloseTab => "Close Editor",

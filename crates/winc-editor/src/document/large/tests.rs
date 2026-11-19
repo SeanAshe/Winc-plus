@@ -77,8 +77,12 @@ fn matches_rope_line_by_line() {
 fn segmented_index_matches_single_pass() {
     let content = sample(5000);
     let path = write_temp("segments", content.as_bytes());
-    let single = Original::open(File::open(&path).unwrap().into(), 1).unwrap();
-    let parallel = Original::open(File::open(&path).unwrap().into(), 7).unwrap();
+    let single = Original::open(File::open(&path).unwrap().into(), 1, None).unwrap();
+    // 各段扫描过的字节都计入进度，合起来正好是整个文件。
+    let progress = ReadProgress::default();
+    progress.begin(content.len() as u64);
+    let parallel = Original::open(File::open(&path).unwrap().into(), 7, Some(&progress)).unwrap();
+    assert_eq!(progress.fraction(), Some(1.0));
 
     assert_eq!(
         (parallel.newlines, parallel.chars),
@@ -283,7 +287,7 @@ fn overlong_lines_are_capped_but_positions_stay_exact() {
     // 开头多一个 ASCII 字符，使上限恰好切开一个两字节字符。
     let content = format!("a{}\nshort\n", "é".repeat(64));
     let path = write_temp("long", content.as_bytes());
-    let large = LargeText::open_with(File::open(&path).unwrap().into(), 64).unwrap();
+    let large = LargeText::open_with(File::open(&path).unwrap().into(), 64, None).unwrap();
     let rope = Rope::from_str(&content);
 
     assert!(large.has_overlong_lines());
@@ -520,7 +524,7 @@ fn positions_inside_long_lines_are_indexed() {
         writeln!(content, "{i} {}", unit.repeat(150_000)).unwrap();
     }
     let path = write_temp("long-marks", content.as_bytes());
-    let large = LargeText::open_with(File::open(&path).unwrap().into(), LINE_CAP).unwrap();
+    let large = LargeText::open_with(File::open(&path).unwrap().into(), LINE_CAP, None).unwrap();
     let rope = Rope::from_str(&content);
     assert!(
         large.original.marks.len() > 6,

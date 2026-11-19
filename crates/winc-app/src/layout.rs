@@ -87,6 +87,9 @@ pub struct Layout {
     pub terminal: Rect,
     /// 编辑区和终端面板之间的间距：面板在下方时上下拖动调整高度，在右侧时左右拖动调整宽度。
     pub terminal_divider: Rect,
+    /// 编辑区一栏（顶栏那一行连同下面的编辑区），终端面板最大化时铺满这一栏；面板关闭时尺寸
+    /// 为 0。
+    pub column: Rect,
 }
 
 impl Layout {
@@ -221,6 +224,7 @@ impl Layout {
             status,
             terminal: Rect::default(),
             terminal_divider: Rect::default(),
+            column: Rect::default(),
         }
     }
 }
@@ -259,6 +263,17 @@ pub fn preview_segments(group: Rect) -> [Rect; 3] {
     let k = group.w / PREVIEW_GROUP_W;
     let (w, gap) = (BUTTON * k, TAB_GAP * k);
     [0.0, 1.0, 2.0].map(|i| Rect::new(group.x + (w + gap) * i, group.y, w, group.h))
+}
+
+/// 绘制用的滚动位置（逻辑像素）：取整到整像素，使按整像素取整的文字与底色、选区一起移动。
+pub fn drawn_scroll(scroll: f32) -> f32 {
+    scroll.round()
+}
+
+/// 按行计的滚动位置 `line`（行高 `lh`）绘制时的位置：换算成像素后取整（见 [`drawn_scroll`]）。
+pub fn drawn_scroll_line(line: f64, lh: f32) -> f64 {
+    let lh = f64::from(lh);
+    (line * lh).round() / lh
 }
 
 /// 返回文件树第 `v` 行（从 0 起）的位置和裁剪范围；动画中行序按展开后的状态计算。

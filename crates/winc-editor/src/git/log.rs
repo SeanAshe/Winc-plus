@@ -5,6 +5,8 @@
 //! [`LogView::finish`] 接上交回来的），提交图从上一批继续往下算。取提交、取详情都在后台线程
 //! 里完成，本模块只保存结果和取提交的进度。
 
+use std::path::PathBuf;
+
 use winc_core::graph::{Graph, GraphRow};
 
 use crate::git::{Commit, CommitFile, LogQuery, Ref};
@@ -49,6 +51,8 @@ pub struct LogView {
     pub details_scroll: f32,
     /// 重取的次数；后台请求交回来时该值不匹配就丢弃。
     generation: u64,
+    /// 所在仓库的根目录，取提交、详情和差异都在这里取。
+    pub root: Option<PathBuf>,
     /// 筛选条件。
     pub query: LogQuery,
     /// 正在比较两个版本（两个提交，或者两个分支）：详情一栏换成两者之间改了的文件。
@@ -263,6 +267,22 @@ impl LogView {
         for d in details.chain(&mut self.cache) {
             d.branches = None;
         }
+    }
+
+    /// 换成仓库 `root` 的日志，从头取：提交、选中项、详情、比较和筛选条件都清空，筛选只留
+    /// `branches`。后台还在跑的请求就此作废。
+    pub fn restart(&mut self, root: Option<PathBuf>, branches: Vec<String>) {
+        *self = LogView {
+            root,
+            query: LogQuery {
+                branches,
+                ..LogQuery::default()
+            },
+            generation: self.generation + 1,
+            compare_request: self.compare_request + 1,
+            fetch: self.fetch,
+            ..LogView::default()
+        };
     }
 
     /// 记下包含提交 `oid` 的分支：选中的、之前显示的和缓存里的详情一并更新。

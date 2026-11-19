@@ -427,7 +427,7 @@ fn draw_rebase(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
     let list = layout.list;
     let focused_list = focus == DialogPart::RebaseList;
     for (i, row) in form.rows.iter().enumerate() {
-        let y = list.y + i as f32 * REBASE_ROW_H - form.scroll;
+        let y = list.y + i as f32 * REBASE_ROW_H - drawn_scroll(form.scroll);
         let band = Rect::new(list.x, y, list.w, REBASE_ROW_H);
         if band.bottom() < list.y || band.y > list.bottom() {
             continue;

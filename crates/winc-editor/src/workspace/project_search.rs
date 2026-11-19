@@ -32,7 +32,7 @@ use memchr::{memchr_iter, memchr2_iter};
 use ropey::Rope;
 use winc_core::Lines;
 
-use crate::document::encoding::{UTF8_BOM, decode, utf16_bom};
+use crate::document::encoding::{UTF8_BOM, decode, utf16_bom, utf16_text, utf16_unmarked};
 use crate::document::large::{LINE_CAP, visible_len};
 use crate::document::{
     BINARY_SNIFF, Document, DocumentId, LARGE_FILE, OPEN_LIMIT, UTF16_INLINE, looks_binary,
@@ -221,6 +221,29 @@ impl ProjectSearch {
         dirty: Vec<(PathBuf, Rope)>,
         wake: impl Fn() + Send + Sync + 'static,
     ) {
+        self.begin(root, query, dirty, Arc::new(wake), false);
+    }
+
+    /// 和 [`Self::start`] 一样，但只在根目录和附加目录下的依赖目录（`node_modules`、`.venv`
+    /// 等）里找，其中被 `.gitignore` 忽略的文件也搜索；「包含」「排除」不生效。
+    pub fn start_in_dependencies(
+        &mut self,
+        root: &Path,
+        query: &Query,
+        dirty: Vec<(PathBuf, Rope)>,
+        wake: impl Fn() + Send + Sync + 'static,
+    ) {
+        self.begin(root, query, dirty, Arc::new(wake), true);
+    }
+
+    fn begin(
+        &mut self,
+        root: &Path,
+        query: &Query,
+        dirty: Vec<(PathBuf, Rope)>,
+        wake: Arc<dyn Fn() + Send + Sync>,
+        dependencies: bool,
+    ) {
         self.clear();
         self.query = Some(query.clone());
         self.root = root.to_path_buf();
@@ -249,12 +272,12 @@ impl ProjectSearch {
         };
 
         self.matcher = Some(matcher);
-        self.wake = Some(Arc::new(wake));
-        self.launch(
-            Source::Tree(overrides, query.include_ignored),
-            Arc::new(dirty.into_iter().collect()),
-            None,
-        );
+        self.wake = Some(wake);
+        let source = match dependencies {
+            true => Source::Dependencies,
+            false => Source::Tree(overrides, query.include_ignored),
+        };
+        self.launch(source, Arc::new(dirty.into_iter().collect()), None);
     }
 
     /// 清空结果并作废正在进行的搜索：版本号递增，之后到达的旧结果会被丢弃。

@@ -22,6 +22,7 @@ pub(in crate::view) use viewer::draw_diagram_view;
 use winc_typeset::Item;
 
 use crate::app::preview::markdown::laid::*;
+use crate::layout::drawn_scroll;
 
 /// 在 `area`（窗口坐标，逻辑像素）里画当前文档的 Markdown 预览，分栏时是右半边，只看预览时
 /// 是整个编辑区。
@@ -89,7 +90,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
     let mut before = None;
     // 很长的文档只保留这个范围内的块的排版结果：视口前后各两屏，以及光标、选区所在的块前后。
     let near = {
-        let view = app.preview.markdown.scroll() - pad;
+        let view = drawn_scroll(app.preview.markdown.scroll()) - pad;
         let around = |block: usize| block.saturating_sub(NEAR_BLOCKS)..block + NEAR_BLOCKS + 1;
         let chosen = app.preview.markdown.selection;
         let picked = (app.preview.markdown.layout.as_ref().zip(chosen)).map(|(laid, (a, b))| {
@@ -141,7 +142,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
             // 文字未变时保留旧的各块供沿用，并记录视口顶边所在的块，排版期间保持其屏幕位置。
             let same = (old.as_ref())
                 .filter(|l| l.source == source && l.blocks.len() == parsed.blocks.len());
-            let top = app.preview.markdown.scroll();
+            let top = drawn_scroll(app.preview.markdown.scroll());
             let held = same.and_then(|l| l.place_at(top - l.pad));
             let mut window = same.map(|l| l.blocks_in(top - l.pad - area.h, top + area.h * 2.0));
             let mut kept = same.map(|l| l.blocks.clone());
@@ -696,7 +697,7 @@ fn draw_source_numbers(app: &App, frame: &mut Frame<'_>, area: Rect) {
         return;
     }
     let lit = selected_rows(laid, rope, &doc.selection);
-    let top = app.preview.markdown.scroll() - laid.pad;
+    let top = drawn_scroll(app.preview.markdown.scroll()) - laid.pad;
     let lines = crate::app::preview::markdown::laid::source_lines(laid, rope, top..top + area.h);
     for (line, y) in lines {
         let number = (line + 1).to_string();
@@ -867,7 +868,7 @@ fn draw_toc(app: &mut App, frame: &mut Frame<'_>, area: Rect, pad: f32) {
         return;
     }
     let p = app.palette;
-    let scroll = app.preview.markdown.scroll();
+    let scroll = drawn_scroll(app.preview.markdown.scroll());
     let max = (app.preview.markdown.height - area.h).max(0.0);
     // 当前所在的一节：顶边已经滚到预览顶上（或以上）的最后一个标题。滚到底时，文末几个标题
     // 滚不到顶上，取屏幕里看得到的最后一个；在标题列表里点过、之后没有再滚动时，取点的那一个。

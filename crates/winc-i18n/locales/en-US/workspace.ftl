@@ -317,14 +317,14 @@ workspace-picker-recently-used = Recently used
 workspace-picker-symbols-too-large = File too large to list symbols
 workspace-picker-no-symbols = No symbols found in this file
 workspace-picker-no-matching-symbols = No matching symbols
-workspace-picker-folders-placeholder = Search folders by name or path…
+workspace-picker-folders-placeholder = Search by name or path…
 workspace-picker-languages-placeholder = Select a language…
 workspace-picker-folders-new-window = { $platform ->
     [macos] ⌥↩
    *[other] Alt+Enter
 } Open in New Window
-workspace-picker-no-recent-folders = No recently opened folders
-workspace-picker-no-matching-folders = No matching folders
+workspace-picker-no-recent-folders = No recently opened folders or files
+workspace-picker-no-matching-folders = No matching folders or files
 workspace-conflict-modified = “{ $name }” was changed by another app
 
 ## Tooltips
@@ -473,6 +473,7 @@ workspace-open-folder-failed = Couldn’t open folder “{ $name }”: { $error 
 workspace-recent-missing = Couldn’t find “{ $path }”; removed it from the recent list
 workspace-folder-missing = Couldn’t find “{ $path }”
 workspace-jump-list-recent = Recent Folders
+workspace-jump-list-recent-files = Recent Files
 workspace-reloaded = Reloaded { $names }
 workspace-disk-conflicts = { $names } changed on disk and conflict with unsaved changes; switch to each tab to choose which version to keep
 

@@ -523,6 +523,9 @@ impl App {
         if self.click_diff(x, y) {
             return;
         }
+        if self.hex_active() {
+            return self.hex_press(x, y);
+        }
         self.focus = Focus::Editor;
         self.ime.preedit.clear();
 

@@ -289,7 +289,10 @@ impl App {
     /// 不提示：「目录已在另一个窗口中打开」的提示是错误的。
     fn adopt_lock(&mut self, lock: (PathBuf, Option<backup::Lock>)) {
         if lock.1.is_none() && self.editor.root().is_some() {
-            self.notify(winc_i18n::t!("workspace-backup-locked"));
+            self.notify(
+                NoticeKind::Warning,
+                winc_i18n::t!("workspace-backup-locked"),
+            );
         }
         self.backup.lock = Some(lock);
     }
@@ -319,7 +322,10 @@ impl App {
                 .map(|n| winc_i18n::t!("workspace-quoted-name", name = n.as_str()))
                 .collect();
             let names = names.join(winc_i18n::t!("workspace-list-separator"));
-            self.notify(winc_i18n::t!("workspace-disk-conflicts", names = names));
+            self.notify(
+                NoticeKind::Warning,
+                winc_i18n::t!("workspace-disk-conflicts", names = names),
+            );
         }
     }
 
@@ -540,10 +546,10 @@ impl App {
         }
         if !self.backup.warned {
             self.backup.warned = true;
-            self.notify(winc_i18n::t!(
-                "workspace-backup-failed",
-                error = reason.to_string()
-            ));
+            self.notify(
+                NoticeKind::Error,
+                winc_i18n::t!("workspace-backup-failed", error = reason.to_string()),
+            );
         }
     }
 

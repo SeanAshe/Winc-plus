@@ -14,6 +14,7 @@ pub(super) mod editing;
 pub(super) mod find;
 pub(super) mod folding;
 pub(super) mod format;
+pub(crate) mod hex;
 pub(super) mod hint;
 pub(super) mod navigation;
 pub(super) mod paste;

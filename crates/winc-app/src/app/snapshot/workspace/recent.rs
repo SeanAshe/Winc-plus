@@ -165,7 +165,7 @@ fn recent_folders_can_be_removed_and_opened_in_a_new_window() {
     let _ = std::fs::remove_dir_all(&charlie);
 }
 
-/// 截图：开着一个目录时按 `⌃R`，列出另外三个最近的目录，第二个目录名命中查询。
+/// 截图：开着一个目录时按 `⌃R`，列出另外三个最近的目录和两个最近的文件，第二个目录名命中查询。
 #[test]
 #[ignore = "截图，手动运行"]
 fn snapshot_recent_folders() {
@@ -176,6 +176,8 @@ fn snapshot_recent_folders() {
         .chain(&others)
         .map(|p| canonical(p.as_path()))
         .collect();
+    let files = [others[1].join("short.rs"), others[0].join("a.txt")];
+    app.state.recent_files = files.iter().map(|p| canonical(p)).collect();
     app.run_action(Action::OpenRecent);
     shoot(&mut app, "recent-folders");
     app.overlays.picker.input.set_text("winc");
@@ -201,4 +203,50 @@ fn shoot_same_named_recent_folders() {
     shoot(&mut app, "recent-same-name-start");
     app.open_recent_folders();
     shoot(&mut app, "recent-same-name-picker");
+}
+
+/// 从窗口外打开的文件记入最近列表，在文件树里打开的不记；面板里文件排在目录之后，可以筛选、
+/// 打开、移除，已不存在的打开时移除并提示。
+#[test]
+fn recent_files_follow_the_folders_in_the_panel() {
+    let alpha = search_folder("recent-files-alpha");
+    let bravo = sample_folder("recent-files-bravo");
+    let mut app = app_with(&alpha, false);
+    app.state.recent = vec![canonical(&alpha), canonical(&bravo)];
+    let outside = canonical(&bravo.join("short.rs"));
+    let target = crate::cli::Target {
+        path: outside.clone(),
+        line: None,
+        col: None,
+    };
+    app.open_files(&[target]);
+    app.open_path(&alpha.join("src/main.rs"));
+    assert_eq!(app.state.recent_files, std::slice::from_ref(&outside));
+
+    app.run_action(Action::OpenRecent);
+    assert_eq!(app.overlays.picker.hits, [1, 2]);
+    paint(&mut app);
+    app.overlays.picker.input.set_text("short");
+    app.picker_refresh();
+    assert_eq!(app.overlays.picker.hits, [2]);
+    assert_eq!(app.folder_matched(0).0, [0, 1, 2, 3, 4]);
+    app.picker_accept();
+    let active = app.editor.active().and_then(|d| d.path.clone());
+    assert_eq!(active.as_deref(), Some(outside.as_path()));
+    assert_eq!(app.editor.root(), Some(canonical(&alpha).as_path()));
+
+    app.run_action(Action::OpenRecent);
+    app.forget_picker_folder(1);
+    assert!(app.state.recent_files.is_empty());
+    app.close_picker();
+
+    let gone = std::env::temp_dir().join("winc-recent-file-missing-zzz.rs");
+    app.state.remember_file(&gone);
+    app.run_action(Action::OpenRecent);
+    app.overlays.picker.selected = 1;
+    app.picker_accept();
+    assert!(app.state.recent_files.is_empty());
+    assert_eq!(app.notice.kind, crate::app::NoticeKind::Warning);
+    let _ = std::fs::remove_dir_all(&alpha);
+    let _ = std::fs::remove_dir_all(&bravo);
 }

@@ -59,7 +59,7 @@ impl App {
             .and_then(|target| crate::macos::install::relaunch_from(&target, &location));
         match moved {
             Ok(()) => self.request_quit(),
-            Err(error) => self.notify(t!("app-move-failed", error = error)),
+            Err(error) => self.notify(NoticeKind::Error, t!("app-move-failed", error = error)),
         }
     }
 }

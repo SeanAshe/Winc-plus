@@ -46,8 +46,8 @@ pub(crate) use git::branch::picker::{GitAnchor, PickerPart};
 pub(crate) use git::changes::{ChangeTarget, MARK_W, mark_x, ruler_rows};
 pub(crate) use git::commit::{
     COMMIT_ROW, CommitGroup, CommitLabels, CommitName, CommitOverflow, CommitParts, CommitRow,
-    CommitRows, CommitScope, CommitSort, CommitTarget, MESSAGE_LINE, MESSAGE_PAD, OtherGroup,
-    OtherRow, STASH_GAP, StashLine, StashView, SyncState, WorktreeLine,
+    CommitRows, CommitScope, CommitSort, CommitTarget, DRAWER_TOP, MESSAGE_LINE, MESSAGE_PAD,
+    OtherGroup, OtherRow, StashLine, StashView, SyncState, WorktreeLine,
 };
 pub(crate) use input::context_menu::{
     CHECK_COLUMN, ICON_COLUMN, MenuIcon, POPUP_PAD, POPUP_TEXT_X, PopupLevel, PopupMenu, PopupRow,
@@ -59,7 +59,7 @@ pub(crate) use lifecycle::alert::{AlertButton, AlertKey, AlertPart, AlertParts, 
 use lifecycle::appearance::{forced_theme, unusable_font};
 pub(crate) use lifecycle::backup::{restore_at_launch, restore_tabs};
 pub use lifecycle::closing::{CloseRequest, SaveChoice, SavePrompt};
-pub use lifecycle::notice::{NoticeAction, NoticeGhost};
+pub use lifecycle::notice::{NoticeAction, NoticeGhost, NoticeKind};
 pub use lifecycle::title_bar::WindowControl;
 pub(crate) use lifecycle::title_bar::resize_cursor;
 pub(crate) use lifecycle::wallpaper::Layer as WallpaperLayer;
@@ -74,13 +74,15 @@ pub use workspace::file_drop::DropZone;
 pub use workspace::files::{Pick, PlaceholderAction, TabBar, TabHit};
 pub(crate) use workspace::global::ResultOverflow;
 pub use workspace::global::{GlobalSearch, ResultRow};
-pub(crate) use workspace::outline::{OUTLINE_GAP, has_children as outline_has_children};
+pub(crate) use workspace::outline::{
+    OUTLINE_GAP, OUTLINE_TOP, has_children as outline_has_children,
+};
 pub use workspace::outline::{OutlineEmpty, OutlineKind, OutlineState, OutlineTarget};
 pub use workspace::picker::{
     PICKER_ICON_X, PICKER_MAX_ROWS, PICKER_PAD, PICKER_ROW, PICKER_TEXT_X, PLACES_FOOTER,
     PlacesGhost,
 };
-pub(crate) use workspace::recent::{Parent, parents};
+pub(crate) use workspace::recent::{Parent, Recent, parents};
 pub use workspace::session::StartAction;
 pub use workspace::tab_drag::{TabDrag, TabSlide};
 pub use workspace::tool_fold::ToolFold;
@@ -226,6 +228,8 @@ pub enum UserEvent {
     Overwrite(DocumentId, OverwriteChoice),
     /// 用户确认放弃未保存的修改，按指定编码重新打开文档。
     ReopenEncoding(DocumentId, winc_editor::Encoding),
+    /// 用户确认放弃未保存的修改，改按十六进制查看文档。
+    ShowHex(DocumentId),
     /// 后台完成了一张图片的解码，或一个 SVG 的绘制。
     ImageReady,
     /// 粘贴到文件树中的文件已在后台复制完成：复制好的新路径、失败的原因（没有失败时为 `None`），
@@ -357,6 +361,8 @@ pub enum UserEvent {
 pub enum PromptKind {
     /// 跳转到行（`⌃G`）。
     GoTo,
+    /// 十六进制视图里转到偏移（`⌃G`）。
+    GoToOffset,
     /// 储藏改动的说明（可为空）。
     Stash,
     /// 储藏这些文件的更改时输入说明。
@@ -677,6 +683,8 @@ enum Drag {
     },
     /// 在日志详情中拖选文字（`App::drag_log_text`）。
     LogText,
+    /// 在十六进制视图中拖选字节（`App::drag_hex`）。
+    Hex,
     /// 在 Markdown 预览中拖选文字（`App::drag_markdown`）。
     MarkdownText,
     /// 在表格中拖选单元格（`App::drag_table`）。

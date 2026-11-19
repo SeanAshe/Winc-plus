@@ -3,14 +3,15 @@
 //! 打开文件时标签立即出现（尚未读取，见 `Document::is_pending`），读取、解码、建立行索引都在后台
 //! 进行，读好后换入标签；界面线程不等待磁盘，耗时再长窗口仍然响应。
 //!
-//! 当前标签正在读取时先不绘制新的一帧，超过 [`HOLD`] 仍未读好才绘制「正在读取」，因为多数文件
-//! 在两帧以内读完，界面上没有可见的停顿。之后要执行的动作先记下来，读好后由 [`App::when_loaded`]
-//! 执行。
+//! 当前标签正在读取时先不绘制新的一帧，超过 [`HOLD`] 仍未读好才绘制「正在读取」和读了多少，
+//! 因为多数文件在两帧以内读完，界面上没有可见的停顿。之后要执行的动作先记下来，读好后由
+//! [`App::when_loaded`] 执行。
 
+use std::collections::HashMap;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use winc_editor::LoadedFile;
+use winc_editor::{LoadedFile, ReadProgress};
 
 use super::*;
 use crate::app::tickets::Tickets;
@@ -20,6 +21,9 @@ use crate::app::tickets::Tickets;
 /// 取 100 ms：RAIL 模型把 100 ms 以内的响应视为即时；超过该时长仍未读好时先绘制「正在读取」，
 /// 让用户知道读取正在进行、可以切走。
 const HOLD: Duration = Duration::from_millis(100);
+
+/// 显示「正在读取」期间查看读取进度的间隔，进度条用同样的时长匀速移到新读到的位置。
+const PROGRESS_STEP: Duration = Duration::from_millis(100);
 
 /// 文件读好之后要执行的回调。
 type Then = Box<dyn FnOnce(&mut App)>;
@@ -39,6 +43,36 @@ pub(crate) struct Loads {
     pub(in crate::app) since: Option<(DocumentId, Instant)>,
     /// 是否因正在读取而跳过了一帧：读取完成或到达 [`HOLD`] 时重绘。
     pub(in crate::app) held: bool,
+    /// 各标签正在进行的读取的进度。
+    pub(in crate::app) progress: HashMap<DocumentId, ReadProgress>,
+    /// 「正在读取」的进度条。
+    pub(in crate::app) bar: Option<ReadingBar>,
+}
+
+/// 「正在读取」的进度条：从 `from` 匀速移到 `to`；没有时钟（关闭了动画效果）时停在 `to`。
+#[derive(Clone, Copy)]
+pub(in crate::app) struct ReadingBar {
+    id: DocumentId,
+    from: f32,
+    to: f32,
+    pub(in crate::app) clock: Option<Clock>,
+}
+
+impl ReadingBar {
+    /// 进度条此刻的位置（0 到 1）。
+    fn value(&self) -> f32 {
+        match self.clock {
+            Some(clock) => self.from + (self.to - self.from) * clock.linear(),
+            None => self.to,
+        }
+    }
+
+    /// 移动结束后停在终点。
+    pub(in crate::app) fn settle(&mut self) {
+        if self.clock.is_some_and(|c| c.done()) {
+            (self.from, self.clock) = (self.to, None);
+        }
+    }
 }
 
 impl Default for Loads {
@@ -49,6 +83,8 @@ impl Default for Loads {
             then: Vec::new(),
             since: None,
             held: false,
+            progress: HashMap::new(),
+            bar: None,
         }
     }
 }
@@ -74,6 +110,7 @@ impl App {
         if self.editor.active == Some(index) {
             self.disk.loads.since = Some((id, Instant::now()));
         }
+        self.disk.loads.progress.insert(id, job.progress());
         let sender = self.disk.loads.results.0.clone();
         self.spawn_then(UserEvent::Loaded, move || {
             let _ = sender.send((id, ticket, job.run()));
@@ -85,6 +122,10 @@ impl App {
         while let Ok((id, ticket, loaded)) = self.disk.loads.results.1.try_recv() {
             if !self.disk.loads.tickets.redeem(&id, ticket) {
                 continue;
+            }
+            self.disk.loads.progress.remove(&id);
+            if self.disk.loads.bar.is_some_and(|b| b.id == id) {
+                self.disk.loads.bar = None;
             }
             if self.disk.loads.since.is_some_and(|(s, _)| s == id) {
                 self.disk.loads.since = None;
@@ -187,6 +228,40 @@ impl App {
                 app.scroll.glide = None;
             }
         });
+    }
+
+    /// 标签 `id` 正在读取时读了多少（0 到 1）；不在读或还不知道文件大小时为 `None`。
+    pub(crate) fn reading_progress(&self, id: DocumentId) -> Option<f32> {
+        self.disk.loads.progress.get(&id)?.fraction()
+    }
+
+    /// 标签 `id` 的「正在读取」上进度条的位置；还没有开始显示进度时在起点。
+    pub(crate) fn reading_bar(&self, id: DocumentId) -> Option<f32> {
+        self.reading_progress(id)?;
+        let bar = self.disk.loads.bar.filter(|b| b.id == id);
+        Some(bar.map_or(0.0, |b| b.value()))
+    }
+
+    /// 当前标签显示着「正在读取」时，读到了新的位置就让进度条移过去；返回下次查看的时刻。
+    pub(in crate::app) fn reading_tick(&mut self, now: Instant) -> Option<Instant> {
+        let id = self.editor.active().filter(|d| d.is_pending())?.id;
+        if self.holding_frame(now).is_some() {
+            return None;
+        }
+        let to = self.reading_progress(id)?;
+        let bar = self.disk.loads.bar.filter(|b| b.id == id);
+        if bar.is_none_or(|b| (to - b.to).abs() >= 0.001) {
+            let from = bar.map_or(0.0, |b| b.value());
+            let clock = self.clock(PROGRESS_STEP);
+            self.disk.loads.bar = Some(ReadingBar {
+                id,
+                from,
+                to,
+                clock,
+            });
+            self.request_redraw();
+        }
+        Some(now + PROGRESS_STEP)
     }
 
     /// 当前标签正在读取、且尚未到 [`HOLD`] 时，返回可以跳过绘制的截止时刻。
