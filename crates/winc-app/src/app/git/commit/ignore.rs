@@ -3,6 +3,7 @@
 use winc_editor::git::Change;
 
 use super::*;
+use crate::app::NoticeKind;
 
 /// 加入 `.gitignore` 的范围。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -76,7 +77,7 @@ impl App {
             text.push('\n');
             if let Err(e) = winc_backend::fs::write(&file, text) {
                 let error = e.to_string();
-                self.notify(t!("git-ignore-failed", error = error));
+                self.notify(NoticeKind::Error, t!("git-ignore-failed", error = error));
                 return;
             }
         }

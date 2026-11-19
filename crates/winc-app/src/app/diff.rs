@@ -36,6 +36,7 @@ use super::git::changes::replace_lines;
 use super::git::commit::stages_by_hunk;
 use super::lifecycle::notice::FLASH_DURATION;
 use super::{App, Focus, ScrollArea, UserEvent, sticky_limit};
+use crate::app::NoticeKind;
 use crate::keymap::Action;
 use crate::layout::{Scrollbar, hscrollbar_thumb};
 use crate::theme::SCROLLBAR_HIT;
@@ -728,7 +729,7 @@ impl App {
                         }
                     }
                     Err(e) => {
-                        self.notify(t!("git-diff-revert-failed", error = e));
+                        self.notify(NoticeKind::Error, t!("git-diff-revert-failed", error = e));
                         return;
                     }
                 }

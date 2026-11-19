@@ -212,6 +212,7 @@ impl App {
                     ws.select_all();
                 }
             }
+            SelectAll if self.hex_active() => self.select_all_hex(),
             SelectAll => editing(self, Command::SelectAll),
             // 语言没有任何注释写法（纯文本、日志、CSV）：说明一声，不是没反应。
             ToggleComment

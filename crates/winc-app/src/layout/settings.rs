@@ -86,12 +86,13 @@ impl SettingsPage {
         let plain = |items: Vec<Setting>| Section { title: None, items };
         match self {
             SettingsPage::Appearance => {
-                // 系统标题栏只在其他平台列出：macOS 上标题栏总是和内容融为一体。
-                let mut window = vec![
-                    Setting::StatusBar,
-                    Setting::Animations,
-                    Setting::RestoreWindow,
-                ];
+                // 系统标题栏只在其他平台列出：macOS 上标题栏总是和内容融为一体。平滑滚动只在
+                // macOS 上列出：其他平台上滚轮本来就一格一格立即滚动。
+                let mut window = vec![Setting::StatusBar, Setting::Animations];
+                if cfg!(target_os = "macos") {
+                    window.push(Setting::SmoothScrolling);
+                }
+                window.push(Setting::RestoreWindow);
                 if !cfg!(target_os = "macos") {
                     window.push(Setting::SystemTitleBar);
                 }
@@ -316,6 +317,8 @@ pub enum Setting {
     RestoreWindow,
     /// 播放界面的过渡动画。
     Animations,
+    /// 鼠标滚轮平滑滚动（`editor.smoothScrolling`）。
+    SmoothScrolling,
     /// 窗口的背景图片（`ui.backgroundImage`）。
     BackgroundImage,
     /// 背景图片的显示方式（`ui.backgroundFit`）。
@@ -470,6 +473,7 @@ impl Setting {
             | Setting::StatusBar
             | Setting::RestoreWindow
             | Setting::Animations
+            | Setting::SmoothScrolling
             | Setting::BackgroundImage
             | Setting::BackgroundFit
             | Setting::BackgroundOpacity => SettingsPage::Appearance,
@@ -572,6 +576,7 @@ impl Setting {
             Setting::StatusBar => t!("settings-status-bar"),
             Setting::RestoreWindow => t!("settings-restore-window"),
             Setting::Animations => t!("settings-animations"),
+            Setting::SmoothScrolling => t!("settings-smooth-scrolling"),
             Setting::BackgroundImage => t!("settings-background-image"),
             Setting::BackgroundFit => t!("settings-background-fit"),
             Setting::BackgroundOpacity => t!("settings-background-opacity"),
@@ -657,6 +662,7 @@ impl Setting {
             Setting::StatusBar => Some(t!("settings-status-bar-desc")),
             Setting::RestoreWindow => Some(t!("settings-restore-window-desc")),
             Setting::Animations => Some(t!("settings-animations-desc")),
+            Setting::SmoothScrolling => Some(t!("settings-smooth-scrolling-desc")),
             Setting::BackgroundImage => Some(t!("settings-background-image-desc")),
             Setting::BackgroundFit => Some(t!("settings-background-fit-desc")),
             Setting::BackgroundOpacity => Some(t!("settings-background-opacity-desc")),
@@ -727,6 +733,7 @@ impl Setting {
             | Setting::StatusBar
             | Setting::RestoreWindow
             | Setting::Animations
+            | Setting::SmoothScrolling
             | Setting::RemoteImages
             | Setting::MarkdownLineNumbers
             | Setting::CheckUpdates
@@ -1175,7 +1182,7 @@ impl SettingsLayout {
             body.x + SETTINGS_PAD,
             (body.w - SETTINGS_PAD * 2.0).max(0.0),
         );
-        let mut y = body.y - scroll;
+        let mut y = body.y - super::drawn_scroll(scroll);
         let mut groups = Vec::new();
         let mut headings = Vec::new();
         let mut separators = Vec::new();

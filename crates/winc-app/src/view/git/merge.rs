@@ -331,7 +331,7 @@ pub(in crate::view) fn draw_side_panes(app: &mut App, frame: &mut Frame<'_>) {
     let text_y = app.layout.text.y;
     let doc = &app.editor.documents[index];
     let revision = doc.revision;
-    let scroll = doc.scroll_line.max(0.0);
+    let scroll = drawn_scroll_line(doc.scroll_line, lh).max(0.0);
     let row = scroll.floor() as usize;
     let fraction = scroll - row as f64;
     let (line, next) = (doc.line_of_row(row), doc.line_of_row(row + 1));

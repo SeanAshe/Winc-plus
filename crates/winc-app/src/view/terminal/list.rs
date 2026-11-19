@@ -40,7 +40,7 @@ pub(super) fn draw_list(app: &mut App, frame: &mut Frame<'_>) {
     strip.scroll = scroll.clamp(0.0, strip.max_scroll);
     strip.sizes.clear();
     strip.sizes.resize(count, TREE_ROW);
-    strip.start = area.y - strip.scroll;
+    strip.start = area.y - drawn_scroll(strip.scroll);
 
     let mut rename = app.terminal.rename.take();
     let dragged = app.dragged_terminal_tab();

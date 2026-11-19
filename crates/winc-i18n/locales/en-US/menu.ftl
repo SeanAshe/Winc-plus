@@ -208,3 +208,6 @@ menu-shortcut-add = Add Shortcut…
 menu-shortcut-remove = Remove Shortcut
 menu-shortcuts-reset-all = Reset All Shortcuts to Default
 menu-shortcut-reset = Reset to Default
+
+menu-hex-copy-text = Copy as Text
+menu-hex-go-to = Go to Offset…

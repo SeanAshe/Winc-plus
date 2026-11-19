@@ -90,10 +90,9 @@ impl App {
             (None, Some((bar, ..))) => bar.y,
             (None, None) => panel.bottom(),
         };
-        // 储藏、工作树两组的下沿与卡片之间留一个 `STASH_GAP`：连同组内下方的留白，
-        // 等于改动列表与卡片的间隔（`SIDEBAR_LIST_GAP`）。
+        // 储藏、工作树两组紧贴卡片：标题行到卡片的留白与到上沿分隔线的相同。
         let h = self.stash_section_height();
-        let stash_bottom = card.map_or(above, |card| card.y - STASH_GAP * card_share);
+        let stash_bottom = card.map_or(above, |card| card.y);
         let stashes = (h > 0.0).then(|| Rect::new(panel.x, stash_bottom - h, panel.w, h));
         // 工作树一组在储藏上面，两组之间没有间隔。
         let h = self.worktree_section_height();

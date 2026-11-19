@@ -474,7 +474,7 @@ fn draw_results(app: &mut App, frame: &mut Frame<'_>, parts: &PanelParts) {
     }
     let animate = app.animate_tree_labels();
     app.panels.global.names.begin_frame(animate);
-    let scroll = app.panels.global.scroll;
+    let scroll = drawn_scroll(app.panels.global.scroll);
     let rows = app.panels.global.rows().len();
     let replace_open = app.panels.global.replace_open;
     // 行号一栏按结果里最大的行号定宽（各文件的匹配按行号排序，最后一处就是最大的），滚动、

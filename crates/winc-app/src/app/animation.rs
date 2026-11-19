@@ -418,6 +418,9 @@ impl App {
             self.settings.cache = None;
         }
         settle(&mut self.settings.mode_slide, |s| s.1);
+        if let Some(bar) = &mut self.disk.loads.bar {
+            bar.settle();
+        }
         settle(&mut self.settings.switch_slide, |s| s.1);
         settle(&mut self.settings.key_slide, |s| s.1);
         settle(&mut self.motion.setup_intro, |c| *c);
@@ -545,6 +548,7 @@ impl App {
             || self.scrollbars_animating()
             || self.preview.markdown.motion.is_some()
             || self.status.motion.moving()
+            || (self.disk.loads.bar).is_some_and(|b| b.clock.is_some())
             || ((self.git.branch.running.is_some()
                 || self.git.branch.finished.is_some()
                 || self.commit_refreshing())

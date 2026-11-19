@@ -14,6 +14,7 @@ pub mod diff_view;
 mod document;
 mod editing;
 pub mod git;
+pub mod hex;
 mod navigation;
 pub mod panes;
 pub mod proxy;
@@ -30,9 +31,10 @@ pub use document::disk::{
 };
 pub use document::encoding::Encoding;
 pub use document::large::LargeText;
+pub use document::progress::ReadProgress;
 pub use document::{
     COPY_LIMIT, DiskChange, Document, DocumentId, EDIT_LIMIT, LARGE_FILE, OpenError, PictureState,
-    PreviewKind, PreviewMode, Reading, TableState, TableView, Unsupported, looks_binary,
+    PreviewKind, PreviewMode, Reading, TableState, TableView, Unsupported, looks_binary, size_text,
 };
 pub use document::{editorconfig, encoding};
 pub use editing::command::Command;
@@ -205,6 +207,9 @@ impl Editor {
             id: doc.id,
             path: doc.path.clone()?,
             as_text: doc.reads_as_text(),
+            hex: doc.reads_as_hex(),
+            encoding: doc.reads_with(),
+            progress: ReadProgress::default(),
         })
     }
 
@@ -220,6 +225,7 @@ impl Editor {
             return None;
         }
         let mut fresh = Document::from_opened(loaded.id, loaded.path, loaded.opened);
+        fresh.keep_chosen(loaded.encoding);
         // 可预览的文件按最近一次选择的方式显示；不可预览的文件不改变显示方式。
         if self.preview_default != PreviewMode::Source {
             fresh.set_preview_mode(self.preview_default);
@@ -252,6 +258,38 @@ impl Editor {
         } else {
             Document::pending(doc.id, path)
         };
+        replace_document(doc, fresh);
+        true
+    }
+
+    /// 把第 `index` 个标签换成它的文件的十六进制视图（尚未读取，读取见 [`Editor::begin_load`]），
+    /// 返回是否换了；没有对应的文件、已经是十六进制视图时不换。
+    pub fn show_hex(&mut self, index: usize) -> bool {
+        let Some(doc) = self.documents.get_mut(index).filter(|d| d.hex.is_none()) else {
+            return false;
+        };
+        let Some(path) = doc
+            .path
+            .clone()
+            .filter(|_| doc.log.is_none() && doc.diff.is_none())
+        else {
+            return false;
+        };
+        replace_document(doc, Document::pending_hex(doc.id, path));
+        true
+    }
+
+    /// 把第 `index` 个十六进制视图的标签改回尚未读取的文本，按 `encoding` 解码（二进制内容也
+    /// 按文本读入）；返回是否改动。读取见 [`Editor::begin_load`]。
+    pub fn show_text(&mut self, index: usize, encoding: Encoding) -> bool {
+        let Some(doc) = self.documents.get_mut(index).filter(|d| d.hex.is_some()) else {
+            return false;
+        };
+        let Some(path) = doc.path.clone() else {
+            return false;
+        };
+        let mut fresh = Document::pending_as_text(doc.id, path);
+        fresh.keep_chosen(Some(encoding));
         replace_document(doc, fresh);
         true
     }
@@ -673,6 +711,11 @@ pub struct LoadJob {
     path: PathBuf,
     /// 是否把图片和二进制文件也按文本读入（「以文本方式打开」）。
     as_text: bool,
+    /// 是否打开成十六进制视图。
+    hex: bool,
+    /// 用户选的编码；有时按它解码。
+    encoding: Option<Encoding>,
+    progress: ReadProgress,
 }
 
 impl LoadJob {
@@ -681,12 +724,26 @@ impl LoadJob {
         self.id
     }
 
+    /// 读取的进度，读取期间可以在其他线程上查看。
+    pub fn progress(&self) -> ReadProgress {
+        self.progress.clone()
+    }
+
     /// 读取文件；耗时与文件大小成正比，在后台线程上调用。
     pub fn run(self) -> LoadedFile {
         LoadedFile {
-            opened: Document::read(&self.path, self.as_text),
+            opened: match self.hex {
+                true => Document::read_hex(&self.path),
+                false => Document::read(
+                    &self.path,
+                    self.as_text,
+                    self.encoding,
+                    Some(&self.progress),
+                ),
+            },
             id: self.id,
             path: self.path,
+            encoding: self.encoding,
         }
     }
 }
@@ -696,6 +753,7 @@ pub struct LoadedFile {
     id: DocumentId,
     path: PathBuf,
     opened: Opened,
+    encoding: Option<Encoding>,
 }
 
 /// 用新建的文档 `fresh` 替换 `slot`，并让 `revision` 在原有值上继续递增。

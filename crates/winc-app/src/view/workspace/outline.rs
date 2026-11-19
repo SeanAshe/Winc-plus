@@ -13,7 +13,9 @@ use winc_editor::symbols::SymbolKind;
 use winc_i18n::t;
 
 use super::*;
-use crate::app::{Focus, OUTLINE_GAP, OutlineEmpty, OutlineTarget, outline_has_children};
+use crate::app::{
+    Focus, OUTLINE_GAP, OUTLINE_TOP, OutlineEmpty, OutlineTarget, outline_has_children,
+};
 use crate::icons::SymbolGlyph;
 use crate::layout::tree_row_slot;
 use crate::theme::{BUTTON_SMALL, TREE_INDENT};
@@ -50,9 +52,9 @@ pub(in crate::view) fn draw_outline(app: &mut App, frame: &mut Frame<'_>) {
     let header = app.outline_header();
     let band = Rect::new(
         header.x + 8.0,
-        header.y + OUTLINE_GAP,
+        header.y + OUTLINE_TOP,
         (header.w - 16.0).max(0.0),
-        (header.h - 2.0 * OUTLINE_GAP).max(0.0),
+        (header.h - OUTLINE_TOP - OUTLINE_GAP).max(0.0),
     );
     let fold = (app.panels.outline.open && !app.panels.outline.items.is_empty()).then(|| {
         let y = band.y + (band.h - BUTTON_SMALL) / 2.0;
@@ -147,6 +149,7 @@ fn draw_rows(
         .scroll
         .clamp(0.0, (content - list.h).max(0.0));
     app.panels.outline.scroll = scroll;
+    let scroll = drawn_scroll(scroll);
     let highlight = app.outline_highlight(&app.outline_rows());
     let focused = app.focus == Focus::Outline;
     let items = &app.panels.outline.items;

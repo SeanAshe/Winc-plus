@@ -293,6 +293,10 @@ impl App {
             self.log_key(&event.logical_key);
             return;
         }
+        if self.hex_active() {
+            self.hex_key(&event.logical_key, cmd);
+            return;
+        }
         if self.editor.active().is_some_and(|d| d.diff.is_some()) {
             if !self.diff_edit_key(event, cmd) {
                 self.diff_key(&event.logical_key, cmd);

@@ -242,7 +242,7 @@ impl ApplicationHandler<UserEvent> for App {
                 None => winc_i18n::t!("workspace-font-missing", fonts = fonts),
             };
             eprintln!("winc: {message}");
-            self.notify(message);
+            self.notify(NoticeKind::Warning, message);
         }
 
         self.relayout();
@@ -600,6 +600,7 @@ impl App {
             UserEvent::FormatterReady => self.formatter_ready(),
             UserEvent::StdinRead => self.poll_stdin(),
             UserEvent::ReopenEncoding(id, encoding) => self.reopen_with_encoding(id, encoding),
+            UserEvent::ShowHex(id) => self.show_hex_now(id),
             UserEvent::ImageReady => self.poll_images(),
             UserEvent::Terminal => self.poll_terminal(),
         }
@@ -625,6 +626,7 @@ impl App {
             let label = action.map(|a| a.label());
             self.notice.leaving = match (message, self.clock(POPUP_OUT)) {
                 (Some(message), Some(clock)) => Some(NoticeGhost {
+                    kind: self.notice.kind,
                     message,
                     label,
                     clock,
@@ -675,6 +677,7 @@ impl App {
                 }
             }
         }
+        earliest(&mut wake, self.reading_tick(now));
         earliest(&mut wake, self.terminal_settle_tick(now));
         earliest(&mut wake, self.auto_save_tick(now));
         let copying = self.copy_tick(now);
@@ -801,6 +804,7 @@ impl App {
         earliest(&mut wake, self.format_progress_tick(now));
 
         earliest(&mut wake, self.log_tick(now));
+        earliest(&mut wake, self.definition_tick(now));
 
         if let Some(at) = self.frame.next_frame {
             if now >= at {

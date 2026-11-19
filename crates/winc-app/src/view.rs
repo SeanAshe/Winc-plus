@@ -22,7 +22,7 @@ use crate::app::{
 use crate::field::{FieldView, TextField};
 use crate::icons;
 use crate::keymap::{self, Action};
-use crate::layout::{SearchParts, scrollbar_thumb};
+use crate::layout::{SearchParts, drawn_scroll, drawn_scroll_line, scrollbar_thumb};
 use crate::theme::*;
 
 mod alert;
@@ -33,6 +33,8 @@ mod editor;
 mod fields;
 mod git;
 mod overlays;
+#[cfg(all(test, unix))]
+pub(crate) use overlays::NOTICE_TEXT_X;
 mod popup_menu;
 pub(crate) mod preview;
 mod settings;
@@ -650,6 +652,18 @@ fn ui_baseline(app: &App, row: Rect, size: f32) -> f32 {
 /// 结果取整到 0.5 逻辑像素：缩放倍数为 2 时，结果落在整数物理像素上，线条边缘清晰。
 fn icon_center_y(app: &App, row: Rect, size: f32) -> f32 {
     let center = ui_baseline(app, row, size) - optical_center(app, size);
+    (center * 2.0).round() / 2.0
+}
+
+/// 返回与 `row` 内界面文本 `text` 对齐的图标中心 y 坐标（逻辑像素）：含全角字符时对齐汉字的
+/// 视觉中心，即大写字母高度的一半；否则与 [`icon_center_y`] 相同。
+fn text_icon_center_y(app: &App, row: Rect, size: f32, text: &str) -> f32 {
+    let wide = |c: char| winc_core::text::char_cells(c, 0, 1) > 1;
+    if !text.chars().any(wide) {
+        return icon_center_y(app, row, size);
+    }
+    let k = size / app.fonts.ui;
+    let center = ui_baseline(app, row, size) - app.metrics.ui.cap_height * k / 2.0;
     (center * 2.0).round() / 2.0
 }
 

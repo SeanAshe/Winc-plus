@@ -470,3 +470,57 @@ fn shoot_status_motion() {
     shoot(&mut app, "status-motion-select-160");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 提示条记着种类，到期淡出时仍是那一种；隐藏状态栏时临时消息改用提示条，是一般的信息。
+#[test]
+fn notices_keep_their_kind() {
+    use crate::app::NoticeKind;
+    let dir = sample_folder("notice-kinds");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    for kind in [
+        NoticeKind::Info,
+        NoticeKind::Done,
+        NoticeKind::Warning,
+        NoticeKind::Error,
+    ] {
+        app.notify(kind, "无法保存「short.rs」：磁盘已满");
+        paint(&mut app);
+        assert_eq!(app.notice.kind, kind);
+        assert!(app.hits.notice_card.is_some());
+    }
+    app.notice.until = Some(std::time::Instant::now());
+    app.tick();
+    let ghost = app.notice.leaving.as_ref().map(|g| g.kind);
+    assert!(ghost.is_none() || ghost == Some(NoticeKind::Error));
+
+    app.config.status_bar = Some(false);
+    app.flash("已复制路径");
+    assert_eq!(app.notice.kind, NoticeKind::Info);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 截取四种提示条：信息、完成、警告、出错，浅色与深色各一组。
+#[test]
+#[ignore = "截图，手动运行"]
+fn shoot_notice_kinds() {
+    use crate::app::NoticeKind;
+    for dark in [false, true] {
+        let dir = sample_folder("notice-kinds-shot");
+        let mut app = app_with(&dir.join("short.rs"), dark);
+        let tag = if dark { "dark" } else { "light" };
+        for (kind, name, message) in [
+            (NoticeKind::Info, "info", "不同主机之间不能移动，已改为复制"),
+            (NoticeKind::Done, "done", "已下载「short.rs」"),
+            (
+                NoticeKind::Warning,
+                "warning",
+                "仓库中更改的文件过多，仅显示前 5000 个",
+            ),
+            (NoticeKind::Error, "error", "无法保存「short.rs」：磁盘已满"),
+        ] {
+            app.notify(kind, message);
+            app.notice.entering = None;
+            shoot(&mut app, &format!("notice-{tag}-{name}"));
+        }
+    }
+}

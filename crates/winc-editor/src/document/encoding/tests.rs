@@ -1,4 +1,5 @@
-//! 编码识别与解码的测试：BOM、合法与损坏的 UTF-8、按地区猜测旧编码、无法表示的字符。
+//! 编码识别与解码的测试：BOM、不带 BOM 的 UTF-16、合法与损坏的 UTF-8、按地区猜测旧编码、无法
+//! 表示的字符。
 
 use super::*;
 
@@ -21,6 +22,30 @@ fn utf8_and_boms_are_recognized() {
     }
     // 不完整的 UTF-16：无法无损解码。
     assert!(decode(b"\xFF\xFEa").lossy());
+}
+
+/// 不带 BOM、以 ASCII 为主的 UTF-16 按 NUL 的位置认出字节序；含其他字符、NUL 位置不齐的不认。
+#[test]
+fn utf16_without_a_bom_is_recognized_by_its_nuls() {
+    let unmarked = |text: &str, encoding| encode(text, encoding).unwrap()[2..].to_vec();
+    for encoding in [Encoding::Utf16Le, Encoding::Utf16Be] {
+        let bytes = unmarked("plain ok\n", encoding);
+        assert_eq!(utf16_unmarked(&bytes), Some(encoding));
+        assert!(utf16_text(&bytes) && !crate::looks_binary(&bytes));
+        let decoded = decode(&bytes);
+        assert_eq!(
+            (decoded.encoding, decoded.text.as_ref()),
+            (encoding, "plain ok\n")
+        );
+    }
+    assert_eq!(
+        utf16_unmarked(&unmarked("中文 ok", Encoding::Utf16Le)),
+        None
+    );
+    assert_eq!(utf16_unmarked(b"abc"), None);
+    assert_eq!(utf16_unmarked(&[1, 0, 2]), None);
+    assert_eq!(utf16_unmarked(b"MZ\x90\x00\x03\x00\x00\x00"), None);
+    assert!(crate::looks_binary(b"MZ\x90\x00\x03\x00\x00\x00"));
 }
 
 #[test]

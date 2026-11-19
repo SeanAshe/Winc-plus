@@ -776,3 +776,42 @@ fn shoot_alert() {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// 二进制文件「以文本打开」以后，编码菜单里「通过编码重新打开」的各项可用，选了 UTF-16 LE 就按它
+/// 显示，不再只读。
+#[test]
+fn a_binary_file_can_be_reopened_with_an_encoding() {
+    use crate::app::PlaceholderAction;
+    use crate::app::status::status_bar::StatusItem;
+    use winc_editor::Encoding;
+    use winc_editor::encoding::CHOICES;
+    let dir = sample_folder("reopen-binary-menu");
+    let path = dir.join("wide.txt");
+    let wide: Vec<u8> = "中文 ok\n"
+        .encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    std::fs::write(&path, wide).unwrap();
+    let mut app = app_with(&path, false);
+    app.run_placeholder_action(PlaceholderAction::OpenAsText);
+    let doc = app.editor.active().unwrap();
+    assert_eq!(doc.encoding, Encoding::Binary);
+    let id = doc.id;
+
+    paint(&mut app);
+    app.open_status_menu(StatusItem::Encoding);
+    let reopen = (menu_commands(&app).into_iter())
+        .filter(|(command, _)| matches!(command, MenuCommand::ReopenEncoding(_)));
+    assert!(reopen.into_iter().all(|(_, enabled)| enabled));
+    app.overlays.context_menu = None;
+
+    let le = (CHOICES.iter())
+        .position(|(e, _)| *e == Encoding::Utf16Le)
+        .unwrap();
+    app.run_status_command(MenuCommand::ReopenEncoding(le), id);
+    let doc = app.editor.active().unwrap();
+    assert_eq!(doc.encoding, Encoding::Utf16Le);
+    assert_eq!(doc.text().rope().unwrap().to_string(), "中文 ok\n");
+    assert!(doc.readonly_reason().is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}

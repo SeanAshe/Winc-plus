@@ -14,6 +14,7 @@ use std::sync::{Arc, mpsc};
 use winc_config::{BackgroundFit, Config};
 use winc_render::{Color, Renderer, Wallpaper, WallpaperFit};
 
+use crate::app::NoticeKind;
 use crate::app::{App, UserEvent};
 
 /// 图层长边的像素数上限：图片在底色之下只透出一部分，更高的分辨率看不出差别。
@@ -277,7 +278,10 @@ impl App {
                 }
                 Err(reason) => {
                     self.wallpaper.failed = Some(source.path);
-                    self.notify(winc_i18n::t!("settings-background-failed", reason = reason));
+                    self.notify(
+                        NoticeKind::Error,
+                        winc_i18n::t!("settings-background-failed", reason = reason),
+                    );
                 }
             }
         }

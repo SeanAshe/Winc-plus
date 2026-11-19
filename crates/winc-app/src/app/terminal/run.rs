@@ -17,6 +17,7 @@ use winc_pty::protocol::ToHelper;
 
 use super::HeaderHit;
 use super::helper::{Integration, Launch, default_shell_applies, environment, launch, os_bytes};
+use crate::app::NoticeKind;
 use crate::app::input::context_menu::menu_below;
 use crate::app::input::context_menu::{MenuButton, MenuTarget};
 use crate::app::lifecycle::alert::AlertButton;
@@ -208,10 +209,10 @@ impl App {
         self.run.list = list;
         if self.run.problems != problems {
             if let Some(problem) = problems.first() {
-                self.notify(t!(
-                    "terminal-run-config-problem",
-                    problem = problem.as_str()
-                ));
+                self.notify(
+                    NoticeKind::Error,
+                    t!("terminal-run-config-problem", problem = problem.as_str()),
+                );
             }
             self.run.problems = problems;
         }
@@ -427,7 +428,7 @@ impl App {
     fn remote_has_no_run_configs(&mut self) -> bool {
         let remote = self.editor.root().is_some_and(winc_backend::is_remote);
         if remote {
-            self.notify(t!("terminal-run-remote"));
+            self.notify(NoticeKind::Warning, t!("terminal-run-remote"));
         }
         remote
     }
@@ -450,7 +451,10 @@ impl App {
                 }
             }
             Err(error) => {
-                self.notify(t!("terminal-run-create-failed", error = error.to_string()));
+                self.notify(
+                    NoticeKind::Error,
+                    t!("terminal-run-create-failed", error = error.to_string()),
+                );
             }
         }
     }
@@ -496,7 +500,10 @@ impl App {
         };
         tab.unseen = Some(code != 0);
         if code != 0 {
-            self.notify(t!("terminal-run-failed", name = name.as_str(), code = code));
+            self.notify(
+                NoticeKind::Error,
+                t!("terminal-run-failed", name = name.as_str(), code = code),
+            );
         }
     }
 

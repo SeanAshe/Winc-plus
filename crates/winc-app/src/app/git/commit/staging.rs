@@ -7,6 +7,7 @@ use winc_editor::format::Cancel;
 use winc_editor::git::Change;
 
 use super::*;
+use crate::app::NoticeKind;
 use crate::app::input::context_menu::MenuEntry;
 
 /// 写入暂存区的一步操作。
@@ -242,7 +243,7 @@ impl App {
             self.git.commit.staging_queue.clear();
             self.git.commit.commit_queued = false;
             self.git.commit.index.clear();
-            self.notify(t!("git-stage-failed", error = e));
+            self.notify(NoticeKind::Error, t!("git-stage-failed", error = e));
         }
         if !self.git.commit.staging_queue.is_empty() {
             self.pump_staging();

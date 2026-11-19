@@ -29,13 +29,20 @@ pub fn indent_menu(size_title: &str, editable: bool) -> Vec<MenuEntry> {
 
 /// 返回状态栏编码菜单的菜单项：两个子菜单「通过编码重新打开」「通过编码保存」，内容是各种编码。
 ///
-/// `reopen` 表示能否重新打开（大文件、二进制文件、未命名的文档不能）；`save` 返回能否改用某种
-/// 编码保存（只读的文档都不能，大文件只能用 UTF-8）。
-pub fn encoding_menu(reopen: bool, save: impl Fn(Encoding) -> bool) -> Vec<MenuEntry> {
-    use MenuCommand::{ReopenEncoding, SaveEncoding};
-    use MenuEntry::{Item, Submenu};
+/// `reopen` 返回能否按某种编码重新打开（未命名的文档都不能，大文件只能用 UTF-8），`hex` 表示能否
+/// 改按十六进制查看（有对应的文件就能）；`save` 返回能否改用某种编码保存（只读的文档都不能，大
+/// 文件只能用 UTF-8）。
+pub fn encoding_menu(
+    reopen: impl Fn(Encoding) -> bool,
+    hex: bool,
+    save: impl Fn(Encoding) -> bool,
+) -> Vec<MenuEntry> {
+    use MenuCommand::{ReopenEncoding, ReopenHex, SaveEncoding};
+    use MenuEntry::{Item, Separator, Submenu};
 
-    let reopen = (0..CHOICES.len()).map(|i| Item(ReopenEncoding(i), reopen));
+    let reopen = (CHOICES.iter().enumerate())
+        .map(|(i, &(encoding, _))| Item(ReopenEncoding(i), reopen(encoding)))
+        .chain([Separator, Item(ReopenHex, hex)]);
     let save = CHOICES
         .iter()
         .enumerate()
@@ -421,6 +428,21 @@ pub fn search_result_menu(file: bool, replace: bool) -> Vec<MenuEntry> {
 /// `bookmarked` 决定「添加书签」「删除书签」哪个可用。没有选区时剪切、复制作用于光标所在的整行，
 /// 与 `⌘X`、`⌘C` 相同；只读的文件不能格式化、剪切、粘贴。格式化和修复总是可以点击，无法执行时
 /// 点击后说明原因。「粘贴」不检查剪贴板里有没有文字：弹出菜单不应读取其他应用复制的内容。
+/// 返回十六进制视图的右键菜单：复制（写成十六进制）、按文字复制、全选、转到偏移。
+///
+/// `selected` 为 `false`（空文件）时不能复制。
+pub fn hex_menu(selected: bool) -> Vec<MenuEntry> {
+    use MenuCommand::*;
+    use MenuEntry::{Item, Separator};
+    vec![
+        Item(Copy, selected),
+        Item(HexCopyText, selected),
+        Separator,
+        Item(SelectAll, true),
+        Item(HexGoTo, true),
+    ]
+}
+
 pub fn editor_menu(editable: bool, selected: bool, bookmarked: bool) -> Vec<MenuEntry> {
     use MenuCommand::*;
     use MenuEntry::{Item, Separator};

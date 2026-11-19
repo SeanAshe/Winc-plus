@@ -492,6 +492,9 @@ impl App {
             }
             MenuCommand::Cut => self.copy(true),
             MenuCommand::Copy => self.copy(false),
+            MenuCommand::HexCopyText => self.copy_hex(true),
+            MenuCommand::SelectAll if self.hex_active() => self.select_all_hex(),
+            MenuCommand::HexGoTo => self.open_goto(),
             MenuCommand::Paste => self.paste(),
             MenuCommand::Format => self.format_active(),
             MenuCommand::FormatSelection => self.format_selection(),
@@ -954,7 +957,10 @@ impl App {
                 Err(e) => {
                     let name = winc_editor::display_name(&path);
                     let error = e.to_string();
-                    self.notify(t!("common-trash-delete-failed", name = name, error = error));
+                    self.notify(
+                        NoticeKind::Error,
+                        t!("common-trash-delete-failed", name = name, error = error),
+                    );
                 }
             }
         }

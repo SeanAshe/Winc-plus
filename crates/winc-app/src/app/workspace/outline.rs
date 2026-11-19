@@ -28,8 +28,10 @@ use crate::layout::SidebarView;
 /// 大纲标题行上下各留的空隙（逻辑像素）：列表间隔（`SIDEBAR_LIST_GAP`）的一半，与提交视图中
 /// 储藏一组的标题相同，侧栏底部收着的各栏等高。上面是分隔线，下面是侧栏卡片的下沿或符号列表。
 pub(crate) const OUTLINE_GAP: f32 = SIDEBAR_LIST_GAP / 2.0;
-/// 大纲标题行的高度（逻辑像素）：一行 `TREE_ROW`，上下各留 [`OUTLINE_GAP`]。
-pub(crate) const OUTLINE_HEADER: f32 = TREE_ROW + 2.0 * OUTLINE_GAP;
+/// 标题行离大纲上沿的距离（逻辑像素）：上沿 1 像素的分隔线之下再留 [`OUTLINE_GAP`]。
+pub(crate) const OUTLINE_TOP: f32 = 1.0 + OUTLINE_GAP;
+/// 大纲标题行一栏的高度（逻辑像素）：分隔线和一行 `TREE_ROW`，标题上下各留 [`OUTLINE_GAP`]。
+pub(crate) const OUTLINE_HEADER: f32 = OUTLINE_TOP + TREE_ROW + OUTLINE_GAP;
 /// 第一次展开时符号列表的高度（逻辑像素）：十行。
 const OUTLINE_HEIGHT: f32 = 10.0 * TREE_ROW;
 /// 拖动调整高度时，符号列表和上面的文件树各自至少保留的高度（逻辑像素）：三行，仍能看出列表

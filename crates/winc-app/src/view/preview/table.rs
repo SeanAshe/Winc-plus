@@ -16,6 +16,7 @@ use winc_preview::table::{Area, Sheet, Table, column_name};
 use winc_render::{FontKind, Frame, Rect};
 
 use crate::app::App;
+use crate::layout::drawn_scroll;
 use crate::theme::RADIUS_ROW;
 use crate::view::{ScrollArea, fit, ui_baseline};
 
@@ -119,7 +120,8 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, index: usize, 
     layout.row_h = row_h;
     layout.size = (sheet.row_count(), sheet.columns);
     // 第 `row` 行上边缘的纵坐标（窗口坐标）：先用 `f64` 求出相对视口的位置，行数很多时不失精度。
-    let row_y = |row: usize| body.y + (row as f64 * f64::from(row_h) - sy) as f32;
+    let drawn_sy = sy.round();
+    let row_y = |row: usize| body.y + (row as f64 * f64::from(row_h) - drawn_sy) as f32;
     // 区域在窗口中的矩形（逻辑像素）：左上角的横纵坐标由列边界和行号换算。列号超出表格时取
     // 最右的边界，区域的宽度为 0。
     let edge = |column: usize| edges.get(column).or(edges.last()).copied().unwrap_or(0.0);
@@ -403,7 +405,7 @@ fn draw_cell_card(
     crate::view::draw_floating_bar(frame, p, card, body);
     let clip = card.inset(1.0, CARD_PAD - 4.0).intersect(body);
     for (i, line) in lines.iter().enumerate() {
-        let top = card.y + CARD_PAD + i as f32 * line_h - scroll;
+        let top = card.y + CARD_PAD + i as f32 * line_h - drawn_scroll(scroll);
         if top + line_h < card.y || top > card.bottom() {
             continue;
         }

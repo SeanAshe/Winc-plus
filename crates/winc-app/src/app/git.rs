@@ -36,6 +36,7 @@ use winc_i18n::t;
 
 use super::diff::worktree_title;
 use super::{App, Focus, UserEvent};
+use crate::app::NoticeKind;
 use crate::layout::SidebarView;
 
 /// 界面线程与各后台任务共用的 [`Git`]。
@@ -707,10 +708,13 @@ impl App {
             return;
         }
         self.git.followed = Some(doc.id);
-        let (Some(dir), Some(folder)) = (
-            doc.path.as_deref().and_then(Path::parent),
-            self.editor.root(),
-        ) else {
+        // 文件历史跟随它所在的仓库。
+        let history = doc.log.as_deref().filter(|v| v.query.path.is_some());
+        let dir = match history {
+            Some(view) => view.root.as_deref(),
+            None => doc.path.as_deref().and_then(Path::parent),
+        };
+        let (Some(dir), Some(folder)) = (dir, self.editor.root()) else {
             return;
         };
         // 目录之外的文件不改变当前仓库。
@@ -810,6 +814,7 @@ impl App {
             self.git.generation += 1;
             self.carry_checks_in();
         }
+        self.retarget_logs();
         // 不再位于仓库中时提交视图不可用，切换回文件树；焦点位于提交视图时同样移出，
         // 否则键入的文字会进入不可见的输入框。
         if self.git.root.is_none() {
@@ -962,11 +967,14 @@ impl App {
             format!("{}.{}", found.0, found.1),
             format!("{}.{}", minimum.0, minimum.1),
         );
-        self.notify(t!(
-            "git-version-too-old",
-            version = found.as_str(),
-            minimum = minimum.as_str()
-        ));
+        self.notify(
+            NoticeKind::Warning,
+            t!(
+                "git-version-too-old",
+                version = found.as_str(),
+                minimum = minimum.as_str()
+            ),
+        );
     }
 
     /// 在后台执行一项 Git 任务，完成后以 `done` 唤醒界面线程接收结果。
@@ -1031,7 +1039,10 @@ impl App {
                     let was_truncated = self.git.status.as_ref().is_some_and(|s| s.truncated);
                     if status.truncated && !was_truncated {
                         let count = winc_editor::git::STATUS_LIMIT;
-                        self.notify(t!("git-status-truncated", count = count));
+                        self.notify(
+                            NoticeKind::Warning,
+                            t!("git-status-truncated", count = count),
+                        );
                     }
                     let rows = self.commit_shown().then(|| self.commit_rows());
                     let old = self.git.status.replace(status);
@@ -1079,6 +1090,9 @@ impl App {
                     // 只读了状态的这次刷新没有读其他仓库：列着其他仓库时补读，文件保存后各仓库的
                     // 更改一起更新。
                     others |= !had_refs;
+                    if had_refs {
+                        self.start_waiting_logs();
+                    }
                     if moved {
                         self.reload_logs();
                     }
@@ -1088,6 +1102,7 @@ impl App {
                     self.git.decorations.clear();
                     self.git.problem = Some(e);
                     self.git.missing = outcome.missing;
+                    self.start_waiting_logs();
                 }
             }
             self.git.generation += 1;
@@ -1359,7 +1374,7 @@ impl App {
             .editor
             .documents
             .iter()
-            .find(|d| d.path.as_deref() == Some(canonical.as_path()) && !d.is_pending());
+            .find(|d| d.path.as_deref() == Some(canonical.as_path()) && d.holds_file_text());
         if doc.is_some_and(|d| d.is_large()) {
             if !matches!(target, Target::Refresh(_)) {
                 let name = winc_editor::display_name(&path).into_owned();

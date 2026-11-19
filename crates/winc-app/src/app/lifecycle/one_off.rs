@@ -146,7 +146,7 @@ impl App {
         if let Some(problem) = done {
             self.one_off.stdin = None;
             if let Some(problem) = problem {
-                self.notify(problem);
+                self.notify(NoticeKind::Error, problem);
             }
         }
         self.request_redraw();

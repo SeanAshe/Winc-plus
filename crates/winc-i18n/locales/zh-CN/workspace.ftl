@@ -254,14 +254,14 @@ workspace-picker-recently-used = 最近使用
 workspace-picker-symbols-too-large = 文件过大，无法列出符号
 workspace-picker-no-symbols = 此文件中未找到符号
 workspace-picker-no-matching-symbols = 无匹配的符号
-workspace-picker-folders-placeholder = 按目录名或路径查找…
+workspace-picker-folders-placeholder = 按名称或路径查找…
 workspace-picker-languages-placeholder = 选择语言…
 workspace-picker-folders-new-window = { $platform ->
     [macos] ⌥↩
    *[other] Alt+Enter
 } 在新窗口中打开
-workspace-picker-no-recent-folders = 暂无最近打开的目录
-workspace-picker-no-matching-folders = 无匹配的目录
+workspace-picker-no-recent-folders = 暂无最近打开的目录或文件
+workspace-picker-no-matching-folders = 无匹配的目录或文件
 workspace-conflict-modified = 「{ $name }」已被其他程序修改
 
 ## 悬停提示
@@ -398,6 +398,7 @@ workspace-open-folder-failed = 无法打开目录「{ $name }」：{ $error }
 workspace-recent-missing = 未找到「{ $path }」，已从最近列表中移除
 workspace-folder-missing = 未找到「{ $path }」
 workspace-jump-list-recent = 最近打开的目录
+workspace-jump-list-recent-files = 最近打开的文件
 workspace-reloaded = 已重新加载 { $names }
 workspace-disk-conflicts = { $names } 已被其他程序修改，与未保存的修改冲突，请切换到对应的标签页选择要保留的版本
 

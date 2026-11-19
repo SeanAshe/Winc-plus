@@ -202,3 +202,6 @@ menu-shortcut-add = 添加快捷键…
 menu-shortcut-remove = 移除快捷键
 menu-shortcuts-reset-all = 恢复全部默认快捷键
 menu-shortcut-reset = 恢复默认
+
+menu-hex-copy-text = 按文字复制
+menu-hex-go-to = 转到偏移…

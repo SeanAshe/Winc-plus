@@ -98,6 +98,42 @@ pub(super) enum Source {
     Tree(Override, bool),
     /// 只搜索这些文件（重新搜索一批文件）。
     Files(Vec<PathBuf>),
+    /// 只搜索根目录和附加目录下的依赖目录（[`DEPENDENCY_FOLDERS`]），其中被忽略的文件也搜索。
+    Dependencies,
+}
+
+/// 依赖目录的名字：Node 的、Python 虚拟环境的、PHP 和 Go 的 `vendor`、iOS 的 `Pods`。
+pub const DEPENDENCY_FOLDERS: [&str; 5] = ["node_modules", ".venv", "venv", "vendor", "Pods"];
+/// 往下找依赖目录的层数：根目录下一层和两层（如 `frontend/node_modules`）。
+const DEPENDENCY_DEPTH: usize = 2;
+
+/// 返回 `dir` 下 [`DEPENDENCY_DEPTH`] 层以内的依赖目录，按路径排序；不进依赖目录和隐藏的目录
+/// （[`HIDDEN`](crate::workspace::tree::HIDDEN)）里找，不跟随符号链接。
+pub(crate) fn dependency_folders(dir: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut level = vec![dir.to_path_buf()];
+    for _ in 0..DEPENDENCY_DEPTH {
+        let mut next = Vec::new();
+        for parent in &level {
+            let entries = winc_backend::fs::read_dir(parent)
+                .into_iter()
+                .flatten()
+                .flatten();
+            for entry in entries.filter(|entry| entry.kind.is_dir()) {
+                let path = entry.path();
+                let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
+                match name.as_deref() {
+                    Some(name) if DEPENDENCY_FOLDERS.contains(&name) => found.push(path),
+                    Some(name) if crate::workspace::tree::HIDDEN.contains(&name) => {}
+                    Some(_) => next.push(path),
+                    None => {}
+                }
+            }
+        }
+        level = next;
+    }
+    found.sort();
+    found
 }
 
 /// 一次搜索的后台部分。
@@ -187,6 +223,41 @@ impl Walk {
                     }),
             ),
             Source::Files(files) => Box::new(files.iter().cloned()),
+            Source::Dependencies => {
+                let roots = std::iter::once(&self.root).chain(self.extra.iter().map(|(_, d)| d));
+                let containing = self.literal.as_ref().map(|(text, case_sensitive)| {
+                    crate::workspace::remote_files::Containing {
+                        text,
+                        case_sensitive: *case_sensitive,
+                    }
+                });
+                let folders: Vec<PathBuf> = roots.flat_map(|dir| dependency_folders(dir)).collect();
+                let cancel = Arc::clone(&self.cancel);
+                Box::new(folders.into_iter().flat_map(move |dir| {
+                    let files: Box<dyn Iterator<Item = PathBuf>> = if winc_backend::is_remote(&dir)
+                    {
+                        let stop = || cancel.load(Relaxed);
+                        let found = crate::workspace::remote_files::list(
+                            &dir,
+                            true,
+                            containing.as_ref(),
+                            &stop,
+                        );
+                        let joined = found.into_iter().map(|r| winc_backend::join(&dir, &r));
+                        Box::new(joined.collect::<Vec<_>>().into_iter())
+                    } else {
+                        Box::new(
+                            (walker_with_ignored(&dir).build().flatten())
+                                .filter(|entry| {
+                                    (entry.file_type())
+                                        .is_some_and(|t| is_listed_file(t, entry.path()))
+                                })
+                                .map(ignore::DirEntry::into_path),
+                        )
+                    };
+                    files
+                }))
+            }
         };
         let mut worker = Worker::new(&self, sender.clone());
         for path in paths {

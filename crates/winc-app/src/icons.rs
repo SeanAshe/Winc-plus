@@ -183,6 +183,36 @@ pub fn warning(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: 
     frame.rect_clipped(Rect::new(cx - 0.75, cy + 2.25, 1.5, 1.5), color, 0.75, clip);
 }
 
+/// 绘制信息图标，11×11：圆圈内一个「i」，与 [`warning`] 同一大小。
+pub fn info(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let shapes = [
+        Stroke::Circle(cx, cy, RING),
+        Stroke::Line(cx, cy - 0.5, cx, cy + 2.75),
+    ];
+    frame.stroke(&shapes, GLYPH_STROKE, color, clip);
+    frame.rect_clipped(Rect::new(cx - 0.75, cy - 3.0, 1.5, 1.5), color, 0.75, clip);
+}
+
+/// 绘制完成图标，11×11：圆圈内一个勾。
+pub fn done(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let shapes = [
+        Stroke::Circle(cx, cy, RING),
+        Stroke::Line(cx - 2.5, cy + 0.25, cx - 0.75, cy + 2.0),
+        Stroke::Line(cx - 0.75, cy + 2.0, cx + 2.5, cy - 1.75),
+    ];
+    frame.stroke(&shapes, GLYPH_STROKE, color, clip);
+}
+
+/// 绘制出错图标，11×11：圆圈内一个感叹号。
+pub fn error(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let shapes = [
+        Stroke::Circle(cx, cy, RING),
+        Stroke::Line(cx, cy - 2.75, cx, cy + 0.5),
+    ];
+    frame.stroke(&shapes, GLYPH_STROKE, color, clip);
+    frame.rect_clipped(Rect::new(cx - 0.75, cy + 1.5, 1.5, 1.5), color, 0.75, clip);
+}
+
 /// 绘制关闭图标（×），`size` 是叉的边长。
 pub fn close(frame: &mut Frame<'_>, (cx, cy): (f32, f32), size: f32, color: Color, clip: Rect) {
     let h = size / 2.0;

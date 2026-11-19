@@ -6,6 +6,7 @@ use winc_editor::git::Synced;
 use winc_i18n::t;
 
 use super::*;
+use crate::app::NoticeKind;
 use crate::app::git::branch::{Then, keep_changes};
 use crate::app::lifecycle::notice::NoticeAction;
 
@@ -683,7 +684,10 @@ impl App {
                 for (path, result) in results {
                     if let Err(e) = result {
                         let (name, error) = (winc_editor::display_name(&path), e.to_string());
-                        app.notify(t!("git-rollback-file-failed", name = name, error = error));
+                        app.notify(
+                            NoticeKind::Error,
+                            t!("git-rollback-file-failed", name = name, error = error),
+                        );
                     }
                 }
                 if remote {
@@ -727,6 +731,7 @@ impl App {
                         match result {
                             Ok(oid) => self.flash(t!("git-commit-done-in", name = name, oid = oid)),
                             Err(e) => self.notify_with(
+                                NoticeKind::Error,
                                 t!("git-commit-failed-in", name = name, error = e),
                                 NoticeAction::GitOutput,
                             ),
@@ -771,7 +776,10 @@ impl App {
                             self.git.commit.no_verify = false;
                             self.git.commit.draft = None;
                             if left > 0 {
-                                self.notify(t!("git-commit-others-left", count = left));
+                                self.notify(
+                                    NoticeKind::Warning,
+                                    t!("git-commit-others-left", count = left),
+                                );
                             } else {
                                 self.flash(t!("git-commit-done", oid = &oid, subject = subject));
                             }
@@ -785,6 +793,7 @@ impl App {
                             self.git.commit.committed_with.clear();
                             self.git.commit.others_left = 0;
                             self.notify_with(
+                                NoticeKind::Error,
                                 t!("git-commit-failed", error = e),
                                 NoticeAction::GitOutput,
                             );
@@ -827,7 +836,7 @@ impl App {
                         Ok(()) => self.flash(t!("git-undo-commit-done-in", name = name, oid = tag)),
                         Err(e) => {
                             self.git.commit.last_for = None;
-                            self.notify(t!("git-undo-commit-failed", error = e));
+                            self.notify(NoticeKind::Error, t!("git-undo-commit-failed", error = e));
                         }
                     }
                     if here {
@@ -841,16 +850,19 @@ impl App {
                             Ok(count) => {
                                 self.flash(t!("git-rollback-done-in", name = name, count = count))
                             }
-                            Err(e) => {
-                                self.notify(t!("git-rollback-failed-in", name = name, error = e))
-                            }
+                            Err(e) => self.notify(
+                                NoticeKind::Error,
+                                t!("git-rollback-failed-in", name = name, error = e),
+                            ),
                         }
                         continue;
                     }
                     self.git.commit.busy = false;
                     match result {
                         Ok(count) => self.flash(t!("git-rollback-done", count = count)),
-                        Err(e) => self.notify(t!("git-rollback-failed", error = e)),
+                        Err(e) => {
+                            self.notify(NoticeKind::Error, t!("git-rollback-failed", error = e))
+                        }
                     }
                     // 重新读打开着的文档，顺带刷新仓库状态。
                     self.check_disk();

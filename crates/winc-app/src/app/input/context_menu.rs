@@ -294,6 +294,12 @@ pub enum MenuCommand {
     LineEnding(LineEnding),
     /// 通过编码重新打开，参数为编码在 `encoding::CHOICES` 中的序号（从 0 起）。
     ReopenEncoding(usize),
+    /// 改按十六进制查看文件的字节。
+    ReopenHex,
+    /// 十六进制视图：把选中的字节按文字复制。
+    HexCopyText,
+    /// 十六进制视图：转到偏移。
+    HexGoTo,
     /// 通过编码保存，参数为编码在 `encoding::CHOICES` 中的序号（从 0 起）。
     SaveEncoding(usize),
     /// 状态栏语言菜单：改用这种语言，参数为语言在 `winc_syntax::languages()` 中的序号（从 0 起）。
@@ -772,6 +778,9 @@ impl MenuCommand {
             MenuCommand::ReopenEncoding(i) | MenuCommand::SaveEncoding(i) => {
                 CHOICES.get(i).map_or("", |(_, label)| label)
             }
+            MenuCommand::ReopenHex => t!("editor-encoding-hex"),
+            MenuCommand::HexCopyText => t!("menu-hex-copy-text"),
+            MenuCommand::HexGoTo => t!("menu-hex-go-to"),
             MenuCommand::UseLanguage(i) => winc_syntax::languages().get(i).map_or("", |l| l.name),
             MenuCommand::UsePlainText => winc_syntax::detect("").name,
             MenuCommand::DetectLanguage => t!("menu-detect-language"),

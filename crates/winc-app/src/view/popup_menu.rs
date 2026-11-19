@@ -83,7 +83,7 @@ pub(super) fn draw(app: &mut App, frame: &mut Frame<'_>) {
         level.rect = Rect::new(x, y, w, h);
         level.content = content;
         level.scroll = level.scroll.clamp(0.0, (content - h).max(0.0));
-        let mut top = y + POPUP_PAD - level.scroll;
+        let mut top = y + POPUP_PAD - drawn_scroll(level.scroll);
         level.row_rects = level
             .rows
             .iter()
@@ -143,7 +143,9 @@ fn icon_column(rows: &[PopupRow]) -> f32 {
     let any = rows.iter().any(|row| {
         matches!(
             row,
-            PopupRow::Item { icon: Some(_), .. } | PopupRow::Entry { .. }
+            PopupRow::Item { icon: Some(_), .. }
+                | PopupRow::Submenu { icon: Some(_), .. }
+                | PopupRow::Entry { .. }
         )
     });
     if any { ICON_COLUMN } else { 0.0 }
@@ -212,9 +214,12 @@ fn draw_level(app: &App, frame: &mut Frame<'_>, level: &PopupLevel) {
                 key.as_str(),
                 false,
             ),
-            PopupRow::Submenu { label, checked, .. } => {
-                (label.title.as_str(), None, None, *checked, true, "", true)
-            }
+            PopupRow::Submenu {
+                label,
+                icon,
+                checked,
+                ..
+            } => (label.title.as_str(), None, *icon, *checked, true, "", true),
             PopupRow::Entry {
                 name, dir, checked, ..
             } => {

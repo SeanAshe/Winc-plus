@@ -180,6 +180,7 @@ const EDITOR: &[Field] = &[
     bool_field!("wordWrap", word_wrap),
     bool_field!("wholeLines", whole_lines),
     bool_field!("minimap", minimap),
+    bool_field!("smoothScrolling", smooth_scrolling),
     bool_field!("outline", outline),
     Field {
         key: "renderWhitespace",

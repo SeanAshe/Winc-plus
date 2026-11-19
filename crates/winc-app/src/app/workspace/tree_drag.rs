@@ -384,7 +384,7 @@ impl App {
     /// 拖进文件树的各项复制完成：刷新文件树并选中各个副本 `copies`，提示复制失败的各项。
     pub(in crate::app) fn copied_into_tree(&mut self, copies: Vec<PathBuf>, failures: Vec<String>) {
         for failure in failures {
-            self.notify(failure);
+            self.notify(NoticeKind::Error, failure);
         }
         if !copies.is_empty()
             && let Some(ws) = &mut self.editor.workspace
@@ -512,11 +512,14 @@ impl App {
                 }
                 Err(e) => {
                     let name = winc_editor::display_name(from);
-                    self.notify(t!(
-                        "workspace-tree-move-failed",
-                        name = name,
-                        error = e.to_string()
-                    ));
+                    self.notify(
+                        NoticeKind::Error,
+                        t!(
+                            "workspace-tree-move-failed",
+                            name = name,
+                            error = e.to_string()
+                        ),
+                    );
                 }
             }
         }

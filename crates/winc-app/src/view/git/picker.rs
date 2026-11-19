@@ -180,7 +180,7 @@ fn draw_actions(
 
 /// 这一帧要画的行：展开、收起的动画期间下面的行往上收，视口里能多露出几行。
 fn drawn_rows(app: &App, parts: &PickerParts, count: usize) -> Range<usize> {
-    let scroll = app.picker_drawn_scroll();
+    let scroll = drawn_scroll(app.picker_drawn_scroll());
     let hidden = app
         .overlays
         .picker
@@ -195,7 +195,7 @@ fn drawn_rows(app: &App, parts: &PickerParts, count: usize) -> Range<usize> {
 /// 第 `i` 行这一帧的矩形和裁剪范围：展开、收起的动画期间父行下面的行往上收，子行只露出父行下沿
 /// 以下的部分。
 fn placed_row(app: &App, parts: &PickerParts, i: usize) -> (Rect, Rect) {
-    let scroll = app.picker_drawn_scroll();
+    let scroll = drawn_scroll(app.picker_drawn_scroll());
     let mut row = parts.row(i, scroll);
     let mut clip = parts.list;
     if let Some(fold) = app

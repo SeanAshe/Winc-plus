@@ -23,6 +23,7 @@ impl Document {
             && !self.rendered
             && self.diff.is_none()
             && self.log.is_none()
+            && self.hex.is_none()
             && self.reading.is_none()
     }
 

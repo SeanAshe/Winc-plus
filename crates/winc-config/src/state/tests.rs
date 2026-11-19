@@ -36,6 +36,10 @@ fn several_windows_keep_each_others_changes() {
 fn sample() -> State {
     let mut state = State {
         recent: vec![PathBuf::from("/a/项目"), PathBuf::from("/b")],
+        recent_files: vec![
+            PathBuf::from("/a/项目/main.rs"),
+            PathBuf::from("/c/笔记.md"),
+        ],
         sessions: vec![
             Session {
                 folder: PathBuf::from("/a/项目"),
@@ -254,6 +258,27 @@ fn recent_list_moves_to_front_and_is_capped() {
         "拿掉的目录正好是上次的现场，现场也作废"
     );
     assert!(state.session_for(Path::new("/b")).is_some());
+}
+
+#[test]
+fn recent_files_move_to_front_and_are_capped() {
+    let mut state = State::default();
+    for i in 0..MAX_RECENT_FILES + 5 {
+        state.remember_file(Path::new(&format!("/f{i}.rs")));
+    }
+    state.remember_file(Path::new("/f10.rs"));
+    assert_eq!(state.recent_files.len(), MAX_RECENT_FILES);
+    assert_eq!(state.recent_files[0], Path::new("/f10.rs"));
+    assert_eq!(
+        state
+            .recent_files
+            .iter()
+            .filter(|p| p.ends_with("f10.rs"))
+            .count(),
+        1
+    );
+    state.forget_file(Path::new("/f10.rs"));
+    assert!(!state.recent_files.iter().any(|p| p.ends_with("f10.rs")));
 }
 
 #[test]

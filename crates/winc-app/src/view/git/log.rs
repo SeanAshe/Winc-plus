@@ -88,7 +88,7 @@ pub(in crate::view) fn draw_log(app: &mut App, frame: &mut Frame<'_>, index: usi
     let lh = app.fonts.line_height;
     let (scroll, rows) = {
         let doc = &app.editor.documents[index];
-        (doc.scroll_line, doc.row_count())
+        (drawn_scroll_line(doc.scroll_line, lh), doc.row_count())
     };
     let first = scroll.floor().max(0.0) as usize;
     let visible = (parts.list.h / lh).ceil() as usize + 1;
@@ -351,7 +351,7 @@ fn draw_header(
     let quiet = app.log_list_quiet();
     let note = if view.stale && !quiet {
         t!("git-log-refreshing").to_owned()
-    } else if view.is_loading() && count == 0 {
+    } else if app.log_loading(view) && count == 0 {
         if quiet {
             String::new()
         } else {
@@ -527,8 +527,8 @@ fn draw_list(
         let (title, detail) = match &view.error {
             Some(e) => (t!("git-log-error"), Some(e.as_str())),
             // 开始读取时保持空白，超过 `LOADING_DELAY`（300 ms）仍未返回才显示提示。
-            None if view.is_loading() && app.log_list_quiet() => return,
-            None if view.is_loading() => (t!("git-log-loading-commits"), None),
+            None if app.log_loading(view) && app.log_list_quiet() => return,
+            None if app.log_loading(view) => (t!("git-log-loading-commits"), None),
             None if view.query.filtered() => (
                 t!("git-log-no-matches"),
                 Some(t!("git-log-no-matches-detail")),

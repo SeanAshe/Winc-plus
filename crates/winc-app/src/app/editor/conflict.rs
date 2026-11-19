@@ -91,7 +91,10 @@ impl App {
             Ok(text) => text,
             Err(e) => {
                 let error = e.to_string();
-                self.notify(t!("git-read-file-failed", name = &name, error = error));
+                self.notify(
+                    NoticeKind::Error,
+                    t!("git-read-file-failed", name = &name, error = error),
+                );
                 return;
             }
         };
@@ -165,7 +168,10 @@ impl App {
             }
             Err(e) => {
                 let error = e.to_string();
-                self.notify(t!("git-read-file-failed", name = name, error = error));
+                self.notify(
+                    NoticeKind::Error,
+                    t!("git-read-file-failed", name = name, error = error),
+                );
             }
         }
     }
@@ -208,7 +214,10 @@ impl App {
         }
 
         // 没有窗口（测试中）时不保存：冲突卡片上可以选择保留哪一边，之后再保存。
-        self.notify(t!("git-disk-conflict-choose-first", name = name));
+        self.notify(
+            NoticeKind::Warning,
+            t!("git-disk-conflict-choose-first", name = name),
+        );
         true
     }
 

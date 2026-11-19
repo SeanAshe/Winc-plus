@@ -309,12 +309,15 @@ impl App {
             Ok(imported) => {
                 self.adopt_imported_keymap(&imported);
                 let name = source.name.as_str();
-                self.notify(match imported.skipped {
-                    0 => t!("settings-keys-imported", name = name),
-                    n => t!("settings-keys-imported-skipped", name = name, count = n),
-                });
+                match imported.skipped {
+                    0 => self.notify(NoticeKind::Done, t!("settings-keys-imported", name = name)),
+                    n => self.notify(
+                        NoticeKind::Warning,
+                        t!("settings-keys-imported-skipped", name = name, count = n),
+                    ),
+                }
             }
-            Err(reason) => self.notify(reason),
+            Err(reason) => self.notify(NoticeKind::Error, reason),
         }
     }
 

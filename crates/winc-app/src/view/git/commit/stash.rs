@@ -24,7 +24,7 @@ pub(super) fn draw_stashes(
     );
     let size = app.fonts.ui_small;
     let band = |row: usize| {
-        let y = area.y + crate::app::STASH_GAP + row as f32 * COMMIT_ROW;
+        let y = area.y + crate::app::DRAWER_TOP + row as f32 * COMMIT_ROW;
         Rect::new(area.x + 8.0, y, area.w - 16.0, COMMIT_ROW)
     };
     let shade = |band: Rect| Rect::new(band.x, band.y + 1.0, band.w, band.h - 2.0);

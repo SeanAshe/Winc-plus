@@ -41,8 +41,10 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
     let hidden = motion_ref.map_or(0.0, |m| m.hidden(app.fonts.line_height));
 
     // `scroll_line` 以显示行计；折叠隐藏的行不显示，因此屏幕上显示的是文件中若干段连续的行。
+    let lh = app.fonts.line_height;
     let doc = &mut app.editor.documents[index];
-    let first_row = doc.scroll_line.floor().max(0.0) as usize;
+    let scroll = drawn_scroll_line(doc.scroll_line, lh);
+    let first_row = scroll.floor().max(0.0) as usize;
     // 动画中变化的行仅收起了一部分，因此下方额外绘制与这些行数量相同的行。
     let rows = (layout.text.h / app.fonts.line_height).ceil() as usize
         + 1
@@ -161,7 +163,7 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
             segments: &segments,
             visible: visible.clone(),
             first_row,
-            offset: (doc.scroll_line - first_row as f64) as f32 * lh,
+            offset: (scroll - first_row as f64) as f32 * lh,
             motion: motion_ref,
             hidden,
             turning: motion_ref.map(|m| (doc.line_of_row(m.rows.start - 1), m.reveal())),

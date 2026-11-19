@@ -132,7 +132,7 @@ impl App {
     /// 的其他路径。
     pub(super) fn log_path_choices(&self) -> Vec<String> {
         let mut paths: Vec<String> = Vec::new();
-        if let Some(root) = self.git.root.as_deref()
+        if let Some(root) = self.active_log_root()
             && let Ok(entries) = winc_editor::list_dir(root)
         {
             let dirs = entries
@@ -252,13 +252,18 @@ impl App {
             }
             None => history_title(&path),
         };
-        let (index, new) = self.editor.show_log(&title);
-        let id = self.editor.documents[index].id;
-        if new {
-            if let Some(view) = self.editor.documents[index].log.as_deref_mut() {
-                view.query.path = Some(path);
-                view.query.lines = lines;
-            }
+        let (index, _) = self.editor.show_log(&title);
+        let doc = &mut self.editor.documents[index];
+        let id = doc.id;
+        // 同名的另一个文件的历史占着这个标签时换成这个文件的。
+        if let Some(view) = doc.log.as_deref_mut()
+            && (view.root.as_ref() != Some(&root) || view.query.path.as_ref() != Some(&path))
+        {
+            view.restart(Some(root), Vec::new());
+            view.query.path = Some(path);
+            view.query.lines = lines;
+            set_scroll_line(doc, 0.0);
+            self.git.log.forget(id);
             self.load_log(id);
         }
         self.focus = Focus::Editor;

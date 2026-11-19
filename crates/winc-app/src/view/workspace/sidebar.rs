@@ -453,6 +453,7 @@ fn draw_tree(app: &mut App, frame: &mut Frame<'_>) {
         .clamp(0.0, (content - tree.h).max(0.0));
     // 固定在顶部的目录按该滚动位置计算，因此先写回 `app.panels.tree.scroll`。
     app.panels.tree.scroll = scroll;
+    let scroll = drawn_scroll(scroll);
 
     // 返回按展开后的行序数的第 `v` 行对应的条目，以及该条目在文件树数据中的行号；正在收起的子行
     // 已不在文件树数据中，行号为 `None`。
@@ -980,7 +981,7 @@ pub(in crate::view) fn tree_overflow(app: &App, frame: &mut Frame<'_>) -> Option
         None => {
             tree_row_slot(
                 tree,
-                app.panels.tree.scroll,
+                drawn_scroll(app.panels.tree.scroll),
                 app.tree_slot_of(index),
                 None,
                 0.0,
@@ -1046,7 +1047,7 @@ fn overflow_row(app: &App, index: usize) -> Rect {
         None => {
             tree_row_slot(
                 tree,
-                app.panels.tree.scroll,
+                drawn_scroll(app.panels.tree.scroll),
                 app.tree_slot_of(index),
                 None,
                 0.0,

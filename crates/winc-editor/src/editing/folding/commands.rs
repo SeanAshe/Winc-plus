@@ -30,6 +30,9 @@ impl Document {
         if let Some(view) = &self.log {
             return view.row_count();
         }
+        if let Some(view) = &self.hex {
+            return view.rows();
+        }
         match &self.diff {
             // 末尾删掉一大段时左侧比右侧长，滚动范围取较长的一侧（见 `DiffView::scroll_rows`）。
             Some(view) => view.scroll_rows().max(1),

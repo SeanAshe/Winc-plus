@@ -1,4 +1,4 @@
-//! 编辑区的说明页：打不开的文件、没有打开文件时的欢迎页。
+//! 编辑区的说明页：正在读取或打不开的文件、没有打开文件时的欢迎页。
 
 use winc_i18n::t;
 
@@ -12,6 +12,27 @@ pub(super) fn draw_placeholder(
     frame: &mut Frame<'_>,
     message: String,
     actions: &[(PlaceholderAction, &str)],
+) {
+    draw_page(app, frame, &message, &message, actions, None);
+}
+
+/// 绘制正在读取的说明页：文件名 `name`、读了百分之几，下面是读了 `fraction`（0 到 1）的进度条。
+pub(super) fn draw_reading(app: &mut App, frame: &mut Frame<'_>, name: &str, fraction: f32) {
+    let percent = (fraction * 100.0) as u32;
+    let message = t!("editor-reading-progress", name = name, percent = percent);
+    // 按 100% 时的宽度居中，百分数变化时文字不左右移动。
+    let widest = t!("editor-reading-progress", name = name, percent = 100);
+    draw_page(app, frame, &message, &widest, &[], Some(fraction));
+}
+
+/// 说明页的布局：`anchor` 是决定原因居中位置的文字，`bar` 是进度条读了多少。
+fn draw_page(
+    app: &mut App,
+    frame: &mut Frame<'_>,
+    message: &str,
+    anchor: &str,
+    actions: &[(PlaceholderAction, &str)],
+    bar: Option<f32>,
 ) {
     // 远端主机上的文件不提供交给本机程序的操作，除非它所在的目录挂载在本机
     // （`remote.localFolders`）：此时这些操作作用于本机上的那一份。
@@ -34,6 +55,7 @@ pub(super) fn draw_placeholder(
     const MESSAGE_H: f32 = 20.0;
     const BUTTON_H: f32 = 28.0;
     const GAP: f32 = 8.0;
+    const BAR: (f32, f32) = (200.0, 4.0);
 
     let p = app.palette;
     let editor = app.layout.editor;
@@ -42,10 +64,10 @@ pub(super) fn draw_placeholder(
     } else {
         0.0
     };
-    let buttons_h = if actions.is_empty() {
-        0.0
-    } else {
-        18.0 + BUTTON_H
+    let buttons_h = match (actions.is_empty(), bar) {
+        (false, _) => 18.0 + BUTTON_H,
+        (true, Some(_)) => 18.0 + BAR.1,
+        (true, None) => 0.0,
     };
     let total = icon_h + MESSAGE_H + buttons_h;
     let cx = editor.x + editor.w / 2.0;
@@ -57,8 +79,10 @@ pub(super) fn draw_placeholder(
         y += icon_h;
     }
 
-    let message = ellipsize(frame, &message, app.fonts.ui, editor.w - 48.0);
-    let w = frame.measure(FontKind::Ui, app.fonts.ui, &message);
+    let max = editor.w - 48.0;
+    let message = ellipsize(frame, message, app.fonts.ui, max);
+    let anchor = ellipsize(frame, anchor, app.fonts.ui, max);
+    let w = frame.measure(FontKind::Ui, app.fonts.ui, &anchor);
     let row = Rect::new(editor.x, y, editor.w, MESSAGE_H);
     ui_text(
         frame,
@@ -70,6 +94,22 @@ pub(super) fn draw_placeholder(
         editor,
     );
     y = row.bottom() + 18.0;
+
+    if let Some(fraction) = bar {
+        let w = BAR.0.min(max);
+        let track = Rect::new((cx - w / 2.0).round(), y, w.round(), BAR.1);
+        let radius = BAR.1 / 2.0;
+        frame.rect_clipped(track, p.accent.alpha(p.accent.a * 0.3), radius, editor);
+        let filled = Rect::new(
+            track.x,
+            y,
+            (track.w * fraction.clamp(0.0, 1.0)).round(),
+            BAR.1,
+        );
+        if filled.w > 0.0 {
+            frame.rect_clipped(filled, p.accent, radius, editor);
+        }
+    }
 
     let widths: Vec<f32> = actions
         .iter()

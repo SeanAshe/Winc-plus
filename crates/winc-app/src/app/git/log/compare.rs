@@ -30,7 +30,7 @@ impl App {
     /// 在当前日志标签里比较 `from`（旧）和 `to`（新），在后台取两者之间改了的文件。
     pub(super) fn start_log_compare(&mut self, from: String, to: String) {
         self.git.log.file = None;
-        let Some(root) = self.git.root.clone() else {
+        let Some(root) = self.active_log_root().map(Path::to_path_buf) else {
             return;
         };
         let Some(doc) = self.editor.active_mut() else {
@@ -84,7 +84,7 @@ impl App {
         commit: String,
         revision: String,
     ) {
-        let Some(root) = self.git.root.clone() else {
+        let Some(root) = self.active_log_root().map(Path::to_path_buf) else {
             return;
         };
         let Some((id, request)) = self.editor.active().and_then(|doc| {

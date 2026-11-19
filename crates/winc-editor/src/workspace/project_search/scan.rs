@@ -12,8 +12,8 @@ use super::*;
 ///
 /// 判断规则与打开文件时相同，因此搜出的行号和列与打开后一致：开头 `BINARY_SNIFF` 字节含 NUL
 /// 的文件是二进制；不是 UTF-8 时整个读入内存并识别编码；带 BOM 的 UTF-16 在 `UTF16_INLINE`
-/// 以内同样整篇解码，超过的不搜索。其余大文件按需从磁盘读取，只按 `\n` 分行，非 UTF-8 的字节
-/// 替换为 U+FFFD。
+/// 以内同样整篇解码，超过的不搜索。不带 BOM 的 UTF-16 大文件不搜索。其余大文件按需从磁盘
+/// 读取，只按 `\n` 分行，非 UTF-8 的字节替换为 U+FFFD。
 pub(super) fn search_disk(
     matcher: &Matcher,
     buffer: &mut Vec<u8>,
@@ -34,9 +34,13 @@ pub(super) fn search_disk(
     buffer.clear();
     let mut left = size;
     read_chunk(&mut file, buffer, &mut left, CHUNK.max(BINARY_SNIFF)).ok()?;
-    // 带 BOM 的 UTF-16 在 `UTF16_INLINE` 以内整篇解码，与打开文件相同。
+    // 带 BOM 的 UTF-16 在 `UTF16_INLINE` 以内整篇解码，与打开文件相同。不带 BOM 的
+    // UTF-16 大文件无法按需读取，与二进制文件一样不搜索。
     let inline_utf16 = utf16_bom(buffer) && size <= UTF16_INLINE;
-    if looks_binary(buffer) || (large && utf16_bom(buffer) && !inline_utf16) {
+    if looks_binary(buffer)
+        || (large && utf16_unmarked(buffer).is_some())
+        || (large && utf16_bom(buffer) && !inline_utf16)
+    {
         return None;
     }
 
@@ -71,7 +75,7 @@ pub(super) fn search_disk(
         lossy: false,
         index: 0,
     };
-    let streamed = if utf16_bom(buffer) {
+    let streamed = if utf16_text(buffer) {
         None
     } else {
         search.run(buffer, &mut file, left, large, cancel)

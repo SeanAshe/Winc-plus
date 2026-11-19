@@ -140,6 +140,7 @@ impl App {
                 edge: Some(edge),
             })) if winc_backend::fs::is_file(path) => {
                 self.open_dropped_in_split(path, pane, edge);
+                self.note_opened_file(path);
                 return;
             }
             DropZone::Open(drop) => {
@@ -159,6 +160,7 @@ impl App {
     pub(in crate::app) fn drop_plain(&mut self, path: &Path, into: Option<PathBuf>) {
         let Some(dir) = into else {
             self.open_path(path);
+            self.note_opened_file(path);
             return;
         };
         // 文件树里的路径是规范化的（例如 `/private/var` 而不是 `/var`），比较之前先规范化。

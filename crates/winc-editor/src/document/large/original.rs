@@ -97,7 +97,11 @@ impl Original {
     }
 
     /// 打开 `file` 并按 `workers` 个线程分段扫描并建立索引（实际线程数见 [`LargeText::open`]）。
-    pub(super) fn open(file: Handle, workers: u64) -> io::Result<Self> {
+    pub(super) fn open(
+        file: Handle,
+        workers: u64,
+        progress: Option<&ReadProgress>,
+    ) -> io::Result<Self> {
         let metadata = file.metadata()?;
         let mut head = [0u8; 3];
         let bom = file.read_full(0, &mut head)? == 3 && head == UTF8_BOM;
@@ -119,20 +123,21 @@ impl Original {
             longest_line: 0,
             tail: Vec::new(),
         };
-        original.index(workers)?;
+        original.index(workers, progress)?;
         Ok(original)
     }
 
     /// 把内容切成约 `count` 段并行扫描，再按顺序合并各段的检查点。
-    fn index(&mut self, count: u64) -> io::Result<()> {
+    fn index(&mut self, count: u64, progress: Option<&ReadProgress>) -> io::Result<()> {
         let bounds = segment_bounds(&self.file, self.base, self.len, count)?;
 
         // 每段使用一个后台线程；线程不能借用 `self.file`，因此克隆文件句柄后以 `Arc` 共享。
         let file = Arc::new(self.file.try_clone()?);
         let (base, parts) = (self.base, bounds.len() - 1);
         let bounds: Arc<[u64]> = bounds.into();
+        let progress = progress.cloned();
         let segments = crate::background::split(parts, parts, move |i| {
-            scan_segment(&file, base, bounds[i], bounds[i + 1])
+            scan_segment(&file, base, bounds[i], bounds[i + 1], progress.as_ref())
         })
         .into_iter()
         .collect::<io::Result<Vec<_>>>()?;
@@ -314,7 +319,13 @@ fn segment_bounds(file: &Handle, base: u64, len: u64, count: u64) -> io::Result<
 /// 扫描内容中 `from..to`（字节偏移）这一段：设置检查点、统计换行和字符、找出最长的行、校验 UTF-8。
 ///
 /// `from` 必须是行首。
-pub(super) fn scan_segment(file: &Handle, base: u64, from: u64, to: u64) -> io::Result<Segment> {
+pub(super) fn scan_segment(
+    file: &Handle,
+    base: u64,
+    from: u64,
+    to: u64,
+    progress: Option<&ReadProgress>,
+) -> io::Result<Segment> {
     // 按平均每行 64 字节预估检查点个数，一次分配到位，避免反复扩容留下的内存碎片；估计值的
     // 偏差只影响扩容次数，不影响结果。
     let mut checkpoints = Vec::with_capacity(((to - from) / (CHECKPOINT_LINES * 64)) as usize + 1);
@@ -389,6 +400,9 @@ pub(super) fn scan_segment(file: &Handle, base: u64, from: u64, to: u64) -> io::
 
         segment.chars += count(&chunk[counted..]);
         segment.end += take as u64;
+        if let Some(progress) = progress {
+            progress.add(take as u64);
+        }
 
         // 块尾位于一行中间，且距这一行最近的记录已超过 `CHECKPOINT_BYTES`：在块尾记录位置。
         let recorded = segment

@@ -1,4 +1,5 @@
-//! 日志标签数据的测试：重取时保留旧提交、同一时刻只有一个请求、批量递增、详情缓存的上限。
+//! 日志标签数据的测试：重取时保留旧提交、换仓库时清空、同一时刻只有一个请求、批量递增、
+//! 详情缓存的上限。
 
 use super::*;
 
@@ -60,6 +61,37 @@ fn a_reload_keeps_the_old_commits_until_the_first_batch_arrives() {
     let mut empty = LogView::new();
     empty.reset();
     assert!(!empty.stale);
+}
+
+#[test]
+fn another_repository_starts_over_and_drops_the_running_request() {
+    let mut view = LogView::new();
+    load(&mut view, vec![commit("b", &["a"]), commit("a", &[])]);
+    view.selected = Some(0);
+    view.details = Some(Details {
+        oid: "b".into(),
+        ..Details::default()
+    });
+    view.query.text = "fix".into();
+    view.compare = Some(Compare::default());
+    view.reset();
+    let running = view.begin().unwrap();
+    let request = view.compare_request;
+
+    view.restart(Some("/other".into()), vec!["main".into()]);
+    assert!(view.commits.is_empty() && !view.stale);
+    assert!(view.selected.is_none() && view.details.is_none() && view.compare.is_none());
+    assert_eq!(view.root.as_deref(), Some(std::path::Path::new("/other")));
+    assert_eq!(view.query.branches, ["main"]);
+    assert!(view.query.text.is_empty());
+    assert_ne!(view.compare_request, request);
+
+    // 旧仓库的那一批交回来时作废，按新仓库再取一次。
+    assert_eq!(view.begin(), None);
+    let late = vec![commit("old", &[])];
+    assert_eq!(view.finish(running.generation, Ok(late)), Arrival::Refetch);
+    assert!(view.commits.is_empty());
+    assert!(view.begin().is_some());
 }
 
 #[test]

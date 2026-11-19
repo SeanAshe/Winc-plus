@@ -5,8 +5,10 @@
 use super::*;
 use crate::app::animation::Clock;
 
-/// 一组收起时的高度（逻辑像素）：标题一行，上下各留 [`STASH_GAP`]。
-pub(crate) const DRAWER_CLOSED: f32 = COMMIT_ROW + 2.0 * STASH_GAP;
+/// 一组的标题行离一组上沿的距离（逻辑像素）：上沿 1 像素的分隔线之下再留 [`STASH_GAP`]。
+pub(crate) const DRAWER_TOP: f32 = 1.0 + STASH_GAP;
+/// 一组收起时的高度（逻辑像素）：分隔线和标题一行，标题上下各留 [`STASH_GAP`]。
+pub(crate) const DRAWER_CLOSED: f32 = DRAWER_TOP + COMMIT_ROW + STASH_GAP;
 
 /// 一组的展开状态和高度的过渡。
 #[derive(Debug, Clone, Copy)]

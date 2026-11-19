@@ -384,6 +384,40 @@ fn switching_with_uncommitted_changes_asks_to_bring_or_stash_them() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// 终端在右侧时，侧栏的分支、目录菜单和日志的分支筛选仍贴着触发它们的位置。
+#[test]
+fn git_pickers_stay_by_their_buttons_with_the_terminal_right() {
+    let Some((mut app, root)) = picker_repo("git-picker-terminal-right", false) else {
+        return;
+    };
+    crate::app::snapshot::terminal::show_terminal(&mut app, "$ ");
+    app.config.terminal_right = Some(true);
+    app.relayout();
+    paint(&mut app);
+
+    let parts = app.commit_parts();
+    for (anchor, row) in [
+        (GitAnchor::Branch, parts.branch),
+        (GitAnchor::Location, parts.location.unwrap_or(parts.branch)),
+    ] {
+        app.open_branch_picker(anchor);
+        paint(&mut app);
+        let picker = app.layout.picker;
+        assert_eq!((picker.x, picker.y > row.bottom()), (row.x, true));
+        app.close_picker();
+    }
+
+    app.run_action(Action::GitShowLog);
+    paint(&mut app);
+    let branch = crate::app::git::log::LogTarget::Branch;
+    let (button, _) = *app.hits.log.iter().find(|(_, t)| *t == branch).unwrap();
+    app.open_branch_picker(GitAnchor::Log);
+    paint(&mut app);
+    let picker = app.layout.picker;
+    assert_eq!(picker.x, button.x);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[test]
 fn the_search_box_can_create_a_branch() {
     let Some((mut app, root)) = picker_repo("git-picker-create", false) else {

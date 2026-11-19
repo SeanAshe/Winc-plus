@@ -507,8 +507,8 @@ impl Inline {
 
     /// 去掉开头和末尾的空白（HTML 里常见，分段处的换行和缩进）。
     fn trim(mut self) -> Inline {
-        let end = self.text.trim_end().len();
         let start = self.text.len() - self.text.trim_start().len();
+        let end = self.text.trim_end().len().max(start);
         if start == 0 && end == self.text.len() {
             return self;
         }
