@@ -368,6 +368,11 @@ impl Default for MarkdownPreview {
 }
 
 impl MarkdownPreview {
+    /// 和 `other` 交换各本书的阅读位置。
+    pub(super) fn trade_places(&mut self, other: &mut MarkdownPreview) {
+        std::mem::swap(&mut self.book, &mut other.book);
+    }
+
     /// 返回当前文档预览的滚动位置（逻辑像素）。
     pub fn scroll(&self) -> f32 {
         self.doc

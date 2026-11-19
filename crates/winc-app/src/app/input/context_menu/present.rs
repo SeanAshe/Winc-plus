@@ -494,8 +494,9 @@ impl App {
                 }
                 menu
             }
-            MenuTarget::TerminalTab(_) => vec![
+            MenuTarget::TerminalTab(id) => vec![
                 MenuEntry::Item(MenuCommand::RenameTerminal, true),
+                MenuEntry::Item(MenuCommand::SplitTerminal, self.terminal_splittable(*id)),
                 MenuEntry::Separator,
                 MenuEntry::Item(MenuCommand::CloseTerminal, true),
                 MenuEntry::Item(
@@ -634,7 +635,7 @@ impl App {
             MenuTarget::CommitButton => self.commit_button_menu(),
             MenuTarget::LastCommit => self.last_commit_menu(),
             MenuTarget::TreeTools => self.tree_tools_menu(),
-            MenuTarget::TabList => (0..self.editor.documents.len())
+            MenuTarget::TabList => (0..self.editor.tab_count())
                 .map(|i| MenuEntry::Item(MenuCommand::ShowTab(i), true))
                 .collect(),
             MenuTarget::RunConfigs => (0..self.run.list.len())

@@ -23,7 +23,7 @@ pub use run::{
     load_run_configs, run_configs_path,
 };
 pub use state::{
-    BADGE_COLORS, MAX_COMMIT_MESSAGES, MAX_RECENT, MAX_SESSIONS, RECENT_IN_MENU, Session, State,
-    Tab, TerminalSession, WindowFrame, state_path,
+    BADGE_COLORS, MAX_COMMIT_MESSAGES, MAX_RECENT, MAX_SESSIONS, PaneNode, RECENT_IN_MENU, Session,
+    SessionPane, SessionPanes, State, Tab, TerminalSession, WindowFrame, state_path,
 };
 pub use version::compare_versions;

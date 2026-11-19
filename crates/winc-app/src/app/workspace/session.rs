@@ -347,6 +347,7 @@ impl App {
 
         let mut tabs = Vec::new();
         let mut active = None;
+        let mut slots = Vec::new();
         for (i, doc) in self.editor.documents.iter().enumerate() {
             let Some(tab) = self.session_tab(doc) else {
                 continue;
@@ -354,8 +355,10 @@ impl App {
             if self.editor.active == Some(i) {
                 active = Some(tabs.len());
             }
+            slots.push((doc.id, tabs.len()));
             tabs.push(tab);
         }
+        let panes = self.session_panes(&slots);
 
         let terminal = self.terminal_session();
         let run = self.run.selected.clone();
@@ -404,6 +407,7 @@ impl App {
                 readonly_all,
                 sidebar_hidden,
                 window,
+                panes,
             });
         });
     }

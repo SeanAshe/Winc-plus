@@ -116,7 +116,8 @@ pub(crate) fn system_glyphs() -> Arc<dyn svg::Glyphs> {
 }
 
 impl App {
-    /// 当前标签换了时，释放既不是当前标签、也不是前一个标签的文档里解码好的图。
+    /// 当前标签换了时，释放既不是当前标签、前一个标签，也不是其他窗格的当前标签的文档里解码
+    /// 好的图。
     fn release_hidden_pictures(&mut self) {
         let active = self.editor.active().map(|d| d.id);
         let shown = &mut self.preview.images.shown;
@@ -124,7 +125,8 @@ impl App {
             return;
         }
         *shown = [active, shown[0]];
-        let keep = *shown;
+        let mut keep = shown.to_vec();
+        keep.extend(self.editor.panes.others.iter().map(|p| p.active));
         for doc in &mut self.editor.documents {
             if !keep.contains(&Some(doc.id)) {
                 doc.release_picture();
@@ -135,11 +137,20 @@ impl App {
 
     /// 当前标签的图片尚未加载时，提交后台加载任务；每次绘制前调用。
     pub(crate) fn advance_images(&mut self) {
+        self.release_hidden_pictures();
+        self.advance_previews();
+    }
+
+    /// 推进当前标签的各种预览：收下后台完成的结果，提交落后的解析、读取和绘制任务。
+    ///
+    /// 拆分后画其他窗格之前也调用：每个窗格有自己的预览状态。
+    pub(crate) fn advance_previews(&mut self) {
+        self.poll_markdown();
+        self.poll_pdf();
         self.advance_split();
         self.advance_markdown();
         self.advance_pdf();
         self.advance_picture_view();
-        self.release_hidden_pictures();
         self.advance_tables();
         let Some(doc) = self.editor.active() else {
             return;
@@ -223,12 +234,13 @@ impl App {
         });
     }
 
-    /// 收下分栏预览解析好的一版；文字又改了时下一帧再解析最新的版本。
-    fn accept_split(&mut self, (id, revision, result): Done) {
+    /// 收下分栏预览解析好的一版；文字又改了时下一帧再解析最新的版本。不是前台窗格在等的
+    /// 那一版时原样交回。
+    fn accept_split(&mut self, (id, revision, result): Done) -> Option<Done> {
         let split = &mut self.preview.split;
-        // 不是正在等的那一版（换过标签，或从预览切过来时已经接手了现成的图）就忽略。
+        // 不是正在等的那一版（换过标签，或从预览切过来时已经接手了现成的图）就交回。
         if split.doc != Some(id) || split.pending != Some(revision) {
-            return;
+            return Some((id, revision, result));
         }
         split.pending = None;
         split.checked = Some(revision);
@@ -240,6 +252,7 @@ impl App {
             Err(reason) => split.error = Some(reason),
         }
         self.request_redraw();
+        None
     }
 
     /// 提交后台任务，绘制 SVG `picture` 的一部分：整张图为 `size`（宽、高）时的 `region`
@@ -290,10 +303,14 @@ impl App {
             self.accept_image(done);
         }
         while let Ok(done) = self.preview.images.split_done.try_recv() {
-            self.accept_split(done);
+            self.offer_to_panes(done, Self::accept_split);
         }
         while let Ok(rendered) = self.preview.images.rendered.try_recv() {
-            self.accept_rendered(rendered);
+            self.offer_to_panes(rendered, Self::accept_rendered);
+        }
+        // 其他窗格的预览各自收结果，画它们时收下。
+        if self.editor.panes.is_split() {
+            self.request_redraw();
         }
         self.poll_markdown();
         self.poll_pdf();
@@ -301,7 +318,21 @@ impl App {
         self.poll_wallpaper();
     }
 
-    fn accept_rendered(&mut self, (id, picture, raster, base): Rendered) {
+    /// 先交给前台窗格收下 `item`，不要时依次交给其他窗格。
+    fn offer_to_panes<T>(&mut self, item: T, accept: fn(&mut App, T) -> Option<T>) {
+        let Some(mut item) = accept(self, item) else {
+            return;
+        };
+        for pane in self.background_panes() {
+            match self.with_pane(pane, move |app| accept(app, item)) {
+                Some(rest) => item = rest,
+                None => return,
+            }
+        }
+    }
+
+    /// 收下后台绘制好的一块 SVG；不是前台窗格正在显示的图时原样交回。
+    fn accept_rendered(&mut self, (id, picture, raster, base): Rendered) -> Option<Rendered> {
         let px = &raster.pixels;
         let region = [raster.origin.0, raster.origin.1, px.width, px.height];
         let key = (
@@ -328,7 +359,7 @@ impl App {
             .filter(|d| d.id == id)
             .and_then(|d| d.picture().or(split));
         if !current.is_some_and(|p| Arc::ptr_eq(p, &picture)) {
-            return;
+            return Some((id, picture, raster, base));
         }
         let cache = self
             .preview
@@ -348,6 +379,7 @@ impl App {
         }
         self.preview.picture_cache = Some(cache);
         self.request_redraw();
+        None
     }
 
     fn accept_image(&mut self, (id, revision, result): Done) {

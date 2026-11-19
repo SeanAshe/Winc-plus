@@ -62,8 +62,48 @@ pub(crate) fn base(app: &App) -> [(Rect, Color); 3] {
     [
         (l.sidebar, p.sidebar_bg),
         (l.top_bar, p.editor_bg),
-        (l.editor, p.editor_bg),
+        // 拆分后编辑区只是前台窗格的那一块：底色铺满整个卡片。
+        (app.panes.card.unwrap_or(l.editor), p.editor_bg),
     ]
+}
+
+/// 绘制一个窗格：标签栏和编辑区，以及分栏预览、合并的两侧等随标签变化的部分。`front` 为假
+/// 时是前台以外的窗格：合并的冲突只由前台窗格折叠、展开。
+fn draw_pane(app: &mut App, frame: &mut Frame<'_>, front: bool) {
+    draw_top_bar(app, frame);
+    if front {
+        app.sync_merge_panes();
+    }
+    draw_editor(app, frame);
+    editor::draw_split(app, frame);
+    preview::markdown::draw_diagram_view(app, frame);
+    git::merge::draw_side_panes(app, frame);
+}
+
+/// 绘制窗格之间的分隔线；悬停或拖动时加深。
+fn draw_pane_dividers(app: &App, frame: &mut Frame<'_>) {
+    let p = app.palette;
+    for divider in &app.panes.dividers {
+        let active = app.active_pane_divider() == Some(divider.index);
+        let color = if active { p.accent } else { p.border };
+        frame.rect(divider.line, color);
+    }
+}
+
+/// 拖动标签时标出松开后放进的窗格或拆出的那一半，底色同拖入文件的放置目标；拖到另一个窗格的
+/// 标签栏上时画出插入处的竖线。
+fn draw_tab_drop(app: &App, frame: &mut Frame<'_>) {
+    use crate::app::workspace::panes::TabDrop;
+    match app.panes.drop {
+        Some((TabDrop::Into { at: Some(_), .. }, line)) => {
+            frame.rect(line, app.palette.accent);
+        }
+        Some((_, area)) => {
+            let area = area.inset(6.0, 6.0);
+            frame.rect_clipped(area, app.palette.drop_target, RADIUS_ISLAND - 4.0, area);
+        }
+        None => {}
+    }
 }
 
 /// 绘制一帧界面，并重置、重新收集本帧的命中区域（文件树工具栏、项目名等）。
@@ -111,12 +151,10 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
         app.motion.tool_fold.settle();
     }
 
-    draw_top_bar(app, frame);
-    app.sync_merge_panes();
-    draw_editor(app, frame);
-    editor::draw_split(app, frame);
-    preview::markdown::draw_diagram_view(app, frame);
-    git::merge::draw_side_panes(app, frame);
+    // 拆分后最后画前台窗格：浮层和各区域记下的位置都是它的。
+    app.draw_panes(|app, front| draw_pane(app, frame, front));
+    draw_pane_dividers(app, frame);
+    draw_tab_drop(app, frame);
     // 最大化、还原途中面板盖在编辑区上面：编辑区的圆角先修整好，面板再画在上面。
     let covered = app.terminal.grow.is_some();
     if covered {
@@ -191,6 +229,7 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     }
 
     draw_tree_drag(app, frame);
+    draw_tab_drag(app, frame);
 
     // 新建工作树对话框覆盖整个窗口，打开时同样不绘制悬停提示。
     let dialog_open = app.overlays.form_dialog.is_some();
@@ -220,7 +259,8 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     if modal {
         return;
     }
-    draw_tooltip(app, frame);
+    // 鼠标在其他窗格上时，提示按那个窗格的标签和按钮写。
+    app.in_hovered_pane(|app| draw_tooltip(app, frame));
 }
 
 /// 绘制已打开的窗口内菜单和提示框；提示框覆盖在菜单之上。
@@ -267,7 +307,13 @@ fn draw_file_drop(app: &App, frame: &mut Frame<'_>) {
     let l = &app.layout;
     let area = match app.file_hover() {
         Some(DropZone::Terminal) => l.terminal,
-        Some(DropZone::Open) => Rect::new(
+        Some(DropZone::Open(Some(drop))) => {
+            let Some(area) = app.drop_area(drop.pane, drop.edge) else {
+                return;
+            };
+            area
+        }
+        Some(DropZone::Open(None)) => Rect::new(
             l.top_bar.x,
             l.top_bar.y,
             l.top_bar.w,
@@ -288,14 +334,40 @@ fn draw_tree_drag(app: &App, frame: &mut Frame<'_>) {
     let Some(drag) = app.tree_dragging() else {
         return;
     };
-    let p = app.palette;
-    let window = app.layout.window;
-    let (x, y) = app.mouse();
-
     let name = match drag.paths.len() {
         1 => ellipsize(frame, &drag.name, app.fonts.ui, 240.0),
         n => Cow::Owned(t!("workspace-tree-drag-items", count = n)),
     };
+    let (card, icon_x, cy) = draw_drag_card(app, frame, name);
+    let p = app.palette;
+    if drag.kind == EntryKind::Dir {
+        icons::folder(frame, (icon_x, (cy - 6.0).round()), false, p.folder, card);
+    } else {
+        draw_file_icon(frame, p, (icon_x + 1.5, cy), &drag.name, card);
+    }
+}
+
+/// 绘制拖出标签栏的标签跟随鼠标的小卡片，样式同拖动文件树条目时的卡片。
+fn draw_tab_drag(app: &App, frame: &mut Frame<'_>) {
+    let docs = app.tabs_dragged_out();
+    let Some(doc) = docs.first().and_then(|id| app.editor.document(*id)) else {
+        return;
+    };
+    let file = doc.name();
+    let name = match docs.len() {
+        1 => ellipsize(frame, &file, app.fonts.ui, 240.0),
+        n => Cow::Owned(t!("workspace-tree-drag-items", count = n)),
+    };
+    let (card, icon_x, cy) = draw_drag_card(app, frame, name);
+    draw_file_icon(frame, app.palette, (icon_x + 1.5, cy), &file, card);
+}
+
+/// 在鼠标右下方画拖动时的卡片和名称 `name`（按住 `⌥` 时注明复制），返回卡片、图标的横坐标和
+/// 中线。
+fn draw_drag_card(app: &App, frame: &mut Frame<'_>, name: Cow<'_, str>) -> (Rect, f32, f32) {
+    let p = app.palette;
+    let window = app.layout.window;
+    let (x, y) = app.mouse();
     // 按住 ⌥ 松开时执行复制。
     let name = if app.pointer.modifiers.alt_key() {
         Cow::Owned(t!("workspace-tree-drag-copy", name = name.as_ref()))
@@ -310,15 +382,10 @@ fn draw_tree_drag(app: &App, frame: &mut Frame<'_>) {
         TREE_ROW,
     );
     draw_card(frame, p, card, RADIUS_ROW, p.popup_bg);
-
     let cy = icon_center_y(app, card, app.fonts.ui);
     let icon_x = card.x + 12.0;
-    if drag.kind == EntryKind::Dir {
-        icons::folder(frame, (icon_x, (cy - 6.0).round()), false, p.folder, card);
-    } else {
-        draw_file_icon(frame, p, (icon_x + 1.5, cy), &drag.name, card);
-    }
     ui_text(frame, app, icon_x + 18.0, card, &name, p.text, card);
+    (card, icon_x, cy)
 }
 
 /// 绘制按钮的悬停提示。

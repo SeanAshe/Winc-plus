@@ -3,6 +3,7 @@
 //! 快捷键和命令面板都经由 [`App::run_action`] 执行，每个命令只有一处实现。
 
 use winc_core::transform::Case;
+use winc_editor::panes::Axis;
 use winc_editor::{Command, EntryKind, FoldCommand};
 
 use super::*;
@@ -143,6 +144,16 @@ impl App {
                 self.close_tabs(all);
             }
             ReopenClosed => self.reopen_closed(),
+            SplitRight => self.split_editor(Axis::Row),
+            SplitDown => self.split_editor(Axis::Column),
+            MoveToSplitRight => self.move_to_split(Axis::Row),
+            MoveToSplitDown => self.move_to_split(Axis::Column),
+            Unsplit => self.unsplit_editor(),
+            NextPane => self.cycle_pane(true),
+            PreviousPane => self.cycle_pane(false),
+            SplitTerminal => self.split_terminal(),
+            NextTerminalPane => self.cycle_terminal_pane(true),
+            PreviousTerminalPane => self.cycle_terminal_pane(false),
             NextTab => self.cycle_tab(true),
             PreviousTab => self.cycle_tab(false),
             CloseFolder => self.close_folder(),
@@ -465,7 +476,7 @@ impl App {
             EditRunConfigurations => self.edit_run_configs(),
             ClearTerminal => self.clear_terminal(),
             NewTerminal => self.new_terminal_tab(),
-            CloseTerminal => self.close_terminal_tab(self.terminal.active),
+            CloseTerminal => self.close_terminal_pane(),
             NextTerminal => self.cycle_terminal_tab(true),
             PreviousTerminal => self.cycle_terminal_tab(false),
             FocusTerminal1 | FocusTerminal2 | FocusTerminal3 | FocusTerminal4 | FocusTerminal5
@@ -517,6 +528,25 @@ impl App {
                 return false;
             }
             Action::EditRunConfigurations if self.editor.root().is_none() => return false,
+            // 窗格的命令只在有东西可拆、可换时可用，否则同一个键执行其他命令或交给终端。
+            Action::SplitRight | Action::SplitDown if self.editor.active.is_none() => {
+                return false;
+            }
+            Action::MoveToSplitRight | Action::MoveToSplitDown
+                if self.editor.active.is_none() || self.editor.tab_count() < 2 =>
+            {
+                return false;
+            }
+            Action::Unsplit | Action::NextPane | Action::PreviousPane
+                if !self.editor.panes.is_split() =>
+            {
+                return false;
+            }
+            Action::NextTerminalPane | Action::PreviousTerminalPane
+                if self.terminal.tab().is_none_or(|t| t.pane_count() < 2) =>
+            {
+                return false;
+            }
             // 只有打开的目录在远端主机上时才有连接可断开。
             Action::RemoteDisconnect
                 if !self.editor.root().is_some_and(winc_backend::is_remote) =>

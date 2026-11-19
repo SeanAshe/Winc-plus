@@ -695,6 +695,7 @@ fn the_terminal_menu_maximizes_and_the_options_apply() {
             (MenuCommand::TerminalMaximize, true),
             (MenuCommand::TerminalDock, true),
             (MenuCommand::NewTerminal, true),
+            (MenuCommand::SplitTerminal, true),
             (MenuCommand::CloseTerminal, true),
         ]
     );

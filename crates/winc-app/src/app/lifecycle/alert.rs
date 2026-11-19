@@ -249,7 +249,7 @@ impl App {
         let Some(alert) = self.overlays.alert.take() else {
             return;
         };
-        self.set_hover(self.hover_at(self.pointer.mouse.0, self.pointer.mouse.1));
+        self.refresh_pointer_hover();
         self.request_redraw();
         if let Some(event) = (alert.done)(index, alert.checked) {
             self.handle_event(event);

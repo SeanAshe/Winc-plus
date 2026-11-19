@@ -6,6 +6,7 @@ use super::*;
 pub(super) mod folders;
 pub(super) mod loading;
 pub(super) mod outline;
+mod panes;
 pub(super) mod picker;
 pub(super) mod recent;
 pub(super) mod search;

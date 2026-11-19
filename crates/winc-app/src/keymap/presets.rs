@@ -605,6 +605,33 @@ pub(super) const VSCODE: &[PresetRow] = &[
     row(CloseWindow, Global, &["shift+cmd+w"], &["ctrl+shift+w"]),
     row(CloseOtherTabs, Global, &["alt+cmd+t"], &[]),
     row(CloseAllTabs, Global, &["cmd+k cmd+w"], &["ctrl+k ctrl+w"]),
+    row(SplitRight, Global, &["cmd+\\"], &["ctrl+\\"]),
+    row(SplitDown, Global, &["cmd+k cmd+\\"], &["ctrl+k ctrl+\\"]),
+    row(
+        NextPane,
+        Global,
+        &["cmd+k cmd+right"],
+        &["ctrl+k ctrl+right"],
+    ),
+    row(
+        PreviousPane,
+        Global,
+        &["cmd+k cmd+left"],
+        &["ctrl+k ctrl+left"],
+    ),
+    row(SplitTerminal, Terminal, &["cmd+\\"], &[]),
+    row(
+        NextTerminalPane,
+        Terminal,
+        &["alt+cmd+right"],
+        &["alt+right"],
+    ),
+    row(
+        PreviousTerminalPane,
+        Terminal,
+        &["alt+cmd+left"],
+        &["alt+left"],
+    ),
     row(ReopenClosed, Global, &["shift+cmd+t"], &["ctrl+shift+t"]),
     row(
         NextTab,

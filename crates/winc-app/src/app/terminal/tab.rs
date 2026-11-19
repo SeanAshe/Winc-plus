@@ -237,6 +237,18 @@ pub(crate) struct TermTab {
     /// 提示符还没画出来，这时候不画光标，
     /// 避免它先在行首出现、再跳到提示符后面；行上有了字或者等过了 [`SETTLE`] 才画。
     pub settle: Option<Instant>,
+    /// 这个标签拆分出的其余终端；没有拆分时为 `None`。
+    pub split: Option<Box<TermSplit>>,
+    /// 不在前台时收着的回滚缓冲滚动条状态（拆分时每个终端一份）。
+    pub scrollbars: crate::app::Scrollbars,
+}
+
+/// 一个终端标签拆分出的其余终端。
+pub(crate) struct TermSplit {
+    /// 其余终端，按排列顺序（从左到右或从上到下），前台的终端不在其中。
+    pub others: Vec<TermTab>,
+    /// 前台的终端在排列中的位置。
+    pub at: usize,
 }
 
 /// 光标换到空行行首以后最多藏多久（250 ms，经验值；见 [`TermTab::settle`]）。
@@ -245,6 +257,29 @@ pub(crate) struct TermTab {
 pub const SETTLE: std::time::Duration = std::time::Duration::from_millis(250);
 
 impl TermTab {
+    /// 标签里的各个终端：前台的在前，其后是拆分出的其余终端。
+    pub(crate) fn panes(&self) -> impl Iterator<Item = &TermTab> {
+        let others = self.split.as_ref().map_or(&[][..], |s| &s.others[..]);
+        std::iter::once(self).chain(others)
+    }
+
+    /// 标签里的各个终端，按排列顺序。
+    pub(crate) fn split_order(&self) -> Vec<&TermTab> {
+        let mut all: Vec<&TermTab> = self.split.iter().flat_map(|s| &s.others).collect();
+        all.insert(self.pane_at().min(all.len()), self);
+        all
+    }
+
+    /// 标签拆分成的终端个数。
+    pub(crate) fn pane_count(&self) -> usize {
+        self.split.as_ref().map_or(1, |s| s.others.len() + 1)
+    }
+
+    /// 前台的终端在排列中的位置。
+    pub(crate) fn pane_at(&self) -> usize {
+        self.split.as_ref().map_or(0, |s| s.at)
+    }
+
     /// 创建一个空的标签：屏幕为 `size` 行，没有内容，也没有命令块。
     pub fn new(id: u16, size: Size) -> TermTab {
         TermTab {
@@ -287,6 +322,8 @@ impl TermTab {
             links: Vec::new(),
             cwd: Vec::new(),
             settle: None,
+            split: None,
+            scrollbars: Default::default(),
         }
     }
 

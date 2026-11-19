@@ -103,6 +103,52 @@ pub(crate) struct Wrap {
 }
 
 impl Wrap {
+    /// 按改动重新计算断行：`lines` 是（第一行，改动前的最后一行，改动后的最后一行）；`whole` 是
+    /// 显示整行的行，行号已是改动后的。返回被断开的行是否有变化。
+    pub(crate) fn edit(
+        &mut self,
+        text: &impl Lines,
+        (first, old_last, new_last): (usize, usize, usize),
+        whole: &WholeLines,
+    ) -> bool {
+        let limits = Limits {
+            base: self.limit,
+            whole: Some(whole),
+        };
+        let delta = new_last as isize - old_last as isize;
+        let from = self.extra.partition_point(|&(l, _)| l < first);
+        let to = self.extra.partition_point(|&(l, _)| l <= old_last);
+        let mut fresh = WrapRows::default();
+        for line in first..=new_last.min(text.line_count().saturating_sub(1)) {
+            let limit = limits.of(line);
+            let (breaks, len) = measure_line(text, line, self.width, self.tab_width, limit);
+            fresh.push(line, len, &breaks, limit == usize::MAX);
+        }
+        let long_from = self.long.partition_point(|l| l.line < first);
+        let long_to = self.long.partition_point(|l| l.line <= old_last);
+        let mut changed = false;
+        // 行数不变（行内输入、同一行内的全部替换）时其后的行号无需移动：全部替换一次可能修改
+        // 上万处，每处都遍历其后所有被断开的行会显著增加耗时。
+        if delta != 0 && to < self.extra.len() {
+            for entry in &mut self.extra[to..] {
+                entry.0 = entry.0.saturating_add_signed(delta);
+            }
+            changed = true;
+        }
+        if delta != 0 {
+            for entry in &mut self.long[long_to..] {
+                entry.line = entry.line.saturating_add_signed(delta);
+            }
+        }
+        if self.extra[from..to] != fresh.extra[..] {
+            self.extra.splice(from..to, fresh.extra);
+            changed = true;
+        }
+        // 行内文字变化后断点随之移动，即使段数不变也要替换索引。
+        self.long.splice(long_from..long_to, fresh.long);
+        changed
+    }
+
     /// 第 `line` 行是否被断成了多段（二分查找，不读文字）。
     pub fn breaks_line(&self, line: usize) -> bool {
         self.extra.binary_search_by_key(&line, |&(l, _)| l).is_ok()
@@ -565,6 +611,19 @@ impl Folds {
         self.rebuild();
     }
 
+    /// 取走自动换行的结果，交给另一个窗格保管（见 [`Self::put_wrap`]）。
+    pub(crate) fn take_wrap(&mut self) -> Option<Wrap> {
+        let wrap = self.wrap.take();
+        self.rebuild_wrapped();
+        wrap
+    }
+
+    /// 换上另一个窗格保管的自动换行结果；结果过时时由下一次断行重算。
+    pub(crate) fn put_wrap(&mut self, wrap: Option<Wrap>) {
+        self.wrap = wrap;
+        self.rebuild_wrapped();
+    }
+
     /// 返回自动换行的设置；未开启时返回 `None`。
     pub(crate) fn wrap(&self) -> Option<&Wrap> {
         self.wrap.as_ref()
@@ -583,49 +642,12 @@ impl Folds {
 
     /// 按改动重新计算断行：`lines` 是（第一行，改动前的最后一行，改动后的最后一行）；`whole` 是
     /// 显示整行的行，行号已是改动后的。
-    fn edit_wrap(
-        &mut self,
-        text: &impl Lines,
-        (first, old_last, new_last): (usize, usize, usize),
-        whole: &WholeLines,
-    ) {
-        let Some(wrap) = &mut self.wrap else {
-            return;
-        };
-        let limits = Limits {
-            base: wrap.limit,
-            whole: Some(whole),
-        };
-        let delta = new_last as isize - old_last as isize;
-        let from = wrap.extra.partition_point(|&(l, _)| l < first);
-        let to = wrap.extra.partition_point(|&(l, _)| l <= old_last);
-        let mut fresh = WrapRows::default();
-        for line in first..=new_last.min(text.line_count().saturating_sub(1)) {
-            let limit = limits.of(line);
-            let (breaks, len) = measure_line(text, line, wrap.width, wrap.tab_width, limit);
-            fresh.push(line, len, &breaks, limit == usize::MAX);
-        }
-        let long_from = wrap.long.partition_point(|l| l.line < first);
-        let long_to = wrap.long.partition_point(|l| l.line <= old_last);
-        // 行数不变（行内输入、同一行内的全部替换）时其后的行号无需移动：全部替换一次可能修改
-        // 上万处，每处都遍历其后所有被断开的行会显著增加耗时。
-        if delta != 0 && to < wrap.extra.len() {
-            for entry in &mut wrap.extra[to..] {
-                entry.0 = entry.0.saturating_add_signed(delta);
-            }
+    fn edit_wrap(&mut self, text: &impl Lines, lines: (usize, usize, usize), whole: &WholeLines) {
+        if let Some(wrap) = &mut self.wrap
+            && wrap.edit(text, lines, whole)
+        {
             self.wrapped_stale = true;
         }
-        if delta != 0 {
-            for entry in &mut wrap.long[long_to..] {
-                entry.line = entry.line.saturating_add_signed(delta);
-            }
-        }
-        if wrap.extra[from..to] != fresh.extra[..] {
-            wrap.extra.splice(from..to, fresh.extra);
-            self.wrapped_stale = true;
-        }
-        // 行内文字变化后断点随之移动，即使段数不变也要替换索引。
-        wrap.long.splice(long_from..long_to, fresh.long);
     }
 
     /// 按一处修改调整折叠块的位置和行号，并移除修改跨越边界的块。
@@ -688,6 +710,8 @@ pub(crate) struct Tracked<'a> {
     pub whole: &'a mut WholeLines,
     /// 需要随修改移动的模态编辑层的标记与修改列表。
     pub marks: &'a mut Marks,
+    /// 需要随修改移动的、其他窗格里的视图状态。
+    pub parked: &'a mut crate::document::Parked,
 }
 
 impl EditBuffer for Tracked<'_> {
@@ -716,6 +740,16 @@ impl EditBuffer for Tracked<'_> {
             self.marks
                 .edit(&*self.text, start, removed, inserted.chars().count());
         }
+        let parked_lines = (!self.parked.is_empty()).then(|| {
+            let first = self.text.line_of(start);
+            let last = self
+                .text
+                .line_of((start + removed).min(self.text.end_pos()));
+            let delta = inserted.matches('\n').count() as isize - (last - first) as isize;
+            self.parked
+                .edit(start, removed, inserted.chars().count(), (first, delta));
+            (first, last)
+        });
         self.text.replace(start, removed, inserted);
         let after = self.text.line_count();
         if !self.folds.is_empty() {
@@ -733,13 +767,18 @@ impl EditBuffer for Tracked<'_> {
             let lines = (first, old_last, new_last);
             self.folds.edit_wrap(&*self.text, lines, &*self.whole);
         }
+        if let Some((first, old_last)) = parked_lines {
+            let lines = (first, old_last, old_last.saturating_add_signed(delta));
+            self.parked.edit_wraps(&*self.text, lines, &*self.whole);
+        }
     }
 
     /// 没有需要随之移动的折叠、自动换行和书签时，整批修改交给文本一次完成（大文件的片段表一次
     /// 处理）；否则逐处修改，每处先计算其所在的行范围。
     fn replace_each(&mut self, changes: &[(usize, usize, &str)]) {
         let marked = !self.bookmarks.is_empty() || !self.whole.lines.is_empty();
-        if self.folds.is_empty() && self.folds.wrap.is_none() && !marked {
+        let parked = !self.parked.is_empty();
+        if self.folds.is_empty() && self.folds.wrap.is_none() && !marked && !parked {
             // 整批修改不逐处调整列索引，全部丢弃。
             self.whole.forget();
             self.text.replace_each(changes);

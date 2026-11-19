@@ -56,7 +56,14 @@ impl Default for Loads {
 impl App {
     /// 当前标签尚未读取、也没有正在进行的读取时，交给后台读取。
     pub(in crate::app) fn load_active_in_background(&mut self) {
-        let Some(job) = self.editor.active.and_then(|i| self.editor.begin_load(i)) else {
+        if let Some(index) = self.editor.active {
+            self.load_in_background(index);
+        }
+    }
+
+    /// 第 `index` 个文档尚未读取时在后台读取；正在读取时不重复。
+    pub(in crate::app) fn load_in_background(&mut self, index: usize) {
+        let Some(job) = self.editor.begin_load(index) else {
             return;
         };
         let id = job.id();
@@ -64,7 +71,9 @@ impl App {
             return;
         }
         let ticket = self.disk.loads.tickets.issue(id);
-        self.disk.loads.since = Some((id, Instant::now()));
+        if self.editor.active == Some(index) {
+            self.disk.loads.since = Some((id, Instant::now()));
+        }
         let sender = self.disk.loads.results.0.clone();
         self.spawn_then(UserEvent::Loaded, move || {
             let _ = sender.send((id, ticket, job.run()));

@@ -76,6 +76,25 @@ fn sample() -> State {
                     scale: 2.0,
                     maximized: true,
                 }),
+                panes: Some(SessionPanes {
+                    tree: PaneNode::Split {
+                        column: false,
+                        share: 0.25,
+                        first: Box::new(PaneNode::Pane(0)),
+                        second: Box::new(PaneNode::Pane(1)),
+                    },
+                    panes: vec![
+                        SessionPane {
+                            tabs: vec![0],
+                            active: Some(0),
+                        },
+                        SessionPane {
+                            tabs: vec![1, 0],
+                            active: None,
+                        },
+                    ],
+                    focused: 1,
+                }),
             },
             Session {
                 folder: PathBuf::from("/b"),
@@ -94,6 +113,7 @@ fn sample() -> State {
                 readonly_all: false,
                 sidebar_hidden: false,
                 window: None,
+                panes: None,
             },
         ],
         last: Some(PathBuf::from("/a/项目")),
@@ -309,6 +329,7 @@ fn sessions_are_kept_per_folder() {
         readonly_all: false,
         sidebar_hidden: false,
         window: None,
+        panes: None,
     });
     assert_eq!(state.sessions.len(), 2);
     assert_eq!(state.sessions[0].folder, PathBuf::from("/b"));

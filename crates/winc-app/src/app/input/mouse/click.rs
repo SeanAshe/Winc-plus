@@ -11,7 +11,6 @@ impl App {
             self.relayout();
         }
         let (x, y) = self.pointer.mouse;
-        let l = self.layout;
         // 折叠动画期间绘制的是展开状态，而点击按的是折叠后的布局：先取消动画，使显示直接到位。
         self.motion.fold_motion = None;
         // 跳转过渡期间绘制的是插值位置，而命中测试按滚动位置换算：过渡停在屏幕上显示的位置。
@@ -26,6 +25,16 @@ impl App {
         {
             return;
         }
+
+        // 点在前台以外的窗格里：先把它换到前台，这次按下按它的位置处理。
+        if let Some(pane) = self.background_pane_at(x, y)
+            && self.pane_divider_at(x, y).is_none()
+        {
+            self.focus_pane(pane);
+        }
+        // 点在终端标签里不在前台的终端上：同样先换到前台。
+        self.focus_terminal_pane_at(x, y);
+        let l = self.layout;
 
         // 鼠标侧面的两个键：后退、前进。
         if matches!(button, MouseButton::Back | MouseButton::Forward) {
@@ -233,7 +242,7 @@ impl App {
             Target::Tab(index, false) => {
                 // 双击预览标签使其成为普通标签。
                 let double = self.click_count(x, y) == 2;
-                self.press_tab(index, x);
+                self.press_tab(index, (x, y));
                 if double {
                     self.keep_tab(index);
                 }
@@ -366,6 +375,12 @@ impl App {
                     HeaderHit::Hide => self.click_terminal_button(),
                     HeaderHit::Run(_) | HeaderHit::Find(_) => {}
                 }
+            }
+            Target::PaneDivider(index) if self.click_count(x, y) >= 2 => {
+                self.reset_pane_divider(index);
+            }
+            Target::PaneDivider(index) => {
+                self.pointer.drag = Drag::PaneDivider { index };
             }
             // 双击分隔线恢复为左右各占一半，单击按住开始拖动。
             Target::SplitDivider if self.click_count(x, y) >= 2 => {

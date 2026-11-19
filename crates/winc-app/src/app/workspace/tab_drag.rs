@@ -5,16 +5,21 @@
 //! 一起移动。
 //!
 //! 标签栏放不下全部标签时，拖到两端会自动滚动。
+//!
+//! 拖出标签栏后标签回到原位，一张卡片跟随鼠标；松开后放进鼠标下的窗格或拆出新窗格（见
+//! [`App::tab_drop_at`]），按着 `⌥` 松开时原窗格保留这些标签。
 
 use std::time::Instant;
 
 use super::*;
 use crate::app::workspace::files::TabGhost;
 
-/// 判定为拖动的横向移动距离（逻辑像素，经验值）：按下后移动不足此距离时仍视为单击。
+/// 判定为拖动的移动距离（逻辑像素，经验值）：按下后移动不足此距离时仍视为单击。
 const THRESHOLD: f32 = 4.0;
 /// 触发自动滚动的区域宽度（逻辑像素，经验值）：鼠标距标签栏左右两端不足此距离时开始滚动。
 const EDGE: f32 = 32.0;
+/// 鼠标离开标签栏这么远才算拖出了标签栏（逻辑像素，经验值）。
+const OUTSIDE: f32 = 8.0;
 /// 鼠标贴着标签栏边缘（或在其外）时每帧的滚动量（逻辑像素，经验值）。
 ///
 /// 滚动量随鼠标向 [`EDGE`] 区域内侧移动而线性减小，到区域内侧边界时为 0。
@@ -27,10 +32,12 @@ pub struct TabDrag {
     id: DocumentId,
     /// 按下点到标签左边的距离（逻辑像素）。
     grab: f32,
-    /// 按下时鼠标的横坐标（逻辑像素）。
-    start_x: f32,
-    /// 横向移动是否已超过 [`THRESHOLD`]，即是否已算作拖动。
+    /// 按下时鼠标的位置（逻辑像素）。
+    start: (f32, f32),
+    /// 移动是否已超过 [`THRESHOLD`]，即是否已算作拖动。
     moving: bool,
+    /// 是否拖出了标签栏。
+    outside: bool,
     /// 按在多选的标签上：拖动时选中的各个标签一起移动；没有拖动就松开时只选这一个。
     grouped: bool,
 }
@@ -71,7 +78,7 @@ impl App {
     /// 切换到该标签并记录按住状态；横向移动超过 [`THRESHOLD`] 后才算拖动。按着 `⌘` 时把它加入
     /// 或移出选区，按着 `⇧` 时选到它（见 `App::toggle_tab_selected`、`App::select_tab_range`），
     /// 这两种不拖动。按在多选的标签上时保留选区，拖动时一起移动，没有拖动就松开时再只选它。
-    pub(in crate::app) fn press_tab(&mut self, index: usize, x: f32) {
+    pub(in crate::app) fn press_tab(&mut self, index: usize, (x, y): (f32, f32)) {
         if self.command_held() {
             self.toggle_tab_selected(index);
             return;
@@ -97,20 +104,23 @@ impl App {
         self.tabs.drag = Some(TabDrag {
             id,
             grab: x - hit.tab.x,
-            start_x: x,
+            start: (x, y),
             moving: false,
+            outside: false,
             grouped,
         });
     }
 
-    /// 处理按住标签时的鼠标移动，`x` 为鼠标的横坐标。
+    /// 处理按住标签时的鼠标移动。
     ///
-    /// 横向移动超过 [`THRESHOLD`] 后进入拖动状态，并按鼠标位置调整标签顺序。
-    pub(in crate::app) fn drag_tab(&mut self, x: f32) {
+    /// 移动超过 [`THRESHOLD`] 后进入拖动状态：在标签栏上按鼠标位置调整标签顺序，在其他位置记下
+    /// 松开后放到哪里。
+    pub(in crate::app) fn drag_tab(&mut self, (x, y): (f32, f32)) {
         let Some(drag) = &mut self.tabs.drag else {
             return;
         };
-        if !drag.moving && (x - drag.start_x).abs() < THRESHOLD {
+        let (dx, dy) = (x - drag.start.0, y - drag.start.1);
+        if !drag.moving && dx.abs() < THRESHOLD && dy.abs() < THRESHOLD {
             return;
         }
         let gather = (!drag.moving && drag.grouped).then_some(drag.id);
@@ -118,8 +128,49 @@ impl App {
         if let Some(id) = gather {
             self.gather_tab_group(id);
         }
-        self.reorder_dragged_tab();
+        let outside = self.outside_tab_bar((x, y));
+        let Some(drag) = &mut self.tabs.drag else {
+            return;
+        };
+        drag.outside = outside;
+        let drag = *drag;
+        self.panes.drop = None;
+        if outside {
+            let copy = self.pointer.modifiers.alt_key();
+            self.panes.drop = self.tab_drop_at(&self.dragged_block(drag), (x, y), copy);
+        } else {
+            self.reorder_dragged_tab();
+        }
         self.request_redraw();
+    }
+
+    /// `(x, y)` 是否离开了前台窗格的标签栏那一行：上下离开，或进了另一个窗格。左右拖过两端仍算
+    /// 在标签栏里。
+    fn outside_tab_bar(&self, (x, y): (f32, f32)) -> bool {
+        let bar = self.layout.tabs;
+        let other = self.pane_at(x, y).map(|r| r.id);
+        y < bar.y - OUTSIDE
+            || y > bar.bottom() + OUTSIDE
+            || other.is_some_and(|id| id != self.editor.panes.focused)
+    }
+
+    /// 是否正在拖动标签（已超过 [`THRESHOLD`]）。
+    pub(in crate::app) fn tab_dragging(&self) -> bool {
+        self.tabs.drag.is_some_and(|d| d.moving)
+    }
+
+    /// 拖出了标签栏的标签，按标签顺序；没有时为空。
+    pub(crate) fn tabs_dragged_out(&self) -> Vec<DocumentId> {
+        match self.tabs.drag {
+            Some(drag) if drag.moving && drag.outside => self.dragged_block(drag),
+            _ => Vec::new(),
+        }
+    }
+
+    /// 结束拖动但不放到其他窗格（切到其他应用时收不到松开）。
+    pub(in crate::app) fn cancel_tab_drag(&mut self) {
+        self.panes.drop = None;
+        self.release_tab();
     }
 
     /// 处理鼠标松开：拖动中的标签从松开处滑回它在标签栏中的位置。
@@ -137,6 +188,17 @@ impl App {
             }
             return;
         }
+        if drag.outside {
+            // 松开前才按下或放开 `⌥` 时，放置目标按松开时的重新计算。
+            let docs = self.dragged_block(drag);
+            let copy = self.pointer.modifiers.alt_key();
+            self.panes.drop = None;
+            if let Some((drop, _)) = self.tab_drop_at(&docs, self.pointer.mouse, copy) {
+                self.drop_tabs(&docs, drag.id, drop, copy);
+            }
+            self.request_redraw();
+            return;
+        }
         if let Some(index) = self.tab_index(drag.id) {
             let left = self.dragged_tab_left(index, drag.grab);
             let from = left - self.tab_slot(index);
@@ -149,7 +211,7 @@ impl App {
     ///
     /// 横坐标单位为逻辑像素，从第一个标签的左边起算。
     pub(crate) fn dragged_tab(&self) -> Option<(DocumentId, f32)> {
-        let drag = self.tabs.drag.filter(|d| d.moving)?;
+        let drag = self.tabs.drag.filter(|d| d.moving && !d.outside)?;
         let index = self.tab_index(drag.id)?;
         Some((drag.id, self.dragged_tab_left(index, drag.grab)))
     }
@@ -167,7 +229,7 @@ impl App {
     ///
     /// 没有在拖动，或无需继续滚动时返回 `None`。
     pub(in crate::app) fn tab_drag_tick(&mut self, now: Instant) -> Option<Instant> {
-        self.tabs.drag.filter(|d| d.moving)?;
+        self.tabs.drag.filter(|d| d.moving && !d.outside)?;
         let view = self.tabs.view;
         let x = self.pointer.mouse.0;
         let push = if x < view.x + EDGE {
@@ -226,11 +288,11 @@ impl App {
     /// 开始拖动多选的标签：选中的各个标签靠拢到被拖的标签 `id` 两边（原来在它左边的靠在左边，
     /// 右边的靠在右边，次序不变），挪了位置的从原处滑过去。
     fn gather_tab_group(&mut self, id: DocumentId) {
-        if self.tabs.widths.len() != self.editor.documents.len() {
+        if self.tabs.widths.len() != self.editor.tab_count() {
             return;
         }
         let group = self.tab_selection();
-        let before: Vec<(DocumentId, f32)> = (0..self.editor.documents.len())
+        let before: Vec<(DocumentId, f32)> = (0..self.editor.tab_count())
             .map(|i| (self.editor.documents[i].id, self.tab_slot(i)))
             .collect();
         let mut order: Vec<DocumentId> = before
@@ -282,7 +344,7 @@ impl App {
             return;
         };
         // `widths` 尚未按当前标签重新生成（刚打开或关闭了其他标签），待下次绘制之后再计算。
-        if self.tabs.widths.len() != self.editor.documents.len() {
+        if self.tabs.widths.len() != self.editor.tab_count() {
             return;
         }
 
@@ -348,7 +410,7 @@ impl App {
     pub(in crate::app) fn animate_tab_close_with(&mut self, index: usize, fade: Clock) {
         let clock = fade.then(TAB_SLIDE);
         let widths = self.tabs.widths.clone();
-        if index >= widths.len() || widths.len() != self.editor.documents.len() {
+        if index >= widths.len() || widths.len() != self.editor.tab_count() {
             return;
         }
         let doc = &self.editor.documents[index];
@@ -393,7 +455,7 @@ impl App {
     ///
     /// 一次多出多个标签（启动时恢复现场、切换目录）、第一次画、动态效果关闭时不做，直接到位。
     pub(crate) fn note_opened_tabs(&mut self) {
-        let ids: Vec<DocumentId> = self.editor.documents.iter().map(|d| d.id).collect();
+        let ids: Vec<DocumentId> = self.editor.tabs().iter().map(|d| d.id).collect();
         if let Some(known) = &self.tabs.known {
             let new: Vec<DocumentId> = ids
                 .iter()

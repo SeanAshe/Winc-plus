@@ -287,7 +287,7 @@ impl App {
             self.preview_tab = None;
         }
         self.auto_save_active();
-        let count = self.editor.documents.len();
+        let count = self.editor.tab_count();
         let index = self.editor.open_tab(path);
         let id = self.editor.documents[index].id;
         if !preview {
@@ -295,7 +295,7 @@ impl App {
             if self.preview_tab == Some(id) {
                 self.preview_tab = None;
             }
-        } else if self.editor.documents.len() > count {
+        } else if self.editor.tab_count() > count {
             if let Some(old) = replace {
                 self.replace_preview_tab(old, index);
             }
@@ -540,11 +540,13 @@ impl App {
         self.open_button_menu(MenuButton::TabList, MenuTarget::TabList, (list.right(), y));
     }
 
-    /// 切换到第 `index` 个标签；下标超出范围时不处理。
+    /// 切换到第 `index` 个文档；它只在其他窗格里打开时先成为前台窗格的标签。下标超出范围时不
+    /// 处理。
     pub(in crate::app) fn activate_tab(&mut self, index: usize) {
         if index >= self.editor.documents.len() {
             return;
         }
+        let index = self.editor.bring(index);
 
         if self.editor.active != Some(index) {
             self.auto_save_active();
@@ -643,7 +645,7 @@ impl App {
 
     /// 循环切换标签：`forward` 为 `true` 时切到下一个，否则切到上一个；到两端后绕回。
     pub(in crate::app) fn cycle_tab(&mut self, forward: bool) {
-        let n = self.editor.documents.len();
+        let n = self.editor.tab_count();
 
         if n > 0 {
             let current = self.editor.active.unwrap_or(0);
@@ -923,7 +925,7 @@ impl App {
                 self.run_file_saved(id);
                 if saved_as {
                     if let Some((other, _)) = other {
-                        self.remove_tabs(&[other]);
+                        self.close_documents(&[other]);
                     }
                     let path = self.editor.document(id).and_then(|d| d.path.clone());
                     if let (Some(ws), Some(path)) = (&mut self.editor.workspace, &path) {

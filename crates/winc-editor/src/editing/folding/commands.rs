@@ -290,6 +290,7 @@ impl Document {
         if let Some(wrap) = self.folds.wrap_mut() {
             wrap.revision = self.revision;
         }
+        self.parked.wraps_follow(self.revision);
         self.folds.refresh();
     }
 

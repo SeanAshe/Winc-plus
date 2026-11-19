@@ -94,6 +94,8 @@ pub struct WheelGlide {
     pub(crate) origin: (f32, f32),
     /// 是否按住 `Shift`：竖直滚动按横向处理。
     pub(crate) shift: bool,
+    /// 开始时的前台窗格：在其他窗格上滚动时临时换到前台的那个。
+    pub(crate) pane: winc_editor::panes::PaneId,
 }
 
 impl WheelGlide {
@@ -290,13 +292,14 @@ impl App {
     /// 在鼠标所在的区域追加滚动距离 `delta`（逻辑像素），按 `clock` 重新计时。
     ///
     /// 进行中的过渡滚动同一区域时，未完成的距离计入新的总距离；滚动其他区域时，未完成的距离
-    /// 立即作用于原来的区域。
+    /// 立即作用于原来的区域，原来的区域在另一个窗格里时丢掉。
     pub(in crate::app) fn start_wheel_glide(&mut self, delta: (f32, f32), clock: Clock) {
         let origin = self.pointer.mouse;
         let target = self.scroll_target_at(origin.0, origin.1);
         let shift = self.wheel_shift(delta.0, true);
         let mut rest = (0.0, 0.0);
-        if let Some(glide) = self.scroll.wheel.glide.take() {
+        let pane = self.editor.panes.focused;
+        if let Some(glide) = self.scroll.wheel.glide.take().filter(|g| g.pane == pane) {
             if glide.target == target && glide.shift == shift {
                 rest = glide.rest();
             } else {
@@ -310,6 +313,7 @@ impl App {
             target,
             origin,
             shift,
+            pane,
         });
         self.request_redraw();
     }
@@ -318,6 +322,24 @@ impl App {
     ///
     /// 记下的区域已不可滚动时（切换了标签页、关闭了面板）丢弃余下的距离。
     pub(in crate::app) fn advance_wheel_glide(&mut self) {
+        let Some(pane) = self.scroll.wheel.glide.as_ref().map(|g| g.pane) else {
+            return;
+        };
+        if pane != self.editor.panes.focused {
+            // 在其他窗格上开始的：换到那个窗格里接着滚。
+            let known = self.panes.rects.iter().any(|r| r.id == pane);
+            if known {
+                self.with_pane(pane, Self::step_wheel_glide);
+            } else {
+                self.scroll.wheel.glide = None;
+            }
+            return;
+        }
+        self.step_wheel_glide();
+    }
+
+    /// 按时钟应用本帧的一段滚动距离。
+    fn step_wheel_glide(&mut self) {
         let Some(glide) = &mut self.scroll.wheel.glide else {
             return;
         };

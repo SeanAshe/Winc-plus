@@ -24,8 +24,18 @@ pub enum DropZone {
     Tree(PathBuf),
     /// 终端：输入转义过的路径。
     Terminal,
-    /// 其他位置：文件在编辑区打开，目录切换为工作区。
-    Open,
+    /// 其他位置：文件在编辑区打开，目录切换为工作区。落在编辑区里时记着落点所在的窗格，
+    /// 以及贴近的那条边（文件在那一侧拆出的新窗格里打开）。
+    Open(Option<PaneDrop>),
+}
+
+/// 拖进来的文件落在编辑区的哪个窗格、贴近它的哪条边（拆分的方向，新窗格是否在前）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PaneDrop {
+    /// 落点所在的窗格。
+    pub pane: winc_editor::panes::PaneId,
+    /// 贴近的边；在窗格中部或标签栏那一行时为 `None`。
+    pub edge: Option<(winc_editor::panes::Axis, bool)>,
 }
 
 impl App {
@@ -40,7 +50,10 @@ impl App {
             self.panels.sidebar.view == SidebarView::Files && self.layout.sidebar.right() > 0.0;
         match on_tree.then(|| self.tree_dir_at(x, y)).flatten() {
             Some(dir) => DropZone::Tree(dir),
-            None => DropZone::Open,
+            None => DropZone::Open((self.pane_drop_at((x, y))).map(|(pane, edge)| PaneDrop {
+                pane: pane.id,
+                edge,
+            })),
         }
     }
 
@@ -51,6 +64,7 @@ impl App {
 
     /// 文件或目录拖入了窗口（`HoveredFile`；同时拖动多项时每项触发一次）：开始跟踪落点。
     pub(in crate::app) fn hover_file(&mut self) {
+        self.panes.dropped_into = None;
         // 从 Winc 拖出的文件不放回 Winc 的窗口，不标出落点。
         #[cfg(target_os = "macos")]
         if crate::macos::dragging_out() {
@@ -121,7 +135,19 @@ impl App {
                 self.drop_path_on_terminal(path);
                 return;
             }
-            DropZone::Open => None,
+            DropZone::Open(Some(PaneDrop {
+                pane,
+                edge: Some(edge),
+            })) if winc_backend::fs::is_file(path) => {
+                self.open_dropped_in_split(path, pane, edge);
+                return;
+            }
+            DropZone::Open(drop) => {
+                if let Some(drop) = drop {
+                    self.focus_pane(drop.pane);
+                }
+                None
+            }
         };
         self.drop_folder(path, into);
     }

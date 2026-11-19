@@ -119,6 +119,18 @@ pub(crate) struct MergeState {
     aligned: Option<(Sender<SidesAligned>, Receiver<SidesAligned>)>,
 }
 
+impl MergeState {
+    /// 两侧、色带和底栏的位置，随当前标签放置。
+    pub(crate) fn geometry(&self) -> ([Rect; 2], [Rect; 2], Rect) {
+        (self.pane_rects, self.ribbons, self.footer)
+    }
+
+    /// 换回 [`Self::geometry`] 记下的位置。
+    pub(crate) fn set_geometry(&mut self, (panes, ribbons, footer): ([Rect; 2], [Rect; 2], Rect)) {
+        (self.pane_rects, self.ribbons, self.footer) = (panes, ribbons, footer);
+    }
+}
+
 impl App {
     /// 返回第 `index` 个标签中的冲突。
     ///

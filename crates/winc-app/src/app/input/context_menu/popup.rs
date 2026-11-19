@@ -385,7 +385,7 @@ impl App {
         if self.popup().is_some() {
             self.overlays.context_menu = None;
             self.overlays.menu_button = None;
-            self.set_hover(self.hover_at(self.pointer.mouse.0, self.pointer.mouse.1));
+            self.refresh_pointer_hover();
             self.request_redraw();
         }
     }
