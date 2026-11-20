@@ -201,3 +201,98 @@ fn rebasing_from_the_root_works() {
     assert_eq!(subjects(&root), ["a", "b"]);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// 改写 `HEAD` 的信息只改信息：暂存区里的更改不并入，合并提交也可以改。
+#[test]
+fn rewording_head_amends_only_the_message() {
+    let Some((git, root)) = repository("rebase-reword-head", &["a", "b"]) else {
+        return;
+    };
+    let head = oid_of(&root, "b");
+    let plan = git.reword_plan(&root, &head).unwrap();
+    assert_eq!(plan.commits.len(), 1);
+    assert_eq!(plan.commits[0].message, "b");
+    std::fs::write(root.join("a"), "staged").unwrap();
+    run(&root, &["add", "a"]);
+    git.reword_head(&root, &head, "b2\n\nbody").unwrap();
+    assert_eq!(subjects(&root), ["b2", "a"]);
+    let staged = run(&root, &["diff", "--cached", "--name-only"]);
+    assert_eq!(staged.trim(), "a");
+    // `HEAD` 已经变了：不改。
+    assert!(git.reword_head(&root, &head, "b3").is_err());
+
+    run(&root, &["commit", "-qm", "c"]);
+    run(&root, &["switch", "-q", "-c", "side", "HEAD~1"]);
+    std::fs::write(root.join("s"), "s").unwrap();
+    run(&root, &["add", "--all"]);
+    run(&root, &["commit", "-qm", "s"]);
+    run(&root, &["switch", "-q", "main"]);
+    run(
+        &root,
+        &["merge", "-q", "--no-edit", "--no-ff", "-m", "m", "side"],
+    );
+    let merge = oid_of(&root, "m");
+    let plan = git.reword_plan(&root, &merge).unwrap();
+    assert_eq!(plan.commits.len(), 1);
+    git.reword_head(&root, &merge, "merged").unwrap();
+    assert_eq!(subjects(&root)[0], "merged");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// 早于 `HEAD` 的提交按交互式变基的范围改写。
+#[test]
+fn rewording_an_older_commit_plans_a_rebase() {
+    let Some((git, root)) = repository("rebase-reword-old", &["a", "b", "c"]) else {
+        return;
+    };
+    let plan = git.reword_plan(&root, &oid_of(&root, "b")).unwrap();
+    let names: Vec<&str> = plan.commits.iter().map(|c| c.subject.as_str()).collect();
+    assert_eq!(names, ["b", "c"]);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// 读出范围以后分支又有了提交：不变基，新的提交不会因为不在待办列表里而丢失。
+#[test]
+fn a_branch_that_moved_is_not_rebased() {
+    use RebaseAction::*;
+    let Some((git, root)) = repository("rebase-moved", &["a", "b", "c"]) else {
+        return;
+    };
+    let plan = git.rebase_plan(&root, &oid_of(&root, "b")).unwrap();
+    std::fs::write(root.join("d"), "d").unwrap();
+    run(&root, &["add", "--all"]);
+    run(&root, &["commit", "-q", "-m", "d"]);
+    let steps: Vec<RebaseStep> = (plan.commits.iter())
+        .map(|c| step(&c.oid, if c.subject == "b" { Drop } else { Pick }, None))
+        .collect();
+    assert!(
+        git.interactive_rebase(&root, plan.base.as_deref(), &steps)
+            .is_err()
+    );
+    assert_eq!(subjects(&root), ["d", "c", "b", "a"]);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// `fixup!` 并入目标只留目标的说明，`squash!` 把两段说明都留下；未提交的更改还在。
+#[test]
+fn autosquash_folds_fixups_and_squashes_into_their_targets() {
+    let Some((git, root)) = repository("rebase-autosquash", &["a", "b", "c"]) else {
+        return;
+    };
+    let base = oid_of(&root, "a");
+    std::fs::write(root.join("b"), "b2").unwrap();
+    run(&root, &["commit", "-qam", "fixup! b"]);
+    std::fs::write(root.join("b"), "b3").unwrap();
+    run(&root, &["commit", "-qam", "squash! b", "-m", "more"]);
+    std::fs::write(root.join("c"), "dirty").unwrap();
+    let b = oid_of(&root, "b");
+    assert!(!git.autosquash(&root, &b, Some(&base)).unwrap());
+    // 目标已被改写、不在分支上：不变基。
+    assert!(git.autosquash(&root, &b, Some(&base)).is_err());
+    assert_eq!(subjects(&root), ["c", "b", "a"]);
+    let message = run(&root, &["log", "-1", "--format=%B", "HEAD~1"]);
+    assert_eq!(message.trim_end(), "b\n\nmore");
+    assert_eq!(run(&root, &["show", "HEAD~1:b"]), "b3");
+    assert_eq!(std::fs::read_to_string(root.join("c")).unwrap(), "dirty");
+    let _ = std::fs::remove_dir_all(&root);
+}

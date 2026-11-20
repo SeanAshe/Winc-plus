@@ -76,7 +76,7 @@ impl App {
                     self.git.log.waiting = None;
                     if self.git.log.open_first.as_deref() == Some(oid.as_str()) {
                         self.git.log.open_first = None;
-                        if let Some(&first) = self.log_file_order().first() {
+                        if let Some(first) = self.log_first_file() {
                             self.open_log_file(first);
                         }
                     }
@@ -170,22 +170,21 @@ impl App {
                     view,
                     ..
                 } => match view {
-                    Ok(view) => {
-                        // 只在新建差异标签时打开侧栏的文件树，之后保留用户对侧栏的选择。
-                        let new_tab = (self.git.log.preview)
-                            .and_then(|id| self.editor.document(id))
-                            .is_none();
+                    Ok(mut view) => {
+                        // 标题栏上方写明是哪个提交；侧栏仍是工作区的改动，不换成这个提交的文件。
+                        view.banner = Some(winc_editor::diff_view::DiffBanner {
+                            version: source.version.clone(),
+                            subject: source.subject.clone(),
+                            detail: source.detail.clone(),
+                        });
                         let index = self
                             .editor
                             .show_diff_in(self.git.log.preview, &title, *view);
                         self.git.log.preview = Some(self.editor.documents[index].id);
                         self.select_log_diff(source, file);
-                        if new_tab {
-                            self.set_sidebar_view(crate::layout::SidebarView::Commit);
-                            self.set_sidebar(true);
-                        }
+                        self.sync_log_files_panel();
+                        self.reveal_log_files_selected();
                         self.relayout();
-                        self.reveal_log_diff_file();
                         self.clamp_scroll();
                         self.land_diff_file();
                     }

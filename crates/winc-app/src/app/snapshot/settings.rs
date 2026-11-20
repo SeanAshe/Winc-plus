@@ -1138,6 +1138,7 @@ fn the_git_page_is_listed_only_when_the_module_is_on() {
         Setting::GitTree,
         Setting::DiffInline,
         Setting::GitInlineBlame,
+        Setting::GitPullMode,
         Setting::GitConfirmPush,
         Setting::GitRememberCredentials,
         Setting::GitAutoFetch,
@@ -1338,4 +1339,28 @@ fn the_window_frame_is_noted_once_resizing_settles() {
     assert_eq!(app.window.frame_due, None);
 
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 截图：「Git」页，含拉取方式和它的菜单。
+#[test]
+#[ignore = "截图，手动运行"]
+fn shoot_settings_git_page() {
+    let dir = sample_folder("settings-git-shot");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    app.open_settings();
+    app.settings_toggle(Setting::GitModule);
+    app.settings_show_page(SettingsPage::Git);
+    paint(&mut app);
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    shoot(&mut app, "settings-git");
+    let row = (app.settings_layout().rows.iter())
+        .find(|row| row.setting == Setting::GitPullMode)
+        .unwrap()
+        .control;
+    app.on_mouse_move(row.x + 4.0, row.y + 4.0);
+    app.on_mouse_down(winit::event::MouseButton::Left);
+    app.on_mouse_up(winit::event::MouseButton::Left);
+    paint(&mut app);
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    shoot(&mut app, "settings-git-pull-menu");
 }

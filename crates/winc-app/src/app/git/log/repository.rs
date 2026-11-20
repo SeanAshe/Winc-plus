@@ -107,7 +107,7 @@ impl App {
     }
 
     /// 要在当前日志标签的仓库里改动（签出、拣选、重置等）：它不是当前仓库时先换过去。
-    pub(super) fn follow_log_root(&mut self) {
+    pub(in crate::app) fn follow_log_root(&mut self) {
         let root = self.active_log_root().map(Path::to_path_buf);
         if root.is_some() && root != self.git.root {
             self.git_set_root(root);

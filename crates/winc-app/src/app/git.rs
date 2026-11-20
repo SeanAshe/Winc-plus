@@ -17,6 +17,8 @@ pub(crate) mod merge;
 pub(crate) mod question;
 pub(crate) mod rebase;
 mod repository;
+pub(super) mod rewrite;
+mod stepping;
 pub(crate) mod worktree;
 
 use crate::app::scroll::set_scroll_line;
@@ -111,6 +113,8 @@ struct Refs {
     /// 发布当前分支时使用的远程（[`winc_editor::git::Git::publish_target`]）；没有远程时为
     /// `None`。
     publish_remote: Option<String>,
+    /// 拉取当前分支时是否配置为变基（[`winc_editor::git::Git::pull_rebases`]）。
+    pull_rebase: bool,
     /// 仓库的公共 Git 目录；取不到时为 `None`。
     common_dir: Option<PathBuf>,
     /// 储藏，最新的在前。
@@ -226,6 +230,8 @@ pub(crate) struct GitState {
     pub remote_list: Vec<winc_editor::git::Remote>,
     /// 发布当前分支时使用的远程，与状态一起刷新；没有远程时为 `None`。
     pub publish_remote: Option<String>,
+    /// 拉取当前分支时是否配置为变基，与状态一起刷新；「拉取自…」的「变基」默认按它勾选。
+    pub pull_rebase: bool,
     /// 储藏，最新的在前，与状态一起刷新。
     pub stashes: Vec<Stash>,
     /// 最近切换到过的分支名，最近的在前，与状态一起刷新。
@@ -288,8 +294,8 @@ pub(crate) struct GitState {
     /// 后台读到的、等着确认的推送：要做的推送、会送出的提交的标题和总数（见
     /// [`App::ask_push`]）。
     pub push_preview: Arc<Mutex<Option<PushPreview>>>,
-    /// 推送对话框改了目标后在后台读到的提交（见 [`App::refresh_push_list`]）。
-    pub(super) push_outgoing: Arc<Mutex<Option<form::PushOutgoing>>>,
+    /// 推送或拉取对话框改了目标后在后台读到的提交（见 [`App::refresh_transfer_list`]）。
+    pub(super) transfer_commits: Arc<Mutex<Option<form::TransferCommits>>>,
     /// 已提示过 `git` 版本过低：每次运行只提示一次。
     pub(super) old_git_warned: bool,
     /// 定时获取的状态（见 [`fetch`]）。
@@ -336,6 +342,7 @@ impl Default for GitState {
             remotes: Vec::new(),
             remote_list: Vec::new(),
             publish_remote: None,
+            pull_rebase: false,
             stashes: Vec::new(),
             recent_branches: Vec::new(),
             worktrees: Vec::new(),
@@ -365,7 +372,7 @@ impl Default for GitState {
             location_all: false,
             output_shown: 0,
             push_preview: Arc::default(),
-            push_outgoing: Arc::default(),
+            transfer_commits: Arc::default(),
             old_git_warned: false,
             version_read: HashSet::new(),
             authors: Vec::new(),
@@ -439,6 +446,7 @@ impl GitState {
         self.remotes.clear();
         self.remote_list.clear();
         self.publish_remote = None;
+        self.pull_rebase = false;
         self.stashes.clear();
         self.worktrees.clear();
         self.home = None;
@@ -909,6 +917,7 @@ impl App {
                     let remotes = scope.spawn(|| git.remotes(root, cancel));
                     let remote_list = scope.spawn(|| git.remote_list(root, cancel));
                     let publish_remote = scope.spawn(|| git.publish_target(root));
+                    let pull_rebase = scope.spawn(|| git.pull_rebases(root) == Some(true));
                     let common_dir = scope.spawn(|| git.common_dir(root, cancel));
                     let stashes = scope.spawn(|| git.stashes(root, cancel));
                     let recent_branches = scope.spawn(|| git.recent_branches(root, cancel));
@@ -933,6 +942,7 @@ impl App {
                             .and_then(Result::ok)
                             .unwrap_or_default(),
                         publish_remote: publish_remote.join().ok().and_then(Result::ok),
+                        pull_rebase: pull_rebase.join().unwrap_or(false),
                         common_dir: common_dir.join().ok().and_then(Result::ok),
                         stashes: stashes.join().ok().and_then(Result::ok).unwrap_or_default(),
                         recent_branches: (recent_branches.join().ok())
@@ -998,7 +1008,7 @@ impl App {
     pub(super) fn poll_git(&mut self) {
         self.git_take_scan();
         self.take_push_preview();
-        self.take_push_outgoing();
+        self.take_transfer_commits();
         self.take_auto_fetch();
         // 其他仓库的状态由后台直接写入，读完时同样到达这里：列着其他仓库时重新绘制。
         if self.commit_shows_others() && self.commit_shown() {
@@ -1056,6 +1066,7 @@ impl App {
                         self.git.remotes = refs.remotes;
                         self.git.remote_list = refs.remote_list;
                         self.git.publish_remote = refs.publish_remote;
+                        self.git.pull_rebase = refs.pull_rebase;
                         self.git.home = refs.home;
                         self.warn_old_git(refs.version);
                         if let Some(history) = refs.history {
@@ -1237,62 +1248,6 @@ impl App {
     pub(super) fn git_preview_changes(&mut self, path: &Path) {
         self.git.preview_seq += 1;
         self.fetch_changes(path, Target::Preview(self.git.preview_seq));
-    }
-
-    /// 标签 `id` 是否为工作区文件的 Git 差异。
-    pub(super) fn steps_changed_files(&self, id: DocumentId) -> bool {
-        self.git.diff_tabs.contains_key(&id)
-    }
-
-    /// 返回提交视图列出的下一个（`forward`）或上一个文件：（路径，序号（从 0 起），文件总数）。
-    ///
-    /// 当前标签不是工作区文件的差异，或没有更多文件时返回 `None`。从最近一次切换到的文件起算：
-    /// 该文件无法打开时（二进制、没有差异）标签保留原内容，再次切换即可跳过该文件。
-    pub(super) fn next_changed_file(&self, forward: bool) -> Option<(PathBuf, usize, usize)> {
-        let id = self.editor.active()?.id;
-        let tab = self.git.diff_tabs.get(&id)?;
-        let current = match &self.git.stepped {
-            Some((doc, path)) if *doc == id => path,
-            _ => &tab.path,
-        };
-        // 列表中已折叠目录内的文件不在 `commit_files` 中，此时按状态中的顺序。
-        let mut files = self.commit_files();
-        if !files.contains(current) {
-            let entries = &self.git.status.as_ref()?.entries;
-            files = entries.iter().map(|e| e.path.clone()).collect();
-        }
-        let at = files.iter().position(|p| p == current)?;
-        let next = if forward { at + 1 } else { at.checked_sub(1)? };
-        let path = files.get(next)?.clone();
-        Some((path, next, files.len()))
-    }
-
-    /// 在工作区文件的差异标签中打开提交视图列出的下一个（`forward`）或上一个文件，返回是否已打开。
-    ///
-    /// 新文件在当前标签中打开，连续查看时只占用一个标签。
-    pub(super) fn step_changed_file(&mut self, forward: bool) -> bool {
-        let Some(id) = self.editor.active().map(|d| d.id) else {
-            return false;
-        };
-        let Some((path, next, total)) = self.next_changed_file(forward) else {
-            return false;
-        };
-        let name = winc_editor::display_name(&path).into_owned();
-        self.git.commit.preview = Some(id);
-        self.git.stepped = Some((id, path.clone()));
-        self.select_commit_file(path);
-        let (index, name) = (next + 1, name.as_str());
-        self.flash(if forward {
-            t!("git-next-file", name = name, index = index, total = total)
-        } else {
-            t!(
-                "git-previous-file",
-                name = name,
-                index = index,
-                total = total
-            )
-        });
-        true
     }
 
     /// 状态刷新后重新比较已过时的 Git 差异标签，并原地更新内容。

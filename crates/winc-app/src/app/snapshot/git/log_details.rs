@@ -160,8 +160,8 @@ fn the_log_files_can_be_walked_with_the_keyboard_and_commits_opened_by_double_cl
     let files = app.log_file_order().len();
     assert!(files >= 2, "{files}");
 
-    // → 进到文件列表，↓ 选下一个，End 到最后，← 回到提交列表。
-    key(&mut app, NamedKey::ArrowRight);
+    // Tab 进到文件列表，↓ 选下一个，End 到最后，← 回到提交列表。
+    key(&mut app, NamedKey::Tab);
     assert_eq!(app.git.log.file, Some(0));
     key(&mut app, NamedKey::ArrowDown);
     assert_eq!(app.git.log.file, Some(1));
@@ -171,7 +171,7 @@ fn the_log_files_can_be_walked_with_the_keyboard_and_commits_opened_by_double_cl
     assert_eq!(app.git.log.file, None);
 
     // 再进去，回车打开选中文件的差异。
-    key(&mut app, NamedKey::ArrowRight);
+    key(&mut app, NamedKey::Tab);
     key(&mut app, NamedKey::ArrowDown);
     let before = tabs(&app);
     key(&mut app, NamedKey::Enter);
@@ -224,7 +224,7 @@ fn shoot_git_log_file_keys() {
     app.press_log(LogTarget::Row(last));
     app.pointer.modifiers = ModifiersState::empty();
     paint(&mut app);
-    app.log_key(&Key::Named(NamedKey::ArrowRight));
+    app.log_key(&Key::Named(NamedKey::Tab));
     app.log_key(&Key::Named(NamedKey::ArrowDown));
     shoot(&mut app, "log-file-keys");
     let _ = std::fs::remove_dir_all(&root);
@@ -488,4 +488,147 @@ fn refreshing_the_log_updates_the_repository_state_and_reports_it() {
         Some(winc_i18n::t!("git-log-refreshed"))
     );
     assert_eq!(app.git.log.refreshing, None);
+}
+
+/// 截图：从日志打开的差异，上方是提交说明条，左侧文件栏按目录分组（`history-diff`）。
+#[test]
+#[ignore = "截图，手动运行"]
+fn shoot_history_diff() {
+    let Some((mut app, root)) = git_app_in("git-history-diff-shot", false, false) else {
+        return;
+    };
+    history_repo(&root, 10);
+    std::fs::create_dir_all(root.join("src/auth")).unwrap();
+    std::fs::create_dir_all(root.join("docs/guide")).unwrap();
+    for (path, text) in [
+        ("src/login.rs", "pub fn login() { check(); audit(); }\n"),
+        ("src/auth/audit.rs", "pub fn audit() {}\n"),
+        ("src/auth/token.rs", "pub fn token() {}\n"),
+        (
+            "src/auth/session_token_refresh_and_revocation.rs",
+            "pub fn refresh() {}\n",
+        ),
+        ("docs/guide/login.md", "# 登录\n"),
+        ("src/config.rs", "pub struct Config { audit: bool }\n"),
+        ("README.md", "# demo\n\n登录会记录审计日志\n"),
+    ] {
+        std::fs::write(root.join(path), text).unwrap();
+    }
+    git_in(&root, &["add", "."]);
+    let author = ["-c", "user.name=张伟", "-c", "user.email=zhang@example.com"];
+    git_in(
+        &root,
+        &[&author[..], &["commit", "-q", "-m", "登录：记录审计日志"]].concat(),
+    );
+    git_in(&root, &["branch", "session-token-refresh-and-revocation"]);
+    app.git_refresh();
+    app.run_action(Action::GitShowLog);
+    app.update_state(|state| {
+        state.diff_files_tree = Some(true);
+        state.log_files_tree = Some(true);
+    });
+    paint(&mut app);
+    app.select_log_row(0);
+    for _ in 0..10 {
+        paint(&mut app);
+        app.poll_log();
+    }
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    shoot(&mut app, "history-details");
+    // 鼠标停在分支面板里放不下的名字上：写全名，伸到提交列表上面。
+    let rows = app.log_branch_rows();
+    let long = rows.iter().position(|r| {
+        matches!(r, crate::app::git::log::BranchRow::Branch { label, .. }
+            if label.starts_with("session"))
+    });
+    let target = crate::app::git::log::LogTarget::BranchRow(long.unwrap());
+    let rect = app.hits.log.iter().find(|(_, t)| *t == target).unwrap().0;
+    app.on_mouse_move(rect.x + 40.0, rect.y + rect.h / 2.0);
+    paint(&mut app);
+    shoot(&mut app, "history-branches-hover");
+    app.on_mouse_move(rect.x + 40.0, rect.y + 300.0);
+    paint(&mut app);
+    app.press_log(crate::app::git::log::LogTarget::File(2));
+    for _ in 0..10 {
+        paint(&mut app);
+        app.poll_log();
+    }
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    shoot(&mut app, "history-diff");
+    // 鼠标停在放不下的名字上：写全名，伸到差异上面。
+    let (files, _, _) = app.log_diff_tree_source().unwrap();
+    let long = files
+        .iter()
+        .position(|f| f.path.ends_with("session_token_refresh_and_revocation.rs"));
+    let target = crate::app::DiffTarget::File(long.unwrap());
+    let rect = app.hits.diff.iter().find(|(_, t)| *t == target).unwrap().0;
+    app.on_mouse_move(rect.x + 30.0, rect.y + rect.h / 2.0);
+    paint(&mut app);
+    shoot(&mut app, "history-diff-hover");
+    // 鼠标停在文件栏的右边缘上：强调色的竖线。
+    let edge = crate::app::DiffTarget::FilesEdge;
+    let rect = app.hits.diff.iter().find(|(_, t)| *t == edge).unwrap().0;
+    app.on_mouse_move(rect.x + rect.w / 2.0, rect.y + 400.0);
+    paint(&mut app);
+    assert_eq!(app.pointer.hover, crate::app::Hover::Diff(edge));
+    shoot(&mut app, "history-diff-edge");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn a_long_file_name_in_the_diff_file_panel_shows_in_full_while_hovered() {
+    use crate::app::DiffTarget;
+    use crate::app::git::log::LogTarget;
+    let Some((mut app, root)) = git_app_in("git-log-file-spill", false, false) else {
+        return;
+    };
+    let long = "a_file_name_long_enough_to_run_past_the_file_panel_edge.rs";
+    std::fs::write(root.join(long), "one\n").unwrap();
+    std::fs::write(root.join("b.rs"), "two\n").unwrap();
+    git_in(&root, &["add", "."]);
+    git_in(&root, &["commit", "-q", "-m", "Two files"]);
+    app.git_refresh();
+    app.run_action(Action::GitShowLog);
+    app.update_state(|state| state.diff_files_tree = Some(false));
+    paint(&mut app);
+    app.select_log_row(0);
+    for _ in 0..5 {
+        paint(&mut app);
+        app.poll_log();
+    }
+    app.press_log(LogTarget::File(0));
+    app.poll_log();
+    paint(&mut app);
+    let (files, _, _) = app.log_diff_tree_source().unwrap();
+    let at = files.iter().position(|f| f.path.ends_with(long)).unwrap();
+    let row = |app: &App| {
+        let hit = app
+            .hits
+            .diff
+            .iter()
+            .find(|(_, t)| *t == DiffTarget::File(at));
+        hit.unwrap().0
+    };
+    let panel = app.log_files_width();
+
+    // 平时截在文件栏里；鼠标停上去写全名，伸到差异上面的一段先于差异判定。
+    let rect = row(&app);
+    assert!(rect.right() <= panel + app.layout.editor.x + 1.0);
+    app.on_mouse_move(rect.x + 20.0, rect.y + rect.h / 2.0);
+    paint(&mut app);
+    let (spill, target) = app.hits.diff[0];
+    assert_eq!(target, DiffTarget::File(at));
+    assert!(spill.right() > rect.right() + 40.0, "{spill:?}");
+    // 移到伸出去的那一段上仍是这一行。
+    app.on_mouse_move(spill.right() - 10.0, spill.y + spill.h / 2.0);
+    paint(&mut app);
+    assert_eq!(
+        app.pointer.hover,
+        crate::app::Hover::Diff(DiffTarget::File(at))
+    );
+    // 移开以后收回。
+    app.on_mouse_move(spill.right() + 40.0, spill.y + 200.0);
+    paint(&mut app);
+    assert_ne!(app.hits.diff[0].1, DiffTarget::File(at));
+    let _ = std::fs::remove_dir_all(&root);
 }

@@ -307,6 +307,7 @@ impl App {
             | Setting::RenderWhitespace
             | Setting::VimClipboard
             | Setting::GitOpenWorktree
+            | Setting::GitPullMode
             | Setting::DropFolder
             | Setting::AutoSave
             | Setting::Zoom
@@ -324,6 +325,7 @@ impl App {
                     Setting::RenderWhitespace => MenuTarget::Whitespace,
                     Setting::VimClipboard => MenuTarget::VimClipboard,
                     Setting::GitOpenWorktree => MenuTarget::OpenWorktree,
+                    Setting::GitPullMode => MenuTarget::PullMode,
                     Setting::DropFolder => MenuTarget::DropFolder,
                     Setting::AutoSave => MenuTarget::AutoSave,
                     Setting::Zoom => MenuTarget::Zoom,

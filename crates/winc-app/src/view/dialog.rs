@@ -11,7 +11,7 @@ use winc_i18n::t;
 use winc_render::{FontKind, Frame, Rect, Stroke};
 
 use super::*;
-use crate::app::git::form::{FormKind, FormPlan};
+use crate::app::git::form::{Direction, FormKind, FormPlan};
 use crate::layout::{DialogLayout, DialogPart, QUESTION_LINE_H, REBASE_PILL_W, REBASE_ROW_H};
 
 /// 绘制对话框：遮罩，再绘制卡片（淡入途中按 [`draw_moving_card`] 整张叠上去）。
@@ -61,15 +61,26 @@ fn draw_card(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
     let (copy, new_window, checkout) = (dialog.copy, dialog.new_window, dialog.checkout);
     let (running, error, focus) = (dialog.running.is_some(), dialog.error.clone(), dialog.focus);
     let empty = dialog.name.text().trim().is_empty();
-    // 推送对话框：当前分支、待推送的提交的标题和提交数。
+    // 推送、拉取对话框：当前分支、会送出或带来的提交的标题和提交数。
     let push = match &dialog.kind {
-        FormKind::Push(form) => Some((form.branch.clone(), form.subjects.clone(), form.total)),
+        FormKind::Transfer(form) => Some((form.branch.clone(), form.subjects.clone(), form.total)),
         _ => None,
     };
+    let upto = match &dialog.kind {
+        FormKind::Transfer(form) => form.upto.as_deref().map(crate::app::git::log::short),
+        _ => None,
+    };
+    let pull = matches!(&dialog.kind, FormKind::Transfer(f) if f.direction == Direction::Pull);
     let branch = push.as_ref().map_or("", |(branch, ..)| branch.as_str());
     let (title, labels, placeholder) = match dialog.kind {
-        FormKind::Push(_) => (
-            t!("git-push-form-title", branch = branch),
+        FormKind::Transfer(_) => (
+            match (pull, upto) {
+                (true, _) => t!("git-pull-form-title", branch = branch),
+                (false, Some(commit)) => {
+                    t!("git-push-form-title-upto", branch = branch, commit = commit)
+                }
+                (false, None) => t!("git-push-form-title", branch = branch),
+            },
             [
                 t!("git-push-form-remote"),
                 t!("git-push-form-branch"),
@@ -101,6 +112,7 @@ fn draw_card(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
             return draw_question(app, frame, layout);
         }
         FormKind::Clone => return draw_clone(app, frame, layout),
+        FormKind::Rebase(ref form) if form.reword => return draw_reword(app, frame, layout),
         FormKind::Rebase(_) => return draw_rebase(app, frame, layout),
     };
     let card = layout.card;
@@ -166,6 +178,7 @@ fn draw_card(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
 
     for &(part, row) in &layout.options {
         let (text, on) = match (part, push.is_some()) {
+            (DialogPart::Copy, true) if pull => (t!("git-pull-form-rebase"), copy),
             (DialogPart::Copy, true) => (t!("git-push-form-tags"), copy),
             (DialogPart::NewWindow, true) => (t!("common-dont-ask"), new_window),
             (DialogPart::Copy, false) => (t!("common-dialog-copy-ignored"), copy),
@@ -174,8 +187,11 @@ fn draw_card(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
         };
         let end = draw_check_option(app, frame, row, text, on);
         if part == DialogPart::Copy && push.is_some() {
-            // 名称后面淡淡地说明范围：送出的是本地的全部标签。
-            let hint = t!("git-push-form-tags-hint");
+            // 名称后面淡淡地说明：推送的是本地的全部标签，变基把本地提交放到拉取的提交之后。
+            let hint = match pull {
+                true => t!("git-pull-form-rebase-hint"),
+                false => t!("git-push-form-tags-hint"),
+            };
             ui_text_small(frame, app, end + 8.0, row, hint, p.text_dim, card);
         }
         if part == DialogPart::Copy && push.is_none() {
@@ -200,7 +216,7 @@ fn draw_card(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
         true,
         hover,
     );
-    // 待推送的提交：每个标题一行，没有列出的写明个数。
+    // 会送出或带来的提交：每个标题一行，没有列出的写明个数。
     if let Some((_, subjects, total)) = &push {
         let block = layout.message;
         let line = |i: usize| {
@@ -223,6 +239,7 @@ fn draw_card(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
     }
 
     let (confirm, enabled) = match running {
+        true if pull => (t!("git-pull-form-pulling"), false),
         true if push.is_some() => (t!("git-push-form-pushing"), false),
         true => (t!("common-dialog-creating"), false),
         false => (plan.confirm, plan.enabled),
@@ -369,6 +386,133 @@ fn draw_question(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
         DialogPart::Confirm => Some(layout.confirm),
         DialogPart::Checkout => (layout.options.first())
             .map(|&(_, row)| Rect::new(row.x - 1.0, row.y + row.h / 2.0 - 7.0, 14.0, 14.0)),
+        _ => None,
+    };
+    if let Some(rect) = ring {
+        focus_outline(
+            frame,
+            rect.inset(-2.0, -2.0),
+            RADIUS_ROW + 2.0,
+            p.accent,
+            card,
+        );
+    }
+}
+
+/// 绘制编辑提交说明的对话框：标题行，名称列右边是提交和信息框；底部按钮左边是不能保存的原因，
+/// 或者已推送提交的提醒。
+fn draw_reword(app: &mut App, frame: &mut Frame<'_>, layout: &DialogLayout) {
+    let p = app.palette;
+    let Some(dialog) = app.overlays.form_dialog.as_ref() else {
+        return;
+    };
+    let FormKind::Rebase(form) = &dialog.kind else {
+        return;
+    };
+    let Some(row) = form.rows.first() else {
+        return;
+    };
+    let (oid, subject) = (row.commit.oid.clone(), row.commit.subject.clone());
+    let pushed = form.pushed > 0;
+    let (hover, focus, plan) = (dialog.hover, dialog.focus, app.form_plan(dialog));
+    let card = layout.card;
+    frame.rounded(card, p.editor_bg, RADIUS_CARD);
+    let header = layout.header;
+    let title = t!("git-reword-title");
+    ui_text(
+        frame,
+        app,
+        header.x + SETTINGS_PAD,
+        header,
+        title,
+        p.text,
+        card,
+    );
+    let close = layout.close;
+    draw_button(
+        frame,
+        p,
+        close,
+        card,
+        hover == Some(DialogPart::Close),
+        false,
+    );
+    icons::close(frame, center(close), 7.0, p.text_muted, close);
+
+    let labels = [t!("git-reword-commit"), t!("git-reword-message")];
+    for (rect, text) in layout.labels.iter().zip(labels) {
+        let w = frame.measure(FontKind::Ui, app.fonts.ui, text);
+        ui_text(
+            frame,
+            app,
+            rect.right() - w,
+            *rect,
+            text,
+            p.text_muted,
+            card,
+        );
+    }
+    // 提交：短提交号和说明的第一行，与日志里的写法相同。
+    if let Some(&rect) = layout.values.first() {
+        let area = rect.inset(DIALOG_FIELD_INSET, 0.0);
+        let short = crate::app::git::log::short(&oid);
+        let end = super::git::log::mono(app, frame, (area.x, area), short, p.text_muted, area);
+        let room = (area.right() - end - 10.0).max(0.0);
+        let subject = ellipsize(frame, &subject, app.fonts.ui, room);
+        ui_text(frame, app, end + 10.0, area, &subject, p.text, area);
+    }
+
+    let field_focused = app.focus == crate::app::Focus::Dialog && focus == DialogPart::Branch;
+    let rect = layout.branch;
+    field_box(app, frame, rect, p.editor_bg, field_focused, false);
+    let area = rect.inset(DIALOG_FIELD_INSET, 6.0);
+    if let Some(mut dialog) = app.overlays.form_dialog.take() {
+        let wrap =
+            super::fields::wrap_area_field(app, frame, area.w, &mut dialog.name, field_focused);
+        let caret = super::fields::draw_area_field(
+            app,
+            frame,
+            area,
+            &mut dialog.name,
+            wrap,
+            "",
+            field_focused,
+        );
+        app.overlays.form_dialog = Some(dialog);
+        if caret.is_some() {
+            app.ime.cursor = caret;
+        }
+    }
+
+    let note = match &plan.problem {
+        Some(problem) => Some((problem.as_str(), p.error)),
+        None => pushed.then(|| (t!("git-reword-pushed-warning"), p.warning)),
+    };
+    if let Some((note, color)) = note {
+        let left = card.x + SETTINGS_PAD;
+        let row = Rect::new(
+            left,
+            layout.cancel.y,
+            (layout.cancel.x - 16.0 - left).max(0.0),
+            layout.cancel.h,
+        );
+        let note = ellipsize(frame, note, app.fonts.ui_small, row.w);
+        ui_text_small(frame, app, left, row, &note, color, card);
+    }
+    let cancel = t!("common-cancel");
+    draw_action(app, frame, layout.cancel, cancel, false, true, hover);
+    draw_action(
+        app,
+        frame,
+        layout.confirm,
+        plan.confirm,
+        true,
+        plan.enabled,
+        hover,
+    );
+    let ring = match focus {
+        DialogPart::Cancel => Some(layout.cancel),
+        DialogPart::Confirm => Some(layout.confirm),
         _ => None,
     };
     if let Some(rect) = ring {

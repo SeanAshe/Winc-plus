@@ -1,48 +1,219 @@
 //! 详情栏：选中和复制文字、改动的文件（提示、菜单、打开）。
 
 use super::*;
+use crate::app::git::commit::{NaturalName, only_subdir};
+use std::collections::BTreeMap;
 
-/// 详情里改动的文件排成的一行：目录的标题，或一个文件（文件列表里的下标）。
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum LogFileRow {
-    /// 按目录分组时一组的标题：相对仓库根目录的目录。仓库根目录下的文件排在最前，没有标题。
-    Dir(String),
-    /// 一个文件。
-    File(usize),
+/// 文件 `file` 的完整路径（相对仓库根目录 `root`），改过名时写成「原来的 → 现在的」：截短的
+/// 文件行悬停时提示。
+pub(crate) fn file_tip(file: &CommitFile, root: &Path) -> String {
+    let rel = |p: &Path| {
+        p.strip_prefix(root)
+            .unwrap_or(p)
+            .to_string_lossy()
+            .into_owned()
+    };
+    match &file.from {
+        Some(from) => format!("{} → {}", rel(from), rel(&file.path)),
+        None => rel(&file.path),
+    }
 }
 
-/// 改动的文件 `files` 在详情里怎么排：平铺（`flat`）时按原来的顺序一个文件一行；否则按所在
-/// 目录分组，每组一行目录标题，组内按原来的顺序。`root` 是仓库的根目录。`pinned` 时第一个
-/// 文件（文件历史查看的文件）所在的组排在最前。
+/// 排好的文件各行的缓存：键见 [`RowsKey`]。
+pub(crate) type FileRowsCache = Option<(RowsKey, Rc<[LogFileRow]>)>;
+
+/// 排文件各行的依据：哪个列表（差异的文件栏为真）、哪组文件、文件数、排法、收起目录的版本。
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct RowsKey {
+    pub panel: bool,
+    pub id: String,
+    pub len: usize,
+    pub shape: RowsShape,
+    pub folds: u64,
+}
+
+/// 文件怎么排：平铺，文件历史查看的文件（第一个）是否排在最前，只有一个子目录的几级是否合成
+/// 一行（同文件视图的设置）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RowsShape {
+    pub flat: bool,
+    pub pinned: bool,
+    pub compact: bool,
+}
+
+/// 详情里改动的文件排成的一行。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum LogFileRow {
+    /// 一个目录：相对仓库根目录的路径、显示的名字（合起来的几级）、缩进的层数、是否展开。
+    Dir {
+        dir: String,
+        label: String,
+        depth: usize,
+        open: bool,
+    },
+    /// 一个文件：在文件列表里的下标、缩进的层数。
+    File { index: usize, depth: usize },
+}
+
+/// 文件列表、分支面板里一行名字的过渡状态的键（见 `TreeLabels`）：目录（相对仓库根目录）、
+/// 文件，或分支面板的一行（分支、标签的全名，目录的路径）。
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) enum RowName {
+    Dir(String),
+    File(PathBuf),
+    Ref(String),
+}
+
+impl LogFileRow {
+    /// 文件行的文件下标；目录行为 `None`。
+    pub(crate) fn file(&self) -> Option<usize> {
+        match self {
+            LogFileRow::File { index, .. } => Some(*index),
+            LogFileRow::Dir { .. } => None,
+        }
+    }
+}
+
+/// 一个文件列表里收起的目录：属于哪组文件（换了提交或比较就不算了）和收起的目录。
+#[derive(Debug, Clone, Default, PartialEq)]
+pub(crate) struct FileFolds {
+    id: String,
+    dirs: HashSet<String>,
+    /// 每次收起、展开加一：排好的各行按它判断是否要重排。
+    version: u64,
+}
+
+impl FileFolds {
+    /// 收起、展开过几次。
+    pub(super) fn version(&self) -> u64 {
+        self.version
+    }
+
+    /// 文件组 `id` 里收起的目录。
+    pub(super) fn of(&self, id: &str) -> Option<&HashSet<String>> {
+        (self.id == id).then_some(&self.dirs)
+    }
+
+    /// 收起或展开文件组 `id` 里的目录 `dir`。
+    pub(super) fn toggle(&mut self, id: &str, dir: &str) {
+        if self.id != id {
+            self.id = id.to_owned();
+            self.dirs.clear();
+        }
+        if !self.dirs.remove(dir) {
+            self.dirs.insert(dir.to_owned());
+        }
+        self.version += 1;
+    }
+
+    /// 展开文件组 `id` 里装着 `path`（相对仓库根目录）的各级目录。
+    pub(super) fn reveal(&mut self, id: &str, path: &Path) {
+        if self.id != id {
+            return;
+        }
+        let before = self.dirs.len();
+        self.dirs.retain(|dir| !path.starts_with(dir));
+        if self.dirs.len() != before {
+            self.version += 1;
+        }
+    }
+}
+
+/// 文件 `file` 相对仓库根目录 `root` 的路径；不在根目录下时只取文件名。
+fn relative<'a>(root: Option<&Path>, file: &'a CommitFile) -> &'a Path {
+    let path = &file.path;
+    match root.and_then(|r| path.strip_prefix(r).ok()) {
+        Some(rel) => rel,
+        None => path.file_name().map_or(path.as_path(), Path::new),
+    }
+}
+
+/// 改动的文件 `files` 怎么排：平铺时按原来的顺序一个文件一行；否则同文件视图排成树，先是目录、
+/// 再是文件，各按名字排，`folded` 里的目录收起。`root` 是仓库的根目录。`pinned` 时第一个文件
+/// （文件历史查看的文件）和装着它的目录排在各自那一层的最前。
 pub(crate) fn log_file_rows(
     root: Option<&Path>,
     files: &[CommitFile],
-    (flat, pinned): (bool, bool),
+    shape: RowsShape,
+    folded: &HashSet<String>,
 ) -> Vec<LogFileRow> {
-    if flat {
-        return (0..files.len()).map(LogFileRow::File).collect();
+    if shape.flat {
+        let file = |index| LogFileRow::File { index, depth: 0 };
+        return (0..files.len()).map(file).collect();
     }
-    let dir = |file: &CommitFile| {
-        let parent = file.path.parent();
-        let relative = parent.and_then(|d| root.and_then(|r| d.strip_prefix(r).ok()));
-        relative.map_or_else(String::new, |d| d.to_string_lossy().into_owned())
-    };
-    let mut order: Vec<(String, usize)> = files.iter().map(dir).zip(0..).collect();
-    let first = order.first().filter(|_| pinned).map(|(d, _)| d.clone());
-    order.sort_by(|a, b| {
-        let later = |d: &String| first.as_ref() != Some(d);
-        (later(&a.0), &a.0).cmp(&(later(&b.0), &b.0))
-    });
+    let items = files
+        .iter()
+        .map(|f| relative(root, f))
+        .enumerate()
+        .collect();
     let mut rows = Vec::new();
-    let mut last: Option<&str> = None;
-    for (dir, i) in &order {
-        if last != Some(dir.as_str()) && !dir.is_empty() {
-            rows.push(LogFileRow::Dir(dir.clone()));
-        }
-        last = Some(dir.as_str());
-        rows.push(LogFileRow::File(*i));
-    }
+    let tree = Tree { shape, folded };
+    tree.push_level(&mut rows, items, Path::new(""), 0);
     rows
+}
+
+/// 排成树时各层共用的：排法和收起的目录。
+struct Tree<'a> {
+    shape: RowsShape,
+    folded: &'a HashSet<String>,
+}
+
+impl Tree<'_> {
+    /// 把 `dir` 下面的 `items`（下标、相对 `dir` 的路径）排成第 `depth` 层。
+    fn push_level<'a>(
+        &self,
+        rows: &mut Vec<LogFileRow>,
+        items: Vec<(usize, &'a Path)>,
+        dir: &Path,
+        depth: usize,
+    ) {
+        let mut files = Vec::new();
+        let mut dirs: BTreeMap<NaturalName<'a>, Vec<(usize, &'a Path)>> = BTreeMap::new();
+        for (index, path) in items {
+            let mut parts = path.components();
+            match (parts.next(), parts.as_path()) {
+                (Some(first), rest) if !rest.as_os_str().is_empty() => {
+                    let dir = dirs.entry(NaturalName(first.as_os_str())).or_default();
+                    dir.push((index, rest));
+                }
+                _ => files.push((index, path)),
+            }
+        }
+        let pinned = |items: &[(usize, &Path)]| {
+            self.shape.pinned && items.iter().any(|&(index, _)| index == 0)
+        };
+        let mut dirs: Vec<_> = dirs.into_iter().collect();
+        dirs.sort_by_key(|(_, sub)| !pinned(sub));
+        for (NaturalName(name), mut sub) in dirs {
+            let mut label = PathBuf::from(name);
+            while let Some(next) = only_subdir(&sub).filter(|_| self.shape.compact) {
+                label.push(next);
+                for (_, p) in &mut sub {
+                    let rest: &'a Path = p;
+                    *p = rest.strip_prefix(next).unwrap_or(Path::new(""));
+                }
+            }
+            let full = dir.join(&label);
+            let key = full.to_string_lossy().into_owned();
+            let open = !self.folded.contains(&key);
+            rows.push(LogFileRow::Dir {
+                dir: key,
+                label: label.to_string_lossy().into_owned(),
+                depth,
+                open,
+            });
+            if open {
+                self.push_level(rows, sub, &full, depth + 1);
+            }
+        }
+        let pin = |index: usize| self.shape.pinned && index == 0;
+        files.sort_by(|&(ia, a), &(ib, b)| {
+            let name = |p: &Path| p.to_string_lossy().into_owned();
+            (pin(ib).cmp(&pin(ia))).then_with(|| winc_editor::natural_cmp(&name(a), &name(b)))
+        });
+        let file = |&(index, _): &(usize, &Path)| LogFileRow::File { index, depth };
+        rows.extend(files.iter().map(file));
+    }
 }
 
 impl App {
@@ -219,18 +390,7 @@ impl App {
 
     /// 详情里文件悬停提示的完整路径（相对仓库根目录）；改过名的写「旧路径 → 新路径」。
     pub(crate) fn log_file_tip(&self, i: usize) -> Option<String> {
-        let file = self.log_file(i)?;
-        let root = self.active_log_root()?;
-        let rel = |p: &Path| {
-            p.strip_prefix(root)
-                .unwrap_or(p)
-                .to_string_lossy()
-                .into_owned()
-        };
-        Some(match &file.from {
-            Some(from) => format!("{} → {}", rel(from), rel(&file.path)),
-            None => rel(&file.path),
-        })
+        Some(file_tip(self.log_file(i)?, self.active_log_root()?))
     }
 
     /// 在日志详情里右键的位置：点着的文件（下标和路径）。
@@ -294,28 +454,137 @@ impl App {
         details.files.as_deref()
     }
 
-    /// 详情里改动的文件排成的各行（见 [`log_file_rows`]），平铺还是按目录分组跟随提交视图。
-    pub(crate) fn log_file_layout(&self) -> Vec<LogFileRow> {
+    /// 详情里改动的文件排成的各行（见 [`log_file_rows`]）。
+    pub(crate) fn log_file_layout(&self) -> Rc<[LogFileRow]> {
         self.log_file_rows_of(self.log_shown_files().unwrap_or_default())
     }
 
-    /// 详情里文件 `files` 排成的各行：平铺还是分组跟随提交视图，文件历史查看的文件所在的组
-    /// 排在最前（比较两个版本时没有）。
-    pub(crate) fn log_file_rows_of(&self, files: &[CommitFile]) -> Vec<LogFileRow> {
-        let view = self.editor.active().and_then(|d| d.log.as_deref());
-        let pinned = view.is_some_and(|v| v.query.path.is_some() && v.compare.is_none());
-        let flat = self.git.commit.flat();
-        log_file_rows(self.active_log_root(), files, (flat, pinned))
+    /// 按 `key` 取排好的文件各行；没有排过、或排的是别的文件时由 `build` 重排并记下。
+    pub(super) fn cached_file_rows(
+        &self,
+        key: RowsKey,
+        build: impl FnOnce() -> Vec<LogFileRow>,
+    ) -> Rc<[LogFileRow]> {
+        let mut cache = self.git.log.rows_cache.borrow_mut();
+        if let Some((cached, rows)) = cache.as_ref()
+            && *cached == key
+        {
+            return Rc::clone(rows);
+        }
+        let rows: Rc<[LogFileRow]> = build().into();
+        *cache = Some((key, Rc::clone(&rows)));
+        rows
     }
 
-    /// 详情里各文件从上到下的顺序（文件列表里的下标）：键盘上下移动、打开第一个文件都按它。
-    pub(crate) fn log_file_order(&self) -> Vec<usize> {
-        let rows = self.log_file_layout().into_iter();
-        let files = rows.filter_map(|r| match r {
-            LogFileRow::File(i) => Some(i),
-            LogFileRow::Dir(_) => None,
+    /// 详情里改动的文件是否平铺：切换过时按这里记下的，否则同提交视图。
+    pub(crate) fn log_details_flat(&self) -> bool {
+        !self.state.log_files_tree.unwrap_or(self.state.commit_tree)
+    }
+
+    /// 在平铺与树之间切换详情里的文件，记进状态文件。
+    pub(in crate::app) fn toggle_log_details_layout(&mut self) {
+        let tree = self.log_details_flat();
+        self.update_state(|state| state.log_files_tree = Some(tree));
+        self.request_redraw();
+    }
+
+    /// 文件列表里的名字本帧是否播放过渡；没有窗口、动态效果关闭时为假。
+    pub(crate) fn animate_log_names(&mut self) -> bool {
+        #[cfg(test)]
+        if self.git.log.details_names.animate_without_window {
+            return true;
+        }
+        self.clock(crate::app::status::motion::STATUS_SLIDE)
+            .is_some()
+    }
+
+    /// 只有一个子目录的几级是否合成一行：同文件视图的设置。
+    pub(super) fn log_files_compact(&self) -> bool {
+        self.config.compact_folders != Some(false)
+    }
+
+    /// 详情里的文件属于哪组（选中的提交或比较的两个版本），以及怎么排：文件历史查看的文件
+    /// 排在最前（比较两个版本时没有）。
+    fn log_details_shape(&self) -> (String, RowsShape) {
+        let view = self.editor.active().and_then(|d| d.log.as_deref());
+        let pinned = view.is_some_and(|v| v.query.path.is_some() && v.compare.is_none());
+        let id = view.map_or_else(String::new, |v| match &v.compare {
+            Some(c) => format!("{}..{}", c.from, c.to),
+            None => v
+                .details
+                .as_ref()
+                .map_or_else(String::new, |d| d.oid.clone()),
         });
-        files.collect()
+        let shape = RowsShape {
+            flat: self.log_details_flat(),
+            pinned,
+            compact: self.log_files_compact(),
+        };
+        (id, shape)
+    }
+
+    /// 详情里文件 `files`（选中的提交或比较的文件）排成的各行，收起的目录里的文件不列出。
+    pub(crate) fn log_file_rows_of(&self, files: &[CommitFile]) -> Rc<[LogFileRow]> {
+        let (id, shape) = self.log_details_shape();
+        let folds = &self.git.log.details_folds;
+        let key = RowsKey {
+            panel: false,
+            id,
+            len: files.len(),
+            shape,
+            folds: folds.version(),
+        };
+        let empty = HashSet::new();
+        let folded = folds.of(&key.id).unwrap_or(&empty);
+        let root = self.active_log_root();
+        let build = || log_file_rows(root, files, shape, folded);
+        self.cached_file_rows(key.clone(), build)
+    }
+
+    /// 收起或展开详情里第 `row` 行的目录 `dir`（相对仓库根目录），其中各行从这一行下方逐渐露出
+    /// （或收回）；动态效果关闭时直接到位。
+    pub(in crate::app) fn toggle_log_details_dir(&mut self, row: usize, dir: &str) {
+        let (id, _) = self.log_details_shape();
+        let before = self.log_file_layout();
+        self.git.log.details_folds.toggle(&id, dir);
+        let after = self.log_file_layout();
+        self.git.log.details_fold = self.file_fold(row, before, after);
+        self.request_redraw();
+    }
+
+    /// 文件列表第 `parent` 行的目录从 `before` 变成 `after` 时的动画；没有行要露出、收回或者
+    /// 动态效果关闭时为 `None`。
+    pub(super) fn file_fold(
+        &mut self,
+        parent: usize,
+        before: Rc<[LogFileRow]>,
+        after: Rc<[LogFileRow]>,
+    ) -> Option<PanelFold<Rc<[LogFileRow]>>> {
+        let expanding = after.len() > before.len();
+        let count = after.len().abs_diff(before.len());
+        let rows = if expanding { after } else { before };
+        let clock = self.clock(crate::app::animation::TREE_ANIMATION)?;
+        (count > 0).then_some(PanelFold {
+            rows,
+            parent,
+            count,
+            expanding,
+            clock,
+        })
+    }
+
+    /// 详情里露出来的各文件从上到下的顺序（文件列表里的下标）：键盘上下移动按它。
+    pub(crate) fn log_file_order(&self) -> Vec<usize> {
+        let rows = self.log_file_layout();
+        rows.iter().filter_map(LogFileRow::file).collect()
+    }
+
+    /// 详情里排在最前的文件（收起的目录也算）：回车、双击提交时打开它。
+    pub(in crate::app) fn log_first_file(&self) -> Option<usize> {
+        let files = self.log_shown_files()?;
+        let (_, shape) = self.log_details_shape();
+        let rows = log_file_rows(self.active_log_root(), files, shape, &HashSet::new());
+        rows.iter().find_map(LogFileRow::file)
     }
 
     /// 让详情里第 `i` 个文件露出来：按上一帧画出来的文件行推算它在哪，在详情一栏外面就滚。
@@ -325,7 +594,7 @@ impl App {
         let bottom = area.bottom() - 30.0;
         // 目录标题行和文件行一样高：按两个文件在各行里的位置之差推算。
         let rows = self.log_file_layout();
-        let at = |i: usize| rows.iter().position(|r| *r == LogFileRow::File(i));
+        let at = |i: usize| rows.iter().position(|r| r.file() == Some(i));
         let Some(top) = self.hits.log.iter().find_map(|(rect, t)| match t {
             LogTarget::File(j) => {
                 let (to, from) = (at(i)?, at(*j)?);
@@ -354,7 +623,7 @@ impl App {
         else {
             return;
         };
-        if let Some(&first) = self.log_file_order().first() {
+        if let Some(first) = self.log_first_file() {
             self.open_log_file(first);
         } else {
             self.git.log.open_first = Some(oid);

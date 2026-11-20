@@ -311,11 +311,13 @@ impl SearchParts {
     }
 }
 
-/// 返回「跳转到行」输入条（⌃G）的位置：位于编辑区顶部居中，绘制和点击判断共用。
+/// 返回「跳转到行」等输入条的位置：位于编辑区顶部居中，绘制和点击判断共用。
 ///
-/// 宽度最多 320 像素，编辑区较窄时随它收窄；顶边距编辑区 8 像素。
-pub fn goto_bar(editor: Rect) -> Rect {
-    let width = 320.0_f32.min(editor.w - 40.0).max(0.0);
+/// 宽度最多 320 像素，输入文字（`text`，如储藏说明、分支名）时最多 480 像素；编辑区较窄时随它
+/// 收窄；顶边距编辑区 8 像素。
+pub fn goto_bar(editor: Rect, text: bool) -> Rect {
+    let widest = if text { 480.0_f32 } else { 320.0 };
+    let width = widest.min(editor.w - 40.0).max(0.0);
     let x = (editor.x + (editor.w - width) / 2.0).round();
     Rect::new(x, editor.y + 8.0, width, BAR_HEIGHT)
 }

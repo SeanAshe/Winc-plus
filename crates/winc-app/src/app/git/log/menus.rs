@@ -4,6 +4,8 @@ use winc_editor::git::TagTarget;
 use winc_i18n::t;
 
 use super::*;
+use crate::app::NoticeKind;
+use crate::app::input::context_menu::CommitActions;
 
 /// 返回引用 `reference` 的标签名；不是标签时返回 `None`。
 pub(in crate::app) fn tag_name(reference: &Ref) -> Option<&str> {
@@ -95,6 +97,45 @@ impl App {
         local_branch(&self.log_commit(oid)?)
     }
 
+    /// 日志里提交 `oid` 的菜单里哪些操作可用。
+    ///
+    /// 另一个 Git 操作还在运行，或者正停在合并、变基中间时，会修改仓库的操作都不可用；撤销、推送、
+    /// 修正和压缩只在日志与提交视图是同一个仓库时可用。
+    pub(in crate::app) fn log_commit_actions(&self, oid: &str) -> CommitActions {
+        let status = self.git.status.as_ref();
+        let busy =
+            self.git.branch.running.is_some() || status.is_some_and(|s| s.operation.is_some());
+        let same = self.active_log_root() == self.git.root.as_deref();
+        let on_branch = self.git.branches.iter().any(|b| b.current && !b.remote);
+        let view = self.editor.active().and_then(|d| d.log.as_deref());
+        let commits = view.map_or(&[][..], |v| v.commits.as_slice());
+        CommitActions {
+            enabled: !busy,
+            undo: same && self.commit_undoable().is_some_and(|l| l.oid == oid),
+            push: same && on_branch && !self.git.remotes.is_empty(),
+            on_head: view.and_then(|view| view.on_head(oid)),
+            child: commits.iter().any(|c| c.parents.iter().any(|p| p == oid)),
+            parent: commits
+                .iter()
+                .any(|c| c.oid == oid && !c.parents.is_empty()),
+            changes: same && status.is_some_and(|s| !s.entries.is_empty()),
+        }
+    }
+
+    /// 编辑日志里选中的提交的说明（快捷键）；不能编辑时说明原因。
+    pub(in crate::app) fn reword_selected_commit(&mut self) {
+        let view = self.editor.active().and_then(|d| d.log.as_deref());
+        let Some(oid) = view.and_then(|v| v.selected_oid()).map(str::to_owned) else {
+            return;
+        };
+        let actions = self.log_commit_actions(&oid);
+        if actions.on_head == Some(false) {
+            self.notify(NoticeKind::Warning, t!("git-rebase-not-on-branch"));
+        } else if actions.enabled {
+            self.run_log_commit_command(MenuCommand::LogReword, &oid);
+        }
+    }
+
     /// 日志里提交 `oid` 的右键菜单选了 `command`。
     ///
     /// 会改仓库的事走分支操作同一套：后台运行、同一时刻只做一件、状态栏说结论、失败右上角说
@@ -110,6 +151,8 @@ impl App {
                 | MenuCommand::LogCopyMessage
                 | MenuCommand::LogCopyPatch
                 | MenuCommand::LogGoTo
+                | MenuCommand::LogGoToChild
+                | MenuCommand::LogGoToParent
                 | MenuCommand::LogCompareRevision
         );
         if !reads {
@@ -132,6 +175,16 @@ impl App {
             MenuCommand::LogNewWorktree => self.new_worktree_at(oid, local_branch(&commit)),
             MenuCommand::LogNewTag => self.open_tag_prompt(oid),
             MenuCommand::LogInteractiveRebase => self.start_interactive_rebase(oid),
+            MenuCommand::LogReword => self.start_reword(oid),
+            MenuCommand::LogFixup => self.start_commit_into(oid, false),
+            MenuCommand::LogSquashInto => self.start_commit_into(oid, true),
+            MenuCommand::LogDropCommit => self.start_drop_commit(oid),
+            MenuCommand::LogPushUpTo => self.start_push_up_to(oid),
+            MenuCommand::LogUndoCommit => {
+                if let Some(last) = self.commit_undoable().filter(|l| l.oid == oid).cloned() {
+                    self.confirm_undo_commit(&last);
+                }
+            }
             MenuCommand::LogTag(op, i) => {
                 let tag = commit.refs.iter().filter_map(tag_name).nth(i);
                 if let Some(name) = tag {
@@ -184,6 +237,14 @@ impl App {
                 self.set_clipboard(tag, false);
             }
             MenuCommand::LogGoTo => self.open_go_to_revision(),
+            MenuCommand::LogGoToChild | MenuCommand::LogGoToParent => {
+                let row = (self.editor.active().and_then(|d| d.log.as_deref()))
+                    .and_then(|v| v.commits.iter().position(|c| c.oid == oid));
+                if let Some(row) = row {
+                    self.select_log_row(row);
+                    self.go_to_log_relative(command == MenuCommand::LogGoToParent);
+                }
+            }
             MenuCommand::LogCompareRevision => self.open_compare_revision(oid),
             MenuCommand::LogCopyPatch => self.copy_log_patch(oid),
             MenuCommand::LogCopyMessage => {
@@ -244,6 +305,7 @@ impl App {
                 t!("git-remote-remove-confirm-detail").to_owned(),
                 t!("git-remote-remove-confirm-button"),
             ),
+            LogConfirmed::DropCommit(plan) => super::super::rewrite::drop_prompt(plan),
             // 删除储藏、分支的确认在分支菜单中进行，不经过这里。
             LogConfirmed::DropStash(_) | LogConfirmed::DeleteBranch(..) => {
                 return self.run_log_confirmed(op);
@@ -300,6 +362,7 @@ impl App {
             LogConfirmed::DeleteBranch(name, force) => self.run_delete_branch(name, force),
             LogConfirmed::DeleteTag(name, target) => self.delete_tag(name, target),
             LogConfirmed::RemoveRemote(name) => self.remove_remote(name),
+            LogConfirmed::DropCommit(plan) => self.drop_commit(*plan),
         }
     }
 }

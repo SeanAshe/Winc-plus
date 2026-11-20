@@ -43,6 +43,10 @@ use crate::theme::SCROLLBAR_HIT;
 
 /// 差异标签顶部标题栏的高度（逻辑像素）；标题栏包含两侧的标题，右端为统计和按钮。
 pub(crate) const DIFF_HEADER: f32 = 36.0;
+/// 有文件栏时差异本身至少要有的宽度（逻辑像素）：地方不够时文件栏先变窄。
+const DIFF_MIN_WITH_FILES: f32 = 480.0;
+/// 文件栏最窄的宽度（逻辑像素）；再窄就不显示。
+pub(crate) const DIFF_FILES_MIN: f32 = 200.0;
 /// 左侧行号左边放置「»」的列宽（逻辑像素）。
 const DIFF_ARROWS: f32 = 22.0;
 /// 右侧行号右边放置勾选框的列宽（逻辑像素），用于按块提交时勾选每处改动。
@@ -177,6 +181,18 @@ pub enum DiffTarget {
     Fold(usize),
     /// 已展开的一段未改动内容的收起标记，参数为未改动段的序号；点击后重新折叠。
     Refold(usize),
+    /// 提交说明条上展开、收起文件栏的按钮。
+    FilesToggle,
+    /// 文件栏的右边缘：左右拖动改变宽度，双击恢复默认宽度。
+    FilesEdge,
+    /// 文件栏标题行上平铺与树的切换。
+    FilesLayout,
+    /// 文件栏里树的一个目录（[`App::log_files_rows`] 的下标）：点击收起或展开。
+    FilesDir(usize),
+    /// 文件栏里的第几个文件（提交的文件列表中的下标）。
+    File(usize),
+    /// 提交说明条上的「返回日志」。
+    BannerBack,
     /// 固定在顶部的块头：（侧，行号）。点击后光标放到该行，该行滚到其外层的固定行之下。
     Sticky(usize, usize),
     /// 用左侧替换右侧的一段改动（参数为改动序号），即把该处恢复为 `HEAD` 中的内容。
@@ -261,6 +277,12 @@ pub(crate) struct DiffPane {
 /// 差异标签的几何。
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct DiffParts {
+    /// 最上面的提交说明条（见 [`DiffView::banner`]）；没有时高为 0。
+    pub banner: Rect,
+    /// 提交说明条下面左侧的文件栏露出的部分（见 [`DiffView::panel`]）；没有时宽为 0。
+    pub files: Rect,
+    /// 文件栏展开时的宽度（逻辑像素）：展开、收起途中各行按它排，跟着右边缘滑进、滑出。
+    pub files_w: f32,
     /// 顶部的标题栏：两侧的标题各自与文字区对齐，右端依次为当前改动序号、增删行数、
     /// 上一处、下一处和折叠开关。
     pub header: Rect,
@@ -323,6 +345,17 @@ impl App {
             DiffTarget::Next => self.jump_difference(true),
             DiffTarget::PreviousFile => self.step_diff_file(false),
             DiffTarget::NextFile => self.step_diff_file(true),
+            DiffTarget::FilesToggle => self.toggle_log_files_panel(),
+            DiffTarget::FilesLayout => self.toggle_diff_files_layout(),
+            DiffTarget::FilesDir(row) => {
+                let rows = self.log_files_rows();
+                if let Some(crate::app::git::log::LogFileRow::Dir { dir, .. }) = rows.get(row) {
+                    self.toggle_log_files_dir(row, dir);
+                }
+            }
+            DiffTarget::File(i) => self.open_log_diff_file(i),
+            DiffTarget::FilesEdge => {}
+            DiffTarget::BannerBack => self.git_show_log(),
             DiffTarget::Layout => self.settings_toggle(crate::layout::Setting::DiffInline),
             DiffTarget::Collapse => self.refold_diff(|view, row| {
                 let on = !view.collapses();
@@ -988,6 +1021,16 @@ impl App {
         let Some(doc) = self.editor.active_mut() else {
             return;
         };
+        // 从日志打开的差异：Esc 回到日志，选中的提交和文件列表保持原样。
+        if *key == Key::Named(NamedKey::Escape)
+            && doc.diff.as_ref().is_some_and(|v| v.banner.is_some())
+        {
+            self.git_show_log();
+            return;
+        }
+        let Some(doc) = self.editor.active_mut() else {
+            return;
+        };
         match key {
             Key::Named(NamedKey::ArrowUp) if cmd => set_scroll_line(doc, 0.0),
             Key::Named(NamedKey::ArrowDown) if cmd => set_scroll_line(doc, f64::MAX),
@@ -1182,17 +1225,41 @@ impl App {
     }
 }
 
+/// 差异中显示行区域的上边离编辑区上边多远（逻辑像素）：标题栏，有提交说明条时再加上它。
+pub(crate) fn diff_top(view: &DiffView) -> f32 {
+    if view.banner.is_some() {
+        2.0 * DIFF_HEADER
+    } else {
+        DIFF_HEADER
+    }
+}
+
 /// 在编辑区 `editor` 中计算差异 `view` 的几何布局。
 ///
 /// 中间从左到右依次是「»」、左侧行号栏、连接带、右侧行号栏、勾选框，两侧文字区平分剩余宽度；
 /// 行号栏按两侧最大行号的位数定宽。
-pub(crate) fn diff_parts(editor: Rect, view: &DiffView, cell: f32) -> DiffParts {
-    let header = Rect::new(editor.x, editor.y, editor.w, DIFF_HEADER);
+pub(crate) fn diff_parts(area: Rect, view: &DiffView, cell: f32) -> DiffParts {
+    let banner_h = diff_top(view) - DIFF_HEADER;
+    let banner = Rect::new(area.x, area.y, area.w, banner_h);
+    // 提交说明条下面，左边是文件栏：地方不够时先变窄，窄到最小宽度仍放不下时不显示。
+    let full = match view.panel.min(area.w - DIFF_MIN_WITH_FILES) {
+        w if view.panel > 0.0 && w >= DIFF_FILES_MIN => w.round(),
+        _ => 0.0,
+    };
+    let files_w = (full * view.panel_shown.clamp(0.0, 1.0)).round();
+    let files = Rect::new(
+        area.x,
+        banner.bottom(),
+        files_w,
+        (area.bottom() - banner.bottom()).max(0.0),
+    );
+    let editor = Rect::new(area.x + files_w, area.y, area.w - files_w, area.h);
+    let header = Rect::new(editor.x, banner.bottom(), editor.w, DIFF_HEADER);
     let body = Rect::new(
         editor.x,
         header.bottom(),
         editor.w,
-        (editor.h - DIFF_HEADER).max(0.0),
+        (editor.bottom() - header.bottom()).max(0.0),
     );
     let lines = view.old.text.len_lines().max(view.new.text.len_lines());
     let digits = lines.to_string().len().max(2) as f32;
@@ -1209,6 +1276,9 @@ pub(crate) fn diff_parts(editor: Rect, view: &DiffView, cell: f32) -> DiffParts 
         let text = column(lines.right(), (editor.right() - lines.right()).max(0.0));
         let rect = column(editor.x, editor.w);
         return DiffParts {
+            banner,
+            files,
+            files_w: full,
             header,
             body,
             panes: [
@@ -1252,6 +1322,9 @@ pub(crate) fn diff_parts(editor: Rect, view: &DiffView, cell: f32) -> DiffParts 
         (editor.right() - right_gutter.right()).max(0.0),
     );
     DiffParts {
+        banner,
+        files,
+        files_w: full,
         header,
         body,
         panes: [

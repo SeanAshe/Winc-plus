@@ -12,6 +12,9 @@ use winc_editor::git::CommitOptions;
 
 use super::*;
 
+mod checks;
+pub(crate) use checks::Checks;
+
 /// 勾选式下一次提交要写入暂存区的内容。
 #[derive(Debug, Default)]
 struct PickedCommit {
@@ -78,8 +81,8 @@ impl App {
         let state = &self.git.commit;
         let mut plan = PickedCommit::default();
         for entry in state.picked_entries(status) {
-            match state.skipped.get(&entry.path).filter(|s| !s.is_empty()) {
-                Some(skipped) => plan.partial.push((entry.path.clone(), skipped.clone())),
+            match Some(state.picks.skips(&entry.path)).filter(|s| !s.is_empty()) {
+                Some(skipped) => plan.partial.push((entry.path.clone(), skipped.to_vec())),
                 None => {
                     plan.whole.push(entry.path.clone());
                     // 改名的文件，原来的路径一并提交，否则提交里同时留着新旧两个文件。
@@ -268,11 +271,7 @@ fn partial_content(
 impl CommitState {
     /// 文件 `entry` 是否勾上：已跟踪的文件默认勾上，未跟踪的文件勾上后才算。
     pub(super) fn picked(&self, entry: &Entry) -> bool {
-        if entry.untracked() {
-            self.included.contains(&entry.path)
-        } else {
-            !self.excluded.contains(&entry.path)
-        }
+        self.picks.picked(entry)
     }
 
     /// 文件的勾选框：`Some(true)` 整个提交，`Some(false)` 只提交一部分改动，`None` 不提交。
@@ -290,7 +289,7 @@ impl CommitState {
 
     /// 文件 `entry` 是否在差异里勾掉了其中几处改动。
     pub(super) fn skips_hunks(&self, entry: &Entry) -> bool {
-        self.skipped.get(&entry.path).is_some_and(|s| !s.is_empty())
+        !self.picks.skips(&entry.path).is_empty()
     }
 
     /// 返回文件 `entry` 现在各段改动的提交方式，下标同 `all`（各段改动的键和在 `HEAD` 中的行
@@ -303,8 +302,7 @@ impl CommitState {
         if !self.picked(entry) {
             return vec![Pick::Skip; all.len()];
         }
-        let skips = self.skipped.get(&entry.path).map_or(&[][..], Vec::as_slice);
-        picks(skips, all)
+        picks(self.picks.skips(&entry.path), all)
     }
 
     /// 勾上或勾掉文件 `entry` 的第 `hunk` 处改动；`all` 是该文件现在所有改动的键和在 `HEAD` 中的
@@ -326,7 +324,7 @@ impl CommitState {
                 .filter(|(h, _)| *h != hunk)
                 .map(|(_, change)| Skip::whole(change))
                 .collect();
-            self.skipped.insert(entry.path.clone(), others);
+            self.picks.set_skips(&entry.path, others);
             return;
         }
         let mut fresh = self.refreshed_skips(entry, all);
@@ -365,7 +363,7 @@ impl CommitState {
                 .collect();
             fresh.push(Skip::with_lines(key, &old, except(), total));
             fresh.retain(|s| !s.is_empty());
-            self.skipped.insert(entry.path.clone(), fresh);
+            self.picks.set_skips(&entry.path, fresh);
             return;
         }
         let mut fresh = self.refreshed_skips(entry, all);
@@ -393,7 +391,7 @@ impl CommitState {
     /// 内容相同的改动沿用原来的记录；内容变了的改动行号不再对应，按整处勾掉记录，不会被算回要
     /// 提交的改动；认不出的记录被丢弃。
     fn refreshed_skips(&self, entry: &Entry, all: &[(u64, Range<usize>)]) -> Vec<Option<Skip>> {
-        let skips = self.skipped.get(&entry.path).map_or(&[][..], Vec::as_slice);
+        let skips = self.picks.skips(&entry.path);
         (assign(skips, all).into_iter().zip(all))
             .map(|(found, (key, old))| {
                 found.map(|found| {
@@ -415,8 +413,8 @@ impl CommitState {
         let none_left = skips
             .iter()
             .all(|s| s.as_ref().is_some_and(|s| s.lines.is_none()));
-        self.skipped
-            .insert(entry.path.clone(), skips.into_iter().flatten().collect());
+        let skips = skips.into_iter().flatten().collect();
+        self.picks.set_skips(&entry.path, skips);
         if none_left {
             self.set_checked(entry, false);
         }
@@ -426,23 +424,13 @@ impl CommitState {
     pub(in crate::app) fn head_is(&mut self, oid: Option<&str>) {
         if self.head.as_deref() != oid {
             self.head = oid.map(str::to_owned);
-            self.skipped.clear();
+            self.picks.clear_skips();
         }
     }
 
     /// 勾上或勾掉文件 `entry`：`on` 为 `false` 时勾掉；之前按块勾掉的一处改动随之作废。
     pub(super) fn set_checked(&mut self, entry: &Entry, on: bool) {
-        self.checks += 1;
-        let path = entry.path.clone();
-        // 整个文件勾上或勾掉，之前按块勾掉的作废。
-        self.skipped.remove(&path);
-        if on {
-            self.excluded.remove(&path);
-            self.included.insert(path);
-        } else {
-            self.included.remove(&path);
-            self.excluded.insert(path);
-        }
+        self.picks.set(&entry.path, on);
     }
 
     /// 状态里当前勾上的各个文件。

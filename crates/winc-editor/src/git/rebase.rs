@@ -118,18 +118,8 @@ impl Git {
     /// `oid` 不在当前分支上、范围内有合并提交或 `git` 运行失败时返回原因。
     pub fn rebase_plan(&self, root: &Path, oid: &str) -> Result<RebasePlan, String> {
         self.require_trust(root)?;
+        self.on_branch(root, oid)?;
         let cancel = Cancel::default();
-        let mut command = self.command(root);
-        command.args([
-            "merge-base",
-            "--is-ancestor",
-            "--end-of-options",
-            oid,
-            "HEAD",
-        ]);
-        if self.run(&mut command, STATUS_TIMEOUT, &cancel).is_err() {
-            return Err(winc_i18n::t!("git-rebase-not-on-branch").to_owned());
-        }
         let parent = format!("{oid}^");
         let mut command = self.command(root);
         command.args([
@@ -166,13 +156,91 @@ impl Git {
         })
     }
 
+    /// 检查提交 `oid` 在当前分支上（是 `HEAD` 或它的祖先）。
+    ///
+    /// # Errors
+    ///
+    /// 不在当前分支上或 `git` 运行失败时返回原因。
+    pub fn on_branch(&self, root: &Path, oid: &str) -> Result<(), String> {
+        let mut command = self.command(root);
+        let args = [
+            "merge-base",
+            "--is-ancestor",
+            "--end-of-options",
+            oid,
+            "HEAD",
+        ];
+        command.args(args);
+        match self.run(&mut command, STATUS_TIMEOUT, &Cancel::default()) {
+            Ok(_) => Ok(()),
+            Err(_) => Err(winc_i18n::t!("git-rebase-not-on-branch").to_owned()),
+        }
+    }
+
+    /// 返回改写提交 `oid` 的信息用的范围：`oid` 是 `HEAD` 时只有它自己（以修改上一次提交完成，
+    /// 合并提交也可以），否则同 [`Git::rebase_plan`]。
+    ///
+    /// # Errors
+    ///
+    /// 同 [`Git::rebase_plan`]。
+    pub fn reword_plan(&self, root: &Path, oid: &str) -> Result<RebasePlan, String> {
+        self.require_trust(root)?;
+        let cancel = Cancel::default();
+        let mut command = self.command(root);
+        command.args(["rev-parse", "--verify", "--quiet", "HEAD"]);
+        let head = self.run(&mut command, STATUS_TIMEOUT, &cancel)?;
+        if String::from_utf8_lossy(&head).trim() != oid {
+            return self.rebase_plan(root, oid);
+        }
+        let mut command = self.command(root);
+        command.args(["log", "-1", "--format=%H%x1f%P%x1f%B%x1e", oid]);
+        let stdout = self.run(&mut command, LOG_TIMEOUT, &cancel)?;
+        let (commits, _) = parse_commits(&String::from_utf8_lossy(&stdout));
+        let mut command = self.command(root);
+        command.args([
+            "rev-list",
+            "--count",
+            "--max-count=1",
+            oid,
+            "--not",
+            "--remotes",
+        ]);
+        let local = self.run(&mut command, STATUS_TIMEOUT, &cancel)?;
+        let local: usize = String::from_utf8_lossy(&local).trim().parse().unwrap_or(0);
+        Ok(RebasePlan {
+            base: None,
+            pushed: commits.len().saturating_sub(local),
+            commits,
+        })
+    }
+
+    /// 把 `HEAD` 指向的提交 `oid` 的信息改成 `message`，暂存区里的更改不并入。
+    ///
+    /// # Errors
+    ///
+    /// 仓库未获信任、`HEAD` 已不是 `oid`、`git` 报错（钩子拒绝等）时返回原因。
+    pub fn reword_head(&self, root: &Path, oid: &str, message: &str) -> Result<(), String> {
+        self.require_trust(root)?;
+        let mut command = self.command(root);
+        command.args(["rev-parse", "--verify", "--quiet", "HEAD"]);
+        let head = self.run(&mut command, STATUS_TIMEOUT, &Cancel::default())?;
+        if String::from_utf8_lossy(&head).trim() != oid {
+            return Err(winc_i18n::t!("git-rebase-moved").to_owned());
+        }
+        let mut command = self.command(root);
+        command.args(["commit", "--amend", "--only", "--allow-empty"]);
+        command.args(["--cleanup=whitespace", "--file=-"]);
+        self.run_commit(root, &mut command, message)
+    }
+
     /// 按 `steps` 执行交互式变基，返回变基是否暂停（冲突以外的原因，如 [`RebaseAction::Edit`]）。
     ///
     /// `base` 为 `None` 时从根提交开始。未提交的更改由 `--autostash` 暂存并在结束后恢复。
     ///
     /// # Errors
     ///
-    /// 仓库未获信任、出现冲突或 `git` 运行失败时返回原因；出现冲突时变基停在冲突处。
+    /// 仓库未获信任、`base` 到 `HEAD` 的提交与 `steps` 不符（读取范围后分支有了变化）、出现冲突
+    /// 或 `git` 运行失败时返回原因；出现冲突时变基停在冲突处。
     pub fn interactive_rebase(
         &self,
         root: &Path,
@@ -181,6 +249,21 @@ impl Git {
     ) -> Result<bool, String> {
         self.require_trust(root)?;
         let cancel = Cancel::default();
+        // 待办列表里没有的提交会被丢弃：范围读出以后又有了提交时不变基。
+        let mut command = self.command(root);
+        let range = base.map_or_else(|| "HEAD".to_owned(), |base| format!("{base}..HEAD"));
+        command.args(["rev-list", &range]);
+        let listed = self.run(&mut command, LOG_TIMEOUT, &cancel)?;
+        let mut current: Vec<&str> = std::str::from_utf8(&listed)
+            .unwrap_or_default()
+            .lines()
+            .collect();
+        let mut planned: Vec<&str> = steps.iter().map(|step| step.oid.as_str()).collect();
+        current.sort_unstable();
+        planned.sort_unstable();
+        if current != planned {
+            return Err(winc_i18n::t!("git-rebase-moved").to_owned());
+        }
         // `--git-path` 给出 `git` 看到的路径：写入时换算到本机，写进 shell 命令时原样使用。
         let path_of = |name: &str| -> Result<String, String> {
             let mut command = self.command(root);
@@ -205,7 +288,44 @@ impl Git {
         });
         let _ = winc_backend::fs::remove_file(&local);
         result?;
-        let state = path_of("rebase-merge")?;
+        self.rebase_stopped(root)
+    }
+
+    /// 把目标提交 `oid` 之后的 `fixup!`、`squash!` 提交并入各自的目标（`git rebase
+    /// --autosquash`），返回变基是否暂停；`base` 是 `oid` 的父提交，为 `None` 时从根提交开始。
+    ///
+    /// 待办列表和压缩后的说明都按 `git` 生成的使用，不打开编辑器。未提交的更改由 `--autostash`
+    /// 暂存并在结束后恢复。
+    ///
+    /// # Errors
+    ///
+    /// 仓库未获信任、`oid` 已不在当前分支上（读取范围后分支被改写）、出现冲突或 `git` 运行失败时
+    /// 返回原因；出现冲突时变基停在冲突处。
+    pub fn autosquash(&self, root: &Path, oid: &str, base: Option<&str>) -> Result<bool, String> {
+        self.require_trust(root)?;
+        self.on_branch(root, oid)?;
+        let args = [
+            "rebase",
+            "--interactive",
+            "--autosquash",
+            "--autostash",
+            "--no-rebase-merges",
+            base.unwrap_or("--root"),
+        ];
+        self.run_prepared(root, &args, OPERATION_TIMEOUT, |command| {
+            command
+                .env("GIT_SEQUENCE_EDITOR", ":")
+                .env("GIT_EDITOR", ":");
+        })?;
+        self.rebase_stopped(root)
+    }
+
+    /// 变基是否停着（冲突以外的原因，如 [`RebaseAction::Edit`]）。
+    fn rebase_stopped(&self, root: &Path) -> Result<bool, String> {
+        let mut command = self.command(root);
+        command.args(["rev-parse", "--git-path", "rebase-merge"]);
+        let out = self.run(&mut command, STATUS_TIMEOUT, &Cancel::default())?;
+        let state = String::from_utf8_lossy(&out).trim().to_owned();
         Ok(winc_backend::fs::exists(crate::host::resolve(root, &state)))
     }
 }

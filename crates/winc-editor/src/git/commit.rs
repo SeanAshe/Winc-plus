@@ -231,7 +231,12 @@ impl Git {
     }
 
     /// 运行 `git commit`，提交信息由标准输入传入。
-    fn run_commit(&self, root: &Path, command: &mut Command, message: &str) -> Result<(), String> {
+    pub(super) fn run_commit(
+        &self,
+        root: &Path,
+        command: &mut Command,
+        message: &str,
+    ) -> Result<(), String> {
         command.stderr(Stdio::piped());
         // 钩子可能运行很久：命令一开始就记下，钩子的输出随到随记。
         let live = output::begin(root, &["commit"]);

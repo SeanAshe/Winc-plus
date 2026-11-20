@@ -1,5 +1,6 @@
 //! 弹出菜单：右键点中的是什么、各项的文字和勾选、交给系统菜单显示。
 
+use winc_editor::git::Ref;
 use winc_i18n::t;
 
 use super::*;
@@ -214,11 +215,9 @@ impl App {
     ///
     /// 点击目录或组标题时选中其下的各个文件，返回第一个文件的路径。
     fn commit_context_target(&mut self, x: f32, y: f32) -> Option<PathBuf> {
-        // 历史提交的文件列表只能查看：其中的文件不在工作区的状态里，不提供修改工作区的菜单。
         if !self.panels.sidebar.visible
             || self.panels.sidebar.view != SidebarView::Commit
             || self.git.commit.hits_generation != self.git.generation
-            || self.log_diff_tree().is_some()
         {
             return None;
         }
@@ -337,6 +336,10 @@ impl App {
     ///
     /// 目标文档已不存在时不弹出。
     pub(in crate::app) fn open_context_menu(&mut self, target: MenuTarget, at: (f32, f32)) {
+        // 提交菜单里的操作都在日志所在的仓库里做：先换到这个仓库，菜单按它的分支列出。
+        if matches!(target, MenuTarget::LogCommit(_)) {
+            self.follow_log_root();
+        }
         let entries = match &target {
             &MenuTarget::AddLanguage(task) => {
                 let listed = match task {
@@ -353,6 +356,9 @@ impl App {
             MenuTarget::Whitespace => whitespace_menu(),
             MenuTarget::VimClipboard => vim_clipboard_menu(),
             MenuTarget::OpenWorktree => open_worktree_menu(),
+            MenuTarget::PullMode => (0..winc_config::PullMode::ALL.len())
+                .map(|i| MenuEntry::Item(MenuCommand::PullMode(i), true))
+                .collect(),
             MenuTarget::DropFolder => (0..winc_config::FolderDrop::ALL.len())
                 .map(|i| MenuEntry::Item(MenuCommand::DropFolder(i), true))
                 .collect(),
@@ -720,13 +726,28 @@ impl App {
                 let tags: Vec<&str> = (commit.iter().flat_map(|c| &c.refs))
                     .filter_map(crate::app::git::log::menus::tag_name)
                     .collect();
-                let busy = self.git.branch.running.is_some()
-                    || self
-                        .git
-                        .status
-                        .as_ref()
-                        .is_some_and(|s| s.operation.is_some());
-                log_commit_menu(!busy, &self.current_branch_label(), &tags)
+                // 指向这个提交的分支，各自的操作与分支面板中相同；分支列表属于提交视图所在的
+                // 仓库，还没换过去（日志没有仓库）时不列出。
+                let (held, stale) = (self.git.held_branches(), self.git.stale_branches());
+                let all = &self.git.branches;
+                let same = self.active_log_root() == self.git.root.as_deref();
+                let branches = (commit.iter().filter(|_| same).flat_map(|c| &c.refs))
+                    .filter_map(|r| match r {
+                        Ref::Head(name) | Ref::Branch(name) => {
+                            all.iter().position(|b| !b.remote && b.name == *name)
+                        }
+                        Ref::Remote(name) => all.iter().position(|b| b.remote && b.name == *name),
+                        _ => None,
+                    })
+                    .map(|i| {
+                        let running = self.git.branch.running.is_some();
+                        let ops =
+                            crate::app::git::branch::branch_ops(i, all, &held, &stale, running);
+                        (all[i].name.clone(), ops)
+                    })
+                    .collect();
+                let actions = self.log_commit_actions(oid);
+                log_commit_menu(actions, &self.current_branch_label(), branches, &tags)
             }
             MenuTarget::LogColumns => self.log_columns_menu(),
             MenuTarget::LogDate | MenuTarget::LogPath | MenuTarget::LogAuthor => {
@@ -765,7 +786,10 @@ impl App {
         // 菜单上显示的快捷键按菜单弹出的位置取：文件树中取文件树的键位，编辑区中取编辑区的键位。
         let context = match &target {
             MenuTarget::Tree(_) => Context::Tree,
-            MenuTarget::Editor(_) | MenuTarget::Diff(..) | MenuTarget::Markdown => Context::Editor,
+            MenuTarget::Editor(_)
+            | MenuTarget::Diff(..)
+            | MenuTarget::Markdown
+            | MenuTarget::LogCommit(_) => Context::Editor,
             MenuTarget::Terminal(_) | MenuTarget::TerminalTab(_) => Context::Terminal,
             MenuTarget::SearchResult(..) => Context::Panel,
             MenuTarget::CommitFile(_) => Context::Changes,
@@ -783,6 +807,7 @@ impl App {
                 | MenuTarget::Whitespace
                 | MenuTarget::VimClipboard
                 | MenuTarget::OpenWorktree
+                | MenuTarget::PullMode
                 | MenuTarget::DropFolder
                 | MenuTarget::AutoSave
                 | MenuTarget::Zoom
@@ -800,6 +825,7 @@ impl App {
             MenuTarget::Whitespace => Some(Setting::RenderWhitespace),
             MenuTarget::VimClipboard => Some(Setting::VimClipboard),
             MenuTarget::OpenWorktree => Some(Setting::GitOpenWorktree),
+            MenuTarget::PullMode => Some(Setting::GitPullMode),
             MenuTarget::DropFolder => Some(Setting::DropFolder),
             MenuTarget::AutoSave => Some(Setting::AutoSave),
             MenuTarget::Zoom => Some(Setting::Zoom),
@@ -821,6 +847,7 @@ impl App {
             MenuTarget::BranchOps(_) | MenuTarget::CommitMore => {
                 (self.git.branches.clone(), self.git.stashes.clone())
             }
+            MenuTarget::LogCommit(_) => (self.git.branches.clone(), Vec::new()),
             MenuTarget::StashRow(_) | MenuTarget::StashList => {
                 (Vec::new(), self.git.stashes.clone())
             }
@@ -1076,6 +1103,9 @@ impl App {
             MenuCommand::OpenWorktree(i) => {
                 winc_config::WorktreeOpen::ALL.get(i)
                     == Some(&self.config.git_open_worktree.unwrap_or_default())
+            }
+            MenuCommand::PullMode(i) => {
+                winc_config::PullMode::ALL.get(i) == Some(&self.config.git_pull.unwrap_or_default())
             }
             MenuCommand::DropFolder(i) => {
                 winc_config::FolderDrop::ALL.get(i)

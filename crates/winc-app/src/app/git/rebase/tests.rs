@@ -20,13 +20,22 @@ fn plan(names: &[&str]) -> RebasePlan {
 #[test]
 fn an_unchanged_list_has_nothing_to_do() {
     let mut form = RebaseForm::new(plan(&["a", "b"]));
-    assert!(!form.changed());
+    assert!(!form.changed(""));
     form.rows.swap(0, 1);
-    assert!(form.changed());
+    assert!(form.changed(""));
     form.rows.swap(0, 1);
-    assert!(!form.changed());
+    assert!(!form.changed(""));
     form.rows[1].action = RebaseAction::Drop;
-    assert!(form.changed());
+    assert!(form.changed(""));
+}
+
+/// 编辑提交说明：说明与原来的只差首尾空白时不算更改。
+#[test]
+fn a_reword_changes_only_with_a_new_message() {
+    let mut form = RebaseForm::new(plan(&["a", "b"]));
+    form.reword = true;
+    assert!(!form.changed("a\n"));
+    assert!(form.changed("a2"));
 }
 
 #[test]

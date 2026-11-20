@@ -48,6 +48,18 @@ pub const MINIMUM_VERSION: (u32, u32) = (2, 24);
 
 /// 支持 `push --force-if-includes` 的最低 `git` 版本。
 const FORCE_IF_INCLUDES: (u32, u32) = (2, 30);
+/// 合并方式的拉取接受 `--autostash` 的最低版本；更早的只在变基时接受。
+const MERGE_AUTOSTASH: (u32, u32) = (2, 27);
+
+/// 解释 `pull.rebase`、`branch.<分支>.rebase` 的值：变基为 `Some(true)`，合并为
+/// `Some(false)`，认不出来时为 `None`。
+fn rebase_value(value: &str) -> Option<bool> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "true" | "yes" | "on" | "1" | "merges" | "m" | "interactive" | "i" => Some(true),
+        "false" | "no" | "off" | "0" => Some(false),
+        _ => None,
+    }
+}
 
 /// 从 `git version` 的输出（`git version 2.54.0 (Apple Git-157)`、
 /// `git version 2.47.1.windows.2`）读出主、次版本号。
@@ -66,13 +78,13 @@ impl Git {
     /// 若都可由本分支引用日志中的某条记录到达，`force` 时用 `--force-with-lease`（`git` 够新时再加
     /// `--force-if-includes`）推送本地版本，
     /// 否则返回 [`Synced::NeedsForce`]，不改动本地和上游。上游有本地从未有过的提交时先拉取再
-    /// 推送，未配置 `pull.rebase` 时按合并拉取。
+    /// 推送，拉取的方式 `rebase` 同 [`Git::pull`]。
     ///
     /// # Errors
     ///
     /// 没有上游、拉取出现冲突、推送被拒绝（包括上游在本地最后一次获取之后又有了新提交）时返回
     /// `git` 给出的原因。
-    pub fn sync(&self, root: &Path, force: bool) -> Result<Synced, String> {
+    pub fn sync(&self, root: &Path, force: bool, rebase: Option<bool>) -> Result<Synced, String> {
         self.require_trust(root)?;
         let cancel = Cancel::default();
         // 先获取：上游在上次获取之后的新提交也计入，判断分叉时依据的是上游当前的状态。
@@ -85,50 +97,80 @@ impl Git {
             }
             // 上面已经按引用日志确认过上游多出的提交本地都见过；`--force-if-includes` 让 `git` 在
             // 推送的那一刻再查一遍，两次检查之间上游又变了也会被拒绝。该选项 2.30 才有。
-            let mut args = vec!["push", "--force-with-lease"];
+            let mut args = vec!["push".to_owned(), "--force-with-lease".to_owned()];
             if self.version(root, &cancel) >= Some(FORCE_IF_INCLUDES) {
-                args.push("--force-if-includes");
+                args.push("--force-if-includes".to_owned());
             }
+            args.extend(self.push_target(root, &cancel));
             return self.operate(root, &args).map(Synced::Done);
         }
         let mut summary = String::new();
         if behind > 0 {
-            summary = self.pull(root)?;
+            summary = self.pull(root, rebase)?;
         }
         // 拉取时合并产生的提交同样需要推送。
         if self.count(root, "@{upstream}..HEAD", &cancel)? > 0 {
-            summary = self.operate(root, &["push"])?;
+            let mut args = vec!["push".to_owned()];
+            args.extend(self.push_target(root, &cancel));
+            summary = self.operate(root, &args)?;
         }
         Ok(Synced::Done(summary))
     }
 
-    /// 从上游拉取，返回 `git` 的结论。
+    /// 从上游拉取，返回 `git` 的结论：`rebase` 为真时变基，为假时合并，为 `None` 时按 Git 的
+    /// 配置（[`Git::pull_rebases`]）。
     ///
-    /// 未配置 `pull.rebase` 时 `git` 拒绝拉取分叉的分支，因此显式按合并方式拉取。未提交的更改
+    /// 未配置 `pull.rebase` 时 `git` 拒绝拉取分叉的分支，因此这时显式按合并方式拉取。未提交的更改
     /// 由 `git` 先储藏、拉取完成后恢复（`--autostash`）：工作区有改动时拉取不会因此被拒绝；拉取
     /// 产生冲突时，更改在合并或变基结束（继续或放弃）后恢复。恢复的结果见 [`Git::carried`]。
+    /// 2.27 以前的 `git` 合并时不接受 `--autostash`，这时不带：更改会被拉取的内容覆盖时 `git`
+    /// 拒绝拉取，更改不会丢失。
     ///
     /// # Errors
     ///
     /// 没有上游、出现冲突、未跟踪的文件会被拉取到的文件覆盖时返回 `git` 给出的原因。
-    pub fn pull(&self, root: &Path) -> Result<String, String> {
-        let configured = (self.config(root, "pull.rebase", &Cancel::default())).is_some();
-        let pull: &[&str] = if configured {
-            &["pull", "--autostash"]
-        } else {
-            &["pull", "--no-rebase", "--autostash"]
-        };
-        self.operate(root, pull)
+    pub fn pull(&self, root: &Path, rebase: Option<bool>) -> Result<String, String> {
+        let configured = rebase.is_none().then(|| self.pull_rebases(root)).flatten();
+        let mut args = vec!["pull"];
+        match (rebase, configured) {
+            (Some(true), _) => args.push("--rebase"),
+            (Some(false), _) | (None, None) => args.push("--no-rebase"),
+            (None, Some(_)) => {}
+        }
+        if rebase.or(configured) == Some(true) || self.merge_autostash(root) {
+            args.push("--autostash");
+        }
+        self.operate(root, &args)
     }
 
-    /// 从上游拉取并把本地提交变基到上游之上，返回 `git` 的结论；未提交的更改的处理同
-    /// [`Git::pull`]。
+    /// 合并方式的拉取能否带 `--autostash`（见 [`MERGE_AUTOSTASH`]）。
+    fn merge_autostash(&self, root: &Path) -> bool {
+        self.version(root, &Cancel::default()) >= Some(MERGE_AUTOSTASH)
+    }
+
+    /// 从远程 `remote` 的分支 `branch` 拉取到当前分支，`rebase` 为真时变基、否则合并，返回
+    /// `git` 的结论；未提交的更改的处理同 [`Git::pull`]。
     ///
     /// # Errors
     ///
-    /// 没有上游、变基出现冲突时返回 `git` 给出的原因。
-    pub fn pull_rebase(&self, root: &Path) -> Result<String, String> {
-        self.operate(root, &["pull", "--rebase", "--autostash"])
+    /// `remote`、`branch` 以 `-` 开头，或出现冲突、远程没有该分支时返回原因。
+    pub fn pull_from(
+        &self,
+        root: &Path,
+        remote: &str,
+        branch: &str,
+        rebase: bool,
+    ) -> Result<String, String> {
+        if remote.starts_with('-') || branch.starts_with('-') {
+            return Err(winc_i18n::t!("git-push-no-remote").to_owned());
+        }
+        let mode = if rebase { "--rebase" } else { "--no-rebase" };
+        let mut args = vec!["pull", mode];
+        if rebase || self.merge_autostash(root) {
+            args.push("--autostash");
+        }
+        args.extend(["--end-of-options", remote, branch]);
+        self.operate(root, &args)
     }
 
     /// 返回最新一条储藏的提交号；没有储藏时为 `None`。
@@ -153,22 +195,26 @@ impl Git {
         Carried::Restored
     }
 
-    /// 返回推送到 `target` 会送出的提交：最新的在前、最多 `limit` 个提交的标题，以及这样的提交
-    /// 一共多少个。
+    /// 返回把 `head`（`HEAD` 或一个提交号）推送到 `target` 会送出的提交：最新的在前、最多
+    /// `limit` 个提交的标题，以及这样的提交一共多少个。
     ///
     /// # Errors
     ///
-    /// 远程名、分支名以 `-` 开头，或 `git` 运行失败时返回原因。
+    /// 远程名、分支名、`head` 以 `-` 开头，或 `git` 运行失败时返回原因。
     pub fn outgoing(
         &self,
         root: &Path,
         target: Outgoing<'_>,
+        head: &str,
         limit: usize,
     ) -> Result<(Vec<String>, usize), String> {
+        if head.starts_with('-') {
+            return Err(winc_i18n::t!("git-rebase-not-on-branch").to_owned());
+        }
         let cancel = Cancel::default();
         let range: Vec<String> = match target {
-            Outgoing::Upstream => vec!["@{upstream}..HEAD".into()],
-            Outgoing::Publish => ["HEAD", "--not", "--remotes"].map(String::from).into(),
+            Outgoing::Upstream => vec![format!("@{{upstream}}..{head}")],
+            Outgoing::Publish => [head, "--not", "--remotes"].map(String::from).into(),
             Outgoing::To { remote, branch } => {
                 if remote.starts_with('-') || branch.starts_with('-') {
                     return Err(winc_i18n::t!("git-push-no-remote").to_owned());
@@ -177,21 +223,55 @@ impl Git {
                 let mut command = self.command(root);
                 command.args(["rev-parse", "--verify", "--quiet", &tracking]);
                 match self.run(&mut command, STATUS_TIMEOUT, &cancel) {
-                    Ok(_) => vec![format!("{tracking}..HEAD")],
+                    Ok(_) => vec![format!("{tracking}..{head}")],
                     // `--remotes=<名字>` 匹配 `refs/remotes/<名字>/*`。
-                    Err(_) => vec!["HEAD".into(), "--not".into(), format!("--remotes={remote}")],
+                    Err(_) => vec![head.into(), "--not".into(), format!("--remotes={remote}")],
                 }
             }
         };
+        self.subjects(root, &range, limit)
+    }
+
+    /// 返回拉取远程 `remote` 的分支 `branch` 时会带来的提交：最新的至多 `limit` 个提交的标题
+    /// （最新的在前）和提交总数，按本地记下的远程分支计算。
+    ///
+    /// # Errors
+    ///
+    /// `remote`、`branch` 以 `-` 开头，本地没有该远程分支，或 `git` 运行失败时返回原因。
+    pub fn incoming(
+        &self,
+        root: &Path,
+        remote: &str,
+        branch: &str,
+        limit: usize,
+    ) -> Result<(Vec<String>, usize), String> {
+        if remote.starts_with('-') || branch.starts_with('-') {
+            return Err(winc_i18n::t!("git-push-no-remote").to_owned());
+        }
+        let tracking = format!("refs/remotes/{remote}/{branch}");
         let mut command = self.command(root);
-        command.args(["rev-list", "--count"]).args(&range);
+        command.args(["rev-parse", "--verify", "--quiet", &tracking]);
+        self.run(&mut command, STATUS_TIMEOUT, &Cancel::default())?;
+        self.subjects(root, &[format!("HEAD..{tracking}")], limit)
+    }
+
+    /// 返回 `range` 中最新的至多 `limit` 个提交的标题（最新的在前）和提交总数。
+    fn subjects(
+        &self,
+        root: &Path,
+        range: &[String],
+        limit: usize,
+    ) -> Result<(Vec<String>, usize), String> {
+        let cancel = Cancel::default();
+        let mut command = self.command(root);
+        command.args(["rev-list", "--count"]).args(range);
         let stdout = self.run(&mut command, STATUS_TIMEOUT, &cancel)?;
         let total = String::from_utf8_lossy(&stdout).trim().parse().unwrap_or(0);
         let mut command = self.command(root);
         let count = format!("--max-count={limit}");
         // `log.showSignature` 等配置会在标题之间插入签名校验的输出，这里关掉。
         let args = ["log", "--no-show-signature", "--format=%s", &count];
-        command.args(args).args(&range);
+        command.args(args).args(range);
         let stdout = self.run(&mut command, STATUS_TIMEOUT, &cancel)?;
         let subjects = String::from_utf8_lossy(&stdout);
         Ok((subjects.lines().map(str::to_owned).collect(), total))
@@ -211,6 +291,57 @@ impl Git {
         command.args(["rev-list", "--count", range]);
         let stdout = self.run(&mut command, STATUS_TIMEOUT, cancel)?;
         Ok(String::from_utf8_lossy(&stdout).trim().parse().unwrap_or(0))
+    }
+
+    /// 返回拉取当前分支时配置的方式：`branch.<分支>.rebase` 优先，其次 `pull.rebase`；为
+    /// `true`、`merges`、`interactive` 时是变基（`Some(true)`），为 `false` 时是合并，都没有
+    /// 配置时为 `None`。
+    pub fn pull_rebases(&self, root: &Path) -> Option<bool> {
+        let cancel = Cancel::default();
+        let branch = self.current_branch(root, &cancel);
+        let keys = (branch.map(|b| format!("branch.{b}.rebase")).into_iter())
+            .chain(["pull.rebase".to_owned()]);
+        let value = keys
+            .into_iter()
+            .find_map(|key| self.config(root, &key, &cancel))?;
+        rebase_value(&value)
+    }
+
+    /// 返回当前分支的名字；分离头指针时为 `None`。
+    pub(super) fn current_branch(&self, root: &Path, cancel: &Cancel) -> Option<String> {
+        let mut command = self.command(root);
+        command.args(["symbolic-ref", "--quiet", "--short", "HEAD"]);
+        let branch = self.run(&mut command, STATUS_TIMEOUT, cancel).ok()?;
+        Some(String::from_utf8_lossy(&branch).trim().to_owned())
+    }
+
+    /// 推送当前分支时写在 `git push` 后面的目标：上游与当前分支不同名时是上游所在的远程和
+    /// `HEAD:` 上游分支，其余情况为空，由 `git` 按配置决定。
+    ///
+    /// `push.default` 默认的 `simple` 拒绝推到不同名的上游，从别人的合并请求签出的分支常常这样；
+    /// 这时同其他 Git 客户端一样推到上游。用户设置了 `push.default`，或推送去另一个远程时按其
+    /// 设置（见 [`upstream_target`]）。
+    pub(super) fn push_target(&self, root: &Path, cancel: &Cancel) -> Vec<String> {
+        let Some(branch) = self.current_branch(root, cancel) else {
+            return Vec::new();
+        };
+        let pattern =
+            r"^(push\.default|remote\.pushdefault|branch\..*\.(remote|merge|pushremote))$";
+        let mut command = self.command(root);
+        command.args(["config", "-z", "--get-regexp", pattern]);
+        // 一项都没有配置时 `git` 以 1 退出。
+        let Ok(stdout) = self.run(&mut command, STATUS_TIMEOUT, cancel) else {
+            return Vec::new();
+        };
+        let Some((remote, merge)) = upstream_target(&String::from_utf8_lossy(&stdout), &branch)
+        else {
+            return Vec::new();
+        };
+        vec![
+            "--end-of-options".to_owned(),
+            remote,
+            format!("HEAD:{merge}"),
+        ]
     }
 
     /// 返回配置项 `key` 的值；未配置时为 `None`。
@@ -258,3 +389,30 @@ impl Git {
 
 #[cfg(test)]
 mod tests;
+
+/// 从 `git config -z --get-regexp` 的输出 `config` 中找出当前分支 `branch` 推送时要写明的
+/// （远程，上游的引用）：上游与当前分支同名、设置了 `push.default`，或推送去的远程
+/// （`branch.<名字>.pushRemote`、`remote.pushDefault`）不是上游所在的远程时为 `None`，交给
+/// `git` 按配置推送：后一种是从一个仓库拉取、推到另一个仓库，`git` 推到同名的分支。
+///
+/// 上游在本仓库（远程为 `.`）、不是分支，或远程名以 `-` 开头时同样为 `None`。
+pub(super) fn upstream_target(config: &str, branch: &str) -> Option<(String, String)> {
+    let key = |name: &str| format!("branch.{branch}.{name}");
+    let (mut remote, mut merge, mut push_remote, mut push_default) = (None, None, None, None);
+    // 同一项写了几次时以最后一次为准，与 `git` 相同。
+    for (name, value) in config.split('\0').filter_map(|e| e.split_once('\n')) {
+        match name {
+            "push.default" => return None,
+            "remote.pushdefault" => push_default = Some(value),
+            _ if name == key("pushremote") => push_remote = Some(value),
+            _ if name == key("remote") => remote = Some(value),
+            _ if name == key("merge") => merge = Some(value),
+            _ => {}
+        }
+    }
+    let (remote, merge) = (remote?, merge?);
+    let upstream = merge.strip_prefix("refs/heads/")?;
+    let pushes_to = push_remote.or(push_default).unwrap_or(remote);
+    (upstream != branch && pushes_to == remote && remote != "." && !remote.starts_with('-'))
+        .then(|| (remote.to_owned(), merge.to_owned()))
+}

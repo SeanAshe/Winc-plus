@@ -215,7 +215,7 @@ impl App {
         Some(winc_editor::git::worktree_dir(main, folder, home, branch))
     }
 
-    /// 分支操作菜单、日志菜单里写的新工作树的位置：默认位置写相对于仓库（子模块是最外层的仓库）
+    /// 分支操作菜单、日志菜单的悬停提示里写的新工作树的位置：默认位置写相对于仓库（子模块是最外层的仓库）
     /// 所在目录的（`winc.worktrees/feat-x`），配置了 `git.worktreeRoot` 时写完整的（主目录写成
     /// `~`）。
     ///
@@ -386,6 +386,7 @@ impl App {
             | Then::ConfirmForcePush(_)
             | Then::ConfirmForceDelete(_)
             | Then::RebasePlan(_)
+            | Then::History(_)
             | Then::Warn(_) => return,
             Then::Refresh => {}
             Then::Open(path, true) => self.open_in_new_window(&path),

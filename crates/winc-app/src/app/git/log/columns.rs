@@ -85,14 +85,22 @@ impl App {
         ((list_w - (AUTHOR_MIN_LIST - AUTHOR_BLEND)) / AUTHOR_BLEND).clamp(0.0, 1.0)
     }
 
-    /// 按下作者一列的左边缘：双击恢复默认宽度，否则从画着的宽度开始拖动。
+    /// 作者一列完全展开时的宽度（逻辑像素）：拖过的宽度，否则按作者名字算出的宽度（最宽
+    /// [`AUTHOR_DEFAULT`]）。
+    pub(crate) fn log_author_full(&self) -> f32 {
+        (self.git.log.author_w)
+            .or(self.git.log.author_fit.map(|(_, w)| w))
+            .unwrap_or(AUTHOR_DEFAULT)
+    }
+
+    /// 按下作者一列的左边缘：双击恢复按名字算出的宽度，否则从画着的宽度开始拖动。
     pub(in crate::app) fn press_log_author_edge(&mut self, x: f32, double: bool) {
         if double {
             self.git.log.author_w = None;
             self.request_redraw();
             return;
         }
-        let full = self.git.log.author_w.unwrap_or(AUTHOR_DEFAULT);
+        let full = self.log_author_full();
         let shown = log_author_width(full, self.log_author_show(self.log_parts().list.w));
         self.pointer.drag = crate::app::Drag::LogColumn {
             start_x: x,
@@ -114,8 +122,18 @@ impl App {
     }
 }
 
-/// 作者一列默认的宽度（逻辑像素）。
+/// 作者一列按名字算出的宽度的上限（逻辑像素），更长的名字截短。
 pub(crate) const AUTHOR_DEFAULT: f32 = 150.0;
+/// 作者一列中名字左右的留白（逻辑像素）：左边是头像，右边与时间一列隔开。
+pub(crate) const AUTHOR_PAD: f32 = 32.0;
+
+/// 返回名字最宽为 `widest`（逻辑像素）时作者一列的宽度，限制在拖动的最窄宽度与
+/// [`AUTHOR_DEFAULT`] 之间。
+pub(crate) fn author_fit(widest: f32) -> f32 {
+    (widest + AUTHOR_PAD)
+        .clamp(AUTHOR_RANGE.0, AUTHOR_DEFAULT)
+        .ceil()
+}
 /// 作者一列完整显示头像和名字所需的最小列表宽度（逻辑像素）。
 ///
 /// 列表窄于 `AUTHOR_MIN_LIST - AUTHOR_BLEND` 时作者一列只显示头像（`AVATAR_W` 宽），仍可辨认

@@ -33,10 +33,10 @@ impl App {
                 .map(|e| e.path.clone())
                 .collect()
         } else {
-            let skipped = &self.git.commit.skipped;
-            let picked = self.git.commit.picked_entries(status);
+            let commit = &self.git.commit;
+            let picked = commit.picked_entries(status);
             picked
-                .filter(|e| whole(e) && skipped.get(&e.path).is_none_or(|s| s.is_empty()))
+                .filter(|e| whole(e) && !commit.skips_hunks(e))
                 .map(|e| e.path.clone())
                 .collect()
         };

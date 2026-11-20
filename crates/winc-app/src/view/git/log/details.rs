@@ -381,7 +381,7 @@ fn draw_compare(
         ]
     } else {
         [
-            ("→".into(), t!("git-log-hint-file-list")),
+            ("Tab".into(), t!("git-log-hint-file-list")),
             ("Esc".into(), t!("git-log-hint-exit-compare")),
             (
                 t!("git-log-hint-click").into(),
@@ -457,7 +457,7 @@ pub(super) fn draw_details_footer(
         ]
     } else {
         vec![
-            ("→".into(), t!("git-log-hint-file-list")),
+            ("Tab".into(), t!("git-log-hint-file-list")),
             (
                 t!("git-log-hint-double-click").into(),
                 t!("git-log-hint-open-diff"),

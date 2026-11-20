@@ -248,6 +248,12 @@ pub enum Action {
     ChangesRollback,
     GitShowLog,
     GitGoToRevision,
+    /// 日志：编辑选中提交的说明。
+    GitRewordCommit,
+    /// 日志：转到选中提交的子提交。
+    GitGoToChildCommit,
+    /// 日志：转到选中提交的父提交（合并提交是第一个父提交）。
+    GitGoToParentCommit,
     /// 在只读标签中打开 Git 操作的输出。
     GitShowOutput,
     /// 克隆仓库。
@@ -268,8 +274,12 @@ pub enum Action {
     GitPull,
     /// 拉取当前分支的上游并变基。
     GitPullRebase,
+    /// 打开拉取对话框：选远程和分支拉取到当前分支。
+    GitPullFrom,
     /// 推送当前分支（没有上游时推上去并设为上游）。
     GitPush,
+    /// 打开推送对话框：选远程和目标分支推送。
+    GitPushTo,
     /// 和上游同步：先拉取再推送。
     GitSync,
     /// 储藏工作区里的更改（输入说明）。
@@ -573,6 +583,9 @@ impl Action {
             ChangesRollback => t!("cmd-changes-rollback"),
             GitShowLog => t!("cmd-git-show-log"),
             GitGoToRevision => t!("cmd-git-go-to-revision"),
+            GitRewordCommit => t!("cmd-git-reword-commit"),
+            GitGoToChildCommit => t!("cmd-git-go-to-child-commit"),
+            GitGoToParentCommit => t!("cmd-git-go-to-parent-commit"),
             GitShowOutput => t!("cmd-git-show-output"),
             GitClone => t!("cmd-git-clone"),
             GitInit => t!("cmd-git-init"),
@@ -584,7 +597,9 @@ impl Action {
             GitFetch => t!("cmd-git-fetch"),
             GitPull => t!("cmd-git-pull"),
             GitPullRebase => t!("cmd-git-pull-rebase"),
+            GitPullFrom => t!("cmd-git-pull-from"),
             GitPush => t!("cmd-git-push"),
+            GitPushTo => t!("cmd-git-push-to"),
             GitSync => t!("cmd-git-sync"),
             GitStash => t!("cmd-git-stash"),
             GitStageAll => t!("cmd-git-stage-all"),
@@ -813,6 +828,9 @@ impl Action {
             | ChangesRollback
             | GitShowLog
             | GitGoToRevision
+            | GitRewordCommit
+            | GitGoToChildCommit
+            | GitGoToParentCommit
             | GitShowOutput
             | GitClone
             | GitInit
@@ -824,7 +842,9 @@ impl Action {
             | GitFetch
             | GitPull
             | GitPullRebase
+            | GitPullFrom
             | GitPush
+            | GitPushTo
             | GitSync
             | GitStash
             | GitStageAll
@@ -1004,6 +1024,9 @@ impl Action {
             | Action::ChangesRollback
             | Action::GitShowLog
             | Action::GitGoToRevision
+            | Action::GitRewordCommit
+            | Action::GitGoToChildCommit
+            | Action::GitGoToParentCommit
             | Action::GitShowOutput
             | Action::GitClone
             | Action::GitInit
@@ -1015,7 +1038,9 @@ impl Action {
             | Action::GitFetch
             | Action::GitPull
             | Action::GitPullRebase
+            | Action::GitPullFrom
             | Action::GitPush
+            | Action::GitPushTo
             | Action::GitSync
             | Action::GitStash
             | Action::GitStageAll
@@ -1307,6 +1332,9 @@ pub const ACTIONS: &[Action] = {
         ChangesRollback,
         GitShowLog,
         GitGoToRevision,
+        GitRewordCommit,
+        GitGoToChildCommit,
+        GitGoToParentCommit,
         GitShowOutput,
         GitClone,
         GitInit,
@@ -1318,7 +1346,9 @@ pub const ACTIONS: &[Action] = {
         GitFetch,
         GitPull,
         GitPullRebase,
+        GitPullFrom,
         GitPush,
+        GitPushTo,
         GitSync,
         GitStash,
         GitStageAll,

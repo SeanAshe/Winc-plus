@@ -39,7 +39,9 @@ impl App {
         };
         let mut touched = Vec::new();
         let mut unresolved = 0;
-        for entry in (status.entries.iter_mut()).filter(|e| paths.contains(&e.path)) {
+        // 暂存整个目录、全部暂存时路径成千上万：按集合查找，不逐条比较。
+        let wanted: HashSet<&PathBuf> = paths.iter().collect();
+        for entry in (status.entries.iter_mut()).filter(|e| wanted.contains(&e.path)) {
             let pending = on && entry.unstaged.is_some();
             if pending && entry.conflicted() && status.unresolved.contains(&entry.path) {
                 unresolved += 1;

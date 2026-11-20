@@ -15,6 +15,7 @@ impl App {
                 | CommitTarget::StageFile(..)
                 | CommitTarget::Dir(_)
                 | CommitTarget::DirCheck(_)
+                | CommitTarget::DirStage(..)
                 | CommitTarget::Stash(_)
                 | CommitTarget::StashFile(_)
                 | CommitTarget::StashApply(_)
@@ -23,18 +24,6 @@ impl App {
         if indexed && self.git.commit.hits_generation != self.git.generation {
             self.request_redraw();
             return;
-        }
-        // 浏览历史提交的文件时只能展开、收起和查看文件，其余目标（勾选、回滚、储藏、提交等）
-        // 都会修改工作区，不处理。
-        if self.git.commit.browse {
-            match target {
-                CommitTarget::File(i) => self.browse_commit_file(i),
-                CommitTarget::Group(_) | CommitTarget::Dir(_) | CommitTarget::Sticky(..) => {}
-                _ => return,
-            }
-            if matches!(target, CommitTarget::File(_)) {
-                return;
-            }
         }
         match target {
             CommitTarget::Stashes
@@ -59,7 +48,8 @@ impl App {
             | CommitTarget::OpenFile(_)
             | CommitTarget::RevertFile(_)
             | CommitTarget::StageFile(..)
-            | CommitTarget::GroupStage(_) => self.press_commit_row(target),
+            | CommitTarget::GroupStage(_)
+            | CommitTarget::DirStage(..) => self.press_commit_row(target),
             CommitTarget::OtherRepository(_)
             | CommitTarget::OtherFile(..)
             | CommitTarget::OtherStagedFile(..) => self.press_other(target),
@@ -118,6 +108,7 @@ impl App {
             // 按住 ⌥ 时按钮写的是「提交并推送」（见 `App::commit_pushes`）。
             CommitTarget::Commit if self.commit_pushes() => self.confirm_commit_and_push(),
             CommitTarget::Commit => self.git_commit(),
+            CommitTarget::Amend if self.git.commit.into.is_some() => self.cancel_commit_into(),
             CommitTarget::Amend => self.toggle_amend(),
             CommitTarget::NextStep => self.git_sync(),
             CommitTarget::InitRepository => self.git_init(),
@@ -261,6 +252,19 @@ impl App {
                 if let Some(path) = self.commit_entry(i).map(|e| e.path.clone()) {
                     self.stage_paths(&[path], on);
                 }
+            }
+            CommitTarget::DirStage(row, on) => {
+                let rows = self.commit_rows();
+                let (Some(CommitRow::Dir { group, dir, .. }), Some(status)) =
+                    (rows.get(row), self.git.status.as_ref())
+                else {
+                    return;
+                };
+                let members = rows.dir(*group, dir).iter();
+                let paths: Vec<PathBuf> = (members.filter_map(|&m| status.entries.get(m)))
+                    .map(|e| e.path.clone())
+                    .collect();
+                self.stage_paths(&paths, on);
             }
             CommitTarget::GroupStage(group) => {
                 let Some(status) = self.git.status.as_ref() else {

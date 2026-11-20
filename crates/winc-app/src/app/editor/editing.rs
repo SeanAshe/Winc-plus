@@ -303,8 +303,8 @@ impl App {
         if self.hex_active() {
             return self.hex_parts().body;
         }
-        if self.editor.active().is_some_and(|d| d.diff.is_some()) {
-            let header = crate::app::diff::DIFF_HEADER;
+        if let Some(view) = self.editor.active().and_then(|d| d.diff.as_deref()) {
+            let header = crate::app::diff::diff_top(view);
             Rect::new(
                 editor.x,
                 editor.y + header,
