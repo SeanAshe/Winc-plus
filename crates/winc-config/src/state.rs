@@ -68,6 +68,11 @@ pub struct State {
     pub commit_all_repositories: Option<bool>,
     /// Git 日志左侧是否显示分支面板；`None`（没有选过）时显示。所有窗口共用，下次启动沿用。
     pub log_branches: Option<bool>,
+    /// Git 日志详情里改动的文件是否按目录分组；`None`（没有选过）时同提交视图（`commit_tree`）。
+    /// 所有窗口共用，下次启动沿用。
+    pub log_files_tree: Option<bool>,
+    /// 从 Git 日志打开的差异左侧文件栏是否按目录分组，规则同 `log_files_tree`。
+    pub diff_files_tree: Option<bool>,
     /// Git 日志列表右边显示的列（`author`、`date`、`hash`）；`None`（没有选过）时显示作者和
     /// 日期。所有窗口共用，下次启动沿用。
     pub log_columns: Option<Vec<String>>,
@@ -547,6 +552,8 @@ impl State {
             .to_owned();
         state.commit_all_repositories = root.get("commitAllRepositories").and_then(Json::as_bool);
         state.log_branches = root.get("logBranches").and_then(Json::as_bool);
+        state.log_files_tree = root.get("logFilesTree").and_then(Json::as_bool);
+        state.diff_files_tree = root.get("diffFilesTree").and_then(Json::as_bool);
         state.log_columns = (root.get("logColumns").and_then(Json::as_array)).map(|columns| {
             let names = columns.iter().filter_map(Json::as_str);
             names.map(str::to_owned).collect()
@@ -687,6 +694,12 @@ impl State {
         }
         if let Some(shown) = self.log_branches {
             fields.push(("logBranches", Json::Bool(shown)));
+        }
+        if let Some(tree) = self.log_files_tree {
+            fields.push(("logFilesTree", Json::Bool(tree)));
+        }
+        if let Some(tree) = self.diff_files_tree {
+            fields.push(("diffFilesTree", Json::Bool(tree)));
         }
         if let Some(columns) = &self.log_columns {
             let names = columns.iter().map(|c| Json::String(c.clone()));

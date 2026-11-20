@@ -140,6 +140,7 @@ impl App {
             | MenuCommand::GitPush
             | MenuCommand::GitPull
             | MenuCommand::GitPullRebase
+            | MenuCommand::GitPullMerge
             | MenuCommand::GitContinue
             | MenuCommand::GitAbort => self.git_label(command),
             // 编辑器字体的「默认」是 Maple Mono NF CN；界面字体仍是系统默认。
@@ -168,7 +169,7 @@ impl App {
                 Some(branch) => MenuLabel::plain(&t!("menu-log-checkout-branch", branch = branch)),
                 None => MenuLabel::plain(command.label()),
             },
-            // 有能签出的本地分支指着它时签出那个分支，否则游离地签出提交；建在哪儿写在下面。
+            // 有能签出的本地分支指着它时签出那个分支，否则游离地签出提交；建在哪儿写在悬停提示里。
             MenuCommand::LogNewWorktree => {
                 let branch = self.log_checkout_branch(oid);
                 let branch = branch.and_then(|b| self.log_worktree_branch(&b));
@@ -181,8 +182,8 @@ impl App {
                 };
                 MenuLabel {
                     title,
-                    subtitle: Some(self.worktree_dir_hint(&dir)),
-                    tooltip: None,
+                    subtitle: None,
+                    tooltip: Some(self.worktree_dir_hint(&dir)),
                 }
             }
             _ => {
@@ -254,19 +255,34 @@ impl App {
             }
             (MenuCommand::GitPush, Some(up)) => Some(t!("menu-git-push-up-to-date", upstream = up)),
             (MenuCommand::GitPush, None) => Some(t!("menu-git-push-set-upstream", branch = here)),
-            (MenuCommand::GitPull, Some(up)) if behind > 0 => {
-                Some(t!("menu-git-pull-behind", count = behind, upstream = up))
+            // 平时的拉取写明这次是合并还是变基（设置 `git.pull`）。
+            (MenuCommand::GitPull, Some(up)) => {
+                let detail = match behind {
+                    0 => t!("menu-git-pull-from", upstream = up),
+                    _ => t!("menu-git-pull-behind", count = behind, upstream = up),
+                };
+                let mode = match self.pulls_with_rebase() {
+                    true => t!("menu-git-pull-mode-rebase"),
+                    false => t!("menu-git-pull-mode-merge"),
+                };
+                Some(t!("menu-git-pull-mode", detail = detail, mode = mode))
             }
-            (MenuCommand::GitPull, Some(up)) => Some(t!("menu-git-pull-from", upstream = up)),
-            (MenuCommand::GitPull | MenuCommand::GitPullRebase, None) => {
-                Some(t!("menu-git-pull-no-upstream").to_owned())
-            }
+            (
+                MenuCommand::GitPull | MenuCommand::GitPullRebase | MenuCommand::GitPullMerge,
+                None,
+            ) => Some(t!("menu-git-pull-no-upstream").to_owned()),
+            _ => None,
+        };
+        // 新工作树建在哪儿写在悬停提示里，与日志菜单相同。
+        let tooltip = match command {
+            MenuCommand::GitBranch(BranchOp::NewWorktree, i) => (self.git.branches.get(i))
+                .map(|b| self.worktree_dir_hint(crate::app::git::branch::local_name(b))),
             _ => None,
         };
         MenuLabel {
             title,
             subtitle,
-            tooltip: None,
+            tooltip,
         }
     }
 

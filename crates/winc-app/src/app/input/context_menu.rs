@@ -234,6 +234,9 @@ pub enum MenuCommand {
     /// 设置中「打开工作树」菜单的一项，参数为
     /// [`WorktreeOpen::ALL`](winc_config::WorktreeOpen::ALL) 中的序号（从 0 起）。
     OpenWorktree(usize),
+    /// 设置中「拉取方式」菜单的一项，参数为 [`PullMode::ALL`](winc_config::PullMode::ALL) 中的
+    /// 序号（从 0 起）。
+    PullMode(usize),
     /// 设置中「拖入目录」菜单的一项，参数为
     /// [`FolderDrop::ALL`](winc_config::FolderDrop::ALL) 中的序号（从 0 起）。
     DropFolder(usize),
@@ -314,6 +317,8 @@ pub enum MenuCommand {
     GitPull,
     /// 拉取并把本地提交变基到上游（`pull --rebase`）。
     GitPullRebase,
+    /// 拉取并合并（`git pull --no-rebase`）：拉取方式设为变基时按住 ⌥ 换出。
+    GitPullMerge,
     /// 添加远程仓库。
     GitAddRemote,
     /// 对第几个远程仓库做的事。
@@ -387,6 +392,22 @@ pub enum MenuCommand {
     LogNewTag,
     /// 从这个提交开始交互式变基。
     LogInteractiveRebase,
+    /// 日志里的提交：编辑提交说明（`HEAD` 修改上一次提交，更早的提交变基）。
+    LogReword,
+    /// 日志里的提交：把要提交的更改修正到它（`fixup!`），只留它原来的说明。
+    LogFixup,
+    /// 日志里的提交：把要提交的更改压缩到它（`squash!`），两段说明都留下。
+    LogSquashInto,
+    /// 日志里的提交：删除它，之后的提交重新应用（先确认）。
+    LogDropCommit,
+    /// 日志里 `HEAD` 指向的提交：撤销提交，更改留在暂存区（先确认）。
+    LogUndoCommit,
+    /// 日志里的提交：把它和之前的提交推送到远程（推送对话框）。
+    LogPushUpTo,
+    /// 日志里的提交：转到它的子提交。
+    LogGoToChild,
+    /// 日志里的提交：转到它的父提交。
+    LogGoToParent,
     /// 交互式变基列表一行的处理方式。
     RebaseAction(winc_editor::git::RebaseAction),
     /// 对提交上第几个标签做的事。
@@ -599,6 +620,7 @@ impl MenuCommand {
             MenuCommand::GitPull => t!("menu-git-pull"),
             MenuCommand::GitPush => t!("menu-git-push"),
             MenuCommand::GitPullRebase => t!("menu-git-pull-rebase"),
+            MenuCommand::GitPullMerge => t!("menu-git-pull-merge"),
             MenuCommand::GitAddRemote => t!("git-remote-add"),
             MenuCommand::GitRemote(op, _) => op.label(),
             MenuCommand::PickerTag(None, _) => t!("git-branch-checkout"),
@@ -613,7 +635,7 @@ impl MenuCommand {
             MenuCommand::GitRevertHunk => t!("menu-git-roll-back-change"),
             MenuCommand::FileHistory => t!("menu-git-file-history"),
             MenuCommand::LogCheckout => t!("menu-log-checkout"),
-            MenuCommand::LogNewBranch => t!("git-branch-new-from"),
+            MenuCommand::LogNewBranch => t!("menu-log-new-branch"),
             MenuCommand::LogNewWorktree => t!("menu-log-new-worktree"),
             MenuCommand::LogCherryPick => t!("menu-log-cherry-pick"),
             MenuCommand::LogRevert => t!("menu-log-revert"),
@@ -623,6 +645,14 @@ impl MenuCommand {
             MenuCommand::LogNewTag => t!("menu-log-new-tag"),
             MenuCommand::LogTag(op, _) => op.label(),
             MenuCommand::LogInteractiveRebase => t!("menu-log-interactive-rebase"),
+            MenuCommand::LogReword => t!("menu-log-reword"),
+            MenuCommand::LogFixup => t!("menu-log-fixup"),
+            MenuCommand::LogSquashInto => t!("menu-log-squash-into"),
+            MenuCommand::LogDropCommit => t!("menu-log-drop-commit"),
+            MenuCommand::LogUndoCommit => t!("menu-log-undo-commit"),
+            MenuCommand::LogPushUpTo => t!("menu-log-push-up-to"),
+            MenuCommand::LogGoToChild => t!("menu-log-go-to-child"),
+            MenuCommand::LogGoToParent => t!("menu-log-go-to-parent"),
             MenuCommand::RebaseAction(action) => crate::app::git::rebase::action_label(action),
             MenuCommand::LogCopyOid => t!("menu-log-copy-oid"),
             MenuCommand::LogCopyShortOid => t!("menu-log-copy-short-oid"),
@@ -719,6 +749,9 @@ impl MenuCommand {
             MenuCommand::OpenWorktree(i) => winc_config::WorktreeOpen::ALL
                 .get(i)
                 .map_or("", |&choice| crate::layout::open_worktree_label(choice)),
+            MenuCommand::PullMode(i) => winc_config::PullMode::ALL
+                .get(i)
+                .map_or("", |&choice| crate::layout::pull_mode_label(choice)),
             MenuCommand::DropFolder(i) => winc_config::FolderDrop::ALL
                 .get(i)
                 .map_or("", |&choice| crate::layout::drop_folder_label(choice)),
@@ -806,6 +839,12 @@ impl MenuCommand {
     pub fn action(self) -> Option<Action> {
         Some(match self {
             MenuCommand::GitAction(action) => action,
+            // 日志中 ⌘C 复制选中提交的提交号；右键时选中的就是这个提交。
+            MenuCommand::LogCopyOid => Action::Copy,
+            MenuCommand::LogGoTo => Action::GitGoToRevision,
+            MenuCommand::LogReword => Action::GitRewordCommit,
+            MenuCommand::LogGoToChild => Action::GitGoToChildCommit,
+            MenuCommand::LogGoToParent => Action::GitGoToParentCommit,
             MenuCommand::Reveal => Action::RevealInFinder,
             MenuCommand::OpenInTerminal => Action::OpenInTerminal,
             MenuCommand::FindInFolder => Action::FindInFolder,
@@ -912,6 +951,8 @@ pub enum MenuTarget {
     VimClipboard,
     /// 设置的 Git 页中的「打开工作树」。
     OpenWorktree,
+    /// 设置的 Git 页中的「拉取方式」。
+    PullMode,
     /// 设置的编辑器页中的「拖入目录」。
     DropFolder,
     /// 设置的编辑器页中的「自动保存」。

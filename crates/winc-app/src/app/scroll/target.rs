@@ -24,8 +24,6 @@ pub(crate) enum ScrollTarget {
     Picker,
     /// 编辑区的标签栏。
     Tabs,
-    /// 日志中历史差异的文件列表（借用提交视图的列表）。
-    LogList,
     /// 提交视图的提交信息框。
     CommitMessage,
     /// 提交视图的更改列表。
@@ -40,6 +38,8 @@ pub(crate) enum ScrollTarget {
     LogDetails,
     /// 日志左侧的分支面板。
     LogBranches,
+    /// 从日志打开的差异左侧的文件栏。
+    LogFiles,
     /// 终端面板的标签条。
     TerminalStrip,
     /// 终端的回滚缓冲，或终端中接收滚轮的程序。
@@ -67,12 +67,12 @@ impl ScrollTarget {
             self,
             Self::Picker
                 | Self::Tabs
-                | Self::LogList
                 | Self::Commit
                 | Self::Outline
                 | Self::Results
                 | Self::Tree
                 | Self::TerminalStrip
+                | Self::LogFiles
         )
     }
 }
@@ -115,8 +115,6 @@ impl App {
             ScrollTarget::Picker
         } else if l.tabs.contains(x, y) {
             ScrollTarget::Tabs
-        } else if self.log_diff_tree().is_some() && in_list(self) {
-            ScrollTarget::LogList
         } else if self.commit_shown() && self.commit_parts().message.contains(x, y) {
             ScrollTarget::CommitMessage
         } else if self.commit_shown() && in_list(self) {
@@ -149,6 +147,8 @@ impl App {
             ScrollTarget::Picture
         } else if self.table_at(x, y) {
             ScrollTarget::Table
+        } else if self.in_log_files(x, y) {
+            ScrollTarget::LogFiles
         } else if l.editor.contains(x, y)
             && let Some(doc) = self.editor.active()
         {
@@ -198,9 +198,6 @@ impl App {
             }
             ScrollTarget::Picker if self.overlays.picker.places.is_some() => self.step_places(dy),
             ScrollTarget::Tabs => self.scroll_pane_by(target, along),
-            ScrollTarget::LogList => {
-                self.with_log_list(|app| app.scroll_pane_by(ScrollTarget::Commit, dy));
-            }
             ScrollTarget::CommitMessage => {
                 // 上限在绘制时按文字的行数收紧。
                 let view = &mut self.git.commit.message.view;
@@ -241,7 +238,8 @@ impl App {
             | ScrollTarget::Outline
             | ScrollTarget::Results
             | ScrollTarget::LogDetails
-            | ScrollTarget::LogBranches => self.scroll_pane_by(target, dy),
+            | ScrollTarget::LogBranches
+            | ScrollTarget::LogFiles => self.scroll_pane_by(target, dy),
         }
         if target.moves_rows() {
             self.set_hover(self.hover_at(self.pointer.mouse.0, self.pointer.mouse.1));
@@ -283,6 +281,7 @@ impl App {
                 view.map(|view| view.details_scroll)
             }
             ScrollTarget::LogBranches => Some(self.git.log.branches_scroll),
+            ScrollTarget::LogFiles => Some(self.git.log.files.scroll),
             ScrollTarget::Markdown => self
                 .preview
                 .markdown
@@ -310,6 +309,7 @@ impl App {
             }
             ScrollTarget::LogDetails => self.git.log.details_max,
             ScrollTarget::LogBranches => self.git.log.branches_max,
+            ScrollTarget::LogFiles => self.git.log.files.max,
             ScrollTarget::Markdown => self.preview.markdown.max_scroll(),
             ScrollTarget::Pdf => self.preview.pdf.max_scroll(),
             _ => 0.0,
@@ -347,6 +347,7 @@ impl App {
                 }
             }
             ScrollTarget::LogBranches => self.git.log.branches_scroll = scroll,
+            ScrollTarget::LogFiles => self.git.log.files.scroll = scroll,
             ScrollTarget::Markdown => self.preview.markdown.set_scroll(scroll),
             ScrollTarget::Pdf => self.preview.pdf.scroll = scroll,
             _ => {}

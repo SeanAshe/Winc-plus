@@ -6,11 +6,12 @@ use super::*;
 pub(crate) use crate::app::git::branch::picker::BranchRow;
 use crate::app::git::branch::picker::{BranchList, branch_rows, locals_key, without_recent};
 
-/// 分支面板一组或一个目录展开、收起中的一帧（与提交视图里组、目录的动画相同）。
+/// 日志里一个列表（分支面板、改动的文件）展开、收起一行时的一帧（与提交视图里组、目录的动画
+/// 相同）。
 #[derive(Debug, Clone)]
-pub(crate) struct PanelFold {
+pub(crate) struct PanelFold<R = Vec<BranchRow>> {
     /// 动画期间画的各行：展开时是展开以后的，收起时是收起之前的。
-    pub rows: Vec<BranchRow>,
+    pub rows: R,
     /// 展开、收起的那一行在 `rows` 里的下标。
     pub parent: usize,
     /// 露出或收回的行数。
@@ -21,7 +22,7 @@ pub(crate) struct PanelFold {
     pub(in crate::app) clock: crate::app::Clock,
 }
 
-impl PanelFold {
+impl<R> PanelFold<R> {
     /// 已露出的比例：0 是完全收起，1 是完全展开。
     pub fn reveal(&self) -> f32 {
         let eased = self.clock.progress();

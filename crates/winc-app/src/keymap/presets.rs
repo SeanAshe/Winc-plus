@@ -452,6 +452,9 @@ pub(super) const IDEA: &[PresetRow] = &[
     row(GitShowChanges, Global, &["cmd+0"], &["alt+0"]),
     row(ShowCommit, Global, &["cmd+k"], &["ctrl+k"]),
     row(GitShowLog, Global, &["cmd+9"], &["alt+9"]),
+    row(GitRewordCommit, Editor, &["f2"], &["f2"]),
+    row(GitGoToChildCommit, Editor, &["left"], &["left"]),
+    row(GitGoToParentCommit, Editor, &["right"], &["right"]),
     row(GitPull, Global, &["cmd+t"], &["ctrl+t"]),
     row(GitPush, Global, &["shift+cmd+k"], &["ctrl+shift+k"]),
     row(ToggleTerminal, Everywhere, &["alt+f12"], &["alt+f12"]),
@@ -742,6 +745,11 @@ pub(super) const VSCODE: &[PresetRow] = &[
     row(FocusSidebar, Global, &["cmd+0"], &["ctrl+0"]),
     row(ShowFiles, Global, &["shift+cmd+e"], &["ctrl+shift+e"]),
     row(ShowCommit, Global, &["ctrl+shift+g"], &["ctrl+shift+g"]),
+    // VS Code 没有这个命令；它的 F2 是重命名，编辑提交说明与之相当。
+    row(GitRewordCommit, Editor, &["f2"], &["f2"]),
+    // VS Code 没有提交日志，转到子提交、父提交与 IDEA 相同。
+    row(GitGoToChildCommit, Editor, &["left"], &["left"]),
+    row(GitGoToParentCommit, Editor, &["right"], &["right"]),
     row(ToggleTerminal, Everywhere, &["ctrl+`"], &["ctrl+`"]),
     row(ToggleTerminalPanel, Global, &["cmd+j"], &["ctrl+j"]),
     row(StopConfiguration, Global, &["shift+f5"], &["shift+f5"]),

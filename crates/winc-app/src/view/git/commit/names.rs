@@ -50,7 +50,7 @@ pub(super) fn dir_label_width(app: &App, frame: &mut Frame<'_>, label: &str) -> 
 
 /// 目录行名字的各部分：并起来的几级目录各是一部分；放不下 `room`（逻辑像素）时折叠中间的各级
 /// （见 [`fold_chain`]），折掉的几级换成一个 `CHAIN_FOLD`，目录名不会被截成半个。
-pub(super) fn dir_parts<'a>(
+pub(in crate::view::git) fn dir_parts<'a>(
     app: &App,
     frame: &mut Frame<'_>,
     label: &'a str,
@@ -118,7 +118,7 @@ pub(super) fn draw_dir_parts<S: AsRef<str>>(
 /// 和文件树一样，文件名不截短：放不下 `room`（逻辑像素）时画到 `room` 为止，在截断处淡出。目录
 /// 只用文件名剩下的地方，从前面按级去掉，留下离文件最近的几级（`…/app/git`）：分辨同名文件靠的
 /// 就是它们。
-pub(super) fn file_parts<'a>(
+pub(in crate::view::git) fn file_parts<'a>(
     app: &App,
     frame: &mut Frame<'_>,
     (name, dir): (&'a str, Option<&'a str>),
@@ -190,7 +190,7 @@ pub(super) fn draw_file_parts<S: AsRef<str>>(
 }
 
 /// 改动行名字各部分 `parts` 画出来的宽度（逻辑像素）；`folder` 为真时是目录行。
-pub(super) fn parts_width<S: AsRef<str>>(
+pub(in crate::view::git) fn parts_width<S: AsRef<str>>(
     app: &App,
     frame: &mut Frame<'_>,
     parts: &[S],
@@ -231,7 +231,7 @@ pub(super) fn crossfade(view: &LabelView) -> (f32, f32) {
 
 /// 画改动行名字过渡中的一帧：旧内容淡出、新内容 `parts` 同时淡入（见 [`crossfade`]），相同的
 /// 前缀只由新内容画一次。返回新内容末尾的 x 坐标（逻辑像素）。
-pub(super) fn draw_name<S: AsRef<str>>(
+pub(in crate::view::git) fn draw_name<S: AsRef<str>>(
     app: &App,
     frame: &mut Frame<'_>,
     (x, band, folder, color): (f32, Rect, bool, Color),

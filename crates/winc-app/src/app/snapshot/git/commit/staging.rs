@@ -590,3 +590,69 @@ fn the_staging_area_setting_and_the_menu_item_are_one_switch() {
     assert_eq!(app.commit_scope(), Some(CommitScope::Staged(1)));
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// 暂存区视图的树形显示：目录行悬停时行尾是加号（「已暂存的更改」一组里是减号），暂存或取消
+/// 暂存这个目录下的全部文件。
+#[test]
+fn folders_stage_and_unstage_everything_under_them() {
+    let dir = search_folder("git-staging-folder");
+    if !make_repo(&dir) {
+        return;
+    }
+    let mut app = app_with(&dir, false);
+    app.git.commit.set_staging(true);
+    app.git.commit.set_flat(false);
+    app.settings_toggle(Setting::GitModule);
+    if git_unusable(&app) {
+        return;
+    }
+    app.run_action(Action::ShowCommit);
+    paint(&mut app);
+    let root = app.git.root.clone().unwrap();
+    let (main, new) = (root.join("src/main.rs"), root.join("src/new.rs"));
+    let src = |app: &App, group| {
+        (app.commit_rows().iter())
+            .position(|r| matches!(r, CommitRow::Dir { group: g, dir, .. } if *g == group && dir == Path::new("src")))
+            .unwrap()
+    };
+    let hit = |app: &App, t: CommitTarget| {
+        let found = app.hits.commit.iter().find(|(_, h)| *h == t);
+        found.map(|(rect, _)| *rect)
+    };
+    let press = |app: &mut App, row: usize, on: bool| {
+        let band = hit(app, CommitTarget::Dir(row)).unwrap();
+        app.on_mouse_move(band.x + 40.0, band.y + 4.0);
+        paint(app);
+        assert!(hit(app, CommitTarget::DirStage(row, !on)).is_none());
+        let button = hit(app, CommitTarget::DirStage(row, on)).unwrap();
+        click(app, (button.x + 4.0, button.y + 4.0));
+        paint(app);
+    };
+
+    // 「更改」里的 `src`：加号暂存改过的 `main.rs`。
+    let row = src(&app, CommitGroup::Changes);
+    // 不悬停时没有按钮。
+    assert!(hit(&app, CommitTarget::DirStage(row, true)).is_none());
+    let band = hit(&app, CommitTarget::Dir(row)).unwrap();
+    app.on_mouse_move(band.x + 40.0, band.y + 4.0);
+    paint(&mut app);
+    shoot(&mut app, "git-staging-folder");
+    press(&mut app, row, true);
+    assert_eq!(file_state(&app, &main), Some(true));
+    // 「未跟踪的文件」里的 `src`：加号暂存新文件。
+    let row = src(&app, CommitGroup::Untracked);
+    press(&mut app, row, true);
+    assert_eq!(file_state(&app, &new), Some(true));
+    // 「已暂存的更改」里的 `src`：减号把两个都取消暂存。
+    let row = src(&app, CommitGroup::Staged);
+    press(&mut app, row, false);
+    assert_eq!(file_state(&app, &main), None);
+    let status = app.git.status.clone().unwrap();
+    assert!(
+        status
+            .entries
+            .iter()
+            .any(|e| e.path == new && e.untracked())
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

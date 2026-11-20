@@ -242,6 +242,8 @@ struct Narrowing {
     needle: Vec<char>,
     /// 上一次命中的文件下标，按下标顺序。
     hits: Vec<u32>,
+    /// 包括本次查询匹配的索引外历史文件，用于面板计数。
+    total: usize,
 }
 
 /// 后台每完成一项工作时调用的回调，用来唤醒界面线程。
@@ -263,6 +265,8 @@ pub struct FileIndex {
     extra: Arc<[(String, PathBuf)]>,
     /// 后台更新时先取得可变引用再修改，改好后整张表替换。
     files: Arc<Files>,
+    /// 本窗口打开过、属于工作区但未被遍历收录的相对路径。排在索引文件的下标之后。
+    opened: Vec<String>,
     narrowing: Narrowing,
     /// 后台线程检查该标志，决定是否提前结束（换了工作区、关闭窗口、重新遍历时置位）。
     cancel: Option<Arc<AtomicBool>>,
@@ -384,7 +388,7 @@ impl FileIndex {
     /// `None`。
     pub fn matches(&self) -> Option<usize> {
         let narrowing = &self.narrowing;
-        (!narrowing.needle.is_empty()).then_some(narrowing.hits.len())
+        (!narrowing.needle.is_empty()).then_some(narrowing.total)
     }
 
     /// 文件表是否为空。
@@ -402,6 +406,7 @@ impl FileIndex {
         let changed = match receiver.try_recv() {
             Ok(Some(files)) => {
                 self.files = Arc::new(files);
+                self.opened.clear();
                 self.narrowing = Narrowing::default();
                 true
             }
@@ -498,12 +503,42 @@ impl FileIndex {
     ///
     /// 查询为空时按路径顺序返回前 [`MAX_RESULTS`] 条：刚打开面板、还没输入时显示整齐的文件列表。
     pub fn search(&mut self, query: &str) -> Vec<usize> {
+        // 结果里没有访问过的文件，下标、文件数也不再算上一次快速打开列入的那些。
+        self.opened.clear();
+        self.search_files(query, self.len())
+    }
+
+    /// 快速打开也匹配当前窗口访问过的工作区文件。只合并路径，不遍历被忽略的目录。
+    pub fn search_with_opened<'a>(
+        &mut self,
+        query: &str,
+        opened: impl Iterator<Item = &'a Path>,
+    ) -> Vec<usize> {
+        let mut missing = std::mem::take(&mut self.opened);
+        missing.clear();
+        missing.extend(
+            opened
+                .filter_map(|path| self.relative(path))
+                .filter(|path| self.files.position(path).is_none()),
+        );
+        missing.sort_unstable();
+        missing.dedup();
+        self.opened = missing;
+        self.search_files(query, self.quick_open_len())
+    }
+
+    /// 快速打开可匹配的文件总数，包括索引外的已访问文件。
+    pub fn quick_open_len(&self) -> usize {
+        self.len() + self.opened.len()
+    }
+
+    fn search_files(&mut self, query: &str, count: usize) -> Vec<usize> {
         let query = normalize(query);
 
         if query.is_empty() {
             self.narrowing = Narrowing::default();
             // 只取前 `MAX_RESULTS` 条：文件表最多有 `MAX_FILES` 个文件，不必先全部列出再截取。
-            return (0..self.files.len().min(MAX_RESULTS)).collect();
+            return (0..count.min(MAX_RESULTS)).collect();
         }
 
         let needle: Vec<char> = query.chars().collect();
@@ -511,14 +546,25 @@ impl FileIndex {
         let candidates = (!narrowing.needle.is_empty() && needle.starts_with(&narrowing.needle))
             .then_some(narrowing.hits.as_slice());
         let mut scored = score_all(&self.files, &needle, candidates);
+        // 缩小搜索范围的缓存只包含后台文件表的下标；窗口历史可能在两次查询间改变。
+        let hits = scored.iter().map(|&(_, i)| i).collect();
+        let mut scratch = Scratch::default();
+        for index in self.len()..count {
+            if let Some(points) = self
+                .file(index)
+                .and_then(|file| score(&needle, file, &mut scratch))
+            {
+                scored.push((points, index as u32));
+            }
+        }
         self.narrowing = Narrowing {
-            hits: scored.iter().map(|&(_, i)| i).collect(),
+            hits,
             needle,
+            total: scored.len(),
         };
 
         // 分数高的在前；同分时路径短的在前，仍相同时按路径字典序，使结果稳定。
-        let files = &self.files;
-        let path = |i: u32| files.get(i as usize).map_or("", |f| f.path);
+        let path = |i: u32| self.file(i as usize).map_or("", |f| f.path);
         let order = |a: &(u32, u32), b: &(u32, u32)| {
             b.0.cmp(&a.0)
                 .then_with(|| path(a.1).len().cmp(&path(b.1).len()))
@@ -539,35 +585,57 @@ impl FileIndex {
     /// 面板据此标出命中的字符；不命中或下标越界时返回空 `Vec`。
     pub fn matched(&self, query: &str, index: usize) -> Vec<usize> {
         let needle: Vec<char> = normalize(query).chars().collect();
-        self.files
-            .get(index)
+        self.file(index)
             .and_then(|file| matched(&needle, file))
             .unwrap_or_default()
     }
 
-    /// 返回绝对路径 `path` 在文件表中的下标；不在打开的目录里或不在表中时返回 `None`。
-    pub fn position_of(&self, path: &Path) -> Option<usize> {
+    /// 返回绝对路径在工作区文件表中的显示路径，附加目录带有各自的前缀。
+    fn relative(&self, path: &Path) -> Option<String> {
         let inside = |(label, folder): &(String, PathBuf)| {
             let relative = relative_path(path.strip_prefix(folder).ok()?)?;
             Some(format!("{label}/{relative}"))
         };
-        let relative = match self.extra.iter().find_map(inside) {
-            Some(relative) => relative,
-            None => relative_path(path.strip_prefix(self.root.as_ref()?).ok()?)?,
-        };
-        self.files.position(&relative)
+        self.extra
+            .iter()
+            .find_map(inside)
+            .or_else(|| relative_path(path.strip_prefix(self.root.as_ref()?).ok()?))
     }
 
-    /// 返回文件表中第 `index` 个文件（[`FileIndex::search`] 返回的就是这种下标）；越界时
-    /// 返回 `None`。
+    /// 绝对路径 `path` 是否在后台文件表中：不在工作区里时为 `None`，在工作区里而未收录（被忽略、
+    /// 刚删除）时为 `Some(false)`。
+    pub fn indexed(&self, path: &Path) -> Option<bool> {
+        let relative = self.relative(path)?;
+        Some(self.files.position(&relative).is_some())
+    }
+
+    /// 返回工作区文件在快速打开结果中使用的下标。
+    pub fn position_of(&self, path: &Path) -> Option<usize> {
+        let relative = self.relative(path)?;
+        self.files.position(&relative).or_else(|| {
+            self.opened
+                .binary_search(&relative)
+                .ok()
+                .map(|i| self.len() + i)
+        })
+    }
+
+    /// 按查询结果的下标取文件；索引外的历史文件排在工作区文件表之后。
     pub fn file(&self, index: usize) -> Option<IndexedFile<'_>> {
-        self.files.get(index)
+        if index < self.len() {
+            return self.files.get(index);
+        }
+        let path = self.opened.get(index - self.len())?.as_str();
+        Some(IndexedFile {
+            path,
+            name: path.rsplit('/').next()?,
+        })
     }
 
     /// 返回文件表中第 `index` 个文件的绝对路径；越界或没有根目录时返回 `None`。
     pub fn absolute(&self, index: usize) -> Option<PathBuf> {
         let root = self.root.as_ref()?;
-        let file = self.files.get(index)?;
+        let file = self.file(index)?;
         let native = |path: &str| path.replace('/', std::path::MAIN_SEPARATOR_STR);
         let inside = |(label, folder): &(String, PathBuf)| {
             let rest = file.path.strip_prefix(label.as_str())?.strip_prefix('/')?;

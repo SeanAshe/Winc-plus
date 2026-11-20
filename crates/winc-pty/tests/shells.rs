@@ -60,11 +60,30 @@ fn find(shell: &str) -> Option<String> {
         .map(|path| path.to_string_lossy().into_owned())
 }
 
+/// 返回机器上装有的 UTF-8 区域设置：优先 `en_US.UTF-8`，其次 `C.UTF-8`。
+fn utf8_locale() -> &'static str {
+    static LOCALE: std::sync::OnceLock<&str> = std::sync::OnceLock::new();
+    LOCALE.get_or_init(|| {
+        let listed = std::process::Command::new("locale")
+            .arg("-a")
+            .output()
+            .map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+            .unwrap_or_default();
+        // `locale -a` 在 Linux 上把 `UTF-8` 写成 `utf8`。
+        let key = |name: &str| name.to_ascii_lowercase().replace('-', "");
+        let installed = |name: &str| listed.lines().any(|line| key(line) == key(name));
+        ["en_US.UTF-8", "C.UTF-8"]
+            .into_iter()
+            .find(|name| installed(name))
+            .unwrap_or("en_US.UTF-8")
+    })
+}
+
 fn env(home: &Path, extra: &[(&str, &str)]) -> Vec<(Vec<u8>, Vec<u8>)> {
     let mut env = vec![
         (b"HOME".to_vec(), home.to_str().unwrap().as_bytes().to_vec()),
         (b"PATH".to_vec(), b"/usr/bin:/bin:/usr/sbin:/sbin".to_vec()),
-        (b"LANG".to_vec(), b"en_US.UTF-8".to_vec()),
+        (b"LANG".to_vec(), utf8_locale().as_bytes().to_vec()),
         (b"BASH_SILENCE_DEPRECATION_WARNING".to_vec(), b"1".to_vec()),
         // Debian 与 Ubuntu 的 `/etc/zsh/zshrc` 会运行 `compinit`；目录权限不符合它的要求时
         // 会停下来提问，测试等不到提示符。这一步与被测行为无关，跳过。

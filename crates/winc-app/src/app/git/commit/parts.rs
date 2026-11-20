@@ -20,29 +20,6 @@ impl App {
             (tool(1), CommitTarget::Refresh),
             (tool(2), CommitTarget::More),
         ];
-        // 浏览历史提交的文件时只有标题行和列表：列表从标题行下面一直到视图底部。
-        if self.shown_commit_list().browse {
-            let list_y = header.bottom() + SIDEBAR_LIST_GAP;
-            let list = Rect::new(panel.x, list_y, panel.w, (panel.bottom() - list_y).max(0.0));
-            return CommitParts {
-                header,
-                tools,
-                location: None,
-                branch: Rect::new(panel.x, header.bottom(), panel.w, 0.0),
-                banner: None,
-                card: None,
-                message: Rect::default(),
-                message_settled: Rect::default(),
-                amend: None,
-                commit: Rect::default(),
-                commit_menu: Rect::default(),
-                push: None,
-                undo: None,
-                stashes: None,
-                worktrees: None,
-                list,
-            };
-        }
         let inner_x = panel.x + MARGIN;
         let inner_w = (panel.w - 2.0 * MARGIN).max(0.0);
 
@@ -142,8 +119,8 @@ impl App {
             .commit
             .message_motion
             .map_or(settled_h, |(from, clock)| clock.between(from, settled_h));
-        // 「修改上次提交」单独占提交信息上方的一行，始终可见。
-        let amendable = self.commit_amendable();
+        // 「修改上次提交」（修正、压缩到历史提交时是那一项）单独占提交信息上方的一行，始终可见。
+        let amendable = self.commit_amendable() || self.git.commit.into.is_some();
         let top_row = if amendable { AMEND_TOP + AMEND_H } else { 0.0 };
         let card_h = top_row + message_h + FOOTER_GAP + FOOTER_H + CARD_INSET;
         let sunk = (1.0 - share) * (card_h + MARGIN);
@@ -190,10 +167,11 @@ impl App {
     }
 
     /// 这时是否把「提交并推送…」排在提交按钮旁边：有文字宽度可用，没有进行中的合并、变基，
-    /// 也没有在修改上一次提交（这两种情况推送没有意义或需要强制推送）。
+    /// 也没有在修改上一次提交或并入历史提交（这些情况推送没有意义或需要强制推送）。
     fn commit_push_beside(&self) -> bool {
         self.git.commit.labels.push > 0.0
             && !self.git.commit.amend
+            && self.git.commit.into.is_none()
             && (self.git.status.as_ref()).is_some_and(|s| s.operation.is_none())
     }
 }

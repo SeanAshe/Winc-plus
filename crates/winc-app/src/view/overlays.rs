@@ -249,10 +249,10 @@ pub(super) fn draw_goto(app: &mut App, frame: &mut Frame<'_>) {
                 t!("workspace-stash-placeholder"),
                 t!("workspace-stash-hint").to_owned(),
             ),
-            crate::app::PromptKind::RenameBranch { old } => (
+            crate::app::PromptKind::RenameBranch { .. } => (
                 t!("workspace-rename-branch-title"),
                 t!("workspace-rename-branch-placeholder"),
-                t!("workspace-rename-branch-hint", name = old.as_str()),
+                t!("workspace-rename-branch-hint").to_owned(),
             ),
             crate::app::PromptKind::NewTag { at } => (
                 t!("workspace-tag-title"),
@@ -362,7 +362,7 @@ pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
             )
         } else {
             // 有查询时写成「命中数 / 总数」，否则只显示总数，无法看出筛选后的数量。
-            let total = app_mut.overlays.picker.index.len();
+            let total = app_mut.overlays.picker.index.quick_open_len();
             match app_mut.overlays.picker.index.matches() {
                 Some(n) => t!("workspace-picker-files-matched", matched = n, total = total),
                 None => t!("workspace-picker-files", count = total),
@@ -491,7 +491,7 @@ pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
             });
         let message = match goto {
             Some(goto) if app.editor.active.is_some() => goto,
-            _ if app.overlays.picker.index.is_empty() => {
+            _ if app.overlays.picker.index.quick_open_len() == 0 => {
                 t!("workspace-picker-folder-empty").to_owned()
             }
             _ => t!("workspace-picker-no-matching-files").to_owned(),

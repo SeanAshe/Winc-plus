@@ -262,7 +262,8 @@ impl App {
     /// 拖选到差异的上下边缘之外时滚动一行；返回限制在显示行范围内的纵坐标。
     fn diff_drag_scroll(&mut self, y: f32) -> f32 {
         let editor = self.layout.editor;
-        let top = editor.y + DIFF_HEADER;
+        let view = self.editor.active().and_then(|d| d.diff.as_deref());
+        let top = editor.y + view.map_or(DIFF_HEADER, diff_top);
         if let Some(doc) = self.editor.active_mut() {
             if y < top {
                 set_scroll_line(doc, doc.scroll_line - 1.0);

@@ -5,6 +5,7 @@ use super::*;
 impl App {
     /// 切换「修改上一次提交」：打开时把上一次提交的信息填进来，关闭时恢复原来写的。
     pub(in crate::app::git) fn toggle_amend(&mut self) {
+        self.cancel_commit_into();
         self.git.commit.amend = !self.git.commit.amend;
         if !self.git.commit.amend {
             let draft = self.git.commit.draft.take().unwrap_or_default();
@@ -83,7 +84,7 @@ impl App {
     }
 
     /// 用提示框询问，确认后撤销上一次提交。更改还在，确认按钮不标记为危险操作。
-    pub(super) fn confirm_undo_commit(&mut self, last: &LastCommit) {
+    pub(in crate::app) fn confirm_undo_commit(&mut self, last: &LastCommit) {
         let message = t!("git-undo-commit-confirm");
         let detail = t!(
             "git-undo-commit-confirm-detail",

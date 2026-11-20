@@ -267,7 +267,7 @@ fn the_log_opens_from_the_commit_view_button_and_the_branch_menu_starts_with_fet
     assert!(app.log_active());
 
     // 「⋯」不重复列出日志入口和同步，最上方是储藏；获取在分支选择器里，悬停提示写明作用。
-    let menu = branch_menu(&[], None, false);
+    let menu = branch_menu(&[], None, false, false);
     assert_eq!(
         menu.first(),
         Some(&MenuEntry::Item(MenuCommand::GitStash, true))
@@ -277,5 +277,78 @@ fn the_log_opens_from_the_commit_view_button_and_the_branch_menu_starts_with_fet
         label.subtitle.as_deref(),
         Some("下载远程更新，不修改本地分支")
     );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// 日志里 `→` 转到父提交（合并提交是第一个父提交），`←` 转到子提交，先取同一条线上的；第一个
+/// 提交没有父提交。菜单里两项写着这两个键；`Tab` 进入文件列表，那里 `←` 是返回。
+#[test]
+fn arrows_walk_to_parent_and_child_commits() {
+    use crate::app::input::context_menu::{MenuCommand, MenuTarget};
+    use crate::keymap::{self, Context};
+
+    let Some((mut app, root)) = git_app("git-log-relatives", false) else {
+        return;
+    };
+    history_repo(&root, 10);
+    app.git_refresh();
+    show_all_log(&mut app);
+    paint(&mut app);
+    let row_of = |app: &App, subject: &str| {
+        let view = app.editor.active().unwrap().log.as_deref().unwrap();
+        (view.commits.iter())
+            .position(|c| c.subject == subject)
+            .unwrap()
+    };
+    let selected = |app: &App| {
+        let view = app.editor.active().unwrap().log.as_deref().unwrap();
+        view.commits[view.selected.unwrap()].subject.clone()
+    };
+    let stroke = |action| keymap::single_stroke(action, Context::Editor).unwrap();
+    let (parent, child) = (
+        stroke(Action::GitGoToParentCommit),
+        stroke(Action::GitGoToChildCommit),
+    );
+    assert_eq!(
+        MenuCommand::LogGoToParent.shortcut(Context::Editor),
+        Some(parent)
+    );
+    assert_eq!(
+        MenuCommand::LogGoToChild.shortcut(Context::Editor),
+        Some(child)
+    );
+
+    app.select_log_row(row_of(&app, "合并分支 feature/login"));
+    assert!(app.on_shortcut(parent));
+    assert_eq!(selected(&app), "补充使用说明");
+    assert!(app.on_shortcut(child));
+    assert_eq!(selected(&app), "合并分支 feature/login");
+    // 第二个父提交只有一个子提交：合并提交。
+    app.select_log_row(row_of(&app, "登录：失败三次后锁定"));
+    assert!(app.on_shortcut(child));
+    assert_eq!(selected(&app), "合并分支 feature/login");
+
+    let first = row_of(&app, "first");
+    app.select_log_row(first);
+    assert!(app.on_shortcut(parent));
+    assert_eq!(selected(&app), "first");
+    let oid = {
+        let view = app.editor.active().unwrap().log.as_deref().unwrap();
+        view.commits[first].oid.clone()
+    };
+    app.open_context_menu(MenuTarget::LogCommit(oid), (0.0, 0.0));
+    let menu = menu_commands(&app);
+    assert!(menu.contains(&(MenuCommand::LogGoToParent, false)));
+    assert!(menu.contains(&(MenuCommand::LogGoToChild, true)));
+    app.run_menu_command(MenuCommand::LogGoToChild);
+    assert_eq!(selected(&app), "配置：读取用户目录下的配置文件");
+
+    // 文件列表里 `←` 回到提交列表，不转到子提交。
+    app.log_key(&Key::Named(NamedKey::Tab));
+    assert!(app.git.log.file.is_some());
+    assert!(!app.on_shortcut(child));
+    app.log_key(&Key::Named(NamedKey::ArrowLeft));
+    assert_eq!(app.git.log.file, None);
+    assert_eq!(selected(&app), "配置：读取用户目录下的配置文件");
     let _ = std::fs::remove_dir_all(&root);
 }

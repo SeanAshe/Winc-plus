@@ -36,7 +36,7 @@ fn branch(name: &str, remote: bool, current: bool, upstream: Option<&str>) -> Br
 /// 拉取、推送、获取在分支选择器里，「⋯」里不再重复；最上面是储藏。
 #[test]
 fn the_actions_menu_leaves_syncing_to_the_branch_picker() {
-    let menu = branch_menu(&[], None, false);
+    let menu = branch_menu(&[], None, false, false);
     assert_eq!(
         menu.first(),
         Some(&MenuEntry::Item(MenuCommand::GitStash, true))
@@ -113,8 +113,11 @@ fn branch_ops_are_grouped_with_separators() {
             item(Delete, 1),
         ]
     );
-    // 空的组不留分隔线：当前分支只能重命名，远程分支最后没有删除。
-    assert_eq!(branch_ops(0, &branches, &[], &[], false), [item(Rename, 0)]);
+    // 空的组不留分隔线：当前分支只能从它新建分支和重命名，远程分支最后没有删除。
+    assert_eq!(
+        branch_ops(0, &branches, &[], &[], false),
+        [item(NewFrom, 0), MenuEntry::Separator, item(Rename, 0)]
+    );
     let remote = branch_ops(2, &branches, &[], &[], false);
     assert_eq!(remote.last(), Some(&item(Rebase, 2)));
 }

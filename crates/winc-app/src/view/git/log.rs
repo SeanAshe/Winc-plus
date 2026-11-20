@@ -7,7 +7,7 @@
 mod badges;
 mod branches;
 mod details;
-mod files;
+pub(in crate::view) mod files;
 mod graph;
 
 use badges::*;
@@ -28,7 +28,7 @@ use winc_render::Stroke;
 
 use crate::app::Focus;
 use crate::app::git::log::{
-    AUTHOR_DEFAULT, LOG_FILTER_GAP, LOG_LIST_PAD, LogColumn, LogParts, LogPill, LogTarget, TextRun,
+    AUTHOR_PAD, LOG_FILTER_GAP, LOG_LIST_PAD, LogColumn, LogParts, LogPill, LogTarget, TextRun,
     details_top, display_time, is_relative_time, list_time, log_author_width, short, since_label,
 };
 use crate::app::{StatusEntry, StatusRow};
@@ -55,8 +55,8 @@ const CORNER_STEPS: usize = 6;
 const GRAPH_FADED: f32 = 0.55;
 /// 提交图最多绘制的车道数（条）：超出的车道压缩在最右侧，避免提交说明的可用宽度被占满。
 const MAX_LANES: usize = 10;
-/// 时间一列的宽度（逻辑像素）。
-const DATE_W: f32 = 104.0;
+/// 时间一列中时间左边的留白（逻辑像素），与作者一列隔开。
+const DATE_PAD: f32 = 12.0;
 /// 单个引用徽章的最大宽度（逻辑像素）；更长的名字从末尾截短，详情中显示全名。
 const BADGE_MAX: f32 = 140.0;
 /// 截短后徽章的最小宽度（逻辑像素）；更窄时无法辨认引用名，改为计入「+N」。
@@ -121,6 +121,11 @@ pub(in crate::view) fn draw_log(app: &mut App, frame: &mut Frame<'_>, index: usi
     };
     let animate = app.animate_status();
     let pills = app.git.log.pills.sync(&LogPill::ALL, pills, animate);
+    fit_log_author(app, frame, index);
+    fit_log_date(app, frame);
+    let names = app.animate_log_names();
+    app.git.log.details_names.begin_frame(names);
+    app.git.log.branch_names.begin_frame(names);
     {
         let app = &*app;
         let Some(view) = app.editor.documents[index].log.as_deref() else {
@@ -128,8 +133,9 @@ pub(in crate::view) fn draw_log(app: &mut App, frame: &mut Frame<'_>, index: usi
         };
         draw_header(app, frame, view, &parts, (search, &pills), &mut hits);
         draw_branches_button(app, frame, &parts, &mut hits);
-        branches_max = draw_branches(app, frame, view, &parts, (&mut hits, &mut long_branches));
         draw_list(app, frame, view, &parts, scroll, &mut hits, &mut clipped);
+        // 分支面板放不下的名字可以伸到提交列表上面，后画。
+        branches_max = draw_branches(app, frame, view, &parts, (&mut hits, &mut long_branches));
         // 切换到另一个提交时内容淡入（`App::note_log_details_shown`）。
         draw_details_footer(app, frame, view, &parts);
         let opacity = app.git.log.fade.map_or(1.0, |c| 0.4 + 0.6 * c.progress());
@@ -143,6 +149,8 @@ pub(in crate::view) fn draw_log(app: &mut App, frame: &mut Frame<'_>, index: usi
             )
         });
     }
+    app.git.log.details_names.end_frame();
+    app.git.log.branch_names.end_frame();
     // 详情一栏的最大滚动位置：内容下方留 16 逻辑像素，使底部的提示行（高 30 逻辑像素）不遮挡
     // 最后一行内容。
     let details = parts.details;
@@ -560,7 +568,7 @@ fn draw_list(
     // 作者一列随列表宽度从仅头像连续展宽为头像加名字（见 `App::log_author_show`）。
     let show = app.log_author_show(list.w);
     // 右边几列从右往左排：提交号、时间、作者，隐藏的列不占宽度（见 `LogColumn`）。
-    let author_full = app.git.log.author_w.unwrap_or(AUTHOR_DEFAULT);
+    let author_full = app.log_author_full();
     let columns = Columns {
         author: app
             .log_column_shown(LogColumn::Author)
@@ -573,7 +581,8 @@ fn draw_list(
         false => 0.0,
     };
     let hash_x = list.right() - SCROLLBAR_HIT - hash_w;
-    let date_x = hash_x - if columns.date { DATE_W } else { 0.0 };
+    let date_w = app.git.log.date_fit.map_or(0.0, |(_, w)| w);
+    let date_x = hash_x - if columns.date { date_w } else { 0.0 };
     let author_w = columns.author.map_or(0.0, |w| log_author_width(w, show));
     let author_x = date_x - author_w;
     let subject_end = author_x - 12.0;
@@ -607,7 +616,11 @@ fn draw_list(
         draw_uncommitted(app, frame, (list, y, text_x), graph, uncommitted, hits);
     }
 
-    for i in rows {
+    let cuts = match graphless {
+        true => Vec::new(),
+        false => long_cuts(view, rows.clone(), line),
+    };
+    for i in rows.clone() {
         let commit = &view.commits[i];
         let y = list.y + top + (i as f64 - scroll) as f32 * lh;
         let row = Rect::new(list.x, y, list.w, lh);
@@ -624,11 +637,11 @@ fn draw_list(
         }
 
         if let Some(graph) = view.graph.get(i).filter(|_| !graphless) {
-            let cuts = long_cuts(view, i, line);
+            let cuts = cuts.get(i - rows.start).map_or(&[][..], Vec::as_slice);
             draw_graph_row(
                 app,
                 frame,
-                (graph, line, &cuts),
+                (graph, line, cuts),
                 (commit, i),
                 (graph_x, y, fill),
                 list,
@@ -679,7 +692,7 @@ fn draw_list(
                 app,
                 frame,
                 commit,
-                (author_x, date_x, hash_x, row, show),
+                (author_x, (date_x, date_w), hash_x, row, show),
                 columns,
                 now,
                 list,
@@ -736,7 +749,7 @@ fn draw_author_and_time(
     app: &App,
     frame: &mut Frame<'_>,
     commit: &Commit,
-    (author_x, date_x, hash_x, row, show): (f32, f32, f32, Rect, f32),
+    (author_x, (date_x, date_w), hash_x, row, show): (f32, (f32, f32), f32, Rect, f32),
     columns: Columns,
     now: i64,
     list: Rect,
@@ -753,7 +766,7 @@ fn draw_author_and_time(
         hits.push((avatar, LogTarget::Avatar(i)));
         if show > 0.0 {
             // 按完全展开后的宽度截短，展开过程中由该列裁切，「…」的位置不随展开变化。
-            let room = author_w - 32.0;
+            let room = author_w - AUTHOR_PAD;
             let name = truncate_end(frame, &commit.author, app.fonts.ui_small, room);
             let ink = p.text_muted.alpha(p.text_muted.a * show);
             ui_text_small(frame, app, author_x + 22.0, row, &name, ink, clip);
@@ -776,16 +789,63 @@ fn draw_author_and_time(
     // 等宽字体、右对齐，使各行的时、分逐位对齐（见 `list_time`）。
     let time = list_time(commit, now);
     // 作者一列在时间左边让出 8：较长的写法（英文的「Yesterday」）可以伸进这一段。
-    let clip = Rect::new(date_x - 8.0, y, DATE_W + 8.0, lh).intersect(list);
+    let clip = Rect::new(date_x - 8.0, y, date_w + 8.0, lh).intersect(list);
     let w = frame.measure(FontKind::Mono, app.fonts.ui_small, &time);
     mono(
         app,
         frame,
-        (date_x + DATE_W - w, row),
+        (date_x + date_w - w, row),
         &time,
         p.text_dim,
         clip,
     );
+}
+
+/// 算出时间一列的宽度（逻辑像素）：列表中时间各种写法（今天、昨天、今年、往年）里最宽的一种，
+/// 加上左边的留白；字号和界面语言都没变时沿用上次的结果。
+fn fit_log_date(app: &mut App, frame: &mut Frame<'_>) {
+    let size = app.fonts.ui_small;
+    let key = (size.to_bits(), winc_i18n::locale());
+    if app.git.log.date_fit.is_some_and(|(k, _)| k == key) {
+        return;
+    }
+    let forms = [
+        t!("git-time-today", time = "00:00"),
+        t!("git-time-yesterday", time = "00:00"),
+        "00-00 00:00".to_owned(),
+        "0000-00-00".to_owned(),
+    ];
+    let widest = (forms.iter())
+        .map(|form| frame.measure(FontKind::Mono, size, form))
+        .fold(0.0, f32::max);
+    app.git.log.date_fit = Some((key, (widest + DATE_PAD).ceil()));
+}
+
+/// 按第 `index` 个标签已读取的提交中最宽的作者名字算出作者一列的宽度（见
+/// [`crate::app::git::log::author_fit`]）；依据（[`crate::app::git::log::AuthorFitKey`]）没变时
+/// 沿用上次的结果。
+fn fit_log_author(app: &mut App, frame: &mut Frame<'_>, index: usize) {
+    let doc = &app.editor.documents[index];
+    let Some(view) = doc.log.as_deref() else {
+        return;
+    };
+    let size = app.fonts.ui_small;
+    let key = (
+        doc.id,
+        view.generation(),
+        view.stale,
+        view.commits.len(),
+        size.to_bits(),
+    );
+    if app.git.log.author_fit.is_some_and(|(k, _)| k == key) {
+        return;
+    }
+    let mut seen = std::collections::HashSet::new();
+    let widest = (view.commits.iter())
+        .filter(|c| seen.insert(c.author.as_str()))
+        .map(|c| frame.measure(FontKind::Ui, size, &c.author))
+        .fold(0.0, f32::max);
+    app.git.log.author_fit = Some((key, crate::app::git::log::author_fit(widest)));
 }
 
 /// 返回可点击的提交号的颜色：平时为强调色，悬停时为正文色。

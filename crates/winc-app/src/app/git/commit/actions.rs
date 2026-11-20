@@ -110,9 +110,11 @@ impl App {
     /// 需要先确认强制推送时记下 `others`，确认以后再推（见 [`App::run_git_sync`]）。
     fn run_git_sync_with(&mut self, others: Vec<PathBuf>, force: bool) {
         self.git.commit.force_others = others.clone();
+        let rebase = self.pull_mode();
         self.git_operate_then(t!("git-op-sync").into(), move |git, root| {
-            let (synced, then) =
-                keep_changes(git, root, t!("git-op-sync"), |git| git.sync(root, force))?;
+            let (synced, then) = keep_changes(git, root, t!("git-op-sync"), |git| {
+                git.sync(root, force, rebase)
+            })?;
             Ok(match synced {
                 Synced::Done(summary) => {
                     push_others(git, &others)?;
@@ -130,6 +132,18 @@ impl App {
             self.run_push(intent);
             return;
         }
+        self.preview_push(intent);
+    }
+
+    /// 「推送到…」：不论 `git.confirmPush`，都打开推送对话框选远程和目标分支。
+    pub(in crate::app) fn push_to(&mut self) {
+        if let Some(intent) = self.push_intent() {
+            self.preview_push(intent);
+        }
+    }
+
+    /// 在后台读出 `intent` 会送出的提交，读到以后确认（[`App::take_push_preview`]）。
+    fn preview_push(&mut self, intent: PushIntent) {
         // 先在后台读出会送出的提交，读到以后再问（[`App::take_push_preview`]）：确认框里列出它们，
         // 推送之前看得到送出去的是什么。
         let slot = Arc::clone(&self.git.push_preview);
@@ -141,7 +155,7 @@ impl App {
                 PushIntent::Publish(_) => winc_editor::git::Outgoing::Publish,
                 _ => winc_editor::git::Outgoing::Upstream,
             };
-            let read = (tool.ok()).map(|git| git.outgoing(&root, target, PUSH_PREVIEW));
+            let read = (tool.ok()).map(|git| git.outgoing(&root, target, "HEAD", PUSH_PREVIEW));
             let (subjects, total) = read.and_then(Result::ok).unwrap_or_default();
             *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some((intent, subjects, total));
         });
@@ -204,14 +218,16 @@ impl App {
         self.run_push(intent);
     }
 
-    /// 推送对话框按了主按钮：推到 `remote` 的分支 `target`，`tags` 为真时一并推送全部标签；
-    /// 勾选了「不再询问」（`never`）时写入配置。
+    /// 推送对话框按了主按钮：把 `upto`（`None` 时是 `HEAD`）推到 `remote` 的分支 `target`，
+    /// `tags` 为真时一并推送全部标签；勾选了「不再询问」（`never`）时写入配置。
     ///
-    /// 目标没有改、也不推送标签时与直接推送相同（[`App::run_push`]）；发布时把目标设为上游。
+    /// 推送 `HEAD`、目标仍是打开时的 `defaults`、也不推送标签时与直接推送相同
+    /// （[`App::run_push`]）；发布时把目标设为上游。
     pub(in crate::app) fn submit_push(
         &mut self,
-        form: super::super::form::PushForm,
-        (remote, target): (String, String),
+        intent: PushIntent,
+        defaults: (String, String),
+        (upto, remote, target): (Option<String>, String, String),
         tags: bool,
         never: bool,
     ) {
@@ -219,14 +235,15 @@ impl App {
             self.config.git_confirm_push = Some(false);
             self.save_config();
         }
-        if !tags && remote == form.remote && target == form.target {
-            self.run_push(form.intent);
+        if upto.is_none() && !tags && (&remote, &target) == (&defaults.0, &defaults.1) {
+            self.run_push(intent);
             return;
         }
-        let track = matches!(form.intent, PushIntent::Publish(_));
+        let track = matches!(intent, PushIntent::Publish(_));
         // 同步改了目标或要一并推送标签：仍然先拉取（与同步相同），再按对话框推送，本地落后上游
         // 时推送才不会被拒绝。
-        let sync = matches!(form.intent, PushIntent::Sync);
+        let sync = matches!(intent, PushIntent::Sync);
+        let rebase = self.pull_mode();
         let what = if sync {
             t!("git-op-sync")
         } else {
@@ -234,11 +251,25 @@ impl App {
         };
         self.git_operate_then(what.into(), move |git, root| {
             let then = match sync {
-                true => keep_changes(git, root, t!("git-op-pull"), |git| git.pull(root))?.1,
+                true => keep_changes(git, root, t!("git-op-pull"), |git| git.pull(root, rebase))?.1,
                 false => Then::Nothing,
             };
-            let summary = git.push_to(root, &remote, &target, tags, track)?;
+            let head = upto.as_deref().unwrap_or("HEAD");
+            let summary = git.push_to(root, (head, &remote, &target), tags, track)?;
             Ok((summary, then))
+        });
+    }
+
+    /// 拉取对话框按了主按钮：从 `remote` 的分支 `branch` 拉取到当前分支，`rebase` 为真时变基。
+    pub(in crate::app) fn submit_pull(&mut self, (remote, branch): (String, String), rebase: bool) {
+        let what = match rebase {
+            true => t!("git-op-pull-rebase"),
+            false => t!("git-op-pull"),
+        };
+        self.git_operate_then(what.into(), move |git, root| {
+            keep_changes(git, root, what, |git| {
+                git.pull_from(root, &remote, &branch, rebase)
+            })
         });
     }
 
@@ -770,9 +801,9 @@ impl App {
                                 }
                             }
                             // 勾上的都提交了；取消勾选的各处改动还在工作区里，下次重新勾选。
-                            self.git.commit.skipped.clear();
                             self.git.commit.reset_checks();
                             self.git.commit.amend = false;
+                            self.finish_commit_into(&message);
                             self.git.commit.no_verify = false;
                             self.git.commit.draft = None;
                             if left > 0 {

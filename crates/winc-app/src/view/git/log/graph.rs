@@ -10,9 +10,9 @@ use super::*;
 ///
 /// 约为一屏的行数：短于一屏的线两头同时看得见，整段照画；更长的线把提交图分得很碎，又很少
 /// 需要逐行看清。
-const LONG_EDGE: usize = 30;
+pub(super) const LONG_EDGE: usize = 30;
 /// 长连线两头各画几行（行）：连着提交的那一截看得出线往哪去，末端画箭头。
-const LONG_STUB: usize = 2;
+pub(super) const LONG_STUB: usize = 2;
 
 /// 一行里一条车道上的长连线怎么画（见 [`long_cuts`]）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,56 +25,96 @@ pub(super) enum Cut {
     Up,
 }
 
-/// 第 `row` 行里属于长连线、要截掉或画箭头的车道。
+/// `rows` 各行里属于长连线、要截掉或画箭头的车道，第 `i` 项对应 `rows.start + i` 行。
 ///
 /// 一条线在某条车道上连续直着穿过的几行（不经过圆点、不换车道）是一段；一段至少
 /// [`LONG_EDGE`] 行时只画两头各 [`LONG_STUB`] 行。没取完的日志里，到已取回的最后一行仍在
-/// 穿过的当作还要继续往下。`shown` 所在的线（选中的提交那条）照常画全。只往上下各查
-/// `LONG_EDGE` 行，每帧的开销与可见的行数成正比。
-pub(super) fn long_cuts(view: &LogView, row: usize, shown: Option<u32>) -> Vec<(usize, Cut)> {
-    let Some(graph) = view.graph.get(row) else {
-        return Vec::new();
-    };
-    // 第 `r` 行在车道 `lane` 上有没有直着穿过的线 `line`。
-    let through = |r: usize, lane: usize, line: u32| {
-        view.graph.get(r).is_some_and(|g| {
-            let straight =
-                |s: &winc_core::graph::Segment| s.from == lane && s.to == lane && s.line == line;
-            g.lane != lane && g.up.iter().any(straight) && g.down.iter().any(straight)
-        })
-    };
-    let mut cuts = Vec::new();
-    for s in graph
-        .up
-        .iter()
-        .filter(|s| s.from == s.to && s.to != graph.lane)
-    {
-        if shown == Some(s.line) || !through(row, s.to, s.line) {
-            continue;
-        }
-        let (lane, line) = (s.to, s.line);
-        let above = (1..=LONG_EDGE)
-            .take_while(|&d| row >= d && through(row - d, lane, line))
-            .count();
-        let open = !view.complete;
-        let below = (1..=LONG_EDGE)
-            .take_while(|&d| {
-                let r = row + d;
-                through(r, lane, line) || (open && r >= view.graph.len())
+/// 穿过的当作还要继续往下。`shown` 所在的线（选中的提交那条）照常画全。
+///
+/// 每帧算一次：先列出 `rows` 上下各 [`LONG_EDGE`] 行里各行直着穿过的线，再各扫一遍得出每段
+/// 往上、往下还连着几行，开销与行数和车道数之积成正比。
+pub(super) fn long_cuts(
+    view: &LogView,
+    rows: std::ops::Range<usize>,
+    shown: Option<u32>,
+) -> Vec<Vec<(usize, Cut)>> {
+    let graph = &view.graph;
+    let end = rows.end.min(graph.len());
+    let start = rows.start.min(end);
+    let lo = start.saturating_sub(LONG_EDGE);
+    let hi = (end + LONG_EDGE).min(graph.len());
+    // 各行直着穿过的线（车道、线），排好序以便查找。
+    let through: Vec<Vec<(usize, u32)>> = graph[lo..hi].iter().map(straight_through).collect();
+    let find = |r: usize, key: &(usize, u32)| through[r - lo].binary_search(key).ok();
+    // 与 `through` 一一对应：这条线往上（往下）还连着穿过几行，最多 `LONG_EDGE` 行。
+    let mut above: Vec<Vec<usize>> = Vec::with_capacity(through.len());
+    for r in lo..hi {
+        let counts = (through[r - lo].iter())
+            .map(|key| match r.checked_sub(1).filter(|&q| q >= lo) {
+                Some(q) => find(q, key).map_or(0, |j| (above[q - lo][j] + 1).min(LONG_EDGE)),
+                None => 0,
             })
-            .count();
-        if above + below + 1 < LONG_EDGE {
-            continue;
-        }
-        let cut = match (above, below) {
-            (a, _) if a == LONG_STUB - 1 => Cut::Down,
-            (_, b) if b == LONG_STUB - 1 => Cut::Up,
-            (a, b) if a >= LONG_STUB && b >= LONG_STUB => Cut::Hidden,
-            _ => continue,
-        };
-        cuts.push((lane, cut));
+            .collect();
+        above.push(counts);
     }
-    cuts
+    let open = !view.complete;
+    let mut below: Vec<Vec<usize>> = vec![Vec::new(); through.len()];
+    for r in (lo..hi).rev() {
+        below[r - lo] = (through[r - lo].iter())
+            .map(|key| match r + 1 {
+                // 没取完的日志里，已取回的最后一行之后还连着。
+                next if next >= graph.len() => {
+                    if open {
+                        LONG_EDGE
+                    } else {
+                        0
+                    }
+                }
+                next if next >= hi => 0,
+                next => find(next, key).map_or(0, |j| (below[next - lo][j] + 1).min(LONG_EDGE)),
+            })
+            .collect();
+    }
+    (start..end)
+        .map(|row| {
+            let g = &graph[row];
+            let segments = (g.up.iter()).filter(|s| s.from == s.to && s.to != g.lane);
+            segments
+                .filter(|s| shown != Some(s.line))
+                .filter_map(|s| {
+                    let j = find(row, &(s.to, s.line))?;
+                    let (up, down) = (above[row - lo][j], below[row - lo][j]);
+                    if up + down + 1 < LONG_EDGE {
+                        return None;
+                    }
+                    let cut = match (up, down) {
+                        (a, _) if a == LONG_STUB - 1 => Cut::Down,
+                        (_, b) if b == LONG_STUB - 1 => Cut::Up,
+                        (a, b) if a >= LONG_STUB && b >= LONG_STUB => Cut::Hidden,
+                        _ => return None,
+                    };
+                    Some((s.to, cut))
+                })
+                .collect()
+        })
+        .collect()
+}
+
+/// 一行里直着穿过的线（车道、线）：上下两半行都在同一条车道上，且这条车道没有这一行的圆点。
+fn straight_through(g: &GraphRow) -> Vec<(usize, u32)> {
+    let mut down: Vec<(usize, u32)> = (g.down.iter())
+        .filter(|s| s.from == s.to && s.to != g.lane)
+        .map(|s| (s.to, s.line))
+        .collect();
+    down.sort_unstable();
+    let mut both: Vec<(usize, u32)> = (g.up.iter())
+        .filter(|s| s.from == s.to && s.to != g.lane)
+        .map(|s| (s.to, s.line))
+        .filter(|key| down.binary_search(key).is_ok())
+        .collect();
+    both.sort_unstable();
+    both.dedup();
+    both
 }
 
 /// 一行的提交图：上半行、下半行的线，再在中间画圆点（普通提交实心、合并提交小一圈、`HEAD` 是圈）。

@@ -738,12 +738,25 @@ impl App {
         self.picker_lists_branches() && !self.picker_filters_log()
     }
 
-    /// 拉取、推送、获取（`part`）对应的 Git 操作：按住 ⌥ 时拉取是拉取并变基。
+    /// 拉取、推送、获取（`part`）对应的 Git 操作：按住 ⌥ 时拉取换成另一种方式（平时合并时是
+    /// 拉取并变基，平时变基时是拉取并合并）。
     pub(crate) fn picker_action_command(&self, part: PickerPart) -> MenuCommand {
         match part {
-            PickerPart::Pull if self.pointer.modifiers.alt_key() => MenuCommand::GitPullRebase,
+            PickerPart::Pull if self.pointer.modifiers.alt_key() => {
+                self.picker_action_command_with_alt(part)
+            }
             PickerPart::Pull => MenuCommand::GitPull,
             PickerPart::Push => MenuCommand::GitPush,
+            _ => MenuCommand::GitFetch,
+        }
+    }
+
+    /// 按住 ⌥ 时 `part` 对应的 Git 操作：拉取是与平时相反的方式，其余不变。
+    pub(crate) fn picker_action_command_with_alt(&self, part: PickerPart) -> MenuCommand {
+        match (part, self.pulls_with_rebase()) {
+            (PickerPart::Pull, true) => MenuCommand::GitPullMerge,
+            (PickerPart::Pull, false) => MenuCommand::GitPullRebase,
+            (PickerPart::Push, _) => MenuCommand::GitPush,
             _ => MenuCommand::GitFetch,
         }
     }
@@ -754,13 +767,17 @@ impl App {
         if self.git.branch.running.is_some() || self.git.remotes.is_empty() {
             return false;
         }
-        let on_branch = (self.git.status.as_ref())
-            .is_some_and(|s| matches!(s.head, Some(winc_editor::git::Head::Branch(_))));
         match part {
             PickerPart::Pull => self.has_upstream(),
-            PickerPart::Push => on_branch,
+            PickerPart::Push => self.on_branch(),
             _ => true,
         }
+    }
+
+    /// `HEAD` 是否在一个分支上（不是游离的 `HEAD`）。
+    pub(crate) fn on_branch(&self) -> bool {
+        (self.git.status.as_ref())
+            .is_some_and(|s| matches!(s.head, Some(winc_editor::git::Head::Branch(_))))
     }
 
     /// 操作一段里的 `part` 现在能不能用：新建分支、新建工作树始终可用，其余见

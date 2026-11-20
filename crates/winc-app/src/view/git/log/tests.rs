@@ -78,3 +78,95 @@ fn filter_matches_ignore_case_and_do_not_overlap() {
     assert!(matches("anything", "").is_empty());
     assert!(matches("short", "shorter").is_empty());
 }
+
+/// 原来逐行往上下查找的算法，作为对照。
+fn long_cuts_by_row(view: &LogView, row: usize, shown: Option<u32>) -> Vec<(usize, Cut)> {
+    let Some(graph) = view.graph.get(row) else {
+        return Vec::new();
+    };
+    let through = |r: usize, lane: usize, line: u32| {
+        view.graph.get(r).is_some_and(|g| {
+            let straight =
+                |s: &winc_core::graph::Segment| s.from == lane && s.to == lane && s.line == line;
+            g.lane != lane && g.up.iter().any(straight) && g.down.iter().any(straight)
+        })
+    };
+    let mut cuts = Vec::new();
+    for s in (graph.up.iter()).filter(|s| s.from == s.to && s.to != graph.lane) {
+        if shown == Some(s.line) || !through(row, s.to, s.line) {
+            continue;
+        }
+        let (lane, line) = (s.to, s.line);
+        let above = (1..=LONG_EDGE)
+            .take_while(|&d| row >= d && through(row - d, lane, line))
+            .count();
+        let below = (1..=LONG_EDGE)
+            .take_while(|&d| {
+                through(row + d, lane, line) || (!view.complete && row + d >= view.graph.len())
+            })
+            .count();
+        if above + below + 1 < LONG_EDGE {
+            continue;
+        }
+        let cut = match (above, below) {
+            (a, _) if a == LONG_STUB - 1 => Cut::Down,
+            (_, b) if b == LONG_STUB - 1 => Cut::Up,
+            (a, b) if a >= LONG_STUB && b >= LONG_STUB => Cut::Hidden,
+            _ => continue,
+        };
+        cuts.push((lane, cut));
+    }
+    cuts
+}
+
+/// 一次算出可见各行的长连线，与逐行查找的结果相同：任意一段可见范围、取完与没取完的日志、
+/// 高亮或不高亮一条线。
+#[test]
+fn long_cuts_for_a_window_match_the_row_by_row_result() {
+    // 12 条长期并行的分支，每轮各提交一次，每 7 轮把其中几条合并进主线。
+    let mut graph = winc_core::graph::Graph::new();
+    let mut rows = Vec::new();
+    let mut tips: Vec<String> = Vec::new();
+    let mut n = 0;
+    let mut commits: Vec<(String, Vec<String>)> = Vec::new();
+    let mut add = |parents: Vec<String>, commits: &mut Vec<(String, Vec<String>)>| {
+        n += 1;
+        let oid = format!("{n:040}");
+        commits.push((oid.clone(), parents));
+        oid
+    };
+    let mut main = add(Vec::new(), &mut commits);
+    for _ in 0..12 {
+        tips.push(add(vec![main.clone()], &mut commits));
+    }
+    for round in 0..90 {
+        for tip in &mut tips {
+            *tip = add(vec![tip.clone()], &mut commits);
+        }
+        if round % 7 == 6 {
+            for tip in tips.iter().step_by(3) {
+                main = add(vec![main.clone(), tip.clone()], &mut commits);
+            }
+        }
+    }
+    // 日志里新的在前。
+    for (oid, parents) in commits.iter().rev() {
+        rows.push(graph.push(oid, parents));
+    }
+    let mut view = LogView::new();
+    view.graph = rows;
+    let all = long_cuts(&view, 0..view.graph.len(), None);
+    assert!(all.iter().flatten().any(|(_, cut)| *cut == Cut::Hidden));
+    for complete in [true, false] {
+        view.complete = complete;
+        for shown in [None, Some(0), Some(3)] {
+            for start in (0..view.graph.len()).step_by(37) {
+                let range = start..(start + 45).min(view.graph.len());
+                let cuts = long_cuts(&view, range.clone(), shown);
+                for (i, row) in range.enumerate() {
+                    assert_eq!(cuts[i], long_cuts_by_row(&view, row, shown), "row {row}");
+                }
+            }
+        }
+    }
+}

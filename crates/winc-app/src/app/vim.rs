@@ -276,7 +276,7 @@ impl App {
         if self.bars.prompt_kind.is_vim() {
             self.layout.status
         } else {
-            crate::layout::goto_bar(self.overlay_area())
+            crate::layout::goto_bar(self.overlay_area(), self.bars.prompt_kind.takes_text())
         }
     }
 

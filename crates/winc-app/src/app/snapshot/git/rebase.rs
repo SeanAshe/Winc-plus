@@ -10,6 +10,25 @@ use super::*;
 
 /// 打开有 `a`、`b`、`c`、`d` 四个提交的仓库，从 `b` 发起交互式变基。
 fn rebasing(name: &str) -> Option<(App, PathBuf)> {
+    let (mut app, dir) = four_commits(name)?;
+    app.start_interactive_rebase(rev(&dir, "HEAD~2"));
+    paint(&mut app);
+    Some((app, dir))
+}
+
+/// 测试仓库 `dir` 里 `rev` 的完整提交号。
+pub(super) fn rev(dir: &Path, rev: &str) -> String {
+    let oid = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["rev-parse", rev])
+        .output()
+        .unwrap();
+    String::from_utf8(oid.stdout).unwrap().trim().to_owned()
+}
+
+/// 打开有 `a`、`b`、`c`、`d` 四个提交的仓库，每个提交新增一个同名的 `.txt` 文件。
+pub(super) fn four_commits(name: &str) -> Option<(App, PathBuf)> {
     let dir = search_folder(name);
     let run = |args: &[&str]| {
         Command::new("git")
@@ -36,15 +55,6 @@ fn rebasing(name: &str) -> Option<(App, PathBuf)> {
     if git_unusable(&app) {
         return None;
     }
-    let oid = Command::new("git")
-        .arg("-C")
-        .arg(&dir)
-        .args(["rev-parse", "HEAD~2"])
-        .output()
-        .unwrap();
-    let oid = String::from_utf8(oid.stdout).unwrap().trim().to_owned();
-    app.start_interactive_rebase(oid);
-    paint(&mut app);
     Some((app, dir))
 }
 
@@ -55,7 +65,7 @@ fn form(app: &App) -> &crate::app::git::rebase::RebaseForm {
     }
 }
 
-fn subjects(dir: &Path) -> Vec<String> {
+pub(super) fn subjects(dir: &Path) -> Vec<String> {
     let output = Command::new("git")
         .arg("-C")
         .arg(dir)

@@ -641,3 +641,72 @@ fn the_changes_list_has_keys_for_diff_source_and_rollback() {
     assert_ne!(std::fs::read_to_string(&main).unwrap(), before);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// 回归：在差异里勾掉一行以后，组的勾选框仍显示全勾上；这时点它想全部勾掉，却把那一行也勾了
+/// 回来。勾选每改一次组、目录的勾选框都重新算，显示的与点击时判断的一致；`HEAD` 变了、按行的
+/// 勾选作废时同样如此。
+#[test]
+fn group_checkboxes_follow_hunk_and_line_checks() {
+    let dir = search_folder("git-group-checks");
+    if !long_repo(&dir) {
+        return;
+    }
+    let mut app = app_with(&dir, false);
+    app.settings_toggle(Setting::GitModule);
+    if git_unusable(&app) {
+        return;
+    }
+    paint(&mut app);
+    let file = app.git.root.clone().unwrap().join("src/main.rs");
+    let status = app.git.status.clone().unwrap();
+    let entry = status
+        .entries
+        .iter()
+        .find(|e| e.path == file)
+        .unwrap()
+        .clone();
+    let all = [(7, 0..2)];
+    let group = CommitGroup::Changes;
+    // 画出来的组勾选框（按勾选的版本缓存）和点击时判断用的状态。
+    let shown = |app: &App| {
+        let rows = app.commit_rows();
+        let members = rows.group(group);
+        rows.members_state(members, app.git.commit.checks(), || {
+            app.git
+                .commit
+                .members_state(app.git.status.as_ref().unwrap(), members)
+        })
+    };
+    let live = |app: &App| {
+        app.git
+            .commit
+            .group_state(app.git.status.as_ref().unwrap(), group)
+    };
+    assert_eq!(shown(&app), Some(true));
+
+    app.git.commit.toggle_line(&entry, (0, 1), (RIGHT, 0), &all);
+    paint(&mut app);
+    assert_eq!(live(&app), Some(false));
+    assert_eq!(shown(&app), live(&app));
+
+    // 显示部分勾选时点组的勾选框：全部勾上，再点全部勾掉。
+    app.press_commit(CommitTarget::GroupCheck(group));
+    paint(&mut app);
+    assert_eq!(shown(&app), Some(true));
+    app.press_commit(CommitTarget::GroupCheck(group));
+    paint(&mut app);
+    assert_eq!(shown(&app), None);
+    assert_eq!(app.git.commit.file_state(&entry), None);
+
+    // `HEAD` 变了：按行的勾选作废，组的勾选框随之更新。
+    app.press_commit(CommitTarget::GroupCheck(group));
+    app.git.commit.toggle_line(&entry, (0, 1), (RIGHT, 0), &all);
+    paint(&mut app);
+    assert_eq!(shown(&app), Some(false));
+    app.git
+        .commit
+        .head_is(Some("0000000000000000000000000000000000000000"));
+    paint(&mut app);
+    assert_eq!(live(&app), Some(true));
+    assert_eq!(shown(&app), live(&app));
+}

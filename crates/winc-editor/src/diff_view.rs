@@ -335,6 +335,23 @@ pub struct DiffView {
     ///
     /// 历史版本不能按块提交，因此不写入 [`DiffView::repo_path`]。
     pub snapshot_path: Option<PathBuf>,
+    /// 标题栏上方的提交说明条：差异来自日志里的提交时有。
+    pub banner: Option<DiffBanner>,
+    /// 提交说明条下面左侧文件栏展开时的宽度（逻辑像素）；没有文件栏时为 0。
+    pub panel: f32,
+    /// 文件栏露出的比例：收起为 0，展开为 1，展开、收起途中在两者之间。
+    pub panel_shown: f32,
+}
+
+/// 差异标题栏上方的提交说明条的内容。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiffBanner {
+    /// 提交号，比较两个版本时是「旧…新」。
+    pub version: String,
+    /// 提交说明的第一行；比较两个版本时为空。
+    pub subject: String,
+    /// 作者和时间；比较两个版本时为空。
+    pub detail: String,
 }
 
 impl DiffView {
@@ -370,6 +387,9 @@ impl DiffView {
             keys,
             repo_path: None,
             snapshot_path: None,
+            banner: None,
+            panel: 0.0,
+            panel_shown: 1.0,
         };
         view.layout();
         view

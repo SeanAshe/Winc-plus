@@ -155,7 +155,7 @@ impl CommitState {
     /// 界面改动了暂存区：此前发出的读取结果不再采用，勾选框的缓存作废。
     pub(in crate::app) fn index_changed(&mut self) {
         self.index_version += 1;
-        self.checks += 1;
+        self.picks.touch();
     }
 
     /// 刚读到的状态是否已经过时：暂存的操作尚未写完，或者这次读取开始于某次暂存的操作之前。
@@ -231,15 +231,6 @@ impl CommitState {
             } else {
                 dirs.remove(&path);
             }
-        }
-        self.layout += 1;
-    }
-
-    /// 展开 `dir`（相对仓库根目录）及其各级上级目录，以及所在的组，使其中的文件可见。
-    pub(crate) fn expand_to(&mut self, dir: &Path) {
-        for i in 0..CommitGroup::COUNT {
-            self.collapsed[i] = false;
-            self.collapsed_dirs[i].retain(|collapsed| !dir.starts_with(collapsed));
         }
         self.layout += 1;
     }
@@ -483,7 +474,7 @@ fn natural_path_cmp(a: &Path, b: &Path) -> std::cmp::Ordering {
 }
 
 /// `items`（下标、相对路径）都在同一个子目录里、这一层没有文件时，返回那个子目录的名字。
-fn only_subdir<'a>(items: &[(usize, &'a Path)]) -> Option<&'a OsStr> {
+pub(in crate::app::git) fn only_subdir<'a>(items: &[(usize, &'a Path)]) -> Option<&'a OsStr> {
     let first = |p: &'a Path| {
         let mut parts = p.components();
         let first = parts.next()?.as_os_str();
@@ -498,7 +489,7 @@ fn only_subdir<'a>(items: &[(usize, &'a Path)]) -> Option<&'a OsStr> {
 
 /// 按自然顺序排的目录名，用作 `BTreeMap` 的键。
 #[derive(PartialEq, Eq)]
-struct NaturalName<'a>(&'a OsStr);
+pub(in crate::app::git) struct NaturalName<'a>(pub &'a OsStr);
 
 impl Ord for NaturalName<'_> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {

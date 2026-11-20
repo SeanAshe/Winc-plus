@@ -380,7 +380,20 @@ impl App {
             return;
         }
 
-        self.overlays.picker.hits = self.overlays.picker.index.search(query);
+        // 最近打开过、文件表中没有的文件（被忽略或已删除）要看磁盘上是否还在，只看这几个；打开的
+        // 标签照常列出。远端的路径按 `may_be_file` 的规则，不阻塞界面。
+        let index = &self.overlays.picker.index;
+        let visited: Vec<&Path> = (self.history.files.iter())
+            .map(PathBuf::as_path)
+            .filter(|path| match index.indexed(path) {
+                Some(true) => true,
+                Some(false) => self.may_be_file(path),
+                None => false,
+            })
+            .collect();
+        let tabs = (self.editor.documents.iter()).filter_map(|doc| doc.path.as_deref());
+        let opened = visited.into_iter().chain(tabs);
+        self.overlays.picker.hits = self.overlays.picker.index.search_with_opened(query, opened);
 
         // 没有输入时，最近打开的文件排在最前面；第一条是上一个文件，因此 `⌘P` 加回车即可切回。
         if query.trim().is_empty() {
@@ -408,7 +421,7 @@ impl App {
     /// 重新遍历目录时旧表仍然存在，继续列出旧表中的结果（面板高度也按这些结果计算），
     /// 避免只显示一行文字而下方留出大片空白。
     pub(crate) fn picker_indexing(&self) -> bool {
-        !self.overlays.picker.index.is_ready() && self.overlays.picker.index.is_empty()
+        !self.overlays.picker.index.is_ready() && self.overlays.picker.index.quick_open_len() == 0
     }
 
     /// 打开目录之后，在后台建立 `⌘P` 面板的文件表，使第一次按 `⌘P` 时即可列出文件。

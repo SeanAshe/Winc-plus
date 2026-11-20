@@ -2,6 +2,8 @@
 //!
 //! 从日志里提交的右键菜单发起，范围是该提交到 `HEAD`。列表按执行顺序排列，最早的提交在最上面，
 //! 因此「压缩」「修正」并入的是上一行。提交信息只在「改写」时可以编辑。
+//!
+//! 编辑提交说明用同一个对话框：只有信息框，改写范围内的第一个提交，其余保留。
 
 use winc_editor::git::{RebaseAction, RebaseCommit, RebasePlan, RebaseStep};
 use winc_i18n::t;
@@ -38,6 +40,8 @@ pub(crate) struct RebaseForm {
     pub scroll: f32,
     /// 范围内已推送的提交数。
     pub pushed: usize,
+    /// 是编辑提交说明：只改写第一行的信息。
+    pub reword: bool,
 }
 
 // 浮点滚动位置不会是 NaN，整体比较是安全的。
@@ -95,6 +99,7 @@ impl RebaseForm {
             selected: 0,
             scroll: 0.0,
             pushed: plan.pushed,
+            reword: false,
         }
     }
 
@@ -127,8 +132,12 @@ impl RebaseForm {
         empty.then(|| t!("git-rebase-empty-message"))
     }
 
-    /// 与打开对话框时相比是否有更改。
-    pub(super) fn changed(&self) -> bool {
+    /// 与打开对话框时相比是否有更改；`editing` 见 [`RebaseForm::problem`]。
+    pub(super) fn changed(&self, editing: &str) -> bool {
+        if self.reword {
+            let original = self.rows.first().map(|row| row.commit.message.as_str());
+            return original.is_some_and(|m| m.trim() != editing.trim());
+        }
         (self.rows.iter().enumerate())
             .any(|(i, row)| row.original != i || row.action != RebaseAction::Pick)
     }
@@ -159,6 +168,24 @@ impl App {
         }
         let kind = FormKind::Rebase(Box::new(RebaseForm::new(plan)));
         self.show_form_dialog(kind, TextField::multiline(), DialogPart::RebaseList);
+    }
+
+    /// 打开编辑提交说明的对话框：改写 `plan` 的第一个提交，信息框里是它原来的信息。
+    pub(super) fn open_reword_dialog(&mut self, plan: RebasePlan) {
+        if self.overlays.form_dialog.is_some() {
+            return;
+        }
+        let mut form = RebaseForm::new(plan);
+        form.reword = true;
+        let mut field = TextField::multiline();
+        if let Some(row) = form.rows.first_mut() {
+            row.action = RebaseAction::Reword;
+            row.message = Some(row.commit.message.clone());
+            field.set_text(&row.commit.message);
+            field.set_caret(field.text().len(), false);
+        }
+        let kind = FormKind::Rebase(Box::new(form));
+        self.show_form_dialog(kind, field, DialogPart::Branch);
     }
 
     /// 读取从提交 `oid` 到 `HEAD` 的范围，打开交互式变基对话框。
@@ -302,6 +329,9 @@ impl App {
         x: f32,
         y: f32,
     ) -> Option<DialogPart> {
+        if form.reword {
+            return None;
+        }
         if layout.values.first().is_some_and(|r| r.contains(x, y)) {
             return Some(DialogPart::RebaseUp);
         }
@@ -357,26 +387,46 @@ impl App {
     pub(super) fn rebase_plan(&self, form: &RebaseForm, editing: &str) -> FormPlan {
         let problem = form.problem(editing);
         FormPlan {
-            enabled: problem.is_none() && form.changed(),
+            enabled: problem.is_none() && form.changed(editing),
             problem: problem.map(str::to_owned),
-            confirm: t!("git-rebase-button"),
+            confirm: if form.reword {
+                t!("git-reword-button")
+            } else {
+                t!("git-rebase-button")
+            },
             base: String::new(),
             base_enabled: false,
             dir: None,
         }
     }
 
-    /// 开始变基。
+    /// 开始变基；编辑 `HEAD` 的说明时修改上一次提交。
     ///
     /// 变基可能停在冲突处等待处理，因此先关闭对话框，结果由状态栏和提示说明。
     pub(super) fn submit_rebase(&mut self) {
         self.store_rebase_message();
-        let Some((base, steps)) = self.with_rebase(|form, _| (form.base.clone(), form.steps()))
+        let Some((base, steps, reword)) =
+            self.with_rebase(|form, _| (form.base.clone(), form.steps(), form.reword))
         else {
             return;
         };
         self.close_form_dialog();
-        self.git_operate_then(t!("git-op-rebase").into(), move |git, root| {
+        let what = if reword {
+            t!("git-op-reword")
+        } else {
+            t!("git-op-rebase")
+        };
+        if let [step] = steps.as_slice()
+            && reword
+        {
+            let (oid, message) = (step.oid.clone(), step.message.clone().unwrap_or_default());
+            self.git_operate(what.into(), move |git, root| {
+                git.reword_head(root, &oid, &message)
+                    .map(|()| String::new())
+            });
+            return;
+        }
+        self.git_operate_then(what.into(), move |git, root| {
             git.interactive_rebase(root, base.as_deref(), &steps)
                 .map(|stopped| {
                     if stopped {

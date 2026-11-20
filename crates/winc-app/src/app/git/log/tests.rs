@@ -84,7 +84,9 @@ fn caret_lines_map_back_to_head() {
 }
 
 #[test]
-fn changed_files_group_by_directory_in_display_order() {
+fn changed_files_nest_like_the_file_tree() {
+    use details::{LogFileRow, RowsShape, log_file_rows};
+    use std::collections::HashSet;
     use winc_editor::git::Change;
     let root = Path::new("/r");
     let file = |path: &str| CommitFile {
@@ -96,30 +98,70 @@ fn changed_files_group_by_directory_in_display_order() {
     let files = [
         file("b/x.rs"),
         file("a.rs"),
-        file("b/c/y.rs"),
+        file("b/c/d/y.rs"),
         file("b/z.rs"),
+        file("e/f/w.rs"),
     ];
-    let rows = log_file_rows(Some(root), &files, (false, false));
-    use details::{
-        LogFileRow::{Dir, File},
-        log_file_rows,
+    let shape = RowsShape {
+        flat: false,
+        pinned: false,
+        compact: true,
     };
+    let dir = |dir: &str, label: &str, depth, open| LogFileRow::Dir {
+        dir: dir.into(),
+        label: label.into(),
+        depth,
+        open,
+    };
+    let file = |index, depth| LogFileRow::File { index, depth };
+    let none = HashSet::new();
+    let sep = std::path::MAIN_SEPARATOR_STR;
+    let cd = format!("c{sep}d");
+    let bcd = format!("b{sep}c{sep}d");
+    let ef = format!("e{sep}f");
+    // 先目录、后文件，各按名字排；只有一个子目录的几级合成一行。
     assert_eq!(
-        rows,
+        log_file_rows(Some(root), &files, shape, &none),
         [
-            File(1),
-            Dir("b".into()),
-            File(0),
-            File(3),
-            Dir("b/c".into()),
-            File(2),
+            dir("b", "b", 0, true),
+            dir(&bcd, &cd, 1, true),
+            file(2, 2),
+            file(0, 1),
+            file(3, 1),
+            dir(&ef, &ef, 0, true),
+            file(4, 1),
+            file(1, 0),
         ]
     );
-    let flat = log_file_rows(Some(root), &files, (true, false));
-    assert_eq!(flat, [File(0), File(1), File(2), File(3)]);
-    // 文件历史查看的文件（第一个）所在的组排在最前，它在组里也最前。
-    let pinned = log_file_rows(Some(root), &files, (false, true));
-    assert_eq!(pinned[..3], [Dir("b".into()), File(0), File(3)]);
+    // 收起的目录里的文件不列出。
+    let folded = HashSet::from(["b".to_owned()]);
+    let rows = log_file_rows(Some(root), &files, shape, &folded);
+    assert_eq!(rows[..2], [dir("b", "b", 0, false), dir(&ef, &ef, 0, true)]);
+    // 不合并时每级一行。
+    let loose = RowsShape {
+        compact: false,
+        ..shape
+    };
+    let rows = log_file_rows(Some(root), &files, loose, &none);
+    assert_eq!(rows[1], dir(&format!("b{sep}c"), "c", 1, true));
+    let flat = RowsShape {
+        flat: true,
+        ..shape
+    };
+    let order: Vec<_> = log_file_rows(Some(root), &files, flat, &none)
+        .iter()
+        .filter_map(LogFileRow::file)
+        .collect();
+    assert_eq!(order, [0, 1, 2, 3, 4]);
+    // 文件历史查看的文件（第一个）和装着它的目录排在各自那一层的最前。
+    let pinned = RowsShape {
+        pinned: true,
+        ..shape
+    };
+    let viewed = [files[4].clone(), files[0].clone()];
+    let rows = log_file_rows(Some(root), &viewed, pinned, &none);
+    let first = [dir(&ef, &ef, 0, true), file(0, 1), dir("b", "b", 0, true)];
+    assert_eq!(rows[..3], first);
 }
 
 #[test]

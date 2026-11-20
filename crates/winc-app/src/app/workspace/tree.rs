@@ -278,14 +278,13 @@ impl App {
         self.request_redraw();
     }
 
-    /// 让文件树、提交视图的改动列表和历史提交的文件列表按设置合并或逐级显示连续的单子目录。
+    /// 让文件树和提交视图的改动列表按设置合并或逐级显示连续的单子目录。
     pub(in crate::app) fn apply_compact_folders(&mut self) {
         let compact = self.config.compact_folders != Some(false);
         if let Some(ws) = &mut self.editor.workspace {
             ws.set_compact(compact);
         }
         self.git.commit.set_compact(compact);
-        self.set_log_list_compact(compact);
         self.request_redraw();
     }
 

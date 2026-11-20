@@ -860,6 +860,46 @@ fn files_on_a_remote_host_are_listed_by_one_command_there() {
     winc_backend::remote::disconnect(&target);
 }
 
+#[test]
+fn opened_paths_share_the_picker_ranking_but_not_the_workspace_scan() {
+    let base = crate::test_util::scratch("picker-opened-extra");
+    let root = base.join("main");
+    let other = base.join("api");
+    write(&root, "environment.md");
+    write(&other, ".env");
+    std::fs::write(other.join(".gitignore"), ".env\n").unwrap();
+    let env = other.join(".env");
+    let tracked = root.join("environment.md");
+    let outside = base.join(".env");
+    let opened = [
+        env.as_path(),
+        env.as_path(),
+        tracked.as_path(),
+        outside.as_path(),
+    ];
+    let mut idx = FileIndex::collect_now_with(&root, &[other]);
+    assert_eq!(idx.search_with_opened("env", opened.into_iter()).len(), 2);
+    assert_eq!(idx.matches(), Some(2));
+    assert_eq!(idx.quick_open_len(), idx.len() + 1);
+    assert!(idx.position_of(&outside).is_none());
+
+    let hits = idx.search_with_opened("api/.env", opened.into_iter());
+    assert_eq!(hits.len(), 1);
+    assert_eq!(idx.file(hits[0]).unwrap().path, "api/.env");
+    assert_eq!(idx.absolute(hits[0]).as_deref(), Some(env.as_path()));
+    assert_eq!(idx.position_of(&env), Some(hits[0]));
+    assert_eq!(idx.indexed(&tracked), Some(true));
+    assert_eq!(idx.indexed(&env), Some(false));
+    assert_eq!(idx.indexed(&outside), None);
+    // 普通的查找不列入访问过的文件，下标、文件数也不再算上它们。
+    assert!(idx.search("api/.env").is_empty());
+    assert_eq!(idx.matches(), Some(0));
+    assert_eq!(idx.quick_open_len(), idx.len());
+    assert!(idx.position_of(&env).is_none());
+    assert_eq!(idx.search_with_opened("api/.env", opened.into_iter()), hits);
+    std::fs::remove_dir_all(base).unwrap();
+}
+
 /// 附加的目录一并收录：路径以目录名开头，按绝对路径查找和还原都对应到所在的目录。
 #[test]
 fn extra_folders_are_indexed_under_their_name() {

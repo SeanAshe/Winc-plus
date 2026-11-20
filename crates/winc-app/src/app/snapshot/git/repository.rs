@@ -64,6 +64,10 @@ fn a_branch_can_be_renamed_including_the_current_one() {
         .unwrap();
     app.run_branch_op(BranchOp::Rename, branch.clone());
     assert_eq!(app.focus, Focus::Prompt);
+    // 输入文字的输入条比跳转到行的宽，长分支名写得下。
+    let editor = app.layout.editor;
+    assert_eq!(app.prompt_bar().w, 480.0_f32.min(editor.w - 40.0));
+    shoot(&mut app, "git-rename-branch");
     assert_eq!(
         app.bars.goto_input.as_ref().unwrap().selected_text(),
         branch.name
@@ -148,17 +152,118 @@ fn tags_can_be_pushed_and_deleted_locally_and_remotely() {
     assert_eq!(tags(&work).trim(), "");
 }
 
+/// 提交菜单列出指向它的分支、标签：分支不超过两个、标签只有一个时各自一个子菜单，多了收进
+/// 「分支」「标签」一个子菜单。
 #[test]
-fn a_commit_menu_lists_its_tags() {
-    use crate::app::input::context_menu::{MenuEntry, log_commit_menu};
-    let menu = log_commit_menu(true, "main", &["v1", "v2"]);
-    let submenus: Vec<&str> = (menu.iter())
+fn a_commit_menu_lists_its_branches_and_tags() {
+    use crate::app::input::context_menu::{CommitActions, MenuEntry, log_commit_menu};
+    let all = CommitActions {
+        enabled: true,
+        undo: true,
+        push: true,
+        on_head: None,
+        child: false,
+        parent: true,
+        changes: true,
+    };
+    let titles = |menu: &[MenuEntry]| -> Vec<String> {
+        (menu.iter())
+            .filter_map(|entry| match entry {
+                MenuEntry::Submenu(title, _) => Some(title.clone()),
+                _ => None,
+            })
+            .filter(|title| title.contains("分支") || title.contains("标签"))
+            .collect()
+    };
+    let refs = |names: &[&str]| -> Vec<(String, Vec<MenuEntry>)> {
+        names
+            .iter()
+            .map(|n| ((*n).to_owned(), Vec::new()))
+            .collect()
+    };
+    let menu = log_commit_menu(all, "main", refs(&["main", "dev"]), &["v1"]);
+    assert_eq!(titles(&menu), ["分支「main」", "分支「dev」", "标签「v1」"]);
+    let menu = log_commit_menu(all, "main", refs(&["a", "b", "c"]), &["v1", "v2"]);
+    assert_eq!(titles(&menu), ["分支", "标签"]);
+    let grouped = menu.iter().find_map(|entry| match entry {
+        MenuEntry::Submenu(title, items) if title == "分支" => Some(items),
+        _ => None,
+    });
+    assert_eq!(titles(grouped.unwrap()).len(), 0);
+    assert_eq!(grouped.unwrap().len(), 3);
+
+    // 分组顺序与 IDEA 相同：复制与拣选在最前，新建分支、标签在分支子菜单之后，转到在最后。
+    let items: Vec<MenuCommand> = (menu.iter())
         .filter_map(|entry| match entry {
-            MenuEntry::Submenu(title, _) if title.contains('v') => Some(title.as_str()),
+            MenuEntry::Item(command, _) => Some(*command),
             _ => None,
         })
         .collect();
-    assert_eq!(submenus.len(), 2);
+    assert_eq!(items.first(), Some(&MenuCommand::LogCopyOid));
+    assert_eq!(items.last(), Some(&MenuCommand::LogGoToParent));
+    let at = |c: MenuCommand| items.iter().position(|&i| i == c).unwrap();
+    assert!(at(MenuCommand::LogCherryPick) < at(MenuCommand::LogCheckout));
+    assert!(at(MenuCommand::LogRevert) < at(MenuCommand::LogUndoCommit));
+    assert!(at(MenuCommand::LogUndoCommit) < at(MenuCommand::LogReword));
+    assert!(at(MenuCommand::LogReword) < at(MenuCommand::LogDropCommit));
+    assert!(at(MenuCommand::LogDropCommit) < at(MenuCommand::LogInteractiveRebase));
+    assert!(at(MenuCommand::LogInteractiveRebase) < at(MenuCommand::LogPushUpTo));
+    assert!(at(MenuCommand::LogPushUpTo) < at(MenuCommand::LogNewBranch));
+    // 复制提交号旁写着日志中复制的快捷键。
+    let copy = MenuCommand::LogCopyOid.shortcut(crate::keymap::Context::Editor);
+    assert_eq!(
+        copy,
+        crate::keymap::single_stroke(Action::Copy, crate::keymap::Context::Editor)
+    );
+    assert!(copy.is_some());
+}
+
+/// 日志里右键一个提交：从指向它的分支的子菜单把这个分支合并到当前分支。
+#[test]
+fn a_branch_on_a_commit_merges_from_the_commit_menu() {
+    use crate::app::git::branch::BranchOp;
+    use crate::app::input::context_menu::MenuTarget;
+    let dir = search_folder("git-log-branch-merge");
+    if !make_repo(&dir) {
+        return;
+    }
+    git_in(&dir, &["switch", "-q", "-c", "dev"]);
+    std::fs::write(dir.join("dev.txt"), "dev\n").unwrap();
+    git_in(&dir, &["add", "dev.txt"]);
+    git_in(&dir, &["commit", "-q", "-m", "dev 上的提交"]);
+    git_in(&dir, &["switch", "-q", "main"]);
+    let Some(mut app) = git_app(&dir) else {
+        return;
+    };
+    app.git_refresh();
+    assert!(show_all_log(&mut app));
+    paint(&mut app);
+    let view = app.editor.active().unwrap().log.as_deref().unwrap();
+    let dev_tip = view
+        .commits
+        .iter()
+        .find(|c| c.subject == "dev 上的提交")
+        .unwrap();
+    let oid = dev_tip.oid.clone();
+    let row = app.log_parts().list;
+    app.open_context_menu(MenuTarget::LogCommit(oid), (row.x + 200.0, row.y + 40.0));
+    paint(&mut app);
+    shoot(&mut app, "git-log-commit-branch-menu");
+    let dev = (app.git.branches.iter())
+        .position(|b| !b.remote && b.name == "dev")
+        .unwrap();
+    let merge = MenuCommand::GitBranch(BranchOp::Merge, dev);
+    assert!(menu_commands(&app).contains(&(merge, true)));
+    app.run_menu_command(merge);
+    app.poll_branch_ops();
+    let merged = Command::new("git")
+        .arg("-C")
+        .arg(&dir)
+        .args(["merge-base", "--is-ancestor", "dev", "main"])
+        .status()
+        .unwrap();
+    assert!(merged.success());
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]
@@ -469,7 +574,7 @@ fn the_push_confirmation_lists_the_commits_it_will_send() {
     app.git_refresh();
     app.ask_push(PushIntent::Push);
     let form = |app: &App| match &app.overlays.form_dialog.as_ref().unwrap().kind {
-        FormKind::Push(form) => form.clone(),
+        FormKind::Transfer(form) => form.clone(),
         kind => panic!("{kind:?}"),
     };
     let shown = form(&app);
@@ -532,7 +637,7 @@ fn the_push_dialog_pushes_to_another_branch_with_tags() {
     app.git_refresh();
     app.ask_push(PushIntent::Push);
     let subjects = |app: &App| match &app.overlays.form_dialog.as_ref().unwrap().kind {
-        FormKind::Push(form) => (form.subjects.clone(), form.total),
+        FormKind::Transfer(form) => (form.subjects.clone(), form.total),
         kind => panic!("{kind:?}"),
     };
     assert_eq!(subjects(&app), (vec!["待评审".to_owned()], 1));
@@ -546,7 +651,7 @@ fn the_push_dialog_pushes_to_another_branch_with_tags() {
             .unwrap()
             .name
             .set_text(name);
-        app.refresh_push_list();
+        app.refresh_transfer_list();
     };
     retarget(&mut app, "old");
     let both = vec!["待评审".to_owned(), "已推送".to_owned()];
@@ -577,6 +682,129 @@ fn the_push_dialog_pushes_to_another_branch_with_tags() {
     assert_ne!(git(&bare, &["rev-parse", "refs/heads/main"]), Some(head));
     let upstream = git(&work, &["rev-parse", "--abbrev-ref", "@{upstream}"]);
     assert_eq!(upstream.as_deref(), Some("origin/main"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 有两个远程时，「拉取自…」从选的远程分支拉取，可以合并或变基；「推送到…」在关了推送确认
+/// 时仍打开推送对话框，推到选的远程。
+#[test]
+fn pull_from_and_push_to_choose_another_remote() {
+    use crate::app::git::form::Direction;
+    let dir = sample_folder("git-two-remotes");
+    let Some(work) = repo_with_remote(&dir) else {
+        return;
+    };
+    let git = |at: &Path, args: &[&str]| {
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(at)
+            .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+            .args(["-c", "commit.gpgsign=false"])
+            .args(args)
+            .output()
+            .unwrap();
+        (out.status.success()).then(|| String::from_utf8_lossy(&out.stdout).trim().to_owned())
+    };
+    // 第二个远程 `mirror` 上另有提交，由另一个克隆推上去。
+    let mirror = dir.join("mirror.git");
+    let mirror_url = mirror.to_str().unwrap();
+    git(&dir, &["init", "-q", "--bare", "-b", "main", "mirror.git"]).unwrap();
+    git(&work, &["remote", "add", "mirror", mirror_url]).unwrap();
+    git(&work, &["push", "-q", "mirror", "main"]).unwrap();
+    let other = dir.join("other");
+    git(&dir, &["clone", "-q", mirror_url, "other"]).unwrap();
+    let push_mirror = |subject: &str| {
+        git(&other, &["commit", "-q", "--allow-empty", "-m", subject]).unwrap();
+        git(&other, &["push", "-q", "origin", "main"]).unwrap();
+        git(&work, &["fetch", "-q", "mirror"]).unwrap();
+    };
+    push_mirror("镜像上的提交");
+    // 变基时由 Winc 运行的 `git` 写提交，需要仓库里配置的身份。
+    git(&work, &["config", "user.name", "t"]).unwrap();
+    git(&work, &["config", "user.email", "t@t"]).unwrap();
+    let Some(mut app) = git_app(&work) else {
+        return;
+    };
+    app.git_refresh();
+    let form = |app: &App| match &app.overlays.form_dialog.as_ref().unwrap().kind {
+        FormKind::Transfer(form) => form.as_ref().clone(),
+        kind => panic!("{kind:?}"),
+    };
+
+    // 两项在「⋯」菜单的远程仓库子菜单最上面。
+    use crate::app::input::context_menu::MenuEntry;
+    let remotes = (app.commit_more_menu().into_iter())
+        .find_map(|entry| match entry {
+            MenuEntry::Submenu(title, items) if title == "远程仓库" => Some(items),
+            _ => None,
+        })
+        .unwrap();
+    let transfer = [Action::GitPullFrom, Action::GitPushTo]
+        .map(|action| MenuEntry::Item(MenuCommand::GitAction(action), true));
+    assert_eq!(remotes[..2], transfer);
+
+    // 默认是上游 `origin/main`，没有新提交；换到 `mirror` 后列出那边的提交。
+    app.run_action(Action::GitPullFrom);
+    let shown = form(&app);
+    assert_eq!(shown.direction, Direction::Pull);
+    assert!(!app.overlays.form_dialog.as_ref().unwrap().copy);
+    assert_eq!((shown.remote.as_str(), shown.total), ("origin", 0));
+    app.choose_form_base(Some("mirror".into()));
+    assert_eq!(form(&app).subjects, ["镜像上的提交"]);
+    // 本地没有记下的远程分支不能拉取。
+    let dialog = app.overlays.form_dialog.as_mut().unwrap();
+    dialog.name.set_text("nope");
+    let dialog = app.overlays.form_dialog.as_ref().unwrap();
+    assert!(!app.form_plan(dialog).enabled);
+    app.overlays
+        .form_dialog
+        .as_mut()
+        .unwrap()
+        .name
+        .set_text("main");
+    app.submit_form_dialog();
+    app.poll_branch_ops();
+    assert!(app.overlays.form_dialog.is_none());
+    let subject = |at: &Path, rev: &str| git(at, &["log", "-1", "--format=%s", rev]);
+    assert_eq!(subject(&work, "HEAD").as_deref(), Some("镜像上的提交"));
+
+    // 两边各有新提交时勾选「变基」：本地提交放到拉取的提交之后。
+    // 本地提交改了文件：空提交在变基时可能被丢掉。
+    push_mirror("镜像第二个");
+    std::fs::write(work.join("local.txt"), "本地\n").unwrap();
+    git(&work, &["add", "local.txt"]).unwrap();
+    git(&work, &["commit", "-q", "-m", "本地提交"]).unwrap();
+    // 仓库配置为变基拉取：「变基」默认勾上。
+    git(&work, &["config", "pull.rebase", "true"]).unwrap();
+    app.git_refresh();
+    app.run_action(Action::GitPullFrom);
+    assert!(app.overlays.form_dialog.as_ref().unwrap().copy);
+    app.choose_form_base(Some("mirror".into()));
+    app.submit_form_dialog();
+    app.poll_branch_ops();
+    assert_eq!(subject(&work, "HEAD").as_deref(), Some("本地提交"));
+    assert_eq!(subject(&work, "HEAD~1").as_deref(), Some("镜像第二个"));
+
+    // 关了推送确认，「推送到…」仍打开对话框；推到 `mirror`，上游不变。
+    app.config.git_confirm_push = Some(false);
+    app.git_refresh();
+    app.run_action(Action::GitPushTo);
+    assert!(matches!(form(&app).direction, Direction::Push(_)));
+    app.choose_form_base(Some("mirror".into()));
+    app.submit_form_dialog();
+    app.poll_branch_ops();
+    let head = git(&work, &["rev-parse", "HEAD"]);
+    assert_eq!(git(&mirror, &["rev-parse", "refs/heads/main"]), head);
+    let upstream = git(&work, &["rev-parse", "--abbrev-ref", "@{upstream}"]);
+    assert_eq!(upstream.as_deref(), Some("origin/main"));
+
+    // 游离的 `HEAD` 上没有分支：两个对话框都不打开，说明原因。
+    git(&work, &["switch", "-q", "--detach"]).unwrap();
+    app.git_refresh();
+    for action in [Action::GitPullFrom, Action::GitPushTo] {
+        app.run_action(action);
+        assert!(app.overlays.form_dialog.is_none(), "{action:?}");
+    }
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -719,5 +947,78 @@ fn a_missing_git_program_is_named_and_clearing_it_recovers() {
 
     app.set_git_path(None);
     assert!(app.git.status.is_some() && app.git.problem.is_none() && !app.git.missing);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 拉取方式设为变基：平时的拉取变基，按住 ⌥ 换成拉取并合并；拉取的说明写明方式，拉取对话框
+/// 默认勾选变基。
+#[test]
+fn the_pull_mode_setting_decides_how_pull_brings_in_commits() {
+    use crate::app::input::context_menu::MenuEntry;
+    use winit::keyboard::ModifiersState;
+    let dir = sample_folder("git-pull-mode");
+    let Some(work) = repo_with_remote(&dir) else {
+        return;
+    };
+    let git = |at: &Path, args: &[&str]| {
+        let ok = Command::new("git")
+            .arg("-C")
+            .arg(at)
+            .args(["-c", "user.name=t", "-c", "user.email=t@t"])
+            .args(["-c", "commit.gpgsign=false"])
+            .args(args)
+            .output()
+            .is_ok_and(|o| o.status.success());
+        assert!(ok, "git {args:?}");
+    };
+    // 另一个克隆推上去一个提交，本地也有一个：两边分叉。
+    git(&dir, &["clone", "-q", "bare.git", "other"]);
+    let other = dir.join("other");
+    std::fs::write(other.join("theirs.txt"), "theirs\n").unwrap();
+    git(&other, &["add", "theirs.txt"]);
+    git(&other, &["commit", "-q", "-m", "theirs"]);
+    git(&other, &["push", "-q", "origin", "main"]);
+    std::fs::write(work.join("ours.txt"), "ours\n").unwrap();
+    git(&work, &["add", "ours.txt"]);
+    git(&work, &["commit", "-q", "-m", "ours"]);
+    git(&work, &["fetch", "-q"]);
+    // 变基要写提交：仓库自己配好身份，不依赖本机的全局配置。
+    git(&work, &["config", "user.name", "t"]);
+    git(&work, &["config", "user.email", "t@t"]);
+    let Some(mut app) = git_app(&work) else {
+        return;
+    };
+    app.set_pull_mode(winc_config::PullMode::Rebase);
+    app.git_refresh();
+
+    let label = app.menu_label(MenuCommand::GitPull);
+    assert!(label.subtitle.is_some_and(|s| s.ends_with("变基")));
+    app.pointer.modifiers = ModifiersState::ALT;
+    let alternate = app.picker_action_command(crate::app::PickerPart::Pull);
+    assert_eq!(alternate, MenuCommand::GitPullMerge);
+    // 「⋯」菜单里拉取的 ⌥ 备选项相同。
+    let more = app.commit_more_menu();
+    let at = more
+        .iter()
+        .position(|e| *e == MenuEntry::Item(MenuCommand::GitPull, true));
+    assert_eq!(
+        at.and_then(|i| more.get(i + 1)),
+        Some(&MenuEntry::Alternate(MenuCommand::GitPullMerge, true))
+    );
+    app.pointer.modifiers = ModifiersState::empty();
+    app.run_action(Action::GitPullFrom);
+    assert!(app.overlays.form_dialog.as_ref().unwrap().copy);
+    app.close_form_dialog();
+
+    app.run_branch_command(MenuCommand::GitPull);
+    app.poll_branch_ops();
+    assert_eq!(
+        output_of(&work, &["rev-list", "--merges", "--count", "HEAD"]).trim(),
+        "0"
+    );
+    assert_eq!(
+        output_of(&work, &["log", "-1", "--format=%s"]).trim(),
+        "ours"
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }

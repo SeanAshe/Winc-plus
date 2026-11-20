@@ -172,6 +172,39 @@ fn hooks_dir(
     Some((dir, label))
 }
 
+/// 把各范围的 `git config --list -z` 输出拼成 `--show-scope` 的格式：每项之前是范围的名字，
+/// 各段之后跟一个 0 字节。
+pub(super) fn join_scopes(scopes: &[(&str, &[u8])]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for (scope, entries) in scopes {
+        for entry in entries.split(|&b| b == 0).filter(|e| !e.is_empty()) {
+            out.extend_from_slice(scope.as_bytes());
+            out.push(0);
+            out.extend_from_slice(entry);
+            out.push(0);
+        }
+    }
+    out
+}
+
+/// 仓库的配置 `local`（`git config --list -z` 的输出）是否开启了 `extensions.worktreeConfig`。
+pub(super) fn worktree_config(local: &[u8]) -> bool {
+    local.split(|&b| b == 0).any(|entry| {
+        let entry = String::from_utf8_lossy(entry);
+        match entry.split_once('\n') {
+            Some((key, value)) => {
+                key == "extensions.worktreeconfig"
+                    && matches!(
+                        value.to_ascii_lowercase().as_str(),
+                        "true" | "yes" | "on" | "1"
+                    )
+            }
+            // 只写了键名的布尔项是真。
+            None => entry == "extensions.worktreeconfig",
+        }
+    })
+}
+
 #[cfg(unix)]
 fn executable(metadata: &winc_backend::fs::Metadata) -> bool {
     metadata.unix.is_some_and(|unix| unix.mode & 0o111 != 0)
@@ -213,6 +246,8 @@ pub(super) struct Trust {
     risks: HashMap<PathBuf, Arc<Risks>>,
     /// 用户信任的仓库和当时记下的 [`Risks::fingerprint`]。
     trusted: HashMap<PathBuf, u64>,
+    /// `git` 不支持 `--show-scope` 的仓库：按范围分别读配置（见 [`Git::config_by_scope`]）。
+    unscoped: std::collections::HashSet<PathBuf>,
 }
 
 impl Git {
@@ -225,16 +260,9 @@ impl Git {
     ///
     /// `git config` 运行失败时返回原因。
     pub fn inspect(&self, root: &Path) -> Result<Arc<Risks>, String> {
-        let mut command = self.at(root);
-        command.args(["-c", "core.fsmonitor=false"]).args([
-            "config",
-            "--list",
-            "--show-scope",
-            "-z",
-        ]);
         // 配置和 hooks 目录的位置互不依赖：远端的仓库上同时读取。
         let common = || git_common_dir(root);
-        let run = || self.run(&mut command, SHOW_TIMEOUT, &Cancel::default());
+        let run = || self.scoped_config(root);
         let (common, stdout) = crate::background::both(winc_backend::is_remote(root), common, run);
         let stdout = stdout?;
         let hooks = common.map(|d| d.join("hooks"));
@@ -247,6 +275,55 @@ impl Git {
         ));
         self.lock().risks.insert(root.to_path_buf(), risks.clone());
         Ok(risks)
+    }
+
+    /// 仓库 `root` 各范围的配置，格式同 `git config --list --show-scope -z`。
+    ///
+    /// `--show-scope` 是 2.26 加入的：更早的 `git` 按用法错误退出（退出码 129）时改为按范围
+    /// 分别读取（[`Git::config_by_scope`]），之后这个仓库直接这样读。
+    fn scoped_config(&self, root: &Path) -> Result<Vec<u8>, String> {
+        if !self.lock().unscoped.contains(root) {
+            let mut command = self.at(root);
+            command
+                .args(["-c", "core.fsmonitor=false"])
+                .args(["config", "--list", "--show-scope", "-z"])
+                .stderr(Stdio::piped());
+            let output = process::run(&mut command, Vec::new(), SHOW_TIMEOUT, &Cancel::default())
+                .map_err(|e| describe(&e))?;
+            match output.status.code() {
+                Some(0) => return Ok(output.stdout),
+                Some(129) => _ = self.lock().unscoped.insert(root.to_path_buf()),
+                _ => return Err(failure(&output.stderr)),
+            }
+        }
+        self.config_by_scope(root)
+    }
+
+    /// 分别读仓库 `root` 系统、用户、仓库和工作树范围的配置（各自 `include` 进来的文件算在同
+    /// 一范围），拼成 `--show-scope` 的格式（[`join_scopes`]），指纹与之相同。
+    ///
+    /// 系统、用户的配置文件不存在时 `git` 报错，按没有配置处理；仓库的配置读不出时返回原因。
+    pub(super) fn config_by_scope(&self, root: &Path) -> Result<Vec<u8>, String> {
+        let list = |scope: &str| {
+            let mut command = self.at(root);
+            command.args(["config", scope, "--includes", "--list", "-z"]);
+            self.run(&mut command, SHOW_TIMEOUT, &Cancel::default())
+        };
+        let remote = winc_backend::is_remote(root);
+        let user = || crate::background::both(remote, || list("--system"), || list("--global"));
+        let ((system, global), local) = crate::background::both(remote, user, || list("--local"));
+        let local = local?;
+        // 没有开启 `extensions.worktreeConfig` 时 `--worktree` 读的就是仓库的配置，不再读。
+        let worktree = match worktree_config(&local) {
+            true => list("--worktree").unwrap_or_default(),
+            false => Vec::new(),
+        };
+        Ok(join_scopes(&[
+            ("system", &system.unwrap_or_default()),
+            ("global", &global.unwrap_or_default()),
+            ("local", &local),
+            ("worktree", &worktree),
+        ]))
     }
 
     /// 记下用户信任了仓库 `root` 的 `fingerprint` 所对应的配置。

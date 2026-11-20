@@ -214,6 +214,20 @@ impl App {
                 self.git.log.details_w = Some(self.log_parts().details.w);
                 self.request_redraw();
             }
+            Drag::DiffFiles {
+                start_x,
+                start_width,
+            } => self.drag_log_files_edge(x, (start_x, start_width)),
+            Drag::LogBranches {
+                start_x,
+                start_width,
+            } => {
+                // 按排版允许的范围限制后再保存，使保存的宽度等于绘制的宽度。
+                self.git.log.branches_w = Some(start_width + (x - start_x));
+                let drawn = self.log_parts().branches_w;
+                self.git.log.branches_w = (drawn > 0.0).then_some(drawn);
+                self.request_redraw();
+            }
             Drag::Scrollbar {
                 bar: bar @ (Scrollbar::Tree | Scrollbar::TreeHorizontal),
                 grab,
@@ -271,17 +285,13 @@ impl App {
                 bar: Scrollbar::Commit,
                 grab,
             } => {
-                // 历史提交的文件列表借用提交视图的列表，滚动方式相同。
-                let drag = |app: &mut App| {
-                    let list = app.commit_parts().list;
-                    let max = app.commit_max_scroll();
-                    if let Some(thumb) = scrollbar_thumb(list, 0.0, max + list.h) {
-                        app.git.commit.scroll =
-                            scroll_for_thumb(list.y, list.h, thumb.h, y, grab, max);
-                    }
-                };
-                if self.with_log_list(drag).is_none() && self.commit_shown() {
-                    drag(self);
+                let list = self.commit_parts().list;
+                let max = self.commit_max_scroll();
+                if self.commit_shown()
+                    && let Some(thumb) = scrollbar_thumb(list, 0.0, max + list.h)
+                {
+                    self.git.commit.scroll =
+                        scroll_for_thumb(list.y, list.h, thumb.h, y, grab, max);
                 }
                 self.request_redraw();
             }

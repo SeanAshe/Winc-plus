@@ -169,6 +169,7 @@ impl ApplicationHandler<UserEvent> for App {
                 &ui,
                 &terminal,
                 self.font_weight(),
+                self.terminal_font_weight(),
             ),
         };
         let renderer = match renderer {

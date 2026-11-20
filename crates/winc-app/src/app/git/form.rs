@@ -1,4 +1,4 @@
-//! Git 的表单对话框：「新建工作树」「新建分支」。
+//! Git 的表单对话框：「新建工作树」「新建分支」「推送」「拉取」等。
 //!
 //! 窗口正中的功能对话框，填名称、选起点，按「创建」执行；和设置浮层同属模态卡片，各种表单共用一套
 //! 状态、几何和绘制，只是行和选项不同（[`FormKind`]）。`git`、`ssh` 的输入请求同样使用该对话框。
@@ -51,32 +51,43 @@ pub(crate) enum FormKind {
     Rebase(Box<RebaseForm>),
     /// 连接远端主机：主机、端口，见 [`crate::app::remote`]。
     Connect,
-    /// 推送：远程、目标分支、待推送的提交，可一并推送标签。
-    Push(Box<PushForm>),
+    /// 推送或拉取：远程、分支、会送出或带来的提交；推送可一并推送标签，拉取可选变基。
+    Transfer(Box<TransferForm>),
 }
 
-/// 推送对话框打开时的内容。
+/// 推送或拉取对话框的方向。
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct PushForm {
-    /// 推送还是发布。
-    pub intent: PushIntent,
+pub(crate) enum Direction {
+    /// 推送、发布或同步。
+    Push(PushIntent),
+    /// 从选的远程分支拉取到当前分支。
+    Pull,
+}
+
+/// 推送或拉取对话框打开时的内容。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TransferForm {
+    /// 推送还是拉取。
+    pub direction: Direction,
     /// 当前分支的名字。
     pub branch: String,
     /// 默认的远程：上游所在的远程，发布时是选出的远程。
     pub remote: String,
-    /// 默认的目标分支：上游的分支名，发布时与当前分支同名。
+    /// 默认的远程分支：上游的分支名，没有上游时与当前分支同名。
     pub target: String,
-    /// 待推送的提交的标题，最新的在前；提交多时只有最新的几个。
+    /// 会送出（推送）或带来（拉取）的提交的标题，最新的在前；提交多时只有最新的几个。
     pub subjects: Vec<String>,
-    /// 待推送的提交数。
+    /// 会送出或带来的提交数。
     pub total: usize,
     /// 提交列表按哪个目标读出（远程、分支）；改了目标以后在后台重读，读到时换上。
     pub read_for: (String, String),
     /// 提交列表占的行数：打开以来最多的一次，改目标时对话框不忽高忽低。
     pub rows: usize,
+    /// 推送到这个提交为止（完整的提交号）；`None` 时推送 `HEAD`。
+    pub upto: Option<String>,
 }
 
-impl PushForm {
+impl TransferForm {
     /// 提交列表占几行：每个标题一行，没有列出的提交另占一行；没有待推送的提交时是一行说明。
     pub(crate) fn lines(&self) -> usize {
         let more = usize::from(self.total > self.subjects.len());
@@ -84,8 +95,8 @@ impl PushForm {
     }
 }
 
-/// 推送对话框改了目标后在后台读到的提交：读的目标（远程、分支）、标题和总数。
-pub(crate) type PushOutgoing = ((String, String), Vec<String>, usize);
+/// 推送或拉取对话框改了目标后在后台读到的提交：读的目标（远程、分支）、标题和总数。
+pub(crate) type TransferCommits = ((String, String), Vec<String>, usize);
 
 impl FormKind {
     /// 返回使用询问对话框版式的表单的内容；其他表单返回 `None`。
@@ -101,7 +112,7 @@ impl FormKind {
             FormKind::Worktree
             | FormKind::Branch { .. }
             | FormKind::Clone
-            | FormKind::Push(_)
+            | FormKind::Transfer(_)
             | FormKind::Rebase(_) => None,
         }
     }
@@ -185,36 +196,89 @@ impl App {
         if self.overlays.form_dialog.is_some() {
             return;
         }
+        let (branch, tracked) = self.current_tracking();
+        let (remote, target) = match (&intent, tracked) {
+            (PushIntent::Publish(remote), _) => (remote.clone(), branch.clone()),
+            (_, Some(tracked)) => tracked,
+            (_, None) => (String::new(), branch.clone()),
+        };
+        let commits = Some((subjects, total));
+        self.show_transfer_dialog(Direction::Push(intent), branch, (remote, target), commits);
+    }
+
+    /// 打开拉取对话框：远程和分支先填上游，没有上游时是发布用的远程和同名分支；提交列表随后
+    /// 在后台读出。
+    pub(in crate::app) fn open_pull_dialog(&mut self) {
+        if self.overlays.form_dialog.is_some() {
+            return;
+        }
+        let (branch, tracked) = self.current_tracking();
+        let fallback = || {
+            let origin = self.git.remotes.iter().find(|r| *r == "origin");
+            let remote = (self.git.publish_remote.clone())
+                .or_else(|| origin.or(self.git.remotes.first()).cloned());
+            (remote.unwrap_or_default(), branch.clone())
+        };
+        let target = tracked.unwrap_or_else(fallback);
+        self.show_transfer_dialog(Direction::Pull, branch, target, None);
+        // 「变基」默认按设置的拉取方式勾选，跟随 Git 配置时按仓库的配置。
+        let rebase = self.pulls_with_rebase();
+        if let Some(dialog) = &mut self.overlays.form_dialog {
+            dialog.copy = rebase;
+        }
+        self.refresh_transfer_list();
+    }
+
+    /// 返回当前分支的名字（游离时为 `HEAD`）和它的上游（远程、分支）。
+    fn current_tracking(&self) -> (String, Option<(String, String)>) {
         let current = self.git.branches.iter().find(|b| b.current && !b.remote);
         let branch = current.map_or("HEAD", |b| b.name.as_str()).to_owned();
         let upstream = current.and_then(|b| b.upstream.clone()).unwrap_or_default();
         // 上游写作「远程名/分支名」，远程名本身可以含 `/`，按已知的远程名匹配最长的一个。
         let tracked = (self.git.remotes.iter())
             .filter(|r| upstream.starts_with(&format!("{r}/")))
-            .max_by_key(|r| r.len());
-        let (remote, target) = match (&intent, tracked) {
-            (PushIntent::Publish(remote), _) => (remote.clone(), branch.clone()),
-            (_, Some(remote)) => (remote.clone(), upstream[remote.len() + 1..].to_owned()),
-            (_, None) => (upstream, branch.clone()),
+            .max_by_key(|r| r.len())
+            .map(|r| (r.clone(), upstream[r.len() + 1..].to_owned()));
+        (branch, tracked)
+    }
+
+    /// 显示推送或拉取对话框：默认的目标是 `(remote, target)`，`commits` 是已按它读到的提交
+    /// （标题、总数），`None` 时尚未读；键盘焦点在主按钮上，回车即执行。
+    fn show_transfer_dialog(
+        &mut self,
+        direction: Direction,
+        branch: String,
+        (remote, target): (String, String),
+        commits: Option<(Vec<String>, usize)>,
+    ) {
+        let read_for = match commits {
+            Some(_) => (remote.clone(), target.clone()),
+            None => Default::default(),
         };
+        let (subjects, total) = commits.unwrap_or_default();
         let mut name = ref_name_field();
         name.set_text(&target);
         name.set_caret(target.len(), false);
-        let form = PushForm {
-            intent,
+        let form = TransferForm {
+            direction,
             branch,
             remote: remote.clone(),
-            target: target.clone(),
+            target,
             subjects,
             total,
-            read_for: (remote.clone(), target),
+            read_for,
             rows: 0,
+            upto: None,
         };
-        let form = PushForm {
+        let form = TransferForm {
             rows: form.lines(),
             ..form
         };
-        self.show_form_dialog(FormKind::Push(Box::new(form)), name, DialogPart::Confirm);
+        self.show_form_dialog(
+            FormKind::Transfer(Box::new(form)),
+            name,
+            DialogPart::Confirm,
+        );
         if let Some(dialog) = &mut self.overlays.form_dialog {
             dialog.base = Some(remote);
             dialog.copy = false;
@@ -304,6 +368,7 @@ impl App {
         match self.overlays.form_dialog.as_ref().map(|d| &d.kind) {
             Some(FormKind::Clone) => DialogLayout::clone_form(window),
             Some(FormKind::Connect) => DialogLayout::connect_form(window),
+            Some(FormKind::Rebase(form)) if form.reword => DialogLayout::reword(window),
             Some(FormKind::Rebase(form)) => {
                 DialogLayout::rebase(window, form.rows.len(), form.pushed > 0)
             }
@@ -317,12 +382,17 @@ impl App {
             Some(FormKind::Branch { .. }) => {
                 DialogLayout::compute(window, false, &[DialogPart::Checkout])
             }
-            // 两个勾选项借用已有的部件：`Copy` 是「推送标签」，`NewWindow` 是「不再询问」。
-            Some(FormKind::Push(form)) => DialogLayout::push(
-                window,
-                form.rows,
-                &[DialogPart::Copy, DialogPart::NewWindow],
-            ),
+            // 勾选项借用已有的部件：推送时 `Copy` 是「推送标签」，`NewWindow` 是「不再询问」；
+            // 拉取时 `Copy` 是「变基」。推送到某个提交为止总要确认，没有「不再询问」。
+            Some(FormKind::Transfer(form)) => {
+                let options: &[DialogPart] = match form.direction {
+                    Direction::Push(_) if form.upto.is_none() => {
+                        &[DialogPart::Copy, DialogPart::NewWindow]
+                    }
+                    Direction::Push(_) | Direction::Pull => &[DialogPart::Copy],
+                };
+                DialogLayout::push(window, form.rows, options)
+            }
             _ if self.config.git_worktree_copy.is_empty() => {
                 DialogLayout::compute(window, true, &[DialogPart::NewWindow])
             }
@@ -351,7 +421,7 @@ impl App {
                 self.remote_plan(editing.as_deref(), dialog.name.text(), dialog.second.text())
             }
             FormKind::Connect => self.connect_plan(dialog),
-            FormKind::Push(form) => self.push_plan(dialog, form),
+            FormKind::Transfer(form) => self.transfer_plan(dialog, form),
             FormKind::GoToRevision | FormKind::CompareRevision { .. } => {
                 let revision = dialog.name.text().trim();
                 // 提交号、分支名和标签名都不含空白，也不以 `-` 开头。
@@ -401,18 +471,33 @@ impl App {
         }
     }
 
-    /// 推送：目标分支不能为空，不含空白，也不以 `-` 开头；有多个远程时可以换远程。
-    fn push_plan(&self, dialog: &FormDialog, form: &PushForm) -> FormPlan {
+    /// 推送或拉取：分支不能为空，不含空白，也不以 `-` 开头；拉取的分支要是本地记下的远程分支；
+    /// 推送到某个提交为止时要有会送出的提交；有多个远程时可以换远程。
+    fn transfer_plan(&self, dialog: &FormDialog, form: &TransferForm) -> FormPlan {
         let name = dialog.name.text().trim();
         let invalid = name.starts_with('-') || name.contains(char::is_whitespace);
         let remote = dialog.base.clone().unwrap_or_else(|| form.remote.clone());
+        let pull = form.direction == Direction::Pull;
+        let tracking = format!("{remote}/{name}");
+        let missing = pull
+            && !invalid
+            && !name.is_empty()
+            && !(self.git.branches.iter()).any(|b| b.remote && b.name == tracking);
+        let read = form.read_for.0 == remote && form.read_for.1 == name;
+        let nothing = form.upto.is_some() && read && form.total == 0;
+        let problem = match (invalid, missing) {
+            (true, _) => Some(t!("git-push-form-branch-invalid").to_owned()),
+            (false, true) => Some(t!("git-pull-form-branch-missing").to_owned()),
+            _ => None,
+        };
         FormPlan {
-            problem: invalid.then(|| t!("git-push-form-branch-invalid").to_owned()),
-            confirm: match form.intent {
-                PushIntent::Publish(_) => t!("git-push-confirm-publish-button"),
-                _ => t!("git-push-confirm-push-button"),
+            confirm: match &form.direction {
+                Direction::Push(PushIntent::Publish(_)) => t!("git-push-confirm-publish-button"),
+                Direction::Push(_) => t!("git-push-confirm-push-button"),
+                Direction::Pull => t!("git-pull-form-button"),
             },
-            enabled: !name.is_empty() && !invalid && !remote.is_empty(),
+            enabled: !name.is_empty() && problem.is_none() && !remote.is_empty() && !nothing,
+            problem,
             base: remote,
             base_enabled: self.git.remotes.len() > 1,
             dir: None,
@@ -600,11 +685,18 @@ impl App {
             | FormKind::RenameGroup
             | FormKind::LogPath => {}
             FormKind::Clone => self.submit_clone(),
-            FormKind::Push(form) => {
+            FormKind::Transfer(form) => {
                 let remote = dialog.base.clone().unwrap_or_else(|| form.remote.clone());
                 let target = dialog.name.text().trim().to_owned();
-                let (tags, never) = (dialog.copy, dialog.new_window);
-                self.submit_push(*form, (remote, target), tags, never);
+                match form.direction {
+                    Direction::Push(intent) => {
+                        let defaults = (form.remote, form.target);
+                        let (tags, never) = (dialog.copy, dialog.new_window);
+                        let to = (form.upto, remote, target);
+                        self.submit_push(intent, defaults, to, tags, never);
+                    }
+                    Direction::Pull => self.submit_pull((remote, target), dialog.copy),
+                }
             }
             FormKind::Rebase(_) => self.submit_rebase(),
             FormKind::Remote { editing } => self.submit_remote(editing),
@@ -653,7 +745,10 @@ impl App {
         };
         let plan = self.form_plan(dialog);
         if let FormKind::Rebase(form) = &dialog.kind {
-            let mut order = vec![DialogPart::RebaseList];
+            let mut order = Vec::new();
+            if !form.reword {
+                order.push(DialogPart::RebaseList);
+            }
             if form.rewording() {
                 order.push(DialogPart::Branch);
             }
@@ -665,8 +760,8 @@ impl App {
         }
         let layout = self.dialog_layout();
         let mut order = Vec::new();
-        // 推送对话框的远程菜单在分支输入框上面，按从上到下的顺序先到它。
-        let pushing = matches!(dialog.kind, FormKind::Push(_));
+        // 推送、拉取对话框的远程菜单在分支输入框上面，按从上到下的顺序先到它。
+        let pushing = matches!(dialog.kind, FormKind::Transfer(_));
         if pushing && plan.base_enabled {
             order.push(DialogPart::Base);
         }
@@ -841,7 +936,7 @@ impl App {
                 use crate::app::input::context_menu::{MenuTarget, menu_below};
                 let base = self.dialog_layout().base;
                 let target = match shown {
-                    Some(FormKind::Push(_)) => MenuTarget::FormRemote,
+                    Some(FormKind::Transfer(_)) => MenuTarget::FormRemote,
                     _ => MenuTarget::FormBase,
                 };
                 self.open_context_menu(target, menu_below(base));
@@ -891,7 +986,7 @@ impl App {
         if let Some(dialog) = &mut self.overlays.form_dialog {
             dialog.base = base;
         }
-        self.refresh_push_list();
+        self.refresh_transfer_list();
         self.request_redraw();
     }
 
@@ -910,14 +1005,14 @@ impl App {
         }
     }
 
-    /// 推送对话框的目标（远程、分支）改了以后，在后台重读会送出的提交，读到时由
-    /// [`App::take_push_outgoing`] 换上；目标没变或分支名无效时不读。
-    pub(in crate::app) fn refresh_push_list(&mut self) {
+    /// 推送或拉取对话框的目标（远程、分支）改了以后，在后台重读会送出或带来的提交，读到时由
+    /// [`App::take_transfer_commits`] 换上；目标没变或分支名无效时不读。
+    pub(in crate::app) fn refresh_transfer_list(&mut self) {
         use winc_editor::git::Outgoing;
         let Some(dialog) = &mut self.overlays.form_dialog else {
             return;
         };
-        let FormKind::Push(form) = &mut dialog.kind else {
+        let FormKind::Transfer(form) = &mut dialog.kind else {
             return;
         };
         let remote = dialog.base.clone().unwrap_or_else(|| form.remote.clone());
@@ -929,39 +1024,44 @@ impl App {
         }
         form.read_for = wanted.clone();
         let default = wanted.0 == form.remote && wanted.1 == form.target;
-        let publish = matches!(form.intent, PushIntent::Publish(_));
-        let (Some(root), slot) = (self.git.root.clone(), Arc::clone(&self.git.push_outgoing))
-        else {
+        let direction = form.direction.clone();
+        let head = form.upto.clone().unwrap_or_else(|| "HEAD".to_owned());
+        let (Some(root), slot) = (
+            self.git.root.clone(),
+            Arc::clone(&self.git.transfer_commits),
+        ) else {
             return;
         };
         self.spawn_git(UserEvent::GitStatus, move |tool| {
             let (remote, branch) = &wanted;
-            let target = match (default, publish) {
-                (true, true) => Outgoing::Publish,
-                (true, false) => Outgoing::Upstream,
-                (false, _) => Outgoing::To { remote, branch },
+            let target = match (&direction, default) {
+                (Direction::Pull, _) => None,
+                (Direction::Push(PushIntent::Publish(_)), true) => Some(Outgoing::Publish),
+                (Direction::Push(_), true) => Some(Outgoing::Upstream),
+                (Direction::Push(_), false) => Some(Outgoing::To { remote, branch }),
             };
-            let read = tool
-                .ok()
-                .map(|git| git.outgoing(&root, target, PUSH_PREVIEW));
+            let read = tool.ok().map(|git| match target {
+                Some(target) => git.outgoing(&root, target, &head, PUSH_PREVIEW),
+                None => git.incoming(&root, remote, branch, PUSH_PREVIEW),
+            });
             let (subjects, total) = read.and_then(Result::ok).unwrap_or_default();
             let read = Some((wanted.clone(), subjects, total));
             *slot.lock().unwrap_or_else(PoisonError::into_inner) = read;
         });
         // 没有事件循环（测试中）时后台的工作已经就地做完：直接取用。
-        self.take_push_outgoing();
+        self.take_transfer_commits();
     }
 
-    /// 收下 [`App::refresh_push_list`] 读到的提交；读的不是对话框现在的目标时不用。
-    pub(in crate::app) fn take_push_outgoing(&mut self) {
-        let read = (self.git.push_outgoing.lock())
+    /// 收下 [`App::refresh_transfer_list`] 读到的提交；读的不是对话框现在的目标时不用。
+    pub(in crate::app) fn take_transfer_commits(&mut self) {
+        let read = (self.git.transfer_commits.lock())
             .unwrap_or_else(PoisonError::into_inner)
             .take();
         let Some((target, subjects, total)) = read else {
             return;
         };
         let dialog = self.overlays.form_dialog.as_mut();
-        let Some(FormKind::Push(form)) = dialog.map(|d| &mut d.kind) else {
+        let Some(FormKind::Transfer(form)) = dialog.map(|d| &mut d.kind) else {
             return;
         };
         if form.read_for == target {
@@ -972,7 +1072,7 @@ impl App {
         }
     }
 
-    /// 推送对话框的远程菜单里第 `i` 个远程是不是现在选的。
+    /// 推送、拉取对话框的远程菜单里第 `i` 个远程是不是现在选的。
     pub(in crate::app) fn form_remote_chosen(&self, i: usize) -> bool {
         let chosen = (self.overlays.form_dialog.as_ref()).and_then(|d| d.base.as_deref());
         chosen.is_some() && chosen == self.git.remotes.get(i).map(String::as_str)

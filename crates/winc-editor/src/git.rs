@@ -1013,7 +1013,8 @@ impl Git {
         }
     }
 
-    /// 推送当前分支。
+    /// 推送当前分支：有上游时推到上游，上游与当前分支不同名时写明推到上游的分支（`git` 默认
+    /// 拒绝推到不同名的上游）；推送去另一个远程或设置了 `push.default` 时按其设置。
     ///
     /// 没有上游时发布到 [`Git::publish_target`] 选出的远程（见 [`Git::publish`]）。
     ///
@@ -1023,7 +1024,9 @@ impl Git {
     pub fn push(&self, root: &Path, has_upstream: bool) -> Result<String, String> {
         self.require_trust(root)?;
         if has_upstream {
-            return self.operate(root, &["push"]);
+            let mut args = vec!["push".to_owned()];
+            args.extend(self.push_target(root, &Cancel::default()));
+            return self.operate(root, &args);
         }
         let remote = self.publish_target(root)?;
         self.publish(root, &remote)
@@ -1047,8 +1050,8 @@ impl Git {
         )
     }
 
-    /// 把当前分支推送到远程 `remote` 的分支 `branch`；`tags` 为真时一并推送全部标签，`track`
-    /// 为真时把它设为上游。
+    /// 把 `head`（`HEAD` 或一个提交号）推送到远程 `remote` 的分支 `branch`；`tags` 为真时一并
+    /// 推送全部标签，`track` 为真时把它设为上游。
     ///
     /// # Errors
     ///
@@ -1056,8 +1059,7 @@ impl Git {
     pub fn push_to(
         &self,
         root: &Path,
-        remote: &str,
-        branch: &str,
+        (head, remote, branch): (&str, &str, &str),
         tags: bool,
         track: bool,
     ) -> Result<String, String> {
@@ -1065,7 +1067,7 @@ impl Git {
         if remote.starts_with('-') || branch.starts_with('-') {
             return Err(winc_i18n::t!("git-push-no-remote").to_owned());
         }
-        let spec = format!("HEAD:refs/heads/{branch}");
+        let spec = format!("{head}:refs/heads/{branch}");
         let mut args = vec!["push"];
         if tags {
             args.push("--tags");
@@ -1096,11 +1098,7 @@ impl Git {
     /// 仍然留着 `branch.<名字>.remote`。
     fn preferred_remote(&self, root: &Path) -> Vec<String> {
         let cancel = Cancel::default();
-        let mut command = self.command(root);
-        command.args(["symbolic-ref", "--quiet", "--short", "HEAD"]);
-        let branch = self.run(&mut command, STATUS_TIMEOUT, &cancel);
-        let branch = branch.map(|out| String::from_utf8_lossy(&out).trim().to_owned());
-        let branch = branch.unwrap_or_default();
+        let branch = self.current_branch(root, &cancel).unwrap_or_default();
         [
             format!("branch.{branch}.pushRemote"),
             "remote.pushDefault".to_owned(),
@@ -1121,6 +1119,9 @@ impl Git {
             .env("GIT_TERMINAL_PROMPT", "0")
             // 不打开编辑器：`rebase --continue` 等操作会打开它修改提交信息，这里沿用原来的信息。
             .env("GIT_EDITOR", ":")
+            // 待办列表也不打开编辑器（`sequence.editor` 优先于 `GIT_EDITOR`）：`pull.rebase` 设为
+            // `interactive` 时按 `git` 生成的待办执行；交互式变基另行指定。
+            .env("GIT_SEQUENCE_EDITOR", ":")
             // 不验证签名：验证需要运行 `gpg.program`，仓库配置不可信时它可以是任意命令；验证结果
             // 还会混入 `log`、`show`、`stash list` 的输出，破坏解析。
             .args(["-c", "log.showSignature=false"]);

@@ -200,3 +200,28 @@ fn the_head_row_is_noted_as_commits_arrive() {
     load(&mut view, vec![with("d", &["c"], vec![Ref::Detached])]);
     assert_eq!(view.head_row(), Some(0));
 }
+
+/// 提交是否在 `HEAD` 上按父提交判断；列表连不起来时说不准。
+#[test]
+fn commits_on_head_follow_the_parents() {
+    // main: a ← b ← d（HEAD），side: b ← c。
+    let mut view = LogView::new();
+    let mut head = commit("d", &["b"]);
+    head.refs.push(Ref::Head("main".into()));
+    view.commits = vec![
+        head,
+        commit("c", &["b"]),
+        commit("b", &["a"]),
+        commit("a", &[]),
+    ];
+    assert_eq!(view.on_head("d"), Some(true));
+    assert_eq!(view.on_head("b"), Some(true));
+    assert_eq!(view.on_head("a"), Some(true));
+    assert_eq!(view.on_head("c"), Some(false));
+    assert_eq!(view.on_head("x"), None);
+    view.query.authors.push("t".into());
+    assert_eq!(view.on_head("c"), None);
+    view.query.authors.clear();
+    view.commits[0].refs.clear();
+    assert_eq!(view.on_head("b"), None);
+}

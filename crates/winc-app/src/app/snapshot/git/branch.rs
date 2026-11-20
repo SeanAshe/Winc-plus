@@ -57,7 +57,7 @@ fn branch_menu_creates_switches_pushes_and_deletes() {
     assert_eq!(head(&app), "featurex");
     assert!(app.git.branches.iter().any(|b| b.name == "side"));
 
-    // 菜单里：当前分支只能重命名，别的分支能检出、新建、比较、合并、变基、删除。
+    // 菜单里：当前分支只能从它新建分支和重命名，别的分支能检出、新建、比较、合并、变基、删除。
     // 没有上游：分支选择器里的拉取灰显。
     assert!(!app.picker_action_enabled(crate::app::PickerPart::Pull));
     let ops = |app: &App, name: &str| {
@@ -66,7 +66,7 @@ fn branch_menu_creates_switches_pushes_and_deletes() {
             .filter(|entry| matches!(entry, MenuEntry::Item(..)))
             .count()
     };
-    assert_eq!(ops(&app, "featurex"), 1);
+    assert_eq!(ops(&app, "featurex"), 2);
     assert_eq!(ops(&app, "main"), 8);
 
     // 检出 main，再删除 featurex。

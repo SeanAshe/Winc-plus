@@ -20,17 +20,6 @@ impl App {
             return Some(Hover::ProjectName);
         }
 
-        // 历史提交的文件列表借用提交视图的列表，按绘制时记下的位置找。
-        if self.log_diff_tree().is_some() && y >= self.panel_rect().y {
-            if self.log_diff_layout_button().contains(x, y) {
-                return Some(Hover::LogDiffLayout);
-            }
-            if self.on_splitter_outside_commit_overflow(x, y) {
-                return None;
-            }
-            return Some(hit(&self.hits.commit, x, y).map_or(Hover::None, Hover::Commit));
-        }
-
         // 文件视图底部的大纲：按绘制时记下的位置找；分隔条由 `Target::Splitter` 处理。
         if self.layout.outline.contains(x, y) {
             if self.panels.sidebar.visible && self.layout.splitter.contains(x, y) {
@@ -313,21 +302,6 @@ impl App {
         }
         if self.hits.project.contains(x, y) {
             self.open_project_menu();
-            return true;
-        }
-
-        if self.log_diff_tree().is_some() && y >= self.panel_rect().y {
-            if self.log_diff_layout_button().contains(x, y) {
-                self.toggle_log_diff_layout();
-                return true;
-            }
-            if self.on_splitter_outside_commit_overflow(x, y) {
-                return false;
-            }
-            if let Some(target) = hit(&self.hits.commit, x, y) {
-                self.with_log_list(|app| app.press_commit(target));
-            }
-            self.request_redraw();
             return true;
         }
 

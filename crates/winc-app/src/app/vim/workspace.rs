@@ -84,15 +84,7 @@ impl App {
             Focus::Tree => self.on_key_tree(&key),
             Focus::Results => self.results_key(&key),
             Focus::Outline => self.outline_key(&key),
-            // 历史提交的文件列表借用提交视图的列表。
-            _ => {
-                if self
-                    .with_log_list(|app| app.commit_list_key(&key))
-                    .is_none()
-                {
-                    self.commit_list_key(&key);
-                }
-            }
+            _ => self.commit_list_key(&key),
         }
         self.request_redraw();
         true

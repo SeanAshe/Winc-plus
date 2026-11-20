@@ -65,8 +65,12 @@ impl App {
     }
 
     /// 首行的格式提示：首行过长（见 [`SUBJECT_LIMIT`]），或者首行后面紧接着正文、没有空一行；
-    /// 都没有问题时为 `None`。
+    /// 都没有问题时为 `None`。并入历史提交时是已推送的提醒。
     pub(crate) fn commit_message_hint(&self) -> Option<String> {
+        // 并入历史提交时首行是 `fixup!` 加原来的说明，长度不用提醒；已推送的说明要强制推送。
+        if let Some(into) = &self.git.commit.into {
+            return (into.pushed > 0).then(|| t!("git-commit-into-pushed").to_owned());
+        }
         let message = self.git.commit.message.text();
         let mut lines = message.lines();
         let subject = lines.next()?;

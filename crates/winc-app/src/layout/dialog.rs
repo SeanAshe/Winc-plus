@@ -26,6 +26,8 @@ pub const REBASE_PILL_W: f32 = 84.0;
 const REBASE_ROWS: usize = 10;
 /// 交互式变基信息框的高度（逻辑像素）：容纳约四行文字。
 const REBASE_MESSAGE_H: f32 = 84.0;
+/// 编辑提交说明的信息框高度（逻辑像素）：容纳约六行文字。
+const REWORD_MESSAGE_H: f32 = 124.0;
 /// 交互式变基上移、下移按钮的边长（逻辑像素）。
 const REBASE_MOVE: f32 = 28.0;
 
@@ -362,6 +364,61 @@ impl DialogLayout {
             list: at(list),
             message: at(message),
             values: vec![at(up), at(down)],
+            header: at(header),
+            close: at(close),
+            branch: at(field),
+            cancel: at(cancel),
+            confirm: at(confirm),
+            ..DialogLayout::default()
+        }
+    }
+
+    /// 计算编辑提交说明对话框的几何：名称列与询问对话框相同，宽度与交互式变基相同。
+    ///
+    /// `values` 是提交一行，`branch` 是信息框，`labels` 依次是两行的名称。
+    pub fn reword(window: Rect) -> Self {
+        let w = REBASE_W.min(window.w - SETTINGS_MARGIN * 2.0).max(0.0);
+        let inner = (w - SETTINGS_PAD * 2.0).max(0.0);
+        let x = SETTINGS_PAD;
+        let cx = x + QUESTION_LABEL_W + DIALOG_LABEL_GAP;
+        let cw = (inner - QUESTION_LABEL_W - DIALOG_LABEL_GAP).max(0.0);
+        let header = Rect::new(0.0, 0.0, w, SETTINGS_HEADER);
+        let close = Rect::new(
+            w - 12.0 - BUTTON,
+            (SETTINGS_HEADER - BUTTON) / 2.0,
+            BUTTON,
+            BUTTON,
+        );
+        let mut y = header.bottom() + 4.0;
+        let commit = Rect::new(cx, y, cw, DIALOG_FIELD_H);
+        let commit_label = Rect::new(x, y, QUESTION_LABEL_W, DIALOG_FIELD_H);
+        y = commit.bottom() + DIALOG_GAP;
+        let field = Rect::new(cx, y, cw, REWORD_MESSAGE_H);
+        let field_label = Rect::new(x, y, QUESTION_LABEL_W, DIALOG_FIELD_H);
+        y = field.bottom() + DIALOG_GAP + 6.0;
+        let confirm = Rect::new(
+            x + inner - DIALOG_BUTTON_W,
+            y,
+            DIALOG_BUTTON_W,
+            SETTINGS_CONTROL_H,
+        );
+        let cancel = Rect::new(
+            confirm.x - 8.0 - DIALOG_BUTTON_W,
+            y,
+            DIALOG_BUTTON_W,
+            SETTINGS_CONTROL_H,
+        );
+        let h = confirm.bottom() + SETTINGS_PAD;
+        let room = (window.h - h).max(0.0);
+        let (dx, dy) = (
+            (window.x + (window.w - w) / 2.0).round(),
+            (window.y + room * 0.42).round(),
+        );
+        let at = |r: Rect| Rect::new(r.x + dx, r.y + dy, r.w, r.h);
+        DialogLayout {
+            card: at(Rect::new(0.0, 0.0, w, h)),
+            values: vec![at(commit)],
+            labels: vec![at(commit_label), at(field_label)],
             header: at(header),
             close: at(close),
             branch: at(field),
