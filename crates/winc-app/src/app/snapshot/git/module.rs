@@ -516,7 +516,11 @@ fn shoot_context_bar() {
         // 悬停提示：「名字 … 快捷键」两栏，快捷键是右边的淡色字。
         let commit = app.sidebar_tabs()[2].0;
         app.on_mouse_move(commit.x + 4.0, commit.y + 4.0);
-        app.overlays.tooltip.since = Some(std::time::Instant::now() - crate::theme::TOOLTIP_DELAY);
+        app.overlays.tooltip.since = Some(
+            std::time::Instant::now()
+                - crate::theme::TOOLTIP_DELAY
+                - crate::app::animation::TOOLTIP_FADE,
+        );
         shoot(&mut app, &format!("{name}-tip"));
         let _ = std::fs::remove_dir_all(&dir);
     }

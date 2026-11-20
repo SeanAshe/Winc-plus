@@ -504,6 +504,12 @@ pub enum MenuCommand {
     ///
     /// 操作名与表格工具栏共用，见 `view::preview::markdown` 的 `table_tools`。
     Table(&'static str),
+    /// 把右键点击的图片的宽度改为正文宽度的百分比，0 表示去掉写明的大小。
+    ImageWidth(u32),
+    /// 可编辑的预览：粘贴为纯文本。
+    PastePlain,
+    /// 在新标签中打开右键点击的本地图片。
+    OpenImage,
 }
 
 /// 行尾菜单中可列出的行尾；CR 只在文件本来就是 CR 时才列出。
@@ -732,6 +738,15 @@ impl MenuCommand {
             MenuCommand::NewWindow => t!("cmd-new-window"),
             MenuCommand::BackgroundChoose => t!("settings-background-choose"),
             MenuCommand::BackgroundNone => t!("settings-background-none"),
+            MenuCommand::PastePlain => t!("menu-paste-plain"),
+            MenuCommand::OpenImage => t!("menu-open-image"),
+            MenuCommand::ImageWidth(percent) => match percent {
+                25 => "25%",
+                50 => "50%",
+                75 => "75%",
+                100 => "100%",
+                _ => t!("menu-image-original-size"),
+            },
             MenuCommand::TextWidth(i) => winc_config::TextWidth::ALL
                 .get(i)
                 .map_or("", |&choice| crate::layout::text_width_label(choice)),
@@ -854,7 +869,12 @@ impl MenuCommand {
         if self == MenuCommand::NewFile {
             return None;
         }
-        let action = self.action()?;
+        // 终端里的复制、粘贴另有终端的命令和键。
+        let action = match (self.action()?, context) {
+            (Action::Copy, Context::Terminal) => Action::TerminalCopy,
+            (Action::Paste, Context::Terminal) => Action::TerminalPaste,
+            (action, _) => action,
+        };
         let stroke = keymap::single_stroke(action, context)?;
         match keymap::lookup(&keymap::current(), stroke, None, context) {
             keymap::Lookup::Run(actions) if actions.first() == Some(&action) => Some(stroke),

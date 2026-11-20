@@ -151,28 +151,9 @@ pub(crate) fn encode_path(path: &Path) -> String {
 }
 
 /// 按 `.trashinfo` 要求的「YYYY-MM-DDThh:mm:ss」格式返回当前本地时间。
-#[allow(unsafe_code)] // localtime_r
 fn local_now() -> String {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs()) as libc::time_t;
-    let mut tm = std::mem::MaybeUninit::<libc::tm>::zeroed();
-    // SAFETY: `localtime_r` 只读 `now`、只写传入的结构体，失败时返回空指针。
-    let filled = unsafe { !libc::localtime_r(&now, tm.as_mut_ptr()).is_null() };
-    if !filled {
-        return String::from("1970-01-01T00:00:00");
-    }
-    // SAFETY: 调用成功时结构体已填好。
-    let tm = unsafe { tm.assume_init() };
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}",
-        tm.tm_year + 1900,
-        tm.tm_mon + 1,
-        tm.tm_mday,
-        tm.tm_hour,
-        tm.tm_min,
-        tm.tm_sec
-    )
+    let (y, mo, d, h, mi, s) = crate::system::local_time();
+    format!("{y:04}-{mo:02}-{d:02}T{h:02}:{mi:02}:{s:02}")
 }
 
 #[cfg(test)]

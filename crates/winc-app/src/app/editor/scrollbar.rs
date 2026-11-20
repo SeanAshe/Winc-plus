@@ -61,11 +61,13 @@ pub(crate) enum ScrollArea {
     Table,
     /// 表格预览的水平滚动条。
     TableHorizontal,
+    /// 链接地址和写作命令的补全列表。
+    Suggest,
 }
 
 impl ScrollArea {
     /// 全部区域，遍历时用。
-    const ALL: [ScrollArea; 19] = [
+    const ALL: [ScrollArea; 20] = [
         ScrollArea::Editor,
         ScrollArea::EditorHorizontal,
         ScrollArea::DiffLeftHorizontal,
@@ -85,6 +87,7 @@ impl ScrollArea {
         ScrollArea::MarkdownToc,
         ScrollArea::Table,
         ScrollArea::TableHorizontal,
+        ScrollArea::Suggest,
     ];
 
     /// 该区域可以拖动的滚动条；不能拖动时为 `None`。
@@ -109,6 +112,7 @@ impl ScrollArea {
             ScrollArea::MarkdownToc => Some(Scrollbar::MarkdownToc),
             ScrollArea::Table => Some(Scrollbar::Table),
             ScrollArea::TableHorizontal => Some(Scrollbar::TableHorizontal),
+            ScrollArea::Suggest => None,
         }
     }
 

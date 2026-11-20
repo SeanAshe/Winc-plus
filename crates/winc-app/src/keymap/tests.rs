@@ -51,6 +51,50 @@ fn terminal_switching_uses_one_key_set_and_leaves_program_paging() {
 }
 
 #[test]
+fn terminal_clipboard_keys_follow_each_system() {
+    use Action::{TerminalCopy, TerminalPaste};
+    let (ctrl, shift) = (Mods::CTRL, Mods::SHIFT);
+    let (c, v) = (KeyCode::Char('c'), KeyCode::Char('v'));
+    let shared = [
+        (ctrl | shift, c, TerminalCopy),
+        (ctrl, KeyCode::Insert, TerminalCopy),
+        (ctrl | shift, v, TerminalPaste),
+        (shift, KeyCode::Insert, TerminalPaste),
+    ];
+    for os in [Os::Windows, Os::Linux] {
+        for (mods, key, action) in shared {
+            assert_eq!(
+                runs(os, mods, key, Context::Terminal),
+                Some(action),
+                "{os:?}"
+            );
+        }
+        // 编辑区的复制、粘贴不变。
+        assert_eq!(runs(os, ctrl, v, Context::Editor), Some(Action::Paste));
+    }
+    // Windows 上单按 Ctrl 的 C、V 也是复制、粘贴；Linux 上留给程序。
+    assert_eq!(
+        runs(Os::Windows, ctrl, c, Context::Terminal),
+        Some(TerminalCopy)
+    );
+    assert_eq!(
+        runs(Os::Windows, ctrl, v, Context::Terminal),
+        Some(TerminalPaste)
+    );
+    for key in [c, v] {
+        assert_eq!(press(Os::Linux, ctrl, key, Context::Terminal), Lookup::None);
+    }
+    assert_eq!(
+        runs(Os::Mac, Mods::META, c, Context::Terminal),
+        Some(TerminalCopy)
+    );
+    assert_eq!(
+        runs(Os::Mac, Mods::META, v, Context::Terminal),
+        Some(TerminalPaste)
+    );
+}
+
+#[test]
 fn filtered_bindings_do_not_reserve_a_chord_prefix() {
     let first = Stroke {
         key: KeyCode::Char('k'),

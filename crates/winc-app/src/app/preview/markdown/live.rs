@@ -5,66 +5,6 @@
 use super::*;
 
 impl App {
-    /// Markdown 中选中一段文字（一行之内）后粘贴网址 `content`：返回替换选区的链接
-    /// `[文字](网址)`；不应生成链接时为 `None`，按普通粘贴处理。
-    ///
-    /// 以下情况不生成链接：选中的文字本身是网址（视为替换网址）、选区位于代码块或行内代码中
-    /// （其中的链接语法不生效）、有多个选区。
-    pub(in crate::app) fn markdown_link_paste(&self, content: &str) -> Option<String> {
-        let doc = self.editor.active()?;
-        if doc.preview_kind() != Some(PreviewKind::Markdown) || !doc.extra_selections().is_empty() {
-            return None;
-        }
-        let url = content.trim();
-        let is_url = |s: &str| {
-            ["https://", "http://", "mailto:"]
-                .iter()
-                .any(|p| s.len() > p.len() && s.starts_with(p))
-                && !s.contains(char::is_whitespace)
-        };
-        if !is_url(url) {
-            return None;
-        }
-        let rope = doc.text().rope()?;
-        let chars = rope.len_chars();
-        let (from, to) = (
-            doc.selection.from().min(chars),
-            doc.selection.to().min(chars),
-        );
-        let selected = rope.slice(from..to).to_string();
-        if selected.is_empty() || selected.contains(['\n', '`']) || is_url(selected.trim()) {
-            return None;
-        }
-        // 位于行内代码中：该行选区之前的反引号数量为奇数。
-        let (from, line) = (rope.char_to_byte(from), rope.char_to_line(from));
-        let before = rope.byte_slice(rope.line_to_byte(line)..from).to_string();
-        if before.matches('`').count() % 2 == 1 {
-            return None;
-        }
-        // 判断是否位于代码块、公式、HTML 块中时使用当前版本的解析结果；没有该结果时
-        // （未显示预览或尚未解析到当前版本）只检查围栏代码块，统计之前的围栏行。
-        if self.preview.markdown.checked == Some(doc.revision)
-            && let Some(parsed) = self.preview.markdown.parsed.as_ref()
-        {
-            let i = parsed.leaves.partition_point(|l| l.range.start <= from);
-            if let Some(leaf) = i.checked_sub(1).map(|i| &parsed.leaves[i])
-                && leaf.range.contains(&from)
-                && !leaf.prose
-            {
-                return None;
-            }
-        } else if in_fence(rope.lines_at(0).take(line)) {
-            return None;
-        }
-        // 网址含括号时用尖括号包裹，避免括号被视为链接的结尾。
-        let url = if url.contains(['(', ')']) {
-            format!("<{url}>")
-        } else {
-            url.to_owned()
-        };
-        Some(format!("[{selected}]({url})"))
-    }
-
     /// 可编辑的预览中 ↑↓ 按显示行移动光标（加 ⇧ 扩展选区），`PageUp` / `PageDown` 移动一屏；
     /// 正文里的回车、⇧ 回车见 [`App::live_enter`]。
     ///

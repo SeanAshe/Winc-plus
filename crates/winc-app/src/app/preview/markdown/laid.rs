@@ -4,7 +4,7 @@
 //! 宽度、字号、配色或图片大小变化时整篇重排。位置查询在预览坐标与原文位置之间换算，
 //! 供点击、选择、滚动同步和可编辑的预览使用。绘制在 `view::preview::markdown` 中。
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use winc_render::{Color, Frame, Rect};
@@ -67,6 +67,8 @@ pub(crate) struct Laid {
     pub(crate) stale: Vec<bool>,
     /// 排版时保留了排版结果的范围（见 [`Near`]）；文档不长、全部保留时为 `None`。
     pub(crate) near: Option<Near>,
+    /// 各顶层块作为标题时下面可以收起的一节（见 `Markdown::sections`）。
+    pub(crate) sections: Vec<Option<winc_preview::markdown::Section>>,
 }
 
 /// 分帧排版的依据：排版条件变化而文字未变时，视口内的块立即重排，其余的块在超过时限后沿用
@@ -139,6 +141,8 @@ pub(crate) struct Key {
     pub(crate) images: u64,
     /// 代码块是否显示从 1 起的行号（见 `Cx::line_numbers`）。
     pub(crate) numbers: bool,
+    /// mermaid 图的高度上限（逻辑像素，见 `Cx::tall`）。
+    pub(crate) tall: f32,
 }
 
 /// 重排之前各顶层块的排版和绘制位置，重排后据此计算过渡动画（见 `BlockMotion`）。
@@ -163,9 +167,11 @@ impl Before {
                 (*hash, Arc::clone(block), top + offset - scroll)
             })
             .collect();
+        // 排版中没有光标时（未在预览中编辑）取文档当前的版本号。
+        let current = app.editor.active().map(|d| d.revision);
         Before {
             blocks,
-            revision: laid.live.as_ref().map(|k| k.2),
+            revision: laid.live.as_ref().map(|k| k.2).or(current),
         }
     }
 
@@ -183,7 +189,7 @@ impl Before {
         scroll: f32,
         muted: Color,
         slide: bool,
-    ) -> (Vec<f32>, crate::app::preview::markdown::Fading) {
+    ) -> crate::app::preview::markdown::Moves {
         let (old, new) = (&self.blocks, &laid.blocks);
         let matched: Vec<Option<usize>> = if old.len() == new.len() {
             (0..new.len()).map(Some).collect()
@@ -217,6 +223,29 @@ impl Before {
         let moved = laid.live.as_ref().map(|k| k.2) == self.revision && self.revision.is_some();
         if !moved && !slide {
             from.fill(0.0);
+        }
+        // 原文与排版互换的块：渲染结果随下方的块一起滑动。
+        let (mut inner, mut leaving) = (Vec::new(), Vec::new());
+        for (i, j) in matched.iter().enumerate() {
+            let Some(j) = *j else { continue };
+            if !moved && !slide {
+                break;
+            }
+            match (old[j].1.preview, new[i].1.preview) {
+                // 显示原文：渲染结果从原位置下移。
+                (None, Some((first, top))) => inner.push((i, first, -top)),
+                // 恢复排版：排版从原来渲染结果的位置上移，原文淡出。
+                (Some((first, top)), None) => {
+                    leaving.push(Leaving {
+                        block: i,
+                        old: Arc::clone(&old[j].1),
+                        items: first,
+                        offset: from[i],
+                    });
+                    from[i] += top;
+                }
+                _ => {}
+            }
         }
         let mut fading = Vec::new();
         for (i, j) in matched.iter().enumerate() {
@@ -258,8 +287,25 @@ impl Before {
                 fading.push((i, fresh));
             }
         }
-        (from, fading)
+        crate::app::preview::markdown::Moves {
+            from,
+            fading,
+            inner,
+            leaving,
+        }
     }
+}
+
+/// 刚恢复排版的块原来显示的原文。
+pub(crate) struct Leaving {
+    /// 块序号（新排版中）。
+    pub(crate) block: usize,
+    /// 原来的排版。
+    pub(crate) old: Arc<LaidBlock>,
+    /// 原文所占的项数（其后为渲染结果）。
+    pub(crate) items: u32,
+    /// 起始时相对新位置向下的偏移（逻辑像素）。
+    pub(crate) offset: f32,
 }
 
 /// 可编辑的预览中显示原文的块的缓存键；各字段均不变时沿用上一次的排版。
@@ -284,16 +330,15 @@ pub(crate) fn live_key(live: &crate::app::preview::markdown::LiveLeaf, preedit: 
     )
 }
 
-/// 可编辑的预览重排之前，光标（原文位置）在旧排版里的高度（不含上方留白）。
+/// 重排之前光标所在的那一行的高度（相对内容顶部，不含留白），重排后据此保持它在屏幕上不动。
 ///
-/// 文字已修改（版本或解析结果不同）时返回 `None`：修改文字只影响光标所在块及其以下的块，
-/// 上方的块位置不变；此时按光标补偿反而会使页面随光标上下跳动（插入或删除表格行时光标换行，
-/// 解析结果返回前后各排版一次）。
+/// `clicked` 是刚单击放下的光标，与现在的光标相同时返回 `None`。
 pub(crate) fn old_caret(
     app: &App,
     old: Option<&Laid>,
     source: usize,
     live: Option<&LiveKey>,
+    clicked: Option<usize>,
 ) -> Option<(usize, f32)> {
     let old = old.filter(|old| {
         old.source == source && old.live.as_ref().map(|k| k.2) == live.map(|k| k.2)
@@ -302,6 +347,9 @@ pub(crate) fn old_caret(
         .markdown_live()
         .then(|| app.live_caret_source())
         .flatten()?;
+    if clicked == Some(source) && !app.scroll.keyed {
+        return None;
+    }
     old.caret_point(source)
         .map(|(_, y, _)| (source, y - old.pad))
 }
@@ -320,6 +368,29 @@ pub(crate) fn keep_caret_still(app: &mut App, still: Option<(usize, f32)>, laid:
         let scroll = app.preview.markdown.scroll();
         app.preview.markdown.scroll_to(scroll + dy);
     }
+}
+
+/// 收起的标题下面不显示的顶层块：`folded` 是收起的标题，光标在 `caret` 块时它所在的一节
+/// 始终显示。
+pub(crate) fn hidden_blocks(
+    sections: &[Option<winc_preview::markdown::Section>],
+    folded: Option<&HashSet<String>>,
+    caret: Option<usize>,
+) -> Vec<bool> {
+    let mut hidden = vec![false; sections.len()];
+    let Some(folded) = folded.filter(|f| !f.is_empty()) else {
+        return hidden;
+    };
+    for (i, section) in sections.iter().enumerate() {
+        let Some(section) = section.as_ref().filter(|s| folded.contains(&s.key)) else {
+            continue;
+        };
+        if caret.is_some_and(|c| c > i && c < section.end) {
+            continue;
+        }
+        hidden[i + 1..section.end].fill(true);
+    }
+    hidden
 }
 
 /// 按 `key` 排整份文档，`reuse` 里有同样内容的块直接沿用。
@@ -362,7 +433,7 @@ pub(crate) fn lay_out(
         .memo
         .prepare(winc_typeset::memo_key(|h| {
             use std::hash::Hash;
-            for v in [key.width, key.base] {
+            for v in [key.width, key.base, key.tall] {
                 v.to_bits().hash(h);
             }
             for c in [key.text, key.background] {
@@ -395,11 +466,17 @@ pub(crate) fn lay_out(
         cell: None,
         preedit: false,
         line_numbers: key.numbers,
+        tall: key.tall,
+        repeat: 0,
+        toggles: HashMap::new(),
     };
     let env = Env {
         color: cx.colors.text,
         depth: 0,
     };
+    let sections = parsed.sections();
+    let folded = (app.editor.active()).and_then(|d| app.preview.markdown.folds.get(&d.id));
+    let hidden = hidden_blocks(&sections, folded, live.map(|l| l.block));
     let mut blocks = Vec::with_capacity(parsed.blocks.len());
     let mut tops = Vec::with_capacity(parsed.blocks.len());
     let mut starts = Vec::with_capacity(parsed.blocks.len());
@@ -407,7 +484,24 @@ pub(crate) fn lay_out(
     let mut stale = Vec::new();
     let near = near.filter(|_| parsed.blocks.len() > SHED_BLOCKS);
     let mut fresh = 0usize;
+    // 内容相同的块从第二个起使用不同的键，并带上序号，各自记录开合状态。
+    let mut repeats: HashMap<u64, u32> = HashMap::new();
     for (i, (block, &hash)) in parsed.blocks.iter().zip(&parsed.hashes).enumerate() {
+        let repeat = *repeats.entry(hash).and_modify(|n| *n += 1).or_insert(0);
+        let hash = match repeat {
+            0 => hash,
+            n => winc_typeset::memo_key(|h| std::hash::Hash::hash(&(hash, n), h)),
+        };
+        cx.repeat = repeat;
+        cx.toggles.clear();
+        // 收起的一节里的块不排版，占一个高度为 0 的空块，换一个键存：展开时重新排。
+        if hidden[i] {
+            starts.push(chars);
+            tops.push(y);
+            let empty = LaidBlock::new(0.0, Vec::new(), Vec::new(), "".into(), 0, Box::default());
+            blocks.push((!hash, Arc::new(empty)));
+            continue;
+        }
         let raw = raw.as_ref().filter(|r| r.0 == i);
         // 显示原文的块换一个键存：光标离开后同样内容的块要重新按排版显示。
         let hash = match raw {
@@ -487,6 +581,7 @@ pub(crate) fn lay_out(
             );
             laid.preedit = cx.preedit;
             laid.scrolls = out.scrolls;
+            laid.preview = out.preview;
             Arc::new(laid)
         });
         // 不在需要保留的范围内的块释放要画的项；显示原文的块（光标所在）总是保留。
@@ -553,6 +648,7 @@ pub(crate) fn lay_out(
         followed: None,
         stale,
         near,
+        sections,
     }
 }
 
@@ -1130,6 +1226,8 @@ pub(crate) const EXPAND: &str = "\u{1}expand";
 
 /// 勾选框链接的地址前缀，其后为 `[ ]` 在原文中的位置（字节偏移）；点击时切换勾选状态。
 pub(crate) const TASK: &str = "\u{1}task:";
+/// 标题折叠箭头的地址前缀，其后为标题的键（`Section::key`）；点击时收起或展开这一节。
+pub(crate) const FOLD: &str = "\u{1}fold:";
 /// 表格工具栏按钮链接的地址前缀，其后为操作名（见 [`table_tools`]）。
 pub(crate) const TABLE: &str = "\u{1}table:";
 

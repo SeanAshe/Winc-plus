@@ -476,6 +476,7 @@ impl App {
         };
         let pos = rope.byte_to_char(source.min(rope.len_bytes()));
         self.preview.markdown.line_end = upstream.then_some((pos, doc.revision));
+        self.preview.markdown.clicked = Some(source);
         doc.goal_cell = None;
         doc.record_cursors();
         doc.collapse_selections();
@@ -599,9 +600,20 @@ impl App {
         let Some((_, y, h)) = laid.caret_point(source) else {
             return;
         };
+        if self.markdown_typewriter() && self.scroll.keyed {
+            // 打字机模式：平滑地滚到光标所在的行停在中间。
+            let view = self.preview.markdown.area.h;
+            let to = (y + h / 2.0 - view / 2.0).max(0.0);
+            if (to - self.preview.markdown.scroll()).abs() >= 1.0 {
+                self.glide_pane_to(ScrollTarget::Markdown, to);
+            }
+            return;
+        }
+        // 用键盘移动时离边缘留一行，点击时只在被挡住时滚动。
+        let keyed = self.scroll.keyed;
         let md = &mut self.preview.markdown;
         let (scroll, view) = (md.scroll(), md.area.h);
-        let margin = h.min(view / 4.0);
+        let margin = if keyed { h.min(view / 4.0) } else { 0.0 };
         if y - margin < scroll {
             md.scroll_to(y - margin);
         } else if y + h + margin > scroll + view {

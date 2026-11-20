@@ -32,4 +32,7 @@ pub(crate) struct ScrollState {
     pub(in crate::app) fling: Option<scroll::Fling>,
     /// 滚轮与触控板滚动的状态。
     pub(in crate::app) wheel: scroll::Wheel,
+    /// 光标最近一次是用键盘移动的（打字、方向键），而不是鼠标点的：打字机模式只在这时把光标
+    /// 所在的行滚到中间，点击、拖选时不滚动。
+    pub(in crate::app) keyed: bool,
 }

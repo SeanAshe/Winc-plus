@@ -293,7 +293,11 @@ fn shoot_git_diff() {
             .unwrap()
             .0;
         app.on_mouse_move(revert.x + 4.0, revert.y + 4.0);
-        app.overlays.tooltip.since = Some(std::time::Instant::now() - crate::theme::TOOLTIP_DELAY);
+        app.overlays.tooltip.since = Some(
+            std::time::Instant::now()
+                - crate::theme::TOOLTIP_DELAY
+                - crate::app::animation::TOOLTIP_FADE,
+        );
         shoot(
             &mut app,
             if dark {

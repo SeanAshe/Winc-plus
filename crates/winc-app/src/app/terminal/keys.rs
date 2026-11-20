@@ -89,27 +89,32 @@ impl App {
         self.terminal_input(bytes);
     }
 
-    /// 复制选区（⌘C）。
+    /// 复制选区；`clear` 为真时复制后清除选区。
     ///
     /// 没有选区时什么也不做；选区里有还没取回的历史行时先要，回来再复制。
-    pub(in crate::app) fn terminal_copy(&mut self) {
+    pub(in crate::app) fn terminal_copy(&mut self, clear: bool) {
         let t = &mut self.terminal;
-        let Some(tab) = t.tabs.get(t.active) else {
+        let Some(tab) = t.tabs.get_mut(t.active) else {
             return;
         };
         match tab.selected_text() {
             Ok(Some(text)) => {
+                if clear {
+                    tab.selection = None;
+                }
                 self.set_clipboard(text, false);
                 self.flash(winc_i18n::t!("terminal-selection-copied"));
             }
             Ok(None) => {}
             Err(range) => {
                 let id = tab.id;
+                tab.clear_after_copy |= clear;
                 if !t.waiting(id, Request::Copy) {
                     t.request(id, range, Request::Copy);
                 }
             }
         }
+        self.request_redraw();
     }
 
     /// 选中全部（⌘A）：回滚缓冲加屏幕。

@@ -259,12 +259,7 @@ fn partial_commits_failed_commits_and_missing_contents() {
     // 提交被 hooks 拒绝：未跟踪的文件不留在暂存区。
     let hook = root.join(".git/hooks/pre-commit");
     std::fs::create_dir_all(hook.parent().unwrap()).unwrap();
-    std::fs::write(&hook, "#!/bin/sh\necho 不许提交 >&2\nexit 1\n").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    winc_backend::testing::write_script(&hook, "#!/bin/sh\necho 不许提交 >&2\nexit 1\n");
     let risks = git.inspect(&root).unwrap();
     git.trust(&root, risks.fingerprint);
     let b = root.join("b.txt");

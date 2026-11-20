@@ -426,7 +426,7 @@ impl App {
     ///
     /// 打开的目录还没有文件表，或窗口失去过焦点（文件可能被增删，`Picker::stale`）时，
     /// 在后台建立新表。
-    pub(super) fn prepare_index(&mut self) {
+    pub(in crate::app) fn prepare_index(&mut self) {
         let Some(root) = self.editor.root().map(Path::to_path_buf) else {
             return;
         };

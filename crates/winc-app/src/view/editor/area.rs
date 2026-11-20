@@ -225,6 +225,11 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
             let h = m.rows.len() as f32 * lh - hidden;
             Rect::new(layout.editor.x, top, layout.editor.w, h.max(0.0))
         });
+        // 专注模式：光标所在段落以外的行画得淡一些。
+        let focus = (app.markdown_focus() && app.focus == Focus::Editor)
+            .then(|| text.rope())
+            .flatten()
+            .map(|rope| crate::app::preview::markdown::paragraph_lines(rope, doc.selection.head));
         // 每一段都从行首的高亮状态开始绘制：精确状态，或尚未推算到时的近似状态。
         for (range, start) in segments.iter().zip(&states) {
             let mut state = start.unwrap_or(LineState::Normal);
@@ -238,10 +243,16 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
                 let mut draw = |frame: &mut Frame<'_>| {
                     screen.draw_line(frame, &mut scratch, line, line_start, content, &mut state)
                 };
-                match curtain.filter(|_| screen.in_curtain(line)) {
-                    Some(curtain) => frame.within(curtain, draw),
-                    None => draw(frame),
-                }
+                let opacity = match focus {
+                    Some((first, last)) if line < first || line > last => FOCUS_DIM,
+                    _ => 1.0,
+                };
+                frame.with_opacity(opacity, |frame| {
+                    match curtain.filter(|_| screen.in_curtain(line)) {
+                        Some(curtain) => frame.within(curtain, draw),
+                        None => draw(frame),
+                    }
+                });
                 ControlFlow::Continue(())
             });
         }

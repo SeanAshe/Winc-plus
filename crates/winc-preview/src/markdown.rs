@@ -449,10 +449,12 @@ pub struct Image {
     pub url: String,
     /// 替代文字：图片无法显示时显示的文字。
     pub alt: String,
-    /// HTML `<img>` 写明的宽度。
+    /// 写明的宽度：HTML 的 `width`、`style="width: …"`，或替代文字末尾的 `|300`。
     pub width: Option<Length>,
-    /// HTML `<img>` 写明的高度（像素）。
+    /// 写明的高度（像素）：HTML 的 `height`、`style="height: …"`，或替代文字末尾的 `|300x200`。
     pub height: Option<u32>,
+    /// `style="zoom: …"` 写明的缩放比例（百分数），只在没有写明宽高时生效。
+    pub zoom: Option<u32>,
     /// 深色外观时换用的地址：`<picture>` 里 `media="(prefers-color-scheme: dark)"` 的
     /// `<source>` 的地址（README 常这样为深色主题配一张图）。
     pub dark: Option<String>,
@@ -620,6 +622,8 @@ struct Builder<'s> {
     code: Option<(String, String)>,
     /// 正在收集的 HTML 块。
     html: Option<String>,
+    /// 当前 HTML 块中已读到的 `<img>` 个数。
+    html_images: usize,
     /// 正文里引用过的脚注标签，按第一次引用的先后；编号是位置加 1。
     notes: Vec<String>,
     /// 脚注的内容和定义所在的原文范围，放到文档最后。
@@ -1022,6 +1026,7 @@ impl Builder<'_> {
                     self.finish_inline();
                 }
                 self.html = Some(String::new());
+                self.html_images = 0;
                 self.in_html = true;
             }
             Tag::List(start) => {
@@ -1167,7 +1172,8 @@ impl Builder<'_> {
                 self.styles.pop();
             }
             TagEnd::Image => {
-                if let Some(image) = self.image.take() {
+                if let Some(mut image) = self.image.take() {
+                    resize::alt_size(&mut image);
                     self.push_image(image);
                 }
             }
@@ -1187,9 +1193,14 @@ impl Builder<'_> {
     }
 
     fn push_image(&mut self, image: Image) {
+        let at = self.start;
+        self.push_image_at(image, at);
+    }
+
+    /// 加入一张图片，`at` 是其原文的开头（`![` 或 `<img` 处）。
+    pub(super) fn push_image_at(&mut self, image: Image, at: usize) {
         self.resolve_soft(Some(IMAGE_MARK));
         let style = self.style();
-        let at = self.start;
         let inline = self.inline();
         inline.images.push(image);
         inline.map.push(inline.text.len(), at, 0);
@@ -1453,6 +1464,7 @@ pub mod cells;
 mod emoji;
 pub mod enter;
 pub mod format;
+pub mod from_html;
 mod front;
 mod html;
 mod mark;
@@ -1460,6 +1472,13 @@ mod shrink;
 pub(crate) use html::named_entity;
 pub mod math;
 pub mod mermaid;
+pub mod paragraph;
+pub mod resize;
+mod sections;
+pub use sections::Section;
+#[cfg(test)]
+mod corpus;
 pub mod reveal;
 #[cfg(test)]
 mod tests;
+pub mod words;

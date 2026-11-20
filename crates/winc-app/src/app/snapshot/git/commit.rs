@@ -169,7 +169,11 @@ fn shoot_commit_row_actions() {
     paint(&mut app);
     let revert = find(&app, CommitTarget::RevertFile(index));
     app.on_mouse_move(revert.x + 4.0, revert.y + 4.0);
-    app.overlays.tooltip.since = Some(std::time::Instant::now() - crate::theme::TOOLTIP_DELAY);
+    app.overlays.tooltip.since = Some(
+        std::time::Instant::now()
+            - crate::theme::TOOLTIP_DELAY
+            - crate::app::animation::TOOLTIP_FADE,
+    );
     shoot(&mut app, "commit-row-actions");
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -209,7 +213,11 @@ fn shoot_commit_view() {
         // 鼠标停在标题行的「Git 日志」按钮上，提示已显示。
         let log = app.commit_parts().tools[0].0;
         app.on_mouse_move(log.x + 4.0, log.y + 4.0);
-        app.overlays.tooltip.since = Some(std::time::Instant::now() - crate::theme::TOOLTIP_DELAY);
+        app.overlays.tooltip.since = Some(
+            std::time::Instant::now()
+                - crate::theme::TOOLTIP_DELAY
+                - crate::app::animation::TOOLTIP_FADE,
+        );
         shoot(&mut app, if dark { "commit-dark" } else { "commit-light" });
         let _ = std::fs::remove_dir_all(&dir);
     }

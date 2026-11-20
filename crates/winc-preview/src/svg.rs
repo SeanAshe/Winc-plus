@@ -111,6 +111,7 @@ pub fn load(
         file_size: text.len() as u64,
         source: Source::Vector(Arc::new(drawing)),
         transparent: true,
+        density: 1,
     })
 }
 

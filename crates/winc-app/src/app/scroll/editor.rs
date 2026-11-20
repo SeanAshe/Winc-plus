@@ -189,6 +189,7 @@ impl App {
         let cell = self.metrics.cell;
         let tab_width = self.editor.active_tab_width();
         let max_scroll = self.max_scroll_line();
+        let centered = self.markdown_typewriter() && self.scroll.keyed;
 
         let Some(doc) = self.editor.active_mut() else {
             return;
@@ -198,7 +199,9 @@ impl App {
         let row = doc.row_at(doc.selection.head) as f64;
 
         let mut scroll = doc.scroll_line;
-        if row < scroll + top {
+        if centered {
+            scroll = (row + 0.5 - visible / 2.0).max(0.0);
+        } else if row < scroll + top {
             scroll = (row - top).max(0.0);
         } else if row > scroll + visible - 2.0 {
             scroll = (row - visible + 2.0).max(0.0);

@@ -129,7 +129,13 @@ pub(super) const COMMON: &[PresetRow] = &[
         &["cmd+end"],
         &["ctrl+shift+end"],
     ),
-    row(Copy, Terminal, &["cmd+c"], &["ctrl+shift+c"]),
+    // 单按 Ctrl 的 `ctrl+c` 只在有选区时复制（见 `App::lookup_shortcut`）。
+    row(
+        TerminalCopy,
+        Terminal,
+        &["cmd+c"],
+        &["ctrl+c", "ctrl+shift+c", "ctrl+insert"],
+    ),
     row(SelectAll, Terminal, &["cmd+a"], &["ctrl+shift+a"]),
     row(NextTerminal, Terminal, &["shift+cmd+]"], &["ctrl+shift+]"]),
     row(
@@ -176,14 +182,77 @@ pub(super) const COMMON: &[PresetRow] = &[
         &["alt+enter"],
     ),
     row(ClearTerminal, Terminal, &["cmd+k"], &["ctrl+shift+k"]),
-    row(Paste, Terminal, &[], &["ctrl+shift+v"]),
+    row(
+        TerminalPaste,
+        Terminal,
+        &["cmd+v"],
+        &["ctrl+v", "ctrl+shift+v", "shift+insert"],
+    ),
+    // Markdown 的写作命令：两套方案都按专门的 Markdown 编辑器的默认键。
+    row(MarkdownHeading1, Markdown, &["cmd+1"], &["ctrl+1"]),
+    row(MarkdownHeading2, Markdown, &["cmd+2"], &["ctrl+2"]),
+    row(MarkdownHeading3, Markdown, &["cmd+3"], &["ctrl+3"]),
+    row(MarkdownHeading4, Markdown, &["cmd+4"], &["ctrl+4"]),
+    row(MarkdownHeading5, Markdown, &["cmd+5"], &["ctrl+5"]),
+    row(MarkdownHeading6, Markdown, &["cmd+6"], &["ctrl+6"]),
+    row(MarkdownParagraph, Markdown, &["cmd+0"], &["ctrl+0"]),
+    row(MarkdownTable, Markdown, &["alt+cmd+t"], &["ctrl+t"]),
+    row(
+        MarkdownCodeBlock,
+        Markdown,
+        &["alt+cmd+c"],
+        &["ctrl+shift+k"],
+    ),
+    row(
+        MarkdownMathBlock,
+        Markdown,
+        &["alt+cmd+b"],
+        &["ctrl+shift+m"],
+    ),
+    row(MarkdownQuote, Markdown, &["alt+cmd+q"], &["ctrl+shift+q"]),
+    row(
+        MarkdownOrderedList,
+        Markdown,
+        &["alt+cmd+o"],
+        &["ctrl+shift+["],
+    ),
+    row(
+        MarkdownBulletList,
+        Markdown,
+        &["alt+cmd+u"],
+        &["ctrl+shift+]"],
+    ),
+    row(MarkdownImage, Markdown, &["ctrl+cmd+i"], &["ctrl+shift+i"]),
+    row(MarkdownFocusMode, Markdown, &["f8"], &["f8"]),
+    row(MarkdownTypewriterMode, Markdown, &["f9"], &["f9"]),
+    row(
+        MarkdownPastePlain,
+        Markdown,
+        &["alt+shift+cmd+v"],
+        &["ctrl+alt+shift+v"],
+    ),
 ];
 
 /// 共用的键在 Linux 上与 Windows 不同的部分。
-pub(super) const COMMON_LINUX: &[PresetRow] = &[];
+pub(super) const COMMON_LINUX: &[PresetRow] = &[
+    // 单按 Ctrl 的 `ctrl+c`、`ctrl+v` 留给终端里的程序。
+    row(
+        TerminalCopy,
+        Terminal,
+        &[],
+        &["ctrl+shift+c", "ctrl+insert"],
+    ),
+    row(
+        TerminalPaste,
+        Terminal,
+        &[],
+        &["ctrl+shift+v", "shift+insert"],
+    ),
+];
 
 /// IDEA 方案。
 pub(super) const IDEA: &[PresetRow] = &[
+    row(MarkdownLink, Markdown, &["cmd+k"], &["ctrl+k"]),
     row(MarkdownBold, Markdown, &["cmd+b"], &["ctrl+b"]),
     row(MarkdownItalic, Markdown, &["cmd+i"], &["ctrl+i"]),
     row(MarkdownCode, Markdown, &["shift+cmd+c"], &["ctrl+shift+c"]),
@@ -414,6 +483,8 @@ pub(super) const IDEA_LINUX: &[PresetRow] = &[
 
 /// VS Code 方案。
 pub(super) const VSCODE: &[PresetRow] = &[
+    // ⌘K 是组合键的前缀，插入链接使用 ⌥⌘K。
+    row(MarkdownLink, Markdown, &["alt+cmd+k"], &["ctrl+alt+k"]),
     row(NextError, Terminal, &["f8"], &["f8"]),
     row(PreviousError, Terminal, &["shift+f8"], &["shift+f8"]),
     row(RenameFile, Tree, &["enter"], &["f2"]),

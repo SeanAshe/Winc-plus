@@ -670,6 +670,8 @@ impl App {
         self.track_modules();
         self.track_commit_bars();
         self.track_search_rows();
+        self.track_words();
+        self.track_suggest();
         self.git_follow_active();
         self.relayout();
         self.run_when_loaded();
@@ -761,12 +763,30 @@ impl App {
             }
             Next::Key { vim, step } => {
                 let started = Instant::now();
+                if self.markdown_live() {
+                    self.start_live_editing();
+                }
                 if vim {
                     self.vim_bench_key(step);
                 } else if step % 40 == 39 {
                     self.run(Command::Newline);
                 } else {
                     self.run(Command::Insert("x".into()));
+                }
+                self.frame.bench.key_handled(started.elapsed());
+                self.request_redraw();
+            }
+            Next::Move { step } => {
+                // 每 10 帧按一次方向键：先向下 8 次，再向上 8 次。
+                let started = Instant::now();
+                if step % 10 == 0 {
+                    self.start_live_editing();
+                    let down = (step / 10 / 8) % 2 == 0;
+                    let key = match down {
+                        true => winit::keyboard::NamedKey::ArrowDown,
+                        false => winit::keyboard::NamedKey::ArrowUp,
+                    };
+                    self.markdown_key(&winit::keyboard::Key::Named(key), false);
                 }
                 self.frame.bench.key_handled(started.elapsed());
                 self.request_redraw();

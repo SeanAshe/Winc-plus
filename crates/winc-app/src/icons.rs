@@ -11,11 +11,13 @@ mod files;
 mod search;
 mod settings;
 mod symbols;
+mod writing;
 
 pub use files::*;
 pub use search::*;
 pub use settings::*;
 pub use symbols::*;
+pub use writing::*;
 
 use std::f32::consts::{FRAC_1_SQRT_2, FRAC_PI_2, PI};
 

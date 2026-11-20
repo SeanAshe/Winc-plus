@@ -12,5 +12,9 @@ homepage.workspace = true
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
 
+# 其他 crate 的测试共用的辅助函数（见 `testing`）。
+[features]
+test-support = []
+
 [lints]
 workspace = true

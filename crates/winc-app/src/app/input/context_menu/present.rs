@@ -467,9 +467,29 @@ impl App {
                     MenuEntry::Item(MenuCommand::Cut, selected),
                     MenuEntry::Item(MenuCommand::Copy, selected),
                     MenuEntry::Item(MenuCommand::Paste, true),
+                    MenuEntry::Item(MenuCommand::PastePlain, true),
                     MenuEntry::Separator,
                     MenuEntry::Item(MenuCommand::SelectAll, true),
                 ];
+                // 右键点击图片时提供「在新标签中打开图片」和「图片大小」，两项同在一组。
+                let (picture, image) = (
+                    self.preview.markdown.menu_picture.is_some(),
+                    self.preview.markdown.menu_image.is_some(),
+                );
+                if picture || image {
+                    menu.push(MenuEntry::Separator);
+                }
+                if picture {
+                    menu.push(MenuEntry::Item(MenuCommand::OpenImage, true));
+                }
+                if image {
+                    use crate::app::preview::markdown::resize::PRESETS;
+                    let sizes = PRESETS.map(|p| MenuEntry::Item(MenuCommand::ImageWidth(p), true));
+                    menu.push(MenuEntry::Submenu(
+                        t!("menu-image-size").into(),
+                        sizes.into(),
+                    ));
+                }
                 // 光标位于表格中时提供「表格」子菜单，集中列出行、列的编辑操作。
                 if let Some(table) = self.live_table_menu() {
                     menu.extend([
@@ -494,6 +514,12 @@ impl App {
                     MenuEntry::Item(MenuCommand::Copy, self.markdown_selected_text().is_some()),
                     MenuEntry::Item(MenuCommand::SelectAll, true),
                 ];
+                if self.preview.markdown.menu_picture.is_some() {
+                    menu.extend([
+                        MenuEntry::Separator,
+                        MenuEntry::Item(MenuCommand::OpenImage, true),
+                    ]);
+                }
                 // docx、EPUB 的阅读视图由转换得到，阅读标签只有排版后的内容：都没有可以显示的
                 // 源代码。
                 let has_source = self

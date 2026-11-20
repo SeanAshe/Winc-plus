@@ -74,7 +74,8 @@ fn snapshot_tree_tools() {
         let (cx, cy) = (refresh.x + refresh.w / 2.0, refresh.y + refresh.h / 2.0);
         app.on_mouse_move(cx, cy);
         // 将悬停起始时间前移 `TOOLTIP_DELAY`（500 毫秒），模拟悬停已满该时长。
-        app.overlays.tooltip.since = Some(Instant::now() - TOOLTIP_DELAY);
+        app.overlays.tooltip.since =
+            Some(Instant::now() - TOOLTIP_DELAY - crate::app::animation::TOOLTIP_FADE);
         shoot(&mut app, &format!("tree-tools-tip-{theme}"));
 
         // 新建文件的输入条。

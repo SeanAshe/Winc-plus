@@ -24,12 +24,13 @@ pub fn samples() -> std::io::Result<()> {
     let dir = samples_dir();
     std::fs::create_dir_all(&dir)?;
 
-    let jobs: [(&str, Writer); 5] = [
+    let jobs: [(&str, Writer); 6] = [
         ("medium.rs", |p| write_source(p, 24_000)),
         ("large.rs", |p| write_source(p, 100_000)),
         ("huge.txt", |p| write_huge(p, 100)),
         ("huge.rs", |p| write_source(p, 4_000_000)),
         ("minified.js", |p| write_minified(p, 5)),
+        ("long.md", |p| write_markdown(p, 600)),
     ];
 
     for (name, write) in jobs {
@@ -140,6 +141,43 @@ fn write_source(path: &Path, lines: usize) -> std::io::Result<()> {
         }
     }
 
+    out.flush()
+}
+
+/// 写一篇 `sections` 节的 Markdown 文档：标题、中英混排的段落、列表、任务、引用、代码块和表格。
+fn write_markdown(path: &Path, sections: usize) -> std::io::Result<()> {
+    let mut out = BufWriter::with_capacity(1 << 20, File::create(path)?);
+    let mut rng = Rng(7);
+    writeln!(out, "开头的一段，键入测量从这里开始。\n")?;
+    for i in 0..sections {
+        writeln!(out, "## 第 {i} 节 Section {i}\n")?;
+        for _ in 0..1 + rng.below(3) {
+            writeln!(
+                out,
+                "这一段混排 **中文** 和 English，带 `code`、*强调*、~~删除~~ 和 \
+                 [链接 {i}](https://example.com/{i})。第 {} 段继续写一些文字，\
+                 让段落折成几行显示。\n",
+                rng.below(1000)
+            )?;
+        }
+        match i % 4 {
+            0 => writeln!(out, "- 第一项\n- 第二项 **粗体**\n  - 下一级\n- 第三项\n")?,
+            1 => writeln!(
+                out,
+                "- [x] 做完的事\n- [ ] 没做的事\n\n> 引用的一段话 {i}。\n"
+            )?,
+            2 => writeln!(
+                out,
+                "```rust\nfn section_{i}() -> usize {{\n    {i} * 2\n}}\n```\n"
+            )?,
+            _ => writeln!(
+                out,
+                "| 名字 | 数量 | 说明 |\n| --- | ---: | --- |\n| 甲 | {i} | 第一行 |\n\
+                 | 乙 | {} | 第二行 |\n",
+                rng.below(100)
+            )?,
+        }
+    }
     out.flush()
 }
 

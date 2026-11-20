@@ -121,8 +121,6 @@ fn cloning_refuses_the_ext_protocol() {
 #[cfg(unix)]
 #[test]
 fn a_remote_name_is_never_parsed_as_an_option() {
-    use std::os::unix::fs::PermissionsExt;
-
     let shell = Shell::with_vars(std::env::vars_os().collect());
     let Ok(git) = Git::find(&shell) else {
         return;
@@ -147,8 +145,7 @@ fn a_remote_name_is_never_parsed_as_an_option() {
 
     // `--receive-pack` 被当成选项时，`refs/tags/x` 成了要推送到的本地仓库，脚本随之运行。
     let script = root.join("evil");
-    std::fs::write(&script, "#!/bin/sh\ntouch ran\n").unwrap();
-    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    winc_backend::testing::write_script(&script, "#!/bin/sh\ntouch ran\n");
     git.operate(&root, &["init", "--bare", "refs/tags/x"])
         .unwrap();
     let key = "remote.--receive-pack=./evil.url";

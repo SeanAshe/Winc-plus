@@ -131,13 +131,21 @@ impl App {
         });
     }
 
-    /// 粘贴到编辑区：剪贴板中有文件时粘贴文件，其次是文本，最后是图片。
+    /// 粘贴到编辑区：依次尝试剪贴板中的文件、文本和图片。
     pub(super) fn paste_into_editor(&mut self) {
         let files = self.clipboard_files();
         if !files.is_empty() {
             self.paste_files(&files);
         } else if let Some(text) = self.clipboard_text() {
-            self.paste_text(text);
+            // 网址和表格单元格的改写（`markdown_paste`）优先于 HTML 的转换。
+            let markdown = match self.markdown_paste(&text) {
+                Some(markdown) => Some(markdown),
+                None => self.markdown_html_paste(),
+            };
+            match markdown {
+                Some(markdown) => self.run(Command::Insert(markdown)),
+                None => self.paste_text(text),
+            }
         } else if let Some(png) = self.clipboard_png() {
             self.paste_image(&png);
         }
@@ -173,8 +181,8 @@ impl App {
 
     /// 把文件 `files` 粘贴到当前文档中。
     ///
-    /// Markdown 文档中写成链接（图片写成 `![…](…)`），项目之外的图片先复制到文档旁边；其他
-    /// 文档中写成文件的绝对路径，每行一个。
+    /// Markdown 文档中写成链接（图片写成 `![…](…)`），项目之外的图片先复制到图片目录；其他文档
+    /// 中写成文件的绝对路径，每行一个。
     fn paste_files(&mut self, files: &[PathBuf]) {
         if !self.can_paste_into_document() {
             return;
@@ -190,40 +198,46 @@ impl App {
         };
 
         let root = self.editor.root().map(Path::to_path_buf);
-        let targets = match &doc_dir {
-            Some(dir) => match paste::bring_images(dir, root.as_deref(), files) {
-                Ok(targets) => targets,
-                Err(CopyError { path, error, done }) => {
-                    self.notify(
-                        NoticeKind::Error,
-                        t!(
-                            "editor-paste-copy-failed",
-                            name = display_name(&path),
-                            error = error.to_string()
-                        ),
-                    );
-                    // 失败之前复制过来的图片留在磁盘上，同样显示出来。
-                    self.files_created(done.into_iter().filter(|t| !files.contains(t)).collect());
-                    return;
+        let folder = self.markdown_image_folder();
+        let targets = match (&doc_dir, &folder) {
+            (Some(dir), Some(folder)) => {
+                match paste::bring_images(dir, folder, root.as_deref(), files) {
+                    Ok(targets) => targets,
+                    Err(CopyError { path, error, done }) => {
+                        self.notify(
+                            NoticeKind::Error,
+                            t!(
+                                "editor-paste-copy-failed",
+                                name = display_name(&path),
+                                error = error.to_string()
+                            ),
+                        );
+                        // 失败之前已复制的图片保留在磁盘上，同样刷新显示。
+                        self.files_created(
+                            done.into_iter().filter(|t| !files.contains(t)).collect(),
+                        );
+                        return;
+                    }
                 }
-            },
-            None => files.to_vec(),
+            }
+            _ => files.to_vec(),
         };
-        let copied: Vec<PathBuf> = targets
+        let mut copied: Vec<PathBuf> = targets
             .iter()
             .filter(|t| !files.contains(t))
             .cloned()
             .collect();
+        // 图片目录可能是新建的，一并刷新。
+        copied.extend(folder.filter(|f| !copied.is_empty() && doc_dir.as_ref() != Some(f)));
         let snippet = paste::markdown_links(doc_dir.as_deref(), root.as_deref(), &targets);
         self.insert_snippet(snippet);
         self.files_created(copied);
     }
 
-    /// 把剪贴板中的图片 `png` 粘贴到当前文档：存到 Markdown 文档所在的目录中，插入
-    /// `![image](image.png)` 并选中替代文字。
+    /// 把剪贴板中的图片 `png` 存入图片目录，在当前文档中插入 `![主名](…)` 并选中替代文字。
     ///
     /// 其他文档、尚未保存的 Markdown 文档中不能粘贴图片，提示原因。
-    fn paste_image(&mut self, png: &[u8]) {
+    pub(in crate::app) fn paste_image(&mut self, png: &[u8]) {
         let dir = match self.markdown_dir() {
             Some(Some(dir)) => dir,
             Some(None) => {
@@ -239,19 +253,34 @@ impl App {
             return;
         }
 
-        match paste::save_image(&dir, png) {
+        let Some(doc) = self.editor.active().and_then(|d| d.path.clone()) else {
+            return;
+        };
+        let folder = paste::image_folder(&doc, self.config.markdown_image_folder.as_deref());
+        let setting = self.config.markdown_image_name.as_deref();
+        let name = paste::image_name(&doc, setting, local_stamp);
+        match paste::save_image(&folder, &name, png) {
             Ok(path) => {
                 let root = self.editor.root().map(Path::to_path_buf);
                 let snippet =
                     paste::markdown_links(Some(&dir), root.as_deref(), std::slice::from_ref(&path));
                 self.insert_snippet(snippet);
-                self.files_created(vec![path]);
+                let mut created = vec![path];
+                created.extend((folder != dir).then_some(folder));
+                self.files_created(created);
             }
             Err(e) => self.notify(
                 NoticeKind::Error,
                 t!("editor-paste-image-save-failed", error = e.to_string()),
             ),
         }
+    }
+
+    /// 返回当前文档的图片目录（`markdown.imageFolder`）；文档尚未保存时为 `None`。
+    fn markdown_image_folder(&self) -> Option<PathBuf> {
+        let doc = self.editor.active()?.path.as_deref()?;
+        let setting = self.config.markdown_image_folder.as_deref();
+        Some(paste::image_folder(doc, setting))
     }
 
     /// 在光标处插入 `snippet`，并选中其中的占位文字（有时）。
@@ -358,4 +387,10 @@ impl App {
         self.relayout();
         self.request_redraw();
     }
+}
+
+/// 返回当前本地时间，格式为 `20261119-153012`，用于图片名中的 `${date}`。
+fn local_stamp() -> String {
+    let (y, mo, d, h, mi, sec) = crate::system::local_time();
+    format!("{y:04}{mo:02}{d:02}-{h:02}{mi:02}{sec:02}")
 }

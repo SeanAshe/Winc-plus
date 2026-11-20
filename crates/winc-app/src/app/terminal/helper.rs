@@ -777,7 +777,13 @@ impl App {
                         // 选区要的行都回来了：复制这个标签的选区。还缺的是辅助进程那边已经
                         // 不再保留的，跳过即可。
                         if purpose == Request::Copy && !t.waiting(id, Request::Copy) {
-                            let text = t.by_id(id).and_then(|tab| tab.selected_text_lossy());
+                            let text = t.by_id(id).and_then(|tab| {
+                                let text = tab.selected_text_lossy();
+                                if std::mem::take(&mut tab.clear_after_copy) {
+                                    tab.selection = None;
+                                }
+                                text
+                            });
                             if let Some(text) = text {
                                 self.set_clipboard(text, false);
                                 self.flash(winc_i18n::t!("terminal-selection-copied"));

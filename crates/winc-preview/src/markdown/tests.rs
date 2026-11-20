@@ -348,6 +348,9 @@ fn footnotes_link_both_ways() {
     let note = paragraph(&blocks[0]);
     assert_eq!(note.text, "说明 ↩");
     assert_eq!(note.links, ["#fnref-1"]);
+    // 悬停在编号上时提示的文字：不带跳回正文的 ↩。
+    assert_eq!(doc.footnote_text("1").as_deref(), Some("说明"));
+    assert_eq!(doc.footnote_text("2"), None);
 }
 
 #[test]
@@ -763,4 +766,48 @@ fn html_blocks_holding_only_a_line_break_are_dropped() {
     assert_eq!(paragraph(&blocks[0]).images.len(), 1);
     assert!(parse("<p>\n<br>\n</p>\n").blocks.is_empty());
     assert!(parse("<div>  <br>  </div>\n").blocks.is_empty());
+}
+
+#[test]
+fn headings_fold_down_to_the_next_heading_of_their_level() {
+    let doc = parse("# 甲\n\n一\n\n## 乙\n\n二\n\n## 乙\n\n# 丙\n\n三[^a]\n\n[^a]: 注\n");
+    let sections = doc.sections();
+    let ends: Vec<_> = (sections.iter())
+        .map(|s| s.as_ref().map(|s| (s.key.as_str(), s.end)))
+        .collect();
+    // 第二个「乙」下面没有内容；「丙」一节到脚注之前为止。
+    assert_eq!(
+        ends,
+        [
+            Some(("甲", 5)),
+            None,
+            Some(("乙", 4)),
+            None,
+            None,
+            Some(("丙", 7)),
+            None,
+            None,
+            None
+        ]
+    );
+}
+
+#[test]
+fn image_sizes_written_by_other_editors_are_read() {
+    let image = |text: &str| paragraph(&parse(text).blocks[0]).images[0].clone();
+    // 替代文字末尾的 `|宽` 或 `|宽x高`。
+    let a = image("![说明|300](a.png)");
+    assert_eq!(
+        (a.alt.as_str(), a.width, a.height),
+        ("说明", Some(Length::Px(300)), None)
+    );
+    let b = image("![|120x80](a.png)");
+    assert_eq!((b.width, b.height), (Some(Length::Px(120)), Some(80)));
+    // 竖线后不是数字时保留在替代文字中。
+    assert_eq!(image("![a|b](a.png)").alt, "a|b");
+    // `style` 中的缩放比例和宽高优先于属性。
+    let c = image("<img src=\"a.png\" style=\"zoom: 50%\">");
+    assert_eq!(c.zoom, Some(50));
+    let d = image("<img src=\"a.png\" width=\"100\" style=\"width: 70%; height: 40px\">");
+    assert_eq!((d.width, d.height), (Some(Length::Percent(7000)), Some(40)));
 }

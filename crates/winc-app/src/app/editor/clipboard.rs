@@ -45,6 +45,9 @@ pub(crate) struct Clipboard {
     /// 测试中代替系统剪贴板的文件列表。
     #[cfg(test)]
     pub copied_files: Vec<PathBuf>,
+    /// 测试中代替系统剪贴板的 HTML。
+    #[cfg(test)]
+    pub copied_html: Option<String>,
     /// 测试中代替系统剪贴板的图片（PNG）。
     #[cfg(test)]
     pub copied_image: Option<Vec<u8>>,
@@ -68,6 +71,18 @@ impl Clipboard {
         }
     }
 
+    /// 返回剪贴板中的 HTML；没有时返回 `None`。
+    pub(in crate::app) fn html(&mut self) -> Option<String> {
+        #[cfg(test)]
+        {
+            self.copied_html.clone()
+        }
+        #[cfg(not(test))]
+        {
+            self.system()?.get().html().ok()
+        }
+    }
+
     /// 把 `text` 写入剪贴板，替换其中的文件和图片；返回是否写入了。
     ///
     /// `whole_line` 为 `true` 表示 `text` 是整行，见 [`Self::holds_line`]。
@@ -80,6 +95,7 @@ impl Clipboard {
         #[cfg(test)]
         {
             self.copied = Some(text);
+            self.copied_html = None;
             self.copied_files.clear();
             self.copied_image = None;
             true

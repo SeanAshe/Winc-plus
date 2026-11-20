@@ -603,8 +603,6 @@ fn settings_open_from_the_shortcut_without_a_tab() {
 /// `jq`，没有 `ruff`。因此哪些工具能找到，与本机实际安装的工具无关。
 #[cfg(unix)]
 pub(super) fn format_settings_app(name: &str, dark: bool) -> (App, PathBuf) {
-    use std::os::unix::fs::PermissionsExt;
-
     let dir = search_folder(name);
     std::fs::write(
         dir.join("pyproject.toml"),
@@ -614,8 +612,7 @@ pub(super) fn format_settings_app(name: &str, dark: bool) -> (App, PathBuf) {
     let bin = dir.join("bin");
     std::fs::create_dir_all(&bin).unwrap();
     for tool in ["rustfmt", "gofmt", "jq"] {
-        std::fs::write(bin.join(tool), "#!/bin/sh\ncat\n").unwrap();
-        std::fs::set_permissions(bin.join(tool), std::fs::Permissions::from_mode(0o755)).unwrap();
+        winc_backend::testing::write_script(&bin.join(tool), "#!/bin/sh\ncat\n");
     }
 
     let mut app = app_with(&dir, dark);

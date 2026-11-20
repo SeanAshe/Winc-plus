@@ -5,11 +5,16 @@ use super::*;
 use crate::app::scroll::set_scroll_line;
 
 impl App {
-    /// 记下鼠标所在的 Markdown 预览代码块（显示复制按钮）。
+    /// 记录鼠标所在的 Markdown 预览代码块和图片。
     pub(in crate::app) fn track_code_hover(&mut self, x: f32, y: f32) {
         let code = (self.hits.markdown_codes.iter()).position(|r| r.contains(x, y));
         if code != self.preview.markdown.code_hover {
             self.preview.markdown.code_hover = code;
+            self.request_redraw();
+        }
+        let image = self.image_hovered(x, y).map(|i| i.rect);
+        if image != self.preview.markdown.image_hover {
+            self.preview.markdown.image_hover = image;
             self.request_redraw();
         }
     }
@@ -408,6 +413,7 @@ impl App {
             Drag::LogText => self.drag_log_text(x, y),
             Drag::Hex => self.drag_hex(x, y),
             Drag::MarkdownText => self.drag_markdown(x, y),
+            Drag::ImageResize => self.drag_image_resize(x),
             Drag::TableCells => self.drag_table(x, y),
             Drag::Field => {
                 if let Some(field) = self.focused_field() {

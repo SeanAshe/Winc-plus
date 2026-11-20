@@ -755,6 +755,12 @@ impl App {
             Setting::PreviewOnClick => self.config.preview_on_click == Some(true),
             Setting::RemoteImages => self.config.markdown_remote_images != Some(false),
             Setting::MarkdownLineNumbers => self.config.markdown_line_numbers != Some(false),
+            Setting::MarkdownShortcuts => self.config.markdown_shortcuts != Some(false),
+            Setting::MarkdownFocus => self.config.markdown_focus == Some(true),
+            Setting::MarkdownTypewriter => self.config.markdown_typewriter == Some(true),
+            Setting::MarkdownSelectionToolbar => {
+                self.config.markdown_selection_toolbar != Some(false)
+            }
             Setting::CheckUpdates => self.config.update_auto_check != Some(false),
             Setting::SystemTitleBar => self.config.ui_native_title_bar == Some(true),
             Setting::GitModule => self.git_enabled(),
@@ -821,6 +827,10 @@ impl App {
             Setting::PreviewOnClick => self.config.preview_on_click = Some(on),
             Setting::RemoteImages => self.config.markdown_remote_images = Some(on),
             Setting::MarkdownLineNumbers => self.config.markdown_line_numbers = Some(on),
+            Setting::MarkdownShortcuts => self.config.markdown_shortcuts = Some(on),
+            Setting::MarkdownFocus => self.config.markdown_focus = Some(on),
+            Setting::MarkdownTypewriter => self.config.markdown_typewriter = Some(on),
+            Setting::MarkdownSelectionToolbar => self.config.markdown_selection_toolbar = Some(on),
             Setting::CheckUpdates => self.config.update_auto_check = Some(on),
             Setting::SystemTitleBar => self.config.ui_native_title_bar = Some(on),
             Setting::GitModule => self.config.git_enabled = Some(on),

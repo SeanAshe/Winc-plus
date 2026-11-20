@@ -268,3 +268,28 @@ fn terminal_numbers_leave_the_tool_view_keys_alone() {
         }
     }
 }
+
+/// 单按 Ctrl 的复制键（Windows 上的 `Ctrl+C`）只在有选区时复制，复制后清除选区，再按一次即
+/// 发给程序。
+#[test]
+fn plain_ctrl_c_copies_only_with_a_selection() {
+    use crate::keymap::{Custom, Preset};
+    let shortcuts = [("terminalCopy".to_owned(), vec!["ctrl+c".to_owned()])].into();
+    crate::keymap::install(Preset::VsCode, &Custom::from_config(&shortcuts).0);
+    let mut app = blank_app(false);
+    show_terminal(&mut app, "output");
+    app.focus = Focus::Terminal;
+    let ctrl_c = key(Mods::CTRL, KeyCode::Char('c'));
+    assert_eq!(app.lookup_shortcut(ctrl_c, None), Lookup::None);
+
+    app.terminal_select_all();
+    assert!(matches!(
+        app.lookup_shortcut(ctrl_c, None),
+        Lookup::Run(actions) if actions == [Action::TerminalCopy]
+    ));
+    assert!(app.on_shortcut(ctrl_c));
+    assert_eq!(app.clipboard.copied.as_deref(), Some("output"));
+    assert!(app.terminal.tab().unwrap().selection.is_none());
+    assert!(!app.on_shortcut(ctrl_c));
+    crate::keymap::install(Preset::VsCode, &Custom::default());
+}

@@ -475,3 +475,30 @@ fn interlaced_pngs_shrink_without_decoding_the_whole_picture() {
     // 数据不足时返回错误，不 panic。
     assert!(decode_png(&bytes[..bytes.len() / 2]).is_err());
 }
+
+#[test]
+fn retina_screenshots_count_two_pixels_per_point() {
+    // 只含 IHDR、pHYs（每米 `ppm` 个像素）、IDAT 块头的 PNG，不含有效的校验码。
+    let png = |ppm: u32, unit: u8| {
+        let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
+        let mut chunk = |kind: &[u8], data: &[u8]| {
+            out.extend((data.len() as u32).to_be_bytes());
+            out.extend(kind);
+            out.extend(data);
+            out.extend([0; 4]);
+        };
+        chunk(b"IHDR", &[0; 13]);
+        let mut phys = ppm.to_be_bytes().to_vec();
+        phys.extend(ppm.to_be_bytes());
+        phys.push(unit);
+        chunk(b"pHYs", &phys);
+        chunk(b"IDAT", &[]);
+        out
+    };
+    assert_eq!(density(None, &png(5669, 1)), 2);
+    assert_eq!(density(None, &png(3780, 1)), 1);
+    // 300 dpi 的密度为 1；单位不是米时忽略 `pHYs`。
+    assert_eq!(density(None, &png(11811, 1)), 1);
+    assert_eq!(density(None, &png(5669, 0)), 1);
+    assert_eq!(density(Some(Path::new("icon@3x.png")), b""), 3);
+}

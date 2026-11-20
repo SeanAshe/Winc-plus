@@ -89,8 +89,9 @@ pub struct Editor {
     pub bookmarks: BookmarkMap,
     /// 未打开文件中折叠的块，键为文件的规范路径；打开文件时移入文档，关闭标签时取回。
     pub folds: FoldMap,
-    /// 可预览的文件读取完成时采用的显示方式（[`Editor::finish_load`]）；默认为源代码。
-    pub preview_default: PreviewMode,
+    /// 各类可预览的文件读取完成时采用的显示方式（[`Editor::finish_load`]），按
+    /// [`PreviewKind::ALL`] 的顺序；默认为源代码。
+    pub preview_defaults: [PreviewMode; 3],
     next_id: u64,
 }
 
@@ -106,7 +107,7 @@ impl Default for Editor {
             diff_unified: false,
             bookmarks: BookmarkMap::new(),
             folds: FoldMap::new(),
-            preview_default: PreviewMode::Source,
+            preview_defaults: [PreviewMode::Source; 3],
             next_id: 0,
         }
     }
@@ -226,9 +227,11 @@ impl Editor {
         }
         let mut fresh = Document::from_opened(loaded.id, loaded.path, loaded.opened);
         fresh.keep_chosen(loaded.encoding);
-        // 可预览的文件按最近一次选择的方式显示；不可预览的文件不改变显示方式。
-        if self.preview_default != PreviewMode::Source {
-            fresh.set_preview_mode(self.preview_default);
+        // 可预览的文件按该类文件最近一次选择的方式显示。
+        let kind = fresh.preview_kind();
+        let mode = kind.map_or(PreviewMode::Source, |k| self.preview_defaults[k as usize]);
+        if mode != PreviewMode::Source {
+            fresh.set_preview_mode(mode);
         }
         adopt_bookmarks(&mut self.bookmarks, &mut fresh);
         adopt_folds(&mut self.folds, &mut fresh, self.tab_width);

@@ -392,5 +392,37 @@ fn spawn(command: &mut Command) -> io::Result<()> {
     Ok(())
 }
 
+/// 返回当前本地时间：年、月、日、时、分、秒。
+#[cfg(unix)]
+#[allow(unsafe_code)] // localtime_r
+pub fn local_time() -> (i32, i32, i32, i32, i32, i32) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs()) as libc::time_t;
+    let mut tm = std::mem::MaybeUninit::<libc::tm>::zeroed();
+    // SAFETY: `localtime_r` 只读 `now`、只写传入的结构体，失败时返回空指针。
+    if unsafe { libc::localtime_r(&now, tm.as_mut_ptr()).is_null() } {
+        return (1970, 1, 1, 0, 0, 0);
+    }
+    // SAFETY: 调用成功时结构体已初始化。
+    let tm = unsafe { tm.assume_init() };
+    let (y, mo) = (tm.tm_year + 1900, tm.tm_mon + 1);
+    (y, mo, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec)
+}
+
+/// 返回当前本地时间：年、月、日、时、分、秒。
+#[cfg(windows)]
+#[allow(unsafe_code)] // GetLocalTime
+pub fn local_time() -> (i32, i32, i32, i32, i32, i32) {
+    let mut t = std::mem::MaybeUninit::zeroed();
+    // SAFETY: `GetLocalTime` 只写传入的结构体，不会失败。
+    unsafe { windows_sys::Win32::System::SystemInformation::GetLocalTime(t.as_mut_ptr()) };
+    // SAFETY: 调用后结构体已初始化。
+    let t: windows_sys::Win32::Foundation::SYSTEMTIME = unsafe { t.assume_init() };
+    let field = i32::from;
+    let (y, mo, d) = (field(t.wYear), field(t.wMonth), field(t.wDay));
+    (y, mo, d, field(t.wHour), field(t.wMinute), field(t.wSecond))
+}
+
 #[cfg(test)]
 mod tests;

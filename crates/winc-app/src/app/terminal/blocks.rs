@@ -340,7 +340,7 @@ impl App {
         };
         if tab.select_output(index) {
             self.fetch_terminal_history();
-            self.terminal_copy();
+            self.terminal_copy(false);
             self.request_redraw();
         }
     }

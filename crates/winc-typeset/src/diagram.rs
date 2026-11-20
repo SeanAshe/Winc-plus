@@ -6,7 +6,7 @@
 
 use winc_preview::markdown::mermaid::{self, Diagram, Dir, Edge, Flow, Head, Line, Shape};
 use winc_preview::markdown::{Align, Inline, Run, Style};
-use winc_render::{Color, Rect, Stroke};
+use winc_render::{Color, FontKind, Rect, Stroke};
 
 use super::math::polyline;
 use super::memo::Piece;
@@ -38,6 +38,15 @@ const EDGE_THICK: f32 = 2.5;
 
 /// 图中文字的字号与正文字号之比：正文 16 逻辑像素时为 14 逻辑像素。
 const TEXT_RATIO: f32 = 0.875;
+
+/// 高于上限（`Cx::tall`）的图字号缩小的下限，为默认字号的比例。
+const TALL_MIN_SCALE: f32 = 0.6;
+/// 收起的图底部渐隐的高度（逻辑像素）。
+const FADE: f32 = 48.0;
+/// 渐隐的层数。
+const FADE_STEPS: usize = 12;
+/// 「展开全部」「收起」一行的高度（逻辑像素）。
+const TOGGLE_ROW: f32 = 40.0;
 
 /// 解析一张图；无法识别或不支持绘制的图返回 `None`。
 fn supported(source: &str) -> Option<Diagram> {
@@ -158,6 +167,12 @@ pub(crate) struct Label {
     h: f32,
 }
 
+/// 返回图的源码哈希，用于开合标识（见 `Cx::toggle_id`）。
+fn tall_id(source: &str) -> u64 {
+    use std::hash::Hash;
+    super::memo::key(|h| ("mermaid-tall", source).hash(h))
+}
+
 impl Cx<'_, '_> {
     /// 排一张 mermaid 图，左上角在 `(x, y)`、最宽 `width`（逻辑像素），水平居中。
     ///
@@ -209,9 +224,100 @@ impl Cx<'_, '_> {
             }
             size = next;
         }
+        // 缩到下限以内能放下时缩小字号，否则保持字号并收起。
+        let id = self.toggle_id(tall_id(source));
+        let open = self.toggled.contains(&id);
+        let tall = self.tall;
+        let floor = self.base * TEXT_RATIO * TALL_MIN_SCALE;
+        let shrink = h > tall && size * tall / h * 0.98 >= floor;
+        for _ in 0..4 {
+            if !shrink || h <= tall || size <= floor {
+                break;
+            }
+            size = (size * tall / h * 0.98).max(floor);
+            items.clear();
+            self.text.truncate(text_len);
+            self.chars = chars;
+            (bounds, h) = self.diagram_pass(&diagram, size, wrap, look, &mut items);
+        }
+        let clipped = !open && h > tall;
+        let toggle = h > tall;
         let w = bounds.1 - bounds.0;
         let dx = x + ((width - w) / 2.0).max(0.0) - bounds.0;
-        out.extend(items.iter().map(|item| item.moved(dx, y, 0)));
+        // 收起时只保留完全位于截断线以上的项。
+        let keep = |item: &Item| !clipped || item.span_y().1 <= tall;
+        out.extend(
+            items
+                .iter()
+                .filter(|i| keep(i))
+                .map(|item| item.moved(dx, y, 0)),
+        );
+        let h = if clipped { tall } else { h };
+        if clipped {
+            let band = FADE / FADE_STEPS as f32;
+            for k in 0..FADE_STEPS {
+                let alpha = (k + 1) as f32 / FADE_STEPS as f32;
+                let top = y + h - FADE + band * k as f32;
+                out.push(Item::Fill {
+                    rect: Rect::new(x, top, width, band + 0.5),
+                    color: self.surface.alpha(alpha),
+                    radius: 0.0,
+                });
+            }
+        }
+        let h = if toggle {
+            let label = match clipped {
+                true => winc_i18n::t!("preview-markdown-diagram-expand"),
+                false => winc_i18n::t!("preview-markdown-diagram-collapse"),
+            };
+            // 开合按钮：文字和指向展开方向的箭头。
+            let size = self.base * 0.8125;
+            let text_w = self.frame.measure(FontKind::Ui, size, label);
+            let (arrow, gap, pad) = (size * 0.32, size * 0.4, size * 0.9);
+            let pill_w = (pad * 2.0 + text_w + gap + arrow * 2.0).round();
+            let pill_h = (size * 1.9).round();
+            let row_y = y + h + (TOGGLE_ROW - pill_h) / 2.0;
+            let pill = Rect::new(
+                (x + (width - pill_w) / 2.0).round(),
+                row_y.round(),
+                pill_w,
+                pill_h,
+            );
+            out.push(Item::Fill {
+                rect: pill,
+                color: self.colors.code_block,
+                radius: pill_h / 2.0,
+            });
+            let color = self.colors.muted;
+            out.push(Item::Text {
+                x: pill.x + pad,
+                baseline: pill.y + pill_h / 2.0 + size * 0.35,
+                text: label.into(),
+                font: FontKind::Ui,
+                faux: Default::default(),
+                size,
+                color,
+                span: None,
+            });
+            let (ax, ay) = (pill.x + pad + text_w + gap + arrow, pill.y + pill_h / 2.0);
+            let dy = if clipped { arrow * 0.5 } else { -arrow * 0.5 };
+            out.push(Item::Path {
+                rect: Rect::new(ax - arrow, ay - arrow, arrow * 2.0, arrow * 2.0),
+                strokes: std::sync::Arc::from([
+                    Stroke::Line(ax - arrow, ay - dy, ax, ay + dy),
+                    Stroke::Line(ax, ay + dy, ax + arrow, ay - dy),
+                ]),
+                width: 1.3,
+                color,
+            });
+            out.push(Item::Link {
+                rect: pill,
+                url: format!("{}{id:x}", super::DETAILS).into(),
+            });
+            h + TOGGLE_ROW
+        } else {
+            h
+        };
         // 记录图所在的一栏：鼠标悬停时，栏的右上角显示全屏按钮和复制源码按钮。
         out.push(Item::Code {
             rect: Rect::new(x, y, width.max(w), h),
@@ -353,6 +459,50 @@ impl Cx<'_, '_> {
         self.put_label(label, cx, cy, out);
     }
 
+    /// 写出连线上的文字，`placed` 是（连线序号，文字中心，底色）；重叠的文字沿与流向垂直的方向
+    /// 错开，不超出图的宽高 `size`。
+    fn edge_labels(
+        &mut self,
+        labels: &[Label],
+        mut placed: Vec<(usize, (f32, f32), Color)>,
+        dir: Dir,
+        size: (f32, f32),
+        s: f32,
+        out: &mut Vec<Item>,
+    ) {
+        let (px, py) = (s * 0.3, s * 0.1);
+        let gap = s * 0.2;
+        let half = |k: usize| (labels[k].w / 2.0 + px, labels[k].h / 2.0 + py);
+        let across = matches!(dir, Dir::Down | Dir::Up);
+        for i in 1..placed.len() {
+            // 与之前的文字重叠时向远离的一侧移动，最多重复 `placed.len()` 轮。
+            for _ in 0..placed.len() {
+                let (k, (x, y), _) = placed[i];
+                let (hw, hh) = half(k);
+                let hit = placed[..i].iter().find_map(|&(j, (ox, oy), _)| {
+                    let (ow, oh) = half(j);
+                    let (dx, dy) = (x - ox, y - oy);
+                    let overlap = (hw + ow + gap - dx.abs(), hh + oh + gap - dy.abs());
+                    (overlap.0 > 0.0 && overlap.1 > 0.0).then_some((dx, dy, overlap))
+                });
+                let Some((dx, dy, (ox, oy))) = hit else {
+                    break;
+                };
+                let at = &mut placed[i].1;
+                if across {
+                    let side = if dx < 0.0 { -1.0 } else { 1.0 };
+                    at.0 = (at.0 + side * ox).clamp(hw, (size.0 - hw).max(hw));
+                } else {
+                    let side = if dy < 0.0 { -1.0 } else { 1.0 };
+                    at.1 = (at.1 + side * oy).clamp(hh, (size.1 - hh).max(hh));
+                }
+            }
+        }
+        for (k, at, bg) in placed {
+            self.edge_label(&labels[k], at, s, bg, out);
+        }
+    }
+
     /// 在子图框的左上角写标题 `titles`；`boxes`、`order` 同 [`group_frames`] 的返回值。
     fn group_titles(
         &mut self,
@@ -436,6 +586,12 @@ impl Cx<'_, '_> {
             })
             .collect();
         let (boxes, outer_first) = group_frames(&plan, flow.dir, look, out);
+        let (w, h) = if matches!(flow.dir, Dir::Down | Dir::Up) {
+            (plan.cross, plan.along)
+        } else {
+            (plan.along, plan.cross)
+        };
+        let mut labels = Vec::new();
         for (k, edge) in flow.edges.iter().enumerate() {
             let Some(route) = plan.routes[k].as_ref() else {
                 continue;
@@ -451,15 +607,11 @@ impl Cx<'_, '_> {
             draw(self, k, &points, out);
             if !edge.label.is_empty() {
                 let at = label_at.unwrap_or(points[points.len() / 2]);
-                self.edge_label(&edge_labels[k], at, s, look.behind(route), out);
+                labels.push((k, at, look.behind(route)));
             }
         }
+        self.edge_labels(&edge_labels, labels, flow.dir, (w, h), s, out);
         self.group_titles(&boxes, &outer_first, &titles, s, look, out);
-        let (w, h) = if matches!(flow.dir, Dir::Down | Dir::Up) {
-            (plan.cross, plan.along)
-        } else {
-            (plan.along, plan.cross)
-        };
         (rects, w, h)
     }
 
@@ -516,6 +668,7 @@ impl Cx<'_, '_> {
 
         // 子图的框，外面的先画；标题等连线画完再写，不被线压住。
         let (boxes, outer_first) = group_frames(&plan, f.dir, look, out);
+        let mut placed = Vec::new();
         for (k, edge) in f.edges.iter().enumerate() {
             let Some(route) = plan.routes[k].as_ref() else {
                 continue;
@@ -528,9 +681,10 @@ impl Cx<'_, '_> {
             self.edge(edge, &points, s, look, out);
             if !edge.label.is_empty() {
                 let at = label_at.unwrap_or(points[points.len() / 2]);
-                self.edge_label(&edge_labels[k], at, s, look.behind(route), out);
+                placed.push((k, at, look.behind(route)));
             }
         }
+        self.edge_labels(&edge_labels, placed, f.dir, (w, h), s, out);
         self.group_titles(&boxes, &outer_first, &titles, s, look, out);
 
         // 节点画在连线上面。

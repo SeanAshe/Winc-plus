@@ -346,6 +346,8 @@ pub enum UserEvent {
     Saved,
     /// 后台已读取一个刚打开的文件。
     Loaded,
+    /// 后台已数好 Markdown 文档的字数。
+    Counted,
     /// 后台已写入一批热退出备份。
     BackedUp,
     /// 跨文件替换已在后台写回全部未打开的文件。
@@ -497,6 +499,14 @@ pub enum Hover {
     Browser,
     /// Markdown 预览里的链接（`MarkdownPreview::links` 的序号）。
     MarkdownLink(usize),
+    /// 链接地址补全列表的第几行。
+    Suggest(usize),
+    /// 格式工具栏中的按钮。
+    SelectionTool(crate::app::preview::markdown::toolbar::Tool),
+    /// 可编辑的 Markdown 预览中鼠标下的链接（单击放置光标，`⌘` 单击才打开）。
+    MarkdownLinkText(usize),
+    /// 可编辑的 Markdown 预览中图片的把手。
+    ImageHandle,
     /// Markdown 预览左侧的标题指示条或展开的标题列表。
     MarkdownToc(crate::app::preview::markdown::TocTarget),
     /// PDF 预览右下角工具栏上的按钮。
@@ -594,6 +604,8 @@ impl Hover {
                 | Hover::ViewTab(_)
                 | Hover::Outline(OutlineTarget::FoldAll)
                 | Hover::MarkdownToc(preview::markdown::TocTarget::Pin)
+                | Hover::MarkdownLink(_)
+                | Hover::MarkdownLinkText(_)
                 | Hover::Search(_)
                 | Hover::Panel(
                     PanelButton::Tool(_)
@@ -687,6 +699,8 @@ enum Drag {
     Hex,
     /// 在 Markdown 预览中拖选文字（`App::drag_markdown`）。
     MarkdownText,
+    /// 拖动预览中图片的把手调整大小（`App::drag_image_resize`）。
+    ImageResize,
     /// 在表格中拖选单元格（`App::drag_table`）。
     TableCells,
     /// 拖动图片预览中的图片（`App::drag_picture`）；`at` 是上一次的鼠标位置（窗口坐标）。
@@ -1070,6 +1084,7 @@ impl App {
             UserEvent::TreeScanned => self.poll_tree_scans(),
             UserEvent::Saved => self.poll_saves(),
             UserEvent::Loaded => self.poll_loads(),
+            UserEvent::Counted => self.poll_words(),
             UserEvent::BackedUp => self.collect_backups(false),
             UserEvent::Replaced => self.poll_replace_all(),
             UserEvent::Wrapped => self.poll_wraps(),
@@ -1130,6 +1145,9 @@ impl App {
             }
             self.preview.markdown.toc_rest = toc(hover).then(Instant::now);
             self.preview.markdown.toc_shown = false;
+        }
+        if hover != self.pointer.hover {
+            self.leave_tooltip();
         }
         self.pointer.hover = hover;
         self.overlays.tooltip.since = hover.has_tooltip().then(Instant::now);

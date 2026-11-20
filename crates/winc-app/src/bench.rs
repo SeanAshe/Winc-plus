@@ -1,11 +1,11 @@
 //! 测量钩子：设置环境变量 `WINC_BENCH` 后启用，供 `cargo xtask bench` 使用。
 //!
 //! 环境变量的值决定测量模式：`startup` 在首帧呈现后退出；`scroll`、`preview`、`terminal:<命令>`
-//! 分别在滚动文本、滚动预览、终端输出期间统计帧耗时；`vim`、`typing` 逐帧执行 Vim 模式的按键
-//! 或键入字符，统计按键处理加出帧的耗时；`wheel` 按固定间隔送出鼠标滚轮滚动并统计
-//! 帧间隔和画面的跟随情况；`search:<内容>`、`picker` 完成后保持运行；`find:<内容>`、`highlight`
-//! 输出耗时、帧数和 CPU 时间后退出；其他值只输出时间戳并保持运行。保持运行的模式由外部进程
-//! 采样内存；未设置时不测量。
+//! 分别在滚动文本、滚动预览、终端输出期间统计帧耗时；`vim`、`typing`、`live-typing` 逐帧执行
+//! Vim 模式的按键、键入字符或在可编辑的预览中键入字符，统计按键处理加出帧的耗时；`wheel` 按
+//! 固定间隔送出鼠标滚轮滚动并统计帧间隔和画面的跟随情况；`search:<内容>`、`picker` 完成后保持
+//! 运行；`find:<内容>`、`highlight` 输出耗时、帧数和 CPU 时间后退出；其他值只输出时间戳并保持
+//! 运行。保持运行的模式由外部进程采样内存；未设置时不测量。
 
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -46,6 +46,10 @@ enum Mode {
     Vim,
     /// 每帧键入一个字符（Vim 模式保持配置中的状态），统计方式同 [`Mode::Vim`]。
     Typing,
+    /// 首帧呈现后切换到只显示预览（可编辑的 Markdown 预览），之后与 [`Mode::Typing`] 相同。
+    LiveTyping,
+    /// 首帧呈现后切换到可编辑的 Markdown 预览，之后每 10 帧按一次 ↓ 或 ↑，统计每一帧的耗时。
+    LiveMoves,
     /// 首帧呈现后切换到只显示预览（Markdown、SVG），之后与 [`Mode::Scroll`] 相同。
     Preview,
     /// 首帧呈现后打开终端面板并运行给定的命令，统计此后 [`SCROLL_FRAMES`] 帧的耗时后退出。
@@ -75,6 +79,11 @@ pub enum Next {
     Key {
         /// 是否执行 Vim 模式的按键。
         vim: bool,
+        /// 已采集的帧数。
+        step: usize,
+    },
+    /// 移动光标的测量：调用方按已采集的帧数 `step` 决定是否按方向键，并请求下一帧。
+    Move {
         /// 已采集的帧数。
         step: usize,
     },
@@ -148,6 +157,8 @@ impl Bench {
             Ok("scroll") => Mode::Scroll,
             Ok("vim") => Mode::Vim,
             Ok("typing") => Mode::Typing,
+            Ok("live-typing") => Mode::LiveTyping,
+            Ok("live-moves") => Mode::LiveMoves,
             Ok("preview") => Mode::Preview,
             Ok("wheel") => Mode::Wheel,
             Ok("picker") => Mode::QuickOpen,
@@ -223,7 +234,7 @@ impl Bench {
                         frames: Vec::new(),
                     });
                 }
-                Mode::Preview => return Next::Preview,
+                Mode::Preview | Mode::LiveTyping | Mode::LiveMoves => return Next::Preview,
                 Mode::Terminal(command) => {
                     self.command = Some(command.clone());
                     return Next::Terminal;
@@ -233,14 +244,21 @@ impl Bench {
         }
 
         let terminal = matches!(self.mode, Mode::Terminal(_));
-        let keys = matches!(self.mode, Mode::Vim | Mode::Typing);
-        let timed = terminal || keys || matches!(self.mode, Mode::Scroll | Mode::Preview);
+        let keys = matches!(self.mode, Mode::Vim | Mode::Typing | Mode::LiveTyping);
+        let moves = self.mode == Mode::LiveMoves;
+        let timed = terminal || keys || moves || matches!(self.mode, Mode::Scroll | Mode::Preview);
         // 终端测量只统计命令写入终端之后的帧。
         if !timed || presented < 2 || self.command.is_some() {
             return Next::Continue;
         }
 
-        if presented > 2 {
+        // 切换到预览之后的第一帧排版整篇，不计入按键的耗时。
+        let first = if matches!(self.mode, Mode::LiveTyping | Mode::LiveMoves) {
+            3
+        } else {
+            2
+        };
+        if presented > first {
             self.frame_times
                 .push(elapsed + std::mem::take(&mut self.key_time));
         }
@@ -248,6 +266,10 @@ impl Bench {
         if self.frame_times.len() < SCROLL_FRAMES {
             return if terminal {
                 Next::Continue
+            } else if moves {
+                Next::Move {
+                    step: self.frame_times.len(),
+                }
             } else if keys {
                 Next::Key {
                     vim: self.mode == Mode::Vim,

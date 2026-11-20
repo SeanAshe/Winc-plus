@@ -192,6 +192,7 @@ impl App {
             return Some(due);
         }
         self.disk.changes_due = None;
+        self.preview.markdown.links.clear();
         if self.disk.watcher.as_ref().is_some_and(Watcher::take_limit) {
             let name = self.editor.root().map(winc_editor::display_name);
             let name = name.as_deref().unwrap_or_default();

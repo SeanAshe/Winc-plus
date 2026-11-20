@@ -377,6 +377,12 @@ workspace-status-update-retry = Retry
 workspace-status-update-pacman = Run sudo pacman -Syu to update Winc
 workspace-status-not-shown = Not shown: { $features }
 workspace-status-position-selected = { $position } ({ $count } selected)
+workspace-status-words =
+    { $count ->
+        [one] { $count } word
+       *[other] { $count } words
+    }
+workspace-status-words-selected = { $selected } / { $count } words
 workspace-status-selections = { $count ->
         [one] { $count } selection
        *[other] { $count } selections

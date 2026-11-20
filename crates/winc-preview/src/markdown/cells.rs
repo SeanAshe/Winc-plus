@@ -315,5 +315,35 @@ fn add_column(line: &mut String, col: usize, fill: &str) {
     }
 }
 
+/// 把制表符分隔的文字 `text` 写成 GFM 表格，第一行作表头；不符合时返回 `None`。
+///
+/// 要求至少两行、每行列数相同、表头没有空单元格；单元格中的 `|` 转义，不支持多行单元格。
+pub fn from_tsv(text: &str) -> Option<String> {
+    let rows: Vec<Vec<&str>> = text
+        .trim_end_matches(['\n', '\r'])
+        .lines()
+        .map(|line| line.trim_end_matches('\r').split('\t').collect())
+        .collect();
+    let columns = rows.first()?.len();
+    if rows.len() < 2 || columns < 2 || rows.iter().any(|row| row.len() != columns) {
+        return None;
+    }
+    // 表头有空单元格时不作为表格，排除用制表符缩进的代码。
+    if rows[0].iter().any(|c| c.trim().is_empty()) {
+        return None;
+    }
+    let line = |cells: Vec<String>| format!("| {} |", cells.join(" | "));
+    let row = |cells: &[&str]| line(cells.iter().map(|c| c.trim().replace('|', "\\|")).collect());
+    let mut out = row(&rows[0]);
+    out.push('\n');
+    out.push_str(&line(vec!["---".to_owned(); columns]));
+    for cells in &rows[1..] {
+        out.push('\n');
+        out.push_str(&row(cells));
+    }
+    out.push('\n');
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests;

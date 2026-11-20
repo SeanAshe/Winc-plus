@@ -13,6 +13,8 @@ pub mod local;
 mod path;
 pub mod remote;
 mod target;
+#[cfg(any(test, feature = "test-support"))]
+pub mod testing;
 
 pub use path::{
     Location, carry_name, display, ensure_local, is_remote, join, locate, native_lossy,

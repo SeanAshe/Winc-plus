@@ -418,6 +418,7 @@ impl App {
             self.settings.cache = None;
         }
         settle(&mut self.settings.mode_slide, |s| s.1);
+        settle(&mut self.overlays.tooltip.leaving, |l| l.3);
         if let Some(bar) = &mut self.disk.loads.bar {
             bar.settle();
         }
@@ -548,6 +549,8 @@ impl App {
             || self.scrollbars_animating()
             || self.preview.markdown.motion.is_some()
             || self.status.motion.moving()
+            || self.overlays.tooltip.leaving.is_some()
+            || self.tooltip_fading_in()
             || (self.disk.loads.bar).is_some_and(|b| b.clock.is_some())
             || ((self.git.branch.running.is_some()
                 || self.git.branch.finished.is_some()
@@ -566,6 +569,39 @@ pub struct Tooltip {
     pub(crate) since: Option<Instant>,
     /// 提示是否已绘制出来；已绘制时无需再为提示唤醒事件循环。
     pub(crate) shown: bool,
+    /// 最近一次画出的提示：对着的按钮、文字、是否放在按钮旁边（见 `view::draw_tip`）。
+    pub(crate) last: std::cell::RefCell<Option<(Rect, String, bool)>>,
+    /// 鼠标离开后正在淡出的提示和淡出的时钟。
+    pub(crate) leaving: Option<(Rect, String, bool, Clock)>,
+}
+
+/// 悬停提示淡入、淡出的时长，取 [`DETAILS_FADE`]：只为缓和出现和消失，比卡片的动画短。
+pub(crate) const TOOLTIP_FADE: Duration = DETAILS_FADE;
+
+impl App {
+    /// 悬停提示此刻的不透明度：停留满 `TOOLTIP_DELAY` 之后在 [`TOOLTIP_FADE`] 内淡入；关闭了
+    /// 动画效果时直接显示。
+    pub(crate) fn tooltip_opacity(&self) -> f32 {
+        let Some(since) = self.overlays.tooltip.since.filter(|_| self.animations_on()) else {
+            return 1.0;
+        };
+        let shown = since.elapsed().saturating_sub(crate::theme::TOOLTIP_DELAY);
+        (shown.as_secs_f32() / TOOLTIP_FADE.as_secs_f32()).min(1.0)
+    }
+
+    /// 悬停提示是否正在淡入。
+    fn tooltip_fading_in(&self) -> bool {
+        self.overlays.tooltip.shown && self.tooltip_opacity() < 1.0
+    }
+
+    /// 悬停的目标变了：正显示着的提示开始淡出。
+    pub(super) fn leave_tooltip(&mut self) {
+        let last = self.overlays.tooltip.last.take();
+        if let (true, Some((rect, label, beside))) = (self.overlays.tooltip.shown, last) {
+            let clock = self.clock(TOOLTIP_FADE);
+            self.overlays.tooltip.leaving = clock.map(|c| (rect, label, beside, c));
+        }
+    }
 }
 
 /// 光标闪烁的状态：当前是否显示，以及闪烁周期的起点。

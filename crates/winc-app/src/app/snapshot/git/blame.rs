@@ -343,7 +343,11 @@ fn shoot_blame() {
         let l = app.layout;
         let y = l.text.y + 6.5 * app.fonts.line_height;
         app.on_mouse_move(l.gutter.x + 40.0, y);
-        app.overlays.tooltip.since = Some(std::time::Instant::now() - crate::theme::TOOLTIP_DELAY);
+        app.overlays.tooltip.since = Some(
+            std::time::Instant::now()
+                - crate::theme::TOOLTIP_DELAY
+                - crate::app::animation::TOOLTIP_FADE,
+        );
         shoot(&mut app, &format!("blame-{theme}"));
         let _ = std::fs::remove_dir_all(&root);
     }

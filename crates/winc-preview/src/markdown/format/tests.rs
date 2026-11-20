@@ -64,3 +64,15 @@ fn highlight_marks_toggle() {
     assert_eq!(run("甲|乙", "=="), "甲==|==乙");
     assert_eq!(run("甲==|==乙", "=="), "甲|乙");
 }
+
+#[test]
+fn active_marks_are_the_ones_toggle_would_remove() {
+    let line = "a **b** *c* ***d*** e";
+    let at = |s: &str| line.find(s).unwrap()..line.find(s).unwrap() + s.len();
+    assert!(active(line, at("b"), "**"));
+    assert!(!active(line, at("b"), "*"));
+    assert!(active(line, at("c"), "*"));
+    assert!(active(line, at("d"), "**") && active(line, at("d"), "*"));
+    assert!(active(line, at("**b**"), "**"));
+    assert!(!active(line, at("e"), "**"));
+}

@@ -166,16 +166,13 @@ fn runaway_output_is_cut_off() {
 #[cfg(unix)]
 #[test]
 fn remote_questions_are_answered_by_the_local_askpass_program() {
-    use std::os::unix::fs::PermissionsExt;
-
     let dir = std::env::temp_dir().join(format!("winc-remote-askpass-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let program = dir.join("askpass");
     let script = "#!/bin/sh\n[ \"$1\" = refuse ] && exit 1\n\
                   printf '%s|%s|%s\\n' \"$WINC_GIT_ASKPASS\" \"$SSH_ASKPASS_PROMPT\" \"$1\"\n";
-    std::fs::write(&program, script).unwrap();
-    std::fs::set_permissions(&program, PermissionsExt::from_mode(0o755)).unwrap();
+    winc_backend::testing::write_script(&program, script);
 
     let mut command = Command::new("git");
     command.arg("fetch").env("LC_ALL", "C");

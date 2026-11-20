@@ -221,6 +221,13 @@ pub(crate) fn convert(
 }
 
 impl App {
+    /// 按键是否作为输入写进文字：没有开 Vim 模式，或者在插入模式中。
+    pub(in crate::app) fn vim_typing(&self) -> bool {
+        self.vim
+            .as_ref()
+            .is_none_or(|state| state.vim.mode() == Mode::Insert)
+    }
+
     /// 使 Vim 状态的有无与配置一致：开启时创建，关闭时结束未完成的撤销分组并销毁。
     pub(in crate::app) fn vim_apply_config(&mut self) {
         let enabled = self.config.vim_enabled == Some(true);

@@ -39,6 +39,7 @@ mod popup_menu;
 pub(crate) mod preview;
 mod settings;
 mod status;
+mod suggest;
 mod terminal;
 mod workspace;
 
@@ -230,6 +231,7 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
         draw_notice_ghost(app, frame, ghost);
     }
 
+    suggest::draw_suggest(app, frame);
     draw_tree_drag(app, frame);
     draw_tab_drag(app, frame);
 
@@ -395,6 +397,10 @@ fn draw_drag_card(app: &App, frame: &mut Frame<'_>, name: Cow<'_, str>) -> (Rect
 /// 鼠标在按钮上停留满 `TOOLTIP_DELAY`（500 毫秒）才显示，避免鼠标扫过时闪现。提示位于按钮
 /// 下方并水平居中；下方放不下时（状态栏上的按钮）改在上方；概览标尺上的提示位于标尺左侧。
 fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
+    // 鼠标刚离开的提示在原处淡出。
+    if let Some((button, label, beside, clock)) = &app.overlays.tooltip.leaving {
+        draw_tip(app, frame, (*button, label, *beside), clock.fade_out());
+    }
     // 停留时间不足时直接返回，不拼接提示文字，也不查找命中框。
     let rested = app
         .overlays
@@ -438,6 +444,50 @@ fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
                             Some(Action::TogglePreview),
                         ),
                     ),
+                }
+            }
+            // 格式工具栏的按钮：名字和快捷键。
+            Hover::SelectionTool(tool) => {
+                let Some(&(rect, _)) = app.hits.selection_tools.iter().find(|(_, t)| *t == tool)
+                else {
+                    return;
+                };
+                (
+                    rect,
+                    crate::layout::with_key(tool.label(), Some(tool.action())),
+                )
+            }
+            // Markdown 预览中的链接：提示地址，脚注的编号提示脚注的内容；可编辑的预览中另起一行
+            // 说明怎样打开。
+            Hover::MarkdownLink(i) | Hover::MarkdownLinkText(i)
+                if !app.markdown_link_is_control(i) =>
+            {
+                let Some((rect, url)) = app.hits.markdown_links.get(i) else {
+                    return;
+                };
+                let note = (url.strip_prefix("#fn-"))
+                    .and_then(|n| app.preview.markdown.parsed.as_ref()?.footnote_text(n));
+                let text = match note {
+                    Some(note) => note,
+                    None if url.starts_with("#fnref-") => return,
+                    None => url.clone(),
+                };
+                // 无法打开的链接另起一行显示原因。
+                let text = match app.preview.markdown.links.get(url) {
+                    Some(broken) => format!("{text}\n{}", broken.reason()),
+                    None => text,
+                };
+                let key = if cfg!(target_os = "macos") {
+                    "⌘"
+                } else {
+                    "Ctrl"
+                };
+                match app.pointer.hover {
+                    Hover::MarkdownLinkText(_) => {
+                        let hint = t!("preview-markdown-link-hint", key = key);
+                        (*rect, format!("{text}\n{hint}"))
+                    }
+                    _ => (*rect, text),
                 }
             }
             // 日志列表中的作者头像：提示作者名和邮箱。
@@ -537,8 +587,22 @@ fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
             _ => return,
         },
     };
-    let label = label.as_str();
+    let beside = matches!(app.pointer.hover, Hover::RulerChange(_));
+    let tip = (button, label.as_str(), beside);
+    draw_tip(app, frame, tip, app.tooltip_opacity());
+    *app.overlays.tooltip.last.borrow_mut() = Some((button, label, beside));
+}
 
+/// 画一条提示：对着 `button`，文字 `label`；`beside` 时放在按钮左侧（概览标尺紧靠窗口右边缘），
+/// 否则放在按钮下方。整条按 `opacity` 变淡，用于淡入淡出。
+fn draw_tip(app: &App, frame: &mut Frame<'_>, tip: (Rect, &str, bool), opacity: f32) {
+    let (button, label, beside) = tip;
+    frame.with_opacity(opacity, |frame| {
+        draw_tip_card(app, frame, button, label, beside)
+    });
+}
+
+fn draw_tip_card(app: &App, frame: &mut Frame<'_>, button: Rect, label: &str, beside: bool) {
     let p = app.palette;
     // 提示分「名称   快捷键」两栏，快捷键以淡色显示在右侧，两栏间距至少 16 逻辑像素。含 `\n` 时
     // 第一段为正文，其余各段为淡色说明（如标签的文件名和所在目录）。
@@ -563,7 +627,7 @@ fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
     // 单行高 26 逻辑像素，每多一行增加 18。
     const LINE: f32 = 18.0;
     let height = 8.0 + LINE * lines.len() as f32;
-    let rect = if matches!(app.pointer.hover, Hover::RulerChange(_)) {
+    let rect = if beside {
         // 概览标尺紧靠窗口右边缘：提示放在标尺左侧、与鼠标同高，不遮挡鼠标所指的标记。
         Rect::new(
             button.x - 8.0 - width,

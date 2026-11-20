@@ -198,6 +198,8 @@ pub(crate) struct TermTab {
     pub requested: Option<(u64, u64)>,
     /// 当前的选区；没有选区时为 `None`。
     pub selection: Option<Selection>,
+    /// 等历史行取回后复制选区时，复制完是否清除选区（见 `App::terminal_copy`）。
+    pub clear_after_copy: bool,
     /// 命令块，按位置从上到下（辅助进程发来的，见 [`Block`]）。
     pub blocks: Vec<Block>,
     /// 按还没到的那一帧的行号算的块（`Blocks` 的 `early`）：那一帧到了换上。
@@ -310,6 +312,7 @@ impl TermTab {
             cache: BTreeMap::new(),
             requested: None,
             selection: None,
+            clear_after_copy: false,
             blocks: Vec::new(),
             early_blocks: None,
             folded: Vec::new(),

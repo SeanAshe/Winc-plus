@@ -164,6 +164,15 @@ impl App {
         let TocTarget::Heading(i) = target else {
             return;
         };
+        // 收起的一节中的标题：展开后跳到该标题。
+        let key = (self.hits.markdown_toc_blocks.get(i))
+            .zip(self.preview.markdown.parsed.as_ref())
+            .and_then(|(&block, parsed)| parsed.heading_keys().into_iter().nth(block).flatten());
+        if let Some(key) = key
+            && self.unfold_to_anchor(&key)
+        {
+            return;
+        }
         let Some(&top) = self.hits.markdown_toc_tops.get(i) else {
             return;
         };
@@ -181,7 +190,9 @@ impl App {
     pub(in crate::app) fn jump_to_anchor(&mut self, anchor: &str) {
         let Some((top, height)) = crate::app::preview::markdown::laid::anchor_box(self, anchor)
         else {
-            self.flash(t!("preview-markdown-heading-not-found"));
+            if !self.unfold_to_anchor(anchor) {
+                self.flash(t!("preview-markdown-heading-not-found"));
+            }
             return;
         };
         let lower = anchor.to_lowercase();

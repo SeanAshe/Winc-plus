@@ -674,6 +674,8 @@ pub const DEFAULT_PANEL_WIDTH: f32 = 300.0;
 /// 3 × `SEGMENT_W` + 2 × `SEGMENT_SPACING` + 4 = 92，离侧栏右边 8，再加 `ISLAND_GAP` / 2，
 /// 合计 227；取 230 留出余量。
 pub const MIN_PANEL_WIDTH: f32 = 230.0;
+/// 专注模式中光标所在段落以外的内容的不透明度：文字仍能看清，又明显淡于正在写的段落。
+pub const FOCUS_DIM: f32 = 0.35;
 /// 文件树一行的高度。
 pub const TREE_ROW: f32 = 24.0;
 /// 文件树每一级缩进的宽度。

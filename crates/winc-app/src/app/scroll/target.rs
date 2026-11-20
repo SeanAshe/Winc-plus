@@ -171,6 +171,10 @@ impl App {
         (dx, dy): (f32, f32),
     ) {
         let (x, y) = origin;
+        // 补全列表浮在编辑区之上，滚轮落在列表上时滚动列表。
+        if self.scroll_suggest(origin, dy) {
+            return;
+        }
         // 可以横向滚动的区域按住 `Shift` 时改为横向滚动；列表仍按竖直方向滚动。
         let (sx, sy) = if shift { (dy, 0.0) } else { (dx, dy) };
         // 竖直滚动同样用于横向排列的标签栏、标签条和输入框。

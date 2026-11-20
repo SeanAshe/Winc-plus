@@ -26,6 +26,16 @@ pub(crate) fn link_target(url: &str) -> String {
         .collect()
 }
 
+/// 返回写在 Markdown 链接、图片 `(…)` 中的地址 `url`；含空白、括号或尖括号时用 `<…>` 包裹。
+pub(crate) fn destination(url: &str) -> String {
+    let url = url.trim();
+    if url.contains(|c: char| c.is_whitespace() || matches!(c, '(' | ')' | '<' | '>')) {
+        format!("<{}>", link_target(url))
+    } else {
+        url.to_owned()
+    }
+}
+
 /// 返回可以放进 HTML 属性值（双引号）中的 `text`。
 pub(crate) fn html_attr(text: &str) -> String {
     text.replace('&', "&amp;")

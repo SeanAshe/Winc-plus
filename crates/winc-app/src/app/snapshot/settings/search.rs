@@ -66,7 +66,10 @@ fn search_finds_settings_on_every_page() {
         [
             Setting::RemoteImages,
             Setting::TextWidth,
-            Setting::MarkdownLineNumbers
+            Setting::MarkdownLineNumbers,
+            Setting::MarkdownShortcuts,
+            Setting::MarkdownFocus,
+            Setting::MarkdownTypewriter,
         ]
     );
 

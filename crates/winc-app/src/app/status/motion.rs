@@ -38,6 +38,8 @@ pub enum StatusKey {
     PictureFormat,
     /// PDF 的当前页和总页数。
     PdfPage,
+    /// Markdown 文档的字数，有选区时另有选中部分的字数。
+    Words,
     /// 光标位置、选中的字符数或多光标的选区个数。
     Position,
     /// 行尾。
