@@ -623,10 +623,10 @@ impl App {
     /// 在编辑区粘贴文本 `content`。
     ///
     /// 没有选区且 `content` 等于最近一次整行复制的内容时，插入到当前行上方；否则在光标处插入。
-    /// Markdown 中选中文字后粘贴网址时生成链接，见 [`App::markdown_link_paste`]。
+    /// Markdown 中网址、图片网址和表格单元格按 [`App::markdown_paste`] 改写。
     pub(super) fn paste_text(&mut self, content: String) {
-        if let Some(link) = self.markdown_link_paste(&content) {
-            self.run(Command::Insert(link));
+        if let Some(text) = self.markdown_paste(&content) {
+            self.run(Command::Insert(text));
             return;
         }
         let empty_selection = self

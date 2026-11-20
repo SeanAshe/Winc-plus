@@ -186,7 +186,11 @@ fn shoot_gutter_marks() {
             .unwrap()
             .0;
         app.on_mouse_move(revert.x + 4.0, revert.y + 4.0);
-        app.overlays.tooltip.since = Some(std::time::Instant::now() - crate::theme::TOOLTIP_DELAY);
+        app.overlays.tooltip.since = Some(
+            std::time::Instant::now()
+                - crate::theme::TOOLTIP_DELAY
+                - crate::app::animation::TOOLTIP_FADE,
+        );
         shoot(&mut app, &format!("gutter-tip-{theme}"));
         app.on_mouse_move(0.0, 0.0);
         app.open_change_popup(2);
@@ -225,7 +229,11 @@ fn shoot_gutter_marks() {
         // 鼠标停在标尺上那一长段新增上，提示已显示。
         let (rect, _) = app.ruler_tip(3).unwrap();
         app.on_mouse_move(rect.x + 1.0, rect.y + 60.0);
-        app.overlays.tooltip.since = Some(std::time::Instant::now() - crate::theme::TOOLTIP_DELAY);
+        app.overlays.tooltip.since = Some(
+            std::time::Instant::now()
+                - crate::theme::TOOLTIP_DELAY
+                - crate::app::animation::TOOLTIP_FADE,
+        );
         shoot(&mut app, &format!("gutter-ruler-tip-{theme}"));
         let _ = std::fs::remove_dir_all(&root);
     }

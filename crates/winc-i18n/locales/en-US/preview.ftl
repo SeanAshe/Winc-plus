@@ -55,7 +55,10 @@ preview-svg-missing-text-path = text on paths
 ## Markdown preview
 
 preview-markdown-image-alt = Image
+preview-markdown-diagram-expand = Show All
+preview-markdown-diagram-collapse = Show Less
 preview-markdown-code-copied = Copied code
+preview-markdown-link-hint = { $key }-click to open
 preview-markdown-heading-not-found = This heading isn’t in the document
 preview-markdown-toc-pin = Pin Heading List
 preview-markdown-toc-unpin = Unpin Heading List
@@ -118,3 +121,40 @@ preview-pdf-encrypted = Encrypted PDFs can’t be previewed
 preview-pdf-empty = The PDF has no pages
 preview-pdf-render-failed = The page couldn’t be rendered
 preview-pdf-render-failed-code = The page couldn’t be rendered (error { $code })
+
+## Writing commands opened with /
+
+preview-slash-heading-1 = Heading 1
+preview-slash-heading-2 = Heading 2
+preview-slash-heading-3 = Heading 3
+preview-slash-bullet = Bulleted List
+preview-slash-ordered = Numbered List
+preview-slash-task = Task List
+preview-slash-quote = Quote
+preview-slash-details = Toggle Block
+preview-slash-code = Code Block
+preview-slash-math = Math Block
+preview-slash-table = Table
+preview-slash-divider = Divider
+preview-slash-image = Image
+preview-slash-link = Link
+preview-slash-callout-note = Callout: Note
+preview-slash-callout-tip = Callout: Tip
+preview-slash-callout-important = Callout: Important
+preview-slash-callout-warning = Callout: Warning
+preview-slash-callout-caution = Callout: Caution
+preview-slash-inline-math = Inline Math
+preview-slash-flowchart = Flowchart
+preview-slash-sequence = Sequence Diagram
+preview-slash-gantt = Gantt Chart
+preview-slash-contents = Table of Contents
+preview-slash-date = Today's Date
+
+## Selection toolbar
+
+preview-tool-bold = Bold
+preview-tool-italic = Italic
+preview-tool-strike = Strikethrough
+preview-tool-code = Inline Code
+preview-tool-highlight = Highlight
+preview-tool-link = Link

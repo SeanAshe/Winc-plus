@@ -58,6 +58,21 @@ impl Builder<'_> {
         }
     }
 
+    /// 返回当前 HTML 块中下一个 `<img` 在原文中的位置；找不到时为块的开头。
+    fn html_image_at(&mut self) -> usize {
+        let n = self.html_images;
+        self.html_images += 1;
+        let block = self.source.get(self.start..self.end).unwrap_or_default();
+        let lower = block.to_ascii_lowercase();
+        let found = lower.match_indices("<img").filter(|(i, _)| {
+            lower[i + 4..].starts_with(|c: char| c.is_whitespace() || c == '/' || c == '>')
+        });
+        found
+            .map(|(i, _)| i)
+            .nth(n)
+            .map_or(self.start, |i| self.start + i)
+    }
+
     /// 处理一个 HTML 标签，`tag` 是尖括号里的内容。
     fn tag(&mut self, tag: &str, block: bool) {
         let closing = tag.starts_with('/');
@@ -75,14 +90,22 @@ impl Builder<'_> {
                     |key: &str| attr(key).and_then(|v| v.trim_end_matches("px").parse().ok());
                 // 图片来自 picture 时：其中的 source 声明的浅色地址优先于 img 的地址。
                 let (light, dark) = &mut self.sources;
+                // `style` 中写明的宽高优先于属性。
+                let style = attr("style").map(|s| css_size(&s)).unwrap_or_default();
                 let image = Image {
                     url: light.take().or_else(|| attr("src")).unwrap_or_default(),
                     alt: attr("alt").unwrap_or_default(),
-                    width: attr("width").and_then(|v| length(&v)),
-                    height: size("height"),
+                    width: style.0.or_else(|| attr("width").and_then(|v| length(&v))),
+                    height: style.1.or_else(|| size("height")),
+                    zoom: style.2,
                     dark: dark.take(),
                 };
-                self.push_image(image);
+                // HTML 块中的图片记录各自 `<img` 的位置。
+                let at = match block {
+                    true => self.html_image_at(),
+                    false => self.start,
+                };
+                self.push_image_at(image, at);
             }
             ("a", false) => {
                 // 没有地址、带 `id` 或 `name` 的是锚点；`<a id="…"/>` 没有结束标签，不压样式。
@@ -376,7 +399,7 @@ fn is_heading(name: &str) -> bool {
 }
 
 /// 取 HTML 标签 `tag`（尖括号里的内容）中属性 `key` 的值；引号可有可无。
-fn attribute(tag: &str, key: &str) -> Option<String> {
+pub(super) fn attribute(tag: &str, key: &str) -> Option<String> {
     let lower = tag.to_ascii_lowercase();
     let mut from = 0;
     while let Some(i) = lower[from..].find(key) {
@@ -487,7 +510,7 @@ pub(crate) fn named_entity(name: &str) -> Option<char> {
 }
 
 /// 换掉常见的 HTML 字符实体和数字实体。
-fn decode_entities(text: &str) -> String {
+pub(super) fn decode_entities(text: &str) -> String {
     if !text.contains('&') {
         return text.to_owned();
     }
@@ -531,6 +554,34 @@ fn has_flag(tag: &str, name: &str) -> bool {
     tag.split(|c: char| c.is_whitespace() || c == '/')
         .skip(1)
         .any(|word| word.eq_ignore_ascii_case(name))
+}
+
+/// 返回 `style` 中写明的宽度、高度（像素）和缩放比例（百分数）。
+fn css_size(style: &str) -> (Option<Length>, Option<u32>, Option<u32>) {
+    let mut out = (None, None, None);
+    for decl in style.split(';') {
+        let Some((key, value)) = decl.split_once(':') else {
+            continue;
+        };
+        let value = value.trim();
+        match key.trim().to_ascii_lowercase().as_str() {
+            "width" => out.0 = length(value),
+            "height" => {
+                out.1 = (value.trim_end_matches("px").trim().parse::<f32>().ok())
+                    .filter(|px| *px >= 1.0)
+                    .map(|px| px.round() as u32);
+            }
+            "zoom" => {
+                let percent = match value.strip_suffix('%') {
+                    Some(p) => p.trim().parse::<f32>().ok(),
+                    None => value.parse::<f32>().ok().map(|z| z * 100.0),
+                };
+                out.2 = percent.filter(|p| *p > 0.0).map(|p| p.round() as u32);
+            }
+            _ => {}
+        }
+    }
+    out
 }
 
 /// HTML 的宽度属性：像素或百分比。

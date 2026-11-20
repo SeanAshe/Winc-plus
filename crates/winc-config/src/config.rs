@@ -111,6 +111,21 @@ pub struct Config {
     /// Markdown 预览是否显示行号，默认为是：可编辑的预览在左侧写原文行号，其余预览在代码块中
     /// 写从 1 起的行号。
     pub markdown_line_numbers: Option<bool>,
+    /// Markdown 文件的源代码是否也使用写作快捷键（标题、列表、链接等），默认为是；可编辑的
+    /// 预览总是使用。
+    pub markdown_shortcuts: Option<bool>,
+    /// 编辑 Markdown 时是否淡化光标所在段落以外的文字（专注模式），默认为否。
+    pub markdown_focus: Option<bool>,
+    /// 编辑 Markdown 时是否让光标所在的行停在编辑区中间（打字机模式），默认为否。
+    pub markdown_typewriter: Option<bool>,
+    /// 可编辑的预览中用鼠标选中文字后是否显示格式工具栏，默认为是。
+    pub markdown_selection_toolbar: Option<bool>,
+    /// 粘贴、拖入 Markdown 的图片的目录，相对文档所在的目录，`${filename}` 表示文档主名；未设置
+    /// 时为文档所在的目录。
+    pub markdown_image_folder: Option<String>,
+    /// 粘贴图片的文件名（不含扩展名），`${filename}` 表示文档主名，`${date}` 表示粘贴时刻，
+    /// 未设置时为 `image`。
+    pub markdown_image_name: Option<String>,
     /// 是否定时检查更新（启动后 5 秒、之后每天一次），默认为是。
     ///
     /// 关闭后仍可从菜单「检查更新…」手动检查。

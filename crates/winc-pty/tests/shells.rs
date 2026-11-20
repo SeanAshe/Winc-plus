@@ -12,7 +12,7 @@ mod python;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use common::Client;
+use common::{Client, write_script};
 use winc_pty::protocol::{Block, FromHelper, Marks, ToHelper};
 
 /// 测试用的临时目录，删除实例时连同内容一起删掉。

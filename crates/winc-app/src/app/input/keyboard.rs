@@ -36,6 +36,8 @@ impl App {
         if event.state != ElementState::Pressed {
             return;
         }
+        // 按键后不再显示格式工具栏，鼠标重新选中时再显示。
+        self.preview.markdown.toolbar = None;
 
         let m = self.pointer.modifiers;
         let cmd = if cfg!(target_os = "macos") {
@@ -50,6 +52,7 @@ impl App {
 
         self.reset_blink();
         self.request_redraw();
+        self.scroll.keyed = true;
 
         if matches!(event.logical_key, Key::Named(NamedKey::Escape))
             && self.tree_dragging().is_some()
@@ -85,6 +88,10 @@ impl App {
 
         // 全屏查看图时，关闭、缩放等按键先交给查看器处理。
         if self.diagram_view_key(&event.logical_key, &base, cmd) {
+            return;
+        }
+        // 链接地址的补全列表开着时，选择、写入和关掉列表的键先给它。
+        if self.suggest_key(&event.logical_key) {
             return;
         }
 
@@ -157,7 +164,7 @@ impl App {
     /// 返回当前焦点对应的键位上下文，键位表按它划分适用范围。
     pub(in crate::app) fn key_context(&self) -> Context {
         match self.focus {
-            Focus::Editor if self.markdown_live() => Context::Markdown,
+            Focus::Editor if self.markdown_keys() => Context::Markdown,
             Focus::Editor => Context::Editor,
             Focus::Search => Context::Find,
             Focus::Replace => Context::Replace,
@@ -250,6 +257,12 @@ impl App {
         }
 
         match self.lookup_shortcut(stroke, None) {
+            Lookup::Run(actions)
+                if self.focus == Focus::Terminal
+                    && self.run_terminal_shortcut(stroke, &actions) =>
+            {
+                true
+            }
             Lookup::Run(actions) => actions
                 .into_iter()
                 .any(|a| self.run_action(self.keyboard_action(a))),
@@ -1102,6 +1115,7 @@ impl App {
             Ime::Commit(text) => {
                 self.ime.preedit.clear();
                 self.ime.field_preedit.clear();
+                self.scroll.keyed = true;
 
                 let focus = self.focus;
                 match focus {

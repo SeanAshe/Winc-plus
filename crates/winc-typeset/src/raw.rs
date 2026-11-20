@@ -114,6 +114,7 @@ impl Cx<'_, '_> {
             y + flow.height + gap * 2.0 + 1.0
         };
         let html = self.raw.as_ref().is_some_and(|r| r.kind == RawKind::Html);
+        let first = out.items.len() as u32;
         let preview = match block {
             Block::Math(..) => self.preview(block, x, below, width, env, out),
             Block::Code { lang, text, .. } if lang == "mermaid" => {
@@ -125,6 +126,7 @@ impl Cx<'_, '_> {
         let Some(preview) = preview.filter(|p| p.height > 0.0) else {
             return flow;
         };
+        out.preview = Some((first, below));
         if !boxed {
             // 原文与渲染结果之间绘制一条细分隔线。
             out.items.push(Item::Fill {

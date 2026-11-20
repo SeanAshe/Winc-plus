@@ -82,7 +82,7 @@ fn arrows_skip_the_blank_lines_between_blocks() {
 }
 
 #[test]
-fn pasting_a_url_over_selected_text_makes_a_link() {
+fn pasting_urls_and_spreadsheet_cells_rewrites_them() {
     let (mut app, dir) = live_doc("md-paste-link", "见文档。\n\n`代码`\n\n```\n块\n```\n");
     let select = |app: &mut App, needle: &str| {
         let text = doc_text(app);
@@ -97,31 +97,80 @@ fn pasting_a_url_over_selected_text_makes_a_link() {
     };
     select(&mut app, "文档");
     assert_eq!(
-        app.markdown_link_paste(" https://a.dev/x\n").as_deref(),
+        app.markdown_paste(" https://a.dev/x\n").as_deref(),
         Some("[文档](https://a.dev/x)")
     );
     assert_eq!(
-        app.markdown_link_paste("https://a.dev/(1)").as_deref(),
+        app.markdown_paste("https://a.dev/(1)").as_deref(),
         Some("[文档](<https://a.dev/(1)>)")
     );
     // 不是网址、没有选区、在行内代码或代码块中时按普通方式粘贴。
-    assert!(app.markdown_link_paste("文字").is_none());
-    assert!(app.markdown_link_paste("https://a.dev x").is_none());
+    assert!(app.markdown_paste("文字").is_none());
+    assert!(app.markdown_paste("https://a.dev x").is_none());
     select(&mut app, "代码");
-    assert!(app.markdown_link_paste("https://a.dev").is_none());
+    assert!(app.markdown_paste("https://a.dev").is_none());
     select(&mut app, "块");
-    assert!(app.markdown_link_paste("https://a.dev").is_none());
+    assert!(app.markdown_paste("https://a.dev").is_none());
     put_caret(&mut app, "见", true);
-    assert!(app.markdown_link_paste("https://a.dev").is_none());
+    assert!(app.markdown_paste("https://a.dev").is_none());
     // 切换回源代码：预览已释放解析结果，按围栏判断代码块。
     app.set_preview_mode(PreviewMode::Source);
     settle(&mut app);
     assert!(app.preview.markdown.parsed.is_none() && app.preview.markdown.layout.is_none());
     select(&mut app, "块");
-    assert!(app.markdown_link_paste("https://a.dev").is_none());
+    assert!(app.markdown_paste("https://a.dev").is_none());
     select(&mut app, "文档");
-    assert!(app.markdown_link_paste("https://a.dev").is_some());
+    assert!(app.markdown_paste("https://a.dev").is_some());
 
+    // 没有选区时图片网址写成图片，表格单元格写成单独成块的表格。
+    put_caret(&mut app, "见文档。", true);
+    let image = app.markdown_paste("https://a.dev/shot.PNG?raw=1");
+    assert_eq!(image.as_deref(), Some("![](https://a.dev/shot.PNG?raw=1)"));
+    assert!(app.markdown_paste("https://a.dev/page").is_none());
+    let table = app.markdown_paste("名称\t数量\n苹果\t3\n");
+    let expected = "\n\n| 名称 | 数量 |\n| --- | --- |\n| 苹果 | 3 |";
+    assert_eq!(table.as_deref(), Some(expected));
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 剪贴板中带结构的 HTML 粘贴为 Markdown；没有结构的 HTML 和「粘贴为纯文本」粘贴文字。
+#[test]
+fn pasting_web_content_writes_markdown() {
+    let (mut app, dir) = live_doc("md-paste-html", "前文\n");
+    put_caret(&mut app, "前文", true);
+    app.clipboard.copied = Some("标题\n要点".into());
+    app.clipboard.copied_html = Some("<h2>标题</h2><ul><li><b>要点</b></li></ul>".into());
+    app.paste();
+    assert_eq!(doc_text(&app), "前文\n\n## 标题\n\n- **要点**\n");
+    // 一段带链接的文字就地插入。
+    app.run(winc_editor::Command::Insert("\n\n".into()));
+    app.clipboard.copied = Some("看文档".into());
+    app.clipboard.copied_html = Some("看<a href=\"https://winc.si\">文档</a>".into());
+    app.paste();
+    assert!(doc_text(&app).ends_with("\n\n看[文档](https://winc.si)\n"));
+    app.clipboard.copied = Some("fn main() {}".into());
+    app.clipboard.copied_html =
+        Some("<div><span style=\"color:#00f\">fn</span> main() {}</div>".into());
+    app.paste();
+    assert!(doc_text(&app).ends_with("winc.si)fn main() {}\n"));
+    // 选中文字后粘贴 HTML 链接时，以选中的文字作为链接文字。
+    app.run(winc_editor::Command::Insert("\n\n说明".into()));
+    let doc = app.editor.active_mut().unwrap();
+    let end = doc.text().rope().unwrap().len_chars() - 1;
+    doc.selection = winc_core::Selection::new(end - 2, end);
+    app.clipboard.copied = Some("https://winc.si".into());
+    app.clipboard.copied_html = Some("<a href=\"https://winc.si\">https://winc.si</a>".into());
+    app.paste();
+    assert!(
+        doc_text(&app).ends_with("\n\n[说明](https://winc.si)\n"),
+        "{}",
+        doc_text(&app)
+    );
+    app.clipboard.copied = Some("纯".into());
+    app.clipboard.copied_html = Some("<b>纯</b>".into());
+    assert!(app.run_action(crate::keymap::Action::MarkdownPastePlain));
+    assert!(doc_text(&app).ends_with("(https://winc.si)纯\n"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -815,6 +864,7 @@ fn markdown_images_render_one_size_at_a_time() {
     let slot = ImageSlot::Ready {
         width: picture.width,
         height: picture.height,
+        density: 1,
         picture: Some(std::sync::Arc::new(picture)),
         pixels: Vec::new(),
         drawing: Vec::new(),

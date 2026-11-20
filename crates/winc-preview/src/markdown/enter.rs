@@ -34,23 +34,25 @@ impl Edit {
 
 /// 一行开头的块标记（引用、缩进、列表记号、标记之后的内容）。
 #[derive(Debug, Default)]
-struct Prefix<'a> {
+pub(super) struct Prefix<'a> {
     /// 引用的 `>`（连同前后的空格），可以有几层。
-    quote: &'a str,
+    pub(super) quote: &'a str,
     /// 列表项的缩进（引用之后）。
-    indent: &'a str,
+    pub(super) indent: &'a str,
     /// 列表项的记号。
-    marker: Option<Marker<'a>>,
+    pub(super) marker: Option<Marker<'a>>,
     /// 标记之后的内容。
-    rest: &'a str,
+    pub(super) rest: &'a str,
 }
 
 /// 列表项的记号：`-`、`*`、`+`，或者 `1.`、`1)`；后面的空格；是否为任务列表。
 #[derive(Debug)]
-struct Marker<'a> {
-    bullet: &'a str,
-    gap: &'a str,
-    task: bool,
+pub(super) struct Marker<'a> {
+    pub(super) bullet: &'a str,
+    pub(super) gap: &'a str,
+    pub(super) task: bool,
+    /// 任务框是否勾上了。
+    pub(super) checked: bool,
 }
 
 impl Marker<'_> {
@@ -67,6 +69,11 @@ impl Marker<'_> {
         format!("{bullet}{}{task}", self.gap)
     }
 
+    /// 是否为有序列表项。
+    pub(super) fn ordered(&self) -> bool {
+        self.bullet.len() > 1
+    }
+
     /// 有序列表项的序号；无序列表项为 `None`。
     fn number(&self) -> Option<u64> {
         self.bullet[..self.bullet.len() - 1].parse().ok()
@@ -80,7 +87,7 @@ impl Marker<'_> {
 
 /// 解析一行开头的块标记；不是列表项时 `marker` 为 `None`，`rest` 是第一个非缩进字符之后的
 /// 全部内容。
-fn parse(line: &str) -> Prefix<'_> {
+pub(super) fn parse(line: &str) -> Prefix<'_> {
     let bytes = line.as_bytes();
     let mut at = 0;
     // 引用：每层前面最多 3 个空格，`>` 后面的一个空格算在标记里。
@@ -127,6 +134,11 @@ fn parse(line: &str) -> Prefix<'_> {
         .iter()
         .any(|t| after.starts_with(t))
         || ["[ ]", "[x]", "[X]"].contains(&after);
+    let checked = task
+        && after
+            .as_bytes()
+            .get(1)
+            .is_some_and(|b| b.eq_ignore_ascii_case(&b'x'));
     let rest = if task {
         after.get(4..).unwrap_or("")
     } else {
@@ -139,6 +151,7 @@ fn parse(line: &str) -> Prefix<'_> {
             bullet: &body[..bullet_len],
             gap: &body[bullet_len..bullet_len + gap_len],
             task,
+            checked,
         }),
         rest,
     }

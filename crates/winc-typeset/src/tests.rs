@@ -37,6 +37,9 @@ fn lay(markdown: &str, width: f32) -> Vec<(Out, f32)> {
             cell: None,
             preedit: false,
             line_numbers: false,
+            tall: f32::INFINITY,
+            repeat: 0,
+            toggles: HashMap::new(),
         };
         let env = Env {
             color: TEXT,
@@ -207,5 +210,54 @@ fn emoji_sequences_are_laid_out_as_one_piece() {
     for (_, _, _, text) in texts(&laid[0].0) {
         let inside = text.chars().filter(|c| family.contains(*c)).count();
         assert!(inside % family.chars().count() == 0, "{text:?}");
+    }
+}
+
+/// 状态图中往返和并排的连线上的文字不重叠。
+#[test]
+fn edge_labels_do_not_overlap() {
+    let source = "```mermaid\nstateDiagram-v2\n\
+        [*] --> queued: 提交通过校验\n\
+        [*] --> succeeded: 输入与通过验收的旧任务完全相同（复用结果）\n\
+        queued --> running: worker 领取（没有租约）\n\
+        running --> queued: 租约过期（worker 失联），重试次数未用完\n\
+        queued --> canceled: 取消\n\
+        running --> canceled: 心跳发现取消，终止 pi 容器\n\
+        queued --> failed: 排队超过截止时间（expired）\n\
+        running --> succeeded: 有结果（passed 或 degraded）\n\
+        running --> failed: 拿不出结果（input_error / refused / system_error）\n\
+        canceled --> [*]\nsucceeded --> [*]\nfailed --> [*]\n```\n";
+    let laid = lay(source, 900.0);
+    // 按字号估算文字宽度：汉字为一个字号，其余字符为半个字号。
+    let boxes: Vec<(String, Rect)> = laid[0]
+        .0
+        .items
+        .iter()
+        .filter_map(|item| match item {
+            Item::Text {
+                x,
+                baseline,
+                text,
+                size,
+                ..
+            } => {
+                let w: f32 = text
+                    .chars()
+                    .map(|c| if c.is_ascii() { size * 0.5 } else { *size })
+                    .sum();
+                Some((
+                    text.to_string(),
+                    Rect::new(*x, baseline - size * 0.8, w, *size),
+                ))
+            }
+            _ => None,
+        })
+        .collect();
+    assert!(boxes.iter().any(|(t, _)| t.contains("领取")), "{boxes:?}");
+    for (i, (a, ra)) in boxes.iter().enumerate() {
+        for (b, rb) in &boxes[i + 1..] {
+            let r = ra.inset(1.0, 1.0).intersect(rb.inset(1.0, 1.0));
+            assert!(r.w <= 0.0 || r.h <= 0.0, "「{a}」和「{b}」重叠");
+        }
     }
 }

@@ -1,7 +1,6 @@
 //! Python 项目内环境的启动测试：配置加载后的解释器选择、环境还原和项目脚本的执行边界。
 
 use super::*;
-use std::os::unix::fs::PermissionsExt;
 
 fn project(t: &Temp, name: &str) -> PathBuf {
     let root = t.0.join("项目 with space ' $value");
@@ -9,8 +8,7 @@ fn project(t: &Temp, name: &str) -> PathBuf {
     std::fs::create_dir_all(venv.join("bin")).unwrap();
     std::fs::write(venv.join("pyvenv.cfg"), "home = /usr/bin\n").unwrap();
     let python = venv.join("bin/python");
-    std::fs::write(&python, "#!/bin/sh\nprintf 'project-python\\n'\n").unwrap();
-    std::fs::set_permissions(&python, std::fs::Permissions::from_mode(0o755)).unwrap();
+    write_script(&python, "#!/bin/sh\nprintf 'project-python\\n'\n");
     // 自动加载只调整环境；即使激活文件含有副作用也不读取。
     std::fs::write(venv.join("bin/activate"), "echo PROJECT_SCRIPT_EXECUTED\n").unwrap();
     root

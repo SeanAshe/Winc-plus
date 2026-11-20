@@ -15,12 +15,7 @@ pub(crate) const TOOL_TIMEOUT: Duration = Duration::from_secs(60);
 pub(crate) fn fake_tool(dir: &Path, name: &str, body: &str) -> PathBuf {
     std::fs::create_dir_all(dir).unwrap();
     let path = dir.join(name);
-    std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    winc_backend::testing::write_script(&path, &format!("#!/bin/sh\n{body}\n"));
     path
 }
 

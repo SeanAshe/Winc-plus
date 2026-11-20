@@ -6,6 +6,7 @@ use super::*;
 impl App {
     /// 处理鼠标按键 `button` 在当前鼠标位置按下。
     pub(in crate::app) fn on_mouse_down(&mut self, button: MouseButton) {
+        self.scroll.keyed = false;
         // 选择面板的动画期间高度还在变，而点击按最终的布局：先取消动画，使显示直接到位。
         if self.overlays.picker.fold.take().is_some() {
             self.relayout();
@@ -169,7 +170,7 @@ impl App {
         let target = self.target_at(x, y);
         let keeps_preview = matches!(
             target,
-            Target::MarkdownText
+            Target::MarkdownText(_)
                 | Target::Scrollbar(Scrollbar::Markdown | Scrollbar::MarkdownTable, _)
         );
         if !keeps_preview && self.preview.markdown.focused {
@@ -233,7 +234,12 @@ impl App {
             Target::Browser => self.open_in_browser(),
             Target::MarkdownLink(link) => self.open_markdown_link(link),
             Target::MarkdownToc(target) => self.press_toc(target),
-            Target::MarkdownText => self.click_markdown(x, y),
+            Target::MarkdownText(_) => self.click_markdown(x, y),
+            Target::ImageHandle => {
+                if let Some(image) = self.image_handle_at(x, y) {
+                    self.start_image_resize(image, x);
+                }
+            }
             Target::PdfThumb(to) => self.scroll_pdf_to(to),
             Target::PdfTool(tool) => self.press_pdf_tool(tool),
             Target::Tab(index, true) => {
@@ -257,6 +263,8 @@ impl App {
             Target::ResizeEdge(direction) => self.start_resize(direction),
             Target::Tree(_) => self.click_tree(x, y),
             Target::Placeholder(action) => self.run_placeholder_action(action),
+            Target::Suggest(row) => self.accept_suggest(row),
+            Target::SelectionTool(tool) => self.run_selection_tool(tool),
             Target::Diff(target) => self.press_diff(target),
             Target::Log(crate::app::git::log::LogTarget::AuthorEdge) => {
                 let double = self.click_count(x, y) == 2;

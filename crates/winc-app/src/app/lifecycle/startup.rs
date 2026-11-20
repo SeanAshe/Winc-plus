@@ -150,6 +150,7 @@ impl App {
                 pane_glides: Vec::new(),
                 fling: None,
                 wheel: Default::default(),
+                keyed: false,
             },
             jumps: crate::app::editor::Jumps {
                 name_hint: None,

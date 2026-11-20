@@ -505,6 +505,15 @@ const IDS: &[(Action, &[&str], &[&str])] = &[
         &["workbench.action.terminal.clear"],
     ),
     (
+        TerminalCopy,
+        &["Terminal.CopySelectedText"],
+        &[
+            "workbench.action.terminal.copySelection",
+            "workbench.action.terminal.copyAndClearSelection",
+        ],
+    ),
+    (TerminalPaste, &[], &["workbench.action.terminal.paste"]),
+    (
         FindInTerminal,
         &["Find"],
         &["workbench.action.terminal.focusFind"],

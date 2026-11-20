@@ -198,8 +198,6 @@ fn configured_roots_on_another_system_are_not_used() {
 #[cfg(unix)]
 #[test]
 fn old_git_lists_worktrees_without_nul() {
-    use std::os::unix::fs::PermissionsExt;
-
     let Some(git) = super::super::tests::real_git() else {
         return;
     };
@@ -238,8 +236,7 @@ fn old_git_lists_worktrees_without_nul() {
          exec '{}' \"$@\"\n",
         git.program.display()
     );
-    std::fs::write(&script, body).unwrap();
-    std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    winc_backend::testing::write_script(&script, &body);
     let rejected = Command::new(&script)
         .arg("-C")
         .arg(&main)

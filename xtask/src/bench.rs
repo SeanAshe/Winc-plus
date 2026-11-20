@@ -109,6 +109,23 @@ pub fn bench(runs: usize) -> Result<bool, String> {
     println!("{:<34} {:>8.2}ms", "键入到出帧 p50（large.rs）", p50);
     ok &= report("键入到出帧 p95（large.rs）", p95, BUDGET_KEY_P95_MS, "ms");
 
+    let (p50, p95) = scroll_once(&exe, &dir.join("long.md"), "live-typing")?;
+    println!("{:<34} {:>8.2}ms", "预览中键入到出帧 p50（long.md）", p50);
+    println!(
+        "{:<34} {:>8.2}ms",
+        "预览中键入到出帧 p95（long.md，仅供参考）", p95
+    );
+
+    let (p50, p95) = scroll_once(&exe, &root().join("README.md"), "live-moves")?;
+    println!(
+        "{:<34} {:>8.2}ms",
+        "预览中移动光标出帧 p50（README.md）", p50
+    );
+    println!(
+        "{:<34} {:>8.2}ms",
+        "预览中移动光标出帧 p95（README.md，仅供参考）", p95
+    );
+
     let (_, p95) = scroll_once(&exe, &root().join("README.md"), "preview")?;
     ok &= report(
         "预览滚动 p95（README.md）",

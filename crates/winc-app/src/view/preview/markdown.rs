@@ -11,18 +11,84 @@ use winc_i18n::t;
 use winc_render::{Color, FontKind, Frame, Rect, Stroke};
 
 use crate::app::Hover;
+use crate::app::preview::markdown::resize::ImageAt;
 use crate::app::preview::markdown::{ImageSlot, TableBar, TocTarget};
 use crate::app::{App, Focus, ScrollArea};
 use crate::icons;
 use crate::theme::Palette;
 
+mod resize;
+mod table;
+mod toolbar;
 mod viewer;
+
+use table::{draw_table_fades, draw_table_scrollbar, table_toolbar};
 
 pub(in crate::view) use viewer::draw_diagram_view;
 use winc_typeset::Item;
 
 use crate::app::preview::markdown::laid::*;
 use crate::layout::drawn_scroll;
+
+/// 以 `(left, top)` 为块的左上角绘制 `items` 中的底色和文字，裁剪到 `clip`。
+fn draw_plain(frame: &mut Frame<'_>, items: &[Item], (left, top): (f32, f32), clip: Rect) {
+    let at = |r: &Rect| Rect::new(left + r.x, top + r.y, r.w, r.h);
+    for item in items {
+        match item {
+            Item::Fill {
+                rect,
+                color,
+                radius,
+            } => frame.rect_clipped(at(rect), *color, *radius, clip),
+            Item::Corners { rect, color, radii } => {
+                frame.rect_corners(at(rect), *color, *radii, clip);
+            }
+            Item::Text {
+                x,
+                baseline,
+                text,
+                font,
+                faux,
+                size,
+                color,
+                ..
+            } => {
+                frame.text_faux(
+                    *font,
+                    *faux,
+                    *size,
+                    left + x,
+                    top + baseline,
+                    text,
+                    *color,
+                    clip,
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
+/// 在指向不存在的文件或标题的链接下方绘制错误色的虚线。
+fn draw_broken_links(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
+    let color = app.palette.error.alpha(0.7);
+    // 检查链接需要可变借用 `app`，检查期间暂时移出本帧的链接。
+    let links = std::mem::take(&mut app.hits.markdown_links);
+    for (rect, url) in &links {
+        // 预览控件的地址以 `\u{1}` 开头，不检查。
+        if url.starts_with('\u{1}') || app.check_markdown_link(url).is_none() {
+            continue;
+        }
+        let y = (rect.bottom() - 1.5).round();
+        let mut x = rect.x;
+        while x < rect.right() {
+            let w = 2.0f32.min(rect.right() - x);
+            frame.rect_clipped(Rect::new(x, y, w, 1.0), color, 0.0, area);
+            x += 4.0;
+        }
+    }
+    app.hits.markdown_links = links;
+}
 
 /// 在 `area`（窗口坐标，逻辑像素）里画当前文档的 Markdown 预览，分栏时是右半边，只看预览时
 /// 是整个编辑区。
@@ -77,6 +143,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
         images: app.preview.markdown.images_version,
         // 可编辑的预览在左侧按原文编行号，代码块里不再另编。
         numbers: app.markdown_line_numbers_on() && !app.markdown_live(),
+        tall: (area.h * TALL_SHARE).round().max(TALL_MIN),
     };
     let source = Arc::as_ptr(&parsed) as usize;
     let live = app.live_editing().then(|| app.live_leaf()).flatten();
@@ -84,6 +151,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
     let blank = live.as_ref().is_some_and(|l| l.blank);
     let loaded = std::mem::take(&mut app.preview.markdown.loaded);
     let toggled = app.preview.markdown.toggled_now.take();
+    let refold = std::mem::take(&mut app.preview.markdown.refold);
     // 重排之前光标在旧排版里的高度：重排后据此保持光标在屏幕上不动（见 [`keep_caret_still`]）。
     let mut still = None;
     // 记录重排之前各块的绘制位置，重排后各块从该位置滑动到新位置（见 `BlockMotion`）。
@@ -110,6 +178,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
                 && laid.live == live_key
                 && loaded.is_empty()
                 && toggled.is_none()
+                && !refold
                 && !laid.pending()
                 && (laid.near.as_ref()).is_none_or(|kept| kept.covers(&near, area.h)) =>
         {
@@ -125,6 +194,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
                     && l.live == live_key
                     && loaded.is_empty()
                     && toggled.is_none()
+                    && !refold
             });
             // 文字变了：选区、查找用的文字作废。只是重排（宽度、图片变了）时选区留着。
             if old.as_ref().is_none_or(|l| l.source != source) {
@@ -132,11 +202,13 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
             }
             if !resumed {
                 app.preview.markdown.find_doc = None;
-                still = old_caret(app, old.as_ref(), source, live_key.as_ref());
+                let clicked = app.preview.markdown.clicked.take();
+                still = old_caret(app, old.as_ref(), source, live_key.as_ref(), clicked);
                 let slide = std::mem::take(&mut app.preview.markdown.slide);
+                // 收起、展开标题时各块同样滑到新位置，不只在可编辑的预览中。
                 before = old
                     .as_ref()
-                    .filter(|l| l.key == key && app.markdown_live())
+                    .filter(|l| l.key == key && (app.markdown_live() || refold))
                     .map(|l| (Before::of(app, l), slide));
             }
             // 文字未变时保留旧的各块供沿用，并记录视口顶边所在的块，排版期间保持其屏幕位置。
@@ -179,7 +251,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
                     Some(near.clone()),
                 );
                 let y = held.map_or(top - pad, |(i, off)| {
-                    laid.tops[i] + off.min(laid.blocks[i].1.height)
+                    laid.tops[i] + off.min(room_below(&laid, i))
                 });
                 let seen = laid.blocks_in(y, y + area.h);
                 let waits = |i: usize| laid.stale.get(i).copied().unwrap_or(false);
@@ -189,9 +261,10 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
                 (reuse, window) = (Some(laid.fresh()), Some(seen));
                 kept = Some(laid.blocks);
             };
-            // 分帧排版期间保持视口顶边所在的块的屏幕位置，不受其上方的块高度变化的影响。
-            if let Some((i, off)) = held.filter(|_| was_pending || laid.pending()) {
-                let y = laid.tops[i] + off.min(laid.blocks[i].1.height) + pad;
+            // 分帧排版、图片加载完成、收起或展开标题后，视口顶边所在块的屏幕位置不变。
+            let anchored = was_pending || laid.pending() || !loaded.is_empty() || refold;
+            if let Some((i, off)) = held.filter(|_| anchored) {
+                let y = laid.tops[i] + off.min(room_below(&laid, i)) + pad;
                 app.preview.markdown.set_scroll(y);
                 still = None;
             }
@@ -232,8 +305,8 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
     let origin_y = area.y + pad - scroll;
     if let Some((before, slide)) = before {
         let muted = p.text_muted;
-        let (from, fading) = before.motion(&laid, scroll, muted, slide);
-        app.start_markdown_motion(from, fading);
+        let moves = before.motion(&laid, scroll, muted, slide);
+        app.start_markdown_motion(moves);
     }
     let motion = app.preview.markdown.motion.take();
     // 拖着选文字时不出复制按钮。
@@ -267,6 +340,8 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
             Some((byte(a), byte(b)))
         })
         .filter(|(a, b)| a < b);
+    let focus = app.markdown_focus() && app.focus == crate::app::Focus::Editor;
+    let resizable = app.markdown_live();
     let md = &mut app.preview.markdown;
     let selection = md
         .selection
@@ -296,7 +371,19 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
         .tops
         .partition_point(|&t| origin_y + t <= area.y)
         .saturating_sub(1);
+    // 专注模式：光标所在的块以外画得淡一些。
+    let focused = live_caret.filter(|_| focus).and_then(|source| {
+        let i = laid
+            .ranges
+            .partition_point(|r| r.start <= source)
+            .checked_sub(1)?;
+        (source <= laid.ranges[i].end).then_some(i)
+    });
     for (i, (_, block)) in laid.blocks.iter().enumerate().skip(first) {
+        let opacity = match focused {
+            Some(b) if b != i => crate::theme::FOCUS_DIM,
+            _ => 1.0,
+        };
         let offset = |i: usize| motion.as_ref().map_or(0.0, |m| m.offset(i));
         let top = origin_y + laid.tops[i] + offset(i);
         if top > area.bottom() {
@@ -305,6 +392,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
         if top + block.height < area.y {
             continue;
         }
+        let whole = area;
         // 滑动过程中每块只绘制到下一块（同样在滑动）的上边缘：变高的块逐渐显露，
         // 变矮的块不与下方滑上来的块重叠。
         let area = match &motion {
@@ -321,190 +409,237 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
         let fading = motion.as_ref().map_or(&[][..], |m| m.fading(i));
         let fade = motion.as_ref().map_or(1.0, |m| m.clock.progress());
         let fixed = |r: &Rect| Rect::new(left + r.x, top + r.y, r.w, r.h);
-        block.visible(area.y - top, area.bottom() - top, &mut shown);
-        for (k, item) in shown
-            .iter()
-            .map(|&k| (k as usize, &block.items[k as usize]))
-        {
-            // 可横向滚动的表格中的项：按滚动位置左移，裁剪到正文一栏内。
-            let (off, strip) = laid.shift(i, k);
-            let area = strip.map_or(area, |s| area.intersect(fixed(&s)));
-            let left = left - off;
-            let at = |r: &Rect| Rect::new(left + r.x, top + r.y, r.w, r.h);
-            match item {
-                Item::Text {
-                    x,
-                    baseline,
-                    text,
-                    font,
-                    faux,
-                    size,
-                    color,
-                    span,
-                } => {
-                    if let Some(span) = span {
-                        let from = laid.starts[i] + span.start;
-                        let to = from + span.advances.len();
-                        let mut mark = |a: usize, b: usize, color: Color| {
-                            let (a, b) = (a.max(from), b.min(to));
-                            if a >= b {
-                                return;
-                            }
-                            let (a, b) = (a - from, b - from);
-                            let x0: f32 = span.advances[..a].iter().sum();
-                            let x1: f32 = x0 + span.advances[a..b].iter().sum::<f32>();
-                            let (y0, h) = line_box(top + baseline, *size);
-                            let r = Rect::new(left + x + x0, y0, x1 - x0, h);
-                            frame.rect_clipped(r, color, 2.0, area);
-                        };
-                        if let Some((search, current)) = matches {
-                            for &(a, b) in search.matches_in(from, to) {
-                                let color = if current == Some((a, b)) {
-                                    p.search_current
-                                } else {
-                                    p.search_match
-                                };
-                                mark(a, b, color);
-                            }
-                        }
-                        if let Some((a, b)) = selection {
-                            mark(a, b, p.selection);
-                        }
-                        let start = laid.ranges.get(i).map_or(0, |r| r.start);
-                        let local = |s: usize| span.chars_before(text, s.saturating_sub(start));
-                        if let Some((rope, current)) = live_matches
-                            && let Some(first) = span.source_of(text, 0)
-                            && let Some(last) = span.source_of(text, span.advances.len())
-                        {
-                            let chars = |b: usize| rope.byte_to_char(b.min(rope.len_bytes()));
-                            let byte = |c: usize| rope.char_to_byte(c.min(rope.len_chars()));
-                            let (c0, c1) = (chars(start + first), chars(start + last));
-                            for &(a, b) in search.matches_in(c0, c1.max(c0 + 1)) {
-                                let color = if current == Some((a, b)) {
-                                    p.search_current
-                                } else {
-                                    p.search_match
-                                };
-                                mark(from + local(byte(a)), from + local(byte(b)), color);
-                            }
-                        }
-                        if let Some((a, b)) = live_selection
-                            && span.source.is_some()
-                        {
-                            mark(from + local(a), from + local(b), p.selection);
-                        }
+        // 刚显示原文的块：渲染结果另有偏移，原文裁剪到渲染结果的上边缘。
+        let inner = motion.as_ref().and_then(|m| m.inner(i));
+        let reach = inner.map_or(0.0, |(_, d)| d.abs());
+        block.visible(
+            area.y - top - reach,
+            area.bottom() - top + reach,
+            &mut shown,
+        );
+        if let Some(leaving) = motion.as_ref().and_then(|m| m.leaving(i)) {
+            let at = origin_y + laid.tops[i] + leaving.offset * (1.0 - fade);
+            let clip = Rect::new(whole.x, whole.y, whole.w, (top - whole.y).max(0.0));
+            let alpha = 1.0 - motion.as_ref().map_or(1.0, |m| m.clock.linear());
+            let source = &leaving.old.items[..leaving.items as usize];
+            frame.with_opacity(alpha, |frame| draw_plain(frame, source, (left, at), clip));
+        }
+        frame.with_fade(p.editor_bg, opacity, |frame| {
+            for (k, item) in shown
+                .iter()
+                .map(|&k| (k as usize, &block.items[k as usize]))
+            {
+                let (top, area) = match inner {
+                    Some((first, d)) if k >= first => (top + d, area),
+                    Some((_, d)) => {
+                        let edge =
+                            (top + block.preview.map_or(0.0, |p| p.1) + d).min(area.bottom());
+                        (
+                            top,
+                            Rect::new(area.x, area.y, area.w, (edge - area.y).max(0.0)),
+                        )
                     }
-                    frame.text_faux(
-                        *font,
-                        *faux,
-                        *size,
-                        left + x,
-                        top + baseline,
+                    None => (top, area),
+                };
+                // 可横向滚动的表格中的项：按滚动位置左移，裁剪到正文一栏内。
+                let (off, strip) = laid.shift(i, k);
+                let area = strip.map_or(area, |s| area.intersect(fixed(&s)));
+                let left = left - off;
+                let at = |r: &Rect| Rect::new(left + r.x, top + r.y, r.w, r.h);
+                match item {
+                    Item::Text {
+                        x,
+                        baseline,
                         text,
-                        if fading.contains(&k) {
-                            color.alpha(color.a * fade)
-                        } else {
-                            *color
-                        },
-                        area,
-                    );
-                }
-                Item::Fill {
-                    rect,
-                    color,
-                    radius,
-                } => frame.rect_clipped(at(rect), *color, *radius, area),
-                Item::Corners { rect, color, radii } => {
-                    frame.rect_corners(at(rect), *color, *radii, area);
-                }
-                Item::Image { rect, path, .. } => {
-                    let r = at(rect);
-                    let scale = frame.scale();
-                    let size = ((r.w * scale).round() as u32, (r.h * scale).round() as u32);
-                    let drawn = match md.images.get(path) {
-                        Some(ImageSlot::Ready { pixels, .. }) => {
-                            pixels.iter().find(|px| (px.width, px.height) == size)
-                        }
-                        _ => None,
-                    };
-                    match drawn {
-                        Some(px) => frame.pixels((r.x, r.y), px.width, px.height, &px.rgba, area),
-                        None => wanted.push((path.clone(), size)),
-                    }
-                    images.push(path.clone());
-                }
-                Item::Link { rect, url } => {
-                    let r = at(rect).intersect(area);
-                    if r.w > 0.0 && r.h > 0.0 {
-                        app.hits.markdown_links.push((r, url.to_string()));
-                    }
-                }
-                Item::Check {
-                    rect,
-                    checked,
-                    source,
-                } => {
-                    let r = at(rect);
-                    draw_check(frame, p, r, *checked, area);
-                    // 可点击范围比框向外扩展一圈，较小的框也易于点中。
-                    let hit = r.inset(-3.0, -3.0).intersect(area);
-                    if hit.w > 0.0 && hit.h > 0.0 {
-                        let start = laid.ranges.get(i).map_or(0, |r| r.start);
-                        let at = start.saturating_add(*source as usize);
-                        app.hits.markdown_links.push((hit, format!("{TASK}{at}")));
-                    }
-                }
-                Item::Path {
-                    strokes,
-                    width,
-                    color,
-                    ..
-                } => {
-                    let moved: Vec<Stroke> = strokes
-                        .iter()
-                        .map(|&s| winc_typeset::shift(s, left, top))
-                        .collect();
-                    frame.stroke(&moved, *width, *color, area);
-                }
-                Item::Polygon { points, color, .. } => {
-                    let moved: Vec<(f32, f32)> =
-                        points.iter().map(|&(x, y)| (x + left, y + top)).collect();
-                    frame.polygon(&moved, *color, area);
-                }
-                // 所有块绘制完成后再绘制，使其覆盖在上一块的文字之上。
-                // 工具栏贴着正文一栏的左边，不随表格横向滚动。
-                Item::Table {
-                    rect,
-                    align: Some(align),
-                    ..
-                } => toolbar = Some((fixed(rect), *align)),
-                Item::Table { .. } | Item::Spot { .. } => {}
-                Item::Code {
-                    rect,
-                    text,
-                    diagram,
-                } => {
-                    let r = at(rect);
-                    app.hits.markdown_codes.push(r);
-                    if r.contains(mouse.0, mouse.1) && area.contains(mouse.0, mouse.1) {
-                        let button = copy_button(r);
-                        code_button(frame, p, button, area, icons::copy);
-                        app.hits.markdown_links.push((button, COPY.to_owned()));
-                        app.hits.markdown_copy = Some(text.clone());
-                        // 图的复制按钮左侧另有全屏查看按钮。
-                        if *diagram {
-                            let expand = Rect {
-                                x: button.x - button.w - 4.0,
-                                ..button
+                        font,
+                        faux,
+                        size,
+                        color,
+                        span,
+                    } => {
+                        if let Some(span) = span {
+                            let from = laid.starts[i] + span.start;
+                            let to = from + span.advances.len();
+                            let mut mark = |a: usize, b: usize, color: Color| {
+                                let (a, b) = (a.max(from), b.min(to));
+                                if a >= b {
+                                    return;
+                                }
+                                let (a, b) = (a - from, b - from);
+                                let x0: f32 = span.advances[..a].iter().sum();
+                                let x1: f32 = x0 + span.advances[a..b].iter().sum::<f32>();
+                                let (y0, h) = line_box(top + baseline, *size);
+                                let r = Rect::new(left + x + x0, y0, x1 - x0, h);
+                                frame.rect_clipped(r, color, 2.0, area);
                             };
-                            code_button(frame, p, expand, area, icons::expand);
-                            app.hits.markdown_links.push((expand, EXPAND.to_owned()));
-                            app.hits.markdown_expand = Some(text.clone());
+                            if let Some((search, current)) = matches {
+                                for &(a, b) in search.matches_in(from, to) {
+                                    let color = if current == Some((a, b)) {
+                                        p.search_current
+                                    } else {
+                                        p.search_match
+                                    };
+                                    mark(a, b, color);
+                                }
+                            }
+                            if let Some((a, b)) = selection {
+                                mark(a, b, p.selection);
+                            }
+                            let start = laid.ranges.get(i).map_or(0, |r| r.start);
+                            let local = |s: usize| span.chars_before(text, s.saturating_sub(start));
+                            if let Some((rope, current)) = live_matches
+                                && let Some(first) = span.source_of(text, 0)
+                                && let Some(last) = span.source_of(text, span.advances.len())
+                            {
+                                let chars = |b: usize| rope.byte_to_char(b.min(rope.len_bytes()));
+                                let byte = |c: usize| rope.char_to_byte(c.min(rope.len_chars()));
+                                let (c0, c1) = (chars(start + first), chars(start + last));
+                                for &(a, b) in search.matches_in(c0, c1.max(c0 + 1)) {
+                                    let color = if current == Some((a, b)) {
+                                        p.search_current
+                                    } else {
+                                        p.search_match
+                                    };
+                                    mark(from + local(byte(a)), from + local(byte(b)), color);
+                                }
+                            }
+                            if let Some((a, b)) = live_selection
+                                && span.source.is_some()
+                            {
+                                mark(from + local(a), from + local(b), p.selection);
+                            }
+                        }
+                        frame.text_faux(
+                            *font,
+                            *faux,
+                            *size,
+                            left + x,
+                            top + baseline,
+                            text,
+                            if fading.contains(&k) {
+                                color.alpha(color.a * fade)
+                            } else {
+                                *color
+                            },
+                            area,
+                        );
+                    }
+                    Item::Fill {
+                        rect,
+                        color,
+                        radius,
+                    } => frame.rect_clipped(at(rect), *color, *radius, area),
+                    Item::Corners { rect, color, radii } => {
+                        frame.rect_corners(at(rect), *color, *radii, area);
+                    }
+                    Item::Image {
+                        rect,
+                        path,
+                        at: spot,
+                    } => {
+                        let r = at(rect);
+                        // 可编辑的预览中，原文可以改写的图片可调整大小。
+                        if spot.is_some() && resizable {
+                            let image = ImageAt {
+                                rect: r,
+                                block: i,
+                                item: k,
+                            };
+                            app.hits.markdown_images.push(image);
+                        }
+                        let scale = frame.scale();
+                        let size = ((r.w * scale).round() as u32, (r.h * scale).round() as u32);
+                        let drawn = match md.images.get(path) {
+                            Some(ImageSlot::Ready { pixels, .. }) => {
+                                pixels.iter().find(|px| (px.width, px.height) == size)
+                            }
+                            _ => None,
+                        };
+                        match drawn {
+                            Some(px) => {
+                                frame.pixels((r.x, r.y), px.width, px.height, &px.rgba, area)
+                            }
+                            None => wanted.push((path.clone(), size)),
+                        }
+                        images.push(path.clone());
+                        // 本地图片可从右键菜单在新标签中打开。
+                        if md.urls.get(path).is_none_or(|u| !u.contains("://")) {
+                            app.hits.markdown_pictures.push((r, path.clone()));
+                        }
+                    }
+                    Item::Link { rect, url } => {
+                        let r = at(rect).intersect(area);
+                        if r.w > 0.0 && r.h > 0.0 {
+                            app.hits.markdown_links.push((r, url.to_string()));
+                        }
+                    }
+                    Item::Check {
+                        rect,
+                        checked,
+                        source,
+                    } => {
+                        let r = at(rect);
+                        draw_check(frame, p, r, *checked, area);
+                        // 可点击范围比框向外扩展一圈，较小的框也易于点中。
+                        let hit = r.inset(-3.0, -3.0).intersect(area);
+                        if hit.w > 0.0 && hit.h > 0.0 {
+                            let start = laid.ranges.get(i).map_or(0, |r| r.start);
+                            let at = start.saturating_add(*source as usize);
+                            app.hits.markdown_links.push((hit, format!("{TASK}{at}")));
+                        }
+                    }
+                    Item::Path {
+                        strokes,
+                        width,
+                        color,
+                        ..
+                    } => {
+                        let moved: Vec<Stroke> = strokes
+                            .iter()
+                            .map(|&s| winc_typeset::shift(s, left, top))
+                            .collect();
+                        frame.stroke(&moved, *width, *color, area);
+                    }
+                    Item::Polygon { points, color, .. } => {
+                        let moved: Vec<(f32, f32)> =
+                            points.iter().map(|&(x, y)| (x + left, y + top)).collect();
+                        frame.polygon(&moved, *color, area);
+                    }
+                    // 所有块绘制完成后再绘制，使其覆盖在上一块的文字之上。
+                    // 工具栏贴着正文一栏的左边，不随表格横向滚动。
+                    Item::Table {
+                        rect,
+                        align: Some(align),
+                        ..
+                    } => toolbar = Some((fixed(rect), *align)),
+                    Item::Table { .. } | Item::Spot { .. } => {}
+                    Item::Code {
+                        rect,
+                        text,
+                        diagram,
+                    } => {
+                        let r = at(rect);
+                        app.hits.markdown_codes.push(r);
+                        if r.contains(mouse.0, mouse.1) && area.contains(mouse.0, mouse.1) {
+                            let button = copy_button(r);
+                            code_button(frame, p, button, area, icons::copy);
+                            app.hits.markdown_links.push((button, COPY.to_owned()));
+                            app.hits.markdown_copy = Some(text.clone());
+                            // 图的复制按钮左侧另有全屏查看按钮。
+                            if *diagram {
+                                let expand = Rect {
+                                    x: button.x - button.w - 4.0,
+                                    ..button
+                                };
+                                code_button(frame, p, expand, area, icons::expand);
+                                app.hits.markdown_links.push((expand, EXPAND.to_owned()));
+                                app.hits.markdown_expand = Some(text.clone());
+                            }
                         }
                     }
                 }
             }
-        }
+        });
         for (s, scroller) in block.scrolls.iter().enumerate() {
             bars.push((i, s, fixed(&scroller.rect), laid.hscroll_of(i, s)));
         }
@@ -525,6 +660,8 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
             chosen = Some((bar, off, false));
         }
     }
+    let small = app.fonts.ui_small;
+    resize::draw_image_resize(md, &app.hits.markdown_images, p, small, frame, area);
     // 跳转到的脚注或脚注引用铺一层强调色的底色，慢慢淡出（同标题列表点过的标题）。
     if let Some(((y, h), clock)) = md.anchor_flash {
         let alpha = 0.14 * (1.0 - clock.linear());
@@ -547,11 +684,9 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
             &mut app.hits.markdown_links,
         );
     }
-    if let Some((_, y, h)) = caret {
-        // 竖条在内容左边的留白正中，宽 2 逻辑像素。
-        let bar = Rect::new(left - pad / 2.0 - 1.0, area.y - scroll + y, 2.0, h);
-        frame.rect_clipped(bar, p.accent.alpha(0.7), 1.0, area);
-    }
+    // 竖条在内容左边的留白正中，宽 2 逻辑像素；画在标题的折叠箭头之后（见 `draw_heading_folds`）。
+    let caret_bar =
+        caret.map(|(_, y, h)| Rect::new(left - pad / 2.0 - 1.0, area.y - scroll + y, 2.0, h));
     // 光标的绘制位置：找不到时（空文档、光标在第一块之前）位于内容左上角。
     // 滑动过程中随所在的块移动。
     let live_point = live_caret.map(|source| {
@@ -562,7 +697,17 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
             .ranges
             .iter()
             .rposition(|r| r.start <= source && source <= r.end);
-        let shift = motion.as_ref().zip(block).map_or(0.0, |(m, b)| m.offset(b));
+        let shift = motion.as_ref().zip(block).map_or(0.0, |(m, b)| {
+            // 光标位于刚显示原文的块的渲染结果中时，加上渲染结果的偏移。
+            let below = laid.blocks[b]
+                .1
+                .preview
+                .map(|(_, top)| top + laid.tops[b] + pad);
+            let inner = m
+                .inner(b)
+                .filter(|_| below.is_some_and(|top| y + h / 2.0 >= top));
+            m.offset(b) + inner.map_or(0.0, |(_, d)| d)
+        });
         let point = (x, y + shift, h);
         // 正文中的组字文字已排入所在的行，不再在其上重复绘制。
         let inline = laid.blocks.iter().any(|(_, b)| b.preedit);
@@ -588,7 +733,13 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
     }
     app.release_markdown_images(&images, &missing);
     draw_table_scrollbar(app, frame, chosen, area);
-    draw_source_numbers(app, frame, area);
+    let (arrows, covered) = draw_heading_folds(app, frame, area, caret_bar);
+    if let Some(bar) = caret_bar.filter(|_| !covered) {
+        frame.rect_clipped(bar, p.accent.alpha(0.7), 1.0, area);
+    }
+    draw_source_numbers(app, frame, area, &arrows);
+    draw_broken_links(app, frame, area);
+    toolbar::draw_selection_toolbar(app, frame, area);
     draw_toc(app, frame, area, pad);
 
     // 和编辑区的滚动条一样：平时隐藏，滚动、悬停时显示，可以拖动。
@@ -608,77 +759,15 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
 /// 表格被裁掉的一侧渐隐的宽度（逻辑像素），与标签栏两端的渐隐（`TAB_FADE`）相同。
 const TABLE_FADE: f32 = 24.0;
 
-/// 画可横向滚动的表格被裁掉一侧的渐隐，提示可以横向滚动：`strip` 是显示区域（窗口坐标），
-/// `off` 是滚动位置。渐隐的强度随离该侧尽头的距离在 [`TABLE_FADE`] 内线性变化，裁剪到 `area` 内。
-fn draw_table_fades(
-    frame: &mut Frame<'_>,
-    p: &Palette,
-    scroller: &winc_typeset::Scroller,
-    strip: Rect,
-    off: f32,
-    area: Rect,
-) {
-    let max = scroller.max();
-    if max <= 0.0 {
-        return;
-    }
-    let table = Rect::new(
-        strip.x,
-        strip.y,
-        strip.w,
-        strip.h - winc_typeset::SCROLL_BAR_ROOM,
-    );
-    let left = (off / TABLE_FADE).min(1.0);
-    let right = ((max - off) / TABLE_FADE).min(1.0);
-    frame.within(table.intersect(area), |frame| {
-        if left > 0.0 {
-            let edge = Rect::new(table.x, table.y, TABLE_FADE, table.h);
-            frame.with_opacity(left, |f| crate::view::fade(f, edge, p.editor_bg, true));
-        }
-        if right > 0.0 {
-            let edge = Rect::new(table.right() - TABLE_FADE, table.y, TABLE_FADE, table.h);
-            frame.with_opacity(right, |f| crate::view::fade(f, edge, p.editor_bg, false));
-        }
-    });
-}
-
-/// 画表格 `chosen`（表格、滚动位置、是否因鼠标所在而选中）的水平滚动条，与其他区域的滚动条
-/// 一致：平时隐藏，滚动、鼠标移到底边或拖动时显示（见 `App::scrollbar_look`），可以拖动。
-fn draw_table_scrollbar(
-    app: &mut App,
-    frame: &mut Frame<'_>,
-    chosen: Option<(TableBar, f32, bool)>,
-    area: Rect,
-) {
-    app.hits.markdown_table_bar = chosen.map(|(bar, ..)| bar);
-    let Some((bar, off, hovered)) = chosen else {
-        return;
-    };
-    if hovered {
-        app.preview.markdown.last_table = Some(bar.key);
-    }
-    let thumb = crate::layout::hscrollbar_thumb(bar.track, off, bar.content);
-    // 滚动条状态的所属对象按表格区分：换到另一个表格时立即隐藏上一个表格的滚动条。
-    let owner = ((bar.key.0 as u64) << 32) | bar.key.1 as u64;
-    let look = app.scrollbar_look(
-        ScrollArea::MarkdownTable,
-        owner,
-        off,
-        thumb.map(|_| bar.track),
-    );
-    if let Some(thumb) = thumb {
-        let p = app.palette;
-        frame.within(area, |frame| crate::view::draw_thumb(frame, p, thumb, look));
-    }
-}
-
 /// 原文行号的右边离正文左边的距离（逻辑像素）：与编辑区行号栏和文字之间的间距相近。
 const NUMBER_GAP: f32 = 12.0;
 
 /// 在可编辑预览的左侧留白里写原文行号（见 `laid::source_lines`），光标所在的行颜色深一些。
 ///
 /// 关闭行号设置时、只读的预览中不写；留白放不下最大的行号时也不写。
-fn draw_source_numbers(app: &App, frame: &mut Frame<'_>, area: Rect) {
+///
+/// `skip` 是画了折叠箭头的行，不再写行号。
+fn draw_source_numbers(app: &App, frame: &mut Frame<'_>, area: Rect, skip: &[usize]) {
     if !app.markdown_line_numbers_on() || !app.markdown_live() {
         return;
     }
@@ -700,6 +789,9 @@ fn draw_source_numbers(app: &App, frame: &mut Frame<'_>, area: Rect) {
     let top = drawn_scroll(app.preview.markdown.scroll()) - laid.pad;
     let lines = crate::app::preview::markdown::laid::source_lines(laid, rope, top..top + area.h);
     for (line, y) in lines {
+        if skip.contains(&line) {
+            continue;
+        }
         let number = (line + 1).to_string();
         let x = right - number.len() as f32 * cell;
         // 行号只作定位参考，比正文的次要色更淡；光标或选区所在显示行的行号用次要色。
@@ -711,6 +803,89 @@ fn draw_source_numbers(app: &App, frame: &mut Frame<'_>, area: Rect) {
         frame.text(FontKind::Mono, size, x, baseline, &number, color, area);
     }
 }
+
+/// 在标题左边画收起、展开下面一节的箭头：鼠标在标题上时显示，收起的标题一直显示，朝右；
+/// 点击的范围记成链接（[`FOLD`]）。
+///
+/// 有行号时箭头画在这一行的行号上；没有行号时画在留白正中，与分栏时标出光标所在行的竖条
+/// `bar` 同一列，竖条落在画了箭头的标题上时箭头改用强调色、不再画竖条。返回画了箭头的行，
+/// 以及竖条是否被箭头代替。
+fn draw_heading_folds(
+    app: &mut App,
+    frame: &mut Frame<'_>,
+    area: Rect,
+    bar: Option<Rect>,
+) -> (Vec<usize>, bool) {
+    let (mut lines, mut covered) = (Vec::new(), false);
+    let Some(laid) = app.preview.markdown.layout.as_ref() else {
+        return (lines, covered);
+    };
+    let folds = (app.editor.active()).and_then(|d| app.preview.markdown.folds.get(&d.id));
+    let scroll = drawn_scroll(app.preview.markdown.scroll());
+    let (mx, my) = app.mouse();
+    let p = app.palette;
+    let numbers = app.markdown_line_numbers_on() && app.markdown_live();
+    let x = match numbers {
+        true => laid.left - NUMBER_GAP - ARROW / 2.0,
+        false => laid.left - laid.pad / 2.0,
+    };
+    let view = scroll - laid.pad;
+    for i in laid.blocks_in(view, view + area.h) {
+        let Some(section) = laid.sections.get(i).and_then(Option::as_ref) else {
+            continue;
+        };
+        let top = area.y - scroll + laid.pad + laid.tops[i];
+        let height = laid.blocks[i].1.height;
+        let folded = folds.is_some_and(|f| f.contains(&section.key));
+        let over = area.contains(mx, my) && (top..top + height).contains(&my);
+        if !(folded || over) {
+            continue;
+        }
+        let start = laid.ranges[i].start;
+        let cy = laid
+            .caret_point(start)
+            .map_or(top + height / 2.0, |(_, y, h)| {
+                area.y - scroll + y + h / 2.0
+            });
+        let hovered = app.pointer.hover == Hover::MarkdownLink(app.hits.markdown_links.len());
+        let marked = bar.is_some_and(|b| (b.y..b.bottom()).contains(&cy));
+        covered |= marked;
+        let color = match (marked, hovered) {
+            (true, _) => p.accent,
+            (false, true) => p.text,
+            (false, false) => p.text_dim,
+        };
+        let turned = if folded {
+            0.0
+        } else {
+            std::f32::consts::FRAC_PI_2
+        };
+        icons::chevron_turned(frame, (x, cy), ARROW, turned, color, area);
+        let hit = Rect::new(x - ARROW - 2.0, cy - 10.0, 2.0 * ARROW + 4.0, 20.0);
+        let url = format!("{FOLD}{}", section.key);
+        app.hits.markdown_links.push((hit, url));
+        if let Some(&line) = laid.lines.get(i) {
+            lines.push(line);
+        }
+    }
+    (lines, covered)
+}
+
+/// 返回第 `i` 块的上沿到下一块上沿的距离（逻辑像素）。
+fn room_below(laid: &Laid, i: usize) -> f32 {
+    let top = laid.tops[i];
+    laid.tops
+        .get(i + 1)
+        .map_or(laid.blocks[i].1.height, |next| next - top)
+}
+
+/// mermaid 图的高度上限占预览区高度的比例。
+const TALL_SHARE: f32 = 0.66;
+/// mermaid 图高度上限的最小值（逻辑像素）。
+const TALL_MIN: f32 = 320.0;
+
+/// 标题折叠箭头的大小（逻辑像素）。
+const ARROW: f32 = 8.0;
 
 /// 光标或选区占据的范围，决定哪些行号显示为当前行（见 [`draw_source_numbers`]）。
 enum Lit {
@@ -852,13 +1027,14 @@ fn draw_toc(app: &mut App, frame: &mut Frame<'_>, area: Rect, pad: f32) {
         return;
     }
     // 各标题：（级别，文字，所在顶层块的上边缘，块高）。
-    let headings: Vec<(u8, String, f32, f32)> = parsed
+    let headings: Vec<(u8, String, f32, f32, usize)> = parsed
         .blocks
         .iter()
         .zip(laid.tops.iter().zip(&laid.blocks))
-        .filter_map(|(block, (&top, (_, laid)))| match block {
+        .enumerate()
+        .filter_map(|(i, (block, (&top, (_, laid))))| match block {
             winc_preview::markdown::Block::Heading(level, inline) => {
-                Some((*level, heading_title(&inline.text), top, laid.height))
+                Some((*level, heading_title(&inline.text), top, laid.height, i))
             }
             _ => None,
         })
@@ -905,7 +1081,7 @@ fn draw_toc(app: &mut App, frame: &mut Frame<'_>, area: Rect, pad: f32) {
     // 点过的标题在正文里铺一层强调色的底色，慢慢淡出。底色与正文同宽，左右与表格、代码块的
     // 边缘对齐。
     if let Some((i, clock)) = app.preview.markdown.toc_flash
-        && let Some(&(_, _, top, height)) = headings.get(i)
+        && let Some(&(_, _, top, height, _)) = headings.get(i)
     {
         let alpha = 0.14 * (1.0 - clock.linear());
         let band = Rect::new(left, y0 - scroll + top, width, height);
@@ -1129,6 +1305,7 @@ fn draw_toc(app: &mut App, frame: &mut Frame<'_>, area: Rect, pad: f32) {
     hits.push((bars, TocTarget::Bars));
     app.hits.markdown_toc = hits;
     app.hits.markdown_toc_tops = headings.iter().map(|h| h.2).collect();
+    app.hits.markdown_toc_blocks = headings.iter().map(|h| h.4).collect();
     app.preview.markdown.toc_current = current;
 }
 
@@ -1205,106 +1382,6 @@ fn code_button(
 pub(crate) fn copy_button(code: Rect) -> Rect {
     const SIZE: f32 = 28.0;
     Rect::new(code.right() - SIZE - 6.0, code.y + 6.0, SIZE, SIZE)
-}
-
-/// 表格工具栏的按钮：链接中 [`TABLE`] 之后的操作名和按钮文字（三个对齐按钮绘制为图标）。
-fn table_tools() -> [(&'static str, &'static str); 8] {
-    [
-        ("left", ""),
-        ("center", ""),
-        ("right", ""),
-        ("row", t!("preview-table-insert-row")),
-        ("column", t!("preview-table-insert-column")),
-        ("delete-row", t!("preview-table-delete-row")),
-        ("delete-column", t!("preview-table-delete-column")),
-        ("delete", t!("preview-table-delete")),
-    ]
-}
-
-/// 在光标所在的表格 `table`（窗口坐标）上方绘制工具栏。
-///
-/// 按钮包括光标所在列的对齐方式（`align` 对应的按钮显示为按下）、插入行和列、删除当前行和列、
-/// 删除整张表，并作为链接加入 `links`。上方空间不足时工具栏贴紧预览上边缘，覆盖在表格上。
-#[allow(clippy::too_many_arguments)]
-fn table_toolbar(
-    frame: &mut Frame<'_>,
-    p: &Palette,
-    table: Rect,
-    align: winc_preview::markdown::Align,
-    area: Rect,
-    mouse: (f32, f32),
-    links: &mut Vec<(Rect, String)>,
-) {
-    use winc_preview::markdown::Align;
-    // 工具栏高 26、内边距 3、按钮字号 12（逻辑像素，经验值）。
-    let (h, pad, size) = (26.0, 3.0, 12.0);
-    let tools = table_tools();
-    let widths: Vec<f32> = tools
-        .iter()
-        .map(|(_, label)| {
-            if label.is_empty() {
-                h - pad * 2.0
-            } else {
-                frame.measure(winc_render::FontKind::Ui, size, label) + 16.0
-            }
-        })
-        .collect();
-    // 对齐与插入之间、插入与删除之间、删除整张表之前各绘制一条竖线分隔。
-    let gaps = [3, 5, 7];
-    let w = widths.iter().sum::<f32>() + pad * 2.0 + gaps.len() as f32 * 9.0;
-    let y = (table.y - h - 6.0).max(area.y + 2.0);
-    let bar = Rect::new(table.x, y, w, h);
-    frame.shadow(bar, 6.0, 8.0, 2.0, p.shadow, None);
-    frame.rect_clipped(bar, p.popup_bg, 6.0, area);
-    let mut x = bar.x + pad;
-    for (i, ((op, label), bw)) in tools.iter().zip(&widths).enumerate() {
-        if gaps.contains(&i) {
-            let line = Rect::new(x + 4.0, y + 7.0, 1.0, h - 14.0);
-            frame.rect_clipped(line, p.border, 0.0, area);
-            x += 9.0;
-        }
-        let button = Rect::new(x, y + pad, *bw, h - pad * 2.0);
-        let on = match *op {
-            "left" => align == Align::Left,
-            "center" => align == Align::Center,
-            "right" => align == Align::Right,
-            _ => false,
-        };
-        if on {
-            frame.rect_clipped(button, p.accent.alpha(0.18), 4.0, area);
-        } else if button.contains(mouse.0, mouse.1) {
-            frame.rect_clipped(button, p.text.alpha(0.08), 4.0, area);
-        }
-        let color = if on { p.accent } else { p.text_muted };
-        if label.is_empty() {
-            // 对齐图标：四条长短交错的横线，按对齐方式靠左、居中或靠右排列。
-            let (cx, cy) = (button.x + button.w / 2.0, button.y + button.h / 2.0);
-            for (k, len) in [12.0, 8.0, 12.0, 8.0].into_iter().enumerate() {
-                let lx = match *op {
-                    "left" => cx - 6.0,
-                    "center" => cx - len / 2.0,
-                    _ => cx + 6.0 - len,
-                };
-                let ly = cy - 5.5 + k as f32 * 3.5;
-                frame.rect_clipped(Rect::new(lx, ly, len, 1.5), color, 0.0, area);
-            }
-        } else {
-            let baseline = button.y + button.h / 2.0 + size * 0.35;
-            frame.text(
-                winc_render::FontKind::Ui,
-                size,
-                x + 8.0,
-                baseline,
-                label,
-                color,
-                area,
-            );
-        }
-        // 再次点击已选中的对齐方式时取消对齐，使对齐按钮可以切换开关。
-        let op = if on { "none" } else { op };
-        links.push((button, format!("{TABLE}{op}")));
-        x += bw;
-    }
 }
 
 /// 任务列表的勾选框（逻辑像素）：选中时填强调色并画对勾，未选中时只画一个细边框。

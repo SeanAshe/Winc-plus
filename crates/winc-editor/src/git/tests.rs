@@ -765,16 +765,8 @@ fn reading_runs_no_signature_or_textconv_program() {
     let marker = root.join("ran");
     // `gpg.program` 不经由 shell 启动，直接执行该脚本；textconv 经由 shell 启动。
     let script = root.join("run.sh");
-    std::fs::write(
-        &script,
-        format!("#!/bin/sh\ntouch '{}'\ncat\n", marker.display()),
-    )
-    .unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
+    let body = format!("#!/bin/sh\ntouch '{}'\ncat\n", marker.display());
+    winc_backend::testing::write_script(&script, &body);
     let script = script.to_str().unwrap();
     sh(&["config", "log.showSignature", "true"], "");
     sh(&["config", "gpg.program", script], "");
@@ -1119,7 +1111,6 @@ const ISOLATED_REMOTE: [&str; 4] = ["-c", "credential.helper=", "-c", "http.prox
 #[cfg(unix)]
 #[test]
 fn operations_ask_through_the_askpass_program_and_keep_their_output() {
-    use std::os::unix::fs::PermissionsExt;
     let shell = Shell::with_vars(std::env::vars_os().collect());
     let Ok(git) = Git::find(&shell) else {
         return;
@@ -1128,16 +1119,12 @@ fn operations_ask_through_the_askpass_program_and_keep_their_output() {
     let root = winc_config::files::canonicalize(&dir).unwrap();
     let asked = root.join("asked");
     let program = root.join("askpass.sh");
-    std::fs::write(
-        &program,
-        format!(
-            "#!/bin/sh\necho \"$WINC_GIT_ASKPASS|$1\" >> '{}'\n\
-             case \"$1\" in Username*) echo me;; *) echo s3cret;; esac\n",
-            asked.display()
-        ),
-    )
-    .unwrap();
-    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let body = format!(
+        "#!/bin/sh\necho \"$WINC_GIT_ASKPASS|$1\" >> '{}'\n\
+         case \"$1\" in Username*) echo me;; *) echo s3cret;; esac\n",
+        asked.display()
+    );
+    winc_backend::testing::write_script(&program, &body);
     assert!(
         Command::new("git")
             .args(["init", "-q"])

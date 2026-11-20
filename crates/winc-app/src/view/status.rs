@@ -24,6 +24,7 @@ const CRUMB_PAD: f32 = 5.0;
 
 /// 文档组的项，按从左到右的顺序。
 const DOCUMENT: &[StatusKey] = &[
+    StatusKey::Words,
     StatusKey::Position,
     StatusKey::LineEnding,
     StatusKey::Encoding,
@@ -564,8 +565,19 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
         // 仅供查看的标签（格式化输出）没有可修改的缩进、行尾和编码。
         let clickable = |item| doc.title.is_none().then_some(item);
 
-        items = vec![
-            (StatusKey::Position, position, None),
+        items = vec![(StatusKey::Position, position, None)];
+        if let Some((total, selected)) = app.word_count() {
+            let words = match selected {
+                0 => t!("workspace-status-words", count = total),
+                n => t!(
+                    "workspace-status-words-selected",
+                    selected = n,
+                    count = total
+                ),
+            };
+            items.insert(0, (StatusKey::Words, words, None));
+        }
+        items.extend([
             (
                 StatusKey::LineEnding,
                 doc.line_ending.label().to_owned(),
@@ -582,7 +594,7 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
                 language.name.to_owned(),
                 clickable(StatusItem::Language),
             ),
-        ];
+        ]);
     } else if let Some(view) = doc.and_then(|d| d.hex.as_deref()) {
         // 十六进制视图：光标所在的偏移和选中的字节数；编码一项可以切回文本。
         let range = view.selection();

@@ -19,6 +19,10 @@ menu-tab-size = Tab Size
 ## Editor and file menus
 
 menu-table = Table
+menu-image-size = Image Size
+menu-image-original-size = Original Size
+menu-paste-plain = Paste as Plain Text
+menu-open-image = Open Image in New Tab
 menu-open-recent-in-new-window = Open “{ $name }” in New Window
 menu-copied-path = Copied path
 menu-copied-relative-path = Copied relative path

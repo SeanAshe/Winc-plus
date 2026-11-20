@@ -126,3 +126,17 @@ fn rows_and_columns_are_added_and_removed() {
     assert_eq!(edit("| a^ |\n|---|", Change::DeleteColumn), None);
     assert_eq!(edit("| a |\n|---^|", Change::RowBelow), None);
 }
+
+#[test]
+fn spreadsheet_cells_become_a_table() {
+    let text = "名称\t数量\r\n苹果\t3\r\n a|b \t\r\n";
+    assert_eq!(
+        from_tsv(text).as_deref(),
+        Some("| 名称 | 数量 |\n| --- | --- |\n| 苹果 | 3 |\n| a\\|b |  |\n")
+    );
+    // 只有一行、一列或列数不同时不是表格。
+    assert_eq!(from_tsv("a\tb"), None);
+    assert_eq!(from_tsv("a\nb"), None);
+    assert_eq!(from_tsv("a\tb\nc"), None);
+    assert_eq!(from_tsv("\tgcc a.c\n\tstrip a.out"), None);
+}

@@ -396,13 +396,15 @@ fn snapshot_global_search() {
         // 鼠标停在展开替换的箭头上：底色与输入框等高，二者之间留有间隔。
         let expand = app.panel_parts().expand;
         app.on_mouse_move(expand.x + 4.0, expand.y + 4.0);
-        app.overlays.tooltip.since = Some(Instant::now() - TOOLTIP_DELAY);
+        app.overlays.tooltip.since =
+            Some(Instant::now() - TOOLTIP_DELAY - crate::app::animation::TOOLTIP_FADE);
         shoot(&mut app, &format!("global-expand-{tag}"));
 
         // 鼠标停在「全部替换」图标上，提示已显示。
         let all = app.panel_parts().replace_all;
         app.on_mouse_move(all.x + 4.0, all.y + 4.0);
-        app.overlays.tooltip.since = Some(Instant::now() - TOOLTIP_DELAY);
+        app.overlays.tooltip.since =
+            Some(Instant::now() - TOOLTIP_DELAY - crate::app::animation::TOOLTIP_FADE);
         shoot(&mut app, &format!("global-tip-{tag}"));
 
         // 文件内查找条展开替换：「替换」「全部替换」是图标按钮，鼠标停在「替换」上。
@@ -414,7 +416,8 @@ fn snapshot_global_search() {
         paint(&mut app);
         let one = SearchParts::new(app.layout.search).replace_one;
         app.on_mouse_move(one.x + 4.0, one.y + 4.0);
-        app.overlays.tooltip.since = Some(Instant::now() - TOOLTIP_DELAY);
+        app.overlays.tooltip.since =
+            Some(Instant::now() - TOOLTIP_DELAY - crate::app::animation::TOOLTIP_FADE);
         shoot(&mut app, &format!("find-replace-{tag}"));
     }
 

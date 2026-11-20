@@ -16,6 +16,7 @@ fn raster(width: u32, height: u32) -> Picture {
             rgba: Vec::new(),
         }),
         transparent: false,
+        density: 1,
     }
 }
 

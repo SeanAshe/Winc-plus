@@ -20,6 +20,15 @@ pub struct Toggle {
     pub select: Range<usize>,
 }
 
+/// `line` 中的选区 `selection` 是否已有标记 `mark`，即 [`toggle`] 会移除标记。
+pub fn active(line: &str, selection: Range<usize>, mark: &str) -> bool {
+    if selection.is_empty() {
+        return false;
+    }
+    let t = toggle(line, selection, mark);
+    t.text.len() < t.range.len()
+}
+
 /// 返回在 `line`（不含换行符）中对选区 `selection` 切换标记 `mark` 要做的修改。
 ///
 /// `mark` 是 `**`、`*`、`` ` ``、`~~` 或 `==`。选中的文字两侧或内部两端已有该标记时移除，否则添加；

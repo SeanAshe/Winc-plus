@@ -7,7 +7,7 @@ use crate::app::{CHECK_COLUMN, ICON_COLUMN, MenuIcon, POPUP_PAD, PopupLevel, Pop
 use crate::icons::Direction;
 
 /// 一行的高度（逻辑像素）。
-const ROW: f32 = 24.0;
+pub(super) const ROW: f32 = 24.0;
 /// 标题下面还有一行小字时，一行的高度（逻辑像素）。
 const ROW_TALL: f32 = 40.0;
 /// 分隔线那一行的高度（逻辑像素）。
@@ -19,9 +19,9 @@ const RIGHT_PAD: f32 = 12.0;
 /// 菜单的最小、最大宽度（逻辑像素）。
 const WIDTH: (f32, f32) = (160.0, 420.0);
 /// 菜单离窗口边缘至少留出的距离（逻辑像素）。
-const MARGIN: f32 = 8.0;
+pub(super) const MARGIN: f32 = 8.0;
 /// 行底色左右缩进的距离（逻辑像素）。
-const ROW_INSET: f32 = 4.0;
+pub(super) const ROW_INSET: f32 = 4.0;
 /// 选中底色上的文字颜色和次要文字颜色。
 pub(super) fn band_ink(p: &Palette) -> (Color, Color) {
     let ink = p.text_on_accent;

@@ -25,6 +25,8 @@ pub enum ImageSlot {
         width: u32,
         /// 原图的高度（像素）。
         height: u32,
+        /// 每个逻辑像素对应的像素数（见 `winc_preview::image::density`）。
+        density: u32,
         /// 解码后的图片；不再需要绘制时释放，为 `None`，需要绘制时重新读取。
         picture: Option<Arc<Picture>>,
         /// 按显示大小绘制的像素。
@@ -75,6 +77,8 @@ pub struct LaidBlock {
     pub preedit: bool,
     /// 比正文宽、可以横向滚动的表格，按项的先后排列。
     pub scrolls: Vec<Scroller>,
+    /// 显示原文的块中渲染结果的第一项和上边缘（见 [`Out::preview`]）。
+    pub preview: Option<(u32, f32)>,
     /// 要画的项已经释放时留下的内容（见 [`LaidBlock::shed`]）；项都在时为 `None`。
     shed: Option<Box<Shed>>,
 }
@@ -169,6 +173,7 @@ impl LaidBlock {
             memo,
             preedit: false,
             scrolls: Vec::new(),
+            preview: None,
             shed: None,
         }
     }
@@ -638,6 +643,12 @@ pub struct Cx<'a, 'f> {
     pub preedit: bool,
     /// 代码块是否在左侧显示从 1 起的行号。
     pub line_numbers: bool,
+    /// mermaid 图的高度上限（逻辑像素），不限时为无穷大。
+    pub tall: f32,
+    /// 当前顶层块是文中第几个内容相同的块（从 0 起），见 `Cx::toggle_id`。
+    pub repeat: u32,
+    /// 当前顶层块中各开合标识出现的次数，见 `Cx::toggle_id`。
+    pub toggles: HashMap<u64, u32>,
 }
 
 /// 可编辑的预览中光标所在的叶子块：不排版，显示原文。
@@ -965,17 +976,10 @@ impl Cx<'_, '_> {
                 open,
                 summary,
                 blocks,
-            } => self.details(
-                details_id(block),
-                *open,
-                summary,
-                blocks,
-                x,
-                y,
-                width,
-                env,
-                out,
-            ),
+            } => {
+                let id = self.toggle_id(details_id(block));
+                self.details(id, *open, summary, blocks, x, y, width, env, out)
+            }
         }
     }
 
@@ -1165,6 +1169,8 @@ pub struct Out {
     pub anchors: Vec<(String, f32)>,
     /// 比正文宽、可以横向滚动的表格。
     pub scrolls: Vec<Scroller>,
+    /// 显示原文的块中渲染结果的第一项和上边缘（相对块的左上角）。
+    pub preview: Option<(u32, f32)>,
 }
 
 /// 列表相邻两项之间的间距与正文字号之比。
@@ -1193,11 +1199,20 @@ pub fn margins(block: &Block, base: f32, tight: bool) -> (f32, f32) {
 /// 折叠块标题的「链接」地址的开头，后面接 `details_id`：点了不是打开链接，是展开、收起。
 pub const DETAILS: &str = "\u{1}details:";
 
-/// 折叠块的标识：内容的哈希。
-///
-/// 内容相同的两个折叠块会一起开合；这种情况少见，未单独处理。
+/// 返回折叠块的内容哈希（见 [`Cx::toggle_id`]）。
 fn details_id(block: &Block) -> u64 {
     memo::key(|h| block.hash(h))
+}
+
+impl Cx<'_, '_> {
+    /// 返回折叠块、高图的开合标识：由内容哈希 `base`、顶层块的重复序号和块中的出现次数得出。
+    pub(crate) fn toggle_id(&mut self, base: u64) -> u64 {
+        let repeat = self.repeat;
+        let n = self.toggles.entry(base).or_default();
+        let id = memo::key(|h| (base, repeat, *n).hash(h));
+        *n += 1;
+        id
+    }
 }
 
 pub(crate) use winc_preview::markdown::slug;

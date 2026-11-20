@@ -471,6 +471,7 @@ impl App {
             | UserEvent::TreeScanned
             | UserEvent::Saved
             | UserEvent::Loaded
+            | UserEvent::Counted
             | UserEvent::BackedUp
             | UserEvent::Replaced
             | UserEvent::Wrapped) => self.finished(done),

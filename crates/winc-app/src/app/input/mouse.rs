@@ -83,6 +83,12 @@ impl App {
         if matches!(self.pointer.drag, Drag::Splitter { .. }) {
             self.remember_panel_width();
         }
+        if matches!(self.pointer.drag, Drag::ImageResize) {
+            self.finish_image_resize();
+        }
+        if button == MouseButton::Left && matches!(self.pointer.drag, Drag::MarkdownText) {
+            self.offer_selection_toolbar();
+        }
         self.pointer.drag = Drag::None;
         // 拖动分隔条期间不重新断行（`sync_wrap`）；松开后重绘，重绘前的布局按最终宽度断行。
         if was_divider {

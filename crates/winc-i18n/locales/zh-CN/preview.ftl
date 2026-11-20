@@ -55,7 +55,10 @@ preview-svg-missing-text-path = 沿路径排列的文字
 ## Markdown 预览
 
 preview-markdown-image-alt = 图片
+preview-markdown-diagram-expand = 展开全部
+preview-markdown-diagram-collapse = 收起
 preview-markdown-code-copied = 已复制代码
+preview-markdown-link-hint = { $key } 单击打开
 preview-markdown-heading-not-found = 未在文档中找到此标题
 preview-markdown-toc-pin = 钉住标题列表
 preview-markdown-toc-unpin = 取消钉住标题列表
@@ -118,3 +121,40 @@ preview-pdf-encrypted = 不支持预览加密的 PDF
 preview-pdf-empty = PDF 中无页面
 preview-pdf-render-failed = 无法渲染此页
 preview-pdf-render-failed-code = 无法渲染此页（错误代码 { $code }）
+
+## 输入 / 呼出的写作命令
+
+preview-slash-heading-1 = 一级标题
+preview-slash-heading-2 = 二级标题
+preview-slash-heading-3 = 三级标题
+preview-slash-bullet = 无序列表
+preview-slash-ordered = 有序列表
+preview-slash-task = 任务列表
+preview-slash-quote = 引用
+preview-slash-details = 折叠块
+preview-slash-code = 代码块
+preview-slash-math = 公式块
+preview-slash-table = 表格
+preview-slash-divider = 分隔线
+preview-slash-image = 图片
+preview-slash-link = 链接
+preview-slash-callout-note = 提示块：说明
+preview-slash-callout-tip = 提示块：技巧
+preview-slash-callout-important = 提示块：重要
+preview-slash-callout-warning = 提示块：警告
+preview-slash-callout-caution = 提示块：注意
+preview-slash-inline-math = 行内公式
+preview-slash-flowchart = 流程图
+preview-slash-sequence = 时序图
+preview-slash-gantt = 甘特图
+preview-slash-contents = 目录
+preview-slash-date = 今天的日期
+
+## 选中文字后的格式工具栏
+
+preview-tool-bold = 粗体
+preview-tool-italic = 斜体
+preview-tool-strike = 删除线
+preview-tool-code = 行内代码
+preview-tool-highlight = 高亮
+preview-tool-link = 链接

@@ -30,13 +30,44 @@ fn names_follow_the_numbered_and_copy_schemes() {
 #[test]
 fn saved_images_never_overwrite() {
     let dir = scratch("image");
-    let first = save_image(&dir, b"one").unwrap();
-    let second = save_image(&dir, b"two").unwrap();
+    let first = save_image(&dir, IMAGE_NAME, b"one").unwrap();
+    let second = save_image(&dir, IMAGE_NAME, b"two").unwrap();
     assert_eq!(first, dir.join("image.png"));
     assert_eq!(second, dir.join("image-1.png"));
     assert_eq!(fs::read(&first).unwrap(), b"one");
     assert_eq!(fs::read(&second).unwrap(), b"two");
+    // 图片目录不存在时先创建。
+    let third = save_image(&dir.join("assets/notes"), "shot.png", b"three").unwrap();
+    assert_eq!(third, dir.join("assets/notes/shot.png"));
     let _ = fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn image_folder_and_name_follow_the_settings() {
+    let doc = Path::new("/p/docs/notes.md");
+    assert_eq!(image_folder(doc, None), Path::new("/p/docs"));
+    assert_eq!(image_folder(doc, Some(" ")), Path::new("/p/docs"));
+    assert_eq!(
+        image_folder(doc, Some("assets")),
+        Path::new("/p/docs/assets")
+    );
+    let typora = image_folder(doc, Some("${filename}.assets"));
+    assert_eq!(typora, Path::new("/p/docs/notes.assets"));
+    assert_eq!(
+        image_folder(doc, Some("../img")),
+        Path::new("/p/docs/../img")
+    );
+    assert_eq!(image_folder(doc, Some("/srv/img")), Path::new("/srv/img"));
+
+    let date = || "20261119-153012".to_owned();
+    assert_eq!(image_name(doc, None, date), "image.png");
+    assert_eq!(
+        image_name(doc, Some("${filename}-${date}"), date),
+        "notes-20261119-153012.png"
+    );
+    // 没有 `${date}` 时不读取时间；名字中的路径分隔符被替换。
+    let name = image_name(doc, Some("a/b"), || unreachable!());
+    assert_eq!(name, "a-b.png");
 }
 
 #[test]
@@ -182,12 +213,16 @@ fn images_from_outside_the_project_are_copied_next_to_the_document() {
         dir.join("photo.JPG"),
         dir.join("report.pdf"),
     ];
-    let targets = bring_images(&docs, Some(&project), &files).unwrap();
+    let targets = bring_images(&docs, &docs, Some(&project), &files).unwrap();
     // 项目里的图片和项目外的其他文件原样引用；项目外的图片复制到文档旁边，重名时加序号。
     assert_eq!(targets[0], project.join("inside.png"));
     assert_eq!(targets[1], docs.join("photo-1.JPG"));
     assert_eq!(fs::read_to_string(&targets[1]).unwrap(), "out");
     assert_eq!(targets[2], dir.join("report.pdf"));
+    // 设置了图片目录时复制到该目录，不存在时先创建。
+    let assets = docs.join("notes.assets");
+    let targets = bring_images(&docs, &assets, Some(&project), &files[1..2]).unwrap();
+    assert_eq!(targets, [assets.join("photo.JPG")]);
 
     let _ = fs::remove_dir_all(&dir);
 }

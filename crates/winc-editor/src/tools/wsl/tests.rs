@@ -150,14 +150,9 @@ fn the_watcher_runs_from_the_windows_installation() {
 #[cfg(unix)]
 #[test]
 fn the_run_script_converts_the_path_and_keeps_the_arguments() {
-    use std::os::unix::fs::PermissionsExt;
-
     let dir = crate::test_util::scratch("wsl-run-file");
-    let write_script = |name: &str, text: String| {
-        let path = dir.join(name);
-        std::fs::write(&path, text).unwrap();
-        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
-    };
+    let write_script =
+        |name: &str, text: String| winc_backend::testing::write_script(&dir.join(name), &text);
     let program = dir.join("my helper");
     write_script("my helper", "#!/bin/sh\nprintf '%s|' \"$@\"\n".to_owned());
     write_script(

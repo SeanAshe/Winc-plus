@@ -16,6 +16,7 @@ mod pdf;
 mod pdf_places;
 mod reading;
 mod tables;
+mod writing;
 
 /// 覆盖常用 Markdown 写法的 README 样本。
 const SAMPLE: &str = r#"<p align="center"><img src="logo.svg" width="64" alt="logo"></p>
@@ -892,17 +893,56 @@ fn the_chosen_preview_mode_applies_to_files_opened_later() {
 
     // 选择只看预览：记入状态，之后打开的 Markdown 文件同样只看预览。
     app.choose_preview_mode(PreviewMode::Preview);
-    assert_eq!(app.state.preview_mode.as_deref(), Some("preview"));
+    let saved = |app: &App| app.state.preview_modes.get("markdown").cloned();
+    assert_eq!(saved(&app).as_deref(), Some("preview"));
     app.open_path(&b);
     paint(&mut app);
     assert_eq!(mode(&app), PreviewMode::Preview);
 
     // 改回源代码：状态清空，之后打开的文件显示源代码。
     app.choose_preview_mode(PreviewMode::Source);
-    assert_eq!(app.state.preview_mode, None);
+    assert_eq!(saved(&app), None);
     app.open_path(&c);
     paint(&mut app);
     assert_eq!(mode(&app), PreviewMode::Source);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn each_kind_of_file_keeps_its_own_preview_mode() {
+    use winc_editor::PreviewMode;
+
+    let dir = sample_folder("preview-mode-per-kind");
+    let (a, b, table) = (dir.join("a.md"), dir.join("b.md"), dir.join("t.csv"));
+    std::fs::write(&a, "# 标题\n").unwrap();
+    std::fs::write(&b, "# 标题\n").unwrap();
+    std::fs::write(&table, "a,b\n1,2\n").unwrap();
+    let mut app = app_with(&a, false);
+    paint(&mut app);
+    let mode = |app: &App| app.editor.active().unwrap().preview_mode();
+
+    // Markdown 选了只看预览，表格选回源代码：各记各的。
+    app.choose_preview_mode(PreviewMode::Preview);
+    app.open_path(&table);
+    paint(&mut app);
+    assert_eq!(mode(&app), PreviewMode::Source);
+    app.choose_preview_mode(PreviewMode::Split);
+    app.choose_preview_mode(PreviewMode::Source);
+    app.open_path(&b);
+    paint(&mut app);
+    assert_eq!(mode(&app), PreviewMode::Preview);
+
+    // 新窗口按状态恢复各类的方式。
+    app.editor.preview_defaults = [PreviewMode::Source; 3];
+    app.apply_preview_state();
+    assert_eq!(
+        app.editor.preview_defaults,
+        [
+            PreviewMode::Source,
+            PreviewMode::Preview,
+            PreviewMode::Source
+        ]
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 

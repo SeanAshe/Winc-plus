@@ -359,7 +359,7 @@ impl App {
                 {
                     tab.selection = None;
                 } else if self.config.terminal_copy_on_select == Some(true) {
-                    self.terminal_copy();
+                    self.terminal_copy(false);
                 }
                 self.request_redraw();
             }

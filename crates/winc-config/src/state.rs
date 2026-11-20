@@ -3,6 +3,7 @@
 //! 状态由程序维护，保存为 `state.json`。读取时容错：格式错误时返回空状态，类型不符或越界的项
 //! 被丢弃，其余仍然读取。
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::json::Json;
@@ -88,10 +89,10 @@ pub struct State {
     pub markdown_toc_pinned: bool,
     /// 侧栏宽度（逻辑像素）；`None` 表示没有调整过。所有视图、窗口和仓库共用，下次启动沿用。
     pub panel_width: Option<f32>,
-    /// 能预览的文件（SVG、Markdown、表格）打开时的显示方式：`"split"`（分栏）或 `"preview"`
-    /// （只看预览）；`None` 表示源代码。记录用户最近一次在标签栏右端选择的方式，下次启动
-    /// 沿用。
-    pub preview_mode: Option<String>,
+    /// 各类能预览的文件打开时的显示方式：键为种类（`markdown`、`svg`、`table`），值为
+    /// `"split"`（分栏）或 `"preview"`（只看预览），没有记录的种类显示源代码。记录用户最近一次
+    /// 在标签栏右端为该类文件选择的方式，下次启动沿用。
+    pub preview_modes: BTreeMap<String, String>,
     /// 上次关闭的窗口的大小和位置；没有记录时为 `None`。
     pub window: Option<WindowFrame>,
     /// 上次运行的程序的版本号（如 `0.1.626`）；没有记录时为 `None`。启动时与当前版本比较，
@@ -584,11 +585,7 @@ impl State {
             .and_then(Json::as_str)
             .filter(|v| !v.is_empty())
             .map(str::to_owned);
-        state.preview_mode = root
-            .get("previewMode")
-            .and_then(Json::as_str)
-            .filter(|m| matches!(*m, "split" | "preview"))
-            .map(str::to_owned);
+        state.preview_modes = preview_modes(root.get("previewMode"));
         for path in paths(root.get("otherWindows")) {
             if !state.others.contains(&path) && state.others.len() < MAX_SESSIONS {
                 state.others.push(path);
@@ -648,7 +645,7 @@ impl State {
 
     /// 序列化为 `state.json` 的内容，末尾带一个换行符。
     ///
-    /// `last`、`previewMode` 没有值，`recentFiles`、`otherWindows`、`signOffRepos`、`toolChoices`、
+    /// `last` 没有值，`previewMode` 为空，`recentFiles`、`otherWindows`、`signOffRepos`、`toolChoices`、
     /// `trustedRepos`、`vimMarks`、`vimCommands`、`vimSearches` 为空，`commitTree`、
     /// `commitAllRepositories`、`pdfThumbnailsHidden`、`stayOutsideApplications` 为假时省略
     /// 对应的键。
@@ -717,8 +714,10 @@ impl State {
         if let Some(width) = self.panel_width {
             fields.push(("panelWidth", Json::Number(f64::from(width))));
         }
-        if let Some(mode) = &self.preview_mode {
-            fields.push(("previewMode", Json::String(mode.clone())));
+        if !self.preview_modes.is_empty() {
+            let modes = self.preview_modes.iter();
+            let modes = modes.map(|(kind, mode)| (kind.clone(), Json::String(mode.clone())));
+            fields.push(("previewMode", Json::Object(modes.collect())));
         }
         if let Some(version) = &self.version {
             fields.push(("version", Json::String(version.clone())));
@@ -1276,6 +1275,24 @@ fn window_json(frame: &WindowFrame) -> Json {
 }
 
 /// 从 `state.json` 的 `window` 一节读出窗口的大小和位置；缺项或者数值不合理时为 `None`。
+/// 读取 `previewMode`：对象按种类取各自的方式，字符串用于全部种类。
+fn preview_modes(json: Option<&Json>) -> BTreeMap<String, String> {
+    const KINDS: [&str; 3] = ["markdown", "svg", "table"];
+    let valid = |mode: &&str| matches!(*mode, "split" | "preview");
+    match json {
+        Some(Json::Object(modes)) => (modes.iter())
+            .filter(|(kind, _)| KINDS.contains(&kind.as_str()))
+            .filter_map(|(kind, mode)| {
+                Some((kind.clone(), mode.as_str().filter(valid)?.to_owned()))
+            })
+            .collect(),
+        Some(Json::String(mode)) if valid(&mode.as_str()) => {
+            KINDS.map(|kind| (kind.to_owned(), mode.clone())).into()
+        }
+        _ => BTreeMap::new(),
+    }
+}
+
 fn window_frame(json: &std::collections::BTreeMap<String, Json>) -> Option<WindowFrame> {
     let number = |key: &str| json.get(key).and_then(Json::as_number);
     let (width, height, scale) = (number("width")?, number("height")?, number("scale")?);

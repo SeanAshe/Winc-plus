@@ -451,6 +451,7 @@ impl App {
         }
         if let Some(doc) = self.editor.close(index) {
             self.forget_git_document(doc.id, doc.path.as_deref());
+            self.preview.markdown.forget(doc.id);
         }
         self.bars.search.current = None;
         self.check_waiting();
@@ -474,6 +475,7 @@ impl App {
         };
         if let Some(doc) = closed {
             self.forget_git_document(doc.id, doc.path.as_deref());
+            self.preview.markdown.forget(doc.id);
         }
         self.bars.search.current = None;
         self.check_waiting();

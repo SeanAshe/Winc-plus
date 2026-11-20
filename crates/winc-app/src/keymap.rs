@@ -355,7 +355,8 @@ pub enum Context {
     Keys,
     /// 终端面板。除了带 ⌘ 的快捷键，按键都交给终端里的程序。
     Terminal,
-    /// 可编辑的 Markdown 预览。编辑区的绑定在这里同样生效，另有行内格式的绑定。
+    /// 编辑 Markdown：可编辑的预览，以及 `markdown.shortcuts` 开着时 Markdown 文件的源代码。
+    /// 编辑区的绑定在这里同样生效，另有写作命令的绑定。
     Markdown,
     /// 提交视图的更改列表。
     Changes,
@@ -388,7 +389,8 @@ pub enum When {
     Global,
     /// 编辑区。
     Editor,
-    /// 可编辑的 Markdown 预览：范围小于 [`When::Editor`]，同一个键优先执行这里的绑定。
+    /// 编辑 Markdown（见 [`Context::Markdown`]）：范围小于 [`When::Editor`]，同一个键优先执行
+    /// 这里的绑定。
     Markdown,
     /// 编辑区和查找条（含替换输入）。
     EditorOrFind,
@@ -422,7 +424,7 @@ impl When {
 
     fn mask(self) -> u16 {
         const MARKDOWN: u16 = Context::Markdown.bit();
-        // 可编辑的 Markdown 预览属于编辑区：覆盖编辑区的范围都覆盖该预览。
+        // 编辑 Markdown 属于编辑区：覆盖编辑区的范围都覆盖它。
         const EDITOR: u16 = Context::Editor.bit() | MARKDOWN;
         const FIND: u16 = Context::Find.bit();
         const PANEL: u16 = Context::Panel.bit();

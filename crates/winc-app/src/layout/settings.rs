@@ -142,6 +142,10 @@ impl SettingsPage {
                     Setting::RemoteImages,
                     Setting::TextWidth,
                     Setting::MarkdownLineNumbers,
+                    Setting::MarkdownShortcuts,
+                    Setting::MarkdownFocus,
+                    Setting::MarkdownTypewriter,
+                    Setting::MarkdownSelectionToolbar,
                 ]),
                 plain(vec![
                     Setting::VimMode,
@@ -335,6 +339,14 @@ pub enum Setting {
     TextWidth,
     /// Markdown 预览显示行号（`markdown.lineNumbers`）。
     MarkdownLineNumbers,
+    /// Markdown 文件的源代码也使用写作快捷键（`markdown.shortcuts`）。
+    MarkdownShortcuts,
+    /// 编辑 Markdown 时淡化光标所在段落以外的文字（`markdown.focusMode`）。
+    MarkdownFocus,
+    /// 编辑 Markdown 时光标所在的行停在中间（`markdown.typewriterMode`）。
+    MarkdownTypewriter,
+    /// 选中文字后显示格式工具栏（`markdown.selectionToolbar`）。
+    MarkdownSelectionToolbar,
     /// 定时检查更新。
     CheckUpdates,
     /// 联网的命令跟随系统的代理设置（`network.systemProxy`）。
@@ -500,7 +512,11 @@ impl Setting {
             | Setting::RenderWhitespace
             | Setting::RemoteImages
             | Setting::TextWidth
-            | Setting::MarkdownLineNumbers => SettingsPage::Editor,
+            | Setting::MarkdownLineNumbers
+            | Setting::MarkdownShortcuts
+            | Setting::MarkdownFocus
+            | Setting::MarkdownTypewriter
+            | Setting::MarkdownSelectionToolbar => SettingsPage::Editor,
             Setting::Version
             | Setting::Updates
             | Setting::CheckUpdates
@@ -586,6 +602,10 @@ impl Setting {
             Setting::RemoteImages => t!("settings-remote-images"),
             Setting::TextWidth => t!("settings-text-width"),
             Setting::MarkdownLineNumbers => t!("settings-markdown-line-numbers"),
+            Setting::MarkdownShortcuts => t!("settings-markdown-shortcuts"),
+            Setting::MarkdownFocus => t!("settings-markdown-focus"),
+            Setting::MarkdownTypewriter => t!("settings-markdown-typewriter"),
+            Setting::MarkdownSelectionToolbar => t!("settings-markdown-selection-toolbar"),
             Setting::CheckUpdates => t!("settings-check-updates"),
             Setting::Version => t!("settings-version"),
             Setting::Repository => "GitHub",
@@ -669,6 +689,12 @@ impl Setting {
             Setting::RemoteImages => Some(t!("settings-remote-images-desc")),
             Setting::TextWidth => Some(t!("settings-text-width-desc")),
             Setting::MarkdownLineNumbers => Some(t!("settings-markdown-line-numbers-desc")),
+            Setting::MarkdownShortcuts => Some(t!("settings-markdown-shortcuts-desc")),
+            Setting::MarkdownFocus => Some(t!("settings-markdown-focus-desc")),
+            Setting::MarkdownTypewriter => Some(t!("settings-markdown-typewriter-desc")),
+            Setting::MarkdownSelectionToolbar => {
+                Some(t!("settings-markdown-selection-toolbar-desc"))
+            }
             Setting::CheckUpdates => Some(t!("settings-check-updates-desc")),
             // 绘制时换成当前的更新状态（`UpdateState`）。
             Setting::Updates => Some(t!("settings-updates-off")),
@@ -736,6 +762,10 @@ impl Setting {
             | Setting::SmoothScrolling
             | Setting::RemoteImages
             | Setting::MarkdownLineNumbers
+            | Setting::MarkdownShortcuts
+            | Setting::MarkdownFocus
+            | Setting::MarkdownTypewriter
+            | Setting::MarkdownSelectionToolbar
             | Setting::CheckUpdates
             | Setting::FormatOnSave
             | Setting::FixOnSave

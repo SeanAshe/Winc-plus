@@ -5,6 +5,7 @@
 use winc_core::transform::Case;
 use winc_editor::panes::Axis;
 use winc_editor::{Command, EntryKind, FoldCommand};
+use winc_preview::markdown::paragraph::Kind;
 
 use super::*;
 use crate::field::TextField;
@@ -57,7 +58,7 @@ impl App {
         if self.focus == Focus::Terminal {
             match action {
                 Copy => {
-                    self.terminal_copy();
+                    self.terminal_copy(false);
                     return true;
                 }
                 SelectAll => {
@@ -233,6 +234,26 @@ impl App {
             MarkdownCode => self.live_format("`"),
             MarkdownStrikethrough => self.live_format("~~"),
             MarkdownHighlight => self.live_format("=="),
+            MarkdownHeading1 => self.markdown_paragraph(Kind::Heading(1)),
+            MarkdownHeading2 => self.markdown_paragraph(Kind::Heading(2)),
+            MarkdownHeading3 => self.markdown_paragraph(Kind::Heading(3)),
+            MarkdownHeading4 => self.markdown_paragraph(Kind::Heading(4)),
+            MarkdownHeading5 => self.markdown_paragraph(Kind::Heading(5)),
+            MarkdownHeading6 => self.markdown_paragraph(Kind::Heading(6)),
+            MarkdownParagraph => self.markdown_paragraph(Kind::Heading(0)),
+            MarkdownQuote => self.markdown_paragraph(Kind::Quote),
+            MarkdownOrderedList => self.markdown_paragraph(Kind::Ordered),
+            MarkdownBulletList => self.markdown_paragraph(Kind::Bullet),
+            MarkdownCodeBlock => self.markdown_fenced("```"),
+            MarkdownMathBlock => self.markdown_fenced("$$"),
+            MarkdownTable => self.markdown_table(),
+            MarkdownLink => self.markdown_link(false),
+            MarkdownImage => self.markdown_link(true),
+            MarkdownFocusMode => self.settings_toggle(crate::layout::Setting::MarkdownFocus),
+            MarkdownPastePlain => self.paste_plain(),
+            MarkdownTypewriterMode => {
+                self.settings_toggle(crate::layout::Setting::MarkdownTypewriter);
+            }
             DeleteLine => editing(self, Command::DeleteLine),
             DeleteAllLeft => editing(self, Command::DeleteToLineStart),
             IndentLines => editing(self, Command::IndentLines),
@@ -476,6 +497,8 @@ impl App {
             StopConfiguration => self.stop_current_config(),
             EditRunConfigurations => self.edit_run_configs(),
             ClearTerminal => self.clear_terminal(),
+            TerminalCopy => self.terminal_copy(false),
+            TerminalPaste => self.terminal_paste(),
             NewTerminal => self.new_terminal_tab(),
             CloseTerminal => self.close_terminal_pane(),
             NextTerminal => self.cycle_terminal_tab(true),
@@ -518,16 +541,14 @@ impl App {
                 return false;
             }
             Action::StopConfiguration if !self.run_config_running() => return false,
-            // 行内格式只在可编辑的 Markdown 预览中可用；其余位置同一个键执行其他命令。
-            Action::MarkdownBold
-            | Action::MarkdownItalic
-            | Action::MarkdownCode
-            | Action::MarkdownStrikethrough
-            | Action::MarkdownHighlight
-                if !self.markdown_live() =>
-            {
-                return false;
+            // 写作命令只在编辑 Markdown 时可用；其余位置同一个键执行其他命令。专注、打字机模式
+            // 不受 `markdown.shortcuts` 影响。
+            Action::MarkdownFocusMode | Action::MarkdownTypewriterMode => {
+                if !self.markdown_writing() {
+                    return false;
+                }
             }
+            action if action.markdown_only() && !self.markdown_keys() => return false,
             Action::EditRunConfigurations if self.editor.root().is_none() => return false,
             // 窗格的命令只在有东西可拆、可换时可用，否则同一个键执行其他命令或交给终端。
             Action::SplitRight | Action::SplitDown if self.editor.active.is_none() => {

@@ -126,10 +126,7 @@ fn snapshot_settings_format() {
 
         // 装了 Prettier：它能格式化的语言都自动列出来；再手动加 TOML（只有 Taplo，未安装）和
         // Groovy（没有预设）。修复工具一组仍只有项目在用的 Python，不为每种语言列一行「无」。
-        use std::os::unix::fs::PermissionsExt;
-        let prettier = dir.join("bin/prettier");
-        std::fs::write(&prettier, "#!/bin/sh\ncat\n").unwrap();
-        std::fs::set_permissions(&prettier, std::fs::Permissions::from_mode(0o755)).unwrap();
+        winc_backend::testing::write_script(&dir.join("bin/prettier"), "#!/bin/sh\ncat\n");
         app.frame.renderer = Some(
             Renderer::offscreen(SIZE.0, SIZE.1, SCALE, app.palette.frame_bg, None, None).unwrap(),
         );
@@ -234,18 +231,14 @@ fn snapshot_format_error() {
 #[test]
 #[ignore = "截图，手动运行"]
 fn snapshot_format_output() {
-    use std::os::unix::fs::PermissionsExt;
-
     let dir = search_folder("format-output-shot");
     let tool = dir.join("broken-fmt");
-    std::fs::write(
+    winc_backend::testing::write_script(
         &tool,
         "#!/bin/sh\necho 'error: expected expression, found `;`' >&2\n\
          echo ' --> <stdin>:2:13' >&2\necho '  |' >&2\n\
          echo '2 |     let x = ;' >&2\necho '  |             ^ expected expression' >&2\nexit 1\n",
-    )
-    .unwrap();
-    std::fs::set_permissions(&tool, std::fs::Permissions::from_mode(0o755)).unwrap();
+    );
 
     for (tag, dark) in [("light", false), ("dark", true)] {
         // 出错的提示条右侧有「查看输出」，鼠标停在其上。

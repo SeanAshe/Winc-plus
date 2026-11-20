@@ -138,7 +138,11 @@ fn sample() -> State {
         vim_searches: vec!["\\<词\\>".into()],
         stay_outside_applications: true,
         panel_width: Some(360.0),
-        preview_mode: Some("split".into()),
+        preview_modes: [
+            ("markdown".into(), "preview".into()),
+            ("svg".into(), "split".into()),
+        ]
+        .into(),
         version: Some("0.1.626".into()),
         setup_pending: true,
         window: Some(WindowFrame {
@@ -176,6 +180,30 @@ fn round_trips_through_json() {
     let state = sample();
     assert_eq!(State::parse(&state.to_json()), state);
     assert_eq!(State::parse(&State::default().to_json()), State::default());
+}
+
+#[test]
+fn preview_modes_are_read_per_kind() {
+    let modes = |text: &str| {
+        State::parse(text)
+            .preview_modes
+            .into_iter()
+            .collect::<Vec<_>>()
+    };
+    let pair = |kind: &str, mode: &str| (kind.to_owned(), mode.to_owned());
+    // 字符串用于全部种类。
+    assert_eq!(
+        modes(r#"{"previewMode": "split"}"#),
+        [
+            pair("markdown", "split"),
+            pair("svg", "split"),
+            pair("table", "split")
+        ]
+    );
+    // 未知的种类和方式跳过。
+    let text = r#"{"previewMode": {"markdown": "preview", "svg": "x", "pdf": "split"}}"#;
+    assert_eq!(modes(text), [pair("markdown", "preview")]);
+    assert!(modes(r#"{"previewMode": "source"}"#).is_empty());
 }
 
 #[test]

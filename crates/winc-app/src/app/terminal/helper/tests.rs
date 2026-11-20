@@ -24,21 +24,11 @@ impl App {
     /// 返回记下的文件，交给 [`App::sent_to_helper`] 读。测试直接放进来的标签（`show_terminal`）
     /// 不占编号，这里补上，之后新建的标签不和它们重号。
     pub(crate) fn attach_recording_helper(&mut self, dir: &Path) -> PathBuf {
-        use std::os::unix::fs::PermissionsExt;
         let log = dir.join("sent.bin");
         let script = dir.join("record.sh");
         let body = format!("#!/bin/sh\nexec cat > '{}'\n", log.display());
-        std::fs::write(&script, body).unwrap();
-        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
-        // 别的测试线程 fork 时会短暂继承这个脚本的写入端，此时执行得到 `ExecutableFileBusy`。
-        let mut client = Client::start(&script, || {});
-        for _ in 0..100 {
-            if !matches!(&client, Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy) {
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(10));
-            client = Client::start(&script, || {});
-        }
+        winc_backend::testing::write_script(&script, &body);
+        let client = Client::start(&script, || {});
         self.terminal.client = Some(client.expect("启动记录消息的脚本"));
         self.terminal.ready = true;
         let t = &mut self.terminal;

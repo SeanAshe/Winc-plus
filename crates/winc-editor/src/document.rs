@@ -176,6 +176,9 @@ pub enum PreviewKind {
 }
 
 impl PreviewKind {
+    /// 全部种类。
+    pub const ALL: [PreviewKind; 3] = [PreviewKind::Svg, PreviewKind::Markdown, PreviewKind::Table];
+
     /// 返回语言 `language` 的文本可以预览成哪一种；不能预览的语言返回 `None`。
     pub fn of(language: &winc_syntax::Language) -> Option<PreviewKind> {
         match language.id {

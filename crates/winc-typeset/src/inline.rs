@@ -142,7 +142,12 @@ impl Cx<'_, '_> {
         };
         let path = (self.image_path)(url)?;
         let (width, height) = match self.images.get(&path) {
-            Some(ImageSlot::Ready { width, height, .. }) => (*width, *height),
+            Some(ImageSlot::Ready {
+                width,
+                height,
+                density,
+                ..
+            }) => (*width / (*density).max(1), *height / (*density).max(1)),
             Some(ImageSlot::Failed) => return None,
             Some(ImageSlot::Loading) => return Some((path, 0.0, 0.0)),
             None => {
@@ -161,11 +166,12 @@ impl Cx<'_, '_> {
             Length::Percent(_) => None,
         });
         // HTML 写了宽或高时按它，只写其中一项时另一项按比例计算。
+        let zoom = image.zoom.map_or(1.0, |z| z as f32 / 100.0);
         let (w, h) = match (width, image.height) {
             (Some(ww), Some(hh)) => (ww as f32, hh as f32),
             (Some(ww), None) => (ww as f32, h * ww as f32 / w),
             (None, Some(hh)) => (w * hh as f32 / h, hh as f32),
-            (None, None) => (w, h),
+            (None, None) => (w * zoom, h * zoom),
         };
         // 不超过一行的宽度，按比例缩小。
         let fit = (room / w).min(1.0);

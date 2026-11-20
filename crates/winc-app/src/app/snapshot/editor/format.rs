@@ -24,12 +24,9 @@ fn format_folder(name: &str) -> PathBuf {
 ///
 /// `body` 为脚本主体。
 fn fake_tool(dir: &Path, name: &str, body: &str) -> PathBuf {
-    use std::os::unix::fs::PermissionsExt;
-
     std::fs::create_dir_all(dir).unwrap();
     let path = dir.join(name);
-    std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    winc_backend::testing::write_script(&path, &format!("#!/bin/sh\n{body}\n"));
     path
 }
 

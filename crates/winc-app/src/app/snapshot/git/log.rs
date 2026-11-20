@@ -595,7 +595,11 @@ fn shoot_log_graph() {
         history_repo(&root, 40);
         let long = long_subject_row(&mut app, &root);
         hover_log_row(&mut app, long);
-        app.overlays.tooltip.since = Some(std::time::Instant::now() - crate::theme::TOOLTIP_DELAY);
+        app.overlays.tooltip.since = Some(
+            std::time::Instant::now()
+                - crate::theme::TOOLTIP_DELAY
+                - crate::app::animation::TOOLTIP_FADE,
+        );
         shoot(&mut app, &format!("log-graph-{theme}"));
         app.overlays.tooltip.since = None;
 
@@ -618,7 +622,11 @@ fn shoot_log_graph() {
             .unwrap();
         app.on_mouse_move(rect.x + rect.w / 2.0, rect.y + rect.h / 2.0);
         paint(&mut app);
-        app.overlays.tooltip.since = Some(std::time::Instant::now() - crate::theme::TOOLTIP_DELAY);
+        app.overlays.tooltip.since = Some(
+            std::time::Instant::now()
+                - crate::theme::TOOLTIP_DELAY
+                - crate::app::animation::TOOLTIP_FADE,
+        );
         shoot(&mut app, &format!("log-line-{theme}"));
         app.overlays.tooltip.since = None;
         app.set_hover(Hover::Log(LogTarget::Divider));

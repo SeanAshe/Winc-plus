@@ -32,6 +32,8 @@ pub struct Frame<'a> {
     ///
     /// 由 [`Frame::with_opacity`] 临时相乘。
     pub(crate) opacity: f32,
+    /// 颜色混合的底色和原色保留的比例，见 [`Frame::with_fade`]。
+    pub(crate) toward: Option<(Color, f32)>,
     /// 背景色，`0xAARRGGBB`。
     pub(crate) background: u32,
     /// 已随背景色绘制的底色矩形（物理像素），见 [`Frame::base`]。
@@ -90,6 +92,28 @@ impl Frame<'_> {
         result
     }
 
+    /// 执行 `paint`，其中绘制的颜色按 `amount`（0–1）向纯色底 `backdrop` 混合。
+    ///
+    /// 不透明的颜色仍不透明，重叠处保持遮挡；图片按不透明度变淡。有窗口背景图时改用
+    /// [`Self::with_opacity`]。
+    pub fn with_fade<R>(
+        &mut self,
+        backdrop: Color,
+        amount: f32,
+        paint: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        if amount >= 1.0 {
+            return paint(self);
+        }
+        if self.wall.is_some() {
+            return self.with_opacity(amount, paint);
+        }
+        let outer = self.toward.replace((backdrop, amount.clamp(0.0, 1.0)));
+        let result = paint(self);
+        self.toward = outer;
+        result
+    }
+
     /// 保存画面上 `rect`（逻辑像素，先裁剪到画面之内）中当前的像素。
     ///
     /// 之后可用 [`Self::restore_tinted`] 写回该位置，或用 [`Self::blend_snapshot`] 作为图层叠加。
@@ -140,7 +164,22 @@ impl Frame<'_> {
 
     /// 返回乘以整体不透明度之后的颜色。
     fn faded(&self, color: Color) -> Color {
+        let color = match self.toward {
+            Some((b, k)) => Color {
+                r: b.r + (color.r - b.r) * k,
+                g: b.g + (color.g - b.g) * k,
+                b: b.b + (color.b - b.b) * k,
+                a: color.a,
+            },
+            None => color,
+        };
         color.alpha(color.a * self.opacity)
+    }
+
+    /// 返回绘制图片时的整体不透明度（0–255）。
+    fn pixel_opacity(&self) -> u32 {
+        let fade = self.toward.map_or(1.0, |(_, k)| k);
+        (self.opacity * fade * 255.0).round() as u32
     }
 
     /// 返回屏幕缩放系数（每个逻辑像素对应的物理像素数，Retina 屏幕上为 2）。
@@ -154,7 +193,7 @@ impl Frame<'_> {
     /// 不缩放，需要缩放时由调用方先处理。超出 `clip` 的部分不绘制；`rgba` 不足
     /// `width * height * 4` 字节时不绘制。
     pub fn pixels(&mut self, (x, y): (f32, f32), width: u32, height: u32, rgba: &[u8], clip: Rect) {
-        let opacity = (self.opacity * 255.0).round() as u32;
+        let opacity = self.pixel_opacity();
         if opacity == 0 || rgba.len() < (width as usize) * (height as usize) * 4 {
             return;
         }
@@ -173,7 +212,7 @@ impl Frame<'_> {
     /// 用于暂时显示尺寸不符的图像（例如缩放过渡期间）。超出 `clip` 的部分不绘制；`rgba` 不足
     /// `width * height * 4` 字节时不绘制。
     pub fn pixels_scaled(&mut self, rect: Rect, width: u32, height: u32, rgba: &[u8], clip: Rect) {
-        let opacity = (self.opacity * 255.0).round() as u32;
+        let opacity = self.pixel_opacity();
         let size = (width as usize, height as usize);
         if opacity == 0 || rgba.len() < size.0 * size.1 * 4 {
             return;
@@ -189,7 +228,7 @@ impl Frame<'_> {
     /// 不透明时按行一次填色；有半透明（淡入淡出）时逐格绘制。两种情况都只处理 `clip` 内的
     /// 方格，耗时与 `rect` 超出 `clip` 的部分无关。
     pub fn checker(&mut self, rect: Rect, cell: f32, (first, second): (Color, Color), clip: Rect) {
-        if self.opacity >= 1.0 && first.a >= 1.0 && second.a >= 1.0 {
+        if self.opacity >= 1.0 && self.toward.is_none() && first.a >= 1.0 && second.a >= 1.0 {
             let area = rect.to_pixels(self.scale);
             let cell = (cell * self.scale).round().max(1.0) as usize;
             let clip = clip.intersect(self.limit).to_pixels_outer(self.scale);

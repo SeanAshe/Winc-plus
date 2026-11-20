@@ -61,13 +61,26 @@ fn environment_for_wsl_keeps_what_the_user_forwards() {
 mod boot {
     use super::*;
     use std::collections::HashMap;
-    use std::os::unix::fs::PermissionsExt;
     use std::path::Path;
     use std::process::Command;
 
     fn executable(path: &Path, text: &str) {
-        fs::write(path, text).unwrap();
-        fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+        use std::io::Write;
+        // 由子进程写入：本进程不持有文件的写入端，其他测试线程启动子进程时执行它不会得到
+        // `ExecutableFileBusy`。
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", r#"cat > "$1" && chmod 755 "$1""#, "sh"])
+            .arg(path)
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(text.as_bytes())
+            .unwrap();
+        assert!(child.wait().unwrap().success());
     }
 
     /// 在 `dir` 中准备脚本和代替 `wslpath` 的程序，以名为 `shell` 的程序运行启动命令，返回该程序
