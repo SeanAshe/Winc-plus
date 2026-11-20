@@ -28,7 +28,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use ropey::Rope;
-use winc_editor::diff_view::{DiffSide, DiffView};
+use winc_editor::diff_view::{BlameSource, DiffSide, DiffView};
 use winc_editor::encoding::{decode_known, decode_unknown};
 use winc_editor::format::Cancel;
 use winc_editor::git::{self, Branch, Change, Git, Stash, Status, Unavailable, Worktree};
@@ -529,11 +529,18 @@ fn prepare(
     };
     // 文件已删除时右侧不可编辑。路径按编辑器的规则规范化，以便与已打开的标签匹配。
     let editable = new.is_some().then(|| winc_editor::canonical_path(path));
+    let blame = |rev: Option<&str>| BlameSource {
+        root: root.to_path_buf(),
+        path: path.to_path_buf(),
+        rev: rev.map(str::to_owned),
+    };
     let mut view = DiffView::new(
         DiffSide::new(old_title, old.as_deref().unwrap_or(""), None, language)
-            .with_missing(old.is_none()),
+            .with_missing(old.is_none())
+            .with_blame(blame(Some(oid.unwrap_or("HEAD")))),
         DiffSide::new(title, new.as_deref().unwrap_or(""), editable, language)
-            .with_missing(new.is_none()),
+            .with_missing(new.is_none())
+            .with_blame(blame(None)),
     );
     view.source = revision;
     view.repo_path = Some(path.to_path_buf());

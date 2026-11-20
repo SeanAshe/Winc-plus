@@ -551,3 +551,32 @@ fn fold_rows_pair_the_same_gap_on_both_sides() {
     // 第二段折叠行在新增的两行之后：右侧比左侧靠后两行。
     assert_eq!(right, left + 2);
 }
+
+/// 换成另一个文件的差异时，追溯的开关作为一个整体沿用：新建文件只有右侧开着，换到改动的
+/// 文件后两侧都开；新的一侧不能追溯时不开。
+#[test]
+fn blame_is_kept_as_one_switch() {
+    let language = winc_syntax::detect("a.rs");
+    let source = |rev: &str| BlameSource {
+        root: "/repo".into(),
+        path: "a.rs".into(),
+        rev: Some(rev.to_owned()),
+    };
+    let side = |text: &str, rev: &str| DiffSide::new(rev, text, None, language);
+    let mut added = DiffView::new(
+        side("", "a").with_missing(true).with_blame(source("a")),
+        side("x\n", "b").with_blame(source("b")),
+    );
+    added.blamed = [false, true];
+    let mut changed = DiffView::new(
+        side("x\n", "a").with_blame(source("a")),
+        side("y\n", "b").with_blame(source("b")),
+    );
+    changed.keep_blame(&added);
+    assert_eq!(changed.blamed, [true, true]);
+    added.keep_blame(&changed);
+    assert_eq!(added.blamed, [false, true]);
+    changed.blamed = [false, false];
+    added.keep_blame(&changed);
+    assert_eq!(added.blamed, [false, false]);
+}

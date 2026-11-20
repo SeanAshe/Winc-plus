@@ -210,7 +210,9 @@ fn diff_text_clicks_and_cursors_work_like_the_editor() {
     assert_eq!(view.read_selected().unwrap(), "let value_9 = 9;\n");
     let point = at(&app, LEFT, 9, 3, false);
     right_click(&mut app, point);
-    assert_eq!(menu_commands(&app), vec![(MenuCommand::Copy, true)]);
+    // 左侧只读：复制，以及开关这一侧的逐行追溯。
+    let menu = [(MenuCommand::Copy, true), (MenuCommand::ToggleBlame, true)];
+    assert_eq!(menu_commands(&app), menu);
     let view = app.editor.active().unwrap().diff.as_deref().unwrap();
     assert_eq!(view.read_selected().unwrap(), "let value_9 = 9;\n");
 }

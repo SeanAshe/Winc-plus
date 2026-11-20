@@ -343,12 +343,11 @@ fn small_plus(cx: f32, cy: f32, h: f32) -> [Stroke; 2] {
     ]
 }
 
-/// 绘制「新建文件」图标，10×12：右上角折起的纸，纸上一个加号。
-pub fn add_file(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+/// 右上角折起的纸的轮廓，10×12，中心在 `(cx, cy)`：「新建文件」「打开文件」图标共用。
+fn page((cx, cy): (f32, f32)) -> [Stroke; 8] {
     let (left, top, right, bottom) = (cx - 5.0, cy - 6.0, cx + 5.0, cy + 6.0);
     let (r, fold) = (1.5, 3.5);
-    let [h, v] = small_plus(cx, cy + 1.0, 2.25);
-    let shapes = [
+    [
         Stroke::Line(left + r, top, right - fold, top),
         Stroke::Line(right - fold, top, right, top + fold),
         Stroke::Line(right, top + fold, right, bottom - r),
@@ -357,9 +356,26 @@ pub fn add_file(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip:
         Stroke::Arc(left + r, bottom - r, r, FRAC_PI_2, PI),
         Stroke::Line(left, bottom - r, left, top + r),
         Stroke::Arc(left + r, top + r, r, -PI, -FRAC_PI_2),
-        h,
-        v,
-    ];
+    ]
+}
+
+/// 绘制「新建文件」图标，10×12：右上角折起的纸，纸上一个加号。
+pub fn add_file(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let [h, v] = small_plus(cx, cy + 1.0, 2.25);
+    let mut shapes = page((cx, cy)).to_vec();
+    shapes.extend([h, v]);
+    frame.stroke(&shapes, RING_STROKE, color, clip);
+}
+
+/// 绘制「打开文件」图标，10×12：右上角折起的纸，纸上一个指向右上方的箭头（同 [`external`]）。
+pub fn open_file(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let (x, y, r) = (cx - 0.25, cy + 1.25, 2.25);
+    let mut shapes = page((cx, cy)).to_vec();
+    shapes.extend([
+        Stroke::Line(x - r, y + r, x + r, y - r),
+        Stroke::Line(x - 0.75, y - r, x + r, y - r),
+        Stroke::Line(x + r, y - r, x + r, y + 0.75),
+    ]);
     frame.stroke(&shapes, RING_STROKE, color, clip);
 }
 

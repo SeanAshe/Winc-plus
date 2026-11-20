@@ -166,6 +166,8 @@ impl App {
             MenuTarget::BranchOps(index)
         } else if let Some(oid) = self.log_context_target(x, y) {
             MenuTarget::LogCommit(oid)
+        } else if let Some(id) = self.diff_gutter_at(x, y) {
+            MenuTarget::DiffGutter(id)
         } else if let Some((id, right)) = self.diff_context_target(x, y) {
             MenuTarget::Diff(id, right)
         } else if let Some(id) = self.terminal_tab_context_target(x, y) {
@@ -573,7 +575,14 @@ impl App {
                 if self.editor.active().map(|d| d.id) != Some(id) {
                     return;
                 }
-                diff_menu(right, self.diff_caret_hunk().is_some())
+                let blame = self.diff_blamable();
+                diff_menu(right, self.diff_caret_hunk().is_some(), blame)
+            }
+            &MenuTarget::DiffGutter(id) => {
+                if self.editor.active().map(|d| d.id) != Some(id) || !self.diff_blamable() {
+                    return;
+                }
+                vec![MenuEntry::Item(MenuCommand::ToggleBlame, true)]
             }
             MenuTarget::Tab(id) => {
                 let Some(index) = self.editor.index_of(*id) else {
@@ -788,6 +797,7 @@ impl App {
             MenuTarget::Tree(_) => Context::Tree,
             MenuTarget::Editor(_)
             | MenuTarget::Diff(..)
+            | MenuTarget::DiffGutter(..)
             | MenuTarget::Markdown
             | MenuTarget::LogCommit(_) => Context::Editor,
             MenuTarget::Terminal(_) | MenuTarget::TerminalTab(_) => Context::Terminal,
@@ -966,10 +976,11 @@ impl App {
             return current.is_some_and(|c| self.run.list.get(i) == Some(c));
         }
         if command == MenuCommand::ToggleBlame {
-            return self
-                .editor
-                .active()
-                .is_some_and(|d| self.git.blame.is_on(d.id));
+            let doc = self.editor.active();
+            return match doc.and_then(|d| d.diff.as_deref()) {
+                Some(view) => view.blamed.contains(&true),
+                None => doc.is_some_and(|d| self.git.blame.is_on(d.id)),
+            };
         }
         if let MenuCommand::LogColumn(column) = command {
             return self.log_column_shown(column);

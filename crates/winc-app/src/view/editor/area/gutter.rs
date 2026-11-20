@@ -83,62 +83,24 @@ impl Screen<'_> {
     }
 
     /// 逐行追溯：同一次提交连着的几行只在第一行写作者和时间，每一行左边一道按新旧深浅的色条；
-    /// 鼠标指着的那一次提交的几行字深一些。
+    /// 鼠标指着的那一次提交的几行铺一层底色，字深一些。
     pub(super) fn draw_blame(&self, frame: &mut Frame<'_>, row: &Row<'_>) {
-        let (app, p, gutter, lh) = (self.app, self.app.palette, self.gutter, self.lh);
-        let (line, blame_w) = (row.line, self.blame_w);
-        let (Some(blame), Some((oldest, newest))) = (self.blame, self.ages) else {
+        let (Some(blame), Some(ages)) = (self.blame, self.ages) else {
             return;
         };
-        let Some(&index) = blame.lines.get(line) else {
-            return;
-        };
-        let Some(commit) = blame.commits.get(index as usize) else {
-            return;
-        };
-        let column = Rect::new(gutter.x, gutter.y, blame_w, gutter.h);
-        let height = lh * row.breaks.rows() as f32;
-        let strength = if commit.uncommitted || newest == oldest {
-            1.0
-        } else {
-            (commit.time - oldest) as f32 / (newest - oldest) as f32
-        };
-        let bar_color = if commit.uncommitted {
-            p.diff_modified.mark
-        } else {
-            p.accent.alpha(p.accent.a * (0.12 + 0.7 * strength))
-        };
-        frame.rect_clipped(
-            Rect::new(gutter.x + 6.0, row.y, 3.0, height),
-            bar_color,
-            0.0,
+        let gutter = self.gutter;
+        let column = Rect::new(gutter.x, gutter.y, self.blame_w, gutter.h);
+        let height = self.lh * row.breaks.rows() as f32;
+        let cx = (blame, ages, self.blame_hover, self.now);
+        let label = (row.gutter_y, row.line.checked_sub(1));
+        draw_blame_cell(
+            self.app,
+            frame,
+            cx,
+            row.line,
             column,
+            (row.y, height, Some(label)),
         );
-        let first = line == 0 || blame.lines.get(line - 1) != Some(&index);
-        if first {
-            let gutter_y = row.gutter_y;
-            let hovered = self.blame_hover == Some(index);
-            let band = Rect::new(gutter.x, gutter_y, blame_w, lh);
-            let clip = Rect::new(gutter.x + 14.0, gutter_y, blame_w - 22.0, lh);
-            let (who, color) = if commit.uncommitted {
-                (t!("editor-blame-uncommitted").to_owned(), p.text_dim)
-            } else if hovered {
-                (commit.author.clone(), p.text)
-            } else {
-                (commit.author.clone(), p.text_muted)
-            };
-            let when = if commit.uncommitted {
-                String::new()
-            } else {
-                crate::app::git::blame::blame_time(commit, self.now)
-            };
-            let when_w = frame.measure(FontKind::Ui, app.fonts.ui_small, &when);
-            let when_x = gutter.x + blame_w - 10.0 - when_w;
-            let who_clip = Rect::new(clip.x, clip.y, (when_x - 8.0 - clip.x).max(0.0), lh);
-            ui_text_small(frame, app, clip.x, band, &who, color, who_clip);
-            let when_color = if hovered { p.text_muted } else { p.text_dim };
-            ui_text_small(frame, app, when_x, band, &when, when_color, column);
-        }
     }
 
     /// 书签绘制在行号左侧的空白处（开着逐行追溯时在那一栏右边）。
@@ -174,4 +136,91 @@ impl Screen<'_> {
             icons::chevron_turned(frame, center, 6.0, angle, self.app.palette.text_dim, gutter);
         }
     }
+}
+
+/// 逐行追溯中提交时间的范围（Unix 秒）：最旧的提交色条最淡，最新的最深。
+pub(in crate::view) fn blame_ages(blame: &Blame) -> (i64, i64) {
+    let times = blame
+        .commits
+        .iter()
+        .filter(|c| !c.uncommitted)
+        .map(|c| c.time);
+    (times.clone().min().unwrap_or(0), times.max().unwrap_or(0))
+}
+
+/// 逐行追溯一栏 `column` 中第 `line` 行的一格：色条从 `bar_y` 起高 `bar_h`（自动换行时跨几个
+/// 显示行）；`label` 是（作者和时间写在哪一行，上方紧挨着显示的是哪一行），这一行与上方的行
+/// 不是同一次提交时才写，为 `None` 时不写（自动换行的后几段）。`cx` 是（追溯结果，提交时间的
+/// 范围，鼠标所指的提交，当前时间）。编辑区和差异的追溯一栏共用。
+pub(in crate::view) fn draw_blame_cell(
+    app: &App,
+    frame: &mut Frame<'_>,
+    (blame, (oldest, newest), hover, now): (&Blame, (i64, i64), Option<u32>, i64),
+    line: usize,
+    column: Rect,
+    (bar_y, bar_h, label): (f32, f32, Option<(f32, Option<usize>)>),
+) {
+    let (p, lh, x, w) = (app.palette, app.fonts.line_height, column.x, column.w);
+    let Some(&index) = blame.lines.get(line) else {
+        return;
+    };
+    let Some(commit) = blame.commits.get(index as usize) else {
+        return;
+    };
+    let strength = if commit.uncommitted || newest == oldest {
+        1.0
+    } else {
+        (commit.time - oldest) as f32 / (newest - oldest) as f32
+    };
+    // 鼠标指着的那一次提交：它的每一行都铺一层底色。
+    if hover == Some(index) {
+        let band = Rect::new(x, bar_y, w, bar_h);
+        frame.rect_clipped(band, p.hover, 0.0, column);
+    }
+    let bar_color = if commit.uncommitted {
+        p.diff_modified.mark
+    } else {
+        p.accent.alpha(p.accent.a * (0.12 + 0.7 * strength))
+    };
+    frame.rect_clipped(
+        Rect::new(x + 6.0, bar_y, 3.0, bar_h),
+        bar_color,
+        0.0,
+        column,
+    );
+    let Some((label_y, above)) = label else {
+        return;
+    };
+    if above.is_some_and(|above| blame.lines.get(above) == Some(&index)) {
+        return;
+    }
+    let hovered = hover == Some(index);
+    let band = Rect::new(x, label_y, w, lh);
+    let clip = Rect::new(x + 14.0, label_y, w - 22.0, lh);
+    let (who, color) = if commit.uncommitted {
+        (t!("editor-blame-uncommitted").to_owned(), p.text_dim)
+    } else if hovered {
+        (commit.author.clone(), p.text)
+    } else {
+        (commit.author.clone(), p.text_muted)
+    };
+    let when = if commit.uncommitted {
+        String::new()
+    } else {
+        crate::app::git::blame::blame_time(commit, now)
+    };
+    let when_w = frame.measure(FontKind::Ui, app.fonts.ui_small, &when);
+    let when_x = x + w - 10.0 - when_w;
+    let who_clip = Rect::new(clip.x, clip.y, (when_x - 8.0 - clip.x).max(0.0), lh);
+    ui_text_small(
+        frame,
+        app,
+        clip.x,
+        band,
+        &who,
+        color,
+        who_clip.intersect(column),
+    );
+    let when_color = if hovered { p.text_muted } else { p.text_dim };
+    ui_text_small(frame, app, when_x, band, &when, when_color, column);
 }

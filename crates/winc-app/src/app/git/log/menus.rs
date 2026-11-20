@@ -392,14 +392,22 @@ fn local_diff(git: &Git, root: &Path, rev: &str, path: &Path) -> Result<DiffView
         .as_deref()
         .map(|b| decode_unknown(b).0)
         .unwrap_or_default();
+    let blame = |rev: Option<&str>| BlameSource {
+        root: root.to_path_buf(),
+        path: path.to_path_buf(),
+        rev: rev.map(str::to_owned),
+    };
     let mut view = DiffView::new(
-        DiffSide::new(old_title, &old_text, None, language).with_missing(old.is_none()),
+        DiffSide::new(old_title, &old_text, None, language)
+            .with_missing(old.is_none())
+            .with_blame(blame(Some(rev))),
         DiffSide::new(
             t!("git-diff-side-worktree"),
             &decode_unknown(&new).0,
             None,
             language,
-        ),
+        )
+        .with_blame(blame(None)),
     );
     view.snapshot_path = Some(path.to_path_buf());
     Ok(view)

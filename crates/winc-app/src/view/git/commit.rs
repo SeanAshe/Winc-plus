@@ -782,11 +782,7 @@ fn draw_action_icon(
     clip: Rect,
 ) {
     match target {
-        CommitTarget::OpenFile(_) => {
-            let (w, h) = (10.0, 12.0);
-            let at = ((cx - w / 2.0).round(), (cy - h / 2.0).round());
-            icons::document(frame, at, (w, h), color, clip);
-        }
+        CommitTarget::OpenFile(_) => icons::open_file(frame, (cx, cy), color, clip),
         CommitTarget::StageFile(_, true) | CommitTarget::DirStage(_, true) => {
             icons::plus(frame, (cx, cy), 8.0, color, clip);
         }

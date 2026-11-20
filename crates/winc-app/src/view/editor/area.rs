@@ -5,6 +5,8 @@
 mod gutter;
 mod line;
 
+pub(in crate::view) use gutter::{blame_ages, draw_blame_cell};
+
 use winc_core::diff::LineHunk;
 use winc_core::text::Columns;
 use winc_core::wrap::Breaks;
@@ -95,10 +97,7 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
     let blame_w = app.blame_width();
     let blame = (blame_w > 0.0).then(|| app.blame_of(id)).flatten();
     // 提交时间的范围：最旧的提交色条最淡，最新的最深。
-    let ages = blame.as_ref().map(|b| {
-        let times = b.commits.iter().filter(|c| !c.uncommitted).map(|c| c.time);
-        (times.clone().min().unwrap_or(0), times.max().unwrap_or(0))
-    });
+    let ages = blame.as_deref().map(gutter::blame_ages);
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64);

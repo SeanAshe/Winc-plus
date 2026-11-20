@@ -145,6 +145,12 @@ impl App {
                     _ => {}
                 }
             }
+            // 「逐行追溯」同时开关两侧。
+            MenuTarget::DiffGutter(id) => {
+                if self.editor.active().map(|d| d.id) == Some(id) {
+                    self.toggle_diff_blame();
+                }
+            }
             // 和快捷键走同一条路：光标在右侧时由右侧的文档执行，只读的一侧有选区时复制这一侧。
             MenuTarget::Diff(id, _) => {
                 if self.editor.active().map(|d| d.id) == Some(id)
