@@ -766,6 +766,9 @@ pub struct LoadedFile {
 /// 否则新内容会命中旧内容的缓存。用户设置的只读随标签保留。
 fn replace_document(slot: &mut Document, mut fresh: Document) {
     fresh.revision += slot.revision + 1;
+    if let (Some(old), Some(new)) = (slot.diff.as_deref(), fresh.diff.as_deref_mut()) {
+        new.keep_blame(old);
+    }
     fresh.set_locked(slot.is_locked());
     fresh.set_all_locked(slot.all_locked());
     fresh.adopt_parked(slot);

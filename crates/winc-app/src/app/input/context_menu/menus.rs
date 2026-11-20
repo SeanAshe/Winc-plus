@@ -579,21 +579,27 @@ pub fn terminal_menu(selected: bool, running: bool, block: Option<(bool, bool)>)
 }
 
 /// 返回差异标签里文字的菜单项：右侧（`right`）是剪切、复制、粘贴，光标在改动上
-/// （`on_hunk`）时还有「回滚这处改动」；左侧只读，只有复制。
-pub fn diff_menu(right: bool, on_hunk: bool) -> Vec<MenuEntry> {
+/// （`on_hunk`）时还有「回滚这处改动」；左侧只读，只有复制。差异是 Git 中的版本（`blame`）时
+/// 最后是同时开关两侧的「逐行追溯」。
+pub fn diff_menu(right: bool, on_hunk: bool, blame: bool) -> Vec<MenuEntry> {
     use MenuCommand::*;
     use MenuEntry::{Item, Separator};
 
-    if !right {
-        return vec![Item(Copy, true)];
+    let mut menu = if right {
+        vec![
+            Item(Cut, true),
+            Item(Copy, true),
+            Item(Paste, true),
+            Separator,
+            Item(GitRevertHunk, on_hunk),
+        ]
+    } else {
+        vec![Item(Copy, true)]
+    };
+    if blame {
+        menu.extend([Separator, Item(ToggleBlame, true)]);
     }
-    vec![
-        Item(Cut, true),
-        Item(Copy, true),
-        Item(Paste, true),
-        Separator,
-        Item(GitRevertHunk, on_hunk),
-    ]
+    menu
 }
 
 /// 返回项目名菜单的菜单项：最近的目录（不含当前目录；按住 `⌥` 时是「在新窗口中打开」），之后是

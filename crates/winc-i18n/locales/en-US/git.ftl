@@ -787,6 +787,7 @@ git-log-file-binary = Binary
 ## Blame
 
 git-blame-not-in-repository = The current file isn’t in a Git repository, so blame isn’t available
+git-blame-diff-unavailable = This diff isn’t between Git versions, so blame isn’t available
 git-blame-failed = Couldn’t load blame: { $error }
 git-blame-uncommitted = Uncommitted changes
 git-blame-line-uncommitted = This line hasn’t been committed

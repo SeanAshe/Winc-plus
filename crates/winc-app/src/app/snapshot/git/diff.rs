@@ -3,6 +3,7 @@
 use super::*;
 
 mod edit;
+mod open;
 mod side;
 
 #[test]

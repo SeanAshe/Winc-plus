@@ -368,21 +368,46 @@ impl Git {
         contents: Vec<u8>,
         cancel: &Cancel,
     ) -> Result<Blame, String> {
+        self.run_blame(root, path, (&["--contents", "-"], contents), cancel)
+    }
+
+    /// 逐行追溯提交 `rev` 中的文件 `path`：差异里历史版本的一侧。
+    ///
+    /// # Errors
+    ///
+    /// `git` 运行失败（该提交中没有这个文件）时返回原因。
+    pub fn blame_revision(
+        &self,
+        root: &Path,
+        path: &Path,
+        rev: &str,
+        cancel: &Cancel,
+    ) -> Result<Blame, String> {
+        // `git blame` 不认 `--end-of-options`：以 `-` 开头的不当作版本。
+        if rev.starts_with('-') {
+            return Err(rev.to_owned());
+        }
+        self.run_blame(root, path, (&[rev], Vec::new()), cancel)
+    }
+
+    /// 运行 `git blame`：`args` 是写在路径之前的参数（内容来源或版本），`input` 是标准输入。
+    fn run_blame(
+        &self,
+        root: &Path,
+        path: &Path,
+        (args, input): (&[&str], Vec<u8>),
+        cancel: &Cancel,
+    ) -> Result<Blame, String> {
         let relative = slash_path(root, path)?;
         let mut command = self.command(root);
         command
             // 不使用 textconv：转换后的行与编辑器中的行不对应，转换命令也来自仓库的配置。
-            .args([
-                "blame",
-                "--no-textconv",
-                "--porcelain",
-                "--contents",
-                "-",
-                "--",
-            ])
+            .args(["blame", "--no-textconv", "--porcelain"])
+            .args(args)
+            .arg("--")
             .arg(relative)
             .stderr(Stdio::piped());
-        match process::run(&mut command, contents, LOG_TIMEOUT, cancel) {
+        match process::run(&mut command, input, LOG_TIMEOUT, cancel) {
             Ok(output) if output.status.success() => {
                 Ok(parse_blame(&String::from_utf8_lossy(&output.stdout)))
             }

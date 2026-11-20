@@ -6,6 +6,7 @@
 //! 一层。并排时「»」和改动勾选框位于带子上，「»」用左侧的一段替换右侧；行勾选框位于行号栏靠近
 //! 文字的一侧。折叠的一段同样用带子连接。
 
+mod blame;
 mod files;
 mod sticky;
 
@@ -181,6 +182,8 @@ pub(super) fn draw_diff(app: &mut App, frame: &mut Frame<'_>, index: usize) {
     // 文件栏展开、收起途中每帧更新露出的比例。
     app.sync_log_files_panel();
     // 绘制时需要推进两侧的着色状态，同时读取 `app` 的字体和配色：先从文档中取出差异，绘制后恢复。
+    // 逐行追溯要读差异两侧的文字和开关，在取出差异之前更新。
+    app.update_diff_blame(index);
     let Some(mut view) = app.editor.documents[index].diff.take() else {
         return;
     };
@@ -209,7 +212,9 @@ pub(super) fn draw_diff(app: &mut App, frame: &mut Frame<'_>, index: usize) {
         });
     let scroll = (scroll, shift.as_ref());
 
-    draw_body(app, frame, &mut view, &parts, scroll, pos, &edit, &mut hits);
+    let drawn = draw_body(app, frame, &mut view, &parts, scroll, pos, &edit, &mut hits);
+    let id = app.editor.documents[index].id;
+    blame::draw(app, frame, (id, &view), &parts, &drawn, &mut hits);
     let (scroll, _) = scroll;
     sticky::draw(app, frame, &mut view, &parts, scroll, pos, &mut hits);
     draw_header(app, frame, &view, &parts, pos, &mut hits);
@@ -341,15 +346,18 @@ fn draw_header(
     );
 
     // 右端从右往左依次为：布局切换、折叠开关、下一个文件与上一个文件（可跨文件导航时）、下一处、
-    // 上一处。布局切换和折叠开关按状态更换图标，不绘制按下状态。
+    // 上一处、打开文件（有对应的文件时）。布局切换和折叠开关按状态更换图标，不绘制按下状态。
     let y = header.y + (header.h - BUTTON) / 2.0;
     let mut right = header.right() - 10.0;
     let files = [DiffTarget::NextFile, DiffTarget::PreviousFile];
     let files = files.iter().copied().filter(|_| app.diff_steps_files());
+    let open = view.file_path().map(|_| DiffTarget::OpenFile);
     let targets = [DiffTarget::Layout, DiffTarget::Collapse]
         .into_iter()
-        .chain(files);
-    for target in targets.chain([DiffTarget::Next, DiffTarget::Previous]) {
+        .chain(files)
+        .chain([DiffTarget::Next, DiffTarget::Previous])
+        .chain(open);
+    for target in targets {
         let rect = Rect::new(right - BUTTON, y, BUTTON, BUTTON);
         right = rect.x - 2.0;
         draw_button(
@@ -372,6 +380,8 @@ fn draw_header(
             DiffTarget::NextFile => {
                 icons::chevron(frame, c, 8.0, Direction::Right, p.text_muted, rect)
             }
+            // 同提交视图文件行上的「打开文件」。
+            DiffTarget::OpenFile => icons::open_file(frame, c, p.text_muted, rect),
             // 图标表示点击后切换到的布局。
             DiffTarget::Layout if view.is_unified() => {
                 icons::split(frame, c, p.text_muted, rect);
@@ -413,15 +423,15 @@ fn draw_header(
     for (side, pane) in parts.panes.iter().enumerate() {
         let title = if side == LEFT { &view.old } else { &view.new };
         let end = pane.text.right().min(stats_left);
-        let clip = Rect::new(
-            pane.text.x,
-            header.y,
-            (end - pane.text.x).max(0.0),
-            header.h,
-        );
+        // 开着逐行追溯时右侧的文字区往右移了：标题从右半边（追溯一栏）的左边开始。
+        let start = match (view.is_unified(), side) {
+            (false, RIGHT) if pane.blame.w > 0.0 => pane.blame.x,
+            _ => pane.text.x,
+        };
+        let clip = Rect::new(start, header.y, (end - start).max(0.0), header.h);
         let mut x = match after {
             Some(end) => ui_text(frame, app, end + 8.0, header, "→", p.text_dim, clip) + 8.0,
-            None => pane.text.x + DIFF_TEXT_PAD,
+            None => start + DIFF_TEXT_PAD,
         };
         // 差异很窄、标题挤在统计前面写不下几个字时不写，不画出被截掉一半的字。
         if clip.right() - x < TITLE_MIN {
@@ -709,7 +719,8 @@ fn draw_line_number(
     );
 }
 
-/// 绘制两侧的代码与行号、改动的底色和带子、查找结果与选区、光标，以及勾选框和「»」按钮。
+/// 绘制两侧的代码与行号、改动的底色和带子、查找结果与选区、光标，以及勾选框和「»」按钮；返回
+/// 画出的显示行。
 #[allow(clippy::too_many_arguments)]
 fn draw_body(
     app: &mut App,
@@ -720,7 +731,7 @@ fn draw_body(
     pos: f64,
     edit: &EditState,
     hits: &mut Vec<(Rect, DiffTarget)>,
-) {
+) -> Vec<DrawnRow> {
     let p = app.palette;
     let lh = app.fonts.line_height;
     let body = parts.body;
@@ -1295,6 +1306,7 @@ fn draw_body(
             hits.push((rect.intersect(body), DiffTarget::Revert(h)));
         }
     }
+    drawn
 }
 
 /// 在 `area` 内绘制一条带子：左端为 `left` 的上下沿，右端为 `right` 的上下沿，中间按 S 形曲线

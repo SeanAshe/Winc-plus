@@ -623,6 +623,7 @@ git-log-file-binary = 二进制
 ## 逐行追溯
 
 git-blame-not-in-repository = 当前文件不在 Git 仓库中，无法逐行追溯
+git-blame-diff-unavailable = 此差异不是 Git 中的版本，无法逐行追溯
 git-blame-failed = 无法逐行追溯：{ $error }
 git-blame-uncommitted = 尚未提交的更改
 git-blame-line-uncommitted = 此行尚未提交

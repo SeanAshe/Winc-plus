@@ -35,6 +35,18 @@ const INLINE_LIMIT: usize = 200;
 /// 依据实测：整篇断行约每 20 万行耗时 115 ms，每次编辑都要重新断行，行数更多时输入出现明显延迟。
 pub const WRAP_LINES: usize = 200_000;
 
+/// 差异一侧的逐行追溯取自哪里：仓库 `root` 里的文件 `path`，在提交 `rev` 中的版本；`rev` 为
+/// `None` 时是该侧的文字（工作区中的内容），改过还没提交的行算「未提交」。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlameSource {
+    /// 仓库的根目录。
+    pub root: PathBuf,
+    /// 文件的路径（在该版本中的路径，改名前后可能不同）。
+    pub path: PathBuf,
+    /// 提交号；`None` 是该侧的文字。
+    pub rev: Option<String>,
+}
+
 /// 差异的一侧。
 #[derive(Debug)]
 pub struct DiffSide {
@@ -48,6 +60,8 @@ pub struct DiffSide {
     ///
     /// 为 `true` 时文本为空，标题已说明原因，界面不再显示「空文件」。
     pub missing: bool,
+    /// 该侧可以逐行追溯时的来源；不是 Git 中的版本（比较两个文件、合并冲突）时为 `None`。
+    pub blame: Option<BlameSource>,
     /// 语法着色的增量状态，绘制时推进。
     pub highlighter: Highlighter,
     /// 文字的版本号：右侧随工作区文件改变时加 1，使按内容缓存的结果失效。
@@ -69,6 +83,7 @@ impl DiffSide {
             text: Rope::from_str(text),
             path,
             missing: false,
+            blame: None,
             highlighter: Highlighter::new(language),
             revision: 0,
             sticky_memo: ScopeMemo::default(),
@@ -79,6 +94,17 @@ impl DiffSide {
     pub fn with_missing(mut self, missing: bool) -> DiffSide {
         self.missing = missing;
         self
+    }
+
+    /// 设置逐行追溯的来源（见 [`BlameSource`]）；版本中不存在该文件时不追溯。
+    pub fn with_blame(mut self, source: BlameSource) -> DiffSide {
+        self.blame = (!self.missing).then_some(source);
+        self
+    }
+
+    /// 文字的版本号：文字每变一次加 1。
+    pub fn revision(&self) -> u64 {
+        self.revision
     }
 
     /// 返回该侧自上而下显示 `rows` 各行时固定在顶部的块（从外层到内层，最多 `max` 个），以及
@@ -341,6 +367,8 @@ pub struct DiffView {
     pub panel: f32,
     /// 文件栏露出的比例：收起为 0，展开为 1，展开、收起途中在两者之间。
     pub panel_shown: f32,
+    /// 左、右两侧是否显示逐行追溯一栏（只有设置了 [`DiffSide::blame`] 的一侧能显示）。
+    pub blamed: [bool; 2],
 }
 
 /// 差异标题栏上方的提交说明条的内容。
@@ -390,6 +418,7 @@ impl DiffView {
             banner: None,
             panel: 0.0,
             panel_shown: 1.0,
+            blamed: [false; 2],
         };
         view.layout();
         view
@@ -450,10 +479,17 @@ impl DiffView {
         self.collapse = old.collapse;
         self.unified = old.unified;
         self.wrap = old.wrap;
+        self.keep_blame(old);
         if old.hunks.len() == self.hunks.len() {
             self.expanded = old.expanded.clone();
         }
         self.layout();
+    }
+
+    /// 同一个标签换成这个差异时，沿用原差异 `old` 逐行追溯的开关：开着时两侧中能追溯的都打开。
+    pub fn keep_blame(&mut self, old: &DiffView) {
+        let on = old.blamed.contains(&true);
+        self.blamed = [LEFT, RIGHT].map(|s| on && self.side(s).blame.is_some());
     }
 
     /// 设置自动换行：`wrap` 是（断行宽度，Tab 宽度），单位是显示列，`None` 表示不换行。

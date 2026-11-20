@@ -878,6 +878,7 @@ impl MenuCommand {
             MenuCommand::RenameTerminal => Action::RenameTerminal,
             MenuCommand::CloseTerminal => Action::CloseTerminal,
             MenuCommand::GitRevertHunk => Action::GitRevertChange,
+            MenuCommand::ToggleBlame => Action::GitBlame,
             MenuCommand::GitShowDiff => Action::ChangesShowDiff,
             MenuCommand::GitOpenFile => Action::ChangesOpenSource,
             MenuCommand::GitRollbackFile => Action::ChangesRollback,
@@ -935,6 +936,8 @@ pub enum MenuTarget {
     Markdown,
     /// 差异标签里的文字：`true` 是右侧（工作区，可以编辑），`false` 是左侧。
     Diff(DocumentId, bool),
+    /// 差异标签中两侧的行号栏、逐行追溯一栏。
+    DiffGutter(DocumentId),
     /// 侧栏顶部的项目名。
     Project,
     /// 设置的格式化页中格式化工具（修复工具）一组下面的「添加语言…」。

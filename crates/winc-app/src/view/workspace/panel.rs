@@ -1178,6 +1178,8 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
                 DiffTarget::NextFile => {
                     with_key(t!("workspace-tip-next-file"), Some(Action::NextDiffFile))
                 }
+                DiffTarget::OpenFile => t!("workspace-tip-open-file").to_owned(),
+                DiffTarget::Blame(side, line) => app.diff_blame_tip(side, line)?,
                 DiffTarget::Layout if app.editor.diff_unified => {
                     t!("workspace-tip-diff-side-by-side").to_owned()
                 }

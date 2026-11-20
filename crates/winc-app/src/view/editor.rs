@@ -14,6 +14,8 @@ pub(super) mod places;
 mod ruler;
 mod sticky;
 
+pub(in crate::view) use area::{blame_ages, draw_blame_cell};
+
 use area::draw_text_area;
 pub(super) use caret::*;
 pub(super) use glyphs::*;

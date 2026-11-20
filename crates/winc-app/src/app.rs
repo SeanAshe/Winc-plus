@@ -658,6 +658,8 @@ impl Hover {
                         | DiffTarget::Next
                         | DiffTarget::PreviousFile
                         | DiffTarget::NextFile
+                        | DiffTarget::OpenFile
+                        | DiffTarget::Blame(..)
                         | DiffTarget::Layout
                         | DiffTarget::Collapse
                         | DiffTarget::FilesToggle

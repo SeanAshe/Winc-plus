@@ -32,7 +32,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::time::{Duration, Instant};
 
-use winc_editor::diff_view::{DiffSide, DiffView};
+use winc_editor::diff_view::{BlameSource, DiffSide, DiffView};
 use winc_editor::encoding::decode_unknown;
 use winc_editor::format::Cancel;
 use winc_editor::git::log::{Arrival, Compare, Details};
@@ -1354,21 +1354,31 @@ pub(in crate::app) fn commit_diff(
         (Some(oid), false) => t!("git-diff-side-commit-missing", commit = short(oid)),
         (None, _) => t!("git-diff-side-before-root").to_owned(),
     };
+    let blame = |rev: &str, path: &Path| BlameSource {
+        root: root.to_path_buf(),
+        path: path.to_path_buf(),
+        rev: Some(rev.to_owned()),
+    };
+    let mut old_side = DiffSide::new(
+        side_title(old_rev, old.is_some()),
+        old.as_deref().unwrap_or(""),
+        None,
+        language,
+    )
+    .with_missing(old_rev.is_some() && old.is_none());
+    if let Some(rev) = old_rev {
+        old_side = old_side.with_blame(blame(rev, &old_path));
+    }
     let mut view = DiffView::new(
-        DiffSide::new(
-            side_title(old_rev, old.is_some()),
-            old.as_deref().unwrap_or(""),
-            None,
-            language,
-        )
-        .with_missing(old_rev.is_some() && old.is_none()),
+        old_side,
         DiffSide::new(
             side_title(Some(new_rev), new.is_some()),
             new.as_deref().unwrap_or(""),
             None,
             language,
         )
-        .with_missing(new.is_none()),
+        .with_missing(new.is_none())
+        .with_blame(blame(new_rev, &file.path)),
     );
     view.snapshot_path = Some(file.path.clone());
     Ok(view)

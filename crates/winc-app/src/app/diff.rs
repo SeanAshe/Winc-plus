@@ -13,6 +13,7 @@ mod edit;
 mod files;
 mod find;
 mod fold;
+mod open;
 mod pointer;
 
 use crate::app::scroll::set_scroll_line;
@@ -63,6 +64,9 @@ pub(crate) const DIFF_GUTTER_PAD: f32 = 10.0;
 const DIFF_SIGN_CELLS: f32 = 1.5;
 /// 文字和文字区边缘之间的空白（逻辑像素）。
 pub(crate) const DIFF_TEXT_PAD: f32 = 10.0;
+/// 差异一侧逐行追溯一栏的宽度（逻辑像素，经验值）：色条、作者和时间，比编辑区的一栏窄一些，
+/// 名字放不下时截短，完整的在悬停提示中。
+pub(crate) const DIFF_BLAME_W: f32 = 160.0;
 
 /// 「»」替换一段改动后，该段改动的颜色在原处淡出的时长（毫秒）。
 ///
@@ -173,6 +177,10 @@ pub enum DiffTarget {
     PreviousFile,
     /// 下一个文件。
     NextFile,
+    /// 在编辑区打开差异对应的工作区文件。
+    OpenFile,
+    /// 逐行追溯一栏中的一行：（侧，行号，从 0 起）。悬停提示提交，点击在日志中选中它。
+    Blame(usize, usize),
     /// 切换单栏显示和并排显示。
     Layout,
     /// 折叠或展开所有未改动的长段。
@@ -270,6 +278,8 @@ pub(crate) struct DiffPane {
     pub gutter: Rect,
     /// 行号右端的横坐标（逻辑像素），行号据此右对齐。
     pub number_end: f32,
+    /// 逐行追溯一栏：并排时在行号与中间的连接带之间，单栏时两侧共用行号之后的一栏；没开时宽为 0。
+    pub blame: Rect,
     /// 文字区。
     pub text: Rect,
 }
@@ -345,6 +355,8 @@ impl App {
             DiffTarget::Next => self.jump_difference(true),
             DiffTarget::PreviousFile => self.step_diff_file(false),
             DiffTarget::NextFile => self.step_diff_file(true),
+            DiffTarget::OpenFile => self.open_diff_file(),
+            DiffTarget::Blame(side, line) => self.click_diff_blame(side, line),
             DiffTarget::FilesToggle => self.toggle_log_files_panel(),
             DiffTarget::FilesLayout => self.toggle_diff_files_layout(),
             DiffTarget::FilesDir(row) => {
@@ -1266,11 +1278,17 @@ pub(crate) fn diff_parts(area: Rect, view: &DiffView, cell: f32) -> DiffParts {
     let gutter_w = (digits * cell + 2.0 * DIFF_GUTTER_PAD).round();
     let column = |x: f32, w: f32| Rect::new(x, body.y, w, body.h);
     if view.is_unified() {
-        // 单栏：「»」、修改前的行号、修改后的行号、勾选框、加减号（行勾选框与之同列）和文字。
+        // 单栏：「»」、修改前的行号、修改后的行号、逐行追溯（开着时）、勾选框、加减号（行勾选框与
+        // 之同列）和文字。
+        let blamed = view.blamed.contains(&true);
         let arrows = column(editor.x, DIFF_ARROWS);
         let left_gutter = column(arrows.right(), gutter_w);
         let right_gutter = column(left_gutter.right(), gutter_w);
-        let checks = column(right_gutter.right(), DIFF_CHECKS);
+        let blame = column(
+            right_gutter.right(),
+            if blamed { DIFF_BLAME_W } else { 0.0 },
+        );
+        let checks = column(blame.right(), DIFF_CHECKS);
         let sign = (DIFF_SIGN_CELLS * cell).round();
         let lines = column(checks.right(), sign);
         let text = column(lines.right(), (editor.right() - lines.right()).max(0.0));
@@ -1286,12 +1304,14 @@ pub(crate) fn diff_parts(area: Rect, view: &DiffView, cell: f32) -> DiffParts {
                     rect,
                     gutter: left_gutter,
                     number_end: left_gutter.right() - DIFF_GUTTER_PAD,
+                    blame,
                     text,
                 },
                 DiffPane {
                     rect,
                     gutter: right_gutter,
                     number_end: right_gutter.right() - DIFF_GUTTER_PAD,
+                    blame,
                     text,
                 },
             ],
@@ -1310,13 +1330,17 @@ pub(crate) fn diff_parts(area: Rect, view: &DiffView, cell: f32) -> DiffParts {
     };
     let extra = (line_w - DIFF_GUTTER_PAD).max(0.0);
     let gutter_w = gutter_w + extra;
-    let middle = 2.0 * gutter_w + DIFF_RIBBON;
+    // 开着逐行追溯的一侧在行号和中间的连接带之间多一栏；两侧的文字区仍一样宽。
+    let blame_w = view.blamed.map(|on| if on { DIFF_BLAME_W } else { 0.0 });
+    let middle = 2.0 * gutter_w + DIFF_RIBBON + blame_w[LEFT] + blame_w[RIGHT];
     let text_w = ((editor.w - middle) / 2.0).max(0.0).floor();
 
     let left_text = column(editor.x, text_w);
     let left_gutter = column(left_text.right(), gutter_w);
-    let ribbon = column(left_gutter.right(), DIFF_RIBBON);
-    let right_gutter = column(ribbon.right(), gutter_w);
+    let left_blame = column(left_gutter.right(), blame_w[LEFT]);
+    let ribbon = column(left_blame.right(), DIFF_RIBBON);
+    let right_blame = column(ribbon.right(), blame_w[RIGHT]);
+    let right_gutter = column(right_blame.right(), gutter_w);
     let right_text = column(
         right_gutter.right(),
         (editor.right() - right_gutter.right()).max(0.0),
@@ -1329,15 +1353,17 @@ pub(crate) fn diff_parts(area: Rect, view: &DiffView, cell: f32) -> DiffParts {
         body,
         panes: [
             DiffPane {
-                rect: column(editor.x, left_gutter.right() - editor.x),
+                rect: column(editor.x, left_blame.right() - editor.x),
                 gutter: left_gutter,
                 number_end: left_gutter.right() - DIFF_GUTTER_PAD,
+                blame: left_blame,
                 text: left_text,
             },
             DiffPane {
-                rect: column(right_gutter.x, editor.right() - right_gutter.x),
+                rect: column(right_blame.x, editor.right() - right_blame.x),
                 gutter: right_gutter,
                 number_end: right_gutter.right() - DIFF_GUTTER_PAD - extra,
+                blame: right_blame,
                 text: right_text,
             },
         ],
