@@ -44,7 +44,7 @@ impl App {
         if let Err(error) = winc_backend::fs::create_dir_all(&dir) {
             return Some(Err(error));
         }
-        Some(paste::save_image(&dir, &png))
+        Some(paste::save_image(&dir, "image.png", &png))
     }
 
     /// 忘掉文件树里复制的远端文件：剪贴板里的文字是 Winc 刚写入的别的内容（即使碰巧与复制时
