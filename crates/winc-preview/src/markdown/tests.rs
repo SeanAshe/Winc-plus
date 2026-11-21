@@ -23,16 +23,17 @@ fn blocks_come_out_in_order() {
     assert_eq!(doc.blocks.len(), 4);
     assert_eq!(doc.hashes.len(), 4);
     assert!(matches!(&doc.blocks[0], Block::Heading(1, h) if h.text == "标题"));
-    // 中文之间的软换行不加空格。
-    assert_eq!(paragraph(&doc.blocks[1]).text, "第一段第二行");
+    // 段落里的软换行照原文换行。
+    assert_eq!(paragraph(&doc.blocks[1]).text, "第一段\n第二行");
     assert_eq!(doc.blocks[2], Block::Rule(Some(0)));
     assert!(matches!(
         &doc.blocks[3],
         Block::Code { lang, text, .. } if lang == "rust" && text == "fn main() {}"
     ));
-    // 西文之间、中西文之间照常是空格。
-    let doc = parse("one\ntwo\n中文\nthree");
-    assert_eq!(paragraph(&doc.blocks[0]).text, "one two 中文 three");
+    // 标题里的软换行：中文之间不加空格，西文之间、中西文之间是空格。
+    let doc = parse("一\n二\n===\n\none\ntwo\n中文\nthree\n---\n");
+    assert!(matches!(&doc.blocks[0], Block::Heading(1, h) if h.text == "一二"));
+    assert!(matches!(&doc.blocks[1], Block::Heading(2, h) if h.text == "one two 中文 three"));
 }
 
 #[test]
@@ -685,11 +686,11 @@ fn highlight_needs_a_well_formed_pair() {
         spans(inline),
         vec![("一", Style::MARK), (" 和 ", 0), ("二", Style::MARK)]
     );
-    // 高亮可以跨行：软换行是空格，硬换行是 `\n`。
+    // 高亮可以跨行。
     let doc = parse("==跨\n行==");
     assert_eq!(
         spans(paragraph(&doc.blocks[0])),
-        vec![("跨行", Style::MARK)]
+        vec![("跨\n行", Style::MARK)]
     );
     let doc = parse("==跨  \n行==");
     assert_eq!(

@@ -609,7 +609,7 @@ struct Builder<'s> {
     start: usize,
     cursor: usize,
     end: usize,
-    /// 最近一个软换行在原文中的位置：换成的空格对应这里。
+    /// 最近一个软换行在原文中的位置：换成的换行或空格对应这里。
     soft_at: usize,
     /// 正在收集的代码块与原文的对照。
     code_map: SourceMap,
@@ -632,8 +632,8 @@ struct Builder<'s> {
     footnotes: Vec<(String, Vec<Block>, Range<usize>)>,
     /// 包着当前内容的 HTML 标签（`<p>`、`<div>`、`<center>`、`<h1>`……）各自的对齐，一层一层。
     aligns: Vec<Align>,
-    /// 刚才有一个软换行，还没决定要不要换成空格：两边都是中日韩文字时不加（中文段落里折行处
-    /// 不会多出一个空格），否则加一个空格。
+    /// 刚才有一个软换行，还没写入：段落里照原文换行；标题等处两边都是中日韩文字时不加，否则加
+    /// 一个空格。
     soft: bool,
     /// `<picture>` 里浅色、深色外观的 `<source>` 写的地址，留给后面的 `<img>`。
     sources: (Option<String>, Option<String>),
@@ -717,20 +717,24 @@ impl Builder<'_> {
         }
     }
 
-    /// 前面有软换行时，按下一个字 `next` 决定加不加空格（见 [`Builder::soft`]）。
+    /// 写入前面的软换行，`next` 是其后的第一个字（见 [`Builder::soft`]）。
     fn resolve_soft(&mut self, next: Option<char>) {
         if !std::mem::take(&mut self.soft) {
             return;
         }
         let style = self.style();
         let soft_at = self.soft_at;
+        let lines = matches!(self.inline, Some((Leaf::Paragraph | Leaf::Loose, _)));
         let inline = self.inline();
         let joined =
             inline.text.chars().next_back().is_some_and(is_cjk) && next.is_some_and(is_cjk);
-        if !joined {
-            inline.map.push(inline.text.len(), soft_at, 0);
-            inline.push(" ", style);
-        }
+        let text = match (lines, joined) {
+            (true, _) => "\n",
+            (false, true) => return,
+            (false, false) => " ",
+        };
+        inline.map.push(inline.text.len(), soft_at, 0);
+        inline.push(text, style);
     }
 
     /// 结束一个容器块（引用、列表、`<details>`）。

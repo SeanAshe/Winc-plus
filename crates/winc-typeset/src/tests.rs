@@ -10,10 +10,15 @@ const TOKEN: Color = Color::hex(0x0000ff);
 
 /// 以宽 `width`（逻辑像素）、正文字号 16 排版 `markdown`，返回各顶层块排出的内容和高度。
 fn lay(markdown: &str, width: f32) -> Vec<(Out, f32)> {
+    lay_with(markdown, width, &HashMap::new())
+}
+
+/// 同 [`lay`]，图片按网址在 `images` 中查找。
+fn lay_with(markdown: &str, width: f32, images: &HashMap<PathBuf, ImageSlot>) -> Vec<(Out, f32)> {
     let parsed = winc_preview::markdown::parse(markdown);
     let mut renderer =
         Renderer::offscreen(800.0, 600.0, 1.0, Color::hex(0xffffff), None, None).unwrap();
-    let (images, toggled) = (HashMap::new(), HashSet::new());
+    let toggled = HashSet::new();
     let mut memo = Memo::default();
     let mut laid = Vec::new();
     renderer.draw(|frame| {
@@ -26,8 +31,8 @@ fn lay(markdown: &str, width: f32) -> Vec<(Out, f32)> {
             accent,
             colors: Colors::new(TEXT, Color::hex(0x808080), accent, false),
             dark: false,
-            images: &images,
-            image_path: &|_| None,
+            images,
+            image_path: &|url| (!images.is_empty()).then(|| PathBuf::from(url)),
             wanted: Vec::new(),
             memo: &mut memo,
             toggled: &toggled,
@@ -260,4 +265,46 @@ fn edge_labels_do_not_overlap() {
             assert!(r.w <= 0.0 || r.h <= 0.0, "「{a}」和「{b}」重叠");
         }
     }
+}
+
+#[test]
+fn list_markers_align_with_the_top_of_an_image_line() {
+    let slot = |width| ImageSlot::Ready {
+        width,
+        height: 400,
+        density: 1,
+        picture: None,
+        pixels: Vec::new(),
+        drawing: Vec::new(),
+    };
+    let images = HashMap::from([
+        (PathBuf::from("wide.png"), slot(2000)),
+        (PathBuf::from("dot.png"), slot(400)),
+    ]);
+    let marker_and_image = |markdown: &str| {
+        let laid = lay_with(markdown, 600.0, &images);
+        let out = &laid[0].0;
+        let image = out
+            .items
+            .iter()
+            .find_map(|item| match item {
+                Item::Image { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .unwrap();
+        let texts = texts(out);
+        let marker = texts.iter().find(|t| t.3 == "1.").unwrap().0;
+        let text = texts.iter().find(|t| t.3.contains("文字")).unwrap().0;
+        (marker, image, text)
+    };
+    // 图片独占首行：记号的顶端与图片的顶端对齐。
+    let (marker, image, text) = marker_and_image("1. ![a](wide.png) 文字\n");
+    assert!(
+        marker > image.y && marker < image.y + 16.0,
+        "{marker} {image:?}"
+    );
+    assert!(text > image.y + image.h);
+    // 图片与文字同行：记号与文字同一基线。
+    let (marker, _, text) = marker_and_image("1. ![a](dot.png) 文字\n");
+    assert_eq!(marker, text);
 }

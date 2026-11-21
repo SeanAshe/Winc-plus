@@ -738,3 +738,58 @@ fn task_items_can_be_typed() {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+#[test]
+fn trailing_spaces_stay_in_their_own_item() {
+    use crate::app::preview::markdown::laid::full_text;
+
+    let (mut app, dir) = live_doc("md-trailing", "1. 一 \n2. 二\n");
+    // 光标在行尾空格之后：只有这一项显示原文，空格可见。
+    put_caret(&mut app, "一 ", true);
+    let shown = full_text(&app).unwrap();
+    assert!(shown.starts_with("一 \n二"), "{shown:?}");
+    // 在最后一项末尾输入的空格立即可见，光标随之后移。
+    put_caret(&mut app, "二", true);
+    let x = |app: &App| {
+        let laid = app.preview.markdown.layout.as_ref().unwrap();
+        laid.caret_point(app.live_caret_source().unwrap())
+            .unwrap()
+            .0
+    };
+    let before = x(&app);
+    app.run(winc_editor::Command::Insert(" ".into()));
+    settle(&mut app);
+    let shown = full_text(&app).unwrap();
+    assert!(shown.contains("二 "), "{shown:?}");
+    assert!(x(&app) > before + 1.0);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn shift_enter_breaks_the_line_inside_the_paragraph() {
+    use crate::app::preview::markdown::laid::full_text;
+    use winit::keyboard::{Key, ModifiersState, NamedKey};
+
+    let (mut app, dir) = live_doc("md-break", "甲\n\n丙\n");
+    put_caret(&mut app, "甲", true);
+    app.pointer.modifiers = ModifiersState::SHIFT;
+    assert!(app.markdown_key(&Key::Named(NamedKey::Enter), false));
+    app.pointer.modifiers = ModifiersState::empty();
+    app.run(winc_editor::Command::Insert("乙".into()));
+    settle(&mut app);
+    assert_eq!(doc_text(&app), "甲\n乙\n\n丙\n");
+    assert!(full_text(&app).unwrap().contains("甲\n乙"));
+    // 段内换行紧凑，段落之间留出段距。
+    let y = |app: &mut App, needle| {
+        put_caret(app, needle, false);
+        caret_screen_y(app)
+    };
+    let (first, second, next) = (y(&mut app, "甲"), y(&mut app, "乙"), y(&mut app, "丙"));
+    assert!(
+        next - second > second - first + 5.0,
+        "{first} {second} {next}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
