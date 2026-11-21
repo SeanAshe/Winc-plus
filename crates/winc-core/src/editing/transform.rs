@@ -521,6 +521,44 @@ pub fn expand_selection(text: &impl Lines, selection: Selection) -> Option<Selec
         .map(|(a, b)| Selection::new(a, b))
 }
 
+/// 返回交换光标两侧两个字素（`⌃T`）的事务。
+///
+/// 光标在行尾时交换它前面的两个字素，光标不动；否则交换光标前后的两个字素，光标移到两者之后。
+/// 在行首时前一个字素是换行符，交换后本行的第一个字素接到上一行的末尾。两个字素相同时不改动
+/// 文字，光标照样前移，连按可以把一个字素一路往后挪。选区非空、光标前不足两个字素时返回 `None`。
+pub fn transpose(text: &impl Lines, selection: Selection) -> Option<Transaction> {
+    if !selection.is_empty() {
+        return None;
+    }
+    let pos = selection.head;
+    let end = if pos == text.line_end(text.line_of(pos)) {
+        pos
+    } else {
+        movement::next_grapheme(text, pos)
+    };
+    let middle = movement::prev_grapheme(text, end);
+    let start = movement::prev_grapheme(text, middle);
+    if start == middle {
+        return None;
+    }
+    let (head, tail) = (text.substring(start, middle), text.substring(middle, end));
+    let changes = if head == tail {
+        Vec::new()
+    } else {
+        vec![Change {
+            start,
+            removed: text.substring(start, end),
+            inserted: format!("{tail}{head}"),
+        }]
+    };
+    Some(Transaction::new(
+        changes,
+        selection,
+        Selection::point(end),
+        EditKind::Other,
+    ))
+}
+
 /// 返回包住选区的引号字符串的位置区间，依次是不含引号、含引号两种。
 ///
 /// 只在选区所在的一行内查找，选区跨行时返回空表。

@@ -4,8 +4,12 @@ use super::*;
 
 impl App {
     /// 光标在差异右侧时把按键交给右侧的文档，返回是否已处理。
-    pub(in crate::app) fn diff_edit_key(&mut self, event: &KeyEvent, cmd: bool) -> bool {
-        if event.logical_key == Key::Named(NamedKey::Escape) {
+    pub(in crate::app) fn diff_edit_key(
+        &mut self,
+        event: &crate::app::input::keyboard::EditorKey,
+        cmd: bool,
+    ) -> bool {
+        if *event.key == Key::Named(NamedKey::Escape) {
             let Some(view) = self.editor.active_mut().and_then(|d| d.diff.as_deref_mut()) else {
                 return false;
             };
@@ -20,7 +24,7 @@ impl App {
             }
             return false;
         }
-        if edits_text(&event.logical_key) {
+        if edits_text(event.key) {
             self.edit_at_read_caret();
         }
         self.in_diff_source(|app| app.on_key_editor(event, cmd))

@@ -475,6 +475,15 @@ pub(super) const IDEA: &[PresetRow] = &[
     row(ZoomIn, Everywhere, &["ctrl+alt+="], &["shift+alt+="]),
     row(ZoomOut, Everywhere, &["ctrl+alt+-"], &["shift+alt+-"]),
     row(ResetZoom, Everywhere, &["ctrl+alt+0"], &["shift+alt+0"]),
+    // macOS 上与系统文本框相同的 `⌃` 字母键，IDEA 占作其他功能的（`⌃D` `⌃H` `⌃T` `⌃O`）不绑定。
+    row(CursorHome, Editor, &["ctrl+a"], &[]),
+    row(CursorEnd, Editor, &["ctrl+e"], &[]),
+    row(CursorLeft, Editor, &["ctrl+b"], &[]),
+    row(CursorRight, Editor, &["ctrl+f"], &[]),
+    row(CursorUp, Editor, &["ctrl+p"], &[]),
+    row(CursorDown, Editor, &["ctrl+n"], &[]),
+    row(CutToLineEnd, Editor, &["ctrl+k"], &[]),
+    row(ScrollToCenter, Editor, &["ctrl+l"], &[]),
 ];
 
 /// IDEA 方案在 Linux 上与 Windows 不同的键。
@@ -771,6 +780,18 @@ pub(super) const VSCODE: &[PresetRow] = &[
     ),
     row(ResetZoom, Everywhere, &["cmd+numpad0"], &["ctrl+numpad0"]),
     row(RunConfiguration, Global, &["ctrl+f5"], &["ctrl+f5"]),
+    // macOS 上与系统文本框相同的 `⌃` 字母键。
+    row(CursorLineStart, Editor, &["ctrl+a", "ctrl+shift+a"], &[]),
+    row(CursorLineEnd, Editor, &["ctrl+e", "ctrl+shift+e"], &[]),
+    row(CursorLeft, Editor, &["ctrl+b"], &[]),
+    row(CursorRight, Editor, &["ctrl+f"], &[]),
+    row(CursorUp, Editor, &["ctrl+p"], &[]),
+    row(CursorDown, Editor, &["ctrl+n"], &[]),
+    row(DeleteLeft, Editor, &["ctrl+h"], &[]),
+    row(DeleteRight, Editor, &["ctrl+d"], &[]),
+    row(DeleteAllRight, Editor, &["ctrl+k"], &[]),
+    row(TransposeLetters, Editor, &["ctrl+t"], &[]),
+    row(InsertLineBreak, Editor, &["ctrl+o"], &[]),
 ];
 
 /// VS Code 方案在 Linux 上与 Windows 不同的键。

@@ -29,7 +29,6 @@ use winc_editor::diff_view::{Compared, DiffView, LEFT, RIGHT, ReadSelection, Sid
 use winc_editor::{Document, DocumentId, FoldCommand};
 use winc_i18n::t;
 use winc_render::Rect;
-use winit::event::KeyEvent;
 use winit::keyboard::{Key, NamedKey};
 
 use super::animation::{Clock, FOLD_ANIMATION};

@@ -66,6 +66,16 @@ pub enum Command {
         /// 是否扩展选区（按住 Shift）。
         extend: bool,
     },
+    /// 光标移到这一行的第 0 列：不按折行分段，也不停在首个非空白字符处。
+    WholeLineStart {
+        /// 是否扩展选区（按住 Shift）。
+        extend: bool,
+    },
+    /// 光标移到这一行的末尾，不按折行分段。
+    WholeLineEnd {
+        /// 是否扩展选区（按住 Shift）。
+        extend: bool,
+    },
     /// 光标移到文档开头。
     DocStart {
         /// 是否扩展选区（按住 Shift）。
@@ -98,6 +108,8 @@ pub enum Command {
     },
     /// 删除光标到行首之间的文本（`⌘⌫`）。
     DeleteToLineStart,
+    /// 删除光标到行尾之间的文本；光标在行尾时删除换行符。
+    DeleteToLineEnd,
     /// 插入一级缩进；有选区时按整块缩进处理。
     Indent,
     /// 光标所在的行（或选区覆盖的行）整行加一级缩进（`⌘]`）。
@@ -120,6 +132,10 @@ pub enum Command {
     },
     /// 改变选区的大小写；没有选区时改变光标所在的词。
     ChangeCase(Case),
+    /// 交换光标两侧的两个字素；光标在行尾时交换行末的两个字素。
+    TransposeChars,
+    /// 在光标处换行（缩进与回车相同），光标留在原处。
+    LineBreakInsert,
     /// 对选中的行排序；选区在一行之内时对整个文件排序。
     SortLines {
         /// 是否按降序排列。
@@ -156,6 +172,8 @@ impl Command {
                 | Command::PageDown { .. }
                 | Command::LineStart { .. }
                 | Command::LineEnd { .. }
+                | Command::WholeLineStart { .. }
+                | Command::WholeLineEnd { .. }
                 | Command::DocStart { .. }
                 | Command::DocEnd { .. }
                 | Command::SelectAll
@@ -365,6 +383,12 @@ impl Document {
                     .unwrap_or_else(|| text.line_end(line));
                 sel.moved_to(pos, extend)
             }
+            Command::WholeLineStart { extend } => {
+                sel.moved_to(text.line_start(text.line_of(sel.head)), extend)
+            }
+            Command::WholeLineEnd { extend } => {
+                sel.moved_to(text.line_end(text.line_of(sel.head)), extend)
+            }
             Command::DocStart { extend } => sel.moved_to(0, extend),
             Command::DocEnd { extend } => sel.moved_to(text.end_pos(), extend),
             Command::SelectAll => Selection::new(0, text.end_pos()),
@@ -420,6 +444,7 @@ impl Document {
             }
             &Command::Delete { word } => edit::delete_forward(text, sel, word),
             Command::DeleteToLineStart => edit::delete_to_line_start(text, sel),
+            Command::DeleteToLineEnd => edit::delete_to_line_end(text, sel),
             Command::Indent => Some(edit::indent(text, sel, &options)),
             Command::IndentLines => Some(edit::indent_lines(text, sel, &options)),
             Command::Outdent => edit::outdent(text, sel, &options),
@@ -428,6 +453,12 @@ impl Document {
             &Command::MoveLines { down } => edit::move_lines(text, sel, down),
             &Command::CopyLines { down } => Some(edit::copy_lines(text, sel, down, &options)),
             &Command::ChangeCase(case) => transform::change_case(text, sel, case),
+            Command::TransposeChars => transform::transpose(text, sel),
+            Command::LineBreakInsert => {
+                let mut transaction = edit::newline(text, sel, &options);
+                transaction.after = Selection::point(sel.from());
+                Some(transaction)
+            }
             &Command::SortLines { descending } => transform::sort_lines(text, sel, descending),
             Command::JoinLines => transform::join_lines(text, sel),
             Command::TrimTrailingWhitespace => transform::trim_trailing_whitespace(text, sel),
