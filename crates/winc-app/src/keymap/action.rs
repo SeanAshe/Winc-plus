@@ -116,6 +116,27 @@ pub enum Action {
     MarkdownPastePlain,
     DeleteLine,
     DeleteAllLeft,
+    /// 与方向键、`Home` `End`、`⌫` `⌦` 相同的命令：macOS 上两套方案按各自编辑器的默认键位绑定
+    /// `⌃` 字母键（见 [`App::press_editor_key`](crate::app::App)）。
+    CursorLeft,
+    CursorRight,
+    CursorUp,
+    CursorDown,
+    CursorHome,
+    CursorEnd,
+    /// 光标移到这一行的第 0 列、末尾：不按折行分段，也不停在首个非空白字符处。
+    CursorLineStart,
+    CursorLineEnd,
+    DeleteLeft,
+    DeleteRight,
+    DeleteAllRight,
+    /// 剪切光标到行尾的文字；光标在行尾时剪切换行符。
+    CutToLineEnd,
+    TransposeLetters,
+    /// 在光标处换行，光标留在原处。
+    InsertLineBreak,
+    /// 把光标所在行滚到编辑区中间。
+    ScrollToCenter,
     IndentLines,
     OutdentLines,
     MoveLinesUp,
@@ -470,6 +491,21 @@ impl Action {
             MarkdownPastePlain => t!("cmd-markdown-paste-plain"),
             DeleteLine => t!("cmd-delete-line"),
             DeleteAllLeft => t!("cmd-delete-all-left"),
+            CursorLeft => t!("cmd-cursor-left"),
+            CursorRight => t!("cmd-cursor-right"),
+            CursorUp => t!("cmd-cursor-up"),
+            CursorDown => t!("cmd-cursor-down"),
+            CursorHome => t!("cmd-cursor-home"),
+            CursorEnd => t!("cmd-cursor-end"),
+            CursorLineStart => t!("cmd-cursor-line-start"),
+            CursorLineEnd => t!("cmd-cursor-line-end"),
+            DeleteLeft => t!("cmd-delete-left"),
+            DeleteRight => t!("cmd-delete-right"),
+            DeleteAllRight => t!("cmd-delete-all-right"),
+            CutToLineEnd => t!("cmd-cut-to-line-end"),
+            TransposeLetters => t!("cmd-transpose-letters"),
+            InsertLineBreak => t!("cmd-insert-line-break"),
+            ScrollToCenter => t!("cmd-scroll-to-center"),
             IndentLines => t!("cmd-indent-lines"),
             OutdentLines => t!("cmd-outdent-lines"),
             MoveLinesUp => t!("cmd-move-lines-up"),
@@ -726,6 +762,21 @@ impl Action {
             | MarkdownPastePlain
             | DeleteLine
             | DeleteAllLeft
+            | CursorLeft
+            | CursorRight
+            | CursorUp
+            | CursorDown
+            | CursorHome
+            | CursorEnd
+            | CursorLineStart
+            | CursorLineEnd
+            | DeleteLeft
+            | DeleteRight
+            | DeleteAllRight
+            | CutToLineEnd
+            | TransposeLetters
+            | InsertLineBreak
+            | ScrollToCenter
             | IndentLines
             | OutdentLines
             | MoveLinesUp
@@ -947,7 +998,8 @@ impl Action {
     /// 光标在差异标签右侧时，是否把命令交给右侧对应的源文档执行。
     ///
     /// 「编辑」分组的命令默认都交给右侧，新加的编辑命令在差异里也能直接用；另外加上保存和
-    /// 「选中全部匹配」。排除的是不改动文字、只作用于编辑器视图或文件设置的命令：折叠与书签
+    /// 「选中全部匹配」。等同于方向键、删除键的命令照真的按键处理，不在此列。排除的还有不改动
+    /// 文字、只作用于编辑器视图或文件设置的命令：滚到中间、折叠与书签
     /// 只对普通编辑器的视图有意义；缩进方式、缩进转换、检测缩进、换行符和语言模式改的是整份
     /// 文件的设置，不在差异里执行。
     pub fn edits_in_diff(self) -> bool {
@@ -980,6 +1032,15 @@ impl Action {
             | DetectIndentation
             | ChangeEndOfLine
             | ChangeLanguageMode
+            | CursorLeft
+            | CursorRight
+            | CursorUp
+            | CursorDown
+            | CursorHome
+            | CursorEnd
+            | DeleteLeft
+            | DeleteRight
+            | ScrollToCenter
             | MarkdownBold
             | MarkdownItalic
             | MarkdownCode
@@ -1095,7 +1156,8 @@ impl Action {
 
     /// 是否在命令面板中列出。
     ///
-    /// 不列出的命令：命令面板自身（`ShowCommands`）、`RecordKeys`、剪贴板命令、`Quit`，以及
+    /// 不列出的命令：命令面板自身（`ShowCommands`）、`RecordKeys`、剪贴板命令、`Quit`、等同于
+    /// 方向键和删除键的命令，以及
     /// 只在特定位置有意义、离开该位置就无法执行的命令（文件树中选中的项、查找条和搜索面板的
     /// 开关与翻页）。
     pub fn in_palette(self) -> bool {
@@ -1118,6 +1180,16 @@ impl Action {
                 | ColumnSelectDown
                 | ColumnSelectLeft
                 | ColumnSelectRight
+                | CursorLeft
+                | CursorRight
+                | CursorUp
+                | CursorDown
+                | CursorHome
+                | CursorEnd
+                | CursorLineStart
+                | CursorLineEnd
+                | DeleteLeft
+                | DeleteRight
                 | ToggleCase
                 | ToggleWord
                 | ToggleRegex
@@ -1241,6 +1313,21 @@ pub const ACTIONS: &[Action] = {
         MarkdownPastePlain,
         DeleteLine,
         DeleteAllLeft,
+        CursorLeft,
+        CursorRight,
+        CursorUp,
+        CursorDown,
+        CursorHome,
+        CursorEnd,
+        CursorLineStart,
+        CursorLineEnd,
+        DeleteLeft,
+        DeleteRight,
+        DeleteAllRight,
+        CutToLineEnd,
+        TransposeLetters,
+        InsertLineBreak,
+        ScrollToCenter,
         IndentLines,
         OutdentLines,
         MoveLinesUp,

@@ -172,6 +172,28 @@ impl App {
         }
     }
 
+    /// 把光标所在行滚到编辑区的中间，光标位置不变；光标在折叠的块内时先展开。
+    pub(in crate::app) fn recenter_caret(&mut self) {
+        let before = self.editor.active().map(|d| d.scroll_line);
+        self.reveal_caret();
+        // 先按不可变借用算好目标位置，再写入滚动位置（同 `Self::reveal_caret`）。
+        let visible = self.visible_lines() as f64;
+        let row = self
+            .editor
+            .active()
+            .map_or(0.0, |d| d.row_at(d.selection.head) as f64);
+        let max_scroll = self.max_scroll_line();
+        let Some(doc) = self.editor.active_mut() else {
+            return;
+        };
+        set_scroll_line(doc, (row + 0.5 - visible / 2.0).clamp(0.0, max_scroll));
+        self.clamp_scroll();
+        if let Some(before) = before {
+            self.glide_scroll(before);
+        }
+        self.request_redraw();
+    }
+
     /// 滚动编辑区使光标可见，不做平滑滚动；供 [`Self::ensure_caret_visible`] 调用。
     fn reveal_caret(&mut self) {
         if let Some(doc) = self.editor.active_mut() {

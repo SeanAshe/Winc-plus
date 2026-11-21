@@ -242,6 +242,23 @@ pub fn delete_to_line_start(text: &impl Lines, selection: Selection) -> Option<T
     delete_range(text, selection, from, pos)
 }
 
+/// 返回删除到行尾的事务。
+///
+/// 有选区时删除选区；光标已在行尾时删除换行符，与下一行相接。
+pub fn delete_to_line_end(text: &impl Lines, selection: Selection) -> Option<Transaction> {
+    if !selection.is_empty() {
+        return delete_range(text, selection, selection.from(), selection.to());
+    }
+    let pos = selection.head;
+    let end = text.line_end(text.line_of(pos));
+    let to = if pos >= end {
+        movement::next_grapheme(text, pos)
+    } else {
+        end
+    };
+    delete_range(text, selection, pos, to)
+}
+
 /// 返回向后删除一个字素（`word` 为真时删除一个词）的事务；有选区时删除选区。
 pub fn delete_forward(text: &impl Lines, selection: Selection, word: bool) -> Option<Transaction> {
     if !selection.is_empty() {

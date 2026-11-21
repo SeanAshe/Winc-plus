@@ -6,6 +6,7 @@ use winc_core::transform::Case;
 use winc_editor::panes::Axis;
 use winc_editor::{Command, EntryKind, FoldCommand};
 use winc_preview::markdown::paragraph::Kind;
+use winit::keyboard::NamedKey;
 
 use super::*;
 use crate::field::TextField;
@@ -256,6 +257,27 @@ impl App {
             }
             DeleteLine => editing(self, Command::DeleteLine),
             DeleteAllLeft => editing(self, Command::DeleteToLineStart),
+            CursorLeft => self.press_editor_key(NamedKey::ArrowLeft),
+            CursorRight => self.press_editor_key(NamedKey::ArrowRight),
+            CursorUp => self.press_editor_key(NamedKey::ArrowUp),
+            CursorDown => self.press_editor_key(NamedKey::ArrowDown),
+            CursorHome => self.press_editor_key(NamedKey::Home),
+            CursorEnd => self.press_editor_key(NamedKey::End),
+            CursorLineStart | CursorLineEnd => {
+                let extend = self.pointer.modifiers.shift_key();
+                self.run_key_command(if action == CursorLineStart {
+                    Command::WholeLineStart { extend }
+                } else {
+                    Command::WholeLineEnd { extend }
+                });
+            }
+            DeleteLeft => self.press_editor_key(NamedKey::Backspace),
+            DeleteRight => self.press_editor_key(NamedKey::Delete),
+            DeleteAllRight => editing(self, Command::DeleteToLineEnd),
+            CutToLineEnd => self.cut_to_line_end(),
+            TransposeLetters => editing(self, Command::TransposeChars),
+            InsertLineBreak => editing(self, Command::LineBreakInsert),
+            ScrollToCenter => self.recenter_caret(),
             IndentLines => editing(self, Command::IndentLines),
             OutdentLines => editing(self, Command::Outdent),
             MoveLinesUp => editing(self, Command::MoveLines { down: false }),

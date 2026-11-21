@@ -312,6 +312,16 @@ fn delete_lines_and_to_line_start() {
     assert_eq!((out.as_str(), sel), ("abcd", Selection::point(2)));
     let (out, _, _) = run("ab\ncd", Selection::new(1, 4), delete_to_line_start);
     assert_eq!(out, "ad");
+
+    // `⌃K`：删到行尾；已在行尾时删除换行符，与下一行相接；最后一行行尾无事可做；有选区时
+    // 删除选区。
+    let (out, sel, _) = run("ab  cd\nef", Selection::point(2), delete_to_line_end);
+    assert_eq!((out.as_str(), sel), ("ab\nef", Selection::point(2)));
+    let (out, sel, _) = run("ab\ncd", Selection::point(2), delete_to_line_end);
+    assert_eq!((out.as_str(), sel), ("abcd", Selection::point(2)));
+    assert!(delete_to_line_end(&Rope::from_str("ab\ncd"), Selection::point(5)).is_none());
+    let (out, _, _) = run("ab\ncd", Selection::new(1, 4), delete_to_line_end);
+    assert_eq!(out, "ad");
 }
 
 #[test]

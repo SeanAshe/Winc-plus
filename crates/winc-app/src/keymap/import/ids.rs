@@ -244,6 +244,25 @@ const IDS: &[(Action, &[&str], &[&str])] = &[
         &["deleteAllLeft"],
     ),
     (
+        CursorLineStart,
+        &[],
+        &["cursorLineStart", "cursorLineStartSelect"],
+    ),
+    (
+        CursorLineEnd,
+        &[],
+        &["cursorLineEnd", "cursorLineEndSelect"],
+    ),
+    (
+        DeleteAllRight,
+        &["EditorDeleteToLineEnd"],
+        &["deleteAllRight"],
+    ),
+    (CutToLineEnd, &["EditorCutLineEnd"], &[]),
+    (TransposeLetters, &[], &["editor.action.transposeLetters"]),
+    (InsertLineBreak, &["EditorSplitLine"], &["lineBreakInsert"]),
+    (ScrollToCenter, &["EditorScrollToCenter"], &[]),
+    (
         IndentLines,
         &["EditorIndentSelection"],
         &["editor.action.indentLines"],

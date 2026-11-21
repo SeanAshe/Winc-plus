@@ -125,7 +125,7 @@ impl App {
         }
 
         match self.focus {
-            Focus::Editor => self.on_key_editor(event, cmd),
+            Focus::Editor => self.on_key_editor(&EditorKey::of(event), cmd),
             Focus::Search | Focus::Replace => self.on_key_search(event, &base, cmd),
             Focus::Prompt => self.on_key_prompt(event, &base, cmd),
             Focus::Picker => self.on_key_picker(event, &base, cmd),
@@ -287,35 +287,35 @@ impl App {
     }
 
     /// 处理焦点在编辑区时的按键：移动光标、翻页、换行、缩进、删除和键入。
-    pub(in crate::app) fn on_key_editor(&mut self, event: &KeyEvent, cmd: bool) {
+    pub(in crate::app) fn on_key_editor(&mut self, event: &EditorKey, cmd: bool) {
         if self.editor.active.is_none() {
             if !event.repeat {
-                self.setup_key(&event.logical_key);
+                self.setup_key(event.key);
             }
             return;
         }
         if self.log_active() {
-            self.log_key(&event.logical_key);
+            self.log_key(event.key);
             return;
         }
         if self.hex_active() {
-            self.hex_key(&event.logical_key, cmd);
+            self.hex_key(event.key, cmd);
             return;
         }
         if self.editor.active().is_some_and(|d| d.diff.is_some()) {
             if !self.diff_edit_key(event, cmd) {
-                self.diff_key(&event.logical_key, cmd);
+                self.diff_key(event.key, cmd);
             }
             return;
         }
-        if self.markdown_key(&event.logical_key, cmd)
-            || self.table_key(&event.logical_key, cmd)
-            || self.pdf_key(&event.logical_key)
+        if self.markdown_key(event.key, cmd)
+            || self.table_key(event.key, cmd)
+            || self.pdf_key(event.key)
         {
             return;
         }
         // 改动卡片开着时 `Esc` 先关卡片。
-        if self.git.changes.popup.is_some() && event.logical_key == Key::Named(NamedKey::Escape) {
+        if self.git.changes.popup.is_some() && *event.key == Key::Named(NamedKey::Escape) {
             self.git.changes.popup = None;
             self.request_redraw();
             return;
@@ -335,7 +335,7 @@ impl App {
         };
         let jump = cfg!(target_os = "macos") && cmd;
 
-        let command = match &event.logical_key {
+        let command = match event.key {
             Key::Named(NamedKey::ArrowLeft) if jump => Command::LineStart { extend },
             Key::Named(NamedKey::ArrowRight) if jump => Command::LineEnd { extend },
             Key::Named(NamedKey::ArrowUp) if jump => Command::DocStart { extend },
@@ -373,7 +373,7 @@ impl App {
             _ => {
                 // 普通字符输入；输入法提交的文字由 `Ime::Commit` 处理。
                 if !control
-                    && let Some(text) = &event.text
+                    && let Some(text) = event.text
                     && !text.chars().any(char::is_control)
                 {
                     self.run(Command::Insert(text.to_string()));
@@ -382,6 +382,11 @@ impl App {
             }
         };
 
+        self.run_key_command(command);
+    }
+
+    /// 在编辑区执行按键或快捷键对应的命令 `command`。
+    pub(in crate::app) fn run_key_command(&mut self, command: Command) {
         let head = self.editor.active().map(|d| (d.selection.head, d.revision));
         self.run(command);
         // 可编辑的 Markdown 预览：只移动了光标时，不停留在预览中不显示的块标记里。
@@ -390,6 +395,26 @@ impl App {
         {
             self.live_settle_caret(head);
         }
+    }
+
+    /// 像在编辑区按下 `key` 一样处理：只带 `⇧`（`shift` 为真且按着 `⇧` 时），其余修饰键不算。
+    ///
+    /// 键位表中等同于方向键、删除键的命令（macOS 的 `⌃N`、`⌃H` 等）由此执行，Markdown 预览、
+    /// 表格、差异和十六进制视图都按真的按下这个键处理。
+    pub(in crate::app) fn press_editor_key(&mut self, key: NamedKey) {
+        if self.focus != Focus::Editor {
+            return;
+        }
+        let held = self.pointer.modifiers;
+        self.pointer.modifiers = held & winit::keyboard::ModifiersState::SHIFT;
+        let key = Key::Named(key);
+        let event = EditorKey {
+            key: &key,
+            text: None,
+            repeat: false,
+        };
+        self.on_key_editor(&event, false);
+        self.pointer.modifiers = held;
     }
 
     /// 处理查找条（查找、替换输入框）中的按键。
@@ -1207,4 +1232,24 @@ pub struct ImeState {
     pub(in crate::app) last_area: Option<winc_render::Rect>,
     /// 上一次告知窗口的输入法是否启用；尚未告知时为 `None`。
     pub(in crate::app) allowed: Option<bool>,
+}
+
+/// 交给编辑区的一次按键：键、键入的文字，以及是否为按住不放时的重复。
+///
+/// 键位表中等同于方向键、删除键的命令（见 [`App::press_editor_key`]）也以这种形式交给编辑区。
+pub(in crate::app) struct EditorKey<'a> {
+    pub key: &'a Key,
+    pub text: Option<&'a str>,
+    pub repeat: bool,
+}
+
+impl<'a> EditorKey<'a> {
+    /// 返回窗口送来的按键 `event` 对应的编辑区按键。
+    pub(in crate::app) fn of(event: &'a KeyEvent) -> Self {
+        EditorKey {
+            key: &event.logical_key,
+            text: event.text.as_deref(),
+            repeat: event.repeat,
+        }
+    }
 }

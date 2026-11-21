@@ -468,6 +468,27 @@ impl App {
         self.clipboard.text()
     }
 
+    /// 剪切光标到行尾的文字，光标在行尾时剪切换行符；有选区时剪切选区。剪贴板里放的是主光标处
+    /// 剪下的文字。
+    pub(in crate::app) fn cut_to_line_end(&mut self) {
+        let Some(doc) = self.editor.active() else {
+            return;
+        };
+        let removed = winc_core::edit::delete_to_line_end(doc.text(), doc.selection)
+            .and_then(|t| t.changes.into_iter().next())
+            .map(|change| change.removed);
+        let Some(removed) = removed else {
+            return;
+        };
+        let revision = doc.revision;
+        self.focus = Focus::Editor;
+        self.run(Command::DeleteToLineEnd);
+        // 只读的文档不会改动，剪贴板也不动。
+        if self.editor.active().is_some_and(|d| d.revision != revision) {
+            self.set_clipboard(removed, false);
+        }
+    }
+
     /// 复制选区（`cut` 为 `true` 时剪切）；没有选区时操作光标所在的整行。
     pub(in crate::app) fn copy(&mut self, cut: bool) {
         // 十六进制视图：复制选中的字节，写成十六进制；只读，不能剪切。

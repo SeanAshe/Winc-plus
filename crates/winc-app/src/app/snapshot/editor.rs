@@ -2,6 +2,7 @@
 
 use super::*;
 
+mod control_keys;
 pub(super) mod cursors;
 pub(super) mod editing;
 pub(super) mod folding;
