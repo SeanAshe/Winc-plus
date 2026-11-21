@@ -401,7 +401,16 @@ impl Cx<'_, '_> {
             let above = (ascent + half).max(image_h);
             let below = (descent + half).max(math_below);
             let baseline = top + above;
-            first_baseline.get_or_insert(baseline);
+            // 只有图片的一行，列表记号的顶端与图片的顶端对齐。
+            let text = atoms
+                .iter()
+                .any(|a| !a.space && matches!(a.kind, AtomKind::Char(_) | AtomKind::Math { .. }));
+            let tall = !text && image_h > ascent + half;
+            first_baseline.get_or_insert(if tall {
+                top + main.cap_height
+            } else {
+                baseline
+            });
             let height = above + below;
 
             let used: f32 = atoms
@@ -631,10 +640,10 @@ struct Pending {
     next: u32,
 }
 
-/// 攒着的一段文字（同一样式、中间没有图片）推成一项；只有空格时不画（块文字里仍然有）。
+/// 攒着的一段文字（同一样式、中间没有图片）推成一项；没有原文位置的空格不画（块文字里仍然有）。
 fn flush_text(out: &mut Vec<Item>, text: &mut Pending, baseline: f32, st: RunStyle) {
     let pending = std::mem::take(text);
-    if pending.text.trim_end().is_empty() {
+    if pending.text.trim_end().is_empty() && pending.source.is_none() {
         return;
     }
     out.push(Item::Text {

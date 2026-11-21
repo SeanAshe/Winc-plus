@@ -783,7 +783,9 @@ fn blanks(raw: &Raw) -> Vec<usize> {
 fn reveal(raw: &Raw) -> (Block, Vec<usize>, bool) {
     let text = raw.block.get(raw.leaf.clone()).unwrap_or_default();
     let caret = raw.caret.saturating_sub(raw.leaf.start).min(text.len());
-    let content = text.trim_end().len();
+    // 内容含最后一行末尾的空格，不含其后的空行。
+    let end = text.trim_end().len();
+    let content = end + text[end..].find(['\n', '\r']).unwrap_or(text.len() - end);
     let blanks = blanks(raw);
     let at = (caret <= content).then_some(caret);
     let preedit = raw.preedit.as_deref().filter(|_| at.is_some());

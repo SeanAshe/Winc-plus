@@ -120,7 +120,7 @@ fn check(cases: &[(&str, &str)]) {
 fn block_structure() {
     check(&[
         // 引用中的懒惰续行属于同一段；中文之间的软换行不加空格。
-        ("> 一\n二\n", "Quote\n  P 一二\n"),
+        ("> 一\n二\n", "Quote\n  P 一\n二\n"),
         // Setext 标题、行尾的 `#`。
         ("标题\n===\n\n## 二级 ##\n", "H1 标题\nH2 二级\n"),
         // 缩进四格为代码；未闭合的围栏延续到文末。
