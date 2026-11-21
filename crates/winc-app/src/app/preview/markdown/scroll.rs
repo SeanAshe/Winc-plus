@@ -256,7 +256,8 @@ impl App {
             return;
         }
         self.preview.markdown.align = None;
-        let y = laid.y_of_line(text_line(doc), doc.text().line_count());
+        let (line, total) = preview_line(doc, self.preview.markdown.lines.as_deref());
+        let y = laid.y_of_line(line, total);
         self.preview.markdown.scroll_to(y);
     }
 
@@ -272,7 +273,8 @@ impl App {
         if self.preview.markdown.synced == Some(now) {
             return;
         }
-        let y = laid.y_of_line(text_line(doc), doc.text().line_count());
+        let (line, total) = preview_line(doc, self.preview.markdown.lines.as_deref());
+        let y = laid.y_of_line(line, total);
         self.preview.markdown.scroll_to(y);
         self.preview.markdown.synced = Some(now);
     }

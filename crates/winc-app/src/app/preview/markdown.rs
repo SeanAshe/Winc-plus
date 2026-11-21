@@ -16,6 +16,7 @@ use winc_editor::{DocumentId, PreviewKind, PreviewMode};
 use winc_i18n::t;
 use winc_preview::epub::TocEntry;
 use winc_preview::image::{self, Picture, Pixels};
+use winc_preview::latex::LineMap;
 use winc_preview::markdown::{self, Markdown};
 use winc_preview::svg;
 
@@ -51,8 +52,14 @@ type Converted = (Markdown, Media, Option<Arc<[TocEntry]>>);
 
 /// 后台任务的结果。
 enum Done {
-    /// 文档、所依据的文档版本、解析结果、解析所用的时间。
-    Parsed(DocumentId, u64, Markdown, std::time::Duration),
+    /// 文档、文档版本、解析结果、解析耗时，以及 LaTeX 原文各行的位置。
+    Parsed(
+        DocumentId,
+        u64,
+        Markdown,
+        std::time::Duration,
+        Option<LineMap>,
+    ),
     /// docx、EPUB 文档、所依据的文档版本、转换并解析的结果或失败的原因。
     Converted(DocumentId, u64, Result<Converted, String>),
     /// 图片（解析后的本地路径）、读取结果。
@@ -138,6 +145,8 @@ pub(crate) struct MarkdownPreview {
     pub doc: Option<DocumentId>,
     /// 最近一次解析的结果。
     pub parsed: Option<Arc<Markdown>>,
+    /// LaTeX 原文各行在转换出的 Markdown 中的位置；Markdown 为 `None`。
+    pub lines: Option<Arc<LineMap>>,
     /// 最新解析过的文档版本号（`revision`）。
     checked: Option<u64>,
     /// 正在后台解析的版本号（`revision`）。
@@ -367,6 +376,7 @@ impl Default for MarkdownPreview {
         Self {
             doc: None,
             parsed: None,
+            lines: None,
             checked: None,
             pending: None,
             cost: None,
@@ -490,6 +500,7 @@ impl MarkdownPreview {
         self.leave_book();
         self.doc = doc;
         self.parsed = None;
+        self.lines = None;
         self.checked = None;
         self.pending = None;
         self.cost = None;
@@ -578,7 +589,9 @@ pub(crate) fn shown_area(app: &App) -> Option<winc_render::Rect> {
     if converted || reading {
         return Some(app.layout.editor);
     }
-    if doc.preview_kind() != Some(PreviewKind::Markdown) {
+    // 编译出 PDF、正在第一次编译的 LaTeX 不显示阅读视图。
+    let compiled = app.latex_pdf().is_some() || app.latex_waiting();
+    if !doc.preview_kind().is_some_and(PreviewKind::typeset) || compiled {
         return None;
     }
     match doc.preview_mode() {
@@ -649,13 +662,19 @@ impl App {
             Some(winc_editor::Reading::Ready(text)) => Some(Arc::clone(text)),
             _ => None,
         };
+        let latex = doc.preview_kind() == Some(PreviewKind::Latex);
         md.pending = Some(revision);
         let (sender, proxy) = (md.sender.clone(), self.link.proxy.clone());
         winc_editor::background::spawn(move || {
             let started = std::time::Instant::now();
             let text = reading.map_or_else(|| rope.to_string(), |text| text.to_string());
-            let parsed = markdown::parse(&text);
-            let done = Done::Parsed(id, revision, parsed, started.elapsed());
+            let (parsed, lines) = if latex {
+                let converted = winc_preview::latex::to_markdown(&text);
+                (markdown::parse(&converted.markdown), Some(converted.map))
+            } else {
+                (markdown::parse(&text), None)
+            };
+            let done = Done::Parsed(id, revision, parsed, started.elapsed(), lines);
             if sender.send(done).is_ok()
                 && let Some(proxy) = proxy
             {
@@ -703,7 +722,7 @@ impl App {
         while let Ok(done) = self.preview.markdown.receiver.try_recv() {
             let md = &mut self.preview.markdown;
             match done {
-                Done::Parsed(id, revision, parsed, cost) => {
+                Done::Parsed(id, revision, parsed, cost, lines) => {
                     if md.doc != Some(id) || md.pending != Some(revision) {
                         continue;
                     }
@@ -711,6 +730,7 @@ impl App {
                     md.pending = None;
                     md.checked = Some(revision);
                     md.parsed = Some(Arc::new(parsed));
+                    md.lines = lines.map(Arc::new);
                 }
                 Done::Converted(id, revision, result) => {
                     if md.doc != Some(id) || md.pending != Some(revision) {
@@ -1015,8 +1035,9 @@ impl App {
     /// （刚输入的文字尚未解析，位置可能已错开）。
     fn current_source_at(&self, x: f32, y: f32) -> Option<usize> {
         let doc = self.editor.active()?;
-        // docx 的预览由转换得到，位置不对应文档中的文字。
-        if doc.unsupported.is_some() || self.preview.markdown.checked != Some(doc.revision) {
+        // docx、LaTeX 的预览由转换得到，位置不对应文档中的文字。
+        let converted = doc.unsupported.is_some() || self.preview.markdown.lines.is_some();
+        if converted || self.preview.markdown.checked != Some(doc.revision) {
             return None;
         }
         crate::app::preview::markdown::laid::source_at(self, x, y)
@@ -1221,7 +1242,7 @@ impl App {
         let old = doc.preview_mode();
         self.preview.markdown.followed = None;
         self.preview.markdown.editing = None;
-        if old == mode || doc.preview_kind() != Some(PreviewKind::Markdown) {
+        if old == mode || !doc.preview_kind().is_some_and(PreviewKind::typeset) {
             return None;
         }
         if mode == PreviewMode::Preview {
@@ -1229,14 +1250,28 @@ impl App {
             return None;
         }
         let laid = self.preview.markdown.layout.as_ref()?;
-        (old == PreviewMode::Preview && self.preview.markdown.doc == Some(doc.id))
-            .then(|| laid.line_of_y(self.preview.markdown.scroll(), doc.text().line_count()))
+        (old == PreviewMode::Preview && self.preview.markdown.doc == Some(doc.id)).then(|| {
+            let (scroll, lines) = (self.preview.markdown.scroll(), &self.preview.markdown.lines);
+            match lines {
+                Some(map) => map.source_of(f64::from(laid.line_of_y(scroll, map.count))) as f32,
+                None => laid.line_of_y(scroll, doc.text().line_count()),
+            }
+        })
+    }
+}
+
+/// 返回文字顶端那一行在预览所排文字中的行（小数）和那段文字的行数。
+pub(super) fn preview_line(doc: &winc_editor::Document, lines: Option<&LineMap>) -> (f32, usize) {
+    let line = text_line(doc);
+    match lines {
+        Some(map) => (map.line_of(f64::from(line)) as f32, map.count),
+        None => (line, doc.text().line_count()),
     }
 }
 
 /// 返回文字滚动位置的第一个显示行 `doc.scroll_line` 对应的原文行号（小数：自动换行折成
 /// 多段的行按段数等分）。
-fn text_line(doc: &winc_editor::Document) -> f32 {
+pub(super) fn text_line(doc: &winc_editor::Document) -> f32 {
     let row = doc.scroll_line.max(0.0);
     let (line, part) = doc.line_and_part(row as usize);
     let rows = doc.rows_of(line).max(1) as f64;

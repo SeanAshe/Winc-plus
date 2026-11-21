@@ -183,14 +183,13 @@ fn the_shell_environment_drops_the_outer_session_and_declares_utf8() {
     assert_eq!(get("SSH_AUTH_SOCK"), Some(&b"/tmp/agent"[..]));
     assert_eq!(get("WINC_PROMPT"), Some(&b"0"[..]));
     assert_eq!(get("TERM"), Some(&b"xterm-256color"[..]));
-    let utf8: Option<&[u8]> = if cfg!(target_os = "macos") {
-        Some(b"UTF-8")
-    } else if cfg!(unix) {
-        Some(b"C.UTF-8")
+    // Windows 上也补。
+    let utf8: &[u8] = if cfg!(target_os = "macos") {
+        b"UTF-8"
     } else {
-        None
+        b"C.UTF-8"
     };
-    assert_eq!(get("LC_CTYPE"), utf8);
+    assert_eq!(get("LC_CTYPE"), Some(utf8));
 
     // 已有区域设置时不改。
     let env = environment(vec![pair("LANG", "zh_CN.UTF-8")]);

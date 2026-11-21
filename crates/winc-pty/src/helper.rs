@@ -970,12 +970,10 @@ fn environment(env: Vec<(Vec<u8>, Vec<u8>)>) -> Vec<(Vec<u8>, Vec<u8>)> {
                 && (!key.starts_with(b"WINC_") || key == b"WINC_PROMPT" || key == b"WINC_PYTHON")
         })
         .collect();
-    // 从图形界面启动的应用没有 `LANG`，shell 会把中文当成乱码、算错宽度。Windows 的程序不看这些
-    // 变量。只声明编码的区域名在 macOS 上是 `UTF-8`，其他系统上是 `C.UTF-8`。
-    if cfg!(unix)
-        && !env
-            .iter()
-            .any(|(k, _)| matches!(&k[..], b"LANG" | b"LC_ALL" | b"LC_CTYPE"))
+    // 只声明编码的区域名：macOS 上是 `UTF-8`，其他系统上是 `C.UTF-8`。
+    if !env
+        .iter()
+        .any(|(k, _)| matches!(&k[..], b"LANG" | b"LC_ALL" | b"LC_CTYPE"))
     {
         let utf8: &[u8] = if cfg!(target_os = "macos") {
             b"UTF-8"

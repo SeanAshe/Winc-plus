@@ -13,7 +13,18 @@ pub(super) fn draw_placeholder(
     message: String,
     actions: &[(PlaceholderAction, &str)],
 ) {
-    draw_page(app, frame, &message, &message, actions, None);
+    let area = app.layout.editor;
+    draw_page(app, frame, area, (&message, &message), actions, None);
+}
+
+/// 在 `area` 里绘制等待中的说明页：图标和一句 `message`，没有按钮。
+pub(in crate::view) fn draw_waiting(
+    app: &mut App,
+    frame: &mut Frame<'_>,
+    area: Rect,
+    message: &str,
+) {
+    draw_page(app, frame, area, (message, message), &[], None);
 }
 
 /// 绘制正在读取的说明页：文件名 `name`、读了百分之几，下面是读了 `fraction`（0 到 1）的进度条。
@@ -22,15 +33,16 @@ pub(super) fn draw_reading(app: &mut App, frame: &mut Frame<'_>, name: &str, fra
     let message = t!("editor-reading-progress", name = name, percent = percent);
     // 按 100% 时的宽度居中，百分数变化时文字不左右移动。
     let widest = t!("editor-reading-progress", name = name, percent = 100);
-    draw_page(app, frame, &message, &widest, &[], Some(fraction));
+    let area = app.layout.editor;
+    draw_page(app, frame, area, (&message, &widest), &[], Some(fraction));
 }
 
-/// 说明页的布局：`anchor` 是决定原因居中位置的文字，`bar` 是进度条读了多少。
+/// 说明页在区域 `editor` 里的布局：`anchor` 是决定原因居中位置的文字，`bar` 是进度条读了多少。
 fn draw_page(
     app: &mut App,
     frame: &mut Frame<'_>,
-    message: &str,
-    anchor: &str,
+    editor: Rect,
+    (message, anchor): (&str, &str),
     actions: &[(PlaceholderAction, &str)],
     bar: Option<f32>,
 ) {
@@ -58,7 +70,6 @@ fn draw_page(
     const BAR: (f32, f32) = (200.0, 4.0);
 
     let p = app.palette;
-    let editor = app.layout.editor;
     let icon_h = if editor.h >= 200.0 {
         ICON.1 + 18.0
     } else {

@@ -147,9 +147,12 @@ impl App {
     pub(crate) fn advance_previews(&mut self) {
         self.poll_markdown();
         self.poll_pdf();
+        self.poll_latex();
         self.advance_split();
+        self.advance_latex();
         self.advance_markdown();
         self.advance_pdf();
+        self.sync_latex_pdf();
         self.advance_picture_view();
         self.advance_tables();
         let Some(doc) = self.editor.active() else {
@@ -426,16 +429,9 @@ impl App {
         });
     }
 
-    /// 按 `state.json` 记下的方式设定之后打开的各类能预览的文件的显示方式（启动、新开窗口时）。
+    /// 按 `state.json` 记下的方式设定之后打开的各类能预览的文件的显示方式（新开窗口时）。
     pub(crate) fn apply_preview_state(&mut self) {
-        for kind in PreviewKind::ALL {
-            let saved = self.state.preview_modes.get(preview_key(kind));
-            self.editor.preview_defaults[kind as usize] = match saved.map(String::as_str) {
-                Some("split") => PreviewMode::Split,
-                Some("preview") => PreviewMode::Preview,
-                _ => PreviewMode::Source,
-            };
-        }
+        self.editor.preview_defaults = preview_defaults(&self.state);
     }
 
     /// 当前标签换成 `mode` 显示（标签栏右端的三段切换）。
@@ -517,12 +513,30 @@ pub(crate) struct PictureCache {
     pub(crate) base: Option<Pixels>,
 }
 
+/// 返回 `state` 中记下的各类能预览的文件的显示方式，按 [`PreviewKind::ALL`] 的顺序。
+pub(crate) fn preview_defaults(
+    state: &winc_config::State,
+) -> [PreviewMode; PreviewKind::ALL.len()] {
+    PreviewKind::ALL.map(|kind| {
+        match state
+            .preview_modes
+            .get(preview_key(kind))
+            .map(String::as_str)
+        {
+            Some("split") => PreviewMode::Split,
+            Some("preview") => PreviewMode::Preview,
+            _ => PreviewMode::Source,
+        }
+    })
+}
+
 /// 返回 `state.json` 中记录种类 `kind` 显示方式的键。
 fn preview_key(kind: PreviewKind) -> &'static str {
     match kind {
         PreviewKind::Svg => "svg",
         PreviewKind::Markdown => "markdown",
         PreviewKind::Table => "table",
+        PreviewKind::Latex => "latex",
     }
 }
 

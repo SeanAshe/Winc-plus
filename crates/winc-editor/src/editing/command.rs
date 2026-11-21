@@ -14,6 +14,9 @@ use winc_syntax::Language;
 use crate::Document;
 use crate::editing::folding::Tracked;
 
+/// 查找内嵌代码的语言时最多推算的行数，超出时按整个文件的语言。
+const COMMENT_SCAN: usize = 20_000;
+
 /// 编辑命令。
 ///
 /// 界面层把按键映射成编辑命令，再交给 [`Document::execute`] 执行。
@@ -378,14 +381,19 @@ impl Document {
         let sel = self.selection;
         let language = self.highlighter.language();
         let line_ending = self.line_ending.as_str();
+        // 注释按选区所在那段代码的语言。
+        let first = text.pos_to_line_col(sel.from()).0;
+        let code = (self.highlighter.peek_state(text, first, COMMENT_SCAN))
+            .and_then(winc_syntax::LineState::embedded_language)
+            .unwrap_or(language);
         let options = EditOptions {
             tab_width,
             indent_unit: self.indent().unit(),
             line_ending,
             indent_after: language.indent_after,
             tag_indent: language.tag_indent,
-            line_comment: language.comment_prefix(),
-            block_comment: language.block_comments.first().copied(),
+            line_comment: code.comment_prefix(),
+            block_comment: code.block_comments.first().copied(),
             single_quote_string: language.single_quote_string,
         };
 

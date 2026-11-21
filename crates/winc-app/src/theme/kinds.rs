@@ -277,7 +277,8 @@ fn by_extension(ext: &str) -> Option<(FileGlyph, [u32; 2])> {
 
         // 文档。
         "md" | "markdown" | "mdx" | "qmd" => (Markdown, DOC),
-        "rst" | "adoc" | "asciidoc" | "org" | "tex" | "bib" | "typ" => (Text, DOC),
+        "tex" | "ltx" | "sty" | "cls" | "dtx" => (Letters("TEX"), GREEN),
+        "rst" | "adoc" | "asciidoc" | "org" | "bib" | "typ" => (Text, DOC),
         "txt" | "text" | "log" | "out" | "rtf" | "nfo" => (Text, GREY),
         "pdf" => (Text, RED),
         "doc" | "docx" | "pages" | "odt" | "epub" => (Text, BLUE),

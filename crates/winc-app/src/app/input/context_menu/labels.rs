@@ -11,6 +11,7 @@ impl App {
             MenuCommand::OpenRecent(i) => self.recent_label(i),
             MenuCommand::GroupFolder(i, j) => self.group_folder_label(i, j),
             MenuCommand::ShowTab(i) => self.tab_list_label(i),
+            MenuCommand::LatexProblem(i) => self.latex_problem_label(i),
             MenuCommand::ImportKeymap(i) => {
                 let source = self.settings.import_sources.get(i);
                 let name = source.map_or("", |s| s.name.as_str());

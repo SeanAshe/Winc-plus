@@ -35,7 +35,11 @@ pub(in crate::view) fn draw_split(app: &mut App, frame: &mut Frame<'_>) {
     let active = app.split_divider_active();
     let line = if active { p.accent } else { p.border };
     frame.rect(Rect::new(area.x - 1.0, area.y, 1.0, area.h), line);
-    if kind == Some(winc_editor::PreviewKind::Markdown) {
+    if kind == Some(winc_editor::PreviewKind::Latex) {
+        crate::view::preview::latex::draw(app, frame, area);
+        return;
+    }
+    if kind.is_some_and(winc_editor::PreviewKind::typeset) {
         crate::view::preview::markdown::draw(app, frame, area);
         return;
     }

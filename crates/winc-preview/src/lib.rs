@@ -1,8 +1,8 @@
 //! 预览的解析和光栅化：图片解码成像素、SVG 画成像素、Markdown 解析成块、表格读成单元格。
 //!
 //! `image` 解码位图并缩放，`svg` 解析矢量图并按显示大小绘制，`markdown` 把 Markdown 转成排版
-//! 用的块和行内文字，`table` 把 xlsx、csv 读成各行的单元格文字，`docx`、`epub` 把文档转换成
-//! Markdown 文本。
+//! 用的块和行内文字，`table` 把 xlsx、csv 读成各行的单元格文字，`docx`、`epub`、`latex` 把文档
+//! 转换成 Markdown 文本，`synctex` 读 TeX 源码与 PDF 位置的对照。
 //!
 //! 只认字节和文本，不知道文档、标签和界面；编辑器决定什么时候预览，界面负责排版和绘制。
 
@@ -13,10 +13,12 @@ mod convert;
 pub mod docx;
 pub mod epub;
 pub mod image;
+pub mod latex;
 pub mod markdown;
 mod ooxml;
 pub mod pdf;
 pub mod svg;
+pub mod synctex;
 pub mod table;
 pub mod xml;
 mod zip;

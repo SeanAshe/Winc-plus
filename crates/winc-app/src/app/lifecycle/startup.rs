@@ -116,6 +116,7 @@ impl App {
                 split: preview::images::SplitPreview::default(),
                 markdown: preview::markdown::MarkdownPreview::default(),
                 pdf: preview::pdf::PdfPreview::default(),
+                latex: preview::latex::LatexBuilds::default(),
                 split_share: None,
             },
             motion: crate::app::animation::Motions {

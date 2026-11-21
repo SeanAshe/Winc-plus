@@ -7,6 +7,7 @@
 //!
 //! 图片预览画在编辑区里，见 `editor/picture.rs`。
 
+pub(in crate::view) mod latex;
 pub(crate) mod markdown;
 pub(in crate::view) mod pdf;
 pub(crate) mod table;

@@ -160,6 +160,8 @@ pub fn run() {
         .as_deref()
         .map(State::load_from)
         .unwrap_or_default();
+    // 记下的显示方式要在打开任何文件之前设好。
+    editor.preview_defaults = app::preview::images::preview_defaults(&state);
 
     // 未保存内容的备份目录位于状态文件所在目录下；测量时不读也不写。
     let backup_root = state_path
@@ -280,7 +282,6 @@ pub fn run() {
     app.editor.diff_unified = app.config.diff_inline == Some(true);
     app.state = state;
     app.restore_panel_width();
-    app.apply_preview_state();
     // 临时打开（`--wait`、`-`）时不记录现场、不加入最近列表、不备份，下次启动的状态不受影响。
     if args.one_off() {
         app.start_one_off(&args);

@@ -98,6 +98,7 @@ impl App {
                     self.flash(winc_i18n::t!("workspace-saved", name = name));
                 }
                 self.blame_saved(id);
+                self.latex_saved(id);
                 self.run_file_saved(id);
                 self.request_redraw();
             }

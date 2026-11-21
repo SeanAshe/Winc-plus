@@ -121,6 +121,8 @@ pub struct Config {
     pub markdown_typewriter: Option<bool>,
     /// 可编辑的预览中用鼠标选中文字后是否显示格式工具栏，默认为是。
     pub markdown_selection_toolbar: Option<bool>,
+    /// 编译 LaTeX 的程序：完整路径或 `PATH` 里的程序名；未设置时自动查找。
+    pub latex_path: Option<String>,
     /// 粘贴、拖入 Markdown 的图片的目录，相对文档所在的目录，`${filename}` 表示文档主名；未设置
     /// 时为文档所在的目录。
     pub markdown_image_folder: Option<String>,

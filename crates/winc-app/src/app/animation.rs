@@ -66,6 +66,8 @@ pub(super) const POPUP_OUT: Duration = Duration::from_millis(110);
 pub(crate) const MARKDOWN_MOTION: Duration = TREE_ANIMATION;
 /// PDF 预览与图片预览缩放、PDF 缩略图栏滑入滑出的时长，取 [`TREE_ANIMATION`]。
 pub(crate) const PDF_MOTION: Duration = TREE_ANIMATION;
+/// LaTeX 预览右上角编译状态随文字变宽、变窄的时长，取 [`TREE_ANIMATION`]。
+pub(crate) const LATEX_STATUS_MOTION: Duration = TREE_ANIMATION;
 /// 设置浮层出现的时长（取自调参）：卡片面积远大于小浮窗，时长相应加长。
 pub(super) const DIALOG_IN: Duration = Duration::from_millis(220);
 /// 设置浮层消失的时长（取自调参），短于 [`DIALOG_IN`]。
@@ -396,6 +398,7 @@ impl App {
         settle(&mut self.preview.pdf.zoom_motion, |m| m.clock);
         settle(&mut self.preview.picture_view.zoom_motion, |m| m.clock);
         settle(&mut self.preview.pdf.strip_motion, |m| m.1);
+        settle(&mut self.preview.latex.status_motion, |m| m.2);
         settle(&mut self.preview.pdf.tools.motion, |m| m.1);
         settle(&mut self.overlays.picker.fold, |f| f.clock);
         if self.overlays.picker.places_in.is_some_and(|c| c.done()) {
@@ -525,6 +528,7 @@ impl App {
             || self.preview.pdf.zoom_motion.is_some()
             || self.preview.picture_view.zoom_motion.is_some()
             || self.preview.pdf.strip_motion.is_some()
+            || self.preview.latex.status_motion.is_some()
             || self.preview.pdf.tools.motion.is_some()
             || self.overlays.picker.fold.is_some()
             || self.overlays.picker.places_in.is_some()

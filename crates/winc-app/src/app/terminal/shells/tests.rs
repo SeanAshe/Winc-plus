@@ -44,7 +44,7 @@ fn unix_skips_what_cannot_be_started() {
 fn windows_lists_programs_on_the_path_git_bash_and_wsl_distros() {
     let has = |name: &str| name != "pwsh.exe";
     let bash = r"C:\Program Files\Git\bin\bash.exe";
-    let shells = windows_shells(has, Some(bash), &["Ubuntu".to_owned()]);
+    let shells = windows_shells(has, Some(bash), Vec::new(), &["Ubuntu".to_owned()]);
     assert_eq!(
         names(&shells),
         ["powershell", "cmd", "Git Bash", "Ubuntu (WSL)"]
@@ -56,7 +56,7 @@ fn windows_lists_programs_on_the_path_git_bash_and_wsl_distros() {
     );
     assert_eq!(shells[3].command, "wsl.exe -d Ubuntu");
     assert_eq!(
-        names(&windows_shells(has, None, &[])),
+        names(&windows_shells(has, None, Vec::new(), &[])),
         ["powershell", "cmd"]
     );
 }
@@ -92,7 +92,7 @@ fn the_wsl_list_is_utf16_without_docker() {
     let bytes: Vec<u8> = text.encode_utf16().flat_map(u16::to_le_bytes).collect();
     assert_eq!(parse_wsl_list(&bytes), ["Ubuntu-22.04", "My Distro"]);
     assert!(parse_wsl_list(b"").is_empty());
-    let shells = windows_shells(|_: &str| false, None, &["My Distro".to_owned()]);
+    let shells = windows_shells(|_: &str| false, None, Vec::new(), &["My Distro".to_owned()]);
     assert_eq!(shells[0].command, "wsl.exe -d \"My Distro\"");
 }
 
@@ -155,4 +155,48 @@ fn the_remote_detection_script_runs_under_a_plain_sh() {
     let shells = remote_shells(&text);
     assert_eq!(shells.first().map(|shell| shell.name.as_str()), Some("sh"));
     assert!(shells.iter().all(|shell| shell.command.starts_with('/')));
+}
+
+#[test]
+fn msys2_shells_start_as_login_shells_in_ucrt64() {
+    let vars = |key: &str| match key {
+        "SystemDrive" => Some("C:".to_owned()),
+        "UserProfile" => Some(r"C:\Users\me".to_owned()),
+        _ => None,
+    };
+    // 装了 bash 和 fish：各列一项。
+    let files = [
+        r"C:\msys64\usr\bin\env.exe",
+        r"C:\msys64\usr\bin\bash.exe",
+        r"C:\msys64\usr\bin\fish.exe",
+    ];
+    let shells = msys2_shells(vars, |path: &str| files.contains(&path));
+    assert_eq!(names(&shells), ["MSYS2", "MSYS2 fish"]);
+    assert_eq!(
+        shells[0].command,
+        r"C:\msys64\usr\bin\env.exe MSYSTEM=UCRT64 CHERE_INVOKING=1 /usr/bin/bash --login -i"
+    );
+    // 列在 Git Bash 之后、WSL 之前。
+    let all = windows_shells(
+        |_: &str| false,
+        Some(r"C:\Git\bin\bash.exe"),
+        shells,
+        &["Ubuntu".to_owned()],
+    );
+    assert_eq!(
+        names(&all),
+        ["Git Bash", "MSYS2", "MSYS2 fish", "Ubuntu (WSL)"]
+    );
+    // 路径有空白时加引号。
+    let files = [r"C:\Users\me\scoop\apps\msys2\current\usr\bin\env.exe"];
+    assert!(msys2_shells(vars, |path: &str| files.contains(&path)).is_empty());
+    let spaced = |key: &str| (key == "UserProfile").then(|| r"C:\Users\my name".to_owned());
+    let files = [
+        r"C:\Users\my name\scoop\apps\msys2\current\usr\bin\env.exe",
+        r"C:\Users\my name\scoop\apps\msys2\current\usr\bin\bash.exe",
+    ];
+    let shells = msys2_shells(spaced, |path: &str| files.contains(&path));
+    assert!(shells[0].command.starts_with('"'), "{}", shells[0].command);
+    // 没装：不列。
+    assert!(msys2_shells(vars, |_: &str| false).is_empty());
 }

@@ -142,7 +142,7 @@ pub(crate) fn remote_shells(output: &str) -> Vec<ShellChoice> {
 }
 
 /// 返回 Windows 上的 shell：`has` 判断程序是否在 `PATH` 中，`git_bash` 是 Git Bash 的路径，
-/// `distros` 是 WSL 发行版。
+/// `msys2` 是 MSYS2 中装了的 shell（[`msys2_shells`]），`distros` 是 WSL 发行版。
 ///
 /// 前三个的顺序与辅助进程选默认 shell 的顺序相同：`pwsh`、`powershell`、`cmd`。Git Bash 以登录、
 /// 交互方式启动（`--login -i`），读取 `/etc/profile` 和用户的配置。
@@ -150,6 +150,7 @@ pub(crate) fn remote_shells(output: &str) -> Vec<ShellChoice> {
 fn windows_shells(
     has: impl Fn(&str) -> bool,
     git_bash: Option<&str>,
+    msys2: Vec<ShellChoice>,
     distros: &[String],
 ) -> Vec<ShellChoice> {
     let programs = ["pwsh", "powershell", "cmd"].into_iter();
@@ -166,7 +167,51 @@ fn windows_shells(
         name: format!("{distro} (WSL)"),
         command: format!("wsl.exe -d {}", quoted(distro)),
     });
-    programs.chain(git_bash).chain(distros).collect()
+    programs
+        .chain(git_bash)
+        .chain(msys2)
+        .chain(distros)
+        .collect()
+}
+
+/// MSYS2 的默认安装目录：（环境变量，其下的相对路径）。
+#[cfg(any(windows, test))]
+const MSYS2_DIRS: [(&str, &str); 3] = [
+    ("SystemDrive", "msys64"),
+    ("SystemDrive", r"tools\msys64"),
+    ("UserProfile", r"scoop\apps\msys2\current"),
+];
+
+/// MSYS2 中可以列出的 shell：（名称，`/usr/bin` 下的程序名）。
+#[cfg(any(windows, test))]
+const MSYS2_SHELLS: [(&str, &str); 3] = [
+    ("MSYS2", "bash"),
+    ("MSYS2 zsh", "zsh"),
+    ("MSYS2 fish", "fish"),
+];
+
+/// 返回 MSYS2 中装了的 shell，以 UCRT64 环境在当前目录启动登录 shell。
+#[cfg(any(windows, test))]
+fn msys2_shells(
+    var: impl Fn(&str) -> Option<String>,
+    exists: impl Fn(&str) -> bool,
+) -> Vec<ShellChoice> {
+    let root = MSYS2_DIRS
+        .into_iter()
+        .filter_map(|(key, dir)| Some(format!(r"{}\{dir}", var(key)?.trim_end_matches('\\'))))
+        .find(|root| exists(&format!(r"{root}\usr\bin\env.exe")));
+    let Some(root) = root else {
+        return Vec::new();
+    };
+    let env = quoted(&format!(r"{root}\usr\bin\env.exe"));
+    MSYS2_SHELLS
+        .into_iter()
+        .filter(|(_, program)| exists(&format!(r"{root}\usr\bin\{program}.exe")))
+        .map(|(name, program)| ShellChoice {
+            name: name.to_owned(),
+            command: format!("{env} MSYSTEM=UCRT64 CHERE_INVOKING=1 /usr/bin/{program} --login -i"),
+        })
+        .collect()
 }
 
 /// Git for Windows 的默认安装目录，每项为（环境变量，其下的相对路径）：全局安装（64 位、
@@ -247,6 +292,7 @@ fn detect() -> Vec<ShellChoice> {
         .collect();
     let exists = |path: &str| std::path::Path::new(path).is_file();
     let git_bash = git_bash(&dirs, |key| std::env::var(key).ok(), exists);
+    let msys2 = msys2_shells(|key| std::env::var(key).ok(), exists);
     let output = std::process::Command::new("wsl.exe")
         .args(["-l", "-q"])
         .creation_flags(CREATE_NO_WINDOW)
@@ -255,7 +301,7 @@ fn detect() -> Vec<ShellChoice> {
         Ok(output) if output.status.success() => parse_wsl_list(&output.stdout),
         _ => Vec::new(),
     };
-    windows_shells(has, git_bash.as_deref(), &distros)
+    windows_shells(has, git_bash.as_deref(), msys2, &distros)
 }
 
 /// 返回启动命令 `command` 中的程序路径，供在远端启动时使用。

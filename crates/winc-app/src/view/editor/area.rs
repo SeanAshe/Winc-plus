@@ -210,6 +210,7 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
             now,
             blame_hover,
             line_blame,
+            problems: app.latex_problem_lines(id),
         };
 
         screen.draw_conflict_tints(frame, &conflicts);
@@ -345,6 +346,8 @@ struct Screen<'a> {
     blame_hover: Option<u32>,
     /// 当前行追溯：光标所在的行和要写在行尾的说明。
     line_blame: Option<(usize, String)>,
+    /// LaTeX 编译出错的行（从 0 起，从小到大）。
+    problems: Vec<usize>,
 }
 
 /// 行尾可点击的区域及其所在的行。

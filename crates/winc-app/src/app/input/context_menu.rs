@@ -161,6 +161,8 @@ pub enum MenuCommand {
     RevealInTree,
     /// 标签列表：切换到指定标签，参数为 `documents` 的下标。
     ShowTab(usize),
+    /// LaTeX 编译的错误列表：打开出错的文件并跳到那一行，参数为第几个错误。
+    LatexProblem(usize),
     /// 选中第几个运行配置。
     RunSelect(usize),
     /// 用第几个 shell 新建终端。
@@ -593,6 +595,7 @@ impl MenuCommand {
             MenuCommand::OpenRecent(_)
             | MenuCommand::ImportKeymap(_)
             | MenuCommand::ShowTab(_)
+            | MenuCommand::LatexProblem(_)
             | MenuCommand::RunSelect(_)
             | MenuCommand::NewTerminalShell(_)
             | MenuCommand::DefaultShell(Some(_))
@@ -1010,6 +1013,8 @@ pub enum MenuTarget {
     TreeTools,
     /// 标签栏最右端「⌄」弹出的标签列表。
     TabList,
+    /// LaTeX 预览右上角的错误数弹出的错误列表。
+    LatexProblems,
     /// 终端面板标签栏上的运行配置列表。
     RunConfigs,
     /// 终端面板标签栏上可选的 shell。

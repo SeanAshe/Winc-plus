@@ -418,8 +418,10 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
 
     match row.setting.control() {
         SettingControl::Font => draw_field(app, frame, row, clip),
-        // 「Git 程序」是填写的路径，没有可选的菜单：始终画成输入框。
-        SettingControl::Command if editing || row.setting == Setting::GitPath => {
+        // 「Git 程序」「LaTeX 程序」是填写的路径，没有可选的菜单：始终画成输入框。
+        SettingControl::Command
+            if editing || matches!(row.setting, Setting::GitPath | Setting::LatexPath) =>
+        {
             draw_field(app, frame, row, clip)
         }
         SettingControl::Command => {
@@ -753,6 +755,7 @@ fn draw_field(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect
     let font = row.setting.control() == SettingControl::Font;
     let on_menu = font && app.settings.hover == Some(SettingsPart::FontMenu(row.setting));
     let hovered = hovered || on_menu;
+    let latex_auto = app.latex_tool_label();
     let (configured, placeholder) = match row.setting {
         Setting::UiFont => (app.config.ui_font.clone(), t!("settings-font-default")),
         Setting::TerminalFont => (
@@ -764,6 +767,7 @@ fn draw_field(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect
         }
         Setting::TerminalShell => (None, t!("settings-terminal-shell-placeholder")),
         Setting::GitPath => (app.config.git_path.clone(), t!("settings-git-path-auto")),
+        Setting::LatexPath => (app.config.latex_path.clone(), latex_auto.as_str()),
         _ => (
             app.config.editor_font.clone(),
             winc_render::DEFAULT_EDITOR_FONT,

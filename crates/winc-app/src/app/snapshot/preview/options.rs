@@ -487,3 +487,21 @@ fn a_long_document_keeps_layout_only_near_the_viewport() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 启动时恢复的标签和命令行打开的文件按记下的显示方式打开。
+#[test]
+fn files_opened_at_launch_use_the_remembered_mode() {
+    let dir = sample_folder("preview-at-launch");
+    std::fs::write(dir.join("a.md"), "# 标题\n").unwrap();
+    let mut state = winc_config::State::default();
+    state
+        .preview_modes
+        .insert("markdown".into(), "preview".into());
+    let mut editor = winc_editor::Editor::default();
+    editor.preview_defaults = crate::app::preview::images::preview_defaults(&state);
+    let index = editor.open(&dir.join("a.md"));
+    assert_eq!(editor.documents[index].preview_mode(), PreviewMode::Preview);
+    let index = editor.open(&dir.join("short.rs"));
+    assert_eq!(editor.documents[index].preview_mode(), PreviewMode::Source);
+    let _ = std::fs::remove_dir_all(&dir);
+}
