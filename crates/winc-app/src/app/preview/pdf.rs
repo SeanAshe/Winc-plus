@@ -284,6 +284,21 @@ impl PdfPreview {
         Some(page_rects(pages, self.body().w, self.zoom).0)
     }
 
+    /// 第 `page` 页（从 0 起）内比例 `top` 处的滚动位置，上方留出页间距；还没排版时为 `None`。
+    pub(crate) fn place_y(&self, page: usize, top: f32) -> Option<f32> {
+        let rect = *self.current_rects()?.get(page)?;
+        Some((rect.y + top * rect.h - GAP).max(0.0))
+    }
+
+    /// 窗口坐标 (`x`, `y`) 落在哪一页（从 0 起）的哪里（横、纵占页宽、页高的比例）。
+    pub(crate) fn page_at(&self, x: f32, y: f32) -> Option<(usize, f32, f32)> {
+        let body = self.body();
+        let (cx, cy) = (x - body.x + self.scroll_x, y - body.y + self.scroll);
+        let rects = self.current_rects()?;
+        let (page, rect) = (rects.iter().enumerate()).find(|(_, r)| r.contains(cx, cy))?;
+        Some((page, (cx - rect.x) / rect.w, (cy - rect.y) / rect.h))
+    }
+
     /// 最大滚动位置（逻辑像素）。
     pub(crate) fn max_scroll(&self) -> f32 {
         (self.height - self.area.h).max(0.0)
@@ -340,11 +355,13 @@ impl App {
     ///
     /// 每次绘制前调用。
     pub(crate) fn advance_pdf(&mut self) {
+        // 打开的 PDF 文件按文档的版本，LaTeX 编译出的 PDF 按编译的序号重新打开。
         let active = self
             .editor
             .active()
             .filter(|d| d.unsupported == Some(Unsupported::Pdf))
-            .map(|d| (d.id, d.revision, d.path.clone()));
+            .map(|d| (d.id, d.revision, d.path.clone()))
+            .or_else(|| (self.latex_pdf()).map(|(id, path, serial)| (id, serial, Some(path))));
         let pdf = &mut self.preview.pdf;
         let Some((id, revision, Some(path))) = active else {
             if pdf.doc.is_some() {
@@ -583,7 +600,12 @@ impl App {
     /// 处理 PDF 预览中的按键：上下方向键滚动一小段，`PageUp`、`PageDown`、空格滚动一屏，
     /// `Home`、`End` 到开头、结尾。返回是否处理；当前标签不是 PDF 时返回 `false`。
     pub(in crate::app) fn pdf_key(&mut self, key: &Key) -> bool {
-        if self.preview.pdf.doc.is_none() {
+        // 分栏时键盘编辑左侧的源码。
+        let whole = (self.editor.active()).is_some_and(|d| {
+            d.unsupported == Some(Unsupported::Pdf)
+                || d.preview_mode() == winc_editor::PreviewMode::Preview
+        });
+        if self.preview.pdf.doc.is_none() || !whole {
             return false;
         }
         // 翻一屏时与上一屏重叠一段，翻页后仍能看到上一屏末尾的内容。

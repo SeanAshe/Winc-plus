@@ -121,6 +121,17 @@ preview-pdf-encrypted = Encrypted PDFs can’t be previewed
 preview-pdf-empty = The PDF has no pages
 preview-pdf-render-failed = The page couldn’t be rendered
 preview-pdf-render-failed-code = The page couldn’t be rendered (error { $code })
+latex-compiling = Compiling…
+latex-progress-download = Compiling · downloading { $name }
+latex-progress-pass = Compiling · pass { $pass }
+latex-progress-page = Compiling · page { $page }
+latex-failed = Compile failed
+latex-problems =
+    { $count ->
+        [one] 1 error
+       *[other] { $count } errors
+    }
+latex-problems-tip = Click to list the errors
 
 ## Writing commands opened with /
 

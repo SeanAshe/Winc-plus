@@ -322,6 +322,7 @@ fn round_trips_through_json() {
         markdown_selection_toolbar: Some(false),
         markdown_image_folder: Some("${filename}.assets".to_string()),
         markdown_image_name: Some("${date}".to_string()),
+        latex_path: Some("/Library/TeX/texbin/latexmk".to_string()),
         update_auto_check: Some(false),
         confirm_drag_and_drop: Some(false),
         compact_folders: Some(false),

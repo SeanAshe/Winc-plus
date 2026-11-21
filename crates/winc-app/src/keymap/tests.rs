@@ -312,21 +312,19 @@ fn vscode_key_labels_per_system() {
         }
     }
 
-    // ⌘J 显示或隐藏面板，在终端里也生效；其他系统上 Ctrl+J 在终端里是 shell 的换行。
+    // ⌘J（其他系统上 Ctrl+J）显示或隐藏面板，焦点在终端里也生效，与 VS Code 相同。
     for context in [Context::Editor, Context::Terminal] {
         assert_eq!(
             runs(Os::Mac, Mods::META, KeyCode::Char('j'), context),
             Some(Action::ToggleTerminalPanel)
         );
+        for os in [Os::Windows, Os::Linux] {
+            assert_eq!(
+                runs(os, Mods::CTRL, KeyCode::Char('j'), context),
+                Some(Action::ToggleTerminalPanel)
+            );
+        }
     }
-    assert_eq!(
-        runs(Os::Linux, Mods::CTRL, KeyCode::Char('j'), Context::Editor),
-        Some(Action::ToggleTerminalPanel)
-    );
-    assert_eq!(
-        runs(Os::Linux, Mods::CTRL, KeyCode::Char('j'), Context::Terminal),
-        None
-    );
 
     // ⌃R（其他系统上 Ctrl+R）打开最近的项目；终端里交给 shell，用于反向搜索历史。
     for os in ALL_OS {

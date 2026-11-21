@@ -4,6 +4,9 @@ use winc_i18n::t;
 
 use super::*;
 
+/// LaTeX 编译出错的行在行号栏里画的红点的直径（逻辑像素）。
+const PROBLEM_DOT: f32 = 6.0;
+
 impl Screen<'_> {
     /// 行号；有光标的行颜色深一些。
     ///
@@ -103,15 +106,19 @@ impl Screen<'_> {
         );
     }
 
-    /// 书签绘制在行号左侧的空白处（开着逐行追溯时在那一栏右边）。
+    /// 书签绘制在行号左侧的空白处（开着逐行追溯时在那一栏右边），没有书签时画 LaTeX 的错误红点。
     pub(super) fn draw_bookmark(&self, frame: &mut Frame<'_>, row: &Row<'_>) {
+        let gutter = self.gutter;
+        let center = (
+            gutter.x + self.blame_w + GUTTER_PADDING / 2.0 + 1.0,
+            row.gutter_y + self.lh / 2.0,
+        );
         if self.doc.bookmarks().contains(row.line) {
-            let gutter = self.gutter;
-            let center = (
-                gutter.x + self.blame_w + GUTTER_PADDING / 2.0 + 1.0,
-                row.gutter_y + self.lh / 2.0,
-            );
             icons::bookmark(frame, center, self.app.palette.accent, gutter);
+        } else if self.problems.binary_search(&row.line).is_ok() {
+            let r = PROBLEM_DOT / 2.0;
+            let dot = Rect::new(center.0 - r, center.1 - r, PROBLEM_DOT, PROBLEM_DOT);
+            frame.rect_clipped(dot, self.app.palette.error, r, gutter);
         }
     }
 

@@ -338,6 +338,8 @@ pub enum UserEvent {
     FolderDropped(PathBuf, Option<PathBuf>, bool, bool),
     /// 后台已计算完一个文档的逐行追溯。
     GitBlame,
+    /// 后台已编译完一个 LaTeX 文档。
+    Latex,
     /// 后台已检查或重读被其他程序修改的文件。
     Reread,
     /// 后台已重读文件树中被其他程序修改的目录。
@@ -519,6 +521,10 @@ pub enum Hover {
     MarkdownToc(crate::app::preview::markdown::TocTarget),
     /// PDF 预览右下角工具栏上的按钮。
     PdfTool(crate::app::preview::pdf::PdfTool),
+    /// LaTeX 预览右上角的编译状态（有错误时）。
+    LatexStatus,
+    /// 行号栏里 LaTeX 编译出错的红点，参数是行（从 0 起）。
+    LatexProblem(usize),
     Search(SearchButton),
     TreeRow(usize),
     /// 标签序号，以及是否悬停在该标签的关闭按钮上。
@@ -670,6 +676,8 @@ impl Hover {
                         | DiffTarget::IncludeLine(..)
                 )
                 | Hover::Merge(git::merge::MergeTarget::Previous | git::merge::MergeTarget::Next)
+                | Hover::LatexStatus
+                | Hover::LatexProblem(_)
         )
     }
 }
@@ -1102,6 +1110,7 @@ impl App {
             UserEvent::GitMergeSides => self.poll_merge_sides(),
             UserEvent::GitLog => self.poll_log(),
             UserEvent::GitBlame => self.poll_blame(),
+            UserEvent::Latex => self.poll_latex(),
             UserEvent::Reread => self.poll_rereads(),
             UserEvent::TreeScanned => self.poll_tree_scans(),
             UserEvent::Saved => self.poll_saves(),

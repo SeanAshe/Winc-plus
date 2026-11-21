@@ -468,6 +468,7 @@ impl App {
             | UserEvent::GitMergeSides
             | UserEvent::GitLog
             | UserEvent::GitBlame
+            | UserEvent::Latex
             | UserEvent::Reread
             | UserEvent::TreeScanned
             | UserEvent::Saved

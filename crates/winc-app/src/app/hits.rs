@@ -101,6 +101,8 @@ pub struct Hits {
     pub(crate) pdf_thumbs: Vec<(Rect, f32)>,
     /// PDF 预览右下角工具栏上各按钮的位置。
     pub(crate) pdf_tools: Vec<(Rect, crate::app::preview::pdf::PdfTool)>,
+    /// LaTeX 预览右上角编译状态的位置；没有错误时为空矩形。
+    pub(crate) latex_status: Rect,
     /// 当前帧绘制出的「安装方法…」链接的位置，以及链接所属的设置项。
     ///
     /// 文字宽度要到绘制时才知道，悬停和点击使用这里记录的位置。
@@ -157,6 +159,7 @@ impl Hits {
             selection_tools,
             pdf_thumbs,
             pdf_tools,
+            latex_status,
             install_links,
             keys_parts,
         } = self;
@@ -201,6 +204,7 @@ impl Hits {
         markdown_toc_blocks.clear();
         pdf_thumbs.clear();
         pdf_tools.clear();
+        *latex_status = Rect::default();
         install_links.clear();
         keys_parts.clear();
     }

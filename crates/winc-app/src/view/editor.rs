@@ -21,6 +21,7 @@ pub(super) use caret::*;
 pub(super) use glyphs::*;
 pub(crate) use minimap::MinimapRows;
 pub(in crate::view) use picture::*;
+pub(in crate::view) use placeholder::draw_waiting;
 use placeholder::*;
 pub(crate) use ruler::*;
 use sticky::*;
@@ -197,11 +198,17 @@ pub(super) fn draw_editor(app: &mut App, frame: &mut Frame<'_>) {
         return;
     }
     let doc = &app.editor.documents[index];
-    if doc.preview_kind() == Some(winc_editor::PreviewKind::Markdown)
+    if doc
+        .preview_kind()
+        .is_some_and(winc_editor::PreviewKind::typeset)
         && doc.preview_mode() == winc_editor::PreviewMode::Preview
     {
         let area = app.layout.editor;
-        super::preview::markdown::draw(app, frame, area);
+        if doc.preview_kind() == Some(winc_editor::PreviewKind::Latex) {
+            super::preview::latex::draw(app, frame, area);
+        } else {
+            super::preview::markdown::draw(app, frame, area);
+        }
         return;
     }
     // 分栏预览时缓存中保存的是右半部分的图片（`draw_split`），不清除。

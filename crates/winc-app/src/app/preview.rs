@@ -1,5 +1,5 @@
 //! 预览：Markdown（后台解析、滚动、链接和图片）、图片和 SVG（后台解码、分栏预览）、表格（后台
-//! 读取 xlsx、csv）、PDF（渲染线程逐页渲染）。
+//! 读取 xlsx、csv）、PDF（渲染线程逐页渲染）、LaTeX（本机的 TeX 编译出 PDF）。
 //!
 //! 各种预览都在后台线程完成解码、解析和绘制，界面只收结果；排版与绘制在 `view` 模块中完成。
 
@@ -10,6 +10,7 @@ use winc_i18n::t;
 use crate::app::App;
 
 pub(crate) mod images;
+pub(crate) mod latex;
 pub(crate) mod markdown;
 pub(crate) mod pdf;
 pub(crate) mod tables;
@@ -70,6 +71,8 @@ pub(crate) struct PreviewState {
     pub(crate) markdown: markdown::MarkdownPreview,
     /// 当前标签的 PDF 预览。
     pub(crate) pdf: pdf::PdfPreview,
+    /// LaTeX 文档的编译，各窗格共用。
+    pub(crate) latex: latex::LatexBuilds,
     /// 分栏预览时源代码一侧占编辑区宽度的比例，取值 0 到 1；`None` 表示各占一半。
     ///
     /// 拖动中间的分隔线时改变，所有分栏预览的标签共用该值。

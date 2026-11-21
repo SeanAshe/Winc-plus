@@ -147,6 +147,7 @@ impl SettingsPage {
                     Setting::MarkdownTypewriter,
                     Setting::MarkdownSelectionToolbar,
                 ]),
+                plain(vec![Setting::LatexPath]),
                 plain(vec![
                     Setting::VimMode,
                     Setting::VimClipboard,
@@ -349,6 +350,8 @@ pub enum Setting {
     MarkdownTypewriter,
     /// 选中文字后显示格式工具栏（`markdown.selectionToolbar`）。
     MarkdownSelectionToolbar,
+    /// 编译 LaTeX 的程序（`latex.path`）。
+    LatexPath,
     /// 定时检查更新。
     CheckUpdates,
     /// 联网的命令跟随系统的代理设置（`network.systemProxy`）。
@@ -522,7 +525,8 @@ impl Setting {
             | Setting::MarkdownShortcuts
             | Setting::MarkdownFocus
             | Setting::MarkdownTypewriter
-            | Setting::MarkdownSelectionToolbar => SettingsPage::Editor,
+            | Setting::MarkdownSelectionToolbar
+            | Setting::LatexPath => SettingsPage::Editor,
             Setting::Version
             | Setting::Updates
             | Setting::CheckUpdates
@@ -650,6 +654,7 @@ impl Setting {
             Setting::GitOpenWorktree => t!("settings-git-open-worktree"),
             Setting::GitPullMode => t!("settings-git-pull"),
             Setting::GitPath => t!("settings-git-path"),
+            Setting::LatexPath => t!("settings-latex-path"),
             Setting::TerminalModule => t!("settings-terminal-module"),
             Setting::RemoteModule => t!("settings-remote-module"),
             Setting::KeySearch => t!("settings-key-search"),
@@ -723,6 +728,7 @@ impl Setting {
             Setting::GitOpenWorktree => Some(t!("settings-git-open-worktree-desc")),
             Setting::GitPullMode => Some(t!("settings-git-pull-desc")),
             Setting::GitPath => Some(t!("settings-git-path-desc")),
+            Setting::LatexPath => Some(t!("settings-latex-path-desc")),
             Setting::TerminalShell => Some(t!("settings-terminal-shell-desc")),
             Setting::TerminalCopyOnSelect => Some(t!("settings-terminal-copy-on-select-desc")),
             Setting::TerminalConfirmClose => Some(t!("settings-terminal-confirm-close-desc")),
@@ -799,7 +805,8 @@ impl Setting {
             Setting::FormatCommand(_)
             | Setting::FixCommand(_)
             | Setting::TerminalShell
-            | Setting::GitPath => SettingControl::Command,
+            | Setting::GitPath
+            | Setting::LatexPath => SettingControl::Command,
             Setting::SkipOnSave
             | Setting::Language
             | Setting::BackgroundImage
@@ -1409,7 +1416,10 @@ fn row_height(
             rows * tile.1 + (rows - 1.0) * THEME_GRID_GAP + THEME_GRID_PAD * 2.0
         }
         SettingControl::Command
-            if !matches!(setting, Setting::TerminalShell | Setting::GitPath) =>
+            if !matches!(
+                setting,
+                Setting::TerminalShell | Setting::GitPath | Setting::LatexPath
+            ) =>
         {
             SETTINGS_ROW_TALL
         }

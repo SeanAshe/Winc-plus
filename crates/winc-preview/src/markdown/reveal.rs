@@ -98,7 +98,8 @@ fn elements(plain: &str) -> Vec<Range<usize>> {
     let mut elements = Vec::new();
     // 行内代码和公式里的 `==` 是文字，不高亮。
     let mut code = Vec::new();
-    for (event, range) in Parser::new_ext(plain, options()).into_offset_iter() {
+    let masked = super::delims::mask(plain);
+    for (event, range) in Parser::new_ext(&masked, options()).into_offset_iter() {
         match &event {
             Event::Code(_) | Event::InlineMath(_) | Event::DisplayMath(_) => {
                 code.push(range.clone());

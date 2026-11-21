@@ -1137,6 +1137,8 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
         }
         Hover::RulerChange(hunk) => app.ruler_tip(hunk),
         Hover::Blame(line) => app.blame_tip(line),
+        Hover::LatexStatus => Some((app.hits.latex_status, app.latex_status_tip()?)),
+        Hover::LatexProblem(line) => app.latex_problem_tip(line),
         Hover::Change(target) => {
             use crate::app::ChangeTarget;
             let rect = app.hits.changes.iter().find(|(_, t)| *t == target)?.0;

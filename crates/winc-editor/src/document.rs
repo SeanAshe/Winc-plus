@@ -173,11 +173,23 @@ pub enum PreviewKind {
     Markdown,
     /// csv、tsv：预览为表格（`Document::table`）。
     Table,
+    /// LaTeX：预览只读。
+    Latex,
 }
 
 impl PreviewKind {
     /// 全部种类。
-    pub const ALL: [PreviewKind; 3] = [PreviewKind::Svg, PreviewKind::Markdown, PreviewKind::Table];
+    pub const ALL: [PreviewKind; 4] = [
+        PreviewKind::Svg,
+        PreviewKind::Markdown,
+        PreviewKind::Table,
+        PreviewKind::Latex,
+    ];
+
+    /// 是否按 Markdown 预览排版（Markdown，以及转换成 Markdown 的 LaTeX）。
+    pub fn typeset(self) -> bool {
+        matches!(self, PreviewKind::Markdown | PreviewKind::Latex)
+    }
 
     /// 返回语言 `language` 的文本可以预览成哪一种；不能预览的语言返回 `None`。
     pub fn of(language: &winc_syntax::Language) -> Option<PreviewKind> {
@@ -185,6 +197,7 @@ impl PreviewKind {
             "svg" => Some(PreviewKind::Svg),
             "markdown" => Some(PreviewKind::Markdown),
             "csv" | "tsv" => Some(PreviewKind::Table),
+            "latex" => Some(PreviewKind::Latex),
             _ => None,
         }
     }

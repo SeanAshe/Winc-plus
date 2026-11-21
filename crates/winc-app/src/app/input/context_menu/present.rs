@@ -707,6 +707,9 @@ impl App {
             MenuTarget::TabList => (0..self.editor.tab_count())
                 .map(|i| MenuEntry::Item(MenuCommand::ShowTab(i), true))
                 .collect(),
+            MenuTarget::LatexProblems => (0..self.latex_problem_count())
+                .map(|i| MenuEntry::Item(MenuCommand::LatexProblem(i), true))
+                .collect(),
             MenuTarget::RunConfigs => (0..self.run.list.len())
                 .map(|i| MenuEntry::Item(MenuCommand::RunSelect(i), true))
                 .chain([
@@ -812,6 +815,7 @@ impl App {
             target,
             MenuTarget::CommitButton
                 | MenuTarget::TabList
+                | MenuTarget::LatexProblems
                 | MenuTarget::Locale
                 | MenuTarget::NamedTheme(_)
                 | MenuTarget::Whitespace

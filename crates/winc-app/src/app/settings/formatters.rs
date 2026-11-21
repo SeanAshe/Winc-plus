@@ -344,7 +344,7 @@ impl App {
             Setting::FormatCommand(id) => (MenuTarget::Tool(Task::Format, id), row.control),
             Setting::FixCommand(id) => (MenuTarget::Tool(Task::Fix, id), row.control),
             Setting::TerminalShell => (MenuTarget::DefaultShell, row.control),
-            Setting::GitPath => return self.settings_start_editing(setting),
+            Setting::GitPath | Setting::LatexPath => return self.settings_start_editing(setting),
             Setting::Updates => return self.settings_check_updates(),
             _ => return,
         };

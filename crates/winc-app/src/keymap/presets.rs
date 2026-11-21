@@ -751,7 +751,8 @@ pub(super) const VSCODE: &[PresetRow] = &[
     row(GitGoToChildCommit, Editor, &["left"], &["left"]),
     row(GitGoToParentCommit, Editor, &["right"], &["right"]),
     row(ToggleTerminal, Everywhere, &["ctrl+`"], &["ctrl+`"]),
-    row(ToggleTerminalPanel, Global, &["cmd+j"], &["ctrl+j"]),
+    // 焦点在终端里也开关面板，与 VS Code 相同；终端应用优先时 Ctrl+J 交给程序（换行）。
+    row(ToggleTerminalPanel, Everywhere, &["cmd+j"], &["ctrl+j"]),
     row(StopConfiguration, Global, &["shift+f5"], &["shift+f5"]),
     row(CopyPath, Global, &[], &["shift+alt+c"]),
     row(CopyRelativePath, Global, &[], &["ctrl+k ctrl+shift+c"]),

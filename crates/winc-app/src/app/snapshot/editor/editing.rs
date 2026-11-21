@@ -448,6 +448,44 @@ fn the_comment_shortcut_wraps_css_and_explains_plain_text() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// 内嵌代码里的注释按那段代码的语言写。
+#[test]
+fn comments_follow_the_embedded_language() {
+    let dir = sample_folder("comment-embedded");
+    let vue = "<template>\n  <div>{{ a }}</div>\n</template>\n<script>\nconst a = 1;\n</script>\n\
+               <style>\n.a { color: red; }\n</style>\n";
+    std::fs::write(dir.join("App.vue"), vue).unwrap();
+    std::fs::write(dir.join("notes.md"), "说明\n\n```rust\nlet a = 1;\n```\n").unwrap();
+    let text = |app: &App| {
+        app.editor
+            .active()
+            .unwrap()
+            .text_range(0, usize::MAX)
+            .unwrap()
+    };
+    // 在第 `line` 行切换注释，返回该行。
+    let toggle = |app: &mut App, line: usize| {
+        let doc = app.editor.active_mut().unwrap();
+        let pos = doc.text().line_col_to_pos(line, 0);
+        doc.selection = winc_core::Selection::point(pos);
+        app.run_action(Action::ToggleComment);
+        text(app).lines().nth(line).unwrap().to_owned()
+    };
+
+    let mut app = app_with(&dir.join("App.vue"), false);
+    paint(&mut app);
+    assert_eq!(toggle(&mut app, 4), "// const a = 1;");
+    assert_eq!(toggle(&mut app, 4), "const a = 1;");
+    assert_eq!(toggle(&mut app, 7), "/* .a { color: red; } */");
+    assert!(toggle(&mut app, 1).contains("<!-- <div>"), "{}", text(&app));
+
+    app.open_path(&dir.join("notes.md"));
+    paint(&mut app);
+    assert_eq!(toggle(&mut app, 3), "// let a = 1;");
+    assert_eq!(toggle(&mut app, 0), "<!-- 说明 -->");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 fn editorconfig_sets_indentation_and_tidies_on_save() {
     let dir = winc_config::files::canonicalize(sample_folder("editorconfig")).unwrap();

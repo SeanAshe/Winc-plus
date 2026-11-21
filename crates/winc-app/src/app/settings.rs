@@ -924,6 +924,7 @@ impl App {
             Some((task, id)) => task_commands(&self.config, task).get(id).cloned(),
             None if setting == Setting::TerminalShell => self.config.terminal_shell.clone(),
             None if setting == Setting::GitPath => self.config.git_path.clone(),
+            None if setting == Setting::LatexPath => self.config.latex_path.clone(),
             None => self.font_setting(setting).clone(),
         };
         let mut field = TextField::default();
@@ -1043,6 +1044,13 @@ impl App {
                 self.settings.error = None;
                 self.focus = Focus::Settings;
                 self.set_git_path(value);
+            }
+            None if setting == Setting::LatexPath => {
+                self.settings.editing = None;
+                self.settings.editing_original = None;
+                self.settings.error = None;
+                self.focus = Focus::Settings;
+                self.set_latex_path(value);
             }
             None => self.settings_commit_font(setting, value),
         }
@@ -1272,6 +1280,18 @@ impl App {
         self.config.git_path = path;
         self.save_config();
         self.git_program_changed();
+        self.request_redraw();
+    }
+
+    /// 设置编译 LaTeX 的程序，`None` 表示自动查找。
+    pub(in crate::app) fn set_latex_path(&mut self, path: Option<String>) {
+        if self.config.latex_path == path {
+            return;
+        }
+        self.config.latex_path = path;
+        self.save_config();
+        self.preview.latex.forget_tool();
+        self.find_latex_tool();
         self.request_redraw();
     }
 

@@ -550,7 +550,9 @@ pub fn parse(text: &str) -> Markdown {
         source: text,
         ..Builder::default()
     };
-    for (event, range) in Parser::new_ext(text, options).into_offset_iter() {
+    // `\(…\)`、`\[…\]` 和公式环境换成等长的 `$$` 后解析，位置仍按原文。
+    let masked = delims::mask(text);
+    for (event, range) in Parser::new_ext(&masked, options).into_offset_iter() {
         // 顶层块开始的地方：不在任何容器、段落、代码块、HTML 块里。分隔线没有开始、结束两个
         // 事件，只有一个。
         if matches!(event, Event::Start(_) | Event::Rule)
@@ -936,11 +938,16 @@ impl Builder<'_> {
             Event::Text(text) => self.text(&text, 0),
             Event::Code(text) => self.text(&text, Style::CODE),
             Event::InlineMath(text) => self.text(&text, Style::MATH),
-            // `$$…$$` 单独成一块居中显示；写在表格里的只能留在格子里。
-            Event::DisplayMath(text) if self.in_cell() => self.text(&text, Style::MATH),
+            // `$$…$$` 单独成一块居中显示；写在表格里的、写成 `\(…\)` 的留在行内。
             Event::DisplayMath(text) => {
-                self.finish_inline();
-                self.push_block(Block::Math(text.trim().to_owned(), self.start));
+                let source = self.source.get(self.start..self.end).unwrap_or_default();
+                let (inline, text) = delims::restore(source, &text);
+                if inline || self.in_cell() {
+                    self.text(&text, Style::MATH);
+                } else {
+                    self.finish_inline();
+                    self.push_block(Block::Math(text.trim().to_owned(), self.start));
+                }
             }
             Event::Html(html) | Event::InlineHtml(html) => match &mut self.html {
                 Some(block) => block.push_str(&html),
@@ -964,7 +971,9 @@ impl Builder<'_> {
                 self.soft = true;
                 self.soft_at = self.start;
             }
-            Event::SoftBreak => self.text(" ", 0),
+            Event::SoftBreak if self.image.is_some() => self.text(" ", 0),
+            // 段落被单独成行的公式分开后，后半段不以空格开头。
+            Event::SoftBreak => {}
             Event::HardBreak => self.text("\n", 0),
             Event::Rule => {
                 self.finish_inline();
@@ -1461,6 +1470,7 @@ fn align(align: Alignment) -> Align {
 
 mod autolink;
 pub mod cells;
+mod delims;
 mod emoji;
 pub mod enter;
 pub mod format;

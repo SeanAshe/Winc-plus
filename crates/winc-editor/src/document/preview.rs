@@ -36,7 +36,7 @@ impl Document {
         self.shows_text() || self.rendered
     }
 
-    /// 是否可以切换到预览：语言是 SVG、Markdown、CSV 或 TSV 的文本，且不是大文件。
+    /// 是否可以切换到预览：语言是 SVG、Markdown、LaTeX、CSV 或 TSV 的文本，且不是大文件。
     pub fn can_preview(&self) -> bool {
         self.preview_kind().is_some()
     }
@@ -85,8 +85,9 @@ impl Document {
 
     /// 换成 `mode` 显示。
     ///
-    /// 只看 SVG、表格的预览期间文档只读（看不到文字），离开时恢复原来的只读状态；Markdown 的
-    /// 预览可以直接编辑，不改只读状态。不满足 [`Document::can_preview`] 时不切换，返回 `false`。
+    /// 只看 SVG、表格、LaTeX 的预览期间文档只读（看不到文字），离开时恢复原来的只读状态；
+    /// Markdown 的预览可以直接编辑，不改只读状态。不满足 [`Document::can_preview`] 时不切换，
+    /// 返回 `false`。
     pub fn set_preview_mode(&mut self, mode: PreviewMode) -> bool {
         let Some(kind) = self.preview_kind() else {
             return false;
@@ -109,7 +110,7 @@ impl Document {
             }
             match kind {
                 PreviewKind::Svg => self.picture = Some(PictureState::Loading),
-                PreviewKind::Markdown => self.rendered = true,
+                PreviewKind::Markdown | PreviewKind::Latex => self.rendered = true,
                 PreviewKind::Table => self.table = Some(TableView::loading(self.revision)),
             }
         }

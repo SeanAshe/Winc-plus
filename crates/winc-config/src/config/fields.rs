@@ -66,6 +66,7 @@ pub(super) const SECTIONS: &[(&str, &[Field])] = &[
     ("ui", UI),
     ("tree", TREE),
     ("markdown", MARKDOWN),
+    ("latex", LATEX),
     ("update", UPDATE),
     ("terminal", TERMINAL),
     ("vim", VIM),
@@ -341,6 +342,9 @@ const MARKDOWN: &[Field] = &[
         },
     },
 ];
+
+/// `latex` 一节。
+const LATEX: &[Field] = &[string_field!("path", latex_path)];
 
 /// `update` 一节。
 const UPDATE: &[Field] = &[bool_field!("autoCheck", update_auto_check)];

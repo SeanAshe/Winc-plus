@@ -94,6 +94,18 @@ pub enum LineState {
     BlockScalar(u8),
 }
 
+impl LineState {
+    /// 返回行首所在内嵌代码（`<script>`、`<style>`、Markdown 代码块）的语言，`<style>` 按 CSS。
+    pub fn embedded_language(self) -> Option<&'static Language> {
+        match self {
+            LineState::Embedded { script: true, .. } => Some(crate::lang::embedded(true)),
+            LineState::Embedded { script: false, .. } => crate::lang::find("css"),
+            LineState::Fence { language, .. } => crate::lang::language_at(language),
+            _ => None,
+        }
+    }
+}
+
 /// 把内嵌代码（HTML 中的脚本与样式、Markdown 代码块）的行首状态编码成一个字节。
 ///
 /// 外层状态只有一个字节存放内层状态，这里只覆盖常见的跨行结构；带散列值或数据超出编码范围

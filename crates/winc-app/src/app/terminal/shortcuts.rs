@@ -84,6 +84,13 @@ impl App {
                 if cfg!(target_os = "macos") && binding.first.mods.has(Mods::META) {
                     return true;
                 }
+                // 单按 Ctrl 的开关面板键（Ctrl+J）在程序里是换行：终端应用优先时交给程序。
+                if application
+                    && action == Action::ToggleTerminalPanel
+                    && control_char(binding.first)
+                {
+                    return false;
+                }
                 (!application || terminal_reserved(action))
                     && (!terminal_content(action) || prompt)
                     && (!matches!(

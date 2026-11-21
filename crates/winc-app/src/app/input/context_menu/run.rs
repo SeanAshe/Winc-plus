@@ -396,6 +396,11 @@ impl App {
                     self.activate_tab(i);
                 }
             }
+            MenuTarget::LatexProblems => {
+                if let MenuCommand::LatexProblem(i) = command {
+                    self.show_latex_problem(i);
+                }
+            }
             MenuTarget::RunConfigs => match command {
                 MenuCommand::RunSelect(i) => self.select_run_config(i),
                 MenuCommand::RunEdit => self.edit_run_configs(),

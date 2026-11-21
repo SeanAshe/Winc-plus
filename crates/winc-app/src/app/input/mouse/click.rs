@@ -242,6 +242,11 @@ impl App {
             }
             Target::PdfThumb(to) => self.scroll_pdf_to(to),
             Target::PdfTool(tool) => self.press_pdf_tool(tool),
+            Target::LatexStatus => self.open_latex_problems(),
+            Target::LatexProblem(line) => self.go_to_latex_problem_line(line),
+            Target::LatexSource => {
+                self.latex_source_at(x, y);
+            }
             Target::Tab(index, true) => {
                 self.pointer.close_pressed = self.editor.documents.get(index).map(|d| d.id);
             }

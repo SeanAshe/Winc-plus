@@ -96,6 +96,27 @@ impl Highlighter {
         self.states.get(target).copied()
     }
 
+    /// 同 [`Self::state_at`]，但不写缓存；要推算的行数超过 `budget` 时返回 `None`。
+    pub fn peek_state(&self, text: &impl Lines, line: usize, budget: usize) -> Option<LineState> {
+        let target = line.min(text.line_count().saturating_sub(1));
+        if let Some(state) = self.known_state(target) {
+            return Some(state);
+        }
+        let start = self.states.len() - 1;
+        if target.saturating_sub(start) > budget {
+            return None;
+        }
+        let (mut state, mut chars) = (self.states[start], Vec::new());
+        text.visit_short_lines(start, MAX_LINE_BYTES, |index, _, content| {
+            if index >= target {
+                return ControlFlow::Break(());
+            }
+            state = content.map_or(state, |line| scan(self.language, &mut chars, line, state));
+            ControlFlow::Continue(())
+        });
+        Some(state)
+    }
+
     /// 返回第 `line` 行行首的状态，从 `line` 之前 `lookback` 行处按 `Normal` 开始推算。
     ///
     /// 查看大文件末尾时无需从文件开头扫描；代价是跨度超过 `lookback` 行的块注释和多行

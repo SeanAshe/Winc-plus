@@ -137,6 +137,7 @@ editor-size-bytes = { $count } 字节
 ## 外部程序。
 
 editor-process-timeout = 超时
+editor-latex-stalled = 编译 { $minutes } 分钟没有任何输出，已经停止
 editor-process-too-large = 输出过多
 editor-process-cancelled = 已取消
 editor-process-no-stdout = 无法获取标准输出

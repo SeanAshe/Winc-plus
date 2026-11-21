@@ -158,6 +158,7 @@ editor-size-bytes = { $count ->
 ## External programs.
 
 editor-process-timeout = Timed out
+editor-latex-stalled = The compile produced no output for { $minutes } minutes and was stopped
 editor-process-too-large = Too much output
 editor-process-cancelled = Cancelled
 editor-process-no-stdout = Couldn’t get standard output

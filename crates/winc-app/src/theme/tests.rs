@@ -168,10 +168,15 @@ fn file_kinds_cover_each_ecosystem() {
     assert_eq!(glyph("main.cpp"), Letters("C++"));
     assert_eq!(glyph("Main.java"), Java);
     assert_eq!(glyph("App.vue"), Code);
+    // LaTeX 的源文件和宏包是 TEX，参考文献库仍是文档。
+    assert_eq!(glyph("paper.tex"), Letters("TEX"));
+    assert_eq!(glyph("thesis.cls"), Letters("TEX"));
+    assert_eq!(glyph("refs.bib"), Text);
     // `file_kind` 给出的每种记号都在 `FileGlyph::ALL` 里：目录菜单按它事先画图标。
     let samples = [
         "a.ts",
         "a.ets",
+        "a.tex",
         "a.js",
         "a.py",
         "a.go",
