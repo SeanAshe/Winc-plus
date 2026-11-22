@@ -333,6 +333,8 @@ fn round_trips_through_json() {
         language: Some(LocaleChoice::Fixed(winc_i18n::Locale::EnUs)),
         markdown_remote_images: Some(false),
         markdown_text_width: Some(TextWidth::Wide),
+        markdown_font: Some("LXGW Neo XiHei".to_string()),
+        markdown_size: Some(14.0),
         markdown_line_numbers: Some(false),
         markdown_shortcuts: Some(false),
         markdown_focus: Some(true),

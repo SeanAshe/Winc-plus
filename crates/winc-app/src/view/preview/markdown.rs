@@ -134,7 +134,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
             left
         }
     };
-    let base = (app.fonts.code * BASE_RATIO).round();
+    let base = body_size(app);
     let key = Key {
         width,
         base,
@@ -712,7 +712,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
         // 正文中的组字文字已排入所在的行，不再在其上重复绘制。
         let inline = laid.blocks.iter().any(|(_, b)| b.preedit);
         // 段落之后的空行上组字使用正文的字体，不沿用上方标题的字体。
-        let body = (winc_render::FontKind::Ui, Default::default(), key.base);
+        let body = (winc_render::FontKind::Prose, Default::default(), key.base);
         let font = match blank {
             true => Some(body),
             false => font_at(&laid, source),

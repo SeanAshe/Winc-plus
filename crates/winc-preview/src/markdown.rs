@@ -10,7 +10,7 @@ use std::ops::Range;
 use std::path::Path;
 
 use pulldown_cmark::{
-    Alignment, BlockQuoteKind, CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd,
+    Alignment, BlockQuoteKind, CodeBlockKind, Event, HeadingLevel, Parser, Tag, TagEnd,
 };
 
 /// 行内图片在 [`Inline::text`] 里占的字符；第 n 个此字符对应 [`Inline::images`] 的第 n 项。
@@ -530,17 +530,6 @@ impl Inline {
         self.runs = runs;
         self
     }
-}
-
-/// 解析时启用的扩展：GFM 的表格、删除线、任务列表、提示块，以及脚注、文首的 YAML 和公式。
-fn options() -> Options {
-    Options::ENABLE_TABLES
-        | Options::ENABLE_FOOTNOTES
-        | Options::ENABLE_STRIKETHROUGH
-        | Options::ENABLE_TASKLISTS
-        | Options::ENABLE_GFM
-        | Options::ENABLE_YAML_STYLE_METADATA_BLOCKS
-        | Options::ENABLE_MATH
 }
 
 /// 解析 `text`。
@@ -1065,7 +1054,11 @@ impl Builder<'_> {
             Tag::Emphasis => self.push_style(Style::EMPHASIS, None),
             Tag::Strong => self.push_style(Style::STRONG, None),
             Tag::Strikethrough => self.push_style(Style::STRIKE, None),
-            Tag::Link { dest_url, .. } => self.start_link(dest_url.to_string()),
+            Tag::Link {
+                link_type,
+                dest_url,
+                ..
+            } => self.start_link(link_url(link_type, &dest_url)),
             Tag::Image { dest_url, .. } => {
                 self.image = Some(Image {
                     url: dest_url.to_string(),
@@ -1340,9 +1333,14 @@ pub fn slug(text: &str) -> String {
 ///
 /// 目录随标题生成，标题改变时所在块的内容随之改变；没有标题时保留原段落。
 fn contents(blocks: &mut [Block]) {
+    // `[[TOC]]` 解析为名字是 `toc` 的维基链接。
     let is_marker = |block: &Block| {
-        matches!(block, Block::Paragraph(inline)
-            if matches!(inline.text.trim().to_ascii_lowercase().as_str(), "[toc]" | "[[toc]]"))
+        let Block::Paragraph(inline) = block else {
+            return false;
+        };
+        let wiki = matches!(&inline.links[..], [url] if url.strip_prefix(syntax::WIKI)
+            .is_some_and(|name| name.eq_ignore_ascii_case("toc")));
+        wiki || inline.text.trim().eq_ignore_ascii_case("[toc]")
     };
     if !blocks.iter().any(is_marker) {
         return;
@@ -1483,7 +1481,9 @@ mod front;
 mod html;
 mod mark;
 mod shrink;
+pub mod syntax;
 pub(crate) use html::named_entity;
+use syntax::{link_url, options};
 pub mod math;
 pub mod mermaid;
 pub mod paragraph;

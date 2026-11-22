@@ -14,8 +14,19 @@ pub(crate) use winc_typeset::{DETAILS, Memo};
 
 use crate::app::{App, Focus};
 
-/// 正文字号与编辑器字号之比：编辑器字号 13 逻辑像素时，正文为 16 逻辑像素。
-pub(crate) const BASE_RATIO: f32 = 16.0 / 13.0;
+/// 没有设置 `markdown.size` 时正文字号与编辑器字号之比：编辑器字号 13 逻辑像素时，正文为
+/// 16 逻辑像素。
+const BASE_RATIO: f32 = 16.0 / 13.0;
+
+/// 返回没有设置 `markdown.size` 时预览正文的字号（逻辑像素）：按编辑区字号算出并取整。
+pub(crate) fn scaled_body_size(app: &App) -> f32 {
+    (app.fonts.code * BASE_RATIO).round()
+}
+
+/// 返回预览正文的字号（逻辑像素）：`markdown.size`，未设置时为 [`scaled_body_size`]。
+pub(crate) fn body_size(app: &App) -> f32 {
+    (app.config.markdown_size).unwrap_or_else(|| scaled_body_size(app))
+}
 /// 正文宽度为「标准」（`markdown.textWidth`）时正文的最大宽度（逻辑像素，经验值）：更宽时居中、
 /// 两侧留白。
 pub(crate) const MAX_WIDTH: f32 = 880.0;

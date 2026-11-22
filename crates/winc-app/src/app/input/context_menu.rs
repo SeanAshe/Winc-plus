@@ -31,7 +31,7 @@ mod tests;
 pub use menus::*;
 pub(crate) use popup::{
     CHECK_COLUMN, ICON_COLUMN, POPUP_PAD, POPUP_TEXT_X, PopupLevel, PopupMenu, PopupRow,
-    folder_rows,
+    folder_level,
 };
 pub(crate) use present::MenuIcon;
 
@@ -207,6 +207,8 @@ pub enum MenuCommand {
     /// 远端的文件树：把这一项（多选时选中的各项）下载到本机的一个目录。
     Download,
     GoToDefinition,
+    /// 打开光标处的链接。
+    OpenLink,
     FindReferences,
     /// 在当前行添加书签。
     AddBookmark,
@@ -809,6 +811,7 @@ impl MenuCommand {
             MenuCommand::Copy => t!("cmd-copy"),
             MenuCommand::Paste => t!("cmd-paste"),
             MenuCommand::GoToDefinition => t!("cmd-go-to-definition"),
+            MenuCommand::OpenLink => t!("cmd-open-link"),
             MenuCommand::FindReferences => t!("cmd-find-references"),
             MenuCommand::AddBookmark => t!("menu-add-bookmark"),
             MenuCommand::RemoveBookmark => t!("menu-remove-bookmark"),
@@ -891,6 +894,7 @@ impl MenuCommand {
             MenuCommand::GitOpenFile => Action::ChangesOpenSource,
             MenuCommand::GitRollbackFile => Action::ChangesRollback,
             MenuCommand::GoToDefinition => Action::GoToDefinition,
+            MenuCommand::OpenLink => Action::OpenLink,
             MenuCommand::FindReferences => Action::FindReferences,
             MenuCommand::AddBookmark | MenuCommand::RemoveBookmark => Action::ToggleBookmark,
             MenuCommand::ListBookmarks => Action::ListBookmarks,

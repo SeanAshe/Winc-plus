@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 use winc_render::{FontKind, Frame, Rect, Stroke};
 
-use super::BASE_RATIO;
+use super::body_size;
 use crate::app::App;
 use crate::app::preview::markdown::{DiagramLaid, DiagramTool, DiagramView, MAX_ZOOM, MIN_ZOOM};
 use crate::icons;
@@ -62,7 +62,7 @@ pub(in crate::view) fn draw_diagram_view(app: &mut App, frame: &mut Frame<'_>) {
     let p = app.palette;
     frame.rect(area, p.editor_bg);
 
-    let base = (app.fonts.code * BASE_RATIO).round();
+    let base = body_size(app);
     let Some(view) = app.preview.markdown.diagram.take() else {
         return;
     };

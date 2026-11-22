@@ -16,6 +16,7 @@ pub(super) mod folding;
 pub(super) mod format;
 pub(crate) mod hex;
 pub(super) mod hint;
+pub(crate) mod links;
 pub(super) mod navigation;
 pub(super) mod paste;
 pub(super) mod scrollbar;

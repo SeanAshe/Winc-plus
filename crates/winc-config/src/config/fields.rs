@@ -332,6 +332,16 @@ const TREE: &[Field] = &[
 /// `markdown` 一节。
 const MARKDOWN: &[Field] = &[
     bool_field!("remoteImages", markdown_remote_images),
+    string_field!("font", markdown_font),
+    Field {
+        key: "size",
+        read: |config, value, name, problems| {
+            let label = t!("config-label-font-size");
+            config.markdown_size =
+                read_number(value, name, Config::EDITOR_SIZE_RANGE, label, problems)
+        },
+        write: |config| config.markdown_size.map(number),
+    },
     bool_field!("lineNumbers", markdown_line_numbers),
     bool_field!("shortcuts", markdown_shortcuts),
     bool_field!("focusMode", markdown_focus),

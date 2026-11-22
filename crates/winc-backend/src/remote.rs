@@ -1248,7 +1248,7 @@ impl Ssh {
         if let Some(port) = target.port() {
             command.arg("-p").arg(port.to_string());
         }
-        command.arg("-G").arg(target.host()).stdin(Stdio::null());
+        command.arg("-G").arg(&*target.host()).stdin(Stdio::null());
         match command.output() {
             Ok(output) => Self::missing(&String::from_utf8_lossy(&output.stdout)),
             Err(_) => Self::default(),
@@ -1339,7 +1339,7 @@ fn ssh(target: &Target, options: Ssh) -> Command {
     if let Some(port) = target.port() {
         command.arg("-p").arg(port.to_string());
     }
-    command.arg(target.host()).arg("--");
+    command.arg(&*target.host()).arg("--");
     command
 }
 

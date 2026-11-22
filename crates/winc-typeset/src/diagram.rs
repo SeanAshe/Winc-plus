@@ -272,7 +272,7 @@ impl Cx<'_, '_> {
             };
             // 开合按钮：文字和指向展开方向的箭头。
             let size = self.base * 0.8125;
-            let text_w = self.frame.measure(FontKind::Ui, size, label);
+            let text_w = self.frame.measure(FontKind::Prose, size, label);
             let (arrow, gap, pad) = (size * 0.32, size * 0.4, size * 0.9);
             let pill_w = (pad * 2.0 + text_w + gap + arrow * 2.0).round();
             let pill_h = (size * 1.9).round();
@@ -293,7 +293,7 @@ impl Cx<'_, '_> {
                 x: pill.x + pad,
                 baseline: pill.y + pill_h / 2.0 + size * 0.35,
                 text: label.into(),
-                font: FontKind::Ui,
+                font: FontKind::Prose,
                 faux: Default::default(),
                 size,
                 color,

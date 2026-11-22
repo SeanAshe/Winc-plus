@@ -630,6 +630,16 @@ impl Renderer {
         glyphs.advances.clear();
         Ok(())
     }
+
+    /// 设置预览正文的字体列表；在 [`Self::new`]、[`Self::set_fonts`] 之后调用，为空时预览
+    /// 正文用界面字体。
+    pub fn set_prose_fonts(&mut self, prose: &[FontSpec]) {
+        let mut glyphs = self.glyphs.borrow_mut();
+        glyphs.fonts.set_prose(prose);
+        glyphs.clear();
+        glyphs.advances.clear();
+    }
+
     /// 返回逻辑像素到物理像素的倍数：系统的缩放系数乘以界面缩放倍数。
     pub fn scale_factor(&self) -> f32 {
         self.scale

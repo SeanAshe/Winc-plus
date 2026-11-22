@@ -812,3 +812,13 @@ fn image_sizes_written_by_other_editors_are_read() {
     let d = image("<img src=\"a.png\" width=\"100\" style=\"width: 70%; height: 40px\">");
     assert_eq!((d.width, d.height), (Some(Length::Percent(7000)), Some(40)));
 }
+
+/// 维基链接是地址以 [`syntax::WIKI`] 开头的链接，显示 `|` 之后的文字，没有时显示名字。
+#[test]
+fn wikilinks_are_links_to_a_name() {
+    let parsed = parse("见 [[winc]] 和 [[notes/a.csv#表|数据]]。`[[代码]]`\n");
+    let inline = paragraph(&parsed.blocks[0]);
+    assert_eq!(inline.text, "见 winc 和 数据。[[代码]]");
+    let wiki = |name: &str| format!("{}{name}", syntax::WIKI);
+    assert_eq!(inline.links, [wiki("winc"), wiki("notes/a.csv#表")]);
+}

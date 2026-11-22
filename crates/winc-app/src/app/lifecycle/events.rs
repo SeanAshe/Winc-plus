@@ -146,6 +146,7 @@ impl ApplicationHandler<UserEvent> for App {
                 &self.config.terminal_font,
                 !terminal.is_empty(),
             ),
+            ("markdown.font", &self.config.markdown_font, true),
         ]
         .into_iter()
         .filter(|&(_, _, own)| own)
@@ -170,7 +171,12 @@ impl ApplicationHandler<UserEvent> for App {
                 &terminal,
                 self.font_weight(),
                 self.terminal_font_weight(),
-            ),
+            )
+            .map(|mut renderer| {
+                let prose = super::appearance::configured_fonts(&self.config.markdown_font);
+                renderer.set_prose_fonts(&prose);
+                renderer
+            }),
         };
         let renderer = match renderer {
             Ok(renderer) => renderer,
@@ -372,6 +378,7 @@ impl ApplicationHandler<UserEvent> for App {
                 if self.terminal.open {
                     self.update_terminal_link();
                 }
+                self.update_text_link();
                 // 按住 `⌥` 时分支选择器中的「拉取」变为「拉取并变基」，提交按钮变为「提交并推送」。
                 if (self.overlays.picker.open && self.picker_has_actions()) || self.commit_shown() {
                     self.request_redraw();
@@ -454,6 +461,10 @@ impl App {
             UserEvent::RemoteStage => self.remote_stage_changed(),
             UserEvent::RemoteHealth => self.request_redraw(),
             UserEvent::RemoteClosed(target) => self.remote_closed(&target),
+            UserEvent::RemoteShells => {
+                self.relayout();
+                self.request_redraw();
+            }
             UserEvent::ReleaseNotes(notes) => self.show_release_notes(notes),
             done @ (UserEvent::GitStatus
             | UserEvent::GitContent
@@ -462,6 +473,7 @@ impl App {
             | UserEvent::GitOperated
             | UserEvent::RemoteConnected
             | UserEvent::RemoteListed
+            | UserEvent::FolderListed
             | UserEvent::RemoteWatching
             | UserEvent::FormatPlanned
             | UserEvent::FileWorked

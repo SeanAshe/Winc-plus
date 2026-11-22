@@ -96,6 +96,21 @@ impl App {
                     tooltip: None,
                 }
             }
+            MenuCommand::FontDefault
+                if matches!(
+                    &self.overlays.context_menu,
+                    Some(ContextMenu {
+                        target: MenuTarget::Font(Setting::MarkdownFont),
+                        ..
+                    })
+                ) =>
+            {
+                MenuLabel {
+                    title: t!("settings-markdown-font-default").to_owned(),
+                    subtitle: None,
+                    tooltip: None,
+                }
+            }
             MenuCommand::OpenRecentInNewWindow(i) => {
                 let label = self.recent_label(i);
                 MenuLabel {

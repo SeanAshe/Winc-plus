@@ -433,3 +433,22 @@ namespace tools {
     );
     assert_eq!(names("hpp", &long), ["A"]);
 }
+
+/// 回归：Lua 长注释、长字符串中的行被当成定义。
+#[test]
+fn lua_long_brackets_hide_their_lines() {
+    let text = concat!(
+        "--[[\nfor var=exp1,exp2,exp3 do\nend\nvar 从 exp1 变化到 exp2\nlocal hidden = 1\n--]]\n",
+        "function get5x(x)\n    return 5 * x\nend\n",
+        "local text = [==[\nfunction inside()\n]] 还没有结束\n]==]\n",
+        "local a = [[同一行结束]] local b = 2\n",
+        "--[[ 同一行结束 ]]\nfunction after()\nend\n",
+    );
+    assert_eq!(names("lua", text), ["get5x", "after"]);
+    // 引号中的、行注释中不紧跟注释符的 `[[` 不是开头。
+    let text = concat!(
+        "local s = find(\"[[\", '\\'[[')\nfunction quoted()\nend\n",
+        "-- 见 [[ 的写法\nfunction commented()\nend\n",
+    );
+    assert_eq!(names("lua", text), ["quoted", "commented"]);
+}

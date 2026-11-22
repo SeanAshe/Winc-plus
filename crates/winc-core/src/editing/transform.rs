@@ -559,6 +559,217 @@ pub fn transpose(text: &impl Lines, selection: Selection) -> Option<Transaction>
     ))
 }
 
+/// 返回把 `\uXXXX` 转义换成对应字符的事务；没有可换的转义时返回 `None`。
+///
+/// 有选区时只转换选区，否则转换整个文件。两个反斜杠是一对，后面的 `u` 不算转义；成对的高、低
+/// 代理项合成一个字符。落单的代理项、控制字符、行分隔符和零宽字符等看不见的字符保留转义写法。
+pub fn unescape_unicode(text: &impl Lines, selection: Selection) -> Option<Transaction> {
+    convert_runs(text, selection, |chars, i| {
+        if chars[i] != '\\' {
+            return Run::Keep(1);
+        }
+        if chars.get(i + 1) == Some(&'\\') {
+            return Run::Keep(2);
+        }
+        match unicode_escape_at(chars, i, true) {
+            Some((c, len)) => Run::Replace(len, c.to_string()),
+            None => Run::Keep(1),
+        }
+    })
+}
+
+/// 返回把 ASCII 以外的字符写成 `\uXXXX` 转义的事务（十六进制大写，补充平面的字符写成一对代理项）；
+/// 没有这样的字符时返回 `None`。
+///
+/// 有选区时只转换选区，否则转换整个文件；已有的转义原样保留。转义前面是落单的反斜杠时，这个
+/// 反斜杠写成 `\u005C`，再转回字符时仍是原来的文字。
+pub fn escape_unicode(text: &impl Lines, selection: Selection) -> Option<Transaction> {
+    convert_runs(text, selection, |chars, i| {
+        let c = chars[i];
+        if c == '\\' {
+            let n = chars[i..].iter().take_while(|&&c| c == '\\').count();
+            let lone = n % 2 == 1 && chars.get(i + n).is_some_and(|c| !c.is_ascii());
+            return match n {
+                1 if lone => Run::Replace(1, "\\u005C".to_owned()),
+                _ if lone => Run::Keep(n - 1),
+                _ => Run::Keep(n),
+            };
+        }
+        if c.is_ascii() {
+            return Run::Keep(1);
+        }
+        let mut escaped = String::new();
+        push_escape(&mut escaped, c, false);
+        Run::Replace(1, escaped)
+    })
+}
+
+/// 把 `text`（`.properties` 的内容）中的 `\uXXXX` 转义换成对应的字符，规则同
+/// [`unescape_unicode`]，但 ASCII 字符的转义保留：`\u003D`、`\u005C` 等换成字符会改变含义。
+pub fn unescape_unicode_text(text: &str) -> String {
+    if !text.contains("\\u") {
+        return text.to_owned();
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '\\' && chars.get(i + 1) == Some(&'\\') {
+            out.push_str("\\\\");
+            i += 2;
+        } else if let Some((c, len)) = unicode_escape_at(&chars, i, false) {
+            out.push(c);
+            i += len;
+        } else {
+            out.push(chars[i]);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// 把 `text` 中 ASCII 以外的字符写成 `\uXXXX` 转义，是 [`unescape_unicode_text`] 的逆运算。
+///
+/// `latin1` 为真时 ISO-8859-1 能表示的字符（U+00FF 以内）原样保留。`lowercase` 为真时十六进制
+/// 用小写。落单的反斜杠后面的字符在 `.properties` 中是这个字符本身，转义时去掉这个反斜杠。
+pub fn escape_unicode_text(text: &str, lowercase: bool, latin1: bool) -> String {
+    let limit = if latin1 { 0xFF } else { 0x7F };
+    let mut out = String::with_capacity(text.len());
+    // `out` 末尾连续的反斜杠数。
+    let mut slashes = 0;
+    for c in text.chars() {
+        if u32::from(c) <= limit {
+            out.push(c);
+            slashes = if c == '\\' { slashes + 1 } else { 0 };
+            continue;
+        }
+        if slashes % 2 == 1 {
+            out.pop();
+        }
+        slashes = 0;
+        push_escape(&mut out, c, lowercase);
+    }
+    out
+}
+
+/// 把 `c` 写成 `\uXXXX` 转义接到 `out` 后面，补充平面的字符写成一对代理项。
+fn push_escape(out: &mut String, c: char, lowercase: bool) {
+    let mut units = [0; 2];
+    for unit in c.encode_utf16(&mut units).iter() {
+        if lowercase {
+            out.push_str(&format!("\\u{unit:04x}"));
+        } else {
+            out.push_str(&format!("\\u{unit:04X}"));
+        }
+    }
+}
+
+/// [`convert_runs`] 中一处的处理：原样保留若干字符，或把若干字符换成新的文字。
+enum Run {
+    Keep(usize),
+    Replace(usize, String),
+}
+
+/// 逐处扫描选区（没有选区时为整个文件）中的文字，按 `step` 的结果生成事务；相邻的替换合成一处
+/// 修改。没有替换时返回 `None`，选区随文本调整。
+fn convert_runs(
+    text: &impl Lines,
+    selection: Selection,
+    step: impl Fn(&[char], usize) -> Run,
+) -> Option<Transaction> {
+    let (from, to) = if selection.is_empty() {
+        (0, text.end_pos())
+    } else {
+        (selection.from(), selection.to())
+    };
+    let chars: Vec<char> = text.substring(from, to).chars().collect();
+    let mut changes: Vec<Change> = Vec::new();
+    // 已排入的修改造成的长度变化（字符）：后面的修改位置按应用前面的修改之后计。
+    let mut delta = 0isize;
+    let mut open: Option<(usize, String, String)> = None;
+    let mut i = 0;
+    while i < chars.len() {
+        match step(&chars, i) {
+            Run::Keep(len) => {
+                if let Some(run) = open.take() {
+                    push_run(&mut changes, &mut delta, from, run);
+                }
+                i += len;
+            }
+            Run::Replace(len, inserted) => {
+                let run = open.get_or_insert_with(|| (i, String::new(), String::new()));
+                run.1.extend(&chars[i..i + len]);
+                run.2.push_str(&inserted);
+                i += len;
+            }
+        }
+    }
+    if let Some(run) = open {
+        push_run(&mut changes, &mut delta, from, run);
+    }
+    if changes.is_empty() {
+        return None;
+    }
+    let after = shift_selection(selection, &changes);
+    Some(Transaction::new(changes, selection, after, EditKind::Other))
+}
+
+/// 把一段相邻的替换（在扫描文字中的起点、原文、新文字）排入 `changes`。
+fn push_run(
+    changes: &mut Vec<Change>,
+    delta: &mut isize,
+    from: usize,
+    (start, removed, inserted): (usize, String, String),
+) {
+    let removed_len = removed.chars().count() as isize;
+    let inserted_len = inserted.chars().count() as isize;
+    changes.push(Change {
+        start: (from + start).saturating_add_signed(*delta),
+        removed,
+        inserted,
+    });
+    *delta += inserted_len - removed_len;
+}
+
+/// 读取 `chars[i]` 起的 `\uXXXX` 转义，返回对应的字符和转义占的字符数；不是可以显示的转义，或
+/// `ascii` 为假而字符是 ASCII 时返回 `None`（见 [`unescape_unicode`]）。
+fn unicode_escape_at(chars: &[char], i: usize, ascii: bool) -> Option<(char, usize)> {
+    let unit = |at: usize| -> Option<u32> {
+        if chars.get(at) != Some(&'\\') || chars.get(at + 1) != Some(&'u') {
+            return None;
+        }
+        let digits = chars.get(at + 2..at + 6)?;
+        digits
+            .iter()
+            .try_fold(0, |value, c| Some(value * 16 + c.to_digit(16)?))
+    };
+    let first = unit(i)?;
+    let (scalar, len) = if (0xD800..=0xDBFF).contains(&first) {
+        let low = unit(i + 6).filter(|low| (0xDC00..=0xDFFF).contains(low))?;
+        (0x1_0000 + ((first - 0xD800) << 10) + (low - 0xDC00), 12)
+    } else {
+        (first, 6)
+    };
+    let c = char::from_u32(scalar)?;
+    (!invisible(c) && (ascii || !c.is_ascii())).then_some((c, len))
+}
+
+/// 是否为显示出来看不见、或会断行的字符：控制字符、行和段落分隔符、零宽字符、方向控制符、BOM。
+fn invisible(c: char) -> bool {
+    c.is_control()
+        || matches!(
+            c,
+            '\u{00AD}'
+                | '\u{061C}'
+                | '\u{180E}'
+                | '\u{200B}'..='\u{200F}'
+                | '\u{2028}'..='\u{202E}'
+                | '\u{2060}'..='\u{206F}'
+                | '\u{FEFF}'
+                | '\u{FFF9}'..='\u{FFFB}'
+        )
+}
+
 /// 返回包住选区的引号字符串的位置区间，依次是不含引号、含引号两种。
 ///
 /// 只在选区所在的一行内查找，选区跨行时返回空表。

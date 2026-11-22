@@ -320,7 +320,8 @@ impl App {
             | Setting::TerminalOptionAsMeta
             | Setting::UiFont
             | Setting::EditorFont
-            | Setting::TerminalFont => {
+            | Setting::TerminalFont
+            | Setting::MarkdownFont => {
                 let target = match setting {
                     Setting::Language => MenuTarget::Locale,
                     Setting::RenderWhitespace => MenuTarget::Whitespace,

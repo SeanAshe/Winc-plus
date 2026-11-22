@@ -283,6 +283,12 @@ impl App {
     /// 层次相反，上层的部件先判断；顺序只在此处定义，新增部件只需在此处放到正确的位置。
     ///
     /// 只依据位置，不区分按键；设置浮层、右键和中键由调用方先行处理。
+    /// 鼠标是否在编辑区显示的文字上（没有被浮层、面板挡住）。
+    pub(in crate::app) fn over_editor_text(&self) -> bool {
+        let (x, y) = self.pointer.mouse;
+        self.active_shows_text() && matches!(self.target_at(x, y), Target::Editor)
+    }
+
     pub(super) fn target_at(&self, x: f32, y: f32) -> Target {
         let l = &self.layout;
         // 窗口最外圈的细边用于改变窗口大小，位于所有部件之上；窗口按钮位于顶栏右端。
@@ -981,6 +987,7 @@ impl App {
                         | crate::app::preview::markdown::TocTarget::Pin
                 )
         ) || self.terminal.link.is_some()
+            || self.pointer.link.is_some()
         {
             // 提交图中的线可点击（沿线跳转）；终端中命令块的色带和吸顶的命令行同样可点击。
             CursorIcon::Pointer

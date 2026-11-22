@@ -242,7 +242,7 @@ impl Math<'_, '_, '_> {
     fn glyphs(&mut self, text: &str, font: Font, env: Env) -> MathBox {
         let size = self.size(env.level);
         let kind = if font == Font::Text {
-            FontKind::Ui
+            FontKind::Prose
         } else {
             FontKind::Math
         };

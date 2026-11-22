@@ -52,6 +52,7 @@ fn a_folder_on_a_connected_host_opens_as_the_workspace() {
     // 测试线程相当于界面线程：不允许等待远端的应答，后台任务就地执行时除外。
     remote::forbid_blocking();
     folders_on_a_remote_host_are_not_taken_for_files();
+    crumb_menus_on_a_remote_host_list_the_folder();
     features_work_in_a_remote_workspace();
     clipboard_images_pasted_into_a_remote_terminal_are_sent_there_first();
     ssh_arguments_open_the_project_and_file();
@@ -797,6 +798,51 @@ fn ssh_arguments_open_the_project_and_file() {
     app.open_remote(crate::cli::remote_open(&parsed.targets).unwrap());
     assert_eq!(caret(&app), (root.join("src/config.rs"), (2, 0)));
     remote::disconnect(&target);
+}
+
+/// 回归：界面线程不能读取远端的目录，状态栏路径的目录菜单只有一行读取失败的说明。
+///
+/// 由 [`a_folder_on_a_connected_host_opens_as_the_workspace`] 调用，原因同
+/// [`folders_on_a_remote_host_are_not_taken_for_files`]。
+fn crumb_menus_on_a_remote_host_list_the_folder() {
+    use crate::app::{PopupRow, folder_level};
+    use winit::keyboard::{Key, NamedKey};
+    let dir = search_folder("remote-crumbs").canonicalize().unwrap();
+    let target = loopback("app-remote-crumbs");
+    let root = winc_backend::virtual_path(&target, dir.as_os_str().as_bytes());
+    let file = root.join("src/main.rs");
+    let mut app = blank_app(false);
+    app.config.remote_enabled = Some(true);
+    remote::forbid_blocking();
+    app.open_folder(&root);
+    app.open_path(&file);
+    paint(&mut app);
+
+    // 尚未读取的远端目录只有一行说明，不在界面线程上读取。
+    let level = folder_level(&root, &file);
+    assert_eq!(level.loading, Some((root.clone(), false)));
+    assert_eq!(level.rows.len(), 1);
+
+    // 第 `level` 级菜单中各个文件和目录的名字。
+    let names = |app: &App, level: usize| -> Vec<String> {
+        let rows = &app.popup().unwrap().levels[level].rows;
+        let name = |row: &PopupRow| match row {
+            PopupRow::Entry { name, .. } => Some(name.clone()),
+            _ => None,
+        };
+        rows.iter().filter_map(name).collect()
+    };
+    app.open_crumb_menu(0);
+    let listed = names(&app, 0);
+    assert_eq!(listed[0], "src");
+    assert!(listed.contains(&"Cargo.toml".to_owned()), "{listed:?}");
+    // 展开子目录同样在后台读取。
+    let menu = app.overlays.context_menu.as_mut().unwrap();
+    menu.popup.as_mut().unwrap().levels[0].hover = Some(0);
+    assert!(app.popup_logical_key(&Key::Named(NamedKey::ArrowRight)));
+    assert_eq!(names(&app, 1), ["config.rs", "main.rs"]);
+    remote::disconnect(&target);
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// 回归：界面线程上查询远端路径的类别一律得到「不是目录」，据此取上一级时，「在终端中打开」

@@ -30,10 +30,13 @@ fn search_finds_settings_on_every_page() {
     search(&mut app, "字号");
     assert!(app.settings_layout().searching);
     let (rows, titles) = listed(&app);
-    assert_eq!(
-        rows,
-        [Setting::UiSize, Setting::EditorSize, Setting::TerminalSize]
-    );
+    let sizes = [
+        Setting::UiSize,
+        Setting::EditorSize,
+        Setting::MarkdownSize,
+        Setting::TerminalSize,
+    ];
+    assert_eq!(rows, sizes);
     assert_eq!(titles, ["外观", "编辑器", "终端"]);
     assert_eq!(app.settings.selected, Setting::UiSize);
 
@@ -66,6 +69,8 @@ fn search_finds_settings_on_every_page() {
         [
             Setting::RemoteImages,
             Setting::TextWidth,
+            Setting::MarkdownFont,
+            Setting::MarkdownSize,
             Setting::MarkdownLineNumbers,
             Setting::MarkdownShortcuts,
             Setting::MarkdownFocus,
@@ -81,7 +86,10 @@ fn search_finds_settings_on_every_page() {
     // 终端模块关闭时不列出终端页的设置项。
     app.config.terminal_enabled = Some(false);
     search(&mut app, "字号");
-    assert_eq!(listed(&app).0, [Setting::UiSize, Setting::EditorSize]);
+    assert_eq!(
+        listed(&app).0,
+        [Setting::UiSize, Setting::EditorSize, Setting::MarkdownSize]
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -101,15 +109,16 @@ fn keyboard_and_clicks_move_in_and_out_of_search() {
     app.settings_enter_results();
     assert_eq!(app.focus, Focus::Settings);
     assert!(app.settings.keyboard);
-    app.settings_move(true);
-    app.settings_move(true);
-    app.settings_move(true);
+    for _ in 0..4 {
+        app.settings_move(true);
+    }
     assert_eq!(app.settings.selected, Setting::TerminalSize);
     // 结果就是该设置项本身，可以直接调整。
     app.settings_step(true);
     assert_eq!(app.config.terminal_size, Some(CODE_FONT + 1.0));
 
     // 清空搜索框：回到选中项所在的页，仍选中它。
+    app.settings_move(false);
     app.settings_move(false);
     search(&mut app, "");
     let layout = app.settings_layout();

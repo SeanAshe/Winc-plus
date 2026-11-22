@@ -37,6 +37,8 @@ enum Snapshot {
         rope: Rope,
         encoding: Encoding,
         known: (Option<Stamp>, u64),
+        /// 按 Unicode 转义保存时各行原来的写法。
+        origin: Option<std::sync::Arc<super::charset::EscapeOrigin>>,
     },
 }
 
@@ -115,6 +117,7 @@ impl SaveJob {
                 rope,
                 encoding,
                 known,
+                origin,
             } => {
                 let found = winc_backend::fs::metadata(&self.target).ok();
                 let found = found.map(|metadata| (metadata.modified, metadata.len));
@@ -122,7 +125,8 @@ impl SaveJob {
                     changed = found;
                     Err(io::Error::other(t!("editor-original-changed")))
                 } else {
-                    write_rope(&self.target, rope, *encoding).map(|written| Written {
+                    let origin = origin.as_deref();
+                    write_rope(&self.target, rope, *encoding, origin).map(|written| Written {
                         fresh: None,
                         mtime: written.modified,
                         len: written.len,
@@ -166,6 +170,7 @@ impl Document {
                 rope: rope.clone(),
                 encoding: self.encoding,
                 known: (self.disk_mtime, self.disk_len),
+                origin: self.escape_origin.clone(),
             },
             Content::Large(large) if large.original_changed() => {
                 return Err(io::Error::other(t!("editor-original-changed")));

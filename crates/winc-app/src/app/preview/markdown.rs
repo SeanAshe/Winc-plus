@@ -840,8 +840,10 @@ impl App {
             {
                 app.set_preview_mode(mode);
             }
-            if let Some(anchor) = anchor {
-                app.preview.markdown.pending_anchor = Some((id, anchor));
+            match anchor {
+                Some(anchor) if shown_area(app).is_none() => drop(app.go_to_heading(&anchor)),
+                Some(anchor) => app.preview.markdown.pending_anchor = Some((id, anchor)),
+                None => {}
             }
         });
     }
@@ -1260,19 +1262,22 @@ impl App {
     }
 }
 
-/// 返回文字顶端那一行在预览所排文字中的行（小数）和那段文字的行数。
-pub(super) fn preview_line(doc: &winc_editor::Document, lines: Option<&LineMap>) -> (f32, usize) {
-    let line = text_line(doc);
+/// 返回文字滚到显示行 `row` 时顶端那一行在预览所排文字中的行（小数）和那段文字的行数。
+pub(super) fn preview_line(
+    doc: &winc_editor::Document,
+    lines: Option<&LineMap>,
+    row: f64,
+) -> (f32, usize) {
+    let line = text_line(doc, row);
     match lines {
         Some(map) => (map.line_of(f64::from(line)) as f32, map.count),
         None => (line, doc.text().line_count()),
     }
 }
 
-/// 返回文字滚动位置的第一个显示行 `doc.scroll_line` 对应的原文行号（小数：自动换行折成
-/// 多段的行按段数等分）。
-pub(super) fn text_line(doc: &winc_editor::Document) -> f32 {
-    let row = doc.scroll_line.max(0.0);
+/// 返回显示行 `row` 对应的原文行号（小数：自动换行折成多段的行按段数等分）。
+pub(super) fn text_line(doc: &winc_editor::Document, row: f64) -> f32 {
+    let row = row.max(0.0);
     let (line, part) = doc.line_and_part(row as usize);
     let rows = doc.rows_of(line).max(1) as f64;
     line as f32 + ((part as f64 + row.fract()) / rows) as f32

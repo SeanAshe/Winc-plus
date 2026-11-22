@@ -457,6 +457,10 @@ impl App {
                     !doc.selection.is_empty(),
                     bookmarked,
                 );
+                // 光标在链接上时第一项是「打开链接」。
+                if self.link_at_caret().is_some() {
+                    menu.insert(0, MenuEntry::Item(MenuCommand::OpenLink, true));
+                }
                 // Git 模块开着、文件在仓库里：最后是所选代码的历史和「逐行追溯」开关。
                 if doc.path.as_deref().is_some_and(|p| self.in_repo(p)) {
                     let history = Action::GitSelectionHistory;
@@ -644,12 +648,16 @@ impl App {
                 let large = doc.is_large()
                     || (doc.hex.as_deref()).is_some_and(|v| v.size() > winc_editor::LARGE_FILE);
                 let utf8_only = doc.hex.is_some() && large;
+                // 「Unicode 转义」只用于 `.properties` 文件。
+                let properties = (doc.path.as_deref())
+                    .and_then(std::path::Path::extension)
+                    .is_some_and(|e| e.eq_ignore_ascii_case("properties"));
                 let reopen = |encoding| {
                     doc.path.is_some()
                         && (!large || utf8_only && encoding == winc_editor::Encoding::Utf8)
                 };
                 let hex = doc.path.is_some() && doc.hex.is_none();
-                encoding_menu(reopen, hex, |encoding| {
+                encoding_menu(properties, reopen, hex, |encoding| {
                     doc.hex.is_none() && doc.encoding.writable() && doc.can_save_with(encoding)
                 })
             }
@@ -1078,7 +1086,10 @@ impl App {
                 MenuCommand::IndentSize(n) => doc.indent_size(tab_width) == n,
                 MenuCommand::LineEnding(eol) => doc.line_ending == eol,
                 MenuCommand::ReopenEncoding(i) | MenuCommand::SaveEncoding(i) => {
-                    doc.hex.is_none() && CHOICES.get(i).is_some_and(|(e, _)| *e == doc.encoding)
+                    doc.hex.is_none()
+                        && CHOICES
+                            .get(i)
+                            .is_some_and(|(e, _)| *e == doc.encoding.choice())
                 }
                 MenuCommand::ReopenHex => doc.hex.is_some(),
                 MenuCommand::UseLanguage(i) => (winc_syntax::languages().get(i))

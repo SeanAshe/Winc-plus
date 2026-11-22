@@ -815,3 +815,39 @@ fn a_binary_file_can_be_reopened_with_an_encoding() {
     assert!(doc.readonly_reason().is_none());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// `.properties` 打开后按 Unicode 转义显示字符，编码菜单中列出「Unicode 转义」并勾选，小写的转义
+/// 同样处理；其他文件不列出。
+#[test]
+fn the_encoding_menu_offers_unicode_escapes_for_properties() {
+    use crate::app::status::status_bar::StatusItem;
+    use winc_editor::Encoding;
+    use winc_editor::encoding::CHOICES;
+    let dir = sample_folder("unicode-escapes-menu");
+    let escapes = (CHOICES.iter())
+        .position(|(e, _)| matches!(e, Encoding::UnicodeEscapes { .. }))
+        .unwrap();
+    let listed = |name: &str, text: &str| {
+        let path = dir.join(name);
+        std::fs::write(&path, text).unwrap();
+        let mut app = app_with(&path, false);
+        paint(&mut app);
+        let encoding = app.editor.active().unwrap().encoding;
+        app.open_status_menu(StatusItem::Encoding);
+        let command = MenuCommand::ReopenEncoding(escapes);
+        let listed = (menu_commands(&app).into_iter()).any(|(c, _)| c == command);
+        (encoding, listed, listed && app.menu_checked(command))
+    };
+    for (lowercase, text) in [(false, "hi=\\u4F60\n"), (true, "hi=\\u4f60\n")] {
+        let latin1 = false;
+        assert_eq!(
+            listed("messages.properties", text),
+            (Encoding::UnicodeEscapes { lowercase, latin1 }, true, true)
+        );
+    }
+    assert_eq!(
+        listed("notes.txt", "hi=\\u4F60\n"),
+        (Encoding::Utf8, false, false)
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

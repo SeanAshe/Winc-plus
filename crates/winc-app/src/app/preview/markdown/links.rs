@@ -2,6 +2,7 @@
 //! 的控件（复制代码、开合折叠块、收起标题、勾选任务）。
 
 use super::*;
+use winc_preview::markdown::syntax::WIKI;
 
 /// 正文链接无法打开的原因。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,6 +28,15 @@ impl Broken {
 pub(crate) struct LinkChecks {
     of: Option<(DocumentId, u64, Option<u64>)>,
     results: HashMap<String, Option<Broken>>,
+}
+
+/// 两个文件名是否相同，不区分大小写。
+fn same_name(a: &str, b: &str) -> bool {
+    a.eq_ignore_ascii_case(b)
+        || (!a.is_ascii()
+            && a.chars()
+                .flat_map(char::to_lowercase)
+                .eq(b.chars().flat_map(char::to_lowercase)))
 }
 
 impl LinkChecks {
@@ -63,6 +73,9 @@ impl App {
                 let parsed = self.preview.markdown.parsed.as_ref();
                 let titled = parsed.is_some_and(|p| p.heading_keys().contains(&Some(key)));
                 (laid::anchor_box(self, anchor).is_none() && !titled).then_some(Broken::Heading)
+            }
+            None if url.starts_with(WIKI) => {
+                (self.wiki_target(&url[WIKI.len()..]).is_none()).then_some(Broken::File)
             }
             None => (doc.path.as_deref())
                 .and_then(|path| local_target(path, url))
@@ -135,20 +148,38 @@ impl App {
             self.preview.markdown.toggled_now = Some(url);
             return;
         }
+        self.open_link(&url);
+    }
+
+    /// 打开地址 `url`：维基链接按名字查找文件，`#标题` 跳到该标题，本地文件在编辑器中打开，
+    /// 其余交给系统。
+    pub(crate) fn open_link(&mut self, url: &str) {
+        if let Some(name) = url.strip_prefix(WIKI) {
+            match self.wiki_target(name) {
+                Some(path) => self.open_markdown_file(&path, name),
+                None => self.flash(t!("preview-markdown-link-file-not-found")),
+            }
+            return;
+        }
         if let Some(anchor) = url.strip_prefix('#') {
-            self.jump_to_anchor(anchor);
+            // 没有显示预览时在源代码中跳到标题行。
+            if shown_area(self).is_some() {
+                self.jump_to_anchor(anchor);
+            } else if !self.go_to_heading(anchor) {
+                self.flash(t!("preview-markdown-heading-not-found"));
+            }
             return;
         }
         let local = self
             .editor
             .active()
             .and_then(|d| d.path.as_deref())
-            .and_then(|path| local_target(path, &url));
+            .and_then(|path| local_target(path, url));
         match local {
-            Some(path) if self.may_be_file(&path) => self.open_markdown_file(&path, &url),
+            Some(path) if self.may_be_file(&path) => self.open_markdown_file(&path, url),
             Some(_) => self.flash(t!("preview-markdown-link-file-not-found")),
             None => {
-                if let Err(e) = system::open_url(&url) {
+                if let Err(e) = system::open_url(url) {
                     self.flash(t!(
                         "preview-markdown-link-open-failed",
                         error = e.to_string()
@@ -156,6 +187,55 @@ impl App {
                 }
             }
         }
+    }
+
+    /// 返回维基链接 `name`（可以带 `#标题`）指向的文件；找不到时返回 `None`。
+    ///
+    /// 没有扩展名时按 `.md` 查找。在文件表中按文件名（不区分大小写）查找，名字中有 `/` 时
+    /// 按路径的末尾查找；有多个时取与当前文档共同的上级目录最多的，其次取路径最短的。文件表
+    /// 中没有时取当前文档所在目录中的同名文件。
+    pub(crate) fn wiki_target(&self, name: &str) -> Option<PathBuf> {
+        let name = name.split('#').next().unwrap_or_default().trim();
+        if name.is_empty() {
+            return self.editor.active().and_then(|doc| doc.path.clone());
+        }
+        // 名字中的 `.` 不一定是扩展名：按原名找不到时再按补上 `.md` 的名字找。
+        let named = format!("{name}.md");
+        match Path::new(name).extension() {
+            Some(_) => self.wiki_file(name).or_else(|| self.wiki_file(&named)),
+            None => self.wiki_file(&named),
+        }
+    }
+
+    /// 返回文件名（或路径的末尾）为 `wanted` 的文件，规则见 [`Self::wiki_target`]。
+    fn wiki_file(&self, wanted: &str) -> Option<PathBuf> {
+        let wanted = wanted.replace('\\', "/");
+        let here = (self.editor.active()).and_then(|doc| doc.path.as_deref()?.parent());
+        let index = &self.overlays.picker.index;
+        // 每个文件比较一次，不分配内存：先比长度和路径的边界，再不区分大小写地比末尾。
+        let matches = |path: &str| {
+            let Some(at) = path.len().checked_sub(wanted.len()) else {
+                return false;
+            };
+            (at == 0 || path.as_bytes()[at - 1] == b'/')
+                && path.is_char_boundary(at)
+                && same_name(&path[at..], &wanted)
+        };
+        let found = (0..index.len())
+            .filter(|&i| index.file(i).is_some_and(|file| matches(file.path)))
+            .filter_map(|i| index.absolute(i));
+        let shared = |path: &PathBuf| {
+            let near = here.map_or(0, |here| {
+                (path.components().zip(here.components()))
+                    .take_while(|(a, b)| a == b)
+                    .count()
+            });
+            (std::cmp::Reverse(near), path.components().count())
+        };
+        found.min_by_key(shared).or_else(|| {
+            let sibling = here?.join(&wanted);
+            self.may_be_file(&sibling).then_some(sibling)
+        })
     }
 
     /// 切换原文 `at` 处（字节偏移）的任务列表勾选框：`[ ]` 与 `[x]` 互换。

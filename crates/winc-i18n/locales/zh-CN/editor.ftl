@@ -63,6 +63,7 @@ editor-symbol-variable = 变量
 editor-symbol-heading = 标题
 editor-symbol-section = 小节
 editor-definition-no-name = 光标处无可查找的名称
+editor-no-link = 光标处无链接
 editor-usages-not-found = 未找到「{ $name }」的其他用法
 editor-definition-at-caret = 光标处即为「{ $name }」的定义
 editor-definition-not-found = 未找到「{ $name }」的定义
@@ -104,6 +105,8 @@ editor-encoding-windows-1258 = 越南文 (Windows 1258)
 editor-encoding-windows-874 = 泰文 (Windows 874)
 editor-encoding-lossy = 非 UTF-8
 editor-encoding-binary = 二进制
+editor-encoding-unicode-escapes = Unicode 转义 (\uXXXX)
+editor-encoding-unicode-escapes-short = Unicode 转义
 editor-encoding-unencodable = 「{ $char }」无法以 { $encoding } 编码保存，请使用「通过编码保存」另存为 UTF-8
 
 ## 读写文件。

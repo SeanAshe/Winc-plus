@@ -540,6 +540,7 @@ impl App {
             MenuCommand::FormatSelection => self.format_selection(),
             MenuCommand::Fix => self.fix_active(),
             MenuCommand::GoToDefinition => self.go_to_definition(),
+            MenuCommand::OpenLink => self.open_caret_link(),
             MenuCommand::FindReferences => self.find_references(),
             MenuCommand::AddBookmark => self.set_bookmark(true),
             MenuCommand::RemoveBookmark => self.set_bookmark(false),

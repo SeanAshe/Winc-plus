@@ -98,6 +98,7 @@ impl App {
         if self.terminal.link.is_some() || self.layout.terminal.contains(x, y) {
             self.update_terminal_link();
         }
+        self.update_text_link();
         self.update_cursor_icon();
 
         match self.pointer.drag {

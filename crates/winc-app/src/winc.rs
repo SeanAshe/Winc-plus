@@ -893,6 +893,12 @@ impl ApplicationHandler<Envelope> for Winc {
                     slot.app.request_redraw();
                 }
             }
+            // 连接由各窗口共用，每个窗口都处理。
+            UserEvent::RemoteShells => {
+                for slot in &mut self.windows {
+                    slot.app.user_event(event_loop, UserEvent::RemoteShells);
+                }
+            }
             // 设置是各窗口同步的，看哪个窗口都一样。
             UserEvent::UpdateTick => {
                 let on = self

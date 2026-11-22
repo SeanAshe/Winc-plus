@@ -120,7 +120,7 @@ fn clamp_lines(range: &Range<usize>, lines: &Range<usize>) -> Range<usize> {
 pub(super) fn draw_wrapped_selection(
     app: &App,
     frame: &mut Frame<'_>,
-    selection: Selection,
+    (selection, underline): (Selection, Option<Color>),
     segments: &[Range<usize>],
     origin_x: f32,
     row_y: &dyn Fn(usize) -> f64,
@@ -213,6 +213,10 @@ pub(super) fn draw_wrapped_selection(
     };
     for (i, &(y, span)) in rows.iter().enumerate() {
         let Some((x0, x1)) = span else { continue };
+        if let Some(color) = underline {
+            frame.rect_clipped(underline_rect(x0, x1, y, lh), color, 0.0, clip);
+            continue;
+        }
         let above = i.checked_sub(1).and_then(|j| rows[j].1);
         let below = rows.get(i + 1).and_then(|r| r.1);
         let radius = |covered: bool| if covered { 0.0 } else { RADIUS_SELECTION };
@@ -224,6 +228,11 @@ pub(super) fn draw_wrapped_selection(
         ];
         frame.rect_corners(Rect::new(x0, y, x1 - x0, lh), color, radii, clip);
     }
+}
+
+/// 返回一行中 `x0` 到 `x1` 一段文字的下划线：线宽 1 逻辑像素，距行底 2 逻辑像素。
+fn underline_rect(x0: f32, x1: f32, y: f32, line_height: f32) -> Rect {
+    Rect::new(x0, y + line_height - 2.0, x1 - x0, 1.0)
 }
 
 /// 返回选区的底色；编辑区没有键盘焦点时使用较淡的 `Palette::selection_inactive`。
@@ -245,7 +254,7 @@ fn selection_color(app: &App) -> Color {
 pub(super) fn draw_selection(
     app: &App,
     frame: &mut Frame<'_>,
-    selection: Selection,
+    (selection, underline): (Selection, Option<Color>),
     segments: &[Range<usize>],
     columns: Option<&Columns>,
     origin_x: f32,
@@ -338,6 +347,11 @@ pub(super) fn draw_selection(
         let Some((x0, x1)) = span else { continue };
 
         if !segments.iter().any(|r| r.contains(&line)) {
+            continue;
+        }
+        if let Some(color) = underline {
+            let rect = underline_rect(x0, x1, row_y(line), app.fonts.line_height);
+            frame.rect_clipped(rect, color, 0.0, clip);
             continue;
         }
 

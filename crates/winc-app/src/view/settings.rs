@@ -765,6 +765,10 @@ fn draw_field(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect
             app.config.terminal_font.clone(),
             t!("settings-terminal-font-default"),
         ),
+        Setting::MarkdownFont => (
+            app.config.markdown_font.clone(),
+            t!("settings-markdown-font-default"),
+        ),
         Setting::FormatCommand(_) | Setting::FixCommand(_) => {
             (None, t!("settings-command-placeholder"))
         }

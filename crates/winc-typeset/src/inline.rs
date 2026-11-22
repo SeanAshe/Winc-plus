@@ -102,7 +102,11 @@ impl Cx<'_, '_> {
             para.size
         };
         RunStyle {
-            font: if code { FontKind::Mono } else { FontKind::Ui },
+            font: if code {
+                FontKind::Mono
+            } else {
+                FontKind::Prose
+            },
             faux: Faux {
                 bold: !code && (para.bold || style.has(Style::STRONG)),
                 italic: style.has(Style::EMPHASIS),
@@ -359,7 +363,7 @@ impl Cx<'_, '_> {
             .flatten();
         let mut top = y;
         let mut first_baseline = None;
-        let main = self.frame.metrics(FontKind::Ui, para.size);
+        let main = self.frame.metrics(FontKind::Prose, para.size);
         let mut prev_end = 0;
         for line in lines {
             // 块文字里：`<br>`、硬换行处换行，自动折行处不插入字符。
@@ -434,7 +438,7 @@ impl Cx<'_, '_> {
                     x: pen,
                     baseline,
                     text: "".into(),
-                    font: FontKind::Ui,
+                    font: FontKind::Prose,
                     faux: Faux::default(),
                     size: para.size,
                     color: para.color,

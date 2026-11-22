@@ -111,6 +111,12 @@ pub struct Config {
     pub markdown_remote_images: Option<bool>,
     /// Markdown 预览正文的最大宽度，默认为 [`TextWidth::Standard`]。
     pub markdown_text_width: Option<TextWidth>,
+    /// Markdown 预览正文的字体，写法同 [`Config::editor_font`]；未设置时与界面字体相同。
+    pub markdown_font: Option<String>,
+    /// Markdown 预览正文的字号（点）；未设置时随编辑区字号按比例变化。
+    ///
+    /// 可用范围见 [`Config::EDITOR_SIZE_RANGE`]。
+    pub markdown_size: Option<f32>,
     /// Markdown 预览是否显示行号，默认为是：可编辑的预览在左侧写原文行号，其余预览在代码块中
     /// 写从 1 起的行号。
     pub markdown_line_numbers: Option<bool>,

@@ -1,9 +1,9 @@
 //! 字体：按需 mmap 字体文件，不扫描系统字体库。
 //!
-//! 槽位依次是等宽字体、界面字体、等宽字体的斜体、数学字体、终端字体及其斜体，其后是按优先级
-//! 排列的后备字体；终端的字重与其余文字不同时，接着是按终端字重打开的另一份后备字体（彩色
-//! emoji 除外）。最后是用户在字体列表中写在主字体之后的字体。斜体和后备字体在首次需要时才
-//! 映射文件。候选路径按平台给出，用户配置的字体排在最前面。
+//! 槽位依次是等宽字体、界面字体、等宽字体的斜体、数学字体、终端字体及其斜体、预览正文字体，
+//! 其后是按优先级排列的后备字体；终端的字重与其余文字不同时，接着是按终端字重打开的另一份
+//! 后备字体（彩色 emoji 除外）。最后是用户在字体列表中写在主字体之后的字体。斜体和后备字体
+//! 在首次需要时才映射文件。候选路径按平台给出，用户配置的字体排在最前面。
 
 use std::fs::{File, Metadata};
 use std::ops::Range;
@@ -38,11 +38,13 @@ pub enum FontKind {
     Terminal,
     /// 终端字体的斜体；没有单独设置终端字体时即 [`FontKind::MonoItalic`]。
     TerminalItalic,
+    /// 预览正文的字体；没有单独设置时即 [`FontKind::Ui`]。
+    Prose,
 }
 
 impl FontKind {
     /// 字体种类的个数。
-    const COUNT: usize = 6;
+    const COUNT: usize = 7;
 
     /// 是否为斜体：要斜体的字落到正体字体上时斜切。
     pub(crate) fn italic(self) -> bool {
@@ -545,8 +547,10 @@ const MATH: u8 = 3;
 const TERMINAL: u8 = 4;
 /// 终端字体的斜体所在的槽位。
 const TERMINAL_ITALIC: u8 = 5;
+/// 预览正文字体所在的槽位；没有单独设置时为 `Missing`。
+const PROSE: u8 = 6;
 /// 第一个后备字体的槽位。
-const FALLBACK: u8 = 6;
+const FALLBACK: u8 = 7;
 
 /// 一项字体设置中最多使用的字体数（个）：槽位编号是 `u8`，三项设置的列表与平台后备字体合计
 /// 不能超过 256 个槽位；常见的写法只有两三个字体。
@@ -585,6 +589,8 @@ pub(crate) struct Fonts {
     emoji: u8,
     /// 等宽字体、界面字体和终端字体的列表中写在主字体之后的字体所在的槽位范围，依次尝试。
     listed: [Range<u8>; 3],
+    /// 预览正文字体的列表中写在主字体之后的字体所在的槽位，依次尝试。
+    prose_listed: Vec<u8>,
 }
 
 impl Fonts {
@@ -679,6 +685,7 @@ impl Fonts {
             math,
             terminal,
             terminal_italic,
+            Slot::Missing,
         ];
         let emoji = FALLBACK + candidates.emoji as u8;
         slots.extend(
@@ -729,6 +736,7 @@ impl Fonts {
             terminal_fallbacks,
             emoji,
             listed,
+            prose_listed: Vec::new(),
         };
 
         for kind in [FontKind::Mono, FontKind::Ui, FontKind::Math] {
@@ -741,14 +749,32 @@ impl Fonts {
         Ok(fonts)
     }
 
-    /// 返回实际使用的字体种类：没有单独的终端字体时，终端的正体、斜体即等宽字体的正体、斜体。
+    /// 返回实际使用的字体种类：没有单独的终端字体时，终端的正体、斜体即等宽字体的正体、斜体；
+    /// 没有单独的预览正文字体时即界面字体。
     fn effective(&self, kind: FontKind) -> FontKind {
         let separate = self.face(TERMINAL).is_some();
         match kind {
             FontKind::Terminal if !separate => FontKind::Mono,
             FontKind::TerminalItalic if !separate => FontKind::MonoItalic,
+            FontKind::Prose if self.face(PROSE).is_none() => FontKind::Ui,
             kind => kind,
         }
+    }
+
+    /// 把预览正文的字体设为列表 `prose` 中第一个能打开的，其余的在缺字时依次尝试；列表为空
+    /// 或都打不开时预览正文用界面字体。只在刚加载好的字体上调用一次。
+    pub(crate) fn set_prose(&mut self, prose: &[FontSpec]) {
+        let files = resolve_list(prose);
+        let Some((face, chosen)) = first_opened(&files, self.shift) else {
+            return;
+        };
+        self.slots[PROSE as usize] = Slot::Ready(face);
+        for file in files.into_iter().filter(|file| *file != chosen) {
+            self.prose_listed.push(self.slots.len() as u8);
+            let choices = Choices::files(vec![file]);
+            self.slots.push(Slot::Pending(choices, self.shift));
+        }
+        self.fill_ascii(FontKind::Prose);
     }
 
     /// 返回斜体种类 `kind` 对应的（斜体槽位，正体槽位）；不是斜体时返回 `None`。
@@ -792,6 +818,7 @@ impl Fonts {
             FontKind::Math => MATH,
             FontKind::Terminal => TERMINAL,
             FontKind::TerminalItalic => TERMINAL_ITALIC,
+            FontKind::Prose => PROSE,
         }
     }
 
@@ -882,6 +909,12 @@ impl Fonts {
             FontKind::Ui => ui.chain(mono).collect(),
             FontKind::MonoItalic => [MONO_ITALIC].into_iter().chain(mono).chain(ui).collect(),
             FontKind::Math => [MATH].into_iter().chain(ui).chain(mono).collect(),
+            FontKind::Prose => [PROSE]
+                .into_iter()
+                .chain(self.prose_listed.iter().copied())
+                .chain(ui)
+                .chain(mono)
+                .collect(),
             FontKind::Terminal if separate_terminal => with(TERMINAL, terminal).collect(),
             FontKind::Terminal => with(TERMINAL, terminal).chain(mono).chain(ui).collect(),
             FontKind::TerminalItalic if separate_terminal => [TERMINAL_ITALIC]

@@ -44,6 +44,39 @@ pub(super) fn search_disk(
         return None;
     }
 
+    // `.properties` 的 `\uXXXX` 转义按打开后显示的字符查找（见 `unicode_escapes_view`），行号和
+    // 列与打开后一致。整篇解码的 UTF-16（`UTF16_INLINE` 以内）同样走这里，与打开文件相同。
+    let name = path.file_name().map(|n| n.to_string_lossy());
+    if (!large || inline_utf16) && name.is_some_and(|n| winc_syntax::detect(&n).id == "properties")
+    {
+        let mut bytes = std::mem::take(buffer);
+        bytes.try_reserve_exact(size as usize + 1).ok()?;
+        file.read_to_end(&mut bytes).ok()?;
+        let decoded = decode(&bytes);
+        let shown = unicode_escapes_view(&decoded.text, decoded.encoding, None);
+        let text = shown
+            .as_ref()
+            .map_or(&*decoded.text, |(shown, ..)| shown.as_str());
+        let matches = if matcher.is_multiline() {
+            let (text, starts) = joined_text(text);
+            joined_matches(matcher, &text, &starts, limit)
+        } else {
+            let mut matches = Vec::new();
+            let _ = for_each_line(text, 0, true, |index, line| {
+                collect(matcher, index, line, &mut matches, limit)
+            });
+            matches
+        };
+        let lossy = decoded.lossy();
+        drop(decoded);
+        *buffer = bytes;
+        buffer.clear();
+        if buffer.capacity() > BUFFER_MAX {
+            *buffer = Vec::new();
+        }
+        return Some((matches, lossy));
+    }
+
     // 跨行查找需要整个文件的内容；按需读取的大文件不支持跨行查找，与文件内查找相同。
     // 整篇解码的 UTF-16 除外，它的行号与打开后的文本一致。
     if matcher.is_multiline() {

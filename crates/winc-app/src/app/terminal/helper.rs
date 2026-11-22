@@ -369,7 +369,7 @@ impl App {
         }
         // 只有新建标签时才用到；每次重绘都会运行到这里，不必每次都读取配置和拼接路径。
         // 待建标签的目录中有尚未询问过的 Python 环境时先询问，回答之后再建。
-        let python = (!self.terminal.want.is_empty())
+        let python = (!self.terminal.want.is_empty() && self.terminal_awaited_host().is_none())
             .then(|| self.python_choices())
             .flatten();
         let spawn = python.map(|python| {
@@ -564,6 +564,17 @@ impl App {
     }
 
     /// 新终端的工作目录：打开的目录，没有时是家目录（辅助进程按空路径处理）。
+    /// 返回待建的标签所在的、尚未准备完集成脚本和 shell 列表的远端主机：有时这一批在
+    /// [`UserEvent::RemoteShells`] 之后再建。
+    pub(crate) fn terminal_awaited_host(&self) -> Option<winc_backend::Target> {
+        let cwd = self.terminal_cwd();
+        self.terminal.want.iter().find_map(|want| {
+            let dir = if want.is_empty() { &cwd } else { want };
+            let host = winc_backend::locate(&bytes_path(dir))?.target;
+            crate::app::remote::shell_pending(&host).then_some(host)
+        })
+    }
+
     fn terminal_cwd(&self) -> Vec<u8> {
         self.editor
             .root()
@@ -1076,7 +1087,7 @@ fn remote_launch(
         args.extend(["-p".to_owned(), port.to_string()]);
     }
     args.extend([
-        at.target.host().to_owned(),
+        at.target.host().into_owned(),
         "--".to_owned(),
         format!("cd '{dir}' && {start}"),
     ]);

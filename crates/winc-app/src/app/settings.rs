@@ -944,7 +944,13 @@ impl App {
     ///
     /// 这样的字体在启动时已改用默认字体，但设置中仍是原来的名字，因此在该行写明原因。
     fn broken_font(&self, page: SettingsPage) -> Option<(Setting, String)> {
-        [Setting::EditorFont, Setting::UiFont, Setting::TerminalFont]
+        let fonts = [
+            Setting::EditorFont,
+            Setting::UiFont,
+            Setting::TerminalFont,
+            Setting::MarkdownFont,
+        ];
+        fonts
             .into_iter()
             .filter(|setting| setting.page() == page)
             .find_map(|setting| font_error(self.font_value(setting)).map(|error| (setting, error)))
@@ -955,6 +961,7 @@ impl App {
         match setting {
             Setting::UiFont => &self.config.ui_font,
             Setting::TerminalFont => &self.config.terminal_font,
+            Setting::MarkdownFont => &self.config.markdown_font,
             _ => &self.config.editor_font,
         }
     }
@@ -963,6 +970,7 @@ impl App {
         match setting {
             Setting::UiFont => &mut self.config.ui_font,
             Setting::TerminalFont => &mut self.config.terminal_font,
+            Setting::MarkdownFont => &mut self.config.markdown_font,
             _ => &mut self.config.editor_font,
         }
     }

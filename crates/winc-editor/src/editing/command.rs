@@ -145,6 +145,17 @@ pub enum Command {
     JoinLines,
     /// 删除整个文件中每行行尾的空白。
     TrimTrailingWhitespace,
+    /// 把 `\uXXXX` 转义换成对应的字符：`whole` 为真时（所有选区都是空的）转换整个文件，否则只
+    /// 转换各个选区。
+    UnescapeUnicode {
+        /// 是否转换整个文件。
+        whole: bool,
+    },
+    /// 把 ASCII 以外的字符写成 `\uXXXX` 转义，`whole` 同 [`Command::UnescapeUnicode`]。
+    EscapeUnicode {
+        /// 是否转换整个文件。
+        whole: bool,
+    },
     /// 跳到配对的括号（`⇧⌘\`）。
     JumpToBracket,
     /// 扩大选区（`⌃⇧⌘→`）。
@@ -462,6 +473,13 @@ impl Document {
             &Command::SortLines { descending } => transform::sort_lines(text, sel, descending),
             Command::JoinLines => transform::join_lines(text, sel),
             Command::TrimTrailingWhitespace => transform::trim_trailing_whitespace(text, sel),
+            // 只转换选区时，空的选区不转换（否则会转换整个文件）。
+            &Command::UnescapeUnicode { whole } if whole || !sel.is_empty() => {
+                transform::unescape_unicode(text, sel)
+            }
+            &Command::EscapeUnicode { whole } if whole || !sel.is_empty() => {
+                transform::escape_unicode(text, sel)
+            }
             _ => None,
         }
     }

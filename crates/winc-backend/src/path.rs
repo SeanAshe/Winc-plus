@@ -179,7 +179,7 @@ pub fn relative_lossy(path: &Path, root: &Path) -> Option<String> {
 fn root(target: &Target) -> PathBuf {
     #[cfg(unix)]
     let text = format!("/{}/{}/{PREFIX}{}", BASE[0], BASE[1], target.as_str());
-    // Windows 的设备名中不能有 `:`：端口之前的 `:` 写成 `+`（连接目标中没有这个字符）。
+    // Windows 的设备名中不能有 `:`：连接目标中的 `:` 写成 `+`（连接目标中没有这个字符）。
     #[cfg(windows)]
     let text = format!(r"\\.\{PREFIX}{}\", target.as_str().replace(':', "+"));
     PathBuf::from(text)

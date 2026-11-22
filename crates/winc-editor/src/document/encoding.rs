@@ -35,6 +35,14 @@ pub enum Encoding {
     ///
     /// 与 `Lossy` 一样只读。
     Binary,
+    /// 其他字符写成 `\uXXXX` 转义的文本（Java 的 `.properties`）：读入时把转义换成字符，保存时
+    /// 写回转义。
+    UnicodeEscapes {
+        /// 写回转义时十六进制是否用小写。
+        lowercase: bool,
+        /// 文件按 ISO-8859-1 存放：U+00FF 以内的字符直接写成一个字节，不转义；否则文件只含 ASCII。
+        latin1: bool,
+    },
 }
 
 /// 编码菜单中列出的编码及其完整名称，仅包含常用项。
@@ -45,6 +53,13 @@ pub const CHOICES: &[(Encoding, ChoiceName)] = &[
     (Encoding::Utf8Bom, ChoiceName(|| "UTF-8 BOM")),
     (Encoding::Utf16Le, ChoiceName(|| "UTF-16 LE")),
     (Encoding::Utf16Be, ChoiceName(|| "UTF-16 BE")),
+    (
+        Encoding::UnicodeEscapes {
+            lowercase: false,
+            latin1: false,
+        },
+        ChoiceName(|| t!("editor-encoding-unicode-escapes")),
+    ),
     (
         Encoding::Legacy(encoding_rs::GB18030),
         ChoiceName(|| t!("editor-encoding-gb18030")),
@@ -143,6 +158,7 @@ impl Encoding {
             Encoding::Utf16Be => "UTF-16 BE",
             Encoding::Lossy => t!("editor-encoding-lossy"),
             Encoding::Binary => t!("editor-encoding-binary"),
+            Encoding::UnicodeEscapes { .. } => t!("editor-encoding-unicode-escapes-short"),
             Encoding::Legacy(e) => CHOICES
                 .iter()
                 .find(|(c, _)| *c == self)
@@ -168,6 +184,12 @@ impl Encoding {
             Encoding::Utf8Bom => Some("UTF-8 BOM"),
             Encoding::Utf16Le => Some("UTF-16LE"),
             Encoding::Utf16Be => Some("UTF-16BE"),
+            Encoding::UnicodeEscapes { lowercase, latin1 } => Some(match (latin1, lowercase) {
+                (false, false) => "UNICODE-ESCAPES",
+                (false, true) => "UNICODE-ESCAPES-LOWER",
+                (true, false) => "UNICODE-ESCAPES-LATIN1",
+                (true, true) => "UNICODE-ESCAPES-LATIN1-LOWER",
+            }),
             Encoding::Legacy(e) => Some(e.name()),
             Encoding::Lossy | Encoding::Binary => None,
         }
@@ -180,6 +202,13 @@ impl Encoding {
             "UTF-8 BOM" => Some(Encoding::Utf8Bom),
             "UTF-16LE" => Some(Encoding::Utf16Le),
             "UTF-16BE" => Some(Encoding::Utf16Be),
+            "UNICODE-ESCAPES"
+            | "UNICODE-ESCAPES-LOWER"
+            | "UNICODE-ESCAPES-LATIN1"
+            | "UNICODE-ESCAPES-LATIN1-LOWER" => Some(Encoding::UnicodeEscapes {
+                lowercase: key.ends_with("-LOWER"),
+                latin1: key.contains("-LATIN1"),
+            }),
             name => encoding_rs::Encoding::for_label_no_replacement(name.as_bytes())
                 // 只认 `key` 写出的规范名字；`UTF-8` 等已在上面的分支里认出，不会到这里。
                 .filter(|e| e.name() == name)
@@ -190,6 +219,17 @@ impl Encoding {
     /// 是否可以按该编码写回文件。
     pub fn writable(self) -> bool {
         !matches!(self, Encoding::Lossy | Encoding::Binary)
+    }
+
+    /// 编码菜单（[`CHOICES`]）中对应的一项：各种写法的 Unicode 转义对应同一项。
+    pub fn choice(self) -> Encoding {
+        match self {
+            Encoding::UnicodeEscapes { .. } => Encoding::UnicodeEscapes {
+                lowercase: false,
+                latin1: false,
+            },
+            other => other,
+        }
     }
 }
 
@@ -453,8 +493,18 @@ pub fn decode_known(bytes: &[u8], encoding: Encoding) -> String {
 /// 返回（文字，是否有无法解码的字节）。无法解码的字节替换为 U+FFFD，此时第二个值为 `true`，
 /// 以这种方式打开的文档只读。
 pub(crate) fn decode_as(bytes: &[u8], encoding: Encoding) -> (String, bool) {
+    if let Encoding::UnicodeEscapes { latin1, .. } = encoding {
+        // 依据 `java.util.PropertyResourceBundle`：不是合法的 UTF-8 时按 ISO-8859-1 读。
+        let text = match std::str::from_utf8(bytes) {
+            Ok(text) if !latin1 => text.to_owned(),
+            _ => bytes.iter().map(|&b| char::from(b)).collect(),
+        };
+        return (winc_core::transform::unescape_unicode_text(&text), false);
+    }
     let (codec, bom): (&'static encoding_rs::Encoding, &[u8]) = match encoding {
-        Encoding::Utf8 | Encoding::Lossy | Encoding::Binary => (encoding_rs::UTF_8, &[]),
+        Encoding::Utf8 | Encoding::Lossy | Encoding::Binary | Encoding::UnicodeEscapes { .. } => {
+            (encoding_rs::UTF_8, &[])
+        }
         Encoding::Utf8Bom => (encoding_rs::UTF_8, &UTF8_BOM),
         Encoding::Utf16Le => (encoding_rs::UTF_16LE, &UTF16LE_BOM),
         Encoding::Utf16Be => (encoding_rs::UTF_16BE, &UTF16BE_BOM),
@@ -475,6 +525,15 @@ pub(crate) fn decode_as(bytes: &[u8], encoding: Encoding) -> (String, bool) {
 pub(crate) fn encode(text: &str, encoding: Encoding) -> Result<Vec<u8>, char> {
     match encoding {
         Encoding::Utf8 | Encoding::Lossy | Encoding::Binary => Ok(text.as_bytes().to_vec()),
+        Encoding::UnicodeEscapes { lowercase, latin1 } => {
+            let written = winc_core::transform::escape_unicode_text(text, lowercase, latin1);
+            Ok(if latin1 {
+                // 写出的字符都在 U+00FF 以内，一个字符一个字节。
+                written.chars().map(|c| u32::from(c) as u8).collect()
+            } else {
+                written.into_bytes()
+            })
+        }
         Encoding::Utf8Bom => {
             let mut out = UTF8_BOM.to_vec();
             out.extend_from_slice(text.as_bytes());
@@ -508,6 +567,150 @@ pub(crate) fn encode(text: &str, encoding: Encoding) -> Result<Vec<u8>, char> {
                 .unwrap_or('\u{fffd}'))
         }
     }
+}
+
+/// 按 Unicode 转义读入的文件中，含转义或其他字符的各行在文件中原来的写法。
+///
+/// 保存时未修改的行按原来的写法写回，修改或新增的行按文件中多数行的写法写，见 [`encode_with`]。
+#[derive(Debug, Default)]
+pub(crate) struct EscapeOrigin {
+    /// 显示的一行（不含换行符）对应的文件中的写法；同样内容的行按出现的顺序排列。
+    lines: std::collections::HashMap<String, Vec<String>>,
+    /// 修改或新增的行是否直接写字符：直接写字符的行多于含转义的行时为真。
+    raw: bool,
+    /// 文件是否按 ISO-8859-1 存放；与保存的编码不同时原来的写法不能用。
+    latin1: bool,
+}
+
+/// 按 `encoding` 解码后的 `.properties` 文字 `text` 中有 `\uXXXX` 转义时，返回把转义换成字符后的
+/// 文字、对应的 [`Encoding::UnicodeEscapes`] 和各行原来的写法；没有转义时返回 `None`。
+///
+/// 文件按 UTF-8 或 ISO-8859-1（识别为 Windows-1252）存放；直接写的字符和转义可以混用。
+/// `forced` 是用户选择的、或文档已在使用的 Unicode 转义：此时没有转义也转换。
+pub(crate) fn unicode_escapes_view(
+    text: &str,
+    encoding: Encoding,
+    forced: Option<Encoding>,
+) -> Option<(String, Encoding, EscapeOrigin)> {
+    use winc_core::transform::unescape_unicode_text;
+    let (base, latin1) = match encoding {
+        // 只有 ASCII 时两种存法的字节相同，沿用原来的。
+        Encoding::Utf8 => {
+            let forced = matches!(forced, Some(Encoding::UnicodeEscapes { latin1: true, .. }));
+            (Cow::Borrowed(text), forced && text.is_ascii())
+        }
+        Encoding::Legacy(codec) if codec == encoding_rs::WINDOWS_1252 => {
+            let (bytes, _, lossy) = codec.encode(text);
+            if lossy {
+                return None;
+            }
+            (
+                Cow::Owned(bytes.iter().map(|&b| char::from(b)).collect()),
+                true,
+            )
+        }
+        _ => return None,
+    };
+    let shown = unescape_unicode_text(&base);
+    if shown == base && forced.is_none() {
+        return None;
+    }
+    // 转义换成字符不跨行，两边的行一一对应。按行数决定新写的行用哪种写法，行数相同时写成转义。
+    let mut origin = EscapeOrigin {
+        latin1,
+        ..EscapeOrigin::default()
+    };
+    let (mut escaped, mut direct) = (0, 0);
+    for ((raw, _), (line, _)) in split_lines(&base).zip(split_lines(&shown)) {
+        escaped += usize::from(raw != line);
+        direct += usize::from(!raw.is_ascii());
+        if raw != line || !line.is_ascii() {
+            origin
+                .lines
+                .entry(line.to_owned())
+                .or_default()
+                .push(raw.to_owned());
+        }
+    }
+    origin.raw = !latin1 && direct > escaped;
+    let lowercase = match forced {
+        Some(Encoding::UnicodeEscapes { lowercase, .. }) if !base.contains("\\u") => lowercase,
+        _ => lowercase_escapes(&base),
+    };
+    Some((
+        shown,
+        Encoding::UnicodeEscapes { lowercase, latin1 },
+        origin,
+    ))
+}
+
+/// `text` 中的 `\uXXXX` 转义是否多数用小写的十六进制字母。
+fn lowercase_escapes(text: &str) -> bool {
+    let (mut lower, mut upper) = (0, 0);
+    for (at, _) in text.match_indices("\\u") {
+        for c in text[at + 2..].chars().take(4) {
+            lower += usize::from(matches!(c, 'a'..='f'));
+            upper += usize::from(matches!(c, 'A'..='F'));
+        }
+    }
+    lower > upper
+}
+
+/// 同 [`encode`]，按 Unicode 转义保存时按各行原来的写法 `origin` 写：未修改的行按原来的写法
+/// 写回，其余的行按文件中多数行的写法写。
+///
+/// # Errors
+///
+/// 同 [`encode`]。
+pub(crate) fn encode_with(
+    text: &str,
+    encoding: Encoding,
+    origin: Option<&EscapeOrigin>,
+) -> Result<Vec<u8>, char> {
+    let (Encoding::UnicodeEscapes { lowercase, latin1 }, Some(origin)) = (encoding, origin) else {
+        return encode(text, encoding);
+    };
+    if origin.latin1 != latin1 {
+        return encode(text, encoding);
+    }
+    let mut used: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+    let mut out = String::with_capacity(text.len());
+    for (content, end) in split_lines(text) {
+        match origin.lines.get(content) {
+            Some(raws) => {
+                let n = used.entry(content).or_default();
+                out.push_str(&raws[*n % raws.len()]);
+                *n += 1;
+            }
+            None if origin.raw => out.push_str(content),
+            None => {
+                let escaped = winc_core::transform::escape_unicode_text(content, lowercase, latin1);
+                out.push_str(&escaped);
+            }
+        }
+        out.push_str(end);
+    }
+    Ok(if latin1 {
+        // 原样写回的行和转义后的文字都在 U+00FF 以内，一个字符一个字节。
+        out.chars().map(|c| u32::from(c) as u8).collect()
+    } else {
+        out.into_bytes()
+    })
+}
+
+/// 把 `text` 按 `\r\n`、`\n`、`\r`（`.properties` 识别的换行符）分行，返回各行的内容和换行符。
+fn split_lines(text: &str) -> impl Iterator<Item = (&str, &str)> {
+    let mut rest = Some(text);
+    std::iter::from_fn(move || {
+        let text = rest?;
+        let Some(at) = text.find(['\r', '\n']) else {
+            rest = None;
+            return Some((text, ""));
+        };
+        let end = if text[at..].starts_with("\r\n") { 2 } else { 1 };
+        rest = Some(&text[at + end..]);
+        Some((&text[..at], &text[at..at + end]))
+    })
 }
 
 #[cfg(test)]

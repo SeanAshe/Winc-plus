@@ -148,13 +148,19 @@ impl App {
         let weight = self.font_weight();
         let terminal_weight = self.terminal_font_weight();
 
-        if let Some(renderer) = &mut self.frame.renderer
-            && renderer
+        let prose = configured_fonts(&self.config.markdown_font);
+        if let Some(renderer) = &mut self.frame.renderer {
+            if renderer
                 .set_fonts(&mono, &ui, &terminal, weight, terminal_weight)
                 .is_err()
-        {
-            return Err(winc_i18n::t!("workspace-font-unusable").to_owned());
+            {
+                return Err(winc_i18n::t!("workspace-font-unusable").to_owned());
+            }
+            renderer.set_prose_fonts(&prose);
         }
+        // 预览的排版和测量结果按旧字体算出，全部重排。
+        self.preview.markdown.layout = None;
+        self.preview.markdown.memo = Default::default();
 
         self.apply_font_sizes();
         Ok(())

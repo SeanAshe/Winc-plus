@@ -304,3 +304,179 @@ fn transpose_swaps_graphemes_around_the_caret() {
         Some(("ab\r\n".into(), Selection::point(4)))
     );
 }
+
+#[test]
+fn unescape_unicode_turns_escapes_into_characters() {
+    // 没有选区时转换整个文件；光标随文本调整。
+    assert_eq!(
+        run(
+            "greeting=\\u4F60\\u597D\n",
+            Selection::point(21),
+            unescape_unicode
+        ),
+        Some(("greeting=你好\n".into(), Selection::point(11)))
+    );
+    // 代理项成对时合成一个字符，十六进制大小写都认。
+    assert_eq!(
+        run(
+            "a=\\uD83D\\uDE00 \\u4f60",
+            Selection::point(0),
+            unescape_unicode
+        ),
+        Some(("a=😀 你".into(), Selection::point(0)))
+    );
+    // 两个反斜杠是一对；落单的代理项、控制字符、行分隔符、残缺的转义保留原文。
+    for kept in [
+        "a=\\\\u4F60",
+        "\\uD83D",
+        "\\uDE00x",
+        "a=\\u000A",
+        "a=\\u2028",
+        "\\u12G4",
+        "\\u12",
+        "\\U4F60",
+        "a=1\\tb",
+    ] {
+        assert_eq!(
+            run(kept, Selection::point(0), unescape_unicode),
+            None,
+            "{kept}"
+        );
+    }
+    assert_eq!(
+        run("a=\\\\\\u4F60", Selection::point(0), unescape_unicode),
+        Some(("a=\\\\你".into(), Selection::point(0)))
+    );
+    // 有选区时只转换选区，选区包住转换后的文字。
+    assert_eq!(
+        run("\\u4F60=\\u597D", Selection::new(7, 13), unescape_unicode),
+        Some(("\\u4F60=好".into(), Selection::new(7, 8)))
+    );
+}
+
+#[test]
+fn escape_unicode_writes_characters_as_escapes() {
+    assert_eq!(
+        run("greeting=你好\n", Selection::point(11), escape_unicode),
+        Some(("greeting=\\u4F60\\u597D\n".into(), Selection::point(21)))
+    );
+    // 补充平面的字符写成一对代理项；ASCII 和已有的转义不动。
+    assert_eq!(
+        run("a=😀 \\u4F60", Selection::point(0), escape_unicode),
+        Some(("a=\\uD83D\\uDE00 \\u4F60".into(), Selection::point(0)))
+    );
+    assert_eq!(
+        run("key=value\t\\n", Selection::point(0), escape_unicode),
+        None
+    );
+    // 有选区时只转换选区。
+    assert_eq!(
+        run("你=好", Selection::new(2, 3), escape_unicode),
+        Some(("你=\\u597D".into(), Selection::new(2, 8)))
+    );
+    // 落单的反斜杠写成 `\u005C`，转回字符时不变；成对的反斜杠不动。
+    for source in ["a\\你", "\\\\\\好\\\\好"] {
+        let escaped = run(source, Selection::point(0), escape_unicode).unwrap().0;
+        let back = run(&escaped, Selection::point(0), unescape_unicode);
+        assert_eq!(back.unwrap().0, source, "{escaped}");
+    }
+    // 两个方向互为逆运算。
+    let source = "名称=值 😀\n# 注释\n";
+    let escaped = run(source, Selection::point(0), escape_unicode).unwrap().0;
+    let back = run(&escaped, Selection::point(0), unescape_unicode)
+        .unwrap()
+        .0;
+    assert_eq!(back, source);
+}
+
+#[test]
+fn unicode_escape_text_helpers_round_trip() {
+    let source = "a=\\u4F60\\u597D \\\\u4F60 \\u000A \\uD83D\\uDE00";
+    let shown = unescape_unicode_text(source);
+    assert_eq!(shown, "a=你好 \\\\u4F60 \\u000A 😀");
+    assert_eq!(escape_unicode_text(&shown, false, false), source);
+    assert_eq!(escape_unicode_text("你", true, false), "\\u4f60");
+    // ISO-8859-1 的字符原样保留；落单的反斜杠后面的字符是字符本身，去掉反斜杠。
+    assert_eq!(escape_unicode_text("ü你", false, true), "ü\\u4F60");
+    let written = escape_unicode_text("a\\你 b\\\\你", false, false);
+    assert_eq!(written, "a\\u4F60 b\\\\\\u4F60");
+    // 看不见的字符和 ASCII 字符保留转义；DEL 是 ASCII，不转义。
+    assert_eq!(unescape_unicode_text("\\uFEFFa\\u200B"), "\\uFEFFa\\u200B");
+    let ascii = "my\\u0020key=\\u003D\\u005C\\u0041";
+    assert_eq!(unescape_unicode_text(ascii), ascii);
+    assert_eq!(escape_unicode_text("\u{7F}", false, false), "\u{7F}");
+    assert_eq!(unescape_unicode_text("plain"), "plain");
+}
+
+/// 按 `java.util.Properties` 读出的值（UTF-16 码元）；转义残缺或末尾是反斜杠时返回 `None`。
+fn java_value(raw: &str) -> Option<Vec<u16>> {
+    let chars: Vec<char> = raw.chars().collect();
+    let (mut out, mut units, mut i) = (Vec::new(), [0; 2], 0);
+    while i < chars.len() {
+        let mut c = chars[i];
+        i += 1;
+        if c == '\\' {
+            c = *chars.get(i)?;
+            i += 1;
+            let control = match c {
+                'u' => {
+                    let hex = chars.get(i..i + 4)?;
+                    i += 4;
+                    hex.iter()
+                        .try_fold(0, |v, c| Some(v * 16 + c.to_digit(16)? as u16))
+                }
+                't' => Some(9),
+                'n' => Some(10),
+                'r' => Some(13),
+                'f' => Some(12),
+                _ => None,
+            };
+            if let Some(unit) = control {
+                out.push(unit);
+                continue;
+            }
+            if c == 'u' {
+                return None;
+            }
+        }
+        out.extend_from_slice(c.encode_utf16(&mut units));
+    }
+    Some(out)
+}
+
+/// 换成字符再写回转义后，`.properties` 读出的值不变；只有 ASCII、没有可换转义的文字原样写回。
+#[test]
+fn unicode_escape_text_keeps_properties_values() {
+    let tokens = [
+        "\\", "u", "t", "a", "\\u4F60", "\\u0041", "\\u00E9", "\\u005C", "\\u200B", "\\uD83D",
+        "\\uDE00", "你", "\u{e9}", "\u{200B}", "😀",
+    ];
+    let mut sources = vec![String::new()];
+    for _ in 0..4 {
+        let longer: Vec<String> = (sources.iter())
+            .flat_map(|s| tokens.iter().map(move |t| format!("{s}{t}")))
+            .collect();
+        sources.extend(longer);
+        sources.dedup();
+    }
+    for raw in &sources {
+        let Some(value) = java_value(raw) else {
+            continue;
+        };
+        let shown = unescape_unicode_text(raw);
+        for latin1 in [false, true] {
+            if latin1 && raw.chars().any(|c| u32::from(c) > 0xFF) {
+                continue;
+            }
+            let written = escape_unicode_text(&shown, false, latin1);
+            assert_eq!(
+                java_value(&written).as_ref(),
+                Some(&value),
+                "{raw:?} → {written:?}"
+            );
+            if raw.is_ascii() && shown == *raw {
+                assert_eq!(&written, raw);
+            }
+        }
+    }
+}

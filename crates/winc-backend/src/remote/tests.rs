@@ -46,6 +46,14 @@ fn the_ssh_command_passes_the_program_as_one_quoted_word() {
     let command = ssh_command(&with_port, "server", Ssh::default());
     let args: Vec<_> = command.get_args().map(|a| a.to_str().unwrap()).collect();
     assert_eq!(args[3..], ["-p", "22022", "alice@devbox", "--", "'server'"]);
+    // IPv6 地址作为主机参数时不带方括号。
+    let ipv6 = Target::new("root@[2001:db8::1]:22022").unwrap();
+    let command = ssh_command(&ipv6, "server", Ssh::default());
+    let args: Vec<_> = command.get_args().map(|a| a.to_str().unwrap()).collect();
+    assert_eq!(
+        args[3..],
+        ["-p", "22022", "root@2001:db8::1", "--", "'server'"]
+    );
     // 不向用户提问的选项写在主机之前：主机之后的参数属于远端的命令。
     let options = Ssh {
         batch: true,
