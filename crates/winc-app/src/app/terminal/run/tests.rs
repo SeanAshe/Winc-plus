@@ -183,3 +183,69 @@ fn a_project_in_a_wsl_distro_runs_inside_it_despite_the_default_shell() {
     let (launch, _) = run_launch(&config, local, Some("pwsh.exe"), true, Vec::new());
     assert_eq!(launch.program.as_deref(), Some(&b"pwsh.exe"[..]));
 }
+
+/// 脚本的运行方式：Windows 上按扩展名交给命令提示符或 PowerShell，写法随执行这一行的 shell
+/// 而定；其他系统上直接执行带 `#!` 的可执行文件，或按扩展名交给对应的 shell。
+#[test]
+fn scripts_run_with_the_program_for_their_kind() {
+    use script::script_config;
+
+    let root = Path::new("/code/project");
+    let command = |name: &str, kind, system| {
+        let config = script_config(&root.join(name), root, kind, system);
+        config.map(|config| config.command)
+    };
+    let powershell = "powershell -NoLogo -ExecutionPolicy Bypass -File";
+    for (name, kind, expected) in [
+        ("build.bat", ShellKind::PowerShell, Some("cmd /C")),
+        ("build.CMD", ShellKind::Cmd, Some("call")),
+        ("build.cmd", ShellKind::Posix, Some("cmd //C")),
+        ("setup.ps1", ShellKind::Cmd, Some(powershell)),
+        ("build.bat", ShellKind::Wsl, None),
+        ("build.sh", ShellKind::PowerShell, None),
+        ("notes.txt", ShellKind::PowerShell, None),
+    ] {
+        let found = command(name, kind, (true, false));
+        assert_eq!(found.as_deref(), expected, "{name}");
+    }
+    for (name, expected) in [
+        ("build.sh", Some("sh")),
+        ("build.bash", Some("bash")),
+        ("build.zsh", Some("zsh")),
+        ("build.fish", Some("fish")),
+        ("build.bat", None),
+        ("tool.py", None),
+        ("Makefile", None),
+    ] {
+        let found = command(name, ShellKind::Posix, (false, false));
+        assert_eq!(found.as_deref(), expected, "{name}");
+    }
+    // 带 `#!` 的可执行文件直接执行，不看扩展名。
+    for name in ["tool.py", "deploy", "build.sh"] {
+        let direct = command(name, ShellKind::Posix, (false, true));
+        assert_eq!(direct.as_deref(), Some("exec"), "{name}");
+    }
+}
+
+/// 脚本的配置以文件名命名，路径作为参数按 shell 的规则加引号，工作目录是脚本所在的目录。
+#[test]
+fn a_script_runs_in_its_own_folder_under_its_file_name() {
+    use script::script_config;
+
+    let root = Path::new("/code/my project");
+    let config = |path: &str| {
+        script_config(Path::new(path), root, ShellKind::Posix, (false, false)).unwrap()
+    };
+    let nested = config("/code/my project/tools/ci/build.sh");
+    assert_eq!(nested.name, "build.sh");
+    assert_eq!(nested.cwd.as_deref(), Some("tools/ci"));
+    assert_eq!(nested.args, ["/code/my project/tools/ci/build.sh"]);
+    assert!(nested.env.is_empty());
+    // 就在打开的目录里：工作目录是打开的目录；在它之外：写绝对路径。
+    assert_eq!(config("/code/my project/build.sh").cwd, None);
+    assert_eq!(config("/tmp/x/build.sh").cwd.as_deref(), Some("/tmp/x"));
+
+    let (launch, _) = run_launch(&nested, root, Some("/bin/zsh"), false, Vec::new());
+    let line = "sh '/code/my project/tools/ci/build.sh'";
+    assert_eq!(texts(&launch.args), ["-i", "-c", line]);
+}

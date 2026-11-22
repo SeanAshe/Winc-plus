@@ -170,6 +170,9 @@ const EDITOR: &[Field] = &[
     bool_field!("hotExit", hot_exit),
     bool_field!("confirmClose", confirm_close),
     bool_field!("restoreFolder", restore_folder),
+    bool_field!("newFileOnStartup", new_file_on_startup),
+    string_field!("defaultLanguage", default_language),
+    bool_field!("detectLanguageOnPaste", detect_language_on_paste),
     bool_field!("openFolderInNewWindow", open_folder_in_new_window),
     Field {
         key: "dropFolder",
@@ -218,6 +221,20 @@ const EDITOR: &[Field] = &[
     bool_field!("wholeLines", whole_lines),
     bool_field!("minimap", minimap),
     bool_field!("smoothScrolling", smooth_scrolling),
+    Field {
+        key: "smoothCaretMovement",
+        read: |config, value, name, problems| {
+            config.smooth_caret_movement = value.as_str().and_then(SmoothCaret::from_value);
+            if config.smooth_caret_movement.is_none() {
+                problems.push(t!("config-smooth-caret-invalid", name = name));
+            }
+        },
+        write: |config| {
+            config
+                .smooth_caret_movement
+                .map(|choice| Json::String(choice.as_str().into()))
+        },
+    },
     bool_field!("outline", outline),
     Field {
         key: "renderWhitespace",
@@ -952,6 +969,17 @@ pub(super) const FORMAT: &[Field] = &[
 /// 在 `fields` 中找键名为 `key` 的一项。
 pub(super) fn find<'a>(fields: &'a [Field], key: &str) -> Option<&'a Field> {
     fields.iter().find(|field| field.key == key)
+}
+
+/// 返回名为 `name` 的设置：节名加键名（如 `editor.size`），或顶层的键（如 `theme`）。
+pub(super) fn named(name: &str) -> Option<&'static Field> {
+    match name.split_once('.') {
+        Some((section, key)) => {
+            let fields = SECTIONS.iter().find(|&&(name, _)| name == section)?.1;
+            find(fields, key)
+        }
+        None => find(TOP_LEVEL, name),
+    }
 }
 
 /// 顶层的 `key` 是否是认识的设置：[`SECTIONS`] 中某一节的名字，或 [`TOP_LEVEL`] 中的一项。

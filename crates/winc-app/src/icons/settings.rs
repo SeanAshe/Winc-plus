@@ -1,4 +1,5 @@
-//! 设置浮层左侧各页的图标（外观、代码、格式化、终端、模块、快捷键），以及锁、预览的眼睛、齿轮。
+//! 设置浮层左侧各页的图标（通用、外观、代码、Markdown、格式化、终端、模块、快捷键），以及锁、
+//! 预览的眼睛、齿轮。
 
 use super::*;
 
@@ -57,6 +58,23 @@ pub fn appearance(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, cli
     frame.stroke(&[Stroke::Circle(cx, cy, RING / 2.0)], RING, color, half);
 }
 
+/// 绘制「通用」图标，13×9：上下两道横线，各有一个圆形的滑块，表示可以调节的选项。
+///
+/// 用于设置的分类栏。
+pub fn sliders(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let (r, top, bottom) = (2.0, cy - 3.0, cy + 3.0);
+    let (a, b) = (cx - 2.0, cx + 2.5);
+    let shapes = [
+        Stroke::Line(cx - 6.5, top, a - r, top),
+        Stroke::Circle(a, top, r),
+        Stroke::Line(a + r, top, cx + 6.5, top),
+        Stroke::Line(cx - 6.5, bottom, b - r, bottom),
+        Stroke::Circle(b, bottom, r),
+        Stroke::Line(b + r, bottom, cx + 6.5, bottom),
+    ];
+    frame.stroke(&shapes, RING_STROKE, color, clip);
+}
+
 /// 绘制「编辑器」图标，14×11：一对尖括号，中间一道斜线，即「</>」。
 ///
 /// 用于设置的分类栏。
@@ -109,6 +127,25 @@ pub fn globe(frame: &mut Frame<'_>, (cx, cy): (f32, f32), k: f32, color: Color, 
         Stroke::Line(cx - r, cy, cx + r, cy),
     ];
     frame.stroke(&lines, RING_STROKE, color, clip);
+}
+
+/// 绘制「Markdown」图标，15×11：圆角框，内有字母 M 和一个向下的箭头。
+///
+/// 用于设置的分类栏。
+pub fn markdown(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let (w, h) = (15.0, 11.0);
+    let (x, y) = (cx - w / 2.0, cy - h / 2.0);
+    let mark = [
+        Stroke::Line(x + 3.0, y + 8.0, x + 3.0, y + 3.0),
+        Stroke::Line(x + 3.0, y + 3.0, x + 5.25, y + 5.75),
+        Stroke::Line(x + 5.25, y + 5.75, x + 7.5, y + 3.0),
+        Stroke::Line(x + 7.5, y + 3.0, x + 7.5, y + 8.0),
+        Stroke::Line(x + 11.0, y + 3.0, x + 11.0, y + 8.0),
+        Stroke::Line(x + 9.25, y + 6.25, x + 11.0, y + 8.0),
+        Stroke::Line(x + 11.0, y + 8.0, x + 12.75, y + 6.25),
+    ];
+    let shapes: Strokes<15> = joined(&[&rounded_outline(x, y, w, h, 2.5), &mark]);
+    frame.stroke(shapes.as_slice(), RING_STROKE, color, clip);
 }
 
 /// 绘制「格式化」图标，14×10：四道长短、缩进各不相同的横线，表示排版后的代码。

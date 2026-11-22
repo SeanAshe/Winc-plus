@@ -119,6 +119,7 @@ format-command-unclosed-single-quote = 命令中的单引号未闭合
 format-command-unclosed-double-quote = 命令中的双引号未闭合
 format-no-formatter-installed = 未安装 { $language } 格式化工具（{ $names }）
 format-no-range = 「{ $tool }」不支持格式化所选内容
+format-range-reads-file = 「{ $tool }」直接读取磁盘上的文件，不支持格式化所选内容
 format-preset-tool-not-found = 项目使用 { $preset }（{ $reason }），但未找到「{ $tool }」
 format-no-permission = 「{ $tool }」无执行权限
 format-spawn-failed = 「{ $tool }」启动失败（{ $error }）

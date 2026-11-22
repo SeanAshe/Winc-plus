@@ -19,8 +19,12 @@ use super::{Item, download, verify};
 /// appcast 中本平台更新包的 `sparkle:os`。
 pub const OS: &str = "linux";
 /// 各通道地址下本平台的 appcast 文件名；macOS 的 `appcast.xml` 由 Sparkle 的工具整个重新
-/// 生成，各平台分开放。
-pub const FEED_FILE: &str = "appcast-linux.xml";
+/// 生成，各平台分开放。Linux 的两种架构各有一份，`x86_64` 沿用原来的名字。
+pub const FEED_FILE: &str = if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+    "appcast-linux-arm64.xml"
+} else {
+    "appcast-linux.xml"
+};
 
 /// 正在运行的 AppImage 文件；不是以 AppImage 运行时返回 `None`。
 pub fn locate() -> Option<PathBuf> {

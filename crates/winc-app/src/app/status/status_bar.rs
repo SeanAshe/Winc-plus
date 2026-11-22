@@ -138,6 +138,7 @@ impl App {
             MenuCommand::UseLanguage(i) => {
                 if let Some(&language) = winc_syntax::languages().get(i) {
                     self.use_language(language);
+                    self.update_state(|state| state.remember_language(language.id));
                 }
             }
             MenuCommand::UsePlainText => self.use_language(winc_syntax::detect("")),
@@ -327,7 +328,8 @@ impl App {
 
 impl App {
     /// 点了状态栏上的更新提示（macOS 以外的平台）：新版本已经准备好时重新启动，正在下载时不
-    /// 处理，否则开始下载安装。不由应用自己更新的安装改为打开下载页，Arch 包提示用 pacman 更新。
+    /// 处理，否则开始下载安装。不由应用自己更新的安装改为打开下载页，Arch 包和 Scoop 装的提示用
+    /// 各自的命令更新。
     #[cfg(not(target_os = "macos"))]
     fn click_update(&mut self) {
         use crate::updates::Delivery;
@@ -350,6 +352,7 @@ impl App {
                     }
                 }
                 Some(Delivery::Pacman) => self.flash(t!("workspace-status-update-pacman")),
+                Some(Delivery::Scoop) => self.flash(t!("workspace-status-update-scoop")),
                 _ => crate::updates::install(),
             },
         }

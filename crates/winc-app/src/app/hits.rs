@@ -107,6 +107,8 @@ pub struct Hits {
     ///
     /// 文字宽度要到绘制时才知道，悬停和点击使用这里记录的位置。
     pub(crate) install_links: Vec<(crate::layout::Setting, Rect)>,
+    /// 当前帧绘制出的「恢复默认」的位置，以及它所属的设置项；位置随名称的宽度而定。
+    pub(crate) reset_links: Vec<(crate::layout::Setting, Rect)>,
     /// 当前帧「快捷键」页中绘制出的按钮、链接和键帽上的 ×；位置随文字宽度而定，悬停和点击用
     /// 这里的。
     pub(crate) keys_parts: Vec<(Rect, crate::layout::SettingsPart)>,
@@ -161,6 +163,7 @@ impl Hits {
             pdf_tools,
             latex_status,
             install_links,
+            reset_links,
             keys_parts,
         } = self;
         start.clear();
@@ -206,6 +209,7 @@ impl Hits {
         pdf_tools.clear();
         *latex_status = Rect::default();
         install_links.clear();
+        reset_links.clear();
         keys_parts.clear();
     }
 }

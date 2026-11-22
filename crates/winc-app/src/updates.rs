@@ -103,6 +103,8 @@ pub enum Delivery {
     Install,
     /// 由 pacman 从 Winc 的软件源更新：Arch 包。
     Pacman,
+    /// 由 Scoop 更新：Scoop 装的 Windows 便携版。
+    Scoop,
     /// 只提醒，从下载页取得：deb、rpm 和 Windows 便携版。
     Download,
 }
@@ -163,6 +165,9 @@ pub fn start(
     let delivery = match &target {
         Some(_) => Delivery::Install,
         None if from_pacman() => Delivery::Pacman,
+        None if cfg!(windows) && std::env::current_exe().is_ok_and(|exe| from_scoop(&exe)) => {
+            Delivery::Scoop
+        }
         None => Delivery::Download,
     };
     let hooks = Hooks {
@@ -208,6 +213,17 @@ fn from_pacman() -> bool {
                 .flatten()
                 .any(|entry| entry.file_name().to_string_lossy().starts_with("winc-"))
         })
+}
+
+/// 程序 `exe` 是否由 Scoop 安装：Scoop 在所装程序的目录里留下安装记录，新版叫
+/// `scoop-install.json`，旧版叫 `install.json` 和 `manifest.json`。
+#[allow(clippy::disallowed_methods, reason = "只访问本机：程序自身所在的目录")]
+fn from_scoop(exe: &Path) -> bool {
+    let Some(dir) = exe.parent() else {
+        return false;
+    };
+    let has = |name: &str| dir.join(name).is_file();
+    has("scoop-install.json") || (has("install.json") && has("manifest.json"))
 }
 
 /// 在后台检查更新。
@@ -552,6 +568,12 @@ fn newest_for_installer(xml: &str, arch: &str, installer: Option<&str>) -> Optio
 /// 判断 `version` 是否比 `current` 新，比较包含 `SemVer` 预发布优先级。
 pub fn newer(version: &str, current: &str) -> bool {
     winc_config::compare_versions(version, current).is_gt()
+}
+
+/// 是否由安装程序装在当前用户之下（NSIS 安装包）；MSI 装在全机之下，便携版没有安装。
+#[cfg(windows)]
+pub(crate) fn installed_per_user() -> bool {
+    matches!(installer::current_kind(), Some(installer::Kind::Nsis))
 }
 
 #[cfg(unix)]

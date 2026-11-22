@@ -104,9 +104,9 @@ pub fn keymap_menu(sources: usize, customized: bool) -> Vec<MenuEntry> {
     entries
 }
 
-/// 返回状态栏语言菜单的菜单项：有文件名（`named`）时第一项是按文件名识别，然后是纯文本，
-/// 其余语言按名字排序。
-pub fn document_language_menu(named: bool) -> Vec<MenuEntry> {
+/// 返回状态栏语言菜单的菜单项：有文件名（`named`）时第一项是按文件名识别，然后是纯文本和
+/// 最近选择的语言 `recent`（语言的标识，最近的在前），其余语言按名字排序，不重复列出。
+pub fn document_language_menu(named: bool, recent: &[String]) -> Vec<MenuEntry> {
     use MenuEntry::{Item, Separator};
 
     let mut languages: Vec<_> = winc_syntax::languages().iter().enumerate().collect();
@@ -116,6 +116,15 @@ pub fn document_language_menu(named: bool) -> Vec<MenuEntry> {
         menu.extend([Item(MenuCommand::DetectLanguage, true), Separator]);
     }
     menu.push(Item(MenuCommand::UsePlainText, true));
+    let leading = menu.len();
+    for id in recent {
+        if let Some(at) = languages.iter().position(|(_, l)| l.id == id.as_str()) {
+            menu.push(Item(MenuCommand::UseLanguage(languages.remove(at).0), true));
+        }
+    }
+    if menu.len() > leading {
+        menu.push(Separator);
+    }
     menu.extend((languages.into_iter()).map(|(i, _)| Item(MenuCommand::UseLanguage(i), true)));
     menu
 }

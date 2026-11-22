@@ -40,6 +40,13 @@ fn sample() -> State {
             PathBuf::from("/a/项目/main.rs"),
             PathBuf::from("/c/笔记.md"),
         ],
+        places: vec![(
+            PathBuf::from("/a/项目/手册.pdf"),
+            FilePlace {
+                text: Some((40, 2, 31)),
+                view: Some((12, 0.375)),
+            },
+        )],
         sessions: vec![
             Session {
                 folder: PathBuf::from("/a/项目"),
@@ -55,8 +62,6 @@ fn sample() -> State {
                     vec!["安装".into(), "用法\u{1f}配置".into()],
                 )],
                 folds: vec![(PathBuf::from("/a/项目/README.md"), vec![(0, 12), (3, 7)])],
-                pdf_places: vec![(PathBuf::from("/a/项目/手册.pdf"), (12, 0.375))],
-                book_places: vec![(PathBuf::from("/a/项目/小说.epub"), (340, 0.5))],
                 terminal: Some(TerminalSession {
                     tabs: vec![PathBuf::from("/a/项目"), PathBuf::from("/a/项目/src")],
                     names: vec![String::new(), "服务".into()],
@@ -107,8 +112,6 @@ fn sample() -> State {
                 bookmarks: Vec::new(),
                 outline: Vec::new(),
                 folds: Vec::new(),
-                pdf_places: Vec::new(),
-                book_places: Vec::new(),
                 terminal: None,
                 run: None,
                 folders: Vec::new(),
@@ -135,6 +138,7 @@ fn sample() -> State {
         sign_off_repos: vec![PathBuf::from("/a/项目")],
         pdf_thumbnails_hidden: true,
         markdown_toc_pinned: true,
+        recent_languages: vec!["markdown".to_owned(), "json".to_owned()],
         vim_marks: vec![('A', PathBuf::from("/a/项目/x.rs"), 12, 3)],
         vim_commands: vec!["%s/a/b/g".into(), "w".into()],
         vim_searches: vec!["\\<词\\>".into()],
@@ -209,15 +213,76 @@ fn preview_modes_are_read_per_kind() {
 }
 
 #[test]
-fn malformed_pdf_places_are_skipped() {
-    // 页号为负数或小数、比例不是数字、缺少一项的记录跳过，其余仍然读取。
-    let text = r#"{"session": {"folder": "/a", "files": [], "pdfPlaces":
+fn places_are_kept_most_recent_first_and_capped() {
+    let mut state = State::default();
+    let file = |i: usize| PathBuf::from(format!("/a/{i}.rs"));
+    for i in 0..MAX_PLACES + 5 {
+        state.set_place(&file(i), |place| place.text = Some((i, 0, i)));
+    }
+    // 超出上限时丢掉最久没有用到的；再次用到的移到最前，其余部分保留。
+    assert_eq!(state.places.len(), MAX_PLACES);
+    assert_eq!(state.places[0].0, file(MAX_PLACES + 4));
+    assert_eq!(state.place_of(&file(4)), None);
+    state.set_place(&file(5), |place| place.view = Some((3, 0.25)));
+    assert_eq!(state.places[0].0, file(5));
+    let both = FilePlace {
+        text: Some((5, 0, 5)),
+        view: Some((3, 0.25)),
+    };
+    assert_eq!(state.place_of(&file(5)), Some(both));
+    // 什么都不剩的记录去掉。
+    state.set_place(&file(5), |place| *place = FilePlace::default());
+    assert_eq!(state.place_of(&file(5)), None);
+    assert_eq!(state.places.len(), MAX_PLACES - 1);
+
+    // 改名：文件和目录下的各文件都改记在新路径上。
+    state.move_places(&file(10), Path::new("/a/ten.rs"));
+    state.move_places(Path::new("/a"), Path::new("/b"));
+    assert!(state.place_of(Path::new("/b/ten.rs")).is_some());
+    assert!(state.places.iter().all(|(path, _)| path.starts_with("/b")));
+
+    // 写出再读入不变。
+    assert_eq!(State::parse(&state.to_json()).places, state.places);
+}
+
+#[test]
+fn malformed_and_earlier_places_are_read() {
+    // 读不出的部分当作没有，什么都没有的记录和重复的路径跳过。
+    let text = r#"{"places": [
+        {"path": "/a/a.rs", "caret": [12, 4], "top": 3},
+        {"path": "/a/b.pdf", "view": [2, 0.5], "caret": [1]},
+        {"path": "/a/c.rs", "caret": [-1, 0]}, {"path": "/a/a.rs", "caret": [1, 1]},
+        {"path": "", "caret": [1, 1]}, {"caret": [1, 1]}, 7]}"#;
+    let text_at = |place| FilePlace {
+        text: Some(place),
+        view: None,
+    };
+    let view_at = |place| FilePlace {
+        text: None,
+        view: Some(place),
+    };
+    let places = [
+        (PathBuf::from("/a/a.rs"), text_at((12, 4, 3))),
+        (PathBuf::from("/a/b.pdf"), view_at((2, 0.5))),
+    ];
+    assert_eq!(State::parse(text).places, places);
+
+    // 早先记在各目录现场里的阅读位置并入，已有记录的文件以新的为准；页号为负数或小数、比例
+    // 不是数字、缺少一项的跳过。
+    let text = r#"{"places": [{"path": "/a/a.pdf", "view": [9, 0.25]}],
+        "session": {"folder": "/a", "files": [], "pdfPlaces":
         {"/a/a.pdf": [2, 0.5], "/a/b.pdf": [-1, 0], "/a/c.pdf": [1.5, 0], "/a/d.pdf": [3],
-         "/a/e.pdf": [0, "x"], "/a/f.pdf": 4, "": [1, 0]}}}"#;
-    assert_eq!(
-        State::parse(text).last_session().unwrap().pdf_places,
-        [(PathBuf::from("/a/a.pdf"), (2, 0.5))]
-    );
+         "/a/e.pdf": [0, "x"], "/a/f.pdf": 4, "": [1, 0], "/a/g.pdf": [4, 0.5]},
+        "bookPlaces": {"/a/h.epub": [340, 0.5]}}}"#;
+    let places = [
+        (PathBuf::from("/a/a.pdf"), view_at((9, 0.25))),
+        (PathBuf::from("/a/g.pdf"), view_at((4, 0.5))),
+        (PathBuf::from("/a/h.epub"), view_at((340, 0.5))),
+    ];
+    let state = State::parse(text);
+    assert_eq!(state.places, places);
+    // 写出时不再写在现场里。
+    assert!(!state.to_json().contains("pdfPlaces"));
 }
 
 #[test]
@@ -374,8 +439,6 @@ fn sessions_are_kept_per_folder() {
         bookmarks: Vec::new(),
         outline: Vec::new(),
         folds: Vec::new(),
-        pdf_places: Vec::new(),
-        book_places: Vec::new(),
         terminal: None,
         run: None,
         folders: Vec::new(),

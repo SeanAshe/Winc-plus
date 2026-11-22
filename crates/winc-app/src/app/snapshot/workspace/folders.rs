@@ -393,8 +393,8 @@ fn a_dropped_folder_is_added_or_opened_as_configured() {
     assert_eq!(app.editor.root(), Some(third.as_path()));
     assert!(app.extra_folders().is_empty());
 
-    // 设置页的编辑器一页列出这一项，菜单里打勾的是当前的取值。
-    assert_eq!(Setting::DropFolder.page(), SettingsPage::Editor);
+    // 设置页的文件一页列出这一项，菜单里打勾的是当前的取值。
+    assert_eq!(Setting::DropFolder.page(), SettingsPage::Files);
     assert_eq!(
         crate::layout::drop_folder_label(FolderDrop::Open),
         winc_i18n::t!("settings-drop-folder-open")

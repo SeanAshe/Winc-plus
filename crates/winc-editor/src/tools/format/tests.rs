@@ -419,7 +419,8 @@ fn only_tools_that_can_format_part_of_a_file_are_restricted() {
     let out = formatter.run(job, &Cancel::default()).unwrap();
     assert_eq!(out.changes[0].inserted, "--style=llvm --lines=2:2 \n");
 
-    let mut gofmt = Plan::new(language("go"), &dir.join("a.go"), None, Some("gofmt")).unwrap();
+    // 自动选择的工具没有区段参数：提示原因，不改为格式化整个文件。
+    let mut gofmt = Plan::new(language("go"), &dir.join("a.go"), None, None).unwrap();
     assert_eq!(
         gofmt.restrict(&range),
         Err(FormatError::Unavailable(
@@ -427,6 +428,167 @@ fn only_tools_that_can_format_part_of_a_file_are_restricted() {
         ))
     );
     assert!(!gofmt.is_restricted());
+
+    // 区段参数只属于格式化的子命令：`ruff check` 不认识 `--range`。
+    let ruff = |command: &str| {
+        let file = dir.join("a.py");
+        let mut plan = Plan::new(language("python"), &file, None, Some(command)).unwrap();
+        plan.restrict(&range).unwrap();
+        plan.fragment
+    };
+    assert!(!ruff("ruff format --stdin-filename {file} -"));
+    assert!(ruff(
+        "ruff check --select I --fix --stdin-filename {file} -"
+    ));
+}
+
+/// 用设置里的命令 `command` 只格式化 `text` 中 `from..to`（字符）的内容，返回之后的全文。
+#[cfg(unix)]
+fn format_part(
+    formatter: &Formatter,
+    (file, root): (&Path, Option<&Path>),
+    command: &str,
+    text: &str,
+    (from, to): (usize, usize),
+) -> Result<String, FormatError> {
+    let rope = Rope::from_str(text);
+    let mut plan = Plan::new(language("python"), file, root, Some(command))?;
+    plan.restrict(&FormatRange::new(&rope, from, to))?;
+    let job = Job {
+        plan,
+        line_ending: LineEnding::detect(&rope),
+        text: rope.clone(),
+        timeout: TOOL_TIMEOUT,
+    };
+    let formatted = formatter.run(job, &Cancel::default())?;
+    let mut rope = rope;
+    for change in &formatted.changes {
+        rope.remove(change.start..change.start + change.removed.chars().count());
+        rope.insert(change.start, &change.inserted);
+    }
+    Ok(rope.to_string())
+}
+
+#[cfg(unix)] // 用不带扩展名的脚本冒充工具；Windows 上程序要带 PATHEXT 中的扩展名
+#[test]
+fn settings_commands_without_range_options_get_only_the_selection() {
+    let dir = scratch("fragment");
+    let bin = dir.join("bin");
+    fake_tool(&bin, "mark", "sed 's/^/>/'");
+    fake_tool(&bin, "same", "cat");
+    fake_tool(&bin, "json", r#"cat >/dev/null; printf '{\n  "a": 1\n}\n'"#);
+    let formatter = formatter(&bin);
+    let at = (dir.join("a.py"), None);
+    let part = |command: &str, text: &str, range| {
+        format_part(&formatter, (&at.0, at.1), command, text, range).unwrap()
+    };
+
+    // 只有选中的第二行交给了命令，其余各行原样。
+    assert_eq!(part("mark", "a\nb\nc\n", (2, 4)), "a\n>b\nc\n");
+    assert_eq!(part("mark", "a\r\nb\r\nc\r\n", (3, 6)), "a\r\n>b\r\nc\r\n");
+    // 回归：选中没有换行结尾的最后一行，文件末尾多出一个换行。
+    assert_eq!(part("same", "a\nb", (2, 3)), "a\nb");
+    // 选区在一行中间：两侧的文字不动，输出的后续各行与这一行对齐。
+    let text = "    x = {\"a\":1};\n";
+    let (from, to) = (text.find('{').unwrap(), text.find(';').unwrap());
+    assert_eq!(
+        part("json", text, (from, to)),
+        "    x = {\n      \"a\": 1\n    };\n"
+    );
+}
+
+/// 回归：所选内容原样交给命令、输出原样放回，整理行首空白的工具使选中的各行丢了缩进。
+#[cfg(unix)] // 用不带扩展名的脚本冒充工具；Windows 上程序要带 PATHEXT 中的扩展名
+#[test]
+fn a_formatted_selection_keeps_its_indentation() {
+    let dir = scratch("fragment-indent");
+    let bin = dir.join("bin");
+    // 冒充的工具把收到的内容另存一份，再把 `x` 换成 `y`。
+    fake_tool(&bin, "swap", r#"tee "$WINC_FILE.in" | sed 's/x/y/'"#);
+    let formatter = formatter(&bin);
+    let file = dir.join("a.py");
+    let text = "def f():\n    if x:\n        return 1\n    return 2\n";
+    let (from, to) = (
+        text.find("    if").unwrap(),
+        text.find("    return 2").unwrap(),
+    );
+    let expected = "def f():\n    if y:\n        return 1\n    return 2\n";
+
+    // 选区从行首开始，或从缩进里开始：命令收到的都是去掉公共缩进的两行。
+    for from in [from, from + 2] {
+        let out = format_part(&formatter, (&file, None), "swap", text, (from, to));
+        assert_eq!(out.as_deref(), Ok(expected));
+        let sent = std::fs::read_to_string(dir.join("a.py.in")).unwrap();
+        assert_eq!(sent, "if x:\n    return 1\n");
+    }
+}
+
+#[cfg(unix)] // 用不带扩展名的脚本冒充工具；Windows 上程序要带 PATHEXT 中的扩展名
+#[test]
+fn a_selection_runs_the_same_program_as_the_whole_file() {
+    let root = scratch("fragment-program");
+    let src = root.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    fake_tool(&root.join("node_modules/.bin"), "sqlfmt", "tr a-z A-Z");
+    fake_tool(&root, "fmt.sh", "tr a-z A-Z");
+    // `PATH` 里没有这两个程序：项目自带的和按相对路径写的都从打开的目录找。
+    let formatter = formatter(&root.join("empty-bin"));
+    let at = (src.join("a.sql"), Some(root.as_path()));
+    for command in ["sqlfmt", "./fmt.sh"] {
+        let out = format_part(
+            &formatter,
+            (&at.0, at.1),
+            command,
+            "one\ntwo\nthree\n",
+            (4, 8),
+        );
+        assert_eq!(out.as_deref(), Ok("one\nTWO\nthree\n"), "{command}");
+    }
+}
+
+#[test]
+fn commands_that_cannot_take_only_the_selection_say_why() {
+    let dir = scratch("fragment-refused");
+    let range = FormatRange::new(&Rope::from_str("a\nb\nc\n"), 2, 4);
+    let refused = |language_id: &str, command: &str| {
+        let file = dir.join("a.txt");
+        let mut plan = Plan::new(language(language_id), &file, None, Some(command)).unwrap();
+        let refused = plan.restrict(&range).unwrap_err();
+        assert!(!plan.is_restricted());
+        refused.to_string()
+    };
+    // 回归：程序写成绝对路径时没有拒绝，命令输出的整个文件被放进了所选内容的位置。
+    for command in ["gofmt {file}", "/opt/tools/gofmt {file}"] {
+        assert_eq!(
+            refused("go", command),
+            "「gofmt」直接读取磁盘上的文件，不支持格式化所选内容"
+        );
+    }
+    assert_eq!(
+        refused("javascript", "eslint --stdin --fix-dry-run --format json"),
+        "「eslint」不支持格式化所选内容"
+    );
+}
+
+#[cfg(unix)] // 用不带扩展名的脚本冒充工具；Windows 上程序要带 PATHEXT 中的扩展名
+#[test]
+fn a_selection_without_any_installed_tool_asks_to_install_one() {
+    let root = scratch("fragment-guess");
+    let text = Rope::from_str("a\nb\nc\n");
+    let mut plan = Plan::new(language("python"), &root.join("a.py"), None, None).unwrap();
+    assert!(plan.is_guess());
+    plan.restrict(&FormatRange::new(&text, 2, 4)).unwrap();
+    let job = Job {
+        plan,
+        text,
+        line_ending: LineEnding::Lf,
+        timeout: TOOL_TIMEOUT,
+    };
+    let error = formatter(&root.join("empty-bin")).run(job, &Cancel::default());
+    assert!(
+        matches!(error, Err(FormatError::NoTool { .. })),
+        "{error:?}"
+    );
 }
 
 #[test]

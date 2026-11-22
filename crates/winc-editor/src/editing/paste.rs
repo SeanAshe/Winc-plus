@@ -181,6 +181,25 @@ fn file_name_of(path: &Path) -> String {
         .unwrap_or_default()
 }
 
+/// 粘贴时校验 JSON 的最大长度（字节，256 KiB）；更长的文本只看开头和结尾。
+///
+/// 取自调参：解析这样长的对象数组约 2 毫秒，粘贴时察觉不到。
+const JSON_CHECK_MAX: usize = 256 << 10;
+
+/// 按内容识别粘贴的文本 `text` 的语言；没有把握时返回 `None`。
+///
+/// 识别 SVG、HTML、XML、JSON 和带 `#!` 的脚本。JSON 不超过 256 KiB 时必须能解析：以 `[`、
+/// `{` 开头并以 `]`、`}` 结尾的普通文字除外。
+pub fn sniffed_language(text: &str) -> Option<&'static winc_syntax::Language> {
+    let extension = guess_extension(text);
+    let unsure = match extension {
+        "txt" => true,
+        "json" => text.len() <= JSON_CHECK_MAX && winc_config::Json::parse(text.trim()).is_none(),
+        _ => false,
+    };
+    (!unsure).then(|| winc_syntax::detect(&format!("x.{extension}")))
+}
+
 /// 按文本开头的内容猜它适合的扩展名（不含 `.`），猜不出时为 `txt`。
 ///
 /// 只看开头和结尾，不解析全文；支持 SVG、HTML、XML、JSON，以及带 `#!` 的脚本。

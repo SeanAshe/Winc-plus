@@ -637,11 +637,235 @@ fn write_services_menu(resources: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// 按扩展名声明的文本类型，同 Windows 安装包登记的文本类型（测试核对两处一致）。
+const TEXT_EXTENSIONS: &[&str] = &[
+    "ash",
+    "astro",
+    "atom",
+    "bash",
+    "bb",
+    "bzl",
+    "c",
+    "cc",
+    "cfg",
+    "cjs",
+    "clj",
+    "cljc",
+    "cljs",
+    "cls",
+    "cmake",
+    "conf",
+    "cpp",
+    "cppm",
+    "cs",
+    "csproj",
+    "css",
+    "csv",
+    "csx",
+    "cts",
+    "cu",
+    "cuh",
+    "cxx",
+    "dart",
+    "desktop",
+    "diff",
+    "dockerfile",
+    "dtx",
+    "edn",
+    "env",
+    "erl",
+    "escript",
+    "ets",
+    "ex",
+    "exs",
+    "fish",
+    "fs",
+    "fsi",
+    "fsproj",
+    "fsx",
+    "gemspec",
+    "geojson",
+    "go",
+    "gql",
+    "gradle",
+    "graphql",
+    "graphqls",
+    "groovy",
+    "h",
+    "hcl",
+    "hh",
+    "hpp",
+    "hrl",
+    "hs",
+    "hsc",
+    "htm",
+    "html",
+    "hxx",
+    "inf",
+    "ini",
+    "inl",
+    "ino",
+    "ipp",
+    "ixx",
+    "java",
+    "jbuilder",
+    "jl",
+    "js",
+    "json",
+    "json5",
+    "jsonc",
+    "jsonl",
+    "jsx",
+    "kml",
+    "ksh",
+    "kt",
+    "kts",
+    "less",
+    "log",
+    "ltx",
+    "lua",
+    "luau",
+    "m",
+    "markdown",
+    "md",
+    "mdown",
+    "mjs",
+    "mk",
+    "mkd",
+    "mkdn",
+    "ml",
+    "mli",
+    "mll",
+    "mly",
+    "mm",
+    "mts",
+    "ndjson",
+    "nix",
+    "nomad",
+    "nuspec",
+    "patch",
+    "php",
+    "php3",
+    "php4",
+    "php5",
+    "php8",
+    "phps",
+    "phtml",
+    "pl",
+    "plist",
+    "pm",
+    "pod",
+    "podspec",
+    "properties",
+    "props",
+    "proto",
+    "ps1",
+    "psd1",
+    "psgi",
+    "psm1",
+    "py",
+    "pyi",
+    "r",
+    "rake",
+    "rb",
+    "rbi",
+    "resx",
+    "rockspec",
+    "rprofile",
+    "rs",
+    "rss",
+    "sass",
+    "sc",
+    "scala",
+    "scss",
+    "service",
+    "sh",
+    "sql",
+    "star",
+    "storyboard",
+    "sty",
+    "svelte",
+    "svg",
+    "swift",
+    "t",
+    "tab",
+    "targets",
+    "tex",
+    "tf",
+    "tftest",
+    "tfvars",
+    "toml",
+    "tpp",
+    "ts",
+    "tsv",
+    "tsx",
+    "txt",
+    "vbproj",
+    "vcxproj",
+    "vue",
+    "webmanifest",
+    "wsdl",
+    "wxml",
+    "wxs",
+    "wxss",
+    "xaml",
+    "xcscheme",
+    "xhtml",
+    "xib",
+    "xml",
+    "xsd",
+    "xsl",
+    "xslt",
+    "yaml",
+    "yml",
+    "zig",
+    "zon",
+    "zsh",
+];
+
+/// 生成 `CFBundleDocumentTypes` 的各项，访达的「打开方式」只列出声明了具体类型的应用。
+///
+/// 文本按系统类型和扩展名各声明一次（系统不认识的扩展名没有类型），另有 Winc 能预览的
+/// PDF、EPUB。任意文件（`public.data`）只为能拖到程序坞的图标上。按扩展名的一项等级是
+/// `Default`，其余是 `Alternate`。
+fn document_types() -> String {
+    let text = ["public.plain-text", "public.text"];
+    let documents = ["com.adobe.pdf", "org.idpf.epub-container"];
+    let types = "LSItemContentTypes";
+    [
+        document_type("Text Document", "Editor", "Alternate", types, &text),
+        document_type(
+            "Text Document",
+            "Editor",
+            "Default",
+            "CFBundleTypeExtensions",
+            TEXT_EXTENSIONS,
+        ),
+        document_type("Document", "Viewer", "Alternate", types, &documents),
+        document_type("Document", "Editor", "Alternate", types, &["public.data"]),
+        document_type("Folder", "Editor", "Alternate", types, &["public.folder"]),
+    ]
+    .concat()
+}
+
+/// 生成一项文档类型：`key` 是 `values` 的写法（系统类型或扩展名），`rank` 是打开它的优先级。
+fn document_type(name: &str, role: &str, rank: &str, key: &str, values: &[&str]) -> String {
+    let values: String = (values.iter())
+        .map(|value| format!("\t\t\t\t<string>{value}</string>\n"))
+        .collect();
+    format!(
+        "\t\t<dict>\n\
+         \t\t\t<key>CFBundleTypeName</key>\n\t\t\t<string>{name}</string>\n\
+         \t\t\t<key>CFBundleTypeRole</key>\n\t\t\t<string>{role}</string>\n\
+         \t\t\t<key>LSHandlerRank</key>\n\t\t\t<string>{rank}</string>\n\
+         \t\t\t<key>{key}</key>\n\t\t\t<array>\n{values}\t\t\t</array>\n\
+         \t\t</dict>\n"
+    )
+}
+
 /// 生成 `Info.plist`；`arch` 是应用的架构（`arm64` 或 `x86_64`），决定请求哪一份 appcast。
 ///
-/// `CFBundleDocumentTypes` 声明能打开任意文件（`public.data`）和文件夹（`public.folder`）：
-/// 有了这一项，文件和文件夹才能拖到程序坞的图标上，「打开方式」里也才列出 Winc。等级是
-/// `Alternate`，不占用其他应用的默认打开方式。
+/// `CFBundleDocumentTypes` 见 [`document_types`]。
 ///
 /// `CFBundleURLTypes` 声明 `winc` 协议：打开 `winc://file/<绝对路径>[:行[:列]]` 链接时系统交给
 /// Winc（应用委托的 `application:openURLs:`）。
@@ -652,6 +876,7 @@ fn write_services_menu(resources: &Path) -> Result<(), String> {
 /// `openInWinc`），不安装扩展，也不修改任何文件类型的默认打开方式。
 fn info_plist(version: &str, updates: &sparkle::UpdateConfig, arch: &str) -> String {
     let updates = updates.plist_entries(arch);
+    let types = document_types();
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -659,31 +884,7 @@ fn info_plist(version: &str, updates: &sparkle::UpdateConfig, arch: &str) -> Str
 <dict>
 	<key>CFBundleDocumentTypes</key>
 	<array>
-		<dict>
-			<key>CFBundleTypeName</key>
-			<string>Document</string>
-			<key>CFBundleTypeRole</key>
-			<string>Editor</string>
-			<key>LSHandlerRank</key>
-			<string>Alternate</string>
-			<key>LSItemContentTypes</key>
-			<array>
-				<string>public.data</string>
-			</array>
-		</dict>
-		<dict>
-			<key>CFBundleTypeName</key>
-			<string>Folder</string>
-			<key>CFBundleTypeRole</key>
-			<string>Editor</string>
-			<key>LSHandlerRank</key>
-			<string>Alternate</string>
-			<key>LSItemContentTypes</key>
-			<array>
-				<string>public.folder</string>
-			</array>
-		</dict>
-	</array>
+{types}	</array>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

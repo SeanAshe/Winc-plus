@@ -68,6 +68,12 @@ pub struct Config {
     ///
     /// 关闭后每次启动都显示开始页；命令行指定了目录或文件时仍然打开。
     pub restore_folder: Option<bool>,
+    /// 启动时没有可恢复的目录和标签时，是否新建一个未命名文件代替开始页，默认为否。
+    pub new_file_on_startup: Option<bool>,
+    /// 新建的未命名文件的语言（语言的标识，如 `markdown`）；未设置时为纯文本。
+    pub default_language: Option<String>,
+    /// 向空的未命名纯文本文档粘贴时是否按内容识别语言，默认为是。
+    pub detect_language_on_paste: Option<bool>,
     /// 把目录拖进已打开目录的窗口时怎样处理，默认每次询问。
     pub drop_folder: Option<FolderDrop>,
     /// 「在文件中查找」打开在哪里；没写时按键位方案：`idea` 为对话框，否则为侧栏。
@@ -87,6 +93,8 @@ pub struct Config {
     pub minimap: Option<bool>,
     /// 鼠标滚轮每滚一格平滑地滑到位，而不是立即跳到，默认为是。
     pub smooth_scrolling: Option<bool>,
+    /// 光标移动时滑到新位置的方式，默认为不播放动画。
+    pub smooth_caret_movement: Option<SmoothCaret>,
     /// 在侧栏文件视图的底部显示大纲（当前文件的函数、类型、标题），默认为是。
     pub outline: Option<bool>,
     /// 何时显示空格和制表符，默认为选中时。
@@ -488,6 +496,42 @@ impl RenderWhitespace {
     ];
 }
 
+/// 光标移动的动画方式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SmoothCaret {
+    /// 不播放动画，光标直接出现在新位置。
+    #[default]
+    Off,
+    /// 几乎立即落到新位置，再缓缓停住；连续移动时也不显得滞后。
+    Snappy,
+    /// 沿整段距离平滑移动，远距离跳转时也看得清方向。
+    Gliding,
+}
+
+impl SmoothCaret {
+    /// 全部选项，顺序与设置中菜单的顺序一致。
+    pub const ALL: [SmoothCaret; 3] = [SmoothCaret::Off, SmoothCaret::Snappy, SmoothCaret::Gliding];
+
+    /// 返回配置文件中的写法。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SmoothCaret::Off => "off",
+            SmoothCaret::Snappy => "snappy",
+            SmoothCaret::Gliding => "gliding",
+        }
+    }
+
+    /// 读配置文件中的写法；不认识时返回 `None`。
+    pub fn from_value(value: &str) -> Option<Self> {
+        match value {
+            "off" => Some(SmoothCaret::Off),
+            "snappy" => Some(SmoothCaret::Snappy),
+            "gliding" => Some(SmoothCaret::Gliding),
+            _ => None,
+        }
+    }
+}
+
 /// Markdown 预览正文的最大宽度：更宽的预览中正文居中、两侧留白。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TextWidth {
@@ -660,6 +704,30 @@ impl Config {
     /// 各节和各项按固定顺序写出，按严格 JSON 编码，不写注释。
     pub fn to_json(&self) -> String {
         self.render(None)
+    }
+
+    /// 名为 `name` 的设置（节名加键名如 `editor.size`，或顶层的键如 `theme`）是否写了值；
+    /// 没有这项设置时为否。
+    pub fn is_set(&self, name: &str) -> bool {
+        fields::named(name).is_some_and(|field| (field.write)(self).is_some())
+    }
+
+    /// 去掉名为 `name` 的设置的值，使它回到默认；其余各项不变。
+    pub fn unset(&mut self, name: &str) {
+        let Some(Json::Object(mut root)) = Json::parse(&self.to_json()) else {
+            return;
+        };
+        match name.split_once('.') {
+            Some((section, key)) => {
+                if let Some(Json::Object(values)) = root.get_mut(section) {
+                    values.remove(key);
+                }
+            }
+            None => {
+                root.remove(name);
+            }
+        }
+        *self = Config::parse(&Json::Object(root).compact()).0;
     }
 
     /// 序列化为缩进 2 个空格的 JSON：各节和各项按 [`SECTIONS`]、[`TOP_LEVEL`] 的顺序写出，只写出

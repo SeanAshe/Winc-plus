@@ -1,0 +1,31 @@
+name: Release · Submit to winget
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  submit:
+    if: >-
+      github.repository == 'DEEIX-AI/Winc' && !github.event.release.draft &&
+      !github.event.release.prerelease && !contains(github.event.release.tag_name, '+') &&
+      !contains(github.event.release.tag_name, '-')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      # The token reaches this one step only, and the program it is handed to is pinned by hash.
+      - name: Open the winget-pkgs pull request
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: bash release/windows/winget.sh "$RELEASE_TAG"

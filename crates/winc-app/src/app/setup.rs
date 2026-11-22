@@ -16,6 +16,9 @@ use crate::keymap::Preset;
 /// 的淡入共约 0.84 秒。
 pub(in crate::app) const INTRO: Duration = Duration::from_millis(2200);
 
+/// 「关于」页的图标逐层出现的时长，与启动动画中这一段相同。
+pub(in crate::app) const LOGO_BUILD: Duration = Duration::from_millis(1100);
+
 /// 图标逐层出现完成时的进度（占整段动画的比例）。
 const BUILD_END: f32 = 0.50;
 

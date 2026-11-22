@@ -24,7 +24,7 @@ fn nsis_entries(name: &str) -> Vec<(String, String)> {
 }
 
 /// `installer.nsi` 的 `ForEachFileType` 里列出的扩展名。
-fn nsis_types() -> Vec<String> {
+pub(crate) fn nsis_types() -> Vec<String> {
     let entries = nsis_entries("ForEachFileType");
     entries.into_iter().map(|(kind, _)| kind).collect()
 }
@@ -91,8 +91,8 @@ fn types_windows_runs_on_double_click_are_never_registered() {
     // 回归：注册了 BAT、CMD 后，Windows 双击这类文件时改为询问用哪个程序打开，脚本不再运行。
     // 这些类型的默认操作是运行：列进「打开方式」会使双击时改为询问。
     let runnable = [
-        "BAT", "CMD", "COM", "CPL", "EXE", "HTA", "LNK", "MSC", "MSI", "PIF", "REG", "SCR", "VBE",
-        "VBS", "WSF", "WSH",
+        "BAT", "CMD", "COM", "CPL", "EXE", "HTA", "LNK", "MSC", "MSI", "PIF", "PYW", "REG", "SCR",
+        "VBE", "VBS", "WSF", "WSH",
     ];
     let types = nsis_types();
     for kind in runnable {
@@ -114,8 +114,10 @@ fn the_linux_desktop_entry_declares_types_outside_plain_text() {
         .find_map(|line| line.strip_prefix("MimeType="))
         .unwrap();
     assert!(mime.ends_with(';'));
-    // `application/json` 不是 `text/plain` 的子类型，要单独声明。
-    for common in ["text/plain", "inode/directory", "application/json"] {
+    // `application/json` 不是 `text/plain` 的子类型，要单独声明；PDF、EPUB 是 Winc 能预览的文档。
+    let documents = ["application/pdf", "application/epub+zip"];
+    let common = ["text/plain", "inode/directory", "application/json"];
+    for common in common.into_iter().chain(documents) {
         assert!(mime.split(';').any(|t| t == common), "缺少 {common}");
     }
 }

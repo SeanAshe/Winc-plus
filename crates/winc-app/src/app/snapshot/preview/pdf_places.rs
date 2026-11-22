@@ -1,4 +1,4 @@
-//! PDF 预览的阅读位置：切换标签后保留，并随目录的现场保存和恢复。
+//! PDF 预览的阅读位置：切换标签后保留，记入各文件上次的位置，再次打开时恢复。
 
 use winit::keyboard::{Key, NamedKey};
 
@@ -13,13 +13,11 @@ fn settle(app: &mut App) {
     paint(app);
 }
 
-/// 返回当前目录的现场中文件 `path` 的阅读位置；按文件名查找，不受临时目录符号链接的影响。
+/// 返回文件 `path` 此刻的阅读位置；按文件名查找，不受临时目录符号链接的影响。
 fn place(app: &App, path: &Path) -> Option<(usize, f32)> {
-    let places = app.pdf_session(app.editor.root()?);
-    let found = places
-        .iter()
-        .find(|(file, _)| file.file_name() == path.file_name());
-    found.map(|(_, place)| *place)
+    let places = app.pdf_places_now();
+    let found = (places.iter()).find(|(file, _)| file.file_name() == path.file_name());
+    found.and_then(|(_, place)| *place)
 }
 
 /// 两个阅读位置是否为同一处：页号相同，页内比例之差不超过千分之一。
@@ -82,20 +80,21 @@ fn the_pdf_preview_returns_to_where_it_was_left() {
         app.preview.pdf.scroll
     );
 
-    // 回到开头后记录从现场中移除。
+    // 回到开头后去掉它的记录。
     app.open_path(&first);
     settle(&mut app);
     assert!(app.pdf_key(&Key::Named(NamedKey::Home)));
     settle(&mut app);
     app.remember_session();
-    let root = app.editor.root().unwrap();
-    let saved = &app.state.session_for(root).unwrap().pdf_places;
+    let read = |(_, place): &&(PathBuf, winc_config::FilePlace)| place.view.is_some();
+    let saved: Vec<_> = app.state.places.iter().filter(read).collect();
     assert_eq!(saved.len(), 1, "{saved:?}");
     assert_eq!(saved[0].0.file_name(), second.file_name());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 阅读位置随现场保存：重新启动后以另一个缩放倍数打开，显示的仍是同一页的同一处。
+/// 阅读位置记在状态里：重新启动后以另一个缩放倍数打开，显示的仍是同一页的同一处；没有打开
+/// 目录时同样记得。
 #[test]
 fn the_pdf_place_is_restored_with_the_session() {
     let dir = sample_folder("pdf-places-session");
@@ -119,16 +118,31 @@ fn the_pdf_place_is_restored_with_the_session() {
     );
     assert!(same(place(&next, &path), left), "{left:?}");
 
-    // 现场中记录的页已不存在（文件被替换为较短的文档）时从开头显示。文件仍被前两个实例打开，
-    // 部分系统不允许此时覆盖它，因此改写现场中记录的页码。
-    let root = app.editor.root().unwrap().to_path_buf();
-    let mut session = app.state.session_for(&root).unwrap().clone();
-    for (_, (page, _)) in &mut session.pdf_places {
-        *page = 999;
-    }
+    // 不打开目录、只打开这个文件：同样回到原处，看到的新位置也记得下来。
+    let mut alone = blank_app(false);
+    alone.state = app.state.clone();
+    alone.open_path(&path);
+    settle(&mut alone);
+    assert!(alone.editor.root().is_none());
+    assert!(same(place(&alone, &path), left), "{left:?}");
+    alone.scroll_pdf(-900.0);
+    settle(&mut alone);
+    let further = place(&alone, &path);
+    alone.remember_session();
+    let saved = alone
+        .state
+        .places
+        .iter()
+        .find(|(file, _)| file.file_name() == path.file_name());
+    assert!(same(saved.and_then(|(_, place)| place.view), further));
+
+    // 记录的页已不存在（文件被替换为较短的文档）时从开头显示。文件仍被前几个实例打开，部分
+    // 系统不允许此时覆盖它，因此改写记录的页码。
     let mut short = blank_app(false);
     short.state = app.state.clone();
-    short.state.set_session(session);
+    for (_, place) in &mut short.state.places {
+        place.view = place.view.map(|(_, at)| (999, at));
+    }
     short.open_path(&dir);
     short.open_path(&path);
     settle(&mut short);

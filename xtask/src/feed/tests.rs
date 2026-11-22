@@ -35,6 +35,20 @@ fn package_names_give_version_and_architecture() {
         parse_name("Winc-1.2.3-beta.4-windows-x64.msi", ".msi"),
         Some(("1.2.3-beta.4".into(), "x86_64".into()))
     );
+    assert_eq!(
+        parse_name("Winc-1.2.3-linux-arm64.AppImage", linux),
+        Some(("1.2.3".into(), "aarch64".into()))
+    );
+}
+
+#[test]
+fn each_linux_architecture_has_a_feed_of_its_own() {
+    assert_eq!(Platform::Linux.feed_file("x86_64"), "appcast-linux.xml");
+    assert_eq!(
+        Platform::Linux.feed_file("aarch64"),
+        "appcast-linux-arm64.xml"
+    );
+    assert_eq!(Platform::Windows.feed_file("x86_64"), "appcast-windows.xml");
 }
 
 #[test]

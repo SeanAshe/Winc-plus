@@ -19,7 +19,9 @@ function signUpdates({ platform, version, bundle, key }) {
     const file = join(bundle, spec.directory, spec.name);
     const signature = signBytes(readFileSync(file), key);
     const os = platform.startsWith("macos") ? "macos" : platform.split("-")[0];
-    const arch = platform === "macos-arm64" ? "arm64" : "x86_64";
+    // The value the application compares with its own architecture: Sparkle's name on macOS,
+    // Rust's (`std::env::consts::ARCH`) elsewhere.
+    const arch = { "macos-arm64": "arm64", "linux-arm64": "aarch64" }[platform] ?? "x86_64";
     const installer = os === "windows" ? ` installer="${spec.directory}"` : "";
     const url = `${channelBase(version)}/${encodeURIComponent(spec.name)}`;
     // 四段数字：旧客户端把 `0.1.502_116` 读成 `0.1.0`，用点号才能看出比 `0.1.495` 新。

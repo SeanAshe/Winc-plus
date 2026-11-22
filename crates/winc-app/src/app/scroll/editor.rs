@@ -146,6 +146,17 @@ impl App {
             });
     }
 
+    /// 视口是否正在平滑滚动到当前文档的某一位置（跳转、居中光标）。
+    ///
+    /// 这种滚动由移动光标引起，光标的目标会随之一帧帧移动；光标动画应跟着目标走，而不是把
+    /// 它当成滚轮滚动而直接跳到目标。
+    pub(crate) fn caret_scrolls(&self) -> bool {
+        self.scroll
+            .glide
+            .as_ref()
+            .is_some_and(|glide| self.editor.active().is_some_and(|doc| doc.id == glide.doc))
+    }
+
     /// 结束编辑区的平滑滚动，滚动位置停在此刻屏幕上显示的位置。
     ///
     /// 用于用户直接控制滚动（按下鼠标、滚轮、触摸、拖动滚动条或缩略图）时：此后的命中测试和

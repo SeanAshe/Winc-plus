@@ -6,21 +6,21 @@
      list the same as ForEachFileType in installer.nsi. The types are grouped by the document
      icon they show (release/windows/icons); FileTypes is all of them.
      Registry keys ignore case; upper case gives the "JSON File" name the shell shows for a type. -->
-<?define MarkdownTypes = MD?>
-<?define JsonTypes = JSON;JSON5;JSONC?>
-<?define ConfigTypes = CFG;CONF;ENV;INI;TOML;YAML;YML?>
-<?define MarkupTypes = ASTRO;HTM;HTML;SVELTE;VUE;XML?>
-<?define StyleTypes = CSS;LESS;SASS;SCSS?>
-<?define ScriptTypes = BASH;FISH;PS1;PSM1;SH;ZSH?>
-<?define TableTypes = CSV;TSV?>
-<?define TextTypes = LOG;TXT?>
+<?define MarkdownTypes = MARKDOWN;MD;MDOWN;MKD;MKDN?>
+<?define JsonTypes = GEOJSON;JSON;JSON5;JSONC;JSONL;NDJSON;WEBMANIFEST?>
+<?define ConfigTypes = CFG;CONF;DESKTOP;DOCKERFILE;ENV;INF;INI;PROPERTIES;SERVICE;TOML;YAML;YML?>
+<?define MarkupTypes = ASTRO;ATOM;CLS;CSPROJ;DTX;FSPROJ;HTM;HTML;KML;LTX;NUSPEC;PLIST;PROPS;RESX;RSS;STORYBOARD;STY;SVELTE;SVG;TARGETS;TEX;VBPROJ;VCXPROJ;VUE;WSDL;WXML;XAML;XCSCHEME;XHTML;XIB;XML;XSD;XSL;XSLT?>
+<?define StyleTypes = CSS;LESS;SASS;SCSS;WXSS?>
+<?define ScriptTypes = ASH;BASH;FISH;KSH;MK;PS1;PSD1;PSM1;SH;ZSH?>
+<?define TableTypes = CSV;TAB;TSV?>
+<?define TextTypes = DIFF;EPUB;LOG;PATCH;PDF;TXT?>
 <?define JavascriptTypes = CJS;JS;JSX;MJS?>
-<?define TypescriptTypes = TS;TSX?>
-<?define PythonTypes = PY;PYI?>
+<?define TypescriptTypes = CTS;MTS;TS;TSX?>
+<?define PythonTypes = BZL;PY;PYI;STAR?>
 <?define RustTypes = RS?>
 <?define GoTypes = GO?>
-<?define CTypes = C;CC;CPP;CXX;H;HH;HPP?>
-<?define CodeTypes = CLJ;CS;DART;ERL;EX;EXS;FS;GQL;GRADLE;GRAPHQL;HS;JAVA;KT;KTS;LUA;M;MM;PHP;PL;PROTO;R;RB;SCALA;SQL;SWIFT;TF;ZIG?>
+<?define CTypes = C;CC;CPP;CPPM;CU;CUH;CXX;H;HH;HPP;HXX;INL;INO;IPP;IXX;TPP?>
+<?define CodeTypes = BB;CLJ;CLJC;CLJS;CMAKE;CS;CSX;DART;EDN;ERL;ESCRIPT;ETS;EX;EXS;FS;FSI;FSX;GEMSPEC;GQL;GRADLE;GRAPHQL;GRAPHQLS;GROOVY;HCL;HRL;HS;HSC;JAVA;JBUILDER;JL;KT;KTS;LUA;LUAU;M;ML;MLI;MLL;MLY;MM;NIX;NOMAD;PHP;PHP3;PHP4;PHP5;PHP8;PHPS;PHTML;PL;PM;POD;PODSPEC;PROTO;PSGI;R;RAKE;RB;RBI;ROCKSPEC;RPROFILE;SC;SCALA;SQL;SWIFT;T;TF;TFTEST;TFVARS;WXS;ZIG;ZON?>
 <?define IconNames = markdown;json;config;markup;style;script;table;text;javascript;typescript;python;rust;go;c;code;file?>
 <?define FileTypes = $(var.MarkdownTypes);$(var.JsonTypes);$(var.ConfigTypes);$(var.MarkupTypes);$(var.StyleTypes);$(var.ScriptTypes);$(var.TableTypes);$(var.TextTypes);$(var.JavascriptTypes);$(var.TypescriptTypes);$(var.PythonTypes);$(var.RustTypes);$(var.GoTypes);$(var.CTypes);$(var.CodeTypes)?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
@@ -153,8 +153,9 @@
             <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\shell\open\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
             <?endforeach?>
           </Component>
-          <!-- Optional, off by default: lists the ProgIDs under the types. A handler listed there
-               makes Windows ask which program to use. Install with ADDLOCAL=Main,FileTypes. -->
+          <!-- Optional, on by default: lists the ProgIDs under the types. A handler listed there
+               makes Windows ask once which program to use. Install with ADDLOCAL=Main to leave it
+               out; an upgrade keeps the earlier choice. -->
           <Component Id="FileTypeListing" Guid="*" Win64="yes">
             <RegistryValue Root="HKLM" Key="Software\DEEIX\winc\MSI" Name="File Types" Type="integer" Value="1" KeyPath="yes"/>
             <!-- The shell reads only the value names; the data is a placeholder, as above. -->
@@ -169,22 +170,23 @@
             </Component>
             <?endforeach?>
           </Directory>
-          <!-- Explorer context menu: "Open with Winc" on the supported types, added under
-               SystemFileAssociations so their default program stays unchanged, and "Open in Winc" on
-               a folder and on the empty space inside one (also the desktop), where %V is that folder.
-               Windows 11 shows these under "Show more options". -->
+          <!-- Explorer context menu: one "Open with Winc" for every file, under the * class, which
+               leaves each type's default program alone, and "Open in Winc" on a folder and on the
+               empty space inside one (also the desktop), where %V is that folder. Windows 11 shows
+               these under "Show more options". Its own feature, off by default: install with
+               ADDLOCAL=ALL to add it, or add it later with ADDLOCAL=ContextMenu and the same
+               INSTALLFOLDER. An upgrade from a version that always added it keeps it. The program
+               is named through its folder: a feature may not refer to a file of another one. -->
           <Component Id="ContextMenu" Guid="*" Win64="yes">
             <RegistryValue Root="HKLM" Key="Software\Classes\Directory\shell\winc" Value="Open in Winc" Type="string" KeyPath="yes"/>
-            <RegistryValue Root="HKLM" Key="Software\Classes\Directory\shell\winc" Name="Icon" Value="[#WincExe],0" Type="string"/>
-            <RegistryValue Root="HKLM" Key="Software\Classes\Directory\shell\winc\command" Value="&quot;[#WincExe]&quot; &quot;%V&quot;" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\Directory\shell\winc" Name="Icon" Value="[INSTALLFOLDER]winc.exe,0" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\Directory\shell\winc\command" Value="&quot;[INSTALLFOLDER]winc.exe&quot; &quot;%V&quot;" Type="string"/>
             <RegistryValue Root="HKLM" Key="Software\Classes\Directory\Background\shell\winc" Value="Open in Winc" Type="string"/>
-            <RegistryValue Root="HKLM" Key="Software\Classes\Directory\Background\shell\winc" Name="Icon" Value="[#WincExe],0" Type="string"/>
-            <RegistryValue Root="HKLM" Key="Software\Classes\Directory\Background\shell\winc\command" Value="&quot;[#WincExe]&quot; &quot;%V&quot;" Type="string"/>
-            <?foreach Type in $(var.FileTypes)?>
-            <RegistryValue Root="HKLM" Key="Software\Classes\SystemFileAssociations\.$(var.Type)\shell\winc" Value="Open with Winc" Type="string"/>
-            <RegistryValue Root="HKLM" Key="Software\Classes\SystemFileAssociations\.$(var.Type)\shell\winc" Name="Icon" Value="[#WincExe],0" Type="string"/>
-            <RegistryValue Root="HKLM" Key="Software\Classes\SystemFileAssociations\.$(var.Type)\shell\winc\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
-            <?endforeach?>
+            <RegistryValue Root="HKLM" Key="Software\Classes\Directory\Background\shell\winc" Name="Icon" Value="[INSTALLFOLDER]winc.exe,0" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\Directory\Background\shell\winc\command" Value="&quot;[INSTALLFOLDER]winc.exe&quot; &quot;%V&quot;" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\*\shell\winc" Value="Open with Winc" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\*\shell\winc" Name="Icon" Value="[INSTALLFOLDER]winc.exe,0" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\*\shell\winc\command" Value="&quot;[INSTALLFOLDER]winc.exe&quot; &quot;%1&quot;" Type="string"/>
           </Component>
           <!-- The winc: URL scheme: winc://file/<absolute path>[:line[:column]] opens a file or
                folder in winc, which receives the whole link as its argument. The shell checks only
@@ -222,13 +224,17 @@
     <Feature Id="Main" Title="winc" Level="1">
       <ComponentRef Id="Application"/><ComponentRef Id="TerminalHelper"/><ComponentRef Id="InstallationKind"/>
       <ComponentRef Id="ConptyLibrary"/><ComponentRef Id="ConsoleHost"/>
-      <ComponentRef Id="FileAssociations"/><ComponentRef Id="ContextMenu"/><ComponentRef Id="UrlScheme"/>
+      <ComponentRef Id="FileAssociations"/><ComponentRef Id="UrlScheme"/>
       <ComponentRef Id="CommandLine"/><ComponentRef Id="CommandLineCmd"/><ComponentRef Id="WslWatcher"/>
       <ComponentRef Id="RemoteServerX64"/><ComponentRef Id="RemoteServerArm64"/>
       <ComponentRef Id="License"/><ComponentRef Id="Notice"/><ComponentRef Id="StartMenu"/>
       <ComponentRef Id="Icon_markdown"/><ComponentRef Id="Icon_json"/><ComponentRef Id="Icon_config"/><ComponentRef Id="Icon_markup"/><ComponentRef Id="Icon_style"/><ComponentRef Id="Icon_script"/><ComponentRef Id="Icon_table"/><ComponentRef Id="Icon_text"/><ComponentRef Id="Icon_javascript"/><ComponentRef Id="Icon_typescript"/><ComponentRef Id="Icon_python"/><ComponentRef Id="Icon_rust"/><ComponentRef Id="Icon_go"/><ComponentRef Id="Icon_c"/><ComponentRef Id="Icon_code"/><ComponentRef Id="Icon_file"/>
     </Feature>
-    <Feature Id="FileTypes" Title="Associate file types" Level="1000">
+    <Feature Id="ContextMenu" Title="Explorer context menu" Level="1000">
+      <Condition Level="1">WIX_UPGRADE_DETECTED</Condition>
+      <ComponentRef Id="ContextMenu"/>
+    </Feature>
+    <Feature Id="FileTypes" Title="Associate file types" Level="1">
       <ComponentRef Id="FileTypeListing"/>
     </Feature>
     <!-- Register text file types after the executable is on disk; remove them before it is deleted. -->

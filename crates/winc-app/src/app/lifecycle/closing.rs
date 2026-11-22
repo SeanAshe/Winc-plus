@@ -424,6 +424,7 @@ impl App {
     /// 全部关完以后才重新排版一次：逐个排版时，中途轮到当前的每个文档都会按自动换行整篇折一遍，
     /// 下一步又被关掉。
     pub(in crate::app) fn remove_tabs(&mut self, ids: &[DocumentId]) {
+        self.remember_text_places(ids);
         let mut closed = false;
         for id in ids {
             if let Some(index) = self.editor.index_of(*id) {
@@ -445,6 +446,7 @@ impl App {
         let Some(index) = self.editor.index_of(id) else {
             return;
         };
+        self.remember_text_places(&[id]);
         self.cancel_format(id);
         if self.vim.is_some() {
             self.vim_store_marks(id);

@@ -667,7 +667,7 @@ fn shoot_preview_tab() {
     click_tree_file(&mut app, &dir, "short.rs", 1);
     shoot(&mut app, "preview-tab-light");
     app.open_settings();
-    app.settings_show_page(crate::layout::SettingsPage::Editor);
+    app.settings_show_page(crate::layout::SettingsPage::Files);
     app.settings.scroll = app.settings_layout().max_scroll();
     shoot(&mut app, "preview-tab-settings-light");
     let _ = std::fs::remove_dir_all(&dir);

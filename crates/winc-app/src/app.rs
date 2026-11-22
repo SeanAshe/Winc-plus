@@ -975,6 +975,8 @@ pub struct App {
     pub text_content_w: f32,
     /// 预览标签的文档；是否仍是预览标签见 [`App::preview_index`]。
     preview_tab: Option<winc_editor::DocumentId>,
+    /// 启动时新建的未命名文件；是否仍可替换见 [`App::startup_file_index`]。
+    startup_file: Option<winc_editor::DocumentId>,
 
     // 编辑区
     /// 剪贴板。

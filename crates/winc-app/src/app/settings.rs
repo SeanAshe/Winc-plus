@@ -8,6 +8,8 @@ mod card;
 mod formatters;
 pub(super) mod shortcuts;
 mod stepper;
+mod switches;
+mod values;
 
 use stepper::step;
 
@@ -49,6 +51,10 @@ pub struct SettingsState {
     pub scroll: f32,
     /// 鼠标悬停的部件。
     pub hover: Option<SettingsPart>,
+    /// 「系统集成」一组的状态（Windows），打开设置和切换开关时从注册表读出。
+    pub(crate) integration: crate::shell_integration::Integration,
+    /// 取值与默认不同的设置项：名称后面有「恢复默认」。打开设置和配置变化时重新算。
+    pub changed: Vec<Setting>,
     /// 格式化页列出的语言。
     ///
     /// 打开设置时确定，打开期间只会增加，不会减少，已列出的语言也不换位置。
@@ -63,6 +69,8 @@ pub struct SettingsState {
     ///
     /// 渲染失败时像素为空，不再重试，图标不显示。
     pub logo: Option<(u32, Vec<u8>)>,
+    /// 这次显示「关于」页是否已经播放过图标的动画；离开该页或重新打开设置后再播放一次。
+    pub logo_played: bool,
     /// 快捷键页的搜索框：按命令名或按键搜索。
     pub keys_query: TextField,
     /// 是否正在录制按键：按下的键写入搜索框，不执行。
@@ -199,6 +207,7 @@ impl App {
         self.settings.cache = None;
         self.settings.scroll = 0.0;
         self.settings.selected = Setting::default();
+        self.settings.logo_played = false;
         self.settings.search.set_text("");
         self.settings.error = self.broken_font(self.settings.selected.page());
         self.settings.keyboard = false;
@@ -207,6 +216,8 @@ impl App {
         // 每次打开设置重新查询发行版中的工具：其间新安装的能列出来。
         self.format.formatter.forget_wsl();
         self.refresh_format_rows(true);
+        self.settings.integration = crate::shell_integration::read();
+        self.refresh_changed_settings();
         // 列出字体要读取字体文件，先在后台读好，打开字体菜单时不必等待；「默认 Shell」菜单中的
         // shell 同样在后台检测。
         std::thread::spawn(winc_render::installed_fonts);
@@ -262,8 +273,8 @@ impl App {
 
     /// 返回设置浮层中窗口坐标 (`x`, `y`) 处的部件。
     ///
-    /// 先判断上一帧绘制出的「安装方法…」链接，再判断布局中的部件。滚动到标题之下而不可见的
-    /// 链接不可点击。
+    /// 先判断上一帧绘制出的「安装方法…」和「恢复默认」，再判断布局中的部件。滚动到标题之下而
+    /// 不可见的链接不可点击。
     pub(super) fn settings_part_at(&self, x: f32, y: f32) -> Option<SettingsPart> {
         let layout = self.settings_layout();
         if layout.page == SettingsPage::Keys
@@ -279,6 +290,11 @@ impl App {
             .find(|(_, r)| r.contains(x, y) && layout.body.contains(x, y));
         if let Some(&(setting, _)) = link {
             return Some(SettingsPart::Install(setting));
+        }
+        let reset = (self.hits.reset_links.iter())
+            .find(|(_, r)| r.contains(x, y) && layout.body.contains(x, y));
+        if let Some(&(setting, _)) = reset {
+            return Some(SettingsPart::Reset(setting));
         }
         match layout.part_at(x, y)? {
             // 版本号和链接只有文字那一块可点，与悬停底色一致。
@@ -325,6 +341,35 @@ impl App {
             self.settings.logo = Some((size, rgba));
         }
         self.settings.logo.as_ref().map_or(&[], |(_, rgba)| rgba)
+    }
+
+    /// 每帧绘制前调用：「关于」页刚显示出来时播放一次图标逐层出现的动画。
+    ///
+    /// 设置浮层出现期间画的是开头的快照，动画等浮层出现之后再开始；动态效果关闭时不播放。
+    pub(in crate::app) fn track_about_logo(&mut self) {
+        if !self.settings.open {
+            return;
+        }
+        let about = self.settings.selected.page() == crate::layout::SettingsPage::About
+            && !self.settings_searching();
+        if !about {
+            self.settings.logo_played = false;
+            self.motion.about_logo = None;
+        } else if !std::mem::replace(&mut self.settings.logo_played, true) {
+            let wait = match &self.settings.motion {
+                Some((true, clock)) => super::animation::DIALOG_IN.mul_f32(1.0 - clock.linear()),
+                _ => std::time::Duration::ZERO,
+            };
+            let total = wait + crate::app::setup::LOGO_BUILD;
+            let delay = wait.as_secs_f32() / total.as_secs_f32();
+            self.motion.about_logo = self.clock(total).map(|clock| (clock, delay));
+        }
+    }
+
+    /// 返回「关于」页图标逐层出现的进度，0 到 1；没有在播放时为 `None`。
+    pub(crate) fn about_logo_build(&self) -> Option<f32> {
+        let (clock, delay) = self.motion.about_logo?;
+        Some(((clock.linear() - delay) / (1.0 - delay)).clamp(0.0, 1.0))
     }
 
     /// 是否支持应用内更新：不支持时「关于」页只写明原因，不显示「检查更新」按钮。
@@ -716,199 +761,6 @@ impl App {
             }
             SettingControl::Search => self.focus = Focus::KeySearch,
         }
-    }
-
-    /// 开关 `setting` 当前是否开启。
-    pub(crate) fn switch_on(&self, setting: Setting) -> bool {
-        match setting {
-            Setting::FormatOnSave => self.config.format_on_save == Some(true),
-            Setting::FixOnSave => self.config.fix_on_save == Some(true),
-            Setting::HotExit => self.config.hot_exit != Some(false),
-            Setting::ConfirmClose => self.config.confirm_close == Some(true),
-            Setting::RestoreFolder => self.config.restore_folder != Some(false),
-            Setting::StickyScroll => self.config.sticky_scroll != Some(false),
-            Setting::VimMode => self.config.vim_enabled == Some(true),
-            Setting::VimRelativeNumber => self.config.vim_relative_number == Some(true),
-            Setting::VimYankHighlight => self.config.vim_yank_highlight != Some(0),
-            Setting::WordWrap => self.config.word_wrap == Some(true),
-            Setting::WholeLines => self.config.whole_lines == Some(true),
-            Setting::Minimap => self.config.minimap == Some(true),
-            Setting::Outline => self.config.outline != Some(false),
-            Setting::LineNumbers => self.config.line_numbers != Some(false),
-            Setting::DiffInline => self.config.diff_inline == Some(true),
-            Setting::StatusBar => self.config.status_bar != Some(false),
-            Setting::RestoreWindow => self.config.restore_window != Some(false),
-            Setting::Animations => self.animations_on(),
-            Setting::SmoothScrolling => self.smooth_scrolling(),
-            Setting::CompactFolders => self.config.compact_folders != Some(false),
-            Setting::PreviewOnClick => self.config.preview_on_click == Some(true),
-            Setting::RemoteImages => self.config.markdown_remote_images != Some(false),
-            Setting::MarkdownLineNumbers => self.config.markdown_line_numbers != Some(false),
-            Setting::MarkdownShortcuts => self.config.markdown_shortcuts != Some(false),
-            Setting::MarkdownFocus => self.config.markdown_focus == Some(true),
-            Setting::MarkdownTypewriter => self.config.markdown_typewriter == Some(true),
-            Setting::MarkdownSelectionToolbar => {
-                self.config.markdown_selection_toolbar != Some(false)
-            }
-            Setting::CheckUpdates => self.config.update_auto_check != Some(false),
-            Setting::SystemTitleBar => self.config.ui_native_title_bar == Some(true),
-            Setting::GitModule => self.git_enabled(),
-            Setting::GitConfirmPush => self.config.git_confirm_push != Some(false),
-            Setting::GitRememberCredentials => self.config.git_remember_credentials != Some(false),
-            Setting::SystemProxy => self.config.system_proxy != Some(false),
-            Setting::GitInlineBlame => self.config.git_inline_blame != Some(false),
-            Setting::GitAutoFetch => self.config.git_auto_fetch == Some(true),
-            Setting::GitTree => !self.git.commit.flat(),
-            Setting::GitStagingArea => self.config.git_staging_area == Some(true),
-            Setting::TerminalModule => self.terminal_enabled(),
-            Setting::RemoteModule => self.remote_enabled(),
-            Setting::TerminalCopyOnSelect => self.config.terminal_copy_on_select == Some(true),
-            Setting::TerminalConfirmClose => self.config.terminal_confirm_close != Some(false),
-            Setting::TerminalPrompt => self.config.terminal_prompt != Some(false),
-            Setting::TerminalApplicationPriority => {
-                self.config.terminal_application_priority == Some(true)
-            }
-            Setting::TerminalShellIntegration => {
-                self.config.terminal_shell_integration != Some(false)
-            }
-            _ => false,
-        }
-    }
-
-    /// 切换开关 `setting` 的状态。
-    pub(in crate::app) fn settings_toggle(&mut self, setting: Setting) {
-        if setting == Setting::StickyScroll {
-            self.caches.sticky_cache = None;
-        }
-        self.settings_set_switch(setting, !self.switch_on(setting));
-    }
-
-    fn settings_set_switch(&mut self, setting: Setting, on: bool) {
-        if self.switch_on(setting) == on {
-            return;
-        }
-        self.vim_forget_option(setting);
-        match setting {
-            Setting::FormatOnSave => self.config.format_on_save = Some(on),
-            Setting::FixOnSave => self.config.fix_on_save = Some(on),
-            Setting::HotExit => self.config.hot_exit = Some(on),
-            Setting::ConfirmClose => self.config.confirm_close = Some(on),
-            Setting::RestoreFolder => self.config.restore_folder = Some(on),
-            Setting::StickyScroll => self.config.sticky_scroll = Some(on),
-            Setting::VimMode => {
-                self.config.vim_enabled = Some(on);
-                self.vim_apply_config();
-            }
-            Setting::VimRelativeNumber => self.config.vim_relative_number = Some(on),
-            // 关闭记为 0 毫秒，打开恢复默认的时长。
-            Setting::VimYankHighlight => self.config.vim_yank_highlight = (!on).then_some(0),
-            Setting::WordWrap => self.config.word_wrap = Some(on),
-            Setting::WholeLines => self.config.whole_lines = Some(on),
-            Setting::Minimap => self.config.minimap = Some(on),
-            Setting::Outline => self.config.outline = Some(on),
-            Setting::LineNumbers => self.config.line_numbers = Some(on),
-            Setting::DiffInline => self.config.diff_inline = Some(on),
-            Setting::StatusBar => self.config.status_bar = Some(on),
-            Setting::RestoreWindow => self.config.restore_window = Some(on),
-            Setting::Animations => self.config.ui_animations = Some(on),
-            Setting::SmoothScrolling => self.config.smooth_scrolling = Some(on),
-            Setting::CompactFolders => self.config.compact_folders = Some(on),
-            Setting::PreviewOnClick => self.config.preview_on_click = Some(on),
-            Setting::RemoteImages => self.config.markdown_remote_images = Some(on),
-            Setting::MarkdownLineNumbers => self.config.markdown_line_numbers = Some(on),
-            Setting::MarkdownShortcuts => self.config.markdown_shortcuts = Some(on),
-            Setting::MarkdownFocus => self.config.markdown_focus = Some(on),
-            Setting::MarkdownTypewriter => self.config.markdown_typewriter = Some(on),
-            Setting::MarkdownSelectionToolbar => self.config.markdown_selection_toolbar = Some(on),
-            Setting::CheckUpdates => self.config.update_auto_check = Some(on),
-            Setting::SystemTitleBar => self.config.ui_native_title_bar = Some(on),
-            Setting::GitModule => self.config.git_enabled = Some(on),
-            Setting::GitConfirmPush => self.config.git_confirm_push = Some(on),
-            Setting::GitRememberCredentials => {
-                self.config.git_remember_credentials = Some(on);
-                if !on {
-                    crate::app::git::question::forget_credentials();
-                }
-            }
-            Setting::GitTree if on == self.git.commit.flat() => self.toggle_commit_layout(),
-            Setting::GitTree => {}
-            Setting::SystemProxy => {
-                self.config.system_proxy = Some(on);
-                winc_editor::proxy::follow_system_proxy(on);
-            }
-            Setting::GitStagingArea => self.config.git_staging_area = Some(on),
-            Setting::GitInlineBlame => self.config.git_inline_blame = Some(on),
-            Setting::GitAutoFetch => self.config.git_auto_fetch = Some(on),
-            Setting::TerminalModule => self.config.terminal_enabled = Some(on),
-            Setting::RemoteModule => self.config.remote_enabled = Some(on),
-            Setting::TerminalCopyOnSelect => self.config.terminal_copy_on_select = Some(on),
-            Setting::TerminalConfirmClose => self.config.terminal_confirm_close = Some(on),
-            Setting::TerminalPrompt => self.config.terminal_prompt = Some(on),
-            Setting::TerminalApplicationPriority => {
-                self.config.terminal_application_priority = Some(on)
-            }
-            Setting::TerminalShellIntegration => self.config.terminal_shell_integration = Some(on),
-            _ => return,
-        }
-        // 由命令切换（如 ⌥Z 自动换行）时看不到开关，不必播放动画；开关在设置浮层和「首次设置」
-        // 中可见。
-        let visible = self.settings.open || self.setup_shown();
-        self.settings.switch_slide = self
-            .clock(super::animation::SWITCH_SLIDE)
-            .filter(|_| visible)
-            .map(|clock| (setting, clock));
-        if setting == Setting::WordWrap {
-            self.word_wrap_changed();
-        }
-        if matches!(
-            setting,
-            Setting::Minimap | Setting::LineNumbers | Setting::StatusBar | Setting::Outline
-        ) {
-            self.relayout();
-        }
-        // 关掉大纲时焦点在大纲上的，交给文件树。
-        if setting == Setting::Outline && !on && self.focus == Focus::Outline {
-            self.focus = Focus::Tree;
-        }
-        if setting == Setting::DiffInline {
-            self.apply_diff_layout();
-        }
-        if setting == Setting::GitStagingArea {
-            self.apply_staging_view();
-        }
-        // 关闭预览标签时，现有的预览标签成为普通标签。
-        if setting == Setting::PreviewOnClick && !on {
-            self.preview_tab = None;
-        }
-        // 关掉以后不再沿用：之后再打开时从下一次关闭窗口开始记录。
-        if setting == Setting::RestoreWindow && !on {
-            self.update_state(|state| state.window = None);
-        }
-        if setting == Setting::CompactFolders {
-            self.apply_compact_folders();
-        }
-        if setting == Setting::RemoteImages {
-            self.preview.markdown.forget_images();
-        }
-        if setting == Setting::GitModule {
-            self.git_folder_changed();
-        }
-        if setting == Setting::RemoteModule && !on {
-            self.stop_remote();
-        }
-        if setting == Setting::SystemTitleBar {
-            self.sync_title_bar();
-            self.relayout();
-        }
-        // 关闭终端模块时辅助进程和里面的 shell 一起结束；开着时等用户按 ⌃` 再启动。
-        if setting == Setting::TerminalModule {
-            if !on {
-                self.stop_terminal();
-            }
-            self.reload_run_configs();
-        }
-        self.save_config();
-        self.request_redraw();
     }
 
     /// 开始编辑字体名或格式化命令：输入框中是当前的设置并全选，直接键入即替换。
@@ -1378,6 +1230,9 @@ impl App {
         self.vim_swap_options();
         self.write_config();
         self.vim_swap_options();
+        if self.settings.open {
+            self.refresh_changed_settings();
+        }
     }
 
     /// 把配置写入配置文件。
@@ -1409,6 +1264,14 @@ impl App {
                 t!("settings-config-write-failed", error = e.to_string()),
             ),
         }
+    }
+
+    /// 设置光标移动的动画方式，并写回配置。
+    pub(in crate::app) fn set_smooth_caret(&mut self, style: winc_config::SmoothCaret) {
+        self.config.smooth_caret_movement = Some(style);
+        self.motion.caret_motion = None;
+        self.save_config();
+        self.request_redraw();
     }
 }
 

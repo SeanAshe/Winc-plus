@@ -317,6 +317,7 @@ workspace-status-update = 更新
 workspace-status-update-restart = 重新启动
 workspace-status-update-retry = 重试
 workspace-status-update-pacman = 运行 sudo pacman -Syu 更新 Winc
+workspace-status-update-scoop = 运行 scoop update winc 更新 Winc
 workspace-status-not-shown = 未显示：{ $features }
 workspace-status-position-selected = { $position }（{ $count } 个字符）
 workspace-status-words = { $count } 字

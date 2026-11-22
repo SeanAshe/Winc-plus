@@ -160,18 +160,34 @@ fn a_selection_can_be_formatted_on_its_own() {
     app.wait_formatting();
     assert!(text(&app).ends_with("// --style=llvm\n"), "{}", text(&app));
 
-    // 不支持格式化部分内容的工具：提示原因，不改为格式化整个文件。
+    // 自动选择的工具没有区段参数：提示原因，不改为格式化整个文件。
     app.open_path(&dir.join("src/main.rs"));
-    use_reindent(&mut app, &dir);
     let before = text(&app);
     app.select(0, 5);
     app.format_selection();
     assert_eq!(app.formatting_count(), 0);
     assert_eq!(
         app.notice.text.as_deref(),
-        Some("无法格式化：「reindent」不支持格式化所选内容")
+        Some("无法格式化：「rustfmt」不支持格式化所选内容")
     );
     assert_eq!(text(&app), before);
+
+    // 设置里写的命令没有区段参数：只把所选内容交给它，其余各行和缩进不变。
+    let shout = fake_tool(&dir.join("bin"), "shout", "tr a-z A-Z");
+    warm_up(&shout);
+    app.config
+        .format_commands
+        .insert("rust".to_owned(), format!("'{}'", shout.display()));
+    let line = "  run();\n";
+    let from = before.find(line).unwrap();
+    app.select(from, from + line.len());
+    app.format_selection();
+    app.wait_formatting();
+    assert_eq!(text(&app), "fn main() {\n  RUN();\n  stop();\n}\n");
+    assert_eq!(
+        app.status.message.as_deref(),
+        Some("已使用 shout 格式化所选内容，更改了 1 行")
+    );
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -642,7 +658,8 @@ fn saving_from_the_close_prompt_formats_too() {
     app.answer_save_prompt(SaveChoice::Save);
     app.wait_formatting();
     assert!(app.closing.quit_requested);
-    assert!(on_disk("main.rs").starts_with("// z\n// x\n"));
+    // 再次打开时光标回到上次关闭时的位置（第二行开头），新的一行写在那里。
+    assert!(on_disk("main.rs").starts_with("// x\n// z\n"));
 
     let _ = std::fs::remove_dir_all(&dir);
 }

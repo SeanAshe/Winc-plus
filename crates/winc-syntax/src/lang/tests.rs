@@ -259,3 +259,22 @@ fn every_markdown_extension_is_detected() {
         assert_eq!(detect(name).id, "markdown", "{name}");
     }
 }
+
+#[test]
+fn every_language_names_a_file_of_its_own() {
+    for language in languages() {
+        let name = language.file_name("untitled").expect(language.id);
+        assert_eq!(detect(&name).id, language.id, "{name}");
+    }
+    let named = |file: &str| detect(file).file_name("untitled").unwrap();
+    for name in ["untitled.rs", "untitled.md", "untitled.py", "untitled.json"] {
+        assert_eq!(named(name), name);
+    }
+    assert_eq!(named("untitled.cpp"), "untitled.cpp");
+    assert_eq!(named("untitled.js"), "untitled.js");
+    assert_eq!(named("untitled.ts"), "untitled.ts");
+    assert_eq!(named("untitled.sh"), "untitled.sh");
+    assert_eq!(named("untitled.html"), "untitled.html");
+    // 纯文本不对应某种文件。
+    assert_eq!(detect("").file_name("untitled"), None);
+}

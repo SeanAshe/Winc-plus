@@ -368,6 +368,16 @@ const RELATED: &[&[&str]] = &[
 ];
 
 impl Language {
+    /// 返回一个会被识别为这种语言的文件名：`stem` 加上第一个扩展名；没有扩展名的语言用第一个
+    /// 按完整文件名识别的名字（如 `Makefile`），两者都没有时为 `None`。
+    pub fn file_name(&self, stem: &str) -> Option<String> {
+        match (self.extensions.first(), self.file_names.first()) {
+            (Some(extension), _) => Some(format!("{stem}.{extension}")),
+            (None, Some(name)) => Some((*name).to_owned()),
+            (None, None) => None,
+        }
+    }
+
     /// 是否与 `other` 是同一种语言，或者同属一组相关的语言（`RELATED`）。
     pub fn is_related(&self, other: &Language) -> bool {
         self.id == other.id

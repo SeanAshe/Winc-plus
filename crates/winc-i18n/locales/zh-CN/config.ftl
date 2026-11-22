@@ -21,6 +21,7 @@ config-run-template-note = 每项需要 name 和 command；args、cwd、env 为�
 
 config-theme-invalid = { $name } 的值只能是 auto、dark 或 light，已忽略
 config-render-whitespace-invalid = { $name } 的值只能是 none、selection、trailing 或 all，已忽略
+config-smooth-caret-invalid = { $name } 的值只能是 off、snappy 或 gliding，已忽略
 config-open-worktree-invalid = { $name } 的值只能是 ask、newWindow 或 currentWindow，已忽略
 config-pull-invalid = { $name } 的值只能是 config、merge 或 rebase，已忽略
 config-auto-save-invalid = { $name } 的值只能是 off、onFocusChange 或 afterDelay，已忽略

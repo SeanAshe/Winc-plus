@@ -1,5 +1,5 @@
-//! EPUB 的阅读位置：离开一本书（切换、关闭标签）时记下，随目录的现场（`Session::book_places`）
-//! 保存，再次打开时排版完成后回到原处。
+//! EPUB 的阅读位置：离开一本书（切换、关闭标签）时记下，记入各文件上次的位置
+//! （`State::places`），再次打开时排版完成后回到原处。
 //!
 //! 位置按顶层块记录（[`Place`]），窗口宽度、字号改变后仍对应同一处内容。书中的图片在排版之后
 //! 才读完，读完后上方的块变高：回到书中或转到一处之后、用户滚动之前，每次重排都重新对齐。
@@ -49,7 +49,7 @@ fn at_start((block, at): Place) -> bool {
 
 impl App {
     /// 转换好 EPUB 文件 `path` 时调用：排版完成后回到本次运行中离开时的阅读位置，本次没有离开过
-    /// 且 `fresh`（打开后尚未滚动过）时回到现场中记下的位置。
+    /// 且 `fresh`（打开后尚未滚动过）时回到上次记下的位置。
     pub(in crate::app) fn begin_book(&mut self, path: PathBuf, fresh: bool) {
         let left = self.preview.markdown.book.places.get(&path).copied();
         let place = left.or_else(|| fresh.then(|| self.saved_book_place(&path)).flatten());
@@ -89,39 +89,20 @@ impl App {
         md.book.hold = Some((place, Some(md.scroll())));
     }
 
-    /// 返回目录的现场中记录的、文件 `path` 的阅读位置。
+    /// 返回上次记下的、文件 `path` 的阅读位置。
     fn saved_book_place(&self, path: &Path) -> Option<Place> {
-        let session = self.state.session_for(self.editor.root()?)?;
-        let (_, place) = session.book_places.iter().find(|(file, _)| file == path)?;
-        Some(*place)
+        self.state.place_of(path)?.view
     }
 
-    /// 返回目录 `root` 中各 EPUB 文件的阅读位置，按路径排序，用于保存现场。
-    ///
-    /// 以现场中已有的记录为基础，本次运行中读过的书改用当前的位置；位于书的开头的不记录。
-    pub(in crate::app) fn book_session(&self, root: &Path) -> Vec<(PathBuf, Place)> {
-        let mut files: BTreeMap<PathBuf, Place> = (self.state.session_for(root))
-            .map(|s| s.book_places.iter().cloned().collect())
-            .unwrap_or_default();
+    /// 返回本次运行中读过的各本书此刻的阅读位置；位于书的开头的为 `None`，不必记。
+    pub(in crate::app) fn book_places_now(&self) -> Vec<(PathBuf, Option<Place>)> {
         let md = &self.preview.markdown;
         let current = md.book.path.clone().zip(md.book_place());
-        for (path, place) in md
-            .book
-            .places
-            .iter()
-            .map(|(p, at)| (p.clone(), *at))
-            .chain(current)
-        {
-            if !path.starts_with(root) {
-                continue;
-            }
-            if at_start(place) {
-                files.remove(&path);
-            } else {
-                files.insert(path, place);
-            }
-        }
-        files.into_iter().collect()
+        let left = md.book.places.iter().map(|(path, at)| (path.clone(), *at));
+        let places: BTreeMap<PathBuf, Place> = left.chain(current).collect();
+        (places.into_iter())
+            .map(|(path, at)| (path, Some(at).filter(|at| !at_start(*at))))
+            .collect()
     }
 }
 

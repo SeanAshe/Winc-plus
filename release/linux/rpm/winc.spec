@@ -1,4 +1,4 @@
-# RPM package for Fedora, RHEL 10 and openSUSE Tumbleweed: wraps the binaries already built on the
+# RPM package for Fedora, RHEL 8 and newer, and openSUSE Tumbleweed: wraps the binaries already built on the
 # release runner, it does not compile. `package.sh` passes `winc_version` and `winc_files`.
 Name:           winc
 Version:        %{winc_version}
@@ -6,7 +6,7 @@ Release:        1
 Summary:        A lighter, faster desktop code editor
 License:        Apache-2.0
 URL:            https://winc.si
-ExclusiveArch:  x86_64
+ExclusiveArch:  x86_64 aarch64
 
 # Libraries linked at build time (glibc and its symbol versions, libgcc) are found by rpmbuild. The
 # window system libraries are loaded at run time and are named here by soname, which Fedora and

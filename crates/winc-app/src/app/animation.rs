@@ -394,6 +394,9 @@ impl App {
         settle(&mut self.panels.global.field_motion, |m| m.2);
         settle(&mut self.panels.global.motion, |m| m.clock);
         settle(&mut self.motion.fold_motion, |m| m.clock);
+        if let Some(motion) = &mut self.motion.caret_motion {
+            motion.settle();
+        }
         self.finish_diff_fold(false);
         settle(&mut self.scroll.glide, |g| g.clock);
         self.scroll.pane_glides.retain(|g| !g.clock.done());
@@ -439,6 +442,7 @@ impl App {
         settle(&mut self.motion.setup_intro, |c| *c);
         settle(&mut self.motion.setup_outro, |c| *c);
         settle(&mut self.motion.setup_page, |c| *c);
+        settle(&mut self.motion.about_logo, |l| l.0);
         self.show_update_notice();
         settle(&mut self.git.log.fade, |c| *c);
         self.settle_hint();
@@ -523,6 +527,7 @@ impl App {
             || self.panels.global.rows_moving()
             || self.motion.fold_motion.is_some()
             || self.motion.diff_fold.is_some()
+            || self.motion.caret_motion.is_some_and(|m| m.moving())
             || self.scroll.glide.is_some()
             || self.scroll.wheel.glide.is_some()
             || !self.scroll.pane_glides.is_empty()
@@ -555,6 +560,7 @@ impl App {
             || self.motion.setup_intro.is_some()
             || self.motion.setup_outro.is_some()
             || self.motion.setup_page.is_some()
+            || self.motion.about_logo.is_some()
             || self.git.log.fade.is_some()
             || self.hint_animating()
             || !self.tabs.slides.is_empty()
@@ -577,6 +583,11 @@ impl App {
                 && self.commit_shown())
     }
 }
+
+mod caret;
+pub(crate) use caret::CaretTarget;
+#[cfg(test)]
+pub(in crate::app) use caret::{CARET_MOVE, ease};
 
 mod presence;
 pub use presence::*;
@@ -673,6 +684,9 @@ pub(crate) struct Motions {
     pub(crate) setup_outro: Option<animation::Clock>,
     /// 「首次设置」两页之间切换的过渡动画的时钟；没有在播放时为 `None`。
     pub(crate) setup_page: Option<animation::Clock>,
+    /// 「关于」页的图标逐层出现的动画：时钟，以及动画开始前等待的那一段占时长的比例（设置
+    /// 浮层出现期间）；没有在播放时为 `None`。
+    pub(crate) about_logo: Option<(animation::Clock, f32)>,
     /// 工具栏按钮收入「⋯」或从「⋯」中移出的动画。
     pub(crate) tool_fold: ToolFold,
     /// 编辑区顶部输入条出现、消失的动画。
@@ -690,6 +704,8 @@ pub(crate) struct Motions {
     pub fold_motion: Option<FoldMotion>,
     /// 差异标签中未改动内容折叠、展开的过渡。
     pub(crate) diff_fold: Option<diff::DiffFoldMotion>,
+    /// 主光标从上一位置滑到新位置的动画。
+    pub(crate) caret_motion: Option<caret::CaretMotion>,
 }
 
 #[cfg(test)]

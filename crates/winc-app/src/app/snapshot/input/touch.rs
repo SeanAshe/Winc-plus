@@ -261,12 +261,12 @@ fn touch_drags_the_settings_card_by_its_top_strip() {
     let (x, y) = (before.card.x + 4.0, before.header.y + before.header.h / 2.0);
     touch(&mut app, 1, TouchPhase::Started, x, y);
     assert!(app.settings_dragging());
-    touch(&mut app, 1, TouchPhase::Moved, x + 30.0, y + 20.0);
-    touch(&mut app, 1, TouchPhase::Ended, x + 30.0, y + 20.0);
+    touch(&mut app, 1, TouchPhase::Moved, x + 30.0, y + 10.0);
+    touch(&mut app, 1, TouchPhase::Ended, x + 30.0, y + 10.0);
     let card = app.settings_layout().card;
     assert_eq!(
         (card.x, card.y),
-        (before.card.x + 30.0, before.card.y + 20.0)
+        (before.card.x + 30.0, before.card.y + 10.0)
     );
     assert!(!app.settings_dragging());
     // 搜索框上落指不拖动卡片。

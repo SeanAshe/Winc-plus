@@ -730,11 +730,10 @@ impl Winc {
         Ok(key)
     }
 
-    /// 停在开始页上、什么都没开（没有目录也没有标签）的窗口，当前窗口优先；没有时返回 `None`。
+    /// 什么都没开（见 [`App::is_blank`]）的窗口，当前窗口优先；没有时返回 `None`。
     fn blank_window(&self) -> Option<WindowKey> {
         let active = self.active_key();
-        let blank =
-            |slot: &&Slot| slot.app.editor.root().is_none() && slot.app.editor.documents.is_empty();
+        let blank = |slot: &&Slot| slot.app.is_blank();
         let blanks = self.windows.iter().filter(blank);
         blanks
             .min_by_key(|slot| Some(slot.key) != active)
@@ -782,8 +781,9 @@ impl Winc {
             .map(|s| s.key);
         if let Some(key) = hidden {
             if let Some(app) = self.by_key(key) {
-                if let Some(folder) = &folder {
-                    app.open_folder_now(folder);
+                match &folder {
+                    Some(folder) => app.open_folder_now(folder),
+                    None => app.start_with_new_file(),
                 }
                 app.set_activation(token);
                 app.raise();
@@ -832,8 +832,9 @@ impl Winc {
         let Some(app) = self.by_key(key) else {
             return;
         };
-        if let Some(folder) = &folder {
-            app.open_folder_now(folder);
+        match &folder {
+            Some(folder) => app.open_folder_now(folder),
+            None => app.start_with_new_file(),
         }
         app.set_activation(token);
         app.resumed(event_loop);
