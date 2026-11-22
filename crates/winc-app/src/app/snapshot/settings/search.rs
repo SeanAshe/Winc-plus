@@ -12,10 +12,12 @@ fn search(app: &mut App, query: &str) {
 }
 
 /// 返回当前列出的设置项和各组标题。
-fn listed(app: &App) -> (Vec<Setting>, Vec<&'static str>) {
+fn listed(app: &App) -> (Vec<Setting>, Vec<String>) {
     let layout = app.settings_layout();
     let rows = layout.rows.iter().map(|r| r.setting).collect();
-    let titles = layout.headings.iter().map(|&(_, title)| title).collect();
+    let titles = (layout.headings.iter())
+        .map(|(_, title)| title.to_string())
+        .collect();
     (rows, titles)
 }
 
@@ -26,7 +28,8 @@ fn search_finds_settings_on_every_page() {
     app.config.terminal_enabled = Some(true);
     app.open_settings();
 
-    // 名称含「字号」的设置项分布在外观、编辑器、终端三页：按页分组，以页名为标题，选中第一条。
+    // 名称含「字号」的设置项分布在外观、编辑器、Markdown、终端四页：每页一组，以页名为标题，
+    // 选中第一条。
     search(&mut app, "字号");
     assert!(app.settings_layout().searching);
     let (rows, titles) = listed(&app);
@@ -37,20 +40,20 @@ fn search_finds_settings_on_every_page() {
         Setting::TerminalSize,
     ];
     assert_eq!(rows, sizes);
-    assert_eq!(titles, ["外观", "编辑器", "终端"]);
+    assert_eq!(titles, ["外观", "编辑器", "Markdown", "终端"]);
     assert_eq!(app.settings.selected, Setting::UiSize);
 
     // 说明也参与匹配，不区分大小写：「lint」只出现在「保存时修复问题」的说明中。
     search(&mut app, "LINT");
     assert_eq!(listed(&app).0, [Setting::FixOnSave]);
 
-    // 有标题的组保留原标题：主题缩略图仍在「浅色主题」「深色主题」之下。
+    // 主题的各项都在「外观」之下。
     search(&mut app, "主题");
     let (rows, titles) = listed(&app);
     assert!(rows.contains(&Setting::LightTheme) && rows.contains(&Setting::DarkTheme));
-    assert!(titles.contains(&"浅色主题") && titles.contains(&"深色主题"));
+    assert_eq!(titles, ["外观"]);
 
-    // Vim、Markdown 预览的设置项名称都带前缀：按前缀一次搜到同类的全部设置项。
+    // 组标题也参与匹配：按「Vim」一次搜到这一组的全部设置项。
     search(&mut app, "vim");
     let (rows, titles) = listed(&app);
     assert_eq!(
@@ -63,20 +66,13 @@ fn search_finds_settings_on_every_page() {
         ]
     );
     assert_eq!(titles, ["编辑器"]);
+    // 页名也参与匹配：搜到的是该页的全部设置项。
     search(&mut app, "markdown");
-    assert_eq!(
-        listed(&app).0,
-        [
-            Setting::RemoteImages,
-            Setting::TextWidth,
-            Setting::MarkdownFont,
-            Setting::MarkdownSize,
-            Setting::MarkdownLineNumbers,
-            Setting::MarkdownShortcuts,
-            Setting::MarkdownFocus,
-            Setting::MarkdownTypewriter,
-        ]
-    );
+    let (rows, titles) = listed(&app);
+    let page = SettingsPage::Markdown.sections(&Default::default());
+    let all: Vec<Setting> = page.into_iter().flat_map(|section| section.items).collect();
+    assert_eq!(rows, all);
+    assert_eq!(titles, ["Markdown"]);
 
     // 没有匹配时正文为空，键盘移动不做任何事。
     search(&mut app, "没有这一项");
@@ -142,4 +138,67 @@ fn keyboard_and_clicks_move_in_and_out_of_search() {
     app.open_settings();
     assert!(!app.settings_layout().searching);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 取值与默认不同的项在名称后面有「恢复默认」，点击后去掉配置文件中的这一项；写了值但与默认
+/// 相同的项没有。
+#[test]
+fn changed_settings_can_be_reset() {
+    let dir = search_folder("settings-reset");
+    let mut app = app_with(&dir, false);
+    app.config.editor_size = Some(17.0);
+    app.config.minimap = Some(false);
+    app.open_settings();
+    app.settings_show_page(SettingsPage::Editor);
+    assert_eq!(app.settings.changed, [Setting::EditorSize]);
+    app.settings_toggle(Setting::WordWrap);
+    assert_eq!(
+        app.settings.changed,
+        [Setting::EditorSize, Setting::WordWrap]
+    );
+    paint(&mut app);
+    click_part(&mut app, SettingsPart::Reset(Setting::WordWrap));
+    assert!(!app.switch_on(Setting::WordWrap) && app.config.word_wrap.is_none());
+    // 其余各项不变。
+    assert_eq!(app.config.editor_size, Some(17.0));
+    assert_eq!(app.settings.changed, [Setting::EditorSize]);
+    paint(&mut app);
+    assert_eq!(app.hits.reset_links.len(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 一组里的各项要么都写说明，要么都不写：各行等高。
+#[test]
+fn rows_of_a_group_are_all_described_or_none() {
+    for page in SettingsPage::ALL {
+        for section in page.sections(&Default::default()) {
+            let rows = (section.items.iter()).filter(|s| s.control() != SettingControl::Action);
+            let described = rows.filter(|s| s.description().is_some()).count();
+            let all = (section.items.iter())
+                .filter(|s| s.control() != SettingControl::Action)
+                .count();
+            assert!(
+                described == 0 || described == all,
+                "{page:?} {:?}",
+                section.title
+            );
+        }
+    }
+}
+
+/// 每个开关在配置文件中的名字与它读写的是同一项：打开或关闭后，这个名字在配置里有值。
+#[test]
+fn every_switch_is_named_after_the_config_entry_it_writes() {
+    let modules = crate::layout::Modules {
+        git: true,
+        terminal: true,
+    };
+    for setting in Setting::all(&Default::default(), modules) {
+        let Some(key) = setting.key() else { continue };
+        if setting.control() == SettingControl::Switch {
+            let mut app = blank_app(false);
+            app.settings_toggle(setting);
+            assert!(app.config.is_set(key), "{setting:?} 写的不是 {key}");
+        }
+    }
 }

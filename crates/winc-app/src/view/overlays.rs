@@ -780,7 +780,8 @@ fn draw_palette_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts) {
     }
 }
 
-/// 绘制语言列表：当前文档的语言前面打勾，名字中命中查询的字标出，右侧淡色写出扩展名。
+/// 绘制语言列表：每行开头是这种语言的文件的图标，名字中命中查询的字标出，右侧淡色写出
+/// 扩展名；当前文档的语言在最右边打勾。
 fn draw_language_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts) {
     use crate::app::LanguageRow;
     let p = app.palette;
@@ -808,16 +809,18 @@ fn draw_language_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts) {
         let row = parts.row(i, scroll);
         let clip = row.intersect(list);
         draw_pick_row(app, frame, row, i, clip);
-        let checked = match language {
-            LanguageRow::Language(k) => winc_syntax::languages().get(k).map(|l| l.id) == current,
-            _ => false,
-        };
-        if checked {
-            let cy = icon_center_y(app, row, app.fonts.ui);
-            let x = row.x + PICKER_ICON_X + icons::FILE_WIDTH / 2.0;
-            icons::check(frame, (x, cy), 9.0, p.accent, clip);
+        let listed = language.language();
+        let cy = icon_center_y(app, row, app.fonts.ui);
+        if let Some(listed) = listed {
+            let (glyph, color) = p.language_icon(listed);
+            icons::file(frame, (row.x + PICKER_ICON_X, cy - 7.5), glyph, color, clip);
         }
         let mut right = row.right() - 14.0;
+        if listed.is_some_and(|l| Some(l.id) == current) {
+            right -= 9.0;
+            icons::check(frame, (right + 4.5, cy), 9.0, p.accent, clip);
+            right -= 12.0;
+        }
         let extensions = language.extensions();
         if !extensions.is_empty() {
             right -= frame.measure(FontKind::Ui, app.fonts.ui_small, &extensions);

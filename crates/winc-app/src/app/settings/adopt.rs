@@ -117,6 +117,9 @@ impl App {
             self.sync_title_bar();
         }
         self.vim_apply_config();
+        if self.settings.open {
+            self.refresh_changed_settings();
+        }
         self.relayout();
         self.request_redraw();
     }

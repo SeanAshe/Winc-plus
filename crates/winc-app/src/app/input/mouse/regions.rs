@@ -141,6 +141,7 @@ impl App {
         match part {
             Some(SettingsPart::Close) => self.close_settings(),
             Some(SettingsPart::Page(page)) => self.settings_show_page(page),
+            Some(SettingsPart::Reset(setting)) => self.settings_reset(setting),
             Some(SettingsPart::Field(setting)) => {
                 self.settings.selected = setting;
                 if editing == Some(setting) {

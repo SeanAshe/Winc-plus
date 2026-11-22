@@ -875,10 +875,13 @@ impl Document {
     pub(super) fn set_content(&mut self, loaded: Loaded) {
         let overlong = matches!(&loaded.text, Content::Large(large) if large.has_overlong_lines());
         self.readonly = matches!(loaded.encoding, Encoding::Lossy | Encoding::Binary) || overlong;
-        // 正在预览时仍保持只读；切回源代码时恢复为新读取内容对应的 `readonly`。
+        // 正在预览时与进入预览时一样（见 `Document::set_preview_mode`）：Markdown 的预览可以直接
+        // 编辑，不改只读状态，其余预览仍保持只读。种类只按语言判断，不受换入前后的文本是否为
+        // 大文件影响。切回源代码时恢复为新读取内容对应的 `readonly`。
         if self.previewing() {
             self.readonly_before_preview = self.readonly;
-            self.readonly = true;
+            let kind = PreviewKind::of(self.highlighter.language());
+            self.readonly |= kind != Some(PreviewKind::Markdown);
         }
         self.text = loaded.text;
         self.whole.forget();

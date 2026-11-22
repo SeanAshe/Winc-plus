@@ -135,15 +135,20 @@ impl App {
         }
     }
 
-    /// 立即打开目录 `path` 并恢复该目录上次的标签，侧栏展开。
+    /// 立即打开目录 `path` 并恢复该目录上次的标签，侧栏展开。启动时新建的文件尚未修改时先关掉。
     ///
-    /// 不处理当前已打开的目录和标签，调用方须先完成这些处理。
+    /// 不处理当前已打开的目录和其他标签，调用方须先完成这些处理。
     pub(crate) fn open_folder_now(&mut self, path: &Path) {
         self.open_folder_restoring(path, true);
     }
 
     /// 立即打开目录 `path` 并恢复该目录上次的标签。`sidebar` 为真时展开侧栏。
+    ///
+    /// 启动时新建的文件尚未修改时先关掉。
     fn open_folder_restoring(&mut self, path: &Path, sidebar: bool) {
+        if let Some(index) = self.startup_file_index() {
+            self.discard_tab(self.editor.documents[index].id);
+        }
         if let Err(e) = self.editor.open_folder(path) {
             let name = winc_editor::display_name(path);
             self.notify(
@@ -339,12 +344,16 @@ impl App {
         self.remember_session();
     }
 
-    /// 记录当前目录的现场。
+    /// 记录当前目录的现场，以及各文件此刻的位置（见 `places`）；没有打开目录时只记后者。
     ///
-    /// 内容包括：有路径且仍在磁盘上的标签、有备份的未保存内容、书签、折叠的块、大纲里收起的
-    /// 符号、各 PDF 文件的阅读位置，以及当前标签。
+    /// 现场的内容包括：有路径且仍在磁盘上的标签、有备份的未保存内容、书签、折叠的块、大纲里
+    /// 收起的符号，以及当前标签。
     pub(in crate::app) fn remember_session(&mut self) {
+        let places = self.places_now();
         let Some(folder) = self.editor.root().map(Path::to_path_buf) else {
+            if !places.is_empty() {
+                self.update_state(|state| places::record(state, &places));
+            }
             return;
         };
 
@@ -388,11 +397,10 @@ impl App {
             .collect();
         let outline = self.outline_session(&folder);
         let folds = self.editor.all_folds().into_iter().collect();
-        let pdf_places = self.pdf_session(&folder);
-        let book_places = self.book_session(&folder);
         let earlier = self.state.session_for(&folder).and_then(|s| s.window);
         let window = self.window_frame_now().or(earlier);
         self.update_state(|state| {
+            places::record(state, &places);
             state.set_session(Session {
                 folder,
                 tabs,
@@ -400,8 +408,6 @@ impl App {
                 bookmarks,
                 outline,
                 folds,
-                pdf_places,
-                book_places,
                 terminal,
                 run,
                 folders,

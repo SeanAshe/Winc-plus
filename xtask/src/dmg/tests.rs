@@ -1,4 +1,5 @@
-//! `dmg` 的测试：`Info.plist` 中的「在 Winc 中打开」服务和 `winc` 协议的声明，以及各语言的服务名。
+//! `dmg` 的测试：`Info.plist` 中的文档类型、「在 Winc 中打开」服务和 `winc` 协议的声明，以及
+//! 各语言的服务名。
 
 use super::*;
 
@@ -53,6 +54,37 @@ fn info_plist_declares_the_winc_url_scheme() {
         types.contains(&format!("<string>{BUNDLE_ID}</string>")),
         "{types}"
     );
+}
+
+/// 回归：只声明任意文件（`public.data`）时，访达的「打开方式」不列出 Winc。
+#[test]
+fn info_plist_declares_the_types_winc_opens() {
+    let plist = info_plist("1.2.3", &sparkle::UpdateConfig::default(), "arm64");
+    let start = plist.find("<key>CFBundleDocumentTypes</key>").unwrap();
+    let types = &plist[start..];
+    let types = &types[..types.find("\t</array>\n\t<key>").unwrap()];
+    for kind in ["public.plain-text", "com.adobe.pdf", "public.folder"] {
+        assert!(
+            types.contains(&format!("<string>{kind}</string>")),
+            "{kind}"
+        );
+    }
+    // 扩展名同 Windows 安装包登记的类型，PDF、EPUB 在这里按系统类型声明。
+    let mut listed: Vec<String> = (TEXT_EXTENSIONS.iter())
+        .map(|kind| kind.to_uppercase())
+        .collect();
+    listed.extend(["EPUB".to_owned(), "PDF".to_owned()]);
+    listed.sort();
+    assert_eq!(listed, crate::file_types::nsis_types());
+    for kind in TEXT_EXTENSIONS {
+        assert!(
+            types.contains(&format!("\t<string>{kind}</string>")),
+            "{kind}"
+        );
+    }
+    // 只有按扩展名的一项可成为默认的打开方式，其余都是候选。
+    assert_eq!(types.matches("<string>Default</string>").count(), 1);
+    assert_eq!(types.matches("<string>Alternate</string>").count(), 4);
 }
 
 #[test]

@@ -36,6 +36,16 @@ impl State {
         self.commit_messages.insert(0, message.to_owned());
         self.commit_messages.truncate(MAX_COMMIT_MESSAGES);
     }
+
+    /// 语言菜单开头列出的最近使用的语言数（种）：菜单开头的一小组，不必滚动即可看到。
+    pub const RECENT_LANGUAGES: usize = 5;
+
+    /// 把语言 `id` 记为最近选择的一种：已有的移到最前，超过上限时丢掉最旧的。
+    pub fn remember_language(&mut self, id: &str) {
+        self.recent_languages.retain(|known| known != id);
+        self.recent_languages.insert(0, id.to_owned());
+        self.recent_languages.truncate(Self::RECENT_LANGUAGES);
+    }
 }
 
 /// 由程序维护的运行状态：最近目录、各目录的现场和项目工具选择。
@@ -45,6 +55,9 @@ pub struct State {
     pub recent: Vec<PathBuf>,
     /// 最近打开的文件，最新的在前，不重复；所有窗口共用。
     pub recent_files: Vec<PathBuf>,
+    /// 各文件上次的位置，最近用到的在前，每个文件一条，最多 [`MAX_PLACES`] 条；所有窗口共用，
+    /// 与文件是否在打开的目录里无关。
+    pub places: Vec<(PathBuf, FilePlace)>,
     /// 每个目录上次的现场，最近的在前，每个目录一条，最多 [`MAX_SESSIONS`] 条。
     pub sessions: Vec<Session>,
     /// 上次退出时开着的目录；退出时没有打开目录则为 `None`，下次启动显示开始页。
@@ -92,6 +105,8 @@ pub struct State {
     /// Markdown 预览左侧的标题列表是否钉住、一直展开；默认只在鼠标停留时展开。所有窗口共用，
     /// 下次启动沿用。
     pub markdown_toc_pinned: bool,
+    /// 用户最近选择的语言（语言的标识），最近的在前，至多 [`State::RECENT_LANGUAGES`] 种。
+    pub recent_languages: Vec<String>,
     /// 侧栏宽度（逻辑像素）；`None` 表示没有调整过。所有视图、窗口和仓库共用，下次启动沿用。
     pub panel_width: Option<f32>,
     /// 各类能预览的文件打开时的显示方式：键为种类（`markdown`、`svg`、`table`），值为
@@ -179,14 +194,6 @@ pub struct Session {
     pub outline: Vec<(PathBuf, Vec<String>)>,
     /// 各文件中折叠的块（开头行，末尾行；行号从 0 起），包括当前未打开的文件。
     pub folds: Vec<(PathBuf, Vec<(usize, usize)>)>,
-    /// 各 PDF 文件的阅读位置，包括当前未打开的文件；位于文档开头的文件不记录。
-    ///
-    /// 位置记为视口顶边所在的页（页号从 0 起），以及视口顶边到该页顶边的距离与页高之比。
-    pub pdf_places: Vec<(PathBuf, (usize, f32))>,
-    /// 各 EPUB 文件的阅读位置，包括当前未打开的文件；位于书的开头的文件不记录。
-    ///
-    /// 位置记为视口顶边所在的顶层块（从 0 起），以及视口顶边到该块上边缘的距离与块高之比。
-    pub book_places: Vec<(PathBuf, (usize, f32))>,
     /// 终端面板；终端里没有标签时为 `None`。
     pub terminal: Option<TerminalSession>,
     /// 选中的运行配置的名字。
@@ -287,6 +294,7 @@ impl State {
             }
         }
 
+        let earlier = std::cell::RefCell::new(Vec::new());
         // 已保存的文件写成路径字符串，未保存过的新文件写成 `{"untitled": 备份文件名}`。
         let tab = |value: &Json| -> Option<Tab> {
             if let Some(path) = value.as_str() {
@@ -379,8 +387,10 @@ impl State {
                         .collect()
                 })
                 .unwrap_or_default();
-            let pdf_places = read_places(s.get("pdfPlaces"));
-            let book_places = read_places(s.get("bookPlaces"));
+            // 早先各目录的现场里记的阅读位置：并入 `places`。
+            for key in ["pdfPlaces", "bookPlaces"] {
+                earlier.borrow_mut().extend(read_views(s.get(key)));
+            }
             let terminal = s.get("terminal").and_then(Json::as_object).and_then(|t| {
                 let number = |key| {
                     t.get(key)
@@ -436,8 +446,6 @@ impl State {
                 bookmarks,
                 outline,
                 folds,
-                pdf_places,
-                book_places,
                 terminal,
                 run: s.get("run").and_then(Json::as_str).map(str::to_owned),
                 folders,
@@ -574,6 +582,13 @@ impl State {
             .unwrap_or(false);
         state.markdown_toc_pinned =
             root.get("markdownTocPinned").and_then(Json::as_bool) == Some(true);
+        state.recent_languages = (root.get("recentLanguages").and_then(Json::as_array))
+            .unwrap_or_default()
+            .iter()
+            .filter_map(Json::as_str)
+            .take(Self::RECENT_LANGUAGES)
+            .map(str::to_owned)
+            .collect();
         state.stay_outside_applications = root
             .get("stayOutsideApplications")
             .and_then(Json::as_bool)
@@ -612,6 +627,15 @@ impl State {
             state.sessions.push(old);
         }
 
+        // 早先记在现场里的阅读位置排在后面：已有记录的文件以新的为准。
+        state.places = read_file_places(root.get("places"));
+        for (path, view) in earlier.take() {
+            let known = state.places.iter().any(|(file, _)| *file == path);
+            if !known && state.places.len() < MAX_PLACES {
+                let view = Some(view);
+                state.places.push((path, FilePlace { text: None, view }));
+            }
+        }
         state
     }
 
@@ -667,6 +691,9 @@ impl State {
             let files = self.recent_files.iter().map(path).collect();
             fields.push(("recentFiles", Json::Array(files)));
         }
+        if !self.places.is_empty() {
+            fields.push(("places", write_file_places(&self.places)));
+        }
         if let Some(last) = &self.last {
             fields.push(("last", path(last)));
         }
@@ -720,6 +747,10 @@ impl State {
         }
         if self.markdown_toc_pinned {
             fields.push(("markdownTocPinned", Json::Bool(true)));
+        }
+        if !self.recent_languages.is_empty() {
+            let recent = self.recent_languages.iter().cloned().map(Json::String);
+            fields.push(("recentLanguages", Json::Array(recent.collect())));
         }
         if self.stay_outside_applications {
             fields.push(("stayOutsideApplications", Json::Bool(true)));
@@ -783,12 +814,6 @@ impl State {
                     (file.to_string_lossy().into_owned(), Json::Array(symbols))
                 });
                 items.push(("outline", Json::Object(files.collect())));
-            }
-            if !session.pdf_places.is_empty() {
-                items.push(("pdfPlaces", write_places(&session.pdf_places)));
-            }
-            if !session.book_places.is_empty() {
-                items.push(("bookPlaces", write_places(&session.book_places)));
             }
             if let Some(t) = &session.terminal {
                 let number = |n: f32| Json::Number(f64::from(n));
@@ -1321,36 +1346,9 @@ fn window_frame(json: &std::collections::BTreeMap<String, Json>) -> Option<Windo
     })
 }
 
-/// 读出各文件的阅读位置（`pdfPlaces`、`bookPlaces`）：每项是文件路径到 `[序号, 比例]`，序号
-/// 为负数或小数、比例不是有限的数、缺少一项的记录跳过。
-fn read_places(value: Option<&Json>) -> Vec<(PathBuf, (usize, f32))> {
-    let place = |place: &Json| match place.as_array()? {
-        [index, at] => {
-            let index = index.as_number()?;
-            let at = at.as_number().filter(|n| n.is_finite())?;
-            (index >= 0.0 && index.fract() == 0.0).then_some((index as usize, at as f32))
-        }
-        _ => None,
-    };
-    (value.and_then(Json::as_object))
-        .map(|files| {
-            (files.iter())
-                .filter(|(path, _)| !path.is_empty())
-                .filter_map(|(path, at)| Some((PathBuf::from(path), place(at)?)))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// 写出各文件的阅读位置；比例保留四位小数：一页（一块）高 10000 逻辑像素时误差为 1 逻辑像素。
-fn write_places(places: &[(PathBuf, (usize, f32))]) -> Json {
-    let files = places.iter().map(|(file, (index, at))| {
-        let at = (f64::from(*at) * 1e4).round() / 1e4;
-        let place = vec![Json::Number(*index as f64), Json::Number(at)];
-        (file.to_string_lossy().into_owned(), Json::Array(place))
-    });
-    Json::Object(files.collect())
-}
+mod places;
+pub use places::{FilePlace, MAX_PLACES};
+use places::{read_file_places, read_views, write_file_places};
 
 #[cfg(test)]
 mod tests;

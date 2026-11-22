@@ -305,6 +305,42 @@ fn the_heading_list_stays_open_over_a_table_scrollbar() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 回归：预览中鼠标在表格的水平滚动条和标题指示条上时显示箭头，在表格的文字上显示文本光标。
+#[test]
+fn the_text_cursor_leaves_the_table_scrollbar_and_heading_bars() {
+    use crate::app::preview::markdown::TocTarget;
+    use winit::window::CursorIcon;
+
+    let head = format!("|{}", " 很长的列标题 |".repeat(24));
+    let rule = format!("|{}", "---|".repeat(24));
+    let row = format!("|{}", " 单元格 |".repeat(24));
+    let (mut app, dir) = live_doc(
+        "md-cursor-bars",
+        &format!("# 标题\n\n{head}\n{rule}\n{row}\n\n## 第二节\n\n正文\n"),
+    );
+    let cursor = |app: &mut App, (x, y): (f32, f32)| {
+        app.on_mouse_move(x, y);
+        paint(app);
+        app.pointer.cursor_icon
+    };
+    // 鼠标经过表格之后，表格的滚动条才响应。
+    let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
+    let cell = point_of(&app, shown[..shown.find("单元格").unwrap()].chars().count());
+    assert_eq!(cursor(&mut app, cell), CursorIcon::Text);
+    let bar = app.hits.markdown_table_bar.expect("表格有滚动条");
+    let edge = (bar.track.x + 4.0, bar.track.bottom() - 4.0);
+    assert_eq!(cursor(&mut app, edge), CursorIcon::Default);
+    let bars = (app.hits.markdown_toc.iter())
+        .find(|(_, t)| *t == TocTarget::Bars)
+        .unwrap()
+        .0;
+    assert_eq!(
+        cursor(&mut app, (bars.x + 4.0, bars.y + 10.0)),
+        CursorIcon::Default
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// 回归：列很多的表格不把各列压窄到逐字换行，而是按自然宽度排版、超出正文的部分横向滚动；横向
 /// 滚动后点击仍落在对应的字上；编辑表格时光标移到看不见的列，表格横向滚动使光标可见。
 #[test]

@@ -28,6 +28,11 @@ foreach ($kind in @('nsis', 'msi')) {
     $menu = if ($kind -eq 'nsis') { [Environment]::GetFolderPath('Programs') } else { Join-Path ([Environment]::GetFolderPath('CommonPrograms')) 'Winc' }
     if ($kind -eq 'nsis') {
         Set-Content -LiteralPath (Join-Path $menu 'winc.lnk') -Value ''
+        $listing = "$classes\.json\OpenWithProgids"
+        if (-not (Test-Path -LiteralPath $listing)) { New-Item -Force -Path $listing | Out-Null }
+        New-ItemProperty -Force -LiteralPath $listing -Name 'winc.JSON' -Value '' | Out-Null
+        # An earlier version also added the context menu to each type; installing must remove it.
+        New-Item -Force -Path "$classes\SystemFileAssociations\.json\shell\winc\command" | Out-Null
     }
     try {
         if ($kind -eq 'nsis') {
@@ -43,7 +48,7 @@ foreach ($kind in @('nsis', 'msi')) {
         if ((Get-CommandPath $kind) -notcontains "$directory\bin") { throw "${kind}: bin is not on the Path" }
         if ((Get-Content "$directory/winc-installation" -Raw).Trim() -ne $kind) { throw 'incorrect installation marker' }
         # Each type's ProgID shows the document icon of its group.
-        foreach ($pair in @(@('JSON', 'json'), @('MD', 'markdown'), @('RS', 'rust'), @('SQL', 'code'))) {
+        foreach ($pair in @(@('JSON', 'json'), @('MD', 'markdown'), @('RS', 'rust'), @('SQL', 'code'), @('TEX', 'markup'), @('PDF', 'text'))) {
             $icon = (Get-ItemProperty -LiteralPath "$classes\winc.$($pair[0])\DefaultIcon").'(default)'
             if ($icon -ne "$directory\icons\$($pair[1]).ico") { throw "${kind}: wrong icon for $($pair[0]): $icon" }
             if (-not (Test-Path -LiteralPath $icon)) { throw "${kind}: missing $icon" }
@@ -52,14 +57,9 @@ foreach ($kind in @('nsis', 'msi')) {
         if ($command -ne "`"$directory\winc.exe`" `"%1`"") { throw "${kind}: wrong open command: $command" }
         if ($null -eq (Get-ItemProperty -LiteralPath "$classes\Applications\winc.exe\SupportedTypes").'.json') { throw "${kind}: json is not a supported type" }
         if ((Get-ItemProperty -LiteralPath "$classes\Applications\winc.exe").FriendlyAppName -cne 'Winc') { throw "${kind}: the application is not named Winc" }
-        # Explorer context menu: supported types open the file, folders and their empty space open
-        # the folder. The label follows the installer's language.
-        foreach ($verb in @(@('SystemFileAssociations\.json', '%1'), @('Directory', '%V'), @('Directory\Background', '%V'))) {
-            $key = "$classes\$($verb[0])\shell\winc"
-            if (-not (Get-ItemProperty -LiteralPath $key -ErrorAction SilentlyContinue).'(default)') { throw "${kind}: no context menu label under $($verb[0])" }
-            $command = (Get-ItemProperty -LiteralPath "$key\command").'(default)'
-            if ($command -ne "`"$directory\winc.exe`" `"$($verb[1])`"") { throw "${kind}: wrong context menu command under $($verb[0]): $command" }
-        }
+        # A new installation does not add the Explorer context menu, and no version adds it per type.
+        if (Test-Path -LiteralPath "$classes\SystemFileAssociations\.json\shell\winc") { throw "${kind}: the context menu is still added per type" }
+        if (Test-Path -LiteralPath "$classes\*\shell\winc") { throw "${kind}: the context menu is added by default" }
         # The winc: URL scheme hands the whole link to winc.exe.
         if ($null -eq (Get-ItemProperty -LiteralPath "$classes\winc").'URL Protocol') { throw "${kind}: winc is not a URL scheme" }
         $command = (Get-ItemProperty -LiteralPath "$classes\winc\shell\open\command").'(default)'
@@ -68,29 +68,48 @@ foreach ($kind in @('nsis', 'msi')) {
         if (@($link).Count -ne 1 -or $link.Name -cne 'Winc.lnk') { throw "${kind}: the Start menu shortcut is not named Winc" }
         if ($kind -eq 'msi' -and (Get-Item -LiteralPath $menu).Name -cne 'Winc') { throw 'msi: the Start menu folder is not named Winc' }
         if ($kind -eq 'nsis' -and (Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\winc').DisplayName -cne 'Winc') { throw 'nsis: the installed app is not listed as Winc' }
-        # A handler listed under a type makes Windows ask which program to use, and for types it runs
-        # on double-click (BAT, CMD) the question replaces running the script. JSON and TXT stay
-        # registered: this fork's installer adds them with --register-file-types.
-        foreach ($type in @('bat', 'cmd')) {
-            $listed = Get-ItemProperty -LiteralPath "$classes\.$type\OpenWithProgids" -ErrorAction SilentlyContinue
-            if ($null -ne $listed -and $null -ne $listed."winc.$type") { throw "${kind}: winc is listed under .$type" }
+        # A new installation lists winc under the types it opens. For types Windows runs on
+        # double-click (BAT, CMD) a listed handler would replace running the script with a question,
+        # so those are never listed or registered.
+        $listed = { param($type) $null -ne (Get-ItemProperty -LiteralPath "$classes\.$type\OpenWithProgids" -ErrorAction SilentlyContinue)."winc.$type" }
+        foreach ($type in @('json', 'txt')) {
+            if (-not (& $listed $type)) { throw "${kind}: winc is not listed under .$type" }
         }
         foreach ($type in @('bat', 'cmd')) {
+            if (& $listed $type) { throw "${kind}: winc is listed under .$type" }
             if (Test-Path -LiteralPath "$classes\winc.$type") { throw "${kind}: $type must not be registered" }
         }
-        # JSON stays in Open With: this fork's --register-file-types writes it on every install.
-        # The optional file-type section is checked with .vue, which that command does not list, so
-        # /FILETYPES=0 can turn the optional listing off. A later silent install keeps the last choice.
+        $inMenu = { Test-Path -LiteralPath "$classes\*\shell\winc" }
         if ($kind -eq 'nsis') {
-            $json = { $null -ne (Get-ItemProperty -LiteralPath "$classes\.json\OpenWithProgids" -ErrorAction SilentlyContinue).'winc.JSON' }
-            if (-not (& $json)) { throw 'nsis: json is not listed in Open With' }
-            $listed = { $null -ne (Get-ItemProperty -LiteralPath "$classes\.vue\OpenWithProgids" -ErrorAction SilentlyContinue).'winc.VUE' }
-            foreach ($step in @(@('/FILETYPES=1', $true), @('', $true), @('/FILETYPES=0', $false), @('', $false))) {
+            # Both are the user's choice: once made it survives a later silent installation, which is
+            # how updates run, until the other value is passed.
+            $steps = @(
+                @('/FILETYPES=0', $false, $false), @('', $false, $false), @('/FILETYPES=1', $true, $false), @('', $true, $false),
+                @('/CONTEXTMENU=1', $true, $true), @('', $true, $true), @('/CONTEXTMENU=0', $true, $false), @('', $true, $false)
+            )
+            foreach ($step in $steps) {
                 $process = Start-Process -FilePath $setup -ArgumentList "/S $($step[0]) /D=$directory" -Wait -PassThru
                 if ($process.ExitCode -ne 0) { throw "nsis installation with '$($step[0])' failed: $($process.ExitCode)" }
-                if ((& $listed) -ne $step[1]) { throw "nsis: after '$($step[0])' the vue listing is not $($step[1])" }
-                if (-not (& $json)) { throw "nsis: after '$($step[0])' json dropped out of Open With" }
+                if ((& $listed 'json') -ne $step[1]) { throw "nsis: after '$($step[0])' the json listing is not $($step[1])" }
+                if ((& $inMenu) -ne $step[2]) { throw "nsis: after '$($step[0])' the context menu is not $($step[2])" }
             }
+            # An installation from before the choices were recorded keeps what it had: the context
+            # menu, which was always added, and no listing.
+            Remove-ItemProperty -LiteralPath 'HKCU:\Software\DEEIX\winc' -Name 'ContextMenu', 'FileTypes'
+            $process = Start-Process -FilePath $setup -ArgumentList "/S /D=$directory" -Wait -PassThru
+            if ($process.ExitCode -ne 0) { throw "nsis installation over an earlier version failed: $($process.ExitCode)" }
+            if ((& $listed 'json') -or -not (& $inMenu)) { throw 'nsis: an earlier installation did not keep its context menu and listing' }
+        } else {
+            $process = Start-Process msiexec.exe -ArgumentList "/i `"$setup`" /qn /norestart ADDLOCAL=ContextMenu INSTALLFOLDER=`"$directory`"" -Wait -PassThru
+            if ($process.ExitCode -notin @(0, 1641, 3010)) { throw "msi: adding the context menu failed: $($process.ExitCode)" }
+        }
+        # Explorer context menu, once chosen: one entry for every file opens the file, folders and
+        # their empty space open the folder. The label follows the installer's language.
+        foreach ($verb in @(@('*', '%1'), @('Directory', '%V'), @('Directory\Background', '%V'))) {
+            $key = "$classes\$($verb[0])\shell\winc"
+            if (-not (Get-ItemProperty -LiteralPath $key -ErrorAction SilentlyContinue).'(default)') { throw "${kind}: no context menu label under $($verb[0])" }
+            $command = (Get-ItemProperty -LiteralPath "$key\command").'(default)'
+            if ($command -ne "`"$directory\winc.exe`" `"$($verb[1])`"") { throw "${kind}: wrong context menu command under $($verb[0]): $command" }
         }
         # A short-lived parent exercises the updater's wait before reinstalling.
         $parent = Start-Process powershell.exe -ArgumentList '-NoProfile -Command "Start-Sleep -Seconds 2"' -PassThru -WindowStyle Hidden
@@ -126,7 +145,7 @@ foreach ($kind in @('nsis', 'msi')) {
     if (Test-Path -LiteralPath "$classes\winc.JSON") { throw "${kind}: uninstall left the file type behind" }
     if (Test-Path "$directory/icons") { throw "${kind}: uninstall left the icons behind" }
     if (Test-Path -LiteralPath "$classes\Applications\winc.exe") { throw "${kind}: uninstall left the application behind" }
-    foreach ($key in @('SystemFileAssociations\.json', 'Directory', 'Directory\Background')) {
+    foreach ($key in @('*', 'SystemFileAssociations\.json', 'Directory', 'Directory\Background')) {
         if (Test-Path -LiteralPath "$classes\$key\shell\winc") { throw "${kind}: uninstall left the context menu under $key" }
     }
     if (Test-Path -LiteralPath "$classes\winc") { throw "${kind}: uninstall left the URL scheme behind" }

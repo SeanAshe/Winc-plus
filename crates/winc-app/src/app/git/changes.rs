@@ -476,7 +476,8 @@ impl App {
         if !(left..left + MARK_HIT_W).contains(&x) || y < l.text.y || y > l.text.bottom() {
             return None;
         }
-        let doc = self.editor.active()?;
+        // 与绘制一致：只看预览时不画行号栏，此前算好的改动不在原来的位置响应。
+        let doc = self.editor.active().filter(|d| d.shows_text())?;
         let hunks = self.git.changes.hunks(doc.id);
         if hunks.is_empty() {
             return None;

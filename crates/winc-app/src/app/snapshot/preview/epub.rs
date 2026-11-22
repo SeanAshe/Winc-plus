@@ -165,8 +165,12 @@ fn the_reading_place_is_kept_across_tabs_and_sessions() {
 
     click_row(&mut next, 0);
     next.remember_session();
-    let root = next.editor.root().unwrap();
-    assert!(next.state.session_for(root).unwrap().book_places.is_empty());
+    assert!(
+        next.state
+            .places
+            .iter()
+            .all(|(_, place)| place.view.is_none())
+    );
     let _ = std::fs::remove_dir_all(&dir);
 }
 

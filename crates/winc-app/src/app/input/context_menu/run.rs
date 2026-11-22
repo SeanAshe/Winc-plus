@@ -241,6 +241,13 @@ impl App {
                     self.set_auto_save(choice);
                 }
             }
+            MenuTarget::SmoothCaret => {
+                if let MenuCommand::SmoothCaret(i) = command
+                    && let Some(&choice) = winc_config::SmoothCaret::ALL.get(i)
+                {
+                    self.set_smooth_caret(choice);
+                }
+            }
             MenuTarget::OpenWorktree => {
                 if let MenuCommand::OpenWorktree(i) = command
                     && let Some(&choice) = winc_config::WorktreeOpen::ALL.get(i)
@@ -274,6 +281,15 @@ impl App {
                 }
                 _ => {}
             },
+            MenuTarget::DefaultLanguage => {
+                let language = match command {
+                    MenuCommand::UseLanguage(i) => winc_syntax::languages().get(i).copied(),
+                    _ => None,
+                };
+                self.config.default_language = language.map(|language| language.id.to_owned());
+                self.save_config();
+                self.request_redraw();
+            }
             MenuTarget::TextWidth => {
                 if let MenuCommand::TextWidth(i) = command
                     && let Some(&width) = winc_config::TextWidth::ALL.get(i)
@@ -485,6 +501,7 @@ impl App {
             MenuCommand::RemoveFolder => self.remove_folder(&target),
             MenuCommand::Reveal => self.reveal_in_file_manager(&target),
             MenuCommand::OpenInTerminal => self.open_in_terminal(Some(&target)),
+            MenuCommand::RunScript => self.run_script(&target),
             MenuCommand::FindInFolder => self.find_in_folder(&target),
             MenuCommand::CopyPath => self.copy_path(&target, false),
             MenuCommand::CopyRelativePath => self.copy_path(&target, true),

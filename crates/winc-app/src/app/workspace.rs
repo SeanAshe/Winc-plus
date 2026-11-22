@@ -19,6 +19,7 @@ pub(super) mod loading;
 pub(super) mod outline;
 pub(crate) mod panes;
 pub(crate) mod picker;
+pub(super) mod places;
 pub(super) mod recent;
 pub(crate) mod search_dialog;
 pub(super) mod session;

@@ -646,6 +646,17 @@ impl App {
     /// 没有选区且 `content` 等于最近一次整行复制的内容时，插入到当前行上方；否则在光标处插入。
     /// Markdown 中网址、图片网址和表格单元格按 [`App::markdown_paste`] 改写。
     pub(super) fn paste_text(&mut self, content: String) {
+        // 空的未命名纯文本文档：按粘贴的内容识别语言（`editor.detectLanguageOnPaste`）。
+        let blank = self.editor.active().is_some_and(|doc| {
+            let untitled = doc.path.is_none() && doc.title.is_none();
+            untitled && doc.text().end_pos() == 0 && doc.highlighter.language().id == "text"
+        });
+        if blank
+            && self.config.detect_language_on_paste != Some(false)
+            && let Some(language) = winc_editor::paste::sniffed_language(&content)
+        {
+            self.use_language(language);
+        }
         if let Some(text) = self.markdown_paste(&content) {
             self.run(Command::Insert(text));
             return;

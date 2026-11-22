@@ -5,8 +5,8 @@
 //! 缓存中移除，线程中排队但已不需要的请求跳过，内存只占这几页的位图。切换标签或文件被修改时
 //! 结束线程。左侧缩略图栏中的页同样按需渲染，排在正文的页之后。
 //!
-//! 各文件的阅读位置（[`Place`]）在切换标签、关闭标签后保留，并随目录的现场
-//! （`Session::pdf_places`）保存，再次打开时回到原处。
+//! 各文件的阅读位置（[`Place`]）在切换标签、关闭标签后保留，并记入各文件上次的位置
+//! （`State::places`），再次打开时回到原处。
 
 use crate::app::ScrollTarget;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
@@ -373,7 +373,7 @@ impl App {
             return;
         }
         // 同一文档的版本改变（磁盘上的文件被修改）时保留滚动位置；换文档时回到该文件上次的
-        // 阅读位置，本次运行中没有预览过的文件取目录的现场中的记录。
+        // 阅读位置，本次运行中没有预览过的文件取上次记下的位置。
         let scroll = (pdf.doc.map(|(d, _)| d) == Some(id)).then_some(pdf.scroll);
         let saved = match scroll {
             Some(_) => None,
@@ -468,38 +468,22 @@ impl App {
         }
     }
 
-    /// 返回目录的现场中记录的、文件 `path` 的阅读位置。
+    /// 返回上次记下的、文件 `path` 的阅读位置。
     fn saved_pdf_place(&self, path: &Path) -> Option<Place> {
-        let session = self.state.session_for(self.editor.root()?)?;
-        let (_, place) = session.pdf_places.iter().find(|(file, _)| file == path)?;
-        Some(*place)
+        self.state.place_of(path)?.view
     }
 
-    /// 返回目录 `root` 中各 PDF 文件的阅读位置，按路径排序，用于保存现场。
-    ///
-    /// 以现场中已有的记录为基础，本次运行中预览过的文件改用当前的位置；位于文档开头的文件
-    /// 不记录。
-    pub(in crate::app) fn pdf_session(&self, root: &Path) -> Vec<(PathBuf, Place)> {
-        let mut files: BTreeMap<PathBuf, Place> = self
-            .state
-            .session_for(root)
-            .map(|s| s.pdf_places.iter().cloned().collect())
-            .unwrap_or_default();
+    /// 返回本次运行中预览过的各 PDF 文件此刻的阅读位置；位于文档开头的为 `None`，不必记。
+    pub(in crate::app) fn pdf_places_now(&self) -> Vec<(PathBuf, Option<Place>)> {
         let pdf = &self.preview.pdf;
         // 其他窗格里正在预览的文件同样记它此刻的位置。
         let others = self.parked_previews().filter_map(|p| p.pdf_place());
         let current = pdf.current_place().into_iter().chain(others);
-        for (path, place) in pdf.places.iter().chain(current) {
-            if !path.starts_with(root) {
-                continue;
-            }
-            if at_start(*place) {
-                files.remove(path);
-            } else {
-                files.insert(path.clone(), *place);
-            }
-        }
-        files.into_iter().collect()
+        let places = pdf.places.iter().chain(current);
+        let places: BTreeMap<&PathBuf, Place> = places.map(|(path, at)| (path, *at)).collect();
+        (places.into_iter())
+            .map(|(path, at)| (path.clone(), Some(at).filter(|at| !at_start(*at))))
+            .collect()
     }
 
     /// 收下渲染线程送回的结果。

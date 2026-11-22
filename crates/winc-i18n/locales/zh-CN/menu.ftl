@@ -76,6 +76,7 @@ menu-rename-group = 重命名此目录组…
 menu-open-group = 打开此目录组
 menu-open-in-terminal = 在终端中打开
 menu-open-with-winc = 通过 Winc 打开
+menu-run-in-terminal = 在终端中运行
 menu-close-tabs-right = 关闭右侧标签页
 menu-close-tabs-left = 关闭左侧标签页
 menu-close-saved-tabs = 关闭已保存的标签页

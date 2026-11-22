@@ -23,6 +23,16 @@ pub fn text_width_label(choice: winc_config::TextWidth) -> &'static str {
     }
 }
 
+/// 返回「光标移动」设置中选项 `choice` 的名字。
+pub fn smooth_caret_label(choice: winc_config::SmoothCaret) -> &'static str {
+    use winc_config::SmoothCaret::{Gliding, Off, Snappy};
+    match choice {
+        Off => t!("settings-smooth-caret-off"),
+        Snappy => t!("settings-smooth-caret-snappy"),
+        Gliding => t!("settings-smooth-caret-gliding"),
+    }
+}
+
 /// 返回「自动保存」设置中选项 `choice` 的名字。
 pub fn auto_save_label(choice: winc_config::AutoSave) -> &'static str {
     use winc_config::AutoSave::{AfterDelay, Off, OnFocusChange};

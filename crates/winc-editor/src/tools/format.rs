@@ -5,6 +5,7 @@
 //! 全部输入。工具不支持时返回 [`FormatError`]，不会修改文档。
 
 mod command;
+mod fragment;
 mod install;
 mod tools;
 
@@ -30,7 +31,11 @@ use crate::document::content::Content;
 use crate::tools::shell::process::{self, MAX_OUTPUT, RunError};
 use crate::tools::shell::{Shell, is_executable};
 use crate::{Document, display_name};
+use fragment::Fragment;
 use tools::Detected;
+
+/// `ESLint` 的这个参数使它输出 JSON 报告而不是修好的全文。
+const ESLINT_DRY_RUN: &str = "--fix-dry-run";
 
 /// 外部工具执行的任务。
 ///
@@ -181,6 +186,8 @@ pub struct Plan {
     language: &'static str,
     /// 这次要做的是格式化还是修复。
     task: Task,
+    /// 只格式化一部分时，是否只把所选内容交给命令（见 [`Fragment`]）。
+    fragment: bool,
 }
 
 impl Plan {
@@ -306,6 +313,7 @@ impl Plan {
             guesses: Vec::new(),
             language: "",
             task: Task::Format,
+            fragment: false,
         })
     }
 
@@ -369,16 +377,28 @@ impl Plan {
         }
     }
 
-    /// 限定只格式化 `range` 这一区段；工具不支持时返回原因，命令保持不变。
+    /// 限定只格式化 `range` 这一区段；不支持时返回原因，命令保持不变。
     ///
-    /// 需要运行前才能确定工具的计划留到那时再检查。
+    /// 工具有区段参数（见 `tools::range_args`）时由它自己处理，设置里写的命令没有时只把所选
+    /// 内容交给它。需要运行前才能确定工具的计划留到那时再检查。
     ///
     /// # Errors
     ///
-    /// 已知工具不支持区段格式化（见 `tools::range_args`）时返回 [`FormatError::Unavailable`]。
+    /// 自动选择的工具没有区段参数、命令读磁盘上的文件，或命令的输出不是修好的全文时返回
+    /// [`FormatError::Unavailable`]。
     pub fn restrict(&mut self, range: &FormatRange) -> Result<(), FormatError> {
-        if !self.is_guess() {
-            self.range_args()?;
+        if !self.is_guess()
+            && let Err(unsupported) = self.range_args()
+        {
+            if self.auto.is_some() || self.args.iter().any(|a| a == ESLINT_DRY_RUN) {
+                return Err(unsupported);
+            }
+            if passes_file(&self.args) {
+                let tool = self.tool();
+                let message = t!("format-range-reads-file", tool = tool.as_ref());
+                return Err(FormatError::Unavailable(message));
+            }
+            self.fragment = true;
         }
         self.range = Some(range.clone());
         Ok(())
@@ -392,7 +412,7 @@ impl Plan {
     /// 返回只格式化一部分时加在命令末尾的参数；工具不支持时返回原因。
     fn range_args(&self) -> Result<&'static [&'static str], FormatError> {
         let tool = self.tool();
-        tools::range_args(&tool)
+        tools::range_args(&tool, &self.args)
             .ok_or_else(|| FormatError::Unavailable(t!("format-no-range", tool = tool.as_ref())))
     }
 
@@ -412,10 +432,14 @@ impl Plan {
     ///
     /// 是则工具会读取磁盘上的文件，而不是编辑器里的内容。
     pub fn reads_file_from_disk(command: &str) -> bool {
-        let args = command::split(command, None).unwrap_or_default();
-        args.windows(2)
-            .any(|pair| pair[1] == command::FILE && !pair[0].starts_with('-'))
+        passes_file(&command::split(command, None).unwrap_or_default())
     }
+}
+
+/// 拆分后的命令 `args` 是否把 `{file}` 当成要处理的文件，见 [`Plan::reads_file_from_disk`]。
+fn passes_file(args: &[String]) -> bool {
+    args.windows(2)
+        .any(|pair| pair[1] == command::FILE && !pair[0].starts_with('-'))
 }
 
 /// 只格式化文件的一部分时送进工具的区段。
@@ -728,8 +752,10 @@ impl Formatter {
         let plan = &self.resolve(&job.plan)?;
         let tool = plan.tool().into_owned();
         let range_args = match &plan.range {
-            Some(range) => plan.range_args()?.iter().map(|a| range.expand(a)).collect(),
-            None => Vec::new(),
+            Some(range) if !plan.fragment => {
+                plan.range_args()?.iter().map(|a| range.expand(a)).collect()
+            }
+            _ => Vec::new(),
         };
         let program = self.locate_for(&plan.file, &plan.program).ok_or_else(|| {
             let message = match &plan.auto {
@@ -809,7 +835,15 @@ impl Formatter {
         // 工具收到的内容统一为 LF，使只用 CR 换行的旧文件不会被当作一整行；输出再转换回文件
         // 原有的换行符。`old` 留着和输出比较；送去格式化的输入直接移交给写标准输入的线程。
         let old = job.text.to_string();
-        let input = unify_newlines(&old, "\n").into_owned().into_bytes();
+        let unified = unify_newlines(&old, "\n");
+        let range = plan.range.as_ref().filter(|_| plan.fragment);
+        let fragment = range.map(|range| Fragment::cut(&unified, range));
+        // 只交出所选内容时留着全文，输出放回原处时要用。
+        let (input, whole) = match &fragment {
+            Some(fragment) => (fragment.sent.clone(), Some(unified)),
+            None => (unified.into_owned(), None),
+        };
+        let input = input.into_bytes();
         let output = match process::run(&mut command, input, job.timeout, cancel) {
             Ok(output) => output,
             Err(RunError::Spawn(e)) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -870,7 +904,7 @@ impl Formatter {
         // ESLint 不直接输出修复后的内容，见 `eslint_output`。仍有无法自动修复的问题时退出码是 1，
         // 不算失败。按参数 `--fix-dry-run` 识别，而不是按程序名：项目里的路径是
         // `node_modules/.bin/eslint`，Windows 上是 `eslint.cmd`，用户也可能在外面套一层 `npx`。
-        let eslint = plan.args.iter().any(|a| a == "--fix-dry-run");
+        let eslint = plan.args.iter().any(|a| a == ESLINT_DRY_RUN);
         let finished = output.status.success() || (eslint && output.status.code() == Some(1));
         if !finished {
             for line in stderr.lines() {
@@ -908,6 +942,9 @@ impl Formatter {
             formatted
         };
         let formatted = formatted.strip_prefix('\u{feff}').unwrap_or(&formatted);
+        let joined =
+            (fragment.zip(whole)).map(|(fragment, whole)| fragment.join(&whole, formatted));
+        let formatted = joined.as_deref().unwrap_or(formatted);
         let new = unify_newlines(formatted, job.line_ending.as_str());
         let changes = diff::line_changes(&old, &new);
         let lines = changes

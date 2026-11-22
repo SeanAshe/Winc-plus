@@ -259,28 +259,39 @@ pub const PRESETS: &[Preset] = &[
     },
 ];
 
-/// 支持只格式化一部分的工具（按程序名匹配），以及追加在命令末尾的参数；占位符见
-/// [`super::FormatRange`]。
+/// 支持只格式化一部分的工具：程序名、要带的子命令（没有子命令的为 `None`），以及追加在命令
+/// 末尾的参数；占位符见 [`super::FormatRange`]。
 ///
 /// 参数追加在末尾，因为 `ruff format`、`swift-format format` 的选项必须跟在子命令之后。
-const RANGE_ARGS: &[(&str, &[&str])] = &[
-    ("clang-format", &["--lines={start-line}:{end-line}"]),
-    ("swift-format", &["--lines", "{start-line}:{end-line}"]),
+const RANGE_ARGS: &[(&str, Option<&str>, &[&str])] = &[
+    ("clang-format", None, &["--lines={start-line}:{end-line}"]),
+    (
+        "swift-format",
+        Some("format"),
+        &["--lines", "{start-line}:{end-line}"],
+    ),
     (
         "prettier",
+        None,
         &["--range-start={start-offset}", "--range-end={end-offset}"],
     ),
     // 结束位置不含在内：取最后一行最后一个字符之后的位置。
-    ("ruff", &["--range={start-line}:1-{end-line}:{end-column}"]),
-    ("black", &["--line-ranges={start-line}-{end-line}"]),
+    (
+        "ruff",
+        Some("format"),
+        &["--range={start-line}:1-{end-line}:{end-column}"],
+    ),
+    ("black", None, &["--line-ranges={start-line}-{end-line}"]),
 ];
 
-/// 返回程序 `name` 只格式化一部分时要追加的参数；不支持时返回 `None`。
-pub(super) fn range_args(name: &str) -> Option<&'static [&'static str]> {
+/// 返回程序 `name` 以参数 `args` 运行、只格式化一部分时要追加的参数；不支持时返回 `None`。
+pub(super) fn range_args(name: &str, args: &[String]) -> Option<&'static [&'static str]> {
     RANGE_ARGS
         .iter()
-        .find(|(program, _)| *program == name)
-        .map(|(_, args)| *args)
+        .find(|(program, subcommand, _)| {
+            *program == name && subcommand.is_none_or(|word| args.iter().any(|a| a == word))
+        })
+        .map(|(_, _, range)| *range)
 }
 
 /// 返回 `language` 可用的格式化工具预设，按优先顺序。

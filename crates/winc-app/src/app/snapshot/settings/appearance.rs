@@ -144,8 +144,8 @@ fn settings_font_name_is_checked_and_can_be_abandoned() {
 
     // 再次打开：从第一页的顶部开始。
     app.open_settings();
-    assert_eq!(app.settings.selected, Setting::Theme);
-    assert_eq!(app.settings_layout().page, SettingsPage::Appearance);
+    assert_eq!(app.settings.selected, Setting::Language);
+    assert_eq!(app.settings_layout().page, SettingsPage::General);
     assert_eq!(app.settings.scroll, 0.0);
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -276,9 +276,11 @@ fn the_language_and_ui_font_controls_line_up() {
     let dir = search_folder("settings-language-width");
     let mut app = app_with(&dir, false);
     app.open_settings();
-    app.settings_show_page(Setting::Language.page());
-    let layout = app.settings_layout();
-    let control = |setting| layout.row(setting).unwrap().control;
+    // 语言在「通用」页，界面字体和模式在「外观」页：各页的控件在同一位置。
+    let mut control = |setting: Setting| {
+        app.settings_show_page(setting.page());
+        app.settings_layout().row(setting).unwrap().control
+    };
     let (language, font) = (control(Setting::Language), control(Setting::UiFont));
     assert_eq!((language.x, language.w), (font.x, font.w));
     assert_eq!(Setting::Language.description(), None);
@@ -288,6 +290,7 @@ fn the_language_and_ui_font_controls_line_up() {
     assert_eq!((language.x - pad, language.w), (theme.x, theme.w));
 
     // 语言菜单比控件短，打开后与控件同宽并对齐。
+    app.settings_show_page(SettingsPage::General);
     app.settings_open_menu(Setting::Language);
     paint(&mut app);
     let popup = app
@@ -606,7 +609,7 @@ fn scrolling_settings_over_a_background_image_looks_the_same() {
         |x: f32, y: f32| (y * SCALE) as usize * (SIZE.0 * SCALE) as usize + (x * SCALE) as usize;
     let corner = full[at(card.x + 10.0, card.bottom() - 10.0)];
     let part = |v: f32| (v * 255.0 + 0.5) as u32;
-    let c = app.palette.frame_bg;
+    let c = app.palette.group_bg;
     let plain = (part(c.r) << 16) | (part(c.g) << 8) | part(c.b);
     assert_eq!(corner & 0xff_ffff, plain);
 

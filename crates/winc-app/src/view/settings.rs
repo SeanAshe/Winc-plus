@@ -45,7 +45,7 @@ pub(super) fn draw(app: &mut App, frame: &mut Frame<'_>) {
     // 遮罩颜色很淡，只略微压暗下层内容，卡片自身靠阴影浮起。遮罩铺满整个窗口（与动画途中相同），
     // 卡片移到哪里，下方都已压暗。
     let p = app.palette;
-    frame.rect(app.layout.window, p.scrim);
+    frame.rect(app.layout.window, p.scrim_strong);
     // 开始滚动或拖动时保存已绘制的窗口和遮罩，期间不再重绘（`draw_scrolling`）。
     if app.settings.scrolled_at.is_some() && app.settings.scroll_base.is_none() {
         app.settings.scroll_base = Some(frame.snapshot(frame.bounds()));
@@ -65,7 +65,7 @@ pub(crate) fn draw_scrolling(app: &mut App, frame: &mut Frame<'_>) -> bool {
         return false;
     };
     // `tint` 全透明时 `restore_tinted` 原样恢复快照。
-    frame.restore_tinted(&base, app.palette.scrim.alpha(0.0));
+    frame.restore_tinted(&base, app.palette.scrim_strong.alpha(0.0));
     app.settings.scroll_base = Some(base);
     // 与完整绘制时相同，卡片不透出背景图。
     frame.end_wallpaper();
@@ -106,7 +106,9 @@ fn draw_motion(app: &App, frame: &mut Frame<'_>, layout: &SettingsLayout) {
         return;
     };
     // 卡片半透明时，透过卡片看到的下层也该压暗：遮罩铺满整个窗口。
-    frame.with_opacity(curve.0, |frame| frame.restore_tinted(&cache.base, p.scrim));
+    frame.with_opacity(curve.0, |frame| {
+        frame.restore_tinted(&cache.base, p.scrim_strong)
+    });
     super::blend_card(frame, p, (layout.card, &cache.card), RADIUS_CARD, curve);
 }
 
@@ -114,10 +116,10 @@ fn draw_motion(app: &App, frame: &mut Frame<'_>, layout: &SettingsLayout) {
 fn draw_dialog(app: &mut App, frame: &mut Frame<'_>, layout: &SettingsLayout) {
     let p = app.palette;
 
-    // 分为两栏：左侧用窗口底色，右侧用编辑区底色，中间不绘制分隔线。阴影和细边另行绘制。
+    // 分为两栏：左侧用分组的底色，右侧用编辑区底色，中间不绘制分隔线。阴影和细边另行绘制。
     frame.rounded(layout.card, p.editor_bg, RADIUS_CARD);
     let r = RADIUS_CARD;
-    frame.rect_corners(layout.nav, p.frame_bg, [r, 0.0, 0.0, r], layout.card);
+    frame.rect_corners(layout.nav, p.group_bg, [r, 0.0, 0.0, r], layout.card);
 
     let search_caret = draw_search(app, frame, layout);
     draw_nav(app, frame, layout);
@@ -196,28 +198,28 @@ fn draw_nav_row(
     // 搜索时正文是各页的结果，不标出当前页。
     let current = page == layout.page && !layout.searching;
     let hovered = app.settings.hover == Some(SettingsPart::Page(page));
-    // 当前分类使用与顶栏视图切换相同的选中样式：凸起底色（深色配色亮一档）加一圈细边；
-    // 悬停只铺浅色。两者仅靠底色深浅区分时难以辨认当前页，因此选中项额外加细边。
+    // 当前页铺一层不带色相的底色，悬停的项铺淡底色。
     if current {
-        let (raised, edge) = super::workspace::panel::segment_colors(p, p.sidebar_bg);
-        frame.rect_clipped(row, edge, RADIUS_ROW, layout.nav);
-        frame.rect_clipped(row.inset(0.5, 0.5), raised, RADIUS_ROW - 0.5, layout.nav);
+        frame.rect_clipped(row, p.selected_inactive, RADIUS_TAB, layout.nav);
     } else if hovered {
-        frame.rect_clipped(row, p.hover, RADIUS_ROW, layout.nav);
+        frame.rect_clipped(row, p.hover, RADIUS_TAB, layout.nav);
     }
 
     let icon = (full.x + 16.0, full.y + full.h / 2.0);
     match page {
-        SettingsPage::Appearance => icons::appearance(frame, icon, p.text_muted, layout.nav),
-        SettingsPage::Editor => icons::code(frame, icon, p.text_muted, layout.nav),
-        SettingsPage::Format => icons::format(frame, icon, p.text_muted, layout.nav),
-        SettingsPage::Git => icons::git(frame, icon, 1.0, p.text_muted, layout.nav),
-        SettingsPage::Terminal => icons::console(frame, icon, p.text_muted, layout.nav),
-        SettingsPage::Modules => icons::modules(frame, icon, p.text_muted, layout.nav),
-        SettingsPage::Keys => icons::keyboard(frame, icon, p.text_muted, layout.nav),
-        SettingsPage::About => icons::about(frame, icon, p.text_muted, layout.nav),
+        SettingsPage::General => icons::sliders(frame, icon, p.text, layout.nav),
+        SettingsPage::Appearance => icons::appearance(frame, icon, p.text, layout.nav),
+        SettingsPage::Editor => icons::code(frame, icon, p.text, layout.nav),
+        SettingsPage::Files => icons::files(frame, icon, 1.0, p.text, layout.nav),
+        SettingsPage::Markdown => icons::markdown(frame, icon, p.text, layout.nav),
+        SettingsPage::Format => icons::format(frame, icon, p.text, layout.nav),
+        SettingsPage::Git => icons::git(frame, icon, 1.0, p.text, layout.nav),
+        SettingsPage::Terminal => icons::console(frame, icon, p.text, layout.nav),
+        SettingsPage::Modules => icons::modules(frame, icon, p.text, layout.nav),
+        SettingsPage::Keys => icons::keyboard(frame, icon, p.text, layout.nav),
+        SettingsPage::About => icons::about(frame, icon, p.text, layout.nav),
     }
-    let color = if current { p.text } else { p.text_muted };
+    let color = p.text;
     ui_text(
         frame,
         app,
@@ -274,7 +276,7 @@ fn draw_body(app: &mut App, frame: &mut Frame<'_>, layout: &SettingsLayout) -> O
         ui_text_small(frame, app, rect.x, rect, title, p.text_dim, body);
     }
     for &group in &layout.groups {
-        frame.rect_clipped(group, p.group_bg, RADIUS_BAR, body);
+        frame.rect_clipped(group, p.group_bg, RADIUS_CARD, body);
     }
     for &line in &layout.separators {
         frame.rect_clipped(line, p.separator, 0.0, body);
@@ -332,7 +334,6 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
             clip,
         );
     }
-
     if action {
         let icon = (row.row.x + 14.0, icon_center_y(app, row.row, app.fonts.ui));
         icons::plus(frame, icon, 9.0, p.accent, clip);
@@ -355,7 +356,8 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
         SettingControl::ThemeList | SettingControl::Product => {}
         _ if tall => {
             let (top, bottom) = two_lines(row.row);
-            ui_text(frame, app, x, top, row.setting.label(), p.text, clip);
+            let end = ui_text(frame, app, x, top, row.setting.label(), p.text, clip);
+            draw_reset(app, frame, row.setting, (end, top), clip);
             let bottom = Rect::new(x, bottom.y, room, bottom.h);
             match row.setting {
                 // 正在编辑命令时，原有的状态和警告不再显示，改为提示如何确认。
@@ -406,6 +408,7 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
         }
         _ => {
             let end = ui_text(frame, app, x, row.row, row.setting.label(), p.text, clip);
+            draw_reset(app, frame, row.setting, (end, row.row), clip);
             if let Some(error) = error {
                 let room = (row.control.x - 12.0 - end - 16.0).max(0.0);
                 let error = ellipsize(frame, &error, app.fonts.ui_small, room);
@@ -438,73 +441,7 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
             None
         }
         SettingControl::Choice => {
-            let (text, dim) = if row.setting == Setting::Language {
-                let choice = app.config.language.unwrap_or_default();
-                (crate::layout::locale_label(choice).to_owned(), false)
-            } else if row.setting == Setting::RenderWhitespace {
-                let choice = app.config.render_whitespace.unwrap_or_default();
-                (crate::layout::whitespace_label(choice).to_owned(), false)
-            } else if row.setting == Setting::AutoSave {
-                let choice = app.config.auto_save.unwrap_or_default();
-                (crate::layout::auto_save_label(choice).to_owned(), false)
-            } else if row.setting == Setting::DropFolder {
-                let choice = app.config.drop_folder.unwrap_or_default();
-                (crate::layout::drop_folder_label(choice).to_owned(), false)
-            } else if row.setting == Setting::FindInFiles {
-                let choice = app.search_style();
-                (crate::layout::search_style_label(choice).to_owned(), false)
-            } else if row.setting == Setting::GitOpenWorktree {
-                let choice = app.config.git_open_worktree.unwrap_or_default();
-                (crate::layout::open_worktree_label(choice).to_owned(), false)
-            } else if row.setting == Setting::GitPullMode {
-                let choice = app.config.git_pull.unwrap_or_default();
-                (crate::layout::pull_mode_label(choice).to_owned(), false)
-            } else if row.setting == Setting::VimClipboard {
-                let choice = app.config.vim_clipboard.unwrap_or_default();
-                (crate::layout::vim_clipboard_label(choice).to_owned(), false)
-            } else if row.setting == Setting::Zoom {
-                (format!("{}%", app.config.ui_zoom.unwrap_or(100)), false)
-            } else if row.setting == Setting::TextWidth {
-                let choice = app.config.markdown_text_width.unwrap_or_default();
-                (crate::layout::text_width_label(choice).to_owned(), false)
-            } else if row.setting == Setting::BackgroundFit {
-                let choice = app.config.ui_background_fit.unwrap_or_default();
-                (
-                    crate::layout::background_fit_label(choice).to_owned(),
-                    false,
-                )
-            } else if row.setting == Setting::BackgroundImage {
-                let name = (app.config.ui_background_image.as_deref())
-                    .map(|path| winc_editor::display_name(std::path::Path::new(path)).into_owned());
-                let none = name.is_none();
-                (
-                    name.unwrap_or_else(|| t!("settings-background-none").to_owned()),
-                    none,
-                )
-            } else if row.setting == Setting::TerminalPosition {
-                let text = if app.terminal_right() {
-                    t!("settings-terminal-position-right")
-                } else {
-                    t!("settings-terminal-position-bottom")
-                };
-                (text.to_owned(), false)
-            } else if row.setting == Setting::TerminalTabPosition {
-                let text = if app.config.terminal_vertical_tabs == Some(true) {
-                    t!("settings-terminal-tab-position-right")
-                } else {
-                    t!("settings-terminal-tab-position-top")
-                };
-                (text.to_owned(), false)
-            } else if row.setting == Setting::TerminalOptionAsMeta {
-                let choice = (app.config.option_as_meta).unwrap_or(winc_config::OptionAsMeta::Left);
-                (
-                    crate::layout::option_as_meta_label(choice).to_owned(),
-                    false,
-                )
-            } else {
-                let none = || t!("settings-skip-on-save-none").to_owned();
-                (app.skipped_on_save().unwrap_or_else(none), false)
-            };
+            let (text, dim) = app.choice_text(row.setting);
             super::controls::popup_value(app, frame, row.control, &text, dim, hovered, clip);
             None
         }
@@ -544,6 +481,27 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
     }
 }
 
+/// 改过的设置项在名称后面用淡色写「恢复默认」，字号同名称，记下它的位置供悬停和点击；`end` 是名称的末尾，
+/// `line` 是名称所在的一行。鼠标悬停时文字换成强调色。
+fn draw_reset(
+    app: &mut App,
+    frame: &mut Frame<'_>,
+    setting: Setting,
+    (end, line): (f32, Rect),
+    clip: Rect,
+) {
+    if !app.settings.changed.contains(&setting) {
+        return;
+    }
+    let p = app.palette;
+    let hovered = app.settings.hover == Some(SettingsPart::Reset(setting));
+    let color = if hovered { p.accent } else { p.text_dim };
+    let x = end + 10.0;
+    let last = ui_text(frame, app, x, line, t!("settings-reset"), color, clip);
+    let hit = Rect::new(x - 4.0, line.y, last - x + 8.0, line.h);
+    app.hits.reset_links.push((setting, hit));
+}
+
 /// 绘制「关于」页的链接：右对齐的显示名后跟外链箭头；在应用内打开的更新日志后跟朝右的箭头。
 ///
 /// 悬停时只在内容处铺悬停底色（[`crate::layout::value_area`]），点击范围与之相同。
@@ -576,14 +534,24 @@ fn draw_link(app: &App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) {
 
 /// 绘制「关于」页顶部的产品信息：应用图标、名称和版本号，水平居中（[`ProductParts`]）。
 ///
-/// 图标按当前缩放从应用图标的 SVG 渲染，与屏幕像素一一对应。版本号点击复制，悬停时只在文字处
+/// 图标按当前缩放从应用图标的 SVG 渲染，与屏幕像素一一对应；该页刚显示时逐层出现
+/// （[`App::track_about_logo`]）。版本号点击复制，悬停时只在文字处
 /// 铺悬停底色。
 fn draw_product(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) {
     let p = app.palette;
     let parts = ProductParts::new(row.row);
     let size = (SETTINGS_LOGO * frame.scale()).round() as u32;
     let logo = parts.logo;
-    frame.pixels((logo.x, logo.y), size, size, app.product_logo(size), clip);
+    // 逐层出现期间每帧渲染一张；完整之后用留存的应用图标。
+    let built;
+    let pixels: &[u8] = match app.about_logo_build() {
+        Some(build) if build < 1.0 => {
+            built = crate::app::setup::logo_frame(size, build);
+            &built
+        }
+        _ => app.product_logo(size),
+    };
+    frame.pixels((logo.x, logo.y), size, size, pixels, clip);
 
     // 名称比界面文字大 7 点，随界面字号一同缩放。
     let name_size = app.fonts.ui + 7.0;
@@ -640,6 +608,9 @@ fn found_text(version: &str) -> String {
             }
             Some(Delivery::Pacman) => {
                 return t!("settings-updates-found-pacman", version = version);
+            }
+            Some(Delivery::Scoop) => {
+                return t!("settings-updates-found-scoop", version = version);
             }
             _ => {}
         }
@@ -983,7 +954,7 @@ fn draw_theme_grid(app: &App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rec
             None
         };
         if let Some(ring) = ring {
-            frame.rect_clipped(thumb.inset(-3.0, -3.0), ring, THUMB_RADIUS + 3.0, clip);
+            frame.rect_clipped(thumb.inset(-2.5, -2.5), ring, THUMB_RADIUS + 2.5, clip);
             frame.rect_clipped(
                 thumb.inset(-1.0, -1.0),
                 p.group_bg,

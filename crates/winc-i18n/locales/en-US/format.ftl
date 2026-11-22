@@ -131,6 +131,7 @@ format-command-unclosed-single-quote = Unclosed single quote in the command
 format-command-unclosed-double-quote = Unclosed double quote in the command
 format-no-formatter-installed = No { $language } formatter installed ({ $names })
 format-no-range = “{ $tool }” can’t format a selection
+format-range-reads-file = “{ $tool }” reads the file from disk and can’t format a selection
 format-preset-tool-not-found = The project uses { $preset } ({ $reason }), but “{ $tool }” wasn’t found
 format-no-permission = “{ $tool }” isn’t executable
 format-spawn-failed = “{ $tool }” failed to start ({ $error })

@@ -17,6 +17,7 @@ use winc_syntax::{Language, Token};
 
 use super::*;
 use crate::app::FoldMotion;
+use crate::app::animation::CaretTarget;
 use crate::app::git::merge::MergeTarget;
 
 /// 绘制当前文档的文本区，`index` 是它在 `documents` 中的位置。
@@ -261,6 +262,22 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
     }
     app.hits.merge = merge_hits;
 
+    // 主光标的移动动画在行都画完之后绘制：滑动途中经过其他行时不会被后面绘制的行盖住。
+    // 前台以外的窗格没有光标，动画状态属于前台的文档。
+    if !app.panes.drawing_background {
+        match scratch.caret {
+            CaretDraw::Sliding(target) => {
+                let rect = app.advance_caret(target);
+                caret_bar(app, frame, rect.x, rect.y, layout.text);
+            }
+            CaretDraw::Static => app.caret_hidden(),
+            // 光标这一帧不在屏幕上，视口正随跳转滚向它：保留动画状态，滚到目标时从原来的位置
+            // 滑过去。用滚轮滚出视野的光标不保留，回来时直接出现。
+            CaretDraw::Offscreen if app.focus == Focus::Editor && app.caret_scrolls() => {}
+            CaretDraw::Offscreen => app.caret_hidden(),
+        }
+    }
+
     app.hits.folded = scratch.folded_hits;
     app.hits.long_lines = scratch.long_hits;
     draw_sticky(app, frame, index);
@@ -371,6 +388,20 @@ struct Scratch {
     long_hits: LineHits,
     /// 主光标的位置；输入法候选框跟随该位置。
     ime_cursor: Option<Rect>,
+    /// 主光标这一帧的绘制方式。
+    caret: CaretDraw,
+}
+
+/// 主光标这一帧的绘制方式。
+#[derive(Debug, Clone, Copy, Default)]
+enum CaretDraw {
+    /// 光标这一帧没有画出来：它不在屏幕上，或者编辑区没有焦点。
+    #[default]
+    Offscreen,
+    /// 光标画在目标处，不播放动画。
+    Static,
+    /// 光标播放移动动画，按记录的目标位置推进。
+    Sliding(CaretTarget),
 }
 
 impl Scratch {
@@ -386,6 +417,7 @@ impl Scratch {
             folded_hits: Vec::new(),
             long_hits: Vec::new(),
             ime_cursor: None,
+            caret: CaretDraw::default(),
         }
     }
 }

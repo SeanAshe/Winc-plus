@@ -669,6 +669,7 @@ impl App {
         self.advance_fling(Instant::now());
         self.continue_drag_scroll();
         self.track_modules();
+        self.track_about_logo();
         self.track_commit_bars();
         self.track_search_rows();
         self.track_words();

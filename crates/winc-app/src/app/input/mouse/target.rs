@@ -906,6 +906,8 @@ impl App {
             return;
         }
 
+        // 差异两侧和 Markdown 预览按最上层的目标判断：滚动条、折叠的一段、标题列表、工具栏、
+        // 盖在上面的卡片和面板，以及链接处不显示文本光标；拖选期间一直显示。
         let in_text = self.editor.active.is_some()
             && self.active_shows_text()
             && !matches!(
@@ -917,11 +919,21 @@ impl App {
             && !(self.overlays.picker.open && self.layout.picker.contains(x, y))
             && !self.over_corner_card(x, y)
             && x < self.layout.editor.right() - SCROLLBAR_HIT
-            || self.over_diff_text(x, y) && x < self.layout.editor.right() - SCROLLBAR_HIT;
+            || self.over_diff_text(x, y)
+                && x < self.layout.editor.right() - SCROLLBAR_HIT
+                && matches!(self.target_at(x, y), Target::Editor);
         // 日志详情中可选择的文字上（不含可点击的提交号和文件）显示文本光标。
         let in_field = self.field_at(x, y).is_some()
-            || matches!(self.pointer.drag, Drag::LogText | Drag::MarkdownText)
-            || (self.preview.markdown.area.contains(x, y) && self.markdown_link_at(x, y).is_none())
+            || matches!(
+                self.pointer.drag,
+                Drag::LogText
+                    | Drag::MarkdownText
+                    | Drag::DiffSelect { .. }
+                    | Drag::DiffSelectRead { .. }
+                    | Drag::DiffColumns { .. }
+            )
+            || (self.preview.markdown.area.contains(x, y)
+                && matches!(self.target_at(x, y), Target::MarkdownText(None)))
             || (self.log_active()
                 && crate::layout::hit(&self.hits.log, x, y).is_none()
                 && self.log_text_at(x, y, false).is_some());

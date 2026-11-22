@@ -534,5 +534,7 @@ impl super::TerminalPanel {
     }
 }
 
+mod script;
+
 #[cfg(test)]
 mod tests;

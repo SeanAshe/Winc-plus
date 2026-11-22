@@ -131,6 +131,48 @@ fn the_full_preview_edits_the_document() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 回归：只看预览时文件被其他程序改写，整个重新读入之后预览仍可直接编辑，左侧仍写原文行号。
+#[test]
+fn the_full_preview_stays_editable_after_the_file_changes_on_disk() {
+    let (mut app, dir) = live_doc("md-live-reload", "# 标题\n\n第一段\n");
+    assert!(app.markdown_live());
+
+    // 改的不只是末尾，整个重新读入；文件变长了，修改时间相同也能检测到变化。
+    let changed = "# 标题\n\n改过的第一段\n\n第二段\n";
+    std::fs::write(dir.join("LIVE.md"), changed).unwrap();
+    app.sync_documents(|_| true);
+    settle(&mut app);
+    assert_eq!(doc_text(&app), changed);
+    assert!(app.markdown_live());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 只看预览的 Markdown 关掉后再打开：光标回到原来的那一段，预览滚到那里。
+#[test]
+fn the_full_preview_reopens_at_the_caret() {
+    let text: String = (0..80).map(|i| format!("第 {i} 段\n\n")).collect();
+    let (mut app, dir) = live_doc("md-live-place", &text);
+    app.go_to(120, 2, 0);
+    settle(&mut app);
+    let scroll = app.preview.markdown.scroll();
+    assert!(scroll > 0.0);
+    app.remember_session();
+
+    let mut next = blank_app(false);
+    next.state = app.state.clone();
+    next.open_path(&dir.join("LIVE.md"));
+    paint(&mut next);
+    next.set_preview_mode(PreviewMode::Preview);
+    settle(&mut next);
+    assert!(next.markdown_live());
+    let doc = next.editor.active().unwrap();
+    assert_eq!(doc.text().pos_to_line_col(doc.selection.head), (120, 2));
+    let reopened = next.preview.markdown.scroll();
+    assert!(reopened > 0.0, "预览停在开头");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn the_caret_paragraph_keeps_its_look() {
     use crate::app::preview::markdown::laid::full_text;

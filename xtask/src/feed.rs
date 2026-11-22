@@ -1,5 +1,6 @@
 //! Linux 版（AppImage）和 Windows 版（安装包）的 appcast：`appcast-linux.xml`、
-//! `appcast-windows.xml`。应用内更新读取这两个文件，从其中取更新包与签名。
+//! `appcast-linux-arm64.xml`、`appcast-windows.xml`。应用内更新读取本平台的那一个，从其中取
+//! 更新包与签名。
 //!
 //! 每个更新包一项，文件名须为 `winc-<版本>-<架构>.AppImage` 或 `winc-<版本>-<架构>-setup.exe`。
 //! 更新包和 appcast 都用 `sign_update` 签名（EdDSA），`sign_update` 把 appcast 的签名写在文件末尾的
@@ -20,11 +21,12 @@ pub enum Platform {
 }
 
 impl Platform {
-    /// 应用内更新请求的 appcast 文件名。
-    fn feed_file(self) -> &'static str {
-        match self {
-            Self::Linux => "appcast-linux.xml",
-            Self::Windows => "appcast-windows.xml",
+    /// 架构 `arch` 的应用内更新请求的 appcast 文件名；Linux 的两种架构各有一份。
+    fn feed_file(self, arch: &str) -> &'static str {
+        match (self, arch) {
+            (Self::Linux, "aarch64") => "appcast-linux-arm64.xml",
+            (Self::Linux, _) => "appcast-linux.xml",
+            (Self::Windows, _) => "appcast-windows.xml",
         }
     }
 
@@ -61,7 +63,7 @@ struct Package {
 }
 
 /// 为 `files` 中属于 `platform` 的更新包生成签名的 appcast，写到 `out` 下，下载地址是
-/// `<base>/<文件名>`。
+/// `<base>/<文件名>`；返回写出的各个文件，见 [`Platform::feed_file`]。
 ///
 /// # Errors
 ///
@@ -71,7 +73,7 @@ pub fn write(
     out: &Path,
     base: &str,
     files: &[PathBuf],
-) -> Result<PathBuf, String> {
+) -> Result<Vec<PathBuf>, String> {
     if files.is_empty() {
         return Err("没有给出更新包".into());
     }
@@ -98,12 +100,25 @@ pub fn write(
             signature,
         });
     }
-    let feed = feed(platform, &packages, base.trim_end_matches('/'));
-    let path = out.join(platform.feed_file());
     std::fs::create_dir_all(out).map_err(|e| e.to_string())?;
-    std::fs::write(&path, &feed).map_err(|e| e.to_string())?;
-    sign_feed(&sign_update, &path)?;
-    Ok(path)
+    let mut names: Vec<&str> = (packages.iter())
+        .map(|package| platform.feed_file(&package.arch))
+        .collect();
+    names.sort_unstable();
+    names.dedup();
+    let mut written = Vec::new();
+    for name in names {
+        let listed: Vec<Package> = (packages.iter())
+            .filter(|package| platform.feed_file(&package.arch) == name)
+            .cloned()
+            .collect();
+        let path = out.join(name);
+        let feed = feed(platform, &listed, base.trim_end_matches('/'));
+        std::fs::write(&path, &feed).map_err(|e| e.to_string())?;
+        sign_feed(&sign_update, &path)?;
+        written.push(path);
+    }
+    Ok(written)
 }
 
 /// 由文件名得出（版本，架构）；格式不符时返回 `None`。
@@ -117,6 +132,8 @@ fn parse_name(name: &str, suffix: &str) -> Option<(String, String)> {
         .or_else(|| rest.strip_suffix("-windows-x64"))
     {
         (version, "x86_64")
+    } else if let Some(version) = rest.strip_suffix("-linux-arm64") {
+        (version, "aarch64")
     } else {
         rest.rsplit_once('-')?
     };

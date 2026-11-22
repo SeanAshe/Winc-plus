@@ -901,11 +901,7 @@ impl App {
 /// 路径形如打开的目录（没有时为临时目录）中的 `untitled.json`。工具只把该路径用作提示
 /// （`--stdin-filepath`），并在其所在目录查找配置，不会读取该文件。
 fn unsaved_path(language: &winc_syntax::Language, root: Option<&Path>) -> PathBuf {
-    let name = match (language.extensions.first(), language.file_names.first()) {
-        (Some(ext), _) => format!("untitled.{ext}"),
-        (None, Some(name)) => (*name).to_owned(),
-        (None, None) => "untitled".to_owned(),
-    };
+    let name = (language.file_name("untitled")).unwrap_or_else(|| "untitled".to_owned());
     root.map_or_else(std::env::temp_dir, Path::to_path_buf)
         .join(name)
 }

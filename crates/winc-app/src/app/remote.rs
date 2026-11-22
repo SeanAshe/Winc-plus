@@ -832,12 +832,14 @@ impl App {
     }
 
     /// 启动时调用：上次退出时开着的目录在远端主机上时，重新连接并打开它，标签按那个目录的
-    /// 现场恢复。连接在后台进行，窗口先显示开始页；需要口令时照常询问。
-    pub(crate) fn restore_remote_folder(&mut self) {
+    /// 现场恢复，返回是否开始了连接。连接在后台进行，窗口先显示开始页；需要口令时照常询问。
+    pub(crate) fn restore_remote_folder(&mut self) -> bool {
         let wanted = self.editor.root().is_none() && self.remote_enabled();
-        if let Some(folder) = self.state.last.clone().filter(|_| wanted) {
-            self.reopen_remote(&folder);
+        let folder = self.state.last.clone().filter(|_| wanted);
+        if let Some(folder) = &folder {
+            self.reopen_remote(folder);
         }
+        folder.is_some()
     }
 
     /// 在后台连接 `target`（已有连接时沿用）并取得其上目录 `folder` 的真实路径（空表示主目录），

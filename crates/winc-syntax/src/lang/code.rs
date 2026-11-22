@@ -513,7 +513,7 @@ pub(super) static CPP: Language = Language {
     id: "cpp",
     name: "C++",
     extensions: &[
-        "cc", "cpp", "cxx", "c++", "hpp", "hh", "hxx", "h++", "inl", "ipp", "tpp", "ixx", "cppm",
+        "cpp", "cc", "cxx", "c++", "hpp", "hh", "hxx", "h++", "inl", "ipp", "tpp", "ixx", "cppm",
         "cu", "cuh", "ino",
     ],
     keywords: &[

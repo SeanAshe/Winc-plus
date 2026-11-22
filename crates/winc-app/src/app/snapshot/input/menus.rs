@@ -561,8 +561,9 @@ fn typing_filters_the_language_menu() {
     app.pointer.modifiers = winit::keyboard::ModifiersState::empty();
     assert_eq!(app.popup().unwrap().query, "zz");
     // Esc：先清空筛选，列出全部；再按一次关掉菜单。
+    // 刚才选过的 Rust 移到最近选择的语言中：多出一条分隔线。
     named(&mut app, NamedKey::Escape);
-    assert_eq!(app.popup().unwrap().levels[0].rows.len(), all);
+    assert_eq!(app.popup().unwrap().levels[0].rows.len(), all + 1);
     named(&mut app, NamedKey::Escape);
     assert!(app.overlays.context_menu.is_none());
 
@@ -627,7 +628,8 @@ fn the_language_picker_filters_by_name_and_extension() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 截图：面板中的语言列表，键入「ru」筛选（`language-picker-light`）。
+/// 截图：面板中的语言列表，键入「ru」筛选（`language-picker-light`）；状态栏的语言菜单
+/// （`language-menu-light`）。
 #[test]
 #[ignore = "截图，手动运行"]
 fn shoot_language_picker() {
@@ -640,6 +642,10 @@ fn shoot_language_picker() {
     app.overlays.picker.input.set_text("ru");
     app.picker_refresh();
     shoot(&mut app, "language-picker-light");
+    app.close_picker();
+    app.open_status_menu(StatusItem::Language);
+    paint(&mut app);
+    shoot(&mut app, "language-menu-light");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

@@ -35,6 +35,8 @@ mod feed;
 #[cfg(test)]
 mod file_types;
 mod icons;
+#[cfg(test)]
+mod linux_baseline;
 mod samples;
 mod server;
 mod sparkle;
@@ -138,8 +140,10 @@ fn appcast(platform: feed::Platform, args: &[String], package: &str) -> Result<b
         ));
     };
     let files: Vec<PathBuf> = args[3..].iter().map(PathBuf::from).collect();
-    feed::write(platform, Path::new(out), base, &files).map(|path| {
-        println!("{}", path.display());
+    feed::write(platform, Path::new(out), base, &files).map(|written| {
+        for path in written {
+            println!("{}", path.display());
+        }
         true
     })
 }

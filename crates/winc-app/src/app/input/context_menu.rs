@@ -113,6 +113,8 @@ pub enum MenuCommand {
     /// 在系统文件管理器中显示。
     Reveal,
     OpenInTerminal,
+    /// 在终端中运行文件树里的脚本文件。
+    RunScript,
     /// 只在该目录中做全局搜索。
     FindInFolder,
     CopyPath,
@@ -249,6 +251,9 @@ pub enum MenuCommand {
     /// 设置中「自动保存」菜单的一项，参数为
     /// [`AutoSave::ALL`](winc_config::AutoSave::ALL) 中的序号（从 0 起）。
     AutoSave(usize),
+    /// 设置中「光标移动」菜单的一项，参数为
+    /// [`SmoothCaret::ALL`](winc_config::SmoothCaret::ALL) 中的序号（从 0 起）。
+    SmoothCaret(usize),
     /// 设置中「默认 Shell」菜单的一项：`None` 为系统默认，`Some(i)` 为检测到的第 `i` 个 shell
     /// （从 0 起）。
     DefaultShell(Option<usize>),
@@ -563,6 +568,7 @@ impl MenuCommand {
             MenuCommand::GroupFolder(..) => "",
             MenuCommand::Reveal | MenuCommand::LocationReveal => crate::system::reveal_label(),
             MenuCommand::OpenInTerminal => t!("menu-open-in-terminal"),
+            MenuCommand::RunScript => t!("menu-run-in-terminal"),
             MenuCommand::FindInFolder => t!("cmd-find-in-folder"),
             MenuCommand::CopyPath => t!("cmd-copy-path"),
             MenuCommand::CopyRelativePath => t!("cmd-copy-relative-path"),
@@ -768,6 +774,9 @@ impl MenuCommand {
             MenuCommand::AutoSave(i) => winc_config::AutoSave::ALL
                 .get(i)
                 .map_or("", |&choice| crate::layout::auto_save_label(choice)),
+            MenuCommand::SmoothCaret(i) => winc_config::SmoothCaret::ALL
+                .get(i)
+                .map_or("", |&choice| crate::layout::smooth_caret_label(choice)),
             MenuCommand::Locale(i) => winc_i18n::LocaleChoice::ALL
                 .get(i)
                 .map_or("", |&choice| crate::layout::locale_label(choice)),
@@ -974,6 +983,8 @@ pub enum MenuTarget {
     SearchStyle,
     /// 设置的编辑器页中的「自动保存」。
     AutoSave,
+    /// 设置的编辑器页中的「光标移动」。
+    SmoothCaret,
     /// 设置的外观页中的「界面缩放」。
     Zoom,
     /// 设置的外观页中的「背景图片」。
@@ -982,6 +993,8 @@ pub enum MenuTarget {
     BackgroundFit,
     /// 设置中「Markdown 预览正文宽度」的选项菜单。
     TextWidth,
+    /// 设置中「新建文件的默认语言」的选项菜单：纯文本和全部语言。
+    DefaultLanguage,
     /// 设置的终端页中的「默认 Shell」。
     DefaultShell,
     /// 设置的终端页中的「位置」。
