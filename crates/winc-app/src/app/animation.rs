@@ -140,6 +140,8 @@ pub enum Card {
     Dialog,
     /// 窗口内绘制的提示框（平台没有系统提示框时使用）。
     Alert,
+    /// 在文件中查找的对话框。
+    Search,
 }
 
 impl Card {
@@ -147,7 +149,7 @@ impl Card {
     pub fn radius(self) -> f32 {
         match self {
             Card::Picker | Card::Bar => crate::theme::RADIUS_BAR,
-            Card::Dialog | Card::Alert => crate::theme::RADIUS_CARD,
+            Card::Dialog | Card::Alert | Card::Search => crate::theme::RADIUS_CARD,
         }
     }
 }
@@ -321,6 +323,7 @@ impl App {
             Card::Bar => &mut self.motion.bar_card,
             Card::Dialog => &mut self.motion.dialog_card,
             Card::Alert => &mut self.motion.alert_card,
+            Card::Search => &mut self.motion.search_card,
         }
     }
 
@@ -422,6 +425,7 @@ impl App {
         self.motion.bar_card.settle();
         self.motion.dialog_card.settle();
         self.motion.alert_card.settle();
+        self.motion.search_card.settle();
         if self.settings.motion.is_none() {
             self.settings.cache = None;
         }
@@ -544,6 +548,7 @@ impl App {
             || self.motion.bar_card.motion.is_some()
             || self.motion.dialog_card.motion.is_some()
             || self.motion.alert_card.motion.is_some()
+            || self.motion.search_card.motion.is_some()
             || self.settings.mode_slide.is_some()
             || self.settings.switch_slide.is_some()
             || self.settings.key_slide.is_some()
@@ -676,6 +681,8 @@ pub(crate) struct Motions {
     pub(crate) dialog_card: animation::CardFx,
     /// 窗口内绘制的提示框出现、消失的动画。
     pub(crate) alert_card: animation::CardFx,
+    /// 在文件中查找的对话框出现、消失的动画。
+    pub(crate) search_card: animation::CardFx,
     /// 开关 Git、终端模块时，视图切换器中的「提交」一段、状态栏的终端开关和分支名
     /// 出现、消失的动画。
     pub(crate) module_fx: animation::ModuleFx,

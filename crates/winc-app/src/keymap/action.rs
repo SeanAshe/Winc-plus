@@ -210,6 +210,7 @@ pub enum Action {
     ToggleRegex,
     FilterLines,
     FindInFiles,
+    OpenSearchDialog,
     ReplaceInFiles,
     ReplaceAllInFiles,
     NextResult,
@@ -578,6 +579,7 @@ impl Action {
             ToggleRegex => t!("cmd-toggle-regex"),
             FilterLines => t!("cmd-filter-lines"),
             FindInFiles => t!("cmd-find-in-files"),
+            OpenSearchDialog => t!("cmd-open-search-dialog"),
             ReplaceInFiles => t!("cmd-replace-in-files"),
             ReplaceAllInFiles => t!("cmd-replace-all-in-files"),
             NextResult => t!("cmd-next-result"),
@@ -837,8 +839,8 @@ impl Action {
             | Fix => Group::Edit,
             Find | Replace | FindNext | FindPrevious | HighlightWord | ClearWordHighlights
             | ReplaceOne | ReplaceAll | SelectAllMatches | ToggleCase | ToggleWord
-            | ToggleRegex | FilterLines | FindInFiles | ReplaceInFiles | ReplaceAllInFiles
-            | NextResult | PreviousResult => Group::Find,
+            | ToggleRegex | FilterLines | FindInFiles | OpenSearchDialog | ReplaceInFiles
+            | ReplaceAllInFiles | NextResult | PreviousResult => Group::Find,
             RenameFile
             | DeleteFile
             | DeleteFilePermanently
@@ -1242,6 +1244,7 @@ pub const ACTIONS: &[Action] = {
         ToggleRegex,
         FilterLines,
         FindInFiles,
+        OpenSearchDialog,
         ReplaceInFiles,
         ReplaceAllInFiles,
         NextResult,

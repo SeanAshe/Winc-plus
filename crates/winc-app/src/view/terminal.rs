@@ -60,6 +60,10 @@ fn draw_panel(app: &mut App, frame: &mut Frame<'_>) {
     frame.rect(card, p.editor_bg);
     app.note_terminal_tabs();
     draw_header(app, frame, card);
+    if app.docked_search_shown() {
+        workspace::search_dialog::draw_dock(app, frame);
+        return;
+    }
     let opacity = app
         .terminal
         .strip
@@ -472,13 +476,18 @@ fn draw_header(app: &mut App, frame: &mut Frame<'_>, card: Rect) {
     let hide = Rect::new(end - BUTTONS_END - BUTTON, button_y, BUTTON, BUTTON);
     let position = Rect::new(hide.x - TAB_GAP - BUTTON, button_y, BUTTON, BUTTON);
     let maximize = Rect::new(position.x - TAB_GAP - BUTTON, button_y, BUTTON, BUTTON);
-    let run = run_buttons(app, frame, left, maximize.x - TAB_GAP, button_y);
+    // 显示「搜索」标签时，最大化左边是「在对话框中打开」。
+    let reopen = app
+        .docked_search_shown()
+        .then(|| Rect::new(maximize.x - TAB_GAP - BUTTON, button_y, BUTTON, BUTTON));
+    let tools_x = reopen.map_or(maximize.x, |r| r.x);
+    let run = run_buttons(app, frame, left, tools_x - TAB_GAP, button_y);
     let vertical = app.terminal_tab_list().is_some();
     // 标签和「+」放得下的宽度。
     let rest = if vertical {
-        maximize.x
+        tools_x
     } else {
-        run.map_or(maximize.x, |[menu, ..]| menu.x)
+        run.map_or(tools_x, |[menu, ..]| menu.x)
     } - TAB_GAP;
     // 能选的 shell 不止一个时，「+」右边是选 shell 的按钮。
     let shell_menu = app.terminal_shell_list().len() > 1;
@@ -515,6 +524,13 @@ fn draw_header(app: &mut App, frame: &mut Frame<'_>, card: Rect) {
             icons::chevron(frame, center(menu), 8.0, direction, p.text_muted, header);
             hits.push((menu, HeaderHit::ShellMenu));
         }
+    }
+
+    if let Some(reopen) = reopen {
+        let on = app.pointer.hover == Hover::TerminalHeader(HeaderHit::SearchDialog);
+        draw_button(frame, p, reopen, header, on, false);
+        icons::external(frame, center(reopen), p.text_muted, header);
+        hits.push((reopen, HeaderHit::SearchDialog));
     }
 
     // 右端：最大化或还原面板，图标绘制的是点下去以后的样子。
@@ -722,7 +738,7 @@ fn draw_terminal_tab(
             .map(|caret| caret.intersect(clip))
             .filter(|caret| caret.w > 0.0 && caret.h > 0.0);
     }
-    let active = i == app.terminal.active;
+    let active = i == app.terminal.active && !app.docked_search_shown();
     let hovered = matches!(app.pointer.hover, Hover::TerminalHeader(HeaderHit::Tab(j) | HeaderHit::Close(j)) if j == i);
     // 字色和编辑区的标签一样：正在看的用正文色，不管焦点在不在面板上。
     let color = match (active, tab.ended.is_some()) {

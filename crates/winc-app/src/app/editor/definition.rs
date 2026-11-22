@@ -48,6 +48,8 @@ pub enum PlacesKind {
     Usages,
     /// 一个文件中的书签。
     Bookmarks,
+    /// 在文件中查找的各处匹配。
+    Search,
 }
 
 impl PlacesKind {
@@ -57,6 +59,7 @@ impl PlacesKind {
             PlacesKind::Definitions => t!("editor-places-definitions-count", count = n),
             PlacesKind::Usages => t!("editor-places-usages-count", count = n),
             PlacesKind::Bookmarks => t!("editor-places-bookmarks-count", count = n),
+            PlacesKind::Search => t!("editor-places-search-count", count = n),
         }
     }
 }
@@ -80,6 +83,18 @@ pub struct Places {
 }
 
 impl Places {
+    /// 返回在文件中查找列出的各处匹配，`query` 是查询的文字。
+    pub fn search(query: String, items: Vec<Place>) -> Places {
+        Places {
+            kind: PlacesKind::Search,
+            name: query,
+            items,
+            origin: String::new(),
+            anchor: 0,
+            widest_label: Default::default(),
+        }
+    }
+
     /// 返回全部条目中最宽的「文件名 + 行号」的宽度（逻辑像素），由 `measure` 量出。
     ///
     /// 这一栏的宽度只取决于条目和字号（`sizes`：界面字号、小字号），条目在浮窗打开期间不变，

@@ -171,6 +171,7 @@ cmd-toggle-regex = 使用正则表达式
 cmd-filter-lines = 只显示匹配的行
 cmd-find-in-files = 在文件中查找
 cmd-replace-in-files = 在文件中替换
+cmd-open-search-dialog = 在文件中查找（对话框）
 cmd-replace-all-in-files = 在文件中全部替换
 cmd-next-result = 下一个搜索结果
 cmd-previous-result = 上一个搜索结果

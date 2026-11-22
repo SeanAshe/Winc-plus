@@ -373,6 +373,15 @@ impl App {
             ReplaceOne if self.bars.find.open => self.replace_current(),
             ReplaceAll if self.bars.find.open => self.replace_all(),
             ReplaceOne | ReplaceAll => return false,
+            ToggleCase | ToggleWord | ToggleRegex
+                if matches!(self.focus, Focus::SearchDialog | Focus::SearchMask) =>
+            {
+                self.toggle_search_dialog_option(match action {
+                    ToggleCase => PanelButton::Case,
+                    ToggleWord => PanelButton::Word,
+                    _ => PanelButton::Regex,
+                })
+            }
             ToggleCase | ToggleWord | ToggleRegex if panel => {
                 self.press_panel_button(match action {
                     ToggleCase => PanelButton::Case,
@@ -393,7 +402,12 @@ impl App {
                 }
                 self.press_search_button(SearchButton::Filter);
             }
+            FindInFiles if self.search_style() == winc_config::SearchStyle::Dialog => {
+                self.open_search_dialog()
+            }
             FindInFiles => self.open_global_search(false),
+            OpenSearchDialog if self.focus.in_panel() => self.open_search_dialog_from_panel(),
+            OpenSearchDialog => self.open_search_dialog(),
             ReplaceInFiles => self.open_global_search(true),
             ReplaceAllInFiles => self.ask_replace_all(),
             NextResult => self.next_result(false),

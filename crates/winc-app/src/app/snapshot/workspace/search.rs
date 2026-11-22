@@ -865,6 +865,50 @@ fn result_keys_jump_to_the_ends_and_page() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// `⌘↓` 从查找框进入结果列表并打开第一处匹配；方向键逐条打开匹配，焦点留在列表，连续按键时
+/// 防抖到期后才打开最后选中的一处；`⌘↑` 回到查找框。
+#[test]
+fn arrow_keys_browse_the_results() {
+    let dir = search_folder("global-browse");
+    let mut app = app_with(&dir, false);
+    app.panels.sidebar.view = SidebarView::Search;
+    app.relayout();
+    paint(&mut app);
+    app.focus = Focus::GlobalQuery;
+    app.edit_field(|f| f.insert("config"));
+    app.run_global_search();
+    finish_search(&mut app);
+    let name = |app: &App| app.editor.active().map(|d| d.name().to_string());
+    let selected = |app: &App| app.panels.global.rows()[app.panels.global.selected_row().unwrap()];
+    let key = |app: &mut App, key: NamedKey| {
+        app.results_key(&Key::Named(key));
+        paint(app);
+    };
+
+    app.step_panel_focus(false);
+    paint(&mut app);
+    assert_eq!(app.focus, Focus::Results);
+    assert_eq!(selected(&app), ResultRow::Match(0, 0));
+    assert_eq!(name(&app).as_deref(), Some("Cargo.toml"));
+
+    key(&mut app, NamedKey::ArrowDown);
+    key(&mut app, NamedKey::ArrowDown);
+    assert_eq!(selected(&app), ResultRow::Match(1, 0));
+    assert_eq!(name(&app).as_deref(), Some("Cargo.toml"));
+    app.poll_browse(Instant::now() + crate::app::workspace::global::BROWSE_DELAY);
+    paint(&mut app);
+    assert_eq!(name(&app).as_deref(), Some("config.rs"));
+    assert_eq!(app.focus, Focus::Results);
+
+    app.pointer.modifiers = command_modifiers();
+    key(&mut app, NamedKey::ArrowUp);
+    app.pointer.modifiers = winit::keyboard::ModifiersState::empty();
+    assert_eq!(app.focus, Focus::GlobalQuery);
+    app.step_panel_focus(true);
+    assert_eq!(app.focus, Focus::GlobalQuery);
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 fn replace_and_filter_rows_slide_open() {
     use crate::app::Clock;
@@ -1160,6 +1204,13 @@ fn long_result_files_unfold_under_the_mouse() {
         app.pointer.hover,
         Hover::RowAction(long, RowAction::Dismiss)
     );
+
+    // 这一行上的分隔条照常可以拖动，鼠标停在上面时全名保持展开。
+    let splitter = app.layout.splitter;
+    app.on_mouse_move(splitter.x + splitter.w / 2.0, y);
+    paint(&mut app);
+    assert_eq!(app.pointer.hover, Hover::Splitter);
+    assert_eq!(app.panels.global.overflow.map(|o| o.index), Some(long));
 
     // 鼠标移到伸出部分之外的编辑区：收起。
     app.on_mouse_move(spill.right() + 20.0, y);

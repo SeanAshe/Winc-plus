@@ -16,6 +16,7 @@ pub(crate) mod log;
 pub(crate) mod merge;
 pub(crate) mod question;
 pub(crate) mod rebase;
+mod refresh;
 mod repository;
 pub(super) mod rewrite;
 mod stepping;
@@ -26,6 +27,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex, PoisonError};
+use std::time::{Duration, Instant};
 
 use ropey::Rope;
 use winc_editor::diff_view::{BlameSource, DiffSide, DiffView};
@@ -40,6 +42,9 @@ use super::diff::worktree_title;
 use super::{App, Focus, UserEvent};
 use crate::app::NoticeKind;
 use crate::layout::SidebarView;
+
+/// Git 视图可见时补查本地状态的间隔；系统漏发通知时定期重新读取（经验值）。
+const STATUS_RECHECK: Duration = Duration::from_secs(5);
 
 /// 界面线程与各后台任务共用的 [`Git`]。
 ///
@@ -254,6 +259,8 @@ pub(crate) struct GitState {
     ignored_paths: HashSet<PathBuf>,
     /// 正在运行的刷新；`None` 表示没有在运行。
     running: Option<Cancel>,
+    /// 下一次补查本地状态的时刻；Git 视图不可见时不安排。
+    recheck_due: Option<Instant>,
     /// 运行期间是否又收到刷新请求；为真时完成后再刷新一次。
     again: bool,
     /// 下一次刷新是否同时读取分支与储藏（由 [`App::git_refresh`] 设置，读取时清除）。
@@ -353,6 +360,7 @@ impl Default for GitState {
             decorations: HashMap::new(),
             ignored_paths: HashSet::new(),
             running: None,
+            recheck_due: None,
             again: false,
             refs_wanted: false,
             logs_outdated: false,
@@ -387,6 +395,13 @@ impl Default for GitState {
 }
 
 impl GitState {
+    /// 测试用：提供后台读到的仓库状态，不启动 Git 进程。
+    #[cfg(test)]
+    pub(in crate::app) fn summary_for_test(&self, root: PathBuf, status: Status) {
+        self.summaries.lock().unwrap().insert(root, status);
+        self.summaries_changed();
+    }
+
     /// 记下各仓库的状态（`summaries`）改过了。
     pub(crate) fn summaries_changed(&self) {
         (self.summaries_version).fetch_add(1, std::sync::atomic::Ordering::Release);
@@ -437,6 +452,7 @@ impl GitState {
             cancel.cancel();
         }
         self.again = false;
+        self.recheck_due = None;
         self.refs_wanted = false;
         self.root = None;
         self.tool.forget();
@@ -889,6 +905,7 @@ impl App {
             self.git.again = true;
             return;
         }
+        self.git.recheck_due = Some(Instant::now() + STATUS_RECHECK);
         // 尚未读取到状态时（刚打开、上次出错）同样没有分支列表，因此一并读取。
         let refs = std::mem::take(&mut self.git.refs_wanted) || self.git.status.is_none();
         let cancel = Cancel::default();

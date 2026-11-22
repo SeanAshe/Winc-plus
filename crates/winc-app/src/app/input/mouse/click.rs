@@ -190,6 +190,8 @@ impl App {
             Target::Picker => {
                 self.click_picker(x, y);
             }
+            Target::SearchDialog(part) => self.press_search_dialog(part, x, y),
+            Target::SearchDock(part) => self.press_docked_search(part, x, y),
             _ if self.overlays.picker.open => self.close_picker(),
             Target::Scrollbar(
                 bar @ (Scrollbar::Panel
@@ -391,8 +393,14 @@ impl App {
             }
             Target::TerminalHeader(hit) => {
                 use crate::app::terminal::HeaderHit;
+                if matches!(hit, HeaderHit::Tab(_) | HeaderHit::New) {
+                    self.search_dialog.in_panel = false;
+                }
                 self.focus = Focus::Terminal;
                 match hit {
+                    HeaderHit::SearchTab => self.show_docked_search(),
+                    HeaderHit::SearchClose => self.close_docked_search(),
+                    HeaderHit::SearchDialog => self.open_search_dialog_with(None),
                     // 双击标签重命名。
                     HeaderHit::Tab(i) if self.click_count(x, y) == 2 => {
                         self.activate_terminal_tab(i);

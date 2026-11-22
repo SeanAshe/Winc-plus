@@ -171,6 +171,7 @@ cmd-toggle-regex = Use Regular Expression
 cmd-filter-lines = Show Only Matching Lines
 cmd-find-in-files = Find in Files
 cmd-replace-in-files = Replace in Files
+cmd-open-search-dialog = Find in Files (Dialog)
 cmd-replace-all-in-files = Replace All in Files
 cmd-next-result = Next Search Result
 cmd-previous-result = Previous Search Result

@@ -500,6 +500,8 @@ pub enum CommitTarget {
     /// 另一个仓库里的一组的标题行（仓库的下标，组）：折叠或展开这一组；暂存区视图中悬停时行尾
     /// 显示暂存、取消暂存整组的按钮。
     OtherGroup(usize, others::OtherGroup),
+    /// 其他仓库更改树的目录行，在 `commit_other_rows` 中的下标。
+    OtherDir(usize),
     /// 勾选式下另一个仓库里一组标题的勾选框：勾上或取消这一组的全部文件。
     OtherGroupFiles(usize, others::OtherGroup),
     /// 另一个仓库标题行左端的折叠箭头：折叠或展开这个仓库的一节。
@@ -787,6 +789,8 @@ pub(crate) struct CommitState {
     pub(in crate::app::git) carry_in: bool,
     /// 多仓库时折叠着的其他仓库（组为 `None`）和其中折叠着的组，按仓库的根目录记。
     other_folds: HashSet<(PathBuf, Option<others::OtherGroup>)>,
+    /// 其他仓库更改树中收起的目录：仓库、分组、相对目录。
+    other_collapsed_dirs: HashSet<(PathBuf, others::OtherGroup, PathBuf)>,
     /// 「没有更改的仓库」一组是否展开；未选过时为 `None`，见 [`App::quiet_repositories_open`]。
     pub(crate) quiet_open: Option<bool>,
     /// 其他仓库各行的缓存（见 [`App::commit_other_rows`]）。
@@ -959,6 +963,7 @@ impl Default for CommitState {
             others_left: 0,
             carry_in: false,
             other_folds: HashSet::new(),
+            other_collapsed_dirs: HashSet::new(),
             quiet_open: None,
             other_rows: Default::default(),
             head: None,
@@ -1315,7 +1320,7 @@ impl App {
 
     /// 窗口坐标的 `y` 是否落在写全名的那一改动行上：鼠标在这一行上时不唤出列表的滚动条，
     /// 和文件树相同。
-    pub(in crate::app) fn over_commit_overflow_row(&self, y: f32) -> bool {
+    pub(crate) fn over_commit_overflow_row(&self, y: f32) -> bool {
         self.commit_shown()
             && (self.git.commit.overflow).is_some_and(|o| (o.y..o.y + COMMIT_ROW).contains(&y))
     }

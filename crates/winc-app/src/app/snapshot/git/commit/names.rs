@@ -911,11 +911,9 @@ fn the_full_name_row_covers_the_scrollbar_like_the_file_tree() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 显示全名的改动行覆盖在侧栏与编辑区之间的分隔条之上，与文件树的处理相同：鼠标从名字经分隔条
-/// 移到伸出侧栏的部分时，始终悬停在这一行上，全名不收回；在此处按下选中这一行，不拖动分隔条。
-/// 其他行仍可拖动分隔条。
+/// 全名可以跨过分隔条显示，但分隔条始终响应宽度拖拽；鼠标经过它移向全名时不收回。
 #[test]
-fn the_full_name_row_covers_the_splitter_like_the_file_tree() {
+fn the_splitter_stays_draggable_when_a_change_name_is_expanded() {
     let Some((dir, long)) = long_name_repo("git-commit-overflow-splitter") else {
         return;
     };
@@ -928,13 +926,9 @@ fn the_full_name_row_covers_the_splitter_like_the_file_tree() {
     paint(&mut app);
     let status = app.git.status.clone().unwrap();
     let rows = app.commit_rows();
-    let (i, index) = (rows.iter().enumerate())
-        .find_map(|(i, r)| match r {
-            CommitRow::File { index, .. } if status.entries[*index].path.ends_with(&long) => {
-                Some((i, *index))
-            }
-            _ => None,
-        })
+    let i = rows
+        .iter()
+        .position(|r| matches!(r, CommitRow::File { index, .. } if status.entries[*index].path.ends_with(&long)))
         .unwrap();
     let list = app.commit_parts().list;
     let y = list.y + i as f32 * COMMIT_ROW - app.git.commit.scroll + COMMIT_ROW / 2.0;
@@ -943,7 +937,6 @@ fn the_full_name_row_covers_the_splitter_like_the_file_tree() {
     assert!(app.git.commit.overflow.is_some_and(|o| o.row == i));
 
     let splitter = app.layout.splitter;
-    let row = Hover::Commit(CommitTarget::File(index));
     for x in [
         splitter.x + 1.0,
         splitter.x + splitter.w / 2.0,
@@ -951,17 +944,21 @@ fn the_full_name_row_covers_the_splitter_like_the_file_tree() {
     ] {
         app.on_mouse_move(x, y);
         paint(&mut app);
-        assert_eq!(app.pointer.hover, row, "x = {x}");
+        assert_eq!(app.pointer.hover, Hover::Splitter, "x = {x}");
         assert!(
             app.git.commit.overflow.is_some_and(|o| o.row == i),
             "x = {x}"
         );
     }
-    click(&mut app, (splitter.x + splitter.w / 2.0, y));
-    assert_eq!(
-        app.git.commit.selected.as_deref(),
-        Some(status.entries[index].path.as_path())
-    );
+    let selected = app.git.commit.selected.clone();
+    app.on_mouse_move(splitter.x + splitter.w / 2.0, y);
+    app.on_mouse_down(MouseButton::Left);
+    assert!(matches!(
+        app.pointer.drag,
+        crate::app::Drag::Splitter { .. }
+    ));
+    assert_eq!(app.git.commit.selected, selected);
+    app.on_mouse_up(MouseButton::Left);
     assert_eq!(app.layout.splitter, splitter);
 
     // 其他行：分隔条正常响应。

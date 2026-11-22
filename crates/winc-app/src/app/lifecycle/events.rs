@@ -735,6 +735,10 @@ impl App {
             }
         }
 
+        // 方向键浏览结果的防抖到期时打开最后选中的匹配。
+        earliest(&mut wake, self.poll_browse(now));
+        earliest(&mut wake, self.poll_search_dialog(now));
+
         // 光标闪烁的定时唤醒需要同时满足：窗口有焦点、窗口可见（被完全遮挡时不绘制）、焦点位于
         // 可输入位置、当前文档可以编辑文字（或光标在差异里）、没有进行中的输入法组字；图片预览和
         // 无法打开的文件不显示光标。离上次输入超过 `BLINK_STOP` 后光标停在亮着的状态。
@@ -779,6 +783,8 @@ impl App {
         earliest(&mut wake, self.tab_drag_tick(now));
 
         earliest(&mut wake, self.changes_tick(now));
+
+        earliest(&mut wake, self.git_status_tick(now));
 
         earliest(&mut wake, self.sync_outline(now));
 

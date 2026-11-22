@@ -42,7 +42,7 @@ impl OtherGroup {
 }
 
 /// 多仓库时改动列表中当前仓库那一节以外的一行。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum OtherRow {
     /// 当前仓库的标题行；它的改动列表（[`App::commit_rows`]）紧接在下面。
     Current,
@@ -59,6 +59,10 @@ pub(crate) enum OtherRow {
     /// 另一个仓库中有更改的文件：仓库的下标，文件在该仓库状态各项中的下标。暂存区视图中是
     /// 尚未暂存的那一部分。
     File(usize, usize),
+    /// 其他仓库更改树中的目录：仓库、分组、相对路径、合并显示的名称、层数。
+    Dir(usize, OtherGroup, PathBuf, String, usize),
+    /// 其他仓库更改树中的文件：仓库、状态下标、分组、层数。
+    TreeFile(usize, usize, OtherGroup, usize),
 }
 
 /// 决定 [`App::commit_other_rows`] 的各项：都没变时各行也不变。
@@ -70,6 +74,8 @@ pub(crate) struct OtherRowsKey {
     root: Option<PathBuf>,
     /// 是否暂存区视图（分组不同）。
     staging: bool,
+    /// 列表、树形、排序、紧凑目录及目录折叠状态的版本。
+    layout: u64,
     /// 仓库列表。
     repositories: Vec<PathBuf>,
     /// 折叠着的仓库和组。
@@ -84,6 +90,68 @@ pub(crate) struct OtherRowsKey {
 /// 仓库的文件分成「已暂存的更改」和「更改」两组。
 fn commits_staged(entry: &Entry) -> bool {
     entry.staged.is_some() && !entry.conflicted()
+}
+
+/// 将其他仓库一组的改动按目录排列，沿用当前仓库的紧凑目录和文件排序规则。
+fn push_other_level<'a>(
+    commit: &CommitState,
+    status: &Status,
+    (repo, root, group): (usize, &Path, OtherGroup),
+    dir: &Path,
+    items: Vec<(usize, &'a Path)>,
+    depth: usize,
+    out: &mut Vec<OtherRow>,
+) {
+    let mut files = Vec::new();
+    let mut dirs: BTreeMap<NaturalName<'a>, Vec<(usize, &'a Path)>> = BTreeMap::new();
+    for (index, path) in items {
+        let mut parts = path.components();
+        match (parts.next(), parts.as_path()) {
+            (Some(first), rest) if !rest.as_os_str().is_empty() => {
+                dirs.entry(NaturalName(first.as_os_str()))
+                    .or_default()
+                    .push((index, rest));
+            }
+            _ => files.push((index, path)),
+        }
+    }
+    for (NaturalName(name), mut sub) in dirs {
+        let mut label = PathBuf::from(name);
+        while let Some(next) = only_subdir(&sub).filter(|_| commit.compact) {
+            label.push(next);
+            for (_, path) in &mut sub {
+                let rest: &'a Path = path;
+                *path = rest.strip_prefix(next).unwrap_or(Path::new(""));
+            }
+        }
+        let full = dir.join(&label);
+        let label = label
+            .components()
+            .map(|p| p.as_os_str().to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/");
+        out.push(OtherRow::Dir(repo, group, full.clone(), label, depth));
+        if !commit
+            .other_collapsed_dirs
+            .contains(&(root.to_path_buf(), group, full.clone()))
+        {
+            push_other_level(
+                commit,
+                status,
+                (repo, root, group),
+                &full,
+                sub,
+                depth + 1,
+                out,
+            );
+        }
+    }
+    commit.sort_files(status, &mut files);
+    out.extend(
+        files
+            .into_iter()
+            .map(|(index, _)| OtherRow::TreeFile(repo, index, group, depth)),
+    );
 }
 
 impl App {
@@ -114,6 +182,7 @@ impl App {
             version: self.git.summaries_version(),
             root: self.git.root.clone(),
             staging: self.git.commit.staging(),
+            layout: self.git.commit.layout,
             repositories: self.git.repositories.clone(),
             folds: self.git.commit.other_folds.clone(),
             current_changed: self.current_changed(),
@@ -185,10 +254,30 @@ impl App {
                 if folded.contains(&(repo.clone(), Some(group))) {
                     continue;
                 }
-                rows.extend(files.into_iter().map(|n| match group {
-                    OtherGroup::Staged => OtherRow::Staged(i, n),
-                    _ => OtherRow::File(i, n),
-                }));
+                let mut files: Vec<(usize, &Path)> = files
+                    .into_iter()
+                    .map(|n| {
+                        let path = &status.entries[n].path;
+                        (n, path.strip_prefix(repo).unwrap_or(path))
+                    })
+                    .collect();
+                if self.git.commit.flat() {
+                    self.git.commit.sort_files(status, &mut files);
+                    rows.extend(files.into_iter().map(|(n, _)| match group {
+                        OtherGroup::Staged => OtherRow::Staged(i, n),
+                        _ => OtherRow::File(i, n),
+                    }));
+                } else {
+                    push_other_level(
+                        &self.git.commit,
+                        status,
+                        (i, repo, group),
+                        Path::new(""),
+                        files,
+                        0,
+                        &mut rows,
+                    );
+                }
             }
         }
         // 当前仓库不在仓库列表里（刚打开、还没查找完）时排在最前。
@@ -349,6 +438,37 @@ impl App {
             return false;
         };
         self.git.commit.other_folds.contains(&(root.clone(), group))
+    }
+
+    /// 其他仓库中某一组的目录是否收起。
+    pub(crate) fn other_dir_folded(&self, repo: usize, group: OtherGroup, dir: &Path) -> bool {
+        self.git.repositories.get(repo).is_some_and(|root| {
+            self.git
+                .commit
+                .other_collapsed_dirs
+                .contains(&(root.clone(), group, dir.to_path_buf()))
+        })
+    }
+
+    /// 点击其他仓库的目录，仅展开、收起该目录，保留当前仓库。
+    pub(super) fn toggle_other_dir(&mut self, row: usize) {
+        let rows = self.commit_other_rows();
+        let Some(OtherRow::Dir(repo, group, dir, ..)) = rows.get(row) else {
+            return;
+        };
+        let Some(root) = self.git.repositories.get(*repo) else {
+            return;
+        };
+        let key = (root.clone(), *group, dir.clone());
+        let commit = &mut self.git.commit;
+        if !commit.other_collapsed_dirs.remove(&key) {
+            commit.other_collapsed_dirs.insert(key);
+        }
+        commit.layout += 1;
+        commit.motion = None;
+        commit.fold_motion = None;
+        self.git.commit.scroll = self.git.commit.scroll.min(self.commit_max_scroll());
+        self.request_redraw();
     }
 
     /// 标题行 `header` 的折叠箭头转过的比例：0 指向右（收起），1 指向下（展开）。该行正在展开

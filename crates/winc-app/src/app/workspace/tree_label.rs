@@ -136,6 +136,11 @@ impl<K: Hash + Eq + Clone> TreeLabels<K> {
     pub fn begin_frame(&mut self, animate: bool) {
         self.frame += 1;
         self.animate = animate;
+        if !animate {
+            for row in self.rows.get_mut().values_mut() {
+                row.motion = None;
+            }
+        }
     }
 
     /// 结束绘制一帧：不再显示的行不再记录，之后再出现时不播放过渡。
@@ -258,8 +263,11 @@ impl App {
         self.clock(STATUS_SLIDE).is_some()
     }
 
-    /// 改动列表的名字本帧是否播放过渡，条件同 [`App::animate_tree_labels`]。
+    /// 改动列表名字的过渡条件同 [`App::animate_tree_labels`]；拖动或侧栏开合时直接采用当前布局。
     pub(crate) fn animate_commit_names(&mut self) -> bool {
+        if !self.idle_pointer() {
+            return false;
+        }
         #[cfg(test)]
         if self.git.commit.names.animate_without_window {
             return true;

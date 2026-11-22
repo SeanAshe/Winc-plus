@@ -101,6 +101,10 @@ impl App {
         self.update_cursor_icon();
 
         match self.pointer.drag {
+            Drag::SearchDialog { grab } => self.move_search_dialog(x, y, grab),
+            Drag::SearchDialogEdge { edge, from, rect } => {
+                self.resize_search_dialog((x, y), edge, (from, rect));
+            }
             Drag::Picture { at } => self.drag_picture(x, y, at),
             Drag::TerminalSelect | Drag::TerminalMouse(_) => self.terminal_mouse_drag(x, y),
             Drag::None if self.layout.terminal.contains(x, y) => self.terminal_mouse_hover(x, y),

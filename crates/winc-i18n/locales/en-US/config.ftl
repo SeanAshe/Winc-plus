@@ -25,6 +25,7 @@ config-open-worktree-invalid = { $name } must be ask, newWindow, or currentWindo
 config-pull-invalid = { $name } must be config, merge, or rebase; ignored
 config-auto-save-invalid = { $name } must be off, onFocusChange, or afterDelay; ignored
 config-drop-folder-invalid = { $name } must be ask, add, or open; ignored
+config-find-in-files-invalid = { $name } must be sidebar or dialog; ignored
 config-keymap-invalid = { $name } must be idea or vscode; ignored
 config-shortcuts-invalid = { $name } should be an object whose values are arrays of keys; ignored
 config-shortcut-unknown-command = Unknown command “{ $name }” in keyboard.shortcuts; ignored

@@ -74,8 +74,8 @@ fn pixel(app: &App, (x, y): (f32, f32)) -> u32 {
     image.pixels[y * image.width as usize + x]
 }
 
-/// ⌘P 面板、跳转条、新建工作树对话框和窗口中画出来的提示框出现时整张淡入并放大，关闭后按
-/// 关闭前的最后一帧淡出，与设置浮层共用同一套动画；淡出结束后丢弃保存的卡片。
+/// ⌘P 面板、跳转条、新建工作树对话框、在文件中查找的对话框和窗口中画出来的提示框出现时整张淡入
+/// 并放大，关闭后按关闭前的最后一帧淡出，与设置浮层共用同一套动画；淡出结束后丢弃保存的卡片。
 #[test]
 fn dialogs_fade_in_and_out_like_settings() {
     let dir = sample_folder("dialog-motion");
@@ -84,6 +84,7 @@ fn dialogs_fade_in_and_out_like_settings() {
         (Card::Bar, Action::GoToLine),
         (Card::Dialog, Action::GitNewWorktree),
         (Card::Alert, Action::GitNewWorktree),
+        (Card::Search, Action::OpenSearchDialog),
     ] {
         let mut app = app_with(&dir.join("short.rs"), false);
         paint(&mut app);
@@ -97,6 +98,12 @@ fn dialogs_fade_in_and_out_like_settings() {
                 crate::app::AlertButton::cancel("取消"),
             ];
             app.show_alert("提示", "", buttons, None, |_, _| None);
+        } else if card == Card::Search {
+            app.open_search_dialog();
+            app.search_dialog.query.set_text("fn");
+            app.search_dialog_changed(true);
+            app.search_dialog.engine.wait();
+            app.poll_search_dialog(std::time::Instant::now());
         } else {
             app.run_action(open);
         }
@@ -106,9 +113,16 @@ fn dialogs_fade_in_and_out_like_settings() {
             Card::Bar => crate::layout::goto_bar(app.layout.editor, false),
             Card::Dialog => app.dialog_layout().card,
             Card::Alert => app.overlays.alert.as_ref().unwrap().parts.buttons[0],
+            Card::Search => app.search_dialog_rect(),
         };
-        // 卡片左上角内侧的一点：底色与下方的编辑区不同。
-        let probe = (r.x + 6.0, r.y + 6.0);
+        // 卡片左上角内侧的一点：底色与下方的编辑区不同。查找对话框的底色与编辑区相同，取选中的
+        // 第一行正中。
+        let probe = if card == Card::Search {
+            let row = app.search_dialog_parts().list.row(0, 0.0);
+            (row.x + row.w / 2.0, row.y + row.h / 2.0)
+        } else {
+            (r.x + 6.0, r.y + 6.0)
+        };
         let shown = pixel(&app, probe);
         assert!(app.card_fx(card).shot.is_some());
 
@@ -123,6 +137,7 @@ fn dialogs_fade_in_and_out_like_settings() {
             Card::Bar => app.close_prompt(),
             Card::Dialog => app.close_form_dialog(),
             Card::Alert => _ = app.alert_key(&Key::Named(NamedKey::Escape), false),
+            Card::Search => app.close_search_dialog(),
         }
         app.focus = Focus::Editor;
         paint(&mut app);

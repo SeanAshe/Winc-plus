@@ -27,7 +27,7 @@ const CODE_ALPHA: f32 = 0.72;
 const SLIDE: f32 = 4.0;
 
 /// 绘制浮窗所需的内容：打开时取自快速打开面板的状态，淡出时取自关掉那一刻保存下来的状态。
-pub(super) struct PlacesView<'a> {
+pub(in crate::view) struct PlacesView<'a> {
     places: &'a Places,
     /// 筛选后留下的条目在 `places.items` 中的序号。
     hits: &'a [usize],
@@ -43,6 +43,25 @@ pub(super) struct PlacesView<'a> {
 }
 
 impl<'a> PlacesView<'a> {
+    /// 列出 `places` 中 `hits` 各条的列表，没有筛选文字。
+    pub(in crate::view) fn of(
+        places: &'a Places,
+        hits: &'a [usize],
+        selected: usize,
+        hovered: Option<usize>,
+        scroll: f32,
+    ) -> PlacesView<'a> {
+        PlacesView {
+            places,
+            hits,
+            selected,
+            hovered,
+            scroll,
+            filter: "",
+            caret: false,
+        }
+    }
+
     /// 打开中的浮窗。
     fn live(app: &'a App) -> Option<PlacesView<'a>> {
         Some(PlacesView {
@@ -207,6 +226,7 @@ fn draw_header(
         PlacesKind::Usages => (places.name.as_str(), t!("editor-places-usages-suffix")),
         PlacesKind::Definitions => (places.name.as_str(), t!("editor-places-definitions-suffix")),
         PlacesKind::Bookmarks => (t!("editor-places-bookmarks"), ""),
+        PlacesKind::Search => (places.name.as_str(), ""),
     };
     let title = ellipsize(frame, title, app.fonts.ui, (clip.right() - x) * 0.5);
     x = ui_text(frame, app, x, bar, &title, p.text, clip);
@@ -221,7 +241,12 @@ fn draw_header(
 }
 
 /// 绘制列表中可见的几行：文件图标、文件名与行号、那一行的代码。
-fn draw_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts, view: &PlacesView) {
+pub(in crate::view) fn draw_rows(
+    app: &App,
+    frame: &mut Frame<'_>,
+    parts: &PickerParts,
+    view: &PlacesView,
+) {
     let (p, list, scroll) = (app.palette, parts.list, drawn_scroll(view.scroll));
     let rows: Vec<(usize, &Place)> = parts
         .visible(scroll, view.hits.len())
@@ -289,8 +314,9 @@ fn draw_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts, view: &Place
         }
         ui_text_small(frame, app, x, row, line, p.text_dim, label_clip);
 
-        let code = Rect::new(code_x, row.y, row.right() - 12.0 - code_x, row.h).intersect(clip);
-        draw_code(app, frame, place, code);
+        // 按整行排版，再裁到可见的部分。
+        let code = Rect::new(code_x, row.y, row.right() - 12.0 - code_x, row.h);
+        frame.within(clip, |frame| draw_code(app, frame, place, code));
     }
 }
 
@@ -299,6 +325,17 @@ fn draw_rows(app: &App, frame: &mut Frame<'_>, parts: &PickerParts, view: &Place
 ///
 /// 一行放不下时从左边截掉一些（前面加「…」），保证名字露在可见范围内。
 fn draw_code(app: &App, frame: &mut Frame<'_>, place: &Place, area: Rect) {
+    draw_code_with(app, frame, place, area, CODE_ALPHA);
+}
+
+/// 与 [`draw_code`] 相同，语法颜色的不透明度为 `alpha`。
+pub(in crate::view) fn draw_code_with(
+    app: &App,
+    frame: &mut Frame<'_>,
+    place: &Place,
+    area: Rect,
+    alpha: f32,
+) {
     if area.w <= 0.0 {
         return;
     }
@@ -386,7 +423,7 @@ fn draw_code(app: &App, frame: &mut Frame<'_>, place: &Place, area: Rect) {
             p.text
         } else {
             let c = p.token(kind);
-            c.alpha(c.a * CODE_ALPHA)
+            c.alpha(c.a * alpha)
         };
         let font = if kind == TokenKind::Comment {
             FontKind::MonoItalic

@@ -5,6 +5,7 @@ use std::time::{Duration, SystemTime};
 use winc_editor::Changes;
 
 use crate::app::workspace::watch::DiskBack;
+use crate::keymap::Action;
 
 use super::*;
 
@@ -476,4 +477,93 @@ fn large_files_save_in_the_background_and_skip_their_own_write() {
     app.disk.saves.running.remove(&id);
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 只初始化仓库，不依赖 shell 脚本或提交身份，Windows 上同样运行 Git 监视的回归测试。
+fn git_watch_app(name: &str) -> Option<(App, PathBuf)> {
+    let dir = sample_folder(name);
+    let initialized = std::process::Command::new("git")
+        .args(["init", "-q"])
+        .arg(&dir)
+        .output()
+        .is_ok_and(|output| output.status.success());
+    if !initialized {
+        assert!(std::env::var_os("CI").is_none(), "CI 上必须能运行 git");
+        eprintln!("跳过：无法初始化 Git 测试仓库");
+        let _ = std::fs::remove_dir_all(&dir);
+        return None;
+    }
+    let mut app = app_with(&dir, false);
+    app.settings_toggle(Setting::GitModule);
+    assert!(app.git.status.is_some(), "{:?}", app.git.problem);
+    let root = app.editor.root().unwrap().to_path_buf();
+    Some((app, root))
+}
+
+/// 没收到任何目录通知时，当前 Git 视图仍会在补查后显示磁盘上的新文件。
+#[test]
+fn git_status_rechecks_recover_missed_notifications() {
+    let Some((mut app, root)) = git_watch_app("git-missed-notification") else {
+        return;
+    };
+    app.run_action(Action::ShowCommit);
+    app.window.focused = true;
+    let now = std::time::Instant::now();
+    let due = app.git_status_tick(now).unwrap();
+    let generation = app.git.generation;
+    let path = root.join("missed.txt");
+    std::fs::write(&path, "written by an external tool\n").unwrap();
+    app.git_status_tick(now);
+    assert_eq!(app.git.generation, generation);
+    app.git_status_tick(due);
+    assert!(app.git.generation > generation);
+    assert!(
+        app.git
+            .status
+            .as_ref()
+            .unwrap()
+            .entries
+            .iter()
+            .any(|e| e.path == path)
+    );
+
+    // 隐藏 Git 视图、失去焦点或窗口不可见时不持续启动状态查询。
+    app.set_sidebar_view(SidebarView::Files);
+    assert!(app.git_status_tick(now).is_none());
+    app.set_sidebar_view(SidebarView::Commit);
+    app.window.focused = false;
+    assert!(app.git_status_tick(now).is_none());
+    app.window.focused = true;
+    app.window.occluded = true;
+    assert!(app.git_status_tick(now).is_none());
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// 本地系统监视正常时，窗口回焦只补查一次工作区状态；Git 视图开着时不再定时运行 `git`。
+#[test]
+fn focus_rechecks_git_with_a_live_local_watcher() {
+    let Some((mut app, root)) = git_watch_app("git-focus-recheck") else {
+        return;
+    };
+    let watcher = winc_editor::Watcher::start(&root, || {}).unwrap();
+    assert!(watcher.reliable());
+    app.disk.watcher = Some(watcher);
+    let path = root.join("missed.txt");
+    std::fs::write(&path, "written while unfocused\n").unwrap();
+    app.check_disk();
+    assert!(
+        app.git
+            .status
+            .as_ref()
+            .unwrap()
+            .entries
+            .iter()
+            .any(|e| e.path == path)
+    );
+    assert!(app.git_watched());
+    app.run_action(Action::ShowCommit);
+    app.window.focused = true;
+    assert!(app.git_status_tick(std::time::Instant::now()).is_none());
+    drop(app);
+    let _ = std::fs::remove_dir_all(&root);
 }

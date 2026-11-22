@@ -4,6 +4,7 @@ use super::*;
 
 pub(super) mod outline;
 pub(super) mod panel;
+pub(super) mod search_dialog;
 pub(super) mod sidebar;
 pub(super) mod start;
 pub(super) mod top_bar;

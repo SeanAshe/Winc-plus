@@ -56,6 +56,7 @@ impl App {
             CommitTarget::OtherGroup(repo, group) => {
                 self.toggle_other_fold(Some(repo), Some(group))
             }
+            CommitTarget::OtherDir(row) => self.toggle_other_dir(row),
             CommitTarget::OtherFold(repo) => self.toggle_other_fold(Some(repo), None),
             CommitTarget::CurrentFold => self.toggle_other_fold(None, None),
             CommitTarget::CurrentRepository => self.focus = Focus::CommitList,

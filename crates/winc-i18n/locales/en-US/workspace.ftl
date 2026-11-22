@@ -107,6 +107,13 @@ workspace-search-exclude = Exclude
 workspace-search-include-ignored = Search Ignored Files (excluded by .gitignore and similar rules)
 workspace-search-exclude-example = e.g. *.min.js, docs
 workspace-search-searching = Searching…
+workspace-search-scope-project = In Project
+workspace-search-scope-directory = Directory
+workspace-search-dock-button = Show at Bottom
+workspace-search-dock-tab = Search
+workspace-search-empty = Type to find in files
+workspace-search-hint-select = Select
+workspace-search-hint-open = Open
 workspace-search-summary = { $total ->
         [one] { $total }{ $more } result
        *[other] { $total }{ $more } results
@@ -127,6 +134,7 @@ workspace-search-no-results-hint-ignored = Try other keywords or match options. 
 workspace-search-not-utf8 = Not UTF-8 encoded; can’t replace
 workspace-search-tool-refresh = Search again
 workspace-search-tool-clear = Clear search results
+workspace-search-tool-open-dialog = Open in a dialog
 workspace-search-tool-expand-all = Expand all
 workspace-search-tool-collapse-all = Collapse all
 workspace-search-hide-filters = Hide filters

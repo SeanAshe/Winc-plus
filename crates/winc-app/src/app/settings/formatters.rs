@@ -309,6 +309,7 @@ impl App {
             | Setting::GitOpenWorktree
             | Setting::GitPullMode
             | Setting::DropFolder
+            | Setting::FindInFiles
             | Setting::AutoSave
             | Setting::Zoom
             | Setting::BackgroundImage
@@ -327,6 +328,7 @@ impl App {
                     Setting::GitOpenWorktree => MenuTarget::OpenWorktree,
                     Setting::GitPullMode => MenuTarget::PullMode,
                     Setting::DropFolder => MenuTarget::DropFolder,
+                    Setting::FindInFiles => MenuTarget::SearchStyle,
                     Setting::AutoSave => MenuTarget::AutoSave,
                     Setting::Zoom => MenuTarget::Zoom,
                     Setting::BackgroundImage => MenuTarget::BackgroundImage,

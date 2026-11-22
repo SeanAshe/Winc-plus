@@ -10,13 +10,20 @@ pub enum PanelTool {
     Refresh,
     /// 清除搜索结果。
     Clear,
+    /// 在对话框中打开搜索。
+    OpenDialog,
     /// 折叠全部结果；全部结果都已折叠时变为「展开」。
     CollapseAll,
 }
 
 impl PanelTool {
     /// 全部工具按钮，顺序为从左到右。
-    pub const ALL: [PanelTool; 3] = [PanelTool::Refresh, PanelTool::Clear, PanelTool::CollapseAll];
+    pub const ALL: [PanelTool; 4] = [
+        PanelTool::Refresh,
+        PanelTool::Clear,
+        PanelTool::OpenDialog,
+        PanelTool::CollapseAll,
+    ];
 }
 
 /// 搜索面板中可以点击的按钮。
@@ -78,7 +85,7 @@ pub struct PanelParts {
     /// 标题行，工具按钮位于其右端。
     pub header: Rect,
     /// 顶部的工具按钮及其位置。
-    pub tools: [(Rect, PanelTool); 3],
+    pub tools: [(Rect, PanelTool); PanelTool::ALL.len()],
     /// 查找输入框左端的「展开替换」箭头。
     pub expand: Rect,
     /// 查找输入框。

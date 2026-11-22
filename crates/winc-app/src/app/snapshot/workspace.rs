@@ -10,6 +10,7 @@ mod panes;
 pub(super) mod picker;
 pub(super) mod recent;
 pub(super) mod search;
+mod search_dialog;
 pub(super) mod selection;
 pub(super) mod session;
 pub(super) mod tab_selection;

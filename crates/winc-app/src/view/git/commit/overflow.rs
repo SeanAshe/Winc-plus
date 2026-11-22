@@ -17,6 +17,10 @@ pub(in crate::view) fn commit_overflow(app: &App, frame: &mut Frame<'_>) -> Opti
     let root = app.git.root.as_deref()?;
     let rows = app.commit_rows();
     let row = match app.pointer.hover {
+        // 鼠标经过分隔条移向全名时保持展开；在分隔条上按下仍由分隔条开始拖拽。
+        Hover::Splitter if app.over_commit_overflow_row(app.mouse().1) => {
+            app.git.commit.overflow?.row
+        }
         Hover::Commit(
             CommitTarget::Dir(r)
             | CommitTarget::DirCheck(r)
@@ -200,7 +204,7 @@ pub(in crate::view) fn draw_commit_overflow(app: &App, frame: &mut Frame<'_>) {
 ///
 /// 底色和列表里的那一段一起淡出（`retracting_color`），写的是收回前的全名，与文件树相同。
 pub(in crate::view) fn draw_commit_overflow_closing(app: &App, frame: &mut Frame<'_>) {
-    if !app.commit_shown() || !app.git.commit.names.moving() {
+    if !app.commit_shown() || !app.idle_pointer() || !app.git.commit.names.moving() {
         return;
     }
     let (Some(status), Some(root)) = (app.git.status.as_ref(), app.git.root.as_deref()) else {

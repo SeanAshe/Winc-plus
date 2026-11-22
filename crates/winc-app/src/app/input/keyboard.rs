@@ -129,6 +129,8 @@ impl App {
             Focus::Search | Focus::Replace => self.on_key_search(event, &base, cmd),
             Focus::Prompt => self.on_key_prompt(event, &base, cmd),
             Focus::Picker => self.on_key_picker(event, &base, cmd),
+            Focus::SearchDialog | Focus::SearchMask => self.on_key_search_dialog(event, &base, cmd),
+            Focus::SearchDock => self.on_key_search_dock(&event.logical_key),
             // 设置浮层打开时已在上方处理，不会执行到这里。
             Focus::Setting
             | Focus::Settings
@@ -162,6 +164,8 @@ impl App {
             Focus::Replace => Context::Replace,
             Focus::Tree => Context::Tree,
             Focus::CommitList => Context::Changes,
+            // 对话框用搜索面板的键位：切换大小写、全字、正则。
+            Focus::SearchDialog | Focus::SearchMask => Context::Panel,
             // 终端的查找框、标签上改名字的输入框也按终端的键位：`⌘W` 关的是终端标签，`⌘F` 回到
             // 终端的查找，不进入编辑区（编辑用的快捷键见 `run_action`，留给输入框）。
             Focus::Terminal | Focus::TerminalFind | Focus::TerminalRename => Context::Terminal,
@@ -462,6 +466,8 @@ impl App {
                     _ => self.step_from_field(shift),
                 }
             }
+            Key::Named(NamedKey::ArrowUp) if cmd => self.step_panel_focus(true),
+            Key::Named(NamedKey::ArrowDown) if cmd => self.step_panel_focus(false),
             Key::Named(NamedKey::ArrowUp) if !shift => self.edit_field(|f| f.recall(true)),
             Key::Named(NamedKey::ArrowDown) if !shift => self.edit_field(|f| f.recall(false)),
             Key::Named(NamedKey::Tab) => self.cycle_panel_focus(shift),
@@ -469,9 +475,71 @@ impl App {
         }
     }
 
+    /// 处理在文件中查找的对话框中的按键：`↑` `↓` `PageUp` `PageDown` 移动选中项，回车打开，
+    /// `Esc` 关闭，其余交给输入框，内容变化后重新搜索。
+    fn on_key_search_dialog(&mut self, event: &KeyEvent, base: &str, cmd: bool) {
+        let selected = self.search_dialog.selected;
+        match &event.logical_key {
+            Key::Named(NamedKey::Escape) => self.close_search_dialog(),
+            Key::Named(NamedKey::Enter) if cmd => self.dock_search_results(),
+            Key::Named(NamedKey::Enter) => self.search_dialog_accept(),
+            Key::Named(NamedKey::ArrowDown) => self.search_dialog_select(selected + 1),
+            Key::Named(NamedKey::ArrowUp) => self.search_dialog_select(selected.saturating_sub(1)),
+            Key::Named(NamedKey::PageDown) => {
+                self.search_dialog_select(selected + self.search_dialog_page());
+            }
+            Key::Named(NamedKey::PageUp) => {
+                let page = self.search_dialog_page();
+                self.search_dialog_select(selected.saturating_sub(page));
+            }
+            // `Tab` 在查询和文件掩码之间切换；掩码隐藏时先显示出来。
+            Key::Named(NamedKey::Tab) => {
+                if !self.search_dialog.open {
+                    return;
+                }
+                if !self.search_dialog.mask_on {
+                    return self.toggle_search_mask();
+                }
+                self.focus = match self.focus {
+                    Focus::SearchDialog => Focus::SearchMask,
+                    _ => Focus::SearchDialog,
+                };
+                self.reset_blink();
+            }
+            _ => {
+                let d = &self.search_dialog;
+                let before = (d.query.text().to_owned(), d.mask.text().to_owned());
+                self.on_key_field(event, base, cmd);
+                let d = &self.search_dialog;
+                if d.query.text() != before.0 || d.mask.text() != before.1 {
+                    self.search_dialog_changed(false);
+                }
+            }
+        }
+    }
+
+    /// 处理底部面板「搜索」标签中的按键：`↑` `↓` `PageUp` `PageDown` 移动选中项，回车打开，
+    /// `Esc` 回到编辑区。
+    fn on_key_search_dock(&mut self, key: &Key) {
+        let selected = self.search_dialog.selected;
+        let page = self.search_dialog_page();
+        match key {
+            Key::Named(NamedKey::Escape) => self.focus = Focus::Editor,
+            Key::Named(NamedKey::Enter) => self.search_dialog_accept(),
+            Key::Named(NamedKey::ArrowDown) => self.search_dialog_select(selected + 1),
+            Key::Named(NamedKey::ArrowUp) => self.search_dialog_select(selected.saturating_sub(1)),
+            Key::Named(NamedKey::PageDown) => self.search_dialog_select(selected + page),
+            Key::Named(NamedKey::PageUp) => {
+                self.search_dialog_select(selected.saturating_sub(page))
+            }
+            _ => {}
+        }
+    }
+
     /// 处理搜索结果列表中的按键。
     ///
-    /// `↑` `↓` 移动选中项，`Home` `End` 选中第一行、最后一行，`PageUp` `PageDown` 翻一页，
+    /// `↑` `↓` 移动选中项并显示选中的匹配，`⌘↑` 回到输入框，`Home` `End` 选中第一行、
+    /// 最后一行，`PageUp` `PageDown` 翻一页，
     /// `←` `→` 折叠或展开文件，回车打开并将焦点移到编辑区，
     /// 空格打开但焦点留在列表，`⌫` 从结果中移除。
     fn on_key_results(&mut self, event: &KeyEvent) {
@@ -486,8 +554,15 @@ impl App {
 
         match key {
             Key::Named(NamedKey::Escape) => self.focus = Focus::GlobalQuery,
-            Key::Named(NamedKey::ArrowUp) => self.step_result(-1, false),
-            Key::Named(NamedKey::ArrowDown) => self.step_result(1, false),
+            Key::Named(NamedKey::ArrowUp) if self.command_held() => self.step_panel_focus(true),
+            Key::Named(NamedKey::ArrowUp) => {
+                self.step_result(-1, false);
+                self.browse_result();
+            }
+            Key::Named(NamedKey::ArrowDown) => {
+                self.step_result(1, false);
+                self.browse_result();
+            }
             Key::Named(NamedKey::Home) => self.jump_result(0),
             Key::Named(NamedKey::End) => self.jump_result(usize::MAX),
             Key::Named(NamedKey::PageDown) => {

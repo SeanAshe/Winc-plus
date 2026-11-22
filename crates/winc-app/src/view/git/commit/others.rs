@@ -6,8 +6,8 @@ use crate::app::{OtherGroup, OtherRow};
 /// 绘制多仓库时当前仓库改动列表以外的各行，记下可点击的位置。
 ///
 /// 各行按 `App::commit_other_rows` 的顺序排，随列表一起滚动。当前仓库标题行之后的各行让出
-/// 当前仓库改动列表的高度 `block`（逻辑像素）。仓库标题在最外一层，组、文件缩进一层，与当前
-/// 仓库改动列表的组、平铺的文件同列。
+/// 当前仓库改动列表的高度 `block`（逻辑像素）。仓库标题在最外一层，组、平铺的文件缩进一层，
+/// 树形模式中的目录和文件再按层级缩进，与当前仓库的排法相同。
 pub(super) fn draw_other_rows(
     app: &App,
     frame: &mut Frame<'_>,
@@ -29,6 +29,17 @@ pub(super) fn draw_other_rows(
         let mut row_hits = Vec::new();
         frame.within(clip, |frame| {
             let hits = &mut row_hits;
+            if let OtherRow::Dir(.., depth) | OtherRow::TreeFile(.., depth) = row {
+                for level in 1..=*depth {
+                    let x = (band.x + ARROW + (level + 1) as f32 * INDENT).round();
+                    frame.rect_clipped(
+                        Rect::new(x, band.y, 1.0, COMMIT_ROW),
+                        app.palette.indent_guide,
+                        0.0,
+                        list,
+                    );
+                }
+            }
             match *row {
                 OtherRow::Current => draw_current_row(app, frame, (list, band), hits),
                 OtherRow::Repository(repo) => {
@@ -42,11 +53,47 @@ pub(super) fn draw_other_rows(
                     draw_other_group(app, frame, (list, band), (repo, group), hits);
                 }
                 OtherRow::Staged(repo, entry) => {
-                    draw_other_file(app, frame, (list, band), (repo, entry, Some(true)), hits);
+                    draw_other_file(app, frame, (list, band), (repo, entry, Some(true), 0), hits);
                 }
                 OtherRow::File(repo, entry) => {
                     let side = app.git.commit.staging().then_some(false);
-                    draw_other_file(app, frame, (list, band), (repo, entry, side), hits);
+                    draw_other_file(app, frame, (list, band), (repo, entry, side, 0), hits);
+                }
+                OtherRow::Dir(repo, group, ref dir, ref label, depth) => {
+                    let target = CommitTarget::OtherDir(i);
+                    shade_hovered(app, frame, (list, band), target);
+                    let cy = band.y + COMMIT_ROW / 2.0;
+                    let arrow = band.x + ARROW + (depth + 1) as f32 * INDENT;
+                    let open = !app.other_dir_folded(repo, group, dir);
+                    icons::chevron_turned(
+                        frame,
+                        (arrow, cy),
+                        6.0,
+                        f32::from(u8::from(open)) * std::f32::consts::FRAC_PI_2,
+                        app.palette.text_dim,
+                        list,
+                    );
+                    let icon_x = arrow + check_gap(app) + ICON;
+                    icons::folder(
+                        frame,
+                        (icon_x, (cy - 6.0).round()),
+                        open,
+                        app.palette.folder,
+                        list,
+                    );
+                    let text_x = icon_x + icons::FOLDER_WIDTH + LABEL_GAP;
+                    let room = (band.right() - 6.0 - text_x).max(0.0);
+                    let parts = dir_parts(app, frame, label, Some(room));
+                    draw_dir_parts(app, frame, (text_x, band), &parts, |_| 1.0, list);
+                    hits.push((band.intersect(list), target));
+                }
+                OtherRow::TreeFile(repo, entry, group, depth) => {
+                    let side = app
+                        .git
+                        .commit
+                        .staging()
+                        .then_some(group == OtherGroup::Staged);
+                    draw_other_file(app, frame, (list, band), (repo, entry, side, depth), hits);
                 }
             }
         });
@@ -481,7 +528,7 @@ fn draw_other_group(
     hits.push((band.intersect(list), row));
 }
 
-/// 画另一个仓库中的一个文件：图标、名字、淡色的所在目录，右端是状态字母。
+/// 画另一个仓库中的一个文件：图标、名字，平铺时加淡色的所在目录，右端是状态字母。
 ///
 /// `side` 是暂存区视图中这一行所在的部分：`Some(true)` 为已暂存，`Some(false)` 为未暂存；
 /// 此时行尾是取消暂存或暂存的按钮，状态字母在按钮左边。勾选式下为 `None`。
@@ -489,7 +536,7 @@ fn draw_other_file(
     app: &App,
     frame: &mut Frame<'_>,
     (list, band): (Rect, Rect),
-    (repo, entry, side): (usize, usize, Option<bool>),
+    (repo, entry, side, depth): (usize, usize, Option<bool>, usize),
     hits: &mut Vec<(Rect, CommitTarget)>,
 ) {
     let p = app.palette;
@@ -532,7 +579,7 @@ fn draw_other_file(
     });
     let cy = band.y + COMMIT_ROW / 2.0;
     // 缩进一层，与当前仓库平铺时的文件行同列：勾选式下前面是勾选框，暂存区视图中那一列没有。
-    let check = band.x + ARROW + INDENT + check_gap(app);
+    let check = band.x + ARROW + (depth + 1) as f32 * INDENT + check_gap(app);
     if check_gap(app) > 0.0 {
         let state = app.other_status(repo, |_, status| {
             (status.entries.get(entry)).and_then(|e| app.other_pick_state(e))
@@ -559,9 +606,27 @@ fn draw_other_file(
     }
     let text_end = button.map_or(letter_x - 8.0, |x| x - 4.0);
     let clip = Rect::new(list.x, band.y, text_end - list.x, COMMIT_ROW).intersect(list);
-    let end = ui_text(frame, app, text_x, band, &name, file_color(change, p), clip);
-    if !dir.is_empty() {
-        ui_text_small(frame, app, end + 8.0, band, &dir, p.text_dim, clip);
+    let room = (text_end - text_x).max(0.0);
+    let dir = (app.git.commit.flat() && !dir.is_empty()).then_some(dir.as_str());
+    let parts = file_parts(app, frame, (&name, dir), Some(room));
+    let end = draw_file_parts(
+        app,
+        frame,
+        (text_x, band),
+        &parts,
+        (file_color(change, p), |_| 1.0),
+        clip,
+    );
+    // 和当前仓库使用相同的名称排版与截断渐隐，底色随这一行的悬停状态变化。
+    if end > text_end + 0.5 {
+        let solid = if hover == Hover::Commit(target) || button.is_some() {
+            crate::view::workspace::panel::over(p.sidebar_bg, p.hover)
+        } else {
+            p.sidebar_bg
+        };
+        let reach = NAME_FADE.min(room);
+        let edge = Rect::new(text_end - reach, band.y, reach, COMMIT_ROW);
+        frame.within(clip, |frame| fade(frame, edge, solid, false));
     }
     hits.push((band.intersect(list), target));
 }

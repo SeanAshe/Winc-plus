@@ -30,19 +30,18 @@ impl App {
 
         // 提交视图：输入框之外按绘制时记下的位置找。
         if self.commit_shown() && y >= self.panel_rect().y {
-            // 分隔条由 `Target::Splitter` 处理，写全名的那一行除外：该行覆盖在分隔条之上。
-            if self.on_splitter_outside_commit_overflow(x, y) {
+            // 文件名可以显示在分隔条上，但分隔条始终保留调整宽度的命中区域。
+            if self.on_sidebar_splitter(x, y) {
                 return None;
             }
             return Some(hit(&self.hits.commit, x, y).map_or(Hover::None, Hover::Commit));
         }
 
         // 面板只负责顶栏以下、分隔条以左的区域；侧栏开关和分隔条由后面的判断处理。写全名的结果行
-        // 覆盖在分隔条和滚动条之上，伸出侧栏的那一段同样属于这一行。
+        // 覆盖在滚动条之上，伸出侧栏的那一段同样属于这一行；分隔条始终可以拖动。
         let panel = self.panel_rect();
         let over_overflow = self.over_result_overflow_row(y);
-        let on_splitter =
-            self.panels.sidebar.visible && self.layout.splitter.contains(x, y) && !over_overflow;
+        let on_splitter = self.on_sidebar_splitter(x, y);
         let in_panel = panel.contains(x, y) || self.in_result_overflow(x, y);
 
         if !self.panel_shown() || !in_panel || on_splitter {
@@ -273,12 +272,9 @@ impl App {
         true
     }
 
-    /// (`x`, `y`) 是否在分隔条上、且不在提交视图里写全名的那一行上：该行覆盖在分隔条之上，与文件
-    /// 树的处理相同（见 [`App::target_at`]）。
-    fn on_splitter_outside_commit_overflow(&self, x: f32, y: f32) -> bool {
-        self.panels.sidebar.visible
-            && self.layout.splitter.contains(x, y)
-            && !self.over_commit_overflow_row(y)
+    /// (`x`, `y`) 是否在侧栏分隔条上；Git 文件名浮层不抢占调整宽度的区域。
+    fn on_sidebar_splitter(&self, x: f32, y: f32) -> bool {
+        self.panels.sidebar.visible && self.layout.splitter.contains(x, y)
     }
 
     /// 是否已处理对侧栏顶部切换按钮或搜索面板的点击。
@@ -319,7 +315,7 @@ impl App {
         }
 
         if self.commit_shown() && y >= self.panel_rect().y {
-            if self.on_splitter_outside_commit_overflow(x, y) {
+            if self.on_sidebar_splitter(x, y) {
                 return false;
             }
             if let Some(focus) = self.field_at(x, y) {

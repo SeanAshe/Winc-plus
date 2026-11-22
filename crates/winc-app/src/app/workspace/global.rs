@@ -26,6 +26,9 @@ use crate::layout::{PanelButton, PanelParts, PanelTool, RowAction, SidebarView};
 /// 取 300 ms（经验值）：连续键入时只在停顿之后搜索一次，避免每输入一个字符就重新搜索整个目录。
 pub const SEARCH_DELAY: Duration = Duration::from_millis(300);
 
+/// 用方向键浏览结果时打开匹配的防抖间隔。
+pub const BROWSE_DELAY: Duration = Duration::from_millis(75);
+
 /// 结果列表中单个文件折叠或展开的动画，实现方式与改动列表的 `CommitMotion` 相同。
 #[derive(Debug)]
 pub struct ResultMotion {
@@ -158,6 +161,8 @@ pub struct GlobalSearch {
     pub selected: Option<(PathBuf, Option<usize>)>,
     /// 条件变化后开始搜索的时刻。
     pub due: Option<Instant>,
+    /// 方向键浏览结果的防抖：截止时刻，以及其间是否换过选中项、到时需要打开。
+    pub browse: Option<(Instant, bool)>,
     /// 正在后台写回磁盘的跨文件替换：接收统计结果的通道，以及开始替换时结果列表中的总处数。
     replacing: Option<(mpsc::Receiver<ReplaceTally>, usize)>,
     /// 正在后台替换的单个未打开文件：每个文件一个通道，接收路径和替换的处数（或失败的原因）。
@@ -623,7 +628,7 @@ impl App {
     }
 
     /// `y` 是否在写全名的结果行的高度内：该行覆盖在滚动条和分隔条之上。
-    pub(in crate::app) fn over_result_overflow_row(&self, y: f32) -> bool {
+    pub(crate) fn over_result_overflow_row(&self, y: f32) -> bool {
         self.panel_shown()
             && (self.panels.global.overflow)
                 .map(|o| self.result_row_rect(o.index))
@@ -671,6 +676,7 @@ impl App {
                 g.due = None;
                 self.focus = Focus::GlobalQuery;
             }
+            PanelButton::Tool(PanelTool::OpenDialog) => self.open_search_dialog_from_panel(),
             PanelButton::Tool(PanelTool::CollapseAll) => {
                 if g.all_collapsed() {
                     g.collapsed.clear();
@@ -1198,6 +1204,66 @@ impl App {
         let index = index.min(rows - 1);
         self.panels.global.select_row(index);
         self.scroll_result_into_view(index);
+        self.browse_result();
+        self.request_redraw();
+    }
+
+    /// 用方向键选中结果后显示选中的匹配，焦点留在结果列表；连续按键时只打开第一次和最后一次。
+    pub(in crate::app) fn browse_result(&mut self) {
+        let now = Instant::now();
+        let quiet = self.panels.global.browse.is_none_or(|(due, _)| now >= due);
+        self.panels.global.browse = Some((now + BROWSE_DELAY, !quiet));
+        if quiet {
+            self.show_selected_result();
+        }
+    }
+
+    /// 防抖到期时打开最后选中的匹配；返回下一次需要唤醒的时刻。
+    pub(in crate::app) fn poll_browse(&mut self, now: Instant) -> Option<Instant> {
+        let (due, pending) = self.panels.global.browse?;
+        if now < due {
+            return Some(due);
+        }
+        self.panels.global.browse = None;
+        if pending && self.focus == Focus::Results {
+            self.show_selected_result();
+        }
+        None
+    }
+
+    /// 在预览标签（未开启时为普通标签）中打开选中的匹配，焦点留在结果列表。
+    fn show_selected_result(&mut self) {
+        let selected = self.panels.global.selected_row();
+        if let Some(i) = selected
+            && matches!(self.panels.global.rows().get(i), Some(ResultRow::Match(..)))
+        {
+            self.open_result(i, false, false);
+        }
+    }
+
+    /// 处理 `⌘↓` / `⌘↑`（Windows、Linux 上为 `Ctrl`）：焦点移到面板中的下一个或上一个输入框，
+    /// 最后一个输入框之后是结果列表，到两端后不绕回。
+    pub(in crate::app) fn step_panel_focus(&mut self, backwards: bool) {
+        let fields = self.panel_fields();
+        let Some(at) = fields.iter().position(|&f| f == self.focus) else {
+            return;
+        };
+        let next = if backwards {
+            at.checked_sub(1)
+        } else {
+            Some(at + 1)
+        };
+        let Some(&focus) = next.and_then(|i| fields.get(i)) else {
+            return;
+        };
+        self.ime.field_preedit.clear();
+        self.focus = focus;
+        if focus == Focus::Results && self.panels.global.selected_row().is_none() {
+            let rows = self.panels.global.rows();
+            let first = rows.iter().position(|r| matches!(r, ResultRow::Match(..)));
+            self.jump_result(first.unwrap_or(0));
+        }
+        self.reset_blink();
         self.request_redraw();
     }
 

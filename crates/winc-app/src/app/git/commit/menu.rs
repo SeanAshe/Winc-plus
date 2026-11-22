@@ -30,7 +30,8 @@ impl App {
         };
         let all_collapsed = shown().all(|group| self.git.commit.group_collapsed(group));
         let all_expanded = shown().all(|group| !self.git.commit.group_collapsed(group))
-            && self.git.commit.collapsed_dirs.iter().all(HashSet::is_empty);
+            && self.git.commit.collapsed_dirs.iter().all(HashSet::is_empty)
+            && self.git.commit.other_collapsed_dirs.is_empty();
         let busy = self.git.branch.running.is_some();
         // 拉取自…、推送到…在远程仓库子菜单里，在分支上、有远程时可用。
         let transfer = self.picker_action_enabled(PickerPart::Push);
@@ -252,6 +253,11 @@ impl App {
     pub(in crate::app) fn toggle_commit_layout(&mut self) {
         let flat = !self.git.commit.flat();
         self.git.commit.set_flat(flat);
+        // 展开、收起动画保存着旧模式的行，切换后立即按新模式绘制。
+        self.git.commit.motion = None;
+        self.git.commit.fold_motion = None;
+        self.git.commit.shift = None;
+        self.git.commit.overflow = None;
         self.update_state(|state| state.commit_tree = !flat);
         self.git.commit.scroll = self.git.commit.scroll.min(self.commit_max_scroll());
         self.reveal_commit_selection();

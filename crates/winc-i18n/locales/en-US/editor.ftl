@@ -85,6 +85,10 @@ editor-places-bookmarks-count = { $count ->
         [one] { $count } bookmark
        *[other] { $count } bookmarks
     }
+editor-places-search-count = { $count ->
+        [one] { $count } result
+       *[other] { $count } results
+    }
 editor-places-no-match = No matching locations
 editor-places-usages-suffix = { " " }usages
 editor-places-definitions-suffix = { " " }definitions

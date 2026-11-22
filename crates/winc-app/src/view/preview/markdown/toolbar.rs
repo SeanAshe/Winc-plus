@@ -82,8 +82,10 @@ pub(in crate::view) fn draw_selection_toolbar(app: &mut App, frame: &mut Frame<'
         };
         let center = (button.x + BUTTON / 2.0, button.y + BUTTON / 2.0);
         icons::writing(frame, center, tool.glyph(), color, card);
-        app.hits.selection_tools.push((button, tool));
+        app.hits
+            .selection_tools
+            .push((button.intersect(area), tool));
         x += BUTTON + GAP;
     }
-    app.hits.selection_card = Some(card);
+    app.hits.selection_card = Some(card.intersect(area));
 }

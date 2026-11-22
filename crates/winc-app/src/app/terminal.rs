@@ -116,6 +116,12 @@ pub(crate) enum HeaderHit {
     Hide,
     /// 「+」右边选 shell 的按钮。
     ShellMenu,
+    /// 「搜索」标签（在文件中查找的结果）。
+    SearchTab,
+    /// 「搜索」标签的关闭按钮。
+    SearchClose,
+    /// 显示「搜索」标签时的「在对话框中打开」。
+    SearchDialog,
     /// 把面板挪到编辑区右边，或者挪回下面。
     Position,
     /// 最大化面板，或者还原（⌘⇧↩）。
@@ -448,6 +454,7 @@ impl App {
         } else if in_terminal {
             self.set_terminal_open(false);
         } else {
+            self.search_dialog.in_panel = false;
             self.focus = Focus::Terminal;
         }
         self.reset_blink();
@@ -457,6 +464,7 @@ impl App {
 
     /// 打开面板、焦点放进去；还没有标签时开一个。
     fn open_terminal_panel(&mut self) {
+        self.search_dialog.in_panel = false;
         self.set_terminal_open(true);
         let t = &mut self.terminal;
         if t.height <= 0.0 {
@@ -721,7 +729,7 @@ impl App {
         if !open {
             self.finish_terminal_rename(true);
         }
-        if !open && self.focus.in_terminal() {
+        if !open && (self.focus.in_terminal() || self.focus_in_docked_search()) {
             self.focus = Focus::Editor;
         }
         self.terminal.motion = self
