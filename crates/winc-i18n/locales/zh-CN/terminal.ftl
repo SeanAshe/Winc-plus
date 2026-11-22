@@ -19,6 +19,7 @@ terminal-helper-exited = 终端组件已退出
 terminal-helper-version-mismatch = 终端组件的版本与 Winc 不一致，请重新安装 Winc
 terminal-process-exited = 进程已退出（退出码 { $code }）
 terminal-disconnected = 终端连接已断开
+terminal-preparing = 正在准备 { $host } 上的终端…
 terminal-restart = 重新启动
 terminal-restart-confirm = 要重新启动此终端吗？
 terminal-restart-confirm-detail = 此终端的连接已断开，重新启动将结束其中仍在运行的程序。

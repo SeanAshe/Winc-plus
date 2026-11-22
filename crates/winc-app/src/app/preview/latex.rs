@@ -608,7 +608,10 @@ impl App {
         let Some(Ok(pages)) = self.preview.pdf.pages.clone() else {
             return;
         };
-        let (Some(path), line) = (doc.path.clone(), super::markdown::text_line(doc)) else {
+        let (Some(path), line) = (
+            doc.path.clone(),
+            super::markdown::text_line(doc, doc.scroll_line),
+        ) else {
             return;
         };
         let Some((page, _, v)) = synctex.forward(&path, line.floor() as usize + 1) else {

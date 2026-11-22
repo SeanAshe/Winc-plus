@@ -19,6 +19,7 @@ terminal-helper-exited = The terminal helper exited
 terminal-helper-version-mismatch = The terminal helper’s version doesn’t match Winc; reinstall Winc
 terminal-process-exited = Process exited (exit code { $code })
 terminal-disconnected = Terminal connection lost
+terminal-preparing = Preparing the terminal on { $host }…
 terminal-restart = Restart
 terminal-restart-confirm = Restart this terminal?
 terminal-restart-confirm-detail = The connection to this terminal was lost. Restarting ends any programs still running in it.

@@ -10,6 +10,8 @@ use super::*;
 use crate::app::{StatusEntry, StatusItem, StatusKey, StatusMotion, indent_label};
 use crate::icons::Direction;
 
+mod crumbs;
+
 /// 路径中相邻两段文字之间的距离（逻辑像素），箭头绘制在正中。
 const CRUMB_GAP: f32 = 22.0;
 
@@ -21,6 +23,11 @@ const STATUS_GAP: f32 = 15.0;
 /// 箭头半宽约 2.4 逻辑像素（`6.5 / 4 + 1.5 / 2`：箭头尺寸 6.5 的四分之一加半个笔宽），因此
 /// 底色与相邻箭头之间还留有约 3.6 逻辑像素的间隙（`CRUMB_GAP / 2 - CRUMB_PAD - 2.4`）。
 const CRUMB_PAD: f32 = 5.0;
+
+/// 状态栏左侧一段文字截短后仍然显示的最小宽度（逻辑像素）。
+///
+/// 取自调参：小号界面字体下约为「…」加三四个汉字的宽度，更窄时文字无法辨认。
+const MIN_TEXT: f32 = 60.0;
 
 /// 文档组的项，按从左到右的顺序。
 const DOCUMENT: &[StatusKey] = &[
@@ -707,19 +714,42 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
     let mut x = bar.x + 14.0;
     let mut hits = Vec::new();
 
+    // 消息和 Vim 模式的状态先占位，消息最多占左侧的一半；路径和键路径排在余下的宽度内。
+    let size = app.fonts.ui_small;
+    let half = left.w / 2.0;
+    let vim = app.vim_status();
+    let progress = app.format_in_progress().map(|task| match task {
+        winc_editor::format::Task::Format => t!("workspace-status-formatting"),
+        winc_editor::format::Task::Fix => t!("workspace-status-fixing"),
+    });
+    let message = app.status.message.clone();
+    let message = message.as_deref().or(progress);
+    let mut reserved = 0.0;
+    if let Some(vim) = &vim {
+        reserved += frame.measure(FontKind::Ui, size, vim) + 16.0;
+    }
+    if let Some(message) = message {
+        reserved += frame.measure(FontKind::Ui, size, message).min(half);
+    }
+
     if doc.is_some() {
         let crumbs = app.crumbs();
-        // 工作区以外的文件只有一段完整路径，最多占左侧的一半，放不下时从中间截短并保留完整
-        // 文件名：长路径能占满大半个状态栏，把临时消息挤掉。
-        let half = left.w / 2.0;
+        let budget = (left.right() - x - 24.0 - reserved).max(0.0);
+        // 工作区以外的文件只有一段完整路径，最多占左侧的一半。
+        let max = if crumbs.len() == 1 {
+            budget.min(half)
+        } else {
+            budget
+        };
+        let names: Vec<&str> = crumbs.iter().map(|crumb| crumb.name.as_str()).collect();
+        let path = crumbs.first().is_some_and(|crumb| crumb.path.is_some());
+        let shown = crumbs::fit(frame, &names, path, size, max);
+        let used = crumbs::width(frame, &shown, size);
 
-        for (i, crumb) in crumbs.iter().enumerate() {
-            let name = if crumbs.len() == 1 && crumb.path.is_some() {
-                shorten_path(frame, &crumb.name, app.fonts.ui_small, half)
-            } else {
-                Cow::Borrowed(crumb.name.as_str())
-            };
-            if i > 0 {
+        for (at, part) in shown.iter().enumerate() {
+            let (i, name) = (part.index, &part.name);
+            let crumb = i.map(|i| &crumbs[i]);
+            if at > 0 {
                 let arrow = (
                     x + CRUMB_GAP / 2.0,
                     icon_center_y(app, bar, app.fonts.ui_small),
@@ -729,8 +759,8 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
             }
 
             // 有路径的段可点击：悬停时铺按钮底色，其目录菜单打开时显示为按下状态。
-            if crumb.path.is_some() {
-                let w = frame.measure(FontKind::Ui, app.fonts.ui_small, &name);
+            if let Some(i) = i.filter(|_| crumb.is_some_and(|crumb| crumb.path.is_some())) {
+                let w = frame.measure(FontKind::Ui, app.fonts.ui_small, name);
                 let pill = Rect::new(x - CRUMB_PAD, bar.y + 4.0, w + 2.0 * CRUMB_PAD, bar.h - 8.0);
                 let hovered = app.pointer.hover == Hover::Crumb(i);
                 draw_button(
@@ -747,23 +777,24 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
                 }
             }
 
-            let color = if i + 1 == crumbs.len() {
+            let color = if i.is_some_and(|i| i + 1 == crumbs.len()) {
                 p.text
             } else {
                 p.text_muted
             };
-            x = ui_text_small(frame, app, x, bar, &name, color, left);
+            x = ui_text_small(frame, app, x, bar, name, color, left);
         }
 
-        // 配置文件中光标所在的键路径：接在文件名之后，颜色较淡，放不下时从中间截短。
-        if let Some(path) = app.key_path() {
+        // 配置文件中光标所在的键路径：接在文件名之后，颜色较淡，放不下时从中间截短，余下的
+        // 宽度不超过 `MIN_TEXT` 时不显示。
+        let room = budget - used - CRUMB_GAP;
+        if let Some(path) = app.key_path().filter(|_| room > MIN_TEXT) {
             let arrow = (
                 x + CRUMB_GAP / 2.0,
                 icon_center_y(app, bar, app.fonts.ui_small),
             );
             icons::chevron(frame, arrow, 6.5, Direction::Right, p.text_dim, left);
             x += CRUMB_GAP;
-            let room = (left.right() - x).max(0.0);
             let path = ellipsize(frame, &path, app.fonts.ui_small, room);
             x = ui_text_small(frame, app, x, bar, &path, p.text_muted, left);
         }
@@ -772,19 +803,14 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
     }
 
     // Vim 模式的状态（模式、未完成的按键）排在消息之前。
-    if let Some(vim) = app.vim_status() {
+    if let Some(vim) = vim {
         x = ui_text_small(frame, app, x, bar, &vim, p.text, left) + 16.0;
     }
 
-    // 消息放不下时从中间截短；可用宽度不超过 60 逻辑像素时不显示。
+    // 消息放不下时从中间截短；可用宽度不超过 `MIN_TEXT` 时不显示。
     let room = left.right() - x;
-
-    let progress = app.format_in_progress().map(|task| match task {
-        winc_editor::format::Task::Format => t!("workspace-status-formatting"),
-        winc_editor::format::Task::Fix => t!("workspace-status-fixing"),
-    });
-    if let Some(message) = app.status.message.as_deref().or(progress)
-        && room > 60.0
+    if let Some(message) = message
+        && room > MIN_TEXT
     {
         let message = ellipsize(frame, message, app.fonts.ui_small, room);
         ui_text_small(frame, app, x, bar, &message, p.status_message, left);

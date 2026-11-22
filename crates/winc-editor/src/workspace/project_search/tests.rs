@@ -1118,3 +1118,28 @@ fn dependency_folders_are_found_two_levels_down() {
     assert_eq!(nested, [dir.join("packages/app/node_modules")]);
     let _ = fs::remove_dir_all(&dir);
 }
+
+/// `.properties` 中的 `\uXXXX` 转义按显示的字符查找，替换后写回转义。
+#[test]
+fn properties_escapes_are_searched_as_characters() {
+    let dir = scratch("properties-escapes");
+    write(
+        &dir,
+        "zh.properties",
+        b"hi=\\u4F60\\u597D\nbye=\\u518D\\u89C1\n",
+    );
+    let found = search(&dir, &query("你好"));
+    assert_eq!(files(&found), ["zh.properties"]);
+    let file = &found.results[0];
+    assert_eq!(file.matches[0].line, 0);
+    assert_eq!(file.matches[0].preview, "hi=你好");
+    assert_eq!(
+        replace_in_file(&file.path, &query("你好"), "您好", &file.matches),
+        Ok(1)
+    );
+    assert_eq!(
+        fs::read_to_string(dir.join("zh.properties")).unwrap(),
+        "hi=\\u60A8\\u597D\nbye=\\u518D\\u89C1\n"
+    );
+    let _ = fs::remove_dir_all(&dir);
+}

@@ -245,16 +245,16 @@ pub const SSH_SCHEME: &str = "ssh";
 /// 把 `ssh://[用户@]主机[:端口]/绝对路径[:行[:列]]` 解析为 [`Target`]，路径是该主机的虚拟路径，
 /// 行号和列号从 1 起。
 ///
-/// 主机按 [`winc_backend::Target`] 校验，可以是 `~/.ssh/config` 中的别名。路径末尾的 `:正整数`
-/// 总是作为行号和列号，路径中的 `:` 写作 `%3A`；之后路径按百分号编码解码，查询和片段忽略。
-/// 不符合时返回 `None`。
+/// 主机按 [`winc_backend::Target`] 校验，可以是 `~/.ssh/config` 中的别名；IPv6 地址写在方括号
+/// 中，`%` 写作 `%25`（RFC 6874）。路径末尾的 `:正整数` 总是作为行号和列号，路径中的 `:` 写作
+/// `%3A`；之后路径按百分号编码解码，查询和片段忽略。不符合时返回 `None`。
 fn ssh(url: &str) -> Option<Target> {
     let (scheme, rest) = url.split_once("://")?;
     if !scheme.eq_ignore_ascii_case(SSH_SCHEME) {
         return None;
     }
     let slash = rest.find('/')?;
-    let host = winc_backend::Target::new(&rest[..slash])?;
+    let host = winc_backend::Target::new(&rest[..slash].replace("%25", "%"))?;
     let rest = &rest[slash..];
     let rest = &rest[..rest.find(['?', '#']).unwrap_or(rest.len())];
     let (path, line, col) = position(rest).unwrap_or((rest, None, None));

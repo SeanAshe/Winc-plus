@@ -522,7 +522,7 @@ impl App {
             .port()
             .map(|port| port.to_string())
             .unwrap_or_default();
-        self.open_connect_dialog(target.host(), &port, start);
+        self.open_connect_dialog(&target.host(), &port, start);
     }
 
     /// 点了第 `row` 行行尾的「✕」：从最近的记录中移除这个目录；移除主机时移除其上的所有

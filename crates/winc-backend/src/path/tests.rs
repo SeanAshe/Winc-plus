@@ -25,6 +25,16 @@ fn remote_paths_survive_a_round_trip() {
         assert_eq!(located.target, target());
         assert_eq!(located.path, path, "{}", String::from_utf8_lossy(path));
     }
+    // 带端口和 IPv6 地址的连接目标。
+    for text in [
+        "alice@devbox:22022",
+        "root@[2001:db8::1]:22022",
+        "[fe80::1%eth0]",
+    ] {
+        let target = Target::new(text).unwrap();
+        let located = locate(&virtual_path(&target, b"/srv/app")).unwrap();
+        assert_eq!((located.target, &*located.path), (target, &b"/srv/app"[..]));
+    }
     // 空段和 `.` 忽略，相对路径按相对于根目录处理。
     assert_eq!(remote(&virtual_path(&target(), b"//a/./b/")), "/a/b");
     assert_eq!(remote(&virtual_path(&target(), b"a/b")), "/a/b");

@@ -20,7 +20,6 @@ fn options_metacharacters_and_separators_are_rejected() {
         "host$(id)",
         "host/path",
         "host\\path",
-        "[::1]",
         "主机",
     ] {
         assert_eq!(Target::new(text), None, "{text:?}");
@@ -33,12 +32,12 @@ fn options_metacharacters_and_separators_are_rejected() {
 fn a_port_may_follow_the_host() {
     let target = Target::new("root@10.0.0.8:22022").unwrap();
     assert_eq!(
-        (target.host(), target.port()),
+        (&*target.host(), target.port()),
         ("root@10.0.0.8", Some(22022))
     );
     assert_eq!(target.as_str(), "root@10.0.0.8:22022");
     let plain = Target::new("devbox").unwrap();
-    assert_eq!((plain.host(), plain.port()), ("devbox", None));
+    assert_eq!((&*plain.host(), plain.port()), ("devbox", None));
     assert_eq!(
         Target::with_port("devbox", Some(22)),
         Target::new("devbox:22")
@@ -59,4 +58,45 @@ fn a_port_may_follow_the_host() {
         assert_eq!(Target::new(text), None, "{text:?}");
     }
     assert_eq!(Target::with_port("host:22", None), None);
+}
+
+#[test]
+fn ipv6_addresses_are_written_in_brackets() {
+    let target = Target::new("root@[2001:db8::1]:22022").unwrap();
+    assert_eq!(
+        (&*target.host(), target.port()),
+        ("root@2001:db8::1", Some(22022))
+    );
+    let plain = Target::new("[::1]").unwrap();
+    assert_eq!((&*plain.host(), plain.port()), ("::1", None));
+    let scoped = Target::new("[fe80::1%eth0]").unwrap();
+    assert_eq!(&*scoped.host(), "fe80::1%eth0");
+    assert_eq!(
+        Target::with_port("root@2001:db8::1", Some(22022)),
+        Some(target)
+    );
+    assert_eq!(Target::with_port("::1", None), Some(plain.clone()));
+    assert_eq!(Target::with_port("[::1]", None), Some(plain));
+    for text in [
+        "2001:db8::1",
+        "[2001:db8::1",
+        "2001:db8::1]",
+        "[]",
+        "[devbox]",
+        "[10.0.0.8]",
+        "[::1]22",
+        "[::1]:",
+        "[::1]:0",
+        "x[::1]",
+        "-o@[::1]",
+        "[::1%]",
+        "[::1%a b]",
+        "[::1%$(id)]",
+        "[[::1]]",
+        "[::1]@host",
+    ] {
+        assert_eq!(Target::new(text), None, "{text:?}");
+    }
+    assert_eq!(Target::with_port("abc:22", None), None);
+    assert_eq!(Target::with_port("-o@::1", None), None);
 }

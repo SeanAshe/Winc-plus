@@ -273,7 +273,10 @@ pub(super) fn draw_line(
                 });
                 if let Some(unit) = whole {
                     joined = offset - c.len_utf8() + unit.len();
-                } else if c != ' ' && !draw_block_element(frame, c, at, fg, clip) {
+                } else if c != ' '
+                    && !draw_block_element(frame, c, at, fg, clip)
+                    && !super::powerline::draw_powerline(frame, c, at, fg, clip)
+                {
                     frame.cell_char(kind, size, x_of(col), baseline, cell, w, c, fg, clip);
                     // 粗体：往右错开一个物理像素再绘制一次，笔画加粗、字宽不变（等宽的格子不乱）。
                     if bold {

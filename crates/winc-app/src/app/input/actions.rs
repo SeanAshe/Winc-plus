@@ -100,6 +100,7 @@ impl App {
             GoToSymbol => self.open_symbols(),
             GoToLine => self.open_goto(),
             GoToDefinition => self.go_to_definition(),
+            OpenLink => self.open_caret_link(),
             FindReferences => self.find_references(),
             // 有日志标签且可以后退时先在日志里后退；日志里已经找不到的提交（例如被跳过的
             // 父提交）直接跳过，继续找回更早的记录。
@@ -317,6 +318,19 @@ impl App {
             SortLinesAscending => editing(self, Command::SortLines { descending: false }),
             SortLinesDescending => editing(self, Command::SortLines { descending: true }),
             TrimTrailingWhitespace => editing(self, Command::TrimTrailingWhitespace),
+            UnescapeUnicode | EscapeUnicode => {
+                // 所有选区都是空的才转换整个文件，否则只转换选中的部分。
+                let whole = (self.editor.active())
+                    .is_some_and(|d| d.selections().0.iter().all(|s| s.is_empty()));
+                editing(
+                    self,
+                    if action == UnescapeUnicode {
+                        Command::UnescapeUnicode { whole }
+                    } else {
+                        Command::EscapeUnicode { whole }
+                    },
+                );
+            }
             IndentUsingSpaces => self.use_indent(false),
             IndentUsingTabs => self.use_indent(true),
             ConvertIndentationToSpaces => self.convert_indentation(false),

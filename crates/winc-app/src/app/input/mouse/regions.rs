@@ -514,7 +514,7 @@ impl App {
 
         let count = self.click_count(x, y);
 
-        // `⌘` 单击转到定义，其他平台上为 `Ctrl` 单击。
+        // `⌘` 单击打开链接或转到定义，其他平台上为 `Ctrl` 单击。
         let jump = if cfg!(target_os = "macos") {
             self.pointer.modifiers.super_key()
         } else {
@@ -522,7 +522,10 @@ impl App {
         };
         if jump && count == 1 && !l.gutter.contains(x, y) {
             self.select(pos, pos);
-            self.go_to_definition();
+            // 链接先于名字：不在链接上时转到定义。
+            if !self.open_link_at_caret() {
+                self.go_to_definition();
+            }
             return;
         }
 

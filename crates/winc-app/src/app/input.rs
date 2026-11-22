@@ -21,6 +21,8 @@ pub(crate) struct Pointer {
     /// 左、右 ⌥ 键是否按下，用于按 `terminal.optionAsMeta` 判断视为 Meta 的一侧；
     /// winit 只在 macOS 上报告左右 ⌥ 的状态。
     pub(in crate::app) option_side: (bool, bool),
+    /// 按住打开链接的修饰键时鼠标下的源代码链接。
+    pub(crate) link: Option<crate::app::editor::links::TextLink>,
     /// 鼠标位置（逻辑像素）。
     pub(in crate::app) mouse: (f32, f32),
     /// 正在进行的鼠标拖动。

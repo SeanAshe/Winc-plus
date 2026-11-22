@@ -167,3 +167,24 @@ fn decoding_as_a_chosen_encoding() {
     // 选了 UTF-8 BOM 时去掉 BOM。
     assert_eq!(decode_as(b"\xEF\xBB\xBFx", Encoding::Utf8Bom).0, "x");
 }
+
+/// 原来的写法只用于同样存法的文件：ISO-8859-1 读入的行不会按 UTF-8 的字节写出。
+#[test]
+fn escape_origin_follows_the_file_layout() {
+    let latin1 = Encoding::Legacy(encoding_rs::WINDOWS_1252);
+    let (shown, encoding, origin) =
+        unicode_escapes_view("a=\u{e9}\\u4F60\n", latin1, None).unwrap();
+    assert_eq!(shown, "a=\u{e9}你\n");
+    assert_eq!(
+        encode_with(&shown, encoding, Some(&origin)).unwrap(),
+        b"a=\xE9\\u4F60\n"
+    );
+    let utf8 = Encoding::UnicodeEscapes {
+        lowercase: false,
+        latin1: false,
+    };
+    assert_eq!(
+        encode_with(&shown, utf8, Some(&origin)).unwrap(),
+        b"a=\\u00E9\\u4F60\n"
+    );
+}

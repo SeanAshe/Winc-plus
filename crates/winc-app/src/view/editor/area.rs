@@ -651,16 +651,26 @@ impl Screen<'_> {
         let row_y = |line: usize| self.row_y(line);
         let line_y = |line: usize| self.line_y(line);
         let selections = std::iter::once(&self.selection).chain(self.extra);
-        for &selection in selections.chain(&self.yanked) {
-            if selection.is_empty() {
+        // 按住修饰键时鼠标下的链接：下划线。
+        let link = (self.app.pointer.link.as_ref())
+            .filter(|link| (link.doc, link.revision) == (self.doc.id, self.doc.revision))
+            .map(|link| {
+                (
+                    Selection::new(link.from, link.to),
+                    Some(self.app.palette.text),
+                )
+            });
+        let selections = selections.chain(&self.yanked).map(|&s| (s, None));
+        for marked in selections.chain(link) {
+            if marked.0.is_empty() {
                 continue;
             }
             let (app, segments, columns, origin_x) =
                 (self.app, self.segments, self.columns, self.origin_x);
             if self.doc.is_wrapping() {
-                draw_wrapped_selection(app, frame, selection, segments, origin_x, &line_y);
+                draw_wrapped_selection(app, frame, marked, segments, origin_x, &line_y);
             } else {
-                draw_selection(app, frame, selection, segments, columns, origin_x, &row_y);
+                draw_selection(app, frame, marked, segments, columns, origin_x, &row_y);
             }
         }
     }

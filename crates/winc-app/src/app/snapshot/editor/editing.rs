@@ -1381,3 +1381,35 @@ fn wrapped_long_lines_expand_by_clicking_or_by_the_setting() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 「字符转为 Unicode 转义」「Unicode 转义转为字符」：没有选区时转换整个文件，可以撤销。
+#[test]
+fn unicode_escapes_convert_both_ways() {
+    let dir = sample_folder("unicode-escapes");
+    let file = dir.join("messages.properties");
+    std::fs::write(&file, "greeting=你好\nemoji=😀\n").unwrap();
+    let mut app = app_with(&file, false);
+    let text = |app: &App| {
+        app.editor
+            .active()
+            .unwrap()
+            .text()
+            .rope()
+            .unwrap()
+            .to_string()
+    };
+
+    assert!(app.run_action(Action::EscapeUnicode));
+    assert_eq!(
+        text(&app),
+        "greeting=\\u4F60\\u597D\nemoji=\\uD83D\\uDE00\n"
+    );
+    assert!(app.run_action(Action::UnescapeUnicode));
+    assert_eq!(text(&app), "greeting=你好\nemoji=😀\n");
+    assert!(app.run_action(Action::Undo));
+    assert_eq!(
+        text(&app),
+        "greeting=\\u4F60\\u597D\nemoji=\\uD83D\\uDE00\n"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}

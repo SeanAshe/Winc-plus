@@ -15,6 +15,10 @@ pub(super) fn scope_of(command: &Command, all: &[Selection]) -> Scope {
         | Command::CopyLines { .. }
         | Command::JoinLines => Scope::Lines,
         Command::SortLines { .. } | Command::TrimTrailingWhitespace => Scope::Once,
+        // 没有选区时转换整个文件，只执行一次。
+        Command::UnescapeUnicode { whole: true } | Command::EscapeUnicode { whole: true } => {
+            Scope::Once
+        }
         _ => Scope::Each,
     }
 }

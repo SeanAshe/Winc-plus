@@ -1152,9 +1152,9 @@ fn over_ssh() {
         let output = command.args(extra).output().unwrap();
         (output.status.success(), output.stdout)
     };
-    assert!(second(&["-O", "check", target.host()]).0);
+    assert!(second(&["-O", "check", &target.host()]).0);
     assert_eq!(
-        second(&[target.host(), "--", "echo shared"]),
+        second(&[&target.host(), "--", "echo shared"]),
         (true, b"shared\n".to_vec())
     );
     let sockets = || -> Vec<_> {
@@ -1172,9 +1172,9 @@ fn over_ssh() {
         std::thread::sleep(Duration::from_millis(50));
     }
     assert!(sockets().is_empty(), "{:?}", sockets());
-    assert!(!second(&["-O", "check", target.host()]).0);
+    assert!(!second(&["-O", "check", &target.host()]).0);
     assert_eq!(
-        second(&[target.host(), "--", "echo alone"]),
+        second(&[&target.host(), "--", "echo alone"]),
         (true, b"alone\n".to_vec())
     );
 

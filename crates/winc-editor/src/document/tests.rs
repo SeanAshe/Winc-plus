@@ -9,6 +9,8 @@ use crate::test_util::scratch;
 use std::fs;
 use std::time::SystemTime;
 
+mod unicode_escapes;
+
 #[cfg(unix)]
 #[test]
 fn atomic_writes_use_a_fresh_private_temporary_file() {

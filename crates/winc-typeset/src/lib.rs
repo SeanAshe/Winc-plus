@@ -1005,15 +1005,15 @@ impl Cx<'_, '_> {
     ) {
         let size = self.base;
         let baseline = baseline.unwrap_or_else(|| {
-            let m = self.frame.metrics(FontKind::Ui, size);
+            let m = self.frame.metrics(FontKind::Prose, size);
             y + (size * 1.5 - m.ascent - m.descent) / 2.0 + m.ascent
         });
-        let w = self.frame.measure(FontKind::Ui, size, marker);
+        let w = self.frame.measure(FontKind::Prose, size, marker);
         out.push(Item::Text {
             x: content_x - size * 0.4 - w,
             baseline,
             text: marker.into(),
-            font: FontKind::Ui,
+            font: FontKind::Prose,
             faux: Faux::default(),
             size,
             color,
@@ -1141,7 +1141,7 @@ impl Cx<'_, '_> {
     /// 文字后新段落的位置相同，输入第一个字时内容不移动。
     fn blank_lines(&mut self, blanks: &[usize], x: f32, y: f32, width: f32, out: &mut Out) -> f32 {
         let size = self.base;
-        let m = self.frame.metrics(FontKind::Ui, size);
+        let m = self.frame.metrics(FontKind::Prose, size);
         let row = Row {
             room: width.max(size),
             size,

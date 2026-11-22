@@ -113,6 +113,9 @@ pub enum FolderEntry {
     Note(String),
 }
 
+/// 后台为目录菜单读好的目录及其菜单项，等界面线程取走。
+pub(in crate::app) type Listed = std::sync::Arc<std::sync::Mutex<Vec<(PathBuf, Vec<FolderEntry>)>>>;
+
 /// 返回目录 `dir` 在目录菜单中的菜单项。
 ///
 /// 隐藏规则和排序与文件树相同，目录与文件之间加一条分隔线。读取失败、空目录，
@@ -343,10 +346,13 @@ impl App {
             return;
         };
 
-        if !cfg!(target_os = "macos") || self.window.handle.is_none() {
+        // 远端的目录在后台读取，系统菜单打开期间无法换上内容：在窗口中画出菜单。
+        let own = winc_backend::is_remote(dir) || self.window.handle.is_none();
+        if !cfg!(target_os = "macos") || own {
             // 打勾那一行的文字对准被点击的段：文字前面是打勾和图标两列。
             let at = (rect.x - POPUP_TEXT_X, rect.y + rect.h / 2.0);
-            let mut popup = PopupMenu::new(folder_rows(dir, &current), at, (true, false));
+            let mut popup = PopupMenu::new(Vec::new(), at, (true, false));
+            popup.levels[0] = folder_level(dir, &current);
             popup.current = Some(current);
             self.overlays.context_menu = Some(ContextMenu {
                 target: crate::app::input::context_menu::MenuTarget::Folder,
@@ -356,6 +362,7 @@ impl App {
                 popup: Some(popup),
             });
             self.overlays.menu_button = Some(MenuButton::Crumb(index));
+            self.load_folder_levels();
             self.set_hover(Hover::None);
             self.request_redraw();
             return;

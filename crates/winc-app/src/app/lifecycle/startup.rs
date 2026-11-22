@@ -77,6 +77,7 @@ impl App {
                 hover: Hover::None,
                 modifiers: ModifiersState::empty(),
                 option_side: (false, false),
+                link: None,
                 mouse: (0.0, 0.0),
                 drag: Drag::None,
                 last_click: None,

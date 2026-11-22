@@ -524,3 +524,48 @@ fn shoot_notice_kinds() {
         }
     }
 }
+
+/// 回归：工作区内的长路径占满状态栏左侧，消息被截短或不显示。
+#[test]
+fn long_crumbs_fold_to_keep_the_message() {
+    // 目录名较短、层数较多：路径总长不超过 Windows 的 260 个字符。窗口取 800 宽，路径放不下。
+    let dir = sample_folder("crumbs-fold");
+    let deep: PathBuf = (1..=8).map(|n| format!("directory-{n}")).collect();
+    std::fs::create_dir_all(dir.join(&deep)).unwrap();
+    let file = dir.join(&deep).join("settings.rs");
+    std::fs::write(&file, "fn main() {}\n").unwrap();
+    let mut app = app_with(&dir, false);
+    let narrow = Renderer::offscreen(800.0, 420.0, SCALE, app.palette.frame_bg, None, None);
+    app.frame.renderer = Some(narrow.unwrap());
+    app.measure_fonts();
+    let root = app.editor.workspace.as_ref().unwrap().root.clone();
+    app.open_path(&root.join(&deep).join("settings.rs"));
+    paint(&mut app);
+    assert_eq!(app.crumbs().len(), 10);
+    let last = app.crumbs().len() - 1;
+    // 显示的段（下标）和最后一段的右边缘。
+    let shown = |app: &App| {
+        let indices: Vec<usize> = app.hits.crumbs.iter().map(|&(_, i)| i).collect();
+        let (file, _) = *app.hits.crumbs.last().unwrap();
+        (indices, file.right())
+    };
+
+    // 放不下时折叠靠近第一段的目录：第一段、最近的几级目录和文件名仍可点击。
+    let (before, edge) = shown(&app);
+    assert!(before.len() < last + 1, "{before:?}");
+    assert_eq!((before[0], *before.last().unwrap()), (0, last));
+    assert!(before[1..].windows(2).all(|pair| pair[1] == pair[0] + 1));
+
+    // 很长的消息占左侧的一半：路径让到另一半以内，消息消失后恢复。
+    app.flash("无法保存：".repeat(40));
+    paint(&mut app);
+    let (during, moved) = shown(&app);
+    assert!(during.len() < before.len(), "{during:?}");
+    assert_eq!((during[0], *during.last().unwrap()), (0, last));
+    let right = (app.hits.status.iter()).fold(f32::MAX, |x, (rect, _)| x.min(rect.x));
+    assert!(moved <= right / 2.0, "{moved} {right}");
+    app.clear_flash();
+    paint(&mut app);
+    assert_eq!(shown(&app), (before, edge));
+    let _ = std::fs::remove_dir_all(&dir);
+}

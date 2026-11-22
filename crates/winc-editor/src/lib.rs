@@ -45,7 +45,7 @@ pub use editing::modal::ModalPattern;
 pub use editing::search::{MAX_MATCHES, Search, TextSearch};
 pub use editing::{paste, scopes};
 pub use navigation::bookmarks::{BookmarkMap, Bookmarks};
-pub use navigation::{bookmarks, definition, keypath, symbols, usages};
+pub use navigation::{bookmarks, definition, keypath, links, symbols, usages};
 pub use tools::{format, host, latex, remote_env, shell, wsl};
 pub use workspace::copying::Copying;
 pub use workspace::picker::{FileIndex, IndexedFile, MAX_RESULTS as PICKER_MAX_RESULTS};

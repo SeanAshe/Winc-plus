@@ -208,6 +208,15 @@ fn ssh_arguments_name_a_remote_folder_and_files() {
         assert_eq!(again.targets, std::slice::from_ref(target));
     }
 
+    // IPv6 地址。
+    let scoped = winc_backend::Target::new("me@[fe80::1%eth0]:2222").unwrap();
+    let parsed = args(&["ssh://me@[fe80::1%25eth0]:2222/srv/app/a.rs:3"]).unwrap();
+    assert_eq!(
+        parsed.targets[0].path,
+        winc_backend::virtual_path(&scoped, b"/srv/app/a.rs")
+    );
+    assert_eq!(parsed.targets[0].line, Some(2));
+
     // 只有一个不带行号的参数是目录；只给出文件时项目是它所在的目录；`%3A` 不当作行号。
     let one = |text: &str| remote_open(&args(&[text]).unwrap().targets).unwrap();
     let open = one("ssh://me@devbox:2222/srv/app");

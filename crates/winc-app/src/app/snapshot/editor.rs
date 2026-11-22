@@ -7,6 +7,7 @@ pub(super) mod cursors;
 pub(super) mod editing;
 pub(super) mod folding;
 mod hex;
+mod links;
 // 格式化的测试用 sh 脚本冒充格式化工具。
 #[cfg(unix)]
 pub(super) mod format;

@@ -18,4 +18,6 @@ pub struct StatusState {
     pub(crate) motion: StatusMotion,
     /// Markdown 文档的字数。
     pub(crate) words: words::Words,
+    /// 后台为目录菜单读好的远端目录及其菜单项。
+    pub(in crate::app) folders: breadcrumb::Listed,
 }
