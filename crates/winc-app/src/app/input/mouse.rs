@@ -105,6 +105,18 @@ impl App {
     /// 触控板的手势阶段 `phase` 用于区分两次手势：调整字号与滚动的方向都在手势开始时确定。
     pub(in crate::app) fn on_wheel_event(&mut self, delta: MouseScrollDelta, phase: TouchPhase) {
         let fresh = self.note_wheel_gesture(delta, phase);
+        let (x, y) = self.pointer.mouse;
+        if self.search_dialog_part_at(x, y).is_some() || self.docked_part_at(x, y).is_some() {
+            let dy = match delta {
+                MouseScrollDelta::LineDelta(_, lines) => -lines * 3.0 * crate::app::PICKER_ROW,
+                MouseScrollDelta::PixelDelta(p) => {
+                    let scale = (self.frame.renderer.as_ref()).map_or(1.0, Renderer::scale_factor);
+                    -(p.y as f32) / scale
+                }
+            };
+            self.scroll_search_dialog(dy);
+            return;
+        }
         let wheel = move |app: &mut App| {
             if !app.wheel_zoom(delta, fresh) {
                 app.scroll_by_wheel(delta, true);

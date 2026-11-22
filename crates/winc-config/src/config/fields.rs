@@ -193,6 +193,26 @@ const EDITOR: &[Field] = &[
             Some(Json::String(value.into()))
         },
     },
+    Field {
+        key: "findInFiles",
+        read: |config, value, name, problems| {
+            config.find_in_files = match value.as_str() {
+                Some("sidebar") => Some(SearchStyle::Sidebar),
+                Some("dialog") => Some(SearchStyle::Dialog),
+                _ => {
+                    problems.push(t!("config-find-in-files-invalid", name = name));
+                    None
+                }
+            };
+        },
+        write: |config| {
+            let value = match config.find_in_files? {
+                SearchStyle::Sidebar => "sidebar",
+                SearchStyle::Dialog => "dialog",
+            };
+            Some(Json::String(value.into()))
+        },
+    },
     bool_field!("stickyScroll", sticky_scroll),
     bool_field!("wordWrap", word_wrap),
     bool_field!("wholeLines", whole_lines),

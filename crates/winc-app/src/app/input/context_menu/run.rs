@@ -218,6 +218,15 @@ impl App {
                     self.set_render_whitespace(choice);
                 }
             }
+            MenuTarget::SearchStyle => {
+                if let MenuCommand::SearchStyle(i) = command
+                    && let Some(&choice) = winc_config::SearchStyle::ALL.get(i)
+                {
+                    self.config.find_in_files = Some(choice);
+                    self.save_config();
+                    self.request_redraw();
+                }
+            }
             MenuTarget::DropFolder => {
                 if let MenuCommand::DropFolder(i) = command
                     && let Some(&choice) = winc_config::FolderDrop::ALL.get(i)

@@ -1,7 +1,7 @@
 //! 横向终端标签栏的排版与绘制。
 
 use super::*;
-use crate::app::terminal::strip::{fit_named_tabs, tabs_narrowed};
+use crate::app::terminal::strip::{TAB_SQUEEZED, fit_named_tabs, tabs_narrowed};
 
 pub(super) fn draw_header_tabs(
     app: &mut App,
@@ -9,10 +9,52 @@ pub(super) fn draw_header_tabs(
     area: Rect,
     y: f32,
 ) -> (f32, Vec<(Rect, HeaderHit)>) {
+    let (area, mut hits) = draw_search_tab(app, frame, area, y);
     if app.terminal_tab_list().is_some() {
-        return (area.x, Vec::new());
+        return (area.x, hits);
     }
-    draw_horizontal(app, frame, area, y)
+    let (x, more) = draw_horizontal(app, frame, area, y);
+    hits.extend(more);
+    (x, hits)
+}
+
+/// 结果放在面板里时，在最左边绘制「搜索」标签；返回终端标签可用的区域和可点的部位。
+fn draw_search_tab(
+    app: &App,
+    frame: &mut Frame<'_>,
+    area: Rect,
+    y: f32,
+) -> (Rect, Vec<(Rect, HeaderHit)>) {
+    if !app.search_dialog.docked {
+        return (area, Vec::new());
+    }
+    let p = app.palette;
+    let label = winc_i18n::t!("workspace-search-dock-tab");
+    let w = (frame.measure(FontKind::Ui, app.fonts.ui, label) + 36.0)
+        .clamp(TAB_SQUEEZED, (area.w * 0.4).max(TAB_SQUEEZED));
+    let rect = Rect::new(area.x, y, w, TAB_H);
+    let clip = rect.intersect(area);
+    let active = app.docked_search_shown();
+    let hovered = matches!(
+        app.pointer.hover,
+        Hover::TerminalHeader(HeaderHit::SearchTab | HeaderHit::SearchClose)
+    );
+    let color = if active { p.text } else { p.text_muted };
+    draw_tab(app, frame, rect, clip, label, (active, hovered), color);
+    let close = workspace::top_bar::tab_close(rect);
+    if active || hovered {
+        let on = app.pointer.hover == Hover::TerminalHeader(HeaderHit::SearchClose);
+        workspace::top_bar::draw_tab_close(frame, p, close, on, clip);
+    }
+    let hits = vec![
+        (close.intersect(clip), HeaderHit::SearchClose),
+        (clip, HeaderHit::SearchTab),
+    ];
+    let x = rect.right() + TAB_GAP;
+    (
+        Rect::new(x, area.y, (area.right() - x).max(0.0), area.h),
+        hits,
+    )
 }
 
 fn draw_horizontal(

@@ -22,6 +22,8 @@ mod animation;
 mod editor;
 #[cfg(unix)]
 mod git;
+mod git_layout;
+mod git_overflow;
 mod input;
 #[cfg(target_os = "macos")]
 mod memory;

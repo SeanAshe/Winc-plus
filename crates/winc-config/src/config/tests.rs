@@ -22,6 +22,24 @@ fn auto_save_reads_its_values_and_the_old_switch() {
     assert!(!problems.is_empty());
 }
 
+/// `editor.findInFiles` 读 `sidebar` 和 `dialog`，其他值报告问题并忽略。
+#[test]
+fn find_in_files_reads_its_values() {
+    for (value, expected) in [
+        ("sidebar", SearchStyle::Sidebar),
+        ("dialog", SearchStyle::Dialog),
+    ] {
+        let text = format!(r#"{{"editor":{{"findInFiles":"{value}"}}}}"#);
+        let (config, problems) = Config::parse(&text);
+        assert!(problems.is_empty(), "{value}");
+        assert_eq!(config.find_in_files, Some(expected));
+        assert_eq!(Config::parse(&config.to_json()).0, config);
+    }
+    let (config, problems) = Config::parse(r#"{"editor":{"findInFiles":"popup"}}"#);
+    assert_eq!(config.find_in_files, None);
+    assert!(!problems.is_empty());
+}
+
 #[test]
 fn terminal_application_priority_is_optional_and_round_trips() {
     assert_eq!(Config::default().terminal_application_priority, None);
@@ -362,6 +380,7 @@ fn round_trips_through_json() {
         git_enabled: Some(true),
         git_confirm_push: Some(false),
         drop_folder: Some(FolderDrop::Add),
+        find_in_files: Some(SearchStyle::Dialog),
         git_remember_credentials: Some(false),
         system_proxy: Some(false),
         git_inline_blame: Some(false),

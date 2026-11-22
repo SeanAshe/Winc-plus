@@ -501,9 +501,13 @@ fn draw_file_row(
     let content = parts_width(app, frame, &parts, false);
     let reach = NAME_FADE * stage(view.progress, FADE_FROM, 1.0);
     if !wanted && text_x + content > name_end + 0.5 && reach > 0.0 {
-        let solid = shade_color.map_or(p.sidebar_bg, |c| {
-            crate::view::workspace::panel::over(p.sidebar_bg, c)
-        });
+        let mut solid = p.sidebar_bg;
+        if app.commit_shows_others() {
+            solid = crate::view::workspace::panel::over(solid, others::current_fill(app));
+        }
+        if let Some(color) = shade_color {
+            solid = crate::view::workspace::panel::over(solid, color);
+        }
         let edge = Rect::new(name_end - reach, y, reach, COMMIT_ROW);
         frame.within(name_clip, |frame| fade(frame, edge, solid, false));
     }

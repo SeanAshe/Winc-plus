@@ -265,7 +265,7 @@ impl CommitState {
     }
 
     /// 按 [`CommitState::sort`] 排 `files`（各项在状态中的下标和相对仓库根的路径）。
-    fn sort_files(&self, status: &Status, files: &mut [(usize, &Path)]) {
+    pub(super) fn sort_files(&self, status: &Status, files: &mut [(usize, &Path)]) {
         let letter = |index: usize| status.entries.get(index).map(|e| e.shown().letter());
         files.sort_by(|a, b| match self.sort {
             CommitSort::Path => natural_path_cmp(a.1, b.1),
@@ -284,6 +284,7 @@ impl CommitState {
         self.collapsed = [collapse; CommitGroup::COUNT];
         if !collapse {
             self.forget_dirs();
+            self.other_collapsed_dirs.clear();
         }
         self.layout += 1;
     }

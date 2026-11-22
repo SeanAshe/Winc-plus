@@ -25,6 +25,176 @@ fn two_repositories(name: &str, dark: bool) -> Option<(App, PathBuf, PathBuf)> {
     Some((app, dir.join("a"), dir.join("b")))
 }
 
+/// 长文件名的渐隐必须使用当前仓库卡片和行状态叠加后的底色，不能露出普通侧栏底色。
+#[test]
+fn long_names_fade_into_the_current_repository_background() {
+    for dark in [false, true] {
+        let Some((mut app, root, _)) = two_repositories(&format!("git-name-fade-{dark}"), dark)
+        else {
+            return;
+        };
+        let path = root.join("src/a-very-long-file-name-that-cannot-fit-in-the-sidebar.rs");
+        std::fs::write(&path, "new\n").unwrap();
+        app.git_refresh();
+        app.poll_git();
+        app.run_action(Action::ShowCommit);
+        app.git.commit.shift = None;
+        let index = app
+            .git
+            .status
+            .as_ref()
+            .unwrap()
+            .entries
+            .iter()
+            .position(|e| e.path == path)
+            .unwrap();
+        for flat in [false, true] {
+            app.git.commit.set_flat(flat);
+            for selected in [false, true] {
+                app.git.commit.selected = selected.then(|| path.clone());
+                for focus in [Focus::Tree, Focus::CommitList] {
+                    app.focus = focus;
+                    paint(&mut app);
+                    let row = app
+                        .hits
+                        .commit
+                        .iter()
+                        .find(|(_, h)| *h == CommitTarget::File(index))
+                        .unwrap()
+                        .0;
+                    let image = app.frame.renderer.as_ref().unwrap().image().unwrap();
+                    let pixel = |x: f32| {
+                        let y = ((row.y + 2.0) * SCALE) as usize;
+                        image.pixels[y * image.width as usize + (x * SCALE) as usize]
+                    };
+                    let base = pixel(row.x + 20.0);
+                    // 文字和勾选框上方的空白也经过渐隐；整段都应与行底色一致。
+                    for x in (row.right() as usize - 80)..(row.right() as usize - 28) {
+                        let actual = pixel(x as f32);
+                        // 半透明背景与渐隐分别混合时允许每通道一档取整误差。
+                        let same = (0..4).all(|c| {
+                            ((actual >> (c * 8)) & 255).abs_diff((base >> (c * 8)) & 255) <= 1
+                        });
+                        assert!(
+                            same,
+                            "dark={dark}, flat={flat}, selected={selected}, focus={focus:?}, x={x}"
+                        );
+                    }
+                }
+            }
+        }
+        let _ = std::fs::remove_dir_all(root.parent().unwrap());
+    }
+}
+
+/// 同名长文件在当前和其他仓库中使用相同的截断渐隐，状态字母前保留相同间距。
+#[test]
+fn other_repository_names_fade_like_current_names() {
+    let name = "2026-07-31-spell-calibration-with-a-very-long-file-name.rs";
+    for dark in [false, true] {
+        let Some((mut app, a, b)) = two_repositories(&format!("git-other-name-fade-{dark}"), dark)
+        else {
+            return;
+        };
+        for root in [&a, &b] {
+            std::fs::write(root.join("src").join(name), "new\n").unwrap();
+        }
+        app.git_refresh();
+        app.git_read_summaries();
+        app.poll_git();
+        app.run_action(Action::ShowCommit);
+        app.git.commit.shift = None;
+        app.git.commit.set_flat(true);
+        app.state.commit_all_repositories = Some(true);
+        // 去掉当前仓库卡片的色差，直接对比两行的文字和渐隐像素。
+        app.palette = Box::leak(Box::new(Palette {
+            accent: app.palette.sidebar_bg,
+            ..*app.palette
+        }));
+        let index = app
+            .git
+            .status
+            .as_ref()
+            .unwrap()
+            .entries
+            .iter()
+            .position(|e| e.path.ends_with(name))
+            .unwrap();
+        let other_index = app
+            .other_status(1, |_, s| {
+                s.entries.iter().position(|e| e.path.ends_with(name))
+            })
+            .flatten()
+            .unwrap();
+        for scale in [1.25, 2.0] {
+            app.frame.renderer = Some(
+                Renderer::offscreen(SIZE.0, SIZE.1, scale, app.palette.frame_bg, None, None)
+                    .unwrap(),
+            );
+            app.measure_fonts();
+            for staging in [false, true] {
+                app.git.commit.set_staging(staging);
+                for width in [230.0, 310.0] {
+                    app.panels.sidebar.width = width;
+                    paint(&mut app);
+                    app.git.commit.names.finish();
+                    paint(&mut app);
+                    let hit = |target| {
+                        app.hits
+                            .commit
+                            .iter()
+                            .find(|(_, t)| *t == target)
+                            .unwrap()
+                            .0
+                    };
+                    let current = hit(CommitTarget::File(index));
+                    let other = hit(CommitTarget::OtherFile(1, other_index));
+                    assert_eq!((current.x, current.w), (other.x, other.w));
+                    let image = app.frame.renderer.as_ref().unwrap().image().unwrap();
+                    let pixel = |row: Rect, x: usize, y: usize| {
+                        let y = ((row.y + y as f32) * scale) as usize;
+                        image.pixels[y * image.width as usize + (x as f32 * scale) as usize]
+                    };
+                    for y in 2..COMMIT_ROW as usize - 2 {
+                        for x in (current.right() as usize - 72)..(current.right() as usize - 4) {
+                            let (a, b) = (pixel(current, x, y), pixel(other, x, y));
+                            assert!(
+                                (0..4)
+                                    .all(|c| ((a >> (8 * c)) & 255).abs_diff((b >> (8 * c)) & 255)
+                                        <= 1),
+                                "dark={dark}, scale={scale}, staging={staging}, width={width}, x={x}, y={y}: {a:08x} != {b:08x}"
+                            );
+                        }
+                    }
+                    app.on_mouse_move(other.right() - 80.0, other.y + COMMIT_ROW / 2.0);
+                    paint(&mut app);
+                    assert_eq!(
+                        app.pointer.hover,
+                        Hover::Commit(CommitTarget::OtherFile(1, other_index))
+                    );
+                    let image = app.frame.renderer.as_ref().unwrap().image().unwrap();
+                    let pixel = |x: f32| {
+                        let y = ((other.y + 2.0) * scale) as usize;
+                        image.pixels[y * image.width as usize + (x * scale) as usize]
+                    };
+                    let base = pixel(other.x + 20.0);
+                    for x in (other.right() as usize - 72)..(other.right() as usize - 28) {
+                        let actual = pixel(x as f32);
+                        assert!(
+                            (0..4).all(|c| ((actual >> (8 * c)) & 255)
+                                .abs_diff((base >> (8 * c)) & 255)
+                                <= 1),
+                            "hover: dark={dark}, scale={scale}, staging={staging}, width={width}, x={x}"
+                        );
+                    }
+                    app.on_mouse_move(app.layout.editor.x + 40.0, app.layout.editor.y + 40.0);
+                }
+            }
+        }
+        let _ = std::fs::remove_dir_all(a.parent().unwrap());
+    }
+}
+
 #[test]
 fn other_repositories_are_listed_after_the_current_one_and_a_click_switches() {
     let Some((mut app, a, b)) = two_repositories("git-all-repositories", false) else {

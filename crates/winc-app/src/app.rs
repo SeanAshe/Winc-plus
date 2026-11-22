@@ -425,6 +425,12 @@ pub enum Focus {
     TerminalRename,
     /// 快速打开的输入框（⌘P）。
     Picker,
+    /// 在文件中查找的对话框的查询输入框。
+    SearchDialog,
+    /// 在文件中查找的对话框的文件掩码输入框。
+    SearchMask,
+    /// 底部面板「搜索」标签中的结果列表。
+    SearchDock,
     /// 设置浮层中正在编辑的字体名输入框。
     Setting,
     /// 设置浮层已打开且没有输入框在编辑：方向键在设置项之间移动并修改值。
@@ -496,6 +502,10 @@ pub enum Hover {
     Merge(git::merge::MergeTarget),
     /// 快速打开面板或位置浮窗中的一行，参数为结果的序号（从 0 起）。
     PickerRow(usize),
+    /// 在文件中查找的对话框中的部位。
+    SearchDialog(workspace::search_dialog::DialogPart),
+    /// 底部面板「搜索」标签中的部位。
+    SearchDock(workspace::search_dialog::DialogPart),
     /// 选择面板里的一个按钮。
     PickerPart(PickerPart),
     ProjectName,
@@ -599,6 +609,7 @@ impl Hover {
             Hover::TreeTool(_)
                 | Hover::TerminalHeader(
                     terminal::HeaderHit::Position
+                        | terminal::HeaderHit::SearchDialog
                         | terminal::HeaderHit::Maximize
                         | terminal::HeaderHit::ShellMenu
                         | terminal::HeaderHit::Find(_)
@@ -628,6 +639,14 @@ impl Hover {
                         | PanelButton::ReplaceAll
                 )
                 | Hover::RowAction(..)
+                | Hover::SearchDialog(
+                    workspace::search_dialog::DialogPart::Option(_)
+                        | workspace::search_dialog::DialogPart::MaskToggle
+                        | workspace::search_dialog::DialogPart::Dock
+                        | workspace::search_dialog::DialogPart::Close
+                        | workspace::search_dialog::DialogPart::Scope(1)
+                )
+                | Hover::SearchDock(workspace::search_dialog::DialogPart::Option(_))
                 | Hover::Change(_)
                 | Hover::RulerChange(_)
                 | Hover::Log(
@@ -689,6 +708,16 @@ enum Drag {
     /// 拖动设置卡片的标题行；`grab` 是按下处相对卡片左上角的位置。
     SettingsCard {
         grab: (f32, f32),
+    },
+    /// 拖动在文件中查找的对话框的标题行；`grab` 是按下处相对对话框左上角的位置。
+    SearchDialog {
+        grab: (f32, f32),
+    },
+    /// 拖动在文件中查找的对话框的边缘：拖动的边、按下的位置和按下时对话框的位置。
+    SearchDialogEdge {
+        edge: (i8, i8),
+        from: (f32, f32),
+        rect: Rect,
     },
     /// 拖选文字。
     ///
@@ -954,6 +983,8 @@ pub struct App {
     pub(crate) bars: editor::InputBars,
     /// 阅读时固定的词或短选区及其颜色编号，按标记时间从早到晚排列。
     pub(crate) word_highlights: Vec<(usize, WordHighlight)>,
+    /// 在文件中查找的对话框。
+    pub(crate) search_dialog: workspace::search_dialog::SearchDialog,
 
     // 快速打开
     /// 与磁盘的同步：目录的监视，以及文件在后台的读取、保存和改动。

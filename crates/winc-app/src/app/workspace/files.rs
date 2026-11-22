@@ -1202,25 +1202,20 @@ impl App {
     pub(in crate::app) fn check_disk(&mut self) {
         self.check_remote();
         self.sync_documents(|_| true);
-        // 在终端里提交、切换分支时 `.git` 可能不在监视范围内：打开的是仓库中的子目录，或者没有
-        // 启动监视。工作树、子模块的 `.git` 是文件，真正的目录在其他位置。仓库根位于已监视的目录
-        // 中、`.git` 是目录时，它的变化已由监视报告，不必每次窗口重新获得焦点都启动 git。
-        // `.git` 的位置取自上一次读到的状态，不访问文件系统：远端的仓库不能在界面线程上查询。
         self.git_discover();
         self.restart_exited_watcher();
+        // `.git` 在监视范围内时分支、储藏的变化已由监视报告，只补查一次工作区状态；否则（打开的
+        // 是仓库中的子目录、工作树或子模块，或没有监视）连同分支、储藏一起重读。
+        if self.git_watched() {
+            self.git_refresh_status();
+        } else {
+            self.git_refresh();
+        }
         let live = self
             .disk
             .watcher
             .as_ref()
             .is_some_and(winc_editor::Watcher::reliable);
-        let watched = (self.disk.watcher.as_ref().filter(|_| live)).zip(self.git.root.as_deref());
-        let git_dir = (self.git.status.as_ref()).and_then(|status| status.git_dir.as_deref());
-        if !watched.is_some_and(|(w, root)| {
-            root.starts_with(w.root()) && git_dir == Some(root.join(".git").as_path())
-        }) {
-            self.git_refresh();
-        }
-
         if !live {
             // 发行版无法访问时目录都读不到，保留现有的文件树。
             let reachable = self.editor.root().is_none_or(winc_editor::wsl::reachable);

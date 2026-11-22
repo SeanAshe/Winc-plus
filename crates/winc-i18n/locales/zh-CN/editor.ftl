@@ -70,6 +70,7 @@ editor-open-folder-first = 请先打开一个目录
 editor-places-definitions-count = { $count } 处定义
 editor-places-usages-count = { $count } 个用法
 editor-places-bookmarks-count = { $count } 个书签
+editor-places-search-count = { $count } 个结果
 editor-places-no-match = 无匹配的位置
 editor-places-usages-suffix = { " " }的用法
 editor-places-definitions-suffix = { " " }的定义

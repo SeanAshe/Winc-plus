@@ -109,6 +109,10 @@ pub(in crate::view) fn result_overflow(app: &App, frame: &mut Frame<'_>) -> Opti
     }
     let index = match app.pointer.hover {
         Hover::Result(i) | Hover::RowAction(i, _) => i,
+        // 鼠标经过分隔条移向全名时保持展开；在分隔条上按下仍由分隔条开始拖动。
+        Hover::Splitter if app.over_result_overflow_row(app.mouse().1) => {
+            app.panels.global.overflow?.index
+        }
         _ => return None,
     };
     let Some(&ResultRow::File(f)) = app.panels.global.rows().get(index) else {

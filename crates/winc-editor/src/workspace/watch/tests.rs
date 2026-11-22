@@ -183,6 +183,36 @@ fn changes_inside_the_folder_are_reported() {
     let _ = fs::remove_dir_all(&dir);
 }
 
+/// 外部工具连续原地写入、临时文件替换后，监视仍能报告同一目标文件的后续变化。
+#[test]
+fn repeated_writes_and_file_replacements_are_reported() {
+    let dir = scratch("repeated-replacements");
+    let path = dir.join("source.rs");
+    fs::write(&path, "initial\n").unwrap();
+    let (sender, woken) = mpsc::channel();
+    let watcher = Watcher::start(&dir, move || {
+        let _ = sender.send(());
+    })
+    .unwrap();
+    for round in 0..8 {
+        // 清空上一轮的晚到事件，确认每轮保存都会重新唤醒。
+        while woken.recv_timeout(Duration::from_millis(100)).is_ok() {
+            watcher.take();
+        }
+        let text = format!("round {round}\n");
+        if round % 2 == 0 {
+            fs::write(&path, text).unwrap();
+        } else {
+            let temporary = dir.join("source.tmp");
+            fs::write(&temporary, text).unwrap();
+            winc_config::files::replace_file(&temporary, &path).unwrap();
+        }
+        wait_for(&watcher, &woken, &[&path]);
+    }
+    drop(watcher);
+    let _ = fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn too_many_changes_become_a_rescan() {
     let dir = scratch("overflow");

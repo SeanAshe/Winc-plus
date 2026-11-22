@@ -361,6 +361,9 @@ impl App {
             MenuTarget::PullMode => (0..winc_config::PullMode::ALL.len())
                 .map(|i| MenuEntry::Item(MenuCommand::PullMode(i), true))
                 .collect(),
+            MenuTarget::SearchStyle => (0..winc_config::SearchStyle::ALL.len())
+                .map(|i| MenuEntry::Item(MenuCommand::SearchStyle(i), true))
+                .collect(),
             MenuTarget::DropFolder => (0..winc_config::FolderDrop::ALL.len())
                 .map(|i| MenuEntry::Item(MenuCommand::DropFolder(i), true))
                 .collect(),
@@ -823,6 +826,7 @@ impl App {
                 | MenuTarget::OpenWorktree
                 | MenuTarget::PullMode
                 | MenuTarget::DropFolder
+                | MenuTarget::SearchStyle
                 | MenuTarget::AutoSave
                 | MenuTarget::Zoom
                 | MenuTarget::BackgroundImage
@@ -841,6 +845,7 @@ impl App {
             MenuTarget::OpenWorktree => Some(Setting::GitOpenWorktree),
             MenuTarget::PullMode => Some(Setting::GitPullMode),
             MenuTarget::DropFolder => Some(Setting::DropFolder),
+            MenuTarget::SearchStyle => Some(Setting::FindInFiles),
             MenuTarget::AutoSave => Some(Setting::AutoSave),
             MenuTarget::Zoom => Some(Setting::Zoom),
             MenuTarget::BackgroundImage => Some(Setting::BackgroundImage),
@@ -1121,6 +1126,9 @@ impl App {
             }
             MenuCommand::PullMode(i) => {
                 winc_config::PullMode::ALL.get(i) == Some(&self.config.git_pull.unwrap_or_default())
+            }
+            MenuCommand::SearchStyle(i) => {
+                winc_config::SearchStyle::ALL.get(i) == Some(&self.search_style())
             }
             MenuCommand::DropFolder(i) => {
                 winc_config::FolderDrop::ALL.get(i)

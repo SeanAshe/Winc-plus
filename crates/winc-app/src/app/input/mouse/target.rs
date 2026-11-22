@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::app::diff::DIFF_HSCROLL;
+use crate::app::workspace::search_dialog::DialogPart;
 
 impl App {
     /// 把顶栏当前的命中测试区域同步给窗口过程。
@@ -206,6 +207,8 @@ impl App {
             Target::Change(target) => Hover::Change(target),
             Target::Merge(target) => Hover::Merge(target),
             Target::Conflict(action) => Hover::ConflictButton(action),
+            Target::SearchDialog(part) => Hover::SearchDialog(part),
+            Target::SearchDock(part) => Hover::SearchDock(part),
             Target::Picker
                 if let Some(&(_, part)) =
                     (self.hits.picker_parts.iter()).find(|(rect, _)| rect.contains(x, y)) =>
@@ -336,6 +339,10 @@ impl App {
         if self.overlays.picker.open && l.picker.contains(x, y) {
             return Target::Picker;
         }
+        // 在文件中查找的对话框浮在编辑区和侧栏之上。
+        if let Some(part) = self.search_dialog_part_at(x, y) {
+            return Target::SearchDialog(part);
+        }
         if self.hits.tree_more.is_some_and(|more| more.contains(x, y)) {
             return Target::TreeMore;
         }
@@ -371,11 +378,9 @@ impl App {
         if l.search.contains(x, y) {
             return Target::Search;
         }
-        // 名称显示不全而展开的行（文件树、改动列表）覆盖在分隔条上，该行优先；
-        // 其余各行仍可拖动分隔条。
+        // 展开的全名可以画在分隔条上，分隔条仍然可以拖动；鼠标停在分隔条上时全名保持展开。
         let over_row = self.over_tree_overflow_row(y);
-        let over_any = over_row || over_commit_row || over_result_row;
-        if self.panels.sidebar.visible && !over_any && l.splitter.contains(x, y) {
+        if self.panels.sidebar.visible && l.splitter.contains(x, y) {
             return Target::Splitter;
         }
         if let Some(tool) = hit(&self.hits.tree_tools, x, y) {
@@ -453,6 +458,9 @@ impl App {
         }
         if y < TOP_BAR_END {
             return Target::TitleBar;
+        }
+        if let Some(part) = self.docked_part_at(x, y) {
+            return Target::SearchDock(part);
         }
         if l.terminal.contains(x, y) {
             if self
@@ -756,19 +764,23 @@ impl App {
     ///
     /// 只有已展开的行优先。沿边缘上下移动到其他行时，该行尚未展开，滚动条正常响应。
     pub(in crate::app) fn over_tree_overflow_row(&self, y: f32) -> bool {
-        self.panels
-            .tree
-            .overflow
-            .is_some_and(|(rect, _)| (rect.y..rect.bottom()).contains(&y))
+        self.panels.sidebar.view == SidebarView::Files
+            && self
+                .panels
+                .tree
+                .overflow
+                .is_some_and(|(rect, _)| (rect.y..rect.bottom()).contains(&y))
     }
 
     /// 窗口坐标 (`x`, `y`)（逻辑像素）是否位于文件树中显示不全的文件名
     /// 向右展开、覆盖到编辑区上方的区域内。
     pub(in crate::app) fn in_tree_overflow(&self, x: f32, y: f32) -> bool {
-        self.panels
-            .tree
-            .overflow
-            .is_some_and(|(rect, _)| rect.contains(x, y))
+        self.panels.sidebar.view == SidebarView::Files
+            && self
+                .panels
+                .tree
+                .overflow
+                .is_some_and(|(rect, _)| rect.contains(x, y))
     }
 
     /// 按鼠标当前位置重新判断悬停目标和指针样式；每绘制完一帧调用一次。
@@ -851,6 +863,37 @@ impl App {
                 }
                 Some(SettingsPart::KeySearch | SettingsPart::SearchField) => CursorIcon::Text,
                 Some(SettingsPart::Link(_)) => CursorIcon::Pointer,
+                _ => CursorIcon::Default,
+            };
+            self.set_cursor_icon(icon);
+            return;
+        }
+
+        // 在文件中查找的对话框上：边缘显示改变大小的指针，输入框上显示文本光标，其余位置显示箭头。
+        let edge = match self.pointer.drag {
+            Drag::SearchDialogEdge { edge, .. } => Some(Some(DialogPart::Edge(edge.0, edge.1))),
+            Drag::SearchDialog { .. } => Some(Some(DialogPart::Title)),
+            _ => None,
+        };
+        let part = edge.unwrap_or_else(|| self.search_dialog_part_at(x, y));
+        if part.is_none()
+            && let Some(docked) = self.docked_part_at(x, y)
+        {
+            let icon = if docked == DialogPart::Query {
+                CursorIcon::Text
+            } else {
+                CursorIcon::Default
+            };
+            self.set_cursor_icon(icon);
+            return;
+        }
+        if let Some(part) = part {
+            let icon = match part {
+                DialogPart::Edge(0, _) => CursorIcon::NsResize,
+                DialogPart::Edge(_, 0) => CursorIcon::EwResize,
+                DialogPart::Edge(h, v) if h == v => CursorIcon::NwseResize,
+                DialogPart::Edge(..) => CursorIcon::NeswResize,
+                DialogPart::Query => CursorIcon::Text,
                 _ => CursorIcon::Default,
             };
             self.set_cursor_icon(icon);
@@ -969,6 +1012,10 @@ impl App {
 /// 窗口中某一点上最上层的可交互目标，见 [`App::target_at`]。
 #[derive(Debug, Clone, Copy)]
 pub(super) enum Target {
+    /// 在文件中查找的对话框中的部位。
+    SearchDialog(crate::app::workspace::search_dialog::DialogPart),
+    /// 底部面板「搜索」标签中的部位。
+    SearchDock(crate::app::workspace::search_dialog::DialogPart),
     /// 遮挡下方但此处没有按钮的区域：提示条、卡片的空白处。
     ///
     /// 点击时不做任何操作，也不传给下方的部件。

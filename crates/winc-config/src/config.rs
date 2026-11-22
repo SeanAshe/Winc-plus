@@ -70,6 +70,8 @@ pub struct Config {
     pub restore_folder: Option<bool>,
     /// 把目录拖进已打开目录的窗口时怎样处理，默认每次询问。
     pub drop_folder: Option<FolderDrop>,
+    /// 「在文件中查找」打开在哪里；没写时按键位方案：`idea` 为对话框，否则为侧栏。
+    pub find_in_files: Option<SearchStyle>,
     /// 已经打开了目录的窗口里再打开另一个目录时，`true` 在新窗口打开，`false` 在此窗口打开
     /// （替换当前目录）；没写时每次询问。
     ///
@@ -346,6 +348,20 @@ pub enum AutoSave {
 impl AutoSave {
     /// 全部取值，按设置菜单中的顺序排列。
     pub const ALL: [Self; 3] = [Self::Off, Self::OnFocusChange, Self::AfterDelay];
+}
+
+/// 「在文件中查找」打开在哪里。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SearchStyle {
+    /// 侧栏的搜索面板。
+    Sidebar,
+    /// 浮在窗口中的对话框。
+    Dialog,
+}
+
+impl SearchStyle {
+    /// 全部取值，按设置菜单中的顺序排列。
+    pub const ALL: [Self; 2] = [Self::Sidebar, Self::Dialog];
 }
 
 /// 把目录拖进已打开目录的窗口时怎样处理。

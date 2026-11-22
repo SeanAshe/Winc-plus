@@ -188,7 +188,7 @@ fn draw_panel_header(app: &App, frame: &mut Frame<'_>, parts: &PanelParts) {
 
     for (rect, tool) in parts.tools {
         // 没有结果时「清除」「全部折叠」置灰。
-        let enabled = tool == PanelTool::Refresh || has_results;
+        let enabled = matches!(tool, PanelTool::Refresh | PanelTool::OpenDialog) || has_results;
         let hovered = enabled && app.pointer.hover == Hover::Panel(PanelButton::Tool(tool));
         draw_button(frame, p, rect, header, hovered, false);
 
@@ -202,6 +202,7 @@ fn draw_panel_header(app: &App, frame: &mut Frame<'_>, parts: &PanelParts) {
         match tool {
             PanelTool::Refresh => icons::refresh(frame, c, color, header),
             PanelTool::Clear => icons::clear_results(frame, c, color, header),
+            PanelTool::OpenDialog => icons::external(frame, c, color, header),
             PanelTool::CollapseAll if app.panels.global.all_collapsed() => {
                 icons::expand_all(frame, c, color, header);
             }
@@ -888,6 +889,11 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
             };
             Some((rect, label.to_owned()))
         }
+        Hover::TerminalHeader(hit @ crate::app::terminal::HeaderHit::SearchDialog) => {
+            let rect = app.hits.terminal.iter().find(|(_, h)| *h == hit)?.0;
+            let name = t!("workspace-search-tool-open-dialog");
+            Some((rect, with_key(name, Some(Action::OpenSearchDialog))))
+        }
         Hover::TerminalHeader(hit @ crate::app::terminal::HeaderHit::Hide) => {
             let rect = app.hits.terminal.iter().find(|(_, h)| *h == hit)?.0;
             Some((
@@ -1255,6 +1261,10 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
             let label = match tool {
                 PanelTool::Refresh => t!("workspace-search-tool-refresh"),
                 PanelTool::Clear => t!("workspace-search-tool-clear"),
+                PanelTool::OpenDialog => {
+                    let name = t!("workspace-search-tool-open-dialog");
+                    return Some((rect, with_key(name, Some(Action::OpenSearchDialog))));
+                }
                 PanelTool::CollapseAll if app.panels.global.all_collapsed() => {
                     t!("workspace-search-tool-expand-all")
                 }

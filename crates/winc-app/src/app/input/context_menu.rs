@@ -242,6 +242,8 @@ pub enum MenuCommand {
     /// 设置中「拖入目录」菜单的一项，参数为
     /// [`FolderDrop::ALL`](winc_config::FolderDrop::ALL) 中的序号（从 0 起）。
     DropFolder(usize),
+    /// 「在文件中查找」设置的选项：[`SearchStyle::ALL`](winc_config::SearchStyle::ALL) 中的序号。
+    SearchStyle(usize),
     /// 设置中「自动保存」菜单的一项，参数为
     /// [`AutoSave::ALL`](winc_config::AutoSave::ALL) 中的序号（从 0 起）。
     AutoSave(usize),
@@ -755,6 +757,9 @@ impl MenuCommand {
             MenuCommand::PullMode(i) => winc_config::PullMode::ALL
                 .get(i)
                 .map_or("", |&choice| crate::layout::pull_mode_label(choice)),
+            MenuCommand::SearchStyle(i) => winc_config::SearchStyle::ALL
+                .get(i)
+                .map_or("", |&choice| crate::layout::search_style_label(choice)),
             MenuCommand::DropFolder(i) => winc_config::FolderDrop::ALL
                 .get(i)
                 .map_or("", |&choice| crate::layout::drop_folder_label(choice)),
@@ -961,6 +966,8 @@ pub enum MenuTarget {
     PullMode,
     /// 设置的编辑器页中的「拖入目录」。
     DropFolder,
+    /// 「在文件中查找」设置的选项菜单。
+    SearchStyle,
     /// 设置的编辑器页中的「自动保存」。
     AutoSave,
     /// 设置的外观页中的「界面缩放」。

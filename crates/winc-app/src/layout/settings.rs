@@ -136,6 +136,7 @@ impl SettingsPage {
                     Setting::RestoreFolder,
                     Setting::DropFolder,
                     Setting::PreviewOnClick,
+                    Setting::FindInFiles,
                 ]),
                 plain(vec![Setting::Outline, Setting::CompactFolders]),
                 plain(vec![
@@ -434,6 +435,8 @@ pub enum Setting {
     GitPullMode,
     /// 把目录拖进已打开目录的窗口时怎样处理（`dropFolder`）。
     DropFolder,
+    /// 「在文件中查找」打开在侧栏还是对话框中。
+    FindInFiles,
     /// `git` 程序的路径（`git.path`）；未设置时在 `PATH` 里查找。
     GitPath,
     /// 终端模块的开关。
@@ -506,6 +509,7 @@ impl Setting {
             | Setting::ConfirmClose
             | Setting::RestoreFolder
             | Setting::DropFolder
+            | Setting::FindInFiles
             | Setting::CompactFolders
             | Setting::PreviewOnClick
             | Setting::StickyScroll
@@ -590,6 +594,7 @@ impl Setting {
             Setting::ConfirmClose => t!("settings-confirm-close"),
             Setting::RestoreFolder => t!("settings-restore-folder"),
             Setting::DropFolder => t!("settings-drop-folder"),
+            Setting::FindInFiles => t!("settings-find-in-files"),
             Setting::StickyScroll => t!("settings-sticky-scroll"),
             Setting::VimMode => t!("settings-vim-mode"),
             Setting::VimClipboard => t!("settings-vim-clipboard"),
@@ -680,6 +685,7 @@ impl Setting {
             Setting::ConfirmClose => Some(t!("settings-confirm-close-desc")),
             Setting::RestoreFolder => Some(t!("settings-restore-folder-desc")),
             Setting::DropFolder => Some(t!("settings-drop-folder-desc")),
+            Setting::FindInFiles => Some(t!("settings-find-in-files-desc")),
             Setting::StickyScroll => Some(t!("settings-sticky-scroll-desc")),
             Setting::VimMode => Some(t!("settings-vim-mode-desc")),
             Setting::VimClipboard => Some(t!("settings-vim-clipboard-desc")),
@@ -819,6 +825,7 @@ impl Setting {
             | Setting::TerminalTabPosition
             | Setting::TerminalOptionAsMeta
             | Setting::DropFolder
+            | Setting::FindInFiles
             | Setting::AutoSave
             | Setting::GitOpenWorktree
             | Setting::GitPullMode => SettingControl::Choice,
@@ -893,6 +900,14 @@ pub fn auto_save_label(choice: winc_config::AutoSave) -> &'static str {
         Off => t!("settings-auto-save-off"),
         OnFocusChange => t!("settings-auto-save-focus"),
         AfterDelay => t!("settings-auto-save-delay"),
+    }
+}
+
+/// 返回「在文件中查找」设置中选项 `choice` 的名字。
+pub fn search_style_label(choice: winc_config::SearchStyle) -> &'static str {
+    match choice {
+        winc_config::SearchStyle::Sidebar => t!("settings-find-in-files-sidebar"),
+        winc_config::SearchStyle::Dialog => t!("settings-find-in-files-dialog"),
     }
 }
 

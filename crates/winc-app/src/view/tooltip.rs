@@ -20,7 +20,8 @@ pub(super) fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
     if !rested {
         return;
     }
-    let (button, label): (Rect, String) = match workspace::panel::tooltip(app) {
+    let tip = workspace::panel::tooltip(app).or_else(|| workspace::search_dialog::tooltip(app));
+    let (button, label): (Rect, String) = match tip {
         Some(tip) => tip,
         None => match app.pointer.hover {
             Hover::Search(button) => (
