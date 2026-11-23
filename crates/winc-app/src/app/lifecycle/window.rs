@@ -736,7 +736,9 @@ impl App {
         self.after_terminal_frame();
         self.frame.presented += 1;
 
-        match self.frame.bench.on_present(self.frame.presented, elapsed) {
+        let loading = self.editor.active().is_some_and(|d| d.is_pending());
+        let next = (self.frame.bench).on_present(self.frame.presented, elapsed, loading);
+        match next {
             Next::Continue => {}
             // 应用层看到以后结束事件循环（测量时只有一个窗口）。
             Next::Exit => self.closing.quit_requested = true,

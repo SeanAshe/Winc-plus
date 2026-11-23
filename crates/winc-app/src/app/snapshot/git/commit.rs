@@ -1025,7 +1025,9 @@ fn the_refresh_button_spins_for_at_least_one_turn() {
     paint(&mut app);
     assert!(!app.commit_refreshing());
     app.press_commit(CommitTarget::Refresh);
-    // 测试里读取就地完成，这时转的只是至少一圈的时长。
+    // 测试里读取就地完成，这时转的只是至少一圈的时长；起点改为此刻，免得读取慢时已转满。
+    assert!(app.git.commit.refreshed.is_some());
+    app.git.commit.refreshed = Some(Instant::now());
     assert!(app.commit_refreshing());
     assert!(app.animating());
     let turn = Duration::from_secs_f32(1.0 / crate::theme::SPIN_SPEED);

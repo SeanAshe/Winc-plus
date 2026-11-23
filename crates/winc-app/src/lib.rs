@@ -187,7 +187,8 @@ pub fn run() {
         std::process::exit(i32::from(failed));
     }
 
-    for problem in open_targets(&mut editor, &args) {
+    let opened = open_targets(&mut editor, &args);
+    for problem in &opened.problems {
         eprintln!("winc: {problem}");
     }
     // `--wait` 给的全是打不开的目标（例如目录）时没有标签可等，窗口在命令行目标处理完之后
@@ -284,6 +285,7 @@ pub fn run() {
     app.state = state;
     app.restore_text_places();
     app.restore_panel_width();
+    app.load_at_launch(opened.jumps);
     // 临时打开（`--wait`、`-`）时不记录现场、不加入最近列表、不备份，下次启动的状态不受影响。
     if args.one_off() {
         app.start_one_off(&args);
@@ -326,13 +328,23 @@ pub fn run() {
     updates::after_exit();
 }
 
-/// 按命令行参数打开目录和文件，返回需要提示用户的 `Vec<String>`。
+/// 按命令行参数打开目录和文件的结果。
+#[derive(Debug, Default)]
+pub(crate) struct Opened {
+    /// 需要提示用户的问题。
+    pub problems: Vec<String>,
+    /// 还没有读取的文档读好以后要跳到的（行，列），从 0 起。
+    pub jumps: Vec<(winc_editor::DocumentId, usize, usize)>,
+}
+
+/// 按命令行参数打开目录和文件。
 ///
 /// 只给出文件时不打开其所在的目录；`文件:行` 形式的目标会跳到对应行（行号和列号从 0 起）。
-/// 临时打开（`--wait`、`-`）时不接受目录。远端的目标（`ssh://`）跳过：连接之后才能打开，见
-/// [`cli::remote_open`]。
-pub(crate) fn open_targets(editor: &mut Editor, args: &cli::Args) -> Vec<String> {
+/// 大文件只开标签不读取，留给窗口在后台读取（见 [`App::load_at_launch`]）。临时打开（`--wait`、
+/// `-`）时不接受目录。远端的目标（`ssh://`）跳过：连接之后才能打开，见 [`cli::remote_open`]。
+pub(crate) fn open_targets(editor: &mut Editor, args: &cli::Args) -> Opened {
     let mut problems = Vec::new();
+    let mut jumps = Vec::new();
     let mut first_file = None;
     let local = args.targets.iter();
     for target in local.filter(|t| !winc_backend::is_remote(&t.path)) {
@@ -352,7 +364,15 @@ pub(crate) fn open_targets(editor: &mut Editor, args: &cli::Args) -> Vec<String>
             }
             continue;
         }
-        let index = editor.open(&target.path);
+        let index = editor.open_tab(&target.path);
+        if winc_editor::opens_as_large(&target.path) {
+            if let Some(line) = target.line {
+                jumps.push((editor.documents[index].id, line, target.col.unwrap_or(0)));
+            }
+            first_file.get_or_insert(index);
+            continue;
+        }
+        editor.load(index);
         if let Some(line) = target.line {
             let doc = &mut editor.documents[index];
             let text = doc.text();
@@ -366,7 +386,7 @@ pub(crate) fn open_targets(editor: &mut Editor, args: &cli::Args) -> Vec<String>
     if let Some(index) = first_file {
         editor.active = Some(index);
     }
-    problems
+    Opened { problems, jumps }
 }
 
 /// 是否已将要打开的目录和文件交给正在运行的 winc，由该进程切到打开该目录的窗口、新建窗口或

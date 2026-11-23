@@ -65,7 +65,7 @@ fn matches_rope_line_by_line() {
     let (large, path) = open("lines", content.as_bytes());
     let rope = Rope::from_str(&content);
 
-    assert!(large.original.checkpoints.len() > 3000 / 64);
+    assert!(large.original.checkpoints.len() > content.len() / CHECKPOINT_BYTES as usize);
     assert!(large.is_utf8() && !large.has_overlong_lines());
     assert_same(&large, &rope, (0..rope.line_count()).step_by(7));
     assert_eq!(large.substring(10, 5000), rope.substring(10, 5000));
@@ -574,4 +574,60 @@ fn measure_large_file_editing() {
     let start = Instant::now();
     d.save().unwrap();
     eprintln!("保存：{:?}", start.elapsed());
+}
+
+/// 行很短的文件里，行索引的检查点按字节数而不是行数设置，查找的结果仍与 `Rope` 一致。
+#[test]
+fn short_lines_keep_the_index_small() {
+    let mut content = String::new();
+    for i in 0..200_000 {
+        writeln!(content, "{i}").unwrap();
+    }
+    let (large, path) = open("short-lines", content.as_bytes());
+    let rope = Rope::from_str(&content);
+
+    let most = content.len() / CHECKPOINT_MIN_BYTES as usize + 1;
+    assert!(large.original.checkpoints.len() <= most);
+    assert_same(&large, &rope, (0..rope.line_count()).step_by(977));
+    std::fs::remove_file(path).unwrap();
+}
+
+/// 多字节字符跨在一次读取或一块的末尾时留给下一块，不被拆开算成非法的 UTF-8。
+#[test]
+fn multibyte_characters_survive_read_boundaries() {
+    let mut content = String::new();
+    let mut i = 0;
+    while content.len() < 3 * SCAN_CHUNK {
+        writeln!(content, "{i}{}", "中文字".repeat(1 + i % 23)).unwrap();
+        i += 1;
+    }
+    let (large, path) = open("multibyte-boundaries", content.as_bytes());
+    let rope = Rope::from_str(&content);
+
+    assert!(large.is_utf8());
+    assert_eq!(large.end_pos(), rope.end_pos());
+    assert_same(&large, &rope, (0..rope.line_count()).step_by(1013));
+    std::fs::remove_file(path).unwrap();
+}
+
+/// 打开大文件的耗时和行索引的大小；只建索引，不改写文件。
+///
+/// 用 `WINC_MEASURE_FILE=<文件> cargo test --release -p winc-editor measure_large_file_open
+/// -- --ignored --nocapture` 运行；未设置环境变量时跳过。
+#[test]
+#[ignore]
+fn measure_large_file_open() {
+    let Some(path) = std::env::var_os("WINC_MEASURE_FILE") else {
+        return;
+    };
+    let start = std::time::Instant::now();
+    let text = LargeText::open(File::open(path).unwrap()).unwrap();
+    let spent = start.elapsed();
+    let points = text.original.checkpoints.len() + text.original.marks.len();
+    let size = points * std::mem::size_of::<Checkpoint>();
+    eprintln!(
+        "打开：{spent:?}，{} 行，{points} 个检查点，{} KiB",
+        text.line_count(),
+        size >> 10
+    );
 }

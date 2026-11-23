@@ -239,13 +239,18 @@ pub(crate) fn restore_tabs(
 }
 
 /// 启动时恢复上次的现场：同 [`restore_tabs`]，并立即读取当前标签，使第一帧即显示其内容。
+///
+/// 当前标签是大文件时不读，留给窗口在后台读取（见 [`App::load_at_launch`]）。
 pub(crate) fn restore_at_launch(
     editor: &mut Editor,
     session: Option<&Session>,
     root: Option<&Path>,
 ) -> Restored {
     let restored = restore_tabs(editor, session, root);
-    editor.load_active();
+    let path = editor.active().and_then(|d| d.path.as_deref());
+    if !path.is_some_and(winc_editor::opens_as_large) {
+        editor.load_active();
+    }
     restored
 }
 

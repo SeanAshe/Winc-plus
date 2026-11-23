@@ -90,6 +90,15 @@ impl Default for Loads {
 }
 
 impl App {
+    /// 启动时没有读取的当前标签交给后台读取；`jumps` 中的文档读好以后跳到（行，列）。
+    pub(crate) fn load_at_launch(&mut self, jumps: Vec<(DocumentId, usize, usize)>) {
+        for (id, line, col) in jumps {
+            let then: Then = Box::new(move |app| app.jump_to(line, col, 0));
+            self.disk.loads.then.push((id, then));
+        }
+        self.load_active_in_background();
+    }
+
     /// 当前标签尚未读取、也没有正在进行的读取时，交给后台读取。
     pub(in crate::app) fn load_active_in_background(&mut self) {
         if let Some(index) = self.editor.active {
