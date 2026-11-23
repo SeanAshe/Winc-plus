@@ -460,7 +460,7 @@ fn draw_underline(
     }
 }
 
-/// 第 `col` 格上的字占几格（光标盖住宽字符时绘制成两格宽）。
+/// 第 `col` 格上的字占几格（光标遮住宽字符时绘制成两格宽）。
 pub(super) fn width_at(line: &Line, col: usize) -> usize {
     let mut at = 0;
     for (_, w) in cells(&line.text) {
@@ -644,7 +644,7 @@ pub(super) fn preedit_x(x: f32, text: &str, cell: f32, right: f32) -> f32 {
     x.min(right - cells.iter().sum::<usize>() as f32 * cell)
 }
 
-/// 输入法组字中的文字：绘制在 [`preedit_x`] 处，带强调色的下划线，盖住下面的格子。
+/// 输入法组字中的文字：绘制在 [`preedit_x`] 处，带强调色的下划线，遮住下面的格子。
 pub(super) fn draw_preedit(
     app: &App,
     frame: &mut Frame<'_>,

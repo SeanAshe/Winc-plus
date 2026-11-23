@@ -225,7 +225,7 @@ impl App {
     }
 
     /// 选区变化后滚动到主光标，并使光标重新开始闪烁。
-    fn cursors_changed(&mut self) {
+    pub(in crate::app) fn cursors_changed(&mut self) {
         self.tell_cursors_capped();
         self.ensure_caret_visible();
         self.reset_blink();

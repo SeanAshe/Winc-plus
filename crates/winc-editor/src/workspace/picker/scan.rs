@@ -23,8 +23,10 @@ pub(super) fn collect_all(
     let mut paths: Packed = main.paths.iter().collect();
     let mut dirs: Vec<String> = main.dirs.iter().map(str::to_owned).collect();
     let mut scratch = String::new();
+    let mut timed_out = main.timed_out;
     for (label, folder) in extra {
         let part = collect(folder, limit.saturating_sub(paths.len()), cancel);
+        timed_out |= part.timed_out;
         dirs.push(label.clone());
         dirs.extend(part.dirs.iter().map(|dir| format!("{label}/{dir}")));
         for path in part.paths.iter() {
@@ -37,6 +39,7 @@ pub(super) fn collect_all(
     }
     let mut table = Files::sorted(&paths, limit);
     table.layers = main.layers;
+    table.timed_out = timed_out;
     table.dirs = DirSet::new(dirs.iter().map(String::as_str));
     table
 }
@@ -343,6 +346,7 @@ fn merge(
     // 按上限预留，建好后去掉多余的容量：新表会一直留着，不能带着去掉的路径和扩容的余量。
     let mut files = Files {
         layers: base.layers,
+        timed_out: base.timed_out,
         dirs: DirSet::new(
             base.dirs
                 .iter()
@@ -417,10 +421,15 @@ pub(super) fn relative_path(relative: &Path) -> Option<String> {
 
 /// 收录远端主机上目录 `root` 中的文件：由远端的一条命令列出（见
 /// [`remote_files`](crate::workspace::remote_files)），一次往返。超过 `limit` 个时按路径的
-/// 顺序收录前 `limit` 个。
+/// 顺序收录前 `limit` 个。超时没有列出时文件表为空，并记下超时。
 fn collect_remote(root: &Path, limit: usize, cancel: &AtomicBool) -> Files {
     let stop = || cancel.load(Ordering::Relaxed);
-    let listing = crate::workspace::remote_files::list(root, false, None, &stop);
+    let Ok(listing) = crate::workspace::remote_files::list(root, false, None, &stop) else {
+        return Files {
+            timed_out: true,
+            ..Files::default()
+        };
+    };
     let (mut files, mut dirs) = (Packed::default(), HashSet::new());
     for path in &listing {
         files.push(path);

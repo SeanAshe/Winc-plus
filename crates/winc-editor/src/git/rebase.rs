@@ -120,19 +120,8 @@ impl Git {
         self.require_trust(root)?;
         self.on_branch(root, oid)?;
         let cancel = Cancel::default();
-        let parent = format!("{oid}^");
-        let mut command = self.command(root);
-        command.args([
-            "rev-parse",
-            "--verify",
-            "--quiet",
-            "--end-of-options",
-            &parent,
-        ]);
-        let base = self
-            .run(&mut command, STATUS_TIMEOUT, &cancel)
-            .ok()
-            .map(|out| String::from_utf8_lossy(&out).trim().to_owned());
+        // 根提交没有父提交，范围取整条历史；读不到提交时返回原因，不当作根提交处理。
+        let base = self.parents(root, oid, &cancel)?.into_iter().next();
         let range = base
             .as_ref()
             .map_or_else(|| "HEAD".to_owned(), |base| format!("{base}..HEAD"));

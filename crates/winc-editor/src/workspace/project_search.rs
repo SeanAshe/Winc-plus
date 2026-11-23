@@ -44,12 +44,12 @@ use crate::workspace::tree::{is_listed_file, natural_cmp, walker, walker_with_ig
 
 /// 最多记录的匹配数（处）；达到后停止搜索，并提示结果不全。
 ///
-/// 经验值：每处匹配只保存行号、列和最多 `PREVIEW_CHARS` 个字符的预览（按实际长度分配），
+/// 取自调参：每处匹配只保存行号、列和最多 `PREVIEW_CHARS` 个字符的预览（按实际长度分配），
 /// 该上限使结果占用的内存保持在数 MB 以内。
 pub const MAX_RESULTS: usize = 20_000;
 /// 预览中保留匹配之前的最大字符数（字符）；更长时前面用「…」代替。
 const PREVIEW_BEFORE: usize = 24;
-/// 预览的最大字符数（个，经验值，够显示一行的大部分内容）。
+/// 预览的最大字符数（个，取自调参，够显示一行的大部分内容）。
 const PREVIEW_CHARS: usize = 160;
 /// 搜索过程中唤醒界面线程的最短间隔（50 毫秒），避免大量结果使事件队列积压。
 const WAKE_INTERVAL: Duration = Duration::from_millis(50);
@@ -62,7 +62,7 @@ pub const MAX_THREADS: usize = 4;
 /// 文件按块读取、按块搜索，内存中只有当前块加上尚未读完的那一行，与文件大小无关。测试中取很小的值，
 /// 使换行符、`\r\n` 和多字节字符落在块的边界上。
 const CHUNK: usize = if cfg!(test) { 7 } else { 256 << 10 };
-/// 读文件的缓冲容量上限（字节，1 MiB，经验值）。
+/// 读文件的缓冲容量上限（字节，1 MiB，取自调参）。
 ///
 /// 超长行使缓冲容量超过该值时，搜索完当前文件后释放缓冲，避免每个工作线程长期持有大块内存。
 const BUFFER_MAX: usize = 1 << 20;
@@ -154,6 +154,7 @@ enum Message {
 struct Job {
     cancel: Arc<AtomicBool>,
     truncated: Arc<AtomicBool>,
+    timed_out: Arc<AtomicBool>,
     receiver: Receiver<Message>,
     /// 后台重新搜索一批文件时的请求；为 `None` 时是从头开始的整体搜索。
     refresh: Option<Refresh>,
@@ -161,10 +162,10 @@ struct Job {
 
 /// 后台重新搜索一批文件的请求（见 [`ProjectSearch::refresh_files`]），以及已经送回的新结果。
 ///
-/// 新结果在这批文件全部搜完时才一次换进 `results`：在此之前界面继续显示旧结果，不会出现一部分
+/// 新结果在这批文件全部搜完时才一次换入 `results`：在此之前界面继续显示旧结果，不会出现一部分
 /// 文件的旧结果已经移除、新结果还没送到的中间状态。
 struct Refresh {
-    /// 要重新搜索的文件；结果换进 `results` 时，这些文件原有的结果被替换。
+    /// 要重新搜索的文件；结果换入 `results` 时，这些文件原有的结果被替换。
     files: HashSet<PathBuf>,
     /// 其中已打开且有未保存修改的文件的当前内容，与后台线程共用。
     dirty: Arc<HashMap<PathBuf, Rope>>,
@@ -197,6 +198,8 @@ pub struct ProjectSearch {
     wake: Option<Arc<dyn Fn() + Send + Sync>>,
     total: usize,
     truncated: bool,
+    /// 见 [`Self::timed_out`]。
+    timed_out: bool,
     error: Option<SearchError>,
     job: Option<Job>,
     /// 结果每变化一次加 1，界面据此判断是否需要重新排列结果列表。
@@ -206,8 +209,8 @@ pub struct ProjectSearch {
 impl ProjectSearch {
     /// 设置与工作区根目录一并搜索的附加目录，下一次 [`Self::start`] 起生效。
     ///
-    /// 其中的文件的相对路径以该目录的前缀开头（与快速打开的文件表相同）。包含、排除的通配相对于工作区根目录，对附加的
-    /// 目录按文件名和完整路径匹配。
+    /// 其中的文件的相对路径以该目录的前缀开头（与快速打开的文件表相同）。包含、排除的通配相对于
+    /// 工作区根目录，对附加的目录按文件名和完整路径匹配。
     pub fn set_extra_folders(&mut self, folders: Vec<PathBuf>) {
         self.extra = folders;
     }
@@ -294,6 +297,7 @@ impl ProjectSearch {
         self.wake = None;
         self.total = 0;
         self.truncated = false;
+        self.timed_out = false;
         self.error = None;
     }
 
@@ -352,6 +356,7 @@ impl ProjectSearch {
                 files, mut found, ..
             } = job.refresh.take().expect("刚刚检查过");
             self.truncated |= job.truncated.load(Relaxed);
+            self.timed_out |= job.timed_out.load(Relaxed);
             self.job = None;
             // 搜索期间已经单独重新搜索过的文件（见 `refresh_file`）不在 `files` 中，丢弃它们
             // 在后台读到的、可能已经过时的结果。
@@ -368,6 +373,7 @@ impl ProjectSearch {
 
         if done && let Some(job) = self.job.take() {
             self.truncated = job.truncated.load(Relaxed);
+            self.timed_out = job.timed_out.load(Relaxed);
             self.version += 1;
             changed = true;
         }
@@ -398,6 +404,11 @@ impl ProjectSearch {
     /// 是否因结果达到 [`MAX_RESULTS`] 而停止搜索，即结果不全。
     pub fn is_truncated(&self) -> bool {
         self.truncated
+    }
+
+    /// 是否有远端的目录没能在限定时间内列出文件，其中的文件没有被搜索到。
+    pub fn timed_out(&self) -> bool {
+        self.timed_out
     }
 
     /// 是否有行因正则回溯过多而放弃查找，此时结果可能不全。

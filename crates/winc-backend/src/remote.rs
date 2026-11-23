@@ -134,6 +134,20 @@ impl Link {
         output.flush()
     }
 
+    /// 在后台线程上通知对端取消请求 `id`，调用方不等待：写入一端可能正被停滞的网络占着，
+    /// 调用方可能是界面线程。连接已中断时没有效果。
+    fn cancel(self: &Arc<Self>, id: u32) {
+        if self.closed() {
+            return;
+        }
+        let link = Arc::clone(self);
+        let send = move || drop(link.write(kind::CANCEL, id, &[]));
+        // 线程起不来时就在这里写：取消不能丢。
+        if let Err(send) = spawn_or_return(send) {
+            send();
+        }
+    }
+
     /// 不再等待请求 `id` 的应答。
     fn forget(&self, id: u32) {
         let mut waiting = self.waiting.lock().unwrap_or_else(PoisonError::into_inner);
@@ -233,7 +247,7 @@ impl Link {
     /// 由本程序立即断开，不等对端收尾：等待中的请求随即失败，连接的结束不算意外中断。
     ///
     /// 子进程是进程组的组长时（见 [`Connection::deploy`]）连同它启动的进程一起结束：它们持有
-    /// 输出的管道，留着的话读取应答的线程等不到结束。
+    /// 输出的管道，不结束它们时读取应答的线程等不到结束。
     fn kill(&self) {
         self.shutting.store(true, Ordering::Relaxed);
         self.close();
@@ -534,14 +548,14 @@ fn terminate(_: &Child) -> bool {
     false
 }
 
-impl Connection {
+impl Link {
     /// 断开：关闭输入，等待对端结束它启动的命令并退出，最长 [`SHUTDOWN`]，之后强制结束子进程。
     ///
     /// 仍在等待应答的请求立即以 [`io::ErrorKind::BrokenPipe`] 结束，不等对端退出。
     fn shutdown(&self) {
-        self.link.shutting.store(true, Ordering::Relaxed);
-        self.link.close();
-        let mut child = (self.link.child.lock()).unwrap_or_else(PoisonError::into_inner);
+        self.shutting.store(true, Ordering::Relaxed);
+        self.close();
+        let mut child = (self.child.lock()).unwrap_or_else(PoisonError::into_inner);
         let Some(child) = child.as_mut() else {
             return;
         };
@@ -565,27 +579,73 @@ impl Connection {
         }
         let _ = child.kill();
     }
+}
 
+impl Connection {
     /// 在后台线程上断开，调用方不等待。
     fn shutdown_in_background(self: Arc<Self>) {
-        thread::spawn(move || self.shutdown());
+        thread::spawn(move || self.link.shutdown());
     }
 }
 
 impl Drop for Connection {
+    /// 立即让等待中的请求失败并关闭输入；等对端退出、回收子进程在后台线程上进行：最后一个
+    /// 引用可能在界面线程上被丢弃（例如停止监视时）。
     fn drop(&mut self) {
+        self.link.shutting.store(true, Ordering::Relaxed);
+        self.link.close();
+        let (link, reader) = (Arc::clone(&self.link), self.reader.take());
+        let reap = move || link.reap(reader);
+        // 线程起不来时就在这里做：子进程不能留着。
+        if let Err(reap) = spawn_or_return(reap) {
+            reap();
+        }
+    }
+}
+
+impl Connection {
+    /// 断开，并在调用的线程上等对端退出、子进程回收完：此后对端的程序文件不再被占用。
+    ///
+    /// 直接丢弃连接时同样的事在后台进行，调用方不等待。
+    pub fn close(mut self) {
+        self.link.reap(self.reader.take());
+    }
+}
+
+impl Link {
+    /// 断开（见 [`Link::shutdown`]），回收子进程，等读取应答的线程 `reader` 退出。
+    fn reap(&self, reader: Option<thread::JoinHandle<()>>) {
         self.shutdown();
-        // 回收子进程，不留下僵尸进程。
-        if let Some(child) = (self.link.child.lock())
+        // 回收子进程，不留下僵尸进程；取走它，之后再断开一次时没有可等的。
+        let child = (self.child.lock())
             .unwrap_or_else(PoisonError::into_inner)
-            .as_mut()
-        {
+            .take();
+        if let Some(mut child) = child {
             let _ = child.wait();
         }
         // 子进程结束后其输出关闭，读取应答的线程随之退出。
-        if let Some(reader) = self.reader.take() {
+        if let Some(reader) = reader {
             let _ = reader.join();
         }
+    }
+}
+
+/// 在新线程上执行 `job`；线程无法创建时把它原样还回来。
+fn spawn_or_return<F: FnOnce() + Send + 'static>(job: F) -> Result<(), F> {
+    let slot = Arc::new(Mutex::new(Some(job)));
+    let taken = Arc::clone(&slot);
+    let run = move || {
+        let job = taken.lock().unwrap_or_else(PoisonError::into_inner).take();
+        if let Some(job) = job {
+            job();
+        }
+    };
+    match thread::Builder::new().spawn(run) {
+        Ok(_) => Ok(()),
+        Err(_) => match slot.lock().unwrap_or_else(PoisonError::into_inner).take() {
+            Some(job) => Err(job),
+            None => Ok(()),
+        },
     }
 }
 
@@ -692,6 +752,8 @@ pub struct Exec {
     ask: bool,
     /// 输出（标准输出与标准错误合计）的字节数上限；只在本机一侧使用，不发给对端。
     limit: Option<usize>,
+    /// 标准输出是否按需发送：对端发出 [`wire::WINDOW`] 之后等本机读走再发，见 [`spawn`]。
+    paced: bool,
 }
 
 /// 远端运行的命令提出的一次输入请求。
@@ -771,7 +833,10 @@ impl Exec {
         for (name, value) in &self.envs {
             out = out.bytes(name).bytes(value);
         }
-        out.bytes(&self.stdin).flag(self.ask).finish()
+        out.bytes(&self.stdin)
+            .flag(self.ask)
+            .flag(self.paced)
+            .finish()
     }
 }
 
@@ -825,8 +890,8 @@ pub fn exec_asking(
 /// 实现了 [`io::Read`]：读到的是标准输出，命令结束且输出读完时返回 0。标准错误另行累积，
 /// 见 [`Running::stderr`]。丢弃时命令若仍在运行，通知对端强制结束它。
 ///
-/// 对端不等读取就持续发送输出：尚未读取的部分留在本机的内存中，合计不超过
-/// [`Exec::limit`] 设置的上限。
+/// 标准输出按需发送：对端发出 2 MiB（`wire::WINDOW`）之后等这里读走再发，尚未读取的部分不会
+/// 在本机的内存中越积越多。全部输出合计不超过 [`Exec::limit`] 设置的上限。
 pub struct Running {
     connection: Arc<Connection>,
     id: u32,
@@ -836,6 +901,8 @@ pub struct Running {
     stderr: Vec<u8>,
     received: usize,
     limit: Option<usize>,
+    /// 已读走、还没有告诉对端的标准输出字节数。
+    taken: usize,
     /// 命令已结束时为其退出码（被信号结束时是 `None`）。
     code: Option<Option<i32>>,
     /// 读取等待的最后期限，见 [`Running::read_until`]。
@@ -863,6 +930,23 @@ impl Running {
         Stopper {
             connection: Arc::clone(&self.connection),
             id: self.id,
+        }
+    }
+
+    /// 读走了 `count` 字节的标准输出：累计到半个 [`wire::WINDOW`] 时告诉对端可以再发同样多的字节。
+    ///
+    /// 攒到一半再发：如果每读一次就发一帧，帧数与读取的次数一样多。
+    fn release(&mut self, count: usize) {
+        self.taken += count;
+        if self.taken < wire::WINDOW / 2 || self.code.is_some() {
+            return;
+        }
+        let credit = Writer::default().u32(self.taken as u32).finish();
+        if (self.connection.link)
+            .write(kind::CREDIT, self.id, &credit)
+            .is_ok()
+        {
+            self.taken = 0;
         }
     }
 
@@ -911,8 +995,10 @@ pub struct Stopper {
 impl Stopper {
     /// 通知对端强制结束命令（连同它启动的子进程）；命令已经结束或连接已断开时没有效果。
     /// 读取的一方随后读到输出结束。
+    ///
+    /// 不等待写出：连接的写入一端可能正被停滞的网络占着。
     pub fn stop(&self) {
-        let _ = self.connection.link.write(kind::CANCEL, self.id, &[]);
+        self.connection.link.cancel(self.id);
     }
 }
 
@@ -928,6 +1014,7 @@ impl io::Read for Running {
                     data.clear();
                     *taken = 0;
                 }
+                self.release(count);
                 return Ok(count);
             }
             if self.code.is_some() || buf.is_empty() {
@@ -959,8 +1046,8 @@ impl io::Read for Running {
 impl Drop for Running {
     fn drop(&mut self) {
         if self.code.is_none() {
-            let _ = self.connection.link.write(kind::CANCEL, self.id, &[]);
             self.connection.link.forget(self.id);
+            self.connection.link.cancel(self.id);
         }
     }
 }
@@ -978,6 +1065,7 @@ pub fn spawn(dir: &Path, exec: &Exec) -> io::Result<Running> {
     exec.cwd = at.path;
     // 输出随到随读的命令没有答复输入请求的一方。
     exec.ask = false;
+    exec.paced = true;
     let connection = connection(&at.target)?;
     let (id, replies) = connection.link.send(kind::EXEC, &exec.encode())?;
     Ok(Running {
@@ -988,6 +1076,7 @@ pub fn spawn(dir: &Path, exec: &Exec) -> io::Result<Running> {
         stderr: Vec::new(),
         received: 0,
         limit: exec.limit,
+        taken: 0,
         code: None,
         deadline: None,
     })
@@ -1237,6 +1326,40 @@ pub struct Ssh {
     pub share: bool,
 }
 
+/// 读取 `ssh` 生效配置最长的等待时间（5 秒）。
+///
+/// `ssh -G` 不建立连接，通常在几十毫秒内结束；配置中的 `Match exec` 命令或主机名的规范化
+/// 可以使它等待。超过该时间按读不到配置处理，不补任何设置，连接仍然进行。
+const CONFIG_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// 运行 `command` 并返回它的标准输出；无法运行、以失败结束或超过 `timeout` 时返回 `None`，
+/// 超时的进程被结束。
+fn output_within(command: &mut Command, timeout: Duration) -> Option<Vec<u8>> {
+    let mut child = (command.stdout(Stdio::piped()).stderr(Stdio::null()))
+        .spawn()
+        .ok()?;
+    let mut stdout = child.stdout.take()?;
+    // 另起线程读输出：输出超过管道的容量时，进程等不到有人读就不会结束。
+    let reader = thread::spawn(move || {
+        let mut output = Vec::new();
+        io::Read::read_to_end(&mut stdout, &mut output).map(|_| output)
+    });
+    let deadline = Instant::now() + timeout;
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(10)),
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break None;
+            }
+        }
+    };
+    let output = reader.join().ok()?.ok()?;
+    status?.success().then_some(output)
+}
+
 impl Ssh {
     /// 返回为 `target` 补上用户没有设置的各项之后的行为，不向用户提问与否由调用方决定。
     ///
@@ -1249,9 +1372,9 @@ impl Ssh {
             command.arg("-p").arg(port.to_string());
         }
         command.arg("-G").arg(&*target.host()).stdin(Stdio::null());
-        match command.output() {
-            Ok(output) => Self::missing(&String::from_utf8_lossy(&output.stdout)),
-            Err(_) => Self::default(),
+        match output_within(&mut command, CONFIG_TIMEOUT) {
+            Some(config) => Self::missing(&String::from_utf8_lossy(&config)),
+            None => Self::default(),
         }
     }
 

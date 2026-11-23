@@ -56,5 +56,9 @@ fn a_verified_installer_is_kept_for_exit() {
     let setup = prepare_in(&dir, &item, &key.verifying_key(), Kind::Msi, &|_| {}).unwrap();
     assert_eq!(setup.extension().unwrap(), "msi");
     assert_eq!(std::fs::read(&setup).unwrap(), bytes);
+    // 核对过的内容的摘要记了下来，安装前由更新进程再比对。
+    let verified = VERIFIED.lock().unwrap().clone();
+    let sha256 = "8c2c3f289557cbc430c7b0b40c01a0a0b535fa68c1abdff3cecf6d2d8eb5a7d2";
+    assert_eq!(verified, Some((setup, sha256.to_owned())));
     let _ = std::fs::remove_dir_all(&root);
 }

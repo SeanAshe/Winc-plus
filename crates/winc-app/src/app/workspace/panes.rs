@@ -13,9 +13,9 @@ use crate::app::preview::PanePreview;
 
 /// 分隔线的粗细（逻辑像素）。
 pub(crate) const DIVIDER: f32 = 1.0;
-/// 分隔线两侧各放宽的可拖动范围（逻辑像素，经验值）。
+/// 分隔线两侧各放宽的可拖动范围（逻辑像素，取自调参）。
 const GRIP: f32 = 3.0;
-/// 拆分后每一侧的最小宽度或高度（逻辑像素，经验值）。
+/// 拆分后每一侧的最小宽度或高度（逻辑像素，取自调参）。
 const PANE_MIN: f32 = 160.0;
 /// 拖动标签时，鼠标离窗格边缘不足窗格宽或高的这一比例就拆分，否则放进窗格。
 const DROP_EDGE: f32 = 1.0 / 3.0;
@@ -243,7 +243,7 @@ impl App {
         if !self.editor.focus_pane(pane) {
             return false;
         }
-        // 前台的标签栏、滚动条和预览与窗格 `pane` 收着的直接交换，交换下来的收给 `old`。
+        // 前台的标签栏、滚动条和预览与窗格 `pane` 保存的直接交换，交换下来的存入 `old`。
         let at = self.panes.parked.iter().position(|p| p.id == pane);
         let mut parked = match at {
             Some(at) => self.panes.parked.remove(at),
@@ -264,7 +264,7 @@ impl App {
         self.preview.exchange(&mut parked.preview);
     }
 
-    /// 把前台窗格的标签栏、滚动条和预览收给窗格 `id`，前台换上空白的。
+    /// 把前台窗格的标签栏、滚动条和预览存入窗格 `id`，前台换上空白的。
     fn park_pane_ui(&mut self, id: PaneId) {
         let mut parked = ParkedPane::new(id);
         self.exchange_pane_ui(&mut parked);
@@ -272,7 +272,7 @@ impl App {
         self.panes.parked.push(parked);
     }
 
-    /// 前台换上窗格 `id` 收着的标签栏、滚动条和预览；没有收着时换上空白的。
+    /// 前台换上窗格 `id` 保存的标签栏、滚动条和预览；没有保存时换上空白的。
     fn unpark_pane_ui(&mut self, id: PaneId) {
         let at = self.panes.parked.iter().position(|p| p.id == id);
         let mut parked = match at {
@@ -282,12 +282,12 @@ impl App {
         self.exchange_pane_ui(&mut parked);
     }
 
-    /// 前台以外的各窗格收着的预览状态。
+    /// 前台以外的各窗格保存的预览状态。
     pub(crate) fn parked_previews(&self) -> impl Iterator<Item = &PanePreview> {
         self.panes.parked.iter().map(|p| &p.preview)
     }
 
-    /// 丢掉已经合并掉的窗格收着的标签栏、滚动条和预览。
+    /// 丢掉已经合并掉的窗格保存的标签栏、滚动条和预览。
     pub(in crate::app) fn forget_closed_panes(&mut self) {
         let alive = self.editor.panes.tree.panes();
         self.panes.parked.retain(|p| alive.contains(&p.id));
@@ -306,7 +306,7 @@ impl App {
     pub(crate) fn with_pane<T>(&mut self, pane: PaneId, f: impl FnOnce(&mut App) -> T) -> T {
         let back = self.editor.panes.focused;
         let rects = self.panes.rects.iter().find(|r| r.id == pane).copied();
-        // 前台窗格的平滑滚动留到换回来以后接着走。
+        // 前台窗格的平滑滚动留到换回来以后继续走。
         let glide = self.scroll.glide.take();
         let switched = rects.is_some() && self.switch_pane(pane);
         let Some(rects) = rects.filter(|_| switched) else {
@@ -415,7 +415,7 @@ impl App {
             .collect()
     }
 
-    /// `(x, y)` 是否被浮在窗格上面的提示框、菜单、对话框、设置或 `⌘P` 面板盖住：盖住时点击、
+    /// `(x, y)` 是否被浮在窗格上面的提示框、菜单、对话框、设置或 `⌘P` 面板遮住：遮住时点击、
     /// 滚动和悬停都交给它们。
     pub(in crate::app) fn overlay_covers(&self, x: f32, y: f32) -> bool {
         self.overlays.alert.is_some()
@@ -425,7 +425,7 @@ impl App {
             || (self.overlays.picker.open && self.layout.picker.contains(x, y))
     }
 
-    /// `(x, y)` 所在的前台以外的窗格；被浮层盖住时为 `None`。
+    /// `(x, y)` 所在的前台以外的窗格；被浮层遮住时为 `None`。
     pub(in crate::app) fn background_pane_at(&self, x: f32, y: f32) -> Option<PaneId> {
         if self.overlay_covers(x, y) {
             return None;

@@ -156,7 +156,7 @@ impl App {
         if self.state.vim_marks.contains(&entry) {
             return;
         }
-        self.update_state(|state| {
+        self.update_state(move |state| {
             state.vim_marks.retain(|mark| mark.0 != name);
             state.vim_marks.push(entry);
             state.vim_marks.sort();
@@ -210,7 +210,7 @@ impl App {
             (searches.to_vec(), commands.to_vec())
         };
         if self.state.vim_searches != searches || self.state.vim_commands != commands {
-            self.update_state(|state| {
+            self.update_state(move |state| {
                 state.vim_searches = searches;
                 state.vim_commands = commands;
             });

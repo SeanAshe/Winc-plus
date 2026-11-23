@@ -729,7 +729,7 @@ fn diff_navigation_keys_work_with_focus_in_the_commit_list() {
     assert_eq!(focus(&app), Some(0));
     assert!(app.on_shortcut(f(5, Mods::ALT | Mods::SHIFT)));
     assert_eq!(app.focus, Focus::CommitList);
-    // 切换差异中的文件取 IntelliJ IDEA 方案的键：macOS 上 ⌃⇧→，其他系统上 Shift+Alt+→。
+    // 切换差异中的文件取 IDEA 方案的键：macOS 上 ⌃⇧→，其他系统上 Shift+Alt+→。
     crate::keymap::install(crate::keymap::Preset::Idea, &Default::default());
     let file = |key| Stroke {
         key,

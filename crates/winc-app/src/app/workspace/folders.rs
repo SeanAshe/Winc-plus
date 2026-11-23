@@ -143,6 +143,16 @@ impl App {
         (self.editor.workspace.as_ref()).map_or_else(Vec::new, |ws| ws.extra_folders().to_vec())
     }
 
+    /// 返回文件树中展开了的、指向本机目录的符号链接。
+    pub(in crate::app) fn expanded_links(&self) -> Vec<PathBuf> {
+        let rows = self.editor.workspace.as_ref().map(|ws| ws.rows());
+        let links = rows
+            .into_iter()
+            .flatten()
+            .filter(|row| row.expanded && row.symlink && !winc_backend::is_remote(&row.path));
+        links.map(|row| row.path.clone()).collect()
+    }
+
     /// 附加的目录或这一组的名字变化后：重新监视，记下会话，更新窗口标题，重新布局。
     fn folders_changed(&mut self) {
         self.watch_extra_folders();

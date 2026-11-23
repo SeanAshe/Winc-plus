@@ -294,10 +294,20 @@ impl Message for FromHelper {
                 w.u8(kind::DISCONNECTED);
                 w.u16(*tab);
             }
-            FromHelper::Failed { tab, message } => {
+            FromHelper::Failed {
+                tab,
+                reason,
+                program,
+                error,
+            } => {
                 w.u8(kind::FAILED);
                 w.u16(*tab);
-                w.bytes(message.as_bytes());
+                w.u8(match reason {
+                    StartFailure::NotFound => 0,
+                    StartFailure::Refused => 1,
+                });
+                w.bytes(program.as_bytes());
+                w.bytes(error.as_bytes());
             }
         }
         w.finish();
@@ -374,7 +384,13 @@ impl Message for FromHelper {
             kind::DISCONNECTED => FromHelper::Disconnected { tab: r.u16()? },
             kind::FAILED => FromHelper::Failed {
                 tab: r.u16()?,
-                message: r.string()?,
+                reason: match r.u8()? {
+                    0 => StartFailure::NotFound,
+                    1 => StartFailure::Refused,
+                    _ => return Err(DecodeError("未知的失败原因")),
+                },
+                program: r.string()?,
+                error: r.string()?,
             },
             _ => return Err(DecodeError("未知的消息类型")),
         };

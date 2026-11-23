@@ -17,7 +17,7 @@ mod target;
 pub mod testing;
 
 pub use path::{
-    Location, carry_name, display, ensure_local, is_remote, join, locate, native_lossy,
+    Location, carry_name, display, ensure_local, is_remote, join, locate, names_host, native_lossy,
     relative_lossy, virtual_path,
 };
 pub use target::Target;

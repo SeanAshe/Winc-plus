@@ -37,7 +37,7 @@ fn characters_are_recognized_by_what_they_produce() {
             Some(VimKey::char('å'))
         );
     }
-    // 布局上需要 `Alt` 才能输入的 ASCII 字符照常识别。
+    // 布局上需要 `Alt` 才能输入的 ASCII 字符仍然识别。
     assert_eq!(
         typed("@", KeyCode::KeyL, alt, true),
         Some(VimKey::char('@'))

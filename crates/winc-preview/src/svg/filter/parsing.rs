@@ -258,15 +258,10 @@ pub(in crate::svg) fn parse<'a, 'input>(
 
 /// 解析 CSS 滤镜函数 `text`，返回滤镜或隐藏、不支持的标记。
 ///
-/// 支持 `grayscale()`、`sepia()`、`saturate()`、`hue-rotate()`、`invert()`、
-/// `brightness()`、`contrast()`、`opacity()`、`blur()` 和 `drop-shadow()`。
-///
-/// 滤镜函数在 sRGB 色彩空间中计算，`color-interpolation-filters` 对这些函数无效
-/// （CSS Filter Effects Module Level 1 第 5 节）。
-///
-/// `bbox` 为空或没有面积时元素不绘制；每个函数与 `<filter>` 中的原语一样计入滤镜的
-/// 工作量上限，超出时整个滤镜不生效。
-/// `text` 里 `url(` 引用的滤镜和其他无法识别的函数按不支持处理。
+/// 支持 `grayscale()`、`sepia()`、`saturate()`、`hue-rotate()`、`invert()`、`brightness()`、
+/// `contrast()`、`opacity()`、`blur()` 和 `drop-shadow()`，在 sRGB 色彩空间中计算（CSS Filter
+/// Effects Module Level 1 第 5 节），其余（含 `url(` 引用）按不支持处理。`bbox` 为空时元素
+/// 不绘制；每个函数与 `<filter>` 的原语一样计入工作量上限，超出时整个滤镜不生效。
 pub(in crate::svg) fn functions(
     parser: &mut Parser,
     text: &str,

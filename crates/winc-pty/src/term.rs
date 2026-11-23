@@ -76,6 +76,13 @@ impl Terminal {
         }
     }
 
+    /// 取走上次调用以来重复序列（`CSI b`）写入的格数。
+    ///
+    /// 这种序列几个字节就能写满一屏：调用方把格数和字节数一样计入每一轮的工作量。
+    pub fn take_work(&mut self) -> usize {
+        std::mem::take(&mut self.emu.repeated)
+    }
+
     /// 处理程序输出的字节。
     ///
     /// OSC 超过 `MAX_OSC` 时截断：已交给 `vte` 的部分用 CAN 结束，各 OSC 按自身的上限丢弃；剩余
@@ -120,7 +127,7 @@ impl Terminal {
                     }
                     self.parser.advance(&mut self.emu, &bytes[..take]);
                     bytes = &bytes[take..];
-                    // 结束符照常交给 `vte`：ESC 也可能是下一个序列的开头。
+                    // 结束符仍然交给 `vte`：ESC 也可能是下一个序列的开头。
                     self.osc = match end {
                         Some(_) if len + take > SHRINK_OSC && bytes[0] == ESC => {
                             self.parser.advance(&mut self.emu, &bytes[..1]);
@@ -477,6 +484,8 @@ struct Emulator {
     shift_out: bool,
     /// 最后写入的字符，供 `CSI b`（REP）重复。
     last_char: Option<char>,
+    /// 重复序列写入、还没有被 [`Terminal::take_work`] 取走的格数。
+    repeated: usize,
     /// 前面写入的字符组成的 emoji 字素簇；移动光标等控制序列之后重新开始。
     cluster: width::Cluster,
     /// 程序是否要求在明暗主题变化时收到通知（模式 2031）。
@@ -539,6 +548,7 @@ impl Emulator {
             charsets: [false; 2],
             shift_out: false,
             last_char: None,
+            repeated: 0,
             cluster: width::Cluster::None,
             scheme_reports: false,
             links: Links::default(),

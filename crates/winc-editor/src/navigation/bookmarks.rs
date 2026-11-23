@@ -156,7 +156,7 @@ impl Document {
 
     /// 返回第 `line` 行（从 0 起）用于书签列表的预览文本。
     ///
-    /// 预览去掉行首空白，最多取 160 个字符（经验值，足够填满列表宽度），被截断时末尾加 `…`。
+    /// 预览去掉行首空白，最多取 160 个字符（足够填满列表宽度），被截断时末尾加 `…`。
     /// `line` 超出文档行数时返回空字符串。
     pub fn bookmark_preview(&self, line: usize) -> String {
         if line >= self.text.line_count() {

@@ -113,7 +113,7 @@ fn a_remote_shell_gets_the_integration_once_its_scripts_are_there() {
     };
     let plain = "cd '/srv/app' && exec $SHELL -l";
     assert_eq!(command(Integration::Off, true), plain);
-    // 脚本还没有写到那台主机上：照常启动登录 shell。
+    // 脚本还没有写到那台主机上：仍然启动登录 shell。
     let on = |prompt, python| Integration::On { prompt, python };
     assert_eq!(command(on(true, true), false), plain);
     let integrated = command(on(false, true), true);
@@ -208,8 +208,11 @@ fn a_directory_reported_by_a_wsl_shell_is_not_a_windows_working_directory() {
 #[test]
 fn working_directories_stay_as_reported_outside_a_distribution() {
     let path = b"/home/me".to_vec();
-    assert_eq!(local_cwd(None, path.clone()), path);
-    assert_eq!(local_cwd(Some(Path::new("/work")), path.clone()), path);
+    assert_eq!(local_cwd(None, path.clone()), Some(path.clone()));
+    assert_eq!(
+        local_cwd(Some(Path::new("/work")), path.clone()),
+        Some(path)
+    );
 }
 
 #[cfg(windows)]
@@ -218,7 +221,7 @@ fn working_directories_in_a_distribution_become_windows_paths() {
     let root = Path::new(r"\\wsl.localhost\Ubuntu\work");
     assert_eq!(
         local_cwd(Some(root), b"/home/me".to_vec()),
-        br"\\wsl.localhost\Ubuntu\home\me".to_vec()
+        Some(br"\\wsl.localhost\Ubuntu\home\me".to_vec())
     );
 }
 
@@ -274,7 +277,7 @@ fn terminal_paths_belong_to_the_host_the_folder_is_on() {
     );
     assert_eq!(
         local_cwd(Some(&root), b"/srv/app/src".to_vec()),
-        os_bytes(root.join("src").as_os_str())
+        Some(os_bytes(root.join("src").as_os_str()))
     );
     // 相对路径由调用方接在目录后面；本机的目录原样返回。
     assert_eq!(
@@ -285,6 +288,24 @@ fn terminal_paths_belong_to_the_host_the_folder_is_on() {
     assert_eq!(
         terminal_path(local, PathBuf::from("/tmp/x")),
         PathBuf::from("/tmp/x")
+    );
+}
+
+#[test]
+fn a_virtual_path_in_terminal_output_is_not_adopted() {
+    let target = winc_backend::Target::new("other@elsewhere").unwrap();
+    let forged = winc_backend::virtual_path(&target, b"/tmp");
+    let local = Path::new("/tmp/project");
+    let remote =
+        winc_backend::virtual_path(&winc_backend::Target::new("me@own-host").unwrap(), b"/srv");
+    // 无论打开的目录在本机还是远端主机上，输出都不能指定另一台主机。
+    for root in [None, Some(local), Some(remote.as_path())] {
+        assert_eq!(local_cwd(root, os_bytes(forged.as_os_str())), None);
+        assert_eq!(reported_path(root, forged.clone()), None);
+    }
+    assert_eq!(
+        reported_path(Some(local), PathBuf::from("/tmp/x")),
+        Some(PathBuf::from("/tmp/x"))
     );
 }
 

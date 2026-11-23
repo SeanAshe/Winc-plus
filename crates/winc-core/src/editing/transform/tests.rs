@@ -285,7 +285,7 @@ fn transpose_swaps_graphemes_around_the_caret() {
         run("a\nbc", Selection::point(2), transpose),
         Some(("ab\nc".into(), Selection::point(3)))
     );
-    // 两个字素相同：文字不变，光标照样前移。
+    // 两个字素相同：文字不变，光标仍然前移。
     assert_eq!(
         run("aab", Selection::point(1), transpose),
         Some(("aab".into(), Selection::point(2)))

@@ -155,7 +155,7 @@ fn toggled_folders_flip_their_default_state() {
         (true, "release".to_owned()),
     ]);
     let rows = rows(&sample(), &[], "", &toggled);
-    // 只有一个远程时不写它的名字：少一层没有信息量的目录。已有本地分支的远程分支照样列出。
+    // 只有一个远程时不写它的名字：少一层没有信息量的目录。已有本地分支的远程分支仍然列出。
     assert_eq!(
         outline(&rows),
         [

@@ -14,6 +14,8 @@ terminal-module-disabled = The terminal module isn’t enabled
 
 terminal-helper-missing = Couldn’t find the terminal helper; reinstall Winc
 terminal-helper-start-failed = Couldn’t start the terminal helper: { $error }
+terminal-start-not-found = Couldn’t find the program “{ $program }”
+terminal-start-failed = Couldn’t start “{ $program }”: { $error }
 terminal-needs-conpty = The terminal needs Windows 10 version 1809 or later
 terminal-helper-exited = The terminal helper exited
 terminal-helper-version-mismatch = The terminal helper’s version doesn’t match Winc; reinstall Winc

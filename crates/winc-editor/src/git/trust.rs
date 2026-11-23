@@ -54,13 +54,10 @@ fn risky_key(key: &str) -> bool {
 
 /// 从 `git config --list --show-scope -z` 的输出和 git 实际使用的 hooks 目录里找出 [`Risks`]。
 ///
-/// 只看仓库自己的配置（`local`、`worktree` 范围，含它们 `include` 进来的文件）：系统和用户
-/// 范围的配置由用户自己维护，视为用户的选择。`core.fsmonitor` 是布尔值时运行的是
-/// `git` 自带的监视进程，不计入。
-///
-/// 钩子目录由 [`hooks_dir`] 确定，其中可执行的普通文件都计入，`.sample` 示例除外。
-/// `root` 是工作树的根目录，`default` 是共用的 git 目录下的 `hooks`，
-/// `home` 是 `root` 所在系统中用户的主目录。
+/// 只看仓库自己的配置（`local`、`worktree` 范围，含 `include` 进来的文件），系统和用户范围的
+/// 视为用户的选择；`core.fsmonitor` 是布尔值时运行的是 `git` 自带的监视进程，不计入。钩子目录
+/// 由 [`hooks_dir`] 确定，其中可执行的普通文件都计入，`.sample` 示例除外。`root` 是工作树的
+/// 根目录，`default` 是共用的 git 目录下的 `hooks`，`home` 是 `root` 所在系统中用户的主目录。
 pub(super) fn parse_risks(
     stdout: &[u8],
     root: &Path,
@@ -328,16 +325,16 @@ impl Git {
 
     /// 记下用户信任了仓库 `root` 的 `fingerprint` 所对应的配置。
     ///
-    /// 之后的命令在检查出的指纹与它相同时照常运行；配置变化后指纹不同，需要重新确认。
+    /// 之后的命令在检查出的指纹与它相同时仍然运行；配置变化后指纹不同，需要重新确认。
     pub fn trust(&self, root: &Path, fingerprint: u64) {
         self.lock().trusted.insert(root.to_path_buf(), fingerprint);
     }
 
-    /// 仓库 `root` 的配置是否可以照常使用：没有会运行命令的设置，或者用户信任了现在的设置。
+    /// 仓库 `root` 的配置是否可以继续使用：没有会运行命令的设置，或者用户信任了现在的设置。
     ///
     /// 还没检查过时先检查；检查失败时按不可信处理。
     ///
-    /// 返回不可信时检查出的 [`Risks`]，可以照常使用时返回 `None`。
+    /// 返回不可信时检查出的 [`Risks`]，可以继续使用时返回 `None`。
     pub fn untrusted(&self, root: &Path) -> Option<Arc<Risks>> {
         let cached = self.lock().risks.get(root).cloned();
         let risks = match cached {

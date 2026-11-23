@@ -192,6 +192,10 @@ fn number_formats_follow_the_format_code() {
     assert_eq!(classify("h:mm:ss"), date(false, true, true));
     assert_eq!(classify("yyyy-mm-dd hh:mm"), date(true, true, false));
     assert_eq!(classify("0.0%"), NumberFormat::Percent(1));
+    // 小数位数取自文件：位数极大的格式代码按上限处理，能正常写出。
+    let wide = classify(&format!("0.{}%", "0".repeat(100_000)));
+    assert_eq!(wide, NumberFormat::Percent(30));
+    assert!(super::xlsx::format_number(0.5, wide, false).starts_with("50.000"));
     assert_eq!(classify("#,##0.00"), NumberFormat::General);
     // 引号中的文字、方括号中的颜色和币种不算。
     assert_eq!(classify("0 \"days\""), NumberFormat::General);
@@ -262,7 +266,7 @@ fn file_kinds_follow_the_extension() {
 #[test]
 fn selections_cover_merges_and_copy_as_tab_separated_text() {
     let mut sheet = read_delimited("a,b,c\nd,\"e\tf\",\"say \"\"hi\"\"\"\n,,x", false);
-    sheet.merges = vec![Area::spanning((1, 1), (2, 2))];
+    sheet.set_merges(vec![Area::spanning((1, 1), (2, 2))]);
     // 选到合并区域的一角：扩大到整个区域；连锁重叠的也包含进来。
     assert_eq!(
         sheet.cover_merges(Area::spanning((0, 1), (1, 1))),
@@ -308,12 +312,98 @@ fn delimited_files_are_read_from_disk_up_to_the_row_limit() {
     assert_eq!((sheet.row_count(), sheet.truncated), (3, false));
     assert_eq!(sheet.row(2).collect::<Vec<_>>(), ["pear\npie", "5"]);
 
-    let (head, more) = head_lines(&path, 2).unwrap();
-    assert_eq!(
-        (head.as_slice(), more),
-        (b"name,count\napple,3\n".as_slice(), true)
-    );
     assert!(load_delimited(&dir.join("missing.csv"), false).is_err());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 改为一段一段读入之前的解析方式：整段文本一次解析。留作对照，新的解析器必须给出相同的结果。
+fn reference_delimited(text: &str, tabs: bool) -> Sheet {
+    let delimiter = if tabs { '\t' } else { sniff_delimiter(text) };
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+
+    let mut rows = Rows::default();
+    let mut field = String::new();
+    let mut quoted = false;
+    let mut truncated = false;
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if quoted {
+            match c {
+                '"' if chars.peek() == Some(&'"') => {
+                    chars.next();
+                    field.push('"');
+                }
+                '"' => quoted = false,
+                _ => field.push(c),
+            }
+            continue;
+        }
+        match c {
+            '"' if field.is_empty() => quoted = true,
+            '\r' if chars.peek() == Some(&'\n') => {}
+            '\n' | '\r' => {
+                push_field(&mut rows, &mut field, &mut truncated);
+                rows.end_row();
+                if rows.len() == MAX_ROWS {
+                    truncated |= chars.peek().is_some();
+                    break;
+                }
+            }
+            c if c == delimiter => push_field(&mut rows, &mut field, &mut truncated),
+            _ => field.push(c),
+        }
+    }
+    if !field.is_empty() || rows.cells() > 0 {
+        push_field(&mut rows, &mut field, &mut truncated);
+        rows.end_row();
+    }
+    rows.finish(String::new(), truncated)
+}
+
+/// 一段一段从磁盘读的结果与整段文本一次解析的相同：带引号的字段、回车换行、多字节字符和
+/// 无效的字节落在两段的交界上也一样；超过行数上限的文件停在上限并记下截断。
+#[test]
+fn delimited_files_read_in_pieces_match_the_whole_text() {
+    let dir = std::env::temp_dir().join(format!("winc-table-pieces-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let same = |name: &str, bytes: &[u8]| {
+        let path = dir.join(name);
+        std::fs::write(&path, bytes).unwrap();
+        let read = load_delimited(&path, false).unwrap().sheets.remove(0);
+        let text = String::from_utf8_lossy(bytes);
+        assert!(read == read_delimited(&text, false), "{name}");
+        assert!(
+            read == reference_delimited(&text, false),
+            "{name}：与原来的解析不同"
+        );
+        read
+    };
+
+    // 约 5 MiB，每行长度不同：各种写法都会落在 1 MiB 一段的交界上。
+    let mut mixed = String::from("\u{feff}");
+    for i in 0..60_000 {
+        let pad = "汉字é".repeat(i % 7);
+        mixed.push_str(&format!("{i},\"引号\"\"里, 换\r\n行{pad}\",尾{pad}\r\n"));
+        if i % 3 == 0 {
+            mixed.push_str("单独的回车\r");
+        }
+    }
+    let sheet = same("mixed.csv", mixed.as_bytes());
+    assert!(!sheet.truncated && sheet.row_count() > 60_000);
+
+    // 无效的字节，以及在段的交界上被切开的多字节字符。
+    let mut broken = vec![b'a'; (1 << 20) - 1];
+    broken.extend_from_slice("汉,\u{1f600}\n".as_bytes());
+    broken.extend_from_slice(&[0xff, b',', 0xe6, 0xb1, b'\n', 0xe6]);
+    same("broken.csv", &broken);
+
+    // 比行数上限多：停在上限，后面的不读。
+    let tall = "1,2\n".repeat(MAX_ROWS + 5000);
+    let sheet = same("tall.csv", tall.as_bytes());
+    assert_eq!((sheet.row_count(), sheet.truncated), (MAX_ROWS, true));
+    let exact = "1,2\r\n".repeat(MAX_ROWS);
+    let sheet = same("exact.csv", exact.as_bytes());
+    assert_eq!((sheet.row_count(), sheet.truncated), (MAX_ROWS, false));
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -360,4 +450,193 @@ fn the_pull_reader_reports_malformed_xml() {
         tokens.by_ref().for_each(drop);
         assert!(!tokens.well_formed(), "{broken}");
     }
+}
+
+/// 只在最后一列有内容的行：空单元格的数量有上限，超出后不再读，工作表记为没有读完；有内容的
+/// 单元格再多也完整读取。
+#[test]
+fn rows_with_one_distant_cell_are_read_up_to_the_padding_limit() {
+    let sheet = |rows: usize, cell: &str| {
+        let row = format!("<row>{cell}</row>");
+        let xml = format!(
+            "<worksheet><sheetData>{}</sheetData></worksheet>",
+            row.repeat(rows)
+        );
+        let context = xlsx::Context::default();
+        xlsx::worksheet(&xml, String::new(), &context).unwrap()
+    };
+    // 每行 16383 个空单元格：一千多行就超过上限。
+    let sparse = sheet(2000, "<c r=\"XFD1\"><v>1</v></c>");
+    assert!(sparse.truncated);
+    assert!(sparse.row_count() < 1100, "{}", sparse.row_count());
+    // 每行 20 个有内容的单元格，一共 100 万个：不受空单元格的上限影响。
+    let cells = "<c><v>1</v></c>".repeat(20);
+    let dense = sheet(50_000, &cells);
+    assert!(!dense.truncated);
+    assert_eq!((dense.row_count(), dense.columns), (50_000, 20));
+}
+
+/// 包里各个文件各自不大，逐个读下去累计解压量超过上限时不再解压，并记下被拒绝过；上限按
+/// 包的大小成比例，不低于单个文件允许的量。
+#[test]
+fn an_archive_stops_inflating_past_its_budget() {
+    let part = vec![b'a'; 64 << 10];
+    let files: Vec<(&str, &[u8])> = vec![("a", &part), ("b", &part), ("c", &part)];
+    let bytes = crate::zip::build(&files, true);
+    // 三个文件各 64 KiB，压缩后整个包不到 1 KiB：比例远超正常文档。
+    assert!(bytes.len() < 1024, "{}", bytes.len());
+
+    // 默认的上限不低于 1 GiB：小的包仍能全部读出。
+    let roomy = crate::zip::Archive::open(&bytes).unwrap();
+    for name in ["a", "b", "c"] {
+        assert_eq!(roomy.read(name).unwrap().unwrap().len(), part.len());
+    }
+    assert!(!roomy.exceeded());
+
+    // 上限 150 KiB：前两个读得出，第三个被拒绝；没有的文件不算被拒绝。
+    let tight = crate::zip::Archive::open(&bytes)
+        .unwrap()
+        .with_budget(150 << 10);
+    assert!(tight.read("a").unwrap().is_ok() && tight.read("b").unwrap().is_ok());
+    assert!(tight.read("missing").is_none() && !tight.exceeded());
+    assert_eq!(tight.read("c").unwrap(), Err(crate::zip::Error::TooLarge));
+    assert!(tight.exceeded());
+}
+
+/// 工作簿把同一个工作表文件列了两次：只读一次。
+#[test]
+fn a_worksheet_listed_twice_is_read_once() {
+    let bytes = workbook(true);
+    let archive = crate::zip::Archive::open(&bytes).unwrap();
+    let mut files: Vec<(String, Vec<u8>)> = Vec::new();
+    let names = [
+        "_rels/.rels",
+        "xl/workbook.xml",
+        "xl/_rels/workbook.xml.rels",
+        "xl/sharedStrings.xml",
+        "xl/styles.xml",
+        "xl/worksheets/sheet1.xml",
+        "xl/worksheets/sheet2.xml",
+        "xl/worksheets/sheet3.xml",
+    ];
+    for name in names {
+        let mut content = archive.read(name).unwrap().unwrap();
+        if name == "xl/workbook.xml" {
+            let text = String::from_utf8(content).unwrap().replace(
+                "<sheet name=\"空表\"",
+                "<sheet name=\"再来\" sheetId=\"9\" r:id=\"rId1\"/><sheet name=\"空表\"",
+            );
+            content = text.into_bytes();
+        }
+        files.push((name.to_owned(), content));
+    }
+    let files: Vec<(&str, &[u8])> = (files.iter())
+        .map(|(name, content)| (name.as_str(), content.as_slice()))
+        .collect();
+    let table = read_workbook(&crate::zip::build(&files, true)).unwrap();
+    let names: Vec<&str> = table.sheets.iter().map(|s| s.name.as_str()).collect();
+    assert_eq!(names, ["数据", "空表"]);
+}
+
+/// 按行查找合并区域的结果与逐个比较的相同：高的、宽的、挨着的区域混在一起，次序打乱。
+#[test]
+fn merges_are_found_like_a_scan_of_all_of_them() {
+    let merges = vec![
+        Area {
+            top: 40,
+            left: 0,
+            bottom: 40,
+            right: 3,
+        },
+        Area {
+            top: 0,
+            left: 9,
+            bottom: 99,
+            right: 9,
+        },
+        Area {
+            top: 5,
+            left: 0,
+            bottom: 7,
+            right: 2,
+        },
+        Area {
+            top: 5,
+            left: 3,
+            bottom: 5,
+            right: 4,
+        },
+        Area {
+            top: 8,
+            left: 0,
+            bottom: 8,
+            right: 8,
+        },
+        Area {
+            top: 60,
+            left: 2,
+            bottom: 80,
+            right: 5,
+        },
+        Area {
+            top: 99,
+            left: 0,
+            bottom: 99,
+            right: 1,
+        },
+    ];
+    let mut sheet = Sheet::default();
+    sheet.set_merges(merges.clone());
+    for row in 0..=100 {
+        for column in 0..=10 {
+            let scanned = merges.iter().find(|m| m.contains(row, column)).copied();
+            assert_eq!(sheet.merge_at(row, column), scanned, "{row}, {column}");
+        }
+    }
+    // 选中合并区域的一部分即选中整个区域，连带再碰到的区域。
+    let cell = |row, column| Area::spanning((row, column), (row, column));
+    assert_eq!(sheet.cover_merges(cell(6, 1)), merges[2]);
+    let grown = sheet.cover_merges(Area::spanning((5, 2), (5, 3)));
+    assert_eq!(
+        grown,
+        Area {
+            top: 5,
+            left: 0,
+            bottom: 7,
+            right: 4
+        }
+    );
+    assert_eq!(sheet.cover_merges(cell(50, 4)), cell(50, 4));
+}
+
+/// 测量用，默认不运行：一万个合并区域的工作表上，量列宽时逐格查找所在合并区域的耗时。
+#[test]
+#[ignore = "测量用"]
+fn merge_lookup_cost() {
+    let mut sheet = Sheet {
+        columns: 200,
+        ..Sheet::default()
+    };
+    // 一万个互不重叠的小合并区域，铺在 5000 行里：每行两个。
+    let merges = (0..10_000)
+        .map(|i| {
+            let (row, left) = (i / 2, (i % 2) * 100);
+            Area {
+                top: row,
+                left,
+                bottom: row,
+                right: left + 3,
+            }
+        })
+        .collect();
+    sheet.set_merges(merges);
+    let start = std::time::Instant::now();
+    let mut found = 0usize;
+    for row in 0..1000 {
+        for column in 0..200 {
+            found += usize::from(sheet.merge_at(row, column).is_some());
+        }
+    }
+    eprintln!("1000 行 × 200 列：{:?}，命中 {found}", start.elapsed());
+    assert_eq!(found, 1000 * 8);
 }

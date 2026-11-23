@@ -566,10 +566,7 @@ impl<'b, 'a> Writer<'b, 'a> {
                 .children()
                 .filter(|n| n.has_tag_name_local("td") || n.has_tag_name_local("th"))
             {
-                let span: usize = (cell.attribute("colspan"))
-                    .and_then(|s| s.trim().parse().ok())
-                    .unwrap_or(1)
-                    .clamp(1, 64);
+                let span = crate::convert::span(cell.attribute("colspan"));
                 let text = self.nested(cell, depth + 1).join("<br>").replace('\n', " ");
                 row.push(text);
                 row.extend(std::iter::repeat_n(String::new(), span - 1));

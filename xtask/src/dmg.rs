@@ -22,14 +22,12 @@ const BUNDLE_ID: &str = "com.deeix.winc";
 /// 显示应用的名字，不显示包名。
 const APP_NAME: &str = "Winc";
 
-/// 构建 release，组成临时签名（ad-hoc）的 `target/release/bundle/winc.app`，返回应用的路径和
-/// 版本号。
+/// 构建 release，组成临时签名（ad-hoc）的 `target/release/bundle/winc.app`，返回路径和版本号。
 ///
-/// 应用包里有主程序、终端的辅助进程 `winc-pty`、应用内更新用的 `Sparkle.framework` 和图标。
-/// `target` 是 Rust 的目标（`aarch64-apple-darwin` 或 `x86_64-apple-darwin`，在 Apple 芯片上
-/// 交叉编译 Intel 版）；为 `None` 时构建本机架构。Apple 芯片和 Intel 各出一个安装包，各有自己的
-/// appcast。appcast 的 `SUFeedURL` 由 `sparkle::UpdateConfig::plist_entries` 按架构生成；
-/// 分发前由发布者用 Developer ID 重新签名。
+/// 应用包里有主程序、终端的辅助进程 `winc-pty`、`Sparkle.framework` 和图标。`target` 是 Rust 的
+/// 目标（`aarch64-apple-darwin` 或 `x86_64-apple-darwin`，在 Apple 芯片上交叉编译 Intel 版），
+/// 为 `None` 时构建本机架构。两种架构各出一个安装包、各有自己的 appcast（`SUFeedURL` 由
+/// `sparkle::UpdateConfig::plist_entries` 按架构生成）；分发前由发布者用 Developer ID 重新签名。
 ///
 /// # Errors
 ///
@@ -865,15 +863,10 @@ fn document_type(name: &str, role: &str, rank: &str, key: &str, values: &[&str])
 
 /// 生成 `Info.plist`；`arch` 是应用的架构（`arm64` 或 `x86_64`），决定请求哪一份 appcast。
 ///
-/// `CFBundleDocumentTypes` 见 [`document_types`]。
-///
-/// `CFBundleURLTypes` 声明 `winc` 协议：打开 `winc://file/<绝对路径>[:行[:列]]` 链接时系统交给
-/// Winc（应用委托的 `application:openURLs:`）。
-///
-/// `NSServices` 声明一项服务「在 Winc 中打开」（见 [`SERVICE_TITLE`]），出现在访达右键菜单的
-/// 「服务」中，只针对文本文件（`public.text`）和文件夹。声明了 `NSRequiredContext`，安装后即
-/// 启用；用户可在「系统设置 → 键盘 → 键盘快捷键 → 服务」中关闭。服务由应用委托处理（消息名
-/// `openInWinc`），不安装扩展，也不修改任何文件类型的默认打开方式。
+/// `CFBundleDocumentTypes` 见 [`document_types`]；`CFBundleURLTypes` 声明 `winc://` 链接。
+/// `NSServices` 声明一项服务「在 Winc 中打开」（见 [`SERVICE_TITLE`]），只针对文本文件
+/// （`public.text`）和文件夹，由应用委托处理，声明了 `NSRequiredContext`，安装后即启用；不安装
+/// 扩展，也不修改任何文件类型的默认打开方式。
 fn info_plist(version: &str, updates: &sparkle::UpdateConfig, arch: &str) -> String {
     let updates = updates.plist_entries(arch);
     let types = document_types();

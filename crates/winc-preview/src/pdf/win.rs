@@ -52,7 +52,7 @@ impl Document {
             return Err(t!("preview-pdf-encrypted").to_owned());
         }
         let count = doc.PageCount().map_err(invalid)?;
-        let mut pages = Vec::with_capacity(count as usize);
+        let mut pages = Vec::new();
         for index in 0..count {
             // `Size` 已按页面的裁切框和旋转换算成显示方向，单位为 DIP。
             let size = doc

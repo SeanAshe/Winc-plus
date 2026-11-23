@@ -135,7 +135,7 @@ fn enter_after_a_fence_closes_it() {
 #[test]
 fn tab_nests_list_items() {
     assert_eq!(tab("- 一\n- 二", false).as_deref(), Some("- 一\n  - 二"));
-    // 有序列表项成为第一个子项时从 1 开始编号，之后的子项接着上一项编号。
+    // 有序列表项成为第一个子项时从 1 开始编号，之后的子项顺着上一项编号。
     assert_eq!(
         tab("1. 一\n2. 二", false).as_deref(),
         Some("1. 一\n   1. 二")

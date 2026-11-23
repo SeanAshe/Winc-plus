@@ -81,7 +81,7 @@ fn a_window_fits_its_screen_and_keeps_the_minimum_size() {
     let placed = place(&frame(None, 200.0, 100.0, 1.0), &[MAIN]);
     assert_eq!((placed.width, placed.height), (MIN_WIDTH, MIN_HEIGHT));
     assert_eq!(placed.position, None);
-    // 没有显示器的信息时大小照旧。
+    // 没有显示器的信息时大小不变。
     let placed = place(&frame(None, 3000.0, 2000.0, 1.0), &[]);
     assert_eq!((placed.width, placed.height), (3000.0, 2000.0));
 }

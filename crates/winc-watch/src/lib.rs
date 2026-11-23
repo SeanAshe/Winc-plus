@@ -62,14 +62,17 @@ struct Throttle {
 /// `E` 再返回错误。
 pub fn run(root: &Path, commands: bool) -> notify::Result<()> {
     let throttle = Arc::new(Mutex::new(Throttle::default()));
-    let mut watcher = notify::recommended_watcher(move |event| match classify(&event) {
+    // 不跟随符号链接：文件树不展开链接到的目录，监视它们只会多占监视名额。
+    let config = notify::Config::default().with_follow_symlinks(false);
+    let handler = move |event: notify::Result<notify::Event>| match classify(&event) {
         Outcome::Send(messages) => send(&messages),
         Outcome::Rescan => request_rescan(&throttle),
         Outcome::Limit => {
             send(b"E\0");
             std::process::exit(1);
         }
-    })?;
+    };
+    let mut watcher = notify::RecommendedWatcher::new(handler, config)?;
     if let Err(error) = watcher.watch(root, RecursiveMode::Recursive) {
         if matches!(error.kind, ErrorKind::MaxFilesWatch) {
             send(b"E\0");

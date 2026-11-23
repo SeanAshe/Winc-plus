@@ -114,7 +114,7 @@ fn json(before: impl Iterator<Item = char>) -> Vec<Segment> {
 /// 两次扫描记录点之间相隔的字符数（`char`）。
 ///
 /// 记录点越密，光标往回移动时需要重扫的字符越少，但保存的状态越多；16 Ki 字符是两者的折中，
-/// 经验值。
+/// 取自调参。
 pub const CHECKPOINT: usize = 16 << 10;
 
 /// 可以增量扫描的 JSON 键路径：记着上次扫过的文字和沿途的扫描状态。

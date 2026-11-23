@@ -11,12 +11,12 @@ use winc_i18n::t;
 
 use super::*;
 
-/// 判定为拖动的鼠标移动距离（逻辑像素，经验值）：按下后移动不足此距离时，松开按单击处理。
+/// 判定为拖动的鼠标移动距离（逻辑像素）：按下后移动不足此距离时，松开按单击处理。
 const DRAG_THRESHOLD: f32 = 4.0;
 
 /// 拖动时停在收起的目录上多久之后自动展开该目录。
 ///
-/// 取 600 ms（经验值）：足以与路过区分，又不会让用户等待；展开后可以继续把项目放入其中的
+/// 取 600 ms：足以与路过区分，又不会让用户等待；展开后可以继续把项目放入其中的
 /// 子目录。
 const EXPAND_DELAY: Duration = Duration::from_millis(600);
 
@@ -24,7 +24,7 @@ const EXPAND_DELAY: Duration = Duration::from_millis(600);
 ///
 /// 取一行的高度 [`TREE_ROW`]。
 const EDGE: f32 = TREE_ROW;
-/// 鼠标贴着文件树上下边缘时每帧的滚动量（逻辑像素，经验值）。
+/// 鼠标贴着文件树上下边缘时每帧的滚动量（逻辑像素，取自调参）。
 ///
 /// 滚动量随鼠标向 [`EDGE`] 区域内侧移动而线性减小，到区域内侧边界时为 0。
 const EDGE_SPEED: f32 = 12.0;
@@ -386,20 +386,25 @@ impl App {
         for failure in failures {
             self.notify(NoticeKind::Error, failure);
         }
-        if !copies.is_empty()
-            && let Some(ws) = &mut self.editor.workspace
-        {
-            ws.refresh();
-            // 展开到各个副本所在的位置，再一起选中（只能选中显示出来的行）。
-            for copy in &copies {
-                ws.reveal(copy);
-            }
-            ws.select_paths(&copies);
-            self.panels.tree.motion = None;
+        if !copies.is_empty() {
+            let copies = copies.clone();
             self.focus = Focus::Tree;
-            if let Some(index) = ws.selected {
-                self.scroll_tree_to(index, false);
-            }
+            self.rescan_tree(move |app| {
+                let Some(ws) = &mut app.editor.workspace else {
+                    return;
+                };
+                // 展开到各个副本所在的位置，再一起选中（只能选中显示出来的行）。
+                for copy in &copies {
+                    ws.reveal(copy);
+                }
+                ws.select_paths(&copies);
+                app.panels.tree.motion = None;
+                if let Some(index) = ws.selected {
+                    app.scroll_tree_to(index, false);
+                }
+                app.relayout();
+                app.request_redraw();
+            });
         }
         self.picker_touched(copies);
         self.relayout();

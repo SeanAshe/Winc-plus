@@ -25,7 +25,7 @@ use crate::document::{Document, DocumentId};
 pub const MAX_MATCHES: usize = 10_000;
 /// 单次 `update` 的搜索时间上限（毫秒）。
 ///
-/// 经验值：限制一次调用阻塞界面的时间。
+/// 取自调参：限制一次调用阻塞界面的时间。
 const SLICE: Duration = Duration::from_millis(8);
 /// 检查一次时钟之间处理的行数（行）。
 ///
@@ -33,7 +33,7 @@ const SLICE: Duration = Duration::from_millis(8);
 const CLOCK_INTERVAL: usize = 256;
 /// 检查一次时钟之间处理的字节数（字节，256 KiB），与 `CLOCK_INTERVAL` 先到者为准。
 ///
-/// 只按行数计时，大文件中每行几 MB 时 256 行就是数百 MB，一次调用会阻塞界面数秒。经验值。
+/// 只按行数计时，大文件中每行几 MB 时 256 行就是数百 MB，一次调用会阻塞界面数秒。取自调参。
 const CLOCK_BYTES: usize = 256 << 10;
 
 /// 不依赖文档的查找：在给定的文字里按和 [`Search`] 相同的条件找，语义完全相同。

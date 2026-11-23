@@ -52,7 +52,7 @@ fn the_curves_start_and_end_at_the_caret_positions() {
         }
     }
 
-    // 曲线取自 IntelliJ IDEA：Snappy 在开始时走过大半距离，Gliding 在时间过半时约走八成。
+    // Snappy 在开始时走过大半距离，Gliding 在时间过半时约走八成。
     assert!((ease(SmoothCaret::Snappy, 0.1) - 0.846).abs() < 0.001);
     assert!((ease(SmoothCaret::Gliding, 0.5) - 0.806).abs() < 0.001);
 }
@@ -199,7 +199,7 @@ fn moves_in_quick_succession_stay_short_after_one_finishes() {
     let urgency = |app: &App| app.motion.caret_motion.unwrap().urgency;
     assert!((urgency(&app) - 0.8).abs() < 1e-6);
 
-    // 缩短了的移动已经走完，但离它开始还不到一次完整时长：下一次移动接着缩短，不回到完整时长。
+    // 缩短了的移动已经走完，但离它开始还不到一次完整时长：下一次移动继续缩短，不回到完整时长。
     freeze(&mut app, Duration::from_millis(100));
     assert!(same_spot(app.advance_caret(at(2)), at(2).rect));
     assert!(!app.animating());

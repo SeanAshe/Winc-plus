@@ -725,9 +725,16 @@ impl App {
             MenuTarget::TabList => (0..self.editor.tab_count())
                 .map(|i| MenuEntry::Item(MenuCommand::ShowTab(i), true))
                 .collect(),
-            MenuTarget::LatexProblems => (0..self.latex_problem_count())
-                .map(|i| MenuEntry::Item(MenuCommand::LatexProblem(i), true))
-                .collect(),
+            MenuTarget::LatexProblems => {
+                let rc = [
+                    MenuEntry::Separator,
+                    MenuEntry::Item(MenuCommand::LatexRunRc, true),
+                ];
+                (0..self.latex_problem_count())
+                    .map(|i| MenuEntry::Item(MenuCommand::LatexProblem(i), true))
+                    .chain(rc.into_iter().filter(|_| self.latex_rc_skipped()))
+                    .collect()
+            }
             MenuTarget::RunConfigs => (0..self.run.list.len())
                 .map(|i| MenuEntry::Item(MenuCommand::RunSelect(i), true))
                 .chain([

@@ -102,7 +102,7 @@ pub(crate) enum Recent<'a> {
 }
 
 impl App {
-    /// 面板中第 `index` 项（`Picker::hits` 的元素）：最近目录之后接着是最近文件。
+    /// 面板中第 `index` 项（`Picker::hits` 的元素）：最近目录之后继续是最近文件。
     pub(crate) fn recent_entry(&self, index: usize) -> Option<Recent<'_>> {
         let folders = &self.state.recent;
         match index.checked_sub(folders.len()) {
@@ -213,7 +213,8 @@ impl App {
     /// 打开最近的文件 `file`：`new_window` 时在新窗口打开；已不存在时从最近列表中移除并提示。
     fn open_recent_file(&mut self, file: &Path, new_window: bool) {
         if !self.may_exist(file) {
-            self.update_state(|state| state.forget_file(file));
+            let gone = file.to_path_buf();
+            self.update_state(move |state| state.forget_file(&gone));
             let path = winc_editor::display_path(file, None);
             self.notify(
                 NoticeKind::Warning,
@@ -240,7 +241,7 @@ impl App {
             return;
         };
         let selected = self.overlays.picker.selected;
-        self.update_state(|state| match entry {
+        self.update_state(move |state| match entry {
             (true, folder) => state.forget(&folder),
             (false, file) => state.forget_file(&file),
         });

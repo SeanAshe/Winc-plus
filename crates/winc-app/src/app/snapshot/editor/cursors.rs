@@ -339,3 +339,51 @@ fn snapshot_cursors() {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+#[test]
+fn shift_alt_click_selects_columns_or_adds_range() {
+    crate::app::snapshot::use_vscode_keys();
+    let (mut app, dir) = cursors_app("cursor-shift-alt-click", false);
+
+    // 1. 跨多行 ⇧⌥ 单击：从已有光标 (1, 4) 框出一列到 (3, 8)。
+    click_at(&mut app, 1, 4);
+    assert_eq!(carets(&app), [caret((1, 4))]);
+
+    app.pointer.modifiers = ModifiersState::SHIFT | ModifiersState::ALT;
+    click_at(&mut app, 3, 8);
+    app.pointer.modifiers = ModifiersState::empty();
+    assert_eq!(
+        carets(&app),
+        [((1, 4), (1, 8)), ((2, 4), (2, 8)), ((3, 4), (3, 8))]
+    );
+    let doc = app.editor.active().unwrap();
+    assert_eq!(doc.text().pos_to_line_col(doc.selection.head), (3, 8));
+
+    // 2. 连续 ⇧⌥ 单击调整终点：保持原有 anchor (1, 4)，改框到第 2 行第 10 列。
+    app.pointer.modifiers = ModifiersState::SHIFT | ModifiersState::ALT;
+    click_at(&mut app, 2, 10);
+    app.pointer.modifiers = ModifiersState::empty();
+    assert_eq!(carets(&app), [((1, 4), (1, 10)), ((2, 4), (2, 10))]);
+
+    // 3. 同一行 ⇧⌥ 单击：在当前行添加从 (1, 4) 到 (1, 12) 的选区。
+    click_at(&mut app, 1, 4);
+    assert_eq!(carets(&app), [caret((1, 4))]);
+
+    app.pointer.modifiers = ModifiersState::SHIFT | ModifiersState::ALT;
+    click_at(&mut app, 1, 12);
+    app.pointer.modifiers = ModifiersState::empty();
+    assert_eq!(carets(&app), [((1, 4), (1, 12))]);
+
+    // 4. 同一列 ⇧⌥ 单击：在第 1、2、3 行第 8 列各放置一个光标。
+    click_at(&mut app, 1, 8);
+    app.pointer.modifiers = ModifiersState::SHIFT | ModifiersState::ALT;
+    click_at(&mut app, 3, 8);
+    app.pointer.modifiers = ModifiersState::empty();
+    assert_eq!(carets(&app), [caret((1, 8)), caret((2, 8)), caret((3, 8))]);
+
+    // 5. ⌘U 撤销列选择，回到单光标。
+    assert!(press(&mut app, &["cmd"], KeyCode::Char('u')));
+    assert_eq!(carets(&app), [caret((1, 8))]);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

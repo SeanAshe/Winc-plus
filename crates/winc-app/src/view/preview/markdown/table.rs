@@ -95,7 +95,7 @@ pub(super) fn table_toolbar(
     links: &mut Vec<(Rect, String)>,
 ) {
     use winc_preview::markdown::Align;
-    // 工具栏高 26、内边距 3、按钮字号 12（逻辑像素，经验值）。
+    // 工具栏高 26、内边距 3、按钮字号 12（逻辑像素，取自调参）。
     let (h, pad, size) = (26.0, 3.0, 12.0);
     let tools = table_tools();
     let widths: Vec<f32> = tools

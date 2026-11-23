@@ -198,7 +198,15 @@ fn from_helper() -> Vec<FromHelper> {
         FromHelper::Disconnected { tab: 1 },
         FromHelper::Failed {
             tab: 1,
-            message: "未找到程序".into(),
+            reason: StartFailure::NotFound,
+            program: "/bin/无".into(),
+            error: String::new(),
+        },
+        FromHelper::Failed {
+            tab: 2,
+            reason: StartFailure::Refused,
+            program: "sh".into(),
+            error: "Permission denied".into(),
         },
     ]
 }

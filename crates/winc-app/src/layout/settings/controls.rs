@@ -98,7 +98,7 @@ impl StepperParts {
 ///
 /// 浅色、深色两组用同一个格子，上下两组的缩略图对齐。
 pub const THEME_COLUMNS: usize = 4;
-/// 主题缩略图之间横竖的间距（逻辑像素，经验值）：留出能分清两张缩略图的缝，同时保证一行
+/// 主题缩略图之间横竖的间距（逻辑像素）：留出能分清两张缩略图的缝，同时保证一行
 /// 装得下 `THEME_COLUMNS` 张。
 pub(super) const THEME_GRID_GAP: f32 = 14.0;
 /// 主题缩略图和组上下边的距离（逻辑像素）：与行内控件的 `SETTINGS_INSET` 相仿，组的上沿不贴

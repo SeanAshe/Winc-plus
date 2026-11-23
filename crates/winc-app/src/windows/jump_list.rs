@@ -72,7 +72,8 @@ pub fn sync_jump_list(recent: &[PathBuf], files: &[PathBuf], state: &Path) {
                         state.forget_file(path);
                     }
                 };
-                let _ = winc_config::State::update(&state, forget);
+                let current = winc_config::State::default();
+                let _ = winc_config::State::update(&state, &current, forget);
             }
         });
     // 线程没有建成时清除记录，下一次变化时重试。

@@ -252,10 +252,9 @@ unsafe fn service_paths(pasteboard: &AnyObject) -> Vec<PathBuf> {
     }
 
     // SAFETY: 由调用方保证 `pasteboard` 有效。`arrayWithObject:`、`numberWithBool:`、
-    // `dictionaryWithObject:forKey:` 和 `readObjectsForClasses:options:` 是公开 API，返回自动
-    // 释放的对象或 nil，判空后在本块内使用；NSURL 类对象可作为数组元素。
-    // `NSPasteboardURLReadingFileURLsOnlyKey` 是 AppKit 导出的常量字符串，在进程内一直有效；
-    // 选项限定只读取文件 URL，返回的数组元素均为 NSURL，满足 `file_paths` 的要求。
+    // `dictionaryWithObject:forKey:` 和 `readObjectsForClasses:options:` 是公开 API，返回自动释放的
+    // 对象或 nil，判空后在本块内使用；`NSPasteboardURLReadingFileURLsOnlyKey` 是 AppKit 导出的常量
+    // 字符串，一直有效，选项限定只读取文件 URL，数组元素均为 NSURL，满足 `file_paths`。
     unsafe {
         let classes: *mut AnyObject = msg_send![class!(NSArray), arrayWithObject: class!(NSURL)];
         let yes: *mut AnyObject = msg_send![class!(NSNumber), numberWithBool: Bool::YES];
@@ -347,10 +346,9 @@ pub fn add_settings_menu(open: impl Fn() + Send + Sync + 'static) {
     add_method(delegate, SETTINGS_ACTION, open_settings);
 
     // SAFETY: 用到的 `NSApplication`、`NSMenu`、`NSMenuItem`、`NSString` 是公开 API，只在主线程调用
-    // （AppKit 的线程要求）。指针先判空再使用；取出的 `app`、`main_menu`、`app_item`、`app_menu` 由
-    // AppKit 持有，调用内有效。标题由 `ns_string` 创建并持有到块末尾；`c","` 以 NUL 结尾，
-    // `stringWithUTF8String:` 复制其内容。
-    // 菜单项 `alloc` 后 +1，与 `separatorItem`（自动释放）加入后都由菜单持有，`release` 抵消。
+    // （AppKit 的线程要求）。指针先判空再使用；取出的 `app`、`main_menu`、`app_item`、`app_menu`
+    // 由 AppKit 持有，调用内有效。标题由 `ns_string` 创建并持有到块末尾；`c","` 以 NUL 结尾。菜单项
+    // `alloc` 后 +1，与 `separatorItem`（自动释放）加入后都由菜单持有，`release` 抵消。
     unsafe {
         let selector = sel!(wincOpenSettings:);
         let app: *mut AnyObject = msg_send![class!(NSApplication), sharedApplication];
@@ -388,10 +386,9 @@ pub fn add_settings_menu(open: impl Fn() + Send + Sync + 'static) {
         };
         let () = msg_send![item, setTarget: target];
 
-        // 「关于」是第 0 项，其后是分隔线。「设置…」插在分隔线之后（下标 2），并在其后再插一条
-        // 分隔线，结果为：关于 | 分隔线 | 设置… | 分隔线 | `winit` 菜单原有的其余项。
-        // 下标超出项数时 `AppKit` 会抛出异常，因此取项数与 2 中的较小值作为插入下标
-        // （`winit` 的菜单项数不会少到该程度，此处只是兜底）。
+        // 「关于」是第 0 项，其后是分隔线。「设置…」插在分隔线之后（下标 2），其后再插一条分隔线：
+        // 关于 | 分隔线 | 设置… | 分隔线 | `winit` 菜单原有的其余项。下标超出项数时 `AppKit` 会抛出
+        // 异常，因此取项数与 2 中的较小值作为插入下标（仅兜底）。
         let count: isize = msg_send![app_menu, numberOfItems];
         let index = count.min(2);
         let separator: *mut AnyObject = msg_send![class!(NSMenuItem), separatorItem];
@@ -639,7 +636,7 @@ thread_local! {
 /// 暂停（`suspend` 为 `true`）或恢复菜单栏中各菜单项的快捷键。
 ///
 /// 菜单项的快捷键（如「设置…」的 ⌘,、「退出」的 ⌘Q）先于窗口收到按键，不会作为键盘事件送到
-/// 窗口。录制按键时暂停这些快捷键，按键照常送到窗口；恢复时按原样放回。重复暂停或恢复不做任何
+/// 窗口。录制按键时暂停这些快捷键，按键仍然送到窗口；恢复时按原样放回。重复暂停或恢复不做任何
 /// 事。只能在主线程调用。
 pub fn suspend_menu_shortcuts(suspend: bool) {
     SUSPENDED.with_borrow_mut(|saved| {

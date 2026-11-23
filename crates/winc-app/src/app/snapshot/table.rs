@@ -43,7 +43,7 @@ fn stored_zip(files: &[(&str, String)]) -> Vec<u8> {
 }
 
 /// 构造一个工作簿的 `.xlsx` 字节内容：工作表「销售」有 `rows` 行（第一行是表头），
-/// C2:D3 合并成一格，写着几行长文字；工作表「备注」只有一格 `note`。
+/// C2:D3 合并成一格，显示几行长文字；工作表「备注」只有一格 `note`。
 ///
 /// 行数由调用方决定：需要滚动的用例给 300 行，需要完整选中一列时给 30 行，最后一行的行号
 /// 因此可以写成断言里的期望值。合并格与带换行的长文字用于卡片与复制的用例。
@@ -447,7 +447,7 @@ fn cells_are_selected_copied_and_merged_cells_read_in_full() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// 回归：没有单元格的表格（空文件、只有空行、只有表头）照常预览并处理键盘、鼠标和滚轮。
+/// 回归：没有单元格的表格（空文件、只有空行、只有表头）仍然预览并处理键盘、鼠标和滚轮。
 #[test]
 fn tables_without_cells_are_previewed() {
     use winit::keyboard::{Key, NamedKey};
@@ -581,7 +581,7 @@ fn tables_larger_than_the_view_scroll_by_their_scrollbars() {
     assert!((app.table_scroll().0 - max.0).abs() < 1.0);
     shoot(&mut app, "table-scrollbars");
 
-    // 放得下的表格没有滑块，右边缘的格子照常点选。
+    // 放得下的表格没有滑块，右边缘的格子仍然点选。
     std::fs::write(dir.join("small.csv"), "a,b\n1,2\n").unwrap();
     app.open_path(&dir.join("small.csv"));
     app.set_preview_mode(PreviewMode::Preview);

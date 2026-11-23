@@ -1079,7 +1079,7 @@ fn the_commit_card_slides_away_once_nothing_is_left_to_commit() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// 提交以后改动列表不是一下子换掉：过渡途中离开的行按刷新前的状态还画着、各行不响应点击，空状态
+/// 提交以后改动列表不是立即换掉：过渡途中离开的行按刷新前的状态还画着、各行不响应点击，空状态
 /// 同时淡入；只是保存了文件（改动的文件和状态都没变）时不做过渡。
 #[test]
 fn committed_rows_fade_out_instead_of_vanishing() {

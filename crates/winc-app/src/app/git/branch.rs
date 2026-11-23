@@ -2,7 +2,7 @@
 //!
 //! 提交视图标题行的「⋯」里有获取、拉取、推送、新建分支、新建工作树和储藏；每个分支另有操作菜单：
 //! 签出、在新工作树中签出、从这里新建分支、合并到当前分支、变基、删除。操作都在后台运行，同一时刻
-//! 只做一件，运行期间状态栏的分支名后面写着在做什么；做完在状态栏说结论（失败时右上角说原因）、
+//! 只做一件，运行期间状态栏的分支名后面显示在做什么；做完在状态栏说结论（失败时右上角说原因）、
 //! 刷新仓库状态，并重新读被改动过的文件。
 
 use std::path::{Path, PathBuf};
@@ -191,7 +191,7 @@ type QuestionChannel = (Sender<(u64, Question)>, Receiver<(u64, Question)>);
 
 /// 分支操作的状态。
 pub(crate) struct BranchState {
-    /// 正在做的事；状态栏的分支名后面写着它。
+    /// 正在做的事；状态栏的分支名后面显示它。
     pub running: Option<String>,
     /// 上一个操作成功后，同步控件显示对勾的时钟。
     pub finished: Option<Clock>,
@@ -206,8 +206,9 @@ pub(crate) struct BranchState {
     pub(in crate::app) remember: Option<Arc<AtomicBool>>,
     /// 用户是否取消了当前操作的输入请求；为真时该操作的失败不按错误提示。
     pub(in crate::app) declined: bool,
-    /// 登录对话框中填写的密码及其远程地址，用于答复随后的密码请求，操作结束时清除。
-    pub(in crate::app) password: Option<(String, String)>,
+    /// 登录对话框中填写的密码、提问的来源及其远程地址，用于答复同一来源随后的密码请求，
+    /// 该来源结束时清除。
+    pub(in crate::app) password: Option<(super::question::Asker, String, String)>,
 }
 
 impl Default for BranchState {
@@ -385,7 +386,7 @@ pub(crate) fn local_name(branch: &Branch) -> &str {
 
 /// 储藏在菜单里的名字：git 记下的说明去掉「On main: 」这样的开头。
 ///
-/// 超过 40 个字符的截短并加省略号（经验值：菜单一行放得下的长度）。
+/// 超过 40 个字符的截短并加省略号（菜单一行放得下的长度）。
 pub(crate) fn stash_title(stash: &Stash) -> String {
     let message = stash
         .message
@@ -570,9 +571,14 @@ impl App {
         self.git_operate(
             t!("git-op-checkout", name = local.as_str()),
             move |git, root| {
-                git.operate(root, &stash_args(&message))?;
-                run_switch(git, root, &branch.name, &local, track)
-                    .map_err(|error| restored_error(git, root, &error))
+                let stashed = stash_changes(git, root, &message)?;
+                run_switch(git, root, &branch.name, &local, track).map_err(|error| {
+                    if stashed {
+                        restored_error(git, root, &error)
+                    } else {
+                        error
+                    }
+                })
             },
         );
     }
@@ -588,11 +594,8 @@ impl App {
             let Err(refused) = run_switch(git, root, &branch.name, &local, track) else {
                 return Ok((String::new(), Then::Nothing));
             };
-            // 没有可储藏的内容时 `stash push` 同样成功：比较储藏的顶端，避免恢复无关的旧储藏。
-            let tip = |git: &Git| git.operate(root, &["rev-parse", "-q", "--verify", "refs/stash"]);
-            let before = tip(git).ok();
-            // 储藏失败时（例如合并未完成）报告的仍是切换失败的原因。
-            if git.operate(root, &stash_args(&message)).is_err() || tip(git).ok() == before {
+            // 储藏失败（例如合并未完成）或没有可储藏的内容时，报告的仍是切换失败的原因。
+            if !stash_changes(git, root, &message).unwrap_or(false) {
                 return Err(refused);
             }
             run_switch(git, root, &branch.name, &local, track)
@@ -601,8 +604,7 @@ impl App {
                 return Ok((String::new(), Then::Nothing));
             };
             // 恢复失败不一定有冲突：未跟踪的文件在新分支上已存在时，git 不写冲突标记。
-            let unmerged = ["diff", "--name-only", "--diff-filter=U"];
-            let conflicted = git.operate(root, &unmerged).is_ok_and(|f| !f.is_empty());
+            let conflicted = git.has_unmerged(root);
             let branch = local.as_str();
             let warning = if conflicted {
                 t!("git-switch-carry-conflict", branch = branch)
@@ -903,6 +905,16 @@ impl App {
 /// 返回储藏工作区和暂存区改动（含未跟踪的文件）的 git 参数。
 fn stash_args(message: &str) -> [&str; 5] {
     ["stash", "push", "--include-untracked", "--message", message]
+}
+
+/// 储藏工作区和暂存区里的改动（含未跟踪的文件），返回是否新建了储藏。
+///
+/// 没有可储藏的内容时 `stash push` 同样成功，因此比较储藏的顶端：没有新建储藏时，调用方不能
+/// 执行 `stash pop`，否则恢复的是无关的旧储藏。
+fn stash_changes(git: &Git, root: &Path, message: &str) -> Result<bool, String> {
+    let before = git.stash_tip(root);
+    git.operate(root, &stash_args(message))?;
+    Ok(git.stash_tip(root) != before)
 }
 
 /// 切换到本地分支 `local`；`track` 时新建跟踪远程分支 `name` 的本地分支。

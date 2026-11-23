@@ -22,7 +22,7 @@ pub(in crate::view) use overflow::{
 /// 视图切换里的图标比原大小略小（约占 13 逻辑像素，放在 22 逻辑像素的一段里四周留出 4.5）。
 const VIEW_ICON: f32 = 0.93;
 
-/// 结果行上悬停按钮左侧渐隐区域的宽度（逻辑像素，经验值）。
+/// 结果行上悬停按钮左侧渐隐区域的宽度（逻辑像素，取自调参）。
 ///
 /// 其下的文本在该区域内逐渐淡出，而不是被直接截断。
 const COVER_FADE: f32 = 20.0;
@@ -50,7 +50,8 @@ pub(super) fn draw_view_tabs(app: &App, frame: &mut Frame<'_>) {
     let track_bg = over(p.sidebar_bg, p.hover);
     let (raised, edge) = segment_colors(p, track_bg);
 
-    // 凸起的那一段：切换视图时从上一个视图的位置滑过来（`Sidebar::view_slide`），先绘制，图标压在上面。
+    // 凸起的那一段：切换视图时从上一个视图的位置滑过来（`Sidebar::view_slide`），先绘制，
+    // 图标压在上面。
     let at = |view: SidebarView| tabs.iter().find(|t| t.1 == view).map(|t| t.0);
     if let Some(to) = at(app.panels.sidebar.view) {
         let slot = match app
@@ -121,7 +122,7 @@ pub(in crate::view) fn segment_colors(p: &Palette, track: Color) -> (Color, Colo
 ///
 /// 具体几个改动写在悬停提示和列表的组标题里。
 ///
-/// 圆点放在图标（中心 ±7 逻辑像素）与按钮边（±14 逻辑像素）之间：压在图标上会盖住 Git 图标
+/// 圆点放在图标（中心 ±7 逻辑像素）与按钮边（±14 逻辑像素）之间：压在图标上会遮住 Git 图标
 /// 右上的提交标记。
 fn draw_change_dot(frame: &mut Frame<'_>, p: &Palette, button: Rect, ring: Color, clip: Rect) {
     let (cx, cy) = center(button);
@@ -425,8 +426,8 @@ fn draw_summary(app: &App, frame: &mut Frame<'_>, parts: &PanelParts) {
     } else if searching && total == 0 {
         (t!("workspace-search-searching").to_owned(), p.text_dim)
     } else {
-        // 截断了，或有行因正则回溯过多而放弃查找：计数是下限。
-        let more = if engine.is_truncated() || engine.gave_up() {
+        // 截断了、有行因正则回溯过多而放弃查找，或远端没能列出文件：计数是下限。
+        let more = if engine.is_truncated() || engine.gave_up() || engine.timed_out() {
             "+"
         } else {
             ""
@@ -459,6 +460,16 @@ fn draw_summary(app: &App, frame: &mut Frame<'_>, parts: &PanelParts) {
 /// 绘制结果列表：每个文件一行（箭头、图标、文件名、所在目录、匹配数），其下每处匹配一行。
 fn draw_results(app: &mut App, frame: &mut Frame<'_>, parts: &PanelParts) {
     let area = parts.results;
+    if app.no_search_results() && app.panels.global.engine.timed_out() {
+        draw_empty_state(
+            app,
+            frame,
+            (area, sidebar_span(app)),
+            t!("workspace-search-remote-timeout"),
+            Some(t!("workspace-search-remote-timeout-hint")),
+        );
+        return;
+    }
     if app.no_search_results() {
         draw_empty_state(
             app,
@@ -960,7 +971,7 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
             let rect = app.hits.status.iter().find(|(_, i)| *i == item)?.0;
             Some((rect, with_key(t!("cmd-settings"), Some(Action::Settings))))
         }
-        // 分支选择器的拉取、推送、获取：写明会做什么（和谁差几个提交、推到哪儿）；不能用时写原因。
+        // 分支选择器的拉取、推送、获取：写明会做什么（和谁差几个提交、推到哪里）；不能用时写原因。
         Hover::PickerPart(
             part @ (crate::app::PickerPart::Pull
             | crate::app::PickerPart::Push
@@ -1016,6 +1027,9 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
             let rect = app.hits.commit.iter().find(|(_, t)| *t == target)?.0;
             let label = match target {
                 CommitTarget::OpenFile(_) => t!("workspace-tip-open-file"),
+                CommitTarget::GroupRevert(_) if app.git.commit.staging() => {
+                    t!("git-commit-revert-group")
+                }
                 CommitTarget::GroupRevert(_) => t!("menu-commit-roll-back"),
                 _ => t!("workspace-tip-revert-change"),
             };
@@ -1027,16 +1041,15 @@ pub(in crate::view) fn tooltip(app: &App) -> Option<(Rect, String)> {
             | CommitTarget::DirStage(..)),
         ) => {
             let rect = app.hits.commit.iter().find(|(_, t)| *t == target)?.0;
-            let unstage = matches!(
-                target,
-                CommitTarget::StageFile(_, false)
-                    | CommitTarget::DirStage(_, false)
-                    | CommitTarget::GroupStage(crate::app::CommitGroup::Staged)
-            );
-            let label = if unstage {
-                t!("menu-git-unstage")
-            } else {
-                t!("menu-git-stage")
+            let label = match target {
+                CommitTarget::GroupStage(crate::app::CommitGroup::Staged) => {
+                    t!("git-commit-unstage-group")
+                }
+                CommitTarget::GroupStage(_) => t!("git-commit-stage-group"),
+                CommitTarget::StageFile(_, false) | CommitTarget::DirStage(_, false) => {
+                    t!("menu-git-unstage")
+                }
+                _ => t!("menu-git-stage"),
             };
             Some((rect, label.to_owned()))
         }

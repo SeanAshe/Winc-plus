@@ -383,13 +383,10 @@ impl Document {
 
     /// 返回按整行断开的第 `line` 行中覆盖第 `parts` 段的窗口。
     ///
-    /// 只用于按整行断开（[`Document::wrap_limit`] 不设上限）的文档中被断开的行；其他情况，以及
-    /// 断行结果尚未与当前文字同步时返回 `None`，调用方按行首的 [`MAX_LINE_CHARS`] 个字符和
-    /// [`Document::line_breaks`] 处理。
-    ///
-    /// 有行内索引的长行，窗口从 `parts` 之前最近的索引记录处开始，到 `parts` 之后最近的记录处
-    /// 或行尾结束，只读取并断开该部分文字：开销取决于 `parts` 的段数，与行的长度无关。
-    /// 没有行内索引的行段数不多，窗口为整行。
+    /// 只用于按整行断开（[`Document::wrap_limit`] 不设上限）的文档中被断开的行；其他情况，以及断行
+    /// 结果尚未与当前文字同步时返回 `None`，调用方按行首的 [`MAX_LINE_CHARS`] 个字符和
+    /// [`Document::line_breaks`] 处理。有行内索引的长行，窗口从 `parts` 之前最近的索引记录处开始，
+    /// 到 `parts` 之后最近的记录处或行尾结束，开销与行的长度无关；没有行内索引的行窗口为整行。
     pub fn line_window(
         &self,
         line: usize,
@@ -515,12 +512,10 @@ impl Document {
 
     /// 返回第 `line` 行的断行结果；不换行或可以容纳时只有一段。
     ///
-    /// 绘制时每个可见行会调用多次：记录中该行未被断开时直接返回，不再逐字符测量。记录与文字
-    /// 不同步（版本不一致，等待 `ensure_wrap` 重算）时仍按当前文字计算。
-    ///
-    /// 结果含整行的全部断点，开销与行的长度成正比；按整行断开的长行应改用
-    /// [`Document::line_window`]、[`Document::part_of`]。记录与文字不同步时只处理行首的
-    /// [`MAX_LINE_CHARS`] 个字符：此时没有可用的行内索引，不为屏幕上的每条长行计算全部断点。
+    /// 绘制时每个可见行会调用多次：记录中该行未被断开时直接返回，不再逐字符测量。结果含整行的
+    /// 全部断点，开销与行的长度成正比；按整行断开的长行应改用 [`Document::line_window`]、
+    /// [`Document::part_of`]。记录与文字不同步（版本不一致，等待 `ensure_wrap` 重算）时按当前
+    /// 文字计算，只处理行首的 [`MAX_LINE_CHARS`] 个字符：此时没有可用的行内索引。
     pub fn line_breaks(&self, line: usize) -> Breaks {
         let (text, count) = (&self.text, self.text.line_count());
         match self.folds.wrap() {

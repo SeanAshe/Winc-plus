@@ -210,7 +210,7 @@ fn wraps_kept_by_other_panes_follow_edits() {
     let rows = editor.documents[0].rows_of(0);
     assert!(rows > 1);
 
-    // 另一个窗格不换行，在开头插入一行长的：原窗格收着的断行跟着往下移，并算上新的一行。
+    // 另一个窗格不换行，在开头插入一行长的：原窗格保存的断行跟着往下移，并算上新的一行。
     editor.split(Axis::Row);
     let doc = &mut editor.documents[0];
     doc.ensure_wrap(None, 4);

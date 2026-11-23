@@ -776,7 +776,7 @@ const GIT: &[Field] = &[
 /// `network` 一节。
 const NETWORK: &[Field] = &[bool_field!("systemProxy", system_proxy)];
 
-/// 挪过位置的设置：（旧的节，旧的键，新的节，新的键）。旧的位置照样读入，写回时只写新的位置。
+/// 挪过位置的设置：（旧的节，旧的键，新的节，新的键）。旧的位置仍然读入，写回时只写新的位置。
 const MOVED: &[(&str, &str, &str, &str)] = &[("git", "systemProxy", "network", "systemProxy")];
 
 /// 节 `name` 中的 `key` 挪去的位置的那一项。

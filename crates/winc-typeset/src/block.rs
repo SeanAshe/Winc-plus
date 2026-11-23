@@ -168,7 +168,8 @@ impl Cx<'_, '_> {
         let para = self.body_para(env);
         let open = open != self.toggled.contains(&id);
         let indent = (base * 1.25).round();
-        let flow = self.flow(summary, x + indent, y, width - indent, para, &mut out.items);
+        let room = (width - indent).max(1.0);
+        let flow = self.flow(summary, x + indent, y, room, para, &mut out.items);
         let arrow = if open { "▾" } else { "▸" };
         self.marker(
             arrow,

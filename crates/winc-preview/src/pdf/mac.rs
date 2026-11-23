@@ -46,7 +46,7 @@ impl Document {
             return Err(t!("preview-pdf-encrypted").to_owned());
         }
         let count = CGPDFDocument::number_of_pages(Some(&doc));
-        let mut pages = Vec::with_capacity(count);
+        let mut pages = Vec::new();
         // CoreGraphics 的页号从 1 起。
         for number in 1..=count {
             let Some(page) = CGPDFDocument::page(Some(&doc), number) else {

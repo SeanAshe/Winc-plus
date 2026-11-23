@@ -37,7 +37,7 @@ pub(crate) fn tree_max_scroll(tree: Rect, rows: usize) -> f32 {
     (rows as f32 + 1.0) * TREE_ROW - tree.h
 }
 
-/// 滚动时固定在文件树顶部的目录层数上限（层，经验值）。
+/// 滚动时固定在文件树顶部的目录层数上限（层，取自调参）。
 ///
 /// 实际层数还受 `App::tree_sticky_max` 限制：不超过文件树高度的 40%，避免固定行占去过多的显示空间。
 const STICKY_MAX: usize = 7;
@@ -143,7 +143,7 @@ impl App {
     /// 把侧栏宽度记进状态文件：以后打开的窗口、下次启动都用这个宽度。
     pub(in crate::app) fn remember_panel_width(&mut self) {
         let width = self.panels.sidebar.width.round();
-        self.update_state(|state| state.panel_width = Some(width));
+        self.update_state(move |state| state.panel_width = Some(width));
     }
 
     /// 侧栏是否处于显示状态（动画的目标状态）。
@@ -218,7 +218,24 @@ impl App {
         if entry.kind != EntryKind::Dir || entry.expanded == expanding {
             return;
         }
+        // 还没有读过的目录先在后台读好再展开：它可能很大，或在很慢的磁盘上。
+        if let Some(fetch) = ws.fetch_to_expand(index, false).filter(|_| expanding) {
+            let path = entry.path.clone();
+            return self.fetch_dirs_then(fetch, move |app, _| {
+                if let Some(row) = app.collapsed_row(&path) {
+                    app.change_dir(row, true, |ws| ws.toggle(row));
+                }
+            });
+        }
         self.change_dir(index, expanding, |ws| ws.toggle(index));
+    }
+
+    /// 返回文件树中收起着的目录 `path` 所在的行；它已展开、已不在树中时返回 `None`。
+    fn collapsed_row(&self, path: &Path) -> Option<usize> {
+        let ws = self.editor.workspace.as_ref()?;
+        let row = ws.row_of(path)?;
+        let entry = &ws.rows()[row];
+        (entry.path == path && entry.kind == EntryKind::Dir && !entry.expanded).then_some(row)
     }
 
     /// 递归展开或收起文件树里第 `index` 行的目录（`⌥` 单击），带动画：收起的目录展开到底，展开
@@ -235,18 +252,24 @@ impl App {
         if entry.kind != EntryKind::Dir {
             return;
         }
-        let expanding = !entry.expanded;
-        let mut limited = false;
-        self.change_dir(index, expanding, |ws| {
-            if expanding {
-                limited = ws.expand_recursively(index);
-            } else {
-                ws.collapse_recursively(index);
+        if entry.expanded {
+            return self.change_dir(index, false, |ws| ws.collapse_recursively(index));
+        }
+        // 各级目录在后台找出并读好再展开：要遍历磁盘。
+        let path = entry.path.clone();
+        let workspace = self.editor.workspace.as_ref();
+        let Some(fetch) = workspace.and_then(|ws| ws.fetch_to_expand(index, true)) else {
+            return;
+        };
+        self.fetch_dirs_then(fetch, move |app, expansion| {
+            let Some(row) = app.collapsed_row(&path) else {
+                return;
+            };
+            app.change_dir(row, true, |ws| ws.expand_dirs(row, expansion.dirs));
+            if expansion.limited {
+                app.flash(t!("workspace-tree-expand-limit", count = EXPAND_DIRS));
             }
         });
-        if limited {
-            self.flash(t!("workspace-tree-expand-limit", count = EXPAND_DIRS));
-        }
     }
 
     /// 用 `change` 展开（`expanding` 为真）或收起第 `index` 行的目录，播放子行露出或收起的动画。
@@ -275,6 +298,8 @@ impl App {
             removed,
             clock,
         });
+        // 展开或收起的可能是链接目录：它们各自监视。
+        self.watch_extra_folders();
         self.request_redraw();
     }
 
@@ -561,7 +586,7 @@ impl App {
 
     /// 滚动文件树，使第 `index` 个条目可见；已经可见时不动，`center` 为 `true` 时把该条目放到中间。
     ///
-    /// 条目滚到上方时，该条目的各级上级目录会固定在顶部，因此要停在这些固定行之下，不能被盖住。
+    /// 条目滚到上方时，该条目的各级上级目录会固定在顶部，因此要停在这些固定行之下，不能被遮住。
     pub(in crate::app) fn scroll_tree_to(&mut self, index: usize, center: bool) {
         let depth = self
             .editor
@@ -610,12 +635,41 @@ impl App {
     }
 
     /// 在文件树里展开并选中 `path`，滚到能看见的地方。
+    ///
+    /// 它的上级目录里有还没有读过的时先在后台读好；期间又定位了别的路径时不再定位它。
     pub(in crate::app) fn reveal_path(&mut self, path: &Path) {
+        let reveal = self.next_reveal();
+        let workspace = self.editor.workspace.as_ref();
+        match workspace.and_then(|ws| ws.fetch_to_reveal(path)) {
+            Some(fetch) => {
+                let path = path.to_path_buf();
+                self.fetch_dirs_then(fetch, move |app, _| {
+                    if app.is_latest_reveal(reveal) {
+                        app.reveal_now(&path);
+                    }
+                });
+            }
+            None => self.reveal_now(path),
+        }
+    }
+
+    /// 在文件树里展开并选中 `path`，滚到能看见的地方；所在的目录还要等后台读时读好后再滚。
+    fn reveal_now(&mut self, path: &Path) {
         let Some(ws) = &mut self.editor.workspace else {
             return;
         };
-
         ws.reveal(path);
+        if ws.awaits_reveal() {
+            self.scroll_once_revealed();
+        }
+        self.scroll_to_selected_row();
+    }
+
+    /// 把文件树滚到能看见选中的那一行，横向也是；没有选中时不动。
+    pub(in crate::app) fn scroll_to_selected_row(&mut self) {
+        let Some(ws) = &self.editor.workspace else {
+            return;
+        };
         let depth = ws.selected.map(|index| ws.rows()[index].depth);
 
         // 侧栏显示搜索时文件树不在屏幕上，只展开、选中，切回文件树时再滚动到该处。
@@ -633,7 +687,7 @@ impl App {
         }
     }
 
-    /// 横向滚动到能看见第 `depth` 级缩进，右边至少留出 40 逻辑像素（经验值）显示名字。
+    /// 横向滚动到能看见第 `depth` 级缩进，右边至少留出 40 逻辑像素（取自调参）用于显示名字。
     fn reveal_tree_column(&mut self, depth: usize) {
         let tree = self.layout.tree;
         let indent = depth as f32 * TREE_INDENT;
@@ -851,12 +905,7 @@ impl App {
             TreeTool::NewFile => self.start_new_entry(false),
             TreeTool::NewFolder => self.start_new_entry(true),
             TreeTool::Refresh => {
-                if let Some(ws) = &mut self.editor.workspace {
-                    ws.refresh();
-                    self.panels.tree.motion = None;
-                    self.clamp_tree_scroll();
-                }
-
+                self.rescan_tree(|_| {});
                 self.picker_invalidate();
             }
             TreeTool::CollapseAll => {

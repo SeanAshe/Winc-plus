@@ -226,7 +226,7 @@ fn folding_the_output_at_the_top_brings_its_command_into_view() {
     tab.scroll_to(115, 0);
     assert_eq!(tab.sticky(), Some(0));
 
-    // 折起：命令行和「⋯ 13 行」都看得见，不被吸顶的命令行盖住。
+    // 折起：命令行和「⋯ 13 行」都看得见，不被吸顶的命令行遮住。
     tab.set_folded(1, true);
     assert_eq!(tab.top(), 110);
     assert_eq!(tab.sticky(), None);
@@ -321,7 +321,7 @@ fn the_command_row_and_a_waiting_prompt_at_the_top_stay_visible() {
     tab.scroll_to(105, 0);
     assert_eq!(tab.sticky(), None);
 
-    // 清屏后提示符位于第一行：不能被之前的命令盖住。
+    // 清屏后提示符位于第一行：不能被之前的命令遮住。
     tab.scroll = 0;
     tab.blocks[2].prompt = 140;
     tab.blocks[2].command = 140;

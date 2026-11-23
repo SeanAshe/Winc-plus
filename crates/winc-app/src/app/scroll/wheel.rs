@@ -332,7 +332,7 @@ impl App {
             return;
         };
         if pane != self.editor.panes.focused {
-            // 在其他窗格上开始的：换到那个窗格里接着滚。
+            // 在其他窗格上开始的：换到那个窗格里继续滚。
             let known = self.panes.rects.iter().any(|r| r.id == pane);
             if known {
                 self.with_pane(pane, Self::step_wheel_glide);

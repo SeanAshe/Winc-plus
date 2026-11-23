@@ -100,7 +100,7 @@ pub(super) struct Live {
     written: bool,
 }
 
-/// 开始记录在仓库 `root` 中运行的 `git args`：立刻写下仓库和命令两行，返回用来接着写输出的记录。
+/// 开始记录在仓库 `root` 中运行的 `git args`：立刻写下仓库和命令两行，返回用于继续写入输出的记录。
 pub(super) fn begin<S: AsRef<OsStr>>(root: &Path, args: &[S]) -> Arc<Mutex<Live>> {
     append(&format!("{}{}", separator(), header(root, args)));
     Arc::new(Mutex::new(Live {
@@ -209,7 +209,7 @@ fn status(code: Option<i32>) -> String {
 
 /// 返回一条命令结果的文本；参数中不是 UTF-8 的部分按有损转换显示。
 fn entry<S: AsRef<OsStr>>(root: &Path, args: &[S], code: Option<i32>, output: &str) -> String {
-    // 先替换再截断：截断点落在地址中间时，剩下的凭据前面已经没有 `://`，认不出来。
+    // 先替换再截断：截断点落在地址中间时，剩下的凭据前面已经没有 `://`，无法识别。
     let output = redact(output.trim_end());
     let output = tail(&output, TEXT_LIMIT);
     let mut entry = header(root, args);

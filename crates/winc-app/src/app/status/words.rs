@@ -79,7 +79,7 @@ impl App {
         });
     }
 
-    /// 收下后台数好的字数；当前文档又变了时接着数。
+    /// 收下后台数好的字数；当前文档又变了时继续数。
     pub(in crate::app) fn poll_words(&mut self) {
         while let Ok(result) = self.status.words.results.1.try_recv() {
             if self.status.words.running == Some(result.0) {

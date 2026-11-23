@@ -335,7 +335,7 @@ fn only_variables_set_on_the_command_are_forwarded() {
         "GIT_TERMINAL_PROMPT:GIT_ASKPASS/pu:SSH_ASKPASS_PROMPT/w"
     );
 
-    // 部分提交设置了临时暂存区：照常传递。
+    // 部分提交设置了临时暂存区：仍然传递。
     command.env("GIT_INDEX_FILE", "/tmp/my index");
     command.env("WSLENV", GIT_ENV);
     assert_eq!(

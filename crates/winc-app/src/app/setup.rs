@@ -161,7 +161,7 @@ impl App {
         self.motion.setup_intro = None;
         self.motion.setup_page = None;
         self.motion.setup_outro = self.clock(OUTRO);
-        self.update_state(|state| state.setup_pending = false);
+        self.update_state(move |state| state.setup_pending = false);
         self.request_redraw();
     }
 }

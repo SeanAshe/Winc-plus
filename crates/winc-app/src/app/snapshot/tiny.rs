@@ -1,4 +1,4 @@
-//! 很小的窗口的测试：窗口比界面的各部分还小时照常布局、绘制和处理输入，不因几何退化而崩溃。
+//! 很小的窗口的测试：窗口比界面的各部分还小时仍然布局、绘制和处理输入，不因几何退化而 panic。
 
 use winc_render::Renderer;
 
@@ -283,7 +283,7 @@ fn an_open_menu_survives_a_window_smaller_than_itself() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 各种界面在很小的窗口里照常工作。
+/// 各种界面在很小的窗口里仍然工作。
 #[test]
 fn every_surface_survives_a_tiny_window() {
     type Scene = (&'static str, fn(&mut App));

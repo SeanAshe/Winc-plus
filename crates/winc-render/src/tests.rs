@@ -559,7 +559,7 @@ fn translucent_checkers_draw_only_the_visible_cells() {
 }
 
 /// 背景图在窗口背景、声明的底色和之后以这些颜色填充的矩形之下透出，颜色为「图片 × 不透明度 +
-/// 底色 × (1 − 不透明度)」；其余颜色照常绘制。底色声明与否画面相同。
+/// 底色 × (1 − 不透明度)」；其余颜色仍然绘制。底色声明与否画面相同。
 #[test]
 fn the_wallpaper_shows_under_surface_colors_only() {
     let (bg, card, other) = (
@@ -603,7 +603,7 @@ fn the_wallpaper_shows_under_surface_colors_only() {
         (at(5, 2), at(7, 7), at(5, 7)),
         (0x108f10, 0x8f8f8f, 0x8f8f8f)
     );
-    // 不是底色的颜色照常绘制。
+    // 不是底色的颜色仍然绘制。
     assert_eq!(at(6, 0), 0x808080);
     // 圆角外侧的像素向背景色之下的图片过渡（弧线上的像素按覆盖比例混合）。
     let corner = at(0, 0);

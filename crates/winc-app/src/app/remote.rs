@@ -120,8 +120,6 @@ pub(crate) struct RemoteState {
     stepping: bool,
     /// 选择面板在后台读好的目录。
     pub(in crate::app) listed: picker::Listings,
-    /// 后台启动好的对远端目录的监视，由 `App::poll_remote_watcher` 取走。
-    pub(in crate::app) watching: Arc<Mutex<Option<winc_editor::Watcher>>>,
     /// 正在进行的连接成功、打开目录之后要打开的文件，及参数中写的目录（见
     /// [`App::open_remote`]）；没有时为 `None`。
     files: Option<(PathBuf, Vec<crate::cli::Target>)>,
@@ -142,7 +140,6 @@ impl Default for RemoteState {
             paused: false,
             stepping: false,
             listed: picker::Listings::default(),
-            watching: Arc::default(),
             files: None,
         }
     }
@@ -603,6 +600,24 @@ fn rebase(files: &[crate::cli::Target], wanted: &Path, folder: &Path) -> Vec<cra
         .collect()
 }
 
+/// 各主机正在进行的连接：同一台主机同时只建立一条，见 [`turn`]。
+static TURNS: Mutex<Vec<(Target, Arc<Mutex<()>>)>> = Mutex::new(Vec::new());
+
+/// 等别的窗口到 `target` 的连接结束的间隔（毫秒）：期间检查用户是否取消了这一次。
+const TURN_POLL: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// 返回到 `target` 的连接要先占用的锁：几个窗口同时连接同一台主机时逐个进行，后来的发现已有
+/// 连接就沿用。否则后登记的连接会顶掉先登记的，先前窗口正在进行的请求全部失败。
+fn turn(target: &Target) -> Arc<Mutex<()>> {
+    let mut connecting = TURNS.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some((_, turn)) = connecting.iter().find(|(host, _)| host == target) {
+        return Arc::clone(turn);
+    }
+    let turn = Arc::default();
+    connecting.push((target.clone(), Arc::clone(&turn)));
+    turn
+}
+
 /// 连接 `target`（已有连接时沿用）并取得 `folder` 的虚拟路径。
 fn open(
     target: &Target,
@@ -612,6 +627,17 @@ fn open(
     abort: &remote::Abort,
     report: &dyn Fn(Stage),
 ) -> Outcome {
+    let turn = turn(target);
+    let _held = loop {
+        match turn.try_lock() {
+            Ok(held) => break held,
+            Err(std::sync::TryLockError::Poisoned(held)) => break held.into_inner(),
+            Err(std::sync::TryLockError::WouldBlock) if abort.is_aborted() => {
+                return Err(t!("workspace-remote-canceled").to_owned());
+            }
+            Err(std::sync::TryLockError::WouldBlock) => std::thread::sleep(TURN_POLL),
+        }
+    };
     let existing = remote::is_connected(target);
     if !existing {
         connect(target, listener, notify, abort, report)?;
@@ -718,7 +744,8 @@ impl App {
         dialog.error = None;
         // 密钥文件按主机记下：此后经最近的目录、重新连接和终端登录这台主机时都用它。
         if self.state.remote_key(target.as_str()).unwrap_or_default() != key {
-            self.update_state(|state| state.set_remote_key(target.as_str(), &key));
+            let host = target.clone();
+            self.update_state(move |state| state.set_remote_key(host.as_str(), &key));
         }
         self.remote.form = Some((host, port));
         self.remote_open(target, String::new(), After::Browse);
@@ -832,7 +859,7 @@ impl App {
     }
 
     /// 启动时调用：上次退出时开着的目录在远端主机上时，重新连接并打开它，标签按那个目录的
-    /// 现场恢复，返回是否开始了连接。连接在后台进行，窗口先显示开始页；需要口令时照常询问。
+    /// 现场恢复，返回是否开始了连接。连接在后台进行，窗口先显示开始页；需要口令时仍然询问。
     pub(crate) fn restore_remote_folder(&mut self) -> bool {
         let wanted = self.editor.root().is_none() && self.remote_enabled();
         let folder = self.state.last.clone().filter(|_| wanted);
@@ -1128,6 +1155,22 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 同一台主机的连接共用一把锁，逐个进行；不同主机互不相干。
+    #[test]
+    fn connections_to_one_host_take_turns() {
+        let (here, there) = (
+            Target::new("turn-a").unwrap(),
+            Target::new("turn-b").unwrap(),
+        );
+        let (first, second) = (turn(&here), turn(&here));
+        assert!(Arc::ptr_eq(&first, &second));
+        let held = first.lock().unwrap();
+        assert!(second.try_lock().is_err());
+        assert!(turn(&there).try_lock().is_ok());
+        drop(held);
+        assert!(second.try_lock().is_ok());
+    }
 
     #[test]
     fn hosts_in_included_files_are_listed_once() {

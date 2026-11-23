@@ -71,7 +71,7 @@ pub(crate) fn list_time(commit: &Commit, now: i64) -> String {
 
 /// 把本地时间的写法「2026-10-26 14:32」换成显示用的文字（相对时间或日期）。
 ///
-/// `time` 是这个提交的 Unix 秒；写法认不出来时原样返回。
+/// `time` 是这个提交的 Unix 秒；写法无法识别时原样返回。
 pub(crate) fn display_local(local_text: &str, time: i64, now: i64) -> String {
     match naive_seconds(local_text) {
         Some(local) => display_at(local, time, now),

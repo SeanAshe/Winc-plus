@@ -25,7 +25,7 @@ const BASE_EDGE: u32 = 1024;
 /// 写到一半解析不了时仍然绘制上一张图，底下一行写出错在哪里；一张都还没绘制出来时只写原因。
 pub(in crate::view) fn draw_split(app: &mut App, frame: &mut Frame<'_>) {
     let area = app.layout.split;
-    // 包括预览左侧的一像素分隔线；预览中的浮动工具栏不能盖住源代码。
+    // 包括预览左侧的一像素分隔线；预览中的浮动工具栏不能遮住源代码。
     let clip = Rect::new(area.x - 1.0, area.y, area.w + 1.0, area.h);
     frame.within(clip, |frame| draw_split_content(app, frame));
 }
@@ -273,13 +273,10 @@ fn bounded(size: (u32, u32), limit: u32) -> (u32, u32) {
 
 /// 绘制 SVG；`shown` 是这一帧的位置，`goal` 是缩放过渡结束后的位置。
 ///
-/// 按 `goal` 的大小光栅化预览区域内的部分，四周多出 `VECTOR_OVERSCAN`：位图的大小取决于预览
-/// 区域，与缩放倍数无关。光栅化的长边不超过 [`svg::MAX_EDGE`]，超过时按比例缩小后放大显示；
-/// 缩放的各档已受该上限限制，只有放大后又增大窗口时才会超过。
-///
-/// 带滤镜的 SVG 光栅化一次可能耗时较长，交给后台线程。完成之前、以及平移超出已光栅化的范围
-/// 时，把已有的位图缩放到这一帧的位置，其余位置显示整张图的低分辨率位图
-/// （`PictureCache::base`）；长边不超过 `BASE_EDGE` 的图整张光栅化，不需要低分辨率位图。
+/// 按 `goal` 的大小光栅化预览区域内的部分，四周多出 `VECTOR_OVERSCAN`，位图大小与缩放倍数无关；光栅
+/// 化的长边不超过 [`svg::MAX_EDGE`]，超过时按比例缩小后放大显示。带滤镜的 SVG 光栅化一次可能耗时较
+/// 长，交给后台线程：完成之前、以及平移超出已光栅化的范围时，把已有的位图缩放到这一帧的位置，其余位
+/// 置显示整张图的低分辨率位图（`PictureCache::base`）；长边不超过 `BASE_EDGE` 的图整张光栅化。
 fn draw_vector(
     app: &mut App,
     frame: &mut Frame<'_>,

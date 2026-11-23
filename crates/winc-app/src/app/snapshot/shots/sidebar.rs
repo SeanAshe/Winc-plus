@@ -91,7 +91,7 @@ fn snapshot_tree_tools() {
         app.on_mouse_move(900.0, 500.0);
         shoot(&mut app, &format!("tree-tools-narrow-{theme}"));
 
-        // 最窄时：放不下的按钮收进「⋯」（点了弹系统菜单，截不到图）。
+        // 最窄时：放不下的按钮收进「⋯」（点击弹系统菜单，截不到图）。
         app.panels.tree.scroll_x = 0.0;
         app.panels.sidebar.width = MIN_PANEL_WIDTH;
         paint(&mut app);

@@ -15,7 +15,7 @@ use crate::app::status::motion::STATUS_SLIDE;
 
 use super::*;
 
-/// 旧内容淡出所占的比例（经验值），与状态栏相同。
+/// 旧内容淡出所占的比例，与状态栏相同。
 const FADE_OUT: f32 = 0.3;
 
 /// 视为宽度不变的最大差值（逻辑像素）。

@@ -20,23 +20,23 @@ use crate::background;
 use crate::workspace::tree::{HIDDEN, folder_prefixes, is_listed_file, walker};
 use crate::workspace::watch::Changes;
 
-/// 索引收录的最大文件数（个，经验值）。
+/// 索引收录的最大文件数（个，取自调参）。
 ///
 /// 文件再多用户也无法逐个浏览，而且打分要遍历整张文件表。
 pub const MAX_FILES: usize = 200_000;
 /// 结果列表显示的最大条数（条）。
 pub const MAX_RESULTS: usize = 200;
-/// 单个查询词的最大长度（字符，经验值）；超过时截去多余的部分，正常输入不会达到。
+/// 单个查询词的最大长度（字符，取自调参）；超过时截去多余的部分，正常输入不会达到。
 const MAX_QUERY_CHARS: usize = 128;
 /// 后台忙碌时最多暂存的变化路径数（个），与目录监视一批变化的上限（`watch::MAX_PATHS`）相同。
 ///
 /// 超过该值时不再逐个记录，改为后台完成后整个重新遍历。
 const MAX_QUEUED: usize = 4096;
-/// 并行打分的文件数下限（个，经验值）。
+/// 并行打分的文件数下限（个，取自调参）。
 ///
 /// 待打分的文件少于该值时用一个线程算完，因为启动线程的开销更大。
 const PARALLEL_MIN: usize = 16_384;
-/// 打分使用的最大线程数（个，经验值）。
+/// 打分使用的最大线程数（个，取自调参）。
 ///
 /// 查询的开销主要在遍历文件表上，线程再多也不会明显变快，反而增加每次查询的调度开销。
 const MAX_THREADS: usize = 8;
@@ -62,6 +62,8 @@ struct Files {
     names: Vec<u32>,
     /// 文件太多、只收录了浅层目录时，收录的层数（从 1 起）；全部收录时为 `None`。
     layers: Option<usize>,
+    /// 有远端的目录没能在限定时间内列出文件，其中的文件不在表中。
+    timed_out: bool,
     /// 遍历过的目录（相对路径，不含根目录）。
     ///
     /// 被忽略的、因太深而未收录的目录不在其中，
@@ -473,7 +475,7 @@ impl FileIndex {
         }
     }
 
-    /// 索引是否已经就绪（要么建好了，要么本来就不需要建）。
+    /// 索引是否已经就绪（要么建好了，要么原本就不需要建）。
     pub fn is_ready(&self) -> bool {
         self.receiver.is_none()
     }
@@ -483,6 +485,11 @@ impl FileIndex {
         if let Some(cancel) = &self.cancel {
             cancel.store(true, Ordering::Relaxed);
         }
+    }
+
+    /// 是否有远端的目录没能在限定时间内列出文件；此时文件表不全，[`Self::refresh`] 会重试。
+    pub fn timed_out(&self) -> bool {
+        self.files.timed_out
     }
 
     /// 重新遍历目录。

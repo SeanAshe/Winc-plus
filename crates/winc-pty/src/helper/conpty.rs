@@ -1,10 +1,10 @@
 //! Windows 上的伪终端：ConPTY（`CreatePseudoConsole`）和在其中运行的进程。
 //!
-//! 每个终端的 shell 放进一个作业对象，关掉时整个作业一起结束，不留孤儿进程；辅助进程意外退出时
-//! 句柄随之关闭，系统同样结束其中的进程（`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`）。ConPTY 的输出
-//! 管道和 stdin 都不能 `poll`：各由一个后台线程读进缓冲区并唤醒事件循环（[`wait`]），事件循环从
-//! 缓冲区取（[`Pty::read`]、[`read_stdin`]），没有数据时得到 `WouldBlock`。关闭伪终端可能要等
-//! 控制台进程退出才返回，因此在后台线程上进行，事件循环不等它完成。
+//! 每个终端的 shell 放进一个作业对象，关掉时整个作业一起结束；辅助进程意外退出时句柄随之关闭，
+//! 系统同样结束其中的进程（`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`）。输出管道和 stdin 都不能
+//! `poll`：各由一个后台线程读进缓冲区并唤醒事件循环（[`wait`]），事件循环从缓冲区取
+//! （[`Pty::read`]、[`read_stdin`]），没有数据时得到 `WouldBlock`，缓冲区满时读线程等待取走。
+//! 输入由另一个后台线程写入管道；关闭伪终端要等控制台进程退出，在后台线程上进行。
 
 // ConPTY、进程和作业对象只有 Win32 的接口。
 #![allow(unsafe_code)]
@@ -68,6 +68,15 @@ pub struct Command<'a> {
     pub size: Size,
 }
 
+/// 缓冲区里还没取走的字节的上限（字节，4 MiB）：到了上限读线程等事件循环取走再读。
+///
+/// 事件循环一轮从一个终端最多取 1 MiB；上限是它的四倍，刷屏的程序不会让缓冲区越积越多，
+/// 也不会让读线程频繁停下。
+const PENDING_MAX: usize = 4 << 20;
+
+/// 一次交给写线程的输入的上限（字节，64 KiB）：与读的一块相同。
+const WRITE_CHUNK: usize = 64 << 10;
+
 /// 后台线程读进来、等事件循环取走的字节。
 #[derive(Default)]
 struct Pending {
@@ -75,6 +84,31 @@ struct Pending {
     bytes: Vec<u8>,
     /// 读到了结尾（管道的另一端都关了）或出错。
     closed: bool,
+    /// 不会再有人来取：读线程读到的直接丢弃，只为不让写的一端停住。
+    abandoned: bool,
+}
+
+/// 读线程和事件循环共用的缓冲区。
+#[derive(Default)]
+struct Buffer {
+    pending: Mutex<Pending>,
+    /// 缓冲区里的字节被取走，或缓冲区被放弃时通知。
+    room: Condvar,
+}
+
+impl Buffer {
+    fn lock(&self) -> std::sync::MutexGuard<'_, Pending> {
+        self.pending.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// 等写线程写进伪终端的一段输入。
+#[derive(Default)]
+struct Outgoing {
+    /// 交给写线程、还没写的一段；一次只放一段。
+    chunk: Mutex<(Option<Vec<u8>>, bool)>,
+    /// 放进了一段，或不再写入（元组的第二项）时通知。
+    ready: Condvar,
 }
 
 /// 一个伪终端和在其中运行的进程。
@@ -83,10 +117,10 @@ pub struct Pty {
     api: &'static api::Api,
     /// 伪终端；关掉以后为 `None`。
     console: Mutex<Option<HPCON>>,
-    /// 写给伪终端的输入（管道的写入端）。
-    input: File,
+    /// 写给伪终端的输入，由写线程写进管道。
+    input: Arc<Outgoing>,
     /// 读线程放进来的输出。
-    output: Arc<Mutex<Pending>>,
+    output: Arc<Buffer>,
     /// shell 的进程。
     process: OwnedHandle,
     /// shell 和它启动的所有进程所在的作业。
@@ -116,8 +150,8 @@ impl Pty {
         let pty = start(command, console).map(|(process, job)| Pty {
             api,
             console: Mutex::new(Some(console)),
-            input: File::from(input),
-            output: Arc::new(Mutex::new(Pending::default())),
+            input: write_in_background(File::from(input)),
+            output: Arc::default(),
             process,
             job,
         });
@@ -144,13 +178,32 @@ impl Pty {
         take(&self.output, buf)
     }
 
-    /// 写给伪终端；伪终端一直不读时会阻塞。
+    /// 是否有读线程读到、还没取走的输出，或者已经读到结尾：这时 [`Self::read`] 不会返回
+    /// `WouldBlock`。
+    pub fn has_output(&self) -> bool {
+        let pending = self.output.lock();
+        !pending.bytes.is_empty() || pending.closed
+    }
+
+    /// 把 `buf` 开头最多 [`WRITE_CHUNK`] 个字节交给写线程，返回交出的个数；不等它写完，
+    /// 写完时唤醒事件循环。
     ///
     /// # Errors
     ///
-    /// 伪终端已经关了时返回对应的 `std::io::Error`。
+    /// 上一段还没写完时返回 `io::ErrorKind::WouldBlock`；伪终端已经关了时返回
+    /// `io::ErrorKind::BrokenPipe`。
     pub fn write(&self, buf: &[u8]) -> io::Result<usize> {
-        (&self.input).write(buf)
+        let mut chunk = (self.input.chunk.lock()).unwrap_or_else(PoisonError::into_inner);
+        match &*chunk {
+            (_, true) => Err(io::ErrorKind::BrokenPipe.into()),
+            (Some(_), false) => Err(io::ErrorKind::WouldBlock.into()),
+            (None, false) => {
+                let n = buf.len().min(WRITE_CHUNK);
+                chunk.0 = Some(buf[..n].to_vec());
+                self.input.ready.notify_one();
+                Ok(n)
+            }
+        }
     }
 
     /// 改伪终端的尺寸。
@@ -202,9 +255,7 @@ impl Pty {
         if unsafe { WaitForSingleObject(handle, 0) } != WAIT_OBJECT_0 {
             return None;
         }
-        let closed = (self.output.lock())
-            .unwrap_or_else(PoisonError::into_inner)
-            .closed;
+        let closed = self.output.lock().closed;
         if !closed {
             // 管道关闭之前每次查询都执行：两个操作在已经做过时都没有效果。
             self.hang_up();
@@ -223,6 +274,11 @@ impl Pty {
         None
     }
 
+    /// 返回会话号：Windows 上没有会话，只用于与其他平台的实现保持相同的签名。
+    pub fn session(&self) -> Pid {
+        0
+    }
+
     /// 返回前台程序：Windows 上不查询，总是 `None`，标签名跟随标题。
     pub fn foreground(&self) -> Option<(Pid, String)> {
         None
@@ -233,6 +289,13 @@ impl Drop for Pty {
     fn drop(&mut self) {
         // 作业的句柄随后关闭，系统结束作业中剩下的进程。
         self.hang_up();
+        // 写线程不再等下一段，随后关闭管道的写入端；读线程读到的不再有人取，直接丢弃。
+        (self.input.chunk.lock())
+            .unwrap_or_else(PoisonError::into_inner)
+            .1 = true;
+        self.input.ready.notify_one();
+        self.output.lock().abandoned = true;
+        self.output.room.notify_all();
     }
 }
 
@@ -240,7 +303,7 @@ impl Drop for Pty {
 pub fn hang_up_job(_job: Pid) {}
 
 /// 结束前台作业（进程组）：Windows 上没有前台进程组，调用时什么也不做。
-pub fn kill_job(_job: Pid) {}
+pub fn kill_job(_job: Pid, _session: Option<Pid>) {}
 
 /// 返回前台作业（进程组）中是否还有进程：Windows 上没有前台进程组，总是返回 `false`。
 pub fn job_alive(_job: Pid) -> bool {
@@ -275,7 +338,10 @@ fn waker() -> &'static (Mutex<bool>, Condvar) {
 }
 
 /// 唤醒等在 [`wait`] 上的事件循环；没有线程在等待时只记下标志。
-fn wake() {
+///
+/// 事件循环一轮没有取完缓冲区时也调用它：后台线程只在读到新的字节时唤醒，剩下的字节不能
+/// 等到那时。
+pub fn wake() {
     let (flag, condvar) = waker();
     *flag.lock().unwrap_or_else(PoisonError::into_inner) = true;
     condvar.notify_one();
@@ -304,8 +370,8 @@ pub fn wait(timeout: Option<Duration>) {
 }
 
 /// 主程序发来的、还没取走的字节。
-fn stdin() -> &'static Arc<Mutex<Pending>> {
-    static STDIN: OnceLock<Arc<Mutex<Pending>>> = OnceLock::new();
+fn stdin() -> &'static Arc<Buffer> {
+    static STDIN: OnceLock<Arc<Buffer>> = OnceLock::new();
     STDIN.get_or_init(Arc::default)
 }
 
@@ -316,7 +382,7 @@ pub fn read_stdin_in_background() {
 
 /// 返回 stdin 是否有未读的字节，或者是否已经读到结尾。
 pub fn stdin_pending() -> bool {
-    let pending = stdin().lock().unwrap_or_else(PoisonError::into_inner);
+    let pending = stdin().lock();
     !pending.bytes.is_empty() || pending.closed
 }
 
@@ -329,9 +395,9 @@ pub fn read_stdin(buf: &mut [u8]) -> io::Result<usize> {
     take(stdin(), buf)
 }
 
-/// 从 `pending` 取走最多 `buf.len()` 个字节，返回取到的个数。
-fn take(pending: &Mutex<Pending>, buf: &mut [u8]) -> io::Result<usize> {
-    let mut pending = pending.lock().unwrap_or_else(PoisonError::into_inner);
+/// 从 `buffer` 取走最多 `buf.len()` 个字节，返回取到的个数；读线程在等地方时随之继续。
+fn take(buffer: &Buffer, buf: &mut [u8]) -> io::Result<usize> {
+    let mut pending = buffer.lock();
     if pending.bytes.is_empty() {
         return if pending.closed {
             Ok(0)
@@ -342,21 +408,24 @@ fn take(pending: &Mutex<Pending>, buf: &mut [u8]) -> io::Result<usize> {
     let n = buf.len().min(pending.bytes.len());
     buf[..n].copy_from_slice(&pending.bytes[..n]);
     pending.bytes.drain(..n);
+    buffer.room.notify_all();
     Ok(n)
 }
 
-/// 在后台线程上一直读 `source`，读到的放进 `pending` 并唤醒事件循环。
+/// 在后台线程上一直读 `source`，读到的放进 `buffer` 并唤醒事件循环。
 ///
-/// 读到结尾或出错时标记结束，唤醒事件循环后线程退出。
-fn read_in_background(mut source: impl Read + Send + 'static, pending: Arc<Mutex<Pending>>) {
+/// 缓冲区里攒到 [`PENDING_MAX`] 时等事件循环取走再读，写的一端随管道写满而停下；缓冲区被
+/// 放弃后读到的直接丢弃。读到结尾或出错时标记结束，唤醒事件循环后线程退出。
+fn read_in_background(mut source: impl Read + Send + 'static, buffer: Arc<Buffer>) {
     std::thread::spawn(move || {
         // 一次读 64 KiB：块大时取锁的次数少，块过大时读线程占用的内存多。
         let mut buf = vec![0; 64 << 10];
         loop {
             let read = source.read(&mut buf);
-            let mut shared = pending.lock().unwrap_or_else(PoisonError::into_inner);
+            let mut shared = buffer.lock();
             match read {
-                Ok(n) if n > 0 => shared.bytes.extend_from_slice(&buf[..n]),
+                Ok(n) if n > 0 && !shared.abandoned => shared.bytes.extend_from_slice(&buf[..n]),
+                Ok(n) if n > 0 => continue,
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
                 _ => {
                     shared.closed = true;
@@ -367,8 +436,46 @@ fn read_in_background(mut source: impl Read + Send + 'static, pending: Arc<Mutex
             }
             drop(shared);
             wake();
+            let full =
+                |pending: &mut Pending| pending.bytes.len() >= PENDING_MAX && !pending.abandoned;
+            let waited = buffer.room.wait_while(buffer.lock(), full);
+            drop(waited.unwrap_or_else(PoisonError::into_inner));
         }
     });
+}
+
+/// 开始在后台把交来的输入写进 `pipe`，返回交输入的一端（[`Pty::write`]）。
+///
+/// 程序不读输入时写会一直不返回，所以不在事件循环上写。每写完一段唤醒事件循环来交下一段；
+/// 写失败（伪终端关了）或不再写入时线程退出，`pipe` 随之关闭。
+fn write_in_background(mut pipe: File) -> Arc<Outgoing> {
+    let outgoing = Arc::<Outgoing>::default();
+    let shared = Arc::clone(&outgoing);
+    std::thread::spawn(move || {
+        loop {
+            let chunk = {
+                let waiting = |chunk: &mut (Option<Vec<u8>>, bool)| chunk.0.is_none() && !chunk.1;
+                let held = shared.chunk.lock().unwrap_or_else(PoisonError::into_inner);
+                let mut held = (shared.ready.wait_while(held, waiting))
+                    .unwrap_or_else(PoisonError::into_inner);
+                match held.0.clone() {
+                    Some(chunk) if !held.1 => chunk,
+                    _ => {
+                        held.1 = true;
+                        return;
+                    }
+                }
+            };
+            // 写的时候不占着锁，这一段写完才从位置上取走：期间事件循环得到 `WouldBlock`。
+            let written = pipe.write_all(&chunk);
+            let mut held = shared.chunk.lock().unwrap_or_else(PoisonError::into_inner);
+            held.0 = None;
+            held.1 |= written.is_err();
+            drop(held);
+            wake();
+        }
+    });
+    outgoing
 }
 
 /// 在后台线程上关闭伪终端 `console`，不等关闭完成；无法新建线程时在当前线程上关闭。

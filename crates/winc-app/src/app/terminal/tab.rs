@@ -11,7 +11,7 @@ use std::time::Instant;
 use winc_pty::protocol::{Attrs, Block, Cursor, Frame, Line, Modes, Size};
 use winc_pty::width::cells;
 
-/// 看回滚时在可见范围上下各多缓存几屏的历史行（屏，经验值）：向上滚动时先有一段已缓存的
+/// 看回滚时在可见范围上下各多缓存几屏的历史行（屏）：向上滚动时先有一段已缓存的
 /// 行，不必每行都等辅助进程回答。
 const CACHE_SCREENS: usize = 2;
 
@@ -241,7 +241,7 @@ pub(crate) struct TermTab {
     pub settle: Option<Instant>,
     /// 这个标签拆分出的其余终端；没有拆分时为 `None`。
     pub split: Option<Box<TermSplit>>,
-    /// 不在前台时收着的回滚缓冲滚动条状态（拆分时每个终端一份）。
+    /// 不在前台时保存的回滚缓冲滚动条状态（拆分时每个终端一份）。
     pub scrollbars: crate::app::Scrollbars,
 }
 
@@ -253,7 +253,7 @@ pub(crate) struct TermSplit {
     pub at: usize,
 }
 
-/// 光标换到空行行首以后最多藏多久（250 ms，经验值；见 [`TermTab::settle`]）。
+/// 光标换到空行行首以后最多藏多久（250 ms，取自调参；见 [`TermTab::settle`]）。
 ///
 /// 慢的提示符（要查 `git` 状态的）超过它就先在行首画出来。
 pub const SETTLE: std::time::Duration = std::time::Duration::from_millis(250);
@@ -582,7 +582,7 @@ impl TermTab {
         self.keep_sticky(true);
     }
 
-    /// 要用到的历史行（只算回滚缓冲里的，屏幕上的本来就有）：网格上的，上下再各加 `screens`
+    /// 要用到的历史行（只算回滚缓冲里的，屏幕上的原本就有）：网格上的，上下再各加 `screens`
     /// 屏；吸顶的命令行。
     ///
     /// 按行号排好的几段（起，止）。
@@ -807,7 +807,7 @@ impl TermTab {
     /// 折起或展开一个块的输出。
     ///
     /// 看最新输出时还看着最新的；翻上去时网格第一行不动。网格第一行在
-    /// 要折起的输出里时改为从这个块的第一行排：折起的那一行落在第一行会被吸顶的命令行盖住。
+    /// 要折起的输出里时改为从这个块的第一行排：折起的那一行落在第一行会被吸顶的命令行遮住。
     pub fn set_folded(&mut self, id: u32, folded: bool) {
         let anchor = (self.scroll > 0).then(|| {
             let top = self.top();
@@ -876,7 +876,7 @@ impl TermTab {
 
     /// 要吸顶的块：上沿已经越过视口上沿的最后一条运行过的命令。
     ///
-    /// 下一条命令的提示符到达视口上沿后不再吸顶，此时提示符和命令行照常可见；命令行越过上沿后
+    /// 下一条命令的提示符到达视口上沿后不再吸顶，此时提示符和命令行仍然可见；命令行越过上沿后
     /// 吸顶换成它，位置连续。空回车不算下一条命令。
     pub fn sticky(&self) -> Option<usize> {
         self.sticky_at().map(|(block, _)| block)

@@ -2,7 +2,7 @@
 //!
 //! 写入的注册表项与安装程序相同（`release/windows/installer.nsi`），都在当前用户之下
 //! （`HKCU`），便携版同样可用。MSI 安装的写在全机之下，没有管理员权限改不了：关掉右键菜单时
-//! 在当前用户之下写 `LegacyDisable` 把它盖住，打开时去掉。
+//! 在当前用户之下写 `LegacyDisable` 把它遮住，打开时去掉。
 
 #[cfg(any(windows, test))]
 mod registry;

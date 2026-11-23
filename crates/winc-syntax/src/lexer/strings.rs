@@ -44,19 +44,28 @@ impl Lexer<'_> {
 
     /// 处理 `from` 处开始的插值（开头之后的部分），返回收尾的 `closer` 之后的位置。
     ///
-    /// 本行内没有闭合，或嵌套超过 [`MAX_TEMPLATE_DEPTH`] 层时返回 `None`，不产生 token。插值之前
-    /// 的字符串从 `start` 起记成一个 token；插值内部按代码着色，其中的字符串（包括嵌套的模板
-    /// 字符串）整个跳过，与 `closer` 配对的括号计数。
+    /// 本行内没有闭合、嵌套超过 [`MAX_TEMPLATE_DEPTH`] 层，或本行已有 [`MAX_UNCLOSED`] 个没有
+    /// 闭合的插值时返回 `None`，不产生 token。插值之前的字符串从 `start` 起记成一个 token；插值
+    /// 内部按代码着色，其中的字符串（包括嵌套的模板字符串）整个跳过，与 `closer` 配对的括号
+    /// 计数。
     pub(super) fn interpolation(
         &mut self,
         start: usize,
         from: usize,
         closer: char,
     ) -> Option<usize> {
-        if self.depth >= MAX_TEMPLATE_DEPTH {
+        if self.depth >= MAX_TEMPLATE_DEPTH || self.unclosed >= MAX_UNCLOSED {
             return None;
         }
+        let end = self.interpolation_to_close(start, from, closer);
+        if end.is_none() {
+            self.unclosed += 1;
+        }
+        end
+    }
 
+    /// [`Lexer::interpolation`] 的扫描本身，不计没有闭合的次数。
+    fn interpolation_to_close(&mut self, start: usize, from: usize, closer: char) -> Option<usize> {
         // 先不产生 token 试扫一遍，确认在本行闭合后再正式扫描，否则已经产生的 token 无法撤回。
         // 试扫成功后内层的插值也一定闭合，用 `closes_known` 跳过内层的试扫，扫描总量与
         // 嵌套层数无关。

@@ -3163,6 +3163,7 @@ dependencies = [
  "ropey",
  "roxmltree",
  "security-framework",
+ "sha2",
  "unicode-segmentation",
  "wayland-backend",
  "wayland-client",

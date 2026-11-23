@@ -356,13 +356,13 @@ fn clearing_keeps_the_prompt_row() {
 
 #[test]
 fn an_endless_osc_is_cut_off_instead_of_buffered() {
-    // 拆在两段之间的 OSC 照常认。
+    // 拆在两段之间的 OSC 仍然识别。
     let mut t = term(20, 3);
     feed(&mut t, "\x1b");
     feed(&mut t, "]0;hi\x07");
     assert_eq!(t.take_events(), [Event::Title("hi".into())]);
 
-    // 超长且迟迟不结束：超出上限的部分不交给 `vte`，结束之后的字照常显示，OSC 内容不外泄。
+    // 超长且迟迟不结束：超出上限的部分不交给 `vte`，结束之后的字仍然显示，OSC 内容不外泄。
     let chunk = "a".repeat(64 << 10);
     for end in ["\x07", "\x1b\\", "\x1b[1m"] {
         let mut t = term(20, 3);

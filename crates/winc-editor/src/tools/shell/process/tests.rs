@@ -197,7 +197,7 @@ fn remote_questions_are_answered_by_the_local_askpass_program() {
         Some(&b"the-endpoint|confirm|Trust?"[..])
     );
     assert_eq!(answer("", "refuse"), None);
-    // 本机的 askpass 程序和端点不发到远端，其余显式设置的变量照常传递。
+    // 本机的 askpass 程序和端点不发到远端，其余显式设置的变量仍然传递。
     let mut plain = Command::new("git");
     plain.arg("fetch").env("LC_ALL", "C");
     let sent = |command: &Command| format!("{:?}", remote_exec(command, Vec::new()));

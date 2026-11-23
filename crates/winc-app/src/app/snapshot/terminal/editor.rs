@@ -223,7 +223,7 @@ fn a_lost_pseudo_console_out_of_view_leaves_a_red_dot() {
     app.terminal_message(FromHelper::Disconnected { tab: first });
     assert_eq!(app.terminal.tabs[0].unseen, Some(true));
 
-    // 面板收着时正在看的标签断开了。
+    // 面板保存时正在看的标签断开了。
     app.terminal.open = false;
     app.terminal_message(FromHelper::Disconnected { tab: second });
     assert_eq!(app.terminal.tabs[1].unseen, Some(true));
@@ -395,7 +395,7 @@ fn terminal_tabs_are_renamed_in_place() {
     assert!(app.terminal.rename.is_none());
     assert_eq!(app.terminal.tabs[0].label(), "~/winc");
 
-    // 面板收着时从命令面板改名：先把面板打开。
+    // 面板保存时从命令面板改名：先把面板打开。
     app.toggle_terminal();
     assert!(!app.terminal.open);
     app.run_action(crate::keymap::Action::RenameTerminal);
@@ -846,7 +846,7 @@ fn terminal_tabs_come_back_with_the_folder() {
     app.restore_terminal(&saved);
     assert!(app.terminal.want.is_empty());
 
-    // 上次面板收着：等打开面板时才建，也不多开一个空的。
+    // 上次面板保存：等打开面板时才建，也不多开一个空的。
     let mut app = blank_app(false);
     app.config.terminal_enabled = Some(true);
     app.attach_idle_helper();
@@ -859,7 +859,7 @@ fn terminal_tabs_come_back_with_the_folder() {
     app.relayout();
     assert_eq!(app.terminal.tabs.len(), 2);
 
-    // 面板收着时按 ⌘T（或「在终端中打开」）：恢复的两个标签仍然创建，新的加在后面。
+    // 面板保存时按 ⌘T（或「在终端中打开」）：恢复的两个标签仍然创建，新的加在后面。
     let mut app = blank_app(false);
     app.config.terminal_enabled = Some(true);
     app.attach_idle_helper();
@@ -1289,7 +1289,7 @@ fn the_first_window_restores_the_terminal_panel() {
     app.relayout();
     assert_eq!(app.terminal.tabs.len(), 1);
 
-    // 上次收着：恢复后收着，打开面板时才建标签。
+    // 上次保存：恢复后保存，打开面板时才建标签。
     let mut app = open(false);
     assert!(!app.terminal.open);
     app.relayout();

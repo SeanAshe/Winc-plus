@@ -86,8 +86,6 @@ jobs:
         shell: pwsh
         run: ./release/windows/sign.ps1 -Target $env:TARGET
       - name: Bundle NSIS and MSI installers
-        env:
-          WINC_UPDATE_PRIVATE_KEY: ${{ secrets.WINC_UPDATE_PRIVATE_KEY }}
         run: |
           pwsh -NoProfile -File release/windows/package.ps1 -Phase installers -Target "$TARGET"
       - name: Package portable

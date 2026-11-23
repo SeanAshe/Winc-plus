@@ -80,11 +80,22 @@ pub fn convert(bytes: &[u8]) -> Result<Converted, String> {
     let archive = Archive::open(bytes).map_err(|e| match e {
         zip::Error::Invalid => t!("preview-docx-invalid").to_owned(),
         zip::Error::Unsupported => t!("preview-docx-unsupported").to_owned(),
+        zip::Error::TooLarge => t!("preview-docx-too-large").to_owned(),
     })?;
-    let main = package_target(&archive).unwrap_or_else(|| DEFAULT_DOCUMENT.to_owned());
-    let bytes = part(&archive, &main)?.ok_or(t!("preview-docx-invalid"))?;
+    let converted = convert_archive(&archive);
+    // 解压量超过上限时读不出的部件被当作没有：不显示缺了内容的文档，直接说明过大。
+    if archive.exceeded() {
+        return Err(t!("preview-docx-too-large").to_owned());
+    }
+    converted
+}
+
+/// 把打开的 docx 包 `archive` 转换成 Markdown，见 [`convert`]。
+fn convert_archive(archive: &Archive<'_>) -> Result<Converted, String> {
+    let main = package_target(archive).unwrap_or_else(|| DEFAULT_DOCUMENT.to_owned());
+    let bytes = part(archive, &main)?.ok_or(t!("preview-docx-invalid"))?;
     let document = parse(&bytes, &main)?;
-    let rels = relations(&archive, &main)?;
+    let rels = relations(archive, &main)?;
     let related = |kind: &str| {
         rels.values()
             .find(|(k, _)| k.ends_with(kind))
@@ -93,7 +104,7 @@ pub fn convert(bytes: &[u8]) -> Result<Converted, String> {
     // 样式、编号、脚注等部件缺失或损坏时按没有处理：正文仍然可以显示。
     let load_part = |kind: &str| -> Option<(String, Vec<u8>)> {
         let path = related(kind)?;
-        let bytes = part(&archive, &path).ok()??;
+        let bytes = part(archive, &path).ok()??;
         Some((path, bytes))
     };
     let styles_part = load_part("/styles");
@@ -112,7 +123,7 @@ pub fn convert(bytes: &[u8]) -> Result<Converted, String> {
     let comments = xml(&comments_part);
 
     let mut cx = Converter {
-        archive: &archive,
+        archive,
         rels: &rels,
         styles: &styles,
         numbering: &numbering,
@@ -503,10 +514,20 @@ fn roman(mut n: u32) -> String {
     out
 }
 
-/// 小写字母序号：1 为 a，26 为 z，27 为 aa（同一字母重复，WordprocessingML 的规则）。
+/// 字母序号中同一字母最多重复的次数（次）。
+///
+/// 序号取自文件中的起始值，字母的重复次数与它成正比。取自调参：重复 26 次时序号为 676，
+/// 超过实际文档中列表的长度。
+const MAX_LETTER_REPEAT: u32 = 26;
+
+/// 小写字母序号：1 为 a，26 为 z，27 为 aa（同一字母重复，WordprocessingML 的规则）；重复超过
+/// [`MAX_LETTER_REPEAT`] 次的数写成阿拉伯数字。
 fn letters(n: u32) -> String {
     if n == 0 {
         return String::new();
+    }
+    if n > 26 * MAX_LETTER_REPEAT {
+        return n.to_string();
     }
     let letter = char::from(b'a' + ((n - 1) % 26) as u8);
     std::iter::repeat_n(letter, ((n - 1) / 26 + 1) as usize).collect()
@@ -886,10 +907,15 @@ impl<'a, 'i> Converter<'a, 'i> {
     /// 转换 `<w:drawing>`、`<w:pict>` 中的图片、图表和文本框。
     fn drawing(&mut self, node: Node<'a, 'i>, out: &mut String) {
         // 文本框：内容是段落，放在所在段落之后。
-        for content in node
-            .descendants()
-            .filter(|n| n.tag_name().name() == "txbxContent")
-        {
+        // 只取本层的文本框：嵌在其中的文本框在转换其内容时处理，在这里一并取出会使每嵌套
+        // 一层工作量翻倍。
+        let is_box = |n: &Node<'a, 'i>| n.tag_name().name() == "txbxContent";
+        let nested = |n: &Node<'a, 'i>| {
+            (n.ancestors().skip(1))
+                .take_while(|a| *a != node)
+                .any(|a| is_box(&a))
+        };
+        for content in node.descendants().filter(|n| is_box(n) && !nested(n)) {
             let start = self.blocks.len();
             self.blocks(content);
             let inner: Vec<Block> = self.blocks.drain(start..).collect();
@@ -1093,11 +1119,8 @@ impl<'a, 'i> Converter<'a, 'i> {
             let mut row = Vec::new();
             for tc in tr.children().filter(|n| n.tag_name().name() == "tc") {
                 let tcpr = child(tc, "tcPr");
-                let span = tcpr
-                    .and_then(|p| child(p, "gridSpan"))
-                    .and_then(|n| attr(n, "val")?.parse::<usize>().ok())
-                    .unwrap_or(1)
-                    .max(1);
+                let span = tcpr.and_then(|p| child(p, "gridSpan"));
+                let span = crate::convert::span(span.and_then(|n| attr(n, "val")));
                 // 纵向合并的后续单元格：内容在第一格中，这里留空。
                 let continued = tcpr
                     .and_then(|p| child(p, "vMerge"))

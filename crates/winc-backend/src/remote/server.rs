@@ -4,7 +4,7 @@
 //! 输入结束（连接断开）时结束仍在运行的命令并返回，进程随之退出。请求中的路径是该主机上的
 //! 绝对路径。
 //!
-//! 文件操作在读取请求的线程上逐个执行；运行命令各用一个线程，其间其他请求照常应答。
+//! 文件操作在读取请求的线程上逐个执行；运行命令各用一个线程，其间其他请求仍然应答。
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -13,23 +13,20 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, PoisonError, mpsc};
+use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use super::wire::{self, Frame, Reader, Writer, kind};
 
-/// 查询运行中的命令是否结束、是否被取消的间隔（毫秒）。
-///
-/// 取值由两方面约束：命令结束后最多再等这么久才应答，过大时每条命令都变慢；过小时等待期间
-/// 被唤醒的次数增多。2 ms 远小于一次网络往返，每条运行中的命令每秒唤醒 500 次。
-const POLL: Duration = Duration::from_millis(2);
+/// 连接断开后查询运行中的命令是否都已结束的间隔（毫秒）：只在 [`DRAIN`] 之内使用。
+const DRAIN_POLL: Duration = Duration::from_millis(5);
 /// 一段输出的最大长度（字节，64 KiB）：与管道缓冲区的常见大小相同，一次读取即可取完。
 const CHUNK: usize = 64 << 10;
 /// 连接断开后等待运行中的命令结束的最长时间（秒）。命令已被强制结束，正常情况下立即退出；
-/// 超过该时间仍未退出时不再等待，进程照常结束。
+/// 超过该时间仍未退出时不再等待，进程仍然结束。
 const DRAIN: Duration = Duration::from_secs(2);
 /// 命令退出后等待其输出读完的时间（毫秒），与本机运行命令时相同。
 ///
@@ -43,15 +40,21 @@ type Output = Arc<Replies>;
 /// 写应答的一端，以及正在等着写的线程数。
 struct Replies {
     writer: Mutex<Box<dyn Write + Send>>,
-    waiting: AtomicUsize,
+    waiting: Mutex<usize>,
+    /// 等着写的线程数变为 0 时通知。
+    idle: Condvar,
 }
 
 impl Replies {
     /// 取得写的一端。
     fn lock(&self) -> MutexGuard<'_, Box<dyn Write + Send>> {
-        self.waiting.fetch_add(1, Ordering::Relaxed);
+        *self.waiting.lock().unwrap_or_else(PoisonError::into_inner) += 1;
         let writer = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
-        self.waiting.fetch_sub(1, Ordering::Relaxed);
+        let mut waiting = self.waiting.lock().unwrap_or_else(PoisonError::into_inner);
+        *waiting -= 1;
+        if *waiting == 0 {
+            self.idle.notify_all();
+        }
         writer
     }
 
@@ -59,9 +62,9 @@ impl Replies {
     ///
     /// 锁本身不保证先来后到：刚放开锁的线程可以立刻再次取得，等着的线程一直轮不到。
     fn lock_last(&self) -> MutexGuard<'_, Box<dyn Write + Send>> {
-        while self.waiting.load(Ordering::Relaxed) > 0 {
-            thread::yield_now();
-        }
+        let waiting = self.waiting.lock().unwrap_or_else(PoisonError::into_inner);
+        let busy = |waiting: &mut usize| *waiting > 0;
+        drop((self.idle.wait_while(waiting, busy)).unwrap_or_else(PoisonError::into_inner));
         self.lock()
     }
 }
@@ -73,8 +76,33 @@ type Running = Arc<Mutex<HashMap<u32, Arc<Job>>>>;
 struct Job {
     /// 是否已要求强制结束。
     cancelled: AtomicBool,
+    /// 命令的进程组（组长的进程号）；命令还没有启动时为 `None`。
+    group: Mutex<Option<i32>>,
+    /// 组长是否已经退出并被回收：此后它的进程号可能给了别的程序，见 [`kill_group`]。
+    reaped: AtomicBool,
+    /// 输出按需发送时还可以发送的标准输出字节数，对端读走后追加（[`kind::CREDIT`]）。
+    credit: Mutex<usize>,
+    /// 可以发送的字节数增加，或命令被要求结束时通知。
+    granted: Condvar,
+    /// 读取标准输出的线程是否正等着对端读走已发送的输出。
+    starved: AtomicBool,
     /// 命令提出、尚未得到答复的输入请求：编号对应等待答复的一方。
     asks: Mutex<HashMap<u32, mpsc::Sender<Option<Vec<u8>>>>>,
+}
+
+impl Job {
+    /// 要求强制结束命令：结束它的进程组，唤醒等着对端读走输出的线程。命令还没有启动时只记下，
+    /// 启动后随即结束（见 [`exec`]）。
+    fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Relaxed);
+        let group = *self.group.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(group) = group {
+            kill_group(group, self.reaped.load(Ordering::Relaxed));
+        }
+        // 取得锁再通知：等待的线程要么还没检查过标志，要么已经在等通知。
+        let _credit = self.credit.lock().unwrap_or_else(PoisonError::into_inner);
+        self.granted.notify_all();
+    }
 }
 
 /// 逐个处理 `input` 中的请求并把应答写到 `output`，直到输入结束。
@@ -88,7 +116,8 @@ struct Job {
 pub fn serve(mut input: impl Read, output: impl Write + Send + 'static) -> io::Result<()> {
     let output: Output = Arc::new(Replies {
         writer: Mutex::new(Box::new(output)),
-        waiting: AtomicUsize::new(0),
+        waiting: Mutex::new(0),
+        idle: Condvar::new(),
     });
     let running = Running::default();
     let mut uploads: HashMap<u32, Upload> = HashMap::new();
@@ -128,7 +157,18 @@ pub fn serve(mut input: impl Read, output: impl Write + Send + 'static) -> io::R
             kind::CANCEL => {
                 let running = running.lock().unwrap_or_else(PoisonError::into_inner);
                 if let Some(job) = running.get(&frame.id) {
-                    job.cancelled.store(true, Ordering::Relaxed);
+                    job.cancel();
+                }
+                Ok(())
+            }
+            kind::CREDIT => {
+                let running = running.lock().unwrap_or_else(PoisonError::into_inner);
+                // 命令已经结束，或载荷不合格式：丢弃。
+                let more = Reader::new(&frame.payload).u32().ok();
+                if let (Some(job), Some(more)) = (running.get(&frame.id), more) {
+                    let mut credit = job.credit.lock().unwrap_or_else(PoisonError::into_inner);
+                    *credit = credit.saturating_add(more as usize);
+                    job.granted.notify_all();
                 }
                 Ok(())
             }
@@ -192,7 +232,12 @@ pub fn serve(mut input: impl Read, output: impl Write + Send + 'static) -> io::R
 /// 写出请求 `id` 的最终应答。
 fn reply(output: &Output, id: u32, result: io::Result<Vec<u8>>) -> io::Result<()> {
     let (kind, payload) = match result {
-        Ok(payload) => (kind::OK, payload),
+        Ok(payload) if wire::fits_frame(&payload) => (kind::OK, payload),
+        // 应答装不进一帧是这一个请求的错误：仍然应答，连接和其他请求不受影响。
+        Ok(_) => {
+            let error = io::Error::new(io::ErrorKind::InvalidInput, "reply too large");
+            (kind::ERROR, wire::encode_error(&error))
+        }
         Err(error) => (kind::ERROR, wire::encode_error(&error)),
     };
     let mut output = output.lock();
@@ -229,15 +274,13 @@ fn drain(running: &Running) {
     loop {
         let left = {
             let running = running.lock().unwrap_or_else(PoisonError::into_inner);
-            for job in running.values() {
-                job.cancelled.store(true, Ordering::Relaxed);
-            }
+            running.values().for_each(|job| job.cancel());
             running.len()
         };
         if left == 0 || Instant::now() >= deadline {
             return;
         }
-        thread::sleep(POLL);
+        thread::sleep(DRAIN_POLL);
     }
 }
 
@@ -477,7 +520,7 @@ impl Upload {
     }
 
     /// 在目标所在的目录里建一个只有本进程能访问的临时文件并立即从目录中删除；`id` 是这次
-    /// 保存的请求号，用来区分同时进行的几次保存。与目标在同一个文件系统上：那里本来就要有
+    /// 保存的请求号，用来区分同时进行的几次保存。与目标在同一个文件系统上：那里原本就要有
     /// 放下这些内容的空间。
     fn spill(&self, id: u32) -> io::Result<std::fs::File> {
         use std::os::unix::fs::OpenOptionsExt;
@@ -586,7 +629,8 @@ fn batch(payload: &[u8]) -> io::Result<Vec<u8>> {
             Ok(body) => (true, body),
             Err(error) => (false, wire::encode_error(&error)),
         };
-        size += body.len();
+        // 每项除内容外还有 1 字节的结果和 4 字节的长度。
+        size += 1 + 4 + body.len();
         out = out.u8(u8::from(ok)).bytes(&body);
     }
     input.finish()?;
@@ -668,15 +712,14 @@ impl Relay {
             done: Arc::default(),
         };
         let listener = UnixListener::bind(relay.socket())?;
-        listener.set_nonblocking(true)?;
         let (done, job, output) = (Arc::clone(&relay.done), Arc::clone(job), Arc::clone(output));
         thread::spawn(move || {
             let mut ticket = 0;
-            while !done.load(Ordering::Relaxed) {
-                let Ok((stream, _)) = listener.accept() else {
-                    thread::sleep(POLL);
-                    continue;
-                };
+            // 等连接时不轮询：通道关闭时自己连上来一次，把这里唤醒（见 `Drop`）。
+            while let Ok((stream, _)) = listener.accept() {
+                if done.load(Ordering::Relaxed) {
+                    return;
+                }
                 ticket += 1;
                 let (job, output) = (Arc::clone(&job), Arc::clone(&output));
                 // 每次提问各用一个线程：等用户答复期间不耽误别的提问。
@@ -692,6 +735,7 @@ impl Relay {
 impl Drop for Relay {
     fn drop(&mut self) {
         self.done.store(true, Ordering::Relaxed);
+        let _ = UnixStream::connect(self.socket());
         let _ = std::fs::remove_file(self.socket());
         let _ = std::fs::remove_dir(&self.dir);
     }
@@ -707,8 +751,6 @@ fn relay_one(
     job: &Job,
     output: &Output,
 ) -> io::Result<()> {
-    // 有的系统上接受的连接沿用监听套接字的非阻塞设置。
-    stream.set_nonblocking(false)?;
     let mut request = Vec::new();
     (&mut stream)
         .take(ASK_MAX as u64)
@@ -803,10 +845,11 @@ fn exec(frame: &Frame, job: &Arc<Job>, output: &Output) -> io::Result<Vec<u8>> {
     }
     let stdin = input.bytes()?.to_vec();
     let ask = input.u8()? != 0;
+    let paced = input.u8()? != 0;
     input.finish()?;
     // 命令需要用户输入时运行服务进程自身来提问（`git` 和它启动的 `ssh` 各认一个变量）；
     // `SSH_ASKPASS_REQUIRE` 使 `ssh` 不依赖 `DISPLAY` 和控制终端。通道随命令结束而关闭。
-    // 通道建不起来（临时目录不可写）时命令照常运行，只是需要输入时会失败。
+    // 通道建不起来（临时目录不可写）时命令仍然运行，只是需要输入时会失败。
     let relay = ask
         .then(|| Relay::open(frame.id, job, output).ok())
         .flatten();
@@ -826,46 +869,65 @@ fn exec(frame: &Frame, job: &Arc<Job>, output: &Output) -> io::Result<Vec<u8>> {
         .stderr(Stdio::piped())
         .process_group(0)
         .spawn()?;
+    let group = i32::try_from(child.id()).ok();
+    *job.group.lock().unwrap_or_else(PoisonError::into_inner) = group;
+    // 启动之前就被要求结束：那时还没有进程组可以结束。
+    if cancelled.load(Ordering::Relaxed) {
+        job.cancel();
+    }
+    if paced {
+        *job.credit.lock().unwrap_or_else(PoisonError::into_inner) = wire::WINDOW;
+    }
     // 输入在单独的线程上写入并关闭：命令在读完输入之前就写满输出时，两边不会互相等待。
     let writer = child.stdin.take().map(|mut pipe| {
         thread::spawn(move || {
             let _ = pipe.write_all(&stdin);
         })
     });
+    let (progress, pumped) = mpsc::channel();
+    let pace = paced.then_some(job);
     let pumps = [
-        child
-            .stdout
-            .take()
-            .map(|pipe| pump(pipe, kind::STDOUT, frame.id, output)),
-        child
-            .stderr
-            .take()
-            .map(|pipe| pump(pipe, kind::STDERR, frame.id, output)),
+        (child.stdout.take()).map(|pipe| {
+            let to = (frame.id, output);
+            pump(pipe, kind::STDOUT, to, pace, progress.clone())
+        }),
+        (child.stderr.take()).map(|pipe| {
+            let to = (frame.id, output);
+            pump(pipe, kind::STDERR, to, None, progress.clone())
+        }),
     ];
-    let status = wait(&mut child, cancelled);
+    drop(progress);
+    // 被要求结束时进程组由 `Job::cancel` 结束，这里随之返回。
+    let status = child.wait();
+    job.reaped.store(true, Ordering::Relaxed);
     // 命令已退出，输出的管道可能仍被它遗留在后台的子进程占用：等 `GRACE`，仍未关闭就结束
     // 进程组，再等 `GRACE`。此后不再等待：脱离了进程组的子进程不能让这个请求一直不结束。
-    let group = i32::try_from(child.id()).ok();
-    let finished = |threads: &[Option<thread::JoinHandle<()>>]| {
-        threads
-            .iter()
-            .flatten()
-            .all(thread::JoinHandle::is_finished)
-    };
+    // 读取的线程等着对端读走输出时不计时：输出还没有发完，不是管道被占着。
+    let mut reading = pumps.iter().flatten().count();
     let mut killed = false;
     let mut deadline = Instant::now() + GRACE;
-    while !finished(&pumps) {
-        if Instant::now() >= deadline || cancelled.load(Ordering::Relaxed) {
-            if killed {
-                break;
+    while reading > 0 {
+        let got = if job.starved.load(Ordering::Relaxed) {
+            pumped
+                .recv()
+                .map_err(|_| mpsc::RecvTimeoutError::Disconnected)
+        } else {
+            pumped.recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        };
+        match got {
+            Ok(Pumped::Done) => reading -= 1,
+            Ok(Pumped::Resumed) => deadline = Instant::now() + GRACE,
+            Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            Err(mpsc::RecvTimeoutError::Timeout) if job.starved.load(Ordering::Relaxed) => {}
+            Err(mpsc::RecvTimeoutError::Timeout) if killed => break,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                killed = true;
+                if let Some(group) = group {
+                    kill_group(group, true);
+                }
+                deadline = Instant::now() + GRACE;
             }
-            killed = true;
-            if let Some(group) = group {
-                kill_group(group);
-            }
-            deadline = Instant::now() + GRACE;
         }
-        thread::sleep(POLL);
     }
     // 已结束的线程立即返回；仍在读取的线程和写入输入的线程不再等待，随管道关闭自行结束。
     for thread in pumps.into_iter().flatten().chain(writer) {
@@ -873,39 +935,32 @@ fn exec(frame: &Frame, job: &Arc<Job>, output: &Output) -> io::Result<Vec<u8>> {
             let _ = thread.join();
         }
     }
-    match status? {
-        None => Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled")),
-        Some(status) => Ok(Writer::default()
+    // 命令和它的进程组到此都已结束：此后的取消不再向这个进程号发信号。
+    *job.group.lock().unwrap_or_else(PoisonError::into_inner) = None;
+    let status = status?;
+    match cancelled.load(Ordering::Relaxed) {
+        true => Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled")),
+        false => Ok(Writer::default()
             .u8(u8::from(status.code().is_some()))
             .u32(status.code().unwrap_or(0).cast_unsigned())
             .finish()),
     }
 }
 
-/// 强制结束进程组 `group`（组长的进程号）。组内已没有进程时没有效果。
-// 本函数只有对 `libc::kill` 的一次调用需要 `unsafe`，因此只在此处放开 `unsafe_code`。
+/// 强制结束进程组 `group`（组长的进程号）；`reaped` 是组长是否已被回收。组内已没有进程时
+/// 没有效果。
+///
+/// 组长被回收后，组内还有进程时它的号码不会再分配；组散了以后号码可以给新的进程。这时又有
+/// 进程用着这个号码，就是别的程序，不发信号。
+// 本函数只有对 `libc` 的两次调用需要 `unsafe`，因此只在此处放开 `unsafe_code`。
 #[allow(unsafe_code)]
-fn kill_group(group: i32) {
-    // SAFETY: 负的进程号表示进程组。`kill` 只发送信号，不访问内存，失败时返回 -1。组长已被
-    // 回收后，其进程号在组内仍有进程时不会被重新分配，信号不会发给无关的进程。
-    unsafe { libc::kill(-group, libc::SIGKILL) };
-}
-
-/// 等待 `child` 结束并返回退出状态；`cancelled` 被设置时强制结束其进程组并返回 `None`。
-fn wait(child: &mut Child, cancelled: &AtomicBool) -> io::Result<Option<std::process::ExitStatus>> {
-    loop {
-        if let Some(status) = child.try_wait()? {
-            return Ok(Some(status));
-        }
-        if cancelled.load(Ordering::Relaxed) {
-            if let Ok(group) = i32::try_from(child.id()) {
-                kill_group(group);
-            }
-            child.wait()?;
-            return Ok(None);
-        }
-        thread::sleep(POLL);
+fn kill_group(group: i32, reaped: bool) {
+    // SAFETY: `getsid` 只查询，没有这个进程时返回 -1。
+    if reaped && unsafe { libc::getsid(group) } > 0 {
+        return;
     }
+    // SAFETY: 负的进程号表示进程组。`kill` 只发送信号，不访问内存，失败时返回 -1。
+    unsafe { libc::kill(-group, libc::SIGKILL) };
 }
 
 /// 向对端写出一帧并刷新。
@@ -915,15 +970,29 @@ fn write_frame(output: &Output, kind: u8, id: u32, payload: &[u8]) -> io::Result
     output.flush()
 }
 
-/// 在新线程上把 `pipe` 的内容分段写成来源为 `stream` 的 [`kind::CHUNK`]，直到管道关闭。
+/// 读取输出的线程向等待它的一方报告的事。
+enum Pumped {
+    /// 管道已关闭，或不再读取：线程结束。
+    Done,
+    /// 对端读走了输出，继续读取管道。
+    Resumed,
+}
+
+/// 在新线程上把 `pipe` 的内容分段写成来源为 `stream` 的 [`kind::CHUNK`]，直到管道关闭；`to` 是
+/// 请求号和写应答的一端。
+///
+/// `pace` 给出时输出按需发送：每段发出之前等对端允许（[`Job::credit`]），命令被要求结束时不再
+/// 读取。进展经 `progress` 报告。
 fn pump(
     mut pipe: impl Read + Send + 'static,
     stream: u8,
-    id: u32,
-    output: &Output,
+    (id, output): (u32, &Output),
+    pace: Option<&Arc<Job>>,
+    progress: mpsc::Sender<Pumped>,
 ) -> thread::JoinHandle<()> {
-    let output = Arc::clone(output);
-    thread::spawn(move || {
+    let (output, pace) = (Arc::clone(output), pace.cloned());
+    let reports = progress.clone();
+    let mut run = move || {
         let mut buffer = vec![0; CHUNK];
         loop {
             let read = match pipe.read(&mut buffer) {
@@ -932,6 +1001,11 @@ fn pump(
                 Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
                 Err(_) => return,
             };
+            if let Some(job) = &pace
+                && !allowed(job, read, &reports)
+            {
+                return;
+            }
             let payload = Writer::default().u8(stream).bytes(&buffer[..read]).finish();
             let mut output = output.lock();
             let sent = wire::write_frame(&mut *output, kind::CHUNK, id, &payload);
@@ -940,5 +1014,30 @@ fn pump(
                 return;
             }
         }
+    };
+    thread::spawn(move || {
+        run();
+        let _ = progress.send(Pumped::Done);
     })
+}
+
+/// 等到对端允许再发送 `bytes` 字节的标准输出并记入，返回 `true`；命令被要求结束时返回 `false`。
+fn allowed(job: &Job, bytes: usize, progress: &mpsc::Sender<Pumped>) -> bool {
+    let cancelled = || job.cancelled.load(Ordering::Relaxed);
+    let mut credit = job.credit.lock().unwrap_or_else(PoisonError::into_inner);
+    let mut waited = false;
+    while *credit < bytes && !cancelled() {
+        waited = true;
+        job.starved.store(true, Ordering::Relaxed);
+        credit = (job.granted.wait(credit)).unwrap_or_else(PoisonError::into_inner);
+    }
+    job.starved.store(false, Ordering::Relaxed);
+    if cancelled() {
+        return false;
+    }
+    *credit -= bytes;
+    if waited {
+        let _ = progress.send(Pumped::Resumed);
+    }
+    true
 }

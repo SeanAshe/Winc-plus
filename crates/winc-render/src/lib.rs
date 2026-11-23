@@ -574,7 +574,7 @@ impl Renderer {
         self.dark = is_dark(background);
     }
 
-    /// 设置或取消窗口背景图；`surfaces` 是透出背景图的底色，其余颜色照常绘制。
+    /// 设置或取消窗口背景图；`surfaces` 是透出背景图的底色，其余颜色仍然绘制。
     ///
     /// 以这些颜色填充的不透明矩形（包括窗口背景和 [`Self::base_next_frame`] 声明的底色）改为
     /// 写入「背景图 + 底色」。
@@ -819,7 +819,7 @@ impl Renderer {
                 .zip(tint(background))
                 .filter(|_| wall_rects.len() == based.len());
             if let Some((wall, k)) = layered {
-                // 整个窗口随后会被不透明的内容盖住时（见 `cover_next_frame`），跳过这些像素。
+                // 整个窗口随后被不透明的内容覆盖时（见 `cover_next_frame`），跳过这些像素。
                 let plain = background | 0xff00_0000;
                 if based.is_empty() && cover.is_some() {
                     canvas.rect(all, k, all, cover, Some(Tinted { wall, k, plain }));

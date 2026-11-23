@@ -42,16 +42,11 @@ pub(super) fn cut_by(content: &str, cap: usize) -> bool {
 
 /// 返回绘制文档 `doc` 时逐行读取的字节上限（字节）。
 ///
-/// `aligned` 表示是否按列对齐；`origin_x` 是第 0 个显示列的 x 坐标，`right` 是文本区右边缘，
-/// `cell` 是显示列的宽度（均为逻辑像素）。
+/// `aligned` 表示是否按列对齐；`origin_x`、`right`、`cell` 为第 0 列的 x 坐标、文本区右边缘和列宽。
 ///
-/// 大文件不换行时只需读取到右边缘：每个字符至少占 1 个显示列、最多 4 字节，另留 2 列余量。
-/// 一屏数十条超长行各按 [`MAX_LINE_BYTES`] 读取并解码，实测约占一帧的两成。其余情况
-/// （行在内存中，或换行、按列对齐需要更多字符）返回 `MAX_LINE_BYTES`。
-///
-/// 不换行时横向滚动到各行开头的 [`MAX_LINE_CHARS`] 个字符都在左边缘之外（`left` 是左边缘，
-/// 每个字符最多占 `tab_width` 或 2 个显示列）之后，屏幕上只有展开的超长行按列读取的部分：
-/// 此时只读取 [`HEAD_PROBE`] 字节，用于判断该行是否还有更多内容。
+/// 大文件不换行时只需读取到右边缘：每个字符至少占 1 个显示列、最多 4 字节，另留 2 列余量；其余情况
+/// 返回 `MAX_LINE_BYTES`。横向滚动到各行开头的 [`MAX_LINE_CHARS`] 个字符都在左边缘 `left`（每个字符
+/// 最多占 `tab_width` 或 2 个显示列）之外时，只读取 [`HEAD_PROBE`] 字节。
 pub(super) fn line_read_cap(
     doc: &winc_editor::Document,
     aligned: bool,

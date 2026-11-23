@@ -189,7 +189,7 @@ fn pushing_up_to_a_commit_leaves_later_commits_local() {
     );
 }
 
-/// 日志里按 F2 编辑选中提交的说明，菜单里的「编辑提交说明…」旁写着 F2；不在日志里时 F2
+/// 日志里按 F2 编辑选中提交的说明，菜单里的「编辑提交说明…」旁显示 F2；不在日志里时 F2
 /// 不做这件事。
 #[test]
 fn f2_edits_the_selected_commit_message() {

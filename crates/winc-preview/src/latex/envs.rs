@@ -227,7 +227,7 @@ impl<'a> Conv<'a> {
         self.advance_to(end + close.len());
     }
 
-    /// 转换定理类的环境：加粗的标题接着内容，证明以 ∎ 结尾。
+    /// 转换定理类的环境：加粗的标题之后是内容，证明以 ∎ 结尾。
     fn theorem(&mut self, name: &'a str, title: &str, proof: bool) {
         let note = self.opt_raw().map(|raw| self.fragment(raw));
         self.blank_line();

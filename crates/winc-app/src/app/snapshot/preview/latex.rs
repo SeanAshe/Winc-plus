@@ -178,7 +178,7 @@ fn fake_latexmk(dir: &std::path::Path) -> std::path::PathBuf {
         "#!/bin/sh".to_owned(),
         r#"for a in "$@"; do case "$a" in -outdir=*) out="${a#-outdir=}";; esac; done"#.to_owned(),
         r#"mkdir -p "$out""#.to_owned(),
-        // 像 `tectonic` 一样先在标准错误报告下载，停一下，测试能看到进度。
+        // 像 `tectonic` 一样先在标准错误报告下载，停顿，测试能看到进度。
         "echo 'note: downloading tcolorbox.sty' >&2".to_owned(),
         "sleep 0.3".to_owned(),
         format!(r#"cp '{d}/sample.pdf' "$out/main.pdf""#),
@@ -191,7 +191,7 @@ fn fake_latexmk(dir: &std::path::Path) -> std::path::PathBuf {
     script
 }
 
-/// 推进预览（开始编译），等后台的编译完成，期间照常绘制。
+/// 推进预览（开始编译），等后台的编译完成，期间仍然绘制。
 #[cfg(target_os = "macos")]
 fn wait_for_latex(app: &mut App) {
     app.advance_previews();
@@ -225,7 +225,7 @@ fn compiled_pdfs_replace_the_reading_view() {
     paint(&mut app);
     let id = app.editor.active().unwrap().id;
 
-    // 分栏：第一次编译时显示说明页（不先显示阅读视图），写着进行到哪一步；编译完换成 PDF。
+    // 分栏：第一次编译时显示说明页（不先显示阅读视图），显示进行到哪一步；编译完换成 PDF。
     app.set_preview_mode(PreviewMode::Split);
     paint(&mut app);
     assert!(app.latex_pdf().is_none() && app.latex_waiting());
@@ -301,6 +301,38 @@ fn compiled_pdfs_replace_the_reading_view() {
     assert_eq!(app.latex_status().map(|s| s.1), Some(false));
     wait_for_latex(&mut app);
     assert!(app.latex_pdf().is_some());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn a_declined_latexmkrc_can_be_asked_about_again() {
+    use winit::keyboard::{Key, NamedKey};
+    let dir = sample_folder("latex-rc-skipped");
+    let main = dir.join("main.tex");
+    let text = "\\documentclass{article}\n\\begin{document}\n正文\n\\oops\n\\end{document}\n";
+    std::fs::write(&main, text).unwrap();
+    std::fs::write(dir.join("latexmkrc"), "$pdf_mode = 5;\n").unwrap();
+    let mut app = app_with(&main, false);
+    app.config.latex_path = Some(fake_latexmk(&dir).display().to_string());
+    paint(&mut app);
+    let id = app.editor.active().unwrap().id;
+    app.set_preview_mode(PreviewMode::Split);
+    paint(&mut app);
+
+    // 第一次编译没有运行它，编译完询问；取消后同一份内容不再自动询问。
+    wait_for_latex(&mut app);
+    assert!(app.overlays.alert.is_some());
+    assert!(app.alert_key(&Key::Named(NamedKey::Escape), false));
+    app.latex_saved(id);
+    wait_for_latex(&mut app);
+    assert!(app.overlays.alert.is_none());
+
+    // 错误列表的末尾留有再问一次的入口。
+    assert!(app.latex_rc_skipped());
+    app.open_latex_problems();
+    app.run_menu_command(MenuCommand::LatexRunRc);
+    assert!(app.overlays.alert.is_some());
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -496,7 +528,7 @@ fn shoot_latex_setting() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 截图：第一次编译时的说明页，写着正在下载的宏包（`latex-waiting`）。
+/// 截图：第一次编译时的说明页，显示正在下载的宏包（`latex-waiting`）。
 #[cfg(target_os = "macos")]
 #[test]
 #[ignore = "截图，手动运行"]

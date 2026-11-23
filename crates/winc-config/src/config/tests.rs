@@ -515,7 +515,7 @@ fn to_json_writes_sections_in_a_fixed_order() {
     assert_eq!(Config::default().to_json(), "{}\n");
 }
 
-/// 挪过位置的设置：旧的位置照样读入，写回时只写新的位置。
+/// 挪过位置的设置：旧的位置仍然读入，写回时只写新的位置。
 #[test]
 fn moved_settings_are_read_from_the_old_place_and_written_to_the_new_one() {
     let (config, problems) = Config::parse(r#"{"git":{"systemProxy":false,"enabled":true}}"#);

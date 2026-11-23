@@ -578,7 +578,7 @@ fn a_row_that_does_not_fit_keeps_the_sidebar_splitter() {
     let top = app.tree_row_top(row) + TREE_ROW / 2.0;
     assert!(app.layout.splitter.contains(x, top));
 
-    // 名称放得下的行：分隔条照常可以拖动。
+    // 名称放得下的行：分隔条仍然可以拖动。
     let other = row_of(&app, "zzz");
     app.on_mouse_move(x, app.tree_row_top(other) + TREE_ROW / 2.0);
     paint(&mut app);
@@ -773,7 +773,7 @@ fn a_row_that_does_not_fit_covers_the_tree_scrollbar() {
     let other = app.tree_row_top(row + 2) + TREE_ROW / 2.0;
     let x = app.layout.tree.right() - 3.0;
 
-    // 名称放得下的行：滚动条照常响应。
+    // 名称放得下的行：滚动条仍然响应。
     app.on_mouse_move(x, other);
     assert!(
         matches!(app.pointer.hover, Hover::Scrollbar(_)),

@@ -1,12 +1,11 @@
 //! 并排差异标签的几何、命中区与交互。
 //!
-//! 负责标题栏按钮、折叠的未改动段、上一处与下一处改动之间的跳转，以及把左侧的一段内容
-//! 替换到右侧。绘制由 `view` 子模块完成；可点击区域在绘制时记录到 `DiffState::hits`，
-//! 悬停与点击均据此判定目标。
+//! 负责标题栏按钮、折叠的未改动段、上一处与下一处改动之间的跳转，以及把左侧的一段内容替换到右侧。
+//! 绘制由 `view` 子模块完成；可点击区域在绘制时记录到 `DiffState::hits`，悬停与点击均据此判定目标。
 //!
-//! 右侧对应工作区文件时可直接编辑：右侧即编辑器中该文件的文档，光标、选区与撤销记录都属于该
-//! 文档。在右侧点击放置光标后，按键与编辑命令转给该文档执行；文件未打开时先在后台打开一个
-//! 标签，执行后重新比较。左侧（`HEAD`）只读。
+//! 右侧对应工作区文件时可直接编辑：右侧即编辑器中该文件的文档，光标、选区与撤销记录都属于该文档。
+//! 在右侧点击放置光标后，按键与编辑命令转给该文档执行；文件未打开时先在后台打开一个标签，执行后重新
+//! 比较。左侧（`HEAD`）只读。
 
 mod caret;
 mod edit;
@@ -63,7 +62,7 @@ pub(crate) const DIFF_GUTTER_PAD: f32 = 10.0;
 const DIFF_SIGN_CELLS: f32 = 1.5;
 /// 文字和文字区边缘之间的空白（逻辑像素）。
 pub(crate) const DIFF_TEXT_PAD: f32 = 10.0;
-/// 差异一侧逐行追溯一栏的宽度（逻辑像素，经验值）：色条、作者和时间，比编辑区的一栏窄一些，
+/// 差异一侧逐行追溯一栏的宽度（逻辑像素）：色条、作者和时间，比编辑区的一栏窄一些，
 /// 名字放不下时截短，完整的在悬停提示中。
 pub(crate) const DIFF_BLAME_W: f32 = 160.0;
 
@@ -727,7 +726,16 @@ impl App {
         let Some(index) = self.editor.active else {
             return;
         };
+        // 点击时看到的是重算之前的各段：重算后同一序号换成了另一段时不替换。
+        let drawn = |app: &Self| {
+            let view = app.editor.documents[index].diff.as_deref()?;
+            view.hunks.get(hunk).cloned()
+        };
+        let clicked = drawn(self);
         self.sync_diff(index, true);
+        if clicked.is_none() || drawn(self) != clicked {
+            return;
+        }
         let Some(view) = self.editor.documents[index].diff.as_deref() else {
             return;
         };
@@ -735,6 +743,8 @@ impl App {
             return;
         };
         let inserted = view.old_lines(hunk);
+        // 差异右侧显示的那份内容：行号是按它算的。
+        let shown = view.new.text.clone();
         // 记录该段改动首行与视图顶部的距离，替换后使该行停留在原位置。
         let offset = view.hunk_rows[RIGHT][hunk].start as f64
             - view.row_at(RIGHT, self.editor.documents[index].scroll_line);
@@ -757,9 +767,14 @@ impl App {
                 self.sync_diff(index, true);
             }
             None => {
+                // 磁盘上的文件在差异算出之后又变了时不写：否则替换的是别的行，而且没有打开的
+                // 文档可以撤销。
                 let written = Document::open(DocumentId(u64::MAX), path.clone())
                     .map_err(|e| e.to_string())
                     .and_then(|mut doc| {
+                        if doc.text().rope() != Some(&shown) {
+                            return Err(t!("editor-original-changed").to_owned());
+                        }
                         replace_lines(&mut doc, h.new, inserted).map_err(str::to_owned)?;
                         doc.save().map_err(|e| e.to_string())?;
                         Ok(doc.text().rope().cloned())

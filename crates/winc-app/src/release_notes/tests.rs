@@ -77,7 +77,7 @@ fn images_and_html_are_made_inert_outside_code() {
         made("```\n<b> ![x](y)\n```\n<b>\n"),
         "```\n<b> ![x](y)\n```\n&lt;b>\n"
     );
-    // 没有结束的反引号是普通文字，其后的内容照常处理。
+    // 没有结束的反引号是普通文字，其后的内容仍然处理。
     assert_eq!(made("a ` <b>\n"), "a ` &lt;b>\n");
     // 链接、加粗和感叹号不受影响。
     let plain = "- **加粗**、[链接](https://winc.si)，完成！\n";

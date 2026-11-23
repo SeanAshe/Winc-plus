@@ -322,7 +322,11 @@ impl App {
 
     /// 确认框上确认了 `op`。
     pub(in crate::app) fn run_log_confirmed(&mut self, op: LogConfirmed) {
-        self.follow_log_root();
+        // 只有从日志发起的操作在日志标签的仓库里执行；分支、标签、储藏和远程仓库的操作从当前
+        // 仓库的列表发起，活动标签属于另一个仓库时不能换过去。
+        if op.starts_in_log() {
+            self.follow_log_root();
+        }
         match op {
             LogConfirmed::CheckoutTag(name) => {
                 // 写全引用：标签与分支同名时不会签出成分支。

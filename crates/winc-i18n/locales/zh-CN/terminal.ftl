@@ -14,6 +14,8 @@ terminal-module-disabled = 终端模块未启用
 
 terminal-helper-missing = 未找到终端组件，请重新安装 Winc
 terminal-helper-start-failed = 无法启动终端组件：{ $error }
+terminal-start-not-found = 未找到程序「{ $program }」
+terminal-start-failed = 无法启动「{ $program }」：{ $error }
 terminal-needs-conpty = 终端需要 Windows 10 1809 或更高版本
 terminal-helper-exited = 终端组件已退出
 terminal-helper-version-mismatch = 终端组件的版本与 Winc 不一致，请重新安装 Winc

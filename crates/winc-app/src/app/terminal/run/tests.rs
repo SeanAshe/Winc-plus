@@ -249,3 +249,22 @@ fn a_script_runs_in_its_own_folder_under_its_file_name() {
     let line = "sh '/code/my project/tools/ci/build.sh'";
     assert_eq!(texts(&launch.args), ["-i", "-c", line]);
 }
+
+/// 名字写成绝对路径、上级目录的配置，许可的键仍在配置文件的路径下面，不会是别的目录的键。
+#[test]
+fn approval_keys_stay_below_the_run_configs_file() {
+    let root = Path::new(if cfg!(windows) { "C:\\work" } else { "/work" });
+    let file = run_configs_path(root);
+    assert_eq!(trust_key(root, &config()), file.join("api"));
+    for name in ["/work", "/", "C:\\work", "../../.."] {
+        let key = trust_key(
+            root,
+            &RunConfig {
+                name: name.into(),
+                ..config()
+            },
+        );
+        assert!(key.starts_with(&file), "{name}: {}", key.display());
+        assert_ne!(key, root);
+    }
+}

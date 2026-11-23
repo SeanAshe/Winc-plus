@@ -42,7 +42,7 @@ fn pointer_moves_are_timed_until_the_next_frame() {
     assert_eq!((log.waits.len(), log.moved), (1, None));
     assert_eq!((log.queries.get().0, log.skipped, log.reclaimed), (1, 1, 2));
 
-    // 未启用时都不记录，查询照常执行。
+    // 未启用时都不记录，查询仍然执行。
     let mut off = FrameLog {
         enabled: false,
         ..FrameLog::from_env()

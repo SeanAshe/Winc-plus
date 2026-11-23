@@ -1,7 +1,7 @@
 //! 在后台重读文件树里被其他程序改过的目录。
 //!
 //! 文件监视通知目录变了以后，界面线程上只挑出要重读哪些目录（[`Workspace::scan`]），读目录
-//! 交给后台（[`DirScan::run`]），读好后再换进缓存、重新拍平（[`Workspace::apply_scan`]）：大
+//! 交给后台（[`DirScan::run`]），读好后再换入缓存、重新拍平（[`Workspace::apply_scan`]）：大
 //! 目录读一遍要十几毫秒，网络盘上可能长时间阻塞。
 
 use super::*;
@@ -68,7 +68,7 @@ impl DirScan {
                 .collect()
         };
         // 远端的各个目录互不依赖，每个要等一次往返：与上面的检查同时读取。
-        // 当前线程不能等待时照常逐个读，各自立即返回 `Blocked`。
+        // 当前线程不能等待时仍然逐个读，各自立即返回 `Blocked`。
         let remote = winc_backend::is_remote(&self.root) && winc_backend::remote::may_block();
         let dirs = &self.dirs;
         let list = || match remote {
@@ -191,6 +191,7 @@ impl Workspace {
             match (self.children.get(&dir), read) {
                 // 此前未能读取的目录：读到的内容（已不存在的按空目录）写入缓存。
                 (None, read @ (Read::Listed(_) | Read::Absent)) if awaited => {
+                    self.missing.opening &= dir != self.root;
                     let fresh = match read {
                         Read::Listed(fresh) => fresh,
                         _ => Vec::new(),
@@ -205,6 +206,8 @@ impl Workspace {
                 // 读取失败（连接中断、没有权限）：不写入缓存，下次需要显示时再读。
                 (None, Read::Failed) if awaited => {
                     self.missing.chains.remove(&dir);
+                    self.missing.unreadable |= self.missing.opening && dir == self.root;
+                    self.missing.opening &= dir != self.root;
                 }
                 // 没有缓存的目录不需要显示；读不出来的保留已有的内容。
                 (None, _) | (Some(_), Read::Failed | Read::Blocked) => {}

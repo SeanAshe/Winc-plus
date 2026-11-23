@@ -30,7 +30,7 @@ impl Cx<'_, '_> {
                         _ => RawState::Skip,
                     };
                 }
-                // 表格照常排，只有光标所在的那一格显示原文。
+                // 表格仍然排版，只有光标所在的那一格显示原文。
                 if let Block::Table(_, rows, _) = block
                     && let Some(cell) = self.live_cell(rows)
                 {

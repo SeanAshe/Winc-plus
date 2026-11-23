@@ -61,7 +61,8 @@ impl App {
 
     /// 提交成功后记下这次的信息：所有窗口共用，下次启动沿用。
     pub(super) fn remember_commit_message(&mut self, message: &str) {
-        self.update_state(|state| state.remember_commit_message(message));
+        let message = message.to_owned();
+        self.update_state(move |state| state.remember_commit_message(&message));
     }
 
     /// 首行的格式提示：首行过长（见 [`SUBJECT_LIMIT`]），或者首行后面紧接着正文、没有空一行；
@@ -140,16 +141,16 @@ impl App {
         true
     }
 
-    /// 收到提交前检查的结果：没有新增的 TODO 时接着提交；有时先确认。
+    /// 收到提交前检查的结果：没有新增的 TODO 时随后提交；有时先确认。
     pub(super) fn todo_checked(&mut self, count: usize, root: &Path) {
         self.git.commit.busy = false;
         if self.git.root.as_deref() != Some(root) {
-            self.git.commit.push_after = false;
+            self.git.commit.drop_push_intent();
             return;
         }
         if count == 0 {
             self.git.commit.todo_passed = true;
-            self.git_commit();
+            self.git_commit_resumed();
             return;
         }
         let message = t!("git-commit-todo-confirm", count = count);
@@ -158,24 +159,26 @@ impl App {
         let shown = self.show_confirm(&message, detail, button, |ok| {
             Some(UserEvent::GitCommitTodo(ok))
         });
+        self.git.commit.todo_asked = shown;
         if !shown {
-            self.git.commit.push_after = false;
+            self.git.commit.drop_push_intent();
         }
     }
 
     /// 新增 TODO 的确认框选了 `ok`（仍然提交）或取消。
     pub(in crate::app) fn todo_confirmed(&mut self, ok: bool) {
+        self.git.commit.todo_asked = false;
         if ok {
             self.git.commit.todo_passed = true;
-            self.git_commit();
+            self.git_commit_resumed();
         } else {
-            self.git.commit.push_after = false;
+            self.git.commit.drop_push_intent();
         }
     }
 
     /// 打开或关闭提交前检查新增的 TODO（提交按钮的菜单）。
     pub(super) fn toggle_check_todo(&mut self) {
-        self.update_state(|state| state.commit_check_todo = !state.commit_check_todo);
+        self.update_state(move |state| state.commit_check_todo = !state.commit_check_todo);
     }
 
     /// 提交按钮菜单的最后几项：「提交检查」子菜单（格式化代码、检查 TODO 两个开关），以及最近的
@@ -249,7 +252,7 @@ impl App {
         let message = with_co_author(self.git.commit.message.text(), &author);
         let subject_end = message.find('\n').unwrap_or(message.len());
         self.git.commit.message.set_text(&message);
-        // 还没写首行时光标留在首行，接着写。
+        // 还没写首行时光标留在首行，继续写。
         let caret = if subject_end == 0 { 0 } else { message.len() };
         self.git.commit.message.set_caret(caret, false);
         self.focus = Focus::CommitMessage;

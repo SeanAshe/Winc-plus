@@ -55,8 +55,8 @@ pub use workspace::project_search::{
     ReplacePreview, replace_in_document, replace_in_file,
 };
 pub use workspace::tree::{
-    DirEntry, DirListing, DirScan, EXPAND_DIRS, Entry, EntryKind, Workspace, copy_entry, create_at,
-    list_dir, move_at, natural_cmp, rename_at, segment_name,
+    DirEntry, DirFetch, DirFetched, DirListing, DirScan, EXPAND_DIRS, Entry, EntryKind, Expansion,
+    Workspace, copy_entry, create_at, list_dir, move_at, natural_cmp, rename_at, segment_name,
 };
 pub use workspace::watch::{Changes, Watcher};
 
@@ -648,6 +648,19 @@ impl Editor {
     /// 目录不存在或没有读权限时返回 `std::io::Error`。
     pub fn open_folder(&mut self, path: &Path) -> std::io::Result<()> {
         self.workspace = Some(Workspace::open(path)?);
+        self.bookmarks.clear();
+        self.folds.clear();
+        Ok(())
+    }
+
+    /// 同 [`Editor::open_folder`]，但不在调用的线程上读目录（见 [`Workspace::open_later`]）：
+    /// 文件树先是空的，由调用方把待读的目录交给后台。
+    ///
+    /// # Errors
+    ///
+    /// 目录不存在时返回 `std::io::Error`。
+    pub fn open_folder_later(&mut self, path: &Path) -> std::io::Result<()> {
+        self.workspace = Some(Workspace::open_later(path)?);
         self.bookmarks.clear();
         self.folds.clear();
         Ok(())

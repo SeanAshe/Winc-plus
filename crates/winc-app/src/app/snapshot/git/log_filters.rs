@@ -81,7 +81,7 @@ fn log_filters_by_date_and_path_and_lists_the_containing_branches() {
     assert!(branches(&app).is_some_and(|b| b.iter().any(|n| n == "main")));
 }
 
-/// 分支面板里名为 `name` 的分支在第几行；它所在的组、目录收着时依次展开。
+/// 分支面板里名为 `name` 的分支在第几行；它所在的组、目录保存时依次展开。
 fn panel_row(app: &mut App, name: &str) -> usize {
     loop {
         let rows = app.log_branch_rows();
@@ -405,7 +405,7 @@ fn a_path_filtered_log_keeps_its_graph_and_real_parents() {
     app.toggle_log_path("src/login.rs".into());
     paint(&mut app);
     let view = app.editor.active().unwrap().log.as_deref().unwrap();
-    // 按路径筛选照样画提交图：父提交改写成往下最近一个也改过这个文件的提交，都在列表里。
+    // 按路径筛选仍然画提交图：父提交改写成往下最近一个也改过这个文件的提交，都在列表里。
     assert!(!view.query.graphless());
     let oids: Vec<String> = view.commits.iter().map(|c| c.oid.clone()).collect();
     let newest = view.commits[0].clone();

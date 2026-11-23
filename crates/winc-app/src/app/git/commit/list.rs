@@ -270,8 +270,8 @@ impl App {
             before + i as f32 * COMMIT_ROW,
             before + (i + 1) as f32 * COMMIT_ROW,
         );
-        // 只在固定行盖住该行时才滚：滚到该行正好露在它所在的组、目录（层数对应的行数，不超过
-        // 能固定的层数）下面。已经露着的不动，单击列表不会跳、顶上固定的行也不会变。
+        // 只在固定行遮住该行时才滚：滚到该行正好露在它所在的组、目录（层数对应的行数，不超过
+        // 能固定的层数）下面。已经露出的不动，单击列表不会跳、顶上固定的行也不会变。
         let covered = self
             .commit_sticky(&rows)
             .iter()
@@ -459,7 +459,7 @@ impl App {
                     self.focus = Focus::Editor;
                 }
             }
-            _ => self.confirm_rollback(paths),
+            _ => self.confirm_commit_rollback(paths),
         }
         self.request_redraw();
         true
@@ -584,7 +584,7 @@ impl App {
             Key::Named(NamedKey::Backspace | NamedKey::Delete) => {
                 let paths = self.commit_selection();
                 if !paths.is_empty() {
-                    self.confirm_rollback(paths);
+                    self.confirm_commit_rollback(paths);
                 }
             }
             Key::Named(NamedKey::Enter) => {

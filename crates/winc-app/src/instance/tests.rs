@@ -213,3 +213,28 @@ fn portable_pipe_tags_ignore_case_and_differ_by_folder() {
     assert_eq!(tag(r"D:\Tools\winc\data"), tag(r"d:\tools\WINC\data"));
     assert_ne!(tag(r"D:\Tools\winc\data"), tag(r"E:\winc\data"));
 }
+
+/// 转交时优先使用 Wayland 的令牌；第一个窗口按窗口系统取对应的令牌；转到后台的进程拿回两者。
+#[test]
+fn launch_tokens_follow_the_window_system() {
+    let tokens = LaunchTokens {
+        wayland: Some("w".to_owned()),
+        x11: Some("x".to_owned()),
+    };
+    assert_eq!(tokens.forwarded(), Some("w"));
+    assert_eq!(tokens.for_window(true).as_deref(), Some("w"));
+    assert_eq!(tokens.for_window(false).as_deref(), Some("x"));
+    #[cfg(unix)]
+    {
+        let env: Vec<_> = tokens.env().collect();
+        assert_eq!(env, [(WAYLAND_TOKEN, "w"), (X11_TOKEN, "x")]);
+        assert_eq!(LaunchTokens::default().env().count(), 0);
+    }
+
+    let x11 = LaunchTokens {
+        wayland: None,
+        x11: Some("x".to_owned()),
+    };
+    assert_eq!(x11.forwarded(), Some("x"));
+    assert_eq!(x11.for_window(true), None);
+}

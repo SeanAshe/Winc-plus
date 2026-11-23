@@ -529,7 +529,7 @@ fn clicking_inline_math_puts_the_caret_in_its_source() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 回车续出的空项：光标停在新项的记号之后，不归到下一项；下一项照常按排版显示。
+/// 回车续出的空项：光标停在新项的记号之后，不归到下一项；下一项仍然按排版显示。
 #[test]
 fn enter_in_a_list_puts_the_caret_in_the_new_empty_item() {
     use winit::keyboard::{Key, NamedKey};
@@ -550,7 +550,7 @@ fn enter_in_a_list_puts_the_caret_in_the_new_empty_item() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 输入多字节的字之后、重新解析之前，光标所在项之后的项照常显示：页面高度不变，下方内容不
+/// 输入多字节的字之后、重新解析之前，光标所在项之后的项仍然显示：页面高度不变，下方内容不
 /// 上下跳动。
 #[test]
 fn typing_wide_characters_keeps_the_following_blocks_in_place() {

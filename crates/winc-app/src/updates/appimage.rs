@@ -13,8 +13,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use ed25519_dalek::VerifyingKey;
+use winc_i18n::t;
 
-use super::{Item, download, verify};
+use super::{Item, cannot_write, download, verify};
 
 /// appcast 中本平台更新包的 `sparkle:os`。
 pub const OS: &str = "linux";
@@ -27,10 +28,11 @@ pub const FEED_FILE: &str = if cfg!(all(target_os = "linux", target_arch = "aarc
 };
 
 /// 正在运行的 AppImage 文件；不是以 AppImage 运行时返回 `None`。
+///
+/// 环境变量 `APPIMAGE` 会被子进程继承，只在本程序位于其挂载目录内时采用，见
+/// `shell_command::current_appimage`。
 pub fn locate() -> Option<PathBuf> {
-    std::env::var_os("APPIMAGE")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute() && p.is_file())
+    crate::shell_command::current_appimage().filter(|p| p.is_absolute() && p.is_file())
 }
 
 /// 下载 `item` 到 `appimage` 旁边，核对长度和签名后替换 `appimage`，返回重新启动时运行的
@@ -46,11 +48,12 @@ pub fn prepare(
     key: &VerifyingKey,
     progress: &dyn Fn(u8),
 ) -> Result<PathBuf, String> {
-    let dir = appimage.parent().ok_or("AppImage 没有所在目录")?;
-    let name = appimage.file_name().ok_or("AppImage 没有文件名")?;
+    let unknown = || t!("settings-updates-error-location").to_owned();
+    let dir = appimage.parent().ok_or_else(unknown)?;
+    let name = appimage.file_name().ok_or_else(unknown)?;
     let part = dir.join(format!(".{}.update", name.to_string_lossy()));
     // 先建好文件：所在目录不能写时尽早说明，不必等下载完。
-    std::fs::File::create(&part).map_err(|e| format!("无法写入「{}」：{e}", dir.display()))?;
+    std::fs::File::create(&part).map_err(|e| cannot_write(dir, &e))?;
     let result = download(&item.url, &part, item.length, progress).and_then(|()| {
         let bytes = std::fs::read(&part).map_err(|e| e.to_string())?;
         verify(item, &bytes, key)?;

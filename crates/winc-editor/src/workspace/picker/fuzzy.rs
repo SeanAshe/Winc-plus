@@ -34,7 +34,7 @@ pub(super) fn score_all(
         return run(files, needle, candidates, 0, count);
     }
 
-    // 后台线程拿不到这里借用的数据：文件表本来就是共享的（`Arc`），查询和候选集则需要各复制一次。
+    // 后台线程拿不到这里借用的数据：文件表原本就是共享的（`Arc`），查询和候选集则需要各复制一次。
     let chunk = count.div_ceil(threads);
     let (files, needle) = (Arc::clone(files), needle.to_vec());
     let candidates: Option<Arc<[u32]>> = candidates.map(Arc::from);
@@ -211,7 +211,7 @@ fn align(
 
 /// 计算一种对齐方式（每个查询字符命中的位置 `positions`）的分数。
 ///
-/// 各项权重为经验值，没有单位，只表示相对大小，相对顺序由本文件的测试验证。
+/// 各项权重取自调参，没有单位，只表示相对大小，相对顺序由本文件的测试验证。
 fn rate(
     positions: &[usize],
     haystack: &[char],

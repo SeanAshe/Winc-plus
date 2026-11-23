@@ -310,7 +310,7 @@ fn front_matter_is_a_table_when_flat() {
     let texts = |row: &Vec<Inline>| row.iter().map(|c| c.text.clone()).collect::<Vec<_>>();
     assert_eq!(texts(&rows[0]), ["title", "tags"]);
     assert_eq!(texts(&rows[1]), ["Hello", "[a, b]"]);
-    // 有嵌套的照常是代码块。
+    // 有嵌套的仍然是代码块。
     let doc = parse("---\nauthor:\n  name: x\n---\n");
     assert!(matches!(&doc.blocks[0], Block::Code { lang, .. } if lang == "yaml"));
 }
@@ -744,7 +744,7 @@ fn highlight_leaves_addresses_shown_as_link_text_alone() {
             "{text}"
         );
     }
-    // 链接文字不是地址时照常高亮，网址之外的文字不受影响。
+    // 链接文字不是地址时仍然高亮，网址之外的文字不受影响。
     let doc = parse("[==a==](https://e.com) 与 ==b== https://e.com/?q==x==y");
     let inline = paragraph(&doc.blocks[0]);
     assert_eq!(inline.text, "a 与 b https://e.com/?q==x==y");
@@ -811,6 +811,13 @@ fn image_sizes_written_by_other_editors_are_read() {
     assert_eq!(c.zoom, Some(50));
     let d = image("<img src=\"a.png\" width=\"100\" style=\"width: 70%; height: 40px\">");
     assert_eq!((d.width, d.height), (Some(Length::Percent(7000)), Some(40)));
+    // 写明的宽高不超过上限：数值取自文档，显示时按它分配像素。
+    let e = image("<img src=\"a.png\" width=\"1e9\" height=\"4000000000\">");
+    assert_eq!((e.width, e.height), (Some(Length::Px(16384)), Some(16384)));
+    let f = image("<img src=\"a.png\" style=\"height: 99999999999px\">");
+    assert_eq!(f.height, Some(16384));
+    let g = image("![|99999999x99999999](a.png)");
+    assert_eq!((g.width, g.height), (Some(Length::Px(16384)), Some(16384)));
 }
 
 /// 维基链接是地址以 [`syntax::WIKI`] 开头的链接，显示 `|` 之后的文字，没有时显示名字。

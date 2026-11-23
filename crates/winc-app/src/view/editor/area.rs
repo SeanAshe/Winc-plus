@@ -262,7 +262,7 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
     }
     app.hits.merge = merge_hits;
 
-    // 主光标的移动动画在行都画完之后绘制：滑动途中经过其他行时不会被后面绘制的行盖住。
+    // 主光标的移动动画在行都画完之后绘制：滑动途中经过其他行时不会被后面绘制的行遮住。
     // 前台以外的窗格没有光标，动画状态属于前台的文档。
     if !app.panes.drawing_background {
         match scratch.caret {

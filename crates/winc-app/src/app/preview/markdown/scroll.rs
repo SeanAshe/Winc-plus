@@ -151,7 +151,7 @@ impl App {
     /// 逐渐淡出的底色，标示跳转的目标。
     pub(in crate::app) fn press_toc(&mut self, target: TocTarget) {
         if target == TocTarget::Pin {
-            self.update_state(|state| state.markdown_toc_pinned = !state.markdown_toc_pinned);
+            self.update_state(move |state| state.markdown_toc_pinned = !state.markdown_toc_pinned);
             let pinned = self.state.markdown_toc_pinned;
             let clock = self.clock(crate::app::animation::TOC_PIN);
             self.preview.markdown.toc_pin = clock.map(|clock| (pinned, clock));

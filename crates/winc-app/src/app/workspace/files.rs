@@ -182,7 +182,7 @@ impl App {
         if self.is_folder(&path) || !self.may_be_file(&path) {
             return;
         }
-        self.update_state(|state| state.remember_file(&path));
+        self.update_state(move |state| state.remember_file(&path));
     }
 
     /// 在预览标签中打开文件 `path`。
@@ -369,7 +369,8 @@ impl App {
         self.jumps.navigation.relocate(from, to);
         let known = |(path, _): &(PathBuf, _)| path.starts_with(from);
         if self.state.places.iter().any(known) {
-            self.update_state(|state| state.move_places(from, to));
+            let (old, new) = (from.to_path_buf(), to.to_path_buf());
+            self.update_state(move |state| state.move_places(&old, &new));
         }
         self.picker_touched(vec![from.to_path_buf(), to.to_path_buf()]);
         self.files_changed_under_results();
@@ -846,6 +847,10 @@ impl App {
         {
             return;
         }
+        // 窗口内绘制的提示框，以及尚未答复的关闭询问，与系统的提示框同样处理。
+        if self.overlays.alert.is_some() || self.closing_pending() {
+            return;
+        }
         for &id in ids {
             let Some(doc) = self.editor.document(id) else {
                 continue;
@@ -1279,9 +1284,8 @@ impl App {
             .is_some_and(winc_editor::Watcher::reliable);
         if !live {
             // 发行版无法访问时目录都读不到，保留现有的文件树。
-            let reachable = self.editor.root().is_none_or(winc_editor::wsl::reachable);
-            if let Some(ws) = (self.editor.workspace.as_mut()).filter(|_| reachable) {
-                ws.refresh();
+            if self.editor.root().is_none_or(winc_editor::wsl::reachable) {
+                self.rescan_tree(|_| {});
             }
             self.overlays.picker.stale = true;
         }

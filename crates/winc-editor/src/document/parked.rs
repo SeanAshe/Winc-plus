@@ -27,7 +27,7 @@ pub(crate) struct Parked {
 }
 
 impl Parked {
-    /// 是否没有收着任何窗格的视图状态。
+    /// 是否没有保存任何窗格的视图状态。
     pub(crate) fn is_empty(&self) -> bool {
         self.views.is_empty()
     }
@@ -65,7 +65,7 @@ impl Parked {
 }
 
 impl Parked {
-    /// 文本修改以后，按改动重新计算各窗格收着的断行（见 `Wrap::edit`）。
+    /// 文本修改以后，按改动重新计算各窗格保存的断行（见 `Wrap::edit`）。
     pub(crate) fn edit_wraps(
         &mut self,
         text: &impl winc_core::Lines,
@@ -79,7 +79,7 @@ impl Parked {
         }
     }
 
-    /// 文本修改并重新计算断行以后，各窗格收着的断行记为与文档版本 `revision` 一致。
+    /// 文本修改并重新计算断行以后，各窗格保存的断行记为与文档版本 `revision` 一致。
     pub(crate) fn wraps_follow(&mut self, revision: u64) {
         for (_, view) in &mut self.views {
             if let Some(wrap) = &mut view.wrap {
@@ -90,9 +90,9 @@ impl Parked {
 }
 
 impl Document {
-    /// 让文档显示在窗格 `pane` 里：当前的视图状态属于另一个窗格时先收给那个窗格，再换上
-    /// `pane` 收着的；`pane` 没有收着时沿用 `from` 的副本，都没有时停在开头。当前的视图状态
-    /// 不属于任何窗格时，`pane` 和 `from` 都没有收着就直接接过来。
+    /// 让文档显示在窗格 `pane` 里：当前的视图状态属于另一个窗格时先存入那个窗格，再换上
+    /// `pane` 保存的；`pane` 没有保存时沿用 `from` 的副本，都没有时停在开头。当前的视图状态
+    /// 不属于任何窗格时，`pane` 和 `from` 都没有保存就直接接过来。
     pub(crate) fn show_in(&mut self, pane: PaneId, from: Option<PaneId>) {
         let has = |p: &Parked, id: PaneId| p.views.iter().any(|(v, _)| *v == id);
         match self.parked.live {
@@ -109,7 +109,7 @@ impl Document {
         self.parked.live = Some(pane);
     }
 
-    /// 把当前的视图状态收给窗格 `pane`，覆盖它原先收着的。
+    /// 把当前的视图状态存入窗格 `pane`，覆盖它原先保存的。
     fn park(&mut self, pane: PaneId) {
         let view = View {
             selection: self.selection,
@@ -126,7 +126,7 @@ impl Document {
         self.parked.views.push((pane, view));
     }
 
-    /// 换上窗格 `pane` 收着的视图状态；它没有收着时沿用 `from` 收着的副本（光标和滚动位置），
+    /// 换上窗格 `pane` 保存的视图状态；它没有保存时沿用 `from` 保存的副本（光标和滚动位置），
     /// 都没有时停在开头。
     fn unpark(&mut self, pane: PaneId, from: Option<PaneId>) {
         let at = self.parked.views.iter().position(|(id, _)| *id == pane);
@@ -181,7 +181,7 @@ impl Document {
         self.parked.views.push((pane, view));
     }
 
-    /// 丢掉窗格 `pane` 收着的视图状态（窗格关掉了，或文档不再是它的标签）。
+    /// 丢掉窗格 `pane` 保存的视图状态（窗格关掉了，或文档不再是它的标签）。
     pub(crate) fn forget_view(&mut self, pane: PaneId) {
         self.parked.views.retain(|(id, _)| *id != pane);
         if self.parked.live == Some(pane) {
@@ -194,7 +194,7 @@ impl Document {
         self.parked.live = Some(pane);
     }
 
-    /// 接过 `old`（同一个标签换成了新读取的文档）收着的各窗格视图状态。
+    /// 接过 `old`（同一个标签换成了新读取的文档）保存的各窗格视图状态。
     pub(crate) fn adopt_parked(&mut self, old: &mut Document) {
         self.parked = std::mem::take(&mut old.parked);
     }

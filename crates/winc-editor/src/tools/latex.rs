@@ -267,19 +267,111 @@ pub struct Job {
     pub log: PathBuf,
 }
 
-/// 返回编译 `root` 的命令；`rc` 是 `latexmkrc` 的内容，设了 `$pdf_mode` 时不指定引擎。
-pub fn job(tool: &Toolchain, root: &Path, engine: Engine, out: &Path, rc: Option<&str>) -> Job {
+/// 主文件所在目录中的 `latexmkrc`。
+///
+/// 该文件是一段 Perl 程序，`latexmk` 启动时执行；它来自项目，未经用户同意不执行。
+#[derive(Debug, Clone, Copy)]
+pub struct ProjectRc<'a> {
+    /// 文件的内容。
+    pub text: &'a str,
+    /// 用户是否同意过执行这份内容。
+    pub run: bool,
+}
+
+/// 返回 `latexmkrc` 的内容 `rc` 中 `$pdf_mode` 指定的引擎；没有设置或是其他方式时返回 `None`。
+///
+/// `latexmk` 的取值：1 为 pdflatex，4 为 lualatex，5 为 xelatex。
+fn pdf_mode(rc: &str) -> Option<Engine> {
+    let (_, value) = rc.split_once("$pdf_mode")?;
+    let value = value.trim_start().strip_prefix('=')?.trim_start();
+    match value.chars().next()? {
+        '1' => Some(Engine::Pdf),
+        '4' => Some(Engine::Lua),
+        '5' => Some(Engine::Xe),
+        _ => None,
+    }
+}
+
+/// 系统级 `latexmkrc` 所在的目录，顺序与 `latexmk` 查找的相同。
+const SYSTEM_RC_DIRS: &[&str] = if cfg!(windows) {
+    &["C:/latexmk"]
+} else {
+    &[
+        "/etc",
+        "/opt/local/share/latexmk",
+        "/usr/local/share/latexmk",
+        "/usr/local/lib/latexmk",
+    ]
+};
+
+/// 返回系统级和用户自己的 `latexmkrc`，按 `latexmk` 读取的顺序；两级各取存在的第一个。
+///
+/// 不读取项目的配置文件时（`-norc`）这两级也不再读取，因此逐个以 `-r` 传给 `latexmk`。
+/// 环境变量 `LATEXMKRCSYS` 指定了系统级的文件时只用它。
+#[allow(clippy::disallowed_methods, reason = "只访问本机：编译只在本机进行")]
+fn own_rc_files() -> Vec<PathBuf> {
+    /// 返回 `files` 中存在的第一个。
+    fn first(files: impl IntoIterator<Item = PathBuf>) -> Option<PathBuf> {
+        files.into_iter().find(|file| file.is_file())
+    }
+    let var = |key: &str| std::env::var_os(key).filter(|v| !v.is_empty());
+    let var = |key: &str| var(key).map(PathBuf::from);
+    let system =
+        match var("LATEXMKRCSYS") {
+            Some(file) => first([file]),
+            None => first(["LatexMk", "latexmkrc"].iter().flat_map(|name| {
+                (SYSTEM_RC_DIRS.iter()).map(move |dir| Path::new(dir).join(name))
+            })),
+        };
+    let home = var("HOME").or_else(|| var("USERPROFILE"));
+    let config = var("XDG_CONFIG_HOME").or_else(|| home.as_ref().map(|home| home.join(".config")));
+    let user = [
+        config.map(|config| config.join("latexmk/latexmkrc")),
+        home.map(|home| home.join(".latexmkrc")),
+    ];
+    system
+        .into_iter()
+        .chain(first(user.into_iter().flatten()))
+        .collect()
+}
+
+/// 返回编译 `root` 的命令；`rc` 是主文件所在目录中的 `latexmkrc`，没有时为 `None`。
+///
+/// 用户同意过的 `latexmkrc` 由 `latexmk` 读取，其中设了 `$pdf_mode` 时不指定引擎。没有同意的
+/// 不读取（`-norc`），只沿用其中 `$pdf_mode` 选的引擎，系统级和用户自己的配置文件另行传入。
+pub fn job(
+    tool: &Toolchain,
+    root: &Path,
+    engine: Engine,
+    out: &Path,
+    rc: Option<ProjectRc<'_>>,
+) -> Job {
     let dir = root.parent().unwrap_or(Path::new("")).to_path_buf();
-    let name = root.file_name().map(OsString::from).unwrap_or_default();
+    // 写成 `./名字`：以 `-` 开头的文件名不会被当作选项。
+    // 各平台都用 `/`，TeX 把 `\` 当作命令的开头。
+    let name = root.file_name().map(|name| {
+        let mut path = OsString::from("./");
+        path.push(name);
+        path
+    });
+    let name = name.unwrap_or_default();
     let stem = root
         .file_stem()
         .map_or_else(|| "main".into(), |s| s.to_string_lossy().into_owned());
     let mut args: Vec<OsString> = Vec::new();
     let program = match tool {
         Toolchain::Latexmk(path) => {
-            if !rc.is_some_and(|rc| rc.contains("pdf_mode")) {
+            let chosen = rc.and_then(|rc| pdf_mode(rc.text));
+            let reads_rc = rc.is_none_or(|rc| rc.run);
+            if !reads_rc {
+                args.push("-norc".into());
+                for file in own_rc_files() {
+                    args.extend(["-r".into(), file.into_os_string()]);
+                }
+            }
+            if !(reads_rc && chosen.is_some()) {
                 args.push(
-                    match engine {
+                    match chosen.unwrap_or(engine) {
                         Engine::Pdf => "-pdf",
                         Engine::Xe => "-xelatex",
                         Engine::Lua => "-lualatex",
@@ -420,7 +512,7 @@ impl Reader {
             let line: String = self.pending.drain(..=end).collect();
             last = self.line(line.trim()).or(last);
         }
-        // 页号接着印在同一行里，不等换行。
+        // 页号继续印在同一行里，不等换行。
         let page = |text: &str| {
             let at = text.rfind('[')?;
             let digits: String = text[at + 1..]

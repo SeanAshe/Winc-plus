@@ -396,7 +396,7 @@ pub(super) fn declares_dependency(package: &Json, name: &str) -> bool {
 type Names = HashMap<std::ffi::OsString, bool>;
 
 /// 同时列出远端的各级目录 `levels`，每级一次往返；列不出来的（没有权限）为 `None`，查看迹象
-/// 时照常逐个文件询问。当前线程不能等待远端的应答时全部为 `None`。
+/// 时仍然逐个文件询问。当前线程不能等待远端的应答时全部为 `None`。
 fn list_levels(levels: &[&Path]) -> Vec<Option<Names>> {
     if !winc_backend::remote::may_block() {
         return vec![None; levels.len()];
@@ -580,7 +580,7 @@ pub(super) fn find_with_xcrun(name: &str) -> Option<PathBuf> {
     let quiet = |program: &str, args: &[&str]| {
         let mut command = Command::new(program);
         command.args(args).stderr(Stdio::null());
-        // 每次查询最多等 5 秒（经验值）：xcode-select 和 xcrun 正常在几十毫秒内返回，超时按
+        // 每次查询最多等 5 秒：xcode-select 和 xcrun 正常在几十毫秒内返回，超时按
         // 没有该程序处理。
         process::run(
             &mut command,

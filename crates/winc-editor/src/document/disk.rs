@@ -688,8 +688,9 @@ impl Document {
 
     /// 创建尚未读取的文档：只记录路径，文本为空，文档只读，不检查磁盘。
     ///
-    /// 恢复现场时当前标签以外的文档先按本方法占位，切换到该标签时再读取（[`crate::Editor::load`]），
-    /// 几十个标签的启动不必逐个读文件。占位的文档不会被保存、不随磁盘同步，也不备份。
+    /// 恢复现场时当前标签以外的文档先按本方法占位，切换到该标签时再读取
+    /// （[`crate::Editor::load`]），几十个标签的启动不必逐个读文件。占位的文档不会被保存、不随
+    /// 磁盘同步，也不备份。
     pub fn pending(id: DocumentId, path: PathBuf) -> Self {
         let mut document = Document::empty(id);
         if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
@@ -967,7 +968,7 @@ fn load_as(path: &Path, encoding: Encoding) -> Result<Loaded, OpenError> {
     })
 }
 
-/// 按用户选的编码 `chosen` 重新读文件：选的是 UTF-8 时照常读（大文件也能读），不再判断是否
+/// 按用户选的编码 `chosen` 重新读文件：选的是 UTF-8 时仍然读（大文件也能读），不再判断是否
 /// 二进制；选的是其他编码时按它解码；没有选时同 [`load_with`]。
 fn load_chosen(
     path: &Path,

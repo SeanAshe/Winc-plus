@@ -32,7 +32,7 @@ const PIXEL_FORMAT_BGRA: u32 = u32::from_be_bytes(*b"BGRA");
 /// 呈现缓冲（surface）的最大块数（块）。
 ///
 /// 合成器占用屏幕上显示的一块，刚交出的一块要到下一次垂直同步才换上去，而绘制按刷新间隔排帧，
-/// 不与垂直同步对齐。只有两块时，动画中约三分之一的帧两块都被占用（经验值），此时只能把画面
+/// 不与垂直同步对齐。只有两块时，调参时观察到动画中约三分之一的帧两块都被占用，此时只能把画面
 /// 画进合成器正读的那块，可能读到画了一半的画面，整个窗口闪烁。取三块避免该冲突。
 const MAX_SURFACES: usize = 3;
 
@@ -43,7 +43,7 @@ const MAX_SURFACES: usize = 3;
 /// 并不划算：界面线程要多阻塞两帧以上，而且画进合成器占着的那块时可能读到画了一半的画面。
 const SURFACE_WAIT: Duration = Duration::from_millis(4);
 
-/// 停止绘制多久后把不在屏幕上的 surface 标成可清除（毫秒，经验值）。
+/// 停止绘制多久后把不在屏幕上的 surface 标成可清除（毫秒）。
 ///
 /// 可清除（purgeable volatile）的 surface 不计入进程内存，系统内存紧张时可以直接收回；内容被收回
 /// 也没关系，每帧先铺满底色、整个重画。该值取 100 ms：长于 60 Hz 下的帧间隔（16.7 ms），动画
@@ -66,12 +66,9 @@ struct Surface {
 }
 
 impl Surface {
-    /// 创建 `width` × `height`（物理像素）的 32 位 BGRA `IOSurface`。
-    ///
-    /// # Panics
-    ///
-    /// `IOSurfaceCreate` 失败时 panic。
-    fn new(width: u32, height: u32) -> Self {
+    /// 创建 `width` × `height`（物理像素）的 32 位 BGRA `IOSurface`；系统无法分配时（内存
+    /// 不足、尺寸超过上限）返回 `None`。
+    fn new(width: u32, height: u32) -> Option<Self> {
         let values =
             [width as i32, height as i32, 4, PIXEL_FORMAT_BGRA as i32].map(CFNumber::new_i32);
         // SAFETY: 这些是 IOSurface.framework 导出的全局常量字符串，在进程生命周期内有效，
@@ -88,8 +85,7 @@ impl Surface {
         let properties = CFDictionary::from_slices(&keys, &values);
         // SAFETY: 属性字典由 `CFString` 键和 `CFNumber` 值组成，包含宽、高、每元素字节数和
         // 像素格式，符合 `IOSurfaceCreate` 的要求；字典在调用期间保持存活。
-        let surface =
-            unsafe { IOSurfaceRef::new(properties.as_opaque()) }.expect("IOSurfaceCreate 失败");
+        let surface = unsafe { IOSurfaceRef::new(properties.as_opaque()) }?;
         // 标明像素是 sRGB。不标时合成器把这些数值当成显示器自己的色彩空间，P3 广色域屏上
         // 显示的颜色比配色里写的更艳（`#3574F0` 显示出来接近 `#0E75F9`）。
 
@@ -97,11 +93,11 @@ impl Surface {
         // `IOSurfaceSetValue` 的要求。
         unsafe { surface.set_value(kIOSurfaceColorSpace, kCGColorSpaceSRGB) };
         let stride = surface.bytes_per_row() / 4;
-        Self {
+        Some(Self {
             surface,
             stride,
             purgeable: false,
-        }
+        })
     }
 
     /// 标成可清除或不可清除，返回标回不可清除时内容是否已被系统收回；已是该状态时不做处理。
@@ -312,7 +308,12 @@ impl Presenter {
     fn acquire(&mut self) -> Option<usize> {
         if self.surfaces.iter().all(Surface::in_use) {
             if self.surfaces.len() < MAX_SURFACES {
-                self.surfaces.push(Surface::new(self.width, self.height));
+                // 分配不到时这一帧不画，下一帧再试；已有的 surface 空闲后仍可使用。
+                match Surface::new(self.width, self.height) {
+                    Some(surface) => self.surfaces.push(surface),
+                    None if self.surfaces.is_empty() => return None,
+                    None => self.wait_for_free(),
+                }
             } else {
                 self.wait_for_free();
             }

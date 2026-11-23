@@ -1,10 +1,9 @@
 //! 逐行追溯（`git blame`）：在行号栏左侧增加一栏，显示每一行最后一次修改的作者与时间。
 //!
-//! 按文档开关（命令「Git：逐行追溯」、编辑区右键菜单）；差异标签中一个开关同时开关两侧，见
-//! `diff` 子模块。开启后在后台运行
-//! `git blame --porcelain --contents -`，将编辑器中的内容（含未保存的修改）交给 `git`，使行号与
-//! 编辑器一致，已修改但未提交的行记为「未提交」。输入时不每次运行 `git`，停止输入
-//! [`BLAME_IDLE`] 后或保存后在后台重新计算。该栏由 `view/editor.rs` 在行号栏中绘制。当前行
+//! 按文档开关（命令「Git：逐行追溯」、编辑区右键菜单）；差异标签中一个开关同时开关两侧，见 `diff`
+//! 子模块。开启后在后台运行 `git blame --porcelain --contents -`，将编辑器中的内容（含未保存的
+//! 修改）交给 `git`，使行号与编辑器一致，已修改但未提交的行记为「未提交」。输入时不每次运行 `git`，
+//! 停止输入 [`BLAME_IDLE`] 后或保存后在后台重新计算。该栏由 `view/editor.rs` 在行号栏中绘制。当前行
 //! 追溯（`git.inlineBlame`）用同一份结果，在光标所在行的末尾写出一行说明。
 
 use std::collections::{HashMap, HashSet};
@@ -289,7 +288,7 @@ impl App {
             return;
         };
         // 只为当前行追溯时，未跟踪、被忽略的文件不跑：`git blame` 必然失败，停止输入后又跑一次。
-        // 开着追溯一栏时照样跑，失败了说明原因。
+        // 开着追溯一栏时仍然跑，失败了说明原因。
         if let BlameKey::Doc(id) = key
             && !self.git.blame.is_on(id)
             && self.blame_untracked(&source.root, &source.path)

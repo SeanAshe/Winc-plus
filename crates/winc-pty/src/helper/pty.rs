@@ -103,7 +103,7 @@ fn set_flags(fd: RawFd, cloexec: bool, nonblock: bool) -> io::Result<()> {
     Ok(())
 }
 
-/// 启动失败且错误码是内核内部错误码时的最多重试次数（经验值）。
+/// 启动失败且错误码是内核内部错误码时的最多重试次数（次，取自调参）。
 const SPAWN_RETRIES: u32 = 5;
 
 impl Pty {
@@ -276,9 +276,13 @@ impl Pty {
     /// 挂断以后到期仍未退出：发 SIGKILL。
     ///
     /// `reaped` 为真（shell 已回收）时 shell 的 pid 可能已经给了别的进程，只发给进程组。
+    ///
+    /// 这时进程号又有了进程（[`taken_over`]）就不发：进程组已经散了，号码给了别的程序。
     pub fn kill(&self, reaped: bool) {
         if reaped {
-            self.signal_group_only(libc::SIGKILL);
+            if !taken_over(self.pid, None) {
+                self.signal_group_only(libc::SIGKILL);
+            }
         } else {
             self.signal(libc::SIGKILL);
         }
@@ -346,6 +350,11 @@ impl Pty {
         process_name(pgid).map(|name| (pgid, name))
     }
 
+    /// 返回这个终端的会话号：shell 是会话首进程，会话号就是它的进程号。
+    pub fn session(&self) -> Pid {
+        self.pid
+    }
+
     /// 返回主端的描述符，交给 `poll` 等待读写。
     pub fn fd(&self) -> RawFd {
         self.master.as_raw_fd()
@@ -357,9 +366,25 @@ pub fn hang_up_job(job: Pid) {
     signal_group(job, libc::SIGHUP);
 }
 
-/// 结束前台作业 `job`（进程组号）。
-pub fn kill_job(job: Pid) {
-    signal_group(job, libc::SIGKILL);
+/// 结束前台作业 `job`（进程组号）；`session` 是它所在终端的会话号，不知道时为 `None`。
+///
+/// 挂断之后到期才调用：这个号码已经给了别的会话里的程序（[`taken_over`]）时不发信号；不知道
+/// 会话号时无从分辨，仍然发送。
+pub fn kill_job(job: Pid, session: Option<Pid>) {
+    if session.is_none_or(|session| !taken_over(job, Some(session))) {
+        signal_group(job, libc::SIGKILL);
+    }
+}
+
+/// 进程组号 `pgid` 是否已经给了别的程序：现在有进程号是它的进程，而该进程不在会话 `session`
+/// 里（`session` 为 `None` 表示原来的组长已经回收，有这个进程就是别的程序）。
+///
+/// 进程组里还有进程时它的号码不会再分配；组散了以后号码可以给新的进程，延迟发出的信号就会
+/// 落到无关的程序上。查不到这个进程（组长已退出、组员还在）时按没有被占用处理。
+fn taken_over(pgid: libc::pid_t, session: Option<libc::pid_t>) -> bool {
+    // SAFETY: `getsid` 只查询；没有这个进程时返回 -1。
+    let sid = unsafe { libc::getsid(pgid) };
+    sid > 0 && session != Some(sid)
 }
 
 /// 返回前台作业 `job`（进程组号）中是否还有进程。

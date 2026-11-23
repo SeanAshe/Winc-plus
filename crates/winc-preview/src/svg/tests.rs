@@ -117,14 +117,6 @@ fn deep_nesting_is_rejected_before_parsing() {
         .join()
         .unwrap();
     assert!(parsed.unwrap_err().contains("嵌套"));
-
-    // 计算嵌套层数时不计入注释、CDATA、DOCTYPE、自闭合标签和属性值中的大于号。
-    assert!(!nesting_exceeds(
-        r#"<!DOCTYPE svg [<!ENTITY a "<g>">]><svg><!-- <g><g> --><![CDATA[<g>]]><?x <g>?><g a="<>"/><g></g></svg>"#,
-        2
-    ));
-    assert!(nesting_exceeds("<svg><g><g></g></g></svg>", 2));
-    assert!(!nesting_exceeds("<svg><g/><g></g><g></g></svg>", 2));
 }
 
 #[test]

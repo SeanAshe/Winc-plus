@@ -166,7 +166,7 @@ fn no_two_bindings_fight_over_a_key() {
                 );
             }
             // 组合键的第一段不能同时对应一个命令，否则永远等不到第二段。终端里自己的单键
-            // （⌘K 清屏）例外：在终端里本来就不等第二段，单键优先（`lookup`）。
+            // （⌘K 清屏）例外：在终端里原本就不等第二段，单键优先（`lookup`）。
             if a.second.is_some() {
                 assert!(
                     !table.iter().any(|b| b.first == a.first
@@ -312,7 +312,7 @@ fn vscode_key_labels_per_system() {
         }
     }
 
-    // ⌘J（其他系统上 Ctrl+J）显示或隐藏面板，焦点在终端里也生效，与 VS Code 相同。
+    // ⌘J（其他系统上 Ctrl+J）显示或隐藏面板，焦点在终端里也生效。
     for context in [Context::Editor, Context::Terminal] {
         assert_eq!(
             runs(Os::Mac, Mods::META, KeyCode::Char('j'), context),
@@ -757,7 +757,7 @@ fn idea_key_labels_per_system() {
         Some(Action::NewTerminal)
     );
     assert_eq!(first(Mods::META, t, Context::Editor), Some(Action::GitPull));
-    // 连按两下 Shift 是两段组合键，第一下单按不执行命令。
+    // 连按两次 Shift 是两段组合键，第一次单按不执行命令。
     let tap = Stroke {
         key: KeyCode::Tap,
         mods: Mods::SHIFT,

@@ -137,18 +137,17 @@ impl App {
         self.request_redraw();
     }
 
-    /// 暂存全部已跟踪文件的更改（`on` 为真），或者把暂存区中的全部内容移出暂存区。
+    /// 暂存（`on` 为真）或取消暂存全部更改。
     ///
-    /// 未跟踪的文件不随「暂存全部」加入：它们只在逐个勾选后进入暂存区。
+    /// 暂存时，暂存区视图中为「更改」的全部文件，勾选式下不含未跟踪的文件。
     pub(in crate::app) fn stage_all(&mut self, on: bool) {
+        let staging = self.git.commit.staging();
         let entries = self.git.status.iter().flat_map(|s| &s.entries);
         let paths: Vec<PathBuf> = entries
-            .filter(|e| {
-                if on {
-                    !e.untracked()
-                } else {
-                    e.staged.is_some()
-                }
+            .filter(|e| match (on, staging) {
+                (true, true) => CommitGroup::Changes.holds(e, true),
+                (true, false) => !e.untracked(),
+                (false, _) => e.staged.is_some(),
             })
             .map(|e| e.path.clone())
             .collect();
@@ -244,6 +243,7 @@ impl App {
             // 界面已按成功的结果显示：放弃其余的操作，按仓库的实际状态重新显示。
             self.git.commit.staging_queue.clear();
             self.git.commit.commit_queued = false;
+            self.git.commit.drop_push_intent();
             self.git.commit.index.clear();
             self.notify(NoticeKind::Error, t!("git-stage-failed", error = e));
         }
@@ -253,7 +253,7 @@ impl App {
         }
         self.git_refresh();
         if std::mem::take(&mut self.git.commit.commit_queued) {
-            self.git_commit();
+            self.git_commit_resumed();
         }
     }
 

@@ -205,7 +205,7 @@ impl App {
         }
     }
 
-    /// 给分支 `branch` 新建的工作树放在哪儿（[`winc_editor::git::worktree_dir`]）；不在仓库里时
+    /// 给分支 `branch` 新建的工作树放在哪里（[`winc_editor::git::worktree_dir`]）；不在仓库里时
     /// 为 `None`。
     pub(crate) fn new_worktree_dir(&self, branch: &str) -> Option<PathBuf> {
         let main =
@@ -215,9 +215,9 @@ impl App {
         Some(winc_editor::git::worktree_dir(main, folder, home, branch))
     }
 
-    /// 分支操作菜单、日志菜单的悬停提示里写的新工作树的位置：默认位置写相对于仓库（子模块是最外层的仓库）
-    /// 所在目录的（`winc.worktrees/feat-x`），配置了 `git.worktreeRoot` 时写完整的（主目录写成
-    /// `~`）。
+    /// 分支操作菜单、日志菜单的悬停提示里写的新工作树的位置：默认位置写相对于仓库（子模块是最外层的
+    /// 仓库）所在目录的（`winc.worktrees/feat-x`），配置了 `git.worktreeRoot`
+    /// 时写完整的（主目录写成 `~`）。
     ///
     /// 还没输入名字时最后一级写「…」。
     pub(crate) fn worktree_dir_hint(&self, branch: &str) -> String {
@@ -522,7 +522,7 @@ impl App {
                     let branch = deletable.clone().filter(|_| checked);
                     (i == removing).then(|| UserEvent::GitRemoveWorktree(path.clone(), branch))
                 });
-            // 窗口上已经挂着别的提示框：不再弹出，改为在状态栏说明。
+            // 窗口上已有别的提示框：不再弹出，改为在状态栏说明。
             if !shown {
                 self.flash(t!("git-worktree-close-dialog-first"));
             }

@@ -561,7 +561,7 @@ impl App {
     /// 开始（`on` 为 `true`）或停止录制按键。
     ///
     /// macOS 上菜单栏中带快捷键的菜单项（「设置…」的 ⌘,、「退出」的 ⌘Q 等）先于窗口收到按键；
-    /// 录制期间暂停这些快捷键，按键照常送到窗口、写进搜索框。
+    /// 录制期间暂停这些快捷键，按键仍然送到窗口、写进搜索框。
     pub(in crate::app) fn set_recording(&mut self, on: bool) {
         if self.settings.recording == on {
             return;
@@ -844,7 +844,7 @@ impl App {
 
     /// 键入时只更新配置中的值，不改变正在使用的字体。
     ///
-    /// 键入到一半的名字（例如 `Menl`）本来就找不到，每敲一个字符就换一次字体会使界面反复变化。
+    /// 键入到一半的名字（例如 `Menl`）原本就找不到，每敲一个字符就换一次字体会使界面反复变化。
     /// 回车提交时才真正换字体。
     pub(super) fn settings_live_font(&mut self) {
         let Some((setting, field)) = self.settings.editing.as_ref() else {
@@ -937,7 +937,7 @@ impl App {
 
     /// 提交字体名：立刻换字体并写回配置。
     ///
-    /// 名字认不出来就留在输入框里，配置退回原值。
+    /// 名字无法识别就留在输入框里，配置退回原值。
     ///
     /// 清空表示使用平台默认字体，这是允许的：配置中留空即默认，输入框中显示「系统默认」。
     fn settings_commit_font(&mut self, setting: Setting, value: Option<String>) {
@@ -1286,6 +1286,8 @@ pub(crate) struct Store {
     pub config_path: Option<PathBuf>,
     /// 状态写回的文件；`None` 时只记录在内存中（测试和性能测量使用，避免改动用户的历史）。
     pub state_path: Option<PathBuf>,
+    /// 向后台提交过几次状态文件的读写；只采用最后一次送回的状态。
+    pub(crate) state_requests: u64,
     /// 配置的版本号：本窗口每写入一次配置文件加 1，应用层据此把新配置发给其他窗口。
     pub(crate) config_rev: u64,
 }

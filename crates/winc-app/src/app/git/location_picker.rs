@@ -563,7 +563,7 @@ impl App {
     /// 切换到位置 `place`：打开的目录里的仓库只换当前仓库，其余的（别处的工作树）在当前窗口打开
     /// 那个目录，文件树和编辑区跟着换。
     pub(in crate::app) fn go_to_place(&mut self, place: &Place) {
-        // 和失效的分支一样：点了弹出它能做的事。
+        // 和失效的分支一样：点击弹出它能做的事。
         if place.missing {
             if place.worktree.is_some() {
                 self.open_location_row_menu(self.overlays.picker.selected, place);

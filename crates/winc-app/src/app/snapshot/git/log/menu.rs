@@ -281,7 +281,7 @@ fn the_log_opens_from_the_commit_view_button_and_the_branch_menu_starts_with_fet
 }
 
 /// 日志里 `→` 转到父提交（合并提交是第一个父提交），`←` 转到子提交，先取同一条线上的；第一个
-/// 提交没有父提交。菜单里两项写着这两个键；`Tab` 进入文件列表，那里 `←` 是返回。
+/// 提交没有父提交。菜单里两项显示这两个键；`Tab` 进入文件列表，那里 `←` 是返回。
 #[test]
 fn arrows_walk_to_parent_and_child_commits() {
     use crate::app::input::context_menu::{MenuCommand, MenuTarget};

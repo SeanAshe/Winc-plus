@@ -121,7 +121,7 @@ impl Cx<'_, '_> {
         let mut back = Vec::new();
         let mut front = Vec::new();
         let mut y = top + box_h + s * 1.2;
-        // 激活条的宽度（逻辑像素，经验值）：字号的 0.4 倍，方块的边线能看清。
+        // 激活条的宽度（逻辑像素）：字号的 0.4 倍，方块的边线能看清。
         let bar = s * 0.4;
         let mut active: Vec<Vec<f32>> = vec![Vec::new(); n];
         let mut frames: Vec<Frame> = Vec::new();

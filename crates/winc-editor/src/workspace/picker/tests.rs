@@ -307,7 +307,7 @@ fn ignore_rules_above_a_repository_do_not_apply_inside_it() {
     let index = FileIndex::collect_now(&repo);
     let listed = paths(&index);
     assert!(listed.contains(&"dist/core/a.d.ts"), "{listed:?}");
-    // 版本库自己的规则照常生效。
+    // 版本库自己的规则仍然生效。
     assert!(!listed.contains(&"target/out.o"), "{listed:?}");
     // 按目录的变化更新文件表时，用的是同一套规则。
     let cancel = AtomicBool::new(false);
@@ -834,7 +834,7 @@ fn files_on_a_remote_host_are_listed_by_one_command_there() {
         Some(root.join("src/main.rs"))
     );
 
-    // 是仓库：被忽略的文件不收录，未跟踪的照常收录。
+    // 是仓库：被忽略的文件不收录，未跟踪的仍然收录。
     std::fs::write(local.join(".gitignore"), "target/\nnode_modules/\n").unwrap();
     let git = std::process::Command::new("git")
         .args(["init", "-q"])

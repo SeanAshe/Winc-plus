@@ -81,7 +81,7 @@ fn dragging_the_title_row_moves_the_card_and_keeps_it_in_the_window() {
     assert!(!app.settings_dragging());
     app.on_mouse_up(MouseButton::Left);
 
-    // 关闭后再打开，卡片仍在原处；点在卡片外照常关闭。
+    // 关闭后再打开，卡片仍在原处；点在卡片外仍然关闭。
     app.open_settings();
     assert_eq!(app.settings_layout().card, card);
     app.on_mouse_move(window.right() - 5.0, window.bottom() - 5.0);
@@ -282,10 +282,9 @@ fn settings_keyboard_walks_every_item_and_adjusts() {
     app.config.terminal_enabled = Some(true);
     app.open_settings();
 
-    // 从第一页走到最后一页：依次经过通用到模块各页的每一行、快捷键页的搜索框，最后是关于页的
-    // 各行，到达末尾后不再移动。越过一页的末项时自动换页，右侧显示该页
-    // 内容。
-    // 格式化页列出的语言随机器上装了哪些工具而变，步数按全部设置项计算。
+    // 从第一页走到最后一页：依次经过通用到模块各页的每一行、快捷键页的搜索框，最后是关于页的各行，
+    // 到达末尾后不再移动。越过一页的末项时自动换页，右侧显示该页内容。格式化页列出的语言随机器上装
+    // 了哪些工具而变，步数按全部设置项计算。
     let mut seen = vec![app.settings.selected];
     for _ in 0..Setting::all(&app.settings.languages, app.settings_modules()).len() + 2 {
         app.settings_move(true);
@@ -802,7 +801,7 @@ fn settings_scales_in_and_fades_out() {
     app.open_settings();
     let rest = app.settings_layout().card;
 
-    // 出现途中：卡片整张淡入、放大（缩放只作用于绘制），点击仍按原位置命中。第一帧照常绘制
+    // 出现途中：卡片整张淡入、放大（缩放只作用于绘制），点击仍按原位置命中。第一帧仍然绘制
     // 并保存快照，之后的帧直接使用快照。
     app.settings.motion = Some((true, Clock::frozen(DIALOG_IN / 3, DIALOG_IN)));
     app.settings.cache = None;
@@ -1256,7 +1255,7 @@ fn the_git_page_is_listed_only_when_the_module_is_on() {
     assert!(app.switch_on(Setting::GitTree));
     app.settings_toggle(Setting::GitTree);
     assert!(app.git.commit.flat() && !app.state.commit_tree);
-    // 配置文件中打开「显示暂存区」：提交视图随之换成暂存区视图。
+    // 配置文件中打开「暂存区布局」后，提交视图随之切换。
     assert!(!app.git.commit.staging());
     let mut config = app.config.clone();
     config.git_staging_area = Some(true);

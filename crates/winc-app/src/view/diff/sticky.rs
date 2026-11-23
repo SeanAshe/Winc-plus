@@ -38,7 +38,7 @@ pub(super) fn draw(
         .map(|(side, top)| (side, pinned_rows(app, view, side, top, max)))
         .filter(|(_, rows)| !rows.is_empty())
         .collect();
-    // 两侧的固定区域合为一条：盖住中间一栏的带子，下沿取较深的一侧，阴影只有一道。
+    // 两侧的固定区域合为一条：遮住中间一栏的带子，下沿取较深的一侧，阴影只有一道。
     let Some((_, deepest)) = sides.iter().max_by(|(_, a), (_, b)| {
         let height = |rows| pinned_height(app, rows).unwrap_or(0.0);
         height(a).total_cmp(&height(b))

@@ -320,10 +320,9 @@ impl ApplicationHandler<UserEvent> for App {
                 self.place_traffic_lights();
                 self.relayout();
                 self.clamp_scroll();
-                // 拖动边缘或双击标题栏缩放时，窗口大小每改变一帧，winit 同步发出该事件，新的窗口
-                // 大小随这一帧的 Core Animation 事务提交。在此同步绘制，新画面在同一事务中提交，
-                // 与窗口大小同时显示。若只标记待重绘，绘制会推迟到之后的事件循环，其间显示上一帧
-                // 的画面（固定在左上角），画面与窗口大小不一致。
+                // 缩放时窗口大小每改变一帧，winit 同步发出该事件，新的窗口大小随这一帧的 Core
+                // Animation 事务提交。在此同步绘制，新画面在同一事务中提交；只标记待重绘则绘制推迟
+                // 到之后的事件循环，其间显示固定在左上角的上一帧画面。
                 self.request_redraw();
                 self.redraw();
             }
@@ -347,10 +346,9 @@ impl ApplicationHandler<UserEvent> for App {
                     self.reset_blink();
                     self.terminal_window_focused();
                     // 其他 winc 窗口可能修改了最近列表，重新读取后开始页和项目菜单显示最新内容。
-                    if let Some(path) = &self.store.state_path {
-                        self.state = State::load_from(path);
-                    }
+                    self.reload_state();
                 } else {
+                    self.cancel_chord();
                     let ids: Vec<DocumentId> = self.editor.documents.iter().map(|d| d.id).collect();
                     self.auto_save(&ids);
                     self.drop_drags();
@@ -474,7 +472,7 @@ impl App {
             | UserEvent::RemoteConnected
             | UserEvent::RemoteListed
             | UserEvent::FolderListed
-            | UserEvent::RemoteWatching
+            | UserEvent::WatcherStarted
             | UserEvent::FormatPlanned
             | UserEvent::FileWorked
             | UserEvent::GitMergeSides
@@ -483,6 +481,8 @@ impl App {
             | UserEvent::Latex
             | UserEvent::Reread
             | UserEvent::TreeScanned
+            | UserEvent::RunConfigsLoaded
+            | UserEvent::TabsPrepared
             | UserEvent::Saved
             | UserEvent::Loaded
             | UserEvent::Counted
@@ -491,7 +491,7 @@ impl App {
             | UserEvent::Wrapped) => self.finished(done),
             UserEvent::Rediffed => self.poll_rediffs(),
             UserEvent::Outline => self.poll_outline(),
-            UserEvent::GitRollback(paths) => self.git_rollback(paths),
+            UserEvent::GitRollback(paths, to) => self.git_rollback(paths, to),
             UserEvent::GitSkip => {
                 self.run_branch_command(crate::app::input::context_menu::MenuCommand::GitSkip);
             }
@@ -529,6 +529,11 @@ impl App {
                 }
             }
             UserEvent::CloseConfirmed(ok) => self.close_confirmed(ok),
+            UserEvent::StateStored(request, state) => self.state_stored(request, *state),
+            UserEvent::LatexRc(approved) => {
+                let (doc, dir, text) = *approved;
+                self.latex_rc_approved(doc, &dir, &text);
+            }
             UserEvent::GitLogConfirmed(op) => self.run_log_confirmed(op),
             UserEvent::GitRemoveWorktree(path, branch) => self.remove_worktree_now(&path, branch),
             UserEvent::GitOpenWorktree(path, new, remember) => {
@@ -562,9 +567,9 @@ impl App {
                 self.copy_finished(&copying);
                 self.pasted_into_tree(done, failure);
             }
-            UserEvent::Downloaded(done, failure, copying) => {
-                self.copy_finished(&copying);
-                self.downloaded(done, failure);
+            UserEvent::Downloaded(outcome, copying) => {
+                let canceled = self.copy_finished(&copying);
+                self.downloaded(outcome, canceled);
             }
             UserEvent::Copied(copies, failures, copying) => {
                 self.copy_finished(&copying);
@@ -608,7 +613,7 @@ impl App {
             }
             UserEvent::Delete(paths, permanent) => self.delete_entries(&paths, permanent),
             UserEvent::Formatted => self.poll_formatting(),
-            UserEvent::ToolChoice(answer) => self.answer_tool_choice(answer),
+            UserEvent::ToolChoice(answer) => self.answer_tool_choice(*answer),
             UserEvent::GitTrust(root, fingerprint, trusted) => {
                 self.answer_git_trust(&root, fingerprint, trusted);
             }
@@ -751,10 +756,9 @@ impl App {
         earliest(&mut wake, self.poll_browse(now));
         earliest(&mut wake, self.poll_search_dialog(now));
 
-        // 光标闪烁的定时唤醒需要同时满足：窗口有焦点、窗口可见（被完全遮挡时不绘制）、焦点位于
-        // 可输入位置、当前文档可以编辑文字（或光标在差异里）、没有进行中的输入法组字；图片预览和
-        // 无法打开的文件不显示光标。离上次输入超过 `BLINK_STOP` 后光标停在亮着的状态。
-        // Vim 模式的普通与可视模式不接受文字输入，块状光标仍然闪烁。
+        // 光标闪烁的定时唤醒需要同时满足：窗口有焦点且可见、焦点位于可输入位置、当前文档可以编辑文
+        // 字（或光标在差异里）、没有进行中的输入法组字；图片预览和无法打开的文件不显示光标。离上次
+        // 输入超过 `BLINK_STOP` 后光标停在亮着的状态；Vim 的普通与可视模式块状光标仍然闪烁。
         let typing = self.takes_text() || self.vim_caret().is_some();
 
         let blinking = now.duration_since(self.blink.epoch) < BLINK_STOP;
@@ -870,7 +874,17 @@ impl App {
     pub(crate) fn asks_before_quit(&self) -> bool {
         self.config.confirm_close == Some(true)
             || self.terminal_busy()
-            || (self.editor.documents.iter()).any(|d| d.is_dirty() && !self.kept_on_quit(d))
+            || !self.unsaved_on_quit().is_empty()
+    }
+
+    /// 返回退出后会丢失的修改：有未保存的修改、退出时又不写入备份的各个文档，及其内容的
+    /// 版本号。
+    ///
+    /// 应用层在窗口同意退出时记下，退出前再比较：其间又修改过的文档需要重新询问。
+    pub(crate) fn unsaved_on_quit(&self) -> Vec<(DocumentId, u64)> {
+        let lost = |d: &&winc_editor::Document| d.is_dirty() && !self.kept_on_quit(d);
+        let documents = self.editor.documents.iter().filter(lost);
+        documents.map(|d| (d.id, d.revision)).collect()
     }
 }
 

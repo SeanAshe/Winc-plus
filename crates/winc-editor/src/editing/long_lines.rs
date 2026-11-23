@@ -21,7 +21,7 @@ const COL_STRIDE: usize = 1024;
 
 /// 列索引一次至少向后延伸的字符数（字符），是 [`COL_STRIDE`] 的整数倍。
 ///
-/// 向右滚动时每隔这么多字符才读取一次，而不是每帧读取。
+/// 向右滚动时每隔该字符数才读取一次，而不是每帧读取。
 const EXTEND_MIN: usize = 64 * COL_STRIDE;
 
 /// 列索引一次最多读取的字符数（字符），是 [`COL_STRIDE`] 的整数倍：限制读取时占用的内存。
@@ -253,7 +253,7 @@ impl Document {
             return false;
         }
         self.whole.all = all;
-        // 大文件换行时本来就按整行断开。
+        // 大文件换行时原本就按整行断开。
         if let (Some(wrap), false) = (self.wrap_width(), self.is_large()) {
             let limits = Limits {
                 base: self.wrap_limit(),

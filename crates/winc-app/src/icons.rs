@@ -453,7 +453,7 @@ pub fn download(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip:
 }
 
 /// 绘制进度环，直径 11，和「刷新」图标的圆一样大：淡色 `track` 的整圆上，从 12 点钟起顺时针
-/// 画出 `fraction`（0 到 1）那么长的一段 `color`。
+/// 画出占整圈 `fraction`（0 到 1）的一段 `color`。
 pub fn progress_ring(
     frame: &mut Frame<'_>,
     (cx, cy): (f32, f32),
@@ -622,12 +622,9 @@ pub fn more(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rec
     frame.stroke(&dots, 2.0, color, clip);
 }
 
-/// 绘制侧栏「文件」视图图标，约 13×14：线条风格（笔宽 `STROKE`，与顶栏其他图标一致），图形为
-/// 前后叠放的两张纸。前面一张是完整的圆角框，内部两道较短的水平线表示文字行；后面一张错开在
-/// 左上方，只露出上边和左边一段，两端为圆头。
-///
-/// 两张纸相距 2 逻辑像素，文字行短于纸边，因此该图标与笔画数同为两三笔的 `search`、`git` 并排
-/// 时视觉重量相当。
+/// 绘制侧栏「文件」视图图标，约 13×14：线条风格（笔宽 `STROKE`，与顶栏其他图标一致），图形为前后叠
+/// 放的两张纸。前面一张是完整的圆角框，内部两道较短的水平线表示文字行；后面一张错开在左上方，只露出
+/// 上边和左边一段，两端为圆头。两张纸相距 2 逻辑像素。
 ///
 /// `scale` 是相对原大小的缩放倍数（视图切换中的小号图标传入小于 1 的值），笔宽不变。
 pub fn files(frame: &mut Frame<'_>, (cx, cy): (f32, f32), scale: f32, color: Color, clip: Rect) {

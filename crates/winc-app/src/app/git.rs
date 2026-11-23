@@ -43,7 +43,7 @@ use super::{App, Focus, UserEvent};
 use crate::app::NoticeKind;
 use crate::layout::SidebarView;
 
-/// Git 视图可见时补查本地状态的间隔；系统漏发通知时定期重新读取（经验值）。
+/// Git 视图可见时补查本地状态的间隔；系统漏发通知时定期重新读取（取自调参）。
 const STATUS_RECHECK: Duration = Duration::from_secs(5);
 
 /// 界面线程与各后台任务共用的 [`Git`]。
@@ -774,7 +774,7 @@ impl App {
             return;
         }
         // 未完成的提交信息按位置保存，切换回来时恢复。多仓库时列表里的各个仓库共用一条提交信息、
-        // 各文件的勾选也照样留着：在列表里点另一个仓库只换当前仓库，不换要提交的内容。
+        // 各文件的勾选也仍然留着：在列表里点另一个仓库只换当前仓库，不换要提交的内容。
         let carried = self
             .commit_shows_others()
             .then(|| self.git.commit.draft_text());
@@ -1227,7 +1227,8 @@ impl App {
         if !trusted {
             return;
         }
-        self.update_state(|state| state.trust_repo(root, fingerprint));
+        let trusted = root.to_path_buf();
+        self.update_state(move |state| state.trust_repo(&trusted, fingerprint));
         if let Some(git) = self.git.tool.get() {
             git.trust(root, fingerprint);
         }

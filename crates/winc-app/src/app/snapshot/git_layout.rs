@@ -205,3 +205,55 @@ fn git_layout_tree_applies_to_other_repositories() {
     );
     let _ = std::fs::remove_dir_all(&folder);
 }
+
+/// 暂存区视图按暂存区和工作区分组；切换视图只改变分组，不改变仓库状态。
+#[test]
+fn staging_groups_partition_index_and_worktree_changes() {
+    use crate::app::CommitGroup::{Changes, Conflicts, Staged, Untracked};
+
+    let folder = sample_folder("git-staging-groups");
+    let mut app = app_with(&folder, false);
+    let root = app.editor.root().unwrap().to_path_buf();
+    let status = Status {
+        entries: [
+            ("src/added.rs", Some(Change::Added), None),
+            ("src/modified.rs", None, Some(Change::Modified)),
+            (
+                "src/partial.rs",
+                Some(Change::Modified),
+                Some(Change::Modified),
+            ),
+            ("src/untracked.rs", None, Some(Change::Untracked)),
+            ("src/conflict.rs", None, Some(Change::Conflicted)),
+        ]
+        .into_iter()
+        .map(|(path, staged, unstaged)| Entry {
+            path: root.join(path),
+            from: None,
+            staged,
+            unstaged,
+            is_dir: false,
+        })
+        .collect(),
+        ..Status::default()
+    };
+    app.git.root = Some(root);
+    app.git.status = Some(status.clone());
+    app.settings_toggle(Setting::GitStagingArea);
+
+    let rows = app.commit_rows();
+    assert_eq!(rows.group(Staged), [0, 2]);
+    assert_eq!(rows.group(Changes), [1, 2, 3]);
+    assert_eq!(rows.group(Conflicts), [4]);
+    assert!(rows.group(Untracked).is_empty());
+
+    // 显式切回勾选式会重新分组，但不能改动暂存区或工作区的状态。
+    app.settings_toggle(Setting::GitStagingArea);
+    let rows = app.commit_rows();
+    assert!(rows.group(Staged).is_empty());
+    assert_eq!(rows.group(Changes), [0, 1, 2]);
+    assert_eq!(rows.group(Untracked), [3]);
+    assert_eq!(app.git.status.as_ref(), Some(&status));
+
+    std::fs::remove_dir_all(&folder).unwrap();
+}

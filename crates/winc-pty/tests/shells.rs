@@ -276,7 +276,7 @@ fn bash_as_a_login_shell_reads_the_profile() {
     let mut sh = Shell::start(&bash, true, env(&t.home(), &[]), &t.0.join("shell"));
     sh.client.until_text("bb$");
     sh.check("none");
-    // 用户自己的 `PROMPT_COMMAND` 照常运行，看到的是命令的退出码；`PS1` 里的 `$?` 同样如此。
+    // 用户自己的 `PROMPT_COMMAND` 仍然运行，看到的是命令的退出码；`PS1` 里的 `$?` 同样如此。
     // 屏幕上更早的行也有 `[1] bb$`（`check` 运行过失败的命令），只看这条命令之后的提示符。
     let failed = sh.run("false");
     let prompt = failed.end.unwrap() as usize;

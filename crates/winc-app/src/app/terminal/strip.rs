@@ -300,7 +300,7 @@ impl App {
     /// 给第 `index` 个标签改名字（双击标签、标签的右键菜单、命令面板）：标签上换成输入框，
     /// 填好现在的名字并全选。
     pub(crate) fn open_terminal_rename(&mut self, index: usize) {
-        // 正在改另一个的名字：先按输入的名字算。面板收着时（命令面板里选的）先打开，不往看不见的
+        // 正在改另一个的名字：先按输入的名字算。面板保存时（命令面板里选的）先打开，不往看不见的
         // 输入框里打字。
         self.finish_terminal_rename(true);
         if index >= self.terminal.tabs.len() {

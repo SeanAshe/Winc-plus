@@ -65,7 +65,7 @@ impl App {
             .map(|c| c.key().to_owned())
             .collect();
         shown.dedup();
-        self.update_state(|state| state.log_columns = Some(shown));
+        self.update_state(move |state| state.log_columns = Some(shown));
         self.request_redraw();
     }
 

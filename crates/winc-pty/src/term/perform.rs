@@ -164,7 +164,9 @@ impl Perform for Emulator {
             ([], 'b') => {
                 // 重复最后一个字符（REP），次数不超过整屏格数，避免一次请求输出过多内容。
                 if let Some(c) = self.last_char {
-                    for _ in 0..args.count(0).min(self.cols * self.rows) {
+                    let count = args.count(0).min(self.cols * self.rows);
+                    self.repeated += count;
+                    for _ in 0..count {
                         self.write_char(c);
                     }
                 }

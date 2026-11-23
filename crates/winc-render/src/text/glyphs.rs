@@ -63,7 +63,7 @@ pub(crate) struct GlyphCache {
     scaler: ScaleContext,
     /// 光栅化后的字形，每一代的上限为 [`GLYPH_CACHE_BYTES`] 字节。
     glyphs: Generations<GlyphKey, Glyph>,
-    /// （槽位，字形，字号×4）→ 前进宽度，逻辑像素。
+    /// （槽位，字形，字号的位模式）→ 前进宽度，逻辑像素。
     pub(crate) advances: FastMap<(u8, u16, u32), f32>,
     /// swash 的整形上下文，复用以避免重复分配。连字和 emoji 序列共用。
     pub(crate) shaper: ShapeContext,
@@ -322,7 +322,9 @@ impl GlyphCache {
     ) -> Resolved {
         let (slot, glyph) = self.fonts.resolve(kind, c);
         let fonts = &self.fonts;
-        let key = (slot, glyph, (size * 4.0) as u32);
+        // 按字号的原值区分：相近的字号（13.0 与 13.2）共用一项时，后量的沿用先量的前进宽度，
+        // 文字的间距与字形的大小不符。
+        let key = (slot, glyph, size.to_bits());
 
         if self.advances.len() >= ADVANCE_CACHE_ENTRIES && !self.advances.contains_key(&key) {
             self.advances = FastMap::default();

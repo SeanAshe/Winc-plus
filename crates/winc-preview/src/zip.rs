@@ -16,10 +16,21 @@ const LOCAL_SIGNATURE: u32 = 0x0403_4b50;
 /// 固定为 22 字节：签名 4 字节、两段计数各 2 字节、中央目录大小 4 字节、偏移 4 字节、
 /// 注释长度 2 字节。
 const END_LEN: usize = 22;
-/// 解压后一个文件的大小上限（字节，1 GiB，经验值）。
+/// 解压后一个文件的大小上限（字节，1 GiB）。
 ///
 /// 防止压缩比极高的包在解压时耗尽内存：解压输出的上限取本值与该文件解压后大小中较小的一个。
+/// 表格的文字总量上限也是 1 GiB，再大的部件读出来也显示不了。
 const MAX_ENTRY: usize = 1024 * 1024 * 1024;
+
+/// 一个包累计解压出的字节数与包本身大小之比的上限（倍）。
+///
+/// 处理办公文档的常见实现按 1% 的压缩后与解压后之比判定压缩炸弹，即 100 倍；正常文档在
+/// 5 到 20 倍。这里按整个包累计，不按单个文件：内容规整的表格单个部件可以超过 100 倍。
+const MAX_RATIO: usize = 100;
+
+/// 包累计解压量的上限不低于的值（字节）：等于 [`MAX_ENTRY`]，很小的包也可以解出一个部件
+/// 允许的量。
+const MIN_BUDGET: usize = MAX_ENTRY;
 
 /// 压缩包中的一个文件。
 #[derive(Debug)]
@@ -40,6 +51,12 @@ struct Entry {
 pub(crate) struct Archive<'a> {
     bytes: &'a [u8],
     entries: Vec<Entry>,
+    /// 各次读取累计可以解压出的字节数，见 [`budget`]。
+    budget: usize,
+    /// 已经解压出的字节数，各次读取累计。
+    spent: std::sync::atomic::AtomicUsize,
+    /// 是否有读取因累计解压量超过上限而被拒绝（见 [`Archive::exceeded`]）。
+    refused: std::sync::atomic::AtomicBool,
 }
 
 /// 读 zip 时的错误。
@@ -49,6 +66,8 @@ pub(crate) enum Error {
     Invalid,
     /// zip64、加密的包，或者不支持的压缩方法。
     Unsupported,
+    /// 累计解压量超过了这个包的上限（见 [`budget`]）：压缩比异常，不再解压。
+    TooLarge,
 }
 
 impl<'a> Archive<'a> {
@@ -101,7 +120,13 @@ impl<'a> Archive<'a> {
             });
             at += 46 + name_len + extra_len + comment_len;
         }
-        Ok(Self { bytes, entries })
+        Ok(Self {
+            bytes,
+            entries,
+            budget: budget(bytes.len()),
+            spent: std::sync::atomic::AtomicUsize::new(0),
+            refused: std::sync::atomic::AtomicBool::new(false),
+        })
     }
 
     /// 解压包中路径为 `name` 的文件（不区分大小写）；没有该文件时返回 `None`。
@@ -109,7 +134,7 @@ impl<'a> Archive<'a> {
     /// # Errors
     ///
     /// 文件的压缩方法不支持时返回 [`Error::Unsupported`]；数据损坏或长度超出包的范围时返回
-    /// [`Error::Invalid`]。
+    /// [`Error::Invalid`]；这个包累计解压量超过上限时返回 [`Error::TooLarge`]。
     pub(crate) fn read(&self, name: &str) -> Option<Result<Vec<u8>, Error>> {
         let entry = self
             .entries
@@ -118,8 +143,36 @@ impl<'a> Archive<'a> {
         Some(self.extract(entry))
     }
 
+    /// 测试用：把累计解压量的上限改为 `budget` 字节。
+    #[cfg(test)]
+    pub(crate) fn with_budget(mut self, budget: usize) -> Self {
+        self.budget = budget;
+        self
+    }
+
+    /// 是否有读取因累计解压量超过上限而被拒绝。
+    ///
+    /// 各格式把读不出的部件当作没有，文档仍然显示；超过上限不是缺一个部件，整份文档按过大
+    /// 处理，调用方转换完后用它判断。
+    pub(crate) fn exceeded(&self) -> bool {
+        self.refused.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     /// 解压 `entry` 的数据；`entry` 必须来自本包的中央目录。
     fn extract(&self, entry: &Entry) -> Result<Vec<u8>, Error> {
+        use std::sync::atomic::Ordering::Relaxed;
+        let left = self.budget.saturating_sub(self.spent.load(Relaxed));
+        if entry.size.min(MAX_ENTRY) > left {
+            self.refused.store(true, Relaxed);
+            return Err(Error::TooLarge);
+        }
+        let data = self.extract_unmetered(entry)?;
+        self.spent.fetch_add(data.len(), Relaxed);
+        Ok(data)
+    }
+
+    /// 解压 `entry` 的数据，不计入累计解压量。
+    fn extract_unmetered(&self, entry: &Entry) -> Result<Vec<u8>, Error> {
         let bytes = self.bytes;
         let at = entry.offset;
         if u32_at(bytes, at) != Some(LOCAL_SIGNATURE) {
@@ -140,6 +193,14 @@ impl<'a> Archive<'a> {
             _ => Err(Error::Unsupported),
         }
     }
+}
+
+/// 大小为 `archive` 字节的包各次读取累计可以解压出的字节数：包本身大小的 [`MAX_RATIO`] 倍，
+/// 不低于 [`MIN_BUDGET`]。
+///
+/// 单个文件有 [`MAX_ENTRY`] 的上限，但包里可以有很多个：逐个读下去，解压量没有尽头。
+fn budget(archive: usize) -> usize {
+    archive.saturating_mul(MAX_RATIO).max(MIN_BUDGET)
 }
 
 /// 中央目录结束记录的位置：从末尾往前找签名（末尾可能带最长 65535 字节的注释）。

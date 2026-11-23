@@ -1031,3 +1031,17 @@ fn the_color_scheme_is_answered_and_followed_when_requested() {
     t.set_theme(Some(theme([250, 250, 250])));
     assert!(t.take_responses().is_empty());
 }
+
+/// 重复序列写入的格数记下来给调用方计工作量：几个字节的序列写满一屏，取走以后清零。
+#[test]
+fn repeated_cells_are_reported_as_work() {
+    let mut t = term(10, 4);
+    feed(&mut t, "plain text");
+    assert_eq!(t.take_work(), 0);
+    feed(&mut t, "x\x1b[7b");
+    assert_eq!(t.take_work(), 7);
+    // 次数不超过整屏格数。
+    feed(&mut t, "\x1b[9999b\x1b[9999b");
+    assert_eq!(t.take_work(), 80);
+    assert_eq!(t.take_work(), 0);
+}

@@ -86,8 +86,6 @@ impl Builder<'_> {
             ("br", _) => self.text("\n", 0),
             ("img", false) => {
                 let attr = |key: &str| attribute(tag, key);
-                let size =
-                    |key: &str| attr(key).and_then(|v| v.trim_end_matches("px").parse().ok());
                 // 图片来自 picture 时：其中的 source 声明的浅色地址优先于 img 的地址。
                 let (light, dark) = &mut self.sources;
                 // `style` 中写明的宽高优先于属性。
@@ -96,7 +94,7 @@ impl Builder<'_> {
                     url: light.take().or_else(|| attr("src")).unwrap_or_default(),
                     alt: attr("alt").unwrap_or_default(),
                     width: style.0.or_else(|| attr("width").and_then(|v| length(&v))),
-                    height: style.1.or_else(|| size("height")),
+                    height: style.1.or_else(|| attr("height").and_then(|v| pixels(&v))),
                     zoom: style.2,
                     dark: dark.take(),
                 };
@@ -567,9 +565,7 @@ fn css_size(style: &str) -> (Option<Length>, Option<u32>, Option<u32>) {
         match key.trim().to_ascii_lowercase().as_str() {
             "width" => out.0 = length(value),
             "height" => {
-                out.1 = (value.trim_end_matches("px").trim().parse::<f32>().ok())
-                    .filter(|px| *px >= 1.0)
-                    .map(|px| px.round() as u32);
+                out.1 = pixels(value);
             }
             "zoom" => {
                 let percent = match value.strip_suffix('%') {
@@ -592,6 +588,18 @@ fn length(value: &str) -> Option<Length> {
         return (percent > 0.0)
             .then(|| Length::Percent((percent.min(100.0) * 100.0).round() as u32));
     }
-    let px: f32 = value.trim_end_matches("px").trim().parse().ok()?;
-    (px >= 1.0).then(|| Length::Px(px.round() as u32))
+    pixels(value).map(Length::Px)
+}
+
+/// HTML 中写明的宽度、高度的上限（逻辑像素）。
+///
+/// 数值取自文档，显示时按它分配像素。取自调参：16384 远大于窗口的尺寸，更大的值只会是
+/// 笔误或有意构造。
+pub(super) const MAX_PIXELS: f32 = 16_384.0;
+
+/// 以像素写的长度 `value`（可以带 `px`）：不足 1 像素或不是数时返回 `None`，不超过
+/// [`MAX_PIXELS`]。
+pub(super) fn pixels(value: &str) -> Option<u32> {
+    let px: f32 = value.trim().trim_end_matches("px").trim().parse().ok()?;
+    (px >= 1.0).then(|| px.min(MAX_PIXELS).round() as u32)
 }

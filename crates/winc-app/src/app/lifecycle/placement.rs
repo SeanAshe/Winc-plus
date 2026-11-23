@@ -16,9 +16,9 @@ pub(super) const DEFAULT_HEIGHT: f64 = 820.0;
 pub(in crate::app) const MIN_WIDTH: f64 = 640.0;
 /// 窗口内容区的最小高度（逻辑像素）。
 pub(in crate::app) const MIN_HEIGHT: f64 = 420.0;
-/// 窗口至少要有这么多留在显示器内（逻辑像素），用户才能把它拖回来。
+/// 窗口至少要有该尺寸（逻辑像素）留在显示器内，用户才能把它拖回来。
 ///
-/// 取 128，与主流编辑器恢复窗口时的边距一致。
+/// 取 128。
 const VISIBLE_MARGIN: f64 = 128.0;
 
 /// 窗口大小或位置最后一次变化之后，等待多久再记录窗口的大小和位置。
@@ -224,7 +224,7 @@ impl App {
     /// 窗口要关了：记下它的大小和位置；有多个窗口时最后关闭的算数。
     pub(super) fn remember_window(&mut self) {
         if let Some(frame) = self.window_frame_now() {
-            self.update_state(|state| state.window = Some(frame));
+            self.update_state(move |state| state.window = Some(frame));
         }
     }
 

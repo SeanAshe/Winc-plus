@@ -181,7 +181,7 @@ impl App {
         }
         // 关掉以后不再沿用：之后再打开时从下一次关闭窗口开始记录。
         if setting == Setting::RestoreWindow && !on {
-            self.update_state(|state| state.window = None);
+            self.update_state(move |state| state.window = None);
         }
         if setting == Setting::CompactFolders {
             self.apply_compact_folders();

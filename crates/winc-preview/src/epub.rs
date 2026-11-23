@@ -87,16 +87,24 @@ pub fn convert(bytes: &[u8]) -> Result<Book, String> {
     let archive = Archive::open(bytes).map_err(|e| match e {
         zip::Error::Invalid => invalid(),
         zip::Error::Unsupported => t!("preview-epub-unsupported").to_owned(),
+        zip::Error::TooLarge => t!("preview-epub-too-large").to_owned(),
     })?;
-    if protected(&archive) {
-        return Err(t!("preview-epub-drm").to_owned());
+    let book = (|| {
+        if protected(&archive) {
+            return Err(t!("preview-epub-drm").to_owned());
+        }
+        let package = Package::read(&archive).ok_or_else(invalid)?;
+        if package.spine.is_empty() {
+            return Err(invalid());
+        }
+        let contents = contents(&archive, &package);
+        Ok(xhtml::convert(&archive, &package, &contents))
+    })();
+    // 解压量超过上限时读不出的部件被当作没有：不显示缺了内容的书，直接说明过大。
+    if archive.exceeded() {
+        return Err(t!("preview-epub-too-large").to_owned());
     }
-    let package = Package::read(&archive).ok_or_else(invalid)?;
-    if package.spine.is_empty() {
-        return Err(invalid());
-    }
-    let contents = contents(&archive, &package);
-    Ok(xhtml::convert(&archive, &package, &contents))
+    book
 }
 
 /// 包文档（OPF）中读出的清单与书脊。
@@ -324,7 +332,14 @@ fn parse(bytes: &[u8]) -> Option<Document<'_>> {
 }
 
 /// 把 `text` 解析成 XML 文档；允许文档类型声明（XHTML 常带 DTD），实体的展开由解析器限制。
+/// 嵌套过深或实体的值里带标签时返回 `None`。
 fn parse_text(text: &str) -> Option<Document<'_>> {
+    // 嵌套过深、或用实体展开出标签（层数数不到）的文件不解析，原因见 `xml::MAX_NESTING`。
+    if crate::xml::nesting_exceeds(text, crate::xml::MAX_NESTING)
+        || crate::xml::declares_markup(text)
+    {
+        return None;
+    }
     let options = ParsingOptions {
         allow_dtd: true,
         ..ParsingOptions::default()

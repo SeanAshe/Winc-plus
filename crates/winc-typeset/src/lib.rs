@@ -138,7 +138,7 @@ const TABLE_TEXT: f32 = 0.875;
 /// 可横向滚动的表格下方为滚动条留出的高度（逻辑像素）。
 pub const SCROLL_BAR_ROOM: f32 = 10.0;
 
-/// 高项与矮项的分界（逻辑像素，经验值）：高度超过该值的项算「高的」，每次绘制都检查一遍；
+/// 高项与矮项的分界（逻辑像素，取自调参）：高度超过该值的项算「高的」，每次绘制都检查一遍；
 /// 矮的项按上边缘二分查找。
 const TALL: f32 = 120.0;
 
@@ -962,7 +962,9 @@ impl Cx<'_, '_> {
                 let indent = base * 2.0;
                 // 正文里的编号链到这里（见 `winc_preview::markdown` 的脚注引用）。
                 out.anchors.push((format!("fn-{label}"), y));
-                let flow = self.blocks(blocks, x + indent, y, width - indent, env, out);
+                // 列比缩进还窄时宽度不能为负：其中的图表按宽度缩放字号。
+                let width = (width - indent).max(1.0);
+                let flow = self.blocks(blocks, x + indent, y, width, env, out);
                 let marker = format!("{label}.");
                 self.marker(
                     &marker,
@@ -1198,7 +1200,7 @@ pub fn margins(block: &Block, base: f32, tight: bool) -> (f32, f32) {
     }
 }
 
-/// 折叠块标题的「链接」地址的开头，后面接 `details_id`：点了不是打开链接，是展开、收起。
+/// 折叠块标题的「链接」地址的开头，后面接 `details_id`：点击不是打开链接，而是展开、收起。
 pub const DETAILS: &str = "\u{1}details:";
 
 /// 返回折叠块的内容哈希（见 [`Cx::toggle_id`]）。

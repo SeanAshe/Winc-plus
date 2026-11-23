@@ -22,7 +22,7 @@ use winc_config::Json;
 use winc_core::Selection;
 use winc_core::text::LineEnding;
 
-use crate::{Document, Editor, Encoding};
+use crate::{Document, Editor, Encoding, LoadedFile, Opened};
 
 /// 备份文件第一行的前缀，用于识别文件是否由 winc 写出，以及格式版本（当前为 1）。
 const MAGIC: &str = "winc-backup 1 ";
@@ -123,11 +123,10 @@ impl Backups {
 
     /// 独占该目录的备份；另一个 winc 实例已经占用，或无法创建锁文件时返回 `None`。
     ///
-    /// 后启动的实例也读取、删除备份时，会把先启动的实例仍在使用的备份当作上次遗留的内容恢复、保存后
-    /// 又删除，先启动的实例之后再异常中止时内容就无法找回，因此同一时刻只允许一个实例处理同一目录。
-    /// 加锁对象是目录旁边的 `<目录>.lock` 文件，使用建议锁且不删除该文件：删除后再创建时，两个进程
-    /// 可能各锁一个文件。文件系统不支持建议锁时视为加锁成功。取到锁后把本进程的编号写入锁文件，
-    /// 供 [`Self::lock_within`] 分辨占用者；写入失败不影响加锁。
+    /// 同一时刻只允许一个实例处理同一目录，否则后启动的实例会把先启动的实例仍在使用的备份当作
+    /// 遗留内容恢复并删除。加锁对象是目录旁边的 `<目录>.lock` 文件，使用建议锁且不删除该文件
+    /// （否则两个进程可能各锁一个文件）；文件系统不支持建议锁时视为加锁成功。取到锁后写入本进程
+    /// 的编号，供 [`Self::lock_within`] 分辨占用者；写入失败不影响加锁。
     pub fn lock(&self) -> Option<Lock> {
         let path = self.lock_path();
         if let Some(root) = path.parent() {
@@ -301,6 +300,35 @@ impl Backup {
     }
 }
 
+/// 恢复一个备份要从磁盘读的内容，由 [`Backup::read`] 读好，交给
+/// [`Editor::restore_backup_with`]。
+pub struct BackupRead {
+    /// 备份的正文。
+    text: String,
+    /// 对应的文件规范化后的路径和现在的内容；未命名的备份、文件已不存在时为 `None`。
+    file: Option<(PathBuf, Opened)>,
+}
+
+impl Backup {
+    /// 读出恢复这个备份要用的内容：正文，和对应的文件现在的内容。
+    ///
+    /// 耗时与两个文件的大小成正比，界面线程上交给后台线程调用。
+    ///
+    /// # Errors
+    ///
+    /// 同 [`Backup::text`]；这时不读对应的文件。
+    pub fn read(&self) -> io::Result<BackupRead> {
+        let text = self.text()?;
+        let file = self.path.as_deref().filter(|path| path.exists());
+        let file = file.map(|path| {
+            let path = crate::canonical_path(path);
+            let opened = Document::read(&path, false, None, None);
+            (path, opened)
+        });
+        Ok(BackupRead { text, file })
+    }
+}
+
 impl Snapshot {
     /// 第一行的 JSON 头：光标位置、标签序号、对应的文件等，不含正文。
     pub fn header(&self) -> &str {
@@ -356,7 +384,7 @@ impl Snapshot {
 
 /// 删除备份文件（文档已保存、已放弃或已关闭），所在目录变空时一并删除目录。
 ///
-/// 文件本来就不存在时同样返回成功。
+/// 文件原本就不存在时同样返回成功。
 ///
 /// # Errors
 ///
@@ -393,21 +421,45 @@ impl Editor {
     ///
     /// 对应的文件已打开时恢复到该标签；没有打开但磁盘上存在时先打开它；磁盘上已不存在时创建一个
     /// 只带路径的标签；未命名的备份新建一个标签。冲突指备份之后磁盘上的文件被其他程序修改过。
-    ///
-    /// 文件现在无法打开或只读（例如被替换成二进制文件）时，内容放进一个新的未命名标签，不会丢失；
-    /// 备份的正文读不出来（文件损坏、不是 UTF-8 文本）时不恢复，返回 `None`，备份文件保留不变。
+    /// 文件无法打开或只读时内容放进新的未命名标签；备份的正文读不出来时返回 `None`，备份文件
+    /// 保留不变。读磁盘就在调用的线程上进行，见 [`Editor::restore_backup_with`]。
     pub fn restore_backup(&mut self, backup: &Backup) -> Option<(usize, bool)> {
-        // 正文在这里才读，读完这一个备份就释放，不和其他备份的正文同时留在内存里。
-        let text = backup.text().ok()?;
-        let index = match &backup.path {
-            Some(path) if path.exists() => Some(self.open(path)),
-            Some(path) => {
+        // 读完这一个备份就恢复、释放，不和其他备份的内容同时留在内存里。
+        let read = backup.read().ok()?;
+        Some(self.restore_backup_with(backup, read))
+    }
+
+    /// 同 [`Editor::restore_backup`]，用已经读好的 `read`，不访问备份和对应的文件。
+    pub fn restore_backup_with(&mut self, backup: &Backup, read: BackupRead) -> (usize, bool) {
+        let BackupRead { text, file } = read;
+        let index = match (&backup.path, file) {
+            (Some(path), Some((canonical, opened))) => {
+                let index = self.open_tab(path);
+                let doc = &self.documents[index];
+                // 读的时候按默认的方式读；标签要按别的方式读（用户选了编码等）时就地重读。
+                let plain =
+                    !doc.reads_as_text() && !doc.reads_as_hex() && doc.reads_with().is_none();
+                if plain {
+                    let (id, encoding) = (doc.id, None);
+                    // 已经读过的标签保留原样，读到的内容不用。
+                    self.finish_load(LoadedFile {
+                        id,
+                        path: canonical,
+                        opened,
+                        encoding,
+                    });
+                }
+                // 读好之后文件换了位置（规范化的路径变了）时标签仍未读取：就地读。
+                self.load(index);
+                Some(index)
+            }
+            (Some(path), None) => {
                 let id = self.allocate_id();
                 self.documents
                     .push(Document::missing(id, path.clone(), backup.mtime));
                 Some(self.documents.len() - 1)
             }
-            None => None,
+            (None, _) => None,
         };
 
         if let Some(index) = index {
@@ -416,7 +468,7 @@ impl Editor {
                 doc.restore_unsaved(&text, backup.mtime, backup.selection, backup.conflict)
             {
                 restore_format(doc, backup);
-                return Some((index, conflict));
+                return (index, conflict);
             }
         }
 
@@ -424,7 +476,7 @@ impl Editor {
         let doc = &mut self.documents[index];
         doc.restore_unsaved(&text, None, backup.selection, false);
         restore_format(doc, backup);
-        Some((index, false))
+        (index, false)
     }
 }
 

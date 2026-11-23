@@ -184,9 +184,16 @@ const RAW_STATES: [LineState; 3] = [LineState::Raw0, LineState::Raw1, LineState:
 
 /// 字符串插值的最大嵌套层数（层）。
 ///
-/// 经验值：实际代码很少超过 3 层。限制层数使递归深度与行长无关；超过时插值的开头按
+/// 取自调参：实际代码很少超过 3 层。层数有限使递归深度与行长无关；超过时插值的开头按
 /// 字符串内容处理。
 const MAX_TEMPLATE_DEPTH: u8 = 8;
+
+/// 一行中没有闭合的字符串插值的个数上限（个），超过后这一行不再尝试插值。
+///
+/// 每个没有闭合的插值都要扫到行尾才能确认，其中的字符串又可以含有同样的插值：一行这样的
+/// 写法使扫描量按嵌套层数成指数增长。取自调参：正常的代码一行里至多有一两处写到一半的
+/// 插值，16 处以后把插值的开头当作字符串内容，扫描量与行长成正比。
+const MAX_UNCLOSED: u8 = 16;
 
 /// 之后可以紧跟字符串的关键字（见 [`Language::prose_quotes`]）。
 const STRING_AFTER_KEYWORDS: &[&str] = &[
@@ -507,6 +514,8 @@ struct Lexer<'a> {
     ///
     /// 为真时不再预先试扫，见 `Lexer::interpolation`。
     closes_known: bool,
+    /// 本行中没有闭合的插值的个数，见 [`MAX_UNCLOSED`]。
+    unclosed: u8,
     /// 本行中第一个 here 文档的状态，内容从下一行开始；没有时为 `None`。
     heredoc: Option<LineState>,
     /// 样式表：当前是否处于选择器中（`{` 之前）。
@@ -536,6 +545,7 @@ impl<'a> Lexer<'a> {
             base,
             depth: 0,
             closes_known: false,
+            unclosed: 0,
             heredoc: None,
             selector: false,
             expect_property: false,
@@ -1153,7 +1163,7 @@ impl Lexer<'_> {
         // Rust 的生命周期）按普通文本处理。
         if c == '\'' && !language.single_quote_string && language.code_tokens {
             // 反斜杠之后的字符被转义，不能作为收尾（如 `'\''`），因此从 `i + 3` 起查找收尾的
-            // 单引号，最远查到 `i + 12`（经验值，足以覆盖 `'\u{10FFFF}'` 这类较长的转义）。
+            // 单引号，最远查到 `i + 11`（`'\u{10FFFF}'` 的收尾单引号）。
             let end = if chars.get(i + 1) == Some(&'\\') {
                 (i + 3..n.min(i + 12))
                     .find(|&j| chars[j] == '\'')

@@ -110,7 +110,7 @@ enum Baseline {
 ///
 /// 支持关键字、数、带单位的长度、百分比和 `em`（相对上一级字号 `parent`）。
 fn font_size(value: &str, parent: f32) -> Option<f32> {
-    // 字号关键字换算成 px：`medium` 取 16 px，其余关键字的 px 值是经验值，不是规范规定的数值。
+    // 字号关键字换算成 px：`medium` 取 16 px，其余关键字的 px 值取自调参，规范未规定具体数值。
     // `larger`、`smaller` 为上一级字号的 1.2 倍及其倒数。
     let keyword = match value {
         "xx-small" => Some(9.0),

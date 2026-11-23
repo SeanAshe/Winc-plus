@@ -101,7 +101,13 @@ impl<'a, 'input> Parser<'a, 'input> {
         } else {
             let path = link.strip_prefix("file://").unwrap_or(link);
             let path = percent_decode(path);
-            let path = Path::new(std::str::from_utf8(&path).ok()?);
+            let path = std::str::from_utf8(&path).ok()?;
+            // 网络路径不读取，原因见 `winc_backend::names_host`。
+            if winc_backend::names_host(path) {
+                self.miss(winc_i18n::t!("preview-svg-missing-remote-images"));
+                return None;
+            }
+            let path = Path::new(path);
             let full = if path.is_absolute() {
                 path.to_path_buf()
             } else {

@@ -135,6 +135,11 @@ pub struct State {
     /// 每项为（工具所在目录，是否运行该目录中的程序）；`false` 表示改用系统安装的程序。
     /// 最多 [`MAX_TOOL_CHOICES`] 项。
     tool_choices: Vec<(PathBuf, bool)>,
+    /// 用户同意运行的来自项目的命令，最近的在前，最多 [`MAX_TOOL_CHOICES`] 项。
+    ///
+    /// 每项为（所在的目录，原文）：项目设置（`.winc/config.json`）中的命令记在项目的 `.winc`
+    /// 目录下，`latexmkrc` 记在它所在的目录下。同意只对这份原文有效，改写后重新询问。
+    approved_commands: Vec<(PathBuf, String)>,
     /// 用户信任了配置的 Git 仓库（根目录）和当时配置的指纹，最近的在前，最多
     /// [`MAX_TOOL_CHOICES`] 项。
     ///
@@ -159,7 +164,7 @@ const MAX_VIM_HISTORY: usize = 100;
 
 /// 最多记录的项目自带工具选择数量（个）。
 ///
-/// 取 50（经验值），作用于工具选择和已信任仓库两项列表。
+/// 上限 50 取自调参，作用于工具选择和已信任仓库两项列表。
 const MAX_TOOL_CHOICES: usize = 50;
 
 /// 窗口没有最大化、全屏时的大小和位置，以及关闭时是否最大化。
@@ -250,22 +255,46 @@ pub enum Tab {
 impl State {
     /// 读取指定文件中的状态；文件不存在、无法读取或格式不对时返回空状态。
     pub fn load_from(path: &Path) -> State {
-        std::fs::read_to_string(path)
-            .ok()
-            .map(|text| State::parse(&text))
-            .unwrap_or_default()
+        State::read(path).ok().flatten().unwrap_or_default()
+    }
+
+    /// 读取指定文件中的状态；文件不存在或没有内容时返回 `Ok(None)`。
+    ///
+    /// 与 [`State::load_from`] 不同，读不出来与没有文件分开报告：调用方据此决定是否保留内存中的
+    /// 状态、是否可以写回。
+    ///
+    /// # Errors
+    ///
+    /// 读取失败时返回对应的 `std::io::Error`；内容不是 UTF-8 文本，或顶层不是 JSON 对象时返回
+    /// [`std::io::ErrorKind::InvalidData`]。
+    pub fn read(path: &Path) -> std::io::Result<Option<State>> {
+        use std::io::{Error, ErrorKind};
+        let bytes = match std::fs::read(path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let text =
+            std::str::from_utf8(&bytes).map_err(|e| Error::new(ErrorKind::InvalidData, e))?;
+        if text.trim().is_empty() {
+            return Ok(None);
+        }
+        State::try_parse(text)
+            .map(Some)
+            .ok_or_else(|| Error::from(ErrorKind::InvalidData))
     }
 
     /// 解析状态文件内容；格式错误或顶层不是对象时返回空状态。
     ///
     /// 类型不符或越界的项被丢弃，其余仍然读取。
     pub fn parse(text: &str) -> State {
-        let Some(root) = Json::parse(text) else {
-            return State::default();
-        };
-        let Some(root) = root.as_object() else {
-            return State::default();
-        };
+        State::try_parse(text).unwrap_or_default()
+    }
+
+    /// 解析状态文件内容；格式错误或顶层不是对象时返回 `None`。
+    fn try_parse(text: &str) -> Option<State> {
+        let root = Json::parse(text)?;
+        let root = root.as_object()?;
 
         let paths = |value: Option<&Json>| -> Vec<PathBuf> {
             value
@@ -485,6 +514,20 @@ impl State {
             .take(MAX_TOOL_CHOICES)
             .collect();
 
+        let approved_commands = root
+            .get("approvedCommands")
+            .and_then(Json::as_array)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|item| {
+                let item = item.as_object()?;
+                let folder = item.get("folder")?.as_str().filter(|f| !f.is_empty())?;
+                let command = item.get("command")?.as_str()?;
+                Some((PathBuf::from(folder), command.to_owned()))
+            })
+            .take(MAX_TOOL_CHOICES)
+            .collect();
+
         // 指纹是 64 位，存成十六进制字符串：JSON 的数字按 f64 读，精度不够，装不下。
         let trusted_repos = root
             .get("trustedRepos")
@@ -521,6 +564,7 @@ impl State {
             recent_files,
             badges,
             tool_choices,
+            approved_commands,
             trusted_repos,
             remote_keys,
             vim_marks,
@@ -636,7 +680,7 @@ impl State {
                 state.places.push((path, FilePlace { text: None, view }));
             }
         }
-        state
+        Some(state)
     }
 
     /// 返回上次退出时开着的目录的现场，启动时据此恢复；没有时返回 `None`。
@@ -676,10 +720,10 @@ impl State {
 
     /// 序列化为 `state.json` 的内容，末尾带一个换行符。
     ///
-    /// `last` 没有值，`previewMode` 为空，`recentFiles`、`otherWindows`、`signOffRepos`、`toolChoices`、
-    /// `trustedRepos`、`vimMarks`、`vimCommands`、`vimSearches` 为空，`commitTree`、
-    /// `commitAllRepositories`、`pdfThumbnailsHidden`、`stayOutsideApplications` 为假时省略
-    /// 对应的键。
+    /// `last` 没有值，`previewMode` 为空，`recentFiles`、`otherWindows`、`signOffRepos`、
+    /// `toolChoices`、`approvedCommands`、`trustedRepos`、`vimMarks`、`vimCommands`、`vimSearches`
+    /// 为空，`commitTree`、`commitAllRepositories`、`pdfThumbnailsHidden`、
+    /// `stayOutsideApplications` 为假时省略对应的键。
     pub fn to_json(&self) -> String {
         let path = |p: &PathBuf| Json::String(p.to_string_lossy().into_owned());
         let mut fields = vec![(
@@ -882,6 +926,15 @@ impl State {
             });
             fields.push(("toolChoices", Json::Array(choices.collect())));
         }
+        if !self.approved_commands.is_empty() {
+            let commands = self.approved_commands.iter().map(|(folder, command)| {
+                Json::object(vec![
+                    ("folder", path(folder)),
+                    ("command", Json::String(command.clone())),
+                ])
+            });
+            fields.push(("approvedCommands", Json::Array(commands.collect())));
+        }
         if !self.trusted_repos.is_empty() {
             let repos = self.trusted_repos.iter().map(|(folder, fingerprint)| {
                 Json::object(vec![
@@ -912,14 +965,20 @@ impl State {
 
     /// 读出 `path` 中现在的状态，用 `change` 修改后写回，返回修改后的状态和写入的结果。
     ///
-    /// 多个 winc 进程（各开一个目录）共用一个状态文件，每次写都重新读一遍再改，避免旧副本
-    /// 覆盖其他进程写入的最近列表、现场和书签；读改写期间锁住旁边的 `<文件>.lock`（建议锁），
-    /// 两个进程不会交错。锁文件打不开时仍然读改写。
+    /// 每次写都重新读一遍再改，避免多个 winc 进程共用状态文件时旧副本覆盖其他进程写入的内容；
+    /// 读改写期间锁住旁边的 `<文件>.lock`（建议锁），锁文件打不开时仍然读改写。
+    ///
+    /// `current` 是调用方内存中的状态，文件读不出来时在它之上修改：读取失败时不写回；内容损坏时
+    /// 把文件留存为同名、扩展名为 `damaged` 的文件，再写入修改后的 `current`。
     ///
     /// # Errors
     ///
-    /// 写回失败时返回对应的 `std::io::Error`。
-    pub fn update(path: &Path, change: impl FnOnce(&mut State)) -> (State, std::io::Result<()>) {
+    /// 读取或写回失败时返回对应的 `std::io::Error`。
+    pub fn update(
+        path: &Path,
+        current: &State,
+        change: impl FnOnce(&mut State),
+    ) -> (State, std::io::Result<()>) {
         let lock = path.parent().and_then(|dir| {
             std::fs::create_dir_all(dir).ok()?;
             let file = std::fs::OpenOptions::new()
@@ -931,7 +990,18 @@ impl State {
             file.lock().ok()?;
             Some(file)
         });
-        let mut state = State::load_from(path);
+        let mut state = match State::read(path) {
+            Ok(stored) => stored.unwrap_or_default(),
+            Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
+                let _ = std::fs::rename(path, path.with_extension("damaged"));
+                current.clone()
+            }
+            Err(error) => {
+                let mut state = current.clone();
+                change(&mut state);
+                return (state, Err(error));
+            }
+        };
         change(&mut state);
         let result = state.save_to(path);
         drop(lock);
@@ -1003,6 +1073,35 @@ impl State {
         self.tool_choices.retain(|(p, _)| p != folder);
         self.tool_choices.insert(0, (folder.to_path_buf(), run));
         self.tool_choices.truncate(MAX_TOOL_CHOICES);
+    }
+
+    /// 是否用户同意过运行 `folder`（项目的 `.winc` 目录）的项目设置中的命令 `command`。
+    ///
+    /// 按命令的原文比较：项目设置改写命令后不再算同意过。
+    pub fn command_approved(&self, folder: &Path, command: &str) -> bool {
+        (self.approved_commands.iter()).any(|(p, c)| p == folder && c == command)
+    }
+
+    /// 返回用户同意过运行的全部命令：（所在的目录，命令的原文），供后台线程核对。
+    pub fn approved_commands(&self) -> &[(PathBuf, String)] {
+        &self.approved_commands
+    }
+
+    /// 记录用户同意运行 `folder` 的项目设置中的命令 `command`，移到最前面，超出
+    /// `MAX_TOOL_CHOICES` 的从末尾移除。
+    pub fn approve_command(&mut self, folder: &Path, command: &str) {
+        self.approved_commands
+            .retain(|(p, c)| !(p == folder && c == command));
+        self.approved_commands
+            .insert(0, (folder.to_path_buf(), command.to_owned()));
+        self.approved_commands.truncate(MAX_TOOL_CHOICES);
+    }
+
+    /// 记录用户同意运行 `folder` 名下内容为 `command` 的那一项，取代它此前同意过的内容：
+    /// 用于一个键只对应一项的情形（运行配置按名字各记一项）。
+    pub fn approve_command_only(&mut self, folder: &Path, command: &str) {
+        self.approved_commands.retain(|(p, _)| p != folder);
+        self.approve_command(folder, command);
     }
 
     /// 返回用户信任 Git 仓库 `root` 的配置时记下的指纹；没有信任过时返回 `None`。
@@ -1347,6 +1446,7 @@ fn window_frame(json: &std::collections::BTreeMap<String, Json>) -> Option<Windo
 }
 
 mod places;
+pub mod writer;
 pub use places::{FilePlace, MAX_PLACES};
 use places::{read_file_places, read_views, write_file_places};
 

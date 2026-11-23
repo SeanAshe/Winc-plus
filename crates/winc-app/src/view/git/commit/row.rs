@@ -20,7 +20,7 @@ struct RowBox<'a> {
     full: Option<CommitOverflow>,
     /// 全名伸出侧栏的那一段；没有伸出时为 `None`。
     spill: Option<Rect>,
-    /// 这一行的名字是否显示全名。按行判断，不看位置：固定在顶部的行与列表中被它盖住的
+    /// 这一行的名字是否显示全名。按行判断，不看位置：固定在顶部的行与列表中被它遮住的
     /// 那一行相同。
     wanted: bool,
     /// 名字的显示方式变化的原因，交给名字的过渡状态。
@@ -140,7 +140,26 @@ pub(super) fn draw_row(
     }
 }
 
-/// 画分组的标题行：箭头、勾选框、标题，右端是文件数，悬停时换成「回滚」按钮。
+/// 组标题悬停时右端的两个按钮，位置同文件行的按钮；返回 `None` 时显示文件数。
+///
+/// 冲突组没有按钮：回滚会丢失解决到一半的内容。
+fn group_actions(
+    group: CommitGroup,
+    staging: bool,
+    checked: bool,
+) -> Option<[Option<CommitTarget>; 2]> {
+    match (group, staging) {
+        (CommitGroup::Conflicts, _) => None,
+        (CommitGroup::Staged, true) => Some([None, Some(CommitTarget::GroupStage(group))]),
+        (_, true) => Some([
+            Some(CommitTarget::GroupRevert(group)),
+            Some(CommitTarget::GroupStage(group)),
+        ]),
+        (_, false) => checked.then_some([None, Some(CommitTarget::GroupRevert(group))]),
+    }
+}
+
+/// 画分组的标题行：箭头、勾选框、标题和文件数，悬停时文件数换成按钮（见 [`group_actions`]）。
 fn draw_group_row(
     app: &App,
     frame: &mut Frame<'_>,
@@ -187,18 +206,12 @@ fn draw_group_row(
         p.text_muted,
         list,
     );
-    // 悬停时右端的文件数换成「回滚」，回滚这一组里勾上的文件，位置和文件行悬停时的按钮
-    // 相同。冲突组没有：回滚冲突的文件会丢掉解决到一半的内容。
-    // 暂存区视图中这个位置是「暂存全部」，「已暂存的更改」一组是「全部取消暂存」。
-    let staging = r.staging;
-    let acts = hovered && group != CommitGroup::Conflicts;
-    let revert = (acts && (staging || state.is_some())).then(|| file_actions(band).1);
-    match revert {
-        Some(rect) => {
-            let target = if staging {
-                CommitTarget::GroupStage(group)
-            } else {
-                CommitTarget::GroupRevert(group)
+    let actions = group_actions(group, r.staging, state.is_some()).filter(|_| hovered);
+    if let Some(actions) = actions {
+        let (first, last) = file_actions(band);
+        for (rect, target) in [first, last].into_iter().zip(actions) {
+            let Some(target) = target else {
+                continue;
             };
             let on = app.pointer.hover == Hover::Commit(target);
             draw_button(frame, p, rect, list, on, false);
@@ -206,7 +219,8 @@ fn draw_group_row(
             draw_action_icon(frame, target, center(rect), color, list);
             hits.push((rect.intersect(list), target));
         }
-        None => draw_count_pill(app, frame, band, &members.len().to_string(), list),
+    } else {
+        draw_count_pill(app, frame, band, &members.len().to_string(), list);
     }
     let check = Rect::new(group_check - 8.0, y + 4.0, 16.0, 16.0);
     r.check_hit(hits, check, CommitTarget::GroupCheck(group));
@@ -313,7 +327,7 @@ fn draw_dir_row(
     // 两种行排得整齐。
     icons::folder(frame, (icon_x, (cy - 6.0).round()), open, p.folder, list);
     // 写全名、收回途中名字画到过渡中的宽度为止，侧栏外的部分由 `draw_commit_overflow`
-    // 接着画。
+    // 继续画。
     let name_end = if wanted || retracting {
         text_x + view.width
     } else {
@@ -390,7 +404,8 @@ fn draw_file_row(
                 | CommitTarget::StageFile(i, _)
         ) if i == index
     );
-    let targets = file_action_targets(app, r.cx.rows.group_of(i), index);
+    let group = r.cx.rows.group_of(i);
+    let targets = file_action_targets(app, group, index);
     // 悬停时右端的状态字母替换为「打开文件」「回滚」两个按钮；文件名放不下而显示全名时，
     // 按钮跟在全名之后（见 `commit_overflow`）。
     let actions = match full {
@@ -414,7 +429,11 @@ fn draw_file_row(
         .map(|p| p.to_string_lossy());
     // 名字用正文色（删除的文件用次要色），状态是右端一个上色的字母（M、U、D 等）；
     // 整行名字上色后颜色过多，不易分辨。
-    let change = entry.shown();
+    let change = match (r.staging, group) {
+        (true, Some(CommitGroup::Staged)) => entry.staged.unwrap_or_else(|| entry.shown()),
+        (true, Some(CommitGroup::Changes)) => entry.unstaged.unwrap_or_else(|| entry.shown()),
+        _ => entry.shown(),
+    };
     let letter = change.letter().to_string();
     let letter_w = frame.measure(FontKind::Ui, app.fonts.ui_small, &letter);
     let letter_x = band.right() - END_CENTER - letter_w / 2.0;

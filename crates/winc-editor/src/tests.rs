@@ -332,7 +332,7 @@ fn remote_paths_are_shown_in_the_remote_spelling() {
     );
 }
 
-/// 大文件从十六进制视图按 UTF-8 切回文本后，文件变化时照常重新读取，不因为「选过 UTF-8」而按
+/// 大文件从十六进制视图按 UTF-8 切回文本后，文件变化时仍然重新读取，不因为「选过 UTF-8」而按
 /// 只能整个读入内存的方式读。
 #[test]
 fn a_large_file_chosen_as_utf8_still_rereads() {

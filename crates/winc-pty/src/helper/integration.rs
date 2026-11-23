@@ -2,13 +2,9 @@
 //! 脚本里再读取用户自己的配置。
 //!
 //! zsh 换 `ZDOTDIR`，bash 用 `--rcfile`，fish 把 winc 的目录加到 `XDG_DATA_DIRS`。脚本编进辅助
-//! 进程，启动前内容不一致时（旧版本留下的、被改过的）重写；写不进去或不认识的 shell 不注入，只是
-//! 没有命令块。
-//!
-//! 每个 shell 另外获得一个随机数（`WINC_NONCE`，脚本读取后即删除），报告命令行时附带该随机数。
-//!
-//! Windows 上仅注入 WSL 发行版的默认 shell（`inject_wsl`）。脚本保存在 Windows 的配置目录，发行版
-//! 通过 `wslpath` 换算路径后读取，因此不在发行版内写入文件。
+//! 进程，启动前内容不一致时重写；写不进去或不认识的 shell 不注入，只是没有命令块。每个 shell
+//! 另获一个随机数（`WINC_NONCE`，脚本读取后即删除），报告命令行时附带。Windows 上仅注入 WSL
+//! 发行版的默认 shell（`inject_wsl`），脚本经 `wslpath` 换算路径后读取，不在发行版内写入文件。
 
 use std::fs;
 use std::io;

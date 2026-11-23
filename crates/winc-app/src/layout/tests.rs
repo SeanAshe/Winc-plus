@@ -158,7 +158,7 @@ fn folding_tools_slide_into_more() {
         kept
     );
 
-    // 收到一半：定位本来就在「⋯」那一格，和「⋯」叠在一起交替淡入淡出；全部折叠往右挪向
+    // 收到一半：定位原本就在「⋯」那一格，和「⋯」叠在一起交替淡入淡出；全部折叠往右挪向
     // 「⋯」；左边的按钮跟着右移，但还没到终点。
     let (tools, more) = folding_tools(header, &[1.0, 1.0, 1.0, 0.5, 0.5], 0.5);
     let more = more.unwrap();

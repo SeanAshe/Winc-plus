@@ -188,7 +188,7 @@ fn session_is_saved_on_exit_and_restored_next_time() {
     // 运行期间切换目录时恢复的标签都只占位，当前标签交给后台读取，不在事件循环中读文件。
     let mut switched = Editor::default();
     assert!(crate::open_session_folder(&mut switched, &session));
-    crate::app::restore_tabs(&mut switched, Some(&session), None);
+    crate::app::lifecycle::backup::restore_tabs(&mut switched, Some(&session), None);
     assert!(switched.documents.iter().all(|d| d.is_pending()));
     let mut restored = blank_app(false);
     restored.editor = editor;
@@ -385,8 +385,8 @@ fn switching_folders_keeps_each_folders_tabs() {
     assert_eq!(names(&app), ["main.rs", "Cargo.toml"]);
     assert_eq!(app.editor.active().unwrap().name(), "Cargo.toml");
 
-    // 项目名菜单：最近的目录（不含当前目录）、新建窗口、打开目录、添加目录、关闭目录。菜单开着时项目名
-    // 按钮处于按下状态，关掉菜单后放开。
+    // 项目名菜单：最近的目录（不含当前目录）、新建窗口、打开目录、添加目录、关闭目录。
+    // 菜单开着时项目名按钮处于按下状态，关掉菜单后放开。
     app.open_project_menu();
     assert_eq!(
         app.overlays.menu_button,
@@ -994,7 +994,7 @@ fn a_large_file_from_the_command_line_is_read_after_the_window_opens() {
     let target = format!("{}:8:3", large.display());
     let args = crate::cli::parse([target.into(), small.into_os_string()]).unwrap();
 
-    // 大文件只开了标签，仍是当前标签；小文件照旧读好了。
+    // 大文件只开了标签，仍是当前标签；小文件仍然读好了。
     let mut editor = Editor::default();
     let opened = crate::open_targets(&mut editor, &args);
     assert!(opened.problems.is_empty());
@@ -1037,7 +1037,7 @@ fn restoring_at_launch_leaves_a_large_active_tab_to_the_window() {
     let editor = restored(1);
     assert_eq!(editor.active().unwrap().name(), "big.log");
     assert!(editor.active().unwrap().is_pending());
-    // 当前标签是普通文件：照旧立即读好，第一帧就有内容。
+    // 当前标签是普通文件：仍然立即读好，第一帧就有内容。
     let editor = restored(0);
     assert!(!editor.active().unwrap().is_pending());
 
@@ -1281,7 +1281,7 @@ fn a_tab_set_to_read_only_refuses_edits_until_cleared() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 开了关闭前确认时，退出和关闭窗口先询问；取消不做任何改动，确认后照常退出。没开时直接退出。
+/// 开了关闭前确认时，退出和关闭窗口先询问；取消不做任何改动，确认后仍然退出。没开时直接退出。
 #[test]
 fn confirm_close_asks_before_quitting_or_closing_the_window() {
     use winit::keyboard::{Key, NamedKey};
@@ -1318,4 +1318,83 @@ fn confirm_close_asks_before_quitting_or_closing_the_window() {
     app.ask_quit();
     assert!(app.alert_key(&Key::Named(NamedKey::Enter), false));
     assert!(app.closing.quit_requested);
+}
+
+/// 后台写完状态文件后内存中的状态换成文件里的；之后又提交过读写时不换，等最后一次的结果。
+#[test]
+fn only_the_latest_stored_state_replaces_the_one_in_memory() {
+    let mut app = app_with(&sample_folder("state-stored"), false);
+    app.store.state_requests = 2;
+    let mut stored = app.state.clone();
+    stored.commit_reformat = true;
+    app.state_stored(1, stored.clone());
+    assert!(!app.state.commit_reformat);
+    app.state_stored(2, stored);
+    assert!(app.state.commit_reformat);
+}
+
+/// 换目录后上次的标签在后台读好之前：这时记现场不盖掉要恢复的那一份；期间打开的文件在标签
+/// 恢复后仍是当前标签。
+#[test]
+fn a_file_opened_while_tabs_are_restored_stays_current() {
+    let dir = sample_folder("restore-gap");
+    let mut app = app_with(&dir, false);
+    let root = app.editor.root().unwrap().to_path_buf();
+    let (first, second) = (root.join("src/main.rs"), root.join("notes.md"));
+    std::fs::write(&second, "notes\n").unwrap();
+    let ids: Vec<_> = app.editor.documents.iter().map(|doc| doc.id).collect();
+    app.close_documents(&ids);
+    let session = Session {
+        folder: root.clone(),
+        tabs: vec![Tab::File(first.clone())],
+        active: Some(0),
+        ..Session::default()
+    };
+    let stored = session.clone();
+    app.update_state(move |state| state.set_session(stored));
+
+    app.disk.restoring = Some(root.clone());
+    assert!(app.restoring_tabs());
+    app.open_path(&second);
+    app.remember_session();
+    assert_eq!(app.state.session_for(&root), Some(&session));
+
+    let prepared = crate::app::prepare_restore(Some(&root), Some(&session), None);
+    *app.disk.prepared.lock().unwrap() = vec![(root, Some(session), prepared)];
+    app.poll_prepared_tabs();
+    assert!(!app.restoring_tabs());
+    let paths: Vec<_> = (app.editor.documents.iter())
+        .filter_map(|doc| doc.path.clone())
+        .collect();
+    assert!(
+        paths.contains(&first) && paths.contains(&second),
+        "{paths:?}"
+    );
+    assert_eq!(
+        app.editor.active().unwrap().path.as_deref(),
+        Some(second.as_path())
+    );
+}
+
+#[test]
+fn tabs_are_restored_when_another_folders_result_arrives_alongside() {
+    let dir = sample_folder("session-two-results");
+    let other = sample_folder("session-two-results-other");
+    let mut app = blank_app(false);
+    app.open_folder(&dir);
+    let root = app.editor.root().unwrap().to_path_buf();
+
+    // 当前目录的结果和另一个目录晚到的结果在界面线程收取之前都放了进来。
+    app.disk.restoring = Some(root.clone());
+    let results = vec![
+        (root, None, crate::app::Prepared::default()),
+        (other.clone(), None, crate::app::Prepared::default()),
+    ];
+    *app.disk.prepared.lock().unwrap() = results;
+    app.poll_prepared_tabs();
+    assert!(!app.restoring_tabs());
+    assert!(app.disk.prepared.lock().unwrap().is_empty());
+
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&other);
 }

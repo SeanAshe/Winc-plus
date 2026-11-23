@@ -4,7 +4,7 @@
 //! 交叉引用表损坏（偏移不对、缺失）时退回逐字节查找 `n g obj`，大多数修改过、拼接过的文件仍能
 //! 读出目录。读不出来时各个查找返回 `None`，从不 panic。
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 
 use miniz_oxide::inflate::{decompress_to_vec_with_limit, decompress_to_vec_zlib_with_limit};
@@ -80,7 +80,15 @@ pub(super) struct File<'a> {
     pub trailer: Obj,
     /// 解开过的对象流：对象号到（解码后的数据，各对象的起点）。
     streams: RefCell<HashMap<u32, Option<Packed>>>,
+    /// 正在解开的间接对象的层数，见 [`MAX_INDIRECTION`]。
+    resolving: Cell<u8>,
 }
+
+/// 解开一个间接对象时最多再经过几层间接对象（层）。
+///
+/// 流的 `/Length` 可以是间接对象，放在对象流里时还要先解开对象流；文件可以让这些引用互相
+/// 指向。合法的文件至多两层（对象流及其长度），取 8 层留出余量，超过时按找不到处理。
+const MAX_INDIRECTION: u8 = 8;
 
 /// 解开的对象流：解码后的数据和各对象的起点。
 type Packed = (Vec<u8>, Vec<usize>);
@@ -94,6 +102,7 @@ impl<'a> File<'a> {
             xref: HashMap::new(),
             trailer: Obj::Null,
             streams: RefCell::default(),
+            resolving: Cell::new(0),
         };
         // 交叉引用表读不出来、或者读出来却找不到根对象时，逐字节查找各个对象重建。
         let read = file.read_xref().is_some();
@@ -172,6 +181,10 @@ impl<'a> File<'a> {
             Some(Obj::Array(index)) => index.iter().filter_map(Obj::int).collect(),
             _ => vec![0, size],
         };
+        // 各栏的宽度取自文件：一个数至多 8 字节，更宽的栏位移时溢出，三栏之和也可能溢出。
+        if a.max(b).max(c) > size_of::<usize>() {
+            return None;
+        }
         let row = a + b + c;
         let mut rows = data.chunks_exact(row.max(1));
         for &[first, count] in index.as_chunks::<2>().0 {
@@ -249,14 +262,21 @@ impl<'a> File<'a> {
 
     /// 对象号为 `n` 的间接对象。
     pub(super) fn object(&self, n: u32) -> Option<Obj> {
-        match *self.xref.get(&n)? {
+        let depth = self.resolving.get();
+        if depth >= MAX_INDIRECTION {
+            return None;
+        }
+        let entry = *self.xref.get(&n)?;
+        self.resolving.set(depth + 1);
+        let object = match entry {
             Entry::At(at) => self.object_at(at),
-            Entry::Packed(stm, i) => {
-                let (data, starts) = self.packed(stm)?;
+            Entry::Packed(stm, i) => self.packed(stm).and_then(|(data, starts)| {
                 let start = *starts.get(i)?;
                 Lexer::new(&data, start).object(0)
-            }
-        }
+            }),
+        };
+        self.resolving.set(depth);
+        object
     }
 
     /// 解开对象流 `stm`：解码后的数据和其中各对象的起点（已加上 `/First`）。
@@ -414,7 +434,8 @@ impl<'a> File<'a> {
 /// 去掉 PNG 预测：每行开头一个字节说明本行的预测方式，`row` 是每行的字节数，`bpp` 是一个像素
 /// 的字节数（至少 1）。
 fn unpredict(data: &[u8], row: usize, bpp: usize) -> Option<Vec<u8>> {
-    if row == 0 {
+    // 每行的字节数取自文件：比数据还长的行不成立，也不能据此分配内存。
+    if row == 0 || row > data.len() {
         return None;
     }
     let bpp = bpp.max(1);
@@ -602,7 +623,7 @@ impl<'a> Lexer<'a> {
         let Ok(n) = text.parse::<i64>() else {
             return text.parse::<f64>().ok().map(Obj::Real);
         };
-        // 试着读 `代号 R`；不是时退回，整数照常返回。
+        // 试着读 `代号 R`；不是时退回，整数仍然返回。
         let back = self.pos;
         self.skip_space();
         let generation = self.peek().is_some_and(|b| b.is_ascii_digit()).then(|| {
@@ -749,3 +770,6 @@ fn delimiter(b: u8) -> bool {
             | b'%'
     )
 }
+
+#[cfg(test)]
+mod tests;

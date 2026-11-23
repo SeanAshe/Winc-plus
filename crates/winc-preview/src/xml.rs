@@ -157,6 +157,9 @@ pub fn attribute<'a>(attributes: &'a str, key: &str) -> Option<Cow<'a, str>> {
     }
 }
 
+/// 认识的实体名的最大长度（字节，不含 `&` 和 `;`）：最长的是六位十六进制的字符引用 `#x10FFFF`。
+const MAX_ENTITY: usize = 8;
+
 /// 还原 `text` 中的实体（`&lt;`、`&#10;`、`&#x4E2D;` 等）；不认识的实体原样保留。
 fn unescape(text: &str) -> Cow<'_, str> {
     if !text.contains('&') {
@@ -167,7 +170,10 @@ fn unescape(text: &str) -> Cow<'_, str> {
     while let Some(at) = rest.find('&') {
         out.push_str(&rest[..at]);
         rest = &rest[at..];
-        let entity = rest.find(';').map(|end| &rest[1..end]);
+        // 只在实体的最大长度以内找分号：每个 `&` 都找到文字末尾时，一串没有分号的 `&` 耗时为
+        // 平方级。
+        let end = (rest.bytes().take(MAX_ENTITY + 2)).position(|b| b == b';');
+        let entity = end.map(|end| &rest[1..end]);
         let decoded = entity.and_then(|entity| match entity {
             "lt" => Some('<'),
             "gt" => Some('>'),
@@ -197,3 +203,103 @@ fn unescape(text: &str) -> Cow<'_, str> {
     out.push_str(rest);
     Cow::Owned(out)
 }
+
+/// 建成整棵树的 XML 中元素最多嵌套的层数（层）。
+///
+/// 建树的解析器按层递归，数千层即耗尽后台线程的栈，进程随之中止，因此在解析之前先数一遍
+/// （[`nesting_exceeds`]）。取自调参：512 层远超文档、图形实际使用的层数，递归的栈占用在
+/// 默认的线程栈以内。
+pub(crate) const MAX_NESTING: usize = 512;
+
+/// `text` 里元素的嵌套是否超过 `limit` 层。
+///
+/// 只粗略地识别 XML 写法：注释、CDATA、`<!DOCTYPE>`、处理指令、属性值里的 `>`。多算几层不要紧，
+/// 只要不会少算。
+pub(crate) fn nesting_exceeds(text: &str, limit: usize) -> bool {
+    let bytes = text.as_bytes();
+    let skip_to = |from: usize, end: &[u8]| {
+        memchr::memmem::find(&bytes[from..], end).map_or(bytes.len(), |i| from + i + end.len())
+    };
+    let (mut i, mut depth) = (0, 0usize);
+    while let Some(at) = memchr::memchr(b'<', &bytes[i..]) {
+        let at = i + at;
+        let rest = &bytes[at + 1..];
+        i = if rest.starts_with(b"!--") {
+            skip_to(at, b"-->")
+        } else if rest.starts_with(b"![CDATA[") {
+            skip_to(at, b"]]>")
+        } else if rest.starts_with(b"?") {
+            skip_to(at, b"?>")
+        } else if rest.starts_with(b"!") {
+            // `<!DOCTYPE … [ … ]>`：内部子集里的声明也带尖括号。
+            let mut j = at + 2;
+            let mut brackets = 0usize;
+            while j < bytes.len() {
+                match bytes[j] {
+                    b'[' => brackets += 1,
+                    b']' => brackets = brackets.saturating_sub(1),
+                    b'>' if brackets == 0 => break,
+                    _ => {}
+                }
+                j += 1;
+            }
+            j + 1
+        } else {
+            // 开始或结束标签：找到不在引号里的 `>`。
+            let mut j = at + 1;
+            let mut quote = None;
+            while j < bytes.len() {
+                match (quote, bytes[j]) {
+                    (None, b'"' | b'\'') => quote = Some(bytes[j]),
+                    (Some(q), c) if c == q => quote = None,
+                    (None, b'>') => break,
+                    _ => {}
+                }
+                j += 1;
+            }
+            if rest.starts_with(b"/") {
+                depth = depth.saturating_sub(1);
+            } else if bytes.get(j.wrapping_sub(1)) != Some(&b'/') {
+                depth += 1;
+                if depth > limit {
+                    return true;
+                }
+            }
+            j + 1
+        };
+        if i >= bytes.len() {
+            break;
+        }
+    }
+    false
+}
+
+/// `text` 的文档类型声明里是否定义了值中带标签的实体。
+///
+/// 实体展开后的标签不在原文里，[`nesting_exceeds`] 数不到，经多层实体引用可以越过层数的
+/// 上限；允许文档类型声明的调用方据此拒绝这样的文件。字符引用写出的 `<`（`&#60;`、`&#x3C;`）
+/// 同样算。
+pub(crate) fn declares_markup(text: &str) -> bool {
+    const DECLARATION: &str = "<!ENTITY";
+    let mut rest = text;
+    while let Some(at) = rest.find(DECLARATION) {
+        rest = &rest[at + DECLARATION.len()..];
+        let Some(open) = rest.find(['"', '\'']) else {
+            return false;
+        };
+        let quote = rest.as_bytes()[open];
+        let value = &rest[open + 1..];
+        let Some(close) = value.bytes().position(|b| b == quote) else {
+            return false;
+        };
+        let value = &value[..close];
+        if value.contains('<') || unescape(value).contains('<') {
+            return true;
+        }
+        rest = &rest[open + 1 + close + 1..];
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests;

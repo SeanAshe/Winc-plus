@@ -452,7 +452,7 @@ fn find_results_are_marked_on_the_scrollbar_track() {
     assert_ne!(image("needle"), image("no-such-text"));
 }
 
-/// 当前的匹配落在查找条下面时翻开，不被盖住。
+/// 当前的匹配落在查找条下面时翻开，不被遮住。
 #[test]
 fn the_find_bar_does_not_cover_the_current_match() {
     let mut app = blank_app(true);

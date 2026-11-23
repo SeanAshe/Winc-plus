@@ -48,7 +48,7 @@ impl App {
     pub(super) fn answer_move_to_applications(&mut self, accept: bool, never: bool) {
         if !accept {
             if never {
-                self.update_state(|state| state.stay_outside_applications = true);
+                self.update_state(move |state| state.stay_outside_applications = true);
             }
             return;
         }

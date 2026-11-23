@@ -18,6 +18,9 @@ pub struct StatusState {
     pub(crate) motion: StatusMotion,
     /// Markdown 文档的字数。
     pub(crate) words: words::Words,
-    /// 后台为目录菜单读好的远端目录及其菜单项。
+    /// 后台为目录菜单读好的目录及其菜单项。
     pub(in crate::app) folders: breadcrumb::Listed,
+    /// 等目录读好后要弹出的系统目录菜单。
+    #[cfg(target_os = "macos")]
+    pub(in crate::app) crumb: Option<breadcrumb::PendingMenu>,
 }

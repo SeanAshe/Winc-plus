@@ -375,7 +375,7 @@ pub fn change_line_endings(
 
 /// 查找括号时最多扫描的字符数（字符）。
 ///
-/// 100 万为经验值，用于避免在超大文件中扫描整个文件。
+/// 取自调参，用于避免在超大文件中扫描整个文件。
 const SCAN_LIMIT: usize = 1_000_000;
 
 /// 返回右括号 `close` 对应的左括号；`close` 不是右括号时返回 `None`。
@@ -525,7 +525,7 @@ pub fn expand_selection(text: &impl Lines, selection: Selection) -> Option<Selec
 ///
 /// 光标在行尾时交换它前面的两个字素，光标不动；否则交换光标前后的两个字素，光标移到两者之后。
 /// 在行首时前一个字素是换行符，交换后本行的第一个字素接到上一行的末尾。两个字素相同时不改动
-/// 文字，光标照样前移，连按可以把一个字素一路往后挪。选区非空、光标前不足两个字素时返回 `None`。
+/// 文字，光标仍然前移，连按可以把一个字素一路往后挪。选区非空、光标前不足两个字素时返回 `None`。
 pub fn transpose(text: &impl Lines, selection: Selection) -> Option<Transaction> {
     if !selection.is_empty() {
         return None;

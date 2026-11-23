@@ -86,7 +86,7 @@ fn a_git_directory_outside_the_folder_is_watched() {
     assert!(changes.git);
     assert!(changes.paths.is_empty(), "{:?}", changes.paths);
 
-    // 打开的目录里的 `.git` 本来就在监视之内，不另外监视。
+    // 打开的目录里的 `.git` 原本就在监视之内，不另外监视。
     watcher.watch_git_dir(Some(&linked.join(".git")));
     assert!(watcher.pending.lock().unwrap().git_dir.is_none());
 
@@ -381,4 +381,38 @@ fn dropping_the_watcher_lets_the_helper_exit_on_its_own() {
     // 被强制结束时不会运行到 `touch`。
     assert!(eventually(|| marker.exists()));
     let _ = fs::remove_dir_all(&dir);
+}
+
+/// 监视一个指向目录的符号链接：其中的变化按链接下的路径报告，文件树按这个路径刷新。
+#[cfg(unix)]
+#[test]
+fn changes_below_a_watched_link_are_reported_under_the_link() {
+    let dir = scratch("linked-folder");
+    let (real, link) = (dir.join("elsewhere"), dir.join("project/link"));
+    fs::create_dir_all(&real).unwrap();
+    fs::create_dir_all(dir.join("project")).unwrap();
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+
+    let (sender, woken) = mpsc::channel();
+    let watcher = Watcher::start(&link, move || {
+        let _ = sender.send(());
+    })
+    .unwrap();
+    fs::write(real.join("ready.txt"), "x").unwrap();
+    wait_for(&watcher, &woken, &[&link.join("ready.txt")]);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// 指向上级目录、主目录或根目录的链接只监视一层；指向别处的整棵监视。
+#[test]
+fn links_to_folders_that_contain_them_or_home_are_watched_one_level_deep() {
+    let home = Path::new("/home/me");
+    let link = Path::new("/home/me/project/up");
+    for real in ["/home/me/project", "/home/me", "/home", "/"] {
+        assert!(is_wide(link, Path::new(real), Some(home)), "{real}");
+    }
+    for real in ["/home/me/other", "/srv/data", "/home/me/project/up-real"] {
+        assert!(!is_wide(link, Path::new(real), Some(home)), "{real}");
+    }
+    assert!(!is_wide(link, Path::new("/srv"), None));
 }
