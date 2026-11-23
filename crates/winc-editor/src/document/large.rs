@@ -26,19 +26,17 @@ use crate::document::progress::ReadProgress;
 ///
 /// 原文件中有更长的行时只读打开，行内超出的部分不可访问。
 pub(crate) const LINE_CAP: usize = 16 << 20;
-/// 相邻检查点之间的最大行数（行）。
-///
-/// 与 [`CHECKPOINT_BYTES`] 任一条件满足即设置新的检查点。
+/// 相邻检查点之间的行数（行）：隔了这么多行、并且相距不少于 [`CHECKPOINT_MIN_BYTES`] 时设置
+/// 新的检查点。
 const CHECKPOINT_LINES: u64 = 64;
-/// 相邻检查点之间的最大字节数（字节，64 KiB）。
-///
-/// 与 [`CHECKPOINT_LINES`] 任一条件满足即设置新的检查点。
+/// 相邻检查点之间的最大字节数（字节，64 KiB）：超过时不论行数都设置新的检查点。
 const CHECKPOINT_BYTES: u64 = 64 << 10;
-/// 顺序扫描时每次读取的字节数（字节，128 KiB）。
-///
-/// 建索引只有解码与统计的开销，扫描的耗时因此趋近磁盘的顺序读取带宽，再增大也不会明显缩短建索引
-/// 的时间，反而使释放后的缓冲在分配器中多占用内存。该值取自调参，作用范围限于顺序扫描。
+/// 相邻检查点之间的最小字节数（字节，4 KiB）。
+const CHECKPOINT_MIN_BYTES: u64 = 4 << 10;
+/// 按顺序读取时每次最多读取的字节数（字节，128 KiB）。
 const CHUNK: usize = 128 << 10;
+/// 建索引时每次读取的字节数（字节，1 MiB）。
+const SCAN_CHUNK: usize = 1 << 20;
 /// 建索引时每段至少包含的字节数（字节，32 MiB）。
 ///
 /// 线程数为 `size / SEGMENT_MIN`，限制在 1 到 [`MAX_WORKERS`]（且不超过 CPU 核数）之间，

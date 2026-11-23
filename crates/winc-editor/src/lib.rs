@@ -34,7 +34,8 @@ pub use document::large::LargeText;
 pub use document::progress::ReadProgress;
 pub use document::{
     COPY_LIMIT, DiskChange, Document, DocumentId, EDIT_LIMIT, LARGE_FILE, OpenError, PictureState,
-    PreviewKind, PreviewMode, Reading, TableState, TableView, Unsupported, looks_binary, size_text,
+    PreviewKind, PreviewMode, Reading, TableState, TableView, Unsupported, looks_binary,
+    opens_as_large, size_text,
 };
 pub use document::{editorconfig, encoding};
 pub use editing::command::Command;

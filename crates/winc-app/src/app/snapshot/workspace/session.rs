@@ -974,6 +974,76 @@ fn folded_blocks_are_restored_with_the_session() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 在 `path` 写一个超过大文件界线的文本文件，各行是 `line 行号`。
+fn write_large_text(path: &Path) {
+    let mut text = String::new();
+    let mut line = 0;
+    while text.len() as u64 <= winc_editor::LARGE_FILE {
+        text.push_str(&format!("line {line}\n"));
+        line += 1;
+    }
+    std::fs::write(path, text).unwrap();
+}
+
+#[test]
+fn a_large_file_from_the_command_line_is_read_after_the_window_opens() {
+    let dir = search_folder("launch-large");
+    let (large, small) = (dir.join("big.log"), dir.join("small.txt"));
+    write_large_text(&large);
+    std::fs::write(&small, "one\ntwo\n").unwrap();
+    let target = format!("{}:8:3", large.display());
+    let args = crate::cli::parse([target.into(), small.into_os_string()]).unwrap();
+
+    // 大文件只开了标签，仍是当前标签；小文件照旧读好了。
+    let mut editor = Editor::default();
+    let opened = crate::open_targets(&mut editor, &args);
+    assert!(opened.problems.is_empty());
+    assert!(editor.documents[0].is_pending() && !editor.documents[1].is_pending());
+    assert_eq!(editor.active, Some(0));
+
+    // 窗口在后台读好以后跳到命令行给的行和列。
+    let mut app = App::new(editor, None, Bench::from_env(), Config::default());
+    app.load_at_launch(opened.jumps);
+    app.poll_loads();
+    app.run_when_loaded();
+    let doc = app.editor.active().unwrap();
+    assert!(doc.is_large() && !doc.is_pending());
+    let head = doc.selection.head;
+    assert_eq!(doc.text().line_of(head), 7);
+    assert_eq!(head - doc.text().line_start(7), 2);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn restoring_at_launch_leaves_a_large_active_tab_to_the_window() {
+    let dir = sample_folder("session-large-active");
+    let large = dir.join("big.log");
+    write_large_text(&large);
+    let session = |active| Session {
+        folder: winc_config::files::canonicalize(&dir).unwrap(),
+        tabs: vec![Tab::File(dir.join("a.txt")), Tab::File(large.clone())],
+        active: Some(active),
+        ..Session::default()
+    };
+    let restored = |active| {
+        let (mut editor, session) = (Editor::default(), session(active));
+        assert!(crate::open_session_folder(&mut editor, &session));
+        crate::app::restore_at_launch(&mut editor, Some(&session), None);
+        editor
+    };
+
+    // 当前标签是大文件：不在窗口出现之前读。
+    let editor = restored(1);
+    assert_eq!(editor.active().unwrap().name(), "big.log");
+    assert!(editor.active().unwrap().is_pending());
+    // 当前标签是普通文件：照旧立即读好，第一帧就有内容。
+    let editor = restored(0);
+    assert!(!editor.active().unwrap().is_pending());
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn waiting_quits_once_the_files_are_closed_and_leaves_no_trace() {
     let dir = search_folder("wait");
@@ -983,7 +1053,7 @@ fn waiting_quits_once_the_files_are_closed_and_leaves_no_trace() {
     let args = crate::cli::Args { wait: true, ..args };
 
     let mut editor = Editor::default();
-    assert!(crate::open_targets(&mut editor, &args).is_empty());
+    assert!(crate::open_targets(&mut editor, &args).problems.is_empty());
     // 临时打开模式不打开项目。
     assert!(editor.workspace.is_none());
     let mut app = App::new(editor, None, Bench::from_env(), Config::default());
@@ -1017,7 +1087,7 @@ fn waiting_asks_about_other_unsaved_files_before_quitting() {
     let args = crate::cli::parse([message.into_os_string()]).unwrap();
     let args = crate::cli::Args { wait: true, ..args };
     let mut editor = Editor::default();
-    assert!(crate::open_targets(&mut editor, &args).is_empty());
+    assert!(crate::open_targets(&mut editor, &args).problems.is_empty());
     let mut app = App::new(editor, None, Bench::from_env(), Config::default());
     app.start_one_off(&args);
     let mut winc = crate::winc::Winc::new(None, None);
@@ -1051,7 +1121,7 @@ fn files_given_with_a_line_open_there() {
     let arg = format!("{}:3:5", main.display());
     let args = crate::cli::parse([arg.into()]).unwrap();
     let mut editor = Editor::default();
-    assert!(crate::open_targets(&mut editor, &args).is_empty());
+    assert!(crate::open_targets(&mut editor, &args).problems.is_empty());
     let doc = editor.active().unwrap();
     let (line, col) = doc.text().pos_to_line_col(doc.selection.head);
     assert_eq!((line, col), (2, 4));

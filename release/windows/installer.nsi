@@ -1,6 +1,9 @@
 ; Native current-user installation. Updater invocations use /S and /D=<installation directory>.
 Unicode true
 RequestExecutionLevel user
+; DPI-aware, so Windows does not stretch the installer on scaled displays and blur its text. NSIS
+; keeps the checkboxes on the components page at 16 pixels.
+ManifestDPIAware true
 SetCompressor /SOLID lzma
 !include "MUI2.nsh"
 !include "Sections.nsh"

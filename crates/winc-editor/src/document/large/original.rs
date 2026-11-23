@@ -326,9 +326,8 @@ pub(super) fn scan_segment(
     to: u64,
     progress: Option<&ReadProgress>,
 ) -> io::Result<Segment> {
-    // 按平均每行 64 字节预估检查点个数，一次分配到位，避免反复扩容留下的内存碎片；估计值的
-    // 偏差只影响扩容次数，不影响结果。
-    let mut checkpoints = Vec::with_capacity(((to - from) / (CHECKPOINT_LINES * 64)) as usize + 1);
+    // 相邻检查点至少相距 `CHECKPOINT_MIN_BYTES`，个数不超过这个上界：一次分配到位，不扩容。
+    let mut checkpoints = Vec::with_capacity(((to - from) / CHECKPOINT_MIN_BYTES) as usize + 1);
     let mut last = Checkpoint {
         line: 0,
         byte: from,
@@ -346,75 +345,92 @@ pub(super) fn scan_segment(
         first_crlf: None,
         longest_line: 0,
     };
-    let mut buf = vec![0u8; CHUNK];
+    let mut buf = vec![0u8; SCAN_CHUNK];
     let mut line_start = from;
 
     while segment.end < to {
-        let want = ((to - segment.end) as usize).min(CHUNK);
+        let want = ((to - segment.end) as usize).min(SCAN_CHUNK);
         let n = file.read_full(base + segment.end, &mut buf[..want])?;
 
         if n == 0 {
             break;
         }
 
-        // 块尾被截断的多字节字符留给下一块，使每块都能单独校验和统计字符。
-        let take = if n < CHUNK {
-            n
-        } else {
-            complete_prefix(&buf[..n]).max(1)
-        };
-        let chunk = &buf[..take];
-        let valid = std::str::from_utf8(chunk).is_ok();
-        let count = |bytes: &[u8]| {
-            if valid {
-                count_valid(bytes)
+        // 读到的内容按 `CHUNK` 一块依次处理。
+        let mut done = 0;
+        while done < n {
+            let size = (n - done).min(CHUNK);
+            // 块尾被截断的多字节字符留给下一块，使每块都能单独校验和统计字符。
+            let take = if n < SCAN_CHUNK && done + size == n {
+                size
             } else {
-                char_count(bytes)
+                complete_prefix(&buf[done..done + size])
+            };
+            // 读满的内容末尾只剩不完整的字符：留给下一次读取。
+            if take == 0 && done > 0 {
+                break;
             }
-        };
-        let mut counted = 0;
-        segment.utf8 &= valid;
+            let take = take.max(1);
+            let chunk = &buf[done..done + take];
+            done += take;
+            // 全是 ASCII 的块字符数等于字节数，不必逐字节数。
+            let ascii = chunk.is_ascii();
+            let valid = ascii || std::str::from_utf8(chunk).is_ok();
+            let count = |bytes: &[u8]| {
+                if ascii {
+                    bytes.len() as u64
+                } else if valid {
+                    count_valid(bytes)
+                } else {
+                    char_count(bytes)
+                }
+            };
+            let mut counted = 0;
+            segment.utf8 &= valid;
 
-        for i in memchr::memchr_iter(b'\n', chunk) {
-            let at = segment.end + i as u64;
-            segment
-                .first_crlf
-                .get_or_insert(i > 0 && chunk[i - 1] == b'\r');
-            segment.longest_line = segment.longest_line.max(at - line_start);
-            segment.newlines += 1;
-            line_start = at + 1;
+            for i in memchr::memchr_iter(b'\n', chunk) {
+                let at = segment.end + i as u64;
+                segment
+                    .first_crlf
+                    .get_or_insert(i > 0 && chunk[i - 1] == b'\r');
+                segment.longest_line = segment.longest_line.max(at - line_start);
+                segment.newlines += 1;
+                line_start = at + 1;
 
-            if segment.newlines - last.line >= CHECKPOINT_LINES
-                || line_start - last.byte >= CHECKPOINT_BYTES
-            {
-                segment.chars += count(&chunk[counted..=i]);
-                counted = i + 1;
-                last = Checkpoint {
+                let bytes = line_start - last.byte;
+                if (segment.newlines - last.line >= CHECKPOINT_LINES
+                    && bytes >= CHECKPOINT_MIN_BYTES)
+                    || bytes >= CHECKPOINT_BYTES
+                {
+                    segment.chars += count(&chunk[counted..=i]);
+                    counted = i + 1;
+                    last = Checkpoint {
+                        line: segment.newlines,
+                        byte: line_start,
+                        char: segment.chars,
+                    };
+                    segment.checkpoints.push(last);
+                }
+            }
+
+            segment.chars += count(&chunk[counted..]);
+            segment.end += take as u64;
+            if let Some(progress) = progress {
+                progress.add(take as u64);
+            }
+
+            // 块尾位于一行中间，且距这一行最近的记录已超过 `CHECKPOINT_BYTES`：在块尾记录位置。
+            let recorded = segment
+                .marks
+                .last()
+                .map_or(last.byte, |m| m.byte.max(last.byte));
+            if segment.end > line_start && segment.end - recorded >= CHECKPOINT_BYTES {
+                segment.marks.push(Checkpoint {
                     line: segment.newlines,
-                    byte: line_start,
+                    byte: segment.end,
                     char: segment.chars,
-                };
-                segment.checkpoints.push(last);
+                });
             }
-        }
-
-        segment.chars += count(&chunk[counted..]);
-        segment.end += take as u64;
-        if let Some(progress) = progress {
-            progress.add(take as u64);
-        }
-
-        // 块尾位于一行中间，且距这一行最近的记录已超过 `CHECKPOINT_BYTES`：在块尾记录位置。
-        let recorded = segment
-            .marks
-            .last()
-            .map_or(last.byte, |m| m.byte.max(last.byte));
-        if segment.end > line_start && segment.end - recorded >= CHECKPOINT_BYTES {
-            segment.marks.push(Checkpoint {
-                line: segment.newlines,
-                byte: segment.end,
-                char: segment.chars,
-            });
         }
     }
 

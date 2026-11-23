@@ -112,6 +112,8 @@ pub struct Bench {
     key_time: Duration,
     /// 查找、高亮测量开始的时刻，当时进程已用的 CPU 时间，以及此后绘制的帧数。
     progress: Option<(Instant, Duration, usize)>,
+    /// 当前标签读好之前呈现的帧数（帧）。
+    waiting: usize,
     /// 滚轮测量的进度；只在 [`Mode::Wheel`] 下、首帧呈现之后存在。
     wheel: Option<WheelRun>,
     /// 终端测量中尚未写给终端的命令，见 [`Bench::terminal_command`]。
@@ -144,6 +146,7 @@ impl Bench {
             frame_times: Vec::new(),
             key_time: Duration::ZERO,
             progress: None,
+            waiting: 0,
             wheel: None,
             command: None,
         }
@@ -178,6 +181,7 @@ impl Bench {
             frame_times: Vec::new(),
             key_time: Duration::ZERO,
             progress: None,
+            waiting: 0,
             wheel: None,
             command: None,
         }
@@ -204,10 +208,20 @@ impl Bench {
     ///
     /// `presented` 是包括当前帧在内的累计呈现次数，从 1 起；第 1 帧绘制在尚未显示的窗口上，
     /// 因此以第 2 帧作为首次呈现，滚动测量也从第 3 帧起采样。`elapsed` 是当前帧的绘制与呈现耗时。
-    pub fn on_present(&mut self, presented: usize, elapsed: Duration) -> Next {
+    /// `loading` 为当前标签是否还在读取：这样的帧没有内容，不计入，只输出窗口出现的时间戳。
+    pub fn on_present(&mut self, presented: usize, elapsed: Duration, loading: bool) -> Next {
         if self.mode == Mode::Off {
             return Next::Continue;
         }
+        if loading {
+            self.waiting += 1;
+            if presented == 2 {
+                println!("WINC first_window_epoch_ms={:.3}", epoch_ms());
+            }
+            return Next::Continue;
+        }
+        // 读取期间有过呈现时窗口已经显示，读好后的第一帧就是首次呈现。
+        let presented = presented - self.waiting + self.waiting.min(1);
 
         if presented == 2 {
             println!("WINC first_present_epoch_ms={:.3}", epoch_ms());

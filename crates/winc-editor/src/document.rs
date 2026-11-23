@@ -418,6 +418,12 @@ pub const LARGE_FILE: u64 = 16 << 20;
 /// 打开和全局搜索使用同一个上限，行号才能对上。再大的 UTF-16 文件不打开。上限取自调参：
 /// 解码后的文本与原文件同一量级，64 MiB 的占用可以接受。
 pub(crate) const UTF16_INLINE: u64 = 64 << 20;
+
+/// 本机上的文件 `path` 是否超过 [`LARGE_FILE`]、按大文件打开；远端的文件不查询，返回 `false`。
+pub fn opens_as_large(path: &Path) -> bool {
+    !winc_backend::is_remote(path)
+        && winc_backend::fs::metadata(path).is_ok_and(|m| m.len > LARGE_FILE)
+}
 /// 一次复制的最大字节数（字节，64 MiB）。
 ///
 /// 大文件全选后复制会把整个文件读进内存，因此需要限制。
