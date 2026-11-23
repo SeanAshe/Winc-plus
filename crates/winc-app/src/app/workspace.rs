@@ -21,6 +21,7 @@ pub(super) mod outline;
 pub(crate) mod panes;
 pub(crate) mod picker;
 pub(super) mod places;
+pub(crate) mod project;
 pub(super) mod recent;
 pub(crate) mod search_dialog;
 pub(super) mod session;
@@ -72,6 +73,8 @@ pub(crate) struct DiskState {
     pub(in crate::app) solo: bool,
     /// 下一次打开这个目录时单独打开，不恢复它那一组附加的目录。
     pub(in crate::app) open_alone: Option<PathBuf>,
+    /// 正在提示可打开的项目文件（见 `App::sync_project_offer`）。
+    pub(in crate::app) project_offer: Option<PathBuf>,
     /// 已收到目录变化通知后，统一处理变化的时刻。
     pub(in crate::app) changes_due: Option<Instant>,
     /// 正在后台重读的、被其他程序修改的文件。

@@ -347,6 +347,21 @@ fn the_font_weight_steps_by_hundreds_within_its_range() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// 跟随系统时界面随系统的外观切换深浅；固定了深浅时不随系统变化。
+#[test]
+fn only_a_theme_following_the_system_changes_with_it() {
+    let mut app = blank_app(true);
+    app.set_theme_choice(ThemeChoice::Auto);
+    app.system_theme_changed(Theme::Light);
+    assert!(!app.palette.dark);
+    app.system_theme_changed(Theme::Dark);
+    assert!(app.palette.dark);
+
+    app.set_theme_choice(ThemeChoice::Light);
+    app.system_theme_changed(Theme::Dark);
+    assert!(!app.palette.dark);
+}
+
 /// 各档字重的截图：`cargo test -p winc-app shoot_font_weights -- --ignored`。
 #[test]
 #[ignore = "截图，手动运行"]

@@ -178,10 +178,7 @@ impl App {
     ///
     /// 侧栏直接到位，没有收起动画。
     pub(in crate::app) fn restore_sidebar_for_window(&mut self) {
-        let session = self
-            .editor
-            .root()
-            .and_then(|root| self.state.session_for(root));
+        let session = self.current_session();
         if session.is_some_and(|session| session.sidebar_hidden) {
             self.panels.sidebar.visible = false;
             self.panels.sidebar.motion = None;

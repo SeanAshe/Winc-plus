@@ -12,6 +12,8 @@ use crate::app::git::form::FormKind;
 use crate::keymap::Action;
 use winc_pty::protocol::Modes;
 
+mod project;
+
 /// 在本进程内启动服务端并登记为到 `name` 的连接：该目标的虚拟路径指向本机的同名路径。
 fn loopback(name: &str) -> winc_backend::Target {
     let (requests, to_server) = std::io::pipe().unwrap();
@@ -528,6 +530,7 @@ fn a_folder_on_a_connected_host_opens_as_the_workspace() {
     local_only_actions_are_not_offered_on_a_remote_host();
     files_copied_in_a_remote_tree_are_pasted_there();
     remote_items_download_to_this_computer();
+    project::remote_folders_are_added_and_saved_as_a_project();
 }
 
 /// 截图：开始页、主机面板、目录面板（浏览与筛选）和打开远端目录后的窗口。

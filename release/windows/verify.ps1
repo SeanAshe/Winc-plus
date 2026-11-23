@@ -48,11 +48,14 @@ foreach ($kind in @('nsis', 'msi')) {
         if ((Get-CommandPath $kind) -notcontains "$directory\bin") { throw "${kind}: bin is not on the Path" }
         if ((Get-Content "$directory/winc-installation" -Raw).Trim() -ne $kind) { throw 'incorrect installation marker' }
         # Each type's ProgID shows the document icon of its group.
-        foreach ($pair in @(@('JSON', 'json'), @('MD', 'markdown'), @('RS', 'rust'), @('SQL', 'code'), @('TEX', 'markup'), @('PDF', 'text'))) {
+        foreach ($pair in @(@('JSON', 'json'), @('MD', 'markdown'), @('RS', 'rust'), @('SQL', 'code'), @('TEX', 'markup'), @('PDF', 'text'), @('WINC-PROJECT', 'project'))) {
             $icon = (Get-ItemProperty -LiteralPath "$classes\winc.$($pair[0])\DefaultIcon").'(default)'
             if ($icon -ne "$directory\icons\$($pair[1]).ico") { throw "${kind}: wrong icon for $($pair[0]): $icon" }
             if (-not (Test-Path -LiteralPath $icon)) { throw "${kind}: missing $icon" }
         }
+        # .winc-project is Winc's own type and opens with it by default.
+        $project = (Get-ItemProperty -LiteralPath "$classes\.winc-project").'(default)'
+        if ($project -ne 'winc.WINC-PROJECT') { throw "${kind}: .winc-project does not open with winc: $project" }
         $command = (Get-ItemProperty -LiteralPath "$classes\winc.JSON\shell\open\command").'(default)'
         if ($command -ne "`"$directory\winc.exe`" `"%1`"") { throw "${kind}: wrong open command: $command" }
         if ($null -eq (Get-ItemProperty -LiteralPath "$classes\Applications\winc.exe\SupportedTypes").'.json') { throw "${kind}: json is not a supported type" }

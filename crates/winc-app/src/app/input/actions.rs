@@ -102,12 +102,8 @@ impl App {
             GoToDefinition => self.go_to_definition(),
             OpenLink => self.open_caret_link(),
             FindReferences => self.find_references(),
-            // 有日志标签且可以后退时先在日志里后退；日志里已经找不到的提交（例如被跳过的
-            // 父提交）直接跳过，继续找回更早的记录。
-            GoBack if self.log_navigate(false) => {}
-            GoForward if self.log_navigate(true) => {}
-            GoBack => self.navigate(false),
-            GoForward => self.navigate(true),
+            GoBack => self.navigate_history(false),
+            GoForward => self.navigate_history(true),
             Settings => self.open_settings(),
             ReleaseNotes => self.open_release_notes(crate::release_notes::Scope::All),
             KeyboardShortcuts => {
@@ -122,6 +118,8 @@ impl App {
             OpenFile => self.pick(Pick::Open),
             OpenFolder => self.pick(Pick::OpenFolder),
             AddFolder => self.ask_add_folder(),
+            SaveProjectAs => self.ask_save_project(),
+            OpenProject => self.pick(Pick::OpenProject),
             RemoteConnect => self.open_remote_picker(),
             RemoteDisconnect => self.remote_disconnect(),
             OpenRecent => self.open_recent_folders(),

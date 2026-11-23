@@ -123,6 +123,8 @@ pub(crate) struct RemoteState {
     /// 正在进行的连接成功、打开目录之后要打开的文件，及参数中写的目录（见
     /// [`App::open_remote`]）；没有时为 `None`。
     files: Option<(PathBuf, Vec<crate::cli::Target>)>,
+    /// 连接成功后要打开的项目文件，其第一个目录在远端（见 [`App::open_folder`]）。
+    pub(in crate::app) project: Option<PathBuf>,
 }
 
 impl Default for RemoteState {
@@ -141,6 +143,7 @@ impl Default for RemoteState {
             stepping: false,
             listed: picker::Listings::default(),
             files: None,
+            project: None,
         }
     }
 }

@@ -92,6 +92,11 @@ impl App {
             if self.is_folder(&target.path) {
                 continue;
             }
+            // 项目文件：窗口已按其第一个目录选定，此处载入项目。
+            if crate::app::workspace::project::is_project(&target.path) {
+                self.open_folder(&target.path);
+                continue;
+            }
             self.open_path(&target.path);
             self.note_opened_file(&target.path);
             if let Some(line) = target.line {
@@ -245,6 +250,7 @@ impl App {
     /// 窗口尺寸、面板宽度、标签或预览状态变化后调用；面板跟着焦点关闭也在这一步完成。
     pub(crate) fn relayout(&mut self) {
         self.note_terminal_tab_position();
+        self.sync_project_offer();
         // 面板打开以后换了标签（⌘W、切换标签、后退前进、新建文件）：面板里的符号、书签、用法
         // 都属于原来的文档，回车会在新标签里跳到错误的位置，所以关掉。`close_picker` 会再次
         // 调用本函数，那时面板已经关了。

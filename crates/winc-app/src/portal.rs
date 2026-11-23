@@ -19,6 +19,8 @@ pub enum Choose<'a> {
     Open {
         directory: bool,
         dir: Option<&'a Path>,
+        /// 筛选：名称为 `.0`，扩展名（不含点）为 `.1`；为 `None` 时不筛选。
+        types: Option<(&'a str, &'a [&'a str])>,
     },
     /// 另存为：默认文件名 `name`，初始目录为 `dir`。
     Save {
@@ -68,17 +70,27 @@ struct Request {
     directory: bool,
     name: Option<String>,
     dir: Option<Vec<u8>>,
+    /// 门户的 `filters` 选项：名称和各通配符，类型 `0` 表示通配符。
+    filter: Option<(String, Vec<(u32, String)>)>,
 }
 
 impl Request {
     fn from(choose: Choose<'_>, title: &str) -> Request {
         match choose {
-            Choose::Open { directory, dir } => Request {
+            Choose::Open {
+                directory,
+                dir,
+                types,
+            } => Request {
                 method: "OpenFile",
                 title: title.to_owned(),
                 directory,
                 name: None,
                 dir: dir.map(folder_bytes),
+                filter: types.map(|(name, types)| {
+                    let globs = types.iter().map(|t| (0, format!("*.{t}"))).collect();
+                    (name.to_owned(), globs)
+                }),
             },
             Choose::Save { name, dir } => Request {
                 method: "SaveFile",
@@ -86,6 +98,7 @@ impl Request {
                 directory: false,
                 name: Some(name.to_owned()),
                 dir: dir.map(folder_bytes),
+                filter: None,
             },
         }
     }
@@ -137,6 +150,9 @@ impl Request {
         }
         if let Some(dir) = &self.dir {
             options.insert("current_folder", Value::from(dir.as_slice()));
+        }
+        if let Some(filter) = &self.filter {
+            options.insert("filters", Value::new(vec![filter.clone()]));
         }
         // 第一个参数是父窗口的标识；不提供时面板不依附于窗口，仍然可以显示。
         let _: OwnedObjectPath = chooser.call(self.method, &("", self.title.as_str(), options))?;

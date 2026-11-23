@@ -233,12 +233,13 @@ pub fn move_to_trash(path: &Path) -> io::Result<()> {
 
 /// 在文件管理器中显示并选中 `path`。
 ///
-/// macOS 以外的 Unix 平台上经 D-Bus 的 `org.freedesktop.FileManager1` 接口请桌面的文件管理器
-/// 选中它；没有该服务时只打开所在的目录。`path` 不存在时打开其父目录。
+/// Windows 上经 shell 的 `SHOpenFolderAndSelectItems`，macOS 以外的 Unix 平台上经 D-Bus 的
+/// `org.freedesktop.FileManager1` 接口；失败时只打开所在的目录。`path` 不存在时打开其父目录。
 ///
 /// # Errors
 ///
-/// 无法启动系统的文件管理器命令时返回 `io::Error`；D-Bus 的调用在后台进行，不报告错误。
+/// 无法启动系统的文件管理器命令或创建后台线程时返回 `io::Error`；后台的 D-Bus 调用与 shell
+/// 调用不报告错误。
 pub fn reveal_in_file_manager(path: &Path) -> io::Result<()> {
     // 交给本机的程序，只接受本机路径：远端主机上的文件无法由本机的程序打开。
     winc_backend::ensure_local(path)?;
@@ -252,8 +253,7 @@ pub fn reveal_in_file_manager(path: &Path) -> io::Result<()> {
     } else if cfg!(windows) {
         #[cfg(windows)]
         {
-            use std::os::windows::process::CommandExt;
-            spawn(Command::new("explorer").raw_arg(explorer_select(path)))
+            crate::windows::reveal_in_file_manager(path)
         }
         #[cfg(not(windows))]
         Ok(())
@@ -274,17 +274,6 @@ pub fn reveal_in_file_manager(path: &Path) -> io::Result<()> {
         let folder = path.parent().unwrap_or(path);
         spawn(Command::new("xdg-open").arg(folder))
     }
-}
-
-/// 返回让资源管理器选中 `path` 的命令行参数，原样传给 `explorer`。
-///
-/// 引号只包含路径：整个参数加引号时 `explorer` 无法解析，会改为打开默认的目录。
-#[cfg_attr(not(any(windows, test)), allow(dead_code))]
-fn explorer_select(path: &Path) -> std::ffi::OsString {
-    let mut select = std::ffi::OsString::from("/select,\"");
-    select.push(path);
-    select.push("\"");
-    select
 }
 
 /// 请桌面的文件管理器打开 `path` 所在的目录并选中 `path`（接口方法 `ShowItems`）。

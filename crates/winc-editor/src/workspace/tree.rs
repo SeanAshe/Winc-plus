@@ -120,6 +120,8 @@ pub struct Workspace {
     own_name: String,
     /// 用户给这组目录起的名字。
     alias: Option<String>,
+    /// 这组目录所属的项目文件；见 [`Workspace::set_project`]。
+    project: Option<PathBuf>,
     /// 附加的文件夹（规范化后的绝对路径），按添加的顺序；见 [`Workspace::add_folder`]。
     extra: Vec<PathBuf>,
     /// 选中行在 [`Self::rows`] 中的下标（从 0 起）。
@@ -299,6 +301,7 @@ impl Workspace {
             own_name: name.clone(),
             name,
             alias: None,
+            project: None,
             extra: Vec::new(),
             selected: None,
             marked: HashSet::new(),

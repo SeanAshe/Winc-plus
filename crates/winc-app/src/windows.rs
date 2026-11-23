@@ -1,5 +1,5 @@
-//! Windows 上交由系统的操作，读取的系统设置，任务栏的跳转列表，文件类型图标，按屏幕刷新绘制动画的
-//! 显示链接，以及文件拖进拖出时的鼠标位置和系统拖放。
+//! Windows 上交由系统的操作，读取的系统设置，任务栏的跳转列表，文件类型图标，在文件管理器中显示文件，
+//! 按屏幕刷新绘制动画的显示链接，以及文件拖进拖出时的鼠标位置和系统拖放。
 
 mod assoc;
 mod display_link;
@@ -8,6 +8,7 @@ mod display_link;
 mod drag;
 mod jump_list;
 mod pointer;
+mod reveal;
 mod touch;
 
 pub use assoc::{register_file_icons, register_file_types, unregister_file_types};
@@ -16,6 +17,7 @@ pub use display_link::DisplayLink;
 pub use drag::drag_files;
 pub use jump_list::sync_jump_list;
 pub use pointer::mouse_location;
+pub use reveal::reveal_in_file_manager;
 pub use touch::{WindowHitTest, WindowInput};
 
 use std::io;

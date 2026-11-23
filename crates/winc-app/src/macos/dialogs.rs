@@ -14,6 +14,8 @@ pub enum Panel<'a> {
         files: bool,
         /// 起始目录。
         dir: Option<&'a Path>,
+        /// 只能选这些扩展名（不含点）的文件，不能选目录；为空时不限。
+        types: &'a [&'a str],
     },
     /// 保存：默认文件名和起始目录。
     Save {
@@ -58,12 +60,24 @@ pub fn show_panel(
 
         // 程序不是 .app 包时，系统按英文显示按钮，因此显式设置当前界面语言的文字。
         match panel {
-            Panel::Open { files, dir } => {
+            Panel::Open { files, dir, types } => {
                 if let Some(url) = dir.and_then(|dir| file_url(dir, true)) {
                     let () = msg_send![&*object, setDirectoryURL: &*url];
                 }
                 let () = msg_send![&*object, setCanChooseFiles: files];
-                let () = msg_send![&*object, setCanChooseDirectories: true];
+                let () = msg_send![&*object, setCanChooseDirectories: types.is_empty()];
+                let names: Vec<Retained<AnyObject>> =
+                    types.iter().filter_map(|name| ns_string(name)).collect();
+                if !names.is_empty() {
+                    let objects: Vec<*const AnyObject> =
+                        names.iter().map(Retained::as_ptr).collect();
+                    let array: *mut AnyObject = msg_send![
+                        class!(NSArray),
+                        arrayWithObjects: objects.as_ptr(),
+                        count: objects.len()
+                    ];
+                    let () = msg_send![&*object, setAllowedFileTypes: array];
+                }
                 let () = msg_send![&*object, setAllowsMultipleSelection: false];
                 if let Some(prompt) = ns_string(winc_i18n::t!("common-open")) {
                     let () = msg_send![&*object, setPrompt: &*prompt];

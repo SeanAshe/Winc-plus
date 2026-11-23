@@ -94,6 +94,10 @@ pub fn app(target: Option<&str>, prebuilt: bool) -> Result<(PathBuf, String), St
     // 图标必须在签名之前放进去：签名会封存 Resources 里的全部文件。
     let icon = contents.join("Resources").join(format!("{ICON_NAME}.icns"));
     app_icon(&bundle, &icon)?;
+    let project = contents
+        .join("Resources")
+        .join(format!("{PROJECT_ICON}.icns"));
+    project_icon(&bundle, &project)?;
 
     // 可执行文件先单独签，应用的签名才包含它们（否则校验报未签名的子组件）。框架保留发布包
     // 自带的签名。
@@ -518,6 +522,16 @@ fn dmg_background(work: &Path, output: &Path) -> Result<(), String> {
 /// 应用图标的源文件，相对 workspace 根目录。
 const ICON_SOURCE: &str = "crates/winc-app/assets/icon.svg";
 
+/// 项目文件文档图标的源文件，相对 workspace 根目录：大图，以及边长不超过 40 像素时用的小图
+/// （分界与 Windows 的文档图标相同）。
+const PROJECT_ICON_SOURCES: [&str; 2] = [
+    "crates/winc-app/assets/file-icons/project.svg",
+    "crates/winc-app/assets/file-icons/project-small.svg",
+];
+
+/// 项目文件文档图标（`.icns`）的文件名（不含扩展名），即 `Info.plist` 中该类型的图标名。
+const PROJECT_ICON: &str = "winc-project";
+
 /// `ICON_SOURCE` 中图标底板的宽度（像素），以 1024 × 1024 的画布计，即底板 `<rect>` 的 `width`。
 ///
 /// 底板接近铺满画布，Windows、Linux 的图标按原样使用；macOS 的图标缩小到 [`MACOS_ICON_TILE`]。
@@ -558,13 +572,44 @@ const ICON_SIZES: [(u32, u32); 10] = [
 ///
 /// 读不到或解析不了 SVG、写文件失败、`iconutil` 失败时返回原因。
 fn app_icon(work: &Path, output: &Path) -> Result<(), String> {
-    let io = |e: std::io::Error| e.to_string();
-    let source = root().join(ICON_SOURCE);
+    let picture = load_svg(ICON_SOURCE)?;
+    write_icns(work, ICON_NAME, output, |pixels| {
+        macos_icon(&picture, pixels)
+    })
+}
+
+/// 把 [`PROJECT_ICON_SOURCES`] 渲染成项目文件的文档图标，写到 `output`；其余同 [`app_icon`]。
+///
+/// # Errors
+///
+/// 同 [`app_icon`]。
+fn project_icon(work: &Path, output: &Path) -> Result<(), String> {
+    let [large, small] = PROJECT_ICON_SOURCES.map(load_svg);
+    let (large, small) = (large?, small?);
+    write_icns(work, PROJECT_ICON, output, |pixels| {
+        let picture = if pixels <= 40 { &small } else { &large };
+        picture.render(pixels, pixels)
+    })
+}
+
+/// 读取并解析 workspace 根目录下的 SVG 文件 `path`。
+fn load_svg(path: &str) -> Result<winc_preview::image::Picture, String> {
+    let source = root().join(path);
     let text = std::fs::read_to_string(&source)
         .map_err(|e| format!("读不到 {}：{e}", source.display()))?;
-    let picture = winc_preview::svg::load(&text, None, None)?;
+    winc_preview::svg::load(&text, None, None)
+}
 
-    let iconset = work.join(format!("{ICON_NAME}.iconset"));
+/// 用 `render` 按 [`ICON_SIZES`] 的各个像素尺寸画出图标，经 `iconutil` 合成 `.icns` 写到
+/// `output`；中间文件放在 `work` 下名为 `name` 的 `.iconset` 目录里，完成后删除。
+fn write_icns(
+    work: &Path,
+    name: &str,
+    output: &Path,
+    render: impl Fn(u32) -> winc_preview::image::Pixels,
+) -> Result<(), String> {
+    let io = |e: std::io::Error| e.to_string();
+    let iconset = work.join(format!("{name}.iconset"));
     let _ = std::fs::remove_dir_all(&iconset);
     std::fs::create_dir_all(&iconset).map_err(io)?;
     for (size, scale) in ICON_SIZES {
@@ -572,8 +617,7 @@ fn app_icon(work: &Path, output: &Path) -> Result<(), String> {
             1 => format!("icon_{size}x{size}.png"),
             _ => format!("icon_{size}x{size}@{scale}x.png"),
         };
-        let pixels = macos_icon(&picture, size * scale);
-        write_png(&iconset.join(name), &pixels)?;
+        write_png(&iconset.join(name), &render(size * scale))?;
     }
 
     run(Command::new("iconutil")
@@ -652,6 +696,7 @@ const TEXT_EXTENSIONS: &[&str] = &[
     "cljs",
     "cls",
     "cmake",
+    "code-workspace",
     "conf",
     "cpp",
     "cppm",
@@ -704,6 +749,7 @@ const TEXT_EXTENSIONS: &[&str] = &[
     "inl",
     "ino",
     "ipp",
+    "ipr",
     "ixx",
     "java",
     "jbuilder",
@@ -782,6 +828,7 @@ const TEXT_EXTENSIONS: &[&str] = &[
     "star",
     "storyboard",
     "sty",
+    "sublime-project",
     "svelte",
     "svg",
     "swift",
@@ -802,6 +849,7 @@ const TEXT_EXTENSIONS: &[&str] = &[
     "vcxproj",
     "vue",
     "webmanifest",
+    "winc-project",
     "wsdl",
     "wxml",
     "wxs",
@@ -821,11 +869,31 @@ const TEXT_EXTENSIONS: &[&str] = &[
     "zsh",
 ];
 
+/// Winc 的项目文件（`.winc-project`）的系统类型，由本应用声明（见 [`exported_types`]）。
+const PROJECT_TYPE: &str = "com.deeix.winc.project";
+
+/// 生成 `UTExportedTypeDeclarations` 的各项：Winc 的项目文件，遵从 `public.json`。
+fn exported_types() -> String {
+    format!(
+        "\t\t<dict>\n\
+         \t\t\t<key>UTTypeIdentifier</key>\n\t\t\t<string>{PROJECT_TYPE}</string>\n\
+         \t\t\t<key>UTTypeDescription</key>\n\t\t\t<string>Winc Project</string>\n\
+         \t\t\t<key>UTTypeIconFile</key>\n\t\t\t<string>{PROJECT_ICON}</string>\n\
+         \t\t\t<key>UTTypeConformsTo</key>\n\t\t\t<array>\n\
+         \t\t\t\t<string>public.json</string>\n\t\t\t</array>\n\
+         \t\t\t<key>UTTypeTagSpecification</key>\n\t\t\t<dict>\n\
+         \t\t\t\t<key>public.filename-extension</key>\n\t\t\t\t<array>\n\
+         \t\t\t\t\t<string>winc-project</string>\n\t\t\t\t</array>\n\
+         \t\t\t</dict>\n\
+         \t\t</dict>\n"
+    )
+}
+
 /// 生成 `CFBundleDocumentTypes` 的各项，访达的「打开方式」只列出声明了具体类型的应用。
 ///
 /// 文本按系统类型和扩展名各声明一次（系统不认识的扩展名没有类型），另有 Winc 能预览的
 /// PDF、EPUB。任意文件（`public.data`）只为能拖到程序坞的图标上。按扩展名的一项等级是
-/// `Default`，其余是 `Alternate`。
+/// `Default`，Winc 的项目文件是 `Owner`，其余是 `Alternate`。
 fn document_types() -> String {
     let text = ["public.plain-text", "public.text"];
     let documents = ["com.adobe.pdf", "org.idpf.epub-container"];
@@ -842,23 +910,68 @@ fn document_types() -> String {
         document_type("Document", "Viewer", "Alternate", types, &documents),
         document_type("Document", "Editor", "Alternate", types, &["public.data"]),
         document_type("Folder", "Editor", "Alternate", types, &["public.folder"]),
+        document_type("Winc Project", "Editor", "Owner", types, &[PROJECT_TYPE]).icon(PROJECT_ICON),
     ]
-    .concat()
+    .iter()
+    .map(DocumentType::plist)
+    .collect()
 }
 
-/// 生成一项文档类型：`key` 是 `values` 的写法（系统类型或扩展名），`rank` 是打开它的优先级。
-fn document_type(name: &str, role: &str, rank: &str, key: &str, values: &[&str]) -> String {
-    let values: String = (values.iter())
-        .map(|value| format!("\t\t\t\t<string>{value}</string>\n"))
-        .collect();
-    format!(
-        "\t\t<dict>\n\
-         \t\t\t<key>CFBundleTypeName</key>\n\t\t\t<string>{name}</string>\n\
-         \t\t\t<key>CFBundleTypeRole</key>\n\t\t\t<string>{role}</string>\n\
-         \t\t\t<key>LSHandlerRank</key>\n\t\t\t<string>{rank}</string>\n\
-         \t\t\t<key>{key}</key>\n\t\t\t<array>\n{values}\t\t\t</array>\n\
-         \t\t</dict>\n"
-    )
+/// `CFBundleDocumentTypes` 中的一项：`key` 是 `values` 的写法（系统类型或扩展名），`rank` 是
+/// 打开它的优先级，`icon` 是这类文档的图标（`Resources` 中的 `.icns`，不含扩展名）。
+struct DocumentType<'a> {
+    name: &'a str,
+    role: &'a str,
+    rank: &'a str,
+    key: &'a str,
+    values: &'a [&'a str],
+    icon: Option<&'a str>,
+}
+
+impl<'a> DocumentType<'a> {
+    /// 设置这类文档的图标。
+    fn icon(mut self, icon: &'a str) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    /// 写成 `Info.plist` 中的一项。
+    fn plist(&self) -> String {
+        let values: String = (self.values.iter())
+            .map(|value| format!("\t\t\t\t<string>{value}</string>\n"))
+            .collect();
+        let icon = self.icon.map_or_else(String::new, |icon| {
+            format!("\t\t\t<key>CFBundleTypeIconFile</key>\n\t\t\t<string>{icon}</string>\n")
+        });
+        let (name, role, rank, key) = (self.name, self.role, self.rank, self.key);
+        format!(
+            "\t\t<dict>\n\
+             \t\t\t<key>CFBundleTypeName</key>\n\t\t\t<string>{name}</string>\n\
+             \t\t\t<key>CFBundleTypeRole</key>\n\t\t\t<string>{role}</string>\n\
+             {icon}\
+             \t\t\t<key>LSHandlerRank</key>\n\t\t\t<string>{rank}</string>\n\
+             \t\t\t<key>{key}</key>\n\t\t\t<array>\n{values}\t\t\t</array>\n\
+             \t\t</dict>\n"
+        )
+    }
+}
+
+/// 生成一项文档类型，没有单独的图标，参数见 [`DocumentType`]。
+fn document_type<'a>(
+    name: &'a str,
+    role: &'a str,
+    rank: &'a str,
+    key: &'a str,
+    values: &'a [&'a str],
+) -> DocumentType<'a> {
+    DocumentType {
+        name,
+        role,
+        rank,
+        key,
+        values,
+        icon: None,
+    }
 }
 
 /// 生成 `Info.plist`；`arch` 是应用的架构（`arm64` 或 `x86_64`），决定请求哪一份 appcast。
@@ -870,6 +983,7 @@ fn document_type(name: &str, role: &str, rank: &str, key: &str, values: &[&str])
 fn info_plist(version: &str, updates: &sparkle::UpdateConfig, arch: &str) -> String {
     let updates = updates.plist_entries(arch);
     let types = document_types();
+    let exported = exported_types();
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -878,6 +992,9 @@ fn info_plist(version: &str, updates: &sparkle::UpdateConfig, arch: &str) -> Str
 	<key>CFBundleDocumentTypes</key>
 	<array>
 {types}	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+{exported}	</array>
 	<key>CFBundleURLTypes</key>
 	<array>
 		<dict>

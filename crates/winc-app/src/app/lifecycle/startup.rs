@@ -195,6 +195,7 @@ impl App {
                 started: Arc::default(),
                 solo: false,
                 open_alone: None,
+                project_offer: None,
                 changes_due: None,
                 rereads: Default::default(),
                 saves: Default::default(),

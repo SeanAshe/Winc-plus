@@ -20,9 +20,10 @@
 <?define RustTypes = RS?>
 <?define GoTypes = GO?>
 <?define CTypes = C;CC;CPP;CPPM;CU;CUH;CXX;H;HH;HPP;HXX;INL;INO;IPP;IXX;TPP?>
+<?define ProjectTypes = CODE-WORKSPACE;IPR;SUBLIME-PROJECT;WINC-PROJECT?>
 <?define CodeTypes = BB;CLJ;CLJC;CLJS;CMAKE;CS;CSX;DART;EDN;ERL;ESCRIPT;ETS;EX;EXS;FS;FSI;FSX;GEMSPEC;GQL;GRADLE;GRAPHQL;GRAPHQLS;GROOVY;HCL;HRL;HS;HSC;JAVA;JBUILDER;JL;KT;KTS;LUA;LUAU;M;ML;MLI;MLL;MLY;MM;NIX;NOMAD;PHP;PHP3;PHP4;PHP5;PHP8;PHPS;PHTML;PL;PM;POD;PODSPEC;PROTO;PSGI;R;RAKE;RB;RBI;ROCKSPEC;RPROFILE;SC;SCALA;SQL;SWIFT;T;TF;TFTEST;TFVARS;WXS;ZIG;ZON?>
-<?define IconNames = markdown;json;config;markup;style;script;table;text;javascript;typescript;python;rust;go;c;code;file?>
-<?define FileTypes = $(var.MarkdownTypes);$(var.JsonTypes);$(var.ConfigTypes);$(var.MarkupTypes);$(var.StyleTypes);$(var.ScriptTypes);$(var.TableTypes);$(var.TextTypes);$(var.JavascriptTypes);$(var.TypescriptTypes);$(var.PythonTypes);$(var.RustTypes);$(var.GoTypes);$(var.CTypes);$(var.CodeTypes)?>
+<?define IconNames = markdown;json;config;markup;style;script;table;text;javascript;typescript;python;rust;go;c;code;project;file?>
+<?define FileTypes = $(var.MarkdownTypes);$(var.JsonTypes);$(var.ConfigTypes);$(var.MarkupTypes);$(var.StyleTypes);$(var.ScriptTypes);$(var.TableTypes);$(var.TextTypes);$(var.JavascriptTypes);$(var.TypescriptTypes);$(var.PythonTypes);$(var.RustTypes);$(var.GoTypes);$(var.CTypes);$(var.CodeTypes);$(var.ProjectTypes)?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
   <!-- UUIDv5(DNS, com.deeix.winc); keep this product family stable across releases. -->
   <Product Id="*" Name="Winc" Language="1033" Version="$(var.Version)" Manufacturer="DEEIX"
@@ -65,6 +66,8 @@
           </Component>
           <Component Id="FileAssociations" Guid="*" Win64="yes">
             <RegistryValue Root="HKLM" Key="Software\Classes\Applications\winc.exe" Name="FriendlyAppName" Value="Winc" Type="string" KeyPath="yes"/>
+            <!-- .winc-project is Winc's own project file: the extension opens with winc by default. -->
+            <RegistryValue Root="HKLM" Key="Software\Classes\.winc-project" Value="winc.WINC-PROJECT" Type="string"/>
             <RegistryValue Root="HKLM" Key="Software\Classes\Applications\winc.exe\DefaultIcon" Value="[#WincExe],0" Type="string"/>
             <RegistryValue Root="HKLM" Key="Software\Classes\Applications\winc.exe\shell\open\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
             <!-- The shell reads only the value names of SupportedTypes. An empty value means Null to
@@ -152,6 +155,11 @@
             <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\DefaultIcon" Value="[#Icon_code]" Type="string"/>
             <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\shell\open\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
             <?endforeach?>
+            <?foreach Type in $(var.ProjectTypes)?>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)" Value="$(var.Type) File" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\DefaultIcon" Value="[#Icon_project]" Type="string"/>
+            <RegistryValue Root="HKLM" Key="Software\Classes\winc.$(var.Type)\shell\open\command" Value="&quot;[#WincExe]&quot; &quot;%1&quot;" Type="string"/>
+            <?endforeach?>
           </Component>
           <!-- Optional, on by default: lists the ProgIDs under the types. A handler listed there
                makes Windows ask once which program to use. Install with ADDLOCAL=Main to leave it
@@ -228,7 +236,7 @@
       <ComponentRef Id="CommandLine"/><ComponentRef Id="CommandLineCmd"/><ComponentRef Id="WslWatcher"/>
       <ComponentRef Id="RemoteServerX64"/><ComponentRef Id="RemoteServerArm64"/>
       <ComponentRef Id="License"/><ComponentRef Id="Notice"/><ComponentRef Id="StartMenu"/>
-      <ComponentRef Id="Icon_markdown"/><ComponentRef Id="Icon_json"/><ComponentRef Id="Icon_config"/><ComponentRef Id="Icon_markup"/><ComponentRef Id="Icon_style"/><ComponentRef Id="Icon_script"/><ComponentRef Id="Icon_table"/><ComponentRef Id="Icon_text"/><ComponentRef Id="Icon_javascript"/><ComponentRef Id="Icon_typescript"/><ComponentRef Id="Icon_python"/><ComponentRef Id="Icon_rust"/><ComponentRef Id="Icon_go"/><ComponentRef Id="Icon_c"/><ComponentRef Id="Icon_code"/><ComponentRef Id="Icon_file"/>
+      <ComponentRef Id="Icon_markdown"/><ComponentRef Id="Icon_json"/><ComponentRef Id="Icon_config"/><ComponentRef Id="Icon_markup"/><ComponentRef Id="Icon_style"/><ComponentRef Id="Icon_script"/><ComponentRef Id="Icon_table"/><ComponentRef Id="Icon_text"/><ComponentRef Id="Icon_javascript"/><ComponentRef Id="Icon_typescript"/><ComponentRef Id="Icon_python"/><ComponentRef Id="Icon_rust"/><ComponentRef Id="Icon_go"/><ComponentRef Id="Icon_c"/><ComponentRef Id="Icon_code"/><ComponentRef Id="Icon_project"/><ComponentRef Id="Icon_file"/>
     </Feature>
     <Feature Id="ContextMenu" Title="Explorer context menu" Level="1000">
       <Condition Level="1">WIX_UPGRADE_DETECTED</Condition>

@@ -50,11 +50,13 @@ impl ApplicationHandler<UserEvent> for App {
         let placed = frame.map(|frame| place(&frame, &screens(event_loop)));
         let (width, height) =
             placed.map_or((DEFAULT_WIDTH, DEFAULT_HEIGHT), |p| (p.width, p.height));
+        // 建窗口之前能定下的外观；X11、Wayland 上总能定下。
+        let theme = forced_theme(&self.theme_choice).or_else(|| self.system_theme());
         let mut attributes = Window::default_attributes()
             .with_title(title)
             .with_inner_size(LogicalSize::new(width, height))
             .with_min_inner_size(LogicalSize::new(MIN_WIDTH, MIN_HEIGHT))
-            .with_theme(forced_theme(&self.theme_choice))
+            .with_theme(theme)
             .with_visible(false);
         if let (Some(frame), Some(placed)) = (frame, placed) {
             attributes = attributes.with_maximized(frame.maximized);
@@ -126,12 +128,9 @@ impl ApplicationHandler<UserEvent> for App {
             crate::macos::make_invisible(&window);
         }
 
-        // 没有固定主题时读取系统当前的外观，此后系统切换外观时会收到 `ThemeChanged`。
-        let dark = match forced_theme(&self.theme_choice) {
-            Some(theme) => theme == Theme::Dark,
-            None => window.theme() != Some(Theme::Light),
-        };
-        self.palette = self.theme_palette(dark);
+        // macOS、Windows 上没有固定主题时，窗口建好后才能查询系统外观。
+        let theme = theme.or_else(|| window.theme()).unwrap_or(Theme::Dark);
+        self.palette = self.theme_palette(theme == Theme::Dark);
 
         let [mono, ui, terminal] = self.font_specs();
 
@@ -326,12 +325,7 @@ impl ApplicationHandler<UserEvent> for App {
                 self.request_redraw();
                 self.redraw();
             }
-            // 配置中固定了主题时不跟随系统外观。
-            WindowEvent::ThemeChanged(theme) => {
-                if self.theme_choice == ThemeChoice::Auto {
-                    self.set_theme(theme);
-                }
-            }
+            WindowEvent::ThemeChanged(theme) => self.system_theme_changed(theme),
             WindowEvent::Focused(focused) => {
                 self.window.focused = focused;
                 self.update_foreground(focused);
@@ -558,11 +552,13 @@ impl App {
             UserEvent::Opened(_)
             | UserEvent::UpdateFound(_)
             | UserEvent::UpdateTick
-            | UserEvent::UpdateState(_) => {}
+            | UserEvent::UpdateState(_)
+            | UserEvent::SystemThemeChanged(_) => {}
             UserEvent::Move(paths, dir, never_ask) => self.confirm_move(&paths, &dir, never_ask),
             UserEvent::OpenFolderIn(path, new_window, never_ask) => {
                 self.open_folder_in(&path, new_window, never_ask);
             }
+            UserEvent::AttachFolder(path) => self.add_folder(&path),
             UserEvent::Pasted(done, failure, copying) => {
                 self.copy_finished(&copying);
                 self.pasted_into_tree(done, failure);

@@ -977,7 +977,14 @@ fn draw_folder_rows(
         // 查询命中的字用强调色标出；截短了的文字下标对不上，不标。上级目录放不下时截短，同名
         // 目录保留区分彼此的部分（见 `fit_parent`）。
         let (in_name, in_parent) = app.folder_matched(i);
-        let room = (close.x - 8.0 - (row.x + PICKER_TEXT_X)).max(0.0);
+        let tag = match entry {
+            Recent::Folder(folder) => app.recent_tag(folder),
+            Recent::File(_) => None,
+        };
+        let tag_w = tag.map_or(0.0, |tag| {
+            6.0 + frame.measure(FontKind::Ui, app.fonts.ui, tag)
+        });
+        let room = (close.x - 8.0 - tag_w - (row.x + PICKER_TEXT_X)).max(0.0);
         let shown = ellipsize(frame, &name, app.fonts.ui, room);
         let marks = if shown.len() == name.len() {
             in_name
@@ -985,7 +992,10 @@ fn draw_folder_rows(
             Vec::new()
         };
         let at = (row.x + PICKER_TEXT_X, row);
-        let x = marked_label(frame, app, app.fonts.ui, at, &shown, &marks, p.text, clip);
+        let mut x = marked_label(frame, app, app.fonts.ui, at, &shown, &marks, p.text, clip);
+        if let Some(tag) = tag {
+            x = ui_text(frame, app, x + 6.0, row, tag, p.text_muted, clip);
+        }
         let room = close.x - 8.0 - (x + 8.0);
         if !parent.text.is_empty() && room > 20.0 {
             let shown = fit_parent(frame, parent, app.fonts.ui_small, room);

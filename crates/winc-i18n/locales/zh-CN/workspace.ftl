@@ -73,6 +73,7 @@ workspace-open-folder-where = 要在何处打开「{ $name }」？
 workspace-open-folder-where-detail = 在此窗口中打开将关闭「{ $current }」及其标签页和终端。
 workspace-open-folder-this-window = 此窗口
 workspace-open-folder-new-window = 新窗口
+workspace-open-folder-attach = 添加到此项目
 
 ## 开始页
 
@@ -185,6 +186,8 @@ workspace-picker-remote-connected = 已连接
 workspace-picker-remote-connect = 连接到 { $host }
 workspace-picker-remote-open-here = 打开此目录
 workspace-picker-remote-hint-open = { common-key-enter } 打开
+workspace-picker-remote-add-here = 添加此目录
+workspace-picker-remote-hint-add = { common-key-enter } 添加
 workspace-picker-remote-hint-enter = { $platform ->
     [macos] ⇥ 进入 · ⌘↩ 打开
    *[other] Tab 进入 · Ctrl+Enter 打开
@@ -378,22 +381,32 @@ workspace-compare-identical = 「{ $left }」与「{ $right }」相同
 workspace-open-default-app-failed = 无法用默认应用打开：{ $error }
 workspace-reveal-failed = 无法{ $action }：{ $error }
 workspace-add-folder-none = 请先打开目录
-workspace-add-folder-remote = 远端目录暂不支持添加目录
-workspace-add-folder-overlaps = 该目录已在窗口中，或包含窗口中的目录
+workspace-add-folder-overlaps = 该目录已在项目中，或包含项目中的目录
 workspace-add-folder-failed = 无法添加「{ $name }」：{ $error }
 workspace-add-folder-skipped = 以下目录已不可用，未恢复：{ $names }
-workspace-group-rename-title = 重命名此目录组
+workspace-project-saved = 已保存项目「{ $name }」
+workspace-project-files = 项目文件
+workspace-project-unsaved = 未保存
+workspace-recent-project-tag = 项目
+workspace-recent-project = { $name }（项目）
+workspace-project-file-opened = 「{ $name }」是项目文件
+workspace-notice-open-project = 打开项目
+workspace-title-unsaved = { $name }（未保存）
+workspace-project-read-failed = 无法打开项目「{ $name }」：{ $error }
+workspace-project-invalid = 「{ $name }」不是有效的项目文件
+workspace-project-write-failed = 无法更新项目文件「{ $name }」：{ $error }
+workspace-group-rename-title = 重命名项目
 workspace-group-rename-label = 名称
-workspace-group-rename-placeholder = 留空时使用目录名
+workspace-group-rename-placeholder = 留空时使用第一个目录的名字
 workspace-group-rename-button = 重命名
 workspace-group-count = { $name } +{ $count }
 workspace-drop-folder-ask = 添加目录「{ $name }」，还是打开它？
 workspace-drop-folder-ask-copy = 添加目录「{ $name }」，还是复制到「{ $folder }」？
-workspace-drop-folder-ask-detail = 添加后与当前目录并列显示；打开将替换当前目录。
+workspace-drop-folder-ask-detail = 添加后与当前目录一起组成项目；打开将替换当前项目。
 workspace-drop-folder-add = 添加
 workspace-drop-folder-open = 打开
 workspace-drop-folder-copy = 复制
-workspace-drop-folder-copy-detail = 添加后与当前目录并列显示，不改动磁盘上的文件。
+workspace-drop-folder-copy-detail = 添加后与当前目录一起组成项目，不改动磁盘上的文件。
 workspace-remote-local-only = 远端主机上的文件无法用本机程序打开
 workspace-remote-reveal-unmapped = 要在本机显示远端的文件，请在配置文件的 remote.localFolders 中写上它挂载在本机的目录
 workspace-remote-terminal = 远端主机上的目录只能在内置终端中打开，请先在设置中启用终端

@@ -44,10 +44,31 @@ impl App {
     ///
     /// 窗口里已经开着另一个目录时，按 `editor.openFolderInNewWindow` 在新窗口或此窗口打开；
     /// 没有设置时弹出提示框询问。其余情况同 [`Self::switch_folder`]。
+    /// `path` 可以是项目文件（见 [`super::project`]），按其第一个目录判断；该目录位于未连接的
+    /// 远端主机时先连接，再打开项目。
     pub(in crate::app) fn open_folder(&mut self, path: &Path) {
-        let target = winc_config::files::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-        let other = self.editor.root().is_some_and(|root| root != target);
-        if !other || self.focus_window_with(&target) {
+        let Some((root, project)) = self.folder_target(path) else {
+            return;
+        };
+        // 连接成功后远端模块打开的是项目的第一个目录，此处改为打开项目。
+        if project.is_none()
+            && let Some(file) = self.remote.project.take()
+            && super::project::project_folders(&file).is_ok_and(|p| p.root == root)
+        {
+            self.open_folder(&file);
+            return;
+        }
+        if let Some(project) = &project
+            && let Some(at) = winc_backend::locate(&root)
+            && !winc_backend::remote::is_connected(&at.target)
+        {
+            self.remote.project = Some(project.file.clone());
+            self.reopen_remote(&root);
+            return;
+        }
+        let target = project.map_or(root.clone(), |project| project.file);
+        let other = self.editor.root().is_some_and(|open| open != root);
+        if !other || self.focus_window_with(&root) {
             self.switch_folder(&target);
             return;
         }
@@ -58,9 +79,11 @@ impl App {
         }
     }
 
-    /// 询问在新窗口还是此窗口打开目录 `target`。
+    /// 询问在新窗口还是此窗口打开目录 `target`，或者把它加入当前项目。
     ///
-    /// 按钮从右向左为「此窗口」（↩）、「新窗口」、「取消」（Esc），上方是「不再询问」勾选框。
+    /// 按钮从右向左为「此窗口」（↩）、「新窗口」、「添加到此项目」、「取消」（Esc），上方是
+    /// 「不再询问」勾选框；「添加到此项目」仅在 `target` 可加入当前项目时出现，选择它不记录
+    /// 「不再询问」。
     /// 没有窗口（测试中）时直接在此窗口打开。
     fn ask_open_folder(&mut self, target: PathBuf) {
         if self.window.handle.is_some() {
@@ -74,15 +97,28 @@ impl App {
                 "workspace-open-folder-where-detail",
                 current = current.unwrap_or_default()
             );
-            let buttons = vec![
+            let attach =
+                (self.editor.workspace.as_ref()).is_some_and(|ws| ws.can_add_folder(&target));
+            let mut buttons = vec![
                 AlertButton::new(t!("workspace-open-folder-this-window")),
                 AlertButton::new(t!("workspace-open-folder-new-window")),
-                AlertButton::cancel(t!("common-cancel")),
             ];
+            if attach {
+                buttons.push(AlertButton::new(t!("workspace-open-folder-attach")));
+            }
+            buttons.push(AlertButton::cancel(t!("common-cancel")));
             let asked = Some((t!("workspace-tree-dont-ask"), false));
-            self.show_alert(&message, &detail, buttons, asked, move |index, never| {
-                (index < 2).then(|| UserEvent::OpenFolderIn(target.clone(), index == 1, never))
-            });
+            self.show_alert(
+                &message,
+                &detail,
+                buttons,
+                asked,
+                move |index, never| match index {
+                    0 | 1 => Some(UserEvent::OpenFolderIn(target.clone(), index == 1, never)),
+                    2 if attach => Some(UserEvent::AttachFolder(target.clone())),
+                    _ => None,
+                },
+            );
             return;
         }
 
@@ -115,16 +151,26 @@ impl App {
     /// 已经打开了其他目录时先替换：记录当前目录的现场，关闭该目录的标签（有未保存修改的先询问）
     /// 和终端（有程序在运行的先确认），再打开新目录。`path` 就是当前目录时只显示文件树；已在
     /// 另一个 winc 窗口里打开时切到该窗口。
+    ///
+    /// `path` 为项目文件时打开项目；其第一个目录已在当前窗口打开时就地载入项目。
     pub(in crate::app) fn switch_folder(&mut self, path: &Path) {
-        let target = winc_config::files::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let Some((folder, project)) = self.folder_target(path) else {
+            return;
+        };
+        let target = project.as_ref().map_or(folder.clone(), |p| p.file.clone());
 
         // 开在另一个窗口里：切到该窗口，不在当前窗口再打开。
-        if self.focus_window_with(&target) {
+        if self.focus_window_with(&folder) {
             return;
         }
 
         match self.editor.root().map(Path::to_path_buf) {
-            Some(root) if root == target => self.show_files(),
+            Some(root) if root == folder => {
+                if let Some(project) = &project {
+                    self.apply_project(project);
+                }
+                self.show_files();
+            }
             // 终端随原目录一起关掉（标签记入原目录的现场），有程序在运行时先确认。
             Some(_) => {
                 self.remember_session();
@@ -137,17 +183,22 @@ impl App {
         }
     }
 
-    /// 立即打开目录 `path` 并恢复该目录上次的标签，侧栏展开。启动时新建的文件尚未修改时先关掉。
+    /// 立即打开目录 `path` 并恢复该目录上次的标签，启动时新建的文件尚未修改时先关掉。
     ///
-    /// 不处理当前已打开的目录和其他标签，调用方须先完成这些处理。
+    /// 不处理当前已打开的目录和其他标签，调用方须先完成这些处理。`path` 为项目文件时打开项目。
     pub(crate) fn open_folder_now(&mut self, path: &Path) {
-        self.open_folder_restoring(path, true);
-    }
-
-    /// 立即打开目录 `path` 并恢复该目录上次的标签。`sidebar` 为真时展开侧栏。
-    ///
-    /// 启动时新建的文件尚未修改时先关掉。
-    fn open_folder_restoring(&mut self, path: &Path, sidebar: bool) {
+        let Some((folder, project)) = self.folder_target(path) else {
+            return;
+        };
+        if let Some(project) = &project
+            && let Some(at) = winc_backend::locate(&folder)
+            && !winc_backend::remote::is_connected(&at.target)
+        {
+            self.remote.project = Some(project.file.clone());
+            self.reopen_remote(&folder);
+            return;
+        }
+        let path = folder.as_path();
         if let Some(index) = self.startup_file_index() {
             self.discard_tab(self.editor.documents[index].id);
         }
@@ -170,26 +221,37 @@ impl App {
         }
 
         self.apply_compact_folders();
-        self.finish_folder_open(sidebar);
-        self.focus = if sidebar {
-            match self.panels.sidebar.view {
-                SidebarView::Files => Focus::Tree,
-                SidebarView::Search => Focus::GlobalQuery,
-                SidebarView::Commit => self.commit_view_focus(),
-            }
-        } else {
-            Focus::Editor
+        if let Some(project) = &project {
+            self.load_project(project);
+        }
+        self.folder_opened();
+        self.focus = match self.panels.sidebar.view {
+            SidebarView::Files => Focus::Tree,
+            SidebarView::Search => Focus::GlobalQuery,
+            SidebarView::Commit => self.commit_view_focus(),
         };
 
         let Some(root) = self.editor.root().map(Path::to_path_buf) else {
             return;
         };
-        let session = self.state.session_for(&root).cloned();
+        // 项目的现场以项目文件为键；兼容旧版本以第一个目录为键、属于同一项目的现场。
+        let session = match &project {
+            Some(project) => (self.state.session_for(&project.file).cloned()).or_else(|| {
+                let old = self.state.session_for(&root)?;
+                (old.project.as_ref() == Some(&project.file)).then(|| old.clone())
+            }),
+            None => self.state.session_for(&root).cloned(),
+        };
         // 单独打开一组中的打开的目录时不恢复附加的目录，这一组仍记在会话里。
         let alone = self.disk.open_alone.take().is_some_and(|path| path == root);
         self.disk.solo = alone && session.as_ref().is_some_and(|s| !s.folders.is_empty());
-        if !self.disk.solo {
-            self.restore_group(session.as_ref());
+        match &project {
+            Some(_) => {}
+            None if !self.disk.solo => {
+                self.restore_group(session.as_ref());
+                self.add_idea_modules(&root);
+            }
+            None => {}
         }
         self.watch_extra_folders();
         // 备份和各标签的文件在后台读：要等备份锁，目录可能在很慢的磁盘上。
@@ -258,15 +320,14 @@ impl App {
 
     /// 在工作区换成新打开的目录之后，完成界面切换。
     ///
-    /// 清除与上一个目录相关的状态，按 `sidebar` 展开或收起侧栏，把窗口标题改为目录名，并记入最近列表。
-    /// 不恢复标签。
+    /// 清除与上一个目录相关的状态，展开侧栏，把窗口标题改为目录名，并记入最近列表。不恢复标签。
     ///
     /// 侧栏停在原来的视图上（在「搜索」里换目录还在「搜索」，查的内容不变、在新目录里重新搜），
     /// 不跳回文件树；新目录不是 Git 仓库时「提交」视图没有了，由 `git_folder_changed` 回到文件树。
-    fn finish_folder_open(&mut self, sidebar: bool) {
+    pub(super) fn folder_opened(&mut self) {
         self.reset_folder_views();
         self.watch_folder();
-        self.set_sidebar(sidebar);
+        self.set_sidebar(true);
         if self.panels.sidebar.view == SidebarView::Search
             && !self.panels.global.query.text().is_empty()
         {
@@ -281,7 +342,7 @@ impl App {
     /// 打开目录时为应对进程异常中止而记下的 `last` 一并清除：之后再中止，下次启动是开始页。
     pub(in crate::app) fn close_folder_now(&mut self) {
         // `last` 是别的 winc 进程写的（指向别的目录）时不动，该进程异常中止后仍需用它恢复。
-        if let Some(root) = self.editor.root().map(Path::to_path_buf) {
+        if let Some(root) = self.session_key() {
             self.update_state(move |state| {
                 if state.last.as_deref() == Some(root.as_path()) {
                     state.last = None;
@@ -334,9 +395,10 @@ impl App {
         self.jumps.navigation.clear();
     }
 
-    /// 把当前目录移到最近列表的最前面并立即写入状态文件，避免进程异常中止后丢失。
+    /// 把当前项目（见 [`App::session_key`]）移到最近列表的最前面并立即写入状态文件，避免进程
+    /// 异常中止后丢失。
     pub(crate) fn remember_workspace(&mut self) {
-        let Some(root) = self.editor.root().map(Path::to_path_buf) else {
+        let Some(root) = self.session_key() else {
             return;
         };
 
@@ -370,7 +432,7 @@ impl App {
     /// 目录的现场仍然记下，以后打开它时恢复标签和未保存的内容。
     pub(in crate::app) fn save_session(&mut self) {
         let reopen = self.config.restore_folder != Some(false);
-        let root = self.editor.root().map(Path::to_path_buf);
+        let root = self.session_key();
         let open = self.link.shared.open_roots();
         self.update_state(move |state| match root {
             Some(root) if reopen => state.last = Some(root),
@@ -394,7 +456,7 @@ impl App {
             return;
         }
         let places = self.places_now();
-        let Some(folder) = self.editor.root().map(Path::to_path_buf) else {
+        let Some(folder) = self.session_key() else {
             if !places.is_empty() {
                 self.update_state(move |state| places::record(state, &places));
             }
@@ -419,8 +481,9 @@ impl App {
         let terminal = self.terminal_session();
         let run = self.run.selected.clone();
         let mut folders = self.extra_folders();
-        let mut name = (self.editor.workspace.as_ref())
-            .and_then(|workspace| workspace.alias().map(str::to_owned));
+        let workspace = self.editor.workspace.as_ref();
+        let mut name = workspace.and_then(|workspace| workspace.alias().map(str::to_owned));
+        let mut project = workspace.and_then(|ws| ws.project().map(Path::to_path_buf));
         // 单独打开着一组中的打开的目录：这一组保持原样。
         if self.disk.solo
             && folders.is_empty()
@@ -428,6 +491,7 @@ impl App {
         {
             folders = session.folders.clone();
             name = session.name.clone();
+            project = session.project.clone();
         }
         let sidebar_hidden = !self.panels.sidebar.visible;
         let locked = (self.editor.documents.iter()).filter(|doc| doc.is_locked());
@@ -456,6 +520,7 @@ impl App {
                 run,
                 folders,
                 name,
+                project,
                 readonly,
                 readonly_all,
                 sidebar_hidden,
@@ -588,7 +653,7 @@ impl App {
         if self.reopen_remote(&folder) {
             return;
         }
-        if winc_backend::fs::is_dir(&folder) {
+        if winc_backend::fs::is_dir(&folder) || super::project::is_project(&folder) {
             self.new_window(Some(folder));
         } else {
             self.forget_missing_recent(&folder);
@@ -638,6 +703,8 @@ impl App {
                 }
                 if winc_backend::fs::is_dir(&folder) {
                     self.open_path(&folder);
+                } else if super::project::is_project(&folder) {
+                    self.open_folder(&folder);
                 } else {
                     self.forget_missing_recent(&folder);
                 }

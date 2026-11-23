@@ -54,6 +54,8 @@ pub enum FileGlyph {
     Letters(&'static str),
     /// Java：一杯冒着热气的咖啡。
     Java,
+    /// 项目文件（`.winc-project` 及其他编辑器的项目文件）：叠放的目录，同 [`folders`]。
+    Project,
     /// 未识别的类型：空白的纸。
     Plain,
 }
@@ -62,7 +64,7 @@ impl FileGlyph {
     /// 全部记号（包括 `file_kind` 用到的每一个缩写）：目录菜单按它预先画好每种图标，漏掉的记号
     /// 在菜单里没有图标。
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
-    pub const ALL: [FileGlyph; 37] = [
+    pub const ALL: [FileGlyph; 38] = [
         FileGlyph::Code,
         FileGlyph::Text,
         FileGlyph::Data,
@@ -99,6 +101,7 @@ impl FileGlyph {
         FileGlyph::Letters("SW"),
         FileGlyph::Letters("TEX"),
         FileGlyph::Java,
+        FileGlyph::Project,
         FileGlyph::Plain,
     ];
 }
@@ -551,6 +554,13 @@ pub fn file(frame: &mut Frame<'_>, (x, y): (f32, f32), glyph: FileGlyph, color: 
             frame.stroke(&gear_shape((cx, cy), (4.1, 5.7, 1.6)), STROKE, color, clip);
         }
         // 没认出来的类型：一张空白的折角的纸。
+        FileGlyph::Project => {
+            // 下面一个圆角矩形，上面两道逐渐变短的横线。
+            let front = rounded_outline(cx - 3.5 * k, cy - 0.25 * k, 7.0 * k, 3.75 * k, 1.5);
+            let layers = [line(-2.5, -1.75, 2.5, -1.75), line(-1.5, -3.25, 1.5, -3.25)];
+            frame.stroke(&front, STROKE, color, clip);
+            frame.stroke(&layers, STROKE, color, clip);
+        }
         FileGlyph::Plain => page(frame),
     }
 }

@@ -118,14 +118,11 @@ impl Navigation {
 }
 
 impl App {
-    /// 把光标当前位置记入后退、前进的历史，每处理完一批事件调用一次。
+    /// 把当前标签和光标位置记入后退、前进的历史，每处理完一批事件调用一次。
     pub(in crate::app) fn track_navigation(&mut self) {
         let Some(doc) = self.editor.active() else {
             return;
         };
-        if !doc.shows_text() {
-            return;
-        }
         let key = (doc.id, doc.selection.head, doc.revision);
         let nav = &self.jumps.navigation;
         // 当前项仍是该文档、路径也没变（另存为不改版本号）：记下的就是现在的位置。
@@ -145,6 +142,13 @@ impl App {
         };
         let revision = doc.revision;
         self.jumps.navigation.observe(here, revision);
+    }
+
+    /// 后退或前进：日志标签中先在选过的提交之间移动，否则按位置历史移动。
+    pub(in crate::app) fn navigate_history(&mut self, forward: bool) {
+        if !self.log_navigate(forward) {
+            self.navigate(forward);
+        }
     }
 
     /// 后退或前进一项（`forward` 为 `true` 时前进；macOS 上后退为 `⌃-`，前进为 `⌃⇧-`）。
@@ -203,7 +207,7 @@ impl App {
         // 标签还没读（刚重新打开、恢复现场后没去过）时，读好再放回光标（`loading.rs`）。
         let (line, col) = (spot.line, spot.col);
         self.when_loaded(move |app| {
-            let Some(doc) = app.editor.active() else {
+            let Some(doc) = app.editor.active().filter(|d| d.edits_text()) else {
                 return;
             };
             let pos = doc.text().line_col_to_pos(line, col);

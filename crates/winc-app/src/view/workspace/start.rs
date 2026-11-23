@@ -196,9 +196,17 @@ fn draw_start(app: &mut App, frame: &mut Frame<'_>, rise: f32) {
             BUTTON_SMALL,
             BUTTON_SMALL,
         );
-        let room = (close.x - 8.0 - (row.x + 36.0)).max(0.0);
+        // 项目文件名称后加淡色标注，样式同侧栏的「未保存」。
+        let tag = app.recent_tag(&folder);
+        let tag_w = tag.map_or(0.0, |tag| {
+            6.0 + frame.measure(FontKind::Ui, app.fonts.ui, tag)
+        });
+        let room = (close.x - 8.0 - tag_w - (row.x + 36.0)).max(0.0);
         let name = ellipsize(frame, &name, app.fonts.ui, room);
-        let end = ui_text(frame, app, row.x + 36.0, row, &name, p.text, editor);
+        let mut end = ui_text(frame, app, row.x + 36.0, row, &name, p.text, editor);
+        if let Some(tag) = tag {
+            end = ui_text(frame, app, end + 6.0, row, tag, p.text_muted, editor);
+        }
 
         // 名称之后是淡色的上级目录（用户主目录缩写为 `~`），放不下时截短，同名目录保留区分
         // 彼此的部分（见 `fit_parent`）。

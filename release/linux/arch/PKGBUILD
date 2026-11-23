@@ -18,6 +18,10 @@ package() {
   # Opens winc:// links; hidden from application menus.
   install -Dm644 "$startdir/winc-url-handler.desktop" "$pkgdir/usr/share/applications/winc-url-handler.desktop"
   install -Dm644 "$startdir/winc.png" "$pkgdir/usr/share/icons/hicolor/256x256/apps/winc.png"
+  # The .winc-project type; the shared-mime-info hook updates the database.
+  install -Dm644 "$startdir/winc.xml" "$pkgdir/usr/share/mime/packages/winc.xml"
+  install -Dm644 "$startdir/project.svg" \
+    "$pkgdir/usr/share/icons/hicolor/scalable/mimetypes/application-x-winc-project.svg"
   # Context menus of the Dolphin and Nemo file managers.
   install -Dm644 "$startdir/winc-open-file.desktop" "$startdir/winc-open-folder.desktop" \
     -t "$pkgdir/usr/share/kio/servicemenus"

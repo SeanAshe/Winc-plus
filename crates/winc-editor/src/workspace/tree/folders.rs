@@ -69,10 +69,15 @@ impl Workspace {
     /// # Errors
     ///
     /// `path` 不是可读的目录时返回对应的 `std::io::Error`；已在某个文件夹之内、包含某个文件夹，
-    /// 或与根目录不在同一个系统（本机、同一个连接）时返回 `InvalidInput`。
+    /// 或与根目录不在同一个系统（本机、同一个连接）时返回 `InvalidInput`。远端目录在界面线程上
+    /// 无法读取（`WouldBlock`），先加入，内容在后台读取。
     pub fn add_folder(&mut self, path: &Path) -> io::Result<PathBuf> {
         let path = winc_config::files::canonicalize(path)?;
-        list_dir(&path)?;
+        if let Err(e) = list_dir(&path)
+            && e.kind() != io::ErrorKind::WouldBlock
+        {
+            return Err(e);
+        }
         let overlaps = |folder: &Path| path.starts_with(folder) || folder.starts_with(&path);
         let place = |path: &Path| winc_backend::locate(path).map(|at| at.target);
         if self.folders().any(overlaps) || place(&path) != place(&self.root) {
@@ -102,8 +107,8 @@ impl Workspace {
         {
             self.anchor = None;
         }
-        // 只剩根目录时它不再占一行，内容直接列出；名字属于这组目录，随之取消。
-        if self.extra.is_empty() {
+        // 只剩根目录时它不再占一行，内容直接列出；名字属于这组目录，随之取消；有项目文件时保留。
+        if self.extra.is_empty() && self.project.is_none() {
             self.expanded.insert(self.root.clone());
             self.set_alias(None);
         }
@@ -121,6 +126,19 @@ impl Workspace {
         let alias = alias.map(str::trim).filter(|alias| !alias.is_empty());
         self.alias = alias.map(str::to_owned);
         self.name = (self.alias.clone()).unwrap_or_else(|| self.own_name.clone());
+    }
+
+    /// 返回这组目录所属的项目文件。
+    pub fn project(&self) -> Option<&Path> {
+        self.project.as_deref()
+    }
+
+    /// 记下这组目录所属的项目文件 `file`，显示名随之改为项目文件的名字；`None` 时取消。
+    pub fn set_project(&mut self, file: Option<PathBuf>) {
+        let stem = file.as_deref().and_then(Path::file_stem);
+        let name = stem.map(|stem| stem.to_string_lossy().into_owned());
+        self.set_alias(name.as_deref());
+        self.project = file;
     }
 
     /// 返回文件树最上一层的各个文件夹；没有附加的文件夹时返回 `None`。

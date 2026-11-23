@@ -104,6 +104,9 @@ pub(in crate::view) const BADGE_ROOM: f32 = 34.0;
 /// 徽章中心相对项目按钮左边的距离（逻辑像素）。
 pub(in crate::view) const BADGE_CENTER: f32 = 16.0;
 
+/// 项目名与其后未保存的标注之间的间隔（逻辑像素）。
+const UNSAVED_GAP: f32 = 6.0;
+
 /// 侧栏第二行左边的上下文栏：现在在哪个项目。
 ///
 /// 项目按钮三个视图（文件、搜索、提交）都一样，切换视图时不动：首字母徽章、项目名和下拉箭头，
@@ -117,6 +120,8 @@ pub(in crate::view) struct ContextBar {
     left: f32,
     /// 项目名完整显示时的文字宽度。
     project_w: f32,
+    /// 项目未保存时项目名后的淡色标注及其宽度（见 [`App::project_unsaved`]）。
+    unsaved: Option<(String, f32)>,
 }
 
 impl ContextBar {
@@ -127,11 +132,17 @@ impl ContextBar {
             .project_name()
             .unwrap_or_else(|| t!("workspace-sidebar-no-folder").to_owned());
         let project_w = frame.measure(FontKind::Ui, app.fonts.ui, &project);
+        let unsaved = app.project_unsaved().then(|| {
+            let tag = t!("workspace-project-unsaved").to_owned();
+            let width = frame.measure(FontKind::Ui, app.fonts.ui, &tag);
+            (tag, width)
+        });
         ContextBar {
             project,
             opened,
             left: app.layout.sidebar_header.x + 8.0,
             project_w,
+            unsaved,
         }
     }
 
@@ -141,9 +152,16 @@ impl ContextBar {
         if self.opened { BADGE_ROOM } else { 6.0 }
     }
 
+    /// 「未保存」标注的宽度，含与项目名之间的间隔。
+    fn unsaved_w(&self) -> f32 {
+        self.unsaved
+            .as_ref()
+            .map_or(0.0, |(_, width)| UNSAVED_GAP + width)
+    }
+
     /// 项目按钮完整显示时的宽度。
     pub(in crate::view) fn project_full(&self) -> f32 {
-        self.name_offset() + self.project_w + 18.0
+        self.name_offset() + self.project_w + self.unsaved_w() + 18.0
     }
 }
 
@@ -169,10 +187,10 @@ pub(super) fn draw_context_bar(app: &mut App, frame: &mut Frame<'_>, bar: &Conte
     let name_max = if fits {
         f32::INFINITY
     } else {
-        (bar.left + project_w - 18.0 - name_x).max(0.0)
+        (bar.left + project_w - 18.0 - bar.unsaved_w() - name_x).max(0.0)
     };
     let name = truncate_end(frame, &bar.project, app.fonts.ui, name_max);
-    let name_end = name_x + frame.measure(FontKind::Ui, app.fonts.ui, &name);
+    let name_end = name_x + frame.measure(FontKind::Ui, app.fonts.ui, &name) + bar.unsaved_w();
     let hit = Rect::new(
         bar.left,
         header.y + (header.h - BUTTON_SMALL) / 2.0,
@@ -192,7 +210,10 @@ pub(super) fn draw_context_bar(app: &mut App, frame: &mut Frame<'_>, bar: &Conte
         draw_badge(app, frame, badge_rect, &bar.project, clip);
     }
     let color = if bar.opened { p.text } else { p.text_muted };
-    let x = ui_text(frame, app, name_x, header, &name, color, clip);
+    let mut x = ui_text(frame, app, name_x, header, &name, color, clip);
+    if let Some((tag, _)) = &bar.unsaved {
+        x = ui_text(frame, app, x + UNSAVED_GAP, header, tag, p.text_muted, clip);
+    }
     let arrow = (x + 9.0, icon_center_y(app, header, app.fonts.ui));
     icons::chevron(frame, arrow, 6.5, Direction::Down, p.text_muted, clip);
     app.hits.project = hit.intersect(clip);

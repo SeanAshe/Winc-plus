@@ -166,6 +166,8 @@ impl App {
                 MenuCommand::OpenFolder => self.pick(Pick::OpenFolder),
                 MenuCommand::AddFolder => self.ask_add_folder(),
                 MenuCommand::RenameGroup => self.ask_rename_group(),
+                MenuCommand::SaveProjectAs | MenuCommand::SaveProject => self.ask_save_project(),
+                MenuCommand::OpenProject => self.pick(Pick::OpenProject),
                 MenuCommand::OpenGroup(i) => self.open_group(i),
                 MenuCommand::GroupFolder(i, j) => self.open_group_folder(i, j),
                 MenuCommand::OpenWslFolder(i) => {
@@ -180,7 +182,7 @@ impl App {
                         self.browse_remote_host(host);
                     }
                 }
-                MenuCommand::CloseFolder => self.close_folder(),
+                MenuCommand::CloseFolder | MenuCommand::CloseProject => self.close_folder(),
                 _ => {}
             },
             MenuTarget::AddLanguage(task) => {

@@ -199,9 +199,14 @@ impl App {
         let Some(name) = self.editor.workspace.as_ref().map(|ws| ws.name.as_str()) else {
             return;
         };
+        let name = if self.project_unsaved() {
+            winc_i18n::t!("workspace-title-unsaved", name = name)
+        } else {
+            name.to_owned()
+        };
         match self.git.main_worktree() {
             Some(main) => self.set_window_title(&format!("{name} — {}", worktree_name(main))),
-            None => self.set_window_title(name),
+            None => self.set_window_title(&name),
         }
     }
 

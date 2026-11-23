@@ -557,15 +557,14 @@ impl App {
 
     /// 返回目录的现场中记录的、文件 `path` 的大纲里收起的符号。
     fn saved_outline(&self, path: &Path) -> HashSet<String> {
-        self.editor
-            .root()
-            .and_then(|root| self.state.session_for(root))
+        self.current_session()
             .and_then(|s| s.outline.iter().find(|(file, _)| file == path))
             .map(|(_, symbols)| symbols.iter().cloned().collect())
             .unwrap_or_default()
     }
 
-    /// 返回目录 `root` 中各文件的大纲里收起的符号，按路径排序，用于保存现场。
+    /// 返回现场 `root`（见 [`App::session_key`]）中各文件的大纲里收起的符号，按路径排序，用于
+    /// 保存现场。
     ///
     /// 以现场中已有的记录为基础，本次运行中列出过符号的文件改用当前状态；没有收起符号的文件
     /// 不记录。

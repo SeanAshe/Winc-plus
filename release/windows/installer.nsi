@@ -78,6 +78,7 @@ LangString OpenFolderVerb ${LANG_SIMPCHINESE} "在 Winc 中打开"
   !insertmacro ${Action} CLJS code
   !insertmacro ${Action} CLS markup
   !insertmacro ${Action} CMAKE code
+  !insertmacro ${Action} CODE-WORKSPACE project
   !insertmacro ${Action} CONF config
   !insertmacro ${Action} CPP c
   !insertmacro ${Action} CPPM c
@@ -131,6 +132,7 @@ LangString OpenFolderVerb ${LANG_SIMPCHINESE} "在 Winc 中打开"
   !insertmacro ${Action} INL c
   !insertmacro ${Action} INO c
   !insertmacro ${Action} IPP c
+  !insertmacro ${Action} IPR project
   !insertmacro ${Action} IXX c
   !insertmacro ${Action} JAVA code
   !insertmacro ${Action} JBUILDER code
@@ -210,6 +212,7 @@ LangString OpenFolderVerb ${LANG_SIMPCHINESE} "在 Winc 中打开"
   !insertmacro ${Action} STAR python
   !insertmacro ${Action} STORYBOARD markup
   !insertmacro ${Action} STY markup
+  !insertmacro ${Action} SUBLIME-PROJECT project
   !insertmacro ${Action} SVELTE markup
   !insertmacro ${Action} SVG markup
   !insertmacro ${Action} SWIFT code
@@ -230,6 +233,7 @@ LangString OpenFolderVerb ${LANG_SIMPCHINESE} "在 Winc 中打开"
   !insertmacro ${Action} VCXPROJ markup
   !insertmacro ${Action} VUE markup
   !insertmacro ${Action} WEBMANIFEST json
+  !insertmacro ${Action} WINC-PROJECT project
   !insertmacro ${Action} WSDL markup
   !insertmacro ${Action} WXML markup
   !insertmacro ${Action} WXS code
@@ -294,6 +298,20 @@ LangString OpenFolderVerb ${LANG_SIMPCHINESE} "在 Winc 中打开"
   !insertmacro RemoveFileTypeVerb ${Type} ${Icon}
   !insertmacro UnlistFileType ${Type} ${Icon}
   DeleteRegKey HKCU "Software\Classes\winc.${Type}"
+!macroend
+
+; .winc-project is Winc's own project file: the extension opens with winc by default. Nothing else
+; claims it, so Windows does not ask which program to use.
+!macro RegisterProjectType
+  WriteRegStr HKCU "Software\Classes\.winc-project" "" "winc.WINC-PROJECT"
+!macroend
+
+; Removes the default program only while it is still winc.
+!macro UnregisterProjectType
+  ReadRegStr $0 HKCU "Software\Classes\.winc-project" ""
+  StrCmp $0 "winc.WINC-PROJECT" 0 +2
+    DeleteRegValue HKCU "Software\Classes\.winc-project" ""
+  DeleteRegKey /ifempty HKCU "Software\Classes\.winc-project"
 !macroend
 
 ; "Open in Winc" on a folder and on the empty space inside one (also the desktop); %V is that folder.
@@ -429,6 +447,7 @@ Section "Winc" SEC_MAIN
   !insertmacro ForEachFileType UnlistFileType
   !insertmacro ForEachFileType RemoveFileTypeVerb
   !insertmacro ForEachFileType RegisterFileType
+  !insertmacro RegisterProjectType
   !insertmacro RegisterUrlScheme
   ; The optional sections below record the choices again when they are selected.
   !insertmacro UnregisterContextMenu
@@ -524,6 +543,7 @@ uninstall_files:
   DeleteRegKey HKCU "Software\DEEIX\winc"
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\winc"
   !insertmacro ForEachFileType UnregisterFileType
+  !insertmacro UnregisterProjectType
   !insertmacro ForEachRetiredFileType UnregisterFileType
   !insertmacro UnregisterContextMenu
   DeleteRegKey HKCU "Software\Classes\Applications\winc.exe"

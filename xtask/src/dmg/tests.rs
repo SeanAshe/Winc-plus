@@ -82,9 +82,13 @@ fn info_plist_declares_the_types_winc_opens() {
             "{kind}"
         );
     }
-    // 只有按扩展名的一项可成为默认的打开方式，其余都是候选。
+    // 只有按扩展名的一项可成为默认的打开方式，Winc 的项目文件归 Winc 所有，其余都是候选。
     assert_eq!(types.matches("<string>Default</string>").count(), 1);
+    assert_eq!(types.matches("<string>Owner</string>").count(), 1);
     assert_eq!(types.matches("<string>Alternate</string>").count(), 4);
+    assert!(types.contains("<string>com.deeix.winc.project</string>"));
+    let exported = &plist[plist.find("<key>UTExportedTypeDeclarations</key>").unwrap()..];
+    assert!(exported.contains("<string>winc-project</string>"));
 }
 
 #[test]
@@ -97,4 +101,21 @@ fn services_menu_titles_are_written_for_each_language() {
     assert_eq!(read("en"), "\"Open in Winc\" = \"Open in Winc\";\n");
     assert_eq!(read("zh-Hans"), "\"Open in Winc\" = \"在 Winc 中打开\";\n");
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 项目文件的文档图标合成为 `.icns`，`Info.plist` 中这一类型和导出的类型都指向它。
+#[test]
+#[cfg(target_os = "macos")]
+fn the_project_document_icon_is_built() {
+    let work = std::env::temp_dir().join(format!("winc-project-icon-{}", std::process::id()));
+    std::fs::create_dir_all(&work).unwrap();
+    let icns = work.join(format!("{PROJECT_ICON}.icns"));
+    project_icon(&work, &icns).unwrap();
+    assert!(std::fs::metadata(&icns).unwrap().len() > 1000);
+    let _ = std::fs::remove_dir_all(&work);
+    let plist = info_plist("1.2.3", &sparkle::UpdateConfig::default(), "arm64");
+    for key in ["CFBundleTypeIconFile", "UTTypeIconFile"] {
+        let entry = format!("<key>{key}</key>\n\t\t\t<string>{PROJECT_ICON}</string>");
+        assert!(plist.contains(&entry), "{key}");
+    }
 }
