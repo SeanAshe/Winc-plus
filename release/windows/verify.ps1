@@ -119,16 +119,31 @@ foreach ($kind in @('nsis', 'msi')) {
         # The updater is started the way the application starts it: `-Command` with the script
         # inlined, and its parameters in `WINC_UPDATE_*` environment variables. Passing them as
         # `-File` arguments would reach a script that no longer declares `param`, leaving every
-        # parameter empty.
+        # parameter empty. The script re-hashes the package and refuses to run without that
+        # digest; the application passes the digest it recorded when the download was verified.
+        # The package under test is the one just installed, so winc.exe already matches it. The
+        # updater treats a successful install that leaves that file unchanged as a failure,
+        # because a silent installer skips a file that is still open. Change one byte first: a
+        # skipped file fails here, and a real install puts the packaged bytes back.
+        $installed = Join-Path $directory 'winc.exe'
+        $bytes = [IO.File]::ReadAllBytes($installed)
+        if ($bytes.Length -lt 1) { throw "$kind: installed winc.exe is empty" }
+        $bytes[0] = [byte]($bytes[0] -bxor 0xFF)
+        [IO.File]::WriteAllBytes($installed, $bytes)
         $env:WINC_UPDATE_PARENT = "$($parent.Id)"
         $env:WINC_UPDATE_SETUP = $setup
+        $env:WINC_UPDATE_SHA256 = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
         $env:WINC_UPDATE_EXE = "$directory/winc.exe"
         $env:WINC_UPDATE_KIND = $kind
         $env:WINC_UPDATE_RELAUNCH = '0'
         & powershell.exe -NoProfile -NonInteractive -Command (Get-Content -LiteralPath $update -Raw)
         $status = $LASTEXITCODE
         Remove-Item Env:WINC_UPDATE_*
-        if ($status -ne 0) { throw "$kind updater failed" }
+        if ($status -ne 0) {
+            $log = Join-Path (Split-Path -Parent $setup) 'install-error.log'
+            $detail = if (Test-Path -LiteralPath $log) { (Get-Content -LiteralPath $log -Raw).Trim() } else { "exit $status" }
+            throw "$kind updater failed: $detail"
+        }
         foreach ($file in @('winc.exe', 'winc-pty.exe')) {
             if ((Get-FileHash "$directory/$file").Hash -ne (Get-FileHash "$root/target/$Target/release/$file").Hash) {
                 throw "$kind update changed $file"
