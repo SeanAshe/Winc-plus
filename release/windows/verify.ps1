@@ -123,12 +123,35 @@ foreach ($kind in @('nsis', 'msi')) {
         # digest; the application passes the digest it recorded when the download was verified.
         # The package under test is the one just installed, so winc.exe already matches it. The
         # updater treats a successful install that leaves that file unchanged as a failure,
-        # because a silent installer skips a file that is still open. Change one byte first: a
-        # skipped file fails here, and a real install puts the packaged bytes back.
+        # because a silent installer skips a file that is still open. A skipped file must fail
+        # here, and a real install must put the packaged bytes back.
         $installed = Join-Path $directory 'winc.exe'
         $bytes = [IO.File]::ReadAllBytes($installed)
         if ($bytes.Length -lt 1) { throw "${kind}: installed winc.exe is empty" }
-        $bytes[0] = [byte]($bytes[0] -bxor 0xFF)
+        if ($kind -eq 'msi') {
+            # This MSI is already installed, and its ProductCode does not change until the next
+            # build. A second /i therefore does not copy files. A published update is a new
+            # ProductCode and installs cleanly. Remove this package first, then leave an older
+            # winc.exe so the install has a file to replace.
+            $removed = Start-Process msiexec.exe -ArgumentList "/x `"$setup`" /qn /norestart" -Wait -PassThru
+            if ($removed.ExitCode -notin @(0, 1605, 1641, 3010)) {
+                throw "msi: uninstall before update failed: $($removed.ExitCode)"
+            }
+            $aged = $false
+            for ($i = 0; $i -le $bytes.Length - 24; $i++) {
+                $versionInfo = $bytes[$i] -eq 0xBD -and $bytes[$i + 1] -eq 0x04 -and $bytes[$i + 2] -eq 0xEF -and $bytes[$i + 3] -eq 0xFE -and $bytes[$i + 4] -eq 0 -and $bytes[$i + 5] -eq 0 -and $bytes[$i + 6] -eq 1 -and $bytes[$i + 7] -eq 0
+                if ($versionInfo) {
+                    for ($j = 8; $j -lt 16; $j++) { $bytes[$i + $j] = 0 }
+                    $bytes[$i + 12] = 1
+                    $aged = $true
+                    break
+                }
+            }
+            if (-not $aged) { throw 'msi: winc.exe has no file version to age' }
+            New-Item -ItemType Directory -Force -Path $directory | Out-Null
+        } else {
+            $bytes[0] = [byte]($bytes[0] -bxor 0xFF)
+        }
         [IO.File]::WriteAllBytes($installed, $bytes)
         $env:WINC_UPDATE_PARENT = "$($parent.Id)"
         $env:WINC_UPDATE_SETUP = $setup
