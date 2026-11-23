@@ -93,7 +93,7 @@ fn bytes_are_selected_copied_and_found_by_offset() {
     app.go_to_offset("17");
     assert_eq!(view(&app).head, 17);
 
-    // 全选后复制超过上限的不会发生：这个文件很小，照常复制。
+    // 全选后复制超过上限的不会发生：这个文件很小，仍然复制。
     app.select_all_hex();
     app.copy(false);
     assert!(

@@ -86,7 +86,7 @@ fn blame_annotates_lines_and_jumps_to_the_commit_in_the_log() {
         "服务器：对外网开放"
     );
 
-    // 悬停提示写着提交号和说明；点了在日志里选中那次提交。
+    // 悬停提示显示提交号和说明；点击在日志里选中那次提交。
     let l = app.layout;
     let y = l.text.y + 4.5 * app.fonts.line_height;
     let x = l.gutter.x + 40.0;

@@ -1,4 +1,4 @@
-//! 连按两下同一个修饰键（如 Shift）：单按修饰键后松开记作一下，两下构成键位表中的组合键。
+//! 连按两次同一个修饰键（如 Shift）：单按修饰键后松开记作一次，两次构成键位表中的组合键。
 
 use std::time::{Duration, Instant};
 
@@ -16,7 +16,7 @@ const DOUBLE_TAP: Duration = Duration::from_millis(500);
 pub(crate) struct Taps {
     /// 正按着、此后还没有按过别的键的修饰键。
     down: Option<Mods>,
-    /// 上一下单按的修饰键和松开的时刻。
+    /// 上一次单按的修饰键和松开的时刻。
     last: Option<(Mods, Instant)>,
 }
 
@@ -48,7 +48,7 @@ impl App {
         }
     }
 
-    /// 单按了一下修饰键 `bit`：与上一下同键且间隔不超过 [`DOUBLE_TAP`] 时执行对应的命令。
+    /// 单按了一次修饰键 `bit`：与上一次同键且间隔不超过 [`DOUBLE_TAP`] 时执行对应的命令。
     fn tap(&mut self, bit: Mods) {
         // 设置浮层和对话框是模态的，快捷键不传到下层。
         if self.settings.open || self.overlays.form_dialog.is_some() {

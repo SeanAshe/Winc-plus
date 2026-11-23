@@ -84,7 +84,7 @@ fn each_side_of_a_diff_blames_its_own_version() {
     assert!(app.menu_checked(MenuCommand::ToggleBlame));
     app.overlays.context_menu = None;
 
-    // 悬停在左侧一行上提示提交，点了在日志中选中它。
+    // 悬停在左侧一行上提示提交，点击在日志中选中它。
     let column = parts(&app).panes[LEFT].blame;
     let y = column.y + 3.5 * app.fonts.line_height;
     let hit = (app.hits.diff.iter()).find(|(r, _)| r.contains(column.x + 20.0, y));
@@ -101,7 +101,7 @@ fn each_side_of_a_diff_blames_its_own_version() {
     click(&mut app, (column.x + 20.0, y));
     assert!(app.log_active());
 
-    // 回到差异，文字的右键菜单里同样有「逐行追溯」，点了两侧一起关掉。
+    // 回到差异，文字的右键菜单里同样有「逐行追溯」，点击两侧一起关掉。
     app.git_preview_changes(&file);
     paint(&mut app);
     let text = parts(&app).panes[LEFT].text;

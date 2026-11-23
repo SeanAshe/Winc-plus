@@ -16,7 +16,7 @@ impl Cx<'_, '_> {
     pub(crate) fn pie(&mut self, pie: &Pie, s: f32, look: Look, out: &mut Vec<Item>) -> (f32, f32) {
         let total: f64 = pie.slices.iter().map(|(_, v)| v.max(0.0)).sum();
         let mut top = 0.0;
-        // 饼的半径（逻辑像素，经验值）：字号的 7 倍，加上图例后仍能排进正文宽度。
+        // 饼的半径（逻辑像素）：字号的 7 倍，加上图例后仍能排进正文宽度。
         let r = s * 7.0;
         if let Some(title) = &pie.title {
             let t = self.label(title, s * 1.1, look.text, s * 30.0);
@@ -42,7 +42,7 @@ impl Cx<'_, '_> {
                 // 同一块里相邻的小扇形稍微叠一点，接缝处不会因为抗锯齿露出一道浅线。
                 let overlap = if c + 1 < chunks { 0.02 } else { 0.0 };
                 let a1 = at + sweep * (c + 1) as f32 / chunks as f32 + overlap;
-                // 每圈至少切 96 段（经验值），小扇形连起来看不出棱角。
+                // 每圈至少切 96 段（取自调参），小扇形连起来看不出棱角。
                 let steps = ((a1 - a0) / TAU * 96.0).ceil().max(2.0) as usize;
                 let mut points = vec![(cx, cy)];
                 points.extend(ellipse(cx, cy, r, r, a0, a1, steps));
@@ -51,7 +51,7 @@ impl Cx<'_, '_> {
             if pie.slices.len() > 1 {
                 seams.push(Stroke::Line(cx, cy, cx + r * at.cos(), cy + r * at.sin()));
             }
-            // 占比小于 3%（经验值）的块里写不下百分比，只在图例里列出。
+            // 占比小于 3% 的块里写不下百分比，只在图例里列出。
             if share >= 0.03 {
                 let mid = at + sweep / 2.0;
                 percents.push((format!("{:.0}%", share * 100.0), mid));
@@ -62,7 +62,7 @@ impl Cx<'_, '_> {
         out.push(Item::path(seams, 1.5, look.label_bg));
         for (text, mid) in percents {
             let label = self.label(&text, s * 0.85, ink, s * 6.0);
-            // 百分比写在半径 68% 处（经验值），靠近外沿、又不会压到接缝。
+            // 百分比写在半径 68% 处，靠近外沿、又不会压到接缝。
             let d = r * 0.68;
             self.put_label(&label, cx + d * mid.cos(), cy + d * mid.sin(), out);
         }

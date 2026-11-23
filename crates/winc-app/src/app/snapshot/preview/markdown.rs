@@ -1084,7 +1084,7 @@ fn block_markers_take_effect_after_a_space() {
     let shown = |app: &App| crate::app::preview::markdown::laid::full_text(app).unwrap();
     for marker in ["-", "1.", "#", ">"] {
         app.run(winc_editor::Command::Insert(marker.into()));
-        paint(&mut app);
+        settle(&mut app);
         assert!(
             shown(&app).contains(&format!("前文\n{marker}\n")),
             "{}",
@@ -1092,7 +1092,7 @@ fn block_markers_take_effect_after_a_space() {
         );
         let y = caret_screen_y(&app);
         app.run(winc_editor::Command::Insert(" ".into()));
-        paint(&mut app);
+        settle(&mut app);
         // 成为列表项、引用之后记号不再按文字显示，光标仍在同一行上；标题在光标位于开头时
         // 显示 `#`，字号随之变大。
         if marker != "#" {

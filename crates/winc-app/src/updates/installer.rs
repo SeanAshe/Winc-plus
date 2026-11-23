@@ -2,6 +2,10 @@
 //!
 //! 更新包通过签名核对后交给独立的 PowerShell 进程；它等应用退出后运行相应的静默安装命令，
 //! 要求过重新启动时再启动新版本。安装目录当前用户写不了时（例如 `C:\Program Files\winc`）先请求提升权限。
+//!
+//! 核对和安装之间更新包一直放在临时目录里：核对时记下内容的摘要，更新进程安装前以不允许
+//! 写入和删除的方式打开它、再比对一次，安装结束才放开。安装后主程序没有变化（静默安装会
+//! 跳过被占用的文件）算作失败。
 
 #![allow(
     clippy::disallowed_methods,
@@ -11,15 +15,27 @@
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::{Mutex, PoisonError};
 
 use ed25519_dalek::VerifyingKey;
+use sha2::{Digest, Sha256};
+use winc_i18n::t;
 
-use super::{Item, download, verify};
+use super::{Item, cannot_write, download, verify};
 
 /// appcast 中本平台更新包的系统名称。
 pub const OS: &str = "windows";
 /// Windows 的更新清单；每种安装包各有一项。
 pub const FEED_FILE: &str = "appcast-windows.xml";
+
+/// 通过了签名核对的更新包和它内容的 SHA-256（小写十六进制）；只记在内存里。
+static VERIFIED: Mutex<Option<(PathBuf, String)>> = Mutex::new(None);
+
+/// 返回 `bytes` 的 SHA-256，小写十六进制。
+fn digest(bytes: &[u8]) -> String {
+    let hash = Sha256::digest(bytes);
+    hash.iter().map(|byte| format!("{byte:02x}")).collect()
+}
 
 /// 安装包在主程序旁写入的安装类型。
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -80,7 +96,7 @@ pub fn prepare(
     key: &VerifyingKey,
     progress: &dyn Fn(u8),
 ) -> Result<PathBuf, String> {
-    let kind = kind_at(exe).ok_or("无法识别安装类型")?;
+    let kind = kind_at(exe).ok_or_else(|| t!("settings-updates-error-location").to_owned())?;
     let dir = std::env::temp_dir().join("winc-update");
     prepare_in(&dir, item, key, kind, progress)
 }
@@ -94,14 +110,19 @@ fn prepare_in(
     progress: &dyn Fn(u8),
 ) -> Result<PathBuf, String> {
     let _ = std::fs::remove_dir_all(dir);
-    std::fs::create_dir_all(dir).map_err(|e| format!("无法写入「{}」：{e}", dir.display()))?;
+    std::fs::create_dir_all(dir).map_err(|e| cannot_write(dir, &e))?;
     let setup = dir.join(format!("winc-setup.{}", kind.extension()));
     let result = download(&item.url, &setup, item.length, progress).and_then(|()| {
         let bytes = std::fs::read(&setup).map_err(|e| e.to_string())?;
-        verify(item, &bytes, key)
+        verify(item, &bytes, key)?;
+        Ok(digest(&bytes))
     });
     match result {
-        Ok(()) => Ok(setup),
+        Ok(digest) => {
+            let mut verified = VERIFIED.lock().unwrap_or_else(PoisonError::into_inner);
+            *verified = Some((setup.clone(), digest));
+            Ok(setup)
+        }
         Err(e) => {
             let _ = std::fs::remove_dir_all(dir);
             Err(e)
@@ -117,12 +138,20 @@ fn prepare_in(
 pub fn after_exit(setup: &Path, relaunch: bool) {
     let result = (|| -> Result<(), String> {
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-        let kind = kind_at(&exe).ok_or("无法识别安装类型")?;
+        let kind = kind_at(&exe).ok_or_else(|| t!("settings-updates-error-location").to_owned())?;
+        // 只安装这次运行中核对过的那一个：摘要交给更新进程，它在安装前再比对一次。
+        let verified = VERIFIED.lock().unwrap_or_else(PoisonError::into_inner);
+        let digest = (verified.as_ref())
+            .filter(|(path, _)| path == setup)
+            .map(|(_, digest)| digest.clone())
+            .ok_or_else(|| t!("settings-updates-error-signature").to_owned())?;
+        drop(verified);
         Command::new("powershell.exe")
             .args(["-NoProfile", "-NonInteractive", "-Command"])
             .arg(include_str!("installer/update.ps1"))
             .env("WINC_UPDATE_PARENT", std::process::id().to_string())
             .env("WINC_UPDATE_SETUP", setup)
+            .env("WINC_UPDATE_SHA256", digest)
             .env("WINC_UPDATE_EXE", exe)
             .env("WINC_UPDATE_KIND", kind.name())
             .env("WINC_UPDATE_RELAUNCH", if relaunch { "1" } else { "0" })

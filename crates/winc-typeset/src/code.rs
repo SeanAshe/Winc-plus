@@ -139,7 +139,9 @@ impl Cx<'_, '_> {
         let text_color = self.colors.text;
         // 每个字的颜色：按语法高亮。
         let mut colors = vec![text_color; chars.len()];
-        if let Some(language) = language {
+        // 过长的行不着色，行末的状态沿用行首的，与编辑区对长行的处理相同：词法分析的耗时不随
+        // 一行的长度无限增长。
+        if let Some(language) = language.filter(|_| chars.len() <= winc_syntax::MAX_LINE_CHARS) {
             let mut tokens = Vec::new();
             *state = winc_syntax::highlight_line(language, &chars, *state, &mut tokens);
             for token in &tokens {

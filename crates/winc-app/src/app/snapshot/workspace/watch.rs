@@ -427,7 +427,7 @@ fn background_tree_scans_keep_only_the_latest_per_folder() {
             .iter()
             .map(|d| app.panels.tree.scans.tickets.issue(d.clone()))
             .collect();
-        (tickets, scan.run())
+        (tickets, scan.run(), None)
     };
 
     // 目录连续变化两次，先发出的扫描后到达：采用后发出的结果，后到达的旧内容不覆盖新内容。

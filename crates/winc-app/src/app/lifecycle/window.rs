@@ -144,7 +144,7 @@ impl App {
         self.request_redraw();
     }
 
-    /// 记下新启动的 winc 交来的激活令牌 `token`（见 [`crate::instance::launch_token`]），在下一次
+    /// 记下新启动的 winc 交来的激活令牌 `token`（见 [`crate::instance::LaunchTokens`]），在下一次
     /// 建系统窗口或切到前台时使用一次。不使用 X11、Wayland 的平台上忽略。
     pub(crate) fn set_activation(&mut self, token: Option<String>) {
         #[cfg(all(unix, not(target_os = "macos")))]
@@ -163,9 +163,9 @@ impl App {
     /// 返回从本窗口打开的新窗口的位置（外框左上角，物理像素）和本窗口的缩放比例：比本窗口往
     /// 右下错开，形成层叠。
     ///
-    /// 本窗口最小化时按最小化之前正常显示的位置（`WindowState::frame`）错开：最小化期间系统报告的位置
-    /// 不在屏幕上，Windows 上为 (-32000, -32000)。本窗口隐藏，或最小化且没有记下正常显示的位置时
-    /// 返回 `None`，新窗口改用上次关闭窗口时记下的位置。
+    /// 本窗口最小化时按最小化之前正常显示的位置（`WindowState::frame`）错开：
+    /// 最小化期间系统报告的位置不在屏幕上，Windows 上为 (-32000, -32000)。本窗口隐藏，
+    /// 或最小化且没有记下正常显示的位置时返回 `None`，新窗口改用上次关闭窗口时记下的位置。
     pub(crate) fn cascade_from(&self) -> Option<((f64, f64), f64)> {
         let window = self.window.handle.as_ref()?;
         if self.window.hidden {
@@ -311,7 +311,7 @@ impl App {
             self.gutter_width(),
             status_height,
         );
-        // 差异标签：查找条放在差异的标题栏下面，不盖住标题栏右端的按钮。
+        // 差异标签：查找条放在差异的标题栏下面，不遮住标题栏右端的按钮。
         let diff = self.editor.active().and_then(|d| d.diff.as_deref());
         if let Some(view) = diff.filter(|_| self.layout.search.h > 0.0) {
             self.layout.search.y += crate::app::diff::diff_top(view);
@@ -406,9 +406,9 @@ impl App {
     /// 左边占的比例按 `split_share`（默认各占一半），两边都至少留 `SPLIT_MIN`；编辑区太窄、
     /// 两边都放不下 `SPLIT_MIN` 时不分，只显示源代码。
     fn place_minimap(&mut self) {
-        // 编辑区窄于该宽度时不显示（逻辑像素，经验值）：优先留给代码。
+        // 编辑区窄于该宽度时不显示（逻辑像素）：优先留给代码。
         const MINIMAP_MIN: f32 = 480.0;
-        // 缩略图占的宽度（逻辑像素，经验值），右边一段让给滚动条。
+        // 缩略图占的宽度（逻辑像素，取自调参），右边一段让给滚动条。
         const MINIMAP_W: f32 = 84.0;
         self.layout.minimap = Rect::default();
         let shows_code = self.editor.active().is_some_and(|doc| {
@@ -431,9 +431,9 @@ impl App {
     }
 
     fn place_split(&mut self) {
-        // 分栏时每一半的最小宽度（逻辑像素，经验值）。
+        // 分栏时每一半的最小宽度（逻辑像素，取自调参）。
         const SPLIT_MIN: f32 = 240.0;
-        // 分隔线两侧各放宽的可拖动范围（逻辑像素，经验值）。
+        // 分隔线两侧各放宽的可拖动范围（逻辑像素，取自调参）。
         const GRIP: f32 = 4.0;
         let share = self.preview.split_share.unwrap_or(0.5);
         let l = &mut self.layout;
@@ -465,13 +465,12 @@ impl App {
         l.search.x -= shrink;
     }
 
-    /// 终端面板开着时从编辑区卡片下面切出一张卡片：编辑区变矮，两张卡片之间留间距，间距里
-    /// 可以上下拖动改面板高度。
+    /// 终端面板开着时从编辑区卡片下面切出一张卡片：编辑区变矮，两张卡片之间留间距，间距里可以上下拖
+    /// 动改面板高度。
     ///
-    /// 放在右边时（`terminal.position`）从编辑区右边切出整个一栏，间距里左右拖动改面板宽度；
-    /// 窗口放不下最小尺寸时面板不显示。动画里面板只露出一部分，这时间距不能拖。最大化时两种
-    /// 位置相同：面板铺满编辑区一栏（连同顶栏那一行），编辑区不占地方，见
-    /// [`Self::place_full_terminal`]。
+    /// 放在右边时（`terminal.position`）从编辑区右边切出整个一栏，间距里左右拖动改面板宽度；窗口放
+    /// 不下最小尺寸时面板不显示。动画里面板只露出一部分，这时间距不能拖。最大化时两种位置相同：面板
+    /// 铺满编辑区一栏（连同顶栏那一行），编辑区不占地方，见 [`Self::place_full_terminal`]。
     fn place_terminal(&mut self) {
         let (shown, right) = self.terminal_shown();
         let full = self.terminal_fill();
@@ -551,7 +550,7 @@ impl App {
     /// 中间，浮在面板上。
     ///
     /// 打开、收起的动画里面板整个从窗口边上滑进滑出（下面的滑到状态栏后面，右边的滑出窗口），
-    /// 这时编辑区照常显示在它后面。
+    /// 这时编辑区仍然显示在它后面。
     fn place_full_terminal(&mut self, column: Rect, shown: f32, right: bool) {
         let l = &mut self.layout;
         let slide = 1.0 - shown;

@@ -8,12 +8,12 @@ use std::time::Duration;
 use super::*;
 use crate::app::animation::{Clock, reveal, stage};
 
-/// 一次过渡的时长（经验值）。
+/// 一次过渡的时长（取自调参）。
 ///
 /// 宽度变化与文字淡入淡出分段进行，时长长于标签滑动（150 ms），各段均有足够的帧数。
 pub(crate) const STATUS_SLIDE: Duration = Duration::from_millis(240);
 
-/// 消失时文字淡出所占的比例（经验值）；淡出结束后宽度才开始收起。
+/// 消失时文字淡出所占的比例（取自调参）；淡出结束后宽度才开始收起。
 const FADE_OUT: f32 = 0.3;
 
 /// 视为宽度不变的最大差值（逻辑像素）。

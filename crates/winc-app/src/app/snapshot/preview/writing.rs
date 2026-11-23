@@ -62,7 +62,7 @@ fn writing_commands_edit_the_markdown_source() {
     assert!(app.run_action(Action::MarkdownQuote));
     assert_eq!(marked(&app), "标题\n\n[> 1. 一\n> 2. 二]\n\n正文\n");
 
-    // 有字的一行上插入代码块和表格：插在下面，光标在可以接着写的地方。
+    // 有字的一行上插入代码块和表格：插在下面，光标在可以继续写的地方。
     put_caret(&mut app, "正文", true);
     assert!(app.run_action(Action::MarkdownCodeBlock));
     assert!(marked(&app).ends_with("正文\n\n```|\n\n```\n"));

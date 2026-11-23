@@ -137,10 +137,9 @@ impl UpdateConfig {
 
     /// 返回写进 `Info.plist` 的更新配置项；更新未启用时返回空字符串。
     ///
-    /// 应用按时自行检查（`SUEnableAutomaticChecks` 为 false），检查时同时请求各通道的 appcast。
-    /// 只安装与公钥签名匹配的更新，appcast 本身也必须签名（`SURequireSignedFeed`），解压前
-    /// 校验（`SUVerifyUpdateBeforeExtraction`），不提供自动下载并安装的选项
-    /// （`SUAllowsAutomaticUpdates`）。
+    /// 应用按时自行检查（`SUEnableAutomaticChecks` 为 false），同时请求各通道的 appcast。只安装
+    /// 与公钥签名匹配的更新，appcast 本身也必须签名（`SURequireSignedFeed`），解压前校验
+    /// （`SUVerifyUpdateBeforeExtraction`），不自动下载并安装（`SUAllowsAutomaticUpdates`）。
     ///
     /// `arch` 是应用的架构，取 `arm64` 或 `x86_64`；两种架构各有一份 appcast，见 [`feed_url`]。
     pub fn plist_entries(&self, arch: &str) -> String {

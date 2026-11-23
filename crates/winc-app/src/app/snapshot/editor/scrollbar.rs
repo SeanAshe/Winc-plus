@@ -51,6 +51,51 @@ fn scrollbars_show_while_scrolling_or_hovered() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// 编辑区的水平滚动条上显示箭头，拖动滑块经过文字时也是箭头；没有水平滚动条时，文字区底部
+/// 显示文本光标。
+#[test]
+fn the_text_cursor_leaves_the_editor_horizontal_scrollbar() {
+    use winit::window::CursorIcon;
+
+    let dir = sample_folder("scrollbar-horizontal-cursor");
+    // 每行宽 300 列，远超编辑区宽度，底部有水平滚动条。
+    let long: String = (0..20)
+        .map(|i| format!("line {i} {}\n", "x".repeat(300)))
+        .collect();
+    let path = dir.join("long.txt");
+    std::fs::write(&path, long).unwrap();
+    let mut app = app_with(&path, false);
+    paint(&mut app);
+    let track = app.text_hscroll_track();
+    assert!(app.text_content_w > track.w);
+
+    let cursor = |app: &mut App, x: f32, y: f32| {
+        app.on_mouse_move(x, y);
+        app.pointer.cursor_icon
+    };
+    let t = app.layout.text;
+    assert_eq!(cursor(&mut app, t.x + 40.0, t.y + 8.0), CursorIcon::Text);
+    let bar = (track.x + 8.0, track.bottom() - 4.0);
+    assert_eq!(cursor(&mut app, bar.0, bar.1), CursorIcon::Default);
+    assert_eq!(
+        app.pointer.hover,
+        Hover::Scrollbar(Scrollbar::EditorHorizontal)
+    );
+    app.on_mouse_down(MouseButton::Left);
+    assert_eq!(cursor(&mut app, t.x + 40.0, t.y + 8.0), CursorIcon::Default);
+    app.on_mouse_up(MouseButton::Left);
+    assert_eq!(cursor(&mut app, t.x + 40.0, t.y + 8.0), CursorIcon::Text);
+
+    // 行宽不超过编辑区时没有水平滚动条，同一位置上是文字区，显示文本光标。
+    std::fs::write(dir.join("short.txt"), "short\n".repeat(400)).unwrap();
+    app.open_path(&dir.join("short.txt"));
+    paint(&mut app);
+    assert!(app.text_content_w <= app.text_hscroll_track().w);
+    assert_eq!(cursor(&mut app, bar.0, bar.1), CursorIcon::Text);
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 fn the_editor_scrolls_sideways_by_its_scrollbar_and_by_dragging_past_the_edge() {
     let dir = sample_folder("scrollbar-horizontal");

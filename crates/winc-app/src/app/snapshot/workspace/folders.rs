@@ -80,7 +80,7 @@ fn a_folder_can_be_added_to_the_window_and_removed() {
     }
     assert!(!on_main.contains(&MenuCommand::RemoveFolder));
     assert!(on_other.contains(&MenuCommand::RemoveFolder));
-    // 其中的文件照常：可以改名、删除，没有移除。
+    // 其中的文件仍然：可以改名、删除，没有移除。
     let inside = other.join("src/main.rs");
     app.editor.workspace.as_mut().unwrap().reveal(&inside);
     let file = listed(&mut app, Some(inside));
@@ -261,7 +261,7 @@ fn a_folder_can_be_added_to_the_window_and_removed() {
     let notice = later.notice.text.take().unwrap_or_default();
     assert!(notice.contains("folders-gone"), "{notice}");
 
-    // 移除：只从窗口中拿掉，磁盘上的内容不动，文件树回到只列打开的目录。
+    // 移除：只从窗口中移除，磁盘上的内容不动，文件树回到只列打开的目录。
     app.run_tree_command(MenuCommand::RemoveFolder, Some(other.clone()));
     paint(&mut app);
     assert!(app.extra_folders().is_empty() && other.join("src/main.rs").is_file());

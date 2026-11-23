@@ -32,7 +32,7 @@ impl App {
             return;
         }
         let first_run = self.state == State::default();
-        self.update_state(|state| {
+        self.update_state(move |state| {
             state.version = Some(current.to_owned());
             state.setup_pending |= first_run;
         });

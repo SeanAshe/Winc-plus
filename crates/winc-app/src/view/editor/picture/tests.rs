@@ -74,7 +74,7 @@ fn the_base_is_drawn_only_outside_the_sharp_raster() {
         outside(area, Some(Rect::new(200.0, 0.0, 10.0, 10.0))),
         [area]
     );
-    // 清晰的位图盖住整个区域时不绘制。
+    // 清晰的位图遮住整个区域时不绘制。
     assert!(outside(area, Some(Rect::new(-10.0, -10.0, 200.0, 200.0))).is_empty());
     // 位图在区域中间：上、下各一条，左、右各一条，互不重叠。
     let strips = outside(area, Some(Rect::new(20.0, 10.0, 50.0, 40.0)));

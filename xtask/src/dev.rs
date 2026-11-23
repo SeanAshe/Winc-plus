@@ -264,8 +264,8 @@ fn changed_files(root: &Path, base: Option<&str>) -> Result<Vec<PathBuf>, String
 
 /// 返回要测的包：改动的文件所在的包，以及直接、间接依赖这些包的包。
 ///
-/// 根目录的 `Cargo.toml`、`Cargo.lock`、`VERSION`、`.cargo/`、`rust-toolchain.toml` 变了时全部要测；
-/// 不属于任何包的文档文件不算。
+/// 根目录的 `Cargo.toml`、`Cargo.lock`、`VERSION`、`.cargo/`、`rust-toolchain.toml` 变了时
+/// 全部要测；不属于任何包的文档文件不算。
 fn affected(members: &[Member], changed: &[PathBuf]) -> Vec<String> {
     let global = [
         "Cargo.toml",
@@ -389,7 +389,7 @@ pub fn test(args: &[String]) -> Result<bool, String> {
 
 /// `cargo xtask tidy`：删除 `target/debug/deps` 中已没有被任何可执行文件引用的 `.rcgu.o`。
 ///
-/// 仅在 macOS 上执行，其他平台直接返回。当前的可执行文件引用的目标文件保留，崩溃时的调用栈和
+/// 仅在 macOS 上执行，其他平台直接返回。当前的可执行文件引用的目标文件保留，进程中止时的调用栈和
 /// 调试器需要使用。
 ///
 /// # Errors

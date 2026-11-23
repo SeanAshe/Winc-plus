@@ -55,6 +55,11 @@ impl Kind {
     pub fn is_symlink(self) -> bool {
         self == Self::Symlink
     }
+
+    /// 是否为特殊文件（设备、命名管道、套接字等）。
+    pub fn is_other(self) -> bool {
+        self == Self::Other
+    }
 }
 
 impl From<std::fs::FileType> for Kind {
@@ -304,6 +309,31 @@ pub fn read(path: impl AsRef<Path>) -> io::Result<Vec<u8>> {
         None => std::fs::read(path),
         Some(at) => remote::connection(&at.target)?.read(&at.path),
     }
+}
+
+/// 读取 `path` 从 `offset` 起至多 `len` 字节，返回数据和是否已到文件末尾；`len` 超过 1 MiB 时
+/// 按 1 MiB 读。
+///
+/// 用于只需要文件开头一部分、或要边读边处理的调用方：不把整个文件放进内存。
+///
+/// # Errors
+///
+/// 与 `std::fs::File` 的打开、定位和读取相同；`path` 是虚拟路径时还有连接的错误，见本模块的
+/// 说明。
+pub fn read_range(path: impl AsRef<Path>, offset: u64, len: u32) -> io::Result<(Vec<u8>, bool)> {
+    use std::io::{Read, Seek};
+    let path = path.as_ref();
+    let len = len.min(remote::MAX_READ);
+    if let Some(at) = locate(path) {
+        return remote::connection(&at.target)?.read_range(&at.path, offset, len);
+    }
+    let mut file = std::fs::File::open(path)?;
+    file.seek(io::SeekFrom::Start(offset))?;
+    let mut data = Vec::new();
+    file.by_ref().take(u64::from(len)).read_to_end(&mut data)?;
+    // 读到的不足所要的长度：已到末尾。正好读满时再看后面还有没有。
+    let end = data.len() < len as usize || file.read(&mut [0])? == 0;
+    Ok((data, end))
 }
 
 /// 读取 `path` 的全部内容并按 UTF-8 解码。

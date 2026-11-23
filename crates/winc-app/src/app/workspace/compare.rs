@@ -17,6 +17,10 @@ use crate::app::scroll::set_scroll_line;
 /// 返回 `path` 的文本内容用于比较；文件过大、是二进制文件或读取失败时返回提示文字。
 fn read_for_compare(path: &Path) -> Result<String, String> {
     let name = display_name(path);
+    // 先看大小：过大的文件不读进内存。
+    if winc_backend::fs::metadata(path).is_ok_and(|m| m.len > LARGE_FILE) {
+        return Err(t!("workspace-compare-too-large", name = name));
+    }
     let bytes = winc_backend::fs::read(path).map_err(|e| {
         t!(
             "workspace-compare-read-failed",

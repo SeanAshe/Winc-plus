@@ -21,7 +21,12 @@ pub(crate) fn part(archive: &Archive<'_>, path: &str) -> Result<Option<Vec<u8>>,
 /// 把 `bytes` 解析成 XML；`path` 用于报错，也是包中的路径。
 pub(crate) fn parse<'a>(bytes: &'a [u8], path: &str) -> Result<Document<'a>, String> {
     let damaged = || t!("preview-office-damaged", part = path.to_owned());
-    Document::parse(text(bytes, path)?).map_err(|_| damaged())
+    let text = text(bytes, path)?;
+    // 嵌套过深的文件不解析，原因见 `xml::MAX_NESTING`。
+    if crate::xml::nesting_exceeds(text, crate::xml::MAX_NESTING) {
+        return Err(damaged());
+    }
+    Document::parse(text).map_err(|_| damaged())
 }
 
 /// 返回 `bytes` 作为 UTF-8 文字的内容，不含字节顺序标记；`path` 用于报错，也是包中的路径。

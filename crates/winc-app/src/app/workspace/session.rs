@@ -1,5 +1,7 @@
 //! 目录的打开、切换和关闭，最近打开的目录，以及每个目录的现场（标签和当前标签）。
 
+use std::sync::PoisonError;
+
 use super::*;
 
 /// 开始页（没有打开目录时）上可以点击的项。
@@ -149,7 +151,12 @@ impl App {
         if let Some(index) = self.startup_file_index() {
             self.discard_tab(self.editor.documents[index].id);
         }
-        if let Err(e) = self.editor.open_folder(path) {
+        // 有事件循环时目录交给后台读：它可能在很慢的磁盘或网络盘上。测试中就地读。
+        let opened = match self.link.proxy {
+            Some(_) => self.editor.open_folder_later(path),
+            None => self.editor.open_folder(path),
+        };
+        if let Err(e) = opened {
             let name = winc_editor::display_name(path);
             self.notify(
                 NoticeKind::Error,
@@ -185,11 +192,45 @@ impl App {
             self.restore_group(session.as_ref());
         }
         self.watch_extra_folders();
-        let restored = restore_tabs(
-            &mut self.editor,
-            session.as_ref(),
-            self.backup.root.as_deref(),
-        );
+        // 备份和各标签的文件在后台读：要等备份锁，目录可能在很慢的磁盘上。
+        self.disk.restoring = Some(root.clone());
+        let backups = self.backup.root.clone();
+        let slot = Arc::clone(&self.disk.prepared);
+        self.spawn_blocking_then(UserEvent::TabsPrepared, move || {
+            let prepared = prepare_restore(Some(&root), session.as_ref(), backups.as_deref());
+            let mut slot = slot.lock().unwrap_or_else(PoisonError::into_inner);
+            slot.push((root, session, prepared));
+        });
+        self.request_redraw();
+    }
+
+    /// 是否正在后台读取备份、还没有恢复打开的目录的标签；这时编辑区显示正在恢复。
+    pub(crate) fn restoring_tabs(&self) -> bool {
+        self.disk.restoring.is_some()
+    }
+
+    /// 后台读好了恢复标签要用的内容：恢复该目录上次的标签、终端和运行配置。期间换了目录时丢弃。
+    ///
+    /// 期间打开的文件仍是当前标签，不被现场里当时的当前标签取代。
+    pub(in crate::app) fn poll_prepared_tabs(&mut self) {
+        // 几个目录的结果可能先后到达：只取正在等的那个目录的，其余的丢弃。
+        let prepared = {
+            let mut slot = (self.disk.prepared.lock()).unwrap_or_else(PoisonError::into_inner);
+            std::mem::take(&mut *slot)
+        };
+        let wanted = |root: &PathBuf| {
+            self.disk.restoring.as_ref() == Some(root) && self.editor.root() == Some(root)
+        };
+        let prepared = prepared.into_iter().rfind(|(root, ..)| wanted(root));
+        let Some((_, session, prepared)) = prepared else {
+            return;
+        };
+        self.disk.restoring = None;
+        let opened = self.editor.active().map(|doc| doc.id);
+        let restored = restore_prepared(&mut self.editor, session.as_ref(), prepared);
+        if let Some(index) = opened.and_then(|id| self.editor.index_of(id)) {
+            self.editor.active = Some(index);
+        }
         self.adopt_restored(restored);
         if session
             .as_ref()
@@ -241,13 +282,14 @@ impl App {
     pub(in crate::app) fn close_folder_now(&mut self) {
         // `last` 是别的 winc 进程写的（指向别的目录）时不动，该进程异常中止后仍需用它恢复。
         if let Some(root) = self.editor.root().map(Path::to_path_buf) {
-            self.update_state(|state| {
+            self.update_state(move |state| {
                 if state.last.as_deref() == Some(root.as_path()) {
                     state.last = None;
                 }
             });
         }
         self.editor.workspace = None;
+        self.disk.restoring = None;
         // 标签都关了，没有要备份的：放开这个目录的备份锁（见 `release_folder_lock`）。
         self.release_folder_lock();
         self.reset_folder_views();
@@ -264,6 +306,8 @@ impl App {
     /// 包括输入框和浮层、全局搜索结果、`⌘P` 面板的文件表、文件树的滚动位置和动画、
     /// 已关闭标签的记录（`⇧⌘T`）以及后退前进历史。
     fn reset_folder_views(&mut self) {
+        // 等文件树读好后要做的事（选中某一行等）属于旧目录。
+        self.panels.tree.scans.forget_follow_ups();
         // 输入框和浮层中保存的行号、路径属于旧目录，在新目录中无效。
         self.panels.name_input = None;
         self.bars.goto_input = None;
@@ -298,7 +342,7 @@ impl App {
 
         // 退出时会再记录一次；此处先设置 `last`，使进程异常中止后下次启动仍能回到该目录，
         // 并找回未保存的内容。还没有现场的目录先记一个空现场：`last` 只认有现场的目录。
-        self.update_state(|state| {
+        self.update_state(move |state| {
             state.remember(&root);
             if state.session_for(&root).is_none() {
                 state.set_session(Session {
@@ -327,16 +371,12 @@ impl App {
     pub(in crate::app) fn save_session(&mut self) {
         let reopen = self.config.restore_folder != Some(false);
         let root = self.editor.root().map(Path::to_path_buf);
-        let shared = self.link.shared.clone();
-        self.update_state(|state| match root {
+        let open = self.link.shared.open_roots();
+        self.update_state(move |state| match root {
             Some(root) if reopen => state.last = Some(root),
             _ if !reopen => state.last = None,
             _ => {
-                if state
-                    .last
-                    .as_deref()
-                    .is_some_and(|last| shared.window_with(last, None).is_none())
-                {
+                if (state.last.as_ref()).is_some_and(|last| !open.contains(last)) {
                     state.last = None;
                 }
             }
@@ -349,10 +389,14 @@ impl App {
     /// 现场的内容包括：有路径且仍在磁盘上的标签、有备份的未保存内容、书签、折叠的块、大纲里
     /// 收起的符号，以及当前标签。
     pub(in crate::app) fn remember_session(&mut self) {
+        // 上次的标签还没有恢复：这时记下的现场是空的，会盖掉要恢复的那一份。
+        if self.restoring_tabs() {
+            return;
+        }
         let places = self.places_now();
         let Some(folder) = self.editor.root().map(Path::to_path_buf) else {
             if !places.is_empty() {
-                self.update_state(|state| places::record(state, &places));
+                self.update_state(move |state| places::record(state, &places));
             }
             return;
         };
@@ -399,7 +443,7 @@ impl App {
         let folds = self.editor.all_folds().into_iter().collect();
         let earlier = self.state.session_for(&folder).and_then(|s| s.window);
         let window = self.window_frame_now().or(earlier);
-        self.update_state(|state| {
+        self.update_state(move |state| {
             places::record(state, &places);
             state.set_session(Session {
                 folder,
@@ -423,7 +467,8 @@ impl App {
 
     /// 最近列表中的目录已不存在（删除、移动，或者外接磁盘未挂载）：从列表中移除并提示。
     pub(in crate::app) fn forget_missing_recent(&mut self, folder: &Path) {
-        self.update_state(|state| state.forget(folder));
+        let gone = folder.to_path_buf();
+        self.update_state(move |state| state.forget(&gone));
         self.notify(
             NoticeKind::Warning,
             winc_i18n::t!(
@@ -435,19 +480,74 @@ impl App {
 
     /// 修改状态（最近目录、各目录的现场）并写入状态文件；失败时在标准错误输出原因。
     ///
-    /// 先重新读出状态文件，在其上修改再写回（见 [`State::update`]），不会盖掉别的 winc 进程
-    /// 刚写入的内容；内存中的状态随之换成最新的。测试和测量时没有状态文件，只改内存。
-    pub(in crate::app) fn update_state(&mut self, change: impl FnOnce(&mut State)) {
+    /// 内存中的状态立即修改；文件由后台重新读出、在其上做同一个修改再写回（见
+    /// [`State::update`]），不会盖掉别的 winc 进程刚写入的内容，写完后内存中的状态换成文件里
+    /// 的（[`App::state_stored`]）。测试和测量时没有状态文件，只改内存；没有事件循环时当场写。
+    pub(in crate::app) fn update_state(
+        &mut self,
+        change: impl FnOnce(&mut State) + Clone + Send + 'static,
+    ) {
         let Some(path) = self.store.state_path.clone() else {
             change(&mut self.state);
             return;
         };
-        let (state, result) = State::update(&path, change);
-        self.state = state;
-        if let Err(e) = result {
-            eprintln!("winc: 无法记下最近打开的目录：{e}");
-        }
+        let Some(proxy) = self.link.proxy.clone() else {
+            let (state, result) = State::update(&path, &self.state, change);
+            self.state = state;
+            report_state_error(&result);
+            self.sync_system_recents();
+            return;
+        };
+        let current = self.state.clone();
+        change.clone()(&mut self.state);
         self.sync_system_recents();
+        self.store.state_requests += 1;
+        let request = self.store.state_requests;
+        winc_config::state_writer::update(path, current, change, move |state, result| {
+            report_state_error(result);
+            let stored = UserEvent::StateStored(request, Box::new(state.clone()));
+            let _ = proxy.send_event(stored);
+        });
+    }
+
+    /// 在后台重新读出状态文件：其他 winc 进程可能修改了最近列表。读不出来时保留内存中的状态。
+    pub(in crate::app) fn reload_state(&mut self) {
+        let Some(path) = self.store.state_path.clone() else {
+            return;
+        };
+        let Some(proxy) = self.link.proxy.clone() else {
+            if let Ok(Some(state)) = State::read(&path) {
+                self.state = state;
+            }
+            return;
+        };
+        self.store.state_requests += 1;
+        let request = self.store.state_requests;
+        winc_config::state_writer::reload(path, move |state| {
+            let _ = proxy.send_event(UserEvent::StateStored(request, Box::new(state)));
+        });
+    }
+
+    /// 后台读写完了状态文件：内存中的状态换成文件里的，其中有其他 winc 进程写入的内容。
+    ///
+    /// 之后又提交过读写时不换：文件里还没有那些修改，等最后一次的结果。
+    pub(in crate::app) fn state_stored(&mut self, request: u64, state: State) {
+        if request != self.store.state_requests {
+            return;
+        }
+        let recents = |state: &State| (state.recent.clone(), state.recent_files.clone());
+        let changed = recents(&state) != recents(&self.state);
+        self.state = state;
+        if changed {
+            self.sync_system_recents();
+            // 开始页、菜单和选择面板按序号记着最近列表里的项：列表变了，画面上的还是旧的。
+            // 清掉可点击的区域，重绘之前的点击不会落到另一项上。
+            self.hits.clear();
+            if self.overlays.picker.open && self.overlays.picker.folders {
+                self.picker_refresh();
+            }
+        }
+        self.request_redraw();
     }
 
     /// 把最近打开的目录和文件交给系统：macOS 的最近文档列表（程序坞菜单）、Windows 的任务栏
@@ -544,7 +644,7 @@ impl App {
             }
             StartAction::Forget(index) => {
                 if let Some(folder) = self.state.recent.get(index).cloned() {
-                    self.update_state(|state| state.forget(&folder));
+                    self.update_state(move |state| state.forget(&folder));
                 }
             }
         }
@@ -553,3 +653,13 @@ impl App {
         self.request_redraw();
     }
 }
+
+/// 状态文件没能写入时在标准错误输出原因。
+fn report_state_error(result: &std::io::Result<()>) {
+    if let Err(e) = result {
+        eprintln!("winc: 无法记下最近打开的目录：{e}");
+    }
+}
+
+/// 后台读好的、恢复标签要用的内容：目录、它的现场和读到的备份。
+pub(in crate::app) type PreparedTabs = Arc<Mutex<Vec<(PathBuf, Option<Session>, Prepared)>>>;

@@ -55,7 +55,7 @@ impl App {
             .collect()
     }
 
-    /// 当前标签中 `(x, y)` 所在的、不在前台的终端的位置；被浮层盖住时为 `None`。
+    /// 当前标签中 `(x, y)` 所在的、不在前台的终端的位置；被浮层遮住时为 `None`。
     pub(in crate::app) fn terminal_pane_at(&self, x: f32, y: f32) -> Option<usize> {
         if self.overlay_covers(x, y) {
             return None;

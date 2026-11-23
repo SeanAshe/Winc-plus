@@ -959,7 +959,7 @@ fn the_location_picker_searches_and_switches() {
     assert!(app.overlays.context_menu.is_some());
     app.overlays.context_menu = None;
 
-    // 命令「切换仓库」展开位置选择器，选中的是当前位置。打开的目录中有多个仓库，标题行有写着
+    // 命令「切换仓库」展开位置选择器，选中的是当前位置。打开的目录中有多个仓库，标题行有显示
     // 当前仓库的位置按钮，面板在它下方。
     let parts = app.commit_parts();
     let row = parts.location.expect("多个仓库时标题行有位置按钮");
@@ -1051,7 +1051,7 @@ fn drafts_stay_with_their_location() {
     assert_eq!(app.git.commit.message.text(), "a 的草稿");
     app.git_switch_repository(1);
     assert_eq!(app.git.commit.message.text(), "b 的草稿");
-    // 显示全部仓库时各仓库一起提交，共用一条提交信息：换仓库时照样留着。
+    // 显示全部仓库时各仓库一起提交，共用一条提交信息：换仓库时仍然留着。
     app.toggle_all_repositories();
     app.git_switch_repository(0);
     assert_eq!(app.git.commit.message.text(), "b 的草稿");

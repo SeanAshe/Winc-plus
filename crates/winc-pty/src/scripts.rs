@@ -47,7 +47,7 @@ const REMOTE_START: &str = concat!(
     r#"exec "${SHELL:-/bin/sh}" -l"#,
 );
 
-/// 返回脚本 `content` 写出去的内容：换行符统一为 LF，本来就是 LF 时不复制。
+/// 返回脚本 `content` 写出去的内容：换行符统一为 LF，已是 LF 时不复制。
 ///
 /// `include_str!` 内嵌的是检出时的字节，Windows 上 `core.autocrlf=true` 时检出为 CRLF，而读
 /// 这些脚本的 shell（WSL、远端主机上的 `sh`、dash）把回车当作词的一部分，`case … in` 会解析
@@ -88,7 +88,7 @@ mod tests {
 
     #[test]
     fn scripts_are_written_with_unix_endings() {
-        // 以 CRLF 检出时内嵌的脚本：写出去的是 LF；本来就是 LF 的不复制。
+        // 以 CRLF 检出时内嵌的脚本：写出去的是 LF；已是 LF 的不复制。
         let crlf = "case ${shell##*/} in\r\nzsh)\r\n";
         assert_eq!(unix_lines(crlf), "case ${shell##*/} in\nzsh)\n");
         assert!(matches!(unix_lines("a\nb\n"), Cow::Borrowed(_)));

@@ -255,6 +255,15 @@ fn malformed_files_yield_no_outline() {
     let items = outline(&pdf(&looped, "<< /Size 22 /Root 1 0 R >>"));
     assert_eq!(items, [item("A", 0, None), item("B", 0, None)]);
 
+    // 名字树的节点把自己列为下级：每个节点只查一次，找不到名字时目录项没有页码。
+    let cyclic = book(
+        &[(20, "<< /Title (A) /Dest (missing) >>")],
+        &[(30, "<< /Kids [30 0 R 30 0 R] >>")],
+        "/Names << /Dests 30 0 R >>",
+    );
+    let items = outline(&pdf(&cyclic, "<< /Size 31 /Root 1 0 R >>"));
+    assert_eq!(items, [item("A", 0, None)]);
+
     // 加密的文件不读目录。
     let encrypted = book(
         &[(20, "<< /Title (Secret) >>")],

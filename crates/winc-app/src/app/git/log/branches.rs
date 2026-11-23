@@ -164,13 +164,13 @@ impl App {
     pub(super) fn toggle_log_branches(&mut self) {
         let from = self.log_branches_shown();
         let shown = !self.state.log_branches.unwrap_or(true);
-        self.update_state(|state| state.log_branches = Some(shown));
+        self.update_state(move |state| state.log_branches = Some(shown));
         let clock = self.clock(crate::app::animation::SIDEBAR_ANIMATION);
         self.git.log.branches_motion = clock.map(|clock| (from, clock));
         self.relayout();
     }
 
-    /// 点了分支面板的第 `i` 行：「全部分支」不再按分支筛选；分支、标签只看它的提交，已经在看它
+    /// 点击分支面板的第 `i` 行：「全部分支」不再按分支筛选；分支、标签只看它的提交，已经在看它
     /// 时改回全部，按住 `⌘` 点时加上或去掉它；组、目录收起或展开（和分支选择器共用）。
     pub(super) fn press_log_branch_row(&mut self, i: usize) {
         let Some(row) = self.log_branch_rows().into_iter().nth(i) else {

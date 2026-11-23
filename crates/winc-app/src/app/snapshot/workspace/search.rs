@@ -1193,7 +1193,7 @@ fn long_result_files_unfold_under_the_mouse() {
     assert!(dismiss.x > results.right());
     assert_eq!(app.result_actions(long), overflow.actions);
 
-    // 这一行右端的滚动条属于这一行；伸出的那一段同样是这一行，按钮照常响应。
+    // 这一行右端的滚动条属于这一行；伸出的那一段同样是这一行，按钮仍然响应。
     let y = row.y + row.h / 2.0;
     app.on_mouse_move(results.right() - 3.0, y);
     assert_eq!(app.pointer.hover, Hover::Result(long));
@@ -1205,7 +1205,7 @@ fn long_result_files_unfold_under_the_mouse() {
         Hover::RowAction(long, RowAction::Dismiss)
     );
 
-    // 这一行上的分隔条照常可以拖动，鼠标停在上面时全名保持展开。
+    // 这一行上的分隔条仍然可以拖动，鼠标停在上面时全名保持展开。
     let splitter = app.layout.splitter;
     app.on_mouse_move(splitter.x + splitter.w / 2.0, y);
     paint(&mut app);

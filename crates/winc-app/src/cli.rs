@@ -204,7 +204,8 @@ pub const LINK_SCHEME: &str = "winc";
 /// 把 `winc://file/<绝对路径>[:行[:列]]` 链接解析为要打开的 [`Target`]，行号和列号从 1 起。
 ///
 /// 路径按百分号编码解码；查询和片段（`?`、`#` 之后）忽略。Windows 路径写作
-/// `winc://file/C:/目录/文件`。不是这种链接、路径不是绝对路径或解码后不是 UTF-8 时返回 `None`。
+/// `winc://file/C:/目录/文件`。不是这种链接、路径不是绝对路径、是网络路径或解码后不是 UTF-8 时
+/// 返回 `None`。
 pub fn link(url: &str) -> Option<Target> {
     let (scheme, rest) = url.split_once("://")?;
     let rest = rest.strip_prefix("file")?;
@@ -218,6 +219,11 @@ pub fn link(url: &str) -> Option<Target> {
         [b'/', drive, b':', ..] if drive.is_ascii_alphabetic() => path[1..].to_owned(),
         _ => path,
     };
+    // 链接可以来自网页：不接受以两个分隔符开头的网络路径和设备路径（`//主机/共享`、
+    // `\\?\…`），在 Windows 上查看它们是否存在就会向那台主机发起连接和身份验证。
+    if winc_backend::names_host(&path) {
+        return None;
+    }
     let target = target(OsString::from(path));
     target.path.is_absolute().then_some(target)
 }
@@ -392,6 +398,10 @@ fn position(text: &str) -> Option<(&str, Option<usize>, Option<usize>)> {
     reason = "只访问本机：命令行参数是本机路径"
 )]
 fn target(arg: OsString) -> Target {
+    let arg = match arg.to_str().and_then(unquoted).filter(|_| cfg!(windows)) {
+        Some(path) => OsString::from(path),
+        None => arg,
+    };
     let whole = Target {
         path: PathBuf::from(&arg),
         line: None,
@@ -411,6 +421,17 @@ fn target(arg: OsString) -> Target {
         },
         None => whole,
     }
+}
+
+/// 返回被 Windows 的命令行规则吃掉结尾反斜杠的路径 `text` 原来的写法；不是这种情况时返回
+/// `None`。
+///
+/// 资源管理器把 `%V` 换成路径放在引号里传入；路径是盘符根目录时写成 `"C:\"`，其中的 `\"`
+/// 按规则是一个引号，程序收到的是 `C:"`。引号不能出现在 Windows 的文件名里，结尾有引号的
+/// 只能是这种情况。
+fn unquoted(text: &str) -> Option<String> {
+    let path = text.strip_suffix('"')?;
+    (!path.is_empty() && !path.contains('"')).then(|| format!("{path}\\"))
 }
 
 #[cfg(test)]

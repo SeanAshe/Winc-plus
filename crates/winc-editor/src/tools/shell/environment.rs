@@ -16,7 +16,7 @@ use super::process;
 /// 环境变量列表，元素为（名字，值）。
 pub(super) type Vars = Vec<(OsString, OsString)>;
 
-/// 等待登录 shell 输出环境的最长时间（5 秒，经验值）。
+/// 等待登录 shell 输出环境的最长时间（5 秒，取自调参）。
 const SHELL_TIMEOUT: Duration = Duration::from_secs(5);
 /// 环境输出前后的标记。
 ///

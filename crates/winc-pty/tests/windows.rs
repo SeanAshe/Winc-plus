@@ -85,7 +85,7 @@ fn the_bundled_console_host_runs_when_it_is_present() {
     assert_eq!(c.until_exit_showing(|t| t.contains("found")), 0);
 }
 
-/// 停止结束程序，退出照常报告。
+/// 停止结束程序，退出仍然报告。
 #[test]
 fn stop_ends_the_program() {
     if skip_under_wine() {
@@ -240,7 +240,7 @@ fn losing_the_pseudo_console_is_reported_while_the_shell_runs() {
     });
     assert_eq!(ended, FromHelper::Disconnected { tab: 1 });
 
-    // 伪终端的进程已经不在，关闭它不能卡住：作业结束，辅助进程随后退出。
+    // 伪终端的进程已经不在，关闭它不能阻塞：作业结束，辅助进程随后退出。
     c.send(ToHelper::Close { tab: 1 });
     assert!(until_helper_exits(&mut c).success());
 }

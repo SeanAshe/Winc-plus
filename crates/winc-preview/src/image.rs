@@ -17,7 +17,7 @@ mod imageio;
 
 /// 解码后保留的图片最大边长（像素）。
 ///
-/// 经验值：长边超过该值的图在解码后缩小，以限制内存占用。
+/// 取自调参：长边超过该值的图在解码后缩小，限制内存占用。
 const KEEP_MAX: u32 = 2560;
 /// 允许解码的最大像素数（宽 × 高，像素）。
 ///
@@ -27,7 +27,7 @@ pub(crate) const PIXELS_MAX: u64 = 100_000_000;
 pub(crate) const FILE_MAX: u64 = 256 << 20;
 /// 缩放时启用多线程的像素数下限（像素）。
 ///
-/// 源图与目标图像素数的较大者达到该值时，才把缩放分给多个线程；经验值，避免小图承担线程开销。
+/// 源图与目标图像素数的较大者达到该值时，才把缩放分给多个线程；取自调参，避免小图承担线程开销。
 const PARALLEL_MIN: usize = 256 * 1024;
 
 /// 解码后的位图：RGBA8，不预乘 alpha。
@@ -550,7 +550,7 @@ fn decode_jpeg_fitted(bytes: &[u8]) -> Result<(Pixels, (u32, u32)), String> {
 fn jpeg_size(bytes: &[u8]) -> Result<(u32, u32), String> {
     use zune_jpeg::zune_core::bytestream::ZCursor;
 
-    let mut decoder = zune_jpeg::JpegDecoder::new(ZCursor::new(bytes));
+    let mut decoder = zune_jpeg::JpegDecoder::new_with_options(ZCursor::new(bytes), jpeg_options());
     decoder.decode_headers().map_err(|e| e.to_string())?;
     let info = decoder
         .info()
@@ -560,12 +560,21 @@ fn jpeg_size(bytes: &[u8]) -> Result<(u32, u32), String> {
     Ok((width, height))
 }
 
+/// JPEG 解码的选项：宽、高放宽到格式允许的最大值（65535），像素数由 [`check_size`] 限制。
+///
+/// 解码库默认每边不超过 16384 像素，像素数在上限以内的全景图会因此读不出来。
+fn jpeg_options() -> zune_jpeg::zune_core::options::DecoderOptions {
+    let side = usize::from(u16::MAX);
+    zune_jpeg::zune_core::options::DecoderOptions::default()
+        .set_max_width(side)
+        .set_max_height(side)
+}
+
 fn decode_jpeg(bytes: &[u8]) -> Result<Pixels, String> {
     use zune_jpeg::zune_core::bytestream::ZCursor;
     use zune_jpeg::zune_core::colorspace::ColorSpace;
-    use zune_jpeg::zune_core::options::DecoderOptions;
 
-    let options = DecoderOptions::default().jpeg_set_out_colorspace(ColorSpace::RGBA);
+    let options = jpeg_options().jpeg_set_out_colorspace(ColorSpace::RGBA);
     let mut decoder = zune_jpeg::JpegDecoder::new_with_options(ZCursor::new(bytes), options);
     decoder.decode_headers().map_err(|e| e.to_string())?;
     let info = decoder
@@ -734,6 +743,13 @@ fn decode_dib(dib: &[u8], pixels_at: Option<usize>, icon: bool) -> Result<Pixels
     // 2 的游程压缩（RLE）不支持。
     if !matches!(compression, 0 | 3 | 6) {
         return Err(winc_i18n::t!("preview-image-bmp-compressed").to_owned());
+    }
+    // 位深取自文件：不支持的位深（包括 0）在按宽高分配像素之前拒绝。
+    if !matches!(bits, 1 | 4 | 8 | 16 | 24 | 32) {
+        return Err(winc_i18n::t!(
+            "preview-image-bmp-depth-unsupported",
+            bits = bits
+        ));
     }
 
     // 颜色掩码：位于 V4 及以上的信息头中，或紧跟在 40 字节的信息头之后。

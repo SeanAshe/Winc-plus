@@ -23,7 +23,7 @@ use crate::layout::{PanelButton, PanelParts, PanelTool, RowAction, SidebarView};
 
 /// 搜索条件变化之后到开始搜索之间的等待时间。
 ///
-/// 取 300 ms（经验值）：连续键入时只在停顿之后搜索一次，避免每输入一个字符就重新搜索整个目录。
+/// 取 300 ms：连续键入时只在停顿之后搜索一次，避免每输入一个字符就重新搜索整个目录。
 pub const SEARCH_DELAY: Duration = Duration::from_millis(300);
 
 /// 用方向键浏览结果时打开匹配的防抖间隔。
@@ -190,7 +190,7 @@ pub(crate) struct ResultOverflow {
     pub actions: (Option<Rect>, Rect),
 }
 
-/// 查找、替换输入框最多显示的行数（经验值）；更长的文字在框内滚动。
+/// 查找、替换输入框最多显示的行数（取自调参）；更长的文字在框内滚动。
 const FIELD_MAX_LINES: usize = 6;
 /// 查找、替换输入框每多一行增加的高度（逻辑像素），与折行的行高相同。
 const FIELD_LINE: f32 = 20.0;
@@ -749,6 +749,8 @@ impl App {
             ));
         } else if g.engine.gave_up() {
             self.flash(t!("editor-replace-all-gave-up"));
+        } else if g.engine.timed_out() {
+            self.flash(t!("workspace-replace-all-remote-timeout"));
         } else if g.engine.total() == 0 {
             self.flash(t!("workspace-replace-all-nothing"));
         } else {

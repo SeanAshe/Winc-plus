@@ -18,11 +18,34 @@ use crate::field::{TextField, Unit};
 use crate::keymap::{self, Action, Context, Lookup, Os, Stroke};
 use crate::theme::KEYS_ROW;
 
-/// 文件树键入跳转的重置间隔（毫秒，经验值）。
+/// 文件树键入跳转的重置间隔（毫秒，取自调参）。
 ///
 /// 两次键入相隔超过该值时，重新从第一个字符开始匹配。该间隔足以连续键入文件名的前几个字符，
 /// 停顿后的新一次查找也不会接在旧字符之后。
 const TYPE_RESET: std::time::Duration = std::time::Duration::from_millis(800);
+
+/// 两段组合键的第一段按下后等待第二段的最长时间（5 秒）。
+///
+/// 超过后等待作废，按键恢复原来的含义：否则离开键盘一段时间后的第一次按键会被当作第二段
+/// 吞掉。取自调参：长于看一眼状态栏提示再按第二段所需的时间。
+const CHORD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// 等待第二段的两段组合键。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PendingChord {
+    /// 已按下的第一段。
+    first: Stroke,
+    /// 等待作废的时刻。
+    until: Instant,
+}
+
+impl PendingChord {
+    /// 创建从现在起等待第二段的组合键，第一段为 `first`。
+    pub(crate) fn new(first: Stroke) -> Self {
+        let until = Instant::now() + CHORD_TIMEOUT;
+        Self { first, until }
+    }
+}
 
 impl App {
     /// 处理键盘按下事件 `event`。
@@ -210,6 +233,16 @@ impl App {
     ///
     /// 是快捷键则执行并返回 `true`；是两步组合键的第一步则等待第二步，同样返回 `true`。
     /// 不是快捷键时返回 `false`，按键交给焦点所在的部件。
+    /// 放弃等待中的两段组合键，撤下状态栏的提示；没有在等待时不做任何事。
+    ///
+    /// 窗口失去焦点时调用：第二段不会再来，等待留到回来以后会吞掉第一次按键。
+    pub(in crate::app) fn cancel_chord(&mut self) {
+        if self.pending_chord.take().is_some() {
+            self.status.message = None;
+            self.request_redraw();
+        }
+    }
+
     pub(in crate::app) fn on_shortcut(&mut self, stroke: Stroke) -> bool {
         let table = keymap::current();
 
@@ -219,12 +252,16 @@ impl App {
             && (!self.terminal_at_prompt()
                 || self.config.terminal_application_priority == Some(true))
         {
-            self.pending_chord = None;
-            self.status.message = None;
+            self.cancel_chord();
         }
 
-        if let Some(first) = self.pending_chord.take() {
+        if let Some(chord) = self.pending_chord.take() {
             self.status.message = None;
+            // 等待已经作废：这次按键按原来的含义处理。
+            let first = chord.first;
+            if Instant::now() >= chord.until {
+                return self.on_shortcut(stroke);
+            }
             if stroke.key == keymap::KeyCode::Escape {
                 return true;
             }
@@ -263,11 +300,13 @@ impl App {
                 .into_iter()
                 .any(|a| self.run_action(self.keyboard_action(a))),
             Lookup::Chord => {
-                self.pending_chord = Some(stroke);
+                let chord = PendingChord::new(stroke);
+                let until = chord.until;
+                self.pending_chord = Some(chord);
                 let key = stroke.label(Os::CURRENT);
-                // 状态栏提示在第二步到来之前一直保留，不自动消失（`StatusState::until` 为 `None`）。
+                // 状态栏的提示保留到第二段到来或等待作废。
                 self.status.message = Some(winc_i18n::t!("cmd-chord-pending", key = key));
-                self.status.until = None;
+                self.status.until = Some(until);
                 self.request_redraw();
                 true
             }
@@ -1189,6 +1228,12 @@ impl App {
     /// 组字中的文本（`Preedit`）暂存起来用于显示；提交的文本（`Commit`）插入焦点所在的
     /// 编辑区或输入框。
     pub(in crate::app) fn on_ime(&mut self, ime: Ime) {
+        // 窗口内的提示框拦截按键时，输入法的文字同样不交给它下面的编辑区和输入框。
+        if self.overlays.alert.is_some() {
+            self.ime.preedit.clear();
+            self.ime.field_preedit.clear();
+            return;
+        }
         match ime {
             // 组字文字只属于焦点所在的一处，另一处的清空。
             Ime::Preedit(text, _) => {

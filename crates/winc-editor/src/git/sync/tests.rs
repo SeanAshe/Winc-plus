@@ -268,7 +268,7 @@ fn an_explicit_pull_mode_overrides_the_git_config() {
 }
 
 /// 回归：2.27 以前的 `git` 合并方式拉取时不接受 `--autostash`，拉取总是失败。这时不带它：
-/// 工作区干净、改动不冲突时照常拉取。
+/// 工作区干净、改动不冲突时仍然拉取。
 #[cfg(unix)]
 #[test]
 fn merging_pulls_work_with_git_before_merge_autostash() {
@@ -330,7 +330,7 @@ fn a_differently_named_upstream_is_pushed_to_explicitly() {
         ("branch.a.merge", "refs/heads/b"),
     ];
     assert_eq!(upstream_target(&config(&option), "a"), None);
-    // 推送去另一个远程、设置了 `push.default`：交给 `git`。推送去的就是上游所在的远程时照样
+    // 推送去另一个远程、设置了 `push.default`：交给 `git`。推送去的就是上游所在的远程时仍然
     // 写明目标。
     for (extra, expected) in [
         (("push.default", "upstream"), false),

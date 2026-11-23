@@ -61,7 +61,7 @@ pub enum Accent {
     Check,
     /// `\tilde`、`\widetilde`。
     Tilde,
-    /// `\bar`、`\overline`（`wide` 时盖住整个内容）。
+    /// `\bar`、`\overline`（`wide` 时覆盖整个内容）。
     Bar,
     /// `\underline`。
     Underline,
@@ -94,7 +94,7 @@ pub struct Grid {
     pub right: String,
     /// 是否在各列之间留一个字宽的空白（矩阵、`cases` 为 `true`）。
     ///
-    /// `aligned` 这类环境为 `false`，`=` 两边本来就有空白。
+    /// `aligned` 这类环境为 `false`，`=` 两边已有空白。
     pub gap: bool,
     /// 是否按正文的文字大小排版单元格（`cases`、`aligned`）；`false` 时与矩阵一样用正文大小。
     pub display: bool,

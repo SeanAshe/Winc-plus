@@ -261,8 +261,8 @@ pub struct Config {
     /// 是否定时在后台获取远程仓库的更新，默认为否：获取会连接远程，需要认证的远程可能每次都
     /// 要求操作。
     pub git_auto_fetch: Option<bool>,
-    /// 提交视图是否显示暂存区：分出「已暂存的更改」一组，各项的状态取自暂存区；默认为否，
-    /// 用勾选决定提交的内容。
+    /// 提交视图是否使用暂存区视图（按暂存区分组，提交暂存区的内容），默认为否，用勾选决定提交的
+    /// 内容。
     pub git_staging_area: Option<bool>,
     /// 在打开的目录下查找仓库的层数，默认见 [`Config::REPOSITORY_SCAN_DEPTH`]，可用范围见
     /// [`Config::REPOSITORY_SCAN_DEPTH_RANGE`]。
@@ -587,11 +587,11 @@ pub enum ThemeChoice {
 impl Config {
     /// 编辑区字号的合法范围（点）。
     ///
-    /// 超出范围的值在读入时忽略并报告；上下限为经验值。
+    /// 超出范围的值在读入时忽略并报告；上下限取自调参。
     pub const EDITOR_SIZE_RANGE: std::ops::RangeInclusive<f32> = 8.0..=32.0;
     /// 界面字号的合法范围（点）。
     ///
-    /// 超出范围的值在读入时忽略并报告；上下限为经验值。
+    /// 超出范围的值在读入时忽略并报告；上下限取自调参。
     pub const UI_SIZE_RANGE: std::ops::RangeInclusive<f32> = 8.0..=24.0;
     /// 界面缩放的合法范围（百分比）。
     ///
@@ -602,7 +602,7 @@ impl Config {
     pub const FONT_WEIGHT_RANGE: std::ops::RangeInclusive<f32> = 100.0..=900.0;
     /// 默认的字重。
     pub const FONT_WEIGHT: u16 = 400;
-    /// 背景图片不透明度的合法范围（百分比）：0 时不显示图片，100 时图片完全盖住底色。
+    /// 背景图片不透明度的合法范围（百分比）：0 时不显示图片，100 时图片完全遮住底色。
     ///
     /// 超出范围的值在读入时忽略并报告。
     pub const BACKGROUND_OPACITY_RANGE: std::ops::RangeInclusive<f32> = 0.0..=100.0;
@@ -610,7 +610,7 @@ impl Config {
     pub const BACKGROUND_OPACITY: f32 = 15.0;
     /// 制表符长度的合法范围（空格数）。
     ///
-    /// 超出范围的值在读入时忽略并报告；上下限为经验值。
+    /// 超出范围的值在读入时忽略并报告；上下限取自调参。
     pub const TAB_WIDTH_RANGE: std::ops::RangeInclusive<f32> = 1.0..=16.0;
     /// Vim 模式下光标与窗口上下边缘之间保留行数的可用范围（行）。
     ///
@@ -633,7 +633,7 @@ impl Config {
     pub const REPOSITORY_SCAN_DEPTH_RANGE: std::ops::RangeInclusive<f32> = 1.0..=8.0;
     /// 终端回滚缓冲行数的合法范围。
     ///
-    /// 超出范围的值在读入时忽略并报告；上限 1000000 行为经验值，避免回滚缓冲占用过多内存。
+    /// 超出范围的值在读入时忽略并报告；上限 1000000 行取自调参，限制回滚缓冲占用的内存。
     pub const SCROLLBACK_RANGE: std::ops::RangeInclusive<f32> = 0.0..=1_000_000.0;
     /// 终端最低对比度的合法范围（WCAG 对比度，1 和 0 都表示不保护）。
     ///

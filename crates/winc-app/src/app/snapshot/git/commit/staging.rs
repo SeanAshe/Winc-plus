@@ -97,8 +97,8 @@ fn only_the_staged_hunks_are_committed() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 暂存区视图：已暂存的文件列在「已暂存的更改」一组，其余在「更改」和「未跟踪的文件」；没有
-/// 勾选框，行尾和组标题上是加号、减号；只暂存了一部分的文件两组都有。提交取暂存区的内容。
+/// 暂存区视图：已暂存的文件列在「暂存的更改」一组，其余都在「更改」中；没有勾选框，行尾和
+/// 组标题上是加号、减号，组标题保留回滚；只暂存了一部分的文件两组都有。提交取暂存区的内容。
 #[test]
 fn the_staging_view_groups_staged_changes_and_has_plus_and_minus() {
     let dir = search_folder("git-staging-view");
@@ -167,6 +167,7 @@ fn the_staging_view_groups_staged_changes_and_has_plus_and_minus() {
             .any(|e| e.path == new && e.untracked())
     );
     assert_eq!(app.commit_scope(), Some(CommitScope::All(1)));
+    assert_eq!(app.commit_rows()[..], [changes.clone(), file(0), file(1)]);
 
     // 键盘：选中文件后按空格暂存。只提交暂存区里的内容，未跟踪的文件仍未跟踪。
     paint(&mut app);
@@ -193,25 +194,24 @@ fn untracked_files_stay_out_of_the_commit_until_staged() {
     let (main, new) = (root.join("src/main.rs"), root.join("src/new.rs"));
     let status = app.git.status.clone().unwrap();
 
-    // 未跟踪的文件单独成组，默认显示但不勾；没有暂存任何内容时「提交全部」不含未跟踪的文件。
-    assert!(!app.git.commit.group_collapsed(CommitGroup::Untracked));
+    // 未跟踪的文件列在「更改」中；没有暂存任何内容时「提交全部」仍不含未跟踪的文件。
     assert_eq!(file_state(&app, &new), None);
     assert_eq!(
-        app.git.commit.group_state(&status, CommitGroup::Untracked),
+        app.git.commit.group_state(&status, CommitGroup::Changes),
         None
     );
     assert_eq!(app.commit_files(), [main.clone(), new.clone()]);
     assert_eq!(app.commit_scope(), Some(CommitScope::All(1)));
 
-    // 收起和展开不改变勾选；收起时切换文件跳过这一组。
-    app.press_commit(CommitTarget::Group(CommitGroup::Untracked));
-    assert_eq!(app.commit_files(), std::slice::from_ref(&main));
+    // 收起和展开「更改」不改变暂存状态；收起时不在这组的文件之间切换。
+    app.press_commit(CommitTarget::Group(CommitGroup::Changes));
+    assert!(app.commit_files().is_empty());
     assert_eq!(file_state(&app, &new), None);
-    app.press_commit(CommitTarget::Group(CommitGroup::Untracked));
+    app.press_commit(CommitTarget::Group(CommitGroup::Changes));
     assert_eq!(app.commit_files(), [main.clone(), new.clone()]);
 
-    // 勾上即暂存：成为新增的文件，移到「更改」一组；这时只提交暂存区里的它。
-    app.press_commit(CommitTarget::GroupCheck(CommitGroup::Untracked));
+    // 单独暂存新文件：成为新增的文件，移到「暂存的更改」；这时只提交暂存区里的它。
+    app.press_commit(CommitTarget::StageFile(1, true));
     assert_eq!(file_state(&app, &new), Some(true));
     let status = app.git.status.clone().unwrap();
     assert!(status.entries.iter().all(|e| !e.untracked()));
@@ -231,7 +231,7 @@ fn untracked_files_stay_out_of_the_commit_until_staged() {
     assert_eq!(app.commit_scope(), None);
     app.git.commit.message.set_text("加入新文件");
     assert!(app.commit_blocker(&status).is_some());
-    app.press_commit(CommitTarget::GroupCheck(CommitGroup::Untracked));
+    app.press_commit(CommitTarget::GroupStage(CommitGroup::Changes));
     app.git_commit();
     assert!(app.git.status.as_ref().unwrap().entries.is_empty());
 
@@ -492,6 +492,8 @@ fn files_staged_in_the_terminal_show_as_checked_and_commit_the_index() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// 暂存区视图中暂存区为空时提交按钮显示「提交全部」，否则显示暂存的文件数；修改上次提交时不显示
+/// 范围，游离 `HEAD` 时照常显示。
 #[test]
 fn the_commit_button_says_commit_all_until_something_is_staged() {
     let Some((mut app, root)) = git_app("git-commit-scope-staging", false) else {
@@ -500,17 +502,14 @@ fn the_commit_button_says_commit_all_until_something_is_staged() {
     app.git.commit.set_staging(true);
     app.run_action(Action::ShowCommit);
     paint(&mut app);
-    // 没有暂存任何内容时提交全部已跟踪文件的改动；暂存以后只提交暂存区里的文件。
     assert_eq!(app.commit_scope(), Some(CommitScope::All(1)));
-    app.press_commit(CommitTarget::GroupCheck(CommitGroup::Changes));
+    app.press_commit(CommitTarget::StageFile(0, true));
     assert_eq!(app.commit_scope(), Some(CommitScope::Staged(1)));
 
-    // 修改上一次提交时不写范围。
     app.git.commit.amend = true;
     assert_eq!(app.commit_scope(), None);
     app.git.commit.amend = false;
 
-    // 游离 `HEAD` 时也写文件数，分支写在上方的分支行里。
     git_in(&root, &["checkout", "-q", "--detach"]);
     app.git_refresh();
     assert_eq!(app.commit_scope(), Some(CommitScope::Staged(1)));
@@ -558,8 +557,27 @@ fn shoot_staging_view() {
     }
 }
 
-/// 「显示暂存区」在设置的「Git」一页和提交视图的「⋯」菜单中是同一项：在一处切换，另一处随之
-/// 变化，提交视图立即换成对应的方式。
+/// 「暂存全部更改」在暂存区视图中包含未跟踪的文件，勾选式下不包含。
+#[test]
+fn stage_all_matches_the_changes_group() {
+    let Some((mut app, root)) = git_app("git-stage-all-untracked", false) else {
+        return;
+    };
+    let new = root.join("src/new.rs");
+    app.run_action(Action::GitStageAll);
+    assert!(staged_diff(&root).contains("src/main.rs"));
+    assert!(!staged_diff(&root).contains("src/new.rs"));
+    app.run_action(Action::GitUnstageAll);
+
+    app.git.commit.set_staging(true);
+    app.run_action(Action::GitStageAll);
+    assert_eq!(file_state(&app, &new), Some(true));
+    let status = app.git.status.as_ref().unwrap();
+    assert!(status.entries.iter().all(|e| e.unstaged.is_none()));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// 设置中的「暂存区布局」与提交视图「⋯」菜单中的同名项是同一开关，切换后提交视图立即更新。
 #[test]
 fn the_staging_area_setting_and_the_menu_item_are_one_switch() {
     use crate::app::input::context_menu::MenuCommand::CommitStagingArea;
@@ -580,9 +598,9 @@ fn the_staging_area_setting_and_the_menu_item_are_one_switch() {
         let titles = rows.iter().filter(|r| matches!(r, CommitRow::Group(_)));
         titles.cloned().collect()
     };
-    // 暂存区中没有内容：只有「更改」和「未跟踪的文件」，按钮是「提交全部」。
+    // 暂存区为空：只有「更改」一组（含未跟踪的文件），按钮为「提交全部」。
     assert_eq!(app.commit_scope(), Some(CommitScope::All(1)));
-    assert!(!groups(&app).contains(&CommitRow::Group(CommitGroup::Staged)));
+    assert_eq!(groups(&app), [CommitRow::Group(CommitGroup::Changes)]);
 
     app.settings_toggle(Setting::GitStagingArea);
     assert!(!app.git.commit.staging() && !app.menu_checked(CommitStagingArea));
@@ -629,7 +647,7 @@ fn folders_stage_and_unstage_everything_under_them() {
         paint(app);
     };
 
-    // 「更改」里的 `src`：加号暂存改过的 `main.rs`。
+    // 「更改」里的 `src`：加号同时暂存改过的 `main.rs` 和未跟踪的 `new.rs`。
     let row = src(&app, CommitGroup::Changes);
     // 不悬停时没有按钮。
     assert!(hit(&app, CommitTarget::DirStage(row, true)).is_none());
@@ -639,11 +657,8 @@ fn folders_stage_and_unstage_everything_under_them() {
     shoot(&mut app, "git-staging-folder");
     press(&mut app, row, true);
     assert_eq!(file_state(&app, &main), Some(true));
-    // 「未跟踪的文件」里的 `src`：加号暂存新文件。
-    let row = src(&app, CommitGroup::Untracked);
-    press(&mut app, row, true);
     assert_eq!(file_state(&app, &new), Some(true));
-    // 「已暂存的更改」里的 `src`：减号把两个都取消暂存。
+    // 「暂存的更改」里的 `src`：减号把两个都取消暂存。
     let row = src(&app, CommitGroup::Staged);
     press(&mut app, row, false);
     assert_eq!(file_state(&app, &main), None);
@@ -655,4 +670,63 @@ fn folders_stage_and_unstage_everything_under_them() {
             .any(|e| e.path == new && e.untracked())
     );
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 暂存区视图中回滚「更改」只放弃未暂存的更改，未跟踪的文件移到废纸篓；「暂存的更改」没有回滚
+/// 按钮。
+#[test]
+fn rolling_back_changes_keeps_what_is_staged() {
+    let Some((mut app, root)) = git_app("git-staging-group-rollback", false) else {
+        return;
+    };
+    app.settings_toggle(Setting::GitStagingArea);
+    app.trash = |path| std::fs::remove_file(path);
+    let main = root.join("src/main.rs");
+    let added = root.join("src/added.rs");
+    let config = root.join("src/config.rs");
+    let new = root.join("src/new.rs");
+    let before_config = std::fs::read_to_string(&config).unwrap();
+    std::fs::write(&main, "staged\n").unwrap();
+    std::fs::write(&added, "first\n").unwrap();
+    git_in(&root, &["add", "src/main.rs", "src/added.rs"]);
+    std::fs::write(&main, "staged\nnot staged\n").unwrap();
+    std::fs::write(&added, "first\nsecond\n").unwrap();
+    std::fs::write(&config, "pub struct Updated;\n").unwrap();
+    app.git_refresh();
+    app.run_action(Action::ShowCommit);
+    paint(&mut app);
+    let hover = |app: &mut App, group: CommitGroup| {
+        let target = CommitTarget::Group(group);
+        let rect = app
+            .hits
+            .commit
+            .iter()
+            .find(|(_, t)| *t == target)
+            .unwrap()
+            .0;
+        app.on_mouse_move(rect.x + 40.0, rect.y + 4.0);
+        paint(app);
+    };
+    let shown = |app: &App, target: CommitTarget| app.hits.commit.iter().any(|(_, t)| *t == target);
+
+    hover(&mut app, CommitGroup::Staged);
+    assert!(shown(&app, CommitTarget::GroupStage(CommitGroup::Staged)));
+    assert!(!shown(&app, CommitTarget::GroupRevert(CommitGroup::Staged)));
+    hover(&mut app, CommitGroup::Changes);
+    assert!(shown(&app, CommitTarget::GroupStage(CommitGroup::Changes)));
+    assert!(shown(&app, CommitTarget::GroupRevert(CommitGroup::Changes)));
+    app.press_commit(CommitTarget::GroupRevert(CommitGroup::Changes));
+
+    assert_eq!(std::fs::read_to_string(&main).unwrap(), "staged\n");
+    assert_eq!(std::fs::read_to_string(&added).unwrap(), "first\n");
+    assert_eq!(std::fs::read_to_string(&config).unwrap(), before_config);
+    assert!(!new.exists());
+    let diff = staged_diff(&root);
+    assert!(
+        diff.contains("+staged") && diff.contains("+first"),
+        "{diff}"
+    );
+    let status = app.git.status.as_ref().unwrap();
+    assert!(status.entries.iter().all(|e| e.unstaged.is_none()));
+    let _ = std::fs::remove_dir_all(&root);
 }

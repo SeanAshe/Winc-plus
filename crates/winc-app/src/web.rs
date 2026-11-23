@@ -25,10 +25,13 @@ pub(crate) fn command(program: &str) -> Command {
 }
 
 /// 运行 `curl` 的命令：跟随系统的代理，按代理的要求选认证方式；Windows 上查不到证书的吊销状态
-/// 时不算失败，证书链、主机名和有效期照常验证。
+/// 时不算失败，证书链、主机名和有效期仍然验证。
+///
+/// 地址按字面请求（`--globoff`）：`curl` 默认把地址中的 `[1-100]`、`{a,b}` 展开成多个请求，
+/// 来自文档的地址可借此让一次下载发出任意数量的请求。
 pub(crate) fn curl() -> Command {
     let mut curl = command("curl");
-    curl.arg("--proxy-anyauth");
+    curl.args(["--proxy-anyauth", "--globoff"]);
     #[cfg(windows)]
     if revoke_best_effort() {
         curl.arg("--ssl-revoke-best-effort");

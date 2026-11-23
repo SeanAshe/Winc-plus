@@ -312,7 +312,8 @@ impl App {
                     };
                 }
             }
-            // 分支面板里的分支：单击筛选，双击签出（第一下已经按它筛选了），再连着点不做别的。
+            // 分支面板里的分支：单击筛选，双击签出（第一次点击已经按它筛选了），
+            // 再连续点击不做别的。
             Target::Log(target @ crate::app::git::log::LogTarget::BranchRow(i)) => {
                 match self.click_count(x, y) {
                     1 => self.press_log(target),
@@ -500,7 +501,7 @@ impl App {
     ///
     /// 当前点击由触摸点按产生时取 [`touch::TAP_SLOP`]，容纳两次落指之间的位置偏差；
     /// 鼠标点击取 4 逻辑像素，容纳按下与松开之间指针的轻微移动。
-    fn repeat_slop(&self) -> f32 {
+    pub(super) fn repeat_slop(&self) -> f32 {
         if self.touch.tapping {
             touch::TAP_SLOP
         } else {

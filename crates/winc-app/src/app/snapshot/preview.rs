@@ -1156,7 +1156,7 @@ fn footnote_jumps_keep_context_above_and_mark_the_target() {
         (back - third).clamp(0.0, max)
     );
 
-    // 标题照旧滚动到顶部。
+    // 标题仍然滚动到顶部。
     app.jump_to_anchor("标题");
     assert_eq!(app.preview.markdown.scroll(), 0.0);
     let _ = std::fs::remove_dir_all(&dir);

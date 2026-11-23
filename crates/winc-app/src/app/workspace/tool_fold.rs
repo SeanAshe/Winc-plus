@@ -1,9 +1,9 @@
 //! 文件树工具栏的收起动画：侧栏变窄时按钮滑进「⋯」并淡出，变宽时从「⋯」里滑出来。
 //!
-//! 按钮的位置和点击判断始终按终点布局（`TreeState::tools`、`TreeState::more`），这里只记每个按钮显示出来的
-//! 程度，绘制时据此排布（见 [`crate::layout::folding_tools`]）。拖动分隔条时宽度连续变化，目标
-//! 会在动画途中反复改变，所以不用一段固定的时钟，而是每帧把程度匀速推向目标：途中改了方向
-//! 也是从当前位置继续，不会跳。
+//! 按钮的位置和点击判断始终按终点布局（`TreeState::tools`、`TreeState::more`），
+//! 这里只记每个按钮显示出来的程度，绘制时据此排布（见 [`crate::layout::folding_tools`]）。
+//! 拖动分隔条时宽度连续变化，目标会在动画途中反复改变，所以不用一段固定的时钟，
+//! 而是每帧把程度匀速推向目标：途中改了方向也是从当前位置继续，不会跳。
 
 use std::time::{Duration, Instant};
 
@@ -11,7 +11,7 @@ use super::*;
 
 /// 一个按钮从完全显示到完全收起所用的时长。
 ///
-/// 取 160 ms（经验值）：更短的时长看不清滑动过程，更长的时长会让用户等待。
+/// 取 160 ms：更短的时长看不清滑动过程，更长的时长会让用户等待。
 const TOOL_FOLD: Duration = Duration::from_millis(160);
 
 /// 文件树工具栏的按钮数（按 [`TreeTool::ALL`] 的长度，不含「⋯」按钮）。
@@ -54,8 +54,8 @@ impl ToolFold {
 }
 
 impl App {
-    /// 按这一帧的终点布局（`TreeState::tools`、`TreeState::more`）推进工具栏的收起动画；没有打开目录时
-    /// 清空，下次打开时直接到位。
+    /// 按这一帧的终点布局（`TreeState::tools`、`TreeState::more`）推进工具栏的收起动画；
+    /// 没有打开目录时清空，下次打开时直接到位。
     pub(crate) fn step_tool_fold(&mut self) {
         if self.editor.workspace.is_none() {
             self.motion.tool_fold = ToolFold::default();

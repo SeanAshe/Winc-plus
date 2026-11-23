@@ -48,7 +48,7 @@ fn quick_open_finds_visited_ignored_files_without_listing_unvisited_ones() {
     app.history.files.push(root.join(".env"));
     std::fs::remove_file(root.join(".env")).unwrap();
     assert!(results(&mut app, ".env").is_empty());
-    // 只是暂时不在（重新生成、切换分支）：最近打开的记录还在，文件回来后照样列出。
+    // 只是暂时不在（重新生成、切换分支）：最近打开的记录还在，文件回来后仍然列出。
     app.close_picker();
     std::fs::write(root.join(".env"), "one\n").unwrap();
     assert_eq!(results(&mut app, ".env"), [".env"]);

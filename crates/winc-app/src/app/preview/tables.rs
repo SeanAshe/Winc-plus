@@ -68,9 +68,10 @@ impl App {
             let tabs = doc.highlighter.language().id == "tsv";
             match (doc.text().rope(), path) {
                 (Some(rope), _) => {
-                    let text = rope.to_string();
+                    // 文本在后台线程上取出，理由同图片预览。
+                    let rope = rope.clone();
                     Box::new(move || {
-                        let sheet = table::read_delimited(&text, tabs);
+                        let sheet = table::read_delimited(&rope.to_string(), tabs);
                         Ok(Table {
                             sheets: vec![sheet],
                         })

@@ -307,8 +307,8 @@ impl Client {
                 self.report()
             );
             let message = self.recv();
-            if let FromHelper::Failed { message, .. } = &message {
-                panic!("辅助进程报启动失败：{message}");
+            if let FromHelper::Failed { program, error, .. } = &message {
+                panic!("辅助进程报启动失败：{program} {error}");
             }
             if let FromHelper::Frame { tab, frame } = &message {
                 self.apply(*tab, frame);

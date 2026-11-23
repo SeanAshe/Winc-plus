@@ -236,7 +236,7 @@ impl PopupMenu {
             },
             PopupRow::Entry {
                 path, dir: true, ..
-            } => folder_level(path, self.current.as_deref().unwrap_or(path)),
+            } => folder_level(path),
             _ => return,
         };
         self.levels.push(PopupLevel {
@@ -284,7 +284,7 @@ impl PopupMenu {
     }
 }
 
-/// 菜单上下的内边距（逻辑像素，经验值）：菜单外框与第一行、最后一行之间各留出的空隙。
+/// 菜单上下的内边距（逻辑像素）：菜单外框与第一行、最后一行之间各留出的空隙。
 pub(crate) const POPUP_PAD: f32 = 5.0;
 /// 左边打勾那一列的宽度（逻辑像素）：勾选标记宽 9、中心距列首 13，其余是与菜单外框的空隙。
 pub(crate) const CHECK_COLUMN: f32 = 24.0;
@@ -293,23 +293,9 @@ pub(crate) const ICON_COLUMN: f32 = 22.0;
 /// 有图标的菜单中文字离菜单左边的距离（逻辑像素）。
 pub(crate) const POPUP_TEXT_X: f32 = CHECK_COLUMN + ICON_COLUMN;
 
-/// 返回目录菜单中目录 `dir` 的各行：文件和目录，目录与文件之间一条分隔线。
-///
-/// 读取失败、空目录或项数过多时有一行灰色的说明（`folder_entries`）。`current` 是当前文件，
-/// 它和它的各级上层目录打勾。
-fn folder_rows(dir: &Path, current: &Path) -> Vec<PopupRow> {
-    entry_rows(crate::app::status::breadcrumb::folder_entries(dir, current))
-}
-
-/// 返回目录菜单中目录 `dir` 的一级菜单：远端的目录先只有一行「正在读取…」，由
+/// 返回目录菜单中目录 `dir` 的一级菜单：先只有一行「正在读取…」，由
 /// [`App::load_folder_levels`] 在后台读取。
-pub(crate) fn folder_level(dir: &Path, current: &Path) -> PopupLevel {
-    if !winc_backend::is_remote(dir) {
-        return PopupLevel {
-            rows: folder_rows(dir, current),
-            ..PopupLevel::default()
-        };
-    }
+pub(crate) fn folder_level(dir: &Path) -> PopupLevel {
     let note = FolderEntry::Note(t!("workspace-picker-remote-loading").to_owned());
     PopupLevel {
         rows: entry_rows(vec![note]),
@@ -349,7 +335,7 @@ fn entry_rows(entries: Vec<FolderEntry>) -> Vec<PopupRow> {
 }
 
 impl App {
-    /// 在后台读取目录菜单中尚未读取的远端目录，读好后发送 [`UserEvent::FolderListed`]。
+    /// 在后台读取目录菜单中尚未读取的目录，读好后发送 [`UserEvent::FolderListed`]。
     pub(in crate::app) fn load_folder_levels(&mut self) {
         let Some(popup) = self.popup_mut() else {
             return;
@@ -377,6 +363,8 @@ impl App {
         let listed = std::mem::take(
             &mut *(self.status.folders.lock()).unwrap_or_else(PoisonError::into_inner),
         );
+        #[cfg(target_os = "macos")]
+        let listed = self.show_crumb_menu(listed);
         let Some(popup) = self.popup_mut() else {
             return;
         };

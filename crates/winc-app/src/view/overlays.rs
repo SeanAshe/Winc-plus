@@ -300,12 +300,11 @@ fn draw_pick_row(app: &App, frame: &mut Frame<'_>, row: Rect, i: usize, clip: Re
     frame.rect_clipped(row.inset(6.0, 1.0), color, RADIUS_ROW, clip);
 }
 
-/// 绘制快速打开卡片（⌘P）：上方是输入框，下方是结果列表，整体是一张带阴影的圆角卡片。
+/// 绘制快速打开卡片（⌘P）：上方是输入框，下方是结果列表。
 ///
-/// 文件列表中每条是「文件名 + 淡色的所在目录」，选中项底色高亮，输入框右端显示文件总数。
-/// 输入框以 `>` 开头时是命令面板（⇧⌘P），每条是「命令 + 淡色的英文名」，右侧是快捷键；
-/// 以 `@` 开头时列出当前文档的符号。列出最近的目录（⌃R）时，每条是「目录名 + 淡色的上级
-/// 目录」，输入框右端是在新窗口打开的按键。
+/// 文件列表中每条是「文件名 + 淡色的所在目录」，输入框右端显示文件总数。输入框以 `>` 开头时是命令
+/// 面板（⇧⌘P），每条是「命令 + 淡色的英文名」，右侧是快捷键；以 `@` 开头时列出当前文档的符号。列出
+/// 最近的目录（⌃R）时，每条是「目录名 + 淡色的上级目录」。
 ///
 /// 文件索引尚未建好时，列表区显示「正在索引文件…」。
 pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
@@ -491,6 +490,9 @@ pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
             });
         let message = match goto {
             Some(goto) if app.editor.active.is_some() => goto,
+            _ if app.overlays.picker.index.timed_out() => {
+                t!("workspace-picker-remote-timeout").to_owned()
+            }
             _ if app.overlays.picker.index.quick_open_len() == 0 => {
                 t!("workspace-picker-folder-empty").to_owned()
             }
@@ -1116,11 +1118,10 @@ pub(super) fn draw_notice_ghost(app: &App, frame: &mut Frame<'_>, ghost: &Notice
     });
 }
 
-/// 绘制提示条：靠在所在区域（[`App::overlay_area`]）的右上角，上边和右边留同样的距离；查找条
-/// 打开时排在查找条下方。
+/// 绘制提示条：靠在所在区域（[`App::overlay_area`]）的右上角；查找条打开时排在查找条下方。
 ///
-/// `dy` 是动画中相对停靠位置的竖直偏移。左侧是提示种类 `mark` 的图标；为 `None` 时是转动的
-/// 图标，表示事情正在进行。
+/// `dy` 是动画中相对停靠位置的竖直偏移。左侧是提示种类 `mark` 的图标；为 `None` 时是转动的图标，
+/// 表示事情正在进行。
 ///
 /// 消息放不下时从中间截短，使提示条不超出所在区域。带按钮的提示（如「查看输出」）把按钮放在右侧。
 /// 返回提示条和按钮的矩形，没有按钮时后者为 `None`。

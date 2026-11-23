@@ -366,7 +366,7 @@ fn pasted_blocks_move_to_the_caret_indent() {
     // Tab 缩进：按字符比较，不换算成空格。
     assert_eq!(paste_at("\t", 1, "\t\ta\n\t\t\tb"), "\ta\n\t\tb");
 
-    // 缩进本来就相同：不重复增加第一行的缩进。
+    // 缩进已经相同：不重复增加第一行的缩进。
     assert_eq!(paste_at("    ", 4, "    a\n    b"), "    a\n    b");
     // 不调整：第一行不带缩进（从行中间开始复制）、光标之前有非空白字符、只有一行。
     assert_eq!(

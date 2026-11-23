@@ -8,7 +8,7 @@ use crate::text::{CellLayout, Lines, leading_whitespace};
 
 /// 查找字素边界时向前或向后最多读取的字符数（字符）。
 ///
-/// 64 为经验值，大于常见 emoji 序列的长度（例如家庭 emoji 为 7 个字符），用于限制单次查找的
+/// 64 大于常见 emoji 序列的长度（例如家庭 emoji 为 7 个字符），用于限制单次查找的
 /// 字符数。
 const GRAPHEME_WINDOW: usize = 64;
 

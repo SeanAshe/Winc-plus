@@ -17,7 +17,7 @@ const TOOLS_REACH: f32 = 72.0;
 /// 右下角工具栏的显示状态。
 #[derive(Debug, Default)]
 pub(crate) struct Tools {
-    /// 上一帧工具栏的位置（窗口坐标），隐藏时也照常更新；没有工具栏时为空矩形。
+    /// 上一帧工具栏的位置（窗口坐标），隐藏时也仍然更新；没有工具栏时为空矩形。
     pub(crate) rect: Rect,
     /// 是否显示；淡出途中为假，按钮不响应点击。
     pub(crate) shown: bool,

@@ -42,6 +42,8 @@ pub(crate) struct LatexBuilds {
     builds: HashMap<DocumentId, Build>,
     /// 最近一次编译的序号。
     serial: u64,
+    /// 已经问过要不要运行的项目 `latexmkrc`：同一份只问一次。
+    asked: Vec<ProjectRcFile>,
     sender: mpsc::Sender<Done>,
     receiver: mpsc::Receiver<Done>,
     /// 上一次对齐时的（文档、PDF 的序号、左侧的滚动位置）。
@@ -63,6 +65,7 @@ impl Default for LatexBuilds {
             settings_open: false,
             builds: HashMap::new(),
             serial: 0,
+            asked: Vec::new(),
             sender,
             receiver,
             synced: None,
@@ -114,7 +117,12 @@ struct Build {
     next: usize,
     /// 编译没能完成又读不出错误时的原因。
     failure: Option<String>,
+    /// 最近一次编译没有运行的项目 `latexmkrc`。
+    skipped_rc: Option<ProjectRcFile>,
 }
+
+/// 项目中的一份 `latexmkrc`：所在的目录和内容。
+type ProjectRcFile = (PathBuf, String);
 
 /// 后台完成的工作。
 enum Done {
@@ -135,6 +143,8 @@ struct Built {
     job: Option<Job>,
     compiled: Option<Compiled>,
     synctex: Option<Synctex>,
+    /// 这次编译没有运行的项目 `latexmkrc`：用户还没有同意过。
+    unread_rc: Option<ProjectRcFile>,
 }
 
 impl App {
@@ -219,6 +229,7 @@ impl App {
         build.stale = false;
         let (tool, sender, generation) =
             (latex.tool.clone(), latex.sender.clone(), latex.generation);
+        let approved = self.state.approved_commands().to_vec();
         // 进度在读取输出的线程上送来，和上一步相同的不送。
         let report = Mutex::new((sender.clone(), proxy.clone(), None));
         let progress = move |step: Progress| {
@@ -247,20 +258,22 @@ impl App {
                 job: None,
                 compiled: None,
                 synctex: None,
+                unread_rc: None,
             };
             if let Ok(tool) = &tool
-                && let Some((job, compiled)) = compile(
+                && let Some((job, compiled, unread_rc)) = compile(
                     &shell,
                     tool,
-                    &path,
-                    &text,
+                    (&path, &text),
                     (folder.as_deref(), &cache),
+                    &approved,
                     &cancel,
                     progress,
                 )
             {
                 built.synctex = compiled.pdf.then(|| read_synctex(&job)).flatten();
                 (built.job, built.compiled) = (Some(job), Some(compiled));
+                built.unread_rc = unread_rc;
             }
             if cancel.is_cancelled() {
                 return;
@@ -333,6 +346,7 @@ impl App {
     pub(crate) fn poll_latex(&mut self) {
         let latex = &mut self.preview.latex;
         let mut changed = false;
+        let mut ask = None;
         while let Ok(done) = latex.receiver.try_recv() {
             let built = match done {
                 Done::Found(generation, found) => {
@@ -371,6 +385,13 @@ impl App {
             build.progress = None;
             build.done = true;
             changed = true;
+            build.skipped_rc = built.unread_rc;
+            if let Some(rc) = &build.skipped_rc
+                && !latex.asked.contains(rc)
+            {
+                latex.asked.push(rc.clone());
+                ask = Some((built.doc, rc.clone()));
+            }
             let (Some(job), Some(compiled)) = (built.job, built.compiled) else {
                 // 没有 TeX 或主文件时不提示。
                 build.problems.clear();
@@ -388,6 +409,29 @@ impl App {
         if changed {
             self.request_redraw();
         }
+        if let Some((doc, (dir, text))) = ask {
+            self.ask_latex_rc(doc, dir, text);
+        }
+    }
+
+    /// 询问要不要运行目录 `dir` 中内容为 `text` 的 `latexmkrc`；同意后重新编译文档 `doc`。
+    ///
+    /// 这次编译没有运行它，文档仍然排出来了；同意只对这份内容有效。
+    fn ask_latex_rc(&mut self, doc: DocumentId, dir: PathBuf, text: String) {
+        let message = t!("latex-rc-confirm");
+        let detail = t!("latex-rc-confirm-detail", path = dir.display().to_string());
+        let button = t!("latex-rc-confirm-button");
+        let approved = (doc, dir, text);
+        self.show_confirm(message, &detail, button, move |ok| {
+            ok.then(|| UserEvent::LatexRc(Box::new(approved.clone())))
+        });
+    }
+
+    /// 用户同意运行目录 `dir` 中内容为 `text` 的 `latexmkrc`：记下来，重新编译文档 `doc`。
+    pub(in crate::app) fn latex_rc_approved(&mut self, doc: DocumentId, dir: &Path, text: &str) {
+        let (dir, text) = (dir.to_path_buf(), text.to_owned());
+        self.update_state(move |state| state.approve_command(&dir, &text));
+        self.build_latex(doc);
     }
 
     /// 返回当前标签的编译状态和它是否是错误。
@@ -407,7 +451,9 @@ impl App {
             return Some((label, false));
         }
         match (build.problems.len(), &build.failure) {
-            (0, None) => None,
+            (0, None) => {
+                (build.skipped_rc.as_ref()).map(|_| (t!("latex-rc-skipped").to_owned(), false))
+            }
             (0, Some(_)) => Some((t!("latex-failed").to_owned(), true)),
             (n, _) => Some((t!("latex-problems", count = n), true)),
         }
@@ -461,9 +507,29 @@ impl App {
     pub(crate) fn latex_status_tip(&self) -> Option<String> {
         let (id, _) = self.latex_doc()?;
         let build = self.preview.latex.builds.get(&id)?;
-        match build.problems.is_empty() {
-            true => build.failure.clone(),
-            false => Some(t!("latex-problems-tip").to_owned()),
+        match (build.problems.is_empty(), &build.failure) {
+            (false, _) => Some(t!("latex-problems-tip").to_owned()),
+            (true, Some(failure)) => Some(failure.clone()),
+            (true, None) => {
+                (build.skipped_rc.as_ref()).map(|_| t!("latex-rc-skipped-tip").to_owned())
+            }
+        }
+    }
+
+    /// 当前标签最近一次编译是否有没运行的项目 `latexmkrc`；编译状态据此可以点击。
+    pub(crate) fn latex_rc_skipped(&self) -> bool {
+        let build = (self.latex_doc()).and_then(|(id, _)| self.preview.latex.builds.get(&id));
+        build.is_some_and(|b| b.running.is_none() && b.skipped_rc.is_some())
+    }
+
+    /// 再问一次要不要运行当前标签最近一次编译没有运行的 `latexmkrc`。
+    pub(in crate::app) fn ask_skipped_latex_rc(&mut self) {
+        let Some((doc, _)) = self.latex_doc() else {
+            return;
+        };
+        let build = self.preview.latex.builds.get(&doc);
+        if let Some((dir, text)) = build.and_then(|b| b.skipped_rc.clone()) {
+            self.ask_latex_rc(doc, dir, text);
         }
     }
 
@@ -492,9 +558,12 @@ impl App {
         }
     }
 
-    /// 在编译状态下方列出各处错误。
+    /// 在编译状态下方列出各处错误；没有错误而有没运行的 `latexmkrc` 时直接询问要不要运行。
     pub(in crate::app) fn open_latex_problems(&mut self) {
         if self.latex_problem_count() == 0 {
+            if self.latex_rc_skipped() {
+                self.ask_skipped_latex_rc();
+            }
             return;
         }
         let bar = self.hits.latex_status;
@@ -686,15 +755,18 @@ static BUILDING: LazyLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = LazyLock::n
     clippy::disallowed_methods,
     reason = "编译只在本机进行，见 `latex::compiles_here`"
 )]
+///
+/// 主文件所在目录中的 `latexmkrc` 只在 `approved`（用户同意过的目录和内容）中有它时运行；
+/// 没有运行时一并返回它所在的目录和内容，由界面询问。
 fn compile(
     shell: &winc_editor::shell::Shell,
     tool: &Toolchain,
-    path: &Path,
-    text: &str,
+    (path, text): (&Path, &str),
     (folder, cache): (Option<&Path>, &Path),
+    approved: &[(PathBuf, String)],
     cancel: &Cancel,
     progress: impl Fn(Progress) + Send + Sync + 'static,
-) -> Option<(Job, Compiled)> {
+) -> Option<(Job, Compiled, Option<ProjectRcFile>)> {
     let root = latex::root_of(path, text, &[])
         .or_else(|| latex::root_of(path, text, &candidates(path, folder)))?;
     let root_text = match root == path {
@@ -715,15 +787,21 @@ fn compile(
     let _turn = turn
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let job = latex::job(
-        tool,
-        &root,
-        latex::engine_of(&root_text),
-        &out,
-        rc.as_deref(),
-    );
+    let run = |text: &String| {
+        approved
+            .iter()
+            .any(|(at, known)| at == dir && known == text)
+    };
+    let project = rc.as_ref().map(|text| latex::ProjectRc {
+        text,
+        run: run(text),
+    });
+    let job = latex::job(tool, &root, latex::engine_of(&root_text), &out, project);
     let compiled = latex::compile(shell, &job, cancel, progress)?;
-    Some((job, compiled))
+    // 只有 `latexmk` 读取这个文件。
+    let unread = matches!(tool, Toolchain::Latexmk(_)) && project.is_some_and(|rc| !rc.run);
+    let unread_rc = rc.filter(|_| unread).map(|text| (dir.to_path_buf(), text));
+    Some((job, compiled, unread_rc))
 }
 
 /// 返回 `path` 所在目录和往上几层里的 `.tex` 文件和原文，不出打开的目录 `folder`。

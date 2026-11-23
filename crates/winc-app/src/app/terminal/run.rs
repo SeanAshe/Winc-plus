@@ -3,10 +3,11 @@
 //!
 //! 每个配置最多对应一个标签：再次运行时新标签替换旧标签。程序退出后标签保留，便于查看输出；运行
 //! 配置的标签不随现场恢复。没有配置文件时列出从项目文件识别出的命令，不写文件。配置和项目文件都来自
-//! 仓库，内容不可信：每个配置第一次运行前和内容改变后都要用户确认（[`RunConfig::fingerprint`]），
+//! 仓库，内容不可信：每个配置第一次运行前和内容改变后都要用户确认（[`RunConfig::approval`]），
 //! 只由用户的操作触发运行。
 
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
 
 use winc_config::{
     RunConfig, affects_detected_configs, create_run_configs, detected_run_configs,
@@ -38,7 +39,6 @@ pub(crate) enum RunButton {
 }
 
 /// 当前目录的运行配置。
-#[derive(Default)]
 pub(crate) struct RunConfigs {
     /// 文件中的配置。
     pub list: Vec<RunConfig>,
@@ -48,6 +48,39 @@ pub(crate) struct RunConfigs {
     pub detected: bool,
     /// 上一次报告的问题：文件没有变化时不重复提示。
     problems: Vec<String>,
+    /// 向后台发出过几次读取；只采用最后一次的结果。
+    loads: u64,
+    /// 后台读好的配置的通道：发送端交给工作线程，接收端由界面线程轮询。
+    results: (mpsc::Sender<Loaded>, mpsc::Receiver<Loaded>),
+    /// 等配置读好后在界面线程上继续做的事（运行、打开菜单）。
+    after: Vec<AfterLoad>,
+}
+
+impl Default for RunConfigs {
+    fn default() -> Self {
+        Self {
+            list: Vec::new(),
+            selected: None,
+            detected: false,
+            problems: Vec::new(),
+            loads: 0,
+            results: mpsc::channel(),
+            after: Vec::new(),
+        }
+    }
+}
+
+/// 运行配置读好后在界面线程上继续做的事。
+type AfterLoad = Box<dyn FnOnce(&mut App)>;
+
+/// 后台读好的运行配置。
+struct Loaded {
+    /// 第几次读取，和读的是哪个目录的。
+    load: u64,
+    root: PathBuf,
+    list: Vec<RunConfig>,
+    problems: Vec<String>,
+    detected: bool,
 }
 
 impl RunConfigs {
@@ -190,20 +223,67 @@ fn run_launch(
 }
 
 /// 记录用户同意运行 `config` 时使用的键：同一个文件中的各配置分别记录。
+///
+/// 名字接在配置文件的路径后面，不用 `Path::join`：名字写成绝对路径时它会取代整个路径，键就
+/// 成了别的目录的。
 fn trust_key(root: &Path, config: &RunConfig) -> PathBuf {
-    run_configs_path(root).join(&config.name)
+    let mut key = run_configs_path(root).into_os_string();
+    key.push(std::path::MAIN_SEPARATOR_STR);
+    key.push(&config.name);
+    PathBuf::from(key)
 }
 
 impl App {
-    /// 重新读取当前目录的运行配置；终端模块关着或没有打开目录时清空。
+    /// 在后台重新读取当前目录的运行配置；终端模块关着或没有打开目录时清空。
     pub(in crate::app) fn reload_run_configs(&mut self) {
+        self.reload_run_configs_then(|_| {});
+    }
+
+    /// 同 [`App::reload_run_configs`]，配置读好换上后在界面线程上调用 `after`；期间换了目录时
+    /// 不调用。
+    fn reload_run_configs_then(&mut self, after: impl FnOnce(&mut App) + 'static) {
+        self.run.loads += 1;
+        self.run.after.push(Box::new(after));
+        let load = self.run.loads;
         let root = self.editor.root().filter(|_| self.terminal_enabled());
-        let (mut list, problems) = root.map(load_run_configs).unwrap_or_default();
-        // 配置文件优先；没有文件时列出识别到的命令。文件存在但为空时尊重用户的选择。
-        let detected = root.is_some_and(|root| !winc_backend::fs::exists(run_configs_path(root)));
-        if let Some(root) = root.filter(|_| detected) {
-            list = detected_run_configs(root);
+        let Some(root) = root.map(Path::to_path_buf) else {
+            self.run_configs_loaded(Vec::new(), Vec::new(), false);
+            return;
+        };
+        let sender = self.run.results.0.clone();
+        self.spawn_then(UserEvent::RunConfigsLoaded, move || {
+            let (mut list, problems) = load_run_configs(&root);
+            // 配置文件优先；没有文件时列出识别到的命令。文件存在但为空时尊重用户的选择。
+            let detected = !winc_backend::fs::exists(run_configs_path(&root));
+            if detected {
+                list = detected_run_configs(&root);
+            }
+            let _ = sender.send(Loaded {
+                load,
+                root,
+                list,
+                problems,
+                detected,
+            });
+        });
+    }
+
+    /// 收取后台读好的运行配置：只采用最后一次读取的，期间换了目录的丢弃。
+    pub(in crate::app) fn poll_run_configs(&mut self) {
+        while let Ok(loaded) = self.run.results.1.try_recv() {
+            if loaded.load != self.run.loads {
+                continue;
+            }
+            if self.editor.root() == Some(loaded.root.as_path()) {
+                self.run_configs_loaded(loaded.list, loaded.problems, loaded.detected);
+            } else {
+                self.run.after.clear();
+            }
         }
+    }
+
+    /// 换上读好的运行配置，报告其中新出现的问题，再做等着它的事。
+    fn run_configs_loaded(&mut self, list: Vec<RunConfig>, problems: Vec<String>, detected: bool) {
         self.run.detected = detected;
         let changed = self.run.list != list;
         self.run.list = list;
@@ -220,12 +300,17 @@ impl App {
             self.relayout();
             self.request_redraw();
         }
+        for after in std::mem::take(&mut self.run.after) {
+            after(self);
+        }
     }
 
-    /// 打开另一个目录时换上它的运行配置和上次选中的配置。
+    /// 打开另一个目录时换上它的运行配置和上次选中的配置；读好之前没有配置。
     pub(in crate::app) fn switch_run_configs(&mut self, selected: Option<String>) {
         self.run.selected = selected;
         self.run.problems.clear();
+        self.run.list.clear();
+        self.run.after.clear();
         self.reload_run_configs();
     }
 
@@ -269,7 +354,11 @@ impl App {
         if self.remote_has_no_run_configs() {
             return;
         }
-        self.reload_run_configs();
+        self.reload_run_configs_then(Self::run_loaded_config);
+    }
+
+    /// 运行刚读好的配置里当前选中的一个：第一次运行或内容变了时先询问。
+    fn run_loaded_config(&mut self) {
         let Some(config) = self.run.current().cloned() else {
             self.edit_run_configs();
             return;
@@ -278,7 +367,7 @@ impl App {
             return;
         };
         let key = trust_key(root, &config);
-        let trusted = self.state.trusted_repo(&key) == Some(config.fingerprint());
+        let trusted = self.state.command_approved(&key, &config.approval());
         // 没有窗口（测试）时无法询问，也不会有用户的操作触发运行。
         if trusted || self.window.handle.is_none() {
             self.start_run(config);
@@ -316,7 +405,8 @@ impl App {
     pub(crate) fn approved_run(&mut self, config: RunConfig) {
         if let Some(root) = self.editor.root() {
             let key = trust_key(root, &config);
-            self.update_state(|state| state.trust_repo(&key, config.fingerprint()));
+            let approval = config.approval();
+            self.update_state(move |state| state.approve_command_only(&key, &approval));
         }
         self.start_run(config);
     }
@@ -401,16 +491,15 @@ impl App {
     /// 按下运行配置的按钮。
     pub(crate) fn press_run_button(&mut self, button: RunButton) {
         match button {
-            RunButton::Menu => {
-                self.reload_run_configs();
+            RunButton::Menu => self.reload_run_configs_then(|app| {
                 let hit = HeaderHit::Run(RunButton::Menu);
-                let menu = self.hits.terminal.iter().find(|(_, h)| *h == hit);
+                let menu = app.hits.terminal.iter().find(|(_, h)| *h == hit);
                 let Some(&(menu, _)) = menu else {
                     return;
                 };
                 let at = menu_below(menu);
-                self.open_button_menu(MenuButton::RunConfigs, MenuTarget::RunConfigs, at);
-            }
+                app.open_button_menu(MenuButton::RunConfigs, MenuTarget::RunConfigs, at);
+            }),
             RunButton::Start => self.run_current_config(),
             RunButton::Stop => self.stop_current_config(),
         }
@@ -444,11 +533,12 @@ impl App {
         match create_run_configs(&root) {
             Ok(created) => {
                 self.open_path(&run_configs_path(&root));
-                self.reload_run_configs();
                 // 刚生成的命令来自 Winc，文件也已打开在用户面前。
-                if created {
-                    self.trust_run_configs();
-                }
+                self.reload_run_configs_then(move |app| {
+                    if created {
+                        app.trust_run_configs();
+                    }
+                });
             }
             Err(error) => {
                 self.notify(
@@ -464,23 +554,23 @@ impl App {
         let path = self.editor.root().map(run_configs_path);
         let doc = self.editor.document(id).and_then(|doc| doc.path.as_ref());
         if doc.is_some_and(|doc| Some(doc) == path.as_ref()) {
-            self.reload_run_configs();
-            self.trust_run_configs();
+            self.reload_run_configs_then(Self::trust_run_configs);
         }
     }
 
-    /// 记下当前文件中所有配置的指纹。
+    /// 记下当前文件中所有配置的内容，运行时不再询问。
     fn trust_run_configs(&mut self) {
         let Some(root) = self.editor.root().map(Path::to_path_buf) else {
             return;
         };
-        let configs = std::mem::take(&mut self.run.list);
-        self.update_state(|state| {
-            for config in &configs {
-                state.trust_repo(&trust_key(&root, config), config.fingerprint());
+        let trusted: Vec<(PathBuf, String)> = (self.run.list.iter())
+            .map(|config| (trust_key(&root, config), config.approval()))
+            .collect();
+        self.update_state(move |state| {
+            for (key, approval) in &trusted {
+                state.approve_command_only(key, approval);
             }
         });
-        self.run.list = configs;
     }
 
     /// 配置 `config` 的程序是否正在运行。

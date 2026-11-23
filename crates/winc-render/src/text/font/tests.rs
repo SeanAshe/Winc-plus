@@ -295,7 +295,7 @@ fn files_of_other_accounts_are_not_modifiable() {
     // 组或其他用户有写权限时，属主是谁都可能被修改。
     assert!(is_modifiable(service, 0o664, user));
     assert!(is_modifiable(0, 0o646, user));
-    // 以 root 运行：root 的文件照常映射，其他账号的文件可能被其属主修改。
+    // 以 root 运行：root 的文件仍然映射，其他账号的文件可能被其属主修改。
     assert!(!is_modifiable(0, 0o644, 0));
     assert!(is_modifiable(user, 0o644, 0));
 }

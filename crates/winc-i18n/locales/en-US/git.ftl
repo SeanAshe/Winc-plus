@@ -347,6 +347,10 @@ git-commit-reformatted = { $count ->
     [one] Reformatted 1 file before committing
    *[other] Reformatted { $count } files before committing
 }
+git-commit-reformat-failed = { $count ->
+    [one] Couldn’t reformat 1 file; committed it as is
+   *[other] Couldn’t reformat { $count } files; committed them as is
+}
 git-undo-commit-confirm = Undo the last commit?
 git-undo-commit-confirm-detail = The changes in “{ $subject }” stay staged, and its message returns to the commit box.
 git-undo-commit-confirm-button = Undo Commit
@@ -408,6 +412,7 @@ git-undo-commit-done-in = Undid commit { $oid } in “{ $name }”
 git-undo-commit-failed = Couldn’t undo the commit: { $error }
 git-commit-partial-not-utf8 = “{ $name }” isn’t UTF-8 text, so its changes can’t be partially committed
 git-rollback-nothing-checked = Select the files to roll back first
+git-rollback-nothing-unstaged = No unstaged changes to roll back
 git-stage-partial-not-utf8 = “{ $name }” isn’t UTF-8 text, so its changes can’t be partially staged
 git-stage-failed = Couldn’t update the staging area: { $error }
 git-stage-nothing = The current file has no unstaged changes
@@ -423,6 +428,8 @@ git-rollback-confirm-one = Roll back changes to “{ $name }”?
 git-rollback-confirm-many = Roll back changes to { $count } files?
 git-rollback-confirm-detail = Tracked files are restored to the last commit, and untracked files are moved to the { common-trash }.
 git-rollback-confirm-detail-remote = Tracked files are restored to the last commit, and untracked files are deleted and can’t be restored.
+git-rollback-confirm-detail-index = Unstaged changes in tracked files are discarded and staged changes are kept; untracked files are moved to the { common-trash }.
+git-rollback-confirm-detail-index-remote = Unstaged changes in tracked files are discarded and staged changes are kept; untracked files are deleted and can’t be restored.
 git-rollback-confirm-button = Roll Back
 git-rollback-file-failed = Couldn’t roll back “{ $name }”: { $error }
 git-rollback-done = { $count ->
@@ -773,6 +780,9 @@ git-commit-group-changes = Changes
 git-commit-group-staged = Staged Changes
 git-commit-group-conflicts = Conflicts
 git-commit-group-untracked = Untracked Files
+git-commit-revert-group = Roll Back All Unstaged Changes
+git-commit-stage-group = Stage All Changes
+git-commit-unstage-group = Unstage All Changes
 git-commit-open-deleted = The file was deleted and can’t be opened
 git-commit-blocker-conflicts = { $count ->
     [one] { $count } file still has unresolved conflicts

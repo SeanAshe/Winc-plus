@@ -248,7 +248,7 @@ fn the_arrow_of_a_wrapped_line_pinned_to_the_top_can_be_clicked() {
     }
     std::fs::write(&path, text).unwrap();
     let mut app = app_with(&path, false);
-    // 「粘滞滚动」会把 `def` 所在行固定在顶部并盖住箭头，因此这里关闭该设置。
+    // 「粘滞滚动」会把 `def` 所在行固定在顶部并遮住箭头，因此这里关闭该设置。
     app.config.sticky_scroll = Some(false);
     app.run_action(crate::keymap::Action::ToggleWordWrap);
     paint(&mut app);

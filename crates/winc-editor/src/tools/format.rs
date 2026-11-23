@@ -521,7 +521,7 @@ pub struct Job {
 /// 格式化的结果。
 #[derive(Debug, Clone, PartialEq)]
 pub struct Formatted {
-    /// 逐行的修改，按位置从后往前排列，可直接放进一个 `Transaction`；为空表示文档本来就已格式化。
+    /// 逐行的修改，按位置从后往前排列，可直接放进一个 `Transaction`；为空表示文档原本就已格式化。
     pub changes: Vec<Change>,
     /// 改动的行数（行），用于提示信息。
     pub lines: usize,

@@ -11,7 +11,7 @@ use winc_editor::DocumentId;
 
 use super::*;
 
-/// 提示气泡停留的时长（经验值）：够读完一句话。
+/// 提示气泡停留的时长：够读完一句话。
 const HINT_DURATION: Duration = Duration::from_millis(3000);
 
 /// 名字旁边的提示气泡。

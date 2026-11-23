@@ -283,8 +283,10 @@ fn image_markdown(alt: &str, src: &str, title: Option<&str>) -> String {
 /// 取出替代文字末尾的尺寸（`|300`、`|300x200`），并从替代文字中去掉。
 pub(super) fn alt_size(image: &mut super::Image) {
     if let Some((alt, w, h)) = split_alt_size(&image.alt) {
-        image.width = Some(super::Length::Px(w));
-        image.height = h;
+        // 与 HTML 中写明的长度使用同一上限。
+        let max = super::html::MAX_PIXELS as u32;
+        image.width = Some(super::Length::Px(w.min(max)));
+        image.height = h.map(|h| h.min(max));
         image.alt = alt.to_owned();
     }
 }

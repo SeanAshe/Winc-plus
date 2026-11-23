@@ -11,13 +11,13 @@ use winc_render::Color;
 
 use super::*;
 
-/// 滚动停止（或鼠标离开滚动条）后，滚动条保持完全显示的时长（经验值）。
+/// 滚动停止（或鼠标离开滚动条）后，滚动条保持完全显示的时长（取自调参）。
 const SCROLLBAR_HOLD: Duration = Duration::from_millis(800);
-/// 滚动条淡入的时长（经验值）：比淡出短，滚动时马上有反馈。
+/// 滚动条淡入的时长：比淡出短，滚动时马上有反馈。
 const SCROLLBAR_SHOW: Duration = Duration::from_millis(150);
-/// 滚动条淡出的时长（经验值）。
+/// 滚动条淡出的时长（取自调参）。
 const SCROLLBAR_HIDE: Duration = Duration::from_millis(300);
-/// 鼠标移上、移开滚动条时，滑块颜色加深、变回的时长（经验值）。
+/// 鼠标移上、移开滚动条时，滑块颜色加深、变回的时长（取自调参）。
 const SCROLLBAR_HEAT: Duration = Duration::from_millis(150);
 
 /// 带滚动条的区域。

@@ -311,6 +311,29 @@ fn auto_save_writes_on_switching_tabs_and_leaving_the_window() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 正在询问要不要保存时不自动保存：否则选「不保存」之前修改已经写入磁盘。
+#[test]
+fn auto_save_waits_while_the_close_prompt_is_open() {
+    use std::time::Instant;
+    use winc_config::AutoSave;
+    let dir = winc_config::files::canonicalize(sample_folder("auto-save-prompt")).unwrap();
+    let mut app = app_with(&dir, false);
+    let a = dir.join("a.txt");
+    let before = std::fs::read_to_string(&a).unwrap();
+    app.config.auto_save = Some(AutoSave::OnFocusChange);
+    app.open_path(&a);
+    app.focus = Focus::Editor;
+    app.run(Command::Insert("x".into()));
+    let now = Instant::now();
+    app.auto_save_tick(now);
+    app.close_tab(0);
+    assert!(app.closing_pending());
+    app.focus = Focus::Terminal;
+    app.auto_save_tick(now);
+    assert_eq!(std::fs::read_to_string(&a).unwrap(), before);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// 焦点离开编辑区（切到终端）时保存当前文档，查找条不算离开；「停止输入后」在最后一次修改
 /// 一秒后保存，再修改时重新计时，没有保存成功的文档不反复重试。
 #[test]

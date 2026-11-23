@@ -217,3 +217,18 @@ fn native_and_relative_forms_use_the_remote_spelling() {
         "file.txt"
     );
 }
+
+#[test]
+fn paths_that_name_a_host_start_with_two_separators() {
+    for path in [
+        "//host/share/a",
+        r"\\host\share\a",
+        r"\\?\C:\a",
+        r"/\host\a",
+    ] {
+        assert!(names_host(path), "{path}");
+    }
+    for path in ["/tmp/a", r"C:\a", "a//b", "", "/"] {
+        assert!(!names_host(path), "{path}");
+    }
+}

@@ -123,11 +123,10 @@ pub struct PanelParts {
 impl PanelParts {
     /// 计算搜索面板各部件的位置。
     ///
-    /// `panel` 为侧栏中顶栏以下的区域；`replace_shown` 为替换行展开的比例（0 为收起，
-    /// 1 为完全展开），`details_shown` 为「包含」「排除」两行展开的比例；
-    /// `summary` 表示结果统计行是否有内容。展开途中各行只占比例对应的高度，
-    /// 下方的行随之移动；输入框尺寸不变，从上一行下方滑出。`heights` 是查找、替换输入框的高度，
-    /// 文字折成多行时大于 [`PANEL_FIELD`]。
+    /// `panel` 为侧栏中顶栏以下的区域；`replace_shown` 为替换行展开的比例（0 为收起，1 为完全
+    /// 展开），`details_shown` 为「包含」「排除」两行展开的比例；`summary` 表示结果统计行是否有
+    /// 内容。展开途中各行只占比例对应的高度，下方的行随之移动；输入框尺寸不变，从上一行下方滑出。
+    /// `heights` 是查找、替换输入框的高度，文字折成多行时大于 [`PANEL_FIELD`]。
     pub fn new(
         panel: Rect,
         replace_shown: f32,

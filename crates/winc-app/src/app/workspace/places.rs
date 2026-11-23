@@ -80,7 +80,7 @@ impl App {
             .filter(|place| !self.place_known(place))
             .collect();
         if !places.is_empty() {
-            self.update_state(|state| record(state, &places));
+            self.update_state(move |state| record(state, &places));
         }
     }
 

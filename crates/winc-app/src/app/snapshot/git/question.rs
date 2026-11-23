@@ -128,9 +128,16 @@ fn the_end_of_the_operation_forgets_the_password_and_closes_the_dialog() {
     let id = app.git.branch.started;
     app.end_git_questions(id + 1);
     assert!(app.overlays.form_dialog.is_some());
-    app.git.branch.password = Some(("s".into(), "p".into()));
+    use crate::app::git::question::Asker;
+    // 远端连接的询问结束时，只清除它自己填写的密码。
+    app.git.branch.password = Some((Asker::Git(id), "s".into(), "p".into()));
+    app.end_remote_questions();
+    assert!(app.git.branch.password.is_some());
     app.end_git_questions(id);
     assert!(app.overlays.form_dialog.is_none());
+    assert_eq!(app.git.branch.password, None);
+    app.git.branch.password = Some((Asker::Remote, "s".into(), "p".into()));
+    app.end_remote_questions();
     assert_eq!(app.git.branch.password, None);
     assert!(!app.git.branch.declined);
 }

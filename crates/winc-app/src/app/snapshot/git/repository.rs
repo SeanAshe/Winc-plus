@@ -192,7 +192,7 @@ fn a_commit_menu_lists_its_branches_and_tags() {
     assert_eq!(titles(grouped.unwrap()).len(), 0);
     assert_eq!(grouped.unwrap().len(), 3);
 
-    // 分组顺序与 IDEA 相同：复制与拣选在最前，新建分支、标签在分支子菜单之后，转到在最后。
+    // 分组顺序：复制与拣选在最前，新建分支、标签在分支子菜单之后，转到在最后。
     let items: Vec<MenuCommand> = (menu.iter())
         .filter_map(|entry| match entry {
             MenuEntry::Item(command, _) => Some(*command),
@@ -209,7 +209,7 @@ fn a_commit_menu_lists_its_branches_and_tags() {
     assert!(at(MenuCommand::LogDropCommit) < at(MenuCommand::LogInteractiveRebase));
     assert!(at(MenuCommand::LogInteractiveRebase) < at(MenuCommand::LogPushUpTo));
     assert!(at(MenuCommand::LogPushUpTo) < at(MenuCommand::LogNewBranch));
-    // 复制提交号旁写着日志中复制的快捷键。
+    // 复制提交号旁显示日志中复制的快捷键。
     let copy = MenuCommand::LogCopyOid.shortcut(crate::keymap::Context::Editor);
     assert_eq!(
         copy,
@@ -517,7 +517,7 @@ fn a_folder_without_a_repository_offers_to_initialize_one() {
     assert!(hit(&app, CommitTarget::InitRepository));
     assert!(hit(&app, CommitTarget::CloneRepository));
 
-    // 先打开输出标签，再初始化：标签里接着出现这条命令，仍是同一个标签。
+    // 先打开输出标签，再初始化：标签里随后出现这条命令，仍是同一个标签。
     app.show_git_output();
     let tabs = app.editor.documents.len();
     let output = |app: &App| {

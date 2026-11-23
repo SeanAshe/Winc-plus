@@ -14,9 +14,9 @@ use std::panic::PanicHookInfo;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// 日志超过该大小（字节，经验值）时改名为 `crash.log.old`，重新开始写。
+/// 日志超过该大小（字节，取自调参）时改名为 `crash.log.old`，重新开始写。
 const MAX_BYTES: u64 = 64 << 10;
-/// 一条 panic 信息最多保留的字符数（经验值）。
+/// 一条 panic 信息最多保留的字符数（取自调参）。
 const MAX_MESSAGE: usize = 2000;
 
 /// 安装 panic 钩子：先写日志，再执行原来的钩子；取不到状态目录时不做任何事。

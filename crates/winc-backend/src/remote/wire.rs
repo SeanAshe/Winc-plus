@@ -16,7 +16,12 @@ use crate::fs::{Kind, Metadata, Stamp, Unix};
 /// 不一致说明远端的程序不是这一版安装包上传的。
 ///
 /// 只在已发布的版本之后帧的格式或含义有变化时加一，与本程序的版本号无关。
-pub(crate) const VERSION: u32 = 1;
+pub(crate) const VERSION: u32 = 2;
+/// 输出按需发送的命令尚未被读走的标准输出的上限（字节，2 MiB）。
+///
+/// 对端发出该字节数之后等本机读走再发（[`kind::CREDIT`]），未读的输出不会在本机越积越多。取值
+/// 是 32 段输出：读取的一方一批处理的内容远小于此，往返一次延迟期间对端不会无事可做。
+pub(crate) const WINDOW: usize = 2 << 20;
 /// 一次读取请求最多返回的字节数（字节，1 MiB）。
 ///
 /// 取值由两方面约束：单帧在发送完之前占用连接，过大时其他请求等待的时间变长；过小时读取一个
@@ -42,11 +47,15 @@ pub(crate) mod kind {
     /// 较长的数据分成几段：前面各段作为 [`CHUNK`] 送回，应答带着最后一段。
     pub(crate) const READ: u8 = 5;
     /// 运行命令：载荷是程序、工作目录（空表示不指定）、`u32` 参数个数和各参数、`u32` 环境变量
-    /// 个数和各变量的名字与值、标准输入的内容。运行期间以若干 [`CHUNK`] 送回输出，结束时应答
-    /// 是否有退出码（`u8`）和退出码（`u32`，被信号结束时没有）。
+    /// 个数和各变量的名字与值、标准输入的内容、是否转回输入请求（`u8`）、输出是否按需发送
+    /// （`u8`，见 [`CREDIT`]）。运行期间以若干 [`CHUNK`] 送回输出，结束时应答是否有退出码（`u8`）
+    /// 和退出码（`u32`，被信号结束时没有）。
     pub(crate) const EXEC: u8 = 6;
     /// 取消请求号相同的 [`EXEC`]：没有载荷，没有应答；被取消的命令以错误结束。
     pub(crate) const CANCEL: u8 = 7;
+    /// 允许请求号相同、输出按需发送的 [`EXEC`] 再发送若干字节的标准输出：载荷是字节数
+    /// （`u32`），没有应答。见 [`WINDOW`](super::WINDOW)。
+    pub(crate) const CREDIT: u8 = 26;
     /// 读取符号链接的目标：载荷是路径，应答是目标的原始字节。
     pub(crate) const READ_LINK: u8 = 8;
     /// 创建目录：载荷是路径和是否连同各级上级目录一起创建（`u8`），应答为空。
@@ -137,6 +146,13 @@ pub(crate) struct Frame {
 pub(crate) const SELF: &[u8] = b"winc:self";
 
 /// 载荷超过 [`MAX_FRAME`] 时返回 [`io::ErrorKind::InvalidInput`]，不写出任何字节；其余与写入相同。
+/// 是否载荷 `payload` 能装进一帧（连同类型和请求号不超过 [`MAX_FRAME`]）；服务进程应答前
+/// 检查，它只在 Unix 上运行。
+#[cfg(unix)]
+pub(crate) fn fits_frame(payload: &[u8]) -> bool {
+    HEADER + payload.len() <= MAX_FRAME
+}
+
 pub(crate) fn write_frame(
     out: &mut impl Write,
     kind: u8,

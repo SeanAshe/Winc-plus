@@ -370,10 +370,11 @@ impl App {
             reply,
             remember,
         } = question;
-        if let Prompt::Password { server, .. } = &prompt
-            && let Some((known, password)) = self.git.branch.password.take()
-            && known == *server
-        {
+        // 只答复填写它的那个来源：Git 操作和远端连接各问各的，提示的文字来自对方的服务器。
+        let stored = |(from, known, _): &mut (Asker, String, String)| {
+            *from == asker && matches!(&prompt, Prompt::Password { server, .. } if known == server)
+        };
+        if let Some((_, _, password)) = self.git.branch.password.take_if(stored) {
             let _ = reply.send(password);
             return;
         }
@@ -443,7 +444,8 @@ impl App {
                 return;
             }
             let password = dialog.second.text().replace(['\r', '\n'], "");
-            self.git.branch.password = Some((server.clone(), password));
+            let asker = self.git.branch.asking.as_ref().map(|(asker, _)| *asker);
+            self.git.branch.password = asker.map(|asker| (asker, server.clone(), password));
         }
         if let Some(flag) = self.git.branch.remember.take() {
             flag.store(dialog.checkout, std::sync::atomic::Ordering::Relaxed);
@@ -482,6 +484,7 @@ impl App {
 
     /// 连接结束时调用：关闭未答复的对话框，不按用户取消处理。
     pub(in crate::app) fn end_remote_questions(&mut self) {
+        (self.git.branch.password).take_if(|(asker, ..)| *asker == Asker::Remote);
         self.end_questions(Asker::Remote);
     }
 

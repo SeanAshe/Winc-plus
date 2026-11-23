@@ -434,7 +434,7 @@ fn f8_walks_the_errors_of_the_last_failed_command() {
     assert_eq!(doc.text().pos_to_line_col(doc.selection.head), (0, 3));
     assert_eq!(app.focus, Focus::Editor);
 
-    // 其他按键结束跳转，并照常交给 shell。
+    // 其他按键结束跳转，并仍然交给 shell。
     app.focus = Focus::Terminal;
     assert!(!app.terminal_error_key(false));
     assert!(app.terminal.errors.is_none());
@@ -685,7 +685,7 @@ fn a_full_screen_program_starts_at_the_bottom_and_ends_f8_elsewhere() {
     app.terminal.tab_mut().unwrap().apply(frame);
     assert_eq!(tab(&app).scroll, 0);
 
-    // F8 的跳转是这个标签的：换到别的标签就结束，那边的 ↩ 照常给 shell。
+    // F8 的跳转是这个标签的：换到别的标签就结束，那边的 ↩ 仍然给 shell。
     term.feed(b"\x1b[?1049l");
     term.feed(command("cargo build", &["error: x", "  --> short.rs:3:1"], 101).as_bytes());
     term.feed(b"\x1b]133;A\x07$ ");

@@ -42,7 +42,7 @@ fn only_emoji_clusters_are_merged() {
     assert_eq!(text_width("中\u{200d}文"), 4);
     // 普通文字后的肤色修饰符单独占格。
     assert_eq!(text_width("a\u{1f3fd}"), 3);
-    // 组合重音照常不占格。
+    // 组合重音仍然不占格。
     assert_eq!(text_width("e\u{301}"), 1);
     // 两个独立的 emoji 各占两格。
     assert_eq!(text_width("👍👍"), 4);

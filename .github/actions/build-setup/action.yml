@@ -21,12 +21,21 @@ runs:
       with:
         node-version: "26.12.1"
         package-manager-cache: false
-    # Installs the release compiler with the build target. Keep the version equal to
-    # rust-toolchain.toml. RUSTUP_TOOLCHAIN makes every later `cargo` in the job use it.
+    # The release compiler is the one rust-toolchain.toml names, so the version is written in one
+    # place.
+    - name: Read the toolchain version
+      id: toolchain
+      shell: bash
+      run: |
+        version="$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)"
+        [[ -n "$version" ]] || { echo "::error::rust-toolchain.toml names no channel"; exit 1; }
+        echo "version=${version}" >> "$GITHUB_OUTPUT"
+    # Installs the release compiler with the build target. RUSTUP_TOOLCHAIN makes every later
+    # `cargo` in the job use it.
     - uses: dtolnay/rust-toolchain@stable
       id: rust
       with:
-        toolchain: "1.99.1"
+        toolchain: ${{ steps.toolchain.outputs.version }}
         targets: ${{ inputs.target }}
     - name: Use the release toolchain for later steps
       shell: bash

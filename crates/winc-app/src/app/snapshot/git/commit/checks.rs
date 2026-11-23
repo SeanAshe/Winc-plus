@@ -601,7 +601,7 @@ fn the_changes_list_has_keys_for_diff_source_and_rollback() {
         assert_ne!(first(Context::Tree, action), Some(action), "{action:?}");
     }
 
-    // 右键菜单中这三项写着各自的键；同样的菜单项在文件树的菜单中没有键。
+    // 右键菜单中这三项显示各自的键；同样的菜单项在文件树的菜单中没有键。
     use crate::app::input::context_menu::MenuCommand;
     let items = [
         MenuCommand::GitShowDiff,

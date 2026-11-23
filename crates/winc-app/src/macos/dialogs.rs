@@ -27,7 +27,7 @@ pub enum Panel<'a> {
 /// 在窗口上弹出打开或保存面板（从标题栏滑下的 sheet），选择完成或取消后在主线程上调用 `done`；
 /// 取消时参数为 `None`。
 ///
-/// 立即返回，不阻塞事件循环。返回是否弹出了面板：窗口上已挂着 sheet，或无法取得 `NSWindow`
+/// 立即返回，不阻塞事件循环。返回是否弹出了面板：窗口上已有 sheet，或无法取得 `NSWindow`
 /// 时返回 `false`。
 pub fn show_panel(
     window: &Window,
@@ -438,7 +438,7 @@ pub struct AlertButton<'a> {
 /// `message` 是粗体的主句，`detail` 是下方的小字（空串不显示），按钮从右向左排列（第一个是默认
 /// 按钮，按 ↩ 触发）。`suppression` 是按钮上方勾选框的文字（例如「不再询问」）和一开始是否勾上，
 /// 为 `None` 时没有勾选框。立即返回；点击按钮后以按钮序号（从 0 起）和勾选框是否勾选调用 `done`。
-/// 窗口上已挂着面板或提示框时不弹出，返回 `false`。
+/// 窗口上已有面板或提示框时不弹出，返回 `false`。
 pub fn alert(
     window: &Window,
     message: &str,

@@ -23,7 +23,7 @@ pub(crate) struct Location {
     pub col: Option<usize>,
 }
 
-/// 路径里可以有的字符（不含空格：带空格的路径认不出来，宁可漏掉也不乱认）。
+/// 路径里可以有的字符（不含空格：带空格的路径无法识别，宁可漏掉也不乱认）。
 fn path_char(c: char) -> bool {
     c.is_alphanumeric() || matches!(c, '/' | '.' | '_' | '-' | '~' | '+' | '@' | '\\')
 }
@@ -92,7 +92,7 @@ pub(crate) fn locations(line: &Line, bare: bool) -> Vec<Location> {
         }
         i = end;
     }
-    // 扫出来的本来就按位置排好；Python 的按位置插进去，同一处（不带行号的路径）换成它。
+    // 扫出来的原本就按位置排好；Python 的按位置插进去，同一处（不带行号的路径）换成它。
     for found in python(&text, &col_of) {
         let at = out.partition_point(|l| l.start < found.start);
         match out.get_mut(at) {

@@ -219,7 +219,7 @@ fn protected_damaged_and_invalid_books() {
     let aes = encryption("http://www.w3.org/2001/04/xmlenc#aes128-cbc");
     assert_eq!(with(&[("enc", &aes)]).unwrap_err(), t!("preview-epub-drm"));
 
-    // 损坏的一章写一句说明，其余照常。
+    // 损坏的一章写一句说明，其余不受影响。
     let bytes = book(
         &[
             "id=\"one\" href=\"one.xhtml\" media-type=\"application/xhtml+xml\"",

@@ -67,7 +67,7 @@ fn presence_fades_both_ways_and_turns_back_midway() {
     assert_eq!(p.share(false), 0.0);
 }
 
-/// 往回走的时钟从当前的位置接着走：进度等于 1 减去原来的进度，时长不变。
+/// 往回走的时钟从当前的位置继续走：进度等于 1 减去原来的进度，时长不变。
 #[test]
 fn a_reversed_clock_continues_from_the_current_position() {
     let duration = Duration::from_millis(240);

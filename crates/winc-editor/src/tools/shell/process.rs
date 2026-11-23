@@ -12,13 +12,13 @@ use std::time::{Duration, Instant};
 
 use winc_i18n::t;
 
-/// 标准输出、标准错误各自允许收集的最大字节数（64 MiB，经验值）。
+/// 标准输出、标准错误各自允许收集的最大字节数（64 MiB，取自调参）。
 ///
 /// 任一路超过该值即视为失败（[`RunError::TooLarge`]）并终止进程组，防止失控的程序耗尽内存。
 pub(crate) const MAX_OUTPUT: usize = 64 << 20;
-/// 程序退出后，等待其遗留的子进程释放输出管道的时长（200 毫秒，经验值）；超时后终止进程组。
+/// 程序退出后，等待其遗留的子进程释放输出管道的时长（200 毫秒，取自调参）；超时后终止进程组。
 const GRACE: Duration = Duration::from_millis(200);
-/// 启动程序最多尝试的次数（经验值）。
+/// 启动程序最多尝试的次数（次，取自调参）。
 const SPAWN_TRIES: u32 = 5;
 
 /// 程序的运行结果：退出状态和捕获的输出。
@@ -291,7 +291,7 @@ fn remote_exec(command: &Command, input: Vec<u8>) -> winc_backend::remote::Exec 
     for arg in command.get_args() {
         exec = exec.arg(arg.as_encoded_bytes());
     }
-    // 值为 `None` 的是要从环境中移除的变量：本机的环境本来就不传递，无需处理。本机的 askpass
+    // 值为 `None` 的是要从环境中移除的变量：本机的环境原本就不传递，无需处理。本机的 askpass
     // 程序和它的端点在远端没有意义，不传：远端的输入请求另经连接转回（见 `Askpass`）。
     for (name, value) in command.get_envs() {
         if let Some(value) = value.filter(|_| !ASKPASS_VARS.iter().any(|var| name == *var)) {
@@ -425,7 +425,7 @@ fn read_capped(
     watch: Option<&Watch>,
 ) -> Vec<u8> {
     let mut out = Vec::new();
-    // 每次读 64 KiB（经验值），与常见的管道缓冲区大小相当，读满一次的等待即可返回。
+    // 每次读 64 KiB，与常见的管道缓冲区大小相当，读满一次的等待即可返回。
     let mut buffer = vec![0; 64 << 10];
     loop {
         match pipe.read(&mut buffer) {
@@ -471,7 +471,12 @@ fn kill_group(pid: u32) {
         .stderr(Stdio::null());
     #[cfg(windows)]
     std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000);
-    let _ = command.status();
+    // 不等它结束：取消可以在界面线程上发起。另起线程收回进程，不留下已结束而未收回的子进程。
+    if let Ok(mut child) = command.spawn() {
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
+    }
 }
 
 mod stream;

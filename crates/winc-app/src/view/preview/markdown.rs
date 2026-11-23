@@ -93,7 +93,8 @@ fn draw_broken_links(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
 /// 在 `area`（窗口坐标，逻辑像素）里画当前文档的 Markdown 预览，分栏时是右半边，只看预览时
 /// 是整个编辑区。
 ///
-/// 排版结果和光标位置写回 `app.preview.markdown`，可点击范围记入 `app.hits`；需要读取的图片记进请求，下一帧再画。
+/// 排版结果和光标位置写回 `app.preview.markdown`，可点击范围记入 `app.hits`；
+/// 需要读取的图片记进请求，下一帧再画。
 pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
     let p = app.palette;
     frame.rect(area, p.editor_bg);
@@ -1112,10 +1113,9 @@ fn draw_toc(app: &mut App, frame: &mut Frame<'_>, area: Rect, pad: f32) {
     });
     let natural = widest
         .map(|w| (w + inner + TOC_DASH + 10.0 + 8.0 + TOC_PAD).clamp(TOC_WIDTHS.0, TOC_WIDTHS.1));
-    // 钉住的列表靠着正文放在左侧留白里，右边与正文之间留 8，留白不够时变窄（标题省略）；
-    // 窄于 [`TOC_PINNED_MIN`] 时收成指示条，不盖住正文。鼠标停留展开时卡片在指示条处展开、
-    // 盖住指示条，不超出预览的左边。
-    // 可编辑的预览在正文左侧写原文行号：钉住的列表放在行号左边，不盖住行号。
+    // 钉住的列表靠着正文放在左侧留白里，右边与正文之间留 8，留白不够时变窄（标题省略）；窄于
+    // [`TOC_PINNED_MIN`] 时收成指示条，不遮住正文。鼠标停留展开时卡片在指示条处展开、遮住指示条，
+    // 不超出预览的左边。可编辑的预览在正文左侧写原文行号：钉住的列表放在行号左边，不遮住行号。
     let edge = left - numbers - 8.0;
     let room = (edge - (area.x + 4.0)).max(0.0);
     // 正文过渡期间按过渡结束后的位置判断能否容纳列表；取消钉住时按过渡开始前的位置。
@@ -1378,7 +1378,7 @@ fn code_button(
 
 /// 返回代码块 `code`（屏幕坐标，逻辑像素）右上角的复制按钮。
 ///
-/// 边长 28 逻辑像素，离代码块右边和上边各 6 逻辑像素（经验值）。
+/// 边长 28 逻辑像素，离代码块右边和上边各 6 逻辑像素（取自调参）。
 pub(crate) fn copy_button(code: Rect) -> Rect {
     const SIZE: f32 = 28.0;
     Rect::new(code.right() - SIZE - 6.0, code.y + 6.0, SIZE, SIZE)

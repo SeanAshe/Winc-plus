@@ -90,7 +90,7 @@ impl App {
         Some(blame_label(&self.diff_blame_commit(side, line)?))
     }
 
-    /// 点了当前差异第 `side` 侧逐行追溯的第 `line` 行：在日志标签中选中对应的提交。
+    /// 点击当前差异第 `side` 侧逐行追溯的第 `line` 行：在日志标签中选中对应的提交。
     pub(in crate::app) fn click_diff_blame(&mut self, side: usize, line: usize) {
         let Some(commit) = self.diff_blame_commit(side, line) else {
             return;

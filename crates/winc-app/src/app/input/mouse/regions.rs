@@ -263,7 +263,7 @@ impl App {
         if let Some(index) = parts.row_at(y, self.overlays.picker.scroll)
             && index < self.overlays.picker.hits.len()
         {
-            // 分组标题点了没有反应。
+            // 分组标题点击没有反应。
             if self.picker_row_selectable(index) {
                 self.overlays.picker.selected = index;
                 self.picker_accept();
@@ -500,10 +500,9 @@ impl App {
         self.focus = Focus::Editor;
         self.ime.preedit.clear();
 
-        // 差异、图片、表格这类不显示文本的标签：点击只拿焦点，表格底部的工作表标签例外，
-        // 点它会换工作表。
-        // 文档中的文本看不见，在它上面放光标、转到定义都没有意义，放了光标还会把视图滚到看不见
-        // 的光标那里。
+        // 差异、图片、表格这类不显示文本的标签：点击只拿焦点，表格底部的工作表标签例外，点它会换工
+        // 作表。文档中的文本看不见，在它上面放光标、转到定义都没有意义，放了光标还会把视图滚到看不
+        // 见的光标那里。
         if !self.active_shows_text() {
             self.click_table(x, y);
             return;
@@ -530,14 +529,14 @@ impl App {
             return;
         }
 
-        // `⇧⌥` 按下拖动框出一列；`⌥` 单击添加或移除一个光标，按住拖动则添加一个选区。
+        // `⇧⌥` 单击框出列或添加选区，按下拖动框出一列；`⌥` 单击添加或移除一个光标，按住拖动则添加一个选区。
         let (shift, alt) = (
             self.pointer.modifiers.shift_key(),
             self.pointer.modifiers.alt_key(),
         );
         if alt && !l.gutter.contains(x, y) {
             if shift {
-                self.start_column_drag(x, y);
+                self.start_column_select(x, y);
             } else if count == 1 {
                 let before = self.editor.active().map(|d| d.selections().0.len());
                 self.toggle_cursor(pos);
@@ -598,5 +597,28 @@ impl App {
             self.pointer.drag = Drag::Columns { anchor };
             self.drag_columns(x, y, anchor);
         }
+    }
+
+    /// 在窗口坐标 (`x`, `y`)（逻辑像素）处进行 `⇧⌥` 列选择：单击时从主光标（或上次列选择）框出列，
+    /// 拖动时从按下处框出一列。
+    pub(super) fn start_column_select(&mut self, x: f32, y: f32) {
+        self.focus = Focus::Editor;
+        self.ime.preedit.clear();
+        let text_x = x.max(self.layout.text.x);
+        let Some(press) = self.line_cell_at(text_x, y) else {
+            return;
+        };
+        let tab_width = self.editor.active_tab_width();
+        let Some(doc) = self.editor.active_mut() else {
+            return;
+        };
+        let anchor = doc.column_anchor(tab_width);
+        doc.record_cursors();
+        doc.select_columns(anchor, press, tab_width);
+        self.cursors_changed();
+        self.pointer.drag = Drag::ColumnClick {
+            origin: (x, y),
+            anchor: press,
+        };
     }
 }

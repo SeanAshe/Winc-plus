@@ -455,7 +455,9 @@ pub(super) fn parse_status(output: &[u8], root: &Path) -> Option<Status> {
                 };
                 push_entry(&mut status, untracked);
             }
-            // 忽略的文件和目录（目录以 `/` 结尾）。
+            // 忽略的文件和目录（目录以 `/` 结尾），同样最多记 [`STATUS_LIMIT`] 条：按文件名模式
+            // 忽略的构建产物逐个列出，数量可达数十万；超出的部分在界面上不再标为已忽略。
+            b'!' if status.ignored.len() >= STATUS_LIMIT => {}
             b'!' => {
                 let rest = text.get(2..)?;
                 status

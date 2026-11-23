@@ -18,7 +18,7 @@ use crate::view::workspace::panel::over;
 use crate::view::workspace::sidebar::{FADE_FROM, NAME_FADE};
 use winc_editor::git::CommitFile;
 
-/// 文件行的底色比内容左右各宽这么多（逻辑像素）。
+/// 文件行的底色比内容左右各宽该值（逻辑像素）。
 pub(in crate::view) const ROW_PAD: f32 = 6.0;
 
 /// 绘制改动的文件：标题行「N 个文件 +A −D」，下面是 [`draw_file_list`] 画的各行。
@@ -230,7 +230,7 @@ pub(in crate::view) fn draw_files_title(
         .iter()
         .filter_map(|f| f.lines)
         .fold((0, 0), |(a, d), (x, y)| (a + x, d + y));
-    // 标题行高 22 逻辑像素（经验值），下面留 4 逻辑像素再开始画文件。
+    // 标题行高 22 逻辑像素（取自调参），下面留 4 逻辑像素再开始画文件。
     let row = Rect::new(x, y, width, 22.0);
     let count = t!("git-log-files-changed", count = files.len());
     let end = ui_text_small(frame, app, x, row, &count, p.text_muted, area);
@@ -379,7 +379,7 @@ pub(super) fn row_base(
         .then(|| Rect::new(row.right(), row.y, right - row.right(), row.h));
     if let Some(color) = color {
         match spill {
-            // 伸到差异上面的一段先和底色混成不透明的颜色，盖住下面的内容。
+            // 伸到差异上面的一段先和底色混成不透明的颜色，遮住下面的内容。
             Some(_) => {
                 let pill = Rect::new(row.x, row.y, right - row.x, row.h);
                 let color = over(p.editor_bg, color);
@@ -496,7 +496,7 @@ fn draw_file_row(
         }
         None => (x, x + icons::FILE_WIDTH + 6.0),
     };
-    // 增删统计占行右端 96 逻辑像素（经验值），名字平时写到它左边 12 逻辑像素为止。
+    // 增删统计占行右端 96 逻辑像素（取自调参），名字平时写到它左边 12 逻辑像素为止。
     let stat_x = row.right() - STAT_W;
     let text = Label {
         key: RowName::File(file.path.clone()),
@@ -521,7 +521,7 @@ fn draw_file_row(
     }
 }
 
-/// 文件行右端增删统计的宽度（逻辑像素，经验值）。
+/// 文件行右端增删统计的宽度（逻辑像素，取自调参）。
 const STAT_W: f32 = 96.0;
 
 /// 增删方块的右端离行底色右边的距离（逻辑像素）。

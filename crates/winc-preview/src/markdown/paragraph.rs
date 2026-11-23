@@ -149,7 +149,7 @@ fn unquote(quote: &str) -> String {
 
 /// 围栏块的原文：`fence` 是开、闭围栏（`` ``` ``、`$$`），`content` 是块中的各行（可以为空）。
 ///
-/// 返回原文和光标的位置（字节偏移）：代码块在开围栏之后，可以接着写语言；公式块在内容末尾。
+/// 返回原文和光标的位置（字节偏移）：代码块在开围栏之后，可以继续写语言；公式块在内容末尾。
 pub fn fenced(fence: &str, content: &str) -> (String, usize) {
     let text = format!("{fence}\n{content}\n{fence}");
     let caret = if fence.starts_with('`') {

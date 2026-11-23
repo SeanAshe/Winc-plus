@@ -297,7 +297,7 @@ pub(crate) fn utf16_bom(bytes: &[u8]) -> bool {
 const UNMARKED_SNIFF: usize = 512;
 
 /// 不带 BOM 的 UTF-16 的字节序：开头 [`UNMARKED_SNIFF`] 字节里有 NUL，并且每两个字节中恰好
-/// 高位那个是 NUL（小端在后、大端在前）。只认得出以 ASCII 字符为主的文字；不足这么长、字节数
+/// 高位那个是 NUL（小端在后、大端在前）。只认得出以 ASCII 字符为主的文字；不足该长度、字节数
 /// 又是奇数的不是 UTF-16。
 pub(crate) fn utf16_unmarked(bytes: &[u8]) -> Option<Encoding> {
     let head = &bytes[..bytes.len().min(UNMARKED_SNIFF)];

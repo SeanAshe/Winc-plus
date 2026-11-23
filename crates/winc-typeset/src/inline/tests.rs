@@ -1,4 +1,4 @@
-//! `inline` 的测试：折行时不能出现在行首的标点不放在行首。
+//! `inline` 的测试：折行时不能出现在行首的标点不放在行首，以及图片显示大小的上限。
 
 use super::*;
 
@@ -46,4 +46,16 @@ fn middle_dots_stay_with_the_word_before_them() {
 fn forced_breaks_keep_closing_marks_off_the_line_start() {
     // 括号内的字母串没有可断处，只能在字与字之间强制断行；右括号随前一个字换到下一行。
     assert_eq!(lines("（abcdef）", 7.0), ["（abcde", "f）"]);
+}
+
+#[test]
+fn images_keep_their_shape_within_the_size_limits() {
+    assert_eq!(bounded(800.0, 600.0), (800.0, 600.0));
+    assert_eq!(bounded(800.0, 20_000.0), (800.0, 20_000.0));
+    // 高度取自文档：面积超出时两边按同一比例缩小。
+    let (w, h) = bounded(10.0, 4.0e9);
+    assert!(w >= 1.0 && w * h <= MAX_IMAGE_AREA);
+    let (w, h) = bounded(4000.0, 16_000.0);
+    assert!(w * h <= MAX_IMAGE_AREA);
+    assert!((h / w - 4.0).abs() < 0.01);
 }

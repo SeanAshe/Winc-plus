@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use super::State;
 use crate::json::Json;
 
-/// 记下位置的文件数上限（个），取 VS Code 保存编辑器视图状态的上限；超出时丢掉最久没有用到的。
+/// 记下位置的文件数上限（个）；超出时丢掉最久没有用到的。
 pub const MAX_PLACES: usize = 100;
 
 /// 一个文件上次的位置：文本的光标和视口，预览的阅读位置。

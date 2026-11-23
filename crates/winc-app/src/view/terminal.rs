@@ -1,11 +1,10 @@
-//! 终端面板的绘制：标签栏、网格（看回滚时显示的是回滚缓冲中的行）、选区和查找的匹配、
-//! 光标、输入法组字、查找条；有 shell 集成时还有命令块：色带、时长和退出码、折起的输出、
-//! 吸顶的命令行。
+//! 终端面板的绘制：标签栏、网格（看回滚时显示的是回滚缓冲中的行）、选区和查找的匹配、光标、输入法组
+//! 字、查找条；有 shell 集成时还有命令块：色带、时长和退出码、折起的输出、吸顶的命令行。
 //!
-//! 网格按终端字体等宽排版（每格宽 `app.metrics.terminal_cell`、每行高 `terminal_line_height`，字形缓存
-//! 与编辑区共用）：一行先画所有样式段的底色，再画选区和查找的底色，最后画字和下划线，宽字符不会
-//! 被后一段的底色盖住；对比度不够时按 `terminal.minimumContrast` 调整文字的颜色，以颜色拼接
-//! 图形的字符（制表符、方块元素、Powerline 分隔符）除外。
+//! 网格按终端字体等宽排版（每格宽 `app.metrics.terminal_cell`、每行高 `terminal_line_height`，字形
+//! 缓存与编辑区共用）：一行先画所有样式段的底色，再画选区和查找的底色，最后画字和下划线，宽字符不会
+//! 被后一段的底色遮住；对比度不够时按 `terminal.minimumContrast` 调整文字的颜色，以颜色拼接图形的字
+//! 符（制表符、方块元素、Powerline 分隔符）除外。
 
 mod grid;
 mod list;
@@ -607,8 +606,9 @@ fn run_menu_space(name: f32, room: f32, title: f32) -> Option<f32> {
 
 /// 运行配置的按钮在标签栏上的位置（配置名，运行，停止）。
 ///
-/// 还没有配置时只有运行按钮，点击后生成配置文件；没有打开目录、目录在远端主机上或太窄时没有
-/// 按钮。停止按钮只在运行时出现。竖向模式靠左排列，配置名和运行按钮位置固定；横向模式靠右排列，停止按钮出现时向左让位。
+/// 还没有配置时只有运行按钮，点击后生成配置文件；没有打开目录、目录在远端主机上或太窄时没有按钮。
+/// 停止按钮只在运行时出现。竖向模式靠左排列，配置名和运行按钮位置固定；横向模式靠右排列，
+/// 停止按钮出现时向左让位。
 fn run_buttons(app: &App, frame: &mut Frame<'_>, left: f32, end: f32, y: f32) -> Option<[Rect; 3]> {
     app.editor
         .root()
@@ -827,7 +827,7 @@ fn draw_end_notice(app: &mut App, frame: &mut Frame<'_>, row: Rect, clip: Rect) 
     let Some((note, color)) = end_note(app) else {
         return;
     };
-    // 屏幕写满时写在最后一行上，盖住那一行。
+    // 屏幕写满时写在最后一行上，遮住那一行。
     frame.rect_clipped(row, p.editor_bg, 0.0, clip);
     ui_text(frame, app, row.x, row, &note, color, clip);
     // 运行配置的标签再次运行的是配置，不是打开 shell。

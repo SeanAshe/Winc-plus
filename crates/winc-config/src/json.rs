@@ -246,8 +246,8 @@ fn quote_into(out: &mut String, text: &str) {
 /// 解析允许的最大嵌套层数（层）。
 ///
 /// 超过时按格式错误处理：解析是递归的，一长串 `[` 会耗尽调用栈，导致进程中止，使未保存的内容丢失。
-/// `.winc/config.json` 和 `package.json` 来自项目仓库，内容不可信。该值是经验值，
-/// 高于常见配置文件的嵌套深度。
+/// `.winc/config.json` 和 `package.json` 来自项目仓库，内容不可信。该值高于常见配置文件的
+/// 嵌套深度。
 const MAX_DEPTH: usize = 256;
 
 /// 递归下降的 JSON 解析器。

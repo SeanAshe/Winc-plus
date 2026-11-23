@@ -146,6 +146,8 @@ type Planned = (Launch, Result<Plan, FormatError>);
 struct Approval {
     /// 用户的选择按此目录记录：项目自带程序所在的目录，或项目的 `.winc` 目录。
     folder: PathBuf,
+    /// 询问的是项目设置中的命令时，命令的原文；用户的同意只对这条命令有效。
+    command: Option<String>,
     /// 提示框中对象的描述，例如「项目中的「prettier」」「项目设置中的修复命令」。
     what: String,
     /// 提示框主句下方的说明小字。
@@ -158,6 +160,21 @@ struct Approval {
     ///
     /// 此时按钮为「允许」「不允许」；选择「不允许」同样记录，之后保存时不再询问，也不执行。
     on_save: bool,
+}
+
+impl Approval {
+    /// 返回用户上次的选择：运行（`true`）、改用系统中安装的程序或不允许（`false`）；没有记录时
+    /// 返回 `None`。
+    ///
+    /// 项目设置中的命令按原文核对：项目设置改写命令后没有记录，需要重新询问。
+    fn choice(&self, state: &winc_config::State) -> Option<bool> {
+        match &self.command {
+            Some(command) => state
+                .command_approved(&self.folder, command)
+                .then_some(true),
+            None => state.tool_choice(&self.folder),
+        }
+    }
 }
 
 /// 提示框上对项目自带工具的回答。
@@ -176,6 +193,8 @@ pub struct ToolAnswer {
     pub range: Option<FormatRange>,
     /// 记录用户选择的目录（见 `Approval::folder`）。
     pub folder: PathBuf,
+    /// 询问的是项目设置中的命令时，命令的原文（见 `Approval::command`）。
+    pub command: Option<String>,
     /// 用户的回答。
     pub run: Option<bool>,
 }
@@ -244,7 +263,7 @@ impl App {
         let task = Task::Format;
         let mut plan = Plan::for_task(task, language, path, root, configured.as_deref()).ok()?;
         if let Some(approval) = approval(&plan, root, project.as_deref()) {
-            match self.state.tool_choice(&approval.folder) {
+            match approval.choice(&self.state) {
                 Some(true) => {}
                 Some(false) if approval.searchable => plan.use_system(),
                 _ => return None,
@@ -379,6 +398,7 @@ impl App {
                 None => {
                     let approval = Approval {
                         folder,
+                        command: None,
                         what: t!("format-approval-on-save-what", task = task.key()),
                         detail: t!("format-approval-on-save-detail", task = task.key()),
                         searchable: false,
@@ -433,7 +453,7 @@ impl App {
             project,
         };
         // 远端的文件：选工具要读那台主机上的项目文件，在后台进行，选好后由
-        // [`App::poll_formatting`] 接着处理。
+        // [`App::poll_formatting`] 继续处理。
         if launch.remote {
             self.format.planning.push((id, save));
             let sender = self.format.planned.0.clone();
@@ -482,7 +502,7 @@ impl App {
             });
         }
         if let Some(approval) = approval(&plan, root.as_deref(), project.as_deref()) {
-            match self.state.tool_choice(&approval.folder) {
+            match approval.choice(&self.state) {
                 Some(true) => {}
                 Some(false) if approval.searchable => plan.use_system(),
                 Some(false) => {
@@ -576,6 +596,7 @@ impl App {
             };
             let detail = &approval.detail;
             let folder = approval.folder.clone();
+            let command = approval.command.clone();
             let asked = self.present_alert(&message, detail, buttons, None, move |i, _| {
                 let answer = ToolAnswer {
                     id,
@@ -583,9 +604,10 @@ impl App {
                     save,
                     range: range.clone(),
                     folder: folder.clone(),
+                    command: command.clone(),
                     run: (i != cancel).then_some(i == 0),
                 };
-                Some(UserEvent::ToolChoice(answer))
+                Some(UserEvent::ToolChoice(Box::new(answer)))
             });
             // 窗口上已有其他提示框或面板时无法弹出，视为本次不格式化。
             if asked {
@@ -612,7 +634,11 @@ impl App {
             return;
         };
 
-        self.update_state(|state| state.set_tool_choice(&answer.folder, run));
+        self.update_state(move |state| match &answer.command {
+            // 项目设置中的命令只有「运行」和「取消」两个回答，到这里的都是同意。
+            Some(command) => state.approve_command(&answer.folder, command),
+            None => state.set_tool_choice(&answer.folder, run),
+        });
         if let Err(e) = self.start(task, id, save, answer.range) {
             if save {
                 self.save_step_done(task, id, note_for(task, e));
@@ -624,7 +650,7 @@ impl App {
 
     /// 接收后台线程送回的格式化结果。
     pub(in crate::app) fn poll_formatting(&mut self) {
-        // 后台选好了工具：接着询问、运行；期间又要求保存的一并保存。
+        // 后台选好了工具：随后询问、运行；期间又要求保存的一并保存。
         while let Ok((mut launch, plan)) = self.format.planned.1.try_recv() {
             let (task, id) = (launch.task, launch.id);
             let waiting = self.format.planning.iter().position(|p| p.0 == id);
@@ -788,7 +814,9 @@ impl App {
     /// 保存失败时只提示保存的错误。关闭标签或退出的流程正在等待本次保存时，保存成功后继续关闭，
     /// 保存失败则放弃整个关闭流程（处理方式同直接保存失败）。
     fn save_with_notes(&mut self, id: DocumentId) {
-        let closing = self.format.then_close.take();
+        // 等待的是哪个文档由提示记着：另一个文档的保存不能取走它。
+        let awaited = |prompt: &mut SavePrompt| prompt.dirty.first() == Some(&id);
+        let closing = self.format.then_close.take_if(awaited);
         let (notes, others) = std::mem::take(&mut self.format.notes)
             .into_iter()
             .partition::<Vec<_>, _>(|(d, _)| *d == id);
@@ -853,6 +881,8 @@ impl App {
             self.format.running.remove(index).cancel.cancel();
         }
         self.format.notes.retain(|(d, _)| *d != id);
+        // 等着这个文档保存的关闭流程一并放弃，否则之后的关闭请求都会被当作仍在进行。
+        (self.format.then_close).take_if(|prompt| prompt.dirty.first() == Some(&id));
     }
 
     /// 退出前停止所有格式化，避免工具进程残留。
@@ -908,11 +938,12 @@ fn unsaved_path(language: &winc_syntax::Language, root: Option<&Path>) -> PathBu
 
 /// 返回本次格式化需要先向用户询问的内容；无需询问时返回 `None`。
 ///
-/// 项目设置中的命令只询问一次，该命令用到的项目自带程序不再另外询问。
+/// 项目设置中的命令每条只询问一次，该命令用到的项目自带程序不再另外询问。
 fn approval(plan: &Plan, root: Option<&Path>, project: Option<&str>) -> Option<Approval> {
     if let (Some(command), Some(root)) = (project, root) {
         return Some(Approval {
             folder: root.join(".winc"),
+            command: Some(command.to_owned()),
             what: t!("format-approval-project-command", task = plan.task().key()),
             detail: t!("format-approval-project-command-detail", command = command),
             searchable: false,
@@ -930,6 +961,7 @@ fn approval(plan: &Plan, root: Option<&Path>, project: Option<&str>) -> Option<A
     let shown = path.strip_prefix(folder).unwrap_or(path);
     Some(Approval {
         folder: folder.clone(),
+        command: None,
         what: t!(
             "format-approval-project-tool",
             tool = plan.tool().into_owned()

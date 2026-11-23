@@ -21,7 +21,7 @@ use crate::workspace::tree::HIDDEN;
 /// 一批变化最多记录的路径数（个）。
 ///
 /// 超过该数量时不再逐个记录，改为重新扫描整个目录（切换分支、`npm install` 等一次改动成千上万个
-/// 文件的情况）。该值为经验值。
+/// 文件的情况）。该值取自调参。
 const MAX_PATHS: usize = 4096;
 
 /// 一批累积的文件系统变化。
@@ -104,6 +104,15 @@ pub struct Watcher {
     inner: Inner,
 }
 
+/// 链接 `link` 指向的目录 `real` 是否大到不能整棵监视：它包含链接自己（指向上级目录），或
+/// 包含主目录 `home`。这样的链接只监视它的这一层。
+///
+/// 整棵监视在有的系统上要给每个子目录登记一次：指向上级目录、主目录或根目录的链接会把整棵
+/// 树都登记上，占满系统的监视名额。
+fn is_wide(link: &Path, real: &Path, home: Option<&Path>) -> bool {
+    link.starts_with(real) || home.is_some_and(|home| home.starts_with(real))
+}
+
 impl Watcher {
     /// 开始递归监视 `root` 及其所有子目录。
     ///
@@ -151,23 +160,50 @@ impl Watcher {
         let pending = Arc::new(Mutex::new(Pending::default()));
         let shared = Arc::clone(&pending);
         let base = root.to_path_buf();
+        // `root` 是符号链接时，有的系统按它指向的真实路径报告变化：换回链接下的路径，文件树
+        // 中的各行都在链接下面。
+        let real = winc_config::files::canonicalize(root).ok();
+        let real = real.filter(|real| real != root);
+        // 监视真实路径：不跟随链接时，监视链接本身收不到它指向的目录中的变化。
+        let watched = real.clone().unwrap_or_else(|| root.to_path_buf());
+        let home = crate::wsl::home_dir(root);
+        let home = home.and_then(|home| winc_config::files::canonicalize(home).ok());
+        let wide = (real.as_deref()).is_some_and(|real| is_wide(root, real, home.as_deref()));
+        let mode = match wide {
+            true => RecursiveMode::NonRecursive,
+            false => RecursiveMode::Recursive,
+        };
 
-        let mut inner =
-            notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+        // 不跟随符号链接：文件树不展开链接到的目录，监视它们只会多占监视名额；链接指向上级
+        // 目录时还会把整个上级目录树都监视上。
+        let config = notify::Config::default().with_follow_symlinks(false);
+        let mut inner = RecommendedWatcher::new(
+            move |event: notify::Result<notify::Event>| {
                 let mut pending = shared.lock().unwrap_or_else(PoisonError::into_inner);
                 match event {
                     Ok(event) if event.need_rescan() => pending.rescan = true,
                     // 打开、读取文件不算变化。
                     Ok(event) if matches!(event.kind, EventKind::Access(_)) => return,
-                    Ok(event) => pending.add_paths(&base, event.paths),
+                    Ok(event) => {
+                        let below = |path: PathBuf| match &real {
+                            Some(real) => match path.strip_prefix(real) {
+                                Ok(rest) if !path.starts_with(&base) => base.join(rest),
+                                _ => path,
+                            },
+                            None => path,
+                        };
+                        pending.add_paths(&base, event.paths.into_iter().map(below));
+                    }
                     Err(_) => pending.rescan = true,
                 }
                 if pending.wake_due() {
                     drop(pending);
                     wake();
                 }
-            })?;
-        inner.watch(root, RecursiveMode::Recursive)?;
+            },
+            config,
+        )?;
+        inner.watch(&watched, mode)?;
         Ok(Watcher {
             root: root.to_path_buf(),
             pending,
@@ -220,7 +256,7 @@ impl Watcher {
     }
 
     /// 让监视跟上当前仓库的公共 Git 目录 `dir`：不在打开的目录里时（附属工作树、打开的是仓库的
-    /// 子目录）另外监视它，提交、分支这些状态都记在那里。监视不了时打开的目录照常监视。
+    /// 子目录）另外监视它，提交、分支这些状态都记在那里。监视不了时打开的目录仍然监视。
     pub fn watch_git_dir(&mut self, dir: Option<&Path>) {
         let dir = dir.filter(|dir| !dir.starts_with(&self.root));
         // 系统监视器改动时要等监视线程回复，而监视线程送通知时要拿这把锁：改动之前先放开，否则两边

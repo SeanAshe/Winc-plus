@@ -420,7 +420,7 @@ fn word_highlights_keep_distinct_colors_in_the_editor_and_both_diff_panes() {
             )
         })
     };
-    // `*` 不是快捷键，在词前、词中和选区上都照常输入。
+    // `*` 不是快捷键，在词前、词中和选区上都仍然输入。
     let star = Stroke {
         key: KeyCode::Char('8'),
         mods: Mods::SHIFT,

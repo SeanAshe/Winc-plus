@@ -234,10 +234,10 @@ fn sync_shown(app: &App) -> bool {
     app.git.status.is_some() && (active || app.git_sync_state() != SyncState::NoRemote)
 }
 
-/// 同步控件上写的文字：和上游差多少个提交，后面是点了会做的事（推送、拉取、同步、发布分支）；
+/// 同步控件上写的文字：和上游差多少个提交，后面是点击会做的事（推送、拉取、同步、发布分支）；
 /// 没有事可做时为空。
 ///
-/// 没有待提交的更改时列表区的空状态已经写着同样的事并有一个按钮：这里只写提交数，不再写一遍。
+/// 没有待提交的更改时列表区的空状态已经显示同样的事并有一个按钮：这里只写提交数，不再写一遍。
 fn sync_counts(app: &App) -> String {
     let clean = (app.git.status.as_ref()).is_some_and(|s| s.entries.is_empty())
         && app.commit_other_rows().is_empty();
@@ -291,7 +291,7 @@ pub(super) fn draw_sync(
     let hovered = !running && app.pointer.hover == Hover::Commit(CommitTarget::Sync);
     draw_button(frame, p, button, clip, hovered, false);
     let done = app.git.branch.finished.filter(|_| !running);
-    // 前半段换下的是刚停下的旋转图标，它接着转；后半段换上的是当前状态的图标。
+    // 前半段换下的是刚停下的旋转图标，它继续转；后半段换上的是当前状态的图标。
     let leaving = running || done.is_some_and(|clock| clock.linear() < 0.5);
     let check = if running { 0.0 } else { app.sync_check() };
     let ink = if leaving {

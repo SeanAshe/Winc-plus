@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use winc_backend::Target;
 use winc_backend::remote::{self, Exec};
 
-/// 向远端查询环境或查找程序时最长等待的时间（5 秒，经验值，同本机查询工具链时的时限）：
+/// 向远端查询环境或查找程序时最长等待的时间（5 秒，与本机查询工具链时的时限相同）：
 /// 登录脚本正常在一秒内结束，超时按查不到处理。
 const TIMEOUT: Duration = Duration::from_secs(5);
 

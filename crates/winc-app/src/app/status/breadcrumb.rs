@@ -11,13 +11,13 @@ use crate::icons;
 
 use super::*;
 
-/// 目录菜单最多列出的项数（项，经验值）。
+/// 目录菜单最多列出的项数（项，取自调参）。
 ///
 /// 目录内的项过多（例如 `node_modules`）时，菜单难以浏览，构建开销也随之增大；超出的部分
 /// 以一条说明文字代替。
 const FOLDER_MENU_MAX: usize = 300;
 
-/// 菜单项文字起点到菜单项左边缘的距离（逻辑像素，经验值）。
+/// 菜单项文字起点到菜单项左边缘的距离（逻辑像素，取自调参）。
 ///
 /// 菜单项左侧是打勾标记所在的列。弹出菜单时，位置向左偏移此距离，使打勾项的文字大致对准
 /// 被点击的路径段。
@@ -171,9 +171,58 @@ fn crumb_folder<'a>(crumb: &'a Path, current: &Path) -> Option<&'a Path> {
     }
 }
 
-/// 把 [`folder_entries`] 的结果转换为 macOS 目录菜单的菜单项，`None` 表示分隔线。
+/// 等目录读好后要弹出的系统目录菜单：点的是路径的第几段、它的目录、当前文件和弹出的位置。
+#[cfg(target_os = "macos")]
+pub(in crate::app) struct PendingMenu {
+    index: usize,
+    dir: PathBuf,
+    current: PathBuf,
+    at: (f64, f64),
+}
+
+/// 系统目录菜单显示期间后台预先读好的目录及其菜单项，展开子菜单时取用；菜单关闭后清空。
+#[cfg(target_os = "macos")]
+static PREFETCHED: std::sync::Mutex<Vec<(PathBuf, Vec<FolderEntry>)>> =
+    std::sync::Mutex::new(Vec::new());
+
+/// 第几次弹出系统目录菜单：菜单关闭后加 1，上一次菜单留下的预读随之停止。
+#[cfg(target_os = "macos")]
+static MENU_SESSION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// 在后台预先读出 `entries` 里各个子目录的菜单项：系统菜单展开子菜单时在主线程上要内容，
+/// 无法等后台。
+#[cfg(target_os = "macos")]
+fn prefetch(entries: &[FolderEntry], current: &Path) {
+    use std::sync::atomic::Ordering::Relaxed;
+
+    let dirs: Vec<PathBuf> = (entries.iter())
+        .filter_map(|entry| match entry {
+            FolderEntry::Item { path, kind, .. } if *kind == EntryKind::Dir => Some(path.clone()),
+            _ => None,
+        })
+        .collect();
+    if dirs.is_empty() {
+        return;
+    }
+    let (session, current) = (MENU_SESSION.load(Relaxed), current.to_path_buf());
+    winc_editor::background::spawn_blocking(move || {
+        for dir in dirs {
+            let entries = folder_entries(&dir, &current);
+            let mut read = PREFETCHED
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if MENU_SESSION.load(Relaxed) != session {
+                return;
+            }
+            read.push((dir, entries));
+        }
+    });
+}
+
+/// 返回 macOS 目录菜单中目录 `dir` 的菜单项，`None` 表示分隔线。
 ///
-/// 弹出菜单和展开子菜单时都会调用。
+/// 弹出菜单和展开子菜单时在主线程上调用：内容取自后台预先读好的（[`prefetch`]），还没读到时
+/// 才当场读；同时预读它的各个子目录。
 #[cfg(target_os = "macos")]
 pub(in crate::app) fn macos_folder_items(
     dir: &Path,
@@ -181,7 +230,16 @@ pub(in crate::app) fn macos_folder_items(
 ) -> Vec<Option<crate::macos::FolderItem>> {
     use crate::macos::FolderItem;
 
-    folder_entries(dir, current)
+    let read = {
+        let mut read = PREFETCHED
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let at = read.iter().position(|(path, _)| path == dir);
+        at.map(|at| read.swap_remove(at).1)
+    };
+    let entries = read.unwrap_or_else(|| folder_entries(dir, current));
+    prefetch(&entries, current);
+    entries
         .into_iter()
         .map(|entry| match entry {
             FolderEntry::Item {
@@ -352,7 +410,7 @@ impl App {
             // 打勾那一行的文字对准被点击的段：文字前面是打勾和图标两列。
             let at = (rect.x - POPUP_TEXT_X, rect.y + rect.h / 2.0);
             let mut popup = PopupMenu::new(Vec::new(), at, (true, false));
-            popup.levels[0] = folder_level(dir, &current);
+            popup.levels[0] = folder_level(dir);
             popup.current = Some(current);
             self.overlays.context_menu = Some(ContextMenu {
                 target: crate::app::input::context_menu::MenuTarget::Folder,
@@ -368,24 +426,71 @@ impl App {
             return;
         }
 
-        // 菜单弹出期间系统在跟踪菜单事件，窗口不会重绘，因此先同步绘制一次，
-        // 把这一段显示为按下状态。
-        self.overlays.menu_button = Some(MenuButton::Crumb(index));
-        self.paint_now();
-
+        // 系统菜单弹出后在主线程上跟踪事件，等不了后台：先在后台读好这一级，读好后再弹出
+        // （[`App::show_crumb_menu`]），期间这一段显示为按下状态。
         #[cfg(target_os = "macos")]
-        if let Some(window) = self.window.handle.clone() {
-            let icons = self.folder_icons();
-            FOLDER_ICONS.set(icons);
+        {
+            self.overlays.menu_button = Some(MenuButton::Crumb(index));
             let at = (f64::from(rect.x - MENU_TITLE_INSET), f64::from(rect.y));
-            crate::macos::popup_folder_menu(&window, dir, &current, at);
-            FOLDER_ICONS.set(None);
+            let (dir, listed) = (dir.to_path_buf(), Arc::clone(&self.status.folders));
+            self.status.crumb = Some(PendingMenu {
+                index,
+                dir: dir.clone(),
+                current: current.clone(),
+                at,
+            });
+            self.spawn_blocking_then(UserEvent::FolderListed, move || {
+                let entries = folder_entries(&dir, &current);
+                let mut listed = listed
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                listed.push((dir, entries));
+            });
+            self.request_redraw();
         }
         #[cfg(not(target_os = "macos"))]
         let _ = (dir, rect);
+    }
 
+    /// 后台读好了目录 `listed`：其中有等着弹出的系统目录菜单的那一级时弹出它，菜单关闭后才
+    /// 返回；返回其余的目录。期间换了当前文件时不弹出。
+    #[cfg(target_os = "macos")]
+    pub(in crate::app) fn show_crumb_menu(
+        &mut self,
+        mut listed: Vec<(PathBuf, Vec<FolderEntry>)>,
+    ) -> Vec<(PathBuf, Vec<FolderEntry>)> {
+        use std::sync::atomic::Ordering::Relaxed;
+
+        let wanted = |pending: &PendingMenu| listed.iter().position(|(dir, _)| *dir == pending.dir);
+        let Some(at) = self.status.crumb.as_ref().and_then(wanted) else {
+            return listed;
+        };
+        let (top, Some(pending)) = (listed.swap_remove(at), self.status.crumb.take()) else {
+            return listed;
+        };
+        let current = self.editor.active().and_then(|doc| doc.path.as_deref());
+        let window = self.window.handle.clone();
+        if let Some(window) = window.filter(|_| current == Some(pending.current.as_path())) {
+            // 菜单弹出期间窗口不会重绘，因此先同步绘制一次，把这一段显示为按下状态。
+            self.overlays.menu_button = Some(MenuButton::Crumb(pending.index));
+            self.paint_now();
+            let icons = self.folder_icons();
+            FOLDER_ICONS.set(icons);
+            (PREFETCHED
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner))
+            .push(top);
+            crate::macos::popup_folder_menu(&window, &pending.dir, &pending.current, pending.at);
+            FOLDER_ICONS.set(None);
+            MENU_SESSION.fetch_add(1, Relaxed);
+            (PREFETCHED
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner))
+            .clear();
+        }
         self.overlays.menu_button = None;
         self.request_redraw();
+        listed
     }
 }
 

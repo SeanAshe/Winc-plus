@@ -52,7 +52,7 @@ const FORCE_IF_INCLUDES: (u32, u32) = (2, 30);
 const MERGE_AUTOSTASH: (u32, u32) = (2, 27);
 
 /// 解释 `pull.rebase`、`branch.<分支>.rebase` 的值：变基为 `Some(true)`，合并为
-/// `Some(false)`，认不出来时为 `None`。
+/// `Some(false)`，无法识别时为 `None`。
 fn rebase_value(value: &str) -> Option<bool> {
     match value.trim().to_ascii_lowercase().as_str() {
         "true" | "yes" | "on" | "1" | "merges" | "m" | "interactive" | "i" => Some(true),
@@ -74,11 +74,10 @@ pub(super) fn parse_version(output: &str) -> Option<(u32, u32)> {
 impl Git {
     /// 与当前分支的上游同步。
     ///
-    /// 先获取上游的最新状态。只落后时拉取，只领先时推送。两边都有新提交时，上游多出的提交
-    /// 若都可由本分支引用日志中的某条记录到达，`force` 时用 `--force-with-lease`（`git` 够新时再加
-    /// `--force-if-includes`）推送本地版本，
-    /// 否则返回 [`Synced::NeedsForce`]，不改动本地和上游。上游有本地从未有过的提交时先拉取再
-    /// 推送，拉取的方式 `rebase` 同 [`Git::pull`]。
+    /// 先获取上游的最新状态。只落后时拉取，只领先时推送。两边都有新提交时，上游多出的提交若都
+    /// 可由本分支引用日志中的某条记录到达，`force` 时用 `--force-with-lease`（`git` 够新时再加
+    /// `--force-if-includes`）推送本地版本，否则返回 [`Synced::NeedsForce`]，不改动本地和上游。
+    /// 上游有本地从未有过的提交时先拉取再推送，拉取的方式 `rebase` 同 [`Git::pull`]。
     ///
     /// # Errors
     ///
@@ -117,14 +116,12 @@ impl Git {
         Ok(Synced::Done(summary))
     }
 
-    /// 从上游拉取，返回 `git` 的结论：`rebase` 为真时变基，为假时合并，为 `None` 时按 Git 的
-    /// 配置（[`Git::pull_rebases`]）。
+    /// 从上游拉取：`rebase` 为真时变基，为假时合并，为 `None` 时按配置（[`Git::pull_rebases`]）。
     ///
     /// 未配置 `pull.rebase` 时 `git` 拒绝拉取分叉的分支，因此这时显式按合并方式拉取。未提交的更改
-    /// 由 `git` 先储藏、拉取完成后恢复（`--autostash`）：工作区有改动时拉取不会因此被拒绝；拉取
-    /// 产生冲突时，更改在合并或变基结束（继续或放弃）后恢复。恢复的结果见 [`Git::carried`]。
-    /// 2.27 以前的 `git` 合并时不接受 `--autostash`，这时不带：更改会被拉取的内容覆盖时 `git`
-    /// 拒绝拉取，更改不会丢失。
+    /// 由 `git` 先储藏、拉取完成后恢复（`--autostash`）；拉取产生冲突时，更改在合并或变基结束后
+    /// 恢复，结果见 [`Git::carried`]。2.27 以前的 `git` 合并时不接受 `--autostash`，这时不带：更改
+    /// 会被拉取的内容覆盖时 `git` 拒绝拉取，更改不会丢失。
     ///
     /// # Errors
     ///
@@ -177,16 +174,31 @@ impl Git {
     ///
     /// 拉取前记下，拉取后交给 [`Git::carried`]，判断未提交的更改是否留在了新的储藏里。
     pub fn stash_tip(&self, root: &Path) -> Option<String> {
-        self.operate(root, &["rev-parse", "-q", "--verify", "refs/stash"])
-            .ok()
+        let mut command = self.command(root);
+        command.args(["rev-parse", "-q", "--verify", "refs/stash"]);
+        let stdout = self
+            .run(&mut command, STATUS_TIMEOUT, &Cancel::default())
+            .ok()?;
+        Some(String::from_utf8_lossy(&stdout).trim().to_owned())
+    }
+
+    /// 是否工作区中有未合并（冲突）的文件；`git` 运行失败时按没有处理。
+    ///
+    /// 只看标准输出：`git` 在标准错误上的提示（例如换行符将被转换）不是文件名。不进入子模块：
+    /// 其配置不在信任检查的范围内。
+    pub fn has_unmerged(&self, root: &Path) -> bool {
+        let mut command = self.command(root);
+        command.args(["diff", "--name-only", "--diff-filter=U", "--no-ext-diff"]);
+        command.arg("--ignore-submodules=dirty");
+        self.run(&mut command, STATUS_TIMEOUT, &Cancel::default())
+            .is_ok_and(|names| !names.trim_ascii().is_empty())
     }
 
     /// 返回拉取完成后未提交的更改的去向；`before` 是拉取前的 [`Git::stash_tip`]。
     ///
     /// `git` 恢复更改失败时把更改存为一条新的储藏：有未合并的文件时是冲突，否则是未能恢复。
     pub fn carried(&self, root: &Path, before: Option<&str>) -> Carried {
-        let unmerged = ["diff", "--name-only", "--diff-filter=U"];
-        if self.operate(root, &unmerged).is_ok_and(|f| !f.is_empty()) {
+        if self.has_unmerged(root) {
             return Carried::Conflicted;
         }
         if self.stash_tip(root).as_deref() != before {

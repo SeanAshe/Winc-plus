@@ -129,16 +129,31 @@ fn jobs_write_into_the_output_directory() {
             "-interaction=nonstopmode",
             "-file-line-error",
             "-outdir=/cache/latex/paper-1",
-            "paper.tex"
+            "./paper.tex"
         ]
     );
     assert_eq!(run.dir, Path::new("/p"));
     assert_eq!(run.pdf, out.join("paper.pdf"));
     assert_eq!(run.synctex, out.join("paper.synctex.gz"));
     assert_eq!(run.log, out.join("paper.log"));
-    // `latexmkrc` 设置了 `$pdf_mode` 时按它，不指定引擎。
-    let run = job(&latexmk, root, Engine::Xe, out, Some("$pdf_mode = 5;"));
+    // 用户同意过的 `latexmkrc` 设置了 `$pdf_mode` 时按它，不指定引擎。
+    let rc = |run| {
+        Some(ProjectRc {
+            text: "$pdf_mode = 5;\nsystem('x');",
+            run,
+        })
+    };
+    let run = job(&latexmk, root, Engine::Pdf, out, rc(true));
     assert_eq!(args(&run)[0], "-synctex=1");
+    // 没有同意的不读取，只沿用其中选的引擎；文件名不会被当作选项。
+    let run = job(&latexmk, root, Engine::Pdf, out, rc(false));
+    let unread = args(&run);
+    assert_eq!(unread[0], "-norc");
+    assert!(unread.contains(&"-xelatex".to_owned()) && !unread.contains(&"-pdf".to_owned()));
+    assert_eq!(unread.last().unwrap(), "./paper.tex");
+    assert_eq!(pdf_mode("$pdf_mode=4;"), Some(Engine::Lua));
+    assert_eq!(pdf_mode("$pdf_mode = 3;"), None);
+    assert_eq!(pdf_mode("# no mode"), None);
 
     let tectonic = Toolchain::Tectonic("/bin/tectonic".into());
     let run = job(&tectonic, root, Engine::Pdf, out, None);
@@ -151,7 +166,7 @@ fn jobs_write_into_the_output_directory() {
             "--keep-logs",
             "--outdir",
             "/cache/latex/paper-1",
-            "paper.tex"
+            "./paper.tex"
         ]
     );
 

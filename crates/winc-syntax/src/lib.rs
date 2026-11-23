@@ -8,7 +8,9 @@ mod lexer;
 
 use std::ops::ControlFlow;
 
-use winc_core::text::{Lines, MAX_LINE_BYTES, MAX_LINE_CHARS};
+/// 着色时一行最多分析的字符数，见 [`winc_core::text::MAX_LINE_CHARS`]；调用方据此跳过更长的行。
+pub use winc_core::text::MAX_LINE_CHARS;
+use winc_core::text::{Lines, MAX_LINE_BYTES};
 
 pub use lang::{
     BlockString, Heredocs, Interpolation, Language, Markup, RawStrings, Variables, detect,

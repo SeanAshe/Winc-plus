@@ -444,7 +444,7 @@ fn menus_without_a_system_menu_are_drawn_in_the_window() {
     paint(&mut app);
     assert_eq!(app.popup().unwrap().levels[1].parent, Some(1));
 
-    // 点子菜单里的一项：执行这项命令（以 UTF-8 保存，文件本来就是 UTF-8，没有可见的变化），
+    // 点子菜单里的一项：执行这项命令（以 UTF-8 保存，文件原本就是 UTF-8，没有可见的变化），
     // 菜单关掉，状态栏的按钮放开。
     let sub = app.popup().unwrap().levels[1].clone();
     let utf8 = sub
@@ -567,7 +567,7 @@ fn typing_filters_the_language_menu() {
     named(&mut app, NamedKey::Escape);
     assert!(app.overlays.context_menu.is_none());
 
-    // 筛选时空格是文字：「Visual Basic」这类名字可以接着键入。
+    // 筛选时空格是文字：「Visual Basic」这类名字可以继续键入。
     app.open_status_menu(StatusItem::Language);
     paint(&mut app);
     typed(&mut app, "a b");

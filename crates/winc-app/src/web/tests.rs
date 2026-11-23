@@ -80,3 +80,9 @@ fn credentials_in_addresses_are_hidden() {
         Failure::Other("curl: (3) http://x".to_owned())
     );
 }
+
+#[test]
+fn curl_requests_addresses_literally() {
+    let curl = curl();
+    assert!(curl.get_args().any(|arg| arg == "--globoff"));
+}

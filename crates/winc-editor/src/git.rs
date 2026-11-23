@@ -8,6 +8,7 @@
 pub mod log;
 pub mod merge;
 
+mod branch;
 mod commit;
 mod output;
 mod parse;
@@ -15,6 +16,7 @@ mod rebase;
 mod remote;
 mod sync;
 
+pub use branch::BranchDeleted;
 pub use commit::RecentHistory;
 pub use output::{on_output, output_since, output_snapshot, output_text};
 pub use rebase::{RebaseAction, RebaseCommit, RebasePlan, RebaseStep, rebase_todo};
@@ -284,14 +286,14 @@ impl LogQuery {
     }
 
     /// 是否按路径筛选、父提交按路径改写（`--parents`）：每个提交的父提交是它往下最近一个也改过
-    /// 这些路径的提交，提交图照样连得起来。真正的父提交另外查（见 [`log::Details::base`]）。
+    /// 这些路径的提交，提交图仍然连得起来。真正的父提交另外查（见 [`log::Details::base`]）。
     pub fn rewrites_parents(&self) -> bool {
         !self.paths.is_empty() && self.path.is_none()
     }
 
     /// 是否按说明、分支或作者筛选过，或固定了一个提交。
     ///
-    /// 文件历史的文件不算：那本来就是该标签展示的内容。
+    /// 文件历史的文件不算：那原本就是该标签展示的内容。
     pub fn filtered(&self) -> bool {
         !self.text.trim().is_empty()
             || !self.branches.is_empty()
@@ -302,12 +304,12 @@ impl LogQuery {
     }
 }
 
-/// 日志最长的运行时间（30 秒，经验值）。
+/// 日志最长的运行时间（30 秒，取自调参）。
 ///
 /// 几十万个提交的仓库取一批也只要零点几秒。
 const LOG_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// 检查 macOS 开发者工具是否已安装的最长时间（5 秒，经验值）。
+/// 检查 macOS 开发者工具是否已安装的最长时间（5 秒，取自调参）。
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// 一个文件相对于某个版本的变化。
@@ -518,7 +520,7 @@ fn rebase_progress(git_dir: &Path) -> Option<(u32, u32)> {
     })
 }
 
-/// 仓库 `root` 的 `.git` 目录：工作树和子模块里 `.git` 是一个写着 `gitdir: <路径>` 的文件。
+/// 仓库 `root` 的 `.git` 目录：工作树和子模块里 `.git` 是一个内容为 `gitdir: <路径>` 的文件。
 fn git_dir(root: &Path) -> Option<PathBuf> {
     let dot = root.join(".git");
     if winc_backend::fs::is_dir(&dot) {
@@ -603,15 +605,6 @@ impl std::fmt::Display for Unavailable {
             }
         }
     }
-}
-
-/// [`Git::delete_branch`] 的结果。
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BranchDeleted {
-    /// 已删除，内容是 `git` 的结论。
-    Done(String),
-    /// 分支未完全合并，需要强制删除，尚未删除。
-    NeedsForce,
 }
 
 /// 系统里可用的 `git`。
@@ -986,33 +979,6 @@ impl Git {
         }
     }
 
-    /// 删除本地分支 `name`。
-    ///
-    /// `force` 时用 `--force` 连同未合并的提交一起删除；否则分支未完全合并时返回
-    /// [`BranchDeleted::NeedsForce`]，不改动仓库。
-    ///
-    /// # Errors
-    ///
-    /// 分支不存在、被某个工作树签出等其他失败时返回 `git` 给出的原因。
-    pub fn delete_branch(
-        &self,
-        root: &Path,
-        name: &str,
-        force: bool,
-    ) -> Result<BranchDeleted, String> {
-        let mut args = vec!["branch", "--delete"];
-        if force {
-            args.push("--force");
-        }
-        args.extend(["--end-of-options", name]);
-        match self.operate(root, &args) {
-            Ok(summary) => Ok(BranchDeleted::Done(summary)),
-            // 报错固定为英文（`LC_ALL=C`），分支名不含空格，不会和这句话混淆。
-            Err(e) if !force && e.contains("is not fully merged") => Ok(BranchDeleted::NeedsForce),
-            Err(e) => Err(e),
-        }
-    }
-
     /// 推送当前分支：有上游时推到上游，上游与当前分支不同名时写明推到上游的分支（`git` 默认
     /// 拒绝推到不同名的上游）；推送去另一个远程或设置了 `push.default` 时按其设置。
     ///
@@ -1127,7 +1093,7 @@ impl Git {
             .args(["-c", "log.showSignature=false"]);
         // 配置不可信：fsmonitor 和仓库里定义的过滤器都不运行；必需的过滤器被清空命令后 `git` 会
         // 报错，不会把没经过过滤的内容当成结果。会改仓库的操作在此之前已经被拒绝，剩下的只读命令
-        // 中只有 `diff.*.textconv` 会运行仓库配置的命令，`blame` 总是带 `--no-textconv`。
+        // 中只有 `diff.*.textconv` 会运行仓库配置的命令，`blame`、`diff` 总是带 `--no-textconv`。
         if let Some(risks) = self.untrusted(root) {
             command.args(["-c", "core.fsmonitor=false"]);
             for name in &risks.filters {
@@ -1358,7 +1324,7 @@ fn relative_all<'a>(
 const SCAN_DEEP_ENTRIES: usize = 65_536;
 /// [`scan_repositories`] 不进入的目录：依赖和构建产物，里面不会有用户自己的仓库，文件却很多。
 const SCAN_SKIPPED: [&str; 4] = ["node_modules", "target", "vendor", "__pycache__"];
-/// [`find_repositories`] 最多查看的目录项数（个，经验值）：放着大量文件的目录不拖慢打开。
+/// [`find_repositories`] 最多查看的目录项数（个，取自调参）：放着大量文件的目录不拖慢打开。
 const SCAN_ENTRIES: usize = 4096;
 
 /// 从 `dir` 往上找仓库的根目录：第一个含有 `.git`（目录，或工作树和子模块里的文件）的目录。

@@ -190,8 +190,15 @@ impl App {
         if self.format.then_close.is_some() {
             return;
         }
-        // 后台在存的大文件先存完：要不要问、备份哪些，都按存完以后的样子算。
-        self.wait_for_saves();
+        // 后台在存的文档先存完：要不要问、备份哪些，都按存完以后的样子算。只关几个标签时只等
+        // 这几个文档：别的文档的保存（经远端连接的、在等系统授权的）不应拦住无关的标签。
+        match &request {
+            CloseRequest::Tabs(ids) => ids
+                .clone()
+                .into_iter()
+                .for_each(|id| self.wait_for_save(id)),
+            _ => self.wait_for_saves(),
+        }
         // 已经在询问时（例如提示框打开期间再次按 `⌘Q`）不再询问第二次。
         if self.closing.prompt.is_some() {
             return;
@@ -202,7 +209,10 @@ impl App {
         let backed_up = match request {
             CloseRequest::Quit => self.back_up_for_quit(),
             CloseRequest::CloseWindow if self.editor.workspace.is_some() => self.back_up_for_quit(),
-            _ => Default::default(),
+            _ => {
+                self.keep_no_backups();
+                Default::default()
+            }
         };
         let dirty: Vec<DocumentId> = self
             .editor
@@ -266,7 +276,7 @@ impl App {
                 t!("workspace-close-save"),
             )
         } else {
-            // 文件过多时只列出前 `SHOWN` 个，避免提示框高度超过屏幕。`SHOWN` 的单位为个，是经验值。
+            // 文件过多时只列出前 `SHOWN` 个，避免提示框高度超过屏幕。`SHOWN` 的单位为个，取自调参。
             const SHOWN: usize = 10;
             let mut list = names.iter().take(SHOWN).cloned().collect::<Vec<_>>();
             if names.len() > SHOWN {
@@ -504,7 +514,7 @@ impl App {
     ///
     /// 未命名的文档无法重新打开，不记录；同一个文件只保留最近一次。
     fn remember_closed(&mut self, path: Option<PathBuf>, caret: usize) {
-        // 最多保留的已关闭标签数（个，经验值），超出时丢弃最早的。
+        // 最多保留的已关闭标签数（个，取自调参），超出时丢弃最早的。
         const MAX_CLOSED: usize = 20;
 
         let Some(path) = path else {

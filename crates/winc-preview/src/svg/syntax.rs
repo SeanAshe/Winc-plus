@@ -489,8 +489,8 @@ pub(super) fn number_end(bytes: &[u8]) -> usize {
 /// 解析长度，返回用户坐标单位（px）下的值；无法解析时返回 `None`。
 ///
 /// 百分比相对 `reference`；绝对单位按 CSS 的换算，96 px = 1 in，即 `pt` 为 4/3 px、`pc` 为 16 px，
-/// `mm`、`cm` 按 25.4 mm = 1 in 换算。`em`、`rem` 按 16 px、`ex` 按 8 px 估算，为经验值，
-/// 依据是这里没有字体信息。
+/// `mm`、`cm` 按 25.4 mm = 1 in 换算。`em`、`rem` 按 16 px、`ex` 按 8 px 估算，
+/// 因为这里没有字体信息。
 pub(super) fn length(text: &str, reference: f32) -> Option<f32> {
     let text = text.trim();
     let split = number_end(text.as_bytes());

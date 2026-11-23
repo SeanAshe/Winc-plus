@@ -5,14 +5,12 @@ use crate::app::PickerPart;
 use crate::keymap::Action;
 
 impl App {
-    /// 提交视图标题行「⋯」的菜单，自上而下：进行中的操作的继续、跳过和中止；拉取、推送、获取；
-    /// 储藏更改、远程仓库（见 [`branch_menu`]），提交、更改、分支、标签、工作树、仓库几个子菜单
-    /// （更改一项的内容随视图不同）；以树形显示（排成
-    /// 树时打勾）、显示暂存区、显示全部仓库（有多个仓库时才有）、全部展开、全部折叠（已经是那样
-    /// 的灰显）；显示 Git 日志、显示 Git 输出。
+    /// 提交视图标题行「⋯」的菜单，自上而下：进行中的操作的继续、跳过和中止；拉取、推送、获取；储藏
+    /// 更改、远程仓库（见 [`branch_menu`]），提交、更改、分支、标签、工作树、仓库几个子菜单（更改一
+    /// 项的内容随视图不同）；以树形显示（排成树时打勾）、显示暂存区、显示全部仓库（有多个仓库时
+    /// 才有）、全部展开、全部折叠（已经是那样的灰显）；显示 Git 日志、显示 Git 输出。
     ///
-    /// 三个子菜单里是命令面板中已有的命令，快捷键相同。刷新是标题行上的按钮，回滚勾选的文件在
-    /// 组标题上，这里不重复。
+    /// 子菜单里是命令面板中已有的命令，快捷键相同；刷新和回滚勾选的文件不在这里。
     pub(in crate::app) fn commit_more_menu(
         &self,
     ) -> Vec<crate::app::input::context_menu::MenuEntry> {
@@ -197,7 +195,7 @@ impl App {
         let Some(root) = self.git.root.clone() else {
             return;
         };
-        self.update_state(|state| {
+        self.update_state(move |state| {
             let repos = &mut state.sign_off_repos;
             match repos.iter().position(|repo| *repo == root) {
                 Some(at) => drop(repos.remove(at)),
@@ -239,12 +237,7 @@ impl App {
         let push = self.git.commit.into.is_none();
         self.git.commit.push_after = push;
         self.git.commit.sync_after = sync && push;
-        self.git_commit();
-        // 没有真的开始提交（没写信息、没勾文件），就不留着「之后推送」。
-        if !self.git.commit.busy {
-            self.git.commit.push_after = false;
-            self.git.commit.sync_after = false;
-        }
+        self.git_commit_resumed();
     }
 
     /// 在按目录排成树和平铺之间切换更改列表。
@@ -258,7 +251,7 @@ impl App {
         self.git.commit.fold_motion = None;
         self.git.commit.shift = None;
         self.git.commit.overflow = None;
-        self.update_state(|state| state.commit_tree = !flat);
+        self.update_state(move |state| state.commit_tree = !flat);
         self.git.commit.scroll = self.git.commit.scroll.min(self.commit_max_scroll());
         self.reveal_commit_selection();
         self.request_redraw();
@@ -298,7 +291,7 @@ impl App {
                 let tracked = entries.filter(|e| !e.untracked() && !e.conflicted());
                 let paths: Vec<PathBuf> = tracked.map(|e| e.path.clone()).collect();
                 if !paths.is_empty() {
-                    self.confirm_rollback(paths);
+                    self.confirm_commit_rollback(paths);
                 }
             }
             MenuCommand::LogNewTag => {
@@ -309,7 +302,7 @@ impl App {
             }
             MenuCommand::CommitSortBy(sort) => {
                 self.git.commit.set_sort(sort);
-                self.update_state(|state| state.commit_sort = sort.key().to_owned());
+                self.update_state(move |state| state.commit_sort = sort.key().to_owned());
                 self.reveal_commit_selection();
             }
             MenuCommand::GitShowOutput => self.show_git_output(),
@@ -347,7 +340,7 @@ impl App {
                     }
                     self.focus = Focus::Editor;
                 }
-                MenuCommand::GitRollbackFile => self.confirm_rollback(paths),
+                MenuCommand::GitRollbackFile => self.confirm_commit_rollback(paths),
                 MenuCommand::GitStashFiles => self.ask_stash_files(paths),
                 MenuCommand::CommitCheck(on) => self.set_commit_checked(&paths, on),
                 MenuCommand::CopyPath => self.copy_paths(&paths, false),
@@ -364,7 +357,7 @@ impl App {
                     self.focus = Focus::Editor;
                 }
             }
-            MenuCommand::GitRollbackFile => self.confirm_rollback(vec![path]),
+            MenuCommand::GitRollbackFile => self.confirm_commit_rollback(vec![path]),
             MenuCommand::GitStashFiles => self.ask_stash_files(vec![path]),
             MenuCommand::CommitCheck(on) => self.set_commit_checked(&[path], on),
             MenuCommand::GitIgnore(kind) => self.git_ignore(&path, kind),

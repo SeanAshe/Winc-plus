@@ -5,6 +5,7 @@
 //! 见 `winc_pty::protocol::Block`。没有 shell 集成时没有块，这些都不出现：跳转和折叠什么也
 //! 不做，F8 仍然发给程序。
 
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use winc_i18n::t;
@@ -16,9 +17,9 @@ use super::tab::{Point, Selection, Unit};
 use super::{App, Focus, Request};
 use crate::app::NoticeKind;
 
-/// 运行超过该时长的命令结束时提醒（毫秒，经验值）：更短的命令提醒过于频繁，反而打断操作。
+/// 运行超过该时长的命令结束时提醒（毫秒）：更短的命令提醒过于频繁，反而打断操作。
 const LONG_COMMAND: u32 = 10_000;
-/// F8 最多查看失败命令输出的行数（行，经验值）：只认输出开头这段里的报错位置，1 万行输出
+/// F8 最多查看失败命令输出的行数（行）：只认输出开头这段里的报错位置，1 万行输出
 /// 里的报错通常都在靠前的部分。
 const ERROR_LINES: u64 = 20_000;
 
@@ -288,7 +289,7 @@ impl App {
         self.request_redraw();
     }
 
-    /// 点了第 `block` 个块的色带：折起或展开它的输出；按住 ⇧ 时选中整块输出，之后可以 ⌘C 复制。
+    /// 点击第 `block` 个块的色带：折起或展开它的输出；按住 ⇧ 时选中整块输出，之后可以 ⌘C 复制。
     pub(in crate::app) fn click_terminal_band(&mut self, block: usize) {
         let shift = self.pointer.modifiers.shift_key();
         let Some(tab) = self.terminal.tab_mut() else {
@@ -458,14 +459,11 @@ impl App {
             return;
         };
         // 打开的目录在远端主机上或位于 WSL 发行版中时，命令报告的绝对路径属于那里。
-        let local = |path| match &root {
-            Some(root) => super::helper::terminal_path(root, path),
-            None => path,
-        };
+        let local = |path| super::helper::reported_path(root.as_deref(), path);
         let cwd = if block.cwd.is_empty() {
             root.clone()
         } else {
-            Some(local(path_from_bytes(&block.cwd)))
+            local(path_from_bytes(&block.cwd))
         };
         let (output, end) = (
             block.output.unwrap_or_default(),
@@ -481,22 +479,23 @@ impl App {
             .enumerate()
             .map(|(r, line)| (tab.history.1 + r as u64, line));
         let mut spots: Vec<Spot> = Vec::new();
+        // 已经记下的（文件，行号）：输出可以有上万处位置，逐个与已有的比较耗时为平方级。
+        let mut seen: HashSet<(PathBuf, usize)> = HashSet::new();
         for (number, line) in history.chain(screen) {
             if number < output || number >= end {
                 continue;
             }
             for found in locations(line, false) {
                 let Some(line_no) = found.line else { continue };
-                let path = local(PathBuf::from(&found.path));
+                let Some(path) = local(PathBuf::from(&found.path)) else {
+                    continue;
+                };
                 let path = match (&cwd, path.is_absolute()) {
                     (Some(cwd), false) => cwd.join(path),
                     _ => path,
                 };
                 // 同一个位置报多次（rustc 的 `-->` 加上下面的注释）只算一处。
-                if spots
-                    .iter()
-                    .any(|s| s.path == path && s.line + 1 == line_no)
-                {
+                if !seen.insert((path.clone(), line_no)) {
                     continue;
                 }
                 let point = |col| Point { line: number, col };
@@ -510,7 +509,12 @@ impl App {
             }
         }
         // 不是文件的位置不算（见 [`App::terminal_target`]）。
-        spots.retain(|spot| self.terminal_target(&spot.path, true) && !self.is_folder(&spot.path));
+        // 同一个文件通常报很多处：每个文件只查一次磁盘。
+        let mut files: HashMap<PathBuf, bool> = HashMap::new();
+        spots.retain(|spot| {
+            let is_file = || self.terminal_target(&spot.path, true) && !self.is_folder(&spot.path);
+            *files.entry(spot.path.clone()).or_insert_with(is_file)
+        });
         let t = &mut self.terminal;
         if spots.is_empty() {
             t.errors = None;

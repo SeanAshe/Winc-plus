@@ -156,6 +156,12 @@ struct Missing {
     chains: HashSet<PathBuf>,
     /// 要选中、但所在目录尚未读好的路径（见 [`Workspace::reveal`]）。
     reveal: Option<PathBuf>,
+    /// 目录都交给后台读，调用的线程上不读（见 [`Workspace::open_later`]）。
+    deferring: bool,
+    /// 打开的目录本身还没有读出结果。
+    opening: bool,
+    /// 后台没能读出打开的目录本身，还没有告诉调用方（见 [`Workspace::take_open_failure`]）。
+    unreadable: bool,
 }
 
 impl Missing {
@@ -167,10 +173,10 @@ impl Missing {
     }
 }
 
-/// 递归展开最多展开的目录数（个，经验值）：再多的行也无法浏览，读取也会明显卡住界面。
+/// 递归展开最多展开的目录数（个，取自调参）：再多的行也无法浏览，读取也会明显阻塞界面。
 pub const EXPAND_DIRS: usize = 1000;
 
-/// 递归展开最多查看的目录项数（个，经验值）：放着大量文件的目录不拖慢界面。
+/// 递归展开最多查看的目录项数（个，取自调参）：放着大量文件的目录不拖慢界面。
 const EXPAND_ENTRIES: usize = 50_000;
 
 /// 文件树中不显示的目录和文件名（按名字精确匹配），快速打开的文件索引同样跳过。
@@ -201,7 +207,7 @@ fn in_distro(name: &str, place: &crate::wsl::Location) -> String {
 pub(crate) fn walker(dir: &Path) -> WalkBuilder {
     let mut builder = WalkBuilder::new(dir);
     // `hidden(false)` 关闭 `ignore` 对以 `.` 开头的名字的过滤：`.github`、`.editorconfig`
-    // 照常收录，只有 [`HIDDEN`] 中的名字由 `filter_entry` 跳过。
+    // 仍然收录，只有 [`HIDDEN`] 中的名字由 `filter_entry` 跳过。
     builder
         .hidden(false)
         .parents(true)
@@ -250,6 +256,28 @@ impl Workspace {
     ///
     /// 目录不存在、没有读权限，或读取顶层目录失败时返回对应的 `std::io::Error`。
     pub fn open(root: &Path) -> io::Result<Self> {
+        Self::open_with(root, false)
+    }
+
+    /// 同 [`Workspace::open`]，但此后都不在调用的线程上读目录：要显示而没有读过的目录先是空的，
+    /// 记为待读（[`Workspace::take_missing`]），由调用方交给后台读好后换入。
+    ///
+    /// 界面线程上用它打开目录：目录可能在很慢的磁盘或网络盘上。读不出打开的目录本身时由
+    /// [`Workspace::take_open_failure`] 报告。
+    ///
+    /// # Errors
+    ///
+    /// 目录不存在时返回对应的 `std::io::Error`。
+    pub fn open_later(root: &Path) -> io::Result<Self> {
+        Self::open_with(root, true)
+    }
+
+    /// 后台是否没能读出打开的目录本身（没有权限等）；只报告一次。
+    pub fn take_open_failure(&mut self) -> bool {
+        std::mem::take(&mut self.missing.unreadable)
+    }
+
+    fn open_with(root: &Path, later: bool) -> io::Result<Self> {
         let root = winc_config::files::canonicalize(root)?;
         let name = root.file_name().map_or_else(
             || root.display().to_string(),
@@ -279,7 +307,11 @@ impl Workspace {
             compact: true,
             expanded: HashSet::from([root]),
             children: HashMap::new(),
-            missing: Missing::default(),
+            missing: Missing {
+                deferring: later,
+                opening: later,
+                ..Missing::default()
+            },
             rows: Vec::new(),
         };
         workspace.rebuild();
@@ -321,6 +353,9 @@ impl Workspace {
     }
 
     /// 切换第 `index` 行的展开状态；文件行和越界下标不做任何事。
+    ///
+    /// 展开还没有读过的目录时就在调用的线程上读；界面线程上先用
+    /// [`Workspace::fetch_to_expand`] 把读交给后台。
     pub fn toggle(&mut self, index: usize) {
         let Some(entry) = self.rows.get(index) else {
             return;
@@ -343,46 +378,22 @@ impl Workspace {
     ///
     /// 遵守忽略规则，不进入符号链接，也不展开文件树中不显示的名字；这一行本身被忽略时只展开
     /// 一层。返回是否因目录太多只展开了一部分（见 [`EXPAND_DIRS`]）。
+    ///
+    /// 就在调用的线程上读；界面线程上用 [`Workspace::fetch_to_expand`] 把读交给后台。
     pub fn expand_recursively(&mut self, index: usize) -> bool {
         self.expand_within(index, EXPAND_DIRS, EXPAND_ENTRIES)
     }
 
     /// 同 [`Self::expand_recursively`]，上限是目录数 `dirs` 和目录项数 `entries`。
     fn expand_within(&mut self, index: usize, dirs: usize, entries: usize) -> bool {
-        let Some(entry) = self.rows.get(index).filter(|e| e.kind == EntryKind::Dir) else {
+        let Some(fetch) = self.fetch_within(index, Some((dirs, entries))) else {
             return false;
         };
-        let path = entry.path.clone();
-        let listed = path.parent().is_some_and(|parent| {
-            walker(parent)
-                .max_depth(Some(1))
-                .build()
-                .filter_map(Result::ok)
-                .any(|e| e.path() == path)
-        });
-        if !listed {
-            self.expand_chain(path);
-            self.rebuild();
+        let Some(expansion) = self.adopt(fetch.run()) else {
             return false;
-        }
-
-        let mut walk = walker(&path);
-        walk.sort_by_file_name(|a, b| a.cmp(b));
-        let (mut expanded, mut seen, mut limited) = (0, 0, false);
-        for item in walk.build().filter_map(Result::ok) {
-            seen += 1;
-            let dir = item.file_type().is_some_and(|kind| kind.is_dir());
-            if seen > entries || (dir && expanded == dirs) {
-                limited = true;
-                break;
-            }
-            if dir {
-                expanded += 1;
-                self.expanded.insert(item.into_path());
-            }
-        }
-        self.rebuild();
-        limited
+        };
+        self.expand_dirs(index, expansion.dirs);
+        expansion.limited
     }
 
     /// 收起第 `index` 行的目录和它下面的各级目录，不访问磁盘；文件行和越界下标不做任何事。
@@ -426,7 +437,7 @@ impl Workspace {
 
         // 远端的目录由后台读取：各级上级目录的路径已经知道，一起要，不必等上一级读好才发现
         // 下一级。
-        let remote = winc_backend::is_remote(&self.root);
+        let remote = winc_backend::is_remote(&self.root) || self.missing.deferring;
         for component in relative.parent().into_iter().flat_map(Path::components) {
             current.push(component);
             self.expanded.insert(current.clone());
@@ -446,6 +457,11 @@ impl Workspace {
                 }
             }
         }
+    }
+
+    /// 是否有要选中的路径还在等所在的目录读好（见 [`Workspace::reveal`]）。
+    pub fn awaits_reveal(&self) -> bool {
+        self.missing.reveal.is_some()
     }
 
     /// 重新读取全部已缓存的目录，已不是目录的展开项被移除。
@@ -805,8 +821,9 @@ impl Workspace {
 
 /// 返回目录 `dir` 的内容；未缓存时先读取并写入 `cache`，无法读取的目录按空目录处理。
 ///
-/// 当前线程不能等待读取时（界面线程上的远端目录）不写入缓存，把目录记入 `missing`，这次按空
-/// 目录处理，读好后由 [`Workspace::apply_scan`] 换入。
+/// 当前线程不能等待读取时（界面线程上的远端目录），或工作区的目录都交给后台读时
+/// （[`Workspace::open_later`]）不写入缓存，把目录记入 `missing`，这次按空目录处理，读好后由
+/// [`Workspace::apply_scan`] 换入。
 fn cached_children(
     cache: &mut HashMap<PathBuf, Rc<[DirEntry]>>,
     missing: &mut Missing,
@@ -814,6 +831,10 @@ fn cached_children(
 ) -> Rc<[DirEntry]> {
     if let Some(children) = cache.get(dir) {
         return Rc::clone(children);
+    }
+    if missing.deferring {
+        missing.want(dir.to_path_buf());
+        return Rc::from([]);
     }
     let children: Rc<[DirEntry]> = match list_dir(dir) {
         Ok(children) => children.into(),
@@ -923,6 +944,12 @@ pub fn create_at(
 
     // 名字是用户输入的：经 `join` 换成路径，远端的名字按需转义。
     let path = winc_backend::join(dir, name);
+    if below(dir, &path).is_none() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            t!("workspace-tree-invalid-name"),
+        ));
+    }
 
     if winc_backend::fs::exists(&path) {
         return Err(io::Error::new(
@@ -941,6 +968,22 @@ pub fn create_at(
         }
     }
     Ok(path)
+}
+
+/// `path` 位于目录 `base` 之下时返回它比 `base` 多出的层数（至少 1 层），否则返回 `None`。
+///
+/// 多出的各段必须都是普通的名字。名字来自用户输入，各系统认的分隔符不同：Windows 上名字里的
+/// `\`、`..\` 和盘符在 `join` 之后会指到 `base` 之外，按 `/` 检查名字发现不了。
+fn below(base: &Path, path: &Path) -> Option<usize> {
+    let rest = path.strip_prefix(base).ok()?;
+    let mut depth = 0;
+    for part in rest.components() {
+        if !matches!(part, std::path::Component::Normal(_)) {
+            return None;
+        }
+        depth += 1;
+    }
+    (depth > 0).then_some(depth)
 }
 
 /// 把工作区 `root` 中的 `path` 改名为同一目录下的 `name`，返回新路径；规则见
@@ -969,7 +1012,15 @@ pub fn rename_at(root: &Path, path: &Path, name: &str) -> io::Result<PathBuf> {
         ));
     }
 
-    let target = winc_backend::join(path.parent().unwrap_or(root), name);
+    let parent = path.parent().unwrap_or(root);
+    let target = winc_backend::join(parent, name);
+    // 改名不换目录：新路径必须是同一目录下的一项。
+    if below(parent, &target) != Some(1) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            t!("workspace-tree-invalid-name"),
+        ));
+    }
     if target == path {
         return Ok(target);
     }
@@ -1223,6 +1274,8 @@ fn take_number(chars: &mut std::iter::Peekable<std::str::Chars<'_>>) -> (u128, u
 
 mod folders;
 pub(crate) use folders::{folder_prefixes, labelled_path};
+mod fetch;
+pub use fetch::{DirFetch, DirFetched, Expansion};
 mod scan;
 pub use scan::{DirListing, DirScan};
 

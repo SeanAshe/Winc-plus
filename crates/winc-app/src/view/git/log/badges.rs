@@ -181,7 +181,7 @@ pub(super) fn draw_badges(
     }
 }
 
-/// 画一个圆角小徽章，高为行高减 6 逻辑像素、最多 18 逻辑像素（经验值）；返回右边缘的 x
+/// 画一个圆角小徽章，高为行高减 6 逻辑像素、最多 18 逻辑像素（取自调参）；返回右边缘的 x
 /// 坐标。
 pub(super) fn draw_badge(
     app: &App,
@@ -220,7 +220,7 @@ pub(super) fn draw_avatar(
         .bytes()
         .fold(5381u32, |h, b| h.wrapping_mul(33) ^ u32::from(b));
     let (fill, ink) = p.badges[hash as usize % p.badges.len()];
-    // 头像的半径（逻辑像素，经验值）。
+    // 头像的半径（逻辑像素，取自调参）。
     let r = 7.0;
     frame.rect_clipped(Rect::new(cx - r, cy - r, 2.0 * r, 2.0 * r), fill, r, clip);
     let initial: String = commit

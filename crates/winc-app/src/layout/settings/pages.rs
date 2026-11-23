@@ -117,7 +117,7 @@ impl SettingsPage {
                 sections
             }
             SettingsPage::Appearance => {
-                // 平滑滚动只在 macOS 上列出：其他平台上滚轮本来就一格一格立即滚动。系统标题栏只在
+                // 平滑滚动只在 macOS 上列出：其他平台上滚轮原本就一格一格立即滚动。系统标题栏只在
                 // 其他平台列出：macOS 上标题栏总是和内容融为一体。
                 let mut interface = vec![S::Zoom, S::StatusBar, S::Animations];
                 if cfg!(target_os = "macos") {

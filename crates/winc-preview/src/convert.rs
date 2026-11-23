@@ -13,6 +13,21 @@ pub(crate) fn escape(text: &str, out: &mut String) {
     }
 }
 
+/// 单元格横向合并的列数上限（列）。
+///
+/// 合并的单元格在转换出的表格中补成空单元格，列数取自文件；不限制时一个单元格即可要求分配
+/// 任意数量的空单元格。取自调参：64 列的表格一行已超出预览的宽度。
+pub(crate) const MAX_SPAN: usize = 64;
+
+/// 返回单元格横向合并的列数：`value` 是文件中写的数值，缺失或无法解析时为 1，不超过
+/// [`MAX_SPAN`]。
+pub(crate) fn span(value: Option<&str>) -> usize {
+    value
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .unwrap_or(1)
+        .clamp(1, MAX_SPAN)
+}
+
 /// 返回可以放进 `<…>` 链接地址中的 `url`：去掉换行，`<`、`>` 和空格按百分号转义。
 pub(crate) fn link_target(url: &str) -> String {
     url.chars()

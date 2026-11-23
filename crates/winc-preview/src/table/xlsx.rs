@@ -29,11 +29,22 @@ pub(super) fn read(bytes: &[u8]) -> Result<Table, String> {
     let archive = Archive::open(bytes).map_err(|e| match e {
         zip::Error::Invalid => t!("preview-table-invalid").to_owned(),
         zip::Error::Unsupported => t!("preview-table-unsupported").to_owned(),
+        zip::Error::TooLarge => t!("preview-table-too-large").to_owned(),
     })?;
-    let workbook_path = package_target(&archive).unwrap_or_else(|| DEFAULT_WORKBOOK.to_owned());
-    let workbook = part(&archive, &workbook_path)?.ok_or(t!("preview-table-invalid"))?;
+    let table = read_archive(&archive);
+    // 解压量超过上限时读不出的部件被当作没有：不显示缺了内容的工作簿，直接说明过大。
+    if archive.exceeded() {
+        return Err(t!("preview-table-too-large").to_owned());
+    }
+    table
+}
+
+/// 读打开的 xlsx 包 `archive`，见 [`read`]。
+fn read_archive(archive: &Archive<'_>) -> Result<Table, String> {
+    let workbook_path = package_target(archive).unwrap_or_else(|| DEFAULT_WORKBOOK.to_owned());
+    let workbook = part(archive, &workbook_path)?.ok_or(t!("preview-table-invalid"))?;
     let workbook = parse(&workbook, &workbook_path)?;
-    let relations = relations(&archive, &workbook_path)?;
+    let relations = relations(archive, &workbook_path)?;
 
     let date1904 = workbook
         .descendants()
@@ -47,14 +58,14 @@ pub(super) fn read(bytes: &[u8]) -> Result<Table, String> {
             .map(|(_, target)| target.clone())
     };
     let shared = match related("/sharedStrings") {
-        Some(path) => match part(&archive, &path)? {
+        Some(path) => match part(archive, &path)? {
             Some(bytes) => shared_strings(text(&bytes, &path)?).ok_or_else(|| damaged(&path))?,
             None => Vec::new(),
         },
         None => Vec::new(),
     };
     let formats = match related("/styles") {
-        Some(path) => match part(&archive, &path)? {
+        Some(path) => match part(archive, &path)? {
             Some(bytes) => number_formats(&parse(&bytes, &path)?),
             None => Vec::new(),
         },
@@ -67,6 +78,8 @@ pub(super) fn read(bytes: &[u8]) -> Result<Table, String> {
     };
 
     let mut sheets = Vec::new();
+    // 一个工作表文件只读一次：工作簿可以把同一个文件列为任意多张工作表，每张各占一份内存。
+    let mut read = std::collections::HashSet::new();
     for node in workbook
         .descendants()
         .filter(|n| n.tag_name().name() == "sheet")
@@ -81,10 +94,10 @@ pub(super) fn read(bytes: &[u8]) -> Result<Table, String> {
         let Some((kind, path)) = id.and_then(|id| relations.get(id)) else {
             continue;
         };
-        if !kind.ends_with("/worksheet") {
+        if !kind.ends_with("/worksheet") || !read.insert(path.as_str()) {
             continue;
         }
-        let Some(bytes) = part(&archive, path)? else {
+        let Some(bytes) = part(archive, path)? else {
             continue;
         };
         let name = node.attribute("name").unwrap_or_default().to_owned();
@@ -103,7 +116,8 @@ fn damaged(path: &str) -> String {
 }
 
 /// 读工作表时用到的、工作簿级的公共数据。
-struct Context {
+#[derive(Default)]
+pub(super) struct Context {
     /// 共享字符串表。
     shared: Vec<String>,
     /// 各单元格样式（按样式序号）的数字格式。
@@ -213,6 +227,30 @@ fn builtin(id: u32) -> NumberFormat {
     }
 }
 
+/// 不计入比例的空单元格数（个），见 [`PADDING_RATIO`]。
+///
+/// 取 2²⁴ 个，结束位置共占 64 MiB：较小的工作表不论多稀疏都完整读取。
+const PADDING_BASE: usize = 1 << 24;
+
+/// 超过 [`PADDING_BASE`] 之后，每个有内容的单元格允许多保存的空单元格数（个）。
+///
+/// 一行里靠后的单元格之前的空单元格都要保存，各占 4 字节，而文件里不占任何字节：只在最后
+/// 一列写一个单元格的行，一行 35 字节就要求 64 KiB。取自调参：15 相当于每 16 列只有 1 列有
+/// 内容，比这更稀疏的大表读到上限为止并标记为没有读完。
+const PADDING_RATIO: usize = 15;
+
+/// 一张工作表最多读取的合并区域数（个）。
+///
+/// 预览在绘制每一帧、测量每一列时都要在合并区域中查找，耗时与个数成正比。取自调参：1 万个
+/// 远超实际的工作表，查找仍在一帧的时间以内。
+const MAX_MERGES: usize = 10_000;
+
+/// 百分比格式最多保留的小数位数（位）。
+///
+/// 位数取自文件中的格式代码；`f64` 只有约 17 位有效数字，更多的位数全是 0，位数极大时格式化
+/// 还会失败。30 位是电子表格软件的数字格式允许的最大小数位数。
+const MAX_DECIMALS: usize = 30;
+
 /// 自定义格式代码 `code` 对应的格式：去掉引号中的文字、方括号中的条件和颜色、转义的字符后，
 /// 有年、日或月是日期，有时、秒是时间，有 `%` 是百分比。
 pub(super) fn classify(code: &str) -> NumberFormat {
@@ -255,7 +293,7 @@ pub(super) fn classify(code: &str) -> NumberFormat {
         let decimals = plain.split_once('.').map_or(0, |(_, rest)| {
             rest.chars().take_while(|&c| c == '0').count()
         });
-        NumberFormat::Percent(decimals)
+        NumberFormat::Percent(decimals.min(MAX_DECIMALS))
     } else {
         NumberFormat::General
     }
@@ -280,7 +318,7 @@ struct Cell {
 ///
 /// 行、单元格通常按行号、列号升序写出，逐行追加；行号小于已有行数的行先记下，读完后放回
 /// 所在的位置。
-fn worksheet(xml: &str, name: String, context: &Context) -> Option<Sheet> {
+pub(super) fn worksheet(xml: &str, name: String, context: &Context) -> Option<Sheet> {
     let mut rows = Rows::default();
     let mut truncated = false;
     let mut late: BTreeMap<usize, Vec<String>> = BTreeMap::new();
@@ -291,7 +329,17 @@ fn worksheet(xml: &str, name: String, context: &Context) -> Option<Sheet> {
     let (mut row, mut next_row, mut next_column) = (None, 0usize, 0usize);
     let mut cell: Option<Cell> = None;
     let (mut in_value, mut in_inline, mut in_text, mut phonetic) = (false, false, false, 0usize);
+    // 已保存的有内容的单元格数和空单元格数，见 `PADDING_BASE`。
+    let (mut filled, mut padding, mut sparse) = (0usize, 0usize, false);
     let mut end_row = |index: usize, cells: &mut [String], rows: &mut Rows| {
+        let written = cells.iter().filter(|cell| !cell.is_empty()).count();
+        filled += written;
+        padding += cells.len() - written;
+        // 空单元格远多于有内容的：之后的行不再读，工作表记为没有读完。
+        sparse |= padding > PADDING_BASE + PADDING_RATIO * filled;
+        if sparse {
+            return;
+        }
         if index < rows.len() {
             late.insert(index, cells.to_vec());
             return;
@@ -368,6 +416,10 @@ fn worksheet(xml: &str, name: String, context: &Context) -> Option<Sheet> {
                 empty: false,
                 ..
             } => in_text = in_inline && phonetic == 0,
+            // 合并区域的个数取自文件，绘制和量列宽时逐个比较：超过上限的不再记。
+            Token::Open {
+                name: "mergeCell", ..
+            } if merges.len() >= MAX_MERGES => truncated = true,
             Token::Open {
                 name: "mergeCell",
                 attributes,
@@ -415,7 +467,7 @@ fn worksheet(xml: &str, name: String, context: &Context) -> Option<Sheet> {
     if !tokens.well_formed() {
         return None;
     }
-    let mut sheet = rows.finish(name, truncated);
+    let mut sheet = rows.finish(name, truncated || sparse);
     if !late.is_empty() {
         sheet = sheet.with_rows(&late);
     }
@@ -426,9 +478,14 @@ fn worksheet(xml: &str, name: String, context: &Context) -> Option<Sheet> {
         merge.bottom = merge.bottom.min(count.saturating_sub(1));
         merge.right = merge.right.min(MAX_COLUMNS - 1);
     }
-    sheet.merges = merges;
+    sheet.set_merges(merges);
     // 合并区域伸到有文字的列之外时，列数按合并区域算，区域完整显示。
-    let widest = sheet.merges.iter().map(|m| m.right + 1).max().unwrap_or(0);
+    let widest = sheet
+        .merges()
+        .iter()
+        .map(|m| m.right + 1)
+        .max()
+        .unwrap_or(0);
     sheet.columns = sheet.columns.max(widest);
     Some(sheet)
 }

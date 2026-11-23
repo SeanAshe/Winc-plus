@@ -128,6 +128,12 @@ latex-progress-page = 正在编译 · 排到第 { $page } 页
 latex-failed = 编译失败
 latex-problems = { $count } 个错误
 latex-problems-tip = 点击查看各处错误
+latex-rc-confirm = 要运行项目中的 latexmkrc 吗？
+latex-rc-confirm-detail = 「{ $path }」中的 latexmkrc 是一段程序，编译时由 latexmk 执行。不运行时文档仍然编译，其中的设置不生效。
+latex-rc-confirm-button = 运行
+latex-rc-skipped = 未运行 latexmkrc
+latex-rc-skipped-tip = 项目中的 latexmkrc 没有运行，其中的设置未生效；点击选择是否运行
+latex-rc-run = 运行项目中的 latexmkrc…
 
 ## 输入 / 呼出的写作命令
 

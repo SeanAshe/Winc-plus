@@ -1,7 +1,7 @@
 //! 项目的运行配置：`root` 下的 `.winc/run.json`，由用户编辑，可以随仓库共享。
 //!
 //! 文件内容来自项目仓库，不可信：这里只负责解析和校验，运行前是否询问用户由调用方决定（见
-//! [`RunConfig::fingerprint`]）。
+//! [`RunConfig::approval`]）。
 
 use std::path::{Path, PathBuf};
 
@@ -29,28 +29,27 @@ pub struct RunConfig {
 }
 
 impl RunConfig {
-    /// 返回内容的指纹（FNV-1a）：用户同意运行后记录，命令、目录或环境变量改变时重新询问。
-    pub fn fingerprint(&self) -> u64 {
-        const OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
-        const PRIME: u64 = 0x0000_0100_0000_01b3;
-        let mut hash = OFFSET;
-        let mut add = |text: &str| {
-            // 字段之间加入长度，内容在相邻字段之间移动时指纹不同。
-            let length = text.len().to_le_bytes();
-            for byte in length.iter().chain(text.as_bytes()) {
-                hash = (hash ^ u64::from(*byte)).wrapping_mul(PRIME);
-            }
+    /// 返回运行内容的原文：用户同意运行后记下，命令、参数、目录或环境变量改变时重新询问。
+    ///
+    /// 名字不在其中。各部分前面记有种类和个数，每项前面记有长度：内容在相邻的项、参数与环境
+    /// 变量之间移动时原文不同。
+    pub fn approval(&self) -> String {
+        let mut text = String::new();
+        let mut add = |item: &str| {
+            text.push_str(&item.len().to_string());
+            text.push(':');
+            text.push_str(item);
         };
         add(&self.command);
         add(self.cwd.as_deref().unwrap_or_default());
-        for arg in &self.args {
-            add(arg);
-        }
+        add(&format!("args {}", self.args.len()));
+        self.args.iter().for_each(|arg| add(arg));
+        add(&format!("env {}", self.env.len()));
         for (key, value) in &self.env {
             add(key);
             add(value);
         }
-        hash
+        text
     }
 }
 
@@ -61,7 +60,7 @@ pub fn run_configs_path(root: &Path) -> PathBuf {
 
 /// 读取 `root` 的运行配置，返回可用的配置和遇到的问题。
 ///
-/// 文件不存在时两者都为空；单项无效时跳过该项，其余照常使用。远端主机上的目录没有运行配置：
+/// 文件不存在时两者都为空；单项无效时跳过该项，其余仍可使用。远端主机上的目录没有运行配置：
 /// 这里只读本机的文件，配置中的命令也只在本机的终端里运行。
 pub fn load_run_configs(root: &Path) -> (Vec<RunConfig>, Vec<String>) {
     if winc_backend::is_remote(root) {

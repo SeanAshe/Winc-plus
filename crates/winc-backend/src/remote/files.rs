@@ -2,22 +2,32 @@
 
 use super::*;
 
+/// 一次往返最多查询文件信息的路径数（个）。
+///
+/// 一项文件信息的应答不足 128 字节（错误时是一句英文的原因），4096 项合计不超过 512 KiB，
+/// 在一帧的上限（`wire::MAX_FRAME`，约 1 MiB）以内。
+const METADATA_BATCH: usize = 4096;
+
 impl Connection {
-    /// 取若干远端路径的文件信息（跟随符号链接），一次往返，结果与 `paths` 的顺序对应。
+    /// 取若干远端路径的文件信息（跟随符号链接），结果与 `paths` 的顺序对应。
+    ///
+    /// 每 [`METADATA_BATCH`] 个路径一次往返：各应答合计不能超过一帧。
     pub(crate) fn metadata_many(&self, paths: &[&[u8]]) -> io::Result<Vec<io::Result<Metadata>>> {
-        let requests: Vec<(u8, Vec<u8>)> = (paths.iter())
-            .map(|path| (kind::METADATA, Writer::default().bytes(path).finish()))
-            .collect();
         let decode = |reply: Vec<u8>| {
             let mut reply = Reader::new(&reply);
             let metadata = wire::read_metadata(&mut reply)?;
             reply.finish()?;
             Ok(metadata)
         };
-        let replies = self.batch(&requests)?;
-        Ok((replies.into_iter())
-            .map(|reply| reply.and_then(decode))
-            .collect())
+        let mut found = Vec::with_capacity(paths.len());
+        for paths in paths.chunks(METADATA_BATCH) {
+            let requests: Vec<(u8, Vec<u8>)> = (paths.iter())
+                .map(|path| (kind::METADATA, Writer::default().bytes(path).finish()))
+                .collect();
+            let replies = self.batch(&requests)?;
+            found.extend(replies.into_iter().map(|reply| reply.and_then(decode)));
+        }
+        Ok(found)
     }
 
     /// 取远端文件 `path` 的文件信息，并读出其开头至多 `len` 字节，一次往返；返回文件信息、

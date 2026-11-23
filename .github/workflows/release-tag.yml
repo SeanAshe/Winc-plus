@@ -28,6 +28,9 @@ concurrency:
 jobs:
   tag:
     name: Tag and dispatch
+    # Only main is released: a manual run on another branch would tag and build a commit that has
+    # not been merged.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7

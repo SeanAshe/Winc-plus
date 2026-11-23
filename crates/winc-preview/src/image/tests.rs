@@ -124,6 +124,15 @@ fn dib_header(width: i32, height: i32, bits: u16, colors: usize) -> Vec<u8> {
     out
 }
 
+/// 位深为 0 时每行 0 字节，数据长度的检查通过：必须在按宽高分配像素之前拒绝。
+#[test]
+fn a_bmp_with_an_unsupported_depth_is_refused_before_decoding() {
+    for bits in [0, 2, 64] {
+        let error = decoded("z.bmp", &bmp(9000, 9000, bits, &[], &[])).unwrap_err();
+        assert!(error.contains(&bits.to_string()), "{error}");
+    }
+}
+
 #[test]
 fn bmp_ico_and_webp_decode() {
     // 24 位、从下往上存：文件中的第一行是图的最后一行。每行补到 4 字节。像素按 BGR 排列：

@@ -143,25 +143,90 @@ fn restore_panes(
     editor.focus_pane(PaneId(panes.focused as u32));
 }
 
-/// 按上次的现场恢复标签，并把备份中未保存的内容放回文档。
+/// 恢复标签之前从磁盘读好的内容，见 [`prepare_restore`]。
+#[derive(Default)]
+pub(crate) struct Prepared {
+    /// 占用的备份目录及其锁（见 `BackupState::lock`）。
+    lock: Option<(PathBuf, Option<backup::Lock>)>,
+    /// 该目录的各个备份，和已经读好的内容（见 [`PRELOAD_MAX`]）。
+    saved: Vec<(backup::Backup, Option<backup::BackupRead>)>,
+    /// 现场的标签里磁盘上还在的本机文件。
+    files: HashSet<PathBuf>,
+}
+
+/// 读出恢复目录 `folder` 的标签要用的内容：占用备份目录 `root` 中它的备份并读出各备份的头，
+/// 查出现场 `session` 的标签里哪些文件还在。
 ///
-/// 标签按原来的顺序重新打开，激活当时的标签，文件树展开到该文件所在的层级；现场中没有记录
-/// 的备份（进程中止前来不及记录现场）也会恢复，排在已记录的标签之后。`root` 为备份目录，
-/// 为 `None` 时只打开标签；现场中已不存在的文件跳过，除非它还有未保存的内容。
+/// 要等备份锁、读目录，在后台线程上调用；`root` 为 `None` 时不读备份。
+pub(crate) fn prepare_restore(
+    folder: Option<&Path>,
+    session: Option<&Session>,
+    root: Option<&Path>,
+) -> Prepared {
+    let backups = root.map(|root| Backups::new(root, folder));
+    let lock = backups
+        .as_ref()
+        .map(|b| (b.dir().to_owned(), b.lock_within(RESTORE_LOCK_WAIT)));
+    // 目录被另一个 winc 进程打开时，那里的备份仍由该进程使用，不恢复。
+    let saved = match (&backups, &lock) {
+        (Some(backups), Some((_, Some(_)))) => backups.read_all(),
+        _ => Vec::new(),
+    };
+    // 正文和对应的文件也在这里读，恢复时界面线程不碰磁盘；合计超过上限的留到恢复时逐个读。
+    let mut left = PRELOAD_MAX;
+    let size = |path: &Path| winc_backend::fs::metadata(path).map(|m| m.len);
+    let saved = (saved.into_iter())
+        .map(|backup| {
+            // 对应的文件已不存在时只读正文。
+            let file = backup
+                .path
+                .as_deref()
+                .map_or(0, |path| size(path).unwrap_or(0));
+            let size = size(&backup.file).map_or(u64::MAX, |text| text.saturating_add(file));
+            let read = (size <= left).then(|| backup.read().ok()).flatten();
+            left -= read.as_ref().map_or(0, |_| size);
+            (backup, read)
+        })
+        .collect();
+    // 远端的文件不在这里查询：仍然恢复标签，文件不存在时由读取报告。
+    let files = (session.iter().flat_map(|session| &session.tabs))
+        .filter_map(|tab| match tab {
+            Tab::File(path) if !winc_backend::is_remote(path) => Some(path),
+            _ => None,
+        })
+        .filter(|path| winc_backend::fs::is_file(path))
+        .cloned()
+        .collect();
+    Prepared { lock, saved, files }
+}
+
+/// 按上次的现场恢复标签，并把备份中未保存的内容放回文档；就在调用的线程上读磁盘。
+///
+/// 界面线程上换目录时把读交给后台（[`prepare_restore`]），读好后调用 [`restore_prepared`]。
 pub(crate) fn restore_tabs(
     editor: &mut Editor,
     session: Option<&Session>,
     root: Option<&Path>,
 ) -> Restored {
-    let backups = root.map(|root| Backups::new(root, editor.root()));
-    let lock = backups
-        .as_ref()
-        .map(|b| (b.dir().to_owned(), b.lock_within(RESTORE_LOCK_WAIT)));
-    // 目录被另一个 winc 进程打开时，那里的备份仍由该进程使用，不恢复。
-    let mut saved = match (&backups, &lock) {
-        (Some(backups), Some((_, Some(_)))) => backups.read_all(),
-        _ => Vec::new(),
-    };
+    let prepared = prepare_restore(editor.root(), session, root);
+    restore_prepared(editor, session, prepared)
+}
+
+/// 按上次的现场和读好的 `prepared` 恢复标签，并把备份中未保存的内容放回文档。
+///
+/// 标签按原来的顺序重新打开，激活当时的标签，文件树展开到该文件所在的层级；现场中没有记录
+/// 的备份（进程中止前来不及记录现场）也会恢复，排在已记录的标签之后。现场中已不存在的文件
+/// 跳过，除非它还有未保存的内容。
+pub(crate) fn restore_prepared(
+    editor: &mut Editor,
+    session: Option<&Session>,
+    prepared: Prepared,
+) -> Restored {
+    let Prepared {
+        lock,
+        mut saved,
+        files,
+    } = prepared;
     let mut restored = Restored {
         lock,
         ..Default::default()
@@ -178,28 +243,34 @@ pub(crate) fn restore_tabs(
     }
 
     // 正文读不出来的备份不恢复（和头坏了的一样跳过），文件原样留在磁盘上。
-    let mut put_back = |editor: &mut Editor, backup: backup::Backup| -> Option<usize> {
-        let (index, conflict) = editor.restore_backup(&backup)?;
-        let doc = &editor.documents[index];
-        if conflict {
-            restored.conflicts.push(doc.name().into_owned());
-        }
-        restored.backups.push((doc.id, backup.file));
-        Some(index)
-    };
+    let mut put_back =
+        |editor: &mut Editor, saved: (backup::Backup, Option<backup::BackupRead>)| {
+            let (backup, read) = saved;
+            let (index, conflict) = match read {
+                Some(read) => editor.restore_backup_with(&backup, read),
+                None => editor.restore_backup(&backup)?,
+            };
+            let doc = &editor.documents[index];
+            if conflict {
+                restored.conflicts.push(doc.name().into_owned());
+            }
+            restored.backups.push((doc.id, backup.file));
+            Some(index)
+        };
 
     let active_tab = session.and_then(|s| s.active);
     let mut opened = Vec::new();
     for (i, tab) in session.map_or(&[][..], |s| &s.tabs).iter().enumerate() {
         let index = match tab {
-            Tab::File(path) => take(&mut saved, |b| b.path.as_deref() == Some(path.as_path()))
-                .and_then(|backup| put_back(editor, backup))
-                // 远端的文件在界面线程上无法查询：仍然恢复标签，文件不存在时由读取报告。
-                .or_else(|| {
-                    let found = winc_backend::is_remote(path) || winc_backend::fs::is_file(path);
-                    found.then(|| editor.open_pending(path))
-                }),
-            Tab::Untitled(name) => take(&mut saved, |b| {
+            Tab::File(path) => take(&mut saved, |(b, _)| {
+                b.path.as_deref() == Some(path.as_path())
+            })
+            .and_then(|backup| put_back(editor, backup))
+            .or_else(|| {
+                let found = winc_backend::is_remote(path) || files.contains(path);
+                found.then(|| editor.open_pending(path))
+            }),
+            Tab::Untitled(name) => take(&mut saved, |(b, _)| {
                 b.path.is_none() && b.file.file_name().is_some_and(|n| *n == **name)
             })
             .and_then(|backup| put_back(editor, backup)),
@@ -253,6 +324,12 @@ pub(crate) fn restore_at_launch(
     }
     restored
 }
+
+/// 恢复之前在后台一并读好的备份正文和对应文件的上限（字节，按文件大小合计 64 MiB）。
+///
+/// 未保存的内容通常只有几份、每份不大，全部在后台读好，恢复时界面线程不读磁盘。合计超过
+/// 上限的留到恢复时逐个读、读完即释放：内存的峰值不随备份的总量增长。
+const PRELOAD_MAX: u64 = 64 << 20;
 
 /// 恢复标签时等待备份锁的最长时间。
 ///
@@ -606,6 +683,12 @@ impl App {
         self.backup_failed(failed);
         self.backup.kept = Some(done.clone());
         done
+    }
+
+    /// 这次关闭不为任何文档留备份：清除上一次退出（已被取消）记下的 `kept`，否则放弃了的
+    /// 修改仍留在备份里，下次被恢复出来。
+    pub(super) fn keep_no_backups(&mut self) {
+        self.backup.kept = None;
     }
 
     /// 确认退出时调用（询问过的文档都已保存或放弃）：删除除 `kept` 之外的所有备份。

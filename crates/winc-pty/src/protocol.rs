@@ -19,16 +19,16 @@ pub const MAGIC: [u8; 8] = *b"winc-pty";
 /// 协议版本号。
 ///
 /// 消息的格式每变化一次加一。
-pub const VERSION: u32 = 7;
+pub const VERSION: u32 = 8;
 /// 一条消息的长度上限（字节，64 MiB）。
 ///
 /// 超过上限的消息视为对方出错并断开连接，避免一个错误的长度使对端分配数 GB 内存。
-/// 经验值：取 64 MiB 是为了容纳整屏加回滚缓冲的分段内容（见 [`FromHelper::History`]）。
+/// 64 MiB 容纳整屏加回滚缓冲的分段内容（见 [`FromHelper::History`]）。
 const MAX_MESSAGE: usize = 64 << 20;
 /// 收发缓冲空闲时保留的最大容量（字节，1 MiB）。
 ///
 /// 一次回滚缓冲的回答可达数 MB，之后的消息通常只有几 KB；缓冲用空时容量超过该值即收缩到该值，
-/// 两个进程都不再长期占用峰值容量。经验值：平时的帧和输入都远小于该值，不会反复收缩、扩张。
+/// 两个进程都不再长期占用峰值容量。平时的帧和输入都远小于该值，不会反复收缩、扩张。
 pub const IDLE_BUFFER: usize = 1 << 20;
 
 /// 颜色：默认色、256 色表里的一项（0–15 是主题的 16 色），或真彩色。
@@ -526,7 +526,7 @@ pub enum ToHelper {
     Theme(Theme),
     /// 结束终端里的程序但保留终端：挂断它的进程组，到期仍未退出时强制结束。
     ///
-    /// 内容和回滚缓冲保留到 [`ToHelper::Close`]，退出时照常发 [`FromHelper::Exited`]。
+    /// 内容和回滚缓冲保留到 [`ToHelper::Close`]，退出时仍然发送 [`FromHelper::Exited`]。
     Stop {
         /// 标签号。
         tab: u16,
@@ -615,9 +615,22 @@ pub enum FromHelper {
     Failed {
         /// 标签号。
         tab: u16,
-        /// 原因，给用户看。
-        message: String,
+        /// 失败的原因；给用户看的文字由主程序按界面语言写出。
+        reason: StartFailure,
+        /// 要启动的程序。
+        program: String,
+        /// 系统给出的错误说明；[`StartFailure::NotFound`] 时为空。
+        error: String,
     },
+}
+
+/// 新建终端失败的原因。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StartFailure {
+    /// 找不到要启动的程序。
+    NotFound,
+    /// 程序没有启动起来：无法打开伪终端、系统拒绝等。
+    Refused,
 }
 
 /// 解码失败：对方发来的数据不合法，只能断开连接。

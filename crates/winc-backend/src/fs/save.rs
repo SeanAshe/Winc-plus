@@ -98,6 +98,10 @@ pub fn save(
         let connection = remote::connection(&at.target)?;
         return connection.save(&at.path, options.bom, options.in_memory, write);
     }
+    // 符号链接写入其指向的文件，不替换链接本身。调用方已把能解析的路径换成了真实路径；到这里
+    // 仍是符号链接的，指向的文件尚不存在，在它指向的位置新建。
+    let linked = link_target(path);
+    let path = linked.as_deref().unwrap_or(path);
     let dir = path.parent().unwrap_or(Path::new("."));
     let name = path
         .file_name()
@@ -165,6 +169,28 @@ pub fn save(
         let _ = std::fs::remove_file(&tmp);
     }
     result.map_err(SaveError::Io)
+}
+
+/// 沿符号链接最多经过的层数（层）：与 Linux 解析路径时的上限（40）相同，超过时视为循环。
+const MAX_LINKS: usize = 40;
+
+/// `path` 是符号链接时，返回沿链接走到的第一个不是符号链接的路径（可以尚不存在）；`path`
+/// 不是符号链接、读不到链接或链接成环时返回 `None`。
+fn link_target(path: &Path) -> Option<std::path::PathBuf> {
+    let is_link = |path: &Path| std::fs::symlink_metadata(path).is_ok_and(|m| m.is_symlink());
+    if !is_link(path) {
+        return None;
+    }
+    let mut at = path.to_path_buf();
+    for _ in 0..MAX_LINKS {
+        if !is_link(&at) {
+            return Some(at);
+        }
+        // 相对的目标相对于链接所在的目录。
+        let target = std::fs::read_link(&at).ok()?;
+        at = at.parent().unwrap_or(Path::new(".")).join(target);
+    }
+    None
 }
 
 /// 向 `file` 写入字节序标记（`bom` 为真时）和 `write` 写出的内容，同步到磁盘后返回该文件。

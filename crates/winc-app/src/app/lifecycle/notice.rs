@@ -137,7 +137,7 @@ impl App {
 
     /// 返回 `shown`，即系统的提示框或面板是否弹出了。
     ///
-    /// 没有弹出（窗口上已挂着别的提示框或面板）时提示用户先关闭它，
+    /// 没有弹出（窗口上已有别的提示框或面板）时提示用户先关闭它，
     /// 否则这次操作既不执行也不说明原因。
     pub(in crate::app) fn dialog_shown(&mut self, shown: bool) -> bool {
         if !shown {

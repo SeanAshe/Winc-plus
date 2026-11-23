@@ -162,3 +162,26 @@ fn virtual_paths_need_a_connection() {
     };
     assert_eq!(error.kind(), io::ErrorKind::NotConnected);
 }
+
+/// 指向尚不存在的文件的符号链接：在它指向的位置新建，链接本身保留。
+#[cfg(unix)]
+#[test]
+fn saving_through_a_dangling_link_creates_its_target() {
+    let dir = scratch("dangling");
+    let (link, hop, target) = (dir.join("link"), dir.join("hop"), dir.join("sub/real.txt"));
+    std::fs::create_dir(dir.join("sub")).unwrap();
+    // 两层链接，第二层用相对路径。
+    std::os::unix::fs::symlink(&hop, &link).unwrap();
+    std::os::unix::fs::symlink("sub/real.txt", &hop).unwrap();
+    save(&link, &in_memory(), |out| out.write_all(b"hello")).unwrap();
+    assert_eq!(std::fs::read(&target).unwrap(), b"hello");
+    assert!(std::fs::symlink_metadata(&link).unwrap().is_symlink());
+    assert!(std::fs::symlink_metadata(&hop).unwrap().is_symlink());
+
+    // 成环的链接解析不出目标：按原路径处理，不无限循环。
+    let (a, b) = (dir.join("a"), dir.join("b"));
+    std::os::unix::fs::symlink(&b, &a).unwrap();
+    std::os::unix::fs::symlink(&a, &b).unwrap();
+    assert_eq!(link_target(&a), None);
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -232,3 +232,21 @@ fn a_connection_that_stops_answering_is_marked_until_it_answers_again() {
     disconnect(&target);
     assert_eq!(waiter.join().unwrap(), io::ErrorKind::BrokenPipe);
 }
+
+/// 读取配置的命令有时限：没有结束的进程被结束，按读不到处理。
+#[cfg(unix)]
+#[test]
+fn a_command_that_outlives_its_limit_is_stopped() {
+    let sh = |script: &str| {
+        let mut command = Command::new("/bin/sh");
+        command.args(["-c", script]).stdin(Stdio::null());
+        command
+    };
+    let limit = Duration::from_secs(5);
+    assert_eq!(output_within(&mut sh("echo hi"), limit).unwrap(), b"hi\n");
+    assert_eq!(output_within(&mut sh("echo hi; exit 3"), limit), None);
+    let started = Instant::now();
+    let brief = Duration::from_millis(100);
+    assert_eq!(output_within(&mut sh("exec sleep 30"), brief), None);
+    assert!(started.elapsed() < limit);
+}

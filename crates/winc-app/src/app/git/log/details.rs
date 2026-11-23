@@ -484,7 +484,7 @@ impl App {
     /// 在平铺与树之间切换详情里的文件，记进状态文件。
     pub(in crate::app) fn toggle_log_details_layout(&mut self) {
         let tree = self.log_details_flat();
-        self.update_state(|state| state.log_files_tree = Some(tree));
+        self.update_state(move |state| state.log_files_tree = Some(tree));
         self.request_redraw();
     }
 

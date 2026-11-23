@@ -3,7 +3,7 @@
 //! 坐标都是逻辑像素，`s` 是排版用的字号。
 //!
 //! 子图（`subgraph`）：成员在每一层里排在一起（按包含关系一层层排），子图跨过的每一层左右
-//! 各插一个「边框点」，框外的点排不进来；边框点按子图对齐成一条竖线，框就不会盖住别的节点。
+//! 各插一个「边框点」，框外的点排不进来；边框点按子图对齐成一条竖线，框就不会遮住别的节点。
 //! 层与层之间按子图开始、结束的地方多留出框的边距和标题。
 
 use winc_preview::markdown::mermaid::{Dir, Flow};
@@ -68,7 +68,7 @@ const SETTLED: f32 = 0.01;
 /// 布局里的点是什么。
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
-    /// 图里写着的节点。
+    /// 图中声明的节点。
     Real,
     /// 跨层的连线经过的虚节点。
     Dummy,
@@ -484,7 +484,7 @@ pub(crate) fn layout(
     }
     let mut best = layers.clone();
     let mut best_crossings = crossings(&layers, &vs, &pos);
-    // 24 轮排序（经验值，往下、往上交替）：再多交叉数不再下降。
+    // 24 轮排序（往下、往上交替）：再多交叉数不再下降。
     for round in 0..24 {
         let downward = round % 2 == 0;
         let range: Vec<usize> = if downward {
@@ -561,7 +561,7 @@ pub(crate) fn layout(
             x[v] = at;
         }
     }
-    // 16 轮拉坐标（经验值）：最后 4 轮同时参考上下两边的邻居。
+    // 16 轮拉坐标（取自调参）：最后 4 轮同时参考上下两边的邻居。
     for round in 0..16 {
         let both = round >= 12;
         let downward = round % 2 == 0;
@@ -618,7 +618,7 @@ pub(crate) fn layout(
         }
     }
     if groups > 0 {
-        // 12 轮（经验值）：拉齐边框与推开邻居互相影响，多迭代几次才能收敛。
+        // 12 轮（取自调参）：拉齐边框与推开邻居互相影响，多迭代几次才能收敛。
         for _ in 0..12 {
             for [lefts, rights] in &sides {
                 let l = lefts.iter().map(|&v| x[v]).fold(f32::MAX, f32::min);
@@ -835,7 +835,7 @@ fn transpose(layers: &mut [Vec<usize>], pos: &mut [f32], vs: &[Vertex], explore:
             .map(|(u, v)| cost(u, v, pos))
             .sum::<usize>()
     };
-    // 8 轮（经验值）：直到一轮下来没有改进就停。
+    // 最多 8 轮：一轮下来没有改进就停。
     for _ in 0..8 {
         let mut improved = false;
         for layer in layers.iter_mut() {

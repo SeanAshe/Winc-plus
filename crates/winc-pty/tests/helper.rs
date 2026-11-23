@@ -156,7 +156,7 @@ fn a_marked_banner_starts_a_block_that_ends_with_the_exit_code() {
     assert_eq!(block.exit, Some(3));
 }
 
-/// 停止结束忽略挂断的程序，到期强制结束；终端的内容保留，退出照常报告。
+/// 停止结束忽略挂断的程序，到期强制结束；终端的内容保留，退出仍然报告。
 #[test]
 fn stop_ends_the_program_and_keeps_the_terminal() {
     let mut c = Client::start();
@@ -173,9 +173,10 @@ fn a_missing_program_fails_to_start() {
     let mut c = Client::start();
     c.spawn(1, "/no/such/program", &[]);
     match c.recv() {
-        FromHelper::Failed { tab, message } => {
+        // 写了完整路径的程序不经查找，由系统在启动时报告不存在。
+        FromHelper::Failed { tab, program, .. } => {
             assert_eq!(tab, 1);
-            assert!(message.contains("/no/such/program"), "{message}");
+            assert_eq!(program, "/no/such/program");
         }
         other => panic!("应该报启动失败：{other:?}"),
     }

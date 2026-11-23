@@ -26,7 +26,7 @@ use crate::document::progress::ReadProgress;
 ///
 /// 原文件中有更长的行时只读打开，行内超出的部分不可访问。
 pub(crate) const LINE_CAP: usize = 16 << 20;
-/// 相邻检查点之间的行数（行）：隔了这么多行、并且相距不少于 [`CHECKPOINT_MIN_BYTES`] 时设置
+/// 相邻检查点之间的行数（行）：隔了该行数、并且相距不少于 [`CHECKPOINT_MIN_BYTES`] 时设置
 /// 新的检查点。
 const CHECKPOINT_LINES: u64 = 64;
 /// 相邻检查点之间的最大字节数（字节，64 KiB）：超过时不论行数都设置新的检查点。

@@ -40,36 +40,31 @@ pub use text::{FontMetrics, Glyph, Glyphs};
 ///
 /// 依据 CSS 2.1 对没有固有尺寸的可替换元素的规定：宽取 300 px，高取 150 px。
 const DEFAULT_SIZE: (f32, f32) = (300.0, 150.0);
-/// `<use>` 嵌套引用的最大层数（层，经验值），防止互相引用造成循环。
+/// `<use>` 嵌套引用的最大层数（层，取自调参），防止互相引用造成循环。
 const MAX_DEPTH: usize = 24;
-/// 最多绘制的形状数（个，经验值）。
+/// 最多绘制的形状数（个，取自调参）。
 ///
 /// 超过该数量的 SVG 绘制耗时过长，因此截断。
 const MAX_SHAPES: usize = 200_000;
-/// 最多展开的元素数（个，经验值）。
+/// 最多展开的元素数（个，取自调参）。
 ///
 /// `<use>` 每层引用十个上一层时，展开的元素数是 10 的 n 次方（n 为层数），层数稍多就会达到
 /// 数十亿个。即使最内层是空的（形状数达不到 [`MAX_SHAPES`]）也展开不完，因此需要单独的上限。
 const MAX_ELEMENTS: usize = 1_000_000;
-/// 裁剪、蒙版、图案、滤镜一共最多展开的元素数（个，经验值），每引用一次算一个，里面的每个
+/// 裁剪、蒙版、图案、滤镜一共最多展开的元素数（个，取自调参），每引用一次算一个，里面的每个
 /// 元素、形状、滤镜原语再各算一个。
 ///
 /// 裁剪、蒙版、图案、滤镜每被引用一次就要重新展开、绘制一遍里面的内容：一千个形状的
 /// 蒙版被一千个元素引用，要绘制一百万次蒙版里的形状，几 KB 的文件就能画上几分钟。
 /// 超过时其余的效果不再生效。
 const MAX_EFFECT_WORK: usize = 3_000;
-/// 滤镜原语一共最多用几次（次，经验值）：每个原语都要把滤镜区域整个算一遍，模糊这类原语在大的
+/// 滤镜原语一共最多用几次（次，取自调参）：每个原语都要把滤镜区域整个算一遍，模糊这类原语在大的
 /// 区域上一次就要几毫秒，比展开一个形状贵得多，所以单独计数。
 ///
 /// 超过时其余的滤镜不再生效。
 const MAX_FILTER_WORK: usize = 300;
 /// 图案里最多再嵌套几层图案（层）：图案每层引用十个上一层时，绘制的图块数按层数指数增长。
 const MAX_PATTERN_NESTING: usize = 2;
-/// 元素最多嵌套的层数（层，经验值）。
-///
-/// XML 解析按层递归，几千层就会耗尽后台线程的栈，导致进程中止；绘制本来也只展开
-/// [`MAX_DEPTH`] 层，因此在解析之前先数一遍。
-const MAX_NESTING: usize = 512;
 /// `XLink` 的命名空间 URI，用于识别 `xlink:href` 属性。
 const XLINK: &str = "http://www.w3.org/1999/xlink";
 
@@ -392,10 +387,10 @@ impl Drawing {
     ) -> Result<Drawing, String> {
         // 先展开 DOCTYPE 中的实体，之后的 XML 解析不支持 DTD（见 `dtd`）。
         let text = dtd::expand(text)?;
-        if nesting_exceeds(&text, MAX_NESTING) {
+        if crate::xml::nesting_exceeds(&text, crate::xml::MAX_NESTING) {
             return Err(winc_i18n::t!(
                 "preview-svg-nesting-too-deep",
-                max = MAX_NESTING
+                max = crate::xml::MAX_NESTING
             ));
         }
         let document = roxmltree::Document::parse(&text)
@@ -931,69 +926,6 @@ fn fade_solid(shape: &mut Shape, opacity: f32) -> bool {
     };
     color[3] = (f32::from(color[3]) * opacity.clamp(0.0, 1.0)).round() as u8;
     true
-}
-
-/// `text` 里元素的嵌套是否超过 `limit` 层。
-///
-/// 只粗略地识别 XML 写法：注释、CDATA、`<!DOCTYPE>`、处理指令、属性值里的 `>`。多算几层不要紧，
-/// 只要不会少算。
-fn nesting_exceeds(text: &str, limit: usize) -> bool {
-    let bytes = text.as_bytes();
-    let skip_to = |from: usize, end: &[u8]| {
-        memchr::memmem::find(&bytes[from..], end).map_or(bytes.len(), |i| from + i + end.len())
-    };
-    let (mut i, mut depth) = (0, 0usize);
-    while let Some(at) = memchr::memchr(b'<', &bytes[i..]) {
-        let at = i + at;
-        let rest = &bytes[at + 1..];
-        i = if rest.starts_with(b"!--") {
-            skip_to(at, b"-->")
-        } else if rest.starts_with(b"![CDATA[") {
-            skip_to(at, b"]]>")
-        } else if rest.starts_with(b"?") {
-            skip_to(at, b"?>")
-        } else if rest.starts_with(b"!") {
-            // `<!DOCTYPE … [ … ]>`：内部子集里的声明也带尖括号。
-            let mut j = at + 2;
-            let mut brackets = 0usize;
-            while j < bytes.len() {
-                match bytes[j] {
-                    b'[' => brackets += 1,
-                    b']' => brackets = brackets.saturating_sub(1),
-                    b'>' if brackets == 0 => break,
-                    _ => {}
-                }
-                j += 1;
-            }
-            j + 1
-        } else {
-            // 开始或结束标签：找到不在引号里的 `>`。
-            let mut j = at + 1;
-            let mut quote = None;
-            while j < bytes.len() {
-                match (quote, bytes[j]) {
-                    (None, b'"' | b'\'') => quote = Some(bytes[j]),
-                    (Some(q), c) if c == q => quote = None,
-                    (None, b'>') => break,
-                    _ => {}
-                }
-                j += 1;
-            }
-            if rest.starts_with(b"/") {
-                depth = depth.saturating_sub(1);
-            } else if bytes.get(j.wrapping_sub(1)) != Some(&b'/') {
-                depth += 1;
-                if depth > limit {
-                    return true;
-                }
-            }
-            j + 1
-        };
-        if i >= bytes.len() {
-            break;
-        }
-    }
-    false
 }
 
 #[cfg(test)]

@@ -468,12 +468,10 @@ pub(super) fn transfer(img: &Image, funcs: &[Transfer; 4]) -> Image {
 }
 
 /// 返回腐蚀（`dilate` 为 `false`）或膨胀（`dilate` 为 `true`）后的图像。
-/// 横向和纵向分开计算，窗口为 [x - r, x + r]，图外按透明像素计。
 ///
-/// 采用 van Herk / Gil-Werman 算法：把一行按窗口宽度分段，每段从左到右、从右到左各
-/// 计算一遍累计最值，任何窗口都恰好跨两段，取这两个值比较一次即可。
-/// 累计最值，任何一个窗口都恰好跨两段，取这两个值比较一次即可。每个像素的比较次数与半径无关；
-/// 每个像素的比较次数与半径无关；逐像素扫描窗口时运算量与半径成正比。
+/// 横向和纵向分开计算，窗口为 [x - r, x + r]，图外按透明像素计。采用 van Herk / Gil-Werman
+/// 算法：把一行按窗口宽度分段，每段从左到右、从右到左各计算一遍累计最值，任何窗口都恰好跨
+/// 两段，取这两个值比较一次即可，每个像素的比较次数与半径无关。
 pub(super) fn morphology(img: &Image, dilate: bool, rx: usize, ry: usize) -> Image {
     let pick = |a: [f32; 4], b: [f32; 4]| -> [f32; 4] {
         std::array::from_fn(|c| {

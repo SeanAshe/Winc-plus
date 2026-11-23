@@ -224,7 +224,7 @@ pub(super) fn normalize(name: &str) -> String {
 
 /// 递归遍历 `dir`，把每个文件的（规范化文件名，路径）收集到 `out`。
 ///
-/// 目录深度超过 4 层时停止遍历，以限制开销；4 层为经验值，覆盖常见字体目录的层级。
+/// 目录深度超过 4 层时停止遍历，以限制开销；4 层覆盖常见字体目录的层级。
 #[cfg(not(target_os = "macos"))]
 fn walk(dir: &std::path::Path, out: &mut Vec<(String, PathBuf)>, depth: usize) {
     if depth > 4 {

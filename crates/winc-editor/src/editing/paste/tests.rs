@@ -141,6 +141,32 @@ fn copies_files_and_folders_without_overwriting() {
 }
 
 #[test]
+fn download_into_copies_a_tree_and_names_a_missing_source() {
+    let dir = scratch("download-into");
+    let src = dir.join("project");
+    fs::create_dir_all(src.join("nested")).unwrap();
+    fs::write(src.join("a.txt"), "a").unwrap();
+    fs::write(src.join("nested/b.txt"), "b").unwrap();
+    let dest = dir.join("dest");
+    fs::create_dir(&dest).unwrap();
+
+    let outcome = download_into(std::slice::from_ref(&src), &dest, &Copying::default());
+    assert!(outcome.failed.is_none());
+    assert!(outcome.skipped.is_empty());
+    assert_eq!(outcome.done, [dest.join("project")]);
+    assert_eq!(
+        fs::read_to_string(dest.join("project/nested/b.txt")).unwrap(),
+        "b"
+    );
+
+    let missing = dir.join("gone.txt");
+    let outcome = download_into(std::slice::from_ref(&missing), &dest, &Copying::default());
+    let (name, error) = outcome.failed.unwrap();
+    assert_eq!(name, "gone.txt");
+    assert_eq!(error.kind(), io::ErrorKind::NotFound);
+}
+
+#[test]
 fn markdown_links_are_relative_and_escaped() {
     let dir = scratch("links");
     let docs = dir.join("docs");

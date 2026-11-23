@@ -44,13 +44,13 @@ pub(crate) struct Extra {
 
 /// 光标撤销（`⌘U`）最多记下的选区状态个数（个）。
 ///
-/// 经验值：足以覆盖一段连续的光标移动，同时限制内存占用。
+/// 取自调参：足以覆盖一段连续的光标移动，同时限制内存占用。
 const CURSOR_HISTORY: usize = 50;
 
 /// 最多的选区数（个）：超过时只保留其中包含主选区的 [`MAX_CURSORS`] 个。
 ///
 /// 每个选区都要单独执行编辑命令、记入撤销记录；全选后在两千万行的文件上放行尾光标会生成
-/// 两千万个选区，占用数 GB 内存。经验值，与查找结果的上限 [`MAX_MATCHES`] 相同。
+/// 两千万个选区，占用数 GB 内存。取值与查找结果的上限 [`MAX_MATCHES`] 相同。
 pub const MAX_CURSORS: usize = 10_000;
 
 /// 光标撤销记下的一组选区：全部选区、主选区的下标和记录时文档的 `revision`。
@@ -374,6 +374,23 @@ impl Document {
 
         self.record_cursors();
         self.select_columns(anchor, head, tab_width);
+    }
+
+    /// 返回当前列选择的起点（行号，显示列），用于继续框选或从鼠标处框出一列。
+    ///
+    /// 若当前主选区与上次记录的列选择一致且文本未改动，取上次的起点；否则取当前主选区锚点对应的（行，显示列）。
+    pub fn column_anchor(&self, tab_width: usize) -> (usize, usize) {
+        let current = self
+            .cursor_memory
+            .column
+            .filter(|b| b.primary == self.selection && b.revision == self.revision);
+        match current {
+            Some(b) => b.anchor,
+            None => {
+                let (line, col) = self.text.pos_to_line_col(self.selection.anchor);
+                (line, self.col_to_cell(line, col, tab_width))
+            }
+        }
     }
 
     /// `⌥` 单击：在位置 `pos`（`char` 偏移）处添加一个光标，成为主选区；`pos` 落在已有的某个

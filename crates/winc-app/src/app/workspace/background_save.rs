@@ -15,6 +15,9 @@ use super::*;
 /// 后台保存完成的结果：文档、成功时是否不提示、保存结果。
 type Done = (DocumentId, bool, Saved);
 
+/// 等待后台保存期间检查远端连接是否还有响应的间隔（毫秒）。
+const STALL_CHECK: std::time::Duration = std::time::Duration::from_millis(250);
+
 /// 在后台保存的文档。
 pub(crate) struct BackgroundSaves {
     /// 正在后台保存的文档：同一个文档同一时刻只保存一次。
@@ -66,23 +69,45 @@ impl App {
     }
 
     /// 等文档 `id` 在后台的那次保存完成（没有正在保存时立即返回）；等待期间完成的其他文档一并收取。
+    ///
+    /// 远端的连接没有响应时不再等，见 [`App::wait_while_saving`]。
     pub(in crate::app) fn wait_for_save(&mut self, id: DocumentId) {
-        while self.saving(id) {
-            let Ok(done) = self.disk.saves.results.1.recv() else {
-                return;
-            };
-            self.saved_in_background(done);
-        }
+        self.wait_while_saving(|app| app.saving(id));
     }
 
     /// 等待所有后台保存完成：关闭、退出之前未保存的状态必须准确。
+    ///
+    /// 远端的连接没有响应时不再等，见 [`App::wait_while_saving`]。
     pub(in crate::app) fn wait_for_saves(&mut self) {
-        while !self.disk.saves.running.is_empty() {
-            let Ok(done) = self.disk.saves.results.1.recv() else {
-                return;
-            };
-            self.saved_in_background(done);
+        self.wait_while_saving(|app| !app.disk.saves.running.is_empty());
+    }
+
+    /// `pending` 为真期间等待后台保存完成并逐个收取。
+    ///
+    /// 只剩远端的保存、而那些主机的连接都已中断或没有响应时不再等：网络停滞时保存不会返回，
+    /// 界面和退出不能一直等下去。没有写完的文档仍是未保存的，退出时仍然写入备份。
+    fn wait_while_saving(&mut self, pending: impl Fn(&App) -> bool) {
+        while pending(self) {
+            match self.disk.saves.results.1.recv_timeout(STALL_CHECK) {
+                Ok(done) => self.saved_in_background(done),
+                Err(mpsc::RecvTimeoutError::Timeout) if self.saves_stalled() => return,
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => return,
+            }
         }
+    }
+
+    /// 是否正在后台保存的文档都在连接已中断或没有响应的远端主机上。
+    fn saves_stalled(&self) -> bool {
+        use winc_backend::remote;
+        self.disk.saves.running.iter().all(|id| {
+            let path = self
+                .editor
+                .document(*id)
+                .and_then(|doc| doc.path.as_deref());
+            let target = path.and_then(winc_backend::locate).map(|at| at.target);
+            target.is_some_and(|t| !remote::is_connected(&t) || remote::is_stalled(&t))
+        })
     }
 
     fn saved_in_background(&mut self, (id, quiet, saved): Done) {

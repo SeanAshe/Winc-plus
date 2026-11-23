@@ -1,6 +1,7 @@
 //! 遍历目录：多个线程并行取文件并搜索，结果送回界面线程。
 
 use super::*;
+use crate::workspace::remote_files::TimedOut;
 
 impl ProjectSearch {
     /// 按当前的匹配器在后台搜索 `source` 中的文件，取代正在进行的搜索（旧的随之停止）。
@@ -19,6 +20,7 @@ impl ProjectSearch {
         let job = Job {
             cancel: Arc::new(AtomicBool::new(false)),
             truncated: Arc::new(AtomicBool::new(false)),
+            timed_out: Arc::new(AtomicBool::new(false)),
             receiver,
             refresh,
         };
@@ -31,6 +33,7 @@ impl ProjectSearch {
             dirty,
             cancel: Arc::clone(&job.cancel),
             truncated: Arc::clone(&job.truncated),
+            timed_out: Arc::clone(&job.timed_out),
             count: Arc::new(AtomicUsize::new(0)),
             wake: Arc::clone(wake),
             last_wake: Arc::new(Mutex::new(None)),
@@ -149,6 +152,8 @@ pub(super) struct Walk {
     dirty: Arc<HashMap<PathBuf, Rope>>,
     cancel: Arc<AtomicBool>,
     truncated: Arc<AtomicBool>,
+    /// 有远端的目录没能在限定时间内列出文件。
+    timed_out: Arc<AtomicBool>,
     /// 已记录的匹配数，由多个线程共用。
     count: Arc<AtomicUsize>,
     wake: Arc<dyn Fn() + Send + Sync>,
@@ -157,6 +162,14 @@ pub(super) struct Walk {
 }
 
 impl Walk {
+    /// 取出远端列出的文件；超时没有列出时在 `timed_out` 中记下，按没有文件继续。
+    fn listed(listing: Result<Vec<String>, TimedOut>, timed_out: &AtomicBool) -> Vec<String> {
+        listing.unwrap_or_else(|TimedOut| {
+            timed_out.store(true, Relaxed);
+            Vec::new()
+        })
+    }
+
     /// 一个线程遍历目录（或给定的文件列表），把要搜索的文件放进队列；另有若干后台线程从队列取
     /// 文件读取并匹配，遍历结束后遍历线程也参与。
     ///
@@ -196,6 +209,7 @@ impl Walk {
                     containing.as_ref(),
                     &stop,
                 );
+                let found = Self::listed(found, &self.timed_out);
                 Box::new(
                     (found.into_iter())
                         .map(|relative| winc_backend::join(&self.root, &relative))
@@ -233,6 +247,7 @@ impl Walk {
                 });
                 let folders: Vec<PathBuf> = roots.flat_map(|dir| dependency_folders(dir)).collect();
                 let cancel = Arc::clone(&self.cancel);
+                let timed_out = Arc::clone(&self.timed_out);
                 Box::new(folders.into_iter().flat_map(move |dir| {
                     let files: Box<dyn Iterator<Item = PathBuf>> = if winc_backend::is_remote(&dir)
                     {
@@ -243,6 +258,7 @@ impl Walk {
                             containing.as_ref(),
                             &stop,
                         );
+                        let found = Self::listed(found, &timed_out);
                         let joined = found.into_iter().map(|r| winc_backend::join(&dir, &r));
                         Box::new(joined.collect::<Vec<_>>().into_iter())
                     } else {
@@ -309,7 +325,7 @@ struct Queue {
     ready: std::sync::Condvar,
 }
 
-/// 队列中待搜索文件的最大数量（个，经验值）。
+/// 队列中待搜索文件的最大数量（个，取自调参）。
 ///
 /// 遍历目录比读文件快，不加限制时整个目录的路径都会堆积在队列里；该值只影响队列的内存占用。
 /// 队列已满时的处理见 [`Queue::push`]。

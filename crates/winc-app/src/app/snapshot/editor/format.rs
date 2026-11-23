@@ -392,6 +392,7 @@ fn project_tools_run_only_after_asking() {
         save: false,
         range: None,
         folder: root.clone(),
+        command: None,
         run: Some(true),
     });
     app.wait_formatting();
@@ -440,20 +441,22 @@ fn project_settings_win_but_run_only_after_asking() {
         Some("无法格式化：需要先确认是否允许运行项目设置中的格式化命令")
     );
 
-    // 用户已同意：记入项目的 `.winc`，并继续格式化。
+    // 用户已同意：连同命令的原文记入项目的 `.winc`，并继续格式化。
     let root = app.editor.root().unwrap().to_path_buf();
     let id = app.editor.active().unwrap().id;
+    let command = format!("'{}'", tool.display());
     app.answer_tool_choice(ToolAnswer {
         task: Task::Format,
         id,
         save: false,
         range: None,
         folder: root.join(".winc"),
+        command: Some(command.clone()),
         run: Some(true),
     });
     app.wait_formatting();
     assert_eq!(text(&app), "LET A = 1\n");
-    assert_eq!(app.state.tool_choice(&root.join(".winc")), Some(true));
+    assert!(app.state.command_approved(&root.join(".winc"), &command));
 
     // 项目设置开启了保存时格式化（用户自己的设置未开启），并排除了 Markdown。
     assert_eq!(app.config.format_on_save, None);
@@ -471,15 +474,25 @@ fn project_settings_win_but_run_only_after_asking() {
     );
     assert_eq!(row.warning, None);
 
-    // 用户已选择不运行：提示原因，不格式化。
+    // 项目设置改写了命令（例如拉取了别人的提交）：之前的同意不算数，重新询问。
     app.close_settings();
-    app.state.set_tool_choice(&root.join(".winc"), false);
+    std::fs::write(
+        dir.join(".winc/config.json"),
+        format!(
+            r#"{{"format": {{"commands": {{"javascript": "'{}' --changed"}}}}}}"#,
+            tool.display()
+        ),
+    )
+    .unwrap();
     app.open_path(&dir.join("app.js"));
+    app.notice.text = None;
     app.format_active();
+    assert_eq!(app.formatting_count(), 0);
     assert_eq!(
         app.notice.text.as_deref(),
-        Some("无法格式化：已选择不运行项目设置中的格式化命令")
+        Some("无法格式化：需要先确认是否允许运行项目设置中的格式化命令")
     );
+    assert_eq!(text(&app), "LET A = 1\n");
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -520,6 +533,7 @@ fn project_enabling_format_on_save_asks_first() {
         save: true,
         range: None,
         folder: key.clone(),
+        command: None,
         run: Some(true),
     });
     app.wait_formatting();

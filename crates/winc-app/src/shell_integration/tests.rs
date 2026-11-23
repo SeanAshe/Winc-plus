@@ -175,7 +175,7 @@ fn a_machine_wide_menu_is_hidden_rather_than_removed() {
     let mut registry = Fake::default().with_machine_menu();
     assert!(menu_on(&registry));
 
-    // 全机之下的登记改不了：在当前用户之下盖住它，不另写一份。
+    // 全机之下的登记改不了：在当前用户之下遮住它，不另写一份。
     set_menu(&mut registry, None, false);
     assert!(!menu_on(&registry));
     for class in MENU_CLASSES {

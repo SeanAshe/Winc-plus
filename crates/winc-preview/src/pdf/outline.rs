@@ -1,7 +1,7 @@
 //! PDF 的目录（书签，`/Outlines`）：各条的标题、层级和指向的页。
 //!
 //! 直接读文件里的对象（见 [`super::objects`]），不经过系统的 PDF 渲染器：Windows 的渲染器不提供
-//! 目录，各平台用同一份实现。文件损坏、加密或没有目录时返回空的目录，预览照常进行。
+//! 目录，各平台用同一份实现。文件损坏、加密或没有目录时返回空的目录，预览仍然进行。
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -90,7 +90,7 @@ impl Page {
 }
 
 impl Reader<'_> {
-    /// 从 `first` 起沿 `/Next` 读完同一层的各条，有下级的接着读下级；`seen` 防止循环引用。
+    /// 从 `first` 起沿 `/Next` 读完同一层的各条，有下级的再读下级；`seen` 防止循环引用。
     fn siblings(
         &self,
         first: Option<Obj>,
@@ -191,7 +191,8 @@ impl Reader<'_> {
     fn named(&self, name: &[u8]) -> Option<Obj> {
         let names = self.file.resolve(self.catalog.get(b"Names"));
         let tree = names.and_then(|names| self.file.resolve(names.get(b"Dests")));
-        if let Some(found) = tree.and_then(|tree| self.lookup(&tree, name, 0)) {
+        if let Some(found) = tree.and_then(|tree| self.lookup(&tree, name, 0, &mut HashSet::new()))
+        {
             return Some(found);
         }
         let dests = self.file.resolve(self.catalog.get(b"Dests"))?;
@@ -200,7 +201,15 @@ impl Reader<'_> {
 
     /// 在名字树的节点 `node` 下查 `name`：叶子的 `/Names` 是 `[名字 值 …]`，中间节点的 `/Kids`
     /// 按 `/Limits` 下钻。
-    fn lookup(&self, node: &Obj, name: &[u8], depth: usize) -> Option<Obj> {
+    ///
+    /// `seen` 记下已经下钻过的节点的对象号：节点可以把自己或上级列为下级，每个节点只查一次。
+    fn lookup(
+        &self,
+        node: &Obj,
+        name: &[u8],
+        depth: usize,
+        seen: &mut HashSet<u32>,
+    ) -> Option<Obj> {
         if depth > TREE_LIMIT {
             return None;
         }
@@ -215,17 +224,20 @@ impl Reader<'_> {
             return None;
         };
         for kid in &kids {
+            if matches!(kid, Obj::Ref(n, _) if !seen.insert(*n)) {
+                continue;
+            }
             let Some(kid) = self.file.resolve(Some(kid)) else {
                 continue;
             };
-            // 不在这个节点的名字范围里：不下钻（没有 `/Limits` 时照样找）。
+            // 不在这个节点的名字范围里：不下钻（没有 `/Limits` 时仍然查找）。
             if let Some(Obj::Array(limits)) = self.file.resolve(kid.get(b"Limits"))
                 && let [Obj::Str(low), Obj::Str(high)] = &limits[..]
                 && (name < low.as_slice() || name > high.as_slice())
             {
                 continue;
             }
-            if let Some(found) = self.lookup(&kid, name, depth + 1) {
+            if let Some(found) = self.lookup(&kid, name, depth + 1, seen) {
                 return Some(found);
             }
         }

@@ -754,13 +754,13 @@ pub(super) const VSCODE: &[PresetRow] = &[
     row(FocusSidebar, Global, &["cmd+0"], &["ctrl+0"]),
     row(ShowFiles, Global, &["shift+cmd+e"], &["ctrl+shift+e"]),
     row(ShowCommit, Global, &["ctrl+shift+g"], &["ctrl+shift+g"]),
-    // VS Code 没有这个命令；它的 F2 是重命名，编辑提交说明与之相当。
+    // 本方案没有这个命令；F2 是重命名，编辑提交说明与之相当。
     row(GitRewordCommit, Editor, &["f2"], &["f2"]),
-    // VS Code 没有提交日志，转到子提交、父提交与 IDEA 相同。
+    // 本方案没有提交日志，转到子提交、父提交沿用 IDEA 方案的键。
     row(GitGoToChildCommit, Editor, &["left"], &["left"]),
     row(GitGoToParentCommit, Editor, &["right"], &["right"]),
     row(ToggleTerminal, Everywhere, &["ctrl+`"], &["ctrl+`"]),
-    // 焦点在终端里也开关面板，与 VS Code 相同；终端应用优先时 Ctrl+J 交给程序（换行）。
+    // 焦点在终端里也开关面板；终端应用优先时 Ctrl+J 交给程序（换行）。
     row(ToggleTerminalPanel, Everywhere, &["cmd+j"], &["ctrl+j"]),
     row(StopConfiguration, Global, &["shift+f5"], &["shift+f5"]),
     row(CopyPath, Global, &[], &["shift+alt+c"]),

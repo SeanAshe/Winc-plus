@@ -84,6 +84,9 @@ fn draw_surface(app: &mut App, frame: &mut Frame<'_>) -> Option<usize> {
         // 欢迎页（常用操作及其快捷键）。
         if app.editor.workspace.is_none() {
             workspace::start::draw(app, frame);
+        } else if app.restoring_tabs() {
+            let area = app.layout.editor;
+            draw_waiting(app, frame, area, t!("workspace-restoring-tabs"));
         } else {
             draw_welcome(app, frame);
         }

@@ -379,7 +379,7 @@ fn draw_repository_row(
     let name = app.git_repository_name(repo);
     let mut x = ui_text(frame, app, name_x, band, &name, ink, clip);
     if let Some(head) = &state.head {
-        // 分支是一个可以点的小块：点了切换到这个仓库并展开它的分支选择面板。
+        // 分支是一个可以点的小块：点击切换到这个仓库并展开它的分支选择面板。
         let branch = CommitTarget::OtherBranch(repo);
         let on = app.pointer.hover == Hover::Commit(branch);
         let ink = if on { p.text } else { p.text_dim };

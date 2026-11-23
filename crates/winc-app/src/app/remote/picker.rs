@@ -525,7 +525,7 @@ impl App {
         self.open_connect_dialog(&target.host(), &port, start);
     }
 
-    /// 点了第 `row` 行行尾的「✕」：从最近的记录中移除这个目录；移除主机时移除其上的所有
+    /// 点击第 `row` 行行尾的「✕」：从最近的记录中移除这个目录；移除主机时移除其上的所有
     /// 目录。选中的位置保持不变。
     pub(in crate::app) fn forget_remote_row(&mut self, row: usize) {
         let list = self.overlays.picker.remote.as_ref();
@@ -548,9 +548,10 @@ impl App {
             _ => None,
         };
         let selected = self.overlays.picker.selected;
-        self.update_state(|state| {
+        let removed = host.clone();
+        self.update_state(move |state| {
             folders.iter().for_each(|folder| state.forget(folder));
-            if let Some(host) = &host {
+            if let Some(host) = &removed {
                 state.set_remote_key(host.as_str(), "");
             }
         });

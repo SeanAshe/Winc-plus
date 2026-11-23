@@ -263,7 +263,7 @@ fn clicks_move_the_focus_and_the_gap_resizes_the_panel() {
         app.layout.window.y + crate::theme::ISLAND_MARGIN
     );
     assert_eq!(app.layout.terminal.bottom(), column_bottom);
-    // 同一次拖动中往回拖：松开吸附，从最小高度接着拖。
+    // 同一次拖动中往回拖：松开吸附，从最小高度继续拖。
     app.on_mouse_move(x, y + 100.0);
     app.on_mouse_up(MouseButton::Left);
     assert!(!app.terminal.maximized);

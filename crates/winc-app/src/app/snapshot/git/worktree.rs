@@ -25,7 +25,7 @@ fn add_worktree(root: &Path) -> PathBuf {
 fn fill_dialog(app: &mut App, name: &str) {
     app.close_form_dialog();
     app.open_worktree_dialog();
-    // 留在当前目录，接着检查仓库里的变化。
+    // 留在当前目录，随后检查仓库里的变化。
     app.overlays.form_dialog.as_mut().unwrap().new_window = true;
     app.edit_field(|f| f.insert(name));
 }
@@ -60,7 +60,7 @@ fn worktrees_show_in_the_location_picker_and_the_branch_menu() {
     assert_eq!(app.git.worktrees.len(), 2);
     assert_eq!(app.git.current_worktree(), Some(0));
 
-    // 位置选择器：两个工作树排在仓库下面，当前的选中，另一个写着分支。
+    // 位置选择器：两个工作树排在仓库下面，当前的选中，另一个显示分支。
     assert!(app.git_has_locations());
     app.run_action(Action::ShowCommit);
     app.open_places(false);
@@ -486,7 +486,7 @@ fn the_status_bar_switches_worktrees_and_branches_from_menus() {
                 if app.git.branches[*index].name == name)
         })
     };
-    // 「feature」目录收着：搜一下，选中切过去。
+    // 「feature」目录保存：搜索后选中并切换过去。
     app.overlays.picker.input.set_text("feature/a");
     app.picker_refresh();
     app.overlays.picker.selected = index(&app, "feature/a").unwrap();

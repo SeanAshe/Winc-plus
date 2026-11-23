@@ -154,7 +154,7 @@ fn recent_folders_can_be_removed_and_opened_in_a_new_window() {
     let (requests, _) = winc.settle_for_test();
     assert_eq!(requests, [Request::NewWindow(Some(canonical(&charlie)))]);
 
-    // 列表空了：面板照常打开，留一行显示提示。
+    // 列表空了：面板仍然打开，留一行显示提示。
     let app = winc.app(key);
     app.state.recent.clear();
     app.run_action(Action::OpenRecent);

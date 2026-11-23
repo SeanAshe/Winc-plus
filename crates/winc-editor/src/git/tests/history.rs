@@ -502,7 +502,7 @@ fn log_streams_read_batches_from_one_git() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 储藏的说明开头写着储藏时的分支：「On 分支:」是带说明的，「WIP on 分支:」是没写说明的。
+/// 储藏的说明以储藏时的分支开头：「On 分支:」是带说明的，「WIP on 分支:」是没写说明的。
 #[test]
 fn a_stash_knows_the_branch_it_was_made_on() {
     let stash = |message: &str| Stash {

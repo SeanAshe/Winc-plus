@@ -30,7 +30,7 @@ fn every_field_is_read() {
     );
 }
 
-/// 无效的项和重名的项被跳过并报告，其余照常可用。
+/// 无效的项和重名的项被跳过并报告，其余仍可用。
 #[test]
 fn bad_entries_are_skipped_and_reported() {
     let (configs, problems) = parse(
@@ -67,9 +67,9 @@ fn invalid_files_are_reported() {
     }
 }
 
-/// 改变运行内容时指纹改变，改名字不影响；内容在相邻字段间移动也算改变。
+/// 改变运行内容时原文改变，改名字不影响；内容在相邻的项、参数与环境变量之间移动也算改变。
 #[test]
-fn the_fingerprint_follows_what_runs() {
+fn the_approval_text_follows_what_runs() {
     let base = RunConfig {
         name: "a".into(),
         command: "run".into(),
@@ -77,12 +77,12 @@ fn the_fingerprint_follows_what_runs() {
         cwd: None,
         env: Vec::new(),
     };
-    let print = base.fingerprint();
+    let print = base.approval();
     let renamed = RunConfig {
         name: "b".into(),
         ..base.clone()
     };
-    assert_eq!(renamed.fingerprint(), print);
+    assert_eq!(renamed.approval(), print);
     let changes = [
         RunConfig {
             command: "other".into(),
@@ -105,9 +105,25 @@ fn the_fingerprint_follows_what_runs() {
             args: Vec::new(),
             ..base.clone()
         },
+        RunConfig {
+            args: Vec::new(),
+            env: vec![("x".into(), String::new())],
+            ..base.clone()
+        },
     ];
+    // 两个参数与一个环境变量：以前算出的指纹相同。
+    let args = RunConfig {
+        args: vec!["a".into(), "b".into()],
+        ..base.clone()
+    };
+    let env = RunConfig {
+        args: Vec::new(),
+        env: vec![("a".into(), "b".into())],
+        ..base.clone()
+    };
+    assert_ne!(args.approval(), env.approval());
     for change in changes {
-        assert_ne!(change.fingerprint(), print, "{change:?}");
+        assert_ne!(change.approval(), print, "{change:?}");
     }
 }
 

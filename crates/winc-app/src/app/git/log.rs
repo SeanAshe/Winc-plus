@@ -302,6 +302,16 @@ pub enum LogConfirmed {
     DropCommit(Box<winc_editor::git::RebasePlan>),
 }
 
+impl LogConfirmed {
+    /// 是否从日志中的一个提交发起，因而在日志标签所在的仓库里执行。
+    pub(in crate::app) fn starts_in_log(&self) -> bool {
+        matches!(
+            self,
+            LogConfirmed::Detach(_) | LogConfirmed::ResetHard(_) | LogConfirmed::DropCommit(_)
+        )
+    }
+}
+
 /// 一个提交上的本地分支；签出时优先签出该分支，不进入分离的 `HEAD`。
 fn local_branch(commit: &Commit) -> Option<String> {
     commit.refs.iter().find_map(|r| match r {

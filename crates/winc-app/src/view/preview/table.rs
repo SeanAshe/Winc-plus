@@ -20,27 +20,27 @@ use crate::layout::drawn_scroll;
 use crate::theme::RADIUS_ROW;
 use crate::view::{ScrollArea, fit, ui_baseline};
 
-/// 单元格左右的留白（逻辑像素，经验值）。
+/// 单元格左右的留白（逻辑像素，取自调参）。
 const PAD: f32 = 8.0;
-/// 列宽的下限（逻辑像素，经验值）：文字窄的列也保持这个宽度，相邻列不至于挨在一起。
+/// 列宽的下限（逻辑像素）：文字窄的列也保持这个宽度，相邻列不至于挨在一起。
 const COLUMN_MIN: f32 = 64.0;
-/// 列宽的上限（逻辑像素，经验值）：更长的文字截短显示，完整内容由当前格的卡片显示。
+/// 列宽的上限（逻辑像素）：更长的文字截短显示，完整内容由当前格的卡片显示。
 const COLUMN_MAX: f32 = 320.0;
-/// 定列宽时看前多少行（行，经验值）：再往下的行不影响列宽，打开大表时不必量遍所有单元格。
+/// 定列宽时看前多少行（行）：再往下的行不影响列宽，打开大表时不必量遍所有单元格。
 const MEASURED_ROWS: usize = 200;
-/// 底部工作表一栏的高度（逻辑像素，经验值）。
+/// 底部工作表一栏的高度（逻辑像素，取自调参）。
 const BAR: f32 = 36.0;
-/// 当前格卡片的最小宽度（逻辑像素，经验值）；格子更宽时按格子的宽度。
+/// 当前格卡片的最小宽度（逻辑像素，取自调参）；格子更宽时按格子的宽度。
 const CARD_MIN_W: f32 = 280.0;
-/// 当前格卡片的最大宽度（逻辑像素，经验值）；更宽时靠换行把文字排成更多行。
+/// 当前格卡片的最大宽度（逻辑像素，取自调参）；更宽时靠换行把文字排成更多行。
 const CARD_MAX_W: f32 = 480.0;
-/// 当前格卡片的最大高度（逻辑像素，经验值）；文字更多时在卡片中滚动。
+/// 当前格卡片的最大高度（逻辑像素，取自调参）；文字更多时在卡片中滚动。
 const CARD_MAX_H: f32 = 320.0;
 /// 不放在行首的字符：换行时留在上一行末尾，含常见的中英文标点和百分号。
 const NO_LINE_START: &str = "，。、；：！？）」』》】〕,.;:!?)]}%";
-/// 当前格卡片的内边距（逻辑像素，经验值）。
+/// 当前格卡片的内边距（逻辑像素，取自调参）。
 const CARD_PAD: f32 = 12.0;
-/// 卡片与格子、与表格边缘的间距（逻辑像素，经验值）。
+/// 卡片与格子、与表格边缘的间距（逻辑像素，取自调参）。
 const CARD_GAP: f32 = 4.0;
 
 /// 在 `area`（窗口坐标，逻辑像素）中绘制第 `index` 个文档读好的表格。
@@ -159,7 +159,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, index: usize, 
     };
     let merges: Vec<Area> = visible.map_or_else(Vec::new, |v| {
         sheet
-            .merges
+            .merges()
             .iter()
             .filter(|m| m.overlaps(&v))
             .copied()
@@ -214,7 +214,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, index: usize, 
             Rect::new(body.x, grid.y, body.w, grid.h),
         );
     }
-    // 合并区域：盖住内部的格线（在选区中的用选区的底色），文字放在整个区域中。
+    // 合并区域：遮住内部的格线（在选区中的用选区的底色），文字放在整个区域中。
     for merge in &merges {
         let rect = area_rect(merge);
         let inner = Rect::new(rect.x, rect.y, rect.w - 1.0, rect.h - 1.0);
@@ -240,7 +240,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, index: usize, 
         }
     }
 
-    // 列名一行和行号一列：底色盖住滚到下面的单元格，选中的列、行加底色。
+    // 列名一行和行号一列：底色遮住滚到下面的单元格，选中的列、行加底色。
     frame.rect(header, p.sidebar_bg);
     for &(column, x, w) in &columns {
         let cell = Rect::new(x, grid.y, w, row_h);

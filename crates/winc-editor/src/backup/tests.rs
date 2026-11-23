@@ -397,3 +397,50 @@ fn encoding_and_line_endings_survive_a_restore() {
 
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_backup_read_ahead_is_restored_without_the_disk() {
+    let dir = scratch("read-ahead");
+    let (file, gone) = (dir.join("a.txt"), dir.join("gone.txt"));
+    fs::write(&file, "one\n").unwrap();
+    fs::write(&gone, "x\n").unwrap();
+    let backups = Backups::new(&dir.join("backups"), None);
+    let mut editor = Editor::default();
+    editor.open(&file);
+    editor.open(&gone);
+    editor.new_untitled();
+    for (tab, text) in ["mine ", "kept ", "note"].into_iter().enumerate() {
+        type_into(&mut editor.documents[tab], 0, text);
+        let doc = &editor.documents[tab];
+        let name = untitled_name();
+        backups.snapshot(doc, &name, tab).unwrap().write().unwrap();
+    }
+    fs::remove_file(&gone).unwrap();
+
+    // 就地读的和先读好的恢复出同样的标签。
+    let saved = backups.read_all();
+    let mut direct = Editor::default();
+    let expected: Vec<_> = (saved.iter())
+        .map(|backup| direct.restore_backup(backup).unwrap())
+        .collect();
+
+    // 读好以后备份和文件都从磁盘上消失：恢复只用读到的内容。
+    let read: Vec<_> = saved.iter().map(|b| b.read().unwrap()).collect();
+    fs::rename(&file, dir.join("moved.txt")).unwrap();
+    fs::rename(dir.join("backups"), dir.join("moved")).unwrap();
+    let mut ahead = Editor::default();
+    let restored: Vec<_> = (saved.iter().zip(read))
+        .map(|(backup, read)| ahead.restore_backup_with(backup, read))
+        .collect();
+
+    assert_eq!(restored, expected);
+    for (a, b) in ahead.documents.iter().zip(&direct.documents) {
+        assert_eq!(a.text().rope().unwrap(), b.text().rope().unwrap());
+        assert_eq!((&a.path, a.is_dirty()), (&b.path, b.is_dirty()));
+        assert_eq!(a.deleted_on_disk(), b.deleted_on_disk());
+    }
+    assert_eq!(ahead.documents[0].text().rope().unwrap(), "mine one\n");
+    assert_eq!(ahead.documents.len(), 3);
+
+    let _ = fs::remove_dir_all(&dir);
+}

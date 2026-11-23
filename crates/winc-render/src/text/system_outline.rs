@@ -261,7 +261,7 @@ mod macos {
     ///
     /// 描述符同时带文件 URL 和名字，CoreText 用该文件中的字体，不换成其他位置的同名字体；文件中
     /// 没有该名字时，创建出的字体与 swash 打开的字体对不上，由调用方核对字形编号时排除。列出
-    /// 文件中的全部字体再按名字挑选也能做到，但苹方的文件中有 268 个，每次需要 2–4 ms（经验值）。
+    /// 文件中的全部字体再按名字挑选也能做到，但苹方的文件中有 268 个，每次需要 2–4 ms（观测值）。
     fn descriptor_in(path: &Path, postscript: &str) -> Option<CFRetained<CTFontDescriptor>> {
         let url = CFURL::from_file_path(path)?;
         let name = CFString::from_str(postscript);

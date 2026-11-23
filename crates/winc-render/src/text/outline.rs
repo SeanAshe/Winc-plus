@@ -55,13 +55,13 @@ struct OutlineFace {
 /// 轮廓缓存的软上限（字节，8 MiB）。
 ///
 /// 按轮廓占用的字节估算，超过时整体清空，用到的轮廓再重新读取。所有 SVG 预览共用同一份缓存
-/// 且一直存活，不设上限时浏览过的字符越多占用越大；该值是经验值。
+/// 且一直存活，不设上限时浏览过的字符越多占用越大；该值取自调参。
 const GLYPH_CACHE_BYTES: usize = 8 << 20;
 
 /// 记下的字族名个数上限，超过时整体清空（连同打开的字体和轮廓缓存），用到的再重新查找。
 ///
 /// 一个 SVG 用到的字族加上后备字体只有十几个；字族名来自 SVG 文件，不可信，不设上限时浏览的
-/// SVG 越多，记下的名字和打开的字体越多，逐个比较也越慢。该值是经验值。
+/// SVG 越多，记下的名字和打开的字体越多，逐个比较也越慢。
 const MAX_FAMILIES: usize = 64;
 
 /// 轮廓字体的内部状态：已打开的字体、查找结果和轮廓缓存。
@@ -127,8 +127,8 @@ impl OutlineFonts {
 
     /// 返回第一个能打开的字体对应的竖向尺寸（单位 em）。
     ///
-    /// 都找不到时返回默认值：上升 0.8、下降 0.2、x 字高 0.5；这些是经验值，与常见西文字体的
-    /// 比例接近。
+    /// 都找不到时返回默认值：上升 0.8、下降 0.2、x 字高 0.5；取值与常见西文字体的比例
+    /// 接近。
     pub fn metrics(&self, families: &[String], weight: u16, italic: bool) -> OutlineMetrics {
         let mut inner = self.inner.lock().unwrap_or_else(PoisonError::into_inner);
         for family in candidates(families) {

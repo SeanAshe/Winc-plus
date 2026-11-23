@@ -154,7 +154,7 @@ impl App {
     /// 在平铺与树之间切换文件栏，记进状态文件；正在看的文件保持露出。
     pub(in crate::app) fn toggle_diff_files_layout(&mut self) {
         let tree = self.diff_files_flat();
-        self.update_state(|state| state.diff_files_tree = Some(tree));
+        self.update_state(move |state| state.diff_files_tree = Some(tree));
         self.reveal_log_files_selected();
         self.request_redraw();
     }

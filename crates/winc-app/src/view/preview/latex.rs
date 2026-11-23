@@ -42,14 +42,15 @@ fn draw_status(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
     let w = app.latex_status_width(target).round();
     let bar = Rect::new(area.right() - MARGIN - w, area.y + MARGIN, w, HEIGHT);
     crate::view::draw_floating_bar(frame, p, bar, area);
-    if error && app.pointer.hover == Hover::LatexStatus {
+    let active = error || app.latex_rc_skipped();
+    if active && app.pointer.hover == Hover::LatexStatus {
         let inset = Rect::new(bar.x + 2.0, bar.y + 2.0, bar.w - 4.0, bar.h - 4.0);
         frame.rect_clipped(inset, p.hover, RADIUS_POPUP - 2.0, area);
     }
     let color = if error { p.error } else { p.text_muted };
     let clip = bar.intersect(area);
     crate::view::ui_text_small(frame, app, bar.x + PAD, bar, &text, color, clip);
-    if error {
+    if active {
         app.hits.latex_status = bar;
     }
 }

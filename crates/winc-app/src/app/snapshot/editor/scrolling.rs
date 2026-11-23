@@ -118,7 +118,7 @@ fn find_centres_far_matches_and_keeps_near_ones_still() {
     assert_eq!(scroll(&app), before);
 
     // 首个可见位置设成第 328 行：下一处 `-> usize`（在 `item_41` 的开头）正好贴到编辑区顶部、
-    // 被查找条盖住，视为不可见，编辑区向下滚一行使其露出。光标放在上一块（`item_40`）内，
+    // 被查找条遮住，视为不可见，编辑区向下滚一行使其露出。光标放在上一块（`item_40`）内，
     // 命中位置因此与光标分开。
     let doc = app.editor.active_mut().unwrap();
     doc.scroll_line = (41 * 8) as f64;
@@ -355,7 +355,7 @@ fn the_wheel_with_the_command_key_steps_the_font_size() {
     notch(&mut app, -1.0);
     assert_eq!(size(&app), start);
     assert_eq!(app.editor.active().unwrap().scroll_line, top);
-    // 同时按着其他修饰键、鼠标不在编辑区或终端上时照常滚动。
+    // 同时按着其他修饰键、鼠标不在编辑区或终端上时仍然滚动。
     app.pointer.modifiers = command_key() | ModifiersState::SHIFT;
     notch(&mut app, 1.0);
     app.pointer.modifiers = command_key();

@@ -232,7 +232,7 @@ impl App {
                     .filter(|p| tools.iter().any(|t| t == p.program()))
                     .map(|p| p.name)
                     .collect();
-                // 按钮上已经写着该工具时，不再重复它的名字。
+                // 按钮上已经显示该工具时，不再重复它的名字。
                 let warning = if names == [tool.as_str()] {
                     t!("format-tool-not-installed").to_owned()
                 } else {

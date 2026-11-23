@@ -538,7 +538,7 @@ fn a_rewritten_branch_is_not_force_pushed_without_confirmation() {
     let _ = std::fs::remove_dir_all(&remote);
 }
 
-/// 上一次提交推送以后「上一次提交」那一栏收起：途中栏变矮、照样写着那个提交，上面的改动列表
+/// 上一次提交推送以后「上一次提交」那一栏收起：途中栏变矮、仍然显示那个提交，上面的改动列表
 /// 跟着变高，「撤销」不再响应点击；停稳以后栏不再占地方。
 #[test]
 fn the_last_commit_bar_folds_away_once_it_is_pushed() {
@@ -583,7 +583,7 @@ fn the_last_commit_bar_folds_away_once_it_is_pushed() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
-/// ⌥ 按着时提交按钮写「提交并推送」，点了先问再提交、推送；修改上一次提交时不换。
+/// ⌥ 按着时提交按钮写「提交并推送」，点击先问再提交、推送；修改上一次提交时不换。
 #[test]
 fn holding_option_turns_commit_into_commit_and_push() {
     let Some((mut app, root)) = git_app("git-commit-option", false) else {

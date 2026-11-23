@@ -273,7 +273,7 @@ fn a_history_diff_lists_its_files_beside_the_diff_and_keeps_the_sidebar() {
 }
 
 /// 平铺与按目录分组各处分开记：提交视图按设置，日志详情、差异的文件栏切换过以后各自记住。
-/// 文件栏可以收起、拖宽，‹ › 按文件栏的顺序切换，按钮的提示写明点了以后怎样。
+/// 文件栏可以收起、拖宽，‹ › 按文件栏的顺序切换，按钮的提示写明点击以后怎样。
 #[test]
 fn each_file_list_keeps_its_own_layout_and_the_panel_folds_and_resizes() {
     use crate::app::DiffTarget;
@@ -334,7 +334,7 @@ fn each_file_list_keeps_its_own_layout_and_the_panel_folds_and_resizes() {
     app.poll_log();
     assert_eq!(files(&app), 2);
 
-    // 提示写明点了以后怎样。
+    // 提示写明点击以后怎样。
     let rect = (app.hits.diff.iter())
         .find(|(_, t)| *t == DiffTarget::FilesLayout)
         .unwrap()

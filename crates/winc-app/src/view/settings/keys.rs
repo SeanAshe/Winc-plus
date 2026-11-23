@@ -355,7 +355,7 @@ fn draw_edit_controls(
     };
     let w = (frame.measure(FontKind::Ui, size, &text) + 20.0).max(KEYS_FIELD_W);
     let field = Rect::new(x, y, w, KEYS_FIELD_H);
-    // 外圈用描边而不是铺底后再盖住，淡入途中不透出强调色。
+    // 外圈用描边而不是铺底后再遮住，淡入途中不透出强调色。
     frame.rect_clipped(field, p.editor_bg, RADIUS_ROW, clip);
     let ring = field.inset(-0.75, -0.75);
     let r = RADIUS_ROW + 0.75;

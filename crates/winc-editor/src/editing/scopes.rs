@@ -383,9 +383,8 @@ fn header_start(text: &impl Lines, line: usize, tab_width: usize) -> usize {
     let trimmed = content.trim();
     let indent = indent_of(text, line, tab_width);
     // `{` 单独一行：向上越过缩进更深的续行，找到缩进与该 `{` 相同的行（`void f()`、
-    // `for x in xs`）。
-    // 紧邻的上一行是已结束的语句、中间隔着空行，或向上先遇到缩进更浅且不紧邻的行时，
-    // 该 `{` 是独立的块（如 Rust 的 `{ … }`），从 `{` 算起。
+    // `for x in xs`）。紧邻的上一行是已结束的语句、中间隔着空行，或向上先遇到缩进更浅且不紧邻
+    // 的行时，该 `{` 是独立的块（如 Rust 的 `{ … }`），从 `{` 算起。
     if trimmed == "{" {
         let mut at = line;
         while at > 0 && line - at < SCAN_DOWN {

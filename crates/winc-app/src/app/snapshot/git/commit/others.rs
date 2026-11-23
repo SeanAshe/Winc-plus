@@ -370,7 +370,7 @@ fn other_repositories_are_listed_after_the_current_one_and_a_click_switches() {
     let _ = std::fs::remove_dir_all(a.parent().unwrap());
 }
 
-/// 在列表里换仓库只换当前仓库，不换要提交的内容：各文件的勾选和提交信息照样留着。修改上一次
+/// 在列表里换仓库只换当前仓库，不换要提交的内容：各文件的勾选和提交信息仍然留着。修改上一次
 /// 提交时不一并提交其他仓库，它们的勾选留着；提交按钮只算列表里看得到的勾选。
 #[test]
 fn switching_repositories_keeps_checks_and_the_message() {
@@ -393,7 +393,7 @@ fn switching_repositories_keeps_checks_and_the_message() {
     assert_eq!(app.other_group_state(0, None), a_state);
     assert_eq!(app.other_checked_count(), 1);
 
-    // 换回 `a`：照样。
+    // 换回 `a`：仍然。
     app.press_commit(CommitTarget::OtherRepository(0));
     assert_eq!(app.git.root.as_ref(), Some(&a));
     assert_eq!(app.current_check_state(), a_state);

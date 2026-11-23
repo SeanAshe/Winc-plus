@@ -114,6 +114,37 @@ fn cancelling_in_one_window_calls_the_whole_quit_off() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 一个窗口同意退出以后、另一个窗口还在询问时又做了修改：全部同意后重新询问它，不直接退出。
+#[test]
+fn a_window_edited_after_agreeing_to_quit_is_asked_again() {
+    let (mut winc, a, b, dir) = two_windows("windows-quit-edited");
+    for key in [a, b] {
+        winc.app(key).config.hot_exit = Some(false);
+    }
+    winc.app(b).new_file();
+    winc.app(b).run(Command::Insert("x".into()));
+    winc.set_active(b);
+
+    winc.app(a).request_quit();
+    let (_, exit) = winc.settle_for_test();
+    assert!(!exit && winc.app(a).closing.quit_requested);
+    assert!(winc.app(b).closing.prompt.is_some());
+
+    // 第二个窗口的询问是窗口内的，第一个窗口仍可编辑。
+    winc.app(a).new_file();
+    winc.app(a).run(Command::Insert("后来写的".into()));
+    winc.app(b).answer_save_prompt(SaveChoice::Discard);
+    let (_, exit) = winc.settle_for_test();
+    assert!(!exit, "第一个窗口有了新的修改，不能直接退出");
+    assert!(winc.app(a).closing.prompt.is_some());
+
+    // 选了不保存、之后没有再修改：这次退出。
+    winc.app(a).answer_save_prompt(SaveChoice::Discard);
+    let (_, exit) = winc.settle_for_test();
+    assert!(exit);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn opening_a_folder_that_another_window_has_open_switches_to_that_window() {
     let (mut winc, a, b, dir) = two_windows("windows-focus");

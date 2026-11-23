@@ -108,7 +108,7 @@ fn draw_list(
         FileHit::File(i) => DiffTarget::File(i),
     };
     hits.extend(out.hits.into_iter().map(|(rect, hit)| (rect, target(hit))));
-    // 伸到差异上面的名字盖住了那里的按钮，先判定。
+    // 伸到差异上面的名字遮住了那里的按钮，先判定。
     for (rect, hit) in out.spills {
         hits.insert(0, (rect, target(hit)));
     }

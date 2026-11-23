@@ -471,7 +471,7 @@ impl App {
         }
     }
 
-    /// 推送或拉取：分支不能为空，不含空白，也不以 `-` 开头；拉取的分支要是本地记下的远程分支；
+    /// 推送或拉取：分支不能为空，不含空白，也不以 `-` 开头；拉取的分支必须是本地记下的远程分支；
     /// 推送到某个提交为止时要有会送出的提交；有多个远程时可以换远程。
     fn transfer_plan(&self, dialog: &FormDialog, form: &TransferForm) -> FormPlan {
         let name = dialog.name.text().trim();

@@ -1,12 +1,11 @@
 //! PDF 预览的状态：渲染线程、各页大小、渲染好的页和滚动位置。
 //!
-//! 每个正在显示的 PDF 有一个渲染线程：文档在该线程中打开（系统的 PDF 对象不能跨线程使用），按
-//! 请求逐页渲染。绘制时只请求视口内和视口附近的页（`App::request_pdf_pages`）：不再需要的页从
-//! 缓存中移除，线程中排队但已不需要的请求跳过，内存只占这几页的位图。切换标签或文件被修改时
-//! 结束线程。左侧缩略图栏中的页同样按需渲染，排在正文的页之后。
+//! 每个正在显示的 PDF 有一个渲染线程：文档在该线程中打开，按请求逐页渲染。绘制时只请求视口内和视口
+//! 附近的页（`App::request_pdf_pages`）：不再需要的页从缓存中移除，排队但已不需要的请求跳过。切换标
+//! 签或文件被修改时结束线程。缩略图栏中的页同样按需渲染，排在正文的页之后。
 //!
-//! 各文件的阅读位置（[`Place`]）在切换标签、关闭标签后保留，并记入各文件上次的位置
-//! （`State::places`），再次打开时回到原处。
+//! 各文件的阅读位置（[`Place`]）在切换标签、关闭标签后保留，并记入 `State::places`，再次打开时回到
+//! 原处。
 
 use crate::app::ScrollTarget;
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
@@ -758,7 +757,7 @@ impl App {
 
     /// 显示或隐藏缩略图栏（带滑入、滑出的过渡），并记入状态文件。
     pub(in crate::app) fn toggle_pdf_thumbnails(&mut self) {
-        self.update_state(|state| state.pdf_thumbnails_hidden = !state.pdf_thumbnails_hidden);
+        self.update_state(move |state| state.pdf_thumbnails_hidden = !state.pdf_thumbnails_hidden);
         let shown = !self.state.pdf_thumbnails_hidden;
         self.preview.pdf.strip_motion = self.clock(PDF_MOTION).map(|clock| (shown, clock));
         self.request_redraw();

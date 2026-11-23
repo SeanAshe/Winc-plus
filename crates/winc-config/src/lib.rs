@@ -23,6 +23,7 @@ pub use run::{
     RunConfig, affects_detected_configs, create_run_configs, detected_run_configs,
     load_run_configs, run_configs_path,
 };
+pub use state::writer as state_writer;
 pub use state::{
     BADGE_COLORS, FilePlace, MAX_COMMIT_MESSAGES, MAX_PLACES, MAX_RECENT, MAX_RECENT_FILES,
     MAX_SESSIONS, PaneNode, RECENT_IN_MENU, Session, SessionPane, SessionPanes, State, Tab,

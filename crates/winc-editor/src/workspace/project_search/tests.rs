@@ -1009,7 +1009,7 @@ fn folders_on_a_remote_host_are_searched_through_the_connection() {
     };
     assert_eq!(matches(&here), matches(&there));
 
-    // 区分大小写、全字、包含与排除照常生效。
+    // 区分大小写、全字、包含与排除仍然生效。
     let exact = Query {
         case_sensitive: true,
         ..query("NEEDLE")

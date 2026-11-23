@@ -3,7 +3,7 @@
 use super::*;
 
 impl App {
-    /// 点了提交视图里的 `target`。
+    /// 点击提交视图里的 `target`。
     pub(in crate::app) fn press_commit(&mut self, target: CommitTarget) {
         // 按下标找文件的目标，状态在绘制以后变过就不处理：下标可能已经指向别的文件。
         let indexed = matches!(
@@ -223,7 +223,7 @@ impl App {
                 }
             }
             CommitTarget::Sticky(row, level) => {
-                // 先滚到那一行正好停在固定的位置，画面不动；再当作点了那一行。
+                // 先滚到那一行正好停在固定的位置，画面不动；再当作点击了那一行。
                 self.git.commit.scroll =
                     (row as f32 * COMMIT_ROW - level as f32 * COMMIT_ROW).max(0.0);
                 let target = match self.commit_rows().get(row) {
@@ -246,7 +246,7 @@ impl App {
             }
             CommitTarget::RevertFile(i) => {
                 if let Some(path) = self.commit_entry(i).map(|e| e.path.clone()) {
-                    self.confirm_rollback(vec![path]);
+                    self.confirm_commit_rollback(vec![path]);
                 }
             }
             CommitTarget::StageFile(i, on) => {

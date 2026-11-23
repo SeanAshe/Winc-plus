@@ -5,6 +5,7 @@
 
 use super::*;
 
+mod commit;
 mod history;
 mod locate;
 
@@ -673,7 +674,7 @@ fn reading_scopes_one_by_one_finds_the_same_risks() {
     );
     assert_eq!(found, expected);
 
-    // 不认识 `--show-scope` 的 `git`（按 2.25 的样子以 129 退出）：检查照常得出同样的结果。
+    // 不认识 `--show-scope` 的 `git`（按 2.25 的样子以 129 退出）：检查仍然得出同样的结果。
     #[cfg(unix)]
     {
         let fake = dir.join("old-git");
@@ -740,7 +741,7 @@ fn risks_follow_the_configured_hooks_path() {
 }
 
 /// 仓库的配置里有过滤器和 fsmonitor 命令、hooks 目录里有钩子：信任之前读状态、取内容都
-/// 不运行它们，提交被拒绝；信任之后照常运行。
+/// 不运行它们，提交被拒绝；信任之后仍然运行。
 ///
 /// 找不到 `git` 时跳过。
 #[test]

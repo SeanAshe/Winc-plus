@@ -491,6 +491,21 @@ fn markdown_code_spans_and_fences() {
     assert_eq!(next, LineState::Normal);
 }
 
+/// 一长串没有闭合的嵌套插值：每处都要扫到行尾才知道没有闭合，扫描量必须与行长成正比。
+#[test]
+fn unclosed_nested_interpolations_are_scanned_in_linear_time() {
+    let line = format!("s = `{}", "${`".repeat(2000));
+    let started = std::time::Instant::now();
+    let (tokens, _) = lex("a.js", &line, LineState::Normal);
+    assert!(started.elapsed() < std::time::Duration::from_secs(2));
+    assert!(tokens.iter().all(|(_, kind)| *kind != TokenKind::Variable));
+    // 闭合的插值不计入，一行里有很多处时仍然着色。
+    let line = format!("s = `{}`", "${a}".repeat(200));
+    let (tokens, _) = lex("a.js", &line, LineState::Normal);
+    let pieces = tokens.iter().filter(|(_, kind)| *kind == TokenKind::String);
+    assert!(pieces.count() >= 200, "{tokens:?}");
+}
+
 #[test]
 fn js_template_interpolation_and_regex() {
     // 嵌套的模板字符串不会提前结束外层的字符串，插值内部按代码着色。

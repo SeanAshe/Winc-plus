@@ -64,7 +64,7 @@ const UPDATE_ICON: f32 = 16.0;
 /// 取 0.18：与搜索面板中将被替换的文字的底色相同，红字在上面清楚可读。
 const UPDATE_ERROR_TINT: (f32, f32) = (0.18, 0.27);
 
-/// 分支图标的线条超出内容左边的最大距离（逻辑像素，经验值），裁剪时为其留出余量。
+/// 分支图标的线条超出内容左边的最大距离（逻辑像素，取自调参），裁剪时为其留出余量。
 const ICON_OVERHANG: f32 = 2.0;
 
 /// 从 `right` 起向左绘制状态栏右侧的一组项，并把可点击项的命中区域追加到 `hits`。
@@ -234,7 +234,7 @@ fn draw_content(
     ui_text_small(frame, app, x + icon, bar, text, fade(ink), clip);
 }
 
-/// 状态栏上的更新按钮：按钮上写着点了会做什么，版本号、进度的细节和失败的原因在悬停提示里。
+/// 状态栏上的更新按钮：按钮上显示点击会做什么，版本号、进度的细节和失败的原因在悬停提示里。
 struct UpdateButton {
     /// 按钮左端的图标。
     icon: UpdateIcon,
@@ -245,13 +245,13 @@ struct UpdateButton {
 /// 更新按钮的图标，表示更新进行到哪一步。
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum UpdateIcon {
-    /// 找到了新版本，点了下载安装（macOS 上打开 Sparkle 的更新窗口）。
+    /// 找到了新版本，点击下载安装（macOS 上打开 Sparkle 的更新窗口）。
     Download,
     /// 正在下载，已下载的百分比。
     Progress(u8),
-    /// 已经装好（Windows 上为已下载），点了重新启动。
+    /// 已经装好（Windows 上为已下载），点击重新启动。
     Restart,
-    /// 下载或安装失败，点了重试。
+    /// 下载或安装失败，点击重试。
     Retry,
 }
 
@@ -331,7 +331,8 @@ pub(in crate::view) fn update_tooltip(app: &App) -> Option<String> {
     Some(tip)
 }
 
-/// 绘制状态栏，并更新路径段和右侧可点击项的命中区域（`StatusState::crumb_hits`、`StatusState::hits`）。
+/// 绘制状态栏，并更新路径段和右侧可点击项的命中区域（`StatusState::crumb_hits`、
+/// `StatusState::hits`）。
 pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
     let p = app.palette;
     let bar = app.layout.status;
@@ -372,10 +373,9 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
     icons::gear(frame, center, color, bar);
     status_hits.push((pill, item));
 
-    // 终端模块开着时左边是终端面板的开关：悬停时与其他可点击项一样铺按钮底色，面板开着时
-    // 图标亮、收着时灰。面板收着、后台有命令结束了时右上角一个小点（失败了是红的），和标签上的
-    // 一样。
-    // 开关模块时淡入淡出，左边的几项跟着滑过去（`App::track_modules`）；消失途中点不到。
+    // 终端模块开着时左边是终端面板的开关：悬停时与其他可点击项一样铺按钮底色，面板开着时图标亮、
+    // 保存时灰。面板保存、后台有命令结束了时右上角一个小点（失败了是红的），和标签上的一样。开关模
+    // 块时淡入淡出，左边的几项跟着滑过去（`App::track_modules`）；消失途中点不到。
     let enabled = app.terminal_enabled();
     let share = app.motion.module_fx.terminal.share(enabled);
     let opacity = app.motion.module_fx.terminal.opacity(enabled);
@@ -412,7 +412,7 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
         }
     }
 
-    // 远程模块开着时终端开关左边是连接远端主机的按钮：点了打开主机面板。打开的目录在远端
+    // 远程模块开着时终端开关左边是连接远端主机的按钮：点击打开主机面板。打开的目录在远端
     // 主机上时图标亮，否则灰。出现、消失的方式与终端开关相同。
     let enabled = app.remote_enabled();
     let share = app.motion.module_fx.remote.share(enabled);
@@ -653,10 +653,9 @@ pub(super) fn draw_status(app: &mut App, frame: &mut Frame<'_>) {
         }
     }
 
-    // Git 模块开着、目录在仓库里时，右侧一组的最左边是工作树（有多个位置时）和分支名，分支名有
-    // 上游时跟着领先落后的提交数，有分支操作在跑时跟着在做什么。点了弹出系统菜单。
-    // 开关模块、换仓库时淡入淡出（`App::track_modules`），消失途中用最后绘制的分支名；左边的
-    // 路径能占的宽度跟着慢慢变。
+    // Git 模块开着、目录在仓库里时，右侧一组的最左边是工作树（有多个位置时）和分支名，分支名有上游
+    // 时跟着领先落后的提交数，有分支操作在跑时跟着在做什么。点击弹出系统菜单。开关模块、换仓库时淡
+    // 入淡出（`App::track_modules`），消失途中用最后绘制的分支名；左边的路径能占的宽度跟着慢慢变。
     let live = app
         .git
         .status

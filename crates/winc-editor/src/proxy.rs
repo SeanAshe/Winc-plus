@@ -166,8 +166,8 @@ fn parse_registry(text: &str) -> SystemProxy {
 /// 读出系统现在的代理设置；读不到时为 `None`。Linux 上没有统一的系统代理，约定用环境变量，
 /// 不另外读取。
 ///
-/// 经由 [`process::run`] 运行：Windows 上不弹出控制台窗口，卡住时与读取状态同样按时限结束，
-/// 此时不设代理，命令照常运行。
+/// 经由 [`process::run`] 运行：Windows 上不弹出控制台窗口，无响应时与读取状态同样按时限结束，
+/// 此时不设代理，命令仍然运行。
 fn system_proxy() -> Option<SystemProxy> {
     let mut command = if cfg!(target_os = "macos") {
         let mut command = Command::new("scutil");
