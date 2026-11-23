@@ -1098,7 +1098,7 @@ fn features_work_in_a_remote_workspace() {
 }
 
 /// 远端主机上的终端里粘贴剪贴板中的图片或本机文件：先传到那台主机上的缓存目录，再粘贴那里的
-/// 路径（那里的程序读不到本机的剪贴板）。本机的终端不变。由
+/// 路径（那里的程序读不到本机的剪贴板）。本机的终端把图片存成临时文件，再粘贴那个路径。由
 /// [`a_folder_on_a_connected_host_opens_as_the_workspace`] 调用，原因同
 /// [`folders_on_a_remote_host_are_not_taken_for_files`]。
 fn clipboard_images_pasted_into_a_remote_terminal_are_sent_there_first() {
@@ -1207,13 +1207,15 @@ fn clipboard_images_pasted_into_a_remote_terminal_are_sent_there_first() {
     let notice = app.notice.text.take().unwrap();
     assert!(notice.contains("太大"), "{notice}");
 
-    // 本机的终端不变：仍是一次空的括号粘贴，由程序自己读剪贴板；⌃V 也仍然发给程序。
+    // 本机的终端：图片存成临时文件，把路径粘进去。⌃V 仍然发给程序，只有远端标签才上传。
     app.clipboard.copied_files.clear();
-    app.clipboard.copied_image = Some(png);
+    app.clipboard.copied_image = Some(png.clone());
     app.terminal.tab_mut().unwrap().cwd = dir.as_os_str().as_bytes().to_vec();
     let before = app.input_sent_to(&log, id).len();
     app.terminal_paste();
-    assert_eq!(pasted(&app, before), "");
+    let path = pasted(&app, before);
+    assert!(path.contains("winc-paste"), "{path}");
+    assert_eq!(std::fs::read(&path).unwrap(), png);
     assert!(!app.ctrl_v_uploads());
 
     *crate::app::terminal::upload::CACHE.lock().unwrap() = None;
