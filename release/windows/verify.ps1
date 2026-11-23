@@ -127,7 +127,7 @@ foreach ($kind in @('nsis', 'msi')) {
         # skipped file fails here, and a real install puts the packaged bytes back.
         $installed = Join-Path $directory 'winc.exe'
         $bytes = [IO.File]::ReadAllBytes($installed)
-        if ($bytes.Length -lt 1) { throw "$kind: installed winc.exe is empty" }
+        if ($bytes.Length -lt 1) { throw "${kind}: installed winc.exe is empty" }
         $bytes[0] = [byte]($bytes[0] -bxor 0xFF)
         [IO.File]::WriteAllBytes($installed, $bytes)
         $env:WINC_UPDATE_PARENT = "$($parent.Id)"
