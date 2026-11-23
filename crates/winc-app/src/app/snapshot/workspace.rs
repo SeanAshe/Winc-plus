@@ -9,6 +9,7 @@ pub(super) mod outline;
 mod panes;
 pub(super) mod picker;
 mod places;
+mod project;
 pub(super) mod recent;
 pub(super) mod search;
 mod search_dialog;

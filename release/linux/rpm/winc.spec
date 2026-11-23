@@ -43,6 +43,9 @@ install -Dm755 "$src"/winc-server-Linux-* -t %{buildroot}%{_prefix}/lib/winc
 install -Dm644 "$src/winc.desktop" "$src/winc-url-handler.desktop" \
   -t %{buildroot}%{_datadir}/applications
 install -Dm644 "$src/winc.png" %{buildroot}%{_datadir}/icons/hicolor/256x256/apps/winc.png
+install -Dm644 "$src/winc.xml" %{buildroot}%{_datadir}/mime/packages/winc.xml
+install -Dm644 "$src/project.svg" \
+  %{buildroot}%{_datadir}/icons/hicolor/scalable/mimetypes/application-x-winc-project.svg
 install -Dm644 "$src/winc-open-file.desktop" "$src/winc-open-folder.desktop" \
   -t %{buildroot}%{_datadir}/kio/servicemenus
 install -Dm644 "$src"/winc-open-*.nemo_action -t %{buildroot}%{_datadir}/nemo/actions
@@ -55,6 +58,8 @@ install -Dm644 "$src/LICENSE" "$src/NOTICE" -t %{buildroot}%{_datadir}/licenses/
 %{_datadir}/applications/winc.desktop
 %{_datadir}/applications/winc-url-handler.desktop
 %{_datadir}/icons/hicolor/256x256/apps/winc.png
+%{_datadir}/mime/packages/winc.xml
+%{_datadir}/icons/hicolor/scalable/mimetypes/application-x-winc-project.svg
 %{_datadir}/kio/servicemenus/winc-open-file.desktop
 %{_datadir}/kio/servicemenus/winc-open-folder.desktop
 %{_datadir}/nemo/actions/winc-open-*.nemo_action

@@ -115,9 +115,33 @@ fn the_linux_desktop_entry_declares_types_outside_plain_text() {
         .unwrap();
     assert!(mime.ends_with(';'));
     // `application/json` 不是 `text/plain` 的子类型，要单独声明；PDF、EPUB 是 Winc 能预览的文档。
-    let documents = ["application/pdf", "application/epub+zip"];
+    let documents = [
+        "application/pdf",
+        "application/epub+zip",
+        "application/x-winc-project",
+    ];
     let common = ["text/plain", "inode/directory", "application/json"];
     for common in common.into_iter().chain(documents) {
         assert!(mime.split(';').any(|t| t == common), "缺少 {common}");
+    }
+}
+
+#[test]
+fn the_linux_mime_type_matches_project_files() {
+    // 桌面项列出的项目文件类型由随包安装的 `winc.xml` 定义。
+    let mime = release_file("linux/winc.xml");
+    assert!(mime.contains("<mime-type type=\"application/x-winc-project\">"));
+    assert!(mime.contains("<glob pattern=\"*.winc-project\"/>"));
+    // 文档图标随包装进图标主题，按类型名找到。
+    assert!(mime.contains("<icon name=\"application-x-winc-project\"/>"));
+    let icon = "icons/hicolor/scalable/mimetypes/application-x-winc-project.svg";
+    for script in [
+        "linux/package.sh",
+        "linux/rpm/winc.spec",
+        "linux/arch/PKGBUILD",
+    ] {
+        let text = release_file(script);
+        assert!(text.contains("mime/packages/winc.xml"), "{script}");
+        assert!(text.contains(icon), "{script}");
     }
 }

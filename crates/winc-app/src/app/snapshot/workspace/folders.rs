@@ -55,7 +55,8 @@ fn a_folder_can_be_added_to_the_window_and_removed() {
         .iter()
         .position(|c| *c == MenuCommand::OpenFolder)
         .unwrap();
-    assert_eq!(menu.get(open + 1), Some(&MenuCommand::AddFolder));
+    assert_eq!(menu.get(open + 1), Some(&MenuCommand::OpenProject));
+    assert_eq!(menu.get(open + 2), Some(&MenuCommand::AddFolder));
     assert!(!project(&mut blank_app(false)).contains(&MenuCommand::AddFolder));
 
     app.add_folder(&other);

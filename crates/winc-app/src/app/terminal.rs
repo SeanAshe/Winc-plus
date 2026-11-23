@@ -561,10 +561,7 @@ impl App {
         if self.frame.bench.silent() {
             return;
         }
-        let session = self
-            .editor
-            .root()
-            .and_then(|root| self.state.session_for(root));
+        let session = self.current_session();
         if let Some(terminal) = session.and_then(|session| session.terminal.clone()) {
             self.restore_terminal(&terminal);
             self.terminal.motion = None;

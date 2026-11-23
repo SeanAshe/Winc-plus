@@ -13,11 +13,9 @@ use crate::app::NoticeKind;
 use crate::app::input::context_menu::{MenuCommand, MenuEntry, MenuLabel};
 
 impl App {
-    /// 是否可以添加附加的目录：打开了本机的目录。
-    ///
-    /// 远端主机上的目录不能用本机的面板选择。
+    /// 是否可以向项目添加目录：已打开目录。
     pub(in crate::app) fn can_add_folder(&self) -> bool {
-        (self.editor.root()).is_some_and(|root| !winc_backend::is_remote(root))
+        self.editor.root().is_some()
     }
 
     /// 返回文件树菜单中管理附加目录的项；`folder` 是右键点中的目录行，空白处为 `None`。
@@ -36,14 +34,20 @@ impl App {
         items
     }
 
-    /// 打开系统的面板选择要添加的目录。
+    /// 选择要添加的目录：本机目录用系统面板，远端目录在同一主机上从打开目录的上级开始浏览。
     pub(in crate::app) fn ask_add_folder(&mut self) {
-        if self.editor.root().is_none() {
+        let Some(root) = self.editor.root() else {
             self.flash(t!("workspace-add-folder-none"));
-        } else if self.can_add_folder() {
-            self.pick(Pick::AddFolder);
-        } else {
-            self.notify(NoticeKind::Warning, t!("workspace-add-folder-remote"));
+            return;
+        };
+        match winc_backend::locate(root) {
+            Some(at) => {
+                let path = String::from_utf8_lossy(&at.path).into_owned();
+                let parent = path.rsplit_once('/').map_or("/", |(up, _)| up);
+                let dir = if parent.is_empty() { "/" } else { parent };
+                self.browse_remote_to_add(at.target, dir.to_owned());
+            }
+            None => self.pick(Pick::AddFolder),
         }
     }
 
@@ -122,14 +126,32 @@ impl App {
         }
     }
 
-    /// 返回最近打开的目录 `folder` 上次附加的目录数和起的名字；没有附加过目录时返回 `None`。
+    /// 返回最近列表项 `folder` 的附加目录数和名称；不是项目（既非项目文件，也没有附加目录）时
+    /// 返回 `None`。
     pub(crate) fn recent_group(&self, folder: &Path) -> Option<(usize, Option<&str>)> {
-        let session = self.state.session_for(folder)?;
+        let session = self.state.session_for(folder);
+        if super::project::is_project(folder) {
+            let count = session.map_or(0, |session| session.folders.len());
+            return Some((count, session.and_then(|session| session.name.as_deref())));
+        }
+        let session = session?;
         (!session.folders.is_empty()).then_some((session.folders.len(), session.name.as_deref()))
     }
 
-    /// 返回最近打开的目录 `folder` 的显示名：起了名的用它，附加过目录的在目录名后注明个数。
+    /// 最近列表项 `path` 为项目文件时，名称后的淡色标注；否则为 `None`。仅按扩展名判断，不访问
+    /// 磁盘。
+    pub(crate) fn recent_tag(&self, path: &Path) -> Option<&'static str> {
+        winc_config::project_kind(path).map(|_| t!("workspace-recent-project-tag"))
+    }
+
+    /// 返回最近列表项 `folder` 的显示名：项目文件取文件名（不含扩展名），已命名的取名称，有附加
+    /// 目录的在目录名后注明个数。
     pub(crate) fn recent_title(&self, folder: &Path) -> String {
+        if super::project::is_project(folder)
+            && let Some(stem) = folder.file_stem()
+        {
+            return stem.to_string_lossy().into_owned();
+        }
         let name = winc_editor::display_name(folder);
         match self.recent_group(folder) {
             Some((_, Some(alias))) => alias.to_owned(),
@@ -153,9 +175,12 @@ impl App {
         links.map(|row| row.path.clone()).collect()
     }
 
-    /// 附加的目录或这一组的名字变化后：重新监视，记下会话，更新窗口标题，重新布局。
-    fn folders_changed(&mut self) {
+    /// 附加目录或项目名称变化后：重新监视，写回项目文件，记录现场和最近列表，更新窗口标题并重新
+    /// 布局。
+    pub(in crate::app) fn folders_changed(&mut self) {
         self.watch_extra_folders();
+        self.write_back_project();
+        self.remember_workspace();
         self.git_discover();
         self.git_scan_repositories();
         self.index_folder();
@@ -166,10 +191,19 @@ impl App {
     }
 
     /// 恢复会话 `session` 中记下的附加目录和这一组的名字；已不可用的目录不恢复，并说明是哪些。
+    ///
+    /// 会话属于某个项目文件、且该文件的第一个目录仍是这个目录时，按项目文件恢复。
     pub(in crate::app) fn restore_group(&mut self, session: Option<&winc_config::Session>) {
         let Some(session) = session else {
             return;
         };
+        let project = (session.project.as_deref())
+            .and_then(|file| super::project::project_folders(file).ok())
+            .filter(|project| project.root == session.folder);
+        if let Some(project) = project {
+            self.load_project(&project);
+            return;
+        }
         let mut skipped = Vec::new();
         for folder in &session.folders {
             if let Some(workspace) = &mut self.editor.workspace
@@ -235,11 +269,11 @@ impl App {
         self.run_start_action(crate::app::StartAction::Recent(i));
     }
 
-    /// 整理项目菜单 `menu` 中与附加目录有关的项。
+    /// 整理项目菜单 `menu` 中与项目有关的项。
     ///
-    /// 最近列表中的一组目录换成子菜单：第一项打开这一组，其后列出其中的各个目录，点击单独
-    /// 打开。打开了本机的目录时，「打开目录…」之后加入「添加目录到窗口…」，已有附加的目录时
-    /// 再加入给这一组起名的一项。
+    /// 最近列表中没有项目文件的一组目录展开为子菜单。「打开目录…」后加入「打开项目…」；「关闭」
+    /// 前另起一组：添加目录、保存项目，以及重命名项目（仅无项目文件且有附加目录时）。窗口中是
+    /// 项目时，「关闭目录」改为「关闭项目」。
     pub(in crate::app) fn add_folder_entries(&self, menu: &mut Vec<MenuEntry>) {
         let mut at = 0;
         while at < menu.len() {
@@ -248,7 +282,8 @@ impl App {
                 continue;
             };
             let folders = self.group_folders(i);
-            if folders.len() > 1 {
+            // 项目文件不展开子菜单。
+            if folders.len() > 1 && !super::project::is_project(&folders[0]) {
                 let mut items = vec![
                     MenuEntry::Item(MenuCommand::OpenGroup(i), true),
                     MenuEntry::Separator,
@@ -267,23 +302,54 @@ impl App {
             }
             at += 1;
         }
+        // 窗口中是项目（有项目文件或附加目录）时改为「关闭项目」。
+        let workspace = self.editor.workspace.as_ref();
+        if workspace.is_some_and(|ws| ws.project().is_some() || !ws.extra_folders().is_empty()) {
+            for entry in menu.iter_mut() {
+                if let MenuEntry::Item(command @ MenuCommand::CloseFolder, _) = entry {
+                    *command = MenuCommand::CloseProject;
+                }
+            }
+        }
         let open = MenuEntry::Item(MenuCommand::OpenFolder, true);
         let Some(at) = menu.iter().position(|entry| *entry == open) else {
             return;
         };
-        if !self.can_add_folder() {
+        menu.insert(at + 1, MenuEntry::Item(MenuCommand::OpenProject, true));
+        // 「关闭」前插入管理当前项目的一组。
+        let closes = |entry: &MenuEntry| {
+            matches!(
+                entry,
+                MenuEntry::Item(MenuCommand::CloseFolder | MenuCommand::CloseProject, _)
+            )
+        };
+        let Some(close) = menu.iter().position(closes) else {
             return;
+        };
+        let mut group = Vec::new();
+        if self.can_add_folder() {
+            group.push(MenuEntry::Item(MenuCommand::AddFolder, true));
+            // 单独打开着一组中的打开的目录：可以就地恢复这一组。
+            let current = (self.editor.root())
+                .and_then(|root| self.state.recent.iter().position(|folder| folder == root));
+            if let Some(i) = current.filter(|_| self.disk.solo) {
+                group.push(MenuEntry::Item(MenuCommand::OpenGroup(i), true));
+            }
+            // 有项目文件时名称取自文件，不提供重命名；没有时为「保存项目…」。
+            let project = (self.editor.workspace.as_ref()).is_some_and(|ws| ws.project().is_some());
+            let save = if project {
+                MenuCommand::SaveProjectAs
+            } else {
+                MenuCommand::SaveProject
+            };
+            group.push(MenuEntry::Item(save, true));
+            if !self.extra_folders().is_empty() && !project {
+                group.push(MenuEntry::Item(MenuCommand::RenameGroup, true));
+            }
+            group.push(MenuEntry::Separator);
         }
-        menu.insert(at + 1, MenuEntry::Item(MenuCommand::AddFolder, true));
-        if !self.extra_folders().is_empty() {
-            menu.insert(at + 2, MenuEntry::Item(MenuCommand::RenameGroup, true));
-        }
-        // 单独打开着一组中的打开的目录：可以就地恢复这一组。
-        let current = (self.editor.root())
-            .and_then(|root| self.state.recent.iter().position(|folder| folder == root));
-        if let Some(i) = current.filter(|_| self.disk.solo) {
-            menu.insert(at + 2, MenuEntry::Item(MenuCommand::OpenGroup(i), true));
-        }
+        group.insert(0, MenuEntry::Separator);
+        menu.splice(close..close, group);
     }
 
     /// 返回最近列表第 `i` 项这一组的各个目录：打开的目录在前，其后是上次附加的目录；该项不存在
@@ -320,7 +386,11 @@ impl App {
         let name = winc_editor::display_name(folder);
         let same_name = |other: &PathBuf| winc_editor::display_name(other) == name;
         let ambiguous = self.state.recent.iter().filter(|p| same_name(p)).count() > 1;
-        let title = self.recent_title(folder);
+        // 菜单文字不能分色，标注写在括号中。
+        let title = match self.recent_tag(folder) {
+            Some(_) => t!("workspace-recent-project", name = self.recent_title(folder)),
+            None => self.recent_title(folder),
+        };
         MenuLabel {
             subtitle: folder
                 .parent()

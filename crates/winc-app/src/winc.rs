@@ -342,7 +342,11 @@ impl Winc {
         let root = slot.app.editor.root().map(Path::to_path_buf);
         let mut folders = folders
             .iter()
-            .filter(|f| winc_backend::fs::is_dir(f) && Some(*f) != root.as_ref())
+            .filter(|f| {
+                let opens =
+                    winc_backend::fs::is_dir(f) || crate::app::workspace::project::is_project(f);
+                opens && Some(*f) != root.as_ref()
+            })
             .peekable();
         if root.is_none()
             && let Some(folder) = folders.next()
@@ -744,16 +748,23 @@ impl Winc {
     /// 都没有时，有停在开始页上的空窗口就用它，在里面打开目录；否则返回 `Err(目录)`，由调用方
     /// 新建窗口。
     fn window_for(&mut self, targets: &[Target]) -> Result<WindowKey, Option<PathBuf>> {
+        use crate::app::workspace::project::{is_project, project_folders};
+        // 项目文件与目录一样独占窗口，按其第一个目录查找窗口。
+        let opens_folder = |path: &Path| winc_backend::fs::is_dir(path) || is_project(path);
         let folder = targets
             .iter()
-            .find(|t| winc_backend::fs::is_dir(&t.path))
+            .find(|t| opens_folder(&t.path))
             .map(|t| t.path.clone());
         let file = targets
             .iter()
-            .find(|t| !winc_backend::fs::is_dir(&t.path))
+            .find(|t| !opens_folder(&t.path))
             .map(|t| t.path.clone());
+        let root = |folder: &Path| match project_folders(folder) {
+            Ok(project) if is_project(folder) => project.root,
+            _ => folder.to_path_buf(),
+        };
         let key = match (&folder, &file) {
-            (Some(folder), _) => self.shared.window_with(folder, None),
+            (Some(folder), _) => self.shared.window_with(&root(folder), None),
             (None, Some(file)) => (self.shared.window_containing(file)).or(self.active_key()),
             (None, None) => self.active_key(),
         };
@@ -893,7 +904,7 @@ impl Winc {
             .is_none_or(|slot| slot.app.config.restore_folder != Some(false));
         let others: Vec<PathBuf> = (self.windows.iter())
             .filter(|slot| reopen && Some(slot.key) != active)
-            .filter_map(|slot| slot.app.editor.root().map(Path::to_path_buf))
+            .filter_map(|slot| slot.app.session_key())
             .collect();
         let (_, result) = State::update(&path, &State::default(), |state| state.others = others);
         if let Err(e) = result {
@@ -930,6 +941,11 @@ impl ApplicationHandler<Envelope> for Winc {
                 *self.shared.update_state.borrow_mut() = state;
                 for slot in &mut self.windows {
                     slot.app.request_redraw();
+                }
+            }
+            UserEvent::SystemThemeChanged(theme) => {
+                for slot in &mut self.windows {
+                    slot.app.system_theme_changed(theme);
                 }
             }
             // 连接由各窗口共用，每个窗口都处理。

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Winc's project file type, installed to /usr/share/mime/packages so that file managers open
+     .winc-project files with Winc (winc.desktop lists the type) and show its document icon,
+     installed as hicolor/scalable/mimetypes/application-x-winc-project.svg. -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-winc-project">
+    <comment>Winc project</comment>
+    <comment xml:lang="zh_CN">Winc 项目</comment>
+    <sub-class-of type="application/json"/>
+    <icon name="application-x-winc-project"/>
+    <glob pattern="*.winc-project"/>
+  </mime-type>
+</mime-info>

@@ -327,6 +327,8 @@ pub(super) static JSON: Language = Language {
         "geojson",
         "webmanifest",
         "code-workspace",
+        "winc-project",
+        "sublime-project",
     ],
     file_names: &[
         ".babelrc",

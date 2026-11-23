@@ -31,6 +31,8 @@ pub(crate) struct RemoteList {
     pub(crate) rows: Vec<Row>,
     /// 读过的目录，按主机和路径。
     listings: HashMap<(Target, String), Listing>,
+    /// 用于向项目添加目录（见 [`App::browse_remote_to_add`]）：选中的目录加入项目，不打开。
+    adding: bool,
 }
 
 /// 面板所处的阶段。
@@ -70,6 +72,7 @@ impl Row {
     pub(crate) fn hint(&self) -> Option<&'static str> {
         match self.action {
             RowAction::OpenHere => Some(t!("workspace-picker-remote-hint-open")),
+            RowAction::AddHere => Some(t!("workspace-picker-remote-hint-add")),
             RowAction::Enter(_) => Some(t!("workspace-picker-remote-hint-enter")),
             RowAction::Host(_) => Some(t!("workspace-picker-remote-hint-edit")),
             _ => None,
@@ -77,8 +80,12 @@ impl Row {
     }
 }
 
-/// 把目录 `dir` 写成便于阅读的样子：主目录 `home` 以内的部分以 `~` 开头。
+/// 把目录 `dir` 写成便于阅读的样子：主目录 `home` 以内的部分以 `~` 开头；`home` 为空时原样
+/// 返回。
 fn shorten(dir: &str, home: &str) -> String {
+    if home.is_empty() {
+        return dir.to_owned();
+    }
     match dir.strip_prefix(home) {
         Some("") => "~".to_owned(),
         Some(rest) if rest.starts_with('/') && home != "/" => format!("~{rest}"),
@@ -112,6 +119,8 @@ enum RowAction {
     Destination(Target, String),
     /// 打开正在浏览的目录。
     OpenHere,
+    /// 将正在浏览的目录加入项目。
+    AddHere,
     /// 进入名为该值的子目录。
     Enter(String),
     /// 回到上级目录。
@@ -220,6 +229,16 @@ impl App {
         self.show_remote_picker(Stage::Browse { target, home, dir });
     }
 
+    /// 从主机 `target` 上的目录 `dir` 开始浏览，选中的目录加入项目。
+    pub(in crate::app) fn browse_remote_to_add(&mut self, target: Target, dir: String) {
+        let home = String::new();
+        self.show_remote_picker(Stage::Browse { target, home, dir });
+        if let Some(list) = &mut self.overlays.picker.remote {
+            list.adding = true;
+        }
+        self.picker_refresh();
+    }
+
     fn show_remote_picker(&mut self, stage: Stage) {
         self.finish_name_input();
         self.overlays.picker.places = None;
@@ -239,6 +258,7 @@ impl App {
             stage,
             rows: Vec::new(),
             listings,
+            adding: false,
         });
         self.overlays.picker.open = true;
         self.overlays.picker.doc = self.editor.active().map(|doc| doc.id);
@@ -268,12 +288,13 @@ impl App {
             self.overlays.picker.input.insert(&rest);
             return self.remote_picker_refresh();
         }
+        let adding = list.adding;
         let rows = match &list.stage {
             Stage::Hosts => self.host_rows(&typed),
             Stage::Browse { target, home, dir } => {
                 let (target, home, dir) = (target.clone(), home.clone(), dir.clone());
                 self.fetch_remote_listing(&target, &dir);
-                self.folder_rows(&target, &home, &dir, &typed)
+                self.folder_rows(&target, (&home, &dir), &typed, adding)
             }
         };
         self.overlays.picker.hits = (0..rows.len()).collect();
@@ -391,15 +412,28 @@ impl App {
 
     /// 目录阶段的各行：没有输入时是「打开此目录」、上级目录和各个子目录，有输入时是匹配的
     /// 子目录。目录尚未读好或读取失败时没有子目录的行，原因见 [`App::remote_picker_message`]。
-    fn folder_rows(&self, target: &Target, home: &str, dir: &str, typed: &str) -> Vec<Row> {
+    ///
+    /// `adding` 为真时第一行为「添加此目录」。
+    fn folder_rows(
+        &self,
+        target: &Target,
+        (home, dir): (&str, &str),
+        typed: &str,
+        adding: bool,
+    ) -> Vec<Row> {
         let mut rows = Vec::new();
         if typed.is_empty() {
+            let (title, action) = if adding {
+                (t!("workspace-picker-remote-add-here"), RowAction::AddHere)
+            } else {
+                (t!("workspace-picker-remote-open-here"), RowAction::OpenHere)
+            };
             rows.push(Row {
-                title: t!("workspace-picker-remote-open-here").to_owned(),
+                title: title.to_owned(),
                 detail: shorten(dir, home),
                 icon: RowIcon::Open,
                 removable: false,
-                action: RowAction::OpenHere,
+                action,
             });
             if dir != "/" {
                 rows.push(Row {
@@ -482,6 +516,7 @@ impl App {
             Stage::Browse { target, dir, .. } => Some((target.clone(), dir.clone())),
             Stage::Hosts => None,
         };
+        let adding = list.adding;
         match (action, browsing) {
             (RowAction::Recent(folder), _) => {
                 self.close_picker();
@@ -505,13 +540,25 @@ impl App {
                 self.close_picker();
                 self.remote_open(target, dir, After::Open);
             }
+            (RowAction::AddHere, Some((target, dir))) => {
+                self.close_picker();
+                self.add_folder(&winc_backend::virtual_path(&target, dir.as_bytes()));
+            }
+            (RowAction::Enter(name), Some((target, dir))) if directly && adding => {
+                self.close_picker();
+                let path = child(&dir, &name);
+                self.add_folder(&winc_backend::virtual_path(&target, path.as_bytes()));
+            }
             (RowAction::Enter(name), Some((target, dir))) if directly => {
                 self.close_picker();
                 self.remote_open(target, child(&dir, &name), After::Open);
             }
             (RowAction::Enter(name), Some((_, dir))) => self.remote_picker_go(child(&dir, &name)),
             (RowAction::Up, Some((_, dir))) => self.remote_picker_go(parent(&dir)),
-            (RowAction::OpenHere | RowAction::Enter(_) | RowAction::Up, None) => {}
+            (
+                RowAction::OpenHere | RowAction::AddHere | RowAction::Enter(_) | RowAction::Up,
+                None,
+            ) => {}
         }
     }
 

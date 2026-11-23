@@ -40,7 +40,7 @@ impl App {
         // 鼠标侧面的两个键：后退、前进。
         if matches!(button, MouseButton::Back | MouseButton::Forward) {
             if !self.settings.open && self.overlays.form_dialog.is_none() {
-                self.navigate(button == MouseButton::Forward);
+                self.navigate_history(button == MouseButton::Forward);
             }
             return;
         }

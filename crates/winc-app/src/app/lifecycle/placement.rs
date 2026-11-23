@@ -234,7 +234,7 @@ impl App {
         if self.config.restore_window == Some(false) || self.frame.bench.silent() {
             return None;
         }
-        let own = (self.editor.root()).and_then(|root| self.state.session_for(root)?.window);
+        let own = self.current_session().and_then(|session| session.window);
         own.or(self.state.window)
     }
 }

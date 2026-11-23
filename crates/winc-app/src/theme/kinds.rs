@@ -32,6 +32,8 @@ const DART: [u32; 2] = [0x5CB8E6, 0x1A78A8];
 const JULIA: [u32; 2] = [0x7FA8D8, 0x3B6AA0];
 const C: [u32; 2] = [0x8FA6D6, 0x4A65A0];
 const DOTNET: [u32; 2] = [0x9B8BE0, 0x5A47B0];
+/// 项目文件的颜色：Winc 的蓝色。
+const PROJECT: [u32; 2] = [0x6FA3FF, 0x1769FC];
 /// 未识别的类型的颜色。
 const PLAIN: [u32; 2] = [0x9AA0AA, 0x6B707A];
 
@@ -259,6 +261,8 @@ fn by_extension(ext: &str) -> Option<(FileGlyph, [u32; 2])> {
         "ps1" | "psm1" | "psd1" | "bat" | "cmd" | "vbs" | "vbe" | "wsf" => (Shell, BLUE),
         "applescript" | "scpt" | "ahk" => (Shell, GREY),
 
+        // 项目文件：Winc 及其他编辑器。
+        "winc-project" | "code-workspace" | "sublime-project" | "ipr" => (Project, PROJECT),
         // 配置和数据。
         "json" | "jsonc" | "json5" | "jsonl" | "ndjson" | "geojson" | "topojson" | "jsonld"
         | "har" | "webmanifest" => (Json, YELLOW),

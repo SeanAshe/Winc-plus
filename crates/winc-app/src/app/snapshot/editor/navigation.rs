@@ -492,6 +492,73 @@ fn back_and_forward_retrace_jumps() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+#[test]
+fn back_and_forward_visit_log_and_diff_tabs() {
+    use winc_editor::diff_view::{DiffSide, DiffView};
+
+    let dir = navigation_folder("tab-history");
+    let mut app = app_with(&dir, false);
+    app.open_path(&dir.join("main.py"));
+    app.track_navigation();
+    app.open_path(&dir.join("lib/util.py"));
+    app.track_navigation();
+    let file = app.editor.active().unwrap().id;
+
+    app.editor.show_log("Git Log");
+    app.track_navigation();
+    let log = app.editor.active().unwrap().id;
+
+    let language = winc_syntax::detect("diff.txt");
+    let view = DiffView::new(
+        DiffSide::new("old", "old\n", None, language),
+        DiffSide::new("new", "new\n", None, language),
+    );
+    app.editor.show_diff("diff.txt", view);
+    app.track_navigation();
+    let diff = app.editor.active().unwrap().id;
+
+    // 鼠标侧键后退：差异标签 → 日志标签 → 之前的文件标签。
+    app.on_mouse_down(MouseButton::Back);
+    assert_eq!(app.editor.active().unwrap().id, log);
+    app.on_mouse_down(MouseButton::Back);
+    assert_eq!(app.editor.active().unwrap().id, file);
+    // 前进按原路返回：文件标签 → 日志标签 → 差异标签。
+    app.on_mouse_down(MouseButton::Forward);
+    assert_eq!(app.editor.active().unwrap().id, log);
+    app.on_mouse_down(MouseButton::Forward);
+    assert_eq!(app.editor.active().unwrap().id, diff);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn back_keeps_the_caret_line_of_a_previewed_file() {
+    let dir = navigation_folder("preview-history");
+    let notes: String = (0..400).map(|i| format!("Line {i}.\n\n")).collect();
+    std::fs::write(dir.join("notes.md"), notes).unwrap();
+    let mut app = app_with(&dir, false);
+    app.open_path(&dir.join("notes.md"));
+    app.goto_line("301");
+    app.track_navigation();
+    app.set_preview_mode(winc_editor::PreviewMode::Preview);
+    app.track_navigation();
+    app.open_path(&dir.join("main.py"));
+    app.track_navigation();
+
+    let notes = app
+        .editor
+        .documents
+        .iter()
+        .position(|d| d.name() == "notes.md")
+        .unwrap();
+    app.close_tab(notes);
+    app.track_navigation();
+    app.navigate_history(false);
+    assert_eq!(where_am_i(&app), ("notes.md".to_owned(), 300));
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 /// 在 `dir` 中创建一个很长的 Python 文件并返回其路径。
 ///
 /// 开头是一个类，中间隔着 200 行赋值语句，最后是两个函数。

@@ -207,6 +207,8 @@ pub struct Session {
     pub folders: Vec<PathBuf>,
     /// 用户给这组目录起的名字；没有起名时为 `None`。
     pub name: Option<String>,
+    /// 这组目录所属的项目文件（见 [`crate::read_project`]）；不是从项目文件打开的为 `None`。
+    pub project: Option<PathBuf>,
     /// 打开着的标签中用户设为只读的文件。
     pub readonly: Vec<PathBuf>,
     /// 窗口是否把全部标签设为只读。
@@ -481,6 +483,7 @@ impl State {
                 readonly,
                 readonly_all: s.get("readOnlyAll").and_then(Json::as_bool) == Some(true),
                 name: s.get("name").and_then(Json::as_str).map(str::to_owned),
+                project: s.get("project").and_then(Json::as_str).map(PathBuf::from),
                 sidebar_hidden: (s.get("sidebarHidden").and_then(Json::as_bool)).unwrap_or(false),
                 window: (s.get("window").and_then(Json::as_object)).and_then(window_frame),
                 panes: s.get("panes").and_then(read_panes),
@@ -900,6 +903,9 @@ impl State {
             }
             if let Some(name) = &session.name {
                 items.push(("name", Json::String(name.clone())));
+            }
+            if let Some(project) = &session.project {
+                items.push(("project", path(project)));
             }
             // 展开是默认状态，不写。
             if session.sidebar_hidden {

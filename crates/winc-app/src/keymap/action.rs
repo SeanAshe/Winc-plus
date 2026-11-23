@@ -34,6 +34,10 @@ pub enum Action {
     OpenFolder,
     /// 把一个目录加为窗口的附加目录。
     AddFolder,
+    /// 把窗口中的目录另存为项目文件。
+    SaveProjectAs,
+    /// 选择项目文件并打开。
+    OpenProject,
     RemoteConnect,
     RemoteDisconnect,
     OpenRecent,
@@ -432,6 +436,8 @@ impl Action {
             OpenFile => t!("cmd-open-file"),
             OpenFolder => t!("cmd-open-folder"),
             AddFolder => t!("cmd-add-folder"),
+            SaveProjectAs => t!("cmd-save-project-as"),
+            OpenProject => t!("cmd-open-project"),
             RemoteConnect => t!("cmd-remote-connect"),
             RemoteDisconnect => t!("cmd-remote-disconnect"),
             OpenRecent => t!("cmd-open-recent"),
@@ -737,11 +743,11 @@ impl Action {
             | RecordKeys
             | InstallShellCommand
             | UninstallShellCommand => Group::General,
-            NewFile | OpenFile | OpenFolder | AddFolder | RemoteConnect | RemoteDisconnect
-            | Save | SaveAs | CloseTab | CloseOtherTabs | CloseAllTabs | ReopenClosed | NextTab
-            | PreviousTab | CloseFolder | CloseWindow | CopyPath | CopyRelativePath
-            | RevealInFinder | CopyActivePath | CopyKeyPath | RevealActiveFile | OpenInTerminal
-            | Quit => Group::File,
+            NewFile | OpenFile | OpenFolder | OpenProject | AddFolder | SaveProjectAs
+            | RemoteConnect | RemoteDisconnect | Save | SaveAs | CloseTab | CloseOtherTabs
+            | CloseAllTabs | ReopenClosed | NextTab | PreviousTab | CloseFolder | CloseWindow
+            | CopyPath | CopyRelativePath | RevealInFinder | CopyActivePath | CopyKeyPath
+            | RevealActiveFile | OpenInTerminal | Quit => Group::File,
             NewWindow | OpenRecent | CopyReference | CopyAbsoluteReference => Group::File,
             Undo
             | Redo

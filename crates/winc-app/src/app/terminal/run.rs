@@ -316,8 +316,7 @@ impl App {
 
     /// 窗口建好时读取运行配置和上次选中的配置：启动时恢复的目录不经过 `open_folder_now`。
     pub(in crate::app) fn load_run_configs_for_window(&mut self) {
-        let root = self.editor.root();
-        let session = root.and_then(|root| self.state.session_for(root));
+        let session = self.current_session();
         let selected = session.and_then(|session| session.run.clone());
         self.switch_run_configs(selected);
     }

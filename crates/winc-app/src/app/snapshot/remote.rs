@@ -12,6 +12,8 @@ use crate::app::git::form::FormKind;
 use crate::keymap::Action;
 use winc_pty::protocol::Modes;
 
+mod project;
+
 /// 在本进程内启动服务端并登记为到 `name` 的连接：该目标的虚拟路径指向本机的同名路径。
 fn loopback(name: &str) -> winc_backend::Target {
     let (requests, to_server) = std::io::pipe().unwrap();
@@ -528,6 +530,7 @@ fn a_folder_on_a_connected_host_opens_as_the_workspace() {
     local_only_actions_are_not_offered_on_a_remote_host();
     files_copied_in_a_remote_tree_are_pasted_there();
     remote_items_download_to_this_computer();
+    project::remote_folders_are_added_and_saved_as_a_project();
 }
 
 /// 截图：开始页、主机面板、目录面板（浏览与筛选）和打开远端目录后的窗口。
@@ -1095,7 +1098,7 @@ fn features_work_in_a_remote_workspace() {
 }
 
 /// 远端主机上的终端里粘贴剪贴板中的图片或本机文件：先传到那台主机上的缓存目录，再粘贴那里的
-/// 路径（那里的程序读不到本机的剪贴板）。本机的终端不变。由
+/// 路径（那里的程序读不到本机的剪贴板）。本机的终端把图片存成临时文件，再粘贴那个路径。由
 /// [`a_folder_on_a_connected_host_opens_as_the_workspace`] 调用，原因同
 /// [`folders_on_a_remote_host_are_not_taken_for_files`]。
 fn clipboard_images_pasted_into_a_remote_terminal_are_sent_there_first() {
@@ -1204,13 +1207,15 @@ fn clipboard_images_pasted_into_a_remote_terminal_are_sent_there_first() {
     let notice = app.notice.text.take().unwrap();
     assert!(notice.contains("太大"), "{notice}");
 
-    // 本机的终端不变：仍是一次空的括号粘贴，由程序自己读剪贴板；⌃V 也仍然发给程序。
+    // 本机的终端：图片存成临时文件，把路径粘进去。⌃V 仍然发给程序，只有远端标签才上传。
     app.clipboard.copied_files.clear();
-    app.clipboard.copied_image = Some(png);
+    app.clipboard.copied_image = Some(png.clone());
     app.terminal.tab_mut().unwrap().cwd = dir.as_os_str().as_bytes().to_vec();
     let before = app.input_sent_to(&log, id).len();
     app.terminal_paste();
-    assert_eq!(pasted(&app, before), "");
+    let path = pasted(&app, before);
+    assert!(path.contains("winc-paste"), "{path}");
+    assert_eq!(std::fs::read(&path).unwrap(), png);
     assert!(!app.ctrl_v_uploads());
 
     *crate::app::terminal::upload::CACHE.lock().unwrap() = None;

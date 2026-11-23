@@ -29,6 +29,8 @@ pub enum NoticeAction {
     SaveAsAdmin(DocumentId),
     /// 「查看更新日志」：在阅读标签中打开上次运行的版本（没有记录时为 `None`）之后的各版。
     ReleaseNotes(Option<String>),
+    /// 「打开项目」：打开该项目文件。
+    OpenProject(PathBuf),
 }
 
 /// 提示的种类，决定提示条左侧的图标和颜色。
@@ -78,6 +80,7 @@ impl NoticeAction {
             NoticeAction::ReleaseNotes(_) => t!("workspace-notice-release-notes"),
             NoticeAction::Reveal(_) => crate::system::reveal_label(),
             NoticeAction::SaveAsAdmin(_) => t!("workspace-save-admin"),
+            NoticeAction::OpenProject(_) => t!("workspace-notice-open-project"),
         }
     }
 }
@@ -214,6 +217,7 @@ impl App {
             NoticeAction::ReleaseNotes(previous) => {
                 self.open_release_notes(crate::release_notes::Scope::Since(previous));
             }
+            NoticeAction::OpenProject(file) => self.open_folder(&file),
         }
         self.request_redraw();
     }

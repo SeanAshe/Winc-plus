@@ -106,6 +106,14 @@ pub enum MenuCommand {
     RemoveFolder,
     /// 给窗口中的这组目录起名。
     RenameGroup,
+    /// 把窗口中的目录另存为项目文件。
+    SaveProjectAs,
+    /// 选择项目文件并打开。
+    OpenProject,
+    /// 保存尚无项目文件的项目。
+    SaveProject,
+    /// 关闭项目，窗口中是项目时代替「关闭目录」。
+    CloseProject,
     /// 最近列表第几项是一组目录时，其子菜单的第一项：打开这一组。
     OpenGroup(usize),
     /// 最近列表第几项这一组中的第几个目录（0 为打开的目录）：单独打开它。
@@ -566,6 +574,9 @@ impl MenuCommand {
             MenuCommand::AddFolder => t!("cmd-add-folder"),
             MenuCommand::RemoveFolder => t!("menu-remove-folder"),
             MenuCommand::RenameGroup => t!("menu-rename-group"),
+            MenuCommand::SaveProjectAs => t!("cmd-save-project-as"),
+            MenuCommand::OpenProject => t!("cmd-open-project"),
+            MenuCommand::SaveProject => t!("menu-save-project"),
             MenuCommand::OpenGroup(_) => t!("menu-open-group"),
             MenuCommand::GroupFolder(..) => "",
             MenuCommand::Reveal | MenuCommand::LocationReveal => crate::system::reveal_label(),
@@ -819,6 +830,7 @@ impl MenuCommand {
             MenuCommand::RemoteOther => t!("workspace-remote-other"),
             MenuCommand::RemoteDisconnect => t!("workspace-remote-disconnect"),
             MenuCommand::CloseFolder => t!("cmd-close-folder"),
+            MenuCommand::CloseProject => t!("menu-close-project"),
             MenuCommand::Cut => t!("cmd-cut"),
             MenuCommand::Copy => t!("cmd-copy"),
             MenuCommand::Paste => t!("cmd-paste"),
@@ -887,7 +899,7 @@ impl MenuCommand {
             MenuCommand::CloseAll => Action::CloseAllTabs,
             MenuCommand::NewWindow => Action::NewWindow,
             MenuCommand::OpenFolder => Action::OpenFolder,
-            MenuCommand::CloseFolder => Action::CloseFolder,
+            MenuCommand::CloseFolder | MenuCommand::CloseProject => Action::CloseFolder,
             MenuCommand::Cut => Action::Cut,
             MenuCommand::Copy => Action::Copy,
             MenuCommand::Paste => Action::Paste,

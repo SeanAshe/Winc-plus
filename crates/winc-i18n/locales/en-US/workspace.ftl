@@ -82,6 +82,7 @@ workspace-open-folder-where = Where do you want to open “{ $name }”?
 workspace-open-folder-where-detail = Opening it in this window closes “{ $current }” and its tabs and terminals.
 workspace-open-folder-this-window = This Window
 workspace-open-folder-new-window = New Window
+workspace-open-folder-attach = Add to This Project
 
 ## Start page
 
@@ -236,6 +237,8 @@ workspace-picker-remote-connected = Connected
 workspace-picker-remote-connect = Connect to { $host }
 workspace-picker-remote-open-here = Open This Folder
 workspace-picker-remote-hint-open = { common-key-enter } Open
+workspace-picker-remote-add-here = Add This Folder
+workspace-picker-remote-hint-add = { common-key-enter } Add
 workspace-picker-remote-hint-enter = { $platform ->
     [macos] ⇥ Enter Folder · ⌘↩ Open
    *[other] Tab Enter Folder · Ctrl+Enter Open
@@ -460,22 +463,32 @@ workspace-compare-identical = “{ $left }” and “{ $right }” are identical
 workspace-open-default-app-failed = Couldn’t open with the default app: { $error }
 workspace-reveal-failed = { $action } failed: { $error }
 workspace-add-folder-none = Open a folder first
-workspace-add-folder-remote = Adding folders isn’t supported for remote folders yet
-workspace-add-folder-overlaps = That folder is already in the window, or contains a folder that is
+workspace-add-folder-overlaps = That folder is already in the project, or contains one of its folders
 workspace-add-folder-failed = Couldn’t add “{ $name }”: { $error }
 workspace-add-folder-skipped = These folders are no longer available and were not restored: { $names }
-workspace-group-rename-title = Rename This Folder Group
+workspace-project-saved = Saved project “{ $name }”
+workspace-project-files = Project Files
+workspace-project-unsaved = Unsaved
+workspace-recent-project-tag = Project
+workspace-recent-project = { $name } (Project)
+workspace-project-file-opened = “{ $name }” is a project file
+workspace-notice-open-project = Open Project
+workspace-title-unsaved = { $name } (Unsaved)
+workspace-project-read-failed = Couldn’t open project “{ $name }”: { $error }
+workspace-project-invalid = “{ $name }” isn’t a valid project file
+workspace-project-write-failed = Couldn’t update project file “{ $name }”: { $error }
+workspace-group-rename-title = Rename Project
 workspace-group-rename-label = Name
-workspace-group-rename-placeholder = Leave empty to use the folder name
+workspace-group-rename-placeholder = Leave empty to use the first folder’s name
 workspace-group-rename-button = Rename
 workspace-group-count = { $name } +{ $count }
 workspace-drop-folder-ask = Add “{ $name }” as a folder, or open it?
 workspace-drop-folder-ask-copy = Add “{ $name }” as a folder, or copy it into “{ $folder }”?
-workspace-drop-folder-ask-detail = An added folder is listed beside the current one; opening replaces the current folder.
+workspace-drop-folder-ask-detail = An added folder joins the project beside the current one; opening replaces the current project.
 workspace-drop-folder-add = Add
 workspace-drop-folder-open = Open
 workspace-drop-folder-copy = Copy
-workspace-drop-folder-copy-detail = An added folder is listed beside the current one, and nothing on disk changes.
+workspace-drop-folder-copy-detail = An added folder joins the project beside the current one, and nothing on disk changes.
 workspace-remote-local-only = Files on a remote host can’t be opened with programs on this computer
 workspace-remote-reveal-unmapped = To show remote files here, add the local folder they are mounted at to remote.localFolders in the config file
 workspace-remote-terminal = Folders on a remote host open only in the built-in terminal; enable Terminal in Settings first
