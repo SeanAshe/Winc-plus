@@ -1257,8 +1257,8 @@ impl App {
     ///
     /// 目标是带提示的按钮时记录悬停开始的时刻，悬停足够久后才显示提示。
     pub(super) fn set_hover(&mut self, hover: Hover) {
-        // 窗口内的菜单覆盖在上方时，下方的部件均不视为悬停（`hover_at` 同样如此）。
-        let hover = if self.popup().is_some() {
+        // 窗口内的提示框或菜单覆盖在上方时，下方的部件均不视为悬停（`hover_at` 同样如此）。
+        let hover = if self.modal_open() {
             Hover::None
         } else {
             hover
