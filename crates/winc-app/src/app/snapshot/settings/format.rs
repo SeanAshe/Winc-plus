@@ -2,6 +2,40 @@
 
 use super::*;
 
+/// 项目声明了 `prettier-plugin-astro`、也装了 Prettier 时，Astro 自动出现在格式化页。
+#[cfg(unix)]
+#[test]
+fn astro_is_listed_when_the_prettier_plugin_is_declared() {
+    let dir = sample_folder("settings-format-astro");
+    std::fs::write(
+        dir.join("package.json"),
+        r#"{"devDependencies": {"prettier": "^3", "prettier-plugin-astro": "^0.14"}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("page.astro"),
+        "---\nconst a = 1;\n---\n<p>{a}</p>\n",
+    )
+    .unwrap();
+    let bin = dir.join("bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    winc_backend::testing::write_script(&bin.join("prettier"), "#!/bin/sh\ncat\n");
+
+    let mut app = app_with(&dir.join("page.astro"), false);
+    app.format.formatter = winc_editor::format::Formatter::with_vars(vec![(
+        std::ffi::OsString::from("PATH"),
+        bin.into_os_string(),
+    )]);
+    app.open_settings();
+    app.settings_show_page(SettingsPage::Format);
+    paint(&mut app);
+
+    assert!(app.settings.languages.format.contains(&"astro"));
+    let row = app.settings.format_row("astro").unwrap();
+    assert_eq!(row.tool, "Prettier");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn format_settings_list_the_languages_in_use() {
     let (mut app, dir) = format_settings_app("settings-format", false);

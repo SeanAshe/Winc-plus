@@ -465,16 +465,17 @@ fn draw_header(app: &mut App, frame: &mut Frame<'_>, card: Rect) {
     let p = app.palette;
     let header = Rect::new(card.x, card.y, card.w, header_height(card));
     let y = card.y + (header.h - TAB_H) / 2.0;
-    // 面板在右边时标签栏在顶栏那一行，右端让给窗口按钮（由应用绘制标题栏时）；最大化、侧栏
-    // 收起时面板伸到窗口左边，左端让给侧栏开关（macOS 上还有它左边的红绿灯）。
+    // 标签栏与窗口顶栏控件在纵向重叠时才让位：右侧让给窗口按钮，左侧让给侧栏开关。
+    let overlaps_header = |rect: Rect| rect.y < header.bottom() && rect.bottom() > header.y;
     let toggle = app.layout.sidebar_button;
-    let left = if toggle.y < header.bottom() && toggle.right() > card.x {
-        (card.x + tab_inset(card)).max(toggle.right() + TAB_GAP)
+    let tab_start = card.x + tab_inset(card);
+    let left = if overlaps_header(toggle) && toggle.right() > card.x {
+        tab_start.max(toggle.right() + TAB_GAP)
     } else {
-        card.x + tab_inset(card)
+        tab_start
     };
     let controls = app.layout.controls;
-    let end = if controls.w > 0.0 && controls.y < header.bottom() && controls.x < header.right() {
+    let end = if controls.w > 0.0 && overlaps_header(controls) && controls.x < header.right() {
         controls.x - TAB_GAP
     } else {
         header.right()

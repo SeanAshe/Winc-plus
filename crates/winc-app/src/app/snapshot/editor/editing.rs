@@ -4,6 +4,52 @@
 use super::*;
 use crate::keymap::Action;
 
+/// Astro 的 frontmatter 关键字在编辑区确实按语法色绘制，而不只是状态栏识别成 Astro。
+#[test]
+fn astro_frontmatter_uses_syntax_colors() {
+    let dir = sample_folder("astro-syntax-colors");
+    let file = dir.join("page.astro");
+    std::fs::write(
+        &file,
+        "---\nconst name = 'Astro';\n---\n<h1 class=\"title\">{name}</h1>\n",
+    )
+    .unwrap();
+    let mut app = app_with(&file, true);
+    paint(&mut app);
+
+    {
+        let doc = app.editor.active().unwrap();
+        assert_eq!(doc.highlighter.language().id, "astro");
+        assert_eq!(
+            doc.highlighter.known_state(0),
+            Some(winc_syntax::LineState::Start)
+        );
+    }
+
+    let keyword = app.palette.syntax_keyword;
+    let text = app.layout.text;
+    // 只看前两行：第 1 行的 `const` 是 frontmatter 的关键字。第 3 行的 `<h1>` 也会用
+    // `syntax_keyword` 着色（标签与关键字同色），把它算进来会让测试在 frontmatter
+    // 没有被识别时也通过。
+    let bottom = (text.y + app.fonts.line_height * 2.0).min(text.bottom());
+    let mut found = false;
+    let mut y = text.y;
+    while y < bottom && !found {
+        let mut x = text.x;
+        while x < text.right() {
+            if near(pixel(&app, (x, y)), keyword) {
+                found = true;
+                break;
+            }
+            x += 1.0;
+        }
+        y += 1.0;
+    }
+    assert!(found, "Astro frontmatter 关键字没有语法色");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn word_highlights_reuse_the_oldest_color_when_full() {
     let dir = sample_folder("word-highlight-rotation");
@@ -478,6 +524,11 @@ fn comments_follow_the_embedded_language() {
     let vue = "<template>\n  <div>{{ a }}</div>\n</template>\n<script>\nconst a = 1;\n</script>\n\
                <style>\n.a { color: red; }\n</style>\n";
     std::fs::write(dir.join("App.vue"), vue).unwrap();
+    std::fs::write(
+        dir.join("Page.astro"),
+        "---\nconst a = 1;\n---\n<div>{a}</div>\n",
+    )
+    .unwrap();
     std::fs::write(dir.join("notes.md"), "说明\n\n```rust\nlet a = 1;\n```\n").unwrap();
     let text = |app: &App| {
         app.editor
@@ -501,6 +552,17 @@ fn comments_follow_the_embedded_language() {
     assert_eq!(toggle(&mut app, 4), "const a = 1;");
     assert_eq!(toggle(&mut app, 7), "/* .a { color: red; } */");
     assert!(toggle(&mut app, 1).contains("<!-- <div>"), "{}", text(&app));
+
+    // Astro 的 frontmatter 是 TypeScript，注释写 `//`；模板仍是 HTML 注释。
+    app.open_path(&dir.join("Page.astro"));
+    paint(&mut app);
+    assert_eq!(toggle(&mut app, 1), "// const a = 1;");
+    assert_eq!(toggle(&mut app, 1), "const a = 1;");
+    assert!(
+        toggle(&mut app, 3).starts_with("<!-- <div>"),
+        "{}",
+        text(&app)
+    );
 
     app.open_path(&dir.join("notes.md"));
     paint(&mut app);

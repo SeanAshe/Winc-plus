@@ -502,6 +502,47 @@ fn snapshot_terminal_tabs() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+#[test]
+fn bottom_terminal_header_tracks_the_panel_during_sidebar_animation() {
+    use crate::app::animation::{Clock, SIDEBAR_ANIMATION};
+    use crate::app::terminal::tab_inset;
+    use crate::app::workspace::tree::SidebarMotion;
+
+    let dir = sample_folder("terminal-sidebar-animation");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    app.config.terminal_right = Some(false);
+    app.config.terminal_vertical_tabs = Some(false);
+    app.window.controls = true;
+    app.set_sidebar(true);
+    show_terminal(&mut app, "$ ");
+    paint(&mut app);
+    let open_x = app.layout.terminal.x;
+
+    for visible in [false, true] {
+        app.set_sidebar(visible);
+        for step in 1..=4 {
+            app.panels.sidebar.motion = (step < 4).then(|| SidebarMotion {
+                from: if visible { 0.0 } else { 1.0 },
+                clock: Clock::stopped(SIDEBAR_ANIMATION, SIDEBAR_ANIMATION * step / 4),
+            });
+            paint(&mut app);
+            let panel = app.layout.terminal;
+            if !visible && step == 3 {
+                // 侧栏还在收起，终端面板的左边已移到侧栏开关右缘的左侧。
+                assert!(panel.x < app.layout.sidebar_button.right());
+            }
+            let tab = header_hit(&app, HeaderHit::Tab(0));
+            assert_eq!(tab.x, panel.x + tab_inset(panel), "{visible} {step}");
+            // 窗口按钮在另一行，隐藏面板按钮仍贴着面板右端。
+            let hide = header_hit(&app, HeaderHit::Hide);
+            assert!(hide.right() > app.layout.controls.x);
+        }
+    }
+    assert_eq!(app.layout.terminal.x, open_x);
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 /// 应用绘制标题栏、终端面板在右边时：面板的标签栏在顶栏那一行，右端的两个按钮排在窗口按钮
 /// 左边，不叠在一起。
 #[test]

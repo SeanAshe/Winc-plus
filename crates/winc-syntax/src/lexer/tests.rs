@@ -3,6 +3,9 @@
 use super::*;
 use crate::lang::detect;
 
+mod astro;
+mod template;
+
 fn lex(file: &str, line: &str, state: LineState) -> (Vec<(String, TokenKind)>, LineState) {
     let chars: Vec<char> = line.chars().collect();
     let mut tokens = Vec::new();
@@ -1215,6 +1218,21 @@ fn markdown_fences_highlight_by_language() {
     // HTML 代码块中按标签着色。
     let (_, next) = lex("a.md", "```html", LineState::Normal);
     let (tokens, _) = lex("a.md", "<p class=\"a\">x</p>", next);
+    assert_eq!(tokens[0], ("p".into(), TokenKind::Tag));
+
+    // Astro 代码块同样识别开头的 frontmatter。
+    let (_, next) = lex("a.md", "```astro", LineState::Normal);
+    let (tokens, next) = lex("a.md", "---", next);
+    assert_eq!(tokens, vec![("---".into(), TokenKind::Decorator)]);
+    // 跨行的块注释也保持在 frontmatter 中，后面的代码仍按 TypeScript 着色。
+    let (tokens, next) = lex("a.md", "/* note", next);
+    assert_eq!(tokens, vec![("/* note".into(), TokenKind::Comment)]);
+    let (tokens, next) = lex("a.md", "still note */", next);
+    assert_eq!(tokens, vec![("still note */".into(), TokenKind::Comment)]);
+    let (tokens, next) = lex("a.md", "const a = 1;", next);
+    assert_eq!(tokens[0], ("const".into(), TokenKind::Keyword));
+    let (_, next) = lex("a.md", "---", next);
+    let (tokens, _) = lex("a.md", "<p>", next);
     assert_eq!(tokens[0], ("p".into(), TokenKind::Tag));
 }
 

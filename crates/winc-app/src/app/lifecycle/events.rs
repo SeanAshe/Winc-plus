@@ -298,6 +298,17 @@ impl ApplicationHandler<UserEvent> for App {
     }
 
     fn window_event(&mut self, _event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        if matches!(
+            event,
+            WindowEvent::KeyboardInput { .. }
+                | WindowEvent::Ime(_)
+                | WindowEvent::MouseInput {
+                    state: ElementState::Pressed,
+                    ..
+                }
+        ) {
+            self.notice_focus_from_input();
+        }
         match event {
             WindowEvent::CloseRequested => self.request_close_window(),
             WindowEvent::RedrawRequested => self.redraw(),
@@ -311,6 +322,10 @@ impl ApplicationHandler<UserEvent> for App {
             WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. } => {
                 self.cancel_touch();
                 self.window_frame_changed();
+                // 最小化时尺寸为 0：保留此前的排版，还原时按实际尺寸重新排版。
+                if self.note_minimized() {
+                    return;
+                }
                 if let Some(renderer) = &mut self.frame.renderer {
                     renderer.resize();
                 }
@@ -332,28 +347,16 @@ impl ApplicationHandler<UserEvent> for App {
                 if focused && let Some(window) = &self.window.handle {
                     crate::windows::raise_file_dialog(window);
                 }
-                self.window.focused = focused;
-                self.update_foreground(focused);
-                // 离开窗口时停止录制按键，菜单项的快捷键随之恢复，不影响别的窗口和应用。
-                if !focused {
-                    self.cancel_touch();
-                    self.set_recording(false);
-                }
-
-                if focused {
-                    self.check_disk();
-                    self.reset_blink();
-                    self.terminal_window_focused();
-                    // 其他 winc 窗口可能修改了最近列表，重新读取后开始页和项目菜单显示最新内容。
-                    self.reload_state();
-                } else {
-                    self.cancel_chord();
-                    let ids: Vec<DocumentId> = self.editor.documents.iter().map(|d| d.id).collect();
-                    self.auto_save(&ids);
-                    self.drop_drags();
-                }
-
-                self.request_redraw();
+                // winit 0.30 在 macOS 上可能先送达 `Focused(true)`，再送达创建窗口时排队的
+                // `Focused(false)`，此后直到再次切换应用才有 `Focused(true)`：以窗口当前是否为
+                // 键盘窗口为准。
+                #[cfg(target_os = "macos")]
+                let focused = self
+                    .window
+                    .handle
+                    .as_ref()
+                    .map_or(focused, |w| w.has_focus());
+                self.focus_changed(focused);
             }
             // 窗口被完全遮挡、最小化或移到其他桌面时同样视为后台，恢复时按焦点状态处理。
             // 完全不可见时不绘制，并将呈现缓冲标记为可清除（打开多个窗口时只有可见窗口占用缓冲）；
@@ -442,6 +445,44 @@ impl ApplicationHandler<UserEvent> for App {
 }
 
 impl App {
+    /// 窗口获得或失去焦点时的处理：光标闪烁、检查磁盘上的改动、自动保存等。
+    pub(in crate::app) fn focus_changed(&mut self, focused: bool) {
+        self.window.focused = focused;
+        self.update_foreground(focused);
+        // 离开窗口时停止录制按键，菜单项的快捷键随之恢复，不影响别的窗口和应用。
+        if !focused {
+            self.cancel_touch();
+            self.set_recording(false);
+        }
+
+        if focused {
+            self.check_disk();
+            self.reset_blink();
+            self.terminal_window_focused();
+            // 其他 winc 窗口可能修改了最近列表，重新读取后开始页和项目菜单显示最新内容。
+            self.reload_state();
+        } else {
+            self.cancel_chord();
+            let ids: Vec<DocumentId> = self.editor.documents.iter().map(|d| d.id).collect();
+            self.auto_save(&ids);
+            self.drop_drags();
+        }
+
+        self.request_redraw();
+    }
+
+    /// 收到按键、输入法或鼠标按下时调用：记为失去焦点而系统窗口其实持有焦点时，按获得焦点
+    /// 处理。
+    ///
+    /// 这些输入只发给持有焦点的窗口。系统的焦点事件缺失或顺序颠倒时（见 `Focused` 的处理），
+    /// 窗口会一直按失去焦点处理，编辑区不显示光标。没有系统窗口时按持有焦点处理。
+    pub(in crate::app) fn notice_focus_from_input(&mut self) {
+        let key = self.window.handle.as_ref().is_none_or(|w| w.has_focus());
+        if !self.window.focused && key {
+            self.focus_changed(true);
+        }
+    }
+
     /// 处理送回事件循环的事件 `event`。
     ///
     /// 提示框由窗口自行绘制时，选中按钮的事件同样直接交给此处。

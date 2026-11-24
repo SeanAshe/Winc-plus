@@ -26,7 +26,7 @@ impl Cx<'_, '_> {
         };
         let room = (width - pad * 2.0 - gutter).max(size);
         let language = winc_syntax::find(lang);
-        let mut state = winc_syntax::LineState::default();
+        let mut state = language.map_or(winc_syntax::LineState::Normal, |l| l.start_state());
         let bg_at = out.len();
         let mut top = y + pad;
         let mut first_baseline = None;

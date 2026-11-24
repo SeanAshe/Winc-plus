@@ -1330,16 +1330,17 @@ impl Document {
     }
 }
 
-/// 是否第 `line` 行（从 0 起）的开头处于多行字符串或块注释中。
+/// 是否第 `line` 行（从 0 起）的开头处于跨行的非普通代码结构中（见
+/// [`LineState::is_quoted`]）。
 ///
 /// 普通文档只使用已经推算好的高亮状态，不向后推算，尚未推算到的行视为不在其中；大文件按
 /// `HIGHLIGHT_LOOKBACK` 回看推算。
 pub(crate) fn starts_quoted(highlighter: &mut Highlighter, text: &Content, line: usize) -> bool {
     match text {
         Content::Rope(rope) => rope_starts_quoted(highlighter, rope, line),
-        Content::Large(large) => {
-            highlighter.state_near(&**large, line, HIGHLIGHT_LOOKBACK) != LineState::Normal
-        }
+        Content::Large(large) => highlighter
+            .state_near(&**large, line, HIGHLIGHT_LOOKBACK)
+            .is_quoted(),
     }
 }
 
@@ -1347,5 +1348,5 @@ pub(crate) fn starts_quoted(highlighter: &mut Highlighter, text: &Content, line:
 pub(crate) fn rope_starts_quoted(highlighter: &mut Highlighter, rope: &Rope, line: usize) -> bool {
     highlighter
         .state_at(rope, line, 0)
-        .is_some_and(|s| s != LineState::Normal)
+        .is_some_and(LineState::is_quoted)
 }

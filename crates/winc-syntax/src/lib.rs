@@ -30,7 +30,7 @@ pub struct Highlighter {
     /// 长度等于已推算的行数，且不小于 1。
     states: Vec<LineState>,
     /// 大文件按 [`Self::state_near`] 推算出的一段连续行首状态：`near[i]` 是第
-    /// `near_from + i` 行行首的状态，`near[0]` 从 `Normal` 开始推算。
+    /// `near_from + i` 行行首的状态，`near[0]` 从 [`Language::start_state`] 开始推算。
     ///
     /// 为空时没有可用的结果。
     near: Vec<LineState>,
@@ -41,11 +41,11 @@ pub struct Highlighter {
 }
 
 impl Highlighter {
-    /// 创建只含第 0 行行首状态（`Normal`）的高亮状态。
+    /// 创建只含第 0 行行首状态（[`Language::start_state`]）的高亮状态。
     pub fn new(language: &'static Language) -> Self {
         Self {
             language,
-            states: vec![LineState::Normal],
+            states: vec![language.start_state()],
             near: Vec::new(),
             near_from: 0,
             chars: Vec::new(),
@@ -119,7 +119,10 @@ impl Highlighter {
         Some(state)
     }
 
-    /// 返回第 `line` 行行首的状态，从 `line` 之前 `lookback` 行处按 `Normal` 开始推算。
+    /// 返回第 `line` 行行首的状态，从 `line` 之前 `lookback` 行处开始推算。
+    ///
+    /// 推算起点是第 0 行时按 [`Language::start_state`]（通常是 `Normal`）开始，否则按
+    /// `Normal` 开始。
     ///
     /// 查看大文件末尾时无需从文件开头扫描；代价是跨度超过 `lookback` 行的块注释和多行
     /// 字符串可能着色错误。
@@ -129,7 +132,11 @@ impl Highlighter {
         let end = self.near_from + self.near.len();
         if self.near.is_empty() || line < self.near_from || line > end + lookback {
             self.near_from = line.saturating_sub(lookback);
-            self.near = vec![LineState::Normal];
+            self.near = vec![if self.near_from == 0 {
+                self.language.start_state()
+            } else {
+                LineState::Normal
+            }];
         }
         let (language, chars, near) = (self.language, &mut self.chars, &mut self.near);
         let from = self.near_from;

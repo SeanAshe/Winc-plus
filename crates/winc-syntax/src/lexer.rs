@@ -22,6 +22,8 @@ pub enum LineState {
     /// 没有跨越行首的结构。
     #[default]
     Normal,
+    /// 文件的第一行：Astro 的首行 `---` 开始 frontmatter，其余语言与 [`LineState::Normal`] 相同。
+    Start,
     /// 块注释：`index` 是 [`Language::block_comments`] 中的下标，`depth` 是嵌套层数（从 1 起）。
     BlockComment {
         /// 块注释写法的下标。
@@ -86,6 +88,11 @@ pub enum LineState {
         /// 内嵌语言的行首状态的紧凑编码。
         inner: u8,
     },
+    /// Astro 的 frontmatter 内容（文件开头 `---` 之间的 TypeScript）。
+    Frontmatter {
+        /// TypeScript 行首状态的紧凑编码，见 `compact`。
+        inner: u8,
+    },
     /// 样式表中跨行的声明值（`font-family:` 之后以逗号结尾的续行）。
     StyleValue,
     /// YAML 块标量的内容（[`Language::block_scalars`]）。
@@ -98,13 +105,37 @@ impl LineState {
     /// 返回行首所在内嵌代码（`<script>`、`<style>`、Markdown 代码块）的语言，`<style>` 按 CSS。
     pub fn embedded_language(self) -> Option<&'static Language> {
         match self {
-            LineState::Embedded { script: true, .. } => Some(crate::lang::embedded(true)),
+            LineState::Embedded { script: true, .. } | LineState::Frontmatter { .. } => {
+                Some(crate::lang::embedded(true))
+            }
             LineState::Embedded { script: false, .. } => crate::lang::find("css"),
             LineState::Fence { language, .. } => crate::lang::language_at(language),
             _ => None,
         }
     }
+
+    /// 行首是否处于跨行的非普通代码结构中。
+    ///
+    /// 多行字符串、块注释、标签内部、内嵌代码与代码块等结构中的行都是这样的行。文件第一行和
+    /// Astro 模板中的 frontmatter 属于代码，不算其中；frontmatter 内容按内层 TypeScript 的
+    /// 状态判断。
+    pub fn is_quoted(self) -> bool {
+        match self {
+            LineState::Normal | LineState::Start => false,
+            LineState::Frontmatter { inner } => !matches!(expand(inner), LineState::Normal),
+            _ => true,
+        }
+    }
 }
+
+/// TypeScript 的块注释在 [`compact`] 中的编码：`index` 为 0，不嵌套，层数为 1。
+const FRONTMATTER_COMMENT_INNER: u8 = 0x40 | 1;
+
+/// 紧凑编码中表示 frontmatter 内容停在块注释里。
+///
+/// `0x30 | n` 只放得下 `n` 小于 16 的内层状态；块注释的编码是 [`FRONTMATTER_COMMENT_INNER`]，
+/// 这里单独用一个值保留“仍在 frontmatter 中”，内层状态由 [`expand`] 恢复。
+const FRONTMATTER_COMMENT: u8 = 11;
 
 /// 把内嵌代码（HTML 中的脚本与样式、Markdown 代码块）的行首状态编码成一个字节。
 ///
@@ -112,13 +143,17 @@ impl LineState {
 /// 的状态（here 文档、C++ 原始字符串、YAML 块标量、再次内嵌的代码）按 `Normal` 处理，只影响
 /// 内嵌代码中的那一处。
 ///
-/// - `0` 到 `9`：不带数据的状态。
+/// - `0` 到 `10`：不带数据的状态。
+/// - `11`：frontmatter 中的块注释（见 [`FRONTMATTER_COMMENT`]）。
 /// - `0x10 | i`：块字符串 `i`（`i` 小于 16）。
 /// - `0x20 | k`：标签内部（`k` 小于 16）。
+/// - `0x30 | n`：Astro frontmatter 的内层状态（`n` 小于 16）；放不下时为 `0x30`，内层按
+///   `Normal` 处理。
 /// - `0x40 | 下标 << 3 | 层数`：块注释（下标和层数都小于 8）。
 /// - `0x80 | n`、`0xC0 | n`：长括号字符串和注释（`n` 小于 64）。
 fn compact(state: LineState) -> u8 {
     match state {
+        LineState::Start => 10,
         LineState::Backtick => 1,
         LineState::StyleValue => 2,
         LineState::TripleDouble => 3,
@@ -130,6 +165,12 @@ fn compact(state: LineState) -> u8 {
         LineState::Raw2 => 9,
         LineState::BlockString(index) if index < 0x10 => 0x10 | index,
         LineState::Tag(kind) if kind < 0x10 => 0x20 | kind,
+        LineState::Frontmatter { inner } if inner < 0x10 => 0x30 | inner,
+        LineState::Frontmatter {
+            inner: FRONTMATTER_COMMENT_INNER,
+        } => FRONTMATTER_COMMENT,
+        // 内层状态放不下时只丢掉内层状态，仍留在 frontmatter 中，之后的行不按模板着色。
+        LineState::Frontmatter { .. } => 0x30,
         LineState::BlockComment { index, depth } if index < 8 && depth < 8 => {
             0x40 | index << 3 | depth
         }
@@ -142,6 +183,10 @@ fn compact(state: LineState) -> u8 {
 /// [`compact`] 的逆变换。
 fn expand(inner: u8) -> LineState {
     match inner {
+        10 => LineState::Start,
+        11 => LineState::Frontmatter {
+            inner: FRONTMATTER_COMMENT_INNER,
+        },
         1 => LineState::Backtick,
         2 => LineState::StyleValue,
         3 => LineState::TripleDouble,
@@ -153,6 +198,9 @@ fn expand(inner: u8) -> LineState {
         9 => LineState::Raw2,
         0x10..=0x1F => LineState::BlockString(inner & 0x0F),
         0x20..=0x2F => LineState::Tag(inner & 0x0F),
+        0x30..=0x3F => LineState::Frontmatter {
+            inner: inner & 0x0F,
+        },
         0x40..=0x7F => LineState::BlockComment {
             index: (inner >> 3) & 7,
             depth: (inner & 7).max(1),

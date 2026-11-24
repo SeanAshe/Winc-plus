@@ -426,6 +426,58 @@ pub(super) static SVELTE: Language = Language {
     ..HTML
 };
 
+/// Astro 组件的规则，其余字段沿用 HTML；文件开头的 `---` 之间是 TypeScript。
+pub(super) static ASTRO: Language = Language {
+    id: "astro",
+    name: "Astro",
+    extensions: &["astro"],
+    frontmatter: true,
+    ..HTML
+};
+
+/// Liquid 模板的规则，其余字段沿用 HTML：`{{ … }}` 与 `{% … %}` 是模板标签，
+/// `{% comment %}` 与 `{% endcomment %}` 之间是注释。
+///
+/// 注释的写法只识别不带去除空白标记（`{%-`）的形式；切换注释使用这一种。
+pub(super) static LIQUID: Language = Language {
+    id: "liquid",
+    name: "Liquid",
+    extensions: &["liquid"],
+    block_comments: &[("{% comment %}", "{% endcomment %}"), ("<!--", "-->")],
+    template_tags: true,
+    ..HTML
+};
+
+/// Nunjucks 模板的规则，其余字段沿用 HTML：`{{ … }}` 与 `{% … %}` 是模板标签，`{# … #}` 是
+/// 注释，切换注释使用这一种。
+pub(super) static NUNJUCKS: Language = Language {
+    id: "nunjucks",
+    name: "Nunjucks",
+    extensions: &["njk", "nunjucks"],
+    block_comments: &[("{#", "#}"), ("<!--", "-->")],
+    template_tags: true,
+    ..HTML
+};
+
+/// Liquid 与 Nunjucks 模板标签内部表达式的规则；不在语言表中，不按文件识别。
+///
+/// 两种模板共用一份：关键字是表达式中的运算符与修饰词，标签名（`if`、`for`、`assign`）由模板
+/// 标签的规则按关键字着色；`#` 开始 Liquid 的行内注释（`{% # 说明 %}`）。
+pub(super) static TEMPLATE_EXPRESSIONS: Language = Language {
+    id: "template-expression",
+    name: "Template Expression",
+    keywords: &[
+        "and", "or", "not", "in", "is", "if", "else", "as", "with", "without", "contains",
+        "context", "only", "ignore", "missing",
+    ],
+    builtins: &[
+        "true", "false", "nil", "null", "none", "True", "False", "None", "empty", "blank",
+    ],
+    line_comments: &["#"],
+    single_quote_string: true,
+    ..CODE
+};
+
 /// 微信小程序的 WXML 的规则，其余字段沿用 HTML；`<wxs>` 中的 WXS 按脚本着色。
 pub(super) static WXML: Language = Language {
     id: "wxml",

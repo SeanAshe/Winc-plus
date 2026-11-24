@@ -59,10 +59,14 @@ impl Lexer<'_> {
         }
         self.push(indent, n, TokenKind::String);
         let info: String = chars[run_end..].iter().collect();
+        let language = fence_language(&info);
         Some(LineState::Fence {
             tilde: marker == Some('~'),
-            language: fence_language(&info).unwrap_or(u8::MAX),
-            inner: 0,
+            language: language.unwrap_or(u8::MAX),
+            // Astro 代码块的首行 `---` 同样开始 frontmatter。
+            inner: language
+                .and_then(language_at)
+                .map_or(0, |language| compact(language.start_state())),
         })
     }
 

@@ -72,7 +72,8 @@ pub(crate) struct Laid {
     /// 比正文宽的表格的横向滚动位置（逻辑像素）：键为（顶层块序号，块中表格的序号，见
     /// [`LaidBlock::scrolls`]）。重排后按序号沿用。
     pub(crate) hscroll: HashMap<(usize, usize), f32>,
-    /// 上一次横向滚动使其可见的光标位置（原文字节偏移），见 [`Laid::follow_caret`]。
+    /// 上一次横向滚动使其可见的光标位置（原文字节偏移），见 [`Laid::follow_caret`]。文字和
+    /// 光标都未变时重排后沿用。
     pub(crate) followed: Option<usize>,
     /// 各顶层块是否仍沿用旧条件下的排版结果（见 [`Later`]）；全部按当前条件排好时为空。
     pub(crate) stale: Vec<bool>,

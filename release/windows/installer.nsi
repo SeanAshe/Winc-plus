@@ -148,6 +148,7 @@ LangString OpenFolderVerb ${LANG_SIMPCHINESE} "在 Winc 中打开"
   !insertmacro ${Action} KT code
   !insertmacro ${Action} KTS code
   !insertmacro ${Action} LESS style
+  !insertmacro ${Action} LIQUID markup
   !insertmacro ${Action} LOG text
   !insertmacro ${Action} LTX markup
   !insertmacro ${Action} LUA code
@@ -168,7 +169,9 @@ LangString OpenFolderVerb ${LANG_SIMPCHINESE} "在 Winc 中打开"
   !insertmacro ${Action} MTS typescript
   !insertmacro ${Action} NDJSON json
   !insertmacro ${Action} NIX code
+  !insertmacro ${Action} NJK markup
   !insertmacro ${Action} NOMAD code
+  !insertmacro ${Action} NUNJUCKS markup
   !insertmacro ${Action} NUSPEC markup
   !insertmacro ${Action} PATCH text
   !insertmacro ${Action} PDF text
