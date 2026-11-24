@@ -1244,6 +1244,18 @@ impl Document {
     ///
     /// 只读文档忽略。
     pub fn apply(&mut self, transaction: Transaction) {
+        self.apply_as(transaction, false);
+    }
+
+    /// 应用一个事务，并入撤销栈顶的撤销单元（见 `History::amend`）。
+    ///
+    /// 只读文档忽略。
+    pub fn amend(&mut self, transaction: Transaction) {
+        self.apply_as(transaction, true);
+    }
+
+    /// [`Document::apply`] 与 [`Document::amend`] 的实现。
+    fn apply_as(&mut self, transaction: Transaction, amend: bool) {
         if self.readonly || self.locked || self.all_locked {
             return;
         }
@@ -1261,7 +1273,11 @@ impl Document {
 
         if !transaction.changes.is_empty() {
             let first = transaction.first_offset();
-            self.history.push(transaction);
+            if amend {
+                self.history.amend(transaction);
+            } else {
+                self.history.push(transaction);
+            }
             self.after_change(first);
         }
         // 事务不含其余选区时，文本改动后其余选区随版本号变化自动失效；含其余选区时按事务恢复。

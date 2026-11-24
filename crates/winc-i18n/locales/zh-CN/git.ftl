@@ -47,6 +47,7 @@ git-branch-compare-with-current = 与当前分支比较
 git-stash-group = 储藏
 git-stash-more-files = 还有 { $count } 个文件
 git-stash-more = 另有 { $count } 个储藏…
+git-stash-too-many = Windows 上一次储藏的文件过多。请选中整个文件夹，或分几次储藏。
 git-stash-no-files = 此储藏中无可显示的更改
 git-stash-apply = 应用
 git-stash-pop = 应用并删除

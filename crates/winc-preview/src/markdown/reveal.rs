@@ -32,6 +32,24 @@ pub fn reveal(text: &str, caret: Option<usize>, insert: Option<&str>) -> Block {
             ..Inline::default()
         });
     }
+    // 空段落（块之间多出的空行）上组字：只有组字的文字。
+    if text.trim().is_empty()
+        && let (Some(_), Some(insert)) = (caret, insert)
+    {
+        let mut out = Out {
+            insert: Some((0, insert.to_owned())),
+            ..Out::default()
+        };
+        // 组字的文字对应段落的起点，光标和候选框排在组字之后。
+        out.map.push(0, 0, 0);
+        out.flush();
+        return Block::Paragraph(Inline {
+            text: out.text,
+            runs: out.runs,
+            map: out.map,
+            ..Inline::default()
+        });
+    }
     let parsed = parse(plain);
     let (heading, inline) = match parsed.blocks.as_slice() {
         [Block::Paragraph(inline)] => (None, inline),

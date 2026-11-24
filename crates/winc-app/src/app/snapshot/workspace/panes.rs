@@ -368,6 +368,69 @@ fn pane_commands_are_unavailable_without_a_split() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 前台窗格中第 `index` 个标签的中点。
+fn tab_point(app: &App, index: usize) -> (f32, f32) {
+    let rect = app.hits.tabs.iter().find(|h| h.index == index).unwrap().tab;
+    (rect.x + 20.0, rect.y + rect.h / 2.0)
+}
+
+#[test]
+fn the_tab_menu_counts_only_the_tabs_of_its_pane() {
+    use MenuCommand::*;
+    let dir = sample_folder("panes-tab-menu");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    app.open_path(&dir.join("src/main.rs"));
+    // 右侧窗格只有未保存的 main.rs，左侧窗格保留已保存的 short.rs。
+    app.run_action(Action::MoveToSplitRight);
+    app.run(Command::Insert("// x\n".into()));
+    paint(&mut app);
+    assert_eq!(app.editor.tab_count(), 1);
+
+    let at = tab_point(&app, 0);
+    right_click(&mut app, at);
+    let commands = menu_commands(&app);
+    for command in [
+        CloseOthers,
+        CloseLeft,
+        CloseRight,
+        CloseSaved,
+        MoveToSplitRight,
+        MoveToSplitDown,
+    ] {
+        assert!(commands.contains(&(command, false)), "{command:?}");
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_stale_selection_stays_within_its_pane() {
+    let dir = sample_folder("panes-tab-selection");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    app.open_path(&dir.join("src/main.rs"));
+    let short = app.editor.tabs()[0].id;
+    let main = app.editor.tabs()[1].id;
+    // 右侧窗格同样打开 short.rs；在左侧窗格选中两个标签后，关闭其中的 short.rs。
+    app.activate_tab(0);
+    app.run_action(Action::SplitRight);
+    paint(&mut app);
+    let left = app.panes.rects[0];
+    click(&mut app, (left.editor.x + 120.0, left.editor.y + 60.0));
+    app.activate_tab(0);
+    app.select_tab_range(1);
+    app.close_tab(0);
+    paint(&mut app);
+    assert_eq!(app.tabs.marked, [short, main]);
+    assert_eq!(app.tab_selection(), [main]);
+
+    let at = tab_point(&app, 0);
+    right_click(&mut app, at);
+    assert!(menu_commands(&app).contains(&(MenuCommand::CloseRight, false)));
+    app.run_menu_command(MenuCommand::CloseRight);
+    assert_eq!(app.editor.tabs()[0].id, main);
+    assert!(app.editor.document(short).is_some());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn files_dropped_at_a_pane_edge_open_in_a_new_split() {
     let dir = sample_folder("panes-file-drop");
@@ -433,5 +496,79 @@ fn shoot_split_panes() {
     app.focus = Focus::Editor;
     app.relayout();
     shoot(&mut app, "split-panes");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 回归：编辑区卡片的圆角按整张卡片修整。此前按前台窗格的编辑区计算，上下拆分、前台在上时
+/// 圆角修在了两个窗格之间，卡片底部反而是直角；三栏合并时同样修在了操作栏上沿。
+#[test]
+fn the_editor_card_keeps_its_corners_when_split() {
+    let dir = sample_folder("panes-corners");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    app.panels.sidebar.visible = true;
+    app.relayout();
+    paint(&mut app);
+    let card = app.editor_card();
+    let bar = app.layout.top_bar;
+    assert_eq!((card.x, card.right(), card.y), (bar.x, bar.right(), bar.y));
+
+    app.run_action(Action::SplitDown);
+    paint(&mut app);
+    let top = app.panes.rects[0];
+    app.focus_pane(top.id);
+    paint(&mut app);
+    assert_eq!(app.editor.panes.focused, top.id);
+    let card = app.editor_card();
+    let frame = app.palette.frame_bg;
+    // 卡片底部的两个角在圆弧外侧露出窗口底色；上面窗格的底边在卡片中间，不修圆角。
+    assert!(near(
+        pixel(&app, (card.x + 0.5, card.bottom() - 0.5)),
+        frame
+    ));
+    assert!(near(
+        pixel(&app, (card.right() - 0.5, card.bottom() - 0.5)),
+        frame
+    ));
+    let inner = top.editor;
+    assert!(!near(
+        pixel(&app, (inner.x + 0.5, inner.bottom() - 0.5)),
+        frame
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 拆分、合并时各窗格一开始就在最终的位置，变化之前的画面在上面淡出。
+#[test]
+fn panes_crossfade_when_split_and_merged() {
+    let dir = sample_folder("panes-motion");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    app.panes.animate_without_window = true;
+    paint(&mut app);
+    let whole = app.layout.editor;
+
+    app.run_action(Action::SplitRight);
+    assert!(app.panes.motion.is_some());
+    paint(&mut app);
+    let right = app.panes.rects[1].whole;
+    let line = app.panes.dividers[0].line;
+    let at = (line.x + 0.5, line.y + line.h / 2.0);
+    // 刚开始时画面还是拆分之前的，结束时是新布局。
+    app.freeze_pane_motion(std::time::Duration::ZERO);
+    paint(&mut app);
+    let start = pixel(&app, at);
+    app.freeze_pane_motion(std::time::Duration::from_secs(1));
+    paint(&mut app);
+    let end = pixel(&app, at);
+    assert_ne!(start, end);
+    app.settle_animations();
+    assert!(app.panes.motion.is_none());
+    paint(&mut app);
+    assert_eq!(app.panes.rects[1].whole, right);
+    assert_eq!(pixel(&app, at), end);
+
+    app.run_action(Action::Unsplit);
+    assert!(app.panes.motion.is_some());
+    paint(&mut app);
+    assert_eq!(app.layout.editor, whole);
     let _ = std::fs::remove_dir_all(&dir);
 }

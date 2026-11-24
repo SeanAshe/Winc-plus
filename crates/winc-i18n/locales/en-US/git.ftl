@@ -53,6 +53,7 @@ git-stash-more = { $count ->
     [one] 1 more stash…
    *[other] { $count } more stashes…
 }
+git-stash-too-many = Too many files are selected to stash at once on Windows. Select whole folders, or stash in several parts.
 git-stash-no-files = This stash has no changes to show
 git-stash-apply = Apply
 git-stash-pop = Pop

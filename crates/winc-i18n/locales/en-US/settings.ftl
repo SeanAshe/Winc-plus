@@ -157,6 +157,9 @@ settings-terminal-shell-integration = Shell Integration
 settings-terminal-application-priority = Terminal Application Priority
 settings-terminal-option-as-meta = Meta Key
 settings-key-search = Search Shortcuts
+settings-key-matches = Command Shortcuts
+settings-key-matches-desc = Commands whose name or keys match the search
+settings-key-matches-show = Show { $count }
 
 ## Setting descriptions.
 

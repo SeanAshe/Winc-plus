@@ -254,3 +254,20 @@ fn shoot_setup_keys() {
         shoot(&mut app, &format!("setup-keys-{theme}"));
     }
 }
+
+/// 回归：修改快捷键后保存或放弃，键盘焦点回到页内的搜索框，接着打字、`↓` 不跳去设置的搜索框
+/// 或别的页。
+#[test]
+fn finishing_a_key_edit_returns_to_the_search_box() {
+    let mut app = keys_page();
+    assert_eq!(app.focus, Focus::KeySearch);
+    app.start_key_edit(Action::GoToLine, true);
+    assert_eq!(app.focus, Focus::Settings);
+    app.key_edit_stroke(key(KeyCode::Escape, Mods::NONE));
+    assert_eq!(app.focus, Focus::KeySearch);
+
+    app.start_key_edit(Action::GoToLine, true);
+    app.key_edit_stroke(key(KeyCode::Enter, Mods::NONE));
+    assert_eq!(app.focus, Focus::KeySearch);
+    assert_eq!(app.settings_layout().page, SettingsPage::Keys);
+}

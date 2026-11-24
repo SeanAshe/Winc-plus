@@ -434,6 +434,10 @@ impl App {
     /// 全部关完以后才重新排版一次：逐个排版时，中途轮到当前的每个文档都会按自动换行整篇折一遍，
     /// 下一步又被关掉。
     pub(in crate::app) fn remove_tabs(&mut self, ids: &[DocumentId]) {
+        // 前台窗格的标签全部关掉时窗格随之去掉：先记下现在的样子，供过渡使用。
+        if self.editor.panes.is_split() && self.editor.tabs().iter().all(|d| ids.contains(&d.id)) {
+            self.capture_panes();
+        }
         self.remember_text_places(ids);
         let mut closed = false;
         for id in ids {

@@ -702,9 +702,11 @@ impl App {
         }
         // Vim 的插入模式记录执行的输入，供次数与点重复重放。
         let input = self.vim_input(&command);
+        let history = matches!(command, Command::Undo | Command::Redo);
         let Some(doc) = self.editor.active_mut() else {
             return;
         };
+        let revision = doc.revision;
         doc.execute(command, page, tab_width);
         if let Some(input) = input {
             self.vim_typed(input);
@@ -713,6 +715,9 @@ impl App {
         // 行数变化可能改变行号的位数，因此需要重新布局行号栏。
         if self.line_count() != lines_before {
             self.relayout();
+            if !history {
+                self.renumber_markdown_lists(revision);
+            }
         }
 
         self.ensure_caret_visible();

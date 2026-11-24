@@ -39,7 +39,7 @@ impl Git {
         let english = |command: &mut Command| {
             command.env("LC_ALL", "C");
         };
-        match self.run_prepared(root, &args, OPERATION_TIMEOUT, english) {
+        match self.run_prepared(root, &args, Vec::new(), OPERATION_TIMEOUT, english) {
             Ok(summary) => Ok(BranchDeleted::Done(summary)),
             // 分支名不含空格，不会和这句话混淆。
             Err(e) if !force && e.contains("is not fully merged") => Ok(BranchDeleted::NeedsForce),

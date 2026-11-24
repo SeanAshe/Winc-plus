@@ -49,7 +49,8 @@ Priority: optional
 Architecture: $deb_arch
 Maintainer: DEEIX-AI <41963680+Noxiven@users.noreply.github.com>
 Homepage: https://winc.si
-Depends: libc6 (>= $GLIBC_FLOOR), libgcc-s1, fontconfig, fonts-dejavu-core, libxkbcommon0, libxkbcommon-x11-0, libx11-6, libx11-xcb1, libxcb1, libxcursor1, libxi6, libxrandr2, libwayland-client0
+Depends: libc6 (>= $GLIBC_FLOOR), libgcc-s1, fontconfig, libxkbcommon0, libxkbcommon-x11-0, libx11-6, libx11-xcb1, libxcb1, libxcursor1, libxi6, libxrandr2, libwayland-client0
+Recommends: fonts-dejavu-core
 Description: A lighter, faster desktop code editor
  A native Rust editor with its own rendering engine, Git integration and terminal.
 EOF

@@ -89,11 +89,25 @@ impl App {
 
     /// 在「键位方案」的值下方弹出菜单：各方案、从本机找到的编辑器导入和恢复全部默认。
     pub(in crate::app) fn open_keymap_menu(&mut self) {
+        let header = KeysLayout::header(self.settings_layout().body);
+        self.open_keymap_menu_at(header.value);
+    }
+
+    /// 在值 `value` 的下方弹出键位方案和导入的菜单。
+    pub(in crate::app) fn open_keymap_menu_at(&mut self, value: Rect) {
         self.cancel_key_edit();
         self.settings.import_sources = keymap::import::find_sources();
-        let header = KeysLayout::header(self.settings_layout().body);
-        let at = menu_below(header.value);
-        self.open_context_menu(MenuTarget::Keymap, at);
+        self.open_context_menu(MenuTarget::Keymap, menu_below(value));
+    }
+
+    /// 在「快捷键」页中查看与设置搜索框中的文字相符的命令：该页的搜索框换成这段文字。
+    pub(in crate::app) fn show_key_matches(&mut self) {
+        let query = self.settings.search.text().trim().to_owned();
+        self.settings_show_page(SettingsPage::Keys);
+        self.set_recording(false);
+        self.settings.keys_query.set_text(&query);
+        self.settings.keys_query.select_all();
+        self.settings.scroll = 0.0;
     }
 
     /// 改用键位方案 `preset`；改过的键保留。
@@ -178,7 +192,20 @@ impl App {
         if let Some(edit) = self.settings.key_edit.take() {
             self.slide_key_rows(Some(edit.action));
             self.suspend_menu_keys(false);
+            self.return_to_key_search();
             self.request_redraw();
+        }
+    }
+
+    /// 修改快捷键结束后，键盘焦点回到「快捷键」页的搜索框；已离开该页或在搜索设置时不变。
+    fn return_to_key_search(&mut self) {
+        if self.settings.open
+            && self.focus == Focus::Settings
+            && self.settings.selected.page() == SettingsPage::Keys
+            && !self.settings_searching()
+        {
+            self.focus = Focus::KeySearch;
+            self.reset_blink();
         }
     }
 
@@ -218,6 +245,7 @@ impl App {
         };
         self.slide_key_rows(Some(edit.action));
         self.suspend_menu_keys(false);
+        self.return_to_key_search();
         self.request_redraw();
         let mut keys = edit.keys;
         if let Some(new) = edit.recorded

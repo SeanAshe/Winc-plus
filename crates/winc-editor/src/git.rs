@@ -12,6 +12,7 @@ mod branch;
 mod commit;
 mod output;
 mod parse;
+mod pathspec;
 mod rebase;
 mod remote;
 mod sync;
@@ -29,6 +30,7 @@ mod trust;
 mod worktree;
 
 use parse::*;
+use pathspec::{merge_folders, nul_separated, path_batches};
 pub use trust::*;
 pub use worktree::*;
 
@@ -828,11 +830,21 @@ impl Git {
     ///
     /// 失败时返回 `git` 给出的原因：优先取 `error::`、`fatal::`、`! [rejected]` 这样的行。
     pub fn operate<S: AsRef<OsStr>>(&self, root: &Path, args: &[S]) -> Result<String, String> {
+        self.operate_fed(root, args, Vec::new())
+    }
+
+    /// 同 [`Git::operate`]，标准输入为 `input`。
+    fn operate_fed<S: AsRef<OsStr>>(
+        &self,
+        root: &Path,
+        args: &[S],
+        input: Vec<u8>,
+    ) -> Result<String, String> {
         if let Err(refused) = self.require_trust(root) {
             output::record(root, args, None, refused.as_bytes());
             return Err(refused);
         }
-        self.run_operation(root, args, OPERATION_TIMEOUT)
+        self.run_prepared(root, args, input, OPERATION_TIMEOUT, |_| {})
     }
 
     /// 在后台无人值守地获取所有远程（`git fetch --all --prune`）：需要密码、口令或确认主机密钥
@@ -848,7 +860,7 @@ impl Git {
     pub fn fetch_unattended(&self, root: &Path) -> Result<String, String> {
         self.require_trust(root)?;
         let args = ["fetch", "--all", "--prune"];
-        self.run_prepared(root, &args, OPERATION_TIMEOUT, |command| {
+        self.run_prepared(root, &args, Vec::new(), OPERATION_TIMEOUT, |command| {
             command
                 .env("GIT_ASKPASS", "false")
                 .env("SSH_ASKPASS", "false")
@@ -858,25 +870,32 @@ impl Git {
 
     /// 把 `paths` 的当前状态加入暂存区（`git add --all`），已删除的文件记为删除。
     ///
-    /// 路径以 `/` 分隔并按字面匹配：`[`、`*`、`?` 不作为通配符。
+    /// 路径以 `/` 分隔并按字面匹配：`[`、`*`、`?` 不作为通配符。路径过多时分批暂存。
     ///
     /// # Errors
     ///
-    /// 同 [`Git::operate`]。
+    /// 同 [`Git::operate`]；某一批失败时不再暂存其后的各批。
     pub fn stage(&self, root: &Path, paths: &[PathBuf]) -> Result<String, String> {
-        let mut args: Vec<OsString> = ["add", "--all", "--"].map(OsString::from).into();
-        args.extend(relative_all(root, paths));
-        self.operate(root, &args)
+        let mut said = String::new();
+        for batch in path_batches(root, paths) {
+            let mut args: Vec<OsString> = ["add", "--all", "--"].map(OsString::from).into();
+            args.extend(batch);
+            said = self.operate(root, &args)?;
+        }
+        Ok(said)
     }
 
     /// 储藏 `paths` 的改动（含未跟踪的文件），其余的改动留在工作区和暂存区；`message` 是储藏的
     /// 说明，为空时由 `git` 生成。
     ///
-    /// 路径以 `/` 分隔并按字面匹配：`[`、`*`、`?` 不作为通配符。
+    /// 路径以 `/` 分隔并按字面匹配：`[`、`*`、`?` 不作为通配符。路径过多时先把整个选中的目录
+    /// 合并成一项（见 `pathspec::merge_folders`），仍然过多时由标准输入传入
+    /// （`--pathspec-from-file`，`git` 2.26 起）：分批会储藏成多份。
     ///
     /// # Errors
     ///
-    /// 同 [`Git::operate`]。
+    /// 同 [`Git::operate`]。本机 Windows 上合并后的路径仍然过多时返回提示：`git` 储藏时把路径
+    /// 写进内部命令（`git clean` 等）的命令行，超出 Windows 命令行的长度上限。
     pub fn stash_paths(
         &self,
         root: &Path,
@@ -889,9 +908,26 @@ impl Git {
         if !message.is_empty() {
             args.extend(["--message", message].map(OsString::from));
         }
-        args.push("--".into());
-        args.extend(relative_all(root, paths));
-        self.operate(root, &args)
+        let mut batches = path_batches(root, paths);
+        if batches.len() > 1 {
+            let status = self.status(root, &Cancel::default())?;
+            let changed: Vec<PathBuf> = (status.entries.into_iter())
+                .flat_map(|e| std::iter::once(e.path).chain(e.from))
+                .collect();
+            batches = path_batches(root, &merge_folders(root, paths, &changed));
+        }
+        if let [batch] = &batches[..] {
+            args.push("--".into());
+            args.extend(batch.iter().cloned());
+            return self.operate(root, &args);
+        }
+        let native = !winc_backend::is_remote(root) && crate::wsl::locate_here(root).is_none();
+        if cfg!(windows) && native {
+            return Err(winc_i18n::t!("git-stash-too-many").to_owned());
+        }
+        let specs: Vec<OsString> = batches.into_iter().flatten().collect();
+        args.extend(["--pathspec-from-file=-", "--pathspec-file-nul"].map(OsString::from));
+        self.operate_fed(root, &args, nul_separated(&specs))
     }
 
     /// 在目录 `root` 里运行 `git args`，记录输出，返回 `git` 的结论；调用方负责信任检查。
@@ -901,14 +937,16 @@ impl Git {
         args: &[S],
         timeout: Duration,
     ) -> Result<String, String> {
-        self.run_prepared(root, args, timeout, |_| {})
+        self.run_prepared(root, args, Vec::new(), timeout, |_| {})
     }
 
-    /// 和 [`Git::run_operation`] 相同，运行前由 `prepare` 调整命令，例如设置环境变量。
+    /// 和 [`Git::run_operation`] 相同，标准输入为 `input`；运行前由 `prepare` 调整命令，例如设置
+    /// 环境变量。
     fn run_prepared<S: AsRef<OsStr>>(
         &self,
         root: &Path,
         args: &[S],
+        input: Vec<u8>,
         timeout: Duration,
         prepare: impl FnOnce(&mut Command),
     ) -> Result<String, String> {
@@ -929,7 +967,7 @@ impl Git {
             Arc::new(move |bytes: &[u8]| output::feed(&live, bytes))
         };
         let cancel = Cancel::default();
-        match process::run_watched(&mut command, Vec::new(), timeout, &cancel, Some(watch)) {
+        match process::run_watched(&mut command, input, timeout, &cancel, Some(watch)) {
             Ok(output) => {
                 let mut text = output.stderr;
                 text.extend_from_slice(&output.stdout);
@@ -1297,26 +1335,6 @@ fn mode_from_test(code: Option<i32>) -> Option<&'static str> {
         Some(1) => Some("100644"),
         _ => None,
     }
-}
-
-/// 返回 `paths` 对应的 `git` 路径参数（用于 `--` 之后）：位于 `root` 之下的路径换算为相对路径，
-/// 各段以 `/` 连接（[`slashed`]）。
-///
-/// 每个都加上 `:(literal)`，按字面匹配：`app/[slug]/page.tsx` 里的 `[`、`*`、`?` 不当通配符，
-/// 回滚、提交时不会连带改动名字碰巧匹配上的其他文件。不用 `GIT_LITERAL_PATHSPECS`：
-/// `git stash push -u` 自己也要用路径匹配，开启它以后不再收录未跟踪的文件。
-fn relative_all<'a>(
-    root: &'a Path,
-    paths: &'a [PathBuf],
-) -> impl Iterator<Item = std::ffi::OsString> + 'a {
-    paths.iter().map(move |p| {
-        let mut spec = std::ffi::OsString::from(":(literal)");
-        match p.strip_prefix(root) {
-            Ok(relative) => spec.push(slashed(relative)),
-            Err(_) => spec.push(p),
-        }
-        spec
-    })
 }
 
 /// [`scan_repositories`] 最多查看的目录项数（个）：在后台运行，比 [`SCAN_ENTRIES`] 宽松，又不至于

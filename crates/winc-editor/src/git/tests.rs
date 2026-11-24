@@ -8,6 +8,7 @@ use super::*;
 mod commit;
 mod history;
 mod locate;
+mod pathspec;
 
 fn root() -> PathBuf {
     PathBuf::from("/repo")
@@ -1020,7 +1021,7 @@ fn unset_wsl_variables_do_not_select_an_empty_index() {
 fn pathspecs_separate_with_forward_slashes() {
     let root = Path::new("/repo");
     let paths = [root.join("src").join("main.rs"), root.join("README.md")];
-    let specs: Vec<OsString> = relative_all(root, &paths).collect();
+    let specs: Vec<OsString> = crate::git::pathspec::relative_all(root, &paths).collect();
     assert_eq!(specs, [":(literal)src/main.rs", ":(literal)README.md"]);
     assert_eq!(slash_path(root, &paths[0]).unwrap(), "src/main.rs");
 }

@@ -123,7 +123,7 @@ impl App {
 
         let tab = self
             .tab_at(x, y)
-            .and_then(|(index, _)| self.editor.documents.get(index));
+            .and_then(|(index, _)| self.editor.tabs().get(index));
         let target = if let Some(doc) = tab {
             MenuTarget::Tab(doc.id)
         } else if self.panels.sidebar.visible
@@ -599,10 +599,14 @@ impl App {
                 vec![MenuEntry::Item(MenuCommand::ToggleBlame, true)]
             }
             MenuTarget::Tab(id) => {
-                let Some(index) = self.editor.index_of(*id) else {
+                let Some(index) = self
+                    .editor
+                    .index_of(*id)
+                    .filter(|&i| i < self.editor.tab_count())
+                else {
                     return;
                 };
-                let docs = &self.editor.documents;
+                let docs = self.editor.tabs();
                 let path = docs[index].path.as_deref();
                 let span = self.tab_span(*id, index);
                 let selection = self.tab_selection();
@@ -1375,12 +1379,12 @@ impl App {
         self.request_redraw();
     }
 
-    /// 立即同步绘制一帧，不等待下一轮事件循环。
+    /// 立即同步绘制一帧，不等待下一轮事件循环；画法与平常的一帧相同（见 `App::prepare_frame`）。
     pub(in crate::app) fn paint_now(&mut self) {
-        self.relayout();
+        self.prepare_frame();
         if let Some(mut renderer) = self.frame.renderer.take() {
             self.declare_base(&mut renderer);
-            renderer.draw(|frame| view::draw(self, frame));
+            self.draw_scrolled(&mut renderer);
             self.frame.renderer = Some(renderer);
         }
     }

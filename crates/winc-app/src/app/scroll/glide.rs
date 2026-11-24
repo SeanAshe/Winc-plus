@@ -70,6 +70,11 @@ impl App {
     /// 距离不小于 [`GLIDE_MIN_ROWS`] 行（按该区域的行高换算）时过渡，否则直接到达；同一区域已在
     /// 过渡时从屏幕上的当前位置继续。动态效果关闭或没有窗口时不播放动画。
     pub(in crate::app) fn glide_pane(&mut self, target: ScrollTarget, from: f32) {
+        self.glide_pane_over(target, from, GLIDE_MIN_ROWS as f32);
+    }
+
+    /// 同 [`Self::glide_pane`]，距离不小于 `min` 行时过渡。
+    pub(in crate::app) fn glide_pane_over(&mut self, target: ScrollTarget, from: f32, min: f32) {
         let Some(to) = self.pane_scroll(target) else {
             return;
         };
@@ -82,7 +87,7 @@ impl App {
             let glide = &self.scroll.pane_glides[i];
             glide.clock.between(glide.from, from)
         });
-        if (to - shown).abs() < GLIDE_MIN_ROWS as f32 * self.pane_row(target) {
+        if (to - shown).abs() < min * self.pane_row(target) {
             // 距离较近时直接到达；进行中的过渡保留，继续滚向新目标。
             return;
         }

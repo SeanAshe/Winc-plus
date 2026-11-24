@@ -258,6 +258,81 @@ pub(crate) fn paragraph_lines(rope: &ropey::Rope, at: usize) -> (usize, usize) {
     (first, last)
 }
 
+impl App {
+    /// Markdown 中一次修改增删了行之后，按显示的序号重排改动处有序列表的原文序号，并入这次
+    /// 修改的撤销单元。`revision` 是修改之前的版本号。
+    ///
+    /// 显示时有序列表从第一项的序号起依次递增，原文中的其余序号不起作用；删除、粘贴、移动
+    /// 列表项之后改写原文，使原文与显示一致。哪些项要改见 `enter::renumber_from`。
+    pub(in crate::app) fn renumber_markdown_lists(&mut self, revision: u64) {
+        use winc_preview::markdown::enter;
+        if !self.markdown_keys() {
+            return;
+        }
+        let Some(doc) = self.editor.active() else {
+            return;
+        };
+        let Some(rope) = doc.text().rope() else {
+            return;
+        };
+        let line = doc.unchanged_lines_since(revision);
+        if line >= rope.len_lines() || !doc.extra_selections().is_empty() {
+            return;
+        }
+        let above: Vec<String> = (line.saturating_sub(PARAGRAPH_LOOK)..line)
+            .rev()
+            .map(|l| line_text(rope, l))
+            .collect();
+        let anchors =
+            enter::renumber_from(&line_text(rope, line), above.iter().map(String::as_str));
+        let mut numbers = Vec::new();
+        for up in anchors {
+            let at = line - up;
+            let below = (at + 1..rope.len_lines()).map(|l| line_text(rope, l));
+            for (i, range, number) in enter::renumber(&line_text(rope, at), below) {
+                numbers.push((at + 1 + i, range, number));
+            }
+        }
+        if numbers.is_empty() {
+            return;
+        }
+        let top: Vec<String> = (0..line).map(|l| line_text(rope, l)).collect();
+        if enter::inside_fence(top.iter().map(String::as_str)) {
+            return;
+        }
+        // 从后往前修改，前面的位置不受影响；选区随其前方序号的长度变化而移动。
+        numbers.sort_by_key(|n| std::cmp::Reverse(n.0));
+        numbers.dedup_by_key(|n| n.0);
+        let before = doc.selection;
+        let mut moved = [before.anchor, before.head];
+        let changes: Vec<winc_core::Change> = (numbers.into_iter())
+            .map(|(l, range, number)| {
+                let start = rope.byte_to_char(rope.line_to_byte(l) + range.start);
+                let removed = rope.slice(start..start + range.len()).to_string();
+                let inserted = number.to_string();
+                for pos in &mut moved {
+                    if *pos >= start + removed.len() {
+                        *pos = *pos + inserted.len() - removed.len();
+                    } else if *pos > start {
+                        *pos = start + inserted.len().min(*pos - start);
+                    }
+                }
+                winc_core::Change {
+                    start,
+                    removed,
+                    inserted,
+                }
+            })
+            .collect();
+        let after = winc_core::Selection::new(moved[0], moved[1]);
+        let transaction =
+            winc_core::Transaction::new(changes, before, after, winc_core::EditKind::Other);
+        if let Some(doc) = self.editor.active_mut() {
+            doc.amend(transaction);
+        }
+    }
+}
+
 /// 找段落的边界时往前、往后各看多少行：很长的一段不再找下去。
 const PARAGRAPH_LOOK: usize = 500;
 

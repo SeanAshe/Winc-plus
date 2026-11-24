@@ -518,7 +518,9 @@ fn insert(text: &impl Lines, sel: Selection, s: &str, language: &Language) -> Tr
     let prev = sel.from().checked_sub(1).and_then(|pos| text.char_at(pos));
     let wrapping = !sel.is_empty();
 
-    if !wrapping && matches!(c, ')' | ']' | '}' | '"' | '\'' | '`') && next == Some(c) {
+    let skips = matches!(c, ')' | ']' | '}' | '"' | '\'' | '`')
+        || (language.markdown && CJK_PAIRS.iter().any(|p| p.1 == c));
+    if !wrapping && skips && next == Some(c) {
         return Transaction::new(
             Vec::new(),
             sel,
@@ -527,6 +529,7 @@ fn insert(text: &impl Lines, sel: Selection, s: &str, language: &Language) -> Tr
         );
     }
 
+    let cjk_close = CJK_PAIRS.iter().find(|&&(open, _)| open == c).map(|p| p.1);
     let close = match c {
         '(' => Some(')'),
         '[' => Some(']'),
@@ -537,6 +540,7 @@ fn insert(text: &impl Lines, sel: Selection, s: &str, language: &Language) -> Tr
         // 紧跟在单词之后的引号多用作撇号（如 don't），不补全；紧跟在同种引号之后时通常是在
         // 输入连续引号（```、"""），同样不补全。
         '"' | '\'' | '`' => (wrapping || !follows_word_or_quote(prev, c)).then_some(c),
+        _ if language.markdown && cjk_close.is_some() => cjk_close,
         _ if wrapping && language.surround.contains(&c) => Some(c),
         _ => None,
     };
@@ -554,6 +558,19 @@ fn insert(text: &impl Lines, sel: Selection, s: &str, language: &Language) -> Tr
     }
 }
 
+/// Markdown 中自动补全的中文括号和引号（左半边，右半边）。
+///
+/// 中文的左右引号是不同的字符，没有撇号的歧义，按括号处理。
+const CJK_PAIRS: [(char, char); 7] = [
+    ('（', '）'),
+    ('【', '】'),
+    ('《', '》'),
+    ('「', '」'),
+    ('『', '』'),
+    ('“', '”'),
+    ('‘', '’'),
+];
+
 /// 位于字符 `prev` 之后的引号 `quote` 是否不作为字符串的起始引号。
 ///
 /// 紧跟单词的引号是撇号（如 don't），紧跟同种引号的是代码块围栏或三引号字符串的一部分。
@@ -563,7 +580,15 @@ fn follows_word_or_quote(prev: Option<char>, quote: char) -> bool {
 
 /// 光标后的字符 `next` 是否允许自动补全右侧字符：只有文档末尾、空白、右括号和分隔符允许。
 fn before_gap(next: Option<char>) -> bool {
-    next.is_none_or(|n| n.is_whitespace() || matches!(n, ')' | ']' | '}' | ',' | ';' | ':'))
+    next.is_none_or(|n| {
+        n.is_whitespace()
+            || matches!(n, ')' | ']' | '}' | ',' | ';' | ':')
+            || matches!(
+                n,
+                '）' | '】' | '》' | '」' | '』' | '”' | '’' | '，' | '。' | '、'
+            )
+            || matches!(n, '；' | '：' | '！' | '？')
+    })
 }
 
 /// 光标是否位于空的括号或引号对之间，此时退格同时删除左右两个字符。
@@ -584,7 +609,7 @@ fn inside_empty_pair(text: &impl Lines, sel: Selection, language: &Language) -> 
         ('"', '"') => quotes_pair(text, sel.head, open),
         ('\'', '\'') => language.single_quote_string && quotes_pair(text, sel.head, open),
         ('`', '`') => language.backtick_string && quotes_pair(text, sel.head, open),
-        _ => false,
+        pair => language.markdown && CJK_PAIRS.contains(&pair),
     }
 }
 

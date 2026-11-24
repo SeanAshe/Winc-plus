@@ -272,7 +272,7 @@ impl Git {
             "--no-rebase-merges",
         ];
         args.push(base.unwrap_or("--root"));
-        let result = self.run_prepared(root, &args, OPERATION_TIMEOUT, |command| {
+        let result = self.run_prepared(root, &args, Vec::new(), OPERATION_TIMEOUT, |command| {
             command.env("GIT_SEQUENCE_EDITOR", &editor);
         });
         let _ = winc_backend::fs::remove_file(&local);
@@ -301,7 +301,7 @@ impl Git {
             "--no-rebase-merges",
             base.unwrap_or("--root"),
         ];
-        self.run_prepared(root, &args, OPERATION_TIMEOUT, |command| {
+        self.run_prepared(root, &args, Vec::new(), OPERATION_TIMEOUT, |command| {
             command
                 .env("GIT_SEQUENCE_EDITOR", ":")
                 .env("GIT_EDITOR", ":");

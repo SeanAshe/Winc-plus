@@ -308,3 +308,20 @@ fn list_markers_align_with_the_top_of_an_image_line() {
     let (marker, _, text) = marker_and_image("1. ![a](dot.png) 文字\n");
     assert_eq!(marker, text);
 }
+
+/// 回归：行内代码排在行尾、整段换到下一行时，开头的留白留在上一行，画成一块空的底色。
+#[test]
+fn inline_code_moves_to_the_next_line_with_its_padding() {
+    let markdown =
+        "修复分支：`fix/review-findings`（自 `perf/large-file-loading` 拉出，十个提交，未推送）";
+    for width in (160..520).step_by(4) {
+        let laid = lay(markdown, width as f32);
+        let fills = laid[0].0.items.iter().filter_map(|item| match item {
+            Item::Fill { rect, .. } => Some(*rect),
+            _ => None,
+        });
+        for rect in fills {
+            assert!(rect.w > 8.0, "宽 {width} 时有一块空的代码底色：{rect:?}");
+        }
+    }
+}

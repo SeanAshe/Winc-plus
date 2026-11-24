@@ -9,8 +9,9 @@ impl Cx<'_, '_> {
             return RawState::Laid;
         };
         let start = match block {
+            // 空段落（块之间多出的空行）没有对照，取段落的起点。
             Block::Paragraph(inline) | Block::Heading(_, inline) => {
-                (!inline.map.is_empty()).then_some(inline.source)
+                (!inline.map.is_empty() || inline.text.is_empty()).then_some(inline.source)
             }
             Block::Code { map, .. } => map.source(0),
             Block::Rule(at) => *at,

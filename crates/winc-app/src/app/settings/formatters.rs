@@ -353,6 +353,8 @@ impl App {
             Setting::TerminalShell => (MenuTarget::DefaultShell, row.control),
             Setting::GitPath | Setting::LatexPath => return self.settings_start_editing(setting),
             Setting::Updates => return self.settings_check_updates(),
+            Setting::Keymap => return self.open_keymap_menu_at(row.control),
+            Setting::KeyMatches => return self.show_key_matches(),
             _ => return,
         };
         self.settings.selected = setting;

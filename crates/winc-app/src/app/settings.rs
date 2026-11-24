@@ -65,6 +65,9 @@ pub struct SettingsState {
     pub probing: bool,
     /// 分类栏顶部的搜索框：按设置项的名称和说明搜索，不为空白时正文换成搜索结果。
     pub search: TextField,
+    /// 搜索开始前选中的设置项，以及搜索时自动选中的第一条结果：清空搜索框时仍选中后者（没有另选
+    /// 结果）则回到前者。进入结果或换页后为 `None`。
+    pub before_search: Option<(Setting, Setting)>,
     /// 「关于」页顶部的产品图标：渲染时的边长（物理像素）和 RGBA 像素；关闭浮层时释放。
     ///
     /// 渲染失败时像素为空，不再重试，图标不显示。
@@ -209,6 +212,7 @@ impl App {
         self.settings.selected = Setting::default();
         self.settings.logo_played = false;
         self.settings.search.set_text("");
+        self.settings.before_search = None;
         self.settings.error = self.broken_font(self.settings.selected.page());
         self.settings.keyboard = false;
         self.settings.hover = None;
@@ -460,23 +464,36 @@ impl App {
         self.request_redraw();
     }
 
-    /// 搜索框的内容变化后：结果从顶部显示，选中第一条结果；清空后回到选中项所在的页。
+    /// 搜索框的内容变化后：结果从顶部显示，选中第一条结果；清空后回到搜索之前选中的项。
     pub(in crate::app) fn settings_search_changed(&mut self) {
         self.settings.scroll = 0.0;
         self.settings.keyboard = false;
-        if let Some(&first) = self.settings_items().first()
-            && self.settings_searching()
+        if self.settings_searching() {
+            if let Some(&first) = self.settings_items().first() {
+                let before = (self.settings.before_search).map_or(self.settings.selected, |b| b.0);
+                self.settings.selected = first;
+                self.settings.before_search = Some((before, first));
+            }
+        } else if let Some((before, first)) = self.settings.before_search.take()
+            && self.settings.selected == first
         {
-            self.settings.selected = first;
+            self.settings.selected = before;
         }
         self.request_redraw();
     }
 
-    /// 从搜索框进入结果列表：键盘焦点回到浮层，选中第一条结果；没有结果时不处理。
+    /// 从搜索框进入结果列表：键盘焦点回到浮层，选中第一条结果；没有结果时不处理。搜索框为空时
+    /// 回到当前页。
     pub(super) fn settings_enter_results(&mut self) {
+        if !self.settings_searching() {
+            self.settings_show_page(self.settings.selected.page());
+            self.settings.keyboard = true;
+            return;
+        }
         let Some(&first) = self.settings_items().first() else {
             return;
         };
+        self.settings.before_search = None;
         self.settings.selected = first;
         self.settings.keyboard = true;
         self.focus = Focus::Settings;
@@ -494,6 +511,7 @@ impl App {
             return;
         }
         self.settings_leave_field();
+        self.settings.before_search = None;
         // 换页即离开搜索结果；选中的结果在该页时仍选中它。
         if self.settings_searching() {
             self.settings.search.set_text("");

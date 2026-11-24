@@ -32,6 +32,8 @@ impl App {
         } else if setting == Setting::VimClipboard {
             let choice = self.config.vim_clipboard.unwrap_or_default();
             (crate::layout::vim_clipboard_label(choice).to_owned(), false)
+        } else if setting == Setting::Keymap {
+            (crate::keymap::current_preset().title().to_owned(), false)
         } else if setting == Setting::Zoom {
             (format!("{}%", self.config.ui_zoom.unwrap_or(100)), false)
         } else if setting == Setting::DefaultLanguage {

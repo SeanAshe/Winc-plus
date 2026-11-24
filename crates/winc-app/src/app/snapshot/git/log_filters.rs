@@ -498,3 +498,76 @@ fn log_columns_can_be_hidden_shown_and_widened() {
     shoot(&mut app, "log-columns");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// 回归：拆分后两个窗格各有一个日志标签，一个是文件历史（没有「路径」下拉），一个是普通日志。
+/// 两者共用标题栏下拉的过渡状态时，每帧轮流改写目标，下拉和其后的「文件」不停左右抽动。
+#[test]
+fn log_tabs_in_two_panes_keep_their_own_filter_bars() {
+    let Some((mut app, root)) = git_app("git-log-panes", false) else {
+        return;
+    };
+    history_repo(&root, 10);
+    app.git_refresh();
+    app.run_action(Action::GitShowLog);
+    paint(&mut app);
+    app.run_action(Action::SplitRight);
+    app.focus = Focus::Editor;
+    app.git_file_history(&root.join("src/main.rs"));
+    paint(&mut app);
+    assert!(app.editor.panes.is_split());
+    assert!(
+        app.editor
+            .active()
+            .unwrap()
+            .log
+            .as_deref()
+            .unwrap()
+            .query
+            .path
+            .is_some()
+    );
+
+    app.status.motion.animate_without_window = true;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(1000);
+    while std::time::Instant::now() < deadline {
+        paint(&mut app);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    paint(&mut app);
+    assert!(!app.git.log.pills.moving(), "标题栏的下拉一直在过渡");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// 窄窗格里的日志：标题栏各项不重叠，放不下时下拉只写名字、不画提交数；列表和详情放不下并排
+/// 时详情在列表下方。
+#[test]
+fn a_narrow_log_fits_its_header_and_stacks_the_details() {
+    let Some((mut app, root)) = git_app("git-log-narrow", false) else {
+        return;
+    };
+    history_repo(&root, 10);
+    app.git_refresh();
+    app.run_action(Action::GitShowLog);
+    paint(&mut app);
+    assert!(!app.log_parts().stacked);
+    app.run_action(Action::SplitRight);
+    app.run_action(Action::SplitRight);
+    paint(&mut app);
+    paint(&mut app);
+    let parts = app.log_parts();
+    assert!(parts.stacked, "{parts:?}");
+    assert!(parts.details.y >= parts.list.bottom() - 0.5);
+    let header: Vec<_> = (app.hits.log.iter())
+        .filter(|(r, _)| r.y < parts.header.bottom() && r.bottom() > parts.header.y)
+        .collect();
+    for (i, (a, ta)) in header.iter().enumerate() {
+        assert!(a.right() <= parts.header.right(), "{ta:?} {a:?}");
+        for (b, tb) in &header[i + 1..] {
+            assert!(
+                a.intersect(*b).w <= 0.0,
+                "{ta:?} {a:?} 与 {tb:?} {b:?} 重叠"
+            );
+        }
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}

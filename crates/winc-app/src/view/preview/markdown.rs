@@ -216,7 +216,11 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
             let same = (old.as_ref())
                 .filter(|l| l.source == source && l.blocks.len() == parsed.blocks.len());
             let top = drawn_scroll(app.preview.markdown.scroll());
-            let held = same.and_then(|l| l.place_at(top - l.pad));
+            // 顶边在该块里所占的比例：块的高度变了，顶边仍在同一块的相同比例处。
+            let held = same.and_then(|l| {
+                let (i, off) = l.place_at(top - l.pad)?;
+                Some((i, off / room_below(l, i).max(1.0)))
+            });
             let mut window = same.map(|l| l.blocks_in(top - l.pad - area.h, top + area.h * 2.0));
             let mut kept = same.map(|l| l.blocks.clone());
             let was_pending = same.is_some_and(Laid::pending);
@@ -251,8 +255,8 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
                     later,
                     Some(near.clone()),
                 );
-                let y = held.map_or(top - pad, |(i, off)| {
-                    laid.tops[i] + off.min(room_below(&laid, i))
+                let y = held.map_or(top - pad, |(i, share)| {
+                    laid.tops[i] + share.min(1.0) * room_below(&laid, i)
                 });
                 let seen = laid.blocks_in(y, y + area.h);
                 let waits = |i: usize| laid.stale.get(i).copied().unwrap_or(false);
@@ -264,8 +268,8 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
             };
             // 分帧排版、图片加载完成、收起或展开标题后，视口顶边所在块的屏幕位置不变。
             let anchored = was_pending || laid.pending() || !loaded.is_empty() || refold;
-            if let Some((i, off)) = held.filter(|_| anchored) {
-                let y = laid.tops[i] + off.min(room_below(&laid, i)) + pad;
+            if let Some((i, share)) = held.filter(|_| anchored) {
+                let y = laid.tops[i] + share.min(1.0) * room_below(&laid, i) + pad;
                 app.preview.markdown.set_scroll(y);
                 still = None;
             }
@@ -316,11 +320,16 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
     } else {
         (f32::NAN, f32::NAN)
     };
-    // 分栏时标出编辑区光标所在的行，便于对照两侧的位置；键盘焦点在预览上时不标出。
-    let caret = (area != app.layout.editor && !app.preview.markdown.focused)
+    // 分栏时编辑区光标在预览上的位置。
+    let mirrored = (area != app.layout.editor)
         .then(|| app.markdown_caret_source())
         .flatten()
         .and_then(|source| laid.caret_point(source));
+    // 标出编辑区光标所在的行，便于对照两侧的位置；键盘焦点在预览上时不标出。
+    let caret = mirrored.filter(|_| !app.preview.markdown.focused);
+    // 预览的文字中同样画出光标；在预览上点击后光标移到点中处，选中文字时不画。
+    let picked = app.preview.markdown.selection.is_none_or(|(a, b)| a == b);
+    let mirrored = mirrored.filter(|_| !app.preview.markdown.focused || picked);
     // 可编辑的预览：文字光标和选区（原文位置），画在预览上。在预览上点过、移过光标或者打过
     // 字之后才显示光标；刚打开、只是阅读时不显示，光标停在文首也不会落在居中的图片旁边。
     let editing = app.live_caret_shown();
@@ -737,6 +746,16 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
     let (arrows, covered) = draw_heading_folds(app, frame, area, caret_bar);
     if let Some(bar) = caret_bar.filter(|_| !covered) {
         frame.rect_clipped(bar, p.accent.alpha(0.7), 1.0, area);
+    }
+    // 分栏时在预览的文字中同一位置画出编辑区的光标，与编辑区的光标一同闪烁。
+    if let Some((x, y, h)) = mirrored.filter(|_| app.blink.visible) {
+        let bar = Rect::new(
+            (left + x).round() - 1.0,
+            area.y - scroll + y + 1.0,
+            2.0,
+            h - 2.0,
+        );
+        frame.rect_clipped(bar, p.caret, 1.0, area);
     }
     draw_source_numbers(app, frame, area, &arrows);
     draw_broken_links(app, frame, area);
