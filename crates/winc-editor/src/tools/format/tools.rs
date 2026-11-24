@@ -39,6 +39,11 @@ pub enum Auto {
     ///
     /// 项目里看不出该用什么工具时按 [`Auto::Installed`] 处理：已安装就使用。
     When(&'static [Sign]),
+    /// 项目里出现其中任一迹象时使用；看不出迹象时不回退到已安装的工具。
+    ///
+    /// 需要插件才能处理这种语言的工具用（Astro 需要 `prettier-plugin-astro`）：没有插件时
+    /// 即使装了 Prettier 也会报错，不能像 [`Auto::When`] 那样按「已安装」使用。
+    OnlyWhen(&'static [Sign]),
     /// 没有自己的配置文件，无法判断项目是否在用：项目里看不出该用什么工具时，已安装就使用。
     Installed,
     /// 不自动使用：会改写内容（`jq` 会把 `"\u00e9"` 改成 `"é"`）。
@@ -100,6 +105,12 @@ const PRETTIER_FILES: &[Sign] = &[
     Sign::Package("prettier"),
 ];
 
+/// 表明项目能用 Prettier 格式化 Astro 的迹象：官方插件已声明为依赖。
+///
+/// 没有插件时 Prettier 找不到 `.astro` 的解析器，即使装了 Prettier 也不能自动使用。Prettier 3
+/// 不再自动加载依赖中的插件，因此预设的命令用 `--plugin` 指名加载。
+const ASTRO_PRETTIER_FILES: &[Sign] = &[Sign::Package("prettier-plugin-astro")];
+
 /// 预设工具列表；同一种语言中排在前面的优先。
 ///
 /// 修复工具只在项目里有迹象时才自动使用（见 `detect`）。
@@ -135,6 +146,13 @@ pub const PRESETS: &[Preset] = &[
             "json",
         ],
         auto: Auto::When(PRETTIER_FILES),
+    },
+    Preset {
+        name: "Prettier",
+        task: Task::Format,
+        command: "prettier --plugin prettier-plugin-astro --stdin-filepath {file}",
+        languages: &["astro"],
+        auto: Auto::OnlyWhen(ASTRO_PRETTIER_FILES),
     },
     Preset {
         name: "Biome",
@@ -337,19 +355,21 @@ impl PartialEq for Preset {
 /// 从 `dir` 向上逐级查找项目在用哪个工具：离文件最近的迹象优先，同一级内按预设顺序。
 ///
 /// 没有迹象时，格式化回退到已安装的工具（[`Detected::Installed`]），修复则不自动使用
-/// （[`Detected::NoSign`]）。
+/// （[`Detected::NoSign`]）；[`Auto::OnlyWhen`] 的预设不参与回退。
 pub(super) fn detect(task: Task, language: &str, dir: &Path) -> Detected {
-    let candidates: Vec<(&'static Preset, &'static [Sign])> = presets(task, language)
+    // 第三项表示这个预设只在看到迹象时使用，不能回退到「已安装」。
+    let candidates: Vec<(&'static Preset, &'static [Sign], bool)> = presets(task, language)
         .filter_map(|p| match p.auto {
-            Auto::Always => Some((p, &[][..])),
-            Auto::When(signs) => Some((p, signs)),
-            Auto::Installed => Some((p, &[][..])),
+            Auto::Always => Some((p, &[][..], false)),
+            Auto::When(signs) => Some((p, signs, false)),
+            Auto::OnlyWhen(signs) => Some((p, signs, true)),
+            Auto::Installed => Some((p, &[][..], false)),
             Auto::Never => None,
         })
         .collect();
-    if let Some(&(always, _)) = candidates
+    if let Some(&(always, ..)) = candidates
         .iter()
-        .find(|(p, _)| matches!(p.auto, Auto::Always))
+        .find(|(p, ..)| matches!(p.auto, Auto::Always))
     {
         return Detected::Preset(always, None);
     }
@@ -368,13 +388,21 @@ pub(super) fn detect(task: Task, language: &str, dir: &Path) -> Detected {
     };
     for (level, names) in levels.into_iter().zip(listed) {
         let mut files = ProjectFiles::new(level, names);
-        for &(preset, signs) in &candidates {
+        for &(preset, signs, _) in &candidates {
             if let Some(reason) = signs.iter().find_map(|&sign| files.shows(sign)) {
                 return Detected::Preset(preset, Some(reason));
             }
         }
     }
-    let presets = candidates.into_iter().map(|(p, _)| p).collect();
+    // 需要插件迹象的预设（[`Auto::OnlyWhen`]）不参与回退：没有迹象时按已安装使用会失败。
+    let presets: Vec<&'static Preset> = candidates
+        .into_iter()
+        .filter(|(_, _, only_when)| !only_when)
+        .map(|(p, ..)| p)
+        .collect();
+    if presets.is_empty() {
+        return Detected::NoPreset;
+    }
     match task {
         Task::Format => Detected::Installed(presets),
         Task::Fix => Detected::NoSign(presets),

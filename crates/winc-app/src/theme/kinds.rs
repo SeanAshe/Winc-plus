@@ -217,9 +217,9 @@ fn by_extension(ext: &str) -> Option<(FileGlyph, [u32; 2])> {
         "fs" | "fsx" | "vb" => (Code, DOTNET),
         "html" | "htm" | "xhtml" | "vue" | "svelte" | "astro" | "wxml" => (Code, ORANGE),
         // 生成 HTML 的模板。
-        "hbs" | "handlebars" | "mustache" | "ejs" | "pug" | "jade" | "njk" | "liquid" | "twig"
-        | "j2" | "jinja" | "jinja2" | "haml" | "slim" | "tmpl" | "tpl" | "gohtml" | "cshtml"
-        | "razor" => (Code, ORANGE),
+        "hbs" | "handlebars" | "mustache" | "ejs" | "pug" | "jade" | "njk" | "nunjucks"
+        | "liquid" | "twig" | "j2" | "jinja" | "jinja2" | "haml" | "slim" | "tmpl" | "tpl"
+        | "gohtml" | "cshtml" | "razor" => (Code, ORANGE),
         "xml" | "xsd" | "xsl" | "xslt" | "plist" | "props" | "targets" | "xib" | "storyboard"
         | "wsdl" | "xaml" | "rss" | "atom" | "kml" | "gpx" | "manifest" | "xcscheme"
         | "xcworkspacedata" => (Code, ORANGE),

@@ -428,3 +428,46 @@ fn wide_tables_keep_their_columns_and_scroll_sideways() {
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 回归：光标所在的表格横向滚开后，窗口大小改变引起的重排不把表格滚回光标处。
+#[test]
+fn relayouts_leave_a_wide_table_where_it_was_scrolled() {
+    use winit::dpi::PhysicalPosition;
+    use winit::event::MouseScrollDelta;
+
+    let columns = 16;
+    let line = |cell: &str| {
+        let cells: Vec<String> = (1..=columns).map(|n| format!("{cell}{n}")).collect();
+        format!("| {} |", cells.join(" | "))
+    };
+    let (head, rule, row) = (
+        line("第几列"),
+        format!("|{}", "---|".repeat(columns)),
+        line("数值"),
+    );
+    let (mut app, dir) = live_doc(
+        "md-wide-table-relayout",
+        &format!("前文\n\n{head}\n{rule}\n{row}\n\n后文\n"),
+    );
+    let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
+    let cell = point_of(&app, shown[..shown.find("数值1").unwrap()].chars().count());
+
+    // 光标放进第一列，再把表格横向滚开：光标所在的一列滚出显示区域。
+    click(&mut app, cell);
+    settle(&mut app);
+    app.on_mouse_move(cell.0, cell.1);
+    app.on_wheel(MouseScrollDelta::PixelDelta(PhysicalPosition::new(
+        -400.0, 0.0,
+    )));
+    paint(&mut app);
+    let key = app.hits.markdown_table_bar.expect("表格有滚动条").key;
+    let scrolled = app.markdown_table_scroll(key);
+    assert!(scrolled > 0.0);
+
+    let narrow = Renderer::offscreen(1000.0, SIZE.1, SCALE, app.palette.frame_bg, None, None);
+    app.frame.renderer = Some(narrow.unwrap());
+    app.measure_fonts();
+    settle(&mut app);
+    assert_eq!(app.markdown_table_scroll(key), scrolled);
+    let _ = std::fs::remove_dir_all(&dir);
+}

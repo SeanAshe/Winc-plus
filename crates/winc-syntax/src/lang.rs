@@ -176,6 +176,15 @@ pub struct Language {
     pub quoted_identifiers: bool,
     /// 标记语言的写法：标签、属性、实体，以及 HTML 中内嵌的脚本与样式。
     pub markup: Markup,
+    /// 文件第一行是否是 `---` 分隔的 frontmatter，内容按 TypeScript 着色（Astro）。
+    ///
+    /// 只有在文件第一行识别开头的 `---`；之后单独一行为 `---` 时结束。
+    pub frontmatter: bool,
+    /// 是否识别模板标签（Liquid、Nunjucks）：`{{ … }}` 输出与 `{% … %}` 语句，可以跨行。
+    ///
+    /// 定界符按装饰器着色，语句的第一个名字是标签名，按关键字着色；内部的表达式按模板表达式的
+    /// 规则（运算符、字符串、数字、`true` 等常量）着色，`|` 之后的名字是过滤器，按函数着色。
+    pub template_tags: bool,
     /// [`Markup::Html`] 中内容按脚本着色的标签名（不区分大小写），HTML 是 `<script>`；
     /// 微信小程序的 WXML 另有 `<wxs>`。
     pub script_tags: &'static [&'static str],
@@ -289,8 +298,8 @@ pub enum Markup {
     None,
     /// XML：标签、属性、实体与 CDATA。
     Xml,
-    /// HTML、SVG 与单文件组件（Vue、Svelte）：在 XML 之上，`<script>` 的内容按 TypeScript、
-    /// `<style>` 的内容按 SCSS 着色，标签名不区分大小写。
+    /// HTML、SVG、单文件组件（Vue、Svelte、Astro）与 HTML 模板（Liquid、Nunjucks）：在 XML
+    /// 之上，`<script>` 的内容按 TypeScript、`<style>` 的内容按 SCSS 着色，标签名不区分大小写。
     Html,
 }
 
@@ -355,11 +364,15 @@ const RELATED: &[&[&str]] = &[
         "html",
         "vue",
         "svelte",
+        "astro",
+        "liquid",
+        "nunjucks",
         "wxml",
         "wxs",
     ],
     &[
-        "css", "scss", "sass", "less", "html", "vue", "svelte", "wxml", "wxss",
+        "css", "scss", "sass", "less", "html", "vue", "svelte", "astro", "liquid", "nunjucks",
+        "wxml", "wxss",
     ],
     &["java", "kotlin", "scala", "groovy"],
     &["shell", "dockerfile", "makefile"],
@@ -458,6 +471,18 @@ impl Language {
             other => other,
         })
     }
+
+    /// 返回从文件第一行开始高亮时的行首状态。
+    ///
+    /// Astro 的首行 `---` 开始 frontmatter，因此从 [`crate::LineState::Start`] 开始；其余语言
+    /// 与 [`crate::LineState::Normal`] 相同。
+    pub fn start_state(&self) -> crate::LineState {
+        if self.frontmatter {
+            crate::LineState::Start
+        } else {
+            crate::LineState::Normal
+        }
+    }
 }
 
 /// 各语言共用的默认规则：全部关闭，各语言用 `..BASE` 覆盖需要的字段。
@@ -510,6 +535,8 @@ const BASE: Language = Language {
     quoted_keys: false,
     quoted_identifiers: false,
     markup: Markup::None,
+    frontmatter: false,
+    template_tags: false,
     script_tags: &["script"],
     stylesheet: false,
     colon_symbols: false,
@@ -600,6 +627,9 @@ static ALL: &[&Language] = &[
     &SVG,
     &VUE,
     &SVELTE,
+    &ASTRO,
+    &LIQUID,
+    &NUNJUCKS,
     &WXML,
     &CSS,
     &SCSS,
@@ -633,6 +663,11 @@ pub fn find(key: &str) -> Option<&'static Language> {
 /// JavaScript），为假时是 `<style>` 的内容（SCSS，兼容 CSS）。
 pub(crate) fn embedded(script: bool) -> &'static Language {
     if script { &TYPESCRIPT } else { &SCSS }
+}
+
+/// 返回模板标签（[`Language::template_tags`]）内部表达式的规则。
+pub(crate) fn template() -> &'static Language {
+    &TEMPLATE_EXPRESSIONS
 }
 
 /// 代码块信息字符串中常用、但既不是语言 id 也不是扩展名的写法，以及对应的语言 id。

@@ -9,7 +9,7 @@ use winc_core::edit::{self, EditKind, EditOptions, Transaction};
 use winc_core::text::Aligned;
 use winc_core::transform::{self, Case};
 use winc_core::{Lines, Restored, Selection, movement};
-use winc_syntax::Language;
+use winc_syntax::{Language, LineState};
 
 use crate::Document;
 use crate::editing::folding::Tracked;
@@ -410,17 +410,52 @@ impl Document {
         }
     }
 
+    /// 返回切换注释时处理的选区和注释所用的语言（选区第一行所在那段代码的语言）。
+    ///
+    /// Astro frontmatter 两端的 `---` 分隔行不参与：选区从开头的分隔行开始时从下一行算起，从
+    /// frontmatter 中开始时到结束的分隔行之前为止。分隔行注释后 frontmatter 不再闭合，之后的
+    /// 模板会被当作 TypeScript。选区只含分隔行时选区为 `None`。
+    fn comment_scope(&self, sel: Selection) -> (Option<Selection>, &'static Language) {
+        let text = &self.text;
+        let language = self.highlighter.language();
+        let state = |line| self.highlighter.peek_state(text, line, COMMENT_SCAN);
+        let (mut first, mut last) = edit::selected_lines(text, sel);
+        let mut start = state(first);
+        if start == Some(LineState::Start) && is_fence(text, first) {
+            first += 1;
+            start = state(first);
+        }
+        let code = start
+            .and_then(LineState::embedded_language)
+            .unwrap_or(language);
+        if matches!(start, Some(LineState::Frontmatter { .. })) {
+            let closes = |line| {
+                is_fence(text, line)
+                    && state(line).is_some_and(|s| {
+                        matches!(s, LineState::Frontmatter { .. }) && !s.is_quoted()
+                    })
+            };
+            if let Some(close) = (first..=last).find(|&line| closes(line)) {
+                last = close.saturating_sub(1);
+            }
+        }
+        let target = if first > last || first >= text.line_count() {
+            None
+        } else if (first, last) == edit::selected_lines(text, sel) {
+            Some(sel)
+        } else {
+            Some(Selection::new(text.line_start(first), text.line_end(last)))
+        };
+        (target, code)
+    }
+
     /// 把编辑类命令转换为事务；命令没有产生修改时返回 `None`。
     pub(crate) fn transaction(&self, command: &Command, tab_width: usize) -> Option<Transaction> {
         let text = &self.text;
         let sel = self.selection;
         let language = self.highlighter.language();
         let line_ending = self.line_ending.as_str();
-        // 注释按选区所在那段代码的语言。
-        let first = text.pos_to_line_col(sel.from()).0;
-        let code = (self.highlighter.peek_state(text, first, COMMENT_SCAN))
-            .and_then(winc_syntax::LineState::embedded_language)
-            .unwrap_or(language);
+        let (comment_target, code) = self.comment_scope(sel);
         let options = EditOptions {
             tab_width,
             indent_unit: self.indent().unit(),
@@ -459,7 +494,15 @@ impl Document {
             Command::Indent => Some(edit::indent(text, sel, &options)),
             Command::IndentLines => Some(edit::indent_lines(text, sel, &options)),
             Command::Outdent => edit::outdent(text, sel, &options),
-            Command::ToggleComment => edit::toggle_comment(text, sel, &options),
+            Command::ToggleComment => {
+                let target = comment_target?;
+                let mut transaction = edit::toggle_comment(text, target, &options)?;
+                if target != sel {
+                    transaction.before = sel;
+                    transaction.after = edit::shift_selection(sel, &transaction.changes);
+                }
+                Some(transaction)
+            }
             Command::DeleteLine => edit::delete_lines(text, sel),
             &Command::MoveLines { down } => edit::move_lines(text, sel, down),
             &Command::CopyLines { down } => Some(edit::copy_lines(text, sel, down, &options)),
@@ -483,6 +526,13 @@ impl Document {
             _ => None,
         }
     }
+}
+
+/// 第 `line` 行是否是 frontmatter 的分隔行：只含 `---`，后面可以有空白。
+fn is_fence(text: &impl Lines, line: usize) -> bool {
+    text.substring(text.line_start(line), text.line_end(line))
+        .trim_end()
+        == "---"
 }
 
 /// 把外部文本中的换行统一为 `line_ending`；一致时直接借用原文。

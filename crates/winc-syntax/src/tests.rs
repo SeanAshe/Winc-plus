@@ -25,6 +25,30 @@ fn state_advances_within_budget_and_invalidates() {
     );
 }
 
+/// Astro 从文件第一行开始识别 frontmatter，关闭后的模板行恢复普通状态。
+#[test]
+fn astro_frontmatter_states() {
+    let text = Rope::from_str("---\nconst a = 1;\n---\n<p>{a}</p>\n");
+    let mut highlighter = Highlighter::new(detect("a.astro"));
+
+    assert_eq!(highlighter.known_state(0), Some(LineState::Start));
+    assert_eq!(
+        highlighter.state_at(&text, 1, 10),
+        Some(LineState::Frontmatter { inner: 0 })
+    );
+    assert_eq!(
+        highlighter.state_at(&text, 2, 10),
+        Some(LineState::Frontmatter { inner: 0 })
+    );
+    assert_eq!(highlighter.state_at(&text, 3, 10), Some(LineState::Normal));
+    assert_eq!(
+        LineState::Frontmatter { inner: 0 }
+            .embedded_language()
+            .map(|language| language.id),
+        Some("typescript")
+    );
+}
+
 #[test]
 fn state_near_uses_only_nearby_lines() {
     let text = Rope::from_str("x = 1\n\"\"\"doc\nstill doc\nmore\n\"\"\"\n");

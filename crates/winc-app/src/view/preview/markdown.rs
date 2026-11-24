@@ -187,6 +187,10 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
         }
         old => {
             let hscroll = old.as_ref().map(|l| l.hscroll.clone()).unwrap_or_default();
+            let followed = old
+                .as_ref()
+                .filter(|l| l.source == source && l.live == live_key)
+                .and_then(|l| l.followed);
             // 继续上一帧未完成的排版，或视口移到了保留的范围之外：排版条件和文字都未变，选区、
             // 查找结果和光标位置保留。
             let resumed = old.as_ref().is_some_and(|l| {
@@ -280,6 +284,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
                 app.preview.markdown.memo.keep_only(used);
             }
             laid.hscroll = hscroll;
+            laid.followed = followed;
             laid
         }
     };

@@ -190,6 +190,21 @@ fn selections_dim_without_focus_and_hide_the_current_line() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 回归：从外部打开文件后窗口持有焦点，但最后收到的焦点事件是失去焦点，按键时不显示光标。
+#[test]
+fn input_to_an_unfocused_window_brings_back_the_caret() {
+    let dir = sample_folder("focus-from-input");
+    let path = dir.join("a.txt");
+    std::fs::write(&path, "one\ntwo\n").unwrap();
+    let mut app = app_with(&path, false);
+    app.focus = Focus::Editor;
+    app.window.focused = false;
+    assert!(!app.editor_focused());
+    app.notice_focus_from_input();
+    assert!(app.window.focused && app.editor_focused());
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// 触控板的滚动只按位移较大的方向生效：竖直滚动时附带的少量横向位移不使长行左右移动。
 #[test]
 fn a_trackpad_scrolls_along_the_dominant_axis_only() {

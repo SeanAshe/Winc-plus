@@ -299,7 +299,7 @@ impl Cx<'_, '_> {
         };
         let language = winc_syntax::find(lang);
         let markdown = winc_syntax::find("markdown");
-        let mut state = winc_syntax::LineState::default();
+        let mut state = language.map_or(winc_syntax::LineState::Normal, |l| l.start_state());
         let bg_at = out.len();
         let (mut top, mut first_baseline) = (y + pad, None);
         let mut start = leaf.start;
