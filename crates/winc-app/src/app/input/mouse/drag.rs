@@ -34,6 +34,10 @@ impl App {
         if self.alert_mouse_move(x, y) || self.popup_mouse_move(x, y) {
             return;
         }
+        // 「未提交的更改」中在某一段的差异上：交给那一段（按着鼠标时交给按下的那一段）。
+        if self.combined_takes_pointer(x, y) && self.combined_mouse_move(x, y) {
+            return;
+        }
         // 对话框和设置浮层覆盖整个窗口：下方的按钮和文件树不响应悬停，只判断浮层内的各部分。
         if self.overlays.form_dialog.is_some() {
             self.hover_form_dialog(x, y);
@@ -95,7 +99,7 @@ impl App {
 
         let hover = self.hover_here(x, y);
         self.set_hover(hover);
-        if self.terminal.link.is_some() || self.layout.terminal.contains(x, y) {
+        if self.terminal.link.is_some() || self.terminal_group_focused_at(x, y) {
             self.update_terminal_link();
         }
         self.update_text_link();
@@ -108,7 +112,7 @@ impl App {
             }
             Drag::Picture { at } => self.drag_picture(x, y, at),
             Drag::TerminalSelect | Drag::TerminalMouse(_) => self.terminal_mouse_drag(x, y),
-            Drag::None if self.layout.terminal.contains(x, y) => self.terminal_mouse_hover(x, y),
+            Drag::None if self.terminal_group_focused_at(x, y) => self.terminal_mouse_hover(x, y),
             Drag::Select { by_word, origin } => self.drag_select(x, y, by_word, origin),
             Drag::SelectLine { line } => self.drag_select_line(x, y, line),
             Drag::Columns { anchor } => self.drag_columns(x, y, anchor),
@@ -120,6 +124,7 @@ impl App {
                 }
             }
             Drag::AddSelect { origin } => self.drag_add_selection(x, y, origin),
+            Drag::MoveText { press, at, .. } => self.drag_text(x, y, press, at),
             Drag::DiffSelect { unit, origin, add } => {
                 self.drag_diff_select(x, y, unit, origin, add);
             }
@@ -200,6 +205,8 @@ impl App {
                 self.request_redraw();
             }
             Drag::PaneDivider { index } => self.drag_pane_divider(index, (x, y)),
+            Drag::TerminalSplit { index } => self.drag_terminal_split(index, (x, y)),
+            Drag::TerminalGroupSplit { index } => self.drag_terminal_group_split(index, (x, y)),
             Drag::SplitDivider {
                 start_x,
                 start_left,
@@ -543,7 +550,8 @@ impl App {
         }
     }
 
-    /// 是否需要逐帧自动滚动：正在拖选或列选择，鼠标位于编辑区边缘之外，且该方向仍可滚动。
+    /// 是否需要逐帧自动滚动：正在拖选、列选择或拖动文字，鼠标位于编辑区边缘之外，且该方向仍可
+    /// 滚动。
     pub(in crate::app) fn drag_autoscrolling(&self) -> bool {
         if self.pointer.drag == Drag::TerminalSelect {
             let view = self.terminal_view();
@@ -560,6 +568,7 @@ impl App {
                 | Drag::Columns { .. }
                 | Drag::ColumnClick { .. }
                 | Drag::AddSelect { .. }
+                | Drag::MoveText { moving: true, .. }
         );
         let (t, (x, y)) = (self.layout.text, self.pointer.mouse);
         let Some(doc) = self.editor.active() else {

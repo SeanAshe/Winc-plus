@@ -3,8 +3,9 @@
 //! 这一组模块覆盖工作区的全部功能：目录的现场（`session`）、文件树与拖动（`tree`、
 //! `TreeState::drag`）、工具栏收起（`tool_fold`）、两个文件的比较（`compare`）、
 //! 监视磁盘变化（`watch`）、打开与保存（`loading`、`files`、`background_save`）、
-//! 标签切换与拖动（`tab_drag`）、快速打开（`picker`）、最近打开的目录（`recent`）、
-//! 全局搜索（`global`）、在文件中查找的对话框（`search_dialog`）和拖入文件（`file_drop`）。
+//! 标签切换与拖动（`tab_drag`）、按最近使用切换标签页（`tab_switch`）、快速打开（`picker`）、
+//! 最近打开的目录（`recent`）、全局搜索（`global`）、在文件中查找的对话框（`search_dialog`）
+//! 和拖入文件（`file_drop`）。
 
 use super::*;
 
@@ -27,6 +28,7 @@ pub(crate) mod search_dialog;
 pub(super) mod session;
 pub(super) mod tab_drag;
 pub(crate) mod tab_names;
+pub(crate) mod tab_switch;
 pub(super) mod tool_fold;
 pub(super) mod tree;
 pub(super) mod tree_drag;

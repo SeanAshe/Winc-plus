@@ -2,12 +2,13 @@
 //!
 //! 界面先按操作的结果更新，命令在后台按顺序逐个执行；全部写完后重新读取状态。
 
-use winc_core::diff::{LineHunk, StageLine, line_hunks, stage, unstage};
+use winc_core::diff::{LineHunk, StageLine, drop_hunk, line_hunks, stage, take_hunk, unstage};
 use winc_editor::format::Cancel;
 use winc_editor::git::Change;
 
 use super::*;
 use crate::app::NoticeKind;
+use crate::app::git::DiffKind;
 use crate::app::input::context_menu::MenuEntry;
 
 /// 写入暂存区的一步操作。
@@ -20,12 +21,14 @@ pub(super) enum StageJob {
     Part {
         /// 文件的路径。
         path: PathBuf,
-        /// 上次提交到工作区的一段改动。
+        /// 差异 `kind` 中的一段改动。
         hunk: LineHunk,
         /// 只操作其中这一行；整段时为 `None`。
         line: Option<StageLine>,
         /// 暂存还是取消暂存。
         on: bool,
+        /// `hunk` 所在的差异：分开显示时它是「暂存区 ↔ 工作区」或「上次提交 ↔ 暂存区」的一段。
+        kind: DiffKind,
     },
 }
 
@@ -114,6 +117,98 @@ impl App {
             hunk,
             line,
             on,
+            kind: DiffKind::Whole,
+        });
+    }
+
+    /// 分开显示时，在「更改」中暂存、在「暂存的更改」中取消暂存当前差异的一处改动 `hunk`（`line`
+    /// 不为 `None` 时只操作其中这一行）。
+    ///
+    /// 差异随即按新的暂存区重新比较，这一处移到另一种差异中；暂存区在后台写入。
+    pub(in crate::app) fn toggle_split_part(
+        &mut self,
+        entry: &Entry,
+        (hunk, line): (LineHunk, Option<StageLine>),
+        kind: DiffKind,
+    ) {
+        let Some(index) = self.editor.active else {
+            return;
+        };
+        let Some(view) = self.editor.documents[index].diff.as_deref_mut() else {
+            return;
+        };
+        let (old, new) = (view.old.text.to_string(), view.new.text.to_string());
+        let staging = kind == DiffKind::Unstaged;
+        let next = if staging {
+            take_hunk(&old, &new, &hunk, line)
+        } else {
+            drop_hunk(&old, &new, &hunk, line)
+        };
+        // 暂存区是「更改」的左侧、「暂存的更改」的右侧。
+        let current = if staging { &old } else { &new };
+        if next == *current {
+            return;
+        }
+        let rope = ropey::Rope::from_str(&next);
+        if staging {
+            view.set_old_text(rope);
+        } else {
+            view.set_new_text(rope);
+        }
+        self.stage_split_part(entry, [&old, &new], next, (hunk, line), kind);
+        self.clamp_scroll();
+        self.request_redraw();
+    }
+
+    /// 分开显示时暂存（`kind` 为「更改」）或取消暂存（「暂存的更改」）一段改动 `hunk` 或其中的
+    /// 一行 `line`；`texts` 是差异左右两侧的文本，`next` 是之后暂存区的内容。
+    ///
+    /// 列表中文件所在的组先按结果更新，暂存区在后台按磁盘上的内容重新计算后写入。
+    pub(in crate::app) fn stage_split_part(
+        &mut self,
+        entry: &Entry,
+        [old, new]: [&str; 2],
+        next: String,
+        (hunk, line): (LineHunk, Option<StageLine>),
+        kind: DiffKind,
+    ) {
+        let on = kind == DiffKind::Unstaged;
+        let Some(status) = self.git.status.as_mut() else {
+            return;
+        };
+        let Some(shown) = status.entries.iter_mut().find(|e| e.path == entry.path) else {
+            return;
+        };
+        // 「更改」的右侧是工作区，「暂存的更改」的左侧是上次提交。
+        let fresh = entry.untracked() || entry.staged == Some(Change::Added);
+        let added = if fresh {
+            Change::Added
+        } else {
+            Change::Modified
+        };
+        if on {
+            shown.staged = Some(added);
+            shown.unstaged = (!line_hunks(&next, new).is_empty()).then_some(Change::Modified);
+        } else {
+            let staged = !line_hunks(old, &next).is_empty();
+            shown.staged = staged.then_some(added);
+            let untracked = fresh && !staged;
+            shown.unstaged = Some(if untracked {
+                Change::Untracked
+            } else {
+                Change::Modified
+            });
+        }
+        self.git
+            .commit
+            .set_index_text(entry.path.clone(), Some(next));
+        let path = entry.path.clone();
+        self.push_staging(StageJob::Part {
+            path,
+            hunk,
+            line,
+            on,
+            kind,
         });
     }
 
@@ -227,7 +322,8 @@ impl App {
                     hunk,
                     line,
                     on,
-                } => write_part(git, root, &path, (&hunk, line), on),
+                    kind,
+                } => write_part(git, root, &path, (&hunk, line), (on, kind)),
             });
             let _ = sender.send(Outcome::Staged(result, root.to_path_buf()));
         });
@@ -342,7 +438,8 @@ pub(super) fn flip_staged(entry: &mut Entry, on: bool, touched: &mut Vec<PathBuf
     }
 }
 
-/// 按磁盘上的内容暂存或取消暂存文件 `path` 的一段改动（或其中一行），写入暂存区。
+/// 按磁盘上的内容暂存或取消暂存文件 `path` 的一段改动（或其中一行），写入暂存区；`kind` 是这段
+/// 改动所在的差异，决定它相对哪两份内容。
 ///
 /// 新文件的内容全部取消暂存后移出暂存区，恢复为未跟踪。
 fn write_part(
@@ -350,7 +447,7 @@ fn write_part(
     root: &Path,
     path: &Path,
     (hunk, line): (&LineHunk, Option<StageLine>),
-    on: bool,
+    (on, kind): (bool, DiffKind),
 ) -> Result<(), String> {
     let cancel = Cancel::default();
     let name = winc_editor::display_name(path).into_owned();
@@ -367,10 +464,11 @@ fn write_part(
         Some(bytes) => text(bytes)?,
         None => String::new(),
     };
-    let next = if on {
-        stage(&head, &index, &disk, hunk, line)
-    } else {
-        unstage(&head, &index, &disk, hunk, line)
+    let next = match (kind, on) {
+        (DiffKind::Whole, true) => stage(&head, &index, &disk, hunk, line),
+        (DiffKind::Whole, false) => unstage(&head, &index, &disk, hunk, line),
+        (DiffKind::Unstaged, _) => take_hunk(&index, &disk, hunk, line),
+        (DiffKind::Staged, _) => drop_hunk(&head, &index, hunk, line),
     };
     if fresh && next.is_empty() {
         return git.unstage(root, &[path.to_path_buf()]);

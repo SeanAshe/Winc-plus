@@ -52,6 +52,8 @@ struct Entry {
 pub(crate) enum BlameKey {
     Doc(DocumentId),
     Side(DocumentId, usize),
+    /// 「未提交的更改」标签（文档）中编号为第二项的一段（`Section::id`）的一侧。
+    Section(DocumentId, u32, usize),
 }
 
 /// 后台计算完成的一次逐行追溯。
@@ -103,10 +105,14 @@ impl BlameState {
         for side in [LEFT, RIGHT] {
             self.drop_key(BlameKey::Side(id, side));
         }
+        let section = |key: &BlameKey| matches!(key, BlameKey::Section(doc, ..) if *doc == id);
+        self.data.retain(|key, _| !section(key));
+        self.computing.retain(|key, _| !section(key));
+        self.due.retain(|key, _| !section(key));
     }
 
     /// 丢掉 `key` 的结果和计算的安排；正在计算的结果送达后同样不用。
-    fn drop_key(&mut self, key: BlameKey) {
+    pub(in crate::app::git) fn drop_key(&mut self, key: BlameKey) {
         self.data.remove(&key);
         self.computing.remove(&key);
         self.due.remove(&key);
@@ -143,16 +149,17 @@ impl App {
     fn blame_wanted(&self, key: BlameKey) -> bool {
         match key {
             BlameKey::Doc(id) => self.git.blame.is_on(id) || self.inline_blame_on(id),
-            BlameKey::Side(..) => self.blame_side(key).is_some(),
+            BlameKey::Side(..) | BlameKey::Section(..) => self.blame_side(key).is_some(),
         }
     }
 
     /// 差异一侧 `key` 开着追溯时它的文字、版本号和追溯来源；没有开着时为 `None`。
     fn blame_side(&self, key: BlameKey) -> Option<(&Rope, u64, &BlameSource)> {
-        let BlameKey::Side(id, side) = key else {
-            return None;
+        let (view, side) = match key {
+            BlameKey::Side(id, side) => (self.editor.document(id)?.diff.as_deref()?, side),
+            BlameKey::Section(id, section, side) => (self.combined_view(id, section)?, side),
+            BlameKey::Doc(_) => return None,
         };
-        let view = self.editor.document(id)?.diff.as_deref()?;
         let half = view.side(side);
         let source = half.blame.as_ref().filter(|_| view.blamed[side])?;
         Some((&half.text, half.revision(), source))
@@ -182,6 +189,10 @@ impl App {
             return;
         };
         let id = doc.id;
+        if self.combined_active() {
+            self.toggle_combined_blame();
+            return;
+        }
         if doc.diff.is_some() {
             self.toggle_diff_blame();
             return;
@@ -324,7 +335,7 @@ impl App {
                 let doc = self.editor.document(id)?;
                 Some((doc.text().rope()?.clone(), doc.revision))
             }
-            BlameKey::Side(..) => {
+            BlameKey::Side(..) | BlameKey::Section(..) => {
                 let (text, revision, _) = self.blame_side(key)?;
                 Some((text.clone(), revision))
             }
@@ -342,7 +353,7 @@ impl App {
                     rev: None,
                 })
             }
-            BlameKey::Side(..) => Some(self.blame_side(key)?.2.clone()),
+            BlameKey::Side(..) | BlameKey::Section(..) => Some(self.blame_side(key)?.2.clone()),
         }
     }
 
@@ -411,6 +422,7 @@ impl App {
                     match done.key {
                         BlameKey::Doc(id) => self.git.blame.forget(id),
                         BlameKey::Side(..) => self.close_diff_blame(done.key),
+                        BlameKey::Section(..) => self.close_combined_blame(done.key),
                     }
                     self.relayout();
                     self.flash(t!("git-blame-failed", error = e));
@@ -482,7 +494,11 @@ impl App {
     /// 在日志标签中选中逐行追溯里的提交 `commit`；尚未提交的行说明原因。
     ///
     /// 提交在另一个仓库 `root` 里时（打开的目录里有几个仓库）先切换到那个仓库：提交在它的日志里。
-    fn show_blamed_commit(&mut self, commit: &BlameCommit, root: Option<PathBuf>) {
+    pub(in crate::app::git) fn show_blamed_commit(
+        &mut self,
+        commit: &BlameCommit,
+        root: Option<PathBuf>,
+    ) {
         if commit.uncommitted {
             self.flash(t!("git-blame-line-uncommitted"));
             return;
@@ -497,7 +513,7 @@ impl App {
 }
 
 /// 悬停在逐行追溯一行上时的提示：「a1b2c3d 说明 · 作者 · 时间」，尚未提交的行说明这一点。
-fn blame_label(commit: &BlameCommit) -> String {
+pub(in crate::app::git) fn blame_label(commit: &BlameCommit) -> String {
     if commit.uncommitted {
         return t!("git-blame-uncommitted").to_owned();
     }

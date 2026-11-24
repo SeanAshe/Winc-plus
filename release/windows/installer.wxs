@@ -21,7 +21,7 @@
 <?define GoTypes = GO?>
 <?define CTypes = C;CC;CPP;CPPM;CU;CUH;CXX;H;HH;HPP;HXX;INL;INO;IPP;IXX;TPP?>
 <?define ProjectTypes = CODE-WORKSPACE;IPR;SUBLIME-PROJECT;WINC-PROJECT?>
-<?define CodeTypes = BB;CLJ;CLJC;CLJS;CMAKE;CS;CSX;DART;EDN;ERL;ESCRIPT;ETS;EX;EXS;FS;FSI;FSX;GEMSPEC;GQL;GRADLE;GRAPHQL;GRAPHQLS;GROOVY;HCL;HRL;HS;HSC;JAVA;JBUILDER;JL;KT;KTS;LUA;LUAU;M;ML;MLI;MLL;MLY;MM;NIX;NOMAD;PHP;PHP3;PHP4;PHP5;PHP8;PHPS;PHTML;PL;PM;POD;PODSPEC;PROTO;PSGI;R;RAKE;RB;RBI;ROCKSPEC;RPROFILE;SC;SCALA;SQL;SWIFT;T;TF;TFTEST;TFVARS;WXS;ZIG;ZON?>
+<?define CodeTypes = BB;CLJ;CLJC;CLJS;CMAKE;CS;CSX;DART;EDN;ERL;ESCRIPT;ETS;EX;EXS;FS;FSI;FSX;GEMSPEC;GQL;GRADLE;GRAPHQL;GRAPHQLS;GROOVY;HCL;HRL;HS;HSC;HTTP;JAVA;JBUILDER;JL;KT;KTS;LUA;LUAU;M;ML;MLI;MLL;MLY;MM;NIX;NOMAD;PHP;PHP3;PHP4;PHP5;PHP8;PHPS;PHTML;PL;PM;POD;PODSPEC;PROTO;PSGI;R;RAKE;RB;RBI;REST;ROCKSPEC;RPROFILE;SC;SCALA;SQL;SWIFT;T;TF;TFTEST;TFVARS;WXS;ZIG;ZON?>
 <?define IconNames = markdown;json;config;markup;style;script;table;text;javascript;typescript;python;rust;go;c;code;project;file?>
 <?define FileTypes = $(var.MarkdownTypes);$(var.JsonTypes);$(var.ConfigTypes);$(var.MarkupTypes);$(var.StyleTypes);$(var.ScriptTypes);$(var.TableTypes);$(var.TextTypes);$(var.JavascriptTypes);$(var.TypescriptTypes);$(var.PythonTypes);$(var.RustTypes);$(var.GoTypes);$(var.CTypes);$(var.CodeTypes);$(var.ProjectTypes)?>
 <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">

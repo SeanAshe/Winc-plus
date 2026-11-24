@@ -3,6 +3,17 @@ set -euo pipefail
 
 fail() { printf '%s\n' "$*" >&2; exit 1; }
 
+# Arch Linux 和基于它的发行版：ID 是 arch，或 ID_LIKE 里有 arch（EndeavourOS、Omarchy 等），
+# 或者装着 Arch 的 filesystem 包（/etc/arch-release）；CachyOS 的 os-release 没有 ID_LIKE。
+arch_based() {
+  [[ ${ID:-} == arch || ${ID:-} == cachyos || -e /etc/arch-release ]] && return
+  local like
+  for like in ${ID_LIKE:-}; do
+    [[ $like == arch || $like == archlinux ]] && return
+  done
+  return 1
+}
+
 expected_fingerprint='@WINC_ARCH_SIGNING_FINGERPRINT@'
 repo=deeix-ai-winc
 base_url=https://winc.si/releases/arch
@@ -14,20 +25,20 @@ include_line="Include = $repo_config"
 ((EUID == 0)) || fail '请使用 sudo bash install-arch.sh'
 [[ $(uname -m) == x86_64 ]] || fail 'Winc 的 Arch 软件源当前支持 x86_64'
 . /etc/os-release
-[[ ${ID:-} == arch || ${ID:-} == cachyos ]] || fail '此安装脚本适用于 Arch Linux 和 CachyOS'
+arch_based || fail '此安装脚本适用于 Arch Linux 及基于它的发行版（如 CachyOS、Omarchy）'
 [[ $expected_fingerprint =~ ^[0-9A-F]{40}$ ]] || fail '请从 Winc 官网下载正式安装脚本'
 for command in curl gpg pacman pacman-key pacman-conf flock; do
   command -v "$command" >/dev/null || fail "缺少命令 $command"
 done
+# 只有 x86_64 时仓库地址用 $arch；还列着 x86_64_v3 等（如 CachyOS）时 $arch 会展开成别的值，
+# 地址固定为 x86_64。
 architectures=$(pacman-conf --config "$pacman_config" Architecture)
-server_url=$base_url/\$arch
-if [[ $ID == cachyos ]]; then
+if [[ $architectures == x86_64 ]]; then
+  server_url=$base_url/\$arch
+else
   [[ -z $architectures ]] || grep -Fxq x86_64 <<< "$architectures" ||
     fail 'pacman 的 Architecture 必须允许 x86_64，请检查 /etc/pacman.conf'
   server_url=$base_url/x86_64
-else
-  [[ $architectures == x86_64 ]] ||
-    fail 'pacman 的 Architecture 必须解析为 x86_64，请检查 /etc/pacman.conf'
 fi
 
 workdir=$(mktemp -d)
@@ -66,8 +77,8 @@ include_count=$(awk -v path="$repo_config" '
   END {print count+0}
 ' "$pacman_config")
 if [[ -e $repo_config ]] && ! cmp -s "$repo_config" "$workdir/repo.conf"; then
-  # CachyOS 上已启用的旧配置仍需通过下方的实际地址和签名设置检查。
-  [[ $ID == cachyos && $include_count == 1 ]] &&
+  # 地址固定为 x86_64 时，已启用的、写着 $arch 的旧配置仍需通过下方的实际地址和签名设置检查。
+  [[ $server_url == "$base_url/x86_64" && $include_count == 1 ]] &&
     cmp -s "$repo_config" <(sed 's|/x86_64$|/$arch|' "$workdir/repo.conf") ||
     fail "已有冲突的仓库配置 $repo_config"
 fi

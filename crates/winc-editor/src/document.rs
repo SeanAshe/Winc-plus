@@ -532,6 +532,9 @@ pub struct Document {
     rendered: bool,
     /// 不对应文件的只读标签（格式化工具的输出、安装说明）的标题。
     pub title: Option<String>,
+    /// 未命名文档在标签上显示的名字（见 [`Document::make_untitled`]）；为 `None` 时显示
+    /// `untitled`。有路径时不使用。
+    pub untitled_name: Option<String>,
     /// 阅读标签的内容：编辑区显示排版后的 Markdown，没有可切换的源代码，文本为空。
     pub reading: Option<Reading>,
     /// 文本每变化一次加 1，搜索结果等缓存据此判断是否失效。
@@ -651,6 +654,7 @@ impl Document {
             split: false,
             rendered: false,
             title: None,
+            untitled_name: None,
             reading: None,
             revision: 0,
             scroll_line: 0.0,
@@ -717,6 +721,29 @@ impl Document {
         document.title = Some(title.to_owned());
         document.readonly = true;
         document
+    }
+
+    /// 把输出标签转为可编辑的未命名文档，标签上仍显示原来的标题。
+    ///
+    /// 当前内容作为保存基线：不修改时关闭不询问是否保存。不是输出标签时不做处理。
+    pub fn make_untitled(&mut self) {
+        if self.reading.is_some() || self.diff.is_some() || self.log.is_some() {
+            return;
+        }
+        if let Some(title) = self.title.take() {
+            self.untitled_name = Some(title);
+            self.readonly = false;
+        }
+    }
+
+    /// 把 [`Document::make_untitled`] 转出的未命名文档恢复为只读的输出标签。
+    pub fn make_output(&mut self) {
+        if self.path.is_none()
+            && let Some(name) = self.untitled_name.take()
+        {
+            self.title = Some(name);
+            self.readonly = true;
+        }
     }
 
     /// 创建只读、不对应文件的阅读标签，标签上显示 `title`，内容为 `reading`。
@@ -1184,15 +1211,16 @@ impl Document {
         self.follow_unicode_escapes();
     }
 
-    /// 标签上显示的名字：输出标签用 `title`，否则用文件名，没有文件名时是 `untitled`。
+    /// 标签上显示的名字：输出标签用 `title`，否则用文件名；未命名文档用 `untitled_name`，没有
+    /// 时是 `untitled`。
     pub fn name(&self) -> Cow<'_, str> {
         if let Some(title) = &self.title {
             return Cow::Borrowed(title);
         }
-        self.path
-            .as_deref()
-            .and_then(Path::file_name)
-            .map_or(Cow::Borrowed("untitled"), |n| n.to_string_lossy())
+        if let Some(name) = self.path.as_deref().and_then(Path::file_name) {
+            return name.to_string_lossy();
+        }
+        Cow::Borrowed(self.untitled_name.as_deref().unwrap_or("untitled"))
     }
 
     /// 是否有未保存的修改。

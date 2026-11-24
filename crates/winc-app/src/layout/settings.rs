@@ -60,6 +60,8 @@ pub enum Setting {
     HotExit,
     /// 关闭窗口或退出前先确认。
     ConfirmClose,
+    /// macOS 上关闭最后一个窗口时退出应用（`editor.quitOnLastWindowClose`）。
+    QuitOnLastWindowClose,
     /// 启动时打开上次退出时打开的目录和标签。
     RestoreFolder,
     /// 启动时没有可恢复的内容时新建文件（`editor.newFileOnStartup`）。
@@ -68,6 +70,8 @@ pub enum Setting {
     DefaultLanguage,
     /// 粘贴时按内容识别语言（`editor.detectLanguageOnPaste`）。
     DetectLanguageOnPaste,
+    /// 拖动选中的文字来移动或复制（`editor.dragAndDrop`）。
+    DragAndDrop,
     /// 粘滞滚动：滚动时在编辑区顶部钉住当前所在的函数、类和标题。
     StickyScroll,
     /// 光标移动时滑到新位置的方式。
@@ -92,10 +96,14 @@ pub enum Setting {
     LineNumbers,
     /// 差异单栏显示。
     DiffInline,
+    /// 差异中折叠较长的未更改内容。
+    DiffCollapse,
     /// 何时显示空格和制表符。
     RenderWhitespace,
     /// 显示状态栏。
     StatusBar,
+    /// 编辑器的标签按文件名加宽，不截短文件名。
+    FullTabNames,
     /// 记住窗口大小和位置。
     RestoreWindow,
     /// 播放界面的过渡动画。
@@ -212,6 +220,9 @@ pub enum Setting {
     GitTree,
     /// 提交视图显示暂存区（`git.stagingArea`）；关闭时用勾选决定提交的内容。
     GitStagingArea,
+    /// 点击提交视图中的文件时在「未提交的更改」标签中查看（`git.combinedDiff`）；与差异标题栏
+    /// 和「未提交的更改」工具栏上的按钮是同一个开关。
+    GitCombinedDiff,
     /// 点击工作树时在哪个窗口打开它（`git.openWorktree`）。
     GitOpenWorktree,
     /// 拉取、同步时合并还是变基（`git.pull`）。
@@ -280,9 +291,10 @@ impl Setting {
             S::Language | S::RestoreFolder | S::NewFileOnStartup | S::RestoreWindow => {
                 SettingsPage::General
             }
-            S::AutoSave | S::HotExit | S::ConfirmClose | S::CheckUpdates | S::SystemProxy => {
+            S::AutoSave | S::HotExit | S::ConfirmClose | S::QuitOnLastWindowClose => {
                 SettingsPage::General
             }
+            S::CheckUpdates | S::SystemProxy => SettingsPage::General,
             S::Theme | S::LightTheme | S::DarkTheme | S::UiFont | S::UiSize | S::FontWeight => {
                 SettingsPage::Appearance
             }
@@ -298,7 +310,7 @@ impl Setting {
             S::Minimap | S::StickyScroll | S::RenderWhitespace | S::WholeLines => {
                 SettingsPage::Editor
             }
-            S::SmoothCaret => SettingsPage::Editor,
+            S::SmoothCaret | S::DragAndDrop | S::FullTabNames => SettingsPage::Editor,
             S::DefaultLanguage | S::DetectLanguageOnPaste | S::VimMode | S::VimClipboard => {
                 SettingsPage::Editor
             }
@@ -327,9 +339,13 @@ impl Setting {
                 SettingsPage::Terminal
             }
             S::TerminalApplicationPriority | S::TerminalOptionAsMeta => SettingsPage::Terminal,
-            S::GitPath | S::GitOpenWorktree | S::GitStagingArea | S::GitTree | S::DiffInline => {
-                SettingsPage::Git
-            }
+            S::GitPath
+            | S::GitOpenWorktree
+            | S::GitStagingArea
+            | S::GitTree
+            | S::DiffInline
+            | S::DiffCollapse => SettingsPage::Git,
+            S::GitCombinedDiff => SettingsPage::Git,
             S::GitInlineBlame | S::GitPullMode | S::GitConfirmPush | S::GitAutoFetch => {
                 SettingsPage::Git
             }
@@ -359,10 +375,12 @@ impl Setting {
             S::AutoSave => "editor.autoSave",
             S::HotExit => "editor.hotExit",
             S::ConfirmClose => "editor.confirmClose",
+            S::QuitOnLastWindowClose => "editor.quitOnLastWindowClose",
             S::RestoreFolder => "editor.restoreFolder",
             S::NewFileOnStartup => "editor.newFileOnStartup",
             S::DefaultLanguage => "editor.defaultLanguage",
             S::DetectLanguageOnPaste => "editor.detectLanguageOnPaste",
+            S::DragAndDrop => "editor.dragAndDrop",
             S::StickyScroll => "editor.stickyScroll",
             S::SmoothCaret => "editor.smoothCaretMovement",
             S::WordWrap => "editor.wordWrap",
@@ -371,8 +389,10 @@ impl Setting {
             S::Outline => "editor.outline",
             S::LineNumbers => "editor.lineNumbers",
             S::DiffInline => "editor.diffInline",
+            S::DiffCollapse => "editor.diffCollapseUnchanged",
             S::RenderWhitespace => "editor.renderWhitespace",
             S::StatusBar => "editor.statusBar",
+            S::FullTabNames => "editor.fullTabNames",
             S::RestoreWindow => "editor.restoreWindow",
             S::SmoothScrolling => "editor.smoothScrolling",
             S::DropFolder => "editor.dropFolder",
@@ -425,6 +445,7 @@ impl Setting {
             S::GitInlineBlame => "git.inlineBlame",
             S::GitAutoFetch => "git.autoFetch",
             S::GitStagingArea => "git.stagingArea",
+            S::GitCombinedDiff => "git.combinedDiff",
             S::GitOpenWorktree => "git.openWorktree",
             S::GitPullMode => "git.pull",
             S::GitPath => "git.path",
@@ -456,10 +477,12 @@ impl Setting {
             Setting::AutoSave => t!("settings-auto-save"),
             Setting::HotExit => t!("settings-hot-exit"),
             Setting::ConfirmClose => t!("settings-confirm-close"),
+            Setting::QuitOnLastWindowClose => t!("settings-quit-on-last-window-close"),
             Setting::RestoreFolder => t!("settings-restore-folder"),
             Setting::NewFileOnStartup => t!("settings-new-file-on-startup"),
             Setting::DefaultLanguage => t!("settings-default-language"),
             Setting::DetectLanguageOnPaste => t!("settings-detect-language-on-paste"),
+            Setting::DragAndDrop => t!("settings-drag-and-drop"),
             Setting::DropFolder => t!("settings-drop-folder"),
             Setting::FindInFiles => t!("settings-find-in-files"),
             Setting::StickyScroll => t!("settings-sticky-scroll"),
@@ -473,8 +496,10 @@ impl Setting {
             Setting::Minimap => t!("settings-minimap"),
             Setting::LineNumbers => t!("settings-line-numbers"),
             Setting::DiffInline => t!("settings-diff-inline"),
+            Setting::DiffCollapse => t!("settings-diff-collapse"),
             Setting::RenderWhitespace => t!("settings-render-whitespace"),
             Setting::StatusBar => t!("settings-status-bar"),
+            Setting::FullTabNames => t!("settings-full-tab-names"),
             Setting::RestoreWindow => t!("settings-restore-window"),
             Setting::Animations => t!("settings-animations"),
             Setting::SmoothScrolling => t!("settings-smooth-scrolling"),
@@ -528,6 +553,7 @@ impl Setting {
             Setting::GitAutoFetch => t!("settings-git-auto-fetch"),
             Setting::GitTree => t!("settings-git-tree"),
             Setting::GitStagingArea => t!("settings-git-staging-area"),
+            Setting::GitCombinedDiff => t!("settings-git-combined-diff"),
             Setting::GitOpenWorktree => t!("settings-git-open-worktree"),
             Setting::GitPullMode => t!("settings-git-pull"),
             Setting::GitPath => t!("settings-git-path"),
@@ -560,10 +586,12 @@ impl Setting {
             Setting::AutoSave => Some(t!("settings-auto-save-desc")),
             Setting::HotExit => Some(t!("settings-hot-exit-desc")),
             Setting::ConfirmClose => Some(t!("settings-confirm-close-desc")),
+            Setting::QuitOnLastWindowClose => Some(t!("settings-quit-on-last-window-close-desc")),
             Setting::RestoreFolder => Some(t!("settings-restore-folder-desc")),
             Setting::NewFileOnStartup => Some(t!("settings-new-file-on-startup-desc")),
             Setting::DefaultLanguage => Some(t!("settings-default-language-desc")),
             Setting::DetectLanguageOnPaste => Some(t!("settings-detect-language-on-paste-desc")),
+            Setting::DragAndDrop => Some(t!("settings-drag-and-drop-desc")),
             Setting::DropFolder => Some(t!("settings-drop-folder-desc")),
             Setting::FindInFiles => Some(t!("settings-find-in-files-desc")),
             Setting::StickyScroll => Some(t!("settings-sticky-scroll-desc")),
@@ -579,8 +607,10 @@ impl Setting {
             Setting::Minimap => Some(t!("settings-minimap-desc")),
             Setting::LineNumbers => Some(t!("settings-line-numbers-desc")),
             Setting::DiffInline => Some(t!("settings-diff-inline-desc")),
+            Setting::DiffCollapse => Some(t!("settings-diff-collapse-desc")),
             Setting::RenderWhitespace => Some(t!("settings-render-whitespace-desc")),
             Setting::StatusBar => Some(t!("settings-status-bar-desc")),
+            Setting::FullTabNames => Some(t!("settings-full-tab-names-desc")),
             Setting::RestoreWindow => Some(t!("settings-restore-window-desc")),
             Setting::Animations => Some(t!("settings-animations-desc")),
             Setting::SmoothScrolling => Some(t!("settings-smooth-scrolling-desc")),
@@ -616,6 +646,7 @@ impl Setting {
             Setting::GitAutoFetch => Some(t!("settings-git-auto-fetch-desc")),
             Setting::GitTree => Some(t!("settings-git-tree-desc")),
             Setting::GitStagingArea => Some(t!("settings-git-staging-area-desc")),
+            Setting::GitCombinedDiff => Some(t!("settings-git-combined-diff-desc")),
             Setting::GitOpenWorktree => Some(t!("settings-git-open-worktree-desc")),
             Setting::GitPullMode => Some(t!("settings-git-pull-desc")),
             Setting::GitPath => Some(t!("settings-git-path-desc")),
@@ -656,9 +687,11 @@ impl Setting {
             Setting::SystemTitleBar
             | Setting::HotExit
             | Setting::ConfirmClose
+            | Setting::QuitOnLastWindowClose
             | Setting::RestoreFolder
             | Setting::NewFileOnStartup
             | Setting::DetectLanguageOnPaste
+            | Setting::DragAndDrop
             | Setting::CompactFolders
             | Setting::PreviewOnClick
             | Setting::StickyScroll
@@ -671,7 +704,9 @@ impl Setting {
             | Setting::Outline
             | Setting::LineNumbers
             | Setting::DiffInline
+            | Setting::DiffCollapse
             | Setting::StatusBar
+            | Setting::FullTabNames
             | Setting::RestoreWindow
             | Setting::Animations
             | Setting::SmoothScrolling
@@ -692,6 +727,7 @@ impl Setting {
             | Setting::GitAutoFetch
             | Setting::GitTree
             | Setting::GitStagingArea
+            | Setting::GitCombinedDiff
             | Setting::ExplorerMenu
             | Setting::FileAssociations
             | Setting::TerminalModule

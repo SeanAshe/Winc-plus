@@ -132,6 +132,7 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
         let vim_caret = app.vim_caret();
         let caret = vim_caret.map_or(selection.head, |(pos, _)| pos);
         let (caret_line, caret_col) = text.pos_to_line_col(caret);
+        let text_drop = app.text_drop().map(|pos| text.pos_to_line_col(pos));
         // 多光标：主选区以外、位于可见范围内的选区和光标（行，列）。光标可能有上万个，
         // 只取可见的部分。
         let shown_range = {
@@ -194,6 +195,7 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
             extra: &extra,
             caret_line,
             caret_col,
+            text_drop,
             relative: app.vim_relative(),
             yanked: app.vim_yanked(id),
             vim_caret: vim_caret.map(|(_, shape)| shape),
@@ -212,6 +214,8 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
             blame_hover,
             line_blame,
             problems: app.latex_problem_lines(id),
+            http_requests: app.http_request_lines(doc),
+            http_mark: app.http_mark(id),
         };
 
         screen.draw_conflict_tints(frame, &conflicts);
@@ -280,6 +284,7 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
 
     app.hits.folded = scratch.folded_hits;
     app.hits.long_lines = scratch.long_hits;
+    app.hits.http_runs = scratch.http_hits;
     draw_sticky(app, frame, index);
     minimap::draw_minimap(app, frame, index);
     // 滚动条绘制在固定行的上层，使滚动条从上到下是完整的一条。
@@ -344,6 +349,8 @@ struct Screen<'a> {
     extra: &'a [Selection],
     caret_line: usize,
     caret_col: usize,
+    /// 拖动选中的文字时将放下的位置（行，列）；没有在拖动时为 `None`。
+    text_drop: Option<(usize, usize)>,
     /// 行号栏是否显示相对行号。
     relative: bool,
     /// Vim 模式下刚被复制、仍在高亮的范围。
@@ -365,6 +372,10 @@ struct Screen<'a> {
     line_blame: Option<(usize, String)>,
     /// LaTeX 编译出错的行（从 0 起，从小到大）。
     problems: Vec<usize>,
+    /// `.http` 文件中请求行的行号（从 0 起，从小到大）；不是 `.http` 文件时为 `None`。
+    http_requests: Option<std::rc::Rc<[usize]>>,
+    /// 正在发送或刚结束的请求：（请求行的行号，按钮的样子）。
+    http_mark: Option<(usize, crate::app::editor::http::RunMark)>,
 }
 
 /// 行尾可点击的区域及其所在的行。
@@ -386,6 +397,8 @@ struct Scratch {
     folded_hits: LineHits,
     /// 截断说明中「显示整行」的位置及其所在的行。
     long_hits: LineHits,
+    /// `.http` 文件行号栏中发送请求的按钮及其所在的请求行。
+    http_hits: LineHits,
     /// 主光标的位置；输入法候选框跟随该位置。
     ime_cursor: Option<Rect>,
     /// 主光标这一帧的绘制方式。
@@ -416,6 +429,7 @@ impl Scratch {
             guide_indent: 0,
             folded_hits: Vec::new(),
             long_hits: Vec::new(),
+            http_hits: Vec::new(),
             ime_cursor: None,
             caret: CaretDraw::default(),
         }

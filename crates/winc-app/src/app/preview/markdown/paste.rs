@@ -86,10 +86,11 @@ impl App {
         }
     }
 
-    /// 原样插入剪贴板中的文字，不改写为 Markdown 的写法。
+    /// 粘贴为纯文本：原样插入剪贴板中的文字，不把网址、表格和网页内容改写为 Markdown 的写法，
+    /// 也不把文件、图片写成链接；其余同普通的粘贴（见 `App::paste_text_as`）。
     pub(in crate::app) fn paste_plain(&mut self) {
         if let Some(text) = self.clipboard_text() {
-            self.run(winc_editor::Command::Paste(text));
+            self.paste_text_as(text, false);
         }
     }
 

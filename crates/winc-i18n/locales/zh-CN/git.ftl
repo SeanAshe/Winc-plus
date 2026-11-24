@@ -365,14 +365,19 @@ git-not-a-repository = 当前目录不是 Git 仓库
 git-not-on-branch = 当前不在任何分支上，请先签出一个分支
 git-no-file-in-tab = 当前标签页未关联文件
 git-diff-title = { $name } · 差异
+git-diff-title-changes = { $name } · 更改
+git-diff-title-staged = { $name } · 暂存的更改
 git-diff-submodule = 「{ $name }」是子模块，不显示差异
 git-diff-head-unreadable = 无法读取「{ $name }」在上次提交中的版本：{ $error }
+git-diff-index-unreadable = 无法读取「{ $name }」在暂存区中的版本：{ $error }
 git-diff-too-large = 「{ $name }」过大，不显示差异
 git-diff-binary = 「{ $name }」是二进制文件，不显示差异
 git-diff-identical = 「{ $name }」与上次提交时相同
 git-diff-line-endings-only = 「{ $name }」与上次提交时只有换行符不同
 git-diff-side-worktree-deleted = 工作区 · 已删除
 git-diff-side-head-missing = HEAD · 文件不存在
+git-diff-side-index = 暂存区
+git-diff-side-index-missing = 暂存区 · 文件不存在
 
 ## 信任仓库的配置
 
@@ -675,3 +680,12 @@ git-merge-side-result = 结果
 git-rebase-hint = ↑↓ 选择 · { $alt }↑↓ 移动 · P R E S F D 设置操作
 git-merge-conflict-title = 冲突 { $index } / { $count }
 git-merge-edit-conflict = 手动编辑
+git-combined-title = 未提交的更改
+git-combined-no-text-change = 无文本更改
+git-combined-comparing = 正在比较…
+git-combined-empty = 没有未提交的更改
+git-combined-files = { $count } 个文件
+git-combined-open-file = 打开文件
+git-combined-open-diff = 在差异标签中打开
+git-combined-previous = 上一处更改
+git-combined-next = 下一处更改

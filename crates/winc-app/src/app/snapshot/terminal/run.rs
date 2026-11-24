@@ -422,7 +422,7 @@ fn exits_are_reported_only_when_unseen() {
     clean(&dir);
 }
 
-/// 没有运行时没有停止按钮，运行按钮紧贴位置按钮；运行时多一个停止按钮。
+/// 没有运行时没有停止按钮，运行按钮紧贴右侧的拆分按钮；运行时多一个停止按钮。
 #[test]
 fn the_stop_button_appears_only_while_running() {
     let (mut app, dir, _log) = app_with_configs("run-stop-button");
@@ -435,7 +435,7 @@ fn the_stop_button_appears_only_while_running() {
     app.new_terminal_tab_in(Vec::new());
     paint(&mut app);
     assert!(hit(&app, stop).is_none());
-    let position = hit(&app, HeaderHit::Maximize).unwrap();
+    let position = hit(&app, HeaderHit::Split).unwrap();
     let idle = hit(&app, start).unwrap();
     assert_eq!(position.x - idle.right(), crate::theme::TAB_GAP);
 

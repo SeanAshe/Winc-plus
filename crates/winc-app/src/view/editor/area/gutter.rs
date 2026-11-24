@@ -1,4 +1,5 @@
-//! 一行在行号栏里的部分：行号、Git 改动标记、逐行追溯、书签和折叠箭头。
+//! 一行在行号栏里的部分：行号、Git 改动标记、逐行追溯、书签、`.http` 文件发送请求的按钮和
+//! 折叠箭头。
 
 use winc_i18n::t;
 
@@ -120,6 +121,55 @@ impl Screen<'_> {
             let dot = Rect::new(center.0 - r, center.1 - r, PROBLEM_DOT, PROBLEM_DOT);
             frame.rect_clipped(dot, self.app.palette.error, r, gutter);
         }
+    }
+
+    /// `.http` 文件中请求行的发送按钮，位于书签的位置（该行有书签时不画），位置记入 `hits`。
+    ///
+    /// 发送中的请求转动（关闭动画效果时是静止的停止方块），点击即取消；刚结束的请求显示结果
+    /// （成功为对勾，失败为叉），随后淡回发送按钮。
+    pub(super) fn draw_http_run(&self, frame: &mut Frame<'_>, row: &Row<'_>, hits: &mut LineHits) {
+        use crate::app::editor::http::RunMark;
+
+        let Some(requests) = &self.http_requests else {
+            return;
+        };
+        if requests.binary_search(&row.line).is_err() || self.doc.bookmarks().contains(row.line) {
+            return;
+        }
+        let (app, p, gutter) = (self.app, self.app.palette, self.gutter);
+        let button = Rect::new(
+            gutter.x + self.blame_w,
+            row.gutter_y,
+            GUTTER_PADDING,
+            self.lh,
+        );
+        if app.pointer.hover == Hover::HttpRun(row.line) {
+            frame.rect_clipped(button.inset(1.0, 1.0), p.hover, RADIUS_ROW, gutter);
+        }
+        let center = (button.x + button.w / 2.0, button.y + button.h / 2.0);
+        let mark = (self.http_mark)
+            .filter(|&(line, _)| line == row.line)
+            .map(|(_, mark)| mark);
+        match mark {
+            Some(RunMark::Running) if app.animations_on() => {
+                icons::spinner(frame, center, 4.0, icons::spin_turn(), p.git_added, gutter);
+            }
+            Some(RunMark::Running) => {
+                let stop = Rect::new(center.0 - 3.5, center.1 - 3.5, 7.0, 7.0);
+                frame.rect_clipped(stop, p.git_added, 1.0, gutter);
+            }
+            Some(RunMark::Done { ok, shown }) => {
+                frame.with_opacity(1.0 - shown, |frame| {
+                    icons::play_solid(frame, center, p.git_added, gutter);
+                });
+                frame.with_opacity(shown, |frame| match ok {
+                    true => icons::check(frame, center, 8.0, p.git_added, gutter),
+                    false => icons::close(frame, center, 7.0, p.error, gutter),
+                });
+            }
+            None => icons::play_solid(frame, center, p.git_added, gutter),
+        }
+        hits.push((button, row.line));
     }
 
     /// 折叠箭头：已折叠的行、鼠标在行号栏上时可折叠的行，以及动画中转动的那一个。

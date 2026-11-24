@@ -379,6 +379,11 @@ impl ApplicationHandler<UserEvent> for App {
                     self.update_terminal_link();
                 }
                 self.update_text_link();
+                self.tab_switch_modifiers();
+                // 拖动文字时按下、松开复制键，指针在移动与复制之间切换。
+                if self.text_drop().is_some() {
+                    self.update_cursor_icon();
+                }
                 // 按住 `⌥` 时分支选择器中的「拉取」变为「拉取并变基」，提交按钮变为「提交并推送」。
                 if (self.overlays.picker.open && self.picker_has_actions()) || self.commit_shown() {
                     self.request_redraw();
@@ -463,6 +468,7 @@ impl App {
             self.reload_state();
         } else {
             self.cancel_chord();
+            self.close_tab_switch();
             let ids: Vec<DocumentId> = self.editor.documents.iter().map(|d| d.id).collect();
             self.auto_save(&ids);
             self.drop_drags();
@@ -506,6 +512,7 @@ impl App {
             UserEvent::ReleaseNotes(notes) => self.show_release_notes(notes),
             done @ (UserEvent::GitStatus
             | UserEvent::GitContent
+            | UserEvent::GitCombined
             | UserEvent::GitCommit
             | UserEvent::GitBase
             | UserEvent::GitOperated
@@ -657,6 +664,7 @@ impl App {
             }
             UserEvent::Delete(paths, permanent) => self.delete_entries(&paths, permanent),
             UserEvent::Formatted => self.poll_formatting(),
+            UserEvent::HttpDone => self.poll_http(),
             UserEvent::ToolChoice(answer) => self.answer_tool_choice(*answer),
             UserEvent::GitTrust(root, fingerprint, trusted) => {
                 self.answer_git_trust(&root, fingerprint, trusted);

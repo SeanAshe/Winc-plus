@@ -4,10 +4,12 @@
 mod blocks;
 mod editor;
 mod find;
+mod groups;
 mod input;
 mod paste;
 mod run;
 mod shortcuts;
+mod split;
 mod tabs;
 
 use super::editor::navigation::press;
@@ -619,17 +621,19 @@ fn the_tab_bar_keeps_even_gaps_around_tabs_and_buttons() {
     assert_eq!(tab.x - card.x, app.terminal_view().y - tab.bottom());
     assert_eq!(tab.x - card.x, 5.0);
 
-    // 「+」、运行、最大化、切换位置、收起五个按钮间距相同，尺寸和间距与编辑区标签栏一致。
+    // 「+」、运行、拆分、最大化、切换位置、收起六个按钮间距相同，尺寸和间距与编辑区标签栏一致。
     let new = hit(&app, terminal::HeaderHit::New);
     let run = hit(
         &app,
         terminal::HeaderHit::Run(terminal::run::RunButton::Start),
     );
+    let split = hit(&app, terminal::HeaderHit::Split);
     let maximize = hit(&app, terminal::HeaderHit::Maximize);
     let position = hit(&app, terminal::HeaderHit::Position);
     let hide = hit(&app, terminal::HeaderHit::Hide);
     assert_eq!(run.x - new.right(), crate::theme::TAB_GAP);
-    assert_eq!(maximize.x - run.right(), crate::theme::TAB_GAP);
+    assert_eq!(split.x - run.right(), crate::theme::TAB_GAP);
+    assert_eq!(maximize.x - split.right(), crate::theme::TAB_GAP);
     assert_eq!(position.x - maximize.right(), crate::theme::TAB_GAP);
     assert_eq!(hide.x - position.right(), crate::theme::TAB_GAP);
     assert_eq!(new.w, crate::theme::BUTTON);

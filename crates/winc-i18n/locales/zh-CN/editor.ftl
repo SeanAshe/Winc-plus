@@ -234,3 +234,18 @@ hex-goto-placeholder = 0x4E 或 78
 hex-goto-total = 共 { $size }
 editor-readonly-hex = 十六进制视图只能查看
 editor-definition-in-dependencies = 项目中没有「{ $name }」的定义，正在依赖目录中查找…
+
+## HTTP 请求文件。
+
+editor-http-sending = 正在发送请求…
+editor-http-cancel = 取消请求
+editor-http-cancelled = 已取消请求
+editor-http-received = 已收到响应：{ $status }，用时 { $millis } 毫秒
+editor-http-failed = 无法发送请求：{ $error }
+editor-http-no-request = 光标处未找到请求
+editor-http-undefined-variable = 无法发送请求：变量「{ $name }」未定义
+editor-http-response-title = 响应：{ $request }
+editor-http-binary-body = （二进制内容，{ $size } 字节）
+editor-http-body-truncated = （仅显示前 { $shown } 字节，共 { $size } 字节）
+editor-http-curl-missing = 未找到 curl
+editor-http-too-large = 响应过大

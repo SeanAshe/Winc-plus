@@ -96,7 +96,9 @@ impl App {
                 self.git_refresh();
             }
             CommitTarget::More => {
-                let rect = self.commit_parts().tools[2].0;
+                let tools = self.commit_parts().tools;
+                let more = tools.iter().find(|(_, t)| *t == CommitTarget::More);
+                let rect = more.map_or(Rect::default(), |(rect, _)| *rect);
                 self.open_button_menu(
                     MenuButton::CommitMore,
                     MenuTarget::CommitMore,
@@ -213,8 +215,12 @@ impl App {
                     self.request_redraw();
                     return;
                 }
-                // 双击打开文件本身，单击选中并预览差异。
+                // 双击打开文件本身，单击选中并预览差异。同一个文件在两组各有一行时，记下点的是
+                // 哪一行：预览按它所在的组比较，之后用键盘也从这一行移动。
                 let (x, y) = self.pointer.mouse;
+                if let Some(row) = self.commit_row_at(y) {
+                    self.git.commit.cursor = Some(row);
+                }
                 if self.click_count(x, y) >= 2 && self.may_be_file(&path) {
                     self.open_path(&path);
                     self.focus = Focus::Editor;

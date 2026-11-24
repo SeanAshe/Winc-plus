@@ -330,3 +330,69 @@ fn hiding_the_search_tab_returns_focus_to_the_editor() {
     assert_eq!(app.focus, Focus::Editor);
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// 对话框的样子（浅色和深色）：四周留同样的边距，标题、输入的文字和列表的图标在同一列，预览
+/// 一直排到底边；侧栏搜索标题行上是「在对话框中打开」的按钮。
+///
+/// 运行：`cargo test -p winc-app shoot_search_dialog -- --ignored`。
+#[test]
+#[ignore = "截图，手动运行"]
+fn shoot_search_dialog() {
+    for dark in [false, true] {
+        let dir = search_folder(if dark {
+            "dialog-shot-dark"
+        } else {
+            "dialog-shot-light"
+        });
+        let mut app = app_with(&dir.join("src/main.rs"), dark);
+        paint(&mut app);
+        app.open_global_search(false);
+        app.open_search_dialog();
+        app.search_dialog.query.set_text("config");
+        app.search_dialog_changed(true);
+        app.search_dialog.engine.wait();
+        app.poll_search_dialog(Instant::now());
+        paint(&mut app);
+        let theme = if dark { "dark" } else { "light" };
+        shoot(&mut app, &format!("search-dialog-{theme}"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// 回归：开着在文件中查找的对话框时打开设置，鼠标在两者重叠处滚动：滚的是上面的设置，不是下面
+/// 的对话框。
+#[test]
+fn the_wheel_scrolls_settings_over_the_search_dialog() {
+    use winit::event::{MouseScrollDelta, TouchPhase};
+
+    let dir = search_folder("dialog-under-settings");
+    for i in 0..40 {
+        std::fs::write(dir.join(format!("src/f{i}.rs")), "let config = 1;\n").unwrap();
+    }
+    let mut app = app_with(&dir.join("src/main.rs"), false);
+    paint(&mut app);
+    app.open_search_dialog();
+    app.search_dialog.query.set_text("config");
+    app.search_dialog_changed(true);
+    app.search_dialog.engine.wait();
+    app.poll_search_dialog(Instant::now());
+    paint(&mut app);
+    let list = app.search_dialog_parts().list.list;
+    let at = (list.x + list.w / 2.0, list.y + list.h / 2.0);
+    // 先确认这里滚得动对话框。
+    app.on_mouse_move(at.0, at.1);
+    app.on_wheel_event(MouseScrollDelta::LineDelta(0.0, -1.0), TouchPhase::Moved);
+    assert!(app.search_dialog.scroll > 0.0);
+    app.search_dialog.scroll = 0.0;
+
+    app.open_settings();
+    paint(&mut app);
+    assert!(
+        app.settings_layout().body.contains(at.0, at.1),
+        "设置盖在对话框上"
+    );
+    app.on_mouse_move(at.0, at.1);
+    app.on_wheel_event(MouseScrollDelta::LineDelta(0.0, -1.0), TouchPhase::Moved);
+    assert_eq!(app.search_dialog.scroll, 0.0, "滚到了下面的对话框");
+    let _ = std::fs::remove_dir_all(&dir);
+}

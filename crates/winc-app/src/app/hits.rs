@@ -51,6 +51,10 @@ pub struct Hits {
     pub(crate) merge_card: Option<Rect>,
     /// 标签栏上各个按钮的位置，绘制时记下。
     pub(crate) terminal: Vec<(Rect, crate::app::terminal::HeaderHit)>,
+    /// 分栏时各栏标签栏上的按钮，按栏的排列顺序；正在用的一栏的同时在 `terminal` 里。
+    pub(crate) terminal_groups: Vec<Vec<(Rect, crate::app::terminal::HeaderHit)>>,
+    /// 「未提交的更改」标签上可以点的地方，绘制时记下。
+    pub(crate) combined: Vec<(Rect, crate::app::git::combined::CombinedHit)>,
     /// 卡片上可点击的控件，绘制时更新。
     pub(crate) changes: Vec<(Rect, ChangeTarget)>,
     /// 卡片的位置，绘制时更新；点击卡片外部时关闭卡片。
@@ -112,6 +116,10 @@ pub struct Hits {
     /// 当前帧「快捷键」页中绘制出的按钮、链接和键帽上的 ×；位置随文字宽度而定，悬停和点击用
     /// 这里的。
     pub(crate) keys_parts: Vec<(Rect, crate::layout::SettingsPart)>,
+    /// 标签页切换列表中各行的位置和行号（见 `SwitchList::rows`）。
+    pub(crate) tab_switch: Vec<(Rect, usize)>,
+    /// `.http` 文件行号栏中发送请求的按钮的位置和请求行的行号（从 0 起）。
+    pub(crate) http_runs: Vec<(Rect, usize)>,
 }
 
 impl Hits {
@@ -140,6 +148,8 @@ impl Hits {
             merge,
             merge_card,
             terminal,
+            terminal_groups,
+            combined,
             changes,
             changes_card,
             notice_card,
@@ -165,6 +175,8 @@ impl Hits {
             install_links,
             reset_links,
             keys_parts,
+            tab_switch,
+            http_runs,
         } = self;
         start.clear();
         *suggest_card = None;
@@ -190,6 +202,8 @@ impl Hits {
         merge.clear();
         *merge_card = None;
         terminal.clear();
+        terminal_groups.clear();
+        combined.clear();
         changes.clear();
         *changes_card = None;
         *notice_card = None;
@@ -211,5 +225,7 @@ impl Hits {
         install_links.clear();
         reset_links.clear();
         keys_parts.clear();
+        tab_switch.clear();
+        http_runs.clear();
     }
 }

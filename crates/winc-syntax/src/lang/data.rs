@@ -349,6 +349,33 @@ pub(super) static JSON: Language = Language {
     ..CODE
 };
 
+/// HTTP 请求文件（`.http`、`.rest`）的规则。
+///
+/// 请求行以方法开头，方法按关键字着色；行首的 `名字:` 是请求头，`@名字 =` 是变量定义，按键着色；
+/// `{{名字}}` 是变量引用，按字符串着色。`#`、`//` 开始注释，`###` 分隔请求。正文多为 JSON。
+pub(super) static HTTP: Language = Language {
+    id: "http",
+    name: "HTTP",
+    extensions: &["http", "rest"],
+    keywords: &[
+        "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "TRACE", "CONNECT", "HTTP",
+    ],
+    builtins: &["true", "false", "null"],
+    // 前面必须是空白：网址中的 `#片段` 和 `https://` 不是注释。
+    line_comments: &["#", "//"],
+    comment_needs_space: true,
+    key_separators: &[':', '='],
+    quoted_keys: true,
+    block_strings: &[BlockString {
+        open: "{{",
+        close: "}}",
+        interpolate: false,
+    }],
+    indent_after: &['{', '['],
+    indent_unit: "  ",
+    ..CODE
+};
+
 /// HTML 的规则：标签、属性与字符实体，`<script>`、`<style>` 的内容按内嵌语言着色。
 pub(super) static HTML: Language = Language {
     id: "html",

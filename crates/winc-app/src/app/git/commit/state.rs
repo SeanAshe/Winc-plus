@@ -3,6 +3,8 @@
 use winc_core::diff::Pick;
 use winc_editor::diff_view::DiffView;
 
+use crate::app::git::DiffKind;
+
 use super::*;
 
 impl CommitState {
@@ -101,11 +103,20 @@ impl CommitState {
         }
     }
 
-    /// 返回文件 `entry` 在差异 `view` 中各段改动的暂存状态，下标同 `view.hunks`。
+    /// 返回文件 `entry` 在差异 `view`（比较的两份内容为 `kind`）中各段改动的暂存状态，下标同
+    /// `view.hunks`。
     ///
     /// [`Pick::Apply`] 为已暂存，[`Pick::Skip`] 为未暂存，[`Pick::Lines`] 列出未暂存的行。该文件
-    /// 只能按文件暂存（见 [`stages_by_hunk`]）、暂存区中的内容不是文本时为空。
-    pub fn hunk_inclusions(&self, entry: &Entry, view: &DiffView) -> Vec<Pick> {
+    /// 只能按文件暂存（见 [`stages_by_hunk`]）、暂存区中的内容不是文本时为空。分开显示时，「更改」
+    /// 中的各段都未暂存，「暂存的更改」中的各段都已暂存。
+    pub fn hunk_inclusions(&self, entry: &Entry, view: &DiffView, kind: DiffKind) -> Vec<Pick> {
+        let count = view.hunks.len();
+        match kind {
+            DiffKind::Whole => {}
+            _ if !self.staging || !stages_by_hunk(entry) => return Vec::new(),
+            DiffKind::Unstaged => return vec![Pick::Skip; count],
+            DiffKind::Staged => return vec![Pick::Apply; count],
+        }
         if !self.staging {
             let all: HunkIds = (view.keys.iter().zip(&view.hunks))
                 .map(|(&key, hunk)| (key, hunk.old.clone()))
@@ -115,7 +126,6 @@ impl CommitState {
         if !stages_by_hunk(entry) {
             return Vec::new();
         }
-        let count = view.hunks.len();
         if entry.staged.is_none() {
             return vec![Pick::Skip; count];
         }

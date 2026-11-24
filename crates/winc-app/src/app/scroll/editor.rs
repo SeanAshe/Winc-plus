@@ -118,6 +118,14 @@ impl App {
         }
     }
 
+    /// 视口以上的内容变高、变矮，文档 `doc` 的滚动位置随之移动了 `delta` 行后调用：正在进行的
+    /// 平滑滚动的起点一起移动，屏幕上的内容不跳。
+    pub(in crate::app) fn shift_scroll_glide(&mut self, doc: DocumentId, delta: f64) {
+        if let Some(glide) = self.scroll.glide.as_mut().filter(|g| g.doc == doc) {
+            glide.from += delta;
+        }
+    }
+
     /// 在编辑区纵向滚动位置从 `from` 变为当前值后调用，距离较远时启动平滑滚动。
     ///
     /// 距离不小于 [`GLIDE_MIN_ROWS`] 行时按 [`ScrollGlide`] 平滑滚动，否则直接到达目标。

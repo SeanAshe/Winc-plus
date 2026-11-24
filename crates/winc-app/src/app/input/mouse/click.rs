@@ -23,7 +23,13 @@ impl App {
         if (button == MouseButton::Left && self.alert_mouse_down())
             || self.overlays.alert.is_some()
             || self.popup_mouse_down(button)
+            || self.tab_switch_mouse_down()
         {
+            return;
+        }
+
+        // 「未提交的更改」中点在某一段的差异上：交给那一段，按差异标签处理。
+        if self.combined_takes_pointer(x, y) && self.combined_mouse_down(button) {
             return;
         }
 
@@ -33,8 +39,12 @@ impl App {
         {
             self.focus_pane(pane);
         }
-        // 点在终端标签里不在前台的终端上：同样先换到前台。
-        self.focus_terminal_pane_at(x, y);
+        // 点在终端不在用的一栏上：先改用那一栏；按在分栏的分隔线上是调整大小，不换。
+        self.focus_terminal_group_at(x, y);
+        // 点在终端标签里不在前台的终端上：同样先换到前台。按在分隔线上是调整大小，不换。
+        if self.terminal_split_at(x, y).is_none() {
+            self.focus_terminal_pane_at(x, y);
+        }
         let l = self.layout;
 
         // 鼠标侧面的两个键：后退、前进。
@@ -284,6 +294,8 @@ impl App {
                 }
             }
             Target::Diff(target) => self.press_diff(target),
+            Target::Combined(target) => self.press_combined(target),
+            Target::CombinedBody => {}
             Target::Log(crate::app::git::log::LogTarget::AuthorEdge) => {
                 let double = self.click_count(x, y) == 2;
                 self.press_log_author_edge(x, double);
@@ -343,6 +355,9 @@ impl App {
             Target::Start(action) => self.run_start_action(action),
             Target::Sticky(row) => self.click_sticky(row, x),
             Target::Folded(line) => self.click_folded(line),
+            Target::HttpRun(line) => {
+                self.send_http_request(Some(line));
+            }
             Target::LongLine(line) => {
                 self.focus = Focus::Editor;
                 self.show_whole_line(line);
@@ -417,9 +432,22 @@ impl App {
                     HeaderHit::Restart => self.request_terminal_restart(),
                     HeaderHit::Position => self.toggle_terminal_position(),
                     HeaderHit::Maximize => self.toggle_terminal_maximized(),
+                    HeaderHit::Split => self.split_terminal(),
                     HeaderHit::Hide => self.click_terminal_button(),
                     HeaderHit::Run(_) | HeaderHit::Find(_) => {}
                 }
+            }
+            Target::TerminalGroupSplit(index) if self.click_count(x, y) >= 2 => {
+                self.reset_terminal_group_split(index);
+            }
+            Target::TerminalGroupSplit(index) => {
+                self.pointer.drag = Drag::TerminalGroupSplit { index };
+            }
+            Target::TerminalSplit(index) if self.click_count(x, y) >= 2 => {
+                self.reset_terminal_split(index);
+            }
+            Target::TerminalSplit(index) => {
+                self.pointer.drag = Drag::TerminalSplit { index };
             }
             Target::PaneDivider(index) if self.click_count(x, y) >= 2 => {
                 self.reset_pane_divider(index);

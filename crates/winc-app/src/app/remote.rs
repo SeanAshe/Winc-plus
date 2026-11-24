@@ -838,6 +838,14 @@ impl App {
         true
     }
 
+    /// 是否为远端主机的窗口：开着远端主机上的目录，或没有目录、正在连接远端主机。
+    pub(crate) fn is_remote_window(&self) -> bool {
+        match self.editor.root() {
+            Some(root) => winc_backend::is_remote(root),
+            None => self.remote.connecting.is_some(),
+        }
+    }
+
     /// 打开 `ssh://` 参数指定的远端项目 `open` 并切到前台：本窗口开着该目录时直接打开其中的
     /// 文件；否则在后台连接（已有连接时沿用），打开目录之后再打开文件，带行号的跳到该位置。
     pub(crate) fn open_remote(&mut self, open: crate::cli::RemoteOpen) {

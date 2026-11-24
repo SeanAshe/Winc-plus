@@ -402,6 +402,8 @@ pub(super) static PERL: Language = Language {
     id: "perl",
     name: "Perl",
     extensions: &["pl", "pm", "t", "psgi", "pod"],
+    // `latexmk` 的配置文件是 Perl 程序：`latexmkrc`、`.latexmkrc`，以及系统级的 `LatexMk`。
+    file_names: &["latexmkrc", ".latexmkrc", "LatexMk"],
     interpreters: &["perl"],
     keywords: &[
         "my", "our", "local", "state", "sub", "package", "use", "no", "require", "if", "elsif",

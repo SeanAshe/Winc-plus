@@ -13,6 +13,7 @@ mod project;
 pub(super) mod recent;
 pub(super) mod search;
 mod search_dialog;
+mod search_tree;
 pub(super) mod selection;
 pub(super) mod session;
 pub(super) mod tab_selection;

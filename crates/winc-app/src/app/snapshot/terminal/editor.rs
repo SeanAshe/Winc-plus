@@ -737,6 +737,7 @@ fn the_terminal_menu_maximizes_and_the_options_apply() {
             (MenuCommand::TerminalDock, true),
             (MenuCommand::NewTerminal, true),
             (MenuCommand::SplitTerminal, true),
+            (MenuCommand::MoveTerminalRight, false),
             (MenuCommand::CloseTerminal, true),
         ]
     );

@@ -895,3 +895,45 @@ fn slash_list_scrolls_and_remembers_recent_commands() {
     assert_eq!(hits[0], Hit::Command(Slash::Heading(1)));
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 粘贴为纯文本：选中文字后粘贴网址不写成链接，原样插入；整行复制的内容仍插入到当前行上方，
+/// 同普通的粘贴。源代码的右键菜单里「粘贴」下面就是它，写着它的快捷键。
+///
+/// 回归：整行复制以换行符结尾的文件的最后一行，曾多带一个换行符，粘贴后多出一个空行。
+#[test]
+fn pasting_as_plain_text_skips_the_markdown_rewriting() {
+    use crate::app::PopupRow;
+    use crate::app::input::context_menu::MenuCommand;
+
+    let (mut app, dir) = source_doc("md-paste-plain", "说明\n甲\n乙\n");
+    select(&mut app, "说明");
+    app.clipboard.copied = Some("https://winc.si".into());
+    assert!(app.run_action(Action::MarkdownPastePlain));
+    assert_eq!(doc_text(&app), "https://winc.si\n甲\n乙\n");
+
+    // 整行复制「乙」，光标放到「甲」上：插入到「甲」上方。
+    put_caret(&mut app, "乙", false);
+    app.copy(false);
+    // 「乙」是最后一行、文件以换行符结尾：复制的就是「乙」一行，不多一个空行。
+    assert_eq!(app.clipboard.copied.as_deref(), Some("乙\n"));
+    put_caret(&mut app, "甲", false);
+    assert!(app.run_action(Action::MarkdownPastePlain));
+    assert_eq!(doc_text(&app), "https://winc.si\n乙\n甲\n乙\n");
+
+    // 右键菜单：「粘贴」之后是「粘贴为纯文本」，带快捷键。
+    let (text, lh) = (app.layout.text, app.fonts.line_height);
+    right_click(&mut app, (text.x + 20.0, text.y + lh / 2.0));
+    let commands: Vec<MenuCommand> = menu_commands(&app).into_iter().map(|(c, _)| c).collect();
+    let paste = commands
+        .iter()
+        .position(|&c| c == MenuCommand::Paste)
+        .unwrap();
+    assert_eq!(commands.get(paste + 1), Some(&MenuCommand::PastePlain));
+    let plain = app.menu_label(MenuCommand::PastePlain).title;
+    let key = (app.popup().unwrap().levels[0].rows.iter()).find_map(|r| match r {
+        PopupRow::Item { label, key, .. } if label.title == plain => Some(key.clone()),
+        _ => None,
+    });
+    assert!(key.is_some_and(|k| !k.is_empty()), "菜单上没有写快捷键");
+    let _ = std::fs::remove_dir_all(&dir);
+}

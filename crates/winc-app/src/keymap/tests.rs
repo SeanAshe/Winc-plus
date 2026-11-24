@@ -30,22 +30,68 @@ fn terminal_switching_uses_one_key_set_and_leaves_program_paging() {
         for key in [KeyCode::PageUp, KeyCode::PageDown] {
             assert_eq!(press(os, Mods::CTRL, key, Context::Terminal), Lookup::None);
         }
+        let focus = if os == Os::Mac {
+            Mods::CTRL
+        } else {
+            Mods::CTRL | Mods::SHIFT
+        };
         for (index, action) in Action::TERMINAL_FOCUS.into_iter().enumerate() {
             assert_eq!(action.terminal_index(), Some(index));
             assert!(ACTIONS.contains(&action));
-            assert_eq!(
-                runs(
-                    os,
-                    if os == Os::Mac {
-                        Mods::CTRL
-                    } else {
-                        Mods::CTRL | Mods::SHIFT
-                    },
-                    KeyCode::Char(char::from(b'1' + index as u8)),
-                    Context::Terminal
-                ),
-                Some(action)
-            );
+            let key = KeyCode::Char(char::from(b'1' + index as u8));
+            // VS Code 在 Windows、Linux 上用 `Ctrl+Shift+5` 拆分终端，方案的键优先于共用的键。
+            let expected = match (os, index) {
+                (Os::Windows | Os::Linux, 4) => Action::SplitTerminal,
+                _ => action,
+            };
+            assert_eq!(runs(os, focus, key, Context::Terminal), Some(expected));
+            // IDEA 方案没有拆分终端的默认键，共用的键照常。
+            let idea = Preset::Idea.bindings(os);
+            let stroke = Stroke { key, mods: focus };
+            let found = lookup(&idea, stroke, None, Context::Terminal);
+            assert_eq!(found, Lookup::Run(vec![action]), "{os:?}");
+        }
+    }
+}
+
+/// VS Code 方案中切到第 N 个标签页：macOS 上是 Ctrl+数字，其他系统上是 Alt+数字。IDEA 本身
+/// 没有对应的默认键，IDEA 方案不绑定。
+#[test]
+fn numbered_tab_keys_follow_vscode() {
+    for os in ALL_OS {
+        let mods = if os == Os::Mac { Mods::CTRL } else { Mods::ALT };
+        for (index, action) in Action::TAB_FOCUS.into_iter().enumerate() {
+            assert_eq!(action.tab_index(), Some(index));
+            assert!(ACTIONS.contains(&action));
+            let key = KeyCode::Char(char::from(b'1' + index as u8));
+            assert_eq!(runs(os, mods, key, Context::Editor), Some(action));
+            let idea = Preset::Idea.bindings(os);
+            assert!(!idea.iter().any(|binding| binding.action == action));
+        }
+    }
+}
+
+/// 两套方案在三个系统上都用 `Ctrl+Tab`、`Ctrl+Shift+Tab` 按最近使用切换标签页；焦点在终端时
+/// 两个方向都交给终端程序。
+#[test]
+fn ctrl_tab_switches_tabs_in_both_presets() {
+    for (os, preset) in ALL_OS
+        .into_iter()
+        .flat_map(|os| Preset::ALL.map(|p| (os, p)))
+    {
+        let table = preset.bindings(os);
+        for (mods, action) in [
+            (Mods::CTRL, Action::SwitchTab),
+            (Mods::CTRL | Mods::SHIFT, Action::SwitchTabBack),
+        ] {
+            let stroke = Stroke {
+                key: KeyCode::Tab,
+                mods,
+            };
+            let found = lookup(&table, stroke, None, Context::Editor);
+            assert_eq!(found, Lookup::Run(vec![action]), "{os:?} {preset:?}");
+            let found = lookup(&table, stroke, None, Context::Terminal);
+            assert_eq!(found, Lookup::None, "{os:?} {preset:?}");
         }
     }
 }

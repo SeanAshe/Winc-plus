@@ -7,6 +7,7 @@ mod click;
 mod drag;
 mod regions;
 mod target;
+mod text_drag;
 
 use target::*;
 
@@ -39,6 +40,10 @@ impl App {
     /// 左键按在关闭按钮上、或中键按在标签上之后，松开时鼠标仍在同一个标签上才关闭该标签；
     /// 左键按在窗口按钮上之后，松开时鼠标仍在同一个按钮上才执行该按钮。
     pub(in crate::app) fn on_mouse_up(&mut self, button: MouseButton) {
+        // 「未提交的更改」中按下时交给了某一段：松开也交给它。
+        if self.combined_mouse_up(button) {
+            return;
+        }
         // 拖动标签时悬停目标被清除，松开后重新判断鼠标下方的部件。
         let was_tab = self.tab_dragging();
         self.pointer.drag_scrolled_at = None;
@@ -75,6 +80,8 @@ impl App {
                 | Drag::TerminalDivider { .. }
                 | Drag::SplitDivider { .. }
                 | Drag::PaneDivider { .. }
+                | Drag::TerminalSplit { .. }
+                | Drag::TerminalGroupSplit { .. }
                 | Drag::OutlineDivider { .. }
         );
         if matches!(self.pointer.drag, Drag::TerminalDivider { .. }) {
@@ -89,7 +96,12 @@ impl App {
         if button == MouseButton::Left && matches!(self.pointer.drag, Drag::MarkdownText) {
             self.offer_selection_toolbar();
         }
+        // 拖动文字时放下的位置按拖动状态计算，在结束拖动之前取得。
+        let (text_drag, dropped) = (self.pointer.drag, self.text_drop());
         self.pointer.drag = Drag::None;
+        if let Drag::MoveText { at, .. } = text_drag {
+            self.release_text_drag(at, dropped);
+        }
         // 拖动分隔条期间不重新断行（`sync_wrap`）；松开后重绘，重绘前的布局按最终宽度断行。
         if was_divider {
             self.request_redraw();
@@ -100,13 +112,27 @@ impl App {
         self.update_cursor_icon();
     }
 
+    /// (`x`, `y`) 处是否盖着浮在编辑区和面板上面的东西：提示框、菜单、表单对话框、设置和命令
+    /// 面板。滚轮先交给它们（见 [`App::scroll_target_at`]）。
+    fn covered_by_overlay(&self, x: f32, y: f32) -> bool {
+        self.overlays.alert.is_some()
+            || self.popup().is_some()
+            || self.overlays.form_dialog.is_some()
+            || self.settings.open
+            || (self.overlays.picker.open && self.layout.picker.contains(x, y))
+    }
+
     /// 处理窗口的滚轮事件：按住主修饰键时调整字号（见 [`Self::wheel_zoom`]），否则滚动。
     ///
     /// 触控板的手势阶段 `phase` 用于区分两次手势：调整字号与滚动的方向都在手势开始时确定。
     pub(in crate::app) fn on_wheel_event(&mut self, delta: MouseScrollDelta, phase: TouchPhase) {
         let fresh = self.note_wheel_gesture(delta, phase);
         let (x, y) = self.pointer.mouse;
-        if self.search_dialog_part_at(x, y).is_some() || self.docked_part_at(x, y).is_some() {
+        // 在文件中查找的对话框（或底部面板的「搜索」）在鼠标下、上面没有盖着别的东西时才交给它：
+        // 设置、对话框、提示框、菜单和命令面板都在它上面。
+        let search =
+            self.search_dialog_part_at(x, y).is_some() || self.docked_part_at(x, y).is_some();
+        if search && !self.covered_by_overlay(x, y) {
             let dy = match delta {
                 MouseScrollDelta::LineDelta(_, lines) => -lines * 3.0 * crate::app::PICKER_ROW,
                 MouseScrollDelta::PixelDelta(p) => {

@@ -710,3 +710,39 @@ fn group_checkboxes_follow_hunk_and_line_checks() {
     assert_eq!(live(&app), Some(true));
     assert_eq!(shown(&app), live(&app));
 }
+
+/// 回归：在终端里 `git mv` 改名后提交。改名已经暂存，原来的路径不在暂存区和工作区中，不再交给
+/// `git add`，否则整个暂存失败、无法提交。
+#[test]
+fn a_rename_staged_in_the_terminal_commits() {
+    let dir = search_folder("git-staged-rename");
+    if !make_repo(&dir) {
+        return;
+    }
+    git_in(&dir, &["mv", "src/config.rs", "src/settings.rs"]);
+    let mut app = app_with(&dir, false);
+    app.settings_toggle(Setting::GitModule);
+    if git_unusable(&app) {
+        return;
+    }
+    let root = app.git.root.clone().unwrap();
+    let status = app.git.status.clone().unwrap();
+    let renamed = (status.entries.iter())
+        .find(|e| e.path == root.join("src/settings.rs"))
+        .unwrap();
+    assert_eq!(renamed.from, Some(root.join("src/config.rs")));
+    assert_eq!(renamed.unstaged_from(), None);
+
+    app.git.commit.message.set_text("rename config");
+    app.git_commit();
+    let out = Command::new("git")
+        .arg("-C")
+        .arg(&root)
+        .args(["ls-tree", "-r", "--name-only", "HEAD"])
+        .output()
+        .unwrap();
+    let files = String::from_utf8(out.stdout).unwrap();
+    assert!(files.contains("src/settings.rs"), "{files}");
+    assert!(!files.contains("src/config.rs"), "{files}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

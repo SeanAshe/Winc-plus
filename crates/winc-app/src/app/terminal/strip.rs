@@ -24,6 +24,8 @@ pub(crate) const TAB_GAP: f32 = 4.0;
 pub(crate) const LIST_GAP: f32 = 2.0;
 /// 拖动起始距离（逻辑像素），与编辑区标签的拖动阈值相同。
 const THRESHOLD: f32 = 4.0;
+/// 鼠标离开标签栏那一行超过该距离才算拖出了标签栏（逻辑像素），与编辑区标签相同。
+const OUTSIDE: f32 = 8.0;
 
 /// 刚关闭的标签：内容在原位淡出，之后宽度收起。
 pub(crate) struct Ghost {
@@ -361,14 +363,21 @@ impl App {
     ///
     /// 返回是否在按住标签。
     pub(crate) fn drag_terminal_tab(&mut self, at: f32) -> bool {
+        // 拖出标签栏也算开始拖动：沿排列方向可能没有移动。
+        let out = self.pointer_off_terminal_strip();
         let Some(drag) = &mut self.terminal.strip.drag else {
             return false;
         };
-        if !drag.moving && (at - drag.pressed).abs() < THRESHOLD {
+        if !drag.moving && !out && (at - drag.pressed).abs() < THRESHOLD {
             return true;
         }
         drag.moving = true;
         let drag = *drag;
+        // 拖出了标签栏：标签回到原位，不再换位，卡片跟着鼠标（见 `App::terminal_tab_drop`）。
+        if out {
+            self.request_redraw();
+            return true;
+        }
         let Some(mut index) = self.terminal.tabs.iter().position(|t| t.id == drag.id) else {
             self.terminal.strip.drag = None;
             return true;
@@ -406,12 +415,22 @@ impl App {
         true
     }
 
-    /// 松开：拖着的标签从松开处滑回它的位置。
+    /// 松开：拖着的标签从松开处滑回它的位置；拖出了标签栏时按松开处放进别的栏或拆出新的一栏
+    /// （见 [`App::terminal_tab_drop`]）。
     pub(crate) fn release_terminal_tab(&mut self) {
+        let outside = self.terminal_tab_dragged_out();
+        let drop = self.terminal_tab_drop();
         let Some(drag) = self.terminal.strip.drag.take() else {
             return;
         };
         if !drag.moving {
+            return;
+        }
+        if outside {
+            if let Some((drop, _)) = drop {
+                self.move_terminal_tab(drag.id, drop);
+            }
+            self.request_redraw();
             return;
         }
         if let Some(index) = self.terminal.tabs.iter().position(|t| t.id == drag.id)
@@ -426,6 +445,9 @@ impl App {
     /// 正在拖动的标签（编号，沿排列方向的起点坐标）；没有拖动时为 `None`。
     pub(crate) fn dragged_terminal_tab(&self) -> Option<(u16, f32)> {
         let drag = self.terminal.strip.drag.filter(|d| d.moving)?;
+        if self.pointer_off_terminal_strip() {
+            return None;
+        }
         let index = self.terminal.tabs.iter().position(|t| t.id == drag.id)?;
         (index < self.terminal.strip.sizes.len()).then(|| {
             (
@@ -522,6 +544,41 @@ pub(crate) fn tabs_narrowed(names: &[f32], widths: &[f32]) -> bool {
     wanted
         .zip(widths)
         .any(|(wanted, width)| *width <= wanted - 1.0)
+}
+
+impl App {
+    /// 放弃按住的标签（切到别的应用时收不到松开）：拖出了标签栏的不挪，回到原位。
+    pub(in crate::app) fn cancel_terminal_tab_drag(&mut self) {
+        if self.terminal.strip.drag.take().is_some() {
+            self.request_redraw();
+        }
+    }
+
+    /// 正在拖动的标签的编号；按下还没开始拖时为 `None`。
+    pub(crate) fn dragged_terminal_id(&self) -> Option<u16> {
+        self.terminal.strip.drag.filter(|d| d.moving).map(|d| d.id)
+    }
+
+    /// 鼠标离开了正在用的一栏的标签栏那一行（上下离开超过 [`OUTSIDE`]，或进了别的栏），也不在
+    /// 竖排的标签列表里。左右拖过两端仍算在标签栏里。
+    pub(crate) fn pointer_off_terminal_strip(&self) -> bool {
+        let (x, y) = self.pointer.mouse;
+        if self
+            .terminal_tab_list()
+            .is_some_and(|list| list.contains(x, y))
+        {
+            return false;
+        }
+        let card = self.terminal_whole_card();
+        let bottom = card.y + super::header_height(card);
+        let other = (self.terminal_group_at(x, y)).is_some_and(|at| at != self.terminal.group_at);
+        other || y < card.y - OUTSIDE || y > bottom + OUTSIDE
+    }
+
+    /// 拖着标签离开了标签栏（见 [`Self::pointer_off_terminal_strip`]）。
+    pub(crate) fn terminal_tab_dragged_out(&self) -> bool {
+        self.dragged_terminal_id().is_some() && self.pointer_off_terminal_strip()
+    }
 }
 
 #[cfg(test)]

@@ -236,6 +236,10 @@ fn draw_surface(app: &mut App, frame: &mut Frame<'_>) -> Option<usize> {
         super::git::log::draw_log(app, frame, index);
         return None;
     }
+    if app.combined_active() {
+        diff::combined::draw_combined(app, frame, index);
+        return None;
+    }
     if app.editor.documents[index].hex.is_some() {
         hex::draw_hex(app, frame, index);
         return None;

@@ -549,6 +549,16 @@ impl App {
             return;
         }
 
+        // 在选中的文字上按下：可能要拖动这段文字，选区保留到开始拖动或松开时再定。
+        if count == 1 && !shift && !l.gutter.contains(x, y) && self.press_on_selection(x, y) {
+            self.pointer.drag = Drag::MoveText {
+                press: (x, y),
+                at: pos,
+                moving: false,
+            };
+            return;
+        }
+
         // 点在行号栏上选中整行。
         let count = if l.gutter.contains(x, y) { 3 } else { count };
         let Some(doc) = self.editor.active_mut() else {

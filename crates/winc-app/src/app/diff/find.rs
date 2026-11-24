@@ -17,7 +17,7 @@ impl App {
 
     /// 是否可以在当前标签中替换：只读的差异快照不能替换。
     pub(crate) fn can_replace(&self) -> bool {
-        self.readonly_diff().is_none()
+        self.readonly_diff().is_none() && !self.combined_active()
     }
 
     /// 当前标签是否为可编辑的差异：查找与替换在右侧对应的工作区文件中进行（见
@@ -32,6 +32,10 @@ impl App {
     /// 查找光标或选区所在的一侧；尚未在任一侧放置光标时查找右侧，右侧不存在
     /// （文件已删除）时查找左侧。所查的一侧变化时，等待中的跳转作废。
     pub(in crate::app) fn update_diff_find(&mut self) -> Option<(DocumentId, Selection)> {
+        // 「未提交的更改」查的是各段接成的快照。
+        if self.combined_active() {
+            return self.update_combined_find();
+        }
         let doc = self.editor.active()?;
         let view = doc.diff.as_deref().filter(|view| view.new.path.is_none())?;
         let read = view.read_selection.filter(|s| !view.side(s.side).missing);
@@ -50,6 +54,10 @@ impl App {
     /// 选中第 `side` 侧位置 `start..end`（字符偏移）的匹配并滚动到可见位置；匹配位于折叠的
     /// 未改动段内时先展开该段。
     pub(in crate::app) fn reveal_diff_match(&mut self, side: usize, start: usize, end: usize) {
+        if self.combined_active() {
+            self.combined_reveal_match(start, end);
+            return;
+        }
         let tab_width = self.editor.tab_width;
         let Some(index) = self.editor.active else {
             return;

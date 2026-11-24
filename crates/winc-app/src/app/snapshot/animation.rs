@@ -157,7 +157,7 @@ fn an_unfocused_window_hides_the_caret_and_shows_it_again_on_focus() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
-/// 平滑光标移动：移动后的第一帧画在旧位置，途中按曲线前进，到时停在新位置。
+/// 平滑光标：移动后的第一帧画在旧位置，途中按曲线前进，到时停在新位置。
 #[test]
 fn smooth_caret_movement_glides_between_positions() {
     let dir = sample_folder("caret-glide");

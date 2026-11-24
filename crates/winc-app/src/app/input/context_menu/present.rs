@@ -168,6 +168,9 @@ impl App {
             MenuTarget::Terminal(block)
         } else if self.markdown_context_target(x, y) {
             MenuTarget::Markdown
+        } else if self.combined_active() && self.layout.editor.contains(x, y) {
+            // 「未提交的更改」中段头、工具栏上没有菜单；差异上的菜单由那一段弹出。
+            return;
         } else if let Some(id) = self.editor_context_target(x, y) {
             MenuTarget::Editor(id)
         } else {
@@ -459,10 +462,12 @@ impl App {
                     .bookmarks()
                     .lines()
                     .contains(&doc.text().line_of(doc.selection.head));
+                let markdown = doc.preview_kind() == Some(winc_editor::PreviewKind::Markdown);
                 let mut menu = editor_menu(
                     doc.readonly_reason().is_none(),
                     !doc.selection.is_empty(),
                     bookmarked,
+                    markdown,
                 );
                 // 光标在链接上时第一项是「打开链接」。
                 if self.link_at_caret().is_some() {
@@ -567,6 +572,10 @@ impl App {
             MenuTarget::TerminalTab(id) => vec![
                 MenuEntry::Item(MenuCommand::RenameTerminal, true),
                 MenuEntry::Item(MenuCommand::SplitTerminal, self.terminal_splittable(*id)),
+                MenuEntry::Item(
+                    move_group_command(self.terminal_right()),
+                    self.terminal_movable_to_group(),
+                ),
                 MenuEntry::Separator,
                 MenuEntry::Item(MenuCommand::CloseTerminal, true),
                 MenuEntry::Item(
@@ -583,7 +592,8 @@ impl App {
                     let b = tab.blocks.iter().find(|b| b.id == id)?;
                     Some((!b.text.is_empty(), self.terminal_can_rerun(id)))
                 });
-                terminal_menu(tab.selection_range().is_some(), running, block)
+                let group = (self.terminal_right(), self.terminal_movable_to_group());
+                terminal_menu(tab.selection_range().is_some(), running, block, group)
             }
             &MenuTarget::Diff(id, right) => {
                 if self.editor.active().map(|d| d.id) != Some(id) {
@@ -712,8 +722,10 @@ impl App {
                 }
                 menu
             }
-            MenuTarget::SearchResult(_, m) => {
-                search_result_menu(m.is_none(), self.panels.global.replace_open)
+            MenuTarget::SearchResult(path, m) => {
+                let g = &self.panels.global;
+                let dir = m.is_none() && !g.engine.results.iter().any(|f| &f.path == path);
+                search_result_menu(m.is_none(), dir, g.replace_open)
             }
             MenuTarget::CommitMore => self.commit_more_menu(),
             MenuTarget::StashRow(i) => {
@@ -824,9 +836,13 @@ impl App {
             _ => entries,
         };
 
-        // 菜单上显示的快捷键按菜单弹出的位置取：文件树中取文件树的键位，编辑区中取编辑区的键位。
+        // 菜单上显示的快捷键按菜单弹出的位置取：文件树中取文件树的键位，编辑区中取编辑区的键位，
+        // 编辑 Markdown 时取 Markdown 的键位（「粘贴为纯文本」只在这里有键）。
         let context = match &target {
             MenuTarget::Tree(_) => Context::Tree,
+            MenuTarget::Editor(_) | MenuTarget::Markdown if self.markdown_keys() => {
+                Context::Markdown
+            }
             MenuTarget::Editor(_)
             | MenuTarget::Diff(..)
             | MenuTarget::DiffGutter(..)

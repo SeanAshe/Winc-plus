@@ -7,6 +7,7 @@
 //! 文字的一侧。折叠的一段同样用带子连接。
 
 mod blame;
+pub(super) mod combined;
 mod files;
 mod sticky;
 
@@ -214,7 +215,8 @@ pub(super) fn draw_diff(app: &mut App, frame: &mut Frame<'_>, index: usize) {
 
     let drawn = draw_body(app, frame, &mut view, &parts, scroll, pos, &edit, &mut hits);
     let id = app.editor.documents[index].id;
-    blame::draw(app, frame, (id, &view), &parts, &drawn, &mut hits);
+    let key = |side| crate::app::git::blame::BlameKey::Side(id, side);
+    blame::draw(app, frame, (key, &view), &parts, &drawn, &mut hits);
     let (scroll, _) = scroll;
     sticky::draw(app, frame, &mut view, &parts, scroll, pos, &mut hits);
     draw_header(app, frame, &view, &parts, pos, &mut hits);
@@ -345,15 +347,20 @@ fn draw_header(
         p.separator,
     );
 
-    // 右端从右往左依次为：布局切换、折叠开关、下一个文件与上一个文件（可跨文件导航时）、下一处、
-    // 上一处、打开文件（有对应的文件时）。布局切换和折叠开关按状态更换图标，不绘制按下状态。
+    // 右端从右往左依次为：合并差异视图（提交视图中的文件）、布局切换、折叠开关、下一个文件与
+    // 上一个文件（可跨文件导航时）、下一处、上一处、打开文件（有对应的文件时）。布局切换和折叠
+    // 开关按状态更换图标，不绘制按下状态；合并差异视图是设置的开关，开着时绘制按下状态。
     let y = header.y + (header.h - BUTTON) / 2.0;
     let mut right = header.right() - 10.0;
     let files = [DiffTarget::NextFile, DiffTarget::PreviousFile];
     let files = files.iter().copied().filter(|_| app.diff_steps_files());
     let open = view.file_path().map(|_| DiffTarget::OpenFile);
-    let targets = [DiffTarget::Layout, DiffTarget::Collapse]
+    // 提交视图中文件的差异：最右端是「合并差异视图」开关，打开后换成「未提交的更改」。
+    let combined = app.diff_combinable().then_some(DiffTarget::Combined);
+    let combined_on = app.config.git_combined_diff == Some(true);
+    let targets = combined
         .into_iter()
+        .chain([DiffTarget::Layout, DiffTarget::Collapse])
         .chain(files)
         .chain([DiffTarget::Next, DiffTarget::Previous])
         .chain(open);
@@ -366,7 +373,7 @@ fn draw_header(
             rect,
             header,
             app.pointer.hover == Hover::Diff(target),
-            false,
+            target == DiffTarget::Combined && combined_on,
         );
         let c = center(rect);
         match target {
@@ -387,6 +394,8 @@ fn draw_header(
                 icons::split(frame, c, p.text_muted, rect);
             }
             DiffTarget::Layout => icons::single_column(frame, c, p.text_muted, rect),
+            DiffTarget::Combined if combined_on => icons::files(frame, c, 1.0, p.text, rect),
+            DiffTarget::Combined => icons::files(frame, c, 1.0, p.text_muted, rect),
             _ if view.collapses() => icons::expand_all(frame, c, p.text_muted, rect),
             _ => icons::collapse_all(frame, c, p.text_muted, rect),
         }
@@ -628,6 +637,24 @@ fn drawn_rows(
 ) -> Vec<DrawnRow> {
     let extra = shift.map_or(0, FoldShift::extra_rows);
     let lift = |side: usize, row: usize| shift.map_or(Some(0.0), |s| s.of(side, row));
+    // 两侧按改动对齐（见 `DiffView::aligned`）：两侧都按共用的滚动位置排。
+    if !view.is_unified() && view.aligned {
+        let map = view.unified_map();
+        let to = pos + f64::from(body.h / line_height) + 1.0 + extra as f64;
+        let side_rows = [LEFT, RIGHT].into_iter().flat_map(|side| {
+            let map = &map;
+            view.aligned_rows(side, pos, to).filter_map(move |row| {
+                let y = body.y + (map.aligned_pos(side, row as f64) - pos) as f32 * line_height;
+                Some(DrawnRow {
+                    side,
+                    row,
+                    y: y - lift(side, row)?,
+                    old_line: None,
+                })
+            })
+        });
+        return side_rows.collect();
+    }
     if !view.is_unified() {
         let side_rows = [LEFT, RIGHT].into_iter().flat_map(|side| {
             let rows = visible_rows(scroll.rows[side], body.h, line_height);
@@ -747,21 +774,33 @@ fn draw_body(
     // 预先取出单栏时的换算表：绘制过程中需要修改差异两侧的着色状态。
     let map = view.unified_map();
     // 第 `side` 侧显示行 `row` 的顶边；展开或折叠的过渡期间，变化的行之后的行上移。
+    let aligned = view.aligned;
     let row_y = |side: usize, row: usize| {
         let y = if unified {
             body.y + (map.pos_of(side, row as f64) - pos) as f32 * lh
+        } else if aligned {
+            body.y + (map.aligned_pos(side, row as f64) - pos) as f32 * lh
         } else {
             body.y + (row as f64 - scroll.rows[side]) as f32 * lh
         };
         y - shift.map_or(0.0, |s| s.of(side, row).unwrap_or(s.hidden))
     };
     // 第 `h` 段改动在单栏中第一行的顶边；并排时为 `None`。
-    let hunk_y =
-        |view: &DiffView, h: usize| unified.then(|| body.y + (view.hunk_pos(h) - pos) as f32 * lh);
+    // 两侧按改动对齐时也一样：两侧在这一段的开头同高，没有行的一侧不按它的插入点算。
+    // 展开或折叠的过渡期间同行一样上移：改动不会落在过渡的那一段里，按它在右侧的第一行算。
+    let hunk_y = |view: &DiffView, h: usize| {
+        let lift = |s: &FoldShift| {
+            let row = view.hunk_rows[RIGHT].get(h).map_or(0, |r| r.start);
+            s.of(RIGHT, row).unwrap_or(s.hidden)
+        };
+        let lift = shift.map_or(0.0, lift);
+        (unified || aligned).then(|| body.y + (view.hunk_pos(h) - pos) as f32 * lh - lift)
+    };
     let drawn = drawn_rows(view, body, (scroll, shift), pos, lh);
     // 各段改动的暂存状态；文件不在提交视图里、只能按文件暂存时为空，不绘制任何勾选框。
+    let kind = app.active_diff_kind();
     let inclusions: Vec<Pick> = (app.diff_entry(view)).map_or_else(Vec::new, |entry| {
-        app.git.commit.hunk_inclusions(entry, view)
+        app.git.commit.hunk_inclusions(entry, view, kind)
     });
     let mut chars: Vec<char> = Vec::with_capacity(256);
     let mut tokens = Vec::with_capacity(32);
@@ -1212,17 +1251,34 @@ fn draw_body(
     };
     for (h, hunk) in hunks.iter().enumerate() {
         let (l, r) = (&view.hunk_rows[LEFT][h], &view.hunk_rows[RIGHT][h]);
-        let (l0, l1) = (row_y(LEFT, l.start), row_y(LEFT, l.end));
-        let (r0, r1) = (row_y(RIGHT, r.start), row_y(RIGHT, r.end));
+        let ((l0, l1), (r0, r1)) = match hunk_y(view, h).filter(|_| aligned && !unified) {
+            // 两侧从同一个上沿排起，各占自己的行数。
+            Some(top) => (
+                (top, top + l.len() as f32 * lh),
+                (top, top + r.len() as f32 * lh),
+            ),
+            None => (
+                (row_y(LEFT, l.start), row_y(LEFT, l.end)),
+                (row_y(RIGHT, r.start), row_y(RIGHT, r.end)),
+            ),
+        };
         if l1.max(r1) < body.y || l0.min(r0) > body.bottom() {
             continue;
         }
         let shade = hunk_shade(p, hunk);
-        if !unified {
+        // 两侧按改动对齐时整段等高：带子是一块矩形，较短的一侧在下面留空处铺一层淡色。
+        let end = l1.max(r1);
+        if !unified && aligned {
+            draw_ribbon(frame, ribbon, (l0, end), (r0, end), shade, body);
+        } else if !unified {
             draw_ribbon(frame, ribbon, (l0, l1), (r0, r1), shade, body);
         }
         for (side, (y0, y1)) in [(LEFT, (l0, l1)), (RIGHT, (r0, r1))] {
-            if y0 == y1 && !unified {
+            if !unified && aligned && y1 < end {
+                let pane = parts.panes[side];
+                let pad = Rect::new(pane.rect.x, y1, pane.rect.w, end - y1);
+                frame.rect_clipped(pad, shade.line.alpha(shade.line.a * 0.5), 0.0, body);
+            } else if y0 == y1 && !unified {
                 let pane = parts.panes[side];
                 let line = Rect::new(pane.rect.x, y0 - 0.5, pane.rect.w, 1.0);
                 frame.rect_clipped(line, shade.edge, 0.0, body);

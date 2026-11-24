@@ -33,6 +33,11 @@ impl App {
 
     /// 光标在差异右侧时把输入法提交的文字交给右侧的文档，返回是否已处理。
     pub(in crate::app) fn diff_edit_text(&mut self, text: &str) -> bool {
+        // 「未提交的更改」：交给当前段；没有当前段时不写进标签（它下面是一个空文档）。
+        if self.combined_active() {
+            self.in_combined_current(|app| app.diff_edit_text(text));
+            return true;
+        }
         self.edit_at_read_caret();
         let text = text.to_owned();
         self.in_diff_source(|app| app.run(winc_editor::Command::Insert(text)))

@@ -860,6 +860,53 @@ pub fn copy_lines(
     )
 }
 
+/// 返回把选区的文字拖放到位置 `at`（字符偏移）的事务：`copy` 为真时复制，否则移动；选区落在
+/// 放下的文字上。
+///
+/// 移动在一次事务中先删除原处、再插入新处，撤销一次即恢复。选区为空、放在选区之内，或移动到
+/// 选区的两端（文字不动）时返回 `None`。
+pub fn drop_text(
+    text: &impl Lines,
+    selection: Selection,
+    at: usize,
+    copy: bool,
+) -> Option<Transaction> {
+    let (from, to) = (selection.from(), selection.to());
+    let inside = if copy {
+        from < at && at < to
+    } else {
+        (from..=to).contains(&at)
+    };
+    if from == to || inside || at > text.end_pos() {
+        return None;
+    }
+    let dragged = text.substring(from, to);
+    let len = dragged.chars().count();
+    let insert = |start: usize| Change {
+        start,
+        removed: String::new(),
+        inserted: dragged.clone(),
+    };
+    let (changes, start) = if copy {
+        (vec![insert(at)], at)
+    } else {
+        // 插入点在原处之后时，删除原处后它前移了 `len` 个字符。
+        let start = if at > to { at - len } else { at };
+        let remove = Change {
+            start: from,
+            removed: dragged.clone(),
+            inserted: String::new(),
+        };
+        (vec![remove, insert(start)], start)
+    };
+    Some(Transaction::new(
+        changes,
+        selection,
+        Selection::new(start, start + len),
+        EditKind::Other,
+    ))
+}
+
 /// 返回删除当前行（或选区覆盖的行，含换行符）的事务；没有可删内容时返回 `None`。
 ///
 /// 光标保持原来的列号（不超过目标行的长度），落到删除后占据该位置的行上。

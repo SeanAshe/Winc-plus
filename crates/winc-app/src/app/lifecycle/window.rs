@@ -298,6 +298,7 @@ impl App {
     ///
     /// 窗口尺寸、面板宽度、标签或预览状态变化后调用；面板跟着焦点关闭也在这一步完成。
     pub(crate) fn relayout(&mut self) {
+        self.track_recent_tabs();
         self.note_terminal_tab_position();
         self.sync_project_offer();
         // 面板打开以后换了标签（⌘W、切换标签、后退前进、新建文件）：面板里的符号、书签、用法
@@ -392,6 +393,7 @@ impl App {
         }
         self.sync_wrap();
         self.sync_terminal();
+        self.prepare_combined();
     }
 
     /// 在编辑区里放置随当前标签变化的部分：标签栏右端的按钮、分栏预览、合并的两侧、缩略图。
@@ -471,7 +473,7 @@ impl App {
                 && doc.diff.is_none()
                 && doc.log.is_none()
                 && doc.preview_mode() != winc_editor::PreviewMode::Preview
-        });
+        }) && !self.combined_active();
         let l = &mut self.layout;
         if self.config.minimap != Some(true) || !shows_code || l.editor.w < MINIMAP_MIN {
             return;
