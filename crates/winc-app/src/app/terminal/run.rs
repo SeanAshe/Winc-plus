@@ -16,8 +16,8 @@ use winc_config::{
 use winc_i18n::t;
 use winc_pty::protocol::ToHelper;
 
-use super::HeaderHit;
 use super::helper::{Integration, Launch, default_shell_applies, environment, launch, os_bytes};
+use super::{HeaderHit, TermTab};
 use crate::app::NoticeKind;
 use crate::app::input::context_menu::menu_below;
 use crate::app::input::context_menu::{MenuButton, MenuTarget};
@@ -333,13 +333,16 @@ impl App {
         }
     }
 
-    /// 配置 `name` 的标签中程序还在运行时返回标签的下标。
-    fn running_config(&self, name: &str) -> Option<usize> {
+    /// 配置 `name` 的标签中程序还在运行时返回（标签在第几栏，在那一栏中的下标）。
+    fn running_config(&self, name: &str) -> Option<(usize, usize)> {
         if self.terminal.crashed {
             return None;
         }
-        self.terminal.tabs.iter().position(|tab| {
-            tab.ended.is_none() && tab.run.as_ref().is_some_and(|run| run.name == name)
+        let running =
+            |tab: &TermTab| tab.ended.is_none() && tab.run.as_ref().is_some_and(|r| r.name == name);
+        (0..self.terminal.group_count()).find_map(|at| {
+            let index = self.terminal.group_tabs(at).iter().position(running)?;
+            Some((at, index))
         })
     }
 
@@ -416,6 +419,13 @@ impl App {
         if self.terminal.crashed {
             self.restart_terminal_tab();
         }
+        // 这个配置的标签在别的栏里：改用那一栏，在原来的标签里重新运行。
+        let has = |tab: &TermTab| tab.run.as_ref().is_some_and(|run| run.name == config.name);
+        let column = (0..self.terminal.group_count())
+            .find(|&at| self.terminal.group_tabs(at).iter().any(has));
+        if let Some(at) = column {
+            self.focus_terminal_group(at);
+        }
         let t = &mut self.terminal;
         let old = (t.tabs.iter().enumerate())
             .find(|(_, tab)| tab.run.as_ref().is_some_and(|run| run.name == config.name))
@@ -454,7 +464,7 @@ impl App {
     fn reveal_run_panel(&mut self) {
         let focus = self.focus;
         if !self.terminal.open {
-            let empty = self.terminal.tabs.is_empty() && self.terminal.want.is_empty();
+            let empty = self.terminal.tab_count() == 0 && self.terminal.want.is_empty();
             self.open_terminal_panel();
             // 打开面板时放的默认标签不需要：要建的就是运行配置的标签。
             if empty {
@@ -473,18 +483,21 @@ impl App {
 
     /// 停止当前选中的配置，标签保留。
     pub(in crate::app) fn stop_current_config(&mut self) {
-        let Some(index) = (self.run.current()).and_then(|config| self.running_config(&config.name))
+        let Some((at, index)) =
+            (self.run.current()).and_then(|config| self.running_config(&config.name))
         else {
             return;
         };
-        let t = &mut self.terminal;
-        t.tabs[index].rerun = false;
-        t.tabs[index].stopped = true;
-        if let Some(client) = &t.client {
-            client.send(&ToHelper::Stop {
-                tab: t.tabs[index].id,
-            });
-        }
+        self.with_terminal_group(at, |app| {
+            let t = &mut app.terminal;
+            t.tabs[index].rerun = false;
+            t.tabs[index].stopped = true;
+            if let Some(client) = &t.client {
+                client.send(&ToHelper::Stop {
+                    tab: t.tabs[index].id,
+                });
+            }
+        });
     }
 
     /// 按下运行配置的按钮。

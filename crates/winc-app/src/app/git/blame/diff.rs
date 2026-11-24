@@ -5,6 +5,14 @@ use super::*;
 use winc_editor::diff_view::{LEFT, RIGHT};
 
 impl App {
+    /// 差异 `id` 第 `side` 侧逐行追溯的键：「未提交的更改」中换进来的一段按段记，其余按标签记。
+    pub(in crate::app) fn diff_blame_key(&self, id: DocumentId, side: usize) -> BlameKey {
+        match self.combined_inside_id() {
+            Some(section) => BlameKey::Section(id, section, side),
+            None => BlameKey::Side(id, side),
+        }
+    }
+
     /// 开关当前差异标签的逐行追溯：两侧中能追溯的一起打开，开着时一起关闭。两侧都不是 Git 中的
     /// 版本（比较两个文件、合并冲突）时说明原因。
     pub(in crate::app) fn toggle_diff_blame(&mut self) {
@@ -26,9 +34,9 @@ impl App {
         }
         for side in [LEFT, RIGHT] {
             if !on {
-                self.git.blame.drop_key(BlameKey::Side(id, side));
+                self.git.blame.drop_key(self.diff_blame_key(id, side));
             }
-            self.update_blame_of(BlameKey::Side(id, side));
+            self.update_blame_of(self.diff_blame_key(id, side));
         }
         self.relayout();
         self.request_redraw();
@@ -73,14 +81,14 @@ impl App {
             return;
         };
         for side in [LEFT, RIGHT] {
-            self.update_blame_of(BlameKey::Side(id, side));
+            self.update_blame_of(self.diff_blame_key(id, side));
         }
     }
 
     /// 当前差异第 `side` 侧最后修改第 `line` 行的提交。
     fn diff_blame_commit(&self, side: usize, line: usize) -> Option<BlameCommit> {
         let id = self.editor.active()?.id;
-        let blame = self.blame_of_key(BlameKey::Side(id, side))?;
+        let blame = self.blame_of_key(self.diff_blame_key(id, side))?;
         let index = *blame.lines.get(line)?;
         blame.commits.get(index as usize).cloned()
     }

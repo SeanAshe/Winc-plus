@@ -22,7 +22,7 @@ pub(crate) use tree::FILES_TITLE;
 
 pub(crate) use branches::{BRANCH_ROW, BranchRow, PanelFold};
 pub(crate) use columns::{AUTHOR_PAD, LogColumn, author_fit, log_author_width};
-pub(crate) use details::{FileFolds, LogFileRow, RowName};
+pub(crate) use details::{FileFolds, LogFileRow, RowName, path_tree_rows};
 pub(crate) use filter::{LogPill, since_label};
 pub(crate) use time::*;
 pub(crate) use tree::LogDiffTree;

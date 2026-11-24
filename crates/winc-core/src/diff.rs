@@ -620,7 +620,7 @@ fn diff<T: PartialEq>(a: &[T], b: &[T]) -> Option<Vec<Hunk>> {
 
 mod staging;
 
-pub use staging::{StageLine, stage, staged_picks, unstage};
+pub use staging::{StageLine, drop_hunk, stage, staged_picks, take_hunk, unstage};
 
 #[cfg(test)]
 mod tests;

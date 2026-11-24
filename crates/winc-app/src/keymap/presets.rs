@@ -2,7 +2,7 @@
 //!
 //! 每张表一行是一个命令在一个生效范围内的键，分 macOS 和其他系统两列，Linux 上与 Windows
 //! 不同的键另列一张表。两套方案都没有的命令（终端面板内的切换、查找条的开关等）的键写在
-//! [`COMMON`]，两套方案共用。
+//! [`COMMON`]，两套方案共用；同一范围内同一个键在方案自己的表中另有用途时，以方案为准。
 
 use super::*;
 
@@ -42,39 +42,54 @@ impl Preset {
     }
 
     /// 返回方案在 `os` 上的整张绑定表，生效范围小的绑定在前（见 [`lookup`]）。
+    ///
+    /// [`COMMON`] 中的键在同一范围内被方案自己的表占用时不绑定，例如 VS Code 方案在 Windows、
+    /// Linux 上用 `Ctrl+Shift+5` 拆分终端，共用的「聚焦第 5 个终端」不再用它。
     pub fn bindings(self, os: Os) -> Vec<Binding> {
         let (table, linux) = match self {
             Preset::Idea => (IDEA, IDEA_LINUX),
             Preset::VsCode => (VSCODE, VSCODE_LINUX),
         };
-        let mut out = Vec::new();
-        for (rows, linux) in [(COMMON, COMMON_LINUX), (table, linux)] {
-            for row in rows {
-                let keys = match os {
-                    Os::Mac => row.mac,
-                    Os::Linux => linux
-                        .iter()
-                        .find(|l| l.action == row.action && l.when == row.when)
-                        .map_or(row.pc, |l| l.pc),
-                    Os::Windows => row.pc,
-                };
-                for key in keys {
-                    let parsed = parse_spec(key);
-                    debug_assert!(parsed.is_some(), "{key}");
-                    if let Some((first, second)) = parsed {
-                        out.push(Binding {
-                            action: row.action,
-                            first,
-                            second,
-                            when: row.when,
-                        });
-                    }
-                }
-            }
-        }
+        let own = rows_bindings(table, linux, os);
+        let taken = |b: &Binding| {
+            (own.iter()).any(|o| (o.first, o.second, o.when) == (b.first, b.second, b.when))
+        };
+        let mut out: Vec<Binding> = rows_bindings(COMMON, COMMON_LINUX, os)
+            .into_iter()
+            .filter(|b| !taken(b))
+            .collect();
+        out.extend(own);
         out.sort_by_key(|b| b.when.breadth());
         out
     }
+}
+
+/// 返回表 `rows` 在 `os` 上的绑定；`linux` 是 Linux 上与 Windows 不同的键。
+fn rows_bindings(rows: &[PresetRow], linux: &[PresetRow], os: Os) -> Vec<Binding> {
+    let mut out = Vec::new();
+    for row in rows {
+        let keys = match os {
+            Os::Mac => row.mac,
+            Os::Linux => linux
+                .iter()
+                .find(|l| l.action == row.action && l.when == row.when)
+                .map_or(row.pc, |l| l.pc),
+            Os::Windows => row.pc,
+        };
+        for key in keys {
+            let parsed = parse_spec(key);
+            debug_assert!(parsed.is_some(), "{key}");
+            if let Some((first, second)) = parsed {
+                out.push(Binding {
+                    action: row.action,
+                    first,
+                    second,
+                    when: row.when,
+                });
+            }
+        }
+    }
+    out
 }
 
 /// 方案中的一行：命令 `action` 在 `when` 范围内的键，`mac` 是 macOS 上的，`pc` 是其他系统上的。
@@ -438,6 +453,14 @@ pub(super) const IDEA: &[PresetRow] = &[
         &["ctrl+left", "shift+cmd+["],
         &["alt+left"],
     ),
+    // 两套方案在三个系统上都是 Ctrl+Tab（macOS 上同样是 Control），按住期间列出最近使用的标签页。
+    row(SwitchTab, Global, &["ctrl+tab"], &["ctrl+tab"]),
+    row(
+        SwitchTabBack,
+        Global,
+        &["ctrl+shift+tab"],
+        &["ctrl+shift+tab"],
+    ),
     row(CopyPath, Global, &["shift+cmd+c"], &["ctrl+shift+c"]),
     row(Paste, Global, &["cmd+v"], &["ctrl+v", "shift+insert"]),
     row(Quit, Global, &["cmd+q"], &[]),
@@ -702,7 +725,7 @@ pub(super) const VSCODE: &[PresetRow] = &[
         &["cmd+k cmd+left"],
         &["ctrl+k ctrl+left"],
     ),
-    row(SplitTerminal, Terminal, &["cmd+\\"], &[]),
+    row(SplitTerminal, Terminal, &["cmd+\\"], &["ctrl+shift+5"]),
     row(
         NextTerminalPane,
         Terminal,
@@ -728,6 +751,23 @@ pub(super) const VSCODE: &[PresetRow] = &[
         &["alt+cmd+left", "shift+cmd+["],
         &["ctrl+pageup"],
     ),
+    // 两套方案在三个系统上都是 Ctrl+Tab（macOS 上同样是 Control），按住期间列出最近使用的标签页。
+    row(SwitchTab, Global, &["ctrl+tab"], &["ctrl+tab"]),
+    row(
+        SwitchTabBack,
+        Global,
+        &["ctrl+shift+tab"],
+        &["ctrl+shift+tab"],
+    ),
+    row(FocusTab1, Global, &["ctrl+1"], &["alt+1"]),
+    row(FocusTab2, Global, &["ctrl+2"], &["alt+2"]),
+    row(FocusTab3, Global, &["ctrl+3"], &["alt+3"]),
+    row(FocusTab4, Global, &["ctrl+4"], &["alt+4"]),
+    row(FocusTab5, Global, &["ctrl+5"], &["alt+5"]),
+    row(FocusTab6, Global, &["ctrl+6"], &["alt+6"]),
+    row(FocusTab7, Global, &["ctrl+7"], &["alt+7"]),
+    row(FocusTab8, Global, &["ctrl+8"], &["alt+8"]),
+    row(FocusTab9, Global, &["ctrl+9"], &["alt+9"]),
     row(CloseFolder, Global, &["cmd+k f"], &["ctrl+k f"]),
     row(Quit, Global, &["cmd+q"], &[]),
     row(Paste, Global, &["cmd+v"], &["ctrl+v"]),
@@ -780,6 +820,7 @@ pub(super) const VSCODE: &[PresetRow] = &[
     ),
     row(ResetZoom, Everywhere, &["cmd+numpad0"], &["ctrl+numpad0"]),
     row(RunConfiguration, Global, &["ctrl+f5"], &["ctrl+f5"]),
+    row(SendHttpRequest, Editor, &["alt+cmd+r"], &["ctrl+alt+r"]),
     // macOS 上与系统文本框相同的 `⌃` 字母键。
     row(CursorLineStart, Editor, &["ctrl+a", "ctrl+shift+a"], &[]),
     row(CursorLineEnd, Editor, &["ctrl+e", "ctrl+shift+e"], &[]),

@@ -454,14 +454,19 @@ git-not-a-repository = The current folder isn’t a Git repository
 git-not-on-branch = You’re not on a branch. Check out a branch first
 git-no-file-in-tab = The current tab has no file
 git-diff-title = { $name } · Diff
+git-diff-title-changes = { $name } · Changes
+git-diff-title-staged = { $name } · Staged Changes
 git-diff-submodule = “{ $name }” is a submodule; no diff is shown
 git-diff-head-unreadable = Couldn’t read the last committed version of “{ $name }”: { $error }
+git-diff-index-unreadable = Couldn’t read the staged version of “{ $name }”: { $error }
 git-diff-too-large = “{ $name }” is too large; no diff is shown
 git-diff-binary = “{ $name }” is a binary file; no diff is shown
 git-diff-identical = “{ $name }” is the same as in the last commit; no changes
 git-diff-line-endings-only = “{ $name }” differs from the last commit only in line endings
 git-diff-side-worktree-deleted = Working Tree · Deleted
 git-diff-side-head-missing = HEAD · File Doesn’t Exist
+git-diff-side-index = Staging Area
+git-diff-side-index-missing = Staging Area · File Doesn’t Exist
 
 ## Trusting repository configuration
 
@@ -848,3 +853,15 @@ git-merge-side-result = Result
 git-rebase-hint = ↑↓ select · { $alt }↑↓ move · P R E S F D set action
 git-merge-conflict-title = Conflict { $index } of { $count }
 git-merge-edit-conflict = Edit Manually
+git-combined-title = Uncommitted Changes
+git-combined-no-text-change = No text changes
+git-combined-comparing = Comparing…
+git-combined-empty = No uncommitted changes
+git-combined-files = { $count ->
+    [one] { $count } file
+   *[other] { $count } files
+}
+git-combined-open-file = Open File
+git-combined-open-diff = Open in Diff Tab
+git-combined-previous = Previous Change
+git-combined-next = Next Change

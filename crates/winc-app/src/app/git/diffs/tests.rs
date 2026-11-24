@@ -1,4 +1,4 @@
-//! Git 模块的测试：准备差异失败时把原因交回界面线程。
+//! Git 差异标签的测试辅助：准备差异失败时把原因交回界面线程。
 
 use super::*;
 
@@ -9,6 +9,7 @@ impl App {
             root: root.into(),
             path: path.into(),
             oid: None,
+            kind: DiffKind::Whole,
             target: Target::Open,
             view: Err("读不出来".into()),
         });

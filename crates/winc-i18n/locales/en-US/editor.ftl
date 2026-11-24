@@ -264,3 +264,24 @@ hex-goto-placeholder = 0x4E or 78
 hex-goto-total = { $size } in total
 editor-readonly-hex = The hex view is read-only
 editor-definition-in-dependencies = “{ $name }” isn’t defined in the project; searching dependencies…
+
+## HTTP request files.
+
+editor-http-sending = Sending request…
+editor-http-cancel = Cancel Request
+editor-http-cancelled = Request canceled
+editor-http-received = Received { $status } in { $millis } ms
+editor-http-failed = Couldn’t send the request: { $error }
+editor-http-no-request = No request at the cursor
+editor-http-undefined-variable = Couldn’t send the request: the variable “{ $name }” isn’t defined
+editor-http-response-title = Response: { $request }
+editor-http-binary-body = { $size ->
+    [one] (Binary content, { $size } byte)
+   *[other] (Binary content, { $size } bytes)
+}
+editor-http-body-truncated = { $size ->
+    [one] (Showing the first { $shown } of { $size } byte)
+   *[other] (Showing the first { $shown } of { $size } bytes)
+}
+editor-http-curl-missing = curl wasn’t found
+editor-http-too-large = The response is too large

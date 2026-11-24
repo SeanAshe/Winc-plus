@@ -110,7 +110,11 @@ impl App {
         }
         let in_list =
             |app: &App| app.commit_parts().list.contains(x, y) || app.in_commit_overflow(x, y);
-        let terminal_header = l.terminal.y + crate::app::terminal::header_height(l.terminal);
+        // 分栏时按鼠标所在的那一栏的标签栏算。
+        let group = (self.terminal_group_at(x, y))
+            .and_then(|at| self.terminal_group_cards_in(l.terminal).get(at).copied())
+            .unwrap_or(l.terminal);
+        let terminal_header = group.y + crate::app::terminal::header_height(group);
         if self.overlays.picker.open && l.picker.contains(x, y) {
             ScrollTarget::Picker
         } else if l.tabs.contains(x, y) {
@@ -171,6 +175,16 @@ impl App {
         (dx, dy): (f32, f32),
     ) {
         let (x, y) = origin;
+        // 滚在不在用的一栏上：把那一栏换进来滚，不改用它。
+        if matches!(target, ScrollTarget::Terminal | ScrollTarget::TerminalStrip)
+            && let Some(at) =
+                (self.terminal_group_at(x, y)).filter(|&at| at != self.terminal.group_at)
+        {
+            return self.with_terminal_group(at, |app| {
+                let target = app.scroll_target_at(x, y);
+                app.scroll_target_by(target, origin, shift, (dx, dy));
+            });
+        }
         // 补全列表浮在编辑区之上，滚轮落在列表上时滚动列表。
         if self.scroll_suggest(origin, dy) {
             return;

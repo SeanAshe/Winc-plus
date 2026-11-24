@@ -696,9 +696,9 @@ pub const TAB_HEIGHT: f32 = 26.0;
 pub const TAB_GAP: f32 = 4.0;
 /// 第一个文件标签离标签栏左边的距离（逻辑像素），与标签上下的留白相同。
 pub const TAB_INSET: f32 = (TOP_BAR - TAB_HEIGHT) / 2.0;
-/// 标签的最大宽度。
+/// 关掉「完整显示文件名」（`editor.fullTabNames`）时标签的最大宽度。
 ///
-/// 标签宽度贴合文件名，文件名更长时截短；所有标签放不下时横向滚动。
+/// 标签宽度贴合文件名，文件名更长时截短；开着这一项时不设这个上限。所有标签放不下时横向滚动。
 pub const TAB_WIDTH_MAX: f32 = 180.0;
 /// 标签的最小宽度：文件名很短时也不窄于该宽度，留出足够的点击范围。
 pub const TAB_WIDTH_MIN: f32 = 80.0;

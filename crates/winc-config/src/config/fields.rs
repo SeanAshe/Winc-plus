@@ -169,6 +169,7 @@ const EDITOR: &[Field] = &[
     },
     bool_field!("hotExit", hot_exit),
     bool_field!("confirmClose", confirm_close),
+    bool_field!("quitOnLastWindowClose", quit_on_last_window_close),
     bool_field!("restoreFolder", restore_folder),
     bool_field!("newFileOnStartup", new_file_on_startup),
     string_field!("defaultLanguage", default_language),
@@ -217,6 +218,7 @@ const EDITOR: &[Field] = &[
         },
     },
     bool_field!("stickyScroll", sticky_scroll),
+    bool_field!("dragAndDrop", drag_and_drop),
     bool_field!("wordWrap", word_wrap),
     bool_field!("wholeLines", whole_lines),
     bool_field!("minimap", minimap),
@@ -261,8 +263,10 @@ const EDITOR: &[Field] = &[
         },
     },
     bool_field!("diffInline", diff_inline),
+    bool_field!("diffCollapseUnchanged", diff_collapse_unchanged),
     bool_field!("lineNumbers", line_numbers),
     bool_field!("statusBar", status_bar),
+    bool_field!("fullTabNames", full_tab_names),
     bool_field!("restoreWindow", restore_window),
 ];
 
@@ -681,6 +685,7 @@ const GIT: &[Field] = &[
     bool_field!("inlineBlame", git_inline_blame),
     bool_field!("autoFetch", git_auto_fetch),
     bool_field!("stagingArea", git_staging_area),
+    bool_field!("combinedDiff", git_combined_diff),
     Field {
         key: "repositoryScanDepth",
         read: |config, value, name, problems| {

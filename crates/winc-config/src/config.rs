@@ -64,6 +64,9 @@ pub struct Config {
     pub hot_exit: Option<bool>,
     /// 关闭窗口或退出前是否先确认，默认为否。
     pub confirm_close: Option<bool>,
+    /// macOS 上关闭最后一个窗口时是否退出应用，默认为否（应用留在程序坞中）；其他平台上关闭
+    /// 最后一个窗口总是退出。
+    pub quit_on_last_window_close: Option<bool>,
     /// 启动时打开上次退出时打开的目录和标签，默认为开。
     ///
     /// 关闭后每次启动都显示开始页；命令行指定了目录或文件时仍然打开。
@@ -74,6 +77,8 @@ pub struct Config {
     pub default_language: Option<String>,
     /// 向空的未命名纯文本文档粘贴时是否按内容识别语言，默认为是。
     pub detect_language_on_paste: Option<bool>,
+    /// 是否可以拖动选中的文字来移动或复制（`editor.dragAndDrop`），默认为是。
+    pub drag_and_drop: Option<bool>,
     /// 把目录拖进已打开目录的窗口时怎样处理，默认每次询问。
     pub drop_folder: Option<FolderDrop>,
     /// 「在文件中查找」打开在哪里；没写时按键位方案：`idea` 为对话框，否则为侧栏。
@@ -101,10 +106,15 @@ pub struct Config {
     pub render_whitespace: Option<RenderWhitespace>,
     /// 差异单栏显示：新旧内容上下排列，默认为否（左右并排）。
     pub diff_inline: Option<bool>,
+    /// 差异中较长的未更改内容折叠为一行，默认为是；关闭后差异打开时就是全部展开的。
+    pub diff_collapse_unchanged: Option<bool>,
     /// 在行号栏显示行号，默认为是；关闭后折叠箭头、书签和改动标记仍然显示。
     pub line_numbers: Option<bool>,
     /// 显示窗口底部的状态栏，默认为是。
     pub status_bar: Option<bool>,
+    /// 编辑器的标签按文件名加宽、显示完整的文件名，默认为是；关闭后标签有最大宽度，过长的文件名
+    /// 截短。
+    pub full_tab_names: Option<bool>,
     /// 新窗口沿用上次关闭时的大小和位置，默认为是。
     pub restore_window: Option<bool>,
     /// 配色：`auto` 跟随系统，`dark` 或 `light` 强制指定。
@@ -264,6 +274,9 @@ pub struct Config {
     /// 提交视图是否使用暂存区视图（按暂存区分组，提交暂存区的内容），默认为否，用勾选决定提交的
     /// 内容。
     pub git_staging_area: Option<bool>,
+    /// 点击提交视图中的文件时，是否在「未提交的更改」标签中连续显示所有更改并定位到该文件，默认
+    /// 为否，打开这个文件的差异。
+    pub git_combined_diff: Option<bool>,
     /// 在打开的目录下查找仓库的层数，默认见 [`Config::REPOSITORY_SCAN_DEPTH`]，可用范围见
     /// [`Config::REPOSITORY_SCAN_DEPTH_RANGE`]。
     pub repository_scan_depth: Option<usize>,

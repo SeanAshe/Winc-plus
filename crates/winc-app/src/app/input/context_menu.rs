@@ -524,6 +524,10 @@ pub enum MenuCommand {
     NewTerminal,
     /// 终端：拆分标签，新终端在当前终端的目录里启动。
     SplitTerminal,
+    /// 终端：向右分栏（面板在下方时）。
+    MoveTerminalRight,
+    /// 终端：向下分栏（面板在右侧时）。
+    MoveTerminalDown,
     /// 终端标签：改名字。
     RenameTerminal,
     CloseTerminal,
@@ -728,6 +732,8 @@ impl MenuCommand {
             MenuCommand::TerminalMaximize => t!("menu-terminal-maximize"),
             MenuCommand::NewTerminal => t!("cmd-new-terminal"),
             MenuCommand::SplitTerminal => t!("cmd-split-terminal"),
+            MenuCommand::MoveTerminalRight => t!("menu-terminal-move-right"),
+            MenuCommand::MoveTerminalDown => t!("menu-terminal-move-down"),
             MenuCommand::RenameTerminal => t!("cmd-rename-file"),
             MenuCommand::CloseTerminal => t!("menu-terminal-close"),
             MenuCommand::CloseOtherTerminals => t!("cmd-close-other-tabs"),
@@ -903,6 +909,7 @@ impl MenuCommand {
             MenuCommand::Cut => Action::Cut,
             MenuCommand::Copy => Action::Copy,
             MenuCommand::Paste => Action::Paste,
+            MenuCommand::PastePlain => Action::MarkdownPastePlain,
             MenuCommand::SelectAll => Action::SelectAll,
             MenuCommand::TerminalFind => Action::FindInTerminal,
             MenuCommand::TerminalClear => Action::ClearTerminal,
@@ -910,6 +917,9 @@ impl MenuCommand {
             MenuCommand::TerminalDock => Action::ToggleTerminalPosition,
             MenuCommand::NewTerminal => Action::NewTerminal,
             MenuCommand::SplitTerminal => Action::SplitTerminal,
+            MenuCommand::MoveTerminalRight | MenuCommand::MoveTerminalDown => {
+                Action::MoveTerminalToGroup
+            }
             MenuCommand::RenameTerminal => Action::RenameTerminal,
             MenuCommand::CloseTerminal => Action::CloseTerminal,
             MenuCommand::GitRevertHunk => Action::GitRevertChange,

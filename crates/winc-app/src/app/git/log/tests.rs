@@ -115,8 +115,8 @@ fn changed_files_nest_like_the_file_tree() {
     };
     let file = |index, depth| LogFileRow::File { index, depth };
     let none = HashSet::new();
+    // 目录的键是系统的路径写法，显示的名字在各平台上都按 `/` 连接。
     let sep = std::path::MAIN_SEPARATOR_STR;
-    let cd = format!("c{sep}d");
     let bcd = format!("b{sep}c{sep}d");
     let ef = format!("e{sep}f");
     // 先目录、后文件，各按名字排；只有一个子目录的几级合成一行。
@@ -124,11 +124,11 @@ fn changed_files_nest_like_the_file_tree() {
         log_file_rows(Some(root), &files, shape, &none),
         [
             dir("b", "b", 0, true),
-            dir(&bcd, &cd, 1, true),
+            dir(&bcd, "c/d", 1, true),
             file(2, 2),
             file(0, 1),
             file(3, 1),
-            dir(&ef, &ef, 0, true),
+            dir(&ef, "e/f", 0, true),
             file(4, 1),
             file(1, 0),
         ]
@@ -136,7 +136,10 @@ fn changed_files_nest_like_the_file_tree() {
     // 收起的目录里的文件不列出。
     let folded = HashSet::from(["b".to_owned()]);
     let rows = log_file_rows(Some(root), &files, shape, &folded);
-    assert_eq!(rows[..2], [dir("b", "b", 0, false), dir(&ef, &ef, 0, true)]);
+    assert_eq!(
+        rows[..2],
+        [dir("b", "b", 0, false), dir(&ef, "e/f", 0, true)]
+    );
     // 不合并时每级一行。
     let loose = RowsShape {
         compact: false,
@@ -160,7 +163,7 @@ fn changed_files_nest_like_the_file_tree() {
     };
     let viewed = [files[4].clone(), files[0].clone()];
     let rows = log_file_rows(Some(root), &viewed, pinned, &none);
-    let first = [dir(&ef, &ef, 0, true), file(0, 1), dir("b", "b", 0, true)];
+    let first = [dir(&ef, "e/f", 0, true), file(0, 1), dir("b", "b", 0, true)];
     assert_eq!(rows[..3], first);
 }
 

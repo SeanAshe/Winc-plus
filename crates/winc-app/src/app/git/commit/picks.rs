@@ -85,8 +85,9 @@ impl App {
                 Some(skipped) => plan.partial.push((entry.path.clone(), skipped.to_vec())),
                 None => {
                     plan.whole.push(entry.path.clone());
-                    // 改名的文件，原来的路径一并提交，否则提交里同时留着新旧两个文件。
-                    plan.whole.extend(entry.from.clone());
+                    // 改名的文件，原来的路径一并提交，否则提交里同时留着新旧两个文件；改名已经
+                    // 暂存时原来的路径已移出暂存区，不再暂存。
+                    plan.whole.extend(entry.unstaged_from().cloned());
                 }
             }
             if entry.untracked() {
@@ -187,7 +188,7 @@ impl App {
                     plan.partial.push((entry.path.clone(), partial.clone()));
                 } else if checked {
                     plan.whole.push(entry.path.clone());
-                    plan.whole.extend(entry.from.clone());
+                    plan.whole.extend(entry.unstaged_from().cloned());
                     if entry.untracked() {
                         plan.added.push(entry.path.clone());
                     }

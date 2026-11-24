@@ -120,6 +120,62 @@ pub fn unstage(
     })
 }
 
+/// 返回在 `old` 上采纳 `old` 到 `new` 的一段改动 `hunk` 之后的文本，其余改动都不采纳；`line`
+/// 不为 `None` 时只采纳其中这一行。
+///
+/// 分开显示「暂存区 ↔ 工作区」时，在其中暂存一段，结果是新的暂存区。
+pub fn take_hunk(old: &str, new: &str, hunk: &LineHunk, line: Option<StageLine>) -> String {
+    let all = |len: usize| (0..len).collect::<BTreeSet<usize>>();
+    pick_changes(old, new, |_, range| {
+        if range != hunk.old {
+            return Pick::Skip;
+        }
+        // 采纳一行：其余旧行都保留、其余新行都不加入。
+        let except = |len: usize, at: usize, start: usize| {
+            let mut set = all(len);
+            set.remove(&(at - start));
+            set
+        };
+        match line {
+            None => Pick::Apply,
+            Some(StageLine::Old(at)) if hunk.old.contains(&at) => Pick::Lines(LineSet {
+                old: except(hunk.old.len(), at, hunk.old.start),
+                new: all(hunk.new.len()),
+            }),
+            Some(StageLine::New(at)) if hunk.new.contains(&at) => Pick::Lines(LineSet {
+                old: all(hunk.old.len()),
+                new: except(hunk.new.len(), at, hunk.new.start),
+            }),
+            Some(_) => Pick::Skip,
+        }
+    })
+}
+
+/// 返回在 `new` 上退回 `old` 到 `new` 的一段改动 `hunk` 之后的文本，其余改动都保留；`line`
+/// 不为 `None` 时只退回其中这一行。
+///
+/// 分开显示「上次提交 ↔ 暂存区」时，在其中取消暂存一段，结果是新的暂存区。
+pub fn drop_hunk(old: &str, new: &str, hunk: &LineHunk, line: Option<StageLine>) -> String {
+    let one = |at: usize| BTreeSet::from([at]);
+    pick_changes(old, new, |_, range| {
+        if range != hunk.old {
+            return Pick::Apply;
+        }
+        match line {
+            None => Pick::Skip,
+            Some(StageLine::Old(at)) if hunk.old.contains(&at) => Pick::Lines(LineSet {
+                old: one(at - hunk.old.start),
+                new: BTreeSet::new(),
+            }),
+            Some(StageLine::New(at)) if hunk.new.contains(&at) => Pick::Lines(LineSet {
+                old: BTreeSet::new(),
+                new: one(at - hunk.new.start),
+            }),
+            Some(_) => Pick::Apply,
+        }
+    })
+}
+
 /// 第 `line` 行是否落在 `hunks` 中某段改动的旧侧（`old` 为真）或新侧之内。
 fn covers(hunks: &[LineHunk], line: usize, old: bool) -> bool {
     hunks.iter().any(|h| {
@@ -168,6 +224,25 @@ mod tests {
 
     fn hunks() -> Vec<LineHunk> {
         line_hunks(HEAD, WORK)
+    }
+
+    /// 在两份文本之间采纳、退回一段或一行：整段采纳与 [`stage`] 的结果相同，退回后只差这一段。
+    #[test]
+    fn taking_and_dropping_a_hunk_between_two_texts() {
+        let hunks = hunks();
+        assert_eq!(
+            take_hunk(HEAD, WORK, &hunks[1], None),
+            stage(HEAD, HEAD, WORK, &hunks[1], None)
+        );
+        assert_eq!(drop_hunk(HEAD, WORK, &hunks[1], None), "a\nB\nc\nd\ne\n");
+        // 第二段把 `e` 换成 `E`、`f`：只采纳加入的 `f`，或只退回它。
+        let f = Some(StageLine::New(5));
+        assert_eq!(take_hunk(HEAD, WORK, &hunks[1], f), "a\nb\nc\nd\ne\nf\n");
+        assert_eq!(drop_hunk(HEAD, WORK, &hunks[1], f), "a\nB\nc\nd\nE\n");
+        // 只采纳删除 `e`，或只退回它。
+        let e = Some(StageLine::Old(4));
+        assert_eq!(take_hunk(HEAD, WORK, &hunks[1], e), "a\nb\nc\nd\n");
+        assert_eq!(drop_hunk(HEAD, WORK, &hunks[1], e), "a\nB\nc\nd\ne\nE\nf\n");
     }
 
     #[test]

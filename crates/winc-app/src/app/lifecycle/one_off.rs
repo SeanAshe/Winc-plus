@@ -1,7 +1,8 @@
 //! 临时打开模式，包括两种命令行用法。
 //!
 //! - `winc --wait 文件`：供 `git` 等程序把 winc 当作编辑器调用，等待的标签全部关闭后才退出。
-//! - `winc -`：读取标准输入，边读边显示在「标准输入」标签中。
+//! - `winc -`：读取标准输入，边读边显示在「标准输入」标签中；读取期间标签只读，读完后转为可编辑
+//!   的未命名文档。
 //!
 //! 临时打开时不记录现场、不加入最近列表、不备份，不影响下次启动的状态。
 
@@ -145,11 +146,39 @@ impl App {
         }
         if let Some(problem) = done {
             self.one_off.stdin = None;
+            if let Some(doc) = self.editor.document_mut(id) {
+                doc.make_untitled();
+            }
             if let Some(problem) = problem {
                 self.notify(NoticeKind::Error, problem);
             }
         }
         self.request_redraw();
+    }
+
+    /// 标签 `id` 是否为仍在读取的标准输入标签。
+    pub(in crate::app) fn reading_stdin(&self, id: DocumentId) -> bool {
+        (self.one_off.stdin.as_ref()).is_some_and(|(stdin, _)| *stdin == id)
+    }
+
+    /// 返回是否保存成功：把标签 `id` 另存为 `path`（见 [`App::save_document`]）。
+    ///
+    /// 仍在读取的标准输入标签保存成功后转为对应该文件的普通标签，不再接收之后的输入；保存失败时
+    /// 仍为只读的输出标签，继续接收。
+    pub(in crate::app) fn save_picked(&mut self, id: DocumentId, path: PathBuf) -> bool {
+        let stdin = self.reading_stdin(id);
+        if stdin && let Some(doc) = self.editor.document_mut(id) {
+            doc.make_untitled();
+        }
+        let saved = self.save_document(id, Some(path));
+        if stdin {
+            if saved {
+                self.one_off.stdin = None;
+            } else if let Some(doc) = self.editor.document_mut(id) {
+                doc.make_output();
+            }
+        }
+        saved
     }
 
     /// 标签关闭后检查 `--wait` 等待的标签；全部关闭时记下，处理完当前事件后退出。

@@ -28,7 +28,7 @@ impl App {
             return;
         }
         // 只读的差异快照不能替换，按只查找打开。
-        let snapshot = self.readonly_diff().is_some();
+        let snapshot = self.readonly_diff().is_some() || self.combined_active();
         let replace = replace && !snapshot;
         let preview = self.markdown_focused();
         if !snapshot && !preview && !self.editor.active().is_some_and(|d| d.edits_text()) {

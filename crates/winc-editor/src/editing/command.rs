@@ -130,6 +130,13 @@ pub enum Command {
         /// 是否向下复制。
         down: bool,
     },
+    /// 把选中的文字拖放到位置 `at`（字符偏移）：`copy` 为真时复制，否则移动。
+    DropText {
+        /// 放下的位置（字符偏移）。
+        at: usize,
+        /// 是否复制，而不是移动。
+        copy: bool,
+    },
     /// 改变选区的大小写；没有选区时改变光标所在的词。
     ChangeCase(Case),
     /// 交换光标两侧的两个字素；光标在行尾时交换行末的两个字素。
@@ -506,6 +513,7 @@ impl Document {
             Command::DeleteLine => edit::delete_lines(text, sel),
             &Command::MoveLines { down } => edit::move_lines(text, sel, down),
             &Command::CopyLines { down } => Some(edit::copy_lines(text, sel, down, &options)),
+            &Command::DropText { at, copy } => edit::drop_text(text, sel, at, copy),
             &Command::ChangeCase(case) => transform::change_case(text, sel, case),
             Command::TransposeChars => transform::transpose(text, sel),
             Command::LineBreakInsert => {

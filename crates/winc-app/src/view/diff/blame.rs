@@ -4,14 +4,14 @@
 use super::*;
 use crate::app::git::blame::BlameKey;
 use crate::view::editor::{blame_ages, draw_blame_cell};
-use winc_editor::DocumentId;
 
 /// 绘制开着逐行追溯的一侧的追溯一栏（单栏时两侧共用一栏，每行取所在一侧的结果，未改动的行
-/// 右侧没开时取左侧），记下各格：悬停提示提交，点击在日志中选中它。`drawn` 是正文画出的显示行。
+/// 右侧没开时取左侧），记下各格：悬停提示提交，点击在日志中选中它。`key` 给出每一侧追溯结果的
+/// 键，`drawn` 是正文画出的显示行。
 pub(super) fn draw(
     app: &App,
     frame: &mut Frame<'_>,
-    (id, view): (DocumentId, &DiffView),
+    (key, view): (impl Fn(usize) -> BlameKey, &DiffView),
     parts: &DiffParts,
     drawn: &[DrawnRow],
     hits: &mut Vec<(Rect, DiffTarget)>,
@@ -22,8 +22,7 @@ pub(super) fn draw(
     let lh = app.fonts.line_height;
     let blames = [LEFT, RIGHT].map(|side| {
         let on = view.blamed[side];
-        on.then(|| app.blame_of_key(BlameKey::Side(id, side)))
-            .flatten()
+        on.then(|| app.blame_of_key(key(side))).flatten()
     });
     let ages = blames.each_ref().map(|b| b.as_deref().map(blame_ages));
     let hovered = match app.pointer.hover {

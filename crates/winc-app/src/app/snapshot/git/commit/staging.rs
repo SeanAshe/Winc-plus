@@ -1,6 +1,10 @@
 //! 暂存区视图的测试：各项的状态取自暂存区，提交取暂存区的内容。
+//!
+//! 按段、按行暂存的测试打开整体的差异（上次提交 ↔ 工作区，编辑区中「显示当前文件的改动」
+//! 打开的就是它），勾选框显示各段在暂存区中的状态；从两组打开的分开显示的差异见 `split`。
 
 use super::*;
+use crate::app::git::Target;
 
 /// 返回 `root` 中 `HEAD` 里的 `src/main.rs`。
 fn head_main(root: &Path) -> String {
@@ -35,7 +39,9 @@ fn file_state(app: &App, path: &Path) -> Option<bool> {
 fn picks(app: &App) -> Vec<winc_core::diff::Pick> {
     let view = app.editor.active().unwrap().diff.as_deref().unwrap();
     let entry = app.diff_entry(view).unwrap();
-    app.git.commit.hunk_inclusions(entry, view)
+    app.git
+        .commit
+        .hunk_inclusions(entry, view, app.active_diff_kind())
 }
 
 #[test]
@@ -53,7 +59,7 @@ fn only_the_staged_hunks_are_committed() {
     }
     let root = app.git.root.clone().unwrap();
     let file = root.join("src/main.rs");
-    app.git_preview_changes(&file);
+    app.fetch_changes(&file, Target::Open);
     paint(&mut app);
     // 两处改动各有一个勾选框，都没有暂存；勾上第一处（`value_5` 改成 500），文件变成「部分」。
     assert!(
@@ -262,7 +268,7 @@ fn only_the_staged_lines_are_committed() {
     )
     .unwrap();
     app.git_refresh();
-    app.git_preview_changes(&file);
+    app.fetch_changes(&file, Target::Open);
     paint(&mut app);
 
     // 暂存 `added_b` 所在的那处改动，再把 `added_b` 这一行取消暂存；另一处改动不暂存。
@@ -299,7 +305,7 @@ fn only_the_staged_lines_are_committed() {
     assert!(std::fs::read_to_string(&file).unwrap().contains("added_b"));
 
     // 再暂存这一行：这处改动全部暂存。
-    app.git_preview_changes(&file);
+    app.fetch_changes(&file, Target::Open);
     paint(&mut app);
     let view = app.editor.active().unwrap().diff.as_deref().unwrap();
     let text = std::fs::read_to_string(&file).unwrap();
@@ -338,7 +344,7 @@ fn a_file_edited_after_staging_is_partly_staged() {
     assert_eq!(file_state(&app, &file), Some(false));
 
     // 三处改动：`value_5` 暂存后又改过，`value_30` 是新的改动，删掉的 `value_50` 已暂存。
-    app.git_preview_changes(&file);
+    app.fetch_changes(&file, Target::Open);
     paint(&mut app);
     let now = picks(&app);
     assert!(matches!(now[0], Pick::Lines(_)), "{now:?}");
@@ -382,7 +388,7 @@ fn identical_changes_are_staged_one_by_one() {
         );
     std::fs::write(&file, &disk).unwrap();
     app.git_refresh();
-    app.git_preview_changes(&file);
+    app.fetch_changes(&file, Target::Open);
     paint(&mut app);
     let view = app.editor.active().unwrap().diff.as_deref().unwrap();
     let same: Vec<usize> = (0..view.hunks.len())
@@ -730,3 +736,5 @@ fn rolling_back_changes_keeps_what_is_staged() {
     assert!(status.entries.iter().all(|e| e.unstaged.is_none()));
     let _ = std::fs::remove_dir_all(&root);
 }
+
+mod split;

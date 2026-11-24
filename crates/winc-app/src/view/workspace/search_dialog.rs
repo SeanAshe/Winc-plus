@@ -4,7 +4,9 @@ use winc_i18n::t;
 
 use super::*;
 use crate::app::editor::definition::Place;
-use crate::app::workspace::search_dialog::{DialogPart, DialogParts, PREVIEW_PAD};
+use crate::app::workspace::search_dialog::{
+    CLOSE_MARK, DialogPart, DialogParts, PREVIEW_PAD, SIDE,
+};
 use crate::app::{Focus, Hover, PICKER_ICON_X, PICKER_TEXT_X};
 use crate::view::editor::places::{PlacesView, draw_code_with, draw_rows};
 
@@ -35,9 +37,9 @@ fn draw_dialog(app: &mut App, frame: &mut Frame<'_>) {
     let hovered = |app: &App, part| app.pointer.hover == Hover::SearchDialog(part);
     let line = |y: f32| Rect::new(card.x + 1.0, y, card.w - 2.0, 1.0);
 
-    // 标题行：标题、结果统计，右端是范围、「在底部显示」和关闭按钮。
-    let header = parts.header;
-    let x = card.x + SETTINGS_PAD;
+    // 标题行：标题、结果统计，右端是范围、「在底部显示」和关闭按钮；标题与输入框的边框左对齐。
+    let header = parts.bar;
+    let x = card.x + SIDE;
     let end = ui_text(frame, app, x, header, t!("cmd-find-in-files"), p.text, card);
     let (count, count_color) = summary(app);
     let room = (parts.track.x - 12.0 - end - 10.0).max(0.0);
@@ -56,7 +58,7 @@ fn draw_dialog(app: &mut App, frame: &mut Frame<'_>) {
         hovered(app, DialogPart::Close),
         false,
     );
-    icons::close(frame, center(close), 7.0, p.text_muted, close);
+    icons::close(frame, center(close), CLOSE_MARK, p.text_muted, close);
 
     // 查询框：右端是三个开关和「过滤」；过滤打开时下面是文件掩码。
     let focused = app.focus == Focus::SearchDialog;
@@ -154,18 +156,26 @@ fn draw_dialog(app: &mut App, frame: &mut Frame<'_>) {
             None => ("", place.relative.as_str()),
         };
         let icon = (
-            card.x + PICKER_ICON_X,
+            head.x + PICKER_ICON_X,
             icon_center_y(app, head, app.fonts.ui),
         );
         draw_file_icon(frame, p, icon, name, card);
-        let x = card.x + PICKER_TEXT_X;
+        let x = head.x + PICKER_TEXT_X;
         let end = ui_text(frame, app, x, head, name, p.text, card);
-        let room = (card.right() - SETTINGS_PAD - end - 8.0).max(0.0);
+        let room = (head.right() - PICKER_ICON_X - end - 8.0).max(0.0);
         let dir = ellipsize(frame, dir, app.fonts.ui_small, room);
         ui_text_small(frame, app, end + 8.0, head, &dir, p.text_dim, card);
         if let Some((at, first, lines)) = &context {
             frame.within(parts.preview, |frame| {
-                draw_context(app, frame, parts.preview, (*at, *first), lines, place);
+                let len = d.lens.get(d.selected).copied();
+                draw_context(
+                    app,
+                    frame,
+                    parts.preview,
+                    (*at, *first),
+                    lines,
+                    (place, len),
+                );
             });
         }
     });
@@ -324,7 +334,8 @@ pub(in crate::view) fn draw_dock(app: &mut App, frame: &mut Frame<'_>) {
             (dock.preview.h - lead).max(0.0),
         );
         frame.within(dock.preview, |frame| {
-            draw_context(app, frame, area, (*at, *first), lines, place);
+            let len = d.lens.get(d.selected).copied();
+            draw_context(app, frame, area, (*at, *first), lines, (place, len));
         });
     });
 }
@@ -464,23 +475,30 @@ fn summary(app: &App) -> (String, Color) {
 
 /// 在预览区 `area` 中绘制选中处周围的几行：左侧是行号，选中的一行铺底色、匹配铺琥珀色底。
 ///
-/// `at` 是（选中的行号，首行的行号），均从 0 起。
+/// `at` 是（选中的行号，首行的行号），均从 0 起；`len` 是匹配的长度（字符数），与 `place.col`
+/// 一起给出匹配在整行里的位置。
 fn draw_context(
     app: &App,
     frame: &mut Frame<'_>,
     area: Rect,
     (at, first): (usize, usize),
     lines: &[String],
-    place: &Place,
+    (place, len): (&Place, Option<usize>),
 ) {
     let p = app.palette;
     let line_h = app.fonts.line_height;
     let top = area.y + PREVIEW_PAD;
-    // 取来的行可能多于这里放得下的行数：从中取一段，让选中的一行居中。
-    let fit = (((area.h - 2.0 * PREVIEW_PAD) / line_h).floor().max(1.0)) as usize;
+    // 取来的行可能多于这里放得下的行数：从中取一段，让选中的一行在完整露出的几行里居中；同
+    // 编辑区一样，最后一行放不下时露出一部分（由调用方裁掉），底下不留成段的空白。
+    let room = (area.h - 2.0 * PREVIEW_PAD) / line_h;
+    let (whole, fit) = (
+        room.floor().max(1.0) as usize,
+        room.ceil().max(1.0) as usize,
+    );
     let skip = (at.saturating_sub(first))
-        .saturating_sub(fit / 2)
-        .min(lines.len().saturating_sub(fit));
+        .saturating_sub(whole / 2)
+        .min(lines.len().saturating_sub(whole));
+    let lines = &lines[..lines.len().min(skip + fit)];
     let (first, lines) = (first + skip, &lines[skip..]);
     let (size, cell) = (app.fonts.code, app.metrics.cell);
     let digits = (first + lines.len()).max(1).to_string().len();
@@ -500,11 +518,8 @@ fn draw_context(
         let baseline = (row.y + (row.h - (ascent + descent)) / 2.0 + ascent).round();
         let color = if current { p.text_muted } else { p.text_dim };
         frame.text(FontKind::Mono, size, x, baseline, &number, color, area);
-        // 列表中的文字去掉了行首空白，这里按缩进移动匹配的范围。
         let marks = if current {
-            let indent = text.chars().take_while(|c| c.is_whitespace()).count();
-            let shift = |r: &std::ops::Range<usize>| r.start + indent..r.end + indent;
-            place.marks.iter().map(shift).collect()
+            line_marks(text, place, len)
         } else {
             Vec::new()
         };
@@ -518,5 +533,45 @@ fn draw_context(
         };
         let code = Rect::new(code_x, row.y, row.right() - 12.0 - code_x, row.h);
         frame.within(area, |frame| draw_code_with(app, frame, &line, code, 1.0));
+    }
+}
+
+/// 选中处的匹配在预览的一行 `text`（整行原文）里的范围（字符偏移，制表符按换成的四个空格算）。
+///
+/// 知道匹配在整行里的列（`place.col`）和长度时按它算：列表里的文字去掉了行首空白、过长时截去
+/// 了两端，其中的范围不能直接用。不知道时按列表里的范围加上缩进。
+fn line_marks(text: &str, place: &Place, len: Option<usize>) -> Vec<std::ops::Range<usize>> {
+    // 第 `col` 个字符之前的制表符各多占三格。
+    let shown = |col: usize| col + 3 * text.chars().take(col).filter(|&c| c == '\t').count();
+    if let (Some(col), Some(len)) = (place.col, len) {
+        return std::iter::once(shown(col)..shown(col + len)).collect();
+    }
+    let indent = text.chars().take_while(|c| c.is_whitespace()).count();
+    let shift = |r: &std::ops::Range<usize>| r.start + indent..r.end + indent;
+    place.marks.iter().map(shift).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 回归：长行在列表里截去了开头（「…」之后才是匹配），预览按整行里的列标出匹配，不按列表
+    /// 里截过的位置；匹配之前的制表符各多占三格。
+    #[test]
+    fn the_preview_marks_the_match_in_the_whole_line() {
+        let text = "\t<!-- What does this change, and why? Link the issue, for example \"Fixes #123\". -->";
+        let col = text.find("123").unwrap();
+        let place = Place {
+            path: "a.md".into(),
+            relative: "a.md".into(),
+            line: 5,
+            col: Some(col),
+            preview: "…ue, for example \"Fixes #123\". -->".into(),
+            marks: std::iter::once(25..28).collect(),
+        };
+        let marks = line_marks(text, &place, Some(3));
+        let shown = text.replace('\t', "    ");
+        let found: String = shown.chars().skip(marks[0].start).take(3).collect();
+        assert_eq!(found, "123");
     }
 }

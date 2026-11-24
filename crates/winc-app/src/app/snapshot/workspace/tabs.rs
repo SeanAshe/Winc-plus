@@ -23,6 +23,9 @@ fn tab_rect(app: &App, index: usize) -> Rect {
     app.hits.tabs.iter().find(|h| h.index == index).unwrap().tab
 }
 
+/// 标签宽度贴合文件名：默认（「完整显示文件名」开着）不截短，长文件名的标签比旧的最大宽度
+/// 还宽；只有一个标签比标签栏放得下的还宽时才截短。关掉这个设置后最宽 [`TAB_WIDTH_MAX`]。
+/// 用鼠标关闭标签时，移过来的标签暂用被关闭标签的宽度；标签放不下时不缩窄，横向滚动。
 #[test]
 fn tabs_fit_their_names() {
     let dir = search_folder("tabs-width");
@@ -36,16 +39,13 @@ fn tabs_fit_their_names() {
     app.open_path(&dir.join(names[2]));
     paint(&mut app);
 
-    // 宽度贴合文件名：短名字的标签窄，长名字的标签到最大宽度为止；关闭按钮都在标签右端。
+    // 宽度贴合文件名：短名字的标签窄，长名字的标签整个写出来；关闭按钮都在标签右端。
     let widths = |app: &App| -> Vec<f32> { app.hits.tabs.iter().map(|h| h.tab.w).collect() };
     let fitted = widths(&app);
     assert!(fitted[0] < fitted[1], "{fitted:?}");
-    assert_eq!(fitted[1], TAB_WIDTH_MAX);
-    assert!(
-        fitted
-            .iter()
-            .all(|w| (TAB_WIDTH_MIN..=TAB_WIDTH_MAX).contains(w))
-    );
+    assert!(fitted[1] > TAB_WIDTH_MAX, "{fitted:?}");
+    assert!(fitted.iter().all(|&w| w >= TAB_WIDTH_MIN));
+    assert!(app.hits.tabs.iter().all(|h| !h.elided), "文件名都写全了");
     for hit in &app.hits.tabs {
         assert_eq!(hit.close.right(), hit.tab.right() - 6.0);
     }
@@ -64,7 +64,27 @@ fn tabs_fit_their_names() {
     // 鼠标离开顶栏后解除锁定，宽度回到贴合文件名的样子。
     app.on_mouse_move(x, TOP_BAR_END + 100.0);
     paint(&mut app);
+    assert_eq!(widths(&app)[0], fitted[1]);
+
+    // 文件名比标签栏放得下的还长：标签和露出标签的那一段一样宽，文件名截短。
+    let huge = format!("{}.rs", "very-long-name-".repeat(16));
+    std::fs::write(dir.join(&huge), "x\n").unwrap();
+    app.open_path(&dir.join(&huge));
+    paint(&mut app);
+    let last = app.hits.tabs.iter().max_by_key(|h| h.index).unwrap();
+    assert!(last.elided);
+    assert!(
+        last.tab.w < app.layout.tabs.w,
+        "{} {}",
+        last.tab.w,
+        app.layout.tabs.w
+    );
+
+    // 关掉设置：最宽 `TAB_WIDTH_MAX`，长文件名截短。
+    app.settings_toggle(Setting::FullTabNames);
+    paint(&mut app);
     assert_eq!(widths(&app)[0], TAB_WIDTH_MAX);
+    app.settings_toggle(Setting::FullTabNames);
 
     // 标签多了放不下：不缩窄，横向滚动。
     for i in 0..8 {
@@ -74,8 +94,96 @@ fn tabs_fit_their_names() {
     }
     paint(&mut app);
     assert!(app.tabs.max_scroll() > 0.0);
-    assert!(app.tabs.widths.iter().skip(2).all(|&w| w == TAB_WIDTH_MAX));
+    assert!(app.tabs.widths.iter().skip(3).all(|&w| w > TAB_WIDTH_MAX));
 
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 「转到第 N 个标签页」按标签栏的顺序切换；没有第 N 个标签页时不切换。
+#[test]
+fn numbered_tab_commands_switch_by_position() {
+    use crate::keymap::Action;
+    let dir = search_folder("tab-numbers");
+    let mut app = app_with(&dir.join("src/main.rs"), false);
+    app.open_path(&dir.join("src/config.rs"));
+    app.open_path(&dir.join("Cargo.toml"));
+    let active = |app: &App| app.editor.active().map(|d| d.name().into_owned());
+
+    app.focus = Focus::Terminal;
+    app.run_action(Action::FocusTab1);
+    assert_eq!(active(&app).as_deref(), Some("main.rs"));
+    assert_eq!(app.focus, Focus::Editor);
+    app.run_action(Action::FocusTab3);
+    assert_eq!(active(&app).as_deref(), Some("Cargo.toml"));
+    app.run_action(Action::FocusTab9);
+    assert_eq!(active(&app).as_deref(), Some("Cargo.toml"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `⌃Tab` 按最近使用的顺序列出标签页：按住 `Ctrl` 时 `Tab` 移动选中项，松开切换；`Esc` 不切换。
+/// 从命令面板打开时没有按住的键，回车切换。
+#[test]
+fn ctrl_tab_switches_tabs_by_recent_use() {
+    use crate::app::snapshot::editor::navigation::press;
+    use crate::keymap::{Action, KeyCode};
+    use winit::keyboard::ModifiersState;
+
+    let dir = search_folder("tab-switch");
+    let mut app = app_with(&dir.join("src/main.rs"), false);
+    paint(&mut app);
+    app.open_path(&dir.join("src/config.rs"));
+    paint(&mut app);
+    app.open_path(&dir.join("Cargo.toml"));
+    paint(&mut app);
+    let active = |app: &App| app.editor.active().map(|d| d.name().into_owned()).unwrap();
+    let names = |app: &App| -> Vec<String> {
+        let list = app.tab_switch.list.as_ref().unwrap();
+        let name = |id: &DocumentId| app.editor.document(*id).unwrap().name().into_owned();
+        list.rows.iter().map(name).collect()
+    };
+    let release = |app: &mut App| {
+        app.pointer.modifiers = ModifiersState::empty();
+        app.tab_switch_modifiers();
+        paint(app);
+    };
+
+    // 按下并松开：切到上一个使用的标签页。
+    app.pointer.modifiers = ModifiersState::CONTROL;
+    assert!(press(&mut app, &["ctrl"], KeyCode::Tab));
+    assert_eq!(names(&app), ["Cargo.toml", "config.rs", "main.rs"]);
+    paint(&mut app);
+    assert!(!app.hits.tab_switch.is_empty());
+    release(&mut app);
+    assert_eq!(active(&app), "config.rs");
+    assert!(app.tab_switch.list.is_none());
+
+    // 按住 `Ctrl` 再按一次 `Tab`，选到更早使用的；松开 `Shift` 不算松开。
+    app.pointer.modifiers = ModifiersState::CONTROL;
+    press(&mut app, &["ctrl"], KeyCode::Tab);
+    press(&mut app, &["ctrl"], KeyCode::Tab);
+    app.pointer.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+    app.tab_switch_modifiers();
+    app.pointer.modifiers = ModifiersState::CONTROL;
+    app.tab_switch_modifiers();
+    assert!(app.tab_switch.list.is_some());
+    release(&mut app);
+    assert_eq!(active(&app), "main.rs");
+
+    // `⌃⇧Tab` 选中最早使用的；`Esc` 关闭列表，不切换。
+    app.pointer.modifiers = ModifiersState::CONTROL | ModifiersState::SHIFT;
+    press(&mut app, &["ctrl", "shift"], KeyCode::Tab);
+    let list = app.tab_switch.list.as_ref().unwrap();
+    assert_eq!(list.selected, list.rows.len() - 1);
+    app.close_tab_switch();
+    release(&mut app);
+    assert_eq!(active(&app), "main.rs");
+
+    // 从命令面板打开：松开修饰键不切换，回车切换。
+    app.run_action(Action::SwitchTab);
+    app.tab_switch_modifiers();
+    assert!(app.tab_switch.list.is_some());
+    app.accept_tab_switch();
+    assert_eq!(active(&app), "config.rs");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -966,9 +1074,10 @@ fn tabs_without_a_file_show_a_tooltip_only_when_the_name_is_shortened() {
         "名称完整显示时不提示"
     );
 
-    // 名称超出标签宽度被截短时，提示显示完整名称。
-
-    let long = "很长的标签名称".repeat(12);
+    // 名称超出标签宽度被截短时，提示显示完整名称。标签随名称加宽（`editor.fullTabNames`），
+    // 名称要比整个标签栏还长才会截短：取远超窗口宽度的长度，不随平台的字宽和标签栏左边的
+    // 窗口按钮变化。
+    let long = "很长的标签名称".repeat(40);
     app.editor.documents[index].title = Some(long.clone());
     paint(&mut app);
     let (x, y) = tab_point(&app, index);
@@ -1103,5 +1212,30 @@ fn web_pages_get_an_open_in_browser_button() {
     app.on_mouse_move(now.x + 2.0, now.y + 4.0);
     assert_ne!(app.pointer.hover, crate::app::Hover::Browser);
 
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 完整显示文件名：长文件名的标签整个写出来，放不下时横向滚动、右端出现「⌄」。
+///
+/// 运行：`cargo test -p winc-app shoot_full_tab_names -- --ignored`。
+#[test]
+#[ignore = "截图，手动运行"]
+fn shoot_full_tab_names() {
+    let dir = search_folder("tabs-full-names");
+    let names = [
+        "main.rs",
+        "crates-winc-app-src-view-workspace-top-bar.rs",
+        "settings.ftl",
+        "a-much-longer-file-name-than-the-others.md",
+    ];
+    for name in names {
+        std::fs::write(dir.join(name), "x\n").unwrap();
+    }
+    let mut app = app_with(&dir.join(names[0]), false);
+    for name in &names[1..] {
+        app.open_path(&dir.join(name));
+    }
+    paint(&mut app);
+    shoot(&mut app, "tabs-full-names");
     let _ = std::fs::remove_dir_all(&dir);
 }

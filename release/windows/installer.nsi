@@ -126,6 +126,7 @@ LangString OpenFolderVerb ${LANG_SIMPCHINESE} "在 Winc 中打开"
   !insertmacro ${Action} HSC code
   !insertmacro ${Action} HTM markup
   !insertmacro ${Action} HTML markup
+  !insertmacro ${Action} HTTP code
   !insertmacro ${Action} HXX c
   !insertmacro ${Action} INF config
   !insertmacro ${Action} INI config
@@ -200,6 +201,7 @@ LangString OpenFolderVerb ${LANG_SIMPCHINESE} "在 Winc 中打开"
   !insertmacro ${Action} RAKE code
   !insertmacro ${Action} RB code
   !insertmacro ${Action} RBI code
+  !insertmacro ${Action} REST code
   !insertmacro ${Action} RESX markup
   !insertmacro ${Action} ROCKSPEC code
   !insertmacro ${Action} RPROFILE code

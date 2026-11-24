@@ -483,6 +483,35 @@ pub fn spin_turn() -> f32 {
     start.elapsed().as_secs_f32() * crate::theme::SPIN_SPEED
 }
 
+/// 运行（实心三角形，宽 7、高 8）：行号栏这类窄处的运行按钮，描边的 [`play`] 在其中显得拥挤。
+///
+/// 三角形的重心在宽度的三分之一处，整体右移宽度的六分之一，看起来位于 `(cx, cy)` 的正中。
+pub fn play_solid(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let (w, h) = (7.0, 8.0);
+    let left = cx - w / 2.0 + w / 6.0;
+    let points = [(left, cy - h / 2.0), (left + w, cy), (left, cy + h / 2.0)];
+    frame.polygon(&points, color, clip);
+}
+
+/// 绘制按 `turn`（圈数，可为任意实数）顺时针转动的四分之三圆弧，表示操作正在进行，半径为
+/// `radius`（逻辑像素）。
+pub fn spinner(
+    frame: &mut Frame<'_>,
+    (cx, cy): (f32, f32),
+    radius: f32,
+    turn: f32,
+    color: Color,
+    clip: Rect,
+) {
+    // 起点映射到 -π 至 π 之间，原因见 [`refresh_turned`]。
+    let mut angle = turn.rem_euclid(1.0) * 2.0 * PI;
+    if angle >= PI {
+        angle -= 2.0 * PI;
+    }
+    let arc = Stroke::Arc(cx, cy, radius, angle, angle + 1.5 * PI);
+    frame.stroke(&[arc], RING_STROKE, color, clip);
+}
+
 /// 绘制按 `turn`（圈数，可为任意实数）顺时针旋转后的「刷新」图标，表示操作正在进行。
 pub fn refresh_turned(
     frame: &mut Frame<'_>,
@@ -944,6 +973,17 @@ pub fn sidebar(frame: &mut Frame<'_>, (cx, cy): (f32, f32), open: bool, color: C
     };
     let shapes: Strokes<9> = joined(&[&rounded_outline(x, y, w, h, 3.0), &[bar]]);
     frame.stroke(shapes.as_slice(), STROKE, color, clip);
+}
+
+/// 绘制「在对话框中打开」图标，约 13×11，与侧栏标题行上的「刷新」「全部折叠」等同高、同笔宽、
+/// 同样只用线条：一个圆角窗口，正中浮着一张小卡片，表示浮在窗口上的对话框。与 [`panel`]（窗口
+/// 底部隔出一条，表示放到底部面板）是一对。
+pub fn float_window(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {
+    let (w, h) = (13.0, 11.0);
+    let window = rounded_outline(cx - w / 2.0, cy - h / 2.0, w, h, 2.5);
+    let card = rounded_outline(cx - 3.5, cy - 2.0, 7.0, 4.5, 1.25);
+    frame.stroke(&window, RING_STROKE, color, clip);
+    frame.stroke(&card, RING_STROKE, color, clip);
 }
 
 /// 绘制终端面板位置按钮的图标：与侧栏开关尺寸相同的圆角框；`right` 为 `true` 时在右侧隔出一

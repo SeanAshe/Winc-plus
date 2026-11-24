@@ -98,6 +98,10 @@ impl App {
         if self.alert_key(&event.logical_key, cmd) || self.popup_key(event) {
             return;
         }
+        // 标签页切换列表打开时，选择用的按键先给它。
+        if self.tab_switch_key(event) {
+            return;
+        }
         // 设置浮层是模态的：打开期间只处理它自己的按键，其他快捷键不会传到下层。
         if self.settings.open {
             self.on_key_settings(event, &base, cmd);
@@ -341,6 +345,18 @@ impl App {
             self.log_key(event.key);
             return;
         }
+        // 「未提交的更改」：当前段里有光标或选区时按键交给它，否则滚动整个标签。
+        if self.combined_active() {
+            if self.combined_caret()
+                && self
+                    .in_combined_current(|app| app.on_key_editor(event, cmd))
+                    .is_some()
+            {
+                return;
+            }
+            self.diff_key(event.key, cmd);
+            return;
+        }
         if self.hex_active() {
             self.hex_key(event.key, cmd);
             return;
@@ -581,7 +597,8 @@ impl App {
     ///
     /// `↑` `↓` 移动选中项并显示选中的匹配，`⌘↑` 回到输入框，`Home` `End` 选中第一行、
     /// 最后一行，`PageUp` `PageDown` 翻一页，
-    /// `←` `→` 折叠或展开文件，回车打开并将焦点移到编辑区，
+    /// `←` `→` 折叠或展开目录、文件（已经折叠、展开时回到上一级、进到第一行），回车打开并将焦点
+    /// 移到编辑区，
     /// 空格打开但焦点留在列表，`⌫` 从结果中移除。
     fn on_key_results(&mut self, event: &KeyEvent) {
         self.results_key(&event.logical_key);
@@ -614,22 +631,40 @@ impl App {
                 let page = self.result_page();
                 self.jump_result(selected.map_or(0, |i| i.saturating_sub(page)));
             }
-            Key::Named(NamedKey::ArrowLeft) => match row {
-                Some(ResultRow::File(f)) => self.set_result_collapsed(f, true),
-                // 在匹配上按 `←` 回到该匹配所在文件的那一行。
-                Some(ResultRow::Match(f, _)) => {
-                    let path = self.panels.global.engine.results[f].path.clone();
-                    self.panels.global.selected = Some((path, None));
+            // 同文件树：展开着的目录、文件先折叠，已经折叠（或是匹配）时回到上一级。
+            Key::Named(NamedKey::ArrowLeft) => match (row, selected) {
+                (Some(ResultRow::Dir(_) | ResultRow::File(_)), Some(i))
+                    if !self.result_row_collapsed(i) && self.result_row_has_children(i) =>
+                {
+                    self.fold_result_row(i, true, false);
                 }
-                None => {}
+                (Some(_), Some(i)) => {
+                    if let Some(parent) = self.panels.global.parent_row(i) {
+                        self.panels.global.select_row(parent);
+                        self.scroll_result_into_view(parent);
+                    }
+                }
+                _ => {}
             },
-            Key::Named(NamedKey::ArrowRight) => {
-                if let Some(ResultRow::File(f)) = row {
-                    self.set_result_collapsed(f, false);
+            // 折叠着的先展开，已经展开时进到第一行。
+            Key::Named(NamedKey::ArrowRight) => match (row, selected) {
+                (Some(ResultRow::Dir(_) | ResultRow::File(_)), Some(i))
+                    if self.result_row_collapsed(i) =>
+                {
+                    self.fold_result_row(i, false, false);
                 }
-            }
+                (Some(ResultRow::Dir(_) | ResultRow::File(_)), Some(i))
+                    if self.result_row_has_children(i) =>
+                {
+                    self.step_result(1, false);
+                    self.browse_result();
+                }
+                _ => {}
+            },
             Key::Named(NamedKey::Enter | NamedKey::Space) => match (row, selected) {
-                (Some(ResultRow::File(_)), Some(i)) => self.click_result(i, false),
+                (Some(ResultRow::Dir(_) | ResultRow::File(_)), Some(i)) => {
+                    self.click_result(i, false);
+                }
                 (Some(ResultRow::Match(..)), Some(i)) => {
                     // 回车在普通标签中打开并进入编辑区；空格留在结果列表，按预览标签的设置打开。
                     let enter = matches!(key, Key::Named(NamedKey::Enter));

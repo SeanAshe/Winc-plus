@@ -12,16 +12,19 @@ pub enum PanelTool {
     Clear,
     /// 在对话框中打开搜索。
     OpenDialog,
+    /// 在列表和树形之间切换结果的显示方式；图标是点击后换成的那一种。
+    Layout,
     /// 折叠全部结果；全部结果都已折叠时变为「展开」。
     CollapseAll,
 }
 
 impl PanelTool {
     /// 全部工具按钮，顺序为从左到右。
-    pub const ALL: [PanelTool; 4] = [
+    pub const ALL: [PanelTool; 5] = [
         PanelTool::Refresh,
         PanelTool::Clear,
         PanelTool::OpenDialog,
+        PanelTool::Layout,
         PanelTool::CollapseAll,
     ];
 }

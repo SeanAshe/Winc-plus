@@ -21,6 +21,10 @@ use crate::app::animation::Presence;
 use crate::app::input::context_menu::MenuCommand;
 use crate::layout::{PanelButton, PanelParts, PanelTool, RowAction, SidebarView};
 
+mod tree;
+
+pub(crate) use tree::{ResultLayout, ResultTree};
+
 /// 搜索条件变化之后到开始搜索之间的等待时间。
 ///
 /// 取 300 ms：连续键入时只在停顿之后搜索一次，避免每输入一个字符就重新搜索整个目录。
@@ -29,14 +33,14 @@ pub const SEARCH_DELAY: Duration = Duration::from_millis(300);
 /// 用方向键浏览结果时打开匹配的防抖间隔。
 pub const BROWSE_DELAY: Duration = Duration::from_millis(75);
 
-/// 结果列表中单个文件折叠或展开的动画，实现方式与改动列表的 `CommitMotion` 相同。
+/// 结果列表中一个目录或文件折叠、展开的动画，实现方式与改动列表的 `CommitMotion` 相同。
 #[derive(Debug)]
 pub struct ResultMotion {
     /// 动画期间绘制的结果行：展开时为展开后的行，折叠时为折叠前的行。
     pub rows: Vec<ResultRow>,
-    /// 正在折叠或展开的文件行在 `rows` 中的下标。
+    /// 正在折叠或展开的目录、文件行在 `rows` 中的下标。
     pub parent: usize,
-    /// 露出或收回的匹配行数。
+    /// 露出或收回的行数。
     pub count: usize,
     /// 是否为展开；`false` 表示折叠。
     pub expanding: bool,
@@ -50,7 +54,7 @@ impl ResultMotion {
         (self.parent + 1, self.parent + 1 + self.count)
     }
 
-    /// 返回尚未露出的匹配行的总高度（逻辑像素），其下方的行按该距离上移。
+    /// 返回尚未露出的行的总高度（逻辑像素），其下方的行按该距离上移。
     pub fn hidden(&self) -> f32 {
         let eased = self.clock.progress();
         let reveal = if self.expanding { eased } else { 1.0 - eased };
@@ -63,9 +67,11 @@ impl ResultMotion {
     }
 }
 
-/// 结果列表中的一行：文件，或文件中的一处匹配。
+/// 结果列表中的一行：目录（以树形显示时），文件，或文件中的一处匹配。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResultRow {
+    /// 目录行，参数为目录在树中的序号（见 [`ResultTree::dirs`]）。
+    Dir(usize),
     /// 文件行，参数为文件在结果中的序号（从 0 起）。
     File(usize),
     /// 文件中的一处匹配，参数依次为文件序号和该文件内的匹配序号（均从 0 起）。
@@ -73,10 +79,11 @@ pub enum ResultRow {
 }
 
 impl ResultRow {
-    /// 返回这一行所属文件在结果中的序号。
-    pub fn file(self) -> usize {
+    /// 返回这一行所属文件在结果中的序号；目录行为 `None`。
+    pub fn file(self) -> Option<usize> {
         match self {
-            ResultRow::File(f) | ResultRow::Match(f, _) => f,
+            ResultRow::File(f) | ResultRow::Match(f, _) => Some(f),
+            ResultRow::Dir(_) => None,
         }
     }
 }
@@ -149,13 +156,17 @@ pub struct GlobalSearch {
     ///
     /// 第一帧只记录两行是否展开，不播放动画：恢复上次会话时两行已处于展开状态。
     fx_primed: bool,
-    /// 文件折叠或展开的动画；不在动画中时为 `None`。
+    /// 目录、文件折叠或展开的动画；不在动画中时为 `None`。
     pub motion: Option<ResultMotion>,
-    /// 已折叠的文件。
+    /// 已折叠的目录和文件（绝对路径）。
     pub collapsed: HashSet<PathBuf>,
+    /// 结果的显示方式：列表或树形，每帧绘制前按状态文件和设置更新（`App::sync_result_rows`）。
+    pub(crate) layout: ResultLayout,
+    /// 以树形显示时结果排成的树；以列表显示时为 `None`。
+    pub(crate) tree: Option<ResultTree>,
     /// 结果列表的纵向滚动位置（逻辑像素）。
     pub scroll: f32,
-    /// 选中的一行：文件路径和该文件中第几处匹配（`None` 表示文件行）。
+    /// 选中的一行：文件路径和该文件中第几处匹配（`None` 表示文件行）；目录行是目录的路径。
     ///
     /// 按路径记录，搜索过程中陆续插入的文件不会使选中的行变成别的。
     pub selected: Option<(PathBuf, Option<usize>)>,
@@ -167,10 +178,10 @@ pub struct GlobalSearch {
     replacing: Option<(mpsc::Receiver<ReplaceTally>, usize)>,
     /// 正在后台替换的单个未打开文件：每个文件一个通道，接收路径和替换的处数（或失败的原因）。
     row_replacing: Vec<mpsc::Receiver<(PathBuf, Result<usize, String>)>>,
-    /// 展开后的结果行；结果或折叠状态变化时重新生成。
+    /// 展开后的结果行；结果、显示方式或折叠状态变化时重新生成。
     rows: Vec<ResultRow>,
-    /// 生成 `rows` 时结果的版本号。
-    rows_version: Option<u64>,
+    /// 生成 `rows` 时结果的版本号和显示方式。
+    rows_key: Option<(u64, ResultLayout)>,
     /// 替换预览用的正则，按搜索条件和替换文字缓存。
     preview: Option<(Query, String, ReplacePreview)>,
     /// 鼠标停着的文件行名字放不下时，这一行写全名（每帧绘制前计算）。
@@ -233,9 +244,9 @@ impl GlobalSearch {
         &self.rows
     }
 
-    /// 结果变化（后台新增文件、替换、移除）时重新生成结果行。
+    /// 结果（后台新增文件、替换、移除）或显示方式变化时重新生成结果行。
     pub fn sync_rows(&mut self) {
-        if self.rows_version != Some(self.engine.version()) {
+        if self.rows_key != Some((self.engine.version(), self.layout)) {
             self.rebuild_rows();
         }
     }
@@ -261,15 +272,24 @@ impl GlobalSearch {
     /// 进行中的折叠动画按旧的结果行绘制，因此重新生成结果行时同时取消该动画。
     pub fn rebuild_rows(&mut self) {
         self.motion = None;
-        self.rows_version = Some(self.engine.version());
+        let key = (self.engine.version(), self.layout);
+        // 树只在结果或显示方式变了时重排：折叠时目录的序号不变，动画沿用旧的结果行。
+        if self.rows_key != Some(key) {
+            self.sync_tree();
+        }
+        self.rows_key = Some(key);
         self.rows.clear();
 
-        for (f, file) in self.engine.results.iter().enumerate() {
-            self.rows.push(ResultRow::File(f));
+        if self.tree.is_some() {
+            self.push_tree_rows();
+        } else {
+            for (f, file) in self.engine.results.iter().enumerate() {
+                self.rows.push(ResultRow::File(f));
 
-            if !self.collapsed.contains(&file.path) {
-                self.rows
-                    .extend((0..file.matches.len()).map(|m| ResultRow::Match(f, m)));
+                if !self.collapsed.contains(&file.path) {
+                    self.rows
+                        .extend((0..file.matches.len()).map(|m| ResultRow::Match(f, m)));
+                }
             }
         }
         // 结果大幅减少（清空、更换查找内容）后不保留上一次的容量；结果陆续送达、行数增长时
@@ -282,30 +302,39 @@ impl GlobalSearch {
     /// 返回选中的那一行在结果行中的序号；没有选中时返回 `None`。
     pub fn selected_row(&self) -> Option<usize> {
         let (path, m) = self.selected.as_ref()?;
-        let f = self.engine.results.iter().position(|r| &r.path == path)?;
-        let row = match m {
-            Some(m) => ResultRow::Match(f, *m),
-            None => ResultRow::File(f),
+        let row = match self.engine.results.iter().position(|r| &r.path == path) {
+            Some(f) => match m {
+                Some(m) => ResultRow::Match(f, *m),
+                None => ResultRow::File(f),
+            },
+            None => {
+                let dirs = &self.tree.as_ref()?.dirs;
+                ResultRow::Dir(dirs.iter().position(|d| &d.path == path)?)
+            }
         };
         self.rows.iter().position(|&r| r == row)
     }
 
     /// 选中第 `index` 个结果行；`index` 超出范围时清除选中。
     pub fn select_row(&mut self, index: usize) {
-        self.selected = self.rows.get(index).map(|&row| match row {
-            ResultRow::File(f) => (self.engine.results[f].path.clone(), None),
-            ResultRow::Match(f, m) => (self.engine.results[f].path.clone(), Some(m)),
+        self.selected = self.rows.get(index).and_then(|&row| {
+            let path = self.row_path(row)?.to_path_buf();
+            Some(match row {
+                ResultRow::Match(_, m) => (path, Some(m)),
+                ResultRow::Dir(_) | ResultRow::File(_) => (path, None),
+            })
         });
     }
 
-    /// 是否所有文件都已折叠；没有结果时为 `false`。
+    /// 能折叠的各行的路径：文件，以树形显示时还有目录。
+    fn foldable_paths(&self) -> impl Iterator<Item = &PathBuf> {
+        let dirs = self.tree.as_ref().map_or(&[][..], |t| &t.dirs[..]);
+        (self.engine.results.iter().map(|f| &f.path)).chain(dirs.iter().map(|d| &d.path))
+    }
+
+    /// 是否所有文件（以树形显示时还有目录）都已折叠；没有结果时为 `false`。
     pub fn all_collapsed(&self) -> bool {
-        !self.engine.results.is_empty()
-            && self
-                .engine
-                .results
-                .iter()
-                .all(|f| self.collapsed.contains(&f.path))
+        !self.engine.results.is_empty() && self.foldable_paths().all(|p| self.collapsed.contains(p))
     }
 
     /// 返回替换预览；搜索条件或替换文字变化时才重新编译正则。
@@ -390,44 +419,6 @@ impl App {
         let g = &mut self.panels.global;
         g.replace_fx.track(g.replace_open, clock);
         g.details_fx.track(g.details_open, clock);
-    }
-
-    /// 折叠（`collapse` 为 `true`）或展开第 `f` 个文件的结果，并播放动画。
-    ///
-    /// 匹配行从文件行下方逐渐露出或收回，其下方的行随之移动。
-    pub(in crate::app) fn set_result_collapsed(&mut self, f: usize, collapse: bool) {
-        let g = &mut self.panels.global;
-        let Some(file) = g.engine.results.get(f) else {
-            return;
-        };
-        let (path, count) = (file.path.clone(), file.matches.len());
-        let changed = if collapse {
-            g.collapsed.insert(path)
-        } else {
-            g.collapsed.remove(&path)
-        };
-        if !changed {
-            return;
-        }
-
-        let before = std::mem::take(&mut g.rows);
-        g.rebuild_rows();
-        let parent = g.rows.iter().position(|&r| r == ResultRow::File(f));
-        let clock = self.clock(TREE_ANIMATION);
-        let g = &mut self.panels.global;
-        // 动画期间按行数较多的状态绘制：展开时绘制展开后的行，折叠时绘制折叠前的行。
-        let rows = if collapse { before } else { g.rows.clone() };
-        g.motion = match (parent, clock) {
-            (Some(parent), Some(clock)) if count > 0 => Some(ResultMotion {
-                rows,
-                parent,
-                count,
-                expanding: !collapse,
-                clock,
-            }),
-            _ => None,
-        };
-        self.clamp_results_scroll();
     }
 
     /// 是否已搜索完成但没有任何结果，且没有出错。
@@ -582,7 +573,7 @@ impl App {
     pub(in crate::app) fn poll_global(&mut self) {
         let selected = self.panels.global.selected_row();
         if self.panels.global.engine.poll() {
-            self.panels.global.sync_rows();
+            self.sync_result_rows();
             if let Some(index) = selected
                 && self.panels.global.selected_row().is_none()
             {
@@ -651,7 +642,7 @@ impl App {
     }
 
     /// 滚动结果列表，使第 `index` 个结果行进入可见范围。
-    fn scroll_result_into_view(&mut self, index: usize) {
+    pub(in crate::app) fn scroll_result_into_view(&mut self, index: usize) {
         let h = self.panel_parts().results.h;
         let y = index as f32 * TREE_ROW;
         let before = self.panels.global.scroll;
@@ -677,20 +668,8 @@ impl App {
                 self.focus = Focus::GlobalQuery;
             }
             PanelButton::Tool(PanelTool::OpenDialog) => self.open_search_dialog_from_panel(),
-            PanelButton::Tool(PanelTool::CollapseAll) => {
-                if g.all_collapsed() {
-                    g.collapsed.clear();
-                } else {
-                    g.collapsed = g.engine.results.iter().map(|f| f.path.clone()).collect();
-                }
-
-                if let Some((_, m)) = &mut g.selected {
-                    *m = None;
-                }
-
-                g.rebuild_rows();
-                g.scroll = 0.0;
-            }
+            PanelButton::Tool(PanelTool::Layout) => self.toggle_search_tree(),
+            PanelButton::Tool(PanelTool::CollapseAll) => self.toggle_all_results(),
             PanelButton::Expand => {
                 g.replace_open = !g.replace_open;
                 self.focus = if g.replace_open {
@@ -972,11 +951,8 @@ impl App {
             .and_then(|d| d.text().rope().cloned())
     }
 
-    /// 替换第 `index` 个结果行：文件行替换该文件中剩余的全部匹配，匹配行只替换这一处。
-    ///
-    /// 已打开的文件在文档中替换。没有打开的文件需要读取、替换并写回磁盘（最大可达 4 GB），
-    /// 在后台进行：这些匹配先从结果中移除，完成后由 [`App::row_replaced`] 提示结果，
-    /// 并在后台重新搜索该文件。
+    /// 替换第 `index` 个结果行：目录行替换其中各个文件剩余的全部匹配，文件行替换该文件中剩余的
+    /// 全部匹配，匹配行只替换这一处。
     fn replace_row(&mut self, index: usize) {
         let Some(&row) = self.panels.global.rows().get(index) else {
             return;
@@ -984,22 +960,44 @@ impl App {
         let Some(query) = self.panels.global.engine.query().cloned() else {
             return;
         };
-        let file = &self.panels.global.engine.results[row.file()];
-        let path = file.path.clone();
-        let matches = match row {
-            ResultRow::File(_) => file.matches.clone(),
-            ResultRow::Match(_, m) => vec![file.matches[m].clone()],
+        let g = &self.panels.global;
+        let targets: Vec<(PathBuf, Vec<LineMatch>, Option<usize>)> = match row {
+            ResultRow::Match(f, m) => {
+                let file = &g.engine.results[f];
+                vec![(file.path.clone(), vec![file.matches[m].clone()], Some(m))]
+            }
+            ResultRow::Dir(_) | ResultRow::File(_) => (g.row_files(row).into_iter())
+                .map(|f| &g.engine.results[f])
+                .map(|file| (file.path.clone(), file.matches.clone(), None))
+                .collect(),
         };
         let replacement = self.panels.global.replace.text().to_owned();
+        for (path, matches, m) in targets {
+            self.replace_matches((&query, &replacement), path, matches, m);
+        }
+        self.after_results_changed(index);
+    }
 
+    /// 替换文件 `path` 中的 `matches`：`m` 是只替换其中一处时它的序号。
+    ///
+    /// 已打开的文件在文档中替换。没有打开的文件需要读取、替换并写回磁盘（最大可达 4 GB），
+    /// 在后台进行：这些匹配先从结果中移除，完成后由 [`App::row_replaced`] 提示结果，
+    /// 并在后台重新搜索该文件。
+    fn replace_matches(
+        &mut self,
+        (query, replacement): (&Query, &str),
+        path: PathBuf,
+        matches: Vec<LineMatch>,
+        m: Option<usize>,
+    ) {
         if self.document_at(&path).is_none() {
-            match row {
-                ResultRow::File(_) => self.panels.global.engine.remove_file(&path),
-                ResultRow::Match(_, m) => self.panels.global.engine.remove_match(&path, m),
+            match m {
+                None => self.panels.global.engine.remove_file(&path),
+                Some(m) => self.panels.global.engine.remove_match(&path, m),
             }
-            self.after_results_changed(index);
             let (sender, receiver) = mpsc::channel();
             self.panels.global.row_replacing.push(receiver);
+            let (query, replacement) = (query.clone(), replacement.to_owned());
             self.spawn_then(UserEvent::Replaced, move || {
                 let result = replace_in_file(&path, &query, &replacement, &matches);
                 let _ = sender.send((path, result));
@@ -1007,7 +1005,7 @@ impl App {
             return;
         }
         let result = self
-            .replace_in_path(&path, &query, &replacement, &matches)
+            .replace_in_path(&path, query, replacement, &matches)
             .map(|(n, _)| n > 0);
 
         match result {
@@ -1022,7 +1020,6 @@ impl App {
         // 只重新搜索这一个文件，避免结果列表被整个清空再重建。
         let rope = self.dirty_rope(&path);
         self.panels.global.engine.refresh_file(&path, rope.as_ref());
-        self.after_results_changed(index);
     }
 
     /// 后台替换完没有打开的文件 `path`：替换失败或匹配已经过时时提示，之后在后台重新搜索该文件。
@@ -1036,16 +1033,21 @@ impl App {
         self.request_redraw();
     }
 
-    /// 把第 `index` 个结果行从结果中移除（不改文件），用于全部替换前排除不想修改的位置。
+    /// 把第 `index` 个结果行从结果中移除（不改文件），用于全部替换前排除不想修改的位置；目录行
+    /// 移除其中的各个文件。
     pub(in crate::app) fn dismiss_row(&mut self, index: usize) {
         let Some(&row) = self.panels.global.rows().get(index) else {
             return;
         };
-        let path = self.panels.global.engine.results[row.file()].path.clone();
-
-        match row {
-            ResultRow::File(_) => self.panels.global.engine.remove_file(&path),
-            ResultRow::Match(_, m) => self.panels.global.engine.remove_match(&path, m),
+        let g = &mut self.panels.global;
+        let paths: Vec<PathBuf> = (g.row_files(row).into_iter())
+            .map(|f| g.engine.results[f].path.clone())
+            .collect();
+        for path in paths {
+            match row {
+                ResultRow::Match(_, m) => g.engine.remove_match(&path, m),
+                ResultRow::Dir(_) | ResultRow::File(_) => g.engine.remove_file(&path),
+            }
         }
 
         self.after_results_changed(index);
@@ -1101,16 +1103,17 @@ impl App {
         self.request_redraw();
     }
 
-    /// 处理对第 `index` 个结果行的单击：文件行折叠或展开，匹配行打开文件并选中该处。
+    /// 处理对第 `index` 个结果行的单击：目录、文件行折叠或展开（按住 ⌥ 时目录里的各级一起），
+    /// 匹配行打开文件并选中该处。
     pub(in crate::app) fn click_result(&mut self, index: usize, double: bool) {
         self.focus = Focus::Results;
         self.panels.global.select_row(index);
 
         match self.panels.global.rows().get(index) {
-            Some(&ResultRow::File(f)) => {
-                let path = &self.panels.global.engine.results[f].path;
-                let collapse = !self.panels.global.collapsed.contains(path);
-                self.set_result_collapsed(f, collapse);
+            Some(&ResultRow::Dir(_) | &ResultRow::File(_)) => {
+                let collapse = !self.result_row_collapsed(index);
+                let deep = self.pointer.modifiers.alt_key();
+                self.fold_result_row(index, collapse, deep);
             }
             Some(&ResultRow::Match(..)) => self.open_result(index, double, double),
             None => {}
@@ -1127,11 +1130,15 @@ impl App {
         let Some(&row) = self.panels.global.rows().get(index) else {
             return;
         };
-        let file = &self.panels.global.engine.results[row.file()];
+        // 目录行没有可以打开的文件。
+        let Some(f) = row.file() else {
+            return;
+        };
+        let file = &self.panels.global.engine.results[f];
         let path = file.path.clone();
         let target = match row {
             ResultRow::Match(_, m) => file.matches.get(m).map(|m| (m.line, m.cols.clone())),
-            ResultRow::File(_) => None,
+            ResultRow::Dir(_) | ResultRow::File(_) => None,
         };
 
         let then = move |app: &mut App| {
@@ -1277,31 +1284,30 @@ impl App {
         visible.saturating_sub(1).max(1)
     }
 
-    /// 跳到下一处匹配（`backwards` 为 `true` 时为上一处），跳过文件行（`F4` / `⇧F4`）。
+    /// 跳到下一处匹配（`backwards` 为 `true` 时为上一处），跳过目录行和文件行（`F4` / `⇧F4`）。
     ///
-    /// 已折叠的文件会先全部展开。
+    /// 已折叠的目录和文件会先全部展开。
     pub(in crate::app) fn next_result(&mut self, backwards: bool) {
         if self.panels.global.engine.results.is_empty() {
             return;
         }
 
-        // 已折叠的文件中的匹配也必须能跳到，因此先全部展开。
+        // 已折叠的目录、文件中的匹配也必须能跳到，因此先全部展开。
         if !self.panels.global.collapsed.is_empty() {
             self.panels.global.collapsed.clear();
             self.panels.global.rebuild_rows();
         }
 
         let delta = if backwards { -1 } else { 1 };
-        self.step_result(delta, false);
-
-        if matches!(
-            self.panels
-                .global
-                .selected_row()
-                .map(|i| self.panels.global.rows()[i]),
-            Some(ResultRow::File(_))
-        ) {
+        // 跳过目录行和文件行，停在下一处匹配上；结果里至少有一处匹配，最多绕一圈。
+        for _ in 0..self.panels.global.rows().len() {
             self.step_result(delta, false);
+            let g = &self.panels.global;
+            if let Some(i) = g.selected_row()
+                && matches!(g.rows()[i], ResultRow::Match(..))
+            {
+                break;
+            }
         }
 
         if let Some(index) = self.panels.global.selected_row() {

@@ -480,15 +480,20 @@ pub fn commit_selection_menu(any_exists: bool) -> Vec<MenuEntry> {
     ]
 }
 
-/// 返回全局搜索结果里一行的菜单项：打开；文件行是复制路径、复制相对路径、在文件树中显示，
-/// 匹配行是复制这一行的文字；最后是替换（`replace`：替换输入展开着）和从结果中移除。
+/// 返回全局搜索结果里一行的菜单项：打开（目录行没有）；目录、文件行是复制路径、复制相对路径、
+/// 在文件树中显示，匹配行是复制这一行的文字；最后是替换（`replace`：替换输入展开着）和从结果中
+/// 移除。
 ///
-/// `file` 表示右键点着的是文件行。结果都来自打开的目录，因此相对路径、在文件树中显示总是可用。
-pub fn search_result_menu(file: bool, replace: bool) -> Vec<MenuEntry> {
+/// `file` 表示右键点着的是目录或文件行，`dir` 表示是目录行（以树形显示时）。结果都来自打开的
+/// 目录，因此相对路径、在文件树中显示总是可用。
+pub fn search_result_menu(file: bool, dir: bool, replace: bool) -> Vec<MenuEntry> {
     use MenuCommand::*;
     use MenuEntry::{Item, Separator};
 
-    let mut menu = vec![Item(OpenFiles, true), Separator];
+    let mut menu = Vec::new();
+    if !dir {
+        menu.extend([Item(OpenFiles, true), Separator]);
+    }
     if file {
         menu.extend([
             Item(CopyPath, true),
@@ -523,12 +528,18 @@ pub fn hex_menu(selected: bool) -> Vec<MenuEntry> {
 }
 
 /// 返回编辑区菜单的菜单项：转到定义、查找引用，添加/删除书签、列出书签，格式化（有选区时多一项
-/// 「格式化选中部分」）、修复问题，最后是剪切、复制、粘贴、复制引用。
+/// 「格式化选中部分」）、修复问题，最后是剪切、复制、粘贴（`markdown` 时接着「粘贴为纯文本」）、
+/// 复制引用。
 ///
 /// `bookmarked` 决定「添加书签」「删除书签」哪个可用。没有选区时剪切、复制作用于光标所在的整行；
 /// 只读的文件不能格式化、剪切、粘贴。格式化和修复总是可以点击，无法执行时点击后说明原因。「粘贴」
 /// 不检查剪贴板里有没有文字：弹出菜单不应读取其他应用复制的内容。
-pub fn editor_menu(editable: bool, selected: bool, bookmarked: bool) -> Vec<MenuEntry> {
+pub fn editor_menu(
+    editable: bool,
+    selected: bool,
+    bookmarked: bool,
+    markdown: bool,
+) -> Vec<MenuEntry> {
     use MenuCommand::*;
     use MenuEntry::{Item, Separator};
 
@@ -551,15 +562,24 @@ pub fn editor_menu(editable: bool, selected: bool, bookmarked: bool) -> Vec<Menu
         Item(Cut, editable),
         Item(Copy, true),
         Item(Paste, editable),
-        Item(CopyReference, true),
     ]);
+    if markdown {
+        menu.push(Item(PastePlain, editable));
+    }
+    menu.push(Item(CopyReference, true));
     menu
 }
 
 /// 返回终端里的菜单项：右键点在命令块上时（`block`：报了命令行，能不能重新运行）先是复制命令、
 /// 复制输出、重新运行；然后复制（有选区时）、粘贴（程序还在运行时）、全选，查找、清屏，最大化
-/// 面板，新建、关闭终端。
-pub fn terminal_menu(selected: bool, running: bool, block: Option<(bool, bool)>) -> Vec<MenuEntry> {
+/// 面板，新建、拆分、移到新分栏（`group`：面板是否在右侧，即移到下方；这一栏是否不止一个
+/// 标签）、关闭终端。
+pub fn terminal_menu(
+    selected: bool,
+    running: bool,
+    block: Option<(bool, bool)>,
+    group: (bool, bool),
+) -> Vec<MenuEntry> {
     use MenuCommand::*;
     use MenuEntry::{Item, Separator};
 
@@ -585,6 +605,7 @@ pub fn terminal_menu(selected: bool, running: bool, block: Option<(bool, bool)>)
         Separator,
         Item(NewTerminal, true),
         Item(SplitTerminal, running),
+        Item(move_group_command(group.0), group.1),
         Item(CloseTerminal, true),
     ]);
     menu
@@ -968,5 +989,13 @@ pub fn indent_size_title(indent: Indent) -> &'static str {
     match indent {
         Indent::Spaces(_) => t!("menu-indent-size"),
         Indent::Tabs => t!("menu-tab-size"),
+    }
+}
+
+/// 移到新分栏的菜单项：面板在右侧（`right`）时各栏上下排，移到下方，否则移到右侧。
+pub fn move_group_command(right: bool) -> MenuCommand {
+    match right {
+        true => MenuCommand::MoveTerminalDown,
+        false => MenuCommand::MoveTerminalRight,
     }
 }

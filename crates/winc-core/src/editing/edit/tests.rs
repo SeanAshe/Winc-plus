@@ -172,6 +172,47 @@ fn move_lines_swaps_with_the_neighbour_and_keeps_line_endings() {
     assert_eq!(tx.after, Selection::new(3, 4));
 }
 
+/// 拖放选中的文字：移到前面、移到后面、复制，撤销一次即恢复；放在选区之内不改动。
+#[test]
+fn drop_text_moves_or_copies_the_selection() {
+    let original = "one two three";
+    // 选中「two」（4..7）。
+    let sel = Selection::new(4, 7);
+
+    // 移到开头：先删后插，插入点不受影响。
+    let mut text = Rope::from_str(original);
+    let tx = drop_text(&text, sel, 0, false).unwrap();
+    tx.apply(&mut text);
+    assert_eq!(text.to_string(), "twoone  three");
+    assert_eq!(tx.after, Selection::new(0, 3));
+    // 撤销按相反顺序逐条撤回。
+    for change in tx.changes.iter().rev() {
+        change.revert(&mut text);
+    }
+    assert_eq!(text.to_string(), original);
+
+    // 移到末尾：插入点在删除处之后，前移三个字符。
+    let mut text = Rope::from_str(original);
+    let tx = drop_text(&text, sel, 13, false).unwrap();
+    tx.apply(&mut text);
+    assert_eq!(text.to_string(), "one  threetwo");
+    assert_eq!(tx.after, Selection::new(10, 13));
+
+    // 复制：原处保留，可以放在选区的端点上。
+    let mut text = Rope::from_str(original);
+    let tx = drop_text(&text, sel, 7, true).unwrap();
+    tx.apply(&mut text);
+    assert_eq!(text.to_string(), "one twotwo three");
+    assert_eq!(tx.after, Selection::new(7, 10));
+
+    // 放在选区之内、移动到选区端点、空选区，都不改动。
+    let text = Rope::from_str(original);
+    assert!(drop_text(&text, sel, 5, false).is_none());
+    assert!(drop_text(&text, sel, 5, true).is_none());
+    assert!(drop_text(&text, sel, 7, false).is_none());
+    assert!(drop_text(&text, Selection::point(4), 0, false).is_none());
+}
+
 #[test]
 fn copy_lines_up_and_down() {
     let opts = OPTIONS;

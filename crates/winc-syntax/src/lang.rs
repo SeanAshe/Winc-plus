@@ -622,6 +622,7 @@ static ALL: &[&Language] = &[
     &DOTENV,
     &IGNORE,
     &JSON,
+    &HTTP,
     &HTML,
     &XML,
     &SVG,

@@ -16,13 +16,18 @@ pub(super) struct FileText<'a> {
     pub(super) color: Color,
 }
 
-/// 返回第 `f` 个文件的结果行显示的文字。
+/// 返回第 `f` 个文件的结果行显示的文字；以树形显示时目录在上面几行，不再写。
 pub(super) fn file_text(app: &App, f: usize) -> Option<FileText<'_>> {
     let file = app.panels.global.engine.results.get(f)?;
     let (dir, name) = file
         .relative
         .rsplit_once('/')
         .unwrap_or(("", file.relative.as_str()));
+    let dir = if app.panels.global.tree.is_some() {
+        ""
+    } else {
+        dir
+    };
     let (note, color) = if file.lossy {
         (t!("workspace-search-not-utf8"), app.palette.error)
     } else {
@@ -123,7 +128,8 @@ pub(in crate::view) fn result_overflow(app: &App, frame: &mut Frame<'_>) -> Opti
     if row.bottom() <= area.y || row.y >= area.bottom() {
         return None;
     }
-    let end = row.x + PANEL_TEXT + text_width(app, frame, &file_text(app, f)?);
+    let x = row.x + PANEL_TEXT + tree::shift(app, ResultRow::File(f));
+    let end = x + text_width(app, frame, &file_text(app, f)?);
     let (replace, dismiss) = row_actions(row, app.panels.global.replace_open);
     let first = replace.unwrap_or(dismiss);
     if end <= first.x - 4.0 - COVER_FADE {
@@ -183,7 +189,8 @@ pub(in crate::view) fn draw_result_overflow(app: &App, frame: &mut Frame<'_>) {
     let clip = Rect::new(band.x, row.y, band.w, row.h);
     let first = replace.unwrap_or(dismiss);
     let text_clip = Rect::new(clip.x, clip.y, (first.x - 4.0 - clip.x).max(0.0), clip.h);
-    draw_text(app, frame, (row.x + PANEL_TEXT, row), &text, text_clip);
+    let x = row.x + PANEL_TEXT + tree::shift(app, ResultRow::File(f));
+    draw_text(app, frame, (x, row), &text, text_clip);
     let hover_on = |action| app.pointer.hover == Hover::RowAction(index, action);
     if let Some(rect) = replace {
         draw_button(frame, p, rect, clip, hover_on(RowAction::Replace), false);
@@ -222,7 +229,7 @@ pub(in crate::view) fn draw_result_overflow_closing(app: &App, frame: &mut Frame
             continue;
         };
         let row = app.result_row_rect(index);
-        let x = row.x + PANEL_TEXT;
+        let x = row.x + PANEL_TEXT + tree::shift(app, ResultRow::File(f));
         let right = (x + view.width + 8.0).min(window);
         if right <= area.right() || row.bottom() <= area.y || row.y >= area.bottom() {
             continue;

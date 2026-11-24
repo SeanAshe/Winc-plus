@@ -18,6 +18,7 @@ use super::*;
 mod blame;
 mod branch;
 mod changes;
+mod combined;
 mod commit;
 mod commit_selection;
 mod diff;

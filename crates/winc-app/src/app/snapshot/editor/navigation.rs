@@ -356,9 +356,9 @@ fn command_palette_runs_commands_and_remembers_them() {
     let installable = |a: &&crate::keymap::Action| {
         use crate::keymap::Action::{
             InstallShellCommand, MoveToSplitDown, MoveToSplitRight, NextPane, PreviousPane,
-            UninstallShellCommand, Unsplit,
+            SendHttpRequest, UninstallShellCommand, Unsplit,
         };
-        // 窗格的命令只在拆分过、或有不止一个标签时列出。
+        // 窗格的命令只在拆分过、或有不止一个标签时列出；发送请求只在 `.http` 文件中列出。
         !a.markdown_only()
             && !matches!(
                 a,
@@ -369,6 +369,7 @@ fn command_palette_runs_commands_and_remembers_them() {
                     | PreviousPane
                     | MoveToSplitRight
                     | MoveToSplitDown
+                    | SendHttpRequest
             )
     };
     let always = (palette().iter())

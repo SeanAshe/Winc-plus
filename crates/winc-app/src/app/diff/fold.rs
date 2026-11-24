@@ -34,8 +34,13 @@ impl App {
         if rows[RIGHT].start as f64 <= top || rows[LEFT].len() != rows[RIGHT].len() {
             return false;
         }
+        let section = self.combined_inside_id();
+        let Some(doc) = self.editor.active() else {
+            return false;
+        };
         self.motion.diff_fold = Some(DiffFoldMotion {
             doc: doc.id,
+            section,
             gap,
             rows,
             expanding,
@@ -55,6 +60,17 @@ impl App {
             return;
         };
         if motion.expanding {
+            return;
+        }
+        // 「未提交的更改」中的一段：换进那一段再折叠（已经换进来时按普通的差异处理）。
+        if let Some(section) = motion.section
+            && self.combined_inside_id() != Some(section)
+        {
+            if let Some(i) = self.combined_section_index(section) {
+                self.with_combined_section(i, |app| {
+                    app.refold_diff(|view, row| view.fold(motion.gap, row));
+                });
+            }
             return;
         }
         if self.editor.active().is_some_and(|d| d.id == motion.doc) {

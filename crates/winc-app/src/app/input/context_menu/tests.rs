@@ -159,7 +159,7 @@ fn menus_depend_on_what_was_clicked() {
 
     // 可编辑的文件菜单项全部可用；只读的文件只能复制、复制代码引用，以及转到定义、查找引用。
     assert_eq!(
-        commands(editor_menu(true, false, false)),
+        commands(editor_menu(true, false, false, false)),
         [
             (GoToDefinition, true),
             (FindReferences, true),
@@ -175,7 +175,7 @@ fn menus_depend_on_what_was_clicked() {
         ]
     );
     assert_eq!(
-        commands(editor_menu(false, false, false)),
+        commands(editor_menu(false, false, false, false)),
         [
             (GoToDefinition, true),
             (FindReferences, true),
@@ -192,11 +192,11 @@ fn menus_depend_on_what_was_clicked() {
     );
     // 有选区时多一项「格式化选中部分」。
     assert_eq!(
-        commands(editor_menu(true, true, true))[6],
+        commands(editor_menu(true, true, true, false))[6],
         (FormatSelection, true)
     );
     // 光标所在行已有书签时只能删除，不能重复添加。
-    let marked = commands(editor_menu(true, false, true));
+    let marked = commands(editor_menu(true, false, true, false));
     assert!(marked.contains(&(AddBookmark, false)));
     assert!(marked.contains(&(RemoveBookmark, true)));
 }

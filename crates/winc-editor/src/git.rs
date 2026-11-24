@@ -386,6 +386,17 @@ impl Entry {
         self.staged == Some(Change::Conflicted) || self.unstaged == Some(Change::Conflicted)
     }
 
+    /// 暂存这个文件时需要一并暂存的改名前路径：改名还没有暂存、原来的路径仍在暂存区中时是
+    /// [`Entry::from`]，没有改名或改名已经暂存时为 `None`。
+    ///
+    /// 改名已经暂存时，原来的路径在暂存区和工作区中都不存在：`git add` 遇到不匹配任何文件的
+    /// 路径时整个命令失败。
+    pub fn unstaged_from(&self) -> Option<&PathBuf> {
+        self.from
+            .as_ref()
+            .filter(|_| self.staged != Some(Change::Renamed))
+    }
+
     /// 在文件树里显示的状态：两项中优先级更高的一项。
     pub fn shown(&self) -> Change {
         match (self.staged, self.unstaged) {

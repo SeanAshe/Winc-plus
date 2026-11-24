@@ -213,6 +213,7 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     }
 
     editor::hint::draw_name_hint(app, frame);
+    workspace::tab_switch::draw(app, frame);
 
     draw_notices(app, frame);
 
@@ -382,26 +383,31 @@ fn draw_tab_drag(app: &App, frame: &mut Frame<'_>) {
 /// 在鼠标右下方画拖动时的卡片和名称 `name`（按住 `⌥` 时注明复制），返回卡片、图标的横坐标和
 /// 中线。
 fn draw_drag_card(app: &App, frame: &mut Frame<'_>, name: Cow<'_, str>) -> (Rect, f32, f32) {
-    let p = app.palette;
-    let window = app.layout.window;
-    let (x, y) = app.mouse();
     // 按住 ⌥ 松开时执行复制。
     let name = if app.pointer.modifiers.alt_key() {
         Cow::Owned(t!("workspace-tree-drag-copy", name = name.as_ref()))
     } else {
         name
     };
-    let w = frame.measure(FontKind::Ui, app.fonts.ui, &name) + 40.0;
+    draw_move_card(app, frame, &name)
+}
+
+/// 在鼠标右下方画拖动时的卡片和名称 `name`，不注明复制；返回值同 [`draw_drag_card`]。
+fn draw_move_card(app: &App, frame: &mut Frame<'_>, name: &str) -> (Rect, f32, f32) {
+    let p = app.palette;
+    let window = app.layout.window;
+    let (x, y) = app.mouse();
+    let w = frame.measure(FontKind::Ui, app.fonts.ui, name) + 40.0;
     let card = Rect::new(
         (x + 14.0).min(window.right() - w - 4.0),
-        y + 10.0,
+        (y + 10.0).min(window.bottom() - TREE_ROW - 4.0),
         w,
         TREE_ROW,
     );
     draw_card(frame, p, card, RADIUS_ROW, p.popup_bg);
     let cy = icon_center_y(app, card, app.fonts.ui);
     let icon_x = card.x + 12.0;
-    ui_text(frame, app, icon_x + 18.0, card, &name, p.text, card);
+    ui_text(frame, app, icon_x + 18.0, card, name, p.text, card);
     (card, icon_x, cy)
 }
 

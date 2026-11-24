@@ -75,9 +75,12 @@ const TAB_DIVIDER: f32 = 14.0;
 
 /// 计算每个标签的宽度和显示文本，顺序与文档列表一致。
 ///
-/// 宽度贴合文本，介于 [`TAB_WIDTH_MIN`] 和 [`TAB_WIDTH_MAX`] 之间，取整到整像素，文本更长时
-/// 截短；用鼠标关闭标签后，移到关掉的位置上的标签暂用锁定的宽度（见 `TabBar::width_lock`）。
+/// 宽度贴合文本，不窄于 [`TAB_WIDTH_MIN`]，取整到整像素。开着「完整显示文件名」
+/// （`editor.fullTabNames`，默认）时不设上限，只在一个标签比标签栏放得下的还宽时截短；关着时
+/// 最宽 [`TAB_WIDTH_MAX`]，文本更长时截短。用鼠标关闭标签后，移到关掉的位置上的标签暂用锁定的
+/// 宽度（见 `TabBar::width_lock`）。
 fn tab_labels(app: &App, frame: &mut Frame<'_>) -> Vec<TabLabel> {
+    let widest = tab_width_limit(app);
     let docs = app.editor.tabs();
     // 只有同名的标签需要标注上级目录：先数出各名字的标签数，名字唯一的标签不再与其余全部标签
     // 逐一比较（每帧都要计算，标签多时是标签数的平方）。
@@ -101,9 +104,7 @@ fn tab_labels(app: &App, frame: &mut Frame<'_>) -> Vec<TabLabel> {
             }
             let width = match app.tabs.width_lock {
                 Some((locked, width)) if locked == index => width,
-                _ => (TAB_CHROME + text)
-                    .ceil()
-                    .clamp(TAB_WIDTH_MIN, TAB_WIDTH_MAX),
+                _ => (TAB_CHROME + text).ceil().clamp(TAB_WIDTH_MIN, widest),
             };
             let room = width - TAB_CHROME;
 
@@ -141,6 +142,19 @@ fn tab_labels(app: &App, frame: &mut Frame<'_>) -> Vec<TabLabel> {
 
 /// 标签放不下时，新建按钮和最右端「⌄」之间的间距（逻辑像素）。
 const TAB_LIST_GAP: f32 = 2.0;
+
+/// 一个标签最宽多少（逻辑像素）。
+///
+/// 显示完整文件名时是标签栏在标签放不下时露出标签的宽度（右端让出新建按钮和「⌄」）：一个标签
+/// 总能整个看见，文件名比这还长才截短；标签栏比 [`TAB_WIDTH_MAX`] 还窄时按它。不显示完整文件名
+/// 时就是 [`TAB_WIDTH_MAX`]。
+fn tab_width_limit(app: &App) -> f32 {
+    if app.config.full_tab_names == Some(false) {
+        return TAB_WIDTH_MAX;
+    }
+    let view = app.layout.tabs.w - TAB_INSET - 2.0 * BUTTON - TAB_LIST_GAP - 6.0;
+    view.floor().max(TAB_WIDTH_MAX)
+}
 
 /// 绘制标签栏：当前标签是实心胶囊，相邻两个未选中标签之间绘制一条竖线；有未保存修改的标签
 /// 显示圆点，悬停时变成关闭按钮。

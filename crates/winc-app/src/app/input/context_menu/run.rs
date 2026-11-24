@@ -8,6 +8,23 @@ use super::*;
 impl App {
     /// 处理菜单中选中的命令 `command`：作用于弹出菜单时记录的目标。
     pub(in crate::app) fn run_menu_command(&mut self, command: MenuCommand) {
+        // 「未提交的更改」中的逐行追溯作用于所有文件，同命令「Git：逐行追溯」。
+        if command == MenuCommand::ToggleBlame && self.combined_active() {
+            self.overlays.context_menu = None;
+            self.overlays.menu_button = None;
+            self.toggle_combined_blame();
+            return;
+        }
+        // 「未提交的更改」中差异的菜单是在当前段里弹出的：命令同样交给它。
+        let in_diff = (self.overlays.context_menu.as_ref())
+            .is_some_and(|m| matches!(m.target, MenuTarget::Diff(..) | MenuTarget::DiffGutter(_)));
+        if in_diff
+            && self
+                .in_combined_current(|app| app.run_menu_command(command))
+                .is_some()
+        {
+            return;
+        }
         let Some(menu) = self.overlays.context_menu.take() else {
             return;
         };
@@ -139,6 +156,10 @@ impl App {
                     MenuCommand::SplitTerminal => {
                         self.activate_terminal_tab(index);
                         self.split_terminal();
+                    }
+                    MenuCommand::MoveTerminalRight | MenuCommand::MoveTerminalDown => {
+                        self.activate_terminal_tab(index);
+                        self.move_terminal_to_new_group();
                     }
                     MenuCommand::CloseTerminal => self.close_terminal_tab(index),
                     MenuCommand::CloseOtherTerminals => self.close_other_terminal_tabs(id),
@@ -535,6 +556,9 @@ impl App {
             MenuCommand::TerminalDock => self.toggle_terminal_position(),
             MenuCommand::NewTerminal => self.new_terminal_tab(),
             MenuCommand::SplitTerminal => self.split_terminal(),
+            MenuCommand::MoveTerminalRight | MenuCommand::MoveTerminalDown => {
+                self.move_terminal_to_new_group();
+            }
             MenuCommand::CloseTerminal => self.close_terminal_pane(),
             _ => {}
         }
@@ -555,6 +579,7 @@ impl App {
             MenuCommand::SelectAll if self.hex_active() => self.select_all_hex(),
             MenuCommand::HexGoTo => self.open_goto(),
             MenuCommand::Paste => self.paste(),
+            MenuCommand::PastePlain => self.paste_plain(),
             MenuCommand::Format => self.format_active(),
             MenuCommand::FormatSelection => self.format_selection(),
             MenuCommand::Fix => self.fix_active(),

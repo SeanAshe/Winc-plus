@@ -241,6 +241,10 @@ pub(crate) struct TermTab {
     pub settle: Option<Instant>,
     /// 这个标签拆分出的其余终端；没有拆分时为 `None`。
     pub split: Option<Box<TermSplit>>,
+    /// 在拆分的标签中所占的份额：各终端按份额分宽度（上下排时分高度），默认为 1。
+    ///
+    /// 记在终端自己身上，换前台终端（`take_group`、`put_group`）时随之移动。
+    pub share: f32,
     /// 不在前台时保存的回滚缓冲滚动条状态（拆分时每个终端一份）。
     pub scrollbars: crate::app::Scrollbars,
 }
@@ -270,6 +274,11 @@ impl TermTab {
         let mut all: Vec<&TermTab> = self.split.iter().flat_map(|s| &s.others).collect();
         all.insert(self.pane_at().min(all.len()), self);
         all
+    }
+
+    /// 标签里各终端的份额（见 [`TermTab::share`]），按排列顺序。
+    pub(crate) fn pane_shares(&self) -> Vec<f32> {
+        self.split_order().iter().map(|t| t.share).collect()
     }
 
     /// 标签拆分成的终端个数。
@@ -326,6 +335,7 @@ impl TermTab {
             cwd: Vec::new(),
             settle: None,
             split: None,
+            share: 1.0,
             scrollbars: Default::default(),
         }
     }

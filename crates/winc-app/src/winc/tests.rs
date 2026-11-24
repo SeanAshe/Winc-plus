@@ -25,9 +25,9 @@ impl Winc {
         self.windows.iter().map(|slot| slot.key).collect()
     }
 
-    /// 测试用：把当前窗口设为 `key`。
+    /// 测试用：把当前窗口设为 `key`，与窗口获得焦点时相同。
     pub(crate) fn set_active(&mut self, key: WindowKey) {
-        self.active = Some(key);
+        self.activate(key);
     }
 
     /// 测试用：跑一遍处理完事件后的那一步，返回窗口的请求和是否该结束事件循环。

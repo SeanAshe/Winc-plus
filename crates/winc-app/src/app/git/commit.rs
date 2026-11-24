@@ -291,6 +291,15 @@ pub(crate) struct CommitRows {
 type MemberStates = (u64, HashMap<(usize, usize), Option<bool>>);
 
 impl CommitRows {
+    /// 列表里的全部文件：（所在的组，`Status::entries` 的下标），按组的顺序、组内按列表中的
+    /// 顺序；收起的组和目录里的文件也在内。两组都有内容的文件出现两次。
+    pub(crate) fn files(&self) -> impl Iterator<Item = (CommitGroup, usize)> + '_ {
+        CommitGroup::ALL.into_iter().flat_map(move |group| {
+            let range = self.groups[group.index()].clone();
+            self.members[range].iter().map(move |&index| (group, index))
+        })
+    }
+
     /// 返回第 `row` 行所在的组：该行或它之前最近的组标题行；没有这一行时为 `None`。
     pub fn group_of(&self, row: usize) -> Option<CommitGroup> {
         self.rows.get(..=row)?.iter().rev().find_map(|r| match r {

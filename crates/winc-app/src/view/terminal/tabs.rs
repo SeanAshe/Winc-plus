@@ -25,7 +25,9 @@ fn draw_search_tab(
     area: Rect,
     y: f32,
 ) -> (Rect, Vec<(Rect, HeaderHit)>) {
-    if !app.search_dialog.docked {
+    // 「搜索」标签属于面板，放在第一栏。
+    let first = app.terminal.group_at == 0 || app.docked_search_shown();
+    if !app.search_dialog.docked || !first {
         return (area, Vec::new());
     }
     let p = app.palette;

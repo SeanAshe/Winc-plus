@@ -47,7 +47,7 @@ pub use editing::search::{MAX_MATCHES, Search, TextSearch};
 pub use editing::{paste, scopes};
 pub use navigation::bookmarks::{BookmarkMap, Bookmarks};
 pub use navigation::{bookmarks, definition, keypath, links, symbols, usages};
-pub use tools::{format, host, latex, remote_env, shell, wsl};
+pub use tools::{format, host, http, latex, remote_env, shell, wsl};
 pub use workspace::copying::Copying;
 pub use workspace::picker::{FileIndex, IndexedFile, MAX_RESULTS as PICKER_MAX_RESULTS};
 pub use workspace::project_search::{
@@ -83,6 +83,8 @@ pub struct Editor {
     pub tab_width: usize,
     /// 新打开的差异是否单栏显示。
     pub diff_unified: bool,
+    /// 新打开的差异是否折叠较长的未更改内容。
+    pub diff_collapse: bool,
     /// 未打开文件的书签，键为文件的规范路径。
     ///
     /// 打开文件时移入对应文档，关闭标签时从文档取回。无法打开的文件（占位标签）没有文本，
@@ -106,6 +108,7 @@ impl Default for Editor {
             all_locked: false,
             tab_width: 4,
             diff_unified: false,
+            diff_collapse: true,
             bookmarks: BookmarkMap::new(),
             folds: FoldMap::new(),
             preview_defaults: [PreviewMode::Source; PreviewKind::ALL.len()],
@@ -357,6 +360,7 @@ impl Editor {
         mut view: diff_view::DiffView,
     ) -> usize {
         view.set_unified(self.diff_unified);
+        view.set_collapse(self.diff_collapse, 0);
         let index = slot.and_then(|id| {
             self.documents
                 .iter()
@@ -404,6 +408,7 @@ impl Editor {
     /// 已存在标题相同、没有对应文件的标签时，替换为新的差异而不新开标签。返回标签序号（从 0 起）。
     pub fn show_diff(&mut self, title: &str, mut view: diff_view::DiffView) -> usize {
         view.set_unified(self.diff_unified);
+        view.set_collapse(self.diff_collapse, 0);
         self.show_readonly(title, |id| Document::diff(id, title, view))
     }
 
