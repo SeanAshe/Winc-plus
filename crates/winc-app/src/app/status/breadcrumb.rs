@@ -422,6 +422,7 @@ impl App {
             self.overlays.menu_button = Some(MenuButton::Crumb(index));
             self.load_folder_levels();
             self.set_hover(Hover::None);
+            self.update_cursor_icon();
             self.request_redraw();
             return;
         }

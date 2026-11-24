@@ -222,6 +222,7 @@ impl App {
             done: Box::new(done),
         });
         self.set_hover(Hover::None);
+        self.update_cursor_icon();
         self.request_redraw();
         true
     }
@@ -249,7 +250,9 @@ impl App {
         let Some(alert) = self.overlays.alert.take() else {
             return;
         };
+        // 提示框打开期间指针一律是箭头：关掉后按鼠标下方的部件恢复，鼠标不动也一样。
         self.refresh_pointer_hover();
+        self.update_cursor_icon();
         self.request_redraw();
         if let Some(event) = (alert.done)(index, alert.checked) {
             self.handle_event(event);

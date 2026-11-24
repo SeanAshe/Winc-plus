@@ -443,11 +443,14 @@ impl App {
     }
 
     /// 关掉窗口内的菜单，不执行任何命令。
+    ///
+    /// 菜单打开期间指针一律为箭头：关掉后按鼠标下方的部件重新选择，鼠标不动仍然恢复。
     pub(in crate::app) fn dismiss_popup(&mut self) {
         if self.popup().is_some() {
             self.overlays.context_menu = None;
             self.overlays.menu_button = None;
             self.refresh_pointer_hover();
+            self.update_cursor_icon();
             self.request_redraw();
         }
     }
@@ -467,6 +470,9 @@ impl App {
         }
         self.overlays.context_menu = None;
         self.overlays.menu_button = None;
+        // 同 `dismiss_popup`：按鼠标下方的部件恢复悬停和指针。
+        self.refresh_pointer_hover();
+        self.update_cursor_icon();
         self.request_redraw();
     }
 

@@ -937,6 +937,7 @@ impl App {
                 popup.min_width = min_width;
                 menu.popup = Some(popup);
             }
+            self.update_cursor_icon();
             self.request_redraw();
             return;
         }
