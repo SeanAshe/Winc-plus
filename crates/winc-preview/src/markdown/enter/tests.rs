@@ -231,3 +231,91 @@ fn margins_split_quote_marks_from_indentation() {
     assert_eq!(margins("    - 子项"), (0, 4));
     assert_eq!(indent("  续行"), 2);
 }
+
+#[test]
+fn the_source_continues_lists_and_quotes_only() {
+    // 引用中下一行继续同一段引用；列表续一项；普通段落按普通方式换行。
+    assert_eq!(
+        source("> 引用", "", None, [].into_iter()),
+        Some(Edit::insert("\n> ".into()))
+    );
+    assert_eq!(
+        source("- 一", "", None, [].into_iter()),
+        Some(Edit::insert("\n- ".into()))
+    );
+    assert_eq!(source("段落", "", None, [].into_iter()), None);
+    // 空的引用行退出引用。
+    let exit = source("> ", "", None, ["> 引用"].into_iter()).unwrap();
+    assert_eq!((exit.before, exit.text.as_str()), (2, "\n"));
+}
+
+#[test]
+fn leaving_a_quote_drops_the_empty_quote_line_above() {
+    assert!(quote_gap("> ", "", Some(">")));
+    assert!(quote_gap("> > ", "", Some("> >")));
+    assert!(!quote_gap("> ", "", Some("> 引用")));
+    assert!(!quote_gap("> 字", "", Some(">")));
+    assert!(!quote_gap("> > ", "", Some(">")));
+}
+
+#[test]
+fn fences_are_tracked_from_the_top() {
+    let inside = |text: &str| inside_fence(text.lines());
+    assert!(inside("前\n```rust\nfn x() {}"));
+    assert!(!inside("```\ncode\n```\n后"));
+    assert!(inside("````\n```\n"));
+    assert!(inside("> ```\n> code"));
+    assert!(inside("$$\nx^2"));
+    assert!(!inside("$$\nx^2\n$$"));
+}
+
+#[test]
+fn full_width_shorthands_become_markers_on_space() {
+    let run = |before: &str| {
+        shorthand(before, "").map(|e| format!("{}{}|", &before[..before.len() - e.before], e.text))
+    };
+    assert_eq!(run("》").as_deref(), Some("> |"));
+    assert_eq!(run("》》").as_deref(), Some(">> |"));
+    assert_eq!(run("1。").as_deref(), Some("1. |"));
+    assert_eq!(run("> 12．").as_deref(), Some("> 12. |"));
+    assert_eq!(run("3）").as_deref(), Some("3) |"));
+    assert_eq!(run("【】").as_deref(), Some("- [ ] |"));
+    // 不在行首、只有标点、已是列表项时不换。
+    assert_eq!(run("文字》"), None);
+    assert_eq!(run("。"), None);
+    assert_eq!(run("- 1。"), None);
+}
+
+#[test]
+fn lists_are_renumbered_from_the_nearest_item_above_an_edit() {
+    let from = |line: &str, above: &[&str]| renumber_from(line, above.iter().copied());
+    // 同层有上一项时从上一项起，没有时从改动的一项起。
+    assert_eq!(from("3. 丙", &["1. 甲"]), vec![1]);
+    assert_eq!(from("1. 甲", &[]), vec![0]);
+    // 子列表的第一项和外层的项都要重排。
+    assert_eq!(from("   1. 子", &["1. 外"]), vec![0, 1]);
+    assert_eq!(from("", &["   1. 子", "1. 甲"]), vec![1, 2]);
+    // 无序列表项不重排，正文隔开的、引用层数不同的列表不算。
+    assert_eq!(from("- 乙", &["- 甲"]), Vec::<usize>::new());
+    assert_eq!(from("2. 乙", &["正文", "1. 甲"]), vec![0]);
+    assert_eq!(from("> 3. 丙", &["> 1. 甲"]), vec![1]);
+    assert_eq!(from("3. 丙", &["> 1. 甲"]), vec![0]);
+}
+
+#[test]
+fn enter_at_the_start_of_a_line_adds_an_empty_line_above() {
+    assert_eq!(press("# |标题"), "\n# |标题");
+    assert_eq!(press("段落\n\n## |标题"), "段落\n\n\n## |标题");
+    assert_eq!(press("|段落"), "\n|段落");
+    // 段落的续行开头：分成两段。
+    assert_eq!(press("甲\n|乙"), "甲\n\n|乙");
+    // 段落末尾、其后是空行：新的空行之后不多出空行。
+    assert_eq!(press("甲|\n\n乙"), "甲\n\n|\n乙");
+}
+
+#[test]
+fn task_boxes_are_found_after_quotes_and_markers() {
+    assert_eq!(task_box("- [ ] 甲"), Some((2, false)));
+    assert_eq!(task_box("> 1. [x] 乙"), Some((5, true)));
+    assert_eq!(task_box("- 丙"), None);
+}

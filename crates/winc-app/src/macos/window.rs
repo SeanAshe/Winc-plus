@@ -136,6 +136,8 @@ struct Lights {
     native: std::cell::Cell<Option<(CGRect, [CGPoint; 3])>>,
     /// 窗口是否处于全屏或正在进入全屏；在全屏过渡开始时更新，早于 winit 报告的状态。
     fullscreen: std::cell::Cell<bool>,
+    /// 是否正在退出全屏：退出的过渡开始时为真，结束时为假。
+    exiting: std::cell::Cell<bool>,
     /// 按钮位置改变后调用，由应用重新计算布局并重画。
     moved: Box<dyn Fn()>,
 }
@@ -165,6 +167,7 @@ impl TrafficLights {
             zoom: std::cell::Cell::new(1.0),
             native: std::cell::Cell::new(None),
             fullscreen: std::cell::Cell::new(style & STYLE_FULL_SCREEN != 0),
+            exiting: std::cell::Cell::new(false),
             moved: Box::new(moved),
         });
         let mut tokens = Vec::new();
@@ -199,6 +202,11 @@ impl TrafficLights {
     /// 红绿灯右侧留出空间；见 [`Lights::place`]。
     pub fn place(&self) -> Option<f64> {
         self.shared.place()
+    }
+
+    /// 窗口是否处于窗口模式：不在全屏中，也不在进入或退出全屏的过渡中。
+    pub fn windowed(&self) -> bool {
+        !self.shared.fullscreen.get() && !self.shared.exiting.get()
     }
 
     /// 设置界面缩放倍数 `zoom`，之后的 [`Self::place`] 按缩放后的顶栏摆放。
@@ -238,17 +246,20 @@ impl Lights {
         let end = match step {
             Step::WillEnter => {
                 self.fullscreen.set(true);
+                self.exiting.set(false);
                 self.set_hidden(false);
                 self.restore();
                 Some(0.0)
             }
             Step::WillExit => {
                 self.fullscreen.set(false);
+                self.exiting.set(true);
                 self.set_hidden(true);
                 self.place()
             }
             Step::DidExit => {
                 self.fullscreen.set(false);
+                self.exiting.set(false);
                 let end = self.place();
                 self.set_hidden(false);
                 end

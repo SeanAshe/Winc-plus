@@ -602,28 +602,61 @@ impl App {
         self.stage_part(&entry, [&head, &index, &work], (target, line), !staged);
     }
 
-    /// 返回右侧对应的文档下标；未打开且 `open` 为 `true` 时就地打开，但不切换当前标签。
+    /// 返回右侧对应的、已读好的文档下标；未打开且 `open` 为 `true` 时建一个不切换过去的标签。
+    ///
+    /// 本机文件就地读取；远端文件在后台读取，读好之前返回 `None`（见
+    /// [`App::diff_source_loaded`]）。读取失败的文档不作为右侧。
     fn diff_source(&mut self, path: &Path, open: bool) -> Option<usize> {
         let found = self
             .editor
             .documents
             .iter()
             .position(|d| d.path.as_deref() == Some(path));
-        if let Some(index) = found {
-            // 右侧随文档编辑，尚未读取的文档需要先读取。
+        let index = match found {
+            Some(index) => index,
+            None if open => self.editor.open_pending(path),
+            None => return None,
+        };
+        if winc_backend::is_remote(path) {
+            self.load_in_background(index);
+        } else {
             self.editor.load(index);
-            return Some(index);
         }
-        if !open {
+        let doc = &self.editor.documents[index];
+        if doc.is_pending() || doc.unsupported.is_some() {
             return None;
         }
-        let active = self.editor.active;
-        // 右侧随文档编辑，需要立即有内容，因此就地读取。
-        let index = self.editor.open(path);
-        self.editor.active = active;
-        self.editor.documents[index]
-            .text_editable()
-            .then_some(index)
+        (found.is_some() || doc.text_editable()).then_some(index)
+    }
+
+    /// 文档 `index` 在后台读好：右侧跟随它的差异标签重新比较，等它读好的替换随之执行。
+    pub(in crate::app) fn diff_source_loaded(&mut self, index: usize) {
+        let Some(path) = self
+            .editor
+            .documents
+            .get(index)
+            .and_then(|d| d.path.clone())
+        else {
+            return;
+        };
+        let tabs: Vec<DocumentId> = (self.editor.documents.iter())
+            .filter(|d| d.diff.as_deref().and_then(|v| v.new.path.as_deref()) == Some(&path))
+            .map(|d| d.id)
+            .collect();
+        for id in tabs {
+            if let Some(tab) = self.editor.index_of(id) {
+                self.sync_diff_source(tab);
+            }
+        }
+        match self.diff.revert_after_load.take() {
+            Some((tab, waiting, hunk)) if waiting == path => {
+                if self.editor.active().map(|d| d.id) == Some(tab) {
+                    self.revert_diff_hunk(hunk);
+                }
+            }
+            other => self.diff.revert_after_load = other,
+        }
+        self.request_redraw();
     }
 
     /// 使差异标签 `index` 的右侧与编辑器中的文档同步。
@@ -765,6 +798,12 @@ impl App {
                     return;
                 }
                 self.sync_diff(index, true);
+            }
+            // 远端文件在后台读入文档，读好后经文档替换（见 `diff_source_loaded`）。
+            None if winc_backend::is_remote(&path) => {
+                self.diff.revert_after_load = Some((doc_id, path.clone(), hunk));
+                self.diff_source(&path, true);
+                return;
             }
             None => {
                 // 磁盘上的文件在差异算出之后又变了时不写：否则替换的是别的行，而且没有打开的
@@ -1407,6 +1446,8 @@ pub struct DiffState {
     pub(crate) cross: Option<(Instant, crate::app::diff::DiffCross)>,
     /// 大文件的差异在后台重新比较。
     pub(crate) rediff: RediffState,
+    /// 等右侧的远端文档读好后再替换的改动：差异标签、文件路径和改动的序号。
+    pub(crate) revert_after_load: Option<(DocumentId, std::path::PathBuf, usize)>,
 }
 
 /// 返回差异 `view` 中各处改动的键和在左侧的行区间，按块勾选时据此识别各处改动。

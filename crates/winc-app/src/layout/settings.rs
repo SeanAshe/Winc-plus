@@ -230,6 +230,10 @@ pub enum Setting {
     ExplorerMenu,
     /// 把 Winc 列为各文件类型的候选程序（Windows 上由安装程序装在当前用户之下时）。
     FileAssociations,
+    /// 键位方案；只在搜索结果中作为一行列出，「快捷键」页顶部另有一份。
+    Keymap,
+    /// 搜索结果中名称或按键与搜索内容相符的命令：点击后在「快捷键」页中查看。
+    KeyMatches,
     /// 「快捷键」页顶部的搜索框。
     ///
     /// 该页没有设置项，选中这一项即表示停留在该页。
@@ -336,7 +340,7 @@ impl Setting {
                 SettingsPage::About
             }
             S::Community | S::License => SettingsPage::About,
-            S::KeySearch => SettingsPage::Keys,
+            S::Keymap | S::KeyMatches | S::KeySearch => SettingsPage::Keys,
         }
     }
 
@@ -429,6 +433,7 @@ impl Setting {
             S::GitTree | S::FormatCommand(_) | S::FixCommand(_) | S::AddLanguage => return None,
             S::AddFixLanguage | S::Version | S::Updates | S::ReleaseNotes => return None,
             S::Website | S::Repository | S::Community | S::License | S::KeySearch => return None,
+            S::Keymap | S::KeyMatches => return None,
             S::ExplorerMenu | S::FileAssociations => return None,
         })
     }
@@ -532,6 +537,8 @@ impl Setting {
             Setting::ExplorerMenu => t!("settings-explorer-menu"),
             Setting::FileAssociations => t!("settings-file-associations"),
             Setting::KeySearch => t!("settings-key-search"),
+            Setting::Keymap => t!("settings-keys-keymap"),
+            Setting::KeyMatches => t!("settings-key-matches"),
         }
     }
 
@@ -593,6 +600,8 @@ impl Setting {
             Setting::CheckUpdates => Some(t!("settings-check-updates-desc")),
             // 绘制时换成当前的更新状态（`UpdateState`）。
             Setting::Updates => Some(t!("settings-updates-off")),
+            Setting::Keymap => Some(t!("settings-keys-keymap-description")),
+            Setting::KeyMatches => Some(t!("settings-key-matches-desc")),
             Setting::FormatOnSave => Some(t!("settings-format-on-save-desc")),
             Setting::FixOnSave => Some(t!("settings-fix-on-save-desc")),
             Setting::SkipOnSave => Some(t!("settings-skip-on-save-desc")),
@@ -714,7 +723,8 @@ impl Setting {
             | Setting::AutoSave
             | Setting::SmoothCaret
             | Setting::GitOpenWorktree
-            | Setting::GitPullMode => SettingControl::Choice,
+            | Setting::GitPullMode
+            | Setting::Keymap => SettingControl::Choice,
             Setting::AddLanguage | Setting::AddFixLanguage => SettingControl::Action,
             Setting::KeySearch => SettingControl::Search,
             Setting::Version => SettingControl::Product,
@@ -723,7 +733,7 @@ impl Setting {
             | Setting::Repository
             | Setting::Community
             | Setting::License => SettingControl::Link,
-            Setting::Updates => SettingControl::Button,
+            Setting::Updates | Setting::KeyMatches => SettingControl::Button,
         }
     }
 }
@@ -876,24 +886,31 @@ pub fn settings_card(window: Rect, (dx, dy): (f32, f32)) -> Rect {
 /// （[`Setting::matches`]）合为一组，以页名为标题；页名或组标题含有 `query` 时是该页或该组的
 /// 全部设置项。
 ///
-/// 各组按页的顺序排列，组内按页内的顺序；「快捷键」页和组下方的文字按钮不参与搜索。`modules` 为
-/// 各模块是否开启（见 [`SettingsPage::listed`]）。
+/// 各组按页的顺序排列，组内按页内的顺序；组下方的文字按钮不参与搜索。「快捷键」页列出键位方案
+/// （[`Setting::Keymap`]），以及有命令的名称或按键与 `query` 相符时的 [`Setting::KeyMatches`]。
+/// `modules` 为各模块是否开启（见 [`SettingsPage::listed`]）。
 pub fn search_sections(query: &str, languages: &ToolLanguages, modules: Modules) -> Vec<Section> {
     let query = query.trim().to_lowercase();
     let query = query.as_str();
     let named = move |title: &str| title.to_lowercase().contains(query);
-    let pages = SettingsPage::listed(modules).filter(|&page| page != SettingsPage::Keys);
-    let found = pages.map(|page| {
+    let found = SettingsPage::listed(modules).map(|page| {
         let whole = named(page.title());
-        let items = page.sections(languages).into_iter().flat_map(|section| {
-            let whole = whole || section.title.is_some_and(named);
-            (section.items.into_iter())
-                .filter(|s| s.control() != SettingControl::Action)
-                .filter(move |s| whole || s.matches(query))
-        });
+        let items: Vec<Setting> = if page == SettingsPage::Keys {
+            let keymap = (whole || Setting::Keymap.matches(query)).then_some(Setting::Keymap);
+            let commands = (crate::keymap::count_matches(query) > 0).then_some(Setting::KeyMatches);
+            keymap.into_iter().chain(commands).collect()
+        } else {
+            let items = page.sections(languages).into_iter().flat_map(|section| {
+                let whole = whole || section.title.is_some_and(named);
+                (section.items.into_iter())
+                    .filter(|s| s.control() != SettingControl::Action)
+                    .filter(move |s| whole || s.matches(query))
+            });
+            items.collect()
+        };
         Section {
             title: Some(page.title()),
-            items: items.collect(),
+            items,
         }
     });
     let found: Vec<Section> = found.filter(|s| !s.items.is_empty()).collect();

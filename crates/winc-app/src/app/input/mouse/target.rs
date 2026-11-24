@@ -67,7 +67,6 @@ impl App {
         let l = &self.layout;
         let mut client = vec![
             l.sidebar_button,
-            self.tabs.new_tab,
             l.terminal_divider,
             l.split_divider,
             l.search,
@@ -78,13 +77,9 @@ impl App {
         if self.window.controls {
             client.extend(self.window_control_rects().map(|(r, _)| r));
         }
-        client.extend(self.tabs.list);
-        client.extend(
-            self.hits
-                .tabs
-                .iter()
-                .map(|h| h.tab.intersect(self.tabs.view)),
-        );
+        client.extend(self.tab_bar_controls());
+        client.extend(self.background_tab_controls());
+        client.extend(self.pane_divider_grips());
         client.extend(self.sidebar_tabs().iter().map(|(r, _)| *r));
         client.extend(self.hits.tree_tools.iter().map(|(r, _)| *r));
         client.extend(self.hits.terminal.iter().map(|(r, _)| *r));
@@ -106,14 +101,28 @@ impl App {
         if self.panels.sidebar.visible {
             client.push(l.splitter);
         }
-        if self.editor.active().is_some_and(|d| d.can_preview()) {
-            client.push(l.preview);
-        }
-        if self.browser_page().is_some() {
-            client.push(l.browser);
-        }
         client.retain(|r| r.w > 0.0 && r.h > 0.0 && r.y < TOP_BAR_END && r.bottom() > 0.0);
         client
+    }
+
+    /// 前台窗格标签栏中的控件：标签、新建和列表按钮、预览切换与浏览器按钮。
+    pub(in crate::app) fn tab_bar_controls(&self) -> Vec<winc_render::Rect> {
+        let l = &self.layout;
+        let mut controls = vec![self.tabs.new_tab];
+        controls.extend(self.tabs.list);
+        controls.extend(
+            self.hits
+                .tabs
+                .iter()
+                .map(|h| h.tab.intersect(self.tabs.view)),
+        );
+        if self.editor.active().is_some_and(|d| d.can_preview()) {
+            controls.push(l.preview);
+        }
+        if self.browser_page().is_some() {
+            controls.push(l.browser);
+        }
+        controls
     }
 
     /// 是否有对话框、弹出菜单等浮层打开；此时触摸由浮层接收，不开始窗口操作或控件拖动。
@@ -463,6 +472,10 @@ impl App {
             return Target::TerminalHeader(hit);
         }
         if y < TOP_BAR_END {
+            // 前台以外窗格的标签栏控件：按下时先切换到该窗格（见 `on_mouse_down`）。
+            if self.background_tab_controls().any(|r| r.contains(x, y)) {
+                return Target::Blocked;
+            }
             return Target::TitleBar;
         }
         if let Some(part) = self.docked_part_at(x, y) {
@@ -1042,7 +1055,7 @@ pub(super) enum Target {
     SearchDialog(crate::app::workspace::search_dialog::DialogPart),
     /// 底部面板「搜索」标签中的部位。
     SearchDock(crate::app::workspace::search_dialog::DialogPart),
-    /// 遮挡下方但此处没有按钮的区域：提示条、卡片的空白处。
+    /// 遮挡下方但此处没有按钮的区域：提示条、卡片的空白处，以及前台以外窗格的标签栏控件。
     ///
     /// 点击时不做任何操作，也不传给下方的部件。
     Blocked,

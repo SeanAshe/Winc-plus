@@ -11,6 +11,8 @@ use winc_editor::Document;
 ///
 /// 键入或上下移动光标通常只滚动一两行，此时直接到达；否则连续按方向键时画面会滞后于光标。
 pub(crate) const GLIDE_MIN_ROWS: f64 = 2.0;
+/// 打字机模式中平滑滚动的最短距离（行）：更近时直接到达，几乎不可见的移动不启动过渡。
+pub(crate) const TYPEWRITER_MIN: f64 = 0.05;
 
 /// 编辑区平滑滚动的状态。
 ///
@@ -122,6 +124,11 @@ impl App {
     /// 已在滚动时从屏幕上的当前位置继续滚动，不跳回起点。
     /// 动态效果关闭或没有窗口时不播放动画。
     pub(in crate::app) fn glide_scroll(&mut self, from: f64) {
+        self.glide_scroll_over(from, GLIDE_MIN_ROWS);
+    }
+
+    /// 同 [`Self::glide_scroll`]，距离不小于 `min` 行时平滑滚动。
+    fn glide_scroll_over(&mut self, from: f64, min: f64) {
         let Some(doc) = self.editor.active() else {
             return;
         };
@@ -130,7 +137,7 @@ impl App {
             Some(g) if g.doc == id => g.shown(from),
             _ => from,
         };
-        if (to - shown).abs() < GLIDE_MIN_ROWS {
+        if (to - shown).abs() < min {
             // 距离较近时直接到达；同一文档正在进行的平滑滚动保留，继续滚向新目标。
             if self.scroll.glide.as_ref().is_some_and(|g| g.doc != id) {
                 self.scroll.glide = None;
@@ -175,11 +182,19 @@ impl App {
     ///
     /// 上下各留一行余量（顶部有固定行时，留出固定行占用的行数），左右各留 4 个单元格。
     /// 选区的任一端处在折叠的块内（查找、转到行、撤销都可能把光标移到折叠处）时，先展开。
+    ///
+    /// 打字机模式下光标所在行停在中间，每换一行都平滑滚动，不论距离远近。
     pub(in crate::app) fn ensure_caret_visible(&mut self) {
         let before = self.editor.active().map(|d| d.scroll_line);
+        let typewriter = self.markdown_typewriter() && self.scroll.keyed;
         self.reveal_caret();
         if let Some(before) = before {
-            self.glide_scroll(before);
+            let min = if typewriter {
+                TYPEWRITER_MIN
+            } else {
+                GLIDE_MIN_ROWS
+            };
+            self.glide_scroll_over(before, min);
         }
     }
 

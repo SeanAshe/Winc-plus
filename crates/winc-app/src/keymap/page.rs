@@ -96,6 +96,17 @@ pub fn row_matches(row: &Row, query: &str, os: Os, recorded: bool) -> bool {
             .any(|k| normalize_keys(k, os).contains(&wanted))
 }
 
+/// 返回当前键位表中名称或键与 `query` 相符的命令个数（见 [`row_matches`]）；`query` 为空时为 0。
+pub fn count_matches(query: &str) -> usize {
+    if query.trim().is_empty() {
+        return 0;
+    }
+    let rows = super::current_rows();
+    let all = rows.iter().flat_map(|(_, rows)| rows);
+    all.filter(|row| row_matches(row, query, Os::CURRENT, false))
+        .count()
+}
+
 /// 把键规范化后再比较：转小写，去掉空格和加号，macOS 上把 cmd、shift 等词换成对应符号。
 fn normalize_keys(text: &str, os: Os) -> String {
     let mut out = String::new();

@@ -2,7 +2,7 @@
 //!
 //! [`Git::unstage`]、[`Git::stage_content`] 改写暂存区，[`Git::commit`] 提交暂存区的内容，
 //! [`Git::rollback`] 把文件恢复为 `HEAD` 中的版本，[`Git::discard_unstaged`] 把工作区恢复为暂存区
-//! 中的版本。
+//! 中的版本。路径过多时各命令分批运行（[`path_batches`]）。
 
 use super::*;
 
@@ -14,12 +14,12 @@ impl Git {
     /// `git` 报错时返回它的说明。
     pub fn discard_unstaged(&self, root: &Path, paths: &[PathBuf]) -> Result<(), String> {
         self.require_trust(root)?;
-        let mut command = self.command(root);
-        command
-            .args(["restore", "--worktree", "--"])
-            .args(relative_all(root, paths));
-        self.run(&mut command, STATUS_TIMEOUT, &Cancel::default())
-            .map(drop)
+        for batch in path_batches(root, paths) {
+            let mut command = self.command(root);
+            command.args(["restore", "--worktree", "--"]).args(batch);
+            self.run(&mut command, STATUS_TIMEOUT, &Cancel::default())?;
+        }
+        Ok(())
     }
 
     /// 回滚已跟踪的 `paths`：暂存区和工作区都恢复成 `HEAD` 里的内容（`git restore`）。
@@ -38,18 +38,21 @@ impl Git {
         self.require_trust(root)?;
         let cancel = Cancel::default();
         if !added.is_empty() {
-            let mut command = self.command(root);
-            command
-                .args(["rm", "--cached", "--quiet", "--"])
-                .args(relative_all(root, added));
-            self.run(&mut command, STATUS_TIMEOUT, &cancel)?;
+            for batch in path_batches(root, added) {
+                let mut command = self.command(root);
+                command
+                    .args(["rm", "--cached", "--quiet", "--"])
+                    .args(batch);
+                self.run(&mut command, STATUS_TIMEOUT, &cancel)?;
+            }
         }
         if !paths.is_empty() {
-            let mut command = self.command(root);
-            command
-                .args(["restore", "--source=HEAD", "--staged", "--worktree", "--"])
-                .args(relative_all(root, paths));
-            self.run(&mut command, STATUS_TIMEOUT, &cancel)?;
+            for batch in path_batches(root, paths) {
+                let mut command = self.command(root);
+                let restore = ["restore", "--source=HEAD", "--staged", "--worktree", "--"];
+                command.args(restore).args(batch);
+                self.run(&mut command, STATUS_TIMEOUT, &cancel)?;
+            }
         }
         Ok(())
     }
@@ -125,16 +128,18 @@ impl Git {
         let mut command = self.command(root);
         command.args(["rev-parse", "--verify", "--quiet", "HEAD"]);
         let born = self.run(&mut command, SHOW_TIMEOUT, &cancel).is_ok();
-        let mut command = self.command(root);
-        if born {
-            command.args(["reset", "--quiet", "--"]);
-        } else {
-            // `--force`：暂存的内容与工作区不同（只暂存了一部分）时 `git rm` 默认拒绝。
-            let args = ["rm", "--cached", "--force", "--quiet", "-r"];
-            command.args(args).args(["--ignore-unmatch", "--"]);
+        for batch in path_batches(root, paths) {
+            let mut command = self.command(root);
+            if born {
+                command.args(["reset", "--quiet", "--"]);
+            } else {
+                // `--force`：暂存的内容与工作区不同（只暂存了一部分）时 `git rm` 默认拒绝。
+                let args = ["rm", "--cached", "--force", "--quiet", "-r"];
+                command.args(args).args(["--ignore-unmatch", "--"]);
+            }
+            command.args(batch);
+            self.run(&mut command, STATUS_TIMEOUT, &cancel)?;
         }
-        command.args(relative_all(root, paths));
-        self.run(&mut command, STATUS_TIMEOUT, &cancel)?;
         Ok(())
     }
 
@@ -151,18 +156,22 @@ impl Git {
         paths: &[PathBuf],
     ) -> Result<Vec<String>, String> {
         let cancel = Cancel::default();
-        let mut command = self.command(root);
-        command.args(["diff", "--no-color", "--no-ext-diff", "--unified=0"]);
-        // 不运行仓库配置的 `diff.*.textconv`，也不进入子模块（其配置不在信任检查的范围内）。
-        command.args(["--no-textconv", "--ignore-submodules=dirty"]);
-        command.arg(if staged { "--cached" } else { "HEAD" });
-        command.arg("--").args(relative_all(root, paths));
-        let stdout = self.run(&mut command, STATUS_TIMEOUT, &cancel)?;
-        let text = String::from_utf8_lossy(&stdout);
-        let added = text
-            .lines()
-            .filter(|l| l.starts_with('+') && !l.starts_with("+++"));
-        Ok(added.map(|l| l[1..].to_owned()).collect())
+        let mut added = Vec::new();
+        for batch in path_batches(root, paths) {
+            let mut command = self.command(root);
+            command.args(["diff", "--no-color", "--no-ext-diff", "--unified=0"]);
+            // 不运行仓库配置的 `diff.*.textconv`，也不进入子模块（其配置不在信任检查的范围内）。
+            command.args(["--no-textconv", "--ignore-submodules=dirty"]);
+            command.arg(if staged { "--cached" } else { "HEAD" });
+            command.arg("--").args(batch);
+            let stdout = self.run(&mut command, STATUS_TIMEOUT, &cancel)?;
+            let text = String::from_utf8_lossy(&stdout);
+            let lines = text
+                .lines()
+                .filter(|l| l.starts_with('+') && !l.starts_with("+++"));
+            added.extend(lines.map(|l| l[1..].to_owned()));
+        }
+        Ok(added)
     }
 
     /// 读最近 `commits` 个提交：其他作者（`名字 <邮箱>`，按 `.mailmap` 归并，最近的在前，不重复，

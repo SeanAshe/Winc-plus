@@ -10,11 +10,14 @@ pub(crate) mod columns;
 mod compare;
 mod details;
 mod filter;
+mod frame;
 mod keys;
 pub(crate) mod menus;
 mod repository;
 mod time;
 mod tree;
+
+pub(crate) use frame::LogFrame;
 pub(crate) use tree::FILES_TITLE;
 
 pub(crate) use branches::{BRANCH_ROW, BranchRow, PanelFold};
@@ -63,6 +66,14 @@ pub(crate) const LOG_FILTER_GAP: f32 = 8.0;
 /// 限制，只为列表保留 [`LIST_MIN`]。
 const DETAILS_MIN: f32 = 300.0;
 const DETAILS_MAX: f32 = 520.0;
+/// 标题栏筛选输入框的最宽和最窄宽度（逻辑像素）。
+const SEARCH_MAX: f32 = 220.0;
+const SEARCH_MIN: f32 = 120.0;
+/// 标题栏不窄于该宽度时筛选输入框最宽（逻辑像素，取自调参），再窄 `SEARCH_SPAN` 时最窄。
+const SEARCH_ROOMY: f32 = 760.0;
+const SEARCH_SPAN: f32 = 240.0;
+/// 列表和详情上下排列时详情占的比例。
+const STACKED_DETAILS: f32 = 0.45;
 /// 提交列表的最小宽度（逻辑像素）。
 ///
 /// 取自调参：可容纳提交图、作者名和时间三栏。
@@ -117,8 +128,10 @@ pub(crate) struct LogParts {
     pub branches_w: f32,
     /// 左侧的提交列表。
     pub list: Rect,
-    /// 右侧的详情一栏。
+    /// 右侧的详情一栏；`stacked` 时在列表下方。
     pub details: Rect,
+    /// 放不下并排的列表和详情：详情在列表下方，分隔线不能拖动。
+    pub stacked: bool,
 }
 
 impl LogParts {
@@ -137,7 +150,10 @@ impl LogParts {
     pub(crate) fn search(&self) -> Rect {
         let header = self.header;
         let x = self.branches_button().right() + 6.0;
-        Rect::new(x, header.y + 6.0, 220.0, header.h - 12.0)
+        // 标题栏从 `SEARCH_ROOMY` 窄到 `SEARCH_ROOMY - SEARCH_SPAN` 时，输入框按比例变窄。
+        let t = ((header.w - (SEARCH_ROOMY - SEARCH_SPAN)) / SEARCH_SPAN).clamp(0.0, 1.0);
+        let w = SEARCH_MIN + (SEARCH_MAX - SEARCH_MIN) * t;
+        Rect::new(x, header.y + 6.0, w.round(), header.h - 12.0)
     }
 }
 
@@ -161,6 +177,20 @@ pub(crate) fn log_parts(
     let side = branches_w * branches;
     let branches = Rect::new(editor.x, header.bottom(), side, body_h);
     let editor = Rect::new(editor.x + side, editor.y, editor.w - side, editor.h);
+    // 并排放不下最小宽度的列表和详情：详情放到列表下方。
+    if editor.w < LIST_MIN + DETAILS_MIN {
+        let details_h = (body_h * STACKED_DETAILS).round();
+        let list = Rect::new(editor.x, header.bottom(), editor.w, body_h - details_h);
+        let details = Rect::new(editor.x, list.bottom(), editor.w, details_h);
+        return LogParts {
+            header,
+            branches,
+            branches_w,
+            list,
+            details,
+            stacked: true,
+        };
+    }
     // 窗口较窄时详情最多占一半宽度；较宽时至少为列表保留 `LIST_MIN`。
     let max = (editor.w - LIST_MIN).max(editor.w * 0.5);
     let details_w = match details_w {
@@ -176,6 +206,7 @@ pub(crate) fn log_parts(
         branches_w,
         list,
         details,
+        stacked: false,
     }
 }
 

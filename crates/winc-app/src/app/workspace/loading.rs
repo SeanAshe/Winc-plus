@@ -148,6 +148,7 @@ impl App {
             if let Some(path) = self.editor.documents[index].path.clone() {
                 self.sync_documents(|p| p == path);
             }
+            self.diff_source_loaded(index);
             // 不是当前标签时记录的动作保留，再次切到该标签时由 `run_when_loaded` 执行。
             if self.editor.active == Some(index) {
                 self.loaded_active();

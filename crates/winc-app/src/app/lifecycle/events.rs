@@ -327,6 +327,11 @@ impl ApplicationHandler<UserEvent> for App {
             }
             WindowEvent::ThemeChanged(theme) => self.system_theme_changed(theme),
             WindowEvent::Focused(focused) => {
+                // 窗口在文件对话框打开期间被激活（任务栏、Alt+Tab）：对话框回到前台。
+                #[cfg(windows)]
+                if focused && let Some(window) = &self.window.handle {
+                    crate::windows::raise_file_dialog(window);
+                }
                 self.window.focused = focused;
                 self.update_foreground(focused);
                 // 离开窗口时停止录制按键，菜单项的快捷键随之恢复，不影响别的窗口和应用。
@@ -582,6 +587,8 @@ impl App {
             #[cfg(not(target_os = "macos"))]
             UserEvent::OfferMoveToApplications | UserEvent::MoveToApplications(..) => {}
             UserEvent::TrafficLightsMoved => {
+                #[cfg(target_os = "macos")]
+                self.finish_hiding();
                 self.relayout();
                 self.request_redraw();
             }

@@ -157,6 +157,9 @@ settings-terminal-shell-integration = Shell 集成
 settings-terminal-application-priority = 终端应用优先
 settings-terminal-option-as-meta = Meta 键
 settings-key-search = 搜索快捷键
+settings-key-matches = 命令的快捷键
+settings-key-matches-desc = 名称或按键与搜索内容相符的命令
+settings-key-matches-show = 查看 { $count } 个
 
 ## 设置项的说明。
 

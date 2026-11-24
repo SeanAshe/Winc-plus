@@ -12,6 +12,7 @@ use crate::app::git::form::FormKind;
 use crate::keymap::Action;
 use winc_pty::protocol::Modes;
 
+mod diff;
 mod project;
 
 /// 在本进程内启动服务端并登记为到 `name` 的连接：该目标的虚拟路径指向本机的同名路径。
@@ -54,6 +55,7 @@ fn a_folder_on_a_connected_host_opens_as_the_workspace() {
     // 测试线程相当于界面线程：不允许等待远端的应答，后台任务就地执行时除外。
     remote::forbid_blocking();
     folders_on_a_remote_host_are_not_taken_for_files();
+    diff::a_remote_diff_keeps_its_working_tree_side();
     crumb_menus_on_a_remote_host_list_the_folder();
     features_work_in_a_remote_workspace();
     clipboard_images_pasted_into_a_remote_terminal_are_sent_there_first();

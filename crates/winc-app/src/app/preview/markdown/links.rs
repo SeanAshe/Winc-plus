@@ -242,7 +242,7 @@ impl App {
     ///
     /// 修改可以撤销；光标和选区不变，可编辑的预览也不因此进入编辑状态。
     /// 该处不是勾选框（解析结果落后于文字）时不修改。
-    fn toggle_markdown_task(&mut self, at: usize) {
+    pub(super) fn toggle_markdown_task(&mut self, at: usize) {
         let Some(doc) = self.editor.active() else {
             return;
         };

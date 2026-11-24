@@ -136,12 +136,12 @@ impl App {
             }
             CloseOtherTabs => {
                 if let Some(id) = self.editor.active().map(|d| d.id) {
-                    let others = self.editor.documents.iter().map(|d| d.id);
+                    let others = self.editor.tabs().iter().map(|d| d.id);
                     self.close_tabs(others.filter(|&other| other != id).collect());
                 }
             }
             CloseAllTabs => {
-                let all = self.editor.documents.iter().map(|d| d.id).collect();
+                let all = self.editor.tabs().iter().map(|d| d.id).collect();
                 self.close_tabs(all);
             }
             ReopenClosed => self.reopen_closed(),

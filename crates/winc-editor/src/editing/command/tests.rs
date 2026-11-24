@@ -60,6 +60,32 @@ fn auto_pairs_and_skips() {
     assert_eq!(d.selection, Selection::point(3));
 }
 
+#[test]
+fn markdown_pairs_chinese_brackets_and_quotes() {
+    let mut d = doc("a.md", "", 0);
+    type_str(&mut d, "（");
+    assert_eq!(
+        (text(&d), d.selection),
+        ("（）".to_owned(), Selection::point(1))
+    );
+    type_str(&mut d, "甲）");
+    assert_eq!(
+        (text(&d), d.selection),
+        ("（甲）".to_owned(), Selection::point(3))
+    );
+    let mut d = doc("a.md", "", 0);
+    type_str(&mut d, "“引”");
+    assert_eq!(text(&d), "“引”");
+    assert_eq!(backspace("a.md", "【】", 1), (String::new(), 0));
+    // 光标后紧跟文字、不是 Markdown 时不补全。
+    let mut d = doc("a.md", "文字", 0);
+    type_str(&mut d, "《");
+    assert_eq!(text(&d), "《文字");
+    let mut d = doc("a.py", "", 0);
+    type_str(&mut d, "（");
+    assert_eq!(text(&d), "（");
+}
+
 fn backspace(file: &str, content: &str, pos: usize) -> (String, usize) {
     let mut d = doc(file, content, pos);
     d.execute(Command::Backspace { word: false }, 10, 4);

@@ -161,6 +161,8 @@ pub fn draw(app: &mut App, frame: &mut Frame<'_>) {
     // 拆分后最后画前台窗格：浮层和各区域记下的位置都是它的。
     app.draw_panes(|app, front| draw_pane(app, frame, front));
     draw_pane_dividers(app, frame);
+    // 窗格增减后，变化之前的画面在新布局上淡出。
+    app.draw_pane_motion(frame);
     draw_tab_drop(app, frame);
     // 最大化、还原途中面板盖在编辑区上面：编辑区的圆角先修整好，面板再画在上面。
     let covered = app.terminal.grow.is_some();
@@ -317,14 +319,7 @@ fn draw_island_corners(app: &App, frame: &mut Frame<'_>, editor: bool) {
 
 /// 修整编辑区卡片（顶栏那一行连同下面的编辑区）的四角，见 [`draw_island_corners`]。
 fn round_editor_corners(app: &App, frame: &mut Frame<'_>) {
-    let l = &app.layout;
-    let editor = Rect::new(
-        l.top_bar.x,
-        l.top_bar.y,
-        l.top_bar.w,
-        l.editor.bottom() - l.top_bar.y,
-    );
-    frame.round_corners(editor, RADIUS_ISLAND, app.palette.frame_bg);
+    frame.round_corners(app.editor_card(), RADIUS_ISLAND, app.palette.frame_bg);
 }
 
 /// 拖动文件经过窗口时，为松手后接收该文件的终端面板或编辑区（含标签栏）绘制放置目标底色。
@@ -340,12 +335,7 @@ fn draw_file_drop(app: &App, frame: &mut Frame<'_>) {
             };
             area
         }
-        Some(DropZone::Open(None)) => Rect::new(
-            l.top_bar.x,
-            l.top_bar.y,
-            l.top_bar.w,
-            l.editor.bottom() - l.top_bar.y,
-        ),
+        Some(DropZone::Open(None)) => app.editor_card(),
         Some(DropZone::Tree(_)) | None => return,
     };
     let area = area.inset(6.0, 6.0);

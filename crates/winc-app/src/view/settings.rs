@@ -458,6 +458,13 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
             draw_product(app, frame, row, clip);
             None
         }
+        SettingControl::Button if row.setting == Setting::KeyMatches => {
+            let count = crate::keymap::count_matches(app.settings.search.text());
+            let label = t!("settings-key-matches-show", count = count);
+            let role = ButtonRole::Normal;
+            draw_action_button(app, frame, row.control, &label, role, true, hovered);
+            None
+        }
         SettingControl::Button => {
             // 不支持应用内更新时说明行已写明原因，不显示按钮；正在检查、下载时按钮变淡。
             if app.updates_supported() {

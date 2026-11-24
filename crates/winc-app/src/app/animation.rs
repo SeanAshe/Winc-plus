@@ -358,6 +358,9 @@ impl App {
                 *slot = None;
             }
         }
+        if self.panes.motion.as_ref().is_some_and(|m| m.done()) {
+            self.panes.motion = None;
+        }
 
         settle(&mut self.panels.sidebar.motion, |m| m.clock);
         settle(&mut self.panels.tree.motion, |m| m.clock);
@@ -490,6 +493,7 @@ impl App {
     pub(super) fn animating(&self) -> bool {
         self.panels.sidebar.motion.is_some()
             || self.panels.tree.motion.is_some()
+            || self.panes.motion.is_some()
             || self.panels.tree.labels.moving()
             || self.git.commit.names.moving()
             || self.panels.global.names.moving()

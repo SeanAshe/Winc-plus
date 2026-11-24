@@ -349,7 +349,7 @@ impl App {
     /// 标题为标签上的名字；存在同名标签时，标题下方以小字显示标签栏所标的上级目录，
     /// 用于区分同名文件。完整路径显示在悬停提示中（主目录显示为 `~`）。
     fn tab_list_label(&self, i: usize) -> MenuLabel {
-        let docs = &self.editor.documents;
+        let docs = self.editor.tabs();
         let Some(doc) = docs.get(i) else {
             return MenuLabel::plain("");
         };

@@ -129,27 +129,70 @@ fn the_system_title_bar_leaves_no_window_button_regions_in_the_top_bar() {
     }
 }
 
+/// 检查顶栏中的每一点恰好属于以下之一：空白处（落指移动窗口），或 `caption_controls` 中的控件。
+fn verify_caption_controls(app: &App) {
+    use crate::app::input::touch::WindowTouch;
+    let controls = app.caption_controls();
+    let size = app.layout.window;
+    for y in (0..TOP_BAR_END as usize).step_by(2) {
+        for x in (0..size.w as usize).step_by(2) {
+            let (x, y) = (x as f32 + 0.5, y as f32 + 0.5);
+            // 系统命中测试先判断窗口边缘、后判断控件（`WindowHitTest::hit`），边缘处无须检查。
+            let window = app.touch_window_at(x, y);
+            if matches!(window, Some(WindowTouch::Resize(_))) {
+                continue;
+            }
+            let caption = window == Some(WindowTouch::Move);
+            let control = controls.iter().any(|r| r.contains(x, y));
+            assert!(caption || control, "顶栏控件未列入客户区：({x}, {y})");
+            assert!(!(caption && control), "顶栏空白处被列入客户区：({x}, {y})");
+        }
+    }
+}
+
+/// 返回左右拆分的窗口：左侧窗格在后台，当前标签为可预览的 `notes.md`；右侧窗格在前台。
+fn split_with_background_preview(name: &str) -> (App, PathBuf) {
+    let dir = sample_folder(name);
+    std::fs::write(dir.join("notes.md"), "# Notes\n").unwrap();
+    let mut app = app_with(&dir.join("short.rs"), false);
+    app.window.controls = true;
+    app.open_path(&dir.join("notes.md"));
+    app.run_action(crate::keymap::Action::SplitRight);
+    app.open_path(&dir.join("short.rs"));
+    paint(&mut app);
+    paint(&mut app);
+    (app, dir)
+}
+
+#[test]
+fn background_panes_keep_their_top_bar_controls_out_of_the_caption() {
+    let (mut app, dir) = split_with_background_preview("caption-split");
+    let left = app.panes.rects[0];
+    assert_ne!(left.id, app.editor.panes.focused);
+    let controls: Vec<_> = app.background_tab_controls().collect();
+    // 后台窗格的标签、新建按钮和预览切换均位于顶栏。
+    assert!(controls.len() >= 3, "{controls:?}");
+    for r in &controls {
+        let (x, y) = (r.x + r.w / 2.0, r.y + r.h / 2.0);
+        assert!(!app.over_title_bar(x, y), "({x}, {y})");
+        assert!(app.touch_window_at(x, y).is_none(), "({x}, {y})");
+        assert!(!app.title_bar_double_click_zooms(x), "({x}, {y})");
+    }
+    verify_caption_controls(&app);
+
+    // 向下拆分后前台为下方窗格；上方窗格在后台，其标签栏位于顶栏。
+    app.run_action(crate::keymap::Action::Unsplit);
+    app.run_action(crate::keymap::Action::SplitDown);
+    paint(&mut app);
+    paint(&mut app);
+    assert!(app.background_tab_controls().any(|r| r.y < TOP_BAR_END));
+    verify_caption_controls(&app);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn caption_controls_cover_top_bar_targets() {
-    use crate::app::input::touch::WindowTouch;
-    let verify = |app: &App| {
-        let controls = app.caption_controls();
-        let size = app.layout.window;
-        for y in (0..TOP_BAR_END as usize).step_by(2) {
-            for x in (0..size.w as usize).step_by(2) {
-                let (x, y) = (x as f32 + 0.5, y as f32 + 0.5);
-                // 系统命中测试先判断窗口边缘、后判断控件（`WindowHitTest::hit`），边缘处无须检查。
-                let window = app.touch_window_at(x, y);
-                if matches!(window, Some(WindowTouch::Resize(_))) {
-                    continue;
-                }
-                let caption = window == Some(WindowTouch::Move);
-                let control = controls.iter().any(|r| r.contains(x, y));
-                assert!(caption || control, "顶栏控件未列入客户区：({x}, {y})");
-                assert!(!(caption && control), "顶栏空白处被列入客户区：({x}, {y})");
-            }
-        }
-    };
+    let verify = verify_caption_controls;
     let mut app = document();
     app.window.controls = true;
     app.relayout();
@@ -486,4 +529,8 @@ fn native_touch_caption_matches_application_targets() {
     }
     app.open_settings();
     verify(&app);
+
+    let (app, dir) = split_with_background_preview("native-caption-split");
+    verify(&app);
+    let _ = std::fs::remove_dir_all(&dir);
 }

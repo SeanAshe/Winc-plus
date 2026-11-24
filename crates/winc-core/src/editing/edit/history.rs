@@ -127,26 +127,39 @@ impl History {
     ///
     /// 同时清空重做栈并分配新的版本号；符合合并条件的键入并入栈顶事务，分组期间的事务并入
     /// 该分组的撤销单元（[`History::begin_group`]），撤销栈超过上限时丢弃最早的事务。
-    pub fn push(&mut self, mut transaction: Transaction) {
+    pub fn push(&mut self, transaction: Transaction) {
+        self.record(transaction, false);
+    }
+
+    /// 记录一个已经应用到文本上的事务，并入撤销栈顶的撤销单元：撤销时与上一次修改一起撤回。
+    ///
+    /// 用于紧随一次修改的连带修改；撤销栈为空时与 [`History::push`] 相同。
+    pub fn amend(&mut self, transaction: Transaction) {
+        self.record(transaction, true);
+    }
+
+    /// [`History::push`] 与 [`History::amend`] 的实现；`amend` 为真时总是并入栈顶事务。
+    fn record(&mut self, mut transaction: Transaction, amend: bool) {
         self.redo.clear();
         self.next_version += 1;
         transaction.version = self.next_version;
 
         let grouping = self.groups > 0;
-        if !self.sealed
+        if (amend || !self.sealed)
             && let Some(last) = self.undo.last_mut()
-            && (if grouping {
-                self.grouped
-            } else {
-                can_merge(last, &transaction)
-            })
+            && (amend
+                || if grouping {
+                    self.grouped
+                } else {
+                    can_merge(last, &transaction)
+                })
         {
             // 紧邻的插入直接追加到上一处修改的 `inserted` 末尾：逐字符各记一处修改，会使每个
             // 字符多占一个 `Change` 和一次堆分配，撤销栈随键入量线性增大。
             // 多光标的修改各在一处，只能整组追加。分组期间不经 `can_merge`，在此判断是否紧邻。
             let single = transaction.extra_after.is_empty();
             let added = match (last.changes.last_mut(), transaction.changes.as_slice()) {
-                (Some(prev), [next]) if single && (!grouping || extends(prev, next)) => {
+                (Some(prev), [next]) if single && (!(grouping || amend) || extends(prev, next)) => {
                     let before = heap(&prev.inserted);
                     prev.inserted.push_str(&next.inserted);
                     heap(&prev.inserted) - before

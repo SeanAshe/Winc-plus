@@ -829,3 +829,23 @@ fn wikilinks_are_links_to_a_name() {
     let wiki = |name: &str| format!("{}{name}", syntax::WIKI);
     assert_eq!(inline.links, [wiki("winc"), wiki("notes/a.csv#表")]);
 }
+
+#[test]
+fn extra_blank_lines_become_empty_paragraphs() {
+    let text = "\n\n甲\n\n乙\n\n\n\n丙\n";
+    let md = parse(text).with_blank_lines(text);
+    let empty: Vec<usize> = (md.blocks.iter().zip(&md.lines))
+        .filter(|(b, _)| matches!(b, Block::Paragraph(i) if i.text.is_empty()))
+        .map(|(_, &l)| l)
+        .collect();
+    // 文首的两个空行，「乙」之后第一个空行以外的两个；文末的换行不算。
+    assert_eq!(empty, [0, 1, 6, 7]);
+    assert!(md.lines.is_sorted());
+    assert!(md.leaves.is_sorted_by_key(|l| l.range.start));
+    let slot = &md.ranges[md.lines.iter().position(|&l| l == 6).unwrap()];
+    assert!(slot.is_empty() && text[slot.start..].starts_with("\n\n丙"));
+    // 列表之后的空行同样计算，块之间只有一个空行时不变。
+    let text = "- 甲\n\n\n乙\n\n丙\n\n";
+    let md = parse(text).with_blank_lines(text);
+    assert_eq!(md.blocks.len(), 5);
+}

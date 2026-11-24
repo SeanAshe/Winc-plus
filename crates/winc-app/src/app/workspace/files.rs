@@ -594,15 +594,15 @@ impl App {
         self.request_redraw();
     }
 
-    /// 返回选中的标签，按标签顺序排列：多选时是 `TabBar::marked` 中仍然打开的标签，否则只含当前
-    /// 标签；没有标签时为空。
+    /// 返回选中的标签，按标签顺序排列：多选时是 `TabBar::marked` 中仍是前台窗格标签的，否则只含
+    /// 当前标签；没有标签时为空。
     pub(crate) fn tab_selection(&self) -> Vec<DocumentId> {
         let active = self.editor.active().map(|d| d.id);
         let marked = &self.tabs.marked;
         if marked.len() > 1 && active.is_some_and(|a| marked.contains(&a)) {
             return self
                 .editor
-                .documents
+                .tabs()
                 .iter()
                 .map(|d| d.id)
                 .filter(|id| marked.contains(id))
@@ -621,7 +621,7 @@ impl App {
     ///
     /// 只剩一个时不移出。
     pub(in crate::app) fn toggle_tab_selected(&mut self, index: usize) {
-        let Some(id) = self.editor.documents.get(index).map(|d| d.id) else {
+        let Some(id) = self.editor.tabs().get(index).map(|d| d.id) else {
             return;
         };
         let mut marked = self.tab_selection();
@@ -650,7 +650,7 @@ impl App {
     /// 选中从扩展选区的起点（没有时是当前标签）到第 `index` 个之间的标签（`⇧` 单击），切到第
     /// `index` 个。
     pub(in crate::app) fn select_tab_range(&mut self, index: usize) {
-        let docs = &self.editor.documents;
+        let docs = self.editor.tabs();
         if index >= docs.len() {
             return;
         }
@@ -658,6 +658,7 @@ impl App {
             .tabs
             .anchor
             .and_then(|a| self.editor.index_of(a))
+            .filter(|&i| i < docs.len())
             .or(self.editor.active)
             .unwrap_or(index);
         self.tabs.anchor = Some(docs[from].id);
@@ -1206,11 +1207,9 @@ impl App {
                 Pick::SaveProject => t!("cmd-save-project-as"),
                 Pick::Download(_) => t!("menu-download"),
             };
-            // 对话框的标题不带省略号；挂在窗口上，打开期间窗口不响应。
+            // 对话框的标题不带省略号；打开期间窗口不响应（`DialogOwner`）。
             let mut dialog = rfd::FileDialog::new().set_title(title.trim_end_matches('…'));
-            if let Some(window) = &self.window.handle {
-                dialog = dialog.set_parent(&**window);
-            }
+            let main = (self.window.handle.as_deref()).and_then(crate::windows::MainWindow::of);
             if let Some(dir) = &dir {
                 dialog = dialog.set_directory(dir);
             }
@@ -1227,6 +1226,10 @@ impl App {
                     let home = winc_editor::wsl::home_dir(&root);
                     dialog = dialog.set_directory(home.unwrap_or(root));
                 }
+                let owner = main.and_then(crate::windows::DialogOwner::new);
+                if let Some(owner) = &owner {
+                    dialog = dialog.set_parent(owner);
+                }
                 let path = match &kind {
                     Pick::Open | Pick::BackgroundImage | Pick::KeyFile | Pick::OpenProject => {
                         dialog.pick_file()
@@ -1238,6 +1241,7 @@ impl App {
                     | Pick::Download(_) => dialog.pick_folder(),
                     Pick::SaveAs(_) | Pick::SaveProject => dialog.set_file_name(&name).save_file(),
                 };
+                drop(owner);
                 let _ = proxy.send_event(UserEvent::Picked(kind, path));
             });
         }
