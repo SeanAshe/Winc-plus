@@ -17,9 +17,9 @@ use winc_i18n::t;
 use crate::app::animation::stage;
 use crate::app::git::log::display_local;
 use crate::app::{
-    COMMIT_ROW, CommitGroup, CommitLabels, CommitName, CommitOverflow, CommitParts, CommitRow,
-    CommitRows, CommitScope, CommitTarget, Focus, LabelCause, LabelView, MESSAGE_LINE, MESSAGE_PAD,
-    StashLine, StashView, SyncState, WorktreeLine,
+    ActionStrip, COMMIT_ROW, CommitGroup, CommitLabels, CommitName, CommitOverflow, CommitParts,
+    CommitRow, CommitRows, CommitScope, CommitTarget, Focus, LabelCause, LabelView, MESSAGE_LINE,
+    MESSAGE_PAD, StashLine, StashView, SyncState, WorktreeLine,
 };
 use crate::icons::Direction;
 use crate::view::workspace::sidebar::{
@@ -30,8 +30,10 @@ use crate::view::*;
 
 mod others;
 use others::{draw_other_rows, draw_sections};
+mod actions;
 mod header;
 mod names;
+use actions::*;
 mod overflow;
 mod row;
 mod stash;
@@ -721,80 +723,6 @@ const END_CENTER: f32 = 12.0;
 /// 行右端靠右排的东西（数量徽标、储藏的时间）离行底色右边的距离（逻辑像素）：和悬停按钮的右边缘
 /// 对齐。
 const END_PAD: f32 = END_CENTER - ACTION / 2.0;
-
-/// 返回改动行 `band` 悬停时右端「打开文件」「回滚」两个按钮的位置。
-fn file_actions(band: Rect) -> (Rect, Rect) {
-    let y = band.y + (band.h - ACTION) / 2.0;
-    let revert = Rect::new(band.right() - END_PAD - ACTION, y, ACTION, ACTION);
-    let open = Rect::new(revert.x - 2.0 - ACTION, y, ACTION, ACTION);
-    (open, revert)
-}
-
-/// 返回文件行行尾两个按钮各自的目标：`group` 是该行所在的组，`index` 是文件在状态中的下标。
-///
-/// 勾选式下和冲突的文件是「打开文件」「回滚」。暂存区视图中，已暂存的文件是「打开文件」
-/// 「取消暂存」，其余是「回滚」「暂存」。
-fn file_action_targets(app: &App, group: Option<CommitGroup>, index: usize) -> [CommitTarget; 2] {
-    let plain = [
-        CommitTarget::OpenFile(index),
-        CommitTarget::RevertFile(index),
-    ];
-    match group {
-        _ if !app.git.commit.staging() => plain,
-        Some(CommitGroup::Conflicts) => plain,
-        Some(CommitGroup::Staged) => [plain[0], CommitTarget::StageFile(index, false)],
-        _ => [plain[1], CommitTarget::StageFile(index, true)],
-    }
-}
-
-/// 返回目录行行尾的按钮：暂存区视图中暂存（「已暂存的更改」一组是取消暂存）这个目录下的全部
-/// 文件；勾选式下和冲突的一组没有。`row` 是目录行的下标。
-fn dir_action_target(app: &App, group: CommitGroup, row: usize) -> Option<CommitTarget> {
-    let shown = app.git.commit.staging();
-    (shown && group != CommitGroup::Conflicts)
-        .then(|| CommitTarget::DirStage(row, group != CommitGroup::Staged))
-}
-
-/// 绘制文件行行尾的两个按钮（位置为 `first`、`second`，目标见 [`file_action_targets`]），只绘制
-/// 在 `clip` 之内；悬停的按钮铺底色，图标用正文色。
-fn draw_file_actions(
-    app: &App,
-    frame: &mut Frame<'_>,
-    (first, second): (Rect, Rect),
-    targets: [CommitTarget; 2],
-    clip: Rect,
-) {
-    let p = app.palette;
-    for (rect, target) in [(first, targets[0]), (second, targets[1])] {
-        let on = app.pointer.hover == Hover::Commit(target);
-        draw_button(frame, p, rect, clip, on, false);
-        let color = if on { p.text } else { p.text_muted };
-        draw_action_icon(frame, target, center(rect), color, clip);
-    }
-}
-
-/// 画行尾按钮 `target` 的图标：打开文件、回滚，或者暂存（加号）、取消暂存（减号）。
-fn draw_action_icon(
-    frame: &mut Frame<'_>,
-    target: CommitTarget,
-    (cx, cy): (f32, f32),
-    color: Color,
-    clip: Rect,
-) {
-    match target {
-        CommitTarget::OpenFile(_) => icons::open_file(frame, (cx, cy), color, clip),
-        CommitTarget::StageFile(_, true) | CommitTarget::DirStage(_, true) => {
-            icons::plus(frame, (cx, cy), 8.0, color, clip);
-        }
-        CommitTarget::StageFile(_, false)
-        | CommitTarget::DirStage(_, false)
-        | CommitTarget::GroupStage(CommitGroup::Staged) => {
-            icons::minus(frame, (cx, cy), 8.0, color, clip);
-        }
-        CommitTarget::GroupStage(_) => icons::plus(frame, (cx, cy), 8.0, color, clip),
-        _ => icons::rollback(frame, (cx, cy), color, clip),
-    }
-}
 
 /// 改动列表里一行的各列（逻辑像素）：箭头的中心离底色左边 `ARROW`，每深一层往右缩进
 /// `INDENT`（与文件视图的树共用 `theme::TREE_INDENT`，16），图标和名字之间隔 `LABEL_GAP`。

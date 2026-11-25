@@ -1,7 +1,7 @@
-//! 在文件树中拖动文件或目录，移入其他目录（按着 `⌥` 松开时复制）；拖出窗口时交给系统的拖放，
-//! 放进其他程序时复制。
+//! 在文件树中拖动文件或目录，移入其他目录（按着 `⌥` 松开时复制，不同主机之间总是复制）；拖到
+//! 另一个窗口上时由该窗口标出落点并放下；拖出到其他位置时交给系统的拖放，放进其他程序时复制。
 //!
-//! 从系统文件管理器等来源拖入窗口的文件和目录见 `file_drop.rs`。
+//! 从系统文件管理器等来源、从另一个窗口拖入窗口的文件和目录见 `file_drop.rs`。
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -10,6 +10,7 @@ use winc_editor::{EntryKind, Workspace};
 use winc_i18n::t;
 
 use super::*;
+use crate::winc::{Request, WindowKey};
 
 /// 判定为拖动的鼠标移动距离（逻辑像素）：按下后移动不足此距离时，松开按单击处理。
 const DRAG_THRESHOLD: f32 = 4.0;
@@ -55,6 +56,8 @@ pub struct TreeDrag {
     pub target: Option<PathBuf>,
     /// 鼠标停留的收起目录，以及开始停留的时刻。
     resting: Option<(PathBuf, Instant)>,
+    /// 光标此刻所在的另一个窗口：由该窗口标出落点，松开时放进该窗口；不在其他窗口上时为 `None`。
+    pub(in crate::app) over: Option<WindowKey>,
 }
 
 impl TreeDrag {
@@ -82,6 +85,7 @@ impl TreeDrag {
             keep: false,
             target: None,
             resting: None,
+            over: None,
         }
     }
 }
@@ -103,8 +107,9 @@ impl App {
 
     /// 处理按住文件树项时的鼠标移动，(`x`, `y`) 为鼠标的窗口坐标（逻辑像素）。
     ///
-    /// 移动距离超过 [`DRAG_THRESHOLD`] 后形成拖动，之后随鼠标位置重新计算放置目标；拖出窗口时
-    /// 交给系统的拖放（见 [`Self::drag_out`]）。
+    /// 移动距离超过 [`DRAG_THRESHOLD`] 后形成拖动，之后随鼠标位置重新计算放置目标。光标下最上层
+    /// 是另一个窗口时请该窗口标出落点（[`Request::DragOver`]）；在窗口外的其他位置时交给系统的
+    /// 拖放（见 [`Self::drag_out`]）。按住鼠标期间移动事件都发给本窗口，光标离开窗口后仍会调用。
     pub(in crate::app) fn drag_tree_item(&mut self, x: f32, y: f32) {
         let Some(drag) = &mut self.panels.tree.drag else {
             return;
@@ -118,6 +123,17 @@ impl App {
         }
 
         let paths = drag.paths.clone();
+        // 另一个窗口可能叠在本窗口之前：光标在本窗口的范围内时也要查询。
+        let over = self.link.shared.window_at_cursor(self.link.key);
+        self.drag_over_window(over, &paths);
+        if over.is_some() {
+            if let Some(drag) = &mut self.panels.tree.drag {
+                drag.target = None;
+                drag.resting = None;
+            }
+            self.request_redraw();
+            return;
+        }
         if !self.layout.window.contains(x, y) && self.drag_out(&paths) {
             return;
         }
@@ -149,6 +165,15 @@ impl App {
             return;
         };
 
+        if let Some(to) = drag.over {
+            let copy = self.pointer.modifiers.alt_key();
+            self.link
+                .shared
+                .request(Request::DropOn(to, drag.paths, copy));
+            self.refresh_pointer_hover();
+            self.request_redraw();
+            return;
+        }
         if !drag.active {
             if let Some(ws) = &mut self.editor.workspace
                 && ws.multi_selected()
@@ -184,7 +209,7 @@ impl App {
                 self.copy_entries_into(drag.paths, dir);
             }
         } else if let Some(dir) = drag.target {
-            self.ask_move(drag.paths, dir);
+            self.drop_entries(drag.paths, dir, false);
         }
         self.refresh_pointer_hover();
         self.request_redraw();
@@ -223,10 +248,33 @@ impl App {
 
     /// 取消拖动（按下 Esc 或窗口失去焦点），不移动任何文件。
     pub(in crate::app) fn cancel_tree_drag(&mut self) {
-        if self.panels.tree.drag.take().is_some_and(|d| d.active) {
+        let Some(drag) = self.panels.tree.drag.take() else {
+            return;
+        };
+        if drag.over.is_some() {
+            self.link
+                .shared
+                .request(Request::DragOver(None, Vec::new(), false));
+        }
+        if drag.active {
             self.refresh_pointer_hover();
             self.request_redraw();
         }
+    }
+
+    /// 拖动经过的其他窗口变为 `over`（不在其他窗口上时为 `None`）：请应用层让该窗口按光标位置
+    /// 标出 `paths` 的落点，之前经过的窗口不再标出；一直不在其他窗口上时不发出请求。
+    fn drag_over_window(&mut self, over: Option<WindowKey>, paths: &[PathBuf]) {
+        let copy = self.pointer.modifiers.alt_key();
+        let Some(drag) = &mut self.panels.tree.drag else {
+            return;
+        };
+        if over.is_none() && drag.over.is_none() {
+            return;
+        }
+        drag.over = over;
+        let request = Request::DragOver(over, paths.to_vec(), copy);
+        self.link.shared.request(request);
     }
 
     /// 处理对 `path` 的单击：文件在编辑区打开，焦点保留在文件树，便于用方向键继续浏览；
@@ -337,16 +385,20 @@ impl App {
         })
     }
 
-    /// 返回在 (`x`, `y`) 处松开时 `paths` 的目标目录（见 [`Self::tree_dir_at`]）；放置没有效果时
-    /// 返回 `None`：鼠标在文件树之外、目标是某一项自身或其子目录，以及移动（`copy` 为 `false`）
-    /// 时各项都已在目标目录中（放下后位置不变；复制时在原处复制出副本）。
+    /// 返回在 (`x`, `y`) 处松开时 `paths` 的目标目录（见 [`Self::tree_dir_at`]）；鼠标在文件树
+    /// 之外、放置没有效果（见 [`drop_dir`]）时返回 `None`。
     fn drop_target(&self, paths: &[PathBuf], x: f32, y: f32, copy: bool) -> Option<PathBuf> {
-        let dir = self.tree_dir_at(x, y)?;
-        let inside = paths.iter().any(|from| dir.starts_with(from));
-        let stays = paths
-            .iter()
-            .all(|from| from.parent() == Some(dir.as_path()));
-        (!inside && (copy || !stays)).then_some(dir)
+        drop_dir(paths, self.tree_dir_at(x, y)?, copy)
+    }
+
+    /// 把拖动的 `paths` 放进目录 `dir`：按着 `⌥`（`copy`）或与 `dir` 不在同一台主机上时复制
+    /// （不同主机之间只能复制），否则移动，按设置先确认。
+    pub(in crate::app) fn drop_entries(&mut self, paths: Vec<PathBuf>, dir: PathBuf, copy: bool) {
+        if copy || !same_host(&paths, &dir) {
+            self.copy_entries_into(paths, dir);
+        } else {
+            self.ask_move(paths, dir);
+        }
     }
 
     /// 在后台把 `paths` 中的各项复制进目录 `dir`，完成后选中各个副本（[`App::copied_into_tree`]）。
@@ -544,3 +596,24 @@ impl App {
         self.request_redraw();
     }
 }
+
+/// 返回把 `paths` 放进目录 `dir` 时的目标目录，即 `dir`；放置没有效果时返回 `None`：`dir` 是
+/// 某一项自身或其子目录，以及移动（`copy` 为 `false` 且与各项在同一台主机上）时各项都已在 `dir`
+/// 中（放下后位置不变；复制时在原处复制出副本）。
+pub(super) fn drop_dir(paths: &[PathBuf], dir: PathBuf, copy: bool) -> Option<PathBuf> {
+    let inside = paths.iter().any(|from| dir.starts_with(from));
+    let moves = !copy && same_host(paths, &dir);
+    let stays = paths
+        .iter()
+        .all(|from| from.parent() == Some(dir.as_path()));
+    (!inside && !(moves && stays)).then_some(dir)
+}
+
+/// 是否 `paths` 中各项都与 `dir` 在同一台主机上。
+fn same_host(paths: &[PathBuf], dir: &Path) -> bool {
+    let host = |path: &Path| winc_backend::locate(path).map(|at| at.target);
+    paths.iter().all(|path| host(path) == host(dir))
+}
+
+#[cfg(test)]
+mod tests;

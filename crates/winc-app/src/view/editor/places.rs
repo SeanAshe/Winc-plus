@@ -10,7 +10,7 @@
 use std::fmt::Write as _;
 
 use winc_i18n::t;
-use winc_syntax::{LineState, TokenKind, detect, highlight_line};
+use winc_syntax::{LineState, TokenKind, highlight_line};
 
 use super::*;
 use crate::app::editor::definition::{Place, Places, PlacesKind};
@@ -328,7 +328,8 @@ fn draw_code(app: &App, frame: &mut Frame<'_>, place: &Place, area: Rect) {
     draw_code_with(app, frame, place, area, CODE_ALPHA);
 }
 
-/// 与 [`draw_code`] 相同，语法颜色的不透明度为 `alpha`。
+/// 与 [`draw_code`] 相同，语法颜色的不透明度为 `alpha`；语言和行首的高亮状态见
+/// [`App::place_highlight`]。
 pub(in crate::view) fn draw_code_with(
     app: &App,
     frame: &mut Frame<'_>,
@@ -336,18 +337,27 @@ pub(in crate::view) fn draw_code_with(
     area: Rect,
     alpha: f32,
 ) {
-    if area.w <= 0.0 {
-        return;
-    }
-    let p = app.palette;
+    let highlight = app.place_highlight(&place.path, place.line);
+    draw_code_from(app, frame, place, area, alpha, highlight);
+}
+
+/// 与 [`draw_code_with`] 相同，按语言 `language` 从行首状态 `state` 开始着色，返回下一行行首的
+/// 状态：连续绘制几行时依次传下去，跨行的结构（块注释、Vue 的 `<script>`）中的行也能着色。
+pub(in crate::view) fn draw_code_from(
+    app: &App,
+    frame: &mut Frame<'_>,
+    place: &Place,
+    area: Rect,
+    alpha: f32,
+    (language, state): (&'static winc_syntax::Language, LineState),
+) -> LineState {
     let chars: Vec<char> = place.preview.chars().collect();
     let mut tokens = Vec::new();
-    highlight_line(
-        detect(file_name(place)),
-        &chars,
-        LineState::Normal,
-        &mut tokens,
-    );
+    let next = highlight_line(language, &chars, state, &mut tokens);
+    if area.w <= 0.0 {
+        return next;
+    }
+    let p = app.palette;
 
     let cell = app.metrics.cell;
     let fit = (area.w / cell).floor() as usize;
@@ -434,6 +444,7 @@ pub(in crate::view) fn draw_code_with(
         let font = (font, size, cell);
         joined = col + draw_grid_char(frame, font, at, (&chars, col), color, area);
     }
+    next
 }
 
 fn file_name(place: &Place) -> &str {

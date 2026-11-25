@@ -103,7 +103,10 @@ pub(crate) struct TermFind {
 impl App {
     /// 查找条的位置：和内容区第一行垂直居中，高度与标签相同；没有打开时为 `None`。
     pub(crate) fn terminal_find_bar(&self) -> Option<Rect> {
-        self.terminal.find.as_ref()?;
+        let find = self.terminal.find.as_ref()?;
+        if self.terminal.index_of(find.tab) != Some(self.terminal.active) {
+            return None;
+        }
         let card = self.terminal_content_card();
         if card.w <= 0.0 || card.h <= 0.0 {
             return None;

@@ -12,8 +12,8 @@ impl Document {
         }
     }
 
-    /// 是否在编辑区显示文本：不是图片、差异、日志、阅读标签或无法打开的文件，且 SVG 没有切换
-    /// 到预览。
+    /// 是否在编辑区显示文本：不是图片、差异、日志、阅读、终端标签或无法打开的文件，且 SVG
+    /// 没有切换到预览。
     ///
     /// 光标、查找、折叠等只对文本有意义。
     pub fn shows_text(&self) -> bool {
@@ -25,6 +25,7 @@ impl Document {
             && self.log.is_none()
             && self.hex.is_none()
             && self.reading.is_none()
+            && !self.terminal
     }
 
     /// 是否能编辑文本：显示文本（见 [`Document::shows_text`]），或者是 Markdown 的预览（预览

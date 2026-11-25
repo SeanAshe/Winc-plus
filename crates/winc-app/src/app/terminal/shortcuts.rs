@@ -6,6 +6,10 @@ use crate::keymap::{self, Action, KeyCode, Lookup, Mods, Stroke};
 impl App {
     /// 聚焦显示顺序中从 0 开始的终端；越界时保留当前标签和焦点。
     pub(in crate::app) fn focus_terminal_number(&mut self, index: usize) {
+        if self.terminal_in_editor() {
+            self.focus_tab_number(index);
+            return;
+        }
         if index < self.terminal.tabs.len() {
             self.finish_terminal_rename(true);
             self.activate_terminal_tab(index);
@@ -151,6 +155,8 @@ fn terminal_reserved(action: Action) -> bool {
             | Action::CloseTerminal
             | Action::NextTerminal
             | Action::PreviousTerminal
+            | Action::MoveTerminalToEditor
+            | Action::MoveTerminalToPanel
             | Action::MaximizeTerminal
             | Action::Copy
             | Action::Paste

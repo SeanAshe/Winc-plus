@@ -16,6 +16,7 @@ impl App {
                 | CommitTarget::Dir(_)
                 | CommitTarget::DirCheck(_)
                 | CommitTarget::DirStage(..)
+                | CommitTarget::DirRevert(_)
                 | CommitTarget::Stash(_)
                 | CommitTarget::StashFile(_)
                 | CommitTarget::StashApply(_)
@@ -49,7 +50,8 @@ impl App {
             | CommitTarget::RevertFile(_)
             | CommitTarget::StageFile(..)
             | CommitTarget::GroupStage(_)
-            | CommitTarget::DirStage(..) => self.press_commit_row(target),
+            | CommitTarget::DirStage(..)
+            | CommitTarget::DirRevert(_) => self.press_commit_row(target),
             CommitTarget::OtherRepository(_)
             | CommitTarget::OtherFile(..)
             | CommitTarget::OtherStagedFile(..) => self.press_other(target),
@@ -73,6 +75,11 @@ impl App {
             CommitTarget::OtherStage(..) | CommitTarget::OtherGroupStage(..) => {
                 self.press_other_stage(target);
             }
+            CommitTarget::OtherOpen(..)
+            | CommitTarget::OtherRevert(..)
+            | CommitTarget::OtherGroupRevert(..)
+            | CommitTarget::OtherDirRevert(_)
+            | CommitTarget::OtherDirStage(..) => self.press_other_action(target),
             CommitTarget::OtherBranch(repo) => {
                 self.press_other(CommitTarget::OtherRepository(repo));
                 self.paint_now();
@@ -106,7 +113,9 @@ impl App {
                 );
             }
             CommitTarget::Location => self.open_places(true),
-            CommitTarget::Branch => self.open_branch_picker(GitAnchor::Branch),
+            CommitTarget::Branch | CommitTarget::CurrentBranch => {
+                self.open_branch_picker(GitAnchor::Branch);
+            }
             CommitTarget::Sync => self.git_sync(),
             // 按住 ⌥ 时按钮写的是「提交并推送」（见 `App::commit_pushes`）。
             CommitTarget::Commit if self.commit_pushes() => self.confirm_commit_and_push(),
@@ -258,6 +267,12 @@ impl App {
             CommitTarget::StageFile(i, on) => {
                 if let Some(path) = self.commit_entry(i).map(|e| e.path.clone()) {
                     self.stage_paths(&[path], on);
+                }
+            }
+            CommitTarget::DirRevert(row) => {
+                let paths = self.commit_dir_files(row);
+                if !paths.is_empty() {
+                    self.confirm_commit_rollback(paths);
                 }
             }
             CommitTarget::DirStage(row, on) => {

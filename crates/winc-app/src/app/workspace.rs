@@ -11,6 +11,7 @@ use super::*;
 
 pub(super) mod background_save;
 pub(super) mod compare;
+mod copy_prompt;
 pub(super) mod copying;
 pub(super) mod file_drop;
 pub(super) mod file_work;
@@ -114,6 +115,10 @@ pub(crate) struct Panels {
     pub name_input: Option<NameInput>,
     /// 从文件管理器等来源拖动文件经过窗口时的放置位置；未在拖动时为 `None`。
     pub(in crate::app) file_hover: Option<DropZone>,
+    /// 另一个窗口的文件树中拖动、此刻经过本窗口的各项，以及是否按着 `⌥` 复制；没有时为 `None`。
+    ///
+    /// 这些项只能放进文件树中的目录或终端，落点仍记在 `file_hover` 中。
+    pub(in crate::app) dragged_in: Option<(Vec<PathBuf>, bool)>,
     /// 侧栏搜索面板的状态。
     pub global: GlobalSearch,
     /// 文件视图底部大纲的状态。

@@ -293,6 +293,14 @@ fn draw_tabs(app: &mut App, frame: &mut Frame<'_>) {
                 let c = (icon.0 + icons::FILE_WIDTH / 2.0, icon.1);
                 icons::git(frame, c, 1.0, p.accent, clip);
                 icon.0 + icons::FILE_WIDTH + 7.0
+            } else if ghost.terminal {
+                icons::terminal(
+                    frame,
+                    (icon.0 + icons::FILE_WIDTH / 2.0, icon.1),
+                    p.text_muted,
+                    clip,
+                );
+                icon.0 + icons::FILE_WIDTH + 7.0
             } else {
                 draw_file_icon(frame, p, icon, &ghost.icon, clip) + 7.0
             };
@@ -395,6 +403,25 @@ fn draw_tabs(app: &mut App, frame: &mut Frame<'_>) {
     app.hits.tabs = hits;
     draw_preview_button(app, frame);
     draw_browser_button(app, frame);
+    draw_terminal_return(app, frame);
+}
+
+/// 当前标签是终端时，绘制标签栏右端的「将终端移到面板」按钮（`Layout::terminal_return`）。
+fn draw_terminal_return(app: &App, frame: &mut Frame<'_>) {
+    let button = app.layout.terminal_return;
+    if button.w <= 0.0 || button.h <= 0.0 || !app.editor.active().is_some_and(|doc| doc.terminal) {
+        return;
+    }
+    let p = app.palette;
+    let hover = app.pointer.hover == Hover::TerminalHeader(crate::app::terminal::HeaderHit::Panel);
+    draw_button(frame, p, button, app.layout.top_bar, hover, false);
+    icons::panel(
+        frame,
+        center(button),
+        app.terminal_right(),
+        p.text_muted,
+        app.layout.top_bar,
+    );
 }
 
 /// 绘制标签栏右端的「在浏览器中打开」按钮（`Layout::browser`）：出现、消失时随按钮宽度淡入
@@ -482,15 +509,22 @@ fn draw_tab(
     }
 
     // 图标按 `tab_icon_name` 取；日志标签绘制 Git 的图标。
-    let icon_name = tab_icon_name(doc);
     let icon = (tab.x + 10.0, icon_center_y(app, tab, app.fonts.ui));
     let cx = if doc.log.is_some() {
         let c = (icon.0 + icons::FILE_WIDTH / 2.0, icon.1);
         // 实色的强调色，与文件标签的彩色图标同样醒目。
         icons::git(frame, c, 1.0, p.accent, view);
         icon.0 + icons::FILE_WIDTH + 7.0
+    } else if doc.terminal {
+        icons::terminal(
+            frame,
+            (icon.0 + icons::FILE_WIDTH / 2.0, icon.1),
+            p.text_muted,
+            view,
+        );
+        icon.0 + icons::FILE_WIDTH + 7.0
     } else {
-        draw_file_icon(frame, p, icon, &icon_name, view) + 7.0
+        draw_file_icon(frame, p, icon, &tab_icon_name(doc), view) + 7.0
     };
     let color = if (active && !behind) || marked {
         p.text

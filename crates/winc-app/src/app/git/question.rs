@@ -125,6 +125,21 @@ impl QuestionView {
         }
     }
 
+    /// 返回手动添加仓库的对话框内容：一个路径输入框。
+    pub(super) fn add_repository() -> Self {
+        Self {
+            title: t!("git-repository-add-title").to_owned(),
+            message: None,
+            message_lines: 0,
+            values: Vec::new(),
+            inputs: vec![QuestionInput {
+                label: t!("git-repository-add-label"),
+                placeholder: t!("git-repository-add-placeholder"),
+            }],
+            confirm: t!("git-repository-add-button"),
+        }
+    }
+
     /// 返回添加远程仓库（`editing` 为 `None`）或修改其地址的对话框内容。
     pub(crate) fn remote(editing: Option<&str>) -> QuestionView {
         let input = |label, placeholder| QuestionInput { label, placeholder };

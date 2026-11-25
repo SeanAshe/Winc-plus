@@ -344,6 +344,8 @@ pub enum TokenKind {
     Deleted,
     /// 日志中的警告级别。
     Warning,
+    /// 表格（CSV、TSV）中分列的字符，颜色较淡（见 [`crate::columns`]）。
+    Separator,
 }
 
 /// `#` 开头、其后按代码着色的指令：条件编译、宏定义和包含（见 `Lexer::directive`）。

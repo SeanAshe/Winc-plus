@@ -987,7 +987,7 @@ fn folders_on_a_remote_host_are_not_taken_for_files() {
         tab: id,
         event: winc_pty::protocol::Event::Cwd(reported),
     });
-    let saved = app.terminal_session().expect("有终端标签");
+    let saved = app.terminal_session_with_tabs(&[]).expect("有终端标签");
     assert_eq!(saved.tabs, [root.join("src")]);
     app.terminal = Default::default();
 

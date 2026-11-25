@@ -24,6 +24,7 @@ pub use matcher::*;
 pub use query::{Filter, GlobError, Query};
 pub use scan::search_file;
 pub use walk::{
-    DEPENDENCY_FOLDERS, HIDDEN, Probe, dependency_folders, descend, gather, is_listed_file,
-    natural_cmp, probe, slashed, walker, walker_with_ignored,
+    DEPENDENCY_FOLDERS, HIDDEN, MATCHER_DIRS, Probe, dependency_folders, descend, gather,
+    is_listed_file, is_repository, natural_cmp, nested_repositories, probe, slashed, walker,
+    walker_with_ignored,
 };

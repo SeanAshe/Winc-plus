@@ -267,15 +267,20 @@ impl App {
         let groups = self.terminal.group_count();
         if !inside && groups > 1 {
             let now = self.terminal.group_at;
-            let next = if forward {
-                (now + 1) % groups
-            } else {
-                (now + groups - 1) % groups
-            };
-            self.focus_terminal_group(next);
-            let n = self.terminal.tab().map_or(1, TermTab::pane_count);
-            self.focus_terminal_pane(if forward { 0 } else { n - 1 });
-            return;
+            for step in 1..groups {
+                let next = if forward {
+                    (now + step) % groups
+                } else {
+                    (now + groups - step) % groups
+                };
+                if !self.terminal.group_shown(next) || self.terminal.group_tabs(next).is_empty() {
+                    continue;
+                }
+                self.focus_terminal_group(next);
+                let n = self.terminal.tab().map_or(1, TermTab::pane_count);
+                self.focus_terminal_pane(if forward { 0 } else { n - 1 });
+                return;
+            }
         }
         if n < 2 {
             return;

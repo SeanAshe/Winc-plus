@@ -181,12 +181,11 @@ pub fn tree_menu(kind: Option<EntryKind>, can_paste: bool, remote: bool) -> Vec<
     menu.push(Separator);
     menu.push(Item(CopyPath, true));
     if kind.is_some() {
-        menu.extend([
-            Item(CopyRelativePath, true),
-            Separator,
-            Item(Rename, true),
-            Item(Delete, true),
-        ]);
+        menu.push(Item(CopyRelativePath, true));
+        if kind == Some(EntryKind::File) {
+            menu.push(Item(CopyAsPrompt, true));
+        }
+        menu.extend([Separator, Item(Rename, true), Item(Delete, true)]);
     }
     menu
 }
@@ -213,9 +212,11 @@ pub fn tree_selection_menu(files: usize, remote: bool) -> Vec<MenuEntry> {
         Separator,
         Item(CopyPath, true),
         Item(CopyRelativePath, true),
-        Separator,
-        Item(Delete, true),
     ]);
+    if files > 0 {
+        menu.push(Item(CopyAsPrompt, true));
+    }
+    menu.extend([Separator, Item(Delete, true)]);
     menu
 }
 
@@ -606,6 +607,7 @@ pub fn terminal_menu(
         Item(NewTerminal, true),
         Item(SplitTerminal, running),
         Item(move_group_command(group.0), group.1),
+        Item(MoveTerminalToEditor, true),
         Item(CloseTerminal, true),
     ]);
     menu

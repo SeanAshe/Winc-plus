@@ -61,13 +61,18 @@ impl App {
     /// 关闭第 `index` 个标签；有未保存的修改时先询问。
     pub(in crate::app) fn close_tab(&mut self, index: usize) {
         if let Some(doc) = self.editor.documents.get(index) {
-            self.request_close(CloseRequest::Tabs(vec![doc.id]));
+            let ids = [doc.id];
+            if !self.confirm_editor_terminal_tabs(&ids) {
+                self.request_close(CloseRequest::Tabs(ids.to_vec()));
+            }
         }
     }
 
     /// 一次关闭多个标签：没有修改的直接关闭，有修改的合并为一次询问。
     pub(in crate::app) fn close_tabs(&mut self, ids: Vec<DocumentId>) {
-        self.request_close(CloseRequest::Tabs(ids));
+        if !self.confirm_editor_terminal_tabs(&ids) {
+            self.request_close(CloseRequest::Tabs(ids));
+        }
     }
 
     /// 处理退出请求：`⌘Q`、程序坞菜单中的「退出」、命令面板中的「退出」。
@@ -405,6 +410,10 @@ impl App {
         self.quit_backups();
         self.remember_session();
         self.leave_backups_on_disk();
+        for group in &mut self.terminal.groups {
+            group.editor = None;
+            group.shown = false;
+        }
         self.remove_all_tabs();
         if self.editor.workspace.is_some() {
             self.close_folder_now();
@@ -496,6 +505,9 @@ impl App {
             _ => self.editor.close(index),
         };
         if let Some(doc) = closed {
+            if doc.terminal {
+                self.close_editor_terminal_session(doc.id);
+            }
             self.forget_git_document(doc.id, doc.path.as_deref());
             self.preview.markdown.forget(doc.id);
             self.preview.latex.forget(doc.id);

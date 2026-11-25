@@ -163,8 +163,12 @@ fn draw_list(
         let action = row.action;
         let hovered = matches!(
             app.settings.hover,
-            Some(SettingsPart::KeyRow(a) | SettingsPart::KeyEdit(a) | SettingsPart::KeyReset(a))
-                if a == action
+            Some(
+                SettingsPart::KeyRow(a)
+                    | SettingsPart::KeyEdit(a)
+                    | SettingsPart::KeyReset(a)
+                    | SettingsPart::KeyVim(a, _)
+            ) if a == action
         );
         if hovered {
             frame.rect_clipped(rect, p.hover, RADIUS_ROW, list);
@@ -175,6 +179,11 @@ fn draw_list(
             let mut links = vec![(t!("settings-keys-edit"), SettingsPart::KeyEdit(action))];
             if app.shortcut_customized(action) {
                 links.push((t!("settings-keys-reset"), SettingsPart::KeyReset(action)));
+            }
+            // 被 Vim 占用、列在「快捷键冲突」中的键：链到它的那一行。
+            let listed = |c: &char| app.settings.listed.vim_keys.contains(c);
+            if let Some(c) = app.vim_taken_key(&row.keys).filter(listed) {
+                links.push((t!("settings-keys-vim"), SettingsPart::KeyVim(action, c)));
             }
             for (label, part) in links {
                 let link = draw_link(app, frame, top, right, label, part, list);

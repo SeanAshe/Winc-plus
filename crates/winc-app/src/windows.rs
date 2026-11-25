@@ -1,5 +1,6 @@
 //! Windows 上交由系统的操作，读取的系统设置，任务栏的跳转列表，文件类型图标，在文件管理器中显示文件，
-//! 文件对话框的拥有者，按屏幕刷新绘制动画的显示链接，以及文件拖进拖出时的鼠标位置和系统拖放。
+//! 文件对话框的拥有者，按屏幕刷新绘制动画的显示链接，以及文件拖进拖出时的鼠标位置、鼠标下的
+//! 窗口和系统拖放。
 
 mod assoc;
 mod display_link;
@@ -18,7 +19,7 @@ pub use display_link::DisplayLink;
 pub use drag::drag_files;
 pub use file_dialog::{DialogOwner, MainWindow, raise_file_dialog};
 pub use jump_list::sync_jump_list;
-pub use pointer::mouse_location;
+pub use pointer::{mouse_location, topmost_at_cursor};
 pub use reveal::reveal_in_file_manager;
 pub use touch::{WindowHitTest, WindowInput};
 

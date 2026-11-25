@@ -171,8 +171,8 @@ impl App {
             MenuTarget::Diff(id, right)
         } else if let Some(id) = self.terminal_tab_context_target(x, y) {
             MenuTarget::TerminalTab(id)
-        } else if let Some(block) = self.terminal_context_target(x, y) {
-            MenuTarget::Terminal(block)
+        } else if let Some((id, block)) = self.terminal_context_target(x, y) {
+            MenuTarget::Terminal(id, block)
         } else if self.markdown_context_target(x, y) {
             MenuTarget::Markdown
         } else if self.combined_active() && self.layout.editor.contains(x, y) {
@@ -309,7 +309,7 @@ impl App {
     /// 右键点在终端的标签上：它成为正在看的标签，返回它的编号。
     fn terminal_tab_context_target(&mut self, x: f32, y: f32) -> Option<u16> {
         use crate::app::terminal::HeaderHit;
-        let index = match crate::layout::hit(&self.hits.terminal, x, y)? {
+        let index = match crate::layout::hit(self.terminal_hits_at(x, y), x, y)? {
             HeaderHit::Tab(i) | HeaderHit::Close(i) => i,
             // 拆分出的终端：先换到前台，菜单作用于它。
             HeaderHit::Pane(i, at) | HeaderHit::ClosePane(i, at) => {
@@ -326,16 +326,15 @@ impl App {
     /// 右键点在终端面板的网格上（标签栏以下）：焦点给终端，弹终端的菜单；返回点着的命令块。
     ///
     /// 程序要了鼠标时右键已经上报给程序了，到不了这里（按着 `⇧` 时才到）。
-    fn terminal_context_target(&mut self, x: f32, y: f32) -> Option<Option<u32>> {
-        let card = self.layout.terminal;
-        let hit = card.contains(x, y)
-            && y >= card.y + crate::app::terminal::header_height(card)
+    fn terminal_context_target(&mut self, x: f32, y: f32) -> Option<(u16, Option<u32>)> {
+        let hit = self.terminal_contains(x, y)
+            && y >= self.terminal_view().y
             && self.terminal.tab().is_some();
         if !hit {
             return None;
         }
         self.focus = Focus::Terminal;
-        Some(self.terminal_block_under(x, y))
+        Some((self.terminal.tab()?.id, self.terminal_block_under(x, y)))
     }
 
     /// 为 `target` 生成菜单项，并在窗口坐标 `at`（逻辑像素）处弹出系统菜单。
@@ -346,21 +345,29 @@ impl App {
         if matches!(target, MenuTarget::LogCommit(_)) {
             self.follow_log_root();
         }
+        if let MenuTarget::Terminal(id, _) | MenuTarget::TerminalTab(id) = &target
+            && self.activate_terminal_menu_target(*id).is_none()
+        {
+            return;
+        }
         let entries = match &target {
             &MenuTarget::AddLanguage(task) => {
                 let listed = match task {
-                    Task::Format => &self.settings.languages.format,
-                    Task::Fix => &self.settings.languages.fix,
+                    Task::Format => &self.settings.listed.format,
+                    Task::Fix => &self.settings.listed.fix,
                 };
                 language_menu(task, listed)
             }
-            MenuTarget::SkipOnSave => skip_menu(&self.settings.languages.format),
+            MenuTarget::SkipOnSave => skip_menu(&self.settings.listed.format),
             MenuTarget::Locale => locale_menu(),
             MenuTarget::NamedTheme(dark) => (0..crate::theme::themes(*dark).len())
                 .map(|i| MenuEntry::Item(MenuCommand::NamedTheme(*dark, i), true))
                 .collect(),
             MenuTarget::Whitespace => whitespace_menu(),
             MenuTarget::VimClipboard => vim_clipboard_menu(),
+            MenuTarget::VimKey(_) => [true, false]
+                .map(|vim| MenuEntry::Item(MenuCommand::VimKeyOwner(vim), true))
+                .to_vec(),
             MenuTarget::OpenWorktree => open_worktree_menu(),
             MenuTarget::PullMode => (0..winc_config::PullMode::ALL.len())
                 .map(|i| MenuEntry::Item(MenuCommand::PullMode(i), true))
@@ -585,6 +592,7 @@ impl App {
                     move_group_command(self.terminal_right()),
                     self.terminal_movable_to_group(),
                 ),
+                MenuEntry::Item(MenuCommand::MoveTerminalToEditor, true),
                 MenuEntry::Separator,
                 MenuEntry::Item(MenuCommand::CloseTerminal, true),
                 MenuEntry::Item(
@@ -592,7 +600,7 @@ impl App {
                     self.terminal.tabs.len() > 1,
                 ),
             ],
-            &MenuTarget::Terminal(block) => {
+            &MenuTarget::Terminal(_, block) => {
                 let Some(tab) = self.terminal.tab() else {
                     return;
                 };
@@ -602,7 +610,28 @@ impl App {
                     Some((!b.text.is_empty(), self.terminal_can_rerun(id)))
                 });
                 let group = (self.terminal_right(), self.terminal_movable_to_group());
-                terminal_menu(tab.selection_range().is_some(), running, block, group)
+                let mut menu =
+                    terminal_menu(tab.selection_range().is_some(), running, block, group);
+                if self.terminal.editor_at(self.terminal.group_at).is_some() {
+                    menu.retain(|entry| {
+                        !matches!(
+                            entry,
+                            MenuEntry::Item(
+                                MenuCommand::TerminalMaximize | MenuCommand::TerminalDock,
+                                _
+                            )
+                        )
+                    });
+                    menu.dedup_by(|a, b| {
+                        matches!((a, b), (MenuEntry::Separator, MenuEntry::Separator))
+                    });
+                    for entry in &mut menu {
+                        if let MenuEntry::Item(MenuCommand::MoveTerminalToEditor, _) = entry {
+                            *entry = MenuEntry::Item(MenuCommand::MoveTerminalToPanel, true);
+                        }
+                    }
+                }
+                menu
             }
             &MenuTarget::Diff(id, right) => {
                 if self.editor.active().map(|d| d.id) != Some(id) {
@@ -643,6 +672,13 @@ impl App {
                     docs.iter().any(|d| !d.is_dirty()),
                 );
                 let doc = &docs[index];
+                if doc.terminal {
+                    menu.extend([
+                        MenuEntry::Separator,
+                        MenuEntry::Item(MenuCommand::RenameTerminal, true),
+                        MenuEntry::Item(MenuCommand::MoveTerminalToPanel, true),
+                    ]);
+                }
                 if doc.can_lock() && doc.shows_text() {
                     let command = MenuCommand::ReadOnly(!doc.is_locked());
                     menu.extend([MenuEntry::Separator, MenuEntry::Item(command, true)]);
@@ -857,7 +893,7 @@ impl App {
             | MenuTarget::DiffGutter(..)
             | MenuTarget::Markdown
             | MenuTarget::LogCommit(_) => Context::Editor,
-            MenuTarget::Terminal(_) | MenuTarget::TerminalTab(_) => Context::Terminal,
+            MenuTarget::Terminal(..) | MenuTarget::TerminalTab(_) => Context::Terminal,
             MenuTarget::SearchResult(..) => Context::Panel,
             MenuTarget::CommitFile(_) => Context::Changes,
             _ => Context::Other,
@@ -874,6 +910,7 @@ impl App {
                 | MenuTarget::NamedTheme(_)
                 | MenuTarget::Whitespace
                 | MenuTarget::VimClipboard
+                | MenuTarget::VimKey(_)
                 | MenuTarget::OpenWorktree
                 | MenuTarget::PullMode
                 | MenuTarget::DropFolder
@@ -895,6 +932,7 @@ impl App {
             MenuTarget::Locale => Some(Setting::Language),
             MenuTarget::Whitespace => Some(Setting::RenderWhitespace),
             MenuTarget::VimClipboard => Some(Setting::VimClipboard),
+            MenuTarget::VimKey(c) => Some(Setting::VimKey(c)),
             MenuTarget::OpenWorktree => Some(Setting::GitOpenWorktree),
             MenuTarget::PullMode => Some(Setting::GitPullMode),
             MenuTarget::DropFolder => Some(Setting::DropFolder),
@@ -1167,6 +1205,13 @@ impl App {
             _ => None,
         };
         let language = tool.map(|(_, id)| id);
+        let vim_key = match &self.overlays.context_menu {
+            Some(ContextMenu {
+                target: MenuTarget::VimKey(c),
+                ..
+            }) => Some(*c),
+            _ => None,
+        };
         let configured = tool.and_then(|(task, id)| {
             crate::app::editor::format::task_commands(&self.config, task).get(id)
         });
@@ -1191,6 +1236,7 @@ impl App {
                 winc_config::VimClipboard::ALL.get(i)
                     == Some(&self.config.vim_clipboard.unwrap_or_default())
             }
+            MenuCommand::VimKeyOwner(vim) => vim_key.is_some_and(|c| self.vim_owns_key(c) == vim),
             MenuCommand::OpenWorktree(i) => {
                 winc_config::WorktreeOpen::ALL.get(i)
                     == Some(&self.config.git_open_worktree.unwrap_or_default())
@@ -1330,6 +1376,13 @@ impl App {
                         (x + w / 2.0, y + h / 2.0),
                         1.0,
                         self.palette.accent,
+                        clip,
+                    );
+                } else if doc.terminal {
+                    icons::terminal(
+                        frame,
+                        (x + w / 2.0, y + h / 2.0),
+                        self.palette.text_muted,
                         clip,
                     );
                 } else {

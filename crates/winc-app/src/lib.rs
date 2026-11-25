@@ -212,6 +212,7 @@ pub fn run() {
         .then(|| state.last_session())
         .flatten()
         .filter(|session| open_session_folder(&mut editor, session));
+    let restored_folder = session.is_some();
     // 从命令行打开的目录没有现场，只恢复其未保存的内容；临时打开时不恢复任何内容。
     let restored = if args.one_off() {
         Default::default()
@@ -300,8 +301,12 @@ pub fn run() {
     let sort = crate::app::CommitSort::from_key(&state.commit_sort);
     app.git.commit.set_sort(sort);
     app.editor.diff_unified = app.config.diff_inline == Some(true);
+    (app.editor).set_align_columns(app.config.align_columns != Some(false));
     app.editor.diff_collapse = app.config.diff_collapse_unchanged != Some(false);
     app.state = state;
+    if restored_folder {
+        app.restore_launch_group();
+    }
     app.restore_text_places();
     app.restore_panel_width();
     app.load_at_launch(opened.jumps);

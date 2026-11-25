@@ -769,7 +769,10 @@ fn a_split_terminal_tab_shows_its_terminals_side_by_side() {
     let first = app.terminal.tab().unwrap().id;
 
     // 标签和终端里的右键菜单都能拆分：新终端排进这个标签。
-    for target in [MenuTarget::TerminalTab(first), MenuTarget::Terminal(None)] {
+    for target in [
+        MenuTarget::TerminalTab(first),
+        MenuTarget::Terminal(first, None),
+    ] {
         app.open_context_menu(target, (whole.x + 20.0, whole.y + 20.0));
         assert!(menu_commands(&app).contains(&(MenuCommand::SplitTerminal, true)));
         app.overlays.context_menu = None;

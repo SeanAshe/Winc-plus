@@ -26,6 +26,15 @@ menu-open-image = Open Image in New Tab
 menu-open-recent-in-new-window = Open “{ $name }” in New Window
 menu-copied-path = Copied path
 menu-copied-relative-path = Copied relative path
+menu-copy-as-prompt = Copy as Prompt
+menu-copied-as-prompt = Copied as prompt
+menu-copied-as-prompt-skipped =
+    { $count ->
+        [one] Copied as prompt; skipped 1 file
+       *[other] Copied as prompt; skipped { $count } files
+    }
+menu-copy-as-prompt-empty = None of the selected files can be copied as a prompt: they aren’t text files or exceed the size limit
+menu-copy-as-prompt-too-many = Up to { $limit } files can be copied at once; select fewer files
 menu-copied-reference = Copied { $reference }
 menu-copy-reference-unsaved = The file hasn’t been saved and has no path
 
@@ -212,7 +221,6 @@ menu-commit-all-repositories = Show All Repositories
 menu-git-show-output = Show Git Output
 menu-commit-expand-all = Expand All
 menu-commit-collapse-all = Collapse All
-menu-commit-roll-back = Roll Back Checked Files
 menu-commit-undo = Undo Commit
 menu-commit-and-push = Commit and Push
 menu-commit-and-sync = Commit and Sync

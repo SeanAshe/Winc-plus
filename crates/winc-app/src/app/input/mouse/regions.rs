@@ -30,7 +30,7 @@ impl App {
 
         // 提交视图：输入框之外按绘制时记下的位置找。
         if self.commit_shown() && y >= self.panel_rect().y {
-            // 文件名可以显示在分隔条上，但分隔条始终保留调整宽度的命中区域。
+            // 分隔条由 `Target::Splitter` 处理，写全名的那一行除外（见 `on_sidebar_splitter`）。
             if self.on_sidebar_splitter(x, y) {
                 return None;
             }
@@ -38,7 +38,7 @@ impl App {
         }
 
         // 面板只负责顶栏以下、分隔条以左的区域；侧栏开关和分隔条由后面的判断处理。写全名的结果行
-        // 覆盖在滚动条之上，伸出侧栏的那一段同样属于这一行；分隔条始终可以拖动。
+        // 覆盖在滚动条和分隔条之上，伸出侧栏的那一段同样属于这一行。
         let panel = self.panel_rect();
         let over_overflow = self.over_result_overflow_row(y);
         let on_splitter = self.on_sidebar_splitter(x, y);
@@ -186,6 +186,7 @@ impl App {
                 part @ (SettingsPart::KeyRow(_)
                 | SettingsPart::KeyEdit(_)
                 | SettingsPart::KeyReset(_)
+                | SettingsPart::KeyVim(..)
                 | SettingsPart::KeyRemove(_)
                 | SettingsPart::KeySave
                 | SettingsPart::KeyCancel),
@@ -273,9 +274,17 @@ impl App {
         true
     }
 
-    /// (`x`, `y`) 是否在侧栏分隔条上；Git 文件名浮层不抢占调整宽度的区域。
-    fn on_sidebar_splitter(&self, x: f32, y: f32) -> bool {
-        self.panels.sidebar.visible && self.layout.splitter.contains(x, y)
+    /// (`x`, `y`) 是否在可以拖动的侧栏分隔条上。
+    ///
+    /// 写全名的那一行（文件树、改动列表、搜索结果）画在分隔条之上：在这一行的高度内按下作用于
+    /// 这一行，与看到的一致；其他高度仍可拖动分隔条。鼠标从编辑区一侧移到分隔条上时没有行在写
+    /// 全名，分隔条照常可以拖动。
+    pub(super) fn on_sidebar_splitter(&self, x: f32, y: f32) -> bool {
+        self.panels.sidebar.visible
+            && self.layout.splitter.contains(x, y)
+            && !self.over_tree_overflow_row(y)
+            && !self.over_commit_overflow_row(y)
+            && !self.over_result_overflow_row(y)
     }
 
     /// 是否已处理对侧栏顶部切换按钮或搜索面板的点击。
@@ -334,10 +343,7 @@ impl App {
         }
 
         // 分隔条在侧栏右边缘，由后面的分支处理；写全名的结果行覆盖在分隔条之上。
-        if self.panels.sidebar.visible
-            && self.layout.splitter.contains(x, y)
-            && !self.over_result_overflow_row(y)
-        {
+        if self.on_sidebar_splitter(x, y) {
             return false;
         }
 
@@ -376,11 +382,23 @@ impl App {
             .as_ref()
             .map(|f| (Focus::Prompt, true, f));
         let rename = self.terminal.rename.as_ref().map(|(id, field)| {
-            let shown = self.hits.terminal.iter().any(|(rect, hit)| {
-                matches!(hit, crate::app::terminal::HeaderHit::Tab(index)
-                    if rect.contains(x, y)
-                        && self.terminal.tabs.get(*index).is_some_and(|tab| tab.id == *id))
-            });
+            let shown = if let Some(document) = self.terminal.editor_document() {
+                self.editor.active().is_some_and(|doc| doc.id == document)
+                    && self.terminal.tab().is_some_and(|tab| tab.id == *id)
+                    && self.hits.tabs.iter().any(|hit| {
+                        self.editor
+                            .documents
+                            .get(hit.index)
+                            .is_some_and(|doc| doc.id == document)
+                            && hit.tab.contains(x, y)
+                    })
+            } else {
+                self.hits.terminal.iter().any(|(rect, hit)| {
+                    matches!(hit, crate::app::terminal::HeaderHit::Tab(index)
+                        if rect.contains(x, y)
+                            && self.terminal.tabs.get(*index).is_some_and(|tab| tab.id == *id))
+                })
+            };
             (Focus::TerminalRename, shown, field)
         });
         let terminal_find =

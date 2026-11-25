@@ -1,6 +1,7 @@
 //! 绘制在文件中查找的对话框（标题行、查询、各处匹配和选中处的上下文）和底部面板的「搜索」标签。
 
 use winc_i18n::t;
+use winc_syntax::LineState;
 
 use super::*;
 use crate::app::editor::definition::Place;
@@ -8,7 +9,7 @@ use crate::app::workspace::search_dialog::{
     CLOSE_MARK, DialogPart, DialogParts, PREVIEW_PAD, SIDE,
 };
 use crate::app::{Focus, Hover, PICKER_ICON_X, PICKER_TEXT_X};
-use crate::view::editor::places::{PlacesView, draw_code_with, draw_rows};
+use crate::view::editor::places::{PlacesView, draw_code_from, draw_rows};
 
 /// 新的搜索还没有结果时，上一次的结果的不透明度。
 const STALE_ALPHA: f32 = 0.45;
@@ -165,7 +166,7 @@ fn draw_dialog(app: &mut App, frame: &mut Frame<'_>) {
         let room = (head.right() - PICKER_ICON_X - end - 8.0).max(0.0);
         let dir = ellipsize(frame, dir, app.fonts.ui_small, room);
         ui_text_small(frame, app, end + 8.0, head, &dir, p.text_dim, card);
-        if let Some((at, first, lines)) = &context {
+        if let Some((at, first, lines, state)) = &context {
             frame.within(parts.preview, |frame| {
                 let len = d.lens.get(d.selected).copied();
                 draw_context(
@@ -173,7 +174,7 @@ fn draw_dialog(app: &mut App, frame: &mut Frame<'_>) {
                     frame,
                     parts.preview,
                     (*at, *first),
-                    lines,
+                    (lines, *state),
                     (place, len),
                 );
             });
@@ -321,7 +322,8 @@ pub(in crate::view) fn draw_dock(app: &mut App, frame: &mut Frame<'_>) {
         frame.within(list, |frame| draw_rows(app, frame, &dock.list, &view));
         let divider = Rect::new(dock.preview.x, dock.preview.y, 1.0, dock.preview.h);
         frame.rect_clipped(divider, p.separator, 0.0, card);
-        let (Some(place), Some((at, first, lines))) = (places.items.get(d.selected), &context)
+        let (Some(place), Some((at, first, lines, state))) =
+            (places.items.get(d.selected), &context)
         else {
             return;
         };
@@ -335,7 +337,14 @@ pub(in crate::view) fn draw_dock(app: &mut App, frame: &mut Frame<'_>) {
         );
         frame.within(dock.preview, |frame| {
             let len = d.lens.get(d.selected).copied();
-            draw_context(app, frame, area, (*at, *first), lines, (place, len));
+            draw_context(
+                app,
+                frame,
+                area,
+                (*at, *first),
+                (lines, *state),
+                (place, len),
+            );
         });
     });
 }
@@ -475,14 +484,14 @@ fn summary(app: &App) -> (String, Color) {
 
 /// 在预览区 `area` 中绘制选中处周围的几行：左侧是行号，选中的一行铺底色、匹配铺琥珀色底。
 ///
-/// `at` 是（选中的行号，首行的行号），均从 0 起；`len` 是匹配的长度（字符数），与 `place.col`
-/// 一起给出匹配在整行里的位置。
+/// `at` 是（选中的行号，首行的行号），均从 0 起；`state` 是首行行首的高亮状态，各行依次传下去
+/// 着色。`len` 是匹配的长度（字符数），与 `place.col` 一起给出匹配在整行里的位置。
 fn draw_context(
     app: &App,
     frame: &mut Frame<'_>,
     area: Rect,
     (at, first): (usize, usize),
-    lines: &[String],
+    (lines, state): (&[String], LineState),
     (place, len): (&Place, Option<usize>),
 ) {
     let p = app.palette;
@@ -499,6 +508,12 @@ fn draw_context(
         .saturating_sub(whole / 2)
         .min(lines.len().saturating_sub(whole));
     let lines = &lines[..lines.len().min(skip + fit)];
+    // 跳过的几行也要着色一遍，得到第一行显示的行首状态。
+    let (language, _) = app.place_highlight(&place.path, place.line);
+    let mut state = (lines[..skip].iter()).fold(state, |state, text| {
+        let chars: Vec<char> = text.replace('\t', "    ").chars().collect();
+        winc_syntax::highlight_line(language, &chars, state, &mut Vec::new())
+    });
     let (first, lines) = (first + skip, &lines[skip..]);
     let (size, cell) = (app.fonts.code, app.metrics.cell);
     let digits = (first + lines.len()).max(1).to_string().len();
@@ -532,7 +547,9 @@ fn draw_context(
             marks,
         };
         let code = Rect::new(code_x, row.y, row.right() - 12.0 - code_x, row.h);
-        frame.within(area, |frame| draw_code_with(app, frame, &line, code, 1.0));
+        frame.within(area, |frame| {
+            state = draw_code_from(app, frame, &line, code, 1.0, (language, state));
+        });
     }
 }
 

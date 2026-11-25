@@ -1,8 +1,9 @@
-//! 终端分栏：面板分成几栏，每栏有自己的标签栏和标签，面板在下方时左右排，在右侧时上下排。
+//! 终端分栏及其归属：停靠栏有各自的标签栏，编辑器栏对应一个编辑器标签。
 //!
-//! 正在用的一栏的标签放在 [`TerminalPanel`] 的 `tabs`、`active`、`strip` 里，其余各栏存在
-//! `groups` 中；绘制、处理其他栏时临时把它换进来（[`App::with_terminal_group`]），其余代码只看
-//! 正在用的一栏。栏里的标签照样可以拆分（[`super::split`]）。
+//! 面板在下方时停靠栏左右排，在右侧时上下排；编辑器栏由编辑器窗格确定位置。正在用的一栏的
+//! 标签放在 [`TerminalPanel`] 的 `tabs`、`active`、`strip` 中，其余各栏存在 `groups` 中。绘制或
+//! 处理其他栏时临时换入（[`App::with_terminal_group`]）；归属和可见性始终保留在原始栏槽位中。
+//! 栏内终端仍可拆分（[`super::split`]）。
 
 use super::strip::Strip;
 use super::*;
@@ -25,6 +26,10 @@ pub(crate) struct TermGroup {
     pub strip: Strip,
     /// 这一栏占面板的份额：各栏按份额的比例分面板，新的分栏让各栏平分。
     pub share: f32,
+    /// 编辑器中的终端标签；为 `None` 时这一栏停靠在终端面板里。
+    pub editor: Option<winc_editor::DocumentId>,
+    /// 编辑器标签正在某个窗格中显示；面板栏的可见性由 `TerminalPanel::open` 决定。
+    pub shown: bool,
 }
 
 impl TermGroup {
@@ -97,12 +102,41 @@ impl TerminalPanel {
         self.groups.len().max(1)
     }
 
-    /// 各栏的份额，按排列顺序。
-    pub(crate) fn group_shares(&self) -> Vec<f32> {
-        match self.groups.len() {
-            0 => vec![1.0],
-            _ => self.groups.iter().map(|g| g.share).collect(),
+    /// 第 `at` 栏所在的编辑器标签；面板栏没有编辑器标签。
+    pub(crate) fn editor_at(&self, at: usize) -> Option<winc_editor::DocumentId> {
+        self.groups.get(at).and_then(|group| group.editor)
+    }
+
+    /// 正在用的终端是否位于编辑器标签里。
+    pub(crate) fn editor_document(&self) -> Option<winc_editor::DocumentId> {
+        self.editor_at(self.group_at)
+    }
+
+    /// 第 `at` 栏的内容是否正在显示。
+    pub(crate) fn group_shown(&self, at: usize) -> bool {
+        match self.groups.get(at).filter(|group| group.editor.is_some()) {
+            Some(group) => group.shown,
+            None => self.open,
         }
+    }
+
+    /// 停靠在终端面板里的栏，按排列顺序。
+    pub(crate) fn panel_groups(&self) -> impl Iterator<Item = usize> + '_ {
+        (0..self.group_count()).filter(|&at| self.editor_at(at).is_none())
+    }
+
+    /// 停靠在终端面板里的标签数量。
+    pub(crate) fn panel_tab_count(&self) -> usize {
+        self.panel_groups()
+            .map(|at| self.group_tabs(at).len())
+            .sum()
+    }
+
+    /// 停靠栏的份额，按面板上的排列顺序，不包含编辑器终端。
+    pub(crate) fn panel_shares(&self) -> Vec<f32> {
+        self.panel_groups()
+            .map(|at| self.groups.get(at).map_or(1.0, |group| group.share))
+            .collect()
     }
 
     /// 第 `at` 栏的标签。
@@ -127,10 +161,12 @@ impl TerminalPanel {
 
     /// 各栏正在看的标签：都在眼前，都要收新的帧。
     pub(crate) fn shown_tabs(&self) -> impl Iterator<Item = &TermTab> {
-        (0..self.group_count()).filter_map(|at| match self.groups.get(at) {
-            Some(group) if at != self.group_at => group.tabs.get(group.active),
-            _ => self.tab(),
-        })
+        (0..self.group_count())
+            .filter(|&at| self.group_shown(at))
+            .filter_map(|at| match self.groups.get(at) {
+                Some(group) if at != self.group_at => group.tabs.get(group.active),
+                _ => self.tab(),
+            })
     }
 
     /// 编号为 `id` 的终端（可以是拆分出的）在第几栏。
@@ -154,6 +190,9 @@ impl TerminalPanel {
             std::mem::swap(&mut self.strip, &mut group.strip);
         }
         self.group_at = at;
+        if self.editor_at(at).is_none() {
+            self.panel_at = at;
+        }
     }
 
     /// 在第 `at` 个位置加一个空的栏；加了以后各栏平分面板。
@@ -166,7 +205,13 @@ impl TerminalPanel {
         if at <= self.group_at {
             self.group_at += 1;
         }
-        self.groups.iter_mut().for_each(|g| g.share = 1.0);
+        if at <= self.panel_at {
+            self.panel_at += 1;
+        }
+        self.groups
+            .iter_mut()
+            .filter(|group| group.editor.is_none())
+            .for_each(|group| group.share = 1.0);
     }
 
     /// 去掉不在用的空栏；正在用的一栏空了、也没有等着建的标签时同样去掉，改用它前面一栏
@@ -186,20 +231,30 @@ impl TerminalPanel {
         }
         let before = self.groups.len();
         let focused = self.group_at;
+        let panel = self.panel_at;
+        let mut panel_at = None;
         let mut kept = Vec::with_capacity(before);
         for (at, group) in std::mem::take(&mut self.groups).into_iter().enumerate() {
             if at == focused {
                 self.group_at = kept.len();
             }
             if at == focused || !group.tabs.is_empty() {
+                if at == panel {
+                    panel_at = Some(kept.len());
+                }
                 kept.push(group);
             }
         }
         self.groups = kept;
-        if self.groups.len() == 1 {
+        if self.groups.len() == 1 && self.groups[0].editor.is_none() {
             self.groups.clear();
             self.group_at = 0;
         }
+        self.panel_at = if self.groups.is_empty() {
+            0
+        } else {
+            panel_at.or_else(|| self.panel_groups().next()).unwrap_or(0)
+        };
         self.groups.len() != before
     }
 
@@ -210,68 +265,149 @@ impl TerminalPanel {
             let n = self.group_count();
             self.insert_group(n);
         }
+        let editor = self.editor_at(at).is_some();
         let (tabs, active) = match self.groups.get_mut(at) {
             Some(group) if at != self.group_at => (&mut group.tabs, &mut group.active),
             _ => (&mut self.tabs, &mut self.active),
         };
-        let slot = slot.unwrap_or(tabs.len()).min(tabs.len());
-        tabs.insert(slot, tab);
-        *active = slot;
+        if editor && !tabs.is_empty() {
+            super::insert_pane(tabs, 0, tab);
+            *active = 0;
+        } else {
+            let slot = slot.unwrap_or(tabs.len()).min(tabs.len());
+            tabs.insert(slot, tab);
+            *active = slot;
+        }
     }
 
-    /// 按排列顺序第 `index` 个标签（各栏的标签接在一起数）换成正在看的：它所在的栏成为
-    /// 正在用的一栏。
-    pub(crate) fn focus_flat(&mut self, index: usize) {
-        let mut rest = index;
+    /// 按保存现场时各 shell 的顺序恢复前台终端，包含编辑器标签中合并恢复的拆分终端。
+    pub(crate) fn focus_shell(&mut self, index: usize) {
+        let mut remaining = index;
+        let mut target = None;
         for at in 0..self.group_count() {
-            let n = self.group_tabs(at).len();
-            if rest < n {
-                self.swap_group(at);
-                self.active = rest;
-                return;
+            for (root, tab) in self.group_tabs(at).iter().enumerate() {
+                if remaining < tab.pane_count() {
+                    target = Some((at, root, remaining));
+                    break;
+                }
+                remaining -= tab.pane_count();
             }
-            rest -= n;
+            if target.is_some() {
+                break;
+            }
+        }
+        if let Some((at, root, pane)) = target {
+            self.swap_group(at);
+            self.active = root;
+            let (all, _) = self.take_group(root);
+            self.put_group(root, all, pane);
+            self.focus_sent = false;
+        }
+    }
+
+    /// 关闭尚未启动的编辑器终端时，移除该栏的请求，其他栏的启动顺序不变。
+    pub(crate) fn cancel_group_wants(&mut self, group: usize) {
+        let mut removed = false;
+        for i in (0..self.want.len()).rev() {
+            if self.want_groups.get(i).copied().unwrap_or(self.group_at) != group {
+                continue;
+            }
+            self.want.remove(i);
+            if i < self.want_groups.len() {
+                self.want_groups.remove(i);
+            }
+            if i < self.want_names.len() {
+                self.want_names.remove(i);
+            }
+            if i < self.want_shells.len() {
+                self.want_shells.remove(i);
+            }
+            if i < self.want_into.len() {
+                self.want_into.remove(i);
+            }
+            removed = true;
+        }
+        if removed {
+            self.want_active = None;
+            if self.want.is_empty() {
+                self.pending_input = None;
+            }
         }
     }
 }
 
 impl App {
-    /// 面板在 `card` 时各栏的位置，按排列顺序。
+    /// 面板栏的位置按全局分栏编号存放；编辑器终端的槽位为空矩形。
     pub(crate) fn terminal_group_cards_in(&self, card: Rect) -> Vec<Rect> {
-        let shares = self.terminal.group_shares();
-        group_cards(card, &shares, self.terminal_right())
+        let t = &self.terminal;
+        let shares = t.panel_shares();
+        if shares.is_empty() {
+            return vec![Rect::default(); t.group_count()];
+        }
+        let mut cards = group_cards(card, &shares, self.terminal_right());
+        let mut dock = cards.len();
+        cards.resize(t.group_count(), Rect::default());
+        for at in (0..t.group_count()).rev() {
+            if t.editor_at(at).is_none() {
+                dock -= 1;
+                cards[at] = cards[dock];
+            } else {
+                cards[at] = Rect::default();
+            }
+        }
+        cards
     }
 
-    /// 面板在 `card` 时正在用的一栏的位置。
+    /// 当前终端的卡片：停靠栏使用面板的位置，编辑器终端使用所在窗格的位置。
     pub(crate) fn terminal_group_card_in(&self, card: Rect) -> Rect {
+        if let Some(document) = self.terminal.editor_document() {
+            return self.editor_terminal_card(document);
+        }
         let cards = self.terminal_group_cards_in(card);
         cards.get(self.terminal.group_at).copied().unwrap_or(card)
     }
 
-    /// `(x, y)` 在第几栏里；不在面板里或在两栏之间的间隙中时为 `None`。
+    /// 鼠标所在的可见终端栏：面板标签栏也算，编辑器终端只包含内容区。
     pub(crate) fn terminal_group_at(&self, x: f32, y: f32) -> Option<usize> {
-        // 「搜索」标签显示时整个面板都是搜索结果。
-        if !self.layout.terminal.contains(x, y)
-            || self.overlay_covers(x, y)
-            || self.docked_search_shown()
-        {
+        if self.overlay_covers(x, y) {
             return None;
         }
-        let cards = self.terminal_group_cards_in(self.layout.terminal);
-        cards.iter().position(|card| card.contains(x, y))
+        if self.docked_search_shown() && self.layout.terminal.contains(x, y) {
+            if y < self.layout.terminal.y + header_height(self.layout.terminal) {
+                return self.terminal.panel_groups().next();
+            }
+            return None;
+        }
+        if self.layout.terminal.contains(x, y) && !self.docked_search_shown() {
+            let cards = self.terminal_group_cards_in(self.layout.terminal);
+            if let Some(at) = cards.iter().position(|card| card.contains(x, y)) {
+                return Some(at);
+            }
+        }
+        self.terminal
+            .groups
+            .iter()
+            .enumerate()
+            .find_map(|(at, group)| {
+                let document = group.editor.filter(|_| group.shown)?;
+                self.editor_terminal_pane(document)
+                    .filter(|pane| pane.editor.contains(x, y))
+                    .map(|_| at)
+            })
     }
 
-    /// 面板的按钮（运行配置、最大化、换位置、收起）是否放在正在用的一栏的标签栏上：没有分栏时
-    /// 放；分栏时放在挨着面板右上角的那一栏，左右排时是最后一栏，上下排时是第一栏。
+    /// 面板级按钮只放在面板右上角的停靠栏里，不放在编辑器终端中。
     pub(crate) fn terminal_panel_actions_here(&self) -> bool {
         let t = &self.terminal;
-        if t.groups.is_empty() || self.docked_search_shown() {
-            return true;
+        if t.editor_document().is_some() {
+            return false;
         }
-        match self.terminal_right() {
-            false => t.group_at + 1 == t.groups.len(),
-            true => t.group_at == 0,
-        }
+        let corner = if self.terminal_right() {
+            t.panel_groups().next()
+        } else {
+            t.panel_groups().last()
+        };
+        corner == Some(t.group_at)
     }
 
     /// 鼠标所在那一栏标签栏上 `hit` 的位置（悬停提示用）。
@@ -290,8 +426,7 @@ impl App {
 
     /// `(x, y)` 在正在用的一栏里：悬停的链接和上报给程序的鼠标移动只看这一栏。
     pub(crate) fn terminal_group_focused_at(&self, x: f32, y: f32) -> bool {
-        self.layout.terminal.contains(x, y)
-            && (self.terminal_group_at(x, y)).is_none_or(|at| at == self.terminal.group_at)
+        self.terminal_group_at(x, y) == Some(self.terminal.group_at)
     }
 
     /// 鼠标在第几栏里（见 [`Self::terminal_group_at`]）。
@@ -305,6 +440,7 @@ impl App {
     /// 其间不整理空栏、不建等着的标签（见 [`App::sync_terminal`]），换回来以后再做。
     pub(crate) fn with_terminal_group<T>(&mut self, at: usize, f: impl FnOnce(&mut App) -> T) -> T {
         let back = self.terminal.group_at;
+        let panel = self.terminal.panel_at;
         if at == back || at >= self.terminal.groups.len() {
             return f(self);
         }
@@ -313,6 +449,7 @@ impl App {
         let result = f(self);
         self.rotate_terminal_group(back);
         self.terminal.borrowed = borrowed;
+        self.terminal.panel_at = panel;
         if !borrowed && std::mem::take(&mut self.terminal.resync) {
             self.sync_terminal();
         }
@@ -320,7 +457,10 @@ impl App {
     }
 
     /// 把第 `at` 栏换成正在用的一栏，滚动条的显示状态跟着正在看的标签换。
-    fn rotate_terminal_group(&mut self, at: usize) {
+    pub(in crate::app) fn rotate_terminal_group(&mut self, at: usize) {
+        if at == self.terminal.group_at {
+            return;
+        }
         let area = [crate::app::ScrollArea::Terminal];
         if let Some(tab) = self.terminal.tab_mut() {
             self.scroll.bars.exchange(&mut tab.scrollbars, &area);
@@ -331,9 +471,13 @@ impl App {
         }
     }
 
-    /// 改用第 `at` 栏：焦点放进它正在看的标签。
+    /// 改用第 `at` 栏：焦点放进该栏正在看的标签；当前栏保持原有焦点。
     pub(in crate::app) fn focus_terminal_group(&mut self, at: usize) {
-        if at == self.terminal.group_at || at >= self.terminal.groups.len() {
+        if at >= self.terminal.group_count() || at == self.terminal.group_at {
+            return;
+        }
+        if let Some(document) = self.terminal.editor_at(at) {
+            self.focus_editor_terminal_document(document);
             return;
         }
         self.finish_terminal_rename(true);
@@ -362,18 +506,20 @@ impl App {
     /// `(x, y)` 所在那一栏标签栏上的按钮：不在用的一栏取它上一帧记下的。
     pub(in crate::app) fn terminal_hits_at(&self, x: f32, y: f32) -> &[(Rect, HeaderHit)] {
         match self.terminal_group_at(x, y) {
-            Some(at) if at != self.terminal.group_at => self
-                .hits
-                .terminal_groups
-                .get(at)
-                .map_or(&[][..], Vec::as_slice),
-            _ => &self.hits.terminal,
+            Some(at) if at != self.terminal.group_at || self.terminal.editor_at(at).is_some() => {
+                self.hits
+                    .terminal_groups
+                    .get(at)
+                    .map_or(&[][..], Vec::as_slice)
+            }
+            Some(_) => &self.hits.terminal,
+            None => &[],
         }
     }
 
     /// 正在看的标签能不能移到新的一栏：这一栏里不止它一个标签，否则移过去原来那一栏就空了。
     pub(crate) fn terminal_movable_to_group(&self) -> bool {
-        self.terminal.tabs.len() > 1 && !self.terminal.crashed
+        !self.terminal_in_editor() && self.terminal.tabs.len() > 1 && !self.terminal.crashed
     }
 
     /// 把正在看的标签移到正在用的一栏后面新加的一栏（标签和终端里的右键菜单、命令面板）：面板
@@ -395,9 +541,14 @@ impl App {
         let Some(mut from) = self.terminal.group_of(id) else {
             return;
         };
+        if let Some(document) = self.terminal.editor_at(from) {
+            self.move_editor_terminal_tab_to_panel(document, drop);
+            return;
+        }
         let to = match drop {
             GroupDrop::Into { group, .. } if group == from => return,
             GroupDrop::Into { group, .. } if group >= self.terminal.group_count() => return,
+            GroupDrop::Into { group, .. } if self.terminal.editor_at(group).is_some() => return,
             GroupDrop::Into { group, .. } => group,
             GroupDrop::New(at) => {
                 let at = at.min(self.terminal.group_count());
@@ -455,10 +606,25 @@ impl App {
         if !self.terminal_tab_dragged_out() {
             return None;
         }
-        let (x, y) = self.pointer.mouse;
-        let group = self.terminal_group_at(x, y)?;
-        let card = self.terminal_group_cards_in(self.layout.terminal)[group];
-        let focused = group == self.terminal.group_at;
+        self.terminal_panel_drop_at(self.pointer.mouse, Some(self.terminal.group_at))
+    }
+
+    /// 面板中的放置目标；来自编辑器时不受原栏中只有一个标签的限制。
+    pub(crate) fn terminal_panel_drop_at(
+        &self,
+        (x, y): (f32, f32),
+        from: Option<usize>,
+    ) -> Option<(GroupDrop, Rect)> {
+        if !self.layout.terminal.contains(x, y)
+            || self.overlay_covers(x, y)
+            || self.docked_search_shown()
+        {
+            return None;
+        }
+        let cards = self.terminal_group_cards_in(self.layout.terminal);
+        let group = cards.iter().position(|card| card.contains(x, y))?;
+        let card = cards[group];
+        let focused = Some(group) == from;
         let top = card.y + header_height(card);
         if y < top {
             return (!focused).then(|| self.terminal_tab_slot(group, card, x));
@@ -471,7 +637,7 @@ impl App {
         if r.min(1.0 - r) >= DROP_EDGE {
             return (!focused).then_some((GroupDrop::Into { group, at: None }, card));
         }
-        if focused && self.terminal.tabs.len() < 2 {
+        if focused && self.terminal.group_tabs(group).len() < 2 {
             return None;
         }
         let before = r < 0.5;
@@ -520,6 +686,20 @@ impl App {
         if self.terminal.borrowed {
             return;
         }
+        if self.terminal.want.is_empty() && self.terminal.run_queue.is_empty() {
+            while let Some((at, document)) =
+                (self.terminal.groups.iter().enumerate()).find_map(|(at, group)| {
+                    group
+                        .editor
+                        .filter(|_| self.terminal.group_tabs(at).is_empty())
+                        .map(|document| (at, document))
+                })
+            {
+                self.terminal.groups[at].editor = None;
+                self.terminal.groups[at].shown = false;
+                self.detach_terminal_editor_document(document);
+            }
+        }
         let area = [crate::app::ScrollArea::Terminal];
         if let Some(tab) = self.terminal.tab_mut() {
             self.scroll.bars.exchange(&mut tab.scrollbars, &area);
@@ -535,17 +715,22 @@ impl App {
         }
     }
 
-    /// 各栏之间的分隔线；没有分栏时为空。
+    /// 面板中相邻停靠栏之间的分隔线，不包含编辑器终端。
     pub(crate) fn terminal_group_dividers(&self) -> Vec<Rect> {
-        if self.terminal.groups.is_empty() {
-            return Vec::new();
-        }
         let card = self.layout.terminal;
         let cards = self.terminal_group_cards_in(card);
-        (cards.windows(2))
-            .map(|pair| match self.terminal_right() {
-                false => Rect::new(pair[0].right(), card.y, DIVIDER, card.h),
-                true => Rect::new(card.x, pair[0].bottom(), card.w, DIVIDER),
+        let mut panels = self.terminal.panel_groups();
+        let Some(mut previous) = panels.next() else {
+            return Vec::new();
+        };
+        panels
+            .map(|at| {
+                let line = match self.terminal_right() {
+                    false => Rect::new(cards[previous].right(), card.y, DIVIDER, card.h),
+                    true => Rect::new(card.x, cards[previous].bottom(), card.w, DIVIDER),
+                };
+                previous = at;
+                line
             })
             .collect()
     }
@@ -578,7 +763,7 @@ impl App {
     /// 把第 `index` 条分栏分隔线拖到 `(x, y)`：两侧的栏重新分配它们合起来的大小，各自不小于
     /// [`GROUP_MIN`]，其余栏不变。
     pub(in crate::app) fn drag_terminal_group_split(&mut self, index: usize, (x, y): (f32, f32)) {
-        let mut shares = self.terminal.group_shares();
+        let mut shares = self.terminal.panel_shares();
         if index + 1 >= shares.len() {
             return;
         }
@@ -601,7 +786,7 @@ impl App {
 
     /// 双击第 `index` 条分栏分隔线：两侧的栏平分它们合起来的大小。
     pub(in crate::app) fn reset_terminal_group_split(&mut self, index: usize) {
-        let mut shares = self.terminal.group_shares();
+        let mut shares = self.terminal.panel_shares();
         if index + 1 >= shares.len() {
             return;
         }
@@ -613,7 +798,13 @@ impl App {
 
     /// 按排列顺序设置各栏的份额 `shares`，并重新排版。
     fn set_terminal_group_shares(&mut self, shares: &[f32]) {
-        for (group, &share) in self.terminal.groups.iter_mut().zip(shares) {
+        for (group, &share) in self
+            .terminal
+            .groups
+            .iter_mut()
+            .filter(|group| group.editor.is_none())
+            .zip(shares)
+        {
             group.share = share;
         }
         self.relayout();

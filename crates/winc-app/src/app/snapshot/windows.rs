@@ -332,6 +332,25 @@ fn settings_written_back_keep_what_was_edited_in_the_file_meanwhile() {
 }
 
 #[test]
+fn settings_imported_in_one_window_reach_the_others() {
+    let (mut winc, a, b, dir) = two_windows("windows-config-import");
+    let path = dir.join("config.json");
+    for key in [a, b] {
+        winc.app(key).store.config_path = Some(path.clone());
+    }
+    let from = dir.join("settings.json");
+    std::fs::write(&from, r#"{"editor": {"size": 17}}"#).unwrap();
+    let pick = crate::app::workspace::files::Pick::ImportSettings;
+    winc.app(a).on_picked(pick, Some(from));
+    winc.settle_for_test();
+    assert_eq!(winc.app(b).config.editor_size, Some(17.0));
+    assert_eq!(winc.app(b).fonts.code, 17.0);
+    let config = winc.app(a).config.clone();
+    assert_eq!(winc.app(b).store.saved_config, config);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn files_cut_in_one_window_are_moved_when_pasted_in_another() {
     let (mut winc, a, b, dir) = two_windows("windows-cut");
     let file = dir.join("a.txt");
@@ -647,4 +666,136 @@ fn windows_share_one_background_layer() {
     }
     assert_eq!(std::sync::Arc::strong_count(&first), 1);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 两个各开一个目录的窗口（目录内容见 `search_folder`）：返回应用、两个窗口和各自的目录。
+fn two_folders(
+    name: &str,
+) -> (
+    Winc,
+    crate::winc::WindowKey,
+    crate::winc::WindowKey,
+    PathBuf,
+    PathBuf,
+) {
+    let from = search_folder(&format!("{name}-from"));
+    let into = search_folder(&format!("{name}-into"));
+    let mut winc = Winc::new(None, None);
+    let a = winc.add_detached(app_with(&from, false));
+    let b = winc.add_detached(app_with(&into, false));
+    paint(winc.app(a));
+    paint(winc.app(b));
+    (winc, a, b, from, into)
+}
+
+/// 返回窗口 `app` 的文件树中名字以 `name` 开头的一行的路径。
+fn tree_path(app: &App, name: &str) -> PathBuf {
+    let rows = app.editor.workspace.as_ref().unwrap().rows();
+    rows[row_of(app, name)].path.clone()
+}
+
+/// 返回窗口 `app` 的文件树中名字以 `name` 开头的一行的中心（逻辑像素）。
+fn row_center(app: &App, name: &str) -> (f32, f32) {
+    tree_row_center(app, row_of(app, name))
+}
+
+/// 在窗口 `app` 的文件树中按住名字以 `name` 开头的一行，拖到窗口右边之外，不松开鼠标。
+fn drag_out_right(app: &mut App, name: &str) {
+    let (x, y) = tree_row_center(app, row_of(app, name));
+    app.on_mouse_move(x, y);
+    app.on_mouse_down(MouseButton::Left);
+    app.on_mouse_move(x + 10.0, y);
+    app.on_mouse_move(app.layout.window.right() + 40.0, y);
+}
+
+/// 拖到另一个窗口的文件树上：由目标窗口标出落点，不交给系统的拖放；松开时移进落点所在的
+/// 目录（同一台主机上），并切到目标窗口。
+#[test]
+fn tree_items_dragged_onto_another_window_land_where_it_marks() {
+    let (mut winc, a, b, from, into) = two_folders("windows-tree-drag");
+    let file = tree_path(winc.app(a), "a.txt");
+    let dir = tree_path(winc.app(b), "src");
+    let (x, y) = row_center(winc.app(b), "src");
+    winc.app(b).on_mouse_move(x, y);
+    winc.app(a).link.shared.cursor_window.set(Some(b));
+
+    drag_out_right(winc.app(a), "a.txt");
+    assert!(winc.app(a).panels.tree.dragged_out.is_empty());
+    winc.settle_for_test();
+    assert_eq!(winc.app(b).file_hover(), Some(&DropZone::Tree(dir.clone())));
+
+    winc.app(a).on_mouse_up(MouseButton::Left);
+    let (requests, _) = winc.settle_for_test();
+    assert_eq!(requests, [Request::Focus(b)]);
+    assert_eq!(winc.app(b).file_hover(), None);
+    assert!(dir.join("a.txt").is_file());
+    assert!(!file.exists());
+    let _ = std::fs::remove_dir_all(&from);
+    let _ = std::fs::remove_dir_all(&into);
+}
+
+/// 光标回到发起的窗口、按 Esc 取消时，另一个窗口不再标出落点，什么都不放下；按着 `⌥` 松开时
+/// 复制，原处保留。
+#[test]
+fn tree_items_dragged_to_another_window_are_copied_with_alt_and_kept_when_cancelled() {
+    let (mut winc, a, b, from, into) = two_folders("windows-tree-drag-copy");
+    let file = tree_path(winc.app(a), "a.txt");
+    let dir = tree_path(winc.app(b), "src");
+    let (x, y) = row_center(winc.app(b), "src");
+    winc.app(b).on_mouse_move(x, y);
+    let shared = winc.app(a).link.shared.clone();
+
+    shared.cursor_window.set(Some(b));
+    drag_out_right(winc.app(a), "a.txt");
+    winc.settle_for_test();
+    assert!(winc.app(b).file_hover().is_some());
+    shared.cursor_window.set(None);
+    let (ax, ay) = row_center(winc.app(a), "src");
+    winc.app(a).on_mouse_move(ax, ay);
+    winc.settle_for_test();
+    assert_eq!(winc.app(b).file_hover(), None, "回到发起的窗口");
+
+    shared.cursor_window.set(Some(b));
+    let right = winc.app(a).layout.window.right();
+    winc.app(a).on_mouse_move(right + 40.0, ay);
+    winc.settle_for_test();
+    assert!(winc.app(b).file_hover().is_some());
+    winc.app(a).cancel_tree_drag();
+    winc.app(a).on_mouse_up(MouseButton::Left);
+    winc.settle_for_test();
+    assert_eq!(winc.app(b).file_hover(), None, "取消");
+    assert!(file.is_file() && !dir.join("a.txt").exists());
+
+    drag_out_right(winc.app(a), "a.txt");
+    winc.app(a).pointer.modifiers = winit::keyboard::ModifiersState::ALT;
+    winc.app(a).on_mouse_up(MouseButton::Left);
+    winc.app(a).pointer.modifiers = winit::keyboard::ModifiersState::empty();
+    winc.settle_for_test();
+    assert!(file.is_file() && dir.join("a.txt").is_file());
+    let _ = std::fs::remove_dir_all(&from);
+    let _ = std::fs::remove_dir_all(&into);
+}
+
+/// 另一个窗口中文件树和终端以外的位置不接收文件树中拖动的项：不标出落点，松开时不处理。
+#[test]
+fn tree_items_dragged_onto_another_window_s_editor_are_not_dropped() {
+    let (mut winc, a, b, from, into) = two_folders("windows-tree-drag-editor");
+    let file = tree_path(winc.app(a), "a.txt");
+    let editor = winc.app(b).layout.editor;
+    winc.app(b)
+        .on_mouse_move(editor.x + editor.w / 2.0, editor.y + editor.h / 2.0);
+    winc.app(a).link.shared.cursor_window.set(Some(b));
+
+    drag_out_right(winc.app(a), "a.txt");
+    winc.settle_for_test();
+    assert_eq!(winc.app(b).file_hover(), None);
+    winc.app(a).on_mouse_up(MouseButton::Left);
+    winc.settle_for_test();
+    assert!(file.is_file());
+    assert_eq!(
+        winc.app(b).editor.active().and_then(|d| d.path.clone()),
+        None
+    );
+    let _ = std::fs::remove_dir_all(&from);
+    let _ = std::fs::remove_dir_all(&into);
 }

@@ -205,7 +205,7 @@ fn the_group_divider_resizes_groups() {
     app.pointer.last_click = None;
     click(&mut app, at);
     click(&mut app, at);
-    let shares = app.terminal.group_shares();
+    let shares = app.terminal.panel_shares();
     assert!((shares[0] - shares[1]).abs() < 1e-3, "{shares:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -228,7 +228,7 @@ fn a_shell_exiting_in_another_group_closes_it_there() {
 fn groups_are_kept_in_the_session() {
     let (mut app, dir, _log) = grouped("terminal-groups-session");
     move_to_group(&mut app);
-    let session = app.terminal_session().expect("有终端");
+    let session = app.terminal_session_with_tabs(&[]).expect("有终端");
     assert_eq!(session.tabs.len(), 2);
     assert_eq!(session.active, 1);
     let counts: Vec<usize> = session.groups.iter().map(|g| g.tabs).collect();

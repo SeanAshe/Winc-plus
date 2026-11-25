@@ -1,7 +1,7 @@
-//! 处理从系统文件管理器等来源拖入窗口的文件和目录。
+//! 处理从系统文件管理器等来源，以及从另一个窗口的文件树拖入窗口的文件和目录。
 //!
-//! 拖动经过窗口时标出松手后的落点：落在文件树上时复制进落点所在的目录，落在终端上时输入转义
-//! 后的路径，落在其他位置（编辑区等）时打开。
+//! 拖动经过窗口时标出落点：文件树上复制进落点所在的目录，终端上输入转义后的路径，其他位置打开。
+//! 另一个窗口的文件树拖来的项只放进文件树或终端，规则同窗口内拖动（见 `tree_drag.rs`）。
 //!
 //! 系统只在拖入窗口、拖出窗口和松手时各通知一次（`HoveredFile`、`HoveredFileCancelled`、
 //! `DroppedFile`），拖动移动过程中既没有通知也没有鼠标移动事件。经过窗口期间按 [`POLL`] 的间隔
@@ -73,6 +73,54 @@ impl App {
         self.update_file_hover();
     }
 
+    /// 另一个窗口的文件树中拖动的 `paths` 经过本窗口（`copy` 为是否按着 `⌥`）：按光标此刻的
+    /// 位置标出落点。
+    pub(crate) fn drag_over(&mut self, paths: &[PathBuf], copy: bool) {
+        match &mut self.panels.dragged_in {
+            Some((dragged, held)) if dragged.as_slice() == paths => *held = copy,
+            dragged => *dragged = Some((paths.to_vec(), copy)),
+        }
+        self.update_file_hover();
+    }
+
+    /// 另一个窗口的文件树中拖动的项离开了本窗口，或拖动已取消：不再标出落点。
+    pub(crate) fn drag_left(&mut self) {
+        self.panels.dragged_in = None;
+        self.end_file_hover();
+    }
+
+    /// 在本窗口上松开了另一个窗口的文件树中拖动的 `paths`（`copy` 为是否按着 `⌥`）。
+    ///
+    /// 落在文件树中的目录上时按 [`App::drop_entries`] 移动或复制进去，落在终端上时插入各项的
+    /// 路径，落在其他位置或放下没有效果时不处理。
+    pub(crate) fn drop_dragged_in(&mut self, paths: Vec<PathBuf>, copy: bool) {
+        self.panels.dragged_in = None;
+        self.end_file_hover();
+        let (x, y) = self.drop_point();
+        match self.dragged_in_zone(&paths, copy, x, y) {
+            Some(DropZone::Tree(dir)) => self.drop_entries(paths, dir, copy),
+            Some(DropZone::Terminal) => {
+                // 光标的移动事件都发给了发起拖动的窗口，本窗口记着的位置是旧的。
+                self.pointer.mouse = (x, y);
+                for path in &paths {
+                    self.drop_path_on_terminal(path);
+                }
+            }
+            Some(DropZone::Open(_)) | None => {}
+        }
+        self.request_redraw();
+    }
+
+    /// 返回另一个窗口的文件树中拖动的 `paths` 在 (`x`, `y`) 处松开时的落点：可以放进的目录
+    /// （见 `tree_drag::drop_dir`）或终端；其他位置、放下没有效果时返回 `None`。
+    fn dragged_in_zone(&self, paths: &[PathBuf], copy: bool, x: f32, y: f32) -> Option<DropZone> {
+        match self.drop_zone(x, y) {
+            DropZone::Tree(dir) => super::tree_drag::drop_dir(paths, dir, copy).map(DropZone::Tree),
+            DropZone::Terminal => Some(DropZone::Terminal),
+            DropZone::Open(_) => None,
+        }
+    }
+
     /// 拖出了窗口或松了手：不再标出落点。
     pub(in crate::app) fn end_file_hover(&mut self) {
         if self.panels.file_hover.take().is_some() {
@@ -91,7 +139,10 @@ impl App {
     /// 按鼠标当前位置重新计算落点，落点变化时才请求重绘。
     fn update_file_hover(&mut self) {
         let (x, y) = self.drop_point();
-        let zone = Some(self.drop_zone(x, y));
+        let zone = match &self.panels.dragged_in {
+            Some((paths, copy)) => self.dragged_in_zone(paths, *copy, x, y),
+            None => Some(self.drop_zone(x, y)),
+        };
         if zone != self.panels.file_hover {
             self.panels.file_hover = zone;
             self.request_redraw();

@@ -269,6 +269,55 @@ fn the_log_follows_the_repository_and_file_histories_stay() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// 右键另一个仓库中的文件：菜单中有「显示文件历史」，打开的是该文件所在仓库的历史；不在任何
+/// 仓库中的文件没有这一项。
+#[test]
+fn files_in_another_repository_show_that_repository_s_history() {
+    use crate::app::input::context_menu::{MenuCommand, MenuTarget};
+
+    let dir = search_folder("git-history-other-repository");
+    let (a, b) = (dir.join("a"), dir.join("b"));
+    for repo in [&a, &b] {
+        std::fs::create_dir_all(repo.join("src")).unwrap();
+        std::fs::write(repo.join("src/main.rs"), "fn main() {}\n").unwrap();
+        if !make_repo(repo) {
+            return;
+        }
+    }
+    let mut app = app_with(&dir, false);
+    app.config.repository_scan_depth = Some(1);
+    app.settings_toggle(Setting::GitModule);
+    if git_unusable(&app) {
+        return;
+    }
+    let dir = app.editor.root().unwrap().to_path_buf();
+    let (a, b) = (dir.join("a"), dir.join("b"));
+    assert_eq!(app.git.root.as_ref(), Some(&a));
+    let history = |app: &mut App, path: &Path| {
+        app.open_context_menu(MenuTarget::Tree(Some(path.to_path_buf())), (0.0, 0.0));
+        let found = menu_commands(app).contains(&(MenuCommand::FileHistory, true));
+        app.overlays.context_menu = None;
+        found
+    };
+
+    // 右键的行要在文件树中显示出来。
+    let file = b.join("src/main.rs");
+    app.editor.workspace.as_mut().unwrap().reveal(&file);
+    assert!(history(&mut app, &file));
+    assert!(!history(&mut app, &dir.join("a.txt")), "不在任何仓库中");
+
+    app.open_context_menu(MenuTarget::Tree(Some(file.clone())), (0.0, 0.0));
+    app.run_menu_command(MenuCommand::FileHistory);
+    let view = log(&app, true);
+    assert_eq!(view.root.as_ref(), Some(&b));
+    assert_eq!(view.query.path.as_ref(), Some(&file));
+    // 切到历史标签后当前仓库跟过去。
+    app.git_follow_active();
+    assert_eq!(app.git.root.as_ref(), Some(&b));
+
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 /// 目录本身就是仓库时只用它，子目录没有仓库时不显示仓库一组。
 #[test]
 fn a_single_repository_lists_only_itself() {

@@ -29,6 +29,7 @@ mod merge;
 mod module;
 mod question;
 mod rebase;
+mod repo_list;
 mod repository;
 mod rewrite;
 mod worktree;

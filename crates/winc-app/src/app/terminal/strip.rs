@@ -308,7 +308,7 @@ impl App {
         if index >= self.terminal.tabs.len() {
             return;
         }
-        if !self.terminal.open {
+        if !self.terminal.open && !self.terminal_in_editor() {
             self.set_terminal_open(true);
         }
         let tab = &self.terminal.tabs[index];
@@ -341,6 +341,7 @@ impl App {
         if self.focus == Focus::TerminalRename {
             self.focus = Focus::Terminal;
         }
+        self.sync_terminal_editor_titles();
         self.ime.field_preedit.clear();
         self.request_redraw();
     }
@@ -420,6 +421,7 @@ impl App {
     pub(crate) fn release_terminal_tab(&mut self) {
         let outside = self.terminal_tab_dragged_out();
         let drop = self.terminal_tab_drop();
+        let editor = self.terminal_editor_drop();
         let Some(drag) = self.terminal.strip.drag.take() else {
             return;
         };
@@ -427,7 +429,9 @@ impl App {
             return;
         }
         if outside {
-            if let Some((drop, _)) = drop {
+            if let Some((drop, _)) = editor {
+                self.move_terminal_tab_to_editor(drag.id, drop);
+            } else if let Some((drop, _)) = drop {
                 self.move_terminal_tab(drag.id, drop);
             }
             self.request_redraw();

@@ -106,7 +106,7 @@ pub(super) fn draw_stashes(
         // 右端：平时是分支和时间，悬停时换成「应用」和「⋯」。
         let mut right = row.right() - END_PAD;
         if hovered {
-            let (_, more) = file_actions(row);
+            let more = end_slot(row);
             let on = app.pointer.hover == Hover::Commit(CommitTarget::StashMenu(i));
             draw_button(frame, p, more, clip, on, false);
             let color = if on { p.text } else { p.text_muted };

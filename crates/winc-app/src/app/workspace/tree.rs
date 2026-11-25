@@ -356,9 +356,13 @@ impl App {
     pub(crate) fn overflow_candidate(&self) -> Option<usize> {
         let idle = self.panels.sidebar.motion.is_none() && matches!(self.pointer.drag, Drag::None);
         // 拖动文件时没有悬停目标，放不下的名称同样要显示，才看得到、放得进那几级目录。
-        let pointing = matches!(self.pointer.hover, Hover::TreeRow(_) | Hover::Splitter)
-            || self.tree_dragging().is_some_and(|drag| drag.active);
+        // 鼠标在分隔条上时只保持已展开的那一行：从编辑区一侧移到分隔条上不展开，分隔条可以拖动。
         let (_, y) = self.pointer.mouse;
+        let pointing = match self.pointer.hover {
+            Hover::TreeRow(_) => true,
+            Hover::Splitter => self.over_tree_overflow_row(y),
+            _ => false,
+        } || self.tree_dragging().is_some_and(|drag| drag.active);
         let tree = self.layout.tree;
 
         if !(idle && pointing && (tree.y..tree.bottom()).contains(&y)) {

@@ -641,6 +641,12 @@ impl App {
             menu.push(MenuEntry::Separator);
             menu.push(MenuEntry::Item(MenuCommand::LocationRemove, removable));
         }
+        // 仓库选择器中的仓库：可以从列表中移除，列表里至少留一个。
+        if self.git.location_all && self.git.repositories.iter().any(|r| r == path) {
+            let more = self.git.repositories.len() >= 2;
+            menu.push(MenuEntry::Separator);
+            menu.push(MenuEntry::Item(MenuCommand::LocationForget, more));
+        }
         menu
     }
 

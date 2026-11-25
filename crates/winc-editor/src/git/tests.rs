@@ -6,6 +6,7 @@
 use super::*;
 
 mod commit;
+mod discover;
 mod history;
 mod locate;
 mod pathspec;
@@ -1141,41 +1142,6 @@ fn recent_branches_keep_the_latest_switch_of_each_branch() {
         parse_recent_branches(output),
         ["feature/login", "main", "dev"]
     );
-}
-
-#[test]
-fn scanning_finds_nested_repositories_within_the_depth() {
-    let dir = crate::test_util::scratch("git-scan");
-    let mark = |path: &str| std::fs::create_dir_all(dir.join(path).join(".git")).unwrap();
-    mark("a");
-    mark("group/b");
-    mark("group/deep/c");
-    // 找到的仓库不再往里找；依赖目录、隐藏目录都跳过。
-    mark("a/inner");
-    mark("node_modules/pkg");
-    mark(".cache/d");
-
-    let names = |depth| -> Vec<PathBuf> {
-        scan_repositories(&dir, depth, &Cancel::default())
-            .into_iter()
-            .map(|path| path.strip_prefix(&dir).unwrap().to_path_buf())
-            .collect()
-    };
-    assert_eq!(names(1), [PathBuf::from("a")]);
-    assert_eq!(names(2), [PathBuf::from("a"), PathBuf::from("group/b")]);
-    assert_eq!(
-        names(3),
-        [
-            PathBuf::from("a"),
-            PathBuf::from("group/b"),
-            PathBuf::from("group/deep/c"),
-        ]
-    );
-
-    let cancelled = Cancel::default();
-    cancelled.cancel();
-    assert!(scan_repositories(&dir, 3, &cancelled).is_empty());
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// 启动要求 HTTP 基本认证的本地服务：总是返回 401，并把收到的 `Authorization` 写入通道。

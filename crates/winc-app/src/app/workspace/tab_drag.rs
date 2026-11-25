@@ -135,8 +135,13 @@ impl App {
         let drag = *drag;
         self.panes.drop = None;
         if outside {
-            let copy = self.pointer.modifiers.alt_key();
-            self.panes.drop = self.tab_drop_at(&self.dragged_block(drag), (x, y), copy);
+            let docs = self.dragged_block(drag);
+            self.reveal_terminal_drag_panel(&docs);
+            let copy = self.pointer.modifiers.alt_key()
+                && docs
+                    .iter()
+                    .any(|id| self.editor.document(*id).is_some_and(|doc| !doc.terminal));
+            self.panes.drop = self.tab_drop_at(&docs, (x, y), copy);
         } else {
             self.reorder_dragged_tab();
         }
@@ -169,7 +174,9 @@ impl App {
     /// 结束拖动但不放到其他窗格（切到其他应用时收不到松开）。
     pub(in crate::app) fn cancel_tab_drag(&mut self) {
         self.panes.drop = None;
-        self.release_tab();
+        self.tabs.drag = None;
+        self.finish_terminal_drag_panel();
+        self.request_redraw();
     }
 
     /// 处理鼠标松开：拖动中的标签从松开处滑回它在标签栏中的位置。
@@ -190,11 +197,23 @@ impl App {
         if drag.outside {
             // 松开前才按下或放开 `⌥` 时，放置目标按松开时的重新计算。
             let docs = self.dragged_block(drag);
-            let copy = self.pointer.modifiers.alt_key();
+            let copy = self.pointer.modifiers.alt_key()
+                && docs
+                    .iter()
+                    .any(|id| self.editor.document(*id).is_some_and(|doc| !doc.terminal));
             self.panes.drop = None;
-            if let Some((drop, _)) = self.tab_drop_at(&docs, self.pointer.mouse, copy) {
+            if let Some((mut drop, _)) = self.editor_terminal_panel_drop(&docs) {
+                for document in docs {
+                    self.move_editor_terminal_tab_to_panel(document, drop);
+                    drop = crate::app::terminal::groups::GroupDrop::Into {
+                        group: self.terminal.group_at,
+                        at: None,
+                    };
+                }
+            } else if let Some((drop, _)) = self.tab_drop_at(&docs, self.pointer.mouse, copy) {
                 self.drop_tabs(&docs, drag.id, drop, copy);
             }
+            self.finish_terminal_drag_panel();
             self.request_redraw();
             return;
         }
@@ -431,6 +450,7 @@ impl App {
             name,
             icon,
             log: doc.log.is_some(),
+            terminal: doc.terminal,
             active: self.editor.active == Some(index),
             fade,
             clock,

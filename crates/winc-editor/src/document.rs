@@ -5,6 +5,7 @@
 //! 换行风格、BOM）和检查外部修改。
 
 use std::borrow::Cow;
+use std::cell::Cell;
 use std::io::{self, BufReader, Read, Write};
 use std::ops::Range;
 use std::path::{Path, PathBuf};
@@ -428,6 +429,26 @@ pub const EDIT_LIMIT: u64 = 16 << 20;
 /// 跨过这一距离，起始位置以上 256 行内没有未闭合的块注释或字符串时结果才与从头推算相同。
 const HIGHLIGHT_LOOKBACK: usize = 256;
 
+/// 返回文字 `text` 中各行 `lines`（从 0 起，从小到大）行首的高亮状态，按 `language` 推算；供
+/// 不打开文件、只显示其中几行的预览和搜索结果使用。
+///
+/// 从文件开头推算，结果与打开文件后相同，各行共用推算的结果；推算到某一行要再推算的行数超过
+/// `budget` 时，该行从上方 `HIGHLIGHT_LOOKBACK` 行处推算，与打开大文件时相同。
+pub fn line_highlight_states(
+    text: &ropey::Rope,
+    language: &'static winc_syntax::Language,
+    lines: &[usize],
+    budget: usize,
+) -> Vec<LineState> {
+    let mut highlighter = Highlighter::new(language);
+    (lines.iter())
+        .map(|&line| {
+            (highlighter.state_at(text, line, budget))
+                .unwrap_or_else(|| highlighter.state_near(text, line, HIGHLIGHT_LOOKBACK))
+        })
+        .collect()
+}
+
 /// 粘滞滚动每帧最多向后推算的高亮行数（行，4000）。
 ///
 /// 与编辑区绘制时的每帧预算取同一个值：推算不完时本次结果不缓存，下一帧重新计算。该值取自调参，
@@ -492,6 +513,8 @@ pub struct Document {
     pub log: Option<Box<crate::git::log::LogView>>,
     /// 编辑区按十六进制显示文件的字节，而不是文本；只读，文本为空。
     pub hex: Option<Box<crate::hex::HexView>>,
+    /// 编辑区显示终端而不是文本；会话由界面层管理，没有对应的文件。
+    pub terminal: bool,
     /// 切换到预览之前的 `readonly`：SVG 的预览期间强制只读，切回源代码时恢复该值。
     readonly_before_preview: bool,
     /// 分栏预览（`PreviewMode::Split`）：文本仍然显示，右侧的预览由界面管理。
@@ -527,6 +550,10 @@ pub struct Document {
     pub(crate) marks: Marks,
     /// 其他窗格里这个文档的视图状态；文本变化时随之移动。
     pub(crate) parked: Parked,
+    /// CSV、TSV 是否按列对齐显示（见 [`Editor::set_align_columns`](crate::Editor)）。
+    align_columns: bool,
+    /// 表格的分隔符（[`Document::delimiter`]），按（版本、语言）缓存。
+    delimiter_memo: Cell<Option<(u64, &'static str, Option<char>)>>,
     /// CSV、TSV 按列对齐时每一列的起始位置，按（版本、Tab 宽度）缓存。
     columns: Option<ColumnsCache>,
     /// 上一次测量列宽时的文字和各列宽度；文字变化时只重新测量改动的行。
@@ -620,6 +647,7 @@ impl Document {
             diff: None,
             log: None,
             hex: None,
+            terminal: false,
             readonly_before_preview: false,
             split: false,
             rendered: false,
@@ -636,6 +664,8 @@ impl Document {
             bookmarks: Bookmarks::default(),
             marks: Marks::default(),
             parked: Parked::default(),
+            align_columns: true,
+            delimiter_memo: Cell::new(None),
             columns: None,
             column_widths: None,
             fold_cache: None,
@@ -697,7 +727,7 @@ impl Document {
     ///
     /// 当前内容作为保存基线：不修改时关闭不询问是否保存。不是输出标签时不做处理。
     pub fn make_untitled(&mut self) {
-        if self.reading.is_some() || self.diff.is_some() || self.log.is_some() {
+        if self.reading.is_some() || self.diff.is_some() || self.log.is_some() || self.terminal {
             return;
         }
         if let Some(title) = self.title.take() {
@@ -752,6 +782,15 @@ impl Document {
         document.title = Some(title.to_owned());
         document.readonly = true;
         document.log = Some(Box::new(view));
+        document
+    }
+
+    /// 创建终端标签，标题为 `title`；没有文本和文件，会话由界面层管理。
+    pub fn terminal(id: DocumentId, title: &str) -> Self {
+        let mut document = Self::empty(id);
+        document.title = Some(title.to_owned());
+        document.readonly = true;
+        document.terminal = true;
         document
     }
 
@@ -882,9 +921,38 @@ impl Document {
         Some(Columns::measure(separator, rope.chunks(), tab_width))
     }
 
-    /// 按列对齐时的分隔符；不是表格、是大文件或超过 `ALIGN_MAX` 时为 `None`。
+    /// 按列对齐时的分隔符（[`Document::delimiter`]）；关闭了按列对齐、不是表格、是大文件或超过
+    /// `ALIGN_MAX` 时为 `None`。
     fn column_separator(&self) -> Option<char> {
-        let separator = match self.highlighter.language().id {
+        let Content::Rope(rope) = &self.text else {
+            return None;
+        };
+        if !self.align_columns || rope.len_bytes() > ALIGN_MAX {
+            return None;
+        }
+        self.delimiter()
+    }
+
+    /// 返回表格（CSV、TSV）分列的字符：TSV 为制表符，CSV 为逗号，第一行中分号多于逗号时为分号。
+    /// 不是表格或是大文件时返回 `None`。
+    ///
+    /// 按列着色和按列对齐都按该字符分列。绘制时每一行都要查询，结果按（版本、语言）缓存。
+    pub fn delimiter(&self) -> Option<char> {
+        let language = self.highlighter.language().id;
+        if let Some((revision, id, delimiter)) = self.delimiter_memo.get()
+            && revision == self.revision
+            && id == language
+        {
+            return delimiter;
+        }
+        let delimiter = self.find_delimiter(language);
+        (self.delimiter_memo).set(Some((self.revision, language, delimiter)));
+        delimiter
+    }
+
+    /// 按语言 `language` 和第一行的内容确定表格的分隔符，规则见 [`Document::delimiter`]。
+    fn find_delimiter(&self, language: &str) -> Option<char> {
+        let separator = match language {
             "csv" => ',',
             "tsv" => '\t',
             _ => return None,
@@ -892,18 +960,27 @@ impl Document {
         let Content::Rope(rope) = &self.text else {
             return None;
         };
-        if rope.len_bytes() > ALIGN_MAX {
-            return None;
-        }
-        // 第一行中分号多于逗号时，CSV 按分号分列。
         let first = rope.line(0);
         let count = |c: char| first.chars().filter(|&x| x == c).count();
-        let separator = if separator == ',' && count(';') > count(',') {
+        Some(if separator == ',' && count(';') > count(',') {
             ';'
         } else {
             separator
-        };
-        Some(separator)
+        })
+    }
+
+    /// CSV、TSV 是否按列对齐显示（见 [`Document::set_align_columns`]）。
+    pub(crate) fn aligns_columns(&self) -> bool {
+        self.align_columns
+    }
+
+    /// 设置 CSV、TSV 是否按列对齐显示；关闭时按原文排布，仍按列着色，可以自动换行。
+    pub(crate) fn set_align_columns(&mut self, align: bool) {
+        if self.align_columns != align {
+            self.align_columns = align;
+            self.columns = None;
+            self.column_widths = None;
+        }
     }
 
     /// 创建对应文件已不在磁盘上的文档：内容为空，未保存的内容只能从备份恢复

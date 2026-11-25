@@ -696,6 +696,19 @@ pub fn shortcut(action: Action) -> Option<String> {
         .map(|b| b.label(Os::CURRENT))
 }
 
+/// 返回在编辑区按下 `stroke`（或以它开头的组合键）时生效的第一条绑定；没有时返回 `None`。
+///
+/// 单按即可触发的绑定在前，组合键在后。
+pub fn editor_binding(stroke: Stroke) -> Option<Binding> {
+    let table = current();
+    let editor = |b: &&Binding| {
+        b.first == stroke && (b.when.covers(Context::Editor) || b.when.covers(Context::Markdown))
+    };
+    let mut found = table.iter().filter(editor);
+    let single = found.clone().find(|b| b.second.is_none());
+    single.or_else(|| found.next()).copied()
+}
+
 /// 返回 `action` 在 `context` 中可用的单段按键（不含组合键）。
 ///
 /// 结果供右键菜单显示。

@@ -72,7 +72,11 @@ pub(crate) fn base(app: &App) -> [(Rect, Color); 3] {
 
 /// 绘制编辑区；差异和日志的点击区域裁剪在编辑区内，包括终端最大化后的零宽、零高区域。
 fn draw_editor(app: &mut App, frame: &mut Frame<'_>) {
-    editor::draw_editor(app, frame);
+    if app.editor.active().is_some_and(|doc| doc.terminal) {
+        terminal::draw_editor_terminal(app, frame);
+    } else {
+        editor::draw_editor(app, frame);
+    }
     for (rect, _) in &mut app.hits.diff {
         *rect = rect.intersect(app.layout.editor);
     }
@@ -108,6 +112,18 @@ fn draw_pane_dividers(app: &App, frame: &mut Frame<'_>) {
 /// 标签栏上时画出插入处的竖线。
 fn draw_tab_drop(app: &App, frame: &mut Frame<'_>) {
     use crate::app::workspace::panes::TabDrop;
+    if let Some((drop, area)) = app.editor_terminal_panel_drop(&app.tabs_dragged_out()) {
+        if matches!(
+            drop,
+            crate::app::terminal::groups::GroupDrop::Into { at: Some(_), .. }
+        ) {
+            frame.rect(area, app.palette.accent);
+        } else {
+            let area = area.inset(6.0, 6.0);
+            frame.rect_clipped(area, app.palette.drop_target, RADIUS_ISLAND - 4.0, area);
+        }
+        return;
+    }
     match app.panes.drop {
         Some((TabDrop::Into { at: Some(_), .. }, line)) => {
             frame.rect(line, app.palette.accent);
@@ -377,8 +393,16 @@ fn draw_tab_drag(app: &App, frame: &mut Frame<'_>) {
         1 => ellipsize(frame, &file, app.fonts.ui, 240.0),
         n => Cow::Owned(t!("workspace-tree-drag-items", count = n)),
     };
-    let (card, icon_x, cy) = draw_drag_card(app, frame, name);
-    draw_file_icon(frame, app.palette, (icon_x + 1.5, cy), &file, card);
+    let (card, icon_x, cy) = if doc.terminal {
+        draw_move_card(app, frame, &name)
+    } else {
+        draw_drag_card(app, frame, name)
+    };
+    if doc.terminal {
+        icons::terminal(frame, (icon_x + 6.0, cy), app.palette.text_muted, card);
+    } else {
+        draw_file_icon(frame, app.palette, (icon_x + 1.5, cy), &file, card);
+    }
 }
 
 /// 在鼠标右下方画拖动时的卡片和名称 `name`（按住 `⌥` 时注明复制），返回卡片、图标的横坐标和

@@ -13,7 +13,9 @@ use crate::lines::{LineMatch, search_lines};
 use crate::matcher::Matcher;
 use crate::query::Filter;
 use crate::scan::search_file;
-use crate::walk::{dependency_folders, is_listed_file, walker, walker_with_ignored};
+use crate::walk::{
+    dependency_folders, is_listed_file, nested_repositories, walker, walker_with_ignored,
+};
 
 /// 并行读文件的线程数上限（个，含取文件的线程）。
 ///
@@ -28,6 +30,8 @@ const QUEUE_MAX: usize = 1024;
 /// 搜索哪些文件。
 pub enum Scope {
     /// 遍历这些目录下的全部文件，按 `filter` 过滤；`ignored` 为是否也搜索被忽略的文件。
+    ///
+    /// 不搜索被忽略的文件时，其中的嵌套版本库（见 [`nested_repositories`]）按各自的忽略规则搜索。
     Tree {
         /// 依次遍历的目录，各自按所在的仓库判断忽略规则。
         dirs: Vec<PathBuf>,
@@ -43,8 +47,8 @@ pub enum Scope {
 }
 
 impl Scope {
-    /// 依次给出要搜索的文件；目录边遍历边给出。
-    pub fn paths(&self) -> Box<dyn Iterator<Item = PathBuf> + '_> {
+    /// 依次给出要搜索的文件；目录边遍历边给出。`stop` 置位后查找嵌套版本库提前结束。
+    pub fn paths<'a>(&'a self, stop: &'a AtomicBool) -> Box<dyn Iterator<Item = PathBuf> + 'a> {
         let files = |builder: ignore::WalkBuilder| {
             (builder.build().flatten())
                 .filter(|entry| {
@@ -58,13 +62,24 @@ impl Scope {
                 filter,
                 ignored,
             } => Box::new(dirs.iter().flat_map(move |dir| {
-                let mut builder = if *ignored {
-                    walker_with_ignored(dir)
-                } else {
-                    walker(dir)
+                let walk = move |root: &Path| {
+                    let mut builder = if *ignored {
+                        walker_with_ignored(root)
+                    } else {
+                        walker(root)
+                    };
+                    builder.overrides(filter.pruning());
+                    files(builder).filter(|path| filter.includes(path))
                 };
-                builder.overrides(filter.pruning());
-                files(builder).filter(|path| filter.includes(path))
+                // 目录走完之后再找嵌套版本库，先给出的结果不必等待查找。
+                let nested = std::iter::once(*ignored).flat_map(move |ignored| {
+                    let roots = match ignored {
+                        true => Vec::new(),
+                        false => nested_repositories(dir, stop),
+                    };
+                    roots.into_iter().flat_map(move |root| walk(&root))
+                });
+                walk(dir).chain(nested)
             })),
             Scope::Dependencies(dirs) => Box::new(
                 (dirs.iter())

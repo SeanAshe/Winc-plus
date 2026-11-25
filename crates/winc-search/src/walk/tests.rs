@@ -86,3 +86,47 @@ fn changed_paths_are_probed_like_the_walk_sees_them() {
     );
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// 被上级版本库整个忽略、自身又是版本库的目录是嵌套版本库；被忽略的普通目录（及其中的版本库）、
+/// 没被忽略的版本库都不算，嵌套版本库里再被忽略的版本库一并找出。
+#[test]
+fn ignored_repositories_below_a_folder_are_found() {
+    let root = std::env::temp_dir().join(format!("winc-search-nested-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    for dir in [
+        ".git",
+        "sub/.git",
+        "sub/lib/.git",
+        "sub/vendor/x/.git",
+        "other",
+        "kept/.git",
+    ] {
+        std::fs::create_dir_all(root.join(dir)).unwrap();
+    }
+    std::fs::write(root.join(".gitignore"), "/sub/\n/other/\n").unwrap();
+    std::fs::write(root.join("sub/.gitignore"), "vendor/\n/lib/\n").unwrap();
+
+    let found = nested_repositories(&root, &AtomicBool::new(false));
+    assert_eq!(found, [root.join("sub"), root.join("sub/lib")]);
+
+    // 内容搜索遍历这些版本库，各按自己的规则。
+    std::fs::write(root.join("sub/pom.xml"), "x").unwrap();
+    std::fs::write(root.join("sub/vendor/skip.txt"), "x").unwrap();
+    std::fs::write(root.join("other/x.txt"), "x").unwrap();
+    let filter = crate::Filter::new(&root, "", "").unwrap();
+    let scope = crate::Scope::Tree {
+        dirs: vec![root.clone()],
+        filter,
+        ignored: false,
+    };
+    let mut paths: Vec<PathBuf> = scope.paths(&AtomicBool::new(false)).collect();
+    paths.sort();
+    assert!(paths.contains(&root.join("sub/pom.xml")), "{paths:?}");
+    assert!(
+        !paths.contains(&root.join("sub/vendor/skip.txt")),
+        "{paths:?}"
+    );
+    assert!(!paths.contains(&root.join("other/x.txt")), "{paths:?}");
+
+    std::fs::remove_dir_all(&root).unwrap();
+}

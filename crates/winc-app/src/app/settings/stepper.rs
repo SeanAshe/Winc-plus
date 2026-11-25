@@ -1,4 +1,4 @@
-//! 设置页中的数值设置：字号、字重、不透明度、制表符长度的显示值和逐档调整。
+//! 设置页中的数值设置：字号、字重、不透明度、制表符长度、查找仓库的层数的显示值和逐档调整。
 
 use std::ops::RangeInclusive;
 
@@ -60,6 +60,10 @@ impl App {
             Setting::TabWidth => (
                 self.config.tab_width.unwrap_or(self.editor.tab_width) as f32,
                 Config::TAB_WIDTH_RANGE,
+            ),
+            Setting::GitScanDepth => (
+                self.repository_scan_depth() as f32,
+                Config::REPOSITORY_SCAN_DEPTH_RANGE,
             ),
             _ => return (String::new(), true, true),
         };
@@ -124,6 +128,13 @@ impl App {
                 self.config.tab_width = Some(next);
                 self.editor.tab_width = next;
                 self.ensure_caret_visible();
+            }
+            // 加深后查找新增的层；减少层数不移除已列出的仓库。
+            Setting::GitScanDepth => {
+                let current = self.repository_scan_depth() as f32;
+                let next = step(current, up, Config::REPOSITORY_SCAN_DEPTH_RANGE) as usize;
+                self.config.repository_scan_depth = Some(next);
+                self.git_scan_repositories();
             }
             _ => return,
         }

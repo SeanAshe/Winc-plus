@@ -266,6 +266,18 @@ impl App {
         self.request_redraw();
     }
 
+    /// 启动时恢复的目录（在事件循环建立之前打开，见 `open_session_folder`）补上现场中附加的目录，
+    /// 没有时加入项目文件列出的模块（[`App::add_idea_modules`]），规则同 [`App::open_folder_now`]。
+    /// 在读取状态文件之后、建窗口之前调用，这些目录的监视在窗口建好后开始。
+    pub(crate) fn restore_launch_group(&mut self) {
+        let Some(root) = self.editor.root().map(Path::to_path_buf) else {
+            return;
+        };
+        let session = self.state.session_for(&root).cloned();
+        self.restore_group(session.as_ref());
+        self.add_idea_modules(&root);
+    }
+
     /// 是否正在后台读取备份、还没有恢复打开的目录的标签；这时编辑区显示正在恢复。
     pub(crate) fn restoring_tabs(&self) -> bool {
         self.disk.restoring.is_some()
@@ -478,7 +490,7 @@ impl App {
         }
         let panes = self.session_panes(&slots);
 
-        let terminal = self.terminal_session();
+        let terminal = self.terminal_session_with_tabs(&slots);
         let run = self.run.selected.clone();
         let mut folders = self.extra_folders();
         let workspace = self.editor.workspace.as_ref();
@@ -509,6 +521,10 @@ impl App {
         let window = self.window_frame_now().or(earlier);
         self.update_state(move |state| {
             places::record(state, &places);
+            // 仓库列表的调整在做出时已写入（`App::change_repository_edits`），可能来自其他窗口：
+            // 沿用状态文件中的记录。
+            let repositories = (state.session_for(&folder)).map(|s| s.repositories.clone());
+            let repositories = repositories.unwrap_or_default();
             state.set_session(Session {
                 folder,
                 tabs,
@@ -526,6 +542,7 @@ impl App {
                 sidebar_hidden,
                 window,
                 panes,
+                repositories,
             });
         });
     }

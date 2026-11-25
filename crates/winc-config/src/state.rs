@@ -159,6 +159,8 @@ pub struct State {
     pub vim_commands: Vec<String>,
     /// Vim 模式的查找历史，从旧到新，最多 `MAX_VIM_HISTORY` 条。
     pub vim_searches: Vec<String>,
+    /// 是否已经提示过 Vim 模式接管了编辑区也在用的 `Ctrl` 键：只在第一次遇到时提示。
+    pub vim_keys_noticed: bool,
 }
 
 /// Vim 模式的两种历史各自记录的条数上限（条）。
@@ -223,6 +225,8 @@ pub struct Session {
     pub window: Option<WindowFrame>,
     /// 编辑区拆分成的窗格；没有拆分时为 `None`。
     pub panes: Option<SessionPanes>,
+    /// 用户对仓库列表的改动：手动添加、从列表中移除的仓库。
+    pub repositories: SessionRepositories,
 }
 
 /// 现场里的终端面板：各标签的工作目录（按标签栏中的顺序）、正在看的标签、面板开着没有、大小。
@@ -247,7 +251,7 @@ pub struct TerminalSession {
     pub width: f32,
     /// 面板是否最大化（铺满编辑区）。
     pub maximized: bool,
-    /// 面板分成的各栏，按排列顺序；各栏的标签在 `tabs` 中依次接在一起。没有分栏时为空。
+    /// 终端各栏，按存储顺序；各栏的 shell 在 `tabs` 中依次接在一起。单个面板栏时为空。
     pub groups: Vec<TerminalGroup>,
 }
 
@@ -495,6 +499,7 @@ impl State {
                 sidebar_hidden: (s.get("sidebarHidden").and_then(Json::as_bool)).unwrap_or(false),
                 window: (s.get("window").and_then(Json::as_object)).and_then(window_frame),
                 panes: s.get("panes").and_then(read_panes),
+                repositories: read_repositories(s),
             })
         };
 
@@ -638,6 +643,7 @@ impl State {
             .unwrap_or(false);
         state.markdown_toc_pinned =
             root.get("markdownTocPinned").and_then(Json::as_bool) == Some(true);
+        state.vim_keys_noticed = root.get("vimKeysNoticed").and_then(Json::as_bool) == Some(true);
         state.recent_languages = (root.get("recentLanguages").and_then(Json::as_array))
             .unwrap_or_default()
             .iter()
@@ -807,6 +813,9 @@ impl State {
         if self.markdown_toc_pinned {
             fields.push(("markdownTocPinned", Json::Bool(true)));
         }
+        if self.vim_keys_noticed {
+            fields.push(("vimKeysNoticed", Json::Bool(true)));
+        }
         if !self.recent_languages.is_empty() {
             let recent = self.recent_languages.iter().cloned().map(Json::String);
             fields.push(("recentLanguages", Json::Array(recent.collect())));
@@ -931,6 +940,9 @@ impl State {
             }
             if let Some(panes) = &session.panes {
                 items.push(("panes", panes_json(panes)));
+            }
+            if let Some(repositories) = repositories_json(&session.repositories) {
+                items.push(("repositories", repositories));
             }
             Json::object(items)
         });
@@ -1467,11 +1479,14 @@ fn window_frame(json: &std::collections::BTreeMap<String, Json>) -> Option<Windo
 }
 
 mod places;
+mod repositories;
 mod terminal;
 pub mod writer;
 pub use places::{FilePlace, MAX_PLACES};
 use places::{read_file_places, read_views, write_file_places};
-pub use terminal::TerminalGroup;
+pub use repositories::SessionRepositories;
+use repositories::{read_repositories, repositories_json};
+pub use terminal::{TerminalEditor, TerminalGroup};
 use terminal::{read_terminal_groups, terminal_groups_json};
 
 #[cfg(test)]

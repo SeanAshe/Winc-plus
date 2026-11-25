@@ -32,6 +32,9 @@ impl App {
         } else if setting == Setting::VimClipboard {
             let choice = self.config.vim_clipboard.unwrap_or_default();
             (crate::layout::vim_clipboard_label(choice).to_owned(), false)
+        } else if let Setting::VimKey(c) = setting {
+            let owner = crate::layout::vim_key_owner_label(self.vim_owns_key(c));
+            (owner.to_owned(), false)
         } else if setting == Setting::Keymap {
             (crate::keymap::current_preset().title().to_owned(), false)
         } else if setting == Setting::Zoom {
@@ -111,7 +114,7 @@ impl App {
             terminal: true,
         };
         let mut changed = Vec::new();
-        for setting in Setting::all(&self.settings.languages, modules) {
+        for setting in Setting::all(&self.settings.listed, modules) {
             let Some(key) = setting.key().filter(|key| self.config.is_set(key)) else {
                 continue;
             };
@@ -125,11 +128,22 @@ impl App {
                 changed.push(setting);
             }
         }
+        // 各键的归属合在一项配置里，逐键比较默认的归属。
+        let keys = self.settings.listed.vim_keys.iter();
+        changed.extend(
+            keys.filter(|&&c| self.vim_key_changed(c))
+                .map(|&c| Setting::VimKey(c)),
+        );
         self.settings.changed = changed;
     }
 
     /// 把 `setting` 恢复为默认：去掉配置文件中的这一项，效果与在设置页中改回默认相同。
     pub(in crate::app) fn settings_reset(&mut self, setting: Setting) {
+        if let Setting::VimKey(c) = setting {
+            self.settings_leave_field();
+            self.reset_vim_key(c);
+            return;
+        }
         let Some(key) = setting.key().filter(|key| self.config.is_set(key)) else {
             return;
         };

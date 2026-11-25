@@ -47,6 +47,7 @@ impl App {
 
     /// 只选中 `path`（清掉多选），在预览标签里打开它的差异；列表滚到让它露出来。
     pub(in crate::app::git) fn select_commit_file(&mut self, path: PathBuf) {
+        self.git.commit.other_selected = None;
         self.git.commit.marked.clear();
         self.git.commit.anchor = Some(path.clone());
         self.git.commit.selected = Some(path.clone());
@@ -533,6 +534,10 @@ impl App {
 
     /// [`App::on_key_commit_list`] 按下的是 `key` 时做的事。
     pub(in crate::app) fn commit_list_key(&mut self, key: &Key) {
+        // 选中的是其他仓库的文件：回车、`⌫`、空格作用于该文件，方向键回到当前仓库的列表。
+        if self.git.commit.other_selected.is_some() && self.other_selection_key(key) {
+            return;
+        }
         let rows = self.commit_rows();
         let Some(status) = self.git.status.as_ref() else {
             return;

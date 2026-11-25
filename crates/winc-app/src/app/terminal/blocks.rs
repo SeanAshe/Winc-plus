@@ -145,7 +145,7 @@ impl App {
         let failed = failed_with_output(block);
         let t = &mut self.terminal;
         // 窗口不在前台但面板上就是这个标签时不用点：回来时看到的就是它。
-        if !(t.open && t.active == index) {
+        if !(t.group_shown(t.group_at) && t.active == index) {
             t.tabs[index].unseen = Some(failed);
         }
         if self.window.focused || block.duration.is_none_or(|d| d < LONG_COMMAND) {
@@ -182,11 +182,11 @@ impl App {
         let Some(index) = t.index_of(id) else {
             return;
         };
-        let seen = t.open && t.active == index && self.window.focused;
+        let seen = t.group_shown(t.group_at) && t.active == index && self.window.focused;
         if seen && message.is_none() {
             return;
         }
-        if !(t.open && t.active == index) {
+        if !(t.group_shown(t.group_at) && t.active == index) {
             let tab = &mut t.tabs[index];
             tab.unseen = Some(tab.unseen == Some(true));
         }
@@ -212,7 +212,7 @@ impl App {
             self.notify(NoticeKind::Info, message);
         }
         let t = &mut self.terminal;
-        if t.open
+        if t.group_shown(t.group_at)
             && let Some(tab) = t.tabs.get_mut(t.active)
         {
             tab.unseen = None;

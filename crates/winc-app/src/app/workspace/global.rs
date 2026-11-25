@@ -951,7 +951,7 @@ impl App {
     }
 
     /// 返回路径为 `path`、有未保存修改的文档的当前内容；没有这样的文档时返回 `None`。
-    fn dirty_rope(&self, path: &Path) -> Option<ropey::Rope> {
+    pub(in crate::app) fn dirty_rope(&self, path: &Path) -> Option<ropey::Rope> {
         self.editor
             .documents
             .iter()

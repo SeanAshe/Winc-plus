@@ -68,10 +68,11 @@ try {
         $code = Invoke-Setup $Setup "/S /D=$directory" $elevate
     }
     if ($code -notin @(0, 1641, 3010)) { throw "installer failed with $code" }
-    # A silent installer skips a file that is still in use and reports success all the same.
-    # With 1641 or 3010 the files are replaced at the next restart, so they are unchanged for now.
+    # The silent NSIS installer skips a file that is still in use and reports success all the
+    # same. Windows Installer replaces such a file at the next restart and reports 1641 or 3010.
+    # A same-build MSI install is maintenance and may leave files unchanged.
     $after = (Get-FileHash -LiteralPath $Executable -Algorithm SHA256).Hash
-    if ($code -eq 0 -and $after -eq $before) {
+    if ($Installer -ne 'msi' -and $code -eq 0 -and $after -eq $before) {
         throw 'the installer left the application unchanged'
     }
     $held.Dispose()

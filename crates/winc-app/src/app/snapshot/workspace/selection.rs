@@ -89,6 +89,75 @@ fn command_and_shift_clicks_build_a_selection_and_a_plain_click_resets_it() {
 }
 
 #[test]
+fn tree_menu_copies_selected_files_as_prompt() {
+    let dir = sample_folder("tree-copy-prompt");
+    std::fs::write(dir.join("short.rs"), "fn main() {}").unwrap();
+    std::fs::write(dir.join("a.txt"), "你好\n").unwrap();
+    let mut app = app_with(&dir, false);
+    paint(&mut app);
+
+    let code = row_of(&app, "short.rs");
+    let text = row_of(&app, "a.txt");
+    let binary = row_of(&app, "data.bin");
+    let folder = row_of(&app, "src");
+
+    let code_at = tree_row_center(&app, code);
+    right_click(&mut app, code_at);
+    assert!(menu_commands(&app).contains(&(MenuCommand::CopyAsPrompt, true)));
+    app.run_menu_command(MenuCommand::CopyAsPrompt);
+    assert_eq!(
+        app.clipboard.copied.as_deref(),
+        Some("File: short.rs\n```rs\nfn main() {}\n```\n\n")
+    );
+
+    let binary_at = tree_row_center(&app, binary);
+    let folder_at = tree_row_center(&app, folder);
+    let copied = app.clipboard.copied.clone();
+    right_click(&mut app, binary_at);
+    app.run_menu_command(MenuCommand::CopyAsPrompt);
+    assert_eq!(app.clipboard.copied, copied);
+    assert_eq!(
+        app.notice.kind,
+        NoticeKind::Warning,
+        "没有可复制的文件时说明原因"
+    );
+    right_click(&mut app, folder_at);
+    assert!(
+        !menu_commands(&app)
+            .iter()
+            .any(|(c, _)| *c == MenuCommand::CopyAsPrompt)
+    );
+    app.overlays.context_menu = None;
+
+    click_row_with(&mut app, text, ModifiersState::empty());
+    click_row_with(&mut app, binary, command_modifiers());
+    click_row_with(&mut app, code, command_modifiers());
+    assert_eq!(selected_names(&app), ["a.txt", "data.bin", "short.rs"]);
+    right_click(&mut app, code_at);
+    assert!(menu_commands(&app).contains(&(MenuCommand::CopyAsPrompt, true)));
+    app.run_menu_command(MenuCommand::CopyAsPrompt);
+    assert_eq!(
+        app.clipboard.copied.as_deref(),
+        Some(concat!(
+            "File: a.txt\n```txt\n你好\n```\n\n",
+            "File: short.rs\n```rs\nfn main() {}\n```\n\n",
+        ))
+    );
+
+    // 有未保存修改的文件复制编辑器中的内容。
+    let short = app.editor.workspace.as_ref().unwrap().root.join("short.rs");
+    app.open_path(&short);
+    app.select(0, 0);
+    app.run(Command::Insert("// edited\n".into()));
+    app.copy_as_prompt(vec![short]);
+    assert_eq!(
+        app.clipboard.copied.as_deref(),
+        Some("File: short.rs\n```rs\n// edited\nfn main() {}\n```\n\n")
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn the_menu_on_a_selection_copies_and_deletes_every_selected_item() {
     let dir = sample_folder("tree-multi-menu");
     let mut app = app_with(&dir, false);
@@ -118,6 +187,7 @@ fn the_menu_on_a_selection_copies_and_deletes_every_selected_item() {
             MenuCommand::Copy,
             MenuCommand::CopyPath,
             MenuCommand::CopyRelativePath,
+            MenuCommand::CopyAsPrompt,
             MenuCommand::Delete,
         ]
     );

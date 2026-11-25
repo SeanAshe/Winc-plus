@@ -547,7 +547,7 @@ fn weight_follows_the_axis_and_the_rest_is_emboldened() {
 }
 
 /// 字体列表：第一个字体缺的字依次用列表中后面的字体，排在界面字体和平台后备字体之前；打不开的
-/// 字体略过。界面字体缺的字同样先用等宽字体的列表。
+/// 字体略过。终端同样使用编辑区的列表，界面不使用。
 #[cfg(target_os = "macos")]
 #[test]
 fn font_lists_fall_back_in_order() {
@@ -565,11 +565,42 @@ fn font_lists_fall_back_in_order() {
     assert!(fonts.listed[0].start >= fonts.fallbacks.end);
     assert_eq!(fonts.resolve(FontKind::MonoItalic, '中').0, slot);
     assert_eq!(fonts.resolve(FontKind::Terminal, '中').0, slot);
-    assert_eq!(fonts.resolve(FontKind::Ui, '中').0, slot);
+    assert_ne!(fonts.resolve(FontKind::Ui, '中').0, slot);
 
     // 第一个字体打不开时，第一个能打开的字体成为主字体。
     let mut fonts = Fonts::load(&mono[1..], &[], &[], 400).expect("冬青黑体是 macOS 自带字体");
     assert_eq!(fonts.resolve(FontKind::Mono, '中').0, MONO);
+}
+
+/// 用户配置的等宽字体与界面字体互不作为缺字后备：等宽字体含汉字时，界面、预览正文和公式的
+/// 汉字仍用平台后备字体；界面字体含汉字时，编辑区和终端的汉字不变。
+#[cfg(target_os = "macos")]
+#[test]
+fn a_configured_font_stays_in_its_own_area() {
+    let hiragino = FontSpec::Path("/System/Library/Fonts/Hiragino Sans GB.ttc".into());
+    let mut builtin = Fonts::load(&[], &[], &[], 400).expect("系统里有等宽字体");
+    let ui = builtin.resolve(FontKind::Ui, '中');
+    let mono = builtin.resolve(FontKind::Mono, '中');
+    assert!(builtin.fallbacks.contains(&ui.0), "{ui:?}");
+
+    let mut fonts = Fonts::load(std::slice::from_ref(&hiragino), &[], &[], 400)
+        .expect("冬青黑体是 macOS 自带字体");
+    assert_eq!(fonts.resolve(FontKind::Mono, '中').0, MONO);
+    assert_eq!(fonts.resolve(FontKind::Terminal, '中').0, MONO);
+    for kind in [FontKind::Ui, FontKind::Prose, FontKind::Math] {
+        assert_eq!(fonts.resolve(kind, '中'), ui, "{kind:?}");
+    }
+
+    let mut fonts = Fonts::load(&[], std::slice::from_ref(&hiragino), &[], 400)
+        .expect("冬青黑体是 macOS 自带字体");
+    assert_eq!(fonts.resolve(FontKind::Ui, '中').0, UI);
+    assert_eq!(fonts.resolve(FontKind::Mono, '中'), mono);
+    assert_eq!(fonts.resolve(FontKind::Terminal, '中'), mono);
+
+    // 终端字重不同时，按终端字重另开的字体中也没有用户配置的界面字体。
+    let fonts =
+        Fonts::load_with(&[], &[hiragino], &[], 400, 300).expect("冬青黑体是 macOS 自带字体");
+    assert!(fonts.listed[2].is_empty(), "{:?}", fonts.listed[2]);
 }
 
 #[test]

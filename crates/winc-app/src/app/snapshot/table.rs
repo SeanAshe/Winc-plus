@@ -1,7 +1,9 @@
 //! 表格预览的测试：xlsx 以表格打开、切换工作表、滚动、磁盘上改动后重新读、损坏的文件，
-//! 以及 csv 的预览和分栏。
+//! csv 的预览和分栏，以及 csv 按文本显示时是否按列对齐。
 
 use winc_editor::{PreviewMode, TableState};
+
+mod split;
 
 use super::*;
 
@@ -194,6 +196,60 @@ fn damaged_workbooks_say_why() {
     app.wait_for_tables();
     let view = app.editor.active().unwrap().table.as_deref().unwrap();
     assert!(matches!(&view.state, TableState::Failed(reason) if !reason.is_empty()));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 关闭「CSV、TSV 按列对齐」：已打开的和之后打开的表格都按原文排布，可以自动换行；重新打开后
+/// 恢复对齐，不再换行。
+#[test]
+fn csv_text_can_be_shown_as_written_and_wrapped() {
+    let dir = search_folder("table-as-written");
+    let (path, other) = (dir.join("data.csv"), dir.join("other.tsv"));
+    let long = "x".repeat(300);
+    std::fs::write(&path, format!("id,note,count\n1,{long},3\n")).unwrap();
+    std::fs::write(&other, "a\tb\n").unwrap();
+    let mut app = app_with(&path, false);
+    let columns = |app: &mut App| {
+        let tab = app.editor.active_tab_width();
+        app.editor.active_mut().unwrap().columns(tab).is_some()
+    };
+    paint(&mut app);
+    assert!(columns(&mut app));
+
+    app.settings_toggle(Setting::AlignColumns);
+    assert_eq!(app.config.align_columns, Some(false));
+    assert!(!columns(&mut app));
+    app.settings_toggle(Setting::WordWrap);
+    paint(&mut app);
+    assert!(app.editor.active().unwrap().is_wrapping());
+    app.open_path(&other);
+    assert!(!columns(&mut app), "之后打开的表格也按原文排布");
+
+    app.settings_toggle(Setting::AlignColumns);
+    app.open_path(&path);
+    paint(&mut app);
+    assert!(columns(&mut app));
+    assert!(!app.editor.active().unwrap().is_wrapping());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 截图：关闭按列对齐后的 csv，按原文排布并按列着色，长行自动换行。
+#[test]
+#[ignore = "截图，手动运行"]
+fn shoot_csv_as_written() {
+    let dir = search_folder("table-as-written-shot");
+    let path = dir.join("data.csv");
+    let rows = "1,Alice,\"Paris, France\",3.5\n2,Bob,Berlin,4\n3,Chen,北京,12\n";
+    let note = "a long note that runs past the width of a narrow window ".repeat(3);
+    let text = format!("id,name,city,score,note\n{rows}4,Dana,Oslo,7,{note}\n");
+    std::fs::write(&path, text).unwrap();
+    let mut app = app_with(&path, false);
+    paint(&mut app);
+    shoot(&mut app, "csv-aligned");
+    app.settings_toggle(Setting::AlignColumns);
+    app.settings_toggle(Setting::WordWrap);
+    paint(&mut app);
+    shoot(&mut app, "csv-as-written");
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

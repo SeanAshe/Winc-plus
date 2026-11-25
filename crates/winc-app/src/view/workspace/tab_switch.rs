@@ -42,8 +42,17 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>) {
             frame.rect_clipped(row.inset(6.0, 1.0), p.selected_inactive, RADIUS_ROW, card);
         }
         let cy = icon_center_y(app, row, app.fonts.ui);
-        let icon = tab_icon_name(doc);
-        draw_file_icon(frame, p, (row.x + PICKER_ICON_X, cy), &icon, card);
+        if doc.terminal {
+            icons::terminal(
+                frame,
+                (row.x + PICKER_ICON_X + icons::FILE_WIDTH / 2.0, cy),
+                p.text_muted,
+                card,
+            );
+        } else {
+            let icon = tab_icon_name(doc);
+            draw_file_icon(frame, p, (row.x + PICKER_ICON_X, cy), &icon, card);
+        }
         let name = doc.name();
         let right = row.right() - 12.0;
         let name_x = row.x + PICKER_TEXT_X;

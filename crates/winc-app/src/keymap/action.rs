@@ -24,6 +24,8 @@ pub enum Action {
     GoBack,
     GoForward,
     Settings,
+    ExportSettings,
+    ImportSettings,
     ReleaseNotes,
     KeyboardShortcuts,
     RecordKeys,
@@ -312,6 +314,7 @@ pub enum Action {
     GitInit,
     /// 打开提交视图并展开位置选择器。
     GitSwitchRepository,
+    GitAddRepository,
     GitSwitchWorktree,
     GitNewWorktree,
     /// 展开分支选择器（提交视图里从分支行，否则从状态栏）。
@@ -371,6 +374,10 @@ pub enum Action {
     SplitTerminal,
     /// 终端：把正在看的标签移到正在用的一栏后面新加的一栏（见 `App::move_terminal_to_new_group`）。
     MoveTerminalToGroup,
+    /// 把当前终端标签移到编辑区，保留运行中的程序。
+    MoveTerminalToEditor,
+    /// 把编辑区中的终端标签移回终端面板。
+    MoveTerminalToPanel,
     NextTerminalPane,
     PreviousTerminalPane,
     FocusTerminal1,
@@ -467,6 +474,8 @@ impl Action {
             GoBack => t!("cmd-go-back"),
             GoForward => t!("cmd-go-forward"),
             Settings => t!("cmd-settings"),
+            ExportSettings => t!("cmd-export-settings"),
+            ImportSettings => t!("cmd-import-settings"),
             ReleaseNotes => t!("cmd-release-notes"),
             KeyboardShortcuts => t!("cmd-keyboard-shortcuts"),
             RecordKeys => t!("cmd-record-keys"),
@@ -696,6 +705,7 @@ impl Action {
             GitClone => t!("cmd-git-clone"),
             GitInit => t!("cmd-git-init"),
             GitSwitchRepository => t!("cmd-git-switch-repository"),
+            GitAddRepository => t!("cmd-git-add-repository"),
             GitSwitchWorktree => t!("cmd-git-switch-worktree"),
             GitNewWorktree => t!("cmd-git-new-worktree"),
             GitSwitchBranch => t!("cmd-git-switch-branch"),
@@ -732,6 +742,8 @@ impl Action {
             PreviousTerminal => t!("cmd-previous-terminal"),
             SplitTerminal => t!("cmd-split-terminal"),
             MoveTerminalToGroup => t!("cmd-move-terminal-to-group"),
+            MoveTerminalToEditor => t!("cmd-move-terminal-to-editor"),
+            MoveTerminalToPanel => t!("cmd-move-terminal-to-panel"),
             NextTerminalPane => t!("cmd-next-terminal-pane"),
             PreviousTerminalPane => t!("cmd-previous-terminal-pane"),
             FocusTerminal1 => t!("cmd-terminal-1"),
@@ -792,6 +804,8 @@ impl Action {
             | GoBack
             | GoForward
             | Settings
+            | ExportSettings
+            | ImportSettings
             | ReleaseNotes
             | KeyboardShortcuts
             | RecordKeys
@@ -965,6 +979,7 @@ impl Action {
             | GitClone
             | GitInit
             | GitSwitchRepository
+            | GitAddRepository
             | GitSwitchWorktree
             | GitNewWorktree
             | GitSwitchBranch
@@ -1001,6 +1016,8 @@ impl Action {
             | PreviousTerminal
             | SplitTerminal
             | MoveTerminalToGroup
+            | MoveTerminalToEditor
+            | MoveTerminalToPanel
             | NextTerminalPane
             | PreviousTerminalPane
             | FocusTerminal1
@@ -1176,6 +1193,7 @@ impl Action {
             | Action::GitClone
             | Action::GitInit
             | Action::GitSwitchRepository
+            | Action::GitAddRepository
             | Action::GitSwitchWorktree
             | Action::GitNewWorktree
             | Action::GitSwitchBranch
@@ -1210,6 +1228,8 @@ impl Action {
             | Action::PreviousTerminal
             | Action::SplitTerminal
             | Action::MoveTerminalToGroup
+            | Action::MoveTerminalToEditor
+            | Action::MoveTerminalToPanel
             | Action::NextTerminalPane
             | Action::PreviousTerminalPane
             | Action::FocusTerminal1

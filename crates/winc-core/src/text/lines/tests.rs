@@ -119,6 +119,22 @@ fn detect_line_endings() {
     assert_eq!(LineEnding::detect(&Rope::from_str("abc")), LineEnding::Lf);
 }
 
+/// 很长的字段不把整列撑宽：列宽不超过 `MAX_COLUMN_WIDTH`，超出的字段只推后同一行中其后的列。
+#[test]
+fn a_long_field_pushes_only_its_own_row() {
+    let long = "x".repeat(MAX_COLUMN_WIDTH + 8);
+    let rope = Rope::from_str(&format!("a,b\n{long},c\n"));
+    let columns = Columns::measure(',', rope.chunks(), 4);
+    assert_eq!(columns.starts, [0, MAX_COLUMN_WIDTH + 2]);
+
+    let mut positions = Vec::new();
+    columns.layout(line_slice(&rope, 0), 4, usize::MAX, &mut positions, None);
+    assert_eq!(positions[2], MAX_COLUMN_WIDTH + 2, "短行仍对齐");
+    columns.layout(line_slice(&rope, 1), 4, usize::MAX, &mut positions, None);
+    let c = long.len() + 1;
+    assert_eq!(positions[c], long.len() + 1, "长字段之后紧跟分隔符的下一格");
+}
+
 #[test]
 fn csv_columns_line_up() {
     let rope = Rope::from_str("id,name,city\n1,\"Doe, John\",北京\n22,Al,LA\n");

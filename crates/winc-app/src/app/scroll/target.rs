@@ -139,7 +139,7 @@ impl App {
             || (l.terminal.contains(x, y) && y < terminal_header)
         {
             ScrollTarget::TerminalStrip
-        } else if l.terminal.contains(x, y) {
+        } else if self.terminal_contains(x, y) {
             ScrollTarget::Terminal
         } else if self.preview.markdown.area.contains(x, y) {
             ScrollTarget::Markdown

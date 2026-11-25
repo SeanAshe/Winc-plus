@@ -2,6 +2,8 @@
 //!
 //! 与图片相同，只读当前标签；不在屏幕上的标签释放读好的表格（见 `release_hidden_pictures`）。
 
+mod split;
+
 use std::collections::HashSet;
 use std::sync::mpsc;
 
@@ -185,11 +187,14 @@ impl App {
         (view.sheet < table.sheets.len()).then_some((table, view.sheet))
     }
 
-    /// 编辑区显示的是读好的表格、焦点在编辑区：方向键、复制、全选作用于表格。
+    /// 键盘作用于读好的表格（方向键、复制、全选）：焦点在编辑区，且编辑区只显示表格，或分栏时
+    /// 最近一次点击在表格上（见 `split.rs`）。
     pub(crate) fn table_focused(&self) -> bool {
+        let split_focus = self.preview.table_layout.focused;
         self.focus == Focus::Editor
             && self.editor.active().is_some_and(|d| {
-                !d.shows_text() && d.table.as_deref().is_some_and(|v| v.table().is_some())
+                (!d.shows_text() || split_focus)
+                    && d.table.as_deref().is_some_and(|v| v.table().is_some())
             })
     }
 
@@ -294,6 +299,7 @@ impl App {
         }
         view.selection = (anchor, head);
         view.scroll = scroll;
+        self.caret_follow_table(head);
         self.request_redraw();
     }
 
@@ -301,7 +307,7 @@ impl App {
     /// `⌘`（其他平台 `Ctrl`）到表格边缘），Tab、回车向右、向下（按着 `⇧` 向左、向上），翻页键
     /// 按一屏移动，Home、End 到行首、行尾，Esc 只留当前格（只有一格时收起它的卡片）。
     pub(crate) fn table_key(&mut self, key: &Key, cmd: bool) -> bool {
-        if !self.table_focused() {
+        if !self.table_focused() || (!cmd && self.table_yields_typing(key)) {
             return false;
         }
         let Some((table, sheet)) = self.active_sheet() else {
@@ -438,6 +444,10 @@ pub(crate) struct TableLayout {
     pub(crate) widths: Option<((DocumentId, usize, usize), Vec<f32>)>,
     /// 卡片文字的换行结果缓存：[`CardKey`] 以及换好的各行。
     pub(crate) card_lines: Option<(CardKey, Vec<String>)>,
+    /// 分栏时键盘是否作用于表格：点击表格后为真，点击其他位置或输入文字时为假。
+    pub(crate) focused: bool,
+    /// 上次与左侧文字同步时的状态，见 [`split::Synced`]；变化时才再同步。
+    pub(crate) synced: Option<split::Synced>,
 }
 
 /// 表格上一点对应的位置，见 [`TableLayout::hit`]。
