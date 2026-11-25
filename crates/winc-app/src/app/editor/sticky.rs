@@ -168,11 +168,13 @@ impl App {
 
     /// 返回窗口坐标 (`x`, `y`)（逻辑像素）处固定的行；该处不是固定行时返回 `None`。
     ///
-    /// 固定行的位置取自上一次绘制时记录的 `self.hits.sticky`。
+    /// 固定行的位置取自上一次绘制时记录的 `self.hits.sticky`。该表不区分窗格，只对显示文字的
+    /// 文档有效：其他文档读到的只可能是另一窗格的固定行。
     pub(in crate::app) fn sticky_at(&self, x: f32, y: f32) -> Option<StickyRow> {
         let text = self.layout.text;
         let editor = self.layout.editor;
-        if !editor.contains(x, y)
+        if !self.active_shows_text()
+            || !editor.contains(x, y)
             || x >= editor.right() - SCROLLBAR_HIT
             || self.layout.search.contains(x, y)
         {

@@ -118,3 +118,7 @@ terminal-run-stopped = Stopped
 terminal-run-finished = Completed
 terminal-run-failed = “{ $name }” failed (exit code { $code })
 terminal-run-menu-running = Running · { $command }
+terminal-split-group = { $count ->
+    [one] { $count } terminal
+   *[other] { $count } terminals
+}

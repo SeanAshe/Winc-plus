@@ -228,7 +228,10 @@ impl App {
                     self.ensure_caret_visible();
                 }
                 if damaged {
-                    self.flash(t!("workspace-reopen-lossy", encoding = encoding.label()));
+                    self.flash(t!(
+                        "workspace-reopen-lossy",
+                        encoding = winc_editor::encoding::label(encoding)
+                    ));
                 }
             }
             Ok(false) => {}

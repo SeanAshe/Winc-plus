@@ -40,6 +40,7 @@ const LAYERS: &[(&str, &[&str])] = &[
             "winc-preview",
             "winc-pty",
             "winc-render",
+            "winc-search",
             "winc-syntax",
             "winc-typeset",
             "winc-version",
@@ -54,6 +55,7 @@ const LAYERS: &[(&str, &[&str])] = &[
             "winc-core",
             "winc-i18n",
             "winc-preview",
+            "winc-search",
             "winc-syntax",
         ],
     ),
@@ -72,9 +74,13 @@ const LAYERS: &[(&str, &[&str])] = &[
     ("winc-syntax", &["winc-core"]),
     ("winc-vim", &["winc-core"]),
     ("winc-pty", &["winc-emoji", "winc-version"]),
+    ("winc-search", &["winc-backend", "winc-core"]),
     ("winc-core", &["winc-emoji"]),
     ("winc-render", &["winc-emoji"]),
-    ("winc-server", &["winc-backend", "winc-watch"]),
+    (
+        "winc-server",
+        &["winc-backend", "winc-search", "winc-watch"],
+    ),
     // 仅测试依赖。
     ("winc-watch", &["winc-config"]),
     (

@@ -109,6 +109,10 @@ pub(crate) enum HeaderHit {
     Tab(usize),
     /// 第几个标签的关闭按钮。
     Close(usize),
+    /// 竖向列表里拆分的标签下的一个终端：（第几个标签，在排列中的位置）。
+    Pane(usize, usize),
+    /// 竖向列表里拆分的标签下一个终端的关闭按钮，参数同 `Pane`。
+    ClosePane(usize, usize),
     /// 新建标签的「+」。
     New,
     /// 「重新启动」：shell 退出了、或者辅助进程退出了时。

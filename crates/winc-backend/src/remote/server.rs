@@ -4,7 +4,8 @@
 //! 输入结束（连接断开）时结束仍在运行的命令并返回，进程随之退出。请求中的路径是该主机上的
 //! 绝对路径。
 //!
-//! 文件操作在读取请求的线程上逐个执行；运行命令各用一个线程，其间其他请求仍然应答。
+//! 修改文件的操作在读取请求的线程上逐个执行；列目录、成批取文件信息等只读的请求交给几个读取
+//! 线程，运行命令各用一个线程，其间取消、心跳和其他请求仍然应答。
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -36,6 +37,86 @@ const GRACE: Duration = Duration::from_millis(200);
 
 /// 写应答的一端，由读取请求的线程和各个运行命令的线程共用。
 type Output = Arc<Replies>;
+
+/// 执行只读请求的线程数（个）。
+///
+/// 列目录、成批取文件信息和文件开头的内容都要读磁盘，在慢的磁盘上会占住读取请求的线程，取消和
+/// 心跳也得等着。几个线程足以让展开目录、打开文件同时进行，又不会让一个连接占用过多线程。
+const READERS: usize = 4;
+
+/// 执行只读请求的几个线程：从队列取请求，各自写出应答。
+struct Readers {
+    queue: mpsc::Sender<Frame>,
+}
+
+impl Readers {
+    /// 启动 [`READERS`] 个线程；丢弃时队列关闭，线程做完手上的请求后退出。
+    fn start(output: &Output) -> Self {
+        let (queue, frames) = mpsc::channel::<Frame>();
+        let frames = Arc::new(Mutex::new(frames));
+        for _ in 0..READERS {
+            let (frames, output) = (Arc::clone(&frames), Arc::clone(output));
+            thread::spawn(move || {
+                loop {
+                    let next = frames.lock().unwrap_or_else(PoisonError::into_inner).recv();
+                    let Ok(frame) = next else {
+                        return;
+                    };
+                    // 写不出去说明连接已断开，读取请求的线程会随之结束。
+                    let _ = answer_read(&frame, &output);
+                }
+            });
+        }
+        Self { queue }
+    }
+
+    /// 把只读请求 `frame` 放进队列。
+    fn push(&self, frame: Frame) {
+        // 线程都已退出时没有人应答；只会发生在连接结束之后。
+        let _ = self.queue.send(frame);
+    }
+}
+
+/// 是否是只读的请求：列目录，或只含读取的 [`kind::BATCH`]。载荷不合格式时为假，由读取请求的
+/// 线程应答错误。
+fn reads_only(frame: &Frame) -> bool {
+    match frame.kind {
+        kind::READ_DIR => true,
+        kind::BATCH => (|| {
+            let mut input = Reader::new(&frame.payload);
+            for _ in 0..input.u32()? {
+                let kind = input.u8()?;
+                input.bytes()?;
+                if !matches!(
+                    kind,
+                    kind::METADATA | kind::SYMLINK_METADATA | kind::READ | kind::READ_LINK
+                ) {
+                    return Ok(false);
+                }
+            }
+            input.finish().map(|()| true)
+        })()
+        .unwrap_or(false),
+        _ => false,
+    }
+}
+
+/// 执行只读请求 `frame` 并写出应答。
+///
+/// # Errors
+///
+/// 应答写不出去时返回对应的 `io::Error`。
+fn answer_read(frame: &Frame, output: &Output) -> io::Result<()> {
+    match frame.kind {
+        // 目录项分批写出，目录再大也不受一帧的限制。
+        kind::READ_DIR => match list(frame, output) {
+            Ok(()) => reply(output, frame.id, Ok(Vec::new())),
+            Err(Failure::Request(error)) => reply(output, frame.id, Err(error)),
+            Err(Failure::Output(error)) => Err(error),
+        },
+        _ => reply(output, frame.id, batch(&frame.payload)),
+    }
+}
 
 /// 写应答的一端，以及正在等着写的线程数。
 struct Replies {
@@ -120,6 +201,7 @@ pub fn serve(mut input: impl Read, output: impl Write + Send + 'static) -> io::R
         idle: Condvar::new(),
     });
     let running = Running::default();
+    let readers = Readers::start(&output);
     let mut uploads: HashMap<u32, Upload> = HashMap::new();
     // 载荷超过一帧的请求：先到的各段按请求号存放；超过上限的内容丢弃，请求到达时应答错误。
     let mut parts: HashMap<u32, Option<Vec<u8>>> = HashMap::new();
@@ -195,6 +277,10 @@ pub fn serve(mut input: impl Read, output: impl Write + Send + 'static) -> io::R
                 read_apart(frame, &output);
                 Ok(())
             }
+            _ if reads_only(&frame) => {
+                readers.push(frame);
+                Ok(())
+            }
             // 保存的内容分多帧到达，先按请求号存起来，收到结束的一帧才写入并应答。
             kind::SAVE_BEGIN => {
                 if let Ok(upload) = Upload::begin(&frame.payload) {
@@ -212,12 +298,7 @@ pub fn serve(mut input: impl Read, output: impl Write + Send + 'static) -> io::R
                 let upload = uploads.remove(&frame.id);
                 reply(&output, frame.id, finish_upload(upload, &frame.payload))
             }
-            // 目录项分批写出，目录再大也不受一帧的限制。
-            kind::READ_DIR => match list(&frame, &output) {
-                Ok(()) => reply(&output, frame.id, Ok(Vec::new())),
-                Err(Failure::Request(error)) => reply(&output, frame.id, Err(error)),
-                Err(Failure::Output(error)) => Err(error),
-            },
+            // 含修改的成批请求按顺序在这里执行。
             kind::BATCH => reply(&output, frame.id, batch(&frame.payload)),
             _ => reply(&output, frame.id, handle(&frame)),
         };
@@ -847,6 +928,12 @@ fn exec(frame: &Frame, job: &Arc<Job>, output: &Output) -> io::Result<Vec<u8>> {
     let ask = input.u8()? != 0;
     let paced = input.u8()? != 0;
     input.finish()?;
+    #[cfg(feature = "test-support")]
+    if program == wire::SELF
+        && let Some(run) = (command.get_args().next()).and_then(|name| builtin(name.as_bytes()))
+    {
+        return run_builtin(run, stdin, (frame.id, output), job, paced);
+    }
     // 命令需要用户输入时运行服务进程自身来提问（`git` 和它启动的 `ssh` 各认一个变量）；
     // `SSH_ASKPASS_REQUIRE` 使 `ssh` 不依赖 `DISPLAY` 和控制终端。通道随命令结束而关闭。
     // 通道建不起来（临时目录不可写）时命令仍然运行，只是需要输入时会失败。
@@ -1040,4 +1127,66 @@ fn allowed(job: &Job, bytes: usize, progress: &mpsc::Sender<Pumped>) -> bool {
         let _ = progress.send(Pumped::Resumed);
     }
     true
+}
+
+/// 测试中代替服务进程自身一条命令的函数：读入命令的标准输入，把输出写到第二个参数。
+///
+/// 测试里的服务进程运行在测试程序之内（见 `Connection::over`），没有可以再次运行的服务进程程序；
+/// 登记过的命令（见 [`register_builtin`]）改在本进程的线程上运行，输出照常分段、按需发送。
+#[cfg(feature = "test-support")]
+pub type Builtin = fn(&[u8], &mut (dyn Write + Send)) -> io::Result<()>;
+
+/// 登记过的命令：名字（`Exec::this_server` 之后的第一个参数）和代替它的函数。
+#[cfg(feature = "test-support")]
+static BUILTINS: Mutex<Vec<(&str, Builtin)>> = Mutex::new(Vec::new());
+
+/// 登记服务进程自身的命令 `name` 在测试中的实现；同名的已登记过时不变。
+#[cfg(feature = "test-support")]
+pub fn register_builtin(name: &'static str, run: Builtin) {
+    let mut builtins = BUILTINS.lock().unwrap_or_else(PoisonError::into_inner);
+    if !builtins.iter().any(|(known, _)| *known == name) {
+        builtins.push((name, run));
+    }
+}
+
+/// 返回登记过的命令 `name` 的实现。
+#[cfg(feature = "test-support")]
+fn builtin(name: &[u8]) -> Option<Builtin> {
+    let builtins = BUILTINS.lock().unwrap_or_else(PoisonError::into_inner);
+    (builtins.iter())
+        .find(|(known, _)| known.as_bytes() == name)
+        .map(|&(_, run)| run)
+}
+
+/// 在新线程上运行登记过的命令 `run`，输出经管道交给读取输出的线程，与运行程序时一样分段、按需
+/// 发送；结束时返回退出码（`run` 出错时为 1）。
+#[cfg(feature = "test-support")]
+fn run_builtin(
+    run: Builtin,
+    stdin: Vec<u8>,
+    (id, output): (u32, &Output),
+    job: &Arc<Job>,
+    paced: bool,
+) -> io::Result<Vec<u8>> {
+    if paced {
+        *job.credit.lock().unwrap_or_else(PoisonError::into_inner) = wire::WINDOW;
+    }
+    let (reader, mut writer) = io::pipe()?;
+    let (progress, pumped) = mpsc::channel();
+    let reading = pump(
+        reader,
+        kind::STDOUT,
+        (id, output),
+        paced.then_some(job),
+        progress,
+    );
+    let worker = thread::spawn(move || run(&stdin, &mut writer).is_ok());
+    // 输出读完（命令结束），或被要求结束时读取的线程停下；此后命令再写输出就会失败。
+    while let Ok(Pumped::Resumed) = pumped.recv() {}
+    let _ = reading.join();
+    if job.cancelled.load(Ordering::Relaxed) {
+        return Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"));
+    }
+    let succeeded = worker.join().unwrap_or(false);
+    Ok(Writer::default().u8(1).u32(u32::from(!succeeded)).finish())
 }

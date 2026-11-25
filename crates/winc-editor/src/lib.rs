@@ -778,6 +778,13 @@ pub struct LoadedFile {
     encoding: Option<Encoding>,
 }
 
+impl LoadedFile {
+    /// 读到的文件已不存在时返回它的路径：调用方据此清理别处记着的这个文件。
+    pub fn missing(&self) -> Option<&Path> {
+        self.opened.missing().then_some(self.path.as_path())
+    }
+}
+
 /// 用新建的文档 `fresh` 替换 `slot`，并让 `revision` 在原有值上继续递增。
 ///
 /// `fresh` 与 `slot` 使用相同的 `DocumentId`。界面层按（`DocumentId`，`revision`）缓存查找

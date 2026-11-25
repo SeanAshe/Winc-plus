@@ -2,112 +2,50 @@
 //!
 //! 主要类型是 [`ProjectSearch`]（搜索状态与后台任务）、[`Query`]（搜索条件）和
 //! [`FileResult`]（单个文件的匹配）。搜索在后台线程中遍历目录、按块读取文件并匹配，结果
-//! 陆续送回界面线程。匹配规则与 [`crate::Search`] 共用同一个匹配器；二进制判断、BOM 与
-//! 编码解码复用打开文件时的同一套逻辑，使匹配位置与打开后的文本、行号一致。
+//! 陆续送回界面线程；远端主机上的目录由远端的服务进程搜索，只传回结果。匹配、二进制判断、
+//! 解码和分行都由 `winc_search` 完成，与文件内查找、打开文件的规则相同，搜出的位置与打开后的
+//! 文本和行号一致。
 
-mod matches;
+mod remote;
 mod replace;
-mod scan;
 mod walk;
 
-use matches::*;
 pub use replace::*;
-use scan::*;
 use walk::*;
 
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
-use std::io::Read;
-use std::ops::{ControlFlow, Range};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize};
-use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
+use std::sync::atomic::AtomicBool;
+use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::sync::{Arc, Mutex, PoisonError, atomic::Ordering::Relaxed};
-use std::thread;
 use std::time::{Duration, Instant};
 
-use ignore::WalkState;
-use ignore::overrides::{Override, OverrideBuilder};
-use memchr::{memchr_iter, memchr2_iter};
 use ropey::Rope;
-use winc_core::Lines;
+use winc_search::{Budget, Filter, Matcher, Searcher};
+pub use winc_search::{LineMatch, MAX_THREADS, Query};
 
-use crate::document::encoding::{
-    UTF8_BOM, decode, unicode_escapes_view, utf16_bom, utf16_text, utf16_unmarked,
-};
-use crate::document::large::{LINE_CAP, visible_len};
-use crate::document::{
-    BINARY_SNIFF, Document, DocumentId, LARGE_FILE, OPEN_LIMIT, UTF16_INLINE, looks_binary,
-};
-use crate::editing::search::{Matcher, Options, Pattern, Search, count_chars, joined, unescape};
-use crate::workspace::tree::{is_listed_file, natural_cmp, walker, walker_with_ignored};
+use crate::document::{Document, DocumentId};
+use crate::editing::search::Search;
+use crate::workspace::tree::natural_cmp;
 
 /// 最多记录的匹配数（处）；达到后停止搜索，并提示结果不全。
 ///
-/// 取自调参：每处匹配只保存行号、列和最多 `PREVIEW_CHARS` 个字符的预览（按实际长度分配），
-/// 该上限使结果占用的内存保持在数 MB 以内。
+/// 取自调参：每处匹配只保存行号、列和一段有长度上限的预览（按实际长度分配），该上限使结果
+/// 占用的内存保持在数 MB 以内。
 pub const MAX_RESULTS: usize = 20_000;
-/// 预览中保留匹配之前的最大字符数（字符）；更长时前面用「…」代替。
-const PREVIEW_BEFORE: usize = 24;
-/// 预览的最大字符数（个，取自调参，够显示一行的大部分内容）。
-const PREVIEW_CHARS: usize = 160;
 /// 搜索过程中唤醒界面线程的最短间隔（50 毫秒），避免大量结果使事件队列积压。
 const WAKE_INTERVAL: Duration = Duration::from_millis(50);
-/// 并行读文件的线程数上限（个，含遍历目录的线程）。
-///
-/// 每个线程同一时刻最多处理一个文件。
-pub const MAX_THREADS: usize = 4;
-/// 读文件时每块的大小（字节，256 KiB；测试中为 7 字节）。
-///
-/// 文件按块读取、按块搜索，内存中只有当前块加上尚未读完的那一行，与文件大小无关。测试中取很小的值，
-/// 使换行符、`\r\n` 和多字节字符落在块的边界上。
-const CHUNK: usize = if cfg!(test) { 7 } else { 256 << 10 };
-/// 读文件的缓冲容量上限（字节，1 MiB，取自调参）。
-///
-/// 超长行使缓冲容量超过该值时，搜索完当前文件后释放缓冲，避免每个工作线程长期持有大块内存。
-const BUFFER_MAX: usize = 1 << 20;
 
-/// 全局搜索的条件：查询文本、匹配选项和路径过滤规则。
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Query {
-    /// 查找的文本；`regex` 为 `true` 时是正则表达式。
-    pub text: String,
-    /// 是否区分大小写。
-    pub case_sensitive: bool,
-    /// 全字匹配：匹配的两端不能紧挨着字母、数字或下划线。
-    pub whole_word: bool,
-    /// 是否按正则匹配。
-    pub regex: bool,
-    /// 只搜索匹配的文件：逗号分隔的 glob，例如 `src, *.rs`；为空时不限制。
-    pub include: String,
-    /// 是否也搜索被 `.gitignore`、`.ignore` 和全局规则忽略的文件。
-    pub include_ignored: bool,
-    /// 不搜索匹配的文件：逗号分隔的 glob。
-    pub exclude: String,
-    /// 每处匹配都含有的一段文字，大小写规则与 `case_sensitive` 相同，用于跳过不含它的内容；
-    /// 为空时没有这项信息。
-    pub required: String,
-}
-
-impl Query {
-    fn options(&self) -> Options {
-        Options {
-            case_sensitive: self.case_sensitive,
-            whole_word: self.whole_word,
-            regex: self.regex,
-        }
-    }
-
-    /// 按相同条件构造文件内查找，用于替换，使替换结果与文件内的「全部替换」一致。
-    fn in_file_search(&self, replacement: &str) -> Search {
-        let mut search = Search::default();
-        search.query = self.text.clone();
-        search.replacement = replacement.to_owned();
-        search.case_sensitive = self.case_sensitive;
-        search.whole_word = self.whole_word;
-        search.regex = self.regex;
-        search
-    }
+/// 按相同条件构造文件内查找，用于替换，使替换结果与文件内的「全部替换」一致。
+fn in_file_search(query: &Query, replacement: &str) -> Search {
+    let mut search = Search::default();
+    search.query = query.text.clone();
+    search.replacement = replacement.to_owned();
+    search.case_sensitive = query.case_sensitive;
+    search.whole_word = query.whole_word;
+    search.regex = query.regex;
+    search
 }
 
 /// 一个文件的搜索结果：路径、全部匹配，以及是否含无法解码的字节。
@@ -121,19 +59,6 @@ pub struct FileResult {
     pub matches: Vec<LineMatch>,
     /// 文件中有无法解码的字节，这些字节按 U+FFFD 替换字符解码后搜索；这类文件不能替换。
     pub lossy: bool,
-}
-
-/// 搜索结果中的一处匹配：行号、列范围、预览文本和匹配在预览中的位置。
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LineMatch {
-    /// 行号（从 0 起），与打开文件后文档中的行号一致。
-    pub line: usize,
-    /// 匹配在该行内的列范围（字符偏移，从 0 起）。
-    pub cols: Range<usize>,
-    /// 该行的预览文本：已去掉行首空白，过长时截去两端，制表符换成空格。
-    pub preview: String,
-    /// 匹配在 `preview` 中的字节范围（UTF-8 字节偏移）。
-    pub highlight: Range<usize>,
 }
 
 /// 搜索条件有误的原因，各带一句给用户看的说明（[`ProjectSearch::error`] 返回其中的说明）。
@@ -152,9 +77,7 @@ enum Message {
 
 /// 正在进行的一次搜索。
 struct Job {
-    cancel: Arc<AtomicBool>,
-    truncated: Arc<AtomicBool>,
-    timed_out: Arc<AtomicBool>,
+    run: Arc<Run>,
     receiver: Receiver<Message>,
     /// 后台重新搜索一批文件时的请求；为 `None` 时是从头开始的整体搜索。
     refresh: Option<Refresh>,
@@ -175,8 +98,8 @@ struct Refresh {
 
 impl Drop for Job {
     fn drop(&mut self) {
-        // 查询变化或关闭搜索时，通知后台线程尽快停止。
-        self.cancel.store(true, Relaxed);
+        // 查询变化或关闭搜索时，让后台线程和远端的搜索尽快停止。
+        self.run.stop();
     }
 }
 
@@ -198,8 +121,8 @@ pub struct ProjectSearch {
     wake: Option<Arc<dyn Fn() + Send + Sync>>,
     total: usize,
     truncated: bool,
-    /// 见 [`Self::timed_out`]。
-    timed_out: bool,
+    /// 见 [`Self::remote_failed`]。
+    remote_failed: bool,
     error: Option<SearchError>,
     job: Option<Job>,
     /// 结果每变化一次加 1，界面据此判断是否需要重新排列结果列表。
@@ -268,10 +191,14 @@ impl ProjectSearch {
                 return;
             }
         };
-        let overrides = match globs(root, &query.include, &query.exclude) {
-            Ok(overrides) => overrides,
+        let filter = match Filter::new(root, &query.include, &query.exclude) {
+            Ok(filter) => filter,
             Err(error) => {
-                self.error = Some(SearchError::Filter(error));
+                let message = error.message;
+                self.error = Some(SearchError::Filter(match error.exclude {
+                    false => winc_i18n::t!("workspace-search-include-error", error = message),
+                    true => winc_i18n::t!("workspace-search-exclude-error", error = message),
+                }));
                 return;
             }
         };
@@ -280,7 +207,7 @@ impl ProjectSearch {
         self.wake = Some(wake);
         let source = match dependencies {
             true => Source::Dependencies,
-            false => Source::Tree(overrides, query.include_ignored),
+            false => Source::Tree(filter, query.include_ignored),
         };
         self.launch(source, Arc::new(dirty.into_iter().collect()), None);
     }
@@ -297,7 +224,7 @@ impl ProjectSearch {
         self.wake = None;
         self.total = 0;
         self.truncated = false;
-        self.timed_out = false;
+        self.remote_failed = false;
         self.error = None;
     }
 
@@ -355,8 +282,8 @@ impl ProjectSearch {
             let Refresh {
                 files, mut found, ..
             } = job.refresh.take().expect("刚刚检查过");
-            self.truncated |= job.truncated.load(Relaxed);
-            self.timed_out |= job.timed_out.load(Relaxed);
+            self.truncated |= job.run.budget.truncated();
+            self.remote_failed |= job.run.remote_failed.load(Relaxed);
             self.job = None;
             // 搜索期间已经单独重新搜索过的文件（见 `refresh_file`）不在 `files` 中，丢弃它们
             // 在后台读到的、可能已经过时的结果。
@@ -372,8 +299,8 @@ impl ProjectSearch {
         }
 
         if done && let Some(job) = self.job.take() {
-            self.truncated = job.truncated.load(Relaxed);
-            self.timed_out = job.timed_out.load(Relaxed);
+            self.truncated = job.run.budget.truncated();
+            self.remote_failed = job.run.remote_failed.load(Relaxed);
             self.version += 1;
             changed = true;
         }
@@ -406,9 +333,9 @@ impl ProjectSearch {
         self.truncated
     }
 
-    /// 是否有远端的目录没能在限定时间内列出文件，其中的文件没有被搜索到。
-    pub fn timed_out(&self) -> bool {
-        self.timed_out
+    /// 是否有远端主机上的搜索没能完成（连接中断、远端出错），其中的文件没有全部搜索到。
+    pub fn remote_failed(&self) -> bool {
+        self.remote_failed
     }
 
     /// 是否有行因正则回溯过多而放弃查找，此时结果可能不全。
@@ -459,24 +386,28 @@ impl ProjectSearch {
     /// 按当前条件立即重新搜索一个文件，并用新结果替换该文件原有的结果。
     ///
     /// 替换了其中几处之后调用，无需从头搜索。`rope` 是文档已打开且有未保存修改时的内容；
-    /// 为 `None` 时在当前线程读取磁盘文件。后台正在重新搜索的一批文件中也有它时，以这里的结果
-    /// 为准。
+    /// 为 `None` 时在当前线程读取磁盘文件，远端主机上的文件改为在后台重新搜索（见
+    /// [`Self::refresh_files`]），不在当前线程等待网络。后台正在重新搜索的一批文件中也有它时，
+    /// 以这里的结果为准。
     pub fn refresh_file(&mut self, path: &Path, rope: Option<&Rope>) {
         let Some(matcher) = &self.matcher else {
             return;
         };
+        if rope.is_none() && winc_backend::is_remote(path) {
+            self.refresh_files([(path.to_path_buf(), None)]);
+            return;
+        }
+        let budget = Budget::new(MAX_RESULTS);
+        let mut searcher = Searcher::new(matcher, &budget);
         let found = match rope {
-            Some(rope) => Some((search_lines(matcher, rope, MAX_RESULTS), false)),
-            None => search_disk(
-                matcher,
-                &mut Vec::new(),
-                path,
-                MAX_RESULTS,
-                &AtomicBool::new(false),
-            ),
+            Some(rope) => searcher.text(rope).map(|matches| (matches, false)),
+            None => searcher.file(path),
         };
-        let fresh = found.and_then(|(matches, lossy)| {
-            file_result((&self.root, &self.labelled), path, matches, lossy)
+        let fresh = found.map(|(matches, lossy)| FileResult {
+            path: path.to_path_buf(),
+            relative: crate::workspace::tree::labelled_path(&self.root, &self.labelled, path),
+            matches,
+            lossy,
         });
 
         if let Some(refresh) = self.job.as_mut().and_then(|job| job.refresh.as_mut()) {
@@ -577,44 +508,6 @@ fn path_cmp(a: &str, b: &str) -> Ordering {
             (x, y) => return x.is_some().cmp(&y.is_some()),
         }
     }
-}
-
-/// 把「包含」「排除」两个输入框中的 glob 编译为规则。
-///
-/// 各模式以逗号分隔：不含 `/` 的模式在任意一级目录生效（`src` 匹配所有名为 `src` 的目录和文件）；
-/// 以 `./` 或 `/` 开头的模式只从根目录起算；模式指向目录时，目录内的所有文件都匹配。
-///
-/// # Errors
-///
-/// 某个 glob 语法有误时，返回带「包含」或「排除」前缀的说明。
-fn globs(root: &Path, include: &str, exclude: &str) -> Result<Override, String> {
-    let mut builder = OverrideBuilder::new(root);
-
-    for (text, prefix, include) in [(include, "", true), (exclude, "!", false)] {
-        for pattern in text.split(',').map(str::trim).filter(|p| !p.is_empty()) {
-            let pattern = pattern.trim_end_matches('/');
-            let anchored = pattern.starts_with("./") || pattern.starts_with('/');
-            let body = pattern.trim_start_matches("./").trim_start_matches('/');
-            let base = if anchored || body.contains('/') {
-                format!("/{body}")
-            } else {
-                format!("**/{body}")
-            };
-
-            for glob in [base.clone(), format!("{base}/**")] {
-                builder.add(&format!("{prefix}{glob}")).map_err(|e| {
-                    let error = e.to_string();
-                    if include {
-                        winc_i18n::t!("workspace-search-include-error", error = error)
-                    } else {
-                        winc_i18n::t!("workspace-search-exclude-error", error = error)
-                    }
-                })?;
-            }
-        }
-    }
-
-    builder.build().map_err(|e| e.to_string())
 }
 
 #[cfg(test)]

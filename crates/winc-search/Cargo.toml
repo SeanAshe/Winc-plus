@@ -1,0 +1,22 @@
+[package]
+name = "winc-search"
+description = "查找的核心：匹配器、按打开文件的规则解码、并行遍历目录并逐块搜索；本机和远端主机上的服务进程共用。"
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+
+[dependencies]
+winc-backend.workspace = true
+winc-core.workspace = true
+memchr.workspace = true
+regex.workspace = true
+fancy-regex.workspace = true
+ignore.workspace = true
+encoding_rs.workspace = true
+chardetng.workspace = true
+
+[lints]
+workspace = true

@@ -82,12 +82,6 @@ fn legacy_encodings_are_guessed_and_written_back() {
             bytes.as_ref()
         );
     }
-    assert_eq!(Encoding::Legacy(encoding_rs::GBK).label(), "GBK");
-    assert_eq!(Encoding::Legacy(encoding_rs::BIG5).label(), "Big5");
-    assert_eq!(
-        Encoding::Legacy(encoding_rs::WINDOWS_1252).label(),
-        "Windows 1252"
-    );
 }
 
 #[test]

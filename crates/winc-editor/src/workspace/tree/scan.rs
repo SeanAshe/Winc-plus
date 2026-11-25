@@ -89,7 +89,10 @@ impl DirScan {
 const TOGETHER: usize = 8;
 
 /// 读 `dirs` 中的各个目录，最多 [`TOGETHER`] 个同时进行，结果的顺序同 `dirs`。
-fn read_together(dirs: &[PathBuf], read: &(impl Fn(&Path) -> Read + Sync)) -> Vec<Read> {
+pub(super) fn read_together<T: Send>(
+    dirs: &[PathBuf],
+    read: &(impl Fn(&Path) -> T + Sync),
+) -> Vec<T> {
     let next = std::sync::atomic::AtomicUsize::new(0);
     let take = || {
         let mut done = Vec::new();
@@ -101,7 +104,7 @@ fn read_together(dirs: &[PathBuf], read: &(impl Fn(&Path) -> Read + Sync)) -> Ve
             done.push((index, read(dir)));
         }
     };
-    let mut done: Vec<(usize, Read)> = std::thread::scope(|scope| {
+    let mut done: Vec<(usize, T)> = std::thread::scope(|scope| {
         let helpers: Vec<_> = (1..TOGETHER.min(dirs.len()))
             .map(|_| scope.spawn(take))
             .collect();

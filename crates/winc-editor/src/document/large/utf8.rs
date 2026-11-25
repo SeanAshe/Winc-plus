@@ -8,19 +8,6 @@ pub(super) fn push_capped(line: &mut Vec<u8>, bytes: &[u8], cap: usize) {
     line.extend_from_slice(&bytes[..bytes.len().min(room)]);
 }
 
-/// 返回一行中可访问部分的字节数。
-///
-/// 超过 `cap` 时截到 `cap`，不切开字符；读到换行符时去掉行尾的 `\r`。
-pub(crate) fn visible_len(bytes: &[u8], ended: bool, cap: usize) -> usize {
-    if bytes.len() >= cap {
-        complete_prefix(&bytes[..cap])
-    } else if ended && bytes.last() == Some(&b'\r') {
-        bytes.len() - 1
-    } else {
-        bytes.len()
-    }
-}
-
 /// 把一行的字节解码为文字写入 `out`，非法字节替换为 U+FFFD。
 fn decode_into(bytes: &[u8], ended: bool, cap: usize, out: &mut String) {
     let bytes = &bytes[..visible_len(bytes, ended, cap)];
@@ -104,26 +91,4 @@ pub(super) fn byte_of_char(bytes: &[u8], n: usize) -> usize {
     }
 
     offset
-}
-
-/// 返回 `bytes` 中最后一个完整字符之后的字节偏移；末尾被截断的多字节字符不计入。
-pub(super) fn complete_prefix(bytes: &[u8]) -> usize {
-    let n = bytes.len();
-
-    for back in 1..=n.min(4) {
-        let b = bytes[n - back];
-
-        // 从末尾向前遇到的第一个非后续字节（`10xxxxxx`）即为最后一个字符的首字节。
-        if b & 0xC0 != 0x80 {
-            let width = match b {
-                0xC0..=0xDF => 2,
-                0xE0..=0xEF => 3,
-                0xF0..=0xF7 => 4,
-                _ => 1,
-            };
-            return if back >= width { n } else { n - back };
-        }
-    }
-
-    n
 }

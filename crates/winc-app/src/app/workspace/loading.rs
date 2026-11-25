@@ -139,6 +139,11 @@ impl App {
             if self.disk.loads.since.is_some_and(|(s, _)| s == id) {
                 self.disk.loads.since = None;
             }
+            // 已不存在的文件不再留在最近打开的文件中：快速打开里点开的可能是别处删掉的文件。
+            if let Some(path) = loaded.missing() {
+                let path = path.to_path_buf();
+                self.forget_recent(&[path]);
+            }
             let Some(index) = self.editor.finish_load(loaded) else {
                 continue;
             };

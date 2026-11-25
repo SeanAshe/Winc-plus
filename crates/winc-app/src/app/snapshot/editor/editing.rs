@@ -850,7 +850,7 @@ fn bookmarks_jump_list_and_survive_closing_and_restarting() {
 #[test]
 fn other_encodings_can_be_reopened_and_saved_from_the_status_bar() {
     use winc_editor::Encoding;
-    use winc_editor::encoding::CHOICES;
+    use winc_editor::encoding::{CHOICES, label};
 
     let dir = std::env::temp_dir().join(format!("winc-encoding-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
@@ -871,7 +871,7 @@ fn other_encodings_can_be_reopened_and_saved_from_the_status_bar() {
     // 检测为简体中文，状态栏显示 GB18030：猜测为 GBK 时按其超集 GB18030 记录，
     // 保存时四字节的字符也能写回；该项可点击。
     paint(&mut app);
-    assert_eq!(app.editor.active().unwrap().encoding.label(), "GB18030");
+    assert_eq!(label(app.editor.active().unwrap().encoding), "GB18030");
     assert!(
         app.hits
             .status

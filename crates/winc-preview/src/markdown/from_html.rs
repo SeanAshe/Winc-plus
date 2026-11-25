@@ -12,6 +12,8 @@ pub struct Converted {
     pub text: String,
     /// 是否含有文字以外的结构（标题、列表、链接、强调、表格、代码、图片、引用）。
     pub rich: bool,
+    /// HTML 中显示的文字，去掉了全部空白：用来与同时放在剪贴板里的纯文本核对。
+    pub plain: String,
 }
 
 /// 把 HTML `html` 转换为 Markdown。
@@ -140,6 +142,8 @@ struct Writer {
     table: Option<Table>,
     /// 位于内容不输出的元素中的层数。
     skip: usize,
+    /// 见 [`Converted::plain`]。
+    plain: String,
 }
 
 #[derive(Default)]
@@ -396,6 +400,8 @@ impl Writer {
         if self.skip > 0 {
             return;
         }
+        self.plain
+            .extend(text.chars().filter(|c| !c.is_whitespace()));
         if let Some((pre, _)) = self.pre.as_mut() {
             pre.push_str(text);
             return;
@@ -605,6 +611,7 @@ impl Writer {
         Converted {
             text,
             rich: self.rich,
+            plain: self.plain,
         }
     }
 }

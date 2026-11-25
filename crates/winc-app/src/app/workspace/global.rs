@@ -476,9 +476,18 @@ impl App {
 
     /// 把侧栏切换到搜索面板，并把焦点放进查找输入框（`⇧⌘F` / `⇧⌘H`）。
     ///
-    /// 有合适的选区（没有选区时为光标所在的词）时，用它作为查找内容。`replace` 为 `true` 时
-    /// 同时展开替换行；此时如果已有查找内容，焦点放进替换输入框。没有打开目录时在状态栏提示。
+    /// 焦点在编辑区、有合适的选区（没有选区时为光标所在的词）时，用它作为查找内容（见
+    /// [`Self::files_search_seed`]）。`replace` 为 `true` 时同时展开替换行；此时如果已有查找内容，
+    /// 焦点放进替换输入框。没有打开目录时在状态栏提示。
     pub(in crate::app) fn open_global_search(&mut self, replace: bool) {
+        let seed = self.files_search_seed();
+        self.show_global_search(replace, seed);
+    }
+
+    /// 同 [`Self::open_global_search`]，查找内容换成 `seed`；为 `None` 时沿用上一次的查询并全选。
+    ///
+    /// 点击侧栏的搜索按钮时不预填：只是切到这一页。
+    pub(in crate::app) fn show_global_search(&mut self, replace: bool, seed: Option<String>) {
         if self.editor.workspace.is_none() {
             self.flash(t!("workspace-open-folder-first"));
             return;
@@ -490,7 +499,7 @@ impl App {
             self.set_sidebar(true);
         }
 
-        if let Some(seed) = self.search_seed()
+        if let Some(seed) = seed
             && seed != self.panels.global.query.text()
         {
             self.panels.global.query.remember();
@@ -728,8 +737,8 @@ impl App {
             ));
         } else if g.engine.gave_up() {
             self.flash(t!("editor-replace-all-gave-up"));
-        } else if g.engine.timed_out() {
-            self.flash(t!("workspace-replace-all-remote-timeout"));
+        } else if g.engine.remote_failed() {
+            self.flash(t!("workspace-replace-all-remote-failed"));
         } else if g.engine.total() == 0 {
             self.flash(t!("workspace-replace-all-nothing"));
         } else {

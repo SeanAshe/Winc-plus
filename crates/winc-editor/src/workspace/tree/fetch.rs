@@ -4,6 +4,10 @@
 //! 交给后台（[`DirFetch::run`]），读好后放进缓存（[`Workspace::adopt`]）再展开或定位：这一步
 //! 只用缓存，不访问磁盘。
 
+use winc_backend::remote::Exec;
+use winc_search::host::{self, Descent};
+
+use super::scan::read_together;
 use super::*;
 
 /// 要在后台读的目录，见 [`Workspace::fetch_to_expand`]、[`Workspace::fetch_to_reveal`]。
@@ -61,55 +65,56 @@ impl DirFetch {
             }
         }
 
+        // 一轮读完队列中的目录，读到的子目录中要显示的放进下一轮。远端的各个目录互不依赖，
+        // 每个要等一次往返，同一轮的一起读。
+        let remote = winc_backend::is_remote(&fetched.root) && winc_backend::remote::may_block();
         let mut seen: HashSet<PathBuf> = HashSet::new();
-        while let Some(dir) = queue.pop() {
-            if !seen.insert(dir.clone()) {
-                continue;
+        while !queue.is_empty() {
+            let round: Vec<PathBuf> = (queue.drain(..))
+                .filter(|dir| seen.insert(dir.clone()))
+                .collect();
+            let read = match remote {
+                true => read_together(&round, &|dir| list_dir(dir)),
+                false => round.iter().map(|dir| list_dir(dir)).collect(),
+            };
+            for (dir, children) in round.into_iter().zip(read) {
+                let Ok(children) = children else {
+                    continue;
+                };
+                let sole = sole_folder(&children).filter(|_| self.chain);
+                queue.extend(sole.map(|only| only.path.clone()));
+                let open = |child: &&DirEntry| {
+                    child.kind == EntryKind::Dir && self.expanded.contains(&child.path)
+                };
+                queue.extend(children.iter().filter(open).map(|child| child.path.clone()));
+                fetched.listed.push((dir, children));
             }
-            let Ok(children) = list_dir(&dir) else {
-                continue;
-            };
-            let sole = sole_folder(&children).filter(|_| self.chain);
-            queue.extend(sole.map(|only| only.path.clone()));
-            let open = |child: &&DirEntry| {
-                child.kind == EntryKind::Dir && self.expanded.contains(&child.path)
-            };
-            queue.extend(children.iter().filter(open).map(|child| child.path.clone()));
-            fetched.listed.push((dir, children));
         }
         fetched
     }
 }
 
-/// 返回递归展开 `path` 时要展开的各级目录（含它自己），以及是否因超过上限只找了一部分。
-///
-/// 遵守忽略规则，不进入符号链接；`path` 本身被忽略时不往下找，返回空。
+/// 返回递归展开 `path` 时要展开的各级目录（含它自己），以及是否因超过上限只找了一部分；规则见
+/// [`winc_search::descend`]。远端的目录由远端的服务进程一次找出；没能找出时返回空，只展开这一行。
 fn descend(path: &Path, dirs: usize, entries: usize) -> (Vec<PathBuf>, bool) {
-    let listed = path.parent().is_some_and(|parent| {
-        walker(parent)
-            .max_depth(Some(1))
-            .build()
-            .filter_map(Result::ok)
-            .any(|e| e.path() == path)
-    });
-    if !listed {
-        return (Vec::new(), false);
-    }
-
-    let mut walk = walker(path);
-    walk.sort_by_file_name(|a, b| a.cmp(b));
-    let (mut found, mut seen) = (Vec::new(), 0);
-    for item in walk.build().filter_map(Result::ok) {
-        seen += 1;
-        let dir = item.file_type().is_some_and(|kind| kind.is_dir());
-        if seen > entries || (dir && found.len() == dirs) {
-            return (found, true);
+    let Some(at) = winc_backend::locate(path) else {
+        return winc_search::descend(path, dirs, entries);
+    };
+    let descent = Descent {
+        path: at.path,
+        dirs,
+        entries,
+    };
+    let exec = Exec::this_server().arg(host::DIRS).stdin(descent.encode());
+    let found = winc_backend::remote::spawn(path, &exec)
+        .and_then(|running| host::read_dirs(&mut std::io::BufReader::new(running)));
+    match found {
+        Ok((found, limited)) => {
+            let found = (found.iter()).map(|dir| winc_backend::virtual_path(&at.target, dir));
+            (found.collect(), limited)
         }
-        if dir {
-            found.push(item.into_path());
-        }
+        Err(_) => (Vec::new(), false),
     }
-    (found, false)
 }
 
 impl Workspace {

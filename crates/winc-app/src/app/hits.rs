@@ -63,6 +63,9 @@ pub struct Hits {
     pub(crate) notice_card: Option<Rect>,
     /// 提示条上按钮的位置，绘制时记录。
     pub(crate) notice_button: Option<Rect>,
+    /// 跳转条或 Vim 命令行的位置，绘制时记录。跳转条按前台的布局只绘制一次，其他窗格不能按
+    /// 自身的编辑区推算它的位置。
+    pub(crate) prompt_bar: Option<Rect>,
     /// 上一帧绘制的链接（区域和地址），点击时据此查找。
     pub(crate) markdown_links: Vec<(winc_render::Rect, String)>,
     /// 上一帧在可编辑的预览中绘制的、原文可以改写的图片。
@@ -154,6 +157,7 @@ impl Hits {
             changes_card,
             notice_card,
             notice_button,
+            prompt_bar,
             markdown_links,
             markdown_images,
             markdown_pictures,
@@ -208,6 +212,7 @@ impl Hits {
         *changes_card = None;
         *notice_card = None;
         *notice_button = None;
+        *prompt_bar = None;
         markdown_links.clear();
         markdown_images.clear();
         markdown_pictures.clear();

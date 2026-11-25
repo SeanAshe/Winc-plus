@@ -11,6 +11,7 @@ homepage.workspace = true
 [dependencies]
 winc-backend.workspace = true
 winc-core.workspace = true
+winc-search.workspace = true
 winc-syntax.workspace = true
 winc-config.workspace = true
 winc-preview.workspace = true
@@ -18,7 +19,6 @@ winc-i18n.workspace = true
 ropey.workspace = true
 memchr.workspace = true
 regex.workspace = true
-regex-syntax.workspace = true
 fancy-regex.workspace = true
 ignore.workspace = true
 notify.workspace = true

@@ -59,6 +59,15 @@ impl App {
         self.reset_blink();
     }
 
+    /// 返回在文件中查找（侧栏或对话框）时预填的内容：焦点在编辑区或它的查找条上时同
+    /// [`Self::search_seed`]；焦点在文件树、终端等别处时为 `None`，编辑区里的光标与这次查找
+    /// 无关，查询沿用上一次的。
+    pub(in crate::app) fn files_search_seed(&self) -> Option<String> {
+        matches!(self.focus, Focus::Editor | Focus::Search | Focus::Replace)
+            .then(|| self.search_seed())
+            .flatten()
+    }
+
     /// 返回打开查找时预填的内容：选区的文字，没有选区时取光标所在的词；不适合预填时返回 `None`。
     ///
     /// 选区只在单行、少于 200 个字符时采用；没有选区时，词必须只由字母、数字和下划线组成。

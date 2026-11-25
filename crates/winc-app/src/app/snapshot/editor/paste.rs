@@ -230,3 +230,32 @@ fn the_tree_copies_files_and_pastes_text_and_images_as_new_files() {
 
     let _ = std::fs::remove_dir_all(&folder);
 }
+
+/// 回归（#426）：从别的编辑器整篇复制几百行粘贴到新建的文件里，全部内容都粘贴进来：剪贴板里是
+/// LF 或 CRLF 换行，新文件按粘贴的内容识别出语言，文档本身用 CRLF 换行，都不丢行。
+#[test]
+fn long_multi_line_text_is_pasted_whole() {
+    let mut app = blank_app(false);
+    for (eol, document_eol) in [
+        ("\n", winc_core::LineEnding::Lf),
+        ("\r\n", winc_core::LineEnding::Lf),
+        ("\r\n", winc_core::LineEnding::CrLf),
+    ] {
+        let mut body = format!("#!/usr/bin/env python3{eol}import os{eol}{eol}");
+        for i in 0..150 {
+            body += &format!("def func_{i}(x):{eol}    return x + {i}  # 你好{eol}");
+        }
+        app.new_file();
+        app.editor.active_mut().unwrap().line_ending = document_eol;
+        app.clipboard.copied = Some(body.clone());
+        app.paste();
+        paint(&mut app);
+        let want = body
+            .replace("\r\n", "\n")
+            .replace('\n', document_eol.as_str());
+        assert_eq!(text(&app), want, "{eol:?} -> {document_eol:?}");
+        let doc = app.editor.active().unwrap();
+        assert_eq!(doc.highlighter.language().id, "python");
+        assert_eq!(doc.text().line_count(), 304);
+    }
+}

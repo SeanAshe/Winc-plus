@@ -138,7 +138,7 @@ impl App {
         self.overlays.picker.open = true;
         // 上一次没能列出远端的文件：打开面板时重试。
         let index = &mut self.overlays.picker.index;
-        if index.timed_out() && index.is_ready() {
+        if index.failed() && index.is_ready() {
             index.refresh();
         }
         self.overlays.picker.doc = self.editor.active().map(|d| d.id);
@@ -477,7 +477,10 @@ impl App {
             .get(self.overlays.picker.selected)
             .and_then(|&i| self.overlays.picker.index.absolute(i));
 
-        if !self.overlays.picker.index.poll() {
+        let changed = self.overlays.picker.index.poll();
+        let missing = self.overlays.picker.index.take_missing();
+        self.forget_recent(&missing);
+        if !changed {
             return;
         }
 
@@ -629,6 +632,14 @@ impl App {
         }
 
         self.request_redraw();
+    }
+
+    /// 从最近打开的文件中去掉已不存在的 `gone`（文件，或目录连同其下的文件）：快速打开不再
+    /// 列出它们。远端的文件在界面线程上查不到是否还在，由文件表的更新确认。
+    pub(in crate::app) fn forget_recent(&mut self, gone: &[PathBuf]) {
+        if !gone.is_empty() {
+            (self.history.files).retain(|path| !gone.iter().any(|gone| path.starts_with(gone)));
+        }
     }
 
     /// 通知文件表：`paths` 中的路径在本程序内被新建、删除、改名或另存为。

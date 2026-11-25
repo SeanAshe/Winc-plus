@@ -396,3 +396,55 @@ fn the_wheel_scrolls_settings_over_the_search_dialog() {
     assert_eq!(app.search_dialog.scroll, 0.0, "滚到了下面的对话框");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 在文件中查找的对话框里搜 `load_config`，等结果列出来。
+fn search_dialog_with_results(name: &str) -> (App, std::path::PathBuf) {
+    let dir = search_folder(name);
+    let mut app = app_with(&dir.join("src/main.rs"), false);
+    paint(&mut app);
+    app.open_search_dialog();
+    app.search_dialog.query.set_text("load_config");
+    app.search_dialog_changed(true);
+    app.search_dialog.engine.wait();
+    app.poll_search_dialog(Instant::now());
+    paint(&mut app);
+    (app, dir)
+}
+
+/// 回归：在文件中查找的对话框盖在编辑区上，在它上面右键不弹出编辑区的菜单，光标不动。
+#[test]
+fn right_clicks_on_the_search_dialog_reach_no_menu() {
+    let (mut app, dir) = search_dialog_with_results("search-dialog-menu");
+    let list = app.search_dialog_parts().list.list;
+    let at = (list.x + list.w / 2.0, list.y + list.h / 2.0);
+    assert!(app.layout.editor.contains(at.0, at.1), "对话框盖在编辑区上");
+    let caret = app.editor.active().unwrap().selection;
+    right_click(&mut app, at);
+    assert!(app.overlays.context_menu.is_none());
+    assert_eq!(app.editor.active().unwrap().selection, caret);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 回归：底部面板的「搜索」标签盖在终端上，在它上面右键不弹出终端的菜单。
+#[cfg(unix)]
+#[test]
+fn right_clicks_on_the_search_tab_reach_no_menu() {
+    let (mut app, dir) = search_dialog_with_results("search-tab-menu");
+    let _term = super::super::terminal::show_terminal(&mut app, "$ ");
+    app.dock_search_results();
+    paint(&mut app);
+    assert!(app.docked_search_shown());
+    let row = app
+        .docked_parts()
+        .unwrap()
+        .list
+        .row(0, app.search_dialog.scroll);
+    let at = (row.x + 40.0, row.y + 4.0);
+    assert!(
+        app.layout.terminal.contains(at.0, at.1),
+        "「搜索」标签盖在终端上"
+    );
+    right_click(&mut app, at);
+    assert!(app.overlays.context_menu.is_none());
+    let _ = std::fs::remove_dir_all(&dir);
+}

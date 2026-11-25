@@ -23,10 +23,10 @@ pub(super) fn collect_all(
     let mut paths: Packed = main.paths.iter().collect();
     let mut dirs: Vec<String> = main.dirs.iter().map(str::to_owned).collect();
     let mut scratch = String::new();
-    let mut timed_out = main.timed_out;
+    let mut failed = main.failed;
     for (label, folder) in extra {
         let part = collect(folder, limit.saturating_sub(paths.len()), cancel);
-        timed_out |= part.timed_out;
+        failed |= part.failed;
         dirs.push(label.clone());
         dirs.extend(part.dirs.iter().map(|dir| format!("{label}/{dir}")));
         for path in part.paths.iter() {
@@ -39,7 +39,7 @@ pub(super) fn collect_all(
     }
     let mut table = Files::sorted(&paths, limit);
     table.layers = main.layers;
-    table.timed_out = timed_out;
+    table.failed = failed;
     table.dirs = DirSet::new(dirs.iter().map(String::as_str));
     table
 }
@@ -156,63 +156,18 @@ fn list(
     }
 }
 
-/// 返回 `dir`（相对路径）下不被忽略的直接子项的名字。
-fn listing(root: &Path, dir: &str) -> HashSet<String> {
-    walker(&root.join(dir))
-        .max_depth(Some(1))
-        .build()
-        .flatten()
-        .filter(|entry| entry.depth() == 1)
-        .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .collect()
+/// 一次后台更新的结果：新的文件表（不需要变化时为 `None`），以及确认已不存在的路径（相对路径，
+/// 以 `/` 分隔），调用方据此清理别处记着的这些文件。
+pub(super) struct Patched {
+    pub(super) files: Option<Files>,
+    pub(super) missing: Vec<String>,
 }
 
-/// 收录 `dir`（相对路径）下面的文件和遍历过的目录，最多到第 `layers` 层（为 `None` 时不限）；
-/// `dir` 自己也算遍历过的目录。
-///
-/// 文件放进 `files`，目录放进 `dirs`；`cancel` 置位时提前返回。`dir` 所在的层数是其路径段数
-/// （从 1 起）。
-fn gather(
-    root: &Path,
-    dir: &str,
-    layers: Option<usize>,
-    files: &mut Vec<String>,
-    dirs: &mut Vec<String>,
-    cancel: &AtomicBool,
-) {
-    let depth = dir.split('/').count();
-    if layers.is_some_and(|layers| depth >= layers) {
-        return;
-    }
-    dirs.push(dir.to_owned());
-    let walker = walker(&root.join(dir))
-        .max_depth(layers.map(|layers| layers - depth))
-        .build();
-    for entry in walker.flatten() {
-        if cancel.load(Ordering::Relaxed) {
-            return;
-        }
-        let Some(kind) = entry.file_type() else {
-            continue;
-        };
-        if entry.depth() == 0 {
-            continue;
-        }
-        let Some(path) = entry.path().strip_prefix(root).ok().and_then(relative_path) else {
-            continue;
-        };
-        if is_listed_file(kind, entry.path()) {
-            files.push(path);
-        } else if kind.is_dir() && layers.is_none_or(|layers| depth + entry.depth() < layers) {
-            dirs.push(path);
-        }
-    }
-}
-
-/// 按变化的路径更新文件表，返回新表；表不需要变化或任务被取消时返回 `None`。
+/// 按变化的路径更新文件表；任务被取消，或远端的目录没能查看时返回 `None`，文件表保持原样。
 ///
 /// 只看已遍历过的目录里的变化：被忽略或因太深而未收录的目录与文件表无关。表里已有就不动，
-/// 没有就加上（目录则收录它下面的内容）；不存在或被忽略就从表里去掉。
+/// 没有就加上（目录则收录它下面的内容）；不存在或被忽略就从表里去掉。变化的路径各自的样子按与
+/// 遍历相同的规则查看（[`winc_search::probe`]）；远端的目录由远端的服务进程一次查看完。
 ///
 /// `.gitignore`、`.ignore` 变化时重新收录它所在的目录（在根目录时整个重新遍历）；更新后的文件
 /// 数超过 [`MAX_FILES`] 时也整个重新遍历。
@@ -221,94 +176,106 @@ pub(super) fn patch(
     base: &Files,
     paths: &[PathBuf],
     cancel: &AtomicBool,
-) -> Option<Files> {
-    let mut removed: HashSet<String> = HashSet::new();
-    let mut added: Vec<String> = Vec::new();
-    let mut dirs: Vec<String> = Vec::new();
-    let mut listings: HashMap<String, HashSet<String>> = HashMap::new();
-    let mut redone: Option<String> = None;
-
+) -> Option<Patched> {
+    let whole = |cancel| {
+        Some(Patched {
+            files: Some(collect(root, MAX_FILES, cancel)),
+            missing: Vec::new(),
+        })
+    };
+    let mut wanted: Vec<String> = Vec::new();
     for path in paths {
-        if cancel.load(Ordering::Relaxed) {
-            return None;
-        }
-        let Some(rel) = path.strip_prefix(root).ok().and_then(relative_path) else {
+        let Some(rel) = relative_in(root, path) else {
             continue;
         };
-        let (parent, name) = rel
-            .rsplit_once('/')
-            .map_or(("", rel.as_str()), |(parent, name)| (parent, name));
+        let (parent, name) = rel.rsplit_once('/').unwrap_or(("", rel.as_str()));
         if !base.walked(parent) {
             continue;
         }
-
         if name == ".gitignore" || name == ".ignore" {
             if parent.is_empty() {
-                return Some(collect(root, MAX_FILES, cancel));
+                return whole(cancel);
             }
-            removed.insert(parent.to_owned());
-            gather(root, parent, base.layers, &mut added, &mut dirs, cancel);
-            continue;
+            wanted.push(parent.to_owned());
+        } else {
+            wanted.push(rel);
         }
+    }
+    // 按路径的层级排序：目录之下的路径紧随其后，重新收录过的目录下的变化不必再看。
+    wanted.sort_by(|a, b| Path::new(a).cmp(Path::new(b)));
+    wanted.dedup();
+    if wanted.is_empty() {
+        return Some(Patched {
+            files: None,
+            missing: Vec::new(),
+        });
+    }
+    let probes = match winc_backend::is_remote(root) {
+        true => probe_remote(root, &wanted, base.layers, cancel)?,
+        false => winc_search::probe(root, &wanted, base.layers, cancel),
+    };
+    if cancel.load(Ordering::Relaxed) || probes.len() != wanted.len() {
+        return None;
+    }
 
+    let mut removed: HashSet<String> = HashSet::new();
+    let (mut added, mut dirs, mut missing) = (Vec::new(), Vec::new(), Vec::new());
+    for (rel, probe) in wanted.into_iter().zip(probes) {
         let was_file = base.position(&rel).is_some();
         let was_dir = base.dirs.contains(rel.as_str());
-        let allowed = listings
-            .entry(parent.to_owned())
-            .or_insert_with(|| listing(root, parent))
-            .contains(name);
-        let kind = allowed
-            .then(|| winc_backend::fs::symlink_metadata(path).ok())
-            .flatten()
-            .map(|m| m.kind);
-
-        match kind {
-            Some(kind) if is_listed_file(kind, path) => {
-                if was_file && !was_dir {
-                    continue;
-                }
+        match probe {
+            Probe::File if was_file && !was_dir => {}
+            Probe::File => {
                 if was_dir {
                     removed.insert(rel.clone());
                 }
                 added.push(rel);
             }
-            Some(kind) if kind.is_dir() => {
-                // 路径已排好序，上一级目录刚重新收录过时不用再收录一遍。
-                if redone
-                    .as_deref()
-                    .is_some_and(|dir| rel.strip_prefix(dir).is_some_and(|r| r.starts_with('/')))
-                {
-                    continue;
-                }
-                // 目录可能被整个换掉（删除后把另一个目录改名移入），此时只有这一条通知，里面的
-                // 文件没有各自的通知，因此与磁盘对照；没有变化时不更新文件表。
-                let (mut files, mut found) = (Vec::new(), Vec::new());
-                gather(root, &rel, base.layers, &mut files, &mut found, cancel);
-                if was_dir && !was_file && same_files(base, &rel, &mut files) {
+            // 目录可能被整个换掉（删除后把另一个目录改名移入），此时只有这一条通知，里面的
+            // 文件没有各自的通知，因此与磁盘对照；没有变化时不更新文件表。
+            Probe::Dir {
+                mut files,
+                dirs: mut found,
+            } => {
+                // 文件没变、也没有新的目录时不更新：其下的变化已在这次查看之内（见
+                // `Probe::Covered`），新建的空目录也要记为遍历过。
+                let known = found.iter().all(|dir| base.dirs.contains(dir.as_str()));
+                if was_dir && !was_file && known && same_files(base, &rel, &mut files) {
                     continue;
                 }
                 if was_file || was_dir {
-                    removed.insert(rel.clone());
+                    removed.insert(rel);
                 }
                 added.append(&mut files);
                 dirs.append(&mut found);
-                redone = Some(rel);
             }
-            _ if was_file || was_dir => {
+            Probe::Missing => {
+                if was_file || was_dir {
+                    removed.insert(rel.clone());
+                }
+                missing.push(rel);
+            }
+            Probe::Unlisted if was_file || was_dir => {
                 removed.insert(rel);
             }
-            _ => {}
+            Probe::Unlisted | Probe::Covered => {}
         }
     }
 
     if removed.is_empty() && added.is_empty() && dirs.is_empty() {
-        return None;
+        return Some(Patched {
+            files: None,
+            missing,
+        });
     }
     let files = merge(base, &removed, added, dirs);
     if files.len() > MAX_FILES {
-        return Some(collect(root, MAX_FILES, cancel));
+        return whole(cancel);
     }
-    Some(files)
+    Some(Patched {
+        files: Some(files),
+        missing,
+    })
 }
 
 /// `base` 中目录 `dir` 下的文件是否正好是 `files`；`files` 会被排序。
@@ -346,7 +313,7 @@ fn merge(
     // 按上限预留，建好后去掉多余的容量：新表会一直留着，不能带着去掉的路径和扩容的余量。
     let mut files = Files {
         layers: base.layers,
-        timed_out: base.timed_out,
+        failed: base.failed,
         dirs: DirSet::new(
             base.dirs
                 .iter()
@@ -403,46 +370,45 @@ pub(super) fn path_order(a: &str, b: &str) -> std::cmp::Ordering {
     x.len().cmp(&y.len()).then_with(|| a.cmp(b))
 }
 
-/// 把相对路径转成以 `/` 分隔的字符串；含非 UTF-8 的部分或路径为空时返回 `None`，
-/// 调用方据此跳过该文件。
-pub(super) fn relative_path(relative: &Path) -> Option<String> {
-    let mut out = String::new();
-
-    for part in relative.components() {
-        let text = part.as_os_str().to_str()?;
-        if !out.is_empty() {
-            out.push('/');
+/// 由远端的服务进程查看根目录 `root` 下的各个路径（见 [`winc_search::probe`]），一次往返；任务
+/// 被取消、无法启动或连接中断时返回 `None`。
+fn probe_remote(
+    root: &Path,
+    paths: &[String],
+    layers: Option<usize>,
+    cancel: &AtomicBool,
+) -> Option<Vec<Probe>> {
+    let at = winc_backend::locate(root)?;
+    let listing = Listing {
+        root: at.path,
+        paths: paths.to_vec(),
+        layers,
+    };
+    let exec = Exec::this_server().arg(host::FILES).stdin(listing.encode());
+    let mut input = std::io::BufReader::new(winc_backend::remote::spawn(root, &exec).ok()?);
+    let mut found = Vec::with_capacity(paths.len());
+    while found.len() < paths.len() {
+        // 放弃读取时远端的进程随之结束。
+        if cancel.load(Ordering::Relaxed) {
+            return None;
         }
-        out.push_str(text);
+        found.push(host::read_probe(&mut input).ok()??);
     }
-
-    (!out.is_empty()).then_some(out)
+    Some(found)
 }
 
-/// 收录远端主机上目录 `root` 中的文件：由远端的一条命令列出（见
-/// [`remote_files`](crate::workspace::remote_files)），一次往返。超过 `limit` 个时按路径的
-/// 顺序收录前 `limit` 个。超时没有列出时文件表为空，并记下超时。
+/// 收录远端主机上目录 `root` 中的文件：由远端的服务进程遍历（规则与本机的遍历相同），一次
+/// 往返。超过 `limit` 个时按路径的顺序收录前 `limit` 个。没能列出时文件表为空，并记下失败。
 fn collect_remote(root: &Path, limit: usize, cancel: &AtomicBool) -> Files {
-    let stop = || cancel.load(Ordering::Relaxed);
-    let Ok(listing) = crate::workspace::remote_files::list(root, false, None, &stop) else {
+    let listed = probe_remote(root, &[String::new()], None, cancel);
+    let Some(Probe::Dir { files, dirs }) = listed.and_then(|mut found| found.pop()) else {
         return Files {
-            timed_out: true,
+            failed: !cancel.load(Ordering::Relaxed),
             ..Files::default()
         };
     };
-    let (mut files, mut dirs) = (Packed::default(), HashSet::new());
-    for path in &listing {
-        files.push(path);
-        // 文件所在的各级目录都算遍历过：其中的变化要更新文件表。
-        let mut dir = path.as_str();
-        while let Some((parent, _)) = dir.rsplit_once('/') {
-            if !dirs.insert(parent) {
-                break;
-            }
-            dir = parent;
-        }
-    }
+    let files: Packed = files.iter().map(String::as_str).collect();
     let mut table = Files::sorted(&files, limit);
-    table.dirs = DirSet::new(dirs);
+    table.dirs = DirSet::new(dirs.iter().map(String::as_str));
     table
 }

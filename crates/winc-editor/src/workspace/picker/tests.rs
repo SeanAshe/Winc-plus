@@ -3,6 +3,13 @@
 
 use super::*;
 
+/// 按变化的路径更新文件表，返回新表；表不需要变化时返回 `None`。
+fn updated(root: &Path, base: &Files, paths: &[PathBuf], cancel: &AtomicBool) -> Option<Files> {
+    patch(root, base, paths, cancel)
+        .expect("本机的目录总能查看")
+        .files
+}
+
 /// 按给定顺序放进文件表（不排序）。
 fn index(paths: &[&str]) -> FileIndex {
     let mut files = Files::default();
@@ -312,7 +319,7 @@ fn ignore_rules_above_a_repository_do_not_apply_inside_it() {
     // 按目录的变化更新文件表时，用的是同一套规则。
     let cancel = AtomicBool::new(false);
     let dist = repo.join("dist");
-    assert!(patch(&repo, &index.files, std::slice::from_ref(&dist), &cancel).is_none());
+    assert!(updated(&repo, &index.files, std::slice::from_ref(&dist), &cancel).is_none());
 
     // 打开版本库里的子目录：版本库根目录的规则仍然生效。
     write(&outer, "repo/sub/target/b.o");
@@ -399,7 +406,12 @@ fn walking_layer_by_layer_follows_the_same_ignore_rules_as_the_walker() {
         .build()
         .flatten()
         .filter(|e| e.file_type().is_some_and(|t| is_listed_file(t, e.path())))
-        .filter_map(|e| e.path().strip_prefix(&root).ok().and_then(relative_path))
+        .filter_map(|e| {
+            e.path()
+                .strip_prefix(&root)
+                .ok()
+                .and_then(winc_search::slashed)
+        })
         .collect();
     walked.sort_by(|a, b| path_order(a, b));
     assert_eq!(contents(&table).0, walked);
@@ -535,12 +547,12 @@ fn patching_with_the_changed_paths_matches_walking_again() {
 
     // 只修改了内容：文件表不需要变。
     std::fs::write(root.join("src/a.rs"), "changed").unwrap();
-    assert!(patch(&root, &base, &[root.join("src/a.rs")], &cancel).is_none());
+    assert!(updated(&root, &base, &[root.join("src/a.rs")], &cancel).is_none());
     // 被忽略的目录里的变化与文件表无关。
     write(&root, "target/new.rs");
     write(&root, "notes.log");
     let ignored = [root.join("target/new.rs"), root.join("notes.log")];
-    assert!(patch(&root, &base, &ignored, &cancel).is_none());
+    assert!(updated(&root, &base, &ignored, &cancel).is_none());
 
     // 依次覆盖：新建、删除、目录改名、新建多层目录、文件换成同名目录、子目录里新增忽略规则。
     write(&root, "src/b.rs");
@@ -568,7 +580,7 @@ fn patching_with_the_changed_paths_matches_walking_again() {
     .map(|p| root.join(p))
     .collect();
 
-    let patched = patch(&root, &base, &changed, &cancel).unwrap();
+    let patched = updated(&root, &base, &changed, &cancel).unwrap();
     let walked = collect(&root, MAX_FILES, &cancel);
     assert_eq!(contents(&patched), contents(&walked));
     assert!(contents(&patched).0.contains(&"source/b.rs"));
@@ -577,13 +589,33 @@ fn patching_with_the_changed_paths_matches_walking_again() {
     // 通知中路径的顺序不同、同一路径出现两次，结果相同。
     let mut shuffled: Vec<PathBuf> = changed.iter().rev().cloned().collect();
     shuffled.extend(changed.iter().take(3).cloned());
-    let again = patch(&root, &base, &shuffled, &cancel).unwrap();
+    let again = updated(&root, &base, &shuffled, &cancel).unwrap();
     assert_eq!(contents(&again), contents(&walked));
 
     // 修改根目录的忽略规则：整个重新遍历。
     std::fs::write(root.join(".gitignore"), "target/\n*.log\nlib/\n").unwrap();
-    let rules = patch(&root, &walked, &[root.join(".gitignore")], &cancel).unwrap();
+    let rules = updated(&root, &walked, &[root.join(".gitignore")], &cancel).unwrap();
     assert!(!contents(&rules).0.iter().any(|p| p.starts_with("lib/")));
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// 同一批变化里有目录和它下面新建的空目录：目录里的文件没变，新目录也记为遍历过，之后其中新建
+/// 的文件能收录。
+#[test]
+fn a_new_empty_folder_is_walked_even_when_its_parent_has_the_same_files() {
+    let root = crate::test_util::scratch("index-patch-empty-dir");
+    write(&root, "src/main.rs");
+    let cancel = AtomicBool::new(false);
+    let base = collect(&root, MAX_FILES, &cancel);
+
+    std::fs::create_dir_all(root.join("src/sub")).unwrap();
+    let changed = [root.join("src"), root.join("src/sub")];
+    let patched = updated(&root, &base, &changed, &cancel).unwrap();
+    assert!(patched.walked("src/sub"));
+    write(&root, "src/sub/new.rs");
+    let added = updated(&root, &patched, &[root.join("src/sub/new.rs")], &cancel).unwrap();
+    assert_eq!(contents(&added).0, ["src/main.rs", "src/sub/new.rs"]);
 
     let _ = std::fs::remove_dir_all(&root);
 }
@@ -602,7 +634,7 @@ fn patching_a_layered_index_keeps_its_layers() {
 
     // 第 3 层的变化忽略；第 2 层的新文件、新目录收录，新目录里更深层的内容不收录。
     write(&root, "d/e/h.txt");
-    assert!(patch(&root, &base, &[root.join("d/e/h.txt")], &cancel).is_none());
+    assert!(updated(&root, &base, &[root.join("d/e/h.txt")], &cancel).is_none());
     write(&root, "d/new.txt");
     write(&root, "n/m/deep.txt");
     write(&root, "n/top.txt");
@@ -611,7 +643,7 @@ fn patching_a_layered_index_keeps_its_layers() {
         root.join("n"),
         root.join("n/top.txt"),
     ];
-    let patched = patch(&root, &base, &changed, &cancel).unwrap();
+    let patched = updated(&root, &base, &changed, &cancel).unwrap();
     assert_eq!(patched.layers, Some(2));
     assert_eq!(
         contents(&patched),
@@ -638,18 +670,18 @@ fn a_directory_replaced_from_outside_is_listed_again() {
 
     // 目录没有变化时（例如目录里的文件被修改时目录本身也有通知）不更新文件表。
     let dist = root.join("dist");
-    assert!(patch(&root, &base.files, std::slice::from_ref(&dist), &cancel).is_none());
+    assert!(updated(&root, &base.files, std::slice::from_ref(&dist), &cancel).is_none());
 
     std::fs::remove_dir_all(&dist).unwrap();
     std::fs::rename(outside.join("out"), &dist).unwrap();
-    let files = patch(&root, &base.files, std::slice::from_ref(&dist), &cancel).unwrap();
+    let files = updated(&root, &base.files, std::slice::from_ref(&dist), &cancel).unwrap();
     let listed: Vec<&str> = files.paths.iter().collect();
     assert_eq!(listed, ["dist/core/new.d.ts", "src/a.rs"]);
     assert!(files.walked("dist/core"));
 
     // 上一级目录重新收录过时，同一批里的下一级不重复处理，结果相同。
     let core = dist.join("core");
-    let both = patch(&root, &base.files, &[dist.clone(), core], &cancel).unwrap();
+    let both = updated(&root, &base.files, &[dist.clone(), core], &cancel).unwrap();
     assert_eq!(both.paths.iter().collect::<Vec<_>>(), listed);
 
     let _ = std::fs::remove_dir_all(&root);
@@ -783,8 +815,8 @@ fn collect_returns_relative_slash_separated_paths() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 远端主机上的目录：文件表由远端的一条命令列出，是仓库时遵守其忽略规则，不是仓库时只跳过
-/// 文件树中不显示的名字。
+/// 远端主机上的目录：文件表由远端的服务进程按与本机相同的规则列出，一次往返；是仓库时遵守其
+/// 忽略规则，不是仓库时只跳过文件树中不显示的名字。
 #[cfg(unix)]
 #[test]
 fn files_on_a_remote_host_are_listed_by_one_command_there() {
@@ -815,7 +847,7 @@ fn files_on_a_remote_host_are_listed_by_one_command_there() {
     // 不是仓库：全部文件，一次往返。
     let before = winc_backend::remote::requests(&target);
     let index = FileIndex::collect_now(&root);
-    assert_eq!(winc_backend::remote::requests(&target) - before, 2);
+    assert_eq!(winc_backend::remote::requests(&target) - before, 1);
     let mut all = listed(&index);
     all.sort();
     assert_eq!(
@@ -858,6 +890,64 @@ fn files_on_a_remote_host_are_listed_by_one_command_there() {
         );
     }
     winc_backend::remote::disconnect(&target);
+}
+
+/// 远端目录中的变化：新建、修改、删除和被忽略的文件都由远端一次查看，与本机的更新相同；确认
+/// 删除的路径单独报告，调用方据此清理最近打开的文件。
+#[cfg(unix)]
+#[test]
+fn changes_on_a_remote_host_are_patched_in_one_trip() {
+    use std::os::unix::ffi::OsStrExt;
+
+    let local =
+        winc_config::files::canonicalize(crate::test_util::scratch("patch-remote")).unwrap();
+    for file in ["src/main.rs", "src/old.rs", "empty/.keep", "README.md"] {
+        let path = local.join(file);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "").unwrap();
+    }
+    std::fs::write(local.join(".gitignore"), "*.log\n").unwrap();
+    let target = crate::test_util::loopback("patch-remote");
+    let root = winc_backend::virtual_path(&target, local.as_os_str().as_bytes());
+    let base = FileIndex::collect_now(&root).files;
+    let cancel = AtomicBool::new(false);
+
+    std::fs::write(local.join("src/new.rs"), "").unwrap();
+    std::fs::write(local.join("empty/added.rs"), "").unwrap();
+    std::fs::write(local.join("src/main.rs"), "changed").unwrap();
+    std::fs::write(local.join("src/trace.log"), "").unwrap();
+    std::fs::remove_file(local.join("src/old.rs")).unwrap();
+    let changed: Vec<PathBuf> = [
+        "src/new.rs",
+        "empty/added.rs",
+        "src/main.rs",
+        "src/trace.log",
+    ]
+    .iter()
+    .chain(&["src/old.rs"])
+    .map(|rel| winc_backend::join(&root, rel))
+    .collect();
+    let before = winc_backend::remote::requests(&target);
+    let patched = patch(&root, &base, &changed, &cancel).unwrap();
+    assert_eq!(winc_backend::remote::requests(&target) - before, 1);
+    let table = patched.files.unwrap();
+    assert_eq!(
+        contents(&table).0,
+        [
+            ".gitignore",
+            "empty/.keep",
+            "empty/added.rs",
+            "README.md",
+            "src/main.rs",
+            "src/new.rs"
+        ]
+    );
+    assert_eq!(patched.missing, ["src/old.rs"]);
+    // 只是内容变了：文件表不变。
+    let unchanged = patch(&root, &base, &changed[2..3], &cancel).unwrap();
+    assert!(unchanged.files.is_none() && unchanged.missing.is_empty());
+    winc_backend::remote::disconnect(&target);
+    let _ = std::fs::remove_dir_all(&local);
 }
 
 #[test]

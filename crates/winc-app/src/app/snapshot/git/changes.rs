@@ -76,6 +76,11 @@ fn gutter_marks_show_changes_and_revert_them() {
     let card = app.hits.changes_card.unwrap();
     assert_eq!(card.y - 1.0, l.text.y + 6.0 * lh);
     assert_eq!(((card.h + 2.0) / lh).fract(), 0.0);
+    // 卡片遮挡下方的文字：在卡片上右键不弹出编辑区的菜单，光标也不移到卡片下方。
+    let caret = app.editor.active().unwrap().selection;
+    right_click(&mut app, (card.x + card.w / 2.0, card.y + card.h / 2.0));
+    assert!(app.overlays.context_menu.is_none());
+    assert_eq!(app.editor.active().unwrap().selection, caret);
     let revert = app
         .hits
         .changes

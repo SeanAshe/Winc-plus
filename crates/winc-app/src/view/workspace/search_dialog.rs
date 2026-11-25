@@ -351,8 +351,8 @@ fn draw_empty(app: &App, frame: &mut Frame<'_>, area: Rect, dialog: bool) {
     let failed = d.engine.error().is_some();
     let message = if d.query.text().is_empty() {
         t!("workspace-search-empty")
-    } else if !searching && !failed && d.engine.timed_out() {
-        t!("workspace-search-remote-timeout")
+    } else if !searching && !failed && d.engine.remote_failed() {
+        t!("workspace-search-remote-failed")
     } else if !searching && !failed {
         t!("editor-places-no-match")
     } else {
@@ -449,7 +449,7 @@ fn summary(app: &App) -> (String, Color) {
     if searching && engine.total() == 0 {
         return (t!("workspace-search-searching").to_owned(), p.text_dim);
     }
-    let more = if engine.is_truncated() || engine.gave_up() || engine.timed_out() {
+    let more = if engine.is_truncated() || engine.gave_up() || engine.remote_failed() {
         "+"
     } else {
         ""

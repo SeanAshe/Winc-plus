@@ -1,6 +1,11 @@
 //! 跨文件替换：替换文档或磁盘上的文件，预览替换后的行。
 
+use std::ops::Range;
+
+use winc_core::Lines;
+
 use super::*;
+use crate::editing::search::{Pattern, unescape};
 
 /// 替换文档中 `matches` 列出的匹配（结果列表中仍保留的），作为一次可撤销的修改，返回替换的处数。
 ///
@@ -31,9 +36,7 @@ pub fn replace_in_document(
     ranges.sort_unstable();
     ranges.dedup();
 
-    query
-        .in_file_search(replacement)
-        .replace_ranges(doc, &ranges)
+    in_file_search(query, replacement).replace_ranges(doc, &ranges)
 }
 
 /// 替换未打开文件中 `matches` 列出的匹配：读入内容、替换，再原子写回（先写临时文件，再改名），

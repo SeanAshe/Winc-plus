@@ -25,6 +25,21 @@ fn letters_operators_and_scripts() {
     assert_eq!(nodes[4], Node::Row(vec![sym("ℝ", Class::Ord, Font::Roman)]));
 }
 
+/// amsmath、amssymb、latexsym 中的符号：方框、斜体的大写希腊字母。
+#[test]
+fn symbols_from_the_common_packages() {
+    let Node::Row(nodes) = parse("\\Box \\square \\blacksquare \\varGamma \\varOmega \\boxplus")
+    else {
+        panic!();
+    };
+    assert_eq!(nodes[0], sym("□", Class::Ord, Font::Roman));
+    assert_eq!(nodes[1], sym("□", Class::Ord, Font::Roman));
+    assert_eq!(nodes[2], sym("■", Class::Ord, Font::Roman));
+    assert_eq!(nodes[3], sym("Γ", Class::Ord, Font::Italic));
+    assert_eq!(nodes[4], sym("Ω", Class::Ord, Font::Italic));
+    assert_eq!(nodes[5], sym("⊞", Class::Bin, Font::Roman));
+}
+
 #[test]
 fn fractions_roots_fences_and_ops() {
     let Node::Row(nodes) =

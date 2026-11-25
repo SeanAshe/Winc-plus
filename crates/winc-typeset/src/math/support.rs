@@ -58,7 +58,11 @@ pub(crate) fn letter(c: char, font: Font) -> char {
             (_, Some(_)) if c == 'h' => 'ℎ',
             (_, Some(i)) => at(0x1D44E, i),
             _ => match c {
+                // 大写区里 U+03A2 空着，数学斜体区的同一位置是 ϴ，其余一一对应。
+                'Α'..='Ω' => at(0x1D6E2, c as u32 - 'Α' as u32),
                 'α'..='ω' => at(0x1D6FC, c as u32 - 'α' as u32),
+                'ı' => '𝚤',
+                'ȷ' => '𝚥',
                 'ϵ' => '𝜖',
                 'ϑ' => '𝜗',
                 'ϰ' => '𝜘',
@@ -210,4 +214,22 @@ pub(crate) fn named_color(name: &str) -> Option<Color> {
         }
     };
     Some(Color::hex(hex))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 斜体的字母换成数学斜体区里的字：拉丁字母、大小写希腊字母和无点的 i、j。
+    #[test]
+    fn italic_letters_come_from_the_math_alphabet() {
+        let italic = |c| letter(c, Font::Italic);
+        assert_eq!(italic('x'), '𝑥');
+        assert_eq!(italic('h'), 'ℎ');
+        assert_eq!(italic('α'), '𝛼');
+        assert_eq!(italic('Γ'), '𝛤');
+        assert_eq!(italic('Ω'), '𝛺');
+        assert_eq!(italic('ı'), '𝚤');
+        assert_eq!(letter('Γ', Font::Roman), 'Γ');
+    }
 }
