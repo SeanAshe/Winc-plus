@@ -110,7 +110,8 @@ pub struct DirEntry {
 ///
 /// 目录内容按需读取并缓存在 `children` 里，展开和折叠只重新拍平可见行，不再访问磁盘。
 pub struct Workspace {
-    /// 根目录（规范化后的绝对路径）。
+    /// 根目录：打开时给的绝对路径，消去了 `.` 和 `..`，经过符号链接时保留链接（见
+    /// [`FolderLinks`]）。
     pub root: PathBuf,
     /// 显示名，标题栏和状态栏使用：根目录的名字，或用户起的名字（见 [`Workspace::set_alias`]）。
     pub name: String,
@@ -120,8 +121,10 @@ pub struct Workspace {
     alias: Option<String>,
     /// 这组目录所属的项目文件；见 [`Workspace::set_project`]。
     project: Option<PathBuf>,
-    /// 附加的文件夹（规范化后的绝对路径），按添加的顺序；见 [`Workspace::add_folder`]。
+    /// 附加的文件夹（写法同 [`Self::root`]），按添加的顺序；见 [`Workspace::add_folder`]。
     extra: Vec<PathBuf>,
+    /// 写法与真实路径不同的文件夹。
+    links: FolderLinks,
     /// 选中行在 [`Self::rows`] 中的下标（从 0 起）。
     ///
     /// 多选时是当前行：键盘从这里移动，新建项的位置由它决定；它本身可能不在选区里（⌘ 单击取消
@@ -214,7 +217,7 @@ impl Workspace {
     }
 
     fn open_with(root: &Path, later: bool) -> io::Result<Self> {
-        let root = winc_config::files::canonicalize(root)?;
+        let (root, real) = folder_path(root)?;
         let name = root.file_name().map_or_else(
             || root.display().to_string(),
             |n| n.to_string_lossy().into_owned(),
@@ -237,6 +240,7 @@ impl Workspace {
             alias: None,
             project: None,
             extra: Vec::new(),
+            links: FolderLinks(Vec::from_iter(real.map(|real| (real, root.clone())))),
             selected: None,
             marked: HashSet::new(),
             anchor: None,
@@ -1160,6 +1164,8 @@ pub fn list_dir(dir: &Path) -> io::Result<Vec<DirEntry>> {
 }
 
 mod folders;
+pub use folders::FolderLinks;
+use folders::folder_path;
 pub(crate) use folders::{folder_prefixes, labelled_path};
 pub use winc_search::natural_cmp;
 pub(crate) use winc_search::{HIDDEN, is_listed_file, walker};

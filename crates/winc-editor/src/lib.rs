@@ -27,7 +27,7 @@ mod test_util;
 pub use document::content::Content;
 pub use document::disk::{
     DiskRead, DiskSync, DiskTake, DiskTaken, EncodingRead, EncodingReread, HandedSave, Opened,
-    Reread, SaveJob, Saved,
+    Reread, SaveJob, Saved, saved_text,
 };
 pub use document::encoding::Encoding;
 pub use document::large::LargeText;
@@ -57,7 +57,8 @@ pub use workspace::project_search::{
 pub use workspace::prompt::{MAX_PROMPT_BYTES, MAX_PROMPT_FILES, Prompt, PromptFile, prompt};
 pub use workspace::tree::{
     DirEntry, DirFetch, DirFetched, DirListing, DirScan, EXPAND_DIRS, Entry, EntryKind, Expansion,
-    Workspace, copy_entry, create_at, list_dir, move_at, natural_cmp, rename_at, segment_name,
+    FolderLinks, Workspace, copy_entry, create_at, list_dir, move_at, natural_cmp, rename_at,
+    segment_name,
 };
 pub use workspace::watch::{Changes, Watcher};
 
@@ -162,30 +163,67 @@ impl Editor {
 
     /// 打开文件并切换到其标签，返回标签序号（从 0 起）。
     ///
-    /// 路径规范化后与已打开文档相同时直接切换到已有标签，不重复读取。无法打开的文件（二进制、
-    /// 超过大小上限、读取失败）同样占用一个占位标签，编辑区显示原因。读取在调用线程上进行；
-    /// 界面线程上改用 [`Editor::open_tab`]，在后台读取。
+    /// 换成文档路径的写法（[`Self::document_path`]）后与已打开文档相同时直接切换到已有标签，
+    /// 不重复读取。无法打开的文件（二进制、超过大小上限、读取失败）同样占用一个占位标签，编辑区
+    /// 显示原因。读取在调用线程上进行；界面线程上改用 [`Editor::open_tab`]，在后台读取。
     pub fn open(&mut self, path: &Path) -> usize {
         let index = self.open_tab(path);
         self.load(index);
         index
     }
 
+    /// 返回 `path` 作为文档路径的写法，见 [`FolderLinks::document_path`]。
+    ///
+    /// 已打开文档的路径都是该写法；与它们比较的路径先经过这里。
+    pub fn document_path(&self, path: &Path) -> PathBuf {
+        match &self.workspace {
+            Some(ws) => ws.links().document_path(path),
+            None => canonical_path(path),
+        }
+    }
+
+    /// 返回工作区中经符号链接打开的文件夹（见 [`FolderLinks`]）；没有打开目录时为空。
+    pub fn folder_links(&self) -> FolderLinks {
+        (self.workspace.as_ref()).map_or_else(FolderLinks::default, |ws| ws.links().clone())
+    }
+
     /// 为 `path` 创建标签并切换过去，返回标签序号，不读取文件。
     ///
     /// 新开的标签尚未读取（[`Document::pending`]），由调用方在后台读取（[`Editor::begin_load`]）。
-    /// 路径规范化后与已打开文档相同时切换到已有标签。
+    /// 换成文档路径的写法（[`Self::document_path`]）后与已打开文档相同时切换到已有标签。
     pub fn open_tab(&mut self, path: &Path) -> usize {
         let index = self.open_pending(path);
         self.active = Some(index);
         index
     }
 
+    /// 同 [`Self::open_tab`]，供命令行给出的文件使用：文件不存在时读取后成为对应该路径的新文件
+    /// （[`Document::is_new_file`]），保存时才写入磁盘。
+    ///
+    /// 已有的标签尚未读取时同样按新文件读取；是此前读取失败的占位标签时改回尚未读取，重新读取。
+    /// 路径中间的一段不是目录时建不出该文件，仍是说明原因的占位标签。
+    pub fn open_tab_or_new(&mut self, path: &Path) -> usize {
+        let index = self.open_tab(path);
+        let unreadable = matches!(
+            self.documents[index].unsupported,
+            Some(Unsupported::Unreadable(_))
+        );
+        if unreadable {
+            self.reopen(index, false);
+        }
+        let doc = &mut self.documents[index];
+        if doc.is_pending() {
+            doc.read_as_new();
+        }
+        index
+    }
+
     /// 为 `path` 创建一个尚未读取的标签（[`Document::pending`]），不切换过去，返回标签序号。
     ///
-    /// 用于恢复会话：切换到该标签时再读取文件。路径规范化后与已打开文档相同时返回已有标签。
+    /// 用于恢复会话：切换到该标签时再读取文件。与已打开文档相同时返回已有标签，比较方法同
+    /// [`Self::open_tab`]。
     pub fn open_pending(&mut self, path: &Path) -> usize {
-        let canonical = canonical_path(path);
+        let canonical = self.document_path(path);
         if let Some(index) = self
             .documents
             .iter()
@@ -218,13 +256,15 @@ impl Editor {
             as_text: doc.reads_as_text(),
             hex: doc.reads_as_hex(),
             encoding: doc.reads_with(),
+            new: doc.reads_as_new(),
             progress: ReadProgress::default(),
         })
     }
 
     /// 用后台读取的文件 `loaded` 替换对应标签的内容，返回该标签的序号；无法替换时返回 `None`。
     ///
-    /// 读取失败的文件替换为说明原因的占位标签。文档标识不变，`revision` 在原有值上继续递增，
+    /// 读取失败的文件替换为说明原因的占位标签；文件不存在、标签由命令行给出时换成新文件（见
+    /// [`Self::open_tab_or_new`]）。文档标识不变，`revision` 在原有值上继续递增，
     /// 按（标识、版本号）缓存的结果随之作废。读取期间标签已关闭、已经读取（经 [`Editor::load`]
     /// 就地读取）或路径已改变时不做改动，返回 `None`。
     pub fn finish_load(&mut self, loaded: LoadedFile) -> Option<usize> {
@@ -233,7 +273,12 @@ impl Editor {
         if !doc.is_pending() || doc.path.as_deref() != Some(loaded.path.as_path()) {
             return None;
         }
-        let mut fresh = Document::from_opened(loaded.id, loaded.path, loaded.opened);
+        // 读取发出之后才由命令行给出的标签（见 `open_tab_or_new`）同样按新文件换入。
+        let new = (loaded.new || doc.reads_as_new()) && loaded.opened.creatable();
+        let mut fresh = match new {
+            true => Document::new_file(loaded.id, loaded.path, loaded.opened),
+            false => Document::from_opened(loaded.id, loaded.path, loaded.opened),
+        };
         fresh.keep_chosen(loaded.encoding);
         // 可预览的文件按该类文件最近一次选择的方式显示。
         let kind = fresh.preview_kind();
@@ -605,10 +650,10 @@ impl Editor {
     ///
     /// 路径位于 `from` 之下的已打开文档，以及未打开文件的书签，都改用 `to` 之下的新路径。
     pub fn moved(&mut self, from: &Path, to: &Path) {
-        // 文件树中的路径不解析符号链接，已打开文档的路径是解析后的规范路径（例如 `docs` 是
-        // 符号链接时，文档路径位于链接目标目录内）。因此把 `from`、`to` 都规范化之后再做前缀比较。
-        // `from` 在磁盘上已不存在，`canonical_path` 会改为规范化 `from` 所在的目录。
-        let (from, to) = (canonical_path(from), canonical_path(to));
+        // 文件树中的路径不解析符号链接，已打开文档的路径是 `document_path` 的写法（例如 `docs`
+        // 是符号链接时，文档路径位于链接目标目录内）；两者换成同一写法后再做前缀比较。`from` 在
+        // 磁盘上已不存在，`canonical_path` 会改为规范化 `from` 所在的目录。
+        let (from, to) = (self.document_path(from), self.document_path(to));
         for doc in &mut self.documents {
             if let Some(path) = doc.path.as_deref().and_then(|p| rebase(p, &from, &to)) {
                 doc.moved_to(path);
@@ -760,6 +805,8 @@ pub struct LoadJob {
     hex: bool,
     /// 用户选的编码；有时按它解码。
     encoding: Option<Encoding>,
+    /// 文件不存在时是否成为新文件（见 [`Editor::open_tab_or_new`]）。
+    new: bool,
     progress: ReadProgress,
 }
 
@@ -789,6 +836,7 @@ impl LoadJob {
             id: self.id,
             path: self.path,
             encoding: self.encoding,
+            new: self.new,
         }
     }
 }
@@ -799,12 +847,19 @@ pub struct LoadedFile {
     path: PathBuf,
     opened: Opened,
     encoding: Option<Encoding>,
+    /// 文件不存在时是否成为新文件（见 [`Editor::open_tab_or_new`]）。
+    new: bool,
 }
 
 impl LoadedFile {
     /// 读到的文件已不存在时返回它的路径：调用方据此清理别处记着的这个文件。
     pub fn missing(&self) -> Option<&Path> {
         self.opened.missing().then_some(self.path.as_path())
+    }
+
+    /// 文件不存在、换入后成为新文件（见 [`Editor::open_tab_or_new`]）。
+    pub fn new_file(&self) -> bool {
+        self.new && self.opened.creatable()
     }
 }
 
@@ -857,6 +912,56 @@ pub fn display_path(path: &Path, root: Option<&Path>) -> String {
     }
 
     path.display().to_string()
+}
+
+/// 返回 `path` 打开时记录的写法：绝对路径，按字面消去 `.` 和 `..`，不解开符号链接。
+///
+/// 相对路径相对于进程的当前目录；远端主机上的路径原样返回。不访问文件系统。
+pub fn given_path(path: &Path) -> PathBuf {
+    if winc_backend::is_remote(path) {
+        return path.to_path_buf();
+    }
+    let path = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
+    let mut out = PathBuf::new();
+    for part in path.components() {
+        match part {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => _ = out.pop(),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// 把真实路径 `path` 换成目录 `given`（真实路径为 `real`）的写法；换不了时返回 `None`。
+///
+/// `path` 在 `real` 下时直接换前缀。否则取 `given` 与 `real` 末尾相同的各段之前的部分作为链接
+/// 两端（`/var/x` 与 `/private/var/x` 是 `/var` 与 `/private/var`），换前缀后解开符号链接仍是
+/// `path` 才采用：链接也可能只指向 `real` 本身，不涉及它的上级。
+pub fn respell(path: &Path, given: &Path, real: &Path) -> Option<PathBuf> {
+    let join = |base: &Path, rest: &Path| match rest.as_os_str().is_empty() {
+        true => base.to_path_buf(),
+        false => base.join(rest),
+    };
+    if let Ok(rest) = path.strip_prefix(real) {
+        return Some(join(given, rest));
+    }
+    let (mut link, mut target) = (given, real);
+    while link.file_name().is_some() && link.file_name() == target.file_name() {
+        (link, target) = (link.parent()?, target.parent()?);
+    }
+    let candidate = join(link, path.strip_prefix(target).ok()?);
+    let same = winc_config::files::canonicalize(&candidate).is_ok_and(|c| c == path);
+    same.then_some(candidate)
+}
+
+/// `a` 与 `b` 是否为同一个目录：写法相同，或解开符号链接后相同。
+///
+/// 写法不同时访问文件系统；任一路径无法规范化时按不同处理。
+pub fn same_folder(a: &Path, b: &Path) -> bool {
+    a == b
+        || winc_config::files::canonicalize(a)
+            .is_ok_and(|a| winc_config::files::canonicalize(b).is_ok_and(|b| a == b))
 }
 
 /// 返回规范化后的绝对路径，解析符号链接（例如 macOS 上 `/var` 解析为 `/private/var`）。

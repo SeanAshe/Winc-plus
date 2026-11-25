@@ -159,7 +159,7 @@ fn menus_depend_on_what_was_clicked() {
 
     // 可编辑的文件菜单项全部可用；只读的文件只能复制、复制代码引用，以及转到定义、查找引用。
     assert_eq!(
-        commands(editor_menu(true, false, false, false)),
+        commands(editor_menu(true, false, false, false, true)),
         [
             (GoToDefinition, true),
             (FindReferences, true),
@@ -175,7 +175,7 @@ fn menus_depend_on_what_was_clicked() {
         ]
     );
     assert_eq!(
-        commands(editor_menu(false, false, false, false)),
+        commands(editor_menu(false, false, false, false, false)),
         [
             (GoToDefinition, true),
             (FindReferences, true),
@@ -192,11 +192,30 @@ fn menus_depend_on_what_was_clicked() {
     );
     // 有选区时多一项「格式化选中部分」。
     assert_eq!(
-        commands(editor_menu(true, true, true, false))[6],
+        commands(editor_menu(true, true, true, false, true))[6],
         (FormatSelection, true)
     );
+    // 「比较」子菜单：有选区时比较选中部分；没有存到磁盘上的文件不能与已保存的版本比较。
+    let compare = |menu: Vec<MenuEntry>| {
+        let found = menu.into_iter().find_map(|e| match e {
+            MenuEntry::Submenu(_, entries) => Some(entries),
+            _ => None,
+        });
+        commands(found.unwrap())
+    };
+    assert_eq!(
+        compare(editor_menu(true, false, false, false, true)),
+        [(CompareWithClipboard, true), (CompareWithSaved, true)]
+    );
+    assert_eq!(
+        compare(editor_menu(false, true, false, false, false)),
+        [
+            (CompareSelectionWithClipboard, true),
+            (CompareWithSaved, false)
+        ]
+    );
     // 光标所在行已有书签时只能删除，不能重复添加。
-    let marked = commands(editor_menu(true, false, true, false));
+    let marked = commands(editor_menu(true, false, true, false, true));
     assert!(marked.contains(&(AddBookmark, false)));
     assert!(marked.contains(&(RemoveBookmark, true)));
 }

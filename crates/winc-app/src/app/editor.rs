@@ -7,6 +7,7 @@ use super::*;
 
 pub(super) mod bookmarks;
 pub(crate) mod clipboard;
+pub(crate) mod compare;
 pub(super) mod conflict;
 pub(super) mod cursors;
 pub(crate) mod definition;
@@ -30,6 +31,8 @@ pub(crate) struct EditorCaches {
     pub(in crate::app) sticky_cache: Option<editor::sticky::StickyCache>,
     /// 已完成、待采用的大文件断行结果（见 [`App::poll_wraps`]）。
     pub(in crate::app) wraps: Arc<Mutex<Vec<(DocumentId, winc_editor::WrapResult)>>>,
+    /// 与剪贴板、已保存的版本比较的后台结果（见 [`App::poll_compares`]）。
+    pub(in crate::app) compares: editor::compare::Comparing,
     /// 长行的着色结果，跨帧复用（见 [`crate::view::LineTokens`]）。
     pub(crate) line_tokens: std::cell::RefCell<crate::view::LineTokens>,
     /// 缩略图中各行的小块，跨帧复用（见 [`crate::view::MinimapRows`]）。

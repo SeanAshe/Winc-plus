@@ -157,8 +157,8 @@ impl Git {
             }
             _ => return Err(failure(&output.stderr)),
         };
-        // `git` 给出的路径没有解析符号链接（`/tmp` 和 `/private/tmp`），打开目录时记下的是
-        // 解析过的路径。
+        // `git` 给出的路径写法不一（`/tmp` 和 `/private/tmp`）：先统一解开符号链接，再尽量换回
+        // `root` 的写法（见 [`crate::respell`]），与打开时记下的路径（可能经过符号链接）对应。
         for worktree in &mut worktrees {
             worktree.path = crate::host::resolve(root, &worktree.path.to_string_lossy());
             if let Ok(real) = winc_config::files::canonicalize(&worktree.path) {
@@ -166,6 +166,15 @@ impl Git {
             }
         }
         self.main_checkout(root, &mut worktrees, cancel);
+        if let Ok(real) = winc_config::files::canonicalize(root)
+            && real != root
+        {
+            for worktree in &mut worktrees {
+                if let Some(path) = crate::respell(&worktree.path, root, &real) {
+                    worktree.path = path;
+                }
+            }
+        }
         Ok(worktrees)
     }
 

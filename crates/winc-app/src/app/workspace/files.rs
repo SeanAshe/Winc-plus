@@ -183,13 +183,19 @@ impl App {
     /// 不把它所在的目录当作项目打开（那可能是「下载」或主目录）。目录见 [`Self::open_folder`]。
     /// 文件在预览标签中时，该标签成为普通标签。
     pub(in crate::app) fn open_path(&mut self, path: &Path) {
-        self.open_file(path, false);
+        self.open_file(path, false, false);
+    }
+
+    /// 打开命令行给出的文件或目录 `path`，同 [`Self::open_path`]；文件不存在时打开对应该路径的
+    /// 新文件，保存时才写入磁盘（见 [`winc_editor::Editor::open_tab_or_new`]）。
+    pub(in crate::app) fn open_path_or_new(&mut self, path: &Path) {
+        self.open_file(path, false, true);
     }
 
     /// 从窗口外打开了文件 `path`（命令行、文件管理器、程序坞、拖入、「打开」面板）：记入最近
     /// 打开的文件；目录不记。
     pub(in crate::app) fn note_opened_file(&mut self, path: &Path) {
-        let path = winc_config::files::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let path = self.editor.document_path(path);
         if self.is_folder(&path) || !self.may_be_file(&path) {
             return;
         }
@@ -200,7 +206,7 @@ impl App {
     ///
     /// 文件已打开时切换到其标签；否则替换现有的预览标签，没有预览标签时新建一个。
     pub(in crate::app) fn preview_path(&mut self, path: &Path) {
-        self.open_file(path, true);
+        self.open_file(path, true, false);
     }
 
     /// 设置中是否启用了预览标签（`tree.previewOnClick`）。
@@ -298,8 +304,9 @@ impl App {
         self.known_folder(path).is_some() || numbered && inside()
     }
 
-    /// 打开文件或目录 `path`；`preview` 为真时在预览标签中打开文件（见 [`Self::preview_path`]）。
-    fn open_file(&mut self, path: &Path, preview: bool) {
+    /// 打开文件或目录 `path`；`preview` 为真时在预览标签中打开文件（见 [`Self::preview_path`]），
+    /// `new` 为真时文件不存在则打开新文件（见 [`Self::open_path_or_new`]）。
+    fn open_file(&mut self, path: &Path, preview: bool, new: bool) {
         if self.is_folder(path) {
             self.open_folder(path);
             return;
@@ -312,7 +319,10 @@ impl App {
         let startup = self.startup_file_index();
         self.auto_save_active();
         let count = self.editor.tab_count();
-        let index = self.editor.open_tab(path);
+        let index = match new {
+            true => self.editor.open_tab_or_new(path),
+            false => self.editor.open_tab(path),
+        };
         let id = self.editor.documents[index].id;
         let added = self.editor.tab_count() > count;
         if let Some(old) = startup.filter(|_| added) {
@@ -335,7 +345,7 @@ impl App {
         self.focus = Focus::Editor;
         self.note_recent_file();
         self.relayout();
-        self.reveal_active();
+        self.auto_reveal_active();
         self.announce_readonly();
         self.ensure_caret_visible();
         self.reset_blink();
@@ -437,6 +447,18 @@ impl App {
             .and_then(|d| d.unwritable_reason())
         {
             self.flash(reason);
+        }
+    }
+
+    /// 当前文档是命令行打开的新文件（[`winc_editor::Document::is_new_file`]）时，在状态栏说明
+    /// 保存后才写入磁盘：路径写错时可以及时发现。
+    pub(crate) fn announce_new_file(&mut self) {
+        if self
+            .editor
+            .active()
+            .is_some_and(winc_editor::Document::is_new_file)
+        {
+            self.flash(t!("editor-new-file"));
         }
     }
 
@@ -601,7 +623,7 @@ impl App {
         self.activate_editor_terminal();
         self.note_recent_file();
         self.relayout();
-        self.reveal_active();
+        self.auto_reveal_active();
         self.request_redraw();
     }
 
@@ -944,7 +966,7 @@ impl App {
         // 另存为到已在其他标签中打开的文件时，两个标签对应同一个文件，但内容各自独立，
         // 先保存哪一个都会覆盖另一个的内容。因此对方有未保存的修改时不保存；对方没有修改时
         // 关闭对方的标签，内容以本次保存的为准。
-        let to = to.map(|path| winc_editor::canonical_path(&path));
+        let to = to.map(|path| self.editor.document_path(&path));
         let other = to.as_ref().and_then(|path| {
             self.editor
                 .documents

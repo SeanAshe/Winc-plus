@@ -30,6 +30,11 @@ pub(crate) fn draw_floating_bar(app: &mut App, frame: &mut Frame<'_>) {
 pub(crate) use super::settings::draw_cached as settings_draw_cached;
 pub(crate) use crate::app::workspace::tab_names::distinct_folder;
 
+/// 第 `index` 个标签的文件名颜色；见 `workspace::top_bar::file_name_color`。
+pub(crate) fn file_name_color(app: &App, index: usize, plain: Color) -> Color {
+    workspace::top_bar::file_name_color(app, &app.editor.documents[index], plain)
+}
+
 #[test]
 fn fit_keeps_as_many_characters_as_the_width_allows() {
     let mut renderer = Renderer::offscreen(10.0, 10.0, 2.0, Color::hex(0), None, None)

@@ -12,7 +12,9 @@ mod shell;
 mod strings;
 mod style;
 
-use crate::lang::{Heredocs, Language, Markup, RawStrings, Variables, language_at};
+use crate::lang::{
+    BlockEscapes, Heredocs, Interpolation, Language, Markup, RawStrings, Variables, language_at,
+};
 
 /// 行开头的词法状态：上一行是否停在尚未结束的注释或字符串里，以及是哪种结构。
 ///
@@ -99,6 +101,17 @@ pub enum LineState {
     ///
     /// 值是所属键的列（字符偏移，从 0 起），缩进比它深的行都是内容；列超过 255 的键不识别块标量。
     BlockScalar(u8),
+    /// 跨行的字符串插值内部。
+    ///
+    /// `outer` 是被插值打断的外层字符串，从外到内排列，0 表示没有：每项的高 5 位是字符串状态的
+    /// 紧凑编码（见 `compact`），低 3 位是插值中尚未配对的括号个数加一。`top` 是最内层插值中
+    /// 行首所处状态的紧凑编码：0 是代码，其余是插值里尚未结束的字符串或块注释。
+    Interpolation {
+        /// 最内层插值中行首所处状态的紧凑编码。
+        top: u8,
+        /// 被插值打断的外层字符串。
+        outer: [u8; MAX_CARRIED],
+    },
 }
 
 impl LineState {
@@ -118,11 +131,12 @@ impl LineState {
     ///
     /// 多行字符串、块注释、标签内部、内嵌代码与代码块等结构中的行都是这样的行。文件第一行和
     /// Astro 模板中的 frontmatter 属于代码，不算其中；frontmatter 内容按内层 TypeScript 的
-    /// 状态判断。
+    /// 状态判断。字符串插值内部的代码同样不算。
     pub fn is_quoted(self) -> bool {
         match self {
             LineState::Normal | LineState::Start => false,
             LineState::Frontmatter { inner } => !matches!(expand(inner), LineState::Normal),
+            LineState::Interpolation { top, .. } => top != 0,
             _ => true,
         }
     }
@@ -176,6 +190,8 @@ fn compact(state: LineState) -> u8 {
         }
         LineState::LongString(level) if level < 0x40 => 0x80 | level,
         LineState::LongComment(level) if level < 0x40 => 0xC0 | level,
+        // 放不下插值的嵌套，退回最外层的字符串：之后的行按字符串着色，直到该字符串收尾。
+        LineState::Interpolation { outer, .. } => outer[0] >> 3,
         _ => 0,
     }
 }
@@ -242,6 +258,11 @@ const MAX_TEMPLATE_DEPTH: u8 = 8;
 /// 写法使扫描量按嵌套层数成指数增长。取自调参：正常的代码一行里至多有一两处写到一半的
 /// 插值，16 处以后把插值的开头当作字符串内容，扫描量与行长成正比。
 const MAX_UNCLOSED: u8 = 16;
+
+/// 跨行的字符串插值最多记住的外层字符串个数（层），见 [`LineState::Interpolation`]。
+///
+/// 受 [`LineState`] 的大小限制。超过时最内层的插值不跨行，开头按字符串内容处理。
+const MAX_CARRIED: usize = 2;
 
 /// 之后可以紧跟字符串的关键字（见 [`Language::prose_quotes`]）。
 const STRING_AFTER_KEYWORDS: &[&str] = &[
@@ -393,9 +414,11 @@ struct Span {
     kind: TokenKind,
     /// 到行尾还没结束时带到下一行的状态；不能跨行的结构为 `Normal`。
     carry: LineState,
-    /// 其中按代码着色的插值的开头和收尾字符，规则见 [`Language::interpolation`] 与
+    /// 其中按代码着色的插值，规则见 [`Language::interpolation`] 与
     /// [`Language::template_interpolation`]。
-    interpolation: Option<(&'static str, char)>,
+    interpolation: Option<Interpolation>,
+    /// 块字符串的转义写法（[`crate::BlockString::escapes`]）；其他字符串为 `None`。
+    block_escapes: BlockEscapes,
     /// 其中的变量引用是否单独着色（[`Language::variables`]）。
     variables: bool,
 }
@@ -448,8 +471,9 @@ fn quoted_span(
         doubled: language.doubled_quotes,
         kind: TokenKind::String,
         carry,
-        interpolation: interpolation.map(|it| (it.open, it.close)),
+        interpolation,
         variables,
+        block_escapes: BlockEscapes::None,
     }
 }
 
@@ -464,6 +488,7 @@ fn literal_span(close: &'static str, kind: TokenKind, carry: LineState) -> Span 
         carry,
         interpolation: None,
         variables: false,
+        block_escapes: BlockEscapes::None,
     }
 }
 
@@ -489,6 +514,15 @@ impl LineState {
     }
 }
 
+/// 模板字符串（[`Language::template_interpolation`]）中的 `${…}` 插值。
+const TEMPLATE: Interpolation = Interpolation {
+    open: "${",
+    close: '}',
+    prefixes: &[],
+    single_quotes: false,
+    doubled: false,
+};
+
 /// 返回反引号字符串的规则。
 ///
 /// JS 的模板字符串用反引号，支持 `${…}` 插值；SQL 的反引号是标识符。
@@ -503,11 +537,12 @@ fn backtick_span(language: &Language) -> Span {
         doubled: false,
         kind: TokenKind::String,
         carry: LineState::Backtick,
-        interpolation: language.template_interpolation.then_some(("${", '}')),
+        interpolation: language.template_interpolation.then_some(TEMPLATE),
         variables: !matches!(
             language.variables,
             Variables::None | Variables::InStrings | Variables::Ruby
         ),
+        block_escapes: BlockEscapes::None,
     }
 }
 
@@ -522,8 +557,9 @@ fn block_string_span(language: &Language, index: u8) -> Option<Span> {
         doubled: language.doubled_quotes,
         kind: TokenKind::String,
         carry: LineState::BlockString(index),
-        interpolation: interpolation.map(|it| (it.open, it.close)),
+        interpolation,
         variables: block.interpolate && language.variables != Variables::None,
+        block_escapes: block.escapes,
     })
 }
 
@@ -566,6 +602,13 @@ struct Lexer<'a> {
     closes_known: bool,
     /// 本行中没有闭合的插值的个数，见 [`MAX_UNCLOSED`]。
     unclosed: u8,
+    /// 当前被跨行的插值打断的外层字符串，编码见 [`LineState::Interpolation`]。
+    outer: [u8; MAX_CARRIED],
+    /// 当前位置的插值是否可以跨行：语言允许跨行插值（[`Language::multiline_interpolation`]），
+    /// 且所在的各层插值都记在 `outer` 里。
+    carrying: bool,
+    /// 本行停在跨行的插值里时，最内层插值中行尾所处的状态；一经设定，本行不再继续扫描。
+    suspended: Option<LineState>,
     /// 本行中第一个 here 文档的状态，内容从下一行开始；没有时为 `None`。
     heredoc: Option<LineState>,
     /// 样式表：当前是否处于选择器中（`{` 之前）。
@@ -596,6 +639,9 @@ impl<'a> Lexer<'a> {
             depth: 0,
             closes_known: false,
             unclosed: 0,
+            outer: [0; MAX_CARRIED],
+            carrying: language.multiline_interpolation,
+            suspended: None,
             heredoc: None,
             selector: false,
             expect_property: false,
@@ -636,8 +682,14 @@ impl Lexer<'_> {
     /// 返回本行结束后下一行开头的状态。
     ///
     /// `state` 是行尾仍未结束的结构；为 `Normal` 且本行打开了 here 文档时，下一行是
-    /// here 文档的内容。
+    /// here 文档的内容。行尾还在跨行的插值里时，返回连同外层字符串一起的状态。
     fn line_end(&self, carry: LineState) -> LineState {
+        if self.outer[0] != 0 {
+            return LineState::Interpolation {
+                top: compact(self.suspended.unwrap_or(carry)),
+                outer: self.outer,
+            };
+        }
         match (carry, self.heredoc) {
             (LineState::Normal, Some(heredoc)) => heredoc,
             (LineState::Normal, None) if self.in_value => LineState::StyleValue,
@@ -735,13 +787,41 @@ impl Lexer<'_> {
             LineState::Normal => Ok(0),
             LineState::Heredoc(tag) => Err(self.heredoc_line(tag)),
             LineState::CppRaw(hash) => self.cpp_raw_close(0, 0, hash).ok_or(state),
-            LineState::BlockComment { index, depth } => self.comment_close(0, 0, index, depth),
+            // 插值里的块注释没有结束时，外层的字符串要一起带到下一行。
+            LineState::BlockComment { index, depth } => self
+                .comment_close(0, 0, index, depth)
+                .map_err(|next| self.line_end(next)),
             LineState::LongString(level) => self.long_close(0, 0, level, false),
             LineState::LongComment(level) => self.long_close(0, 0, level, true),
             LineState::Percent { open, depth } => self.percent_close(0, 0, open, depth),
             LineState::BlockScalar(key) => self.block_scalar_line(key),
+            LineState::Interpolation { top, outer } => {
+                self.outer = outer;
+                let mut i = self.resume(expand(top))?;
+                // 从内到外：先扫完插值里剩下的代码，再接着扫被插值打断的字符串。
+                while let Some(frame) = self.outer.iter().rposition(|&f| f != 0) {
+                    let code = self.outer[frame];
+                    let Some((closer, span)) = expand(code >> 3)
+                        .span(self.language)
+                        .and_then(|span| Some((span.interpolation?.close, span)))
+                    else {
+                        self.outer = [0; MAX_CARRIED];
+                        return Ok(i);
+                    };
+                    let end = self
+                        .interpolation_body(i, closer, Some(frame), (code & 7) - 1)
+                        .ok_or_else(|| self.line_end(LineState::Normal))?;
+                    self.outer[frame] = 0;
+                    i = self
+                        .close(end - 1, end, &span)
+                        .ok_or_else(|| self.line_end(span.carry))?;
+                }
+                Ok(i)
+            }
             _ => match state.span(self.language) {
-                Some(span) => self.close(0, 0, &span).ok_or(span.carry),
+                Some(span) => self
+                    .close(0, 0, &span)
+                    .ok_or_else(|| self.line_end(span.carry)),
                 None => Ok(0),
             },
         }
@@ -878,68 +958,6 @@ impl Lexer<'_> {
         self.chars[end..].iter().find(|c| !c.is_whitespace()) == Some(&':')
     }
 
-    /// 从 `from` 开始查找 `span` 的结束符，把 `start` 到结束符记成 token，返回结束位置。
-    ///
-    /// 转义序列、插值和变量单独记成 token。到行尾仍未结束时，剩下的部分整个记成 token，
-    /// 返回 `None`。
-    fn close(&mut self, start: usize, from: usize, span: &Span) -> Option<usize> {
-        let n = self.chars.len();
-        let escape = self.language.escape_char;
-        let close_len = span.close.chars().count();
-        let mut start = start;
-        let mut j = from;
-
-        while j < n {
-            let c = self.chars[j];
-            if let Some((open, closer)) = span.interpolation
-                && starts_with(self.chars, j, open)
-            {
-                // `{{` 是字面的花括号（C#、Python 的插值字符串）。
-                if open == "{" && self.chars.get(j + 1) == Some(&'{') {
-                    j += 2;
-                    continue;
-                }
-                if let Some(end) = self.interpolation(start, j + open.chars().count(), closer) {
-                    // 收尾的括号与紧随其后的字符串内容一起着色。
-                    start = end - 1;
-                    j = end;
-                    continue;
-                }
-            }
-
-            if span.escapes && c == escape {
-                let len = escape_len(self.chars, j);
-                if span.escape_tokens {
-                    self.push(start, j, span.kind);
-                    self.push(j, (j + len).min(n), TokenKind::Escape);
-                    start = (j + len).min(n);
-                }
-                j += len.max(2);
-            } else if span.variables
-                && matches!(c, '$' | '%' | '!')
-                && let Some((end, kind)) = self.variable(j, true)
-            {
-                self.push(start, j, span.kind);
-                self.push(j, end, kind);
-                start = end;
-                j = end;
-            } else if starts_with(self.chars, j, span.close) {
-                if span.doubled && starts_with(self.chars, j + close_len, span.close) {
-                    j += 2 * close_len;
-                    continue;
-                }
-                let end = j + close_len;
-                self.push(start, end, span.kind);
-                return Some(end);
-            } else {
-                j += 1;
-            }
-        }
-
-        self.push(start, n.max(start), span.kind);
-        None
-    }
-
     /// 返回 `i` 处开始的块注释写法的下标和开头定界符的长度（字符）。
     ///
     /// `i` 处不是块注释开头，或块注释写法的下标超出 `u8` 的范围时返回 `None`。
@@ -1035,114 +1053,6 @@ impl Lexer<'_> {
         Some(end)
     }
 
-    /// 返回 `i` 处字符串之前紧邻的前缀的效果（见 [`Prefix`]）。
-    fn prefix(&self, i: usize) -> Prefix {
-        let language = self.language;
-        let start = self.chars[..i]
-            .iter()
-            .rposition(|&c| !(is_ident(c) || c == '@'))
-            .map_or(0, |s| s + 1);
-        if start == i {
-            return Prefix::plain(language);
-        }
-        let mut buf = [0u8; 24];
-        // 前缀都是短的 ASCII 单词；更长或含其他字符的单词不是前缀。
-        let word = ascii_word(&self.chars[start..i], &mut buf, false).unwrap_or("");
-        let raw = language.raw_prefixes.contains(&word);
-        let interpolated = language.interpolation.is_some_and(|it| {
-            if it.prefixes.is_empty() {
-                !raw
-            } else {
-                it.prefixes.contains(&word)
-            }
-        });
-        Prefix { raw, interpolated }
-    }
-
-    /// 返回 `i` 处开始的字符串的开头定界符长度（字符）和结束规则。
-    ///
-    /// `i` 处不是字符串开头时返回 `None`。
-    fn opening(&self, i: usize) -> Option<(usize, Span)> {
-        let language = self.language;
-        let c = self.chars[i];
-
-        if let Some(index) = language
-            .block_strings
-            .iter()
-            .position(|b| starts_with(self.chars, i, b.open))
-        {
-            let len = language.block_strings[index].open.chars().count();
-            return Some((len, block_string_span(language, u8::try_from(index).ok()?)?));
-        }
-
-        if language.triple_quotes {
-            for (open, single, state) in [
-                ("\"\"\"", false, LineState::TripleDouble),
-                ("'''", true, LineState::TripleSingle),
-            ] {
-                if starts_with(self.chars, i, open) {
-                    let span = quoted_span(language, open, single, self.prefix(i), state);
-                    return Some((3, span));
-                }
-            }
-        }
-
-        if matches!(language.raw_strings, RawStrings::Rust | RawStrings::Swift)
-            && let Some((open, state)) = self.raw_opening(i)
-        {
-            return Some((open, state.span(language)?));
-        }
-
-        match c {
-            '"' if language.quoted_identifiers => Some((
-                1,
-                Span {
-                    doubled: true,
-                    ..literal_span("\"", TokenKind::Property, LineState::Normal)
-                },
-            )),
-            '"' if !language.double_quote_string => None,
-            '"' | '\'' if language.prose_quotes && self.after_word(i) => None,
-            '"' => {
-                let carry = if language.multiline_strings {
-                    LineState::DoubleQuote
-                } else {
-                    LineState::Normal
-                };
-                Some((1, quoted_span(language, "\"", false, self.prefix(i), carry)))
-            }
-            '\'' if language.single_quote_string && !self.apostrophe(i) => {
-                let carry = if language.multiline_strings {
-                    LineState::SingleQuote
-                } else {
-                    LineState::Normal
-                };
-                Some((1, quoted_span(language, "'", true, self.prefix(i), carry)))
-            }
-            '`' if language.backtick_string => Some((1, backtick_span(language))),
-            _ => None,
-        }
-    }
-
-    /// `i` 处的引号之前（隔着空白）是否是普通单词，而不是之后可以跟字符串的关键字（见
-    /// [`Language::prose_quotes`]）。
-    fn after_word(&self, i: usize) -> bool {
-        let chars = self.chars;
-        let Some(end) = chars[..i].iter().rposition(|c| !c.is_whitespace()) else {
-            return false;
-        };
-        if !is_ident(chars[end]) {
-            return false;
-        }
-        let start = chars[..end]
-            .iter()
-            .rposition(|&c| !is_ident(c))
-            .map_or(0, |k| k + 1);
-        let mut buf = [0u8; 24];
-        !ascii_word(&chars[start..=end], &mut buf, false)
-            .is_some_and(|w| STRING_AFTER_KEYWORDS.contains(&w))
-    }
-
     /// 识别 `i` 处的一个单词、数字、字符字面量或装饰器，返回其末尾之后的位置。
     ///
     /// 不产生 token 时同样推进到下一个字符，保证调用方总能前进。
@@ -1151,6 +1061,16 @@ impl Lexer<'_> {
         let chars = self.chars;
         let n = chars.len();
         let c = chars[i];
+
+        if c == '/' && language.path_literals {
+            // `//` 合并属性集；单个斜杠之后的路径片段可以包含 `+`、`-` 和 `.`，遇到引号就结束。
+            if chars.get(i + 1) == Some(&'/') {
+                return i + 2;
+            }
+            return scan(chars, i + 1, |c| {
+                c.is_ascii_alphanumeric() || matches!(c, '_' | '+' | '-' | '.')
+            });
+        }
 
         if language.markdown
             && let Some(end) = self.markdown_inline(i)
@@ -1244,7 +1164,9 @@ impl Lexer<'_> {
         }
 
         if is_ident_start(c) {
-            let end = scan(chars, i + 1, is_ident);
+            // 名字中可以有 `'` 的语言（Haskell 的 `foldl'`、Nix 的 `x''`），`'` 不开始字符串。
+            let prime = language.name_chars.contains(&'\'');
+            let end = scan(chars, i + 1, |c| is_ident(c) || (prime && c == '\''));
 
             if self.tokens.is_some()
                 && let Some(kind) = self.classify(i, end)
@@ -1347,27 +1269,6 @@ impl Lexer<'_> {
         }
         let end = scan(chars, i + 1, |c| is_name(c) || c == '-');
         Some(end + usize::from(matches!(chars.get(end), Some('?' | '!'))))
-    }
-}
-
-/// 返回从 `chars[j]` 的转义字符起算的转义序列长度（字符）。
-///
-/// `\x41` 取 2 位十六进制数，`\u0041` 取 4 位，`\u{1F600}` 到 `}` 为止，`\U0001F600` 取 8 位，
-/// `\101` 取至多 3 位八进制数，其余取转义字符和紧随的一个字符。
-fn escape_len(chars: &[char], j: usize) -> usize {
-    let hex =
-        |from: usize, max: usize| scan(chars, from, |c| c.is_ascii_hexdigit()).min(from + max) - j;
-    match chars.get(j + 1) {
-        None => 1,
-        Some('x') => hex(j + 2, 2),
-        Some('u') if chars.get(j + 2) == Some(&'{') => chars[j + 2..]
-            .iter()
-            .position(|&c| c == '}')
-            .map_or(2, |k| k + 3),
-        Some('u') => hex(j + 2, 4),
-        Some('U') => hex(j + 2, 8),
-        Some(c) if c.is_digit(8) => scan(chars, j + 1, |c| c.is_digit(8)).min(j + 4) - j,
-        Some(_) => 2,
     }
 }
 

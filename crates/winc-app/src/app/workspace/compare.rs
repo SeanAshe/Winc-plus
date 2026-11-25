@@ -12,8 +12,6 @@ use winc_i18n::t;
 
 use super::*;
 
-use crate::app::scroll::set_scroll_line;
-
 /// 返回 `path` 的文本内容用于比较；文件过大、是二进制文件或读取失败时返回提示文字。
 fn read_for_compare(path: &Path) -> Result<String, String> {
     let name = display_name(path);
@@ -72,19 +70,6 @@ impl App {
             return;
         }
 
-        let index = self.editor.show_diff(&compare_title(left, right), view);
-        // 打开时定位到第一处改动。
-        let doc = &mut self.editor.documents[index];
-        if let Some(row) = doc.diff.as_deref().and_then(|v| {
-            v.hunk_rows[winc_editor::diff_view::RIGHT]
-                .first()
-                .map(|r| r.start)
-        }) {
-            set_scroll_line(doc, row.saturating_sub(3) as f64);
-        }
-        self.focus = Focus::Editor;
-        self.relayout();
-        self.clamp_scroll();
-        self.request_redraw();
+        self.show_compare(&compare_title(left, right), view);
     }
 }

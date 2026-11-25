@@ -220,6 +220,13 @@ fn only_unreadable_targets_are_reported() {
     assert_eq!(failed, !readable_as_root);
     assert_eq!(args.targets.len(), if readable_as_root { 4 } else { 3 });
 
+    // 以分隔符结尾的不存在路径指目录：报告，不交出去新建同名的文件。
+    let mut folder = Args {
+        targets: vec![target(dir.join("missing/"))],
+        ..Args::default()
+    };
+    assert!(report_unreadable(&mut folder) && folder.targets.is_empty());
+
     // 临时打开留在前台，由后续流程报告。
     let mut wait = Args {
         wait: true,

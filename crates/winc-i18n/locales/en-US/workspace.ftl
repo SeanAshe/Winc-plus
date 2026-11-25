@@ -2,6 +2,7 @@
 
 workspace-open-folder-first = Open a folder first
 workspace-no-open-file = No file is open
+workspace-file-outside-folders = The current file isn’t in the open folders
 workspace-list-separator = { ", " }
 workspace-quoted-name = “{ $name }”
 
@@ -282,6 +283,7 @@ workspace-remote-installing = Installing the server program on { $host }…
 workspace-remote-starting = Starting the server program on { $host }…
 workspace-remote-canceled = Connection canceled
 workspace-remote-failed = Couldn’t connect to { $host }: { $error }
+workspace-remote-not-project = “{ $name }” isn’t a folder or project file
 workspace-remote-no-server = the installation is missing the remote server program; reinstall Winc
 workspace-remote-unsupported-system = the host’s system ({ $system }) is not supported
 workspace-remote-disabled = Couldn’t open: the SSH Remote module is turned off

@@ -296,7 +296,8 @@ pub(crate) fn report_unreadable(args: &mut Args) -> bool {
     args.targets.len() != count
 }
 
-/// 返回目标 `path` 读不了的原因；可以打开或尚不存在时返回 `None`。
+/// 返回目标 `path` 读不了的原因；可以打开或尚不存在时返回 `None`。以分隔符结尾的路径指目录，
+/// 不存在时同样是错误（见 [`crate::cli::names_folder`]）。
 ///
 /// 只尝试打开目录和普通文件：打开没有写入端的命名管道会一直阻塞。
 fn unreadable(path: &std::path::Path) -> Option<String> {
@@ -314,7 +315,10 @@ fn unreadable(path: &std::path::Path) -> Option<String> {
         }
     });
     let error = result.err()?;
-    (error.kind() != std::io::ErrorKind::NotFound).then(|| error.to_string())
+    if error.kind() != std::io::ErrorKind::NotFound {
+        return Some(error.to_string());
+    }
+    crate::cli::names_folder(path).then(|| winc_i18n::t!("cmd-cli-no-such-folder").to_owned())
 }
 
 /// 从终端启动时，用同样的参数在后台启动窗口进程；已启动时返回真，调用方应当退出。

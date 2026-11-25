@@ -235,6 +235,12 @@ pub enum MenuCommand {
     Format,
     FormatSelection,
     Fix,
+    /// 编辑区菜单「比较」中的一项：把整篇文档与剪贴板中的文字比较。
+    CompareWithClipboard,
+    /// 同 [`MenuCommand::CompareWithClipboard`]，有选区时比较选中部分。
+    CompareSelectionWithClipboard,
+    /// 编辑区菜单「比较」中的一项：把文档与磁盘上已保存的版本比较。
+    CompareWithSaved,
     /// 设置中「添加语言…」菜单的一项，参数为语言在 `winc_syntax::languages()` 中的序号（从 0 起）。
     Language(usize),
     /// 设置中「排除的语言」菜单的一项：切换某种语言保存时是否跳过格式化和修复，
@@ -862,6 +868,11 @@ impl MenuCommand {
             MenuCommand::RemoveBookmark => t!("menu-remove-bookmark"),
             MenuCommand::ListBookmarks => t!("cmd-list-bookmarks"),
             MenuCommand::Format => t!("cmd-format"),
+            MenuCommand::CompareWithClipboard => t!("menu-compare-with-clipboard"),
+            MenuCommand::CompareSelectionWithClipboard => {
+                t!("menu-compare-selection-with-clipboard")
+            }
+            MenuCommand::CompareWithSaved => t!("menu-compare-with-saved"),
             MenuCommand::FormatSelection => t!("cmd-format-selection"),
             MenuCommand::Fix => t!("cmd-fix"),
             MenuCommand::ToolAuto => t!("format-tool-auto"),
@@ -952,6 +963,10 @@ impl MenuCommand {
             MenuCommand::Format => Action::Format,
             MenuCommand::FormatSelection => Action::FormatSelection,
             MenuCommand::Fix => Action::Fix,
+            MenuCommand::CompareWithClipboard | MenuCommand::CompareSelectionWithClipboard => {
+                Action::CompareWithClipboard
+            }
+            MenuCommand::CompareWithSaved => Action::CompareWithSaved,
             MenuCommand::NewFile => Action::NewFile,
             MenuCommand::IndentUsingSpaces => Action::IndentUsingSpaces,
             MenuCommand::IndentUsingTabs => Action::IndentUsingTabs,

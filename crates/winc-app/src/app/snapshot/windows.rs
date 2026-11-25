@@ -359,6 +359,29 @@ fn files_cut_in_one_window_are_moved_when_pasted_in_another() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 经符号链接打开的目录：按真实路径找同一个目录、其中的文件（包括尚不存在的），都找到该窗口。
+#[cfg(unix)]
+#[test]
+fn a_window_opened_through_a_link_is_found_by_the_real_path() {
+    let (mut winc, a, b, dir) = two_windows("windows-link");
+    let link = dir.with_file_name("windows-link-alias");
+    let _ = std::fs::remove_file(&link);
+    std::os::unix::fs::symlink(&dir, &link).unwrap();
+    winc.app(b).open_path(&link);
+    winc.settle_for_test();
+    assert_eq!(winc.app(b).editor.root(), Some(link.as_path()));
+    let shared = std::rc::Rc::clone(&winc.app(a).link.shared);
+    assert_eq!(shared.window_with(&dir, None), Some(b));
+    assert_eq!(shared.window_with(&link, None), Some(b));
+    assert_eq!(
+        shared.window_containing(&dir.join("new/deeper.txt")),
+        Some(b)
+    );
+    assert_eq!(shared.window_containing(&link.join("src/main.rs")), Some(a));
+    let _ = std::fs::remove_file(&link);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn files_go_to_the_innermost_window_that_contains_them() {
     let (mut winc, a, b, dir) = two_windows("windows-containing");

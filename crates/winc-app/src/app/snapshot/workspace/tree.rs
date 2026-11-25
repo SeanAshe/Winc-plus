@@ -672,3 +672,59 @@ fn shoot_preview_tab() {
     shoot(&mut app, "preview-tab-settings-light");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 关闭「自动定位当前文件」后，打开、切换文件、从搜索切回文件树和恢复标签都不展开、不选中；
+/// 工具栏的「定位当前文件」和同名命令仍然定位，文件不在打开的目录中时说明原因。打开后恢复原来的
+/// 行为。
+#[test]
+fn the_tree_follows_the_current_file_only_when_set_to() {
+    let dir = search_folder("tree-auto-reveal");
+    let mut app = app_with(&dir, false);
+    let root = app.editor.workspace.as_ref().unwrap().root.clone();
+    let (main, note) = (root.join("src/main.rs"), root.join("a.txt"));
+    let src_expanded = |app: &App| {
+        let ws = app.editor.workspace.as_ref().unwrap();
+        ws.rows()
+            .iter()
+            .any(|e| e.path == root.join("src") && e.expanded)
+    };
+    let selected = |app: &App| {
+        let ws = app.editor.workspace.as_ref().unwrap();
+        ws.selected_entry().map(|e| e.path.clone())
+    };
+    app.settings_toggle(Setting::AutoReveal);
+    assert_eq!(app.config.tree_auto_reveal, Some(false));
+    app.run_tree_tool(crate::app::TreeTool::CollapseAll);
+
+    app.open_path(&main);
+    app.open_path(&note);
+    app.activate_tab(0);
+    app.set_sidebar_view(SidebarView::Search);
+    app.set_sidebar_view(SidebarView::Files);
+    app.reveal_restored();
+    assert!(!src_expanded(&app));
+    assert_ne!(selected(&app).as_ref(), Some(&main));
+
+    let elsewhere = search_folder("tree-auto-reveal-elsewhere").join("a.txt");
+    app.open_path(&elsewhere);
+    app.run_action(crate::keymap::Action::RevealActiveInTree);
+    let outside = winc_i18n::t!("workspace-file-outside-folders");
+    assert_eq!(app.status.message.as_deref(), Some(outside));
+    assert!(!src_expanded(&app));
+    app.activate_tab(0);
+
+    app.run_action(crate::keymap::Action::RevealActiveInTree);
+    assert!(src_expanded(&app));
+    assert_eq!(selected(&app).as_ref(), Some(&main));
+    assert_eq!(app.focus, Focus::Tree);
+
+    app.settings_toggle(Setting::AutoReveal);
+    app.run_tree_tool(crate::app::TreeTool::CollapseAll);
+    app.activate_tab(1);
+    app.activate_tab(0);
+    assert!(src_expanded(&app));
+    assert_eq!(selected(&app).as_ref(), Some(&main));
+
+    std::fs::remove_dir_all(&dir).unwrap();
+    let _ = std::fs::remove_dir_all(elsewhere.parent().unwrap());
+}

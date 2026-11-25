@@ -484,6 +484,7 @@ impl App {
                     !doc.selection.is_empty(),
                     bookmarked,
                     markdown,
+                    doc.path.is_some(),
                 );
                 // 光标在链接上时第一项是「打开链接」。
                 if self.link_at_caret().is_some() {

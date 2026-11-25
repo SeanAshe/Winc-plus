@@ -604,6 +604,9 @@ fn draw_remote_rows(
         match item.icon {
             RowIcon::Host => icons::server(frame, (middle, cy), p.text_muted, clip),
             RowIcon::Config => icons::gear(frame, (middle, cy), p.text_muted, clip),
+            RowIcon::Project => {
+                draw_file_icon(frame, p, (row.x + PICKER_ICON_X, cy), &item.title, clip);
+            }
             RowIcon::Folder | RowIcon::Open => {
                 let x = middle - icons::FOLDER_WIDTH / 2.0;
                 let open = item.icon == RowIcon::Open;

@@ -349,6 +349,7 @@ const TREE: &[Field] = &[
     bool_field!("confirmDragAndDrop", confirm_drag_and_drop),
     bool_field!("compactFolders", compact_folders),
     bool_field!("previewOnClick", preview_on_click),
+    bool_field!("autoReveal", tree_auto_reveal),
 ];
 
 /// `markdown` 一节。

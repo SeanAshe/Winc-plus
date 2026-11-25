@@ -55,6 +55,7 @@ impl Cx<'_, '_> {
             self.column_bounds(rows, cols, &live, pad_x, |r, c| para(head && r == 0, c));
         let widths = column_widths(&min, &max, width);
         let total: f32 = widths.iter().sum::<f32>() + 1.0;
+        let (x, view) = self.table_place(x, width, total);
         let mut top = y;
         let mut first_baseline = None;
         let mut lines = vec![top];
@@ -137,13 +138,13 @@ impl Cx<'_, '_> {
             rows: lines.windows(2).map(|w| w[1] - w[0]).collect(),
         });
         let mut height = top - y + 1.0;
-        // 比正文宽：记下表格的各项，绘制时横向平移；下方留出滚动条的位置。
-        if total > width + 0.5 {
+        // 比显示区域宽：记下表格的各项，绘制时横向平移；下方留出滚动条的位置。
+        if let Some(view) = view {
             height += SCROLL_BAR_ROOM;
             scrolls.push(Scroller {
                 items: u32::try_from(first_item).unwrap_or(u32::MAX)
                     ..u32::try_from(out.len()).unwrap_or(u32::MAX),
-                rect: Rect::new(x, y, width, height),
+                rect: Rect::new(x, y, view, height),
                 content: total,
             });
         }
@@ -151,6 +152,28 @@ impl Cx<'_, '_> {
             height,
             first_baseline,
         }
+    }
+
+    /// 返回总宽 `total` 的表格的左边缘，以及需要横向滚动时的显示宽度；`x`、`width` 是所在
+    /// 一栏的左边缘和宽度。
+    ///
+    /// 不比一栏宽时靠左摆放。更宽时占用两侧留白（[`Cx::bleed`]），以一栏为中心向两侧展开，一侧
+    /// 不够时多出的部分移到另一侧；留白也放不下时占满留白，横向滚动。
+    fn table_place(&self, x: f32, width: f32, total: f32) -> (f32, Option<f32>) {
+        if total <= width + 0.5 {
+            return (x, None);
+        }
+        // 缩进的表格（列表、引用中）左边缘不动，只向右展开。
+        let left = if x <= 0.0 { self.bleed.0 } else { 0.0 };
+        let right = self.bleed.1;
+        let extra = total - width;
+        if extra <= left + right + 0.5 {
+            // 右侧不够时左移得更多；超出不到半个像素的部分不计，下限不超过 `left`。
+            let least = (extra - right).clamp(0.0, left);
+            let shift = (extra / 2.0).clamp(least, left).round();
+            return (x - shift, None);
+        }
+        (x - left, Some(width + left + right))
     }
 
     /// 取走并返回光标所在的单元格：（行，列，内容在原文中的起点，按排版显示的内容）。

@@ -144,6 +144,7 @@ impl App {
                 let path = path.to_path_buf();
                 self.forget_recent(&[path]);
             }
+            let created = loaded.new_file();
             let Some(index) = self.editor.finish_load(loaded) else {
                 continue;
             };
@@ -158,6 +159,9 @@ impl App {
             if self.editor.active == Some(index) {
                 self.loaded_active();
                 self.run_when_loaded();
+                if created {
+                    self.announce_new_file();
+                }
             }
         }
         // 已关闭的标签不再等待读取结果。

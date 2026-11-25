@@ -52,14 +52,15 @@ const SIZE: (f32, f32) = (1280.0, 820.0);
 /// 取 2：Retina 屏的默认缩放倍数，图片与滚动条的像素断言按这个倍数计算。
 const SCALE: f32 = 2.0;
 
-/// 创建测试用的目录并返回其路径。
+/// 创建测试用的目录并返回其真实路径（macOS 的临时目录 `/var` 是指向 `/private/var` 的链接）。
 ///
 /// 内容固定为一组覆盖常见情形的文件：普通文本、名字很长的文件（文件树里放不下，用于截短与
-/// 悬停展开）、几种按名字识别图标的文件、`src` 子目录，以及含 NUL 字节的 `data.bin`（按二进制
-/// 打开）。进程号放在上一级目录名中，`name` 对应的目录名不含进程号：该目录名会绘制到项目名和
-/// 状态栏里，不含进程号才能让不同次运行的截图逐像素一致。
+/// 悬停展开）、几种按名字识别图标的文件、`src` 子目录，以及含 NUL 字节的 `data.bin`。进程号
+/// 放在上一级目录名中：`name` 对应的目录名会绘制到界面上，不含进程号截图才能逐像素相同。
 fn sample_folder(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir()
+    let temp = std::env::temp_dir();
+    let dir = winc_config::files::canonicalize(&temp)
+        .unwrap_or(temp)
         .join(format!("winc-snapshot-{}", std::process::id()))
         .join(name);
     let _ = std::fs::remove_dir_all(&dir);

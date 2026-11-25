@@ -355,7 +355,7 @@ fn bookmark_commands_are_available_in_the_editor_menu() {
 
     let menu = |bookmarked| crate::app::ContextMenu {
         target: crate::app::input::context_menu::MenuTarget::Editor(id),
-        entries: crate::app::input::context_menu::editor_menu(true, false, bookmarked, false),
+        entries: crate::app::input::context_menu::editor_menu(true, false, bookmarked, false, true),
         branches: Vec::new(),
         stashes: Vec::new(),
         popup: None,

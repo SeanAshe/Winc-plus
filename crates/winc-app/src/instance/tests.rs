@@ -101,7 +101,7 @@ fn only_private_runtime_dirs_are_used() {
 
 #[cfg(unix)]
 #[test]
-fn paths_are_resolved_before_handing_over() {
+fn paths_keep_symlinks_when_handed_over() {
     let dir = winc_config::files::canonicalize(std::env::temp_dir())
         .unwrap()
         .join(format!("winc-absolute-{}", std::process::id()));
@@ -111,13 +111,20 @@ fn paths_are_resolved_before_handing_over() {
     let link = dir.join("link");
     std::os::unix::fs::symlink(&real, &link).unwrap();
 
-    // 经过符号链接的已有文件、新文件，以及所在目录也还不存在的新文件，都落到真实目录下。
-    assert_eq!(absolute(&link.join("a.txt")), real.join("a.txt"));
-    assert_eq!(absolute(&link.join("new.txt")), real.join("new.txt"));
+    // 经过符号链接的已有文件、新文件，以及所在目录也还不存在的新文件，都保留链接；`.` 和
+    // `..` 按字面消去。
+    assert_eq!(absolute(&link.join("a.txt")), link.join("a.txt"));
+    assert_eq!(absolute(&link.join("new.txt")), link.join("new.txt"));
     assert_eq!(
-        absolute(&link.join("sub/deeper/new.txt")),
-        real.join("sub/deeper/new.txt")
+        absolute(&link.join("sub/./deeper/../new.txt")),
+        link.join("sub/new.txt")
     );
+
+    // 相对路径相对于 shell 记下的当前目录，它与进程的当前目录是同一个目录时才用。
+    assert_eq!(pick_cwd(Some(link.clone()), real.clone()), link);
+    assert_eq!(pick_cwd(Some(dir.clone()), real.clone()), real);
+    assert_eq!(pick_cwd(Some("relative".into()), real.clone()), real);
+    assert_eq!(pick_cwd(None, real.clone()), real);
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

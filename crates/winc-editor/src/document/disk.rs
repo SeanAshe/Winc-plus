@@ -171,6 +171,14 @@ impl Opened {
             OpenedContent::Text(Err(OpenError::Io(error))) if winc_backend::fs::is_absent(error)
         )
     }
+
+    /// 文件不存在、可以在该路径新建：路径中间的一段不是目录时建不出来，不算。
+    pub(crate) fn creatable(&self) -> bool {
+        let OpenedContent::Text(Err(OpenError::Io(error))) = &self.content else {
+            return false;
+        };
+        error.kind() == io::ErrorKind::NotFound
+    }
 }
 
 /// 打开时读到了什么。
@@ -376,15 +384,7 @@ impl Document {
             .path
             .as_deref()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, t!("editor-file-no-path")))?;
-        let too_large = || io::Error::other(t!("editor-large-cannot-compare")).into();
-        // 大文件读入时要先把整个文件扫一遍建索引，无法逐行比较，因此先按大小排除。
-        if winc_backend::fs::metadata(path)?.len > LARGE_FILE {
-            return Err(too_large());
-        }
-        match load_auto(path, false, self.encoding, None)?.text {
-            Content::Rope(rope) => Ok(rope.to_string()),
-            Content::Large(_) => Err(too_large()),
-        }
+        saved_text(path, self.encoding)
     }
 
     /// 解决冲突：换成磁盘上的内容，放弃未保存的修改。
@@ -738,6 +738,33 @@ impl Document {
         self.pending_hex
     }
 
+    /// 尚未读取的文档读取时文件不存在则成为新文件（见 [`Document::new_file`]）。
+    pub(crate) fn read_as_new(&mut self) {
+        self.pending_new = true;
+    }
+
+    /// 尚未读取的文档读取时文件不存在是否成为新文件（见 [`Document::read_as_new`]）。
+    pub(crate) fn reads_as_new(&self) -> bool {
+        self.pending_new
+    }
+
+    /// 用后台读到文件不存在的 `opened` 建一个对应 `path` 的空文档：新文件，保存时才写入磁盘。
+    ///
+    /// 语言按文件名识别，`.editorconfig` 取自 `opened`，自身不访问磁盘。
+    pub(crate) fn new_file(id: DocumentId, path: PathBuf, opened: Opened) -> Self {
+        let mut document = Document::empty(id);
+        document.set_path_with(path, opened.config);
+        if let Some(eol) = document.editorconfig.end_of_line {
+            document.line_ending = eol;
+        }
+        document
+    }
+
+    /// 是否是还没写入过磁盘的新文件：有路径、显示的是文本，但从未读写过磁盘上的文件。
+    pub fn is_new_file(&self) -> bool {
+        self.path.is_some() && self.disk_mtime.is_none() && self.holds_file_text()
+    }
+
     /// 文本是否就是文件的内容：已经读取，不是十六进制视图，也不是打不开的文件的占位标签。
     pub fn holds_file_text(&self) -> bool {
         !self.pending && self.hex.is_none() && self.unsupported.is_none()
@@ -997,6 +1024,24 @@ fn load_chosen(
 /// 仍然读入，编码记为 `Binary`。
 pub(super) fn load(path: &Path, allow_binary: bool) -> Result<Loaded, OpenError> {
     load_auto(path, allow_binary, Encoding::Utf8, None)
+}
+
+/// 读出磁盘上文件 `path` 的内容（按编码 `encoding` 解码，换行统一为 `\n`），用于和编辑器中的
+/// 内容比较。耗时与文件大小成正比，应在后台线程调用。
+///
+/// # Errors
+///
+/// 读取失败、文件变成二进制、超过大小上限，或是按需读取的大文件时返回 [`OpenError`]。
+pub fn saved_text(path: &Path, encoding: Encoding) -> Result<String, OpenError> {
+    let too_large = || io::Error::other(t!("editor-large-cannot-compare")).into();
+    // 大文件读入时要先把整个文件扫一遍建索引，无法逐行比较，因此先按大小排除。
+    if winc_backend::fs::metadata(path)?.len > LARGE_FILE {
+        return Err(too_large());
+    }
+    match load_auto(path, false, encoding, None)?.text {
+        Content::Rope(rope) => Ok(rope.to_string()),
+        Content::Large(_) => Err(too_large()),
+    }
 }
 
 /// 与 [`load_with`] 相同，读好后再按 [`unicode_escapes`] 判断是否改按 Unicode 转义显示。

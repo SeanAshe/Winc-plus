@@ -92,6 +92,21 @@ fn the_parent_of_a_top_level_folder_is_the_remote_root() {
 }
 
 #[test]
+fn posix_paths_resolve_on_the_same_host() {
+    let dir = virtual_path(&target(), b"/home/alice/work");
+    let resolved = |path| remote(&resolve(&dir, path).unwrap());
+    assert_eq!(resolved("./project"), "/home/alice/work/project");
+    assert_eq!(resolved("../shared//lib/."), "/home/alice/shared/lib");
+    assert_eq!(resolved("/srv/data"), "/srv/data");
+    assert_eq!(resolved("../../../.."), "/");
+    assert_eq!(
+        locate(&resolve(&dir, "x").unwrap()).unwrap().target,
+        target()
+    );
+    assert_eq!(resolve(Path::new("/home/alice"), "x"), None);
+}
+
+#[test]
 fn local_paths_are_not_virtual() {
     for path in [
         "",

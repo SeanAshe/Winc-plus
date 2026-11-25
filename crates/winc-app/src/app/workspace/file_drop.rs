@@ -213,8 +213,8 @@ impl App {
             self.open_from_outside(path);
             return;
         };
-        // 文件树里的路径是规范化的（例如 `/private/var` 而不是 `/var`），比较之前先规范化。
-        let path = &winc_config::files::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        // 文件树里的路径是打开时的写法，比较之前换成同一写法（见 `Editor::document_path`）。
+        let path = &self.editor.document_path(path);
 
         let Some(ws) = self.editor.workspace.as_mut() else {
             return;

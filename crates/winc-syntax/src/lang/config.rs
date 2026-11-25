@@ -9,6 +9,7 @@ const DOLLAR_BRACE: Interpolation = Interpolation {
     close: '}',
     prefixes: &[],
     single_quotes: false,
+    doubled: true,
 };
 
 /// PowerShell 的规则。
@@ -74,17 +75,20 @@ pub(super) static POWERSHELL: Language = Language {
         close: ')',
         prefixes: &[],
         single_quotes: false,
+        doubled: false,
     }),
     block_strings: &[
         BlockString {
             open: "@\"",
             close: "\"@",
             interpolate: true,
+            escapes: BlockEscapes::None,
         },
         BlockString {
             open: "@'",
             close: "'@",
             interpolate: false,
+            escapes: BlockEscapes::None,
         },
     ],
     variables: Variables::Dollar,
@@ -193,8 +197,8 @@ pub(super) static CMAKE: Language = Language {
     ..CODE
 };
 
-/// HCL（Terraform、Packer、Nomad）的规则：`#`、`//` 和 `/* */` 注释，`"${…}"` 插值，
-/// `<<EOT` here 文档，行首的 `name =` 是属性。
+/// HCL（Terraform、Packer、Nomad）的规则：`#`、`//` 和 `/* */` 注释，`"${…}"` 插值（`$${` 是
+/// 字面的 `${`），`<<EOT` here 文档，行首的 `name =` 是属性。
 pub(super) static HCL: Language = Language {
     id: "hcl",
     name: "HCL",
@@ -315,7 +319,10 @@ pub(super) static GRAPHQL: Language = Language {
     ..CODE
 };
 
-/// Nix 的规则：`#` 和 `/* */` 注释，`"…"` 与 `''…''`（缩进字符串，可以跨行）中的 `${…}` 是插值。
+/// Nix 的规则：`#` 和 `/* */` 注释，`"…"` 与 `''…''`（缩进字符串）都可以跨行，其中的 `${…}`
+/// 是插值，`$$` 是两个字面的 `$`。
+///
+/// 依据 Nix 语言参考：缩进字符串以 `'''`、`''$`、`''\` 转义；名字中可以有 `'` 和 `-`。
 pub(super) static NIX: Language = Language {
     id: "nix",
     name: "Nix",
@@ -337,12 +344,17 @@ pub(super) static NIX: Language = Language {
     ],
     line_comments: &["#"],
     block_comments: C_COMMENTS,
+    multiline_strings: true,
     interpolation: Some(DOLLAR_BRACE),
+    multiline_interpolation: true,
+    path_literals: true,
     block_strings: &[BlockString {
         open: "''",
         close: "''",
         interpolate: true,
+        escapes: BlockEscapes::Nix,
     }],
+    name_chars: &['\'', '-'],
     indent_after: BRACKETS,
     indent_unit: "  ",
     ..CODE

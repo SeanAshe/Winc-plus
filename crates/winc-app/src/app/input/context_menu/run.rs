@@ -617,6 +617,10 @@ impl App {
             MenuCommand::Format => self.format_active(),
             MenuCommand::FormatSelection => self.format_selection(),
             MenuCommand::Fix => self.fix_active(),
+            MenuCommand::CompareWithClipboard | MenuCommand::CompareSelectionWithClipboard => {
+                self.compare_with_clipboard()
+            }
+            MenuCommand::CompareWithSaved => self.compare_with_saved(),
             MenuCommand::GoToDefinition => self.go_to_definition(),
             MenuCommand::OpenLink => self.open_caret_link(),
             MenuCommand::FindReferences => self.find_references(),

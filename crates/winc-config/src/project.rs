@@ -81,12 +81,14 @@ pub fn is_project_file(path: &Path) -> bool {
 
 /// 读取项目文件 `path`（种类见 [`project_kind`]），返回其中的目录，按文件中的顺序。
 ///
+/// `path` 可以是远端文件的虚拟路径；读取远端文件要经过网络，应在后台线程调用。
+///
 /// # Errors
 ///
 /// 读不了文件时返回 [`ProjectError::Io`]，内容无效或不是项目文件时返回 [`ProjectError::Invalid`]。
 pub fn read_project(path: &Path) -> Result<Vec<ProjectFolder>, ProjectError> {
     let kind = project_kind(path).ok_or(ProjectError::Invalid)?;
-    let text = std::fs::read_to_string(path).map_err(ProjectError::Io)?;
+    let text = winc_backend::fs::read_to_string(path).map_err(ProjectError::Io)?;
     let dir = path.parent().unwrap_or(Path::new(""));
     let folders = match kind {
         ProjectKind::Idea => foreign::parse_ipr(&text, dir),
@@ -98,7 +100,8 @@ pub fn read_project(path: &Path) -> Result<Vec<ProjectFolder>, ProjectError> {
 /// 解析项目文件的内容 `text`，相对路径按目录 `dir` 展开；无效或没有目录时返回 `None`。
 ///
 /// 各项的位置写在 `path` 中，远端的另有 `host`；VS Code 也可以写成 `uri`：本机的 `file://`，
-/// 或 SSH 远端的 `vscode-remote://ssh-remote+主机/路径`。
+/// 或 SSH 远端的 `vscode-remote://ssh-remote+主机/路径`。`dir` 是远端的虚拟路径时，`path`
+/// 按 POSIX 的写法解析在同一主机上（见 [`winc_backend::resolve`]）。
 pub fn parse_project(text: &str, dir: &Path) -> Option<Vec<ProjectFolder>> {
     let (root, _) = Json::parse_jsonc(text)?;
     let entries = root.as_object()?.get("folders")?.as_array()?;
@@ -113,7 +116,9 @@ pub fn parse_project(text: &str, dir: &Path) -> Option<Vec<ProjectFolder>> {
                     let target = winc_backend::Target::new(host)?;
                     winc_backend::virtual_path(&target, path.as_bytes())
                 }
-                (None, Some(path)) => dir.join(path),
+                (None, Some(path)) => {
+                    winc_backend::resolve(dir, path).unwrap_or_else(|| dir.join(path))
+                }
                 (_, None) => foreign::folder_uri(entry.get("uri")?.as_str()?)?,
             };
             let name = entry.get("name").and_then(Json::as_str);

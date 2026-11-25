@@ -103,6 +103,7 @@ impl App {
             caches: crate::app::editor::EditorCaches {
                 sticky_cache: None,
                 wraps: Arc::default(),
+                compares: Default::default(),
                 line_tokens: Default::default(),
                 minimap_rows: Default::default(),
                 max_scroll_x: None,

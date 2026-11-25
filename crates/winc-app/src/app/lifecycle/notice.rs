@@ -221,7 +221,7 @@ impl App {
             NoticeAction::ReleaseNotes(previous) => {
                 self.open_release_notes(crate::release_notes::Scope::Since(previous));
             }
-            NoticeAction::OpenProject(file) => self.open_folder(&file),
+            NoticeAction::OpenProject(file) => self.open_project_file(&file),
             NoticeAction::VimKey(c) => self.show_setting(Setting::VimKey(c)),
         }
         self.request_redraw();

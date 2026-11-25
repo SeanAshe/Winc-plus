@@ -126,7 +126,7 @@ impl App {
                 self.open_folder(&target.path);
                 continue;
             }
-            self.open_path(&target.path);
+            self.open_path_or_new(&target.path);
             self.note_opened_file(&target.path);
             if let Some(line) = target.line {
                 self.jump_to(line, target.col.unwrap_or(0), 0);
@@ -188,7 +188,7 @@ impl App {
             #[cfg(not(all(unix, not(target_os = "macos"))))]
             let activated = false;
             if !activated {
-                window.focus_window();
+                focus_window(window);
             }
         }
         self.request_redraw();
@@ -274,7 +274,7 @@ impl App {
         self.redraw();
         if let Some(window) = &self.window.handle {
             window.set_visible(true);
-            window.focus_window();
+            focus_window(window);
         }
     }
 
@@ -949,6 +949,17 @@ pub(in crate::app) fn frame_interval(window: &Window) -> Duration {
         .filter(|&mhz| mhz >= 30_000)
         .unwrap_or(60_000);
     Duration::from_micros(1_000_000_000 / u64::from(millihertz))
+}
+
+/// 请系统把窗口 `window` 切到前台。
+///
+/// Windows 上不使用 `Window::focus_window`：该方法先模拟按下 Alt 键，会使其他进程转让来的前台
+/// 权限失效（见 `crate::windows::focus_window`）。
+fn focus_window(window: &Window) {
+    #[cfg(windows)]
+    crate::windows::focus_window(window);
+    #[cfg(not(windows))]
+    window.focus_window();
 }
 
 /// 系统窗口及其状态：窗口句柄、是否有焦点、是否隐藏、是否由应用绘制窗口按钮、保存的位置。

@@ -162,6 +162,35 @@ fn vs_code_folders_may_be_uris() {
 }
 
 #[test]
+fn folders_of_a_remote_project_stay_on_its_host() {
+    let text = r#"{
+        "folders": [
+            { "path": "./project1" },
+            { "path": "../shared" },
+            { "path": "/home/user/project2" },
+            { "host": "other", "path": "/srv/app" },
+            { "uri": "file:///work/app" },
+        ],
+    }"#;
+    let devbox = winc_backend::Target::new("devbox").unwrap();
+    let other = winc_backend::Target::new("other").unwrap();
+    let dir = winc_backend::virtual_path(&devbox, b"/home/user/dev");
+    let folders = parse_project(text, &dir).unwrap();
+    let paths: Vec<_> = folders.iter().map(|f| f.path.clone()).collect();
+    let on = |target, path: &str| winc_backend::virtual_path(target, path.as_bytes());
+    assert_eq!(
+        paths,
+        [
+            on(&devbox, "/home/user/dev/project1"),
+            on(&devbox, "/home/user/shared"),
+            on(&devbox, "/home/user/project2"),
+            on(&other, "/srv/app"),
+            PathBuf::from("/work/app"),
+        ]
+    );
+}
+
+#[test]
 fn foreign_projects_are_read_by_kind() {
     let dir = scratch("foreign");
     let (app, lib) = (dir.join("app"), dir.join("lib"));

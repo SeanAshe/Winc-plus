@@ -126,6 +126,8 @@ pub enum Setting {
     BackgroundOpacity,
     /// 文件树把连续的单子目录合并显示为一行。
     CompactFolders,
+    /// 切换、打开文件时在文件树中定位该文件。
+    AutoReveal,
     /// 预览标签：在文件树中单击文件时在预览标签中打开。
     PreviewOnClick,
     /// Markdown 预览联网加载网址的图片。
@@ -333,6 +335,7 @@ impl Setting {
             S::PreviewOnClick | S::DropFolder | S::CompactFolders | S::Outline | S::FindInFiles => {
                 SettingsPage::Files
             }
+            S::AutoReveal => SettingsPage::Files,
             S::MarkdownFont | S::MarkdownSize | S::TextWidth | S::MarkdownLineNumbers => {
                 SettingsPage::Markdown
             }
@@ -428,6 +431,7 @@ impl Setting {
             S::BackgroundFit => "ui.backgroundFit",
             S::BackgroundOpacity => "ui.backgroundOpacity",
             S::CompactFolders => "tree.compactFolders",
+            S::AutoReveal => "tree.autoReveal",
             S::PreviewOnClick => "tree.previewOnClick",
             S::RemoteImages => "markdown.remoteImages",
             S::TextWidth => "markdown.textWidth",
@@ -530,6 +534,7 @@ impl Setting {
             Setting::BackgroundOpacity => t!("settings-background-opacity"),
             Setting::Outline => t!("settings-outline"),
             Setting::CompactFolders => t!("settings-compact-folders"),
+            Setting::AutoReveal => t!("settings-auto-reveal"),
             Setting::PreviewOnClick => t!("settings-preview-on-click"),
             Setting::RemoteImages => t!("settings-remote-images"),
             Setting::TextWidth => t!("settings-text-width"),
@@ -640,6 +645,7 @@ impl Setting {
             Setting::WholeLines => Some(t!("settings-whole-lines-desc")),
             Setting::Outline => Some(t!("settings-outline-desc")),
             Setting::CompactFolders => Some(t!("settings-compact-folders-desc")),
+            Setting::AutoReveal => Some(t!("settings-auto-reveal-desc")),
             Setting::PreviewOnClick => Some(t!("settings-preview-on-click-desc")),
             Setting::Minimap => Some(t!("settings-minimap-desc")),
             Setting::LineNumbers => Some(t!("settings-line-numbers-desc")),
@@ -734,6 +740,7 @@ impl Setting {
             | Setting::DetectLanguageOnPaste
             | Setting::DragAndDrop
             | Setting::CompactFolders
+            | Setting::AutoReveal
             | Setting::PreviewOnClick
             | Setting::StickyScroll
             | Setting::VimMode

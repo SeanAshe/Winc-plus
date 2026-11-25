@@ -629,7 +629,7 @@ impl App {
 
     /// 编辑器中打开着的 `path` 的版本号；没有打开时为 `None`。
     fn editor_revision(&self, path: &Path) -> Option<u64> {
-        let canonical = winc_editor::canonical_path(path);
+        let canonical = self.editor.document_path(path);
         (self.editor.documents.iter())
             .find(|d| d.path.as_deref() == Some(canonical.as_path()) && d.holds_file_text())
             .map(|d| d.revision)
@@ -769,13 +769,14 @@ impl App {
         section.running = true;
         let revision = snapshot.as_ref().map(|s| s.revision);
         let oid = tab.oid.clone();
+        let links = self.editor.folder_links();
         self.spawn_git(UserEvent::GitCombined, move |tool| {
             // 先取大小和修改时间再读：读的时候文件又变了，下次刷新时仍看得出来。
             let stamp = (kind == DiffKind::Whole && revision.is_none())
                 .then(|| file_stamp(&path))
                 .flatten();
             let view = match &tool {
-                Ok(git) => prepare(git, &root, &path, snapshot, oid.as_deref(), kind),
+                Ok(git) => prepare(git, &root, &path, snapshot, oid.as_deref(), kind, &links),
                 Err(e) => Err(unusable(e)),
             };
             let _ = sender.send(Compared {
