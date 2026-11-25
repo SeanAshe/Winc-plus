@@ -13,7 +13,7 @@ impl App {
         x: f32,
         y: f32,
     ) -> Option<(DocumentId, bool)> {
-        if !self.over_diff_text(x, y) || self.layout.search.contains(x, y) {
+        if !self.over_diff_text(x, y) {
             return None;
         }
         let index = self.editor.active?;

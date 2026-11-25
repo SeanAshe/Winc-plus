@@ -825,3 +825,108 @@ fn a_split_terminal_tab_shows_its_terminals_side_by_side() {
     assert!(app.terminal.tabs.is_empty());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 竖向列表里拆分的标签展开成一组：一行写着有几个终端，下面按排列顺序每个终端一行。点一行把它
+/// 换到前台；那一行的关闭按钮和中键只关掉这一个终端，标签和其余终端留着。
+#[test]
+fn split_tabs_list_their_terminals_in_the_vertical_list() {
+    use crate::app::terminal::HeaderHit;
+
+    let dir = sample_folder("terminal-split-list");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    app.config.terminal_vertical_tabs = Some(true);
+    show_terminal(&mut app, "$ ");
+    let size = app.terminal_size();
+    add_tab(&mut app, "python", "$ ");
+    let (mut all, _) = crate::app::terminal::take_group(&mut app.terminal.tabs, 0);
+    all.push(TermTab::new(98, size));
+    all.push(TermTab::new(99, size));
+    app.terminal.put_group(0, all, 0);
+    app.activate_terminal_tab(0);
+    paint(&mut app);
+
+    let hit = |app: &App, want: HeaderHit| {
+        (app.hits.terminal.iter())
+            .find(|(_, h)| *h == want)
+            .map(|(r, _)| *r)
+    };
+    let center = |r: Rect| (r.x + r.w / 2.0, r.y + r.h / 2.0);
+    // 组名一行在上，三个终端依次在下面，同一列、同样高。
+    let head = hit(&app, HeaderHit::Tab(0)).unwrap();
+    let rows: Vec<Rect> = (0..3)
+        .map(|at| hit(&app, HeaderHit::Pane(0, at)).unwrap())
+        .collect();
+    assert!(rows[0].y >= head.bottom() - 0.5);
+    assert!(
+        rows.windows(2)
+            .all(|w| (w[1].y - w[0].bottom()).abs() < 0.5)
+    );
+    // python 标签排在整组下面。
+    assert!(hit(&app, HeaderHit::Tab(1)).unwrap().y > rows[2].bottom());
+
+    // 点第三行：它换到前台。
+    click(&mut app, center(rows[2]));
+    assert_eq!(app.terminal.tab().unwrap().pane_at(), 2);
+    assert_eq!(app.terminal.tab().unwrap().id, 99);
+    assert_eq!(app.focus, Focus::Terminal);
+
+    // 悬停第二行出现关闭按钮，点它只关掉这个终端。
+    paint(&mut app);
+    let second = hit(&app, HeaderHit::Pane(0, 1)).unwrap();
+    app.on_mouse_move(second.x + 30.0, second.y + second.h / 2.0);
+    paint(&mut app);
+    let close = hit(&app, HeaderHit::ClosePane(0, 1)).expect("悬停时有关闭按钮");
+    click(&mut app, center(close));
+    let tab = app.terminal.tab().unwrap();
+    assert_eq!(tab.pane_count(), 2);
+    assert!(tab.panes().all(|pane| pane.id != 98));
+    assert_eq!(app.terminal.tabs.len(), 2);
+
+    // 中键点一行：同样只关掉它；剩一个终端时标签回到普通的一行。
+    paint(&mut app);
+    let first = hit(&app, HeaderHit::Pane(0, 0)).unwrap();
+    app.on_mouse_move(first.x + 30.0, first.y + first.h / 2.0);
+    app.on_mouse_down(winit::event::MouseButton::Middle);
+    app.on_mouse_up(winit::event::MouseButton::Middle);
+    paint(&mut app);
+    assert_eq!(app.terminal.tab().unwrap().pane_count(), 1);
+    assert!(hit(&app, HeaderHit::Pane(0, 0)).is_none());
+    assert_eq!(app.terminal.tabs.len(), 2);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 拆分的标签在竖向列表里的样子：浅色、深色，鼠标停在一个终端上。
+///
+/// 运行：`cargo test -p winc-app shoot_terminal_split_list -- --ignored`。
+#[test]
+#[ignore = "截图，手动运行"]
+fn shoot_terminal_split_list() {
+    use crate::app::terminal::HeaderHit;
+
+    let dir = sample_folder("terminal-split-list-shot");
+    for dark in [false, true] {
+        let mut app = app_with(&dir.join("short.rs"), dark);
+        app.config.terminal_vertical_tabs = Some(true);
+        show_terminal(
+            &mut app,
+            "~/project ❯ cargo test\r\n   Compiling winc-app\r\n",
+        );
+        let size = app.terminal_size();
+        add_tab(&mut app, "python", "$ ");
+        add_tab(&mut app, "ssh server", "$ ");
+        let (mut all, _) = crate::app::terminal::take_group(&mut app.terminal.tabs, 0);
+        all.push(TermTab::new(98, size));
+        all.push(TermTab::new(99, size));
+        app.terminal.put_group(0, all, 1);
+        app.activate_terminal_tab(0);
+        paint(&mut app);
+        let row = (app.hits.terminal.iter())
+            .find(|(_, h)| *h == HeaderHit::Pane(0, 2))
+            .unwrap()
+            .0;
+        app.on_mouse_move(row.x + 30.0, row.y + row.h / 2.0);
+        let theme = if dark { "dark" } else { "light" };
+        shoot(&mut app, &format!("terminal-split-list-{theme}"));
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}

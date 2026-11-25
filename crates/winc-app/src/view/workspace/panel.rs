@@ -434,8 +434,8 @@ fn draw_summary(app: &App, frame: &mut Frame<'_>, parts: &PanelParts) {
     } else if searching && total == 0 {
         (t!("workspace-search-searching").to_owned(), p.text_dim)
     } else {
-        // 截断了、有行因正则回溯过多而放弃查找，或远端没能列出文件：计数是下限。
-        let more = if engine.is_truncated() || engine.gave_up() || engine.timed_out() {
+        // 截断了、有行因正则回溯过多而放弃查找，或远端没能搜完：计数是下限。
+        let more = if engine.is_truncated() || engine.gave_up() || engine.remote_failed() {
             "+"
         } else {
             ""
@@ -469,13 +469,13 @@ fn draw_summary(app: &App, frame: &mut Frame<'_>, parts: &PanelParts) {
 /// 显示时文件排在各级目录下面，不写所在目录。
 fn draw_results(app: &mut App, frame: &mut Frame<'_>, parts: &PanelParts) {
     let area = parts.results;
-    if app.no_search_results() && app.panels.global.engine.timed_out() {
+    if app.no_search_results() && app.panels.global.engine.remote_failed() {
         draw_empty_state(
             app,
             frame,
             (area, sidebar_span(app)),
-            t!("workspace-search-remote-timeout"),
-            Some(t!("workspace-search-remote-timeout-hint")),
+            t!("workspace-search-remote-failed"),
+            Some(t!("workspace-search-remote-failed-hint")),
         );
         return;
     }

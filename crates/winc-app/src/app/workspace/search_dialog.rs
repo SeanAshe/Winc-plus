@@ -194,10 +194,10 @@ impl App {
         })
     }
 
-    /// 打开对话框：有合适的选区（没有选区时为光标所在的词）时用它作为查询，否则沿用上次的查询；
-    /// 查询全选，焦点放进输入框。
+    /// 打开对话框：焦点在编辑区、有合适的选区（没有选区时为光标所在的词）时用它作为查询，否则
+    /// 沿用上次的查询（见 [`Self::files_search_seed`]）；查询全选，焦点放进输入框。
     pub(in crate::app) fn open_search_dialog(&mut self) {
-        let seed = self.search_seed();
+        let seed = self.files_search_seed();
         self.open_search_dialog_with(seed);
     }
 

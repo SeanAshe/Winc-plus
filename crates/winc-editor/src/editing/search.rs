@@ -3,16 +3,10 @@
 //! 搜索按时间片分段进行，每次 `update` 最多耗时 `SLICE`，长文件不会阻塞界面；结果按位置排序，
 //! 匹配数达到 [`MAX_MATCHES`] 后停止搜索并标记结果不完整。
 
-mod matcher;
+pub(crate) use winc_search::{Matcher, Options, Pattern, count_chars, joined, unescape};
 
-pub(crate) use matcher::*;
-
-use std::borrow::Cow;
 use std::ops::ControlFlow;
 use std::time::{Duration, Instant};
-
-use memchr::memmem::Finder;
-use regex::{Regex, RegexBuilder};
 
 use winc_core::{Change, EditKind, Lines, Selection, Transaction};
 use winc_i18n::t;
@@ -117,17 +111,6 @@ struct Key {
     revision: u64,
     /// 在差异标签的哪一侧快照中搜索（`LEFT` 或 `RIGHT`）；搜索文档自身的文本时为 `None`。
     snapshot_side: Option<usize>,
-}
-
-/// 查找选项，各字段含义同 [`Search`] 的同名字段。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Options {
-    /// 是否区分大小写。
-    pub case_sensitive: bool,
-    /// 是否全字匹配。
-    pub whole_word: bool,
-    /// 是否按正则匹配。
-    pub regex: bool,
 }
 
 /// 搜索断点：下次从第 `line` 行（从 0 起）继续，`pos` 是该行行首的位置（字符偏移）。

@@ -869,9 +869,7 @@ impl App {
             }
             Next::Terminal => self.toggle_terminal(),
             Next::Search(query) => {
-                self.open_global_search(false);
-                self.panels.global.query.set_text(&query);
-                self.global_changed(true);
+                self.show_global_search(false, Some(query));
             }
             Next::QuickOpen => self.open_picker(),
             Next::Find(query) => {

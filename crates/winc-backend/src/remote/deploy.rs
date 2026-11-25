@@ -4,6 +4,10 @@
 //! 进程，缺少时从标准输入接收并保存，最后以服务进程替换自身。此后同一对标准输入输出上就是
 //! 请求和应答，不需要第二次登录。
 //!
+//! 交给远端登录 shell 的命令行只有几个普通的词，脚本本身经标准输入交给 `sh -s`：远端的登录
+//! shell 可能是 csh、fish，在 Windows 主机上是 cmd 或 PowerShell，它们对引号、`<`、`|`、`&` 的
+//! 解释各不相同。命令行开头的 `echo` 同时用来认出 Windows 主机（见 [`PROBE`]）。
+//!
 //! 服务进程保存在 `<上传目录>/<内容摘要>/winc-server`：不同版本、不同架构的程序摘要不同，
 //! 互不覆盖。每次连接只保留用上的这一个版本，其余的随即删除。
 
@@ -16,12 +20,13 @@ use std::time::{Duration, Instant};
 use super::{Connection, Ssh, quote, ssh};
 use crate::Target;
 
-/// 引导脚本，交给远端的 `sh -c` 运行。参数依次是上传目录，以及每个服务进程的系统、摘要和字节数。
+/// 引导脚本，经标准输入交给远端的 `sh -s` 运行。参数依次是上传目录，以及每个服务进程的系统、
+/// 摘要和字节数。
 ///
-/// 脚本经登录 shell 传给 `sh`，因此写成一行，不含单引号和反斜杠，`!` 之后只能是空格或 `=`；
-/// 输出的每一行以 `winc:` 开头，与登录脚本的输出区分。上传的内容先写入临时文件，字节数相符后
-/// 才改名；已有程序的字节数与本机的不符时重新上传。启动前删除上传目录中其他版本：只删名字是
-/// 小写十六进制摘要、其中只有 `winc-server` 的子目录，先删文件再删空目录，不递归。
+/// 脚本写成一行：`sh` 读完一整行才开始执行，此后才上传程序，上传的内容不会被 `sh` 当作脚本
+/// 读走。输出的每一行以 `winc:` 开头，与登录脚本的输出区分。上传的内容先写入临时文件，字节数
+/// 相符后才改名；已有程序的字节数与本机的不符时重新上传。启动前删除上传目录中其他版本：只删
+/// 名字是小写十六进制摘要、其中只有 `winc-server` 的子目录，先删文件再删空目录，不递归。
 const SCRIPT: &str = concat!(
     "dir=$1; shift; sys=$(uname -s)-$(uname -m); digest=; ",
     "while [ $# -ge 3 ]; do ",
@@ -50,6 +55,12 @@ const SCRIPT: &str = concat!(
 
 /// 脚本输出行的前缀。
 const MARKER: &[u8] = b"winc:";
+
+/// 命令行开头输出的一行，在各种 shell 中样子不同，据此在启动 `sh` 之前认出 Windows 主机：
+/// POSIX 的 shell（含 csh、fish）原样输出一行 `winc:os=%OS% winc:ps`；cmd 展开 `%OS%`，输出
+/// `winc:os=Windows_NT …`（`;` 不是 cmd 的分隔符，整行都是 `echo` 的内容，不会运行 `sh`）；
+/// PowerShell 把两个参数各输出一行，第二行是 `winc:ps`。
+const PROBE: [&str; 3] = ["echo", "winc:os=%OS%", "winc:ps;"];
 
 /// 等到脚本的一行输出之前，至多跳过的字节数（64 KiB）。
 ///
@@ -86,7 +97,8 @@ pub struct Deploy {
 }
 
 impl Deploy {
-    /// 返回在远端主机上运行的引导命令，每个元素是一个参数。
+    /// 返回运行引导脚本的命令（`sh -s -- …`），每个元素是一个参数；脚本经标准输入送达（见
+    /// [`Connection::deploy`]）。
     ///
     /// # Errors
     ///
@@ -97,9 +109,8 @@ impl Deploy {
         if self.dir.chars().any(|c| c == '\\' || c.is_control()) {
             return Err(invalid("server directory has unsupported characters"));
         }
-        let mut words = vec!["sh".to_owned(), "-c".to_owned(), SCRIPT.to_owned()];
-        // `sh -c` 之后的第一个参数是 `$0`。
-        words.extend(["winc".to_owned(), self.dir.clone()]);
+        let mut words = vec!["sh".to_owned(), "-s".to_owned(), "--".to_owned()];
+        words.push(self.dir.clone());
         for program in &self.programs {
             let system = &program.system;
             if system.is_empty() || !system.chars().all(|c| c.is_ascii_graphic() && c != '\\') {
@@ -124,15 +135,19 @@ impl Deploy {
 
     /// 返回经 `ssh` 连接 `target` 并运行引导命令的命令。
     ///
-    /// `ssh` 的参数与 [`ssh_command`](super::ssh_command) 相同；引导命令的每个参数各自作为
-    /// 一个词交给远端的 shell。
+    /// `ssh` 的参数与 [`ssh_command`](super::ssh_command) 相同。远端登录 shell 收到的命令行
+    /// 先报告远端的系统（Windows 主机在此就能认出），接着是引导命令：命令名和选项都是普通的词，
+    /// 不加引号（PowerShell 不把带引号的词当作命令运行）；其余参数各自加上单引号。
     ///
     /// # Errors
     ///
     /// 同 [`Deploy::command`]。
     pub fn ssh_command(&self, target: &Target, options: Ssh) -> io::Result<Command> {
+        let words = self.command()?;
+        let (program, values) = words.split_at(3);
         let mut command = ssh(target, options);
-        command.args(self.command()?.iter().map(|word| quote(word)));
+        command.args(PROBE).args(program);
+        command.args(values.iter().map(|word| quote(word)));
         Ok(command)
     }
 }
@@ -238,8 +253,8 @@ impl Abort {
 }
 
 impl Connection {
-    /// 启动 `command` 作为连接，由它运行 `deploy` 的引导命令（见 [`Deploy::ssh_command`]），
-    /// 按需上传服务进程，并与启动后的服务进程交换协议版本。
+    /// 启动 `command` 作为连接，由它运行 `deploy` 的引导命令（见 [`Deploy::ssh_command`]）：
+    /// 把引导脚本写进它的标准输入，按需上传服务进程，并与启动后的服务进程交换协议版本。
     ///
     /// `command` 的标准输入输出接到本进程；标准错误只用于在失败时说明原因。引导阶段没有时限
     /// （登录可能在等待用户输入），调用方用 `abort` 中止。
@@ -335,6 +350,9 @@ pub enum Stage {
     Starting,
 }
 
+/// 认出 Windows 主机时报告的系统名。
+const WINDOWS: &str = "Windows";
+
 /// 引导阶段的结果。
 enum Step {
     /// 服务进程即将启动。
@@ -345,14 +363,30 @@ enum Step {
     Ended,
 }
 
-/// 读取脚本的输出，在它要求时上传与远端系统对应的服务进程。
+/// 把引导脚本交给远端的 `sh`，读取输出，在脚本要求时上传与远端系统对应的服务进程。
+///
+/// 先认出 [`PROBE`] 的输出：是 Windows 主机时不再等待，那里没有运行脚本的 `sh`。
 fn bootstrap(
     input: &mut impl BufRead,
     output: &mut impl Write,
     deploy: &Deploy,
     report: &dyn Fn(Stage),
 ) -> io::Result<Step> {
+    // 远端没有读取（例如登录失败）时写入失败，原因由错误输出说明。
+    let _ = output
+        .write_all(SCRIPT.as_bytes())
+        .and_then(|()| output.write_all(b"\n"))
+        .and_then(|()| output.flush());
     let mut line = read_line(input)?;
+    if let Some(probe) = line.as_deref().and_then(|line| line.strip_prefix("os=")) {
+        if probe.starts_with("Windows_NT") {
+            return Ok(Step::Unsupported(WINDOWS.to_owned()));
+        }
+        line = read_line(input)?;
+    }
+    if line.as_deref() == Some("ps") {
+        return Ok(Step::Unsupported(WINDOWS.to_owned()));
+    }
     if let Some(system) = line.as_deref().and_then(|line| line.strip_prefix("need ")) {
         // 脚本只会要求它在参数中找到的系统。
         let Some(program) = deploy.programs.iter().find(|p| p.system == system) else {
@@ -475,22 +509,14 @@ mod tests {
     }
 
     #[test]
-    fn the_bootstrap_command_is_safe_to_pass_through_a_login_shell() {
-        // 单引号、反斜杠和换行在不同的登录 shell 中含义不同，脚本中不能出现。
-        assert!(!SCRIPT.contains(['\'', '\\', '\n']));
-        // `!` 之后是其他字符时，有的登录 shell 在单引号内也会当作历史命令展开。
-        let after_bang = SCRIPT.split('!').skip(1).map(|rest| rest.chars().next());
-        assert!(
-            after_bang
-                .into_iter()
-                .all(|next| matches!(next, Some(' ' | '=')))
-        );
+    fn the_command_line_is_plain_words_and_the_script_goes_through_standard_input() {
+        // 脚本写成一行：`sh` 读完整行才执行，之后上传的程序不会被当作脚本读走。
+        assert!(!SCRIPT.contains('\n'));
 
         let words = deploy("~/it's here", "0af3").command().unwrap();
-        assert_eq!(words[..2], ["sh", "-c"]);
         assert_eq!(
-            words[3..],
-            ["winc", "~/it's here", "Linux-x86_64", "0af3", "7"]
+            words,
+            ["sh", "-s", "--", "~/it's here", "Linux-x86_64", "0af3", "7"]
         );
 
         let target = Target::new("alice@devbox").unwrap();
@@ -501,8 +527,35 @@ mod tests {
             args[..5],
             ["-T", "-o", "RemoteCommand=none", "alice@devbox", "--"]
         );
-        assert_eq!(args[5..7], ["'sh'", "'-c'"]);
-        assert_eq!(args[9], r"'~/it'\''s here'");
+        // 登录 shell 收到的前几个词不加引号，其中没有 cmd、PowerShell 或 POSIX shell 会另作
+        // 解释的字符（`;` 只在 POSIX shell 和 PowerShell 中分隔命令）。
+        assert_eq!(
+            args[5..11],
+            ["echo", "winc:os=%OS%", "winc:ps;", "sh", "-s", "--"]
+        );
+        let special = ['\'', '"', '<', '>', '|', '&', '$', '`', '\\', '(', ')', '^'];
+        assert!(args[5..11].iter().all(|word| !word.contains(special)));
+        assert_eq!(args[11], r"'~/it'\''s here'");
+    }
+
+    #[test]
+    fn a_windows_host_is_recognised_before_waiting_for_the_script() {
+        let deploy = deploy("", "0af3");
+        let run = |output: &[u8]| {
+            let mut sent = Vec::new();
+            let step = bootstrap(&mut &*output, &mut sent, &deploy, &|_| {}).unwrap();
+            (step, sent)
+        };
+        // cmd：`%OS%` 被展开，整行（连同后面的 `sh …`）都是 `echo` 的输出。
+        let (step, _) = run(b"winc:os=Windows_NT winc:ps; sh -s -- '' 'Linux-x86_64'\r\n");
+        assert!(matches!(step, Step::Unsupported(system) if system == WINDOWS));
+        // PowerShell：两个参数各一行。
+        let (step, _) = run(b"winc:os=%OS%\r\nwinc:ps\r\n");
+        assert!(matches!(step, Step::Unsupported(system) if system == WINDOWS));
+        // POSIX shell：原样输出一行，接着是脚本的输出；脚本先经标准输入送出。
+        let (step, sent) = run(b"winc:os=%OS% winc:ps\nwinc:ready\n");
+        assert!(matches!(step, Step::Ready));
+        assert_eq!(sent, [SCRIPT.as_bytes(), b"\n"].concat());
     }
 
     #[test]
@@ -535,10 +588,11 @@ mod tests {
     #[test]
     fn the_program_is_sent_only_when_the_script_asks_for_it() {
         let deploy = deploy("", "0af3");
+        // 送出的内容中去掉开头的引导脚本，只看上传的程序。
         let run = |script: &[u8]| {
             let mut sent = Vec::new();
             let step = bootstrap(&mut &*script, &mut sent, &deploy, &|_| {}).unwrap();
-            (step, sent)
+            (step, sent.split_off(SCRIPT.len() + 1))
         };
         assert!(matches!(run(b"winc:ready\n"), (Step::Ready, sent) if sent.is_empty()));
         assert!(matches!(

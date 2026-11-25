@@ -175,6 +175,32 @@ fn pasting_web_content_writes_markdown() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 回归（#426）：从别的编辑器复制几百行粘贴到 Markdown 文档里，只粘贴进前面几十行。剪贴板里的
+/// HTML 片段被写入的程序截短（片段范围按字符计算，内容含中文时结尾提前），转换后的代码块代替了
+/// 完整的纯文本。HTML 只是纯文本的开头一段时改用纯文本；完整的照常写成代码块。
+#[test]
+fn a_cut_short_html_copy_pastes_the_whole_text() {
+    let (mut app, dir) = live_doc("md-paste-cut", "前文\n");
+    put_caret(&mut app, "前文", true);
+    let lines: Vec<String> = (1..=300)
+        .map(|i| format!("let x{i} = \"第{i}行\";"))
+        .collect();
+    let text = lines.join("\n");
+    let html = |count: usize| format!("<pre>{}</pre>", lines[..count].join("\n"));
+    app.clipboard.copied = Some(text.clone());
+    // 截短的片段没有结束标签。
+    app.clipboard.copied_html = Some(html(40).trim_end_matches("</pre>").to_owned());
+    app.paste();
+    assert!(doc_text(&app).ends_with(&format!("{text}\n")));
+    assert!(!doc_text(&app).contains("```"));
+
+    app.run(winc_editor::Command::Insert("\n\n".into()));
+    app.clipboard.copied_html = Some(html(300));
+    app.paste();
+    assert!(doc_text(&app).ends_with(&format!("```\n{text}\n```\n")));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn clicking_a_task_box_toggles_it() {
     let (mut app, dir) = live_doc("md-task", "开头\n\n- [ ] 甲\n- [x] 乙\n");

@@ -91,7 +91,7 @@ impl App {
     /// 文件树菜单，点在编辑区里弹出编辑区菜单。
     ///
     /// 文件树中点中的那一行先被选中，点在空白处表示根目录。其他位置没有菜单。设置浮层或
-    /// 快速打开面板打开时不处理。
+    /// 快速打开面板打开时不处理，点在卡片、补全列表等遮挡下方的部件上时也不处理。
     pub(in crate::app) fn context_click(&mut self, x: f32, y: f32) {
         if self.settings.open
             && let Some(SettingsPart::KeyRow(action)) = self.settings_part_at(x, y)
@@ -100,7 +100,11 @@ impl App {
             self.open_context_menu(MenuTarget::Shortcut(action), (x, y));
             return;
         }
-        if self.settings.open || self.overlays.form_dialog.is_some() || self.overlays.picker.open {
+        if self.settings.open
+            || self.overlays.form_dialog.is_some()
+            || self.overlays.picker.open
+            || self.blocks_context_menu(x, y)
+        {
             return;
         }
 
@@ -152,6 +156,9 @@ impl App {
             MenuTarget::StashRow(i)
         } else if let Some(path) = self.commit_context_target(x, y) {
             MenuTarget::CommitFile(path)
+        } else if self.in_commit_overflow(x, y) {
+            // 改动行伸出侧栏的一段遮挡下方；其中的按钮没有菜单，右键点击不传给下方。
+            return;
         } else if let Some((i, path)) = self.log_file_context_target(x, y) {
             MenuTarget::LogFile(i, path)
         } else if let Some(index) = self.log_branch_context_target(x, y) {
@@ -180,13 +187,14 @@ impl App {
         self.open_context_menu(target, (x, y));
     }
 
-    /// 右键点在搜索面板的一个结果行上：选中这一行，焦点给结果列表，返回它（文件路径，第几处
-    /// 匹配）。
+    /// 右键点在搜索面板的一个结果行上（含写全名时伸出侧栏的一段）：选中这一行，焦点给结果
+    /// 列表，返回它（文件路径，第几处匹配）。
     fn search_context_target(&mut self, x: f32, y: f32) -> Option<(PathBuf, Option<usize>)> {
         if !self.panel_shown() {
             return None;
         }
-        if !self.panel_parts().results.contains(x, y) || !self.panel_rect().contains(x, y) {
+        let in_list = self.panel_parts().results.contains(x, y) && self.panel_rect().contains(x, y);
+        if !in_list && !self.in_result_overflow(x, y) {
             return None;
         }
         let index = self.result_row_at(y)?;
@@ -263,14 +271,11 @@ impl App {
 
     /// 返回右键点击处所在的编辑区文档；该位置不应弹出编辑区菜单时返回 `None`。
     ///
-    /// 点在选区外时光标先移到点击处；点在选区内时保留选区，菜单作用于该选区。查找条、
-    /// 跳转条、右上角的冲突卡片和提示条覆盖的区域，以及不显示文本的文档没有菜单。
+    /// 点在选区外时光标先移到点击处；点在选区内时保留选区，菜单作用于该选区。不显示文本的
+    /// 文档没有菜单。
     fn editor_context_target(&mut self, x: f32, y: f32) -> Option<DocumentId> {
         let l = self.layout;
-        let covered = l.search.contains(x, y)
-            || (self.bars.goto_input.is_some() && self.prompt_bar().contains(x, y))
-            || self.over_corner_card(x, y);
-        if covered || !l.editor.contains(x, y) {
+        if !l.editor.contains(x, y) {
             return None;
         }
 
@@ -303,8 +308,12 @@ impl App {
 
     /// 右键点在终端的标签上：它成为正在看的标签，返回它的编号。
     fn terminal_tab_context_target(&mut self, x: f32, y: f32) -> Option<u16> {
+        use crate::app::terminal::HeaderHit;
         let index = match crate::layout::hit(&self.hits.terminal, x, y)? {
-            crate::app::terminal::HeaderHit::Tab(i) | crate::app::terminal::HeaderHit::Close(i) => {
+            HeaderHit::Tab(i) | HeaderHit::Close(i) => i,
+            // 拆分出的终端：先换到前台，菜单作用于它。
+            HeaderHit::Pane(i, at) | HeaderHit::ClosePane(i, at) => {
+                self.select_terminal_pane(i, at);
                 i
             }
             _ => return None,

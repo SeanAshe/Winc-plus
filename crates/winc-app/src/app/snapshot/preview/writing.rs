@@ -782,6 +782,40 @@ fn slash_lists_writing_commands() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 回归：源代码中写作命令的列表覆盖在文字上方，鼠标位于列表上时显示箭头。
+#[test]
+fn the_text_cursor_leaves_the_slash_list_in_the_source() {
+    use winit::window::CursorIcon;
+    let (mut app, dir) = source_doc("md-slash-cursor", "");
+    app.track_suggest();
+    app.run(winc_editor::Command::Insert("/".into()));
+    app.track_suggest();
+    paint(&mut app);
+    let card = app.hits.suggest_card.expect("列出写作命令");
+    app.on_mouse_move(card.x + card.w / 2.0, card.y + card.h / 2.0);
+    assert_eq!(app.pointer.cursor_icon, CursorIcon::Default);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 回归：源代码中写作命令的列表覆盖在文字上方，在列表上右键不弹出编辑区的菜单，光标不动，
+/// 列表保持打开。
+#[test]
+fn right_clicks_on_the_slash_list_reach_no_menu() {
+    let (mut app, dir) = source_doc("md-slash-menu", "");
+    app.track_suggest();
+    app.run(winc_editor::Command::Insert("/".into()));
+    app.track_suggest();
+    paint(&mut app);
+    let card = app.hits.suggest_card.expect("列出写作命令");
+    let caret = app.editor.active().unwrap().selection;
+    right_click(&mut app, (card.x + card.w / 2.0, card.y + card.h / 2.0));
+    assert!(app.overlays.context_menu.is_none());
+    assert_eq!(app.editor.active().unwrap().selection, caret);
+    paint(&mut app);
+    assert!(app.hits.suggest_card.is_some(), "列表保持打开");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// 可编辑的预览中选中文字后显示格式工具栏，按钮执行写作命令；选区改变或关闭设置后不显示。
 #[test]
 fn selecting_text_shows_the_format_toolbar() {

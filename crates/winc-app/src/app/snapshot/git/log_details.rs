@@ -188,9 +188,7 @@ fn the_log_files_can_be_walked_with_the_keyboard_and_commits_opened_by_double_cl
         .iter()
         .find(|(_, t)| *t == LogTarget::Row(2))
         .unwrap();
-    let at = (row.x + 200.0, row.y + row.h / 2.0);
-    click(&mut app, at);
-    click(&mut app, at);
+    double_click(&mut app, (row.x + 200.0, row.y + row.h / 2.0));
     app.poll_log();
     let doc = app.editor.active().unwrap();
     assert!(doc.diff.is_some(), "双击打开了差异");

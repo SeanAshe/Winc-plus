@@ -102,3 +102,4 @@ terminal-run-stopped = 已停止
 terminal-run-finished = 已完成
 terminal-run-failed = 「{ $name }」运行失败（退出码 { $code }）
 terminal-run-menu-running = 运行中 · { $command }
+terminal-split-group = { $count } 个终端

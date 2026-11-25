@@ -1,15 +1,38 @@
 //! 在文本里找匹配的行，截出带上下文的预览。
 
-use super::*;
+use std::ops::{ControlFlow, Range};
 
-/// 搜索已打开且有未保存修改的文档：使用内存中的内容，最多收 `limit` 处。
-pub(super) fn search_lines(matcher: &Matcher, rope: &Rope, limit: usize) -> Vec<LineMatch> {
+use memchr::{memchr_iter, memchr2_iter};
+use winc_core::Lines;
+
+use crate::matcher::{Matcher, count_chars, joined};
+
+/// 预览中保留匹配之前的最大字符数（字符）；更长时前面用「…」代替。
+const PREVIEW_BEFORE: usize = 24;
+/// 预览的最大字符数（个，取自调参，够显示一行的大部分内容）。
+const PREVIEW_CHARS: usize = 160;
+
+/// 搜索结果中的一处匹配：行号、列范围、预览文本和匹配在预览中的位置。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineMatch {
+    /// 行号（从 0 起），与打开文件后文档中的行号一致。
+    pub line: usize,
+    /// 匹配在该行内的列范围（字符偏移，从 0 起）。
+    pub cols: Range<usize>,
+    /// 该行的预览文本：已去掉行首空白，过长时截去两端，制表符换成空格。
+    pub preview: String,
+    /// 匹配在 `preview` 中的字节范围（UTF-8 字节偏移）。
+    pub highlight: Range<usize>,
+}
+
+/// 搜索内存中的文本（已打开且有未保存修改的文档），最多收 `limit` 处。
+pub fn search_lines(matcher: &Matcher, text: &impl Lines, limit: usize) -> Vec<LineMatch> {
     if matcher.is_multiline() {
-        let (text, starts) = joined(rope);
-        return joined_matches(matcher, &text, &starts, limit);
+        let (joined, starts) = joined(text);
+        return joined_matches(matcher, &joined, &starts, limit);
     }
     let mut matches = Vec::new();
-    rope.visit_lines(0, usize::MAX, |index, _, line| {
+    text.visit_lines(0, usize::MAX, |index, _, line| {
         collect(matcher, index, line, &mut matches, limit)
     });
     matches
@@ -19,7 +42,7 @@ pub(super) fn search_lines(matcher: &Matcher, rope: &Rope, limit: usize) -> Vec<
 ///
 /// 匹配记在起始行上，列范围的结尾可以超出该行（按文件中的位置计算，原换行符为 `\r\n` 的
 /// 算两个字符）；预览取起始行。
-pub(super) fn joined_matches(
+pub(crate) fn joined_matches(
     matcher: &Matcher,
     text: &str,
     starts: &[usize],
@@ -57,7 +80,7 @@ pub(super) fn joined_matches(
 /// 把解码后的整个文件按 `\n` 连接，并返回每行行首在文件中的位置（字符偏移）。
 ///
 /// 与 [`joined`] 相同，行按 rope 的规则分。
-pub(super) fn joined_text(text: &str) -> (String, Vec<usize>) {
+pub(crate) fn joined_text(text: &str) -> (String, Vec<usize>) {
     let (mut joined, mut starts) = (String::with_capacity(text.len()), Vec::new());
     // 上一行起点的字节偏移（`byte`）和字符偏移（`pos`）。
     let (mut byte, mut pos) = (0, 0);
@@ -75,27 +98,8 @@ pub(super) fn joined_text(text: &str) -> (String, Vec<usize>) {
     (joined, starts)
 }
 
-/// 构造一个文件的结果；没有匹配时返回 `None`。
-pub(super) fn file_result(
-    (root, extra): (&Path, &[(String, PathBuf)]),
-    path: &Path,
-    matches: Vec<LineMatch>,
-    lossy: bool,
-) -> Option<FileResult> {
-    if matches.is_empty() {
-        return None;
-    }
-
-    Some(FileResult {
-        path: path.to_path_buf(),
-        relative: crate::workspace::tree::labelled_path(root, extra, path),
-        matches,
-        lossy,
-    })
-}
-
 /// 把第 `index` 行（从 0 起）中的匹配追加到 `out`，`out` 收满 `limit` 处时返回 `Break`。
-pub(super) fn collect(
+pub(crate) fn collect(
     matcher: &Matcher,
     index: usize,
     line: &str,
@@ -133,7 +137,7 @@ pub(super) fn collect(
 /// 返回匹配所在的预览文本，以及匹配在预览中的字节范围。
 ///
 /// `start`、`end` 是匹配在 `line` 中的字节范围。预览去掉行首空白；匹配之前超过
-/// `PREVIEW_BEFORE` 个字符时截去前面的部分并以「…」代替；总长有上限（`PREVIEW_CHARS`）。
+/// [`PREVIEW_BEFORE`] 个字符时截去前面的部分并以「…」代替；总长有上限（[`PREVIEW_CHARS`]）。
 ///
 /// # Panics
 ///
@@ -192,7 +196,7 @@ fn preview(line: &str, start: usize, end: usize) -> (String, Range<usize>) {
 ///
 /// 行号从 `first` 起计。`last` 为 `false` 时，`text` 以 `\n` 结尾且后面还有内容，最后一个
 /// `\n` 之后的空串不算一行。返回下一行的行号；`f` 返回 `Break` 时停止并返回 `Break`。
-pub(super) fn for_each_line(
+pub fn for_each_line(
     text: &str,
     first: usize,
     last: bool,

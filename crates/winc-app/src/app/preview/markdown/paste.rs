@@ -63,14 +63,15 @@ impl App {
         Some(winc_preview::markdown::paragraph::link(text, Some(url), image).0)
     }
 
-    /// 返回 Markdown 中粘贴剪贴板 HTML 时写成的 Markdown；HTML 没有结构时为 `None`。
+    /// 返回 Markdown 中粘贴剪贴板 HTML 时写成的 Markdown；HTML 没有结构，或不如同时放在剪贴板
+    /// 里的纯文本 `text` 完整时为 `None`。
     ///
     /// 只有一段文字时就地插入，有多块时单独成块。
-    pub(in crate::app) fn markdown_html_paste(&mut self) -> Option<String> {
+    pub(in crate::app) fn markdown_html_paste(&mut self, text: &str) -> Option<String> {
         let spot = self.prose_spot()?;
         let html = self.clipboard.html()?;
         let converted = winc_preview::markdown::from_html::from_html(&html);
-        if !converted.rich {
+        if !converted.rich || cut_short(&converted.plain, text) {
             return None;
         }
         let body = converted.text.trim_end();
@@ -133,5 +134,22 @@ impl App {
             after,
             blank_above,
         })
+    }
+}
+
+/// HTML 中的文字 `html`（已去掉空白）是否只是纯文本 `text` 的开头一段。
+///
+/// 写入剪贴板的程序可能把 HTML 片段的范围按字符而不是按字节计算，内容含非 ASCII 字符时片段的
+/// 结尾提前，后面的内容被截掉；这时只能用完整的纯文本。
+fn cut_short(html: &str, text: &str) -> bool {
+    let mut text = text.chars().filter(|c| !c.is_whitespace());
+    let mut html = html.chars();
+    loop {
+        match (html.next(), text.next()) {
+            (Some(a), Some(b)) if a == b => {}
+            // HTML 先结束，纯文本还有内容：截短了。
+            (None, Some(_)) => return true,
+            _ => return false,
+        }
     }
 }

@@ -1,8 +1,7 @@
-//! 后台任务共用的线程池：构建 ⌘P 的文件表、更新文件表、全局搜索、格式化前的准备都经 [`spawn`]
-//! 提交。
+//! 后台任务共用的线程池：构建 ⌘P 的文件表、更新文件表、格式化前的准备都经 [`spawn`] 提交。
 //!
 //! 线程按需创建，最多 [`MAX_THREADS`] 个，空闲 [`KEEP_ALIVE`] 后退出，成批到达的任务因此复用同一个
-//! 线程；线程数未达上限时任务之间不会互相等待。需要多线程协作的工作用 [`crew`] 或 [`split`]，帮手
+//! 线程；线程数未达上限时任务之间不会互相等待。需要多线程协作的工作用 [`split`]，帮手
 //! 也来自本池，调用线程自己参与；阻塞在子进程管道上的工作不用本池，由 [`spawn_blocking`] 分别建
 //! 线程。
 
@@ -85,14 +84,10 @@ pub fn spawn_blocking(task: impl FnOnce() + Send + 'static) {
     }
 }
 
-/// 邀请最多 `helpers` 个后台线程与调用线程一起执行 `work`（每个线程调用一次）。
+/// 邀请最多 `helpers` 个 `pool` 中的线程与调用线程一起执行 `work`（每个线程调用一次）。
 ///
 /// 调用线程在此之后应自己也执行 `work`，完成后用 [`Crew::wait`] 等待帮手结束。`work` 必须自行
 /// 从共享的任务中逐份领取，领完即返回：帮手何时开始、是否开始都不确定。
-pub fn crew(helpers: usize, work: impl Fn() + Send + Sync + 'static) -> Crew {
-    crew_in(pool(), helpers, Arc::new(work))
-}
-
 fn crew_in(pool: &'static Pool, helpers: usize, work: Arc<dyn Fn() + Send + Sync>) -> Crew {
     let shared = Arc::new(CrewState::default());
     for _ in 0..helpers {
@@ -121,8 +116,8 @@ fn crew_in(pool: &'static Pool, helpers: usize, work: Arc<dyn Fn() + Send + Sync
     Crew { shared }
 }
 
-/// 由 [`crew`] 邀请的帮手线程的句柄，用于等待它们结束。
-pub struct Crew {
+/// 由 [`crew_in`] 邀请的帮手线程的句柄，用于等待它们结束。
+struct Crew {
     shared: Arc<CrewState>,
 }
 

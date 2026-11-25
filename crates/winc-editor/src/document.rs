@@ -30,7 +30,7 @@ use crate::editing::scopes::{self, FoldRange, Scope, ScopeMemo};
 use crate::navigation::bookmarks::Bookmarks;
 use content::Content;
 use editorconfig::FileConfig;
-use encoding::{self as charset, Encoding, UTF8_BOM, utf16_text, utf16_unmarked};
+use encoding::{self as charset, Encoding, UTF8_BOM, utf16_unmarked};
 use large::LargeText;
 use winc_preview::image::Picture;
 use winc_preview::table::Table;
@@ -401,23 +401,8 @@ fn changed_lines(old: &ropey::Rope, new: &ropey::Rope) -> (usize, usize, usize) 
 /// 一次连续输入与随后的滚动查询通常只涉及几十次改动，64 条足以覆盖；记录更多只会增加内存开销。
 const EDIT_LOG: usize = 64;
 
-/// 可打开的文件大小上限（字节，4 GiB）。
-///
-/// 超过该大小的文件不打开。上限取自调参：`rope` 把全文放在内存中并额外维护树的节点，内存占用
-/// 随文件大小线性增长，超过该值后占用达到可用内存的量级。该上限同时约束打开文件与全局搜索的扫描，
-/// 按需读取的方式见 [`LARGE_FILE`]。
-pub(crate) const OPEN_LIMIT: u64 = 4 << 30;
-/// 大文件的大小下限（字节，16 MiB）。
-///
-/// 超过该大小的文件按大文件打开：原文留在磁盘上按需读取，内存里只记录改动。下限取自调参：按大文件
-/// 打开后每次滚动都要读磁盘，只有当整个文件读入内存的占用和耗时不可忽略时，这一代价才值得承担。
-pub const LARGE_FILE: u64 = 16 << 20;
-/// 带 BOM 的 UTF-16 整篇读入内存的大小上限（字节，64 MiB）。
-///
-/// 大文件按 UTF-8 字节索引磁盘上的原文，表示不了 UTF-16。不超过该上限时整篇解码成 rope；
-/// 打开和全局搜索使用同一个上限，行号才能对上。再大的 UTF-16 文件不打开。上限取自调参：
-/// 解码后的文本与原文件同一量级，64 MiB 的占用可以接受。
-pub(crate) const UTF16_INLINE: u64 = 64 << 20;
+pub use winc_search::{LARGE_FILE, looks_binary};
+pub(crate) use winc_search::{OPEN_LIMIT, UTF16_INLINE};
 
 /// 本机上的文件 `path` 是否超过 [`LARGE_FILE`]、按大文件打开；远端的文件不查询，返回 `false`。
 pub fn opens_as_large(path: &Path) -> bool {
@@ -448,22 +433,7 @@ const HIGHLIGHT_LOOKBACK: usize = 256;
 /// 与编辑区绘制时的每帧预算取同一个值：推算不完时本次结果不缓存，下一帧重新计算。该值取自调参，
 /// 上限越大，跳到文件靠后位置时粘滞块能更早算出，单帧耗时也随之增长。
 pub(crate) const STICKY_HIGHLIGHT_BUDGET: usize = 4_000;
-/// 二进制检测读取的文件前缀长度（字节，8 KiB）。
-///
-/// 这段前缀中出现 NUL 即视为二进制文件；带 UTF-16 BOM 的文件除外。
-pub(crate) const BINARY_SNIFF: usize = 8 << 10;
-
-// 打开文件和全局搜索（project_search.rs）使用同一套判断：是否为二进制、如何去掉 BOM、
-// 非 UTF-8 时如何解码。超过 `LARGE_FILE` 的 UTF-16（带 BOM）在 `UTF16_INLINE` 以内整篇解码。
-// 两处一致，搜索结果的匹配位置才与打开后的文本、行号对应。
-
-/// 是否为二进制文件：开头 `BINARY_SNIFF` 字节内含 NUL。
-///
-/// UTF-16 文件含大量 NUL，因此是 UTF-16 的文字（带 BOM，或认得出的不带 BOM 的）时不算
-/// 二进制。`bytes` 应从文件开头起，超出 `BINARY_SNIFF` 的部分不检查。
-pub fn looks_binary(bytes: &[u8]) -> bool {
-    !utf16_text(bytes) && memchr::memchr(0, &bytes[..bytes.len().min(BINARY_SNIFF)]).is_some()
-}
+pub(crate) use winc_search::BINARY_SNIFF;
 
 /// 一个打开的文档：文本、选区、撤销历史、高亮状态，以及对应的磁盘文件。
 ///

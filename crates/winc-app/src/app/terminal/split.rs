@@ -219,6 +219,32 @@ impl App {
         self.request_redraw();
     }
 
+    /// 竖向列表里点了第 `index` 个标签中排在第 `at` 个的终端：切到这个标签，再把它换到前台。
+    pub(in crate::app) fn select_terminal_pane(&mut self, index: usize, at: usize) {
+        if index >= self.terminal.tabs.len() {
+            return;
+        }
+        if index != self.terminal.active {
+            self.activate_terminal_tab(index);
+        }
+        self.focus_terminal_pane(at);
+        self.focus = Focus::Terminal;
+        self.request_redraw();
+    }
+
+    /// 关掉第 `index` 个标签中排在第 `at` 个的终端（竖向列表里那一行的关闭按钮、中键），其余的
+    /// 终端留在标签里；还在运行程序时按设置先确认。
+    pub(in crate::app) fn close_terminal_pane_at(&mut self, index: usize, at: usize) {
+        let Some(tab) = self.terminal.tabs.get(index) else {
+            return;
+        };
+        let Some(pane) = tab.split_order().get(at).copied() else {
+            return;
+        };
+        let busy = pane.busy().map(str::to_owned);
+        self.confirm_terminal_close(pane.id, busy, false);
+    }
+
     /// 点在当前标签里不在前台的终端上：把它换到前台；返回是否换了。
     pub(in crate::app) fn focus_terminal_pane_at(&mut self, x: f32, y: f32) -> bool {
         match self.terminal_pane_at(x, y) {

@@ -10,6 +10,8 @@ homepage.workspace = true
 
 [dependencies]
 winc-backend.workspace = true
+# 远端搜索：服务进程以 `search` 为参数再次运行自身，在远端遍历目录并匹配。
+winc-search.workspace = true
 # 监视打开的目录：服务进程以 `watch <目录>` 为参数再次运行自身。
 winc-watch.workspace = true
 

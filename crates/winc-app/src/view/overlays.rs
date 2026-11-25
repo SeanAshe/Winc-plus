@@ -490,9 +490,7 @@ pub(super) fn draw_picker(app: &mut App, frame: &mut Frame<'_>) {
             });
         let message = match goto {
             Some(goto) if app.editor.active.is_some() => goto,
-            _ if app.overlays.picker.index.timed_out() => {
-                t!("workspace-picker-remote-timeout").to_owned()
-            }
+            _ if app.overlays.picker.index.failed() => t!("workspace-picker-unlisted").to_owned(),
             _ if app.overlays.picker.index.quick_open_len() == 0 => {
                 t!("workspace-picker-folder-empty").to_owned()
             }

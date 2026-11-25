@@ -2,9 +2,20 @@
 //! 读取与大文件、跨行匹配，以及替换后保持编码和换行符。
 
 use std::fs;
+use std::ops::{ControlFlow, Range};
+use std::sync::atomic::AtomicBool;
+
+use winc_core::Lines;
+use winc_search::text::decode;
+use winc_search::{LARGE_FILE, Options, for_each_line, looks_binary, search_file, search_lines};
 
 use super::*;
 use crate::test_util::scratch;
+
+/// 预览的长度上限（字符），见 `winc_search` 中截取预览的规则。
+const PREVIEW_CHARS: usize = 160;
+/// 读文件的缓冲容量上限（字节），见 `winc_search` 中按块读文件的规则。
+const BUFFER_MAX: usize = 1 << 20;
 
 fn write(dir: &Path, name: &str, text: &[u8]) {
     let path = dir.join(name);
@@ -529,7 +540,8 @@ fn reads_files_exactly_like_opening_them() {
 #[test]
 fn reading_in_chunks_finds_what_the_opened_file_shows() {
     let dir = scratch("chunks");
-    // 测试中每块只有 `CHUNK`（7）字节：`\r\n`、多字节字符、BOM 都会落在块的边界上。
+    // 按块读取搜出的与打开后的文档中搜出的相同。块很小、边界落在 `\r\n` 和多字节字符中间的情形
+    // 由 `winc_search` 自己的测试覆盖。
     let mut samples: Vec<(&str, Vec<u8>)> = vec![
         ("empty", Vec::new()),
         ("mixed", "中a\nb中\r\n中\rd中\n\n中中中中中中\r".into()),
@@ -601,15 +613,9 @@ fn reading_in_chunks_finds_what_the_opened_file_shows() {
         fs::write(&path, &bytes).unwrap();
         let doc = Document::open(DocumentId(1), path.clone()).unwrap();
         let text = doc.text();
-        let lines: Vec<String> = (0..text.line_count())
-            .map(|i| text.line_content(i).slice().to_string())
-            .collect();
-        // 大文件每块只有几个字节时搜一遍耗时较长，只取前两个模式。
-        let count = if name == "large" { 2 } else { patterns.len() };
-
-        for pattern in &patterns[..count] {
+        for pattern in patterns {
             let matcher = Matcher::new(pattern, options).unwrap();
-            let (found, lossy) = search_disk(
+            let (found, lossy) = search_file(
                 &matcher,
                 &mut Vec::new(),
                 &path,
@@ -619,13 +625,10 @@ fn reading_in_chunks_finds_what_the_opened_file_shows() {
             .unwrap();
             let found: Vec<(usize, Range<usize>)> =
                 found.into_iter().map(|m| (m.line, m.cols)).collect();
-
-            let mut expected = Vec::new();
-            for (i, line) in lines.iter().enumerate() {
-                let mut out = Vec::new();
-                let _ = collect(&matcher, i, line, &mut out, usize::MAX);
-                expected.extend(out.into_iter().map(|m| (m.line, m.cols)));
-            }
+            let expected: Vec<(usize, Range<usize>)> = (search_lines(&matcher, text, usize::MAX)
+                .into_iter())
+            .map(|m| (m.line, m.cols))
+            .collect();
             assert_eq!(found, expected, "{name} {pattern}");
             assert_eq!(lossy, doc.encoding == crate::Encoding::Lossy, "{name}");
         }
@@ -954,10 +957,11 @@ fn required_text_does_not_change_the_results() {
     let _ = fs::remove_dir_all(&dir);
 }
 
-/// 远端主机上的目录：要搜索的文件由远端的一条命令给出，匹配和结果与本机相同。
+/// 远端主机上的目录由远端搜索，只传回结果：一次搜索只有一个请求，文件不经连接读取；匹配和
+/// 结果与本机搜索的相同，有未保存修改的文件按内存中的内容搜索。
 #[cfg(unix)]
 #[test]
-fn folders_on_a_remote_host_are_searched_through_the_connection() {
+fn folders_on_a_remote_host_are_searched_on_the_host() {
     use std::os::unix::ffi::OsStrExt;
     use winc_backend::remote;
 
@@ -980,26 +984,18 @@ fn folders_on_a_remote_host_are_searched_through_the_connection() {
         found.sort();
         found
     };
-    let trips = |q: &Query| {
-        let before = remote::requests(&target);
-        let found = names(q);
-        (found, remote::requests(&target) - before)
-    };
 
-    // 不是仓库：没有忽略规则，只跳过文件树中不显示的名字。按字面查找时远端先筛出含有它的
-    // 文件，只读取这些文件：一次列出（`git` 不可用再加一次），每个候选文件一次。
+    // 不是仓库：没有忽略规则，只跳过文件树中不显示的名字。
     let all = [
         "dist/out.js",
         "docs/guide.md",
         "node_modules/pkg/index.js",
         "src/main.rs",
     ];
-    let (found, requests) = trips(&query("needle"));
-    assert_eq!(found, all);
-    assert_eq!(requests, 2 + 4);
+    let before = remote::requests(&target);
+    assert_eq!(names(&query("needle")), all);
+    assert_eq!(remote::requests(&target) - before, 1);
     // 匹配的位置与本机搜索的相同。
-    let here = search(&local, &query("needle"));
-    let there = search(&root, &query("needle"));
     let matches = |found: &ProjectSearch| -> Vec<(String, Vec<LineMatch>)> {
         let mut all: Vec<_> = (found.results.iter())
             .map(|file| (file.relative.clone(), file.matches.clone()))
@@ -1007,9 +1003,16 @@ fn folders_on_a_remote_host_are_searched_through_the_connection() {
         all.sort_by(|a, b| a.0.cmp(&b.0));
         all
     };
-    assert_eq!(matches(&here), matches(&there));
+    let there = search(&root, &query("needle"));
+    assert_eq!(matches(&search(&local, &query("needle"))), matches(&there));
+    assert!(
+        there
+            .results
+            .iter()
+            .all(|file| file.path.starts_with(&root))
+    );
 
-    // 区分大小写、全字、包含与排除仍然生效。
+    // 区分大小写、包含与排除、没有共同文字的正则、不区分大小写的非 ASCII 文字。
     let exact = Query {
         case_sensitive: true,
         ..query("NEEDLE")
@@ -1021,14 +1024,35 @@ fn folders_on_a_remote_host_are_searched_through_the_connection() {
         ..query("needle")
     };
     assert_eq!(names(&filtered), ["src/main.rs"]);
-    // 正则、不区分大小写的非 ASCII 文字：远端不筛选，全部文件都读取后匹配。
     let regex = Query {
         regex: true,
-        ..query("n[e]+dle = \\d")
+        ..query("n[e]+dle = \\d|nothing")
     };
-    assert_eq!(names(&regex), ["src/main.rs"]);
+    assert_eq!(names(&regex), ["src/main.rs", "src/other.rs"]);
     assert_eq!(names(&query("ünïCODE")), ["docs/guide.md"]);
     assert!(names(&query("no such text anywhere")).is_empty());
+
+    // 有未保存修改的文件：按内存中的内容搜索，不读远端磁盘上的。
+    let other = winc_backend::join(&root, "src/other.rs");
+    let main = winc_backend::join(&root, "src/main.rs");
+    let dirty = vec![
+        (other, Rope::from_str("a needle\n")),
+        (main, Rope::from_str("nothing\n")),
+    ];
+    let mut edited = ProjectSearch::default();
+    edited.start(&root, &query("needle"), dirty, || {});
+    edited.wait();
+    let mut found: Vec<&str> = files(&edited);
+    found.sort_unstable();
+    assert_eq!(
+        found,
+        [
+            "dist/out.js",
+            "docs/guide.md",
+            "node_modules/pkg/index.js",
+            "src/other.rs"
+        ]
+    );
 
     // 是仓库：遵守忽略规则，要求时也搜索被忽略的文件。
     write(&local, ".gitignore", b"dist/\nnode_modules/\n");
@@ -1037,15 +1061,18 @@ fn folders_on_a_remote_host_are_searched_through_the_connection() {
         .current_dir(&local)
         .status();
     if git.is_ok_and(|status| status.success()) {
-        let (found, requests) = trips(&query("needle"));
-        assert_eq!(found, ["docs/guide.md", "src/main.rs"]);
-        assert_eq!(requests, 1 + 2);
+        assert_eq!(names(&query("needle")), ["docs/guide.md", "src/main.rs"]);
         let ignored = Query {
             include_ignored: true,
             ..query("needle")
         };
         assert_eq!(names(&ignored), all);
-        assert_eq!(names(&regex), ["src/main.rs"]);
+        // 「包含」不会让被忽略的文件重新出现。
+        let included = Query {
+            include: "*.js".to_owned(),
+            ..query("needle")
+        };
+        assert!(names(&included).is_empty());
     }
     remote::disconnect(&target);
     let _ = std::fs::remove_dir_all(&local);
@@ -1112,9 +1139,9 @@ fn dependency_folders_are_found_two_levels_down() {
     ] {
         fs::create_dir_all(dir.join(sub)).unwrap();
     }
-    let found = walk::dependency_folders(&dir);
+    let found = winc_search::dependency_folders(&dir);
     assert_eq!(found, [dir.join(".venv"), dir.join("node_modules")]);
-    let nested = walk::dependency_folders(&dir.join("packages"));
+    let nested = winc_search::dependency_folders(&dir.join("packages"));
     assert_eq!(nested, [dir.join("packages/app/node_modules")]);
     let _ = fs::remove_dir_all(&dir);
 }

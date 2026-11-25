@@ -27,6 +27,8 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 pub use deploy::{Abort, ConnectError, Deploy, Program, Stage};
+#[cfg(all(unix, feature = "test-support"))]
+pub use server::{Builtin, register_builtin};
 #[cfg(unix)]
 pub use server::{answer_from_server, serve};
 pub(crate) use wire::MAX_READ;

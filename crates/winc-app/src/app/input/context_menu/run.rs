@@ -1095,6 +1095,7 @@ impl App {
             many if permanent => t!("common-deleted-items", count = many.len()),
             many => t!("common-trash-moved-items", count = many.len()),
         };
+        self.forget_recent(&deleted);
         self.picker_touched(deleted);
         self.files_changed_under_results();
         self.flash(message);

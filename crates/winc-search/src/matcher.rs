@@ -1,16 +1,31 @@
 //! 匹配器：纯文本、正则和跨行的查找，替换模板的展开，以及按字节判断整词。
 //!
-//! `search` 的 `Matcher` 编译一次查询后供多次查找使用：`Pattern` 在 `regex` 与 `fancy-regex`
-//! 之间选择实现，回溯过多时返回 `GaveUp`。
+//! [`Matcher`] 编译一次查询后供多次查找使用，文件内查找、全局搜索和远端主机上的搜索共用同一套
+//! 规则：[`Pattern`] 在 `regex` 与 `fancy-regex` 之间选择实现，回溯过多时返回 [`GaveUp`]。
 
+use std::borrow::Cow;
+use std::ops::ControlFlow;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use super::*;
+use memchr::memmem::Finder;
+use regex::{Regex, RegexBuilder};
+use winc_core::Lines;
+
+/// 查找选项。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Options {
+    /// 是否区分大小写。
+    pub case_sensitive: bool,
+    /// 是否全字匹配。
+    pub whole_word: bool,
+    /// 是否按正则匹配。
+    pub regex: bool,
+}
 
 /// 展开替换文字中的转义：`\n` 换成 `line_ending`，`\t` 换成制表符，`\\` 换成单个反斜杠，
 /// 其余原样保留。
-pub(crate) fn unescape(template: &str, line_ending: &str) -> String {
+pub fn unescape(template: &str, line_ending: &str) -> String {
     let mut out = String::with_capacity(template.len());
     let mut chars = template.chars();
 
@@ -33,8 +48,8 @@ pub(crate) fn unescape(template: &str, line_ending: &str) -> String {
 
 /// 已编译的查询，文件内查找与全局搜索共用同一套匹配规则。
 #[derive(Debug, Clone)]
-pub(crate) struct Matcher {
-    pub(super) kind: Kind,
+pub struct Matcher {
+    kind: Kind,
     whole_word: bool,
     /// 是否为正则模式；为 `true` 时替换文字中的 `$1`、`\n` 需要展开。
     ///
@@ -47,7 +62,7 @@ pub(crate) struct Matcher {
     /// `^`、`$` 按行首、行尾匹配，换行识别 `\n`、`\r\n`、`\r`。查询含 `\A`、`\z`（无法放宽），
     /// 或使用 `Kind::Literal`、跨行查找时为 `None`。查询用到环视、反向引用时，这里是
     /// `relaxed` 放宽后的版本；调用方给出必含的文字时（见 [`Self::requiring`]），这里只找这段文字。
-    pub(super) block: Option<Regex>,
+    block: Option<Regex>,
     /// 是否有匹配因回溯超出 `fancy-regex` 的上限而放弃：放弃的那一处之后，同一行（跨行查找时为
     /// 整篇文本）不再查找，结果不完整。
     ///
@@ -57,7 +72,7 @@ pub(crate) struct Matcher {
 
 /// 查询的匹配方式。
 #[derive(Debug, Clone)]
-pub(super) enum Kind {
+enum Kind {
     /// 区分大小写的纯文本，按字节直接查找。
     ///
     /// 放在堆上：`x86_64` 上的查找器包含几种 SIMD 实现，有近 300 字节，比正则大得多。
@@ -71,17 +86,17 @@ pub(super) enum Kind {
 
 /// 正则匹配因回溯过多而放弃，见 [`Pattern::find_at`]。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct GaveUp;
+pub struct GaveUp;
 
 /// 一处匹配中各分组的字节范围：第 0 项是整个匹配，没有参与匹配的分组为 `None`。
-pub(crate) type Groups = Vec<Option<(usize, usize)>>;
+pub type Groups = Vec<Option<(usize, usize)>>;
 
 /// 用户查询对应的正则，按语法选择实现。
 ///
 /// `regex` 不支持的写法使用 `fancy-regex` 编译（支持回溯），包括环视（`(?=…)`、`(?<=…)`、`(?!…)`、
 /// `(?<!…)`）、反向引用（`\1`）和原子组；其余写法使用 `regex`，其匹配时间与输入长度成线性关系。
 #[derive(Debug, Clone)]
-pub(crate) enum Pattern {
+pub enum Pattern {
     /// 由 `regex` 编译的正则。
     Plain(Regex),
     /// 由 `fancy-regex` 编译的正则。
@@ -94,11 +109,7 @@ impl Pattern {
     /// # Errors
     ///
     /// 两种实现都无法编译时返回错误说明。
-    pub(crate) fn new(
-        pattern: &str,
-        case_insensitive: bool,
-        multi_line: bool,
-    ) -> Result<Pattern, String> {
+    pub fn new(pattern: &str, case_insensitive: bool, multi_line: bool) -> Result<Pattern, String> {
         let error = match RegexBuilder::new(pattern)
             .case_insensitive(case_insensitive)
             .multi_line(multi_line)
@@ -127,11 +138,7 @@ impl Pattern {
     ///
     /// 回溯超过 `fancy-regex` 的上限（默认 100 万次）或回溯栈溢出时返回 [`GaveUp`]：放弃这一处，
     /// 不继续回溯，避免模式导致长时间阻塞。调用方据此告知用户结果不完整。
-    pub(crate) fn find_at(
-        &self,
-        text: &str,
-        from: usize,
-    ) -> Result<Option<(usize, usize)>, GaveUp> {
+    pub fn find_at(&self, text: &str, from: usize) -> Result<Option<(usize, usize)>, GaveUp> {
         match self {
             Pattern::Plain(regex) => Ok(regex.find_at(text, from).map(|m| (m.start(), m.end()))),
             Pattern::Fancy(regex) => match regex.find_from_pos(text, from) {
@@ -147,7 +154,7 @@ impl Pattern {
     /// # Errors
     ///
     /// 回溯超过上限时返回 [`GaveUp`]，同 [`Pattern::find_at`]。
-    pub(crate) fn captures_at(&self, text: &str, from: usize) -> Result<Option<Groups>, GaveUp> {
+    pub fn captures_at(&self, text: &str, from: usize) -> Result<Option<Groups>, GaveUp> {
         match self {
             Pattern::Plain(regex) => Ok(regex.captures_at(text, from).map(|captures| {
                 (captures.iter())
@@ -168,12 +175,7 @@ impl Pattern {
     /// 返回恰好位于 `range`（字节范围）的匹配按 `template` 展开分组引用后的文字。
     ///
     /// 该位置已不是匹配时返回 `None`。
-    pub(crate) fn expand_at(
-        &self,
-        text: &str,
-        range: (usize, usize),
-        template: &str,
-    ) -> Option<String> {
+    pub fn expand_at(&self, text: &str, range: (usize, usize), template: &str) -> Option<String> {
         let mut out = String::new();
         match self {
             Pattern::Plain(regex) => {
@@ -194,7 +196,7 @@ impl Pattern {
 
     /// 返回 `text` 中第一处匹配按 `template` 展开后的文字，用于结果列表显示「替换后」；
     /// 没有匹配时返回 `None`。
-    pub(crate) fn expand_first(&self, text: &str, template: &str) -> Option<String> {
+    pub fn expand_first(&self, text: &str, template: &str) -> Option<String> {
         let range = self.find_at(text, 0).ok()??;
         self.expand_at(text, range, template)
     }
@@ -202,7 +204,7 @@ impl Pattern {
 
 /// 跨行查找中的一处匹配。
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct JoinedMatch {
+pub struct JoinedMatch {
     /// 匹配起点所在的行号（从 0 起）。
     pub line: usize,
     /// 匹配终点所在的行号（从 0 起，含）；终点恰好在换行之后时不计入下一行。
@@ -221,7 +223,7 @@ impl Matcher {
     /// # Errors
     ///
     /// 正则语法错误或写法不被支持时返回错误说明。
-    pub(crate) fn new(query: &str, options: Options) -> Result<Self, String> {
+    pub fn new(query: &str, options: Options) -> Result<Self, String> {
         Self::requiring(query, options, "")
     }
 
@@ -233,7 +235,7 @@ impl Matcher {
     /// # Errors
     ///
     /// 正则语法错误或写法不被支持时返回错误说明。
-    pub(crate) fn requiring(query: &str, options: Options, required: &str) -> Result<Self, String> {
+    pub fn requiring(query: &str, options: Options, required: &str) -> Result<Self, String> {
         let multiline = is_multiline(query, options.regex);
         let mut block = None;
         let kind = if options.case_sensitive && !options.regex && !multiline {
@@ -278,7 +280,7 @@ impl Matcher {
     }
 
     /// 是否可以用 [`Self::block_find`] 在整块文本上预先查找候选位置。
-    pub(crate) fn has_block(&self) -> bool {
+    pub fn has_block(&self) -> bool {
         matches!(self.kind, Kind::Literal(_)) || self.block.is_some()
     }
 
@@ -288,7 +290,7 @@ impl Matcher {
     /// 反向引用时使用放宽后的正则，有必含的文字时找这段文字），因此第一个候选之前的行一定没有
     /// 匹配；候选所在的行则不一定有匹配。没有候选，或 [`Self::has_block`] 为 `false` 时返回
     /// `None`。
-    pub(crate) fn block_find(&self, text: &str, from: usize) -> Option<usize> {
+    pub fn block_find(&self, text: &str, from: usize) -> Option<usize> {
         match (&self.kind, &self.block) {
             (Kind::Literal(finder), _) => finder.find(&text.as_bytes()[from..]).map(|at| from + at),
             (Kind::Regex(_), Some(block)) => block.find_at(text, from).map(|m| m.start()),
@@ -297,22 +299,27 @@ impl Matcher {
     }
 
     /// 是否有匹配因回溯过多而放弃（自上次 [`Self::take_gave_up`] 以来），不清除标记。
-    pub(crate) fn gave_up(&self) -> bool {
+    pub fn gave_up(&self) -> bool {
         self.gave_up.load(Ordering::Relaxed)
     }
 
+    /// 记下有匹配在别处（远端主机上的搜索）因回溯过多而放弃。
+    pub fn mark_gave_up(&self) {
+        self.gave_up.store(true, Ordering::Relaxed);
+    }
+
     /// 返回上次调用以来是否有匹配因回溯过多而放弃，并清除该标记。
-    pub(crate) fn take_gave_up(&self) -> bool {
+    pub fn take_gave_up(&self) -> bool {
         self.gave_up.swap(false, Ordering::Relaxed)
     }
 
     /// 是否跨行查找。
-    pub(crate) fn is_multiline(&self) -> bool {
+    pub fn is_multiline(&self) -> bool {
         self.multiline
     }
 
     /// 返回正则模式下的 [`Pattern`]，替换时用该正则展开分组引用；非正则模式返回 `None`。
-    pub(super) fn template_regex(&self) -> Option<&Pattern> {
+    pub fn template_regex(&self) -> Option<&Pattern> {
         match &self.kind {
             Kind::Regex(regex) if self.regex => Some(regex),
             _ => None,
@@ -323,7 +330,7 @@ impl Matcher {
     /// `Break` 时停止并返回 `Break`。
     ///
     /// 空匹配和不满足全字条件的匹配不算。
-    pub(crate) fn find_all(
+    pub fn find_all(
         &self,
         line: &str,
         mut f: impl FnMut(usize, usize) -> ControlFlow<()>,
@@ -361,7 +368,7 @@ impl Matcher {
     ///
     /// `index` 是行号（从 0 起），`start` 是该行行首的位置（字符偏移）。`matches` 的长度达到
     /// `limit` 时返回 `Break`。
-    pub(super) fn scan(
+    pub fn scan(
         &self,
         index: usize,
         start: usize,
@@ -395,7 +402,7 @@ impl Matcher {
     /// 时停止。
     ///
     /// `starts[i]` 是第 `i` 行行首在文档中的位置（字符偏移）。
-    pub(crate) fn scan_joined(
+    pub fn scan_joined(
         &self,
         joined: &str,
         starts: &[usize],
@@ -456,7 +463,7 @@ impl Matcher {
 /// 放宽后的正则只会多匹配、不会少匹配：环视和 `\b` 等断言被移除（少一个条件只会多匹配），
 /// 反向引用换成当前行剩余的任意字符，原子组按普通组处理。条件分支、子程序调用无法放宽，
 /// 此时返回 `None`，只能逐行查找。
-pub(super) fn relaxed(pattern: &str) -> Option<String> {
+pub fn relaxed(pattern: &str) -> Option<String> {
     use fancy_regex::{Assertion, AstNode, Expr};
 
     fn write(expr: &Expr, out: &mut String) -> Option<()> {
@@ -526,7 +533,7 @@ pub(super) fn relaxed(pattern: &str) -> Option<String> {
 }
 
 /// 是否需要跨行查找：查询含换行符，或正则模式下含 `\n`、`\r`、`\W`（`\W` 也能匹配换行符）。
-pub(super) fn is_multiline(query: &str, regex: bool) -> bool {
+pub fn is_multiline(query: &str, regex: bool) -> bool {
     if query.contains('\n') {
         return true;
     }
@@ -543,7 +550,7 @@ pub(super) fn is_multiline(query: &str, regex: bool) -> bool {
 ///
 /// 文档中的 `\r\n`、`\r` 在连接结果里都是 `\n`，使查询中的 `\n` 能匹配任意一种换行；
 /// 匹配结果再按行首位置换算回文档位置。供跨行查找使用。
-pub(crate) fn joined(text: &impl Lines) -> (String, Vec<usize>) {
+pub fn joined(text: &impl Lines) -> (String, Vec<usize>) {
     let (mut joined, mut starts) = (String::new(), Vec::new());
     text.visit_lines(0, usize::MAX, |_, start, line| {
         if !starts.is_empty() {
@@ -583,7 +590,7 @@ impl Cursor {
 }
 
 /// 返回 UTF-8 字节串中的字符数（个）。
-pub(crate) fn count_chars(bytes: &[u8]) -> usize {
+pub fn count_chars(bytes: &[u8]) -> usize {
     bytes.iter().filter(|&&b| (b as i8) >= -0x40).count()
 }
 
@@ -624,3 +631,6 @@ fn is_whole_word(bytes: &[u8], s: usize, e: usize) -> bool {
     separated(char_before(bytes, s), char_after(bytes, s))
         && separated(char_after(bytes, e), char_before(bytes, e))
 }
+
+#[cfg(test)]
+mod tests;
