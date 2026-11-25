@@ -30,7 +30,7 @@ fn astro_is_listed_when_the_prettier_plugin_is_declared() {
     app.settings_show_page(SettingsPage::Format);
     paint(&mut app);
 
-    assert!(app.settings.languages.format.contains(&"astro"));
+    assert!(app.settings.listed.format.contains(&"astro"));
     let row = app.settings.format_row("astro").unwrap();
     assert_eq!(row.tool, "Prettier");
     let _ = std::fs::remove_dir_all(&dir);
@@ -45,10 +45,7 @@ fn format_settings_list_the_languages_in_use() {
 
     // 列出的语言：项目在用的（Python 配置了 Ruff）、总是自动选择的（Rust、Go）、
     // 写过命令的（JSON），按语言表的顺序排列。
-    assert_eq!(
-        app.settings.languages.format,
-        ["python", "rust", "go", "json"]
-    );
+    assert_eq!(app.settings.listed.format, ["python", "rust", "go", "json"]);
     // 按钮上显示工具名，名称下方说明工具是如何确定的；指定了命令时，写命令本身。
     let row = |app: &App, id: &'static str| app.settings.format_row(id).unwrap().clone();
     let python = row(&app, "python");
@@ -70,7 +67,7 @@ fn format_settings_list_the_languages_in_use() {
     assert!(json.warning.is_none());
 
     // 修复工具一组：只列出有修复工具预设的语言。项目配置了 Ruff，修复也使用 Ruff。
-    assert_eq!(app.settings.languages.fix, ["python"]);
+    assert_eq!(app.settings.listed.fix, ["python"]);
     let fix = app
         .settings
         .tool_row(Setting::FixCommand("python"))
@@ -191,7 +188,7 @@ fn format_settings_list_the_languages_in_use() {
     assert!(!app.config.format_commands.contains_key("rust"));
 
     // 语言行不会因配置改动而消失：Rust 恢复为自动后仍在原位置。
-    assert_eq!(app.settings.languages.format[1], "rust");
+    assert_eq!(app.settings.listed.format[1], "rust");
 
     // 「排除的语言」：菜单列出页面上已有的语言，点击一项打勾，再次点击则取消，并写入配置。
     assert_eq!(app.skipped_on_save(), None);
@@ -265,7 +262,7 @@ fn format_settings_add_a_language_and_pick_a_tool() {
     // 选择 `Shell`：多出一行，随后弹出该行的菜单选择工具。只有 `shfmt` 会被自动使用，按钮上就写它；
     // 该工具未安装，名称下方提示「未安装」，菜单中有「安装方法…」。
     app.run_menu_command(MenuCommand::Language(index("shell")));
-    assert_eq!(app.settings.languages.format.last(), Some(&"shell"));
+    assert_eq!(app.settings.listed.format.last(), Some(&"shell"));
     assert_eq!(app.settings.selected, Setting::FormatCommand("shell"));
     let shfmt = PRESETS.iter().position(|p| p.name == "shfmt").unwrap();
     let commands = |app: &App| -> Vec<MenuCommand> {
@@ -315,7 +312,7 @@ fn format_settings_add_a_language_and_pick_a_tool() {
     // Esc 放弃：配置中没有该语言的命令，但设置保持打开期间这一行仍然保留，说明只能自己写命令。
     app.settings_cancel_field();
     assert!(!app.config.format_commands.contains_key("makefile"));
-    assert!(app.settings.languages.format.contains(&"makefile"));
+    assert!(app.settings.listed.format.contains(&"makefile"));
     let makefile = app.settings.format_row("makefile").unwrap();
     assert_eq!(
         (makefile.tool.as_str(), makefile.detail.as_str()),
@@ -330,7 +327,7 @@ fn format_settings_add_a_language_and_pick_a_tool() {
         [MenuCommand::ToolCustom, MenuCommand::ToolRemove]
     );
     app.run_menu_command(MenuCommand::ToolRemove);
-    assert!(!app.settings.languages.format.contains(&"makefile"));
+    assert!(!app.settings.listed.format.contains(&"makefile"));
     assert!(app.settings.format_row("makefile").is_none());
     assert_eq!(app.settings.selected, Setting::FormatCommand("shell"));
 
@@ -355,14 +352,14 @@ fn format_settings_add_a_language_and_pick_a_tool() {
     app.settings_open_menu(Setting::FormatCommand("xml"));
     app.run_menu_command(MenuCommand::ToolRemove);
     assert!(!app.config.format_commands.contains_key("xml"));
-    assert!(!app.settings.languages.format.contains(&"xml"));
+    assert!(!app.settings.listed.format.contains(&"xml"));
 
     // 修复工具一组只列项目里在用的（Python 的 Ruff），加了格式化工具的 JavaScript 不跟着多出一行
     // 「无」。要给它指定修复工具，用修复工具一组自己的「添加语言…」：有修复预设的排在前面，
     // 选了以后弹出这一行的菜单，同样能移除，移除时只删修复命令。
     app.settings_add_language(Task::Format, winc_syntax::find("javascript").unwrap());
     app.overlays.context_menu = None;
-    assert_eq!(app.settings.languages.fix, ["python"]);
+    assert_eq!(app.settings.listed.fix, ["python"]);
     app.settings_open_menu(Setting::AddFixLanguage);
     let menu = commands(&app);
     let at = |id: &str| {
@@ -372,7 +369,7 @@ fn format_settings_add_a_language_and_pick_a_tool() {
     assert!(at("python").is_none(), "已经列出来的不再出现");
     assert!(at("javascript").unwrap() < at("go").unwrap());
     app.run_menu_command(MenuCommand::Language(index("javascript")));
-    assert_eq!(app.settings.languages.fix, ["python", "javascript"]);
+    assert_eq!(app.settings.listed.fix, ["python", "javascript"]);
     assert_eq!(app.settings.selected, Setting::FixCommand("javascript"));
     let row = app
         .settings
@@ -391,9 +388,9 @@ fn format_settings_add_a_language_and_pick_a_tool() {
     app.run_menu_command(MenuCommand::ToolPreset(eslint));
     assert!(app.config.fix_commands.contains_key("javascript"));
     app.settings_choose_tool(Setting::FixCommand("javascript"), MenuCommand::ToolRemove);
-    assert_eq!(app.settings.languages.fix, ["python"]);
+    assert_eq!(app.settings.listed.fix, ["python"]);
     assert!(!app.config.fix_commands.contains_key("javascript"));
-    assert!(app.settings.languages.format.contains(&"javascript"));
+    assert!(app.settings.listed.format.contains(&"javascript"));
     assert_eq!(app.settings.selected, Setting::FixCommand("python"));
     // 项目在用的 Python 不能移除。
     app.settings_open_menu(Setting::FixCommand("python"));
@@ -403,9 +400,9 @@ fn format_settings_add_a_language_and_pick_a_tool() {
     // 再次打开：写过命令的 Shell 仍在，没写命令的 Makefile、移除了的 XML 不再列出。
     app.close_settings();
     app.open_settings();
-    assert!(app.settings.languages.format.contains(&"shell"));
-    assert!(!app.settings.languages.format.contains(&"makefile"));
-    assert!(!app.settings.languages.format.contains(&"xml"));
+    assert!(app.settings.listed.format.contains(&"shell"));
+    assert!(!app.settings.listed.format.contains(&"makefile"));
+    assert!(!app.settings.listed.format.contains(&"xml"));
 
     let _ = std::fs::remove_dir_all(&dir);
 }

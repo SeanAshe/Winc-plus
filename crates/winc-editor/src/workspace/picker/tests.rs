@@ -330,6 +330,36 @@ fn ignore_rules_above_a_repository_do_not_apply_inside_it() {
     let _ = std::fs::remove_dir_all(&outer);
 }
 
+/// 被上级版本库整个忽略的子目录本身是版本库时，按自身的规则收录；被忽略的普通目录仍不收录。
+/// 其中的变化同样按自身的规则更新文件表。
+#[test]
+fn an_ignored_nested_repository_is_indexed_by_its_own_rules() {
+    let root = crate::test_util::scratch("index-nested-repo");
+    write(&root, ".git/HEAD");
+    std::fs::write(root.join(".gitignore"), "/*\n!/.gitignore\n!/docs/\n").unwrap();
+    write(&root, "docs/a.md");
+    write(&root, "sub/.git/HEAD");
+    write(&root, "sub/pom.xml");
+    write(&root, "sub/target/out.class");
+    std::fs::write(root.join("sub/.gitignore"), "target/\n").unwrap();
+    write(&root, "other/x.txt");
+
+    let index = FileIndex::collect_now(&root);
+    let listed = paths(&index);
+    assert!(listed.contains(&"docs/a.md"), "{listed:?}");
+    assert!(listed.contains(&"sub/pom.xml"), "{listed:?}");
+    assert!(!listed.contains(&"sub/target/out.class"), "{listed:?}");
+    assert!(!listed.contains(&"other/x.txt"), "{listed:?}");
+
+    write(&root, "sub/src/Main.java");
+    let cancel = AtomicBool::new(false);
+    let changed = [root.join("sub/src")];
+    let files = updated(&root, &index.files, &changed, &cancel).expect("新目录收录进来");
+    assert!(files.paths.iter().any(|p| p == "sub/src/Main.java"));
+
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// 没有 `.git` 的目录（如下载的源码包）里，它自己的 `.gitignore` 同样生效。
 #[test]
 fn a_folder_without_a_repository_keeps_its_own_ignore_rules() {

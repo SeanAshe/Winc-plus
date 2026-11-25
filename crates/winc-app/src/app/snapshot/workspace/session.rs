@@ -308,6 +308,37 @@ fn restoring_without_a_session_keeps_the_active_tab() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 回归（#463）：没打开目录的窗口里留着两个未保存的标签，退出后双击另一个文件启动：未保存的
+/// 标签照常恢复，双击的文件排在这些标签之后并且是当前标签，与窗口已打开时再双击的结果相同。
+#[test]
+fn a_file_opened_at_launch_stays_active_after_unsaved_tabs_return() {
+    let dir = search_folder("restore-opened-file");
+    let root = backup_root("restore-opened-file");
+    let (edited, opened) = (dir.join("a.txt"), dir.join("Cargo.toml"));
+    let mut app = blank_app(false);
+    app.backup.root = Some(root.clone());
+    app.open_path(&edited);
+    app.run(Command::Insert("未保存 ".into()));
+    app.new_file();
+    app.run(Command::Insert("草稿".into()));
+    back_up_now(&mut app);
+    drop(app);
+
+    // 与双击启动相同：先打开命令行给出的文件，没有现场，再按备份恢复未保存的标签。
+    let mut editor = Editor::default();
+    editor.open(&opened);
+    crate::app::restore_at_launch(&mut editor, None, Some(&root));
+    let names: Vec<String> = (editor.tabs().iter())
+        .map(|d| d.name().into_owned())
+        .collect();
+    assert_eq!(names, ["a.txt", "untitled", "Cargo.toml"]);
+    assert_eq!(editor.active().unwrap().name(), "Cargo.toml");
+    assert!(editor.tabs()[..2].iter().all(|doc| doc.is_dirty()));
+
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 #[test]
 fn a_pane_that_takes_over_the_front_keeps_its_own_active_tab() {
     let dir = sample_folder("session-pane-gone");

@@ -119,45 +119,30 @@ foreach ($kind in @('nsis', 'msi')) {
         # The updater is started the way the application starts it: `-Command` with the script
         # inlined, and its parameters in `WINC_UPDATE_*` environment variables. Passing them as
         # `-File` arguments would reach a script that no longer declares `param`, leaving every
-        # parameter empty. The script re-hashes the package and refuses to run without that
-        # digest; the application passes the digest it recorded when the download was verified.
-        # The package under test is the one just installed, so winc.exe already matches it. The
-        # updater treats a successful install that leaves that file unchanged as a failure,
-        # because a silent installer skips a file that is still open. A skipped file must fail
-        # here, and a real install must put the packaged bytes back.
-        $installed = Join-Path $directory 'winc.exe'
-        $bytes = [IO.File]::ReadAllBytes($installed)
-        if ($bytes.Length -lt 1) { throw "${kind}: installed winc.exe is empty" }
-        # winc.exe has no VERSIONINFO. One changed byte is enough for the updater to see
-        # whether the installer wrote the file back. NSIS overwrites it in place. The MSI
-        # already installed has this build's ProductCode, so a second /i does not copy files.
-        # A published update is a new ProductCode and installs cleanly. Remove this package
-        # first. The replacement file keeps equal creation and modification times: Windows
-        # Installer otherwise keeps an unversioned file as user data.
-        $bytes[0] = [byte]($bytes[0] -bxor 0xFF)
-        if ($kind -eq 'msi') {
-            $removed = Start-Process msiexec.exe -ArgumentList "/x `"$setup`" /qn /norestart" -Wait -PassThru
-            if ($removed.ExitCode -notin @(0, 1605, 1641, 3010)) {
-                throw "msi: uninstall before update failed: $($removed.ExitCode)"
-            }
-            New-Item -ItemType Directory -Force -Path $directory | Out-Null
-        }
-        [IO.File]::WriteAllBytes($installed, $bytes)
-        if ($kind -eq 'msi') {
-            $written = Get-Item -LiteralPath $installed
-            $written.CreationTime = $written.LastWriteTime
-        }
+        # parameter empty.
+        # The application passes the lowercase digest it verified the package against when it
+        # downloaded it. The updater re-hashes the package and refuses to run without that digest.
         $env:WINC_UPDATE_PARENT = "$($parent.Id)"
         $env:WINC_UPDATE_SETUP = $setup
         $env:WINC_UPDATE_SHA256 = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
         $env:WINC_UPDATE_EXE = "$directory/winc.exe"
         $env:WINC_UPDATE_KIND = $kind
         $env:WINC_UPDATE_RELAUNCH = '0'
+        # The updater counts an NSIS installation that leaves winc.exe unchanged as failed, since
+        # that is how a file still in use shows. Reinstalling the same build must therefore replace
+        # something, so the installed executables first differ from the package. Running the same
+        # MSI again is a maintenance installation that replaces no files, so it stays as installed.
+        if ($kind -eq 'nsis') {
+            foreach ($file in @('winc.exe', 'winc-pty.exe')) {
+                [IO.File]::AppendAllText("$directory/$file", "`0")
+            }
+        }
+        $log = Join-Path (Split-Path -Parent $setup) 'install-error.log'
+        Remove-Item -LiteralPath $log -ErrorAction SilentlyContinue
         & powershell.exe -NoProfile -NonInteractive -Command (Get-Content -LiteralPath $update -Raw)
         $status = $LASTEXITCODE
-        Remove-Item Env:WINC_UPDATE_*
+        Remove-Item Env:WINC_UPDATE_* -ErrorAction SilentlyContinue
         if ($status -ne 0) {
-            $log = Join-Path (Split-Path -Parent $setup) 'install-error.log'
             $detail = if (Test-Path -LiteralPath $log) { (Get-Content -LiteralPath $log -Raw).Trim() } else { "exit $status" }
             throw "$kind updater failed: $detail"
         }

@@ -1,7 +1,7 @@
 //! 窗口外观与系统偏好的读取。
 //!
 //! - 红绿灯按钮在顶栏中垂直居中；顶栏中的标签可以拖动；双击顶栏的行为跟随系统偏好。
-//! - 读取「减弱动态效果」和首选语言；查询鼠标此刻在窗口中的位置（拖文件进来时用）。
+//! - 读取「减弱动态效果」、首选语言和系统版本；查询鼠标此刻在窗口中的位置（拖文件进来时用）。
 //! - 测量时窗口静默（透明、点击穿透、不抢占焦点）。
 
 use super::files::{ns_string, rust_string};
@@ -35,18 +35,25 @@ pub fn mouse_location(window: &Window) -> Option<(f32, f32)> {
 /// 鼠标移动事件不保证只发给光标下最上层的窗口：窗口在被其他窗口遮挡的位置仍可能收到。
 /// 按住按键拖动时光标可以移到其他窗口上方，移动事件仍属于按下时的窗口。
 pub fn under_cursor(window: &Window) -> bool {
-    let Some(ns_window) = ns_window(window) else {
+    if ns_window(window).is_none() {
         return true;
-    };
+    }
+    // SAFETY: 调用方在主线程调用；`pressedMouseButtons` 是公开的类方法，返回整数。
+    let pressed: usize = unsafe { msg_send![class!(NSEvent), pressedMouseButtons] };
+    pressed != 0 || topmost_at_cursor(window)
+}
 
-    // SAFETY: `ns_window` 来自仍然存活的 winit 窗口，调用方在主线程调用。`pressedMouseButtons`、
-    // `mouseLocation` 和 `windowNumberAtPoint:belowWindowWithWindowNumber:` 是公开的类方法，
-    // `windowNumber` 是公开的只读属性；参数和返回值都是整数或值类型的点，不涉及指针所有权。
+/// 是否为光标所在位置最上层的窗口（不论是否按着鼠标按键）；取不到窗口时为否。
+///
+/// 范围包括其他应用的窗口：被其他应用的窗口挡住时为否。
+pub fn topmost_at_cursor(window: &Window) -> bool {
+    let Some(ns_window) = ns_window(window) else {
+        return false;
+    };
+    // SAFETY: `ns_window` 来自仍然存活的 winit 窗口，调用方在主线程调用。`mouseLocation` 和
+    // `windowNumberAtPoint:belowWindowWithWindowNumber:` 是公开的类方法，`windowNumber` 是公开的
+    // 只读属性；参数和返回值都是整数或值类型的点，不涉及指针所有权。
     unsafe {
-        let pressed: usize = msg_send![class!(NSEvent), pressedMouseButtons];
-        if pressed != 0 {
-            return true;
-        }
         let point: CGPoint = msg_send![class!(NSEvent), mouseLocation];
         // 第二个参数为 0 时从最上层的窗口开始查找，范围包括其他应用的窗口。
         let top: isize = msg_send![
@@ -458,6 +465,44 @@ pub fn preferred_language() -> Option<String> {
         let first: *mut AnyObject = msg_send![languages.as_ref()?, firstObject];
         rust_string(first.as_ref()?)
     }
+}
+
+/// 返回系统的版本和内部版本号，例如「15.1 (24B83)」；无法取得时返回 `None`。可以在任何线程调用。
+pub fn os_version() -> Option<String> {
+    let version = sysctl_string(c"kern.osproductversion")?;
+    Some(match sysctl_string(c"kern.osversion") {
+        Some(build) => format!("{version} ({build})"),
+        None => version,
+    })
+}
+
+/// 读取字符串类型的内核参数 `name`；不存在或不是 UTF-8 时返回 `None`。
+fn sysctl_string(name: &std::ffi::CStr) -> Option<String> {
+    let mut size = 0;
+    // SAFETY: `name` 以 NUL 结尾；输出缓冲区为空，只取回长度写入 `size`。
+    let status = unsafe {
+        let null = std::ptr::null_mut();
+        libc::sysctlbyname(name.as_ptr(), null, &mut size, null, 0)
+    };
+    if status != 0 || size == 0 {
+        return None;
+    }
+    let mut bytes = vec![0u8; size];
+    // SAFETY: `bytes` 有 `size` 字节，与 `size` 描述同一个缓冲区；不写入参数。
+    let status = unsafe {
+        let out = bytes.as_mut_ptr().cast();
+        libc::sysctlbyname(name.as_ptr(), out, &mut size, std::ptr::null_mut(), 0)
+    };
+    if status != 0 {
+        return None;
+    }
+    // 返回的长度含结尾的 NUL。
+    bytes.truncate(size);
+    let text = std::ffi::CStr::from_bytes_until_nul(&bytes).ok()?;
+    text.to_str()
+        .ok()
+        .filter(|t| !t.is_empty())
+        .map(str::to_owned)
 }
 
 /// 读取全局偏好 `AppleActionOnDoubleClick`，没有设置过时返回 `None`。

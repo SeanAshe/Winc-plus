@@ -404,3 +404,40 @@ fn a_dropped_folder_is_added_or_opened_as_configured() {
         let _ = std::fs::remove_dir_all(dir);
     }
 }
+
+/// 回归：不带参数启动时恢复上次打开的目录，现场中附加的目录同样加回来；退出时记下的现场仍有这些
+/// 目录，不会在下一次启动后丢失。
+#[test]
+fn added_folders_come_back_when_the_last_folder_is_restored_at_launch() {
+    let main = sample_folder("folders-launch-main");
+    let other = sample_folder("folders-launch-other");
+    let (main, other) = (
+        winc_config::files::canonicalize(&main).unwrap(),
+        winc_config::files::canonicalize(&other).unwrap(),
+    );
+    let mut state = winc_config::State::default();
+    state.set_session(winc_config::Session {
+        folder: main.clone(),
+        folders: vec![other.clone()],
+        ..winc_config::Session::default()
+    });
+    state.last = Some(main.clone());
+
+    // 与启动时相同：事件循环建立之前打开目录、恢复标签，再建窗口的 `App`。
+    let mut editor = Editor::default();
+    let session = state.last_session().unwrap();
+    assert!(crate::open_session_folder(&mut editor, session));
+    crate::app::restore_at_launch(&mut editor, Some(session), None);
+    let mut app = App::new(editor, None, Bench::from_env(), Config::default());
+    app.state = state;
+    app.restore_launch_group();
+    assert_eq!(app.editor.root(), Some(main.as_path()));
+    assert_eq!(app.extra_folders(), std::slice::from_ref(&other));
+
+    app.remember_session();
+    let saved = app.state.session_for(&main).unwrap();
+    assert_eq!(saved.folders, std::slice::from_ref(&other));
+
+    let _ = std::fs::remove_dir_all(&main);
+    let _ = std::fs::remove_dir_all(&other);
+}

@@ -593,6 +593,12 @@ pub(crate) struct Fonts {
     listed: [Range<u8>; 3],
     /// 预览正文字体的列表中写在主字体之后的字体所在的槽位，依次尝试。
     prose_listed: Vec<u8>,
+    /// 等宽字体是否来自用户配置。来自配置时只用于编辑区和终端，不作为界面、预览正文和公式的
+    /// 缺字后备。
+    mono_configured: bool,
+    /// 界面字体是否来自用户配置。来自配置时只用于界面、预览正文和公式，不作为编辑区和终端的
+    /// 缺字后备。
+    ui_configured: bool,
 }
 
 impl Fonts {
@@ -649,18 +655,18 @@ impl Fonts {
             .or_else(|| first_opened(&candidates.mono, shift))
             .expect("等宽字体刚刚成功打开过");
 
+        let mono_configured = listed[0].contains(&mono_file);
+        let ui_configured = listed[1].contains(&ui_file);
         let italic = italic_candidates(&mono_file, &mono);
         // 数学字体一开始就映射（只是映射文件，很快）：度量要用到它，`metrics` 不能再去加载。
         let math = first_existing(&candidates.math, shift).map_or(Slot::Missing, Slot::Ready);
         // 终端字重与其余文字不同时不能借用等宽、界面字体的槽位：按与字重相同时一样的顺序（终端的
-        // 列表，再是选定的等宽字体及其列表、界面字体及其列表）列出，全部按终端的字重打开；相同的
-        // 文件只列一次。
+        // 列表，再是选定的等宽字体及其列表、界面字体）列出，全部按终端的字重打开；界面字体来自
+        // 用户配置时略去，相同的文件只列一次。
         let mut terminal_files = listed[2].clone();
         if separate_terminal {
-            let rest = std::iter::once(&mono_file)
-                .chain(&listed[0])
-                .chain(std::iter::once(&ui_file))
-                .chain(&listed[1]);
+            let ui_file = (!ui_configured).then_some(&ui_file);
+            let rest = std::iter::once(&mono_file).chain(&listed[0]).chain(ui_file);
             for file in rest {
                 if !terminal_files.contains(file) {
                     terminal_files.push(file.clone());
@@ -739,6 +745,8 @@ impl Fonts {
             emoji,
             listed,
             prose_listed: Vec::new(),
+            mono_configured,
+            ui_configured,
         };
 
         for kind in [FontKind::Mono, FontKind::Ui, FontKind::Math] {
@@ -877,8 +885,8 @@ impl Fonts {
 
     /// 返回能显示字符 `c` 的（槽位，字形 id）。
     ///
-    /// 依次尝试 `kind` 对应的主字体、另一种主字体和各后备字体，必要时才映射文件。所有字体都没有
-    /// 该字符时返回（主槽位，0），即该字体的 `.notdef` 字形。
+    /// 依次尝试 `kind` 对应的主字体、另一种主字体和各后备字体，必要时才映射文件；另一种主字体
+    /// 来自用户配置时不尝试。所有字体都没有该字符时返回（主槽位，0），即该字体的 `.notdef` 字形。
     pub(crate) fn resolve(&mut self, kind: FontKind, c: char) -> (u8, u16) {
         let kind = self.effective(kind);
         if kind.italic() {
@@ -896,38 +904,58 @@ impl Fonts {
             return hit;
         }
 
-        // 先找主字体及其列表，再找其他主字体及其列表（斜体缺字用正体，终端字体缺字用等宽字体），
-        // 最后是后备字体；斜体、终端字体不作为后备。终端字重不同时后备字体另有一份按终端字重
-        // 打开的，不再经过其他槽位，否则缺字会画成别的字重。
+        // 先找主字体及其列表（斜体缺字用正体，终端字体缺字用等宽字体，预览正文和公式缺字用界面
+        // 字体），再找另一种主字体及其列表，最后是后备字体；斜体、终端字体不作为后备。另一种主
+        // 字体来自用户配置时不找。终端字重不同时后备字体另有一份按终端字重打开的，不再经过其他
+        // 槽位，否则缺字会画成别的字重。
         let separate_terminal = self.terminal_shift != self.shift;
         let [mono, ui, terminal] = self.listed.clone();
         let with = |slot: u8, listed: Range<u8>| std::iter::once(slot).chain(listed);
         let mono = with(MONO, mono);
         let ui = with(UI, ui);
-        let mut order: Vec<u8> = match kind {
-            FontKind::Mono => mono.chain(ui).collect(),
-            FontKind::Ui => ui.chain(mono).collect(),
-            FontKind::MonoItalic => [MONO_ITALIC].into_iter().chain(mono).chain(ui).collect(),
-            FontKind::Math => [MATH].into_iter().chain(ui).chain(mono).collect(),
-            FontKind::Prose => [PROSE]
-                .into_iter()
-                .chain(self.prose_listed.iter().copied())
-                .chain(ui)
-                .chain(mono)
-                .collect(),
-            FontKind::Terminal if separate_terminal => with(TERMINAL, terminal).collect(),
-            FontKind::Terminal => with(TERMINAL, terminal).chain(mono).chain(ui).collect(),
-            FontKind::TerminalItalic if separate_terminal => [TERMINAL_ITALIC]
-                .into_iter()
-                .chain(with(TERMINAL, terminal))
-                .collect(),
-            FontKind::TerminalItalic => [TERMINAL_ITALIC]
-                .into_iter()
-                .chain(with(TERMINAL, terminal))
-                .chain(mono)
-                .chain(ui)
-                .collect(),
+        let (mut order, other): (Vec<u8>, Vec<u8>) = match kind {
+            FontKind::Mono => (mono.collect(), ui.collect()),
+            FontKind::Ui => (ui.collect(), mono.collect()),
+            FontKind::MonoItalic => (
+                [MONO_ITALIC].into_iter().chain(mono).collect(),
+                ui.collect(),
+            ),
+            FontKind::Math => ([MATH].into_iter().chain(ui).collect(), mono.collect()),
+            FontKind::Prose => (
+                [PROSE]
+                    .into_iter()
+                    .chain(self.prose_listed.iter().copied())
+                    .chain(ui)
+                    .collect(),
+                mono.collect(),
+            ),
+            FontKind::Terminal if separate_terminal => {
+                (with(TERMINAL, terminal).collect(), Vec::new())
+            }
+            FontKind::Terminal => (with(TERMINAL, terminal).chain(mono).collect(), ui.collect()),
+            FontKind::TerminalItalic if separate_terminal => (
+                [TERMINAL_ITALIC]
+                    .into_iter()
+                    .chain(with(TERMINAL, terminal))
+                    .collect(),
+                Vec::new(),
+            ),
+            FontKind::TerminalItalic => (
+                [TERMINAL_ITALIC]
+                    .into_iter()
+                    .chain(with(TERMINAL, terminal))
+                    .chain(mono)
+                    .collect(),
+                ui.collect(),
+            ),
         };
+        let other_configured = match kind {
+            FontKind::Ui | FontKind::Math | FontKind::Prose => self.mono_configured,
+            _ => self.ui_configured,
+        };
+        if !other_configured {
+            order.extend_from_slice(&other);
+        }
         let terminal_kind = matches!(kind, FontKind::Terminal | FontKind::TerminalItalic);
         if separate_terminal && terminal_kind {
             order.extend_from_slice(&self.terminal_fallbacks);

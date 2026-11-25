@@ -74,6 +74,7 @@ impl Filter {
     ///
     /// 各模式以逗号分隔：不含 `/` 的模式在任意一级目录生效（`src` 匹配所有名为 `src` 的目录和
     /// 文件）；以 `./` 或 `/` 开头的模式只从根目录起算；模式指向目录时，目录内的所有文件都匹配。
+    /// Windows 上 `\` 与 `/` 同样分隔路径（那里的 glob 不用 `\` 转义）。
     ///
     /// # Errors
     ///
@@ -109,6 +110,7 @@ fn globs(root: &Path, text: &str, exclude: bool) -> Result<Override, GlobError> 
     let prefix = if exclude { "!" } else { "" };
     let mut builder = OverrideBuilder::new(root);
     for pattern in text.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+        let pattern = separators(pattern);
         let pattern = pattern.trim_end_matches('/');
         let anchored = pattern.starts_with("./") || pattern.starts_with('/');
         let body = pattern.trim_start_matches("./").trim_start_matches('/');
@@ -122,4 +124,13 @@ fn globs(root: &Path, text: &str, exclude: bool) -> Result<Override, GlobError> 
         }
     }
     builder.build().map_err(error)
+}
+
+/// 把 Windows 上用 `\` 分隔的路径规则换成 `/` 分隔；其他系统上 `\` 是 glob 的转义符，原样返回。
+fn separators(pattern: &str) -> std::borrow::Cow<'_, str> {
+    if cfg!(windows) {
+        pattern.replace('\\', "/").into()
+    } else {
+        pattern.into()
+    }
 }

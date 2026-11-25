@@ -1,0 +1,294 @@
+{
+  "labels": [
+    {
+      "name": "area: editor",
+      "color": "d4c5f9",
+      "description": "Editing, cursors, input methods and the text view",
+      "field": [
+        "Area"
+      ],
+      "answers": [
+        "Editor"
+      ]
+    },
+    {
+      "name": "area: vim",
+      "color": "d4c5f9",
+      "description": "Vim mode",
+      "field": [
+        "Area"
+      ],
+      "answers": [
+        "Vim mode"
+      ]
+    },
+    {
+      "name": "area: syntax",
+      "color": "d4c5f9",
+      "description": "Highlighting, go to definition and find usages",
+      "field": [
+        "Area"
+      ],
+      "answers": [
+        "Syntax highlighting / navigation"
+      ]
+    },
+    {
+      "name": "area: formatting",
+      "color": "d4c5f9",
+      "description": "Formatting through external tools",
+      "field": [
+        "Area"
+      ],
+      "answers": [
+        "Formatting"
+      ]
+    },
+    {
+      "name": "area: search",
+      "color": "d4c5f9",
+      "description": "Find in files, quick open and the search results",
+      "field": [
+        "Area"
+      ],
+      "answers": [
+        "Search"
+      ]
+    },
+    {
+      "name": "area: file tree",
+      "color": "d4c5f9",
+      "description": "The file tree and its actions",
+      "field": [
+        "Area"
+      ],
+      "answers": [
+        "File tree"
+      ]
+    },
+    {
+      "name": "area: preview",
+      "color": "d4c5f9",
+      "description": "Markdown, image, PDF, LaTeX, document and table previews",
+      "field": [
+        "Area"
+      ],
+      "answers": [
+        "Preview"
+      ]
+    },
+    {
+      "name": "area: git",
+      "color": "d4c5f9",
+      "description": "Diffs, staging, commits, the log and other Git features",
+      "field": [
+        "Area"
+      ],
+      "answers": [
+        "Git"
+      ]
+    },
+    {
+      "name": "area: terminal",
+      "color": "d4c5f9",
+      "description": "The integrated terminal",
+      "field": [
+        "Area"
+      ],
+      "answers": [
+        "Terminal"
+      ]
+    },
+    {
+      "name": "area: remote",
+      "color": "d4c5f9",
+      "description": "SSH remote folders and WSL",
+      "field": [
+        "Area"
+      ],
+      "answers": [
+        "SSH remote / WSL"
+      ]
+    },
+    {
+      "name": "area: interface",
+      "color": "d4c5f9",
+      "description": "Layout, themes and interface text",
+      "field": [
+        "Area"
+      ],
+      "answers": [
+        "Interface / themes"
+      ]
+    },
+    {
+      "name": "area: settings",
+      "color": "d4c5f9",
+      "description": "Settings and keyboard shortcuts",
+      "field": [
+        "Area"
+      ],
+      "answers": [
+        "Settings / shortcuts"
+      ]
+    },
+    {
+      "name": "area: cli",
+      "color": "d4c5f9",
+      "description": "The winc command and its options",
+      "field": [
+        "Area"
+      ],
+      "answers": [
+        "Command line"
+      ]
+    },
+    {
+      "name": "area: performance",
+      "color": "d4c5f9",
+      "description": "Startup, memory, scrolling and large files",
+      "field": [
+        "Area"
+      ],
+      "answers": [
+        "Performance"
+      ]
+    },
+    {
+      "name": "area: install",
+      "color": "d4c5f9",
+      "description": "Packages, installation and updates",
+      "field": [
+        "Area"
+      ],
+      "answers": [
+        "Install / update"
+      ]
+    },
+    {
+      "name": "area: docs",
+      "color": "d4c5f9",
+      "description": "Documentation and release notes",
+      "field": [
+        "Location"
+      ],
+      "answers": [
+        "*"
+      ]
+    },
+    {
+      "name": "platform: macOS",
+      "color": "c2e0c6",
+      "description": "Concerns macOS",
+      "field": [
+        "Platform",
+        "Platforms"
+      ],
+      "answers": [
+        "macOS",
+        "macOS (Apple silicon)",
+        "macOS (Intel)"
+      ]
+    },
+    {
+      "name": "platform: Linux",
+      "color": "c2e0c6",
+      "description": "Concerns Linux",
+      "field": [
+        "Platform",
+        "Platforms"
+      ],
+      "answers": [
+        "Linux",
+        "Linux (x86_64)",
+        "Linux (ARM64)"
+      ]
+    },
+    {
+      "name": "platform: Windows",
+      "color": "c2e0c6",
+      "description": "Concerns Windows",
+      "field": [
+        "Platform",
+        "Platforms"
+      ],
+      "answers": [
+        "Windows"
+      ]
+    },
+    {
+      "name": "arch: Apple silicon",
+      "color": "bfdadc",
+      "description": "Reported on a Mac with Apple silicon",
+      "field": [
+        "Platform"
+      ],
+      "answers": [
+        "macOS (Apple silicon)"
+      ]
+    },
+    {
+      "name": "arch: Intel",
+      "color": "bfdadc",
+      "description": "Reported on a Mac with an Intel processor",
+      "field": [
+        "Platform"
+      ],
+      "answers": [
+        "macOS (Intel)"
+      ]
+    },
+    {
+      "name": "arch: x86_64",
+      "color": "bfdadc",
+      "description": "Reported on x86_64 Linux",
+      "field": [
+        "Platform"
+      ],
+      "answers": [
+        "Linux (x86_64)"
+      ]
+    },
+    {
+      "name": "arch: ARM64",
+      "color": "bfdadc",
+      "description": "Reported on ARM64 Linux",
+      "field": [
+        "Platform"
+      ],
+      "answers": [
+        "Linux (ARM64)"
+      ]
+    },
+    {
+      "name": "status: needs template",
+      "color": "b60205",
+      "description": "Not written with an issue form; please edit it to follow one"
+    },
+    {
+      "name": "status: needs info",
+      "color": "d93f0b",
+      "description": "Waiting for the author; closed after 14 days without a reply"
+    },
+    {
+      "name": "duplicate",
+      "color": "cfd3d7",
+      "description": "Already reported in another issue"
+    },
+    {
+      "name": "wontfix",
+      "color": "ffffff",
+      "description": "Will not be worked on"
+    },
+    {
+      "name": "good first issue",
+      "color": "7057ff",
+      "description": "Good for newcomers"
+    },
+    {
+      "name": "help wanted",
+      "color": "008672",
+      "description": "Contributions are welcome"
+    }
+  ]
+}

@@ -50,8 +50,10 @@ fn pixels_beside_row(app: &App, row: Rect) -> Vec<u32> {
         .collect()
 }
 
+/// 写全名的改动行画在分隔条上：在这一行的高度内按下选中这一行，不拖动分隔条；从编辑区一侧
+/// 移来时这一行没有展开，分隔条可以拖动。
 #[test]
-fn git_overflow_keeps_the_splitter_draggable_on_a_hovered_file_row() {
+fn git_overflow_row_covers_the_splitter_on_a_hovered_file_row() {
     for flat in [false, true] {
         let (mut app, dir, _, row) =
             long_change_app(&format!("git-overflow-splitter-{flat}"), flat, false);
@@ -66,8 +68,7 @@ fn git_overflow_keeps_the_splitter_draggable_on_a_hovered_file_row() {
         let x = splitter.x + splitter.w / 2.0;
         app.on_mouse_move(x, y);
         paint(&mut app);
-        assert_eq!(app.pointer.hover, Hover::Splitter);
-        // 经过分隔条仍能看到全名，但在边界按下时应开始调整宽度。
+        assert!(matches!(app.pointer.hover, Hover::Commit(_)));
         assert!(app.git.commit.overflow.is_some());
         app.on_mouse_move(spill.x + 40.0, y);
         paint(&mut app);
@@ -75,8 +76,20 @@ fn git_overflow_keeps_the_splitter_draggable_on_a_hovered_file_row() {
         app.on_mouse_move(x, y);
         paint(&mut app);
         app.on_mouse_down(MouseButton::Left);
+        app.on_mouse_up(MouseButton::Left);
+        assert!(!matches!(app.pointer.drag, Drag::Splitter { .. }));
+        assert!(app.git.commit.selected.is_some());
+
+        // 从编辑区一侧移来：分隔条可以拖动。
+        app.on_mouse_move(spill.right() + 40.0, y);
+        paint(&mut app);
+        app.on_mouse_move(x, y);
+        paint(&mut app);
+        assert_eq!(app.pointer.hover, Hover::Splitter);
+        // 与上一次按下隔得近会算作双击分隔条（恢复默认宽度）：当作一次新的按下。
+        app.pointer.last_click = None;
+        app.on_mouse_down(MouseButton::Left);
         assert!(matches!(app.pointer.drag, Drag::Splitter { .. }));
-        assert!(app.git.commit.selected.is_none());
         let before = app.layout.sidebar.w;
         app.on_mouse_move(x + 64.0, y);
         assert!(app.layout.sidebar.w > before + 40.0);

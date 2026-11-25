@@ -357,7 +357,9 @@ fn reference_delimited(text: &str, tabs: bool) -> Sheet {
         push_field(&mut rows, &mut field, &mut truncated);
         rows.end_row();
     }
-    rows.finish(String::new(), truncated)
+    let mut sheet = rows.finish(String::new(), truncated);
+    sheet.delimiter = Some(delimiter);
+    sheet
 }
 
 /// 一段一段从磁盘读的结果与整段文本一次解析的相同：带引号的字段、回车换行、多字节字符和
@@ -372,8 +374,13 @@ fn delimited_files_read_in_pieces_match_the_whole_text() {
         let read = load_delimited(&path, false).unwrap().sheets.remove(0);
         let text = String::from_utf8_lossy(bytes);
         assert!(read == read_delimited(&text, false), "{name}");
+        // 原来的解析不记数据行与源文本行的对应，只比较单元格。
+        let cells = Sheet {
+            shifts: Vec::new(),
+            ..read.clone()
+        };
         assert!(
-            read == reference_delimited(&text, false),
+            cells == reference_delimited(&text, false),
             "{name}：与原来的解析不同"
         );
         read

@@ -5,7 +5,7 @@ use crate::app::OtherRow;
 use crate::app::input::context_menu::{MenuCommand, MenuEntry};
 
 /// 建一个放着两个仓库 `a`、`b` 的目录并打开，各有一个改过的文件和一个未跟踪的文件。
-fn two_repositories(name: &str, dark: bool) -> Option<(App, PathBuf, PathBuf)> {
+pub(super) fn two_repositories(name: &str, dark: bool) -> Option<(App, PathBuf, PathBuf)> {
     let dir = search_folder(name);
     for repo in ["a", "b"] {
         let repo = dir.join(repo);
@@ -23,6 +23,50 @@ fn two_repositories(name: &str, dark: bool) -> Option<(App, PathBuf, PathBuf)> {
     }
     let dir = app.editor.root().unwrap().to_path_buf();
     Some((app, dir.join("a"), dir.join("b")))
+}
+
+/// 多仓库时当前仓库的长文件名写全名：伸出侧栏的那一段与列表里那一行同一种底色（侧栏底色、
+/// 当前仓库一节的底色和悬停色叠加），不露出普通侧栏底色。
+#[test]
+fn a_spilled_full_name_keeps_the_current_repository_background() {
+    for dark in [false, true] {
+        let name = format!("git-spill-tint-{dark}");
+        let Some((mut app, root, _)) = two_repositories(&name, dark) else {
+            return;
+        };
+        let path = root.join("src/a-very-long-file-name-that-cannot-fit-in-the-sidebar.rs");
+        std::fs::write(&path, "new\n").unwrap();
+        app.git_refresh();
+        app.poll_git();
+        app.run_action(Action::ShowCommit);
+        app.git.commit.shift = None;
+        paint(&mut app);
+        let entries = app.git.status.as_ref().unwrap().entries.clone();
+        let index = entries.iter().position(|e| e.path == path).unwrap();
+        let find = |app: &App| {
+            let hit = app.hits.commit.iter();
+            hit.clone()
+                .find(|(_, h)| *h == CommitTarget::File(index))
+                .unwrap()
+                .0
+        };
+        let row = find(&app);
+        app.on_mouse_move(row.x + 120.0, row.y + row.h / 2.0);
+        paint(&mut app);
+        paint(&mut app);
+        let spill = app.git.commit.overflow.and_then(|o| o.spill).unwrap();
+        let image = app.frame.renderer.as_ref().unwrap().image().unwrap();
+        let pixel = |x: f32| {
+            let y = ((row.y + 2.0) * SCALE) as usize;
+            image.pixels[y * image.width as usize + (x * SCALE) as usize]
+        };
+        let inside = pixel(row.x + 4.0);
+        let outside = pixel(spill.x + 12.0);
+        let same =
+            (0..4).all(|c| ((inside >> (c * 8)) & 255).abs_diff((outside >> (c * 8)) & 255) <= 1);
+        assert!(same, "dark={dark}: {inside:08x} != {outside:08x}");
+        let _ = std::fs::remove_dir_all(root.parent().unwrap());
+    }
 }
 
 /// 长文件名的渐隐必须使用当前仓库卡片和行状态叠加后的底色，不能露出普通侧栏底色。
@@ -166,7 +210,8 @@ fn other_repository_names_fade_like_current_names() {
                             );
                         }
                     }
-                    app.on_mouse_move(other.right() - 80.0, other.y + COMMIT_ROW / 2.0);
+                    // 停在行的左端：行尾的按钮出现，但鼠标不在按钮上，按钮没有底色。
+                    app.on_mouse_move(other.x + 24.0, other.y + COMMIT_ROW / 2.0);
                     paint(&mut app);
                     assert_eq!(
                         app.pointer.hover,
@@ -289,20 +334,28 @@ fn other_repositories_are_listed_after_the_current_one_and_a_click_switches() {
     assert!(!app.current_section_folded());
     paint(&mut app);
 
-    // 点另一个仓库的文件：切换到该仓库并选中该文件；列表的顺序不变。
+    // 点另一个仓库的文件：选中该文件并预览该文件在所在仓库中的差异，不切换当前仓库。
     let file = hit(&app, CommitTarget::OtherFile(1, 0));
     let header = hit(&app, CommitTarget::OtherRepository(1));
     click(&mut app, (file.x + 60.0, file.y + 4.0));
-    assert_eq!(app.git.root.as_ref(), Some(&b));
-    paint(&mut app);
-    assert_eq!(hit(&app, CommitTarget::CurrentRepository).y, header.y);
-    assert_eq!(hit(&app, CommitTarget::OtherRepository(0)).y, current.y);
+    assert_eq!(app.git.root.as_ref(), Some(&a));
     let main = b.join("src/main.rs");
-    assert_eq!(app.git.commit.selected.as_deref(), Some(main.as_path()));
+    assert_eq!(
+        app.git.commit.other_selected,
+        Some((b.clone(), main.clone()))
+    );
+    assert_eq!(app.git.commit.selected, None);
     assert_eq!(
         app.editor.active().unwrap().title.as_deref(),
         Some("main.rs · 差异")
     );
+
+    // 点该仓库的标题行：切换到该仓库；列表的顺序不变，点的标题行位置不变。
+    click(&mut app, (header.x + 60.0, header.y + 4.0));
+    assert_eq!(app.git.root.as_ref(), Some(&b));
+    paint(&mut app);
+    assert_eq!(hit(&app, CommitTarget::CurrentRepository).y, header.y);
+    assert_eq!(hit(&app, CommitTarget::OtherRepository(0)).y, current.y);
     assert_eq!(app.commit_other_rows()[0], OtherRow::Repository(0));
     assert_eq!(app.commit_other_rows().last(), Some(&OtherRow::Current));
 
@@ -385,8 +438,8 @@ fn switching_repositories_keeps_checks_and_the_message() {
     let a_state = app.current_check_state();
     assert_eq!(a_state, Some(false));
 
-    // 点 `b` 的文件：换到 `b`，勾选和提交信息不变。
-    app.press_commit(CommitTarget::OtherFile(1, 0));
+    // 点 `b` 的标题行：换到 `b`，勾选和提交信息不变。
+    app.press_commit(CommitTarget::OtherRepository(1));
     assert_eq!(app.git.root.as_ref(), Some(&b));
     assert_eq!(app.git.commit.message.text(), "一起提交");
     assert_eq!(app.current_check_state(), Some(false));

@@ -154,6 +154,14 @@ fn include_and_exclude_globs() {
         with("src", "deep"),
         ["src/a.rs", "src/a.ts", "web/src/c.ts"]
     );
+    // Windows 上 `\` 与 `/` 同样分隔路径：从文件树「在目录中查找」时填入的就是这种写法。
+    if cfg!(windows) {
+        assert_eq!(with(r".\src\deep", ""), ["src/deep/b.rs"]);
+        assert_eq!(
+            with("", r"src\deep, docs"),
+            ["src/a.rs", "src/a.ts", "web/src/c.ts"]
+        );
+    }
 
     let _ = fs::remove_dir_all(&dir);
 }

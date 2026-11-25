@@ -7,6 +7,10 @@ use crate::app::SyncState;
 use crate::app::animation::{Clock, TREE_ANIMATION};
 use crate::app::git::commit::COMMITTED_SHOWN;
 
+/// 行尾状态字母那一列的宽度（逻辑像素）：按钮排在这一列的左边。
+const ACTION_SLOT: f32 = 20.0;
+
+mod actions;
 mod checks;
 mod compose;
 mod names;
@@ -121,14 +125,15 @@ fn hovering_a_change_offers_open_and_revert() {
     let index = entries(&app).iter().position(|e| e.path == main).unwrap();
     let find =
         |app: &App, t: CommitTarget| app.hits.commit.iter().find(|(_, h)| *h == t).map(|h| h.0);
-    // 未悬停时不显示按钮；悬停该行时右端显示「打开文件」「回滚」，两者均有悬停提示。
+    // 未悬停时不显示按钮；悬停该行时状态字母左边是「回滚」「打开文件」，回滚在最左，与常用的
+    // 「打开文件」隔开；状态字母照常显示。两者均有悬停提示。
     assert!(find(&app, CommitTarget::OpenFile(index)).is_none());
     let row = find(&app, CommitTarget::File(index)).unwrap();
     app.on_mouse_move(row.x + 120.0, row.y + row.h / 2.0);
     paint(&mut app);
     let open = find(&app, CommitTarget::OpenFile(index)).unwrap();
     let revert = find(&app, CommitTarget::RevertFile(index)).unwrap();
-    assert!(open.right() <= revert.x && revert.right() <= row.right());
+    assert!(revert.right() <= open.x && open.right() + ACTION_SLOT <= row.right());
     app.on_mouse_move(revert.x + 4.0, revert.y + 4.0);
     assert_eq!(
         app.pointer.hover,
@@ -418,7 +423,7 @@ fn the_commit_more_menu_greys_out_what_does_not_apply() {
     assert!(enabled(&app, MenuCommand::CommitTree));
     assert!(!enabled(&app, MenuCommand::CommitExpandAll));
     assert!(enabled(&app, MenuCommand::CommitCollapseAll));
-    // 没勾文件时悬停组标题，右端仍是文件数，没有「回滚」。
+    // 悬停组标题：文件数左边是回滚整组的按钮，不论有没有勾选文件。
     let reverts = |app: &mut App| {
         let (band, _) = *(app.hits.commit.iter())
             .find(|(_, t)| *t == CommitTarget::Group(CommitGroup::Changes))
@@ -427,7 +432,7 @@ fn the_commit_more_menu_greys_out_what_does_not_apply() {
         paint(app);
         (app.hits.commit.iter()).any(|(_, t)| matches!(t, CommitTarget::GroupRevert(_)))
     };
-    assert!(!reverts(&mut app));
+    assert!(reverts(&mut app));
 
     app.run_commit_more_command(MenuCommand::CommitCollapseAll);
     let groups = [CommitGroup::Changes];

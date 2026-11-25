@@ -198,6 +198,14 @@ impl App {
             self.preview.markdown.focused = false;
             self.preview.markdown.selection = None;
         }
+        // 分栏的表格同理：点在表格（含其滚动条）以外时键盘交回左侧。
+        let keeps_table = matches!(
+            target,
+            Target::Table | Target::Scrollbar(Scrollbar::Table | Scrollbar::TableHorizontal, _)
+        );
+        if !keeps_table {
+            self.preview.table_layout.focused = false;
+        }
 
         // 点击的目标由 `target_at` 决定（与悬停同一个顺序）；只有点击才有的规则写成前面的
         // 分支：快速打开面板开着时点其他位置关掉快速打开面板，正在输入名字时点其他位置
@@ -391,6 +399,11 @@ impl App {
             }
             Target::Editor => self.click_editor(x, y),
             Target::Picture => self.click_picture(x, y),
+            Target::Table => {
+                self.focus = Focus::Editor;
+                self.preview.table_layout.focused = true;
+                self.click_table(x, y);
+            }
             Target::Terminal => {
                 if self.terminal_view().contains(x, y) {
                     self.terminal_mouse_down(x, y, MouseButton::Left);
@@ -452,6 +465,8 @@ impl App {
                     HeaderHit::Maximize => self.toggle_terminal_maximized(),
                     HeaderHit::Split => self.split_terminal(),
                     HeaderHit::Hide => self.click_terminal_button(),
+                    HeaderHit::Editor => self.move_terminal_to_editor(),
+                    HeaderHit::Panel => self.move_terminal_to_panel(),
                     HeaderHit::Run(_) | HeaderHit::Find(_) => {}
                 }
             }

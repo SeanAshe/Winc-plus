@@ -465,6 +465,28 @@ fn draw_row(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect) 
             draw_action_button(app, frame, row.control, &label, role, true, hovered);
             None
         }
+        SettingControl::Button
+            if matches!(
+                row.setting,
+                Setting::ExportSettings | Setting::ImportSettings
+            ) =>
+        {
+            let label = if row.setting == Setting::ExportSettings {
+                t!("settings-export-button")
+            } else {
+                t!("settings-import-button")
+            };
+            draw_action_button(
+                app,
+                frame,
+                row.control,
+                label,
+                ButtonRole::Normal,
+                true,
+                hovered,
+            );
+            None
+        }
         SettingControl::Button => {
             // 不支持应用内更新时说明行已写明原因，不显示按钮；正在检查、下载时按钮变淡。
             if app.updates_supported() {

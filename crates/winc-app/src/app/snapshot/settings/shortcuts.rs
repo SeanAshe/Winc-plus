@@ -27,7 +27,7 @@ fn runs(stroke: Stroke) -> Option<Action> {
 }
 
 /// 把「快捷键」页中命令 `action` 的一行滚进列表中间，并把鼠标移到这一行上。
-fn show_row(app: &mut App, action: Action) {
+pub(super) fn show_row(app: &mut App, action: Action) {
     let keys = app.keys_layout();
     let (rect, _) = keys.rows().find(|(_, row)| row.action == action).unwrap();
     let to = app.settings.scroll + rect.y - keys.list.y - keys.list.h / 2.0;

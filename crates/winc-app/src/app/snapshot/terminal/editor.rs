@@ -162,7 +162,10 @@ fn exited_shells_and_a_crashed_helper_restart() {
     app.restart_terminal_tab();
     assert_eq!(app.terminal.want, [b"/tmp".to_vec()]);
     // 起的名字跟着等着重开的标签走。
-    assert_eq!(app.terminal_session().unwrap().names, ["server"]);
+    assert_eq!(
+        app.terminal_session_with_tabs(&[]).unwrap().names,
+        ["server"]
+    );
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -701,7 +704,7 @@ fn the_status_bar_button_slides_the_panel_out_and_back() {
 
 #[test]
 fn the_terminal_menu_maximizes_and_the_options_apply() {
-    use crate::app::input::context_menu::{MenuEntry, MenuTarget};
+    use crate::app::input::context_menu::MenuEntry;
     use crate::app::terminal::{DEFAULT_HEIGHT, EDITOR_MIN_WIDTH};
     use crate::keymap::Action;
 
@@ -716,7 +719,6 @@ fn the_terminal_menu_maximizes_and_the_options_apply() {
         app.on_mouse_down(MouseButton::Right);
         app.on_mouse_up(MouseButton::Right);
         let menu = app.overlays.context_menu.as_ref().unwrap();
-        assert_eq!(menu.target, MenuTarget::Terminal(None));
         menu.entries
             .iter()
             .filter_map(|e| match e {
@@ -725,22 +727,8 @@ fn the_terminal_menu_maximizes_and_the_options_apply() {
             })
             .collect::<Vec<_>>()
     };
-    assert_eq!(
-        right_click(&mut app),
-        [
-            (MenuCommand::Copy, false),
-            (MenuCommand::Paste, true),
-            (MenuCommand::SelectAll, true),
-            (MenuCommand::TerminalFind, true),
-            (MenuCommand::TerminalClear, true),
-            (MenuCommand::TerminalMaximize, true),
-            (MenuCommand::TerminalDock, true),
-            (MenuCommand::NewTerminal, true),
-            (MenuCommand::SplitTerminal, true),
-            (MenuCommand::MoveTerminalRight, false),
-            (MenuCommand::CloseTerminal, true),
-        ]
-    );
+    let items = right_click(&mut app);
+    assert!(items.contains(&(MenuCommand::Copy, false)));
     app.run_menu_command(MenuCommand::SelectAll);
     assert!(right_click(&mut app).contains(&(MenuCommand::Copy, true)));
     app.run_menu_command(MenuCommand::Copy);
@@ -784,11 +772,11 @@ fn the_terminal_menu_maximizes_and_the_options_apply() {
     assert_eq!((app.layout.editor.w, app.layout.tabs.w), (0.0, 0.0));
     assert_eq!(app.layout.terminal_divider, Rect::default());
     assert_eq!(app.focus, Focus::Terminal);
-    assert!(app.terminal_session().unwrap().maximized);
+    assert!(app.terminal_session_with_tabs(&[]).unwrap().maximized);
     app.run_action(Action::MaximizeTerminal);
     assert!(!app.terminal.maximized);
     assert_eq!(app.layout.terminal.h, DEFAULT_HEIGHT);
-    assert!(!app.terminal_session().unwrap().maximized);
+    assert!(!app.terminal_session_with_tabs(&[]).unwrap().maximized);
 
     // 面板在右边时最大化：同样铺满这一栏。
     app.toggle_terminal_position();

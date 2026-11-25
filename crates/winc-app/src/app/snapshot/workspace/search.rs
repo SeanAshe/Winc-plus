@@ -1231,11 +1231,11 @@ fn long_result_files_unfold_under_the_mouse() {
         Hover::RowAction(long, RowAction::Dismiss)
     );
 
-    // 这一行上的分隔条仍然可以拖动，鼠标停在上面时全名保持展开。
+    // 这一行画在分隔条上：鼠标停在上面时仍在这一行上，全名保持展开。
     let splitter = app.layout.splitter;
     app.on_mouse_move(splitter.x + splitter.w / 2.0, y);
     paint(&mut app);
-    assert_eq!(app.pointer.hover, Hover::Splitter);
+    assert_eq!(app.pointer.hover, Hover::Result(long));
     assert_eq!(app.panels.global.overflow.map(|o| o.index), Some(long));
 
     // 鼠标移到伸出部分之外的编辑区：收起。

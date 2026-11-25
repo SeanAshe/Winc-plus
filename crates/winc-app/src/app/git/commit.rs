@@ -11,6 +11,7 @@ mod actions;
 mod compose;
 mod ignore;
 mod reformat;
+mod strip;
 pub(in crate::app) use actions::COMMITTED_SHOWN;
 pub(crate) use actions::{PUSH_PREVIEW, PushIntent, RollbackTo, SyncState};
 pub(crate) use compose::{AUTHOR_COMMITS, OWN_MESSAGES};
@@ -19,6 +20,7 @@ mod list;
 mod stash;
 use stash::STASH_GAP;
 pub(crate) use stash::{StashLine, StashView};
+pub(crate) use strip::ActionStrip;
 mod drawer;
 pub(crate) use drawer::{DRAWER_CLOSED, DRAWER_TOP, Drawer};
 mod worktrees;
@@ -158,9 +160,8 @@ pub(crate) struct CommitOverflow {
     pub y: f32,
     /// 伸出侧栏的那一段；全名在侧栏里写得下（只是要让开状态字母）时为 `None`。
     pub spill: Option<Rect>,
-    /// 跟在全名后面的两个按钮位置：文件行是「打开文件」「回滚」等，目录行只用第二个（暂存、
-    /// 取消暂存）；没有按钮时为 `None`。
-    pub actions: Option<(Rect, Rect)>,
+    /// 跟在全名后面的行尾按钮；这一行没有按钮时为 `None`。
+    pub actions: Option<ActionStrip>,
 }
 
 /// 改动列表里一行名字的过渡状态的键（见 `TreeLabels`）：滚动、展开收起前后不变。
@@ -517,6 +518,8 @@ pub enum CommitTarget {
     CurrentRepository,
     /// 多仓库时当前仓库标题行左端的折叠箭头：折叠或展开它的一节。
     CurrentFold,
+    /// 多仓库时当前仓库标题行上的分支：展开分支选择面板。
+    CurrentBranch,
     /// 多仓库时「没有更改的仓库」一组的标题行：展开或收起这一组。
     QuietRepositories,
     /// 勾选式下当前仓库标题行的勾选框：勾上或取消当前仓库的全部文件。
@@ -527,7 +530,7 @@ pub enum CommitTarget {
     Group(CommitGroup),
     /// 组标题的勾选框：整组勾上或取消。
     GroupCheck(CommitGroup),
-    /// 组标题上的回滚按钮：暂存区视图中回滚「更改」到暂存区，勾选式下回滚勾选的文件。
+    /// 组标题上的回滚按钮：回滚这一组的全部文件，暂存区视图中回滚到暂存区。
     GroupRevert(CommitGroup),
     /// 储藏一组的标题：收起或展开。
     Stashes,
@@ -567,6 +570,19 @@ pub enum CommitTarget {
     OpenFile(usize),
     /// 悬停文件行时右端的「回滚」按钮，参数同 [`CommitTarget::File`]。
     RevertFile(usize),
+    /// 悬停目录行时右端的「回滚」：回滚该目录下的全部文件；参数同 [`CommitTarget::Dir`]。
+    DirRevert(usize),
+    /// 另一个仓库中文件行右端的「打开文件」（仓库的下标，文件在其状态各项中的下标）。
+    OtherOpen(usize, usize),
+    /// 另一个仓库中文件行右端的「回滚」，参数同 [`CommitTarget::OtherOpen`]。
+    OtherRevert(usize, usize),
+    /// 另一个仓库里一组的标题行右端的「回滚」：回滚这一组的全部文件。
+    OtherGroupRevert(usize, others::OtherGroup),
+    /// 其他仓库更改树的目录行右端的「回滚」，参数同 [`CommitTarget::OtherDir`]。
+    OtherDirRevert(usize),
+    /// 其他仓库更改树的目录行右端的「＋」（第二项为真）或「−」：暂存或取消暂存目录下的全部
+    /// 文件；第一项同 [`CommitTarget::OtherDir`]。
+    OtherDirStage(usize, bool),
     /// Git 上下文一行的仓库按钮（打开的目录中有多个仓库时才有）：展开仓库选择器。
     Location,
     /// Git 上下文的分支行：展开分支选择器。
@@ -869,6 +885,9 @@ pub(crate) struct CommitState {
     pub selected: Option<PathBuf>,
     /// 多选时选中的各个文件；为空时只有 `selected` 算选中。
     marked: HashSet<PathBuf>,
+    /// 选中的另一个仓库中的文件（仓库的根目录，文件）：预览该文件的差异，不切换当前仓库；与
+    /// `selected` 只有一个有值。
+    pub(crate) other_selected: Option<(PathBuf, PathBuf)>,
     /// 按 ⇧ 扩展选区的起点。
     anchor: Option<PathBuf>,
     /// 上次用键盘选中的行（各行的下标）：同一个文件有两行时据此确定当前在哪一行。
@@ -1024,6 +1043,7 @@ impl Default for CommitState {
             shift: None,
             selected: None,
             marked: HashSet::new(),
+            other_selected: None,
             anchor: None,
             cursor: None,
             preview: None,

@@ -148,6 +148,7 @@ impl App {
                     ..Default::default()
                 },
                 file_hover: None,
+                dragged_in: None,
                 name_input: None,
                 global: GlobalSearch::default(),
                 outline: OutlineState::default(),

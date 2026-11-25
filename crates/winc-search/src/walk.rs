@@ -60,9 +60,69 @@ pub fn walker_with_ignored(dir: &Path) -> WalkBuilder {
 
 /// `dir` 或它的某一级上级目录是否是版本库的根目录。
 fn in_repository(dir: &Path) -> bool {
-    dir.ancestors().any(|dir| {
-        winc_backend::fs::exists(dir.join(".git")) || winc_backend::fs::exists(dir.join(".jj"))
-    })
+    dir.ancestors().any(is_repository)
+}
+
+/// 目录 `dir` 本身是否是版本库的根目录：其中有 `.git` 或 `.jj`。
+pub fn is_repository(dir: &Path) -> bool {
+    winc_backend::fs::exists(dir.join(".git")) || winc_backend::fs::exists(dir.join(".jj"))
+}
+
+/// 逐个目录列出时更换忽略规则匹配器的间隔（个）：每列出该数量的目录就换一个新的匹配器。
+///
+/// 取自调参：匹配器缓存走过的每个目录的规则，列出家目录这样的大目录时能占一百多 MB；按该间隔
+/// 换掉后释放，重新读取规则的开销可以忽略。
+pub const MATCHER_DIRS: usize = 1024;
+
+/// 返回 `dir` 之下的嵌套版本库，按路径排序：被上级目录的忽略规则整个略过、自身又是版本库根目录
+/// 的目录。
+///
+/// 上级版本库的忽略规则止于嵌套版本库的根目录，这样的目录按自身的忽略规则收录：
+/// 快速打开和搜索视其为另一个根目录。只列出不被忽略的目录，不进入被忽略的目录，也不读文件；
+/// 嵌套版本库之中再嵌套的一并找出。`cancel` 置位时提前返回，结果不全。
+pub fn nested_repositories(dir: &Path, cancel: &AtomicBool) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut roots = vec![dir.to_path_buf()];
+    while let Some(root) = roots.pop() {
+        let fresh = || walker(&root).build_matchers().into_iter().next();
+        let (mut matcher, mut listed) = (fresh(), 0usize);
+        let mut frontier = vec![String::new()];
+        while let Some(rel) = frontier.pop() {
+            if cancel.load(Relaxed) {
+                return found;
+            }
+            listed += 1;
+            if listed.is_multiple_of(MATCHER_DIRS) {
+                matcher = fresh();
+            }
+            let Ok(entries) = winc_backend::fs::read_dir(root.join(&rel)) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let Some(name) = entry.name.to_str().filter(|n| !HIDDEN.contains(n)) else {
+                    continue;
+                };
+                // 指向目录的符号链接不进入，与遍历相同。
+                if !entry.kind.is_dir() {
+                    continue;
+                }
+                let child = match rel.is_empty() {
+                    true => name.to_owned(),
+                    false => format!("{rel}/{name}"),
+                };
+                let ignored =
+                    (matcher.as_mut()).is_some_and(|m| m.matched(&child, true).is_ignore());
+                if !ignored {
+                    frontier.push(child);
+                } else if is_repository(&root.join(&child)) {
+                    found.push(root.join(&child));
+                    roots.push(root.join(&child));
+                }
+            }
+        }
+    }
+    found.sort();
+    found
 }
 
 /// 判断类型为 `kind` 的目录项 `path` 是否作为文件收录：普通文件，或指向普通文件的符号链接。

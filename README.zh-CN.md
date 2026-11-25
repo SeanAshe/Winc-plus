@@ -20,19 +20,21 @@
 </p>
 
 <p align="center">
-  <a href="https://winc.si/#download"><img alt="下载 Winc" src="./.github/assets/download-zh.svg" /></a>
+  <a href="https://winc.si/zh-cn/downloads"><img alt="下载 Winc" src="./.github/assets/download-zh.svg" /></a>
 </p>
 
 ## 概述
 
-winc 以 Rust 与自研渲染引擎构建：0.1 秒启动，十万行代码仅占 52 MB 内存。多光标、查找替换、并排差异，
-每一次输入与滚动都即时响应。
+winc 是以 Rust 和自研渲染引擎构建的桌面编辑器：约 0.1 秒启动，打开大文件也保持轻量，每一次输入和滚动
+都即时响应。
 
 | 指标 | 结果 |
 | --- | --- |
-| 冷启动到第一帧 | 119 ms（20 次的中位数） |
-| 打开 10 万行时的常驻内存 | 52 MB |
-| 1 GB 的文件，可编辑、有高亮 | 220 ms |
+| 冷启动到第一帧 | 95 ms |
+| 打开 100 MB 文件时的内存占用 | 35 MB |
+| 打开 3.9 GB、4100 万行的文件 | 154 ms |
+| 按键到画面更新 | 1.0 ms |
+| 滚动时每帧耗时 | 0.6 ms |
 
 在 macOS 上测得，随硬件和系统负载略有不同。
 
@@ -40,53 +42,66 @@ winc 以 Rust 与自研渲染引擎构建：0.1 秒启动，十万行代码仅�
 
 | 方面 | 能力 |
 | --- | --- |
-| 编辑 | 多光标、查找替换、系统输入法，GB 级文件中流畅滚动，以及实验性的 Vim 模式 |
-| 语法 | 常见编程语言、标记语言、数据和配置格式的高亮，不依赖语言服务器的轻量跳转定义和查找用法 |
-| 格式化 | 调用 rustfmt、Prettier、Black、Ruff、gofmt 等外部工具整理整个文件 |
-| 预览 | Markdown（含公式和 Mermaid 图）、图片、SVG、PDF（macOS 和 Windows）、Word 文档（docx）、表格（xlsx、csv），随时切回源代码 |
-| Git | 并排差异（词级高亮）、按块暂存、提交和推送、提交图、逐行追溯 |
-| 项目 | 文件树、快速打开、遵循 `.gitignore` 的项目搜索 |
-| 终端 | 内置终端，支持自动加载项目内的 Python 虚拟环境 |
-| 远程 | 实验性的 SSH 远程：打开 Linux 主机上的目录，在其中编辑、搜索、格式化、使用 Git 和终端；Windows 上可打开 WSL 发行版中的目录 |
-| 界面 | 十六套内置主题，浅色、深色均有；完整的英文和简体中文界面 |
-| 模块 | Git、终端和 SSH 远程均可单独关闭；首次运行时在开始页设置外观、主题、语言和模块 |
+| 编辑 | 多光标、查找替换、拆分窗格、系统输入法、GB 级文件中流畅滚动，以及实验性的 Vim 模式 |
+| 语法 | 常见编程语言、标记语言、数据和配置格式的高亮，以及不依赖语言服务器的跳转定义和查找用法 |
+| 格式化 | 调用 rustfmt、Prettier、Black、Ruff、gofmt 等外部工具格式化整个文件 |
+| 预览 | Markdown（含公式和 Mermaid 图）、图片、SVG、PDF 和 LaTeX（macOS 和 Windows）、Word 文档、表格，随时切回源代码 |
+| Git | 并排差异（词级高亮）、在一个标签页中查看全部未提交的更改、按块暂存、按行勾选提交、推送、提交图、逐行追溯 |
+| 项目 | 文件树、快速打开、遵循 `.gitignore` 的项目搜索，可在侧栏或对话框中使用，结果以列表或树形显示 |
+| 终端 | 内置终端，支持拆分窗格和标签页组，自动加载项目内的 Python 虚拟环境 |
+| 远程 | 实验性的 SSH 远程：在 Linux 主机的目录中编辑、搜索、格式化、使用 Git 和终端；Windows 上可打开 WSL 发行版中的目录 |
+| 界面 | 十六套内置的浅色和深色主题，完整的英文和简体中文界面 |
+| 模块 | Git、终端和 SSH 远程均可单独关闭；首次启动时在开始页设置外观、主题、语言和模块 |
 | 更新 | 三个平台都有签名的应用内更新，更新后可在应用内查看更新日志 |
 
-触摸屏支持点按按钮和定位光标、双击选词、单指滑动滚动，以及拖动滚动条和面板分隔条。
-Windows 上还可拖动标题栏移动窗口、双击标题栏最大化或还原，以及拖动窗口边缘改变大小。
-窗口拖动和边缘吸附与鼠标操作共用 Windows 原生行为。
-长按 500 毫秒打开当前位置的右键菜单。滑动始终作用于落指的区域，抬手后停止；多指接触会取消
-当前手势，所有手指离开后可继续操作。
+触摸屏上可点按按钮和定位光标、双击选词、滑动滚动、拖动滚动条和分隔条，长按 500 毫秒打开右键菜单。
+Windows 上的标题栏和窗口边缘也支持触摸操作，吸附效果与鼠标一致。
 
-图片和 SVG 预览的缩放方式与 PDF 预览相同：按住 Ctrl（macOS 为 ⌘）滚动、触控板捏合，或按
-Ctrl/⌘ 加 `+`、`-`、`0`，缩放时鼠标所指的位置保持不动。放大后滚动或按住左键拖动查看，双击
-恢复适应窗口。SVG 分栏预览中的图片也支持这些操作。
+图片、SVG 和 PDF 预览可按住 Ctrl（macOS 为 ⌘）滚动、双指捏合，或按 Ctrl/⌘ 加 `+`、`-`、`0` 缩放，
+鼠标所指的位置保持不动。放大后滚动或拖动查看，双击恢复适应窗口。
 
 ## 平台
 
 | 平台 | 要求 | 安装包 |
 | --- | --- | --- |
 | macOS | macOS 11 及以上，Apple 芯片或 Intel | 磁盘映像 |
-| Linux | x86_64，X11 或 Wayland | AppImage、deb、Arch 软件源 |
-| Windows | Windows 10 1809 及以上，x86_64 | NSIS、MSI、便携 ZIP |
+| Linux | x86_64 或 ARM64，glibc 2.28 及以上，X11 或 Wayland | AppImage、deb、rpm、Arch 软件源 |
+| Windows | Windows 10 1809 及以上，x86_64 | NSIS、MSI、便携 ZIP、winget、Scoop |
 
-便携 ZIP 将设置和状态保存在 `winc.exe` 旁边的 `data` 目录中；删除该目录后改为保存在用户目录中。
+可从 [winc.si](https://winc.si/zh-cn/downloads) 下载，所有版本见
+[GitHub Releases](https://github.com/DEEIX-AI/Winc/releases)。winc 主要在 macOS 上开发和测试。
 
-主要在 macOS 上开发和测试。可从 [winc.si](https://winc.si/#download) 下载，所有版本见
-[GitHub Releases](https://github.com/DEEIX-AI/Winc/releases)。
+Windows 上也可以通过 winget 或 Scoop 安装。winget 安装的版本在应用内更新，Scoop 安装的版本用
+`scoop update winc` 更新。
+
+```powershell
+winget install DEEIX-AI.Winc
+scoop bucket add extras; scoop install extras/winc
+```
+
+在 Arch Linux 及 CachyOS、Omarchy 等基于 Arch 的发行版（x86_64）上，以下命令添加经过签名的软件源并
+安装 winc，之后随 `sudo pacman -Syu` 更新。
+
+```bash
+curl --proto '=https' --tlsv1.2 -fLO https://winc.si/releases/arch/install-arch.sh && sudo bash install-arch.sh
+```
+
+便携 ZIP 把设置和状态保存在 `winc.exe` 旁边的 `data` 目录中，没有该目录时保存在用户目录中。
 
 ## 命令行
 
 ```bash
 winc .                  # 打开当前目录
 winc file.rs:12:5       # 打开文件并跳到指定的行和列
-winc --wait file        # 等标签关闭后再退出，例如作为 Git 的编辑器
+winc --wait file        # 等标签页关闭后再退出，例如作为 Git 的编辑器
 cargo build 2>&1 | winc -   # 读取标准输入
 ```
 
-Windows 安装包、Linux deb 包和 Arch 包会把 `winc` 加入 `PATH`；Windows 便携版不修改 `PATH`。macOS 请在菜单栏选择「Winc → 安装 winc 命令…」，或在命令面板中运行「Shell 命令：安装 winc 命令」；Linux AppImage 请使用命令面板。
+Windows 安装包、winget、Scoop，以及 deb、rpm 和 Arch 包会把 `winc` 加入 `PATH`，便携 ZIP 不会。
+macOS 上在菜单栏选择「Winc → 安装 winc 命令…」，或在命令面板中运行「Shell 命令：安装 winc 命令」；
+AppImage 请使用命令面板。
 
-在 macOS 上应用由系统启动，不继承 shell 的环境变量；需要保留时使用 `winc --new-instance`。
+macOS 上的应用由系统启动，不继承 shell 的环境变量；需要保留时使用 `winc --new-instance`。
 
 ## 从源代码构建
 
@@ -144,7 +159,10 @@ cargo xtask bench                   # 测启动、内存、滚动，对照性能
 - 网站：[winc.si](https://winc.si)
 - 邮箱：[support@deeix.com](mailto:support@deeix.com)
 - Telegram：[t.me/deeix_chat](https://t.me/deeix_chat)
+- QQ 群：260867503
 - X：[@DEEIX_AI](https://x.com/DEEIX_AI)
+
+<img src="./.github/assets/qq-group.jpg" alt="QQ 群 260867503 的二维码" width="200" />
 
 ## 友情链接
 

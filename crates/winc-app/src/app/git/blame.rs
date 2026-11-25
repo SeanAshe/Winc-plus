@@ -219,18 +219,7 @@ impl App {
         if !doc.shows_text() || doc.is_large() {
             return None;
         }
-        // 文件所在的仓库：打开的目录里有几个仓库时不一定是当前仓库，取包含它的最里层那个。
-        let owner = |path: &Path| {
-            let repos = self.git.repositories.iter().chain(&self.git.root);
-            let inside = repos.filter(|r| path.starts_with(r));
-            inside.max_by_key(|r| r.as_os_str().len()).cloned()
-        };
-        let path = doc.path.clone()?;
-        if let Some(root) = owner(&path) {
-            return Some((root, path));
-        }
-        let path = winc_config::files::canonicalize(path).ok()?;
-        Some((owner(&path)?, path))
+        self.repo_of(doc.path.as_deref()?)
     }
 
     /// 仓库 `root` 里的文件 `path` 是否未跟踪或被忽略：`git blame` 对它总是失败。仓库的状态还

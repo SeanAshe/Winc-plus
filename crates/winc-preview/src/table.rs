@@ -7,7 +7,10 @@
 
 use std::path::Path;
 
+mod source;
 mod xlsx;
+
+pub use source::{field_at, field_start};
 
 /// 每张工作表最多读的行数（行）：xlsx 格式规定的行数上限，csv、tsv 取同一个值。
 pub const MAX_ROWS: usize = 1_048_576;
@@ -89,6 +92,13 @@ pub struct Sheet {
     reach: Vec<usize>,
     /// 是否因超过 [`MAX_ROWS`]、[`MAX_COLUMNS`] 或文字总量的上限没有读完。
     pub truncated: bool,
+    /// 从分隔符文本读出时分列的字符；工作簿中的表为 `None`。
+    pub delimiter: Option<char>,
+    /// 数据行与源文本行号之差变化的地方：（数据行，该行起的行号之差），按数据行排序。
+    ///
+    /// 引号内的字段跨行时，其后各行数据的起始行号比数据行号大；没有跨行的字段时为空。见
+    /// [`Sheet::source_line`]。
+    shifts: Vec<(u32, u32)>,
 }
 
 /// 逐格、逐行建立工作表。
@@ -121,6 +131,15 @@ impl Rows {
         }
         self.sheet.text.push_str(cell);
         self.sheet.ends.push(end as u32);
+    }
+
+    /// 记下下一行数据从源文本的第 `line` 行开始；与按行号顺推的不同时才记。
+    fn starts_at(&mut self, line: u32) {
+        let row = self.sheet.row_ends.len() as u32;
+        let shift = line - row;
+        if self.sheet.shifts.last().map_or(0, |&(_, s)| s) != shift {
+            self.sheet.shifts.push((row, shift));
+        }
     }
 
     /// 结束当前行，去掉行末的空单元格。
@@ -419,6 +438,9 @@ pub fn read_delimited(text: &str, tabs: bool) -> Sheet {
 }
 
 /// 一段一段读入分隔符文本的解析器：各段依次交给 [`Delimited::feed`]，最后 [`Delimited::finish`]。
+///
+/// 同时记下各行数据在源文本中的起始行号（[`Sheet::source_line`]）。行尾与文本编辑区相同：换行、
+/// 回车和回车换行各算一个。
 struct Delimited {
     rows: Rows,
     delimiter: char,
@@ -435,6 +457,10 @@ struct Delimited {
     /// 已经读满 [`MAX_ROWS`] 行：此后只看后面还有没有内容。
     done: bool,
     truncated: bool,
+    /// 已读过的行尾数，即当前字符所在的源文本行号（从 0 起）。
+    line: u32,
+    /// 引号里刚读到回车：紧跟的换行属于同一个行尾，不再计数。
+    quoted_cr: bool,
 }
 
 impl Delimited {
@@ -449,6 +475,8 @@ impl Delimited {
             fresh: true,
             done: false,
             truncated: false,
+            line: 0,
+            quoted_cr: false,
         }
     }
 
@@ -468,9 +496,14 @@ impl Delimited {
                 self.quoted = false;
             }
             if self.quoted {
+                let quoted_cr = std::mem::take(&mut self.quoted_cr);
                 match c {
                     '"' => self.closing = true,
                     _ => self.field.push(c),
+                }
+                if c == '\r' || (c == '\n' && !quoted_cr) {
+                    self.line += 1;
+                    self.quoted_cr = c == '\r';
                 }
                 continue;
             }
@@ -489,6 +522,8 @@ impl Delimited {
                     push_field(&mut self.rows, &mut self.field, &mut self.truncated);
                     self.rows.end_row();
                     self.done = self.rows.len() == MAX_ROWS;
+                    self.line += 1;
+                    self.rows.starts_at(self.line);
                 }
                 c if c == self.delimiter => {
                     push_field(&mut self.rows, &mut self.field, &mut self.truncated);
@@ -509,7 +544,9 @@ impl Delimited {
             push_field(&mut self.rows, &mut self.field, &mut self.truncated);
             self.rows.end_row();
         }
-        self.rows.finish(String::new(), self.truncated)
+        let mut sheet = self.rows.finish(String::new(), self.truncated);
+        sheet.delimiter = Some(self.delimiter);
+        sheet
     }
 }
 

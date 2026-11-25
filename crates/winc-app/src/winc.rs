@@ -8,14 +8,14 @@
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Weak};
 use std::time::Instant;
 
 use winit::application::ApplicationHandler;
 use winit::event::{ElementState, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoopClosed, EventLoopProxy};
-use winit::window::WindowId;
+use winit::window::{Window, WindowId};
 
 use winc_config::State;
 use winc_editor::Editor;
@@ -93,6 +93,12 @@ pub enum Request {
     /// 文件或目录从 `.0` 移到了 `.1`（在一个窗口剪切、到另一个窗口粘贴）：各窗口里打开的
     /// 文件、最近的文件、文件树跟着更新。
     Moved(PathBuf, PathBuf),
+    /// 文件树中拖动的各项 `.1` 此刻经过窗口 `.0`，`.2` 为是否按着 `⌥` 复制：该窗口标出落点。
+    /// `.0` 为 `None` 时不在任何其他窗口上，之前经过的窗口不再标出落点。
+    DragOver(Option<WindowKey>, Vec<PathBuf>, bool),
+    /// 在窗口 `.0` 上松开了文件树中拖动的各项 `.1`，`.2` 为是否按着 `⌥` 复制：由该窗口按落点
+    /// 放下（见 [`App::drop_dragged_in`]）。
+    DropOn(WindowKey, Vec<PathBuf>, bool),
 }
 
 /// 应用内更新的状态，设置的「关于」页显示。
@@ -179,6 +185,11 @@ pub struct Shared {
     pub update_state: RefCell<UpdateState>,
     /// 最近生成的窗口背景图层：各窗口共用同一张，没有窗口使用时释放。
     pub wallpaper: RefCell<std::rc::Weak<crate::app::WallpaperLayer>>,
+    /// 各窗口的系统窗口；窗口增减时刷新。查询光标下是哪个窗口时用。
+    windows: RefCell<Vec<(WindowKey, Weak<Window>)>>,
+    /// 测试中代替系统的查询：光标下最上层的窗口；为 `None` 时照常查询（测试中没有系统窗口）。
+    #[cfg(test)]
+    pub cursor_window: Cell<Option<WindowKey>>,
 }
 
 impl Shared {
@@ -216,6 +227,29 @@ impl Shared {
         });
         let deepest = inside.max_by_key(|(_, root)| root.components().count());
         deepest.map(|(key, _)| *key)
+    }
+
+    /// 返回光标所在位置最上层的、`except` 以外的本进程窗口；光标下是其他应用的窗口、桌面，或
+    /// 平台不支持查询时返回 `None`。
+    ///
+    /// 只在 macOS 和 Windows 上查询：X11 上光标下的顶层窗口是窗口管理器的外框，Wayland 不提供
+    /// 光标的全局位置。耗时与窗口数成正比，每个窗口一次系统调用。
+    pub fn window_at_cursor(&self, except: Option<WindowKey>) -> Option<WindowKey> {
+        #[cfg(test)]
+        if let Some(key) = self.cursor_window.get() {
+            return (Some(key) != except).then_some(key);
+        }
+        #[cfg(target_os = "macos")]
+        let topmost = crate::macos::topmost_at_cursor;
+        #[cfg(windows)]
+        let topmost = crate::windows::topmost_at_cursor;
+        #[cfg(not(any(target_os = "macos", windows)))]
+        let topmost = |_: &Window| false;
+        let windows = self.windows.borrow();
+        let found = windows.iter().find(|(key, window)| {
+            Some(*key) != except && window.upgrade().is_some_and(|window| topmost(&window))
+        });
+        found.map(|(key, _)| *key)
     }
 
     /// 是否还有别的窗口。
@@ -294,6 +328,8 @@ pub struct Winc {
     /// 在整个应用的套接字上等之后启动的 `winc` 交来的目录和文件（见 `instance`）；另一个
     /// winc 已经在等、或者不能新建窗口时没有。
     launches: Option<(Listener, AppLock)>,
+    /// 文件树中拖动的各项此刻经过的其他窗口（见 [`Request::DragOver`]）；没有时为 `None`。
+    dragged_over: Option<WindowKey>,
 }
 
 impl Winc {
@@ -310,6 +346,7 @@ impl Winc {
             template,
             quitting: None,
             launches: None,
+            dragged_over: None,
         }
     }
 
@@ -450,7 +487,9 @@ impl Winc {
         let exit = self.advance_quit();
         self.refresh_shared();
         let mut requests = std::mem::take(&mut *self.shared.requests.borrow_mut());
-        // 移动不用事件循环，在这里就告诉各窗口；发起的窗口已经更新过，再做一次没有变化。
+        // 移动、拖动不用事件循环，在这里就告诉各窗口；发起移动的窗口已经更新过，再做一次没有
+        // 变化。放下之后切到放下的窗口：移动前的确认、之后的操作都在那里进行。
+        let mut dropped = None;
         requests.retain(|request| match request {
             Request::Moved(from, to) => {
                 for slot in &mut self.windows {
@@ -458,9 +497,36 @@ impl Winc {
                 }
                 false
             }
+            Request::DragOver(to, paths, copy) => {
+                self.drag_over(*to, paths, *copy);
+                false
+            }
+            Request::DropOn(to, paths, copy) => {
+                self.drag_over(None, &[], false);
+                if let Some(app) = self.by_key(*to) {
+                    app.drop_dragged_in(paths.clone(), *copy);
+                    dropped = Some(*to);
+                }
+                false
+            }
             _ => true,
         });
+        requests.extend(dropped.map(Request::Focus));
         (requests, exit)
+    }
+
+    /// 文件树中拖动的各项 `paths` 此刻经过的窗口变为 `to`（`copy` 为是否按着 `⌥`）：之前经过的
+    /// 窗口不再标出落点，`to` 按光标此刻的位置标出。
+    fn drag_over(&mut self, to: Option<WindowKey>, paths: &[PathBuf], copy: bool) {
+        if let Some(left) = self.dragged_over.filter(|key| Some(*key) != to)
+            && let Some(app) = self.by_key(left)
+        {
+            app.drag_left();
+        }
+        self.dragged_over = to;
+        if let Some(app) = to.and_then(|key| self.by_key(key)) {
+            app.drag_over(paths, copy);
+        }
     }
 
     /// 某个窗口改了设置（[`App::config_rev`] 变了）：把它的配置发给其他窗口。
@@ -605,6 +671,18 @@ impl Winc {
     /// 每个事件之后都调用（包括鼠标移动），目录没变时不重建列表。
     fn refresh_shared(&mut self) {
         self.shared.count.set(self.windows.len());
+        let windows =
+            || (self.windows.iter()).filter_map(|slot| Some((slot.key, slot.app.system_window()?)));
+        let same = {
+            let known = self.shared.windows.borrow();
+            known.len() == windows().count()
+                && (known.iter().zip(windows()))
+                    .all(|((k, w), (key, window))| *k == key && w.as_ptr() == Arc::as_ptr(window))
+        };
+        if !same {
+            let fresh = windows().map(|(key, window)| (key, Arc::downgrade(window)));
+            *self.shared.windows.borrow_mut() = fresh.collect();
+        }
         let roots = || {
             self.windows.iter().filter_map(|slot| {
                 let root = slot.app.editor.root()?;
@@ -653,7 +731,7 @@ impl Winc {
                         self.activate(key);
                     }
                     // 已在 `settle` 里处理。
-                    Request::Moved(..) => {}
+                    Request::Moved(..) | Request::DragOver(..) | Request::DropOn(..) => {}
                 }
             }
         }
@@ -907,6 +985,7 @@ impl Winc {
         app.git.commit.set_sort(sort);
         app.restore_panel_width();
         app.editor.diff_unified = app.config.diff_inline == Some(true);
+        (app.editor).set_align_columns(app.config.align_columns != Some(false));
         app.editor.diff_collapse = app.config.diff_collapse_unchanged != Some(false);
         app.apply_preview_state();
         app.store.state_path = template.state_path;

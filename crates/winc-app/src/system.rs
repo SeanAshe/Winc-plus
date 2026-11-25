@@ -12,6 +12,8 @@ use std::io;
 use std::path::Path;
 use std::process::Command;
 
+pub(crate) mod info;
+
 /// 返回「显示文件所在位置」按钮上的文字（按当前界面语言）。
 ///
 /// 文字随平台改变：macOS 上取自 `common-reveal-in-finder`，其他平台取自

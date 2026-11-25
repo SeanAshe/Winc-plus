@@ -20,20 +20,21 @@
 </p>
 
 <p align="center">
-  <a href="https://winc.si/#download"><img alt="Download Winc" src="./.github/assets/download-en.svg" /></a>
+  <a href="https://winc.si/downloads"><img alt="Download Winc" src="./.github/assets/download-en.svg" /></a>
 </p>
 
 ## Overview
 
-winc is built with Rust and its own rendering engine: it starts in 0.1 seconds and uses just 52 MB
-of memory with 100,000 lines open. Multiple cursors, find and replace, and side-by-side diffs are
-all there, and every keystroke and scroll responds instantly.
+winc is a desktop editor built with Rust and its own rendering engine. It starts in about a tenth
+of a second, stays light with large files open, and responds to every keystroke and scroll at once.
 
 | Measure | Result |
 | --- | --- |
-| Cold start to first frame | 119 ms (median of 20 runs) |
-| Resident memory with 100,000 lines open | 52 MB |
-| A 1 GB file, editable and highlighted | 220 ms |
+| Cold start to first frame | 95 ms |
+| Memory with a 100 MB file open | 35 MB |
+| Opening a 3.9 GB file with 41 million lines | 154 ms |
+| Keystroke to frame | 1.0 ms |
+| Frame time while scrolling | 0.6 ms |
 
 Measured on macOS; results vary with hardware and system load.
 
@@ -41,43 +42,55 @@ Measured on macOS; results vary with hardware and system load.
 
 | Area | Capabilities |
 | --- | --- |
-| Editing | Multiple cursors, find and replace, native input methods, smooth scrolling in gigabyte-sized files, and an experimental Vim mode |
-| Syntax | Highlighting for common programming, markup, data, and configuration languages, plus lightweight go-to-definition and usages without a language server |
-| Formatting | Whole-file formatting with external tools such as rustfmt, Prettier, Black, Ruff, and gofmt |
-| Preview | Markdown with math and Mermaid diagrams, images, SVG, PDF (macOS and Windows), Word documents (docx), and spreadsheets (xlsx, csv), with the source one click away |
-| Git | Side-by-side diffs with word-level highlights, staging by hunk, commit and push, a commit graph, and blame |
-| Project | A file tree, quick open, and project search that follows `.gitignore` |
-| Terminal | An integrated terminal with automatic loading of project-local Python environments |
-| Remote | Experimental SSH remote: open a folder on a Linux host and edit, search, format, use Git, and open terminals there. On Windows, open folders inside WSL distributions |
-| Interface | Sixteen built-in themes, light and dark, and a complete interface in English and Simplified Chinese |
-| Modules | Git, the terminal, and SSH remote can each be turned off. First-time setup on the start page offers the appearance, theme, language, and modules |
-| Updates | Signed in-app updates on all three platforms, with the release notes shown in the app after each update |
+| Editing | Multiple cursors, find and replace, split panes, native input methods, smooth scrolling in gigabyte-sized files, and an experimental Vim mode |
+| Syntax | Highlighting for common programming, markup, data, and configuration languages, with lightweight go-to-definition and find usages that need no language server |
+| Formatting | Whole-file formatting through rustfmt, Prettier, Black, Ruff, gofmt, and other external tools |
+| Preview | Markdown with math and Mermaid diagrams, images, SVG, PDF and LaTeX (macOS and Windows), Word documents, and spreadsheets, with the source one click away |
+| Git | Side-by-side diffs with word-level highlights, all uncommitted changes in one tab, staging by hunk, committing selected lines, push, a commit graph, and blame |
+| Project | A file tree, quick open, and project search that follows `.gitignore`, in the sidebar or a dialog, with results as a list or a tree |
+| Terminal | An integrated terminal with split panes and tab groups that loads project Python environments automatically |
+| Remote | Experimental SSH remote: edit, search, format, use Git, and open terminals in folders on Linux hosts; on Windows, open folders in WSL distributions |
+| Interface | Sixteen built-in light and dark themes, and a complete interface in English and Simplified Chinese |
+| Modules | Git, the terminal, and SSH remote can each be turned off; the start page sets up appearance, theme, language, and modules on first launch |
+| Updates | Signed in-app updates on all three platforms, with the release notes shown after each update |
 
-Touchscreens support tapping buttons and placing the caret, double-tapping to select a word,
-swiping to scroll, and dragging scrollbars and panel dividers. Hold for 500 ms to open the context
-menu. Swipes stay in the region where they started and stop on release. Additional fingers cancel
-the current gesture; lift all fingers before starting another. On Windows, drag the title bar to
-move the window, double-tap it to maximize or restore, and drag the window edges to resize.
-Window dragging and edge snapping use the same native Windows behavior as mouse input.
+On touchscreens, tap to press buttons and place the caret, double-tap to select a word, swipe to
+scroll, drag scrollbars and dividers, and hold for 500 ms to open the context menu. On Windows, the
+title bar and window edges also respond to touch, with the same snapping as the mouse.
 
-Image and SVG previews zoom like the PDF preview: hold Ctrl (⌘ on macOS) and scroll, pinch, or
-press Ctrl/⌘ with `+`, `-` or `0`; the point under the pointer stays in place. Scroll or drag a
-zoomed image to pan, and double-click to fit it again. This also works in the SVG split preview.
+Image, SVG, and PDF previews zoom with Ctrl (⌘ on macOS) and the wheel, a pinch, or Ctrl/⌘ with
+`+`, `-`, and `0`, keeping the point under the pointer in place. Scroll or drag to pan, and
+double-click to fit the window again.
 
 ## Platforms
 
 | Platform | Requirements | Package |
 | --- | --- | --- |
 | macOS | macOS 11 or later, Apple silicon or Intel | Disk image |
-| Linux | x86_64, X11 or Wayland | AppImage, deb, Arch repository |
-| Windows | Windows 10 1809 or later, x86_64 | NSIS, MSI, portable ZIP |
+| Linux | x86_64 or ARM64, glibc 2.28 or later, X11 or Wayland | AppImage, deb, rpm, Arch repository |
+| Windows | Windows 10 1809 or later, x86_64 | NSIS, MSI, portable ZIP, winget, Scoop |
 
-The portable ZIP keeps settings and state in the `data` folder beside `winc.exe`; delete that
-folder to keep them in the user profile instead.
+Download winc from [winc.si](https://winc.si/downloads); every version is on
+[GitHub Releases](https://github.com/DEEIX-AI/Winc/releases). winc is developed and tested mainly
+on macOS.
 
-winc is developed and tested mainly on macOS. Download it from
-[winc.si](https://winc.si/#download); all versions are on
-[GitHub Releases](https://github.com/DEEIX-AI/Winc/releases).
+On Windows, winc is also available through winget and Scoop. winget installs update in the app;
+Scoop installs update with `scoop update winc`.
+
+```powershell
+winget install DEEIX-AI.Winc
+scoop bucket add extras; scoop install extras/winc
+```
+
+On Arch Linux and Arch-based distributions such as CachyOS and Omarchy (x86_64), this command adds
+the signed repository and installs winc, which then updates with `sudo pacman -Syu`.
+
+```bash
+curl --proto '=https' --tlsv1.2 -fLO https://winc.si/releases/arch/install-arch.sh && sudo bash install-arch.sh
+```
+
+The portable ZIP keeps settings and state in the `data` folder beside `winc.exe`. Without that
+folder, they are kept in the user profile.
 
 ## Command Line
 
@@ -88,9 +101,13 @@ winc --wait file        # wait until the tab closes, for example as the Git edit
 cargo build 2>&1 | winc -   # read standard input
 ```
 
-The Windows installers and the Linux deb and Arch packages add `winc` to `PATH`; the Windows portable ZIP leaves `PATH` unchanged. On macOS, choose **Winc → Install winc Command…** from the menu bar or run **Shell Command: Install winc Command** from the command palette; with the Linux AppImage, use the command palette.
+The Windows installers, winget, Scoop, and the deb, rpm, and Arch packages put `winc` on `PATH`;
+the portable ZIP does not. On macOS, choose **Winc → Install winc Command…** in the menu bar or run
+**Shell Command: Install winc Command** from the command palette; for the AppImage, use the command
+palette.
 
-On macOS the app is started by the system, so it does not inherit the environment variables of your shell. Use `winc --new-instance` to keep them.
+On macOS the app is launched by the system and does not inherit the environment of your shell. Run
+`winc --new-instance` to keep it.
 
 ## Building from Source
 
@@ -150,6 +167,7 @@ vulnerability, see [SECURITY.md](.github/SECURITY.md).
 - Website: [winc.si](https://winc.si)
 - Email: [support@deeix.com](mailto:support@deeix.com)
 - Telegram: [t.me/deeix_chat](https://t.me/deeix_chat)
+- QQ group: 260867503
 - X: [@DEEIX_AI](https://x.com/DEEIX_AI)
 
 ## Links

@@ -1,0 +1,225 @@
+# Issue triage: sorts issues by the answers in their forms and tracks where each one stands.
+#
+# - Type: issue forms set the issue type. An issue written without a form gets its type from the
+#   title prefix ([Bug], [Feature], [Docs]).
+# - Labels: "area:", "platform:" and "arch:" labels follow the form's answers, as listed in
+#   .github/labels.json. Area labels are only added, so a maintainer's own choice is kept; platform
+#   and architecture labels follow the form when its author changes the answer.
+# - Waiting on the author: an issue written without a form is marked "status: needs template" with
+#   a comment, cleared once it follows a form. An issue marked "status: needs info" is cleared when
+#   its author replies, and reopened if it had been closed for lack of a reply; those with no
+#   activity for 14 days are closed every day. Progress and priority are tracked in the project.
+# - Commands: a maintainer's comment that starts with "/needs-info", "/duplicate #<number>" or
+#   "/wontfix" marks the issue accordingly; the last two also close it.
+# - Running the workflow by hand applies types and labels to every open issue, and to closed ones
+#   too when asked, without changing their status or commenting. Issues labeled bug, enhancement or
+#   documentation take their type from that label. Issues already sorted cost no requests, and a run
+#   stops after 400 changes to stay within GitHub's rate limits; run it again to continue.
+
+name: Issue triage
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+  issue_comment:
+    types: [created]
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+    inputs:
+      closed:
+        description: Also sort closed issues
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: issue-triage-${{ github.event.issue.number || github.event_name }}
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    runs-on: ubuntu-24.04
+    if: github.repository == 'DEEIX-AI/Winc' && !github.event.issue.pull_request
+    steps:
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const STALE_DAYS = 14;
+            const TEMPLATE = "status: needs template";
+            const INFO = "status: needs info";
+            const MARKER = "<!-- issue-triage:template -->";
+            const PREFIXES = [[/^\[bug\]/i, "Bug"], [/^\[feature\]/i, "Feature"], [/^\[docs\]/i, "Task"]];
+            const LEGACY = { bug: "Bug", enhancement: "Feature", documentation: "Task" };
+            const choose = `https://github.com/${owner}/${repo}/issues/new/choose`;
+            // Changes made to issues, counted to stop a run by hand before the rate limits.
+            let writes = 0;
+            const MAX_WRITES = 400;
+
+            const file = await github.rest.repos.getContent({ owner, repo, path: ".github/labels.json" });
+            const mapped = JSON.parse(Buffer.from(file.data.content, "base64").toString()).labels
+              .filter((label) => label.field);
+
+            // A form renders each field as "### <label>", a blank line, then the answer; several
+            // choices are joined by ", " and an empty field reads "_No response_".
+            const answers = (body) => {
+              const fields = new Map();
+              for (const [, name, value] of (body ?? "").matchAll(/^### (.+)\n+([^\n]*)/gm)) {
+                const text = value.trim();
+                if (text && text !== "_No response_") fields.set(name.trim(), text.split(", "));
+              }
+              return fields;
+            };
+            const fromForm = (fields) => fields.has("Area") || fields.has("Location");
+            const has = (issue, name) => issue.labels.some((label) => (label.name ?? label) === name);
+
+            // The labels that the form's answers call for, and the groups the form answered.
+            const formLabels = (fields) => {
+              const wanted = [];
+              const answered = new Set();
+              for (const label of mapped) {
+                const given = label.field.flatMap((name) => fields.get(name) ?? []);
+                if (given.length) answered.add(label.name.split(":")[0]);
+                if (given.some((answer) => label.answers.includes("*") || label.answers.includes(answer))) {
+                  wanted.push(label.name);
+                }
+              }
+              return { wanted, answered };
+            };
+
+            const setType = async (issue, fallback) => {
+              if (issue.type) return;
+              const type = PREFIXES.find(([pattern]) => pattern.test(issue.title))?.[1] ?? fallback;
+              if (!type) return;
+              writes += 1;
+              await github.request("PATCH /repos/{owner}/{repo}/issues/{issue_number}", {
+                owner, repo, issue_number: issue.number, type,
+              });
+            };
+
+            // Adds the labels the form calls for. On an edit, platform and architecture labels
+            // that no longer match a changed answer are removed; area labels are never removed.
+            const applyLabels = async (issue, replace) => {
+              const { wanted, answered } = formLabels(answers(issue.body));
+              const add = wanted.filter((name) => !has(issue, name));
+              if (add.length) {
+                writes += 1;
+                await github.rest.issues.addLabels({ owner, repo, issue_number: issue.number, labels: add });
+              }
+              if (!replace) return;
+              for (const label of issue.labels) {
+                const group = label.name.split(":")[0];
+                if ((group === "platform" || group === "arch") && answered.has(group)
+                  && mapped.some((m) => m.name === label.name) && !wanted.includes(label.name)) {
+                  await github.rest.issues.removeLabel({ owner, repo, issue_number: issue.number, name: label.name });
+                }
+              }
+            };
+
+            const swap = async (issue, remove, add) => {
+              if (remove && has(issue, remove)) {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number: issue.number, name: remove });
+              }
+              if (add && !has(issue, add)) {
+                await github.rest.issues.addLabels({ owner, repo, issue_number: issue.number, labels: [add] });
+              }
+            };
+
+            const askForTemplate = async (issue) => {
+              const comments = await github.paginate(github.rest.issues.listComments,
+                { owner, repo, issue_number: issue.number, per_page: 100 });
+              if (comments.some((comment) => comment.body?.includes(MARKER))) return;
+              await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: [
+                MARKER,
+                `This issue was not written with an issue form, so it could not be sorted. Please edit it to follow one of the [issue forms](${choose}), keeping the headings, or open a new issue from them.`,
+                "",
+                `这个 issue 没有使用模板，无法自动分类。请参照[模板](${choose})编辑（保留其中的小标题），或从模板重新提交。`,
+              ].join("\n") });
+            };
+
+            const event = context.eventName;
+            const action = context.payload.action;
+
+            if (event === "issues") {
+              const issue = context.payload.issue;
+              const form = fromForm(answers(issue.body));
+              await setType(issue);
+              await applyLabels(issue, action === "edited" && Boolean(context.payload.changes?.body));
+              if (action === "opened" && !form && !has(issue, TEMPLATE)) {
+                await swap(issue, null, TEMPLATE);
+                await askForTemplate(issue);
+              } else if (action === "edited" && form && has(issue, TEMPLATE)) {
+                await swap(issue, TEMPLATE, null);
+              }
+            } else if (event === "issue_comment") {
+              const issue = context.payload.issue;
+              const comment = context.payload.comment;
+              const maintainer = ["OWNER", "MEMBER", "COLLABORATOR"].includes(comment.author_association);
+              const command = maintainer ? comment.body.trim().match(/^\/(needs-info|duplicate|wontfix)\b(.*)/) : null;
+              if (command) {
+                const [, name, rest] = command;
+                if (name === "needs-info") {
+                  await swap(issue, null, INFO);
+                } else if (name === "duplicate") {
+                  const original = rest.match(/#(\d+)/)?.[1];
+                  if (!original) {
+                    core.warning("/duplicate needs the number of the original issue, as in /duplicate #123");
+                  } else {
+                    await swap(issue, INFO, "duplicate");
+                    await github.rest.issues.update({
+                      owner, repo, issue_number: issue.number, state: "closed", state_reason: "duplicate",
+                    });
+                  }
+                } else {
+                  await swap(issue, INFO, "wontfix");
+                  await github.rest.issues.update({
+                    owner, repo, issue_number: issue.number, state: "closed", state_reason: "not_planned",
+                  });
+                }
+              } else if (comment.user.login === issue.user.login && has(issue, INFO)) {
+                if (issue.state === "closed") {
+                  await github.rest.issues.update({ owner, repo, issue_number: issue.number, state: "open" });
+                }
+                await swap(issue, INFO, null);
+              }
+            } else if (event === "schedule") {
+              const cutoff = Date.now() - STALE_DAYS * 86_400_000;
+              const waiting = await github.paginate(github.rest.issues.listForRepo,
+                { owner, repo, state: "open", labels: INFO, per_page: 100 });
+              for (const issue of waiting) {
+                if (issue.pull_request || Date.parse(issue.updated_at) > cutoff) continue;
+                await github.rest.issues.createComment({ owner, repo, issue_number: issue.number, body: [
+                  `Closed because the requested information was not provided within ${STALE_DAYS} days. Reply with it and the issue will be reopened.`,
+                  "",
+                  `${STALE_DAYS} 天内未收到所需的信息，先行关闭。补充后回复即可重新打开。`,
+                ].join("\n") });
+                await github.rest.issues.update({
+                  owner, repo, issue_number: issue.number, state: "closed", state_reason: "not_planned",
+                });
+              }
+            } else if (event === "workflow_dispatch") {
+              const state = String(context.payload.inputs?.closed) === "true" ? "all" : "open";
+              const issues = await github.paginate(github.rest.issues.listForRepo,
+                { owner, repo, state, per_page: 100 });
+              let sorted = 0;
+              for (const issue of issues) {
+                if (issue.pull_request) continue;
+                if (writes >= MAX_WRITES) {
+                  core.notice(`Stopped after ${writes} changes to stay within the rate limits; run again to continue.`);
+                  break;
+                }
+                const before = writes;
+                const legacy = issue.labels.map((label) => LEGACY[label.name]).find(Boolean);
+                await setType(issue, legacy);
+                await applyLabels(issue, false);
+                if (writes > before) {
+                  sorted += 1;
+                  await new Promise((resolve) => setTimeout(resolve, 1000));
+                }
+              }
+              core.notice(`Sorted ${sorted} ${state === "all" ? "" : "open "}issues with ${writes} changes.`);
+            }

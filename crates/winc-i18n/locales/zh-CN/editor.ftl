@@ -42,7 +42,7 @@ editor-large-no-multi-cursor = 文件过大，不支持多光标查找
 
 editor-word-wrap-on-large = 文件过大，无法自动换行
 editor-word-wrap-on-pending = 已开启自动换行（大文件模式）
-editor-word-wrap-on-table = 按列对齐的表格不支持自动换行
+editor-word-wrap-on-table = 按列对齐的表格不支持自动换行，关闭「CSV、TSV 按列对齐」后可换行
 editor-word-wrap-on = 已开启自动换行
 editor-word-wrap-off = 已关闭自动换行
 editor-fold-large = 文件过大，无法折叠
@@ -203,6 +203,7 @@ editor-vim-help-supported = 支持
 editor-vim-help-unsupported = 不支持
 editor-vim-help-ex = 命令行的命令（方括号中的部分可省略）
 editor-vim-help-options = :set 的选项（括号中是缩写）
+editor-vim-key-notice = { $key } 已由 Vim 处理，未执行「{ $action }」
 
 ## 复制和粘贴。
 

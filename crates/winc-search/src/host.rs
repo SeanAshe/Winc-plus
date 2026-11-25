@@ -424,29 +424,34 @@ pub fn serve(request: &Request, output: impl Write + Send) -> io::Result<()> {
         })
     };
     let budget = Budget::new(request.limit);
-    search_parallel(scope.paths(), &matcher, &budget, |searcher, file: &Path| {
-        if let Some(&index) = skip.get(file) {
-            return match send(&Record::Skipped(index)) {
-                Ok(()) => ControlFlow::Continue(()),
-                Err(()) => ControlFlow::Break(()),
-            };
-        }
-        let Some((mut matches, lossy)) = searcher.file(file) else {
-            return ControlFlow::Continue(());
-        };
-        let flow = budget.take(&mut matches);
-        if !matches.is_empty() {
-            let record = Record::File {
-                path: file.as_os_str().as_bytes().to_vec(),
-                matches,
-                lossy,
-            };
-            if send(&record).is_err() {
-                return ControlFlow::Break(());
+    search_parallel(
+        scope.paths(budget.stop_flag()),
+        &matcher,
+        &budget,
+        |searcher, file: &Path| {
+            if let Some(&index) = skip.get(file) {
+                return match send(&Record::Skipped(index)) {
+                    Ok(()) => ControlFlow::Continue(()),
+                    Err(()) => ControlFlow::Break(()),
+                };
             }
-        }
-        flow
-    });
+            let Some((mut matches, lossy)) = searcher.file(file) else {
+                return ControlFlow::Continue(());
+            };
+            let flow = budget.take(&mut matches);
+            if !matches.is_empty() {
+                let record = Record::File {
+                    path: file.as_os_str().as_bytes().to_vec(),
+                    matches,
+                    lossy,
+                };
+                if send(&record).is_err() {
+                    return ControlFlow::Break(());
+                }
+            }
+            flow
+        },
+    );
     if let Some(error) = (failed.lock().unwrap_or_else(PoisonError::into_inner)).take() {
         return Err(error);
     }

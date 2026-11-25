@@ -62,6 +62,8 @@ pub struct Layout {
     /// 标签栏右端「在浏览器中打开」按钮（仅当前文件是网页时有）；没有时为空矩形，由
     /// `App::relayout` 放置。
     pub browser: Rect,
+    /// 编辑器终端标签右端的「移至面板」按钮；当前标签不是终端时为空矩形。
+    pub terminal_return: Rect,
     /// 分栏预览时编辑区右半部分的预览区域（编辑区、文本区不含该区域）；不分栏时为空矩形。
     pub split: Rect,
     /// 分栏预览时左右两半之间可拖动的范围，比分隔线两侧各宽出数个逻辑像素；不分栏时为空矩形。
@@ -213,6 +215,7 @@ impl Layout {
             tabs,
             preview: Rect::default(),
             browser: Rect::default(),
+            terminal_return: Rect::default(),
             split: Rect::default(),
             split_divider: Rect::default(),
             editor,

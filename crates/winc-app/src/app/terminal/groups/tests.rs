@@ -53,7 +53,7 @@ fn a_new_group_goes_next_to_the_focused_one_and_all_share_equally() {
     // 在正在用的一栏前面加：正在用的一栏后移一位，份额重新平分。
     t.insert_group(0);
     assert_eq!(t.group_at, 1);
-    assert_eq!(t.group_shares(), [1.0, 1.0, 1.0]);
+    assert_eq!(t.panel_shares(), [1.0, 1.0, 1.0]);
     assert_eq!(ids(&t), [vec![], vec![1, 2], vec![]]);
 }
 
@@ -119,10 +119,10 @@ fn tabs_are_counted_across_groups_in_order() {
     t.place_tab(2, tab(3), None);
     assert_eq!(t.group_count(), 3);
     assert_eq!(ids(&t), [vec![1, 2], vec![], vec![3]]);
-    t.focus_flat(2);
+    t.focus_shell(2);
     assert_eq!(t.group_at, 2);
     assert_eq!(t.tab().map(|tab| tab.id), Some(3));
-    t.focus_flat(1);
+    t.focus_shell(1);
     assert_eq!((t.group_at, t.active), (0, 1));
     let all: Vec<u16> = t.all_tabs().map(|tab| tab.id).collect();
     assert_eq!(all, [1, 2, 3]);

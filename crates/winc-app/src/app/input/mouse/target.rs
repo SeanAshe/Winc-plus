@@ -123,6 +123,9 @@ impl App {
         if self.browser_page().is_some() {
             controls.push(l.browser);
         }
+        if self.editor.active().is_some_and(|doc| doc.terminal) {
+            controls.push(l.terminal_return);
+        }
         controls
     }
 
@@ -257,7 +260,9 @@ impl App {
             Target::MarkdownToc(target) => Hover::MarkdownToc(target),
             Target::MarkdownText(Some(link)) => Hover::MarkdownLinkText(link),
             Target::ImageHandle => Hover::ImageHandle,
-            Target::MarkdownText(None) | Target::PdfThumb(_) | Target::Picture => Hover::None,
+            Target::MarkdownText(None) | Target::PdfThumb(_) | Target::Picture | Target::Table => {
+                Hover::None
+            }
             Target::PdfTool(tool) => Hover::PdfTool(tool),
             Target::LatexStatus => Hover::LatexStatus,
             Target::LatexProblem(line) => Hover::LatexProblem(line),
@@ -422,9 +427,9 @@ impl App {
         if l.search.contains(x, y) {
             return Target::Search;
         }
-        // 展开的全名可以画在分隔条上，分隔条仍然可以拖动；鼠标停在分隔条上时全名保持展开。
+        // 写全名的那一行画在分隔条之上，在这一行的高度内按下作用于这一行；其他高度拖动分隔条。
         let over_row = self.over_tree_overflow_row(y);
-        if self.panels.sidebar.visible && l.splitter.contains(x, y) {
+        if self.on_sidebar_splitter(x, y) {
             return Target::Splitter;
         }
         if let Some(tool) = hit(&self.hits.tree_tools, x, y) {
@@ -456,6 +461,17 @@ impl App {
         // 切换到非网页文件后，按钮收起的动画过程中不响应点击。
         if l.browser.contains(x, y) && self.browser_page().is_some() {
             return Target::Browser;
+        }
+        if l.terminal_return.contains(x, y) && self.editor.active().is_some_and(|doc| doc.terminal)
+        {
+            return Target::TerminalHeader(crate::app::terminal::HeaderHit::Panel);
+        }
+        if self.field_at(x, y) == Some(Focus::TerminalRename)
+            && self.editor.active().is_some_and(|doc| doc.terminal)
+        {
+            return Target::TerminalHeader(crate::app::terminal::HeaderHit::Tab(
+                self.terminal.active,
+            ));
         }
         if let Some((index, on_close)) = self.tab_at(x, y) {
             return Target::Tab(index, on_close);
@@ -516,7 +532,7 @@ impl App {
         if let Some(part) = self.docked_part_at(x, y) {
             return Target::SearchDock(part);
         }
-        if l.terminal.contains(x, y) {
+        if self.terminal_contains(x, y) {
             if self
                 .terminal_tab_list()
                 .is_some_and(|list| list.contains(x, y))
@@ -635,6 +651,9 @@ impl App {
         }
         if self.picture_at(x, y) {
             return Target::Picture;
+        }
+        if self.active_shows_text() && self.table_at(x, y) {
+            return Target::Table;
         }
         if l.editor.contains(x, y) && self.editor.active.is_some() {
             return Target::Editor;
@@ -1207,6 +1226,8 @@ pub(super) enum Target {
     Editor,
     /// 图片或 SVG 的预览区域。
     Picture,
+    /// 分栏时右侧的表格：点击后键盘作用于表格。只看预览时表格位于编辑区，属于 [`Target::Editor`]。
+    Table,
     /// 终端面板。
     Terminal,
     /// 编辑区与终端面板之间的间距。

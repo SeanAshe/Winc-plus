@@ -74,7 +74,7 @@ impl App {
         if self.git_has_worktrees() {
             worktrees.insert(0, item(Action::GitSwitchWorktree));
         }
-        let mut repositories = vec![item(Action::GitClone)];
+        let mut repositories = vec![item(Action::GitAddRepository), item(Action::GitClone)];
         if self.git.repositories.len() >= 2 {
             repositories.insert(0, item(Action::GitSwitchRepository));
         }

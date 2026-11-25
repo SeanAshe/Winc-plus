@@ -15,7 +15,7 @@ use winc_editor::definition::{self, Finder, Kind};
 use winc_editor::usages::{self, Filter};
 use winc_editor::{FileResult, MAX_SEARCH_THREADS, ProjectSearch, Query};
 use winc_i18n::t;
-use winc_syntax::Language;
+use winc_syntax::{Language, LineState};
 
 use super::*;
 use crate::layout::SidebarView;
@@ -160,6 +160,29 @@ pub struct DefinitionSearch {
 }
 
 impl App {
+    /// 返回绘制 `path` 第 `line` 行代码（浮窗、搜索结果中的一行）用的语言和行首的高亮状态。
+    ///
+    /// 文件已打开时用文档的语言和已推算出的状态：块注释、Vue 的 `<script>` 这类跨行结构中的行
+    /// 也能着色。文件没有打开时用搜索结果在后台推算好的状态（见 `search_dialog/rows.rs`）；都没有
+    /// 时按文件名识别语言，从 `Normal` 开始。
+    pub(crate) fn place_highlight(
+        &self,
+        path: &Path,
+        line: usize,
+    ) -> (&'static Language, LineState) {
+        let open = (self.editor.documents.iter()).find(|d| d.path.as_deref() == Some(path));
+        match open {
+            Some(doc) => (
+                doc.highlighter.language(),
+                doc.known_highlight_state(line).unwrap_or(LineState::Normal),
+            ),
+            None => (
+                winc_syntax::detect(&winc_editor::display_name(path)),
+                (self.search_dialog.rows.state(path, line)).unwrap_or(LineState::Normal),
+            ),
+        }
+    }
+
     /// 返回光标所在名字的字符范围（有选区时为选区）；光标处没有名字时返回 `None`。
     ///
     /// 名字由当前文件的语言决定（见 [`Language::name_range`]）：CSS 的 `my-class`、PHP 的

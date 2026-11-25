@@ -838,6 +838,28 @@ fn aligned_columns_follow_edits_without_drifting() {
     }
 }
 
+/// 关闭按列对齐后按原文排布，可以自动换行；分隔符仍按第一行判断（分号多于逗号时按分号）。
+#[test]
+fn columns_can_be_shown_as_written_and_then_wrap() {
+    let mut d = Document::from_text(DocumentId(1), "a;b;c,d\nlonger value;x;y\n");
+    d.set_language("a.csv");
+    assert_eq!(d.delimiter(), Some(';'));
+    assert!(d.columns(4).is_some());
+    assert!(!d.ensure_wrap(Some(8), 4), "按列对齐时不换行");
+
+    d.set_align_columns(false);
+    assert!(d.columns(4).is_none());
+    assert_eq!(d.delimiter(), Some(';'), "仍按列着色");
+    assert!(d.ensure_wrap(Some(8), 4));
+
+    d.set_align_columns(true);
+    assert!(d.columns(4).is_some());
+    assert!(!d.ensure_wrap(Some(8), 4));
+
+    d.set_language("a.txt");
+    assert_eq!(d.delimiter(), None);
+}
+
 #[test]
 fn sticky_scopes_keep_their_memo_across_edits_far_below() {
     let mut text = String::from("class A:\n    def f(self):\n");

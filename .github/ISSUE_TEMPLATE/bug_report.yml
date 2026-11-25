@@ -1,8 +1,7 @@
 name: Bug report
 description: Report a reproducible defect in winc.
 title: "[Bug]: "
-labels:
-  - bug
+type: Bug
 body:
   - type: markdown
     attributes:
@@ -36,29 +35,29 @@ body:
     id: platform
     attributes:
       label: Platform
-      description: The operating system where the problem occurs.
+      description: >-
+        The system and processor where the problem occurs. The issue is labeled with it. On
+        macOS, Apple menu → About This Mac shows Apple silicon or Intel.
       options:
-        - macOS
-        - Linux
+        - macOS (Apple silicon)
+        - macOS (Intel)
+        - Linux (x86_64)
+        - Linux (ARM64)
         - Windows
     validations:
       required: true
-  - type: input
-    id: system
+  - type: textarea
+    id: environment
     attributes:
-      label: System version
+      label: Version and system information
       description: >-
-        The system version, and the desktop environment on Linux. For SSH remote or WSL problems,
-        also name the system of the remote host or the distribution.
-      placeholder: "macOS 15.1 / Ubuntu 24.04, GNOME on Wayland / Windows 11 23H2"
-    validations:
-      required: false
-  - type: input
-    id: version
-    attributes:
-      label: Version
-      description: Shown in Settings → About, or by running `winc --version`.
-      placeholder: "0.1.688"
+        In winc, open Settings → About and click the version number to copy this information,
+        then paste it here. If winc cannot start, enter the version (`winc --version`), the system
+        version and, on Linux, the desktop environment and whether it uses Wayland or X11. For SSH
+        remote or WSL problems, also name the system of the remote host or the distribution.
+      placeholder: |
+        Winc 0.1.970 (arm64)
+        macOS 15.1 (24B83)
     validations:
       required: true
   - type: dropdown
@@ -70,10 +69,13 @@ body:
         - macOS disk image
         - Linux AppImage
         - Linux deb
+        - Linux rpm
         - Arch repository
         - Windows installer (NSIS)
         - Windows installer (MSI)
         - Windows portable ZIP
+        - winget
+        - Scoop
         - Built from source
     validations:
       required: false

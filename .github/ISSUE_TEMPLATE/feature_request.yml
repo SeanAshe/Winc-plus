@@ -1,8 +1,7 @@
 name: Feature request
 description: Propose a product or technical improvement for winc.
 title: "[Feature]: "
-labels:
-  - enhancement
+type: Feature
 body:
   - type: dropdown
     id: area
@@ -26,6 +25,31 @@ body:
         - Performance
         - Install / update
         - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: platforms
+    attributes:
+      label: Platforms
+      description: >-
+        The systems the request concerns. Choose "All platforms" unless it concerns only some of
+        them; the issue is labeled with the ones chosen.
+      multiple: true
+      options:
+        - All platforms
+        - macOS
+        - Linux
+        - Windows
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: >-
+        The version you use, shown in Settings → About or by running `winc --version`, so the
+        request can be checked against what it already does.
+      placeholder: "0.1.970"
     validations:
       required: true
   - type: textarea

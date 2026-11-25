@@ -4,8 +4,8 @@ use super::*;
 
 /// 计算鼠标停着的改动行写全名所需的溢出区域（见 [`CommitOverflow`]）。
 ///
-/// 文件行的「打开文件」「回滚」两个按钮、暂存区视图中目录行的暂存按钮跟在全名之后。名字放得下、
-/// 正在拖动时返回 `None`。
+/// 行尾的按钮（见 [`row_actions`]）跟在全名之后，状态字母让开。名字放得下、正在拖动时返回
+/// `None`。
 /// 展开收起的动画途中，被展开、收起的行及其上方各行位置不变，仍显示全名；下方正在移动的行
 /// 返回 `None`。
 pub(in crate::view) fn commit_overflow(app: &App, frame: &mut Frame<'_>) -> Option<CommitOverflow> {
@@ -25,6 +25,7 @@ pub(in crate::view) fn commit_overflow(app: &App, frame: &mut Frame<'_>) -> Opti
             CommitTarget::Dir(r)
             | CommitTarget::DirCheck(r)
             | CommitTarget::DirStage(r, _)
+            | CommitTarget::DirRevert(r)
             | CommitTarget::Sticky(r, _),
         ) => r,
         // 鼠标移到跟在全名后面的按钮上时，仍保持全名显示。
@@ -54,27 +55,24 @@ pub(in crate::view) fn commit_overflow(app: &App, frame: &mut Frame<'_>) -> Opti
     let band = Rect::new(list.x + 8.0, y, list.w - 16.0, COMMIT_ROW);
     let end = name_end(app, frame, &text, band);
     let window = app.layout.window.right() - 8.0;
-    let staged_dir = match rows.get(row) {
-        Some(CommitRow::Dir { group, .. }) => dir_action_target(app, *group, row).is_some(),
-        _ => false,
-    };
-    let (right, actions) = if text.folder && !staged_dir {
-        if end <= band.right() - 6.0 {
-            return None;
+    let (right, actions) = match row_actions(app, &rows, row) {
+        None => {
+            if end <= band.right() - 6.0 {
+                return None;
+            }
+            ((end + 8.0).min(window), None)
         }
-        ((end + 8.0).min(window), None)
-    } else {
         // 按钮在名字之后：名字与按钮在原位放得下时不展开。按钮超出窗口时向左移回，名字在按钮
-        // 之前截断。目录行只有第二个位置上的按钮。
-        let (open, revert) = file_actions(band);
-        let first = if staged_dir { revert } else { open };
-        if end <= first.x - 4.0 {
-            return None;
+        // 之前截断。
+        Some(targets) => {
+            let home = actions_home(band, targets.len(), 0.0);
+            if end <= home.first.x - 4.0 {
+                return None;
+            }
+            let shift = (end + 4.0 - home.first.x).min(window - home.right());
+            let strip = home.moved(shift);
+            (strip.right() + 4.0, Some(strip))
         }
-        let shift = (end + 4.0 - first.x).min(window - revert.right());
-        let moved = |r: Rect| Rect::new(r.x + shift, r.y, r.w, r.h);
-        let (open, revert) = (moved(open), moved(revert));
-        (revert.right() + 4.0, Some((open, revert)))
     };
     let spill = (right > list.right()).then(|| {
         Rect::new(
@@ -92,18 +90,33 @@ pub(in crate::view) fn commit_overflow(app: &App, frame: &mut Frame<'_>) -> Opti
     })
 }
 
-/// 返回第 `row` 行写全名时两个按钮离终点（「打开文件」在 `open`）还差的距离（逻辑像素）。
+/// 返回第 `row` 行写全名时行尾按钮离终点 `strip` 还差的距离（逻辑像素）。
 ///
-/// 按钮随名字滑出（名字还有 `name_lag` 未显示），同时从原位（[`file_actions`]）滑向终点
+/// 按钮随名字滑出（名字还有 `name_lag` 未显示），同时从原位（[`actions_home`]）滑向终点
 /// （[`App::track_commit_actions`]），取两者中较大的距离：名字无需加长、只为按钮让出位置时，
 /// 名字不动，按钮仍然滑向终点。
-pub(super) fn actions_lag(app: &App, row: usize, band: Rect, open: Rect, name_lag: f32) -> f32 {
+pub(super) fn actions_lag(
+    app: &App,
+    row: usize,
+    band: Rect,
+    strip: ActionStrip,
+    name_lag: f32,
+) -> f32 {
     let slide = app.git.commit.actions_slide.filter(|&(r, _)| r == row);
     let rest = slide.map_or(0.0, |(_, clock)| {
-        let (home, _) = file_actions(band);
-        (open.x - home.x).max(0.0) * (1.0 - clock.progress())
+        let home = actions_home(band, strip.count, 0.0);
+        (strip.first.x - home.first.x).max(0.0) * (1.0 - clock.progress())
     });
     name_lag.max(rest)
+}
+
+/// 返回改动列表第 `row` 行（`rows` 的下标）行尾的按钮；组标题和没有按钮的行返回 `None`。
+pub(super) fn row_actions(app: &App, rows: &CommitRows, row: usize) -> Option<RowActions> {
+    match rows.get(row)? {
+        CommitRow::File { index, .. } => Some(file_row_actions(app, rows.group_of(row), *index)),
+        CommitRow::Dir { group, .. } => dir_row_actions(app, *group, row),
+        CommitRow::Group(_) => None,
+    }
 }
 
 /// 返回名字显示出的宽度：内容宽 `width`，截短时可用宽度为 `room`（写全名时为 `None`）。
@@ -160,15 +173,12 @@ pub(in crate::view) fn draw_commit_overflow(app: &App, frame: &mut Frame<'_>) {
     let parts = full_parts(&text);
     let width = parts_width(app, frame, &parts, text.folder);
     let lag = match actions {
-        Some((open, _)) => actions_lag(app, row, band, open, width - view.width),
+        Some(strip) => actions_lag(app, row, band, strip, width - view.width),
         None => width - view.width,
     };
-    let actions = actions.map(|(open, revert)| {
-        let back = |r: Rect| Rect::new(r.x - lag, r.y, r.w, r.h);
-        (back(open), back(revert))
-    });
+    let actions = actions.map(|strip| strip.moved(-lag));
     let right = match actions {
-        Some((_, revert)) => revert.right() + 4.0,
+        Some(strip) => strip.right() + 4.0,
         None => x + view.width + 8.0,
     }
     .min(spill.right());
@@ -179,24 +189,28 @@ pub(in crate::view) fn draw_commit_overflow(app: &App, frame: &mut Frame<'_>) {
     // 穿过全名；滚动条在这一行上下的部分正常显示。
     let left = list.right() - SCROLLBAR_HIT;
     let spill = Rect::new(left, spill.y, right - left, spill.h);
-    let p = app.palette;
     let radii = [0.0, RADIUS_ROW, RADIUS_ROW, 0.0];
-    // 先垫一层侧栏底色，再叠半透明的悬停色，与列表里那一行的底色相同。
-    frame.rect_corners(spill, p.sidebar_bg, radii, spill);
+    // 先垫一层侧栏底色，再叠当前仓库一节的底色（多仓库时）和半透明的悬停色，与列表里那一行的
+    // 底色相同。
+    frame.rect_corners(spill, row_base(app), radii, spill);
     if let Some(color) = text.shade {
         frame.rect_corners(spill, color, radii, spill);
     }
     let clip = Rect::new(spill.x, y, spill.w, COMMIT_ROW);
     // 有按钮时名字在按钮之前截断。
     let text_clip = match actions {
-        Some((open, _)) => Rect::new(clip.x, clip.y, (open.x - 4.0 - clip.x).max(0.0), clip.h),
+        Some(strip) => Rect::new(
+            clip.x,
+            clip.y,
+            (strip.first.x - 4.0 - clip.x).max(0.0),
+            clip.h,
+        ),
         None => clip,
     };
     let style = (x, band, text.folder, text.color);
     draw_name(app, frame, style, (&parts, &view), text_clip);
-    if let (Some(actions), CommitRow::File { index, .. }) = (actions, &rows[row]) {
-        let targets = file_action_targets(app, rows.group_of(row), *index);
-        draw_file_actions(app, frame, actions, targets, clip);
+    if let (Some(strip), Some(targets)) = (actions, row_actions(app, &rows, row)) {
+        draw_row_actions(app, frame, (strip, targets), (clip, true), None);
     }
 }
 
@@ -243,7 +257,7 @@ pub(in crate::view) fn draw_commit_overflow_closing(app: &App, frame: &mut Frame
         let left = list.right() - SCROLLBAR_HIT;
         let rect = Rect::new(left, y + 1.0, right - left, COMMIT_ROW - 2.0);
         let radii = [0.0, RADIUS_ROW, RADIUS_ROW, 0.0];
-        frame.rect_corners(rect, p.sidebar_bg, radii, rect);
+        frame.rect_corners(rect, row_base(app), radii, rect);
         let selected = match &rows[row] {
             CommitRow::File { index, .. } => app.commit_is_selected(&status.entries[*index].path),
             _ => false,
@@ -270,5 +284,15 @@ pub(in crate::view) fn draw_commit_overflow_closing(app: &App, frame: &mut Frame
         } else {
             draw_file_parts(app, frame, (x, band), &parts, (text.color, alpha), clip);
         }
+    }
+}
+
+/// 当前仓库改动行底下的颜色：侧栏底色，多仓库时叠上当前仓库一节的底色（见
+/// `others::current_fill`）。伸出侧栏的全名先垫这一层，与列表里那一行连成一色。
+fn row_base(app: &App) -> Color {
+    let p = app.palette;
+    match app.commit_shows_others() {
+        true => crate::view::workspace::panel::over(p.sidebar_bg, others::current_fill(app)),
+        false => p.sidebar_bg,
     }
 }

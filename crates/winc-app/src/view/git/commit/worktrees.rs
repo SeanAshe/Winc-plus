@@ -67,7 +67,7 @@ pub(super) fn draw_worktrees(
         frame.rect_clipped(dot, p.accent, 2.5, clip);
     }
     if on_title {
-        let (_, add) = file_actions(head);
+        let add = end_slot(head);
         let on = app.pointer.hover == Hover::Commit(CommitTarget::WorktreeNew);
         draw_button(frame, p, add, clip, on, false);
         let color = if on { p.text } else { p.text_muted };
@@ -117,7 +117,7 @@ pub(super) fn draw_worktrees(
         // 右端是提交数和更改数，与标题行的个数右对齐；悬停时「⋯」在最右，二者移到它的左边。
         let mut right = row.right() - END_PAD - COUNT_INSET;
         if hovered {
-            let (_, more) = file_actions(row);
+            let more = end_slot(row);
             let on = app.pointer.hover == Hover::Commit(CommitTarget::WorktreeMenu(i));
             draw_button(frame, p, more, clip, on, false);
             let color = if on { p.text } else { p.text_muted };

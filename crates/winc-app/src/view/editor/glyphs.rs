@@ -416,8 +416,8 @@ fn paint_run(
     }
 }
 
-/// 绘制 CSV、TSV 的一行：每个字符绘制在对齐之后的单元格内，每一列使用一种颜色（循环使用
-/// `COLORS`），分隔符颜色较淡。
+/// 绘制 CSV、TSV 的一行：每个字符绘制在对齐之后的单元格内，各列的颜色和分隔符的颜色与按原文
+/// 排布时相同（见 [`winc_syntax::columns`]）。
 ///
 /// 返回绘制结束时的格数。
 pub(super) fn draw_columns(
@@ -428,14 +428,7 @@ pub(super) fn draw_columns(
     baseline: f32,
     clip: Rect,
 ) -> usize {
-    const COLORS: [TokenKind; 6] = [
-        TokenKind::Text,
-        TokenKind::Keyword,
-        TokenKind::String,
-        TokenKind::Function,
-        TokenKind::Number,
-        TokenKind::Builtin,
-    ];
+    use winc_syntax::columns::COLUMN_KINDS;
     let p = app.palette;
     let cell = app.metrics.cell;
     let mut joined = 0;
@@ -452,9 +445,9 @@ pub(super) fn draw_columns(
         // 分隔符：其后的字符属于下一列（分隔符是行内最后一个字符时，其后没有字符）。
         let is_separator = c == separator && fields.get(col + 1).is_none_or(|&next| next != field);
         let color = if is_separator {
-            p.text_dim
+            p.token(TokenKind::Separator)
         } else {
-            p.token(COLORS[field % COLORS.len()])
+            p.token(COLUMN_KINDS[field % COLUMN_KINDS.len()])
         };
         // 按字符自身的宽度绘制，不计入为对齐而留出的空白。emoji 序列随首字符整体绘制。
         let font = (FontKind::Mono, app.fonts.code, cell);
@@ -525,6 +518,11 @@ impl App {
         state: LineState,
         tokens: &mut Vec<winc_syntax::Token>,
     ) -> LineState {
+        // 表格不做语法着色，按列着色；按列对齐时由 `draw_columns` 逐字符着色，颜色相同。
+        if let Some(separator) = doc.delimiter() {
+            winc_syntax::columns::column_tokens(chars, separator, tokens);
+            return state;
+        }
         if chars.len() < LONG_TOKENS_MIN {
             return winc_syntax::highlight_line(language, chars, state, tokens);
         }

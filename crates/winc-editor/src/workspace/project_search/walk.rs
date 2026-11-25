@@ -152,7 +152,8 @@ impl Walk {
             for request in &requests {
                 threads.spawn(|| self.search_remote(request, sender));
             }
-            winc_search::search_parallel(scope.paths(), &self.matcher, &self.run.budget, {
+            let paths = scope.paths(self.run.budget.stop_flag());
+            winc_search::search_parallel(paths, &self.matcher, &self.run.budget, {
                 |searcher, path| {
                     let found = match self.dirty.get(path) {
                         Some(rope) => searcher.text(rope).map(|matches| (matches, false)),

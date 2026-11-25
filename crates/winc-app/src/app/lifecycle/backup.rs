@@ -110,37 +110,116 @@ pub(crate) struct Restored {
     conflicts: Vec<String>,
     /// 占用的备份目录及其锁（见 `BackupState::lock`）。
     lock: Option<(PathBuf, Option<backup::Lock>)>,
+    /// 各终端栏的份额和恢复出的编辑器标签，顺序与现场中的原始栏一致。
+    terminal_groups: Vec<(f32, Option<DocumentId>)>,
 }
 
-/// 按现场恢复窗格：`opened` 是现场中各标签打开成的文档。
-fn restore_panes(
+/// 在丢弃找不到的文件、裁掉空窗格之前，把终端标签插回现场中的混合标签位置。
+///
+/// `opened` 只对应现场的文件和备份；`existing` 用于终端恢复时复用已经创建的标签。
+pub(in crate::app) fn restore_session_panes(
     editor: &mut Editor,
-    panes: &winc_config::SessionPanes,
+    session: &Session,
     opened: &[Option<DocumentId>],
-) {
+    existing: &[Option<DocumentId>],
+) -> Vec<Option<DocumentId>> {
     use winc_editor::panes::{PaneId, PaneTabs};
-    let tabs = (panes.panes.iter().enumerate())
+    let single;
+    let panes = match &session.panes {
+        Some(panes) => panes,
+        None => {
+            single = winc_config::SessionPanes {
+                tree: winc_config::PaneNode::Pane(0),
+                panes: vec![winc_config::SessionPane {
+                    tabs: (0..opened.len()).collect(),
+                    active: session.active,
+                }],
+                focused: 0,
+            };
+            &single
+        }
+    };
+    let tree = crate::app::workspace::panes::pane_tree(&panes.tree);
+    let leaves = tree.panes();
+    let groups = session
+        .terminal
+        .as_ref()
+        .map_or(&[][..], |t| t.groups.as_slice());
+    let mut offset = 0;
+    let markers: Vec<Option<DocumentId>> = groups
+        .iter()
+        .enumerate()
+        .map(|(at, group)| {
+            let start = offset;
+            offset += group.tabs;
+            let placement = group.editor?;
+            if placement.pane >= panes.panes.len()
+                || !leaves.contains(&PaneId(placement.pane as u32))
+            {
+                return None;
+            }
+            if let Some(id) = existing.get(at).copied().flatten()
+                && editor.document(id).is_some_and(|doc| doc.terminal)
+            {
+                return Some(id);
+            }
+            let name = session
+                .terminal
+                .as_ref()
+                .and_then(|t| t.names.get(start))
+                .filter(|name| !name.is_empty())
+                .map_or(winc_i18n::t!("terminal-tab-default-name"), String::as_str);
+            let at = editor.new_terminal(name);
+            Some(editor.documents[at].id)
+        })
+        .collect();
+    if session.panes.is_none() && markers.iter().all(Option::is_none) {
+        return markers;
+    }
+    let tabs = panes
+        .panes
+        .iter()
+        .enumerate()
         .map(|(i, pane)| {
-            let mut ids: Vec<DocumentId> = Vec::new();
-            for id in pane
+            // 保留缺失文件的空槽：终端的位置按过滤缺失文件之前的混合顺序记录。
+            let mut slots: Vec<Option<DocumentId>> = pane
                 .tabs
                 .iter()
-                .filter_map(|&t| opened.get(t).copied().flatten())
-            {
+                .map(|&t| opened.get(t).copied().flatten())
+                .collect();
+            let mut placements: Vec<_> = groups
+                .iter()
+                .zip(&markers)
+                .filter_map(|(group, id)| {
+                    let placement = group.editor?;
+                    (placement.pane == i).then_some((placement, (*id)?))
+                })
+                .collect();
+            placements.sort_by_key(|(placement, _)| placement.tab);
+            for (placement, id) in &placements {
+                slots.insert(placement.tab.min(slots.len()), Some(*id));
+            }
+            let mut ids = Vec::with_capacity(slots.len());
+            for id in slots.into_iter().flatten() {
                 if !ids.contains(&id) {
                     ids.push(id);
                 }
             }
+            let active = placements
+                .iter()
+                .find(|(placement, _)| placement.active)
+                .map(|(_, id)| *id)
+                .or_else(|| pane.active.and_then(|t| opened.get(t).copied().flatten()));
             PaneTabs {
                 id: PaneId(i as u32),
                 tabs: ids,
-                active: pane.active.and_then(|t| opened.get(t).copied().flatten()),
+                active,
             }
         })
         .collect();
-    let tree = crate::app::workspace::panes::pane_tree(&panes.tree);
     editor.restore_panes(tree, tabs);
     editor.focus_pane(PaneId(panes.focused as u32));
+    markers
 }
 
 /// 恢复标签之前从磁盘读好的内容，见 [`prepare_restore`]。
@@ -216,7 +295,8 @@ pub(crate) fn restore_tabs(
 ///
 /// 标签按原来的顺序重新打开，激活当时的标签，文件树展开到该文件所在的层级；现场中没有记录
 /// 的备份（进程中止前来不及记录现场）也会恢复，排在已记录的标签之后。现场中已不存在的文件
-/// 跳过，除非它还有未保存的内容。
+/// 跳过，除非该文件还有未保存的内容。恢复之前已打开的标签（命令行给出、双击打开或恢复期间打开的
+/// 文件）排在恢复的标签之后，其中原来的当前标签仍是当前标签，与窗口已打开时再打开文件相同。
 pub(crate) fn restore_prepared(
     editor: &mut Editor,
     session: Option<&Session>,
@@ -231,6 +311,8 @@ pub(crate) fn restore_prepared(
         lock,
         ..Default::default()
     };
+    let earlier: Vec<DocumentId> = editor.tabs().iter().map(|doc| doc.id).collect();
+    let earlier_active = editor.active().map(|doc| doc.id);
     let mut active = None;
     // 先恢复书签和折叠的块，之后打开各文件时由文件自行取用。
     if let Some(session) = session {
@@ -291,13 +373,31 @@ pub(crate) fn restore_prepared(
         }
     }
 
-    if let Some(panes) = session.and_then(|s| s.panes.as_ref()) {
-        restore_panes(editor, panes, &opened);
+    let mut terminal_active = None;
+    if let Some(session) = session {
+        let markers = restore_session_panes(editor, session, &opened, &[]);
+        let groups = session.terminal.iter().flat_map(|t| &t.groups);
+        terminal_active = groups.clone().zip(&markers).find_map(|(group, id)| {
+            group.editor.filter(|placement| placement.active)?;
+            (*id).filter(|id| editor.active().is_some_and(|doc| doc.id == *id))
+        });
+        restored.terminal_groups = groups
+            .zip(markers)
+            .map(|(group, id)| (group.share, id))
+            .collect();
     }
-    // 当时的当前标签不在前台窗格里时沿用已有的当前标签，都没有时改为最后一个标签。
+    // 恢复之前已打开的标签依次移到前台窗格的末尾，相对顺序不变。
     let tabs = editor.tab_count();
+    for id in &earlier {
+        if let Some(at) = editor.index_of(*id).filter(|&at| at < tabs) {
+            editor.move_document(at, tabs - 1);
+        }
+    }
+    // 用户刚打开的文件优先，其次是现场中的终端、当时的当前标签；当前标签须属于前台窗格。
     let shown = |at: &usize| *at < tabs;
-    editor.active = active
+    editor.active = earlier_active
+        .or(terminal_active)
+        .or(active)
         .and_then(|id| editor.index_of(id))
         .filter(shown)
         .or(editor.active.filter(shown))
@@ -385,6 +485,32 @@ impl App {
 
     /// 记录刚恢复的文档已有备份，不需要立即重写；对磁盘上的文件在此期间被修改过的文档，提示用户。
     pub(crate) fn adopt_restored(&mut self, restored: Restored) {
+        if !self.terminal_enabled() {
+            for (_, document) in &restored.terminal_groups {
+                if let Some(document) = document {
+                    self.detach_terminal_editor_document(*document);
+                }
+            }
+        }
+        if self.terminal_enabled()
+            && restored.terminal_groups.iter().any(|(_, id)| id.is_some())
+            && self.terminal.tab_count() == 0
+            && self.terminal.want.is_empty()
+        {
+            self.terminal.groups = restored
+                .terminal_groups
+                .into_iter()
+                .map(|(share, editor)| {
+                    let mut group = crate::app::terminal::groups::TermGroup::empty(share);
+                    group.editor = editor;
+                    group
+                })
+                .collect();
+            self.terminal.group_at = 0;
+            let panel = self.terminal.panel_groups().next().unwrap_or(0);
+            self.terminal.panel_at = panel;
+            self.sync_terminal_editor_visibility();
+        }
         if let Some(lock) = restored.lock {
             self.adopt_lock(lock);
         }
@@ -738,6 +864,9 @@ impl App {
     /// 有路径的文档记录路径（文件已不在磁盘上但仍有未保存内容的也记录）；从未保存过的新文档
     /// 只有存在备份时才记录为未命名标签。
     pub(in crate::app) fn session_tab(&self, doc: &winc_editor::Document) -> Option<Tab> {
+        if doc.terminal {
+            return None;
+        }
         let backed_up = self.backup.written.contains_key(&doc.id);
         match &doc.path {
             // 发行版暂时无法访问、文件在远端主机上时无法判断文件是否存在，保留标签。

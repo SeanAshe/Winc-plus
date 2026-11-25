@@ -3,6 +3,7 @@
 //! [`Highlighter`] 按文档逐行缓存行首状态，编辑后从修改行开始失效，绘制时只推算可见区域。
 //! 本 crate 不依赖绘制与主题：token 只标出类别，颜色由 `winc-render` 和 `winc-app` 决定。
 
+pub mod columns;
 mod lang;
 mod lexer;
 

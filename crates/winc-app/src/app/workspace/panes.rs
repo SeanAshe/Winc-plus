@@ -312,6 +312,7 @@ impl App {
     pub(in crate::app) fn focus_pane(&mut self, pane: PaneId) {
         if self.switch_pane(pane) {
             self.focus = Focus::Editor;
+            self.activate_editor_terminal();
             self.relayout();
             self.request_redraw();
         }
@@ -329,12 +330,23 @@ impl App {
             return f(self);
         };
         let saved = (self.layout, self.git.merge.geometry());
+        let terminal = (self.terminal.group_at, self.terminal.panel_at);
+        if let Some(at) = self
+            .editor
+            .active()
+            .filter(|doc| doc.terminal)
+            .and_then(|doc| self.editor_terminal_group(doc.id))
+        {
+            self.rotate_terminal_group(at);
+        }
         self.use_pane_rects(rects);
         self.place_editor_parts();
         self.sync_wrap();
         let result = f(self);
         self.switch_pane(back);
         self.layout = saved.0;
+        self.rotate_terminal_group(terminal.0);
+        self.terminal.panel_at = terminal.1;
         self.git.merge.set_geometry(saved.1);
         self.sync_wrap();
         self.scroll.glide = glide;
@@ -606,7 +618,7 @@ impl App {
 
     /// 在窗格 `pane` 的标签栏上横坐标 `x` 处插入标签：插在第几个标签的位置，以及标出插入处的
     /// 竖线。
-    fn tab_slot_at(&self, pane: PaneRects, x: f32) -> (usize, Rect) {
+    pub(in crate::app) fn tab_slot_at(&self, pane: PaneRects, x: f32) -> (usize, Rect) {
         let hits = match self.panes.parked.iter().find(|p| p.id == pane.id) {
             Some(parked) => &parked.hits[..],
             None => &self.hits.tabs[..],
@@ -669,8 +681,8 @@ impl App {
                     .move_document(index, to.min(self.editor.tab_count() - 1));
             }
         }
-        if !copy {
-            for doc in docs {
+        for doc in docs {
+            if !copy || self.editor.document(*doc).is_some_and(|doc| doc.terminal) {
                 self.editor.remove_from_pane(source, *doc);
             }
         }
@@ -679,6 +691,7 @@ impl App {
             self.activate_tab(index);
         }
         self.focus = Focus::Editor;
+        self.activate_editor_terminal();
         self.relayout();
         self.request_redraw();
     }

@@ -1,8 +1,7 @@
 name: Documentation
 description: Report missing, unclear, or outdated documentation or interface text.
 title: "[Docs]: "
-labels:
-  - documentation
+type: Task
 body:
   - type: input
     id: location
@@ -11,7 +10,17 @@ body:
       description: >-
         Link to the page or file (README, winc.si, release notes), or name the screen where the
         text appears.
-      placeholder: "README.md#building-from-source, Settings → Editor, Release Notes 0.1.688"
+      placeholder: "README.md#building-from-source, Settings → Editor, Release Notes 0.1.970"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: >-
+        The version you use, shown in Settings → About or by running `winc --version`, so the text
+        can be checked against that version.
+      placeholder: "0.1.970"
     validations:
       required: true
   - type: textarea

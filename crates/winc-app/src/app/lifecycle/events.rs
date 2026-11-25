@@ -222,6 +222,7 @@ impl ApplicationHandler<UserEvent> for App {
         self.install_system_hooks();
         // 启动时恢复的目录在事件循环创建之前打开，此时才能开始监视、读取运行配置和恢复终端、侧栏。
         self.watch_folder();
+        self.watch_extra_folders();
         self.load_run_configs_for_window();
         self.restore_terminal_for_window();
         self.restore_sidebar_for_window();
@@ -375,7 +376,7 @@ impl ApplicationHandler<UserEvent> for App {
                     modifiers.lalt_state() == pressed,
                     modifiers.ralt_state() == pressed,
                 );
-                if self.terminal.open {
+                if self.terminal.open || self.terminal_in_editor() {
                     self.update_terminal_link();
                 }
                 self.update_text_link();
@@ -620,6 +621,7 @@ impl App {
                 let canceled = self.copy_finished(&copying);
                 self.downloaded(outcome, canceled);
             }
+            UserEvent::PromptCopied(prompt) => self.prompt_copied(prompt),
             UserEvent::Copied(copies, failures, copying) => {
                 self.copy_finished(&copying);
                 self.copied_into_tree(copies, failures);

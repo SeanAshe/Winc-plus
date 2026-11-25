@@ -155,6 +155,7 @@ impl App {
         self.sync_latex_pdf();
         self.advance_picture_view();
         self.advance_tables();
+        self.sync_table_split();
         let Some(doc) = self.editor.active() else {
             return;
         };
@@ -438,6 +439,7 @@ impl App {
     pub(in crate::app) fn set_preview_mode(&mut self, mode: PreviewMode) {
         // 换了显示方式，键盘先回到文字（只看预览时原本就对着预览）。
         self.preview.markdown.focused = false;
+        self.preview.table_layout.focused = false;
         let top = self.leave_markdown_mode(mode);
         let Some(doc) = self.editor.active_mut() else {
             return;

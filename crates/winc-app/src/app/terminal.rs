@@ -1,10 +1,11 @@
-//! 终端面板：编辑区卡片下方的一张卡片，可以有几个终端标签。
+//! 终端会话：停靠在编辑区下方或右侧面板，或显示为编辑器中的标签。
 //!
-//! 第一次打开面板时启动辅助进程 `winc-pty`，每个标签是它里面的一个登录 shell。帧存成可见的一屏，
-//! 往上翻时按需向它要回滚缓冲里的行（[`tab`]）。只给开着的标签额度：后面的标签不画、不收帧，
-//! 切过去时再要一帧最新的；模块关着时什么都不起。鼠标在 [`mod@pointer`]，查找在 [`find`]，命令块
-//! 在 [`blocks`]，⌘ 悬停链接在 [`link`]，与编辑器配合在 [`editor`]，进程在 [`helper`]。
+//! 第一次打开终端时启动辅助进程 `winc-pty`，每个终端是其中的一个 shell。帧存成可见的一屏，
+//! 往上翻时按需请求回滚缓冲中的行（[`tab`]）。只为可见的标签发帧额度；隐藏标签切回时请求最新帧，
+//! 模块关闭时不启动进程。编辑器标签归属、移动与拖放在 [`area`]，鼠标在 [`mod@pointer`]，查找在
+//! [`find`]，命令块在 [`blocks`]，链接在 [`link`]，编辑器交互在 [`editor`]，进程在 [`helper`]。
 
+mod area;
 mod blocks;
 mod editor;
 mod find;
@@ -15,6 +16,7 @@ pub(crate) mod link;
 mod locate;
 mod pointer;
 pub(crate) mod run;
+mod session;
 pub(crate) mod shells;
 mod shortcuts;
 mod split;
@@ -131,6 +133,10 @@ pub(crate) enum HeaderHit {
     Position,
     /// 最大化面板，或者还原（⌘⇧↩）。
     Maximize,
+    /// 把当前终端移到编辑器标签。
+    Editor,
+    /// 把编辑器终端移回面板。
+    Panel,
     /// 拆分当前的终端（见 `App::split_terminal`）。
     Split,
     /// 运行配置的按钮。
@@ -183,6 +189,10 @@ pub(crate) struct TerminalPanel {
     pub groups: Vec<groups::TermGroup>,
     /// 正在用的一栏在 `groups` 中的位置。
     pub group_at: usize,
+    /// 上一次正在用的面板栏；焦点切到编辑器终端后仍保留。
+    pub panel_at: usize,
+    /// 拖动编辑器终端时临时打开了原本收起的面板。
+    pub drag_opened: bool,
     /// 临时换进了别的栏（[`App::with_terminal_group`]）：此时不整理空栏、不建标签。
     borrowed: bool,
     /// 临时换进别的栏时要过排版（[`App::sync_terminal`]），换回来以后补上。
@@ -259,16 +269,19 @@ impl TerminalPanel {
 
     /// 返回面板之外也可见的状态和标签栏内容的摘要，用于判断一批消息是否改变了界面。
     ///
-    /// 标签名和结束状态只显示在面板里，面板收起时不计入；未读标记同时显示在状态栏。
+    /// 标签名和结束状态显示在面板或编辑器标签栏里；未读标记同时显示在状态栏。
     pub(in crate::app) fn visible_state(&self) -> u64 {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         (self.open, self.active, self.crashed, &self.error).hash(&mut hasher);
         (self.group_at, self.groups.len()).hash(&mut hasher);
-        for tab in self.all_tabs() {
-            tab.unseen.hash(&mut hasher);
-            if self.open {
-                (tab.id, tab.label(), tab.ended).hash(&mut hasher);
+        for at in 0..self.group_count() {
+            (self.editor_at(at), self.group_shown(at)).hash(&mut hasher);
+            for tab in self.group_tabs(at) {
+                tab.unseen.hash(&mut hasher);
+                if self.open || self.editor_at(at).is_some() {
+                    (tab.id, tab.label(), tab.ended).hash(&mut hasher);
+                }
             }
         }
         hasher.finish()
@@ -278,7 +291,8 @@ impl TerminalPanel {
     pub(in crate::app) fn message_is_shown(&self, message: &FromHelper) -> bool {
         // 各栏正在看的标签都在眼前，拆分出的终端也是。
         let shows = |id: u16| {
-            self.open && (self.shown_tabs()).any(|tab| tab.panes().any(|pane| pane.id == id))
+            self.shown_tabs()
+                .any(|tab| tab.panes().any(|pane| pane.id == id))
         };
         match message {
             FromHelper::Hello { .. } | FromHelper::History { .. } | FromHelper::Failed { .. } => {
@@ -512,142 +526,19 @@ impl App {
     /// 打开面板、焦点放进去；还没有标签时开一个。
     fn open_terminal_panel(&mut self) {
         self.search_dialog.in_panel = false;
+        let group = self.ensure_terminal_panel_group();
+        self.blur_terminal_tab();
+        self.rotate_terminal_group(group);
         self.set_terminal_open(true);
         let t = &mut self.terminal;
         if t.height <= 0.0 {
             t.height = DEFAULT_HEIGHT;
         }
-        if t.tab_count() == 0 && t.want.is_empty() {
+        if t.panel_tab_count() == 0 && t.want.is_empty() {
             t.want.push(Vec::new());
         }
         self.focus = Focus::Terminal;
         self.start_terminal();
-    }
-
-    /// 现场里要记下的终端：各标签的工作目录、正在看的、面板开着没有、大小。
-    ///
-    /// 没有标签时 `None`。
-    pub(super) fn terminal_session(&self) -> Option<TerminalSession> {
-        let t = &self.terminal;
-        // 运行配置的标签不恢复；拆分出的终端各记成一个标签。还没建出来的（面板保存时恢复的）
-        // 也算，放进它们要去的那一栏。
-        let mut columns: Vec<Vec<(PathBuf, String, Option<String>)>> =
-            vec![Vec::new(); t.group_count()];
-        let mut active = None;
-        let focused = t.tab().map(|tab| tab.id);
-        for (at, column) in columns.iter_mut().enumerate() {
-            let shells = (t.group_tabs(at).iter().flat_map(|tab| tab.split_order()))
-                .filter(|tab| tab.run.is_none());
-            for tab in shells {
-                if Some(tab.id) == focused {
-                    active = Some((at, column.len()));
-                }
-                column.push((bytes_path(&tab.cwd), tab.name.clone(), tab.shell.clone()));
-            }
-        }
-        for (i, cwd) in t.want.iter().enumerate() {
-            let at = t.want_groups.get(i).copied().unwrap_or(t.group_at);
-            let name = t.want_names.get(i).cloned().unwrap_or_default();
-            let shell = t.want_shells.get(i).cloned().flatten();
-            if let Some(column) = columns.get_mut(at) {
-                column.push((bytes_path(cwd), name, shell));
-            }
-        }
-        // 只有运行配置的那一栏不记。
-        let shares = t.group_shares();
-        let kept: Vec<(usize, f32)> = (columns.iter().zip(&shares))
-            .map(|(column, &share)| (column.len(), share))
-            .collect();
-        let active = active.map_or(0, |(at, index)| {
-            columns[..at].iter().map(Vec::len).sum::<usize>() + index
-        });
-        let groups: Vec<TerminalGroup> = (kept.iter())
-            .filter(|(tabs, _)| *tabs > 0)
-            .map(|&(tabs, share)| TerminalGroup { tabs, share })
-            .collect();
-        let all: Vec<_> = columns.into_iter().flatten().collect();
-        (!all.is_empty()).then(|| TerminalSession {
-            active: t.want_active.unwrap_or(active),
-            tabs: all.iter().map(|(cwd, _, _)| cwd.clone()).collect(),
-            names: all.iter().map(|(_, name, _)| name.clone()).collect(),
-            shells: (all.iter())
-                .map(|(_, _, shell)| shell.clone().unwrap_or_default())
-                .collect(),
-            open: t.open,
-            height: t.height,
-            width: t.width,
-            maximized: t.maximized,
-            groups: if groups.len() > 1 { groups } else { Vec::new() },
-        })
-    }
-
-    /// 打开目录时按现场重开上次的终端标签，各在原来的目录里（程序不恢复）。
-    ///
-    /// 终端里已经有标签了不动；面板上次保存时等打开面板再建。
-    pub(super) fn restore_terminal(&mut self, session: &TerminalSession) {
-        let root = self.editor.root().map(PathBuf::from);
-        let t = &mut self.terminal;
-        let enabled = self.config.terminal_enabled.unwrap_or(false);
-        if !enabled || t.tab_count() > 0 || !t.want.is_empty() {
-            return;
-        }
-        // 目录按打开的目录所在的主机换算：现场中远端终端的目录可以只有那台主机上的路径，
-        // 不换算会在本机启动 shell。
-        let dirs: Vec<PathBuf> = (session.tabs.iter())
-            .map(|dir| match &root {
-                Some(root) => helper::terminal_path(root, dir.clone()),
-                None => dir.clone(),
-            })
-            .collect();
-        t.want = dirs.iter().map(|p| os_bytes(p.as_os_str())).collect();
-        t.want_names.clone_from(&session.names);
-        // 远端目录的 shell 是那台主机上的路径，无法在本机检查；建标签时按那台主机上检测到的
-        // shell 确认。
-        let saved = session.shells.iter().zip(&dirs);
-        t.want_shells = saved
-            .map(|(command, dir)| {
-                let usable =
-                    |c: &String| winc_backend::locate(dir).is_some() || shells::still_usable(c);
-                Some(command.clone()).filter(|c| !c.is_empty() && usable(c))
-            })
-            .collect();
-        t.want_active = Some(session.active);
-        // 分栏：先放好各栏，标签建出来时放进各自那一栏。
-        t.groups.clear();
-        t.group_at = 0;
-        t.want_groups.clear();
-        if session.groups.len() > 1 {
-            for (at, group) in session.groups.iter().enumerate() {
-                // 第一栏是正在用的一栏，它的标签在 `tabs` 里，这里只占位置。
-                t.groups.push(groups::TermGroup::empty(group.share));
-                t.want_groups.extend(std::iter::repeat_n(at, group.tabs));
-            }
-        }
-        if session.height > 0.0 {
-            t.height = session.height;
-        }
-        if session.width > 0.0 {
-            t.width = session.width;
-        }
-        t.maximized = session.maximized;
-        if session.open {
-            self.set_terminal_open(true);
-            self.start_terminal();
-        }
-    }
-
-    /// 窗口建好时按现场恢复终端：启动时恢复的目录在窗口创建之前打开，当时还不能启动辅助进程。
-    ///
-    /// 面板直接到位，没有打开动画；测量启动时间时不恢复。
-    pub(in crate::app) fn restore_terminal_for_window(&mut self) {
-        if self.frame.bench.silent() {
-            return;
-        }
-        let session = self.current_session();
-        if let Some(terminal) = session.and_then(|session| session.terminal.clone()) {
-            self.restore_terminal(&terminal);
-            self.terminal.motion = None;
-        }
     }
 
     /// 换目录或关闭目录时关掉所有终端标签，挂断其中的 shell，不确认、不收起面板。
@@ -656,6 +547,7 @@ impl App {
     /// 现场。
     pub(super) fn close_all_terminal_tabs(&mut self) {
         let t = &mut self.terminal;
+        let documents: Vec<_> = t.groups.iter().filter_map(|group| group.editor).collect();
         let ids: Vec<u16> = (t.all_tabs().flat_map(TermTab::panes))
             .map(|tab| tab.id)
             .collect();
@@ -667,6 +559,8 @@ impl App {
         t.tabs.clear();
         t.groups.clear();
         t.group_at = 0;
+        t.panel_at = 0;
+        t.drag_opened = false;
         t.want_groups.clear();
         t.want.clear();
         t.want_names.clear();
@@ -679,6 +573,9 @@ impl App {
         t.crashed = false;
         for id in ids {
             self.forget_terminal_tab(id);
+        }
+        for document in documents {
+            self.detach_terminal_editor_document(document);
         }
         if self.focus.in_terminal() {
             self.focus = Focus::Editor;
@@ -728,6 +625,14 @@ impl App {
             return false;
         }
         let busy: Vec<&str> = (self.terminal.all_tabs().flat_map(TermTab::panes))
+            .filter(|tab| match &request {
+                CloseRequest::Tabs(ids) => self
+                    .terminal
+                    .group_of(tab.id)
+                    .and_then(|at| self.terminal.editor_at(at))
+                    .is_some_and(|id| ids.contains(&id)),
+                _ => true,
+            })
             .filter_map(|t| t.busy())
             .collect();
         let (name, count) = match &busy[..] {
@@ -736,6 +641,7 @@ impl App {
             many => (None, many.len()),
         };
         let message = match (&request, name) {
+            (CloseRequest::Tabs(_), _) => t!("terminal-close-confirm", name = busy.join(", ")),
             (CloseRequest::Quit, Some(name)) => t!("terminal-quit-confirm-one", name = name),
             (CloseRequest::Quit, None) => t!("terminal-quit-confirm-many", count = count),
             (CloseRequest::Switch(_), Some(name)) => {
@@ -763,7 +669,8 @@ impl App {
                 t!("terminal-close-folder-confirm-detail"),
                 t!("cmd-close-folder"),
             ),
-            CloseRequest::CloseWindow | CloseRequest::Tabs(_) => (
+            CloseRequest::Tabs(_) => (t!("terminal-close-confirm-detail"), t!("common-close")),
+            CloseRequest::CloseWindow => (
                 t!("terminal-close-window-confirm-detail"),
                 t!("cmd-close-window"),
             ),
@@ -810,10 +717,13 @@ impl App {
         if open && let Some(tab) = self.terminal.tabs.get_mut(self.terminal.active) {
             tab.unseen = None;
         }
-        if !open {
+        if !open && !self.terminal_in_editor() {
             self.finish_terminal_rename(true);
         }
-        if !open && (self.focus.in_terminal() || self.focus_in_docked_search()) {
+        if !open
+            && ((!self.terminal_in_editor() && self.focus.in_terminal())
+                || self.focus_in_docked_search())
+        {
             self.focus = Focus::Editor;
         }
         self.terminal.motion = self
@@ -928,16 +838,23 @@ impl App {
         if self.terminal.crashed {
             self.restart_terminal_tab();
         }
-        if !self.terminal.open {
+        if self.terminal_in_editor() && self.terminal.split_into.is_none() {
+            let group = self.ensure_terminal_panel_group();
+            self.blur_terminal_tab();
+            self.rotate_terminal_group(group);
+            self.set_terminal_open(true);
+        }
+        if !self.terminal.open && !self.terminal_in_editor() {
             // 打开面板时没有标签、也没有恢复的标签要建，会先放一个默认的：换成这个默认标签。
             // 恢复的那些标签（面板保存时退出的）留着，这个默认标签加在后面。
-            let empty = self.terminal.tab_count() == 0 && self.terminal.want.is_empty();
+            let empty = self.terminal.panel_tab_count() == 0 && self.terminal.want.is_empty();
             self.open_terminal_panel();
             if empty {
                 self.terminal.want.clear();
                 self.terminal.want_names.clear();
                 self.terminal.want_shells.clear();
                 self.terminal.want_into.clear();
+                self.terminal.want_groups.clear();
             }
         }
         let t = &mut self.terminal;
@@ -945,6 +862,8 @@ impl App {
         t.want_shells.push(shell);
         t.want_into.resize(t.want.len(), None);
         t.want_into.push(t.split_into.take());
+        t.want_groups.resize(t.want.len(), t.group_at);
+        t.want_groups.push(t.group_at);
         t.want.push(cwd);
         // 新建的这一个就是要看的，不再切回恢复时记着的那一个。
         self.terminal.want_active = None;
@@ -1006,11 +925,15 @@ impl App {
 
     /// 确认框上确认了关掉终端 `id`；`whole` 为真时连同它所在的整个标签。
     pub(crate) fn confirmed_terminal_close(&mut self, id: u16, whole: bool) {
-        match self.terminal.index_of(id) {
-            Some(index) if whole => self.close_terminal_tab_now(index),
-            Some(_) => self.close_terminal_now(id),
+        let Some(at) = self.terminal.group_of(id) else {
+            return;
+        };
+        self.with_terminal_group(at, |app| match app.terminal.index_of(id) {
+            Some(index) if whole => app.close_terminal_tab_now(index),
+            Some(_) => app.close_terminal_now(id),
             None => {}
-        }
+        });
+        self.tidy_terminal_groups();
     }
 
     /// 关掉第 `index` 个标签里的各个终端。
@@ -1031,6 +954,7 @@ impl App {
         let Some(index) = self.terminal.index_of(id) else {
             return;
         };
+        let editor = self.terminal.editor_document();
         if self.terminal.tabs[index].pane_count() == 1 {
             self.animate_terminal_close(index);
         }
@@ -1054,6 +978,21 @@ impl App {
         let t = &mut self.terminal;
         if gone && (t.active > index || t.active >= t.tabs.len()) {
             t.active = t.active.saturating_sub(1);
+        }
+        let waiting_here = t
+            .want
+            .iter()
+            .enumerate()
+            .any(|(i, _)| t.want_groups.get(i).copied().unwrap_or(t.group_at) == t.group_at);
+        if gone
+            && !waiting_here
+            && let Some(document) = editor
+        {
+            if let Some(group) = t.groups.get_mut(t.group_at) {
+                group.editor = None;
+                group.shown = false;
+            }
+            self.detach_terminal_editor_document(document);
         }
         if last {
             self.set_terminal_open(false);
@@ -1107,6 +1046,10 @@ impl App {
 
     /// 切到相邻的标签（⌘⇧[、⌘⇧]），到头了绕回去。
     pub(super) fn cycle_terminal_tab(&mut self, forward: bool) {
+        if self.terminal_in_editor() {
+            self.cycle_tab(forward);
+            return;
+        }
         let n = self.terminal.tabs.len();
         if n > 1 {
             let i = self.terminal.active;
@@ -1142,7 +1085,7 @@ impl App {
             t.link = None;
         }
         // 面板开着时正在看的标签就在眼前，未读点不需要保留。
-        if t.open
+        if t.group_shown(t.group_at)
             && let Some(tab) = t.tabs.get_mut(t.active)
         {
             tab.unseen = None;
@@ -1182,20 +1125,30 @@ impl App {
 
     /// 画完一帧以后：给正在看的标签（拆分出的终端也在眼前）额度，焦点变了时告诉终端里的程序。
     pub(super) fn after_terminal_frame(&mut self) {
-        let focused = self.focus == Focus::Terminal && self.window.focused;
+        let focused = self.focus == Focus::Terminal
+            && self.window.focused
+            && self.terminal.group_shown(self.terminal.group_at);
         let t = &mut self.terminal;
-        if !t.open {
-            // 收起面板时焦点去了编辑区：程序也要知道（1004），否则一直以为自己有焦点。
-            self.blur_terminal_tab();
-            return;
-        }
-        // 其他栏正在看的标签同样在眼前。
+        let shown = t.group_shown(t.group_at);
         if let Some(client) = &t.client {
-            for group in &mut t.groups {
+            for (at, group) in t.groups.iter_mut().enumerate() {
+                if at == t.group_at
+                    || !(if group.editor.is_some() {
+                        group.shown
+                    } else {
+                        t.open
+                    })
+                {
+                    continue;
+                }
                 if let Some(tab) = group.tabs.get_mut(group.active) {
                     send_credit(client, tab);
                 }
             }
+        }
+        if !shown {
+            self.blur_terminal_tab();
+            return;
         }
         let (Some(client), Some(tab)) = (&t.client, t.tabs.get_mut(t.active)) else {
             return;

@@ -111,10 +111,12 @@ fn sample() -> State {
                         TerminalGroup {
                             tabs: 1,
                             share: 1.0,
+                            editor: None,
                         },
                         TerminalGroup {
                             tabs: 1,
                             share: 0.5,
+                            editor: None,
                         },
                     ],
                 }),
@@ -151,6 +153,7 @@ fn sample() -> State {
                     ],
                     focused: 1,
                 }),
+                repositories: SessionRepositories::default(),
             },
             Session {
                 folder: PathBuf::from("/b"),
@@ -169,6 +172,10 @@ fn sample() -> State {
                 sidebar_hidden: false,
                 window: None,
                 panes: None,
+                repositories: SessionRepositories {
+                    added: vec![PathBuf::from("/a/项目/vendor/lib")],
+                    removed: vec![PathBuf::from("/a/项目/old")],
+                },
             },
         ],
         last: Some(PathBuf::from("/a/项目")),
@@ -191,6 +198,7 @@ fn sample() -> State {
         vim_marks: vec![('A', PathBuf::from("/a/项目/x.rs"), 12, 3)],
         vim_commands: vec!["%s/a/b/g".into(), "w".into()],
         vim_searches: vec!["\\<词\\>".into()],
+        vim_keys_noticed: true,
         stay_outside_applications: true,
         panel_width: Some(360.0),
         preview_modes: [
@@ -236,6 +244,174 @@ fn round_trips_through_json() {
     let state = sample();
     assert_eq!(State::parse(&state.to_json()), state);
     assert_eq!(State::parse(&State::default().to_json()), State::default());
+}
+
+#[test]
+fn a_single_editor_terminal_round_trips_with_a_closed_panel() {
+    let mut state = State::default();
+    state.set_session(Session {
+        folder: PathBuf::from("/terminal-only"),
+        terminal: Some(TerminalSession {
+            tabs: vec![PathBuf::from("/terminal-only")],
+            names: vec!["server".into()],
+            shells: vec!["/bin/sh".into()],
+            groups: vec![TerminalGroup {
+                tabs: 1,
+                share: 0.75,
+                editor: Some(TerminalEditor {
+                    pane: 0,
+                    tab: 0,
+                    active: true,
+                }),
+            }],
+            ..TerminalSession::default()
+        }),
+        ..Session::default()
+    });
+    let json = state.to_json();
+    assert!(json.contains("\"editor\""));
+    let restored = State::parse(&json);
+    assert_eq!(restored, state);
+    let session = restored.session_for(Path::new("/terminal-only")).unwrap();
+    assert!(session.tabs.is_empty());
+    assert!(!session.terminal.as_ref().unwrap().open);
+}
+
+#[test]
+fn mixed_terminal_order_and_terminal_only_panes_round_trip() {
+    let placement = |pane, tab, active| Some(TerminalEditor { pane, tab, active });
+    let mut state = State::default();
+    state.set_session(Session {
+        folder: PathBuf::from("/mixed"),
+        tabs: vec![
+            Tab::File(PathBuf::from("/mixed/a.rs")),
+            Tab::File(PathBuf::from("/mixed/b.rs")),
+        ],
+        panes: Some(SessionPanes {
+            tree: PaneNode::Split {
+                column: true,
+                share: 0.4,
+                first: Box::new(PaneNode::Pane(0)),
+                second: Box::new(PaneNode::Pane(1)),
+            },
+            panes: vec![
+                SessionPane {
+                    tabs: vec![0, 1],
+                    active: None,
+                },
+                SessionPane {
+                    tabs: Vec::new(),
+                    active: None,
+                },
+            ],
+            focused: 1,
+        }),
+        terminal: Some(TerminalSession {
+            tabs: vec![PathBuf::from("/mixed"); 5],
+            groups: vec![
+                TerminalGroup {
+                    tabs: 1,
+                    share: 1.0,
+                    editor: placement(0, 3, false),
+                },
+                TerminalGroup {
+                    tabs: 2,
+                    share: 0.5,
+                    editor: placement(1, 0, true),
+                },
+                TerminalGroup {
+                    tabs: 1,
+                    share: 0.75,
+                    editor: placement(0, 1, true),
+                },
+                TerminalGroup {
+                    tabs: 1,
+                    share: 1.25,
+                    editor: placement(0, 2, false),
+                },
+            ],
+            ..TerminalSession::default()
+        }),
+        ..Session::default()
+    });
+    assert_eq!(State::parse(&state.to_json()), state);
+}
+
+#[test]
+fn editor_placement_is_optional_and_bad_placement_keeps_the_shells() {
+    let parse = |placement: &str| {
+        let text = format!(
+            r#"{{"session":{{"folder":"/p","files":[],"terminal":{{
+            "tabs":["/p","/p/src"],"names":["one","two"],"shells":["/bin/sh","/bin/bash"],
+            "groups":[{{"tabs":1,"share":0.5,"editor":{placement}}},{{"tabs":1,"share":1}}]
+        }}}}}}"#
+        );
+        State::parse(&text)
+            .session_for(Path::new("/p"))
+            .unwrap()
+            .terminal
+            .clone()
+            .unwrap()
+    };
+    let expected = TerminalEditor {
+        pane: 1,
+        tab: 2,
+        active: false,
+    };
+    assert_eq!(
+        parse(r#"{"pane":1,"tab":2}"#).groups[0].editor,
+        Some(expected)
+    );
+    for bad in [
+        r#"{"pane":-1,"tab":0}"#,
+        r#"{"pane":1.5,"tab":0}"#,
+        r#"{"pane":0,"tab":-1}"#,
+        r#"{"pane":0,"tab":0.5}"#,
+        r#"{"pane":1e100,"tab":0}"#,
+        r#"{"pane":0}"#,
+        r#"{"pane":0,"tab":0,"active":"yes"}"#,
+        "null",
+    ] {
+        let terminal = parse(bad);
+        assert_eq!(
+            terminal.tabs,
+            [PathBuf::from("/p"), PathBuf::from("/p/src")]
+        );
+        assert_eq!(terminal.names, ["one", "two"]);
+        assert_eq!(terminal.shells, ["/bin/sh", "/bin/bash"]);
+        assert_eq!(terminal.groups.len(), 2);
+        assert_eq!(terminal.groups[0].editor, None, "{bad}");
+    }
+}
+
+#[test]
+fn legacy_terminal_groups_keep_their_original_json_shape() {
+    let groups = [
+        TerminalGroup {
+            tabs: 1,
+            share: 1.0,
+            editor: None,
+        },
+        TerminalGroup {
+            tabs: 2,
+            share: 0.5,
+            editor: None,
+        },
+    ];
+    let json = Json::parse(r#"[{"tabs":1,"share":1},{"tabs":2,"share":0.5}]"#).unwrap();
+    assert_eq!(terminal_groups_json(&groups), Some(json.clone()));
+    assert_eq!(terminal_groups_json(&groups[..1]), None);
+    let object = Json::object(vec![("groups", json)]);
+    assert_eq!(read_terminal_groups(object.as_object().unwrap(), 3), groups);
+    assert!(read_terminal_groups(object.as_object().unwrap(), 4).is_empty());
+    let singleton = Json::object(vec![(
+        "groups",
+        Json::Array(vec![Json::object(vec![
+            ("tabs", Json::Number(1.0)),
+            ("share", Json::Number(1.0)),
+        ])]),
+    )]);
+    assert!(read_terminal_groups(singleton.as_object().unwrap(), 1).is_empty());
 }
 
 #[test]
@@ -499,6 +675,7 @@ fn sessions_are_kept_per_folder() {
         sidebar_hidden: false,
         window: None,
         panes: None,
+        repositories: SessionRepositories::default(),
     });
     assert_eq!(state.sessions.len(), 2);
     assert_eq!(state.sessions[0].folder, PathBuf::from("/b"));

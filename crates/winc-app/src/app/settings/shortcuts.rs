@@ -19,8 +19,9 @@ pub(crate) struct KeyEdit {
 }
 
 impl App {
-    /// 键位表换过之后：重排「快捷键」页并重绘，菜单中的快捷键随之更新。
+    /// 键位表换过之后：重算与 Vim 冲突的键，重排「快捷键」页并重绘，菜单中的快捷键随之更新。
     pub(crate) fn keymap_changed(&mut self) {
+        self.refresh_vim_key_rows();
         self.relayout();
         self.request_redraw();
     }
@@ -61,6 +62,7 @@ impl App {
                 self.start_key_edit(action, true);
             }
             SettingsPart::KeyReset(action) => self.reset_shortcuts(action),
+            SettingsPart::KeyVim(_, c) => self.show_setting(Setting::VimKey(c)),
             SettingsPart::KeyRemove(index) => {
                 if let Some(edit) = &mut self.settings.key_edit
                     && index < edit.keys.len()

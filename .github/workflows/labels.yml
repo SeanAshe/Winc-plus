@@ -1,0 +1,45 @@
+# Labels: creates and updates the repository's labels from .github/labels.json, so their names,
+# colors and descriptions are kept in one place. Labels that are not in the file are left alone;
+# remove retired ones by hand once nothing uses them.
+
+name: Labels
+
+on:
+  push:
+    branches: [dev]
+    paths: [.github/labels.json]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: labels
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    if: github.repository == 'DEEIX-AI/Winc'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/github-script@v9
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const { labels } = JSON.parse(require("node:fs").readFileSync(".github/labels.json", "utf8"));
+            const existing = new Map((await github.paginate(github.rest.issues.listLabelsForRepo,
+              { owner, repo, per_page: 100 })).map((label) => [label.name, label]));
+            for (const { name, color, description } of labels) {
+              const current = existing.get(name);
+              if (!current) {
+                await github.rest.issues.createLabel({ owner, repo, name, color, description });
+                core.info(`created ${name}`);
+              } else if (current.color !== color || (current.description ?? "") !== description) {
+                await github.rest.issues.updateLabel({ owner, repo, name, color, description });
+                core.info(`updated ${name}`);
+              }
+            }

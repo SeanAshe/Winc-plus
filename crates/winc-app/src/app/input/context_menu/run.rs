@@ -146,9 +146,13 @@ impl App {
                 }
                 _ => {}
             },
-            MenuTarget::Terminal(block) => self.run_terminal_command(command, block),
+            MenuTarget::Terminal(id, block) => {
+                if self.activate_terminal_menu_target(id).is_some() {
+                    self.run_terminal_command(command, block);
+                }
+            }
             MenuTarget::TerminalTab(id) => {
-                let Some(index) = self.terminal.tabs.iter().position(|t| t.id == id) else {
+                let Some(index) = self.activate_terminal_menu_target(id) else {
                     return;
                 };
                 match command {
@@ -161,6 +165,7 @@ impl App {
                         self.activate_terminal_tab(index);
                         self.move_terminal_to_new_group();
                     }
+                    MenuCommand::MoveTerminalToEditor => self.move_terminal_to_editor(),
                     MenuCommand::CloseTerminal => self.close_terminal_tab(index),
                     MenuCommand::CloseOtherTerminals => self.close_other_terminal_tabs(id),
                     _ => {}
@@ -283,6 +288,11 @@ impl App {
                     && let Some(&choice) = winc_config::PullMode::ALL.get(i)
                 {
                     self.set_pull_mode(choice);
+                }
+            }
+            MenuTarget::VimKey(c) => {
+                if let MenuCommand::VimKeyOwner(vim) = command {
+                    self.set_vim_key_owner(c, vim);
                 }
             }
             MenuTarget::VimClipboard => {
@@ -414,6 +424,7 @@ impl App {
                     self.close_picker();
                     self.prune_worktrees();
                 }
+                MenuCommand::LocationForget => self.remove_repository(&path),
                 MenuCommand::LocationMerge => {
                     let tree = worktree.and_then(|i| self.git.worktrees.get(i));
                     if let Some(name) = tree.and_then(|w| w.branch()).map(str::to_owned) {
@@ -503,6 +514,7 @@ impl App {
                 MenuCommand::Download => self.pick(Pick::Download(self.tree_targets())),
                 MenuCommand::CopyPath => self.copy_paths(&selection, false),
                 MenuCommand::CopyRelativePath => self.copy_paths(&selection, true),
+                MenuCommand::CopyAsPrompt => self.copy_as_prompt(self.tree_selected_files()),
                 _ => {}
             }
             return;
@@ -528,6 +540,7 @@ impl App {
             MenuCommand::FindInFolder => self.find_in_folder(&target),
             MenuCommand::CopyPath => self.copy_path(&target, false),
             MenuCommand::CopyRelativePath => self.copy_path(&target, true),
+            MenuCommand::CopyAsPrompt if path.is_some() => self.copy_as_prompt(vec![target]),
             MenuCommand::Rename => self.start_rename(&target),
             MenuCommand::Delete => self.ask_delete(&target),
             MenuCommand::Cut => self.cut_entries(std::slice::from_ref(&target)),
@@ -537,6 +550,25 @@ impl App {
             MenuCommand::Download => self.pick(Pick::Download(vec![target])),
             _ => {}
         }
+    }
+
+    /// 菜单目标编号优先于当前焦点，包括其他栏和拆分出的终端。
+    pub(super) fn activate_terminal_menu_target(&mut self, id: u16) -> Option<usize> {
+        let group = self.terminal.group_of(id)?;
+        self.focus_terminal_group(group);
+        let index = self
+            .terminal
+            .tabs
+            .iter()
+            .position(|tab| tab.panes().any(|pane| pane.id == id))?;
+        let tab = &self.terminal.tabs[index];
+        let offset = tab.panes().position(|pane| pane.id == id)?;
+        let pane = match offset {
+            0 => tab.pane_at(),
+            n => n - 1 + usize::from(n > tab.pane_at()),
+        };
+        self.select_terminal_pane(index, pane);
+        Some(index)
     }
 
     fn run_terminal_command(&mut self, command: MenuCommand, block: Option<u32>) {
@@ -559,6 +591,8 @@ impl App {
             MenuCommand::MoveTerminalRight | MenuCommand::MoveTerminalDown => {
                 self.move_terminal_to_new_group();
             }
+            MenuCommand::MoveTerminalToEditor => self.move_terminal_to_editor(),
+            MenuCommand::MoveTerminalToPanel => self.move_terminal_to_panel(),
             MenuCommand::CloseTerminal => self.close_terminal_pane(),
             _ => {}
         }
@@ -595,6 +629,22 @@ impl App {
     }
 
     fn run_tab_command(&mut self, command: MenuCommand, id: DocumentId) {
+        if self.editor.document(id).is_some_and(|doc| doc.terminal) {
+            match command {
+                MenuCommand::MoveTerminalToPanel => {
+                    self.move_editor_terminal_to_panel(id);
+                    return;
+                }
+                MenuCommand::RenameTerminal => {
+                    self.focus_editor_terminal_document(id);
+                    if self.activate_editor_terminal() {
+                        self.open_terminal_rename(self.terminal.active);
+                    }
+                    return;
+                }
+                _ => {}
+            }
+        }
         let Some(index) = self
             .editor
             .index_of(id)
@@ -738,12 +788,9 @@ impl App {
         self.focus = Focus::Tree;
     }
 
-    /// Git 模块开着、`path` 在仓库里。
+    /// Git 模块开着、`path` 在某个已知仓库里（见 [`App::repo_of`]），不一定是当前仓库。
     pub(super) fn in_repo(&self, path: &Path) -> bool {
-        self.git.root.as_deref().is_some_and(|root| {
-            path.starts_with(root)
-                || winc_config::files::canonicalize(path).is_ok_and(|real| real.starts_with(root))
-        })
+        self.repo_of(path).is_some()
     }
 
     /// 返回 `path` 相对于它所在的目录（打开的目录或附加的目录）的路径；不在这些目录内或就是
@@ -817,12 +864,16 @@ impl App {
 
     /// 让全局搜索只搜索 `path` 所在的目录（`path` 是文件时取该文件所在的目录）。
     ///
-    /// 把「包含」填成 `./相对路径`，并展开过滤条件。
+    /// 把「包含」填成 `./相对路径`，并展开过滤条件。Windows 上路径中的 `\` 换成 `/`：规则按 glob
+    /// 解析，各系统上填入的写法相同。
     pub(in crate::app) fn find_in_folder(&mut self, path: &Path) {
         let dir = self.folder_of(path);
         let include = self
             .relative_path(&dir)
-            .map(|relative| format!("./{relative}"))
+            .map(|relative| match cfg!(windows) {
+                true => format!("./{}", relative.replace('\\', "/")),
+                false => format!("./{relative}"),
+            })
             .unwrap_or_default();
 
         if include != self.panels.global.include.text() {

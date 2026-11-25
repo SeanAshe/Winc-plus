@@ -415,8 +415,10 @@ fn hovering_a_long_change_name_shows_it_in_full_with_its_buttons_after_it() {
     assert_eq!(overflow.row, i);
     let spill = overflow.spill.expect("past the sidebar");
     assert_eq!(spill.x, list.right());
-    let (open, revert) = overflow.actions.expect("buttons after the name");
-    assert!(open.x > list.right() && revert.right() <= spill.right());
+    // 勾选式下是「回滚」「打开文件」。
+    let strip = overflow.actions.expect("buttons after the name");
+    let (revert, open) = (strip.rect(0), strip.rect(1));
+    assert!(revert.x > list.right() && open.right() <= spill.right());
     let open_hit = app
         .hits
         .commit
@@ -497,7 +499,7 @@ fn a_long_change_name_slides_out_and_back_like_the_file_tree() {
     app.on_mouse_move(list.x + 120.0, y);
     paint(&mut app);
     let overflow = app.git.commit.overflow.expect("long name spills");
-    let (_, revert) = overflow.actions.unwrap();
+    let revert = overflow.actions.unwrap().first;
     let view = app.git.commit.names.peek(&key).unwrap();
     assert!(app.git.commit.names.moving());
     assert!(view.width < revert.x - list.x, "{}", view.width);
@@ -585,7 +587,7 @@ fn names_that_only_make_room_for_the_buttons_slide_the_buttons_out() {
         let Some(overflow) = app.git.commit.overflow else {
             continue;
         };
-        let (end, _) = overflow.actions.unwrap();
+        let end = overflow.actions.unwrap().rect(1);
         let start = (app.hits.commit.iter())
             .find(|(_, t)| matches!(t, CommitTarget::OpenFile(_)))
             .unwrap()
@@ -911,9 +913,10 @@ fn the_full_name_row_covers_the_scrollbar_like_the_file_tree() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
-/// 全名可以跨过分隔条显示，但分隔条始终响应宽度拖拽；鼠标经过它移向全名时不收回。
+/// 写全名的改动行画在分隔条之上：在这一行的高度内，鼠标经过分隔条时仍悬停在这一行，按下选中
+/// 这一行，不拖动分隔条。其他行的高度、以及从编辑区一侧移来时，分隔条照常可以拖动。
 #[test]
-fn the_splitter_stays_draggable_when_a_change_name_is_expanded() {
+fn the_full_name_row_covers_the_splitter() {
     let Some((dir, long)) = long_name_repo("git-commit-overflow-splitter") else {
         return;
     };
@@ -926,9 +929,13 @@ fn the_splitter_stays_draggable_when_a_change_name_is_expanded() {
     paint(&mut app);
     let status = app.git.status.clone().unwrap();
     let rows = app.commit_rows();
-    let i = rows
-        .iter()
-        .position(|r| matches!(r, CommitRow::File { index, .. } if status.entries[*index].path.ends_with(&long)))
+    let (i, index) = (rows.iter().enumerate())
+        .find_map(|(i, r)| match r {
+            CommitRow::File { index, .. } if status.entries[*index].path.ends_with(&long) => {
+                Some((i, *index))
+            }
+            _ => None,
+        })
         .unwrap();
     let list = app.commit_parts().list;
     let y = list.y + i as f32 * COMMIT_ROW - app.git.commit.scroll + COMMIT_ROW / 2.0;
@@ -944,26 +951,32 @@ fn the_splitter_stays_draggable_when_a_change_name_is_expanded() {
     ] {
         app.on_mouse_move(x, y);
         paint(&mut app);
-        assert_eq!(app.pointer.hover, Hover::Splitter, "x = {x}");
+        assert_ne!(app.pointer.hover, Hover::Splitter, "x = {x}");
         assert!(
             app.git.commit.overflow.is_some_and(|o| o.row == i),
             "x = {x}"
         );
     }
-    let selected = app.git.commit.selected.clone();
     app.on_mouse_move(splitter.x + splitter.w / 2.0, y);
     app.on_mouse_down(MouseButton::Left);
-    assert!(matches!(
+    app.on_mouse_up(MouseButton::Left);
+    assert!(!matches!(
         app.pointer.drag,
         crate::app::Drag::Splitter { .. }
     ));
-    assert_eq!(app.git.commit.selected, selected);
-    app.on_mouse_up(MouseButton::Left);
     assert_eq!(app.layout.splitter, splitter);
+    let path = status.entries[index].path.clone();
+    assert_eq!(app.git.commit.selected, Some(path));
 
     // 其他行：分隔条正常响应。
     let other = y + 3.0 * COMMIT_ROW;
     app.on_mouse_move(splitter.x + splitter.w / 2.0, other);
+    paint(&mut app);
+    assert_eq!(app.pointer.hover, Hover::Splitter);
+    // 从编辑区一侧移到这一行高度的分隔条上：没有行在写全名，分隔条可以拖动。
+    app.on_mouse_move(splitter.right() + 40.0, y);
+    paint(&mut app);
+    app.on_mouse_move(splitter.x + splitter.w / 2.0, y);
     paint(&mut app);
     assert_eq!(app.pointer.hover, Hover::Splitter);
     let _ = std::fs::remove_dir_all(&dir);

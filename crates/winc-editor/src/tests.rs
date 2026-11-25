@@ -146,6 +146,36 @@ fn reading_tabs_hold_markdown_without_editable_text() {
 }
 
 #[test]
+fn terminal_tabs_are_not_replaced_by_same_named_tool_output() {
+    let mut editor = Editor::default();
+    let first = editor.new_terminal("build");
+    let terminal = editor.documents[first].id;
+    let second = editor.new_terminal("build");
+    let other = editor.documents[second].id;
+    assert_ne!(terminal, other);
+
+    let output = editor.show_output("build", "compiler output");
+    assert_ne!(editor.documents[output].id, terminal);
+    assert_ne!(editor.documents[output].id, other);
+    editor.refresh_output("build", Some("\nfinished"), "");
+    assert_eq!(
+        editor.documents[output].text().rope().unwrap().to_string(),
+        "compiler output\nfinished"
+    );
+    assert!(editor.document(terminal).unwrap().terminal);
+    assert!(editor.document(other).unwrap().terminal);
+    editor.document_mut(terminal).unwrap().make_untitled();
+    assert!(!editor.document(terminal).unwrap().edits_text());
+    assert!(
+        editor
+            .document(terminal)
+            .unwrap()
+            .unwritable_reason()
+            .is_some()
+    );
+}
+
+#[test]
 fn output_tabs_are_read_only_and_reused() {
     let mut editor = Editor::default();
     editor.new_untitled();

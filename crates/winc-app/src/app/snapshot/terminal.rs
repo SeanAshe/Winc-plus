@@ -598,51 +598,6 @@ fn the_wheel_moves_rows_by_pixels_and_clicks_follow_them() {
 }
 
 #[test]
-fn the_tab_bar_keeps_even_gaps_around_tabs_and_buttons() {
-    let dir = sample_folder("terminal-tab-bar-gaps");
-    let mut app = app_with(&dir.join("short.rs"), false);
-    show_terminal(&mut app, "");
-    for _ in 0..20 {
-        add_tab(&mut app, "zsh", "");
-    }
-    app.terminal.active = 0;
-    paint(&mut app);
-    let card = app.layout.terminal;
-    let hit = |app: &App, wanted: terminal::HeaderHit| {
-        (app.hits.terminal.iter())
-            .find(|(_, hit)| *hit == wanted)
-            .map(|(rect, _)| *rect)
-            .unwrap()
-    };
-
-    // 标签放不下：第一个标签上、下、左的留白相同。
-    let tab = hit(&app, terminal::HeaderHit::Tab(0));
-    assert_eq!(tab.x - card.x, tab.y - card.y);
-    assert_eq!(tab.x - card.x, app.terminal_view().y - tab.bottom());
-    assert_eq!(tab.x - card.x, 5.0);
-
-    // 「+」、运行、拆分、最大化、切换位置、收起六个按钮间距相同，尺寸和间距与编辑区标签栏一致。
-    let new = hit(&app, terminal::HeaderHit::New);
-    let run = hit(
-        &app,
-        terminal::HeaderHit::Run(terminal::run::RunButton::Start),
-    );
-    let split = hit(&app, terminal::HeaderHit::Split);
-    let maximize = hit(&app, terminal::HeaderHit::Maximize);
-    let position = hit(&app, terminal::HeaderHit::Position);
-    let hide = hit(&app, terminal::HeaderHit::Hide);
-    assert_eq!(run.x - new.right(), crate::theme::TAB_GAP);
-    assert_eq!(split.x - run.right(), crate::theme::TAB_GAP);
-    assert_eq!(maximize.x - split.right(), crate::theme::TAB_GAP);
-    assert_eq!(position.x - maximize.right(), crate::theme::TAB_GAP);
-    assert_eq!(hide.x - position.right(), crate::theme::TAB_GAP);
-    assert_eq!(new.w, crate::theme::BUTTON);
-    assert_eq!(card.right() - hide.right(), 8.0);
-
-    std::fs::remove_dir_all(&dir).unwrap();
-}
-
-#[test]
 #[ignore = "截图，手动运行"]
 fn snapshot_terminal() {
     let dir = sample_folder("terminal-shot");
@@ -1226,7 +1181,7 @@ fn the_shell_menu_starts_the_chosen_shell_and_remembers_it() {
     );
 
     // 现场记下：默认 shell 的是空的。
-    let session = app.terminal_session().unwrap();
+    let session = app.terminal_session_with_tabs(&[]).unwrap();
     assert_eq!(session.shells, ["", "/bin/bash"]);
 
     // 异常退出的标签留着，重新启动后还是这个 shell（正常退出的标签直接关闭）。

@@ -568,6 +568,16 @@ const IDS: &[(Action, &[&str], &[&str])] = &[
         &["workbench.action.toggleMaximizedPanel"],
     ),
     (
+        MoveTerminalToEditor,
+        &[],
+        &["workbench.action.terminal.moveToEditor"],
+    ),
+    (
+        MoveTerminalToPanel,
+        &[],
+        &["workbench.action.terminal.moveToTerminalPanel"],
+    ),
+    (
         ScrollTerminalTop,
         &[],
         &["workbench.action.terminal.scrollToTop"],

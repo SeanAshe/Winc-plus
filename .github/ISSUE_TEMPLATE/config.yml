@@ -9,3 +9,6 @@ contact_links:
   - name: Questions and discussion
     url: https://t.me/deeix_chat
     about: Ask usage questions and talk with other users in the Telegram group.
+  - name: QQ group (Chinese)
+    url: https://github.com/DEEIX-AI/Winc/blob/HEAD/README.zh-CN.md#联系我们
+    about: 中文用户交流群，群号 260867503，二维码见 README。

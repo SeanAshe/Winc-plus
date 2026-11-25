@@ -20,6 +20,7 @@ impl App {
             Setting::VimRelativeNumber => self.config.vim_relative_number == Some(true),
             Setting::VimYankHighlight => self.config.vim_yank_highlight != Some(0),
             Setting::WordWrap => self.config.word_wrap == Some(true),
+            Setting::AlignColumns => self.config.align_columns != Some(false),
             Setting::WholeLines => self.config.whole_lines == Some(true),
             Setting::Minimap => self.config.minimap == Some(true),
             Setting::Outline => self.config.outline != Some(false),
@@ -101,6 +102,11 @@ impl App {
             // 关闭记为 0 毫秒，打开恢复默认的时长。
             Setting::VimYankHighlight => self.config.vim_yank_highlight = (!on).then_some(0),
             Setting::WordWrap => self.config.word_wrap = Some(on),
+            Setting::AlignColumns => {
+                self.config.align_columns = Some(on);
+                self.editor.set_align_columns(on);
+                self.relayout();
+            }
             Setting::WholeLines => self.config.whole_lines = Some(on),
             Setting::Minimap => self.config.minimap = Some(on),
             Setting::Outline => self.config.outline = Some(on),

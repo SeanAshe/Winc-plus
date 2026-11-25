@@ -1,11 +1,8 @@
 //! 收集工作区的文件：整体遍历，以及按目录中的变化增量更新。
 
-use super::*;
+use winc_search::MATCHER_DIRS;
 
-/// 遍历时更换忽略规则匹配器的目录间隔（个）：每列出该数量的目录就换一个新的匹配器。
-///
-/// 依据见 [`collect`] 的说明。
-const MATCHER_DIRS: usize = 1024;
+use super::*;
 
 /// 遍历 `root` 和各个附加的目录 `extra`（路径前缀、目录），合成一张文件表。
 ///
@@ -16,15 +13,25 @@ pub(super) fn collect_all(
     limit: usize,
     cancel: &AtomicBool,
 ) -> Files {
-    let main = collect(root, limit, cancel);
-    if extra.is_empty() {
+    with_parts(collect(root, limit, cancel), extra, limit, cancel)
+}
+
+/// 把各部分 `parts`（路径前缀、目录）各自遍历后并入 `main`：部分中的路径以前缀加 `/` 开头；
+/// 总数超过 `limit` 时先收 `main` 的，再按顺序收各部分的。
+fn with_parts(
+    main: Files,
+    parts: &[(String, PathBuf)],
+    limit: usize,
+    cancel: &AtomicBool,
+) -> Files {
+    if parts.is_empty() {
         return main;
     }
     let mut paths: Packed = main.paths.iter().collect();
     let mut dirs: Vec<String> = main.dirs.iter().map(str::to_owned).collect();
     let mut scratch = String::new();
     let mut failed = main.failed;
-    for (label, folder) in extra {
+    for (label, folder) in parts {
         let part = collect(folder, limit.saturating_sub(paths.len()), cancel);
         failed |= part.failed;
         dirs.push(label.clone());
@@ -46,6 +53,9 @@ pub(super) fn collect_all(
 
 /// 遍历 `root`，收齐文件，排序后放进文件表。
 ///
+/// 被忽略、自身又是版本库根目录的目录（嵌套的版本库，见 [`winc_search::nested_repositories`]）
+/// 不归 `root` 的规则管：在收录的各层中遇到时，按自身的规则遍历后并入，路径前缀是该目录的相对路径。
+///
 /// 按层（广度优先）遍历：文件超过 `limit` 个时只收录浅层，整层整层地收，收录结果只取决于目录
 /// 内容。不用深度优先：它要先走完一棵很深的子树，才知道浅层放不放得下。忽略规则与全局搜索相同
 /// （[`ignore::IncrementalIgnore`]），每列出 [`MATCHER_DIRS`] 个目录换一个匹配器以限制规则缓存
@@ -61,13 +71,14 @@ pub(super) fn collect(root: &Path, limit: usize, cancel: &AtomicBool) -> Files {
     // 路径都放进 `Packed`，拼路径用同一个 `scratch`，遍历中不为每个文件和目录单独分配内存。
     let (mut files, mut dirs, mut scratch) = (Packed::default(), Packed::default(), String::new());
     let mut layers = None;
+    let mut nested: Vec<String> = Vec::new();
 
     for depth in 1.. {
         if frontier.is_empty() {
             break;
         }
         // 这一层的文件直接加进 `files`；加进去会超过 `limit` 时，退回到这一层之前。
-        let before = files.len();
+        let (before, nested_before) = (files.len(), nested.len());
         let mut next = Packed::default();
         let mut full = false;
         for dir in frontier.iter() {
@@ -83,8 +94,7 @@ pub(super) fn collect(root: &Path, limit: usize, cancel: &AtomicBool) -> Files {
                 dir,
                 matcher.as_mut(),
                 &mut scratch,
-                &mut files,
-                &mut next,
+                (&mut files, &mut next, &mut nested),
             );
             // 第 1 层自己就超过 `limit` 时也要列完，排序后收录前 `limit` 个。
             if depth > 1 && files.len() > limit {
@@ -94,6 +104,7 @@ pub(super) fn collect(root: &Path, limit: usize, cancel: &AtomicBool) -> Files {
         }
         if full {
             files.truncate(before);
+            nested.truncate(nested_before);
             layers = Some(depth - 1);
             break;
         }
@@ -106,10 +117,17 @@ pub(super) fn collect(root: &Path, limit: usize, cancel: &AtomicBool) -> Files {
     let mut table = Files::sorted(&files, limit);
     table.layers = layers;
     table.dirs = DirSet::new(dirs.iter());
-    table
+    let parts: Vec<(String, PathBuf)> = (nested.into_iter())
+        .map(|rel| {
+            let path = root.join(&rel);
+            (rel, path)
+        })
+        .collect();
+    with_parts(table, &parts, limit, cancel)
 }
 
-/// 列出 `dir`（相对路径）中不被忽略的文件和目录，把它们的相对路径分别放进 `files`、`dirs`。
+/// 列出 `dir`（相对路径）中不被忽略的文件和目录，相对路径分别放进 `files`、`dirs`；
+/// 被忽略的嵌套版本库放进 `nested`。
 ///
 /// 不跟随符号链接，与 `ignore` 的遍历相同。`scratch` 是拼路径用的缓冲，内容不保留。
 fn list(
@@ -117,8 +135,7 @@ fn list(
     dir: &str,
     matcher: Option<&mut ignore::IncrementalIgnore>,
     scratch: &mut String,
-    files: &mut Packed,
-    dirs: &mut Packed,
+    (files, dirs, nested): (&mut Packed, &mut Packed, &mut Vec<String>),
 ) {
     let Ok(entries) = winc_backend::fs::read_dir(root.join(dir)) else {
         return;
@@ -146,6 +163,9 @@ fn list(
         if let Some(matcher) = matcher.as_deref_mut()
             && matcher.matched(scratch.as_str(), kind.is_dir()).is_ignore()
         {
+            if kind.is_dir() && winc_search::is_repository(&root.join(scratch.as_str())) {
+                nested.push(scratch.clone());
+            }
             continue;
         }
         if file {

@@ -31,6 +31,8 @@ pub enum NoticeAction {
     ReleaseNotes(Option<String>),
     /// 「打开项目」：打开该项目文件。
     OpenProject(PathBuf),
+    /// 「打开设置」：在设置中显示 `Ctrl` 与这个字符的组合归 Vim 还是编辑器的一行。
+    VimKey(char),
 }
 
 /// 提示的种类，决定提示条左侧的图标和颜色。
@@ -72,7 +74,9 @@ impl NoticeAction {
                 t!("workspace-notice-show-output")
             }
             NoticeAction::Install { .. } => t!("workspace-notice-install"),
-            NoticeAction::FormatSettings => t!("workspace-notice-open-settings"),
+            NoticeAction::FormatSettings | NoticeAction::VimKey(_) => {
+                t!("workspace-notice-open-settings")
+            }
             NoticeAction::Reconnect(_) => t!("workspace-notice-reconnect"),
             NoticeAction::CancelConnect | NoticeAction::CancelCopy => {
                 t!("workspace-notice-cancel")
@@ -218,6 +222,7 @@ impl App {
                 self.open_release_notes(crate::release_notes::Scope::Since(previous));
             }
             NoticeAction::OpenProject(file) => self.open_folder(&file),
+            NoticeAction::VimKey(c) => self.show_setting(Setting::VimKey(c)),
         }
         self.request_redraw();
     }

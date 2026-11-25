@@ -233,11 +233,11 @@ fn restarting_runs_the_configuration_again() {
 fn run_tabs_are_not_restored() {
     let (mut app, dir, _log) = app_with_configs("run-session");
     run_current(&mut app);
-    assert!(app.terminal_session().is_none());
+    assert!(app.terminal_session_with_tabs(&[]).is_none());
 
     app.new_terminal_tab_in(b"/tmp".to_vec());
     app.relayout();
-    let session = app.terminal_session().unwrap();
+    let session = app.terminal_session_with_tabs(&[]).unwrap();
     assert_eq!(session.tabs.len(), 1);
     assert_eq!(session.active, 0);
 

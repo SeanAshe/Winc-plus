@@ -591,11 +591,17 @@ pub struct Columns {
 /// 取能分开相邻两列内容的最小值 1：为 0 时相邻列的内容连在一起，取值更大则占用更多水平空间。
 const COLUMN_GAP: usize = 1;
 
+/// 按列对齐时一列最多占用的宽度（显示列，不含分隔符和空隙）。
+///
+/// 取 32：编辑区宽 80 个显示列时，至少能并排显示两列（每列连同分隔符和空隙占 34 列）。更宽的
+/// 字段只推后同一行中其后的各列，不改变其他行的对齐。
+pub const MAX_COLUMN_WIDTH: usize = 32;
+
 impl Columns {
     /// 根据文本内容计算各列的起始显示列。
     ///
-    /// 每列的宽度取该列所有字段中最宽者，再加上分隔符（1 个显示列）和 `COLUMN_GAP`。
-    /// 引号内的分隔符不分列，`"a, b"` 是一个字段。
+    /// 每列的宽度取该列所有字段中最宽者，不超过 [`MAX_COLUMN_WIDTH`]，再加上分隔符（1 个显示列）
+    /// 和 `COLUMN_GAP`。引号内的分隔符不分列，`"a, b"` 是一个字段。
     ///
     /// `chunks` 是整个文件的文本，按段给出（例如 rope 的 `chunks()`），整体只遍历一遍。
     pub fn measure<'a>(
@@ -776,14 +782,14 @@ impl ColumnWidths {
         });
     }
 
-    /// 各列的起始显示列。
+    /// 各列的起始显示列；列宽不超过 [`MAX_COLUMN_WIDTH`]。
     pub fn columns(&self) -> Columns {
         let mut starts = Vec::with_capacity(self.widths.len().max(1));
         let mut at = 0;
         for width in &self.widths {
             starts.push(at);
             // 分隔符占 1 个显示列，之后再留出 `COLUMN_GAP` 的空隙。
-            at += width + 1 + COLUMN_GAP;
+            at += width.min(&MAX_COLUMN_WIDTH) + 1 + COLUMN_GAP;
         }
         if starts.is_empty() {
             starts.push(0);

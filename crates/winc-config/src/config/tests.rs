@@ -345,6 +345,7 @@ fn round_trips_through_json() {
         open_folder_in_new_window: Some(true),
         sticky_scroll: Some(false),
         word_wrap: Some(true),
+        align_columns: Some(false),
         whole_lines: Some(true),
         minimap: Some(true),
         outline: Some(false),

@@ -557,6 +557,7 @@ impl Palette {
             TokenKind::Inserted => self.syntax_string,
             TokenKind::Deleted => self.error,
             TokenKind::Warning => self.warning,
+            TokenKind::Separator => self.text_dim,
         }
     }
 

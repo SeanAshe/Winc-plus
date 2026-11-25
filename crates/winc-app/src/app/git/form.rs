@@ -45,6 +45,8 @@ pub(crate) enum FormKind {
     CompareRevision { commit: String },
     /// 按路径筛选 Git 日志：输入相对仓库根目录的路径或通配。
     LogPath,
+    /// 手动添加仓库：输入仓库中一个目录的路径，绝对路径或相对于打开的目录。
+    AddRepository,
     /// 给窗口中的这组目录起名。
     RenameGroup,
     /// 交互式变基。
@@ -108,6 +110,7 @@ impl FormKind {
             FormKind::GoToRevision => Some(QuestionView::go_to_revision()),
             FormKind::CompareRevision { commit } => Some(QuestionView::compare_revision(commit)),
             FormKind::LogPath => Some(QuestionView::log_path()),
+            FormKind::AddRepository => Some(QuestionView::add_repository()),
             FormKind::RenameGroup => Some(QuestionView::rename_group()),
             FormKind::Worktree
             | FormKind::Branch { .. }
@@ -447,6 +450,14 @@ impl App {
                 base_enabled: false,
                 dir: None,
             },
+            FormKind::AddRepository => FormPlan {
+                problem: None,
+                confirm: t!("git-repository-add-button"),
+                enabled: !dialog.name.text().trim().is_empty(),
+                base: String::new(),
+                base_enabled: false,
+                dir: None,
+            },
             FormKind::LogPath => {
                 let path = dialog.name.text().trim();
                 FormPlan {
@@ -650,6 +661,14 @@ impl App {
             self.rename_group(&name);
             return;
         }
+        if matches!(dialog.kind, FormKind::AddRepository) {
+            let path = self.repository_input_path(dialog.name.text());
+            self.close_form_dialog();
+            if let Some(path) = path {
+                self.add_repository_at(path);
+            }
+            return;
+        }
         if matches!(dialog.kind, FormKind::LogPath) {
             // 写成相对仓库根目录的样子：开头的 `./`、`/` 和末尾的 `/` 去掉。
             let text = dialog.name.text().trim();
@@ -683,7 +702,8 @@ impl App {
             | FormKind::GoToRevision
             | FormKind::CompareRevision { .. }
             | FormKind::RenameGroup
-            | FormKind::LogPath => {}
+            | FormKind::LogPath
+            | FormKind::AddRepository => {}
             FormKind::Clone => self.submit_clone(),
             FormKind::Transfer(form) => {
                 let remote = dialog.base.clone().unwrap_or_else(|| form.remote.clone());
