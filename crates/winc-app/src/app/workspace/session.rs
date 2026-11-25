@@ -300,11 +300,8 @@ impl App {
             return;
         };
         self.disk.restoring = None;
-        let opened = self.editor.active().map(|doc| doc.id);
+        // 恢复期间打开的文件排在恢复的标签之后，仍是当前标签（见 `restore_prepared`）。
         let restored = restore_prepared(&mut self.editor, session.as_ref(), prepared);
-        if let Some(index) = opened.and_then(|id| self.editor.index_of(id)) {
-            self.editor.active = Some(index);
-        }
         self.adopt_restored(restored);
         if session
             .as_ref()
