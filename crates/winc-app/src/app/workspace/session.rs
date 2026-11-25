@@ -53,7 +53,7 @@ impl App {
         // 连接成功后远端模块打开的是项目的第一个目录，此处改为打开项目。
         if project.is_none()
             && let Some(file) = self.remote.project.take()
-            && super::project::project_folders(&file).is_ok_and(|p| p.root == root)
+            && self.project_of(&file).is_ok_and(|p| p.root == root)
         {
             self.open_folder(&file);
             return;
@@ -165,7 +165,7 @@ impl App {
         }
 
         match self.editor.root().map(Path::to_path_buf) {
-            Some(root) if root == folder => {
+            Some(root) if winc_editor::same_folder(&root, &folder) => {
                 if let Some(project) = &project {
                     self.apply_project(project);
                 }
@@ -223,6 +223,14 @@ impl App {
         self.apply_compact_folders();
         if let Some(project) = &project {
             self.load_project(project);
+        }
+        // 同一目录以前按真实路径记下的现场和最近列表中的位置，改到打开时的写法下；须在记下
+        // 这次打开（`folder_opened`）之前，否则新写法已有一份空现场。
+        let links = self.editor.folder_links();
+        if let Some((root, real)) = (self.editor.root())
+            .and_then(|root| Some((root.to_path_buf(), links.real_of(root)?.to_path_buf())))
+        {
+            self.update_state(move |state| state.rename_folder(&real, &root));
         }
         self.folder_opened();
         self.focus = match self.panels.sidebar.view {
@@ -302,6 +310,7 @@ impl App {
         self.disk.restoring = None;
         // 恢复期间打开的文件排在恢复的标签之后，仍是当前标签（见 `restore_prepared`）。
         let restored = restore_prepared(&mut self.editor, session.as_ref(), prepared);
+        self.reveal_restored();
         self.adopt_restored(restored);
         if session
             .as_ref()

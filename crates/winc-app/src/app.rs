@@ -384,6 +384,8 @@ pub enum UserEvent {
     Replaced,
     /// 大文件的后台断行已完成。
     Wrapped,
+    /// 当前文档与剪贴板、已保存的版本的比较已在后台完成。
+    Compared,
     /// 确认框上确认了全部替换；参数为弹出确认框时结果列表中的匹配总数。
     ReplaceAllConfirmed(usize),
 }
@@ -1237,6 +1239,7 @@ impl App {
             UserEvent::BackedUp => self.collect_backups(false),
             UserEvent::Replaced => self.poll_replace_all(),
             UserEvent::Wrapped => self.poll_wraps(),
+            UserEvent::Compared => self.poll_compares(),
             other => debug_assert!(false, "{other:?} 不是后台任务做完的事件"),
         }
     }

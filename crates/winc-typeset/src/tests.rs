@@ -15,6 +15,20 @@ fn lay(markdown: &str, width: f32) -> Vec<(Out, f32)> {
 
 /// 同 [`lay`]，图片按网址在 `images` 中查找。
 fn lay_with(markdown: &str, width: f32, images: &HashMap<PathBuf, ImageSlot>) -> Vec<(Out, f32)> {
+    lay_in(markdown, width, images, (0.0, 0.0))
+}
+
+/// 同 [`lay`]，比一栏宽的表格可以占用两侧的留白 `bleed`（见 [`Cx::bleed`]）。
+fn lay_bled(markdown: &str, width: f32, bleed: (f32, f32)) -> Vec<(Out, f32)> {
+    lay_in(markdown, width, &HashMap::new(), bleed)
+}
+
+fn lay_in(
+    markdown: &str,
+    width: f32,
+    images: &HashMap<PathBuf, ImageSlot>,
+    bleed: (f32, f32),
+) -> Vec<(Out, f32)> {
     let parsed = winc_preview::markdown::parse(markdown);
     let mut renderer =
         Renderer::offscreen(800.0, 600.0, 1.0, Color::hex(0xffffff), None, None).unwrap();
@@ -45,6 +59,7 @@ fn lay_with(markdown: &str, width: f32, images: &HashMap<PathBuf, ImageSlot>) ->
             tall: f32::INFINITY,
             repeat: 0,
             toggles: HashMap::new(),
+            bleed,
         };
         let env = Env {
             color: TEXT,
@@ -134,6 +149,53 @@ fn tables_wider_than_the_text_scroll_sideways() {
     let laid = lay(&format!("{row}{rule}{row}"), 300.0);
     assert_eq!(laid[0].0.scrolls.len(), 1);
     assert!(laid[0].0.scrolls[0].max() > 0.0);
+}
+
+/// 返回各块中表格的外框（块里的坐标）。
+fn tables(laid: &[(Out, f32)]) -> Vec<Rect> {
+    (laid.iter().flat_map(|(out, _)| &out.items))
+        .filter_map(|item| match item {
+            Item::Table { rect, .. } => Some(*rect),
+            _ => None,
+        })
+        .collect()
+}
+
+/// 比一栏宽的表格占用两侧留白：放得下时以一栏为中心展开，一侧不够时移到另一侧；放不下时
+/// 占满留白横向滚动；缩进的表格只向右展开。
+#[test]
+fn wide_tables_spread_into_the_margins() {
+    let cell = "a-long-unbreakable-cell-value";
+    let table = |cols: usize| {
+        let row = format!("| {} |\n", vec![cell; cols].join(" | "));
+        format!("{row}|{}\n{row}", "---|".repeat(cols))
+    };
+    let width = tables(&lay(&table(3), 10_000.0))[0].w;
+    let column = (width - 200.0).round();
+
+    let laid = lay_bled(&table(3), column, (300.0, 300.0));
+    let rect = tables(&laid)[0];
+    assert!(laid[0].0.scrolls.is_empty());
+    assert!(
+        (rect.x + ((rect.w - column) / 2.0).round()).abs() <= 1.0,
+        "{rect:?}"
+    );
+    let laid = lay_bled(&table(3), column, (300.0, 40.0));
+    let rect = tables(&laid)[0];
+    assert!(laid[0].0.scrolls.is_empty());
+    assert!((rect.right() - (column + 40.0)).abs() <= 1.0, "{rect:?}");
+    // 超出的宽度只比两侧留白之和多不到半个像素：仍然放下，不横向滚动。
+    let total = lay_bled(&table(3), column, (0.0, 0.0))[0].0.scrolls[0].content;
+    let laid = lay_bled(&table(3), column, (100.0, total - column - 100.3));
+    assert!(laid[0].0.scrolls.is_empty());
+
+    let laid = lay_bled(&table(8), column, (100.0, 50.0));
+    let strip = laid[0].0.scrolls[0].rect;
+    assert_eq!((strip.x, strip.w), (-100.0, column + 150.0));
+
+    let nested = format!("- item\n\n  {}", table(3).replace('\n', "\n  "));
+    let rect = tables(&lay_bled(&nested, column, (300.0, 300.0)))[0];
+    assert!(rect.x > 0.0, "{rect:?}");
 }
 
 #[test]

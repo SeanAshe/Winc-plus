@@ -4,12 +4,12 @@
 //! 第一个目录作为打开的目录，其余作为附加目录。从窗口外打开项目文件时打开项目，在窗口内打开时
 //! 作为文本编辑。现场和最近列表以项目文件为键（见 [`App::session_key`]）。
 //!
-//! 其他编辑器的项目文件（见 [`winc_config::project_kind`]）只读：打开后按未保存的项目处理，以
-//! 文件名为项目名，不写回原文件。
+//! 其他编辑器的项目文件（见 [`winc_config::project_kind`]）和远端主机上的项目文件只读：打开后
+//! 按未保存的项目处理，以文件名为项目名，不写回原文件。远端的项目文件在连接时于后台读取。
 
 use std::path::{Path, PathBuf};
 
-use winc_config::{PROJECT_EXTENSION, ProjectError, read_project, write_project};
+use winc_config::{PROJECT_EXTENSION, ProjectError, ProjectKind, read_project, write_project};
 use winc_i18n::t;
 
 use super::files::Pick;
@@ -21,7 +21,7 @@ use crate::app::{App, NoticeKind};
 pub(crate) struct ProjectFolders {
     /// 项目文件。
     pub file: PathBuf,
-    /// 是否为 Winc 的项目文件；只有这种文件会被写回。
+    /// 是否为本机上 Winc 的项目文件；只有这种文件会被写回。
     pub native: bool,
     /// 打开的目录：项目文件中的第一个目录。
     pub root: PathBuf,
@@ -29,14 +29,16 @@ pub(crate) struct ProjectFolders {
     pub extra: Vec<PathBuf>,
 }
 
-/// 读取项目文件 `file` 中的目录，并尽量规范化路径。
+/// 读取项目文件 `file` 中的目录，路径按打开时记录的写法（见 [`winc_editor::given_path`]）。
+///
+/// 读取远端文件要经过网络，应在后台线程调用。
 ///
 /// # Errors
 ///
 /// 同 [`read_project`]。
 pub(crate) fn project_folders(file: &Path) -> Result<ProjectFolders, ProjectError> {
-    let canonical = |path: PathBuf| winc_config::files::canonicalize(&path).unwrap_or(path);
-    let mut folders = read_project(file)?.into_iter().map(|f| canonical(f.path));
+    let given = |path: PathBuf| winc_editor::given_path(&path);
+    let mut folders = read_project(file)?.into_iter().map(|f| given(f.path));
     let root = folders.next().ok_or(ProjectError::Invalid)?;
     let mut extra: Vec<PathBuf> = Vec::new();
     for folder in folders {
@@ -45,8 +47,8 @@ pub(crate) fn project_folders(file: &Path) -> Result<ProjectFolders, ProjectErro
         }
     }
     Ok(ProjectFolders {
-        native: winc_config::is_project_file(file),
-        file: canonical(file.to_path_buf()),
+        native: winc_config::is_project_file(file) && !winc_backend::is_remote(file),
+        file: given(file.to_path_buf()),
         root,
         extra,
     })
@@ -55,6 +57,25 @@ pub(crate) fn project_folders(file: &Path) -> Result<ProjectFolders, ProjectErro
 /// `path` 是否为项目文件（不是同名的目录）。
 pub(crate) fn is_project(path: &Path) -> bool {
     winc_config::project_kind(path).is_some() && !winc_backend::fs::is_dir(path)
+}
+
+/// 按名字判断 `path` 是否为在远端主机上可以打开的项目文件：直接列出 `folders` 的几种。IDEA 的
+/// 项目要按目录结构找出模块，远端的目录不做这一步。
+pub(crate) fn opens_on_host(path: &Path) -> bool {
+    winc_config::project_kind(path).is_some_and(|kind| kind != ProjectKind::Idea)
+}
+
+/// 读取项目文件 `file` 失败时的提示。
+pub(crate) fn project_error(file: &Path, error: &ProjectError) -> String {
+    let name = winc_editor::display_name(file);
+    match error {
+        ProjectError::Io(e) => t!(
+            "workspace-project-read-failed",
+            name = name,
+            error = e.to_string()
+        ),
+        ProjectError::Invalid => t!("workspace-project-invalid", name = name),
+    }
 }
 
 impl App {
@@ -75,7 +96,10 @@ impl App {
     pub(in crate::app) fn sync_project_offer(&mut self) {
         let current = self.editor.workspace.as_ref().and_then(|ws| ws.project());
         let wanted = (self.editor.active().and_then(|doc| doc.path.as_deref()))
-            .filter(|path| winc_config::project_kind(path).is_some())
+            .filter(|path| match winc_backend::is_remote(path) {
+                true => opens_on_host(path),
+                false => winc_config::project_kind(path).is_some(),
+            })
             .filter(|path| current != Some(*path))
             .map(Path::to_path_buf);
         if wanted == self.disk.project_offer {
@@ -116,15 +140,18 @@ impl App {
 
     /// 返回打开 `path` 时要打开的目录；`path` 为项目文件时一并返回其目录。读取项目文件失败时
     /// 提示原因并返回 `None`。
+    ///
+    /// 远端路径不在界面线程上读取：只有连接时已读好的项目文件（见 `Shared::remote_project`）
+    /// 按项目打开，其余按目录打开。
     pub(in crate::app) fn folder_target(
         &mut self,
         path: &Path,
     ) -> Option<(PathBuf, Option<ProjectFolders>)> {
-        let target = winc_config::files::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
-        if !is_project(&target) {
+        let target = winc_editor::given_path(path);
+        if !self.opens_project(&target) {
             return Some((target, None));
         }
-        match project_folders(&target) {
+        match self.project_of(&target) {
             Ok(project) => Some((project.root.clone(), Some(project))),
             Err(error) => {
                 self.project_failed(&target, &error);
@@ -133,18 +160,38 @@ impl App {
         }
     }
 
+    /// 打开 `path` 时是否按项目打开，见 [`Self::folder_target`]。
+    fn opens_project(&self, path: &Path) -> bool {
+        match winc_backend::is_remote(path) {
+            true => self.fetched_project(path).is_some(),
+            false => is_project(path),
+        }
+    }
+
+    /// 项目文件 `file` 中的目录：远端的文件取连接时已读好的内容，没有时按无效处理。
+    pub(in crate::app) fn project_of(&self, file: &Path) -> Result<ProjectFolders, ProjectError> {
+        match winc_backend::is_remote(file) {
+            true => self.fetched_project(file).ok_or(ProjectError::Invalid),
+            false => project_folders(file),
+        }
+    }
+
+    /// 连接时在后台读好的远端项目文件 `file`；最近读好的不是该文件时为 `None`。
+    fn fetched_project(&self, file: &Path) -> Option<ProjectFolders> {
+        let fetched = self.link.shared.remote_project.borrow();
+        fetched.as_ref().filter(|p| p.file == file).cloned()
+    }
+
     /// 提示项目文件 `file` 读取失败的原因。
     pub(in crate::app) fn project_failed(&mut self, file: &Path, error: &ProjectError) {
-        let name = winc_editor::display_name(file);
-        let message = match error {
-            ProjectError::Io(e) => t!(
-                "workspace-project-read-failed",
-                name = name,
-                error = e.to_string()
-            ),
-            ProjectError::Invalid => t!("workspace-project-invalid", name = name),
-        };
-        self.notify(NoticeKind::Error, message);
+        self.notify(NoticeKind::Error, project_error(file, error));
+    }
+
+    /// 打开项目文件 `file`：远端的文件先在后台连接并读取，其余同 [`Self::open_folder`]。
+    pub(in crate::app) fn open_project_file(&mut self, file: &Path) {
+        if !self.reopen_remote(file) {
+            self.open_folder(file);
+        }
     }
 
     /// 用项目 `project` 中的目录替换附加目录并记录项目文件；不可用的目录跳过并提示。
@@ -256,7 +303,6 @@ impl App {
         let folders: Vec<PathBuf> = workspace.folders().map(Path::to_path_buf).collect();
         match write_project(&file, &folders) {
             Ok(_) => {
-                let file = winc_config::files::canonicalize(&file).unwrap_or(file);
                 let name = winc_editor::display_name(&file).into_owned();
                 workspace.set_project(Some(file));
                 self.folders_changed();

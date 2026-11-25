@@ -196,6 +196,7 @@ impl App {
                 let target = self.shortcut_target();
                 self.open_in_terminal(target.as_deref());
             }
+            RevealActiveInTree => self.locate_active_in_tree(),
             CopyActivePath | RevealActiveFile => {
                 match self.editor.active().and_then(|d| d.path.clone()) {
                     Some(path) if action == RevealActiveFile => self.reveal_in_file_manager(&path),
@@ -388,6 +389,8 @@ impl App {
                 }
             }
             Fix => self.fix_active(),
+            CompareWithClipboard => self.compare_with_clipboard(),
+            CompareWithSaved => self.compare_with_saved(),
 
             // 日志标签里 `⌘F` 是筛选输入框。
             Find if self.log_active() => {

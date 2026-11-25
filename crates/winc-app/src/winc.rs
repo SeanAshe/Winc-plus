@@ -174,6 +174,11 @@ pub struct Shared {
     ///
     /// 在一个窗口里复制、到另一个窗口里粘贴也要认得，所以各窗口共用。
     pub remote_copy: RefCell<Option<RemoteCopy>>,
+    /// 最近一次连接时在后台读好的远端项目文件；界面线程上不读取远端文件（见
+    /// `App::folder_target`）。
+    ///
+    /// 项目可能在新窗口中打开，新窗口同样要用，所以各窗口共用。
+    pub(crate) remote_project: RefCell<Option<crate::app::workspace::project::ProjectFolders>>,
     /// 退出前是否需要询问用户：有窗口存在未保存的文档，或者终端中有程序在运行。
     ///
     /// `AppKit` 的 `⌘Q` 回调读取该值，决定直接退出还是回到事件
@@ -192,15 +197,29 @@ pub struct Shared {
     pub cursor_window: Cell<Option<WindowKey>>,
 }
 
+/// 返回 `path` 解开符号链接后的路径。路径不存在时（例如 `winc 新目录/新文件.txt`）解开最近
+/// 一个存在的上级目录，再拼上其余部分；都无法解开时原样返回。
+fn real_path(path: &Path) -> PathBuf {
+    let real = |path: &Path| winc_config::files::canonicalize(path).ok();
+    let found = path
+        .ancestors()
+        .find_map(|up| Some(real(up)?.join(path.strip_prefix(up).ok()?)));
+    found.unwrap_or_else(|| path.to_path_buf())
+}
+
 impl Shared {
-    /// 除 `except` 以外开着目录 `folder`（规范化过的路径）的窗口。
+    /// 除 `except` 以外开着目录 `folder` 的窗口。
     ///
-    /// 窗口记着的是打开时给的路径，比较时也规范化（经过符号链接打开的、macOS 上 `/var` 和
-    /// `/private/var`）。
+    /// 窗口记着的是打开时给的路径；写法不同时按真实路径比较（经过符号链接打开的、macOS 上
+    /// `/var` 和 `/private/var`），见 [`winc_editor::same_folder`]。
     pub fn window_with(&self, folder: &Path, except: Option<WindowKey>) -> Option<WindowKey> {
         let roots = self.roots.borrow();
+        let real = winc_config::files::canonicalize(folder).ok();
         let same = |root: &Path| {
-            root == folder || winc_config::files::canonicalize(root).is_ok_and(|r| r == folder)
+            root == folder
+                || real.as_ref().is_some_and(|real| {
+                    winc_config::files::canonicalize(root).is_ok_and(|r| r == *real)
+                })
         };
         let found = roots
             .iter()
@@ -221,9 +240,11 @@ impl Shared {
     /// 开着包含 `path` 的目录的窗口；有几个时（嵌套的目录）取最里面的一个。
     pub fn window_containing(&self, path: &Path) -> Option<WindowKey> {
         let roots = self.roots.borrow();
+        // 写法不同时按真实路径比较。
+        let real = real_path(path);
         let inside = roots.iter().filter(|(_, root)| {
             path.starts_with(root)
-                || winc_config::files::canonicalize(root).is_ok_and(|r| path.starts_with(r))
+                || winc_config::files::canonicalize(root).is_ok_and(|r| real.starts_with(r))
         });
         let deepest = inside.max_by_key(|(_, root)| root.components().count());
         deepest.map(|(key, _)| *key)
@@ -917,7 +938,7 @@ impl Winc {
         token: Option<String>,
         cascade: bool,
     ) {
-        let folder = folder.map(|f| winc_config::files::canonicalize(&f).unwrap_or(f));
+        let folder = folder.map(|f| winc_editor::given_path(&f));
         if let Some(key) = folder
             .as_ref()
             .and_then(|f| self.shared.window_with(f, None))

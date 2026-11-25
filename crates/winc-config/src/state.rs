@@ -1479,6 +1479,7 @@ fn window_frame(json: &std::collections::BTreeMap<String, Json>) -> Option<Windo
 }
 
 mod places;
+mod rename;
 mod repositories;
 mod terminal;
 pub mod writer;

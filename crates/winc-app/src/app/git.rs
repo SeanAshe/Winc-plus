@@ -676,7 +676,7 @@ impl App {
     /// 文件在仓库中的路径；不在任何已知仓库中时返回 `None`。
     ///
     /// 打开的目录里有几个仓库时不一定是当前仓库，取包含该文件的最里层那个。原路径不在已知仓库中时
-    /// 按经过符号链接解析后的路径再找一次（macOS 的 `/var` 即 `/private/var`）。
+    /// 换成文档路径的写法再找一次（见 [`winc_editor::Editor::document_path`]）。
     pub(in crate::app) fn repo_of(&self, path: &Path) -> Option<(PathBuf, PathBuf)> {
         let owner = |path: &Path| {
             let repos = self.git.repositories.iter().chain(&self.git.root);
@@ -686,7 +686,7 @@ impl App {
         if let Some(root) = owner(path) {
             return Some((root, path.to_path_buf()));
         }
-        let path = winc_config::files::canonicalize(path).ok()?;
+        let path = self.editor.document_path(path);
         Some((owner(&path)?, path))
     }
 

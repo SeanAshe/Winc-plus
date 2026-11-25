@@ -130,6 +130,24 @@ pub fn allow_foreground(pid: u32) {
     unsafe { AllowSetForegroundWindow(pid) };
 }
 
+/// 请系统把窗口 `window` 切到前台；本进程没有前台权限时系统拒绝，改为闪烁任务栏按钮。
+///
+/// 不模拟按键：系统把模拟的按键当作用户输入，输入不是发给本进程时，其他进程转让来的前台权限
+/// （见 [`allow_foreground`]）随之失效。
+#[allow(unsafe_code)] // SetForegroundWindow
+pub fn focus_window(window: &winit::window::Window) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
+    use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    let Ok(handle) = window.window_handle() else {
+        return;
+    };
+    let RawWindowHandle::Win32(handle) = handle.as_raw() else {
+        return;
+    };
+    // SAFETY: 句柄属于仍然存活的 `window`；系统拒绝时返回 0，没有其他影响。
+    unsafe { SetForegroundWindow(handle.hwnd.get() as _) };
+}
+
 /// 从命令行启动时接上该命令行的控制台，之后的 `println!`、`eprintln!` 输出到该控制台；从图形
 /// 界面启动（没有父控制台）时什么也不做。
 ///

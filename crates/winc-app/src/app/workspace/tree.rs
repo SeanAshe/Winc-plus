@@ -619,6 +619,60 @@ impl App {
         self.glide_pane(ScrollTarget::Tree, before);
     }
 
+    /// 切换、打开文件时是否在文件树中定位该文件（`tree.autoReveal`，默认是）。
+    pub(in crate::app) fn auto_reveal(&self) -> bool {
+        self.config.tree_auto_reveal != Some(false)
+    }
+
+    /// 按设置（[`App::auto_reveal`]）在文件树中定位当前文件；关闭时文件树保持不动。
+    pub(in crate::app) fn auto_reveal_active(&mut self) {
+        if self.auto_reveal() {
+            self.reveal_active();
+        }
+    }
+
+    /// 恢复标签之后按设置（[`App::auto_reveal`]）在文件树中展开并选中当前文件，不滚动：此时
+    /// 文件树可能尚未排版。
+    pub(crate) fn reveal_restored(&mut self) {
+        if !self.auto_reveal() {
+            return;
+        }
+        let current = self.editor.active().and_then(|doc| doc.path.clone());
+        if let (Some(file), Some(workspace)) = (current, &mut self.editor.workspace) {
+            workspace.reveal(&file);
+        }
+    }
+
+    /// 显示文件树并在其中定位当前文件（工具栏「定位当前文件」和同名命令），不受
+    /// [`App::auto_reveal`] 影响。未打开文件、未打开目录或当前文件不在打开的目录中时，在状态栏
+    /// 说明原因，文件树保持不动。
+    pub(in crate::app) fn locate_active_in_tree(&mut self) {
+        let Some(path) = self.active_tree_path() else {
+            self.flash(winc_i18n::t!("workspace-no-open-file"));
+            return;
+        };
+        let Some(workspace) = &self.editor.workspace else {
+            self.flash(winc_i18n::t!("workspace-sidebar-no-folder"));
+            return;
+        };
+        if workspace.folder_of(&path).is_none() {
+            self.flash(winc_i18n::t!("workspace-file-outside-folders"));
+            return;
+        }
+        self.show_files();
+        self.reveal_path(&path);
+    }
+
+    /// 当前标签在文件树中对应的路径：文件的路径，差异标签对应的磁盘文件
+    /// （[`DiffView::disk_path`]）；都没有时返回 `None`。
+    ///
+    /// [`DiffView::disk_path`]: winc_editor::diff_view::DiffView::disk_path
+    fn active_tree_path(&self) -> Option<PathBuf> {
+        let doc = self.editor.active()?;
+        let disk = || doc.diff.as_deref().and_then(|view| view.disk_path());
+        doc.path.as_deref().or_else(disk).map(Path::to_path_buf)
+    }
+
     /// 在文件树里展开并选中当前文件。
     ///
     /// 差异标签自身没有路径，取其对应的磁盘文件（[`DiffView::disk_path`]）；没有对应的磁盘
@@ -626,11 +680,7 @@ impl App {
     ///
     /// [`DiffView::disk_path`]: winc_editor::diff_view::DiffView::disk_path
     pub(super) fn reveal_active(&mut self) {
-        let path = self.editor.active().and_then(|d| {
-            let disk = || d.diff.as_deref().and_then(|v| v.disk_path());
-            d.path.as_deref().or_else(disk).map(Path::to_path_buf)
-        });
-        if let Some(path) = path {
+        if let Some(path) = self.active_tree_path() {
             self.reveal_path(&path);
         }
     }
@@ -917,15 +967,7 @@ impl App {
                     self.panels.tree.scroll_x = 0.0;
                 }
             }
-            TreeTool::Locate => {
-                if self.editor.active.is_none() {
-                    self.flash(winc_i18n::t!("workspace-no-open-file"));
-                    return;
-                }
-
-                self.focus = Focus::Tree;
-                self.reveal_active();
-            }
+            TreeTool::Locate => self.locate_active_in_tree(),
         }
 
         self.request_redraw();

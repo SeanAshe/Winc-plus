@@ -590,6 +590,8 @@ pub struct Document {
     pending_as_text: bool,
     /// 尚未读取的文档读取时是否打开成十六进制视图。
     pending_hex: bool,
+    /// 尚未读取的文档读取时文件不存在是否成为新文件（见 `Document::new_file`）。
+    pending_new: bool,
     /// 用户通过「通过编码重新打开」选的编码：之后从磁盘重新读取时按它解码，不再识别编码，也不
     /// 再判断是否二进制。
     chosen: Option<Encoding>,
@@ -682,6 +684,7 @@ impl Document {
             pending: false,
             pending_as_text: false,
             pending_hex: false,
+            pending_new: false,
             chosen: None,
             escape_origin: None,
         }

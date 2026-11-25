@@ -68,6 +68,7 @@ cmd-copy-active-path = 复制当前文件的路径
 cmd-copy-key-path = 复制键路径
 cmd-reveal-active-file-in-finder = 在访达中显示当前文件
 cmd-reveal-active-file-in-folder = 在目录中显示当前文件
+cmd-reveal-active-file-in-tree = 在文件树中定位当前文件
 cmd-open-in-terminal = 在外部终端中打开
 cmd-quit = 退出
 cmd-undo = 撤销
@@ -177,6 +178,8 @@ cmd-clear-bookmarks = 清除所有书签
 cmd-format = 格式化文档
 cmd-format-selection = 格式化所选内容
 cmd-fix = 修复问题
+cmd-compare-with-clipboard = 与剪贴板比较
+cmd-compare-with-saved = 与已保存的版本比较
 cmd-find = 查找
 cmd-replace = 替换
 cmd-find-next = 查找下一个
@@ -328,6 +331,7 @@ cmd-cli-usage =
       winc                  恢复上次打开的目录
       winc .                打开当前目录
       winc 文件:行[:列]     打开文件并转到指定行
+      winc 新文件           打开尚不存在的文件，保存时创建
       winc ssh://主机/目录 [ssh://主机/文件:行[:列]]
                             打开远端主机上的目录和其中的文件（需要启用远程模块）
       winc -                读取标准输入（例如 cargo build 2>&1 | winc -）
@@ -349,6 +353,7 @@ cmd-cli-wsl-needs-name = --wsl 需要指定发行版名称
 cmd-cli-wait-needs-openable-file = --wait 需要至少一个可打开的文件
 cmd-cli-wait-folder = 「{ $path }」是目录，--wait 只能打开文件
 cmd-cli-open-failed = 无法打开「{ $path }」：{ $error }
+cmd-cli-no-such-folder = 目录不存在
 cmd-cli-event-loop-failed = 无法创建事件循环：{ $error }
 
 ## 「快捷键」页：命令的生效范围和分组

@@ -195,7 +195,7 @@ impl SettingsPage {
                 ),
                 group(
                     t!("settings-group-sidebar"),
-                    vec![S::CompactFolders, S::Outline, S::FindInFiles],
+                    vec![S::CompactFolders, S::AutoReveal, S::Outline, S::FindInFiles],
                 ),
             ],
             SettingsPage::Markdown => vec![

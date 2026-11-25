@@ -449,10 +449,10 @@ impl App {
         self.finish_name_input();
         self.relayout();
 
-        // 切回文件树时，在搜索中打开过的文件已在树中展开并选中，滚动文件树使其可见。
+        // 切回文件树时，按设置定位从搜索中打开的当前文件，滚动文件树使其可见。
         if view == SidebarView::Files {
             self.clamp_tree_scroll();
-            self.reveal_active();
+            self.auto_reveal_active();
         }
         // 其他位置的状态只在提交视图里看得见，看不见的时候没有读。
         if view == SidebarView::Commit {

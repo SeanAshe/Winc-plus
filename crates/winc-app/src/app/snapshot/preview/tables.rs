@@ -471,3 +471,162 @@ fn relayouts_leave_a_wide_table_where_it_was_scrolled() {
     assert_eq!(app.markdown_table_scroll(key), scrolled);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 比正文宽、但放得下的表格占用两侧留白，不横向滚动：左侧有原文行号时只向右展开，没有时以
+/// 正文为中心向两侧展开。留白中的单元格同样可以点击编辑，标题指示条仍浮在表格之上、响应悬停。
+#[test]
+fn wide_tables_spread_into_the_margins() {
+    use crate::app::preview::markdown::TocTarget;
+    use winc_typeset::Item;
+
+    let columns = 13;
+    let line = |cell: &str| {
+        let cells: Vec<String> = (1..=columns).map(|n| format!("{cell}{n}")).collect();
+        format!("| {} |", cells.join(" | "))
+    };
+    let (head, rule, row) = (
+        line("第几列"),
+        format!("|{}", "---|".repeat(columns)),
+        line("数值"),
+    );
+    let headings: String = (1..=3)
+        .map(|i| format!("## 第 {i} 节\n\n正文\n\n"))
+        .collect();
+    let (mut app, dir) = live_doc(
+        "md-wide-table-margins",
+        &format!("# 标题\n\n{head}\n{rule}\n{row}\n\n{headings}"),
+    );
+    app.toggle_sidebar();
+    settle(&mut app);
+    // 表格（块里的坐标）、正文的左边缘和宽度。
+    let table = |app: &App| {
+        let laid = app.preview.markdown.layout.as_ref().unwrap();
+        assert!(
+            laid.blocks
+                .iter()
+                .all(|(_, block)| block.scrolls.is_empty())
+        );
+        let rect = (laid.blocks.iter())
+            .flat_map(|(_, block)| &block.items)
+            .find_map(|item| match item {
+                Item::Table { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .unwrap();
+        (rect, laid.left, laid.key.width)
+    };
+    let area = app.preview.markdown.area;
+    let (rect, left, width) = table(&app);
+    assert!(rect.x == 0.0 && rect.w > width, "{rect:?} {width}");
+    assert!(left + rect.right() <= area.right(), "{rect:?}");
+
+    app.config.markdown_line_numbers = Some(false);
+    settle(&mut app);
+    let (rect, left, width) = table(&app);
+    let spread = ((rect.w - width) / 2.0).round();
+    assert!((rect.x + spread).abs() <= 1.0, "{rect:?} {width}");
+
+    // 留白中的单元格：点击后光标进入该单元格。
+    let shown = crate::app::preview::markdown::laid::full_text(&app).unwrap();
+    let cell = point_of(&app, shown[..shown.find("数值1").unwrap()].chars().count());
+    assert!(cell.0 < left, "{cell:?} {left}");
+    click(&mut app, (cell.0 + 4.0, cell.1));
+    settle(&mut app);
+    assert!(
+        with_caret(&app).contains("| 数|值1"),
+        "{}",
+        with_caret(&app)
+    );
+
+    // 标题指示条仍可悬停展开。
+    let bars = (app.hits.markdown_toc.iter())
+        .find(|(_, t)| *t == TocTarget::Bars)
+        .unwrap()
+        .0;
+    rest_on_toc(&mut app, bars.x + 4.0, bars.y + 10.0);
+    settle(&mut app);
+    assert!(matches!(app.pointer.hover, Hover::MarkdownToc(_)));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 截图：占用两侧留白的宽表格，以及悬停展开的标题列表浮在表格之上，浅色、深色各一组。
+#[test]
+#[ignore = "截图，手动运行"]
+fn shoot_wide_tables_in_the_margins() {
+    use crate::app::preview::markdown::TocTarget;
+
+    let line = |cell: &str, columns: usize| {
+        let cells: Vec<String> = (1..=columns).map(|n| format!("{cell}{n}")).collect();
+        format!("| {} |", cells.join(" | "))
+    };
+    let table = |columns: usize| {
+        let rule = format!("|{}", "---|".repeat(columns));
+        let (head, row) = (line("第几列", columns), line("数值", columns));
+        format!("{head}\n{rule}\n{row}\n{row}\n")
+    };
+    let headings: String = (1..=6)
+        .map(|i| format!("## 第 {i} 节\n\n正文\n\n"))
+        .collect();
+    let text = format!(
+        "# 标题\n\n一段正文，表格在下方。\n\n{}\n更宽的表格：\n\n{}\n{headings}",
+        table(15),
+        table(24)
+    );
+    for dark in [false, true] {
+        let theme = if dark { "dark" } else { "light" };
+        let (mut app, dir) = live_doc(&format!("md-margins-{theme}"), &text);
+        app.palette = crate::theme::Palette::for_dark(dark);
+        app.config.markdown_line_numbers = Some(false);
+        app.toggle_sidebar();
+        settle(&mut app);
+        shoot(&mut app, &format!("md-table-margins-{theme}"));
+        let bars = (app.hits.markdown_toc.iter())
+            .find(|(_, t)| *t == TocTarget::Bars)
+            .unwrap()
+            .0;
+        rest_on_toc(&mut app, bars.x + 4.0, bars.y + 10.0);
+        settle(&mut app);
+        shoot(&mut app, &format!("md-table-margins-toc-{theme}"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// 分栏时编辑区光标所在行的竖条：所在行是向左展开的表格时移到表格左侧的留白，不压在表格上；
+/// 在正文中时仍在正文左侧的留白。
+#[test]
+fn the_split_caret_bar_moves_beside_a_spread_table() {
+    use crate::view::preview::markdown::tests::{mirrored_caret_bar, table_cells};
+
+    let columns = 15;
+    let line = |cell: &str| {
+        let cells: Vec<String> = (1..=columns).map(|n| format!("{cell}{n}")).collect();
+        format!("| {} |", cells.join(" | "))
+    };
+    let (head, rule, row) = (
+        line("第几列"),
+        format!("|{}", "---|".repeat(columns)),
+        line("数值"),
+    );
+    let (mut app, dir) = live_doc(
+        "md-split-caret-bar",
+        &format!("前文\n\n{head}\n{rule}\n{row}\n\n后文\n"),
+    );
+    let wide = Renderer::offscreen(2600.0, SIZE.1, SCALE, app.palette.frame_bg, None, None);
+    app.frame.renderer = Some(wide.unwrap());
+    app.measure_fonts();
+    app.set_preview_mode(PreviewMode::Split);
+    settle(&mut app);
+
+    put_caret(&mut app, "前文", false);
+    let left = app.preview.markdown.layout.as_ref().unwrap().left;
+    let bar = mirrored_caret_bar(&app).unwrap();
+    assert!(bar.right() < left, "{bar:?} {left}");
+
+    put_caret(&mut app, "数值1", false);
+    let table = table_cells(&app)[0][0];
+    assert!(table.x < left, "表格向左展开：{table:?} {left}");
+    let bar = mirrored_caret_bar(&app).unwrap();
+    assert!(bar.right() < table.x, "{bar:?} {table:?}");
+    assert!(bar.x > app.preview.markdown.area.x, "{bar:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

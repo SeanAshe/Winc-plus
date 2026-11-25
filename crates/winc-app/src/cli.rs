@@ -198,6 +198,12 @@ pub fn usage() -> String {
     t!("cmd-cli-usage").to_owned()
 }
 
+/// 路径 `path` 是否以分隔符结尾（`新目录/`）：这样写的是目录，不存在时不新建同名的文件。
+pub(crate) fn names_folder(path: &std::path::Path) -> bool {
+    let text = path.as_os_str().to_string_lossy();
+    text.ends_with('/') || (cfg!(windows) && text.ends_with('\\'))
+}
+
 /// 打开文件或目录的链接的前缀，链接为 `winc://file/<绝对路径>[:行[:列]]`。
 pub const LINK_SCHEME: &str = "winc";
 

@@ -101,7 +101,7 @@ impl App {
         let Some(config) = self.script_run(path) else {
             return;
         };
-        let file = winc_editor::canonical_path(path);
+        let file = self.editor.document_path(path);
         let mut docs = self.editor.documents.iter();
         let open = docs.find(|doc| doc.path.as_deref() == Some(&*file));
         if let Some(id) = open.filter(|doc| doc.is_dirty()).map(|doc| doc.id)

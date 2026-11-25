@@ -14,8 +14,8 @@ pub use winc_core::text::MAX_LINE_CHARS;
 use winc_core::text::{Lines, MAX_LINE_BYTES};
 
 pub use lang::{
-    BlockString, Heredocs, Interpolation, Language, Markup, RawStrings, Variables, detect,
-    detect_with_first_line, find, languages,
+    BlockEscapes, BlockString, Heredocs, Interpolation, Language, Markup, RawStrings, Variables,
+    detect, detect_with_first_line, find, languages,
 };
 pub use lexer::{LineState, Token, TokenKind, highlight_line};
 

@@ -101,6 +101,10 @@ pub struct Language {
     ///
     /// [`Interpolation::single_quotes`] 为真时单引号字符串中也识别，为假时只在双引号字符串中识别。
     pub interpolation: Option<Interpolation>,
+    /// 可跨行的插值字符串中，没有在本行闭合的插值是否延续到下一行（Nix）。
+    ///
+    /// 跨行的插值内部识别注释，并保留外层字符串的状态。
+    pub multiline_interpolation: bool,
     /// 使紧随其后的字符串成为原始字符串的前缀（Python 的 `r`、Dart 的 `r`、Scala 的 `raw`）。
     ///
     /// 原始字符串中不识别转义序列、插值和变量；反斜杠仍使紧随的引号不收尾（Python 的规则）。
@@ -120,6 +124,12 @@ pub struct Language {
     /// 否则正则中的引号或反引号会开始字符串，反引号还会把文件剩下的部分都当作字符串。斜杠之前
     /// 是值（标识符、数字、右括号、字符串）时是除号。
     pub regex_literals: bool,
+    /// 是否识别 `/` 引出的裸路径字面量片段（Nix 的 `./a`、`dir/file.nix`、`/etc/a`），
+    /// 并将 `//` 作为运算符跳过。
+    ///
+    /// 路径片段只含 ASCII 字母、数字、`_`、`+`、`-`、`.`，避免紧跟在路径之后的 `''` 被连同
+    /// 路径名一起当成标识符。
+    pub path_literals: bool,
     /// 是否按 Markdown（CommonMark 与 GFM）着色：代码块、行内代码、标题、引用、列表标记、强调、
     /// 链接和行内 HTML 标签。
     ///
@@ -202,6 +212,8 @@ pub struct Language {
     pub prose_quotes: bool,
     /// 除字母、数字和 `_` 外，名字中间还可以有的字符（CSS 类名和 Clojure 中的 `-`、JS 中的
     /// `$`），用于转到定义和查找用法时取光标处的名字。
+    ///
+    /// 含 `'` 时，词法分析也把标识符之后紧跟的 `'` 算进名字（Haskell 的 `foldl'`、Nix 的 `x''`）。
     pub name_chars: &'static [char],
     /// 只能出现在名字开头的字符，可以连写（PHP 的 `$name`、Ruby 的 `@name`、`@@name`）。
     pub name_sigils: &'static [char],
@@ -256,11 +268,11 @@ pub struct Interpolation {
     /// 插值的收尾字符，与之配对的括号在插值内部计数。
     pub close: char,
     /// 使字符串支持插值的前缀（C# 的 `$`、Python 的 `f`）；为空时所有字符串都支持插值。
-    ///
-    /// 开头是 `{` 时，连写的 `{{` 表示一个花括号，不开始插值。
     pub prefixes: &'static [&'static str],
     /// 单引号字符串是否同样支持插值（Dart、Elixir）。
     pub single_quotes: bool,
+    /// 连写开头的首字符是否为字面字符、不开始插值（Python 的 `{{`、HCL 与 Nix 的 `$$`）。
+    pub doubled: bool,
 }
 
 /// 块字符串的写法，见 [`Language::block_strings`]。
@@ -272,6 +284,17 @@ pub struct BlockString {
     pub close: &'static str,
     /// 是否支持插值和变量（PowerShell 的 `@"…"@` 支持，`@'…'@` 不支持）。
     pub interpolate: bool,
+    /// 其中的转义写法。
+    pub escapes: BlockEscapes,
+}
+
+/// 块字符串中的转义写法，见 [`BlockString::escapes`]。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlockEscapes {
+    /// 没有转义。
+    None,
+    /// Nix 的缩进字符串：`'''` 表示 `''`，`''$` 表示 `$`，`''\` 转义下一字符，其余 `''` 收尾。
+    Nix,
 }
 
 /// here 文档的写法，见 [`Language::heredocs`]。
@@ -513,11 +536,13 @@ const BASE: Language = Language {
     backtick_escapes: false,
     template_interpolation: false,
     interpolation: None,
+    multiline_interpolation: false,
     raw_prefixes: &[],
     block_strings: &[],
     long_brackets: None,
     line_string: None,
     regex_literals: false,
+    path_literals: false,
     markdown: false,
     code_tokens: false,
     surround: &[],

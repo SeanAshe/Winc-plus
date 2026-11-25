@@ -779,29 +779,28 @@ impl AppLock {
     }
 }
 
-/// 返回 `path` 的规范绝对路径。
+/// 返回 `path` 的绝对路径，写法见 [`winc_editor::given_path`]：经过符号链接时保留链接。
 ///
-/// 交给另一个进程前需要先解析相对路径、`.` 与符号链接，才能与对方已打开目录的规范路径对应。
-/// 路径不存在时（例如 `winc 新目录/新文件.txt`）解析最近一个存在的上级目录，再拼上其余部分；
-/// 只解析文件所在的那一层不够：该层也可能不存在，而当前目录本身可能经由符号链接进入。
+/// 交给另一个进程前需要先解析相对路径。相对路径相对于 shell 的当前目录（见 `shell_cwd`），
+/// 即用户在 shell 中看到的路径；对方判断是否为同一个目录时按真实路径比较。
 pub fn absolute(path: &Path) -> PathBuf {
-    // 远端的路径（虚拟路径）本身就是绝对路径，不在本机上解析。
-    if winc_backend::is_remote(path) {
-        return path.to_path_buf();
+    if winc_backend::is_remote(path) || path.is_absolute() {
+        return winc_editor::given_path(path);
     }
-    if let Ok(path) = winc_config::files::canonicalize(path) {
-        return path;
-    }
-    let path = std::path::absolute(path).unwrap_or_else(|_| path.to_path_buf());
-    for ancestor in path.ancestors().skip(1) {
-        if let (Ok(real), Ok(rest)) = (
-            winc_config::files::canonicalize(ancestor),
-            path.strip_prefix(ancestor),
-        ) {
-            return real.join(rest);
-        }
-    }
-    path
+    winc_editor::given_path(&shell_cwd().join(path))
+}
+
+/// 返回 shell 的当前目录，见 [`pick_cwd`]。
+fn shell_cwd() -> PathBuf {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    pick_cwd(std::env::var_os("PWD").map(PathBuf::from), cwd)
+}
+
+/// 在 shell 记下的当前目录 `pwd`（环境变量 `PWD`）和进程的当前目录 `cwd`（真实路径）中选一个：
+/// `pwd` 是绝对路径且与 `cwd` 是同一个目录时用它，保留 shell 进入时经过的符号链接。
+fn pick_cwd(pwd: Option<PathBuf>, cwd: PathBuf) -> PathBuf {
+    let pwd = pwd.filter(|pwd| pwd.is_absolute() && winc_editor::same_folder(pwd, &cwd));
+    pwd.unwrap_or(cwd)
 }
 
 #[cfg(test)]

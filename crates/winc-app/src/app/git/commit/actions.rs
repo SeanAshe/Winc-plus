@@ -590,7 +590,7 @@ impl App {
     /// 有一个保存失败就停下；失败的原因保存时已经说明了。
     pub(in crate::app) fn save_dirty_documents(&mut self, paths: &[PathBuf]) -> bool {
         for path in paths {
-            let canonical = winc_editor::canonical_path(path);
+            let canonical = self.editor.document_path(path);
             let dirty = self
                 .editor
                 .documents

@@ -428,7 +428,7 @@ impl App {
     /// 把 Vim 层操作的文档写到命令行中的路径 `path`，文档对应的路径不变；没有路径的文档以
     /// 该路径保存。目标上已有文件时只在 `force` 为真时覆盖。
     fn vim_write_to(&mut self, path: &str, force: bool) {
-        let to = winc_editor::canonical_path(&self.vim_path(path));
+        let to = self.editor.document_path(&self.vim_path(path));
         let Some(doc) = self.vim_document() else {
             return;
         };

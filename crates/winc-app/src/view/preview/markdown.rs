@@ -126,6 +126,19 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
         (true, _) if left < bars => (bars, width.min(narrowed(bars)).max(1.0)),
         _ => (left, width),
     };
+    // 比正文宽的表格占用两侧留白，左侧让出行号和钉住的标题列表；标题指示条浮在表格之上。
+    let bleed = match has_tables(&parsed) {
+        true => {
+            let floor = match (numbers > 0.0, pinned) {
+                (true, _) => left,
+                (false, true) => pushed.min(left),
+                (false, false) => area.x + pad,
+            };
+            let right = area.right() - pad - (left + width);
+            ((left - floor).max(0.0), right.max(0.0))
+        }
+        false => (0.0, 0.0),
+    };
     // 钉住状态变化时正文按新宽度排版，左边缘从原位置过渡到新位置，与标题列表的过渡同步。
     app.preview.markdown.toc_left = left;
     let left = match (app.preview.markdown.toc_pin, app.preview.markdown.toc_slide) {
@@ -145,6 +158,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
         // 可编辑的预览在左侧按原文编行号，代码块里不再另编。
         numbers: app.markdown_line_numbers_on() && !app.markdown_live(),
         tall: (area.h * TALL_SHARE).round().max(TALL_MIN),
+        bleed,
     };
     let source = Arc::as_ptr(&parsed) as usize;
     let live = app.live_editing().then(|| app.live_leaf()).flatten();
@@ -456,7 +470,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
                     }
                     None => (top, area),
                 };
-                // 可横向滚动的表格中的项：按滚动位置左移，裁剪到正文一栏内。
+                // 可横向滚动的表格中的项：按滚动位置左移，裁剪到表格的显示区域内。
                 let (off, strip) = laid.shift(i, k);
                 let area = strip.map_or(area, |s| area.intersect(fixed(&s)));
                 let left = left - off;
@@ -621,7 +635,7 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
                         frame.polygon(&moved, *color, area);
                     }
                     // 所有块绘制完成后再绘制，使其覆盖在上一块的文字之上。
-                    // 工具栏贴着正文一栏的左边，不随表格横向滚动。
+                    // 工具栏贴着表格显示区域的左边，不随表格横向滚动。
                     Item::Table {
                         rect,
                         align: Some(align),
@@ -699,9 +713,8 @@ pub(in crate::view) fn draw(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
             &mut app.hits.markdown_links,
         );
     }
-    // 竖条在内容左边的留白正中，宽 2 逻辑像素；画在标题的折叠箭头之后（见 `draw_heading_folds`）。
-    let caret_bar =
-        caret.map(|(_, y, h)| Rect::new(left - pad / 2.0 - 1.0, area.y - scroll + y, 2.0, h));
+    // 画在标题的折叠箭头之后（见 `draw_heading_folds`）。
+    let caret_bar = caret.map(|(_, y, h)| caret_bar(&laid, (y, h), area.y - scroll));
     // 光标的绘制位置：找不到时（空文档、光标在第一块之前）位于内容左上角。
     // 滑动过程中随所在的块移动。
     let live_point = live_caret.map(|source| {
@@ -827,6 +840,15 @@ fn draw_source_numbers(app: &App, frame: &mut Frame<'_>, area: Rect, skip: &[usi
         let baseline = area.y + y - top;
         frame.text(FontKind::Mono, size, x, baseline, &number, color, area);
     }
+}
+
+/// 分栏时标出编辑区光标所在行的竖条（窗口坐标）：宽 2 逻辑像素，在内容左边的留白正中。
+///
+/// `(y, h)` 是光标的上边缘（内容坐标，含上边距）和高度，`top` 是内容坐标原点的窗口纵坐标。所在
+/// 行是向左展开的表格时，竖条随表格的左边缘左移，不压在表格上。
+pub(crate) fn caret_bar(laid: &Laid, (y, h): (f32, f32), top: f32) -> Rect {
+    let spread = (laid.table_span(y + h / 2.0 - laid.pad)).map_or(0.0, |(x, _)| x.min(0.0));
+    Rect::new(laid.left + spread - laid.pad / 2.0 - 1.0, top + y, 2.0, h)
 }
 
 /// 在标题左边画收起、展开下面一节的箭头：鼠标在标题上时显示，收起的标题一直显示，朝右；
@@ -1005,6 +1027,22 @@ const TOC_PINNED_EDGE: f32 = 12.0;
 /// 让出一列后正文的最小宽度（逻辑像素），等于区域宽 600 逻辑像素、使用窄留白时的正文宽度；
 /// 不足时不让出，列表显示为指示条。
 const TOC_PINNED_BODY: f32 = 600.0 - 2.0 * PAD_NARROW;
+
+/// 文中是否有表格：有表格时才计算两侧留白；没有表格时排版不随留白变化，改变窗口宽度不必重排。
+fn has_tables(parsed: &winc_preview::markdown::Markdown) -> bool {
+    use winc_preview::markdown::Block;
+    fn any_table(blocks: &[Block]) -> bool {
+        blocks.iter().any(|block| match block {
+            Block::Table(..) => true,
+            Block::Quote(_, blocks)
+            | Block::Footnote(_, blocks)
+            | Block::Details { blocks, .. } => any_table(blocks),
+            Block::List(_, items) => items.iter().any(|item| any_table(&item.blocks)),
+            _ => false,
+        })
+    }
+    any_table(&parsed.blocks)
+}
 
 /// 文档是否有标题列表：至少两个文字不为空的标题，与 [`draw_toc`] 的条件相同。
 fn has_outline(parsed: &winc_preview::markdown::Markdown) -> bool {

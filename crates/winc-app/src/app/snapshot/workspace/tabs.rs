@@ -1215,6 +1215,36 @@ fn web_pages_get_an_open_in_browser_button() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 有 Git 状态的文件，标签和标签页切换列表中的文件名用该状态的颜色；没有状态的文件和没有
+/// 文件的标签不变。
+#[test]
+fn tab_names_take_the_git_status_color() {
+    use crate::view::tests::file_name_color;
+    use winc_editor::git::Change;
+    let dir = search_folder("tabs-git-status");
+    let names = ["changed.rs", "new.rs", "clean.rs"];
+    for name in names {
+        std::fs::write(dir.join(name), "x\n").unwrap();
+    }
+    let mut app = app_with(&dir.join(names[0]), false);
+    app.open_path(&dir.join(names[1]));
+    app.open_path(&dir.join(names[2]));
+    let untitled = app.editor.new_untitled();
+    let path = |index: usize| app.editor.documents[index].path.clone().unwrap();
+    let (changed, new) = (path(0), path(1));
+    app.git.decorations.insert(changed, Change::Modified);
+    app.git.decorations.insert(new, Change::Untracked);
+
+    let p = app.palette;
+    assert_eq!(file_name_color(&app, 0, p.text_muted), p.git_modified);
+    assert_eq!(file_name_color(&app, 1, p.text), p.git_added);
+    assert_eq!(file_name_color(&app, 2, p.text_muted), p.text_muted);
+    assert_eq!(file_name_color(&app, untitled, p.text), p.text);
+    paint(&mut app);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// 完整显示文件名：长文件名的标签整个写出来，放不下时横向滚动、右端出现「⌄」。
 ///
 /// 运行：`cargo test -p winc-app shoot_full_tab_names -- --ignored`。

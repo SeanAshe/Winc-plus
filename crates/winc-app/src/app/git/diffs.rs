@@ -1,6 +1,8 @@
 //! Git 差异标签：比较哪两份内容（[`DiffKind`]）、在后台准备差异、打开与预览、状态刷新后重新
 //! 比较，以及收下后台准备好的结果。
 
+use winc_editor::FolderLinks;
+
 use super::*;
 
 /// 提交视图打开的差异比较哪两份内容。
@@ -75,6 +77,8 @@ impl DiffTab {
 
 /// 在后台准备一个文件的差异 `kind`：左侧是 `HEAD`（「更改」时是暂存区）中的版本，右侧是编辑器
 /// 中的快照，未打开时读取磁盘（「暂存的更改」时是暂存区中的版本，只读）。
+///
+/// 右侧可编辑时记下的文件路径按 `links` 换成文档路径的写法（见 [`FolderLinks::document_path`]）。
 pub(super) fn prepare(
     git: &Git,
     root: &Path,
@@ -82,6 +86,7 @@ pub(super) fn prepare(
     snapshot: Option<Snapshot>,
     oid: Option<&str>,
     kind: DiffKind,
+    links: &FolderLinks,
 ) -> Result<DiffView, String> {
     let name = winc_editor::display_name(path).into_owned();
     if winc_backend::fs::is_dir(path) {
@@ -171,9 +176,9 @@ pub(super) fn prepare(
         (_, Some(_), Some(oid)) => format!("HEAD · {}", &oid[..oid.len().min(7)]),
         (_, Some(_), None) => "HEAD".to_owned(),
     };
-    // 右侧是工作区且文件存在时才可编辑。路径按编辑器的规则规范化，以便与已打开的标签匹配。
+    // 右侧是工作区且文件存在时才可编辑。路径换成文档路径的写法，以便与已打开的标签匹配。
     let worktree = kind != DiffKind::Staged;
-    let editable = (worktree && new.is_some()).then(|| winc_editor::canonical_path(path));
+    let editable = (worktree && new.is_some()).then(|| links.document_path(path));
     let blame = |rev: Option<&str>| BlameSource {
         root: root.to_path_buf(),
         path: path.to_path_buf(),
@@ -212,7 +217,7 @@ impl App {
     ///
     /// 打开的是大文件时为 `Err`：不比较，整体读入字符串会超出内存预算。
     pub(super) fn editor_snapshot(&self, path: &Path) -> Result<Option<Snapshot>, ()> {
-        let canonical = winc_editor::canonical_path(path);
+        let canonical = self.editor.document_path(path);
         let doc = self
             .editor
             .documents
@@ -361,9 +366,10 @@ impl App {
 
         let oid = self.status_in(&root, |s| s.oid.clone()).flatten();
         let sender = self.git.prepared.0.clone();
+        let links = self.editor.folder_links();
         self.spawn_git(UserEvent::GitContent, move |tool| {
             let view = match &tool {
-                Ok(git) => prepare(git, &root, &path, snapshot, oid.as_deref(), kind),
+                Ok(git) => prepare(git, &root, &path, snapshot, oid.as_deref(), kind, &links),
                 Err(e) => Err(unusable(e)),
             };
             let _ = sender.send(Prepared {

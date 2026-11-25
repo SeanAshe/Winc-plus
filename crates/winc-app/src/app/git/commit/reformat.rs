@@ -53,7 +53,7 @@ impl App {
                 .filter(|d| d.is_dirty())
                 .filter_map(|d| d.path.as_deref())
                 .collect();
-            targets.retain(|(p, _)| !dirty.contains(&winc_editor::canonical_path(p).as_path()));
+            targets.retain(|(p, _)| !dirty.contains(&self.editor.document_path(p).as_path()));
         } else {
             let paths: Vec<PathBuf> = targets.iter().map(|(p, _)| p.clone()).collect();
             if !self.save_dirty_documents(&paths) {

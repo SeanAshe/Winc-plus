@@ -4,7 +4,10 @@
 use super::*;
 
 pub(super) mod folders;
+#[cfg(unix)]
+mod links;
 pub(super) mod loading;
+mod new_files;
 pub(super) mod outline;
 mod panes;
 pub(super) mod picker;

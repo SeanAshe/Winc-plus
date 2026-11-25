@@ -536,7 +536,8 @@ impl App {
             | UserEvent::Counted
             | UserEvent::BackedUp
             | UserEvent::Replaced
-            | UserEvent::Wrapped) => self.finished(done),
+            | UserEvent::Wrapped
+            | UserEvent::Compared) => self.finished(done),
             UserEvent::Rediffed => self.poll_rediffs(),
             UserEvent::Outline => self.poll_outline(),
             UserEvent::GitRollback(paths, to) => self.git_rollback(paths, to),

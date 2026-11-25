@@ -58,3 +58,16 @@ pub(crate) fn table_cells(app: &App) -> Vec<Vec<Rect>> {
     }
     Vec::new()
 }
+
+/// 分栏时编辑区光标所在行的竖条（窗口坐标），与绘制时相同；没有该光标时返回 `None`。
+pub(crate) fn mirrored_caret_bar(app: &App) -> Option<Rect> {
+    let laid = app.preview.markdown.layout.as_ref()?;
+    let (_, y, h) = laid.caret_point(app.markdown_caret_source()?)?;
+    let max = (app.preview.markdown.height - app.preview.markdown.area.h).max(0.0);
+    let scroll = app.preview.markdown.scroll().min(max);
+    Some(caret_bar(
+        laid,
+        (y, h),
+        app.preview.markdown.area.y - scroll,
+    ))
+}

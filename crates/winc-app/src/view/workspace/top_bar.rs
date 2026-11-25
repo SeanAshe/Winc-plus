@@ -1,5 +1,6 @@
 //! 顶栏绘制：标签栏和新建标签按钮，由应用绘制标题栏时右端还有窗口按钮。
 
+use super::sidebar::git_color;
 use super::*;
 use crate::app::TabHit;
 
@@ -157,7 +158,7 @@ fn tab_width_limit(app: &App) -> f32 {
 }
 
 /// 绘制标签栏：当前标签是实心胶囊，相邻两个未选中标签之间绘制一条竖线；有未保存修改的标签
-/// 显示圆点，悬停时变成关闭按钮。
+/// 显示圆点，悬停时变成关闭按钮。有 Git 状态的文件名用该状态的颜色。
 ///
 /// 放不下时可以横向滚动，被裁掉的一端渐隐，新建按钮和列出全部标签的「⌄」固定在右端。
 /// 同时更新 `app.tabs` 中的几何信息和各标签的命中区域。
@@ -526,11 +527,12 @@ fn draw_tab(
     } else {
         draw_file_icon(frame, p, icon, &tab_icon_name(doc), view) + 7.0
     };
-    let color = if (active && !behind) || marked {
+    let plain = if (active && !behind) || marked {
         p.text
     } else {
         p.text_muted
     };
+    let color = file_name_color(app, doc, plain);
     // 预览标签（见 `App::preview_index`）的名称倾斜，与普通标签区分。
     let cx = if app.preview_index() == Some(index) {
         ui_text_italic(frame, app, cx, tab, &label.name, color, view)
@@ -562,6 +564,17 @@ fn draw_tab(
         close,
         elided: label.elided,
     }
+}
+
+/// 标签和标签页切换列表中文件名的颜色：文件有 Git 状态时用该状态的颜色（与文件树相同），否则
+/// 用 `plain`。被 Git 忽略的文件不变淡；终端、日志和差异标签没有文件，用 `plain`。
+pub(in crate::view) fn file_name_color(
+    app: &App,
+    doc: &winc_editor::Document,
+    plain: Color,
+) -> Color {
+    let change = doc.path.as_deref().and_then(|path| app.git.change_of(path));
+    change.map_or(plain, |change| git_color(app.palette, change))
 }
 
 /// 标签的底（编辑区和终端面板的标签共用），都不带边：当前的是一块实底，颜色由主题定，带一点

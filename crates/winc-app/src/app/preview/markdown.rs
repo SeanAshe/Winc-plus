@@ -992,7 +992,7 @@ impl App {
     pub(in crate::app) fn click_markdown(&mut self, x: f32, y: f32) {
         self.focus = crate::app::Focus::Editor;
         // 内容一栏两侧的空白：分栏时将键盘焦点交给预览，但不放置光标、不开始选择，保留已有选区。
-        if !crate::app::preview::markdown::laid::in_content(self, x) {
+        if !crate::app::preview::markdown::laid::in_content(self, x, y) {
             if !self.markdown_live() {
                 self.preview.markdown.focused = true;
                 self.request_redraw();

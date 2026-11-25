@@ -591,7 +591,7 @@ impl App {
         }
         self.capture_panes();
         self.focus_pane(pane);
-        let canonical = winc_config::files::canonicalize(path).unwrap_or_else(|_| path.into());
+        let canonical = self.editor.document_path(path);
         let had = (self.editor.tabs().iter()).any(|d| d.path.as_deref() == Some(&*canonical));
         self.open_path(path);
         // 没打开（读不了、被拒绝）时当前标签还是原来的，不拆。

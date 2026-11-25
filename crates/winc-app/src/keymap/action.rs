@@ -81,6 +81,7 @@ pub enum Action {
     CopyActivePath,
     CopyKeyPath,
     RevealActiveFile,
+    RevealActiveInTree,
     OpenInTerminal,
     Quit,
 
@@ -221,6 +222,10 @@ pub enum Action {
     Format,
     FormatSelection,
     Fix,
+    /// 把当前文档（有选区时是选中部分）与剪贴板中的文字比较。
+    CompareWithClipboard,
+    /// 把当前文档与磁盘上已保存的版本比较。
+    CompareWithSaved,
 
     Find,
     Replace,
@@ -532,6 +537,7 @@ impl Action {
                     t!("cmd-reveal-active-file-in-folder")
                 }
             }
+            RevealActiveInTree => t!("cmd-reveal-active-file-in-tree"),
             Quit => t!("cmd-quit"),
             Undo => t!("cmd-undo"),
             Redo => t!("cmd-redo"),
@@ -640,6 +646,8 @@ impl Action {
             Format => t!("cmd-format"),
             FormatSelection => t!("cmd-format-selection"),
             Fix => t!("cmd-fix"),
+            CompareWithClipboard => t!("cmd-compare-with-clipboard"),
+            CompareWithSaved => t!("cmd-compare-with-saved"),
             Find => t!("cmd-find"),
             Replace => t!("cmd-replace"),
             FindNext => t!("cmd-find-next"),
@@ -817,7 +825,7 @@ impl Action {
             | FocusTab3 | FocusTab4 | FocusTab5 | FocusTab6 | FocusTab7 | FocusTab8 | FocusTab9
             | SwitchTab | SwitchTabBack | CloseFolder | CloseWindow | CopyPath
             | CopyRelativePath | RevealInFinder | CopyActivePath | CopyKeyPath
-            | RevealActiveFile | OpenInTerminal | Quit => Group::File,
+            | RevealActiveFile | RevealActiveInTree | OpenInTerminal | Quit => Group::File,
             NewWindow | OpenRecent | CopyReference | CopyAbsoluteReference => Group::File,
             Undo
             | Redo
@@ -925,7 +933,9 @@ impl Action {
             | ClearBookmarks
             | Format
             | FormatSelection
-            | Fix => Group::Edit,
+            | Fix
+            | CompareWithClipboard
+            | CompareWithSaved => Group::Edit,
             Find | Replace | FindNext | FindPrevious | HighlightWord | ClearWordHighlights
             | ReplaceOne | ReplaceAll | SelectAllMatches | ToggleCase | ToggleWord
             | ToggleRegex | FilterLines | FindInFiles | OpenSearchDialog | ReplaceInFiles
@@ -1095,10 +1105,9 @@ impl Action {
 
     /// 光标在差异标签右侧时，是否把命令交给右侧对应的源文档执行。
     ///
-    /// 「编辑」分组的命令默认都交给右侧，新加的编辑命令在差异里也能直接用；另外加上保存和「选中全部
-    /// 匹配」。等同于方向键、删除键的命令照真的按键处理，不在此列。排除的还有不改动文字、只作用于编
-    /// 辑器视图或文件设置的命令：滚到中间、折叠与书签只对普通编辑器的视图有意义；缩进方式、缩进
-    /// 转换、检测缩进、换行符和语言模式改的是整份文件的设置，不在差异里执行。
+    /// 「编辑」分组的命令默认交给右侧，另加保存和「选中全部匹配」。不交的有：等同于方向键、删除键
+    /// 的命令（照真的按键处理），只作用于视图的滚到中间、折叠与书签，改整份文件设置的缩进、换行符
+    /// 和语言模式命令，以及另开差异的比较命令。
     pub fn edits_in_diff(self) -> bool {
         use Action::*;
         match self {
@@ -1129,6 +1138,8 @@ impl Action {
             | DetectIndentation
             | ChangeEndOfLine
             | ChangeLanguageMode
+            | CompareWithClipboard
+            | CompareWithSaved
             | CursorLeft
             | CursorRight
             | CursorUp

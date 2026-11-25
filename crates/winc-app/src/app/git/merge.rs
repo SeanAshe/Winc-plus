@@ -161,7 +161,7 @@ impl App {
         };
         self.git.status.as_ref().is_some_and(|s| {
             s.entries.iter().any(|e| {
-                e.shown() == Change::Conflicted && winc_editor::canonical_path(&e.path) == path
+                e.shown() == Change::Conflicted && self.editor.document_path(&e.path) == path
             })
         })
     }
