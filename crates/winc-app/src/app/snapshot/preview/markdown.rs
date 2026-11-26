@@ -971,9 +971,9 @@ fn the_preview_shows_a_heading_indicator() {
     paint(&mut app);
     assert!(matches!(app.pointer.hover, Hover::MarkdownToc(_)));
     // 展开时第一行的横线落在指示条第一条的位置上（尚未滚动到任何标题），横线不跳动。指示条的
-    // 范围比第一条高出 8，第一条粗 2。
+    // 范围比第一条高出 8，第一条粗 1.5。
     let first = find(&app, TocTarget::Heading(0)).unwrap();
-    assert_eq!(first.y + first.h / 2.0, bars.y + 8.0 + 1.0);
+    assert_eq!(first.y + first.h / 2.0, bars.y + 8.0 + 0.75);
     // 列表覆盖指示条展开；鼠标停在列表里两行之间的空白处时列表不收起。
     let row = find(&app, TocTarget::Heading(1)).unwrap();
     let card = app.hits.markdown_toc.iter().rev().nth(1).unwrap().0;
@@ -1016,6 +1016,46 @@ fn the_preview_shows_a_heading_indicator() {
     let area = app.preview.markdown.area;
     let bars = app.hits.markdown_toc.last().expect("分栏时也有指示条").0;
     assert!(bars.right() <= left && bars.x >= area.x, "{bars:?} {left}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 正文为标题指示条右移时，指示条与正文之间仍留出 20 逻辑像素；当前所在一节以外的各条平时
+/// 较淡，鼠标移入指示条后加深，移出后恢复。
+#[test]
+fn the_heading_indicator_keeps_clear_of_the_text_and_deepens_on_hover() {
+    use crate::app::preview::markdown::TocTarget;
+
+    let (mut app, dir) = readme("md-toc-quiet", false, PreviewMode::Preview);
+    // 正文铺满预览宽度时，左侧留白窄于指示条所需的位置，正文右移。不显示原文行号，指示条
+    // 紧邻正文。
+    app.config.markdown_text_width = Some(winc_config::TextWidth::Full);
+    app.config.markdown_line_numbers = Some(false);
+    settle(&mut app);
+    let find = |app: &App| {
+        let hit = app
+            .hits
+            .markdown_toc
+            .iter()
+            .find(|(_, t)| *t == TocTarget::Bars);
+        hit.map(|h| h.0).unwrap()
+    };
+    let bars = find(&app);
+    let left = app.preview.markdown.layout.as_ref().unwrap().left;
+    // 指示条的范围在各条左右各宽出 8。
+    assert!(left - (bars.right() - 8.0) >= 20.0, "{bars:?} {left}");
+
+    // 第二个标题的一条（尚未读到）：范围比第一条高出 8，相邻两条相距 8，粗 1.5。
+    let at = (bars.x + 8.0 + 4.0, bars.y + 8.0 + 8.0 + 0.75);
+    let ink = |pixel: u32| (0..3).map(|i| 255 - (pixel >> (i * 8) & 0xff)).sum::<u32>();
+    let rest = ink(pixel(&app, at));
+    app.on_mouse_move(bars.x + 4.0, bars.y + 4.0);
+    paint(&mut app);
+    assert!(matches!(app.pointer.hover, Hover::MarkdownToc(_)));
+    let hovered = ink(pixel(&app, at));
+    assert!(hovered > rest && rest > 0, "{rest} → {hovered}");
+    app.on_mouse_move(left + 40.0, bars.bottom() + 40.0);
+    paint(&mut app);
+    assert_eq!(ink(pixel(&app, at)), rest);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

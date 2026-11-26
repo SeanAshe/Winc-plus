@@ -8,7 +8,7 @@
 use super::strip::Strip;
 use super::*;
 use crate::app::Hover;
-use crate::app::workspace::panes::{DIVIDER, DROP_EDGE, GRIP};
+use crate::app::workspace::panes::{DIVIDER, GRIP, drop_edge};
 
 /// 一栏最小的宽度（上下排时为高度，逻辑像素）：拖动分隔线时不再缩小。
 ///
@@ -325,6 +325,9 @@ impl TerminalPanel {
             if i < self.want_into.len() {
                 self.want_into.remove(i);
             }
+            if i < self.want_editor.len() {
+                self.want_editor.remove(i);
+            }
             removed = true;
         }
         if removed {
@@ -630,13 +633,15 @@ impl App {
             return (!focused).then(|| self.terminal_tab_slot(group, card, x));
         }
         let column = self.terminal_right();
-        let r = match column {
-            false => (x - card.x) / card.w.max(1.0),
-            true => (y - top) / (card.bottom() - top).max(1.0),
+        // 沿排列方向离两端的距离，以及贴边拆分的一条的宽度（与编辑区的窗格相同）。
+        let (from_start, len) = match column {
+            false => (x - card.x, card.w),
+            true => (y - top, card.bottom() - top),
         };
-        if r.min(1.0 - r) >= DROP_EDGE {
+        if from_start.min(len - from_start) >= drop_edge(len) {
             return (!focused).then_some((GroupDrop::Into { group, at: None }, card));
         }
+        let r = from_start / len.max(1.0);
         if focused && self.terminal.group_tabs(group).len() < 2 {
             return None;
         }

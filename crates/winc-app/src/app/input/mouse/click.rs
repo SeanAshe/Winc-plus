@@ -262,7 +262,7 @@ impl App {
             Target::TreeMore => self.open_tree_tools_menu(),
             Target::ProjectName => self.open_project_menu(),
             Target::SidebarButton => self.toggle_sidebar(),
-            Target::NewTab => self.new_file(),
+            Target::NewTab => self.press_new_tab(),
             Target::TabList => self.open_tab_list_menu(),
             Target::Preview(mode) => self.choose_preview_mode(mode),
             Target::Browser => self.open_in_browser(),

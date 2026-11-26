@@ -21,7 +21,7 @@ use winc_render::{Color, FontKind, Frame, Rect};
 use super::*;
 use crate::app::Focus;
 use crate::app::MARK_W;
-use crate::app::terminal::strip::TAB_GAP;
+use crate::app::terminal::strip::{TAB_GAP, TAB_MIN};
 use crate::app::terminal::{
     BAND_X, BlockHit, FIND_OPTIONS_MIN, FindPart, HeaderHit, TabEnd, TermTab, ViewRow,
     format_duration, header_height, tab_inset,
@@ -32,6 +32,9 @@ use crate::theme::{BUTTON, BUTTON_GAP, BUTTON_SMALL, RADIUS_TAB, TOGGLE_W, reada
 const TAB_H: f32 = crate::theme::TAB_HEIGHT;
 /// 最右端的按钮离面板右边的距离（逻辑像素），与编辑区标签栏相同。
 const BUTTONS_END: f32 = 8.0;
+/// 横向标签时标签栏至少留给标签的宽度（逻辑像素）：一个标准宽度的标签和「+」。面板更窄时
+/// 依次省去拆分、移到编辑器标签和最大化按钮。
+const TABS_KEPT: f32 = TAB_MIN + TAB_GAP + BUTTON;
 /// 成功命令色带的不透明度（0–1）：大多数命令都成功，满色的长条会比失败的红色更显眼。
 ///
 /// 取自调参：对照深色和浅色主题，长输出旁的色带可辨认且不抢正文。鼠标悬停时恢复满色。
@@ -673,32 +676,48 @@ fn draw_header(app: &mut App, frame: &mut Frame<'_>, card: Rect) {
     // 分栏时面板的按钮（运行配置、最大化、换位置、收起）只放在挨着面板右上角的那一栏，
     // 其他栏的右端只有拆分。
     let actions = app.docked_search_shown() || app.terminal_panel_actions_here();
+    let vertical = app.terminal_tab_list().is_some();
+    let slot = BUTTON + TAB_GAP;
     let hide = Rect::new(end - BUTTONS_END - BUTTON, button_y, BUTTON, BUTTON);
-    let position = Rect::new(hide.x - TAB_GAP - BUTTON, button_y, BUTTON, BUTTON);
-    let maximize = Rect::new(position.x - TAB_GAP - BUTTON, button_y, BUTTON, BUTTON);
-    let editor = Rect::new(maximize.x - TAB_GAP - BUTTON, button_y, BUTTON, BUTTON);
-    let split = match actions {
-        true => Rect::new(editor.x - TAB_GAP - BUTTON, button_y, BUTTON, BUTTON),
-        false => hide,
+    let position = Rect::new(hide.x - slot, button_y, BUTTON, BUTTON);
+    // 面板窄时依次省去拆分、移到编辑器标签、最大化，给标签留出 `TABS_KEPT`。
+    let docked = app.docked_search_shown();
+    // 能选的 shell 不止一个时，「+」右边是选 shell 的按钮。
+    let shell_menu = app.terminal_shell_list().len() > 1;
+    let tabs = match vertical {
+        true => 0.0,
+        false => TABS_KEPT + slot * f32::from(u8::from(shell_menu)),
     };
+    let fixed = slot * f32::from(u8::from(docked)) + tabs;
+    let spare = position.x - TAB_GAP - left - fixed;
+    let kept = ((spare / slot).floor().max(0.0) as usize).min(3);
+    let mut x = position.x;
+    let mut next = |shown: bool| {
+        shown.then(|| {
+            x -= slot;
+            Rect::new(x, button_y, BUTTON, BUTTON)
+        })
+    };
+    let maximize = next(kept >= 1);
+    let editor = next(kept >= 2);
+    let split = match actions {
+        true => next(kept >= 3),
+        false => Some(hide),
+    };
+    let tools_x = split.map_or(x, |split| split.x);
     // 显示「搜索」标签时，拆分左边是「在对话框中打开」。
-    let reopen = app
-        .docked_search_shown()
-        .then(|| Rect::new(split.x - TAB_GAP - BUTTON, button_y, BUTTON, BUTTON));
-    let tools_x = reopen.map_or(split.x, |r| r.x);
+    let reopen = docked.then(|| Rect::new(tools_x - slot, button_y, BUTTON, BUTTON));
+    let tools_x = reopen.map_or(tools_x, |r| r.x);
     let run = match actions {
         true => run_buttons(app, frame, left, tools_x - TAB_GAP, button_y),
         false => None,
     };
-    let vertical = app.terminal_tab_list().is_some();
     // 标签和「+」放得下的宽度。
     let rest = if vertical {
         tools_x
     } else {
         run.map_or(tools_x, |[menu, ..]| menu.x)
     } - TAB_GAP;
-    // 能选的 shell 不止一个时，「+」右边是选 shell 的按钮。
-    let shell_menu = app.terminal_shell_list().len() > 1;
     let room = rest - left;
     let room = if vertical {
         room
@@ -742,44 +761,45 @@ fn draw_header(app: &mut App, frame: &mut Frame<'_>, card: Rect) {
     }
 
     // 拆分当前的终端：面板在下方时左右排，在右侧时上下排，图标画的是拆开以后的排法。
-    if app.pointer.hover == Hover::TerminalHeader(HeaderHit::Split) {
-        frame.rect_clipped(split, p.hover, RADIUS_ROW, header);
+    if let Some(split) = split {
+        if app.pointer.hover == Hover::TerminalHeader(HeaderHit::Split) {
+            frame.rect_clipped(split, p.hover, RADIUS_ROW, header);
+        }
+        if app.terminal_right() {
+            icons::single_column(frame, center(split), p.text_muted, header);
+        } else {
+            icons::split(frame, center(split), p.text_muted, header);
+        }
+        hits.push((split, HeaderHit::Split));
     }
-    if app.terminal_right() {
-        icons::single_column(frame, center(split), p.text_muted, header);
-    } else {
-        icons::split(frame, center(split), p.text_muted, header);
-    }
-    hits.push((split, HeaderHit::Split));
     if !actions {
         app.hits.terminal = hits;
         return;
     }
 
-    let enabled = app.terminal.tab().is_some() && !app.docked_search_shown();
-    let hovered = enabled && app.pointer.hover == Hover::TerminalHeader(HeaderHit::Editor);
-    draw_button(frame, p, editor, header, hovered, false);
-    icons::external(
-        frame,
-        center(editor),
-        if enabled { p.text_muted } else { p.text_dim },
-        header,
-    );
-    if enabled {
-        hits.push((editor, HeaderHit::Editor));
+    if let Some(editor) = editor {
+        let enabled = app.terminal.tab().is_some() && !docked;
+        let hovered = enabled && app.pointer.hover == Hover::TerminalHeader(HeaderHit::Editor);
+        draw_button(frame, p, editor, header, hovered, false);
+        let color = if enabled { p.text_muted } else { p.text_dim };
+        icons::to_editor(frame, center(editor), app.terminal_right(), color, header);
+        if enabled {
+            hits.push((editor, HeaderHit::Editor));
+        }
     }
 
-    // 右端：最大化或还原面板，图标绘制的是点下去以后的样子。
-    if app.pointer.hover == Hover::TerminalHeader(HeaderHit::Maximize) {
-        frame.rect_clipped(maximize, p.hover, RADIUS_ROW, header);
+    // 最大化或还原面板，图标绘制的是点下去以后的样子。
+    if let Some(maximize) = maximize {
+        if app.pointer.hover == Hover::TerminalHeader(HeaderHit::Maximize) {
+            frame.rect_clipped(maximize, p.hover, RADIUS_ROW, header);
+        }
+        if app.terminal.maximized {
+            icons::shrink(frame, center(maximize), p.text_muted, header);
+        } else {
+            icons::expand(frame, center(maximize), p.text_muted, header);
+        }
+        hits.push((maximize, HeaderHit::Maximize));
     }
-    let center = (maximize.x + BUTTON / 2.0, maximize.y + BUTTON / 2.0);
-    if app.terminal.maximized {
-        icons::shrink(frame, center, p.text_muted, header);
-    } else {
-        icons::expand(frame, center, p.text_muted, header);
-    }
-    hits.push((maximize, HeaderHit::Maximize));
 
     // 切换面板的位置（编辑区右边或下面），图标绘制的是点下去以后的位置。
     if app.pointer.hover == Hover::TerminalHeader(HeaderHit::Position) {

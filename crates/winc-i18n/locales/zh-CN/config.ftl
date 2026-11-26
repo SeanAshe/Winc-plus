@@ -21,6 +21,8 @@ config-run-template-note = 每项需要 name 和 command；args、cwd、env 为�
 
 config-theme-invalid = { $name } 的值只能是 auto、dark 或 light，已忽略
 config-render-whitespace-invalid = { $name } 的值只能是 none、selection、trailing 或 all，已忽略
+config-cursor-style-invalid = { $name } 的值只能是 line、block 或 underline，已忽略
+config-right-click-invalid = { $name } 的值只能是 menu 或 copyOrPaste，已忽略
 config-smooth-caret-invalid = { $name } 的值只能是 off、snappy 或 gliding，已忽略
 config-open-worktree-invalid = { $name } 的值只能是 ask、newWindow 或 currentWindow，已忽略
 config-pull-invalid = { $name } 的值只能是 config、merge 或 rebase，已忽略
@@ -47,6 +49,7 @@ config-title-bar-style-invalid = { $name } 应为 "custom" 或 "native"，已忽
 config-option-as-meta-invalid = { $name } 应为 "left"、"right"、"both" 或 "none"，已忽略
 config-not-array = { $name } 应为数组，已忽略
 config-item-not-non-empty-string = { $name } 中的项应为非空字符串，已忽略
+config-item-not-column = { $name } 中的项应为 1 至 { $max } 的整数，已忽略
 config-item-not-string = { $name } 中的项应为字符串，已忽略
 config-not-object = { $name } 应为对象，已忽略
 config-remote-folder-invalid = { $name }：键应写成「主机:/远端目录」，如 devbox:/home/me，已忽略

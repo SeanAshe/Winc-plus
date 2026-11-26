@@ -483,6 +483,7 @@ impl App {
             | Setting::DropFolder
             | Setting::FindInFiles
             | Setting::AutoSave
+            | Setting::CursorStyle
             | Setting::SmoothCaret
             | Setting::Zoom
             | Setting::BackgroundImage
@@ -492,6 +493,7 @@ impl App {
             | Setting::TerminalPosition
             | Setting::TerminalTabPosition
             | Setting::TerminalOptionAsMeta
+            | Setting::TerminalRightClick
             | Setting::UiFont
             | Setting::EditorFont
             | Setting::TerminalFont
@@ -508,6 +510,7 @@ impl App {
                     Setting::DropFolder => MenuTarget::DropFolder,
                     Setting::FindInFiles => MenuTarget::SearchStyle,
                     Setting::AutoSave => MenuTarget::AutoSave,
+                    Setting::CursorStyle => MenuTarget::CursorStyle,
                     Setting::SmoothCaret => MenuTarget::SmoothCaret,
                     Setting::Zoom => MenuTarget::Zoom,
                     Setting::BackgroundImage => MenuTarget::BackgroundImage,
@@ -517,6 +520,7 @@ impl App {
                     Setting::TerminalPosition => MenuTarget::TerminalPosition,
                     Setting::TerminalTabPosition => MenuTarget::TerminalTabPosition,
                     Setting::TerminalOptionAsMeta => MenuTarget::OptionAsMeta,
+                    Setting::TerminalRightClick => MenuTarget::RightClick,
                     _ => MenuTarget::Font(setting),
                 };
                 self.settings.selected = setting;

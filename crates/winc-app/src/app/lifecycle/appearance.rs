@@ -74,16 +74,33 @@ impl App {
         [editor, configured_fonts(&self.config.ui_font), terminal]
     }
 
-    /// 返回界面和编辑区文字的字重（`ui.fontWeight`），未配置时为 400。
+    /// 返回界面文字的字重（`ui.fontWeight`），未配置时为 400。
     pub(in crate::app) fn font_weight(&self) -> u16 {
         self.config.ui_font_weight.unwrap_or(Config::FONT_WEIGHT)
     }
 
-    /// 返回终端文字的字重（`terminal.fontWeight`）；没有调整过时同全局字重。
+    /// 返回编辑区等宽文字的字重（`editor.fontWeight`），未配置时为 400。
+    pub(in crate::app) fn editor_font_weight(&self) -> u16 {
+        self.config
+            .editor_font_weight
+            .unwrap_or(Config::FONT_WEIGHT)
+    }
+
+    /// 返回界面、编辑区和终端文字的字重。
+    pub(in crate::app) fn font_weights(&self) -> winc_render::FontWeights {
+        winc_render::FontWeights {
+            ui: self.font_weight(),
+            editor: self.editor_font_weight(),
+            terminal: self.terminal_font_weight(),
+        }
+    }
+
+    /// 返回终端文字的字重（`terminal.fontWeight`）；未设置时同编辑区字重，因为终端默认使用
+    /// 编辑区的字体。
     pub(in crate::app) fn terminal_font_weight(&self) -> u16 {
         self.config
             .terminal_font_weight
-            .unwrap_or_else(|| self.font_weight())
+            .unwrap_or_else(|| self.editor_font_weight())
     }
 
     /// 应用主题选择：`Auto` 交由系统决定，`Dark`、`Light` 固定为指定外观。
@@ -165,15 +182,11 @@ impl App {
     /// 渲染层无法使用配置的字体时，返回面向用户的错误说明。
     pub(in crate::app) fn apply_fonts(&mut self) -> Result<(), String> {
         let [mono, ui, terminal] = self.font_specs();
-        let weight = self.font_weight();
-        let terminal_weight = self.terminal_font_weight();
+        let weights = self.font_weights();
 
         let prose = configured_fonts(&self.config.markdown_font);
         if let Some(renderer) = &mut self.frame.renderer {
-            if renderer
-                .set_fonts(&mono, &ui, &terminal, weight, terminal_weight)
-                .is_err()
-            {
+            if renderer.set_fonts(&mono, &ui, &terminal, weights).is_err() {
                 return Err(winc_i18n::t!("workspace-font-unusable").to_owned());
             }
             renderer.set_prose_fonts(&prose);

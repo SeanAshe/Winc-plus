@@ -5,6 +5,16 @@ use std::path::PathBuf;
 
 use super::*;
 
+/// 界面、编辑区和终端都用 `weight` 的字重。
+#[cfg(target_os = "macos")]
+fn same(weight: u16) -> FontWeights {
+    FontWeights {
+        ui: weight,
+        editor: weight,
+        terminal: weight,
+    }
+}
+
 /// 用字体 `font` 的 `kind` 字形画字符 `c`，返回字形上半部分与下半部分墨迹的平均横坐标
 /// （物理像素）。
 #[cfg(target_os = "macos")]
@@ -428,7 +438,7 @@ fn font_weight_changes_the_ink_of_every_kind_of_font() {
         let mut renderer =
             Renderer::offscreen(60.0, 40.0, 1.0, Color::hex(0x000000), None, None).unwrap();
         renderer
-            .set_fonts(std::slice::from_ref(spec), &[], &[], weight, weight)
+            .set_fonts(std::slice::from_ref(spec), &[], &[], same(weight))
             .unwrap();
         let mut advance = 0.0;
         renderer.draw(|frame| {
@@ -469,17 +479,22 @@ fn font_weight_changes_the_ink_of_every_kind_of_font() {
     }
 }
 
-/// 终端的字重与其余文字分开：终端的文字（含后备字体中的汉字）按终端的字重画，编辑区不变；
-/// 两者相同时画出的完全一样。
+/// 界面、编辑区和终端的字重各自独立：每类文字（含后备字体中的汉字）按自己的字重画，其余不变；
+/// 字重相同时终端与编辑区画出的完全一样。
 #[cfg(target_os = "macos")]
 #[test]
-fn the_terminal_weight_changes_only_the_terminal_ink() {
+fn each_kind_of_text_keeps_its_own_weight() {
     let sf = FontSpec::Path("/System/Library/Fonts/SFNSMono.ttf".into());
-    let ink = |(weight, terminal): (u16, u16), kind: FontKind, c: char| {
+    let ink = |(ui, editor, terminal): (u16, u16, u16), kind: FontKind, c: char| {
         let mut renderer =
             Renderer::offscreen(60.0, 40.0, 1.0, Color::hex(0x000000), None, None).unwrap();
+        let weights = FontWeights {
+            ui,
+            editor,
+            terminal,
+        };
         renderer
-            .set_fonts(std::slice::from_ref(&sf), &[], &[], weight, terminal)
+            .set_fonts(std::slice::from_ref(&sf), &[], &[], weights)
             .unwrap();
         renderer.draw(|frame| {
             let all = frame.bounds();
@@ -489,17 +504,29 @@ fn the_terminal_weight_changes_only_the_terminal_ink() {
         let image = renderer.image().unwrap();
         image.pixels.iter().map(|p| p & 0xff).sum::<u32>()
     };
+    let bolder = |bold: u32, regular: u32| bold as f32 > regular as f32 * 1.15;
     for c in ['H', '中'] {
-        let regular = ink((400, 400), FontKind::Terminal, c);
-        assert_eq!(ink((400, 400), FontKind::Mono, c), regular, "{c}");
-        let bold = ink((400, 700), FontKind::Terminal, c);
-        assert!(
-            bold as f32 > regular as f32 * 1.15,
-            "{c}：{regular} → {bold}"
+        let regular = |kind| ink((400, 400, 400), kind, c);
+        let (mono, ui, terminal) = (
+            regular(FontKind::Mono),
+            regular(FontKind::Ui),
+            regular(FontKind::Terminal),
         );
-        assert_eq!(ink((400, 700), FontKind::Mono, c), regular, "{c}");
-        // 全局调粗、终端仍是常规字重：终端不随之变粗。
-        assert_eq!(ink((700, 400), FontKind::Terminal, c), regular, "{c}");
+        assert_eq!(terminal, mono, "{c}");
+        // 只调粗终端。
+        assert!(
+            bolder(ink((400, 400, 700), FontKind::Terminal, c), terminal),
+            "{c}"
+        );
+        assert_eq!(ink((400, 400, 700), FontKind::Mono, c), mono, "{c}");
+        // 只调粗编辑区：界面和终端不变。
+        assert!(bolder(ink((400, 700, 400), FontKind::Mono, c), mono), "{c}");
+        assert_eq!(ink((400, 700, 400), FontKind::Ui, c), ui, "{c}");
+        assert_eq!(ink((400, 700, 400), FontKind::Terminal, c), terminal, "{c}");
+        // 只调粗界面：编辑区和终端不变。
+        assert!(bolder(ink((700, 400, 400), FontKind::Ui, c), ui), "{c}");
+        assert_eq!(ink((700, 400, 400), FontKind::Mono, c), mono, "{c}");
+        assert_eq!(ink((700, 400, 400), FontKind::Terminal, c), terminal, "{c}");
     }
 }
 

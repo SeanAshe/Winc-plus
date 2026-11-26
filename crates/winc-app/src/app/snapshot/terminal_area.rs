@@ -399,3 +399,82 @@ fn terminal_editor_relocation_hover_shows_tooltips_for_both_destinations() {
     assert_eq!(crate::view::tests::tooltip(&app).unwrap().0, panel);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+/// 标签栏的「+」：编辑区没有终端时直接新建文件；有终端时弹出菜单，「新建终端」在当前窗格建一个
+/// 编辑器终端，用默认 shell 启动，不打开终端面板。
+// 记录发给辅助进程的消息用 sh 脚本冒充辅助进程。
+#[cfg(unix)]
+#[test]
+fn the_plus_button_offers_a_terminal_once_one_is_in_the_editor() {
+    use crate::app::input::context_menu::{MenuCommand, MenuTarget};
+    let (mut app, dir, _) = terminal_app("terminal-editor-new");
+    let log = app.attach_recording_helper(&dir);
+    // 「+」随标签增多右移，每次点击前重新取位置。
+    let plus = |app: &App| {
+        let button = app.tabs.new_tab;
+        (button.x + button.w / 2.0, button.y + button.h / 2.0)
+    };
+    let count = app.editor.documents.len();
+    let at = plus(&app);
+    click(&mut app, at);
+    assert!(app.overlays.context_menu.is_none());
+    assert_eq!(app.editor.documents.len(), count + 1);
+
+    app.move_terminal_to_editor();
+    paint(&mut app);
+    assert!(!app.terminal.open);
+    let at = plus(&app);
+    click(&mut app, at);
+    let menu = app.overlays.context_menu.as_ref().map(|m| &m.target);
+    assert_eq!(menu, Some(&MenuTarget::NewTab));
+    let listed: Vec<_> = menu_commands(&app).into_iter().map(|(c, _)| c).collect();
+    assert!(
+        listed.starts_with(&[MenuCommand::NewUntitled, MenuCommand::NewEditorTerminal]),
+        "{listed:?}"
+    );
+
+    let pane = app.editor.panes.focused;
+    app.run_menu_command(MenuCommand::NewEditorTerminal);
+    paint(&mut app);
+    let terminals = app
+        .editor
+        .documents
+        .iter()
+        .filter(|doc| doc.terminal)
+        .count();
+    assert_eq!(terminals, 2);
+    assert!(app.editor.active().is_some_and(|doc| doc.terminal));
+    assert_eq!(app.editor.panes.focused, pane);
+    assert!(!app.terminal.open, "面板没有打开");
+    let spawned = app.sent_to_helper(&log).into_iter();
+    let spawned = spawned.filter(|m| matches!(m, winc_pty::protocol::ToHelper::Spawn { .. }));
+    assert_eq!(spawned.count(), 1);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 「终端：在编辑区新建」：面板收起、还没有任何终端时同样在当前窗格建一个编辑器终端，面板保持
+/// 收起；终端按窗格的大小启动，建好后不必再改大小。
+#[cfg(unix)]
+#[test]
+fn the_new_editor_terminal_command_works_without_a_panel() {
+    let dir = sample_folder("terminal-editor-command");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    app.config.terminal_enabled = Some(true);
+    let log = app.attach_recording_helper(&dir);
+    assert!(!app.terminal.open && app.terminal.tab_count() == 0);
+    app.run_action(crate::keymap::Action::NewEditorTerminal);
+    paint(&mut app);
+    assert!(app.editor.active().is_some_and(|doc| doc.terminal));
+    assert!(!app.terminal.open);
+    paint(&mut app);
+    let sent = app.sent_to_helper(&log);
+    let spawned = sent
+        .iter()
+        .filter(|m| matches!(m, winc_pty::protocol::ToHelper::Spawn { .. }));
+    assert_eq!(spawned.count(), 1);
+    let resized = sent
+        .iter()
+        .any(|m| matches!(m, winc_pty::protocol::ToHelper::Resize { .. }));
+    assert!(!resized, "{sent:?}");
+    let _ = std::fs::remove_dir_all(&dir);
+}

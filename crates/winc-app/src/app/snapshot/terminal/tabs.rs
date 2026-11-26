@@ -933,3 +933,27 @@ fn shoot_terminal_split_list() {
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// 面板在右侧且较窄时，横向标签栏右端的按钮依次省去拆分、移到编辑器标签和最大化，先保证
+/// 一个标准宽度的标签；换位置和收起始终显示。面板变宽后按钮回来。
+#[test]
+fn a_narrow_panel_drops_the_optional_header_buttons() {
+    let dir = sample_folder("terminal-narrow-header");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    app.config.terminal_right = Some(true);
+    show_terminal(&mut app, "$ ");
+    let shown = |app: &App, want| app.hits.terminal.iter().any(|(_, hit)| *hit == want);
+    app.terminal.width = crate::app::terminal::MIN_WIDTH;
+    app.relayout();
+    paint(&mut app);
+    assert!(!shown(&app, HeaderHit::Split) && !shown(&app, HeaderHit::Editor));
+    assert!(shown(&app, HeaderHit::Position) && shown(&app, HeaderHit::Hide));
+    assert!(tab_hit(&app, 0).w >= crate::app::terminal::strip::TAB_MIN);
+
+    app.terminal.width = 640.0;
+    app.relayout();
+    paint(&mut app);
+    let optional = [HeaderHit::Split, HeaderHit::Editor, HeaderHit::Maximize];
+    assert!(optional.iter().all(|&hit| shown(&app, hit)));
+    let _ = std::fs::remove_dir_all(&dir);
+}

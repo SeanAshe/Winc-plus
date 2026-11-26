@@ -594,6 +594,49 @@ impl Frame<'_> {
         true
     }
 
+    /// 在等宽网格上按连字绘制一段符号 `run`，返回是否已绘制。
+    ///
+    /// 每个字符占一格（宽 `cell`，逻辑像素），`(x, baseline)` 是第一格的左边缘和基线。字体为该段
+    /// 换用了连写的字形时，各字形画在所属字符的格上，列宽不变；字体没有可用的连字、或其中有字符
+    /// 需要回退字体时返回假，由调用方逐字符绘制。
+    #[allow(clippy::too_many_arguments)]
+    pub fn cell_ligatures(
+        &mut self,
+        kind: FontKind,
+        size: f32,
+        (x, baseline): (f32, f32),
+        cell: f32,
+        run: &str,
+        color: Color,
+        clip: Rect,
+    ) -> bool {
+        let Some(ligated) = self.glyphs.ligatures(kind, run) else {
+            return false;
+        };
+        let chars: Vec<char> = run.chars().collect();
+        for &(at, glyph, dx, dy) in &ligated.glyphs {
+            let resolved = Resolved {
+                slot: ligated.slot,
+                glyph,
+                advance: cell,
+                faux_bold: false,
+            };
+            let pen = (x + at as f32 * cell + dx * size, baseline - dy * size);
+            let base = chars.get(at).copied().unwrap_or(' ');
+            self.draw_glyph(
+                kind,
+                Faux::default(),
+                size,
+                pen,
+                base,
+                resolved,
+                color,
+                clip,
+            );
+        }
+        true
+    }
+
     /// 在等宽网格上用等宽字体 `kind`（编辑区或终端的正体、斜体）绘制字符 `c`。
     ///
     /// 该字符占 `cells` 个格子（每格宽 `cell`，逻辑像素）。

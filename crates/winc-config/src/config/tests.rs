@@ -321,6 +321,11 @@ fn round_trips_through_json() {
     let config = Config {
         editor_font: Some("Menlo".to_string()),
         editor_size: Some(14.0),
+        editor_font_weight: Some(500),
+        editor_font_ligatures: Some(true),
+        editor_rulers: vec![80, 120],
+        render_line_endings: Some(true),
+        cursor_style: Some(CursorStyle::Underline),
         ui_font: Some("「带引号」的字体".to_string()),
         ui_size: Some(12.5),
         ui_zoom: Some(150),
@@ -405,6 +410,7 @@ fn round_trips_through_json() {
         terminal_confirm_close: Some(false),
         terminal_prompt: Some(false),
         terminal_copy_on_select: Some(true),
+        terminal_right_click: Some(TerminalRightClick::CopyOrPaste),
         terminal_bold_is_bright: Some(true),
         terminal_right: Some(true),
         terminal_vertical_tabs: Some(true),
@@ -922,4 +928,17 @@ fn a_config_with_an_api_key_is_private() {
     keyed.save_to(&path, &plain).unwrap();
     assert_eq!(mode(&path), 0o600);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 长行参考线的列：整数且在范围内的项按出现的顺序保留，重复的只留一个，其余的项忽略并逐项报告。
+#[test]
+fn rulers_keep_valid_columns_in_order() {
+    let (config, problems) =
+        Config::parse(r#"{"editor": {"rulers": [120, 0, "80", 80.5, 80, 1001, 120]}}"#);
+    assert_eq!(config.editor_rulers, [120, 80]);
+    assert_eq!(problems.len(), 4, "{problems:?}");
+    assert!(problems[0].contains("editor.rulers"), "{problems:?}");
+    let (config, problems) = Config::parse(r#"{"editor": {"rulers": 80}}"#);
+    assert!(config.editor_rulers.is_empty());
+    assert_eq!(problems.len(), 1, "{problems:?}");
 }

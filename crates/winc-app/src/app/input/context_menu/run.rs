@@ -272,6 +272,15 @@ impl App {
                     self.set_auto_save(choice);
                 }
             }
+            MenuTarget::CursorStyle => {
+                if let MenuCommand::CursorStyle(i) = command
+                    && let Some(&choice) = winc_config::CursorStyle::ALL.get(i)
+                {
+                    self.config.cursor_style = Some(choice);
+                    self.save_config();
+                    self.request_redraw();
+                }
+            }
             MenuTarget::SmoothCaret => {
                 if let MenuCommand::SmoothCaret(i) = command
                     && let Some(&choice) = winc_config::SmoothCaret::ALL.get(i)
@@ -374,6 +383,15 @@ impl App {
             MenuTarget::TerminalTabPosition => {
                 if let MenuCommand::TerminalTabPosition(right) = command {
                     self.set_terminal_tab_position(right);
+                }
+            }
+            MenuTarget::RightClick => {
+                if let MenuCommand::RightClick(i) = command
+                    && let Some(&choice) = winc_config::TerminalRightClick::ALL.get(i)
+                {
+                    self.config.terminal_right_click = Some(choice);
+                    self.save_config();
+                    self.request_redraw();
                 }
             }
             MenuTarget::OptionAsMeta => {
@@ -480,6 +498,17 @@ impl App {
             MenuTarget::RunConfigs => match command {
                 MenuCommand::RunSelect(i) => self.select_run_config(i),
                 MenuCommand::RunEdit => self.edit_run_configs(),
+                _ => {}
+            },
+            MenuTarget::NewTab => match command {
+                MenuCommand::NewUntitled => self.new_file(),
+                MenuCommand::NewEditorTerminal => self.new_editor_terminal(None),
+                MenuCommand::NewEditorTerminalShell(i) => {
+                    let shell = self.terminal_shell_list().into_iter().nth(i);
+                    if let Some(shell) = shell {
+                        self.new_editor_terminal(Some(shell.command));
+                    }
+                }
                 _ => {}
             },
             MenuTarget::TerminalShells => {

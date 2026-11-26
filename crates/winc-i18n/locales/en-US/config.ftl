@@ -21,6 +21,8 @@ config-run-template-note = Each entry requires name and command; args, cwd, and 
 
 config-theme-invalid = { $name } must be auto, dark, or light; ignored
 config-render-whitespace-invalid = { $name } must be none, selection, trailing, or all; ignored
+config-cursor-style-invalid = { $name } must be line, block, or underline; ignored
+config-right-click-invalid = { $name } must be menu or copyOrPaste; ignored
 config-smooth-caret-invalid = { $name } must be off, snappy, or gliding; ignored
 config-open-worktree-invalid = { $name } must be ask, newWindow, or currentWindow; ignored
 config-pull-invalid = { $name } must be config, merge, or rebase; ignored
@@ -47,6 +49,7 @@ config-title-bar-style-invalid = { $name } should be "custom" or "native"; ignor
 config-option-as-meta-invalid = { $name } should be "left", "right", "both", or "none"; ignored
 config-not-array = { $name } should be an array; ignored
 config-item-not-non-empty-string = Items in { $name } should be non-empty strings; ignored
+config-item-not-column = Items in { $name } should be whole numbers from 1 to { $max }; ignored
 config-item-not-string = Items in { $name } should be strings; ignored
 config-not-object = { $name } should be an object; ignored
 config-remote-folder-invalid = { $name }: the key should be written as host:/remote/folder, such as devbox:/home/me; ignored

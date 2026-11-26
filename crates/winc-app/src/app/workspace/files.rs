@@ -593,6 +593,19 @@ impl App {
         }
     }
 
+    /// 点击标签栏的「+」：编辑区有终端时在按钮下方弹出新建文件、新建终端的菜单，否则直接新建
+    /// 文件。
+    pub(in crate::app) fn press_new_tab(&mut self) {
+        use crate::app::input::context_menu::{MenuButton, MenuTarget, menu_below};
+        let terminals = self.editor.documents.iter().any(|doc| doc.terminal);
+        if !(terminals && self.terminal_enabled()) {
+            return self.new_file();
+        }
+        let button = self.tabs.new_tab;
+        let (_, y) = menu_below(button);
+        self.open_button_menu(MenuButton::NewTab, MenuTarget::NewTab, (button.x, y));
+    }
+
     /// 在标签栏最右端的「⌄」下方弹出标签列表，菜单右端与按钮对齐；选择一项即切换到该标签。
     pub(in crate::app) fn open_tab_list_menu(&mut self) {
         use crate::app::input::context_menu::{MenuButton, MenuTarget, menu_below};

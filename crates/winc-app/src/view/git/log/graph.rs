@@ -23,6 +23,8 @@ pub(in crate::view::git) struct GraphStyle {
     pub bg: Color,
     /// 最多画的车道数（条）：超出的车道压在最右边一条上。
     pub lanes: usize,
+    /// 相邻两条车道的间距（逻辑像素）。
+    pub lane: f32,
 }
 
 /// 一行里一条车道上的长连线怎么画（见 [`long_cuts`]）。
@@ -145,7 +147,8 @@ pub(in crate::view::git) fn draw_graph_row(
 ) {
     let p = app.palette;
     let lh = style.height;
-    let lane_x = |lane: usize| x0 + lane.min(style.lanes - 1) as f32 * LANE + LANE / 2.0;
+    let step = style.lane;
+    let lane_x = |lane: usize| x0 + lane.min(style.lanes - 1) as f32 * step + step / 2.0;
     let faded = |l: u32| line.is_some_and(|f| f != l);
     let row_bg = band.map_or(style.bg, |band| {
         crate::view::workspace::panel::over(style.bg, band)

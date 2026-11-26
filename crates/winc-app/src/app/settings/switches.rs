@@ -23,6 +23,8 @@ impl App {
             Setting::AlignColumns => self.config.align_columns != Some(false),
             Setting::WholeLines => self.config.whole_lines == Some(true),
             Setting::Minimap => self.config.minimap == Some(true),
+            Setting::RenderLineEndings => self.config.render_line_endings == Some(true),
+            Setting::EditorLigatures => self.config.editor_font_ligatures == Some(true),
             Setting::Outline => self.config.outline != Some(false),
             Setting::LineNumbers => self.config.line_numbers != Some(false),
             Setting::DiffInline => self.config.diff_inline == Some(true),
@@ -114,6 +116,8 @@ impl App {
             }
             Setting::WholeLines => self.config.whole_lines = Some(on),
             Setting::Minimap => self.config.minimap = Some(on),
+            Setting::RenderLineEndings => self.config.render_line_endings = Some(on),
+            Setting::EditorLigatures => self.config.editor_font_ligatures = Some(on),
             Setting::Outline => self.config.outline = Some(on),
             Setting::LineNumbers => self.config.line_numbers = Some(on),
             Setting::DiffInline => self.config.diff_inline = Some(on),

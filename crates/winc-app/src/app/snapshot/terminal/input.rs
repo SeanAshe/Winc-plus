@@ -1,4 +1,4 @@
-//! 终端输入的测试：修饰键的编码与剪贴板中没有文字时的粘贴。
+//! 终端输入的测试：修饰键的编码、剪贴板中没有文字时的粘贴，以及右键单击复制或粘贴。
 //!
 //! 写给程序的字节由记录用的辅助进程截取（`attach_recording_helper`）。
 
@@ -123,4 +123,51 @@ fn the_terminal_composition_caret_follows_the_input_method() {
     let cell = app.metrics.terminal_cell;
     assert!((end - start - 3.0 * cell).abs() < 0.5, "{start} {end}");
     assert!((at(&mut app, None) - start).abs() < 0.5);
+}
+
+/// 右键单击：默认弹出终端菜单。设为「复制或粘贴」后，有所选内容时复制并取消选择，没有时粘贴；
+/// 开启了选中时复制时所选内容已复制过，直接粘贴；按住 Alt（macOS 上为 ⌥）仍弹出菜单。
+#[test]
+fn right_click_copies_or_pastes_instead_of_the_menu() {
+    use crate::app::terminal::{Point, Selection, Unit};
+    let dir = sample_folder("terminal-right-click");
+    let mut app = blank_app(true);
+    show_terminal(&mut app, "hello\r\n");
+    paint(&mut app);
+    let log = app.attach_recording_helper(&dir);
+    let at = cell_center(&app, 0, 2);
+    let select = |app: &mut App| {
+        let tab = app.terminal.tab_mut().unwrap();
+        let line = tab.top();
+        tab.selection = Some(Selection {
+            anchor: Point { line, col: 0 },
+            head: Point { line, col: 5 },
+            unit: Unit::Char,
+        });
+    };
+
+    right_click(&mut app, at);
+    assert!(app.overlays.context_menu.is_some());
+    app.overlays.context_menu = None;
+
+    app.config.terminal_right_click = Some(winc_config::TerminalRightClick::CopyOrPaste);
+    select(&mut app);
+    app.clipboard.copied = None;
+    right_click(&mut app, at);
+    assert!(app.overlays.context_menu.is_none());
+    assert_eq!(app.clipboard.copied.as_deref(), Some("hello"));
+    assert!(app.terminal.tab().unwrap().selection.is_none());
+    assert_eq!(sent_input(&app, &log), b"");
+    right_click(&mut app, at);
+    assert_eq!(sent_input(&app, &log), b"hello");
+
+    app.config.terminal_copy_on_select = Some(true);
+    select(&mut app);
+    right_click(&mut app, at);
+    assert_eq!(sent_input(&app, &log), b"hellohello");
+
+    app.pointer.modifiers = winit::keyboard::ModifiersState::ALT;
+    right_click(&mut app, at);
+    assert!(app.overlays.context_menu.is_some());
+    std::fs::remove_dir_all(&dir).unwrap();
 }

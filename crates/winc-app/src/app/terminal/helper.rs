@@ -322,6 +322,7 @@ impl App {
             t.want_names = wanted.iter().map(|tab| tab.name.clone()).collect();
             t.want_shells = wanted.iter().map(|tab| tab.shell.clone()).collect();
             t.want_into.clear();
+            t.want_editor.clear();
             t.want_groups = if t.groups.is_empty() {
                 Vec::new()
             } else {
@@ -404,10 +405,12 @@ impl App {
 
     /// 网格放得下几列几行，以及像素尺寸（物理像素，程序查询时回答它）。
     pub(in crate::app) fn terminal_size(&self) -> Size {
-        let grid = grid_rect(
-            self.terminal_content_card(),
-            self.fonts.terminal_line_height,
-        );
+        self.grid_size(self.terminal_content_card())
+    }
+
+    /// 内容范围为 `card` 的终端网格放得下几列几行，以及像素尺寸（见 [`Self::terminal_size`]）。
+    pub(in crate::app) fn grid_size(&self, card: Rect) -> Size {
+        let grid = grid_rect(card, self.fonts.terminal_line_height);
         let cols = (grid.w / self.metrics.terminal_cell).floor().max(2.0);
         let rows = (grid.h / self.fonts.terminal_line_height).floor().max(1.0);
         let scale = self
@@ -423,6 +426,16 @@ impl App {
         }
     }
 
+    /// 终端的大小是否正随拖动分隔条或侧栏、面板的动画持续变化。
+    fn terminal_layout_moving(&self) -> bool {
+        self.text_width_changing()
+            || matches!(
+                self.pointer.drag,
+                crate::app::Drag::TerminalSplit { .. }
+                    | crate::app::Drag::TerminalGroupSplit { .. }
+            )
+    }
+
     /// 正在用的一栏的网格放不下一整行的零头（见 [`grid_slack`]）。
     fn terminal_slack(&self) -> f32 {
         let card = self.terminal_group_card_in(self.layout.terminal);
@@ -432,9 +445,9 @@ impl App {
     /// 按正在用的一栏的大小记下各标签显示几行，并把新尺寸告诉正在看的标签；返回下一次要补发
     /// 尺寸的时刻（见 `TerminalPanel::resize_due`）。
     ///
-    /// 每个标签同时只有一个尺寸在路上：上一个尺寸重排好的一帧回来后发下一个（中间的跳过），
-    /// 辅助进程和 shell 不会积压；只改正在看的标签，改宽度要重排整个回滚缓冲（一万行约 11 ms），
-    /// 后台标签一起排会阻塞几十毫秒，切过来时再改。
+    /// 布局在动或大小连续变化时先不发，稳定满 `RESIZE_SETTLE` 后发一次，静止后的单次变化立即发；
+    /// 每个标签同时只有一个尺寸在路上。只改正在看的标签：改宽度要重排整个回滚缓冲（一万行约
+    /// 11 ms）。
     fn size_terminal_group(&mut self, now: Instant) -> Option<Instant> {
         let size = self.terminal_size();
         let slack = self.terminal_slack();
@@ -455,6 +468,7 @@ impl App {
                 })
             })
             .collect();
+        let moving = self.terminal_layout_moving();
         let t = &mut self.terminal;
         let client = t.client.as_ref()?;
         let tab = t.tabs.get_mut(t.active)?;
@@ -464,7 +478,22 @@ impl App {
                 .find(|(id, _)| *id == tab.id)
                 .map_or(size, |(_, size)| *size);
             tab.shown = usize::from(size.rows);
+            let last = tab.settling;
+            let changed = last.is_none_or(|(seen, _)| seen != size);
+            if changed {
+                tab.settling = Some((size, now));
+            }
             if tab.size == size || tab.ended.is_some() {
+                return;
+            }
+            // 静止之后的单次变化（例如收起侧栏）立即发；仍在变化、或刚变化过时等它稳定。
+            let quiet = last.is_none_or(|(_, at)| now >= at + RESIZE_SETTLE);
+            let settled = tab
+                .settling
+                .is_some_and(|(_, at)| now >= at + RESIZE_SETTLE);
+            if moving || !(changed && quiet || settled) {
+                let at = tab.settling.map_or(now, |(_, at)| at);
+                due = earliest(due, Some(at + RESIZE_SETTLE));
                 return;
             }
             match tab.resizing {
@@ -488,12 +517,14 @@ impl App {
     /// 排版之后：要新建标签时建；尺寸变了告诉每个标签；往上翻着缺历史行时取回来。
     pub(in crate::app) fn sync_terminal(&mut self) {
         let shown = (0..self.terminal.group_count()).any(|at| self.terminal.group_shown(at));
+        // 编辑区有终端、或要在编辑区新建终端时，面板收起也要建标签。
         let editor_waiting = !self.terminal.want.is_empty()
-            && self
+            && (self
                 .terminal
                 .groups
                 .iter()
-                .any(|group| group.editor.is_some());
+                .any(|group| group.editor.is_some())
+                || self.terminal.want_editor.iter().any(Option::is_some));
         if !shown && !editor_waiting {
             return;
         }
@@ -548,10 +579,13 @@ impl App {
             return;
         };
         let client = &owned;
+        // 在编辑区新建的终端：先建在面板的栏里，客户端放回后移到编辑区。
+        let mut to_editor = Vec::new();
         if let Some((cwd, shell, integration, python)) = spawn.filter(|_| t.error.is_none()) {
             let names = std::mem::take(&mut t.want_names);
             let shells = std::mem::take(&mut t.want_shells);
             let intos = std::mem::take(&mut t.want_into);
+            let editors = std::mem::take(&mut t.want_editor);
             let columns = std::mem::take(&mut t.want_groups);
             // 等着送的输入给建好以后要看的那个标签：新建的（排在最后），或者重开时原来看的那个。
             let target = t
@@ -584,6 +618,12 @@ impl App {
                     None => Integration::Off,
                 };
                 let shell = chosen.as_deref().or(shell.as_deref());
+                // 在编辑区新建的终端按它将要所在的窗格的大小启动，shell 的第一屏不必重排。
+                let size = editors
+                    .get(i)
+                    .copied()
+                    .flatten()
+                    .map_or(size, |(_, size)| size);
                 let launch = launch(shell, dir.clone(), cfg!(windows), integrated);
                 client.send(&ToHelper::Spawn {
                     tab: id,
@@ -645,6 +685,9 @@ impl App {
                     },
                 }
                 t.focus_sent = false;
+                if let Some((drop, _)) = editors.get(i).copied().flatten() {
+                    to_editor.push((id, drop));
+                }
             }
             if let Some(active) = t.want_active.take() {
                 t.focus_shell(active);
@@ -678,6 +721,9 @@ impl App {
             }
         }
         t.client = Some(owned);
+        for (id, drop) in to_editor {
+            self.move_terminal_tab_to_editor(id, drop);
+        }
         self.retire_run_tabs(replaced);
         self.drop_other_tab_state();
         self.fetch_terminal_history();

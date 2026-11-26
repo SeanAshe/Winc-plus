@@ -599,11 +599,11 @@ fn status_bar_changes_indentation_and_line_endings() {
     ));
     app.overlays.context_menu = None;
 
-    // 仅供查看的输出标签（格式化输出）的状态栏上，可点击的项只有设置按钮。
+    // 仅供查看的输出标签（格式化输出）的状态栏上，可点击的项只有设置按钮和光标位置（转到行）。
     app.editor.show_output("格式化输出", "x\n");
     paint(&mut app);
     let items: Vec<StatusItem> = app.hits.status.iter().map(|&(_, item)| item).collect();
-    assert_eq!(items, [StatusItem::Settings]);
+    assert_eq!(items, [StatusItem::Settings, StatusItem::Position]);
 
     std::fs::remove_dir_all(&dir).unwrap();
 }

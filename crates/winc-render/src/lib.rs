@@ -21,7 +21,7 @@ use winit::window::Window;
 
 pub use draw::canvas::{Covered, Stroke, rounded_outline};
 pub use draw::frame::Frame;
-pub use text::font::{FontKind, set_cjk_language};
+pub use text::font::{FontKind, FontWeights, set_cjk_language};
 pub use text::font_list::{FontFamily, installed_fonts};
 pub use text::font_path::{DEFAULT_EDITOR_FONT, FontError, FontSpec};
 pub use text::outline::{OutlineFonts, OutlineGlyph, OutlineMetrics};
@@ -449,8 +449,8 @@ impl Renderer {
     /// 创建渲染器，呈现到 `window`。
     ///
     /// `mono` 和 `ui` 是用户配置的字体列表，为空时使用平台默认字体；`terminal` 是终端字体列表，
-    /// 为空时终端使用 `mono`。列表中的第一个字体缺字时依次用后面的字体。`weight` 是界面和编辑区
-    /// 文字的字重，`terminal_weight` 是终端文字的字重。
+    /// 为空时终端使用 `mono`。列表中的第一个字体缺字时依次用后面的字体。`weights` 是界面、编辑区
+    /// 和终端文字的字重。
     ///
     /// # Errors
     ///
@@ -462,10 +462,9 @@ impl Renderer {
         mono: &[FontSpec],
         ui: &[FontSpec],
         terminal: &[FontSpec],
-        weight: u16,
-        terminal_weight: u16,
+        weights: FontWeights,
     ) -> Result<Renderer, String> {
-        let fonts = Fonts::load_with(mono, ui, terminal, weight, terminal_weight)?;
+        let fonts = Fonts::load_with(mono, ui, terminal, weights)?;
         Self::with_glyphs(window, background, SharedGlyphs(new_glyphs(fonts)))
     }
 
@@ -620,10 +619,9 @@ impl Renderer {
         mono: &[FontSpec],
         ui: &[FontSpec],
         terminal: &[FontSpec],
-        weight: u16,
-        terminal_weight: u16,
+        weights: FontWeights,
     ) -> Result<(), String> {
-        let fonts = Fonts::load_with(mono, ui, terminal, weight, terminal_weight)?;
+        let fonts = Fonts::load_with(mono, ui, terminal, weights)?;
         let mut glyphs = self.glyphs.borrow_mut();
         glyphs.fonts = fonts;
         glyphs.clear();

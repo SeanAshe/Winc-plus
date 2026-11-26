@@ -355,7 +355,26 @@ fn paint_chars(
     cells
 }
 
-/// 绘制已经切好的一段 `run`：能连字就画连字，整形没有覆盖到的字符仍逐字画。
+/// 一段连字最多的字符数（字符）：更长的连续符号（如分隔线）分段整形，缓存的键不至过长。
+///
+/// 取自调参：编程字体中最长的连字（如 `<!--`、`|||>`）远短于此。
+const LIGATURE_RUN: usize = 32;
+
+/// 返回从 `col` 起、在 `limit` 之前的一段相邻符号的末尾（不含）；不足两个字符时返回 `None`。
+///
+/// 只取 ASCII 标点：编程字体的连字都由标点组成，字母、数字和其他文字逐字符绘制，不必整形。
+fn ligature_run(chars: &[char], col: usize, limit: usize) -> Option<usize> {
+    let limit = limit.min(chars.len()).min(col + LIGATURE_RUN);
+    let len = (chars[col..limit].iter())
+        .take_while(|c| c.is_ascii_punctuation())
+        .count();
+    (len >= 2).then_some(col + len)
+}
+
+/// 绘制已经切好的一段 `run`：`editor.fontLigatures` 打开时，只把相邻的 ASCII 标点整形为连字，
+/// 其余字符逐字画。
+///
+/// 光标和选区已经在切段时把连字拆开。超过 [`LIGATURE_RUN`] 的标点分成几段，每段单独整形。
 #[allow(clippy::too_many_arguments)]
 fn paint_run(
     app: &App,
@@ -371,6 +390,61 @@ fn paint_run(
 ) {
     let (cell, size) = (app.metrics.cell, app.fonts.code);
     let color = app.palette.token(kind);
+    let ligatures = app.config.editor_font_ligatures == Some(true);
+    let mut index = 0;
+    while index < run.len() {
+        if ligatures && let Some(end) = ligature_run(run, index, run.len()) {
+            paint_ligatures(
+                frame,
+                &run[index..end],
+                &columns[index..=end],
+                font,
+                size,
+                color,
+                origin_x,
+                run_cells,
+                baseline,
+                clip,
+                cell,
+            );
+            index = end;
+            continue;
+        }
+        let start_cell = columns[index];
+        let x = origin_x + (run_cells + start_cell as usize) as f32 * cell;
+        let width = (columns[index + 1] - start_cell).max(1);
+        if x < clip.right() && x + width as f32 * cell > clip.x {
+            frame.cell_char(
+                font,
+                size,
+                x,
+                baseline,
+                cell,
+                width as usize,
+                run[index],
+                color,
+                clip,
+            );
+        }
+        index += 1;
+    }
+}
+
+/// 绘制 `run` 这一段标点的连字。`columns` 与 `run` 等长再加一项（下一段的起点）。
+#[allow(clippy::too_many_arguments)]
+fn paint_ligatures(
+    frame: &mut Frame<'_>,
+    run: &[char],
+    columns: &[u32],
+    font: FontKind,
+    size: f32,
+    color: Color,
+    origin_x: f32,
+    run_cells: usize,
+    baseline: f32,
+    clip: Rect,
+    cell: f32,
+) {
     let count = frame.shape_ligatures(font, size, run);
     let mut index = 0;
     let mut glyph = 0;

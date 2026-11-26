@@ -191,6 +191,23 @@ fn the_caret_is_drawn_as_a_block_a_bar_or_an_underline() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// `editor.cursorStyle` 只用于插入模式：普通模式仍画块状光标，进入插入模式后按设置画横线。
+#[test]
+fn the_cursor_style_applies_only_in_insert_mode() {
+    let (mut app, dir) = vim_app("vim-cursor-style", "one two\nthree\n");
+    app.config.cursor_style = Some(winc_config::CursorStyle::Underline);
+    app.window.focused = true;
+    paint(&mut app);
+    let scale = (SCALE * SCALE) as usize;
+    let underline = app.metrics.cell.round() as usize * 2 * scale;
+    assert_eq!(app.styled_caret(), None);
+    assert!(caret_pixels(&mut app) > underline);
+    keys(&mut app, "i");
+    assert_eq!(app.styled_caret(), Some(CaretShape::Underline));
+    assert_eq!(caret_pixels(&mut app), underline);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 #[test]
 fn a_change_and_its_typed_text_undo_together_and_repeat() {
     let (mut app, dir) = vim_app("vim-undo", "one two three\nfour\n");

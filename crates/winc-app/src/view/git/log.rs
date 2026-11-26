@@ -700,6 +700,7 @@ fn draw_list(
                 height: lh,
                 bg: p.editor_bg,
                 lanes: MAX_LANES,
+                lane: LANE,
             };
             draw_graph_row(
                 app,

@@ -609,6 +609,7 @@ impl App {
             TerminalCopy => self.terminal_copy(false),
             TerminalPaste => self.terminal_paste(),
             NewTerminal => self.new_terminal_tab(),
+            NewEditorTerminal => self.new_editor_terminal(None),
             CloseTerminal => self.close_terminal_pane(),
             NextTerminal => self.cycle_terminal_tab(true),
             PreviousTerminal => self.cycle_terminal_tab(false),

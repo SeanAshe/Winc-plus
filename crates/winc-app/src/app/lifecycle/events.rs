@@ -168,8 +168,7 @@ impl ApplicationHandler<UserEvent> for App {
                 &mono,
                 &ui,
                 &terminal,
-                self.font_weight(),
-                self.terminal_font_weight(),
+                self.font_weights(),
             )
             .map(|mut renderer| {
                 let prose = super::appearance::configured_fonts(&self.config.markdown_font);

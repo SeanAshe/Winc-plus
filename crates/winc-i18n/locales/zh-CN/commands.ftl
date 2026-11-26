@@ -42,6 +42,7 @@ cmd-previous-pane = 上一个窗格
 cmd-split-terminal = 拆分终端
 cmd-move-terminal-to-group = 终端：移到新分栏
 cmd-move-terminal-to-editor = 终端：移到编辑区
+cmd-new-editor-terminal = 终端：在编辑区新建
 cmd-move-terminal-to-panel = 终端：移到面板
 cmd-next-terminal-pane = 终端中的下一个窗格
 cmd-previous-terminal-pane = 终端中的上一个窗格

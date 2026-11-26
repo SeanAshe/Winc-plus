@@ -55,6 +55,10 @@ pub enum Setting {
     EditorFont,
     /// 编辑区字号。
     EditorSize,
+    /// 编辑区字重（`editor.fontWeight`）。
+    EditorFontWeight,
+    /// 编辑区的连字（`editor.fontLigatures`）。
+    EditorLigatures,
     /// Tab 宽度。
     TabWidth,
     /// 自动保存。
@@ -77,6 +81,8 @@ pub enum Setting {
     DragAndDrop,
     /// 粘滞滚动：滚动时在编辑区顶部钉住当前所在的函数、类和标题。
     StickyScroll,
+    /// 编辑区光标的形状（`editor.cursorStyle`）。
+    CursorStyle,
     /// 光标移动时滑到新位置的方式。
     SmoothCaret,
     /// Vim 模式。
@@ -92,6 +98,10 @@ pub enum Setting {
     VimKey(char),
     /// 自动换行。
     WordWrap,
+    /// 长行参考线所在的列（`editor.rulers`）。
+    EditorRulers,
+    /// 在行尾标出换行符（`editor.renderLineEndings`）。
+    RenderLineEndings,
     /// CSV、TSV 按列对齐显示。
     AlignColumns,
     /// 超长行显示全部内容（`wholeLines`）。
@@ -206,6 +216,8 @@ pub enum Setting {
     TerminalFontWeight,
     /// 终端中选中文字时自动复制。
     TerminalCopyOnSelect,
+    /// 在终端里右键单击的作用（`terminal.rightClick`）。
+    TerminalRightClick,
     /// 关闭仍有程序运行的终端标签前确认。
     TerminalConfirmClose,
     /// 用户未设置提示符时使用 winc 的提示符。
@@ -336,14 +348,18 @@ impl Setting {
             S::BackgroundImage | S::BackgroundFit | S::BackgroundOpacity => {
                 SettingsPage::Appearance
             }
-            S::EditorFont | S::EditorSize | S::TabWidth | S::LineNumbers | S::WordWrap => {
+            S::EditorFont | S::EditorSize | S::EditorFontWeight | S::TabWidth => {
                 SettingsPage::Editor
             }
+            S::EditorLigatures => SettingsPage::Editor,
+            S::LineNumbers | S::WordWrap | S::EditorRulers => SettingsPage::Editor,
             S::AlignColumns => SettingsPage::Editor,
-            S::Minimap | S::StickyScroll | S::RenderWhitespace | S::WholeLines => {
+            S::Minimap | S::StickyScroll | S::RenderWhitespace | S::RenderLineEndings => {
                 SettingsPage::Editor
             }
-            S::SmoothCaret | S::DragAndDrop | S::FullTabNames => SettingsPage::Editor,
+            S::WholeLines | S::CursorStyle | S::SmoothCaret => SettingsPage::Editor,
+            S::DragAndDrop => SettingsPage::Editor,
+            S::FullTabNames => SettingsPage::Files,
             S::DefaultLanguage | S::DetectLanguageOnPaste | S::VimMode | S::VimClipboard => {
                 SettingsPage::Editor
             }
@@ -369,6 +385,7 @@ impl Setting {
             S::TerminalSize | S::TerminalFontWeight | S::TerminalCopyOnSelect => {
                 SettingsPage::Terminal
             }
+            S::TerminalRightClick => SettingsPage::Terminal,
             S::TerminalConfirmClose | S::TerminalPrompt | S::TerminalShellIntegration => {
                 SettingsPage::Terminal
             }
@@ -412,6 +429,8 @@ impl Setting {
             S::Language => "language",
             S::EditorFont => "editor.font",
             S::EditorSize => "editor.size",
+            S::EditorFontWeight => "editor.fontWeight",
+            S::EditorLigatures => "editor.fontLigatures",
             S::TabWidth => "editor.tabWidth",
             S::AutoSave => "editor.autoSave",
             S::HotExit => "editor.hotExit",
@@ -423,11 +442,14 @@ impl Setting {
             S::DetectLanguageOnPaste => "editor.detectLanguageOnPaste",
             S::DragAndDrop => "editor.dragAndDrop",
             S::StickyScroll => "editor.stickyScroll",
+            S::CursorStyle => "editor.cursorStyle",
             S::SmoothCaret => "editor.smoothCaretMovement",
             S::WordWrap => "editor.wordWrap",
+            S::EditorRulers => "editor.rulers",
             S::AlignColumns => "editor.alignColumns",
             S::WholeLines => "editor.wholeLines",
             S::Minimap => "editor.minimap",
+            S::RenderLineEndings => "editor.renderLineEndings",
             S::Outline => "editor.outline",
             S::LineNumbers => "editor.lineNumbers",
             S::DiffInline => "editor.diffInline",
@@ -477,6 +499,7 @@ impl Setting {
             S::TerminalSize => "terminal.size",
             S::TerminalFontWeight => "terminal.fontWeight",
             S::TerminalCopyOnSelect => "terminal.copyOnSelect",
+            S::TerminalRightClick => "terminal.rightClick",
             S::TerminalConfirmClose => "terminal.confirmClose",
             S::TerminalPrompt => "terminal.prompt",
             S::TerminalShellIntegration => "terminal.shellIntegration",
@@ -528,6 +551,8 @@ impl Setting {
             Setting::SystemTitleBar => t!("settings-system-title-bar"),
             Setting::EditorFont => t!("settings-editor-font"),
             Setting::EditorSize => t!("settings-editor-size"),
+            Setting::EditorFontWeight => t!("settings-editor-font-weight"),
+            Setting::EditorLigatures => t!("settings-editor-ligatures"),
             Setting::TabWidth => t!("settings-tab-width"),
             Setting::AutoSave => t!("settings-auto-save"),
             Setting::HotExit => t!("settings-hot-exit"),
@@ -541,6 +566,7 @@ impl Setting {
             Setting::DropFolder => t!("settings-drop-folder"),
             Setting::FindInFiles => t!("settings-find-in-files"),
             Setting::StickyScroll => t!("settings-sticky-scroll"),
+            Setting::CursorStyle => t!("settings-cursor-style"),
             Setting::SmoothCaret => t!("settings-smooth-caret"),
             Setting::VimMode => t!("settings-vim-mode"),
             Setting::VimClipboard => t!("settings-vim-clipboard"),
@@ -550,10 +576,12 @@ impl Setting {
             Setting::AlignColumns => t!("settings-align-columns"),
             Setting::WholeLines => t!("settings-whole-lines"),
             Setting::Minimap => t!("settings-minimap"),
+            Setting::RenderLineEndings => t!("settings-render-line-endings"),
             Setting::LineNumbers => t!("settings-line-numbers"),
             Setting::DiffInline => t!("settings-diff-inline"),
             Setting::DiffCollapse => t!("settings-diff-collapse"),
             Setting::RenderWhitespace => t!("settings-render-whitespace"),
+            Setting::EditorRulers => t!("settings-editor-rulers"),
             Setting::StatusBar => t!("settings-status-bar"),
             Setting::FullTabNames => t!("settings-full-tab-names"),
             Setting::RestoreWindow => t!("settings-restore-window"),
@@ -598,6 +626,7 @@ impl Setting {
             Setting::TerminalSize => t!("settings-terminal-size"),
             Setting::TerminalFontWeight => t!("settings-terminal-font-weight"),
             Setting::TerminalCopyOnSelect => t!("settings-terminal-copy-on-select"),
+            Setting::TerminalRightClick => t!("settings-terminal-right-click"),
             Setting::TerminalConfirmClose => t!("settings-terminal-confirm-close"),
             Setting::TerminalPrompt => t!("settings-terminal-prompt"),
             Setting::TerminalShellIntegration => t!("settings-terminal-shell-integration"),
@@ -686,10 +715,13 @@ impl Setting {
             Setting::AutoReveal => Some(t!("settings-auto-reveal-desc")),
             Setting::PreviewOnClick => Some(t!("settings-preview-on-click-desc")),
             Setting::Minimap => Some(t!("settings-minimap-desc")),
+            Setting::RenderLineEndings => Some(t!("settings-render-line-endings-desc")),
+            Setting::EditorLigatures => Some(t!("settings-editor-ligatures-desc")),
             Setting::LineNumbers => Some(t!("settings-line-numbers-desc")),
             Setting::DiffInline => Some(t!("settings-diff-inline-desc")),
             Setting::DiffCollapse => Some(t!("settings-diff-collapse-desc")),
             Setting::RenderWhitespace => Some(t!("settings-render-whitespace-desc")),
+            Setting::EditorRulers => Some(t!("settings-editor-rulers-desc")),
             Setting::StatusBar => Some(t!("settings-status-bar-desc")),
             Setting::FullTabNames => Some(t!("settings-full-tab-names-desc")),
             Setting::RestoreWindow => Some(t!("settings-restore-window-desc")),
@@ -699,6 +731,7 @@ impl Setting {
             Setting::BackgroundFit => Some(t!("settings-background-fit-desc")),
             Setting::BackgroundOpacity => Some(t!("settings-background-opacity-desc")),
             Setting::RemoteImages => Some(t!("settings-remote-images-desc")),
+            Setting::CursorStyle => Some(t!("settings-cursor-style-desc")),
             Setting::SmoothCaret => Some(t!("settings-smooth-caret-desc")),
             Setting::TextWidth => Some(t!("settings-text-width-desc")),
             Setting::MarkdownLineNumbers => Some(t!("settings-markdown-line-numbers-desc")),
@@ -747,6 +780,7 @@ impl Setting {
             Setting::LatexPath => Some(t!("settings-latex-path-desc")),
             Setting::TerminalShell => Some(t!("settings-terminal-shell-desc")),
             Setting::TerminalCopyOnSelect => Some(t!("settings-terminal-copy-on-select-desc")),
+            Setting::TerminalRightClick => Some(t!("settings-terminal-right-click-desc")),
             Setting::TerminalConfirmClose => Some(t!("settings-terminal-confirm-close-desc")),
             Setting::TerminalPrompt => Some(t!("settings-terminal-prompt-desc")),
             Setting::TerminalShellIntegration => {
@@ -769,6 +803,7 @@ impl Setting {
             | Setting::TerminalFont
             | Setting::MarkdownFont => SettingControl::Font,
             Setting::EditorSize
+            | Setting::EditorFontWeight
             | Setting::UiSize
             | Setting::FontWeight
             | Setting::BackgroundOpacity
@@ -799,6 +834,8 @@ impl Setting {
             | Setting::AlignColumns
             | Setting::WholeLines
             | Setting::Minimap
+            | Setting::RenderLineEndings
+            | Setting::EditorLigatures
             | Setting::Outline
             | Setting::LineNumbers
             | Setting::DiffInline
@@ -842,6 +879,7 @@ impl Setting {
             | Setting::TerminalShell
             | Setting::GitPath
             | Setting::LatexPath
+            | Setting::EditorRulers
             | Setting::AiBaseUrl
             | Setting::AiModel
             | Setting::AiApiKey => SettingControl::Command,
@@ -861,7 +899,9 @@ impl Setting {
             | Setting::DropFolder
             | Setting::FindInFiles
             | Setting::AutoSave
+            | Setting::CursorStyle
             | Setting::SmoothCaret
+            | Setting::TerminalRightClick
             | Setting::GitOpenWorktree
             | Setting::GitLogPlacement
             | Setting::GitPullMode
@@ -884,7 +924,10 @@ impl Setting {
 impl Setting {
     /// 是否为填写的文本（程序路径、接口地址、模型名、密钥）：没有可选的菜单，始终绘制为输入框。
     pub fn is_text_field(self) -> bool {
-        matches!(self, Setting::GitPath | Setting::LatexPath) || self.is_ai_text()
+        matches!(
+            self,
+            Setting::GitPath | Setting::LatexPath | Setting::EditorRulers
+        ) || self.is_ai_text()
     }
 
     /// 是否为调用模型的一项文本设置：接口地址、模型名或密钥。

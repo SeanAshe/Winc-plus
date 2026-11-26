@@ -79,6 +79,11 @@ pub(crate) const BAND_X: f32 = 5.0;
 ///
 /// 超过这个时间不再等待，新的尺寸仍然会发：程序开着同步输出时，辅助进程会先不发帧。
 const RESIZE_WAIT: Duration = Duration::from_millis(100);
+/// 终端的大小稳定多久后才发出新尺寸（150 ms，取自调参）。
+///
+/// 拖动分隔条、调整窗口时大小每帧都在变：每发一次，辅助进程重排回滚缓冲、shell 重画提示符，
+/// 中途的画面会闪烁。期间不发，停下后只重排一次；时长长于拖动中两次移动的间隔，停手后不显得迟缓。
+pub(in crate::app) const RESIZE_SETTLE: Duration = Duration::from_millis(150);
 /// 换位置的动画总时长（360 ms）：前一半在原来的位置收起，后一半在新位置出来。
 const MOVE_ANIMATION: Duration = Duration::from_millis(360);
 /// 一次向辅助进程要多少行历史（行）：整份回滚缓冲可以设到一百万行，一次要会超出单条消息的
@@ -208,6 +213,9 @@ pub(crate) struct TerminalPanel {
     /// `want` 里各个拆分出的终端要加进的标签（前台终端的编号），和 `want` 一一对应；`None` 或
     /// 数量不足的部分各成一个标签。
     pub want_into: Vec<Option<u16>>,
+    /// `want` 里各标签建好以后移到编辑区的哪个位置、按多大启动（在编辑区新建的终端），和 `want`
+    /// 一一对应；`None` 或数量不足的部分留在面板。
+    want_editor: Vec<Option<(crate::app::workspace::panes::TabDrop, Size)>>,
     /// `want` 里各标签的名字（恢复现场、重新启动时带上用户起的名字），和 `want` 一一对应；
     /// 数量不足的部分视为没有名字。
     want_names: Vec<String>,
@@ -567,6 +575,7 @@ impl App {
         t.want_names.clear();
         t.want_shells.clear();
         t.want_into.clear();
+        t.want_editor.clear();
         t.want_active = None;
         t.active = 0;
         t.client = None;
@@ -855,6 +864,7 @@ impl App {
                 self.terminal.want_names.clear();
                 self.terminal.want_shells.clear();
                 self.terminal.want_into.clear();
+                self.terminal.want_editor.clear();
                 self.terminal.want_groups.clear();
             }
         }
@@ -863,6 +873,8 @@ impl App {
         t.want_shells.push(shell);
         t.want_into.resize(t.want.len(), None);
         t.want_into.push(t.split_into.take());
+        t.want_editor.resize(t.want.len(), None);
+        t.want_editor.push(None);
         t.want_groups.resize(t.want.len(), t.group_at);
         t.want_groups.push(t.group_at);
         t.want.push(cwd);

@@ -380,6 +380,8 @@ pub enum Action {
     /// 把剪贴板粘贴到终端（见 `App::terminal_paste`）。
     TerminalPaste,
     NewTerminal,
+    /// 在当前编辑器窗格新建终端，不打开终端面板（见 `App::new_editor_terminal`）。
+    NewEditorTerminal,
     CloseTerminal,
     NextTerminal,
     PreviousTerminal,
@@ -755,6 +757,7 @@ impl Action {
             TerminalCopy => t!("cmd-terminal-copy"),
             TerminalPaste => t!("cmd-terminal-paste"),
             NewTerminal => t!("cmd-new-terminal"),
+            NewEditorTerminal => t!("cmd-new-editor-terminal"),
             CloseTerminal => t!("cmd-close-terminal"),
             NextTerminal => t!("cmd-next-terminal"),
             PreviousTerminal => t!("cmd-previous-terminal"),
@@ -1034,6 +1037,7 @@ impl Action {
             | TerminalCopy
             | TerminalPaste
             | NewTerminal
+            | NewEditorTerminal
             | CloseTerminal
             | NextTerminal
             | PreviousTerminal
@@ -1248,6 +1252,7 @@ impl Action {
             | Action::TerminalCopy
             | Action::TerminalPaste
             | Action::NewTerminal
+            | Action::NewEditorTerminal
             | Action::CloseTerminal
             | Action::NextTerminal
             | Action::PreviousTerminal
