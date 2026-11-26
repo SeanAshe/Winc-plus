@@ -726,6 +726,7 @@ impl Frame<'_> {
             Some(c),
             color,
             clip,
+            faux_bold,
         );
     }
 
@@ -792,6 +793,7 @@ impl Frame<'_> {
             c,
             color,
             clip,
+            false,
         );
     }
 
@@ -811,6 +813,7 @@ impl Frame<'_> {
         c: Option<char>,
         color: Color,
         clip: Rect,
+        bold: bool,
     ) {
         let color = self.faded(color);
         if color.a <= 0.0 {
@@ -839,7 +842,7 @@ impl Frame<'_> {
             // 需要斜体但实际使用的字体不是斜体：字体没有可用的斜体，或斜体中没有该字符
             // （例如注释中的中文使用后备字体）时均做斜切，使同一行注释中的文字倾斜一致。
             oblique: (kind.italic() || faux.italic) && !self.glyphs.fonts.is_italic_slot(slot),
-            bold: faux_bold,
+            bold,
             dark: self.dark,
         };
         let Some(glyph) = self.glyphs.get(key, size * s, self.gamma) else {
