@@ -352,11 +352,157 @@ impl PartialEq for Preset {
     }
 }
 
+/// 一轮选择工具期间对项目文件的查询结果：同一路径只向文件系统询问一次。
+///
+/// 为多种语言、多个文件选择工具时共用一个实例，各级目录中相同的迹象只询问一次。
+/// 查询结果不随文件系统更新，其间新建或删除的文件不会反映出来，因此只用于一轮选择。
+#[derive(Debug, Default)]
+pub struct Survey {
+    /// 远端各级目录的内容；无法列出时为 `None`，此时逐个文件询问。本机的目录不列出。
+    listings: HashMap<PathBuf, Option<Names>>,
+    /// 单个路径的查询结果和读过的配置文件。
+    files: Files,
+    /// 查找过的项目自带程序，键为（程序名，起始目录），值同 `find_in_project`。
+    programs: HashMap<(String, PathBuf), Option<(PathBuf, PathBuf)>>,
+}
+
+impl Survey {
+    /// 返回查看迹象的各级目录：从 `dir` 起向上到文件系统根。
+    ///
+    /// 远端的目录只取那台主机上的各级，并先列出尚未列出的各级的内容。
+    fn levels<'a>(&mut self, dir: &'a Path) -> Vec<&'a Path> {
+        if !winc_backend::is_remote(dir) {
+            return dir.ancestors().collect();
+        }
+        let levels: Vec<&Path> = (dir.ancestors())
+            .take_while(|level| winc_backend::is_remote(level))
+            .collect();
+        let unlisted: Vec<&Path> = (levels.iter().copied())
+            .filter(|level| !self.listings.contains_key(*level))
+            .collect();
+        for (level, names) in unlisted.iter().zip(list_levels(&unlisted)) {
+            self.listings.insert(level.to_path_buf(), names);
+        }
+        levels
+    }
+
+    /// 返回向文件系统询问过的路径、目录和配置文件的个数（测试用）。
+    #[cfg(test)]
+    pub(super) fn asked(&self) -> usize {
+        let files = &self.files;
+        self.listings.len() + files.checked.len() + files.packages.len() + files.pyprojects.len()
+    }
+}
+
+/// 单个路径的查询结果，以及读过的配置文件。
+#[derive(Debug, Default)]
+struct Files {
+    /// 各路径是否符合对应的条件。
+    checked: HashMap<(PathBuf, Check), bool>,
+    /// 各目录中 `package.json` 的解析结果：文件不存在或无法解析时为 `None`。
+    packages: HashMap<PathBuf, Option<Json>>,
+    /// 各目录中 `pyproject.toml` 的内容：文件不存在或无法读取时为 `None`。
+    pyprojects: HashMap<PathBuf, Option<String>>,
+}
+
+/// 对一个路径的查询（跟随符号链接）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Check {
+    /// 是否为普通文件。
+    File,
+    /// 是否为目录。
+    Dir,
+    /// 是否为可执行文件，规则见 [`is_executable`]。
+    Program,
+}
+
+impl Files {
+    /// 返回 `path` 是否符合 `check`；同一查询只向文件系统询问一次。
+    fn check(&mut self, path: &Path, check: Check) -> bool {
+        let key = (path.to_path_buf(), check);
+        *self.checked.entry(key).or_insert_with(|| match check {
+            Check::File => winc_backend::fs::is_file(path),
+            Check::Dir => winc_backend::fs::is_dir(path),
+            Check::Program => is_executable(path),
+        })
+    }
+
+    /// 返回目录 `dir` 中 `package.json` 的解析结果；文件不存在或无法解析时返回 `None`。
+    fn package(&mut self, dir: &Path) -> Option<&Json> {
+        let package = self.packages.entry(dir.to_path_buf()).or_insert_with(|| {
+            let text = winc_backend::fs::read_to_string(dir.join("package.json")).ok()?;
+            Json::parse(&text)
+        });
+        package.as_ref()
+    }
+
+    /// 返回目录 `dir` 中 `pyproject.toml` 的内容；文件不存在或无法读取时返回 `None`。
+    fn pyproject(&mut self, dir: &Path) -> Option<&str> {
+        let text = self
+            .pyprojects
+            .entry(dir.to_path_buf())
+            .or_insert_with(|| winc_backend::fs::read_to_string(dir.join("pyproject.toml")).ok());
+        text.as_deref()
+    }
+
+    /// 判断目录 `dir` 是否有迹象 `sign`；有时返回展示给用户的依据（文件名），没有时返回 `None`。
+    ///
+    /// `names` 是该目录已经列出的内容：其中没有的一项肯定不存在，不必再询问文件系统。
+    fn shows(&mut self, dir: &Path, names: Option<&Names>, sign: Sign) -> Option<String> {
+        let absent = |name: &str| names.is_some_and(|names| !names.contains_key(OsStr::new(name)));
+        match sign {
+            Sign::File(name) => match names.and_then(|names| names.get(OsStr::new(name))) {
+                Some(is_dir) => (!is_dir).then(|| name.to_owned()),
+                None if names.is_some() => None,
+                None => self
+                    .check(&dir.join(name), Check::File)
+                    .then(|| name.to_owned()),
+            },
+            Sign::Package(_) if absent("package.json") => None,
+            Sign::Pyproject(_) if absent("pyproject.toml") => None,
+            Sign::Venv(_) if absent(".venv") && absent("venv") => None,
+            Sign::Package(name) => {
+                let package = self.package(dir)?;
+                let declared =
+                    package.as_object()?.contains_key(name) || declares_dependency(package, name);
+                declared.then(|| "package.json".to_owned())
+            }
+            Sign::Pyproject(section) => {
+                let text = self.pyproject(dir)?;
+                let header = format!("[{section}]");
+                let nested = format!("[{section}.");
+                text.lines()
+                    .map(str::trim)
+                    .any(|line| line == header || line.starts_with(&nested))
+                    .then(|| "pyproject.toml".to_owned())
+            }
+            Sign::Venv(program) => {
+                let bin = if windows_programs(dir) {
+                    "Scripts"
+                } else {
+                    "bin"
+                };
+                let programs = program_names(program, dir);
+                // 先确认虚拟环境的目录存在：没有时不必逐个询问程序可能使用的文件名。
+                [".venv", "venv"]
+                    .into_iter()
+                    .find(|venv| {
+                        let bin = dir.join(venv).join(bin);
+                        self.check(&bin, Check::Dir)
+                            && (programs.iter())
+                                .any(|name| self.check(&bin.join(name), Check::Program))
+                    })
+                    .map(str::to_owned)
+            }
+        }
+    }
+}
+
 /// 从 `dir` 向上逐级查找项目在用哪个工具：离文件最近的迹象优先，同一级内按预设顺序。
 ///
 /// 没有迹象时，格式化回退到已安装的工具（[`Detected::Installed`]），修复则不自动使用
-/// （[`Detected::NoSign`]）；[`Auto::OnlyWhen`] 的预设不参与回退。
-pub(super) fn detect(task: Task, language: &str, dir: &Path) -> Detected {
+/// （[`Detected::NoSign`]）；[`Auto::OnlyWhen`] 的预设不参与回退。查询结果记在 `survey` 中。
+pub(super) fn detect(survey: &mut Survey, task: Task, language: &str, dir: &Path) -> Detected {
     // 第三项表示这个预设只在看到迹象时使用，不能回退到「已安装」。
     let candidates: Vec<(&'static Preset, &'static [Sign], bool)> = presets(task, language)
         .filter_map(|p| match p.auto {
@@ -377,19 +523,13 @@ pub(super) fn detect(task: Task, language: &str, dir: &Path) -> Detected {
         return Detected::NoPreset;
     }
 
-    // 远端的目录：只看那台主机上的各级，每级的内容先一起列出，查看迹象时不再逐个文件询问。
-    let remote = winc_backend::is_remote(dir);
-    let levels: Vec<&Path> = (dir.ancestors())
-        .take_while(|level| !remote || winc_backend::is_remote(level))
-        .collect();
-    let listed = match remote {
-        true => list_levels(&levels),
-        false => vec![None; levels.len()],
-    };
-    for (level, names) in levels.into_iter().zip(listed) {
-        let mut files = ProjectFiles::new(level, names);
+    for level in survey.levels(dir) {
+        let names = survey.listings.get(level).and_then(Option::as_ref);
         for &(preset, signs, _) in &candidates {
-            if let Some(reason) = signs.iter().find_map(|&sign| files.shows(sign)) {
+            let shown = signs
+                .iter()
+                .find_map(|&sign| survey.files.shows(level, names, sign));
+            if let Some(reason) = shown {
                 return Detected::Preset(preset, Some(reason));
             }
         }
@@ -454,85 +594,6 @@ fn list_levels(levels: &[&Path]) -> Vec<Option<Names>> {
     })
 }
 
-/// 某一级目录中与迹象有关的文件；读过的内容缓存下来，同一级不重复读取。
-struct ProjectFiles<'a> {
-    dir: &'a Path,
-    /// 这一级目录的内容，已经列出时有：其中没有的文件不必再向文件系统询问。
-    names: Option<Names>,
-    /// `package.json` 的解析结果：外层 `None` 表示尚未读取，内层 `None` 表示文件不存在或无法解析。
-    package: Option<Option<Json>>,
-    /// `pyproject.toml` 的内容：外层 `None` 表示尚未读取，内层 `None` 表示文件不存在或无法读取。
-    pyproject: Option<Option<String>>,
-}
-
-impl<'a> ProjectFiles<'a> {
-    fn new(dir: &'a Path, names: Option<Names>) -> Self {
-        ProjectFiles {
-            dir,
-            names,
-            package: None,
-            pyproject: None,
-        }
-    }
-
-    /// 判断该级目录是否有迹象 `sign`；有时返回展示给用户的依据（文件名），没有时返回 `None`。
-    fn shows(&mut self, sign: Sign) -> Option<String> {
-        let dir = self.dir;
-        // 目录的内容已经列出时，其中没有的一项肯定不存在。
-        let names = self.names.as_ref();
-        let absent = |name: &str| names.is_some_and(|names| !names.contains_key(OsStr::new(name)));
-        match sign {
-            Sign::File(name) => match names.and_then(|names| names.get(OsStr::new(name))) {
-                Some(is_dir) => (!is_dir).then(|| name.to_owned()),
-                None if names.is_some() => None,
-                None => winc_backend::fs::is_file(dir.join(name)).then(|| name.to_owned()),
-            },
-            Sign::Package(_) if absent("package.json") => None,
-            Sign::Pyproject(_) if absent("pyproject.toml") => None,
-            Sign::Venv(_) if absent(".venv") && absent("venv") => None,
-            Sign::Package(name) => {
-                let package = self.package.get_or_insert_with(|| {
-                    let text = winc_backend::fs::read_to_string(dir.join("package.json")).ok()?;
-                    Json::parse(&text)
-                });
-                let package = package.as_ref()?;
-                let declared =
-                    package.as_object()?.contains_key(name) || declares_dependency(package, name);
-                declared.then(|| "package.json".to_owned())
-            }
-            Sign::Pyproject(section) => {
-                let text = self
-                    .pyproject
-                    .get_or_insert_with(|| {
-                        winc_backend::fs::read_to_string(dir.join("pyproject.toml")).ok()
-                    })
-                    .as_deref()?;
-                let header = format!("[{section}]");
-                let nested = format!("[{section}.");
-                text.lines()
-                    .map(str::trim)
-                    .any(|line| line == header || line.starts_with(&nested))
-                    .then(|| "pyproject.toml".to_owned())
-            }
-            Sign::Venv(program) => {
-                let bin = if windows_programs(dir) {
-                    "Scripts"
-                } else {
-                    "bin"
-                };
-                let names = program_names(program, dir);
-                [".venv", "venv"]
-                    .into_iter()
-                    .find(|venv| {
-                        let bin = dir.join(venv).join(bin);
-                        names.iter().any(|name| is_executable(&bin.join(name)))
-                    })
-                    .map(str::to_owned)
-            }
-        }
-    }
-}
-
 /// 目录 `dir` 中的程序是否按 Windows 的规则组织：WSL 发行版中的目录按 Linux 的规则。
 fn windows_programs(dir: &Path) -> bool {
     cfg!(windows) && crate::wsl::locate_here(dir).is_none()
@@ -561,8 +622,23 @@ fn project_bins(windows: bool) -> &'static [&'static str] {
 /// 查找项目自带的程序：从 `dir` 向上，逐级查看 `node_modules/.bin`、`.venv/bin`、`venv/bin`，
 /// 一直找到文件系统根，因此 monorepo 中安装在上层的程序也能找到。
 ///
-/// 返回程序的路径，以及它所在的那一级项目目录。
-pub(super) fn find_in_project(name: &str, dir: &Path) -> Option<(PathBuf, PathBuf)> {
+/// 返回程序的路径，以及它所在的那一级项目目录。结果记在 `survey` 中，同一程序只查找一次。
+pub(super) fn find_in_project(
+    survey: &mut Survey,
+    name: &str,
+    dir: &Path,
+) -> Option<(PathBuf, PathBuf)> {
+    let key = (name.to_owned(), dir.to_path_buf());
+    if let Some(found) = survey.programs.get(&key) {
+        return found.clone();
+    }
+    let found = search_project(&mut survey.files, name, dir);
+    survey.programs.insert(key, found.clone());
+    found
+}
+
+/// 执行 [`find_in_project`] 的查找，单个路径的查询结果记在 `files` 中。
+fn search_project(files: &mut Files, name: &str, dir: &Path) -> Option<(PathBuf, PathBuf)> {
     let names = program_names(name, dir);
     let bins = project_bins(windows_programs(dir));
     // 远端的目录：各级的候选位置一次问完（一次往返），只看那台主机上的各级。
@@ -583,12 +659,23 @@ pub(super) fn find_in_project(name: &str, dir: &Path) -> Option<(PathBuf, PathBu
             runs.then(|| (path.clone(), level.to_path_buf()))
         });
     }
-    dir.ancestors().find_map(|level| {
-        bins.iter()
-            .flat_map(|bin| names.iter().map(move |name| level.join(bin).join(name)))
-            .find(|path| is_executable(path))
-            .map(|path| (path, level.to_path_buf()))
-    })
+    // 先确认存放程序的目录存在：多数目录中没有，不必逐个询问程序可能使用的文件名（Windows 上
+    // 每个 `PATHEXT` 扩展名各一个）。
+    for level in dir.ancestors() {
+        for bin in bins {
+            let bin = level.join(bin);
+            if !files.check(&bin, Check::Dir) {
+                continue;
+            }
+            for name in &names {
+                let path = bin.join(name);
+                if files.check(&path, Check::Program) {
+                    return Some((path, level.to_path_buf()));
+                }
+            }
+        }
+    }
+    None
 }
 
 /// 是否需要通过 `xcrun` 查找程序 `name`：macOS 上 `clang-format`、`swift-format` 只存在于

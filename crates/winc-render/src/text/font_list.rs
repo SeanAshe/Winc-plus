@@ -1,6 +1,7 @@
 //! 已安装的字体：设置中的字体菜单从这里取字族，按名字找不到字体时也在这里按宽松的写法再找一次。
 //!
-//! macOS 向 CoreText 查询字族；其他平台读取字体目录下每个字体文件的名字表。
+//! macOS 向 CoreText 查询字族；其他平台读取字体文件的名字表，Linux 上字体文件由 fontconfig
+//! 列出。
 
 use std::sync::OnceLock;
 
@@ -25,7 +26,7 @@ pub struct FontFamily {
 /// 返回已安装的字族，按名字排序（不区分大小写）。
 ///
 /// 第一次调用时读取字体文件，字体多时耗时明显，应先在后台线程调用一次；之后直接返回结果。程序
-/// 运行期间新安装的字体需要重启后才能列出。
+/// 运行期间新安装的字体需要重启后才能列出。Linux 上 fontconfig 可用时只列出它登记的字体。
 pub fn installed_fonts() -> &'static [FontFamily] {
     static FONTS: OnceLock<Vec<FontFamily>> = OnceLock::new();
     FONTS.get_or_init(|| sorted(list()))
@@ -77,14 +78,20 @@ fn file_is_monospace(file: &FontFile) -> bool {
     let Some(data) = load(&file.path) else {
         return false;
     };
-    select(&data, file.postscript.as_deref()).is_some_and(|selected| is_monospace(&selected.font))
+    select(&data, file.postscript.as_deref(), file.index)
+        .is_some_and(|selected| is_monospace(&selected.font))
 }
 
-/// 返回字体目录下各字体文件中的字族。
+/// 返回已安装字体文件中的字族。
+///
+/// fontconfig 可用时只读取它列出的字体文件，包括固定目录之外的字体，不包括配置中排除的字体；
+/// 不可用时读取常见字体目录中的文件。
 #[cfg(not(target_os = "macos"))]
-fn list() -> Vec<FontFamily> {
-    let paths = super::font_path::font_index().iter().map(|(_, path)| path);
-    scan(paths)
+pub(super) fn list() -> Vec<FontFamily> {
+    match super::fontconfig::files() {
+        Some(paths) => scan(paths.iter()),
+        None => scan(super::font_path::font_index().iter().map(|(_, path)| path)),
+    }
 }
 
 /// 读取 `paths` 中各字体文件的名字表，返回其中的字族；字族中有多个字体时取最接近常规体的一个。
@@ -108,12 +115,14 @@ fn scan<'a>(paths: impl Iterator<Item = &'a std::path::PathBuf>) -> Vec<FontFami
             continue;
         };
         let count = swash::FontDataRef::new(&data).map_or(0, |d| d.len());
-        for font in (0..count).filter_map(|i| FontRef::from_index(&data, i)) {
+        for (index, font) in
+            (0..count).filter_map(|i| FontRef::from_index(&data, i).map(|font| (i, font)))
+        {
             let Some(name) = family_name(&font).filter(|n| !n.starts_with('.')) else {
                 continue;
             };
             let postscript = super::font::postscript_name(&font);
-            let usable = select(&data, postscript.as_deref()).is_some();
+            let usable = select(&data, postscript.as_deref(), Some(index as u32)).is_some();
             if !usable {
                 continue;
             }
@@ -124,6 +133,7 @@ fn scan<'a>(paths: impl Iterator<Item = &'a std::path::PathBuf>) -> Vec<FontFami
                 file: FontFile {
                     path: path.clone(),
                     postscript,
+                    index: (count > 1).then_some(index as u32),
                 },
             };
             let key = normalize(&name);

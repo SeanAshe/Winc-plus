@@ -149,6 +149,8 @@ cmd-sort-lines-descending = Sort Lines Descending
 cmd-trim-trailing-whitespace = Trim Trailing Whitespace
 cmd-unescape-unicode = Convert Unicode Escapes to Characters
 cmd-escape-unicode = Convert Characters to Unicode Escapes
+cmd-pretty-print-json = Pretty-Print JSON
+cmd-minify-json = Minify JSON
 cmd-indent-using-spaces = Indent Using Spaces
 cmd-indent-using-tabs = Indent Using Tabs
 cmd-convert-indentation-to-spaces = Convert Indentation to Spaces
@@ -242,6 +244,7 @@ cmd-git-reword-commit = Git: Edit Commit Message…
 cmd-git-go-to-child-commit = Git: Go to Child Commit
 cmd-git-go-to-parent-commit = Git: Go to Parent Commit
 cmd-git-show-output = Git: Show Output
+cmd-git-generate-commit-message = Git: Generate Commit Message
 cmd-git-clone = Git: Clone Repository…
 cmd-git-init = Git: Initialize Repository
 cmd-git-switch-repository = Git: Switch Repository
@@ -335,6 +338,8 @@ cmd-cli-usage =
       winc ssh://host/folder [ssh://host/file:line[:col]]
                             Open a folder on a remote host and files in it (needs the Remote module)
       winc -                Read standard input (e.g. cargo build 2>&1 | winc -)
+      -d, --diff file1 file2
+                            Compare two files side by side; repeatable (e.g. git difftool: winc -w -d "$LOCAL" "$REMOTE")
       -w, --wait            Exit after all of the files’ tabs are closed (e.g. git config core.editor "winc -w")
       -n, --new-instance    Start a separate process instead of handing off to the running Winc
       --register-file-types Register file types and their icons, then exit (used by the installer)
@@ -349,6 +354,8 @@ cmd-cli-ssh-mixed = ssh:// arguments must all name the same host and can’t be 
 cmd-cli-ssh-one-off = --wait and - can’t be used with ssh:// arguments
 cmd-cli-ssh-folders = Only one ssh:// argument can be a folder; the others must be files in it
 cmd-cli-wait-needs-file = --wait requires a file
+cmd-cli-diff-needs-files = --diff requires two files
+cmd-cli-diff-not-file = “{ $path }” doesn’t exist or isn’t a file; --diff compares existing files only
 cmd-cli-wsl-needs-name = --wsl requires a distribution name
 cmd-cli-wait-needs-openable-file = --wait requires at least one file that can be opened
 cmd-cli-wait-folder = “{ $path }” is a folder; --wait can only open files

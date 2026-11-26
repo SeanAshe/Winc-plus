@@ -175,6 +175,43 @@ fn pasting_web_content_writes_markdown() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// 回归（#508）：编辑区中粘贴从网页代码块里复制的一段代码，写成了围栏代码块，写在 `<style>`
+/// 中也是如此。编辑区按原文编辑，网页内容粘贴为纯文本；只看预览时仍写成 Markdown。
+#[test]
+fn the_editor_pastes_web_content_as_plain_text() {
+    let (mut app, dir) = live_doc("md-paste-source", "<style>\n\n</style>\n\n前文\n");
+    let code = "a { color: red; }";
+    let copy = |app: &mut App| {
+        app.clipboard.copied = Some(code.into());
+        app.clipboard.copied_html = Some(format!(
+            "<pre><code class=\"language-css\">{code}</code></pre>"
+        ));
+    };
+    for mode in [PreviewMode::Source, PreviewMode::Split] {
+        app.set_preview_mode(mode);
+        settle(&mut app);
+        put_caret(&mut app, "<style>\n", true);
+        copy(&mut app);
+        app.paste();
+        put_caret(&mut app, "前文", true);
+        app.run(winc_editor::Command::Insert("\n\n".into()));
+        app.paste();
+    }
+    let text = doc_text(&app);
+    assert_eq!(text.matches(code).count(), 4, "{text}");
+    assert!(!text.contains("```"), "{text}");
+    // 表格单元格不是网页内容，编辑区中照常写成表格。
+    assert!(app.markdown_paste("名称\t数量\n苹果\t3\n").is_some());
+
+    app.set_preview_mode(PreviewMode::Preview);
+    settle(&mut app);
+    put_caret(&mut app, "前文", true);
+    copy(&mut app);
+    app.paste();
+    assert!(doc_text(&app).contains(&format!("```css\n{code}\n```")));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// 回归（#426）：从别的编辑器复制几百行粘贴到 Markdown 文档里，只粘贴进前面几十行。剪贴板里的
 /// HTML 片段被写入的程序截短（片段范围按字符计算，内容含中文时结尾提前），转换后的代码块代替了
 /// 完整的纯文本。HTML 只是纯文本的开头一段时改用纯文本；完整的照常写成代码块。

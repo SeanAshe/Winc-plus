@@ -1,5 +1,5 @@
-//! 整理文字的命令：改大小写、排序行、合并行、删行尾空白、转换缩进和行尾，以及跳到配对的括号、
-//! 扩大选区。
+//! 整理文字的命令：改大小写、排序行、合并行、删行尾空白、转换缩进和行尾、美化与压缩 JSON，
+//! 以及跳到配对的括号、扩大选区。
 //!
 //! 每个命令只生成 [`Transaction`]，不直接修改文本。
 
@@ -7,6 +7,10 @@ use crate::editing::edit::{Change, EditKind, Transaction, selected_lines, shift_
 use crate::editing::movement;
 use crate::editing::selection::Selection;
 use crate::text::Lines;
+
+mod json;
+
+pub use json::{JSON_MAX_DEPTH, JsonError, JsonLayout, reformat_json};
 
 /// 大小写转换的目标形式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -154,7 +154,6 @@ impl App {
                 self.relayout();
                 self.clamp_scroll();
                 self.land_diff_file();
-                self.reveal_history_peek();
             }
             Err(e) => {
                 self.diff.land = None;

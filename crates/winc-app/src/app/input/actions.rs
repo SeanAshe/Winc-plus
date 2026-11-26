@@ -2,7 +2,7 @@
 //!
 //! 快捷键和命令面板都经由 [`App::run_action`] 执行，每个命令只有一处实现。
 
-use winc_core::transform::Case;
+use winc_core::transform::{Case, JsonLayout};
 use winc_editor::panes::Axis;
 use winc_editor::{Command, EntryKind, FoldCommand};
 use winc_preview::markdown::paragraph::Kind;
@@ -358,6 +358,8 @@ impl App {
                     },
                 );
             }
+            PrettyPrintJson => self.reformat_json(JsonLayout::Pretty),
+            MinifyJson => self.reformat_json(JsonLayout::Compact),
             IndentUsingSpaces => self.use_indent(false),
             IndentUsingTabs => self.use_indent(true),
             ConvertIndentationToSpaces => self.convert_indentation(false),
@@ -543,6 +545,13 @@ impl App {
             GitGoToChildCommit => self.go_to_log_relative(false),
             GitGoToParentCommit => self.go_to_log_relative(true),
             GitShowOutput => self.show_git_output(),
+            GitGenerateCommitMessage => {
+                // 生成的信息填入提交视图的信息框，提交视图未显示时先打开。
+                if !self.commit_shown() {
+                    self.show_commit();
+                }
+                self.generate_commit_message();
+            }
             GitClone => self.open_clone_dialog(),
             GitInit => self.git_init(),
             GitSwitchRepository => self.switch_location(true),

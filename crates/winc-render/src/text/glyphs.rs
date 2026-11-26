@@ -106,7 +106,8 @@ impl Shaped {
     }
 }
 
-/// 字符解析出的字体槽位、字形 id 和前进宽度，见 [`GlyphCache::lookup`]。
+/// 字符解析出的字体槽位、字形 id、前进宽度，以及是否加宽笔画模拟粗体，见
+/// [`GlyphCache::lookup_faux`]。
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Resolved {
     /// 字体槽位（见 `Fonts`）。
@@ -115,6 +116,8 @@ pub(crate) struct Resolved {
     pub(crate) glyph: u16,
     /// 前进宽度（逻辑像素）。
     pub(crate) advance: f32,
+    /// 是否加宽笔画模拟粗体：请求粗体而字体自身无法变粗时为真，光栅化时加宽笔画。
+    pub(crate) faux_bold: bool,
 }
 
 impl GlyphCache {
@@ -305,14 +308,11 @@ impl GlyphCache {
         self.glyphs.clear();
     }
 
-    /// 解析字符 `c` 在字体 `kind`、字号 `size`（逻辑像素）下的字体槽位、字形 id 和前进宽度。
+    /// 解析字符 `c` 在字体 `kind`、样式 `faux`、字号 `size`（逻辑像素）下的字体槽位、字形 id 和
+    /// 前进宽度。
     ///
-    /// 前进宽度带缓存；绘制一个字符只解析一次，测量宽度和绘制字形都使用该结果。
-    pub(crate) fn lookup(&mut self, kind: FontKind, size: f32, c: char) -> Resolved {
-        self.lookup_faux(kind, Faux::default(), size, c)
-    }
-
-    /// 与 [`Self::lookup`] 相同，但模拟粗体时前进宽度加上笔画加宽的量。
+    /// 粗体先用字体自身的粗体（见 [`Fonts::resolve_bold`]），无法变粗时加宽笔画，前进宽度加上加宽
+    /// 的量。前进宽度带缓存；绘制一个字符只解析一次，测量宽度和绘制字形都使用该结果。
     pub(crate) fn lookup_faux(
         &mut self,
         kind: FontKind,
@@ -320,7 +320,12 @@ impl GlyphCache {
         size: f32,
         c: char,
     ) -> Resolved {
-        let (slot, glyph) = self.fonts.resolve(kind, c);
+        let (slot, glyph, faux_bold) = if faux.bold {
+            self.fonts.resolve_bold(kind, c)
+        } else {
+            let (slot, glyph) = self.fonts.resolve(kind, c);
+            (slot, glyph, false)
+        };
         let fonts = &self.fonts;
         // 按字号的原值区分：相近的字号（13.0 与 13.2）共用一项时，后量的沿用先量的前进宽度，
         // 文字的间距与字形的大小不符。
@@ -341,11 +346,12 @@ impl GlyphCache {
         Resolved {
             slot,
             glyph,
-            advance: if faux.bold && !c.is_whitespace() {
+            advance: if faux_bold && !c.is_whitespace() {
                 advance + size * BOLD_RATIO
             } else {
                 advance
             },
+            faux_bold,
         }
     }
 

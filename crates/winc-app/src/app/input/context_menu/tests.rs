@@ -276,3 +276,35 @@ fn local_only_items_are_left_out_for_remote_files() {
         }
     }
 }
+
+#[test]
+fn a_tag_on_a_commit_can_still_copy_its_name_while_git_is_busy() {
+    use crate::app::git::branch::TagOp;
+    let actions = CommitActions {
+        enabled: false,
+        undo: false,
+        push: false,
+        on_head: None,
+        child: false,
+        parent: false,
+        changes: false,
+        in_log: true,
+    };
+    let menu = log_commit_menu(actions, "main", Vec::new(), &["v1"]);
+    let tag = menu.iter().find_map(|entry| match entry {
+        MenuEntry::Submenu(_, items)
+            if matches!(
+                items.first(),
+                Some(MenuEntry::Item(MenuCommand::LogTag(..), _))
+            ) =>
+        {
+            Some(items)
+        }
+        _ => None,
+    });
+    let enabled: Vec<_> = (tag.unwrap().iter())
+        .filter(|entry| matches!(entry, MenuEntry::Item(_, true)))
+        .collect();
+    let copy = MenuEntry::Item(MenuCommand::LogTag(TagOp::CopyName, 0), true);
+    assert_eq!(enabled, [&copy]);
+}

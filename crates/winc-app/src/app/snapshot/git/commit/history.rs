@@ -1,7 +1,7 @@
 //! 提交视图中提交历史一组的测试。
 
 use super::*;
-use crate::app::HistoryTarget;
+use crate::app::{CardState, HistoryTarget};
 use winc_editor::git::recent::Side;
 
 /// 在 `root` 中建立一段历史：一个合并进来的分支、一个标签；上游 `origin/main` 停在两个提交
@@ -68,8 +68,8 @@ fn find(app: &App, subject: &str) -> (usize, Side) {
 }
 
 /// 提交历史在改动列表下面，默认展开；列出当前分支和上游的提交，尚未推送、尚未拉取的各有
-/// 区分。点击一个提交在这一行下面列出它的文件并预览第一个，再点击收起；右键点在提交上弹出
-/// 提交菜单。
+/// 区分。点击一个提交在预览标签中依次显示该提交的全部更改，双击在日志中选中该提交；悬停时读取详情
+/// 卡片的内容；右键点在提交上弹出提交菜单。
 #[test]
 fn history_lists_the_branch_and_its_upstream_below_the_changes() {
     let Some((mut app, root)) = git_app("git-commit-history", false) else {
@@ -103,70 +103,78 @@ fn history_lists_the_branch_and_its_upstream_below_the_changes() {
         Some(app.git.commit.history.commit(i).unwrap().0.oid.as_str())
     );
 
-    // 单击：文件列在这一行下面，预览标签里是第一个文件。
+    // 单击：预览标签中依次显示该提交的全部更改，只读；该行铺选中的底色，各行不变。
+    let oid = app.git.commit.history.commit(i).unwrap().0.oid.clone();
+    let count = app.history_lines().len();
     app.pointer.last_click = None;
     app.press_commit(target);
+    app.poll_combined();
     paint(&mut app);
-    let doc = app.editor.active().unwrap();
-    assert!(doc.diff.is_some());
-    assert_eq!(app.git.commit.peek_preview, Some(doc.id));
+    assert_eq!(
+        app.combined_commit().map(|c| c.oid.as_str()),
+        Some(oid.as_str())
+    );
+    assert!(app.combined_active());
+    let title = app.editor.active().unwrap().title.clone().unwrap();
+    assert_eq!(title, format!("{} - Write the readme", &oid[..7]));
+    let tab = app.combined_tab().unwrap();
+    let paths: Vec<_> = tab.sections.iter().map(|s| s.path.clone()).collect();
+    assert_eq!(paths, [root.join("README.md")]);
+    assert!(matches!(
+        tab.sections[0].body,
+        crate::app::git::combined::Body::Ready(_)
+    ));
+    assert_eq!(app.history_lines().len(), count);
     check_line_count(&app);
-    let lines = app.history_lines();
-    let at = lines
-        .iter()
-        .position(|l| *l == HistoryLine::Commit(i))
-        .unwrap();
-    assert_eq!(lines[at + 1], HistoryLine::File(0));
-    let file = CommitTarget::History(HistoryTarget::File(0));
-    assert!((app.hits.commit.iter()).any(|(_, t)| *t == file));
 
-    // 再点击同一个提交：文件收起，预览标签保留。
-    app.pointer.last_click = None;
-    app.press_commit(target);
-    paint(&mut app);
-    assert!(!app.history_lines().contains(&HistoryLine::File(0)));
-    check_line_count(&app);
+    // 打开「未提交的更改」：同一个预览标签换回未提交的更改。
+    app.open_combined(None);
+    assert!(app.combined_commit().is_none() && app.combined_active());
+    let tab = app.combined_tab().unwrap();
+    assert!(
+        tab.sections
+            .iter()
+            .any(|s| s.path == root.join("notes.txt"))
+    );
 
     // 后台重新读取到新的结果、还没重新绘制时，绘制时记下的下标已对不上：点击和右键不处理。
     app.git.commit.history.outdate();
     app.track_history();
-    let state = (app.git.commit.peek_request, app.git.commit.peek_folded);
     app.pointer.last_click = None;
     app.press_commit(target);
-    assert_eq!(
-        (app.git.commit.peek_request, app.git.commit.peek_folded),
-        state
-    );
+    assert!(app.combined_commit().is_none());
     assert!(
         app.history_context_target(row.x + 40.0, row.y + row.h / 2.0)
             .is_none()
     );
     paint(&mut app);
 
-    // 双击：在日志标签中选中该提交。第一次点击的查看此后才到达时不再换下日志标签。
-    let oid = app.git.commit.history.commit(i).unwrap().0.oid.clone();
+    // 双击：在日志标签中选中该提交。
     app.pointer.last_click = None;
     app.on_mouse_move(row.x + 40.0, row.y + row.h / 2.0);
     app.press_commit(target);
-    let files = app.git.commit.peek.as_ref().unwrap().files.clone();
-    let late = app.git.commit.peek_request;
     app.press_commit(target);
     let view = app.editor.active().unwrap().log.as_deref().unwrap();
     assert_eq!(view.selected_oid(), Some(oid.as_str()));
-    app.peek_files_arrived(late, oid.clone(), "late".into(), Ok(files));
-    assert!(app.editor.active().unwrap().log.is_some());
     app.run_action(Action::ShowCommit);
     paint(&mut app);
 
-    // 悬停提交：提示完整的说明，以及作者、时间和短提交号。
-    let tip = app.history_tip(i).unwrap();
-    let (subject, detail) = tip.split_once('\n').unwrap();
-    assert_eq!(subject, "Write the readme");
-    assert!(
-        detail.starts_with("t · ") && detail.ends_with(&oid[..7]),
-        "{detail}"
-    );
+    // 悬停提交：在后台读取完整的说明和改动的统计，按提交号记下，显示为详情卡片。
+    app.on_mouse_move(row.x + 40.0, row.y + row.h / 2.0);
+    paint(&mut app);
+    app.poll_commit();
+    let Some(CardState::Ready(card)) = app.history_card(i) else {
+        panic!("{:?}", app.history_card(i));
+    };
+    assert_eq!(card.message, "Write the readme");
+    assert_eq!((card.files, card.added, card.removed), (1, 1, 0));
     assert!(Hover::Commit(target).has_tooltip());
+
+    // 读取失败：记为失败，鼠标仍停在这一行时不反复读取。
+    let oid = app.git.commit.history.commit(i).unwrap().0.oid.clone();
+    app.history_card_arrived(oid, Err("failed".into()));
+    paint(&mut app);
+    assert_eq!(app.history_card(i), Some(&CardState::Failed));
 
     // 悬停标题时右端是「在日志中显示」。
     let title = CommitTarget::History(HistoryTarget::Title);
@@ -520,10 +528,10 @@ fn history_follows_new_commits_and_hides_without_any() {
     let _ = std::fs::remove_dir_all(&empty);
 }
 
-/// 截图：提交历史一组（`commit-history`、`commit-history-dark`），鼠标停在一个提交上、提示完整的
-/// 说明；悬停标题时右端的「在日志中显示」（`commit-history-title`）；滚动到中间时上下两端渐隐、
-/// 右边是滚动条（`commit-history-scrolled`）；点开一个提交，它的文件列在下面
-/// （`commit-history-files`）。
+/// 截图：提交历史一组（`commit-history`、`commit-history-dark`），鼠标停在一个提交上、显示详情
+/// 卡片；悬停标题时右端的「在日志中显示」（`commit-history-title`）；滚动到中间时上下两端渐隐、
+/// 右边是滚动条（`commit-history-scrolled`）；点击一个提交，预览标签中是该提交的全部更改
+/// （`commit-history-changes`）。
 ///
 /// 运行：`WINC_SNAPSHOT_DIR=… cargo test -p winc-app shoot_commit_history -- --ignored`。
 #[test]
@@ -561,6 +569,8 @@ fn shoot_commit_history() {
             .find(|(_, t)| *t == target)
             .unwrap();
         app.on_mouse_move(row.x + 60.0, row.y + row.h / 2.0);
+        paint(&mut app);
+        app.poll_commit();
         app.overlays.tooltip.since = rested();
         shoot(&mut app, name);
         if dark {
@@ -583,7 +593,9 @@ fn shoot_commit_history() {
         paint(&mut app);
         app.pointer.last_click = None;
         app.press_commit(target);
-        shoot(&mut app, "commit-history-files");
+        app.poll_combined();
+        paint(&mut app);
+        shoot(&mut app, "commit-history-changes");
         let _ = std::fs::remove_dir_all(&root);
     }
 }

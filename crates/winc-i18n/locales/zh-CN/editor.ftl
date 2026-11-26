@@ -265,3 +265,19 @@ editor-http-binary-body = （二进制内容，{ $size } 字节）
 editor-http-body-truncated = （仅显示前 { $shown } 字节，共 { $size } 字节）
 editor-http-curl-missing = 未找到 curl
 editor-http-too-large = 响应过大
+
+## 美化与压缩 JSON。
+
+editor-json-not-found = 未找到 JSON
+editor-json-invalid = 无法{ $action ->
+        [compact] 压缩
+       *[pretty] 美化
+    } JSON：第 { $line } 行第 { $column } 列不符合 JSON 语法
+editor-json-incomplete = 无法{ $action ->
+        [compact] 压缩
+       *[pretty] 美化
+    } JSON：内容不完整
+editor-json-too-deep = 无法{ $action ->
+        [compact] 压缩
+       *[pretty] 美化
+    } JSON：嵌套超过 { $depth } 层

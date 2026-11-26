@@ -517,12 +517,21 @@ impl App {
         }
     }
 
-    /// 报告操作失败：用户取消输入时提示已取消，否则显示 `message` 并提供查看完整输出的按钮。
-    pub(in crate::app) fn report_git_failure(&mut self, what: &str, message: String) {
+    /// 报告在仓库 `root` 中的操作失败：用户取消输入时提示已取消，否则显示 `message` 并提供查看
+    /// 完整输出的按钮；因仓库的配置不可信而被拒绝时改为提供信任的按钮。
+    pub(in crate::app) fn report_git_failure(
+        &mut self,
+        root: Option<&Path>,
+        what: &str,
+        message: String,
+    ) {
         if mem::take(&mut self.git.branch.declined) {
             self.flash(t!("git-op-canceled", what = what));
         } else {
-            self.notify_with(NoticeKind::Error, message, NoticeAction::GitOutput);
+            let action = self
+                .git_trust_action(root)
+                .unwrap_or(NoticeAction::GitOutput);
+            self.notify_with(NoticeKind::Error, message, action);
         }
     }
 

@@ -1,4 +1,5 @@
-//! 字体名解析的测试：路径与名字的检查、CoreText 查询，以及系统保留名的处理。
+//! 字体名解析的测试：路径与名字的检查、系统字体查询（CoreText 和 fontconfig），以及系统保留名
+//! 的处理。
 
 use super::*;
 
@@ -108,4 +109,112 @@ fn system_font_names_map_to_the_system_font_files() {
 fn linux_and_windows_scan_font_directories() {
     // 只验证调用不会 panic：这两个平台上能否找到字体取决于系统安装了哪些字体。
     let _ = FontSpec::Name("DejaVu Sans Mono".into()).resolve();
+}
+
+/// Linux 上查询隔离的 fontconfig 配置，不依赖系统装了哪些字体。
+#[cfg(target_os = "linux")]
+mod fontconfig {
+    use super::*;
+    use crate::text::fontconfig::test_fonts::{self, Isolated};
+
+    #[test]
+    fn a_font_in_a_custom_directory_resolves() {
+        let Some(isolated) = Isolated::new() else {
+            return;
+        };
+        let spec = FontSpec::Name(test_fonts::DEFAULT.into());
+        let found = spec.resolve().expect("fontconfig 认得测试字体");
+        assert_eq!(found.path, isolated.regular(test_fonts::DEFAULT));
+        // 解析出的文件要能打开，才能用来显示文字。
+        assert_eq!(spec.check(), Ok(()));
+    }
+
+    #[test]
+    fn a_missing_name_is_not_replaced_by_a_substitute() {
+        let Some(_isolated) = Isolated::new() else {
+            return;
+        };
+        let spec = FontSpec::Name("Winc Missing 7f3a".into());
+        assert_eq!(spec.resolve(), None);
+        assert_eq!(spec.check(), Err(FontError::NotFound));
+        // 字体回退列表里每个名字都要能各自判断，不能让一个后备字体占住所有名字。
+        assert!(crate::text::font_path::resolve_face("Winc Missing 7f3a", true, true).is_none());
+    }
+
+    #[test]
+    fn a_configured_alias_resolves_to_its_target() {
+        let Some(isolated) = Isolated::new() else {
+            return;
+        };
+        // 别名指向的字体和未知名字的后备字体是同一个文件，仍要按别名找到它。
+        assert_eq!(
+            isolated.regular(isolated.alias()).as_path(),
+            isolated.fallback()
+        );
+        let found = FontSpec::Name(test_fonts::ALIAS.into())
+            .resolve()
+            .expect("配置里把 Winc Alias 指向了测试字族");
+        assert_eq!(found.path, isolated.fallback());
+    }
+
+    #[test]
+    fn a_family_name_with_pattern_syntax_is_taken_literally() {
+        let Some(isolated) = Isolated::new() else {
+            return;
+        };
+        for family in [test_fonts::LITERAL, test_fonts::OPTION] {
+            let found = FontSpec::Name(family.into())
+                .resolve()
+                .unwrap_or_else(|| panic!("{family:?}"));
+            assert_eq!(found.path, isolated.regular(family), "{family:?}");
+        }
+    }
+
+    #[test]
+    fn a_request_for_italic_does_not_invent_an_italic_face() {
+        let Some(isolated) = Isolated::new() else {
+            return;
+        };
+        let found = crate::text::font_path::resolve_face(test_fonts::TARGET, false, true)
+            .expect("字族存在");
+        assert_eq!(found.file.path, isolated.regular(test_fonts::TARGET));
+        assert!(!found.italic, "字族里没有斜体，取到的是正体");
+        assert!(!found.bold);
+    }
+
+    #[test]
+    fn a_real_italic_face_is_reported_as_italic() {
+        let Some(isolated) = Isolated::new() else {
+            return;
+        };
+        let found = crate::text::font_path::resolve_face(test_fonts::ITALIC, false, true)
+            .expect("字族存在");
+        assert_eq!(found.file.path, isolated.italic(test_fonts::ITALIC));
+        assert!(found.italic);
+        assert!(!found.bold);
+
+        // 不要斜体时取常规体。
+        let found = crate::text::font_path::resolve_face(test_fonts::ITALIC, false, false)
+            .expect("字族存在");
+        assert_eq!(found.file.path, isolated.regular(test_fonts::ITALIC));
+        assert!(!found.italic);
+    }
+
+    #[test]
+    fn the_style_flags_describe_the_face_that_was_found() {
+        let Some(isolated) = Isolated::new() else {
+            return;
+        };
+        let found = crate::text::font_path::resolve_face(test_fonts::TARGET, true, false)
+            .expect("字族存在");
+        assert_eq!(found.file.path, isolated.bold(test_fonts::TARGET));
+        assert!(found.bold);
+        assert!(!found.italic);
+
+        // 同时请求粗体和斜体，字族里没有斜体：取粗体，斜体标志为假，由调用方合成斜体。
+        let found =
+            crate::text::font_path::resolve_face(test_fonts::TARGET, true, true).expect("字族存在");
+        assert!(found.bold);
+        assert!(!found.italic);
+    }
 }

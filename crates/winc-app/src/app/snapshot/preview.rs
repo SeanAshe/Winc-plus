@@ -1038,7 +1038,7 @@ fn sample_pdf(count: usize) -> Vec<u8> {
 /// 与 [`sample_pdf`] 相同，另带目录：`outline` 的各项为标题、层级（顶层为 0）、指向的页
 /// （从 0 起）和页内的高度（页面坐标，792 为上沿）。
 #[cfg(any(target_os = "macos", windows))]
-fn outlined_pdf(count: usize, outline: &[(&str, usize, usize, u32)]) -> Vec<u8> {
+pub(super) fn outlined_pdf(count: usize, outline: &[(&str, usize, usize, u32)]) -> Vec<u8> {
     let mut objects: Vec<String> = vec![
         "<< /Type /Catalog /Pages 2 0 R >>".to_owned(),
         format!(
@@ -1209,6 +1209,36 @@ fn composing_on_a_blank_line_shows_the_text() {
     paint(&mut app);
     assert!(app.ime.cursor.is_some());
     assert!(full_text(&app).unwrap().contains("ni"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// 正文中排入行内的组字：光标和候选框位于输入法报告的光标处，组字折行时同样如此。
+#[test]
+fn the_caret_in_inline_composition_follows_the_input_method() {
+    use winit::event::Ime;
+
+    let (mut app, dir) = live_doc("md-preedit-caret", "你好\n");
+    put_caret(&mut app, "你好", true);
+    let at = |app: &mut App, text: &str, cursor: Option<(usize, usize)>| {
+        app.on_ime(Ime::Preedit(text.into(), cursor));
+        paint(app);
+        let rect = app.ime.cursor.unwrap();
+        (rect.x, rect.y)
+    };
+    let start = at(&mut app, "nihao", Some((0, 0)));
+    let middle = at(&mut app, "nihao", Some((2, 2)));
+    let end = at(&mut app, "nihao", Some((5, 5)));
+    assert!(
+        start.0 < middle.0 && middle.0 < end.0,
+        "{start:?} {middle:?} {end:?}"
+    );
+    assert!(start.1 == middle.1 && middle.1 == end.1);
+
+    // 组字长到折行：光标在开头时位于第一行，在末尾时位于下面的行。
+    let long = "zhongwenshurufadezuzijieguo".repeat(8);
+    let first = at(&mut app, &long, Some((0, 0)));
+    let last = at(&mut app, &long, Some((long.len(), long.len())));
+    assert!(last.1 > first.1, "{first:?} {last:?}");
     let _ = std::fs::remove_dir_all(&dir);
 }
 

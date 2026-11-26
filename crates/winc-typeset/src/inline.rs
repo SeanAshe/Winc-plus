@@ -224,7 +224,10 @@ impl Cx<'_, '_> {
             }
             let start = range.start;
             for (i, c) in inline.text[range].char_indices() {
-                let source = source_of(inline, start + i);
+                // 不对应原文的生成文字（脚注末尾的 ↩）没有原文位置，排出时与正文分为两段。
+                let source = inline
+                    .char_source_of(start + i)
+                    .and_then(|s| u32::try_from(s).ok());
                 if c == IMAGE_MARK {
                     let Some(image) = images.next() else { continue };
                     match self.image(image, room) {
@@ -490,6 +493,9 @@ impl Cx<'_, '_> {
                 let atom = &atoms[j];
                 match &atom.kind {
                     AtomKind::Char(c) => {
+                        if !text.text.is_empty() && text.source.is_some() != atom.source.is_some() {
+                            flush_text(out, &mut text, at, st);
+                        }
                         if text.text.is_empty() {
                             text.x = *pen;
                             text.start = self.chars;

@@ -3,6 +3,11 @@
 use super::*;
 
 impl Cx<'_, '_> {
+    /// 返回当前顶层块内解析之后的改动；不在光标所在的顶层块中时为 [`Drift::NONE`]。
+    pub(super) fn drift(&self) -> Drift {
+        self.raw.as_ref().map_or(Drift::NONE, |raw| raw.drift)
+    }
+
     /// `block` 是否在光标所在的叶子块里（按块里第一处有原文对照的位置判断）。
     pub(super) fn raw_state(&mut self, block: &Block) -> RawState {
         let Some(raw) = &mut self.raw else {
@@ -22,7 +27,7 @@ impl Cx<'_, '_> {
                 .map(|cell| cell.source),
             _ => None,
         };
-        match start {
+        match start.map(|start| raw.drift.moved(start)) {
             Some(start) if raw.leaf.start <= start && start <= raw.parsed_end => {
                 if std::mem::replace(&mut raw.done, true) {
                     // HTML 块生成的其余各块排在代码框下方，作为该块的渲染结果。
@@ -346,12 +351,9 @@ impl Cx<'_, '_> {
         );
         // 代码块在编辑时同样显示复制按钮，复制围栏之间的代码。
         if fenced && !matches!(lang, "mermaid" | "latex") {
-            let lines: Vec<&str> = text.split('\n').collect();
-            let close = usize::from(lines.len() > 1 && lines.last().is_some_and(|l| is_fence(l)));
-            let code = lines[1.min(lines.len())..lines.len() - close].join("\n");
             out.push(Item::Code {
                 rect,
-                text: code.into(),
+                text: fenced_code(text).into(),
                 diagram: false,
             });
         }

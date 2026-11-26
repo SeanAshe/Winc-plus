@@ -395,15 +395,20 @@ impl Frame<'_> {
     ///
     /// 空白等没有墨迹的字符返回 `None`。排版公式时据此确定根号、分数线、括号的高度。
     pub fn ink(&mut self, kind: FontKind, faux: Faux, size: f32, c: char) -> Option<(f32, f32)> {
-        let Resolved { slot, glyph, .. } = self.glyphs.lookup_faux(kind, faux, size, c);
+        let Resolved {
+            slot,
+            glyph,
+            faux_bold,
+            ..
+        } = self.glyphs.lookup_faux(kind, faux, size, c);
         let s = self.scale;
         let key = GlyphKey {
             slot,
             glyph,
             size: (size * s * 4.0) as u32,
             subpixel: 0,
-            oblique: (kind.italic() || faux.italic) && !text::font::italic_slot(slot),
-            bold: faux.bold,
+            oblique: (kind.italic() || faux.italic) && !self.glyphs.fonts.is_italic_slot(slot),
+            bold: faux_bold,
             dark: self.dark,
         };
         let glyph = self.glyphs.get(key, size * s, self.gamma)?;
@@ -543,6 +548,7 @@ impl Frame<'_> {
                 slot: shaped.slot,
                 glyph,
                 advance: advance * size,
+                faux_bold: false,
             };
             let at = (pen + dx * size, baseline - dy * size);
             self.draw_glyph(kind, Faux::default(), size, at, base, resolved, color, clip);
@@ -605,19 +611,50 @@ impl Frame<'_> {
         color: Color,
         clip: Rect,
     ) {
-        let resolved = self.glyphs.lookup(kind, size, c);
-        let offset = ((cell * cells as f32 - resolved.advance) / 2.0).max(0.0);
         let faux = Faux::default();
-        self.draw_glyph(
-            kind,
-            faux,
-            size,
-            (x + offset, baseline),
-            c,
-            resolved,
-            color,
-            clip,
-        );
+        let at = (x, baseline);
+        self.cell_char_faux(kind, faux, size, at, cell * cells as f32, c, color, clip);
+    }
+
+    /// 同 [`Self::cell_char`]，绘制粗体：字体能变粗时使用字体自身的粗体字形，否则加宽笔画。
+    #[allow(clippy::too_many_arguments)]
+    pub fn cell_char_bold(
+        &mut self,
+        kind: FontKind,
+        size: f32,
+        x: f32,
+        baseline: f32,
+        cell: f32,
+        cells: usize,
+        c: char,
+        color: Color,
+        clip: Rect,
+    ) {
+        let faux = Faux {
+            bold: true,
+            italic: false,
+        };
+        let at = (x, baseline);
+        self.cell_char_faux(kind, faux, size, at, cell * cells as f32, c, color, clip);
+    }
+
+    /// 在宽 `width`（逻辑像素）的格子中水平居中绘制字符 `c`，`at` 是格子左端和基线。
+    #[allow(clippy::too_many_arguments)]
+    fn cell_char_faux(
+        &mut self,
+        kind: FontKind,
+        faux: Faux,
+        size: f32,
+        (x, baseline): (f32, f32),
+        width: f32,
+        c: char,
+        color: Color,
+        clip: Rect,
+    ) {
+        let resolved = self.glyphs.lookup_faux(kind, faux, size, c);
+        let offset = ((width - resolved.advance) / 2.0).max(0.0);
+        let at = (x + offset, baseline);
+        self.draw_glyph(kind, faux, size, at, c, resolved, color, clip);
     }
 
     /// 返回一段文字的宽度（逻辑像素）。
@@ -655,7 +692,7 @@ impl Frame<'_> {
         self.glyphs.metrics(kind, size)
     }
 
-    /// 在笔位置 `(x, baseline)` 绘制已经解析好（[`GlyphCache::lookup`]）的字符 `c`。
+    /// 在笔位置 `(x, baseline)` 绘制已经解析好（[`GlyphCache::lookup_faux`]）的字符 `c`。
     ///
     /// 空白、控制字符和完全透明的颜色不光栅化。
     #[allow(clippy::too_many_arguments)]
@@ -666,7 +703,12 @@ impl Frame<'_> {
         size: f32,
         (x, baseline): (f32, f32),
         c: char,
-        Resolved { slot, glyph, .. }: Resolved,
+        Resolved {
+            slot,
+            glyph,
+            faux_bold,
+            ..
+        }: Resolved,
         color: Color,
         clip: Rect,
     ) {
@@ -796,8 +838,8 @@ impl Frame<'_> {
             subpixel,
             // 需要斜体但实际使用的字体不是斜体：字体没有可用的斜体，或斜体中没有该字符
             // （例如注释中的中文使用后备字体）时均做斜切，使同一行注释中的文字倾斜一致。
-            oblique: (kind.italic() || faux.italic) && !text::font::italic_slot(slot),
-            bold: faux.bold,
+            oblique: (kind.italic() || faux.italic) && !self.glyphs.fonts.is_italic_slot(slot),
+            bold: faux_bold,
             dark: self.dark,
         };
         let Some(glyph) = self.glyphs.get(key, size * s, self.gamma) else {

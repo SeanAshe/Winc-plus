@@ -19,66 +19,93 @@ fn messages_round_trip() {
     ];
     let launch = |targets: &[Target], token: Option<&str>| Launch {
         targets: targets.to_vec(),
+        diffs: Vec::new(),
         token: token.map(str::to_owned),
     };
-    assert_eq!(
-        decode(&encode(&targets, None)),
-        Some(launch(&targets, None))
-    );
-    assert_eq!(decode(&encode(&[], None)), Some(Launch::default()));
+    let round_trip = |launch: Launch| assert_eq!(decode(&encode(&launch)), Some(launch));
+    round_trip(launch(&targets, None));
+    round_trip(Launch::default());
     let token = "winc-1234_TIME5678";
-    assert_eq!(
-        decode(&encode(&targets, Some(token))),
-        Some(launch(&targets, Some(token)))
-    );
-    assert_eq!(
-        decode(&encode(&[], Some(token))),
-        Some(launch(&[], Some(token)))
-    );
+    round_trip(launch(&targets, Some(token)));
+    round_trip(launch(&[], Some(token)));
     // 没有令牌时发第 1 版消息，较早版本的 winc 也能收下。
-    assert!(encode(&targets, None).starts_with(HELLO.as_bytes()));
+    assert!(encode(&launch(&targets, None)).starts_with(HELLO.as_bytes()));
     // 不合法的令牌不写入消息。
     for bad in ["", "a\nb", "a\0b"] {
         assert_eq!(
-            encode(&targets, Some(bad)),
-            encode(&targets, None),
+            encode(&launch(&targets, Some(bad))),
+            encode(&launch(&targets, None)),
             "{bad:?}"
         );
     }
+    // 有要比较的文件时发第 3 版消息，目标和要比较的文件都还原；令牌可以没有。
+    let diffs = vec![Diff {
+        left: PathBuf::from("/p/旧 a.rs"),
+        right: PathBuf::from("/p/b.rs"),
+    }];
+    for token in [None, Some(token)] {
+        let compared = Launch {
+            diffs: diffs.clone(),
+            ..launch(&targets, token)
+        };
+        assert!(encode(&compared).starts_with(HELLO_DIFF.as_bytes()));
+        round_trip(compared);
+    }
+    round_trip(Launch {
+        diffs,
+        ..Launch::default()
+    });
     assert_eq!(decode(b"winc-open 2\n"), None);
     assert_eq!(decode(b"winc-open 2\ntoken"), None);
     assert_eq!(decode(b"winc-open 1\n/p\0x\0\0"), None);
     assert_eq!(decode(b"winc-open 3\n"), None);
+    assert_eq!(decode(b"winc-open 3\n\nmove\0/p\0"), None);
+    assert_eq!(decode(b"winc-open 3\n\ndiff\0/p\0"), None);
 }
 
 #[test]
 fn tokens_fall_back_to_the_first_version_for_older_wincs() {
     let sent = std::cell::RefCell::new(Vec::new());
     let targets = [target("/p", None, None)];
+    let launch = |token: Option<&str>| Launch {
+        targets: targets.to_vec(),
+        diffs: Vec::new(),
+        token: token.map(str::to_owned),
+    };
     // 较早版本的 winc 不认识第 2 版消息，不答复就断开；改发第 1 版消息后收下。
     let older = |message: &[u8]| {
         sent.borrow_mut().push(message.to_vec());
         let ok = message.starts_with(HELLO.as_bytes());
         Ok(if ok { "ok\n" } else { "" }.to_owned())
     };
-    assert!(deliver(&targets, Some("t"), older));
+    assert!(deliver(&launch(Some("t")), older));
     let messages = sent.take();
     assert_eq!(messages.len(), 2);
     assert!(messages[0].starts_with(HELLO_TOKEN.as_bytes()));
-    assert_eq!(messages[1], encode(&targets, None));
+    assert_eq!(messages[1], encode(&launch(None)));
 
     // 对方答复 `busy` 时不重发；没有令牌时只发一次。
     let busy = |message: &[u8]| {
         sent.borrow_mut().push(message.to_vec());
         Ok("busy\n".to_owned())
     };
-    assert!(!deliver(&targets, Some("t"), busy));
+    assert!(!deliver(&launch(Some("t")), busy));
     assert_eq!(sent.take().len(), 1);
     let closed = |message: &[u8]| {
         sent.borrow_mut().push(message.to_vec());
         Ok(String::new())
     };
-    assert!(!deliver(&targets, None, closed));
+    assert!(!deliver(&launch(None), closed));
+    assert_eq!(sent.take().len(), 1);
+    // 第 3 版消息没有可退回的版本：较早版本不答复时只发一次，由新进程自己打开。
+    let compared = Launch {
+        diffs: vec![Diff {
+            left: PathBuf::from("/a"),
+            right: PathBuf::from("/b"),
+        }],
+        ..launch(Some("t"))
+    };
+    assert!(!deliver(&compared, older));
     assert_eq!(sent.take().len(), 1);
 }
 
@@ -141,20 +168,32 @@ fn only_one_winc_waits_for_launches_and_gets_them() {
         }
     })
     .unwrap();
-    // 没有目标也交：对方把当前窗口切到前台。激活令牌随目标一起交出。
-    for (targets, token) in [
-        (vec![target("/p/q", None, None)], None),
-        (Vec::new(), None),
-        (Vec::new(), Some("winc-token")),
+    // 没有目标也交：对方把当前窗口切到前台。激活令牌和要比较的文件随目标一起交出。
+    let diff = Diff {
+        left: PathBuf::from("/p/a"),
+        right: PathBuf::from("/p/b"),
+    };
+    for (targets, diffs, token) in [
+        (vec![target("/p/q", None, None)], Vec::new(), None),
+        (Vec::new(), Vec::new(), None),
+        (Vec::new(), Vec::new(), Some("winc-token")),
+        (Vec::new(), vec![diff], Some("winc-token")),
     ] {
-        assert!(forward_to_app(&targets, token));
+        let launch = Launch {
+            targets,
+            diffs,
+            token: token.map(str::to_owned),
+        };
+        assert!(forward_to_app(&launch));
         let got = rx.recv_timeout(std::time::Duration::from_secs(10)).unwrap();
-        assert_eq!(got.targets, targets);
-        assert_eq!(got.token.as_deref(), token);
+        assert_eq!(got, launch);
     }
 
     drop(listener);
-    assert!(!forward_to_app(&[], None), "不再等了：新进程自己开");
+    assert!(
+        !forward_to_app(&Launch::default()),
+        "不再等了：新进程自己开"
+    );
     drop(lock);
     // 其他测试启动外部程序时，子进程在 exec 之前短暂继承锁文件的描述符，等它释放。
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
@@ -192,7 +231,11 @@ fn oversized_messages_are_dropped() {
     assert!(reply.is_empty());
     // 超长消息之后的正常消息仍然收下，且是收到的第一条。
     let targets = vec![target("/p/q", Some(1), None)];
-    assert!(imp::forward_to(&path, &targets, None));
+    let launch = Launch {
+        targets: targets.clone(),
+        ..Launch::default()
+    };
+    assert!(imp::forward_to(&path, &launch));
     let got = rx.recv_timeout(std::time::Duration::from_secs(2));
     assert_eq!(got, Ok(targets));
     drop(listener);
@@ -202,7 +245,10 @@ fn oversized_messages_are_dropped() {
 #[cfg(windows)]
 #[test]
 fn oversized_pipe_messages_are_dropped() {
-    let message = encode(&[target(r"C:\p", None, None)], None);
+    let message = encode(&Launch {
+        targets: vec![target(r"C:\p", None, None)],
+        ..Launch::default()
+    });
     let framed = |length: u64| {
         let mut bytes = length.to_le_bytes().to_vec();
         bytes.extend_from_slice(&message);

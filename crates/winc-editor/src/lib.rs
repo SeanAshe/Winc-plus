@@ -33,9 +33,9 @@ pub use document::encoding::Encoding;
 pub use document::large::LargeText;
 pub use document::progress::ReadProgress;
 pub use document::{
-    COPY_LIMIT, DiskChange, Document, DocumentId, EDIT_LIMIT, LARGE_FILE, OpenError, PictureState,
-    PreviewKind, PreviewMode, Reading, TableState, TableView, Unsupported, line_highlight_states,
-    looks_binary, opens_as_large, size_text,
+    ByteEdit, COPY_LIMIT, DiskChange, Document, DocumentId, EDIT_LIMIT, LARGE_FILE, OpenError,
+    PictureState, PreviewKind, PreviewMode, Reading, TableState, TableView, Unsupported,
+    line_highlight_states, looks_binary, opens_as_large, size_text,
 };
 pub use document::{editorconfig, encoding};
 pub use editing::command::Command;
@@ -47,7 +47,7 @@ pub use editing::search::{MAX_MATCHES, Search, TextSearch};
 pub use editing::{paste, scopes};
 pub use navigation::bookmarks::{BookmarkMap, Bookmarks};
 pub use navigation::{bookmarks, definition, keypath, links, symbols, usages};
-pub use tools::{format, host, http, latex, remote_env, shell, wsl};
+pub use tools::{ai, format, host, http, latex, remote_env, shell, wsl};
 pub use workspace::copying::Copying;
 pub use workspace::picker::{FileIndex, IndexedFile, MAX_RESULTS as PICKER_MAX_RESULTS};
 pub use workspace::project_search::{

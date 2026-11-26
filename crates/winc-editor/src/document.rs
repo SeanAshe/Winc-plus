@@ -17,6 +17,7 @@ use ropey::Rope;
 use winc_core::edit::{EditKind, Transaction};
 use winc_core::selection::merge;
 use winc_core::text::{Aligned, CellLayout, ColumnWidths, Columns};
+use winc_core::transform::{JsonError, JsonLayout};
 use winc_core::{History, Indent, LineEnding, Lines, Selection, diff, indent, transform};
 use winc_i18n::t;
 use winc_syntax::{Highlighter, LineState};
@@ -31,6 +32,8 @@ use crate::editing::scopes::{self, FoldRange, Scope, ScopeMemo};
 use crate::navigation::bookmarks::Bookmarks;
 use content::Content;
 use editorconfig::FileConfig;
+pub use edits::ByteEdit;
+use edits::EditLog;
 use encoding::{self as charset, Encoding, UTF8_BOM, utf16_unmarked};
 use large::LargeText;
 use winc_preview::image::Picture;
@@ -39,6 +42,7 @@ use winc_preview::table::Table;
 pub(crate) mod content;
 pub(crate) mod disk;
 pub mod editorconfig;
+mod edits;
 pub mod encoding;
 mod indentation;
 mod parked;
@@ -129,6 +133,10 @@ pub struct TableView {
     pub card_scroll: f32,
     /// 当前格的卡片是否已按 Esc 收起；切换到另一格时重新显示。
     pub card_closed: bool,
+    /// 底部工作表标签栏的横向滚动位置（逻辑像素）。
+    pub bar_scroll: f32,
+    /// 当前工作表的标签是否已滚入标签栏的可见范围。
+    pub bar_revealed: bool,
 }
 
 impl TableView {
@@ -142,6 +150,8 @@ impl TableView {
             selection: ((0, 0), (0, 0)),
             card_scroll: 0.0,
             card_closed: false,
+            bar_scroll: 0.0,
+            bar_revealed: false,
         })
     }
 
@@ -397,11 +407,6 @@ fn changed_lines(old: &ropey::Rope, new: &ropey::Rope) -> (usize, usize, usize) 
     (head, old_n - tail, new_n - tail)
 }
 
-/// 改动日志保留的最近改动条数（条，64），供 `Document::unchanged_lines_since` 向前追溯。
-///
-/// 一次连续输入与随后的滚动查询通常只涉及几十次改动，64 条足以覆盖；记录更多只会增加内存开销。
-const EDIT_LOG: usize = 64;
-
 pub use winc_search::{LARGE_FILE, looks_binary};
 pub(crate) use winc_search::{OPEN_LIMIT, UTF16_INLINE};
 
@@ -570,9 +575,8 @@ pub struct Document {
     pub(crate) windows: Mutex<Vec<(WindowKey, Arc<LineWindow>)>>,
     /// 显示整行的行及其列索引，见 [`Document::shows_whole_line`]。
     pub(crate) whole: WholeLines,
-    /// 最近的若干次改动：（改动后的版本号，第一处改动所在的行），供
-    /// `Document::unchanged_lines_since` 判断哪些行没有变。
-    edits: std::collections::VecDeque<(u64, usize)>,
+    /// 最近的若干次改动，见 [`Document::unchanged_lines_since`]、[`Document::byte_edit_since`]。
+    edits: EditLog,
     /// 文档的文本：`rope`，或按需读取磁盘的大文件。
     pub(crate) text: Content,
     /// 最近一次读写时磁盘文件的修改时间。
@@ -676,7 +680,7 @@ impl Document {
             wrap_pending: None,
             windows: Mutex::new(Vec::new()),
             whole: WholeLines::default(),
-            edits: std::collections::VecDeque::new(),
+            edits: EditLog::default(),
             text,
             disk_mtime: None,
             disk_len: 0,
@@ -1010,7 +1014,7 @@ impl Document {
         rope.insert(end, text);
         self.highlighter.invalidate_from(line);
         self.revision += 1;
-        self.note_edit(line);
+        self.note_edit(line, end);
         self.appended(line);
     }
 
@@ -1128,6 +1132,23 @@ impl Document {
             }
         }
         None
+    }
+
+    /// 返回按 `layout` 美化或压缩 JSON（[`Command::ReformatJson`]）时第一个无法转换的选区的原因，
+    /// 先看主选区；都能转换时返回 `None`。
+    pub fn json_problem(&self, layout: JsonLayout) -> Option<JsonError> {
+        let (unit, line_ending) = (self.indent().unit(), self.line_ending.as_str());
+        let whole = self.json_whole_file();
+        self.all_selections().find_map(|selection| {
+            transform::reformat_json(&self.text, selection, layout, unit, line_ending, whole).err()
+        })
+    }
+
+    /// 没有选区时美化、压缩 JSON 是否检查整个文件。
+    ///
+    /// 大文件和超过 [`EDIT_LIMIT`] 的文件不检查，只看光标所在的行。
+    pub(crate) fn json_whole_file(&self) -> bool {
+        !self.is_large() && self.text.byte_len(0, self.text.end_pos()) <= EDIT_LIMIT
     }
 
     /// 返回第 `line` 行（从 0 起）开头的高亮状态。
@@ -1338,6 +1359,18 @@ impl Document {
             return;
         }
 
+        // 只有一处改动时记下字节范围，按改动前的文本换算。
+        let bytes = match (&transaction.changes[..], self.text.rope()) {
+            ([change], Some(rope)) => {
+                let start = rope.char_to_byte(change.start.min(rope.len_chars()));
+                Some(ByteEdit {
+                    old: start..start + change.removed.len(),
+                    new: start..start + change.inserted.len(),
+                })
+            }
+            _ => None,
+        };
+
         transaction.apply(&mut Tracked {
             text: &mut self.text,
             folds: &mut self.folds,
@@ -1357,6 +1390,9 @@ impl Document {
                 self.history.push(transaction);
             }
             self.after_change(first);
+            if let Some(bytes) = bytes {
+                self.edits.set_bytes(self.revision, bytes);
+            }
         }
         // 事务不含其余选区时，文本改动后其余选区随版本号变化自动失效；含其余选区时按事务恢复。
         if !extra.is_empty() {
@@ -1364,31 +1400,32 @@ impl Document {
         }
     }
 
-    /// 记录最近一次改动（`revision` 已递增）的起始行 `line`。
-    fn note_edit(&mut self, line: usize) {
-        self.edits.push_back((self.revision, line));
-        if self.edits.len() > EDIT_LOG {
-            self.edits.pop_front();
-        }
+    /// 返回从版本 `revision` 至今的改动合并成的一处字节改动，范围覆盖其间的每次改动。
+    ///
+    /// 版本未变、早于最近 64 次改动、其间某次改动有多处（多个光标），或发生了编辑以外的变化
+    /// （从磁盘重新读取）时返回 `None`。
+    pub fn byte_edit_since(&self, revision: u64) -> Option<ByteEdit> {
+        self.edits.bytes_since(revision, self.revision)
+    }
+
+    /// 记录最近一次改动（`revision` 已递增）的起始行 `line` 和起始位置 `offset`（字符偏移）。
+    fn note_edit(&mut self, line: usize, offset: usize) {
+        self.edits.push(self.revision, line, offset);
     }
 
     /// 返回从版本 `revision` 至今始终未变的开头行数：此后的每次改动都位于这些行之下。
     ///
-    /// 只记录最近 `EDIT_LOG` 次改动；版本更早，或期间发生了编辑以外的变化（从磁盘重新读取、
+    /// 只记录最近 64 次改动；版本更早，或期间发生了编辑以外的变化（从磁盘重新读取、
     /// 更换语言）时返回 0。版本未变时返回 `usize::MAX`。
     pub fn unchanged_lines_since(&self, revision: u64) -> usize {
-        let mut unchanged = usize::MAX;
-        let mut count = 0;
-        for &(at, line) in self.edits.iter().rev().take_while(|(at, _)| *at > revision) {
-            debug_assert!(at <= self.revision);
-            unchanged = unchanged.min(line);
-            count += 1;
-        }
-        if self.revision.checked_sub(revision) == Some(count) {
-            unchanged
-        } else {
-            0
-        }
+        self.edits.unchanged_since(revision, self.revision).0
+    }
+
+    /// 返回从版本 `revision` 至今始终未变的开头字符数：此后的每次改动都从这些字符之后开始。
+    ///
+    /// 无法确定与版本未变时的返回值同 [`Document::unchanged_lines_since`]。
+    pub fn unchanged_chars_since(&self, revision: u64) -> usize {
+        self.edits.unchanged_since(revision, self.revision).1
     }
 
     /// 处理文本变化的后续工作：让变化所在行起的高亮失效，递增 `revision`，刷新折叠。
@@ -1399,7 +1436,7 @@ impl Document {
         self.highlighter.invalidate_from(line);
         self.sticky_memo.edited(self.revision, line);
         self.revision += 1;
-        self.note_edit(line);
+        self.note_edit(line, first_offset);
         self.refresh_folds();
         // 正在预览的 SVG 内容变化（例如文件被外部修改后重新读取）时，按新内容重新绘制。
         if self.picture.is_some() {

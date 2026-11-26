@@ -100,7 +100,28 @@ pacman-key --lsign-key "$expected_fingerprint"
 if [[ ! -e $repo_config ]]; then
   install -m0644 "$workdir/repo.conf" "$repo_config"
 fi
-if [[ $include_count == 0 ]]; then
-  printf '\n%s\n' "$include_line" >> "$pacman_config"
+# pacman 从第一个提供该包的仓库安装和升级，而 Arch 官方仓库同样提供 winc，因此 Include 须位于
+# pacman.conf 的第一个仓库之前，位置不符时移至该处。
+if [[ $include_count == 0 || $(head -n 1 <<< "$repos") != "$repo" ]]; then
+  awk -v path="$repo_config" -v line="$include_line" '
+    /^[[:blank:]]*Include[[:blank:]]*=/ {
+      value = $0
+      sub(/^[^=]*=[[:blank:]]*/, "", value)
+      sub(/[[:space:]]+$/, "", value)
+      if (value == path) next
+    }
+    !placed && /^[[:blank:]]*\[/ && !/^[[:blank:]]*\[options\]/ {print line "\n"; placed = 1}
+    {print}
+    END {if (!placed) print "\n" line}
+  ' "$pacman_config" > "$workdir/pacman.conf"
+  [[ $(pacman-conf --config "$workdir/pacman.conf" --repo-list | head -n 1) == "$repo" ]] ||
+    fail "无法将 [$repo] 放在 $pacman_config 的第一个仓库之前"
+  # 先在同一目录写入临时文件再整体替换，中途失败时 pacman.conf 保持原样。
+  config_file=$(readlink -f "$pacman_config")
+  staged=$(mktemp "$config_file.XXXXXX")
+  cat "$workdir/pacman.conf" > "$staged"
+  chmod --reference="$config_file" "$staged"
+  chown --reference="$config_file" "$staged"
+  mv -f "$staged" "$config_file"
 fi
 pacman -Syu --needed "$repo/winc"

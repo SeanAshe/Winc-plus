@@ -38,6 +38,8 @@ pub enum BranchOp {
     Rebase,
     /// 重命名（输入新名字），只用于本地分支。
     Rename,
+    /// 把分支名复制到剪贴板；当前分支和远程分支同样可用。
+    CopyName,
     /// 删除（先确认；未合并的再确认一次才强制删除）。
     Delete,
     /// 和当前分支比较：打开日志，列出从当前分支到它改了的文件。
@@ -45,12 +47,12 @@ pub enum BranchOp {
 }
 
 impl BranchOp {
-    /// 操作菜单的各组，顺序就是菜单里的顺序：切换和新建、比较、合到当前分支、删除。
+    /// 操作菜单的各组，顺序就是菜单里的顺序：切换和新建、比较、合到当前分支、重命名和复制、删除。
     const GROUPS: [&[BranchOp]; 4] = [
         &[BranchOp::Checkout, BranchOp::NewWorktree, BranchOp::NewFrom],
         &[BranchOp::Compare],
         &[BranchOp::Merge, BranchOp::Rebase],
-        &[BranchOp::Rename, BranchOp::Delete],
+        &[BranchOp::Rename, BranchOp::CopyName, BranchOp::Delete],
     ];
 
     /// 菜单里的文字：不写分支名。菜单是从这个分支的那一行弹出来的，另一边总是当前分支。
@@ -62,6 +64,7 @@ impl BranchOp {
             BranchOp::Merge => t!("git-branch-merge-into-current"),
             BranchOp::Rebase => t!("git-branch-rebase-current-onto"),
             BranchOp::Rename => t!("git-branch-rename"),
+            BranchOp::CopyName => t!("git-branch-copy-name"),
             BranchOp::Delete => t!("git-branch-delete"),
             BranchOp::Compare => t!("git-branch-compare-with-current"),
         }
@@ -77,6 +80,8 @@ pub enum TagOp {
     Merge,
     /// 推送到远程仓库。
     Push,
+    /// 把标签名复制到剪贴板。
+    CopyName,
     /// 删除本地标签（先确认）。
     Delete,
     /// 从远程仓库删除（先确认）。
@@ -85,10 +90,11 @@ pub enum TagOp {
 
 impl TagOp {
     /// 全部操作，顺序就是子菜单里的顺序。
-    pub const ALL: [TagOp; 5] = [
+    pub const ALL: [TagOp; 6] = [
         TagOp::NewBranch,
         TagOp::Merge,
         TagOp::Push,
+        TagOp::CopyName,
         TagOp::Delete,
         TagOp::DeleteRemote,
     ];
@@ -99,9 +105,15 @@ impl TagOp {
             TagOp::NewBranch => t!("git-tag-new-branch"),
             TagOp::Merge => t!("git-branch-merge-into-current"),
             TagOp::Push => t!("git-tag-push"),
+            TagOp::CopyName => t!("git-tag-copy-name"),
             TagOp::Delete => t!("git-tag-delete"),
             TagOp::DeleteRemote => t!("git-tag-delete-remote"),
         }
+    }
+
+    /// 是否修改仓库；修改仓库的操作在另一个 Git 操作运行时不可用。
+    pub fn changes_repository(self) -> bool {
+        self != TagOp::CopyName
     }
 }
 
@@ -279,9 +291,12 @@ pub(crate) fn branch_menu(
 }
 
 /// 分支选择器里第 `index` 个标签的操作菜单，和分支的菜单同样分组：签出和新建、合并到当前
-/// 分支、推送、删除，组之间有分隔线。
+/// 分支、推送、复制名字和删除，组之间有分隔线。
 pub(crate) fn tag_ops(index: usize, busy: bool) -> Vec<MenuEntry> {
-    let item = |op: Option<TagOp>| MenuEntry::Item(MenuCommand::PickerTag(op, index), !busy);
+    let item = |op: Option<TagOp>| {
+        let enabled = !busy || op.is_some_and(|op| !op.changes_repository());
+        MenuEntry::Item(MenuCommand::PickerTag(op, index), enabled)
+    };
     vec![
         item(None),
         item(Some(TagOp::NewBranch)),
@@ -290,6 +305,7 @@ pub(crate) fn tag_ops(index: usize, busy: bool) -> Vec<MenuEntry> {
         MenuEntry::Separator,
         item(Some(TagOp::Push)),
         MenuEntry::Separator,
+        item(Some(TagOp::CopyName)),
         item(Some(TagOp::Delete)),
         item(Some(TagOp::DeleteRemote)),
     ]
@@ -313,10 +329,9 @@ pub(crate) fn stash_menu(stashes: &[Stash], busy: bool) -> Vec<MenuEntry> {
 
 /// 分支选择器里第 `index` 个分支的操作菜单：按 `BranchOp::GROUPS` 分组，组之间有分隔线。
 ///
-/// `branches` 是本地分支在前、远程分支在后的列表，当前分支只能从它新建分支和重命名；`held` 是
-/// 被别的工作树
-/// 签出的本地分支，它们的「签出」是切到那个工作树，不能删除；`stale` 是被目录已经不在的工作树
-/// 占着的分支，git 仍然不允许签出、删除，要先清理。
+/// `branches` 是本地分支在前、远程分支在后的列表，当前分支只能从它新建分支、重命名和
+/// 复制名字；`held` 是被别的工作树签出的本地分支，它们的「签出」是切到那个工作树，不能
+/// 删除；`stale` 是被目录已经不在的工作树占着的分支，git 仍然不允许签出、删除，要先清理。
 pub(crate) fn branch_ops(
     index: usize,
     branches: &[Branch],
@@ -334,8 +349,11 @@ pub(crate) fn branch_ops(
             .iter()
             .copied()
             .filter(|op| match op {
-                // 当前分支不能签出、合并、变基、删除自己。
-                _ if branch.current => matches!(op, BranchOp::NewFrom | BranchOp::Rename),
+                // 当前分支只能从它新建分支、重命名和复制名字，不能签出、合并、变基、删除自己。
+                _ if branch.current => matches!(
+                    op,
+                    BranchOp::NewFrom | BranchOp::Rename | BranchOp::CopyName
+                ),
                 // 已经在其他工作树里签出着、又是当前分支（`origin/main` 在 `main` 上）：
                 // 不能再签出该分支。
                 BranchOp::NewWorktree => {
@@ -353,6 +371,8 @@ pub(crate) fn branch_ops(
                 let gone = stale.contains(&local_name(branch));
                 let enabled = match op {
                     BranchOp::Delete => !busy && !elsewhere && !gone,
+                    // 复制名字不改仓库，忙的时候也能点。
+                    BranchOp::CopyName => true,
                     BranchOp::Checkout if elsewhere => true,
                     BranchOp::Checkout if gone => false,
                     _ => !busy,
@@ -558,6 +578,10 @@ impl App {
                 move |git, root| git.operate(root, &["rebase", "--end-of-options", &name]),
             ),
             BranchOp::Rename => self.open_rename_prompt(name),
+            BranchOp::CopyName => {
+                self.flash(t!("git-branch-copied", name = name.as_str()));
+                self.set_clipboard(name, false);
+            }
             BranchOp::Delete => self.confirm_delete_branch(name),
             BranchOp::Compare => self.git_compare_branch(&name),
         }
@@ -856,7 +880,7 @@ impl App {
                     Err(e) => {
                         let what = done.what;
                         let message = t!("git-op-failed-in", name = name, what = &what, error = e);
-                        self.report_git_failure(&what, message);
+                        self.report_git_failure(Some(&root), &what, message);
                     }
                 }
                 continue;
@@ -892,7 +916,7 @@ impl App {
                 Err(e) => {
                     let what = done.what;
                     let message = t!("git-op-failed", what = &what, error = e);
-                    self.report_git_failure(&what, message);
+                    self.report_git_failure(done.root.as_deref(), &what, message);
                 }
             }
             // 切换分支、拉取、合并都会改工作区里的文件。

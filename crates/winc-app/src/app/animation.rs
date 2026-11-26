@@ -591,7 +591,8 @@ impl App {
             || self.http_animating()
             || ((self.git.branch.running.is_some()
                 || self.git.branch.finished.is_some()
-                || self.commit_refreshing())
+                || self.commit_refreshing()
+                || self.git.commit.generating.running())
                 && self.commit_shown())
     }
 }

@@ -125,9 +125,7 @@ impl Git {
     pub fn unstage(&self, root: &Path, paths: &[PathBuf]) -> Result<(), String> {
         self.require_trust(root)?;
         let cancel = Cancel::default();
-        let mut command = self.command(root);
-        command.args(["rev-parse", "--verify", "--quiet", "HEAD"]);
-        let born = self.run(&mut command, SHOW_TIMEOUT, &cancel).is_ok();
+        let born = self.born(root, &cancel);
         for batch in path_batches(root, paths) {
             let mut command = self.command(root);
             if born {
@@ -172,6 +170,13 @@ impl Git {
             added.extend(lines.map(|l| l[1..].to_owned()));
         }
         Ok(added)
+    }
+
+    /// 仓库是否已经有提交（`HEAD` 指向一个提交）。
+    pub(super) fn born(&self, root: &Path, cancel: &Cancel) -> bool {
+        let mut command = self.command(root);
+        command.args(["rev-parse", "--verify", "--quiet", "HEAD"]);
+        self.run(&mut command, SHOW_TIMEOUT, cancel).is_ok()
     }
 
     /// 读最近 `commits` 个提交：其他作者（`名字 <邮箱>`，按 `.mailmap` 归并，最近的在前，不重复，

@@ -282,16 +282,21 @@ fn draw_toolbar(app: &App, frame: &mut Frame<'_>, bar: Rect, hits: &mut Vec<(Rec
         p.separator,
     );
     // 右端自右向左，与差异标签的标题栏相同：合并差异视图（开着）、单栏与并排、折叠未更改的
-    // 行、下一处、上一处。
+    // 行、下一处、上一处。显示提交时没有合并差异视图的开关：该开关只用于未提交的更改。
     let y = bar.y + (bar.h - BUTTON) / 2.0;
     let mut right = bar.right() - 10.0;
-    for hit in [
+    let commit = app.combined_commit();
+    let buttons = [
         CombinedHit::View,
         CombinedHit::Layout,
         CombinedHit::Collapse,
         CombinedHit::Next,
         CombinedHit::Previous,
-    ] {
+    ];
+    for hit in buttons
+        .into_iter()
+        .filter(|&hit| hit != CombinedHit::View || commit.is_none())
+    {
         let rect = Rect::new(right - BUTTON, y, BUTTON, BUTTON);
         right = rect.x - 2.0;
         let hovered = app.pointer.hover == Hover::Combined(hit);
@@ -317,9 +322,12 @@ fn draw_toolbar(app: &App, frame: &mut Frame<'_>, bar: Rect, hits: &mut Vec<(Rec
         .iter()
         .filter_map(Section::stats)
         .fold((0, 0), |(a, r), (x, y)| (a + x, r + y));
-    // 标签上已经写着「未提交的更改」，这里只写文件数和增删行数（为 0 的不写），与段头的箭头
-    // 左对齐。
-    let files = t!("git-combined-files", count = sections.len());
+    // 标签上已经写着「未提交的更改」或提交，这里只写文件数和增删行数（为 0 的不写），与段头的
+    // 箭头左对齐。
+    let files = match commit {
+        Some(commit) if commit.loading => t!("git-log-details-loading-files").to_owned(),
+        _ => t!("git-combined-files", count = sections.len()),
+    };
     let mut x = ui_text(frame, app, bar.x + 10.0, bar, &files, p.text, bar) + 10.0;
     let counts = [
         (added, format!("+{added}"), p.git_added),

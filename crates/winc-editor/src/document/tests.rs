@@ -903,11 +903,15 @@ fn unchanged_lines_are_only_known_across_plain_edits() {
     }
     assert_eq!(d.unchanged_lines_since(start), 1);
     assert_eq!(d.unchanged_lines_since(d.revision - 1), 2);
+    // 第 1 行的开头是第 2 个字符；之后在第 2 行输入，开头未变的字符仍按最靠前的一处计算。
+    assert_eq!(d.unchanged_chars_since(start), 2);
+    assert_eq!(d.unchanged_chars_since(d.revision), usize::MAX);
     // 切换语言同样使版本号递增，但不属于编辑，无法确定哪些行未改变。
     let before = d.revision;
     d.set_language("a.py");
     assert_eq!(d.unchanged_lines_since(before), 0);
     assert_eq!(d.unchanged_lines_since(start), 0);
+    assert_eq!(d.unchanged_chars_since(start), 0);
 }
 
 #[test]

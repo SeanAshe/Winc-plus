@@ -40,10 +40,15 @@ pub(in crate::view) fn draw_selection_toolbar(app: &mut App, frame: &mut Frame<'
     let (left, n) = (laid.left, Tool::ALL.len() as f32);
     let w = n * BUTTON + (n + 1.0) * GAP + groups * (SEPARATOR + GAP);
     let h = BUTTON + GAP * 2.0;
-    let x = if (start.1 - end.1).abs() < 0.5 {
-        left + (start.0 + end.0) / 2.0 - w / 2.0
-    } else {
-        left + start.0
+    let fixed = app
+        .preview
+        .markdown
+        .toolbar
+        .and_then(|toolbar| toolbar.left);
+    let x = match fixed {
+        Some(x) => left + x,
+        None if (start.1 - end.1).abs() < 0.5 => left + (start.0 + end.0) / 2.0 - w / 2.0,
+        None => left + start.0,
     };
     let x = x.min(area.right() - w - 8.0).max(area.x + 8.0).round();
     let above = top + start.1 - OFFSET - h;

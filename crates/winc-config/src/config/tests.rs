@@ -438,6 +438,12 @@ fn round_trips_through_json() {
         ]
         .into(),
         git_worktree_copy: vec![".env*".to_string(), "config/local.toml".to_string()],
+        git_generate_commit_message: Some(true),
+        ai_protocol: Some(AiProtocol::Messages),
+        ai_base_url: Some("http://localhost:11434/v1".to_string()),
+        ai_model: Some("qwen3".to_string()),
+        ai_api_key: Some("sk-test".to_string()),
+        ai_timeout: Some(120),
         format_on_save: Some(false),
         format_on_save_exclude: vec!["markdown".to_string(), "yaml".to_string()],
         format_commands: BTreeMap::from([(
@@ -887,4 +893,33 @@ fn a_setting_can_be_checked_and_unset_by_name() {
     let mut same = config.clone();
     same.unset("editor.wordWrap");
     assert_eq!(same, config);
+}
+
+/// 写有接口密钥的配置文件只有本人可以读写；没有密钥时保持原有的权限。
+#[cfg(unix)]
+#[test]
+fn a_config_with_an_api_key_is_private() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = std::env::temp_dir().join(format!("winc-config-key-{}", std::process::id()));
+    let path = dir.join("config.json");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(&path, "{}").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let mode = |path: &Path| std::fs::metadata(path).unwrap().permissions().mode() & 0o777;
+
+    let plain = Config {
+        tab_width: Some(2),
+        ..Config::default()
+    };
+    plain.save_to(&path, &Config::default()).unwrap();
+    assert_eq!(mode(&path), 0o644);
+    let keyed = Config {
+        ai_api_key: Some("sk-test".into()),
+        ..plain.clone()
+    };
+    keyed.save_to(&path, &plain).unwrap();
+    assert_eq!(mode(&path), 0o600);
+    let _ = std::fs::remove_dir_all(&dir);
 }

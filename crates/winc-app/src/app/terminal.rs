@@ -13,6 +13,7 @@ pub(crate) mod groups;
 mod helper;
 mod keys;
 pub(crate) mod link;
+pub(crate) mod local_paste;
 mod locate;
 mod pointer;
 pub(crate) mod run;

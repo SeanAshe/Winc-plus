@@ -393,6 +393,7 @@ workspace-recent-project-tag = 项目
 workspace-recent-project = { $name }（项目）
 workspace-project-file-opened = 「{ $name }」是项目文件
 workspace-notice-open-project = 打开项目
+workspace-notice-trust-repository = 信任此仓库…
 workspace-title-unsaved = { $name }（未保存）
 workspace-project-read-failed = 无法打开项目「{ $name }」：{ $error }
 workspace-project-invalid = 「{ $name }」不是有效的项目文件

@@ -1198,8 +1198,13 @@ fn an_unread_stream_stops_at_the_window_and_resumes_when_read() {
         let text = std::fs::read_to_string(dir.join("progress")).unwrap_or_default();
         text.trim().parse::<usize>().unwrap_or(0)
     };
-    // 等进度停下来：连续 300 毫秒没有变化。
+    // 先等命令开始输出，再等进度停下来：连续 300 毫秒没有变化。
+    // 命令尚未启动时进度同样不变，不能算作停下。
     let deadline = Instant::now() + Duration::from_secs(30);
+    while progress() == 0 {
+        assert!(Instant::now() < deadline, "命令没有开始输出");
+        std::thread::sleep(Duration::from_millis(20));
+    }
     let mut seen = (progress(), Instant::now());
     while seen.1.elapsed() < Duration::from_millis(300) {
         assert!(Instant::now() < deadline, "命令没有停下：{}", seen.0);

@@ -548,6 +548,31 @@ impl Item {
             color,
         }
     }
+
+    /// 将该项记下的原文位置（相对顶层块，来自解析结果）按 `drift` 换算为当前文字中的位置。
+    ///
+    /// 一段文字只记起点，其中各字的位置按起点依次推算：改动位于一段文字中间时，改动之后的字
+    /// 有偏差，重新解析后恢复准确。
+    pub(crate) fn shift_source(&mut self, drift: Drift) {
+        let shift = |at: &mut u32| {
+            *at = u32::try_from(drift.moved(*at as usize)).unwrap_or(u32::MAX);
+        };
+        match self {
+            Item::Text {
+                span: Some(span), ..
+            } => {
+                if let Some(src) = &mut span.source {
+                    shift(src);
+                }
+            }
+            Item::Image {
+                at: Some((_, src)), ..
+            }
+            | Item::Spot { at: (_, src), .. } => shift(src),
+            Item::Check { source, .. } if *source != u32::MAX => shift(source),
+            _ => {}
+        }
+    }
 }
 
 /// 排版用到的颜色，由配色推出来，换主题时跟着变。
@@ -656,18 +681,69 @@ pub struct Cx<'a, 'f> {
     pub bleed: (f32, f32),
 }
 
+/// 解析之后的改动：解析结果中的原文位置换算为当前文字中的位置（字节偏移）。
+///
+/// 改动都从 `from` 起，其后的文字共移动 `delta` 个字节，之前的位置不变。重新解析之前在多处
+/// 输入时，两处之间的位置按全部改动换算，有偏差；重新解析后位置恢复准确。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Drift {
+    /// 第一处改动的位置。
+    pub from: usize,
+    /// 改动后文字长度的变化。
+    pub delta: isize,
+}
+
+impl Drift {
+    /// 解析之后没有改动。
+    pub const NONE: Drift = Drift {
+        from: usize::MAX,
+        delta: 0,
+    };
+
+    /// 返回解析结果中一个字或一段范围的终点 `at` 在当前文字中的位置。
+    ///
+    /// 位于 `from` 处的字排在插入的文字之后；删去的文字中的位置落在 `from`。
+    pub fn moved(self, at: usize) -> usize {
+        if at < self.from {
+            at
+        } else {
+            at.saturating_add_signed(self.delta).max(self.from)
+        }
+    }
+
+    /// 返回解析结果中一段范围的起点 `at` 在当前文字中的位置：在起点处插入的文字属于该范围。
+    pub fn moved_start(self, at: usize) -> usize {
+        if at <= self.from { at } else { self.moved(at) }
+    }
+
+    /// 返回相对起点为 `start` 的一段原文的改动。
+    ///
+    /// 起点位于改动之后时整段一起移动，段内的相对位置不变。
+    pub fn within(self, start: usize) -> Drift {
+        match self.from.checked_sub(start) {
+            Some(from) if self.delta != 0 => Drift {
+                from,
+                delta: self.delta,
+            },
+            _ => Drift::NONE,
+        }
+    }
+}
+
 /// 可编辑的预览中光标所在的叶子块：不排版，显示原文。
 pub struct Raw {
     /// 所在顶层块现在的原文（从块的起点起，含解析之后的修改）。
     pub block: Arc<str>,
     /// 叶子块在 `block` 中的范围。
     pub leaf: std::ops::Range<usize>,
-    /// 叶子块在解析结果中的终点（相对顶层块）。
+    /// 叶子块不含其后空行时的终点（相对顶层块，按当前文字）。
     ///
-    /// 块里记下的原文位置来自解析结果；输入之后、重新解析之前，`leaf` 的终点已按新增的字节
-    /// 后移，其后的块仍是旧的位置。判断块是否属于该叶子块时与这个终点比较，其后的块不会落入
-    /// 叶子块而被跳过。
+    /// 光标位于叶子块之后的空行上时，`leaf` 延伸到光标所在行；判断块是否属于该叶子块时与该
+    /// 终点比较，空行生成的空段落不落入叶子块。
     pub parsed_end: usize,
+    /// 顶层块内解析之后的改动（相对顶层块）：块里记下的原文位置来自解析结果，据此换算为当前
+    /// 文字中的位置。
+    pub drift: Drift,
     /// 已经显示过：同一个叶子块里排出的其余块（HTML 块里的几段、表格的其余单元格）不再显示。
     pub done: bool,
     /// 光标在 `block` 中的位置：表格只把光标所在的单元格显示为原文。
@@ -693,12 +769,13 @@ pub enum RawKind {
 }
 
 impl Raw {
-    /// 光标位于 `block` 的 `caret` 处，所在的叶子块为 `leaf`，在解析结果中的终点为
-    /// `parsed_end`；`prose` 表示正文。
+    /// 光标位于 `block` 的 `caret` 处，所在的叶子块为 `leaf`，不含其后空行时的终点为
+    /// `parsed_end`，解析之后的改动为 `drift`；`prose` 表示正文。
     pub fn new(
         block: Arc<str>,
         leaf: std::ops::Range<usize>,
         parsed_end: usize,
+        drift: Drift,
         caret: usize,
         prose: bool,
         preedit: Option<Arc<str>>,
@@ -706,6 +783,7 @@ impl Raw {
         let mut raw = Raw {
             block,
             parsed_end: parsed_end.max(leaf.start),
+            drift,
             leaf,
             done: false,
             caret,
@@ -761,6 +839,16 @@ enum RawState {
 fn is_fence(line: &str) -> bool {
     let line = line.trim();
     ["```", "~~~", "$$"].iter().any(|f| line.starts_with(f))
+}
+
+/// 返回围栏代码块原文 `text` 中两行围栏之间的代码；还没有结尾围栏时到末尾为止。
+fn fenced_code(text: &str) -> &str {
+    let body = text.split_once('\n').map_or("", |(_, body)| body);
+    match body.rsplit_once('\n') {
+        Some((code, last)) if is_fence(last) => code,
+        None if is_fence(body) => "",
+        _ => body,
+    }
 }
 
 /// 返回光标位于叶子块内容之后的空行上时需要排版的空行（原文起点，相对顶层块）。
@@ -912,11 +1000,22 @@ impl Cx<'_, '_> {
             RawState::Rule => return self.raw_rule(x, y, width, out),
         }
         let para = self.body_para(env);
+        // 叶子块按解析结果排出，原文位置换算到当前文字中；容器中的各块在各自排版时换算，表格
+        // 逐格换算（光标所在的单元格按当前文字排出）。
+        let drift = match block {
+            Block::Quote(..)
+            | Block::List(..)
+            | Block::Table(..)
+            | Block::Footnote(..)
+            | Block::Details { .. } => Drift::NONE,
+            _ => self.drift(),
+        };
+        let first_item = out.items.len();
         if let Block::Paragraph(inline) | Block::Heading(_, inline) = block {
             out.anchors
                 .extend(inline.ids.iter().map(|id| (id.clone(), y)));
         }
-        match block {
+        let flow = match block {
             Block::Paragraph(inline) => self.flow(inline, x, y, width, para, &mut out.items),
             Block::Heading(level, inline) => self.heading(*level, inline, x, y, width, env, out),
             Block::Code { lang, text, map } => {
@@ -989,7 +1088,13 @@ impl Cx<'_, '_> {
                 let id = self.toggle_id(details_id(block));
                 self.details(id, *open, summary, blocks, x, y, width, env, out)
             }
+        };
+        if drift != Drift::NONE {
+            for item in &mut out.items[first_item..] {
+                item.shift_source(drift);
+            }
         }
+        flow
     }
 
     /// 块文字（[`Cx::text`]）里一段（段落、单元格、代码的一行）结束：接一个换行。
@@ -1119,7 +1224,8 @@ impl Cx<'_, '_> {
                             size,
                         ),
                         checked,
-                        source: u32::try_from(item.task_source).unwrap_or(u32::MAX),
+                        source: u32::try_from(self.drift().moved(item.task_source))
+                            .unwrap_or(u32::MAX),
                     });
                 }
                 (None, Some(start)) => {

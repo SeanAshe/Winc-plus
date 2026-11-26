@@ -11,7 +11,7 @@ mod tools;
 
 pub use crate::tools::shell::Cancel;
 pub use install::{guide as install_guide, knows as knows_how_to_install};
-pub use tools::{Auto, PRESETS, Preset, presets, presets_for};
+pub use tools::{Auto, PRESETS, Preset, Survey, presets, presets_for};
 
 use std::borrow::Cow;
 use std::ffi::OsString;
@@ -40,7 +40,7 @@ const ESLINT_DRY_RUN: &str = "--fix-dry-run";
 /// 外部工具执行的任务。
 ///
 /// 两种任务的输出都会替换文档内容，区别在于工具是否会改动程序的行为。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Task {
     /// 只改排版，不改变程序行为。
     Format,
@@ -164,7 +164,7 @@ pub enum Program {
 
 /// 格式化一个文件要运行的命令计划。
 ///
-/// 在界面线程上确定（只检查文件是否存在），在后台线程里运行。
+/// 确定计划要逐级检查项目中的文件，与运行一样在后台线程上进行。
 #[derive(Debug, Clone)]
 pub struct Plan {
     /// 拆分后的命令参数，占位符尚未替换；第一个是程序。
@@ -194,6 +194,7 @@ impl Plan {
     /// 为格式化 `file` 创建计划：使用 `configured`（设置里写的命令），没有写则自动选择工具。
     ///
     /// `root` 是打开的目录，命令中的相对路径从该目录起算。
+    /// 逐级检查项目中的文件，应在后台线程调用。
     ///
     /// # Errors
     ///
@@ -219,52 +220,13 @@ impl Plan {
         root: Option<&Path>,
         configured: Option<&str>,
     ) -> Result<Plan, FormatError> {
-        if language.id == "text" {
-            return Err(FormatError::Unavailable(
-                t!("format-unknown-language").to_owned(),
-            ));
-        }
-        let dir = file.parent().unwrap_or(Path::new("/"));
-        let (command, auto, guesses) = match configured {
-            Some(command) => (command, None, Vec::new()),
-            None => match tools::detect(task, language.id, dir) {
-                Detected::Preset(preset, reason) => {
-                    (preset.command, Some((preset.name, reason)), Vec::new())
-                }
-                Detected::Installed(presets) => {
-                    // `detect` 只在候选列表非空时返回 `Installed`。
-                    (presets[0].command, Some((presets[0].name, None)), presets)
-                }
-                Detected::NoSign(presets) => {
-                    let names: Vec<&str> = presets.iter().map(|p| p.name).collect();
-                    let names = names.join(t!("format-tool-list-separator"));
-                    let language = language.name;
-                    let message = t!(
-                        "format-no-fixer-configured",
-                        language = language,
-                        names = names
-                    );
-                    return Err(FormatError::Unset(message));
-                }
-                Detected::NoPreset => {
-                    let (language, task) = (language.name, task.key());
-                    let message = t!("format-no-auto-tool", language = language, task = task);
-                    return Err(FormatError::Unset(message));
-                }
-            },
-        };
-        let mut plan = Plan::with_command(command, auto, file, root)?;
-        plan.language = language.name;
-        plan.task = task;
-        if !guesses.is_empty() {
-            // `with_command` 已确认命令至少有一个参数。
-            plan.program = Program::Search(plan.args[0].clone());
-            plan.guesses = guesses;
-        }
-        Ok(plan)
+        Survey::default().plan(task, language, file, root, configured)
     }
 
     /// 用 `command` 创建格式化 `file` 的计划。
+    ///
+    /// 命令中的程序只写了名字时，给出 `survey` 则先在项目中查找（见 `tools::find_in_project`），
+    /// 否则在 `PATH` 中查找。
     ///
     /// # Errors
     ///
@@ -274,6 +236,7 @@ impl Plan {
         auto: Option<(&'static str, Option<String>)>,
         file: &Path,
         root: Option<&Path>,
+        survey: Option<&mut Survey>,
     ) -> Result<Plan, FormatError> {
         let dir = file.parent().unwrap_or(Path::new("/"));
         let home = std::env::var_os("HOME").map(PathBuf::from);
@@ -294,7 +257,7 @@ impl Plan {
                 }
             }
         } else {
-            match tools::find_in_project(name, dir) {
+            match survey.and_then(|survey| tools::find_in_project(survey, name, dir)) {
                 Some((path, folder)) => Program::Project {
                     path,
                     folder,
@@ -338,10 +301,9 @@ impl Plan {
             if installed(preset.program())? {
                 // 预设的命令都是预先写好的，一定能拆分。使用系统中安装的程序，不去项目里找
                 // （项目自带的程序运行前必须先询问用户）。
+                let auto = Some((preset.name, None));
                 let mut plan =
-                    Plan::with_command(preset.command, Some((preset.name, None)), &self.file, None)
-                        .ok()?;
-                plan.program = Program::Search(preset.program().to_owned());
+                    Plan::with_command(preset.command, auto, &self.file, None, None).ok()?;
                 plan.range = self.range.clone();
                 plan.language = self.language;
                 plan.task = self.task;
@@ -433,6 +395,66 @@ impl Plan {
     /// 是则工具会读取磁盘上的文件，而不是编辑器里的内容。
     pub fn reads_file_from_disk(command: &str) -> bool {
         passes_file(&command::split(command, None).unwrap_or_default())
+    }
+}
+
+impl Survey {
+    /// 与 [`Plan::for_task`] 相同，但查询过的项目文件记在本实例中，之后的选择不重复询问。
+    ///
+    /// 为多种语言或多个文件选择工具时使用同一个实例。逐级检查项目中的文件，应在后台线程调用。
+    ///
+    /// # Errors
+    ///
+    /// 与 [`Plan::new`] 相同。
+    pub fn plan(
+        &mut self,
+        task: Task,
+        language: &Language,
+        file: &Path,
+        root: Option<&Path>,
+        configured: Option<&str>,
+    ) -> Result<Plan, FormatError> {
+        if language.id == "text" {
+            return Err(FormatError::Unavailable(
+                t!("format-unknown-language").to_owned(),
+            ));
+        }
+        let dir = file.parent().unwrap_or(Path::new("/"));
+        let (command, auto, guesses) = match configured {
+            Some(command) => (command, None, Vec::new()),
+            None => match tools::detect(self, task, language.id, dir) {
+                Detected::Preset(preset, reason) => {
+                    (preset.command, Some((preset.name, reason)), Vec::new())
+                }
+                Detected::Installed(presets) => {
+                    // `detect` 只在候选列表非空时返回 `Installed`。
+                    (presets[0].command, Some((presets[0].name, None)), presets)
+                }
+                Detected::NoSign(presets) => {
+                    let names: Vec<&str> = presets.iter().map(|p| p.name).collect();
+                    let names = names.join(t!("format-tool-list-separator"));
+                    let language = language.name;
+                    let message = t!(
+                        "format-no-fixer-configured",
+                        language = language,
+                        names = names
+                    );
+                    return Err(FormatError::Unset(message));
+                }
+                Detected::NoPreset => {
+                    let (language, task) = (language.name, task.key());
+                    let message = t!("format-no-auto-tool", language = language, task = task);
+                    return Err(FormatError::Unset(message));
+                }
+            },
+        };
+        // 运行前才确定工具时，使用系统中安装的程序，不在项目中查找（见 `Plan::settle`）。
+        let survey = guesses.is_empty().then_some(self);
+        let mut plan = Plan::with_command(command, auto, file, root, survey)?;
+        plan.language = language.name;
+        plan.task = task;
+        plan.guesses = guesses;
+        Ok(plan)
     }
 }
 
@@ -602,9 +624,9 @@ impl Formatter {
 
     /// 返回 `program` 是否已安装；不知道时返回 `None`。
     ///
-    /// 按 `PATH` 的清单判断（见 [`Shell::peek`]），不逐个目录探测，不运行别的程序，也不等待，
-    /// 因此可以在界面线程上调用（设置页使用）。尚未取到用户 shell 的 `PATH`，或需要先通过
-    /// xcrun 查询才能确定的，都算不知道。
+    /// [`Program::Search`] 按 `PATH` 的清单判断（见 [`Shell::peek`]），不逐个目录探测，不运行
+    /// 别的程序，也不等待，可以在界面线程上调用；尚未取到用户 shell 的 `PATH`，或需要先通过
+    /// xcrun 查询才能确定的，都算不知道。其余程序要检查文件，应在后台线程调用。
     pub fn installed(&self, program: &Program) -> Option<bool> {
         let Program::Search(name) = program else {
             return Some(self.locate(program).is_some());

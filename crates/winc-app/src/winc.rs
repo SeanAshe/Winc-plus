@@ -773,14 +773,15 @@ impl Winc {
             return;
         }
         // 不带目标再次启动：macOS 上切到当前窗口，与点击程序坞图标相同；其他系统上新建窗口。
-        if launch.targets.is_empty() && !cfg!(target_os = "macos") {
+        let empty = launch.targets.is_empty() && launch.diffs.is_empty();
+        if empty && !cfg!(target_os = "macos") {
             self.new_window(event_loop, None, launch.token, true);
             if let Some(app) = self.active_key().and_then(|key| self.by_key(key)) {
                 app.raise();
             }
             return;
         }
-        self.open_targets(event_loop, &launch.targets, launch.token);
+        self.open_targets(event_loop, &launch.targets, &launch.diffs, launch.token);
     }
 
     /// 系统交来了要打开的 `targets`（拖到程序坞的图标上、文件管理器里的「打开方式」、`winc://`
@@ -795,23 +796,31 @@ impl Winc {
             path: crate::instance::absolute(&target.path),
             ..target.clone()
         });
-        self.open_targets(event_loop, &targets.collect::<Vec<_>>(), None);
+        self.open_targets(event_loop, &targets.collect::<Vec<_>>(), &[], None);
     }
 
-    /// 把 `targets` 开在合适的窗口里（窗口见 [`Self::window_for`]），并把它切到前台。
+    /// 把 `targets` 和要比较的文件 `diffs` 开在合适的窗口里（窗口见 [`Self::window_for`]，要比较
+    /// 的文件按右侧的文件选窗口），并把该窗口切到前台。
     ///
     /// `token` 是新启动的 winc 交来的激活令牌（见 [`App::set_activation`]）。
     fn open_targets(
         &mut self,
         event_loop: &ActiveEventLoop,
         targets: &[Target],
+        diffs: &[crate::cli::Diff],
         mut token: Option<String>,
     ) {
         if let Some(open) = crate::cli::remote_open(targets) {
             self.open_remote(event_loop, open, token);
             return;
         }
-        let key = match self.window_for(targets) {
+        let rights = diffs.iter().map(|diff| Target {
+            path: diff.right.clone(),
+            line: None,
+            col: None,
+        });
+        let chosen: Vec<Target> = targets.iter().cloned().chain(rights).collect();
+        let key = match self.window_for(&chosen) {
             Ok(key) => key,
             Err(folder) => {
                 self.new_window(event_loop, folder, token.take(), true);
@@ -825,6 +834,7 @@ impl Winc {
         if let Some(app) = self.by_key(key) {
             app.set_activation(token);
             app.open_files(targets);
+            app.open_diffs(diffs);
         }
     }
 

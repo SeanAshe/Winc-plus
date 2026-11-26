@@ -1,13 +1,10 @@
-//! 「未提交的更改」标签：提交视图列出的全部更改按文件依次排进一个标签，可以从头滚到尾。
+//! 合并差异标签：「未提交的更改」或一个提交（见 `commit`）的全部更改按文件依次排成一段段。
+//! 每段是段头（路径、状态、增删行数）和该文件的差异，比较的内容与单独打开时相同（[`DiffKind`]），
+//! 暂存区视图中同一文件在「暂存的更改」「更改」各成一段；功能同差异标签：编辑、暂存、「»」、
+//! 查找、换行、逐行追溯、单栏与并排。
 //!
-//! 每个文件一段：段头（路径、状态、增删行数）和这个文件的差异。比较的内容与在提交视图中单独
-//! 打开它相同（[`DiffKind`]）：暂存区视图中同一个文件在「暂存的更改」「更改」两组里各成一段。
-//! 各段与差异标签功能相同：编辑、按块和按行暂存、「»」、查找、换行、逐行追溯、单栏与并排。
-//!
-//! 段头先列出来，各段在后台比较，看得见的先比较；Git 状态刷新、编辑器中的文件有了新的修改时
-//! 重新比较，正在看的位置不动。
-//!
-//! 绘制和鼠标操作沿用差异标签：把一段的差异临时换进标签（[`App::with_combined_section`]）。
+//! 各段在后台比较，可见的先比较；未提交的更改随 Git 状态和编辑器中的修改重新比较，正在看的
+//! 位置不动。绘制和鼠标操作把一段的差异临时换进标签（[`App::with_combined_section`]）。
 
 use std::sync::mpsc::{Receiver, Sender, channel};
 
@@ -27,7 +24,11 @@ use winc_render::Rect;
 use winit::event::MouseButton;
 
 mod blame;
+mod commit;
 mod find;
+
+use commit::Arrival;
+pub(crate) use commit::Source;
 
 use find::FindText;
 
@@ -57,6 +58,8 @@ pub(crate) struct Section {
     pub(crate) id: u32,
     /// 文件的路径。
     pub(crate) path: PathBuf,
+    /// 改名前的路径：只在显示提交、且该文件改过名时才有。
+    from: Option<PathBuf>,
     /// 比较的两份内容。
     pub(crate) kind: DiffKind,
     /// 段头上显示的状态，与提交视图中这一行的字母相同。
@@ -137,8 +140,10 @@ pub(crate) struct CombinedTab {
     pub(crate) sections: Vec<Section>,
     /// 上一次列段时 `HEAD` 的提交号：变了时左侧的内容都变了，全部重新比较。
     oid: Option<String>,
-    /// 后台比较的结果。
-    results: (Sender<Compared>, Receiver<Compared>),
+    /// 显示的内容：未提交的更改，或者一个提交。
+    pub(crate) source: Source,
+    /// 后台交回的结果。
+    results: (Sender<Arrival>, Receiver<Arrival>),
     /// 正在把段交给后台（见 [`App::pump_combined`]）。
     pumping: bool,
     /// 最近一次跳到的更改开头的位置（显示行），以及跳过去以后的滚动位置。
@@ -431,7 +436,12 @@ impl App {
             return;
         }
         match self.combined_index() {
-            Some(index) => self.activate_tab(index),
+            Some(index) if self.combined_commit().is_none() => self.activate_tab(index),
+            // 正在显示一个提交：换回未提交的更改。
+            Some(index) => {
+                self.activate_tab(index);
+                self.start_combined_in(index);
+            }
             None => {
                 let preview = (self.git.commit.preview)
                     .and_then(|id| self.editor.documents.iter().position(|d| d.id == id));
@@ -460,11 +470,14 @@ impl App {
         let id = doc.id;
         doc.diff = None;
         self.git.diff_tabs.remove(&id);
+        // 各段的编号从头开始：此前按编号记下的逐行追溯不再适用。
+        self.git.blame.forget(id);
         self.git.commit.preview = Some(id);
         self.git.combined = Some(CombinedTab {
             doc: id,
             sections: Vec::new(),
             oid: None,
+            source: Source::Changes,
             results: channel(),
             pumping: false,
             focus: None,
@@ -486,12 +499,14 @@ impl App {
         let Some(index) = self.combined_index() else {
             return;
         };
-        let title = (self.combined_anchor())
-            .and_then(|(i, _)| self.combined_tab()?.sections.get(i))
-            .map_or_else(
-                || t!("git-combined-title").to_owned(),
-                |s| super::diffs::diff_title(&s.path, s.kind),
-            );
+        let title = self.commit_title().unwrap_or_else(|| {
+            (self.combined_anchor())
+                .and_then(|(i, _)| self.combined_tab()?.sections.get(i))
+                .map_or_else(
+                    || t!("git-combined-title").to_owned(),
+                    |s| super::diffs::diff_title(&s.path, s.kind),
+                )
+        });
         let doc = &mut self.editor.documents[index];
         if doc.title.as_deref() != Some(title.as_str()) {
             doc.title = Some(title);
@@ -532,7 +547,11 @@ impl App {
         if self.git.combined.is_some() && self.combined_index().is_none() {
             self.git.combined = None;
         }
-        if self.git.combined.is_none() {
+        // 显示提交时内容不随工作区变化。
+        if self
+            .combined_tab()
+            .is_none_or(|t| t.source != Source::Changes)
+        {
             return;
         }
         let anchor = self.combined_anchor();
@@ -592,6 +611,7 @@ impl App {
                         tab.next_id
                     },
                     path,
+                    from: None,
                     kind,
                     change,
                     body: Body::Waiting,
@@ -744,6 +764,12 @@ impl App {
 
     /// 在后台比较第 `i` 段；结果由 [`Self::poll_combined`] 收下。
     fn compare_section(&mut self, i: usize) {
+        if self
+            .combined_tab()
+            .is_some_and(|t| t.source.commit().is_some())
+        {
+            return self.compare_commit_section(i);
+        }
         let (Some(root), Some(tab)) = (self.git.root.clone(), self.combined_tab()) else {
             return;
         };
@@ -779,32 +805,41 @@ impl App {
                 Ok(git) => prepare(git, &root, &path, snapshot, oid.as_deref(), kind, &links),
                 Err(e) => Err(unusable(e)),
             };
-            let _ = sender.send(Compared {
+            let _ = sender.send(Arrival::Compared(Compared {
                 root,
                 path,
                 kind,
                 revision,
                 stamp,
                 view,
-            });
+            }));
         });
     }
 
     /// 收下后台比较完的段：换上新的内容（已经展开的未改动内容保持展开），视口顶边的内容不动；
     /// 再交下一批给后台。
     pub(in crate::app) fn poll_combined(&mut self) {
-        let mut done = Vec::new();
+        let (mut done, mut other) = (Vec::new(), Vec::new());
         if let Some(tab) = self.combined_tab() {
-            while let Ok(compared) = tab.results.1.try_recv() {
-                done.push(compared);
+            while let Ok(arrival) = tab.results.1.try_recv() {
+                match arrival {
+                    Arrival::Compared(compared) => done.push(compared),
+                    arrival => other.push(arrival),
+                }
             }
         }
+        self.commit_arrived(other);
         if done.is_empty() {
             return;
         }
         let anchor = self.combined_anchor();
+        // 显示提交时按提交所在的仓库核对，其余按当前仓库。
+        let root = match self.combined_commit() {
+            Some(commit) => Some(commit.root.clone()),
+            None => self.git.root.clone(),
+        };
         for compared in done {
-            if self.git.root.as_deref() != Some(compared.root.as_path()) {
+            if root.as_deref() != Some(compared.root.as_path()) {
                 continue;
             }
             let Some(tab) = self.git.combined.as_mut() else {
@@ -1050,7 +1085,7 @@ impl App {
             self.open_combined(Some((path, kind)));
             return;
         }
-        if !self.combined_active() {
+        if !self.combined_active() || self.combined_commit().is_some() {
             return;
         }
         let Some((i, offset)) = self.combined_anchor() else {
@@ -1170,6 +1205,9 @@ impl App {
 
     /// 在单独的差异标签中打开第 `i` 段（段头上的按钮）：可以在那里编辑、按块暂存和逐行追溯。
     pub(in crate::app) fn open_combined_diff(&mut self, i: usize) {
+        if self.combined_commit().is_some() {
+            return self.open_commit_section(i);
+        }
         let Some(section) = self.combined_tab().and_then(|t| t.sections.get(i)) else {
             return;
         };

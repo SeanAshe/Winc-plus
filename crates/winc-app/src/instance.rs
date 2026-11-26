@@ -1,10 +1,10 @@
-//! 单实例转交：新启动的进程把要打开的目录和文件交给已在运行的 winc，随即退出。
+//! 单实例转交：新启动的进程把要打开的目录、文件和要比较的文件转交已在运行的 winc，随即退出。
 //!
 //! 已在运行的 winc 持有 [`AppLock`]（每个用户只有一个），等待连接的位置由 `app_socket_path`
 //! 或 `app_pipe_name` 决定，后者只在 Windows 上使用。Unix 套接字放在只有当前用户能创建的目录中，
 //! 命名管道拒绝来自其他主机的连接。消息格式为一行版本号，第 2 版在其后另有一行激活令牌（见
-//! [`LaunchTokens`]），之后每三个（路径、行、列）一组：路径、行号、列号各占一个以 NUL 结尾的
-//! 字段。没有激活令牌时发送第 1 版消息。
+//! [`LaunchTokens`]），第 3 版另带要比较的文件，格式见 [`encode`]。没有激活令牌、也没有要比较的
+//! 文件时发送第 1 版消息。
 //!
 //! 持有 [`AppLock`] 的进程正在退出时回 `busy`，连接失败时新进程自己打开目标。
 
@@ -15,18 +15,22 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::cli::Target;
+use crate::cli::{Diff, Target};
 
 /// 消息的第一行：协议名和版本。第 1 版不带激活令牌。
 const HELLO: &str = "winc-open 1\n";
 /// 带激活令牌的消息（第 2 版）的第一行，下一行是令牌。
 const HELLO_TOKEN: &str = "winc-open 2\n";
+/// 带要比较的文件的消息（第 3 版）的第一行，下一行是令牌（没有时为空行）。
+const HELLO_DIFF: &str = "winc-open 3\n";
 
 /// 新启动的 winc 交来的内容。
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Launch {
-    /// 要打开的目录和文件；为空时把当前窗口切到前台。
+    /// 要打开的目录和文件；与 `diffs` 都为空时把当前窗口切到前台。
     pub targets: Vec<Target>,
+    /// 要比较的文件（`--diff`）。
+    pub diffs: Vec<Diff>,
     /// 新进程收到的激活令牌（见 [`LaunchTokens`]）；没有时为 `None`。
     pub token: Option<String>,
 }
@@ -165,46 +169,67 @@ fn create_private_dir(dir: &Path) {
 fn private_dir(dir: &Path) -> bool {
     dir.is_dir()
 }
-/// 把目标 `targets` 和激活令牌 `token` 编码成消息字节。
+
+/// 把 `launch` 编码成消息字节。
 ///
-/// 有合法的令牌时以 [`HELLO_TOKEN`] 和令牌一行开头，否则以 [`HELLO`] 开头；之后每项依次为
-/// 路径、行号、列号三个以 NUL 结尾的字段，行号与列号从 0 起，没有指定时字段为空。
-fn encode(targets: &[Target], token: Option<&str>) -> Vec<u8> {
-    let mut out = match token.filter(|token| valid_token(token)) {
-        Some(token) => format!("{HELLO_TOKEN}{token}\n").into_bytes(),
-        None => HELLO.as_bytes().to_vec(),
+/// 第 1、2 版在消息头之后每项依次为路径、行号、列号三个以 NUL 结尾的字段，行号与列号从 0 起，
+/// 未指定时为空。有要比较的文件时用第 3 版：每项先写种类，`open` 之后同上，`diff` 之后是左右
+/// 两个路径。
+fn encode(launch: &Launch) -> Vec<u8> {
+    let token = launch.token.as_deref().filter(|token| valid_token(token));
+    let tagged = !launch.diffs.is_empty();
+    let mut out = match (tagged, token) {
+        (true, token) => format!("{HELLO_DIFF}{}\n", token.unwrap_or_default()).into_bytes(),
+        (false, Some(token)) => format!("{HELLO_TOKEN}{token}\n").into_bytes(),
+        (false, None) => HELLO.as_bytes().to_vec(),
     };
-    for target in targets {
-        out.extend_from_slice(target.path.as_os_str().as_encoded_bytes());
+    let mut field = |bytes: &[u8]| {
+        out.extend_from_slice(bytes);
         out.push(0);
-        for n in [target.line, target.col] {
-            if let Some(n) = n {
-                out.extend_from_slice(n.to_string().as_bytes());
-            }
-            out.push(0);
+    };
+    for target in &launch.targets {
+        if tagged {
+            field(b"open");
         }
+        field(target.path.as_os_str().as_encoded_bytes());
+        for n in [target.line, target.col] {
+            field(n.map(|n| n.to_string()).unwrap_or_default().as_bytes());
+        }
+    }
+    for diff in &launch.diffs {
+        field(b"diff");
+        field(diff.left.as_os_str().as_encoded_bytes());
+        field(diff.right.as_os_str().as_encoded_bytes());
     }
     out
 }
 
-/// 解码 [`encode`] 的结果（第 1 版或第 2 版消息）；格式不对时返回 `None`。
+/// 解码 [`encode`] 的结果；格式不对时返回 `None`。
 fn decode(bytes: &[u8]) -> Option<Launch> {
-    let (token, body) = match bytes.strip_prefix(HELLO_TOKEN.as_bytes()) {
-        Some(rest) => {
-            let end = rest.iter().position(|&b| b == b'\n')?;
-            let token = std::str::from_utf8(&rest[..end]).ok()?;
-            (Some(token.to_owned()), &rest[end + 1..])
-        }
-        None => (None, bytes.strip_prefix(HELLO.as_bytes())?),
+    let token_line = |rest: &[u8]| -> Option<(String, usize)> {
+        let end = rest.iter().position(|&b| b == b'\n')?;
+        Some((std::str::from_utf8(&rest[..end]).ok()?.to_owned(), end + 1))
+    };
+    let (token, targets, diffs) = if let Some(rest) = bytes.strip_prefix(HELLO_DIFF.as_bytes()) {
+        let (token, start) = token_line(rest)?;
+        let (targets, diffs) = decode_items(&rest[start..])?;
+        (Some(token), targets, diffs)
+    } else if let Some(rest) = bytes.strip_prefix(HELLO_TOKEN.as_bytes()) {
+        let (token, start) = token_line(rest)?;
+        (Some(token), decode_targets(&rest[start..])?, Vec::new())
+    } else {
+        let body = bytes.strip_prefix(HELLO.as_bytes())?;
+        (None, decode_targets(body)?, Vec::new())
     };
     let token = token.filter(|token| valid_token(token));
     Some(Launch {
-        targets: decode_targets(body)?,
+        targets,
+        diffs,
         token,
     })
 }
 
-/// 解码消息头之后的目标；格式不对时返回 `None`。
+/// 解码第 1、2 版消息头之后的目标；格式不对时返回 `None`。
 fn decode_targets(body: &[u8]) -> Option<Vec<Target>> {
     if body.is_empty() {
         return Some(Vec::new());
@@ -214,37 +239,61 @@ fn decode_targets(body: &[u8]) -> Option<Vec<Target>> {
     if !fields.len().is_multiple_of(3) {
         return None;
     }
+    (fields.chunks(3))
+        .map(|item| target_from(item[0], item[1], item[2]))
+        .collect()
+}
+
+/// 解码第 3 版消息头之后的各项：要打开的目标和要比较的文件；格式不对时返回 `None`。
+fn decode_items(body: &[u8]) -> Option<(Vec<Target>, Vec<Diff>)> {
+    let (mut targets, mut diffs) = (Vec::new(), Vec::new());
+    if body.is_empty() {
+        return Some((targets, diffs));
+    }
+    let mut fields = body.strip_suffix(&[0])?.split(|&b| b == 0);
+    while let Some(kind) = fields.next() {
+        match kind {
+            b"open" => targets.push(target_from(fields.next()?, fields.next()?, fields.next()?)?),
+            b"diff" => diffs.push(Diff {
+                left: path_from_bytes(fields.next()?)?,
+                right: path_from_bytes(fields.next()?)?,
+            }),
+            _ => return None,
+        }
+    }
+    Some((targets, diffs))
+}
+
+/// 由路径、行号、列号三个字段还原目标；行号、列号为空时未指定，不是数字时返回 `None`。
+fn target_from(path: &[u8], line: &[u8], col: &[u8]) -> Option<Target> {
     let number = |field: &[u8]| -> Option<Option<usize>> {
         if field.is_empty() {
             return Some(None);
         }
         std::str::from_utf8(field).ok()?.parse().ok().map(Some)
     };
-    fields
-        .chunks(3)
-        .map(|item| {
-            Some(Target {
-                path: path_from_bytes(item[0])?,
-                line: number(item[1])?,
-                col: number(item[2])?,
-            })
-        })
-        .collect()
+    Some(Target {
+        path: path_from_bytes(path)?,
+        line: number(line)?,
+        col: number(col)?,
+    })
 }
 
-/// 经 `send` 把目标 `targets` 和激活令牌 `token` 交出，返回对方是否已收下。
+/// 经 `send` 把 `launch` 交出，返回对方是否已收下。
 ///
-/// `send` 发出一条消息并返回对方答复的一行，对方未答复即断开时为空字符串。带令牌的消息未得到
-/// 答复时，对方是不支持第 2 版的较早版本，改发第 1 版消息；答复 `busy` 时不重发。
-fn deliver(
-    targets: &[Target],
-    token: Option<&str>,
-    send: impl Fn(&[u8]) -> std::io::Result<String>,
-) -> bool {
-    let reply = |token| send(&encode(targets, token));
-    match reply(token) {
-        Ok(line) if line.is_empty() && token.is_some_and(valid_token) => {
-            reply(None).is_ok_and(|line| line == "ok\n")
+/// `send` 发出一条消息并返回对方答复的一行，对方未答复即断开时为空字符串。带令牌的第 2 版消息
+/// 未得到答复时，对方是不支持第 2 版的较早版本，改发第 1 版消息；答复 `busy` 时不重发。第 3 版
+/// 消息没有可退回的版本，未收下时由新进程自己打开。
+fn deliver(launch: &Launch, send: impl Fn(&[u8]) -> std::io::Result<String>) -> bool {
+    let reply = |launch: &Launch| send(&encode(launch));
+    let token = launch.token.as_deref().is_some_and(valid_token);
+    match reply(launch) {
+        Ok(line) if line.is_empty() && token && launch.diffs.is_empty() => {
+            let untokened = Launch {
+                token: None,
+                ..launch.clone()
+            };
+            reply(&untokened).is_ok_and(|line| line == "ok\n")
         }
         Ok(line) => line == "ok\n",
         Err(_) => false,
@@ -276,7 +325,6 @@ mod imp {
     use std::time::Duration;
 
     use super::{Launch, app_socket_path, decode, deliver};
-    use crate::cli::Target;
 
     /// 收到交来的目标之后等待界面线程答复的时长（毫秒）。
     ///
@@ -292,19 +340,19 @@ mod imp {
     /// 取值由系统对命令行参数总长的限制决定：macOS 为 1 MiB，Linux 默认为 2 MiB；参数中的相对
     /// 路径改写为绝对路径后长度会增加，因此留出余量。
     pub(super) const MESSAGE_LIMIT: u64 = 16 << 20;
-    /// 把 `targets` 和激活令牌 `token` 交给正在运行的 winc，返回对方是否已收下。
+    /// 把 `launch` 转交正在运行的 winc，返回对方是否已收下。
     ///
-    /// 目标投递到 [`app_socket_path`] 对应的套接字，由对方决定切换到已打开该目录的窗口还是
-    /// 新建窗口；`targets` 为空时对方把当前窗口切换到前台。
-    pub fn forward_to_app(targets: &[Target], token: Option<&str>) -> bool {
-        app_socket_path().is_some_and(|path| forward_to(&path, targets, token))
+    /// 内容投递到 [`app_socket_path`] 对应的套接字，由对方决定切换到已打开该目录的窗口还是
+    /// 新建窗口；没有要打开的内容时对方把当前窗口切换到前台。
+    pub fn forward_to_app(launch: &Launch) -> bool {
+        app_socket_path().is_some_and(|path| forward_to(&path, launch))
     }
 
-    /// 把 `targets` 和激活令牌 `token` 交给 `path` 上的 winc，返回对方是否已收下。
+    /// 把 `launch` 转交 `path` 上的 winc，返回对方是否已收下。
     ///
     /// 连接失败、写入失败或对方没有回复 `ok` 时按未收下处理。
-    pub(super) fn forward_to(path: &Path, targets: &[Target], token: Option<&str>) -> bool {
-        deliver(targets, token, |message| {
+    pub(super) fn forward_to(path: &Path, launch: &Launch) -> bool {
+        deliver(launch, |message| {
             let mut stream = UnixStream::connect(path)?;
             stream.set_read_timeout(Some(REPLY_TIMEOUT))?;
             stream.set_write_timeout(Some(REPLY_TIMEOUT))?;
@@ -454,7 +502,6 @@ mod imp {
     };
 
     use super::{Launch, app_pipe_name, decode, deliver};
-    use crate::cli::Target;
 
     /// 收到交来的目标之后等待界面线程答复的时长（毫秒）。
     ///
@@ -559,19 +606,19 @@ mod imp {
         (ok != 0).then_some(pid)
     }
 
-    /// 把 `targets` 和激活令牌 `token` 交给正在运行的 winc，返回对方是否已收下。
+    /// 把 `launch` 转交正在运行的 winc，返回对方是否已收下。
     ///
-    /// 目标投递到 [`app_pipe_name`] 对应的命名管道。
-    pub fn forward_to_app(targets: &[Target], token: Option<&str>) -> bool {
-        forward_to(&app_pipe_name(), targets, token)
+    /// 内容投递到 [`app_pipe_name`] 对应的命名管道。
+    pub fn forward_to_app(launch: &Launch) -> bool {
+        forward_to(&app_pipe_name(), launch)
     }
 
-    /// 把 `targets` 和激活令牌 `token` 交给 `pipe` 上的 winc，返回对方是否已收下。
+    /// 把 `launch` 转交 `pipe` 上的 winc，返回对方是否已收下。
     ///
     /// 连接失败、对方不是本用户的进程、写入失败、超过 [`REPLY_TIMEOUT`] 或对方没有回复 `ok`
     /// 时按未收下处理。
-    pub(super) fn forward_to(pipe: &Path, targets: &[Target], token: Option<&str>) -> bool {
-        deliver(targets, token, |message| {
+    pub(super) fn forward_to(pipe: &Path, launch: &Launch) -> bool {
+        deliver(launch, |message| {
             let stream = File::options().read(true).write(true).open(pipe)?;
             // 目标和激活令牌只交给本用户的进程；系统只允许拥有前台权限的进程切换前台窗口，
             // 由用户启动的新进程有，正在运行的没有：转让给它，否则它的窗口留在后台。
@@ -727,12 +774,11 @@ mod imp {
 #[cfg(not(any(unix, windows)))]
 mod imp {
     use super::Launch;
-    use crate::cli::Target;
 
-    /// 把 `targets` 和激活令牌交给正在运行的 winc，返回是否已收下。
+    /// 把 `launch` 转交正在运行的 winc，返回是否已收下。
     ///
     /// 不支持的平台上始终返回 `false`，由新进程自行打开目标。
-    pub fn forward_to_app(_targets: &[Target], _token: Option<&str>) -> bool {
+    pub fn forward_to_app(_launch: &Launch) -> bool {
         false
     }
 

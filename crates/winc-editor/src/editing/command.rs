@@ -7,7 +7,7 @@ use std::borrow::Cow;
 
 use winc_core::edit::{self, EditKind, EditOptions, Transaction};
 use winc_core::text::Aligned;
-use winc_core::transform::{self, Case};
+use winc_core::transform::{self, Case, JsonLayout};
 use winc_core::{Lines, Restored, Selection, movement};
 use winc_syntax::{Language, LineState};
 
@@ -163,6 +163,11 @@ pub enum Command {
         /// 是否转换整个文件。
         whole: bool,
     },
+    /// 按排版方式美化或压缩 JSON。
+    ///
+    /// 转换各个选区；没有选区时转换整个文件（文件是一个 JSON 值时），
+    /// 否则转换光标所在行中包住光标的 JSON。无法转换的选区不变，原因见 [`Document::json_problem`]。
+    ReformatJson(JsonLayout),
     /// 跳到配对的括号（`⇧⌘\`）。
     JumpToBracket,
     /// 扩大选区（`⌃⇧⌘→`）。
@@ -530,6 +535,12 @@ impl Document {
             }
             &Command::EscapeUnicode { whole } if whole || !sel.is_empty() => {
                 transform::escape_unicode(text, sel)
+            }
+            &Command::ReformatJson(layout) => {
+                let (unit, whole) = (options.indent_unit, self.json_whole_file());
+                transform::reformat_json(text, sel, layout, unit, line_ending, whole)
+                    .ok()
+                    .flatten()
             }
             _ => None,
         }

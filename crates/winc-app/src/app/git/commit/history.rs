@@ -1,15 +1,21 @@
 //! 提交视图中的提交历史：改动列表下面一组可以收起的行，列出当前分支与上游最近的提交和提交图。
 //!
-//! 尚未推送、尚未拉取的提交带有标记。点击一个提交时在这一行下面列出它改动的文件并预览第一个
-//! （见 [`PeekView`]），双击在日志中选中该提交，右键弹出提交菜单。行数多于 [`HISTORY_ROWS`]
-//! 时在组内滚动；更早的提交在日志中查看。提交在后台读取，`HEAD`、上游或引用变化后重新读取，
-//! 提交视图不可见时推迟到下次显示。
+//! 尚未推送、尚未拉取的提交带有标记。悬停显示提交的详情卡片，点击在预览标签中依次显示该提交的
+//! 全部更改，双击在日志中选中该提交，右键弹出提交菜单。行数多于 [`HISTORY_ROWS`] 时在组内滚动；更早
+//! 的提交在日志中查看。提交在后台读取，`HEAD`、上游或引用变化后重新读取，提交视图不可见时推迟到
+//! 下次显示。
 
 use winc_editor::git::Commit;
 use winc_editor::git::recent::{Recent, Side};
 
+use std::collections::HashMap;
+
 use super::*;
+use crate::app::Hover;
 use crate::app::scroll::ScrollTarget;
+
+mod card;
+pub(crate) use card::{CardState, CommitCard};
 
 /// 提交历史一组展开时最多露出的行数（行），更多的行在组内滚动。
 ///
@@ -30,10 +36,8 @@ pub enum HistoryTarget {
     Title,
     /// 悬停标题时右端的「在日志中显示」：打开日志。
     Log,
-    /// 第几个提交（`Recent::commits` 的下标）：查看它改动的文件，双击在日志中选中它。
+    /// 第几个提交（`Recent::commits` 的下标）：查看该提交的全部更改，双击在日志中选中该提交。
     Commit(usize),
-    /// 正在查看的提交下面的一个文件（`PeekView::files` 的下标）：在预览标签里查看。
-    File(usize),
     /// 最后一行「在日志中查看更早的提交」。
     More,
 }
@@ -43,10 +47,6 @@ pub enum HistoryTarget {
 pub(crate) enum HistoryLine {
     /// 第几个提交（`Recent::commits` 的下标）。
     Commit(usize),
-    /// 正在查看的提交里的第几个文件（`PeekView::files` 的下标）。
-    File(usize),
-    /// 正在查看的提交里没有列出的文件个数。
-    MoreFiles(usize),
     /// 还有更早的提交：在日志中查看。
     More,
 }
@@ -99,6 +99,8 @@ pub(super) enum HistoryOutcome {
     Loaded(Box<HistoryKey>, Result<Recent, String>),
     /// 读取到的完整提交说明，复制到剪贴板。
     Message(Result<String, String>),
+    /// 读取到的提交（提交号）的详情，用于悬停时的卡片。
+    Card(String, Result<CommitCard, String>),
 }
 
 /// 提交历史一组的状态。
@@ -121,6 +123,8 @@ pub(crate) struct History {
     version: u64,
     /// 绘制时记下的 `version`：之后 `recent` 换过，记下的下标就对不上了，点击不处理。
     drawn: u64,
+    /// 各提交的详情卡片的读取状态，按提交号。
+    cards: HashMap<String, CardState>,
 }
 
 impl Default for History {
@@ -135,6 +139,7 @@ impl Default for History {
             folded_for_panel: false,
             version: 0,
             drawn: 0,
+            cards: HashMap::new(),
         }
     }
 }
@@ -176,25 +181,14 @@ impl History {
 }
 
 impl App {
-    /// 返回提交历史一组展开时标题下面的各行：各个提交，正在查看的提交下面是它的文件，还有更早
-    /// 的提交时最后是「在日志中查看更早的提交」。
+    /// 返回提交历史一组展开时标题下面的各行：各个提交，还有更早的提交时最后是「在日志中查看更早
+    /// 的提交」。
     pub(crate) fn history_lines(&self) -> Vec<HistoryLine> {
         let Some(recent) = self.git.commit.history.recent.as_ref() else {
             return Vec::new();
         };
-        let open = self.listed_peek();
-        let mut lines = Vec::with_capacity(recent.commits.len() + 1);
-        for (i, commit) in recent.commits.iter().enumerate() {
-            lines.push(HistoryLine::Commit(i));
-            let Some(view) = open.filter(|view| view.oid == commit.oid) else {
-                continue;
-            };
-            let (files, rest) = view.listed();
-            lines.extend(files.map(HistoryLine::File));
-            if rest > 0 {
-                lines.push(HistoryLine::MoreFiles(rest));
-            }
-        }
+        let mut lines: Vec<HistoryLine> =
+            (0..recent.commits.len()).map(HistoryLine::Commit).collect();
         if recent.more {
             lines.push(HistoryLine::More);
         }
@@ -205,6 +199,7 @@ impl App {
     /// 限制在范围内。
     pub(crate) fn track_history(&mut self) {
         self.load_history();
+        self.track_history_card();
         let (settled, clock) = (self.history_settled_height(), self.section_clock());
         self.git.commit.history.drawer.track(settled, clock);
         let scroll = self.git.commit.history.scroll;
@@ -277,6 +272,9 @@ impl App {
                 }
                 history.running = false;
                 if let Ok(recent) = recent {
+                    // 只留仍在列出的提交的详情卡片。
+                    let listed = |oid: &String| recent.commits.iter().any(|c| &c.oid == oid);
+                    history.cards.retain(|oid, _| listed(oid));
                     history.recent = Some(recent).filter(|r| !r.commits.is_empty());
                     history.version += 1;
                 }
@@ -286,6 +284,7 @@ impl App {
                 self.set_clipboard(message, false);
             }
             HistoryOutcome::Message(Err(e)) => self.flash(e),
+            HistoryOutcome::Card(oid, card) => self.history_card_arrived(oid, card),
         }
         self.request_redraw();
     }
@@ -306,14 +305,7 @@ impl App {
         let Some(recent) = self.git.commit.history.recent.as_ref() else {
             return 0;
         };
-        let open = self.listed_peek();
-        let files = open
-            .filter(|view| recent.commits.iter().any(|c| c.oid == view.oid))
-            .map_or(0, |view| {
-                let (files, rest) = view.listed();
-                files.len() + usize::from(rest > 0)
-            });
-        recent.commits.len() + files + usize::from(recent.more)
+        recent.commits.len() + usize::from(recent.more)
     }
 
     /// 返回提交历史一组不在过渡中时的高度（逻辑像素）。
@@ -393,20 +385,18 @@ impl App {
             }
             HistoryTarget::Log => self.git_show_log(),
             HistoryTarget::Commit(i) => {
-                let Some(oid) = (self.git.commit.history.commit(i)).map(|(c, _)| c.oid.clone())
-                else {
+                let Some((commit, _)) = self.git.commit.history.commit(i) else {
                     return;
                 };
+                let (oid, subject) = (commit.oid.clone(), commit.subject.clone());
+                let parent = commit.parents.first().cloned();
                 let (x, y) = self.pointer.mouse;
                 if self.click_count(x, y) >= 2 {
-                    // 第一次点击的查看可能还在后台：作废它，结果到达时不再盖住日志。
-                    self.next_peek_request();
                     self.git_show_log_at(&oid);
                 } else {
-                    self.peek_commit(i);
+                    self.open_commit_changes(&oid, parent.as_deref(), &subject);
                 }
             }
-            HistoryTarget::File(at) => self.open_peek_file(at),
             // 选中列出的最后一个提交：日志从该提交起继续查看。
             HistoryTarget::More => {
                 let recent = self.git.commit.history.recent.as_ref();
@@ -417,63 +407,6 @@ impl App {
             }
         }
         self.request_redraw();
-    }
-
-    /// 在预览标签里查看第 `i` 个提交：先在后台读取它相对第一个父提交改动的文件，读取到后打开
-    /// 第一个。正在查看该提交时只收起或展开它下面的文件。
-    fn peek_commit(&mut self, i: usize) {
-        let Some((commit, _)) = self.git.commit.history.commit(i) else {
-            return;
-        };
-        let (oid, base) = (commit.oid.clone(), commit.parents.first().cloned());
-        if self.refold_peek(&oid) {
-            return;
-        }
-        let name = crate::app::git::log::short(&oid).to_owned();
-        let request = self.next_peek_request();
-        let sender = self.git.commit.results.0.clone();
-        self.run_git_job(move |git, root| {
-            let cancel = winc_editor::format::Cancel::default();
-            let files = git.and_then(|git| git.commit_files(root, base.as_deref(), &oid, &cancel));
-            let files = files.map(|files| {
-                let pair = |file| (file, base.clone(), oid.clone());
-                files.into_iter().map(pair).collect()
-            });
-            let _ = sender.send(Outcome::PeekFiles(request, oid, name, files));
-        });
-    }
-
-    /// 正在查看的提交在提交历史中时，滚动组内的行，使它和下面列出的文件尽量都露出来。
-    pub(super) fn reveal_history_peek(&mut self) {
-        let Some(view) = self.listed_peek() else {
-            return;
-        };
-        let lines = self.history_lines();
-        let Some(recent) = self.git.commit.history.recent.as_ref() else {
-            return;
-        };
-        let Some(row) = lines.iter().position(
-            |line| matches!(line, HistoryLine::Commit(i) if recent.commits[*i].oid == view.oid),
-        ) else {
-            return;
-        };
-        let (files, rest) = view.listed();
-        let last = row + files.len() + usize::from(rest > 0);
-        // 露出的行数：侧栏较矮时少于 `HISTORY_ROWS`，见 `HISTORY_LIST_KEEP`。
-        let visible = self
-            .history_rows_area()
-            .map_or(0.0, |rows| rows.h / COMMIT_ROW);
-        let shown = (visible.floor() as usize)
-            .clamp(1, HISTORY_ROWS)
-            .min(lines.len());
-        let scroll = self.git.commit.history.scroll / COMMIT_ROW;
-        let first = scroll.round() as usize;
-        let first = if last >= first + shown {
-            (last + 1 - shown).min(row)
-        } else {
-            first.min(row)
-        };
-        self.glide_pane_to(ScrollTarget::CommitHistory, first as f32 * COMMIT_ROW);
     }
 
     /// 右键点在提交历史的一个提交上：返回它的提交号。
@@ -489,14 +422,6 @@ impl App {
         };
         let (commit, _) = self.git.commit.history.commit(i)?;
         Some(commit.oid.clone())
-    }
-
-    /// 第 `i` 个提交的悬停提示：第一行是完整的说明，第二行是作者、时间和短提交号。
-    pub(crate) fn history_tip(&self, i: usize) -> Option<String> {
-        let (commit, _) = self.git.commit.history.commit(i)?;
-        let short = crate::app::git::log::short(&commit.oid);
-        let detail = format!("{} · {} · {short}", commit.author, commit.local);
-        Some(format!("{}\n{detail}", commit.subject))
     }
 
     /// 提交历史中提交号为 `oid` 的提交及其位置。

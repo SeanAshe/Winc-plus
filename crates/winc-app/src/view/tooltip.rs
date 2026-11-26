@@ -21,6 +21,11 @@ pub(super) fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
     if !rested {
         return;
     }
+    // 提交历史中的提交：画详情卡片，不画一行提示。
+    if let Hover::Commit(CommitTarget::History(HistoryTarget::Commit(i))) = app.pointer.hover {
+        git::commit::draw_history_card(app, frame, i, app.tooltip_opacity());
+        return;
+    }
     let tip = workspace::panel::tooltip(app)
         .or_else(|| workspace::search_dialog::tooltip(app))
         .or_else(|| git_tip(app));
@@ -44,6 +49,19 @@ pub(super) fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
                 crate::layout::with_key(t!("cmd-toggle-sidebar"), Some(Action::ToggleSidebar)),
             ),
             Hover::Browser => (app.layout.browser, t!("preview-browser-open").to_owned()),
+            Hover::Commit(crate::app::CommitTarget::Generate) => {
+                match app.commit_parts().generate {
+                    Some(button) => (
+                        button,
+                        match app.git.commit.generating.running() {
+                            true => t!("git-generate-stop"),
+                            false => t!("git-generate"),
+                        }
+                        .to_owned(),
+                    ),
+                    None => return,
+                }
+            }
             Hover::HttpRun(line) => match app.hits.http_runs.iter().find(|(_, l)| *l == line) {
                 Some(&(button, _)) => (
                     button,
@@ -213,8 +231,9 @@ pub(super) fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
     let place = match app.pointer.hover {
         Hover::RulerChange(_) => TipPlace::Beside,
         // 列表的一行：提示从开始悬停时鼠标的位置开始。
-        Hover::Log(LogTarget::Row(_) | LogTarget::BranchRow(_) | LogTarget::File(_))
-        | Hover::Commit(CommitTarget::History(HistoryTarget::Commit(_))) => TipPlace::Pointer,
+        Hover::Log(LogTarget::Row(_) | LogTarget::BranchRow(_) | LogTarget::File(_)) => {
+            TipPlace::Pointer
+        }
         _ => TipPlace::Below,
     };
     let button = match place {
@@ -226,8 +245,8 @@ pub(super) fn draw_tooltip(app: &App, frame: &mut Frame<'_>) {
     *app.overlays.tooltip.last.borrow_mut() = Some((button, label, place));
 }
 
-/// 返回 Git 面板标题行的按钮、日志标签栏右端的「移至面板」、提交历史中的提交和标题行按钮的
-/// 提示：对着的范围和文字；鼠标不在这些位置上时为 `None`。
+/// 返回 Git 面板标题行的按钮、日志标签栏右端的「移至面板」、提交历史标题行按钮的提示：对着的
+/// 范围和文字；鼠标不在这些位置上时为 `None`。
 fn git_tip(app: &App) -> Option<(Rect, String)> {
     use crate::app::git::panel::PanelHit;
     let commit_hit = |target| {
@@ -254,10 +273,6 @@ fn git_tip(app: &App) -> Option<(Rect, String)> {
                 _ => return None,
             };
             Some((rect, label))
-        }
-        // 提交历史中的提交：完整的说明，以及作者、时间和短提交号。
-        Hover::Commit(target @ CommitTarget::History(HistoryTarget::Commit(i))) => {
-            Some((commit_hit(target)?, app.history_tip(i)?))
         }
         Hover::Commit(target @ CommitTarget::History(HistoryTarget::Log)) => {
             let tip = t!("menu-log-show-in-log");

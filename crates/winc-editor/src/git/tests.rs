@@ -10,6 +10,7 @@ mod discover;
 mod history;
 mod locate;
 mod pathspec;
+mod pending;
 
 fn root() -> PathBuf {
     PathBuf::from("/repo")
@@ -709,6 +710,12 @@ fn risks_follow_the_configured_hooks_path() {
     };
     hook(&custom, "a");
     hook(&default, "x");
+    // 名字不是钩子名的可执行文件（备份、示例）不会运行，不计入。
+    for name in ["pre-push.bak-lfs", "pre-commit.sample"] {
+        let path = custom.join(name);
+        std::fs::write(&path, "b").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
     let local = b"local\0core.hookspath\n.husky/\0";
     let home = root.join("home");
     let risks = |out: &[u8]| parse_risks(out, &root, Some(&default), Some(&home));
@@ -740,6 +747,28 @@ fn risks_follow_the_configured_hooks_path() {
     assert!(risks(global.as_bytes()).is_empty());
 
     let _ = std::fs::remove_dir_all(&root);
+}
+
+/// 回归（#515）：远端主机上的仓库，用户全局设置的钩子目录（`/home/…`）在 Windows 上不算绝对
+/// 路径，被当成仓库的钩子，提交、切换分支都要求先信任。路径按仓库所在系统的写法解析。
+#[test]
+fn hooks_paths_of_a_remote_repository_use_its_system_paths() {
+    let target = winc_backend::Target::new("dev").unwrap();
+    let at = |path: &str| winc_backend::virtual_path(&target, path.as_bytes());
+    let root = at("/home/dev/repo");
+    let hooks = |out: &[u8]| hooks_dir(out, &root, None, None);
+    assert_eq!(
+        hooks(b"global\0core.hookspath\n/home/dev/.git-global-hooks\0"),
+        None
+    );
+    assert_eq!(hooks(b"system\0core.hookspath\n/etc/git-hooks\0"), None);
+    let local = hooks(b"local\0core.hookspath\n/srv/hooks\0");
+    assert_eq!(local, Some((at("/srv/hooks"), "/srv/hooks".to_owned())));
+    let relative = hooks(b"worktree\0core.hookspath\n.husky/\0");
+    assert_eq!(
+        relative,
+        Some((at("/home/dev/repo/.husky"), ".husky".to_owned()))
+    );
 }
 
 /// 仓库的配置里有过滤器和 fsmonitor 命令、hooks 目录里有钩子：信任之前读状态、取内容都

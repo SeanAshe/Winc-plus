@@ -79,8 +79,15 @@ winget install DEEIX-AI.Winc
 scoop bucket add extras; scoop install extras/winc
 ```
 
-在 Arch Linux 及 CachyOS、Omarchy 等基于 Arch 的发行版（x86_64）上，以下命令添加经过签名的软件源并
-安装 winc，之后随 `sudo pacman -Syu` 更新。
+在 Arch Linux 及 CachyOS、Omarchy 等基于 Arch 的发行版（x86_64）上，可从官方软件源安装 winc，之后随
+`sudo pacman -Syu` 更新。
+
+```bash
+sudo pacman -S winc
+```
+
+也可以改用 winc 的签名软件源。以下命令添加该软件源并排在其他软件源之前，使 pacman 从中安装和更新
+winc；已添加过的再运行一次即可调整顺序。
 
 ```bash
 curl --proto '=https' --tlsv1.2 -fLO https://winc.si/releases/arch/install-arch.sh && sudo bash install-arch.sh

@@ -37,6 +37,27 @@ fn astro_is_listed_when_the_prettier_plugin_is_declared() {
 }
 
 #[test]
+fn format_rows_wait_for_the_tools_chosen_in_the_background() {
+    let (mut app, dir) = format_settings_app("settings-format-pending", false);
+    // 后台尚未送回工具选择：界面线程不检查项目中的文件，只列出写过命令的语言。
+    app.settings.tool_plans.hold();
+    app.open_settings();
+    assert_eq!(app.settings.listed.format, ["json"]);
+    assert!(app.settings.listed.fix.is_empty());
+    let json = app.settings.format_row("json").unwrap();
+    assert_eq!(json.detail, "jq --indent 4 .");
+    assert_eq!(json.warning, None);
+
+    // 送回之后补上项目在用的语言，并按语言表的顺序排列。
+    app.poll_tool_plans();
+    assert_eq!(app.settings.listed.format, ["python", "rust", "go", "json"]);
+    assert_eq!(app.settings.listed.fix, ["python"]);
+    let python = app.settings.format_row("python").unwrap();
+    assert_eq!(python.detail, "自动 · 根据 pyproject.toml");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn format_settings_list_the_languages_in_use() {
     let (mut app, dir) = format_settings_app("settings-format", false);
     app.open_settings();

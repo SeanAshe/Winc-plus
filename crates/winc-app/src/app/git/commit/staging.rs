@@ -268,7 +268,8 @@ impl App {
     /// 返回文件树、标签的右键菜单中针对文件 `path` 的更改的几项：回滚，暂存区视图中另有暂存、
     /// 取消暂存。
     ///
-    /// 该文件没有更改时为空；已全部暂存的文件没有「暂存」，没有暂存内容的文件没有「取消暂存」。
+    /// 该文件没有更改时为空；没有暂存内容的文件没有「取消暂存」，已全部暂存的文件没有「暂存」，
+    /// 暂存区视图中也没有「回滚」（只放弃未暂存的更改）。
     pub(in crate::app) fn git_change_items(&self, path: &Path) -> Vec<MenuEntry> {
         let mut entries = self.git.status.iter().flat_map(|s| &s.entries);
         let Some(entry) = entries.find(|e| e.path == path) else {
@@ -283,7 +284,9 @@ impl App {
         if staging && self.git.commit.checked(entry) {
             items.push(MenuEntry::Item(MenuCommand::CommitCheck(false), true));
         }
-        items.push(MenuEntry::Item(MenuCommand::GitRollbackFile, true));
+        if !staging || entry.unstaged.is_some() {
+            items.push(MenuEntry::Item(MenuCommand::GitRollbackFile, true));
+        }
         items
     }
 
@@ -341,7 +344,11 @@ impl App {
             self.git.commit.commit_queued = false;
             self.git.commit.drop_push_intent();
             self.git.commit.index.clear();
-            self.notify(NoticeKind::Error, t!("git-stage-failed", error = e));
+            let message = t!("git-stage-failed", error = e);
+            match self.git_trust_action(Some(root)) {
+                Some(action) => self.notify_with(NoticeKind::Error, message, action),
+                None => self.notify(NoticeKind::Error, message),
+            }
         }
         if !self.git.commit.staging_queue.is_empty() {
             self.pump_staging();

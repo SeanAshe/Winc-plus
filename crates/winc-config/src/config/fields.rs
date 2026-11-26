@@ -71,6 +71,7 @@ pub(super) const SECTIONS: &[(&str, &[Field])] = &[
     ("terminal", TERMINAL),
     ("vim", VIM),
     ("git", GIT),
+    ("ai", AI),
     ("network", NETWORK),
     ("remote", REMOTE),
     ("keyboard", KEYBOARD),
@@ -689,6 +690,7 @@ const GIT: &[Field] = &[
     bool_field!("autoFetch", git_auto_fetch),
     bool_field!("stagingArea", git_staging_area),
     bool_field!("combinedDiff", git_combined_diff),
+    bool_field!("generateCommitMessage", git_generate_commit_message),
     Field {
         key: "repositoryScanDepth",
         read: |config, value, name, problems| {
@@ -798,6 +800,42 @@ const GIT: &[Field] = &[
             (!globs.is_empty())
                 .then(|| Json::Array(globs.iter().cloned().map(Json::String).collect()))
         },
+    },
+];
+
+/// `ai` 一节。
+const AI: &[Field] = &[
+    string_field!("baseUrl", ai_base_url),
+    string_field!("apiKey", ai_api_key),
+    Field {
+        key: "protocol",
+        read: |config, value, name, problems| {
+            config.ai_protocol = (value.as_str())
+                .and_then(|key| AiProtocol::ALL.into_iter().find(|p| p.key() == key));
+            if config.ai_protocol.is_none() {
+                problems.push(t!("config-ai-protocol-invalid", name = name));
+            }
+        },
+        write: |config| Some(Json::String(config.ai_protocol?.key().into())),
+    },
+    string_field!("model", ai_model),
+    Field {
+        key: "timeout",
+        read: |config, value, name, problems| {
+            let label = t!("config-label-ai-timeout");
+            let range = Config::AI_TIMEOUT_RANGE;
+            config.ai_timeout = read_number(value, name, range, label, problems)
+                .filter(|v| {
+                    let whole = v.fract() == 0.0;
+                    if !whole {
+                        let value = v.to_string();
+                        problems.push(t!("config-not-integer", name = name, value = value));
+                    }
+                    whole
+                })
+                .map(|v| v as u64)
+        },
+        write: |config| config.ai_timeout.map(|secs| Json::Number(secs as f64)),
     },
 ];
 

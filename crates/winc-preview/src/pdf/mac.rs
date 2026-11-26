@@ -6,10 +6,12 @@
 
 use std::path::Path;
 
-use objc2_core_foundation::{CFRetained, CFString, CFURL, CFURLPathStyle, CGPoint, CGRect, CGSize};
+use objc2_core_foundation::{
+    CFData, CFRetained, CFString, CFURL, CFURLPathStyle, CGPoint, CGRect, CGSize,
+};
 use objc2_core_graphics::{
-    CGBitmapContextCreate, CGColorSpace, CGContext, CGImageAlphaInfo, CGInterpolationQuality,
-    CGPDFBox, CGPDFDocument, CGPDFPage, kCGColorSpaceSRGB,
+    CGBitmapContextCreate, CGColorSpace, CGContext, CGDataProvider, CGImageAlphaInfo,
+    CGInterpolationQuality, CGPDFBox, CGPDFDocument, CGPDFPage, kCGColorSpaceSRGB,
 };
 use winc_i18n::t;
 
@@ -42,6 +44,21 @@ impl Document {
         )
         .ok_or_else(invalid)?;
         let doc = CGPDFDocument::with_url(Some(&url)).ok_or_else(invalid)?;
+        Self::read(doc)
+    }
+
+    /// 打开内存中的 PDF 内容 `bytes`（系统复制一份），返回文档和各页大小。
+    pub(super) fn from_bytes(bytes: &[u8]) -> Result<(Document, Vec<PageSize>), String> {
+        let invalid = || t!("preview-pdf-invalid").to_owned();
+        let data = CFData::from_bytes(bytes);
+        let provider = CGDataProvider::with_cf_data(Some(&data)).ok_or_else(invalid)?;
+        let doc = CGPDFDocument::with_provider(Some(&provider)).ok_or_else(invalid)?;
+        Self::read(doc)
+    }
+
+    /// 读出已打开的 `doc` 的各页大小。
+    fn read(doc: CFRetained<CGPDFDocument>) -> Result<(Document, Vec<PageSize>), String> {
+        let invalid = || t!("preview-pdf-invalid").to_owned();
         if CGPDFDocument::is_encrypted(Some(&doc)) && !CGPDFDocument::is_unlocked(Some(&doc)) {
             return Err(t!("preview-pdf-encrypted").to_owned());
         }

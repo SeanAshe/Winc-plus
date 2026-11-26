@@ -301,3 +301,19 @@ editor-http-body-truncated = { $size ->
 }
 editor-http-curl-missing = curl wasn’t found
 editor-http-too-large = The response is too large
+
+## Pretty-printing and minifying JSON.
+
+editor-json-not-found = No JSON found
+editor-json-invalid = Couldn’t { $action ->
+        [compact] minify
+       *[pretty] pretty-print
+    } JSON: invalid syntax at line { $line }, column { $column }
+editor-json-incomplete = Couldn’t { $action ->
+        [compact] minify
+       *[pretty] pretty-print
+    } JSON: the content ends before the JSON is complete
+editor-json-too-deep = Couldn’t { $action ->
+        [compact] minify
+       *[pretty] pretty-print
+    } JSON: nesting is deeper than { $depth } levels

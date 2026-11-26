@@ -305,6 +305,19 @@ pub struct Config {
     pub git_log_placement: Option<LogPlacement>,
     /// 新建工作树时复制过去的被忽略的文件（gitignore 写法的 glob，如 `.env*`），默认不复制。
     pub git_worktree_copy: Vec<String>,
+    /// 是否在提交视图中用模型生成提交信息，默认为否；模型在 `ai` 一节中设置。
+    pub git_generate_commit_message: Option<bool>,
+    /// 调用模型的接口协议，默认 [`AiProtocol::ChatCompletions`]。
+    pub ai_protocol: Option<AiProtocol>,
+    /// 接口地址，包含版本路径（如 `/v1`）；未设置时使用协议的官方地址。
+    pub ai_base_url: Option<String>,
+    /// 模型名；未设置时不调用模型。
+    pub ai_model: Option<String>,
+    /// 接口的密钥；不需要认证的接口（如本地部署的模型）不设置。
+    pub ai_api_key: Option<String>,
+    /// 等待模型响应的最长时间（秒），默认 [`Config::AI_TIMEOUT`]，可用范围见
+    /// [`Config::AI_TIMEOUT_RANGE`]。
+    pub ai_timeout: Option<u64>,
     /// 保存时先格式化，默认为否。
     pub format_on_save: Option<bool>,
     /// 保存时不格式化的语言（语言的 id）；手动格式化（`⇧⌥F`）仍然生效。
@@ -441,6 +454,59 @@ impl PullMode {
             Self::Config => None,
             Self::Merge => Some(false),
             Self::Rebase => Some(true),
+        }
+    }
+}
+
+/// 调用模型的接口协议：请求的路径、认证的请求头、请求和响应的写法都随协议而定。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AiProtocol {
+    /// `POST /chat/completions`，`Authorization: Bearer` 认证。
+    #[default]
+    ChatCompletions,
+    /// `POST /responses`，`Authorization: Bearer` 认证。
+    Responses,
+    /// `POST /messages`，`x-api-key` 认证。
+    Messages,
+    /// `POST /interactions`，`x-goog-api-key` 认证。
+    Interactions,
+}
+
+impl AiProtocol {
+    /// 全部取值，按设置菜单中的顺序排列。
+    pub const ALL: [Self; 4] = [
+        Self::ChatCompletions,
+        Self::Responses,
+        Self::Messages,
+        Self::Interactions,
+    ];
+
+    /// 返回配置文件中的写法。
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::ChatCompletions => "chatCompletions",
+            Self::Responses => "responses",
+            Self::Messages => "messages",
+            Self::Interactions => "interactions",
+        }
+    }
+
+    /// 返回协议的名称，用于设置中的显示。
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::ChatCompletions => "Chat Completions",
+            Self::Responses => "Responses",
+            Self::Messages => "Messages",
+            Self::Interactions => "Interactions",
+        }
+    }
+
+    /// 返回未设置接口地址时使用的官方地址。
+    pub fn default_base_url(self) -> &'static str {
+        match self {
+            Self::ChatCompletions | Self::Responses => "https://api.openai.com/v1",
+            Self::Messages => "https://api.anthropic.com/v1",
+            Self::Interactions => "https://generativelanguage.googleapis.com/v1beta",
         }
     }
 }
@@ -663,6 +729,14 @@ impl Config {
     ///
     /// 超出范围的值在读入时忽略并报告；上限取自调参，更长的等待与不超时无异。
     pub const VIM_TIMEOUT_LEN_RANGE: std::ops::RangeInclusive<f32> = 0.0..=60_000.0;
+    /// 等待模型响应的默认最长时间（秒）。
+    ///
+    /// 取自调参：提交信息的回答很短，响应时间通常远短于 30 秒；推理较慢的模型可在设置中调大。
+    pub const AI_TIMEOUT: u64 = 30;
+    /// 等待模型响应的最长时间的合法范围（秒）。
+    ///
+    /// 超出范围的值在读入时忽略并报告；上限取自调参，更长的等待与服务失去响应无异。
+    pub const AI_TIMEOUT_RANGE: std::ops::RangeInclusive<f32> = 10.0..=600.0;
     /// 查找仓库的默认层数：覆盖「目录 / 分组 / 项目」这样的常见结构；扫描在后台进行，有目录项总数
     /// 的上限，较深的层数不会拖慢界面。
     pub const REPOSITORY_SCAN_DEPTH: usize = 3;
@@ -914,10 +988,12 @@ impl Config {
         if original.is_none() || comments {
             let path = path.with_extension("json.bak");
             std::fs::write(&path, &old)?;
+            private_if(base.ai_api_key.is_some(), &path)?;
             backup = Some(Backup { path, comments });
         }
         let text = self.render(original.map(|root| (root, base)));
         write_atomic(path, &text)?;
+        private_if(self.ai_api_key.is_some(), path)?;
         Ok(Saved {
             config: Config::parse(&text).0,
             backup,
@@ -943,6 +1019,23 @@ pub struct Backup {
     pub path: PathBuf,
     /// 原文件可以解析但含有注释（写出的文件不保留注释）时为真；原文件无法解析时为假。
     pub comments: bool,
+}
+
+/// `secret` 为真（写有接口密钥）时把文件 `path` 设为只有本人可以读写，同一台机器上的其他用户
+/// 读不到；其他平台上不做处理。
+///
+/// # Errors
+///
+/// 修改权限失败时返回 `std::io::Error`。
+fn private_if(secret: bool, path: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    if secret {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    #[cfg(not(unix))]
+    let _ = (secret, path);
+    Ok(())
 }
 
 /// 返回用户级配置文件的路径；无法确定用户目录时返回 `None`。

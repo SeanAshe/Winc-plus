@@ -46,6 +46,22 @@ git-branch-force-delete-confirm-button = Delete Anyway
 git-branch-compare-with-current = Compare with Current Branch
 git-history-group = Commit History
 git-history-more = View Earlier Commits in Log
+git-history-card-time = { $relative } ({ $absolute })
+git-history-card-byline = { ", " }{ $time }
+git-history-card-files = { $count ->
+    [one] { $count } file changed
+   *[other] { $count } files changed
+}
+git-history-card-added = { $count ->
+    [one] { $count } insertion(+)
+   *[other] { $count } insertions(+)
+}
+git-history-card-removed = { $count ->
+    [one] { $count } deletion(−)
+   *[other] { $count } deletions(−)
+}
+git-history-card-separator = { ", " }
+git-history-card-failed = Couldn’t read the changed files
 git-stash-group = Stashes
 git-peek-more-files = { $count ->
     [one] { $count } more file
@@ -102,8 +118,12 @@ git-op-tag-delete = deleting tag “{ $name }”
 git-op-tag-delete-remote = deleting tag “{ $name }” from the remote
 git-no-remote = No remote is configured
 git-branch-rename = Rename Branch…
+git-branch-copy-name = Copy Branch Name
+git-branch-copied = Copied branch name “{ $name }”
 git-tag-new-branch = New Branch from This Tag…
 git-tag-push = Push to Remote
+git-tag-copy-name = Copy Tag Name
+git-tag-copied = Copied tag name “{ $name }”
 git-tag-delete = Delete Tag
 git-tag-delete-remote = Delete from Remote
 git-tag-delete-confirm = Delete tag “{ $name }”?
@@ -348,6 +368,13 @@ git-commit-others-left = Committed. { $count ->
 } not committed: amending, or a merge or rebase in that repository, commits the current repository only
 git-commit-hint-subject = Subject { $count }/{ $limit }
 git-commit-hint-blank-line = Blank line after subject
+git-generate = Generate Commit Message
+git-generate-stop = Stop Generating
+git-generate-off = Turn on “AI Commit Messages” in Settings first
+git-generate-unset = Enter a model on the AI page of Settings first
+git-generate-nothing = Select the changes to commit first
+git-generate-failed = Couldn’t generate the commit message: { $error }
+git-generate-empty = The model returned no commit message
 git-commit-todo-confirm = { $count ->
     [one] The new content has 1 TODO or FIXME
    *[other] The new content has { $count } TODOs or FIXMEs

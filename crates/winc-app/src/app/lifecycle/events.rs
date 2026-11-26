@@ -522,6 +522,7 @@ impl App {
             | UserEvent::FolderListed
             | UserEvent::WatcherStarted
             | UserEvent::FormatPlanned
+            | UserEvent::ToolsPlanned
             | UserEvent::FileWorked
             | UserEvent::GitMergeSides
             | UserEvent::GitLog
@@ -570,6 +571,7 @@ impl App {
             }
             UserEvent::TerminalPaste(id, text) => self.confirmed_terminal_paste(id, text),
             UserEvent::TerminalUploaded(id, result) => self.terminal_uploaded(id, result),
+            UserEvent::TerminalImageSaved(id, result) => self.terminal_image_saved(id, result),
             UserEvent::TerminalQuit(ok) => {
                 if let Some(request) = self.closing.confirming.take()
                     && ok

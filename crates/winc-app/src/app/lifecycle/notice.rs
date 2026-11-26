@@ -17,6 +17,8 @@ pub enum NoticeAction {
     FormatSettings,
     /// 「查看输出」：在只读标签中打开 Git 操作的输出。
     GitOutput,
+    /// 「信任此仓库…」：操作因这个仓库的配置不可信而被拒绝，再次询问是否信任。
+    TrustGitRepository(PathBuf),
     /// 「重新连接」：重新连接远端主机并回到其上的目录。
     Reconnect(PathBuf),
     /// 「取消」：取消正在进行的到远端主机的连接。
@@ -33,6 +35,8 @@ pub enum NoticeAction {
     OpenProject(PathBuf),
     /// 「打开设置」：在设置中显示 `Ctrl` 与这个字符的组合归 Vim 还是编辑器的一行。
     VimKey(char),
+    /// 「打开设置」：在设置中定位到该设置项。
+    ShowSetting(Setting),
 }
 
 /// 提示的种类，决定提示条左侧的图标和颜色。
@@ -74,7 +78,9 @@ impl NoticeAction {
                 t!("workspace-notice-show-output")
             }
             NoticeAction::Install { .. } => t!("workspace-notice-install"),
-            NoticeAction::FormatSettings | NoticeAction::VimKey(_) => {
+            NoticeAction::FormatSettings
+            | NoticeAction::VimKey(_)
+            | NoticeAction::ShowSetting(_) => {
                 t!("workspace-notice-open-settings")
             }
             NoticeAction::Reconnect(_) => t!("workspace-notice-reconnect"),
@@ -85,6 +91,7 @@ impl NoticeAction {
             NoticeAction::Reveal(_) => crate::system::reveal_label(),
             NoticeAction::SaveAsAdmin(_) => t!("workspace-save-admin"),
             NoticeAction::OpenProject(_) => t!("workspace-notice-open-project"),
+            NoticeAction::TrustGitRepository(_) => t!("workspace-notice-trust-repository"),
         }
     }
 }
@@ -211,6 +218,7 @@ impl App {
                 self.settings_show_page(SettingsPage::Format);
             }
             NoticeAction::GitOutput => self.show_git_output(),
+            NoticeAction::TrustGitRepository(root) => self.review_git_trust(&root),
             NoticeAction::Reconnect(folder) => {
                 self.reopen_remote(&folder);
             }
@@ -223,6 +231,7 @@ impl App {
             }
             NoticeAction::OpenProject(file) => self.open_project_file(&file),
             NoticeAction::VimKey(c) => self.show_setting(Setting::VimKey(c)),
+            NoticeAction::ShowSetting(setting) => self.show_setting(setting),
         }
         self.request_redraw();
     }

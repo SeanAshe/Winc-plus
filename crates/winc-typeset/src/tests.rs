@@ -229,6 +229,19 @@ fn code_blocks_keep_their_text_and_are_highlighted() {
 }
 
 #[test]
+fn the_code_of_a_fenced_block_is_the_text_between_its_fences() {
+    assert_eq!(
+        fenced_code("```rust\nfn a() {}\n\nfn b() {}\n```"),
+        "fn a() {}\n\nfn b() {}"
+    );
+    // 还没有结尾围栏：到末尾为止。
+    assert_eq!(fenced_code("```\nlet x = 1;"), "let x = 1;");
+    for empty in ["```", "```\n```", "```\n"] {
+        assert_eq!(fenced_code(empty), "", "{empty:?}");
+    }
+}
+
+#[test]
 fn links_cover_their_text() {
     let laid = lay("see [the site](https://example.com) for more\n", 600.0);
     let link = laid[0].0.items.iter().find_map(|item| match item {
@@ -386,4 +399,45 @@ fn inline_code_moves_to_the_next_line_with_its_padding() {
             assert!(rect.w > 8.0, "宽 {width} 时有一块空的代码底色：{rect:?}");
         }
     }
+}
+
+#[test]
+fn drift_moves_positions_after_the_first_edit() {
+    // 在第 10 个字节处插入 3 个字节。
+    let drift = Drift { from: 10, delta: 3 };
+    assert_eq!(drift.moved(9), 9);
+    assert_eq!(drift.moved(10), 13);
+    assert_eq!(drift.moved_start(10), 10);
+    assert_eq!(drift.moved_start(11), 14);
+    // 删去第 10 至 15 个字节：其中的位置落在改动处。
+    let drift = Drift {
+        from: 10,
+        delta: -5,
+    };
+    assert_eq!(drift.moved(12), 10);
+    assert_eq!(drift.moved(20), 15);
+    // 顶层块的起点在改动之后时整块移动，块内的相对位置不变。
+    assert_eq!(drift.within(4), Drift { from: 6, delta: -5 });
+    assert_eq!(drift.within(11), Drift::NONE);
+    assert_eq!(Drift::NONE.moved(usize::MAX - 1), usize::MAX - 1);
+}
+
+#[test]
+fn a_live_cell_hides_its_padding_and_shows_typed_spaces() {
+    fn shown(segment: &str, caret: usize) -> Option<&str> {
+        table::cell_content(segment, caret).map(|range| &segment[range])
+    }
+    // 光标在边距中或文字中：只显示文字。
+    assert_eq!(shown(" 甲 ", 0), Some("甲"));
+    assert_eq!(shown(" 甲 ", 1), Some("甲"));
+    assert_eq!(shown(" 甲 ", 5), Some("甲"));
+    // 在末尾输入的空格显示到光标为止。
+    assert_eq!(shown(" 甲   ", 5), Some("甲 "));
+    assert_eq!(shown(" 甲   ", 4), Some("甲"));
+    // 在开头输入的空格在光标位于开头的空白中时显示。
+    assert_eq!(shown("   甲 ", 3), Some("  甲"));
+    assert_eq!(shown("   甲 ", 6), Some("甲"));
+    // 没有边距、全为空白。
+    assert_eq!(shown("甲", 0), Some("甲"));
+    assert_eq!(shown("   ", 1), None);
 }

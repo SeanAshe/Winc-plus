@@ -103,7 +103,7 @@ fn too_large(size: u64) -> String {
 
 /// 在 `dir` 中新建 `<stamp>-<name>` 并写入 `bytes`，返回它的路径；已有同名文件时在时间戳后加
 /// 编号再试，不覆盖已有的文件。
-fn write_new(dir: &Path, stamp: u128, name: &str, bytes: &[u8]) -> io::Result<PathBuf> {
+pub(super) fn write_new(dir: &Path, stamp: u128, name: &str, bytes: &[u8]) -> io::Result<PathBuf> {
     let mut n = 0;
     loop {
         let file = match n {

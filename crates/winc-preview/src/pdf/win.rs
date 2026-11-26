@@ -14,7 +14,7 @@ use windows::Graphics::Imaging::{
     ColorManagementMode, ExifOrientationMode,
 };
 use windows::Storage::StorageFile;
-use windows::Storage::Streams::InMemoryRandomAccessStream;
+use windows::Storage::Streams::{DataWriter, InMemoryRandomAccessStream};
 use windows::core::HSTRING;
 
 use super::PageSize;
@@ -48,6 +48,27 @@ impl Document {
         let doc = PdfDocument::LoadFromFileAsync(&file)
             .and_then(|op| op.join())
             .map_err(invalid)?;
+        Self::read(doc)
+    }
+
+    /// 打开内存中的 PDF 内容 `bytes`（系统复制一份），返回文档和各页大小。
+    pub(super) fn from_bytes(bytes: &[u8]) -> Result<(Document, Vec<PageSize>), String> {
+        let writer = DataWriter::new().map_err(invalid)?;
+        writer.WriteBytes(bytes).map_err(invalid)?;
+        let buffer = writer.DetachBuffer().map_err(invalid)?;
+        let stream = InMemoryRandomAccessStream::new().map_err(invalid)?;
+        (stream.WriteAsync(&buffer))
+            .and_then(|op| op.join())
+            .map_err(invalid)?;
+        stream.Seek(0).map_err(invalid)?;
+        let doc = PdfDocument::LoadFromStreamAsync(&stream)
+            .and_then(|op| op.join())
+            .map_err(invalid)?;
+        Self::read(doc)
+    }
+
+    /// 读出已打开的 `doc` 的各页大小。
+    fn read(doc: PdfDocument) -> Result<(Document, Vec<PageSize>), String> {
         if doc.IsPasswordProtected().unwrap_or(false) {
             return Err(t!("preview-pdf-encrypted").to_owned());
         }

@@ -777,8 +777,10 @@ pub const SETTINGS_W: f32 = 800.0;
 pub const SETTINGS_H: f32 = 560.0;
 /// 设置卡片与窗口四周至少保留的距离。
 pub const SETTINGS_MARGIN: f32 = 32.0;
-/// 左侧分类栏的宽度。
-pub const SETTINGS_NAV_W: f32 = 240.0;
+/// 左侧分类栏的宽度（逻辑像素）。
+///
+/// 取自调参：放得下图标、最长的分类名和搜索框的占位文字，其余宽度留给右侧的设置项。
+pub const SETTINGS_NAV_W: f32 = 200.0;
 /// 分类栏中每一项的高度。
 pub const SETTINGS_NAV_ROW: f32 = 32.0;
 /// 分类栏中相邻两项之间的间距。

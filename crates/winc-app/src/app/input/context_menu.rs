@@ -21,6 +21,7 @@ use crate::keymap::{self, Action, Context, Stroke};
 use crate::layout::hit;
 
 mod labels;
+mod menu_icon;
 mod menus;
 mod popup;
 mod present;
@@ -28,12 +29,12 @@ mod run;
 #[cfg(test)]
 mod tests;
 
+pub(crate) use menu_icon::MenuIcon;
 pub use menus::*;
 pub(crate) use popup::{
     CHECK_COLUMN, ICON_COLUMN, POPUP_PAD, POPUP_TEXT_X, PopupLevel, PopupMenu, PopupRow,
     folder_level,
 };
-pub(crate) use present::MenuIcon;
 
 /// 菜单项上显示的文字：标题、标题下方的一行小字，以及悬停提示。
 #[derive(Debug, Clone, PartialEq)]
@@ -265,6 +266,9 @@ pub enum MenuCommand {
     /// 设置中「拉取方式」菜单的一项，参数为 [`PullMode::ALL`](winc_config::PullMode::ALL) 中的
     /// 序号（从 0 起）。
     PullMode(usize),
+    /// 设置中「接口协议」菜单的一项，参数为 [`AiProtocol::ALL`](winc_config::AiProtocol::ALL)
+    /// 中的序号（从 0 起）。
+    AiProtocol(usize),
     /// 设置页「日志位置」菜单中的第几项（`winc_config::LogPlacement::ALL` 的下标）。
     LogPlacement(usize),
     /// 设置中「拖入目录」菜单的一项，参数为
@@ -811,6 +815,9 @@ impl MenuCommand {
             MenuCommand::PullMode(i) => winc_config::PullMode::ALL
                 .get(i)
                 .map_or("", |&choice| crate::layout::pull_mode_label(choice)),
+            MenuCommand::AiProtocol(i) => {
+                (winc_config::AiProtocol::ALL.get(i)).map_or("", |&choice| choice.name())
+            }
             MenuCommand::LogPlacement(i) => winc_config::LogPlacement::ALL
                 .get(i)
                 .map_or("", |&choice| crate::layout::log_placement_label(choice)),
@@ -1044,6 +1051,8 @@ pub enum MenuTarget {
     OpenWorktree,
     /// 设置的 Git 页中的「拉取方式」。
     PullMode,
+    /// 设置的 AI 页中的「接口协议」。
+    AiProtocol,
     /// 设置页的「日志位置」。
     LogPlacement,
     /// 设置的编辑器页中的「拖入目录」。

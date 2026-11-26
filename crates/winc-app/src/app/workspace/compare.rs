@@ -1,7 +1,7 @@
-//! 比较文件树中选中的两个文件。
+//! 比较两个文件：文件树中选中的两个文件，或命令行上 `--diff` 给出的文件。
 //!
-//! 在并排差异标签中打开：左栏是先选中的文件（显示顺序靠前者），右栏是另一个文件。两侧均按
-//! 磁盘上的内容比较且只读，不依赖 Git。
+//! 在并排差异标签中打开：左栏是先选中的文件（显示顺序靠前者）或命令行上的第一个文件，右栏是
+//! 另一个文件。两侧均按磁盘上的内容比较且只读，不依赖 Git。
 
 use std::path::Path;
 
@@ -11,6 +11,8 @@ use winc_editor::{LARGE_FILE, display_name, looks_binary};
 use winc_i18n::t;
 
 use super::*;
+use crate::app::NoticeKind;
+use crate::cli::Diff;
 
 /// 返回 `path` 的文本内容用于比较；文件过大、是二进制文件或读取失败时返回提示文字。
 fn read_for_compare(path: &Path) -> Result<String, String> {
@@ -45,31 +47,53 @@ impl App {
     ///
     /// 内容相同或读取失败时只显示提示，不打开标签。
     pub(in crate::app) fn compare_files(&mut self, left: &Path, right: &Path) {
-        let (old, new) = match (read_for_compare(left), read_for_compare(right)) {
-            (Ok(old), Ok(new)) => (old, new),
-            (Err(e), _) | (_, Err(e)) => {
-                self.flash(e);
-                return;
+        match self.compare_view(left, right) {
+            Ok(view) if view.is_identical() => self.flash(identical(left, right)),
+            Ok(view) => _ = self.show_compare(&compare_title(left, right), view),
+            Err(e) => self.flash(e),
+        }
+    }
+
+    /// 打开命令行上要比较的各对文件 `diffs`，每对一个并排差异标签。
+    ///
+    /// 命令行上明确要求比较：内容相同时同样打开标签，另作提示；读取失败时说明原因，不打开该对的
+    /// 标签。
+    pub(crate) fn open_diffs(&mut self, diffs: &[Diff]) {
+        for Diff { left, right } in diffs {
+            match self.compare_view(left, right) {
+                Ok(view) => {
+                    let same = view.is_identical();
+                    self.show_compare(&compare_title(left, right), view);
+                    if same {
+                        self.flash(identical(left, right));
+                    }
+                }
+                Err(e) => self.notify(NoticeKind::Warning, e),
             }
-        };
+        }
+    }
+
+    /// 返回按磁盘上的内容比较 `left` 与 `right` 的差异；读取失败时返回提示文字。
+    fn compare_view(&self, left: &Path, right: &Path) -> Result<DiffView, String> {
+        let (old, new) = (read_for_compare(left)?, read_for_compare(right)?);
         let language = winc_syntax::detect(&display_name(right));
         let relative = |path: &Path| {
             self.relative_path(path)
                 .unwrap_or_else(|| path.to_string_lossy().into_owned())
         };
-        let view = DiffView::new(
+        Ok(DiffView::new(
             DiffSide::new(relative(left), &old, None, language),
             DiffSide::new(relative(right), &new, None, language),
-        );
-        if view.is_identical() {
-            self.flash(t!(
-                "workspace-compare-identical",
-                left = display_name(left),
-                right = display_name(right)
-            ));
-            return;
-        }
-
-        self.show_compare(&compare_title(left, right), view);
+        ))
     }
+}
+
+/// 返回 `left` 与 `right` 内容相同的提示。
+fn identical(left: &Path, right: &Path) -> String {
+    t!(
+        "workspace-compare-identical",
+        left = display_name(left),
+        right = display_name(right)
+    )
+    .to_owned()
 }

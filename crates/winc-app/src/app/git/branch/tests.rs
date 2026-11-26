@@ -110,14 +110,42 @@ fn branch_ops_are_grouped_with_separators() {
             item(Rebase, 1),
             MenuEntry::Separator,
             item(Rename, 1),
+            item(CopyName, 1),
             item(Delete, 1),
         ]
     );
-    // 空的组不留分隔线：当前分支只能从它新建分支和重命名，远程分支最后没有删除。
+    // 空的组不留分隔线：当前分支只能从它新建分支、重命名和复制名字，远程分支最后没有删除。
     assert_eq!(
         branch_ops(0, &branches, &[], &[], false),
-        [item(NewFrom, 0), MenuEntry::Separator, item(Rename, 0)]
+        [
+            item(NewFrom, 0),
+            MenuEntry::Separator,
+            item(Rename, 0),
+            item(CopyName, 0),
+        ]
     );
     let remote = branch_ops(2, &branches, &[], &[], false);
-    assert_eq!(remote.last(), Some(&item(Rebase, 2)));
+    assert_eq!(remote.last(), Some(&item(CopyName, 2)));
+    // 另一个 Git 操作在运行时，当前分支、本地分支、远程分支都只有复制名字可用。
+    for i in 0..branches.len() {
+        assert_eq!(
+            enabled(branch_ops(i, &branches, &[], &[], true)),
+            [item(CopyName, i)]
+        );
+    }
+}
+
+#[test]
+fn only_copying_the_tag_name_is_enabled_while_git_is_busy() {
+    use MenuCommand::PickerTag;
+    let copy = MenuEntry::Item(PickerTag(Some(TagOp::CopyName), 0), true);
+    assert_eq!(enabled(tag_ops(0, true)), [copy]);
+    assert_eq!(enabled(tag_ops(0, false)).len(), TagOp::ALL.len() + 1);
+}
+
+/// 菜单 `entries` 里可用的项。
+fn enabled(entries: Vec<MenuEntry>) -> Vec<MenuEntry> {
+    (entries.into_iter())
+        .filter(|entry| matches!(entry, MenuEntry::Item(_, true)))
+        .collect()
 }

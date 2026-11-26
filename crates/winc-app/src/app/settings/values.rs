@@ -32,6 +32,15 @@ impl App {
         } else if setting == Setting::GitPullMode {
             let choice = self.config.git_pull.unwrap_or_default();
             (crate::layout::pull_mode_label(choice).to_owned(), false)
+        } else if setting == Setting::AiProtocol {
+            (
+                self.config
+                    .ai_protocol
+                    .unwrap_or_default()
+                    .name()
+                    .to_owned(),
+                false,
+            )
         } else if setting == Setting::VimClipboard {
             let choice = self.config.vim_clipboard.unwrap_or_default();
             (crate::layout::vim_clipboard_label(choice).to_owned(), false)

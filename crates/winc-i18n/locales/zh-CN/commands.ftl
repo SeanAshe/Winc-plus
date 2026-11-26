@@ -149,6 +149,8 @@ cmd-sort-lines-descending = 按降序排列行
 cmd-trim-trailing-whitespace = 裁剪尾随空格
 cmd-unescape-unicode = Unicode 转义转为字符
 cmd-escape-unicode = 字符转为 Unicode 转义
+cmd-pretty-print-json = 美化 JSON
+cmd-minify-json = 压缩 JSON
 cmd-indent-using-spaces = 使用空格缩进
 cmd-indent-using-tabs = 使用制表符缩进
 cmd-convert-indentation-to-spaces = 将缩进转换为空格
@@ -242,6 +244,7 @@ cmd-git-reword-commit = Git：编辑提交说明…
 cmd-git-go-to-child-commit = Git：转到子提交
 cmd-git-go-to-parent-commit = Git：转到父提交
 cmd-git-show-output = Git：显示输出
+cmd-git-generate-commit-message = Git：生成提交信息
 cmd-git-clone = Git：克隆仓库…
 cmd-git-init = Git：初始化仓库
 cmd-git-switch-repository = Git：切换仓库
@@ -335,6 +338,8 @@ cmd-cli-usage =
       winc ssh://主机/目录 [ssh://主机/文件:行[:列]]
                             打开远端主机上的目录和其中的文件（需要启用远程模块）
       winc -                读取标准输入（例如 cargo build 2>&1 | winc -）
+      -d, --diff 文件1 文件2
+                            并排比较两个文件，可多次给出（例如 git difftool：winc -w -d "$LOCAL" "$REMOTE"）
       -w, --wait            文件的标签页全部关闭后再退出（例如 git config core.editor "winc -w"）
       -n, --new-instance    不复用正在运行的 Winc，启动新进程（例如在 Winc 的终端中运行开发版本）
       --register-file-types 登记文件类型和图标后退出（安装程序使用）
@@ -349,6 +354,8 @@ cmd-cli-ssh-mixed = ssh:// 参数必须指向同一台主机，且不能与本�
 cmd-cli-ssh-one-off = --wait 和 - 不能用于 ssh:// 参数
 cmd-cli-ssh-folders = ssh:// 参数中只能有一个目录，其余应为其中的文件
 cmd-cli-wait-needs-file = --wait 需要指定文件
+cmd-cli-diff-needs-files = --diff 需要指定两个文件
+cmd-cli-diff-not-file = 「{ $path }」不存在或不是文件，--diff 只能比较已有的文件
 cmd-cli-wsl-needs-name = --wsl 需要指定发行版名称
 cmd-cli-wait-needs-openable-file = --wait 需要至少一个可打开的文件
 cmd-cli-wait-folder = 「{ $path }」是目录，--wait 只能打开文件

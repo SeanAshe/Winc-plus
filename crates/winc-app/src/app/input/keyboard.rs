@@ -1283,8 +1283,8 @@ impl App {
 
     /// 处理输入法事件 `ime`。
     ///
-    /// 组字中的文本（`Preedit`）暂存起来用于显示；提交的文本（`Commit`）插入焦点所在的
-    /// 编辑区或输入框。
+    /// 组字中的文本（`Preedit`）和其中的光标暂存起来用于显示；提交的文本（`Commit`）插入焦点
+    /// 所在的编辑区或输入框。
     pub(in crate::app) fn on_ime(&mut self, ime: Ime) {
         // 窗口内的提示框拦截按键时，输入法的文字同样不交给它下面的编辑区和输入框。
         if self.overlays.alert.is_some() {
@@ -1294,7 +1294,8 @@ impl App {
         }
         match ime {
             // 组字文字只属于焦点所在的一处，另一处的清空。
-            Ime::Preedit(text, _) => {
+            Ime::Preedit(text, cursor) => {
+                self.ime.preedit_cursor = cursor.map(|(_, end)| end);
                 if self.focus.is_field() {
                     self.ime.field_preedit = text;
                     self.ime.preedit.clear();
@@ -1329,6 +1330,14 @@ impl App {
         }
 
         self.request_redraw();
+    }
+
+    /// 返回输入法在组字文字 `text` 中的光标（字节偏移）；输入法要求隐藏光标，或位置不在 `text`
+    /// 的字符边界上时为 `None`。
+    pub(crate) fn preedit_cursor(&self, text: &str) -> Option<usize> {
+        self.ime
+            .preedit_cursor
+            .filter(|&at| text.is_char_boundary(at))
     }
 
     /// 输入法正在组字的文字，只在焦点位于 `focus` 时返回。
@@ -1405,6 +1414,9 @@ pub struct ImeState {
     pub preedit: String,
     /// 输入框中输入法正在组字的文字。
     pub field_preedit: String,
+    /// 输入法在组字文字中的光标（字节偏移），报告的是一段范围时取其终点；输入法要求隐藏光标时
+    /// 为 `None`。
+    pub(crate) preedit_cursor: Option<usize>,
     /// 输入法候选框应出现的位置。
     pub(crate) cursor: Option<winc_render::Rect>,
     pub(in crate::app) last_area: Option<winc_render::Rect>,

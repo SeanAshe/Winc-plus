@@ -22,6 +22,8 @@ pub enum SettingsPage {
     Git,
     /// 终端：默认 shell、面板位置、字体、字号、字重和终端行为。
     Terminal,
+    /// AI：模型服务的地址、密钥、接口协议、调用的模型和超时时间。
+    Ai,
     /// 模块：可选模块的开关。
     Modules,
     /// 快捷键：只列出键位，不含设置项，整页由 [`KeysLayout`] 单独布局。
@@ -39,7 +41,7 @@ pub struct Modules {
 
 impl SettingsPage {
     /// 全部分类，顺序与分类栏从上到下的顺序一致。
-    pub const ALL: [SettingsPage; 11] = [
+    pub const ALL: [SettingsPage; 12] = [
         SettingsPage::General,
         SettingsPage::Appearance,
         SettingsPage::Editor,
@@ -48,6 +50,7 @@ impl SettingsPage {
         SettingsPage::Format,
         SettingsPage::Git,
         SettingsPage::Terminal,
+        SettingsPage::Ai,
         SettingsPage::Modules,
         SettingsPage::Keys,
         SettingsPage::About,
@@ -73,6 +76,7 @@ impl SettingsPage {
             SettingsPage::Format => t!("settings-page-format"),
             SettingsPage::Git => t!("settings-page-git"),
             SettingsPage::Terminal => t!("settings-page-terminal"),
+            SettingsPage::Ai => t!("settings-page-ai"),
             SettingsPage::Modules => t!("settings-page-modules"),
             SettingsPage::Keys => t!("settings-page-keys"),
             SettingsPage::About => t!("settings-page-about"),
@@ -262,7 +266,12 @@ impl SettingsPage {
                 ),
                 group(
                     t!("settings-group-commit"),
-                    vec![S::GitStagingArea, S::GitTree, S::GitCommitHistory],
+                    vec![
+                        S::GitStagingArea,
+                        S::GitTree,
+                        S::GitCommitHistory,
+                        S::GitGenerateCommitMessage,
+                    ],
                 ),
                 group(
                     t!("settings-group-diff"),
@@ -283,6 +292,16 @@ impl SettingsPage {
                     ],
                 ),
             ],
+            SettingsPage::Ai => vec![group(
+                t!("settings-group-api"),
+                vec![
+                    S::AiBaseUrl,
+                    S::AiApiKey,
+                    S::AiProtocol,
+                    S::AiModel,
+                    S::AiTimeout,
+                ],
+            )],
             SettingsPage::Modules => vec![group(
                 t!("settings-page-modules"),
                 vec![S::GitModule, S::TerminalModule, S::RemoteModule],

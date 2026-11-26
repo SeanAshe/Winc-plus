@@ -2,9 +2,9 @@
 //! `Windows.Data.Pdf`）把一页画成指定大小的位图，只做预览，不解析文字和链接；目录（书签）由
 //! [`outline`] 直接读文件得到。
 //!
-//! 打开文档时只读取页数和各页大小；渲染按页、按指定大小进行，调用方只渲染视口附近的页，内存只占
-//! 这几页的位图。系统的 PDF 对象不能跨线程使用：[`Document`] 只能在打开它的线程上使用，调用方
-//! 通常为每个打开的 PDF 启动一个渲染线程。其他平台不支持，[`supported`] 返回 `false`。
+//! 本机的文件打开时只读取页数和各页大小，远端主机上的文件整份读进内存（[`read`]）。系统的 PDF
+//! 对象只能在打开文档的线程上使用（[`Document`]），调用方通常为每个 PDF 启动一个渲染线程。其他
+//! 平台不支持，[`supported`] 返回 `false`。
 
 use std::path::Path;
 
@@ -38,6 +38,9 @@ pub struct PageSize {
 /// 远达不到该上限。
 pub const MAX_SIDE: u32 = 16384;
 
+/// 读进内存的 PDF 的大小上限（256 MiB），同 `table::MAX_FILE`。
+const MAX_FILE: u64 = crate::table::MAX_FILE;
+
 /// 当前平台能否预览 PDF：macOS 与 Windows 能，其他平台不能。
 pub fn supported() -> bool {
     cfg!(any(target_os = "macos", windows))
@@ -50,6 +53,23 @@ pub fn is_pdf(path: &Path) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case("pdf"))
 }
 
+/// 读入整个 PDF 文件 `path`，供 [`Document::from_bytes`] 打开。应在后台线程调用。
+///
+/// # Errors
+///
+/// 文件无法读取、不是普通文件或超过 256 MiB 时返回给用户看的原因。
+pub fn read(path: &Path) -> Result<Vec<u8>, String> {
+    let metadata = winc_backend::fs::metadata(path).map_err(|e| e.to_string())?;
+    // 读取管道、设备文件没有终点，会一直阻塞。
+    if !metadata.is_file() {
+        return Err(winc_i18n::t!("preview-pdf-not-regular-file").to_owned());
+    }
+    if metadata.len > MAX_FILE {
+        return Err(winc_i18n::t!("preview-pdf-too-large").to_owned());
+    }
+    winc_backend::fs::read(path).map_err(|e| e.to_string())
+}
+
 /// 打开的 PDF 文档；只能在打开它的线程上使用。
 pub struct Document {
     #[cfg(any(target_os = "macos", windows))]
@@ -59,7 +79,9 @@ pub struct Document {
 }
 
 impl Document {
-    /// 打开 PDF 文件 `path`，读出页数和各页大小。
+    /// 打开本机的 PDF 文件 `path`，读出页数和各页大小。
+    ///
+    /// 系统的渲染器打不开远端主机上的文件：用 [`read`] 读入后由 [`Document::from_bytes`] 打开。
     ///
     /// # Errors
     ///
@@ -67,17 +89,39 @@ impl Document {
     pub fn open(path: &Path) -> Result<Document, String> {
         #[cfg(any(target_os = "macos", windows))]
         {
-            let (inner, pages) = platform::Document::open(path)?;
-            if pages.is_empty() {
-                return Err(winc_i18n::t!("preview-pdf-empty").to_owned());
-            }
-            Ok(Document { inner, pages })
+            Self::with_pages(platform::Document::open(path)?)
         }
         #[cfg(not(any(target_os = "macos", windows)))]
         {
             let _ = path;
             Err(winc_i18n::t!("preview-pdf-unsupported").to_owned())
         }
+    }
+
+    /// 打开内存中的 PDF 内容 `bytes`，读出页数和各页大小。
+    ///
+    /// # Errors
+    ///
+    /// 同 [`Document::open`]。
+    pub fn from_bytes(bytes: &[u8]) -> Result<Document, String> {
+        #[cfg(any(target_os = "macos", windows))]
+        {
+            Self::with_pages(platform::Document::from_bytes(bytes)?)
+        }
+        #[cfg(not(any(target_os = "macos", windows)))]
+        {
+            let _ = bytes;
+            Err(winc_i18n::t!("preview-pdf-unsupported").to_owned())
+        }
+    }
+
+    /// 由系统打开的结果创建；没有页时返回原因。
+    #[cfg(any(target_os = "macos", windows))]
+    fn with_pages((inner, pages): (platform::Document, Vec<PageSize>)) -> Result<Document, String> {
+        if pages.is_empty() {
+            return Err(winc_i18n::t!("preview-pdf-empty").to_owned());
+        }
+        Ok(Document { inner, pages })
     }
 
     /// 各页的大小，按页序排列；至少有一页。
