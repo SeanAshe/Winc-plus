@@ -23,8 +23,8 @@ use winc_editor::diff_view::{DiffSide, DiffView, LEFT, RIGHT, SideRow};
 use winc_i18n::t;
 
 use super::editor::{
-    HIGHLIGHT_BUDGET, caret_bar, draw_caret, draw_glyphs, draw_modal_caret, draw_whitespace_mark,
-    trailing_whitespace, whitespace_shown,
+    HIGHLIGHT_BUDGET, caret_bar, draw_extra_caret, draw_glyphs, draw_modal_caret, draw_text_caret,
+    draw_whitespace_mark, trailing_whitespace, whitespace_shown,
 };
 use super::*;
 use crate::app::diff::{DIFF_HSCROLL, DiffHScroll, DiffPane};
@@ -1137,33 +1137,33 @@ fn draw_body(
             &[],
         );
 
+        // 光标处字符的位置与宽度；行尾与空行上的光标占一格。
+        let place = |col: usize| {
+            let width = Some((at(col + 1) - at(col)) * app.metrics.cell).filter(|w| *w > 0.0);
+            let x = origin_x + at(col) * app.metrics.cell;
+            (x, y, width.unwrap_or(app.metrics.cell))
+        };
         // 其余光标与主光标同步闪烁；输入法组字只显示在主光标处，候选窗同样跟随主光标。
         if side == RIGHT && carets_shown {
             let skip = edit.carets.partition_point(|c| c.0 < line);
             for &(_, col) in edit.carets[skip..].iter().take_while(|c| c.0 == line) {
                 if breaks.row_of(col) == part {
-                    let x = origin_x + at(col) * app.metrics.cell;
-                    caret_bar(app, frame, x, y, pane.text);
+                    let under = Some((&chars[..], col));
+                    draw_extra_caret(app, frame, place(col), under, baseline, pane.text);
                 }
             }
-            if edit.caret.0 == line && breaks.row_of(edit.caret.1) == part && barred(RIGHT) {
-                let x = origin_x + at(edit.caret.1) * app.metrics.cell;
-                app.ime.cursor = Some(draw_caret(app, frame, x, y, baseline, pane.text));
+            let col = edit.caret.1;
+            if edit.caret.0 == line && breaks.row_of(col) == part && barred(RIGHT) {
+                let under = Some((&chars[..], col));
+                let rect = draw_text_caret(app, frame, place(col), under, baseline, pane.text);
+                app.ime.cursor = Some(rect);
             }
         }
         if let Some((caret_side, (caret_line, col), shape)) = modal
             && (caret_side, caret_line, breaks.row_of(col)) == (side, line, part)
         {
-            // 行尾与空行上的光标占一格。
-            let width =
-                Some((at(col + 1) - at(col)) * app.metrics.cell).filter(|width| *width > 0.0);
-            let place = (
-                origin_x + at(col) * app.metrics.cell,
-                y,
-                width.unwrap_or(app.metrics.cell),
-            );
             let under = Some((&chars[..], col));
-            draw_modal_caret(app, frame, place, under, baseline, shape, pane.text);
+            draw_modal_caret(app, frame, place(col), under, baseline, shape, pane.text);
         }
         // 只读一侧不接受输入，输入法候选窗不跟随该侧的光标。
         if let Some((caret_side, (caret_line, col))) = read_caret
@@ -1201,7 +1201,10 @@ fn draw_body(
             let band = Rect::new(pane.text.x, y, pane.text.w, lh);
             let x = pane.text.x + DIFF_TEXT_PAD - scroll.x;
             let baseline = baseline_in(band, ascent, descent);
-            app.ime.cursor = Some(draw_caret(app, frame, x, y, baseline, pane.text));
+            let place = (x, y, app.metrics.cell);
+            app.ime.cursor = Some(draw_text_caret(
+                app, frame, place, None, baseline, pane.text,
+            ));
         }
     }
 

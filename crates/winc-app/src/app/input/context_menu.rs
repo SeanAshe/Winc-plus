@@ -86,6 +86,8 @@ pub enum MenuButton {
     TreeMore,
     /// 标签栏无法容纳全部标签时显示在最右端的「⌄」。
     TabList,
+    /// 编辑区有终端时标签栏的「+」：新建文件或终端。
+    NewTab,
     /// 终端面板标签栏上的运行配置名。
     RunConfigs,
     /// 终端面板标签栏上「+」右边选 shell 的按钮。
@@ -279,6 +281,9 @@ pub enum MenuCommand {
     /// 设置中「自动保存」菜单的一项，参数为
     /// [`AutoSave::ALL`](winc_config::AutoSave::ALL) 中的序号（从 0 起）。
     AutoSave(usize),
+    /// 设置中「光标样式」菜单的一项，参数为
+    /// [`CursorStyle::ALL`](winc_config::CursorStyle::ALL) 中的序号（从 0 起）。
+    CursorStyle(usize),
     /// 设置中「光标移动」菜单的一项，参数为
     /// [`SmoothCaret::ALL`](winc_config::SmoothCaret::ALL) 中的序号（从 0 起）。
     SmoothCaret(usize),
@@ -306,6 +311,9 @@ pub enum MenuCommand {
     /// 设置中「Meta 键」菜单的一项，参数为
     /// [`OptionAsMeta::ALL`](winc_config::OptionAsMeta::ALL) 中的序号（从 0 起）。
     OptionAsMeta(usize),
+    /// 设置中终端「右键单击」菜单的一项，参数为
+    /// [`TerminalRightClick::ALL`](winc_config::TerminalRightClick::ALL) 中的序号（从 0 起）。
+    RightClick(usize),
     /// 设置中字体菜单的「系统默认」（终端字体为「跟随编辑器」）。
     FontDefault,
     /// 设置中字体菜单的一项，参数为 [`winc_render::installed_fonts`] 中的序号（从 0 起）。
@@ -542,6 +550,13 @@ pub enum MenuCommand {
     /// 把终端面板停靠到另一边。
     TerminalDock,
     NewTerminal,
+    /// 标签栏「+」菜单的「新建文件」：在当前窗格新建未命名文件。
+    NewUntitled,
+    /// 标签栏「+」菜单的「新建终端」：在当前窗格新建终端，使用默认 shell。
+    NewEditorTerminal,
+    /// 标签栏「+」菜单中的一个 shell（`App::terminal_shell_list` 中的序号）：用它在当前窗格
+    /// 新建终端。
+    NewEditorTerminalShell(usize),
     /// 终端：拆分标签，新终端在当前终端的目录里启动。
     SplitTerminal,
     /// 终端：向右分栏（面板在下方时）。
@@ -651,6 +666,7 @@ impl MenuCommand {
             | MenuCommand::LatexProblem(_)
             | MenuCommand::RunSelect(_)
             | MenuCommand::NewTerminalShell(_)
+            | MenuCommand::NewEditorTerminalShell(_)
             | MenuCommand::DefaultShell(Some(_))
             | MenuCommand::Zoom(_)
             | MenuCommand::TerminalDock
@@ -664,6 +680,9 @@ impl MenuCommand {
             MenuCommand::OptionAsMeta(i) => winc_config::OptionAsMeta::ALL
                 .get(i)
                 .map_or("", |&choice| crate::layout::option_as_meta_label(choice)),
+            MenuCommand::RightClick(i) => winc_config::TerminalRightClick::ALL
+                .get(i)
+                .map_or("", |&choice| crate::layout::right_click_label(choice)),
             MenuCommand::NewWorktree => t!("menu-new-worktree"),
             MenuCommand::LocationThisWindow => t!("git-location-this-window"),
             MenuCommand::LocationNewWindow => t!("git-location-new-window"),
@@ -758,6 +777,8 @@ impl MenuCommand {
             MenuCommand::TerminalClear => t!("menu-terminal-clear"),
             MenuCommand::TerminalMaximize => t!("menu-terminal-maximize"),
             MenuCommand::NewTerminal => t!("cmd-new-terminal"),
+            MenuCommand::NewUntitled => t!("cmd-new-file"),
+            MenuCommand::NewEditorTerminal => t!("cmd-new-terminal"),
             MenuCommand::SplitTerminal => t!("cmd-split-terminal"),
             MenuCommand::MoveTerminalRight => t!("menu-terminal-move-right"),
             MenuCommand::MoveTerminalDown => t!("menu-terminal-move-down"),
@@ -830,6 +851,9 @@ impl MenuCommand {
             MenuCommand::AutoSave(i) => winc_config::AutoSave::ALL
                 .get(i)
                 .map_or("", |&choice| crate::layout::auto_save_label(choice)),
+            MenuCommand::CursorStyle(i) => winc_config::CursorStyle::ALL
+                .get(i)
+                .map_or("", |&choice| crate::layout::cursor_style_label(choice)),
             MenuCommand::SmoothCaret(i) => winc_config::SmoothCaret::ALL
                 .get(i)
                 .map_or("", |&choice| crate::layout::smooth_caret_label(choice)),
@@ -957,6 +981,8 @@ impl MenuCommand {
             MenuCommand::TerminalMaximize => Action::MaximizeTerminal,
             MenuCommand::TerminalDock => Action::ToggleTerminalPosition,
             MenuCommand::NewTerminal => Action::NewTerminal,
+            MenuCommand::NewUntitled => Action::NewFile,
+            MenuCommand::NewEditorTerminal => Action::NewEditorTerminal,
             MenuCommand::SplitTerminal => Action::SplitTerminal,
             MenuCommand::MoveTerminalRight | MenuCommand::MoveTerminalDown => {
                 Action::MoveTerminalToGroup
@@ -1061,6 +1087,8 @@ pub enum MenuTarget {
     SearchStyle,
     /// 设置的编辑器页中的「自动保存」。
     AutoSave,
+    /// 设置的编辑器页中的「光标样式」。
+    CursorStyle,
     /// 设置的编辑器页中的「光标移动」。
     SmoothCaret,
     /// 设置的外观页中的「界面缩放」。
@@ -1081,6 +1109,8 @@ pub enum MenuTarget {
     TerminalTabPosition,
     /// 设置的终端页中的「Meta 键」。
     OptionAsMeta,
+    /// 设置的终端页中的「右键单击」。
+    RightClick,
     /// 设置中字体一行的下拉按钮。
     Font(Setting),
     /// 设置的格式化页中一种语言的格式化（修复）工具。
@@ -1115,6 +1145,8 @@ pub enum MenuTarget {
     TreeTools,
     /// 标签栏最右端「⌄」弹出的标签列表。
     TabList,
+    /// 编辑区有终端时标签栏的「+」弹出的菜单：新建文件、新建终端。
+    NewTab,
     /// LaTeX 预览右上角的错误数弹出的错误列表。
     LatexProblems,
     /// 终端面板标签栏上的运行配置列表。

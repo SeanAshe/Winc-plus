@@ -1,6 +1,15 @@
 //! 字体加载的测试：字形表的选择、可变字体的命名实例、斜体候选，以及注释的 ASCII 快速路径。
 
 use super::*;
+
+/// 界面、编辑区和终端分别用 `ui`、`editor`、`terminal` 的字重。
+fn weights(ui: u16, editor: u16, terminal: u16) -> FontWeights {
+    FontWeights {
+        ui,
+        editor,
+        terminal,
+    }
+}
 #[cfg(target_os = "macos")]
 use crate::text::system_outline::GlyphPath;
 
@@ -241,7 +250,8 @@ fn the_terminal_uses_its_own_font_or_the_editor_font() {
 #[test]
 fn a_separate_terminal_weight_uses_its_own_fallback_faces() {
     // 终端字重与全局不同：终端有自己的槽位，后备字体也另开一份；汉字缺字时用终端的那一份。
-    let mut fonts = Fonts::load_with(&[], &[], &[], 400, 300).expect("系统里有等宽字体");
+    let mut fonts =
+        Fonts::load_with(&[], &[], &[], weights(400, 400, 300)).expect("系统里有等宽字体");
     assert_eq!(fonts.resolve(FontKind::Terminal, 'a').0, TERMINAL);
     assert_ne!(fonts.resolve(FontKind::Mono, 'a').0, TERMINAL);
     assert_eq!(fonts.terminal_fallbacks.len(), fonts.fallbacks.len());
@@ -258,9 +268,33 @@ fn a_separate_terminal_weight_uses_its_own_fallback_faces() {
     assert_eq!(slot, shared);
 
     // 与全局字重相同：和编辑区共用字体，不重复加载后备字体。
-    let mut fonts = Fonts::load_with(&[], &[], &[], 400, 400).expect("系统里有等宽字体");
+    let mut fonts =
+        Fonts::load_with(&[], &[], &[], weights(400, 400, 400)).expect("系统里有等宽字体");
     assert_eq!(fonts.resolve(FontKind::Terminal, 'a').0, MONO);
     assert!(fonts.terminal_fallbacks.is_empty());
+}
+
+#[test]
+fn a_separate_editor_weight_uses_its_own_fallback_faces() {
+    // 编辑区字重与界面不同：编辑区的后备字体另开一份，汉字缺字时用这一份，界面仍用原来的。
+    let mut fonts = Fonts::load_with(&[], &[], &[], weights(400, 600, 600)).unwrap();
+    assert_eq!(fonts.mono_fallbacks.len(), fonts.fallbacks.len());
+    let (mono, _) = fonts.resolve(FontKind::Mono, '中');
+    let (ui, _) = fonts.resolve(FontKind::Ui, '中');
+    assert!(!fonts.fallbacks.contains(&mono), "{mono}");
+    assert!(fonts.fallbacks.contains(&ui), "{ui}");
+    // 互为后备的主字体同样按各自的字重另开一份；彩色 emoji 仍共用一个槽位。
+    assert!(!fonts.mono_other.is_empty() && !fonts.ui_other.is_empty());
+    assert!(fonts.mono_fallbacks.contains(&fonts.emoji));
+    // 终端字重与编辑区相同：与编辑区共用字体和后备字体。
+    assert_eq!(fonts.resolve(FontKind::Terminal, 'a').0, MONO);
+    assert_eq!(fonts.resolve(FontKind::Terminal, '中').0, mono);
+    assert!(fonts.terminal_fallbacks.is_empty());
+
+    // 与界面字重相同：不另开。
+    let fonts = Fonts::load_with(&[], &[], &[], weights(500, 500, 500)).unwrap();
+    assert!(fonts.mono_fallbacks.is_empty() && fonts.mono_other.is_empty());
+    assert!(fonts.ui_other.is_empty());
 }
 
 #[test]
@@ -473,42 +507,6 @@ fn chinese_text_finds_a_font_on_linux() {
     }
 }
 
-#[test]
-fn chinese_japanese_and_korean_locales_pick_their_own_glyph_forms() {
-    for (locale, language) in [
-        ("zh_TW.UTF-8", "zh-tw"),
-        ("zh_HK.UTF-8", "zh-hk"),
-        ("zh_CN.UTF-8", "zh-cn"),
-        ("ja_JP.UTF-8", "ja-jp"),
-        ("ko_KR.UTF-8", "ko-kr"),
-        ("zh", "zh-cn"),
-        ("en_US.UTF-8", "zh-cn"),
-        ("C", "zh-cn"),
-        ("", "zh-cn"),
-    ] {
-        assert_eq!(cjk_language_of(locale), language, "{locale}");
-    }
-}
-
-#[test]
-fn the_app_language_overrides_the_system_language_for_cjk_glyphs() {
-    assert!(set_cjk_language(Some("zh-cn")));
-    assert_eq!(cjk_language(), "zh-cn");
-    // 同一种语言再设一次不算变化，调用方不必重新加载字体。
-    assert!(!set_cjk_language(Some("zh-cn")));
-    // 不再指定时回到按系统语言选。
-    assert!(set_cjk_language(None));
-    assert_eq!(
-        cjk_language(),
-        cjk_language_of(
-            &["LC_ALL", "LC_CTYPE", "LANG"]
-                .iter()
-                .find_map(|name| std::env::var(name).ok().filter(|v| !v.is_empty()))
-                .unwrap_or_default()
-        )
-    );
-}
-
 #[cfg(target_os = "macos")]
 #[test]
 fn weight_follows_the_axis_and_the_rest_is_emboldened() {
@@ -618,8 +616,8 @@ fn a_configured_font_stays_in_its_own_area() {
     assert_eq!(fonts.resolve(FontKind::Terminal, '中'), mono);
 
     // 终端字重不同时，按终端字重另开的字体中也没有用户配置的界面字体。
-    let fonts =
-        Fonts::load_with(&[], &[hiragino], &[], 400, 300).expect("冬青黑体是 macOS 自带字体");
+    let fonts = Fonts::load_with(&[], &[hiragino], &[], weights(400, 400, 300))
+        .expect("冬青黑体是 macOS 自带字体");
     assert!(fonts.listed[2].is_empty(), "{:?}", fonts.listed[2]);
 }
 
@@ -747,7 +745,8 @@ fn the_default_monospace_font_falls_back_in_the_configured_order() {
     };
     let next = Some(isolated.regular(test_fonts::CHAIN_NEXT));
     for terminal_weight in [400, 700] {
-        let mut fonts = Fonts::load_with(&[], &[], &[], 400, terminal_weight).unwrap();
+        let mut fonts =
+            Fonts::load_with(&[], &[], &[], weights(400, 400, terminal_weight)).unwrap();
         for kind in [FontKind::Mono, FontKind::Terminal] {
             let (slot, glyph) = fonts.resolve(kind, CHAIN_SYMBOL);
             assert_ne!(glyph, 0, "{kind:?}");

@@ -128,6 +128,38 @@ const EDITOR: &[Field] = &[
         },
         write: |config| config.editor_size.map(number),
     },
+    weight_field!(editor_font_weight),
+    bool_field!("fontLigatures", editor_font_ligatures),
+    Field {
+        key: "rulers",
+        read: |config, value, name, problems| {
+            let Some(items) = value.as_array() else {
+                problems.push(t!("config-not-array", name = name));
+                return;
+            };
+            let range = Config::RULER_RANGE;
+            for item in items {
+                let column = item
+                    .as_number()
+                    .filter(|n| n.fract() == 0.0)
+                    .map(|n| n as usize);
+                match column.filter(|column| range.contains(column)) {
+                    Some(column) if !config.editor_rulers.contains(&column) => {
+                        config.editor_rulers.push(column);
+                    }
+                    Some(_) => {}
+                    None => {
+                        let max = *range.end();
+                        problems.push(t!("config-item-not-column", name = name, max = max));
+                    }
+                }
+            }
+        },
+        write: |config| {
+            let columns = config.editor_rulers.iter().map(|&c| number(c as f32));
+            (!config.editor_rulers.is_empty()).then(|| Json::Array(columns.collect()))
+        },
+    },
     Field {
         key: "tabWidth",
         read: |config, value, name, problems| {
@@ -224,6 +256,7 @@ const EDITOR: &[Field] = &[
     bool_field!("alignColumns", align_columns),
     bool_field!("wholeLines", whole_lines),
     bool_field!("minimap", minimap),
+    bool_field!("renderLineEndings", render_line_endings),
     bool_field!("smoothScrolling", smooth_scrolling),
     Field {
         key: "smoothCaretMovement",
@@ -260,6 +293,28 @@ const EDITOR: &[Field] = &[
                 RenderWhitespace::Selection => "selection",
                 RenderWhitespace::Trailing => "trailing",
                 RenderWhitespace::All => "all",
+            };
+            Some(Json::String(value.to_owned()))
+        },
+    },
+    Field {
+        key: "cursorStyle",
+        read: |config, value, name, problems| {
+            config.cursor_style = match value.as_str() {
+                Some("line") => Some(CursorStyle::Line),
+                Some("block") => Some(CursorStyle::Block),
+                Some("underline") => Some(CursorStyle::Underline),
+                _ => {
+                    problems.push(t!("config-cursor-style-invalid", name = name));
+                    None
+                }
+            }
+        },
+        write: |config| {
+            let value = match config.cursor_style? {
+                CursorStyle::Line => "line",
+                CursorStyle::Block => "block",
+                CursorStyle::Underline => "underline",
             };
             Some(Json::String(value.to_owned()))
         },
@@ -623,6 +678,26 @@ const TERMINAL: &[Field] = &[
     bool_field!("confirmClose", terminal_confirm_close),
     bool_field!("prompt", terminal_prompt),
     bool_field!("copyOnSelect", terminal_copy_on_select),
+    Field {
+        key: "rightClick",
+        read: |config, value, name, problems| {
+            config.terminal_right_click = match value.as_str() {
+                Some("menu") => Some(TerminalRightClick::Menu),
+                Some("copyOrPaste") => Some(TerminalRightClick::CopyOrPaste),
+                _ => {
+                    problems.push(t!("config-right-click-invalid", name = name));
+                    None
+                }
+            }
+        },
+        write: |config| {
+            let value = match config.terminal_right_click? {
+                TerminalRightClick::Menu => "menu",
+                TerminalRightClick::CopyOrPaste => "copyOrPaste",
+            };
+            Some(Json::String(value.to_owned()))
+        },
+    },
     bool_field!("boldIsBright", terminal_bold_is_bright),
     bool_field!("verticalTabs", terminal_vertical_tabs),
     bool_field!("applicationPriority", terminal_application_priority),

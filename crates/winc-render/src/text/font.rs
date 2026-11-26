@@ -1,10 +1,10 @@
 //! 字体：按需 mmap 字体文件，不扫描系统字体库。
 //!
 //! 槽位依次是等宽字体、界面字体、等宽字体的斜体、数学字体、终端字体及其斜体、预览正文字体，
-//! 其后是按优先级排列的后备字体；终端的字重与其余文字不同时，之后是按终端字重打开的另一份
-//! 后备字体（彩色 emoji 除外）。最后是字体列表中写在主字体之后的字体（没有配置字体时为系统为
-//! 该字族配置的其余字体），以及按需派生的粗体。斜体、后备字体和粗体在首次需要时才映射文件。
-//! 候选路径按平台给出，用户配置的字体排在最前面。
+//! 其后是按优先级排列的后备字体；编辑区、终端的字重与界面不同时，之后是按其字重另开的后备字体
+//! 和互为后备的主字体（彩色 emoji 除外）。最后是字体列表中写在主字体之后的字体，以及按需派生的
+//! 粗体。斜体、后备字体和粗体在首次需要时才映射文件。候选路径按平台给出，用户配置的字体排在
+//! 最前面。
 
 use std::fs::{File, Metadata};
 use std::ops::Range;
@@ -19,6 +19,17 @@ use crate::cache::FastMap;
 use crate::text::font_path::FontFile;
 use crate::text::fontconfig;
 use crate::text::system_outline::SystemOutlines;
+
+/// 各类文字的字重（100 至 900，400 为常规），超出范围时取最接近的值。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FontWeights {
+    /// 界面、预览正文和公式的字重。
+    pub ui: u16,
+    /// 编辑区（等宽字体）的字重。
+    pub editor: u16,
+    /// 终端的字重。
+    pub terminal: u16,
+}
 
 /// 字体种类：编辑区、界面、注释斜体、数学字体，以及终端的正体和斜体。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -605,9 +616,11 @@ const RESOLVED_ENTRIES: usize = 1 << 16;
 pub(crate) struct Fonts {
     /// 字体槽位，顺序见模块文档。
     slots: Vec<Slot>,
-    /// 界面和编辑区字体的字重偏移（见 [`Face::open_at`]）。
+    /// 界面、预览正文和公式字体的字重偏移（见 [`Face::open_at`]）。
     shift: i16,
-    /// 终端字体的字重偏移；与 `shift` 相同时终端与编辑区共用字体。
+    /// 编辑区（等宽）字体的字重偏移。
+    mono_shift: i16,
+    /// 终端字体的字重偏移；与 `mono_shift` 相同时终端与编辑区共用字体。
     terminal_shift: i16,
     /// 字符解析结果缓存：（字体种类，字符）→（槽位，字形 id）。
     resolved: FastMap<(FontKind, char), (u8, u16)>,
@@ -621,9 +634,16 @@ pub(crate) struct Fonts {
     ascii_bold: [[Option<(u8, u16, bool)>; 128]; FontKind::COUNT],
     /// 平台后备字体的槽位范围。
     fallbacks: Range<u8>,
-    /// 终端字重与其余文字不同时终端依次尝试的后备字体槽位：按终端字重另开的一份，彩色 emoji
-    /// 仍是 `emoji`；字重相同时为空，终端用 `fallbacks`。
+    /// 终端字重与编辑区不同时终端依次尝试的后备字体槽位：按终端字重另开的一份，彩色 emoji
+    /// 仍是 `emoji`；字重相同时为空，终端用编辑区的后备字体。
     terminal_fallbacks: Vec<u8>,
+    /// 编辑区字重与界面不同时编辑区依次尝试的后备字体槽位，含义同 `terminal_fallbacks`；字重
+    /// 相同时为空，编辑区用 `fallbacks`。
+    mono_fallbacks: Vec<u8>,
+    /// 编辑区字重与界面不同时，按编辑区字重另开的界面字体及其列表，作为编辑区的后备。
+    mono_other: Vec<u8>,
+    /// 编辑区字重与界面不同时，按界面字重另开的等宽字体及其列表，作为界面的后备。
+    ui_other: Vec<u8>,
     /// 彩色 emoji 字体所在的后备槽位；默认按 emoji 显示的字符先在这里找。
     emoji: u8,
     /// 等宽字体、界面字体和终端字体的列表中写在主字体之后的字体所在的槽位范围，依次尝试。
@@ -659,28 +679,35 @@ impl Fonts {
         terminal: &[FontSpec],
         weight: u16,
     ) -> Result<Fonts, String> {
-        Self::load_with(mono, ui, terminal, weight, weight)
+        let weights = FontWeights {
+            ui: weight,
+            editor: weight,
+            terminal: weight,
+        };
+        Self::load_with(mono, ui, terminal, weights)
     }
 
-    /// 同 [`Self::load`]，终端用 `terminal_weight`；超出 100 至 900 时取最接近的值。
+    /// 同 [`Self::load`]，界面、编辑区和终端分别用 `weights` 中的字重。
     ///
-    /// 终端字重与其余文字不同时，终端始终使用自己的字体槽位（没有单独设置终端字体时用等宽字体），
-    /// 缺字时的顺序与字重相同时一样；后备字体也另开一份（彩色 emoji 除外），使终端里的汉字、
-    /// 符号同样使用终端的字重。相同时与编辑区共用字体，不重复加载。
+    /// 编辑区、终端的字重与界面不同时，缺字时的顺序与字重相同时一样，但其中的字体都按各自的字重
+    /// 另开一份（彩色 emoji 除外），汉字、符号同样使用该字重。终端字重与编辑区相同时共用字体，
+    /// 不重复加载。
     pub(crate) fn load_with(
         mono: &[FontSpec],
         ui: &[FontSpec],
         terminal: &[FontSpec],
-        weight: u16,
-        terminal_weight: u16,
+        weights: FontWeights,
     ) -> Result<Fonts, String> {
-        let shift = weight.clamp(WEIGHT_MIN, WEIGHT_MAX) as i16 - REGULAR as i16;
-        let terminal_shift = terminal_weight.clamp(WEIGHT_MIN, WEIGHT_MAX) as i16 - REGULAR as i16;
-        let separate_terminal = terminal_shift != shift;
+        let shift_of = |weight: u16| weight.clamp(WEIGHT_MIN, WEIGHT_MAX) as i16 - REGULAR as i16;
+        let shift = shift_of(weights.ui);
+        let mono_shift = shift_of(weights.editor);
+        let terminal_shift = shift_of(weights.terminal);
+        let separate_mono = mono_shift != shift;
+        let separate_terminal = terminal_shift != mono_shift;
         // 指定的字体不可用时退回内置候选而不报错：字体配置有误时程序仍可启动。
         let mut listed = [mono, ui, terminal].map(resolve_list);
         let mut candidates = Candidates::for_platform(&listed[0], &listed[1]);
-        let (mono, mono_file) = first_opened(&candidates.mono, shift).ok_or_else(|| {
+        let (mono, mono_file) = first_opened(&candidates.mono, mono_shift).ok_or_else(|| {
             format!(
                 "找不到等宽字体，尝试过：{:?}。可以用 WINC_FONT 指定字体文件，\
                  或在配置里设置 editor.font。",
@@ -735,9 +762,9 @@ impl Fonts {
                 None => (Slot::Missing, Slot::Missing, None),
             };
         let mut slots = vec![
-            Slot::opened(mono, mono_file.clone(), shift),
+            Slot::opened(mono, mono_file.clone(), mono_shift),
             Slot::opened(ui, ui_file.clone(), shift),
-            Slot::Pending(Choices::files(italic), shift),
+            Slot::Pending(Choices::files(italic), mono_shift),
             math,
             terminal,
             terminal_italic,
@@ -752,25 +779,50 @@ impl Fonts {
                 .map(|choices| Slot::Pending(choices, shift)),
         );
         let fallbacks = FALLBACK..slots.len() as u8;
-        // 终端字重不同时后备字体另开一份，按终端的字重打开：终端里的汉字常来自后备字体。彩色
-        // emoji 没有字重，仍用同一个槽位。
-        let mut terminal_fallbacks = Vec::new();
-        if separate_terminal {
-            for (i, choices) in candidates.fallbacks.into_iter().enumerate() {
+        // 编辑区、终端的字重不同时后备字体另开一份，按其字重打开：其中的汉字常来自后备字体。
+        // 彩色 emoji 没有字重，仍用同一个槽位。
+        let copy_fallbacks = |slots: &mut Vec<Slot>, shift: i16| -> Vec<u8> {
+            let each = candidates.fallbacks.iter().enumerate();
+            let copy = |(i, choices): (usize, &Choices)| {
                 if i == candidates.emoji {
-                    terminal_fallbacks.push(emoji);
-                } else {
-                    terminal_fallbacks.push(slots.len() as u8);
-                    slots.push(Slot::Pending(choices, terminal_shift));
+                    return emoji;
                 }
+                slots.push(Slot::Pending(choices.clone(), shift));
+                slots.len() as u8 - 1
+            };
+            each.map(copy).collect()
+        };
+        let mono_fallbacks = match separate_mono {
+            true => copy_fallbacks(&mut slots, mono_shift),
+            false => Vec::new(),
+        };
+        let terminal_fallbacks = match separate_terminal {
+            true => copy_fallbacks(&mut slots, terminal_shift),
+            false => Vec::new(),
+        };
+        // 字重不同时，编辑区与界面互为后备的主字体（未经用户配置的一方）同样另开一份。
+        let copies = |slots: &mut Vec<Slot>, files: &[FontFile], shift: i16| -> Vec<u8> {
+            let start = slots.len() as u8;
+            let pending = files.iter().map(|file| Choices::files(vec![file.clone()]));
+            slots.extend(pending.map(|choices| Slot::Pending(choices, shift)));
+            (start..slots.len() as u8).collect()
+        };
+        let borrowed = |file: &FontFile, rest: &[FontFile], configured: bool| -> Vec<FontFile> {
+            match separate_mono && !configured {
+                true => std::iter::once(file).chain(rest).cloned().collect(),
+                false => Vec::new(),
             }
-        }
+        };
+        let mono_other = borrowed(&ui_file, &listed[1], ui_configured);
+        let mono_other = copies(&mut slots, &mono_other, mono_shift);
+        let ui_other = borrowed(&mono_file, &listed[0], mono_configured);
+        let ui_other = copies(&mut slots, &ui_other, shift);
         // 列表中主字体之外的字体到第一次用到时才打开。排在主字体之前的字体刚才已打不开，到时
         // 再试一次即成为 `Missing`。终端字重与其余文字相同时，没有单独设置终端字体就用等宽
         // 字体，终端的列表不再使用；不同时终端的列表是上面补齐的等宽、界面字体。
         let chosen = [Some(&mono_file), Some(&ui_file), terminal_file.as_ref()];
         let sources = [&listed[0], &listed[1], &terminal_files];
-        let shift_of = |i: usize| if i == 2 { terminal_shift } else { shift };
+        let shift_of = |i: usize| [mono_shift, shift, terminal_shift][i];
         let listed = std::array::from_fn(|i| {
             let start = slots.len() as u8;
             if chosen[i].is_some() {
@@ -785,6 +837,7 @@ impl Fonts {
         let mut fonts = Fonts {
             slots,
             shift,
+            mono_shift,
             terminal_shift,
             resolved: FastMap::default(),
             resolved_bold: FastMap::default(),
@@ -792,6 +845,9 @@ impl Fonts {
             ascii_bold: [[None; 128]; FontKind::COUNT],
             fallbacks,
             terminal_fallbacks,
+            mono_fallbacks,
+            mono_other,
+            ui_other,
             emoji,
             listed,
             prose_listed: Vec::new(),
@@ -966,9 +1022,9 @@ impl Fonts {
 
         // 先找主字体及其列表（斜体缺字用正体，终端字体缺字用等宽字体，预览正文和公式缺字用界面
         // 字体），再找另一种主字体及其列表，最后是后备字体；斜体、终端字体不作为后备。另一种主
-        // 字体来自用户配置时不找。终端字重不同时后备字体另有一份按终端字重打开的，不再经过其他
-        // 槽位，否则缺字会画成别的字重。
-        let separate_terminal = self.terminal_shift != self.shift;
+        // 字体来自用户配置时不找。字重不同时改用按各自字重另开的那一份，缺字不画成别的字重。
+        let separate_mono = self.mono_shift != self.shift;
+        let separate_terminal = self.terminal_shift != self.mono_shift;
         let [mono, ui, terminal] = self.listed.clone();
         let with = |slot: u8, listed: Range<u8>| std::iter::once(slot).chain(listed);
         let mono = with(MONO, mono);
@@ -1009,18 +1065,25 @@ impl Fonts {
                 ui.collect(),
             ),
         };
-        let other_configured = match kind {
-            FontKind::Ui | FontKind::Math | FontKind::Prose => self.mono_configured,
-            _ => self.ui_configured,
+        let ui_kind = matches!(kind, FontKind::Ui | FontKind::Math | FontKind::Prose);
+        let terminal_kind = matches!(kind, FontKind::Terminal | FontKind::TerminalItalic);
+        let own_terminal = separate_terminal && terminal_kind;
+        let other = match (own_terminal, separate_mono, ui_kind) {
+            (false, true, true) => self.ui_other.clone(),
+            (false, true, false) => self.mono_other.clone(),
+            _ => other,
+        };
+        let other_configured = match ui_kind {
+            true => self.mono_configured,
+            false => self.ui_configured,
         };
         if !other_configured {
             order.extend_from_slice(&other);
         }
-        let terminal_kind = matches!(kind, FontKind::Terminal | FontKind::TerminalItalic);
-        if separate_terminal && terminal_kind {
-            order.extend_from_slice(&self.terminal_fallbacks);
-        } else {
-            order.extend(self.fallbacks.clone());
+        match (own_terminal, separate_mono && !ui_kind) {
+            (true, _) => order.extend_from_slice(&self.terminal_fallbacks),
+            (false, true) => order.extend_from_slice(&self.mono_fallbacks),
+            (false, false) => order.extend(self.fallbacks.clone()),
         }
         // 默认按 emoji 显示的字符优先使用彩色 emoji 字体：顺序在前的符号字体、
         // 中文字体和主字体常带有同一字符的单色字形。
@@ -1156,25 +1219,6 @@ fn family_name(font: &FontRef) -> Option<String> {
     Some(name.to_string())
 }
 
-/// 各字体槽位的候选字体。
-struct Candidates {
-    /// 等宽字体的候选，按优先级排列。
-    mono: Vec<FontFile>,
-    /// 界面字体的候选，按优先级排列。
-    ui: Vec<FontFile>,
-    /// 数学字体的候选，按优先级排列。
-    math: Vec<FontFile>,
-    /// 没有配置等宽字体时，系统为等宽字族配置的其余字体（Linux 上为 fontconfig 的回退顺序，
-    /// 见 [`fontconfig::chain`]），主字体缺字时依次尝试；配置了时为空。
-    mono_rest: Vec<FontFile>,
-    /// 没有配置界面字体时，系统为无衬线字族配置的其余字体，含义同 `mono_rest`。
-    ui_rest: Vec<FontFile>,
-    /// 每一项是一个后备槽位的候选。
-    fallbacks: Vec<Choices>,
-    /// 彩色 emoji 字体在 `fallbacks` 中的下标（从 0 起）。
-    emoji: usize,
-}
-
 /// 一个后备槽位的候选：先按序尝试 fontconfig 的查询结果（有查询时），再按优先级尝试固定的字体
 /// 文件。
 ///
@@ -1224,263 +1268,11 @@ impl Choices {
     }
 }
 
-impl Candidates {
-    /// 返回各槽位的候选字体：用户配置的字体排在最前面，其后是平台默认字体。
-    fn for_platform(mono: &[FontFile], ui: &[FontFile]) -> Candidates {
-        let home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .unwrap_or_default();
-
-        // `WINC_FONT` 环境变量指定的字体排在最前面，其次是用户配置的字体，便于临时试用其他字体。
-        let mut mono = mono.to_vec();
-        if let Some(font) = std::env::var_os("WINC_FONT") {
-            mono.insert(0, FontFile::first(font));
-        }
-        // 没有指定编辑器字体时，优先用 Maple Mono NF CN；没安装则继续用后面的平台默认字体。
-        // 用户写了逗号分隔的字体列表时，`mono` 已是解析出的文件，这里不再插入默认字体。
-        if mono.is_empty()
-            && let Some(file) = FontSpec::Name(crate::DEFAULT_EDITOR_FONT.to_owned()).resolve()
-        {
-            mono.push(file);
-        }
-        let mut ui_paths = ui.to_vec();
-
-        let user_fonts = |name: &str| -> Vec<FontFile> {
-            vec![
-                FontFile::first(home.join("Library/Fonts").join(name)),
-                FontFile::first(PathBuf::from("/Library/Fonts").join(name)),
-            ]
-        };
-        let paths = |list: &[&str]| -> Vec<FontFile> {
-            list.iter().copied().map(FontFile::first).collect()
-        };
-        if cfg!(target_os = "macos") {
-            mono.extend(user_fonts("JetBrainsMono-Regular.ttf"));
-            mono.extend(user_fonts("JetBrainsMono[wght].ttf"));
-            mono.extend(paths(&[
-                "/System/Library/Fonts/SFNSMono.ttf",
-                "/System/Library/Fonts/Menlo.ttc",
-                "/System/Library/Fonts/Monaco.ttf",
-            ]));
-
-            Candidates {
-                mono,
-                ui: {
-                    ui_paths.extend(paths(&[
-                        "/System/Library/Fonts/SFNS.ttf",
-                        "/System/Library/Fonts/Helvetica.ttc",
-                    ]));
-                    ui_paths
-                },
-                math: paths(&["/System/Library/Fonts/Supplemental/STIXTwoMath.otf"]),
-                fallbacks: vec![
-                    // 中文先用苹方（系统界面的中文字体）。macOS 15 起它的字形只在 `hvgl` 表中，
-                    // 由系统提供轮廓；文件不存在时（更早的系统）用冬青黑体。
-                    std::iter::once(FontFile {
-                        path: PINGFANG.into(),
-                        postscript: Some("PingFangSC-Regular".to_owned()),
-                        index: None,
-                    })
-                    .chain(paths(&[
-                        "/System/Library/Fonts/Hiragino Sans GB.ttc",
-                        "/System/Library/Fonts/STHeiti Medium.ttc",
-                        "/System/Library/Fonts/STHeiti Light.ttc",
-                    ]))
-                    .collect(),
-                    paths(&["/System/Library/Fonts/Menlo.ttc"]),
-                    paths(&["/System/Library/Fonts/Apple Symbols.ttf"]),
-                    paths(&["/System/Library/Fonts/Apple Color Emoji.ttc"]),
-                    paths(&["/System/Library/Fonts/AppleSDGothicNeo.ttc"]),
-                ]
-                .into_iter()
-                .map(Choices::files)
-                .collect(),
-                emoji: 3,
-                mono_rest: Vec::new(),
-                ui_rest: Vec::new(),
-            }
-        } else if cfg!(target_os = "windows") {
-            let fonts = crate::text::font_path::windows_fonts();
-            let system = |list: &[&str]| -> Vec<FontFile> {
-                list.iter()
-                    .map(|name| FontFile::first(fonts.join(name)))
-                    .collect()
-            };
-            mono.extend(system(&["CascadiaMono.ttf", "consola.ttf"]));
-
-            Candidates {
-                mono,
-                ui: {
-                    ui_paths.extend(system(&["segoeui.ttf"]));
-                    ui_paths
-                },
-                math: vec![FontFile {
-                    path: fonts.join("cambria.ttc"),
-                    postscript: Some("CambriaMath".to_owned()),
-                    index: None,
-                }],
-                fallbacks: vec![
-                    system(&["msyh.ttc", "simsun.ttc"]),
-                    system(&["seguisym.ttf"]),
-                    system(&["seguiemj.ttf"]),
-                ]
-                .into_iter()
-                .map(Choices::files)
-                .collect(),
-                emoji: 2,
-                mono_rest: Vec::new(),
-                ui_rest: Vec::new(),
-            }
-        } else {
-            // Linux 向 fontconfig 查询：它记录发行版安装字体的位置，并按用户的配置选择。等宽字体和
-            // 界面字体启动时就要用到，因此同时查询；应用指定了语言时按该语言选，否则按系统语言选。
-            // 没有配置字体时同时取该字族的回退顺序，主字体缺字时依次尝试。
-            let language = app_language().map_or_else(String::new, |lang| format!(":lang={lang}"));
-            let pattern = |generic: &str| format!("{generic}{language}");
-            let best = |generic: &str| fontconfig::best(&pattern(generic)).map(|found| found.file);
-            let chain = |generic: &str, configured: bool| {
-                if configured {
-                    Vec::new()
-                } else {
-                    fontconfig::chain(&pattern(generic))
-                }
-            };
-            let configured = (!mono.is_empty(), !ui_paths.is_empty());
-            let (asked_mono, asked_ui, mono_chain, ui_chain) = std::thread::scope(|scope| {
-                let ui = scope.spawn(|| best("sans-serif"));
-                let mono_chain = scope.spawn(|| chain("monospace", configured.0));
-                let ui_chain = scope.spawn(|| chain("sans-serif", configured.1));
-                let asked_mono = best("monospace");
-                let asked_ui = ui.join().ok().flatten();
-                let mono_chain = mono_chain.join().unwrap_or_default();
-                (
-                    asked_mono,
-                    asked_ui,
-                    mono_chain,
-                    ui_chain.join().unwrap_or_default(),
-                )
-            });
-            // 主字体仍按最佳匹配选：得分相同的字体在排序中的先后不确定，回退顺序的第一个不一定是
-            // 它。回退顺序中略去主字体。
-            let rest = |chain: Vec<FontFile>, first: &Option<FontFile>| -> Vec<FontFile> {
-                chain
-                    .into_iter()
-                    .filter(|file| Some(file) != first.as_ref())
-                    .collect()
-            };
-            let (mono_rest, ui_rest) = (rest(mono_chain, &asked_mono), rest(ui_chain, &asked_ui));
-            mono.extend(asked_mono);
-            ui_paths.extend(asked_ui);
-            // 固定路径只用于没有 fontconfig 的系统；fontconfig 可用时只使用它列出的字体，否则会
-            // 加回配置中排除的字体。
-            let common = !fontconfig::available();
-            let fixed = |list: &[&str]| if common { paths(list) } else { Vec::new() };
-            mono.extend(fixed(&[
-                "/usr/share/fonts/truetype/jetbrains-mono/JetBrainsMono-Regular.ttf",
-                "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-                "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
-                "/usr/share/fonts/liberation/LiberationMono-Regular.ttf",
-            ]));
-            ui_paths.extend(fixed(&[
-                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-                "/usr/share/fonts/TTF/DejaVuSans.ttf",
-                "/usr/share/fonts/noto/NotoSans-Regular.ttf",
-            ]));
-            let mut math: Vec<FontFile> = ["STIX Two Math", "Latin Modern Math"]
-                .iter()
-                .filter_map(|family| fontconfig::lookup(family, false, false))
-                .map(|found| found.file)
-                .collect();
-            math.extend(fixed(&[
-                "/usr/share/fonts/opentype/stix/STIXTwoMath-Regular.otf",
-                "/usr/share/fonts/opentype/lmodern/latinmodern-math.otf",
-                "/usr/share/fonts/texlive-lm-math/latinmodern-math.otf",
-            ]));
-
-            Candidates {
-                mono,
-                ui: ui_paths,
-                math,
-                fallbacks: vec![
-                    Choices {
-                        query: Some(format!("sans-serif:lang={}", cjk_language())),
-                        files: fixed(&[
-                            "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-                            "/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc",
-                            "/usr/share/fonts/truetype/wqy/wqy-microhei.ttc",
-                        ]),
-                        probe: Some('中'),
-                    },
-                    Choices {
-                        query: Some("emoji".to_owned()),
-                        files: fixed(&["/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"]),
-                        probe: Some('😀'),
-                    },
-                ],
-                emoji: 1,
-                mono_rest,
-                ui_rest,
-            }
-        }
-    }
-}
-
-/// 应用指定的、选日韩文字体用的语言；为 `None` 时按系统语言选。见 [`set_cjk_language`]。
-static CJK_LANGUAGE: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
-
-/// 设置选日韩文字体用的语言（如 `zh-cn`），使汉字按该语言的字形显示；`None` 表示按系统语言选。
-///
-/// 应用的界面语言是中文时传入对应的语言，使界面文字与字形一致。只有之后加载的字体（新建
-/// 渲染器、[`crate::Renderer::set_fonts`]）按新语言选。返回语言是否改变，改变时调用方应重新
-/// 加载字体。目前只有 Linux 按语言选字体，其他平台的中文字体是固定的。
-pub fn set_cjk_language(language: Option<&str>) -> bool {
-    let mut current = CJK_LANGUAGE
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
-    let changed = current.as_deref() != language;
-    *current = language.map(str::to_owned);
-    changed
-}
-
-/// 返回应用指定的、选日韩文字体用的语言；没有指定时返回 `None`。
-fn app_language() -> Option<String> {
-    CJK_LANGUAGE
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .clone()
-}
-
-/// 返回选日韩文字体用的语言：应用指定了就用它，否则按系统语言（`LC_ALL`、`LC_CTYPE`、
-/// `LANG`）选，见 [`cjk_language_of`]。
-fn cjk_language() -> String {
-    if let Some(language) = app_language() {
-        return language;
-    }
-    let locale = ["LC_ALL", "LC_CTYPE", "LANG"]
-        .iter()
-        .find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty()))
-        .unwrap_or_default();
-    cjk_language_of(&locale)
-}
-
-/// 返回选日韩文字体用的语言：系统语言 `locale`（如 `zh_TW.UTF-8`）是中文、日文或韩文时用它
-/// （`zh-tw`），汉字按该地区的字形显示；其他语言用简体中文 `zh-cn`。
-fn cjk_language_of(locale: &str) -> String {
-    let tag = locale
-        .split(['.', '@'])
-        .next()
-        .unwrap_or_default()
-        .to_ascii_lowercase()
-        .replace('_', "-");
-    let language = tag.split('-').next().unwrap_or_default();
-    if matches!(language, "ja" | "ko") || (language == "zh" && tag != "zh") {
-        tag
-    } else {
-        "zh-cn".to_owned()
-    }
-}
-
+mod candidates;
 mod weight;
+
+use candidates::Candidates;
+pub use candidates::set_cjk_language;
 
 #[cfg(test)]
 pub(crate) mod tests;

@@ -1,6 +1,7 @@
 //! 键盘和剪贴板：按键编码、输入法提交的文字、粘贴、复制、全选，滚动和滚动条。
 
 use super::*;
+use winc_config::TerminalRightClick;
 use winit::keyboard::PhysicalKey;
 
 impl App {
@@ -119,6 +120,27 @@ impl App {
             }
         }
         self.request_redraw();
+    }
+
+    /// 右键单击终端是否复制或粘贴、而不弹出菜单：设置为「复制或粘贴」且没有按住 `⌥`（Alt）。
+    pub(in crate::app) fn terminal_right_click_edits(&self) -> bool {
+        self.config.terminal_right_click == Some(TerminalRightClick::CopyOrPaste)
+            && !self.pointer.modifiers.alt_key()
+    }
+
+    /// 右键单击终端（设置为「复制或粘贴」时）：有所选内容时复制并取消选择，否则粘贴。
+    ///
+    /// 开启了选中时复制（`terminal.copyOnSelect`）时，所选内容已经复制过，直接粘贴。
+    pub(in crate::app) fn terminal_right_click(&mut self) {
+        let selected = self
+            .terminal
+            .tab()
+            .is_some_and(|t| t.selection_range().is_some());
+        if selected && self.config.terminal_copy_on_select != Some(true) {
+            self.terminal_copy(true);
+        } else {
+            self.terminal_paste();
+        }
     }
 
     /// 选中全部（⌘A）：回滚缓冲加屏幕。

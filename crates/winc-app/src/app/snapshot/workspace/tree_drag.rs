@@ -335,6 +335,11 @@ fn files_dragged_over_the_window_mark_where_they_will_land() {
     assert_eq!(app.file_hover().cloned(), open(None));
     shoot(&mut app, "drop-hover-editor");
 
+    // 离左边四分之一宽处仍在窗格中打开：只有贴着边缘的窄条拆分。
+    app.on_mouse_move(editor.x + editor.w / 4.0, editor.y + editor.h / 2.0);
+    app.file_hover_tick(Instant::now());
+    assert_eq!(app.file_hover().cloned(), open(None));
+
     // 贴近编辑区的右边：松手是在右边拆出的窗格里打开，底色铺在右半边。
     app.on_mouse_move(editor.right() - 20.0, editor.y + editor.h / 2.0);
     app.file_hover_tick(Instant::now());

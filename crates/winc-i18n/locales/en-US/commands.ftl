@@ -42,6 +42,7 @@ cmd-previous-pane = Previous Split
 cmd-split-terminal = Split Terminal
 cmd-move-terminal-to-group = Terminal: Move to New Group
 cmd-move-terminal-to-editor = Terminal: Move to Editor Area
+cmd-new-editor-terminal = Terminal: New in Editor Area
 cmd-move-terminal-to-panel = Terminal: Move to Panel
 cmd-next-terminal-pane = Next Terminal Pane
 cmd-previous-terminal-pane = Previous Terminal Pane

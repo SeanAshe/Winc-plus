@@ -2,6 +2,7 @@
 
 // 格式化设置页的测试用 sh 脚本冒充格式化工具。
 mod appearance;
+mod editor;
 #[cfg(unix)]
 mod format;
 mod search;
@@ -217,16 +218,23 @@ fn long_descriptions_wrap_and_make_the_row_taller() {
     let dir = search_folder("settings-wrap");
     let mut app = app_with(&dir, false);
     app.open_settings();
-    app.settings_show_page(SettingsPage::Files);
+    app.settings_show_page(SettingsPage::Editor);
     let row = |app: &App, setting| app.settings_layout().row(setting).unwrap().row;
+    // 这一页说明最长的一项，不依赖具体的文案。
+    let sections = SettingsPage::Editor.sections(&Default::default());
+    let items = sections
+        .iter()
+        .flat_map(|section| section.items.iter().copied());
+    let longest = items
+        .max_by_key(|s| s.description().map_or(0, |d| d.chars().count()))
+        .unwrap();
 
     // 默认大小的窗口中各项说明都放得下一行。
-    assert_eq!(row(&app, Setting::PreviewOnClick).h, SETTINGS_ROW_TALL);
-    assert_eq!(row(&app, Setting::Outline).h, SETTINGS_ROW_TALL);
+    assert_eq!(row(&app, longest).h, SETTINGS_ROW_TALL);
 
     // 放大界面后可用宽度变小：较长的说明折成两行，该行加高一行的行距，不超过上限。
     app.set_zoom(200);
-    let h = row(&app, Setting::PreviewOnClick).h;
+    let h = row(&app, longest).h;
     let most = SETTINGS_ROW_TALL + (SETTINGS_DESC_LINES - 1) as f32 * SETTINGS_DESC_LINE;
     assert!(
         h >= SETTINGS_ROW_TALL + SETTINGS_DESC_LINE && h <= most,

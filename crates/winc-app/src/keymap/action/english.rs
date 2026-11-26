@@ -286,6 +286,7 @@ impl Action {
             SplitTerminal => "Terminal: Split",
             MoveTerminalToGroup => "Terminal: Move to New Group",
             MoveTerminalToEditor => "Terminal: Move to Editor Area",
+            NewEditorTerminal => "Terminal: New in Editor Area",
             MoveTerminalToPanel => "Terminal: Move to Panel",
             NextTerminalPane => "Terminal: Focus Next Pane",
             PreviousTerminalPane => "Terminal: Focus Previous Pane",

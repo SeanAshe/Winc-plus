@@ -76,6 +76,9 @@ pub(crate) struct GlyphCache {
     /// 新一代达到 [`SEQUENCE_ENTRIES`] 项时换代并释放旧一代；
     /// 旧一代中被查到的项移入新一代，无需重新整形。
     sequences: [FastMap<Box<str>, Option<Rc<Shaped>>>; 2],
+    /// （槽位，一段符号）→ 启用连字整形的结果，分新旧两代，换代方式同 `sequences`；字体没有为
+    /// 该段换用字形时为 `None`。
+    ligated: [ligature::Cache; 2],
 }
 
 /// 整形结果缓存一代的最大项数（项）：文档中不同的 emoji 序列通常只有几十种，远少于该值。
@@ -132,6 +135,7 @@ impl GlyphCache {
             shaper: ShapeContext::new(),
             ligatures: Vec::new(),
             sequences: Default::default(),
+            ligated: Default::default(),
         }
     }
 
@@ -306,6 +310,8 @@ impl GlyphCache {
     /// 清空字形缓存（不含前进宽度缓存）。
     pub(crate) fn clear(&mut self) {
         self.glyphs.clear();
+        // 槽位随字体重新编排，按槽位记下的整形结果不再适用。
+        self.ligated = Default::default();
     }
 
     /// 解析字符 `c` 在字体 `kind`、样式 `faux`、字号 `size`（逻辑像素）下的字体槽位、字形 id 和
@@ -560,6 +566,8 @@ fn merge_coverage(dst: &mut [u8], at: Placement, src: &[u8], from: Placement) {
         }
     }
 }
+
+mod ligature;
 
 #[cfg(test)]
 mod tests;

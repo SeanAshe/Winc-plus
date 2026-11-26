@@ -159,6 +159,9 @@ impl App {
         } else if let Some(id) = self.terminal_tab_context_target(x, y) {
             MenuTarget::TerminalTab(id)
         } else if let Some((id, block)) = self.terminal_context_target(x, y) {
+            if self.terminal_right_click_edits() {
+                return self.terminal_right_click();
+            }
             MenuTarget::Terminal(id, block)
         } else if self.markdown_context_target(x, y) {
             MenuTarget::Markdown
@@ -374,6 +377,9 @@ impl App {
             MenuTarget::AutoSave => (0..winc_config::AutoSave::ALL.len())
                 .map(|i| MenuEntry::Item(MenuCommand::AutoSave(i), true))
                 .collect(),
+            MenuTarget::CursorStyle => (0..winc_config::CursorStyle::ALL.len())
+                .map(|i| MenuEntry::Item(MenuCommand::CursorStyle(i), true))
+                .collect(),
             MenuTarget::SmoothCaret => (0..winc_config::SmoothCaret::ALL.len())
                 .map(|i| MenuEntry::Item(MenuCommand::SmoothCaret(i), true))
                 .collect(),
@@ -386,6 +392,9 @@ impl App {
             MenuTarget::TerminalPosition => terminal_position_menu(),
             MenuTarget::TerminalTabPosition => terminal_tab_position_menu(),
             MenuTarget::OptionAsMeta => option_as_meta_menu(),
+            MenuTarget::RightClick => (0..winc_config::TerminalRightClick::ALL.len())
+                .map(|i| MenuEntry::Item(MenuCommand::RightClick(i), true))
+                .collect(),
             &MenuTarget::Font(setting) => font_menu(setting, self.font_value(setting).as_deref()),
             &MenuTarget::Tool(task, id) => {
                 let row = self.settings.tool_row(tool_setting(task, id));
@@ -797,6 +806,20 @@ impl App {
                     MenuEntry::Item(MenuCommand::RunEdit, true),
                 ])
                 .collect(),
+            MenuTarget::NewTab => {
+                let mut entries = vec![
+                    MenuEntry::Item(MenuCommand::NewUntitled, true),
+                    MenuEntry::Item(MenuCommand::NewEditorTerminal, true),
+                ];
+                // 能选的 shell 不止一个时在下面列出，选一个用它新建终端。
+                let shells = self.terminal_shell_list().len();
+                if shells > 1 {
+                    entries.push(MenuEntry::Separator);
+                    let each = (0..shells).map(MenuCommand::NewEditorTerminalShell);
+                    entries.extend(each.map(|command| MenuEntry::Item(command, true)));
+                }
+                entries
+            }
             MenuTarget::TerminalShells => (0..self.terminal_shell_list().len())
                 .map(|i| MenuEntry::Item(MenuCommand::NewTerminalShell(i), true))
                 .collect(),
@@ -913,6 +936,7 @@ impl App {
                 | MenuTarget::DropFolder
                 | MenuTarget::SearchStyle
                 | MenuTarget::AutoSave
+                | MenuTarget::CursorStyle
                 | MenuTarget::SmoothCaret
                 | MenuTarget::Zoom
                 | MenuTarget::BackgroundImage
@@ -922,6 +946,7 @@ impl App {
                 | MenuTarget::TerminalPosition
                 | MenuTarget::TerminalTabPosition
                 | MenuTarget::OptionAsMeta
+                | MenuTarget::RightClick
                 | MenuTarget::Font(_)
         );
         // 设置中语言、字体等选项的菜单不窄于弹出它的控件。
@@ -937,6 +962,7 @@ impl App {
             MenuTarget::DropFolder => Some(Setting::DropFolder),
             MenuTarget::SearchStyle => Some(Setting::FindInFiles),
             MenuTarget::AutoSave => Some(Setting::AutoSave),
+            MenuTarget::CursorStyle => Some(Setting::CursorStyle),
             MenuTarget::SmoothCaret => Some(Setting::SmoothCaret),
             MenuTarget::Zoom => Some(Setting::Zoom),
             MenuTarget::BackgroundImage => Some(Setting::BackgroundImage),
@@ -946,6 +972,7 @@ impl App {
             MenuTarget::TerminalPosition => Some(Setting::TerminalPosition),
             MenuTarget::TerminalTabPosition => Some(Setting::TerminalTabPosition),
             MenuTarget::OptionAsMeta => Some(Setting::TerminalOptionAsMeta),
+            MenuTarget::RightClick => Some(Setting::TerminalRightClick),
             MenuTarget::Font(setting) => Some(setting),
             _ => None,
         };
@@ -1260,6 +1287,10 @@ impl App {
                 winc_config::AutoSave::ALL.get(i)
                     == Some(&self.config.auto_save.unwrap_or_default())
             }
+            MenuCommand::CursorStyle(i) => {
+                winc_config::CursorStyle::ALL.get(i)
+                    == Some(&self.config.cursor_style.unwrap_or_default())
+            }
             MenuCommand::SmoothCaret(i) => {
                 winc_config::SmoothCaret::ALL.get(i)
                     == Some(&self.config.smooth_caret_movement.unwrap_or_default())
@@ -1287,6 +1318,10 @@ impl App {
             MenuCommand::BackgroundFit(i) => {
                 winc_config::BackgroundFit::ALL.get(i)
                     == Some(&self.config.ui_background_fit.unwrap_or_default())
+            }
+            MenuCommand::RightClick(i) => {
+                winc_config::TerminalRightClick::ALL.get(i)
+                    == Some(&self.config.terminal_right_click.unwrap_or_default())
             }
             MenuCommand::OptionAsMeta(i) => {
                 let current =

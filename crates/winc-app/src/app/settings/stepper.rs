@@ -45,6 +45,10 @@ impl App {
                 Config::UI_SIZE_RANGE,
             ),
             Setting::FontWeight => (f32::from(self.font_weight()), Config::FONT_WEIGHT_RANGE),
+            Setting::EditorFontWeight => (
+                f32::from(self.editor_font_weight()),
+                Config::FONT_WEIGHT_RANGE,
+            ),
             Setting::BackgroundOpacity => (
                 (self.config.ui_background_opacity).unwrap_or(Config::BACKGROUND_OPACITY),
                 Config::BACKGROUND_OPACITY_RANGE,
@@ -103,7 +107,13 @@ impl App {
                 self.config.ui_font_weight = (next != Config::FONT_WEIGHT).then_some(next);
                 self.apply_fonts().ok();
             }
-            // 同终端字号：调整过就记下，不再随全局字重变化。
+            Setting::EditorFontWeight => {
+                let current = self.editor_font_weight();
+                let next = step_weight(current, up, Config::FONT_WEIGHT_RANGE);
+                self.config.editor_font_weight = (next != Config::FONT_WEIGHT).then_some(next);
+                self.apply_fonts().ok();
+            }
+            // 与终端字号相同：调整后写入配置，不再随编辑区字重变化。
             Setting::TerminalFontWeight => {
                 let current = self.terminal_font_weight();
                 let next = step_weight(current, up, Config::FONT_WEIGHT_RANGE);

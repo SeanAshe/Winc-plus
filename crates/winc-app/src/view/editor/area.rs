@@ -199,6 +199,7 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
             relative: app.vim_relative(),
             yanked: app.vim_yanked(id),
             vim_caret: vim_caret.map(|(_, shape)| shape),
+            styled_caret: app.styled_caret(),
             extra_carets: &extra_carets,
             hunks,
             open: app
@@ -223,6 +224,7 @@ pub(super) fn draw_text_area(app: &mut App, frame: &mut Frame<'_>, index: usize)
         screen.draw_open_hunk(frame);
         screen.draw_current_lines(frame);
         screen.draw_selections(frame);
+        screen.draw_rulers(frame);
 
         // 动画中变化的行：位置不变，只显示动画已展开的部分；起始行的箭头随进度旋转。
         let curtain = motion_ref.map(|m| {
@@ -357,6 +359,8 @@ struct Screen<'a> {
     yanked: Option<Selection>,
     /// Vim 模式下光标的形状；使用竖线光标时为 `None`。
     vim_caret: Option<crate::app::vim::CaretShape>,
+    /// `editor.cursorStyle` 设定的光标形状，见 [`App::styled_caret`]；竖线为 `None`。
+    styled_caret: Option<crate::app::vim::CaretShape>,
     extra_carets: &'a [(usize, usize)],
     /// 与 `HEAD` 比较得到的改动，以及改动卡片打开的一处。
     hunks: &'a [LineHunk],
@@ -639,6 +643,17 @@ impl Screen<'_> {
                     frame.rect_clipped(band, shade.line.alpha(0.6), 0.0, text_rect);
                 }
             }
+        }
+    }
+
+    /// 绘制长行参考线（`editor.rulers`）：第 N 列之后的竖线，位于文字的下层，颜色同光标所在
+    /// 代码块的缩进参考线。
+    fn draw_rulers(&self, frame: &mut Frame<'_>) {
+        let color = self.app.palette.indent_guide_active;
+        for &column in &self.app.config.editor_rulers {
+            let x = (self.origin_x + column as f32 * self.cell).round();
+            let line = Rect::new(x, self.text_rect.y, 1.0, self.text_rect.h);
+            frame.rect_clipped(line, color, 0.0, self.text_rect);
         }
     }
 

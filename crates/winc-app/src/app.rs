@@ -68,6 +68,7 @@ pub(crate) use lifecycle::title_bar::resize_cursor;
 pub(crate) use lifecycle::wallpaper::Layer as WallpaperLayer;
 use lifecycle::window::frame_interval;
 pub(crate) use scroll::ScrollTarget;
+pub(crate) use settings::rulers_text;
 pub(crate) use settings::shortcuts::KeyEdit;
 pub use settings::{DialogCache, SettingsState};
 pub(crate) use status::language_picker::LanguageRow;
@@ -667,7 +668,8 @@ impl Hover {
                         | terminal::HeaderHit::Run(_),
                 )
                 | Hover::Status(
-                    StatusItem::Terminal
+                    StatusItem::Position
+                        | StatusItem::Terminal
                         | StatusItem::GitPanel
                         | StatusItem::Remote
                         | StatusItem::Settings
@@ -1330,6 +1332,13 @@ impl App {
             }
             self.preview.markdown.toc_rest = toc(hover).then(Instant::now);
             self.preview.markdown.toc_shown = false;
+            let glow = self.clock(animation::TOC_GLOW);
+            self.preview.markdown.toc_glow = glow.map(|clock| (toc(hover), clock));
+        }
+        if self.move_history_card(self.pointer.hover, hover) {
+            self.pointer.hover = hover;
+            self.request_redraw();
+            return;
         }
         if hover != self.pointer.hover {
             self.leave_tooltip();

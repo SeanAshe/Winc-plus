@@ -219,6 +219,9 @@ pub(crate) struct TermTab {
     /// 同时只发一个，拖着改大小时
     /// 不会积压一串重排。
     pub resizing: Option<Instant>,
+    /// 按面板算出的最新尺寸和它最近一次变化的时刻，发出后仍保留：据此判断大小是否还在变化
+    /// （见 `App::sync_terminal`）。
+    pub settling: Option<(Size, Instant)>,
     /// 正拖着分隔条：网格上面一屏的历史行也先取来，拖高时露出来的行已经在了，不会先出现空白。
     pub ahead: bool,
     /// 吸顶的命令那一行最近一次取到的内容（块的编号，行）。
@@ -328,6 +331,7 @@ impl TermTab {
             unseen: None,
             shown: 0,
             resizing: None,
+            settling: None,
             ahead: false,
             kept: None,
             jump: None,

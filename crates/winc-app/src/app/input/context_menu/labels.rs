@@ -58,7 +58,7 @@ impl App {
                     tooltip: None,
                 }
             }
-            MenuCommand::NewTerminalShell(i) => {
+            MenuCommand::NewTerminalShell(i) | MenuCommand::NewEditorTerminalShell(i) => {
                 let shell = self.terminal_shell_list().into_iter().nth(i);
                 MenuLabel {
                     title: shell.as_ref().map(|s| s.name.clone()).unwrap_or_default(),

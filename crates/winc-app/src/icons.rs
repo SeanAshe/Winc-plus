@@ -1022,6 +1022,45 @@ pub fn panel(frame: &mut Frame<'_>, (cx, cy): (f32, f32), right: bool, color: Co
     frame.stroke(shapes.as_slice(), STROKE, color, clip);
 }
 
+/// 绘制「移到编辑器标签」图标：与 [`panel`] 相同的圆角框和隔出的面板，一个箭头从面板的分隔线
+/// 指向框中其余的部分，表示终端从面板移到编辑区。`right` 为 `true` 时面板在右侧，箭头朝左；
+/// 否则面板在下方，箭头朝上。
+pub fn to_editor(
+    frame: &mut Frame<'_>,
+    (cx, cy): (f32, f32),
+    right: bool,
+    color: Color,
+    clip: Rect,
+) {
+    let (x, y) = (
+        (cx - SIDEBAR_WIDTH / 2.0).round() + 0.75,
+        (cy - 7.0).round() + 1.0,
+    );
+    let (w, h) = (SIDEBAR_WIDTH - 1.5, 12.0);
+    let head = 2.5;
+    let lines: [Stroke; 4] = if right {
+        let (edge, mid) = (x + w - 5.0, (y + h / 2.0).round() - 0.25);
+        let tip = x + 3.0;
+        [
+            Stroke::Line(edge, y, edge, y + h),
+            Stroke::Line(edge, mid, tip, mid),
+            Stroke::Line(tip + head, mid - head, tip, mid),
+            Stroke::Line(tip, mid, tip + head, mid + head),
+        ]
+    } else {
+        let (edge, mid) = (y + h - 4.0, (x + w / 2.0).round() - 0.25);
+        let tip = y + 2.5;
+        [
+            Stroke::Line(x, edge, x + w, edge),
+            Stroke::Line(mid, edge, mid, tip),
+            Stroke::Line(mid - head, tip + head, mid, tip),
+            Stroke::Line(mid, tip, mid + head, tip + head),
+        ]
+    };
+    let shapes: Strokes<12> = joined(&[&rounded_outline(x, y, w, h, 3.0), &lines]);
+    frame.stroke(shapes.as_slice(), STROKE, color, clip);
+}
+
 /// 绘制「分栏」图标：与侧栏开关尺寸相同的圆角框，中央一道竖线分成左右两半（左侧为代码，右侧
 /// 为预览）。
 pub fn split(frame: &mut Frame<'_>, (cx, cy): (f32, f32), color: Color, clip: Rect) {

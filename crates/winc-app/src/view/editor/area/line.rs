@@ -176,6 +176,7 @@ impl Screen<'_> {
         self.ligature_splits(&row, splits);
         self.draw_whitespace(frame, &row);
         let cells = self.draw_content(frame, &row, tokens, splits);
+        self.draw_line_ending(frame, &row);
         self.draw_tail(frame, &row, cells, (folded_hits, long_hits));
         self.draw_carets(frame, &row, ime_cursor, caret);
     }
@@ -483,6 +484,37 @@ impl Screen<'_> {
         }
     }
 
+    /// 按 `editor.renderLineEndings` 在行尾绘制本行的换行符：↓ 为 LF，↵ 为 CRLF，← 为 CR。
+    ///
+    /// 最后一行没有换行符；截断、折叠的行和按列对齐的表格中行尾另有内容，不绘制。
+    fn draw_line_ending(&self, frame: &mut Frame<'_>, row: &Row<'_>) {
+        let shown = self.app.config.render_line_endings == Some(true);
+        if !shown || !row.ends || row.truncated || row.collapsed || row.aligned.is_some() {
+            return;
+        }
+        let text = self.doc.text();
+        let end = text.line_span(row.line).end;
+        let mark = match text.substring(row.line_end, end).as_str() {
+            "\r\n" => "↵",
+            "\n" => "↓",
+            "\r" => "←",
+            _ => return,
+        };
+        let (part, x) = self.place(row, row.line_end);
+        let baseline = row.baseline + part as f32 * self.lh;
+        let color = self.app.palette.indent_guide_active;
+        let size = self.app.fonts.code;
+        frame.text(
+            FontKind::Mono,
+            size,
+            x,
+            baseline,
+            mark,
+            color,
+            self.text_rect,
+        );
+    }
+
     /// 在最后一段之后绘制截断说明和「显示整行」，以及折叠行的小块；两者的点击区域分别记录到
     /// `long_hits`、`folded_hits`。
     ///
@@ -588,16 +620,22 @@ impl Screen<'_> {
             && shown
         {
             *caret = CaretDraw::Static;
-            self.draw_vim_caret(frame, row, pos, shape);
+            self.draw_shaped_caret(frame, row, pos, shape);
             return;
         }
+        // 方块与下划线光标不播放移动动画；组字时改画竖线光标，标出输入法的光标位置。
+        let styled = (self.styled_caret).filter(|_| self.app.preedit_at(Focus::Editor).is_empty());
         if let Some(pos) =
             caret_pos(self.caret_col).filter(|_| row.line == self.caret_line && self.focused)
         {
             let (part, x) = self.place(row, pos);
             let shift = part as f32 * lh;
             let target = caret_rect(x, row.y + shift, lh);
-            if self.caret_animates() {
+            if let Some(shape) = styled {
+                *caret = CaretDraw::Static;
+                *ime_cursor = Some(target);
+                self.draw_shaped_caret(frame, row, pos, shape);
+            } else if self.caret_animates() {
                 // 滑动中的光标可能位于其他行上，行都画完之后再画，不会被后面绘制的行遮住。
                 *caret = CaretDraw::Sliding(CaretTarget::new(
                     self.doc.id,
@@ -630,6 +668,10 @@ impl Screen<'_> {
         if self.focused {
             let carets = self.extra_carets.iter().filter(|c| c.0 == row.line);
             for pos in carets.filter_map(|&(_, col)| caret_pos(col)) {
+                if let Some(shape) = self.styled_caret {
+                    self.draw_shaped_caret(frame, row, pos, shape);
+                    continue;
+                }
                 let (part, x) = self.place(row, pos);
                 caret_bar(app, frame, x, row.y + part as f32 * lh, text_rect);
             }
@@ -656,11 +698,18 @@ impl Screen<'_> {
 }
 
 impl Screen<'_> {
-    /// 绘制 Vim 模式的光标：覆盖位置 `pos` 上字符的块、字符下方的横线，或空心的块。
+    /// 绘制 Vim 模式或 `editor.cursorStyle` 设定的光标：覆盖位置 `pos` 上字符的块、字符下方的
+    /// 横线，或空心的块。
     ///
     /// 块的宽度是字符的显示宽度（宽字符两格，行尾与空行一格）；实心块之下的字符用背景色重画。
     /// 实心块与横线随光标闪烁，空心块不闪烁。
-    fn draw_vim_caret(&self, frame: &mut Frame<'_>, row: &Row<'_>, pos: usize, shape: CaretShape) {
+    fn draw_shaped_caret(
+        &self,
+        frame: &mut Frame<'_>,
+        row: &Row<'_>,
+        pos: usize,
+        shape: CaretShape,
+    ) {
         let (app, lh, clip) = (self.app, self.lh, self.text_rect);
         let (part, x) = self.place(row, pos);
         let y = row.y + part as f32 * lh;

@@ -152,6 +152,7 @@ fn terminal_reserved(action: Action) -> bool {
         Action::ToggleTerminal
             | Action::ToggleTerminalPanel
             | Action::NewTerminal
+            | Action::NewEditorTerminal
             | Action::CloseTerminal
             | Action::NextTerminal
             | Action::PreviousTerminal

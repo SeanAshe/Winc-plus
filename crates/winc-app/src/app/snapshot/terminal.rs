@@ -722,8 +722,33 @@ fn terminal_runs_a_command_in_the_login_shell() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// 把各终端按面板算出的最新尺寸记为已稳定满 `RESIZE_SETTLE`，并重新同步：代替等待。
+pub(super) fn settle_terminal_size(app: &mut App) {
+    // 先同步一次，记下按面板算出的最新尺寸。
+    app.sync_terminal();
+    let settle = crate::app::terminal::RESIZE_SETTLE;
+    let mut backdate = |tab: &mut terminal::TermTab| {
+        if let Some((_, at)) = &mut tab.settling {
+            *at = at.checked_sub(settle).unwrap_or(*at);
+        }
+    };
+    let groups = app.terminal.groups.iter_mut().map(|group| &mut group.tabs);
+    for tabs in std::iter::once(&mut app.terminal.tabs).chain(groups) {
+        for tab in tabs {
+            backdate(tab);
+            if let Some(split) = &mut tab.split {
+                split.others.iter_mut().for_each(&mut backdate);
+            }
+        }
+    }
+    app.sync_terminal();
+}
+
+/// 拖动分隔条改面板高度：拖动期间不发新尺寸，辅助进程不重排、shell 不重画提示符，画面不闪；
+/// 网格贴着面板下边，上面露出的历史行取来后不留空。松开并稳定后只发一次最终的尺寸，重排好的
+/// 一帧回来时光标那一行不跳。
 #[test]
-fn dragging_the_divider_resizes_live_without_jumping() {
+fn dragging_the_divider_resizes_once_it_settles() {
     let dir = sample_folder("terminal-drag-resize");
     let mut app = app_with(&dir.join("short.rs"), false);
     let mut screen = String::new();
@@ -753,68 +778,56 @@ fn dragging_the_divider_resizes_live_without_jumping() {
             .expect("光标那一行在网格上")
     };
 
-    // 辅助进程回答在路上的尺寸：重排好的一帧。回答前后光标那一行在网格的同一行。
-    let answer = |app: &mut App, term: &mut winc_pty::Terminal| {
-        let (size, id) = {
-            let tab = app.terminal.tab().unwrap();
-            tab.resizing.map(|_| (tab.size, tab.id))
-        }?;
-        serve(app, term);
-        let before = cursor_row(app);
-        term.resize(size);
-        let frame = term.take_frame().unwrap();
-        app.terminal_message(winc_pty::protocol::FromHelper::Frame { tab: id, frame });
-        serve(app, term);
-        assert!(app.terminal.tab().unwrap().resizing.is_none());
-        assert_eq!(cursor_row(app), before, "帧回来时不跳");
-        // 面板这期间又变了：马上发下一个。
-        app.terminal_resize_tick(std::time::Instant::now());
-        Some(size)
-    };
-
-    // 往上拖高：每移动一次就发送新的尺寸，同时只有一个在途中，返回后才发下一个。
+    // 往上拖高：网格贴着面板下边，最后一行的位置不动（零头留在上面）；尺寸一直不发。
     let gap = app.layout.terminal_divider;
     let (x, y) = (gap.x + 200.0, gap.y + gap.h / 2.0);
     app.on_mouse_move(x, y);
     app.on_mouse_down(MouseButton::Left);
     serve(&mut app, &term);
     let lh = app.fonts.terminal_line_height;
-    // 网格贴着面板下边：拖的时候最后一行的位置不动（零头留在上面）。
     let bottom = |app: &App| {
         let grid = terminal::grid_rect(app.layout.terminal, lh);
         grid.y + (grid.h / lh).floor() * lh
     };
-    let fixed = bottom(&app);
-    let mut answered = 0;
-    // 有尺寸在路上时又动了几次。
-    let mut held = 0;
+    let (fixed, size) = (bottom(&app), app.terminal.tab().unwrap().size);
     for step in 1..=8 {
         app.on_mouse_move(x, y - 1.5 * lh * step as f32);
         assert!((bottom(&app) - fixed).abs() < 0.05, "第 {step} 步网格动了");
-        // 拖高时上面露出来的历史行已经取来了。
+        serve(&mut app, &term);
         cursor_row(&app);
-        let sent = app.terminal.tab().unwrap().size;
-        let waiting = app.terminal.tab().unwrap().resizing.is_some();
-        app.on_mouse_move(x, y - 1.5 * lh * step as f32 - 0.7 * lh);
-        if waiting {
-            assert_eq!(app.terminal.tab().unwrap().size, sent, "同时只有一个在路上");
-            held += 1;
-        }
-        while answer(&mut app, &mut term).is_some() {
-            answered += 1;
-        }
+        let tab = app.terminal.tab().unwrap();
+        assert_eq!(tab.size, size, "第 {step} 步就发了新尺寸");
+        assert!(tab.resizing.is_none());
         paint(&mut app);
     }
-    assert!(answered >= 8, "拖着的时候就改了 {answered} 次");
-    assert!(held >= 4, "有尺寸在路上时只动了 {held} 次");
+    // 按住不动也不发：松开以前大小随时可能再变。
+    settle_terminal_size(&mut app);
+    assert_eq!(app.terminal.tab().unwrap().size, size);
+
+    // 松开并稳定：发出最终的尺寸，只发一次。
+    app.on_mouse_up(MouseButton::Left);
+    settle_terminal_size(&mut app);
+    let (id, sent) = {
+        let tab = app.terminal.tab().unwrap();
+        assert!(tab.resizing.is_some());
+        assert_eq!(usize::from(tab.size.rows), tab.grid_rows());
+        (tab.id, tab.size)
+    };
+    serve(&mut app, &term);
+    let before = cursor_row(&app);
+    term.resize(sent);
+    let frame = term.take_frame().unwrap();
+    app.terminal_message(winc_pty::protocol::FromHelper::Frame { tab: id, frame });
+    serve(&mut app, &term);
+    app.terminal_resize_tick(std::time::Instant::now());
     let tab = app.terminal.tab().unwrap();
-    assert_eq!(usize::from(tab.size.rows), tab.grid_rows());
+    assert!(tab.resizing.is_none() && tab.size == sent, "只发一次");
+    assert_eq!(cursor_row(&app), before, "帧回来时不跳");
     assert_eq!(
         cursor_row(&app),
         tab.grid_rows() - 1,
         "空行去掉了，提示符在最下面"
     );
-    app.on_mouse_up(MouseButton::Left);
 
     std::fs::remove_dir_all(&dir).unwrap();
 }
@@ -917,6 +930,48 @@ fn only_the_tab_in_view_reflows_when_the_width_changes() {
     app.relayout();
     assert_eq!(resized(&app), [(second, cols), (first, cols)]);
 
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// 大小连续变化时（例如拖着窗口边缘）：静止之后的第一次变化立即发，紧接着的变化等大小稳定后
+/// 只发最后的尺寸；中途回到已发出的尺寸时不发。
+#[test]
+fn rapid_size_changes_send_only_the_final_size() {
+    let dir = sample_folder("terminal-resize-burst");
+    let mut app = app_with(&dir.join("short.rs"), false);
+    show_terminal(&mut app, "$ ");
+    let log = app.attach_recording_helper(&dir);
+    let resized = |app: &App| {
+        (app.sent_to_helper(&log).iter())
+            .filter_map(|m| match m {
+                winc_pty::protocol::ToHelper::Resize { size, .. } => Some(size.cols),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    settle_terminal_size(&mut app);
+    let start = app.terminal_size().cols;
+    let toggle = |app: &mut App| {
+        app.toggle_sidebar();
+        app.relayout();
+        // 上一个尺寸重排好的一帧已经回来。
+        app.terminal.tabs[0].resizing = None;
+    };
+    toggle(&mut app);
+    let wide = app.terminal_size().cols;
+    assert_ne!(wide, start);
+    assert_eq!(resized(&app), [wide]);
+    // 紧接着的几次变化：调试构建中两次之间可能超过 `RESIZE_SETTLE`，先把上一次变化记为刚刚发生。
+    for _ in 0..3 {
+        let tab = &mut app.terminal.tabs[0];
+        tab.settling = tab
+            .settling
+            .map(|(size, _)| (size, std::time::Instant::now()));
+        toggle(&mut app);
+    }
+    assert_eq!(resized(&app), [wide], "仍在变化时不发");
+    settle_terminal_size(&mut app);
+    assert_eq!(resized(&app), [wide, start]);
     std::fs::remove_dir_all(&dir).unwrap();
 }
 

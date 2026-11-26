@@ -379,7 +379,7 @@ fn draw_tabs(app: &mut App, frame: &mut Frame<'_>) {
         new_tab,
         area,
         app.pointer.hover == Hover::NewTab,
-        false,
+        app.overlays.menu_button == Some(MenuButton::NewTab),
     );
     icons::plus(frame, center(new_tab), 9.0, p.text_muted, area);
     if let Some(list) = list {

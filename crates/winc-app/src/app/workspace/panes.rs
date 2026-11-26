@@ -19,8 +19,22 @@ pub(crate) const DIVIDER: f32 = 1.0;
 pub(crate) const GRIP: f32 = 3.0;
 /// 拆分后每一侧的最小宽度或高度（逻辑像素，取自调参）。
 const PANE_MIN: f32 = 160.0;
-/// 拖动标签时，鼠标离窗格边缘不足窗格宽或高的这一比例就拆分，否则放进窗格。
-pub(crate) const DROP_EDGE: f32 = 1.0 / 3.0;
+/// 拖动标签或文件时贴着窗格边缘、放下会拆分的一条的宽度：窗格宽或高的这一比例，限制在
+/// [`DROP_EDGE_MIN`] 至 [`DROP_EDGE_MAX`] 之间。
+///
+/// 取自调参：大窗格中只有贴边的窄条拆分，其余位置都在窗格中打开；窄窗格的边缘仍便于拖中。
+const DROP_EDGE: f32 = 0.1;
+/// 拆分边缘的最小宽度（逻辑像素），见 [`DROP_EDGE`]。
+const DROP_EDGE_MIN: f32 = 32.0;
+/// 拆分边缘的最大宽度（逻辑像素），见 [`DROP_EDGE`]。
+const DROP_EDGE_MAX: f32 = 96.0;
+
+/// 返回宽或高为 `len`（逻辑像素）的窗格贴边拆分的一条的宽度（见 [`DROP_EDGE`]），不超过一半。
+pub(crate) fn drop_edge(len: f32) -> f32 {
+    (len * DROP_EDGE)
+        .clamp(DROP_EDGE_MIN, DROP_EDGE_MAX)
+        .min(len / 2.0)
+}
 
 /// 一个窗格的位置。
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -498,18 +512,19 @@ impl App {
         if y < body.y {
             return Some((pane, None));
         }
-        let rx = (x - body.x) / body.w.max(1.0);
-        let ry = (y - body.y) / body.h.max(1.0);
+        // 离各边的距离与该方向拆分的一条的宽度；落在几条里时取最近的边。
+        let (across, down) = (drop_edge(body.w), drop_edge(body.h));
         let edges = [
-            (rx, Axis::Row, true),
-            (1.0 - rx, Axis::Row, false),
-            (ry, Axis::Column, true),
-            (1.0 - ry, Axis::Column, false),
+            (x - body.x, across, Axis::Row, true),
+            (body.right() - x, across, Axis::Row, false),
+            (y - body.y, down, Axis::Column, true),
+            (body.bottom() - y, down, Axis::Column, false),
         ];
-        let (near, axis, before) = (edges.into_iter())
+        let edge = (edges.into_iter())
+            .filter(|&(distance, band, ..)| distance < band)
             .min_by(|a, b| a.0.total_cmp(&b.0))
-            .unwrap_or((1.0, Axis::Row, false));
-        Some((pane, (near < DROP_EDGE).then_some((axis, before))))
+            .map(|(.., axis, before)| (axis, before));
+        Some((pane, edge))
     }
 
     /// 放下时标出的区域：窗格 `pane` 整个（含标签栏那一行），拆分时是新窗格那一半。
@@ -936,3 +951,6 @@ fn grip(divider: &Divider) -> Rect {
         Axis::Column => Rect::new(line.x, line.y - GRIP, line.w, line.h + 2.0 * GRIP),
     }
 }
+
+#[cfg(test)]
+mod tests;

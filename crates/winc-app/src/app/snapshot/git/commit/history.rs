@@ -625,3 +625,71 @@ fn shoot_commit_history_short() {
     shoot(&mut app, "commit-history-short");
     let _ = std::fs::remove_dir_all(&root);
 }
+
+/// 说明紧接本行的提交图：只用到一条车道的行，说明与标题的文字对齐，不为其他行的分支留出空白。
+/// 鼠标停留后详情卡片放在侧栏右侧，首行与该行对齐；卡片显示后移到另一个提交，直接换成该提交的
+/// 卡片。
+#[test]
+fn history_rows_stay_compact_and_the_card_sits_beside_the_row() {
+    let Some((mut app, root)) = git_app("git-history-compact", false) else {
+        return;
+    };
+    app.config.git_commit_history = Some(true);
+    history_repo(&root);
+    app.git_refresh();
+    app.run_action(Action::ShowCommit);
+    paint(&mut app);
+    paint(&mut app);
+    let row_of = |app: &App, i: usize| {
+        let target = CommitTarget::History(HistoryTarget::Commit(i));
+        app.hits
+            .commit
+            .iter()
+            .find(|(_, t)| *t == target)
+            .map(|h| h.0)
+    };
+    // 标题的文字在行左边 20 处；说明的第一个字母落在其后几个逻辑像素内。
+    let recent = app.git.commit.history.recent.as_ref().unwrap();
+    let wide = recent.graph.iter().any(|g| g.width > 1);
+    let single = (0..recent.commits.len()).find(|&i| {
+        recent.graph[i].width == 1 && row_of(&app, i).is_some_and(|r| r.h >= COMMIT_ROW)
+    });
+    let row = row_of(&app, single.expect("有只用一条车道的行")).unwrap();
+    assert!(wide, "历史中有分支，其他行用到不止一条车道");
+    let y = row.y + row.h / 2.0;
+    let blank = pixel(&app, (row.x + 200.0, y));
+    let ink = (0..12).filter(|dx| pixel(&app, (row.x + 20.0 + *dx as f32 / 2.0, y)) != blank);
+    assert!(ink.count() > 0, "说明从标题文字的位置开始");
+
+    // 详情卡片：侧栏右侧、与该行同高处铺卡片的底色，该行上方不画，也不盖住侧栏中下一行
+    // 说明与时间之间的空白。
+    let (i, _) = find(&app, "Write the readme");
+    let row = row_of(&app, i).unwrap();
+    let beside = (app.layout.sidebar.right() + 12.0, row.y + row.h / 2.0);
+    let above = (beside.0, row.y - 40.0);
+    let below = (row.x + 190.0, row.bottom() + row.h / 2.0);
+    let before = (pixel(&app, beside), pixel(&app, above), pixel(&app, below));
+    app.on_mouse_move(row.x + 60.0, row.y + row.h / 2.0);
+    paint(&mut app);
+    app.poll_commit();
+    app.overlays.tooltip.since = Some(
+        std::time::Instant::now()
+            - crate::theme::TOOLTIP_DELAY
+            - crate::app::animation::TOOLTIP_FADE,
+    );
+    paint(&mut app);
+    assert_ne!(pixel(&app, beside), before.0);
+    assert_eq!(pixel(&app, above), before.1);
+    assert_eq!(pixel(&app, below), before.2);
+
+    // 卡片显示后移到下一个提交：直接换成该提交的卡片，不重新计时。
+    app.tick();
+    assert!(app.overlays.tooltip.shown);
+    let since = app.overlays.tooltip.since;
+    app.on_mouse_move(row.x + 60.0, row.bottom() + row.h / 2.0);
+    let next = CommitTarget::History(HistoryTarget::Commit(i + 1));
+    assert_eq!(app.pointer.hover, Hover::Commit(next));
+    assert!(app.overlays.tooltip.shown);
+    assert_eq!(app.overlays.tooltip.since, since);
+    let _ = std::fs::remove_dir_all(&root);
+}

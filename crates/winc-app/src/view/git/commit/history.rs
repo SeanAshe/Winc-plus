@@ -5,17 +5,23 @@ use winc_editor::git::recent::{Recent, Side};
 use super::*;
 use crate::app::{HistoryLine, HistoryTarget};
 use crate::view::git::log::{
-    BADGE_GAP, GraphStyle, LANE, badges, badges_width, draw_badges, draw_graph_row, fit_badges,
+    BADGE_GAP, GraphStyle, badges, badges_width, draw_badges, draw_graph_row, fit_badges,
 };
 
 /// 提交图最多画的车道数（条）：侧栏较窄，更多的车道压在最右边一条上，给说明留出宽度。
 const HISTORY_LANES: usize = 4;
+/// 提交图中相邻两条车道的间距（逻辑像素）。
+///
+/// 取自调参：比日志的车道窄，侧栏中提交图更紧凑；圆点之间仍留有间隙，并排的线可以区分。
+const HISTORY_LANE: f32 = 10.0;
 /// 提交图第一条车道的中心与标题的箭头对齐：车道的左边离行左边的距离（逻辑像素）。
-const GRAPH_LEFT: f32 = ARROW - LANE / 2.0;
+const GRAPH_LEFT: f32 = ARROW - HISTORY_LANE / 2.0;
 /// 说明离提交图右边的距离（逻辑像素）：只有一条车道时说明与标题的文字对齐。
-const SUBJECT_GAP: f32 = STASH_TITLE - GRAPH_LEFT - LANE;
-/// 行右端推送、拉取标记占的宽度（逻辑像素）：图标约 10 宽，左右各留 2。
-const MARK_ROOM: f32 = 14.0;
+const SUBJECT_GAP: f32 = STASH_TITLE - GRAPH_LEFT - HISTORY_LANE;
+/// 行右端推送、拉取标记的图标宽度（逻辑像素）。
+const MARK_ICON: f32 = 10.0;
+/// 行右端推送、拉取标记占的宽度（逻辑像素）：图标右边留 2，与左边的时间相隔 6。
+const MARK_ROOM: f32 = MARK_ICON + 8.0;
 /// 时间离说明或徽章的最小距离（逻辑像素）。
 const TIME_GAP: f32 = 8.0;
 /// 引用徽章最多占说明区宽度的比例：侧栏较窄，说明优先，多的徽章收成「+N」。取自调参：三成时
@@ -95,10 +101,12 @@ pub(super) fn draw_history(
         height: COMMIT_ROW,
         bg: p.sidebar_bg,
         lanes: HISTORY_LANES,
+        lane: HISTORY_LANE,
     };
-    let lanes = (recent.graph.iter().map(|g| g.width).max().unwrap_or(1)).clamp(1, HISTORY_LANES);
     let graph_x = head.x + GRAPH_LEFT;
-    let text_x = graph_x + lanes as f32 * LANE + SUBJECT_GAP;
+    // 说明紧接本行的提交图：只用到主线的行不为其他行的分支留出空白。
+    let text_x =
+        |lanes: usize| graph_x + lanes.clamp(1, HISTORY_LANES) as f32 * HISTORY_LANE + SUBJECT_GAP;
     let marks = recent.sides.iter().any(|side| *side != Side::Both);
     let viewing = app.combined_commit().map(|c| c.oid.as_str());
     let now = std::time::SystemTime::now()
@@ -119,7 +127,8 @@ pub(super) fn draw_history(
                 if let Some(color) = fill {
                     frame.rect_clipped(shade(row), color, RADIUS_ROW, rows_clip);
                 }
-                let cells = (graph_x, text_x, marks, now);
+                let lanes = recent.graph.get(i).map_or(1, |g| g.width);
+                let cells = (graph_x, text_x(lanes), marks, now);
                 draw_commit_row(
                     app,
                     frame,
@@ -136,7 +145,7 @@ pub(super) fn draw_history(
                     frame.rect_clipped(shade(row), p.hover, RADIUS_ROW, rows_clip);
                 }
                 let text = t!("git-history-more");
-                ui_text_small(frame, app, text_x, row, text, p.text_muted, rows_clip);
+                ui_text_small(frame, app, text_x(1), row, text, p.text_muted, rows_clip);
                 hits.push((grab, target));
             }
         }
@@ -198,7 +207,7 @@ fn draw_commit_row(
     }
     let mut right = row.right() - END_PAD;
     if marks {
-        let cx = right - MARK_ROOM / 2.0;
+        let cx = right - 2.0 - MARK_ICON / 2.0;
         let cy = row.y + row.h / 2.0;
         match side {
             Side::Outgoing => icons::push_small(frame, (cx, cy), p.accent, clip),
@@ -240,19 +249,23 @@ fn draw_commit_row(
 
 /// 详情卡片的宽度（逻辑像素）。取自调参：一行约 28 个汉字，说明的段落不至于折得过碎。
 const CARD_W: f32 = 380.0;
-/// 详情卡片的内边距（逻辑像素）。
-const CARD_PAD: f32 = 12.0;
+/// 详情卡片的内边距（逻辑像素）。取自调参：与悬停提示的留白相近，卡片显得紧凑。
+const CARD_PAD: f32 = 10.0;
 /// 详情卡片中一行文字的高度（逻辑像素），与悬停提示相同。
 const CARD_LINE: f32 = 18.0;
-/// 详情卡片中分隔线上下的留白（逻辑像素）。
-const CARD_GAP: f32 = 8.0;
+/// 详情卡片中首行与说明之间、分隔线上下的留白（逻辑像素）。
+const CARD_GAP: f32 = 6.0;
+/// 详情卡片与侧栏边缘的距离（逻辑像素）。
+const CARD_OFFSET: f32 = 6.0;
 /// 说明最多显示的行数（行），更长时截断；完整的说明在日志中查看。取自调参：常见的说明不截断，
 /// 卡片不超过侧栏高度的一半。
 const CARD_MESSAGE_LINES: usize = 12;
 
-/// 绘制鼠标停在第 `i` 个提交上时的详情卡片：作者和时间、完整的说明、改动的统计和短提交号，
-/// 宽度随内容、不超过 [`CARD_W`]，从鼠标处开始，放在该行下方（下方空间不足时在上方）。说明和统计
-/// 尚未读取完时先写说明的首行。
+/// 绘制鼠标停在第 `i` 个提交上时的详情卡片：首行是作者、时间和短提交号，之后是完整的说明，
+/// 分隔线下是改动的统计。
+///
+/// 卡片放在侧栏旁（右侧放不下时在左侧），首行与该行对齐，不超出窗口；宽度随内容、不超过
+/// [`CARD_W`]。说明的首段用正文色，其余段落用次要色。说明和统计尚未读取完时先写说明的首行。
 pub(in crate::view) fn draw_history_card(app: &App, frame: &mut Frame<'_>, i: usize, opacity: f32) {
     let Some((commit, _)) = app.git.commit.history.commit(i) else {
         return;
@@ -284,55 +297,98 @@ pub(in crate::view) fn draw_history_card(app: &App, frame: &mut Frame<'_>, i: us
         ),
     };
     let byline = t!("git-history-card-byline", time = time);
-    let message = card.map_or(commit.subject.as_str(), |c| c.message.as_str());
+    let message = card.map_or(commit.subject.as_str(), |c| c.message.trim_end());
     let lines = card_lines(frame, size, message, room);
     let stats = card_stats(app, state);
     let short = crate::app::git::log::short(&commit.oid);
     let mut measure = |text: &str| frame.measure(FontKind::Ui, size, text);
-    let mut content = measure(&commit.author) + measure(&byline);
-    content = content.max(stats.iter().map(|(text, _)| measure(text)).sum());
-    content = content.max(measure(short));
+    let short_w = measure(short);
+    let header = measure(&commit.author) + measure(&byline) + 2.0 * CARD_GAP + short_w;
+    let stats_w = stats.iter().map(|(text, _)| measure(text)).sum::<f32>()
+        + STATS_GAP * stats.len().saturating_sub(1) as f32;
+    let mut content = header.max(stats_w);
     for line in &lines {
         content = content.max(measure(line));
     }
     let width = content.min(room) + 2.0 * CARD_PAD;
-    let message_h = CARD_LINE * lines.len() as f32;
-    let height = 2.0 * CARD_PAD + 3.0 * CARD_LINE + message_h + 4.0 * CARD_GAP + 2.0;
-    let below = row.bottom() + 6.0;
-    let y = match below + height > window.bottom() {
-        true => row.y - 6.0 - height,
-        false => below,
+    // 段落之间的空行只占半行。
+    let line_h = |text: &str| {
+        if text.is_empty() {
+            CARD_LINE / 2.0
+        } else {
+            CARD_LINE
+        }
     };
-    let x = app.overlays.tooltip.pointer_x - 10.0;
-    let right = (window.right() - width - 4.0).max(4.0);
-    let rect = Rect::new(x.clamp(4.0, right), y.max(4.0), width, height);
+    let message_h: f32 = lines.iter().map(|line| line_h(line)).sum();
+    let height = 2.0 * CARD_PAD + 2.0 * CARD_LINE + message_h + 3.0 * CARD_GAP + 1.0;
+    let sidebar = app.layout.sidebar;
+    let x = match sidebar.right() + CARD_OFFSET + width <= window.right() - 4.0 {
+        true => sidebar.right() + CARD_OFFSET,
+        false => sidebar.x - CARD_OFFSET - width,
+    };
+    // 换到另一个提交时从原来的行滑过来。
+    let slide = (app.git.commit.history.card_slide)
+        .map_or(0.0, |(offset, clock)| offset * (1.0 - clock.progress()));
+    let y = row.y + row.h / 2.0 - CARD_PAD - CARD_LINE / 2.0 + slide;
+    let bottom = (window.bottom() - height - 4.0).max(4.0);
+    let rect = Rect::new(x.max(4.0), y.clamp(4.0, bottom), width, height);
     frame.with_opacity(opacity, |frame| {
         crate::view::draw_card(frame, p, rect, RADIUS_POPUP, p.popup_bg);
         let left = rect.x + CARD_PAD;
         let inner = width - 2.0 * CARD_PAD;
         let mut y = rect.y + CARD_PAD;
-        let line = |y: f32| Rect::new(rect.x, y, rect.w, CARD_LINE);
-        let x = ui_text_small(frame, app, left, line(y), &commit.author, p.text, rect);
-        ui_text_small(frame, app, x, line(y), &byline, p.text_muted, rect);
+        let line = |y: f32, h: f32| Rect::new(rect.x, y, rect.w, h);
+        let x = ui_text_small(
+            frame,
+            app,
+            left,
+            line(y, CARD_LINE),
+            &commit.author,
+            p.text,
+            rect,
+        );
+        ui_text_small(
+            frame,
+            app,
+            x,
+            line(y, CARD_LINE),
+            &byline,
+            p.text_muted,
+            rect,
+        );
+        let at = rect.right() - CARD_PAD - short_w;
+        ui_text_small(
+            frame,
+            app,
+            at,
+            line(y, CARD_LINE),
+            short,
+            p.text_muted,
+            rect,
+        );
         y += CARD_LINE + CARD_GAP;
+        // 首段（说明的标题）用正文色，空行之后的段落用次要色。
+        let mut color = p.text;
         for text in &lines {
-            ui_text_small(frame, app, left, line(y), text, p.text, rect);
-            y += CARD_LINE;
+            if text.is_empty() {
+                color = p.text_muted;
+            }
+            let h = line_h(text);
+            ui_text_small(frame, app, left, line(y, h), text, color, rect);
+            y += h;
         }
         y += CARD_GAP;
-        let divider = |y: f32| Rect::new(left, y, inner, 1.0);
-        frame.rect_clipped(divider(y), p.separator, 0.0, rect);
+        frame.rect_clipped(Rect::new(left, y, inner, 1.0), p.separator, 0.0, rect);
         y += 1.0 + CARD_GAP;
         let mut x = left;
         for (text, color) in &stats {
-            x = ui_text_small(frame, app, x, line(y), text, *color, rect);
+            x = ui_text_small(frame, app, x, line(y, CARD_LINE), text, *color, rect) + STATS_GAP;
         }
-        y += CARD_LINE + CARD_GAP;
-        frame.rect_clipped(divider(y), p.separator, 0.0, rect);
-        y += 1.0 + CARD_GAP;
-        ui_text_small(frame, app, left, line(y), short, p.text_muted, rect);
     });
 }
+
+/// 详情卡片中改动统计各项之间的距离（逻辑像素）。
+const STATS_GAP: f32 = 8.0;
 
 /// 把说明 `message` 按宽度 `room`（逻辑像素）折行；超过 [`CARD_MESSAGE_LINES`] 行时截断，
 /// 最后一行末尾加省略号。空行保留，分开段落。
@@ -359,8 +415,8 @@ fn card_lines<'a>(
     lines
 }
 
-/// 返回详情卡片中改动统计的各段文字和颜色：文件数、增加和删除的行数，后两项用差异的颜色；
-/// 尚未读取完时是「正在读取」，读取失败时写明。
+/// 返回详情卡片中改动统计的各段文字和颜色：文件数，之后是增加和删除的行数，后两项用差异的
+/// 颜色；尚未读取完时是「正在读取」，读取失败时写明。
 fn card_stats(app: &App, state: Option<&crate::app::CardState>) -> Vec<(String, Color)> {
     use crate::app::CardState;
     let p = app.palette;
@@ -374,15 +430,15 @@ fn card_stats(app: &App, state: Option<&crate::app::CardState>) -> Vec<(String, 
             return vec![(text, p.text_muted)];
         }
     };
-    let separator = t!("git-history-card-separator");
     vec![
-        (t!("git-history-card-files", count = card.files), p.text),
-        (separator.to_owned(), p.text_muted),
+        (
+            t!("git-history-card-files", count = card.files),
+            p.text_muted,
+        ),
         (
             t!("git-history-card-added", count = card.added),
             p.git_added,
         ),
-        (separator.to_owned(), p.text_muted),
         (
             t!("git-history-card-removed", count = card.removed),
             p.git_deleted,

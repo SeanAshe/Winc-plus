@@ -125,6 +125,9 @@ pub(crate) struct History {
     drawn: u64,
     /// 各提交的详情卡片的读取状态，按提交号。
     cards: HashMap<String, CardState>,
+    /// 详情卡片换到另一个提交时从原来的行滑过去：开始时相对新位置的纵向偏移（逻辑像素）和
+    /// 时钟；不在滑动中时为 `None`。
+    pub(crate) card_slide: Option<(f32, crate::app::animation::Clock)>,
 }
 
 impl Default for History {
@@ -140,6 +143,7 @@ impl Default for History {
             version: 0,
             drawn: 0,
             cards: HashMap::new(),
+            card_slide: None,
         }
     }
 }
@@ -193,6 +197,26 @@ impl App {
             lines.push(HistoryLine::More);
         }
         lines
+    }
+
+    /// 鼠标从提交历史的一个提交移到（或随列表滚动换到）另一个提交时，返回详情卡片是否直接换成
+    /// 新提交的卡片：卡片已显示时不重新计时，从原来的行滑到新的行；否则返回 `false`。
+    pub(crate) fn move_history_card(&mut self, from: Hover, to: Hover) -> bool {
+        let commit = |hover| match hover {
+            Hover::Commit(CommitTarget::History(HistoryTarget::Commit(i))) => Some(i),
+            _ => None,
+        };
+        let (Some(from), Some(to)) = (commit(from), commit(to)) else {
+            return false;
+        };
+        if !self.overlays.tooltip.shown {
+            return false;
+        }
+        // 各行等高、连续排列，原来那一行与新的一行相距的行数即卡片要移动的距离。
+        let offset = (from as f32 - to as f32) * COMMIT_ROW;
+        let slide = self.clock(crate::app::animation::HISTORY_CARD_SLIDE);
+        self.git.commit.history.card_slide = slide.map(|clock| (offset, clock));
+        true
     }
 
     /// 每帧绘制提交视图之前调用：依据变化时在后台重新读取，终点高度变化时开始过渡，滚动位置

@@ -26,6 +26,13 @@ pub struct Config {
     ///
     /// 可用范围见 [`Config::EDITOR_SIZE_RANGE`]。
     pub editor_size: Option<f32>,
+    /// 编辑区等宽文字的字重，默认为 400，与界面字重无关；终端未设置 `terminal.fontWeight` 时
+    /// 同样使用该字重。
+    ///
+    /// 可用范围见 [`Config::FONT_WEIGHT_RANGE`]。
+    pub editor_font_weight: Option<u16>,
+    /// 字体支持时把 `->`、`===` 等相邻的符号画成连写的字形，默认为否。
+    pub editor_font_ligatures: Option<bool>,
     /// 界面字体（文件树、标签、状态栏）。
     pub ui_font: Option<String>,
     /// 界面字号（点）。
@@ -37,8 +44,8 @@ pub struct Config {
     ///
     /// 可用范围见 [`Config::ZOOM_RANGE`]。
     pub ui_zoom: Option<u16>,
-    /// 界面和编辑区文字的字重，默认为 400（各字体自身的字重）；范围见
-    /// [`Config::FONT_WEIGHT_RANGE`]。终端没有设置 `terminal.fontWeight` 时也用它。
+    /// 界面文字的字重，默认为 400（各字体自身的字重）；范围见 [`Config::FONT_WEIGHT_RANGE`]。
+    /// 编辑区和终端的字重分别由 `editor.fontWeight`、`terminal.fontWeight` 设置。
     pub ui_font_weight: Option<u16>,
     /// 窗口背景图片的路径；没写时没有背景图。
     pub ui_background_image: Option<String>,
@@ -105,10 +112,18 @@ pub struct Config {
     pub smooth_scrolling: Option<bool>,
     /// 光标移动时滑到新位置的方式，默认为不播放动画。
     pub smooth_caret_movement: Option<SmoothCaret>,
+    /// 编辑区和差异视图中光标的形状，默认为竖线；开启 Vim 模式时只用于插入模式。
+    pub cursor_style: Option<CursorStyle>,
     /// 在侧栏文件视图的底部显示大纲（当前文件的函数、类型、标题），默认为是。
     pub outline: Option<bool>,
     /// 何时显示空格和制表符，默认为选中时。
     pub render_whitespace: Option<RenderWhitespace>,
+    /// 在行尾标出该行的换行符（LF、CRLF 或 CR），默认为否。
+    pub render_line_endings: Option<bool>,
+    /// 显示长行参考线的列：每一项 N 在第 N 列之后（距行首 N 个字符宽处）画一条竖线；为空时不显示。
+    ///
+    /// 各项的可用范围见 [`Config::RULER_RANGE`]。
+    pub editor_rulers: Vec<usize>,
     /// 差异单栏显示：新旧内容上下排列，默认为否（左右并排）。
     pub diff_inline: Option<bool>,
     /// 差异中较长的未更改内容折叠为一行，默认为是；关闭后差异打开时就是全部展开的。
@@ -215,7 +230,7 @@ pub struct Config {
     ///
     /// 可用范围同 [`Config::EDITOR_SIZE_RANGE`]。
     pub terminal_size: Option<f32>,
-    /// 终端文字的字重；未设置时跟随全局字重（[`Config::ui_font_weight`]）。
+    /// 终端文字的字重；未设置时跟随编辑区字重（[`Config::editor_font_weight`]）。
     ///
     /// 可用范围见 [`Config::FONT_WEIGHT_RANGE`]。
     pub terminal_font_weight: Option<u16>,
@@ -241,6 +256,8 @@ pub struct Config {
     pub terminal_prompt: Option<bool>,
     /// 终端里选中文字（拖选、双击、三击）松开时自动复制，默认为否。
     pub terminal_copy_on_select: Option<bool>,
+    /// 在终端里右键单击的作用，默认为弹出菜单。
+    pub terminal_right_click: Option<TerminalRightClick>,
     /// 终端里把粗体的前 8 种颜色画成对应的亮色，供依赖粗体表示亮色的程序使用，默认为否。
     pub terminal_bold_is_bright: Option<bool>,
     /// 终端面板是否放在编辑区右边（配置里的 `"position": "right"`）；否则（`"bottom"` 或
@@ -365,6 +382,22 @@ impl OptionAsMeta {
             OptionAsMeta::None => "none",
         }
     }
+}
+
+/// 在终端里右键单击的作用。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TerminalRightClick {
+    /// 弹出终端的菜单。
+    #[default]
+    Menu,
+    /// 有所选内容时复制并取消选择，否则粘贴；按住 ⌥（Alt）时仍弹出菜单。
+    CopyOrPaste,
+}
+
+impl TerminalRightClick {
+    /// 全部选项，顺序与设置中菜单的顺序一致。
+    pub const ALL: [TerminalRightClick; 2] =
+        [TerminalRightClick::Menu, TerminalRightClick::CopyOrPaste];
 }
 
 /// Vim 模式下无名寄存器与系统剪贴板的同步方式。
@@ -601,6 +634,27 @@ impl RenderWhitespace {
     ];
 }
 
+/// 编辑区光标的形状；开启 Vim 模式时只用于插入模式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CursorStyle {
+    /// 字符之间的竖线。
+    #[default]
+    Line,
+    /// 覆盖光标处字符的实心块。
+    Block,
+    /// 光标处字符下方的横线。
+    Underline,
+}
+
+impl CursorStyle {
+    /// 全部选项，顺序与设置中菜单的顺序一致。
+    pub const ALL: [CursorStyle; 3] = [
+        CursorStyle::Line,
+        CursorStyle::Block,
+        CursorStyle::Underline,
+    ];
+}
+
 /// 光标移动的动画方式。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SmoothCaret {
@@ -707,6 +761,10 @@ impl Config {
     pub const FONT_WEIGHT_RANGE: std::ops::RangeInclusive<f32> = 100.0..=900.0;
     /// 默认的字重。
     pub const FONT_WEIGHT: u16 = 400;
+    /// 长行参考线所在列的可用范围（列）；超出的项在读入时忽略并报告。
+    ///
+    /// 下限 1；上限取自调参，比常见的行宽约定（80、100、120 列）大一个数量级，用于排除写错的值。
+    pub const RULER_RANGE: std::ops::RangeInclusive<usize> = 1..=1000;
     /// 背景图片不透明度的合法范围（百分比）：0 时不显示图片，100 时图片完全遮住底色。
     ///
     /// 超出范围的值在读入时忽略并报告。

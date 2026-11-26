@@ -829,6 +829,7 @@ impl App {
             None if setting == Setting::TerminalShell => self.config.terminal_shell.clone(),
             None if setting == Setting::GitPath => self.config.git_path.clone(),
             None if setting == Setting::LatexPath => self.config.latex_path.clone(),
+            None if setting == Setting::EditorRulers => rulers_text(&self.config.editor_rulers),
             None if setting.is_ai_text() => ai_text(&mut self.config, setting).clone(),
             None => self.font_setting(setting).clone(),
         };
@@ -969,6 +970,7 @@ impl App {
                 self.focus = Focus::Settings;
                 self.set_latex_path(value);
             }
+            None if setting == Setting::EditorRulers => self.settings_commit_rulers(value),
             None if setting.is_ai_text() => {
                 self.settings.editing = None;
                 self.settings.editing_original = None;
@@ -983,6 +985,28 @@ impl App {
             }
             None => self.settings_commit_font(setting, value),
         }
+    }
+
+    /// 提交长行参考线的列号并写回配置；清空表示不显示。
+    ///
+    /// 无法识别时留在输入框中并说明原因，配置不变。
+    fn settings_commit_rulers(&mut self, value: Option<String>) {
+        let Some(columns) = parse_rulers(value.as_deref().unwrap_or("")) else {
+            let max = *Config::RULER_RANGE.end();
+            let message = t!("settings-editor-rulers-invalid", max = max);
+            self.settings.error = Some((Setting::EditorRulers, message));
+            self.request_redraw();
+            return;
+        };
+        self.settings.editing = None;
+        self.settings.editing_original = None;
+        self.settings.error = None;
+        self.focus = Focus::Settings;
+        if self.config.editor_rulers != columns {
+            self.config.editor_rulers = columns;
+            self.save_config();
+        }
+        self.request_redraw();
     }
 
     /// 提交格式化（修复）命令并写回配置；`command` 为 `None`（清空）表示自动选择。
@@ -1384,6 +1408,29 @@ fn ai_text(config: &mut Config, setting: Setting) -> &mut Option<String> {
         Setting::AiModel => &mut config.ai_model,
         _ => &mut config.ai_api_key,
     }
+}
+
+/// 返回设置中显示的长行参考线的列号，例如「80, 120」；未设置参考线时返回 `None`。
+pub(crate) fn rulers_text(columns: &[usize]) -> Option<String> {
+    let text: Vec<String> = columns.iter().map(usize::to_string).collect();
+    (!text.is_empty()).then(|| text.join(", "))
+}
+
+/// 解析设置中输入的长行参考线列号，按从小到大排列并去掉重复的列。
+///
+/// 各项以逗号、顿号或空白分隔；任一项不是 [`Config::RULER_RANGE`] 内的整数时返回 `None`。
+fn parse_rulers(text: &str) -> Option<Vec<usize>> {
+    let separator = |c: char| matches!(c, ',' | '，' | '、') || c.is_whitespace();
+    let mut columns = (text.split(separator).filter(|part| !part.is_empty()))
+        .map(|part| {
+            part.parse()
+                .ok()
+                .filter(|c| Config::RULER_RANGE.contains(c))
+        })
+        .collect::<Option<Vec<usize>>>()?;
+    columns.sort_unstable();
+    columns.dedup();
+    Some(columns)
 }
 
 #[cfg(test)]

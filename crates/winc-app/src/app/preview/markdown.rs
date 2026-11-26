@@ -217,6 +217,9 @@ pub(crate) struct MarkdownPreview {
     pub toc_rest: Option<std::time::Instant>,
     /// 本次停留是否已展开标题列表。
     pub toc_shown: bool,
+    /// 鼠标进入（`true`）或离开（`false`）标题指示条时指示条加深、变淡的时钟；不在过渡中时为
+    /// `None`。
+    pub toc_glow: Option<(bool, crate::app::animation::Clock)>,
     /// 正文左边缘在钉住过渡结束后的位置（窗口坐标，逻辑像素）。
     pub toc_left: f32,
     /// 钉住过渡开始时正文左边缘的位置（窗口坐标，逻辑像素），终点是
@@ -420,6 +423,7 @@ impl Default for MarkdownPreview {
             toc_fade: None,
             toc_rest: None,
             toc_shown: false,
+            toc_glow: None,
             toc_left: 0.0,
             toc_slide: None,
             toc_close: None,

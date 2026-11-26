@@ -14,10 +14,10 @@ mod state;
 mod version;
 
 pub use config::{
-    AiProtocol, AutoSave, BackgroundFit, Backup, Config, FolderDrop, Imported, LogPlacement,
-    OptionAsMeta, PullMode, RenderWhitespace, Saved, SearchStyle, SmoothCaret, TextWidth,
-    ThemeChoice, VimClipboard, VimMapMode, VimMapping, WorktreeOpen, config_path, export_config,
-    import_config,
+    AiProtocol, AutoSave, BackgroundFit, Backup, Config, CursorStyle, FolderDrop, Imported,
+    LogPlacement, OptionAsMeta, PullMode, RenderWhitespace, Saved, SearchStyle, SmoothCaret,
+    TerminalRightClick, TextWidth, ThemeChoice, VimClipboard, VimMapMode, VimMapping, WorktreeOpen,
+    config_path, export_config, import_config,
 };
 pub use font::{FontRequest, font_list, resolve_font, resolve_font_list};
 pub use json::Json;

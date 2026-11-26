@@ -68,8 +68,12 @@ impl App {
             };
             body
         };
-        let lift = header_height(Rect::new(body.x, body.y - HEADER, body.w, 0.0));
-        Rect::new(body.x, body.y - lift, body.w, body.h + lift)
+        lifted(body)
+    }
+
+    /// 返回当前窗格中新的编辑器终端的网格大小（见 [`App::grid_size`]）。
+    fn editor_terminal_size(&self) -> Size {
+        self.grid_size(lifted(self.layout.editor))
     }
 
     /// 鼠标位于某个可见终端的内容或面板标签栏上。
@@ -233,6 +237,38 @@ impl App {
             at: None,
         };
         self.move_terminal_tab_to_editor(id, drop);
+    }
+
+    /// 在当前编辑器窗格新建一个终端标签，`shell` 为 `None` 时用默认 shell；不打开终端面板。
+    ///
+    /// 新终端排进待建的队列，辅助进程建好后从面板的栏移到编辑区（见 `App::sync_terminal`）。
+    pub(in crate::app) fn new_editor_terminal(&mut self, shell: Option<String>) {
+        if !self.terminal_enabled() {
+            return;
+        }
+        if self.terminal.crashed {
+            self.restart_terminal_tab();
+        }
+        let drop = TabDrop::Into {
+            pane: self.editor.panes.focused,
+            at: None,
+        };
+        let group = self.ensure_terminal_panel_group();
+        let size = self.editor_terminal_size();
+        let t = &mut self.terminal;
+        t.want_shells.resize(t.want.len(), None);
+        t.want_shells.push(shell);
+        t.want_into.resize(t.want.len(), None);
+        t.want_into.push(None);
+        t.want_editor.resize(t.want.len(), None);
+        t.want_editor.push(Some((drop, size)));
+        t.want_groups.resize(t.want.len(), t.group_at);
+        t.want_groups.push(group);
+        t.want.push(Vec::new());
+        t.want_active = None;
+        self.start_terminal();
+        self.relayout();
+        self.request_redraw();
     }
 
     /// 把面板标签 `id` 放进指定编辑器窗格或边缘拆分目标，不发送关闭或新建 shell 的消息。
@@ -500,4 +536,11 @@ impl App {
             self.relayout();
         }
     }
+}
+
+/// 返回编辑区中的终端占用的范围：窗格的内容 `body` 向上延伸一个终端标签栏的高度，终端的内容
+/// 仍从 `body` 的上沿开始。
+fn lifted(body: Rect) -> Rect {
+    let lift = header_height(Rect::new(body.x, body.y - HEADER, body.w, 0.0));
+    Rect::new(body.x, body.y - lift, body.w, body.h + lift)
 }

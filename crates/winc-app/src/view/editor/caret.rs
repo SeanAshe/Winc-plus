@@ -490,6 +490,41 @@ pub(in crate::view) fn draw_modal_caret(
     }
 }
 
+/// 绘制可编辑文字中的主光标，形状取自 [`App::styled_caret`]；返回输入法候选框应对齐的矩形。
+///
+/// `(x, y, width)` 与 `under` 见 [`draw_modal_caret`]；输入法组字时按 [`draw_caret`] 绘制。
+pub(in crate::view) fn draw_text_caret(
+    app: &App,
+    frame: &mut Frame<'_>,
+    (x, y, width): (f32, f32, f32),
+    under: Option<(&[char], usize)>,
+    baseline: f32,
+    clip: Rect,
+) -> Rect {
+    match app.styled_caret() {
+        Some(shape) if app.preedit_at(Focus::Editor).is_empty() => {
+            draw_modal_caret(app, frame, (x, y, width), under, baseline, shape, clip);
+            caret_rect(x, y, app.fonts.line_height)
+        }
+        _ => draw_caret(app, frame, x, y, baseline, clip),
+    }
+}
+
+/// 绘制可编辑文字中主光标以外的光标，形状取自 [`App::styled_caret`]；参数见 [`draw_text_caret`]。
+pub(in crate::view) fn draw_extra_caret(
+    app: &App,
+    frame: &mut Frame<'_>,
+    (x, y, width): (f32, f32, f32),
+    under: Option<(&[char], usize)>,
+    baseline: f32,
+    clip: Rect,
+) {
+    match app.styled_caret() {
+        Some(shape) => draw_modal_caret(app, frame, (x, y, width), under, baseline, shape, clip),
+        None => caret_bar(app, frame, x, y, clip),
+    }
+}
+
 /// 在一行的顶边 `y` 处、横坐标 `x` 绘制一道光标竖线；处于闪烁周期的熄灭阶段时不绘制。
 pub(in crate::view) fn caret_bar(app: &App, frame: &mut Frame<'_>, x: f32, y: f32, clip: Rect) {
     if app.blink.visible {

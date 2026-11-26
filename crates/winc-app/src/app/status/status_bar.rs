@@ -16,6 +16,8 @@ use crate::app::workspace::watch::DiskBack;
 /// 状态栏右侧可点击的项。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatusItem {
+    /// 光标位置（十六进制视图中是偏移）：点击打开转到行（偏移）的输入条。
+    Position,
     /// 缩进：空格还是制表符，以及缩进宽度。
     Indent,
     /// 换行符：`LF` 或 `CRLF`。
@@ -74,6 +76,9 @@ impl App {
         if item == StatusItem::Settings {
             return self.open_settings();
         }
+        if item == StatusItem::Position {
+            return self.open_goto();
+        }
         if item == StatusItem::Update {
             #[cfg(target_os = "macos")]
             crate::macos::check_for_updates(true);
@@ -94,7 +99,8 @@ impl App {
             (StatusItem::Language, Some(id)) => MenuTarget::Language(id),
             (StatusItem::ReadOnly, Some(id)) => MenuTarget::ReadOnly(id),
             (
-                StatusItem::Branch
+                StatusItem::Position
+                | StatusItem::Branch
                 | StatusItem::Terminal
                 | StatusItem::GitPanel
                 | StatusItem::Remote

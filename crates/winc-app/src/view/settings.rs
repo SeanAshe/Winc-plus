@@ -774,6 +774,10 @@ fn draw_field(app: &mut App, frame: &mut Frame<'_>, row: &SettingRow, clip: Rect
         Setting::TerminalShell => (None, t!("settings-terminal-shell-placeholder")),
         Setting::GitPath => (app.config.git_path.clone(), t!("settings-git-path-auto")),
         Setting::LatexPath => (app.config.latex_path.clone(), latex_auto.as_str()),
+        Setting::EditorRulers => (
+            crate::app::rulers_text(&app.config.editor_rulers),
+            t!("settings-editor-rulers-none"),
+        ),
         Setting::AiBaseUrl => (
             app.config.ai_base_url.clone(),
             t!("settings-ai-base-url-default"),

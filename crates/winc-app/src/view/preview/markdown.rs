@@ -906,15 +906,20 @@ const TOC_X: f32 = 10.0;
 /// 随正文居中的位置移动。
 const TOC_GAP: f32 = 36.0;
 /// 指示条中一条的长度（逻辑像素）；当前所在的一节为 [`TOC_CURRENT`]。
-const TOC_DASH: f32 = 14.0;
+const TOC_DASH: f32 = 10.0;
 /// 指示条中当前所在一节那一条的长度（逻辑像素）：比其他各条长，一眼看出读到哪里。
-const TOC_CURRENT: f32 = 18.0;
-/// 画标题指示条所需的最小左侧留白（逻辑像素）：指示条右边与正文之间至少留 8。
-const TOC_ROOM: f32 = TOC_X + TOC_CURRENT + 8.0;
+const TOC_CURRENT: f32 = 14.0;
+/// 画标题指示条所需的最小左侧留白（逻辑像素）：指示条右边与正文之间至少留 20，
+/// 正文为指示条右移时两者也不显得相连。
+const TOC_ROOM: f32 = TOC_X + TOC_CURRENT + 20.0;
 /// 指示条中相邻两条的间距（逻辑像素）；标题过多时缩小，见 [`draw_toc`]。
 const TOC_STEP: f32 = 8.0;
 /// 指示条中一条的粗细（逻辑像素）；当前所在的一节再粗 1。
-const TOC_BAR: f32 = 2.0;
+const TOC_BAR: f32 = 1.5;
+/// 鼠标不在指示条上时，当前所在一节以外的各条的不透明度（0–1）。
+///
+/// 取自调参：指示条在正文旁不抢眼，仍看得出各节的位置；鼠标移入后过渡到 1。
+const TOC_REST: f32 = 0.5;
 /// 标题列表一行的高度（逻辑像素）：比文件树的行（`TREE_ROW`）紧凑，标题多时一屏列得下更多。
 const TOC_ROW: f32 = 20.0;
 /// 点过的标题在正文里铺的底色的圆角半径（逻辑像素）：底色与正文同宽，圆角取小，比列表行的
@@ -1123,8 +1128,19 @@ fn draw_toc(app: &mut App, frame: &mut Frame<'_>, area: Rect, pad: f32) {
         app.preview.markdown.toc_list = Default::default();
     }
     let bar_y = |i: usize| y0 + i as f32 * step + TOC_BAR / 2.0;
+    // 鼠标移入指示条时各条加深，提示可以展开标题列表；当前所在的一节始终用强调色。
+    let lit = match app.preview.markdown.toc_glow {
+        Some((true, clock)) => clock.progress(),
+        Some((false, clock)) => 1.0 - clock.progress(),
+        None => f32::from(u8::from(app.preview.markdown.toc_rest.is_some())),
+    };
+    let opacity = TOC_REST + (1.0 - TOC_REST) * lit;
     for i in (0..shown).filter(|_| !open) {
         let (color, thick) = toc_dash(p, i, current);
+        let color = match current == Some(i) {
+            true => color,
+            false => color.alpha(color.a * opacity),
+        };
         let len = if current == Some(i) {
             TOC_CURRENT
         } else {
