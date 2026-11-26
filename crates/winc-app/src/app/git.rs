@@ -16,6 +16,7 @@ pub(crate) mod form;
 pub(crate) mod location_picker;
 pub(crate) mod log;
 pub(crate) mod merge;
+pub(crate) mod panel;
 pub(crate) mod question;
 pub(crate) mod rebase;
 mod refresh;
@@ -263,6 +264,8 @@ pub(crate) struct GitState {
     pub context_row: commit::ContextRow,
     /// 日志标签的后台通道和点击区域。
     pub log: log::LogState,
+    /// 窗口底部的 Git 面板和其中的日志。
+    pub panel: panel::GitPanel,
     /// 逐行追溯（`git blame`）的状态。
     pub blame: blame::BlameState,
     /// 正在进行的分支操作。
@@ -352,6 +355,7 @@ impl Default for GitState {
             changes: Default::default(),
             context_row: Default::default(),
             log: Default::default(),
+            panel: Default::default(),
             blame: Default::default(),
             branch: Default::default(),
             merge: Default::default(),
@@ -641,7 +645,15 @@ impl App {
             Some(view) => view.root.as_deref(),
             None => doc.path.as_deref().and_then(Path::parent),
         };
-        let (Some(dir), Some(folder)) = (dir, self.editor.root()) else {
+        if let Some(dir) = dir.map(Path::to_path_buf) {
+            self.git_follow_dir(&dir);
+        }
+    }
+
+    /// 文档所在的目录 `dir` 在打开的目录（或附加的目录）中的仓库里时，把当前仓库换成它；提交
+    /// 视图开着、正在提交或有没写完的提交信息时不换，只把仓库加入列表。
+    pub(in crate::app) fn git_follow_dir(&mut self, dir: &Path) {
+        let Some(folder) = self.editor.root().filter(|_| self.git_enabled()) else {
             return;
         };
         // 打开的目录和附加的目录之外的文件不改变当前仓库。
@@ -1052,6 +1064,7 @@ impl App {
                     }
                     if moved {
                         self.reload_logs();
+                        self.git.commit.history.outdate();
                     }
                 }
                 Err(e) => {

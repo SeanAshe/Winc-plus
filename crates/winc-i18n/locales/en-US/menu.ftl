@@ -188,6 +188,7 @@ menu-log-compare-with-local = Compare with Local
 menu-log-copy-message = Copy Commit Message
 menu-log-compare-revision = Compare with Revision…
 menu-log-go-to = Go to Hash, Branch or Tag…
+menu-log-show-in-log = Show in Log
 menu-log-all-branches = All Branches
 menu-log-all-dates = All Dates
 menu-log-all-paths = All Paths

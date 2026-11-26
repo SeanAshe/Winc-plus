@@ -12,6 +12,7 @@ impl App {
     /// 读取状态，不读取分支、储藏，也不访问远程仓库。
     pub(in crate::app) fn git_status_tick(&mut self, now: Instant) -> Option<Instant> {
         let visible = self.commit_shown()
+            || self.git_panel_shown()
             || self
                 .editor
                 .active()

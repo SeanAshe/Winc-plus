@@ -23,7 +23,7 @@ impl App {
             }
             return;
         }
-        let Some(view) = self.editor.active().and_then(|d| d.log.as_deref()) else {
+        let Some(view) = self.log_view() else {
             return;
         };
         let count = view.commits.len();
@@ -94,8 +94,8 @@ impl App {
 
     /// 焦点在日志的提交列表上：不在详情的文件列表里，也没有在比较两个提交。
     pub(in crate::app) fn log_list_focused(&self) -> bool {
-        let view = self.editor.active().and_then(|d| d.log.as_deref());
-        self.focus == Focus::Editor
+        let view = self.log_view();
+        self.focus == self.log_focus()
             && self.git.log.file.is_none()
             && view.is_some_and(|v| v.compare.is_none())
     }
@@ -105,7 +105,7 @@ impl App {
     /// 合并提交转到第一个父提交。子提交有几个时，先取以它为第一个父提交的（同一条线上的），
     /// 再取列表里离它最近的。
     pub(in crate::app) fn go_to_log_relative(&mut self, parent: bool) {
-        let Some(view) = self.editor.active().and_then(|d| d.log.as_deref()) else {
+        let Some(view) = self.log_view() else {
             return;
         };
         let Some(at) = view.selected else {
@@ -147,7 +147,7 @@ impl App {
         let visible = ((self.log_parts().list.h - self.log_list_top()) / self.fonts.line_height)
             .floor()
             .max(1.0) as f64;
-        let Some((from, shown)) = self.editor.active().and_then(|d| {
+        let Some((from, shown)) = self.log_doc().and_then(|d| {
             let view = d.log.as_deref()?;
             let r = row as f64;
             let shown = r >= d.scroll_line && r + 1.0 <= d.scroll_line + visible;
@@ -157,8 +157,7 @@ impl App {
         };
         self.select_log_row(row);
         let to = self
-            .editor
-            .active()
+            .log_doc()
             .and_then(|d| d.log.as_deref()?.selected_oid().map(str::to_owned));
         if let Some(from) = from
             && to.as_deref() != Some(from.as_str())
@@ -169,9 +168,9 @@ impl App {
             }
             self.git.log.forward.clear();
         }
-        if !shown && let Some(doc) = self.editor.active_mut() {
+        if !shown && let Some(doc) = self.log_doc_mut() {
             set_scroll_line(doc, (row as f64 - (visible / 3.0).floor()).max(0.0));
-            self.clamp_scroll();
+            self.clamp_log_scroll();
         }
         self.request_redraw();
     }
@@ -181,7 +180,7 @@ impl App {
     /// 日志标签不是当前标签，或者没有可用的历史时返回 `false`，由编辑区处理后退、前进。
     /// 历史中的提交已不在列表中时（更换了筛选或刷新后消失）跳过该提交。
     pub(in crate::app) fn log_navigate(&mut self, forward: bool) -> bool {
-        if !self.log_active() {
+        if !self.log_focused() {
             return false;
         }
         loop {
@@ -193,7 +192,7 @@ impl App {
             let Some(oid) = popped else {
                 return false;
             };
-            let Some((row, current)) = self.editor.active().and_then(|d| {
+            let Some((row, current)) = self.log_doc().and_then(|d| {
                 let view = d.log.as_deref()?;
                 let row = view.commits.iter().position(|c| c.oid == oid)?;
                 Some((row, view.selected_oid().map(str::to_owned)))
@@ -208,7 +207,7 @@ impl App {
                 }
             }
             self.clear_log_compare();
-            self.focus = Focus::Editor;
+            self.focus = self.log_focus();
             self.select_log_row(row);
             return true;
         }

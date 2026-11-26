@@ -275,10 +275,13 @@ pub struct CommitActions {
     pub parent: bool,
     /// 提交视图里有可以提交的更改：可以修正、压缩到这个提交。
     pub changes: bool,
+    /// 菜单在日志中弹出；否则在提交历史中弹出，没有比较、转到等依赖日志的项，
+    /// 改为第一项「在日志中显示」。
+    pub in_log: bool,
 }
 
-/// 日志里一个提交的右键菜单，分组和顺序：复制与拣选；签出与比较；重置、还原与撤销；改写历史与推送；
-/// 指向这个提交的各分支、标签的子菜单，新建分支、标签；转到。
+/// 日志或提交历史里一个提交的右键菜单（见 [`CommitActions::in_log`]），分组和顺序：复制与拣选；
+/// 签出与比较；重置、还原与撤销；改写历史与推送；各分支、标签的子菜单，新建分支、标签；转到。
 ///
 /// `actions` 说明哪些操作可用，`branch` 是当前分支名（分离的 `HEAD` 时为「HEAD」），写进重置子菜单
 /// 的标题；`branches` 是指向这个提交的分支及其操作（见 [`crate::app::git::branch::branch_ops`]）。
@@ -299,7 +302,11 @@ pub fn log_commit_menu(
         actions.on_head != Some(false),
         actions.on_head != Some(true),
     );
-    let mut menu = vec![
+    let mut menu = Vec::new();
+    if !actions.in_log {
+        menu.extend([Item(LogShowInLog, true), Separator]);
+    }
+    menu.extend([
         Item(LogCopyOid, true),
         Item(LogCopyShortOid, true),
         Item(LogCopyMessage, true),
@@ -308,7 +315,11 @@ pub fn log_commit_menu(
         Separator,
         Item(LogCheckout, enabled),
         Item(LogNewWorktree, enabled),
-        Item(LogCompareRevision, true),
+    ]);
+    if actions.in_log {
+        menu.push(Item(LogCompareRevision, true));
+    }
+    menu.extend([
         Separator,
         Submenu(
             t!("menu-log-reset-branch", branch = branch),
@@ -329,7 +340,7 @@ pub fn log_commit_menu(
         Item(LogInteractiveRebase, enabled && history),
         Item(LogPushUpTo, enabled && history && actions.push),
         Separator,
-    ];
+    ]);
     // 提交上的分支、标签：每个一个子菜单，多了收进一个子菜单。
     let branch_title = |name: &str| t!("menu-log-branch", name = name);
     let group = t!("menu-log-branches");
@@ -347,14 +358,15 @@ pub fn log_commit_menu(
         tag_title,
         t!("menu-log-tags"),
     ));
-    menu.extend([
-        Item(LogNewBranch, enabled),
-        Item(LogNewTag, enabled),
-        Separator,
-        Item(LogGoTo, true),
-        Item(LogGoToChild, actions.child),
-        Item(LogGoToParent, actions.parent),
-    ]);
+    menu.extend([Item(LogNewBranch, enabled), Item(LogNewTag, enabled)]);
+    if actions.in_log {
+        menu.extend([
+            Separator,
+            Item(LogGoTo, true),
+            Item(LogGoToChild, actions.child),
+            Item(LogGoToParent, actions.parent),
+        ]);
+    }
     menu
 }
 

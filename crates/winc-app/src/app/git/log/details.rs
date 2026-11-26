@@ -339,7 +339,7 @@ impl App {
     /// 在详情里按下鼠标（没按在可以点的东西上）：按在字上开始选字，`count` 为 2（双击）时选中
     /// 这一整行；按在空白处清掉选中。
     pub(in crate::app) fn press_log_text(&mut self, x: f32, y: f32, count: u8) -> bool {
-        self.focus = Focus::Editor;
+        self.focus = self.log_focus();
         let Some(at) = self.log_text_at(x, y, false) else {
             self.git.log.text_sel = None;
             self.request_redraw();
@@ -377,7 +377,7 @@ impl App {
     /// 线从第 `row` 行自己的圆点出去时不算这一行。
     /// 还没取回来时为 `None`。
     pub(crate) fn log_line_target(&self, row: usize, line: u32) -> Option<usize> {
-        let view = self.editor.active()?.log.as_deref()?;
+        let view = self.log_view()?;
         view.graph
             .iter()
             .enumerate()
@@ -394,7 +394,7 @@ impl App {
 
     /// 详情（或比较）里第 `i` 个改动的文件。
     pub(crate) fn log_file(&self, i: usize) -> Option<&CommitFile> {
-        let view = self.editor.active()?.log.as_deref()?;
+        let view = self.log_view()?;
         if let Some(compare) = &view.compare {
             return compare.files.as_ref()?.get(i);
         }
@@ -427,7 +427,7 @@ impl App {
             return None;
         };
         let path = self.log_file(i)?.path.clone();
-        self.focus = Focus::Editor;
+        self.focus = self.log_focus();
         self.git.log.file = Some(i);
         Some((i, path))
     }
@@ -464,7 +464,7 @@ impl App {
 
     /// 详情里列着的改动的文件（比较两个版本时是两者之间的）；还没取回来时为 `None`。
     fn log_shown_files(&self) -> Option<&[CommitFile]> {
-        let view = self.editor.active().and_then(|d| d.log.as_deref())?;
+        let view = self.log_view()?;
         if let Some(compare) = &view.compare {
             return compare.files.as_deref();
         }
@@ -525,7 +525,7 @@ impl App {
     /// 详情里的文件属于哪组（选中的提交或比较的两个版本），以及怎么排：文件历史查看的文件
     /// 排在最前（比较两个版本时没有）。
     fn log_details_shape(&self) -> (String, RowsShape) {
-        let view = self.editor.active().and_then(|d| d.log.as_deref());
+        let view = self.log_view();
         let pinned = view.is_some_and(|v| v.query.path.is_some() && v.compare.is_none());
         let id = view.map_or_else(String::new, |v| match &v.compare {
             Some(c) => format!("{}..{}", c.from, c.to),
@@ -623,7 +623,7 @@ impl App {
         }) else {
             return;
         };
-        let Some(view) = self.editor.active_mut().and_then(|d| d.log.as_deref_mut()) else {
+        let Some(view) = self.log_view_mut() else {
             return;
         };
         if top < area.y {
@@ -636,8 +636,7 @@ impl App {
     /// 双击了第 `row` 个提交：打开它改动的第一个文件；文件还没取回来就等取回来再开。
     pub(in crate::app) fn open_log_row_first_file(&mut self, row: usize) {
         let Some(oid) = self
-            .editor
-            .active()
+            .log_doc()
             .and_then(|d| d.log.as_deref()?.commits.get(row).map(|c| c.oid.clone()))
         else {
             return;

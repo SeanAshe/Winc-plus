@@ -45,6 +45,8 @@ pub struct Hits {
     pub(crate) outline: Vec<(Rect, OutlineTarget)>,
     /// 可点击的区域，绘制时更新。
     pub(crate) log: Vec<(Rect, crate::app::git::log::LogTarget)>,
+    /// Git 面板标题行中可点击的区域（日志的标签和按钮），绘制时更新。
+    pub(crate) git_panel: Vec<(Rect, crate::app::git::panel::PanelHit)>,
     /// 可点击的区域，绘制时更新。
     pub(crate) merge: Vec<(Rect, crate::app::git::merge::MergeTarget)>,
     /// 右上角的卡片；没有时为 `None`。
@@ -148,6 +150,7 @@ impl Hits {
             tabs,
             outline,
             log,
+            git_panel,
             merge,
             merge_card,
             terminal,
@@ -203,6 +206,7 @@ impl Hits {
         tabs.clear();
         outline.clear();
         log.clear();
+        git_panel.clear();
         merge.clear();
         *merge_card = None;
         terminal.clear();

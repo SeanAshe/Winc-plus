@@ -60,23 +60,30 @@ pub(super) fn draw_stashes(
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64);
-    let viewing = (app.git.commit.stash_view.as_ref())
-        .filter(|_| app.editor.active().map(|d| d.id) == app.git.commit.stash_preview)
-        .map(|view| view.oid.as_str());
-    let listed = app.listed_stash_view();
+    let viewing = app.viewed_peek();
+    let listed = app.listed_peek();
     for (n, line) in app.stash_lines().into_iter().enumerate() {
         let row = band(n + 1);
         let i = match line {
             StashLine::Stash(i) => i,
             StashLine::File(at) => {
                 if let Some(view) = listed {
-                    draw_stash_file(app, frame, row, view, at, clip);
+                    let hovered = app.pointer.hover == Hover::Commit(CommitTarget::StashFile(at));
+                    draw_peek_file(
+                        app,
+                        frame,
+                        (row, row.x + STASH_FILE),
+                        view,
+                        at,
+                        hovered,
+                        clip,
+                    );
                     hits.push((row, CommitTarget::StashFile(at)));
                 }
                 continue;
             }
             StashLine::MoreFiles(count) => {
-                let text = t!("git-stash-more-files", count = count);
+                let text = t!("git-peek-more-files", count = count);
                 let x = row.x + STASH_FILE;
                 ui_text_small(frame, app, x, row, &text, p.text_dim, clip);
                 continue;
@@ -149,21 +156,21 @@ pub(super) fn draw_stashes(
     }
 }
 
-/// 绘制正在查看的储藏下面的一个文件：比储藏名再缩进一级，依次是文件图标、文件名、淡色的所在
-/// 目录，右端是状态字母；正在查看的文件铺选中的底色。
-pub(super) fn draw_stash_file(
+/// 绘制正在查看的储藏或提交下面的一个文件：从 `x` 起依次是文件图标、文件名、淡色的所在目录，
+/// 右端是状态字母；正在查看的文件铺选中的底色。
+pub(super) fn draw_peek_file(
     app: &App,
     frame: &mut Frame<'_>,
-    row: Rect,
-    view: &StashView,
+    (row, x): (Rect, f32),
+    view: &PeekView,
     at: usize,
+    hovered: bool,
     clip: Rect,
 ) {
     let p = app.palette;
     let Some((file, ..)) = view.files.get(at) else {
         return;
     };
-    let hovered = app.pointer.hover == Hover::Commit(CommitTarget::StashFile(at));
     let shade = Rect::new(row.x, row.y + 1.0, row.w, row.h - 2.0);
     if let Some(color) = row_color(p, at == view.at, false, hovered) {
         frame.rect_clipped(shade, color, RADIUS_ROW, clip);
@@ -171,7 +178,6 @@ pub(super) fn draw_stash_file(
     let size = app.fonts.ui_small;
     let cy = row.y + row.h / 2.0;
     let name = winc_editor::display_name(&file.path).into_owned();
-    let x = row.x + STASH_FILE;
     draw_file_icon(frame, p, (x, cy), &name, clip);
     let letter = file.change.letter().to_string();
     let letter_w = frame.measure(FontKind::Ui, size, &letter);

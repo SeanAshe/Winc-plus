@@ -396,6 +396,8 @@ impl App {
         self.panels.global.selected = None;
         self.panels.global.due = None;
         self.panels.global.rebuild_rows();
+        // Git 面板中的日志属于旧目录，与编辑区的标签一同关闭。
+        self.close_panel_logs();
         // 提交视图的滚动位置、选中的文件、收起的目录是旧仓库的。
         self.git.commit.scroll = 0.0;
         self.git.commit.clear_selection();

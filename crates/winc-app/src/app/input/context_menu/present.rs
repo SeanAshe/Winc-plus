@@ -125,6 +125,21 @@ impl App {
             return;
         }
 
+        // Git 面板最大化时盖在侧栏、编辑区和终端上面：面板中只有日志的菜单。
+        if self.in_git_panel(x, y) {
+            let target = if let Some((i, path)) = self.log_file_context_target(x, y) {
+                MenuTarget::LogFile(i, path)
+            } else if let Some(index) = self.log_branch_context_target(x, y) {
+                MenuTarget::BranchOps(index)
+            } else if let Some(oid) = self.log_context_target(x, y) {
+                MenuTarget::LogCommit(oid)
+            } else {
+                return;
+            };
+            self.open_context_menu(target, (x, y));
+            return;
+        }
+
         let tab = self
             .tab_at(x, y)
             .and_then(|(index, _)| self.editor.tabs().get(index));
@@ -154,6 +169,8 @@ impl App {
             MenuTarget::SearchResult(path, m)
         } else if let Some(i) = self.stash_context_target(x, y) {
             MenuTarget::StashRow(i)
+        } else if let Some(oid) = self.history_context_target(x, y) {
+            MenuTarget::HistoryCommit(oid)
         } else if let Some(path) = self.commit_context_target(x, y) {
             MenuTarget::CommitFile(path)
         } else if self.in_commit_overflow(x, y) {
@@ -371,6 +388,9 @@ impl App {
             MenuTarget::OpenWorktree => open_worktree_menu(),
             MenuTarget::PullMode => (0..winc_config::PullMode::ALL.len())
                 .map(|i| MenuEntry::Item(MenuCommand::PullMode(i), true))
+                .collect(),
+            MenuTarget::LogPlacement => (0..winc_config::LogPlacement::ALL.len())
+                .map(|i| MenuEntry::Item(MenuCommand::LogPlacement(i), true))
                 .collect(),
             MenuTarget::SearchStyle => (0..winc_config::SearchStyle::ALL.len())
                 .map(|i| MenuEntry::Item(MenuCommand::SearchStyle(i), true))
@@ -820,16 +840,17 @@ impl App {
             MenuTarget::LogFile(_, path) => {
                 log_file_menu(self.may_exist(path), self.relative_path(path).is_some())
             }
-            MenuTarget::LogCommit(oid) => {
-                let commit = self.log_commit(oid);
+            MenuTarget::LogCommit(oid) | MenuTarget::HistoryCommit(oid) => {
+                let in_log = matches!(target, MenuTarget::LogCommit(_));
+                let commit = self.log_commit(oid, in_log);
                 let tags: Vec<&str> = (commit.iter().flat_map(|c| &c.refs))
                     .filter_map(crate::app::git::log::menus::tag_name)
                     .collect();
                 // 指向这个提交的分支，各自的操作与分支面板中相同；分支列表属于提交视图所在的
-                // 仓库，还没换过去（日志没有仓库）时不列出。
+                // 仓库，还没换过去（日志没有仓库）时不列出；提交历史就在该仓库中。
                 let (held, stale) = (self.git.held_branches(), self.git.stale_branches());
                 let all = &self.git.branches;
-                let same = self.active_log_root() == self.git.root.as_deref();
+                let same = !in_log || self.active_log_root() == self.git.root.as_deref();
                 let branches = (commit.iter().filter(|_| same).flat_map(|c| &c.refs))
                     .filter_map(|r| match r {
                         Ref::Head(name) | Ref::Branch(name) => {
@@ -845,7 +866,7 @@ impl App {
                         (all[i].name.clone(), ops)
                     })
                     .collect();
-                let actions = self.log_commit_actions(oid);
+                let actions = self.log_commit_actions(oid, in_log);
                 log_commit_menu(actions, &self.current_branch_label(), branches, &tags)
             }
             MenuTarget::LogColumns => self.log_columns_menu(),
@@ -914,6 +935,7 @@ impl App {
                 | MenuTarget::VimKey(_)
                 | MenuTarget::OpenWorktree
                 | MenuTarget::PullMode
+                | MenuTarget::LogPlacement
                 | MenuTarget::DropFolder
                 | MenuTarget::SearchStyle
                 | MenuTarget::AutoSave
@@ -936,6 +958,7 @@ impl App {
             MenuTarget::VimKey(c) => Some(Setting::VimKey(c)),
             MenuTarget::OpenWorktree => Some(Setting::GitOpenWorktree),
             MenuTarget::PullMode => Some(Setting::GitPullMode),
+            MenuTarget::LogPlacement => Some(Setting::GitLogPlacement),
             MenuTarget::DropFolder => Some(Setting::DropFolder),
             MenuTarget::SearchStyle => Some(Setting::FindInFiles),
             MenuTarget::AutoSave => Some(Setting::AutoSave),
@@ -960,7 +983,9 @@ impl App {
             MenuTarget::BranchOps(_) | MenuTarget::CommitMore => {
                 (self.git.branches.clone(), self.git.stashes.clone())
             }
-            MenuTarget::LogCommit(_) => (self.git.branches.clone(), Vec::new()),
+            MenuTarget::LogCommit(_) | MenuTarget::HistoryCommit(_) => {
+                (self.git.branches.clone(), Vec::new())
+            }
             MenuTarget::StashRow(_) | MenuTarget::StashList => {
                 (Vec::new(), self.git.stashes.clone())
             }
@@ -1144,11 +1169,7 @@ impl App {
             return self.markdown_line_numbers_on();
         }
         // 日志的作者筛选：现在用着的那一项。
-        let query = self
-            .editor
-            .active()
-            .and_then(|d| d.log.as_deref())
-            .map(|v| &v.query);
+        let query = self.log_view().map(|v| &v.query);
         if let MenuCommand::FormBase(i) = command {
             return self.form_base_chosen(i);
         }
@@ -1244,6 +1265,10 @@ impl App {
             }
             MenuCommand::PullMode(i) => {
                 winc_config::PullMode::ALL.get(i) == Some(&self.config.git_pull.unwrap_or_default())
+            }
+            MenuCommand::LogPlacement(i) => {
+                let current = self.config.git_log_placement.unwrap_or_default();
+                winc_config::LogPlacement::ALL.get(i) == Some(&current)
             }
             MenuCommand::SearchStyle(i) => {
                 winc_config::SearchStyle::ALL.get(i) == Some(&self.search_style())

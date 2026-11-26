@@ -5,21 +5,17 @@ use super::*;
 impl App {
     /// 日志标签 `id` 所在仓库的根目录。
     pub(in crate::app) fn log_root(&self, id: DocumentId) -> Option<PathBuf> {
-        self.editor.document(id)?.log.as_deref()?.root.clone()
+        self.log_document(id)?.log.as_deref()?.root.clone()
     }
 
     /// 当前日志标签所在仓库的根目录。
     pub(crate) fn active_log_root(&self) -> Option<&Path> {
-        self.editor.active()?.log.as_deref()?.root.as_deref()
+        self.log_view()?.root.as_deref()
     }
 
     /// 是否有日志标签在仓库 `root` 里。
     pub(super) fn log_open_in(&self, root: &Path) -> bool {
-        let mut views = self
-            .editor
-            .documents
-            .iter()
-            .filter_map(|d| d.log.as_deref());
+        let mut views = self.log_documents().filter_map(|d| d.log.as_deref());
         views.any(|v| v.root.as_deref() == Some(root))
     }
 
@@ -27,7 +23,8 @@ impl App {
     /// 读到时，等读到以后按当前分支读取（见 [`Self::start_waiting_logs`]）。
     pub(in crate::app) fn retarget_logs(&mut self) {
         let root = self.git.root.clone();
-        let ids: Vec<DocumentId> = (self.editor.documents.iter())
+        let ids: Vec<DocumentId> = self
+            .log_documents()
             .filter(|d| {
                 (d.log.as_deref()).is_some_and(|v| v.query.path.is_none() && v.root != root)
             })
@@ -40,7 +37,7 @@ impl App {
         let branches = self.current_branches();
         for &id in &ids {
             self.git.log.restarted(id);
-            let Some(doc) = self.editor.document_mut(id) else {
+            let Some(doc) = self.log_document_mut(id) else {
                 continue;
             };
             set_scroll_line(doc, 0.0);
@@ -63,7 +60,7 @@ impl App {
         log.file = None;
         log.open_first = None;
         log.text_sel = None;
-        if self.editor.active().is_some_and(|d| ids.contains(&d.id)) {
+        if self.log_doc().is_some_and(|d| ids.contains(&d.id)) {
             self.git.log.filter.set_text("");
         }
         self.request_redraw();
@@ -76,18 +73,15 @@ impl App {
         }
         let root = self.git.root.clone();
         let branches = self.current_branches();
-        let ids: Vec<DocumentId> = (self.editor.documents.iter())
+        let ids: Vec<DocumentId> = self
+            .log_documents()
             .filter(|d| {
                 (d.log.as_deref()).is_some_and(|v| v.query.path.is_none() && v.root == root)
             })
             .map(|d| d.id)
             .collect();
         for id in ids {
-            if let Some(view) = self
-                .editor
-                .document_mut(id)
-                .and_then(|d| d.log.as_deref_mut())
-            {
+            if let Some(view) = self.log_document_mut(id).and_then(|d| d.log.as_deref_mut()) {
                 view.query.branches = branches.clone();
             }
             self.reload_log(id);

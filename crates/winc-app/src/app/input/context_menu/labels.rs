@@ -171,23 +171,25 @@ impl App {
         }
     }
 
-    /// 日志里提交菜单的文字：有本地分支指着这个提交时「签出「dev」」；拣选写明拣到哪个分支。
+    /// 日志或提交历史里提交菜单的文字：有本地分支指向该提交时「签出「dev」」；拣选写明拣到
+    /// 哪个分支。
     fn log_commit_label(&self, command: MenuCommand) -> MenuLabel {
-        let Some(ContextMenu {
-            target: MenuTarget::LogCommit(oid),
-            ..
-        }) = &self.overlays.context_menu
-        else {
+        let Some(ContextMenu { target, .. }) = &self.overlays.context_menu else {
             return MenuLabel::plain(command.label());
         };
+        let (oid, in_log) = match target {
+            MenuTarget::LogCommit(oid) => (oid, true),
+            MenuTarget::HistoryCommit(oid) => (oid, false),
+            _ => return MenuLabel::plain(command.label()),
+        };
         match command {
-            MenuCommand::LogCheckout => match self.log_checkout_branch(oid) {
+            MenuCommand::LogCheckout => match self.log_checkout_branch(oid, in_log) {
                 Some(branch) => MenuLabel::plain(&t!("menu-log-checkout-branch", branch = branch)),
                 None => MenuLabel::plain(command.label()),
             },
             // 有能签出的本地分支指着它时签出那个分支，否则游离地签出提交；建在哪里写在悬停提示里。
             MenuCommand::LogNewWorktree => {
-                let branch = self.log_checkout_branch(oid);
+                let branch = self.log_checkout_branch(oid, in_log);
                 let branch = branch.and_then(|b| self.log_worktree_branch(&b));
                 let (title, dir) = match branch {
                     Some(b) => (t!("menu-log-new-worktree-branch", branch = &b.name), b.name),

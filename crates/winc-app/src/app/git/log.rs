@@ -683,24 +683,26 @@ impl Default for LogState {
 }
 
 impl App {
-    /// 打开日志标签（命令「Git：显示日志」）；已打开时切换到该标签。
+    /// 打开日志（命令「Git：显示日志」）：在 Git 面板或编辑区的标签中，见
+    /// [`App::open_log_document`]；已打开时切换到它。
     pub(in crate::app) fn git_show_log(&mut self) {
         if self.git.root.is_none() {
             self.flash(t!("git-not-a-repository"));
             return;
         }
-        let (index, new) = self.editor.show_log(log_title());
-        let id = self.editor.documents[index].id;
+        let (id, new) = self.open_log_document(log_title());
         if new {
             // 新打开的日志默认只显示当前分支的提交；分离 `HEAD` 时显示全部分支。
             let (root, branches) = (self.git.root.clone(), self.current_branches());
-            if let Some(view) = self.editor.documents[index].log.as_deref_mut() {
+            if let Some(view) = self.log_document_mut(id).and_then(|d| d.log.as_deref_mut()) {
                 view.restart(root, branches);
             }
             self.load_log(id);
         }
-        self.focus = Focus::Editor;
+        self.sync_log_filter();
+        self.focus = self.log_focus();
         self.relayout();
+        self.leave_unshown_panel();
         self.request_redraw();
     }
 
@@ -708,7 +710,7 @@ impl App {
     ///
     /// 该提交尚未读取时（被筛选掉或位于后续批次），清除筛选并从头读取，逐批读取直至读到该提交
     /// 后选中（见 `LogState::seek`）。
-    pub(super) fn git_show_log_at(&mut self, oid: &str) {
+    pub(in crate::app) fn git_show_log_at(&mut self, oid: &str) {
         self.show_log_commit(oid, false);
     }
 
@@ -721,20 +723,18 @@ impl App {
         if self.git.root.is_none() {
             return;
         }
-        let (index, new) = self.editor.show_log(log_title());
-        let id = self.editor.documents[index].id;
-        self.focus = Focus::Editor;
+        let (id, new) = self.open_log_document(log_title());
+        self.focus = self.log_focus();
         self.clear_log_compare();
-        let row = self.editor.documents[index]
-            .log
-            .as_deref()
+        let row = (self.log_document(id))
+            .and_then(|d| d.log.as_deref())
             .filter(|view| !view.stale)
             .and_then(|v| v.commits.iter().position(|c| c.oid == oid));
         match row {
             Some(row) if !new => self.select_log_row(row),
             _ => {
                 let root = self.git.root.clone();
-                if let Some(view) = self.editor.documents[index].log.as_deref_mut() {
+                if let Some(view) = self.log_document_mut(id).and_then(|d| d.log.as_deref_mut()) {
                     view.root = root;
                     view.query = LogQuery {
                         pin: pin.then(|| oid.to_owned()),
@@ -749,7 +749,9 @@ impl App {
                 }
                 self.git.log.filter.set_text("");
                 self.git.log.seek = Some((id, oid.to_owned()));
-                set_scroll_line(&mut self.editor.documents[index], 0.0);
+                if let Some(doc) = self.log_document_mut(id) {
+                    set_scroll_line(doc, 0.0);
+                }
                 self.load_log(id);
             }
         }
@@ -789,9 +791,12 @@ impl App {
         });
     }
 
-    /// 当前标签是否为日志。
+    /// 是否显示着日志：面板模式下 Git 面板显示着，编辑区模式下当前标签是日志。
     pub(crate) fn log_active(&self) -> bool {
-        self.editor.active().is_some_and(|d| d.log.is_some())
+        match self.git.panel.docked {
+            true => self.git_panel_shown(),
+            false => self.log_doc().is_some(),
+        }
     }
 
     /// 在后台读取文档 `id` 的下一批提交。
@@ -802,8 +807,9 @@ impl App {
             return;
         };
         let Some(view) = self
-            .editor
-            .document_mut(id)
+            .git
+            .panel
+            .doc_mut(&mut self.editor, id)
             .and_then(|d| d.log.as_deref_mut())
         else {
             return;
@@ -859,11 +865,7 @@ impl App {
 
     /// 从头重新读取文档 `id` 的日志（`HEAD` 变化或点击「刷新」时）。
     pub(crate) fn reload_log(&mut self, id: DocumentId) {
-        if let Some(view) = self
-            .editor
-            .document_mut(id)
-            .and_then(|d| d.log.as_deref_mut())
-        {
+        if let Some(view) = self.log_document_mut(id).and_then(|d| d.log.as_deref_mut()) {
             view.reset();
             self.load_log(id);
         }
@@ -873,9 +875,7 @@ impl App {
     pub(super) fn reload_logs(&mut self) {
         let root = self.git.root.clone();
         let ids: Vec<DocumentId> = self
-            .editor
-            .documents
-            .iter()
+            .log_documents()
             .filter(|d| d.log.as_deref().is_some_and(|v| v.root == root))
             .map(|d| d.id)
             .collect();
@@ -887,8 +887,7 @@ impl App {
     /// 绘制时可见区域接近已读取的最后一个提交时，继续读取下一批。
     pub(crate) fn log_near_end(&mut self, id: DocumentId, last_visible: usize) {
         let near = self
-            .editor
-            .document(id)
+            .log_document(id)
             .and_then(|d| d.log.as_deref())
             .is_some_and(|v| !v.complete && !v.stale && last_visible + PREFETCH >= v.commits.len());
         if near {
@@ -912,8 +911,7 @@ impl App {
     /// 距离为 [`LOG_LIST_PAD`]，显示「未提交的更改」一行时再加一行的高度。
     pub(crate) fn log_list_top(&self) -> f32 {
         let extra = self
-            .editor
-            .active()
+            .log_doc()
             .and_then(|d| d.log.as_deref())
             .is_some_and(|v| self.log_uncommitted(v) > 0);
         LOG_LIST_PAD + if extra { self.fonts.line_height } else { 0.0 }
@@ -924,7 +922,7 @@ impl App {
         let visible = ((self.log_parts().list.h - self.log_list_top()) / self.fonts.line_height)
             .floor()
             .max(1.0) as f64;
-        let Some(doc) = self.editor.active_mut() else {
+        let Some(doc) = self.git.panel.shown_mut(&mut self.editor) else {
             return;
         };
         let id = doc.id;
@@ -967,14 +965,14 @@ impl App {
         self.schedule_log_branches(id);
         // 使选中行可见：位于屏幕外时滚动到距顶部三行处，紧邻边缘时滚动一行。
         let row = row as f64;
-        if let Some(doc) = self.editor.active_mut() {
+        if let Some(doc) = self.log_doc_mut() {
             if row < doc.scroll_line {
                 set_scroll_line(doc, row);
             } else if row + 1.0 > doc.scroll_line + visible {
                 set_scroll_line(doc, row + 1.0 - visible);
             }
         }
-        self.clamp_scroll();
+        self.clamp_log_scroll();
         self.request_redraw();
     }
 
@@ -982,7 +980,7 @@ impl App {
     ///
     /// 键盘上下移动到这些提交时详情即可立即显示，不会先出现空白。
     fn prefetch_log_neighbours(&mut self, id: DocumentId, row: usize) {
-        let Some(view) = self.editor.document(id).and_then(|d| d.log.as_deref()) else {
+        let Some(view) = self.log_document(id).and_then(|d| d.log.as_deref()) else {
             return;
         };
         let wanted: Vec<(String, Option<String>)> = [row.checked_sub(1), Some(row + 1)]
@@ -1005,7 +1003,7 @@ impl App {
             return;
         }
         // 按路径筛选时列表上的父提交是改写过的：改动的文件要和真正的第一个父提交比。
-        let view = self.editor.document(id).and_then(|d| d.log.as_deref());
+        let view = self.log_document(id).and_then(|d| d.log.as_deref());
         let rewritten = view.is_some_and(|v| v.query.rewrites_parents());
         let sender = self.git.log.results.0.clone();
         self.spawn_git(UserEvent::GitLog, move |tool| {
@@ -1041,12 +1039,9 @@ impl App {
         match target {
             LogTarget::Uncommitted => self.show_commit(),
             LogTarget::Row(row) | LogTarget::Avatar(row) => {
-                self.focus = Focus::Editor;
+                self.focus = self.log_focus();
                 // `⌘` 点击另一个提交时，比较选中的提交与被点击的提交。
-                let selected = self
-                    .editor
-                    .active()
-                    .and_then(|d| d.log.as_deref()?.selected);
+                let selected = self.log_doc().and_then(|d| d.log.as_deref()?.selected);
                 match selected {
                     Some(at) if self.command_held() && at != row => {
                         self.compare_log_rows(at, row);
@@ -1061,7 +1056,7 @@ impl App {
             // 拖动由 `mouse.rs` 开始处理。
             LogTarget::Divider | LogTarget::BranchesEdge => {}
             LogTarget::Line(row, line) => {
-                self.focus = Focus::Editor;
+                self.focus = self.log_focus();
                 match self.log_line_target(row, line) {
                     Some(target) => {
                         self.clear_log_compare();
@@ -1071,7 +1066,7 @@ impl App {
                 }
             }
             LogTarget::Parent(i) => {
-                let row = self.editor.active().and_then(|d| {
+                let row = self.log_doc().and_then(|d| {
                     let view = d.log.as_deref()?;
                     let parent = view.commits.get(view.selected?)?.parents.get(i)?;
                     view.commits.iter().position(|c| &c.oid == parent)
@@ -1083,8 +1078,7 @@ impl App {
             }
             LogTarget::CopyOid => {
                 let oid = self
-                    .editor
-                    .active()
+                    .log_doc()
                     .and_then(|d| d.log.as_deref()?.selected_oid().map(str::to_owned));
                 if let Some(oid) = oid {
                     self.flash(t!("git-log-copied-oid", commit = short(&oid)));
@@ -1092,7 +1086,7 @@ impl App {
                 }
             }
             LogTarget::Refresh => {
-                if let Some(id) = self.editor.active().map(|d| d.id) {
+                if let Some(id) = self.log_doc().map(|d| d.id) {
                     self.git.log.refreshing = Some(id);
                     self.reload_log(id);
                 }
@@ -1116,7 +1110,7 @@ impl App {
                     return;
                 };
                 self.git.log.authors = self.log_authors();
-                self.git.log.authors_of = self.editor.active().map(|d| d.id);
+                self.git.log.authors_of = self.log_doc().map(|d| d.id);
                 self.open_context_menu(MenuTarget::LogAuthor, (rect.x, rect.bottom() + 4.0));
             }
             LogTarget::FilesLayout => self.toggle_log_details_layout(),
@@ -1168,7 +1162,7 @@ impl App {
 
     /// 打开选中提交中第 `i` 个改动文件的差异：左侧为第一个父提交中的版本，右侧为该提交中的版本。
     fn open_log_file(&mut self, i: usize) {
-        if let Some(log) = self.editor.active().filter(|d| d.log.is_some()) {
+        if let Some(log) = self.log_doc().filter(|d| d.log.is_some()) {
             self.open_log_file_of(log.id, i);
         }
     }
@@ -1179,7 +1173,7 @@ impl App {
             return;
         };
         // 比较两个版本时左侧为旧版本、右侧为新版本；否则左侧为第一个父提交（根提交没有父提交）。
-        let Some(source) = self.editor.document(log).and_then(|d| {
+        let Some(source) = self.log_document(log).and_then(|d| {
             let view = d.log.as_deref()?;
             if let Some(compare) = &view.compare {
                 return Some(LogDiffSource {
@@ -1256,6 +1250,7 @@ impl App {
         &self,
         forward: bool,
     ) -> Option<(usize, usize, String, usize)> {
+        // 当前标签是从日志打开的差异。
         let id = self.editor.active()?.id;
         let tree = self
             .git
@@ -1292,7 +1287,7 @@ impl App {
     /// 返回当前日志标签的几何。
     pub(crate) fn log_parts(&self) -> LogParts {
         log_parts(
-            self.layout.editor,
+            self.log_area(),
             self.git.log.details_w,
             (self.git.log.branches_w, self.log_branches_shown()),
         )

@@ -46,8 +46,9 @@ pub(crate) use git::branch::picker::{GitAnchor, PickerPart};
 pub(crate) use git::changes::{ChangeTarget, MARK_W, mark_x, ruler_rows};
 pub(crate) use git::commit::{
     ActionStrip, COMMIT_ROW, CommitGroup, CommitLabels, CommitName, CommitOverflow, CommitParts,
-    CommitRow, CommitRows, CommitScope, CommitSort, CommitTarget, DRAWER_TOP, MESSAGE_LINE,
-    MESSAGE_PAD, OtherGroup, OtherRow, StashLine, StashView, SyncState, WorktreeLine,
+    CommitRow, CommitRows, CommitScope, CommitSort, CommitTarget, DRAWER_TOP, HistoryLine,
+    HistoryTarget, MESSAGE_LINE, MESSAGE_PAD, OtherGroup, OtherRow, PeekView, StashLine, SyncState,
+    WorktreeLine,
 };
 pub(crate) use input::context_menu::{
     CHECK_COLUMN, ICON_COLUMN, MenuIcon, POPUP_PAD, POPUP_TEXT_X, PopupLevel, PopupMenu, PopupRow,
@@ -477,6 +478,8 @@ pub enum Focus {
     Outline,
     /// 日志标签标题栏的筛选输入框。
     LogFilter,
+    /// Git 面板中的日志（面板模式下日志获得焦点时）。
+    GitPanel,
     /// 功能对话框（新建工作树）里的输入框。
     Dialog,
 }
@@ -572,6 +575,8 @@ pub enum Hover {
     Splitter,
     /// 编辑区和终端面板之间的间距（拖动可调整面板大小）。
     TerminalDivider,
+    /// Git 面板中可点击的位置：标题行的标签和按钮、上沿的间距。
+    GitPanel(git::panel::PanelHit),
     /// 文件视图中大纲标题行的上沿（上下拖动可调整大纲的高度）。
     OutlineDivider,
     /// 分栏预览中间的分隔线（左右拖动可调整两侧的宽度）。
@@ -657,8 +662,19 @@ impl Hover {
                         | terminal::HeaderHit::Hide
                         | terminal::HeaderHit::Run(_),
                 )
-                | Hover::Status(StatusItem::Terminal | StatusItem::Remote | StatusItem::Settings)
+                | Hover::Status(
+                    StatusItem::Terminal
+                        | StatusItem::GitPanel
+                        | StatusItem::Remote
+                        | StatusItem::Settings
+                )
                 | Hover::TreeMore
+                | Hover::GitPanel(
+                    git::panel::PanelHit::ToEditor
+                        | git::panel::PanelHit::ToPanel
+                        | git::panel::PanelHit::Maximize
+                        | git::panel::PanelHit::Hide
+                )
                 | Hover::SidebarButton
                 | Hover::Tab(..)
                 | Hover::TabList
@@ -712,6 +728,7 @@ impl Hover {
                 )
                 | Hover::Commit(
                     CommitTarget::Log
+                        | CommitTarget::History(HistoryTarget::Log | HistoryTarget::Commit(_))
                         | CommitTarget::Sync
                         | CommitTarget::Location
                         | CommitTarget::WorktreeNew
@@ -835,6 +852,11 @@ enum Drag {
     ///
     /// 面板位于下方时为纵坐标和高度，位于右侧时为横坐标和宽度。
     TerminalDivider {
+        start: f32,
+        size: f32,
+    },
+    /// 拖动 Git 面板的上沿：按下时的纵坐标、面板当时的高度（逻辑像素）。
+    GitPanelDivider {
         start: f32,
         size: f32,
     },

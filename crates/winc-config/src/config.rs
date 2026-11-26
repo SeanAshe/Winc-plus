@@ -275,6 +275,8 @@ pub struct Config {
     pub system_proxy: Option<bool>,
     /// 是否在光标所在行的末尾淡淡地显示最后修改这一行的作者、时间和提交说明，默认为是。
     pub git_inline_blame: Option<bool>,
+    /// 是否在提交视图的更改下方列出最近的提交和提交图，默认为否。
+    pub git_commit_history: Option<bool>,
     /// 是否定时在后台获取远程仓库的更新，默认为否：获取会连接远程，需要认证的远程可能每次都
     /// 要求操作。
     pub git_auto_fetch: Option<bool>,
@@ -299,6 +301,8 @@ pub struct Config {
     pub git_open_worktree: Option<WorktreeOpen>,
     /// 拉取、同步时怎样并入上游的提交，默认按 Git 的配置。
     pub git_pull: Option<PullMode>,
+    /// 日志和文件历史显示在哪里，默认在窗口底部的 Git 面板中。
+    pub git_log_placement: Option<LogPlacement>,
     /// 新建工作树时复制过去的被忽略的文件（gitignore 写法的 glob，如 `.env*`），默认不复制。
     pub git_worktree_copy: Vec<String>,
     /// 保存时先格式化，默认为否。
@@ -439,6 +443,21 @@ impl PullMode {
             Self::Rebase => Some(true),
         }
     }
+}
+
+/// 日志和文件历史显示在哪里。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LogPlacement {
+    /// 窗口底部、侧栏和编辑区下方的 Git 面板。
+    #[default]
+    Panel,
+    /// 编辑区的标签。
+    Editor,
+}
+
+impl LogPlacement {
+    /// 全部取值，按设置菜单中的顺序排列。
+    pub const ALL: [Self; 2] = [Self::Panel, Self::Editor];
 }
 
 /// 点击工作树时在哪个窗口打开它。

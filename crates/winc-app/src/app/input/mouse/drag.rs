@@ -2,7 +2,7 @@
 
 use super::*;
 
-use crate::app::scroll::set_scroll_line;
+use crate::app::scroll::{ScrollTarget, set_scroll_line};
 
 impl App {
     /// 记录鼠标所在的 Markdown 预览代码块和图片。
@@ -159,6 +159,7 @@ impl App {
                 }
             }
             Drag::OutlineDivider { start, size } => self.drag_outline_divider(start, size, y),
+            Drag::GitPanelDivider { start, size } => self.drag_git_panel(size - (y - start)),
             Drag::TerminalDivider { start, size } => {
                 // 向上（面板在右侧时向左）拖动使面板变大；按排版允许的范围限制后再记录，
                 // 使记录的尺寸等于绘制的尺寸。拖过编辑区最小尺寸的一半时吸附为最大化，往回拖
@@ -323,6 +324,32 @@ impl App {
                 if let Some(thumb) = scrollbar_thumb(list, 0.0, max + list.h) {
                     self.git.log.branches_scroll =
                         scroll_for_thumb(list.y, list.h, thumb.h, y, grab, max);
+                }
+                self.request_redraw();
+            }
+            Drag::Scrollbar {
+                bar: Scrollbar::GitPanel,
+                grab,
+            } => {
+                let list = self.log_parts().list;
+                let (_, content) = self.panel_log_extent();
+                if let Some(thumb) = scrollbar_thumb(list, 0.0, content) {
+                    let max = content - list.h;
+                    let px = scroll_for_thumb(list.y, list.h, thumb.h, y, grab, max);
+                    self.scroll_panel_log_to(px);
+                }
+                self.request_redraw();
+            }
+            Drag::Scrollbar {
+                bar: Scrollbar::CommitHistory,
+                grab,
+            } => {
+                let max = self.history_max_scroll();
+                if let Some(rows) = self.history_rows_area()
+                    && let Some(thumb) = scrollbar_thumb(rows, 0.0, max + rows.h)
+                {
+                    let scroll = scroll_for_thumb(rows.y, rows.h, thumb.h, y, grab, max);
+                    self.set_pane_scroll(ScrollTarget::CommitHistory, scroll);
                 }
                 self.request_redraw();
             }

@@ -32,8 +32,7 @@ impl App {
                 } => {
                     self.git.log.fetching.remove(&oid);
                     let Some(view) = self
-                        .editor
-                        .document_mut(doc)
+                        .log_document_mut(doc)
                         .and_then(|d| d.log.as_deref_mut())
                     else {
                         continue;
@@ -98,7 +97,7 @@ impl App {
                 },
                 Loaded::Branches { doc, oid, result } => {
                     self.git.log.branches_fetching.remove(&oid);
-                    let view = self.editor.document_mut(doc);
+                    let view = self.log_document_mut(doc);
                     let Some(view) = view.and_then(|d| d.log.as_deref_mut()) else {
                         continue;
                     };
@@ -115,8 +114,9 @@ impl App {
                     files,
                 } => {
                     let Some(compare) = self
-                        .editor
-                        .document_mut(doc)
+                        .git
+                        .panel
+                        .doc_mut(&mut self.editor, doc)
                         .and_then(|d| d.log.as_deref_mut()?.compare.as_mut())
                         .filter(|c| c.from == from && c.to == to)
                     else {
@@ -138,8 +138,7 @@ impl App {
                     result,
                 } => {
                     let Some(view) = self
-                        .editor
-                        .document_mut(doc)
+                        .log_document_mut(doc)
                         .and_then(|d| d.log.as_deref_mut())
                         .filter(|view| view.compare_request == request)
                     else {
@@ -206,8 +205,9 @@ impl App {
         stream: Option<LogStream>,
     ) {
         let Some(view) = self
-            .editor
-            .document_mut(doc)
+            .git
+            .panel
+            .doc_mut(&mut self.editor, doc)
             .and_then(|d| d.log.as_deref_mut())
         else {
             return;
@@ -238,7 +238,7 @@ impl App {
         };
         if let Some(oid) = &seek {
             if let Some(row) = view.commits.iter().position(|c| c.oid == *oid) {
-                if self.editor.active().is_some_and(|d| d.id == doc) {
+                if self.log_doc().is_some_and(|d| d.id == doc) {
                     self.select_log_row(row);
                 }
                 return;
@@ -268,7 +268,7 @@ impl App {
             .or((!view.commits.is_empty()).then_some(0));
         // 保留详情：仍是同一提交时（刷新、`HEAD` 变化）无需重新读取，详情一栏不闪烁。
         let failed = view.error.is_some();
-        let active = self.editor.active().is_some_and(|d| d.id == doc);
+        let active = self.log_doc().is_some_and(|d| d.id == doc);
         if let Some(row) = row
             && active
         {

@@ -1,6 +1,7 @@
 //! 提交和改动文件的菜单（含复制补丁、与本地版本比较），以及执行前要确认的操作。
 
 use winc_editor::git::TagTarget;
+use winc_editor::git::recent::Side;
 use winc_i18n::t;
 
 use super::*;
@@ -22,7 +23,7 @@ impl App {
         let Some(root) = self.active_log_root().map(Path::to_path_buf) else {
             return;
         };
-        let view = self.editor.active().and_then(|d| d.log.as_deref());
+        let view = self.log_view();
         let rev = view.and_then(|v| match &v.compare {
             Some(c) => Some(c.to.clone()),
             None => v.selected_oid().map(str::to_owned),
@@ -46,11 +47,8 @@ impl App {
         });
     }
 
-    /// 在后台取提交 `oid` 的补丁，取到后复制到剪贴板（见 [`Loaded::Patch`]）。
-    pub(super) fn copy_log_patch(&mut self, oid: String) {
-        let Some(root) = self.active_log_root().map(Path::to_path_buf) else {
-            return;
-        };
+    /// 在后台取仓库 `root` 中提交 `oid` 的补丁，取到后复制到剪贴板（见 [`Loaded::Patch`]）。
+    pub(super) fn copy_log_patch(&mut self, root: PathBuf, oid: String) {
         let sender = self.git.log.results.0.clone();
         self.spawn_git(UserEvent::GitLog, move |tool| {
             let result = match tool {
@@ -71,15 +69,18 @@ impl App {
         else {
             return None;
         };
-        self.focus = Focus::Editor;
+        self.focus = self.log_focus();
         self.select_log_row(row);
-        let view = self.editor.active()?.log.as_deref()?;
+        let view = self.log_view()?;
         Some(view.commits.get(row)?.oid.clone())
     }
 
-    /// 当前日志标签里提交号是 `oid` 的提交。
-    pub(in crate::app) fn log_commit(&self, oid: &str) -> Option<Commit> {
-        let view = self.editor.active()?.log.as_deref()?;
+    /// 提交号是 `oid` 的提交：`in_log` 时在显示着的日志里找，否则在提交视图的提交历史里找。
+    pub(in crate::app) fn log_commit(&self, oid: &str, in_log: bool) -> Option<Commit> {
+        if !in_log {
+            return self.history_commit(oid).map(|(commit, _)| commit);
+        }
+        let view = self.log_view()?;
         view.commits.iter().find(|c| c.oid == oid).cloned()
     }
 
@@ -92,56 +93,68 @@ impl App {
             .map_or_else(|| "HEAD".to_owned(), |b| b.name.clone())
     }
 
-    /// 签出提交 `commit` 时签出的本地分支（菜单里写「签出「dev」」用）。
-    pub(in crate::app) fn log_checkout_branch(&self, oid: &str) -> Option<String> {
-        local_branch(&self.log_commit(oid)?)
+    /// 签出提交 `oid` 时签出的本地分支（菜单里写「签出「dev」」用）；`in_log` 见
+    /// [`Self::log_commit`]。
+    pub(in crate::app) fn log_checkout_branch(&self, oid: &str, in_log: bool) -> Option<String> {
+        local_branch(&self.log_commit(oid, in_log)?)
     }
 
-    /// 日志里提交 `oid` 的菜单里哪些操作可用。
+    /// 日志（`in_log`）或提交历史里提交 `oid` 的菜单里哪些操作可用。
     ///
     /// 另一个 Git 操作还在运行，或者正停在合并、变基中间时，会修改仓库的操作都不可用；撤销、推送、
-    /// 修正和压缩只在日志与提交视图是同一个仓库时可用。
-    pub(in crate::app) fn log_commit_actions(&self, oid: &str) -> CommitActions {
+    /// 修正和压缩只在日志与提交视图是同一个仓库时可用。提交历史属于提交视图所在的仓库，其中只有
+    /// 尚未拉取的提交不在当前分支上。
+    pub(in crate::app) fn log_commit_actions(&self, oid: &str, in_log: bool) -> CommitActions {
         let status = self.git.status.as_ref();
         let busy =
             self.git.branch.running.is_some() || status.is_some_and(|s| s.operation.is_some());
-        let same = self.active_log_root() == self.git.root.as_deref();
+        let same = !in_log || self.active_log_root() == self.git.root.as_deref();
         let on_branch = self.git.branches.iter().any(|b| b.current && !b.remote);
-        let view = self.editor.active().and_then(|d| d.log.as_deref());
+        let view = (self.log_view()).filter(|_| in_log);
         let commits = view.map_or(&[][..], |v| v.commits.as_slice());
+        let on_head = match view {
+            Some(view) => view.on_head(oid),
+            None => (self.history_commit(oid)).map(|(_, side)| side != Side::Incoming),
+        };
         CommitActions {
             enabled: !busy,
             undo: same && self.commit_undoable().is_some_and(|l| l.oid == oid),
             push: same && on_branch && !self.git.remotes.is_empty(),
-            on_head: view.and_then(|view| view.on_head(oid)),
+            on_head,
             child: commits.iter().any(|c| c.parents.iter().any(|p| p == oid)),
             parent: commits
                 .iter()
                 .any(|c| c.oid == oid && !c.parents.is_empty()),
             changes: same && status.is_some_and(|s| !s.entries.is_empty()),
+            in_log,
         }
     }
 
     /// 编辑日志里选中的提交的说明（快捷键）；不能编辑时说明原因。
     pub(in crate::app) fn reword_selected_commit(&mut self) {
-        let view = self.editor.active().and_then(|d| d.log.as_deref());
+        let view = self.log_view();
         let Some(oid) = view.and_then(|v| v.selected_oid()).map(str::to_owned) else {
             return;
         };
-        let actions = self.log_commit_actions(&oid);
+        let actions = self.log_commit_actions(&oid, true);
         if actions.on_head == Some(false) {
             self.notify(NoticeKind::Warning, t!("git-rebase-not-on-branch"));
         } else if actions.enabled {
-            self.run_log_commit_command(MenuCommand::LogReword, &oid);
+            self.run_log_commit_command(MenuCommand::LogReword, &oid, true);
         }
     }
 
-    /// 日志里提交 `oid` 的右键菜单选了 `command`。
+    /// 日志（`in_log`）或提交历史里提交 `oid` 的右键菜单选了 `command`。
     ///
     /// 会改仓库的事走分支操作同一套：后台运行、同一时刻只做一件、状态栏说结论、失败右上角说
-    /// 原因；做完仓库状态一刷新，日志自己重取。
-    pub(in crate::app) fn run_log_commit_command(&mut self, command: MenuCommand, oid: &str) {
-        let Some(commit) = self.log_commit(oid) else {
+    /// 原因；做完仓库状态一刷新，日志和提交历史自己重取。
+    pub(in crate::app) fn run_log_commit_command(
+        &mut self,
+        command: MenuCommand,
+        oid: &str,
+        in_log: bool,
+    ) {
+        let Some(commit) = self.log_commit(oid, in_log) else {
             return;
         };
         let reads = matches!(
@@ -155,7 +168,7 @@ impl App {
                 | MenuCommand::LogGoToParent
                 | MenuCommand::LogCompareRevision
         );
-        if !reads {
+        if !reads && in_log {
             self.follow_log_root();
         }
         let oid = oid.to_owned();
@@ -238,19 +251,29 @@ impl App {
             }
             MenuCommand::LogGoTo => self.open_go_to_revision(),
             MenuCommand::LogGoToChild | MenuCommand::LogGoToParent => {
-                let row = (self.editor.active().and_then(|d| d.log.as_deref()))
-                    .and_then(|v| v.commits.iter().position(|c| c.oid == oid));
+                let row =
+                    (self.log_view()).and_then(|v| v.commits.iter().position(|c| c.oid == oid));
                 if let Some(row) = row {
                     self.select_log_row(row);
                     self.go_to_log_relative(command == MenuCommand::LogGoToParent);
                 }
             }
             MenuCommand::LogCompareRevision => self.open_compare_revision(oid),
-            MenuCommand::LogCopyPatch => self.copy_log_patch(oid),
+            MenuCommand::LogCopyPatch => {
+                let root = match in_log {
+                    true => self.active_log_root().map(Path::to_path_buf),
+                    false => self.git.root.clone(),
+                };
+                if let Some(root) = root {
+                    self.copy_log_patch(root, oid);
+                }
+            }
+            MenuCommand::LogShowInLog => self.git_show_log_at(&oid),
+            // 提交历史中没有读取过完整的说明：在后台读取后复制。
+            MenuCommand::LogCopyMessage if !in_log => self.copy_history_message(oid),
             MenuCommand::LogCopyMessage => {
                 let message = self
-                    .editor
-                    .active()
+                    .log_doc()
                     .and_then(|d| d.log.as_deref()?.details.clone())
                     .filter(|d| d.oid == oid)
                     .and_then(|d| d.message)

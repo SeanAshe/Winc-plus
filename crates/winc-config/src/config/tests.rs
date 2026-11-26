@@ -416,6 +416,7 @@ fn round_trips_through_json() {
         git_remember_credentials: Some(false),
         system_proxy: Some(false),
         git_inline_blame: Some(false),
+        git_commit_history: Some(true),
         git_auto_fetch: Some(true),
         git_staging_area: Some(true),
         git_combined_diff: Some(true),
@@ -423,6 +424,7 @@ fn round_trips_through_json() {
         git_worktree_root: Some("~/worktrees".to_string()),
         git_open_worktree: Some(WorktreeOpen::NewWindow),
         git_pull: Some(PullMode::Rebase),
+        git_log_placement: Some(LogPlacement::Editor),
         git_path: Some("C:\\Tools\\wslgit.exe".to_string()),
         remote_enabled: Some(true),
         remote_local_folders: BTreeMap::from([
@@ -850,6 +852,22 @@ fn pull_reads_its_three_values_and_rejects_others() {
     }
     let (config, problems) = Config::parse(r#"{ "git": { "pull": "ff" } }"#);
     assert_eq!(config.git_pull, None);
+    assert_eq!(problems.len(), 1);
+}
+
+#[test]
+fn log_placement_reads_panel_or_editor_and_rejects_others() {
+    for (text, expected) in [
+        ("panel", LogPlacement::Panel),
+        ("editor", LogPlacement::Editor),
+    ] {
+        let json = format!(r#"{{ "git": {{ "logPlacement": "{text}" }} }}"#);
+        let (config, problems) = Config::parse(&json);
+        assert_eq!(config.git_log_placement, Some(expected));
+        assert!(problems.is_empty(), "{problems:?}");
+    }
+    let (config, problems) = Config::parse(r#"{ "git": { "logPlacement": "tab" } }"#);
+    assert_eq!(config.git_log_placement, None);
     assert_eq!(problems.len(), 1);
 }
 

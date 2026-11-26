@@ -121,6 +121,9 @@ fn blank_app(dark: bool) -> App {
         Renderer::offscreen(SIZE.0, SIZE.1, SCALE, palette.frame_bg, None, None).unwrap();
     app.frame.renderer = Some(renderer);
     app.measure_fonts();
+    // 日志的测试按编辑区模式写：日志是编辑区的标签。Git 面板（默认的面板模式）由
+    // `git::panel` 的测试另外检查。配置不改：设置页的测试按全部取默认值检查。
+    app.git.panel.docked = false;
     app.relayout();
     app
 }

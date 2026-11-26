@@ -233,7 +233,8 @@ fn draw_surface(app: &mut App, frame: &mut Frame<'_>) -> Option<usize> {
         return None;
     }
     if app.editor.documents[index].log.is_some() {
-        super::git::log::draw_log(app, frame, index);
+        let id = app.editor.documents[index].id;
+        super::git::log::draw_log(app, frame, id);
         return None;
     }
     if app.combined_active() {

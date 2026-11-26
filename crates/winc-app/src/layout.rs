@@ -62,7 +62,7 @@ pub struct Layout {
     /// 标签栏右端「在浏览器中打开」按钮（仅当前文件是网页时有）；没有时为空矩形，由
     /// `App::relayout` 放置。
     pub browser: Rect,
-    /// 编辑器终端标签右端的「移至面板」按钮；当前标签不是终端时为空矩形。
+    /// 终端或日志标签在标签栏右端的「移至面板」按钮；当前标签不是两者时为空矩形。
     pub terminal_return: Rect,
     /// 分栏预览时编辑区右半部分的预览区域（编辑区、文本区不含该区域）；不分栏时为空矩形。
     pub split: Rect,
@@ -92,6 +92,10 @@ pub struct Layout {
     /// 编辑区一栏（顶栏那一行连同下面的编辑区），终端面板最大化时铺满这一栏；面板关闭时尺寸
     /// 为 0。
     pub column: Rect,
+    /// 窗口底部、侧栏和编辑区下方的 Git 面板；不显示时尺寸为 0。由 `App::relayout` 计算。
+    pub git_panel: Rect,
+    /// 编辑区和 Git 面板之间的间距：上下拖动调整面板的高度。
+    pub git_divider: Rect,
 }
 
 impl Layout {
@@ -228,6 +232,8 @@ impl Layout {
             terminal: Rect::default(),
             terminal_divider: Rect::default(),
             column: Rect::default(),
+            git_panel: Rect::default(),
+            git_divider: Rect::default(),
         }
     }
 }
@@ -484,6 +490,10 @@ pub enum Scrollbar {
     Commit,
     /// 文件视图底部大纲符号列表的竖直滚动条。
     Outline,
+    /// 提交视图中提交历史一组的竖直滚动条。
+    CommitHistory,
+    /// Git 面板中日志提交列表的竖直滚动条。
+    GitPanel,
     /// Git 日志左侧的分支面板。
     LogBranches,
     /// 终端面板的竖直滚动条（回滚缓冲）。

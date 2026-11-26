@@ -44,8 +44,10 @@ git-branch-force-delete-confirm = Branch “{ $name }” isn’t fully merged. D
 git-branch-force-delete-confirm-detail = Commits that exist only on this branch may be lost.
 git-branch-force-delete-confirm-button = Delete Anyway
 git-branch-compare-with-current = Compare with Current Branch
+git-history-group = Commit History
+git-history-more = View Earlier Commits in Log
 git-stash-group = Stashes
-git-stash-more-files = { $count ->
+git-peek-more-files = { $count ->
     [one] { $count } more file
    *[other] { $count } more files
 }
@@ -54,7 +56,7 @@ git-stash-more = { $count ->
    *[other] { $count } more stashes…
 }
 git-stash-too-many = Too many files are selected to stash at once on Windows. Select whole folders, or stash in several parts.
-git-stash-no-files = This stash has no changes to show
+git-peek-no-files = No changes to show
 git-stash-apply = Apply
 git-stash-pop = Pop
 git-stash-drop = Drop
@@ -676,6 +678,10 @@ git-log-reset-hard-confirm-button = Hard Reset
 ## Log tab and file history
 
 git-log-title = Git Log
+git-panel-move-to-editor = Move log to editor area
+git-panel-move-to-panel = Move log to panel
+git-panel-show = Show Git panel
+git-panel-hide = Hide Git panel
 git-history-title = { $name } · History
 git-lines-history-title = { $name }:{ $start }–{ $end } · History
 git-log-target-not-loaded = The target commit hasn’t loaded yet. Scroll down the list and try again

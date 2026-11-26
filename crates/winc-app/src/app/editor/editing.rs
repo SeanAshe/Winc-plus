@@ -300,8 +300,9 @@ impl App {
     /// 差异标签让出顶部的标题栏，滑块、概览标尺和点击范围都不延伸到标题栏中的按钮旁边。
     pub(crate) fn scroll_track(&self) -> Rect {
         let editor = self.layout.editor;
-        // 日志标签：滚动条位于左侧提交列表的右边缘，详情栏不使用该滚动条。
-        if self.log_active() {
+        // 日志标签：滚动条位于左侧提交列表的右边缘，详情栏不使用该滚动条。面板中的日志有自己的
+        // 滚动条（`Scrollbar::GitPanel`），不经过编辑区的滚动条。
+        if !self.git.panel.docked && self.log_active() {
             return self.log_parts().list;
         }
         if self.combined_active() {
@@ -507,7 +508,7 @@ impl App {
         }
         // 日志标签：详情中有选中文字时复制选中的文字，否则复制选中提交的完整提交号，
         // 效果同点击详情中的提交号。
-        if self.log_active() {
+        if self.log_focused() {
             if cut {
                 return;
             }

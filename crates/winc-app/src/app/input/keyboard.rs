@@ -174,6 +174,8 @@ impl App {
             Focus::CommitList => self.on_key_commit_list(event),
             Focus::Outline => self.outline_key(&event.logical_key),
             Focus::LogFilter => self.on_key_log_filter(event, &base, cmd),
+            Focus::GitPanel if self.log_active() => self.log_key(&event.logical_key),
+            Focus::GitPanel => {}
             Focus::Terminal => self.on_key_terminal(event),
             // 这两个输入框使用终端的键位表，Windows、Linux 的 Ctrl+V 不在表中，在此处理。
             Focus::TerminalFind | Focus::TerminalRename if cmd && base == "v" => self.paste(),
@@ -186,7 +188,9 @@ impl App {
     pub(in crate::app) fn key_context(&self) -> Context {
         match self.focus {
             Focus::Editor if self.markdown_keys() => Context::Markdown,
-            Focus::Editor => Context::Editor,
+            // Git 面板中的日志沿用编辑区的键位：日志的命令（如 `F2` 编辑说明）绑定在编辑区上。
+            // 编辑文字的命令在面板中不可用，见 `App::action_available`。
+            Focus::Editor | Focus::GitPanel => Context::Editor,
             Focus::Search => Context::Find,
             Focus::Replace => Context::Replace,
             Focus::Tree => Context::Tree,
@@ -321,11 +325,13 @@ impl App {
     /// 返回按键触发 `action` 时实际执行的命令。
     ///
     /// macOS 上没有打开的标签时，「关闭标签页」的快捷键改为关闭窗口：关掉最后一个标签后再按
-    /// 一次 `⌘W` 关闭窗口。只对按键生效，在命令面板里选「关闭标签页」不会关闭窗口。
-    pub(super) fn keyboard_action(&self, action: Action) -> Action {
+    /// 一次 `⌘W` 关闭窗口。只对按键生效，在命令面板里选「关闭标签页」不会关闭窗口。焦点在 Git
+    /// 面板中时关闭的是面板中的日志。
+    pub(in crate::app) fn keyboard_action(&self, action: Action) -> Action {
         if cfg!(target_os = "macos")
             && action == Action::CloseTab
             && self.editor.documents.is_empty()
+            && !self.git_panel_focused()
         {
             Action::CloseWindow
         } else {
@@ -341,7 +347,8 @@ impl App {
             }
             return;
         }
-        if self.log_active() {
+        // 面板模式下日志在 Git 面板中，按键经 `Focus::GitPanel` 交给它。
+        if !self.git.panel.docked && self.log_active() {
             self.log_key(event.key);
             return;
         }
